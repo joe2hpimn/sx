@@ -257,6 +257,8 @@ void file_ops(void) {
                     kind = HASHOP_RESERVE;
                 else if (arg_is("o","inuse"))
                     kind = HASHOP_INUSE;
+                else if (arg_is("o","check"))
+                    kind = HASHOP_CHECK;
                 else
                     quit_errmsg(400,"Invalid operation requested on hash batch");
                 fcgi_hashop_blocks(kind);

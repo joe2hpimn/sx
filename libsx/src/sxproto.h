@@ -36,6 +36,7 @@ typedef struct _sxi_query_t {
 enum sxi_hashop_kind {
     HASHOP_NONE = 0,
     HASHOP_RESERVE,
+    HASHOP_CHECK,
     HASHOP_INUSE,
     HASHOP_DELETE
 };

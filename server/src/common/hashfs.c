@@ -3769,12 +3769,16 @@ rc_ty sx_hashfs_hashop_perform(sx_hashfs_t *h, enum sxi_hashop_kind kind, const 
         char debughash[sizeof(sx_hash_t)*2+1];		\
         bin2hex(hash->b, sizeof(*hash), debughash, sizeof(debughash));	\
         DEBUG("processing %s, #%s# (id: %s)",
+              kind == HASHOP_CHECK ? "check" :
               kind == HASHOP_RESERVE ? "reserve" :
               kind == HASHOP_INUSE ? "inuse" :
               kind == HASHOP_DELETE ? "decuse" : "??",
               debughash, id ? id : "");
     }
     switch (kind) {
+        case HASHOP_CHECK:
+            rc = sx_hashfs_hashop_ishash(h, hash);
+            break;
         case HASHOP_RESERVE:
             /* we must always reserve, even if ENOENT */
             rc = sx_hashfs_hashop_moduse(h, id, hash, 0);
@@ -3784,8 +3788,13 @@ rc_ty sx_hashfs_hashop_perform(sx_hashfs_t *h, enum sxi_hashop_kind kind, const 
         case HASHOP_INUSE:
             /* we must only moduse if not ENOENT */
             rc = sx_hashfs_hashop_ishash(h, hash);
-            if (rc)
+            if (rc) {
+                /* if INUSE failed, then RESERVE:
+                 * needed for /.topush hashes as they don't do
+                 * any reservation of their own */
+                sx_hashfs_hashop_moduse(h, id, hash, 0);
                 break;
+            }
             rc = sx_hashfs_hashop_moduse(h, id, hash, 1);
             break;
         case HASHOP_DELETE:

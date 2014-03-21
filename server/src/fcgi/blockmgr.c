@@ -166,8 +166,10 @@ void blockmgr_process_queue(struct blockmgr_data_t *q) {
             WARN("Cannot create blockmgr token");
             break;
         }
-	sxi_hashop_begin(&hc, clust, 0, hcb, HASHOP_RESERVE, &tokenhash, &hlist);
-	for(hlist.nblocks = 0; r == SQLITE_ROW; hlist.nblocks++) {
+        /* just check for presence, reservation was already done by the failed
+         * INUSE */
+	sxi_hashop_begin(&hc, clust, 0, hcb, HASHOP_CHECK, &tokenhash, &hlist);
+        for(hlist.nblocks = 0; r == SQLITE_ROW; hlist.nblocks++) {
             int64_t expires_at;
 	    /* Some preliminary extra checks; broken entries will be wiped on the next (outer) loop */
 	    h = sqlite3_column_blob(q->qlist, 1);
