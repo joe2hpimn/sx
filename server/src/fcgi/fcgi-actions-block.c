@@ -63,7 +63,7 @@ void fcgi_send_blocks(void) {
             msg_set_reason("Invalid hash %*.s", HASH_TEXT_LEN, hpath + HASH_TEXT_LEN * i);
             quit_errmsg(400,"invalid hash");
         }
-	s = sx_hashfs_block_get(hashfs, blocksize, &reqhash, NULL, NULL);
+	s = sx_hashfs_block_get(hashfs, blocksize, &reqhash, NULL);
 	if(s == ENOENT || s == FAIL_BADBLOCKSIZE)
 	    quit_errmsg(404, "Block not found");
         else if(s != OK) {
@@ -96,7 +96,7 @@ void fcgi_send_blocks(void) {
     for(i=0; i<urlen; i++) {
 	if(hex2bin(hpath + HASH_TEXT_LEN*i, HASH_TEXT_LEN, reqhash.b, HASH_BIN_LEN))
 	    break;
-	if(sx_hashfs_block_get(hashfs, blocksize, &reqhash, NULL, &data) != OK)
+	if(sx_hashfs_block_get(hashfs, blocksize, &reqhash, &data) != OK)
 	    break;
 	CGI_PUTD(data, blocksize);
     }
@@ -113,11 +113,10 @@ void fcgi_send_blocks(void) {
     } while(0)
 void fcgi_hashop_blocks(enum sxi_hashop_kind kind) {
     unsigned blocksize, n=0;
-    const char *hpath, *expires;
+    const char *hpath;
     sx_hash_t reqhash;
     rc_ty rc;
     unsigned missing = 0;
-    int64_t mod_expires;
     const char *id;
     int comma = 0;
     unsigned idx = 0;
@@ -125,8 +124,6 @@ void fcgi_hashop_blocks(enum sxi_hashop_kind kind) {
     auth_complete();
     quit_unless_authed();
 
-    expires = get_arg("expires_at");
-    mod_expires = time(NULL) + GC_HASHOP_PERIOD;
     id = get_arg("id");
 
     blocksize = strtol(path, (char **)&hpath, 10);
@@ -148,13 +145,9 @@ void fcgi_hashop_blocks(enum sxi_hashop_kind kind) {
             break;
         }
         hpath += HASH_TEXT_LEN;
-        if (*hpath == '=') {
-            hpath++;
-            (void)strtol(hpath, (char**)&hpath, 16);
-            if (*hpath++ != ',') {
-                CGI_PUTC(']');
-                quit_itererr("bad URL format for hashop", 400);
-            }
+        if (*hpath++ != ',') {
+            CGI_PUTC(']');
+            quit_itererr("bad URL format for hashop", 400);
         }
         n++;
         rc = sx_hashfs_hashop_perform(hashfs, kind, &reqhash, id);
@@ -190,7 +183,6 @@ void fcgi_save_blocks(void) {
     unsigned int blocksize;
     int len = content_len();
     const char *token;
-    int64_t expires_at;
 
     blocksize = strtol(path, (char **)&token, 10);
     if(*token != '/' || sx_hashfs_check_blocksize(blocksize) != OK)
@@ -200,9 +192,8 @@ void fcgi_save_blocks(void) {
     if(has_priv(PRIV_CLUSTER)) {  /* FIXME: use a cluster token to avoid arbitrary replays to over-replica nodes */
 	/* MODHDIST: WTF?! */
 	replica_count = sx_nodelist_count(sx_hashfs_nodelist(hashfs, NL_NEXT));
-       expires_at = 0;
     } else {
-        if(sx_hashfs_token_get(hashfs, user, token, &replica_count, &expires_at))
+        if(sx_hashfs_token_get(hashfs, user, token, &replica_count, NULL))
             quit_errmsg(400, "Invalid token");
     }
 
@@ -403,7 +394,7 @@ void fcgi_push_blocks(void) {
 	case sizeof(block):
 	case 1:
 	    if(sx_nodelist_count(targets)) {
-		rc_ty ret = sx_hashfs_xfer_tonodes(hashfs, -1, &block, blocksize, targets);
+		rc_ty ret = sx_hashfs_xfer_tonodes(hashfs, &block, blocksize, targets);
 		if(ret != OK) {
 		    sx_nodelist_delete(targets);
 		    sx_blob_free(yctx.stash);

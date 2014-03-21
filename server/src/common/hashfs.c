@@ -446,7 +446,7 @@ rc_ty sx_storage_create(const char *dir, sx_uuid_t *cluster, uint8_t *key, int k
     sprintf(path, "%s/xfers.db", dir);
     CREATE_DB("xferdb");
     qnullify(q); /* q is now prepared for hashfs insertions */
-    if(qprep(db, &q, "CREATE TABLE topush (id INTEGER NOT NULL PRIMARY KEY, block BLOB("STRIFY(HASH_BIN_LEN)") NOT NULL, size INTEGER NOT NULL, node BLOB("STRIFY(UUID_BINARY_SIZE)") NOT NULL, sched_time TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f')), expiry_time TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now', '"STRIFY(TOPUSH_EXPIRE)" seconds')), expires_at INTEGER NOT NULL, UNIQUE (block, size, node))") || qstep_noret(q))
+    if(qprep(db, &q, "CREATE TABLE topush (id INTEGER NOT NULL PRIMARY KEY, block BLOB("STRIFY(HASH_BIN_LEN)") NOT NULL, size INTEGER NOT NULL, node BLOB("STRIFY(UUID_BINARY_SIZE)") NOT NULL, sched_time TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f')), expiry_time TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now', '"STRIFY(TOPUSH_EXPIRE)" seconds')), UNIQUE (block, size, node))") || qstep_noret(q))
 	goto create_hashfs_fail;
     qnullify(q);
     if(qprep(db, &q, "CREATE INDEX topush_sched ON topush(sched_time ASC, expiry_time)") || qstep_noret(q))
@@ -1461,7 +1461,7 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 	goto open_hashfs_fail;
 
     OPEN_DB("xferdb", &h->xferdb);
-    if(qprep(h->xferdb, &h->qx_add, "INSERT INTO topush (block, size, node, expires_at) VALUES (:b, :s, :n, :e)"))
+    if(qprep(h->xferdb, &h->qx_add, "INSERT INTO topush (block, size, node) VALUES (:b, :s, :n)"))
 	goto open_hashfs_fail;
 
     qnullify(q);
@@ -1925,7 +1925,8 @@ rc_ty sx_hashfs_token_get(sx_hashfs_t *h, const uint8_t *user, const char *token
     if(parse_token(user, token, &h->tokenkey, &tkdt))
 	return EINVAL;
     *replica_count = tkdt.replica;
-    *expires_at = tkdt.expires_at;
+    if (expires_at)
+        *expires_at = tkdt.expires_at;
     return OK;
 }
 
@@ -3622,7 +3623,7 @@ void sx_hashfs_getfile_end(sx_hashfs_t *h) {
     h->get_ndb = METADBS;
 }
 
-rc_ty sx_hashfs_block_get(sx_hashfs_t *h, unsigned int bs, const sx_hash_t *hash, int64_t *expires_at, const uint8_t **block) {
+rc_ty sx_hashfs_block_get(sx_hashfs_t *h, unsigned int bs, const sx_hash_t *hash, const uint8_t **block) {
     unsigned int ndb = gethashdb(hash), hs;
     uint64_t dboff;
     int r;
@@ -3652,9 +3653,6 @@ rc_ty sx_hashfs_block_get(sx_hashfs_t *h, unsigned int bs, const sx_hash_t *hash
     if(r != SQLITE_ROW) {
 	sqlite3_reset(h->qb_get[hs][ndb]);
 	return FAIL_EINTERNAL;
-    }
-    if (expires_at) {
-        *expires_at = -1;
     }
     if(!block) {
 	sqlite3_reset(h->qb_get[hs][ndb]);
@@ -3929,7 +3927,7 @@ rc_ty sx_hashfs_block_put(sx_hashfs_t *h, const uint8_t *data, unsigned int bs, 
 
     if(propagate && replica_count > 1) {
 	sx_nodelist_t *targets = sx_hashfs_hashnodes(h, NL_NEXT, &hash, replica_count);
-	rc_ty ret = sx_hashfs_xfer_tonodes(h, -1, &hash, bs, targets);
+	rc_ty ret = sx_hashfs_xfer_tonodes(h, &hash, bs, targets);
 	sx_nodelist_delete(targets);
 	return ret;
     }
@@ -4410,7 +4408,7 @@ rc_ty sx_hashfs_putfile_gettoken(sx_hashfs_t *h, const uint8_t *user, int64_t si
     if(sx_hashfs_make_token(h, user, ptr, h->put_replica, expires_at, token, &tokenhash))
 	goto gettoken_err;
 
-    sxi_hashop_begin(&h->hc, h->sx_clust, expires_at, hdck_cb, HASHOP_RESERVE, &tokenhash, hdck_cb_ctx);
+    sxi_hashop_begin(&h->hc, h->sx_clust, hdck_cb, HASHOP_RESERVE, &tokenhash, hdck_cb_ctx);
 #ifdef FILEHASH_OPTIMIZATION
     if (filehash_reserve(h, &filehash) == ITER_NO_MORE) {
         h->put_checkblock = h->put_putblock;/* no need to reserve each hash, we bumped the filehash's counter */
@@ -4717,7 +4715,7 @@ static rc_ty are_blocks_available(sx_hashfs_t *h, sx_hash_t *hashes,
     }
     const char *host = sx_node_internal_addr(node);
     do {
-        if (sxi_hashop_batch_add(hdck, host, hdck->expires_at, check_item, hashes[hashnos[check_item]].b, bsz[hash_size])) {
+        if (sxi_hashop_batch_add(hdck, host, check_item, hashes[hashnos[check_item]].b, bsz[hash_size])) {
             WARN("Failed to query hash on %s: %s", host, sxc_geterrmsg(h->sx));
         }
 	check_item++;
@@ -5081,7 +5079,6 @@ rc_ty sx_hashfs_tmp_getmissing(sx_hashfs_t *h, int64_t tmpfile_id, sx_hashfs_mis
 
     tbd->allnodes = sx_hashfs_nodelist(h, NL_NEXT);
 
-    tbd->expires_at = sqlite3_column_int64(h->qt_tmpdata, 7);
     tbd->volume_id = volume->id;
     tbd->all_blocks = (sx_hash_t *)(tbd+1);
     tbd->uniq_ids = (unsigned int *)&tbd->all_blocks[nblocks];
@@ -5116,7 +5113,6 @@ rc_ty sx_hashfs_tmp_getmissing(sx_hashfs_t *h, int64_t tmpfile_id, sx_hashfs_mis
 
     if(nuniqs) {
 	unsigned int r, l;
-        int64_t expires_at = 0;/* FIXME: expires_at WAT */
 
 	/* For each replica set populate tbd->avlblty via hash_presence callback */
 	for(i=1; i<=tbd->replica_count; i++) {
@@ -5125,7 +5121,7 @@ rc_ty sx_hashfs_tmp_getmissing(sx_hashfs_t *h, int64_t tmpfile_id, sx_hashfs_mis
 	    sort_by_node_then_hash(tbd->all_blocks, tbd->uniq_ids, tbd->nidxs, tbd->nuniq, i, tbd->replica_count);
             if (unique_fileid(volume, tbd->name, tbd->revision, &fileid))
                 goto getmissing_err;
-            sxi_hashop_begin(&h->hc, h->sx_clust, expires_at, tmp_getmissing_cb,
+            sxi_hashop_begin(&h->hc, h->sx_clust, tmp_getmissing_cb,
                              HASHOP_INUSE, &fileid, tbd);
 	    tbd->current_replica = i;
 	    while((ret2 = are_blocks_available(h,
@@ -5440,7 +5436,7 @@ rc_ty sx_hashfs_file_delete(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, co
 	if (unique_fileid(volume, file, revision, &hash) ||
 	    bin2hex(hash.b, sizeof(hash.b), fileidhex, sizeof(fileidhex)))
 	    return FAIL_EINTERNAL;
-	sxi_hashop_begin(&h->hc, h->sx_clust, 0, NULL, HASHOP_DELETE, &hash, NULL);
+	sxi_hashop_begin(&h->hc, h->sx_clust, NULL, HASHOP_DELETE, &hash, NULL);
 	ret = sx_hashfs_getfile_begin(h, volume->name, file, revision, NULL, &bs, NULL, NULL);
 	if (ret != OK)
 	    return ret;
@@ -5488,7 +5484,7 @@ rc_ty sx_hashfs_file_delete(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, co
 			    } else
 				WARN("hashop_begin failed: %s", rc2str(ret));
 			} else {
-			    ret = sxi_hashop_batch_add(&h->hc, sx_node_internal_addr(node), 0, idx++, hash->b, bs);
+			    ret = sxi_hashop_batch_add(&h->hc, sx_node_internal_addr(node), idx++, hash->b, bs);
 			    if (ret)
 				WARN("hashop_batch_add failed: %s", rc2str(ret));
 			}
@@ -6040,7 +6036,7 @@ void sx_hashfs_gc_trigger(sx_hashfs_t *h) {
     }
 }
 
-rc_ty sx_hashfs_xfer_tonodes(sx_hashfs_t *h, int64_t expires_at, sx_hash_t *block, unsigned int size, const sx_nodelist_t *targets) {
+rc_ty sx_hashfs_xfer_tonodes(sx_hashfs_t *h, sx_hash_t *block, unsigned int size, const sx_nodelist_t *targets) {
     const sx_node_t *self = sx_hashfs_self(h);
     unsigned int i, nnodes;
     rc_ty ret;
@@ -6054,12 +6050,11 @@ rc_ty sx_hashfs_xfer_tonodes(sx_hashfs_t *h, int64_t expires_at, sx_hash_t *bloc
 	WARN("Called before initialization");
 	return FAIL_EINIT;
     }
-    if (sx_hashfs_block_get(h, size, block, &expires_at, NULL) != OK) {
+    if (sx_hashfs_block_get(h, size, block, NULL) != OK) {
         char hash[sizeof(sx_hash_t)*2+1];
         bin2hex(block->b, sizeof(block->b), hash, sizeof(hash));
         DEBUG("Asked to push a hash we don't have: #%s#", hash);
     }
-    DEBUG("expires_at=%lld", (long long)expires_at);
 
     nnodes = sx_nodelist_count(targets);
     sqlite3_reset(h->qx_add);
@@ -6079,8 +6074,7 @@ rc_ty sx_hashfs_xfer_tonodes(sx_hashfs_t *h, int64_t expires_at, sx_hash_t *bloc
 
 	target_uuid = sx_node_uuid(target);
 	if(qbind_int(h->qx_add, ":s", size) ||
-	   qbind_blob(h->qx_add, ":n", target_uuid->binary, sizeof(target_uuid->binary)) ||
-           qbind_int64(h->qx_add, ":e", expires_at)) {
+	   qbind_blob(h->qx_add, ":n", target_uuid->binary, sizeof(target_uuid->binary))) {
 	    break;
 	}
 	r = qstep(h->qx_add);

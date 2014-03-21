@@ -222,7 +222,7 @@ rc_ty sx_hashfs_getfilemeta_begin(sx_hashfs_t *h, const char *volume, const char
 rc_ty sx_hashfs_getfilemeta_next(sx_hashfs_t *h, const char **key, const void **value, unsigned int *value_len);
 
 /* Block xfer */
-rc_ty sx_hashfs_block_get(sx_hashfs_t *h, unsigned int bs, const sx_hash_t *hash, int64_t *expires_at, const uint8_t **block);
+rc_ty sx_hashfs_block_get(sx_hashfs_t *h, unsigned int bs, const sx_hash_t *hash, const uint8_t **block);
 rc_ty sx_hashfs_block_put(sx_hashfs_t *h, const uint8_t *data, unsigned int bs, unsigned int replica_count, int propagate);
 
 /* hash batch ops for GC */
@@ -296,7 +296,7 @@ void sx_hashfs_job_trigger(sx_hashfs_t *h);
 rc_ty sx_hashfs_countjobs(sx_hashfs_t *h, sx_uid_t user_id);
 
 /* Xfers */
-rc_ty sx_hashfs_xfer_tonodes(sx_hashfs_t *h, int64_t expires_at, sx_hash_t *block, unsigned int size, const sx_nodelist_t *targets);
+rc_ty sx_hashfs_xfer_tonodes(sx_hashfs_t *h, sx_hash_t *block, unsigned int size, const sx_nodelist_t *targets);
 void sx_hashfs_xfer_trigger(sx_hashfs_t *h);
 
 void sx_hashfs_gc_trigger(sx_hashfs_t *h);

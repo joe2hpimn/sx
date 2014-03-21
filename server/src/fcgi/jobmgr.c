@@ -1015,7 +1015,7 @@ static act_result_t fileflush_request(sx_hashfs_t *hashfs, job_t job_id, job_dat
 		    action_error(ACT_RESULT_TEMPFAIL, 500, "Not enough memory to dispatch block transfer request");
 	    } else {
 		/* Local xfers are flushed at each block */
-		s = sx_hashfs_xfer_tonodes(hashfs, -1, current_hash, mis->block_size, xfertargets);
+		s = sx_hashfs_xfer_tonodes(hashfs, current_hash, mis->block_size, xfertargets);
 		sx_nodelist_delete(xfertargets);
 		if(s)
 		    action_error(rc2actres(s), rc2http(s), "Failed to request local block transfer");

@@ -47,12 +47,11 @@ struct sxi_hashop {
   char hashes[DOWNLOAD_MAX_BLOCKS * (HASH_TEXT_LEN + EXPIRE_TEXT_LEN) + 1];
   unsigned hashes_count;
   unsigned hashes_pos;
-  int64_t expires_at;
   char id[HASH_TEXT_LEN+1];
 };
 
-void sxi_hashop_begin(sxi_hashop_t *a, sxi_conns_t *conns, int64_t expires_at, hash_presence_cb_t cb, enum sxi_hashop_kind kind, const sx_hash_t *idhash, void *context);
-int sxi_hashop_batch_add(sxi_hashop_t *a, const char *host, int64_t expires_at, unsigned idx, const unsigned char *binhash, unsigned int blocksize);
+void sxi_hashop_begin(sxi_hashop_t *a, sxi_conns_t *conns, hash_presence_cb_t cb, enum sxi_hashop_kind kind, const sx_hash_t *idhash, void *context);
+int sxi_hashop_batch_add(sxi_hashop_t *a, const char *host, unsigned idx, const unsigned char *binhash, unsigned int blocksize);
 int sxi_hashop_batch_flush(sxi_hashop_t *a);
 int sxi_hashop_end(sxi_hashop_t *a);
 #endif

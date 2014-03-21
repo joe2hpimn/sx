@@ -168,15 +168,13 @@ void blockmgr_process_queue(struct blockmgr_data_t *q) {
         }
         /* just check for presence, reservation was already done by the failed
          * INUSE */
-	sxi_hashop_begin(&hc, clust, 0, hcb, HASHOP_CHECK, &tokenhash, &hlist);
+	sxi_hashop_begin(&hc, clust, hcb, HASHOP_CHECK, &tokenhash, &hlist);
         for(hlist.nblocks = 0; r == SQLITE_ROW; hlist.nblocks++) {
-            int64_t expires_at;
 	    /* Some preliminary extra checks; broken entries will be wiped on the next (outer) loop */
 	    h = sqlite3_column_blob(q->qlist, 1);
 	    hlen = sqlite3_column_bytes(q->qlist, 1);
 	    n = sqlite3_column_blob(q->qlist, 3);
 	    nlen = sqlite3_column_bytes(q->qlist, 3);
-            expires_at = sqlite3_column_int64(q->qlist, 4);
 	    if(!h || hlen != HASH_BIN_LEN) {
                 WARN("Bad hash");
 		break;
@@ -193,16 +191,10 @@ void blockmgr_process_queue(struct blockmgr_data_t *q) {
                 WARN("Inconsistent bs");
 		break;
             }
-            if (expires_at == -1) {
-                if (sx_hashfs_block_get(q->hashfs, bs, h, &expires_at, NULL) != OK) {
-                    DEBUG("Cannot obtain expires_at for local hash");
-                }
-            }
-            DEBUG("expires_at=%lld", (long long)expires_at);
 
 	    hlist.ids[hlist.nblocks] = sqlite3_column_int64(q->qlist, 0);
             memcpy(&hlist.binhs[hlist.nblocks], h, HASH_BIN_LEN);
-            if(sxi_hashop_batch_add(&hc, host, expires_at, hlist.nblocks, h, bs) != 0) {
+            if(sxi_hashop_batch_add(&hc, host, hlist.nblocks, h, bs) != 0) {
                 WARN("Cannot verify block presence: %s", sxc_geterrmsg(sx));
                 blockmgr_reschedule_xfer(q, hlist.ids[hlist.nblocks]);
             }
@@ -233,7 +225,7 @@ void blockmgr_process_queue(struct blockmgr_data_t *q) {
                 /* TODO: print actual hash */
 		INFO("Block %d was found remotely", i);
 		blockmgr_del_xfer(q, hlist.ids[i]);
-	    } else if(sx_hashfs_block_get(q->hashfs, bs, &hlist.binhs[i], NULL, &b)) {
+	    } else if(sx_hashfs_block_get(q->hashfs, bs, &hlist.binhs[i], &b)) {
 		INFO("Block %ld was not found locally", hlist.ids[i]);
 		blockmgr_reschedule_xfer(q, hlist.ids[i]);
 	    } else {
@@ -302,7 +294,7 @@ int blockmgr(sxc_client_t *sx, const char *self, const char *dir, int pipe) {
 
     if(qprep(xferdb, &q.qprune, "DELETE FROM topush WHERE sched_time > expiry_time"))
 	goto blockmgr_err;
-    if(qprep(xferdb, &q.qlist, "SELECT a.id, a.block, a.size, a.node, a.expires_at FROM topush AS a LEFT JOIN (SELECT size, node FROM topush ORDER BY sched_time ASC LIMIT 1) AS b ON a.node = b.node AND a.size = b.size WHERE b.node IS NOT NULL AND b.size IS NOT NULL AND sched_time <= strftime('%Y-%m-%d %H:%M:%f') ORDER BY sched_time ASC LIMIT "STRIFY(DOWNLOAD_MAX_BLOCKS)))
+    if(qprep(xferdb, &q.qlist, "SELECT a.id, a.block, a.size, a.node FROM topush AS a LEFT JOIN (SELECT size, node FROM topush ORDER BY sched_time ASC LIMIT 1) AS b ON a.node = b.node AND a.size = b.size WHERE b.node IS NOT NULL AND b.size IS NOT NULL AND sched_time <= strftime('%Y-%m-%d %H:%M:%f') ORDER BY sched_time ASC LIMIT "STRIFY(DOWNLOAD_MAX_BLOCKS)))
 	goto blockmgr_err;
     if(qprep(xferdb, &q.qdel, "DELETE FROM topush WHERE id = :id"))
 	goto blockmgr_err;

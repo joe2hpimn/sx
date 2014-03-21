@@ -37,14 +37,13 @@
 #include "utils.h"
 #include <yajl/yajl_parse.h>
 
-void sxi_hashop_begin(sxi_hashop_t *hashop, sxi_conns_t *conns, int64_t expires_at, hash_presence_cb_t cb, enum sxi_hashop_kind kind, const sx_hash_t *idhash, void *context)
+void sxi_hashop_begin(sxi_hashop_t *hashop, sxi_conns_t *conns, hash_presence_cb_t cb, enum sxi_hashop_kind kind, const sx_hash_t *idhash, void *context)
 {
     memset(hashop, 0, sizeof(*hashop));
     hashop->conns = conns;
     hashop->cb = cb;
     hashop->context = context;
     hashop->kind = kind;
-    hashop->expires_at = expires_at;
     if (bin2hex(idhash->b, sizeof(idhash->b), hashop->id, sizeof(hashop->id)))
         WARN("bin2hex failed");
     sxc_clearerr(sxi_conns_get_client(conns));
@@ -363,7 +362,7 @@ int sxi_hashop_batch_flush(sxi_hashop_t *hashop)
     return rc;
 }
 
-int sxi_hashop_batch_add(sxi_hashop_t *hashop, const char *host, int64_t expires_at, unsigned idx, const unsigned char *binhash, unsigned int blocksize)
+int sxi_hashop_batch_add(sxi_hashop_t *hashop, const char *host, unsigned idx, const unsigned char *binhash, unsigned int blocksize)
 {
     unsigned hidx;
     int rc = 0;
@@ -373,12 +372,6 @@ int sxi_hashop_batch_add(sxi_hashop_t *hashop, const char *host, int64_t expires
     sx = sxi_conns_get_client(hashop->conns);
     if (!host || !binhash) {
         sxi_seterr(sx, SXE_EARG, "Null arg to hashop_batch_add");
-        return -1;
-    }
-    if (!expires_at)
-        expires_at = hashop->expires_at;
-    if (!expires_at && hashop->kind == HASHOP_RESERVE) {
-        sxi_seterr(sx, SXE_EARG, "expires_at cannot be 0");
         return -1;
     }
     if ((hashop->current_host && strcmp(host, hashop->current_host)) || blocksize != hashop->current_blocksize || hashop->hashes_count >= DOWNLOAD_MAX_BLOCKS) {
@@ -398,12 +391,7 @@ int sxi_hashop_batch_add(sxi_hashop_t *hashop, const char *host, int64_t expires
     memcpy(hashop->hexhashes + hidx, hashop->hashes + hashop->hashes_pos, HASH_TEXT_LEN);
     SXDEBUG("hash @%d: %.*s", idx, HASH_TEXT_LEN, hashop->hashes + hashop->hashes_pos);
     hashop->hashes_pos += HASH_TEXT_LEN;
-    if (expires_at) {
-        if (expires_at >= 0)
-            hashop->hashes_pos += snprintf(hashop->hashes + hashop->hashes_pos, EXPIRE_TEXT_LEN, "=%llx,", (long long)expires_at);
-        else
-            hashop->hashes_pos += snprintf(hashop->hashes + hashop->hashes_pos, EXPIRE_TEXT_LEN, "=-1,");
-    }
+    hashop->hashes[hashop->hashes_pos++] = ',';
     if (hashop->queries + hashop->hashes_count != idx) {
         SXDEBUG("bad idx: %d != %d", hashop->queries + hashop->hashes_count, idx);
         return -1;
