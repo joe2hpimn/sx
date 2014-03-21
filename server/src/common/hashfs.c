@@ -412,9 +412,9 @@ rc_ty sx_storage_create(const char *dir, sx_uuid_t *cluster, uint8_t *key, int k
     if(qprep(db, &q, "CREATE TABLE tmpfiles (tid INTEGER PRIMARY KEY, token TEXT (32) NULL UNIQUE, volume_id INTEGER NOT NULL, name TEXT ("STRIFY(SXLIMIT_MAX_FILENAME_LEN)") NOT NULL, size INTEGER NOT NULL DEFAULT 0, t TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f')), flushed INTEGER NOT NULL DEFAULT 0, content BLOB, uniqidx BLOB, ttl INTEGER NOT NULL DEFAULT 0, avail BLOB)") || qstep_noret(q))
 	goto create_hashfs_fail;
     qnullify(q);
-/*    if (qprep(db, &q, "CREATE INDEX tmpfiles_ttl ON tmpfiles(ttl) WHERE ttl > 0") || qstep_noret(q))
+    if (qprep(db, &q, "CREATE INDEX tmpfiles_ttl ON tmpfiles(ttl) WHERE ttl > 0") || qstep_noret(q))
         goto create_hashfs_fail;
-    qnullify(q);*/
+    qnullify(q);
     if(qprep(db, &q, "CREATE TABLE tmpmeta (tid INTEGER NOT NULL REFERENCES tmpfiles(tid) ON DELETE CASCADE ON UPDATE CASCADE, key TEXT ("STRIFY(SXLIMIT_META_MAX_KEY_LEN)") NOT NULL, value BLOB ("STRIFY(SXLIMIT_META_MAX_VALUE_LEN)") NOT NULL, PRIMARY KEY (tid, key))") || qstep_noret(q))
 	goto create_hashfs_fail;
     qnullify(q);
@@ -612,7 +612,7 @@ struct _sx_hashfs_t {
     sqlite3_stmt *qt_tmpdata;
     sqlite3_stmt *qt_delete;
     sqlite3_stmt *qt_flush;
-    sqlite3_stmt *qt_gc3;
+    sqlite3_stmt *qt_gc_tokens;
 
     sxi_db_t *metadb[METADBS];
     sqlite3_stmt *qm_ins[METADBS];
@@ -812,7 +812,7 @@ static void close_all_dbs(sx_hashfs_t *h) {
     sqlite3_finalize(h->qt_tokenstats);
     sqlite3_finalize(h->qt_delete);
     sqlite3_finalize(h->qt_flush);
-    sqlite3_finalize(h->qt_gc3);
+    sqlite3_finalize(h->qt_gc_tokens);
 
     sqlite3_finalize(h->q_volbyname);
     sqlite3_finalize(h->q_volbyid);
@@ -1356,7 +1356,7 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 	goto open_hashfs_fail;
     if(qprep(h->tempdb, &h->qt_delete, "DELETE FROM tmpfiles WHERE tid = :id"))
 	goto open_hashfs_fail;
-    if(qprep(h->tempdb, &h->qt_gc3, "DELETE FROM tmpfiles WHERE ttl < :now AND ttl > 0"))
+    if(qprep(h->tempdb, &h->qt_gc_tokens, "DELETE FROM tmpfiles WHERE ttl < :now AND ttl > 0"))
 	goto open_hashfs_fail;
 
     if(!(h->blockbuf = wrap_malloc(bsz[SIZES-1])))
@@ -6591,6 +6591,12 @@ rc_ty sx_hashfs_gc_run(sx_hashfs_t *h)
     qnullify(q_used0);
     qnullify(q_apply_del);
     qclose(&db);
+    if (!ret) {
+        sqlite3_reset(h->qt_gc_tokens);
+        if (qstep_noret(h->qt_gc_tokens))
+            return FAIL_EINTERNAL;
+        INFO("Deleted %d tokens", sqlite3_changes(h->tempdb->handle));
+    }
     return ret;
 }
 

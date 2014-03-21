@@ -72,7 +72,7 @@ EOF
     if [ $i -gt 1 ]; then
 	echo "SX_EXISTING_NODE_IP=\"127.0.1.1\"" >> $CONF_TMP
     fi
-    sudo $prefix/sbin/sxsetup --config-file $CONF_TMP
+    sudo $prefix/sbin/sxsetup --config-file $CONF_TMP --debug
     rm -f $CONF_TMP
 
     i=$(( i+1 ))
