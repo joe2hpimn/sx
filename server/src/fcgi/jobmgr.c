@@ -107,6 +107,8 @@ typedef act_result_t (*job_action_t)(sx_hashfs_t *hashfs, job_t job_id, job_data
     } while(0)
 static act_result_t http2actres(int code) {
     int ch = code / 100;
+    if (code < 0)
+        return ACT_RESULT_PERMFAIL;
     if(ch == 2)
 	return ACT_RESULT_OK;
     if(ch == 4)
