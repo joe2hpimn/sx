@@ -36,11 +36,11 @@
 #include "clustcfg.h"
 #include "yajlwrap.h"
 #include "filter.h"
-#include "curlevents-detail.h"
 #include "volops.h"
 #include "sxproto.h"
 #include "jobpoll.h"
 #include "libsx-int.h"
+#include "curlevents.h"
 
 struct _sxc_file_t {
     sxc_client_t *sx;
@@ -389,6 +389,7 @@ struct host_upload_ctx {
     unsigned n;
     unsigned last_successful;
     int in_use;
+    struct file_upload_ctx *yctx;
 };
 
 #define CBDEBUG(...) do{ sxc_client_t *sx = yactx->sx; SXDEBUG(__VA_ARGS__); } while(0)
@@ -577,8 +578,9 @@ static int yacb_createfile_end_map(void *ctx) {
     return 1;
 }
 
-static int createfile_setup_cb(sxi_conns_t *conns, void *ctx, const char *host) {
-    struct file_upload_ctx *yactx = (struct file_upload_ctx *)ctx;
+static int createfile_setup_cb(curlev_context_t *ctx, const char *host) {
+    struct file_upload_ctx *yactx = sxi_cbdata_get_upload_ctx(ctx);
+    sxi_conns_t *conns = sxi_cbdata_get_conns(ctx);
     sxc_client_t *sx = sxi_conns_get_client(conns);
 
     if(yactx->current.yh)
@@ -600,8 +602,9 @@ static int createfile_setup_cb(sxi_conns_t *conns, void *ctx, const char *host) 
     return 0;
 }
 
-static int createfile_cb(sxi_conns_t *conns, void *ctx, void *data, size_t size) {
-    struct file_upload_ctx *yactx = (struct file_upload_ctx *)ctx;
+static int createfile_cb(curlev_context_t *ctx, const unsigned char *data, size_t size) {
+    struct file_upload_ctx *yactx = sxi_cbdata_get_upload_ctx(ctx);
+    sxi_conns_t *conns = sxi_cbdata_get_conns(ctx);
     if(yajl_parse(yactx->current.yh, data, size) != yajl_status_ok) {
         if (yactx->current.state != CF_ERROR) {
             CBDEBUG("failed to parse JSON data");
@@ -663,7 +666,7 @@ int sxi_upload_block_from_buf(sxi_conns_t *conns, sxi_hostlist_t *hlist, const c
     return 0;
 }
 
-static sxi_job_t* flush_file_ev(sxc_cluster_t *cluster, const char *host, const char *token, const char *name) {
+static sxi_job_t* flush_file_ev(sxc_cluster_t *cluster, const char *host, const char *token, const char *name, sxi_jobs_t *jobs) {
     sxc_client_t *sx = sxi_cluster_get_client(cluster);
     sxi_hostlist_t flush_host;
     sxi_query_t *proto;
@@ -693,7 +696,7 @@ static sxi_job_t* flush_file_ev(sxc_cluster_t *cluster, const char *host, const 
     SXDEBUG("flushing token");
     /* token can get freed, don't use it in set_operation */
     sxi_set_operation(sx, "flush file", sxi_cluster_get_name(cluster), NULL, name);
-    job = sxi_job_submit(sxi_cluster_get_conns(cluster), &flush_host, REQ_PUT, proto->path, name, proto->content, proto->content_len, NULL);
+    job = sxi_job_submit(sxi_cluster_get_conns(cluster), &flush_host, REQ_PUT, proto->path, name, proto->content, proto->content_len, NULL, jobs);
     sxi_query_free(proto);
     sxi_hostlist_empty(&flush_host);
     return job;
@@ -725,7 +728,7 @@ static void part_free(struct part_upload_ctx *yctx)
     memset(yctx, 0, sizeof(*yctx));
 }
 
-static void multi_part_upload_blocks(curlev_context_t *ctx);
+static void multi_part_upload_blocks(curlev_context_t *ctx, const char* url);
 static int part_wait_reset(struct file_upload_ctx *ctx)
 {
     sxc_client_t *sx = ctx->sx;
@@ -752,15 +755,24 @@ static int part_wait_reset(struct file_upload_ctx *ctx)
     return 0;
 }
 
-static int block_reply_cb(sxi_conns_t *conns, void *context, void *data, size_t size)
+static int block_reply_cb(curlev_context_t *ctx, const unsigned char *data, size_t size)
 {
     return 0;
 }
 
-static void upload_blocks_to_hosts(curlev_context_t *ctx);
+static void upload_blocks_to_hosts(struct file_upload_ctx *yctx, struct host_upload_ctx *uctx, int status, const char *url);
+static void upload_blocks_to_hosts_uctx(curlev_context_t *ctx, const char *url)
+{
+    struct host_upload_ctx *uctx = sxi_cbdata_get_host_ctx(ctx);
+    int status = sxi_cbdata_result(ctx, NULL);
+    if (uctx)
+        upload_blocks_to_hosts(uctx->yctx, uctx, status, url);
+}
+
 static int send_up_batch(struct file_upload_ctx *yctx, const char *host, struct host_upload_ctx *u)
 {
     sxc_client_t *sx = yctx->sx;
+    sxi_conns_t *conns = sxi_cluster_get_conns(yctx->cluster);
     unsigned url_len = lenof(".data/18446744073709551615/") + strlen(yctx->current.token) + 1;
     char *url = malloc(url_len);
     if (!url) {
@@ -768,30 +780,29 @@ static int send_up_batch(struct file_upload_ctx *yctx, const char *host, struct 
 	sxi_seterr(sx, SXE_EMEM, "Out of memory");
         return -1;
     }
-    curlev_context_t *cbdata = calloc(1, sizeof(*cbdata));
+    u->yctx = yctx;
+    curlev_context_t *cbdata = sxi_cbdata_create_host(conns, upload_blocks_to_hosts_uctx, u);
     if (!cbdata) {
         SXDEBUG("OOM allocating cbdata");
 	sxi_seterr(sx, SXE_EMEM, "Out of memory");
         free(url);
         return -1;
     }
-    cbdata->finish_callback = upload_blocks_to_hosts;
-    cbdata->yctx = yctx;
     snprintf(url, url_len,".data/%u/%s", yctx->blocksize, yctx->current.token);
     SXDEBUG("buf_used: %d", u->buf_used);
     u->in_use = 1;
-    cbdata->uctx = u;
-    if (cbdata->yctx->xres)
-        cbdata->yctx->xres->upload_xferblks += u->buf_used / yctx->blocksize;
+    if (yctx->xres)
+        yctx->xres->upload_xferblks += u->buf_used / yctx->blocksize;
     sxi_set_operation(sx, "upload file contents", NULL, NULL, NULL);
     if (sxi_cluster_query_ev(cbdata,
                              sxi_cluster_get_conns(yctx->cluster),
                              host, REQ_PUT, url,
-                             u->buf, u->buf_used, NULL, block_reply_cb, yctx) == -1) {
+                             u->buf, u->buf_used, NULL, block_reply_cb) == -1) {
         SXDEBUG("cluster upload query failed");
         free(url);
         return -1;
     }
+    sxi_cbdata_unref(&cbdata);
     free(url);
     yctx->current.ref++;
     u->buf_used = 0;
@@ -809,7 +820,7 @@ static void file_finish(struct file_upload_ctx *yctx)
         return;
     }
     /*  TODO: multiplex flush_file */
-    yctx->job = flush_file_ev(yctx->cluster, yctx->current.host, yctx->current.token, yctx->name);
+    yctx->job = flush_file_ev(yctx->cluster, yctx->current.host, yctx->current.token, yctx->name, yctx->dest->jobs);
     if (!yctx->job)
         yctx->fail++;
     else
@@ -880,9 +891,8 @@ static int batch_hashes_to_hosts(struct file_upload_ctx *yctx, struct need_hash 
     return 0;
 }
 
-static void upload_blocks_to_hosts(curlev_context_t *ctx)
+static void upload_blocks_to_hosts(struct file_upload_ctx *yctx, struct host_upload_ctx *uctx, int status, const char *url)
 {
-    struct file_upload_ctx *yctx = ctx->yctx;
     const char *h;
     struct host_upload_ctx *u;
     sxc_client_t *sx = yctx->sx;
@@ -896,26 +906,25 @@ static void upload_blocks_to_hosts(curlev_context_t *ctx)
     if (yctx->current.ref > 0)
         yctx->current.ref--;
 
-    if (ctx->uctx)
-        ctx->uctx->in_use = 0;
+    if (uctx)
+        uctx->in_use = 0;
     SXDEBUG("upload_blocks_to_hosts");
-    if (ctx->rc != CURLE_OK || ctx->reply_status != 200) {
-        SXDEBUG("query failed: %ld", ctx->reply_status);
-        if (ctx->uctx) {
-            unsigned n = ctx->uctx->n;
+    if (status != 200) {
+        SXDEBUG("query failed: %d", status);
+        if (uctx) {
+            unsigned n = uctx->n;
             /* move to next replica: the last batch, and everything else
              * currently queued for this host */
-            ctx->uctx->i = ctx->uctx->n = 0;
-            if (batch_hashes_to_hosts(yctx, ctx->uctx->needed, ctx->uctx->last_successful, n, 1))
+            uctx->i = uctx->n = 0;
+            if (batch_hashes_to_hosts(yctx, uctx->needed, uctx->last_successful, n, 1))
                 yctx->fail++;
         }
         else {
             yctx->fail++;
             return;
         }
-    } else if (ctx->uctx)
-        ctx->uctx->last_successful = ctx->uctx->i;
-    free(ctx);
+    } else if (uctx)
+        uctx->last_successful = uctx->i;
     while(!sxi_ht_enum_getnext(yctx->current.hostsmap, (const void **)&h, &len, (const void **)&u)) {
         if (u->in_use)
             continue;
@@ -1007,16 +1016,16 @@ static int cmp_hash(const void *a, const void *b)
     return diff < 0 ? -1 : 1;
 }
 
-static void multi_part_upload_blocks(curlev_context_t *ctx)
+static void multi_part_upload_blocks(curlev_context_t *ctx, const char *url)
 {
-    struct file_upload_ctx *yctx = ctx->yctx;
+    struct file_upload_ctx *yctx = sxi_cbdata_get_upload_ctx(ctx);
     sxc_client_t *sx = yctx->sx;
 
-    if (ctx->rc != CURLE_OK || ctx->reply_status != 200) {
-        SXDEBUG("query failed: %ld", ctx->reply_status);
+    int status = sxi_cbdata_result(ctx, NULL);
+    if (status != 200) {
+        SXDEBUG("query failed: %d", status);
         yctx->fail++;
-        yctx->qret = ctx->rc == CURLE_OK ? ctx->reply_status : 0;
-        free(ctx);
+        yctx->qret = status;
         return;
     }
     SXDEBUG("in multi_part_upload_blocks");
@@ -1047,7 +1056,7 @@ static void multi_part_upload_blocks(curlev_context_t *ctx)
             qsort(u->needed, u->n, sizeof(*u->needed), cmp_hash);
         }
     } while(0);
-    upload_blocks_to_hosts(ctx);
+    upload_blocks_to_hosts(yctx, NULL, status, url);
 }
 
 static int multi_part_compute_hash_ev(struct file_upload_ctx *yctx)
@@ -1136,14 +1145,11 @@ static int multi_part_compute_hash_ev(struct file_upload_ctx *yctx)
     yctx->blocksize = yctx->blocksize;
     yctx->current.yh = NULL;
 
-    if (!(cbdata = calloc(1, sizeof(*cbdata)))) {
+    if (!(cbdata = sxi_cbdata_create_upload(sxi_cluster_get_conns(yctx->cluster), multi_part_upload_blocks, yctx))) {
         SXDEBUG("failed to allocate cbdata");
 	sxi_seterr(sx, SXE_EMEM, "Out of memory");
         return -1;
     }
-    cbdata->yctx = yctx;
-    cbdata->finish_callback = multi_part_upload_blocks;
-    cbdata->jobs = yctx->dest->jobs;
     SXDEBUG("part size: %d/%d", part_size, UPLOAD_PART_THRESHOLD);
     /* TODO: state->end should be yctx->end */
     yctx->current.ref++;
@@ -1151,12 +1157,13 @@ static int multi_part_compute_hash_ev(struct file_upload_ctx *yctx)
     sxi_set_operation(sx, "upload file content hashes", NULL, NULL, NULL);
 
     if(sxi_cluster_query_ev_retry(cbdata, sxi_cluster_get_conns(yctx->cluster), yctx->volhosts,
-			    yctx->query->verb, yctx->query->path, yctx->query->content, yctx->query->content_len,
-                            createfile_setup_cb, createfile_cb, yctx) == -1)
+                                  yctx->query->verb, yctx->query->path, yctx->query->content, yctx->query->content_len,
+                                  createfile_setup_cb, createfile_cb) == -1)
     {
         SXDEBUG("file create query failed");
         return -1;
     }
+    sxi_cbdata_unref(&cbdata);
     return 0;
 }
 
@@ -2094,7 +2101,7 @@ static int getfile_setup_cb(sxi_conns_t *conns, void *ctx, const char *host) {
     return 0;
 }
 
-static int getfile_cb(sxi_conns_t *conns, void *ctx, void *data, size_t size) {
+static int getfile_cb(sxi_conns_t *conns, void *ctx, const void *data, size_t size) {
     struct cb_getfile_ctx *yactx = (struct cb_getfile_ctx *)ctx;
     if(yajl_parse(yactx->yh, data, size) != yajl_status_ok) {
         if (yactx->state != GF_ERROR) {
@@ -2115,6 +2122,15 @@ struct hash_down_data_t {
     unsigned int ocnt;
     char hash[HASH_TEXT_LEN];
 };
+
+typedef struct {
+  sxi_ht *hashes;
+  struct hash_down_data_t *hashdata[DOWNLOAD_MAX_BLOCKS];
+  const char *hash[DOWNLOAD_MAX_BLOCKS];
+  unsigned i;
+  unsigned n;
+  unsigned written;
+} hashes_info_t;
 
 
 static int pread_all(int fd, void *buf, size_t count, off_t offset) {
@@ -2166,7 +2182,7 @@ yactx->at = 0;
  return 0;
 }
  
-static int gethash_cb_old(sxi_conns_t *conns, void *ctx, void *data, size_t size) {
+static int gethash_cb_old(sxi_conns_t *conns, void *ctx, const void *data, size_t size) {
     struct cb_gethash_ctx *yactx = (struct cb_gethash_ctx *)ctx;
     if(size + yactx->at > (size_t) yactx->bsize) {
        CBDEBUG("too much data received");
@@ -2201,20 +2217,27 @@ static int download_block_to_buf(sxc_cluster_t *cluster, sxi_hostlist_t *hostlis
     return 0;
 }
 
+struct file_download_ctx {
+    hashes_info_t hashes;
+    int fd;
+    unsigned skip;
+    unsigned blocksize;
+    int64_t filesize;
+    unsigned char *buf;
+    EVP_MD_CTX ctx;
+    unsigned int *dldblks;
+    unsigned int *queries_finished;
+};
 
-
-static int gethash_setup_cb(sxi_conns_t *conns, void *ctx, const char *host) {
-    return 0;
-}
-
-static int process_block(sxi_conns_t *conns, curlev_context_t *ctx)
+static int process_block(sxi_conns_t *conns, curlev_context_t *cctx)
 {
     unsigned j;
     struct hash_down_data_t *hashdata;
     sxc_client_t *sx = sxi_conns_get_client(conns);
+    struct file_download_ctx *ctx = sxi_cbdata_get_download_ctx(cctx);
 
     if (ctx->hashes.i > ctx->hashes.n) {
-        SXDEBUG("out of range hash count: %d,%d", ctx->hashes.i,ctx->hashes.n);
+        SXDEBUG("out of range hash count: %d,%d", ctx->hashes.i, ctx->hashes.n);
         return -1;
     }
     hashdata = ctx->hashes.hashdata[ctx->hashes.i-1];
@@ -2259,9 +2282,10 @@ static int process_block(sxi_conns_t *conns, curlev_context_t *ctx)
     return 0;
 }
 
-static int gethash_cb(sxi_conns_t *conns, void *context, void *data, size_t size)
+static int gethash_cb(curlev_context_t *cctx, const unsigned char *data, size_t size)
 {
-    curlev_context_t *ctx = (curlev_context_t*)context;
+    struct file_download_ctx *ctx = sxi_cbdata_get_download_ctx(cctx);
+    sxi_conns_t *conns = sxi_cbdata_get_conns(cctx);
     sxc_client_t *sx = sxi_conns_get_client(conns);
     while (size > 0) {
         unsigned len, remaining;
@@ -2273,14 +2297,14 @@ static int gethash_cb(sxi_conns_t *conns, void *context, void *data, size_t size
         }
 
         if (ctx->hashes.written == ctx->blocksize)
-            if (process_block(conns, ctx) == -1)
+            if (process_block(conns, cctx) == -1)
                 return -1;/* write out previous block */
         remaining = ctx->blocksize - ctx->hashes.written;
         len = size < remaining ? size : remaining;
         memcpy(ctx->buf + ctx->hashes.written, data, len);
         ctx->hashes.written += len;
         size -= len;
-        data = (char*)data + len;
+        data = data + len;
         if (ctx->hashes.written < ctx->blocksize)
             continue;
         ctx->hashes.i++;
@@ -2288,26 +2312,29 @@ static int gethash_cb(sxi_conns_t *conns, void *context, void *data, size_t size
     return 0;
 }
 
-static void gethash_finish(curlev_context_t *ctx)
+static void gethash_finish(curlev_context_t *cctx, const char *url)
 {
-    sxi_conns_t *conns = ctx ? ctx->conns : NULL;
+    sxi_conns_t *conns = sxi_cbdata_get_conns(cctx);
     sxc_client_t *sx = conns ? sxi_conns_get_client(conns) : NULL;
+    struct file_download_ctx *ctx = sxi_cbdata_get_download_ctx(cctx);
     unsigned i;
+    int status;
 
     EVP_MD_CTX_cleanup(&ctx->ctx);
-    if (ctx->reply_status == 200 && ctx->dldblks)
+    status = sxi_cbdata_result(cctx, NULL);
+    if (status== 200 && ctx->dldblks)
         (*ctx->dldblks) += ctx->hashes.i;
-    SXDEBUG("finished %d hashes with code %ld", ctx->hashes.i, ctx->reply_status);
+    SXDEBUG("finished %d hashes with code %d", ctx->hashes.i, status);
     if (ctx->queries_finished)/* finished, not necesarely successfully */
         (*ctx->queries_finished) += ctx->hashes.n;
     if (ctx->hashes.written == ctx->blocksize)
-        if (process_block(ctx->conns, ctx) == -1)/* write out last block */ {
+        if (process_block(conns, cctx) == -1)/* write out last block */ {
             SXDEBUG("failed to write block");
         }
 
     for (i=0;i<ctx->hashes.i;i++) {
         struct hash_down_data_t *hashdata = ctx->hashes.hashdata[i];
-        hashdata->state = ctx->reply_status;
+        hashdata->state = status;
         /* do not check ctx->rc, there might be a curl error about a partial
          * transfer, but we know that hashes.i blocks were completely transferred */
         if (hashdata->state == 200) {
@@ -2325,13 +2352,8 @@ static void gethash_finish(curlev_context_t *ctx)
     }
     if (ctx->hashes.i != ctx->hashes.n)
         SXDEBUG("batch truncated, %d hashes not transferred", ctx->hashes.n - ctx->hashes.i);
-    free(ctx->reason);
-    free(ctx->buf);
-    if (ctx->finish_callback) {
-        /* free only if malloced, finish_callback is not set when stacked */
-        memset(ctx,0, sizeof(*ctx));
-        free(ctx);
-    }
+    EVP_MD_CTX_cleanup(&ctx->ctx);
+    free(ctx);
 }
 
 static int path_is_root(const char *path)
@@ -2447,15 +2469,29 @@ hashes_to_download_err:
 #define TRANSFER_NOT_NECESSARY 1 /* already have the hash */
 
 static char zerobuf[SX_BS_LARGE];
+
+static struct file_download_ctx *dctx_new(sxi_conns_t *conns)
+{
+    struct file_download_ctx *ctx = calloc(1, sizeof(*ctx));
+    if (!ctx)
+        return NULL;
+    EVP_MD_CTX_init(&ctx->ctx);
+    return ctx;
+}
+
 /* version of download_block() that just checks already existing data */
 static int check_block(sxc_cluster_t *cluster, sxi_ht *hashes, const char *zerohash,
                        const char *hash, struct hash_down_data_t *hashdata,
                        int fd, off_t filesize,
-                       char *buf, unsigned blocksize)
+                       unsigned char *buf, unsigned blocksize)
 {
-    curlev_context_t cbdata;
+    sxi_conns_t *conns = sxi_cluster_get_conns(cluster);
+    struct file_download_ctx *dctx = dctx_new(conns);
+    curlev_context_t *cbdata = sxi_cbdata_create_download(conns, NULL, dctx);
     unsigned i;
     char chash[41];
+
+    memset(&dctx, 0, sizeof(dctx));
     for(i=0;i<hashdata->ocnt; i++) {
 	if(filesize - hashdata->offsets[i] >= blocksize) {
 	    if(pread_all(fd, buf, blocksize, hashdata->offsets[i]))
@@ -2484,25 +2520,24 @@ static int check_block(sxc_cluster_t *cluster, sxi_ht *hashes, const char *zeroh
 
     if(i == hashdata->ocnt)
         return 0;
-    memset(&cbdata, 0, sizeof(cbdata));
-    cbdata.buf = malloc(blocksize);
-    if (!cbdata.buf) {
+    dctx->buf = malloc(blocksize);
+    if (!dctx->buf) {
         cluster_err(SXE_EMEM, "failed to allocate buffer");
         return -1;
     }
     /* do not set finish_callback to avoid freeing stacked data */
-    cbdata.blocksize = blocksize;
-    cbdata.conns = sxi_cluster_get_conns(cluster);
-    cbdata.hashes.hashes = hashes;
-    cbdata.hashes.n = 1;
-    cbdata.hashes.hashdata[0] = hashdata;
-    cbdata.hashes.hash[0] = hash;
-    cbdata.fd = fd;
-    cbdata.filesize = filesize;
-    cbdata.skip = i;
-    cbdata.reply_status = 200;
-    gethash_cb(sxi_cluster_get_conns(cluster), &cbdata, buf, blocksize);
-    gethash_finish(&cbdata);
+    dctx->blocksize = blocksize;
+    dctx->hashes.hashes = hashes;
+    dctx->hashes.n = 1;
+    dctx->hashes.hashdata[0] = hashdata;
+    dctx->hashes.hash[0] = hash;
+    dctx->fd = fd;
+    dctx->filesize = filesize;
+    dctx->skip = i;
+    sxi_cbdata_set_result(cbdata, 200);
+    gethash_cb(cbdata, buf, blocksize);
+    gethash_finish(cbdata, NULL);
+    sxi_cbdata_free(&cbdata);
 
     return 1;
 }
@@ -2515,25 +2550,26 @@ static int send_batch(sxi_ht *hostsmap, sxi_conns_t *conns,
     char url[4096];
     const char *end = url + sizeof(url);
     sxc_client_t *sx = sxi_conns_get_client(conns);
+    struct file_download_ctx *dctx = sxi_cbdata_get_download_ctx(cbdata);
     char *q;
-    SXDEBUG("sending batch of %d", cbdata->hashes.n);
+    SXDEBUG("sending batch of %d", dctx->hashes.n);
 
-    snprintf(url, sizeof(url), ".data/%u/", cbdata->blocksize);
+    snprintf(url, sizeof(url), ".data/%u/", dctx->blocksize);
     q = url + strlen(url);
-    for (i=0;i<cbdata->hashes.n;i++) {
+    for (i=0;i<dctx->hashes.n;i++) {
         if (q + 40 > end) {
             SXDEBUG("url overflowed");
             sxi_ht_del(hostsmap, host, strlen(host)+1);
             return -1;
         }
-        memcpy(q, cbdata->hashes.hash[i], 40);
+        memcpy(q, dctx->hashes.hash[i], 40);
         q += 40;
     }
     *q = 0;
     sxi_set_operation(sx, "download file contents", NULL, NULL, NULL);
-    n = cbdata->hashes.n;
+    n = dctx->hashes.n;
     rc = sxi_cluster_query_ev(cbdata, conns, host, REQ_GET, url, NULL, 0,
-                              gethash_setup_cb, gethash_cb, cbdata);
+                              NULL, gethash_cb);
     sxi_ht_del(hostsmap, host, strlen(host)+1);
     if (rc == -1) {
         if (sxc_geterrnum(sx) == SXE_NOERROR)
@@ -2568,10 +2604,11 @@ static int multi_download(struct batch_hashes *bh, const char *dstname,
     char zerohash[41];
     sxi_ht *hostsmap;
     const char *host;
-    char *buf;
+    unsigned char *buf;
     curlev_context_t *cbdata;
     sxc_client_t *sx = sxi_conns_get_client(conns);
     unsigned hostcount = 0;
+    struct file_download_ctx *dctx;
 
     if (sxi_cluster_hashcalc(cluster, zerobuf, blocksize, zerohash)) {
         CFGDEBUG("Failed to compute hash of zero");
@@ -2646,38 +2683,44 @@ static int multi_download(struct batch_hashes *bh, const char *dstname,
 
         if (sxi_ht_get(hostsmap, host, strlen(host)+1, (void**)&cbdata)) {
             /* host not found -> new host */
-            cbdata = calloc(1, sizeof(*cbdata));
-            if (!cbdata) {
-                cluster_err(SXE_EMEM, "Cannot set cluster hostname: out of memory");
+            dctx = calloc(1, sizeof(*dctx));
+            if (!dctx) {
+                cluster_err(SXE_EMEM, "Cannot download file: out of emory");
                 break;
             }
-            cbdata->buf = malloc(blocksize);
-            if (!cbdata->buf) {
+            cbdata = sxi_cbdata_create_download(conns, gethash_finish, dctx);
+            if (!cbdata) {
+                cluster_err(SXE_EMEM, "Cannot download file: out of memory");
+                free(dctx);
+                break;
+            }
+            dctx->buf = malloc(blocksize);
+            if (!dctx->buf) {
                 cluster_err(SXE_EMEM, "Cannot allocate buffer");
                 free(cbdata);
                 break;
             }
-            cbdata->dstname = dstname;
-            cbdata->fd = fd;
-            cbdata->filesize = filesize;
-            cbdata->finish_callback = gethash_finish;
-            cbdata->skip = -1;
-            cbdata->dldblks = &transferred;
-            cbdata->queries_finished = &finished;
-            cbdata->zerohash = zerohash;
-            cbdata->blocksize = blocksize;
-            cbdata->hashes.hashes = bh->hashes;
-            EVP_MD_CTX_init(&cbdata->ctx);
-        }
+            dctx->fd = fd;
+            dctx->filesize = filesize;
+            dctx->skip = -1;
+            dctx->dldblks = &transferred;
+            dctx->queries_finished = &finished;
+            dctx->blocksize = blocksize;
+            dctx->hashes.hashes = bh->hashes;
+            EVP_MD_CTX_init(&dctx->ctx);
+        } else
+            dctx = sxi_cbdata_get_download_ctx(cbdata);
+        if (!dctx)
+            break;
 
 /*        snprintf(url, sizeof(url), ".data/%u/%.*s", blocksize, 40, hash);*/
-        cbdata->hashes.hash[cbdata->hashes.n] = hash;
-        cbdata->hashes.hashdata[cbdata->hashes.n] = hashdata;
+        dctx->hashes.hash[dctx->hashes.n] = hash;
+        dctx->hashes.hashdata[dctx->hashes.n] = hashdata;
         outstanding++;
-        if (++cbdata->hashes.n >= DOWNLOAD_MAX_BLOCKS) {
+        if (++dctx->hashes.n >= DOWNLOAD_MAX_BLOCKS) {
             if (send_batch(hostsmap, conns, host, cbdata, &requested) == -1)
                 break;
-	    outstanding -= cbdata->hashes.n;
+	    outstanding -= dctx->hashes.n;
         } else {
             if (sxi_ht_add(hostsmap, host, strlen(host)+1, cbdata)) {
                 /* it failed */
@@ -2685,7 +2728,7 @@ static int multi_download(struct batch_hashes *bh, const char *dstname,
                 break;
             }
         }
-	SXDEBUG("loop: %d, host:%s, n:%d, outstanding:%d, requested: %d", loop, host, cbdata->hashes.n,outstanding, requested);
+	SXDEBUG("loop: %d, host:%s, n:%d, outstanding:%d, requested: %d", loop, host, dctx->hashes.n,outstanding, requested);
       }
       free(errmsg);
       sxi_ht_enum_reset(hostsmap);
@@ -3292,10 +3335,19 @@ static sxi_job_t* remote_to_remote_fast(sxc_file_t *source, sxc_meta_t *fmeta, s
 
     sxi_set_operation(sxi_cluster_get_client(dest->cluster), "upload file content hashes",
                       sxi_cluster_get_name(dest->cluster), dest->volume, dest->path);
-    if(sxi_cluster_query(sxi_cluster_get_conns(dest->cluster), &volhosts, query->verb, query->path, query->content, query->content_len, createfile_setup_cb, createfile_cb, &yctx) != 200) {
+    curlev_context_t *cbdata = sxi_cbdata_create_upload(sxi_cluster_get_conns(dest->cluster), NULL, &yctx);
+    if (!cbdata)
+        goto remote_to_remote_fast_err;
+    if(sxi_cluster_query_ev_retry(cbdata, sxi_cluster_get_conns(dest->cluster), &volhosts, query->verb, query->path, query->content, query->content_len, createfile_setup_cb, createfile_cb)) {
 	SXDEBUG("file create query failed");
 	goto remote_to_remote_fast_err;
     }
+    sxi_cbdata_wait(cbdata, sxi_conns_get_curlev(sxi_cluster_get_conns(dest->cluster)), NULL);
+    if (sxi_cbdata_result(cbdata, NULL) != 200) {
+	SXDEBUG("file create query failed");
+	goto remote_to_remote_fast_err;
+    }
+    sxi_cbdata_free(&cbdata);
     sxi_query_free(query);
     query = NULL;
 
@@ -3411,7 +3463,7 @@ static sxi_job_t* remote_to_remote_fast(sxc_file_t *source, sxc_meta_t *fmeta, s
 	}
     }
 
-    if (!(job = flush_file_ev(dest->cluster, yctx.current.host, yctx.current.token, yctx.name)))
+    if (!(job = flush_file_ev(dest->cluster, yctx.current.host, yctx.current.token, yctx.name, NULL)))
 	goto remote_to_remote_fast_err;
 
     if(xres) {
@@ -4058,7 +4110,7 @@ static int filemeta_setup_cb(sxi_conns_t *conns, void *ctx, const char *host) {
     return 0;
 }
 
-static int filemeta_cb(sxi_conns_t *conns, void *ctx, void *data, size_t size) {
+static int filemeta_cb(sxi_conns_t *conns, void *ctx, const void *data, size_t size) {
     struct cb_filemeta_ctx *yactx = (struct cb_filemeta_ctx *)ctx;
     if(yajl_parse(yactx->yh, data, size) != yajl_status_ok) {
 	if (yactx->state != FM_ERROR) {
@@ -4418,7 +4470,7 @@ static sxi_job_t* sxi_rm_cb(sxc_file_list_t *target, sxc_file_t *pattern, sxc_cl
     if (!query)
         return NULL;
     sxi_set_operation(target->sx, "remove files", sxi_cluster_get_name(cluster), query->path, NULL);
-    job = sxi_job_submit(sxi_cluster_get_conns(cluster), hlist, query->verb, query->path, path, NULL, 0, &http_code);
+    job = sxi_job_submit(sxi_cluster_get_conns(cluster), hlist, query->verb, query->path, path, NULL, 0, &http_code, &target->jobs);
     if (!job && http_code == 404)
         job = &JOB_NONE;
     sxi_query_free(query);

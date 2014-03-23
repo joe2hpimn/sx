@@ -26,16 +26,22 @@
 #include "yajlwrap.h"
 #include "hostlist.h"
 #include "jobpoll.h"
-#include "curlevents-detail.h"
+#include "curlevents.h"
 
 #define CBDEBUG(...) do{ sxc_client_t *sx = yactx->sx; SXDEBUG(__VA_ARGS__); } while(0)
+
+struct job_ctx {
+    unsigned *queries_finished;
+    sxi_job_t *yactx;
+};
 
 struct _sxi_job_t {
     sxc_client_t *sx;
     enum sxi_cluster_verb verb;
     struct timeval last_reached;
     int fails;/* failed to get job status, i.e. failed to connect etc. */
-    curlev_context_t cbdata;
+    curlev_context_t *cbdata;
+    struct job_ctx ctx;
     char *resquery;
     int poll_min_delay, poll_max_delay;
     char *job_host;
@@ -158,9 +164,10 @@ static int yacb_jobres_end_map(void *ctx) {
     return 1;
 }
 
-static int jobres_setup_cb(sxi_conns_t *conns, void *ctx, const char *host) {
-    sxi_job_t *yactx = (sxi_job_t *)ctx;
-    sxc_client_t *sx = sxi_conns_get_client(conns);
+static int jobres_setup_cb(curlev_context_t *ctx, const char *host) {
+    struct job_ctx *jctx = sxi_cbdata_get_job_ctx(ctx);
+    sxi_job_t *yactx = jctx->yactx;
+    sxc_client_t *sx = sxi_conns_get_client(sxi_cbdata_get_conns(ctx));
 
     if(yactx->yh)
 	yajl_free(yactx->yh);
@@ -179,12 +186,13 @@ static int jobres_setup_cb(sxi_conns_t *conns, void *ctx, const char *host) {
     return 0;
 }
 
-static int jobres_cb(sxi_conns_t *conns, void *ctx, void *data, size_t size) {
-    sxi_job_t *yctx = (sxi_job_t *)ctx;
+static int jobres_cb(curlev_context_t *ctx, const unsigned char *data, size_t size) {
+    struct job_ctx *jctx = sxi_cbdata_get_job_ctx(ctx);
+    sxi_job_t *yctx = jctx->yactx;
     if(yajl_parse(yctx->yh, data, size) != yajl_status_ok) {
-	sxc_client_t *sx = sxi_conns_get_client(conns);
+	sxc_client_t *sx = sxi_conns_get_client(sxi_cbdata_get_conns(ctx));
 	SXDEBUG("failed to parse JSON data");
-        sxi_seterr(sxi_conns_get_client(conns), SXE_ECOMM, "communication error");
+        sxi_seterr(sx, SXE_ECOMM, "communication error");
 	return 1;
     }
 
@@ -202,6 +210,7 @@ void sxi_job_free(sxi_job_t *yres)
     free(yres->job_host);
     if(yres->yh)
 	yajl_free(yres->yh);
+    sxi_cbdata_free(&yres->cbdata);
     free(yres);
 }
 
@@ -361,7 +370,7 @@ static int jobget_setup_cb(sxi_conns_t *conns, void *ctx, const char *host) {
     return 0;
 }
 
-static int jobget_cb(sxi_conns_t *conns, void *ctx, void *data, size_t size) {
+static int jobget_cb(sxi_conns_t *conns, void *ctx, const void *data, size_t size) {
     struct cb_jobget_ctx *yctx = (struct cb_jobget_ctx *)ctx;
     if(yajl_parse(yctx->yh, data, size) != yajl_status_ok) {
 	sxc_client_t *sx = sxi_conns_get_client(conns);
@@ -372,7 +381,14 @@ static int jobget_cb(sxi_conns_t *conns, void *ctx, void *data, size_t size) {
     return 0;
 }
 
-sxi_job_t* sxi_job_submit(sxi_conns_t *conns, sxi_hostlist_t *hlist, enum sxi_cluster_verb verb, const char *query, const char *name, void *content, size_t content_size, int* http_code) {
+static void jobres_finish(curlev_context_t *ctx, const char *url)
+{
+    struct job_ctx *jctx = sxi_cbdata_get_job_ctx(ctx);
+    if (jctx->queries_finished)/* finished, not necesarely successfully */
+        (*jctx->queries_finished) ++;
+}
+
+sxi_job_t* sxi_job_submit(sxi_conns_t *conns, sxi_hostlist_t *hlist, enum sxi_cluster_verb verb, const char *query, const char *name, void *content, size_t content_size, int* http_code, sxi_jobs_t *jobs) {
     sxc_client_t *sx = sxi_conns_get_client(conns);
     struct cb_jobget_ctx yget;
     sxi_hostlist_t jobhost;
@@ -392,6 +408,12 @@ sxi_job_t* sxi_job_submit(sxi_conns_t *conns, sxi_hostlist_t *hlist, enum sxi_cl
         sxi_setsyserr(sx, SXE_EMEM, "cannot allocate job");
         return NULL;
     }
+    yres->ctx.yactx = yres;
+    yres->cbdata = sxi_cbdata_create_job(conns, jobres_finish, &yres->ctx);
+    if (!yres->cbdata) {
+        free(yres);
+        return NULL;
+    }
 
     sxi_hostlist_init(&jobhost);
     yacb = &yget.yacb;
@@ -406,8 +428,18 @@ sxi_job_t* sxi_job_submit(sxi_conns_t *conns, sxi_hostlist_t *hlist, enum sxi_cl
 
     do {
         qret = sxi_cluster_query(conns, hlist, verb, query, content, content_size, jobget_setup_cb, jobget_cb, &yget);
-        if (qret == 429)
-            sxi_retry_throttle(sxi_conns_get_client(conns), ++j);
+        if (qret == 429) {
+            SXDEBUG("throttle 429 received");
+            if (jobs && jobs->jobs && jobs->n) {
+                SXDEBUG("server has throttled us ... polling for jobs");
+                if (sxi_job_wait(conns, jobs, NULL)) {
+                    SXDEBUG("job_wait failed");
+                }
+                SXDEBUG("throttle wait finished");
+            }
+            if (j++ > 0)
+                sxi_retry_throttle(sxi_conns_get_client(conns), j);
+        }
     } while (qret == 429);
     if (http_code)
         *http_code = qret;
@@ -469,12 +501,6 @@ unsigned sxi_job_min_delay(sxi_job_t *poll)
     return ret;
 }
 
-static void jobres_finish(curlev_context_t *ctx)
-{
-    if (ctx->queries_finished)/* finished, not necesarely successfully */
-        (*ctx->queries_finished) ++;
-}
-
 static int sxi_job_result(sxc_client_t *sx, sxi_job_t **yres, unsigned *successful)
 {
     int ret;
@@ -519,7 +545,7 @@ int sxi_job_status_ev(sxi_conns_t *conns, sxi_job_t **job, unsigned *finished, u
         sxi_seterr(sx, SXE_EARG, "Null argument to sxi_job_status_ev");
         return -1;
     }
-    if (yres->cbdata.finished) {
+    if (sxi_cbdata_is_finished(yres->cbdata)) {
         int res;
         if(yres->state != JR_COMPLETE) {
             SXDEBUG("Cannot query request result");
@@ -548,11 +574,10 @@ int sxi_job_status_ev(sxi_conns_t *conns, sxi_job_t **job, unsigned *finished, u
         }
         /* loop more */
     }
-    yres->cbdata.finished = 0;
+    sxi_cbdata_reset(yres->cbdata);
     if (yres->yh)
         yajl_free(yres->yh);
 
-    memset(&yres->cbdata, 0, sizeof(yres->cbdata));
     yres->state = JR_BEGIN;
     yres->status = JOBST_UNDEF;
     yres->yh = NULL;
@@ -564,10 +589,9 @@ int sxi_job_status_ev(sxi_conns_t *conns, sxi_job_t **job, unsigned *finished, u
     yacb->yajl_end_map = yacb_jobres_end_map;
     free(yres->message);
     yres->message = NULL;
-    yres->cbdata.finish_callback = jobres_finish;
-    yres->cbdata.queries_finished = finished;
+    yres->ctx.queries_finished = finished;
 
-    return sxi_cluster_query_ev(&yres->cbdata, conns, yres->job_host, REQ_GET, yres->resquery, NULL, 0, jobres_setup_cb, jobres_cb, yres);
+    return sxi_cluster_query_ev(yres->cbdata, conns, yres->job_host, REQ_GET, yres->resquery, NULL, 0, jobres_setup_cb, jobres_cb);
 }
 
 int sxi_job_wait(sxi_conns_t *conns, sxi_jobs_t *jobs, unsigned *successful)
@@ -606,7 +630,7 @@ int sxi_job_wait(sxi_conns_t *conns, sxi_jobs_t *jobs, unsigned *successful)
         finished = alive = pending = errors = 0;
         for (i=0;i<jobs->n;i++) {
             if (jobs->jobs[i]) {
-                if (!jobs->jobs[i]->cbdata.finished)
+                if (!sxi_cbdata_is_finished(jobs->jobs[i]->cbdata))
                     alive++;
                 switch (jobs->jobs[i]->status) {
                     case JOBST_UNDEF:/* fall-through */
@@ -654,7 +678,7 @@ int sxi_job_submit_and_poll(sxi_conns_t *conns, sxi_hostlist_t *hlist, const cha
 {
     int rc;
     sxi_job_t *jtable[1] = {
-        sxi_job_submit(conns, hlist, REQ_PUT, query, NULL, content, content_size, NULL)
+        sxi_job_submit(conns, hlist, REQ_PUT, query, NULL, content, content_size, NULL, NULL)
     };
     if (!jtable[0])
         return -1;

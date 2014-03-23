@@ -1000,7 +1000,7 @@ static int cstatus_setup_cb(sxi_conns_t *conns, void *ctx, const char *host) {
     return 0;
 }
 
-static int cstatus_cb(sxi_conns_t *conns, void *ctx, void *data, size_t size) {
+static int cstatus_cb(sxi_conns_t *conns, void *ctx, const void *data, size_t size) {
     struct cb_cstatus_ctx *yactx = (struct cb_cstatus_ctx *)ctx;
     if(yajl_parse(yactx->yh, data, size) != yajl_status_ok)
 	return 1;

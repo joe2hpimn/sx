@@ -27,7 +27,6 @@
 
 #include "hashfs.h"
 #include "../libsx/src/clustcfg.h"
-#include "../libsx/src/curlevents-detail.h"
 #include "../libsx/src/curlevents.h"
 #include "../libsx/src/yajlwrap.h"
 #include <string.h>
@@ -49,7 +48,7 @@ void sxi_hashop_begin(sxi_hashop_t *hashop, sxi_conns_t *conns, hash_presence_cb
     sxc_clearerr(sxi_conns_get_client(conns));
 }
 
-struct presence_parser {
+struct hashop_ctx {
     yajl_handle yh;
     char *hexhashes;
     enum { MISS_ERROR, MISS_BEGIN, MISS_MAP, MISS_PRESENCE, MISS_ARRAY, MISS_COMPLETE } state;
@@ -61,7 +60,7 @@ struct presence_parser {
 };
 
 static int cb_presence_start_map(void *ctx) {
-    struct presence_parser *yactx = ctx;
+    struct hashop_ctx *yactx = ctx;
     if(!ctx)
 	return 0;
     if (yactx->state != MISS_BEGIN) {
@@ -73,7 +72,7 @@ static int cb_presence_start_map(void *ctx) {
 }
 
 static int cb_presence_map_key(void *ctx, const unsigned char *s, size_t l) {
-    struct presence_parser *yactx = ctx;
+    struct hashop_ctx *yactx = ctx;
     if (!yactx)
         return 0;
 /*    if (yactx->state == MISS_ERROR)
@@ -96,7 +95,7 @@ static int cb_presence_map_key(void *ctx, const unsigned char *s, size_t l) {
 }
 
 static int cb_presence_string(void *ctx, const unsigned char *s, size_t l) {
-    struct presence_parser *yactx = ctx;
+    struct hashop_ctx *yactx = ctx;
     if (!yactx)
         return 0;
 /*    if (yactx->state == MISS_ERROR)
@@ -106,7 +105,7 @@ static int cb_presence_string(void *ctx, const unsigned char *s, size_t l) {
 }
 
 static int cb_presence_boolean(void *ctx, int boolean) {
-    struct presence_parser *yactx = ctx;
+    struct hashop_ctx *yactx = ctx;
     if(!ctx)
 	return 0;
     sxi_hashop_t *hashop = yactx->hashop;
@@ -148,7 +147,7 @@ static int cb_presence_boolean(void *ctx, int boolean) {
 }
 
 static int cb_presence_start_array(void *ctx) {
-    struct presence_parser *yactx = ctx;
+    struct hashop_ctx *yactx = ctx;
     if(!ctx)
 	return 0;
     if(yactx->state != MISS_PRESENCE) {
@@ -161,7 +160,7 @@ static int cb_presence_start_array(void *ctx) {
 }
 
 static int cb_presence_end_array(void *ctx) {
-    struct presence_parser *yactx = ctx;
+    struct hashop_ctx *yactx = ctx;
     if(!ctx)
 	return 0;
     if(yactx->state != MISS_ARRAY)
@@ -171,7 +170,7 @@ static int cb_presence_end_array(void *ctx) {
 }
 
 static int cb_presence_end_map(void *ctx) {
-    struct presence_parser *yactx = ctx;
+    struct hashop_ctx *yactx = ctx;
     if(!ctx)
 	return 0;
 
@@ -199,8 +198,9 @@ static const yajl_callbacks presence_parser = {
     cb_presence_end_array
 };
 
-static int presence_setup_cb(sxi_conns_t *conns, void *ctx, const char *host) {
-    struct presence_parser *yactx = ctx;
+static int presence_setup_cb(curlev_context_t *ctx, const char *host) {
+    struct hashop_ctx *yactx = sxi_cbdata_get_hashop_ctx(ctx);
+    sxi_conns_t *conns = sxi_cbdata_get_conns(ctx);
     sxc_client_t *sx = sxi_conns_get_client(conns);
 
     if(yactx->yh)
@@ -218,9 +218,10 @@ static int presence_setup_cb(sxi_conns_t *conns, void *ctx, const char *host) {
     return 0;
 }
 
-static void batch_finish(curlev_context_t *ctx)
+static void batch_finish(curlev_context_t *ctx, const char *url)
 {
-    struct presence_parser *yactx = ctx->context;
+    struct hashop_ctx *yactx = sxi_cbdata_get_hashop_ctx(ctx);
+    int status = sxi_cbdata_result(ctx, NULL);
     if (!yactx) {
         WARN("NULL context");
         return;
@@ -238,11 +239,11 @@ static void batch_finish(curlev_context_t *ctx)
         WARN("NULL hexhashes");
         return;
     }
-    sxc_client_t *sx = sxi_conns_get_client(ctx->conns);
+    sxc_client_t *sx = sxi_conns_get_client(sxi_cbdata_get_conns(ctx));
     yajl_handle yh = yactx->yh;
 
-    SXDEBUG("batch_finish for %s (idx %d): %ld", yactx->hexhashes, yactx->hashop_idx, ctx->reply_status);
-    if (ctx->reply_status == 200) {
+    SXDEBUG("batch_finish for %s (idx %d): %d", yactx->hexhashes, yactx->hashop_idx, status);
+    if (status == 200) {
         /* some hashes (maybe all) are present,
          * the server reports us the presence ones */
         if (!yh) {
@@ -262,13 +263,10 @@ static void batch_finish(curlev_context_t *ctx)
         yajl_free(yh);
     free(yactx->hexhashes);
     free(yactx);
-    free(ctx->reason);
-    memset(ctx, 0, sizeof(*ctx));
-    free(ctx);
 }
 
-static int presence_cb(sxi_conns_t *conns, void *ctx, void *data, size_t size) {
-    struct presence_parser *yactx = ctx;
+static int presence_cb(curlev_context_t *ctx, const unsigned char *data, size_t size) {
+    struct hashop_ctx *yactx = sxi_cbdata_get_hashop_ctx(ctx);
     if (!yactx) {
         WARN("NULL parser context");
         return 1;
@@ -309,18 +307,17 @@ static int sxi_hashop_batch(sxi_hashop_t *hashop)
 		   hashop->finished - hashop->ok - hashop->enoent);
 	return -1;
     }
-    curlev_context_t *cbdata = calloc(1, sizeof(*cbdata));
-    if (!cbdata) {
-	sxi_seterr(sx, SXE_EMEM, "failed to allocate callback");
-	return -1;
-    }
-    struct presence_parser *pp = calloc(1, sizeof(*pp));
+    struct hashop_ctx *pp = calloc(1, sizeof(*pp));
     if (!pp) {
         sxi_seterr(sx, SXE_EMEM, "failed to allocate presence parser");
-	free(cbdata);
         return -1;
     }
-    cbdata->finish_callback = batch_finish;
+    curlev_context_t *cbdata = sxi_cbdata_create_hashop(hashop->conns, batch_finish, pp);
+    if (!cbdata) {
+	sxi_seterr(sx, SXE_EMEM, "failed to allocate callback");
+        free(pp);
+	return -1;
+    }
     pp->hexhashes = strdup(hexhashes);
     if (!pp->hexhashes) {
 	sxi_seterr(sx, SXE_EMEM, "failed to allocate hashbatch");
@@ -328,28 +325,24 @@ static int sxi_hashop_batch(sxi_hashop_t *hashop)
 	free(cbdata);
 	return -1;
     }
-    cbdata->host = host;
     pp->hashop = hashop;
     pp->hashop_idx = hashop->queries;
     SXDEBUG("a->queries: %d", hashop->queries);
     hashop->queries += strlen(hexhashes) / 40;
-    cbdata->blocksize = blocksize;
 
     SXDEBUG("hashop %d, idx:%d on %s, hexhashes: %s", hashop->hashes_count, pp->hashop_idx, hashop->hashes, hashop->hexhashes);
     query = sxi_hashop_proto(sxi_conns_get_client(hashop->conns), blocksize, hashop->hashes, hashop->hashes_pos, hashop->kind, hashop->id);
     if (query)
-        rc = sxi_cluster_query_ev(cbdata, hashop->conns, host, query->verb, query->path, NULL, 0, presence_setup_cb, presence_cb, pp);
+        rc = sxi_cluster_query_ev(cbdata, hashop->conns, host, query->verb, query->path, NULL, 0, presence_setup_cb, presence_cb);
     else
         rc = -1;
     sxi_query_free(query);
+    sxi_cbdata_free(&cbdata);
     if (rc == -1) {
 	/* FIXME: tk: should we also free pp->hexhashes here? */
         free(pp);
-        free(cbdata->reason);
-	free(cbdata);
 	return rc;
     }
-    /* else: cbdata will be freed by callback */
     return 0;
 }
 

@@ -30,7 +30,6 @@
 #include "yajlwrap.h"
 #include "cluster.h"
 #include "curlevents.h"
-#include "curlevents-detail.h"
 #include "misc.h"
 
 #define CLSTDEBUG(...) do{ sxc_client_t *sx; if(conns && (sx = conns->sx)) SXDEBUG(__VA_ARGS__); } while(0)
@@ -216,69 +215,30 @@ sxi_hostlist_t *sxi_conns_get_hostlist(sxi_conns_t *conns) {
     return &conns->hlist;
 }
 
-static void finishfn(curlev_context_t *cbdata)
+static void errfn(sxi_conns_t *conns, int reply_code, const char *reason)
 {
-    sxi_conns_t *conns = cbdata->conns;
-    cbdata->finished = 1;
-
-    if (cbdata->rc != CURLE_OK) {
-	CLSTDEBUG("curl perform failed: %s, %s", curl_easy_strerror(cbdata->rc), cbdata->errbuf);
-	if(cbdata->rc != CURLE_WRITE_ERROR) {
-           const char *msg = *cbdata->errbuf ? cbdata->errbuf : curl_easy_strerror(cbdata->rc);
-           if (cbdata->rc == CURLE_SSL_CACERT && sxi_curlev_has_cafile(conns->curlev)) {
-               conns_err(SXE_ECURL, "%s: possible MITM attack: run sxinit again!",
-                         curl_easy_strerror(cbdata->rc));
-           }
-           else
-               conns_err(SXE_ECURL, "%s: %s",
-                         cbdata->url ? cbdata->url : "", msg);
-        }
-    }
-    if(cbdata->rc == CURLE_OK && cbdata->reply_status / 100 != 2) {
-        if(cbdata->reply_status == 429) {
-            CLSTDEBUG("throttle 429 received");
-            /* we are throttled, poll for pending jobs now... */
-            if (cbdata->jobs && cbdata->jobs->jobs && cbdata->jobs->n) {
-                CLSTDEBUG("server has throttled us ... polling for jobs");
-                int ret = sxi_job_wait(cbdata->conns, cbdata->jobs, NULL);
-                /* TODO: handle ret, but we probably want to just continue and
-                 * upload/download what we can */
-                CLSTDEBUG("throttle wait finished");
-                /* TODO: retry on next replica, and then once more on first */
-            }
-            conns_err(SXE_ECOMM, "Throttled by cluster: too many requests");
-        } else if(cbdata->reply_status > 0 && cbdata->reason) {
-	    struct cb_error_ctx yctx;
-            yajl_callbacks yacb;
-            ya_error_parser(&yacb);
-	    yajl_handle yh = yajl_alloc(&yacb, NULL, &yctx);
-	    if(yh) {
-		memset(&yctx, 0, sizeof(yctx));
-                yctx.status = cbdata->reply_status;
-                yctx.sx = conns->sx;
-		if(yajl_parse(yh, (uint8_t *)cbdata->reason, cbdata->reasonsz) != yajl_status_ok || yajl_complete_parse(yh) != yajl_status_ok)
-		    conns_err(SXE_ECOMM, "Cluster query failed with status %ld", cbdata->reply_status);
-                /* else: the parser already set the error in sx */
-		yajl_free(yh);
-	    } else
-		conns_err(SXE_EMEM, "Cluster query failed: out of memory");
-	} else if(cbdata->reply_status > 0)
-	    conns_err(SXE_ECOMM, "Cluster query failed with status %ld", cbdata->reply_status);
-    }
-    sxi_clear_operation(conns->sx);
-    if (cbdata->finish_callback)
-	cbdata->finish_callback(cbdata);
+    struct cb_error_ctx yctx;
+    yajl_callbacks yacb;
+    ya_error_parser(&yacb);
+    yajl_handle yh = yajl_alloc(&yacb, NULL, &yctx);
+    if(yh) {
+        memset(&yctx, 0, sizeof(yctx));
+        yctx.status = reply_code;
+        yctx.sx = conns->sx;
+        if(yajl_parse(yh, (uint8_t *)reason, strlen(reason)) != yajl_status_ok || yajl_complete_parse(yh) != yajl_status_ok)
+            conns_err(SXE_ECOMM, "Cluster query failed with status %d", reply_code);
+        /* else: the parser already set the error in sx */
+        yajl_free(yh);
+    } else
+        conns_err(SXE_EMEM, "Cluster query failed: out of memory");
 }
 
-static size_t headfn(void *ptr, size_t size, size_t nmemb, curlev_context_t *hd) {
-    sxi_conns_t *conns = hd->conns;
+static enum head_result head_cb(sxi_conns_t *conns, char *ptr, size_t size, size_t nmemb) {
     size_t vlen = size * nmemb, klen;
     const char *v;
 
     if(!(v = memchr(ptr, ':', vlen)))
-	return nmemb;
-    if (!hd->fail && hd->reply_status >= 400)
-	hd->fail = 1;
+	return HEAD_OK;
 
     v++;
     klen = v - ((char *)ptr);
@@ -287,13 +247,13 @@ static size_t headfn(void *ptr, size_t size, size_t nmemb, curlev_context_t *hd)
 	if(!strchr(" \t\r\n", *v))
 	    break;
     if(!vlen)
-	return nmemb;
+	return HEAD_OK;
 
     for(;vlen;vlen--)
 	if(!strchr(" \t\r\n", v[vlen-1]))
 	    break;
     if(!vlen)
-	return nmemb;
+	return HEAD_OK;
 
     if(klen == lenof("SX-Cluster:") && !strncasecmp(ptr, "SX-Cluster:", lenof("SX-Cluster:"))) {
 	char uuid[UUID_LEN+1];
@@ -302,19 +262,19 @@ static size_t headfn(void *ptr, size_t size, size_t nmemb, curlev_context_t *hd)
         vv = memchr(v,' ',vlen);
         if(!vv) {
             conns_err(SXE_ECOMM,"Invalid cluster header (no uuid)");
-            return 0;
+            return HEAD_FAIL;
         }
 	if(!getenv("SX_DEBUG_NOVERSIONCHECK")) {
             if (!sxc_compatible_with(conns->sx, v)) {
 		conns_err(SXE_ECOMM, "Invalid cluster version (client version %s, server version %.*s)", sxc_get_version(), (int)(vv - v), v);
-		return 0;
+		return HEAD_FAIL;
 	    }
 	}
 	vlen -= vv -v;
         v = vv + 2;
 	if(vlen < UUID_LEN + 1 || v[UUID_LEN] != ')') {
 	    conns_err(SXE_ECOMM, "Invalid server UUID");
-	    return 0;
+	    return HEAD_FAIL;
 	}
 
 	memcpy(uuid, v, UUID_LEN);
@@ -324,18 +284,16 @@ static size_t headfn(void *ptr, size_t size, size_t nmemb, curlev_context_t *hd)
 	if(!suuid) {
 	    if(sxi_conns_set_uuid(conns, uuid)) {
 		CLSTDEBUG("failed to set server name");
-		return 0;
+		return HEAD_FAIL;
 	    }
-	    hd->cluster_uuid_ok = 1;
-	    return nmemb;
+            return HEAD_SEEN;
 	}
 	if(strcmp(uuid, suuid)) {
 	    CLSTDEBUG("server uuid mismatch (got %s, expected %s)", uuid, suuid);
 	    conns_err(SXE_ECOMM, "Server UUID mismatch: found %s, expected %s", uuid, suuid);
-	    return 0;
+	    return HEAD_FAIL;
 	}
-	hd->cluster_uuid_ok = 1;
-	return nmemb;
+        return HEAD_SEEN;
     }
 
     if(klen == lenof("date:") && !strncasecmp(ptr, "date:", lenof("date:"))) {
@@ -343,59 +301,13 @@ static size_t headfn(void *ptr, size_t size, size_t nmemb, curlev_context_t *hd)
 	if(their == (time_t) -1) {
 	    CLSTDEBUG("time query failed");
 	    conns_err(SXE_ETIME, "Cannot retrieve current time");
-	    return 0;
+	    return HEAD_FAIL;
 	}
 	sxi_conns_set_timediff(conns, their - mine);
-	return nmemb;
+	return HEAD_OK;
     }
 
-    return nmemb;
-}
-
-static size_t writefn(char *ptr, size_t size, size_t nmemb, curlev_context_t *wd) {
-    sxi_conns_t *conns;
-
-    if(!wd)
-	return 0;
-
-    conns = wd->conns;
-    size *= nmemb;
-
-    if(!wd->cluster_uuid_ok) {
-	if(wd->reply_status == 502 || wd->reply_status == 504) {
-	    /* Reply is very likely to come from a busy cluster */
-	    conns_err(SXE_ECOMM, "Bad cluster reply(%ld): the cluster may be under maintenance or overloaded, please try again later", wd->reply_status);
-	} else if(wd->reply_status == 414) {
-	    conns_err(SXE_ECOMM, "URI too long: the path to the requested resource is too long");
-	} else {
-	    /* Reply is certainly not from sx */
-	    conns_err(SXE_ECOMM, "The server contacted is not an SX Cluster node (http status: %ld)", wd->reply_status);
-	}
-	wd->fail = 1;
-    }
-
-    if (!wd->fail && wd->reply_status >= 400)
-	wd->fail = 1;
-    if(wd->fail) {
-	CLSTDEBUG("error reply: %.*s\n", (int)size, (char *)ptr);
-	if(conns) {
-	    wd->reason = sxi_realloc(conns->sx, wd->reason, size + wd->reasonsz);
-	    if(!wd->reason)
-		return 0;
-	    memcpy(wd->reason + wd->reasonsz, ptr, size);
-	    wd->reasonsz += size;
-	    return nmemb;
-	} else return 0;
-    }
-
-    if(!wd->cb)
-	return nmemb;
-
-    if(wd->cb(conns, wd->context, ptr, size) == 0)
-	return nmemb;
-
-    CLSTDEBUG("failing due to callback failure");
-    return 0;
+    return HEAD_OK;
 }
 
 /*
@@ -413,13 +325,18 @@ int sxi_cluster_query_ev(curlev_context_t *cbdata,
 			 sxi_conns_t *conns, const char *host,
 			 enum sxi_cluster_verb verb, const char *query,
 			 void *content, size_t content_size,
-			 cluster_setupcb setup_callback, cluster_datacb callback,
-			 void *context)
+                         ctx_setup_cb_t setup_callback,
+			 body_cb_t callback)
 {
     sxc_client_t *sx = conns->sx;
     int rc;
     const char *bracket_open, *bracket_close;
     unsigned n;
+
+    if (!cbdata) {
+        conns_err(SXE_EARG, "Null cbdata");
+        return -1;
+    }
     if (sxi_is_debug_enabled(conns->sx))
 	sxi_curlev_set_verbose(conns->curlev, 1);
 
@@ -436,16 +353,10 @@ int sxi_cluster_query_ev(curlev_context_t *cbdata,
 	return -1;
     }
 
-
-    cbdata->conns = conns;
-    cbdata->context = context;
-    cbdata->cb = callback;
-    cbdata->cluster_uuid_ok = 0;
-
     n = lenof("https://[]") + strlen(host) + 1 + strlen(query) + 1;
     char *url = malloc(n);
     request_headers_t request = { host, url };
-    reply_t reply = {{ cbdata, headfn, finishfn}, writefn};
+    reply_t reply = {{ cbdata, head_cb, errfn}, callback};
 
     if(!url) {
 	CLSTDEBUG("OOM allocating request url: %s / %s", host, query);
@@ -456,11 +367,12 @@ int sxi_cluster_query_ev(curlev_context_t *cbdata,
     bracket_close = strchr(host, ':') ? "]" : "";
     /* caveats: we loose SNI support when connecting directly to IP */
     snprintf(url, n, "http%s://%s%s%s/%s", conns->insecure ? "" : "s", bracket_open, host, bracket_close, query);
-    cbdata->reply_status = -1;
+    sxi_cbdata_reset(cbdata);
 
-    if(setup_callback && setup_callback(conns, context, host)) {
+    if(setup_callback && setup_callback(cbdata, host)) {
         free(url);
         sxi_clear_operation(sx);
+        CLSTDEBUG("setup_callback failed");
 	return -1;
     }
 
@@ -486,6 +398,7 @@ int sxi_cluster_query_ev(curlev_context_t *cbdata,
     }
 
     free(url);
+    CLSTDEBUG("returning code %d", rc);
     return rc;
 }
 
@@ -498,12 +411,35 @@ void sxi_retry_throttle(sxc_client_t *sx, unsigned retry)
     usleep(delay*1000);
 }
 
+struct generic_ctx {
+    cluster_setupcb setup_callback;
+    cluster_datacb callback;
+    void *context;
+};
+
+static int wrap_setup_callback(curlev_context_t *ctx, const char *host)
+{
+    struct generic_ctx *gctx = sxi_cbdata_get_generic_ctx(ctx);
+    if (!gctx->setup_callback)
+        return 0;
+    return gctx->setup_callback(sxi_cbdata_get_conns(ctx), gctx->context, host);
+}
+
+static int wrap_data_callback(curlev_context_t *ctx, const unsigned char *data, size_t size)
+{
+    struct generic_ctx *gctx = sxi_cbdata_get_generic_ctx(ctx);
+    if (!gctx->callback)
+        return 0;
+    return gctx->callback(sxi_cbdata_get_conns(ctx), gctx->context, (void*)data, size);
+}
+
 int sxi_cluster_query(sxi_conns_t *conns, const sxi_hostlist_t *hlist, enum sxi_cluster_verb verb, const char *query, void *content, size_t content_size, cluster_setupcb setup_callback, cluster_datacb callback, void *context)
 {
     unsigned i, ok = 0;
     int rc;
-    long status;
+    long status = -1;
     unsigned hostcount;
+    struct generic_ctx gctx;
 
     if(!hlist)
 	    hlist = &conns->hlist;
@@ -515,109 +451,54 @@ int sxi_cluster_query(sxi_conns_t *conns, const sxi_hostlist_t *hlist, enum sxi_
 	return -1;
     }
 
-    curlev_context_t *cbdata = malloc(sizeof(*cbdata));
+    gctx.setup_callback = setup_callback;
+    gctx.callback = callback;
+    gctx.context = context;
+    curlev_context_t *cbdata = sxi_cbdata_create_generic(conns, NULL, &gctx);
 
     if (!cbdata) {
 	conns_err(SXE_EMEM, "Cluster query failed: out of memory allocating context");
 	return -1;
     }
     rc = 0;
-    cbdata->reason = NULL;
     for(i=0; i<hostcount && rc != -1 && !ok; i++) {
-            free(cbdata->reason);
-            memset(cbdata, 0, sizeof(*cbdata));
+            sxi_cbdata_reset(cbdata);
 
             sxc_clearerr(conns->sx);/* clear errors: we're retrying on next host */
             const char *host = sxi_hostlist_get_host(hlist, i);
             rc = sxi_cluster_query_ev(cbdata, conns, host, verb, query, content, content_size,
-                                      setup_callback, callback, context);
-            while (!cbdata->finished && rc != -1)
-                rc = sxi_curlev_poll(conns->curlev);
-            if (rc != -1 && cbdata->rc != CURLE_OK) {
-                if(cbdata->rc == CURLE_OUT_OF_MEMORY) {
-                    conns_err(SXE_ECURL, "Cluster query failed: out of memory in library routine");
-                    rc = -1;
-                    break;
-                }
-                continue;
-            }
-            if(cbdata->reply_status == 404 || cbdata->reply_status == 408
-               || cbdata->reply_status == 429
-               /*|| cbdata->reply_status == 400 this is not retriable */
-               || (cbdata->reply_status / 100 == 5 && cbdata->reply_status != 500))
+                                      wrap_setup_callback, wrap_data_callback);
+            if (rc == -1)
+                break;
+            status = sxi_cbdata_wait(cbdata, conns->curlev, NULL);
+            if (status == -1)
+                break;
+            if (!status || status == 404 || status == 408
+               || status == 429
+               /*|| status == 400 this is not retriable */
+               || (status / 100 == 5 && status != 500))
                 continue; /* transient, retriable */
             ok = 1;
     }
     if (!ok && !rc)
         CLSTDEBUG("All %d hosts returned failure",
                   sxi_hostlist_get_count(hlist));
-    status = cbdata->rc == CURLE_OK ? cbdata->reply_status : -1;
-    free(cbdata->reason);
-    free(cbdata);
+    sxi_cbdata_free(&cbdata);
     return status;
-}
-
-static void sxi_retry_callback(curlev_context_t *cbdata)
-{
-    int ret = -1;
-    if (cbdata->rc != CURLE_OK || cbdata->reply_status / 100 != 2) {
-        if (++cbdata->hostidx >= sxi_hostlist_get_count(cbdata->hlist)) {
-            if (cbdata->retries < 2 || cbdata->reply_status == 429) {
-                cbdata->retries++;
-                cbdata->hostidx = 0;
-                sxi_retry_throttle(cbdata->conns->sx, cbdata->retries);
-            }
-        }
-        const char *host = sxi_hostlist_get_host(cbdata->hlist, cbdata->hostidx);
-        free(cbdata->reason);
-        cbdata->reason = NULL;
-        cbdata->reasonsz = 0;
-        cbdata->fail = 0;
-        if (host) {
-            cbdata->reply_status = -1;
-            ret = sxi_cluster_query_ev(cbdata, cbdata->conns, host,
-                                       cbdata->verb, cbdata->query, cbdata->content, cbdata->content_size,
-                                       cbdata->setup_callback, cbdata->data_callback, cbdata->ctxretry);
-        }
-        else {
-            sxc_client_t *sx = cbdata->conns->sx;
-            SXDEBUG("All %d hosts returned failure, retried %d times",
-                    sxi_hostlist_get_count(cbdata->hlist),
-                    cbdata->retries);
-        }
-    }
-    if (ret == -1) {
-        free(cbdata->query);
-        if (cbdata->finish_callback_last)
-            cbdata->finish_callback_last(cbdata);
-    }
 }
 
 int sxi_cluster_query_ev_retry(curlev_context_t *cbdata,
                                sxi_conns_t *conns, const sxi_hostlist_t *hlist,
                                enum sxi_cluster_verb verb, const char *query,
                                void *content, size_t content_size,
-                               cluster_setupcb setup_callback, cluster_datacb callback,
-                               void *context)
+                               ctx_setup_cb_t setup_callback, body_cb_t callback)
 {
     if (!cbdata || !conns)
         return -1;
-    cbdata->finish_callback_last = cbdata->finish_callback;
-    cbdata->finish_callback = sxi_retry_callback;
-    cbdata->conns = conns;
-    cbdata->hlist = hlist;
-    cbdata->verb = verb;
-    cbdata->query = strdup(query);
-    cbdata->content = content;
-    cbdata->content_size = content_size;
-    cbdata->setup_callback = setup_callback;
-    cbdata->data_callback = callback;
-    cbdata->hostidx = 0;
-    cbdata->retries = 0;
-    cbdata->reasonsz = 0;
-    cbdata->ctxretry = context;
-    return sxi_cluster_query_ev(cbdata, conns, sxi_hostlist_get_host(hlist, cbdata->hostidx), verb, query, content, content_size,
-                                setup_callback, callback, context);
+    sxi_set_retry_cb(cbdata, hlist, sxi_cluster_query_ev,
+                     verb, query, content, content_size, setup_callback);
+    return sxi_cluster_query_ev(cbdata, conns, sxi_hostlist_get_host(hlist, 0), verb, query, content, content_size,
+                                setup_callback, callback);
 }
 
 int sxi_conns_hashcalc(const sxi_conns_t *conns, const void *buffer, unsigned int len, char *hash) {
@@ -763,20 +644,20 @@ int sxi_conns_set_timeout(sxi_conns_t *conns, const char *host, int timeout_acti
     return 0;
 }
 
-static size_t noauth_headfn(void *ptr, size_t size, size_t nmemb, curlev_context_t *hd) {
-    return nmemb;
+static enum head_result noauth_headfn(sxi_conns_t *conns, char *ptr, size_t size, size_t nmemb) {
+    return HEAD_OK;
 }
 
 int sxi_conns_root_noauth(sxi_conns_t *conns, const char *tmpcafile, int quiet)
 {
-    curlev_context_t cbdata;
+    curlev_context_t *cbdata;
     unsigned i, hostcount, n;
     int rc;
     const char *bracket_open, *bracket_close;
     const char *query = "";
     char *url;
 
-    memset(&cbdata, 0, sizeof(cbdata));
+    cbdata = sxi_cbdata_create_generic(conns, NULL, NULL);
     if (sxi_is_debug_enabled(conns->sx))
 	sxi_curlev_set_verbose(conns->curlev, 1);
     hostcount = sxi_hostlist_get_count(&conns->hlist);
@@ -792,6 +673,7 @@ int sxi_conns_root_noauth(sxi_conns_t *conns, const char *tmpcafile, int quiet)
     }
 
     for(i=0; i<hostcount; i++) {
+        int status;
         const char *host = sxi_hostlist_get_host(&conns->hlist, i);
         bracket_open = strchr(host, ':') ? "[" : "";
         bracket_close = strchr(host, ':') ? "]" : "";
@@ -799,23 +681,20 @@ int sxi_conns_root_noauth(sxi_conns_t *conns, const char *tmpcafile, int quiet)
         url = malloc(n);
         snprintf(url, n, "https://%s%s%s/%s", bracket_open, host, bracket_close, query);
         request_headers_t request = { host, url };
-        reply_t reply = {{ &cbdata, noauth_headfn, finishfn}, NULL};
+        reply_t reply = {{ cbdata, noauth_headfn, errfn}, NULL};
 
-        free(cbdata.reason);
-        memset(&cbdata, 0, sizeof(cbdata));
-        cbdata.conns = conns;
+        sxi_cbdata_reset(cbdata);
         sxc_clearerr(conns->sx);/* clear errors: we're retrying on next host */
         rc = sxi_curlev_add_head(conns->curlev, &request, &reply.headers);
-        while (!cbdata.finished && !rc)
-            rc = sxi_curlev_poll(conns->curlev);
+        if (rc)
+            continue;
+        status = sxi_cbdata_wait(cbdata, conns->curlev, &rc);
         free(url);
 
-        if (cbdata.rc == CURLE_SSL_CACERT)
+        if (rc == CURLE_SSL_CACERT)
             return 1;
-        if (!rc)
-            rc = cbdata.rc == CURLE_OK || cbdata.rc == CURLE_WRITE_ERROR ? cbdata.reply_status : -1;
         /* all we wanted is to save the cert, ignore any errors after that */
-        if (rc == 200 || sxi_curlev_is_saved(conns->curlev))
+        if (status == 200 || sxi_curlev_is_saved(conns->curlev))
             return 0;
     }
     return 1;

@@ -22,5 +22,7 @@
 
 typedef struct curl_events curl_events_t;
 typedef struct curlev_context curlev_context_t;
+typedef int (*body_cb_t)(curlev_context_t *ctx, const unsigned char *data, size_t size);
+typedef int (*ctx_setup_cb_t)(curlev_context_t *ctx, const char *host);
 
 #endif

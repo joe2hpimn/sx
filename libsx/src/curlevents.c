@@ -22,7 +22,6 @@
 #endif
 
 #include "curlevents.h"
-#include "curlevents-detail.h"
 #include "libsx-int.h"
 #include "misc.h"
 #include "cert.h"
@@ -39,6 +38,400 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#define ERRBUF_SIZE 512
+enum ctx_tag { CTX_UPLOAD, CTX_UPLOAD_HOST, CTX_DOWNLOAD, CTX_JOB, CTX_HASHOP, CTX_GENERIC };
+
+struct recv_context {
+    char errbuf[ERRBUF_SIZE+1];
+    int rc;
+    int fail;
+    int finished;
+    long reply_status;
+    char *reason;
+    unsigned reasonsz;
+    int header_seen;
+};
+
+struct retry_ctx {
+    ctx_setup_cb_t setup_callback;
+    enum sxi_cluster_verb verb;
+    int hostidx;
+    int retries;
+    sxi_hostlist_t hosts;
+    char *query;
+    void *content;
+    size_t content_size;
+    retry_cb_t cb;
+};
+
+struct curlev_context {
+    sxi_conns_t *conns;
+    int ref;
+
+    /* reset after each retry */
+    struct recv_context recv_ctx;
+
+    /* keep all of the below across retries */
+
+    body_cb_t data_cb;
+    finish_cb_t finish_cb;
+    struct retry_ctx retry;
+
+    enum ctx_tag tag;
+    union {
+        struct file_upload_ctx *upload_ctx;
+        struct host_upload_ctx *host_ctx;
+        struct file_download_ctx *download_ctx;
+        struct job_ctx *job_ctx;
+        struct hashop_ctx *hashop_ctx;
+        struct generic_ctx *generic_ctx;
+    } u;
+    void *context;
+};
+
+static struct curlev_context *sxi_cbdata_create(sxi_conns_t *conns, finish_cb_t cb)
+{
+    struct curlev_context *ret;
+    sxc_client_t *sx;
+    if (!conns)
+        return NULL;
+    sx = sxi_conns_get_client(conns);
+    if (!sx)
+        return NULL;
+    ret = calloc(1, sizeof(*ret));
+    if (!ret) {
+        sxi_setsyserr(sx, SXE_EMEM, "OOM allocating cbdata");
+        return NULL;
+    }
+    ret->conns = conns;
+    ret->finish_cb = cb;
+    ret->ref = 1;
+    sxi_hostlist_init(&ret->retry.hosts);
+    return ret;
+}
+
+static int sxi_cbdata_is_tag(struct curlev_context *ctx, enum ctx_tag expected)
+{
+    if (ctx) {
+        sxc_client_t *sx = sxi_conns_get_client(ctx->conns);
+        if (ctx->tag == expected)
+            return 1;
+        sxi_seterr(sx, SXE_EARG, "context tag mismatch: %d != %d", ctx->tag, expected);
+    }
+    return 0;
+}
+
+struct curlev_context* sxi_cbdata_create_upload(sxi_conns_t *conns, finish_cb_t cb, struct file_upload_ctx *ctx)
+{
+    struct curlev_context *ret = sxi_cbdata_create(conns, cb);
+    if (ret) {
+        ret->tag = CTX_UPLOAD;
+        ret->u.upload_ctx = ctx;
+    }
+    return ret;
+}
+
+struct file_upload_ctx *sxi_cbdata_get_upload_ctx(struct curlev_context *ctx)
+{
+    if (ctx && sxi_cbdata_is_tag(ctx, CTX_UPLOAD))
+        return ctx->u.upload_ctx;
+    return NULL;
+}
+
+struct curlev_context* sxi_cbdata_create_host(sxi_conns_t *conns, finish_cb_t cb, struct host_upload_ctx *ctx)
+{
+    struct curlev_context *ret = sxi_cbdata_create(conns, cb);
+    if (ret) {
+        ret->tag = CTX_UPLOAD_HOST;
+        ret->u.host_ctx = ctx;
+    }
+    return ret;
+}
+
+struct host_upload_ctx *sxi_cbdata_get_host_ctx(struct curlev_context *ctx)
+{
+    if (ctx && sxi_cbdata_is_tag(ctx, CTX_UPLOAD_HOST))
+        return ctx->u.host_ctx;
+    return NULL;
+}
+
+struct curlev_context* sxi_cbdata_create_download(sxi_conns_t *conns, finish_cb_t cb, struct file_download_ctx *ctx)
+{
+    struct curlev_context *ret = sxi_cbdata_create(conns, cb);
+    if (ret) {
+        ret->tag = CTX_DOWNLOAD;
+        ret->u.download_ctx = ctx;
+    }
+    return ret;
+}
+
+struct file_download_ctx *sxi_cbdata_get_download_ctx(struct curlev_context *ctx)
+{
+    if (ctx && sxi_cbdata_is_tag(ctx, CTX_DOWNLOAD))
+        return ctx->u.download_ctx;
+    return NULL;
+}
+
+struct curlev_context* sxi_cbdata_create_job(sxi_conns_t *conns, finish_cb_t cb, struct job_ctx *ctx)
+{
+    struct curlev_context *ret = sxi_cbdata_create(conns, cb);
+    if (ret) {
+        ret->tag = CTX_JOB;
+        ret->u.job_ctx = ctx;
+    }
+    return ret;
+}
+
+struct job_ctx *sxi_cbdata_get_job_ctx(struct curlev_context *ctx)
+{
+    if (ctx && sxi_cbdata_is_tag(ctx, CTX_JOB))
+        return ctx->u.job_ctx;
+    return NULL;
+}
+
+struct curlev_context* sxi_cbdata_create_hashop(sxi_conns_t *conns, finish_cb_t cb, struct hashop_ctx *ctx)
+{
+    struct curlev_context *ret = sxi_cbdata_create(conns, cb);
+    if (ret) {
+        ret->tag = CTX_HASHOP;
+        ret->u.hashop_ctx = ctx;
+    }
+    return ret;
+}
+
+struct hashop_ctx *sxi_cbdata_get_hashop_ctx(struct curlev_context *ctx)
+{
+    if (ctx && sxi_cbdata_is_tag(ctx, CTX_HASHOP))
+        return ctx->u.hashop_ctx;
+    return NULL;
+}
+
+struct curlev_context* sxi_cbdata_create_generic(sxi_conns_t *conns, finish_cb_t cb, struct generic_ctx *gctx)
+{
+    struct curlev_context *ret = sxi_cbdata_create(conns, cb);
+    if (ret) {
+        ret->tag = CTX_GENERIC;
+        ret->u.generic_ctx = gctx;
+    }
+    return ret;
+}
+
+struct generic_ctx *sxi_cbdata_get_generic_ctx(struct curlev_context *ctx)
+{
+    if (ctx && sxi_cbdata_is_tag(ctx, CTX_GENERIC))
+        return ctx->u.generic_ctx;
+    return NULL;
+}
+
+void sxi_cbdata_set_context(struct curlev_context *ctx, void *context)
+{
+    if (ctx)
+        ctx->context = context;
+}
+
+void* sxi_cbdata_get_context(struct curlev_context *ctx)
+{
+    return ctx ? ctx->context : NULL;
+}
+
+int sxi_set_retry_cb(curlev_context_t *ctx, const sxi_hostlist_t *hlist, retry_cb_t cb,
+                     enum sxi_cluster_verb verb, const char *query, void *content, size_t content_size,
+                     ctx_setup_cb_t setup_callback)
+{
+    if (ctx) {
+        sxc_client_t *sx = sxi_conns_get_client(ctx->conns);
+        ctx->retry.cb = cb;
+        ctx->retry.setup_callback = setup_callback;
+        ctx->retry.verb = verb;
+        ctx->retry.query = strdup(query);
+        if (!ctx->retry.query) {
+            sxi_setsyserr(sx, SXE_EMEM, "Out of memory allocating retry query");
+            return -1;
+        }
+        ctx->retry.content = content;
+        ctx->retry.content_size = content_size;
+        if (sxi_hostlist_add_list(sx, &ctx->retry.hosts, hlist))
+            return -1;
+        return 0;
+    }
+    return -1;
+}
+
+void sxi_cbdata_ref(curlev_context_t *ctx)
+{
+    if (ctx) {
+        sxc_client_t *sx = sxi_conns_get_client(ctx->conns);
+        ctx->ref++;
+        SXDEBUG("cbdata reference count for %p: %d", (void*)ctx, ctx->ref);
+    }
+}
+
+static int sxi_cbdata_decref(curlev_context_t **ctx_ptr, int *freed)
+{
+    if (ctx_ptr) {
+        curlev_context_t *ctx = *ctx_ptr;
+        sxc_client_t *sx;
+        if (!ctx)
+            return -1;
+        sx = sxi_conns_get_client(ctx->conns);
+        ctx->ref--;
+        *ctx_ptr = NULL;
+        if (ctx->ref < 0) {
+            sxi_seterr(sx, SXE_EARG, "cbdata: reference count wrong: %d", ctx->ref);
+            /* don't free, the reference count is corrupt */
+            return -1;
+        }
+        SXDEBUG("cbdata reference count for %p: %d", (void*)ctx, ctx->ref);
+        if (!ctx->ref) {
+            SXDEBUG("freeing cbdata %p", (void*)ctx);
+            sxi_cbdata_reset(ctx);
+            sxi_hostlist_empty(&ctx->retry.hosts);
+            free(ctx->retry.query);
+            free(ctx);
+            if (freed)
+                *freed = 1;
+        }
+        return 0;
+    }
+    return -1;
+}
+
+int sxi_cbdata_unref(curlev_context_t **ctx_ptr)
+{
+    return sxi_cbdata_decref(ctx_ptr, NULL);
+}
+
+int sxi_cbdata_free(curlev_context_t **ctxptr)
+{
+    sxc_client_t *sx = ctxptr && (*ctxptr) ? sxi_conns_get_client((*ctxptr)->conns) : NULL;
+    int freed = 0;
+    if (sxi_cbdata_decref(ctxptr, &freed))
+        return -1;
+    if (!freed) {
+        sxi_notice(sx, "expected cbdata to be freed here");
+        return -1;
+    }
+    return 0;
+}
+
+void sxi_cbdata_reset(curlev_context_t *ctx)
+{
+    if (ctx) {
+        struct recv_context *rctx = &ctx->recv_ctx;
+        free(rctx->reason);
+        memset(rctx, 0, sizeof(*rctx));
+    }
+}
+
+int sxi_cbdata_is_finished(curlev_context_t *ctx)
+{
+    return ctx && ctx->recv_ctx.finished;
+}
+
+void sxi_cbdata_set_result(curlev_context_t *ctx, int status)
+{
+    if (!ctx)
+        return;
+    ctx->recv_ctx.rc = CURLE_OK;
+    ctx->recv_ctx.reply_status = status;
+}
+
+int sxi_cbdata_result(curlev_context_t *ctx, int *curlcode)
+{
+    struct recv_context *rctx = ctx ?  &ctx->recv_ctx : NULL;
+    if (!rctx)
+        return -1;
+    if (curlcode)
+        *curlcode = rctx->rc;
+    if (rctx->rc == CURLE_OK || rctx->rc == CURLE_WRITE_ERROR)
+        return rctx->reply_status;
+    if (rctx->rc == CURLE_OUT_OF_MEMORY) {
+        sxi_seterr(sxi_conns_get_client(ctx->conns), SXE_ECURL,
+                   "Cluster query failed: out of memory in library routine");
+        return -1;
+    }
+    return 0;
+}
+
+sxi_conns_t *sxi_cbdata_get_conns(curlev_context_t *ctx)
+{
+    return ctx ? ctx->conns : NULL;
+}
+
+int sxi_cbdata_wait(curlev_context_t *ctx, curl_events_t *e, int *curlcode)
+{
+    if (ctx) {
+        struct recv_context *rctx = &ctx->recv_ctx;
+        while (!rctx->finished) {
+            if (sxi_curlev_poll(e)) {
+                *curlcode = rctx->rc;
+                return -1;
+            }
+        }
+        return sxi_cbdata_result(ctx, curlcode);
+    }
+    return -1;
+}
+
+void sxi_cbdata_finish(curl_events_t *e, curlev_context_t **ctxptr, const char *url, error_cb_t err)
+{
+    struct recv_context *rctx;
+    curlev_context_t *ctx;
+    sxc_client_t *sx;
+    if (!ctxptr)
+        return;
+    ctx = *ctxptr;
+    rctx = &ctx->recv_ctx;
+    sx = sxi_conns_get_client(ctx->conns);
+    ctx->recv_ctx.finished = 1;
+
+    if (rctx->rc != CURLE_OK) {
+        const char *strerr = curl_easy_strerror(rctx->rc);
+        SXDEBUG("curl perform failed: %s, %s",
+                strerr, rctx->errbuf);
+        if (rctx->rc != CURLE_WRITE_ERROR) {
+            const char *msg = *rctx->errbuf ? rctx->errbuf : strerr;
+            if (rctx->rc == CURLE_SSL_CACERT && sxi_curlev_has_cafile(e))
+                sxi_seterr(sx, SXE_ECURL, "%s: possible MITM attack: run sxinit again!",
+                           strerr);
+            else
+                sxi_seterr(sx, SXE_ECURL, "%s: %s", url ? url : "", msg);
+        }
+    } else if (rctx->reply_status > 0 && rctx->reason && rctx->reasonsz > 0) {
+        rctx->reason[rctx->reasonsz] = '\0';
+        if (err)
+            err(ctx->conns, rctx->reply_status, rctx->reason);
+    }
+
+    sxi_clear_operation(sx);
+    if (ctx->retry.cb && (rctx->rc != CURLE_OK || rctx->reply_status / 100 != 2)) {
+        if (++ctx->retry.hostidx >= sxi_hostlist_get_count(&ctx->retry.hosts)) {
+            if (ctx->retry.retries < 2 || ctx->recv_ctx.reply_status == 429) {
+                ctx->retry.retries++;
+                ctx->retry.hostidx = 0;
+                sxi_retry_throttle(sx, ctx->retry.retries);
+            }
+        }
+        const char *host = sxi_hostlist_get_host(&ctx->retry.hosts, ctx->retry.hostidx);
+        sxi_cbdata_reset(ctx);
+        if (host) {
+            if (!ctx->retry.cb(ctx, ctx->conns, host,
+                               ctx->retry.verb, ctx->retry.query, ctx->retry.content, ctx->retry.content_size,
+                               ctx->retry.setup_callback,
+                               ctx->data_cb))
+                return; /* not finished yet, context reused */
+        }
+        else {
+            SXDEBUG("All %d hosts returned failure, retried %d times",
+                    sxi_hostlist_get_count(&ctx->retry.hosts),
+                    ctx->retry.retries);
+        }
+    }
+    if (ctx->finish_cb)
+        ctx->finish_cb(ctx, url);
+    sxi_cbdata_unref(ctxptr);
+}
+
 typedef struct curlev {
     curlev_context_t *ctx;
     char *host;
@@ -47,7 +440,7 @@ typedef struct curlev {
     struct curl_slist *slist;
     CURL *curl;
     head_cb_t head;
-    finish_cb_t finish;/* called when response is full retrieved */
+    error_cb_t error;
     request_data_t body;
     enum sxi_cluster_verb verb;
     reply_t reply;
@@ -93,12 +486,76 @@ static curlev_t *fifo_get(curlev_fifo_t *fifo)
 
 static size_t headfn(void *ptr, size_t size, size_t nmemb, curlev_t *ev)
 {
-    if (!ev || !ev->ctx)
+    curlev_context_t *ctx = ev ? ev->ctx : NULL;
+    struct recv_context *rctx = ctx ? &ctx->recv_ctx : NULL;
+    if (!rctx)
         return 0;
-    if (ev->ctx->reply_status == -1 || !ev->ctx->reply_status)
-        curl_easy_getinfo(ev->curl, CURLINFO_RESPONSE_CODE, &ev->ctx->reply_status);
-    return ev->head(ptr, size, nmemb, ev->ctx);
+    if (rctx->reply_status == -1 || !rctx->reply_status)
+        curl_easy_getinfo(ev->curl, CURLINFO_RESPONSE_CODE, &rctx->reply_status);
+
+    if (!rctx->fail && rctx->reply_status >= 400)
+        rctx->fail = 1;
+    switch (ev->head(ctx->conns, ptr, size, nmemb)) {
+        case HEAD_SEEN:
+            rctx->header_seen = 1;
+            /* fall-through */
+        case HEAD_OK:
+            return size * nmemb;
+        default:
+            return 0;/* fail */
+    }
 }
+
+static size_t writefn(void *ptr, size_t size, size_t nmemb, void *ctxptr) {
+    curlev_context_t *ctx = ctxptr;
+    struct recv_context *wd = ctx ? &ctx->recv_ctx : NULL;
+    sxi_conns_t *conns;
+    sxc_client_t *sx;
+
+    if(!wd)
+	return 0;
+
+    conns = ctx->conns;
+    sx = sxi_conns_get_client(conns);
+    size *= nmemb;
+
+    if(!wd->header_seen) {
+	if(wd->reply_status == 502 || wd->reply_status == 504) {
+	    /* Reply is very likely to come from a busy cluster */
+	    sxi_seterr(sx, SXE_ECOMM, "Bad cluster reply(%ld): the cluster may be under maintenance or overloaded, please try again later", wd->reply_status);
+	} else if(wd->reply_status == 414) {
+	    sxi_seterr(sx, SXE_ECOMM, "URI too long: the path to the requested resource is too long");
+	} else {
+	    /* Reply is certainly not from sx */
+	    sxi_seterr(sx, SXE_ECOMM, "The server contacted is not an SX Cluster node (http status: %ld)", wd->reply_status);
+	}
+	wd->fail = 1;
+    }
+
+    if (!wd->fail && wd->reply_status >= 400)
+	wd->fail = 1;
+    if(wd->fail) {
+	SXDEBUG("error reply: %.*s\n", (int)size, (char *)ptr);
+	if(conns) {
+	    wd->reason = sxi_realloc(sx, wd->reason, size + wd->reasonsz + 1);
+	    if(!wd->reason)
+		return 0;
+	    memcpy(wd->reason + wd->reasonsz, ptr, size);
+	    wd->reasonsz += size;
+	    return nmemb;
+	} else return 0;
+    }
+
+    if(!ctx->data_cb)
+	return nmemb;
+
+    if(ctx->data_cb(ctx, ptr, size) == 0)
+	return nmemb;
+
+    SXDEBUG("failing due to callback failure");
+    return 0;
+}
+
 
 /* to avoid using too much memory */
 struct curl_events {
@@ -129,8 +586,8 @@ static void ctx_err(curlev_context_t *ctx, CURLcode rc, const char *msg)
 {
     if (!ctx)
         return;
-    ctx->rc = rc;
-    strncpy(ctx->errbuf, msg, sizeof(ctx->errbuf)-1);
+    ctx->recv_ctx.rc = rc;
+    strncpy(ctx->recv_ctx.errbuf, msg, sizeof(ctx->recv_ctx.errbuf)-1);
     if (ctx->conns) {
         sxc_client_t *sx = sxi_conns_get_client(ctx->conns);
         if (sx) {
@@ -156,7 +613,7 @@ static void ctx_err(curlev_context_t *ctx, CURLcode rc, const char *msg)
 static int curl_check(curlev_t *e, CURLcode code, const char *msg)
 {
     if (code != CURLE_OK) {
-        e->ctx->errbuf[ERRBUF_SIZE] = 0;
+        e->ctx->recv_ctx.errbuf[ERRBUF_SIZE] = 0;
         EVDEBUG(e, "curl failed to %s: %s\n", msg, curl_easy_strerror(code));
         return -1;
     }
@@ -170,7 +627,7 @@ static int curlm_check(curlev_t *ev, CURLMcode code, const char *msg)
                 curl_multi_strerror(code));
         if (ev && ev->ctx && ev->ctx->conns)
             sxi_seterr(sxi_conns_get_client(ev->ctx->conns), SXE_ECURL, "curl multi failed: %s, %s",
-                       curl_multi_strerror(code), ev->ctx->errbuf);
+                       curl_multi_strerror(code), ev->ctx->recv_ctx.errbuf);
         return -1;
     }
     return 0;
@@ -474,8 +931,8 @@ static int easy_set_default_opt(curl_events_t *e, curlev_t *ev)
 {
     CURLcode rc;
     CURL *curl = ev->curl;
-    memset(ev->ctx->errbuf, 0, sizeof(ev->ctx->errbuf));
-    rc = curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, ev->ctx->errbuf);
+    memset(ev->ctx->recv_ctx.errbuf, 0, sizeof(ev->ctx->recv_ctx.errbuf));
+    rc = curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, ev->ctx->recv_ctx.errbuf);
     if (curl_check(ev,rc, "set CURLOPT_ERRORBUFFER") == -1)
         return -1;
 
@@ -785,7 +1242,7 @@ static int curlev_apply(curl_events_t *e, curlev_t *ev, curlev_t *src)
         }
         if (curl_check(ev,rc,"set verb") == -1)
             break;
-        rc = curl_easy_setopt(ev->curl, CURLOPT_WRITEFUNCTION, (write_cb_t)ev->reply.body);
+        rc = curl_easy_setopt(ev->curl, CURLOPT_WRITEFUNCTION, writefn);
         if (curl_check(ev,rc, "set CURLOPT_WRITEFUNCTION") == -1)
             break;
         rc = curl_easy_setopt(ev->curl, CURLOPT_WRITEDATA, ev->ctx);
@@ -1071,13 +1528,13 @@ static int ev_add(curl_events_t *e,
     curlev_t *ev = NULL;
     curlev_context_t *ctx = reply ? reply->headers.ctx : NULL;
 
-    if (!e || !headers || !reply || !ctx || !reply->headers.finish) {
+    if (!e || !headers || !reply || !ctx || !reply->headers.error) {
         ctx_err(ctx, CURLE_ABORTED_BY_CALLBACK, "ev_add: NULL argument");
         /* body is allowed to be NULL */
         return SXE_EARG;
     }
 
-    memset(ctx->errbuf, 0, sizeof(ctx->errbuf));
+    memset(ctx->recv_ctx.errbuf, 0, sizeof(ctx->recv_ctx.errbuf));
 
     do {
         while (e->used >= MAX_EVENTS) {
@@ -1095,9 +1552,12 @@ static int ev_add(curl_events_t *e,
             ctx_err(ctx, CURLE_OUT_OF_MEMORY, "failed to allocate event");
             break;
         }
-        ev->finish = reply->headers.finish;
+        ev->error = reply->headers.error;
         ev->ctx = reply->headers.ctx;
+        sxi_cbdata_ref(ev->ctx);
         ev->head = reply->headers.head;
+        if (ev->ctx)
+            ev->ctx->data_cb = reply->body;
         /* URL */
         if (!headers->url) {
             ctx_err(ctx, CURLE_URL_MALFORMAT, "URL is NULL");
@@ -1108,23 +1568,24 @@ static int ev_add(curl_events_t *e,
             ev->body = *body;
 
         /* reply callbacks */
-        if (!reply->body) {
-            ctx_err(ctx, CURLE_BAD_FUNCTION_ARGUMENT, "body callback not set\n");
-            break;
-        }
         if (!reply->headers.head) {
             ctx_err(ctx, CURLE_BAD_FUNCTION_ARGUMENT, "head callback not set\n");
             break;
         }
         ev->host = strdup(headers->host);
-        if (!ev->host)
+        if (!ev->host) {
+            ctx_err(ctx, CURLE_OUT_OF_MEMORY, "cannot dup hostname");
             break;
+        }
         ev->url = strdup(headers->url);
-        if (!ev->url)
+        if (!ev->url) {
+            ctx_err(ctx, CURLE_OUT_OF_MEMORY, "cannot dup URL");
             break;
+        }
         ev->verb = verb;
         if (enqueue_request(e, ev, 0) == -1) {
             /* TODO: remove all reuse[] handles if this fails */
+            EVDEBUG(ev, "enqueue_request failed");
             return -1;
         }
         e->used++;
@@ -1134,8 +1595,8 @@ static int ev_add(curl_events_t *e,
             e->added_notpolled = 1;
         return 0;
     } while(0);
-    ctx->url = headers->url;
-    reply->headers.finish(ctx);
+    EVDEBUG(ev, "ev_add failed");
+    sxi_cbdata_finish(e, &ctx, headers->url, reply->headers.error);
     if (ev) {
         if (ev->slist) {
             curl_slist_free_all(ev->slist);
@@ -1153,9 +1614,10 @@ int sxi_curlev_add_get(curl_events_t *e, const request_headers_t *headers, const
     return ev_add(e, headers, NULL, REQ_GET, reply);
 }
 
-static size_t nobody(char *ptr, size_t size, size_t nmemb, curlev_context_t *ctx)
+static int nobody(curlev_context_t *ctx, const unsigned char *data, size_t size)
 {
-    ctx_err(ctx, CURLE_BAD_FUNCTION_ARGUMENT, "Body received on HEAD?\n");
+    sxc_client_t *sx = ctx ? sxi_conns_get_client(ctx->conns) : NULL;
+    sxi_seterr(sx, SXE_EARG, "Body received on HEAD?\n");
     return 0;
 }
 
@@ -1248,24 +1710,20 @@ int sxi_curlev_poll_immediate(curl_events_t *e)
             /* TODO: invoke callbacks */
             curl_easy_getinfo(msg->easy_handle, CURLINFO_PRIVATE, &priv);
             if (priv) {
-                char *url;
+                const char *url;
                 curlev_t *ev = (curlev_t*)priv;
+                struct recv_context *rctx = &ev->ctx->recv_ctx;
 
-                curl_easy_getinfo(msg->easy_handle, CURLINFO_RESPONSE_CODE, &ev->ctx->reply_status);
-                ev->ctx->errbuf[sizeof(ev->ctx->errbuf)-1] = 0;
-                ev->ctx->rc = msg->data.result;
-		if(ev->ctx->rc == CURLE_OK)
+                curl_easy_getinfo(msg->easy_handle, CURLINFO_RESPONSE_CODE, &rctx->reply_status);
+                rctx->errbuf[sizeof(rctx->errbuf)-1] = 0;
+                rctx->rc = msg->data.result;
+		if(rctx->rc == CURLE_OK)
 		    sxi_conns_set_timeout(e->conns, ev->host, 1);
 		else
 		    sxi_conns_set_timeout(e->conns, ev->host, -1);
 
-                curl_easy_getinfo(msg->easy_handle, CURLINFO_EFFECTIVE_URL, &ev->ctx->url);
-                ev->ctx->url = url = strdup(ev->ctx->url);
-                if (!ev->ctx->url) {
-                    e->depth--;
-                    return -1;
-		}
-
+                /* get url, it will get freed by curl_easy_cleanup */
+                curl_easy_getinfo(msg->easy_handle, CURLINFO_EFFECTIVE_URL, &url);
                 /* finish might add more queries, let it know
                  * there is room */
                 rc = curl_multi_remove_handle(e->multi, ev->curl);
@@ -1278,8 +1736,7 @@ int sxi_curlev_poll_immediate(curl_events_t *e)
                 curlev_context_t *ctx = ev->ctx;
                 ev->ctx = NULL;
                 queue_next(e, ev);/* modifies ev */
-                ev->finish(ctx);/*frees ctx */
-                free(url);
+                sxi_cbdata_finish(e, &ctx, url, ev->error);
             } else {
                 EVENTSDEBUG(e,"WARNING: failed to find curl handle\n");
                 e->depth--;
@@ -1292,5 +1749,5 @@ int sxi_curlev_poll_immediate(curl_events_t *e)
 
 int sxi_cbdata_result_fail(curlev_context_t* ctx)
 {
-    return !ctx || ctx->rc != CURLE_OK;
+    return !ctx || ctx->recv_ctx.rc != CURLE_OK;
 }

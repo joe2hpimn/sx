@@ -813,7 +813,7 @@ if [ ! -f "$SX_DATA_DIR/data/cluster.key" ]; then
 	SXDIST="$SXDIST $NEWNODE"
         (
         set -x
-	"@sbindir@/sxadm" cluster --mod $SXDIST "sx://$SX_CLUSTER_NAME"
+        "@sbindir@/sxadm" cluster --mod $SXDIST "sx://$SX_CLUSTER_NAME"
 	)
 	if [ $? -ne 0 ]; then
 	    echo "Failed to modify cluster sx://$SX_CLUSTER_NAME"

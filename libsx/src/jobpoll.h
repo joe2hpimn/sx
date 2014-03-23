@@ -29,7 +29,7 @@ typedef struct _sxi_jobs_t {
 /* used where a sxi_job_t would be required but we're not job based */
 extern sxi_job_t JOB_NONE;
 
-sxi_job_t *sxi_job_submit(sxi_conns_t *conns, sxi_hostlist_t *hlist, enum sxi_cluster_verb, const char *query, const char *name, void *content, size_t content_size, int *http_code);
+sxi_job_t *sxi_job_submit(sxi_conns_t *conns, sxi_hostlist_t *hlist, enum sxi_cluster_verb, const char *query, const char *name, void *content, size_t content_size, int *http_code, sxi_jobs_t *jobs);
 
 void sxi_job_free(sxi_job_t *job);
 

@@ -674,7 +674,7 @@ static int fetchnodes_setup_cb(sxi_conns_t *conns, void *ctx, const char *host) 
     return 0;
 }
 
-static int fetchnodes_cb(sxi_conns_t *conns, void *ctx, void *data, size_t size) {
+static int fetchnodes_cb(sxi_conns_t *conns, void *ctx, const void *data, size_t size) {
     struct cb_fetchnodes_ctx *yactx = (struct cb_fetchnodes_ctx *)ctx;
     if(yajl_parse(yactx->yh, data, size) != yajl_status_ok) {
         if (yactx->state != FN_ERROR) {
@@ -990,7 +990,7 @@ static int locate_setup_cb(sxi_conns_t *conns, void *ctx, const char *host) {
     return 0;
 }
 
-static int locate_cb(sxi_conns_t *conns, void *ctx, void *data, size_t size) {
+static int locate_cb(sxi_conns_t *conns, void *ctx, const void *data, size_t size) {
     struct cb_locate_ctx *yactx = (struct cb_locate_ctx *)ctx;
     if(yajl_parse(yactx->yh, data, size) != yajl_status_ok) {
         if (yactx->state != LC_ERROR) {
@@ -1650,7 +1650,7 @@ static int listfiles_setup_cb(sxi_conns_t *conns, void *ctx, const char *host) {
     return 0;
 }
 
-static int listfiles_cb(sxi_conns_t *conns, void *ctx, void *data, size_t size) {
+static int listfiles_cb(sxi_conns_t *conns, void *ctx, const void *data, size_t size) {
     struct cb_listfiles_ctx *yctx = (struct cb_listfiles_ctx *)ctx;
     if(yajl_parse(yctx->yh, data, size) != yajl_status_ok) {
         if (yctx->state != LF_ERROR) {
@@ -2206,7 +2206,7 @@ static int userkey_setup_cb(sxi_conns_t *conns, void *ctx, const char *host)
     return 0;
 }
 
-static int userkey_cb(sxi_conns_t *conns, void *ctx, void *data, size_t size) {
+static int userkey_cb(sxi_conns_t *conns, void *ctx, const void *data, size_t size) {
     struct cb_userkey_ctx *yactx = ctx;
     if (yajl_parse(yactx->yh, data, size) != yajl_status_ok) {
         if (yactx->state != USERKEY_ERROR) {

@@ -643,7 +643,7 @@ static int listvolumes_setup_cb(sxi_conns_t *conns, void *ctx, const char *host)
     return 0;
 }
 
-static int listvolumes_cb(sxi_conns_t *conns, void *ctx, void *data, size_t size) {
+static int listvolumes_cb(sxi_conns_t *conns, void *ctx, const void *data, size_t size) {
     struct cb_listvolumes_ctx *yactx = (struct cb_listvolumes_ctx *)ctx;
     if(yajl_parse(yactx->yh, data, size) != yajl_status_ok) {
         if (yactx->state != LV_ERROR) {
@@ -946,7 +946,7 @@ static int listusers_setup_cb(sxi_conns_t *conns, void *ctx, const char *host) {
     return 0;
 }
 
-static int listusers_cb(sxi_conns_t *conns, void *ctx, void *data, size_t size) {
+static int listusers_cb(sxi_conns_t *conns, void *ctx, const void *data, size_t size) {
     struct cb_listusers_ctx *yactx = (struct cb_listusers_ctx *)ctx;
     if(yajl_parse(yactx->yh, data, size) != yajl_status_ok) {
         if (yactx->state != LU_ERROR) {
@@ -1238,7 +1238,7 @@ static int listaclusers_setup_cb(sxi_conns_t *conns, void *ctx, const char *host
     return 0;
 }
 
-static int listaclusers_cb(sxi_conns_t *conns, void *ctx, void *data, size_t size) {
+static int listaclusers_cb(sxi_conns_t *conns, void *ctx, const void *data, size_t size) {
     struct cb_listaclusers_ctx *yctx = (struct cb_listaclusers_ctx *)ctx;
     if(yajl_parse(yctx->yh, data, size) != yajl_status_ok) {
         if (yctx->state != LA_ERROR) {

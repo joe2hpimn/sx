@@ -30,7 +30,7 @@
 typedef struct sxi_hashop sxi_hashop_t;
 typedef struct _sxi_conns_t sxi_conns_t;
 
-typedef int (*cluster_datacb)(sxi_conns_t *conns, void *context, void *data, size_t size);
+typedef int (*cluster_datacb)(sxi_conns_t *conns, void *context, const void *data, size_t size);
 sxi_conns_t *sxi_conns_new(sxc_client_t *sx);
 void sxi_conns_free(sxi_conns_t *conns);
 int sxi_conns_set_dnsname(sxi_conns_t *conns, const char *dnsname);
@@ -60,14 +60,14 @@ int sxi_cluster_query_ev(curlev_context_t *cbdata,
                          sxi_conns_t *conns, const char *host,
                          enum sxi_cluster_verb verb, const char *query,
                          void *content, size_t content_size,
-                         cluster_setupcb setup_callback, cluster_datacb callback, 
-                         void *context);
+                         ctx_setup_cb_t setup_callback,
+                         body_cb_t callback);
 int sxi_cluster_query_ev_retry(curlev_context_t *cbdata,
                          sxi_conns_t *conns, const sxi_hostlist_t *hlist,
                          enum sxi_cluster_verb verb, const char *query,
                          void *content, size_t content_size,
-                         cluster_setupcb setup_callback, cluster_datacb callback,
-                         void *context);
+                         ctx_setup_cb_t setup_callback,
+                         body_cb_t callback);
 int sxi_conns_root_noauth(sxi_conns_t *conns, const char *tmpcafile, int quiet);
 
 int sxi_upload_block_from_buf(sxi_conns_t *conns, sxi_hostlist_t *hlist, const char *token, uint8_t *block, unsigned int block_size, int64_t upload_size);

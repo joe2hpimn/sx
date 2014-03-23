@@ -58,8 +58,8 @@
 #include <openssl/rand.h>
 
 #include "../libsx/src/sxproto.h"
-#include "../libsx/src/curlevents-detail.h"
 #include "../libsx/src/misc.h"
+#include "../libsx/src/curlevents.h"
 #include "hashfs.h"
 #include "hdist.h"
 #include "job_common.h"
@@ -121,7 +121,7 @@ static act_result_t rc2actres(rc_ty rc) {
 }
 
 typedef struct {
-	curlev_context_t cbdata;
+	curlev_context_t *cbdata;
 	int query_sent;
 } query_list_t;
 
@@ -131,7 +131,7 @@ static void query_list_free(query_list_t *qrylist, unsigned nnodes)
     if (!qrylist)
         return;
     for (i=0;i<nnodes;i++) {
-        free(qrylist[i].cbdata.reason);
+        sxi_cbdata_free(&qrylist[i].cbdata);
     }
 
     free(qrylist);
@@ -200,7 +200,8 @@ static act_result_t createuser_request(sx_hashfs_t *hashfs, job_t job_id, job_da
 		}
 	    }
 	    INFO("req %.*s", proto->content_len, (char *)proto->content);
-	    if (sxi_cluster_query_ev(&qrylist[nnode].cbdata, clust, sx_node_internal_addr(node), proto->verb, proto->path, proto->content, proto->content_len, NULL, NULL, NULL)) {
+            qrylist[nnode].cbdata = sxi_cbdata_create_generic(clust, NULL, NULL);
+	    if (sxi_cluster_query_ev(qrylist[nnode].cbdata, clust, sx_node_internal_addr(node), proto->verb, proto->path, proto->content, proto->content_len, NULL, NULL)) {
 		WARN("Failed to query node %s: %s", sx_node_uuid_str(node), sxc_geterrmsg(sx_hashfs_client(hashfs)));
 		action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to setup cluster communication");
 	    }
@@ -215,8 +216,7 @@ action_failed:
 	    if(!qrylist[nnode].query_sent)
 		continue;
 	    INFO("Polling");
-	    while(!qrylist[nnode].cbdata.finished && rc != -1)
-		rc = sxi_curlev_poll(sxi_conns_get_curlev(clust));
+            rc = sxi_cbdata_wait(qrylist[nnode].cbdata, sxi_conns_get_curlev(clust), NULL);
 	    INFO("Polling done");
 	    if(rc == -1) {
 		CRIT("Failed to wait for query");
@@ -224,14 +224,17 @@ action_failed:
 		/* FIXME should abort here */
 		continue;
 	    }
-	    if(sxi_cbdata_result_fail(&qrylist[nnode].cbdata) || qrylist[nnode].cbdata.reply_status / 100 == 5) {
-		WARN("Query failed with %d", qrylist[nnode].cbdata.rc);
+            rc = sxi_cbdata_result(qrylist[nnode].cbdata, NULL);
+	    if(sxi_cbdata_result_fail(qrylist[nnode].cbdata) ||
+               rc / 100 == 5) {
+		WARN("Query failed with %d", rc);
 		if(ret > ACT_RESULT_TEMPFAIL) /* Only raise OK to TEMP */
 		    action_set_fail(ACT_RESULT_TEMPFAIL, 503, sxc_geterrmsg(sx_hashfs_client(hashfs)));
-	    } else if(qrylist[nnode].cbdata.reply_status == 200)
+	    } else if(rc == 200)
 		succeeded[nnode] = 1;
 	    else
 		ret = ACT_RESULT_PERMFAIL; /* Raise OK and TEMP to PERMFAIL */
+            sxi_cbdata_free(&qrylist[nnode].cbdata);
 	}
 	sxi_query_free(proto);
     }
@@ -296,7 +299,8 @@ static act_result_t createuser_commit(sx_hashfs_t *hashfs, job_t job_id, job_dat
 		}
 	    }
 
-	    if(sxi_cluster_query_ev(&qrylist[nnode].cbdata, clust, sx_node_internal_addr(node), REQ_PUT, query, NULL, 0, NULL, NULL, NULL)) {
+            qrylist[nnode].cbdata = sxi_cbdata_create_generic(clust, NULL, NULL);
+	    if(sxi_cluster_query_ev(qrylist[nnode].cbdata, clust, sx_node_internal_addr(node), REQ_PUT, query, NULL, 0, NULL, NULL)) {
 		WARN("Failed to query node %s: %s", sx_node_uuid_str(node), sxc_geterrmsg(sx));
 		action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to setup cluster communication");
 	    }
@@ -310,25 +314,26 @@ static act_result_t createuser_commit(sx_hashfs_t *hashfs, job_t job_id, job_dat
 	    int rc = 0;
 	    if(!qrylist[nnode].query_sent)
 		continue;
-	    while(!qrylist[nnode].cbdata.finished && rc != -1)
-		rc = sxi_curlev_poll(sxi_conns_get_curlev(clust));
+            rc = sxi_cbdata_wait(qrylist[nnode].cbdata, sxi_conns_get_curlev(clust), NULL);
 	    if(rc == -1) {
 		CRIT("Failed to wait for query");
 		action_set_fail(ACT_RESULT_PERMFAIL, 500, "Internal error in cluster communication");
 		/* FIXME should abort here */
 		continue;
 	    }
-	    if(sxi_cbdata_result_fail(&qrylist[nnode].cbdata)) {
-		WARN("Query failed with %d", qrylist[nnode].cbdata.rc);
+            rc = sxi_cbdata_result(qrylist[nnode].cbdata, NULL);
+	    if(sxi_cbdata_result_fail(qrylist[nnode].cbdata)) {
+		WARN("Query failed with %d", rc);
 		if(ret > ACT_RESULT_TEMPFAIL) /* Only raise OK to TEMP */
 		    action_set_fail(ACT_RESULT_TEMPFAIL, 503, sxc_geterrmsg(sx));
-	    } else if(qrylist[nnode].cbdata.reply_status == 200) {
+	    } else if(rc == 200) {
 		succeeded[nnode] = 1;
 	    } else {
-		act_result_t newret = http2actres(qrylist[nnode].cbdata.reply_status);
+		act_result_t newret = http2actres(rc);
 		if(newret < ret) /* Severity shall only be raised */
-		    action_set_fail(newret, qrylist[nnode].cbdata.reply_status, sxc_geterrmsg(sx));
+		    action_set_fail(newret, rc, sxc_geterrmsg(sx));
 	    }
+            sxi_cbdata_free(&qrylist[nnode].cbdata);
 	}
         query_list_free(qrylist, nnodes);
 	free(query);
@@ -453,7 +458,8 @@ static act_result_t createvol_request(sx_hashfs_t *hashfs, job_t job_id, job_dat
 		}
 	    }
 
-	    if(sxi_cluster_query_ev(&qrylist[nnode].cbdata, clust, sx_node_internal_addr(node), proto->verb, proto->path, proto->content, proto->content_len, NULL, NULL, NULL)) {
+            qrylist[nnode].cbdata = sxi_cbdata_create_generic(clust, NULL, NULL);
+	    if(sxi_cluster_query_ev(qrylist[nnode].cbdata, clust, sx_node_internal_addr(node), proto->verb, proto->path, proto->content, proto->content_len, NULL, NULL)) {
 		WARN("Failed to query node %s: %s", sx_node_uuid_str(node), sxc_geterrmsg(sx));
 		action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to setup cluster communication");
 	    }
@@ -468,25 +474,26 @@ static act_result_t createvol_request(sx_hashfs_t *hashfs, job_t job_id, job_dat
 	    int rc = 0;
 	    if(!qrylist[nnode].query_sent)
 		continue;
-	    while(!qrylist[nnode].cbdata.finished && rc != -1)
-		rc = sxi_curlev_poll(sxi_conns_get_curlev(clust));
+            rc = sxi_cbdata_wait(qrylist[nnode].cbdata, sxi_conns_get_curlev(clust), NULL);
 	    if(rc == -1) {
 		CRIT("Failed to wait for query");
 		action_set_fail(ACT_RESULT_PERMFAIL, 500, "Internal error in cluster communication");
 		/* FIXME should abort here */
 		continue;
 	    }
-	    if(sxi_cbdata_result_fail(&qrylist[nnode].cbdata)) {
-		WARN("Query failed with %d", qrylist[nnode].cbdata.rc);
+            rc = sxi_cbdata_result(qrylist[nnode].cbdata, NULL);
+	    if(sxi_cbdata_result_fail(qrylist[nnode].cbdata)) {
+		WARN("Query failed with %d", rc);
 		if(ret > ACT_RESULT_TEMPFAIL) /* Only raise OK to TEMP */
 		    action_set_fail(ACT_RESULT_TEMPFAIL, 503, sxc_geterrmsg(sx));
-	    } else if(qrylist[nnode].cbdata.reply_status == 200) {
+	    } else if(rc == 200) {
 		succeeded[nnode] = 1;
 	    } else {
-		act_result_t newret = http2actres(qrylist[nnode].cbdata.reply_status);
+		act_result_t newret = http2actres(rc);
 		if(newret < ret) /* Severity shall only be raised */
-		    action_set_fail(newret, qrylist[nnode].cbdata.reply_status, sxc_geterrmsg(sx));
+		    action_set_fail(newret, rc, sxc_geterrmsg(sx));
 	    }
+            sxi_cbdata_free(&qrylist[nnode].cbdata);
 	}
 	sxc_meta_free(vmeta);
         query_list_free(qrylist, nnodes);
@@ -553,7 +560,8 @@ static act_result_t createvol_commit(sx_hashfs_t *hashfs, job_t job_id, job_data
 		}
 	    }
 
-	    if(sxi_cluster_query_ev(&qrylist[nnode].cbdata, clust, sx_node_internal_addr(node), REQ_PUT, query, NULL, 0, NULL, NULL, NULL)) {
+            qrylist[nnode].cbdata = sxi_cbdata_create_generic(clust, NULL, NULL);
+	    if(sxi_cluster_query_ev(qrylist[nnode].cbdata, clust, sx_node_internal_addr(node), REQ_PUT, query, NULL, 0, NULL, NULL)) {
 		WARN("Failed to query node %s: %s", sx_node_uuid_str(node), sxc_geterrmsg(sx));
 		action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to setup cluster communication");
 	    }
@@ -568,25 +576,26 @@ static act_result_t createvol_commit(sx_hashfs_t *hashfs, job_t job_id, job_data
 	    int rc = 0;
 	    if(!qrylist[nnode].query_sent)
 		continue;
-	    while(!qrylist[nnode].cbdata.finished && rc != -1)
-		rc = sxi_curlev_poll(sxi_conns_get_curlev(clust));
+            rc = sxi_cbdata_wait(qrylist[nnode].cbdata, sxi_conns_get_curlev(clust), NULL);
 	    if(rc == -1) {
 		CRIT("Failed to wait for query");
 		action_set_fail(ACT_RESULT_PERMFAIL, 500, "Internal error in cluster communication");
 		/* FIXME should abort here */
 		continue;
 	    }
-	    if(sxi_cbdata_result_fail(&qrylist[nnode].cbdata)) {
-		WARN("Query failed with %d", qrylist[nnode].cbdata.rc);
+            rc = sxi_cbdata_result(qrylist[nnode].cbdata, NULL);
+	    if(sxi_cbdata_result_fail(qrylist[nnode].cbdata)) {
+		WARN("Query failed with %d", rc);
 		if(ret > ACT_RESULT_TEMPFAIL) /* Only raise OK to TEMP */
 		    action_set_fail(ACT_RESULT_TEMPFAIL, 503, sxc_geterrmsg(sx));
-	    } else if(qrylist[nnode].cbdata.reply_status == 200) {
+	    } else if(rc == 200) {
 		succeeded[nnode] = 1;
 	    } else {
-		act_result_t newret = http2actres(qrylist[nnode].cbdata.reply_status);
+		act_result_t newret = http2actres(rc);
 		if(newret < ret) /* Severity shall only be raised */
-		    action_set_fail(newret, qrylist[nnode].cbdata.reply_status, sxc_geterrmsg(sx));
+		    action_set_fail(newret, rc, sxc_geterrmsg(sx));
 	    }
+            sxi_cbdata_free(&qrylist[nnode].cbdata);
 	}
         query_list_free(qrylist, nnodes);
 	free(query);
@@ -644,7 +653,8 @@ static act_result_t createvol_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_
 		}
 	    }
 
-	    if(sxi_cluster_query_ev(&qrylist[nnode].cbdata, clust, sx_node_internal_addr(node), REQ_DELETE, query, NULL, 0, NULL, NULL, NULL)) {
+            qrylist[nnode].cbdata = sxi_cbdata_create_generic(clust, NULL, NULL);
+	    if(sxi_cluster_query_ev(qrylist[nnode].cbdata, clust, sx_node_internal_addr(node), REQ_DELETE, query, NULL, 0, NULL, NULL)) {
 		WARN("Failed to query node %s: %s", sx_node_uuid_str(node), sxc_geterrmsg(sx));
 		action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to setup cluster communication");
 	    }
@@ -659,25 +669,26 @@ static act_result_t createvol_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_
 	    int rc = 0;
 	    if(!qrylist[nnode].query_sent)
 		continue;
-	    while(!qrylist[nnode].cbdata.finished && rc != -1)
-		rc = sxi_curlev_poll(sxi_conns_get_curlev(clust));
+            rc = sxi_cbdata_wait(qrylist[nnode].cbdata, sxi_conns_get_curlev(clust), NULL);
 	    if(rc == -1) {
 		CRIT("Failed to wait for query");
 		action_set_fail(ACT_RESULT_PERMFAIL, 500, "Internal error in cluster communication");
 		/* FIXME should abort here */
 		continue;
 	    }
-	    if(sxi_cbdata_result_fail(&qrylist[nnode].cbdata)) {
-		WARN("Query failed with %d", qrylist[nnode].cbdata.rc);
+            rc = sxi_cbdata_result(qrylist[nnode].cbdata, NULL);
+	    if(sxi_cbdata_result_fail(qrylist[nnode].cbdata)) {
+		WARN("Query failed with %d", rc);
 		if(ret > ACT_RESULT_TEMPFAIL) /* Only raise OK to TEMP */
 		    action_set_fail(ACT_RESULT_TEMPFAIL, 503, sxc_geterrmsg(sx));
-	    } else if(qrylist[nnode].cbdata.reply_status == 200) {
+	    } else if (rc == 200) {
 		succeeded[nnode] = 1;
 	    } else {
-		act_result_t newret = http2actres(qrylist[nnode].cbdata.reply_status);
+		act_result_t newret = http2actres(rc);
 		if(newret < ret) /* Severity shall only be raised */
-		    action_set_fail(newret, qrylist[nnode].cbdata.reply_status, sxc_geterrmsg(sx));
+		    action_set_fail(newret, rc, sxc_geterrmsg(sx));
 	    }
+            sxi_cbdata_free(&qrylist[nnode].cbdata);
 	}
         query_list_free(qrylist, nnodes);
 	free(query);
@@ -734,7 +745,8 @@ static act_result_t job_twophase_execute(const job_2pc_t *spec, jobphase_t phase
                     action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
                 }
             }
-	    if(sxi_cluster_query_ev(&qrylist[nnode].cbdata, clust, sx_node_internal_addr(node), proto->verb, proto->path, proto->content, proto->content_len, NULL, NULL, NULL)) {
+            qrylist[nnode].cbdata = sxi_cbdata_create_generic(clust, NULL, NULL);
+	    if(sxi_cluster_query_ev(qrylist[nnode].cbdata, clust, sx_node_internal_addr(node), proto->verb, proto->path, proto->content, proto->content_len, NULL, NULL)) {
 		WARN("Failed to query node %s: %s", sx_node_uuid_str(node), sxc_geterrmsg(sx_hashfs_client(hashfs)));
 		action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to setup cluster communication");
 	    }
@@ -749,25 +761,26 @@ static act_result_t job_twophase_execute(const job_2pc_t *spec, jobphase_t phase
 	    int rc = 0;
 	    if(!qrylist[nnode].query_sent)
 		continue;
-	    while(!qrylist[nnode].cbdata.finished && rc != -1)
-		rc = sxi_curlev_poll(sxi_conns_get_curlev(clust));
+            rc = sxi_cbdata_wait(qrylist[nnode].cbdata, sxi_conns_get_curlev(clust), NULL);
 	    if(rc == -1) {
 		CRIT("Failed to wait for query");
 		action_set_fail(ACT_RESULT_PERMFAIL, 500, "Internal error in cluster communication");
 		/* FIXME should abort here */
 		continue;
 	    }
-	    if(sxi_cbdata_result_fail(&qrylist[nnode].cbdata)) {
-		WARN("Query failed with %d", qrylist[nnode].cbdata.rc);
+            rc = sxi_cbdata_result(qrylist[nnode].cbdata, NULL);
+	    if(sxi_cbdata_result_fail(qrylist[nnode].cbdata)) {
+		WARN("Query failed with %d", rc);
 		if(ret > ACT_RESULT_TEMPFAIL) /* Only raise OK to TEMP */
 		    action_set_fail(ACT_RESULT_TEMPFAIL, 503, sxc_geterrmsg(sx_hashfs_client(hashfs)));
-	    } else if(qrylist[nnode].cbdata.reply_status == 200) {
+	    } else if(rc == 200) {
 		succeeded[nnode] = 1;
 	    } else {
-		act_result_t newret = http2actres(qrylist[nnode].cbdata.reply_status);
+		act_result_t newret = http2actres(rc);
 		if(newret < ret) /* Severity shall only be raised */
-		    action_set_fail(newret, qrylist[nnode].cbdata.reply_status, sxc_geterrmsg(sx_hashfs_client(hashfs)));
+		    action_set_fail(newret, rc, sxc_geterrmsg(sx_hashfs_client(hashfs)));
 	    }
+            sxi_cbdata_free(&qrylist[nnode].cbdata);
 	}
         query_list_free(qrylist, nnodes);
 	sxi_query_free(proto);
@@ -1308,7 +1321,7 @@ struct cb_challenge_ctx {
     unsigned int at;
 };
 
-static int challenge_cb(sxi_conns_t *conns, void *ctx, void *data, size_t size) {
+static int challenge_cb(sxi_conns_t *conns, void *ctx, const void *data, size_t size) {
     struct cb_challenge_ctx *c = (struct cb_challenge_ctx *)ctx;
     if(c->at + size > sizeof(c->chlrsp.response))
 	return 1;
