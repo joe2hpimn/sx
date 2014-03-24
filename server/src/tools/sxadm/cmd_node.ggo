@@ -1,0 +1,17 @@
+package "sxadm"
+args "--unamed-opts --no-handle-version --no-handle-error --file-name=cmd_node --func-name=node_cmdline_parser --arg-struct-name=node_args_info"
+usage "sxadm node <MODE> [OPTIONS]... <PATH>"
+
+defgroup "MODE" required
+groupoption "new" N "Creates a new local SX node in PATH" group="MODE"
+groupoption "info" I "Print details about the local node in PATH" group="MODE"
+groupoption "check" C "Perform sanity check on the local node in PATH" group="MODE"
+
+section "New node options"
+option "cluster-uuid" u "The SX cluster UUID (default autogenerate UUID)." string typestr="UUID" dependon="new" optional
+option "key" k "File containing a pre-generated cluster authentication token or stdin if \"-\" is given (default autogenerate token)." string typestr="FILE" dependon="new" optional
+option "batch-mode" b "Turn off interactive confirmations and assume yes for all questions" dependon="new" optional
+text "NOTE: all nodes of an SX cluster must be created with the same UUID and the same authentication token."
+
+section "Common options"
+option "run-as" - "Run as specified user[:group]" string typestr="user[:group]" optional

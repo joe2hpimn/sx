@@ -1,0 +1,14 @@
+package "sxcat"
+purpose "Concatenate and print files"
+description "sxcat allows printing files both from and to SX nodes"
+args "--unamed-opts --no-handle-version --no-handle-error --strict-hidden"
+usage "sxcat [OPTIONS]... sx://[profile@]cluster/volume/[path]..."
+
+
+option  "config-dir"		c "Path to SX configuration directory"
+        string typestr="PATH" optional
+
+option  "filter-dir"		f "Path to SX filter directory"
+        string typestr="PATH" optional
+
+option  "debug"		D "Enable debug messages" flag off

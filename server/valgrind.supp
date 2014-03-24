@@ -1,0 +1,13 @@
+{
+        pthread_once_hide_leaks
+        Memcheck:Leak
+        fun:*
+        fun:*
+        fun:pthread_once
+}
+{
+        pthread_once_hide_leaks
+        Memcheck:Leak
+        fun:*
+        fun:_dl_allocate_tls
+}

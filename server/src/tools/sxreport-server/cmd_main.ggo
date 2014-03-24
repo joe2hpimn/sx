@@ -1,0 +1,26 @@
+package "sxreport"
+args "--no-handle-version --no-handle-error --file-name=cmd_main --func-name=main_cmdline_parser --arg-struct-name=main_args_info"
+usage "sxreport [OPTIONS]"
+
+purpose "sxreport is used to collect configuration and error information from SX nodes"
+
+option "all" - "Print all the information below" optional
+option "anonymize" - "Anonymize IP addresses, URLs, and cluster usernames" flag off
+option "find-request-id" - "Print all messages corresponding to specified request ID" optional
+option "sysconfdir"	-	"Path to /etc" string typestr="PATH" optional hidden
+option "output" o "Save output to given file (default: sxreport-server-<timestamp>.log)" string optional
+option "append" - "Append information from specified file (- is stdin), anonymized only if --anonymize is specified" multiple string optional
+
+text "\n--all options:\n"
+
+option "info" - "Print static configuration only" optional
+option "logs" - "Print error messages from logs only (NOT anonymized)" optional
+option "cluster" - "Print information about cluster's status & health" optional
+option "storage" - "Print information about the node's local storage" optional
+option "sxproxy" - "Print information about SXproxy (if installed)" optional
+
+text "\nCalling sxreport without any options is equivalent to: sxreport --all --anonymize."
+text " The output is thus suitable for submission in a bugreport or public mailing list discussions.\n"
+text "If you want just specific information use the other flags: they are not anonymized by default though.\n"
+text "If you want to append more information:\n"
+text "sxreport --append=/path/to/file --anonymize >>sxreport.log"

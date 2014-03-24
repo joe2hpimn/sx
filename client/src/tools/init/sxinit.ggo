@@ -1,0 +1,21 @@
+package "sxinit"
+purpose "Manage local configuration of SX"
+args "--unamed-opts=sx://[profile@]cluster --no-handle-version --no-handle-error --strict-hidden"
+usage "sxinit [OPTIONS]... sx://[profile@]cluster"
+
+option  "config-dir"		c "Path to SX configuration directory"
+        string typestr="PATH" optional
+
+option  "host-list"		l "List of SX hosts (IP addresses)"
+        string typestr="IP_1,IP_2,IP_3,... " optional
+
+option  "no-ssl"	- "Disable secure communication" flag off
+
+option  "debug"		D "Enable debug messages" flag off
+
+option "batch-mode" b "Turn off interactive confirmations and assume yes for all questions" flag off
+
+option  "auth-file" a "File containing user key (instead of stdin)" string optional
+
+option  "force-reinit"	- "Remove old cluster configuration and init from scratch" flag off
+

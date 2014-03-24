@@ -1,0 +1,12 @@
+package "sxadm"
+args "--no-handle-version --file-name=cmd_main --func-name=main_cmdline_parser --arg-struct-name=main_args_info"
+usage "sxadm <command> [OPTIONS]..."
+
+purpose "sxadm is used to create and manage SX clusters"
+
+text "\nAvailable commands:\n\n"
+
+text "  cluster        Create or manage an SX cluster\n"
+text "  node           Create or manage a local SX node\n"
+
+text "\nSee 'sxadm <command> --help' for more information on a specific command.\n"

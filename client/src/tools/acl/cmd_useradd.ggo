@@ -1,0 +1,14 @@
+package "sxacl"
+args "--unamed-opts --no-handle-version --no-handle-error --file-name=cmd_useradd --func-name=useradd_cmdline_parser --arg-struct-name=useradd_args_info --strict-hidden"
+usage "sxacl useradd [OPTIONS] <username> sx://[profile@]cluster"
+
+section "User creation options"
+option "role" t "User type" values="admin","normal" enum default="normal" optional
+option "auth-file" a "Store authentication token in given file (instead of stdout)" string optional
+
+section "Common options"
+
+option  "config-dir"		c "Path to SX configuration directory"
+        string typestr="PATH" optional
+
+option  "debug"		D "Enable debug messages" flag off

@@ -1,0 +1,13 @@
+package "sxacl"
+args "--unamed-opts --no-handle-version --no-handle-error --file-name=cmd_usergetkey --func-name=usergetkey_cmdline_parser --arg-struct-name=usergetkey_args_info --strict-hidden"
+usage "sxacl usergetkey [OPTIONS] <username> sx://[profile@]cluster"
+
+section "User key retrieval options"
+option "auth-file" a "Store authentication token in given file (instead of stdout)" string optional
+
+section "Common options"
+
+option  "config-dir"		c "Path to SX configuration directory"
+        string typestr="PATH" optional
+
+option  "debug"		D "Enable debug messages" flag off

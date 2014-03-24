@@ -1,0 +1,20 @@
+package "sxvol"
+args "--no-handle-version --no-handle-error --file-name=cmd_filter --func-name=filter_cmdline_parser --arg-struct-name=filter_args_info"
+usage "sxvol filter <OPTIONS>..."
+
+text "\nFilter options:\n"
+
+option  "list"		- "List available filters" optional
+
+option  "info"		- "Display details about filter NAME"
+        string typestr="NAME" optional
+
+text "\nAdditional options:\n"
+
+option  "config-dir"		c "Path to SX configuration directory"
+        string typestr="PATH" optional
+
+option  "filter-dir"		- "Path to SX filter directory"
+        string typestr="PATH" optional
+
+option  "debug"		D "Enable debug messages" flag off

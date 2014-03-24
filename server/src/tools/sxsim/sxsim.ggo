@@ -1,0 +1,50 @@
+package "sxsim"
+purpose "SX simulator"
+description "sxsim can simulate management of an SX cluster. The tool can run in a fully interactive or command-line mode. To enter the interactive mode run it without any options or use --execute."
+args "--no-handle-version --no-handle-error"
+
+#option "debug" D "Debug mode" optional
+
+#option "interactive" i "Enter interactive mode" flag off
+
+option "execute" e "Execute commands from FILE in interactive mode" string typestr="FILE" optional
+
+text "\nAll options below are only respected in non-interactive mode.\n"
+
+text "\nCluster settings:\n"
+
+option "load-cluster" - "Read cluster model from FILE" string typestr="FILE" optional
+
+option "save-cluster" - "Save cluster model to FILE at exit" string typestr="FILE" optional
+
+option "dump-cluster" - "Dump content of cluster stored in FILE to stdout in CSV format" string typestr="FILE" optional
+
+option "node-list" - "Read list of nodes from FILE" string typestr="FILE" optional
+option "hash-list" - "Read list of hashes from FILE" string typestr="FILE" optional
+option "store-data" - "Simulate storing of FILE/DIR and optionally force replica count N. This option can be used multiple times, also with different values for N." string typestr="[N:]FILE/DIR" optional multiple
+
+option  "replica-count"	- "Set replica count for storage" int default="1" optional
+
+text "\nAutomatic maintainance settings:\n"
+
+option "on-lowspace-addnode" - "When cluster gets full add new node(s) NAMEPREFIX-ID of size CAPACITY (allows K, M, G, T suffixes; default M)" string typestr="NAMEPREFIX@CAPACITY" optional
+
+option "on-lowspace-addspace" - "When node gets full resize it by SIZE (allows K, M, G, T suffixes; default M)" string typestr="SIZE" optional
+
+option "on-upgrade-rebalance" - "Force rebalance after each upgrade to the cluster (instead of automatic mode)" flag off
+
+text "\nBlock settings:\n"
+
+option "blkstats" - "Print block statistics for input data" flag off
+
+option  "block-size"	- "Set block size (in bytes)" int values="4096", "8192", "16384", "32768", "65536", "1048576", "4194304" default="65536" optional
+
+option  "autobs-small"	- "Set small block size for autobs" int values="4096", "8192", "16384", "32768", "65536", "1048576", "4194304" default="4096" optional
+
+option  "autobs-medium"	- "Set medium block size for autobs mode" int values="4096", "8192", "16384", "32768", "65536", "1048576", "4194304" default="16384" optional
+
+option  "autobs-big"	- "Set big block size for autobs mode" int values="4096", "8192", "16384", "32768", "65536", "1048576", "4194304" default="1048576" optional
+
+option  "autobs-small-limit"	- "Set maximum file size for small block in autobs mode" int default="131072" optional
+
+option  "autobs-big-limit"	- "Set minimum file size for big block in autobs mode" int default="134217728" optional

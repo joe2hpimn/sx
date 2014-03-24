@@ -1,0 +1,5 @@
+{
+    "ErrorMessage":"SX fcgi is not reachable",
+    "ErrorDetails":"Check that sx.fcgi is running, and that sxhttpd(nginx) can communicate with it",
+    "NodeId":"UNKNOWN"
+}

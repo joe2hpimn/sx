@@ -1,0 +1,14 @@
+package "sxacl"
+args "--unamed-opts --no-handle-version --no-handle-error --file-name=cmd_usermod --func-name=usermod_cmdline_parser --arg-struct-name=usermod_args_info --strict-hidden"
+usage "sxacl usermod [OPTIONS] <username> sx://[profile@]cluster"
+
+section "User modification options"
+defgroup "mode" required
+groupoption "quota" - "Set user quota" group="mode"
+
+section "Common options"
+
+option  "config-dir"		c "Path to SX configuration directory"
+        string typestr="PATH" optional
+
+option  "debug"		D "Enable debug messages" flag off

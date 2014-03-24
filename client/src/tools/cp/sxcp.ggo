@@ -1,0 +1,16 @@
+package "sxcp"
+purpose "Copy files between local and SX storages"
+args "--unamed-opts --no-handle-version --no-handle-error --strict-hidden"
+usage "sxcp [OPTIONS]... SOURCE... DEST"
+
+option  "recursive"             r "Recursively copy files from SOURCE to DEST directory" flag off
+
+option  "verbose"               v "Print more details about the upload" flag off
+
+option  "config-dir"		c "Path to SX configuration directory"
+        string typestr="PATH" optional
+
+option  "filter-dir"		f "Path to SX filter directory"
+        string typestr="PATH" optional
+
+option  "debug"		D "Enable debug messages" flag off

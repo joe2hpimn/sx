@@ -1,0 +1,31 @@
+package "sx.fcgi"
+purpose "SX FastCGI Interface"
+args "--conf-parse --no-handle-version --file-name=cfgfile --no-handle-error"
+usage "sx.fcgi"
+
+option  "socket"		- "Set socket for connection with httpd"
+        string typestr="SOCKET" required
+
+option  "socket-mode"		- "Set socket mode to MODE (octal number; unix sockets only)"
+        int typestr="MODE" optional
+
+option  "data-dir"		- "Path to data directory"
+	string typestr="PATH" required
+
+option  "logfile"		- "Write all log information to FILE"
+        string typestr="FILE" required
+
+option  "pidfile"		- "Write process ID to FILE"
+        string typestr="FILE" optional
+
+option  "children"		- "Start N children processes"
+        int default="8" typestr="N" optional
+
+option  "foreground"		- "Do not daemonize" flag off
+
+option  "debug"			- "Enable debug messages" flag off
+
+option  "run-as"                - "Run as specified user[:group]" string
+    typestr="user[:group]" optional
+
+option  "ssl_ca"                - "Path to SSL CA certificate" string optional

@@ -1,0 +1,27 @@
+package "sxadm"
+args "--unamed-opts --no-handle-version --no-handle-error --file-name=cmd_cluster --func-name=cluster_cmdline_parser --arg-struct-name=cluster_args_info"
+usage "
+sxadm cluster --new [options] NODE sx://[profile@]cluster
+sxadm cluster --mod [options] NODE [NODE ...] sx://[profile@]cluster"
+
+defgroup "MODE" required
+groupoption "new" N "Creates a new SX cluster with a local node" group="MODE" dependon="node-dir"
+groupoption "mod" M "Modifies an existing SX cluster" group="MODE"
+groupoption "info" I "Shows status and details of a running cluster" group="MODE"
+
+section "New cluster options"
+option "node-dir" d "Path to the node directory" string typestr="PATH" dependon="new" optional
+option "key" k "File containing a pre-generated admin authentication token or stdin if \"-\" is given (default autogenerate token)." string typestr="PATH" dependon="new" optional
+option "ssl-ca-file" - "SSL CA certificate file of the SX cluster (same file as in httpd configuration)" string typestr="PATH" dependon="new" optional
+
+section "Common options"
+option "config-dir" c "Path to SX configuration directory" string typestr="PATH" optional
+option "batch-mode" b "Turn off interactive confirmations and assume yes for all questions" optional
+option "run-as"	    - "Run as specified user[:group]" string typestr="user[:group]" optional
+
+text "
+NODE definition is a string in the form <capacity>/<address>/[internal_address]/[node_uuid]
+Examples:
+\"100G/192.0.2.1\": 100 GiB node listening on address 192.0.2.1 with automatically assigned uuid
+\"2T/192.0.2.2/198.51.100.1\": 2 TiB cluster using address 192.0.2.2 for public access and address 198.51.100.1 for internal communication
+\"123gb/203.0.113.1//e4d2c9ea-b2b1-43c4-851d-39e86a7a377c\": 123 GiB cluster on address 203.0.113.1 and uuid as specified"

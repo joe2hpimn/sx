@@ -1,0 +1,4 @@
+HTTP/1.1 414
+Content-Type: application/json
+
+{"ErrorMessage":"URL too long: request line must be <8k","NodeId":"UNKNOWN"}

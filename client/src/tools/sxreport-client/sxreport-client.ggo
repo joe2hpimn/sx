@@ -1,0 +1,13 @@
+package "sxreport-client"
+args "--unamed-opts --no-handle-version --no-handle-error"
+usage "sxreport-client [OPTIONS] [sx://[profile@]cluster/NAME]"
+
+text "\nAdditional options:\n"
+
+option "output" o "Save output to given file (default: sxreport-client-<timestamp>.log)" string optional
+
+option  "config-dir"		c "Path to SX configuration directory"
+        string typestr="PATH" optional
+
+option  "filter-dir"		- "Path to SX filter directory"
+        string typestr="PATH" optional

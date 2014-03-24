@@ -1,0 +1,8 @@
+basicConstraints = critical,CA:false
+authorityKeyIdentifier=keyid:always,issuer:always
+subjectKeyIdentifier=hash
+keyUsage=digitalSignature,keyEncipherment
+extendedKeyUsage=serverAuth,clientAuth
+crlDistributionPoints=URI:http://127.0.0.1/myca2.crl
+authorityInfoAccess=OCSP;URI:http://127.0.0.3
+subjectAltName=DNS:www.example.com

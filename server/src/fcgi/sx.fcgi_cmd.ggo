@@ -1,0 +1,9 @@
+package "sx.fcgi"
+purpose "SX FastCGI Interface"
+args "--no-handle-version --no-handle-error --no-handle-help --func-name=cmdline_args --arg-struct-name=cmdline_args_info --strict-hidden"
+usage "sx.fcgi [OPTIONS]..."
+
+option  "debug"		D "Enable debug messages" flag off
+option  "foreground"	- "Do not daemonize" flag off
+
+option  "config-file"	-	"Path to sx.fcgi config file" string typestr="PATH" optional hidden

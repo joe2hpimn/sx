@@ -1,0 +1,15 @@
+package "sxacl"
+args "--no-handle-version --no-handle-error --no-handle-help --file-name=cmd_main --func-name=main_cmdline_parser --arg-struct-name=main_args_info"
+usage "sxacl <command> [OPTIONS]..."
+
+purpose "This tool manages users and permissions."
+
+text "\nAvailable commands:\n\n"
+
+text "  useradd     Create a new user\n"
+text "  userlist    List users\n"
+text "  usergetkey  Retrieve the auth key of a user\n"
+text "  perm        Manage volume permissions\n"
+text "  list        List volume permissions\n"
+
+text "\nSee 'sxacl <command> --help' for more information on a specific command.\n"
