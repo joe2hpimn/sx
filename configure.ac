@@ -17,8 +17,8 @@ AM_CONDITIONAL([BUILD_CHECK],[test "$has_sys_check" = "no"])
 # Libfcgi
 has_sys_fcgi=no
 # sys fcgi is buggy on EINTR handling
-#AC_CHECK_LIB([fcgi], [FCGX_Accept], [FCGI_LIBS=-lfcgi; has_sys_fcgi="yes"],
-#             [has_sys_fcgi="no"])
+AC_CHECK_LIB([fcgi], [FCGX_Accept], [FCGI_LIBS=-lfcgi; has_sys_fcgi="yes"],
+             [has_sys_fcgi="no"])
 if test "$has_sys_fcgi" = "no"; then
     AC_CONFIG_SUBDIRS([3rdparty/fcgi])
 fi
