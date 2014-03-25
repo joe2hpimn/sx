@@ -678,7 +678,7 @@ void json_send_qstring(const char *s) {
 		return;
 	    }
 	    escaped[4] = hex_digits[c >> 4];
-	    escaped[5] = hex_digits[c & 7];
+	    escaped[5] = hex_digits[c & 0xf];
 	    CGI_PUTD(escaped, 6);
 	} else
 	    len++;
