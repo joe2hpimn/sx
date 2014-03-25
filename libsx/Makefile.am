@@ -67,3 +67,6 @@ include/extraversion.h.tmp:
 
 .PHONY: include/extraversion.h.tmp
 CLEANFILES = include/extraversion.h include/extraversion.h.tmp
+
+install-exec-hook:
+	test -n "$$DESTDIR" || PATH="$$PATH:/sbin" ldconfig $(libdir) || true;
