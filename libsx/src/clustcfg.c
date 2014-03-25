@@ -2474,6 +2474,7 @@ void sxi_report_configuration(sxc_client_t *sx, const char *configdir)
     d = opendir(dir);
     if (!d) {
         sxi_setsyserr(sx, SXE_ECFG, "Cannot open configuration directory '%s'", dir);
+        free(dir);
         return;
     }
     while ((dentry = readdir(d))) {
@@ -2495,6 +2496,7 @@ void sxi_report_configuration(sxc_client_t *sx, const char *configdir)
                     fclose(f);
                     sxi_info(sx, "\tSSL certificate:");
                     sxi_print_certificate_info(sx, x);
+                    X509_free(x);
                 } else
                     sxi_setsyserr(sx,SXE_ECFG,"Cannot open CA file '%s'", cluster->cafile);
             }
@@ -2503,6 +2505,7 @@ void sxi_report_configuration(sxc_client_t *sx, const char *configdir)
         sxi_list(sx, dir, dentry->d_name, 0);
     }
     closedir(d);
+    free(dir);
 }
 
 /* FIXME: interactive stuff doesn't belong in a lib! */

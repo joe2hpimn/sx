@@ -271,8 +271,12 @@ static int sxi_cbdata_decref(curlev_context_t **ctx_ptr, int *freed)
     if (ctx_ptr) {
         curlev_context_t *ctx = *ctx_ptr;
         sxc_client_t *sx;
-        if (!ctx)
-            return -1;
+        if (!ctx) {
+            /* it is already freed */
+            if (freed)
+                *freed = 1;
+            return 0;
+        }
         sx = sxi_conns_get_client(ctx->conns);
         ctx->ref--;
         *ctx_ptr = NULL;
@@ -1448,7 +1452,7 @@ static int enqueue_request(curl_events_t *e, curlev_t *ev, int re)
     struct host_info *info;
     info = get_host(e, ev->host);
     if (!info) {
-        ctx_err(ev->ctx, SXE_EMEM, "out of mem allocing host info");
+        ctx_err(ev->ctx, CURLE_OUT_OF_MEMORY, "out of mem allocing host info");
         return -1;
     }
 
@@ -1505,7 +1509,7 @@ static int queue_next(curl_events_t *e, curlev_t *ev)
     struct host_info *info;
     info = get_host(e, ev->host);
     if (!info) {
-        ctx_err(ev->ctx, SXE_EMEM, "out of mem allocing host info");
+        ctx_err(ev->ctx, CURLE_OUT_OF_MEMORY, "out of mem allocing host info");
         return -1;
     }
     info->active--;

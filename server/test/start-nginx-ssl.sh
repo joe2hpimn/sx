@@ -12,7 +12,7 @@ print_status() {
 }
 export TMPDIR=/tmp
 trap print_status EXIT
-N=2
+N=3
 if [ `uname` = "OpenBSD" ]; then
    # we hit ENOLCK otherwise
    N=1
@@ -89,6 +89,9 @@ while [ $i -le $N ]; do
 done
 rm -rf $HOME/.sx/$CLUSTER_NAME # avoid sxinit bugs
 echo "$ADMIN_KEY" | ../client/src/tools/init/sxinit --batch --host-list=$list sx://localhost
+
+MESSAGE="OK"
+exit 0
 #sudo -u $SUDO_USER ../client/src/tools/init/sxinit --no-ssl sx://`hostname` <$STOREDIR/admin.key
 ../client/src/tools/vol/sxvol create sx://localhost/volr2 -r 2 -o admin
 ../client/src/tools/acl/sxacl useradd user1 sx://localhost
@@ -96,8 +99,6 @@ echo "$ADMIN_KEY" | ../client/src/tools/init/sxinit --batch --host-list=$list sx
 ../client/src/tools/acl/sxacl perm --grant=write user1,user2 sx://localhost/volr2
 ../client/src/tools/acl/sxacl perm --grant=read user1 sx://localhost/volr2
 
-MESSAGE="OK"
-exit 0
 
 SX_DEBUG_SINGLE_VOLUMEHOST=127.0.1.1 ../client/src/tools/acl/sxacl list sx://localhost/volr2
 echo

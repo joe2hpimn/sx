@@ -650,14 +650,12 @@ static enum head_result noauth_headfn(sxi_conns_t *conns, char *ptr, size_t size
 
 int sxi_conns_root_noauth(sxi_conns_t *conns, const char *tmpcafile, int quiet)
 {
-    curlev_context_t *cbdata;
     unsigned i, hostcount, n;
     int rc;
     const char *bracket_open, *bracket_close;
     const char *query = "";
     char *url;
 
-    cbdata = sxi_cbdata_create_generic(conns, NULL, NULL);
     if (sxi_is_debug_enabled(conns->sx))
 	sxi_curlev_set_verbose(conns->curlev, 1);
     hostcount = sxi_hostlist_get_count(&conns->hlist);
@@ -678,18 +676,24 @@ int sxi_conns_root_noauth(sxi_conns_t *conns, const char *tmpcafile, int quiet)
         bracket_open = strchr(host, ':') ? "[" : "";
         bracket_close = strchr(host, ':') ? "]" : "";
         n = lenof("https://[]") + strlen(host) + 1 + strlen(query) + 1;
-        url = malloc(n);
-        snprintf(url, n, "https://%s%s%s/%s", bracket_open, host, bracket_close, query);
-        request_headers_t request = { host, url };
+        curlev_context_t *cbdata = sxi_cbdata_create_generic(conns, NULL, NULL);
+        if (!cbdata)
+            return 1;
+
         reply_t reply = {{ cbdata, noauth_headfn, errfn}, NULL};
 
-        sxi_cbdata_reset(cbdata);
         sxc_clearerr(conns->sx);/* clear errors: we're retrying on next host */
+        url = malloc(n);
+        request_headers_t request = { host, url };
+        snprintf(url, n, "https://%s%s%s/%s", bracket_open, host, bracket_close, query);
         rc = sxi_curlev_add_head(conns->curlev, &request, &reply.headers);
-        if (rc)
-            continue;
-        status = sxi_cbdata_wait(cbdata, conns->curlev, &rc);
         free(url);
+        if (rc) {
+            sxi_cbdata_free(&cbdata);
+            continue;
+        }
+        status = sxi_cbdata_wait(cbdata, conns->curlev, &rc);
+        sxi_cbdata_unref(&cbdata);
 
         if (rc == CURLE_SSL_CACERT)
             return 1;

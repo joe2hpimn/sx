@@ -2312,6 +2312,14 @@ static int gethash_cb(curlev_context_t *cctx, const unsigned char *data, size_t 
     return 0;
 }
 
+static void dctx_free(struct file_download_ctx *ctx)
+{
+    if (!ctx)
+        return;
+    free(ctx->buf);
+    free(ctx);
+}
+
 static void gethash_finish(curlev_context_t *cctx, const char *url)
 {
     sxi_conns_t *conns = sxi_cbdata_get_conns(cctx);
@@ -2353,7 +2361,7 @@ static void gethash_finish(curlev_context_t *cctx, const char *url)
     if (ctx->hashes.i != ctx->hashes.n)
         SXDEBUG("batch truncated, %d hashes not transferred", ctx->hashes.n - ctx->hashes.i);
     EVP_MD_CTX_cleanup(&ctx->ctx);
-    free(ctx);
+    dctx_free(ctx);
 }
 
 static int path_is_root(const char *path)
@@ -2486,12 +2494,11 @@ static int check_block(sxc_cluster_t *cluster, sxi_ht *hashes, const char *zeroh
                        unsigned char *buf, unsigned blocksize)
 {
     sxi_conns_t *conns = sxi_cluster_get_conns(cluster);
-    struct file_download_ctx *dctx = dctx_new(conns);
-    curlev_context_t *cbdata = sxi_cbdata_create_download(conns, NULL, dctx);
+    struct file_download_ctx *dctx;
+    curlev_context_t *cbdata;
     unsigned i;
     char chash[41];
 
-    memset(&dctx, 0, sizeof(dctx));
     for(i=0;i<hashdata->ocnt; i++) {
 	if(filesize - hashdata->offsets[i] >= blocksize) {
 	    if(pread_all(fd, buf, blocksize, hashdata->offsets[i]))
@@ -2520,6 +2527,7 @@ static int check_block(sxc_cluster_t *cluster, sxi_ht *hashes, const char *zeroh
 
     if(i == hashdata->ocnt)
         return 0;
+    dctx = dctx_new(conns);
     dctx->buf = malloc(blocksize);
     if (!dctx->buf) {
         cluster_err(SXE_EMEM, "failed to allocate buffer");
@@ -2534,6 +2542,10 @@ static int check_block(sxc_cluster_t *cluster, sxi_ht *hashes, const char *zeroh
     dctx->fd = fd;
     dctx->filesize = filesize;
     dctx->skip = i;
+    if (!(cbdata = sxi_cbdata_create_download(conns, NULL, dctx))) {
+        dctx_free(dctx);
+        return -1;
+    }
     sxi_cbdata_set_result(cbdata, 200);
     gethash_cb(cbdata, buf, blocksize);
     gethash_finish(cbdata, NULL);
@@ -2543,14 +2555,14 @@ static int check_block(sxc_cluster_t *cluster, sxi_ht *hashes, const char *zeroh
 }
 
 static int send_batch(sxi_ht *hostsmap, sxi_conns_t *conns,
-                      const char *host, curlev_context_t *cbdata, unsigned *requested)
+                      const char *host, curlev_context_t **cbdata, unsigned *requested)
 {
     unsigned i, n;
     int rc;
     char url[4096];
     const char *end = url + sizeof(url);
     sxc_client_t *sx = sxi_conns_get_client(conns);
-    struct file_download_ctx *dctx = sxi_cbdata_get_download_ctx(cbdata);
+    struct file_download_ctx *dctx = sxi_cbdata_get_download_ctx(*cbdata);
     char *q;
     SXDEBUG("sending batch of %d", dctx->hashes.n);
 
@@ -2560,6 +2572,7 @@ static int send_batch(sxi_ht *hostsmap, sxi_conns_t *conns,
         if (q + 40 > end) {
             SXDEBUG("url overflowed");
             sxi_ht_del(hostsmap, host, strlen(host)+1);
+            sxi_cbdata_unref(cbdata);
             return -1;
         }
         memcpy(q, dctx->hashes.hash[i], 40);
@@ -2568,8 +2581,9 @@ static int send_batch(sxi_ht *hostsmap, sxi_conns_t *conns,
     *q = 0;
     sxi_set_operation(sx, "download file contents", NULL, NULL, NULL);
     n = dctx->hashes.n;
-    rc = sxi_cluster_query_ev(cbdata, conns, host, REQ_GET, url, NULL, 0,
+    rc = sxi_cluster_query_ev(*cbdata, conns, host, REQ_GET, url, NULL, 0,
                               NULL, gethash_cb);
+    sxi_cbdata_unref(cbdata);
     sxi_ht_del(hostsmap, host, strlen(host)+1);
     if (rc == -1) {
         if (sxc_geterrnum(sx) == SXE_NOERROR)
@@ -2605,7 +2619,7 @@ static int multi_download(struct batch_hashes *bh, const char *dstname,
     sxi_ht *hostsmap;
     const char *host;
     unsigned char *buf;
-    curlev_context_t *cbdata;
+    curlev_context_t *cbdata = NULL;
     sxc_client_t *sx = sxi_conns_get_client(conns);
     unsigned hostcount = 0;
     struct file_download_ctx *dctx;
@@ -2697,7 +2711,7 @@ static int multi_download(struct batch_hashes *bh, const char *dstname,
             dctx->buf = malloc(blocksize);
             if (!dctx->buf) {
                 cluster_err(SXE_EMEM, "Cannot allocate buffer");
-                free(cbdata);
+                sxi_cbdata_free(&cbdata);
                 break;
             }
             dctx->fd = fd;
@@ -2718,7 +2732,7 @@ static int multi_download(struct batch_hashes *bh, const char *dstname,
         dctx->hashes.hashdata[dctx->hashes.n] = hashdata;
         outstanding++;
         if (++dctx->hashes.n >= DOWNLOAD_MAX_BLOCKS) {
-            if (send_batch(hostsmap, conns, host, cbdata, &requested) == -1)
+            if (send_batch(hostsmap, conns, host, &cbdata, &requested) == -1)
                 break;
 	    outstanding -= dctx->hashes.n;
         } else {
@@ -2735,8 +2749,9 @@ static int multi_download(struct batch_hashes *bh, const char *dstname,
       SXDEBUG("looped: %d; requested: %d", loop, requested);
       while(/*sxc_geterrnum(sx) == SXE_NOERROR &&*/
             !sxi_ht_enum_getnext(hostsmap, (const void **)&host, NULL, (const void **)&cbdata)) {
-          send_batch(hostsmap, conns, host, cbdata, &requested);
+          send_batch(hostsmap, conns, host, &cbdata, &requested);
       }
+      sxi_cbdata_free(&cbdata);
       if (1 /*sxc_geterrnum(sx) == SXE_NOERROR*/) {
         int rc = 0;
         while (finished != requested && !rc) {
