@@ -373,7 +373,7 @@ sxc_cluster_t *sxc_cluster_load(sxc_client_t *sx, const char *config_dir, const 
 	}
 
 	while(!sxc_fgetline(sx, f, &line) && line) {
-	    int res;
+	    int res = 0;
 	    if(!strncmp(line, "ClusterUUID=", lenof("ClusterUUID=")))
 		res = sxc_cluster_set_uuid(cluster, line + lenof("ClusterUUID="));
 	    else if(!strncmp(line, "Hostname=", lenof("Hostname=")))
@@ -387,10 +387,9 @@ sxc_cluster_t *sxc_cluster_load(sxc_client_t *sx, const char *config_dir, const 
 		else {
 		    SXDEBUG("Invalid config value for UseSSL: %s", p);
 		    res = 1;
-		    break;
 		}
-	    } else
-		res = 0; /* FIXME: warn here ? */
+	    } else if(strlen(line))
+		SXDEBUG("Ignoring unrecognized entry '%s'", line);
 
 	    free(line);
 	    if(res)
