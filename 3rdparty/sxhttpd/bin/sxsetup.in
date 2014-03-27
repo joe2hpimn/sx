@@ -104,6 +104,7 @@ SX_RUN_DIR=${SX_RUN_DIR:-"@localstatedir@/run/sxserver"}
 SX_NODE_SIZE=${SX_NODE_SIZE:-"1T"}
 SX_HTTP_PORT=${SX_HTTP_PORT:-"80"}
 SX_HTTPS_PORT=${SX_HTTPS_PORT:-"443"}
+SX_CHILDREN_NUM=${SX_CHILDREN_NUM:-"8"}
 SX_LOG_FILE=${SX_LOG_FILE:-"@localstatedir@/log/sxserver/sxfcgi.log"}
 
 if [ -z "$NOSSL_FLAG" ]; then
@@ -423,7 +424,7 @@ EOF
 	    if [ "$CREATED" = 0 ]; then
 		CERTCN=`openssl x509 -in "$SX_SSL_CERT_FILE" -text|grep Subject: | sed -e 's/.*CN=//'`
 		if [ "$CERTCN" != "$SX_CLUSTER_NAME" ]; then
-		    echo "WARNING: The certificate's CN ($CERTCN) doesn't match the cluster name: $SX_CLUSTER_NAME"
+		    echo "ERROR: The certificate's CN ($CERTCN) doesn't match the cluster name: $SX_CLUSTER_NAME"
 		    echo "If you changed the cluster name then you must manually remove $SX_SSL_KEY_FILE and $SX_SSL_CERT_FILE!"
 		    echo "Run $0 --force-reinit to automatically wipe the old SSL key and certificate."
 		    exit 1
@@ -433,17 +434,21 @@ EOF
 
 	if [ -n "$ADVANCED_GIVEN" ]; then
 	    echo
-	    echo "--- USER CONFIGURATION ---"
+	    echo "--- SERVER CONFIGURATION ---"
 	    while true; do
-		printf "What user should the SX daemons be running as [default=$SX_SERVER_USER]: "
+		printf "What user should the SX server be running as [default=$SX_SERVER_USER]: "
 		read NEWVAL
-		if [ `id $NEWVAL` != 0 ]; then
-		    echo "User $NEWVAL doesn't exist!"
-		else
-		    break
-		fi
+		test -z "$NEWVAL" && break
+		id $NEWVAL > /dev/null 2>&1 && break
+		echo "User $NEWVAL doesn't exist!"
 	    done
 	    SX_SERVER_USER=${NEWVAL:-$SX_SERVER_USER}
+	    SX_SERVER_GROUP=`id -n -g "$SX_SERVER_USER"`
+
+	    echo
+	    printf "Number of children processes used by the server [default=$SX_CHILDREN_NUM]: "
+	    read NEWVAL
+	    SX_CHILDREN_NUM=${NEWVAL:-$SX_CHILDREN_NUM}
 	fi
 
 	if [ -x @sbindir@/sxproxy_setup ]; then
@@ -616,6 +621,7 @@ SX_NODE_INTERNAL_IP="$SX_NODE_INTERNAL_IP"
 SX_EXISTING_NODE_IP="$SX_EXISTING_NODE_IP"
 SX_SERVER_USER="$SX_SERVER_USER"
 SX_SERVER_GROUP="$SX_SERVER_GROUP"
+SX_CHILDREN_NUM=${SX_CHILDREN_NUM:-"8"}
 SX_HTTP_PORT="$SX_HTTP_PORT"
 SX_HTTPS_PORT="$SX_HTTPS_PORT"
 SX_USE_SSL="$SX_USE_SSL"
@@ -649,7 +655,9 @@ socket="$SX_RUN_DIR/sxfcgi.socket"
 socket-mode=0660
 data-dir="$SX_DATA_DIR/data"
 run-as="$SX_SERVER_USER:$SX_SERVER_GROUP"
+children=$SX_CHILDREN_NUM
 EOF
+
 if [ -z "$NOSSL_FLAG" ]; then
     cat >>"$ETCDIR/sxserver/sxfcgi.conf" <<EOF
 ssl_ca="$SX_SSL_CERT_FILE"
