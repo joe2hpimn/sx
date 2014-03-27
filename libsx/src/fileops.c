@@ -2752,7 +2752,7 @@ static int remote_to_local(sxc_file_t *source, sxc_file_t *dest, sxc_xres_t *xre
     int ret = 1, rd = -1, d = -1, fail = 0;
     unsigned int blocksize;
     off_t curoff = 0;
-    FILE *hf, *tf;
+    FILE *hf = NULL, *tf;
     const char *dstname;
     int dstexisted;
     sxf_action_t action = SXF_ACTION_NORMAL;
