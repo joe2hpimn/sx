@@ -106,7 +106,7 @@ const sx_uuid_t *sx_hashfs_distinfo(sx_hashfs_t *h, unsigned int *version, uint6
 rc_ty sx_storage_activate(sx_hashfs_t *h, const char *name, const sx_uuid_t *node_uuid, uint8_t *admin_uid, unsigned int uid_size, uint8_t *admin_key, int key_size, const char *ssl_ca_file, const sx_nodelist_t *allnodes);
 rc_ty sx_hashfs_setnodedata(sx_hashfs_t *h, const char *name, const sx_uuid_t *node_uuid, int use_ssl, const char *ssl_ca_crt);
 int sx_hashfs_uses_secure_proto(sx_hashfs_t *h);
-void sx_hashfs_set_triggers(sx_hashfs_t *h, int job_trigger, int xfer_trigger);
+void sx_hashfs_set_triggers(sx_hashfs_t *h, int job_trigger, int xfer_trigger, int gc_trigger);
 void sx_hashfs_close(sx_hashfs_t *h);
 int sx_hashfs_check(sx_hashfs_t *h, int verbose);
 void sx_hashfs_stats(sx_hashfs_t *h);
@@ -298,5 +298,7 @@ rc_ty sx_hashfs_countjobs(sx_hashfs_t *h, sx_uid_t user_id);
 /* Xfers */
 rc_ty sx_hashfs_xfer_tonodes(sx_hashfs_t *h, int64_t expires_at, sx_hash_t *block, unsigned int size, const sx_nodelist_t *targets);
 void sx_hashfs_xfer_trigger(sx_hashfs_t *h);
+
+void sx_hashfs_gc_trigger(sx_hashfs_t *h);
 
 #endif

@@ -31,7 +31,6 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/select.h>
 
 #include "hashfs.h"
 #include "log.h"
@@ -272,9 +271,7 @@ void blockmgr_process_queue(struct blockmgr_data_t *q) {
 int blockmgr(sxc_client_t *sx, const char *self, const char *dir, int pipe) {
     struct blockmgr_data_t q;
     struct sigaction act;
-    struct timeval tv;
     sxi_db_t *xferdb;
-    fd_set rfds;
 
     sigemptyset(&act.sa_mask);
     act.sa_flags = 0;
@@ -311,29 +308,9 @@ int blockmgr(sxc_client_t *sx, const char *self, const char *dir, int pipe) {
 	goto blockmgr_err;
 
     while(!terminate) {
-	int dc, sl;
-	tv.tv_sec = BLOCKMGR_DELAY; /* Wait for first */
-	tv.tv_usec = 0;
-
-	FD_ZERO(&rfds);
-	FD_SET(pipe, &rfds);
-	while((sl = select(pipe+1, &rfds, NULL, NULL, &tv))) {
-	    char buf[256];
-	    if(sl < 0) {
-		if(errno != EINTR)
-		    PCRIT("Failed to wait for triggers");
-		break;
-	    }
-	    if(read(pipe, buf, sizeof(buf)) < 0) {
-		if(errno != EINTR)
-		    PCRIT("Error reading trigger");
-		break;
-	    }
-	    tv.tv_sec = 0;
-	    tv.tv_usec = 0; /* Poll for more */
-	    FD_ZERO(&rfds);
-	    FD_SET(pipe, &rfds);
-	}
+	int dc;
+        if (wait_trigger(pipe, BLOCKMGR_DELAY, NULL))
+            break;
 
 	INFO("Start processing block queue");
 

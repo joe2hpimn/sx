@@ -1797,7 +1797,7 @@ static struct {
     { acl_request, acl_commit, acl_abort, acl_undo }, /* JOBTYPE_VOLUME_ACL */
     { fileflush_request, fileflush_commit, fileflush_abort, fileflush_undo }, /* JOBTYPE_FLUSH_FILE */
     { filedelete_request, filedelete_commit, filedelete_abort, filedelete_undo }, /* JOBTYPE_DELETE_FILE */
-    { distribution_request, distribution_commit, distribution_abort, distribution_undo }, /* JOBTYPE_DELETE_FILE */
+    { distribution_request, distribution_commit, distribution_abort, distribution_undo }, /* JOBTYPE_DISTRIBUTION */
 };
 
 
@@ -2229,9 +2229,7 @@ int jobmgr(sxc_client_t *sx, const char *self, const char *dir, int pipe) {
     sqlite3_stmt *q_vcheck = NULL;
     struct jobmgr_data_t q;
     struct sigaction act;
-    struct timeval tv;
     sxi_db_t *eventdb;
-    fd_set rfds;
 
     sigemptyset(&act.sa_mask);
     act.sa_flags = 0;
@@ -2280,34 +2278,10 @@ int jobmgr(sxc_client_t *sx, const char *self, const char *dir, int pipe) {
     qnullify(q_vcheck);
 
     while(!terminate) {
-	int dc, sl, forced_awake = 0;
+	int dc, forced_awake = 0;
 
-	tv.tv_sec = JOBMGR_DELAY_MIN; /* Wait for first */
-	tv.tv_usec = 0;
-
-	FD_ZERO(&rfds);
-	FD_SET(pipe, &rfds);
-	while((sl = select(pipe+1, &rfds, NULL, NULL, &tv))) {
-	    char buf[256];
-	    if(sl < 0) {
-		if(errno != EINTR)
-		    PCRIT("Failed to wait for triggers");
-		break;
-	    }
-	    if(read(pipe, buf, sizeof(buf)) < 0) {
-		if(errno != EINTR)
-		    PCRIT("Error reading trigger");
-		break;
-	    }
-	    tv.tv_sec = 0;
-	    tv.tv_usec = 0; /* Poll for more */
-	    FD_ZERO(&rfds);
-	    FD_SET(pipe, &rfds);
-	    forced_awake = 1;
-	}
-
-	if(sl && errno != EINTR)
-	    break;
+        if (wait_trigger(pipe, JOBMGR_DELAY_MIN, &forced_awake))
+            break;
 
 	INFO("Start processing job queue");
 	dc = sx_hashfs_distcheck(q.hashfs);

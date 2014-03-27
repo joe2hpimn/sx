@@ -713,7 +713,7 @@ struct _sx_hashfs_t {
     sxi_hashop_t hc;
     char root_auth[AUTHTOK_ASCII_LEN+1];
 
-    int job_trigger, xfer_trigger;
+    int job_trigger, xfer_trigger, gc_trigger;
     char job_message[JOB_FAIL_REASON_SIZE];
 
     char *dir;
@@ -1186,7 +1186,7 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 	return NULL;
     memset(h->datafd, -1, sizeof(h->datafd));
     h->sx = NULL;
-    h->job_trigger = h->xfer_trigger = -1;
+    h->job_trigger = h->xfer_trigger = h->gc_trigger = -1;
     /* TODO: read from hashfs kv store */
     h->upload_minspeed = GC_UPLOAD_MINSPEED;
 
@@ -1524,11 +1524,12 @@ int sx_hashfs_uses_secure_proto(sx_hashfs_t *h) {
     return (h->ssl_ca_file != NULL);
 }
 
-void sx_hashfs_set_triggers(sx_hashfs_t *h, int job_trigger, int xfer_trigger) {
+void sx_hashfs_set_triggers(sx_hashfs_t *h, int job_trigger, int xfer_trigger, int gc_trigger) {
     if(!h)
 	return;
     h->job_trigger = job_trigger;
     h->xfer_trigger = xfer_trigger;
+    h->gc_trigger = gc_trigger;
 }
 
 void sx_hashfs_close(sx_hashfs_t *h) {
@@ -6018,6 +6019,13 @@ void sx_hashfs_job_trigger(sx_hashfs_t *h) {
 void sx_hashfs_xfer_trigger(sx_hashfs_t *h) {
     if(h && h->xfer_trigger >= 0) {
 	int w = write(h->xfer_trigger, ".", 1);
+	w = w;
+    }
+}
+
+void sx_hashfs_gc_trigger(sx_hashfs_t *h) {
+    if(h && h->gc_trigger >= 0) {
+	int w = write(h->gc_trigger, ".", 1);
 	w = w;
     }
 }

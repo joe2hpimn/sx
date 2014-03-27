@@ -35,8 +35,9 @@
 #include "gc.h"
 #include "log.h"
 #include "hashfs.h"
+#include "job-common.h"
 
-#define GC_INTERVAL (5*60 /* 5 minutes */)
+#define GC_INTERVAL (60*60 /* 1 hour for now */)
 
 static int terminate = 0;
 
@@ -49,7 +50,7 @@ static void sighandler(int signum) {
 }
 
 
-int gc(sxc_client_t *sx, const char *self, const char *dir) {
+int gc(sxc_client_t *sx, const char *self, const char *dir, int pipe) {
     struct sigaction act;
     sx_hashfs_t *hashfs;
     rc_ty rc;
@@ -74,9 +75,11 @@ int gc(sxc_client_t *sx, const char *self, const char *dir) {
 
     memset(&tv0, 0, sizeof(tv0));
     while(!terminate) {
+        int forced_awake = 0;
         /* this MUST run periodically even if we don't want to
          * GC any hashes right now */
-        sleep(GC_INTERVAL);
+        if (wait_trigger(pipe, GC_INTERVAL, NULL))
+            break;
         if (terminate)
             break;
 
@@ -87,9 +90,10 @@ int gc(sxc_client_t *sx, const char *self, const char *dir) {
         } else {
             if (terminate)
                 break;
-            sleep(60);
+            if (!forced_awake)
+                sleep(60);
             gettimeofday(&tv1, NULL);
-            if (timediff(&tv0, &tv1) > GC_INTERVAL) {
+            if (timediff(&tv0, &tv1) > GC_INTERVAL || forced_awake) {
                 struct timeval tv2;
                 sx_hashfs_gc_run(hashfs);
                 gettimeofday(&tv2, NULL);

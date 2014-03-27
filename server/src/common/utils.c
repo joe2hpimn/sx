@@ -31,6 +31,7 @@
 #include "log.h"
 #include "utils.h"
 #include <stdlib.h>
+#include <sys/select.h>
 #include <math.h>
 #include <string.h>
 #include <time.h>
@@ -652,4 +653,40 @@ const char *strptimegm(const char *s, const char *format, time_t *t) {
     if(t)
 	*t = t1+dt;
     return ret;
+}
+
+int wait_trigger(int pipe, unsigned max_wait_sec, int *forced_awake)
+{
+    struct timeval tv;
+    fd_set rfds;
+    int sl;
+
+    tv.tv_sec = max_wait_sec;
+    tv.tv_usec = 0;
+    FD_ZERO(&rfds);
+    FD_SET(pipe, &rfds);
+    if (forced_awake)
+        *forced_awake = 0;
+    while((sl = select(pipe+1, &rfds, NULL, NULL, &tv))) {
+        char buf[256];
+        if(sl < 0) {
+            if(errno != EINTR)
+                PCRIT("Failed to wait for triggers");
+            break;
+        }
+        if(read(pipe, buf, sizeof(buf)) < 0) {
+            if(errno != EINTR)
+                PCRIT("Error reading trigger");
+            break;
+        }
+        tv.tv_sec = 0;
+        tv.tv_usec = 0; /* Poll for more */
+        FD_ZERO(&rfds);
+        FD_SET(pipe, &rfds);
+        if (forced_awake)
+            *forced_awake = 1;
+    }
+    if (sl && errno != EINTR)
+        return -1;
+    return 0;
 }

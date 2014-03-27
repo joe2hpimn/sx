@@ -36,6 +36,8 @@ int utf8_validate_len(const char *str);
 int hmac_compare(const unsigned char *hmac1, const unsigned char *hmac2, size_t len);
 uint64_t MurmurHash64(const void *key, size_t len, unsigned int seed);
 
+int wait_trigger(int pipe, unsigned max_wait_sec, int *forced_awake);
+
 extern const int hexchars[256];
 static inline int hexcharval(unsigned char c) {
     return hexchars[c];
