@@ -2505,3 +2505,28 @@ int sxc_cluster_fetch_ca(sxc_cluster_t *cluster, int quiet)
         return 1;
     return 0;
 }
+
+int sxc_cluster_trigger_gc(sxc_cluster_t *cluster)
+{
+    const sxi_hostlist_t *all;
+    unsigned i, failed = 0;
+    sxc_client_t *sx;
+
+    if (!cluster)
+        return 1;
+    sx = sxi_cluster_get_client(cluster);
+    all = sxi_conns_get_hostlist(cluster->conns);
+    for (i=0;i<sxi_hostlist_get_count(all);i++) {
+        const char *host = sxi_hostlist_get_host(all, i);
+        sxi_hostlist_t hlist;
+        sxi_hostlist_init(&hlist);
+        sxi_hostlist_add_host(sx, &hlist, host);
+        sxc_clearerr(sx);
+        if (sxi_cluster_query(cluster->conns, &hlist, REQ_PUT, ".gc", "", 0, NULL, NULL, NULL) != 200) {
+            sxi_notice(sx, "Failed to trigger GC on %s: %s", host, sxc_geterrmsg(sx));
+            failed++;
+        }
+        sxi_hostlist_empty(&hlist);
+    }
+    return failed;
+}

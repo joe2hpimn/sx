@@ -6025,6 +6025,7 @@ void sx_hashfs_xfer_trigger(sx_hashfs_t *h) {
 
 void sx_hashfs_gc_trigger(sx_hashfs_t *h) {
     if(h && h->gc_trigger >= 0) {
+        INFO("triggered GC");
 	int w = write(h->gc_trigger, ".", 1);
 	w = w;
     }

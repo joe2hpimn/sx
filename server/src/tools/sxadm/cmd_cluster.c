@@ -40,6 +40,7 @@ const char *cluster_args_info_help[] = {
   "  -N, --new                  Creates a new SX cluster with a local node",
   "  -M, --mod                  Modifies an existing SX cluster",
   "  -I, --info                 Shows status and details of a running cluster",
+  "  -G, --force-gc             Force a garbage collection cycle on all noeds",
   "\nNew cluster options:",
   "  -d, --node-dir=PATH        Path to the node directory",
   "  -k, --key=PATH             File containing a pre-generated admin\n                               authentication token or stdin if \"-\" is given\n                               (default autogenerate token).",
@@ -79,6 +80,7 @@ void clear_given (struct cluster_args_info *args_info)
   args_info->new_given = 0 ;
   args_info->mod_given = 0 ;
   args_info->info_given = 0 ;
+  args_info->force_gc_given = 0 ;
   args_info->node_dir_given = 0 ;
   args_info->key_given = 0 ;
   args_info->ssl_ca_file_given = 0 ;
@@ -115,12 +117,13 @@ void init_args_info(struct cluster_args_info *args_info)
   args_info->new_help = cluster_args_info_help[3] ;
   args_info->mod_help = cluster_args_info_help[4] ;
   args_info->info_help = cluster_args_info_help[5] ;
-  args_info->node_dir_help = cluster_args_info_help[7] ;
-  args_info->key_help = cluster_args_info_help[8] ;
-  args_info->ssl_ca_file_help = cluster_args_info_help[9] ;
-  args_info->config_dir_help = cluster_args_info_help[11] ;
-  args_info->batch_mode_help = cluster_args_info_help[12] ;
-  args_info->run_as_help = cluster_args_info_help[13] ;
+  args_info->force_gc_help = cluster_args_info_help[6] ;
+  args_info->node_dir_help = cluster_args_info_help[8] ;
+  args_info->key_help = cluster_args_info_help[9] ;
+  args_info->ssl_ca_file_help = cluster_args_info_help[10] ;
+  args_info->config_dir_help = cluster_args_info_help[12] ;
+  args_info->batch_mode_help = cluster_args_info_help[13] ;
+  args_info->run_as_help = cluster_args_info_help[14] ;
   
 }
 
@@ -262,6 +265,8 @@ cluster_cmdline_parser_dump(FILE *outfile, struct cluster_args_info *args_info)
     write_into_file(outfile, "mod", 0, 0 );
   if (args_info->info_given)
     write_into_file(outfile, "info", 0, 0 );
+  if (args_info->force_gc_given)
+    write_into_file(outfile, "force-gc", 0, 0 );
   if (args_info->node_dir_given)
     write_into_file(outfile, "node-dir", args_info->node_dir_orig, 0);
   if (args_info->key_given)
@@ -330,6 +335,7 @@ reset_group_MODE(struct cluster_args_info *args_info)
   args_info->new_given = 0 ;
   args_info->mod_given = 0 ;
   args_info->info_given = 0 ;
+  args_info->force_gc_given = 0 ;
 
   args_info->MODE_group_counter = 0;
 }
@@ -558,6 +564,7 @@ cluster_cmdline_parser_internal (
         { "new",	0, NULL, 'N' },
         { "mod",	0, NULL, 'M' },
         { "info",	0, NULL, 'I' },
+        { "force-gc",	0, NULL, 'G' },
         { "node-dir",	1, NULL, 'd' },
         { "key",	1, NULL, 'k' },
         { "ssl-ca-file",	1, NULL, 0 },
@@ -567,7 +574,7 @@ cluster_cmdline_parser_internal (
         { 0,  0, 0, 0 }
       };
 
-      c = getopt_long (argc, argv, "hVNMId:k:c:b", long_options, &option_index);
+      c = getopt_long (argc, argv, "hVNMIGd:k:c:b", long_options, &option_index);
 
       if (c == -1) break;	/* Exit from `while (1)' loop.  */
 
@@ -633,6 +640,21 @@ cluster_cmdline_parser_internal (
               &(local_args_info.info_given), optarg, 0, 0, ARG_NO,
               check_ambiguity, override, 0, 0,
               "info", 'I',
+              additional_error))
+            goto failure;
+        
+          break;
+        case 'G':	/* Force a garbage collection cycle on all noeds.  */
+        
+          if (args_info->MODE_group_counter && override)
+            reset_group_MODE (args_info);
+          args_info->MODE_group_counter += 1;
+        
+          if (update_arg( 0 , 
+               0 , &(args_info->force_gc_given),
+              &(local_args_info.force_gc_given), optarg, 0, 0, ARG_NO,
+              check_ambiguity, override, 0, 0,
+              "force-gc", 'G',
               additional_error))
             goto failure;
         

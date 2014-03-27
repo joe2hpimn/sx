@@ -92,6 +92,8 @@ int sxc_cluster_remove(sxc_cluster_t *cluster, const char *config_dir, const cha
 int sxc_cluster_fetchnodes(sxc_cluster_t *cluster);
 sxc_cluster_t *sxc_cluster_load_and_update(sxc_client_t *sx, const char *config_dir, const char *cluster_name, const char *profile_name);
 
+int sxc_cluster_trigger_gc(sxc_cluster_t *cluster);
+
 typedef struct _sxc_cluster_lu_t sxc_cluster_lu_t;
 sxc_cluster_lu_t *sxc_cluster_listusers(sxc_cluster_t *cluster);
 int sxc_cluster_listusers_next(sxc_cluster_lu_t *lu, char **user_name, int *is_admin);

@@ -35,7 +35,6 @@
 #include "gc.h"
 #include "log.h"
 #include "hashfs.h"
-#include "job-common.h"
 
 #define GC_INTERVAL (60*60 /* 1 hour for now */)
 
@@ -78,8 +77,10 @@ int gc(sxc_client_t *sx, const char *self, const char *dir, int pipe) {
         int forced_awake = 0;
         /* this MUST run periodically even if we don't want to
          * GC any hashes right now */
-        if (wait_trigger(pipe, GC_INTERVAL, NULL))
+        if (wait_trigger(pipe, GC_INTERVAL, &forced_awake))
             break;
+        if (forced_awake)
+            INFO("GC triggered by user");
         if (terminate)
             break;
 

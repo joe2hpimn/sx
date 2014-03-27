@@ -37,5 +37,6 @@ void fcgi_acl_volume(void);
 void fcgi_list_acl(const sx_hashfs_volume_t *vol);
 void fcgi_volume_onoff(int enable);
 void fcgi_delete_volume(void);
+void fcgi_trigger_gc(void);
 
 #endif

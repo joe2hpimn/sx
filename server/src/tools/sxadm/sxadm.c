@@ -728,6 +728,13 @@ static int info_node(sxc_client_t *sx, const char *path)
     return ret;
 }
 
+static int force_gc_cluster(sxc_client_t *sx, struct cluster_args_info *args)
+{
+    sxc_cluster_t *clust = cluster_load(sx, args);
+    if(!clust)
+	return 1;
+    return sxc_cluster_trigger_gc(clust);
+}
 
 struct cb_cstatus_ctx {
     sx_nodelist_t *one;
@@ -1125,6 +1132,8 @@ int main(int argc, char **argv) {
 	    ret = info_cluster(sx, &cluster_args);
 	else if(cluster_args.mod_given && cluster_args.inputs_num >= 2)
 	    ret = change_cluster(sx, &cluster_args);
+	else if(cluster_args.force_gc_given && cluster_args.inputs_num == 1)
+	    ret = force_gc_cluster(sx, &cluster_args);
 	else
 	    cluster_cmdline_parser_print_help();
     cluster_out:

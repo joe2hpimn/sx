@@ -155,6 +155,9 @@ void volume_ops(void) {
 	    /* Syncronize global objects (s2s) - CLUSTER required */
 	    quit_unless_has(PRIV_CLUSTER);
             fcgi_sync_globs();
+        } else if (!strcmp(volume, ".gc")) {
+	    quit_unless_has(PRIV_ADMIN);
+            fcgi_trigger_gc();
 	} else if(!strcmp(".nodes", volume)) {
 	    /* Update distribution (sxadm entry) - ADMIN required */
 	    fcgi_set_nodes();

@@ -848,3 +848,11 @@ void fcgi_delete_volume(void) {
 
     CGI_PUTS("\r\n");
 }
+
+void fcgi_trigger_gc(void)
+{
+    auth_complete();
+    quit_unless_authed();
+    sx_hashfs_gc_trigger(hashfs);
+    CGI_PUTS("\r\n");
+}

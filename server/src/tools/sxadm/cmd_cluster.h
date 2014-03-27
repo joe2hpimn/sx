@@ -42,6 +42,7 @@ struct cluster_args_info
   const char *new_help; /**< @brief Creates a new SX cluster with a local node help description.  */
   const char *mod_help; /**< @brief Modifies an existing SX cluster help description.  */
   const char *info_help; /**< @brief Shows status and details of a running cluster help description.  */
+  const char *force_gc_help; /**< @brief Force a garbage collection cycle on all noeds help description.  */
   char * node_dir_arg;	/**< @brief Path to the node directory.  */
   char * node_dir_orig;	/**< @brief Path to the node directory original value given at command line.  */
   const char *node_dir_help; /**< @brief Path to the node directory help description.  */
@@ -64,6 +65,7 @@ struct cluster_args_info
   unsigned int new_given ;	/**< @brief Whether new was given.  */
   unsigned int mod_given ;	/**< @brief Whether mod was given.  */
   unsigned int info_given ;	/**< @brief Whether info was given.  */
+  unsigned int force_gc_given ;	/**< @brief Whether force-gc was given.  */
   unsigned int node_dir_given ;	/**< @brief Whether node-dir was given.  */
   unsigned int key_given ;	/**< @brief Whether key was given.  */
   unsigned int ssl_ca_file_given ;	/**< @brief Whether ssl-ca-file was given.  */
