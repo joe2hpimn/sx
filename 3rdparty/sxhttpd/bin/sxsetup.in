@@ -167,13 +167,13 @@ ask_questions() {
 	echo
 	echo "Clients will access your cluster using a sx://clustername/volume/path URI."
 	echo "It is recommended to use a FQDN for clustername, but not required. Refer to the documentation for more info."
-	printf "Enter the cluster name (use the same across all nodes) [$SX_CLUSTER_NAME]: "
-	read NEWVAL
-	SX_CLUSTER_NAME=${NEWVAL:-$SX_CLUSTER_NAME}
-	if [ -z "$SX_CLUSTER_NAME" ]; then
+	while true; do
+	    printf "Enter the cluster name (use the same across all nodes) [$SX_CLUSTER_NAME]: "
+	    read NEWVAL
+	    SX_CLUSTER_NAME=${NEWVAL:-$SX_CLUSTER_NAME}
+	    test -n "$SX_CLUSTER_NAME" && break
 	    echo "Cluster name must be provided!"
-	    exit 1
-	fi
+	done
 
 	echo
 	echo "--- DATA STORAGE ---"
@@ -203,20 +203,23 @@ ask_questions() {
 	echo
 	echo "Please specify the maximum size of the storage for this node. You can"
 	echo "use M, G and T suffixes, eg. 100T for 100 terabytes."
-	printf "Maximum size [default=$SX_NODE_SIZE]: "
-	read NEWVAL
-	SX_NODE_SIZE=${NEWVAL:-$SX_NODE_SIZE}
-	if [ -z "$SX_NODE_SIZE" ]; then
+	while true; do
+	    printf "Maximum size [default=$SX_NODE_SIZE]: "
+	    read NEWVAL
+	    SX_NODE_SIZE=${NEWVAL:-$SX_NODE_SIZE}
+	    test -n "$SX_NODE_SIZE" && break
 	    echo "Maximum node size must be provided"
-	    exit 1
-	fi
+	done
 
 	echo
 	echo "--- NODE ADDRESS ---"
 	echo
-	printf "Enter the IP address of this node [default=$SX_NODE_IP]: "
-	read NEWVAL
-	SX_NODE_IP=${NEWVAL:-$SX_NODE_IP}
+	while true; do
+	    printf "Enter the IP address of this node [default=$SX_NODE_IP]: "
+	    read NEWVAL
+	    SX_NODE_IP=${NEWVAL:-$SX_NODE_IP}
+	    test -n "$SX_NODE_IP" && break
+	done
 
 	check_port "$SX_NODE_IP" $SX_HTTP_PORT
 	if [ -z "$NOSSL_FLAG" ]; then
@@ -236,9 +239,12 @@ ask_questions() {
 	    ANSWER=${ANSWER:-$DEFAULTANSWER}
 	    if [ "$ANSWER" != "n" ]; then
 		echo
-		printf "Enter the internal IP address of this node [default=$SX_NODE_INTERNAL_IP]: "
-		read NEWVAL
-		SX_NODE_INTERNAL_IP=${NEWVAL:-$SX_NODE_INTERNAL_IP}
+		while true; do
+		    printf "Enter the internal IP address of this node [default=$SX_NODE_INTERNAL_IP]: "
+		    read NEWVAL
+		    SX_NODE_INTERNAL_IP=${NEWVAL:-$SX_NODE_INTERNAL_IP}
+		    test -n "$SX_NODE_INTERNAL_IP" && break
+		done
 		check_port "$SX_NODE_INTERNAL_IP" $SX_HTTP_PORT
 		if [ -z "$NOSSL_FLAG" ]; then
 		    check_port "$SX_NODE_INTERNAL_IP" $SX_HTTPS_PORT
@@ -290,22 +296,28 @@ ask_questions() {
 	    echo "If you don't have it, run 'sxserver status' on $SX_EXISTING_NODE_IP."
 	    echo "Below you can provide the key itself or path to the file containing the key."
 
-	    printf "Admin key or path to key-file: "
-	    # TODO: save this answer if it is a file
-	    read SXADMINKEY
-	    if [ -z "$SXADMINKEY" ]; then
-		echo "Admin key is required to connect to the existing cluster"
-		exit 1
-	    elif [ -r "$SXADMINKEY" ]; then 
-		if [ -z "`cat $SXADMINKEY | grep "0DPiKuNIrrVmD8IUCuw1hQxNqZ"`" ]; then
-		    echo "$SXADMINKEY doesn't contain a valid admin key"
-		    exit 1
+	    while true; do
+		printf "Admin key or path to key-file [default=$SX_ADMIN_KEY]: "
+		read NEWVAL
+		SX_ADMIN_KEY=${NEWVAL:-$SX_ADMIN_KEY}
+		if [ -z "$SX_ADMIN_KEY" ]; then
+		    echo "Admin key is required to connect to the existing cluster"
+		    SX_ADMIN_KEY=
+		    continue
+		elif [ -r "$SX_ADMIN_KEY" ]; then 
+		    if [ -z "`cat $SX_ADMIN_KEY | grep "0DPiKuNIrrVmD8IUCuw1hQxNqZ"`" ]; then
+			echo "$SX_ADMIN_KEY doesn't contain a valid admin key"
+			SX_ADMIN_KEY=
+			continue
+		    fi
+		    SX_ADMIN_KEY=`cat $SX_ADMIN_KEY`
+		elif [ -z "`echo $SX_ADMIN_KEY | grep "0DPiKuNIrrVmD8IUCuw1hQxNqZ"`" ]; then
+		    echo "'$SX_ADMIN_KEY' is not a valid admin key"
+		    SX_ADMIN_KEY=
+		    continue
 		fi
-	    elif [ -z "`echo $SXADMINKEY | grep "0DPiKuNIrrVmD8IUCuw1hQxNqZ"`" ]; then
-		echo "'$SXADMINKEY' is not a valid admin key"
-		exit 1
-	    fi
-	    SX_ADMIN_KEY=$SXADMINKEY
+		break
+	    done
 	fi
 
 	echo
@@ -465,34 +477,31 @@ EOF
 
 	if [ "$SXPROXYCFG" = "1" ]; then
 	    echo
-	    printf "S3 (DNS) name [default=$SXPROXY_HOST]: "
-	    read NEWVAL
-	    SXPROXY_HOST=${NEWVAL:-$SXPROXY_HOST}
-	    if [ -z "$SXPROXY_HOST" ]; then
-		echo "S3 DNS name must be provided"
-		exit 1
-	    fi
+	    while true; do
+		printf "S3 (DNS) name [default=$SXPROXY_HOST]: "
+		read NEWVAL
+		SXPROXY_HOST=${NEWVAL:-$SXPROXY_HOST}
+		test -n "$SXPROXY_HOST" && break
+	    done
 
 	    echo
 	    echo "Please specify the replica count for volumes created through sxproxy."
-	    printf "Default volume replica count [default=$SXPROXY_REPLICA]: "
-	    read NEWVAL
-	    SXPROXY_REPLICA=${NEWVAL:-$SXPROXY_REPLICA}
-	    if [ -z "$SXPROXY_REPLICA" ]; then
-		echo "Default volume replica count must be provided"
-		exit 1
-	    fi
+	    while true; do
+		printf "Default volume replica count [default=$SXPROXY_REPLICA]: "
+		read NEWVAL
+		SXPROXY_REPLICA=${NEWVAL:-$SXPROXY_REPLICA}
+		test -n "$SXPROXY_REPLICA" && break
+	    done
 
 	    echo
 	    echo "Please specify the maximum size of volumes created through sxproxy. You can"
 	    echo "use M, G and T suffixes, eg. 1T for 1 terabytes."
-	    printf "Default volume size [default=$SXPROXY_VOLUMESIZE]: "
-	    read NEWVAL
-	    SXPROXY_VOLUMESIZE=${NEWVAL:-$SXPROXY_VOLUMESIZE}
-	    if [ -z "$SXPROXY_VOLUMESIZE" ]; then
-		echo "Default volume size must be provided"
-		exit 1
-	    fi
+	    while true; do
+		printf "Default volume size [default=$SXPROXY_VOLUMESIZE]: "
+		read NEWVAL
+		SXPROXY_VOLUMESIZE=${NEWVAL:-$SXPROXY_VOLUMESIZE}
+		test -n "$SXPROXY_VOLUMESIZE" && break
+	    done
 	fi
 
 	echo
@@ -531,6 +540,7 @@ if [ "$CONFIG_FILE_GIVEN" = "yes" ]; then
 	exit 1
     fi
 
+    test -r "$SX_ADMIN_KEY" && SX_ADMIN_KEY=`cat $SX_ADMIN_KEY`
     if [ -n "$SX_ADMIN_KEY" -a -z "`echo $SX_ADMIN_KEY | grep "0DPiKuNIrrVmD8IUCuw1hQxNqZ"`" ]; then
 	echo "ERROR: SX_ADMIN_KEY doesn't specify a valid admin key"
 	exit 1
