@@ -802,17 +802,28 @@ static struct timeout_data *get_timeout_data(sxi_conns_t *conns, const char *hos
 
 unsigned int sxi_conns_get_timeout(sxi_conns_t *conns, const char *host) {
     struct timeout_data *t = get_timeout_data(conns, host);
+    const char *mulstr;
+    unsigned int ret;
 
     if(!t)
-	return timeouts[INITIAL_TIMEOUT_IDX];
-
-    if(t->blacklist_expires > time(NULL)) {
-	t->was_blacklisted = 1;
-	return 1;
+	ret = timeouts[INITIAL_TIMEOUT_IDX];
+    else {
+	if(t->blacklist_expires > time(NULL)) {
+	    t->was_blacklisted = 1;
+	    return 1;
+	}
+	t->was_blacklisted = 0;
+	ret = timeouts[t->idx];
     }
-
-    t->was_blacklisted = 0;
-    return timeouts[t->idx];
+    if((mulstr = getenv("SX_DEBUG_TIMEOUT_MULTIPLIER"))) {
+	char *eom;
+	double mul = strtod(mulstr, &eom);
+	if(!mul || *eom)
+	    fprintf(stderr, "Ignoring bad SX_DEBUG_TIMEOUT_MULTIPLIER (%s)", mulstr);
+	else
+	    ret = mul * (double)ret;
+    }
+    return ret;
 }
 
 int sxi_conns_set_timeout(sxi_conns_t *conns, const char *host, int timeout_action) {
