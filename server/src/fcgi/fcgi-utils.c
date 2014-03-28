@@ -130,9 +130,15 @@ static void print_html(int status, const char *title, int errnum, const char *er
         </div>\
         <div style=\"position: absolute; bottom:1em; right: 1em; border: #ddd 1px solid; font: 10px normal; color: #07c;\">");
 
+    unsigned int version;
     const sx_uuid_t *cluster_uuid = sx_hashfs_uuid(hashfs);
+    const sx_uuid_t *dist_uuid = sx_hashfs_distinfo(hashfs, &version, NULL);
     sx_uuid_t node_uuid;
-    CGI_PRINTF("Cluster UUID: %s<br>Node UUID: %s<br>Distribution: %lld", cluster_uuid->string, sx_hashfs_self_uuid(hashfs, &node_uuid) == OK ? node_uuid.string : "&lt;not assigned yet&gt;");
+    CGI_PRINTF("Cluster UUID: %s<br>Node UUID: %s<br>Distribution: ", cluster_uuid->string, sx_hashfs_self_uuid(hashfs, &node_uuid) == OK ? node_uuid.string : "&lt;not assigned yet&gt;");
+    if(dist_uuid)
+	CGI_PRINTF("%s(%u)", dist_uuid->string, version);
+    else
+	CGI_PUTS("&lt;not defined yet&gt;");
     CGI_PUTS("\
         </div>\
     </body>\
