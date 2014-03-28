@@ -26,6 +26,7 @@
 #include "libsx-int.h"
 #include "misc.h"
 #include "cert.h"
+#include "sxproto.h"
 #include <curl/curl.h>
 #include <errno.h>
 #include <stdlib.h>
@@ -47,7 +48,7 @@ typedef struct curlev {
     head_cb_t head;
     finish_cb_t finish;/* called when response is full retrieved */
     request_data_t body;
-    int verb;
+    enum sxi_cluster_verb verb;
     reply_t reply;
     struct curl_slist *resolve;
     unsigned int timeout;
@@ -426,17 +427,22 @@ static CURLMcode curl_multi_wait(CURLM *multi_handle,
 }
 #endif
 
-static int set_headers(curl_events_t *e, curlev_t *ev, const request_headers_t *headers)
+typedef struct {
+  const char *field;
+  const char *value;
+} header_t;
+
+static int set_headers(curl_events_t *e, curlev_t *ev, const header_t *headers, unsigned n)
 {
     char header[512];
     unsigned i;
 
-    for (i=0;i<headers->n;i++) {
+    for (i=0;i<n;i++) {
         struct curl_slist *slist_next;
 
-        const header_t *h = &headers->headers[i];
+        const header_t *h = &headers[i];
         if (!h->field)
-            return -1;
+            continue;
         snprintf(header,sizeof(header),"%s: %s",h->field,h->value ? h->value : "");
         slist_next = curl_slist_append(ev->slist, header);
         if (!slist_next) {
@@ -683,6 +689,7 @@ static void resolve(curlev_t *ev, const char *host)
 #endif
 }
 
+static int compute_headers_url(curl_events_t *e, curlev_t *ev, curlev_t *src);
 static int curlev_apply(curl_events_t *e, curlev_t *ev, curlev_t *src)
 {
     CURLcode rc;
@@ -715,6 +722,10 @@ static int curlev_apply(curl_events_t *e, curlev_t *ev, curlev_t *src)
     ev->curl = handle;
     do {
         resolve(ev, src->host);
+        if (compute_headers_url(e, ev, src) == -1) {
+            EVDEBUG(ev, "compute_headers_url failed");
+            break;
+        }
         rc = curl_easy_setopt(ev->curl, CURLOPT_URL, src->url);
         if (curl_check(ev,rc, "set CURLOPT_URL") == -1)
             break;
@@ -750,15 +761,13 @@ static int curlev_apply(curl_events_t *e, curlev_t *ev, curlev_t *src)
         if (rc == CURLE_OK) {
             /* set verb */
             switch (ev->verb) {
-            case CURLOPT_HTTPGET:
+            case REQ_GET:
                 /* nothing needs to be set */
                 break;
-            case CURLOPT_NOBODY:
-                /* HEAD */
+            case REQ_HEAD:
                 rc = curl_easy_setopt(ev->curl, CURLOPT_NOBODY, 1);
                 break;
-            case CURLOPT_UPLOAD:
-                /* PUT */
+            case REQ_PUT:
                 rc = curl_easy_setopt(ev->curl, CURLOPT_POST, 1);
                 if (rc == CURLE_OK)
                     rc = curl_easy_setopt(ev->curl, CURLOPT_CUSTOMREQUEST, "PUT");
@@ -767,8 +776,7 @@ static int curlev_apply(curl_events_t *e, curlev_t *ev, curlev_t *src)
                 if (rc == CURLE_OK)
                     rc = curl_easy_setopt(ev->curl, CURLOPT_POSTFIELDS, ev->body.data);
                 break;
-            case CURLOPT_CUSTOMREQUEST:
-                /* DELETE */
+            case REQ_DELETE:
                 rc = curl_easy_setopt(ev->curl, CURLOPT_CUSTOMREQUEST, "DELETE");
                 break;
             }
@@ -798,6 +806,192 @@ static int curlev_apply(curl_events_t *e, curlev_t *ev, curlev_t *src)
     return ret;
 }
 
+static int hmac_update_str(sxc_client_t *sx, HMAC_CTX *ctx, const char *str) {
+    int r = sxi_hmac_update(ctx, (unsigned char *)str, strlen(str));
+    if(r)
+	r = sxi_hmac_update(ctx, (unsigned char *)"\n", 1);
+    if(!r) {
+	SXDEBUG("hmac_update failed for '%s'", str);
+	sxi_seterr(sx, SXE_ECRYPT, "Cluster query failed: HMAC calculation failed");
+    }
+    return r;
+}
+
+static int compute_date(sxc_client_t *sx, char buf[32], time_t diff, HMAC_CTX *hmac_ctx) {
+    const char *month[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
+    const char *wkday[] = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
+    time_t t = time(NULL) + diff;
+    struct tm ts;
+
+    if(!gmtime_r(&t, &ts)) {
+	SXDEBUG("failed to get time");
+	sxi_seterr(sx, SXE_EARG, "Cannot get current time: invalid argument");
+	return -1;
+    }
+    sprintf(buf, "%s, %02u %s %04u %02u:%02u:%02u GMT", wkday[ts.tm_wday], ts.tm_mday, month[ts.tm_mon], ts.tm_year + 1900, ts.tm_hour, ts.tm_min, ts.tm_sec);
+
+    if(!hmac_update_str(sx, hmac_ctx, buf))
+	return -1;
+    return 0;
+}
+
+static const char *verbstr(int verb)
+{
+    switch (verb) {
+        case REQ_GET:
+            return "GET";
+        case REQ_HEAD:
+            return "HEAD";
+        case REQ_PUT:
+            return "PUT";
+        case REQ_DELETE:
+            return "DELETE";
+        default:
+            return "??";
+    }
+}
+
+#define conns_err(...) do { if(conns) sxi_seterr(sx, __VA_ARGS__); } while(0)
+static int compute_headers_url(curl_events_t *e, curlev_t *ev, curlev_t *src)
+{
+    char auth[lenof("SKY ") + AUTHTOK_ASCII_LEN + 1], *sendtok = NULL;
+    unsigned char bintoken[AUTHTOK_BIN_LEN];
+    const unsigned char *content;
+    char datebuf[32];
+    unsigned content_size;
+    unsigned int keylen;
+    HMAC_CTX hmac_ctx;
+    char header[512];
+    sxi_conns_t *conns;
+    sxc_client_t *sx;
+    int rc;
+    const char *content_type_field = ev->verb == CURLOPT_UPLOAD ? "Content-Type" : NULL;
+    const char *content_type_value = content_type_field ? "application/octet-stream" : NULL;
+
+    header_t headers[] = {
+        {"User-Agent", sxi_get_useragent()},
+        {"Expect", NULL},
+        {"Date", datebuf },
+        {"Authorization", auth },
+        { content_type_field, content_type_value }
+    };
+
+    memset(bintoken, 0, sizeof(bintoken));
+    conns = e->conns;
+    sx = sxi_conns_get_client(conns);
+    /* we sign request as late as possible to avoid
+     * clock drift errors from the server */
+    HMAC_CTX_init(&hmac_ctx);
+    do {
+        struct curl_slist *slist_next;
+        const char *verb = verbstr(src->verb);
+        const char *token = sxi_conns_get_auth(e->conns);
+        const char *query;
+        char *url;
+	rc = -1;
+
+        content_size = src->body.size;
+        content = src->body.data;
+
+        keylen = AUTHTOK_BIN_LEN;
+        if (!token) {
+            rc = 0;
+            break;
+        }
+        rc = curl_easy_setopt(ev->curl, CURLOPT_URL, src->url);
+        if (curl_check(ev, rc, "set URL"))
+            break;
+        rc = curl_easy_getinfo(ev->curl, CURLINFO_EFFECTIVE_URL, &url);
+        if (curl_check(ev, rc, "get URL"))
+            break;
+
+        if (!strncmp(url, "http://", 7))
+            query = url + 7;
+        else if(!strncmp(url, "https://", 8))
+            query = url + 8;
+        else {
+            conns_err(SXE_EARG, "Invalid URL: %s", url);
+            break;
+        }
+        query = strchr(query, '/');
+        if (!query) {
+            conns_err(SXE_EARG, "Cluster query failed: Bad URL");
+            break;
+        }
+        query++;
+        if(sxi_b64_dec(sx, token, bintoken, &keylen) || keylen != AUTHTOK_BIN_LEN) {
+            EVDEBUG(ev, "failed to decode the auth token");
+            conns_err(SXE_EAUTH, "Cluster query failed: invalid authentication token");
+            break;
+        }
+
+        if(!sxi_hmac_init_ex(&hmac_ctx, bintoken + AUTH_UID_LEN, AUTH_KEY_LEN, EVP_sha1(), NULL)) {
+	    EVDEBUG(ev, "failed to init hmac context");
+	    conns_err(SXE_ECRYPT, "Cluster query failed: HMAC calculation failed");
+	    break;
+	}
+
+	if(!hmac_update_str(sx, &hmac_ctx, verb) || !hmac_update_str(sx, &hmac_ctx, query))
+	    break;
+
+	if (compute_date(sx, datebuf, sxi_conns_get_timediff(e->conns), &hmac_ctx) == -1)
+	    break;
+	if(content_size) {
+	    char content_hash[41];
+	    unsigned char d[20];
+	    EVP_MD_CTX ch_ctx;
+
+	    if(!EVP_DigestInit(&ch_ctx, EVP_sha1())) {
+		EVDEBUG(ev, "failed to init content digest");
+		conns_err(SXE_ECRYPT, "Cannot compute hash: unable to initialize crypto library");
+		break;
+	    }
+	    if(!EVP_DigestUpdate(&ch_ctx, content, content_size) || !EVP_DigestFinal(&ch_ctx, d, NULL)) {
+		EVDEBUG(ev, "failed to update content digest");
+		conns_err(SXE_ECRYPT, "Cannot compute hash: crypto library failure");
+		EVP_MD_CTX_cleanup(&ch_ctx);
+		break;
+	    }
+	    EVP_MD_CTX_cleanup(&ch_ctx);
+
+	    sxi_bin2hex(d, sizeof(d), content_hash);
+	    content_hash[sizeof(content_hash)-1] = '\0';
+
+	    if(!hmac_update_str(sx, &hmac_ctx, content_hash))
+		break;
+	} else if(!hmac_update_str(sx, &hmac_ctx, "da39a3ee5e6b4b0d3255bfef95601890afd80709"))
+	    break;
+
+	keylen = AUTH_KEY_LEN;
+	if(!sxi_hmac_final(&hmac_ctx, bintoken + AUTH_UID_LEN, &keylen) || keylen != AUTH_KEY_LEN) {
+	    EVDEBUG(ev, "failed to finalize hmac calculation");
+	    conns_err(SXE_ECRYPT, "Cluster query failed: HMAC finalization failed");
+	    break;
+	}
+        if(!(sendtok = sxi_b64_enc(sx, bintoken, AUTHTOK_BIN_LEN))) {
+            EVDEBUG(ev, "failed to encode computed auth token");
+            break;
+        }
+
+        snprintf(auth, sizeof(auth), "SKY %s", sendtok);
+
+        slist_next = curl_slist_append(src->slist, header);
+        if (!slist_next) {
+            conns_err(SXE_EMEM, "OOM allocating slist");
+            break;
+        }
+        src->slist = slist_next;
+        rc = set_headers(e, ev, headers, sizeof(headers)/sizeof(headers[0]));
+        if (curl_check(ev,rc,"set headers") == -1)
+            break;
+
+	rc = 0;
+    } while(0);
+    free(sendtok);
+    HMAC_CTX_cleanup(&hmac_ctx);
+    return rc;
+}
+
 static int enqueue_request(curl_events_t *e, curlev_t *ev, int re)
 {
     struct host_info *info;
@@ -817,7 +1011,7 @@ static int enqueue_request(curl_events_t *e, curlev_t *ev, int re)
             curlev_t *o;
             o = &info->reuse[i];
             if (!o->ctx) {
-                /* free */
+                /* free slot */
                 if (curlev_apply(e, o, ev) == -1) {
                     EVDEBUG(ev,"curlev_apply failed");
                     return -1;
@@ -877,7 +1071,7 @@ static int queue_next(curl_events_t *e, curlev_t *ev)
 
 static int ev_add(curl_events_t *e,
                   const request_headers_t *headers,
-                  const request_data_t *body, int verb,
+                  const request_data_t *body, enum sxi_cluster_verb verb,
                   const reply_t *reply)
 {
     CURLcode rc;
@@ -929,9 +1123,6 @@ static int ev_add(curl_events_t *e,
             ctx_err(ctx, CURLE_BAD_FUNCTION_ARGUMENT, "head callback not set\n");
             break;
         }
-        rc = set_headers(e, ev, headers);
-        if (curl_check(ev,rc,"set headers") == -1)
-            break;
         ev->host = strdup(headers->host);
         if (!ev->host)
             break;
@@ -967,7 +1158,7 @@ static int ev_add(curl_events_t *e,
 
 int sxi_curlev_add_get(curl_events_t *e, const request_headers_t *headers, const reply_t *reply)
 {
-    return ev_add(e, headers, NULL, CURLOPT_HTTPGET, reply);
+    return ev_add(e, headers, NULL, REQ_GET, reply);
 }
 
 static size_t nobody(char *ptr, size_t size, size_t nmemb, curlev_context_t *ctx)
@@ -984,13 +1175,13 @@ int sxi_curlev_add_head(curl_events_t *e, const request_headers_t *headers,
         return -1;
     }
     reply_t reply = { *reply_headers, nobody };
-    return ev_add(e, headers, NULL, CURLOPT_NOBODY, &reply);
+    return ev_add(e, headers, NULL, REQ_HEAD, &reply);
 }
 
 int sxi_curlev_add_delete(curl_events_t *e, const request_headers_t *headers,
                           const reply_t *reply)
 {
-    return ev_add(e, headers, NULL, CURLOPT_CUSTOMREQUEST, reply);
+    return ev_add(e, headers, NULL, REQ_DELETE, reply);
 }
 
 int sxi_curlev_add_put(curl_events_t *e,
@@ -998,7 +1189,7 @@ int sxi_curlev_add_put(curl_events_t *e,
                        const request_data_t *req_data,
                        const reply_t *reply)
 {
-    return ev_add(e, req_headers, req_data, CURLOPT_UPLOAD, reply);
+    return ev_add(e, req_headers, req_data, REQ_PUT, reply);
 }
 
 int sxi_curlev_poll(curl_events_t *e)

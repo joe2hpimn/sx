@@ -43,14 +43,8 @@ typedef struct {
 } reply_t;
 
 typedef struct {
-  const char *field;
-  const char *value;
-} header_t;
-
-typedef struct {
   const char *host;
   const char *url;
-  const header_t *headers;
   size_t n;
 } request_headers_t;
 

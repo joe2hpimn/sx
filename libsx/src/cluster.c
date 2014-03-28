@@ -217,51 +217,6 @@ sxi_hostlist_t *sxi_conns_get_hostlist(sxi_conns_t *conns) {
     return &conns->hlist;
 }
 
-
-static int hmac_update_str(sxc_client_t *sx, HMAC_CTX *ctx, const char *str) {
-    int r = sxi_hmac_update(ctx, (unsigned char *)str, strlen(str));
-    if(r)
-	r = sxi_hmac_update(ctx, (unsigned char *)"\n", 1);
-    if(!r) {
-	SXDEBUG("hmac_update failed for '%s'", str);
-	sxi_seterr(sx, SXE_ECRYPT, "Cluster query failed: HMAC calculation failed");
-    }
-    return r;
-}
-
-static int compute_date(sxc_client_t *sx, char buf[32], time_t diff, HMAC_CTX *hmac_ctx) {
-    const char *month[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
-    const char *wkday[] = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
-    time_t t = time(NULL) + diff;
-    struct tm ts;
-
-    if(!gmtime_r(&t, &ts)) {
-	SXDEBUG("failed to get time");
-	sxi_seterr(sx, SXE_EARG, "Cannot get current time: invalid argument");
-	return -1;
-    }
-    sprintf(buf, "%s, %02u %s %04u %02u:%02u:%02u GMT", wkday[ts.tm_wday], ts.tm_mday, month[ts.tm_mon], ts.tm_year + 1900, ts.tm_hour, ts.tm_min, ts.tm_sec);
-
-    if(!hmac_update_str(sx, hmac_ctx, buf))
-	return -1;
-    return 0;
-}
-
-
-
-#define real_str(x) #x
-#define str(x) real_str(x)
-#define set_copt(opt, val)						\
-    do {								\
-	int cerr;								\
-	if((cerr = curl_easy_setopt(conns->C, opt, val)) != CURLE_OK) { \
-	    CLSTDEBUG("failed to set curl opt %s: %s\n", str(opt), curl_easy_strerror(cerr)); \
-	    conns_err(SXE_ECURL, "Failed to set cluster query parameter: refused by library"); \
-	    goto cluster_query_fail; \
-	} \
-    } while(0)
-
-
 static void finishfn(curlev_context_t *cbdata)
 {
     sxi_conns_t *conns = cbdata->conns;
@@ -463,28 +418,13 @@ int sxi_cluster_query_ev(curlev_context_t *cbdata,
 			 void *context)
 {
     sxc_client_t *sx = conns->sx;
-    unsigned int keylen;
-    const char *verbstr[] = {"GET", "PUT", "HEAD", "DELETE"};
-    unsigned char bintoken[AUTHTOK_BIN_LEN];
-    char auth[lenof("SKY ") + AUTHTOK_ASCII_LEN + 1], *sendtok;
-    HMAC_CTX hmac_ctx;
     int rc;
     const char *bracket_open, *bracket_close;
-    char datebuf[32];
     unsigned n;
-    header_t headers [] = {
-	{"User-Agent", sxi_get_useragent()},
-	{"Expect", NULL},
-	{"Date", datebuf},
-	{"Authorization",auth}
-    };
-
     if (sxi_is_debug_enabled(conns->sx))
 	sxi_curlev_set_verbose(conns->curlev, 1);
 
 
-    memset(auth, 0, sizeof(auth));
-    memset(datebuf, 0, sizeof(datebuf));
     if(!query || !*query || (content_size && !content) || verb < REQ_GET || verb > REQ_DELETE) {
 	CLSTDEBUG("called with unexpected NULL or empty arguments");
 	conns_err(SXE_EARG, "Cluster query failed: invalid argument");
@@ -497,75 +437,6 @@ int sxi_cluster_query_ev(curlev_context_t *cbdata,
 	return -1;
     }
 
-    keylen = AUTHTOK_BIN_LEN;
-    if(sxi_b64_dec(sx, conns->auth_token, bintoken, &keylen) || keylen != AUTHTOK_BIN_LEN) {
-	CLSTDEBUG("failed to decode the auth token");
-	conns_err(SXE_EAUTH, "Cluster query failed: invalid authentication token");
-	return -1;
-    }
-
-    HMAC_CTX_init(&hmac_ctx);
-    do {
-	rc = -1;
-
-	if(!sxi_hmac_init_ex(&hmac_ctx, bintoken + AUTH_UID_LEN, AUTH_KEY_LEN, EVP_sha1(), NULL)) {
-	    CLSTDEBUG("failed to init hmac context");
-	    conns_err(SXE_ECRYPT, "Cluster query failed: HMAC calculation failed");
-	    break;
-	}
-
-	if(!hmac_update_str(sx, &hmac_ctx, verbstr[verb]) || !hmac_update_str(sx, &hmac_ctx, query))
-	    break;
-
-	if (compute_date(sx, datebuf, sxi_conns_get_timediff(conns), &hmac_ctx) == -1)
-	    break;
-	if(content_size) {
-	    char content_hash[41];
-	    unsigned char d[20];
-	    EVP_MD_CTX ch_ctx;
-
-	    if(!EVP_DigestInit(&ch_ctx, EVP_sha1())) {
-		CLSTDEBUG("failed to init content digest");
-		conns_err(SXE_ECRYPT, "Cannot compute hash: unable to initialize crypto library");
-		break;
-	    }
-	    if(!EVP_DigestUpdate(&ch_ctx, content, content_size) || !EVP_DigestFinal(&ch_ctx, d, NULL)) {
-		CLSTDEBUG("failed to update content digest");
-		conns_err(SXE_ECRYPT, "Cannot compute hash: crypto library failure");
-		EVP_MD_CTX_cleanup(&ch_ctx);
-		break;
-	    }
-	    EVP_MD_CTX_cleanup(&ch_ctx);
-
-	    sxi_bin2hex(d, sizeof(d), content_hash);
-	    content_hash[sizeof(content_hash)-1] = '\0';
-
-	    if(!hmac_update_str(sx, &hmac_ctx, content_hash))
-		break;
-	} else if(!hmac_update_str(sx, &hmac_ctx, "da39a3ee5e6b4b0d3255bfef95601890afd80709"))
-	    break;
-
-	keylen = AUTH_KEY_LEN;
-	if(!sxi_hmac_final(&hmac_ctx, bintoken + AUTH_UID_LEN, &keylen) || keylen != AUTH_KEY_LEN) {
-	    CLSTDEBUG("failed to finalize hmac calculation");
-	    conns_err(SXE_ECRYPT, "Cluster query failed: HMAC finalization failed");
-	    break;
-	}
-	rc = 0;
-    } while(0);
-    HMAC_CTX_cleanup(&hmac_ctx);
-    if (rc == -1) {
-        sxi_clear_operation(sx);
-	return -1;
-    }
-
-    if(!(sendtok = sxi_b64_enc(sx, bintoken, AUTHTOK_BIN_LEN))) {
-	CLSTDEBUG("failed to encode computed auth token");
-        sxi_clear_operation(sx);
-	return -1;
-    }
-    sprintf(auth, "SKY %s", sendtok);
-    free(sendtok);
 
     cbdata->conns = conns;
     cbdata->context = context;
@@ -574,7 +445,7 @@ int sxi_cluster_query_ev(curlev_context_t *cbdata,
 
     n = lenof("https://[]") + strlen(host) + 1 + strlen(query) + 1;
     char *url = malloc(n);
-    request_headers_t request = { host, url, headers, sizeof(headers)/sizeof(headers[0]) };
+    request_headers_t request = { host, url };
     reply_t reply = {{ cbdata, headfn, finishfn}, writefn};
 
     if(!url) {
@@ -909,8 +780,7 @@ int sxi_conns_root_noauth(sxi_conns_t *conns, const char *tmpcafile, int quiet)
         n = lenof("https://[]") + strlen(host) + 1 + strlen(query) + 1;
         url = malloc(n);
         snprintf(url, n, "https://%s%s%s/%s", bracket_open, host, bracket_close, query);
-        header_t headers [] = { {"User-Agent", sxi_get_useragent() } };
-        request_headers_t request = { host, url, headers, sizeof(headers)/sizeof(headers[0]) };
+        request_headers_t request = { host, url };
         reply_t reply = {{ &cbdata, noauth_headfn, finishfn}, NULL};
 
         free(cbdata.reason);
