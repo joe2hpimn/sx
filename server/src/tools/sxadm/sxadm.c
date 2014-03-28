@@ -1093,6 +1093,7 @@ int main(int argc, char **argv) {
             server_done(&sx);
 	    return 1;
         }
+	sxc_set_debug(sx, node_args.debug_flag);
 	if(node_args.version_given) {
 	    printf("%s %s\n", MAIN_CMDLINE_PARSER_PACKAGE, src_version());
 	    ret = 0;
@@ -1119,6 +1120,7 @@ int main(int argc, char **argv) {
             server_done(&sx);
 	    return 1;
         }
+	sxc_set_debug(sx, cluster_args.debug_flag);
 	if(cluster_args.version_given) {
 	    printf("%s %s\n", MAIN_CMDLINE_PARSER_PACKAGE, src_version());
 	    ret = 0;
@@ -1154,4 +1156,5 @@ int main(int argc, char **argv) {
 
     server_done(&sx);
     return 0;
+
 }

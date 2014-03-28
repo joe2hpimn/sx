@@ -15,3 +15,4 @@ text "NOTE: all nodes of an SX cluster must be created with the same UUID and th
 
 section "Common options"
 option "run-as" - "Run as specified user[:group]" string typestr="user[:group]" optional
+option "debug"  D "Enable debug messages" flag off

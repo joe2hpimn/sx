@@ -59,6 +59,8 @@ struct cluster_args_info
   char * run_as_arg;	/**< @brief Run as specified user[:group].  */
   char * run_as_orig;	/**< @brief Run as specified user[:group] original value given at command line.  */
   const char *run_as_help; /**< @brief Run as specified user[:group] help description.  */
+  int debug_flag;	/**< @brief Enable debug messages (default=off).  */
+  const char *debug_help; /**< @brief Enable debug messages help description.  */
   
   unsigned int help_given ;	/**< @brief Whether help was given.  */
   unsigned int version_given ;	/**< @brief Whether version was given.  */
@@ -72,6 +74,7 @@ struct cluster_args_info
   unsigned int config_dir_given ;	/**< @brief Whether config-dir was given.  */
   unsigned int batch_mode_given ;	/**< @brief Whether batch-mode was given.  */
   unsigned int run_as_given ;	/**< @brief Whether run-as was given.  */
+  unsigned int debug_given ;	/**< @brief Whether debug was given.  */
 
   char **inputs ; /**< @brief unamed options (options without names) */
   unsigned inputs_num ; /**< @brief unamed options number */
