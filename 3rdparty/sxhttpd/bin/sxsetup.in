@@ -281,7 +281,8 @@ ask_questions() {
 			if curl -s -k -m 3 $HTTPS$SX_EXISTING_NODE_IP > /dev/null 2>&1; then
 			    break
 			else
-			    echo "Cannot contact node $SX_EXISTING_NODE_IP. Please make sure it's running and accessible from this node and try again."
+			    echo "Cannot contact node $HTTPS$SX_EXISTING_NODE_IP. Please make sure it's running and accessible from this node and try again."
+			    test -n "$HTTPS" && echo "Call sxsetup with --no-ssl in case the cluster you want to join doesn't use secure connection."
 			fi
 		    else
 			break
