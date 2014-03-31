@@ -463,47 +463,6 @@ EOF
 	    SX_CHILDREN_NUM=${NEWVAL:-$SX_CHILDREN_NUM}
 	fi
 
-	if [ -x @sbindir@/sxproxy_setup ]; then
-	    echo
-	    echo "--- SXPROXY ---"
-	    ask_yn "sxproxy detected - do you want to configure it now? (Y/n)[default=Y]"
-	    if [ "$ANSWER" != "n" ]; then
-		SXPROXYCFG=1
-	    else
-		echo "You can configure it later by calling: "
-		echo "@sbindir@/sxproxy_setup --s3-host s3.domain.tld"
-	    fi
-	fi
-
-	if [ "$SXPROXYCFG" = "1" ]; then
-	    echo
-	    while true; do
-		printf "S3 (DNS) name [default=$SXPROXY_HOST]: "
-		read NEWVAL
-		SXPROXY_HOST=${NEWVAL:-$SXPROXY_HOST}
-		test -n "$SXPROXY_HOST" && break
-	    done
-
-	    echo
-	    echo "Please specify the replica count for volumes created through sxproxy."
-	    while true; do
-		printf "Default volume replica count [default=$SXPROXY_REPLICA]: "
-		read NEWVAL
-		SXPROXY_REPLICA=${NEWVAL:-$SXPROXY_REPLICA}
-		test -n "$SXPROXY_REPLICA" && break
-	    done
-
-	    echo
-	    echo "Please specify the maximum size of volumes created through sxproxy. You can"
-	    echo "use M, G and T suffixes, eg. 1T for 1 terabytes."
-	    while true; do
-		printf "Default volume size [default=$SXPROXY_VOLUMESIZE]: "
-		read NEWVAL
-		SXPROXY_VOLUMESIZE=${NEWVAL:-$SXPROXY_VOLUMESIZE}
-		test -n "$SXPROXY_VOLUMESIZE" && break
-	    done
-	fi
-
 	echo
 	echo "--- YOUR CHOICES ---"
 	echo
@@ -515,11 +474,6 @@ EOF
 	fi
 	echo "Storage: $SX_DATA_DIR"
 	echo "Run as user: $SX_SERVER_USER"
-	if [ "$SXPROXYCFG" = "1" ]; then
-	    echo "SXproxy S3 domain name: $SXPROXY_HOST"
-	    echo "SXproxy default volume replica count: $SXPROXY_REPLICA"
-	    echo "SXproxy default volume size: $SXPROXY_VOLUMESIZE"
-	fi
 	echo
 
 	ask_yn "Is this correct? (Y/n)[default=Y]"
@@ -639,14 +593,7 @@ SX_SSL_KEY_FILE="$SX_SSL_KEY_FILE"
 SX_SSL_CERT_FILE="$SX_SSL_CERT_FILE"
 SX_SSL_KEY="$SX_SSL_KEY"
 SX_SSL_CERT="$SX_SSL_CERT"
-SXPROXY_REPLICA="$SXPROXY_REPLICA"
-SXPROXY_VOLUMESIZE="$SXPROXY_VOLUMESIZE"
-SXPROXY_HOST="$SXPROXY_HOST"
 EOF
-
-if [ "$SXPROXYCFG" = "1" ]; then
-    @sbindir@/sxproxy_setup --s3-host "$SXPROXY_HOST" || exit 1
-fi
 
 ################
 # Actual setup #
@@ -889,9 +836,6 @@ fi
 
 echo
 echo "Cluster: sx://$SX_CLUSTER_NAME"
-if [ "$SXPROXYCFG" = "1" ]; then
-    echo "SXproxy S3 domain name: $SXPROXY_HOST"
-fi
 
 if [ -n "$SX_NODE_INTERNAL_IP" -a "$SX_NODE_IP" != "$SX_NODE_INTERNAL_IP" ]; then
     echo "This node: $SX_NODE_IP (internal address: $SX_NODE_INTERNAL_IP)"

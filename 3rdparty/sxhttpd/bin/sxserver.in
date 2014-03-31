@@ -53,9 +53,9 @@ wait_pids() {
 case "$1" in
     start)
         SXLOGDIR=`dirname "$SX_LOG_FILE"`
-        mkdir -p "$SX_RUN_DIR" "$SXLOGDIR" "$SXLOGDIR/../sxproxy" "$SX_RUN_DIR/../sxproxy"
-        chown "$SX_SERVER_USER:$SX_SERVER_GROUP" "$SX_RUN_DIR" "$SX_RUN_DIR/../sxproxy"
-        chown "$SX_SERVER_USER:$SX_SERVER_GROUP" "$SXLOGDIR" "$SXLOGDIR/../sxproxy"
+        mkdir -p "$SX_RUN_DIR" "$SXLOGDIR"
+        chown "$SX_SERVER_USER:$SX_SERVER_GROUP" "$SX_RUN_DIR"
+        chown "$SX_SERVER_USER:$SX_SERVER_GROUP" "$SXLOGDIR"
 
         exit_if_running "sx.fcgi" "$SX_RUN_DIR/sxfcgi.pid"
         echo "Starting SX.fcgi"
@@ -72,20 +72,12 @@ case "$1" in
 	    exit 1
 	fi
 
-        if [ -x @sbindir@/sxproxy_ocsigen ]; then
-	    exit_if_running "sxproxy" "$SX_RUN_DIR/../sxproxy/sxproxy.pid"
-            echo "Starting sxproxy"
-            if ! @sbindir@/sxproxy_ocsigen >>@localstatedir@/log/sxproxy/info.log; then
-		echo "ERROR: Failed to start sxproxy. Please check the log file @localstatedir@/log/sxproxy/info.log"
-		exit 1
-	    fi
-        fi
         echo "SX node started successfully"
         ;;
 
     stop)
         PIDS=
-        for pidfile in "$SX_RUN_DIR/sxfcgi.pid" "$SX_RUN_DIR/sxhttpd.pid" "$SX_RUN_DIR/../sxproxy/sxproxy.pid"; do
+        for pidfile in "$SX_RUN_DIR/sxfcgi.pid" "$SX_RUN_DIR/sxhttpd.pid"; do
             if [ -r $pidfile ]; then
                 PID=`cat $pidfile`
                 echo "Sending SIGTERM to $PID"
@@ -97,7 +89,7 @@ case "$1" in
             echo "Waiting for $PIDS"
 	    wait_pids
         fi
-        for pidfile in "$SX_RUN_DIR/sxfcgi.pid" "$SX_RUN_DIR/sxhttpd.pid" "$SX_RUN_DIR/../sxproxy/sxproxy.pid"; do
+        for pidfile in "$SX_RUN_DIR/sxfcgi.pid" "$SX_RUN_DIR/sxhttpd.pid"; do
             if [ -r $pidfile ]; then
 		rm $pidfile
 	    fi
@@ -113,9 +105,6 @@ case "$1" in
 	echo "--- SX STATUS ---"
         test_running "sx.fcgi" "$SX_RUN_DIR/sxfcgi.pid"
         test_running "sxhttpd" "$SX_RUN_DIR/sxhttpd.pid"
-        if [ -x @sbindir@/sxproxy_ocsigen ]; then
-	    test_running "sxproxy" "$SX_RUN_DIR/../sxproxy/sxproxy.pid"
-	fi
 	echo
 	echo "--- SX INFO ---"
 	echo "Cluster name: $SX_CLUSTER_NAME"
