@@ -362,7 +362,7 @@ EOF
 		    fi
 		fi
 
-		if [ "$CREATESSL" = "1" ]; then
+		if [ -z "$SX_EXISTING_NODE_IP" -a "$CREATESSL" = "1" ]; then
 		    echo
 		    echo "Generating default SSL certificate and key in $SX_SSL_KEY_FILE $SX_SSL_CERT_FILE"
 		    openssl req -days 1825 -x509 -config "$CERTCONF" -new -keyout "$SX_SSL_KEY_FILE" -out "$SX_SSL_CERT_FILE" || exit 1
@@ -481,6 +481,7 @@ EOF
 	if [ "$ANSWER" != "n" ]; then
 	    break
 	fi
+	rm -f "$SX_SSL_KEY_FILE" "$SX_SSL_CERT_FILE"
     done
 } #ask_questions()
 
