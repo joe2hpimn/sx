@@ -68,7 +68,7 @@ case "$1" in
         exit_if_running "sxhttpd" "$SX_RUN_DIR/sxhttpd.pid"
         echo "Starting sxhttpd"
         if ! @sbindir@/sxhttpd -c @sysconfdir@/sxserver/sxhttpd.conf; then
-	    echo "ERROR: Failed to start SX.fcgi. Please check the log files at $SXLOGDIR"
+	    echo "ERROR: Failed to start sxhttpd. Please check the log files at $SXLOGDIR"
 	    exit 1
 	fi
 
