@@ -59,8 +59,13 @@ case "$1" in
 
         exit_if_running "sx.fcgi" "$SX_RUN_DIR/sxfcgi.pid"
         echo "Starting SX.fcgi"
-#        if ! ./libtool --mode=execute valgrind --max-stackframe=2560000 --log-file=/tmp/v.log.%p --trace-children=yes --leak-check=full @sbindir@/sx.fcgi; then
-        if ! @sbindir@/sx.fcgi; then
+	if [ "$SX_USE_VALGRIND" = "yes" ]; then
+	    valgrind --max-stackframe=2560000 --log-file=/tmp/sxfcgi.valgrind.log.%p --trace-children=yes --leak-check=full @sbindir@/sx.fcgi
+	else
+	    @sbindir@/sx.fcgi
+	fi
+
+	if [ $? -ne 0 ]; then
 	    echo "ERROR: Failed to start SX.fcgi. Please check the log file $SX_LOG_FILE"
 	    exit 1
 	fi
