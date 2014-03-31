@@ -149,6 +149,7 @@ int sxi_volume_cfg_store(sxc_client_t *sx, sxc_cluster_t *cluster, const char *v
     return 0;
 }
 
+/*
 static int confirm_volume(sxc_client_t *sx, const char *vname, sxc_filter_t *filter)
 {
     char prompt[512];
@@ -161,6 +162,16 @@ static int confirm_volume(sxc_client_t *sx, const char *vname, sxc_filter_t *fil
 
     return sxi_confirm(sx, prompt, 1) ? 0 : -1;
 }
+*/
+
+static void volume_info(sxc_client_t *sx, const char *vname, sxc_filter_t *filter, int fp)
+{
+    fprintf(stderr, "*** Accessing data on the volume '%s' for the first time\n", vname);
+    if(filter)
+	fprintf(stderr, "*** The volume uses filter '%s'\n", filter->shortname);
+    if(fp)
+	fprintf(stderr, "*** The fingerprint of the volume has been stored.\n");
+}
 
 int sxi_volume_cfg_check(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_meta_t *vmeta, const char *vname)
 {
@@ -171,7 +182,7 @@ int sxi_volume_cfg_check(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_meta_t *v
     const void *mval;
     unsigned int mval_len;
     char *path;
-    int nocluster = 0, nofilter = 0, nochksum = 0;
+    int nocluster = 0, nofilter = 0, nochksum = 0, ret;
     int fd;
     unsigned char local_digest[SHA256_DIGEST_LENGTH], remote_digest[SHA256_DIGEST_LENGTH];
     struct filter_handle *fh;
@@ -282,12 +293,16 @@ int sxi_volume_cfg_check(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_meta_t *v
 	}
 
 	if(nocluster) {
+	    /*
 	    if(confirm_volume(sx, vname, fh->f) < 0) {
 		sxi_seterr(sx, SXE_EFILTER, "Remote volume configuration rejected");
 		return 1;
 	    }
-	    if(sxi_volume_cfg_store(sx, cluster, vname, remote_filter_uuid, cfgval, cfgval_len))
+	    */
+	    if((ret = sxi_volume_cfg_store(sx, cluster, vname, remote_filter_uuid, cfgval, cfgval_len)))
 		fprintf(stderr, "WARNING: Failed to store volume configuration but the process will continue anyway\n");
+
+	    volume_info(sx, vname, fh->f, !ret);
 	    return 0;
 	}
 
@@ -298,12 +313,15 @@ int sxi_volume_cfg_check(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_meta_t *v
     }
 
     if(nocluster) {
+	/*
 	if(confirm_volume(sx, vname, NULL) < 0) {
 	    sxi_seterr(sx, SXE_EFILTER, "Remote volume configuration rejected");
 	    return 1;
 	}
-	if(sxi_volume_cfg_store(sx, cluster, vname, NULL, NULL, 0))
+	*/
+	if((ret = sxi_volume_cfg_store(sx, cluster, vname, NULL, NULL, 0)))
 	    fprintf(stderr, "WARNING: Failed to store local configuration but the process will continue anyway\n");
+	volume_info(sx, vname, NULL, !ret);
     }
 
     return 0;
