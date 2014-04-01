@@ -58,12 +58,14 @@ BUILT_SOURCES = include/extraversion.h
 include/extraversion.h: include/extraversion.h.tmp
 	$(AM_V_at) (test -f $@ && cmp -s include/extraversion.h.tmp $@) || mv include/extraversion.h.tmp $@
 
+#if exported via git archvie the COMMITVER is a commit hash otherwise it is a meaningless 'ormat:%h'
 include/extraversion.h.tmp:
 	$(AM_V_GEN) LANG=C \
 	    VER="$$(cd $(top_srcdir) && git describe --always --dirty=+ 2>/dev/null)" &&\
-	    echo "#define SRC_EXTRA_VERSION \"$$VER\"" >$@ ||\
-	    COMMITVER=$Format:%h$ \
-	    echo "#define SRC_EXTRA_VERSION \"$$COMMITVER\"" >$@
+	    echo "#define SRC_EXTRA_VERSION \".$$VER\"" >$@ ||\
+	    (COMMITVER=$Format:%h$ && test "$$COMMITVER" != "ormat:%h" && \
+	    echo "#define SRC_EXTRA_VERSION \".$$COMMITVER\"" >$@) ||\
+	    echo "#define SRC_EXTRA_VERSION \"\"" >$@
 
 .PHONY: include/extraversion.h.tmp
 CLEANFILES = include/extraversion.h include/extraversion.h.tmp
