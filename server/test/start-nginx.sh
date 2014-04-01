@@ -51,6 +51,7 @@ while [ $i -le $N ]; do
     $prefix/sbin/sx.fcgi --version
 
     ln -s `pwd`/../3rdparty/nginx/objs/nginx $prefix/sbin/sxhttpd
+    sed -i -e "s|/sx.fcgi|\0 --config-file $prefix/etc/sxserver/sxfcgi.conf|" $prefix/sbin/sxserver
 
     echo "Initializing node $i"
     CONF_TMP=$prefix/conf.tmp
