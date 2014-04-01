@@ -1340,7 +1340,6 @@ sxc_cluster_la_t *sxc_cluster_listaclusers(sxc_cluster_t *cluster, const char *v
 	free(fname);
 	return NULL;
     }
-    rewind(yctx.f);
 
     ret = malloc(sizeof(*ret));
     if(!ret) {
