@@ -1348,7 +1348,7 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 	goto open_hashfs_fail;
     if(qprep(h->tempdb, &h->qt_tokenstats, "SELECT tid, size, volume_id, length(content) FROM tmpfiles WHERE token = :token AND flushed = 0"))
 	goto open_hashfs_fail;
-    if(qprep(h->tempdb, &h->qt_tmpdata, "SELECT t || ':' || token AS revision, name, size, volume_id, content, uniqidx, flushed, ttl, avail, token FROM tmpfiles WHERE tid = :id"))
+    if(qprep(h->tempdb, &h->qt_tmpdata, "SELECT t || ':' || token AS revision, name, size, volume_id, content, uniqidx, flushed, avail, token FROM tmpfiles WHERE tid = :id"))
 	goto open_hashfs_fail;
     if(qprep(h->tempdb, &h->qt_updateuniq, "UPDATE tmpfiles SET uniqidx = :uniq, avail = :avail WHERE tid = :id AND flushed = 1"))
 	goto open_hashfs_fail;
@@ -5079,9 +5079,9 @@ rc_ty sx_hashfs_tmp_getmissing(sx_hashfs_t *h, int64_t tmpfile_id, sx_hashfs_mis
     }
 #endif
 
-    avl = sqlite3_column_blob(h->qt_tmpdata, 8);
+    avl = sqlite3_column_blob(h->qt_tmpdata, 7);
     if(avl) {
-	navl = sqlite3_column_bytes(h->qt_tmpdata, 8);
+	navl = sqlite3_column_bytes(h->qt_tmpdata, 7);
 	if(navl != nblocks * volume->replica_count) {
 	    WARN("Tmpfile with bad availability length");
 	    msg_set_reason("Internal corruption detected (bad availability content)");
@@ -5134,7 +5134,7 @@ rc_ty sx_hashfs_tmp_getmissing(sx_hashfs_t *h, int64_t tmpfile_id, sx_hashfs_mis
     tbd->tmpfile_id = tmpfile_id;
     tbd->somestatechanged = 0;
 
-    strncpy(token, (const char*)sqlite3_column_text(h->qt_tmpdata, 9), sizeof(token)-1);
+    strncpy(token, (const char*)sqlite3_column_text(h->qt_tmpdata, 8), sizeof(token)-1);
     token[sizeof(token)-1] = '\0';
     sqlite3_reset(h->qt_tmpdata); /* Do not deadlock if we need to update this very entry */
 
