@@ -2163,7 +2163,10 @@ int sxc_user_add(sxc_cluster_t *cluster, const char *username, int admin, FILE *
 	strncpy(savetok, tok, AUTHTOK_ASCII_LEN);
 	savetok[AUTHTOK_ASCII_LEN] = '\n';
 	savetok[AUTHTOK_ASCII_LEN + 1] = '\0';
-	fwrite(savetok, 1, AUTHTOK_ASCII_LEN + 1, storeauth);
+	if (!fwrite(savetok, AUTHTOK_ASCII_LEN + 1, 1, storeauth)) {
+            sxi_setsyserr(sx, SXE_EWRITE, "Failed to save auth token");
+            qret = 1;
+        }
     }
     sxi_query_free(proto);
     free(tok);
