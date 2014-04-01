@@ -481,6 +481,7 @@ static int yacb_listvolumes_end_map(void *ctx) {
 	}
 	if(!fwrite(&yactx->voldata, sizeof(yactx->voldata), 1, yactx->f) || !fwrite(yactx->volname, yactx->voldata.namelen, 1, yactx->f)) {
 	    CBDEBUG("failed to save file attributes to temporary file");
+	    sxi_setsyserr(yactx->sx, SXE_EWRITE, "Failed to write to temporary file");
 	    return 0;
 	}
 	free(yactx->volname);
@@ -531,6 +532,7 @@ static int yacb_listvolumes_map_key(void *ctx, const unsigned char *s, size_t l)
 	yactx->volname = malloc(l);
 	if(!yactx->volname) {
 	    CBDEBUG("OOM duplicating volume name '%.*s'", (unsigned)l, s);
+	    sxi_seterr(yactx->sx, SXE_EMEM, "Out of memory");
 	    return 0;
 	}
 	memcpy(yactx->volname, s, l);
@@ -826,6 +828,7 @@ static int yacb_listusers_end_map(void *ctx) {
     else if(yactx->state == LU_VALNAME) {
 	if(!fwrite(&yactx->usrdata, sizeof(yactx->usrdata), 1, yactx->f) || !fwrite(yactx->usrname, yactx->usrdata.namelen, 1, yactx->f)) {
 	    CBDEBUG("failed to save file attributes to temporary file");
+	    sxi_setsyserr(yactx->sx, SXE_EWRITE, "Failed to write to temporary file");
 	    return 0;
 	}
 	free(yactx->usrname);
@@ -860,6 +863,7 @@ static int yacb_listusers_map_key(void *ctx, const unsigned char *s, size_t l) {
 	yactx->usrname = malloc(l);
 	if(!yactx->usrname) {
 	    CBDEBUG("OOM duplicating user name '%.*s'", (unsigned)l, s);
+	    sxi_seterr(yactx->sx, SXE_EMEM, "Out of memory");
 	    return 0;
 	}
 	memcpy(yactx->usrname, s, l);
@@ -1121,6 +1125,7 @@ static int yacb_listaclusers_map_key(void *ctx, const unsigned char *s, size_t l
 	yactx->fname = malloc(l+1);
 	if(!yactx->fname) {
 	    CBDEBUG("OOM duplicating acluser name '%.*s'", (unsigned)l, s);
+	    sxi_seterr(yactx->sx, SXE_EMEM, "Out of memory");
 	    return 0;
 	}
 	memcpy(yactx->fname, s, l);
@@ -1165,6 +1170,7 @@ static int yacb_listaclusers_end_array(void *ctx) {
     if(yactx->state == LA_PRIVS) {
 	if(!fwrite(&yactx->acluser, sizeof(yactx->acluser), 1, yactx->f) || !fwrite(yactx->fname, yactx->acluser.namelen, 1, yactx->f)) {
 	    CBDEBUG("failed to save acluser attributes to temporary acluser");
+	    sxi_setsyserr(yactx->sx, SXE_EWRITE, "Failed to write temporary file");
 	    return 0;
 	}
 	free(yactx->fname);

@@ -504,6 +504,7 @@ static int yacb_createfile_string(void *ctx, const unsigned char *s, size_t l) {
 	yactx->current.token = malloc(l+1);
 	if(!yactx->current.token) {
 	    CBDEBUG("OOM duplicating token");
+	    sxi_seterr(yactx->sx, SXE_EMEM, "Out of memory");
 	    return 0;
 	}
 
@@ -685,6 +686,7 @@ static sxi_job_t* flush_file_ev(sxc_cluster_t *cluster, const char *host, const 
     proto = sxi_flushfile_proto(sx, token);
     if(!proto) {
 	SXDEBUG("Cannot allocate reuquest");
+	sxi_seterr(sx, SXE_EMEM, "Out of memory creating request");
 	sxi_hostlist_empty(&flush_host);
 	return NULL;
     }
@@ -763,11 +765,13 @@ static int send_up_batch(struct file_upload_ctx *yctx, const char *host, struct 
     char *url = malloc(url_len);
     if (!url) {
         SXDEBUG("OOM allocating url");
+	sxi_seterr(sx, SXE_EMEM, "Out of memory");
         return -1;
     }
     curlev_context_t *cbdata = calloc(1, sizeof(*cbdata));
     if (!cbdata) {
         SXDEBUG("OOM allocating cbdata");
+	sxi_seterr(sx, SXE_EMEM, "Out of memory");
         free(url);
         return -1;
     }
@@ -855,11 +859,13 @@ static int batch_hashes_to_hosts(struct file_upload_ctx *yctx, struct need_hash 
             u = calloc(1, sizeof(*u));
             if (!u) {
                 SXDEBUG("OOM allocating hostsmap");
+		sxi_seterr(sx, SXE_EMEM, "Out of memory");
                 yctx->fail++;
                 return -1;
             }
             if (!(u->needed = malloc(sizeof(*u->needed) * yctx->current.needed_cnt))) {
                 SXDEBUG("OOM allocing hostneed");
+		sxi_seterr(sx, SXE_EMEM, "Out of memory");
                 yctx->fail++;
                 return -1;
             }
@@ -1132,6 +1138,7 @@ static int multi_part_compute_hash_ev(struct file_upload_ctx *yctx)
 
     if (!(cbdata = calloc(1, sizeof(*cbdata)))) {
         SXDEBUG("failed to allocate cbdata");
+	sxi_seterr(sx, SXE_EMEM, "Out of memory");
         return -1;
     }
     cbdata->yctx = yctx;
@@ -1927,6 +1934,7 @@ static int yacb_getfile_map_key(void *ctx, const unsigned char *s, size_t l) {
 	}
 	if(!(fwrite(s, 40, 1, yactx->f))) {
 	    CBDEBUG("failed to write hash to results file");
+	    sxi_setsyserr(yactx->sx, SXE_EWRITE, "Failed to write to temporary file");
 	    return 0;
 	}
 	yactx->nblocks++;
@@ -2019,6 +2027,7 @@ static int yacb_getfile_string(void *ctx, const unsigned char *s, size_t l) {
     }
     if(!fwrite(s, l, 1, yactx->f)) {
 	CBDEBUG("failed to write host to results file");
+	sxi_setsyserr(yactx->sx, SXE_EWRITE, "Failed to write temporary file");
 	return 0;
     }
 
@@ -2879,6 +2888,7 @@ static int remote_to_local(sxc_file_t *source, sxc_file_t *dest, sxc_xres_t *xre
         bh.n = nhashes;
         if (!(bh.hashdata = calloc(sizeof(*bh.hashdata), nhashes))) {
             SXDEBUG("failed to create hashdata table");
+	    sxi_seterr(sx, SXE_EMEM, "Out of memory");
             goto remote_to_local_err;
         }
 
@@ -3587,8 +3597,10 @@ static int mkdir_parents(sxc_client_t *sx, const char *path)
     if (!end)
         return -1;
     char *parent = malloc(end - path + 1);
-    if (!parent)
+    if (!parent) {
+	sxi_seterr(sx, SXE_EMEM, "Out of memory");
         return -1;
+    }
     memcpy(parent, path, end - path);
     parent[end-path] = '\0';
     ret = sxi_mkdir_hier(sx, parent);
@@ -3952,6 +3964,7 @@ static int yacb_filemeta_map_key(void *ctx, const unsigned char *s, size_t l) {
     yactx->nextk = malloc(l+1);
     if(!yactx->nextk) {
 	CBDEBUG("OOM duplicating meta key");
+	sxi_seterr(yactx->sx, SXE_EMEM, "Out of memory");
 	return 0;
     }
     memcpy(yactx->nextk, s, l);
@@ -3982,6 +3995,7 @@ static int yacb_filemeta_string(void *ctx, const unsigned char *s, size_t l) {
     value = malloc(binlen);
     if(!value) {
 	CBDEBUG("OOM duplicating meta value");
+	sxi_seterr(yactx->sx, SXE_EMEM, "Out of memory");
 	return 0;
     }
 
@@ -4476,8 +4490,10 @@ int sxc_file_require_dir(sxc_file_t *file)
         /* modify path to have trailing slash */
         n = strlen(file->path) + 2;
         path = malloc(n);
-        if (!path)
+        if (!path) {
+	    sxi_seterr(file->sx, SXE_EMEM, "Out of memory");
             return -1;
+	}
         snprintf(path, n, "%s/", file->path);
         free(file->path);
         file->path = path;

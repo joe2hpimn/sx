@@ -612,6 +612,7 @@ static int yacb_fetchnodes_string(void *ctx, const unsigned char *s, size_t l) {
 
     if(!(host = malloc(l+1))) {
 	CBDEBUG("OOM duplicating hostname '%.*s'", (unsigned)l, s);
+	sxi_seterr(yactx->sx, SXE_EMEM, "Out of memory");
 	return 0;
     }
 
@@ -821,6 +822,7 @@ static int yacb_locate_map_key(void *ctx, const unsigned char *s, size_t l) {
 	    yactx->curkey = malloc(l+1);
 	    if(!yactx->curkey) {
 		CBDEBUG("OOM duplicating meta key '%.*s'", (unsigned)l, s);
+		sxi_seterr(yactx->sx, SXE_EMEM, "Out of memory");
 		return 0;
 	    }
 	    memcpy(yactx->curkey, s, l);
@@ -890,6 +892,7 @@ static int yacb_locate_string(void *ctx, const unsigned char *s, size_t l) {
 
 	if(!(host = malloc(l+1))) {
 	    CBDEBUG("OOM duplicating hostname '%.*s'", (unsigned)l, s);
+	    sxi_seterr(yactx->sx, SXE_EMEM, "Out of memory");
 	    return 0;
 	}
 
@@ -908,6 +911,7 @@ static int yacb_locate_string(void *ctx, const unsigned char *s, size_t l) {
 	    struct meta_val_t *v = malloc(sizeof(*v) + l/2);
 	    if(!v) {
 		CBDEBUG("OOM allocating storage for value '%.*s'", (unsigned)l, s);
+		sxi_seterr(yactx->sx, SXE_EMEM, "Out of memory");
 		return 0;
 	    }
 	    v->value = (void *)(v+1);
@@ -1345,7 +1349,7 @@ int sxc_cluster_save(sxc_cluster_t *cluster, const char *config_dir, const char 
                         break;
                 }
                 if (ferror(f))
-                    cluster_err(SXE_EREAD, "Cannot read tempfile (ca.pem)");
+                    cluster_syserr(SXE_EREAD, "Cannot read tempfile (ca.pem)");
                 else if (ferror(fo))
                     cluster_syserr(SXE_EWRITE, "Cannot write to '%s'", clusterd);
                 else
@@ -1465,6 +1469,7 @@ static int yacb_listfiles_map_key(void *ctx, const unsigned char *s, size_t l) {
 	yactx->fname = malloc(l+1);
 	if(!yactx->fname) {
 	    CBDEBUG("OOM duplicating file name '%.*s'", (unsigned)l, s);
+	    sxi_setsyserr(yactx->sx, SXE_EMEM, "Out of memory");
 	    return 0;
 	}
 	memcpy(yactx->fname, s, l);
@@ -1586,6 +1591,7 @@ static int yacb_listfiles_end_map(void *ctx) {
 	   !fwrite(yactx->fname, yactx->file.namelen, 1, yactx->f) ||
 	   !fwrite(&yactx->file, sizeof(yactx->file), 1, yactx->f)) {
 	    CBDEBUG("failed to save file attributes to temporary file");
+	    sxi_setsyserr(yactx->sx, SXE_EWRITE, "Failed to write to temporary file");
 	    return 0;
 	}
 	free(yactx->fname);
@@ -2330,8 +2336,10 @@ int sxc_user_getkey(sxc_cluster_t *cluster, const char *username, FILE *storeaut
     /* Query */
     n = strlen(username) + sizeof(".users/");
     url = malloc(n);
-    if (!url)
+    if (!url) {
+	sxi_seterr(sx, SXE_EMEM, "Out of memory");
         goto done;
+    }
     snprintf(url, n, ".users/%s", username);
 
     sxi_set_operation(sxi_cluster_get_client(cluster), "get user's key", sxi_cluster_get_name(cluster), NULL, NULL);
