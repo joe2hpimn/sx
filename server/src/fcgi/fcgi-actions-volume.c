@@ -813,6 +813,7 @@ void fcgi_create_volume(void) {
 	allnodes = sx_hashfs_nodelist(hashfs, NL_NEXTPREV);
 	job_timeout = 12 * sx_nodelist_count(allnodes);
 	res = sx_hashfs_job_new(hashfs, uid, &job, JOBTYPE_CREATE_VOLUME, job_timeout, volume, job_data, job_datalen, allnodes);
+	sx_blob_free(joblb);
 	if(res != OK)
 	    quit_errmsg(rc2http(res), msg_get_reason());
 
