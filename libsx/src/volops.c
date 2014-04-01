@@ -1330,14 +1330,23 @@ sxc_cluster_la_t *sxc_cluster_listaclusers(sxc_cluster_t *cluster, const char *v
 
     if(yctx.yh)
 	yajl_free(yctx.yh);
-    fflush(yctx.f);
-    ftruncate(fileno(yctx.f), ftell(yctx.f));
+
+    if(fflush(yctx.f) ||
+       ftruncate(fileno(yctx.f), ftell(yctx.f)) ||
+       fseek(yctx.f, 0L, SEEK_SET)) {
+	cluster_err(SXE_EWRITE, "List failed: failed to write temporary data");
+	fclose(yctx.f);
+	unlink(fname);
+	free(fname);
+	return NULL;
+    }
     rewind(yctx.f);
 
     ret = malloc(sizeof(*ret));
     if(!ret) {
 	CFGDEBUG("OOM allocating results");
 	cluster_err(SXE_EMEM, "List failed: out of memory");
+	fclose(yctx.f);
 	unlink(fname);
 	free(fname);
 	return NULL;
