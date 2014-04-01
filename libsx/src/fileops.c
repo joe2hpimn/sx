@@ -2549,7 +2549,7 @@ static int check_block(sxc_cluster_t *cluster, sxi_ht *hashes, const char *zeroh
     sxi_cbdata_set_result(cbdata, 200);
     gethash_cb(cbdata, buf, blocksize);
     gethash_finish(cbdata, NULL);
-    sxi_cbdata_free(&cbdata);
+    sxi_cbdata_unref(&cbdata);
 
     return 1;
 }
@@ -2711,7 +2711,7 @@ static int multi_download(struct batch_hashes *bh, const char *dstname,
             dctx->buf = malloc(blocksize);
             if (!dctx->buf) {
                 cluster_err(SXE_EMEM, "Cannot allocate buffer");
-                sxi_cbdata_free(&cbdata);
+                sxi_cbdata_unref(&cbdata);
                 break;
             }
             dctx->fd = fd;
@@ -2751,7 +2751,7 @@ static int multi_download(struct batch_hashes *bh, const char *dstname,
             !sxi_ht_enum_getnext(hostsmap, (const void **)&host, NULL, (const void **)&cbdata)) {
           send_batch(hostsmap, conns, host, &cbdata, &requested);
       }
-      sxi_cbdata_free(&cbdata);
+      sxi_cbdata_unref(&cbdata);
       if (1 /*sxc_geterrnum(sx) == SXE_NOERROR*/) {
         int rc = 0;
         while (finished != requested && !rc) {
@@ -3362,7 +3362,7 @@ static sxi_job_t* remote_to_remote_fast(sxc_file_t *source, sxc_meta_t *fmeta, s
 	SXDEBUG("file create query failed");
 	goto remote_to_remote_fast_err;
     }
-    sxi_cbdata_free(&cbdata);
+    sxi_cbdata_unref(&cbdata);
     sxi_query_free(query);
     query = NULL;
 

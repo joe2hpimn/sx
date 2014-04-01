@@ -210,7 +210,7 @@ void sxi_job_free(sxi_job_t *yres)
     free(yres->job_host);
     if(yres->yh)
 	yajl_free(yres->yh);
-    sxi_cbdata_free(&yres->cbdata);
+    sxi_cbdata_unref(&yres->cbdata);
     free(yres);
 }
 

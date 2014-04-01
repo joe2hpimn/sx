@@ -133,7 +133,7 @@ static void query_list_free(query_list_t *qrylist, unsigned nnodes)
     if (!qrylist)
         return;
     for (i=0;i<nnodes;i++) {
-        sxi_cbdata_free(&qrylist[i].cbdata);
+        sxi_cbdata_unref(&qrylist[i].cbdata);
     }
 
     free(qrylist);
@@ -236,7 +236,7 @@ action_failed:
 		succeeded[nnode] = 1;
 	    else
 		ret = ACT_RESULT_PERMFAIL; /* Raise OK and TEMP to PERMFAIL */
-            sxi_cbdata_free(&qrylist[nnode].cbdata);
+            sxi_cbdata_unref(&qrylist[nnode].cbdata);
 	}
 	sxi_query_free(proto);
     }
@@ -335,7 +335,7 @@ static act_result_t createuser_commit(sx_hashfs_t *hashfs, job_t job_id, job_dat
 		if(newret < ret) /* Severity shall only be raised */
 		    action_set_fail(newret, rc, sxc_geterrmsg(sx));
 	    }
-            sxi_cbdata_free(&qrylist[nnode].cbdata);
+            sxi_cbdata_unref(&qrylist[nnode].cbdata);
 	}
         query_list_free(qrylist, nnodes);
 	free(query);
@@ -495,7 +495,7 @@ static act_result_t createvol_request(sx_hashfs_t *hashfs, job_t job_id, job_dat
 		if(newret < ret) /* Severity shall only be raised */
 		    action_set_fail(newret, rc, sxc_geterrmsg(sx));
 	    }
-            sxi_cbdata_free(&qrylist[nnode].cbdata);
+            sxi_cbdata_unref(&qrylist[nnode].cbdata);
 	}
 	sxc_meta_free(vmeta);
         query_list_free(qrylist, nnodes);
@@ -597,7 +597,7 @@ static act_result_t createvol_commit(sx_hashfs_t *hashfs, job_t job_id, job_data
 		if(newret < ret) /* Severity shall only be raised */
 		    action_set_fail(newret, rc, sxc_geterrmsg(sx));
 	    }
-            sxi_cbdata_free(&qrylist[nnode].cbdata);
+            sxi_cbdata_unref(&qrylist[nnode].cbdata);
 	}
         query_list_free(qrylist, nnodes);
 	free(query);
@@ -690,7 +690,7 @@ static act_result_t createvol_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_
 		if(newret < ret) /* Severity shall only be raised */
 		    action_set_fail(newret, rc, sxc_geterrmsg(sx));
 	    }
-            sxi_cbdata_free(&qrylist[nnode].cbdata);
+            sxi_cbdata_unref(&qrylist[nnode].cbdata);
 	}
         query_list_free(qrylist, nnodes);
 	free(query);
@@ -782,7 +782,7 @@ static act_result_t job_twophase_execute(const job_2pc_t *spec, jobphase_t phase
 		if(newret < ret) /* Severity shall only be raised */
 		    action_set_fail(newret, rc, sxc_geterrmsg(sx_hashfs_client(hashfs)));
 	    }
-            sxi_cbdata_free(&qrylist[nnode].cbdata);
+            sxi_cbdata_unref(&qrylist[nnode].cbdata);
 	}
         query_list_free(qrylist, nnodes);
 	sxi_query_free(proto);

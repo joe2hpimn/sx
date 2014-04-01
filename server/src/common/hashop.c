@@ -337,7 +337,7 @@ static int sxi_hashop_batch(sxi_hashop_t *hashop)
     else
         rc = -1;
     sxi_query_free(query);
-    sxi_cbdata_free(&cbdata);
+    sxi_cbdata_unref(&cbdata);
     if (rc == -1) {
 	/* FIXME: tk: should we also free pp->hexhashes here? */
         free(pp);

@@ -266,16 +266,14 @@ void sxi_cbdata_ref(curlev_context_t *ctx)
     }
 }
 
-static int sxi_cbdata_decref(curlev_context_t **ctx_ptr, int *freed)
+void sxi_cbdata_unref(curlev_context_t **ctx_ptr)
 {
     if (ctx_ptr) {
         curlev_context_t *ctx = *ctx_ptr;
         sxc_client_t *sx;
         if (!ctx) {
             /* it is already freed */
-            if (freed)
-                *freed = 1;
-            return 0;
+            return;
         }
         sx = sxi_conns_get_client(ctx->conns);
         ctx->ref--;
@@ -283,7 +281,7 @@ static int sxi_cbdata_decref(curlev_context_t **ctx_ptr, int *freed)
         if (ctx->ref < 0) {
             sxi_seterr(sx, SXE_EARG, "cbdata: reference count wrong: %d", ctx->ref);
             /* don't free, the reference count is corrupt */
-            return -1;
+            return;
         }
         SXDEBUG("cbdata reference count for %p: %d", (void*)ctx, ctx->ref);
         if (!ctx->ref) {
@@ -292,30 +290,13 @@ static int sxi_cbdata_decref(curlev_context_t **ctx_ptr, int *freed)
             sxi_hostlist_empty(&ctx->retry.hosts);
             free(ctx->retry.query);
             free(ctx);
-            if (freed)
-                *freed = 1;
+            /* we freed it */
+            return;
         }
-        return 0;
+        /* we didn't free it, but no errors */
+        return;
     }
-    return -1;
-}
-
-int sxi_cbdata_unref(curlev_context_t **ctx_ptr)
-{
-    return sxi_cbdata_decref(ctx_ptr, NULL);
-}
-
-int sxi_cbdata_free(curlev_context_t **ctxptr)
-{
-    sxc_client_t *sx = ctxptr && (*ctxptr) ? sxi_conns_get_client((*ctxptr)->conns) : NULL;
-    int freed = 0;
-    if (sxi_cbdata_decref(ctxptr, &freed))
-        return -1;
-    if (!freed) {
-        sxi_notice(sx, "expected cbdata to be freed here");
-        return -1;
-    }
-    return 0;
+    /* error */
 }
 
 void sxi_cbdata_reset(curlev_context_t *ctx)

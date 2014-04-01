@@ -112,8 +112,7 @@ int sxi_set_retry_cb(curlev_context_t *ctx, const sxi_hostlist_t *hlist, retry_c
                      ctx_setup_cb_t setup_callback);
 
 void sxi_cbdata_ref(curlev_context_t *ctx);
-int sxi_cbdata_unref(curlev_context_t **ctx);
-int sxi_cbdata_free(curlev_context_t **ctx);
+void sxi_cbdata_unref(curlev_context_t **ctx);
 
 int sxi_cbdata_wait(curlev_context_t *ctx, curl_events_t *e, int *curlcode);
 int sxi_cbdata_result(curlev_context_t *ctx, int *curlcode);

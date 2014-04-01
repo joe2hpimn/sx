@@ -483,7 +483,7 @@ int sxi_cluster_query(sxi_conns_t *conns, const sxi_hostlist_t *hlist, enum sxi_
     if (!ok && !rc)
         CLSTDEBUG("All %d hosts returned failure",
                   sxi_hostlist_get_count(hlist));
-    sxi_cbdata_free(&cbdata);
+    sxi_cbdata_unref(&cbdata);
     return status;
 }
 
@@ -684,12 +684,17 @@ int sxi_conns_root_noauth(sxi_conns_t *conns, const char *tmpcafile, int quiet)
 
         sxc_clearerr(conns->sx);/* clear errors: we're retrying on next host */
         url = malloc(n);
+        if(!url) {
+            conns_err(SXE_EMEM, "OOM allocating URL");
+            sxi_cbdata_unref(&cbdata);
+            return -1;
+        }
         request_headers_t request = { host, url };
         snprintf(url, n, "https://%s%s%s/%s", bracket_open, host, bracket_close, query);
         rc = sxi_curlev_add_head(conns->curlev, &request, &reply.headers);
         free(url);
         if (rc) {
-            sxi_cbdata_free(&cbdata);
+            sxi_cbdata_unref(&cbdata);
             continue;
         }
         status = sxi_cbdata_wait(cbdata, conns->curlev, &rc);
