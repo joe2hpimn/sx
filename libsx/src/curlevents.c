@@ -35,6 +35,7 @@
 #include <arpa/inet.h>
 #include <openssl/ssl.h>
 #include <openssl/err.h>
+#include <openssl/hmac.h>
 #include <sys/stat.h>
 #include <unistd.h>
 

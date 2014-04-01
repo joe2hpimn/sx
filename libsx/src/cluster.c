@@ -25,7 +25,6 @@
 #include <curl/curl.h>
 #include <unistd.h>
 #include <openssl/evp.h>
-#include <openssl/hmac.h>
 
 #include "libsx-int.h"
 #include "yajlwrap.h"
