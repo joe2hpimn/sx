@@ -866,7 +866,7 @@ static int compute_headers_url(curl_events_t *e, curlev_t *ev, curlev_t *src)
     sxi_conns_t *conns;
     sxc_client_t *sx;
     int rc;
-    const char *content_type_field = ev->verb == CURLOPT_UPLOAD ? "Content-Type" : NULL;
+    const char *content_type_field = ev->verb == REQ_PUT ? "Content-Type" : NULL;
     const char *content_type_value = content_type_field ? "application/octet-stream" : NULL;
 
     header_t headers[] = {
@@ -1075,7 +1075,6 @@ static int ev_add(curl_events_t *e,
                   const request_data_t *body, enum sxi_cluster_verb verb,
                   const reply_t *reply)
 {
-    CURLcode rc;
     curlev_t *ev = NULL;
     curlev_context_t *ctx = reply ? reply->headers.ctx : NULL;
 
