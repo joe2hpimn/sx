@@ -1348,7 +1348,7 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 	goto open_hashfs_fail;
     if(qprep(h->tempdb, &h->qt_tokenstats, "SELECT tid, size, volume_id, length(content) FROM tmpfiles WHERE token = :token AND flushed = 0"))
 	goto open_hashfs_fail;
-    if(qprep(h->tempdb, &h->qt_tmpdata, "SELECT t || ':' || token AS revision, name, size, volume_id, content, uniqidx, flushed, ttl, avail FROM tmpfiles WHERE tid = :id"))
+    if(qprep(h->tempdb, &h->qt_tmpdata, "SELECT t || ':' || token AS revision, name, size, volume_id, content, uniqidx, flushed, ttl, avail, token FROM tmpfiles WHERE tid = :id"))
 	goto open_hashfs_fail;
     if(qprep(h->tempdb, &h->qt_updateuniq, "UPDATE tmpfiles SET uniqidx = :uniq, avail = :avail WHERE tid = :id AND flushed = 1"))
 	goto open_hashfs_fail;
@@ -4262,6 +4262,29 @@ static rc_ty filehash_mod_used(sx_hashfs_t *h, const sx_hash_t *filehash, int op
 }
 #endif /* FILEHASH_OPTIMIZATION */
 
+static int unique_tmpid(sx_hashfs_t *h, const char *token, sx_hash_t *hash)
+{
+    EVP_MD_CTX hash_ctx;
+    sx_uuid_t self;
+    int ret = 0;
+
+    if(!EVP_DigestInit(&hash_ctx, EVP_sha1())) {
+        SSLERR();
+        return 1;
+    }
+    if (sx_hashfs_self_uuid(h, &self))
+        return 1;
+    if (!EVP_DigestUpdate(&hash_ctx, &self.binary, sizeof(self.binary)) ||
+        !EVP_DigestUpdate(&hash_ctx, token, strlen(token)) ||
+        !EVP_DigestFinal(&hash_ctx, hash->b, NULL)) {
+        SSLERR();
+        ret = 1;
+    }
+
+    EVP_MD_CTX_cleanup(&hash_ctx);
+    return ret;
+}
+
 rc_ty sx_hashfs_putfile_gettoken(sx_hashfs_t *h, const uint8_t *user, int64_t size_or_seq, const char **token, hash_presence_cb_t hdck_cb, void *hdck_cb_ctx) {
     const char *ptr;
     sqlite3_stmt *q;
@@ -4408,7 +4431,11 @@ rc_ty sx_hashfs_putfile_gettoken(sx_hashfs_t *h, const uint8_t *user, int64_t si
     if(sx_hashfs_make_token(h, user, ptr, h->put_replica, expires_at, token, &tokenhash))
 	goto gettoken_err;
 
-    sxi_hashop_begin(&h->hc, h->sx_clust, hdck_cb, HASHOP_RESERVE, &tokenhash, hdck_cb_ctx);
+
+    sx_hash_t tmphash;
+    if (unique_tmpid(h, ptr, &tmphash))
+        goto gettoken_err;
+    sxi_hashop_begin(&h->hc, h->sx_clust, hdck_cb, HASHOP_RESERVE, &tmphash, hdck_cb_ctx);
 #ifdef FILEHASH_OPTIMIZATION
     if (filehash_reserve(h, &filehash) == ITER_NO_MORE) {
         h->put_checkblock = h->put_putblock;/* no need to reserve each hash, we bumped the filehash's counter */
@@ -4959,6 +4986,7 @@ rc_ty sx_hashfs_tmp_getmissing(sx_hashfs_t *h, int64_t tmpfile_id, sx_hashfs_mis
     sx_hash_t filehash;
 #endif
     int r;
+    char token[TOKEN_RAND_BYTES*2 + 1];
 
     if(!h || !missing) {
 	NULLARG();
@@ -5109,6 +5137,8 @@ rc_ty sx_hashfs_tmp_getmissing(sx_hashfs_t *h, int64_t tmpfile_id, sx_hashfs_mis
     tbd->tmpfile_id = tmpfile_id;
     tbd->somestatechanged = 0;
 
+    strncpy(token, (const char*)sqlite3_column_text(h->qt_tmpdata, 9), sizeof(token)-1);
+    token[sizeof(token)-1] = '\0';
     sqlite3_reset(h->qt_tmpdata); /* Do not deadlock if we need to update this very entry */
 
     if(nuniqs) {
@@ -5116,13 +5146,14 @@ rc_ty sx_hashfs_tmp_getmissing(sx_hashfs_t *h, int64_t tmpfile_id, sx_hashfs_mis
 
 	/* For each replica set populate tbd->avlblty via hash_presence callback */
 	for(i=1; i<=tbd->replica_count; i++) {
-            sx_hash_t fileid;
+            sx_hash_t tmpid;
 	    unsigned int cur_item = 0;
 	    sort_by_node_then_hash(tbd->all_blocks, tbd->uniq_ids, tbd->nidxs, tbd->nuniq, i, tbd->replica_count);
-            if (unique_fileid(volume, tbd->name, tbd->revision, &fileid))
+            /* tmpid must match the ID used for reserving hashes in gettoken */
+            if (unique_tmpid(h, token, &tmpid))
                 goto getmissing_err;
             sxi_hashop_begin(&h->hc, h->sx_clust, tmp_getmissing_cb,
-                             HASHOP_INUSE, &fileid, tbd);
+                             HASHOP_INUSE, &tmpid, tbd);
 	    tbd->current_replica = i;
 	    while((ret2 = are_blocks_available(h,
 					       tbd->all_blocks,
