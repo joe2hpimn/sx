@@ -333,11 +333,15 @@ sxi_query_t *sxi_hashop_proto(sxc_client_t *sx, unsigned blocksize, const char *
             break;
         case HASHOP_RESERVE:
             verb = REQ_PUT;
+            if (!id) {
+                sxi_seterr(sx, SXE_EARG, "Null id");
+                return NULL;
+            }
             rc = snprintf(url, sizeof(url), ".data/%u/%.*s?o=reserve&id=%s", blocksize, hashes_len, hashes, id);
             break;
         case HASHOP_CHECK:
             verb = REQ_PUT;
-            rc = snprintf(url, sizeof(url), ".data/%u/%.*s?o=check&id=%s", blocksize, hashes_len, hashes, id);
+            rc = snprintf(url, sizeof(url), ".data/%u/%.*s?o=check", blocksize, hashes_len, hashes);
             break;
         case HASHOP_DELETE:
             verb = REQ_DELETE;

@@ -44,7 +44,7 @@ void sxi_hashop_begin(sxi_hashop_t *hashop, sxi_conns_t *conns, hash_presence_cb
     hashop->cb = cb;
     hashop->context = context;
     hashop->kind = kind;
-    if (bin2hex(idhash->b, sizeof(idhash->b), hashop->id, sizeof(hashop->id)))
+    if (idhash && bin2hex(idhash->b, sizeof(idhash->b), hashop->id, sizeof(hashop->id)))
         WARN("bin2hex failed");
     sxc_clearerr(sxi_conns_get_client(conns));
 }

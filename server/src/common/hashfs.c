@@ -1782,7 +1782,7 @@ static int check_revision(const char *revision) {
 }
 
 #define TOKEN_SIGNED_LEN UUID_STRING_SIZE + 1 + TOKEN_RAND_BYTES * 2 + 1 + TOKEN_REPLICA_LEN + 1 + TOKEN_EXPIRE_LEN + 1
-rc_ty sx_hashfs_make_token(sx_hashfs_t *h, const uint8_t *user, const char *rndhex, unsigned int replica, int64_t expires_at, const char **token, sx_hash_t *tokenhash) {
+rc_ty sx_hashfs_make_token(sx_hashfs_t *h, const uint8_t *user, const char *rndhex, unsigned int replica, int64_t expires_at, const char **token) {
     HMAC_CTX hmac_ctx;
     uint8_t md[EVP_MAX_MD_SIZE], rndbin[TOKEN_RAND_BYTES];
     char rndhexbuf[TOKEN_RAND_BYTES * 2 + 1], replicahex[2 + TOKEN_REPLICA_LEN + 1], expirehex[TOKEN_EXPIRE_LEN + 1];
@@ -1839,8 +1839,6 @@ rc_ty sx_hashfs_make_token(sx_hashfs_t *h, const uint8_t *user, const char *rndh
 	bin2hex(md, AUTH_KEY_LEN, &h->put_token[TOKEN_SIGNED_LEN], AUTH_KEY_LEN * 2 + 1);
 	h->put_token[sizeof(h->put_token)-1] = '\0';
 	*token = h->put_token;
-	if (hash_buf("", 0, *token, strlen(*token), tokenhash))
-	    ret = FAIL_EINTERNAL;
     }
     HMAC_CTX_cleanup(&hmac_ctx);
 
@@ -4295,7 +4293,6 @@ rc_ty sx_hashfs_putfile_gettoken(sx_hashfs_t *h, const uint8_t *user, int64_t si
     sx_hash_t filehash;
 #endif
     int64_t expires_at;
-    sx_hash_t tokenhash;
 
     if(!h || !h->put_id)
 	return EINVAL;
@@ -4428,7 +4425,7 @@ rc_ty sx_hashfs_putfile_gettoken(sx_hashfs_t *h, const uint8_t *user, int64_t si
 
     ptr = (const char *)sqlite3_column_text(h->qt_gettoken, 0);
     expires_at = sqlite3_column_int64(h->qt_gettoken, 1);
-    if(sx_hashfs_make_token(h, user, ptr, h->put_replica, expires_at, token, &tokenhash))
+    if(sx_hashfs_make_token(h, user, ptr, h->put_replica, expires_at, token))
 	goto gettoken_err;
 
 

@@ -111,7 +111,6 @@ void blockmgr_process_queue(struct blockmgr_data_t *q) {
 	int64_t xfer_id;
 	sxi_hashop_t hc;
 	uint8_t *curb;
-        sx_hash_t tokenhash;
         const char *token = NULL;
 
 	if(r == SQLITE_DONE) {
@@ -162,13 +161,13 @@ void blockmgr_process_queue(struct blockmgr_data_t *q) {
 	}
 
 	memset(&hlist, 0, sizeof(hlist));
-        if(sx_hashfs_make_token(q->hashfs, CLUSTER_USER, NULL, 0, time(NULL) + JOB_FILE_MAX_TIME, &token, &tokenhash)) {
+        if(sx_hashfs_make_token(q->hashfs, CLUSTER_USER, NULL, 0, time(NULL) + JOB_FILE_MAX_TIME, &token)) {
             WARN("Cannot create blockmgr token");
             break;
         }
         /* just check for presence, reservation was already done by the failed
          * INUSE */
-	sxi_hashop_begin(&hc, clust, hcb, HASHOP_CHECK, &tokenhash, &hlist);
+	sxi_hashop_begin(&hc, clust, hcb, HASHOP_CHECK, NULL, &hlist);
         for(hlist.nblocks = 0; r == SQLITE_ROW; hlist.nblocks++) {
 	    /* Some preliminary extra checks; broken entries will be wiped on the next (outer) loop */
 	    h = sqlite3_column_blob(q->qlist, 1);
