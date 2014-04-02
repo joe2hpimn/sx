@@ -263,7 +263,9 @@ ask_questions() {
 	fi
 	ask_yn "Is this ($SX_NODE_IP) the first node of a new cluster? $DEFAULTFIRST[default=$DEFAULTANSWER]"
 	ANSWER=${ANSWER:-$DEFAULTANSWER}
-	if [ "$ANSWER" = "n" ]; then
+	if [ "$ANSWER" = "y" ]; then
+	    SX_EXISTING_NODE_IP=
+	else
 	    echo "Please provide the IP address of a working node in '$SX_CLUSTER_NAME'."
 	    while true; do
 		if [ -n "$SX_EXISTING_NODE_IP" ]; then
