@@ -2189,11 +2189,11 @@ static void jobmgr_process_queue(struct jobmgr_data_t *q, int forced) {
 		r = qstep(q->qjob);
 	    } while(r == SQLITE_DONE && waitus <= 800000);
 	    if(r == SQLITE_DONE)
-		INFO("Triggered run without jobs");
+		DEBUG("Triggered run without jobs");
 	}
         forced = 0;
 	if(r == SQLITE_DONE) {
-	    INFO("No more pending jobs");
+	    DEBUG("No more pending jobs");
 	    break; /* Stop processing jobs */
 	}
 	if(r != SQLITE_ROW) {
@@ -2285,7 +2285,7 @@ int jobmgr(sxc_client_t *sx, const char *self, const char *dir, int pipe) {
         if (wait_trigger(pipe, JOBMGR_DELAY_MIN, &forced_awake))
             break;
 
-	INFO("Start processing job queue");
+	DEBUG("Start processing job queue");
 	dc = sx_hashfs_distcheck(q.hashfs);
 	if(dc < 0) {
 	    CRIT("Failed to reload distribution");
@@ -2294,7 +2294,7 @@ int jobmgr(sxc_client_t *sx, const char *self, const char *dir, int pipe) {
 	    /* MODHDIST: the model has changed, what do ? */
 	}
 	jobmgr_process_queue(&q, forced_awake);
-	INFO("Done processing job queue");
+	DEBUG("Done processing job queue");
         sx_hashfs_checkpoint(q.hashfs);
     }
 
