@@ -57,4 +57,6 @@ void qclose(sxi_db_t **db);
 
 #define qnullify(Q) do { sqlite3_finalize(Q); Q = NULL; } while(0)
 
+#define SXDBI_BUSY_TIMEOUT 20
+
 #endif

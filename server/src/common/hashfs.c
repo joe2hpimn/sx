@@ -516,7 +516,7 @@ static int qopen(const char *path, sxi_db_t **dbp, const char *dbtype, sx_uuid_t
     }
     if (!(*dbp = qnew(handle)))
         goto qopen_fail;
-    if(sqlite3_busy_timeout(handle, 20*1000)) {
+    if(sqlite3_busy_timeout(handle, SXDBI_BUSY_TIMEOUT * 1000)) {
 	CRIT("Failed to set timeout on database %s: %s", path, sqlite3_errmsg(handle));
 	goto qopen_fail;
     }
@@ -5955,10 +5955,11 @@ rc_ty sx_hashfs_job_new_notrigger(sx_hashfs_t *h, sx_uid_t user_id, job_t *job_i
 	goto addjob_out;
     }
 
-    /* timeout for an SQLITE query is 20s, so we can't have job timeout lower
-     * than that, and one query might not be enough */
-    if (timeout_secs < 30)
-        timeout_secs = 30;
+    /* Cap the minimum timeout to 2.5 * SXDBI_BUSY_TIMEOUT
+       which lets a very simple job complete even if 50% of
+       its queries are slow - by default this is 50 seconds */
+    if (timeout_secs < (SXDBI_BUSY_TIMEOUT * 2 + SXDBI_BUSY_TIMEOUT / 2))
+        timeout_secs = (SXDBI_BUSY_TIMEOUT * 2 + SXDBI_BUSY_TIMEOUT / 2);
 
     if(qbind_int(h->qe_addjob, ":type", type) ||
        qbind_int(h->qe_addjob, ":expiry", time(NULL) + timeout_secs) ||
