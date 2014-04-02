@@ -251,9 +251,6 @@ int main(int argc, char **argv) {
     pid_t dead;
     sxc_client_t *sx = NULL;
 
-    sx = server_init(NULL, NULL, NULL, argc, argv);
-    if (!sx)
-        return EXIT_FAILURE;
     if(cmdline_args(argc, argv, &cmdargs))
 	return EXIT_FAILURE;
 
@@ -287,6 +284,10 @@ int main(int argc, char **argv) {
     free(params);
     cmdline_args_free(&cmdargs);
 
+    sx = server_init(NULL, NULL, NULL, foreground, argc, argv);
+    if (!sx)
+        return EXIT_FAILURE;
+
     if(!getrlimit(RLIMIT_NOFILE, &rlim) && (rlim.rlim_cur < MAX_FDS || rlim.rlim_max < MAX_FDS)) {
 	unsigned int l_soft = rlim.rlim_cur, l_hard = rlim.rlim_max;
 	rlim.rlim_cur = rlim.rlim_max = MAX_FDS;
@@ -303,7 +304,7 @@ int main(int argc, char **argv) {
     /* must init with logfile after we switched uid, otherwise children wouldn't be able
      * to open the logfile */
     server_done(&sx);
-    sx = server_init(NULL, NULL, args.logfile_arg, argc, argv);
+    sx = server_init(NULL, NULL, args.logfile_arg, foreground, argc, argv);
     if (!sx) {
         cmdline_parser_free(&args);
         server_done(&sx);
@@ -655,7 +656,7 @@ int main(int argc, char **argv) {
     } else if(!pids[JOBMGR]) {
         int ret;
         server_done(&sx);
-        sx = server_init(NULL, "job manager", args.logfile_arg, argc, argv);
+        sx = server_init(NULL, "job manager", args.logfile_arg, foreground, argc, argv);
         if (sx) {
             if(debug)
                 log_setminlevel(sx,SX_LOG_DEBUG);
@@ -683,7 +684,7 @@ int main(int argc, char **argv) {
     } else if(!pids[BLKMGR]) {
         int ret;
         server_done(&sx);
-        sx = server_init(NULL, "block manager", args.logfile_arg, argc, argv);
+        sx = server_init(NULL, "block manager", args.logfile_arg, foreground, argc, argv);
         if (sx) {
             if(debug)
                 log_setminlevel(sx,SX_LOG_DEBUG);
@@ -715,7 +716,7 @@ int main(int argc, char **argv) {
     } else if(!pids[GCMGR]) {
         int ret;
         server_done(&sx);
-        sx = server_init(NULL, "garbage collector", args.logfile_arg, argc, argv);
+        sx = server_init(NULL, "garbage collector", args.logfile_arg, foreground, argc, argv);
         if (sx) {
             if(debug)
                 log_setminlevel(sx,SX_LOG_DEBUG);
@@ -749,7 +750,7 @@ int main(int argc, char **argv) {
 		    break;
 		case 0:
                     server_done(&sx);
-                    sx = server_init(&fcgilog, "fastcgi worker", args.logfile_arg, argc, argv);
+                    sx = server_init(&fcgilog, "fastcgi worker", args.logfile_arg, foreground, argc, argv);
                     if (sx) {
                         if(debug)
                             log_setminlevel(sx,SX_LOG_DEBUG);

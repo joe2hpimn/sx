@@ -39,7 +39,7 @@ int skip_dietests=0;
 int main(int argc, char *argv[])
 {
     int failed;
-    sxc_client_t *sx = server_init(NULL, NULL, NULL, argc, argv);
+    sxc_client_t *sx = server_init(NULL, NULL, NULL, 0, argc, argv);
 #ifdef ABS_BUILDDIR
     /* chdir so that tests that use execve() can find
      * the executables */

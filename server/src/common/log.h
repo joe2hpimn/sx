@@ -36,7 +36,7 @@
 extern sxc_logger_t server_logger;
 extern struct sxi_logger logger;
 
-void log_init(const sxc_logger_t **logger, const char *application, const char *logfile);
+void log_init(const sxc_logger_t **custom_logger, const char *argv0, const char *logfile, int foreground);
 void log_done(void);
 void log_reopen(void);
 void log_setminlevel(sxc_client_t *sx, int prio);

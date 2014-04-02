@@ -31,10 +31,10 @@
 #include "utils.h"
 #include <openssl/err.h>
 
-sxc_client_t* server_init(const sxc_logger_t *custom_logger, const char *application, const char *logfile, int argc, char *argv[])
+sxc_client_t* server_init(const sxc_logger_t *custom_logger, const char *application, const char *logfile, int log_foreground, int argc, char *argv[])
 {
     sxc_client_t *sx;
-    log_init(&custom_logger, application ? application : argv[0], logfile);
+    log_init(&custom_logger, application ? application : argv[0], logfile, log_foreground);
     sx = sxc_init(src_version(), custom_logger, NULL);
     if (!sx) {
         CRIT("Cannot initialize SX");

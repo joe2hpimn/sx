@@ -140,7 +140,7 @@ int main(int argc, char **argv)
     const sx_node_t *node;
     const void *cfg;
     int ret = 1;
-    sxc_client_t *sx = server_init(NULL, NULL, NULL, argc, argv);
+    sxc_client_t *sx = server_init(NULL, NULL, NULL, 0, argc, argv);
 
     if(argc == 2 && !strcmp(argv[1], "--debug")) {
 	log_setminlevel(sx, SX_LOG_DEBUG);

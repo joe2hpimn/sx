@@ -46,7 +46,8 @@ static struct _sx_logger_ctx {
     pid_t pid;
     const char *file;
     int fd;
-} ctx = { 0, NULL, -1 };
+    int foreground;
+} ctx = { 0, NULL, -1, 0 };
 
 static void log_to_fd(const char *argv0, int fd, int prio, const char *msg)
 {
@@ -115,7 +116,9 @@ static void dolog(void *_ctx, const char *argv0, int prio, const char *msg)
             syslog(LOG_ERR,"(no logfile): %s", msg);
         fprintf(stderr, "%s\n", msg);
         return;
-    }
+    } else if(ctx.foreground)
+        fprintf(stderr, "%s\n", msg);
+
     struct flock lck;
 
     memset(&lck, 0, sizeof(lck));
@@ -137,7 +140,7 @@ static void dolog(void *_ctx, const char *argv0, int prio, const char *msg)
 sxc_logger_t server_logger;
 struct sxi_logger logger;
 
-void log_init(const sxc_logger_t **custom_logger, const char *argv0, const char *logfile)
+void log_init(const sxc_logger_t **custom_logger, const char *argv0, const char *logfile, int foreground)
 {
     server_logger.ctx = &ctx;
     server_logger.log = dolog;
@@ -151,6 +154,7 @@ void log_init(const sxc_logger_t **custom_logger, const char *argv0, const char 
     openlog(server_logger.argv0, LOG_PID | LOG_CONS | LOG_NDELAY | LOG_NOWAIT, LOG_USER);
     ctx.pid = getpid();
     ctx.file = logfile;
+    ctx.foreground = foreground;
     if (ctx.fd == -1) {
         if (!ctx.file)
             return;

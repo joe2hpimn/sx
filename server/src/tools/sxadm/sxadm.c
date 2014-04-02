@@ -1078,7 +1078,7 @@ int main(int argc, char **argv) {
     struct rlimit rlim;
     sxc_logger_t log;
     int have_command=(argc >= 2), ret = 1;
-    sxc_client_t *sx = server_init(sxc_default_logger(&log, argv[0]), NULL, NULL, argc, argv);
+    sxc_client_t *sx = server_init(sxc_default_logger(&log, argv[0]), NULL, NULL, 0, argc, argv);
 
     if(!getrlimit(RLIMIT_NOFILE, &rlim) && (rlim.rlim_cur < MAX_FDS || rlim.rlim_max < MAX_FDS)) {
 	unsigned int l_soft = rlim.rlim_cur, l_hard = rlim.rlim_max;

@@ -505,7 +505,7 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    sx = server_init(sxc_file_logger(&flogger, argv[0], name, 0), NULL, NULL, argc, argv);
+    sx = server_init(sxc_file_logger(&flogger, argv[0], name, 0), NULL, NULL, 0, argc, argv);
     sxc_set_verbose(sx, 1);
     params->initialize = 1;
     cmdline_parser_init(&fcgi_args);/* without this it'll crash */
