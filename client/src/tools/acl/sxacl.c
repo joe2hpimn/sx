@@ -40,7 +40,6 @@
 #include "sx.h"
 #include "cmd_main.h"
 #include "cmd_useradd.h"
-#include "cmd_usermod.h"
 #include "cmd_userlist.h"
 #include "cmd_usergetkey.h"
 #include "cmd_perm.h"
@@ -319,25 +318,7 @@ int main(int argc, char **argv) {
             }
             ret = add_user(sx, args.inputs[0], args.inputs[1], args.config_dir_arg, args.role_arg, args.auth_file_arg);
             useradd_cmdline_parser_free(&args);
-        } else if (!strcmp(argv[1], "usermod")) {
-            struct usermod_args_info args;
-            if (usermod_cmdline_parser(argc - 1, &argv[1], &args)) {
-                ret = 1;
-		printf("See 'sxacl usermod  --help' for usage information.\n");
-                break;
-            }
-            if(args.version_given) {
-                printf("%s %s\n", MAIN_CMDLINE_PARSER_PACKAGE, SRC_VERSION);
-		break;
-	    }
-            sxc_set_debug(sx, args.debug_flag);
-            if (args.inputs_num != 1) {
-                fprintf(stderr,"Wrong number of arguments (see 'sxacl %s --help')\n", argv[1]);
-                ret = 1;
-                break;
-            }
-            /* TODO */
-            usermod_cmdline_parser_free(&args);
+
         } else if (!strcmp(argv[1], "userlist")) {
             struct userlist_args_info args;
             if (userlist_cmdline_parser(argc - 1, &argv[1], &args)) {
