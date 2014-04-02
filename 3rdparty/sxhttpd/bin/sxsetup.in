@@ -139,22 +139,19 @@ check_port() {
     if [ `uname` = "Linux" ]; then
 	FLAGS=-p
     fi
-    while true; do
-	printf "Checking port $PORT on $IP ... "
-	nstat="`netstat $FLAGS -na 2>/dev/null | 
-	grep "tcp.*\($IP\|0.0.0.0\|::\|*\)[:.]$PORT[ \t].*LISTEN" |
-	sed 's/\/.*//g'`"
-	if [ -n "$nstat" ]; then
-	    echo
-	    echo "ERROR: another server is already running on $IP:$PORT"
-	    echo "Make sure you stop it before attempting to start SX."
-	    printf "[ Press ENTER to continue ]"
-	    read NOTHING
-	else
-	    echo OK
-	    break
-	fi
-    done
+    printf "Checking port $PORT on $IP ... "
+    nstat="`netstat $FLAGS -na 2>/dev/null | 
+    grep "tcp.*\($IP\|0.0.0.0\|::\|*\)[:.]$PORT[ \t].*LISTEN" |
+    sed 's/\/.*//g'`"
+    if [ -n "$nstat" ]; then
+	echo
+	echo "ERROR: another service is already running on $IP:$PORT"
+	echo "Please stop that service or provide another IP address."
+	CHECK_PORT_RETVAL=1
+    else
+	echo OK
+	CHECK_PORT_RETVAL=0
+    fi
 }
 
 ask_questions() {
@@ -218,13 +215,15 @@ ask_questions() {
 	    printf "Enter the IP address of this node [default=$SX_NODE_IP]: "
 	    read NEWVAL
 	    SX_NODE_IP=${NEWVAL:-$SX_NODE_IP}
-	    test -n "$SX_NODE_IP" && break
+	    test -z "$SX_NODE_IP" && continue
+	    check_port "$SX_NODE_IP" $SX_HTTP_PORT
+	    test "$CHECK_PORT_RETVAL" = "1" && continue
+	    if [ -z "$NOSSL_FLAG" ]; then
+		check_port "$SX_NODE_IP" $SX_HTTPS_PORT
+		test "$CHECK_PORT_RETVAL" = "1" && continue
+	    fi
+	    break
 	done
-
-	check_port "$SX_NODE_IP" $SX_HTTP_PORT
-	if [ -z "$NOSSL_FLAG" ]; then
-	    check_port "$SX_NODE_IP" $SX_HTTPS_PORT
-	fi
 
 	if [ -z "$SX_NODE_INTERNAL_IP" -o "$SX_NODE_INTERNAL_IP" = "$SX_NODE_IP" ]; then
 	    DEFAULTFIRST="(y/N)"
@@ -243,12 +242,15 @@ ask_questions() {
 		    printf "Enter the internal IP address of this node [default=$SX_NODE_INTERNAL_IP]: "
 		    read NEWVAL
 		    SX_NODE_INTERNAL_IP=${NEWVAL:-$SX_NODE_INTERNAL_IP}
-		    test -n "$SX_NODE_INTERNAL_IP" && break
+		    test -z "$SX_NODE_INTERNAL_IP" && continue
+		    check_port "$SX_NODE_INTERNAL_IP" $SX_HTTP_PORT
+		    test "$CHECK_PORT_RETVAL" = "1" && continue
+		    if [ -z "$NOSSL_FLAG" ]; then
+			check_port "$SX_NODE_INTERNAL_IP" $SX_HTTPS_PORT
+			test "$CHECK_PORT_RETVAL" = "1" && continue
+		    fi
+		    break
 		done
-		check_port "$SX_NODE_INTERNAL_IP" $SX_HTTP_PORT
-		if [ -z "$NOSSL_FLAG" ]; then
-		    check_port "$SX_NODE_INTERNAL_IP" $SX_HTTPS_PORT
-		fi
 	    fi
 	fi
 
@@ -510,7 +512,9 @@ if [ "$CONFIG_FILE_GIVEN" = "yes" ]; then
     fi
 
     check_port "$SX_NODE_IP" $SX_HTTP_PORT
+    test "$CHECK_PORT_RETVAL" = "1" && exit 1
     test "$SX_USE_SSL" != "no" && check_port "$SX_NODE_IP" $SX_HTTPS_PORT
+    test "$CHECK_PORT_RETVAL" = "1" && exit 1
 
     if [ -n "$SX_NODE_INTERNAL_IP" ]; then
 	check_port "$SX_NODE_INTERNAL_IP" $SX_HTTP_PORT
