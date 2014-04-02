@@ -2292,6 +2292,7 @@ int jobmgr(sxc_client_t *sx, const char *self, const char *dir, int pipe) {
 	    goto jobmgr_err;
 	} else if(dc > 0) {
 	    /* MODHDIST: the model has changed, what do ? */
+	    INFO("Distribution reloaded");
 	}
 	jobmgr_process_queue(&q, forced_awake);
 	DEBUG("Done processing job queue");

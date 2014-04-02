@@ -114,7 +114,7 @@ void blockmgr_process_queue(struct blockmgr_data_t *q) {
         const char *token = NULL;
 
 	if(r == SQLITE_DONE) {
-	    INFO("No more pending transfers");
+	    DEBUG("No more pending transfers");
 	    break;
 	}
 	if(r != SQLITE_ROW) {
@@ -305,7 +305,7 @@ int blockmgr(sxc_client_t *sx, const char *self, const char *dir, int pipe) {
         if (wait_trigger(pipe, BLOCKMGR_DELAY, NULL))
             break;
 
-	INFO("Start processing block queue");
+	DEBUG("Start processing block queue");
 
 	dc = sx_hashfs_distcheck(q.hashfs);
 	if(dc < 0) {
@@ -320,7 +320,7 @@ int blockmgr(sxc_client_t *sx, const char *self, const char *dir, int pipe) {
 	 * so we just quietly delete everything */
 	qstep_noret(q.qprune);
 	blockmgr_process_queue(&q);
-	INFO("Done processing block queue");
+	DEBUG("Done processing block queue");
         sx_hashfs_checkpoint(q.hashfs);
     }
 
