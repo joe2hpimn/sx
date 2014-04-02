@@ -675,23 +675,28 @@ unsigned int sxi_conns_get_timeout(sxi_conns_t *conns, const char *host) {
     const char *mulstr;
     unsigned int ret;
 
-    if(!t)
+    if(!t) {
 	ret = timeouts[INITIAL_TIMEOUT_IDX];
-    else {
+	CLSTDEBUG("No timeout data for %s, using %u", host, ret);
+    } else {
 	if(t->blacklist_expires > time(NULL)) {
+	    CLSTDEBUG("Host %s is blacklisted", host);
 	    t->was_blacklisted = 1;
 	    return 1;
 	}
 	t->was_blacklisted = 0;
 	ret = timeouts[t->idx];
+	CLSTDEBUG("Timeout for host %s is %u", host, ret);
     }
     if((mulstr = getenv("SX_DEBUG_TIMEOUT_MULTIPLIER"))) {
 	char *eom;
 	double mul = strtod(mulstr, &eom);
 	if(!mul || *eom)
-	    fprintf(stderr, "Ignoring bad SX_DEBUG_TIMEOUT_MULTIPLIER (%s)", mulstr);
-	else
+	    CLSTDEBUG("Ignoring bad SX_DEBUG_TIMEOUT_MULTIPLIER (%s)", mulstr);
+	else {
 	    ret = mul * (double)ret;
+	    CLSTDEBUG("After applying debug multiplier timeout for %s is set at %u", host, ret);
+	}
     }
     return ret;
 }
@@ -699,20 +704,29 @@ unsigned int sxi_conns_get_timeout(sxi_conns_t *conns, const char *host) {
 int sxi_conns_set_timeout(sxi_conns_t *conns, const char *host, int timeout_action) {
     struct timeout_data *t = get_timeout_data(conns, host);
 
-    if(!conns || !host)
+    if(!conns || !host) {
+	CLSTDEBUG("Called with null data");
 	return -1;
+    }
 
     if(t) {
 	if(timeout_action >= 0) {
-	    if(t->idx < MAX_TIMEOUT_IDX - 1)
+	    if(t->idx < MAX_TIMEOUT_IDX - 1) {
+		CLSTDEBUG("Increasing timeout for host %s", host);
 		t->idx++;
+	    } else
+		CLSTDEBUG("Not increasing timeout for host %s (already at max)", host);
 	    t->blacklist_expires = 0;
 	    t->blacklist_interval = INITIAL_BLACKLIST_INTERVAL;
 	} else if(!t->was_blacklisted) {
-	    if(t->idx > 0)
+	    if(t->idx > 0) {
+		CLSTDEBUG("Decreasing timeout for host %s", host);
 		t->idx--;
+	    } else
+		CLSTDEBUG("Not decreasing timeout for host %s (already at min)", host);
 	    if(t->last_action < 0) {
 		t->blacklist_expires = time(NULL) + t->blacklist_interval;
+		CLSTDEBUG("Already failed host %s is now blacklisted for %u seconds", host, t->blacklist_interval);
 		t->blacklist_interval *= 2;
 		if(t->blacklist_interval > 10 * 60)
 		    t->blacklist_interval = 10 * 60;
@@ -732,14 +746,19 @@ int sxi_conns_set_timeout(sxi_conns_t *conns, const char *host, int timeout_acti
 
     t->blacklist_expires = 0;
     t->blacklist_interval = INITIAL_BLACKLIST_INTERVAL;
-    t->idx = INITIAL_TIMEOUT_IDX;
-    t->last_action = 1;
+    if(timeout_action >= 0)
+	t->idx = INITIAL_TIMEOUT_IDX + 1;
+    else
+	t->idx = INITIAL_TIMEOUT_IDX - 1;
+    t->last_action = timeout_action;
     t->was_blacklisted = 0;
 
     if(sxi_ht_add(conns->timeouts, host, strlen(host), t)) {
 	free(t);
 	return -1;
     }
+
+    CLSTDEBUG("Timeout for host %s initialized to %u", host, timeouts[t->idx]);
 
     return 0;
 }

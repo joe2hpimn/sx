@@ -52,7 +52,6 @@ typedef struct curlev {
     enum sxi_cluster_verb verb;
     reply_t reply;
     struct curl_slist *resolve;
-    unsigned int timeout;
 } curlev_t;
 
 #define MAX_EVENTS 64
@@ -722,6 +721,7 @@ static int curlev_apply(curl_events_t *e, curlev_t *ev, curlev_t *src)
     }
     ev->curl = handle;
     do {
+	unsigned int contimeout;
         resolve(ev, src->host);
         if (compute_headers_url(e, ev, src) == -1) {
             EVDEBUG(ev, "compute_headers_url failed");
@@ -733,12 +733,13 @@ static int curlev_apply(curl_events_t *e, curlev_t *ev, curlev_t *src)
         if (easy_set_default_opt(e, ev) == -1)
             break;
 
+	contimeout = sxi_conns_get_timeout(e->conns, src->host);
 #if LIBCURL_VERSION_NUM >= 0x071002
-	rc = curl_easy_setopt(ev->curl, CURLOPT_CONNECTTIMEOUT_MS, ev->timeout);
+	rc = curl_easy_setopt(ev->curl, CURLOPT_CONNECTTIMEOUT_MS, contimeout);
 	if (curl_check(ev, rc, "set CURLOPT_CONNECTTIMEOUT_MS") == -1)
 	    break;
 #else
-	rc = curl_easy_setopt(ev->curl, CURLOPT_CONNECTTIMEOUT, (ev->timeout+999) / 1000);
+	rc = curl_easy_setopt(ev->curl, CURLOPT_CONNECTTIMEOUT, (contimeout+999) / 1000);
 	if (curl_check(ev, rc, "set CURLOPT_CONNECTTIMEOUT") == -1)
 	    break;
 #endif
@@ -1130,7 +1131,6 @@ static int ev_add(curl_events_t *e,
         if (!ev->url)
             break;
         ev->verb = verb;
-	ev->timeout = sxi_conns_get_timeout(e->conns, headers->host);
         if (enqueue_request(e, ev, 0) == -1) {
             /* TODO: remove all reuse[] handles if this fails */
             return -1;
