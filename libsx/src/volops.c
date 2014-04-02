@@ -85,8 +85,13 @@ int sxi_volume_cfg_store(sxc_client_t *sx, sxc_cluster_t *cluster, const char *v
 	    return 1;
 	}
 	sprintf(path, "%s/volumes/%s", confdir, vname);
-	if(access(path, F_OK) && mkdir(path, 0700) == -1) {
-	    sxi_seterr(sx, SXE_ECFG, "Can't create volume configuration directory");
+	if(!access(path, F_OK) && sxi_rmdirs(path)) {
+	    sxi_seterr(sx, SXE_EWRITE, "Can't wipe old volume configuration directory %s", path);
+	    free(path);
+	    return 1;
+	}
+	if(mkdir(path, 0700) == -1) {
+	    sxi_seterr(sx, SXE_ECFG, "Can't create volume configuration directory %s", path);
 	    free(path);
 	    return 1;
 	}
@@ -100,8 +105,16 @@ int sxi_volume_cfg_store(sxc_client_t *sx, sxc_cluster_t *cluster, const char *v
 	return 1;
     }
     sprintf(path, "%s/volumes/%s", confdir, vname);
-    if(access(path, F_OK))
-	mkdir(path, 0700);
+    if(!access(path, F_OK) && sxi_rmdirs(path)) {
+	sxi_seterr(sx, SXE_EWRITE, "Can't wipe old volume configuration directory %s", path);
+	free(path);
+	return 1;
+    }
+    if(mkdir(path, 0700)) {
+	sxi_seterr(sx, SXE_EWRITE, "Can't create volume configuration directory %s", path);
+	free(path);
+	return 1;
+    }
 
     sprintf(path, "%s/volumes/%s/filter", confdir, vname);
     fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0600);
