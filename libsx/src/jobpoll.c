@@ -384,8 +384,8 @@ static int jobget_cb(sxi_conns_t *conns, void *ctx, const void *data, size_t siz
 static void jobres_finish(curlev_context_t *ctx, const char *url)
 {
     struct job_ctx *jctx = sxi_cbdata_get_job_ctx(ctx);
-    if (jctx->queries_finished)/* finished, not necesarely successfully */
-        (*jctx->queries_finished) ++;
+    if (jctx->queries_finished) /* finished, not necesarely successfully */
+        (*jctx->queries_finished)++;
 }
 
 sxi_job_t* sxi_job_submit(sxi_conns_t *conns, sxi_hostlist_t *hlist, enum sxi_cluster_verb verb, const char *query, const char *name, void *content, size_t content_size, int* http_code, sxi_jobs_t *jobs) {
