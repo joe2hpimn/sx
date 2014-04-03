@@ -162,7 +162,7 @@ test_check_misc_LDADD = test/libcheckmain.la src/common/libcommon.la @CHECK_LIBS
 test_check_misc_CFLAGS = $(AM_CFLAGS) @CHECK_CFLAGS@
 
 check-local:
-	if test -f test-suite.log; then ln -s `pwd`/test-suite.log ../test-suite.log; else :; fi
+	if test -f test-suite.log; then ln -sf `pwd`/test-suite.log ../test-suite.log; else :; fi
 
 check-valgrind:
 	$(MAKE) check-TESTS TESTS="test/check_misc" LOG_COMPILER=test/runvg.sh CK_FORK=no TEST_SUITE_LOG=valgrind-test-suite.log
