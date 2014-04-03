@@ -440,6 +440,7 @@ int sxi_cluster_query(sxi_conns_t *conns, const sxi_hostlist_t *hlist, enum sxi_
     long status = -1;
     unsigned hostcount;
     struct generic_ctx gctx;
+    sxi_retry_t *retry;
 
     if(!hlist)
 	    hlist = &conns->hlist;
@@ -461,11 +462,19 @@ int sxi_cluster_query(sxi_conns_t *conns, const sxi_hostlist_t *hlist, enum sxi_
 	return -1;
     }
     rc = 0;
+    retry = sxi_retry_init(conns->sx);
+    if (!retry)
+        return -1;
     for(i=0; i<hostcount && rc != -1 && !ok; i++) {
             sxi_cbdata_reset(cbdata);
 
-            sxc_clearerr(conns->sx);/* clear errors: we're retrying on next host */
+            /* clear errors: we're retrying on next host */
+            if (sxi_retry_check(retry, i)) {
+                break;
+                rc = -1;
+            }
             const char *host = sxi_hostlist_get_host(hlist, i);
+            sxi_retry_msg(retry, host);
             rc = sxi_cluster_query_ev(cbdata, conns, host, verb, query, content, content_size,
                                       wrap_setup_callback, wrap_data_callback);
             if (rc == -1)
@@ -484,6 +493,12 @@ int sxi_cluster_query(sxi_conns_t *conns, const sxi_hostlist_t *hlist, enum sxi_
         CLSTDEBUG("All %d hosts returned failure",
                   sxi_hostlist_get_count(hlist));
     sxi_cbdata_unref(&cbdata);
+    if (sxi_retry_done(&retry) && status == 200) {
+        /* error encountered in retry_done, even though status was successful
+         * do not change status in other cases, we want to return an actual
+         * http status code if we have it on an error */
+        status = -1;
+    }
     return status;
 }
 

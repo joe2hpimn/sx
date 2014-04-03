@@ -348,6 +348,7 @@ struct part_upload_ctx {
     unsigned needed_cnt;
     sxi_ht *hostsmap;
     int ref;/* how many batches are outstanding */
+    sxi_retry_t *retry;
 };
 
 struct file_upload_ctx {
@@ -734,6 +735,7 @@ static int part_wait_reset(struct file_upload_ctx *ctx)
     sxc_client_t *sx = ctx->sx;
     struct part_upload_ctx *yctx = &ctx->current;
     unsigned i;
+    int rc = 0;
 
     /* wait until uploads are finished for current part */
     while (ctx->current.ref > 0) {
@@ -751,8 +753,12 @@ static int part_wait_reset(struct file_upload_ctx *ctx)
     yctx->token = NULL;
     sxi_query_free(ctx->query);
     ctx->query = NULL;
+    if (yctx->retry && sxi_retry_done(&yctx->retry)) {
+        SXDEBUG("retry_done failed");
+        rc = -1;
+    }
     part_free(yctx);
-    return 0;
+    return rc;
 }
 
 static int block_reply_cb(curlev_context_t *ctx, const unsigned char *data, size_t size)
@@ -815,14 +821,16 @@ static void file_finish(struct file_upload_ctx *yctx)
     SXDEBUG("finished file");
     gettimeofday(&yctx->t2, NULL);
     if (!yctx->current.token) {
-        SXDEBUG("no token?");
+        SXDEBUG("fail incremented: no token?");
         yctx->fail++;
         return;
     }
     /*  TODO: multiplex flush_file */
     yctx->job = flush_file_ev(yctx->cluster, yctx->current.host, yctx->current.token, yctx->name, yctx->dest->jobs);
-    if (!yctx->job)
+    if (!yctx->job) {
+        SXDEBUG("fail incremented due to !job");
         yctx->fail++;
+    }
     else
         yctx->flush_ok++;
 }
@@ -837,7 +845,7 @@ static void last_part(struct file_upload_ctx *state)
     state->end = state->size;
     SXDEBUG("entered");
     if (multi_part_upload_ev(state) == -1) {
-        SXDEBUG("failed to upload last part");
+        SXDEBUG("fail incremented: failed to upload last part");
         state->fail++;
     }
 }
@@ -845,7 +853,6 @@ static void last_part(struct file_upload_ctx *state)
 static int batch_hashes_to_hosts(struct file_upload_ctx *yctx, struct need_hash *needed, unsigned from, unsigned size, unsigned next_replica)
 {
     unsigned i;
-    int msg_printed = 0;
     sxc_client_t *sx = yctx->sx;
     for (i=from;i<size;i++) {
         struct need_hash *need = &needed[i];
@@ -858,30 +865,31 @@ static int batch_hashes_to_hosts(struct file_upload_ctx *yctx, struct need_hash 
             SXDEBUG("All replicas have failed");
             return -1;
         }
-        if (!msg_printed && need->replica > 0) {
-            sxi_retrymsg(sx, NULL, "file block upload", host);
-            sxc_clearerr(sx);
-            msg_printed = 1;
+        if (sxi_retry_check(yctx->current.retry, need->replica) == -1) {
+            SXDEBUG("retry_check failed");
+            return -1;
         }
+        sxi_set_operation(sx, "file block upload", NULL, NULL, NULL);
+        sxi_retry_msg(yctx->current.retry, host);
         SXDEBUG("replica #%d: %s", need->replica, host);
         struct host_upload_ctx *u = NULL;
 
         if (sxi_ht_get(yctx->current.hostsmap, host, strlen(host)+1, (void**)&u)) {
             u = calloc(1, sizeof(*u));
             if (!u) {
-                SXDEBUG("OOM allocating hostsmap");
+                SXDEBUG("fail incremented: OOM allocating hostsmap");
 		sxi_seterr(sx, SXE_EMEM, "Out of memory");
                 yctx->fail++;
                 return -1;
             }
             if (!(u->needed = malloc(sizeof(*u->needed) * yctx->current.needed_cnt))) {
-                SXDEBUG("OOM allocing hostneed");
+                SXDEBUG("fail incremented: OOM allocing hostneed");
 		sxi_seterr(sx, SXE_EMEM, "Out of memory");
                 yctx->fail++;
                 return -1;
             }
             if (sxi_ht_add(yctx->current.hostsmap, host, strlen(host)+1, u)) {
-                SXDEBUG("error adding to hostsmap");
+                SXDEBUG("fail incremented: error adding to hostsmap");
                 yctx->fail++;
                 return -1;
             }
@@ -916,10 +924,13 @@ static void upload_blocks_to_hosts(struct file_upload_ctx *yctx, struct host_upl
             /* move to next replica: the last batch, and everything else
              * currently queued for this host */
             uctx->i = uctx->n = 0;
-            if (batch_hashes_to_hosts(yctx, uctx->needed, uctx->last_successful, n, 1))
+            if (batch_hashes_to_hosts(yctx, uctx->needed, uctx->last_successful, n, 1)) {
+                SXDEBUG("fail incremented");
                 yctx->fail++;
+            }
         }
         else {
+            SXDEBUG("fail incremented due to !uctx");
             yctx->fail++;
             return;
         }
@@ -934,12 +945,12 @@ static void upload_blocks_to_hosts(struct file_upload_ctx *yctx, struct host_upl
                 SXDEBUG("adding data %d from pos %lld", u->i, (long long)need->off);
                 ssize_t n = pread_hard(yctx->fd, u->buf + u->buf_used, yctx->blocksize, need->off);
                 if (n < 0) {
-                    SXDEBUG("error reading buffer");
+                    SXDEBUG("fail incremented: error reading buffer");
                     yctx->fail++;
                     return;
                 }
                 if (!n) {
-                    SXDEBUG("early EOF?");
+                    SXDEBUG("fail incremented: early EOF?");
                     yctx->fail++;
                     return;
                 }
@@ -953,7 +964,7 @@ static void upload_blocks_to_hosts(struct file_upload_ctx *yctx, struct host_upl
                 if (u->buf_used == sizeof(u->buf)) {
                     SXDEBUG("used: %d", u->buf_used);
                     if (send_up_batch(yctx, h, u) == -1) {
-                        SXDEBUG("failed to upload chunk");
+                        SXDEBUG("fail incremented: failed to upload chunk");
                         yctx->fail++;
                         return;
                     }
@@ -969,7 +980,7 @@ static void upload_blocks_to_hosts(struct file_upload_ctx *yctx, struct host_upl
         if (u->buf_used) {
             SXDEBUG("u: i:%d,n:%d", u->i, u->n);
             if (send_up_batch(yctx, h, u) == -1) {
-                SXDEBUG("failed to upload partial chunk");
+                SXDEBUG("fail incremented: failed to upload partial chunk");
                 yctx->fail++;
                 return;
             }
@@ -1024,7 +1035,7 @@ static void multi_part_upload_blocks(curlev_context_t *ctx, const char *url)
     int status = sxi_cbdata_result(ctx, NULL);
     if (status != 200) {
         SXDEBUG("query failed: %d", status);
-        yctx->fail++;
+/*        yctx->fail++;*/
         yctx->qret = status;
         return;
     }
@@ -1034,6 +1045,7 @@ static void multi_part_upload_blocks(curlev_context_t *ctx, const char *url)
             SXDEBUG("JSON parsing failed");
             sxi_seterr(sx, SXE_ECOMM, "Copy failed: failed to parse cluster response");
         }
+        SXDEBUG("fail incremented, after parse");
         yctx->fail++;
         return;
     }
@@ -1041,8 +1053,10 @@ static void multi_part_upload_blocks(curlev_context_t *ctx, const char *url)
     if (yctx->xres)
         yctx->xres->upload_reqblks += yctx->current.needed_cnt;
 
-    if (batch_hashes_to_hosts(yctx, yctx->current.needed, 0, yctx->current.needed_cnt, 0))
+    if (batch_hashes_to_hosts(yctx, yctx->current.needed, 0, yctx->current.needed_cnt, 0)) {
+        SXDEBUG("fail incremented");
         yctx->fail++;
+    }
     /* TODO: iterate and retry, see below */
     {
         struct host_upload_ctx *u = NULL;
@@ -1172,6 +1186,7 @@ static int multi_part_upload_ev(struct file_upload_ctx *yctx)
     sxc_client_t *sx = yctx->sx;
 
     if (part_wait_reset(yctx) == -1) {
+        SXDEBUG("part_wait_reset failed");
         return -1;
     }
 
@@ -1192,6 +1207,10 @@ static int multi_part_upload_ev(struct file_upload_ctx *yctx)
         }
         if (!(yctx->current.hostsmap = sxi_ht_new(sx, 128))) {
             sxi_seterr(sx, SXE_EMEM, "Cannot allocate read buffer");
+            break;
+        }
+        if (!(yctx->current.retry = sxi_retry_init(sx))) {
+            SXDEBUG("retry_init failed");
             break;
         }
         sxi_ht_empty(yctx->current.hashes);
@@ -1234,8 +1253,10 @@ static sxi_job_t* multi_upload(struct file_upload_ctx *state)
     }
 
     SXDEBUG("waiting for part");
-    if (part_wait_reset(state) == -1)
+    if (part_wait_reset(state) == -1) {
+        SXDEBUG("part_wait_reset failed");
         ret = -1;
+    }
     /* TODO: wait until parts_pending == parts_ok + parts_fail, and curlev_poll! */
     SXDEBUG("waiting");
     while (!ret && !state->fail && !state->flush_ok) {
@@ -1245,8 +1266,14 @@ static sxi_job_t* multi_upload(struct file_upload_ctx *state)
             break;
         }
     }
-    if (state->fail || ret)
+    if (state->fail || ret) {
+        SXDEBUG("fail is %d, ret is %d", state->fail, ret);
         ret = -1;
+    }
+    if (state->current.retry && sxi_retry_done(&state->current.retry)) {
+        SXDEBUG("retry_done failed");
+        ret = -1;
+    }
     part_free(&state->current);
     free(state->cur_token);
     sxi_query_free(state->query);
@@ -1756,6 +1783,7 @@ static int local_to_remote_iterate(sxc_file_t *source, int recursive, int depth,
     }
     if (stat(source->path, &sb) == -1) {
         sxi_setsyserr(source->sx, SXE_EREAD, "Cannot stat '%s'", source->path);
+	sxc_meta_free(emptymeta);
         return -1;
     }
 
@@ -2623,6 +2651,7 @@ static int multi_download(struct batch_hashes *bh, const char *dstname,
     sxc_client_t *sx = sxi_conns_get_client(conns);
     unsigned hostcount = 0;
     struct file_download_ctx *dctx;
+    sxi_retry_t *retry = NULL;
 
     if (sxi_cluster_hashcalc(cluster, zerobuf, blocksize, zerohash)) {
         CFGDEBUG("Failed to compute hash of zero");
@@ -2638,20 +2667,23 @@ static int multi_download(struct batch_hashes *bh, const char *dstname,
     total_hashes = bh->i;
     total_downloaded = 0;
     requested = -1;
-    for(host_retry=0;requested;host_retry++) {
+    retry = sxi_retry_init(sx);
+    if (!retry) {
+        cluster_err(SXE_EMEM, "Cannot allocate retry");
+        free(buf);
+        return 1;
+    }
+    for(host_retry=0;retry && requested;host_retry++) {
       unsigned i;
       unsigned loop = 0;
       unsigned outstanding=0;
-      unsigned msg_printed = 0;
-      char *errmsg = host_retry > 0 ? strdup(sxc_geterrmsg(sx)) : NULL;
+
+      /* save&clear previous errors */
+      sxi_retry_check(retry, host_retry);
       /* then grab by hash */
-      if (host_retry < hostcount)
-          /* new retry loop: clear previous errors, but don't loose last error */
-          sxc_clearerr(sx);
       CFGDEBUG("hash retrieve loop #%d", host_retry);
       hostsmap = sxi_ht_new(sxi_cluster_get_client(cluster), 128);
       if (!hostsmap) {
-	  free(errmsg);
           cluster_err(SXE_EMEM, "Cannot allocate hosts hash");
           break;
       }
@@ -2676,10 +2708,8 @@ static int multi_download(struct batch_hashes *bh, const char *dstname,
             break;
         }
         hashdata->state = TRANSFER_PENDING;
-        if (errmsg && !msg_printed) {
-          sxi_retrymsg(sx, errmsg, "file block download", NULL);
-          msg_printed = 1;
-        }
+        sxi_set_operation(sx, "file block download", NULL, NULL, NULL);
+        sxi_retry_msg(retry, host);
 
         if (!host_retry) {
             int rc = check_block(cluster, bh->hashes, zerohash, hash, hashdata, fd, filesize, buf, blocksize);
@@ -2746,7 +2776,6 @@ static int multi_download(struct batch_hashes *bh, const char *dstname,
         }
 	SXDEBUG("loop: %d, host:%s, n:%d, outstanding:%d, requested: %d", loop, host, dctxn,outstanding, requested);
       }
-      free(errmsg);
       sxi_ht_enum_reset(hostsmap);
       SXDEBUG("looped: %d; requested: %d", loop, requested);
       while(/*sxc_geterrnum(sx) == SXE_NOERROR &&*/
@@ -2778,6 +2807,8 @@ static int multi_download(struct batch_hashes *bh, const char *dstname,
       total_downloaded += transferred;
       sxi_ht_free(hostsmap);
     }
+    if (sxi_retry_done(&retry))
+        CFGDEBUG("retry_done failed");
     if (xres)
         xres->download_reqblks += total_hashes;
     free(buf);

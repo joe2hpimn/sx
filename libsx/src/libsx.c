@@ -146,6 +146,11 @@ void sxi_clear_operation(sxc_client_t *sx)
     sx->op = NULL;
 }
 
+const char * sxi_get_operation(sxc_client_t *sx)
+{
+    return sx ? sx->op : NULL;
+}
+
 void sxi_set_operation(sxc_client_t *sx, const char *op, const char *cluster, const char *vol, const char *path)
 {
     if (!sx)
@@ -349,23 +354,6 @@ void sxc_loglasterr(sxc_client_t *sx)
     if (!sx)
         return;
     sxi_log_msg(&sx->log, NULL, SX_LOG_ERR, "%s", sxc_geterrmsg(sx));
-}
-
-void sxi_retrymsg(sxc_client_t *sx, const char *errmsg, const char *op, const char *host)
-{
-    if (!sx)
-        return;
-    if (!errmsg)
-        errmsg = sxc_geterrmsg(sx);
-    if (errmsg) {
-        const char *msg2 = strchr(errmsg, ' ');
-        if (msg2)
-            errmsg = msg2 + 1;
-    } else
-        return;
-    sxi_info(sx, "%s, retrying %s%s%s ...", errmsg, op,
-                 host ? " on " : "",
-                 host ? host : "");
 }
 
 int sxi_confirm(sxc_client_t *sx, const char *prompt, int default_answer)

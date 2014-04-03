@@ -528,9 +528,11 @@ static int sxi_job_result(sxc_client_t *sx, sxi_job_t **yres, unsigned *successf
     return ret;
 }
 
-int sxi_job_status_ev(sxi_conns_t *conns, sxi_job_t **job, unsigned *finished, unsigned *successful)
+#define JOB_POLL_MORE 1
+#define JOB_POLL_MSG 2
+
+static int sxi_job_status_ev(sxi_conns_t *conns, sxi_job_t **job, unsigned *successful)
 {
-    yajl_callbacks *yacb;
     sxc_client_t *sx = sxi_conns_get_client(conns);
     sxi_job_t *yres;
 
@@ -541,7 +543,7 @@ int sxi_job_status_ev(sxi_conns_t *conns, sxi_job_t **job, unsigned *finished, u
 
     yres = *job;
 
-    if (!yres || !finished || !yres->job_host || !yres->job_id) {
+    if (!yres || !yres->job_host || !yres->job_id) {
         sxi_seterr(sx, SXE_EARG, "Null argument to sxi_job_status_ev");
         return -1;
     }
@@ -564,8 +566,8 @@ int sxi_job_status_ev(sxi_conns_t *conns, sxi_job_t **job, unsigned *finished, u
                     yres->status = JOBST_ERROR;
                     return sxi_job_result(sx, job, successful);
                 }
-                sxi_retrymsg(sx, NULL, "job poll", NULL);
             }
+            return JOB_POLL_MSG;
         } else {
             gettimeofday(&yres->last_reached, NULL);
             res = sxi_job_result(sx, job, successful);
@@ -573,6 +575,18 @@ int sxi_job_status_ev(sxi_conns_t *conns, sxi_job_t **job, unsigned *finished, u
                 return res;
         }
         /* loop more */
+    }
+    return JOB_POLL_MORE;
+}
+
+static int sxi_job_query_ev(sxi_conns_t *conns, sxi_job_t *yres, unsigned *finished)
+{
+    yajl_callbacks *yacb;
+    sxc_client_t *sx = sxi_conns_get_client(conns);
+
+    if (!yres || !yres->job_host || !yres->job_id) {
+        sxi_seterr(sx, SXE_EARG, "Null argument to sxi_job_status_ev");
+        return -1;
     }
     sxi_cbdata_reset(yres->cbdata);
     if (yres->yh)
@@ -614,14 +628,30 @@ int sxi_job_wait(sxi_conns_t *conns, sxi_jobs_t *jobs, unsigned *successful)
     if (successful)
         *successful = 0;
     while(1) {
+        int msg_printed = 0;
         gettimeofday(&tv0, NULL);
         for (i=0;i<jobs->n;i++) {
+            int rc;
             if (!jobs->jobs[i])
                 continue;
             delay = sxi_job_min_delay(jobs->jobs[i]);
-            if (sxi_job_status_ev(conns, &jobs->jobs[i], &finished, successful) == -1) {
+            rc = sxi_job_status_ev(conns, &jobs->jobs[i], successful);
+            if (rc < 0) {
                 ret = -1;
                 continue;
+            }
+            if (rc >= JOB_POLL_MORE) {
+                if (rc == JOB_POLL_MSG) {
+                    if (!msg_printed) {
+                        /* there might be tens of jobs being polled at any time,
+                         * print the message only once per loop */
+                        sxi_info(sx, "%s, retrying job poll on %s ...", sxc_geterrmsg(sx),
+                                 jobs->jobs[i]->job_host);
+                        msg_printed = 1;
+                    }
+                }
+                if (sxi_job_query_ev(conns, jobs->jobs[i], &finished) == -1)
+                    ret = -1;
             }
         }
         /* finish callback might be called even if sending the query failed

@@ -62,6 +62,8 @@ struct retry_ctx {
     void *content;
     size_t content_size;
     retry_cb_t cb;
+    sxi_retry_t *retry;
+    char *op;
 };
 
 struct curlev_context {
@@ -252,6 +254,8 @@ int sxi_set_retry_cb(curlev_context_t *ctx, const sxi_hostlist_t *hlist, retry_c
         ctx->retry.content_size = content_size;
         if (sxi_hostlist_add_list(sx, &ctx->retry.hosts, hlist))
             return -1;
+        if (!(ctx->retry.retry = sxi_retry_init(sx)))
+            return -1;
         return 0;
     }
     return -1;
@@ -269,6 +273,8 @@ void sxi_cbdata_ref(curlev_context_t *ctx)
 void sxi_cbdata_unref(curlev_context_t **ctx_ptr)
 {
     if (ctx_ptr) {
+        const char *op;
+        char *oldop;
         curlev_context_t *ctx = *ctx_ptr;
         sxc_client_t *sx;
         if (!ctx) {
@@ -276,6 +282,13 @@ void sxi_cbdata_unref(curlev_context_t **ctx_ptr)
             return;
         }
         sx = sxi_conns_get_client(ctx->conns);
+        op = sxi_get_operation(sx);
+        oldop = ctx->retry.op;
+        /* op might be equal to ctx->retry.op, so don't free it yet
+         * before strdup-ing it */
+        ctx->retry.op = op ? strdup(op) : NULL;
+        free(oldop);
+        sxi_clear_operation(sx);
         ctx->ref--;
         *ctx_ptr = NULL;
         if (ctx->ref < 0) {
@@ -288,12 +301,15 @@ void sxi_cbdata_unref(curlev_context_t **ctx_ptr)
             SXDEBUG("freeing cbdata %p", (void*)ctx);
             sxi_cbdata_reset(ctx);
             sxi_hostlist_empty(&ctx->retry.hosts);
+            sxi_retry_done(&ctx->retry.retry);
             free(ctx->retry.query);
+            free(ctx->retry.op);
             free(ctx);
             /* we freed it */
             return;
         }
         /* we didn't free it, but no errors */
+        sxi_set_operation(sx, ctx->retry.op, NULL, NULL, NULL);
         return;
     }
     /* error */
@@ -388,9 +404,10 @@ void sxi_cbdata_finish(curl_events_t *e, curlev_context_t **ctxptr, const char *
             err(ctx->conns, rctx->reply_status, rctx->reason);
     }
 
-    sxi_clear_operation(sx);
+    do {
     if (ctx->retry.cb && (rctx->rc != CURLE_OK || rctx->reply_status / 100 != 2)) {
-        if (++ctx->retry.hostidx >= sxi_hostlist_get_count(&ctx->retry.hosts)) {
+        unsigned n = sxi_hostlist_get_count(&ctx->retry.hosts);
+        if (++ctx->retry.hostidx >= n) {
             if (ctx->retry.retries < 2 || ctx->recv_ctx.reply_status == 429) {
                 ctx->retry.retries++;
                 ctx->retry.hostidx = 0;
@@ -398,6 +415,10 @@ void sxi_cbdata_finish(curl_events_t *e, curlev_context_t **ctxptr, const char *
             }
         }
         const char *host = sxi_hostlist_get_host(&ctx->retry.hosts, ctx->retry.hostidx);
+        if (sxi_retry_check(ctx->retry.retry, ctx->retry.retries * n + ctx->retry.hostidx))
+            break;
+        sxi_set_operation(sx, ctx->retry.op, NULL, NULL, NULL);
+        sxi_retry_msg(ctx->retry.retry, host);
         sxi_cbdata_reset(ctx);
         if (host) {
             if (!ctx->retry.cb(ctx, ctx->conns, host,
@@ -412,6 +433,7 @@ void sxi_cbdata_finish(curl_events_t *e, curlev_context_t **ctxptr, const char *
                     ctx->retry.retries);
         }
     }
+    } while(0);
     if (ctx->finish_cb)
         ctx->finish_cb(ctx, url);
     sxi_cbdata_unref(ctxptr);
@@ -1519,6 +1541,7 @@ static int ev_add(curl_events_t *e,
         return SXE_EARG;
     }
 
+    sxi_cbdata_ref(reply->headers.ctx);
     memset(ctx->recv_ctx.errbuf, 0, sizeof(ctx->recv_ctx.errbuf));
 
     do {
@@ -1539,7 +1562,6 @@ static int ev_add(curl_events_t *e,
         }
         ev->error = reply->headers.error;
         ev->ctx = reply->headers.ctx;
-        sxi_cbdata_ref(ev->ctx);
         ev->head = reply->headers.head;
         if (ev->ctx)
             ev->ctx->data_cb = reply->body;
@@ -1735,4 +1757,131 @@ int sxi_curlev_poll_immediate(curl_events_t *e)
 int sxi_cbdata_result_fail(curlev_context_t* ctx)
 {
     return !ctx || ctx->recv_ctx.rc != CURLE_OK;
+}
+
+/* message to display to user, in order of increasing priority */
+enum msg_prio {
+    MSG_PRIO_NOERROR,
+    MSG_PRIO_CURL,
+    MSG_PRIO_SERVER,
+    MSG_PRIO_AUTH,
+    MSG_PRIO_LOCAL_FATAL,
+};
+
+struct sxi_retry {
+    sxc_client_t *sx;
+    unsigned last_try;
+    int last_printed;
+    int errnum;
+    char errmsg[65536];
+    enum msg_prio prio;
+};
+
+sxi_retry_t* sxi_retry_init(sxc_client_t *sx)
+{
+    sxi_retry_t *ret;
+    if (!sx)
+        return NULL;
+
+    ret = calloc(1, sizeof(*ret));
+    if (!ret) {
+        sxi_setsyserr(sx, SXE_EMEM, "OOM allocating retry struct");
+        return NULL;
+    }
+    ret->sx = sx;
+    ret->last_printed = -1;
+    return ret;
+}
+
+static enum msg_prio classify_error(int errnum)
+{
+    switch (errnum) {
+        case SXE_NOERROR:
+            return MSG_PRIO_NOERROR;
+        case SXE_ECURL:
+            return MSG_PRIO_CURL;
+        case SXE_ECOMM:
+            return MSG_PRIO_SERVER;
+        case SXE_EAUTH:
+            return MSG_PRIO_AUTH;
+        default:
+            return MSG_PRIO_LOCAL_FATAL;
+    }
+}
+
+int sxi_retry_check(sxi_retry_t *retry, unsigned current_try)
+{
+    const char *errmsg;
+    int errnum;
+    enum msg_prio prio;
+    sxc_client_t *sx;
+
+    if (!retry)
+        return -1;
+    sx = retry->sx;
+    errmsg = sxc_geterrmsg(sx);
+    errnum = sxc_geterrnum(sx);
+    if (!errmsg)
+        return -1;
+    prio = classify_error(errnum);
+    SXDEBUG("prio: %d, stored prio: %d", prio, retry->prio);
+    /* noerror can be overridden by anything, and in turn it can override
+     * anything */
+    if (prio > retry->prio || prio == MSG_PRIO_NOERROR) {
+        /* this is a better error message than the previous retry's */
+        retry->prio = prio;
+        retry->errnum = errnum;
+        /* do not malloc/strdup so that we can store OOM messages too */
+        strncpy(retry->errmsg, errmsg, sizeof(retry->errmsg)-1);
+        retry->errmsg[sizeof(retry->errmsg)-1] = 0;
+        if (errnum == SXE_NOERROR)
+            SXDEBUG("cleared stored error message");
+        else
+            SXDEBUG("stored error message (prio %d): %s", prio, retry->errmsg);
+    }
+    if (prio == MSG_PRIO_LOCAL_FATAL) {
+        SXDEBUG("error is fatal, forbidding retry: %s", errmsg);
+        return -1;/* do not retry */
+    }
+    if (current_try != retry->last_try) {
+        sxc_clearerr(sx);
+        retry->last_try = current_try;
+        SXDEBUG("cleared error for next retry");
+    }
+    return 0;
+}
+
+void sxi_retry_msg(sxi_retry_t *retry, const char *host)
+{
+    sxc_client_t *sx;
+    const char *op;
+    if (!retry)
+        return;
+    sx = retry->sx;
+    op = sxi_get_operation(sx);
+    SXDEBUG("op: %s", op ? op : "N/A");
+    if (op && retry->errnum && retry->last_try != retry->last_printed) {
+        const char *msg = strchr(retry->errmsg, ' ');
+        const char *print = msg ? msg + 1 : retry->errmsg;
+        sxi_info(retry->sx, "%s, retrying %s%s%s ...", print, op,
+                 host ? " on " : "",
+                 host ? host : "");
+        retry->last_printed = retry->last_try;
+    }
+}
+
+int sxi_retry_done(sxi_retry_t **retryptr)
+{
+    sxc_client_t *sx;
+    sxi_retry_t *retry = retryptr ? *retryptr : NULL;
+    if (!retry)
+        return -1;
+    sx = retry->sx;
+    SXDEBUG("in retry_done");
+    sxi_retry_check(retry, retry->last_try+1);
+    if (retry->errnum != SXE_NOERROR)
+        sxi_seterr(sx, retry->errnum, "%s", retry->errmsg);
+    free(retry);
+    *retryptr = NULL;
+    return sxc_geterrnum(sx) != SXE_NOERROR;
 }

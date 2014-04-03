@@ -99,7 +99,7 @@ test/valgrind-tests.sh
 i=1
 while [ $i -le $N ]; do
     prefix=$ROOT/$i
-    $prefix/sbin/sxserver stop
+    sudo $prefix/sbin/sxserver stop
     i=$(( i+1 ))
 done
 MESSAGE="OK"

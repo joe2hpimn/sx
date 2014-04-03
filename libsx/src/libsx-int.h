@@ -32,9 +32,9 @@ void sxi_setsyserr(sxc_client_t *sx, enum sxc_error_t err, const char *fmt, ...)
 
 void sxi_clear_operation(sxc_client_t *sx);
 void sxi_set_operation(sxc_client_t *sx, const char *op, const char *cluster, const char *vol, const char *path);
+const char *sxi_get_operation(sxc_client_t *sx);
 void sxi_setclusterr(sxc_client_t *sx, const char *nodeid, const char *reqid, int status,
                      const char *msg, const char *details);
-void sxi_retrymsg(sxc_client_t *sx, const char *errmsg, const char *op, const char *host);
 
 int sxi_is_debug_enabled(sxc_client_t *sx);
 

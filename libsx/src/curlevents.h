@@ -123,5 +123,11 @@ int sxi_cbdata_result_fail(curlev_context_t* ctx);
 sxi_conns_t *sxi_cbdata_get_conns(curlev_context_t *ctx);
 void sxi_cbdata_set_result(curlev_context_t *ctx, int status);
 
+struct sxi_retry;
+typedef struct sxi_retry sxi_retry_t;
+sxi_retry_t* sxi_retry_init(sxc_client_t *sx);
+int sxi_retry_check(sxi_retry_t *retry, unsigned current_try);
+void sxi_retry_msg(sxi_retry_t *retry, const char *host);
+int sxi_retry_done(sxi_retry_t **retry);
 
 #endif
