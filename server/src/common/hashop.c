@@ -332,18 +332,16 @@ static int sxi_hashop_batch(sxi_hashop_t *hashop)
 
     SXDEBUG("hashop %d, idx:%d on %s, hexhashes: %s", hashop->hashes_count, pp->hashop_idx, hashop->hashes, hashop->hexhashes);
     query = sxi_hashop_proto(sxi_conns_get_client(hashop->conns), blocksize, hashop->hashes, hashop->hashes_pos, hashop->kind, hashop->id);
-    if (query)
+    if (query) {
         rc = sxi_cluster_query_ev(cbdata, hashop->conns, host, query->verb, query->path, NULL, 0, presence_setup_cb, presence_cb);
-    else
+    } else {
+        free(pp->hexhashes);
+        free(pp);
         rc = -1;
+    }
     sxi_query_free(query);
     sxi_cbdata_unref(&cbdata);
-    if (rc == -1) {
-	/* FIXME: tk: should we also free pp->hexhashes here? */
-        free(pp);
-	return rc;
-    }
-    return 0;
+    return rc;
 }
 
 int sxi_hashop_batch_flush(sxi_hashop_t *hashop)
