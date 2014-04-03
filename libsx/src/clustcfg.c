@@ -769,14 +769,9 @@ struct cb_locate_ctx {
     struct cb_error_ctx errctx;
     int64_t blocksize;
     yajl_handle yh;
-    sxi_ht *meta;
+    sxc_meta_t *meta;
     char *curkey;
     enum locate_state { LC_ERROR, LC_BEGIN, LC_KEYS, LC_SIZE, LC_NODES, LC_NODE, LC_META, LC_METAKEY, LC_METAVALUE, LC_COMPLETE } state;
-};
-
-struct meta_val_t {
-    uint8_t *value;
-    unsigned int value_len;
 };
 
 static int yacb_locate_start_map(void *ctx) {
@@ -908,22 +903,8 @@ static int yacb_locate_string(void *ctx, const unsigned char *s, size_t l) {
 	return 1;
     } else if(yactx->state == LC_METAVALUE) {
 	if(yactx->meta) {
-	    struct meta_val_t *v = malloc(sizeof(*v) + l/2);
-	    if(!v) {
-		CBDEBUG("OOM allocating storage for value '%.*s'", (unsigned)l, s);
-		sxi_seterr(yactx->sx, SXE_EMEM, "Out of memory");
-		return 0;
-	    }
-	    v->value = (void *)(v+1);
-	    v->value_len = l/2;
-	    if(sxi_hex2bin((const char *)s, l, v->value, v->value_len)) {
-		CBDEBUG("OOM invalid hex value '%.*s'", (unsigned)l, s);
-		free(v);
-		return 0;
-	    }
-	    if(sxi_ht_add(yactx->meta, yactx->curkey, strlen(yactx->curkey) + 1, v)) {
+	    if(sxc_meta_setval_fromhex(yactx->meta, yactx->curkey, (const char *)s, l)) {
 		CBDEBUG("failed to add value");
-		free(v);
 		return 0;
 	    }
 	    free(yactx->curkey);
@@ -978,9 +959,10 @@ static int locate_setup_cb(sxi_conns_t *conns, void *ctx, const char *host) {
 	sxi_seterr(sx, SXE_EMEM, "Locate failed: out of memory");
 	return 1;
     }
+
     free(yactx->curkey);
     yactx->curkey = NULL;
-    sxi_ht_empty(yactx->meta);
+    sxc_meta_empty(yactx->meta);
 
     yactx->state = LC_BEGIN;
     yactx->sx = sx;
@@ -1002,7 +984,7 @@ static int locate_cb(sxi_conns_t *conns, void *ctx, const void *data, size_t siz
     return 0;
 }
 
-int sxi_volume_info(sxc_cluster_t *cluster, const char *volume, sxi_hostlist_t *nodes, int64_t *size, sxi_ht *metadata) {
+int sxi_volume_info(sxc_cluster_t *cluster, const char *volume, sxi_hostlist_t *nodes, int64_t *size, sxc_meta_t *metadata) {
     struct cb_locate_ctx yctx;
     yajl_callbacks *yacb = &yctx.yacb;
     char *enc_vol, *url;
@@ -1049,7 +1031,7 @@ int sxi_volume_info(sxc_cluster_t *cluster, const char *volume, sxi_hostlist_t *
 	CFGDEBUG("query returned %d", qret);
 	if(yctx.yh)
 	    yajl_free(yctx.yh);
-	sxi_ht_empty(metadata);
+	sxc_meta_empty(metadata);
 	return qret;
     }
 

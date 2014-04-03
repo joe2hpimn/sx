@@ -1073,7 +1073,7 @@ int sxc_meta_setval(sxc_meta_t *meta, const char *key, const void *value, unsign
     if(!meta)
 	return -1;
     if(!key || (!value && value_len)) {
-	sxi_seterr(meta->sx, SXE_EARG, "Cannot lookup key: invalid argument");
+	sxi_seterr(meta->sx, SXE_EARG, "Cannot set meta value: invalid argument");
 	return -1;
     }
 
@@ -1086,6 +1086,48 @@ int sxc_meta_setval(sxc_meta_t *meta, const char *key, const void *value, unsign
     item->value = (uint8_t *)(item + 1);
     item->value_len = value_len;
     memcpy(item->value, value, value_len);
+
+    sxc_meta_delval(meta, key);
+
+    if(sxi_ht_add(meta, key, strlen(key)+1, item))
+	return -1;
+
+    return 0;
+}
+
+int sxc_meta_setval_fromhex(sxc_meta_t *meta, const char *key, const char *valuehex, unsigned int valuehex_len) {
+    struct meta_val_t *item;
+
+    if(!meta)
+	return -1;
+    if(!key) {
+	sxi_seterr(meta->sx, SXE_EARG, "Cannot set meta value: invalid key");
+	return -1;
+    }
+    if(valuehex) {
+	if(!valuehex_len)
+	    valuehex_len = strlen(valuehex);
+	if(valuehex_len & 1) {
+	    sxi_seterr(meta->sx, SXE_EARG, "Cannot set meta value: invalid value");
+	    return -1;
+	}
+    } else if(valuehex_len) {
+	sxi_seterr(meta->sx, SXE_EARG, "Cannot set meta value: invalid value length");
+	return -1;
+    }
+
+    item = malloc(sizeof(*item) + valuehex_len / 2);
+    if(!item) {
+	sxi_seterr(meta->sx, SXE_EMEM, "Cannot set meta value: out of memory");
+	return 1;
+    }
+
+    item->value = (uint8_t *)(item + 1);
+    item->value_len = valuehex_len / 2;
+    if(sxi_hex2bin(valuehex, valuehex_len, item->value, item->value_len)) {
+	sxi_seterr(meta->sx, SXE_EARG, "Cannot set meta value: invalid value");
+	return -1;
+    }
 
     sxc_meta_delval(meta, key);
 

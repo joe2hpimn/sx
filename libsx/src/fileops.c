@@ -1496,7 +1496,7 @@ static int local_to_remote_begin(sxc_file_t *source, sxc_meta_t *fmeta, sxc_file
 	goto local_to_remote_err;
     }
 
-    if(vmeta && !sxc_meta_getval(vmeta, "filterActive", &mval, &mval_len)) {
+    if(!sxc_meta_getval(vmeta, "filterActive", &mval, &mval_len)) {
 	    char inbuff[8192], outbuff[8192], filter_uuid[37], cfgkey[37 + 5];
 	    ssize_t bread, bwrite;
 	    sxf_action_t action = SXF_ACTION_NORMAL;
@@ -1602,7 +1602,7 @@ static int local_to_remote_begin(sxc_file_t *source, sxc_meta_t *fmeta, sxc_file
 
 	    if(st.st_size != orig_fsz) {
 		fsz = st.st_size;
-		if((qret = sxi_volume_info(dest->cluster, dest->volume, &volhosts, &fsz, vmeta))) {
+		if((qret = sxi_volume_info(dest->cluster, dest->volume, &volhosts, &fsz, NULL))) {
 		    SXDEBUG("failed to locate destination volume");
 		    goto local_to_remote_err;
 		}
@@ -2896,7 +2896,7 @@ static int remote_to_local(sxc_file_t *source, sxc_file_t *dest, sxc_xres_t *xre
 
     if(sxi_volume_cfg_check(sx, source->cluster, vmeta, source->volume))
 	goto remote_to_local_err;
-    if(vmeta && !sxc_meta_getval(vmeta, "filterActive", &mval, &mval_len)) {
+    if(!sxc_meta_getval(vmeta, "filterActive", &mval, &mval_len)) {
 	if(mval_len != 16) {
 	    sxi_seterr(sx, SXE_EFILTER, "Filter(s) enabled but can't handle metadata");
 	    goto remote_to_local_err;
