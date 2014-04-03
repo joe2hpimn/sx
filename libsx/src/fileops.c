@@ -3557,20 +3557,31 @@ static sxi_job_t* remote_to_remote(sxc_file_t *source, sxc_file_t *dest, sxc_xre
 	const void *mval;
 	unsigned int mval_len;
 	sxc_meta_t *vmeta = sxc_volumemeta_new(source);
-	if(vmeta) {
-	    if(!sxc_meta_getval(vmeta, "filterActive", &mval, &mval_len)) {
-		if(mval_len != 16) {
-		    sxi_seterr(sx, SXE_EFILTER, "Filter(s) enabled but can't handle metadata (source)");
-		    return NULL;
-		}
-		nofast = 1;
-	    }
+
+	if(sxi_volume_cfg_check(sx, source->cluster, vmeta, source->volume)) {
 	    sxc_meta_free(vmeta);
+	    return NULL;
 	}
-	if(!nofast && (vmeta = sxc_volumemeta_new(dest))) {
+	if(!sxc_meta_getval(vmeta, "filterActive", &mval, &mval_len)) {
+	    if(mval_len != 16) {
+		sxi_seterr(sx, SXE_EFILTER, "Filter(s) enabled but can't handle metadata (source)");
+		sxc_meta_free(vmeta);
+		return NULL;
+	    }
+	    nofast = 1;
+	}
+	sxc_meta_free(vmeta);
+
+	if(!nofast) {
+	    vmeta = sxc_volumemeta_new(dest);
+	    if(sxi_volume_cfg_check(sx, dest->cluster, vmeta, dest->volume)) {
+		sxc_meta_free(vmeta);
+		return NULL;
+	    }
 	    if(!sxc_meta_getval(vmeta, "filterActive", &mval, &mval_len)) {
 		if(mval_len != 16) {
 		    sxi_seterr(sx, SXE_EFILTER, "Filter(s) enabled but can't handle metadata (dest)");
+		    sxc_meta_free(vmeta);
 		    return NULL;
 		}
 		nofast = 1;
