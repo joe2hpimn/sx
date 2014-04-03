@@ -76,7 +76,7 @@ void fcgi_send_user(void) {
     }
     CGI_PUTS("Content-type: application/json\r\n\r\n");
     CGI_PUTS(q->content);
-    free(q);
+    sxi_query_free(q);
 }
 
 struct user_ctx {
