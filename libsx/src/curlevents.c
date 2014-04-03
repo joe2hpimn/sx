@@ -863,7 +863,6 @@ static int compute_headers_url(curl_events_t *e, curlev_t *ev, curlev_t *src)
     unsigned content_size;
     unsigned int keylen;
     HMAC_CTX hmac_ctx;
-    char header[512];
     sxi_conns_t *conns;
     sxc_client_t *sx;
     int rc;
@@ -885,7 +884,6 @@ static int compute_headers_url(curl_events_t *e, curlev_t *ev, curlev_t *src)
      * clock drift errors from the server */
     HMAC_CTX_init(&hmac_ctx);
     do {
-        struct curl_slist *slist_next;
         const char *verb = verbstr(src->verb);
         const char *token = sxi_conns_get_auth(e->conns);
         const char *query;
@@ -977,12 +975,6 @@ static int compute_headers_url(curl_events_t *e, curlev_t *ev, curlev_t *src)
 
         snprintf(auth, sizeof(auth), "SKY %s", sendtok);
 
-        slist_next = curl_slist_append(src->slist, header);
-        if (!slist_next) {
-            conns_err(SXE_EMEM, "OOM allocating slist");
-            break;
-        }
-        src->slist = slist_next;
         rc = set_headers(e, ev, headers, sizeof(headers)/sizeof(headers[0]));
         if (curl_check(ev,rc,"set headers") == -1)
             break;
