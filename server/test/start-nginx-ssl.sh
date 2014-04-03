@@ -5,6 +5,10 @@ if [ `id -u` -eq 0 ]; then
     echo "You must NOT be root"
     exit 1
 fi
+# for valgrind, avoid aes_ni warnings
+export OPENSSL_ia32cap="~0x200000000000000"
+sudo rm -f /tmp/sxfcgi.valgrind.log.*
+sudo rm -f /tmp/v.log.*
 
 MESSAGE="LAST TEST FAILED!"
 print_status() {
@@ -50,7 +54,8 @@ while [ $i -le $N ]; do
     $prefix/sbin/sxadm --version
     $prefix/sbin/sx.fcgi --version
 
-    sed -i -e "s|/sx.fcgi|\0 --config-file $prefix/etc/sxserver/sxfcgi.conf|" $prefix/sbin/sxserver
+    # valgrind just the fcgi not the libtool wrapper script:
+    sed -i -e "s|.*/sx.fcgi|./libtool --mode=execute \0 --config-file $prefix/etc/sxserver/sxfcgi.conf|" $prefix/sbin/sxserver
 
     ln -s `pwd`/../3rdparty/nginx/objs/nginx $prefix/sbin/sxhttpd
 
@@ -75,7 +80,8 @@ EOF
     if [ $i -gt 1 ]; then
 	echo "SX_EXISTING_NODE_IP=\"127.0.1.1\"" >> $CONF_TMP
     fi
-    sudo $prefix/sbin/sxsetup --config-file $CONF_TMP
+    export SX_USE_VALGRIND=yes
+    sudo -E $prefix/sbin/sxsetup --config-file $CONF_TMP
     rm -f $CONF_TMP
 
     i=$(( i+1 ))
@@ -89,36 +95,12 @@ while [ $i -le $N ]; do
 done
 rm -rf $HOME/.sx/$CLUSTER_NAME # avoid sxinit bugs
 echo "$ADMIN_KEY" | ../client/src/tools/init/sxinit --batch --host-list=$list sx://localhost
-
+test/valgrind-tests.sh
+i=1
+while [ $i -le $N ]; do
+    prefix=$ROOT/$i
+    $prefix/sbin/sxserver stop
+    i=$(( i+1 ))
+done
 MESSAGE="OK"
 exit 0
-#sudo -u $SUDO_USER ../client/src/tools/init/sxinit --no-ssl sx://`hostname` <$STOREDIR/admin.key
-../client/src/tools/vol/sxvol create sx://localhost/volr2 -r 2 -o admin
-../client/src/tools/acl/sxacl useradd user1 sx://localhost
-../client/src/tools/acl/sxacl useradd user2 sx://localhost
-../client/src/tools/acl/sxacl perm --grant=write user1,user2 sx://localhost/volr2
-../client/src/tools/acl/sxacl perm --grant=read user1 sx://localhost/volr2
-
-
-SX_DEBUG_SINGLE_VOLUMEHOST=127.0.1.1 ../client/src/tools/acl/sxacl list sx://localhost/volr2
-echo
-SX_DEBUG_SINGLE_VOLUMEHOST=127.0.1.2 ../client/src/tools/acl/sxacl list sx://localhost/volr2
-echo
-../client/src/tools/acl/sxacl perm --revoke=write user2 sx://localhost/volr2
-SX_DEBUG_SINGLE_VOLUMEHOST=127.0.1.1 ../client/src/tools/acl/sxacl list sx://localhost/volr2
-echo
-SX_DEBUG_SINGLE_VOLUMEHOST=127.0.1.2 ../client/src/tools/acl/sxacl list sx://localhost/volr2
-echo
-test/uldl.sh
-exit 1
-test/check_gc.sh
-test/sx-ls.sh localhost
-test/check_permissions.sh $list
-mkdir -p $ROOT/filters
-chown $SUDO_USER $ROOT/filters
-export SX_FILTER_DIR=$ROOT/filters
-../client/src/tools/init/sxinit --host-list=$list sx://localhost --no-ssl <$STOREDIR/admin.key
-test/sx-errors.sh localhost $STOREDIR/admin.key
-../client/src/tools/init/sxinit --host-list=$list sx://localhost --no-ssl <$STOREDIR/admin.key
-MESSAGE="ALL TESTS OK"
-echo

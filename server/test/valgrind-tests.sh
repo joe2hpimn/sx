@@ -19,7 +19,7 @@ VOLr=r$VOL
 USER=user`date +%s.%N`
 
 valgrind_run() {
-    ./libtool --mode=execute valgrind --log-file=/tmp/v.log.%p --error-exitcode=123 --leak-check=full $*
+    ./libtool --mode=execute valgrind --num-callers=50 --log-file=/tmp/v.log.%p --error-exitcode=123 --leak-check=full $*
 }
 
 N=3
