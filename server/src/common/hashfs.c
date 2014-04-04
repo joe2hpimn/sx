@@ -6755,7 +6755,7 @@ rc_ty sx_hashfs_hdist_change_req(sx_hashfs_t *h, const sx_nodelist_t *newdist, j
 	return r;
     }
 
-    r = sx_hashfs_job_new(h, 0, job_id, JOBTYPE_DISTRIBUTION, sx_nodelist_count(targets) * 60, "MODHDIST: this should lock everything!", cfg, cfg_len, targets);
+    r = sx_hashfs_job_new(h, 0, job_id, JOBTYPE_DISTRIBUTION, sx_nodelist_count(targets) * 20, "MODHDIST: this should lock everything!", cfg, cfg_len, targets);
     sx_nodelist_delete(targets);
     sxi_hdist_free(newmod);
 

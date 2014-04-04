@@ -1796,10 +1796,18 @@ action_failed:
 }
 
 static act_result_t distribution_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg) {
+    unsigned int nnode, nnodes;
+    nnodes = sx_nodelist_count(nodes);
+    for(nnode = 0; nnode<nnodes; nnode++)
+	succeeded[nnode] = 1;
     return ACT_RESULT_OK;
 }
 
 static act_result_t distribution_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg) {
+    unsigned int nnode, nnodes;
+    nnodes = sx_nodelist_count(nodes);
+    for(nnode = 0; nnode<nnodes; nnode++)
+	succeeded[nnode] = 1;
     return ACT_RESULT_OK;
 }
 
