@@ -238,7 +238,8 @@ void print_help(const char *prog)
 
 int main(int argc, char **argv) {
     int i, s, pidfd =-1, sockmode = -1, trig[2], inner_job_trigger, inner_block_trigger, inner_gc_trigger, alive;
-    int debug, foreground;
+    int debug, foreground, have_nodeid = 0;
+    sx_uuid_t cluster_uuid, node_uuid;
     char *pidfile = NULL;
     sx_hashfs_t *test_hashfs;
     char buf[8192];
@@ -546,9 +547,12 @@ int main(int argc, char **argv) {
     /* Just attempt to open the hashfs so we can alert about basic mistakes
      * earlier and while we are still attached to the terminal */
     test_hashfs = sx_hashfs_open(args.data_dir_arg, sx);
-    if(test_hashfs)
+    if(test_hashfs) {
+	const sx_uuid_t *id = sx_hashfs_uuid(test_hashfs);
+	memcpy(&cluster_uuid, id, sizeof(*id));
+	have_nodeid = sx_hashfs_self_uuid(test_hashfs, &node_uuid) == OK;
 	sx_hashfs_close(test_hashfs);
-    else {
+    } else {
 	CRIT("Failed to initialize the storage interface");
 	fprintf(stderr, "Failed to initialize the storage interface - check the logfile\n");
         cmdline_parser_free(&args);
@@ -734,6 +738,11 @@ int main(int argc, char **argv) {
         return ret;
     }
     close(inner_block_trigger);
+
+    if(have_nodeid)
+	INFO("Node %s in cluster %s starting up", node_uuid.string, cluster_uuid.string);
+    else
+	INFO("Bare node in cluster %s starting up", cluster_uuid.string);
 
     /* Spawn workers and monitor them */
     while(!terminate) {

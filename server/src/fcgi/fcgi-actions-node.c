@@ -491,6 +491,9 @@ void fcgi_node_init(void) {
     if(s != OK)
 	quit_errmsg(rc2http(s), msg_get_reason());
 
+    NOTICE("We are now joined to cluster %s as member node %s in %s mode",
+	 sx_hashfs_uuid(hashfs)->string, yctx.uuid.string, yctx.ssl ? "secure" : "insecure");
+
     CGI_PUTS("\r\n");
 }
 
