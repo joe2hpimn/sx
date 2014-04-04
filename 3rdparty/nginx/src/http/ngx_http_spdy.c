@@ -95,6 +95,8 @@ static void ngx_http_spdy_read_handler(ngx_event_t *rev);
 static void ngx_http_spdy_write_handler(ngx_event_t *wev);
 static void ngx_http_spdy_handle_connection(ngx_http_spdy_connection_t *sc);
 
+static u_char *ngx_http_spdy_proxy_protocol(ngx_http_spdy_connection_t *sc,
+    u_char *pos, u_char *end);
 static u_char *ngx_http_spdy_state_head(ngx_http_spdy_connection_t *sc,
     u_char *pos, u_char *end);
 static u_char *ngx_http_spdy_state_syn_stream(ngx_http_spdy_connection_t *sc,
@@ -420,6 +422,11 @@ ngx_http_spdy_init(ngx_event_t *rev)
     sc->init_window = NGX_SPDY_INIT_STREAM_WINDOW;
 
     sc->handler = ngx_http_spdy_state_head;
+
+    if (hc->proxy_protocol) {
+        c->log->action = "reading PROXY protocol";
+        sc->handler = ngx_http_spdy_proxy_protocol;
+    }
 
     sc->zstream_in.zalloc = ngx_http_spdy_zalloc;
     sc->zstream_in.zfree = ngx_http_spdy_zfree;
@@ -810,6 +817,22 @@ ngx_http_spdy_handle_connection(ngx_http_spdy_connection_t *sc)
 
 
 static u_char *
+ngx_http_spdy_proxy_protocol(ngx_http_spdy_connection_t *sc, u_char *pos,
+    u_char *end)
+{
+    pos = ngx_proxy_protocol_parse(sc->connection, pos, end);
+
+    if (pos == NULL) {
+        return ngx_http_spdy_state_protocol_error(sc);
+    }
+
+    sc->connection->log->action = "processing SPDY";
+
+    return ngx_http_spdy_state_complete(sc, pos, end);
+}
+
+
+static u_char *
 ngx_http_spdy_state_head(ngx_http_spdy_connection_t *sc, u_char *pos,
     u_char *end)
 {
@@ -1038,7 +1061,7 @@ ngx_http_spdy_state_headers(ngx_http_spdy_connection_t *sc, u_char *pos,
                        "spdy HEADERS block consists of %ui entries",
                        sc->entries);
 
-        if (ngx_list_init(&r->headers_in.headers, r->pool, sc->entries + 3,
+        if (ngx_list_init(&r->headers_in.headers, r->pool, 20,
                           sizeof(ngx_table_elt_t))
             != NGX_OK)
         {
@@ -1849,7 +1872,7 @@ static u_char *
 ngx_http_spdy_state_save(ngx_http_spdy_connection_t *sc,
     u_char *pos, u_char *end, ngx_http_spdy_handler_pt handler)
 {
-#if (NGX_DEBUG)
+#if 1
     if (end - pos > NGX_SPDY_STATE_BUFFER_SIZE) {
         ngx_log_error(NGX_LOG_ALERT, sc->connection->log, 0,
                       "spdy state buffer overflow: "
@@ -2325,7 +2348,7 @@ static ngx_int_t
 ngx_http_spdy_parse_header(ngx_http_request_t *r)
 {
     u_char                     *p, *end, ch;
-    ngx_uint_t                  len, hash;
+    ngx_uint_t                  hash;
     ngx_http_core_srv_conf_t   *cscf;
 
     enum {
@@ -2348,9 +2371,9 @@ ngx_http_spdy_parse_header(ngx_http_request_t *r)
             return NGX_AGAIN;
         }
 
-        len = ngx_spdy_frame_parse_uint32(p);
+        r->lowcase_index = ngx_spdy_frame_parse_uint32(p);
 
-        if (!len) {
+        if (r->lowcase_index == 0) {
             return NGX_HTTP_PARSE_INVALID_HEADER;
         }
 
@@ -2359,8 +2382,6 @@ ngx_http_spdy_parse_header(ngx_http_request_t *r)
 
         p += NGX_SPDY_NV_NLEN_SIZE;
 
-        r->header_name_end = p + len;
-        r->lowcase_index = len;
         r->invalid_header = 0;
 
         state = sw_name;
@@ -2369,16 +2390,16 @@ ngx_http_spdy_parse_header(ngx_http_request_t *r)
 
     case sw_name:
 
-        if (r->header_name_end > end) {
+        if ((ngx_uint_t) (end - p) < r->lowcase_index) {
             break;
         }
 
         cscf = ngx_http_get_module_srv_conf(r, ngx_http_core_module);
 
         r->header_name_start = p;
+        r->header_name_end = p + r->lowcase_index;
 
         if (p[0] == ':') {
-            r->lowcase_index--;
             p++;
         }
 
@@ -2425,14 +2446,12 @@ ngx_http_spdy_parse_header(ngx_http_request_t *r)
             break;
         }
 
-        len = ngx_spdy_frame_parse_uint32(p);
+        r->lowcase_index = ngx_spdy_frame_parse_uint32(p);
 
         /* null-terminate header name */
         *p = '\0';
 
         p += NGX_SPDY_NV_VLEN_SIZE;
-
-        r->header_end = p + len;
 
         state = sw_value;
 
@@ -2440,14 +2459,13 @@ ngx_http_spdy_parse_header(ngx_http_request_t *r)
 
     case sw_value:
 
-        if (r->header_end > end) {
+        if ((ngx_uint_t) (end - p) < r->lowcase_index) {
             break;
         }
 
         r->header_start = p;
 
-        for ( /* void */ ; p != r->header_end; p++) {
-
+        while (r->lowcase_index--) {
             ch = *p;
 
             if (ch == '\0') {
@@ -2456,7 +2474,7 @@ ngx_http_spdy_parse_header(ngx_http_request_t *r)
                     return NGX_ERROR;
                 }
 
-                r->header_size = p - r->header_start;
+                r->header_end = p;
                 r->header_in->pos = p + 1;
 
                 return NGX_OK;
@@ -2465,9 +2483,11 @@ ngx_http_spdy_parse_header(ngx_http_request_t *r)
             if (ch == CR || ch == LF) {
                 return NGX_HTTP_PARSE_INVALID_HEADER;
             }
+
+            p++;
         }
 
-        r->header_size = p - r->header_start;
+        r->header_end = p;
         r->header_in->pos = p;
 
         r->state = 0;
@@ -2526,13 +2546,6 @@ ngx_http_spdy_alloc_large_header_buffer(ngx_http_request_t *r)
         buf->last = ngx_cpymem(new, old, rest);
     }
 
-    if (r->header_name_end > old) {
-        r->header_name_end = new + (r->header_name_end - old);
-
-    } else if (r->header_end > old) {
-        r->header_end = new + (r->header_end - old);
-    }
-
     r->header_in = buf;
 
     stream->header_buffers++;
@@ -2563,14 +2576,14 @@ ngx_http_spdy_handle_request_header(ngx_http_request_t *r)
     }
 
     if (r->header_name_start[0] == ':') {
+        r->header_name_start++;
+
         for (i = 0; i < NGX_SPDY_REQUEST_HEADERS; i++) {
             sh = &ngx_http_spdy_request_headers[i];
 
             if (sh->hash != r->header_hash
-                || sh->len != r->lowcase_index
-                || ngx_strncmp(sh->header, &r->header_name_start[1],
-                               r->lowcase_index)
-                   != 0)
+                || sh->len != r->header_name_end - r->header_name_start
+                || ngx_strncmp(sh->header, r->header_name_start, sh->len) != 0)
             {
                 continue;
             }
@@ -2590,10 +2603,10 @@ ngx_http_spdy_handle_request_header(ngx_http_request_t *r)
 
     h->hash = r->header_hash;
 
-    h->key.len = r->lowcase_index;
+    h->key.len = r->header_name_end - r->header_name_start;
     h->key.data = r->header_name_start;
 
-    h->value.len = r->header_size;
+    h->value.len = r->header_end - r->header_start;
     h->value.data = r->header_start;
 
     h->lowcase_key = h->key.data;
@@ -2653,7 +2666,7 @@ ngx_http_spdy_parse_method(ngx_http_request_t *r)
         return NGX_HTTP_PARSE_INVALID_HEADER;
     }
 
-    len = r->header_size;
+    len = r->header_end - r->header_start;
 
     r->method_name.len = len;
     r->method_name.data = r->header_start;
@@ -2733,10 +2746,10 @@ ngx_http_spdy_parse_host(ngx_http_request_t *r)
 
     h->hash = r->header_hash;
 
-    h->key.len = r->lowcase_index;
-    h->key.data = &r->header_name_start[1];
+    h->key.len = r->header_name_end - r->header_name_start;
+    h->key.data = r->header_name_start;
 
-    h->value.len = r->header_size;
+    h->value.len = r->header_end - r->header_start;
     h->value.data = r->header_start;
 
     h->lowcase_key = h->key.data;
@@ -2778,7 +2791,7 @@ ngx_http_spdy_parse_version(ngx_http_request_t *r)
 
     p = r->header_start;
 
-    if (r->header_size < 8 || !(ngx_str5cmp(p, 'H', 'T', 'T', 'P', '/'))) {
+    if (r->header_end - p < 8 || !(ngx_str5cmp(p, 'H', 'T', 'T', 'P', '/'))) {
         return NGX_HTTP_PARSE_INVALID_REQUEST;
     }
 
@@ -2793,6 +2806,10 @@ ngx_http_spdy_parse_version(ngx_http_request_t *r)
     for (p += 6; p != r->header_end - 2; p++) {
 
         ch = *p;
+
+        if (ch == '.') {
+            break;
+        }
 
         if (ch < '0' || ch > '9') {
             return NGX_HTTP_PARSE_INVALID_REQUEST;
@@ -2824,7 +2841,7 @@ ngx_http_spdy_parse_version(ngx_http_request_t *r)
         r->http_minor = r->http_minor * 10 + ch - '0';
     }
 
-    r->http_protocol.len = r->header_size;
+    r->http_protocol.len = r->header_end - r->header_start;
     r->http_protocol.data = r->header_start;
     r->http_version = r->http_major * 1000 + r->http_minor;
 
