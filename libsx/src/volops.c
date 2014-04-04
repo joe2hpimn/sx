@@ -421,14 +421,29 @@ int sxc_volume_acl(sxc_cluster_t *cluster, const char *url,
     }
     sx = sxi_cluster_get_client(cluster);
     user_iter.sx = sx;
-    if (grant && strstr(grant,"read"))
-        user_iter.grant_read_users = user;
-    if (grant && strstr(grant,"write"))
-        user_iter.grant_write_users = user;
-    if (revoke && strstr(revoke,"read"))
-        user_iter.revoke_read_users = user;
-    if (revoke && strstr(revoke,"write"))
-        user_iter.revoke_write_users = user;
+    if (grant) {
+        if (!strcmp(grant,"read"))
+            user_iter.grant_read_users = user;
+        else if (!strcmp(grant,"write"))
+            user_iter.grant_write_users = user;
+        else if (!strcmp(grant,"read,write") || !strcmp(grant, "write,read")) {
+            user_iter.grant_read_users = user;
+            user_iter.grant_write_users = user;
+        } else {
+            cluster_err(SXE_EARG, "Unknown permissions for grant: %s", grant);
+        }
+    }
+    if (revoke) {
+        if (!strcmp(grant,"read"))
+            user_iter.revoke_read_users = user;
+        else if (!strcmp(revoke,"write"))
+            user_iter.revoke_write_users = user;
+        else if (!strcmp(revoke,"read,write") || !strcmp(revoke, "write,read")) {
+            user_iter.revoke_read_users = user;
+            user_iter.revoke_write_users = user;
+        } else
+            cluster_err(SXE_EARG, "Unknown permissions for revoke: %s", revoke);
+    }
     proto = sxi_volumeacl_proto(sx, url, grant_read, grant_write,
                                 revoke_read, revoke_write, &user_iter);
     free(user_iter.user);
