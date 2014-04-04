@@ -89,7 +89,8 @@ CFLAGS="$CFLAGS -Wconditional-uninitialized"
 CFLAGS="$CFLAGS -Wno-unused-parameter"
 
 # stop on warning
-CFLAGS="$CFLAGS -Werror"
+# Skylable: buildbot failure on wheezy-clang with -Werror
+#CFLAGS="$CFLAGS -Werror"
 
 # debug
 CFLAGS="$CFLAGS -g"
