@@ -2657,6 +2657,7 @@ static int multi_download(struct batch_hashes *bh, const char *dstname,
       }
       requested = finished = transferred = 0;
       for (i=0;i<bh->i;i++) {
+        unsigned dctxn;
         hashdata = &bh->hashdata[i];
         hash = hashdata->hash;
 	loop++;
@@ -2731,10 +2732,11 @@ static int multi_download(struct batch_hashes *bh, const char *dstname,
         dctx->hashes.hash[dctx->hashes.n] = hash;
         dctx->hashes.hashdata[dctx->hashes.n] = hashdata;
         outstanding++;
-        if (++dctx->hashes.n >= DOWNLOAD_MAX_BLOCKS) {
+        dctxn = ++dctx->hashes.n;
+        if (dctxn >= DOWNLOAD_MAX_BLOCKS) {
             if (send_batch(hostsmap, conns, host, &cbdata, &requested) == -1)
                 break;
-	    outstanding -= dctx->hashes.n;
+	    outstanding -= dctxn;
         } else {
             if (sxi_ht_add(hostsmap, host, strlen(host)+1, cbdata)) {
                 /* it failed */
@@ -2742,7 +2744,7 @@ static int multi_download(struct batch_hashes *bh, const char *dstname,
                 break;
             }
         }
-	SXDEBUG("loop: %d, host:%s, n:%d, outstanding:%d, requested: %d", loop, host, dctx->hashes.n,outstanding, requested);
+	SXDEBUG("loop: %d, host:%s, n:%d, outstanding:%d, requested: %d", loop, host, dctxn,outstanding, requested);
       }
       free(errmsg);
       sxi_ht_enum_reset(hostsmap);
