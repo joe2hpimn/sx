@@ -2810,7 +2810,7 @@ static void batch_hashes_free(struct batch_hashes *bh)
 }
 
 static int remote_to_local(sxc_file_t *source, sxc_file_t *dest, sxc_xres_t *xres) {
-    char *hashfile, *tempdst = NULL, *tempfilter = NULL;
+    char *hashfile = NULL, *tempdst = NULL, *tempfilter = NULL;
     sxi_ht *hosts = NULL;
     struct hash_down_data_t *hashdata;
     struct timeval t1, t2;
