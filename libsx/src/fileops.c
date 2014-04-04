@@ -3232,7 +3232,8 @@ remote_to_local_err:
 
     if (hf)
         fclose(hf);
-    unlink(hashfile);
+    if (hashfile)
+        unlink(hashfile);
     sxi_tempfile_untrack(sx, hashfile);
 
     free(buf);
