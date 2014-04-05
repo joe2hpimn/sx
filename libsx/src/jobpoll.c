@@ -30,6 +30,7 @@
 
 #define CBDEBUG(...) do{ sxc_client_t *sx = yactx->sx; SXDEBUG(__VA_ARGS__); } while(0)
 
+#define POLL_INTERVAL 30.0
 struct job_ctx {
     unsigned *queries_finished;
     sxi_job_t *yactx;
@@ -446,7 +447,7 @@ sxi_job_t* sxi_job_submit(sxi_conns_t *conns, sxi_hostlist_t *hlist, enum sxi_cl
                 sxi_retry_throttle(sxi_conns_get_client(conns), j);
         }
         if (jobs) {
-            if (qret != 429 && sxi_timediff(&tv, &jobs->tv) > 30.0) {
+            if (qret != 429 && sxi_timediff(&tv, &jobs->tv) > POLL_INTERVAL) {
                 if (jobs->jobs && jobs->n) {
                     /* poll once for progress, don't sleep */
                     if (sxi_job_poll(conns, jobs, NULL, 0)) {

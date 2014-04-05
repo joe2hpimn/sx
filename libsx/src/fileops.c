@@ -69,6 +69,9 @@ struct _sxc_xres_t {
     unsigned int download_reqblks;
     unsigned int download_xferblks;
     int64_t download_bytes;
+
+    struct timeval t1;
+    struct timeval tv;
 };
 
 
@@ -77,6 +80,8 @@ struct _sxc_xres_t {
 #define INITIAL_HASH_ITEMS MIN(BLOCKS_PER_TABLE, 256)
 #define cluster_err(...) sxi_seterr(sxi_cluster_get_client(cluster), __VA_ARGS__)
 #define cluster_syserr(...) sxi_setsyserr(sxi_cluster_get_client(cluster), __VA_ARGS__)
+
+#define PROGRESS_INTERVAL 6.0
 
 static int is_remote(sxc_file_t *f) {
     return f->cluster != NULL;
@@ -2776,6 +2781,20 @@ static int multi_download(struct batch_hashes *bh, const char *dstname,
             }
         }
 	SXDEBUG("loop: %d, host:%s, n:%d, outstanding:%d, requested: %d", loop, host, dctxn,outstanding, requested);
+        if (xres) {
+            double delta;
+            double mb;
+            struct timeval tv;
+            gettimeofday(&tv, NULL);
+            delta = sxi_timediff(&tv, &xres->tv);
+            if (delta > PROGRESS_INTERVAL) {
+                double t = xres->download_time + sxi_timediff(&tv, &xres->t1);
+                mb = (xres->download_bytes + transferred*blocksize)/1048576.0;
+                sxi_info(sx, "Download in progress: total %.3f MB @%.2f MB/s",
+                         mb, mb/t);
+                memcpy(&xres->tv, &tv, sizeof(tv));
+            }
+        }
       }
       sxi_ht_enum_reset(hostsmap);
       SXDEBUG("looped: %d; requested: %d", loop, requested);
@@ -2845,7 +2864,7 @@ static int remote_to_local(sxc_file_t *source, sxc_file_t *dest, sxc_xres_t *xre
     char *hashfile = NULL, *tempdst = NULL, *tempfilter = NULL;
     sxi_ht *hosts = NULL;
     struct hash_down_data_t *hashdata;
-    struct timeval t1, t2;
+    struct timeval t2;
     uint8_t *buf = NULL;
     sxc_client_t *sx = source->sx;
     struct stat st;
@@ -2921,11 +2940,12 @@ static int remote_to_local(sxc_file_t *source, sxc_file_t *dest, sxc_xres_t *xre
 	xres->copy_size += filesize;
 	xres->download_bs += blocksize;
 	xres->download_allblks += filesize / blocksize + (filesize % blocksize != 0);
-	if(gettimeofday(&t1, NULL)) {
+	if(gettimeofday(&xres->t1, NULL)) {
 	    SXDEBUG("failed to get initial download time");
 	    sxi_setsyserr(sx, SXE_ETIME, "Download failed: unable to get current time");
 	    goto remote_to_local_err;
 	}
+        memcpy(&xres->tv, &xres->t1, sizeof(xres->t1));
     }
 
     if(sxi_volume_cfg_check(sx, source->cluster, vmeta, source->volume))
@@ -3225,7 +3245,7 @@ static int remote_to_local(sxc_file_t *source, sxc_file_t *dest, sxc_xres_t *xre
 	    sxi_setsyserr(sx, SXE_ETIME, "Download failed: unable to get current time");
 	    goto remote_to_local_err;
 	}
-	xres->download_time += sxi_timediff(&t2, &t1);
+	xres->download_time += sxi_timediff(&t2, &xres->t1);
     }
 
     ret = 0;
