@@ -1874,6 +1874,7 @@ static int local_to_remote_iterate(sxc_file_t *source, int recursive, int depth,
                     ret = -1;
                     break;
                 }
+                gettimeofday(&dest->jobs->tv, NULL);
             }
             if (dst->job && sxi_jobs_add(sx, dest->jobs, dst->job) == -1) {
                 SXDEBUG("failed to job_add");

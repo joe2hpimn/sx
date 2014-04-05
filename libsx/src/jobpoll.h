@@ -20,10 +20,13 @@
 #ifndef _JOBPOLL_H
 #define _JOBPOLL_H
 
+#include <sys/time.h>
+
 typedef struct _sxi_job_t sxi_job_t;
 typedef struct _sxi_jobs_t {
     sxi_job_t **jobs;
     unsigned n;
+    struct timeval tv;
 } sxi_jobs_t;
 
 /* used where a sxi_job_t would be required but we're not job based */
