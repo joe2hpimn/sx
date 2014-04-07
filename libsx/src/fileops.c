@@ -2977,7 +2977,6 @@ static int remote_to_local(sxc_file_t *source, sxc_file_t *dest, sxc_xres_t *xre
     dstexisted = !access(dstname, F_OK);
     switch(sxi_seen(sx, dest)) {
         case 1:
-            sxi_notice(sx, "%s: Not overwriting just-downloaded file", dest->path);
             sxi_seterr(sx, SXE_SKIP, "Not overwriting just-downloaded file");
             goto remote_to_local_err;
         case -1:
@@ -3780,7 +3779,6 @@ static sxi_job_t* remote_copy_ev(sxc_file_t *pattern, sxc_file_t *source, sxc_fi
     if (maybe_append_path(dest, source, recursive))
         return NULL;
     if(!is_remote(dest)) {
-        const char *msg;
         int ret;
         if (recursive)
             mkdir_parents(dest->sx, dest->path);
@@ -3788,12 +3786,15 @@ static sxi_job_t* remote_copy_ev(sxc_file_t *pattern, sxc_file_t *source, sxc_fi
             ret = cat_remote_file(source, dest->cat_fd);
         else
             ret = remote_to_local(source, dest, rs);
-        msg = sxc_geterrnum(source->sx) == SXE_NOERROR ? "OK" : sxc_geterrmsg(source->sx);
+        if (sxc_geterrnum(source->sx) == SXE_NOERROR) {
+            sxi_info(source->sx, "%s: OK", dest->path);
+        } else {
+            sxi_notice(source->sx, "%s: %s", dest->path, sxc_geterrmsg(source->sx));
+        }
         if (sxc_geterrnum(source->sx) == SXE_SKIP) {
             ret = 0;
             sxc_clearerr(source->sx);
-        } else
-            sxi_info(source->sx, "%s: %s", dest->path, msg);
+        }
         if (ret) {
             (void)restore_path(dest);
             return NULL;
