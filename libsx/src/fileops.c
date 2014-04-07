@@ -3766,6 +3766,8 @@ static sxi_job_t* remote_copy_ev(sxc_file_t *pattern, sxc_file_t *source, sxc_fi
         return NULL;
     if(!is_remote(dest)) {
         const char *msg;
+        if (recursive && strcmp(dest->path, dest->origpath)) {
+        }
         mkdir_parents(dest->sx, dest->path);
         int ret = remote_to_local(source, dest, rs);
         msg = sxc_geterrnum(source->sx) == SXE_NOERROR ? "OK" : sxc_geterrmsg(source->sx);
@@ -3837,11 +3839,6 @@ int sxc_copy(sxc_file_t *source, sxc_file_t *dest, int recursive, sxc_xres_t **x
         if (ends_with(dest->path, '/')) {
             if (stat(dest->path, &sb) == -1 || !S_ISDIR(sb.st_mode)) {
                 sxi_seterr(source->sx, SXE_EARG, "'%s' must be an existing directory", dest->path);
-                return 1;
-            }
-        } else if (recursive) {
-            if (mkdir(dest->path, 0700) == -1 && errno != EEXIST) {
-                sxi_setsyserr(source->sx, SXE_EARG, "Cannot create directory '%s'", dest->path);
                 return 1;
             }
         }
@@ -4409,6 +4406,7 @@ struct _sxc_file_list_t {
     sxc_cluster_t *cluster;
     unsigned recursive;
     sxi_jobs_t jobs;
+    int multi;
 };
 
 
@@ -4679,7 +4677,7 @@ static sxi_job_t *remote_copy_cb(sxc_file_list_t *target, sxc_file_t *pattern, s
 
     /* we could support parallelization for remote_to_remote and
      * remote_to_remote_fast if they would just return a job ... */
-    ret = remote_copy_ev(pattern, &source, it->dest, it->rs, it->recursive);
+    ret = remote_copy_ev(pattern, &source, it->dest, it->rs, it->recursive && target->multi);
     free(source.volume);
     free(source.path);
     free(source.origpath);
@@ -4724,6 +4722,13 @@ static int multi_cb(sxc_file_list_t *target, void *ctx)
 {
     struct remote_iter *it = ctx;
     sxc_file_t *dest = it->dest;
+    target->multi = 1;
+    if (target->recursive) {
+        if (mkdir(dest->path, 0700) == -1 && errno != EEXIST) {
+            sxi_setsyserr(target->sx, SXE_EARG, "Cannot create directory '%s'", dest->path);
+            return -1;
+        }
+    }
     return sxc_file_require_dir(dest);
 }
 
@@ -4743,7 +4748,7 @@ static int remote_iterate(sxc_file_t *source, int recursive, sxc_file_t *dest, s
     if (sxc_file_list_add(lst, source, 1)) {
         ret = -1;
     } else {
-        ret = sxi_file_list_foreach(lst, dest->cluster, recursive ? NULL : multi_cb, remote_copy_cb, 0, &it);
+        ret = sxi_file_list_foreach(lst, dest->cluster, multi_cb, remote_copy_cb, 0, &it);
         if (!ret) {
             /* create dest dir if successful list of empty volume */
             if (!is_remote(dest) && recursive && mkdir(dest->path, 0700) == -1 && errno != EEXIST) {
