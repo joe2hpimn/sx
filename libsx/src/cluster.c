@@ -320,6 +320,18 @@ static enum head_result head_cb(sxi_conns_t *conns, char *ptr, size_t size, size
     CURLOPT_MAX_RECV_SPEED_LARGE;
 */
 
+static int reject_dots(const char *query)
+{
+    const char *lastslash;
+    if (strstr(query, "/../") || strstr(query, "/./"))
+        return 1;
+    lastslash = strrchr(query, '/');
+    if (!lastslash)
+        lastslash = query;
+    if (!strcmp(query, "..") || !strcmp(query, "."))
+        return 1;
+    return 0;
+}
 
 int sxi_cluster_query_ev(curlev_context_t *cbdata,
 			 sxi_conns_t *conns, const char *host,
@@ -345,6 +357,10 @@ int sxi_cluster_query_ev(curlev_context_t *cbdata,
 	CLSTDEBUG("called with unexpected NULL or empty arguments");
 	conns_err(SXE_EARG, "Cluster query failed: invalid argument");
 	return -1;
+    }
+    if (reject_dots(query)) {
+        conns_err(SXE_EARG, "URL with '.' or '..' is not accepted");
+        return -1;
     }
 
     if(!conns->auth_token) {
