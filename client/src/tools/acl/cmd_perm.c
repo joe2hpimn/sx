@@ -34,14 +34,15 @@ const char *perm_args_info_versiontext = "";
 const char *perm_args_info_description = "";
 
 const char *perm_args_info_help[] = {
-  "  -h, --help               Print help and exit",
-  "  -V, --version            Print version and exit",
+  "  -h, --help                Print help and exit",
+  "  -V, --version             Print version and exit",
   "\nVolume permission modification options:",
-  "      --grant=read|write   Grant the specified user read or write privileges on\n                             the volume",
-  "      --revoke=read|write  Revoke the specified privileges for the user on the\n                             volume",
+  "      --grant=<privilege>   Grant a privilege on the volume to the user",
+  "      --revoke=<privilege>  Revoke a privilege on the volume from the user",
+  "where <privilege> can be any of \"read\", \"write\" or \"read,write\"",
   "\nCommon options:",
-  "  -c, --config-dir=PATH    Path to SX configuration directory",
-  "  -D, --debug              Enable debug messages  (default=off)",
+  "  -c, --config-dir=PATH     Path to SX configuration directory",
+  "  -D, --debug               Enable debug messages  (default=off)",
     0
 };
 
@@ -97,8 +98,8 @@ void init_args_info(struct perm_args_info *args_info)
   args_info->version_help = perm_args_info_help[1] ;
   args_info->grant_help = perm_args_info_help[3] ;
   args_info->revoke_help = perm_args_info_help[4] ;
-  args_info->config_dir_help = perm_args_info_help[6] ;
-  args_info->debug_help = perm_args_info_help[7] ;
+  args_info->config_dir_help = perm_args_info_help[7] ;
+  args_info->debug_help = perm_args_info_help[8] ;
   
 }
 
@@ -524,7 +525,7 @@ perm_cmdline_parser_internal (
           break;
 
         case 0:	/* Long option with no short option */
-          /* Grant the specified user read or write privileges on the volume.  */
+          /* Grant a privilege on the volume to the user.  */
           if (strcmp (long_options[option_index].name, "grant") == 0)
           {
           
@@ -538,7 +539,7 @@ perm_cmdline_parser_internal (
               goto failure;
           
           }
-          /* Revoke the specified privileges for the user on the volume.  */
+          /* Revoke a privilege on the volume from the user.  */
           else if (strcmp (long_options[option_index].name, "revoke") == 0)
           {
           

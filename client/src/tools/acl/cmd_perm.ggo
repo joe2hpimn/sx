@@ -3,10 +3,13 @@ args "--unamed-opts --no-handle-version --no-handle-error --file-name=cmd_perm -
 usage "sxacl perm [OPTIONS] user sx://[profile@]cluster/volume"
 
 section "Volume permission modification options"
-option "grant" - "Grant the specified user read or write privileges on the volume" string
-    typestr="read|write" optional
-option  "revoke" - "Revoke the specified privileges for the user on the volume" string
-    typestr="read|write" optional
+
+option "grant" - "Grant a privilege on the volume to the user" string typestr="<privilege>" optional
+
+option  "revoke" - "Revoke a privilege on the volume from the user" string
+    typestr="<privilege>" optional
+
+text "where <privilege> can be any of \"read\", \"write\" or \"read,write\""
 
 section "Common options"
 

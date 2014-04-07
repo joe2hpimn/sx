@@ -39,12 +39,12 @@ struct perm_args_info
 {
   const char *help_help; /**< @brief Print help and exit help description.  */
   const char *version_help; /**< @brief Print version and exit help description.  */
-  char * grant_arg;	/**< @brief Grant the specified user read or write privileges on the volume.  */
-  char * grant_orig;	/**< @brief Grant the specified user read or write privileges on the volume original value given at command line.  */
-  const char *grant_help; /**< @brief Grant the specified user read or write privileges on the volume help description.  */
-  char * revoke_arg;	/**< @brief Revoke the specified privileges for the user on the volume.  */
-  char * revoke_orig;	/**< @brief Revoke the specified privileges for the user on the volume original value given at command line.  */
-  const char *revoke_help; /**< @brief Revoke the specified privileges for the user on the volume help description.  */
+  char * grant_arg;	/**< @brief Grant a privilege on the volume to the user.  */
+  char * grant_orig;	/**< @brief Grant a privilege on the volume to the user original value given at command line.  */
+  const char *grant_help; /**< @brief Grant a privilege on the volume to the user help description.  */
+  char * revoke_arg;	/**< @brief Revoke a privilege on the volume from the user.  */
+  char * revoke_orig;	/**< @brief Revoke a privilege on the volume from the user original value given at command line.  */
+  const char *revoke_help; /**< @brief Revoke a privilege on the volume from the user help description.  */
   char * config_dir_arg;	/**< @brief Path to SX configuration directory.  */
   char * config_dir_orig;	/**< @brief Path to SX configuration directory original value given at command line.  */
   const char *config_dir_help; /**< @brief Path to SX configuration directory help description.  */
