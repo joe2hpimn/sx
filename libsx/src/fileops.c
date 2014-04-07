@@ -3766,8 +3766,6 @@ static sxi_job_t* remote_copy_ev(sxc_file_t *pattern, sxc_file_t *source, sxc_fi
         return NULL;
     if(!is_remote(dest)) {
         const char *msg;
-        if (recursive && strcmp(dest->path, dest->origpath)) {
-        }
         mkdir_parents(dest->sx, dest->path);
         int ret = remote_to_local(source, dest, rs);
         msg = sxc_geterrnum(source->sx) == SXE_NOERROR ? "OK" : sxc_geterrmsg(source->sx);
