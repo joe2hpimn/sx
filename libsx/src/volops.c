@@ -186,6 +186,30 @@ static void volume_info(sxc_client_t *sx, const char *vname, sxc_filter_t *filte
 	fprintf(stderr, "*** The fingerprint of the volume has been stored.\n");
 }
 
+static void bigerr(sxc_cluster_t *cluster, const char *vname)
+{
+    const char *clustname = sxc_cluster_get_sslname(cluster);
+    int i, len = 6 + strlen(clustname) + strlen(vname);
+
+    fprintf(stderr,
+	"!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n"	\
+	"!!! ERROR: REMOTE VOLUME CONFIGURATION HAS CHANGED FOR !!!\n"	\
+	"!!! ");
+    if(len < 51) {
+	int cnt = 0;
+	for(i = 0; i < (51 - len) / 2; i++)
+	    cnt += fprintf(stderr, " ");
+	cnt += fprintf(stderr, "sx://%s/%s", clustname, vname);
+	for(i = 0; cnt < 51 && i < 80; i++, cnt++)
+	    fprintf(stderr, " ");
+    } else 
+	fprintf(stderr, "sx://%s/%s", clustname, vname);
+    fprintf(stderr,
+	"!!!\n"								\
+	"!!!       PLEASE CONTACT YOUR CLUSTER ADMINISTRATOR    !!!\n"	\
+	"!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
+}
+
 int sxi_volume_cfg_check(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_meta_t *vmeta, const char *vname)
 {
     char local_filter_uuid[37], remote_filter_uuid[37], cfgkey[37 + 5];
@@ -200,14 +224,7 @@ int sxi_volume_cfg_check(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_meta_t *v
     unsigned char local_digest[SHA256_DIGEST_LENGTH], remote_digest[SHA256_DIGEST_LENGTH];
     struct filter_handle *fh;
 
-#define BIG_ERR							    \
-    fprintf(stderr,						    \
-	"!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n"  \
-	"!!! ERROR: REMOTE VOLUME CONFIGURATION HAS CHANGED !!!\n"  \
-	"!!!   PLEASE CONTACT YOUR CLUSTER ADMINISTRATOR    !!!\n"  \
-	"!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n")
-
-    if(!sx || !cluster)
+    if(!sx || !cluster || !vname)
 	return 1;
 
     confdir = sxi_cluster_get_confdir(cluster);
@@ -274,7 +291,7 @@ int sxi_volume_cfg_check(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_meta_t *v
 	sxi_uuid_unparse(mval, remote_filter_uuid);
 
 	if(!nocluster && !nofilter && strcmp(local_filter_uuid, remote_filter_uuid)) {
-	    BIG_ERR;
+	    bigerr(cluster, vname);
 	    sxi_seterr(sx, SXE_EFILTER, "Remote volume reports filter ID %s, local settings report filter ID %s", remote_filter_uuid, local_filter_uuid);
 	    return 1;
 	}
@@ -289,17 +306,17 @@ int sxi_volume_cfg_check(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_meta_t *v
 	sxc_meta_getval(vmeta, cfgkey, &cfgval, &cfgval_len);
 
 	if(nochksum && cfgval) {
-	    BIG_ERR;
+	    bigerr(cluster, vname);
 	    sxi_seterr(sx, SXE_EFILTER, "Remote volume reports filter config, local settings report no filter config");
 	    return 1;
 	} else if(!nocluster && !nochksum && !cfgval) {
-	    BIG_ERR;
+	    bigerr(cluster, vname);
 	    sxi_seterr(sx, SXE_EFILTER, "Remote volume reports no filter config, local settings report filter config");
 	    return 1;
 	} else if(!nocluster && cfgval) {
 	    SHA256(cfgval, cfgval_len, remote_digest);
 	    if(memcmp(local_digest, remote_digest, sizeof(local_digest))) {
-		BIG_ERR;
+		bigerr(cluster, vname);
 		sxi_seterr(sx, SXE_EFILTER, "Remote volume reports different filter config than local settings");
 		return 1;
 	    }
@@ -320,7 +337,7 @@ int sxi_volume_cfg_check(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_meta_t *v
 	}
 
     } else if(!nocluster && !nofilter) {
-	BIG_ERR;
+	bigerr(cluster, vname);
 	sxi_seterr(sx, SXE_EFILTER, "Remote volume reports no filter, local volume configuration reports filter ID %s", local_filter_uuid);
 	return 1;
     }
