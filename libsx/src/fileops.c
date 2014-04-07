@@ -4544,6 +4544,9 @@ int sxi_file_list_foreach(sxc_file_list_t *target, sxc_cluster_t *wait_cluster, 
         do {
             int64_t size;
             unsigned replica;
+            struct timeval t0, t1;
+
+            gettimeofday(&t0, NULL);
 
             if(volhosts && sxi_locate_volume(cluster, pattern->volume, volhosts, NULL)) {
                 CFGDEBUG("failed to locate volume %s", pattern->volume);
@@ -4561,6 +4564,8 @@ int sxi_file_list_foreach(sxc_file_list_t *target, sxc_cluster_t *wait_cluster, 
                 CFGDEBUG("Cannot list files");
                 break;
             }
+            gettimeofday(&t1, NULL);
+            sxi_info(target->sx, "Received list of %d files in %.1fs", entry->nfiles, sxi_timediff(&t1, &t0));
             CFGDEBUG("Glob pattern matched %d files", entry->nfiles);
             if (entry->nfiles > 1 && multi_cb && multi_cb(target, ctx)) {
                 CFGDEBUG("multiple source file rejected by callback");
