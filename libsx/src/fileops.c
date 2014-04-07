@@ -51,6 +51,7 @@ struct _sxc_file_t {
     char *path;
     char *origpath;
     sxi_ht *seen;
+    int cat_fd;
 };
 
 struct _sxc_xres_t {
@@ -281,6 +282,7 @@ static int file_to_file(sxc_client_t *sx, const char *source, const char *dest, 
     return 0;
 }
 
+static int cat_local_file(sxc_file_t *source, int dest);
 static int local_to_local(sxc_file_t *source, sxc_file_t *dest, sxc_xres_t *xres) {
     if (strcmp(dest->origpath, dest->path)) {
         /* dest is a dir, we must only mkdir exactly the given dest, not
@@ -1374,6 +1376,8 @@ static int maybe_append_path(sxc_file_t *dest, sxc_file_t *source, int recursive
     sxc_client_t *sx;
     if (!dest || !source)
         return -1;
+    if (dest->cat_fd > 0)
+        return 0;
     sx = dest->sx;
     if (!dest->origpath) {
         if (!(dest->origpath = strdup(dest->path))) {
@@ -1441,9 +1445,12 @@ static int restore_path(sxc_file_t *dest)
 {
     if (dest) {
         free(dest->path);
-        if (!(dest->path = strdup(dest->origpath))) {
-            sxi_setsyserr(dest->sx, SXE_EMEM, "Cannot dup path");
-            return 1;
+        dest->path = NULL;
+        if (dest->origpath) {
+            if (!(dest->path = strdup(dest->origpath))) {
+                sxi_setsyserr(dest->sx, SXE_EMEM, "Cannot dup path");
+                return 1;
+            }
         }
         return 0;
     }
@@ -2922,6 +2929,7 @@ static int sxi_seen(sxc_client_t *sx, sxc_file_t *dest)
     }
 }
 
+static int cat_remote_file(sxc_file_t *source, int dest);
 static int remote_to_local(sxc_file_t *source, sxc_file_t *dest, sxc_xres_t *xres) {
     char *hashfile = NULL, *tempdst = NULL, *tempfilter = NULL;
     sxi_ht *hosts = NULL;
@@ -3772,9 +3780,13 @@ static sxi_job_t* remote_copy_ev(sxc_file_t *pattern, sxc_file_t *source, sxc_fi
         return NULL;
     if(!is_remote(dest)) {
         const char *msg;
+        int ret;
         if (recursive)
             mkdir_parents(dest->sx, dest->path);
-        int ret = remote_to_local(source, dest, rs);
+        if (dest->cat_fd > 0)
+            ret = cat_remote_file(source, dest->cat_fd);
+        else
+            ret = remote_to_local(source, dest, rs);
         msg = sxc_geterrnum(source->sx) == SXE_NOERROR ? "OK" : sxc_geterrmsg(source->sx);
         sxi_info(source->sx, "%s: %s", dest->path, msg);
         if (sxc_geterrnum(source->sx) == SXE_SKIP) {
@@ -3841,7 +3853,7 @@ int sxc_copy(sxc_file_t *source, sxc_file_t *dest, int recursive, sxc_xres_t **x
 
     if (!is_remote(dest)) {
         struct stat sb;
-        if (ends_with(dest->path, '/')) {
+        if (dest->path && ends_with(dest->path, '/')) {
             if (stat(dest->path, &sb) == -1 || !S_ISDIR(sb.st_mode)) {
                 sxi_seterr(source->sx, SXE_EARG, "'%s' must be an existing directory", dest->path);
                 return 1;
@@ -3851,11 +3863,15 @@ int sxc_copy(sxc_file_t *source, sxc_file_t *dest, int recursive, sxc_xres_t **x
 
     if(!is_remote(source)) {
 	if(!is_remote(dest)) {
-            ret = maybe_append_path(dest, source, 0);
-            if (!ret)
-                ret = local_to_local(source, dest, rs);
-            if (restore_path(dest))
-                ret = 1;
+            if (dest->cat_fd > 0) {
+                ret = cat_local_file(source, dest->cat_fd);
+            } else {
+                ret = maybe_append_path(dest, source, 0);
+                if (!ret)
+                    ret = local_to_local(source, dest, rs);
+                if (restore_path(dest))
+                    ret = 1;
+            }
         } else {
             if (!(source->origpath = strdup(source->path))) {
                 sxi_setsyserr(source->sx, SXE_EMEM, "Cannot dup path");
@@ -4083,7 +4099,20 @@ static int cat_local_file(sxc_file_t *source, int dest) {
 }
 
 int sxc_cat(sxc_file_t *source, int dest) {
-    return is_remote(source) ? cat_remote_file(source, dest) : cat_local_file(source, dest);
+    int rc;
+    sxc_file_t *destfile = calloc(1, sizeof(*destfile));
+    if (!destfile) {
+        sxi_setsyserr(source->sx, SXE_EMEM, "OOM allocating file");
+        return 1;
+    }
+    destfile->cat_fd = dest;
+    if (!dest) {
+        sxi_seterr(source->sx, SXE_EARG, "Cannot write to stdin");
+        rc = 1;
+    }
+    rc = sxc_copy(source, destfile, 0, NULL);
+    sxc_file_free(destfile);
+    return rc;
 }
 
 
@@ -4717,7 +4746,7 @@ int sxc_file_require_dir(sxc_file_t *file)
         free(file->path);
         file->path = path;
         return 0;
-    } else if (strcmp(file->path, "/dev/stdout")) {
+    } else if (file->path && strcmp(file->path, "/dev/stdout")) {
         sxi_seterr(file->sx, SXE_EARG, "target '%s' must be an existing directory", file->path);
         return -1;
     }
