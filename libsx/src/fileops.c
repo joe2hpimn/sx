@@ -2984,7 +2984,9 @@ static int remote_to_local(sxc_file_t *source, sxc_file_t *dest, sxc_xres_t *xre
         default:
             break;
     }
-    if((d = open(dest->path, O_RDWR|O_CREAT, S_IWUSR|S_IRUSR|S_IWGRP|S_IRGRP|S_IWOTH|S_IROTH))<0) {
+    if (!strcmp(dest->path, "/dev/stdout")) {
+        d = STDOUT_FILENO;
+    } else if((d = open(dest->path, O_RDWR|O_CREAT, S_IWUSR|S_IRUSR|S_IWGRP|S_IRGRP|S_IWOTH|S_IROTH))<0) {
 	SXDEBUG("failed to create destination file");
 	sxi_setsyserr(sx, SXE_EWRITE, "cannot open destination file %s", dstname);
 	goto remote_to_local_err;
@@ -3007,8 +3009,6 @@ static int remote_to_local(sxc_file_t *source, sxc_file_t *dest, sxc_xres_t *xre
 	    SXDEBUG("failed to generate intermediate file");
 	    goto remote_to_local_err;
 	}
-        /* if stdout is redirected to a file and we reopen it */
-        lseek(d, 0, SEEK_END);
 	rd = d;
 	d = fileno(tf);
     }
@@ -3284,7 +3284,8 @@ static int remote_to_local(sxc_file_t *source, sxc_file_t *dest, sxc_xres_t *xre
 	    }
 	}
 
-	close(d);
+        if (d != STDOUT_FILENO)
+            close(d);
 	d = -1;
 	if(dstexisted && stat(dest->path, &st) == -1) {
 	    sxi_setsyserr(sx, SXE_EREAD, "failed to stat destination file %s", dest->path);
@@ -3356,7 +3357,7 @@ remote_to_local_err:
 	d = rd;
     }
 
-    if(d>=0)
+    if(d>=0 && d != STDOUT_FILENO)
 	close(d);
 
     if(tempfilter) {
