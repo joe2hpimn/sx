@@ -322,8 +322,11 @@ void job_2pc_handle_request(sxc_client_t *sx, const job_2pc_t *spec, void *yctx)
     if (!joblb)
         quit_errmsg(500, "Cannot allocate job blob");
     if (spec->to_blob(sx, yctx, joblb)) {
+        const char *msg = msg_get_reason();
         sx_blob_free(joblb);
-        quit_errmsg(500, "Cannot create job blob");
+        if(!msg || !*msg)
+            msg = "Cannot create job blob";
+        quit_errmsg(500, msg);
     }
     if(has_priv(PRIV_CLUSTER)) {
         msg_set_reason("cannot execute blob");
