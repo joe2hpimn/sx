@@ -1386,6 +1386,8 @@ static int maybe_append_path(sxc_file_t *dest, sxc_file_t *source, int recursive
         SXDEBUG("destination is a single file: %s", dest->path);
         return 0;/*destination is single file */
     }
+    if (!strcmp(dest->path, "/dev/stdout"))
+        return 0;
     if (!source->origpath) {
         /* TODO: set source->origpath everywhere */
         src_part = base(source->path);
@@ -2902,6 +2904,8 @@ static int sxi_seen(sxc_client_t *sx, sxc_file_t *dest)
         sxi_seterr(sx, SXE_EARG, "null argument to sxi_seen");
         return -1;
     }
+    if (!strcmp(dest->path, "/dev/stdout"))
+        return 0;
     if (!dest->seen) {
         dest->seen = sxi_ht_new(sx, 16);
         if (!dest->seen)
@@ -2995,6 +2999,8 @@ static int remote_to_local(sxc_file_t *source, sxc_file_t *dest, sxc_xres_t *xre
 	    SXDEBUG("failed to generate intermediate file");
 	    goto remote_to_local_err;
 	}
+        /* if stdout is redirected to a file and we reopen it */
+        lseek(d, 0, SEEK_END);
 	rd = d;
 	d = fileno(tf);
     }
@@ -4711,10 +4717,11 @@ int sxc_file_require_dir(sxc_file_t *file)
         free(file->path);
         file->path = path;
         return 0;
-    } else {
+    } else if (strcmp(file->path, "/dev/stdout")) {
         sxi_seterr(file->sx, SXE_EARG, "target '%s' must be an existing directory", file->path);
         return -1;
     }
+    return 0;
 }
 
 static int multi_cb(sxc_file_list_t *target, void *ctx)
