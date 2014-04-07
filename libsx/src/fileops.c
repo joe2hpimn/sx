@@ -50,6 +50,7 @@ struct _sxc_file_t {
     char *volume;
     char *path;
     char *origpath;
+    sxi_ht *seen;
 };
 
 struct _sxc_xres_t {
@@ -217,6 +218,7 @@ void sxc_file_free(sxc_file_t *sxfile) {
     free(sxfile->origpath);
     free(sxfile->volume);
     free(sxfile->path);
+    sxi_ht_free(sxfile->seen);
     free(sxfile);
 }
 
@@ -2860,6 +2862,28 @@ static void batch_hashes_free(struct batch_hashes *bh)
     bh->hashdata = NULL;
 }
 
+static int sxi_seen(sxc_client_t *sx, sxc_file_t *dest)
+{
+    if (!dest) {
+        sxi_seterr(sx, SXE_EARG, "null argument to sxi_seen");
+        return -1;
+    }
+    if (!dest->seen) {
+        dest->seen = sxi_ht_new(sx, 16);
+        if (!dest->seen)
+            return -1;
+    }
+    if (sxi_ht_get(dest->seen, dest->path, strlen(dest->path), NULL)) {
+        /* return value of 1 means failure: it was NOT found */
+        if (sxi_ht_add(dest->seen, dest->path, strlen(dest->path), NULL))
+            return -1;
+        return 0;/* ok, file was not seen yet */
+    } else {
+        /* file was already seen */
+        return 1;
+    }
+}
+
 static int remote_to_local(sxc_file_t *source, sxc_file_t *dest, sxc_xres_t *xres) {
     char *hashfile = NULL, *tempdst = NULL, *tempfilter = NULL;
     sxi_ht *hosts = NULL;
@@ -2904,6 +2928,15 @@ static int remote_to_local(sxc_file_t *source, sxc_file_t *dest, sxc_xres_t *xre
 
     dstname = dest->path;
     dstexisted = !access(dstname, F_OK);
+    switch(sxi_seen(sx, dest)) {
+        case 1:
+            sxi_seterr(sx, SXE_SKIP, "Not overwriting just-downloaded file");
+            goto remote_to_local_err;
+        case -1:
+            goto remote_to_local_err;
+        default:
+            break;
+    }
     if((d = open(dest->path, O_RDWR|O_CREAT, S_IWUSR|S_IRUSR|S_IWGRP|S_IRGRP|S_IWOTH|S_IROTH))<0) {
 	SXDEBUG("failed to create destination file");
 	sxi_setsyserr(sx, SXE_EWRITE, "cannot open destination file %s", dstname);
@@ -3701,6 +3734,10 @@ static sxi_job_t* remote_copy_ev(sxc_file_t *pattern, sxc_file_t *source, sxc_fi
         int ret = remote_to_local(source, dest, rs);
         msg = sxc_geterrnum(source->sx) == SXE_NOERROR ? "OK" : sxc_geterrmsg(source->sx);
         sxi_info(source->sx, "%s: %s", dest->path, msg);
+        if (sxc_geterrnum(source->sx) == SXE_SKIP) {
+            ret = 0;
+            sxc_clearerr(source->sx);
+        }
         if (ret) {
             (void)restore_path(dest);
             return NULL;

@@ -64,7 +64,8 @@ enum sxc_error_t {
     SXE_ECOMM,		/* Error in the communication with the cluster */
     SXE_ECFG,		/* Error parsing the configuration */
     SXE_ETIME,		/* Error retrieving the current time */
-    SXE_EFILTER		/* Filter related error */
+    SXE_EFILTER,	/* Filter related error */
+    SXE_SKIP,           /* File was skipped */
 };
 
 typedef struct _sxc_cluster_t sxc_cluster_t;
