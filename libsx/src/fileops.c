@@ -4691,6 +4691,13 @@ struct remote_iter {
     int recursive;
 };
 
+static int different_file(const char *path1, const char *path2)
+{
+    while (*path1 == '/') path1++;
+    while (*path2 == '/') path2++;
+    return strcmp(path1, path2);
+}
+
 static sxi_job_t *remote_copy_cb(sxc_file_list_t *target, sxc_file_t *pattern, sxc_cluster_t *cluster, sxi_hostlist_t *hlist,
                                  const char *vol, const char *path, void *ctx)
 {
@@ -4714,7 +4721,7 @@ static sxi_job_t *remote_copy_cb(sxc_file_list_t *target, sxc_file_t *pattern, s
 
     /* we could support parallelization for remote_to_remote and
      * remote_to_remote_fast if they would just return a job ... */
-    ret = remote_copy_ev(pattern, &source, it->dest, it->rs, it->recursive && target->multi);
+    ret = remote_copy_ev(pattern, &source, it->dest, it->rs, it->recursive && different_file(source.path, pattern->path));
     free(source.volume);
     free(source.path);
     free(source.origpath);
