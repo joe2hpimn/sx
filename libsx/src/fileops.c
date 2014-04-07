@@ -363,6 +363,7 @@ struct file_upload_ctx {
     sxi_job_t *job;
     sxi_hostlist_t *volhosts;
     sxc_cluster_t *cluster;
+    int64_t uploaded;
     char *name;
     off_t pos;
     off_t end;
@@ -778,6 +779,22 @@ static void upload_blocks_to_hosts_uctx(curlev_context_t *ctx, const char *url)
 {
     struct host_upload_ctx *uctx = sxi_cbdata_get_host_ctx(ctx);
     int status = sxi_cbdata_result(ctx, NULL);
+    if (status == 200) {
+        sxc_xres_t *xres = uctx->yctx->xres;
+        if (xres) {
+            double delta;
+            double mb;
+            struct timeval tv;
+            gettimeofday(&tv, NULL);
+            delta = sxi_timediff(&tv, &xres->tv);
+            if (delta > PROGRESS_INTERVAL) {
+                mb = (xres->upload_bytes + uctx->yctx->uploaded)/1048576.0;
+                sxi_info(uctx->yctx->sx, "Upload in progress: total %.3f MB",
+                         mb);
+                memcpy(&xres->tv, &tv, sizeof(tv));
+            }
+        }
+    }
     if (uctx)
         upload_blocks_to_hosts(uctx->yctx, uctx, status, url);
 }
@@ -806,6 +823,7 @@ static int send_up_batch(struct file_upload_ctx *yctx, const char *host, struct 
     u->in_use = 1;
     if (yctx->xres)
         yctx->xres->upload_xferblks += u->buf_used / yctx->blocksize;
+    yctx->uploaded += u->buf_used;
     sxi_set_operation(sx, "upload file contents", NULL, NULL, NULL);
     if (sxi_cluster_query_ev(cbdata,
                              sxi_cluster_get_conns(yctx->cluster),
