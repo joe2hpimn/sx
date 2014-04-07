@@ -81,7 +81,7 @@ static void print_xres(sxc_client_t *sx, sxc_xres_t *xres, const char *msg, cons
         return;
 #if 1
     sxi_info(sx, "%sing %s, %.3f MB completed overall",
-             msg, file, xres->copy_size / 1048576.0);
+             msg, file, xres->download_bytes / 1048576.0);
 #else
     sxi_info(sx, "%s in progress: %.3f MB completed, current file: %s",
              msg, xres->copy_size / 1048576.0, file);
@@ -2295,6 +2295,7 @@ struct file_download_ctx {
     EVP_MD_CTX ctx;
     unsigned int *dldblks;
     unsigned int *queries_finished;
+    sxc_xres_t *xres;
 };
 
 static int process_block(sxi_conns_t *conns, curlev_context_t *cctx)
@@ -2371,11 +2372,26 @@ static int gethash_cb(curlev_context_t *cctx, const unsigned char *data, size_t 
         len = size < remaining ? size : remaining;
         memcpy(ctx->buf + ctx->hashes.written, data, len);
         ctx->hashes.written += len;
+        if (ctx->xres)
+            ctx->xres->download_bytes += len;
         size -= len;
         data = data + len;
         if (ctx->hashes.written < ctx->blocksize)
             continue;
         ctx->hashes.i++;
+    }
+    if (ctx->xres) {
+        double delta;
+        double mb;
+        struct timeval tv;
+        gettimeofday(&tv, NULL);
+        delta = sxi_timediff(&tv, &ctx->xres->tv);
+        if (delta > PROGRESS_INTERVAL) {
+            mb = ctx->xres->download_bytes/1048576.0;
+            sxi_info(sx, "Download in progress: %.3f MB completed",
+                     mb);
+            memcpy(&ctx->xres->tv, &tv, sizeof(tv));
+        }
     }
     return 0;
 }
@@ -2546,12 +2562,13 @@ hashes_to_download_err:
 
 static char zerobuf[SX_BS_LARGE];
 
-static struct file_download_ctx *dctx_new(sxi_conns_t *conns)
+static struct file_download_ctx *dctx_new(sxc_xres_t *xres)
 {
     struct file_download_ctx *ctx = calloc(1, sizeof(*ctx));
     if (!ctx)
         return NULL;
     EVP_MD_CTX_init(&ctx->ctx);
+    ctx->xres = xres;
     return ctx;
 }
 
@@ -2559,7 +2576,7 @@ static struct file_download_ctx *dctx_new(sxi_conns_t *conns)
 static int check_block(sxc_cluster_t *cluster, sxi_ht *hashes, const char *zerohash,
                        const char *hash, struct hash_down_data_t *hashdata,
                        int fd, off_t filesize,
-                       unsigned char *buf, unsigned blocksize)
+                       unsigned char *buf, unsigned blocksize, sxc_xres_t *xres)
 {
     sxi_conns_t *conns = sxi_cluster_get_conns(cluster);
     struct file_download_ctx *dctx;
@@ -2595,7 +2612,7 @@ static int check_block(sxc_cluster_t *cluster, sxi_ht *hashes, const char *zeroh
 
     if(i == hashdata->ocnt)
         return 0;
-    dctx = dctx_new(conns);
+    dctx = dctx_new(xres);
     dctx->buf = malloc(blocksize);
     if (!dctx->buf) {
         cluster_err(SXE_EMEM, "failed to allocate buffer");
@@ -2752,7 +2769,7 @@ static int multi_download(struct batch_hashes *bh, const char *dstname,
         sxi_retry_msg(retry, host);
 
         if (!host_retry) {
-            int rc = check_block(cluster, bh->hashes, zerohash, hash, hashdata, fd, filesize, buf, blocksize);
+            int rc = check_block(cluster, bh->hashes, zerohash, hash, hashdata, fd, filesize, buf, blocksize, xres);
             if (rc == -1) {
                 CFGDEBUG("checking block failed");
                 break;
@@ -2768,7 +2785,7 @@ static int multi_download(struct batch_hashes *bh, const char *dstname,
 
         if (sxi_ht_get(hostsmap, host, strlen(host)+1, (void**)&cbdata)) {
             /* host not found -> new host */
-            dctx = calloc(1, sizeof(*dctx));
+            dctx = dctx_new(xres);
             if (!dctx) {
                 cluster_err(SXE_EMEM, "Cannot download file: out of emory");
                 break;
@@ -2776,7 +2793,7 @@ static int multi_download(struct batch_hashes *bh, const char *dstname,
             cbdata = sxi_cbdata_create_download(conns, gethash_finish, dctx);
             if (!cbdata) {
                 cluster_err(SXE_EMEM, "Cannot download file: out of memory");
-                free(dctx);
+                dctx_free(dctx);
                 break;
             }
             dctx->buf = malloc(blocksize);
@@ -2815,19 +2832,6 @@ static int multi_download(struct batch_hashes *bh, const char *dstname,
             }
         }
 	SXDEBUG("loop: %d, host:%s, n:%d, outstanding:%d, requested: %d", loop, host, dctxn,outstanding, requested);
-        if (xres) {
-            double delta;
-            double mb;
-            struct timeval tv;
-            gettimeofday(&tv, NULL);
-            delta = sxi_timediff(&tv, &xres->tv);
-            if (delta > PROGRESS_INTERVAL) {
-                mb = (xres->download_bytes + transferred*blocksize)/1048576.0;
-                sxi_info(sx, "Download in progress: %.3f MB completed",
-                         mb);
-                memcpy(&xres->tv, &tv, sizeof(tv));
-            }
-        }
       }
       sxi_ht_enum_reset(hostsmap);
       SXDEBUG("looped: %d; requested: %d", loop, requested);
@@ -2855,7 +2859,6 @@ static int multi_download(struct batch_hashes *bh, const char *dstname,
       }
       if (xres) {
         xres->download_xferblks += transferred;
-        xres->download_bytes += transferred * blocksize;
       }
       total_downloaded += transferred;
       sxi_ht_free(hostsmap);
