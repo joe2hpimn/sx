@@ -3697,14 +3697,6 @@ static sxi_job_t* remote_copy_ev(sxc_file_t *pattern, sxc_file_t *source, sxc_fi
         return NULL;
     if(!is_remote(dest)) {
         const char *msg;
-        if (recursive && strcmp(dest->origpath, dest->path)) {
-            /* dest is a dir, we must only mkdir exactly the given dest, not
-             * subdirs */
-            if (mkdir(dest->origpath, 0700) == -1 && errno != EEXIST) {
-                sxi_setsyserr(source->sx, SXE_EARG, "Cannot create directory '%s'", dest->origpath);
-                return NULL;
-            }
-        }
         mkdir_parents(dest->sx, dest->path);
         int ret = remote_to_local(source, dest, rs);
         msg = sxc_geterrnum(source->sx) == SXE_NOERROR ? "OK" : sxc_geterrmsg(source->sx);
@@ -3766,6 +3758,21 @@ int sxc_copy(sxc_file_t *source, sxc_file_t *dest, int recursive, sxc_xres_t **x
 	}
     } else
 	rs = NULL;
+
+    if (!is_remote(dest)) {
+        struct stat sb;
+        if (ends_with(dest->path, '/')) {
+            if (stat(dest->path, &sb) == -1 || !S_ISDIR(sb.st_mode)) {
+                sxi_seterr(source->sx, SXE_EARG, "'%s' must be an existing directory", dest->path);
+                return 1;
+            }
+        } else if (recursive) {
+            if (mkdir(dest->path, 0700) == -1 && errno != EEXIST) {
+                sxi_setsyserr(source->sx, SXE_EARG, "Cannot create directory '%s'", dest->path);
+                return 1;
+            }
+        }
+    }
 
     if(!is_remote(source)) {
 	if(!is_remote(dest)) {
@@ -4614,9 +4621,7 @@ int sxc_file_require_dir(sxc_file_t *file)
         return -1;
     }
     /* local path */
-    if (ends_with(file->path, '/'))
-        return 0; /* directory will be created when downloading files */
-    /* no trailing slash: require it be an existing directory */
+    /* require it be an existing directory */
     if (stat(file->path, &sb) == 0 && S_ISDIR(sb.st_mode)) {
         unsigned n;
         char *path;
@@ -4632,7 +4637,7 @@ int sxc_file_require_dir(sxc_file_t *file)
         file->path = path;
         return 0;
     } else {
-        sxi_seterr(file->sx, SXE_EARG, "target '%s' is not an existing directory", file->path);
+        sxi_seterr(file->sx, SXE_EARG, "target '%s' must be an existing directory", file->path);
         return -1;
     }
 }
