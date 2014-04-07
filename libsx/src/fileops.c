@@ -75,6 +75,18 @@ struct _sxc_xres_t {
     struct timeval tv;
 };
 
+static void print_xres(sxc_client_t *sx, sxc_xres_t *xres, const char *msg, const char *file)
+{
+    if (!sx || !xres || !msg || !file)
+        return;
+#if 1
+    sxi_info(sx, "%sing %s, %.3f MB completed overall",
+             msg, file, xres->copy_size / 1048576.0);
+#else
+    sxi_info(sx, "%s in progress: %.3f MB completed, current file: %s",
+             msg, xres->copy_size / 1048576.0, file);
+#endif
+}
 
 /* Download table is at most 5MB and allows for up to 128GB of uniq content */
 #define BLOCKS_PER_TABLE 131072
@@ -227,6 +239,7 @@ static int file_to_file(sxc_client_t *sx, const char *source, const char *dest, 
     char buf[8192];
     FILE *f, *d;
 
+    print_xres(sx, xres, "Transfer", dest);
     if(!(f = fopen(source, "rb"))) {
 	SXDEBUG("failed to open source file %s", source);
 	sxi_setsyserr(sx, SXE_EREAD, "Copy failed: cannot open source file");
@@ -789,7 +802,7 @@ static void upload_blocks_to_hosts_uctx(curlev_context_t *ctx, const char *url)
             delta = sxi_timediff(&tv, &xres->tv);
             if (delta > PROGRESS_INTERVAL) {
                 mb = (xres->upload_bytes + uctx->yctx->uploaded)/1048576.0;
-                sxi_info(uctx->yctx->sx, "Upload in progress: total %.3f MB",
+                sxi_info(uctx->yctx->sx, "Upload in progress: %.3f MB completed",
                          mb);
                 memcpy(&xres->tv, &tv, sizeof(tv));
             }
@@ -1460,6 +1473,7 @@ static int local_to_remote_begin(sxc_file_t *source, sxc_meta_t *fmeta, sxc_file
 
     if (maybe_append_path(dest, source, recursive))
         return 1;
+    print_xres(sx, xres, "Upload", dest->path);
 
     if (!(yctx = calloc(1, sizeof(*yctx)))) {
         sxi_seterr(sx, SXE_EMEM, "Copy failed: out of memory");
@@ -2808,10 +2822,9 @@ static int multi_download(struct batch_hashes *bh, const char *dstname,
             gettimeofday(&tv, NULL);
             delta = sxi_timediff(&tv, &xres->tv);
             if (delta > PROGRESS_INTERVAL) {
-                double t = xres->download_time + sxi_timediff(&tv, &xres->t1);
                 mb = (xres->download_bytes + transferred*blocksize)/1048576.0;
-                sxi_info(sx, "Download in progress: total %.3f MB @%.2f MB/s",
-                         mb, mb/t);
+                sxi_info(sx, "Download in progress: %.3f MB completed",
+                         mb);
                 memcpy(&xres->tv, &tv, sizeof(tv));
             }
         }
@@ -2930,6 +2943,7 @@ static int remote_to_local(sxc_file_t *source, sxc_file_t *dest, sxc_xres_t *xre
     unsigned int cfgval_len = 0;
     struct batch_hashes bh;
 
+    print_xres(sx, xres, "Download", dest->path);
     memset(&bh, 0, sizeof(bh));
     if(!(vmeta = sxc_meta_new(sx)))
 	return 1;
@@ -3367,6 +3381,7 @@ static sxi_job_t* remote_to_remote_fast(sxc_file_t *source, sxc_meta_t *fmeta, s
     sxi_hostlist_init(&flushost);
     memset(&yctx, 0, sizeof(yctx));
 
+    print_xres(sx, xres, "Transfer", dest->path);
     if(hashes_to_download(source, &hf, &src_hashfile, &blocksize, &filesize, NULL)) {
 	SXDEBUG("failed to retrieve hash list");
 	return NULL;
