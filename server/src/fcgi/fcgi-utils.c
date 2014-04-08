@@ -41,6 +41,8 @@
 #include "hashfs.h"
 #include "../libsx/src/misc.h"
 
+#define MAX_CLOCK_DRIFT 10
+
 uint8_t hashbuf[UPLOAD_CHUNK_SIZE];
 time_t last_flush;
 void send_server_info(void) {
@@ -257,8 +259,8 @@ static void auth_begin(void) {
     if(httpdate_to_time_t(param, &reqdate))
         quit_errmsg(400, "Date header in wrong format");
     now = time(NULL);
-    if(reqdate < now - 5*60 || reqdate > now + 5*60) /* expired - FIXME make up something sane */
-        quit_errmsg(400, "Client clock drifted more than 5m");
+    if(reqdate < now - MAX_CLOCK_DRIFT * 60 || reqdate > now + MAX_CLOCK_DRIFT * 60)
+        quit_errmsg(400, "Client clock drifted more than "STRIFY(MAX_CLOCK_DRIFT)" minutes");
     if(!hmac_update_str(&hmac_ctx, param))
         quit_errmsg(500, "Failed to initialize crypto engine");
 
