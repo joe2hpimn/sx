@@ -102,5 +102,8 @@ while [ $i -le $N ]; do
     sudo $prefix/sbin/sxserver stop
     i=$(( i+1 ))
 done
+sudo cat /tmp/sxfcgi.valgrind.log.* /tmp/v.log.* | grep 'ERROR SUMMARY' | grep -v ' 0 err'
+sudo cat /tmp/sxfcgi.valgrind.log.* /tmp/v.log.* | grep 'lost' | grep -v ' 0 byte'
+
 MESSAGE="OK"
 exit 0

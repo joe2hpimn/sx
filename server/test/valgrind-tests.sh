@@ -44,6 +44,12 @@ valgrind_run $SXACL userlist sx://localhost
 valgrind_run $SXACL usergetkey $USER sx://localhost
 valgrind_run $SXACL list sx://localhost/$VOL
 valgrind_run $SXACL perm --grant=read $USER sx://localhost/$VOL
+valgrind_run $SXACL perm --grant=write $USER sx://localhost/$VOL
+valgrind_run $SXACL perm --revoke=write,read $USER sx://localhost/$VOL
+valgrind_run $SXACL perm --revoke=read $USER sx://localhost/$VOL
+valgrind_run $SXACL perm --revoke=write $USER sx://localhost/$VOL
+valgrind_run $SXACL perm --grant=write,read $USER sx://localhost/$VOL
+valgrind_run $SXACL perm --grant=read,write $USER sx://localhost/$VOL
 valgrind_run $SXACL list sx://localhost/$VOL
 
 for size in 0 4096 8192 1048575; do
