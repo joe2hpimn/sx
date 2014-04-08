@@ -441,7 +441,7 @@ int sxc_volume_acl(sxc_cluster_t *cluster, const char *url,
         }
     }
     if (revoke) {
-        if (!strcmp(grant,"read"))
+        if (!strcmp(revoke,"read"))
             user_iter.revoke_read_users = user;
         else if (!strcmp(revoke,"write"))
             user_iter.revoke_write_users = user;
