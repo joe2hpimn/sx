@@ -900,7 +900,6 @@ static int batch_hashes_to_hosts(struct file_upload_ctx *yctx, struct need_hash 
         need->replica += next_replica;
         host = sxi_hostlist_get_host(&need->upload_hosts, need->replica);
         if (!host) {
-            sxi_info(sx, "%s", sxc_geterrmsg(sx));
             sxi_seterr(sx, SXE_ECOMM, "All replicas have failed");
             SXDEBUG("All replicas have failed");
             return -1;
