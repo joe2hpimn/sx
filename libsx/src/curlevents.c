@@ -1861,9 +1861,7 @@ void sxi_retry_msg(sxi_retry_t *retry, const char *host)
     op = sxi_get_operation(sx);
     SXDEBUG("op: %s", op ? op : "N/A");
     if (op && retry->errnum && retry->last_try != retry->last_printed) {
-        const char *msg = strchr(retry->errmsg, ' ');
-        const char *print = msg ? msg + 1 : retry->errmsg;
-        sxi_info(retry->sx, "%s, retrying %s%s%s ...", print, op,
+        sxi_info(retry->sx, "%s, retrying %s%s%s ...", retry->errmsg, op,
                  host ? " on " : "",
                  host ? host : "");
         retry->last_printed = retry->last_try;
