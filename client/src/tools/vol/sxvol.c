@@ -124,8 +124,8 @@ static int volume_create(sxc_client_t *sx, const char *owner)
 {
 	sxc_cluster_t *cluster;
 	sxc_uri_t *uri;
-	const char *volname, *suffixes = "kKmMgGtT";
-	char *ptr;
+	const char *volname, *suffixes = "kKmMgGtT", *confdir;
+	char *ptr, *voldir;
 	int ret;
 	int64_t size;
 	sxc_meta_t *vmeta = NULL;
@@ -173,6 +173,23 @@ static int volume_create(sxc_client_t *sx, const char *owner)
 	sxc_free_uri(uri);
 	return 1;
     }
+    confdir = sxi_cluster_get_confdir(cluster);
+
+    /* wipe existing local config */
+    voldir = malloc(strlen(confdir) + strlen(uri->volume) + 10);
+    if(!voldir) {
+	fprintf(stderr, "Out of memory\n");
+	sxc_free_uri(uri);
+	return 1;
+    }
+    sprintf(voldir, "%s/volumes/%s", confdir, uri->volume);
+    if(!access(voldir, F_OK) && sxi_rmdirs(voldir)) {
+	fprintf(stderr, "Can't wipe old volume configuration directory %s\n", voldir);
+	sxc_free_uri(uri);
+	free(voldir);
+	return 1;
+    }
+    free(voldir);
 
     if(create_args.filter_given) {
 	    const sxf_handle_t *filters;
@@ -215,7 +232,6 @@ static int volume_create(sxc_client_t *sx, const char *owner)
 		}
 		snprintf(uuidcfg, sizeof(uuidcfg), "%s-cfg", f->uuid);
 		if(f->configure) {
-		    const char *confdir = sxi_cluster_get_confdir(cluster);
 		    char *fdir = NULL;
 
 		    if(confdir) {
