@@ -825,6 +825,7 @@ if [ ! -f "$SX_DATA_DIR/data/cluster.key" ]; then
 	    else
 		cat $OUT_TMP
 		echo "Failed to modify cluster sx://$SX_CLUSTER_NAME"
+		"@sbindir@/sxserver" stop
 		exit 1
 	    fi
 	done
