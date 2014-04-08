@@ -61,10 +61,10 @@ ETCDIR="@sysconfdir@"
 CONFIG="$ETCDIR/sxserver/sxsetup.conf"
 SXSETUP_TMPDIR=@localstatedir@/lib/sxserver
 mkdir -p $SXSETUP_TMPDIR
-SED_TMP=$SXSETUP_TMPDIR/sed.tmp
+OUT_TMP=$SXSETUP_TMPDIR/sed.tmp
 KEY_TMP=$SXSETUP_TMPDIR/key.tmp
 CERT_TMP=$SXSETUP_TMPDIR/cert.tmp
-trap "rm -f $SED_TMP; rm -f $KEY_TMP; rm -f $CERT_TMP; exit 1" EXIT INT
+trap "rm -f $OUT_TMP; rm -f $KEY_TMP; rm -f $CERT_TMP; exit 1" EXIT INT
 
 # Read previous answers, and initialize the defaults with them
 LOAD_CONFIG=${CONFIG_FILE:-"$CONFIG"}
@@ -662,16 +662,16 @@ mkdir -p $SXSETUP_TMPDIR
 if [ -z "$NOSSL_FLAG" ] ; then
     sed -e "s/^#//g" "$ETCDIR/sxserver/sxhttpd.conf"\
 	-e "s|ssl_certificate .*|ssl_certificate $SX_SSL_CERT_FILE;|"\
-	-e "s|ssl_certificate_key .*|ssl_certificate_key $SX_SSL_KEY_FILE;|" >$SED_TMP
-    cp $SED_TMP "$ETCDIR/sxserver/sxhttpd.conf"
+	-e "s|ssl_certificate_key .*|ssl_certificate_key $SX_SSL_KEY_FILE;|" >$OUT_TMP
+    cp $OUT_TMP "$ETCDIR/sxserver/sxhttpd.conf"
 fi
 
 sed -e "s/^user.*/user $SX_SERVER_USER $SX_SERVER_GROUP;/"\
     -e "s/listen.*80/listen $SX_NODE_IP:$SX_HTTP_PORT/g"\
     -e "s/listen.*443/listen $SX_NODE_IP:$SX_HTTPS_PORT/g"\
     -e "s/@user@/$SX_SERVER_USER/g" \
-    "$ETCDIR/sxserver/sxhttpd.conf" >$SED_TMP
-cp $SED_TMP "$ETCDIR/sxserver/sxhttpd.conf"
+    "$ETCDIR/sxserver/sxhttpd.conf" >$OUT_TMP
+cp $OUT_TMP "$ETCDIR/sxserver/sxhttpd.conf"
 
 mkdir -p @localstatedir@/lib/sxserver/sxhttpd
 chmod 750 @localstatedir@/lib/sxserver/sxhttpd
@@ -811,14 +811,23 @@ if [ ! -f "$SX_DATA_DIR/data/cluster.key" ]; then
 	    NEWNODE="$SX_NODE_SIZE/$SX_NODE_IP"
 	fi
 	SXDIST="$SXDIST $NEWNODE"
-        (
-        set -x
-        "@sbindir@/sxadm" cluster --mod $SXDIST "sx://$SX_CLUSTER_NAME"
-	)
-	if [ $? -ne 0 ]; then
-	    echo "Failed to modify cluster sx://$SX_CLUSTER_NAME"
-	    exit 1
-	fi
+	MODCNT=1
+	while true; do
+	    (
+	    set -x
+	    "@sbindir@/sxadm" cluster --mod $SXDIST "sx://$SX_CLUSTER_NAME" 2>$OUT_TMP
+	    )
+	    test $? = 0 && break
+	    if [ -n "`grep "temporarily locked" $OUT_TMP`" -a $MODCNT -le 10 ]; then
+		echo "Cluster busy... retrying in 60 seconds (attempt $MODCNT of 10)."
+		MODCNT=`expr $MODCNT + 1`
+		sleep 60
+	    else
+		cat $OUT_TMP
+		echo "Failed to modify cluster sx://$SX_CLUSTER_NAME"
+		exit 1
+	    fi
+	done
     fi
 
 else
@@ -828,7 +837,7 @@ fi
 
 "@sbindir@/sxadm" node --run-as="$SX_SERVER_USER:$SX_SERVER_GROUP" --info "$SX_DATA_DIR/data"
 
-rm -f $SED_TMP; rm -f $KEY_TMP; rm -f $CERT_TMP
+rm -f $OUT_TMP; rm -f $KEY_TMP; rm -f $CERT_TMP
 trap - EXIT INT
 
 echo
