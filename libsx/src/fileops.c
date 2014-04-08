@@ -4734,7 +4734,7 @@ int sxc_file_require_dir(sxc_file_t *file)
         return 1;
     sxc_clearerr(file->sx);
     if (sxc_file_is_sx(file)) {
-        if (ends_with(file->path, '/'))
+        if (ends_with(file->path, '/') || !*file->path)
             return 0;
         sxi_seterr(file->sx, SXE_EARG, "remote target '/%s/%s' must have a trailing slash", file->volume, file->path);
         return -1;
