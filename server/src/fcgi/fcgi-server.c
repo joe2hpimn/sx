@@ -59,7 +59,7 @@ sx_hashfs_t *hashfs;
 int job_trigger, block_trigger, gc_trigger;
 static pid_t ownpid;
 
-#define MAX_WAIT_TIME 30
+#define MAX_WAIT_TIME 60
 #define MAX_REQUESTS 5000
 #define MAX_CHILDREN 256
 #define JOBMGR MAX_CHILDREN
