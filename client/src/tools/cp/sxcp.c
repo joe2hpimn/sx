@@ -122,7 +122,6 @@ int main(int argc, char **argv) {
 	exit(0);
     }
 
-    /* FIXME: 2 args only for now, we need dirs in hashfs for proper globbing */
     if(args.inputs_num < 2) {
 	fprintf(stderr, "Wrong number of arguments (see --help)\n");
 	cmdline_parser_free(&args);
@@ -186,16 +185,19 @@ int main(int argc, char **argv) {
         src_file = NULL;
     }
 
-    fprintf(stderr, "Overall: %.3fMB transferred @%.2fMB/s\n",
-	    sxc_xres_get_total_size(xres)/1024.0/1024.0,
-	    sxc_xres_get_total_speed(xres));
-    sxc_xres_get_upload_blocks(xres, &all, &requested, &transferred);
-    fprintf(stderr, "Uploaded blocks: total %u, requested %u, transferred %u - speed %.2fMB/s\n",
-	    all, requested, transferred, sxc_xres_get_upload_speed(xres));
-    sxc_xres_get_download_blocks(xres, &all, &requested, &transferred);
-    fprintf(stderr, "Downloaded blocks: total %u, requested %u, transferred %u - speed %.2fMB/s\n",
-	    all, requested, transferred, sxc_xres_get_download_speed(xres));
-
+    if(args.verbose_flag) {
+	fprintf(stderr, "Transferred data: %.3fMB - average speed: %.2fMB/s\n",
+		sxc_xres_get_total_size(xres)/1024.0/1024.0,
+		sxc_xres_get_total_speed(xres));
+	sxc_xres_get_upload_blocks(xres, &all, &requested, &transferred);
+	if(all)
+	    fprintf(stderr, "Uploaded blocks: total %u, requested %u, transferred %u - speed %.2fMB/s\n",
+		    all, requested, transferred, sxc_xres_get_upload_speed(xres));
+	sxc_xres_get_download_blocks(xres, &all, &requested, &transferred);
+	if(all)
+	    fprintf(stderr, "Downloaded blocks: total %u, requested %u, transferred %u - speed %.2fMB/s\n",
+		    all, requested, transferred, sxc_xres_get_download_speed(xres));
+    }
     ret = 0;
 
  main_err:
