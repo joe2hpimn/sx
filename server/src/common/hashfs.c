@@ -2922,10 +2922,12 @@ rc_ty sx_hashfs_list_users(sx_hashfs_t *h, user_list_cb_t cb, void *ctx) {
     sqlite3_stmt *q = h->q_listusers;
     while(1) {
         sqlite3_reset(q);
-        if (qbind_int64(q, ":lastuid", lastuid))
+        if(qbind_int64(q, ":lastuid", lastuid))
             break;
         ret = qstep(q);
-        if (ret != SQLITE_ROW)
+	if(ret == SQLITE_DONE)
+	    rc = OK;
+	if(ret != SQLITE_ROW)
             break;
 	sx_uid_t uid = sqlite3_column_int64(q, 0);
 	const char *name = (const char *)sqlite3_column_text(q, 1);
@@ -2944,8 +2946,6 @@ rc_ty sx_hashfs_list_users(sx_hashfs_t *h, user_list_cb_t cb, void *ctx) {
 	    break;
 	}
     }
-    if(ret == SQLITE_DONE)
-	rc = OK;
     sqlite3_reset(q);
     return rc;
 }
