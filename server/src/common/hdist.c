@@ -226,7 +226,7 @@ sxi_hdist_t *sxi_hdist_from_cfg(const void *cfg, unsigned int cfg_len)
 	uLongf destlen, got;
 	sx_uuid_t uuid;
 	sxi_hdist_t *model;
-	rc_ty ret;
+	rc_ty ret = 1;
 
     destlen = swapu32(*(uint32_t *) cfg);
     cs = malloc(destlen);
