@@ -587,7 +587,7 @@ static const char *blob_iter_cb(void *ctx, int priv_state, int priv_mask)
             if (priv > 0 && priv & priv_mask)
                 return name;
         } else {
-            if (priv < 0 && (-priv) & priv_mask)
+            if (priv < 0 && (~priv) & priv_mask)
                 return name;
         }
     }
