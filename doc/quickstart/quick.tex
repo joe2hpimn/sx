@@ -571,11 +571,6 @@ and list files in the volume.
 \begin{lstlisting}
 $ echo Hello World! > /tmp/hello.txt
 $ sxcp /tmp/hello.txt sx://admin@mycluster/mydata/
-Overall: 0.000MB transferred @0.00MB/s
-Uploaded blocks: total 1, unique 1, requested 1, transferred 1
-- speed 0.34MB/s
-Downloaded blocks: total 0, unique 0, requested 0, transferred 0
-- speed 0.00MB/s
 $ sxcat sx://admin@mycluster/mydata/hello.txt
 Hello World!
 $ sxls sx://admin@mycluster/mydata/
@@ -584,5 +579,7 @@ $ sxrm sx://admin@mycluster/mydata/hello.txt
 Deleted 1 file(s)
 \end{lstlisting}
 \LARGE
-Use \verb+sxcp -r+ to recursively upload directories to \SX. Every tool
-comes with a help page, which is invoked with \verb+--help+.
+Use \verb+sxcp -r+ to recursively upload directories to \SX. You can
+get more information about the transfers by running the tools in verbose
+mode (eg. \verb+sxcp -v+). Every tool comes with a help page, which is
+invoked with \verb+--help+.

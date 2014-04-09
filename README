@@ -1,12 +1,20 @@
 Welcome to Skylable SX!
 -----------------------
 
-After almost 2 years of development, we are approaching the release of our
-first beta. While we do the final wrap up of the source code and prepare
-the binary packages, you can already play with SX and see that creating
-data clouds has never been easier!
+This is the first beta of Skylable SX. We have put a lot of efforts to make
+your experience as good as possible. As it usually is, a beta release comes
+with some limitations but it has been reliably running on our internal
+production cluster for the past 3 months without any major issues.
 
 To get started please see doc/quickstart/quickstart.pdf
+
+If you find any bugs, please report them to our bugzilla:
+https://bugzilla.skylable.com/
+
+For help and support, please subscribe to our mailing list:
+http://lists.skylable.com/listinfo/sx-users
+
+Enjoy!
 
 ---
 Skylable Dev Team <dev-team@skylable.com>
