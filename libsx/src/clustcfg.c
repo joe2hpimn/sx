@@ -1115,8 +1115,10 @@ int sxi_mkdir_hier(sxc_client_t *sx, const char *fullpath) {
 
 int sxi_is_valid_cluster(const sxc_cluster_t *cluster) {
     const sxi_hostlist_t *hlist;
-    if(!cluster->sx ||
+    if(!cluster ||
+       !cluster->sx ||
        !sxc_cluster_get_uuid(cluster) ||
+       !sxc_cluster_get_sslname(cluster) ||
        !(hlist = sxi_conns_get_hostlist(cluster->conns)) ||
        !sxi_hostlist_get_count(hlist) || !cluster->access) {
 	return 0;
@@ -1124,7 +1126,7 @@ int sxi_is_valid_cluster(const sxc_cluster_t *cluster) {
     return 1;
 }
 
-int sxc_cluster_save(sxc_cluster_t *cluster, const char *config_dir, const char *cluster_name) {
+int sxc_cluster_save(sxc_cluster_t *cluster, const char *config_dir) {
     const sxi_hostlist_t *hlist;
     char *clusterd, *fname, *confdir;
     unsigned int clusterd_len, hlist_len;
@@ -1137,14 +1139,15 @@ int sxc_cluster_save(sxc_cluster_t *cluster, const char *config_dir, const char 
 
     if(!sxi_is_valid_cluster(cluster)) {
 	CFGDEBUG("invalid config");
-	cluster_err(SXE_EARG, "Cannot save config: config is invalid");
+	if(cluster)
+	    cluster_err(SXE_EARG, "Cannot save config: config is invalid");
 	return 1;
     }
     hlist = sxi_conns_get_hostlist(cluster->conns);
     hlist_len = sxi_hostlist_get_count(hlist);
     access = cluster->access;
 
-    confdir = get_confdir(cluster->sx, config_dir, cluster_name);
+    confdir = get_confdir(cluster->sx, config_dir, sxc_cluster_get_sslname(cluster));
     if(!confdir) {
 	CFGDEBUG("cannot retrieve config directory");
 	return 1;
@@ -1356,19 +1359,24 @@ int sxc_cluster_save(sxc_cluster_t *cluster, const char *config_dir, const char 
     return ret;
 }
 
-int sxc_cluster_remove(sxc_cluster_t *cluster, const char *config_dir, const char *cluster_name) {
+int sxc_cluster_remove(sxc_cluster_t *cluster, const char *config_dir) {
     char *confdir;
 
-    if(!cluster || !cluster_name)
+    if(!sxi_is_valid_cluster(cluster)) {
+	CFGDEBUG("invalid config");
+	if(cluster)
+	    cluster_err(SXE_EARG, "config is invalid");
 	return 1;
+    }
 
-    confdir = get_confdir(cluster->sx, config_dir, cluster_name);
+    confdir = get_confdir(cluster->sx, config_dir, sxc_cluster_get_sslname(cluster));
     if(!confdir) {
 	CFGDEBUG("cannot retrieve config directory");
 	return 1;
     }
 
     if(sxi_rmdirs(confdir)) {
+	cluster_err(SXE_EWRITE, "rmdir failed");
 	free(confdir);
 	return 1;
     }
@@ -2066,7 +2074,7 @@ sxc_cluster_t *sxc_cluster_load_and_update(sxc_client_t *sx, const char *config_
 
     if (!need_save)
 	    SXDEBUG("Skipping cluster save, nodelist wasn't changed");
-    if(need_save && sxc_cluster_save(ret, config_dir, cluster_name))
+    if(need_save && sxc_cluster_save(ret, config_dir))
 	goto load_and_update_err;
 
     return ret;

@@ -371,9 +371,9 @@ static int create_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
 		printf("Cluster creation aborted by the user\n");
 		goto create_cluster_err;
 	    }
+	    sxc_cluster_free(clust);
+	    clust = NULL;
 	}
-	sxc_cluster_free(clust);
-	clust = NULL;
     }
 
     clust = sxc_cluster_new(sx);
@@ -494,7 +494,12 @@ static int create_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
 	}
     }
 
-    if(sxc_cluster_save(clust, args->config_dir_arg, sxc_cluster_get_sslname(clust))) {
+    if(sxc_cluster_remove(clust, args->config_dir_arg)) {
+	CRIT("Failed to wipe the existing access configuration: %s", sxc_geterrmsg(sx));
+	goto create_cluster_err;
+    }
+
+    if(sxc_cluster_save(clust, args->config_dir_arg)) {
 	CRIT("Failed to save the access configuration: %s", sxc_geterrmsg(sx));
 	goto create_cluster_err;
     }

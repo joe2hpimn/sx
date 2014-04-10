@@ -82,15 +82,15 @@ int main(int argc, char **argv) {
 	goto init_err;
     }
 
-    /* FIXME: when force-reinit is given don't load, and wipe */
-    cluster = sxc_cluster_load(sx, args.config_dir_arg, u->host);
-    if (cluster)
-        sxc_cluster_remove_uuid(cluster);
-    else
-        cluster = sxc_cluster_new(sx);
+    if(!args.force_reinit_flag)
+	cluster = sxc_cluster_load(sx, args.config_dir_arg, u->host);
+
+    if(!cluster) /* Either force-reinit or load failed */
+	cluster = sxc_cluster_new(sx);
+
     if(!cluster) {
-        fprintf(stderr, "Cannot initialize new cluster: %s\n", sxc_geterrmsg(sx));
-        goto init_err;
+	fprintf(stderr, "Cannot initialize new cluster: %s\n", sxc_geterrmsg(sx));
+	goto init_err;
     }
 
     if(sxc_cluster_set_sslname(cluster, u->host)) {
@@ -179,7 +179,14 @@ int main(int argc, char **argv) {
 	goto init_err;
     }
 
-    if(sxc_cluster_save(cluster, args.config_dir_arg, sxc_cluster_get_sslname(cluster))) {
+    if(args.force_reinit_flag) {
+	if(sxc_cluster_remove(cluster, args.config_dir_arg)) {
+	    fprintf(stderr, "Failed to remove the existing access configuration: %s\n", sxc_geterrmsg(sx));
+	    goto init_err;
+	}
+    }
+
+    if(sxc_cluster_save(cluster, args.config_dir_arg)) {
 	fprintf(stderr, "Failed to save the access configuration: %s\n", sxc_geterrmsg(sx));
 	goto init_err;
     }
