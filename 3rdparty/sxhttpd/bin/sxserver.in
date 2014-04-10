@@ -74,6 +74,7 @@ case "$1" in
         echo "Starting sxhttpd"
         if ! @sbindir@/sxhttpd -c @sysconfdir@/sxserver/sxhttpd.conf; then
 	    echo "ERROR: Failed to start sxhttpd. Please check the log files at $SXLOGDIR"
+	    $0 stop
 	    exit 1
 	fi
 
