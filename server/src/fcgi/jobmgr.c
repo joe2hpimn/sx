@@ -1356,8 +1356,6 @@ static int sync_flush(struct sync_ctx *ctx) {
 
     strcpy(&ctx->buffer[ctx->at], "}}");
 
-    WARN("Sending: %s", ctx->buffer);
-
     qret = sxi_cluster_query(sx_hashfs_conns(ctx->hashfs), ctx->hlist, REQ_PUT, ".sync", ctx->buffer, ctx->at+2, NULL, NULL, NULL);
     if(qret != 200)
 	return -1;
