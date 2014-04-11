@@ -78,6 +78,7 @@ POST_UNINSTALL = :
 @BUILD_LIBFCGI_TRUE@am__append_1 = 3rdparty/fcgi
 @BUILD_SXHTTPD_TRUE@am__append_2 = 3rdparty/sxhttpd
 @BUILD_YAJL_TRUE@am__append_3 = 3rdparty/yajl_build
+@BUILD_SERVER_TRUE@am__append_4 = server
 subdir = .
 DIST_COMMON = $(srcdir)/Makefile.in $(srcdir)/Makefile.am \
 	$(top_srcdir)/configure $(am__configure_deps) COPYING INSTALL \
@@ -278,8 +279,8 @@ top_build_prefix = @top_build_prefix@
 top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
 SUBDIRS = $(am__append_1) $(am__append_2) $(am__append_3) libsx client \
-	server
-EXTRA_DIST = 3rdparty/yajl 3rdparty/nginx 3rdparty/check 3rdparty/fcgi 3rdparty/sxhttpd 3rdparty/yajl_build
+	$(am__append_4)
+EXTRA_DIST = 3rdparty/yajl 3rdparty/nginx 3rdparty/fcgi 3rdparty/sxhttpd 3rdparty/yajl_build
 DIST_SUBDIRS = $(SUBDIRS)
 all: all-recursive
 

@@ -586,10 +586,12 @@ ac_subst_vars='am__EXEEXT_FALSE
 am__EXEEXT_TRUE
 LTLIBOBJS
 LIBOBJS
-BUILD_SXHTTPD_FALSE
-BUILD_SXHTTPD_TRUE
+BUILD_SERVER_FALSE
+BUILD_SERVER_TRUE
 BUILD_YAJL_FALSE
 BUILD_YAJL_TRUE
+BUILD_SXHTTPD_FALSE
+BUILD_SXHTTPD_TRUE
 BUILD_LIBFCGI_FALSE
 BUILD_LIBFCGI_TRUE
 subdirs
@@ -685,6 +687,7 @@ enable_silent_rules
 enable_maintainer_mode
 enable_dependency_tracking
 enable_sxhttpd
+enable_server
 '
       ac_precious_vars='build_alias
 host_alias
@@ -695,8 +698,8 @@ LDFLAGS
 LIBS
 CPPFLAGS'
 ac_subdirs_all='3rdparty/fcgi
-3rdparty/yajl_build
 3rdparty/sxhttpd
+3rdparty/yajl_build
 libsx
 client
 server'
@@ -1323,6 +1326,7 @@ Optional Features:
   --disable-dependency-tracking
                           speeds up one-time build
   --disable-sxhttpd	  do not build sxhttpd
+  --disable-server	  do not build server
 
 Some influential environment variables:
   CC          C compiler command
@@ -2483,7 +2487,6 @@ fi
 ac_configure_args="$ac_configure_args --enable-shared=libsx,sxclient,sx"
 
 # Libfcgi
-# sys fcgi is buggy on EINTR handling
 DEPDIR="${am__leading_dot}deps"
 
 ac_config_commands="$ac_config_commands depfiles"
@@ -3561,23 +3564,60 @@ fi
 { $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_fcgi_FCGX_Accept" >&5
 $as_echo "$ac_cv_lib_fcgi_FCGX_Accept" >&6; }
 if test "x$ac_cv_lib_fcgi_FCGX_Accept" = xyes; then :
-  FCGI_LIBS=-lfcgi; has_sys_fcgi="yes"
+  FCGI_LIBS=-lfcgi; build_libfcgi="no"
 else
-  has_sys_fcgi="no"
+  build_libfcgi="yes"
 fi
 
-if test "$has_sys_fcgi" = "no"; then
+
+# sxhttpd (nginx)
+# Check whether --enable-sxhttpd was given.
+if test "${enable_sxhttpd+set}" = set; then :
+  enableval=$enable_sxhttpd; build_sxhttpd=$enableval
+else
+  build_sxhttpd="yes"
+fi
+
+
+# server (sx.fcgi)
+# Check whether --enable-server was given.
+if test "${enable_server+set}" = set; then :
+  enableval=$enable_server; build_server=$enableval
+else
+  build_server="yes"
+fi
+
+
+if test "$build_server" = "no"; then
+    build_libfcgi=no
+    build_sxhttpd=no
+fi
+
+if test "$build_libfcgi" = "yes"; then
 
 
 subdirs="$subdirs 3rdparty/fcgi"
 
 fi
- if test "$has_sys_fcgi" = "no"; then
+ if test "$build_libfcgi" = "yes"; then
   BUILD_LIBFCGI_TRUE=
   BUILD_LIBFCGI_FALSE='#'
 else
   BUILD_LIBFCGI_TRUE='#'
   BUILD_LIBFCGI_FALSE=
+fi
+
+
+if test "$build_sxhttpd" = "yes"; then
+    subdirs="$subdirs 3rdparty/sxhttpd"
+
+fi
+ if test "$build_sxhttpd" = "yes"; then
+  BUILD_SXHTTPD_TRUE=
+  BUILD_SXHTTPD_FALSE='#'
+else
+  BUILD_SXHTTPD_TRUE='#'
+  BUILD_SXHTTPD_FALSE=
 fi
 
 
@@ -3638,32 +3678,23 @@ else
 fi
 
 
-# sxhttpd (nginx)
-# Check whether --enable-sxhttpd was given.
-if test "${enable_sxhttpd+set}" = set; then :
-  enableval=$enable_sxhttpd; build_sxhttpd=$enableval
-else
-  build_sxhttpd="yes"
-fi
-
-if test "$build_sxhttpd" = "yes"; then
-    subdirs="$subdirs 3rdparty/sxhttpd"
-
-fi
- if test "$build_sxhttpd" = "yes"; then
-  BUILD_SXHTTPD_TRUE=
-  BUILD_SXHTTPD_FALSE='#'
-else
-  BUILD_SXHTTPD_TRUE='#'
-  BUILD_SXHTTPD_FALSE=
-fi
-
-
 subdirs="$subdirs libsx"
 
 subdirs="$subdirs client"
 
-subdirs="$subdirs server"
+
+if test "$build_server" = "yes"; then
+    subdirs="$subdirs server"
+
+fi
+ if test "$build_server" = "yes"; then
+  BUILD_SERVER_TRUE=
+  BUILD_SERVER_FALSE='#'
+else
+  BUILD_SERVER_TRUE='#'
+  BUILD_SERVER_FALSE=
+fi
+
 
 ac_config_files="$ac_config_files Makefile"
 
@@ -3844,12 +3875,16 @@ if test -z "${BUILD_LIBFCGI_TRUE}" && test -z "${BUILD_LIBFCGI_FALSE}"; then
   as_fn_error $? "conditional \"BUILD_LIBFCGI\" was never defined.
 Usually this means the macro was only invoked conditionally." "$LINENO" 5
 fi
+if test -z "${BUILD_SXHTTPD_TRUE}" && test -z "${BUILD_SXHTTPD_FALSE}"; then
+  as_fn_error $? "conditional \"BUILD_SXHTTPD\" was never defined.
+Usually this means the macro was only invoked conditionally." "$LINENO" 5
+fi
 if test -z "${BUILD_YAJL_TRUE}" && test -z "${BUILD_YAJL_FALSE}"; then
   as_fn_error $? "conditional \"BUILD_YAJL\" was never defined.
 Usually this means the macro was only invoked conditionally." "$LINENO" 5
 fi
-if test -z "${BUILD_SXHTTPD_TRUE}" && test -z "${BUILD_SXHTTPD_FALSE}"; then
-  as_fn_error $? "conditional \"BUILD_SXHTTPD\" was never defined.
+if test -z "${BUILD_SERVER_TRUE}" && test -z "${BUILD_SERVER_FALSE}"; then
+  as_fn_error $? "conditional \"BUILD_SERVER\" was never defined.
 Usually this means the macro was only invoked conditionally." "$LINENO" 5
 fi
 
