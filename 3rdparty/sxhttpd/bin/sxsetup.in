@@ -204,8 +204,13 @@ ask_questions() {
 	    printf "Maximum size [default=$SX_NODE_SIZE]: "
 	    read NEWVAL
 	    SX_NODE_SIZE=${NEWVAL:-$SX_NODE_SIZE}
-	    test -n "$SX_NODE_SIZE" && break
-	    echo "Maximum node size must be provided"
+	    test -z "$SX_NODE_SIZE" && continue
+	    if [ -z "`echo $SX_NODE_SIZE | egrep ^[0-9]+[MGT]?$`" ]; then
+		echo "Invalid format. Use numerical size optionally followed by modifiers, eg. 20G or 4T"
+		SX_NODE_SIZE=
+		continue
+	    fi
+	    break
 	done
 
 	echo
