@@ -48,8 +48,24 @@ fi
 AC_SUBST([YAJL_CPPFLAGS])
 AC_SUBST([YAJL_LIBS])
 
-LIBCURL_CHECK_CONFIG([], [], [], [
-                      AC_MSG_ERROR([Please install libcurl-dev or curl-devel])])
+
+ac_save_LIBS=$LIBS
+PKG_CHECK_MODULES([CRYPTO], [libcrypto], [], [
+    AC_CHECK_LIB([crypto], [HMAC_Update], [CRYPTO_LIBS=-lcrypto],[
+              AC_MSG_ERROR([Please install libssl-dev or openssl-devel])])])
+LIBS=$ac_save_LIBS
+AC_CACHE_CHECK([whether HMAC_Update returns int], ac_cv_type_HMAC_update,
+[AC_COMPILE_IFELSE(
+	[AC_LANG_PROGRAM([#include <openssl/hmac.h>
+	],[return HMAC_Update(NULL, NULL, 0) == 1;])],
+	[ac_cv_type_HMAC_update=yes],
+	[ac_cv_type_HMAC_update=no])
+])
+if test "$ac_cv_type_HMAC_update" = "yes"; then
+	AC_DEFINE([HMAC_UPDATE_RETURNS_INT], 1, [Defined if HMAC_Update returns int])
+fi
+
+LIBCURL_CHECK_CONFIG([], [], [], [build_curl=yes])
 AC_MSG_CHECKING([whether curl is built with OpenSSL support])
 ac_save_CPPFLAGS="$CPPFLAGS"
 LIBS="$LIBCURL $ac_save_LIBS"
@@ -82,32 +98,17 @@ AC_RUN_IFELSE([AC_LANG_PROGRAM([
         }
         curl_easy_cleanup(curl);
         return 0;
-])],[AC_MSG_RESULT([yes])],[
-   AC_MSG_RESULT([no])
-   AC_MSG_ERROR([Make sure curl is built/linked with OpenSSL! (on Debian install libcurl4-openssl-dev)])
-],[
-dnl cross-compiling: assume its ok
-   AC_MSG_RESULT([unknown])
-]
-)
+])],[build_curl=no],[build_curl=yes],[build_curl=yes])
 CPPFLAGS="$ac_save_CPPFLAGS"
 LIBS="$ac_save_LIBS"
-
-ac_save_LIBS=$LIBS
-PKG_CHECK_MODULES([CRYPTO], [libcrypto], [], [
-    AC_CHECK_LIB([crypto], [HMAC_Update], [CRYPTO_LIBS=-lcrypto],[
-              AC_MSG_ERROR([Please install libssl-dev or openssl-devel])])])
-LIBS=$ac_save_LIBS
-AC_CACHE_CHECK([whether HMAC_Update returns int], ac_cv_type_HMAC_update,
-[AC_COMPILE_IFELSE(
-	[AC_LANG_PROGRAM([#include <openssl/hmac.h>
-	],[return HMAC_Update(NULL, NULL, 0) == 1;])],
-	[ac_cv_type_HMAC_update=yes],
-	[ac_cv_type_HMAC_update=no])
-])
-if test "$ac_cv_type_HMAC_update" = "yes"; then
-	AC_DEFINE([HMAC_UPDATE_RETURNS_INT], 1, [Defined if HMAC_Update returns int])
+AC_CHECK_LIB([idn],[idn_free],[config_idn='--with-idn';link_idn='-lidn'],[config_idn='';link_idn=''])
+ac_configure_args="$ac_configure_args --with-zlib $with_idn --with-pic --disable-shared --with-ssl --without-libssh2 --without-librtmp --without-nghttp2 --disable-ftp --disable-file --disable-ldap --disable-ldaps --disable-rtsp --disable-dict --disable-telnet --disable-tftp --disable-pop3 --disable-imap --disable-smtp --disable-gopher"
+if test "$build_curl" = "yes"; then
+    LIBCURL="../3rdparty/curl/lib/libcurl.la $link_idn -lz"
+    LIBCURL_CPPFLAGS="-I../3rdparty/curl/include"
+    AC_CONFIG_SUBDIRS([../3rdparty/curl])
 fi
+AM_CONDITIONAL([BUILD_CURL], [test "$build_curl" = "yes"])
 
 AC_SUBST(CURL_LIBS)
 AC_SUBST(YAJL_LIBS)
