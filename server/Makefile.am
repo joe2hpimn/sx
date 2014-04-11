@@ -140,32 +140,16 @@ test_hdist_test_CPPFLAGS = $(AM_CPPFLAGS) -I$(top_srcdir)/src/common
 
 test_testfile_SOURCES = test/testfile.c
 
-check_PROGRAMS = test/printerrno test/check_misc
+check_PROGRAMS = test/printerrno
 
 check_SCRIPTS = test/runvg.sh test/run-nginx-test.sh test/fcgi-test.pl
 EXTRA_DIST = $(check_SCRIPTS)
-TESTS = test/check_misc test/hdist-test test/run-nginx-test.sh
+TESTS = test/hdist-test test/run-nginx-test.sh
 
 test_printerrno_SOURCES = test/printerrno.c
 
-noinst_LTLIBRARIES += test/libcheckmain.la
-test_libcheckmain_la_SOURCES = \
-			test/check_main.c\
-			test/check_main.h\
-			test/rgen.c\
-			test/rgen.h
-test_libcheckmain_la_CPPFLAGS = $(AM_CPPFLAGS) -DABS_BUILDDIR=\"$(abs_builddir)\"
-test_libcheckmain_la_CFLAGS = $(AM_CFLAGS) @CHECK_CFLAGS@
-
-test_check_misc_SOURCES = test/check_misc.c
-test_check_misc_LDADD = test/libcheckmain.la src/common/libcommon.la @CHECK_LIBS@
-test_check_misc_CFLAGS = $(AM_CFLAGS) @CHECK_CFLAGS@
-
 check-local:
 	if test -f test-suite.log; then ln -sf `pwd`/test-suite.log ../test-suite.log; else :; fi
-
-check-valgrind:
-	$(MAKE) check-TESTS TESTS="test/check_misc" LOG_COMPILER=test/runvg.sh CK_FORK=no TEST_SUITE_LOG=valgrind-test-suite.log
 
 CLEANFILES = valgrind-test-suite.log valgrind.log test/test-nginx.conf
 if COVERAGE

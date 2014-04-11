@@ -75,15 +75,14 @@ POST_INSTALL = :
 NORMAL_UNINSTALL = :
 PRE_UNINSTALL = :
 POST_UNINSTALL = :
-@BUILD_CHECK_TRUE@am__append_1 = 3rdparty/check
-@BUILD_LIBFCGI_TRUE@am__append_2 = 3rdparty/fcgi
-@BUILD_SXHTTPD_TRUE@am__append_3 = 3rdparty/sxhttpd
-@BUILD_YAJL_TRUE@am__append_4 = 3rdparty/yajl_build
+@BUILD_LIBFCGI_TRUE@am__append_1 = 3rdparty/fcgi
+@BUILD_SXHTTPD_TRUE@am__append_2 = 3rdparty/sxhttpd
+@BUILD_YAJL_TRUE@am__append_3 = 3rdparty/yajl_build
 subdir = .
 DIST_COMMON = $(srcdir)/Makefile.in $(srcdir)/Makefile.am \
-	$(top_srcdir)/configure $(am__configure_deps) COPYING \
-	build-aux/compile build-aux/install-sh build-aux/missing \
-	$(top_srcdir)/build-aux/compile \
+	$(top_srcdir)/configure $(am__configure_deps) COPYING INSTALL \
+	README build-aux/compile build-aux/install-sh \
+	build-aux/missing $(top_srcdir)/build-aux/compile \
 	$(top_srcdir)/build-aux/install-sh \
 	$(top_srcdir)/build-aux/missing
 ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
@@ -231,9 +230,6 @@ PACKAGE_TARNAME = @PACKAGE_TARNAME@
 PACKAGE_URL = @PACKAGE_URL@
 PACKAGE_VERSION = @PACKAGE_VERSION@
 PATH_SEPARATOR = @PATH_SEPARATOR@
-PKG_CONFIG = @PKG_CONFIG@
-PKG_CONFIG_LIBDIR = @PKG_CONFIG_LIBDIR@
-PKG_CONFIG_PATH = @PKG_CONFIG_PATH@
 SET_MAKE = @SET_MAKE@
 SHELL = @SHELL@
 STRIP = @STRIP@
@@ -251,8 +247,6 @@ am__untar = @am__untar@
 bindir = @bindir@
 build_alias = @build_alias@
 builddir = @builddir@
-check_CFLAGS = @check_CFLAGS@
-check_LIBS = @check_LIBS@
 datadir = @datadir@
 datarootdir = @datarootdir@
 docdir = @docdir@
@@ -283,8 +277,8 @@ target_alias = @target_alias@
 top_build_prefix = @top_build_prefix@
 top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
-SUBDIRS = $(am__append_1) $(am__append_2) $(am__append_3) \
-	$(am__append_4) libsx client server
+SUBDIRS = $(am__append_1) $(am__append_2) $(am__append_3) libsx client \
+	server
 EXTRA_DIST = 3rdparty/yajl 3rdparty/nginx 3rdparty/check 3rdparty/fcgi 3rdparty/sxhttpd 3rdparty/yajl_build
 DIST_SUBDIRS = $(SUBDIRS)
 all: all-recursive

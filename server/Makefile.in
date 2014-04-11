@@ -84,9 +84,8 @@ bin_PROGRAMS = src/tools/sxsim/sxsim$(EXEEXT) test/randgen$(EXEEXT)
 sbin_PROGRAMS = src/fcgi/sx.fcgi$(EXEEXT) \
 	src/tools/sxreport-server/sxreport-server$(EXEEXT) \
 	src/tools/sxadm/sxadm$(EXEEXT)
-check_PROGRAMS = test/printerrno$(EXEEXT) test/check_misc$(EXEEXT)
-TESTS = test/check_misc$(EXEEXT) test/hdist-test$(EXEEXT) \
-	test/run-nginx-test.sh
+check_PROGRAMS = test/printerrno$(EXEEXT)
+TESTS = test/hdist-test$(EXEEXT) test/run-nginx-test.sh
 subdir = .
 DIST_COMMON = $(srcdir)/Makefile.in $(srcdir)/Makefile.am \
 	$(top_srcdir)/configure $(am__configure_deps) \
@@ -157,15 +156,6 @@ src_common_libsqlite3_la_LINK = $(LIBTOOL) $(AM_V_lt) --tag=CC \
 	$(src_common_libsqlite3_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) \
 	--mode=link $(CCLD) $(AM_CFLAGS) $(CFLAGS) $(AM_LDFLAGS) \
 	$(LDFLAGS) -o $@
-test_libcheckmain_la_LIBADD =
-am_test_libcheckmain_la_OBJECTS =  \
-	test/test_libcheckmain_la-check_main.lo \
-	test/test_libcheckmain_la-rgen.lo
-test_libcheckmain_la_OBJECTS = $(am_test_libcheckmain_la_OBJECTS)
-test_libcheckmain_la_LINK = $(LIBTOOL) $(AM_V_lt) --tag=CC \
-	$(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=link $(CCLD) \
-	$(test_libcheckmain_la_CFLAGS) $(CFLAGS) $(AM_LDFLAGS) \
-	$(LDFLAGS) -o $@
 am__installdirs = "$(DESTDIR)$(bindir)" "$(DESTDIR)$(sbindir)"
 PROGRAMS = $(bin_PROGRAMS) $(noinst_PROGRAMS) $(sbin_PROGRAMS)
 am_src_fcgi_sx_fcgi_OBJECTS =  \
@@ -225,15 +215,6 @@ src_tools_sxsim_sxsim_LINK = $(LIBTOOL) $(AM_V_lt) --tag=CC \
 	$(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=link $(CCLD) \
 	$(src_tools_sxsim_sxsim_CFLAGS) $(CFLAGS) $(AM_LDFLAGS) \
 	$(LDFLAGS) -o $@
-am_test_check_misc_OBJECTS =  \
-	test/test_check_misc-check_misc.$(OBJEXT)
-test_check_misc_OBJECTS = $(am_test_check_misc_OBJECTS)
-test_check_misc_DEPENDENCIES = test/libcheckmain.la \
-	src/common/libcommon.la
-test_check_misc_LINK = $(LIBTOOL) $(AM_V_lt) --tag=CC \
-	$(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=link $(CCLD) \
-	$(test_check_misc_CFLAGS) $(CFLAGS) $(AM_LDFLAGS) $(LDFLAGS) \
-	-o $@
 am_test_hdist_test_OBJECTS =  \
 	test/test_hdist_test-hdist-test.$(OBJEXT)
 test_hdist_test_OBJECTS = $(am_test_hdist_test_OBJECTS)
@@ -283,20 +264,18 @@ am__v_CCLD_0 = @echo "  CCLD    " $@;
 am__v_CCLD_1 = 
 SOURCES = $(src_common_libcommon_la_SOURCES) \
 	$(src_common_libsqlite3_la_SOURCES) \
-	$(test_libcheckmain_la_SOURCES) $(src_fcgi_sx_fcgi_SOURCES) \
-	$(src_tools_sxadm_sxadm_SOURCES) \
+	$(src_fcgi_sx_fcgi_SOURCES) $(src_tools_sxadm_sxadm_SOURCES) \
 	$(src_tools_sxreport_server_sxreport_server_SOURCES) \
-	$(src_tools_sxsim_sxsim_SOURCES) $(test_check_misc_SOURCES) \
-	$(test_hdist_test_SOURCES) $(test_printerrno_SOURCES) \
-	$(test_randgen_SOURCES) $(test_testfile_SOURCES)
+	$(src_tools_sxsim_sxsim_SOURCES) $(test_hdist_test_SOURCES) \
+	$(test_printerrno_SOURCES) $(test_randgen_SOURCES) \
+	$(test_testfile_SOURCES)
 DIST_SOURCES = $(src_common_libcommon_la_SOURCES) \
 	$(src_common_libsqlite3_la_SOURCES) \
-	$(test_libcheckmain_la_SOURCES) $(src_fcgi_sx_fcgi_SOURCES) \
-	$(src_tools_sxadm_sxadm_SOURCES) \
+	$(src_fcgi_sx_fcgi_SOURCES) $(src_tools_sxadm_sxadm_SOURCES) \
 	$(src_tools_sxreport_server_sxreport_server_SOURCES) \
-	$(src_tools_sxsim_sxsim_SOURCES) $(test_check_misc_SOURCES) \
-	$(test_hdist_test_SOURCES) $(test_printerrno_SOURCES) \
-	$(test_randgen_SOURCES) $(test_testfile_SOURCES)
+	$(src_tools_sxsim_sxsim_SOURCES) $(test_hdist_test_SOURCES) \
+	$(test_printerrno_SOURCES) $(test_randgen_SOURCES) \
+	$(test_testfile_SOURCES)
 am__can_run_installinfo = \
   case $$AM_UPDATE_INFO_DIR in \
     n|no|NO) false;; \
@@ -559,8 +538,6 @@ AWK = @AWK@
 CC = @CC@
 CCDEPMODE = @CCDEPMODE@
 CFLAGS = @CFLAGS@
-CHECK_CFLAGS = @CHECK_CFLAGS@
-CHECK_LIBS = @CHECK_LIBS@
 CPP = @CPP@
 CPPFLAGS = @CPPFLAGS@
 CRYPTO_CFLAGS = @CRYPTO_CFLAGS@
@@ -682,8 +659,7 @@ top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
 ACLOCAL_AMFLAGS = -I m4 -I /usr/share/aclocal
 SX_CPPFLAGS = -DDEFAULT_FCGI_CFGFILE=\"$(sysconfdir)/sxserver/sxfcgi.conf\"
-noinst_LTLIBRARIES = src/common/libcommon.la src/common/libsqlite3.la \
-	test/libcheckmain.la
+noinst_LTLIBRARIES = src/common/libcommon.la src/common/libsqlite3.la
 src_common_libsqlite3_la_SOURCES = src/common/sqlite3.c \
 			       src/common/sqlite3.h
 
@@ -812,17 +788,6 @@ test_testfile_SOURCES = test/testfile.c
 check_SCRIPTS = test/runvg.sh test/run-nginx-test.sh test/fcgi-test.pl
 EXTRA_DIST = $(check_SCRIPTS)
 test_printerrno_SOURCES = test/printerrno.c
-test_libcheckmain_la_SOURCES = \
-			test/check_main.c\
-			test/check_main.h\
-			test/rgen.c\
-			test/rgen.h
-
-test_libcheckmain_la_CPPFLAGS = $(AM_CPPFLAGS) -DABS_BUILDDIR=\"$(abs_builddir)\"
-test_libcheckmain_la_CFLAGS = $(AM_CFLAGS) @CHECK_CFLAGS@
-test_check_misc_SOURCES = test/check_misc.c
-test_check_misc_LDADD = test/libcheckmain.la src/common/libcommon.la @CHECK_LIBS@
-test_check_misc_CFLAGS = $(AM_CFLAGS) @CHECK_CFLAGS@
 CLEANFILES = valgrind-test-suite.log valgrind.log test/test-nginx.conf
 all: config.h
 	$(MAKE) $(AM_MAKEFLAGS) all-am
@@ -944,19 +909,6 @@ src/common/src_common_libsqlite3_la-sqlite3.lo:  \
 
 src/common/libsqlite3.la: $(src_common_libsqlite3_la_OBJECTS) $(src_common_libsqlite3_la_DEPENDENCIES) $(EXTRA_src_common_libsqlite3_la_DEPENDENCIES) src/common/$(am__dirstamp)
 	$(AM_V_CCLD)$(src_common_libsqlite3_la_LINK)  $(src_common_libsqlite3_la_OBJECTS) $(src_common_libsqlite3_la_LIBADD) $(LIBS)
-test/$(am__dirstamp):
-	@$(MKDIR_P) test
-	@: > test/$(am__dirstamp)
-test/$(DEPDIR)/$(am__dirstamp):
-	@$(MKDIR_P) test/$(DEPDIR)
-	@: > test/$(DEPDIR)/$(am__dirstamp)
-test/test_libcheckmain_la-check_main.lo: test/$(am__dirstamp) \
-	test/$(DEPDIR)/$(am__dirstamp)
-test/test_libcheckmain_la-rgen.lo: test/$(am__dirstamp) \
-	test/$(DEPDIR)/$(am__dirstamp)
-
-test/libcheckmain.la: $(test_libcheckmain_la_OBJECTS) $(test_libcheckmain_la_DEPENDENCIES) $(EXTRA_test_libcheckmain_la_DEPENDENCIES) test/$(am__dirstamp)
-	$(AM_V_CCLD)$(test_libcheckmain_la_LINK)  $(test_libcheckmain_la_OBJECTS) $(test_libcheckmain_la_LIBADD) $(LIBS)
 install-binPROGRAMS: $(bin_PROGRAMS)
 	@$(NORMAL_INSTALL)
 	@list='$(bin_PROGRAMS)'; test -n "$(bindir)" || list=; \
@@ -1181,12 +1133,12 @@ src/tools/sxsim/src_tools_sxsim_sxsim-cmdline.$(OBJEXT):  \
 src/tools/sxsim/sxsim$(EXEEXT): $(src_tools_sxsim_sxsim_OBJECTS) $(src_tools_sxsim_sxsim_DEPENDENCIES) $(EXTRA_src_tools_sxsim_sxsim_DEPENDENCIES) src/tools/sxsim/$(am__dirstamp)
 	@rm -f src/tools/sxsim/sxsim$(EXEEXT)
 	$(AM_V_CCLD)$(src_tools_sxsim_sxsim_LINK) $(src_tools_sxsim_sxsim_OBJECTS) $(src_tools_sxsim_sxsim_LDADD) $(LIBS)
-test/test_check_misc-check_misc.$(OBJEXT): test/$(am__dirstamp) \
-	test/$(DEPDIR)/$(am__dirstamp)
-
-test/check_misc$(EXEEXT): $(test_check_misc_OBJECTS) $(test_check_misc_DEPENDENCIES) $(EXTRA_test_check_misc_DEPENDENCIES) test/$(am__dirstamp)
-	@rm -f test/check_misc$(EXEEXT)
-	$(AM_V_CCLD)$(test_check_misc_LINK) $(test_check_misc_OBJECTS) $(test_check_misc_LDADD) $(LIBS)
+test/$(am__dirstamp):
+	@$(MKDIR_P) test
+	@: > test/$(am__dirstamp)
+test/$(DEPDIR)/$(am__dirstamp):
+	@$(MKDIR_P) test/$(DEPDIR)
+	@: > test/$(DEPDIR)/$(am__dirstamp)
 test/test_hdist_test-hdist-test.$(OBJEXT): test/$(am__dirstamp) \
 	test/$(DEPDIR)/$(am__dirstamp)
 
@@ -1223,7 +1175,6 @@ mostlyclean-compile:
 	-rm -f src/tools/sxreport-server/*.$(OBJEXT)
 	-rm -f src/tools/sxsim/*.$(OBJEXT)
 	-rm -f test/*.$(OBJEXT)
-	-rm -f test/*.lo
 
 distclean-compile:
 	-rm -f *.tab.c
@@ -1274,10 +1225,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@test/$(DEPDIR)/printerrno.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@test/$(DEPDIR)/randgen.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@test/$(DEPDIR)/rgen.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@test/$(DEPDIR)/test_check_misc-check_misc.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@test/$(DEPDIR)/test_hdist_test-hdist-test.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@test/$(DEPDIR)/test_libcheckmain_la-check_main.Plo@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@test/$(DEPDIR)/test_libcheckmain_la-rgen.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@test/$(DEPDIR)/testfile.Po@am__quote@
 
 .c.o:
@@ -1408,20 +1356,6 @@ src/common/src_common_libsqlite3_la-sqlite3.lo: src/common/sqlite3.c
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='src/common/sqlite3.c' object='src/common/src_common_libsqlite3_la-sqlite3.lo' libtool=yes @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CC $(src_common_libsqlite3_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_common_libsqlite3_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o src/common/src_common_libsqlite3_la-sqlite3.lo `test -f 'src/common/sqlite3.c' || echo '$(srcdir)/'`src/common/sqlite3.c
-
-test/test_libcheckmain_la-check_main.lo: test/check_main.c
-@am__fastdepCC_TRUE@	$(AM_V_CC)$(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_libcheckmain_la_CPPFLAGS) $(CPPFLAGS) $(test_libcheckmain_la_CFLAGS) $(CFLAGS) -MT test/test_libcheckmain_la-check_main.lo -MD -MP -MF test/$(DEPDIR)/test_libcheckmain_la-check_main.Tpo -c -o test/test_libcheckmain_la-check_main.lo `test -f 'test/check_main.c' || echo '$(srcdir)/'`test/check_main.c
-@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) test/$(DEPDIR)/test_libcheckmain_la-check_main.Tpo test/$(DEPDIR)/test_libcheckmain_la-check_main.Plo
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='test/check_main.c' object='test/test_libcheckmain_la-check_main.lo' libtool=yes @AMDEPBACKSLASH@
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_libcheckmain_la_CPPFLAGS) $(CPPFLAGS) $(test_libcheckmain_la_CFLAGS) $(CFLAGS) -c -o test/test_libcheckmain_la-check_main.lo `test -f 'test/check_main.c' || echo '$(srcdir)/'`test/check_main.c
-
-test/test_libcheckmain_la-rgen.lo: test/rgen.c
-@am__fastdepCC_TRUE@	$(AM_V_CC)$(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_libcheckmain_la_CPPFLAGS) $(CPPFLAGS) $(test_libcheckmain_la_CFLAGS) $(CFLAGS) -MT test/test_libcheckmain_la-rgen.lo -MD -MP -MF test/$(DEPDIR)/test_libcheckmain_la-rgen.Tpo -c -o test/test_libcheckmain_la-rgen.lo `test -f 'test/rgen.c' || echo '$(srcdir)/'`test/rgen.c
-@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) test/$(DEPDIR)/test_libcheckmain_la-rgen.Tpo test/$(DEPDIR)/test_libcheckmain_la-rgen.Plo
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='test/rgen.c' object='test/test_libcheckmain_la-rgen.lo' libtool=yes @AMDEPBACKSLASH@
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_libcheckmain_la_CPPFLAGS) $(CPPFLAGS) $(test_libcheckmain_la_CFLAGS) $(CFLAGS) -c -o test/test_libcheckmain_la-rgen.lo `test -f 'test/rgen.c' || echo '$(srcdir)/'`test/rgen.c
 
 src/fcgi/src_fcgi_sx_fcgi-fcgi-actions.o: src/fcgi/fcgi-actions.c
 @am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_fcgi_sx_fcgi_CPPFLAGS) $(CPPFLAGS) $(src_fcgi_sx_fcgi_CFLAGS) $(CFLAGS) -MT src/fcgi/src_fcgi_sx_fcgi-fcgi-actions.o -MD -MP -MF src/fcgi/$(DEPDIR)/src_fcgi_sx_fcgi-fcgi-actions.Tpo -c -o src/fcgi/src_fcgi_sx_fcgi-fcgi-actions.o `test -f 'src/fcgi/fcgi-actions.c' || echo '$(srcdir)/'`src/fcgi/fcgi-actions.c
@@ -1815,20 +1749,6 @@ src/tools/sxsim/src_tools_sxsim_sxsim-cmdline.obj: src/tools/sxsim/cmdline.c
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_tools_sxsim_sxsim_CPPFLAGS) $(CPPFLAGS) $(src_tools_sxsim_sxsim_CFLAGS) $(CFLAGS) -c -o src/tools/sxsim/src_tools_sxsim_sxsim-cmdline.obj `if test -f 'src/tools/sxsim/cmdline.c'; then $(CYGPATH_W) 'src/tools/sxsim/cmdline.c'; else $(CYGPATH_W) '$(srcdir)/src/tools/sxsim/cmdline.c'; fi`
 
-test/test_check_misc-check_misc.o: test/check_misc.c
-@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(test_check_misc_CFLAGS) $(CFLAGS) -MT test/test_check_misc-check_misc.o -MD -MP -MF test/$(DEPDIR)/test_check_misc-check_misc.Tpo -c -o test/test_check_misc-check_misc.o `test -f 'test/check_misc.c' || echo '$(srcdir)/'`test/check_misc.c
-@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) test/$(DEPDIR)/test_check_misc-check_misc.Tpo test/$(DEPDIR)/test_check_misc-check_misc.Po
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='test/check_misc.c' object='test/test_check_misc-check_misc.o' libtool=no @AMDEPBACKSLASH@
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(test_check_misc_CFLAGS) $(CFLAGS) -c -o test/test_check_misc-check_misc.o `test -f 'test/check_misc.c' || echo '$(srcdir)/'`test/check_misc.c
-
-test/test_check_misc-check_misc.obj: test/check_misc.c
-@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(test_check_misc_CFLAGS) $(CFLAGS) -MT test/test_check_misc-check_misc.obj -MD -MP -MF test/$(DEPDIR)/test_check_misc-check_misc.Tpo -c -o test/test_check_misc-check_misc.obj `if test -f 'test/check_misc.c'; then $(CYGPATH_W) 'test/check_misc.c'; else $(CYGPATH_W) '$(srcdir)/test/check_misc.c'; fi`
-@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) test/$(DEPDIR)/test_check_misc-check_misc.Tpo test/$(DEPDIR)/test_check_misc-check_misc.Po
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='test/check_misc.c' object='test/test_check_misc-check_misc.obj' libtool=no @AMDEPBACKSLASH@
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(test_check_misc_CFLAGS) $(CFLAGS) -c -o test/test_check_misc-check_misc.obj `if test -f 'test/check_misc.c'; then $(CYGPATH_W) 'test/check_misc.c'; else $(CYGPATH_W) '$(srcdir)/test/check_misc.c'; fi`
-
 test/test_hdist_test-hdist-test.o: test/hdist-test.c
 @am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_hdist_test_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT test/test_hdist_test-hdist-test.o -MD -MP -MF test/$(DEPDIR)/test_hdist_test-hdist-test.Tpo -c -o test/test_hdist_test-hdist-test.o `test -f 'test/hdist-test.c' || echo '$(srcdir)/'`test/hdist-test.c
 @am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) test/$(DEPDIR)/test_hdist_test-hdist-test.Tpo test/$(DEPDIR)/test_hdist_test-hdist-test.Po
@@ -2058,13 +1978,6 @@ recheck: all $(check_PROGRAMS) $(check_SCRIPTS)
 	        am__force_recheck=am--force-recheck \
 	        TEST_LOGS="$$log_list"; \
 	exit $$?
-test/check_misc.log: test/check_misc$(EXEEXT)
-	@p='test/check_misc$(EXEEXT)'; \
-	b='test/check_misc'; \
-	$(am__check_pre) $(LOG_DRIVER) --test-name "$$f" \
-	--log-file $$b.log --trs-file $$b.trs \
-	$(am__common_driver_flags) $(AM_LOG_DRIVER_FLAGS) $(LOG_DRIVER_FLAGS) -- $(LOG_COMPILE) \
-	"$$tst" $(AM_TESTS_FD_REDIRECT)
 test/hdist-test.log: test/hdist-test$(EXEEXT)
 	@p='test/hdist-test$(EXEEXT)'; \
 	b='test/hdist-test'; \
@@ -2413,9 +2326,6 @@ uninstall-am: uninstall-binPROGRAMS uninstall-sbinPROGRAMS
 
 check-local:
 	if test -f test-suite.log; then ln -sf `pwd`/test-suite.log ../test-suite.log; else :; fi
-
-check-valgrind:
-	$(MAKE) check-TESTS TESTS="test/check_misc" LOG_COMPILER=test/runvg.sh CK_FORK=no TEST_SUITE_LOG=valgrind-test-suite.log
 @COVERAGE_TRUE@.PHONY: zcov coverage/output.zcov
 
 @COVERAGE_TRUE@coverage/output.zcov:

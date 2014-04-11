@@ -5,17 +5,8 @@ AM_INIT_AUTOMAKE([foreign])
 AM_MAINTAINER_MODE
 
 ac_configure_args="$ac_configure_args --enable-shared=libsx,sxclient,sx"
-# Check
-PKG_CHECK_MODULES([check], [check >= 0.9.4], [has_sys_check=yes],
-                  [has_sys_check=no])
-ac_configure_args="$ac_configure_args --disable-timeout-tests --disable-agrep"
-if test "$has_sys_check" = "no"; then
-    AC_CONFIG_SUBDIRS([3rdparty/check])
-fi
-AM_CONDITIONAL([BUILD_CHECK],[test "$has_sys_check" = "no"])
 
 # Libfcgi
-has_sys_fcgi=no
 # sys fcgi is buggy on EINTR handling
 AC_CHECK_LIB([fcgi], [FCGX_Accept], [FCGI_LIBS=-lfcgi; has_sys_fcgi="yes"],
              [has_sys_fcgi="no"])

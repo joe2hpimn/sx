@@ -74,17 +74,6 @@ AC_SUBST(CRYPTO_LIBS)
 AC_SUBST(CRYPTO_CFLAGS)
 LIBS=$ac_save_LIBS
 
-# Check
-PKG_CHECK_MODULES([CHECK], [check >= 0.9.4], [has_sys_check=yes],
-                  [has_sys_check=no])
-
-if test "$has_sys_check" = "no"; then
-    CHECK_LIBS=../3rdparty/check/src/libcheck.la
-    CHECK_CFLAGS="-I ../3rdparty/check/src -I ../3rdparty/check"
-fi
-AC_SUBST([CHECK_LIBS])
-AC_SUBST([CHECK_CFLAGS])
-
 # Libfcgi
 FCGI_CPPFLAGS=
 AC_CHECK_LIB([fcgi], [FCGX_Accept], [FCGI_LIBS=-lfcgi; has_sys_fcgi="yes"],
@@ -179,7 +168,6 @@ AC_OUTPUT
 
 AC_MSG_NOTICE([Summary])
 echo "    crypto library: $CRYPTO_LIBS"
-MY_STATUS([check], [$has_sys_check],[$CHECK_CFLAGS], [$CHECK_LIBS])
 MY_STATUS([libfcgi], [$has_sys_fcgi],[$FCGI_CPPFLAGS], [$FCGI_LIBS])
 MY_STATUS([yajl], [$has_sys_yajl], [$YAJL_CPPFLAGS], [$YAJL_LIBS])
 cat <<EOF

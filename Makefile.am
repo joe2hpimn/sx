@@ -1,7 +1,4 @@
 SUBDIRS=
-if BUILD_CHECK
-SUBDIRS += 3rdparty/check
-endif
 if BUILD_LIBFCGI
 SUBDIRS += 3rdparty/fcgi
 endif
