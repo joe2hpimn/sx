@@ -751,6 +751,7 @@ if [ ! -f "$SX_DATA_DIR/data/cluster.key" ]; then
 
     else
 	# Config access to the cluster
+	test "$CONFIG_FILE_GIVEN" = "yes" && SXINITFLAGS="--batch-mode"
 	"@bindir@/sxinit" $NOSSL_FLAG $SXINITFLAGS --config-dir=$HOME/.sx --auth-file="$SX_DATA_DIR/admin.key" --host-list="$SX_EXISTING_NODE_IP" "sx://admin@$SX_CLUSTER_NAME"
 	if [ $? -ne 0 ]; then
 	    echo "Failed to connect to the cluster. Please make sure the admin key is correct"
