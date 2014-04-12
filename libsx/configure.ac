@@ -42,7 +42,7 @@ AC_CHECK_LIB([yajl], [yajl_complete_parse], [YAJL_LIBS=-lyajl; has_sys_yajl="yes
              [has_sys_yajl="no"])
 LIBS=$ac_save_LIBS
 if test "$has_sys_yajl" = "no"; then
-    YAJL_LIBS="../3rdparty/yajl_build/build/libyajl.la"
+    YAJL_LIBS="../3rdparty/yajl_build/build/libyajl.la -lm"
     YAJL_CPPFLAGS="-I ../3rdparty/yajl_build/build"
 fi
 AC_SUBST([YAJL_CPPFLAGS])

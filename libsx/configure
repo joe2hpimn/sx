@@ -14100,7 +14100,7 @@ fi
 
 LIBS=$ac_save_LIBS
 if test "$has_sys_yajl" = "no"; then
-    YAJL_LIBS="../3rdparty/yajl_build/build/libyajl.la"
+    YAJL_LIBS="../3rdparty/yajl_build/build/libyajl.la -lm"
     YAJL_CPPFLAGS="-I ../3rdparty/yajl_build/build"
 fi
 
