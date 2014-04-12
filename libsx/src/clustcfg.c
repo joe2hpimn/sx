@@ -2506,6 +2506,8 @@ int sxc_cluster_fetch_ca(sxc_cluster_t *cluster, int quiet)
     const char *tmpcafile = NULL;
     FILE *f;
     tmpcafile = sxi_tempfile_track(cluster->sx, NULL, &f);
+    if(!tmpcafile)
+	return 1;
     fclose(f);
     /* ask the SSL cert question only once,
      * for consistency we do the request on non-SSL too. */
