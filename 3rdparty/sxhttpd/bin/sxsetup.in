@@ -41,7 +41,7 @@ done
 if [ "$HELP_GIVEN" = "yes" ]; then
     echo "SX Setup Script"
     echo
-    echo "sxsetup is an intractive script that configures an SX node."
+    echo "sxsetup is an interactive script that configures an SX node."
     echo "The script must be run by root."
     echo
     echo "Usage: $0 [OPTIONS]"
