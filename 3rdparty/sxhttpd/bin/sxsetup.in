@@ -416,7 +416,7 @@ EOF
 
 		    echo
 		    if [ "$GOTSRVCERT" = "1" ]; then
-			echo "Successfuly obtained SSL certificate from $SX_EXISTING_NODE_IP"
+			echo "Successfully obtained SSL certificate from $SX_EXISTING_NODE_IP"
 			cp "$CERT_TMP" "$SX_SSL_CERT_FILE"
 		    else
 			echo "Please paste the SSL certificate below (and press CTRL+D when done) or provide a path to it"
