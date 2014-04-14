@@ -392,11 +392,6 @@ int main(int argc, char **argv) {
             ret = list_perms(sx, args.inputs[0], args.config_dir_arg, args.debug_flag);
             list_cmdline_parser_free(&args);
         } else {
-	    if(argc > 2) {
-		fprintf(stderr, "ERROR: Unknown command '%s' (see 'sxacl --help')\n", argv[1]);
-		return 1;
-	    }
-
             if (main_cmdline_parser(argc, argv, &main_args)) {
                 ret = 1;
                 break;
