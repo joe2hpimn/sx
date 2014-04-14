@@ -11,7 +11,7 @@ use HTTP::Date;
 use MIME::Base64;
 use Digest::HMAC_SHA1 'hmac_sha1';
 use Digest::SHA qw(sha1_hex sha1);
-use JSON::XS;
+use JSON;
 
 $| = 1;
 
