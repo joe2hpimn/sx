@@ -395,6 +395,8 @@ sxi_query_t *sxi_nodeinit_proto(sxc_client_t *sx, const char *cluster_name, cons
 		return NULL;
 	    }
 	}
+	if(!ca_tmp_data) /* shut up clang */
+	    return NULL;
         ca_tmp_data[ca_data_len] = '\0';
 	ca_data = sxi_json_quote_string(ca_tmp_data);
 	free(ca_tmp_data);

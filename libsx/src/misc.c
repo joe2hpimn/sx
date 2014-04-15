@@ -1085,7 +1085,8 @@ int sxc_meta_setval(sxc_meta_t *meta, const char *key, const void *value, unsign
 
     item->value = (uint8_t *)(item + 1);
     item->value_len = value_len;
-    memcpy(item->value, value, value_len);
+    if(value_len)
+	memcpy(item->value, value, value_len);
 
     sxc_meta_delval(meta, key);
 
