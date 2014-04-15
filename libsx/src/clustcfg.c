@@ -511,12 +511,12 @@ sxc_cluster_t *sxc_cluster_load(sxc_client_t *sx, const char *config_dir, const 
 	    } else
 		secure = 1;
 	}
-        if (!err) {
-            if(secure > 0)
-                err = sxc_cluster_set_cafile(cluster, fname);
-            else
-                err = sxc_cluster_set_cafile(cluster, NULL);
-        }
+        if (err)
+            break;
+        if(secure > 0)
+            err = sxc_cluster_set_cafile(cluster, fname);
+        else
+            err = sxc_cluster_set_cafile(cluster, NULL);
 
 	free(fname);
 	fname = NULL;
