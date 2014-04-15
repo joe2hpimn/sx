@@ -498,6 +498,8 @@ sxc_cluster_t *sxc_cluster_load(sxc_client_t *sx, const char *config_dir, const 
 	    err = 1;
 	}
 	closedir(d);
+        if (err)
+            break;
 
 	memcpy(fname + confdir_len, "/ca.pem", sizeof("/ca.pem"));
 	if(secure >= 0) {
@@ -505,14 +507,12 @@ sxc_cluster_t *sxc_cluster_load(sxc_client_t *sx, const char *config_dir, const 
 	    if(stat(fname, &buf) == -1) {
 		if(errno != ENOENT || secure) {
 		    sxi_setsyserr(sx, SXE_ECFG, "Cannot access CA certificate file %s", fname);
-		    err = 1;
+                    break;
 		} else if(!secure)
 		    secure = -1;
 	    } else
 		secure = 1;
 	}
-        if (err)
-            break;
         if(secure > 0)
             err = sxc_cluster_set_cafile(cluster, fname);
         else
