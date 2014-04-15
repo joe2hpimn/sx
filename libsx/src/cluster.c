@@ -326,9 +326,11 @@ static int reject_dots(const char *query)
     if (strstr(query, "/../") || strstr(query, "/./"))
         return 1;
     lastslash = strrchr(query, '/');
-    if (!lastslash)
+    if (lastslash)
+        lastslash++;
+    else
         lastslash = query;
-    if (!strcmp(query, "..") || !strcmp(query, "."))
+    if (!strcmp(lastslash, "..") || !strcmp(lastslash, "."))
         return 1;
     return 0;
 }
