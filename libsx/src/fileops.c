@@ -4111,8 +4111,8 @@ int sxc_cat(sxc_file_t *source, int dest) {
     if (!dest) {
         sxi_seterr(source->sx, SXE_EARG, "Cannot write to stdin");
         rc = 1;
-    }
-    rc = sxc_copy(source, destfile, 0, NULL);
+    } else
+        rc = sxc_copy(source, destfile, 0, NULL);
     sxc_file_free(destfile);
     return rc;
 }

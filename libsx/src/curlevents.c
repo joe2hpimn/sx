@@ -1352,7 +1352,6 @@ static int compute_headers_url(curl_events_t *e, curlev_t *ev, curlev_t *src)
         const char *token = sxi_conns_get_auth(e->conns);
         const char *query;
         char *url;
-	rc = -1;
 
         content_size = src->body.size;
         content = src->body.data;
