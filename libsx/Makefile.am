@@ -1,6 +1,9 @@
 ACLOCAL_AMFLAGS = -I m4
 
-SUBDIRS = libltdl
+SUBDIRS=
+if BUILD_LTDL
+SUBDIRS += libltdl
+endif
 if BUILD_CURL
 SUBDIRS += ../3rdparty/curl
 endif

@@ -78,8 +78,9 @@ PRE_UNINSTALL = :
 POST_UNINSTALL = :
 build_triplet = @build@
 host_triplet = @host@
-@BUILD_CURL_TRUE@am__append_1 = ../3rdparty/curl
-@BUILD_NFTW_TRUE@am__append_2 = \
+@BUILD_LTDL_TRUE@am__append_1 = libltdl
+@BUILD_CURL_TRUE@am__append_2 = ../3rdparty/curl
+@BUILD_NFTW_TRUE@am__append_3 = \
 @BUILD_NFTW_TRUE@	src/nftw.c \
 @BUILD_NFTW_TRUE@	src/ftw.h
 
@@ -441,7 +442,7 @@ top_build_prefix = @top_build_prefix@
 top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
 ACLOCAL_AMFLAGS = -I m4
-SUBDIRS = libltdl $(am__append_1)
+SUBDIRS = $(am__append_1) $(am__append_2)
 DIST_SUBDIRS = $(SUBDIRS)
 AM_CPPFLAGS = -I $(top_srcdir)/include -I $(top_srcdir)/src $(LTDLINCL)
 lib_LTLIBRARIES = src/libsx.la
@@ -453,7 +454,7 @@ src_libsx_la_SOURCES = include/sx.h include/default.h include/gnuc.h \
 	src/volops.c src/volops.h src/jobpoll.c src/jobpoll.h \
 	src/libsx.c src/libsx-int.h src/filter.c src/filter.h \
 	src/sxlog.h src/sxlog.c src/sxproto.h src/sxproto.c \
-	src/sxreport.h src/sxreport.c src/version.c $(am__append_2)
+	src/sxreport.h src/sxreport.c src/version.c $(am__append_3)
 src_libsx_la_LIBADD = @YAJL_LIBS@ @LIBCURL@ @CRYPTO_LIBS@ @LIBLTDL@ -lssl
 # TODO: only sx_ should be exported not sxi_
 src_libsx_la_LDFLAGS = -no-undefined -export-symbols-regex sx.*

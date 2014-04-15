@@ -16,7 +16,14 @@ AC_CONFIG_MACRO_DIR([m4])
 LT_CONFIG_LTDL_DIR([libltdl])
 LT_INIT([disable-static dlopen])
 LTDL_INIT([recursive])
-AC_CONFIG_FILES([libltdl/Makefile])
+
+if test "$with_included_libltdl" = "no"; then
+    AC_MSG_NOTICE([using system ltldl])
+else
+    AC_MSG_NOTICE([using included ltdl])
+    AC_CONFIG_FILES([libltdl/Makefile])
+fi
+AM_CONDITIONAL([BUILD_LTDL], [test "$with_included_ltdl" = "yes"])
 
 # Checks for programs.
 AC_PROG_CC
