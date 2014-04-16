@@ -126,7 +126,7 @@ static int volume_create(sxc_client_t *sx, const char *owner)
 	sxc_uri_t *uri;
 	const char *volname, *suffixes = "kKmMgGtT", *confdir;
 	char *ptr, *voldir;
-	int ret;
+	int ret = 1;
 	int64_t size;
 	sxc_meta_t *vmeta = NULL;
         const sxc_filter_t *filter = NULL;
@@ -189,7 +189,6 @@ static int volume_create(sxc_client_t *sx, const char *owner)
 	free(voldir);
 	return 1;
     }
-    free(voldir);
 
     if(create_args.filter_given) {
 	    const sxf_handle_t *filters;
@@ -200,9 +199,7 @@ static int volume_create(sxc_client_t *sx, const char *owner)
 	filters = sxc_filter_list(sx, &fcount);
 	if(!filters) {
 	    fprintf(stderr, "ERROR: Can't use filter '%s' - no filters available\n", create_args.filter_arg);
-	    sxc_free_uri(uri);
-	    sxc_cluster_free(cluster);
-	    return 1;
+	    goto create_err;
 	}
 	farg = strchr(create_args.filter_arg, '=');
 	if(farg)
@@ -211,9 +208,7 @@ static int volume_create(sxc_client_t *sx, const char *owner)
 	vmeta = sxc_meta_new(sx);
 	if(!vmeta) {
 	    fprintf(stderr, "ERROR: Out of memory\n");
-	    sxc_free_uri(uri);
-	    sxc_cluster_free(cluster);
-	    return 1;
+	    goto create_err;
 	}
 
 	for(i = 0; i < fcount; i++) {
@@ -226,9 +221,7 @@ static int volume_create(sxc_client_t *sx, const char *owner)
 		if(sxc_meta_setval(vmeta, "filterActive", uuid, 16)) {
 		    fprintf(stderr, "ERROR: Can't use filter '%s' - metadata error\n", create_args.filter_arg);
 		    sxc_meta_free(vmeta);
-		    sxc_free_uri(uri);
-		    sxc_cluster_free(cluster);
-		    return 1;
+		    goto create_err;
 		}
 		snprintf(uuidcfg, sizeof(uuidcfg), "%s-cfg", f->uuid);
 		if(f->configure) {
@@ -239,9 +232,7 @@ static int volume_create(sxc_client_t *sx, const char *owner)
 			if(!fdir) {
 			    fprintf(stderr, "ERROR: Out of memory\n");
 			    sxc_meta_free(vmeta);
-			    sxc_free_uri(uri);
-			    sxc_cluster_free(cluster);
-			    return 1;
+			    goto create_err;
 			}
 			sprintf(fdir, "%s/volumes/%s", confdir, uri->volume);
 			if(access(fdir, F_OK))
@@ -251,30 +242,24 @@ static int volume_create(sxc_client_t *sx, const char *owner)
 			    if(mkdir(fdir, 0700) == -1) {
 				fprintf(stderr, "ERROR: Can't create filter configuration directory %s\n", fdir);
 				sxc_meta_free(vmeta);
-				sxc_free_uri(uri);
 				free(fdir);
-				sxc_cluster_free(cluster);
-				return 1;
+				goto create_err;
 			    }
 			}
 		    }
 		    if(f->configure(&filters[i], farg, fdir, &cfgdata, &cfgdata_len)) {
 			fprintf(stderr, "ERROR: Can't configure filter '%s'\n", create_args.filter_arg);
 			sxc_meta_free(vmeta);
-			sxc_free_uri(uri);
 			free(fdir);
-			sxc_cluster_free(cluster);
-			return 1;
+			goto create_err;
 		    }
 		    free(fdir);
 		    if(cfgdata) {
 			if(sxc_meta_setval(vmeta, uuidcfg, cfgdata, cfgdata_len)) {
 			    fprintf(stderr, "ERROR: Can't store configuration for filter '%s' - metadata error\n", create_args.filter_arg);
 			    sxc_meta_free(vmeta);
-			    sxc_free_uri(uri);
 			    free(cfgdata);
-			    sxc_cluster_free(cluster);
-			    return 1;
+			    goto create_err;
 			}
 		    }
 		}
@@ -284,10 +269,7 @@ static int volume_create(sxc_client_t *sx, const char *owner)
 	if(i == fcount) {
 	    fprintf(stderr, "ERROR: Filter '%s' not found\n", create_args.filter_arg);
 	    sxc_meta_free(vmeta);
-	    free(cfgdata);
-	    sxc_free_uri(uri);
-	    sxc_cluster_free(cluster);
-	    return 1;
+	    goto create_err;
 	}
     }
 
@@ -302,6 +284,11 @@ static int volume_create(sxc_client_t *sx, const char *owner)
     else
 	printf("Volume '%s' (replica: %d, size: %lld) created.\n", uri->volume, create_args.replica_arg, (long long) size);
 
+create_err:
+    if(ret && voldir && !access(voldir, F_OK))
+	sxi_rmdirs(voldir);
+
+    free(voldir);
     sxc_free_uri(uri);
     sxc_cluster_free(cluster);
     return ret;
