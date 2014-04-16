@@ -167,7 +167,7 @@ char *keyfp(const sxf_handle_t *handle, const unsigned char *key, const unsigned
     for(i = 0; i < KEY_ITERATIONS; i++) {
 	if(!SHA256_Init(&sctx) ||
 	   !SHA256_Update(&sctx, digest, sizeof(digest)) ||
-	   !SHA256_Update(&sctx, key, sizeof(key)) ||
+	   !SHA256_Update(&sctx, key, 32) ||
 	   !SHA256_Update(&sctx, salt, sizeof(salt)) ||
 	   !SHA256_Final(digest, &sctx)) {
 	    ERROR("Can't create key fingerprint");
@@ -529,7 +529,7 @@ sxc_filter_t sxc_filter={
 /* const char *options */	    "paranoid (don't use key files)",
 /* const char *uuid */		    "1532eefd-3f59-46c7-82e6-0b4c6422f5b8",
 /* sxf_type_t type */		    SXF_TYPE_CRYPT,
-/* int version[2] */		    {1, 0},
+/* int version[2] */		    {1, 1},
 /* int (*init)(const sxf_handle_t *handle, void **ctx) */	    aes256_init,
 /* int (*shutdown)(const sxf_handle_t *handle, void *ctx) */    aes256_shutdown,
 /* int (*parse_cfgstr)(const char *cfgstr, void **cfgdata, unsigned int *cfgdata_len) */
