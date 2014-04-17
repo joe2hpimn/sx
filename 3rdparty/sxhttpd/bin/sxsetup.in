@@ -390,7 +390,7 @@ EOF
 		    if [ -s "$KEY_TMP" ]; then
 			if grep -q -F -- '-----BEGIN' "$KEY_TMP"; then
 			    # it was pasted
-			    if grep -q -F -- '-----BEGIN PRIVATE KEY-----' "$KEY_TMP"; then
+			    if grep -q -F -- 'PRIVATE KEY-----' "$KEY_TMP"; then
 				cp "$KEY_TMP" "$SX_SSL_KEY_FILE"
 			    else
 				echo
