@@ -2466,7 +2466,7 @@ static int path_is_root(const char *path)
     return !*path;
 }
 
-static int hashes_to_download(sxc_file_t *source, FILE **tf, char **tfname, unsigned int *blocksize, off_t *filesize, sxc_meta_t *vmeta) {
+static int hashes_to_download(sxc_file_t *source, FILE **tf, char **tfname, unsigned int *blocksize, int64_t *filesize, sxc_meta_t *vmeta) {
     char *enc_vol = NULL, *enc_path = NULL, *url = NULL, *hsfname = NULL;
     struct cb_getfile_ctx yctx;
     yajl_callbacks *yacb = &yctx.yacb;
@@ -2938,7 +2938,7 @@ static int remote_to_local(sxc_file_t *source, sxc_file_t *dest, sxc_xres_t *xre
     uint8_t *buf = NULL;
     sxc_client_t *sx = source->sx;
     struct stat st;
-    off_t filesize;
+    int64_t filesize;
     int ret = 1, rd = -1, d = -1, fail = 0;
     unsigned int blocksize;
     off_t curoff = 0;
@@ -3389,7 +3389,7 @@ static sxi_job_t* remote_to_remote_fast(sxc_file_t *source, sxc_meta_t *fmeta, s
     yajl_callbacks *yacb = &yctx.current.yacb;
     unsigned int blocksize;
     sxi_hostlist_t volhosts, flushost;
-    off_t filesize;
+    int64_t filesize;
     uint8_t *buf = NULL;
     FILE *hf;
     sxi_query_t *query = NULL;
