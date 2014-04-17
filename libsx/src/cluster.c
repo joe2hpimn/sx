@@ -351,6 +351,10 @@ int sxi_cluster_query_ev(curlev_context_t *cbdata,
         conns_err(SXE_EARG, "Null cbdata");
         return -1;
     }
+    if (!host) {
+        conns_err(SXE_EARG, "Null host");
+        return -1;
+    }
     if (sxi_is_debug_enabled(conns->sx))
 	sxi_curlev_set_verbose(conns->curlev, 1);
 

@@ -1034,7 +1034,9 @@ int sxi_volume_info(sxc_cluster_t *cluster, const char *volume, sxi_hostlist_t *
 	if(yctx.yh)
 	    yajl_free(yctx.yh);
 	sxc_meta_empty(metadata);
-	return qret;
+        cluster_err(SXE_ECOMM, "failed to query volume location");
+        /* we must return an error code */
+	return qret ? qret : -1;
     }
 
     if(yajl_complete_parse(yctx.yh) != yajl_status_ok || yctx.state != LC_COMPLETE) {
