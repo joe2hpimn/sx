@@ -168,7 +168,7 @@ fi
 AC_C_BIGENDIAN()
 
 # Checks for library functions.
-AC_CHECK_FUNCS([setproctitle memset fdatasync])
+AC_CHECK_FUNCS([setproctitle memset fdatasync setgroups])
 
 # Checks for sqlite3 flags.
 AC_CHECK_FUNCS([posix_fallocate usleep], [SQLITE3_FLAGS="$SQLITE3_FLAGS [-DHAVE_]AS_TR_CPP($ac_func)[=1]]", [buggy_build=1])

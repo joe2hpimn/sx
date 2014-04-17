@@ -566,6 +566,12 @@ int runas(char *usergroup)
         gid = g->gr_gid;
     }
 
+#ifdef HAVE_SETGROUPS
+    if(setgroups(1, &gid) == -1) {
+        CRIT("setgroups failed: %s", strerror(errno));
+        return -1;
+    }
+#endif
     if (setgid(gid) == -1) {
         CRIT("Cannot set groupid to %d: %s", gid, strerror(errno));
         return -1;
