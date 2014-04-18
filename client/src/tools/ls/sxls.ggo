@@ -1,7 +1,7 @@
 package "sxls"
 purpose "List contents of SX volumes"
 args "--unamed-opts --no-handle-version --no-handle-error --strict-hidden"
-usage "sxls [OPTIONS]... sx://[profile@]cluster/volume/[path]..."
+usage "sxls [OPTIONS]... sx://[profile@]cluster/[volume/[path]]..."
 
 option  "config-dir"		c "Path to SX configuration directory"
         string typestr="PATH" optional
