@@ -36,6 +36,7 @@
 #include "cmdline.h"
 #include "version.h"
 #include "libsx/src/misc.h"
+#include "libsx/src/clustcfg.h"
 
 static sxc_client_t *sx = NULL;
 
@@ -47,6 +48,46 @@ static void sighandler(int signal)
     exit(1);
 }
 
+static int setup_filters(sxc_client_t *sx, const char *fdir)
+{
+	char *filter_dir;
+
+    if(fdir) {
+	filter_dir = strdup(fdir);
+    } else {
+	const char *pt = getenv("SX_FILTER_DIR");
+	if(pt)
+	    filter_dir = strdup(pt);
+	else
+	    filter_dir = strdup(SX_FILTER_DIR);
+    }
+    if(!filter_dir) {
+		fprintf(stderr, "Failed to set filter dir\n");
+    	free(filter_dir);
+	return 1;
+    }
+    sxc_filter_loadall(sx, filter_dir);
+    free(filter_dir);
+    return 0;
+}
+
+static const char* get_filter_name(const char *uuid_string, const sxf_handle_t *filters, int filters_count) {
+    int i = 0;
+
+    /* Check if input is not bad */
+    if( !uuid_string || !filters || filters_count <= 0 ) {
+	return NULL;
+    }
+
+    /* Iterate over filters to find the right one */
+    for(i = 0; i < filters_count; i++) {
+        const sxc_filter_t *f = sxc_get_filter(&filters[i]);
+        if(strncmp(f->uuid, uuid_string, 37)) continue; /* Leave this step loop if this is not right filter */
+        return f -> shortname;
+    }
+    /* No filter has been found */
+    return NULL;
+}
 
 int main(int argc, char **argv) {
     int ret = 0;
@@ -55,6 +96,9 @@ int main(int argc, char **argv) {
     sxc_uri_t *u;
     struct gengetopt_args_info args;
     sxc_logger_t log;
+    char remote_filter_uuid[37]; 
+    int filters_count = 0;
+    const sxf_handle_t *filters = NULL;
 
     if(cmdline_parser(argc, argv, &args))
 	exit(1);
@@ -98,6 +142,22 @@ int main(int argc, char **argv) {
 	    continue;
 	}
 
+	if(args.long_format_given) {
+	    if(setup_filters(sx, args.filter_dir_arg) ) {
+		sxc_free_uri(u);
+		ret = 1;
+		continue;
+	    }
+
+	    filters = sxc_filter_list(sx, &filters_count);
+	    if(!filters) {
+	    	fprintf(stderr, "Failed to load filters\n");
+		sxc_free_uri(u);
+		ret = 1;
+		continue;
+	    }
+	}
+
 	if(!u->volume) {
 	    sxc_cluster_lv_t *fv = sxc_cluster_listvolumes(cluster);
 	    if(fv) {
@@ -112,8 +172,46 @@ int main(int argc, char **argv) {
 			break;
 		    }
 
-		    if(args.long_format_given)
-			printf("    VOL %-3u      %12lld ", vreplica, (long long)vsize);
+		    if(args.long_format_given) {
+			sxc_meta_t *vmeta = NULL;
+			const void *mval = NULL;
+			unsigned int mval_len;
+			sxc_file_t* volume_file = NULL;
+			const char *filter_name = NULL;
+
+			/* Initialize volume file structure */
+			if(!(volume_file = sxc_file_remote(cluster, vname, NULL))) {
+			    fprintf(stderr, "%s\n", "sxc_file_remote failed!\n");
+			    free(vname);
+			    break;
+			}
+
+			/* Retrieve metainformation about volume */
+			if(!(vmeta = sxc_volumemeta_new(volume_file))) {
+			    fprintf(stderr, "Failed to retrieve meta information for %s\n", args.inputs[i]);
+			    sxc_file_free(volume_file);
+			    free(vname);
+			    break;
+			}
+
+			if(vmeta && !sxc_meta_getval(vmeta, "filterActive", &mval, &mval_len)) {
+			    if(mval_len != 16) {
+				filter_name = "*invalid*";
+			    } else {
+				sxi_uuid_unparse(mval, remote_filter_uuid);
+				filter_name = get_filter_name(remote_filter_uuid, filters, filters_count);
+				if(!filter_name)
+				    filter_name = "*unknown*";
+			    }
+			} else {
+			    filter_name = "-";
+			}
+
+			printf("    VOL %-3u %10s      %12lld ", vreplica, filter_name, (long long)vsize);
+
+			sxc_file_free(volume_file);
+			sxc_meta_free(vmeta);
+		    }
 
 		    if(u->profile)
 			printf("sx://%s@%s/%s\n", u->profile, u->host, vname);
