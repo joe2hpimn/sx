@@ -39,6 +39,7 @@ const char *gengetopt_args_info_help[] = {
   "  -c, --config-dir=PATH  Path to SX configuration directory",
   "  -r, --recursive        Recursively list entire directories  (default=off)",
   "  -l, --long-format      use a long listing format  (default=off)",
+  "  -H, --human-readable   Print human readable output  (default=off)",
   "  -D, --debug            Enable debug messages  (default=off)",
   "  -v, --verbose          Enable verbose errors  (default=off)",
     0
@@ -70,6 +71,7 @@ void clear_given (struct gengetopt_args_info *args_info)
   args_info->config_dir_given = 0 ;
   args_info->recursive_given = 0 ;
   args_info->long_format_given = 0 ;
+  args_info->human_readable_given = 0 ;
   args_info->debug_given = 0 ;
   args_info->verbose_given = 0 ;
 }
@@ -82,6 +84,7 @@ void clear_args (struct gengetopt_args_info *args_info)
   args_info->config_dir_orig = NULL;
   args_info->recursive_flag = 0;
   args_info->long_format_flag = 0;
+  args_info->human_readable_flag = 0;
   args_info->debug_flag = 0;
   args_info->verbose_flag = 0;
   
@@ -97,8 +100,9 @@ void init_args_info(struct gengetopt_args_info *args_info)
   args_info->config_dir_help = gengetopt_args_info_help[2] ;
   args_info->recursive_help = gengetopt_args_info_help[3] ;
   args_info->long_format_help = gengetopt_args_info_help[4] ;
-  args_info->debug_help = gengetopt_args_info_help[5] ;
-  args_info->verbose_help = gengetopt_args_info_help[6] ;
+  args_info->human_readable_help = gengetopt_args_info_help[5] ;
+  args_info->debug_help = gengetopt_args_info_help[6] ;
+  args_info->verbose_help = gengetopt_args_info_help[7] ;
   
 }
 
@@ -232,6 +236,8 @@ cmdline_parser_dump(FILE *outfile, struct gengetopt_args_info *args_info)
     write_into_file(outfile, "recursive", 0, 0 );
   if (args_info->long_format_given)
     write_into_file(outfile, "long-format", 0, 0 );
+  if (args_info->human_readable_given)
+    write_into_file(outfile, "human-readable", 0, 0 );
   if (args_info->debug_given)
     write_into_file(outfile, "debug", 0, 0 );
   if (args_info->verbose_given)
@@ -469,12 +475,13 @@ cmdline_parser_internal (
         { "config-dir",	1, NULL, 'c' },
         { "recursive",	0, NULL, 'r' },
         { "long-format",	0, NULL, 'l' },
+        { "human-readable",	0, NULL, 'H' },
         { "debug",	0, NULL, 'D' },
         { "verbose",	0, NULL, 'v' },
         { 0,  0, 0, 0 }
       };
 
-      c = getopt_long (argc, argv, "hVc:rlDv", long_options, &option_index);
+      c = getopt_long (argc, argv, "hVc:rlHDv", long_options, &option_index);
 
       if (c == -1) break;	/* Exit from `while (1)' loop.  */
 
@@ -527,6 +534,16 @@ cmdline_parser_internal (
           if (update_arg((void *)&(args_info->long_format_flag), 0, &(args_info->long_format_given),
               &(local_args_info.long_format_given), optarg, 0, 0, ARG_FLAG,
               check_ambiguity, override, 1, 0, "long-format", 'l',
+              additional_error))
+            goto failure;
+        
+          break;
+        case 'H':	/* Print human readable output.  */
+        
+        
+          if (update_arg((void *)&(args_info->human_readable_flag), 0, &(args_info->human_readable_given),
+              &(local_args_info.human_readable_given), optarg, 0, 0, ARG_FLAG,
+              check_ambiguity, override, 1, 0, "human-readable", 'H',
               additional_error))
             goto failure;
         

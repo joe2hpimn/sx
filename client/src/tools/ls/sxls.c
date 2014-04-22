@@ -47,6 +47,22 @@ static void sighandler(int signal)
     exit(1);
 }
 
+/* Change file size into human readable form, e.g. 1.34T. 
+ * Remember to free result of this function.
+*/
+static char *process_size(long long size){
+    double dsize = (double)size;
+    int i = 0;
+    const char *units[] = { "", "K", "M", "G", "T", "P" };
+    char buffer[20];
+    while( dsize > 1024 ) {
+        dsize /= 1024;
+        i++;
+    }
+    if(i >= 6) return NULL;
+    snprintf(buffer, 20, "%.2f%s", dsize, units[i]);
+    return strdup(buffer);
+}
 
 int main(int argc, char **argv) {
     int ret = 0;
@@ -105,6 +121,7 @@ int main(int argc, char **argv) {
 		    char *vname;
 		    int64_t vsize;
 		    unsigned int vreplica;
+                    char *human_str = NULL;
 		    int n = sxc_cluster_listvolumes_next(fv, &vname, &vsize, &vreplica);
 		    if(n<=0) {
 			if(n)
@@ -112,8 +129,14 @@ int main(int argc, char **argv) {
 			break;
 		    }
 
-		    if(args.long_format_given)
-			printf("    VOL %-3u      %12lld ", vreplica, (long long)vsize);
+		    if(args.long_format_given) {
+		        if(args.human_readable_flag && (human_str = process_size((long long)vsize))) {
+                            printf("    VOL %-3u      %12s ", vreplica, human_str);
+                            free(human_str);
+			} else {
+			    printf("    VOL %-3u      %12lld ", vreplica, (long long)vsize);
+			}
+		    }
 
 		    if(u->profile)
 			printf("sx://%s@%s/%s\n", u->profile, u->host, vname);
@@ -133,6 +156,7 @@ int main(int argc, char **argv) {
 		    char *fname;
 		    int64_t fsize;
 		    time_t ftime;
+                    char *human_str = NULL;
 		    int n = sxc_cluster_listfiles_next(fl, &fname, &fsize, &ftime);
 		    if(n<=0) {
 			if(n)
@@ -146,14 +170,19 @@ int main(int argc, char **argv) {
 			    printf("    DIR                       ");
 			else {
 			    struct tm *gt = gmtime(&ftime);
-			    printf("%04d-%02d-%02d %02d:%02d %12lld ",
+			    printf("%04d-%02d-%02d %02d:%02d ",
 				   gt->tm_year + 1900,
 				   gt->tm_mon + 1,
 				   gt->tm_mday,
 				   gt->tm_hour,
-				   gt->tm_min,
-				   (long long)fsize);
-			}
+				   gt->tm_min);
+			    if(args.human_readable_flag  && (human_str = process_size((long long)fsize))) {
+				printf("%12s ", human_str);
+				free(human_str);
+			    } else {
+				printf("%12lld ", (long long)fsize);
+			    }
+		        } 
 		    }
 		    if(u->profile)
 			printf("sx://%s@%s/%s%s\n", u->profile, u->host, u->volume, fname);
