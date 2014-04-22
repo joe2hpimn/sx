@@ -46,6 +46,9 @@ struct gengetopt_args_info
   const char *recursive_help; /**< @brief Recursively list entire directories help description.  */
   int long_format_flag;	/**< @brief use a long listing format (default=off).  */
   const char *long_format_help; /**< @brief use a long listing format help description.  */
+  char * filter_dir_arg;	/**< @brief Path to SX filter directory.  */
+  char * filter_dir_orig;	/**< @brief Path to SX filter directory original value given at command line.  */
+  const char *filter_dir_help; /**< @brief Path to SX filter directory help description.  */
   int debug_flag;	/**< @brief Enable debug messages (default=off).  */
   const char *debug_help; /**< @brief Enable debug messages help description.  */
   int verbose_flag;	/**< @brief Enable verbose errors (default=off).  */
@@ -56,6 +59,7 @@ struct gengetopt_args_info
   unsigned int config_dir_given ;	/**< @brief Whether config-dir was given.  */
   unsigned int recursive_given ;	/**< @brief Whether recursive was given.  */
   unsigned int long_format_given ;	/**< @brief Whether long-format was given.  */
+  unsigned int filter_dir_given ;	/**< @brief Whether filter-dir was given.  */
   unsigned int debug_given ;	/**< @brief Whether debug was given.  */
   unsigned int verbose_given ;	/**< @brief Whether verbose was given.  */
 

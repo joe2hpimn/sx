@@ -9,6 +9,9 @@ option  "config-dir"		c "Path to SX configuration directory"
 option  "recursive"	r "Recursively list entire directories" flag off
 option  "long-format"	l "use a long listing format" flag off
 
+option  "filter-dir"		- "Path to SX filter directory"
+        string typestr="PATH" optional
+
 option  "debug"		D "Enable debug messages" flag off
 option  "verbose"       v "Enable verbose errors" flag off
 
