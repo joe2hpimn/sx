@@ -59,8 +59,9 @@ static char *process_size(long long size){
         dsize /= 1024;
         i++;
     }
-    if(i >= 6) return NULL;
-    snprintf(buffer, 20, "%.2f%s", dsize, units[i]);
+
+    if(i >= sizeof(units)/sizeof(const char*)) return NULL;
+    snprintf(buffer, sizeof(buffer), "%.2f%s", dsize, units[i]);
     return strdup(buffer);
 }
 
