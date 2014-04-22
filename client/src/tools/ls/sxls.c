@@ -82,7 +82,7 @@ static const char* get_filter_name(const char *uuid_string, const sxf_handle_t *
     /* Iterate over filters to find the right one */
     for(i = 0; i < filters_count; i++) {
         const sxc_filter_t *f = sxc_get_filter(&filters[i]);
-        if(strncmp(f->uuid, uuid_string, 37)) continue; /* Leave this step loop if this is not right filter */
+        if(strncmp(f->uuid, uuid_string, 36)) continue; /* Leave this step loop if this is not right filter */
         return f -> shortname;
     }
     /* No filter has been found */
