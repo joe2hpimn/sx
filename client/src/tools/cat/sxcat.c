@@ -43,7 +43,7 @@ struct gengetopt_args_info args;
 static sxc_client_t *sx = NULL;
 
 static int is_sx(const char *p) {
-    return strncmp(p, "sx://", 5) == 0;
+    return strncmp(p, "sx://", 5) == 0 || strncmp(p, SXC_ALIAS_PREFIX, strlen(SXC_ALIAS_PREFIX)) == 0;
 }
 
 static void sighandler(int signal)
@@ -127,6 +127,11 @@ int main(int argc, char **argv) {
 	return 1;
     }
 
+    if(args.config_dir_given && sxc_set_confdir(sx, args.config_dir_arg)) {
+        fprintf(stderr, "Could not set configuration directory %s: %s\n", args.config_dir_arg, sxc_geterrmsg(sx));
+        cmdline_parser_free(&args);
+        return 1;
+    }
     sxc_set_debug(sx, args.debug_flag);
 
     if(args.filter_dir_given) {

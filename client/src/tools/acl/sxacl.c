@@ -310,6 +310,11 @@ int main(int argc, char **argv) {
                 printf("%s %s\n", MAIN_CMDLINE_PARSER_PACKAGE, SRC_VERSION);
 		break;
 	    }
+            if(args.config_dir_given && sxc_set_confdir(sx, args.config_dir_arg)) {
+                fprintf(stderr, "Could not set configuration directory %s: %s\n", args.config_dir_arg, sxc_geterrmsg(sx));
+                ret = 1;
+                break;
+            }
             sxc_set_debug(sx, args.debug_flag);
             if (args.inputs_num != 2) {
                 fprintf(stderr,"Wrong number of arguments (see 'sxacl %s --help')\n", argv[1]);
@@ -329,6 +334,11 @@ int main(int argc, char **argv) {
                 printf("%s %s\n", MAIN_CMDLINE_PARSER_PACKAGE, SRC_VERSION);
 		break;
 	    }
+            if(args.config_dir_given && sxc_set_confdir(sx, args.config_dir_arg)) {
+                fprintf(stderr, "Could not set configuration directory %s: %s\n", args.config_dir_arg, sxc_geterrmsg(sx));
+                ret = 1;
+                break;
+            }
             sxc_set_debug(sx, args.debug_flag);
             if (args.inputs_num != 1) {
                 fprintf(stderr,"Wrong number of arguments (see 'sxacl %s --help')\n", argv[1]);
@@ -347,6 +357,11 @@ int main(int argc, char **argv) {
                 printf("%s %s\n", MAIN_CMDLINE_PARSER_PACKAGE, SRC_VERSION);
 		break;
 	    }
+            if(args.config_dir_given && sxc_set_confdir(sx, args.config_dir_arg)) {
+                fprintf(stderr, "Could not set configuration directory %s: %s\n", args.config_dir_arg, sxc_geterrmsg(sx));
+                ret = 1;
+                break;
+            }
             sxc_set_debug(sx, args.debug_flag);
             if (args.inputs_num != 2) {
                 fprintf(stderr,"Wrong number of arguments (see 'sxacl %s --help')\n", argv[1]);
@@ -365,6 +380,11 @@ int main(int argc, char **argv) {
                 printf("%s %s\n", MAIN_CMDLINE_PARSER_PACKAGE, SRC_VERSION);
 		break;
 	    }
+            if(args.config_dir_given && sxc_set_confdir(sx, args.config_dir_arg)) {
+                fprintf(stderr, "Could not set configuration directory %s: %s\n", args.config_dir_arg, sxc_geterrmsg(sx));
+                ret = 1;
+                break;
+            }
             sxc_set_debug(sx, args.debug_flag);
             if (args.inputs_num != 2) {
                 fprintf(stderr,"Wrong number of arguments (see 'sxacl %s --help')\n", argv[1]);
@@ -383,6 +403,11 @@ int main(int argc, char **argv) {
                 printf("%s %s\n", MAIN_CMDLINE_PARSER_PACKAGE, SRC_VERSION);
 		break;
 	    }
+            if(args.config_dir_given && sxc_set_confdir(sx, args.config_dir_arg)) {
+                fprintf(stderr, "Could not set configuration directory %s: %s\n", args.config_dir_arg, sxc_geterrmsg(sx));
+                ret = 1;
+                break;
+            }
             sxc_set_debug(sx, args.debug_flag);
             if (args.inputs_num != 1) {
                 fprintf(stderr,"Wrong number of arguments (see 'sxacl %s --help')\n", argv[1]);

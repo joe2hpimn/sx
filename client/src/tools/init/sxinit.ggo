@@ -1,7 +1,11 @@
 package "sxinit"
 purpose "Manage local configuration of SX"
 args "--unamed-opts=sx://[profile@]cluster --no-handle-version --no-handle-error --strict-hidden"
-usage "sxinit [OPTIONS]... sx://[profile@]cluster"
+usage "sxinit [OPTIONS]... { sx://[profile@]cluster | --list }"
+
+option "list"   L  "List configured clusters and aliases" optional
+
+option "alias"  A  "Alias that will be used instead of full sx://[profile@]cluster/" string optional 
 
 option  "config-dir"		c "Path to SX configuration directory"
         string typestr="PATH" optional
