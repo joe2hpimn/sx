@@ -29,6 +29,9 @@
 #include <signal.h>
 #include <stdlib.h>
 #include <string.h>
+#include <pwd.h>
+#include <dirent.h>
+#include <unistd.h>
 
 #include "sx.h"
 #include "cmdline.h"
@@ -37,12 +40,98 @@
 
 static sxc_client_t *sx = NULL;
 
-static void sighandler(int signal)
-{
+static void sighandler(int signal) {
     if(sx)
 	sxc_shutdown(sx, signal);
     fprintf(stderr, "Process interrupted\n");
     exit(1);
+}
+
+/* Get configuration directory full name */
+static char *get_confdir(const char *config_dir) {
+    unsigned int config_len;
+    const char *home_dir;
+    char *confdir;
+    struct passwd *pwd;
+
+    if(!config_dir) {
+        home_dir = getenv("HOME");
+        if(!home_dir) {
+            pwd = getpwuid(geteuid());
+            if(pwd)
+                home_dir = pwd->pw_dir;
+        }
+        if(!home_dir) {
+            return NULL;
+        }
+        config_len = strlen(home_dir) + 1 + strlen(".sx");
+    } else
+        config_len = strlen(config_dir);
+
+    confdir = malloc(config_len + 2);
+    if(!confdir) {
+        return NULL;
+    }
+
+    if(config_dir)
+        sprintf(confdir, "%s", config_dir);
+    else
+        sprintf(confdir, "%s/.sx", home_dir);
+
+    return confdir;
+}
+
+/* List all clusters with profile names that are configured in configuration directory */
+static int list_clusters(const char *config_dir) {
+    char *confdir = NULL;
+    DIR *clusters_dir = NULL, *profiles_dir = NULL;
+    struct dirent *cluster_dirent = NULL, *profile_dirent;
+
+    confdir = get_confdir(config_dir);
+    if(!confdir){
+        fprintf(stderr, "Could not locate configuration directory\n");
+        return 1;
+    }
+
+    /* Open clusters configuration directory */
+    clusters_dir = opendir(confdir);
+    if(!clusters_dir) {
+        fprintf(stderr, "Could not open %s directory\n", confdir);
+        free(confdir);
+        return 1;
+    }
+
+    /* Iterate over cluster names */
+    while((cluster_dirent = readdir(clusters_dir)) != NULL) {
+        char *auth_dir_name = NULL;
+        int auth_dir_len = 0;
+
+        if(cluster_dirent->d_name[0] == '.' || cluster_dirent->d_type != DT_DIR) continue; /* Omit files and directories starting with . */
+
+        /* Prepare cluster auth configuration directory name */
+        auth_dir_len = strlen(confdir) + strlen(cluster_dirent->d_name) + strlen("/auth") + 2;
+        auth_dir_name = malloc(auth_dir_len);
+        if(!auth_dir_name) {
+            fprintf(stderr, "Could not allocate memory for auth directory\n");
+            break;
+        }
+        snprintf(auth_dir_name, auth_dir_len, "%s/%s/auth", confdir, cluster_dirent->d_name);
+
+        /* Read cluster auth configuration */
+        profiles_dir = opendir(auth_dir_name);
+        if(profiles_dir) {
+            while((profile_dirent = readdir(profiles_dir)) != NULL) {
+                if(profile_dirent->d_name[0] != '.')
+                    fprintf(stderr, "sx://%s@%s\n", profile_dirent->d_name, cluster_dirent->d_name);
+            }
+
+            closedir(profiles_dir);
+        }
+    }
+
+    if(clusters_dir) closedir(clusters_dir);
+    free(confdir);
+    return 0;
 }
 
 int main(int argc, char **argv) {
@@ -62,13 +151,22 @@ int main(int argc, char **argv) {
 	return 0;
     }
 
-    if(args.inputs_num != 1) {
+    /* Check if sx://profile@cluster/ or --list option is given but bot both */
+    if((args.inputs_num != 1 && !args.list_given)
+        || (args.inputs_num == 1 && args.list_given)) {
 	fprintf(stderr, "Wrong number of arguments (see --help)\n");
 	goto init_err;
     }
 
     signal(SIGINT, sighandler);
     signal(SIGTERM, sighandler);
+
+    if(args.list_given)
+    {
+        ret = list_clusters(args.config_dir_arg);
+        cmdline_parser_free(&args);
+        return ret;
+    }
 
     if(!(sx = sxc_init(SRC_VERSION, sxc_default_logger(&log, argv[0]), sxi_yesno))) {
         fprintf(stderr, "Failed to initialize SX\n");
