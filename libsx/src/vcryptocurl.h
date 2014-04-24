@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2012-2014 Skylable Ltd. <info-copyright@skylable.com>
+ *  Copyright (C) 2014 Skylable Ltd. <info-copyright@skylable.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -16,31 +16,6 @@
  *  Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA.
  *
  */
-
-#ifndef DEFAULT_H
-#define DEFAULT_H
-
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
-
-/* common includes that everything should have */
-#include "types.h"
-#include "gnuc.h"
-
-#define SX_BS_SMALL (4*1024)
-#define SX_BS_MEDIUM (16*1024)
-#define SX_BS_LARGE (1*1024*1024)
-
-#define UPLOAD_CHUNK_SIZE (4*SX_BS_LARGE)
-#define DOWNLOAD_MAX_BLOCKS 30
-
-#define AUTH_UID_LEN 20
-#define AUTH_KEY_LEN 20
-#define AUTHTOK_ASCII_LEN 56
-#define AUTHTOK_BIN_LEN (AUTHTOK_ASCII_LEN / 4 * 3)
-
-#define HASH_BIN_LEN 20
-#define HASH_TEXT_LEN (HASH_BIN_LEN * 2)
-
-#endif
+#include <curl/curl.h>
+#include "curlevents.h"
+int sxi_sslctxfun(sxc_client_t *sx, curlev_t *ev, const struct curl_tlssessioninfo *info);

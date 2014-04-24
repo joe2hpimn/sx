@@ -26,7 +26,6 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <errno.h>
-#include <openssl/sha.h>
 
 #include "libsx-int.h"
 #include "misc.h"
@@ -37,6 +36,8 @@
 #include "filter.h"
 #include "sxproto.h"
 #include "jobpoll.h"
+#include "volops.h"
+#include "vcrypto.h"
 
 int sxc_volume_add(sxc_cluster_t *cluster, const char *name, int64_t size, unsigned int replica, sxc_meta_t *metadata, const char *owner)
 {
@@ -131,7 +132,7 @@ int sxi_volume_cfg_store(sxc_client_t *sx, sxc_cluster_t *cluster, const char *v
     }
 
     if(filter_cfg) {
-	SHA256(filter_cfg, filter_cfglen, digest);
+	sxi_sha256(filter_cfg, filter_cfglen, digest);
 	sprintf(path, "%s/volumes/%s/%s/.sx-chksum", confdir, vname, filter_uuid);
 	fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0600);
 	if(fd == -1) {
@@ -304,7 +305,7 @@ int sxi_volume_cfg_check(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_meta_t *v
 	    sxi_seterr(sx, SXE_EFILTER, "Remote volume reports no filter config, local settings report filter config");
 	    return 1;
 	} else if(!nocluster && cfgval) {
-	    SHA256(cfgval, cfgval_len, remote_digest);
+	    sxi_sha256(cfgval, cfgval_len, remote_digest);
 	    if(memcmp(local_digest, remote_digest, sizeof(local_digest))) {
 		bigerr(cluster, vname);
 		sxi_seterr(sx, SXE_EFILTER, "Remote volume reports different filter config than local settings");

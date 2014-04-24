@@ -26,7 +26,7 @@
 #include <sys/stat.h>
 #include <errno.h>
 #include <pwd.h>
-#if HAVE_FTW
+#if HAVE_NFTW
 #include <ftw.h>
 #else
 #include "ftw.h"
@@ -34,6 +34,7 @@
 
 #include "libsx-int.h"
 #include "misc.h"
+#include "vcrypto.h"
 
 int sxc_fgetline(sxc_client_t *sx, FILE *f, char **ret) {
     char buf[2048], *cur;
@@ -1528,4 +1529,13 @@ int sxi_rmdirs(const char *dir)
     if(access(dir, F_OK) == -1 && errno == ENOENT)
 	return 0;
     return nftw(dir, rm_fn, 10, FTW_MOUNT | FTW_PHYS | FTW_DEPTH);
+}
+
+int sxi_hmac_update_str(sxi_hmac_ctx *ctx, const char *str) {
+    if (!ctx)
+        return 0;
+    int r = sxi_hmac_update(ctx, (unsigned char *)str, strlen(str));
+    if(r)
+	r = sxi_hmac_update(ctx, (unsigned char *)"\n", 1);
+    return r;
 }

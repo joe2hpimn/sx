@@ -80,7 +80,7 @@ EOF
     if [ $i -gt 1 ]; then
 	echo "SX_EXISTING_NODE_IP=\"127.0.1.1\"" >> $CONF_TMP
     fi
-    export SX_USE_VALGRIND=yes
+#    export SX_USE_VALGRIND=yes
     sudo -E $prefix/sbin/sxsetup --config-file $CONF_TMP
     rm -f $CONF_TMP
 

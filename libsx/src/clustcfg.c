@@ -29,19 +29,17 @@
 #include <arpa/inet.h>
 #include <errno.h>
 #include <unistd.h>
-#include <openssl/pem.h>
-#include <openssl/rand.h>
 #include <pwd.h>
 
 #include "libsx-int.h"
 #include "cluster.h"
 #include "yajlwrap.h"
 #include "clustcfg.h"
-#include "cert.h"
 #include "sxreport.h"
 #include "sxproto.h"
 #include "jobpoll.h"
 #include "curlevents.h"
+#include "vcrypto.h"
 
 struct _sxc_cluster_t {
     sxc_client_t *sx;
@@ -2096,11 +2094,10 @@ const char *sxi_cluster_get_confdir(const sxc_cluster_t *cluster) {
 int sxc_user_add(sxc_cluster_t *cluster, const char *username, int admin, FILE *storeauth)
 {
     uint8_t buf[AUTH_UID_LEN + AUTH_KEY_LEN + 2], *uid = buf, *key = &buf[AUTH_UID_LEN];
-    char namebuf[1024], *tok;
+    char *tok;
     sxc_client_t *sx;
-    const char *rndfile;
     sxi_query_t *proto;
-    EVP_MD_CTX ch_ctx;
+    sxi_md_ctx *ch_ctx;
     int l, qret;
 
     if(!cluster)
@@ -2113,27 +2110,23 @@ int sxc_user_add(sxc_cluster_t *cluster, const char *username, int admin, FILE *
 
     /* UID part - unsalted username hash */
     l = strlen(username);
-    if(!EVP_DigestInit(&ch_ctx, EVP_sha1())) {
+    ch_ctx = sxi_md_init();
+    if (!ch_ctx)
+        return 1;
+    if(!sxi_digest_init(ch_ctx)) {
 	cluster_err(SXE_ECRYPT, "Cannot compute hash: unable to initialize crypto library");
 	return 1;
     }
-    if(!EVP_DigestUpdate(&ch_ctx, username, l) || !EVP_DigestFinal(&ch_ctx, uid, NULL)) {
+    if(!sxi_digest_update(ch_ctx, username, l) || !sxi_digest_final(ch_ctx, uid, NULL)) {
 	cluster_err(SXE_ECRYPT, "Cannot compute hash: crypto library failure");
-	EVP_MD_CTX_cleanup(&ch_ctx);
+        sxi_md_cleanup(&ch_ctx);
 	return 1;
     }
-    EVP_MD_CTX_cleanup(&ch_ctx);
+    sxi_md_cleanup(&ch_ctx);
 
     /* KEY part - really random bytes */
-    rndfile = RAND_file_name(namebuf, sizeof(namebuf));
-    if(rndfile)
-        RAND_load_file(rndfile, -1);
-    if(RAND_status() == 1 && RAND_bytes(key, AUTH_KEY_LEN) == 1)
-        RAND_write_file(rndfile);
-    else {
+    if (sxi_rand_bytes(key, AUTH_KEY_LEN) != 1)
 	cluster_err(SXE_ECRYPT, "Unable to produce a random key");
-	return 1;
-    }
 
     /* Encode token */
     buf[sizeof(buf) - 2] = 0; /* First reserved byte */
@@ -2264,7 +2257,7 @@ static int yacb_userkey_string(void *ctx, const unsigned char *s, size_t l) {
         return 1;
     if (yactx->state == USERKEY_KEY) {
         unsigned char token[AUTHTOK_BIN_LEN];
-        EVP_MD_CTX ch_ctx;
+        sxi_md_ctx *ch_ctx;
 
         memset(token, 0, sizeof(token));
 	if(sxi_hex2bin((const char *)s, l, token + AUTH_UID_LEN, AUTH_KEY_LEN)) {
@@ -2272,17 +2265,18 @@ static int yacb_userkey_string(void *ctx, const unsigned char *s, size_t l) {
             return 0;
         }
 
-        if(!EVP_DigestInit(&ch_ctx, EVP_sha1())) {
+        ch_ctx = sxi_md_init();
+        if(!sxi_digest_init(ch_ctx)) {
             sxi_seterr(yactx->sx, SXE_ECRYPT, "Cannot compute hash: unable to initialize crypto library");
             return 1;
         }
-        if(!EVP_DigestUpdate(&ch_ctx, yactx->username, strlen(yactx->username)) ||
-           !EVP_DigestFinal(&ch_ctx, token, NULL)) {
+        if(!sxi_digest_update(ch_ctx, yactx->username, strlen(yactx->username)) ||
+           !sxi_digest_final(ch_ctx, token, NULL)) {
             sxi_seterr(yactx->sx, SXE_ECRYPT, "Cannot compute hash: crypto library failure");
-            EVP_MD_CTX_cleanup(&ch_ctx);
+            sxi_md_cleanup(&ch_ctx);
             return 1;
         }
-        EVP_MD_CTX_cleanup(&ch_ctx);
+        sxi_md_cleanup(&ch_ctx);
         char *tok = sxi_b64_enc(yactx->sx, token, sizeof(token));
         fprintf(yactx->f, "%s\n", tok);
         free(tok);
@@ -2364,86 +2358,6 @@ done:
     return ret;
 }
 
-static int sxi_fmt_X509_name(struct sxi_fmt* fmt, X509_NAME *name)
-{
-    char *bio_data;
-    long n;
-    BIO *mem = BIO_new(BIO_s_mem());
-    if (!mem)
-        return -1;
-
-    X509_NAME_print_ex(mem, name, 0, XN_FLAG_SEP_CPLUS_SPC);
-    n = BIO_get_mem_data(mem, &bio_data);
-    if (n >= 0)
-        sxi_fmt_msg(fmt, "%.*s", (int)n, bio_data);
-    BIO_free(mem);
-    if (n < 0)
-        return -1;
-    return 0;
-}
-
-int sxi_print_certificate_info(sxc_client_t *sx, X509 *x)
-{
-    struct sxi_fmt fmt;
-    unsigned int i, n;
-    unsigned char hash[EVP_MAX_MD_SIZE];
-
-    if (!sx)
-        return -1;
-    if (!x) {
-        sxi_seterr(sx, SXE_EARG, "Called with NULL argument");
-        return -1;
-    }
-
-    sxi_fmt_start(&fmt);
-    sxi_fmt_msg(&fmt, "\tSubject: ");
-    if (sxi_fmt_X509_name(&fmt, X509_get_subject_name(x)) == -1) {
-        sxi_seterr(sx, SXE_EMEM, "Cannot print subject name");
-        return -1;
-    }
-
-    sxi_fmt_msg(&fmt, "\n\tIssuer: ");
-    if (sxi_fmt_X509_name(&fmt, X509_get_issuer_name(x)) == -1) {
-        sxi_seterr(sx, SXE_EMEM, "Cannot print subject name");
-        return -1;
-    }
-    if (!X509_digest(x, EVP_sha1(), hash, &n)) {
-        sxi_seterr(sx, SXE_EMEM, "Cannot compute certificate fingerprint");
-        return -1;
-    }
-    sxi_fmt_msg(&fmt, "\n\tSHA1 Fingerprint: ");
-    for (i=0; i<n; i++)
-    {
-        sxi_fmt_msg(&fmt, "%02X", hash[i]);
-        if (i + 1 == n)
-            sxi_fmt_msg(&fmt, "\n");
-        else
-            sxi_fmt_msg(&fmt,":");
-    }
-    sxi_notice(sx, "%s", fmt.buf);
-    /* TODO: print subject alt name too */
-    return 0;
-}
-
-void sxi_print_old_certificate_info(sxc_client_t *sx, const char *file)
-{
-    X509 *x = NULL;
-    FILE *f = fopen(file, "r");
-    if (f) {
-        x = PEM_read_X509(f, NULL, NULL, NULL);
-        if (!x)
-            sxi_notice(sx, "Warning: can't load old CA certificate from '%s'", file);
-    } else
-        sxi_notice(sx, "Warning: can't open old CA certificate file '%s'", file);
-    fclose(f);
-    if (x) {
-        sxi_notice(sx, "[NOTICE]: SSL certificate of the cluster has changed, possible MITM attack!\nThe old CA certificate was:");
-        sxi_print_certificate_info(sx, x);
-    }
-    if (x)
-        X509_free(x);
-}
-
 void sxi_report_configuration(sxc_client_t *sx, const char *configdir)
 {
     DIR *d;
@@ -2484,15 +2398,7 @@ void sxi_report_configuration(sxc_client_t *sx, const char *configdir)
             hlist = sxi_conns_get_hostlist(cluster->conns);
             sxi_info(sx, "\tHost count: %d", hlist ? sxi_hostlist_get_count(hlist) : 0);
             if (cluster->cafile) {
-                FILE *f = fopen(cluster->cafile, "r");
-                if (f) {
-                    X509 *x = PEM_read_X509(f, NULL, NULL, NULL);
-                    fclose(f);
-                    sxi_info(sx, "\tSSL certificate:");
-                    sxi_print_certificate_info(sx, x);
-                    X509_free(x);
-                } else
-                    sxi_setsyserr(sx,SXE_ECFG,"Cannot open CA file '%s'", cluster->cafile);
+                sxi_vcrypt_print_cert_info(sx, cluster->cafile, 0);
             }
             sxc_cluster_free(cluster);
         }
@@ -2516,6 +2422,8 @@ int sxc_cluster_fetch_ca(sxc_cluster_t *cluster, int quiet)
     sxi_set_operation(sxi_cluster_get_client(cluster), "fetch certificate", sxi_cluster_get_name(cluster), NULL, NULL);
     if (sxi_conns_root_noauth(sxi_cluster_get_conns(cluster), tmpcafile, quiet))
         return 1;
+    /* TODO: also check whether the root CA changed ..., and whether server cert
+     * changed especially if we're not trusted */
     if (tmpcafile && sxc_cluster_set_cafile(cluster, tmpcafile))
         return 1;
     return 0;

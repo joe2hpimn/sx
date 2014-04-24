@@ -32,8 +32,7 @@
 #include <strings.h>
 #include <stdlib.h>
 
-#include <openssl/evp.h>
-#include <openssl/hmac.h>
+#include "../libsx/src/vcrypto.h"
 
 #include "fcgi-utils.h"
 #include "fcgi-actions.h"
@@ -199,22 +198,13 @@ int is_http_10(void) {
     return strcmp(proto, "HTTP/1.0") == 0;
 }
 
-static int hmac_update_str(HMAC_CTX *ctx, const char *str) {
-    int r = sxi_hmac_update(ctx, (unsigned char *)str, strlen(str));
-    if(r)
-	r = sxi_hmac_update(ctx, (unsigned char *)"\n", 1);
-    if(!r)
-	WARN("hmac_update failed for '%s'", str);
-    return r;
-}
-
 uint8_t user[AUTH_UID_LEN], rhmac[20];
 sx_uid_t uid;
 static sx_priv_t role;
 
 static enum authed_t { AUTH_NOTAUTH, AUTH_BODYCHECK, AUTH_BODYCHECKING, AUTH_OK } authed;
-static HMAC_CTX hmac_ctx;
-static EVP_MD_CTX body_ctx;
+static sxi_hmac_ctx *hmac_ctx;
+static sxi_md_ctx *body_ctx;
 
 static void auth_begin(void) {
     const char *param = FCGX_GetParam("HTTP_AUTHORIZATION", envp);
@@ -236,7 +226,7 @@ static void auth_begin(void) {
     }
     DEBUG("Request from uid %lld", (long long)uid);
 
-    if(!sxi_hmac_init_ex(&hmac_ctx, key, sizeof(key), EVP_sha1(), NULL)) {
+    if(!sxi_hmac_init_ex(hmac_ctx, key, sizeof(key))) {
         WARN("hmac_init failed");
         quit_errmsg(500, "Failed to initialize crypto engine");
     }
@@ -244,13 +234,13 @@ static void auth_begin(void) {
     param = FCGX_GetParam("REQUEST_METHOD", envp);
     if(!param)
 	return;
-    if(!hmac_update_str(&hmac_ctx, param))
+    if(!sxi_hmac_update_str(hmac_ctx, param))
         quit_errmsg(500, "Failed to initialize crypto engine");
 
     param = FCGX_GetParam("REQUEST_URI", envp);
     if(!param)
 	return;
-    if(!hmac_update_str(&hmac_ctx, param+1))
+    if(!sxi_hmac_update_str(hmac_ctx, param+1))
         quit_errmsg(500, "Failed to initialize crypto engine");
 
     param = FCGX_GetParam("HTTP_DATE", envp);
@@ -261,15 +251,15 @@ static void auth_begin(void) {
     now = time(NULL);
     if(reqdate < now - MAX_CLOCK_DRIFT * 60 || reqdate > now + MAX_CLOCK_DRIFT * 60)
         quit_errmsg(400, "Client clock drifted more than "STRIFY(MAX_CLOCK_DRIFT)" minutes");
-    if(!hmac_update_str(&hmac_ctx, param))
+    if(!sxi_hmac_update_str(hmac_ctx, param))
         quit_errmsg(500, "Failed to initialize crypto engine");
 
     if(!content_len()) {
 	uint8_t chmac[20];
 	unsigned int chmac_len = 20;
-	if(!hmac_update_str(&hmac_ctx, "da39a3ee5e6b4b0d3255bfef95601890afd80709"))
+	if(!sxi_hmac_update_str(hmac_ctx, "da39a3ee5e6b4b0d3255bfef95601890afd80709"))
             quit_errmsg(500, "Failed to initialize crypto engine");
-	if(!sxi_hmac_final(&hmac_ctx, chmac, &chmac_len))
+	if(!sxi_hmac_final(hmac_ctx, chmac, &chmac_len))
             quit_errmsg(500, "Failed to initialize crypto engine");
 	if(!hmac_compare(chmac, rhmac, sizeof(rhmac))) {
 	    authed = AUTH_OK;
@@ -286,8 +276,8 @@ int get_body_chunk(char *buf, int buflen) {
     if(r>=0) {
 	if(authed == AUTH_BODYCHECK)
 	    authed = AUTH_BODYCHECKING;
-	if(authed == AUTH_BODYCHECKING && !EVP_DigestUpdate(&body_ctx, buf, r)) {
-            WARN("EVP_DigestUpdate failed");
+	if(authed == AUTH_BODYCHECKING && !sxi_digest_update(body_ctx, buf, r)) {
+            WARN("digest update failed");
 	    authed = AUTH_NOTAUTH;
 	    return -1;
 	}
@@ -307,16 +297,16 @@ void auth_complete(void) {
     if(authed != AUTH_BODYCHECK && authed != AUTH_BODYCHECKING)
 	goto auth_complete_fail;
     
-    if(!EVP_DigestFinal(&body_ctx, d, NULL))
+    if(!sxi_digest_final(body_ctx, d, NULL))
         quit_errmsg(500, "Failed to initialize crypto engine");
 
     bin2hex(d, sizeof(d), content_hash, sizeof(content_hash));
     content_hash[sizeof(content_hash)-1] = '\0';
     
-    if(!hmac_update_str(&hmac_ctx, content_hash))
+    if(!sxi_hmac_update_str(hmac_ctx, content_hash))
         quit_errmsg(500, "Failed to initialize crypto engine");
 
-    if(!sxi_hmac_final(&hmac_ctx, d, &dlen))
+    if(!sxi_hmac_final(hmac_ctx, d, &dlen))
         quit_errmsg(500, "Failed to initialize crypto engine");
 
     if(!hmac_compare(d, rhmac, sizeof(rhmac))) {
@@ -582,9 +572,12 @@ void handle_request(void) {
         quit_errmsg(414, msg_get_reason());
     }
 
-    if(!EVP_DigestInit(&body_ctx, EVP_sha1()))
+    body_ctx = sxi_md_init();
+    if (!body_ctx || !sxi_digest_init(body_ctx))
 	quit_errmsg(500, "Failed to initialize crypto engine");
-    HMAC_CTX_init(&hmac_ctx);
+    hmac_ctx = sxi_hmac_init();
+    if (!hmac_ctx)
+        quit_errmsg(503, "Cannot initialize crypto library");
 
     authed = AUTH_NOTAUTH;
     role = PRIV_NONE;
@@ -619,8 +612,8 @@ void handle_request(void) {
     if(authed == AUTH_BODYCHECKING)
 	WARN("FIXME: Security fail");
 
-    HMAC_CTX_cleanup(&hmac_ctx);
-    EVP_MD_CTX_cleanup(&body_ctx);
+    sxi_hmac_cleanup(&hmac_ctx);
+    sxi_md_cleanup(&body_ctx);
 }
 
 int64_t content_len(void) {

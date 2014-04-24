@@ -16,8 +16,6 @@ src_libsx_la_SOURCES = \
 	include/default.h \
 	include/gnuc.h \
 	include/types.h \
-	src/cert.c \
-	src/cert.h \
 	src/curlevents.c \
 	src/curlevents.h \
 	src/cluster.c \
@@ -45,20 +43,31 @@ src_libsx_la_SOURCES = \
 	src/sxproto.c \
 	src/sxreport.h \
 	src/sxreport.c \
-	src/version.c
+	src/version.c \
+	src/vcrypto.h \
+	src/vcryptocurl.h
 if BUILD_NFTW
 src_libsx_la_SOURCES += \
 	src/nftw.c \
 	src/ftw.h
 endif
+if BUILD_NSS
+src_libsx_la_SOURCES += src/nss.c
+endif
+if BUILD_OPENSSL
+src_libsx_la_SOURCES += \
+	src/openssl.c\
+	src/cert.c \
+	src/cert.h
+endif
 
-src_libsx_la_LIBADD = @YAJL_LIBS@ @LIBCURL@ @CRYPTO_LIBS@ @LIBLTDL@ -lssl
+src_libsx_la_LIBADD = @YAJL_LIBS@ @LIBCURL@ @LIBLTDL@ @VCRYPTO_LIBS@
 # TODO: only sx_ should be exported not sxi_
 src_libsx_la_LDFLAGS = -no-undefined -export-symbols-regex sx.*
-src_libsx_la_CPPFLAGS = $(AM_CPPFLAGS) @YAJL_CPPFLAGS@ @LIBCURL_CPPFLAGS@ @CRYPTO_CFLAGS@ \
-			-DINFO_CPPFLAGS="\"$(AM_CPPFLAGS) $(CPPFLAGS) @FCGI_CPPFLAGS@ @CRYPTO_CFLAGS@ @YAJL_CPPFLAGS@\""\
+src_libsx_la_CPPFLAGS = $(AM_CPPFLAGS) @YAJL_CPPFLAGS@ @LIBCURL_CPPFLAGS@ @VCRYPTO_CFLAGS@ \
+			-DINFO_CPPFLAGS="\"$(AM_CPPFLAGS) $(CPPFLAGS) @YAJL_CPPFLAGS@ @LIBCURL_CPPFLAGS@ @OPENSSL_CFLAGS@ @NSS_CFLAGS@\""\
 			-DINFO_CFLAGS="\"$(AM_CFLAGS) $(CFLAGS)\""\
-			-DINFO_LDFLAGS="\"$(AM_LDFLAGS) $(LDFLAGS) @YAJL_LIBS@ @FCGI_LIBS@ @CRYPTO_LIBS@\""\
+			-DINFO_LDFLAGS="\"$(AM_LDFLAGS) $(LDFLAGS) @YAJL_LIBS@ @LIBCURL@ @LIBLTDL@ @VCRYPTO_LIBS@\""\
 			-DINFO_SYSCONFDIR="\"$(sysconfdir)\""\
 			-DINFO_BINDIR="\"$(bindir)\""\
 			-DINFO_LOCALSTATEDIR="\"$(localstatedir)\""\

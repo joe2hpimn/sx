@@ -29,12 +29,12 @@
 
 #include <string.h>
 #include <yajl/yajl_parse.h>
-#include <openssl/evp.h>
 
 #include "fcgi-utils.h"
 #include "hashfs.h"
 #include "blob.h"
 #include "../../../libsx/src/sxproto.h"
+#include "../../../libsx/src/vcrypto.h"
 
 void fcgi_user_onoff(int enable) {
     rc_ty s;
@@ -48,21 +48,15 @@ void fcgi_user_onoff(int enable) {
 }
 
 void fcgi_send_user(void) {
-    uint8_t user[EVP_MAX_MD_SIZE];
+    uint8_t user[HASH_BIN_LEN];
     sx_uid_t requid;
     uint8_t key[AUTH_KEY_LEN];
     sx_priv_t role;
     sxi_query_t *q;
 
-    EVP_MD_CTX ch_ctx;
-    if(!EVP_DigestInit(&ch_ctx, EVP_sha1())) {
+    if (sxi_hashcalc(NULL, 0, path, strlen(path), user))
 	quit_errmsg(500, "Cannot compute hash: unable to initialize crypto library");
-    }
-    if(!EVP_DigestUpdate(&ch_ctx, path, strlen(path)) || !EVP_DigestFinal(&ch_ctx, user, NULL)) {
-	EVP_MD_CTX_cleanup(&ch_ctx);
-	quit_errmsg(500, "Cannot compute hash: crypto library failure");
-    }
-    EVP_MD_CTX_cleanup(&ch_ctx);
+
     if(sx_hashfs_get_user_info(hashfs, user, &requid, key, &role) != OK) /* no such user */ {
         quit_errmsg(404, "No such user");
     }

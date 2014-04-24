@@ -29,7 +29,6 @@
 #include "log.h"
 #include "sxproc.h"
 #include "utils.h"
-#include <openssl/err.h>
 
 sxc_client_t* server_init(const sxc_logger_t *custom_logger, const char *application, const char *logfile, int log_foreground, int argc, char *argv[])
 {
@@ -41,7 +40,6 @@ sxc_client_t* server_init(const sxc_logger_t *custom_logger, const char *applica
         return NULL;
     }
     sxc_set_verbose(sx, 1);
-    ERR_load_crypto_strings();
     if (application) {
         sxprocinit(argc, argv);
         sxsetproctitle(application);
@@ -51,7 +49,6 @@ sxc_client_t* server_init(const sxc_logger_t *custom_logger, const char *applica
 
 void server_done(sxc_client_t **sx)
 {
-    ERR_free_strings();
     sxc_shutdown(*sx, 0);
     *sx = NULL;
     log_done();

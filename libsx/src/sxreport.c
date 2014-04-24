@@ -25,7 +25,6 @@
 #include <string.h>
 #include <yajl/yajl_version.h>
 #include <curl/curl.h>
-#include <openssl/crypto.h>
 #include <unistd.h>
 #include <sys/utsname.h>
 #include <sys/time.h>
@@ -35,6 +34,7 @@
 #include <pwd.h>
 #include <grp.h>
 #include <time.h>
+#include "vcrypto.h"
 
 static void print_confstr(sxc_client_t *sx, const char *msg, int name)
 {
@@ -114,10 +114,11 @@ void sxi_report_library_versions(sxc_client_t *sx, const char *srcver)
     curl_version_info_data *data = curl_version_info(CURLVERSION_NOW);
     sxi_report_library_int(sx, "curl", LIBCURL_VERSION_NUM, data->version_num, 65536, 256, 1);
     sxi_info(sx, "\t%s", curl_version());
-    if (!data->ssl_version || strncmp("OpenSSL", data->ssl_version, strlen("OpenSSL")))
-        sxi_info(sx, "\tWARNING: curl was NOT linked with OpenSSL");
-
-    sxi_report_library_int(sx, "OpenSSL", SSLEAY_VERSION_NUMBER, SSLeay(), 0x10000000, 0x100000, 0x1000);
+    if (!data->ssl_version ||
+        (strncmp("OpenSSL", data->ssl_version, strlen("OpenSSL"))
+        && strncmp("NSS", data->ssl_version, strlen("NSS"))))
+        sxi_info(sx, "\tWARNING: curl was NOT linked with OpenSSL or NSS");
+    sxi_report_crypto(sx);
 #ifdef _CS_GNU_LIBC_VERSION
     print_confstr(sx, "libc", _CS_GNU_LIBC_VERSION);
 #endif
@@ -164,7 +165,6 @@ void sxi_report_build_info(sxc_client_t *sx)
 #endif
     sxi_info(sx, "%s", fmt.buf);
 
-    sxi_info(sx, "OpenSSL CFLAGS: %s", SSLeay_version(SSLEAY_CFLAGS));
     sxi_info(sx, "libltdl: prefix: %s, archive: .%s, dynamic: %s, env: %s",
              LT_LIBPREFIX, LT_LIBEXT, LT_MODULE_EXT, LT_MODULE_PATH_VAR);
 }

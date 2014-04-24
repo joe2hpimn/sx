@@ -22,7 +22,6 @@
 
 #include "sx.h"
 #include <sys/time.h>
-#include <openssl/x509.h>
 
 void *sxi_realloc(sxc_client_t *sx, void *ptr, unsigned int newlen);
 int sxi_is_valid_authtoken(sxc_client_t *sx, const char *token);
@@ -55,8 +54,6 @@ void sxi_ht_free(sxi_ht *ht);
 
 double sxi_timediff(const struct timeval *a, const struct timeval *b);
 int sxi_utf8_validate(const char *str);
-int sxi_print_certificate_info(sxc_client_t *sx, X509 *x);
-void sxi_print_old_certificate_info(sxc_client_t *sx, const char *file);
 
 char *sxi_json_quote_string(const char *s);
 int sxi_uri_is_sx(sxc_client_t *sx, const char *uri);

@@ -55,7 +55,6 @@
 #include <netinet/in.h>
 #include <arpa/nameser.h>
 #include <resolv.h>
-#include <openssl/rand.h>
 
 #include "../libsx/src/sxproto.h"
 #include "../libsx/src/misc.h"

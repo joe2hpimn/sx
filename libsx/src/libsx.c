@@ -31,9 +31,9 @@
 #include "libsx-int.h"
 #include "ltdl.h"
 #include "filter.h"
-#include <openssl/crypto.h>
 #include "clustcfg.h"
 #include "misc.h"
+#include "vcrypto.h"
 
 struct _sxc_client_t {
     char errbuf[65536];
@@ -53,8 +53,6 @@ struct _sxc_client_t {
 };
 
 sxc_client_t *sxc_init(const char *client_version, const sxc_logger_t *func, int (*confirm)(const char *prompt, int def)) {
-    uint32_t runtime_ver = SSLeay();
-    uint32_t compile_ver = SSLEAY_VERSION_NUMBER;
     sxc_client_t *sx;
     struct sxi_logger l;
     unsigned int config_len;
@@ -78,10 +76,8 @@ sxc_client_t *sxc_init(const char *client_version, const sxc_logger_t *func, int
     /* FIXME THIS IS NOT THREAD SAFE */
     srand(time(NULL));
     signal(SIGPIPE, SIG_IGN);
-    /* TODO: have a way to log this */
-    if((runtime_ver & 0xff0000000) != (compile_ver & 0xff0000000)) {
+    if (sxi_crypto_check_ver(&l))
         return NULL;
-    }
     CURLcode rc = curl_global_init(CURL_GLOBAL_ALL);
     if (rc) {
         sxi_log_msg(&l, "sxc_init", SX_LOG_CRIT, "Failed to initialize libcurl: %s",
@@ -155,6 +151,7 @@ void sxc_shutdown(sxc_client_t *sx, int signal) {
 	free(sx);
 	lt_dlexit();
 	curl_global_cleanup();
+        sxi_vcrypto_cleanup();
     }
 }
 

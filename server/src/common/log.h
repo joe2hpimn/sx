@@ -79,7 +79,6 @@ const char *msg_get_id(void);
 /* log user-visible errors for 50x */
 void msg_add_sslerr(const char *func);
 void msg_add_detail(const char *func, const char *cat, const char *fmt, ...) FMT_PRINTF(3,4);
-#define SSLERR() msg_add_sslerr(__func__)
 #define NULLARG() msg_add_detail(__func__,"NULLARG","Called with NULL argument (at %s:%d)", __FILE__, __LINE__)
 #define OOM() msg_add_detail(__func__,"OOM","Out of memory (at %s:%d)", __FILE__,__LINE__)
 #define BADSTATE(msg) msg_add_detail(__func__,"BADSTATE","%s (at %s:%d)", msg, __FILE__, __LINE__)

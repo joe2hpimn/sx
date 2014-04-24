@@ -44,13 +44,10 @@
 #include <netdb.h>
 #include <unistd.h>
 #include <ftw.h>
-#include <openssl/rand.h>
-#include <openssl/hmac.h>
-#include <openssl/err.h>
-#include <openssl/evp.h>
 #include "isaac.h"
 #include "3rdparty/valgrind/valgrind/memcheck.h"
 #include "../libsx/src/misc.h"
+#include "../libsx/src/vcrypto.h"
 
 static const char hexchar[16] = "0123456789abcdef";
 int bin2hex(const void *src, uint32_t src_len, char *dst, uint32_t dst_len)
@@ -341,14 +338,8 @@ void uuid_from_binary(sx_uuid_t *u, const void *b) {
 
 int gen_key(unsigned char *buf, int num)
 {
-    char namebuf[1024];
-    const char *file = RAND_file_name(namebuf, sizeof(namebuf));
-    if (file)
-        RAND_load_file(file, -1);
-    if (RAND_status() == 1 && RAND_bytes(buf, num) == 1) {
-        RAND_write_file(file);
+    if (sxi_rand_bytes(buf, num))
         return 0;
-    }
     return -1;
 }
 
@@ -361,25 +352,26 @@ int derive_key(const unsigned char *salt, unsigned slen,
                unsigned char *buf, int blen)
 {
     /* RFC5869 */
-    uint8_t prk[EVP_MAX_MD_SIZE], md[EVP_MAX_MD_SIZE];
-    HMAC_CTX hmac_ctx;
+    uint8_t prk[HASH_BIN_LEN], md[HASH_BIN_LEN];
     unsigned int mdlen = sizeof(prk);
-    HMAC_CTX_init(&hmac_ctx);
+    sxi_hmac_ctx *hmac_ctx = sxi_hmac_init();
+    if (!hmac_ctx)
+        return -1;
 
-    if (!sxi_hmac_init_ex(&hmac_ctx, salt, slen, EVP_sha1(), NULL) ||
-        !sxi_hmac_update(&hmac_ctx, ikm, ilen) || /* Input Keying Material */
-        !sxi_hmac_final(&hmac_ctx, prk, &mdlen)) {
+    if (!sxi_hmac_init_ex(hmac_ctx, salt, slen) ||
+        !sxi_hmac_update(hmac_ctx, ikm, ilen) || /* Input Keying Material */
+        !sxi_hmac_final(hmac_ctx, prk, &mdlen)) {
         /*SSLERR();*/
         return -1;
     }
-    if (!sxi_hmac_init_ex(&hmac_ctx, prk, mdlen, EVP_sha1(), NULL) || /* PRK */
-        !sxi_hmac_update(&hmac_ctx, (const unsigned char*)info, strlen(info)) || /* T(0) || info */
-        !sxi_hmac_update(&hmac_ctx, (const unsigned char*)"\x1", 1) || /* || 0x01 */
-        !sxi_hmac_final(&hmac_ctx, md, &mdlen)) {
+    if (!sxi_hmac_init_ex(hmac_ctx, prk, mdlen) || /* PRK */
+        !sxi_hmac_update(hmac_ctx, (const unsigned char*)info, strlen(info)) || /* T(0) || info */
+        !sxi_hmac_update(hmac_ctx, (const unsigned char*)"\x1", 1) || /* || 0x01 */
+        !sxi_hmac_final(hmac_ctx, md, &mdlen)) {
         /*SSLERR();*/
         return -1;
     }
-    HMAC_CTX_cleanup(&hmac_ctx);
+    sxi_hmac_cleanup(&hmac_ctx);
     if (blen != mdlen) {
         WARN("bad hash length");
         return -1;
@@ -504,13 +496,7 @@ double timediff(struct timeval *time_start, struct timeval *time_end) {
 
 int ssl_version_check(void)
 {
-    uint32_t runtime_ver = SSLeay();
-    uint32_t compile_ver = SSLEAY_VERSION_NUMBER;
-    if((runtime_ver & 0xff0000000) != (compile_ver & 0xff0000000)) {
-	CRIT("OpenSSL major version mismatch: %x vs %x", runtime_ver, compile_ver);
-        return -1;
-    }
-    return 0;
+    return sxi_crypto_check_ver(&logger);
 }
 
 static const struct passwd *getuser(const char *name)

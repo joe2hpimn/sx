@@ -35,7 +35,6 @@
 #include <sys/time.h>
 #include <ctype.h>
 #include <limits.h>
-#include <openssl/sha.h>
 
 #include "hdist.h"
 #include "isaac.h"
@@ -43,6 +42,7 @@
 #include "log.h"
 #include "nodes.h"
 #include "zlib.h"
+#include "../libsx/src/vcrypto.h"
 
 #ifdef WORDS_BIGENDIAN
 uint32_t swapu32(uint32_t v)
@@ -595,34 +595,44 @@ rc_ty static update_cfg(sxi_hdist_t *model)
     return OK;
 }
 
-static uint64_t hchecksum(sxi_hdist_t *model)
+static int hchecksum(sxi_hdist_t *model)
 {
 	uint64_t v;
-	SHA_CTX sctx;
-	unsigned char sdig[SHA_DIGEST_LENGTH];
+	unsigned char sdig[HASH_BIN_LEN];
 	unsigned int i, j;
 	const char *pt;
+        sxi_md_ctx *sctx = sxi_md_init();
+        if (!sctx)
+            return 0;
 
     v = model->builds + model->node_count[0] + model->circle[0][0].point + model->state + model->max_builds + model->seed;
-    SHA1_Init(&sctx);
+    if (!sxi_digest_init(sctx))
+        return 0;
     for(i = 0; i < model->builds; i++) {
 	for(j = 0; j < model->node_count[i]; j++) {
 	    if(!model->node_list[i][j].sxn)
 		continue;
-	    SHA1_Update(&sctx, sx_node_uuid(model->node_list[i][j].sxn), 16);
+            if (!sxi_digest_update(sctx, sx_node_uuid(model->node_list[i][j].sxn), 16))
+                return 0;
 	    pt = sx_node_addr(model->node_list[i][j].sxn);
-	    if(pt)
-		SHA1_Update(&sctx, pt, strlen(pt));
+	    if(pt) {
+                if (!sxi_digest_update(sctx, pt, strlen(pt)))
+                    return 0;
+            }
 	    pt = sx_node_internal_addr(model->node_list[i][j].sxn);
-	    if(pt)
-		SHA1_Update(&sctx, pt, strlen(pt));
+	    if(pt) {
+                if (!sxi_digest_update(sctx, pt, strlen(pt)))
+                    return 0;
+            }
 	    v += sx_node_capacity(model->node_list[i][j].sxn);
 	}
 	if(model->circle_points[i])
 	    v ^= model->circle[i][model->circle_points[i] - 1].rnd;
     }
-    SHA1_Final(sdig, &sctx);
-    return MurmurHash64(sdig, sizeof(sdig), model->seed) ^ v;
+    if (!sxi_digest_final(sctx, sdig, NULL))
+        return 0;
+    model->checksum = MurmurHash64(sdig, sizeof(sdig), model->seed) ^ v;
+    return 1;
 }
 
 rc_ty sxi_hdist_rebalanced(sxi_hdist_t *model)
@@ -655,7 +665,10 @@ rc_ty sxi_hdist_rebalanced(sxi_hdist_t *model)
 
     model->builds = 1;
     model->version++;
-    model->checksum = hchecksum(model);
+    if (!hchecksum(model)) {
+        CRIT("Can't allocate memory for digest");
+        return ENOMEM;
+    }
 
     if(model->cfg_size + 33 > model->cfg_alloced) {
 	model->cfg_alloced += CFG_PREALLOC;
@@ -783,7 +796,7 @@ rc_ty sxi_hdist_build(sxi_hdist_t *model)
     model->state = 0xbabe;
     model->builds++;
     model->version++;
-    model->checksum = hchecksum(model);
+    hchecksum(model);
 
     if(model->cfg_size + 28 > model->cfg_alloced) {
 	model->cfg_alloced += CFG_PREALLOC;
