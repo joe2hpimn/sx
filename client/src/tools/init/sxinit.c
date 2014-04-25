@@ -47,68 +47,30 @@ static void sighandler(int signal) {
     exit(1);
 }
 
-/* Get configuration directory full name */
-static char *get_confdir(const char *config_dir) {
-    unsigned int config_len;
-    const char *home_dir;
-    char *confdir;
-    struct passwd *pwd;
-
-    if(!config_dir) {
-        home_dir = getenv("HOME");
-        if(!home_dir) {
-            pwd = getpwuid(geteuid());
-            if(pwd)
-                home_dir = pwd->pw_dir;
-        }
-        if(!home_dir) {
-            return NULL;
-        }
-        config_len = strlen(home_dir) + 1 + strlen(".sx");
-    } else
-        config_len = strlen(config_dir);
-
-    confdir = malloc(config_len + 2);
-    if(!confdir) {
-        return NULL;
-    }
-
-    if(config_dir)
-        sprintf(confdir, "%s", config_dir);
-    else
-        sprintf(confdir, "%s/.sx", home_dir);
-
-    return confdir;
-}
-
 /* List all clusters with profile names that are configured in configuration directory */
-static int list_clusters(const char *config_dir) {
-    char *confdir = NULL;
+static int list_clusters(sxc_client_t *sx, const char *config_dir) {
+    const char *confdir = NULL;
     DIR *clusters_dir = NULL, *profiles_dir = NULL;
     struct dirent *cluster_dirent = NULL, *profile_dirent;
 
-    confdir = get_confdir(config_dir);
+    confdir = sxc_get_confdir(sx);
     if(!confdir){
         fprintf(stderr, "Could not locate configuration directory\n");
         return 1;
     }
 
-    /* Open clusters configuration directory */
     clusters_dir = opendir(confdir);
     if(!clusters_dir) {
         fprintf(stderr, "Could not open %s directory\n", confdir);
-        free(confdir);
         return 1;
     }
 
-    /* Iterate over cluster names */
     while((cluster_dirent = readdir(clusters_dir)) != NULL) {
         char *auth_dir_name = NULL;
         int auth_dir_len = 0;
 
         if(cluster_dirent->d_name[0] == '.' || cluster_dirent->d_type != DT_DIR) continue; /* Omit files and directories starting with . */
 
-        /* Prepare cluster auth configuration directory name */
         auth_dir_len = strlen(confdir) + strlen(cluster_dirent->d_name) + strlen("/auth") + 2;
         auth_dir_name = malloc(auth_dir_len);
         if(!auth_dir_name) {
@@ -117,20 +79,34 @@ static int list_clusters(const char *config_dir) {
         }
         snprintf(auth_dir_name, auth_dir_len, "%s/%s/auth", confdir, cluster_dirent->d_name);
 
-        /* Read cluster auth configuration */
         profiles_dir = opendir(auth_dir_name);
         if(profiles_dir) {
             while((profile_dirent = readdir(profiles_dir)) != NULL) {
-                if(profile_dirent->d_name[0] != '.')
-                    fprintf(stderr, "sx://%s@%s\n", profile_dirent->d_name, cluster_dirent->d_name);
+                if(profile_dirent->d_name[0] != '.') {
+                    char *alias = sxc_get_alias(sx, profile_dirent->d_name, cluster_dirent->d_name);
+                    int left_len = strlen("sx://") + strlen(profile_dirent->d_name) + strlen(cluster_dirent->d_name) + 2;
+                    /* Left is prepared separately because we want to justify ouptut */
+                    char *left = malloc(left_len);
+                    if(!left) {
+                        fprintf(stderr, "Could not allocate memory\n");
+                        break;
+                    }
+                    snprintf(left, left_len, "sx://%s@%s", profile_dirent->d_name, cluster_dirent->d_name);
+                    if(alias) 
+                        fprintf(stderr, "%-40s %s\n", left, alias);
+                    else
+                        fprintf(stderr, "%-40s %s\n", left, "-");
+                    free(alias);
+                    free(left);
+                }
             }
 
             closedir(profiles_dir);
         }
+        free(auth_dir_name);
     }
 
     if(clusters_dir) closedir(clusters_dir);
-    free(confdir);
     return 0;
 }
 
@@ -141,6 +117,7 @@ int main(int argc, char **argv) {
     sxc_logger_t log;
     sxc_uri_t *u = NULL;
     int ret = 1, toklen;
+    const char *alias = NULL;
 
     if(cmdline_parser(argc, argv, &args))
 	return 1;
@@ -161,23 +138,39 @@ int main(int argc, char **argv) {
     signal(SIGINT, sighandler);
     signal(SIGTERM, sighandler);
 
-    if(args.list_given)
-    {
-        ret = list_clusters(args.config_dir_arg);
-        cmdline_parser_free(&args);
-        return ret;
-    }
-
     if(!(sx = sxc_init(SRC_VERSION, sxc_default_logger(&log, argv[0]), sxi_yesno))) {
         fprintf(stderr, "Failed to initialize SX\n");
 	goto init_err;
     }
+
+    sxc_set_confdir(sx, args.config_dir_arg);
     sxc_set_debug(sx, args.debug_flag);
+
+    if(args.list_given)
+    {
+        ret = list_clusters(sx, args.config_dir_arg);
+        goto init_err;
+    }
 
     u = sxc_parse_uri(sx, args.inputs[0]);
     if(!u) {
 	fprintf(stderr, "Invalid SX URI %s\n", args.inputs[0]);
 	goto init_err;
+    }
+
+    /* If --alias=... has been given, check if it was not used before and save it to .aliases file */
+    if(args.alias_given) {
+        alias = args.alias_arg;
+
+        if(strncmp(alias, SXC_ALIAS_PREFIX, 1)) {
+             fprintf(stderr, "Bad alias name: it must start with colon\n");
+             goto init_err;
+        }
+
+        if(strlen(alias) <= 1) {
+             fprintf(stderr, "Bad alias name: Alias name is too short\n");
+             goto init_err;
+        }
     }
 
     if(!args.force_reinit_flag)
@@ -287,6 +280,16 @@ int main(int argc, char **argv) {
     if(sxc_cluster_save(cluster, args.config_dir_arg)) {
 	fprintf(stderr, "Failed to save the access configuration: %s\n", sxc_geterrmsg(sx));
 	goto init_err;
+    }
+
+    if(args.alias_given) {
+        if(!u->profile || !u->profile[0]) u->profile = "default";
+
+        /* Save alias into .aliases file. Alias variable was set before. */
+        if(sxc_set_alias(sx, alias, u->profile, u->host)) {
+            fprintf(stderr, "Failed to set alias %s: %s\n", alias, sxc_geterrmsg(sx));
+            goto init_err;
+        }
     }
 
     ret = 0;

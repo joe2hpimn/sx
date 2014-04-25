@@ -43,7 +43,7 @@ struct gengetopt_args_info args;
 static sxc_client_t *sx = NULL;
 
 static int is_sx(const char *p) {
-    return strncmp(p, "sx://", 5) == 0;
+    return strncmp(p, "sx://", 5) == 0 || strncmp(p, SXC_ALIAS_PREFIX, 1) == 0;
 }
 
 static void sighandler(int signal)

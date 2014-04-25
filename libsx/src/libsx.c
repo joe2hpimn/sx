@@ -26,6 +26,7 @@
 #include <unistd.h>
 #include <time.h>
 #include <curl/curl.h>
+#include <pwd.h>
 
 #include "libsx-int.h"
 #include "ltdl.h"
@@ -46,6 +47,7 @@ struct _sxc_client_t {
     char *op_host;
     char *op_vol;
     char *op_path;
+    char *confdir;
 };
 
 sxc_client_t *sxc_init(const char *client_version, const sxc_logger_t *func, int (*confirm)(const char *prompt, int def)) {
@@ -53,6 +55,10 @@ sxc_client_t *sxc_init(const char *client_version, const sxc_logger_t *func, int
     uint32_t compile_ver = SSLEAY_VERSION_NUMBER;
     sxc_client_t *sx;
     struct sxi_logger l;
+    unsigned int config_len;
+    const char *home_dir;
+    struct passwd *pwd;
+
 
     if (!func)
         return NULL;
@@ -94,6 +100,26 @@ sxc_client_t *sxc_init(const char *client_version, const sxc_logger_t *func, int
     sx->log.max_level = SX_LOG_NOTICE;
     sx->log.func = func;
     sx->confirm = confirm;
+
+    /* To set configuration directory use sxc_set_confdir(). Default value is taken from HOME directory. */
+    home_dir = getenv("HOME");
+    if(!home_dir) {
+        pwd = getpwuid(geteuid());
+        if(pwd)
+            home_dir = pwd->pw_dir;
+    }
+    if(!home_dir) {
+        sx->confdir = NULL;
+    } else {
+        config_len = strlen(home_dir) + strlen("/.sx");
+        sx->confdir = malloc(config_len + 1);
+        if(!sx->confdir) {
+            sxi_log_syserr(&l, "sxc_init", SX_LOG_ERR, "Could not allocate memory for configuration directory");
+            return NULL;
+        }
+        snprintf(sx->confdir, config_len + 1, "%s/.sx", home_dir);
+    }
+
     return sx;
 }
 
@@ -112,6 +138,10 @@ void sxc_shutdown(sxc_client_t *sx, int signal) {
 	if(!signal)
 	    free(sx->temptrack.names);
     }
+
+    /* See sxc_set_confdir */
+    free(sx->confdir);
+
     if(!signal) {
         if (sx->log.func && sx->log.func->close) {
             sx->log.func->close(sx->log.func->ctx);
@@ -364,3 +394,22 @@ int sxi_confirm(sxc_client_t *sx, const char *prompt, int default_answer)
 
     return sx->confirm(prompt, default_answer);
 }
+
+/* Set configuration directory */
+void sxc_set_confdir(sxc_client_t *sx, const char *config_dir) 
+{
+    if(!sx || !config_dir)
+        return;
+
+    free(sx->confdir);
+    sx->confdir = strdup(config_dir);
+}
+
+/* Get configuration directory full name */
+const char *sxc_get_confdir(sxc_client_t *sx) {
+    if(!sx)
+        return NULL;
+
+    return sx->confdir;
+}
+

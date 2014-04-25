@@ -26,6 +26,7 @@
 #include <sys/stat.h>
 #include <ftw.h>
 #include <errno.h>
+#include <pwd.h>
 
 #include "libsx-int.h"
 #include "misc.h"
@@ -273,7 +274,6 @@ char *sxi_urlencode(sxc_client_t *sx, const char *string, int encode_slash) {
     return ret;
 }
 
-
 static void downcase(char *s) {
     for(;*s;s++) {
 	char c = *s;
@@ -284,20 +284,292 @@ static void downcase(char *s) {
 
 #define SXPROTO "sx://"
 int sxi_uri_is_sx(sxc_client_t *sx, const char *uri) {
-    return strncmp(uri, SXPROTO, strlen(SXPROTO)) == 0;
+    return strncmp(uri, SXPROTO, strlen(SXPROTO)) == 0 || strncmp(uri, SXC_ALIAS_PREFIX, strlen(SXC_ALIAS_PREFIX)) == 0;
+}
+
+#define ALIAS_FGET_BUFF 512
+typedef struct _alias_t {
+    char *alias;
+    char *cluster;
+} alias_t;
+
+typedef struct _alias_list_t {
+    alias_t *aliases;
+    int num;
+} alias_list_t;
+
+/* Get name of file containing aliases. Allocates memory for return value that should be freed */
+static char *get_aliases_file_name(sxc_client_t *sx) {
+    const char *confdir = NULL;
+    char *aliases_file_name = NULL;
+    int aliases_fn_len = 0;
+
+    confdir = sxc_get_confdir(sx);
+    if(!confdir){
+        sxi_seterr(sx, SXE_ECFG, "Could not locate configuration directory");
+        return NULL;
+    }
+
+    aliases_fn_len = strlen(confdir) + strlen("/.aliases") + 1; 
+    aliases_file_name = malloc(strlen(confdir) + strlen("/.aliases") + 1);
+    if(!aliases_file_name) {
+        sxi_seterr(sx, SXE_EMEM, "Coluld not allocate memory");
+        return NULL;
+    }
+
+    snprintf(aliases_file_name, aliases_fn_len, "%s/.aliases", confdir);
+
+    return aliases_file_name;
+}
+
+/* Free memory taken for aliases list */
+static void free_aliases(alias_list_t *aliases) {
+    int i = 0;
+    if(!aliases) return;
+    for(i = aliases->num - 1; i >= 0; i--) {
+        free(aliases->aliases[i].alias);
+        free(aliases->aliases[i].cluster);
+    }
+    free(aliases->aliases);
+    aliases->num = 0;
+}
+
+/* List all aliases stored in configuration directory */
+static int list_aliases(sxc_client_t *sx, alias_list_t *aliases) {
+    char *aliases_file_name = NULL;
+    char buffer[ALIAS_FGET_BUFF] = { 0 };
+    FILE *f = NULL;
+    
+    /* Wrong params given */
+    if(!aliases || !sx) {
+        return 1;
+    }
+
+    aliases_file_name = get_aliases_file_name(sx);
+    if(!aliases_file_name) {
+        return 1;
+    }
+
+    aliases->num = 0;
+    aliases->aliases = NULL;
+
+    f = fopen(aliases_file_name, "r");
+    if(!f) {
+        /* This situation is OK - aliases are correctly filled (with 0 and NULL) and this function should return 0 */
+        free(aliases_file_name);
+        return 0;
+    }
+    free(aliases_file_name);
+
+    while(fgets(buffer, ALIAS_FGET_BUFF, f)) {
+        char alias[ALIAS_FGET_BUFF];
+        char cluster[ALIAS_FGET_BUFF];
+        alias_t *tmp = NULL;
+
+        if(sscanf(buffer, "%s %s\n", alias, cluster) != 2) continue; /* scnaf did not succeed, go to the next line */
+
+        tmp = realloc(aliases->aliases, (aliases->num + 1) * sizeof(alias_t));
+        if(!tmp) {
+            sxi_seterr(sx, SXE_EMEM, "Could not allocate memory");
+            free_aliases(aliases);
+            return 1;
+        } else {
+            aliases->aliases = tmp;
+        }
+        aliases->aliases[aliases->num].alias = strdup(alias);
+        aliases->aliases[aliases->num].cluster = strdup(cluster);
+        aliases->num++;
+    }
+
+    fclose(f);
+
+    return 0;
+}
+
+static int write_aliases(sxc_client_t *sx, const alias_list_t *aliases) {
+    char *aliases_file_name = NULL;
+    FILE *f = NULL;
+    int i = 0;
+
+    if(!aliases) {
+        return 1;
+    }
+
+    aliases_file_name = get_aliases_file_name(sx);
+    if(!aliases_file_name) {
+        sxi_seterr(sx, SXE_EWRITE, "Could not write to aliases file");
+        return 1;
+    }
+
+    if(aliases->num > 0) {
+        f = fopen(aliases_file_name, "w");
+        free(aliases_file_name);
+        if(!f) {
+            sxi_seterr(sx, SXE_EWRITE, "Could not write to aliases file");
+            return 1;
+        }
+
+        for(i = 0; i < aliases->num; i++) {
+            fprintf(f, "%s %s\n", aliases->aliases[i].alias, aliases->aliases[i].cluster);
+        }
+  
+        fclose(f);
+    }
+
+    return 0;
+}
+
+int sxc_set_alias(sxc_client_t *sx, const char *alias, const char *profile, const char *host) {
+    char *cluster_uri = NULL;
+    int cluster_uri_len = 0;
+    int i = 0;
+    int ret = 0;
+    alias_list_t aliases;
+
+    if(!sx || !profile || !host || !alias) {
+        sxi_seterr(sx, SXE_EARG, "Bad argument");
+        return 1;
+    }
+
+    if(list_aliases(sx, &aliases)) {
+        return 1;
+    }
+
+    /* Prepare cluster uri */
+    cluster_uri_len = strlen(profile) + strlen(host) + 7;
+    cluster_uri = malloc(cluster_uri_len);
+    if(!cluster_uri) {
+        sxi_seterr(sx, SXE_EMEM, "Could not allocate memory");
+        free_aliases(&aliases);
+        return 1;
+    }
+    snprintf(cluster_uri, cluster_uri_len, "%s%s@%s", SXPROTO, profile, host);
+
+    for(i = 0; i < aliases.num; i++) {
+        if(strcmp(aliases.aliases[i].alias, alias) == 0) {
+            /* Check if cluster uri is different than alias points to */
+            if(strcmp(aliases.aliases[i].cluster, cluster_uri) != 0) {
+                sxi_seterr(sx, SXE_EARG, "Alias %s is already used for %s", alias, aliases.aliases[i].cluster);
+                free_aliases(&aliases);
+                free(cluster_uri);
+                return 1;
+            }
+            break;
+        } else {
+            if(strcmp(aliases.aliases[i].cluster, cluster_uri) == 0) {
+                /* Found matching cluster uri prefix. Alias is different, it should be changed. */
+                break;
+            }
+        }
+    }
+
+    /* If i == aliases_num then matching alias or cluster name was not found and next alias will be added */
+    if(i == aliases.num) {
+        alias_t *tmp = realloc(aliases.aliases, (aliases.num + 1) * sizeof(alias_t));
+        if(!tmp) {
+            sxi_seterr(sx, SXE_EMEM, "Could not allocate memory for new alias");
+            free_aliases(&aliases);
+            free(cluster_uri);
+            return 1;
+        } else {
+            aliases.aliases = tmp;
+            aliases.aliases[i].alias = NULL;
+            aliases.aliases[i].cluster = NULL;
+        }
+        aliases.num++;
+    }
+
+    free(aliases.aliases[i].alias);
+    free(aliases.aliases[i].cluster);
+    aliases.aliases[i].alias = strdup(alias);
+    aliases.aliases[i].cluster = cluster_uri;
+
+    ret = write_aliases(sx, &aliases);
+
+    free_aliases(&aliases);
+    return ret;
+}
+
+char *sxc_get_alias(sxc_client_t *sx, const char *profile, const char *host) {
+    char *c = NULL;
+    int clen = 0;
+    int i = 0;
+    alias_list_t aliases;
+    if(!profile || !host) return NULL;
+
+    if(list_aliases(sx, &aliases)) {
+        sxi_seterr(sx, SXE_EREAD, "Could not list aliases");
+        return NULL;
+    }
+
+    clen = strlen(profile) + strlen(host) + 7;
+    c = malloc(clen); 
+    if(!c) {
+        return NULL;
+    }
+    snprintf(c, clen, "%s%s@%s", SXPROTO, profile, host);
+
+    for(i = 0; i < aliases.num; i++) {
+        if(strncmp(c, aliases.aliases[i].cluster, clen) == 0) {
+            char *alias = strdup(aliases.aliases[i].alias);
+            free(c);
+            free_aliases(&aliases);     
+            return alias;
+        }
+    }
+        
+    free(c);
+    free_aliases(&aliases);
+    return NULL;
 }
 
 sxc_uri_t *sxc_parse_uri(sxc_client_t *sx, const char *uri) {
     unsigned int len = strlen(uri);
     sxc_uri_t *u;
     char *p;
+    char *tmp_uri = NULL;
 
     sxc_clearerr(sx);
+
+    /* Check if alias was given */
+    if(strncmp(SXC_ALIAS_PREFIX, uri, lenof(SXC_ALIAS_PREFIX)) == 0) {
+        alias_list_t aliases;
+        char *tmp_volume = memchr(uri, '/', len);
+        int i = 0;
+
+        if(list_aliases(sx, &aliases)) {
+            SXDEBUG("URI '%s' contains alias prefix, but could not load aliases list", uri);
+            sxi_seterr(sx, SXE_ECFG, "Cannot load aliases list");
+            return NULL;
+        }
+
+        if(tmp_volume) 
+            len = tmp_volume - uri;
+
+        for(i = 0; i < aliases.num; i++) {
+            if(strncmp(aliases.aliases[i].alias, uri, len) == 0) {
+                len = strlen(aliases.aliases[i].cluster) + strlen(uri) - strlen(aliases.aliases[i].alias);
+                tmp_uri = malloc(len + 1);
+                if(tmp_volume)
+                    snprintf(tmp_uri, len + 1, "%s%s", aliases.aliases[i].cluster, tmp_volume);
+                else
+                    snprintf(tmp_uri, len + 1, "%s", aliases.aliases[i].cluster);
+
+                /* This is a new uri to be used tmp_uri must be freed */
+                uri = tmp_uri;
+                break;
+            }
+        }
+
+        free_aliases(&aliases);
+    } 
+
     if(len <= lenof(SXPROTO) || strncmp(SXPROTO, uri, lenof(SXPROTO))) {
-	SXDEBUG("URI '%s' is too short", uri);
-	sxi_seterr(sx, SXE_EARG, "Cannot parse URL '%s': invalid argument", uri);
-	return NULL;
+        SXDEBUG("URI '%s' is too short", uri);
+        sxi_seterr(sx, SXE_EARG, "Cannot parse URL '%s': invalid argument", uri);
+        return NULL;
     }
+
     uri += lenof(SXPROTO);
     len -= lenof(SXPROTO);
 
@@ -305,6 +577,7 @@ sxc_uri_t *sxc_parse_uri(sxc_client_t *sx, const char *uri) {
     if(!u) {
 	SXDEBUG("OOM allocating result struct for '%s'", uri);
 	sxi_seterr(sx, SXE_EMEM, "Cannot parse URL '%s': out of memory", uri);
+        free(tmp_uri);
 	return NULL;
     }
 
@@ -335,6 +608,7 @@ sxc_uri_t *sxc_parse_uri(sxc_client_t *sx, const char *uri) {
     }
     if(!u->volume)
 	u->path = NULL;
+
     u->host = memchr(p, '@', len);
     if(u->host) {
 	do {
@@ -354,10 +628,12 @@ sxc_uri_t *sxc_parse_uri(sxc_client_t *sx, const char *uri) {
 	SXDEBUG("URI has a NULL or empty host");
 	sxi_seterr(sx, SXE_EARG, "Cannot parse URL '%s': invalid host", uri);
 	free(u);
+        free(tmp_uri);
 	return NULL;
     }
 
     downcase(u->host);
+    free(tmp_uri);
     return u;
 }
 
