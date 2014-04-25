@@ -66,5 +66,29 @@ int sxi_yesno(const char *prompt, int def);
 int sxi_mkdir_hier(sxc_client_t *sx, const char *fullpath);
 int sxi_rmdirs(const char *dir);
 
+/* Hold information about alias */
+typedef struct _alias_t {
+    /* Alias name */
+    char *name;
+    /* Cluster name */
+    char *cluster;
+} alias_t;
+
+/* Hold aliases list */
+typedef struct _sxc_alias_list_t {
+    /* Array of aliases */
+    alias_t *entry;
+    /* Number of aliases stored in entry array */
+    int num;
+} alias_list_t;
+
+/* Get aliases stored in configuration directory */
+alias_list_t *sxi_get_alias_list(sxc_client_t *sx);
+
+/* List all aliases stored in configuration directory */
+int sxi_list_aliases(sxc_client_t *sx, alias_list_t **list);
+/* Free memory taken for aliases list */
+void sxi_free_aliases(alias_list_t *aliases);
+
 #endif
 

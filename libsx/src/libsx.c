@@ -33,6 +33,7 @@
 #include "filter.h"
 #include <openssl/crypto.h>
 #include "clustcfg.h"
+#include "misc.h"
 
 struct _sxc_client_t {
     char errbuf[65536];
@@ -48,6 +49,7 @@ struct _sxc_client_t {
     char *op_vol;
     char *op_path;
     char *confdir;
+    alias_list_t *alias;
 };
 
 sxc_client_t *sxc_init(const char *client_version, const sxc_logger_t *func, int (*confirm)(const char *prompt, int def)) {
@@ -119,6 +121,7 @@ sxc_client_t *sxc_init(const char *client_version, const sxc_logger_t *func, int
         }
         snprintf(sx->confdir, config_len + 1, "%s/.sx", home_dir);
     }
+    sx->alias = NULL;
 
     return sx;
 }
@@ -141,6 +144,8 @@ void sxc_shutdown(sxc_client_t *sx, int signal) {
 
     /* See sxc_set_confdir */
     free(sx->confdir);
+    sxi_free_aliases(sx->alias);
+    free(sx->alias);
 
     if(!signal) {
         if (sx->log.func && sx->log.func->close) {
@@ -413,3 +418,15 @@ const char *sxc_get_confdir(sxc_client_t *sx) {
     return sx->confdir;
 }
 
+alias_list_t *sxi_get_alias_list(sxc_client_t *sx) {
+    if(!sx->alias) {
+        if(sxi_list_aliases(sx, &sx->alias)) {
+            sxi_seterr(sx, SXE_EMEM, "Could not list aliases: %s", sxc_geterrmsg(sx));
+        }
+    }
+    return sx->alias;
+}
+
+void sxi_set_alias_list(sxc_client_t *sx, alias_list_t *list) {
+    sx->alias = list;
+}
