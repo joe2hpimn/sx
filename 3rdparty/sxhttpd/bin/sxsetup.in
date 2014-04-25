@@ -360,7 +360,7 @@ CN		       = $SX_CLUSTER_NAME
 subjectKeyIdentifier=hash
 authorityKeyIdentifier=keyid:always,issuer:always
 basicConstraints = critical,CA:true
-keyUsage=keyCertSign,cRLSign
+keyUsage=keyCertSign,cRLSign,digitalSignature,keyEncipherment
 EOF
 		if [ -z "$SX_EXISTING_NODE_IP" ]; then
 		    CREATESSL=1
