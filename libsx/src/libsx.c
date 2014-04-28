@@ -401,13 +401,22 @@ int sxi_confirm(sxc_client_t *sx, const char *prompt, int default_answer)
 }
 
 /* Set configuration directory */
-void sxc_set_confdir(sxc_client_t *sx, const char *config_dir) 
+int sxc_set_confdir(sxc_client_t *sx, const char *config_dir) 
 {
+    char *tmp_confdir = NULL;
     if(!sx || !config_dir)
-        return;
+        return 1;
+
+    /* Try to duplicate string and check it */
+    tmp_confdir = strdup(config_dir);
+    if(!tmp_confdir) {
+        sxi_seterr(sx, SXE_EMEM, "Could not allocate memory for configuration directory name");
+        return 1;
+    }
 
     free(sx->confdir);
-    sx->confdir = strdup(config_dir);
+    sx->confdir = tmp_confdir;
+    return 0;
 }
 
 /* Get configuration directory full name */

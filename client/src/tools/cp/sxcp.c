@@ -136,7 +136,12 @@ int main(int argc, char **argv) {
 	return 1;
     }
 
-    sxc_set_confdir(sx, args.config_dir_arg);
+    if(args.config_dir_given && sxc_set_confdir(sx, args.config_dir_arg)) {
+        fprintf(stderr, "Could not set configuration directory %s: %s\n", args.config_dir_arg, sxc_geterrmsg(sx));
+        ret = 1;
+        goto main_err;
+    }
+
     sxc_set_debug(sx, args.debug_flag);
     sxc_set_verbose(sx, args.verbose_flag);
 
