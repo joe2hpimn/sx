@@ -355,6 +355,7 @@ int main(int argc, char **argv) {
 	    goto main_err;
 	}
 
+        sxc_set_confdir(sx, create_args.config_dir_arg);
 	sxc_set_debug(sx, create_args.debug_flag);
 
 	if(setup_filters(sx, create_args.filter_dir_arg)) {
@@ -383,6 +384,7 @@ int main(int argc, char **argv) {
 	    goto main_err;
 	}
 
+        sxc_set_confdir(sx, filter_args.config_dir_arg);
 	sxc_set_debug(sx, filter_args.debug_flag);
 
 	if(setup_filters(sx, filter_args.filter_dir_arg)) {
