@@ -464,6 +464,9 @@ int sxc_set_alias(sxc_client_t *sx, const char *alias, const char *profile, cons
     int ret = 0;
     alias_list_t *list = NULL;
     char *tmp_name = NULL;
+    int alias_found = -1;
+    int cluster_found = -1;
+    int do_not_change = 0;
 
     if(!sx || !profile || !host || !alias) {
         sxi_seterr(sx, SXE_EARG, "Bad argument");
@@ -485,21 +488,27 @@ int sxc_set_alias(sxc_client_t *sx, const char *alias, const char *profile, cons
     }
 
     snprintf(cluster_uri, cluster_uri_len, "%s%s@%s", SXPROTO, profile, host);
-
     for(i = 0; i < list->num; i++) {
         if(strcmp(list->entry[i].name, alias) == 0) {
-            /* Check if cluster uri is different than alias points to */
-            if(strcmp(list->entry[i].cluster, cluster_uri) != 0) {
-                sxi_seterr(sx, SXE_EARG, "Alias %s is already used for %s", alias, list->entry[i].cluster);
-                free(cluster_uri);
-                return 1;
-            }
+            alias_found = i;
             break;
+        }        
+        if(cluster_found < 0 && strcmp(list->entry[i].cluster, cluster_uri) == 0) {
+            cluster_found = i;
+        }
+    }
+
+    if(alias_found >= 0) {
+        /* Alias has been found, check if it matches cluster */
+        if(strcmp(list->entry[alias_found].cluster, cluster_uri)) {
+            /* Alias points to different cluster */
+            sxi_seterr(sx, SXE_EARG, "Alias %s is already used for %s", list->entry[alias_found].name, list->entry[alias_found].cluster);
+            free(cluster_uri);
+            return 1;
         } else {
-            if(strcmp(list->entry[i].cluster, cluster_uri) == 0) {
-                /* Found matching cluster uri prefix. If alias is different, it should be changed. */
-                break;
-            }
+            /* Alias already points to given cluster, do nothing */
+            free(cluster_uri);
+            return 0;
         }
     }
 
@@ -510,25 +519,25 @@ int sxc_set_alias(sxc_client_t *sx, const char *alias, const char *profile, cons
         return 1;
     }
 
-    /* If i == aliases_num then matching alias or cluster name was not found and next alias will be added */
-    if(i == list->num) {
+    /* If cluster_found < 0, cluster name was not found and next alias will be added */
+    if(cluster_found < 0) {
+        cluster_found = list->num;
         alias_t *tmp = realloc(list->entry, (list->num + 1) * sizeof(alias_t));
         if(!tmp) {
             sxi_seterr(sx, SXE_EMEM, "Could not allocate memory for new alias");
             free(cluster_uri);
             return 1;
-        } else {
-            list->entry = tmp;
-            list->entry[i].name = NULL;
-            list->entry[i].cluster = NULL;
         }
+        list->entry = tmp;
+        list->entry[cluster_found].name = NULL;
+        list->entry[cluster_found].cluster = NULL;
         list->num++;
     }
 
-    free(list->entry[i].name);
-    free(list->entry[i].cluster);
-    list->entry[i].name = tmp_name;
-    list->entry[i].cluster = cluster_uri;
+    free(list->entry[cluster_found].name);
+    free(list->entry[cluster_found].cluster);
+    list->entry[cluster_found].name = tmp_name;
+    list->entry[cluster_found].cluster = cluster_uri;
 
     ret = write_aliases(sx, list);
 
