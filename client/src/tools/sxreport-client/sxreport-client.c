@@ -103,6 +103,7 @@ int main(int argc, char **argv) {
 	cmdline_parser_free(&args);
 	return 1;
     }
+    sxc_set_confdir(sx, args.config_dir_arg);
     sxc_set_verbose(sx, 1);
 
     filter_dir = get_filter_dir(sx, args.filter_dir_arg);

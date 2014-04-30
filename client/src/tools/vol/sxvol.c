@@ -357,6 +357,12 @@ int main(int argc, char **argv) {
 	    goto main_err;
 	}
 
+        if(create_args.config_dir_given && sxc_set_confdir(sx, create_args.config_dir_arg)) {
+            fprintf(stderr, "Could not set configuration directory %s: %s\n", create_args.config_dir_arg, sxc_geterrmsg(sx));
+            create_cmdline_parser_free(&create_args);
+            ret = 1;
+            goto main_err;
+        }
 	sxc_set_debug(sx, create_args.debug_flag);
 
 	if(setup_filters(sx, create_args.filter_dir_arg)) {
@@ -385,6 +391,12 @@ int main(int argc, char **argv) {
 	    goto main_err;
 	}
 
+        if(filter_args.config_dir_given && sxc_set_confdir(sx, filter_args.config_dir_arg)) {
+            fprintf(stderr, "Could not set configuration directory %s: %s\n", filter_args.config_dir_arg, sxc_geterrmsg(sx));
+            filter_cmdline_parser_free(&filter_args);
+            ret = 1;
+            goto main_err;
+        }
 	sxc_set_debug(sx, filter_args.debug_flag);
 
 	if(setup_filters(sx, filter_args.filter_dir_arg)) {

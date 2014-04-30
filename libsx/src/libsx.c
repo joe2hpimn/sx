@@ -26,12 +26,14 @@
 #include <unistd.h>
 #include <time.h>
 #include <curl/curl.h>
+#include <pwd.h>
 
 #include "libsx-int.h"
 #include "ltdl.h"
 #include "filter.h"
 #include <openssl/crypto.h>
 #include "clustcfg.h"
+#include "misc.h"
 
 struct _sxc_client_t {
     char errbuf[65536];
@@ -46,6 +48,8 @@ struct _sxc_client_t {
     char *op_host;
     char *op_vol;
     char *op_path;
+    char *confdir;
+    alias_list_t *alias;
 };
 
 sxc_client_t *sxc_init(const char *client_version, const sxc_logger_t *func, int (*confirm)(const char *prompt, int def)) {
@@ -53,6 +57,10 @@ sxc_client_t *sxc_init(const char *client_version, const sxc_logger_t *func, int
     uint32_t compile_ver = SSLEAY_VERSION_NUMBER;
     sxc_client_t *sx;
     struct sxi_logger l;
+    unsigned int config_len;
+    const char *home_dir;
+    struct passwd *pwd;
+
 
     if (!func)
         return NULL;
@@ -94,6 +102,27 @@ sxc_client_t *sxc_init(const char *client_version, const sxc_logger_t *func, int
     sx->log.max_level = SX_LOG_NOTICE;
     sx->log.func = func;
     sx->confirm = confirm;
+
+    /* To set configuration directory use sxc_set_confdir(). Default value is taken from HOME directory. */
+    home_dir = getenv("HOME");
+    if(!home_dir) {
+        pwd = getpwuid(geteuid());
+        if(pwd)
+            home_dir = pwd->pw_dir;
+    }
+    if(!home_dir) {
+        sx->confdir = NULL;
+    } else {
+        config_len = strlen(home_dir) + strlen("/.sx");
+        sx->confdir = malloc(config_len + 1);
+        if(!sx->confdir) {
+            sxi_log_syserr(&l, "sxc_init", SX_LOG_ERR, "Could not allocate memory for configuration directory");
+            return NULL;
+        }
+        snprintf(sx->confdir, config_len + 1, "%s/.sx", home_dir);
+    }
+    sx->alias = NULL;
+
     return sx;
 }
 
@@ -112,6 +141,12 @@ void sxc_shutdown(sxc_client_t *sx, int signal) {
 	if(!signal)
 	    free(sx->temptrack.names);
     }
+
+    /* See sxc_set_confdir */
+    free(sx->confdir);
+    sxi_free_aliases(sx->alias);
+    free(sx->alias);
+
     if(!signal) {
         if (sx->log.func && sx->log.func->close) {
             sx->log.func->close(sx->log.func->ctx);
@@ -363,4 +398,40 @@ int sxi_confirm(sxc_client_t *sx, const char *prompt, int default_answer)
 	return 1;
 
     return sx->confirm(prompt, default_answer);
+}
+
+/* Set configuration directory */
+int sxc_set_confdir(sxc_client_t *sx, const char *config_dir) 
+{
+    char *tmp_confdir = NULL;
+    if(!sx || !config_dir)
+        return 1;
+
+    /* Try to duplicate string and check it */
+    tmp_confdir = strdup(config_dir);
+    if(!tmp_confdir) {
+        sxi_seterr(sx, SXE_EMEM, "Could not allocate memory for configuration directory name");
+        return 1;
+    }
+
+    free(sx->confdir);
+    sx->confdir = tmp_confdir;
+    return 0;
+}
+
+/* Get configuration directory full name */
+const char *sxc_get_confdir(sxc_client_t *sx) {
+    if(!sx)
+        return NULL;
+
+    return sx->confdir;
+}
+
+alias_list_t *sxi_get_alias_list(sxc_client_t *sx) {
+    if(!sx->alias) {
+        if(sxi_load_aliases(sx, &sx->alias)) {
+            sxi_seterr(sx, SXE_EMEM, "Could not list aliases: %s", sxc_geterrmsg(sx));
+        }
+    }
+    return sx->alias;
 }

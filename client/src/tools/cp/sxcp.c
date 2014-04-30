@@ -42,7 +42,7 @@
 struct gengetopt_args_info args;
 
 static int is_sx(const char *p) {
-    return strncmp(p, "sx://", 5) == 0;
+    return strncmp(p, "sx://", 5) == 0 || strncmp(p, SXC_ALIAS_PREFIX, strlen(SXC_ALIAS_PREFIX)) == 0;
 }
 
 static sxc_client_t *sx = NULL;
@@ -134,6 +134,12 @@ int main(int argc, char **argv) {
     if(!(sx = sxc_init(SRC_VERSION, sxc_default_logger(&log, argv[0]), sxi_yesno))) {
 	cmdline_parser_free(&args);
 	return 1;
+    }
+
+    if(args.config_dir_given && sxc_set_confdir(sx, args.config_dir_arg)) {
+        fprintf(stderr, "Could not set configuration directory %s: %s\n", args.config_dir_arg, sxc_geterrmsg(sx));
+        ret = 1;
+        goto main_err;
     }
 
     sxc_set_debug(sx, args.debug_flag);
