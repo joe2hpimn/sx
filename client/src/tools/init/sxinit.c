@@ -83,7 +83,7 @@ static int list_clusters(sxc_client_t *sx, const char *config_dir) {
         if(profiles_dir) {
             while((profile_dirent = readdir(profiles_dir)) != NULL) {
                 if(profile_dirent->d_name[0] != '.') {
-                    char *alias = sxc_get_alias(sx, profile_dirent->d_name, cluster_dirent->d_name);
+                    const char *alias = sxc_get_alias(sx, profile_dirent->d_name, cluster_dirent->d_name);
                     int left_len = strlen("sx://") + strlen(profile_dirent->d_name) + strlen(cluster_dirent->d_name) + 2;
                     /* Left is prepared separately because we want to justify ouptut */
                     char *left = malloc(left_len);
@@ -96,7 +96,6 @@ static int list_clusters(sxc_client_t *sx, const char *config_dir) {
                         fprintf(stderr, "%-40s %s\n", left, alias);
                     else
                         fprintf(stderr, "%-40s %s\n", left, "-");
-                    free(alias);
                     free(left);
                 }
             }
@@ -106,7 +105,7 @@ static int list_clusters(sxc_client_t *sx, const char *config_dir) {
         free(auth_dir_name);
     }
 
-    if(clusters_dir) closedir(clusters_dir);
+    closedir(clusters_dir);
     return 0;
 }
 
@@ -166,7 +165,7 @@ int main(int argc, char **argv) {
         alias = args.alias_arg;
 
         if(strncmp(alias, SXC_ALIAS_PREFIX, 1)) {
-             fprintf(stderr, "Bad alias name: it must start with colon\n");
+             fprintf(stderr, "Bad alias name: it must start with %s\n", SXC_ALIAS_PREFIX);
              goto init_err;
         }
 

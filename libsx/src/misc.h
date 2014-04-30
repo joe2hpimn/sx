@@ -86,7 +86,7 @@ typedef struct _sxc_alias_list_t {
 alias_list_t *sxi_get_alias_list(sxc_client_t *sx);
 
 /* List all aliases stored in configuration directory */
-int sxi_list_aliases(sxc_client_t *sx, alias_list_t **list);
+int sxi_load_aliases(sxc_client_t *sx, alias_list_t **list);
 /* Free memory taken for aliases list */
 void sxi_free_aliases(alias_list_t *aliases);
 

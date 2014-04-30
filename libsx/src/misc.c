@@ -327,7 +327,7 @@ void sxi_free_aliases(alias_list_t *aliases) {
 }
 
 /* List all aliases stored in configuration directory */
-int sxi_list_aliases(sxc_client_t *sx, alias_list_t **aliases) {
+int sxi_load_aliases(sxc_client_t *sx, alias_list_t **aliases) {
     char *aliases_file_name = NULL;
     char buffer[ALIAS_FGET_BUFF] = { 0 };
     FILE *f = NULL;
@@ -461,7 +461,6 @@ int sxc_set_alias(sxc_client_t *sx, const char *alias, const char *profile, cons
     char *cluster_uri = NULL;
     int cluster_uri_len = 0;
     int i = 0;
-    int ret = 0;
     alias_list_t *list = NULL;
     char *tmp_name = NULL;
     int alias_found = -1;
@@ -539,12 +538,10 @@ int sxc_set_alias(sxc_client_t *sx, const char *alias, const char *profile, cons
     list->entry[cluster_found].name = tmp_name;
     list->entry[cluster_found].cluster = cluster_uri;
 
-    ret = write_aliases(sx, list);
-
-    return ret;
+    return write_aliases(sx, list);
 }
 
-char *sxc_get_alias(sxc_client_t *sx, const char *profile, const char *host) {
+const char *sxc_get_alias(sxc_client_t *sx, const char *profile, const char *host) {
     char *c = NULL;
     int clen = 0;
     int i = 0;
@@ -567,9 +564,8 @@ char *sxc_get_alias(sxc_client_t *sx, const char *profile, const char *host) {
 
     for(i = 0; i < list->num; i++) {
         if(strncmp(c, list->entry[i].cluster, clen) == 0) {
-            char *alias = strdup(list->entry[i].name);
             free(c);
-            return alias;
+            return list->entry[i].name;
         }
     }
         

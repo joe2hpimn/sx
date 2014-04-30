@@ -429,13 +429,9 @@ const char *sxc_get_confdir(sxc_client_t *sx) {
 
 alias_list_t *sxi_get_alias_list(sxc_client_t *sx) {
     if(!sx->alias) {
-        if(sxi_list_aliases(sx, &sx->alias)) {
+        if(sxi_load_aliases(sx, &sx->alias)) {
             sxi_seterr(sx, SXE_EMEM, "Could not list aliases: %s", sxc_geterrmsg(sx));
         }
     }
     return sx->alias;
-}
-
-void sxi_set_alias_list(sxc_client_t *sx, alias_list_t *list) {
-    sx->alias = list;
 }
