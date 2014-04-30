@@ -125,6 +125,7 @@ sxc_client_t *sxc_init(const char *client_version, const sxc_logger_t *func, int
 void sxc_shutdown(sxc_client_t *sx, int signal) {
     if(!sx)
 	return;
+    sxi_clear_operation(sx);
     if(sx->temptrack.slots) {
 	for(int i = 0; i < sx->temptrack.slots; i++) {
 	    if(sx->temptrack.names[i]) {
