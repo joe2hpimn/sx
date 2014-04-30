@@ -4768,7 +4768,7 @@ static int multi_cb(sxc_file_list_t *target, void *ctx)
     struct remote_iter *it = ctx;
     sxc_file_t *dest = it->dest;
     target->multi = 1;
-    if (target->recursive) {
+    if (target->recursive && !is_remote(dest)) {
         if (mkdir(dest->path, 0700) == -1 && errno != EEXIST) {
             sxi_setsyserr(target->sx, SXE_EARG, "Cannot create directory '%s'", dest->path);
             return -1;
