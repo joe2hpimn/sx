@@ -93,7 +93,7 @@ while [ $i -le $N ]; do
     list="$list,127.0.1.$i"
     i=$((i+1))
 done
-rm -rf $HOME/.sx/$CLUSTER_NAME # avoid sxinit bugs
+sudo rm -rf $HOME/.sx/$CLUSTER_NAME # avoid sxinit bugs
 echo "$ADMIN_KEY" | ../client/src/tools/init/sxinit --batch --host-list=$list sx://localhost
 test/valgrind-tests.sh
 i=1

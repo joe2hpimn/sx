@@ -1518,6 +1518,8 @@ static int rm_fn(const char *path, const struct stat *sb, int typeflag, struct F
 	    return -1;
         return 0;
     }
+    if (typeflag == FTW_D)
+        return 0;
     return -1;
 }
 
