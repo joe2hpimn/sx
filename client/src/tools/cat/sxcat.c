@@ -157,8 +157,8 @@ int main(int argc, char **argv) {
 	    ret = 1;
 	}
 	sxc_file_free(src_file);
-        sxc_cluster_free(cluster);
     }
+    sxc_cluster_free(cluster);
 
     signal(SIGINT, SIG_IGN);
     signal(SIGTERM, SIG_IGN);
