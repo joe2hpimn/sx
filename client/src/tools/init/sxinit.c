@@ -69,7 +69,7 @@ static int list_clusters(sxc_client_t *sx, const char *config_dir) {
         char *auth_dir_name = NULL;
         int auth_dir_len = 0;
 
-        if(cluster_dirent->d_name[0] == '.' || cluster_dirent->d_type != DT_DIR) continue; /* Omit files and directories starting with . */
+        if(cluster_dirent->d_name[0] == '.') continue; /* Omit files and directories starting with . */
 
         auth_dir_len = strlen(confdir) + strlen(cluster_dirent->d_name) + strlen("/auth") + 2;
         auth_dir_name = malloc(auth_dir_len);
@@ -78,6 +78,11 @@ static int list_clusters(sxc_client_t *sx, const char *config_dir) {
             break;
         }
         snprintf(auth_dir_name, auth_dir_len, "%s/%s/auth", confdir, cluster_dirent->d_name);
+
+        if(access(auth_dir_name, F_OK)) {
+            free(auth_dir_name);
+            continue;
+        }
 
         profiles_dir = opendir(auth_dir_name);
         if(profiles_dir) {
