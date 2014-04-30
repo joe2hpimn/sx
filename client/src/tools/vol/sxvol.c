@@ -180,6 +180,7 @@ static int volume_create(sxc_client_t *sx, const char *owner)
     if(!voldir) {
 	fprintf(stderr, "Out of memory\n");
 	sxc_free_uri(uri);
+        sxc_cluster_free(cluster);
 	return 1;
     }
     sprintf(voldir, "%s/volumes/%s", confdir, uri->volume);
@@ -187,6 +188,7 @@ static int volume_create(sxc_client_t *sx, const char *owner)
 	fprintf(stderr, "Can't wipe old volume configuration directory %s\n", voldir);
 	sxc_free_uri(uri);
 	free(voldir);
+        sxc_cluster_free(cluster);
 	return 1;
     }
 
