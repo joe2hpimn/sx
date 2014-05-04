@@ -733,9 +733,10 @@ static const int hexchars[256] = {
 
 int sxi_hex2bin(const char *src, uint32_t src_len, uint8_t *dst, uint32_t dst_len)
 {
+    uint32_t i;
     if((src_len % 2) || (dst_len < src_len / 2))
 	return -1;
-    for (uint32_t i = 0; i < src_len; i += 2) {
+    for (i = 0; i < src_len; i += 2) {
         int32_t h = (hexchars[(unsigned int)src[i]] << 4) | hexchars[(unsigned int)src[i+1]];
         if (h < 0)
             return -1;
