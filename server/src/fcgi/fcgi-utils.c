@@ -206,71 +206,6 @@ static enum authed_t { AUTH_NOTAUTH, AUTH_BODYCHECK, AUTH_BODYCHECKING, AUTH_OK 
 static sxi_hmac_ctx *hmac_ctx;
 static sxi_md_ctx *body_ctx;
 
-static void auth_begin(void) {
-    const char *param = FCGX_GetParam("HTTP_AUTHORIZATION", envp);
-    uint8_t buf[AUTHTOK_BIN_LEN], key[AUTH_KEY_LEN];
-    unsigned int blen = sizeof(buf);
-    time_t reqdate, now;
-
-    if(!param || strlen(param) != lenof("SKY ") + AUTHTOK_ASCII_LEN || strncmp(param, "SKY ", 4))
-	return;
-
-    if(sxi_b64_dec_core(param+4, buf, &blen) || blen != sizeof(buf))
-	return;
-    memcpy(user, buf, sizeof(user));
-    memcpy(rhmac, buf+20, sizeof(rhmac));
-
-    if(sx_hashfs_get_user_info(hashfs, user, &uid, key, &role) != OK) /* no such user */ {
-        WARN("No such user: %s", param+4);
-       return;
-    }
-    DEBUG("Request from uid %lld", (long long)uid);
-
-    if(!sxi_hmac_init_ex(hmac_ctx, key, sizeof(key))) {
-        WARN("hmac_init failed");
-        quit_errmsg(500, "Failed to initialize crypto engine");
-    }
-
-    param = FCGX_GetParam("REQUEST_METHOD", envp);
-    if(!param)
-	return;
-    if(!sxi_hmac_update_str(hmac_ctx, param))
-        quit_errmsg(500, "Failed to initialize crypto engine");
-
-    param = FCGX_GetParam("REQUEST_URI", envp);
-    if(!param)
-	return;
-    if(!sxi_hmac_update_str(hmac_ctx, param+1))
-        quit_errmsg(500, "Failed to initialize crypto engine");
-
-    param = FCGX_GetParam("HTTP_DATE", envp);
-    if(!param)
-        quit_errmsg(400, "Missing Date: header");
-    if(httpdate_to_time_t(param, &reqdate))
-        quit_errmsg(400, "Date header in wrong format");
-    now = time(NULL);
-    if(reqdate < now - MAX_CLOCK_DRIFT * 60 || reqdate > now + MAX_CLOCK_DRIFT * 60)
-        quit_errmsg(400, "Client clock drifted more than "STRIFY(MAX_CLOCK_DRIFT)" minutes");
-    if(!sxi_hmac_update_str(hmac_ctx, param))
-        quit_errmsg(500, "Failed to initialize crypto engine");
-
-    if(!content_len()) {
-	uint8_t chmac[20];
-	unsigned int chmac_len = 20;
-	if(!sxi_hmac_update_str(hmac_ctx, "da39a3ee5e6b4b0d3255bfef95601890afd80709"))
-            quit_errmsg(500, "Failed to initialize crypto engine");
-	if(!sxi_hmac_final(hmac_ctx, chmac, &chmac_len))
-            quit_errmsg(500, "Failed to initialize crypto engine");
-	if(!hmac_compare(chmac, rhmac, sizeof(rhmac))) {
-	    authed = AUTH_OK;
-	} else {
-	    /* WARN("auth mismatch"); */
-	}
-	return;
-    } else
-	authed = AUTH_BODYCHECK;
-}
-
 int get_body_chunk(char *buf, int buflen) {
     int r = FCGX_GetStr(buf, buflen, fcgi_in);
     if(r>=0) {
@@ -328,7 +263,7 @@ int is_sky(void) {
 }
 
 void send_authreq(void) {
-    CGI_PUTS("WWW-Authenticate: SKY realm=\""SERVER_NAME"\"\r\n");
+    CGI_PUTS("WWW-Authenticate: SKY realm=\"SXAUTH\"\r\n");
     quit_errmsg(401, "Invalid credentials");
 }
 
@@ -429,34 +364,34 @@ int arg_is(const char *arg, const char *ref) {
  */
 static char reqbuf[8174];
 void handle_request(void) {
-    const char *param;
+    const char *param, *p_method, *p_uri;
     char *argp;
     unsigned int plen;
 
     msg_new_id();
     verb = VERB_UNSUP;
-    param = FCGX_GetParam("REQUEST_METHOD", envp);
-    if(param) {
-	plen = strlen(param);
+    p_method = FCGX_GetParam("REQUEST_METHOD", envp);
+    if(p_method) {
+	plen = strlen(p_method);
 	switch(plen) {
 	case 3:
-	    if(!memcmp(param, "GET", 4))
+	    if(!memcmp(p_method, "GET", 4))
 		verb = VERB_GET;
-	    else if(!memcmp(param, "PUT", 4))
+	    else if(!memcmp(p_method, "PUT", 4))
 		verb = VERB_PUT;
 	    break;
 	case 4:
-	    if(!memcmp(param, "HEAD", 5))
+	    if(!memcmp(p_method, "HEAD", 5))
 		verb = VERB_HEAD;
-	    else if(!memcmp(param, "POST", 5))
+	    else if(!memcmp(p_method, "POST", 5))
 		verb = VERB_POST;
 	    break;
 	case 6:
-	    if(!memcmp(param, "DELETE", 7))
+	    if(!memcmp(p_method, "DELETE", 7))
 		verb = VERB_DELETE;
 	    break;
 	case 7:
-	    if(!memcmp(param, "OPTIONS", 8)) {
+	    if(!memcmp(p_method, "OPTIONS", 8)) {
 		CGI_PUTS("Allow: GET,HEAD,OPTIONS,PUT,DELETE\r\nContent-Length: 0\r\n\r\n");
 		return;
 	    }
@@ -469,11 +404,11 @@ void handle_request(void) {
     if(content_len()<0 || (verb != VERB_PUT && content_len()))
 	quit_errmsg(400, "Invalid Content-Length: must be positive and method must be PUT");
 
-    param = FCGX_GetParam("REQUEST_URI", envp);
-    if(!param)
+    p_uri = param = FCGX_GetParam("REQUEST_URI", envp);
+    if(!p_uri)
 	quit_errmsg(400, "No URI provided");
-    plen = strlen(param);
-    if(*param != '/')
+    plen = strlen(p_uri);
+    if(*p_uri != '/')
 	quit_errmsg(400, "URI must start with /");
     if(plen > sizeof(reqbuf) - 1)
 	quit_errmsg(414, "URL too long: request line must be <8k");
@@ -581,7 +516,78 @@ void handle_request(void) {
 
     authed = AUTH_NOTAUTH;
     role = PRIV_NONE;
-    auth_begin();
+
+
+    /* Begin auth check */
+    uint8_t buf[AUTHTOK_BIN_LEN], key[AUTH_KEY_LEN];
+    unsigned int blen = sizeof(buf);
+    time_t reqdate, now;
+
+    param = FCGX_GetParam("HTTP_AUTHORIZATION", envp);
+    if(!param || strlen(param) != lenof("SKY ") + AUTHTOK_ASCII_LEN || strncmp(param, "SKY ", 4)) {
+	if(volume) {
+	    send_authreq();
+	    return;
+	}
+	quit_home();
+    }
+
+    if(sxi_b64_dec_core(param+4, buf, &blen) || blen != sizeof(buf)) {
+	send_authreq();
+	return;
+    }
+
+    memcpy(user, buf, sizeof(user));
+    memcpy(rhmac, buf+20, sizeof(rhmac));
+
+    if(sx_hashfs_get_user_info(hashfs, user, &uid, key, &role) != OK) /* no such user */ {
+	DEBUG("No such user: %s", param+4);
+	send_authreq();
+	return;
+    }
+    DEBUG("Request from uid %lld", (long long)uid);
+
+    if(!sxi_hmac_init_ex(hmac_ctx, key, sizeof(key))) {
+	WARN("hmac_init failed");
+	quit_errmsg(500, "Failed to initialize crypto engine");
+    }
+
+    if(!sxi_hmac_update_str(hmac_ctx, p_method))
+	quit_errmsg(500, "Crypto error authenticating the request");
+
+    if(!sxi_hmac_update_str(hmac_ctx, p_uri+1))
+	quit_errmsg(500, "Crypto error authenticating the request");
+
+    param = FCGX_GetParam("HTTP_DATE", envp);
+    if(!param)
+	quit_errmsg(400, "Missing Date: header");
+    if(httpdate_to_time_t(param, &reqdate))
+	quit_errmsg(400, "Date header in wrong format");
+    now = time(NULL);
+    if(reqdate < now - MAX_CLOCK_DRIFT * 60 || reqdate > now + MAX_CLOCK_DRIFT * 60) {
+	CGI_PUTS("WWW-Authenticate: SKY realm=\"SXCLOCK\"\r\n");
+	quit_errmsg(401, "Client clock drifted more than "STRIFY(MAX_CLOCK_DRIFT)" minutes");
+    }
+    if(!sxi_hmac_update_str(hmac_ctx, param))
+	quit_errmsg(500, "Crypto error authenticating the request");
+
+    if(!content_len()) {
+	/* If no body is present, complete authentication now */
+	uint8_t chmac[20];
+	unsigned int chmac_len = 20;
+	if(!sxi_hmac_update_str(hmac_ctx, "da39a3ee5e6b4b0d3255bfef95601890afd80709"))
+	    quit_errmsg(500, "Crypto error authenticating the request");
+	if(!sxi_hmac_final(hmac_ctx, chmac, &chmac_len))
+	    quit_errmsg(500, "Crypto error authenticating the request");
+	if(!hmac_compare(chmac, rhmac, sizeof(rhmac))) {
+	    authed = AUTH_OK;
+	} else {
+	    /* WARN("auth mismatch"); */
+	    send_authreq();
+	    return;
+	}
+    } else /* Otherwise set it as pending */
+	authed = AUTH_BODYCHECK;
 
     if(has_priv(PRIV_CLUSTER) && sx_hashfs_uses_secure_proto(hashfs) != is_https() &&
        !sx_storage_is_bare(hashfs)) {

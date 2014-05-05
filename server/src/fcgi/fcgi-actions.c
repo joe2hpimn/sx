@@ -45,10 +45,6 @@ void cluster_ops(void) {
 	quit_errmsg(405, "Method Not Allowed");
     }
 
-    /* If not authed we serve the homepage back */
-    if(!is_sky())
-	quit_home();
-
     /* Cluster queries - require either a valid user or ADMIN 
      * priv enforcement in fcgi_handle_cluster_requests() */
     quit_unless_authed();
