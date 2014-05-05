@@ -197,6 +197,7 @@ static int volume_create(sxc_client_t *sx, const char *owner)
 	    int fcount, i;
 	    char *farg;
 	    char uuidcfg[41];
+	    uint8_t uuid[16];
 
 	filters = sxc_filter_list(sx, &fcount);
 	if(!filters) {
@@ -215,63 +216,61 @@ static int volume_create(sxc_client_t *sx, const char *owner)
 
 	for(i = 0; i < fcount; i++) {
             const sxc_filter_t *f = sxc_get_filter(&filters[i]);
-	    if(!strcmp(f->shortname, create_args.filter_arg)) {
-		filter = f;
-		uint8_t uuid[16];
+	    if(!strcmp(f->shortname, create_args.filter_arg))
+		if(!filter || f->version[0] >= filter->version[0] && f->version[1] > filter->version[1])
+		    filter = f;
+	}
 
-		sxi_uuid_parse(f->uuid, uuid);
-		if(sxc_meta_setval(vmeta, "filterActive", uuid, 16)) {
-		    fprintf(stderr, "ERROR: Can't use filter '%s' - metadata error\n", create_args.filter_arg);
+	if(!filter) {
+	    fprintf(stderr, "ERROR: Filter '%s' not found\n", create_args.filter_arg);
+	    goto create_err;
+	}
+
+	sxi_uuid_parse(filter->uuid, uuid);
+	if(sxc_meta_setval(vmeta, "filterActive", uuid, 16)) {
+	    fprintf(stderr, "ERROR: Can't use filter '%s' - metadata error\n", create_args.filter_arg);
+	    sxc_meta_free(vmeta);
+	    goto create_err;
+	}
+	snprintf(uuidcfg, sizeof(uuidcfg), "%s-cfg", filter->uuid);
+	if(filter->configure) {
+	    char *fdir = NULL;
+
+	    if(confdir) {
+		fdir = malloc(strlen(confdir) + strlen(filter->uuid) + strlen(uri->volume) + 11);
+		if(!fdir) {
+		    fprintf(stderr, "ERROR: Out of memory\n");
 		    sxc_meta_free(vmeta);
 		    goto create_err;
 		}
-		snprintf(uuidcfg, sizeof(uuidcfg), "%s-cfg", f->uuid);
-		if(f->configure) {
-		    char *fdir = NULL;
-
-		    if(confdir) {
-			fdir = malloc(strlen(confdir) + strlen(f->uuid) + strlen(uri->volume) + 11);
-			if(!fdir) {
-			    fprintf(stderr, "ERROR: Out of memory\n");
-			    sxc_meta_free(vmeta);
-			    goto create_err;
-			}
-			sprintf(fdir, "%s/volumes/%s", confdir, uri->volume);
-			if(access(fdir, F_OK))
-			    mkdir(fdir, 0700);
-			sprintf(fdir, "%s/volumes/%s/%s", confdir, uri->volume, f->uuid);
-			if(access(fdir, F_OK)) {
-			    if(mkdir(fdir, 0700) == -1) {
-				fprintf(stderr, "ERROR: Can't create filter configuration directory %s\n", fdir);
-				sxc_meta_free(vmeta);
-				free(fdir);
-				goto create_err;
-			    }
-			}
-		    }
-		    if(f->configure(&filters[i], farg, fdir, &cfgdata, &cfgdata_len)) {
-			fprintf(stderr, "ERROR: Can't configure filter '%s'\n", create_args.filter_arg);
+		sprintf(fdir, "%s/volumes/%s", confdir, uri->volume);
+		if(access(fdir, F_OK))
+		    mkdir(fdir, 0700);
+		sprintf(fdir, "%s/volumes/%s/%s", confdir, uri->volume, filter->uuid);
+		if(access(fdir, F_OK)) {
+		    if(mkdir(fdir, 0700) == -1) {
+			fprintf(stderr, "ERROR: Can't create filter configuration directory %s\n", fdir);
 			sxc_meta_free(vmeta);
 			free(fdir);
 			goto create_err;
 		    }
-		    free(fdir);
-		    if(cfgdata) {
-			if(sxc_meta_setval(vmeta, uuidcfg, cfgdata, cfgdata_len)) {
-			    fprintf(stderr, "ERROR: Can't store configuration for filter '%s' - metadata error\n", create_args.filter_arg);
-			    sxc_meta_free(vmeta);
-			    free(cfgdata);
-			    goto create_err;
-			}
-		    }
 		}
-		break;
 	    }
-	}
-	if(i == fcount) {
-	    fprintf(stderr, "ERROR: Filter '%s' not found\n", create_args.filter_arg);
-	    sxc_meta_free(vmeta);
-	    goto create_err;
+	    if(filter->configure(&filters[i], farg, fdir, &cfgdata, &cfgdata_len)) {
+		fprintf(stderr, "ERROR: Can't configure filter '%s'\n", create_args.filter_arg);
+		sxc_meta_free(vmeta);
+		free(fdir);
+		goto create_err;
+	    }
+	    free(fdir);
+	    if(cfgdata) {
+		if(sxc_meta_setval(vmeta, uuidcfg, cfgdata, cfgdata_len)) {
+		    fprintf(stderr, "ERROR: Can't store configuration for filter '%s' - metadata error\n", create_args.filter_arg);
+		    sxc_meta_free(vmeta);
+		    free(cfgdata);
+		    goto create_err;
+		}
+	    }
 	}
     }
 
