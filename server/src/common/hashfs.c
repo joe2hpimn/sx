@@ -963,7 +963,6 @@ create_hashfs_fail:
 open_hashfs_fail:
     free(path);
     qnullify(q);
-    free(NULL);
     h->gcdb_used = 0;
     return ret;
 }

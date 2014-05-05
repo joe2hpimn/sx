@@ -457,8 +457,7 @@ static int wrap_data_callback(curlev_context_t *ctx, const unsigned char *data, 
 
 int sxi_cluster_query(sxi_conns_t *conns, const sxi_hostlist_t *hlist, enum sxi_cluster_verb verb, const char *query, void *content, size_t content_size, cluster_setupcb setup_callback, cluster_datacb callback, void *context)
 {
-    unsigned i, ok = 0;
-    int rc;
+    unsigned int i;
     long status = -1;
     unsigned hostcount;
     struct generic_ctx gctx;
@@ -483,39 +482,40 @@ int sxi_cluster_query(sxi_conns_t *conns, const sxi_hostlist_t *hlist, enum sxi_
 	conns_err(SXE_EMEM, "Cluster query failed: out of memory allocating context");
 	return -1;
     }
-    rc = 0;
     retry = sxi_retry_init(conns->sx);
     if (!retry) {
         sxi_cbdata_unref(&cbdata);
         return -1;
     }
-    for(i=0; i<hostcount && rc != -1 && !ok; i++) {
-            sxi_cbdata_reset(cbdata);
+    for(i=0; i<hostcount; i++) {
+	int rc;
+	sxi_cbdata_reset(cbdata);
 
-            /* clear errors: we're retrying on next host */
-            if (sxi_retry_check(retry, i)) {
-                break;
-                rc = -1;
-            }
-            const char *host = sxi_hostlist_get_host(hlist, i);
-            sxi_retry_msg(retry, host);
-            rc = sxi_cluster_query_ev(cbdata, conns, host, verb, query, content, content_size,
-                                      wrap_setup_callback, wrap_data_callback);
-            if (rc == -1)
-                break;
-            status = sxi_cbdata_wait(cbdata, conns->curlev, NULL);
-            if (status == -1)
-                break;
-            if (!status || status == 404 || status == 408
-               || status == 429
-               /*|| status == 400 this is not retriable */
-               || (status / 100 == 5 && status != 500))
-                continue; /* transient, retriable */
-            ok = 1;
+	/* clear errors: we're retrying on next host */
+	if (sxi_retry_check(retry, i)) {
+	    rc = -1;
+	    break;
+	}
+	const char *host = sxi_hostlist_get_host(hlist, i);
+	sxi_retry_msg(retry, host);
+	rc = sxi_cluster_query_ev(cbdata, conns, host, verb, query, content, content_size,
+				  wrap_setup_callback, wrap_data_callback);
+	if (rc == -1)
+	    break;
+
+	status = sxi_cbdata_wait(cbdata, conns->curlev, NULL);
+	if (status == -1)
+	    break;
+
+	/* Break out on success or if the failure is non retriable */
+	if((status == 200) ||
+	   (status / 100 == 4 && status != 404 && status != 408 && status != 429))
+	    break;
     }
-    if (!ok && !rc)
-        CLSTDEBUG("All %d hosts returned failure",
-                  sxi_hostlist_get_count(hlist));
+
+    if(i==hostcount && status != 200)
+        CLSTDEBUG("All %d hosts returned failure", sxi_hostlist_get_count(hlist));
+
     sxi_cbdata_unref(&cbdata);
     if (sxi_retry_done(&retry) && status == 200) {
         /* error encountered in retry_done, even though status was successful

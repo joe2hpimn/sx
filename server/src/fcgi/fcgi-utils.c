@@ -792,13 +792,6 @@ void send_nodes_randomised(const sx_nodelist_t *nodes) {
 }
 
 void send_job_info(job_t job) {
-    /* FIXME:
-     * For now we just output the job id integer as a string.
-     * The client will treat it as an opaque type and simply
-     * replay it back as is when polling
-     * Therefore the format can be changed server side at any
-     * time if we see the need for that */
-
     CGI_PUTS("Content-Type: application/json\r\n\r\n{\"requestId\":\"");
     CGI_PUTLL(job);
     CGI_PUTS("\",\"minPollInterval\":100,\"maxPollInterval\":6000}");
