@@ -233,5 +233,14 @@ fi
 AC_SUBST([AM_CFLAGS])
 AC_SUBST([AM_LDFLAGS])
 
+case $host_os in
+  linux*)
+    if test "x$cross_compiling" != "xyes"; then
+        run_ldconfig=yes
+    fi
+    ;;
+esac
+AM_CONDITIONAL([RUN_LDCONFIG], [test "x$run_ldconfig" = "xyes"])
+
 AC_CONFIG_FILES([Makefile])
 AC_OUTPUT

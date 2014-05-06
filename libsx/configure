@@ -641,6 +641,8 @@ am__EXEEXT_FALSE
 am__EXEEXT_TRUE
 LTLIBOBJS
 LIBOBJS
+RUN_LDCONFIG_FALSE
+RUN_LDCONFIG_TRUE
 AM_LDFLAGS
 AM_CFLAGS
 VCRYPTO_CFLAGS
@@ -16435,6 +16437,22 @@ fi
 
 
 
+case $host_os in
+  linux*)
+    if test "x$cross_compiling" != "xyes"; then
+        run_ldconfig=yes
+    fi
+    ;;
+esac
+ if test "x$run_ldconfig" = "xyes"; then
+  RUN_LDCONFIG_TRUE=
+  RUN_LDCONFIG_FALSE='#'
+else
+  RUN_LDCONFIG_TRUE='#'
+  RUN_LDCONFIG_FALSE=
+fi
+
+
 ac_config_files="$ac_config_files Makefile"
 
 cat >confcache <<\_ACEOF
@@ -16624,6 +16642,10 @@ if test -z "${BUILD_CURL_TRUE}" && test -z "${BUILD_CURL_FALSE}"; then
 Usually this means the macro was only invoked conditionally." "$LINENO" 5
 fi
 
+if test -z "${RUN_LDCONFIG_TRUE}" && test -z "${RUN_LDCONFIG_FALSE}"; then
+  as_fn_error $? "conditional \"RUN_LDCONFIG\" was never defined.
+Usually this means the macro was only invoked conditionally." "$LINENO" 5
+fi
 
 : "${CONFIG_STATUS=./config.status}"
 ac_write_fail=0

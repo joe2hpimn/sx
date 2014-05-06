@@ -1156,6 +1156,7 @@ maintainer-clean-generic:
 	@echo "This command is intended for maintainers to use"
 	@echo "it deletes files that may require special tools to rebuild."
 	-test -z "$(BUILT_SOURCES)" || rm -f $(BUILT_SOURCES)
+@RUN_LDCONFIG_FALSE@install-exec-hook:
 clean: clean-recursive
 
 clean-am: clean-generic clean-libLTLIBRARIES clean-libtool \
@@ -1266,8 +1267,8 @@ include/extraversion.h.tmp:
 
 .PHONY: include/extraversion.h.tmp
 
-install-exec-hook:
-	test -n "$$DESTDIR" || PATH="$$PATH:/sbin" ldconfig $(libdir) || true;
+@RUN_LDCONFIG_TRUE@install-exec-hook:
+@RUN_LDCONFIG_TRUE@	test -n "$$DESTDIR" || PATH="$$PATH:/sbin" ldconfig $(libdir) || true;
 
 # Tell versions [3.59,3.63) of GNU make to not export all variables.
 # Otherwise a system limit (for SysV at least) may be exceeded.
