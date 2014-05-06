@@ -46,6 +46,7 @@ struct _sxi_conns_t {
     curl_events_t *curlev;
     time_t timediff;
     int insecure;
+    int clock_drifted;
 };
 
 sxi_conns_t *sxi_conns_new(sxc_client_t *sx) {
@@ -297,13 +298,39 @@ static enum head_result head_cb(sxi_conns_t *conns, char *ptr, size_t size, size
     }
 
     if(klen == lenof("date:") && !strncasecmp(ptr, "date:", lenof("date:"))) {
-	time_t mine = time(NULL), their = curl_getdate(v, NULL);
-	if(their == (time_t) -1) {
+	char datestr[32];
+	time_t mine, their;
+
+	if(vlen >= sizeof(datestr)) {
+	    CLSTDEBUG("got bogus date from server");
+	    conns_err(SXE_ECOMM, "Bad Date from server");
+	    return HEAD_FAIL;
+	}
+
+	memcpy(datestr, v, vlen);
+	datestr[vlen] = '\0';
+
+	mine = time(NULL);
+	if(mine == (time_t) -1) {
 	    CLSTDEBUG("time query failed");
 	    conns_err(SXE_ETIME, "Cannot retrieve current time");
 	    return HEAD_FAIL;
 	}
+
+	their = curl_getdate(datestr, NULL);
+	if(their == (time_t) -1) {
+	    CLSTDEBUG("got bogus date from server");
+	    conns_err(SXE_ECOMM, "Bad Date from server");
+	    return HEAD_FAIL;
+	}
+
 	sxi_conns_set_timediff(conns, their - mine);
+	return HEAD_OK;
+    }
+
+    if(klen == lenof("WWW-Authenticate:") && !strncasecmp(ptr, "WWW-Authenticate:", lenof("WWW-Authenticate:")) &&
+       vlen == lenof("SKY realm=\"SXCLOCK\"") && !strncasecmp(v, "SKY realm=\"SXCLOCK\"", lenof("SKY realm=\"SXCLOCK\""))) {
+	conns->clock_drifted = 1;
 	return HEAD_OK;
     }
 
@@ -457,7 +484,7 @@ static int wrap_data_callback(curlev_context_t *ctx, const unsigned char *data, 
 
 int sxi_cluster_query(sxi_conns_t *conns, const sxi_hostlist_t *hlist, enum sxi_cluster_verb verb, const char *query, void *content, size_t content_size, cluster_setupcb setup_callback, cluster_datacb callback, void *context)
 {
-    unsigned int i;
+    unsigned int i, clock_fixed = 0;
     long status = -1;
     unsigned hostcount;
     struct generic_ctx gctx;
@@ -498,6 +525,8 @@ int sxi_cluster_query(sxi_conns_t *conns, const sxi_hostlist_t *hlist, enum sxi_
 	}
 	const char *host = sxi_hostlist_get_host(hlist, i);
 	sxi_retry_msg(retry, host);
+
+	conns->clock_drifted = 0;
 	rc = sxi_cluster_query_ev(cbdata, conns, host, verb, query, content, content_size,
 				  wrap_setup_callback, wrap_data_callback);
 	if (rc == -1)
@@ -506,6 +535,13 @@ int sxi_cluster_query(sxi_conns_t *conns, const sxi_hostlist_t *hlist, enum sxi_
 	status = sxi_cbdata_wait(cbdata, conns->curlev, NULL);
 	if (status == -1)
 	    break;
+
+	if(status == 401 && !clock_fixed && conns->clock_drifted) {
+	    clock_fixed = 1; /* Only try to fix the clock once per request */
+	    i--;
+	    sxc_clearerr(conns->sx);
+	    continue;
+	}
 
 	/* Break out on success or if the failure is non retriable */
 	if((status == 200) ||
