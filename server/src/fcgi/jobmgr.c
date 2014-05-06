@@ -868,7 +868,7 @@ static act_result_t fileflush_request(sx_hashfs_t *hashfs, job_t job_id, job_dat
 	unsigned int ndone = 0, ndone_or_pending = 0, pushingidx = 0, blockno = mis->uniq_ids[i];
 
 	/* For DEBUG()ging purposes */
-	char blockname[HASH_TEXT_LEN + 1];
+	char blockname[SXI_SHA1_TEXT_LEN + 1];
 	bin2hex(&mis->all_blocks[blockno], sizeof(mis->all_blocks[0]), blockname, sizeof(blockname));
 
 	/* Compute the current replica level for this block */
@@ -899,7 +899,7 @@ static act_result_t fileflush_request(sx_hashfs_t *hashfs, job_t job_id, job_dat
 
 	/* No node has got this block: job failed */
 	if(!ndone) {
-	    char missing_block[HASH_TEXT_LEN + 1];
+	    char missing_block[SXI_SHA1_TEXT_LEN + 1];
 	    bin2hex(&mis->all_blocks[blockno], sizeof(mis->all_blocks[0]), missing_block, sizeof(missing_block));
 	    WARN("Early flush on job %lld: hash %s could not be located ", (long long)tmpfile_id, missing_block);
 	    action_error(ACT_RESULT_PERMFAIL, 400, "Some block is missing");
@@ -972,10 +972,10 @@ static act_result_t fileflush_request(sx_hashfs_t *hashfs, job_t job_id, job_dat
 	    sx_nodelist_t *xfertargets = NULL; /* used in local mode only */
 
 	    if(remote) {
-		char key[HASH_TEXT_LEN + sizeof("\"\":[")];
+		char key[SXI_SHA1_TEXT_LEN + sizeof("\"\":[")];
 		key[0] = '"';
-		bin2hex(current_hash, sizeof(mis->all_blocks[0]), key+1, HASH_TEXT_LEN+1);
-		memcpy(&key[1+HASH_TEXT_LEN], "\":[", sizeof("\":["));
+		bin2hex(current_hash, sizeof(mis->all_blocks[0]), key+1, SXI_SHA1_TEXT_LEN+1);
+		memcpy(&key[1+SXI_SHA1_TEXT_LEN], "\":[", sizeof("\":["));
 		if(req_append(&req, &req_len, key))
 		    action_error(ACT_RESULT_TEMPFAIL, 500, "Not enough memory to dispatch block transfer request");
 	    } else {
@@ -1093,7 +1093,7 @@ static act_result_t fileflush_request(sx_hashfs_t *hashfs, job_t job_id, job_dat
 
 		    blockno = 0;
 		    while(proto && blockno < mis->nall) {
-			char hexblock[HASH_TEXT_LEN + 1];
+			char hexblock[SXI_SHA1_TEXT_LEN + 1];
 			bin2hex(&mis->all_blocks[blockno], sizeof(mis->all_blocks[0]), hexblock, sizeof(hexblock));
 			blockno++;
 			proto = sxi_fileadd_proto_addhash(sx, proto, hexblock);

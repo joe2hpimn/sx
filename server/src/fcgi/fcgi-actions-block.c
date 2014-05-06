@@ -52,22 +52,22 @@ void fcgi_send_blocks(void) {
     while(*hpath == '/')
 	hpath++;
     urlen = strlen(hpath);
-    if(!urlen || urlen % HASH_TEXT_LEN)
+    if(!urlen || urlen % SXI_SHA1_TEXT_LEN)
 	quit_errmsg(400, "Invalid url length: not multiple of hash length");
-    if(urlen > DOWNLOAD_MAX_BLOCKS * HASH_TEXT_LEN)
+    if(urlen > DOWNLOAD_MAX_BLOCKS * SXI_SHA1_TEXT_LEN)
 	quit_errmsg(414, "Too many blocks requested in batch download");
 
-    urlen /= HASH_TEXT_LEN;
+    urlen /= SXI_SHA1_TEXT_LEN;
     for(i=0; i<urlen; i++) {
-	if(hex2bin(hpath + HASH_TEXT_LEN*i, HASH_TEXT_LEN, reqhash.b, HASH_BIN_LEN)) {
-            msg_set_reason("Invalid hash %*.s", HASH_TEXT_LEN, hpath + HASH_TEXT_LEN * i);
+	if(hex2bin(hpath + SXI_SHA1_TEXT_LEN*i, SXI_SHA1_TEXT_LEN, reqhash.b, SXI_SHA1_BIN_LEN)) {
+            msg_set_reason("Invalid hash %*.s", SXI_SHA1_TEXT_LEN, hpath + SXI_SHA1_TEXT_LEN * i);
             quit_errmsg(400,"invalid hash");
         }
 	s = sx_hashfs_block_get(hashfs, blocksize, &reqhash, NULL);
 	if(s == ENOENT || s == FAIL_BADBLOCKSIZE)
 	    quit_errmsg(404, "Block not found");
         else if(s != OK) {
-            msg_set_reason("Failed to read block with hash %.*s", HASH_TEXT_LEN, hpath + HASH_TEXT_LEN*i);
+            msg_set_reason("Failed to read block with hash %.*s", SXI_SHA1_TEXT_LEN, hpath + SXI_SHA1_TEXT_LEN*i);
 	    quit_errmsg(500, msg_get_reason());
         }
     }
@@ -94,7 +94,7 @@ void fcgi_send_blocks(void) {
 	return;
 
     for(i=0; i<urlen; i++) {
-	if(hex2bin(hpath + HASH_TEXT_LEN*i, HASH_TEXT_LEN, reqhash.b, HASH_BIN_LEN))
+	if(hex2bin(hpath + SXI_SHA1_TEXT_LEN*i, SXI_SHA1_TEXT_LEN, reqhash.b, SXI_SHA1_BIN_LEN))
 	    break;
 	if(sx_hashfs_block_get(hashfs, blocksize, &reqhash, &data) != OK)
 	    break;
@@ -139,12 +139,12 @@ void fcgi_hashop_blocks(enum sxi_hashop_kind kind) {
     CGI_PUTS("Content-type: application/json\r\n\r\n{\"presence\":[");
     while (*hpath) {
         int present;
-        if(hex2bin(hpath, HASH_TEXT_LEN, reqhash.b, HASH_BIN_LEN)) {
-            msg_set_reason("Invalid hash %*.s", HASH_TEXT_LEN, hpath);
+        if(hex2bin(hpath, SXI_SHA1_TEXT_LEN, reqhash.b, SXI_SHA1_BIN_LEN)) {
+            msg_set_reason("Invalid hash %*.s", SXI_SHA1_TEXT_LEN, hpath);
             rc = EINVAL;
             break;
         }
-        hpath += HASH_TEXT_LEN;
+        hpath += SXI_SHA1_TEXT_LEN;
         if (*hpath++ != ',') {
             CGI_PUTC(']');
             quit_itererr("bad URL format for hashop", 400);

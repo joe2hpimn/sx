@@ -918,7 +918,7 @@ static int dedup(struct sxcluster *cluster)
 static uint64_t hashcalc(struct sxcluster *cluster, const void *buffer, unsigned int len) {
     unsigned char d[20];
 
-    if (sxi_hashcalc(NULL, 0, buffer, len, d)) {
+    if (sxi_sha1_calc(NULL, 0, buffer, len, d)) {
 	printf("ERROR: Cannot compute hash: crypto library failure\n");
 	return 0;
     }

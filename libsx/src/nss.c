@@ -90,7 +90,7 @@ void sxi_md_cleanup(sxi_md_ctx **ctxptr)
     *ctxptr = NULL;
 }
 
-int sxi_digest_init(sxi_md_ctx *ctx)
+int sxi_sha1_init(sxi_md_ctx *ctx)
 {
     if (!ctx)
         return 0;
@@ -99,7 +99,7 @@ int sxi_digest_init(sxi_md_ctx *ctx)
     return 1;
 }
 
-int sxi_digest_update(sxi_md_ctx *ctx, const void *d, size_t len)
+int sxi_sha1_update(sxi_md_ctx *ctx, const void *d, size_t len)
 {
     if (!ctx)
         return 0;
@@ -108,33 +108,33 @@ int sxi_digest_update(sxi_md_ctx *ctx, const void *d, size_t len)
     return 1;
 }
 
-int sxi_digest_final(sxi_md_ctx *ctx, unsigned char *out, unsigned int *len)
+int sxi_sha1_final(sxi_md_ctx *ctx, unsigned char *out, unsigned int *len)
 {
-    unsigned char md[HASH_BIN_LEN];
+    unsigned char md[SXI_SHA1_BIN_LEN];
     unsigned int mdlen;
     if (!ctx)
         return 0;
-    if (PK11_DigestFinal(ctx->context, md, &mdlen, HASH_BIN_LEN))
+    if (PK11_DigestFinal(ctx->context, md, &mdlen, SXI_SHA1_BIN_LEN))
 	return 0;
     if (len) {
         *len = mdlen;
-        if (mdlen != HASH_BIN_LEN)
+        if (mdlen != SXI_SHA1_BIN_LEN)
             return 0;
     }
-    memcpy(out, md, HASH_BIN_LEN);
+    memcpy(out, md, SXI_SHA1_BIN_LEN);
     return 1;
 }
 
-struct sxi_hmac_ctx {
+struct sxi_hmac_sha1_ctx {
     PK11SlotInfo *slot;
     PK11SymKey *key;
     SECItem *keysec;
     PK11Context *context;
 };
 
-sxi_hmac_ctx *sxi_hmac_init()
+sxi_hmac_sha1_ctx *sxi_hmac_sha1_init()
 {
-    sxi_hmac_ctx *ctx = calloc(1, sizeof(*ctx));
+    sxi_hmac_sha1_ctx *ctx = calloc(1, sizeof(*ctx));
     if (!ctx)
         return NULL;
     ctx->slot = PK11_GetInternalKeySlot();
@@ -145,7 +145,7 @@ sxi_hmac_ctx *sxi_hmac_init()
     return ctx;
 }
 
-void sxi_hmac_cleanup(sxi_hmac_ctx **ctxptr)
+void sxi_hmac_sha1_cleanup(sxi_hmac_sha1_ctx **ctxptr)
 {
     if (!ctxptr || !*ctxptr)
         return;
@@ -161,7 +161,7 @@ void sxi_hmac_cleanup(sxi_hmac_ctx **ctxptr)
     *ctxptr = NULL;
 }
 
-int sxi_hmac_init_ex(sxi_hmac_ctx *ctx,
+int sxi_hmac_sha1_init_ex(sxi_hmac_sha1_ctx *ctx,
                      const void *key, int key_len)
 {
     if (!ctx)
@@ -192,7 +192,7 @@ int sxi_hmac_init_ex(sxi_hmac_ctx *ctx,
     return 0;
 }
 
-int sxi_hmac_update(sxi_hmac_ctx *ctx, const void *d, int len)
+int sxi_hmac_sha1_update(sxi_hmac_sha1_ctx *ctx, const void *d, int len)
 {
     if (!ctx)
         return 0;
@@ -201,20 +201,20 @@ int sxi_hmac_update(sxi_hmac_ctx *ctx, const void *d, int len)
     return 1;
 }
 
-int sxi_hmac_final(sxi_hmac_ctx *ctx, unsigned char *out, unsigned int *len)
+int sxi_hmac_sha1_final(sxi_hmac_sha1_ctx *ctx, unsigned char *out, unsigned int *len)
 {
-    unsigned char hmac[HASH_BIN_LEN];
+    unsigned char hmac[SXI_SHA1_BIN_LEN];
     unsigned int mdlen;
     if (!ctx)
         return 0;
-    if (PK11_DigestFinal(ctx->context, hmac, &mdlen, HASH_BIN_LEN))
+    if (PK11_DigestFinal(ctx->context, hmac, &mdlen, SXI_SHA1_BIN_LEN))
 	return 0;
     if (len) {
         *len = mdlen;
-        if (*len != HASH_BIN_LEN)
+        if (*len != SXI_SHA1_BIN_LEN)
             return 0;
     }
-    memcpy(out, hmac, HASH_BIN_LEN);
+    memcpy(out, hmac, SXI_SHA1_BIN_LEN);
     return 1;
 }
 
@@ -336,7 +336,7 @@ int sxi_vcrypt_print_cert_info(sxc_client_t *sx, const char *file, int batch_mod
                 char *issuer = CERT_NameToAscii(&cert->issuer);
                 char *common_name = CERT_GetCommonName(&cert->subject);
                 struct sxi_fmt fmt;
-                char hash[HASH_TEXT_LEN+1];
+                char hash[SXI_SHA1_TEXT_LEN+1];
                 sxi_fmt_start(&fmt);
                 sxi_fmt_msg(&fmt, "\tSubject: %s\n", subject);
                 sxi_fmt_msg(&fmt, "\tIssuer: %s\n", issuer);

@@ -352,26 +352,26 @@ int derive_key(const unsigned char *salt, unsigned slen,
                unsigned char *buf, int blen)
 {
     /* RFC5869 */
-    uint8_t prk[HASH_BIN_LEN], md[HASH_BIN_LEN];
+    uint8_t prk[SXI_SHA1_BIN_LEN], md[SXI_SHA1_BIN_LEN];
     unsigned int mdlen = sizeof(prk);
-    sxi_hmac_ctx *hmac_ctx = sxi_hmac_init();
+    sxi_hmac_sha1_ctx *hmac_ctx = sxi_hmac_sha1_init();
     if (!hmac_ctx)
         return -1;
 
-    if (!sxi_hmac_init_ex(hmac_ctx, salt, slen) ||
-        !sxi_hmac_update(hmac_ctx, ikm, ilen) || /* Input Keying Material */
-        !sxi_hmac_final(hmac_ctx, prk, &mdlen)) {
+    if (!sxi_hmac_sha1_init_ex(hmac_ctx, salt, slen) ||
+        !sxi_hmac_sha1_update(hmac_ctx, ikm, ilen) || /* Input Keying Material */
+        !sxi_hmac_sha1_final(hmac_ctx, prk, &mdlen)) {
         /*SSLERR();*/
         return -1;
     }
-    if (!sxi_hmac_init_ex(hmac_ctx, prk, mdlen) || /* PRK */
-        !sxi_hmac_update(hmac_ctx, (const unsigned char*)info, strlen(info)) || /* T(0) || info */
-        !sxi_hmac_update(hmac_ctx, (const unsigned char*)"\x1", 1) || /* || 0x01 */
-        !sxi_hmac_final(hmac_ctx, md, &mdlen)) {
+    if (!sxi_hmac_sha1_init_ex(hmac_ctx, prk, mdlen) || /* PRK */
+        !sxi_hmac_sha1_update(hmac_ctx, (const unsigned char*)info, strlen(info)) || /* T(0) || info */
+        !sxi_hmac_sha1_update(hmac_ctx, (const unsigned char*)"\x1", 1) || /* || 0x01 */
+        !sxi_hmac_sha1_final(hmac_ctx, md, &mdlen)) {
         /*SSLERR();*/
         return -1;
     }
-    sxi_hmac_cleanup(&hmac_ctx);
+    sxi_hmac_sha1_cleanup(&hmac_ctx);
     if (blen != mdlen) {
         WARN("bad hash length");
         return -1;

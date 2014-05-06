@@ -21,20 +21,20 @@
 
 int sxi_crypto_check_ver(struct sxi_logger *l);
 
-typedef struct sxi_hmac_ctx sxi_hmac_ctx;
-sxi_hmac_ctx *sxi_hmac_init(void);
-int sxi_hmac_init_ex(sxi_hmac_ctx *ctx,
+typedef struct sxi_hmac_sha1_ctx sxi_hmac_sha1_ctx;
+sxi_hmac_sha1_ctx *sxi_hmac_sha1_init(void);
+int sxi_hmac_sha1_init_ex(sxi_hmac_sha1_ctx *ctx,
                      const void *key, int key_len);
-int sxi_hmac_update(sxi_hmac_ctx *ctx, const void *d, int len);
-int sxi_hmac_update_str(sxi_hmac_ctx *ctx, const char *str);
-int sxi_hmac_final(sxi_hmac_ctx *ctx, unsigned char *md, unsigned int *len);
-void sxi_hmac_cleanup(sxi_hmac_ctx **ctx);
+int sxi_hmac_sha1_update(sxi_hmac_sha1_ctx *ctx, const void *d, int len);
+int sxi_hmac_sha1_update_str(sxi_hmac_sha1_ctx *ctx, const char *str);
+int sxi_hmac_sha1_final(sxi_hmac_sha1_ctx *ctx, unsigned char *md, unsigned int *len);
+void sxi_hmac_sha1_cleanup(sxi_hmac_sha1_ctx **ctx);
 
 typedef struct sxi_md_ctx sxi_md_ctx;
 sxi_md_ctx *sxi_md_init(void);
-int sxi_digest_init(sxi_md_ctx *ctx);
-int sxi_digest_update(sxi_md_ctx *ctx, const void *d, size_t len);
-int sxi_digest_final(sxi_md_ctx *ctx, unsigned char *md, unsigned int *len);
+int sxi_sha1_init(sxi_md_ctx *ctx);
+int sxi_sha1_update(sxi_md_ctx *ctx, const void *d, size_t len);
+int sxi_sha1_final(sxi_md_ctx *ctx, unsigned char *md, unsigned int *len);
 void sxi_md_cleanup(sxi_md_ctx **ctx);
 
 #define SHA256_DIGEST_LENGTH 32
@@ -46,7 +46,7 @@ int sxi_rand_bytes(unsigned char *d, int len);
 int sxi_rand_pseudo_bytes(unsigned char *d, int len);
 void sxi_rand_cleanup(void);
 
-int sxi_hashcalc(const void *salt, unsigned salt_len, const void *buffer, unsigned int len, unsigned char *hash);
+int sxi_sha1_calc(const void *salt, unsigned salt_len, const void *buffer, unsigned int len, unsigned char *hash);
 
 void sxi_vcrypto_cleanup(void);
 

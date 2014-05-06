@@ -43,11 +43,11 @@ struct sxi_hashop {
   enum sxi_hashop_kind kind;
   const char *current_host;
   unsigned int current_blocksize;
-  char hexhashes[DOWNLOAD_MAX_BLOCKS * HASH_TEXT_LEN + 1];
-  char hashes[DOWNLOAD_MAX_BLOCKS * (HASH_TEXT_LEN + EXPIRE_TEXT_LEN) + 1];
+  char hexhashes[DOWNLOAD_MAX_BLOCKS * SXI_SHA1_TEXT_LEN + 1];
+  char hashes[DOWNLOAD_MAX_BLOCKS * (SXI_SHA1_TEXT_LEN + EXPIRE_TEXT_LEN) + 1];
   unsigned hashes_count;
   unsigned hashes_pos;
-  char id[HASH_TEXT_LEN+1];
+  char id[SXI_SHA1_TEXT_LEN+1];
 };
 
 void sxi_hashop_begin(sxi_hashop_t *a, sxi_conns_t *conns, hash_presence_cb_t cb, enum sxi_hashop_kind kind, const sx_hash_t *idhash, void *context);

@@ -172,7 +172,7 @@ static int hash_presence_callback(const char *hexhash, unsigned int index, int c
     if (code != 200) {
 	if (code < 0)
 	    WARN("Failed to query hash %.*s: %s", 40, hexhash, sx_hashfs_geterrmsg(h));
-	if (hex2bin(hexhash, HASH_TEXT_LEN, hash.b, sizeof(hash.b))) {
+	if (hex2bin(hexhash, SXI_SHA1_TEXT_LEN, hash.b, sizeof(hash.b))) {
 	    WARN("hex2bin failed on %.*s", 40, hexhash);
 	    return -1;
 	}
@@ -276,10 +276,10 @@ static int cb_newfile_string(void *ctx, const unsigned char *s, size_t l) {
 
     if(c->state == CB_NEWFILE_HASH) {
 	sx_hash_t hash;
-	if(l != HASH_TEXT_LEN)
+	if(l != SXI_SHA1_TEXT_LEN)
 	    return 0;
 
-	if(hex2bin(s, HASH_TEXT_LEN, hash.b, sizeof(hash.b)))
+	if(hex2bin(s, SXI_SHA1_TEXT_LEN, hash.b, sizeof(hash.b)))
 	    return 0;
 
 	rc_ty rc = sx_hashfs_putfile_putblock(hashfs, &hash);

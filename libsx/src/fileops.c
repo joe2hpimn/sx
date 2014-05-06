@@ -460,7 +460,7 @@ static int yacb_createfile_map_key(void *ctx, const unsigned char *s, size_t l) 
 
     if(yactx->current.state == CF_HASH) {
         off_t *off;
-	if(l != HASH_TEXT_LEN) {
+	if(l != SXI_SHA1_TEXT_LEN) {
 	    CBDEBUG("unexpected hash length %u", (unsigned)l);
 	    return 0;
 	}
@@ -469,7 +469,7 @@ static int yacb_createfile_map_key(void *ctx, const unsigned char *s, size_t l) 
 	    sxi_seterr(yactx->sx, SXE_ECOMM, "Copy failed: remote2remote-fast cannot locate block");
             return 0;
         }
-        if (sxi_ht_get(yactx->current.hashes, s, HASH_TEXT_LEN, (void**)&off)) {
+        if (sxi_ht_get(yactx->current.hashes, s, SXI_SHA1_TEXT_LEN, (void**)&off)) {
 	    CBDEBUG("%p hash lookup failed for %.40s", (const void*)yactx, s);
 	    sxi_seterr(yactx->sx, SXE_ECOMM, "Copy failed: cannot locate block");
             return 0;
@@ -1157,14 +1157,14 @@ static int multi_part_compute_hash_ev(struct file_upload_ctx *yctx)
             return -1;
         }
         for (i=0;i<n;i += yctx->blocksize) {
-	    char hexhash[HASH_TEXT_LEN+1];
+	    char hexhash[SXI_SHA1_TEXT_LEN+1];
             size_t block;
 
             if (sxi_cluster_hashcalc(yctx->cluster, yctx->buf + i, yctx->blocksize, hexhash)) {
                 SXDEBUG("failed to compute hash for block");
                 return -1;
             }
-	    hexhash[HASH_TEXT_LEN] = '\0';
+	    hexhash[SXI_SHA1_TEXT_LEN] = '\0';
 	    yctx->query = sxi_fileadd_proto_addhash(sx, yctx->query, hexhash);
 	    if(!yctx->query) {
 		SXDEBUG("failed to add hash");
@@ -1175,7 +1175,7 @@ static int multi_part_compute_hash_ev(struct file_upload_ctx *yctx)
             block = (pos - start) / yctx->blocksize;
             yctx->current.offsets[block] = pos;
             SXDEBUG("%p, hash %s: block %ld, %lld", (const void*)yctx, hexhash, (long)block, (long long)yctx->current.offsets[block]);
-            if(sxi_ht_add(yctx->current.hashes, hexhash, HASH_TEXT_LEN, &yctx->current.offsets[block])) {
+            if(sxi_ht_add(yctx->current.hashes, hexhash, SXI_SHA1_TEXT_LEN, &yctx->current.offsets[block])) {
                 SXDEBUG("failed to add hash offset");
                 return -1;
             }
@@ -2198,7 +2198,7 @@ struct hash_down_data_t {
     size_t osize;
     long state;/* TRANSFER_*, or an http status code */
     unsigned int ocnt;
-    char hash[HASH_TEXT_LEN];
+    char hash[SXI_SHA1_TEXT_LEN];
 };
 
 typedef struct {
@@ -3099,7 +3099,7 @@ static int remote_to_local(sxc_file_t *source, sxc_file_t *dest, sxc_xres_t *xre
 		break;
 	    }
 
-	    if(sxi_ht_get(bh.hashes, ha, HASH_TEXT_LEN, (void **)&hashdata)) {
+	    if(sxi_ht_get(bh.hashes, ha, SXI_SHA1_TEXT_LEN, (void **)&hashdata)) {
                 if (bh.i >= bh.n) {
 		    SXDEBUG("overflow allocating hash data container: %d, %d",bh.i,bh.n);
                     fail = 1;
@@ -3110,12 +3110,12 @@ static int remote_to_local(sxc_file_t *source, sxc_file_t *dest, sxc_xres_t *xre
 		sxi_hostlist_init(hostlist);
 		hashdata->ocnt = 0;
                 hashdata->state = TRANSFER_NOT_STARTED;
-		if(sxi_ht_add(bh.hashes, ha, HASH_TEXT_LEN, hashdata)) {
+		if(sxi_ht_add(bh.hashes, ha, SXI_SHA1_TEXT_LEN, hashdata)) {
 		    SXDEBUG("failed to add a new entry to the hash table");
 		    fail = 1;
 		    break;
 		}
-                memcpy(hashdata->hash, ha, HASH_TEXT_LEN);
+                memcpy(hashdata->hash, ha, SXI_SHA1_TEXT_LEN);
 	    } else
 		hostlist = NULL;
 

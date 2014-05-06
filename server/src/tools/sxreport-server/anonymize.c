@@ -70,18 +70,18 @@ static int buf_append(struct buffer *buf, const char *str, unsigned n)
 
 int anonymize_item(struct buffer *buf, const char *category, const char *str, size_t len)
 {
-    sxi_hmac_ctx *hmac_ctx;
-    unsigned char md[HASH_BIN_LEN];
+    sxi_hmac_sha1_ctx *hmac_ctx;
+    unsigned char md[SXI_SHA1_BIN_LEN];
     unsigned mdlen = sizeof(md);
     unsigned i;
-    hmac_ctx = sxi_hmac_init();
-    if (!sxi_hmac_init_ex(hmac_ctx, hmac_key, sizeof(hmac_key)) ||
-        !sxi_hmac_update(hmac_ctx, category, strlen(category)+1) ||
-        !sxi_hmac_update(hmac_ctx, str, len) ||
-        !sxi_hmac_final(hmac_ctx, md, &mdlen)) {
+    hmac_ctx = sxi_hmac_sha1_init();
+    if (!sxi_hmac_sha1_init_ex(hmac_ctx, hmac_key, sizeof(hmac_key)) ||
+        !sxi_hmac_sha1_update(hmac_ctx, category, strlen(category)+1) ||
+        !sxi_hmac_sha1_update(hmac_ctx, str, len) ||
+        !sxi_hmac_sha1_final(hmac_ctx, md, &mdlen)) {
         return -1;
     }
-    sxi_hmac_cleanup(&hmac_ctx);
+    sxi_hmac_sha1_cleanup(&hmac_ctx);
     /* Features:
      *  * same 'str' hashes to same value
      *      * so we can trace it in the logs (without knowing what it was)

@@ -576,19 +576,19 @@ int sxi_cluster_query_ev_retry(curlev_context_t *cbdata,
                                 setup_callback, callback);
 }
 
-int sxi_hashcalc(const void *salt, unsigned salt_len, const void *buffer, unsigned int len, unsigned char *md)
+int sxi_sha1_calc(const void *salt, unsigned salt_len, const void *buffer, unsigned int len, unsigned char *md)
 {
     sxi_md_ctx *ctx = sxi_md_init();
     if (!ctx)
         return -1;
-    if (!sxi_digest_init(ctx))
+    if (!sxi_sha1_init(ctx))
         return 1;
 
-    if(salt && !sxi_digest_update(ctx, salt, salt_len)) {
+    if(salt && !sxi_sha1_update(ctx, salt, salt_len)) {
         sxi_md_cleanup(&ctx);
 	return 1;
     }
-    if(!sxi_digest_update(ctx, buffer, len) || !sxi_digest_final(ctx, md, NULL)) {
+    if(!sxi_sha1_update(ctx, buffer, len) || !sxi_sha1_final(ctx, md, NULL)) {
         sxi_md_cleanup(&ctx);
 	return 1;
     }
@@ -598,8 +598,8 @@ int sxi_hashcalc(const void *salt, unsigned salt_len, const void *buffer, unsign
 
 int sxi_conns_hashcalc_core(sxc_client_t *sx, const void *salt, unsigned salt_len, const void *buffer, unsigned int len, char *hash)
 {
-    unsigned char md[HASH_BIN_LEN];
-    if (sxi_hashcalc(salt, salt_len, buffer, len, md)) {
+    unsigned char md[SXI_SHA1_BIN_LEN];
+    if (sxi_sha1_calc(salt, salt_len, buffer, len, md)) {
         sxi_seterr(sx, SXE_ECRYPT, "Failed to calculate hash");
         return 1;
     }

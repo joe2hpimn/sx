@@ -598,7 +598,7 @@ rc_ty static update_cfg(sxi_hdist_t *model)
 static int hchecksum(sxi_hdist_t *model)
 {
 	uint64_t v;
-	unsigned char sdig[HASH_BIN_LEN];
+	unsigned char sdig[SXI_SHA1_BIN_LEN];
 	unsigned int i, j;
 	const char *pt;
         sxi_md_ctx *sctx = sxi_md_init();
@@ -606,22 +606,22 @@ static int hchecksum(sxi_hdist_t *model)
     if(!sctx)
 	return 1;
     v = model->builds + model->node_count[0] + model->circle[0][0].point + model->state + model->max_builds + model->seed;
-    if(!sxi_digest_init(sctx))
+    if(!sxi_sha1_init(sctx))
         return 1;
     for(i = 0; i < model->builds; i++) {
 	for(j = 0; j < model->node_count[i]; j++) {
 	    if(!model->node_list[i][j].sxn)
 		continue;
-            if (!sxi_digest_update(sctx, sx_node_uuid(model->node_list[i][j].sxn), 16))
+            if (!sxi_sha1_update(sctx, sx_node_uuid(model->node_list[i][j].sxn), 16))
                 return 1;
 	    pt = sx_node_addr(model->node_list[i][j].sxn);
 	    if(pt) {
-                if(!sxi_digest_update(sctx, pt, strlen(pt)))
+                if(!sxi_sha1_update(sctx, pt, strlen(pt)))
                     return 1;
             }
 	    pt = sx_node_internal_addr(model->node_list[i][j].sxn);
 	    if(pt) {
-                if(!sxi_digest_update(sctx, pt, strlen(pt)))
+                if(!sxi_sha1_update(sctx, pt, strlen(pt)))
                     return 1;
             }
 	    v += sx_node_capacity(model->node_list[i][j].sxn);
@@ -629,7 +629,7 @@ static int hchecksum(sxi_hdist_t *model)
 	if(model->circle_points[i])
 	    v ^= model->circle[i][model->circle_points[i] - 1].rnd;
     }
-    if(!sxi_digest_final(sctx, sdig, NULL))
+    if(!sxi_sha1_final(sctx, sdig, NULL))
         return 1;
     model->checksum = MurmurHash64(sdig, sizeof(sdig), model->seed) ^ v;
     return 0;

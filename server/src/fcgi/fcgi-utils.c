@@ -203,7 +203,7 @@ sx_uid_t uid;
 static sx_priv_t role;
 
 static enum authed_t { AUTH_NOTAUTH, AUTH_BODYCHECK, AUTH_BODYCHECKING, AUTH_OK } authed;
-static sxi_hmac_ctx *hmac_ctx;
+static sxi_hmac_sha1_ctx *hmac_ctx;
 static sxi_md_ctx *body_ctx;
 
 int get_body_chunk(char *buf, int buflen) {
@@ -211,7 +211,7 @@ int get_body_chunk(char *buf, int buflen) {
     if(r>=0) {
 	if(authed == AUTH_BODYCHECK)
 	    authed = AUTH_BODYCHECKING;
-	if(authed == AUTH_BODYCHECKING && !sxi_digest_update(body_ctx, buf, r)) {
+	if(authed == AUTH_BODYCHECKING && !sxi_sha1_update(body_ctx, buf, r)) {
             WARN("digest update failed");
 	    authed = AUTH_NOTAUTH;
 	    return -1;
@@ -232,16 +232,16 @@ void auth_complete(void) {
     if(authed != AUTH_BODYCHECK && authed != AUTH_BODYCHECKING)
 	goto auth_complete_fail;
     
-    if(!sxi_digest_final(body_ctx, d, NULL))
+    if(!sxi_sha1_final(body_ctx, d, NULL))
         quit_errmsg(500, "Failed to initialize crypto engine");
 
     bin2hex(d, sizeof(d), content_hash, sizeof(content_hash));
     content_hash[sizeof(content_hash)-1] = '\0';
     
-    if(!sxi_hmac_update_str(hmac_ctx, content_hash))
+    if(!sxi_hmac_sha1_update_str(hmac_ctx, content_hash))
         quit_errmsg(500, "Failed to initialize crypto engine");
 
-    if(!sxi_hmac_final(hmac_ctx, d, &dlen))
+    if(!sxi_hmac_sha1_final(hmac_ctx, d, &dlen))
         quit_errmsg(500, "Failed to initialize crypto engine");
 
     if(!hmac_compare(d, rhmac, sizeof(rhmac))) {
@@ -508,9 +508,9 @@ void handle_request(void) {
     }
 
     body_ctx = sxi_md_init();
-    if (!body_ctx || !sxi_digest_init(body_ctx))
+    if (!body_ctx || !sxi_sha1_init(body_ctx))
 	quit_errmsg(500, "Failed to initialize crypto engine");
-    hmac_ctx = sxi_hmac_init();
+    hmac_ctx = sxi_hmac_sha1_init();
     if (!hmac_ctx)
         quit_errmsg(503, "Cannot initialize crypto library");
 
@@ -547,15 +547,15 @@ void handle_request(void) {
     }
     DEBUG("Request from uid %lld", (long long)uid);
 
-    if(!sxi_hmac_init_ex(hmac_ctx, key, sizeof(key))) {
+    if(!sxi_hmac_sha1_init_ex(hmac_ctx, key, sizeof(key))) {
 	WARN("hmac_init failed");
 	quit_errmsg(500, "Failed to initialize crypto engine");
     }
 
-    if(!sxi_hmac_update_str(hmac_ctx, p_method))
+    if(!sxi_hmac_sha1_update_str(hmac_ctx, p_method))
 	quit_errmsg(500, "Crypto error authenticating the request");
 
-    if(!sxi_hmac_update_str(hmac_ctx, p_uri+1))
+    if(!sxi_hmac_sha1_update_str(hmac_ctx, p_uri+1))
 	quit_errmsg(500, "Crypto error authenticating the request");
 
     param = FCGX_GetParam("HTTP_DATE", envp);
@@ -568,16 +568,16 @@ void handle_request(void) {
 	CGI_PUTS("WWW-Authenticate: SKY realm=\"SXCLOCK\"\r\n");
 	quit_errmsg(401, "Client clock drifted more than "STRIFY(MAX_CLOCK_DRIFT)" minutes");
     }
-    if(!sxi_hmac_update_str(hmac_ctx, param))
+    if(!sxi_hmac_sha1_update_str(hmac_ctx, param))
 	quit_errmsg(500, "Crypto error authenticating the request");
 
     if(!content_len()) {
 	/* If no body is present, complete authentication now */
 	uint8_t chmac[20];
 	unsigned int chmac_len = 20;
-	if(!sxi_hmac_update_str(hmac_ctx, "da39a3ee5e6b4b0d3255bfef95601890afd80709"))
+	if(!sxi_hmac_sha1_update_str(hmac_ctx, "da39a3ee5e6b4b0d3255bfef95601890afd80709"))
 	    quit_errmsg(500, "Crypto error authenticating the request");
-	if(!sxi_hmac_final(hmac_ctx, chmac, &chmac_len))
+	if(!sxi_hmac_sha1_final(hmac_ctx, chmac, &chmac_len))
 	    quit_errmsg(500, "Crypto error authenticating the request");
 	if(!hmac_compare(chmac, rhmac, sizeof(rhmac))) {
 	    authed = AUTH_OK;
@@ -618,7 +618,7 @@ void handle_request(void) {
     if(authed == AUTH_BODYCHECKING)
 	WARN("FIXME: Security fail");
 
-    sxi_hmac_cleanup(&hmac_ctx);
+    sxi_hmac_sha1_cleanup(&hmac_ctx);
     sxi_md_cleanup(&body_ctx);
 }
 

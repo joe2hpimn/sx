@@ -1527,11 +1527,11 @@ int sxi_rmdirs(const char *dir)
     return nftw(dir, rm_fn, 10, FTW_MOUNT | FTW_PHYS | FTW_DEPTH);
 }
 
-int sxi_hmac_update_str(sxi_hmac_ctx *ctx, const char *str) {
+int sxi_hmac_sha1_update_str(sxi_hmac_sha1_ctx *ctx, const char *str) {
     if (!ctx)
         return 0;
-    int r = sxi_hmac_update(ctx, (unsigned char *)str, strlen(str));
+    int r = sxi_hmac_sha1_update(ctx, (unsigned char *)str, strlen(str));
     if(r)
-	r = sxi_hmac_update(ctx, (unsigned char *)"\n", 1);
+	r = sxi_hmac_sha1_update(ctx, (unsigned char *)"\n", 1);
     return r;
 }

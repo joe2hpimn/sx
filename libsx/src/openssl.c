@@ -103,20 +103,20 @@ int sxi_sslctxfun(sxc_client_t *sx, curlev_t *ev, const struct curl_tlssessionin
     return 0;
 }
 
-struct sxi_hmac_ctx {
+struct sxi_hmac_sha1_ctx {
     HMAC_CTX ctx;
 };
 
-sxi_hmac_ctx *sxi_hmac_init(void)
+sxi_hmac_sha1_ctx *sxi_hmac_sha1_init(void)
 {
-    sxi_hmac_ctx *ctx = calloc(1, sizeof(*ctx));
+    sxi_hmac_sha1_ctx *ctx = calloc(1, sizeof(*ctx));
     if (!ctx)
         return NULL;
     HMAC_CTX_init(&ctx->ctx);
     return ctx;
 }
 
-void sxi_hmac_cleanup(sxi_hmac_ctx **ctxptr)
+void sxi_hmac_sha1_cleanup(sxi_hmac_sha1_ctx **ctxptr)
 {
     if (!ctxptr || !*ctxptr)
         return;
@@ -125,7 +125,7 @@ void sxi_hmac_cleanup(sxi_hmac_ctx **ctxptr)
     *ctxptr = NULL;
 }
 
-int sxi_hmac_init_ex(sxi_hmac_ctx *ctx,
+int sxi_hmac_sha1_init_ex(sxi_hmac_sha1_ctx *ctx,
                      const void *key, int key_len)
 {
     if (!ctx)
@@ -133,23 +133,23 @@ int sxi_hmac_init_ex(sxi_hmac_ctx *ctx,
     return hmac_init_ex(&ctx->ctx, key, key_len, EVP_sha1(), NULL);
 }
 
-int sxi_hmac_update(sxi_hmac_ctx *ctx, const void *d, int len)
+int sxi_hmac_sha1_update(sxi_hmac_sha1_ctx *ctx, const void *d, int len)
 {
     if (!ctx)
         return 0;
     return hmac_update(&ctx->ctx, d, len);
 }
 
-int sxi_hmac_final(sxi_hmac_ctx *ctx, unsigned char *out, unsigned int *len)
+int sxi_hmac_sha1_final(sxi_hmac_sha1_ctx *ctx, unsigned char *out, unsigned int *len)
 {
     unsigned char md[EVP_MAX_MD_SIZE];
     if (!ctx)
         return 0;
     if (!hmac_final(&ctx->ctx, md, len))
         return 0;
-    if (len && *len != HASH_BIN_LEN)
+    if (len && *len != SXI_SHA1_BIN_LEN)
         return 0;
-    memcpy(out, md, HASH_BIN_LEN);
+    memcpy(out, md, SXI_SHA1_BIN_LEN);
     return 1;
 }
 
@@ -199,30 +199,30 @@ void sxi_md_cleanup(sxi_md_ctx **ctxptr)
     *ctxptr = NULL;
 }
 
-int sxi_digest_init(sxi_md_ctx *ctx)
+int sxi_sha1_init(sxi_md_ctx *ctx)
 {
     if (!ctx)
         return 0;
     return EVP_DigestInit(&ctx->ctx, EVP_sha1());
 }
 
-int sxi_digest_update(sxi_md_ctx *ctx, const void *d, size_t len)
+int sxi_sha1_update(sxi_md_ctx *ctx, const void *d, size_t len)
 {
     if (!ctx)
         return 0;
     return EVP_DigestUpdate(&ctx->ctx, d, len);
 }
 
-int sxi_digest_final(sxi_md_ctx *ctx, unsigned char *out, unsigned int *len)
+int sxi_sha1_final(sxi_md_ctx *ctx, unsigned char *out, unsigned int *len)
 {
     unsigned char md[EVP_MAX_MD_SIZE];
     if (!ctx)
         return 0;
     if(!EVP_DigestFinal(&ctx->ctx, md, len))
 	return 0;
-    if (len && *len != HASH_BIN_LEN)
+    if (len && *len != SXI_SHA1_BIN_LEN)
         return 0;
-    memcpy(out, md, HASH_BIN_LEN);
+    memcpy(out, md, SXI_SHA1_BIN_LEN);
     return 1;
 }
 

@@ -2113,11 +2113,11 @@ int sxc_user_add(sxc_cluster_t *cluster, const char *username, int admin, FILE *
     ch_ctx = sxi_md_init();
     if (!ch_ctx)
         return 1;
-    if(!sxi_digest_init(ch_ctx)) {
+    if(!sxi_sha1_init(ch_ctx)) {
 	cluster_err(SXE_ECRYPT, "Cannot compute hash: unable to initialize crypto library");
 	return 1;
     }
-    if(!sxi_digest_update(ch_ctx, username, l) || !sxi_digest_final(ch_ctx, uid, NULL)) {
+    if(!sxi_sha1_update(ch_ctx, username, l) || !sxi_sha1_final(ch_ctx, uid, NULL)) {
 	cluster_err(SXE_ECRYPT, "Cannot compute hash: crypto library failure");
         sxi_md_cleanup(&ch_ctx);
 	return 1;
@@ -2266,12 +2266,12 @@ static int yacb_userkey_string(void *ctx, const unsigned char *s, size_t l) {
         }
 
         ch_ctx = sxi_md_init();
-        if(!sxi_digest_init(ch_ctx)) {
+        if(!sxi_sha1_init(ch_ctx)) {
             sxi_seterr(yactx->sx, SXE_ECRYPT, "Cannot compute hash: unable to initialize crypto library");
             return 1;
         }
-        if(!sxi_digest_update(ch_ctx, yactx->username, strlen(yactx->username)) ||
-           !sxi_digest_final(ch_ctx, token, NULL)) {
+        if(!sxi_sha1_update(ch_ctx, yactx->username, strlen(yactx->username)) ||
+           !sxi_sha1_final(ch_ctx, token, NULL)) {
             sxi_seterr(yactx->sx, SXE_ECRYPT, "Cannot compute hash: crypto library failure");
             sxi_md_cleanup(&ch_ctx);
             return 1;

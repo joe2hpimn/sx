@@ -121,12 +121,12 @@ static int cb_presence_boolean(void *ctx, int boolean) {
             WARN("NULL hexhashes");
             return 0;
         }
-        maxidx = strlen(q) / HASH_TEXT_LEN;
+        maxidx = strlen(q) / SXI_SHA1_TEXT_LEN;
         if (yactx->idx >= maxidx) {
             WARN("index out of bounds: %d out of [0,%d)", yactx->idx, maxidx);
             return 0;
         }
-        q += yactx->idx * HASH_TEXT_LEN;
+        q += yactx->idx * SXI_SHA1_TEXT_LEN;
         DEBUG("Hash index %d (%d+%d) status: %d", yactx->hashop_idx + yactx->idx, yactx->hashop_idx, yactx->idx, boolean);
         if (boolean) {
             if (hashop->cb && hashop->cb(q, yactx->hashop_idx + yactx->idx, 200, hashop->context) == -1)
@@ -254,10 +254,10 @@ static void batch_finish(curlev_context_t *ctx, const char *url)
             hashop->cb_fail++;
         }
     } else {
-        unsigned i, n = strlen(q) / HASH_TEXT_LEN;
+        unsigned i, n = strlen(q) / SXI_SHA1_TEXT_LEN;
         /* error: report all hashes as missing */
         for (i=0;i<n;i++)
-            hashop->cb(q + i * HASH_TEXT_LEN, yactx->hashop_idx + i, 404, hashop->context);
+            hashop->cb(q + i * SXI_SHA1_TEXT_LEN, yactx->hashop_idx + i, 404, hashop->context);
     }
     if (yh)
         yajl_free(yh);
@@ -298,7 +298,7 @@ static int sxi_hashop_batch(sxi_hashop_t *hashop)
         return -1;
     blocksize = hashop->current_blocksize;
     hashop->hashes[hashop->hashes_pos] = '\0';
-    hashop->hexhashes[hashop->hashes_count*HASH_TEXT_LEN] = '\0';
+    hashop->hexhashes[hashop->hashes_count*SXI_SHA1_TEXT_LEN] = '\0';
     sxc_client_t *sx;
 
     sx = sxi_conns_get_client(hashop->conns);
@@ -370,18 +370,18 @@ int sxi_hashop_batch_add(sxi_hashop_t *hashop, const char *host, unsigned idx, c
     }
     hashop->current_host = host;
     hashop->current_blocksize = blocksize;
-    hidx = hashop->hashes_count * HASH_TEXT_LEN;
-    if (hashop->hashes_pos + HASH_TEXT_LEN + 1 >= sizeof(hashop->hashes) ||
-        hidx + HASH_TEXT_LEN >= sizeof(hashop->hexhashes)) {
+    hidx = hashop->hashes_count * SXI_SHA1_TEXT_LEN;
+    if (hashop->hashes_pos + SXI_SHA1_TEXT_LEN + 1 >= sizeof(hashop->hashes) ||
+        hidx + SXI_SHA1_TEXT_LEN >= sizeof(hashop->hexhashes)) {
         sxi_seterr(sx, SXE_EARG, "Out of bounds hashes_pos: %u (limit %lu), hidx: %u (limit %lu)",
                    hashop->hashes_pos, (long)sizeof(hashop->hashes),
                    hidx, (long)sizeof(hashop->hexhashes));
         return -1;
     }
-    sxi_bin2hex(binhash, HASH_BIN_LEN, hashop->hashes + hashop->hashes_pos);
-    memcpy(hashop->hexhashes + hidx, hashop->hashes + hashop->hashes_pos, HASH_TEXT_LEN);
-    SXDEBUG("hash @%d: %.*s", idx, HASH_TEXT_LEN, hashop->hashes + hashop->hashes_pos);
-    hashop->hashes_pos += HASH_TEXT_LEN;
+    sxi_bin2hex(binhash, SXI_SHA1_BIN_LEN, hashop->hashes + hashop->hashes_pos);
+    memcpy(hashop->hexhashes + hidx, hashop->hashes + hashop->hashes_pos, SXI_SHA1_TEXT_LEN);
+    SXDEBUG("hash @%d: %.*s", idx, SXI_SHA1_TEXT_LEN, hashop->hashes + hashop->hashes_pos);
+    hashop->hashes_pos += SXI_SHA1_TEXT_LEN;
     hashop->hashes[hashop->hashes_pos++] = ',';
     if (hashop->queries + hashop->hashes_count != idx) {
         SXDEBUG("bad idx: %d != %d", hashop->queries + hashop->hashes_count, idx);

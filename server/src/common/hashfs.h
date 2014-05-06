@@ -36,7 +36,7 @@
 #include "sxdbi.h"
 
 typedef struct _sx_hash_t {
-    uint8_t b[HASH_BIN_LEN];
+    uint8_t b[SXI_SHA1_BIN_LEN];
 } sx_hash_t;
 
 #include "hashop.h"

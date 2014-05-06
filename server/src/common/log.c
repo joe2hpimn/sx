@@ -285,7 +285,7 @@ const char *msg_log_end(void)
 
 int msg_new_id(void)
 {
-    unsigned char md[HASH_BIN_LEN];
+    unsigned char md[SXI_SHA1_BIN_LEN];
     pid_t p = getpid();
     unsigned len = sizeof(md);
 
@@ -294,7 +294,7 @@ int msg_new_id(void)
     log_record.reason[0] = '\0';
     log_record.id[0] = '\0';
 
-    if (sxi_hashcalc(&p, sizeof(p), &counter, sizeof(counter), md)) {
+    if (sxi_sha1_calc(&p, sizeof(p), &counter, sizeof(counter), md)) {
         WARN("Digest calculation failed");
         return -1;
     }

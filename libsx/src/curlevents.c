@@ -1196,7 +1196,7 @@ static int curlev_apply(curl_events_t *e, curlev_t *ev, curlev_t *src)
     return ret;
 }
 
-static int compute_date(sxc_client_t *sx, char buf[32], time_t diff, sxi_hmac_ctx *hmac_ctx) {
+static int compute_date(sxc_client_t *sx, char buf[32], time_t diff, sxi_hmac_sha1_ctx *hmac_ctx) {
     const char *month[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
     const char *wkday[] = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
     time_t t = time(NULL) + diff;
@@ -1209,7 +1209,7 @@ static int compute_date(sxc_client_t *sx, char buf[32], time_t diff, sxi_hmac_ct
     }
     sprintf(buf, "%s, %02u %s %04u %02u:%02u:%02u GMT", wkday[ts.tm_wday], ts.tm_mday, month[ts.tm_mon], ts.tm_year + 1900, ts.tm_hour, ts.tm_min, ts.tm_sec);
 
-    if(!sxi_hmac_update_str(hmac_ctx, buf))
+    if(!sxi_hmac_sha1_update_str(hmac_ctx, buf))
 	return -1;
     return 0;
 }
@@ -1239,7 +1239,7 @@ static int compute_headers_url(curl_events_t *e, curlev_t *ev, curlev_t *src)
     char datebuf[32];
     unsigned content_size;
     unsigned int keylen;
-    sxi_hmac_ctx *hmac_ctx = NULL;
+    sxi_hmac_sha1_ctx *hmac_ctx = NULL;
     sxi_conns_t *conns;
     sxc_client_t *sx;
     int rc;
@@ -1265,7 +1265,7 @@ static int compute_headers_url(curl_events_t *e, curlev_t *ev, curlev_t *src)
         const char *query;
         char *url;
 	rc = -1;
-        hmac_ctx = sxi_hmac_init();
+        hmac_ctx = sxi_hmac_sha1_init();
         if (!hmac_ctx)
             break;
 
@@ -1305,13 +1305,13 @@ static int compute_headers_url(curl_events_t *e, curlev_t *ev, curlev_t *src)
             break;
         }
 
-        if(!sxi_hmac_init_ex(hmac_ctx, bintoken + AUTH_UID_LEN, AUTH_KEY_LEN)) {
+        if(!sxi_hmac_sha1_init_ex(hmac_ctx, bintoken + AUTH_UID_LEN, AUTH_KEY_LEN)) {
 	    EVDEBUG(ev, "failed to init hmac context");
 	    conns_err(SXE_ECRYPT, "Cluster query failed: HMAC calculation failed");
 	    break;
 	}
 
-	if(!sxi_hmac_update_str(hmac_ctx, verb) || !sxi_hmac_update_str(hmac_ctx, query))
+	if(!sxi_hmac_sha1_update_str(hmac_ctx, verb) || !sxi_hmac_sha1_update_str(hmac_ctx, query))
 	    break;
 
 	if (compute_date(sx, datebuf, sxi_conns_get_timediff(e->conns), hmac_ctx) == -1)
@@ -1321,12 +1321,12 @@ static int compute_headers_url(curl_events_t *e, curlev_t *ev, curlev_t *src)
 	    unsigned char d[20];
             sxi_md_ctx *ch_ctx = sxi_md_init();
 
-            if (!sxi_digest_init(ch_ctx)) {
+            if (!sxi_sha1_init(ch_ctx)) {
 		EVDEBUG(ev, "failed to init content digest");
 		conns_err(SXE_ECRYPT, "Cannot compute hash: unable to initialize crypto library");
 		break;
 	    }
-            if (!sxi_digest_update(ch_ctx, content, content_size) || !sxi_digest_final(ch_ctx, d, NULL)) {
+            if (!sxi_sha1_update(ch_ctx, content, content_size) || !sxi_sha1_final(ch_ctx, d, NULL)) {
 		EVDEBUG(ev, "failed to update content digest");
 		conns_err(SXE_ECRYPT, "Cannot compute hash: crypto library failure");
                 sxi_md_cleanup(&ch_ctx);
@@ -1337,13 +1337,13 @@ static int compute_headers_url(curl_events_t *e, curlev_t *ev, curlev_t *src)
 	    sxi_bin2hex(d, sizeof(d), content_hash);
 	    content_hash[sizeof(content_hash)-1] = '\0';
 
-	    if(!sxi_hmac_update_str(hmac_ctx, content_hash))
+	    if(!sxi_hmac_sha1_update_str(hmac_ctx, content_hash))
 		break;
-	} else if(!sxi_hmac_update_str(hmac_ctx, "da39a3ee5e6b4b0d3255bfef95601890afd80709"))
+	} else if(!sxi_hmac_sha1_update_str(hmac_ctx, "da39a3ee5e6b4b0d3255bfef95601890afd80709"))
 	    break;
 
 	keylen = AUTH_KEY_LEN;
-	if(!sxi_hmac_final(hmac_ctx, bintoken + AUTH_UID_LEN, &keylen) || keylen != AUTH_KEY_LEN) {
+	if(!sxi_hmac_sha1_final(hmac_ctx, bintoken + AUTH_UID_LEN, &keylen) || keylen != AUTH_KEY_LEN) {
 	    EVDEBUG(ev, "failed to finalize hmac calculation");
 	    conns_err(SXE_ECRYPT, "Cluster query failed: HMAC finalization failed");
 	    break;
@@ -1362,7 +1362,7 @@ static int compute_headers_url(curl_events_t *e, curlev_t *ev, curlev_t *src)
 	rc = 0;
     } while(0);
     free(sendtok);
-    sxi_hmac_cleanup(&hmac_ctx);
+    sxi_hmac_sha1_cleanup(&hmac_ctx);
     return rc;
 }
 
@@ -1877,7 +1877,7 @@ static int print_certificate_info(curl_events_t *e, const struct curl_certinfo *
         }
         b64[i] = '\0';
         if (!sxi_b64_dec(sx, b64, rawbuf, &rawbuf_len)) {
-            char hash[HASH_TEXT_LEN + 1];
+            char hash[SXI_SHA1_TEXT_LEN + 1];
             if (!sxi_conns_hashcalc_core(sxi_conns_get_client(e->conns), NULL, 0, rawbuf, rawbuf_len, hash)) {
                 sxi_fmt_msg(&fmt, "\tSHA1 fingerprint: %s\n", hash);
                 sxi_notice(sx, "%s", fmt.buf);

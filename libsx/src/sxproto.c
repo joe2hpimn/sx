@@ -311,7 +311,7 @@ sxi_query_t *sxi_filedel_proto(sxc_client_t *sx, const char *volname, const char
 
 sxi_query_t *sxi_hashop_proto(sxc_client_t *sx, unsigned blocksize, const char *hashes, unsigned hashes_len, enum sxi_hashop_kind kind, const char *id)
 {
-    char url[DOWNLOAD_MAX_BLOCKS * (EXPIRE_TEXT_LEN + HASH_TEXT_LEN) + sizeof(".data/1048576/?o=reserve&id=") + 64];
+    char url[DOWNLOAD_MAX_BLOCKS * (EXPIRE_TEXT_LEN + SXI_SHA1_TEXT_LEN) + sizeof(".data/1048576/?o=reserve&id=") + 64];
     enum sxi_cluster_verb verb;
     int rc;
 

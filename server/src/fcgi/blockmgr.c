@@ -128,7 +128,7 @@ void blockmgr_process_queue(struct blockmgr_data_t *q) {
 	bs = sqlite3_column_int(q->qlist, 2);
         n = sqlite3_column_blob(q->qlist, 3);
 	nlen = sqlite3_column_bytes(q->qlist, 3);
-	if(!h || hlen != HASH_BIN_LEN || /* Bad hash */
+	if(!h || hlen != SXI_SHA1_BIN_LEN || /* Bad hash */
 	   !n || nlen != sizeof(node_uuid.binary) || /* Bad node */
 	   sx_hashfs_check_blocksize(bs)) { /* Bad blocksize */
 	    WARN("Removing bad transfer");
@@ -174,7 +174,7 @@ void blockmgr_process_queue(struct blockmgr_data_t *q) {
 	    hlen = sqlite3_column_bytes(q->qlist, 1);
 	    n = sqlite3_column_blob(q->qlist, 3);
 	    nlen = sqlite3_column_bytes(q->qlist, 3);
-	    if(!h || hlen != HASH_BIN_LEN) {
+	    if(!h || hlen != SXI_SHA1_BIN_LEN) {
                 WARN("Bad hash");
 		break;
             }
@@ -192,7 +192,7 @@ void blockmgr_process_queue(struct blockmgr_data_t *q) {
             }
 
 	    hlist.ids[hlist.nblocks] = sqlite3_column_int64(q->qlist, 0);
-            memcpy(&hlist.binhs[hlist.nblocks], h, HASH_BIN_LEN);
+            memcpy(&hlist.binhs[hlist.nblocks], h, SXI_SHA1_BIN_LEN);
             if(sxi_hashop_batch_add(&hc, host, hlist.nblocks, h, bs) != 0) {
                 WARN("Cannot verify block presence: %s", sxc_geterrmsg(sx));
                 blockmgr_reschedule_xfer(q, hlist.ids[hlist.nblocks]);

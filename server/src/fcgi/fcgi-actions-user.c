@@ -48,13 +48,13 @@ void fcgi_user_onoff(int enable) {
 }
 
 void fcgi_send_user(void) {
-    uint8_t user[HASH_BIN_LEN];
+    uint8_t user[SXI_SHA1_BIN_LEN];
     sx_uid_t requid;
     uint8_t key[AUTH_KEY_LEN];
     sx_priv_t role;
     sxi_query_t *q;
 
-    if (sxi_hashcalc(NULL, 0, path, strlen(path), user))
+    if (sxi_sha1_calc(NULL, 0, path, strlen(path), user))
 	quit_errmsg(500, "Cannot compute hash: unable to initialize crypto library");
 
     if(sx_hashfs_get_user_info(hashfs, user, &requid, key, &role) != OK) /* no such user */ {

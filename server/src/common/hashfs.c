@@ -127,7 +127,7 @@ static int read_block(int fd, uint8_t *dt, uint64_t off, unsigned int buf_len) {
 }
 
 static int hash_buf(const void *salt, unsigned int salt_len, const void *buf, unsigned int buf_len, sx_hash_t *hash) {
-    return sxi_hashcalc(salt, salt_len, buf, buf_len, hash->b);
+    return sxi_sha1_calc(salt, salt_len, buf, buf_len, hash->b);
 }
 
 #define CREATE_DB(DBTYPE) \
@@ -297,7 +297,7 @@ rc_ty sx_storage_create(const char *dir, sx_uuid_t *cluster, uint8_t *key, int k
     qnullify(q);
 
     /* Create HASHFS tables */
-    if(qprep(db, &q, "CREATE TABLE users (uid INTEGER PRIMARY KEY NOT NULL, user BLOB ("STRIFY(HASH_BIN_LEN)") NOT NULL UNIQUE, name TEXT ("STRIFY(SXLIMIT_MAX_USERNAME_LEN)") NOT NULL UNIQUE, key BLOB ("STRIFY(AUTH_KEY_LEN)") NOT NULL UNIQUE, role INTEGER NOT NULL, enabled INTEGER NOT NULL DEFAULT 0)") || qstep_noret(q))
+    if(qprep(db, &q, "CREATE TABLE users (uid INTEGER PRIMARY KEY NOT NULL, user BLOB ("STRIFY(SXI_SHA1_BIN_LEN)") NOT NULL UNIQUE, name TEXT ("STRIFY(SXLIMIT_MAX_USERNAME_LEN)") NOT NULL UNIQUE, key BLOB ("STRIFY(AUTH_KEY_LEN)") NOT NULL UNIQUE, role INTEGER NOT NULL, enabled INTEGER NOT NULL DEFAULT 0)") || qstep_noret(q))
 	goto create_hashfs_fail;
     qnullify(q);
 /*    if(qprep(db, &q, "CREATE INDEX users_byname ON users(name, enabled)") || qstep_noret(q))
@@ -361,7 +361,7 @@ rc_ty sx_storage_create(const char *dir, sx_uuid_t *cluster, uint8_t *key, int k
 	    qnullify(q);
 
 	    /* Create HASH tables */
-	    if(qprep(db, &q, "CREATE TABLE blocks (hash BLOB("STRIFY(HASH_BIN_LEN)") NOT NULL PRIMARY KEY, blockno INTEGER NOT NULL)") || qstep_noret(q))
+	    if(qprep(db, &q, "CREATE TABLE blocks (hash BLOB("STRIFY(SXI_SHA1_BIN_LEN)") NOT NULL PRIMARY KEY, blockno INTEGER NOT NULL)") || qstep_noret(q))
 		goto create_hashfs_fail;
 	    qnullify(q);
 
@@ -429,7 +429,7 @@ rc_ty sx_storage_create(const char *dir, sx_uuid_t *cluster, uint8_t *key, int k
     sprintf(path, "%s/xfers.db", dir);
     CREATE_DB("xferdb");
     qnullify(q); /* q is now prepared for hashfs insertions */
-    if(qprep(db, &q, "CREATE TABLE topush (id INTEGER NOT NULL PRIMARY KEY, block BLOB("STRIFY(HASH_BIN_LEN)") NOT NULL, size INTEGER NOT NULL, node BLOB("STRIFY(UUID_BINARY_SIZE)") NOT NULL, sched_time TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f')), expiry_time TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now', '"STRIFY(TOPUSH_EXPIRE)" seconds')), UNIQUE (block, size, node))") || qstep_noret(q))
+    if(qprep(db, &q, "CREATE TABLE topush (id INTEGER NOT NULL PRIMARY KEY, block BLOB("STRIFY(SXI_SHA1_BIN_LEN)") NOT NULL, size INTEGER NOT NULL, node BLOB("STRIFY(UUID_BINARY_SIZE)") NOT NULL, sched_time TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f')), expiry_time TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now', '"STRIFY(TOPUSH_EXPIRE)" seconds')), UNIQUE (block, size, node))") || qstep_noret(q))
 	goto create_hashfs_fail;
     qnullify(q);
     if(qprep(db, &q, "CREATE INDEX topush_sched ON topush(sched_time ASC, expiry_time)") || qstep_noret(q))
@@ -940,7 +940,7 @@ rc_ty sx_hashfs_gc_open(sx_hashfs_t *h)
     qnullify(q);
 #if 0
     /* TODO: this needs to be real table */
-    if (qprep(db, &q, "CREATE TABLE filehash_info (filehash BLOB("STRIFY(HASH_BIN_LEN)") NOT NULL PRIMARY KEY, reserved INTEGER NOT NULL, used INTEGER NOT NULL)") || qstep_noret(q))
+    if (qprep(db, &q, "CREATE TABLE filehash_info (filehash BLOB("STRIFY(SXI_SHA1_BIN_LEN)") NOT NULL PRIMARY KEY, reserved INTEGER NOT NULL, used INTEGER NOT NULL)") || qstep_noret(q))
         goto create_hashfs_fail;
     qnullify(q);
 #endif
@@ -1765,8 +1765,8 @@ static int check_revision(const char *revision) {
 
 #define TOKEN_SIGNED_LEN UUID_STRING_SIZE + 1 + TOKEN_RAND_BYTES * 2 + 1 + TOKEN_REPLICA_LEN + 1 + TOKEN_EXPIRE_LEN + 1
 rc_ty sx_hashfs_make_token(sx_hashfs_t *h, const uint8_t *user, const char *rndhex, unsigned int replica, int64_t expires_at, const char **token) {
-    sxi_hmac_ctx *hmac_ctx;
-    uint8_t md[HASH_BIN_LEN], rndbin[TOKEN_RAND_BYTES];
+    sxi_hmac_sha1_ctx *hmac_ctx;
+    uint8_t md[SXI_SHA1_BIN_LEN], rndbin[TOKEN_RAND_BYTES];
     char rndhexbuf[TOKEN_RAND_BYTES * 2 + 1], replicahex[2 + TOKEN_REPLICA_LEN + 1], expirehex[TOKEN_EXPIRE_LEN + 1];
     sx_uuid_t node_uuid;
     unsigned int len;
@@ -1812,10 +1812,10 @@ rc_ty sx_hashfs_make_token(sx_hashfs_t *h, const uint8_t *user, const char *rndh
 	return EINVAL;
     }
 
-    hmac_ctx = sxi_hmac_init();
-    if(!sxi_hmac_init_ex(hmac_ctx, &h->tokenkey, sizeof(h->tokenkey)) ||
-       !sxi_hmac_update(hmac_ctx, (unsigned char *)h->put_token, len) ||
-       !sxi_hmac_final(hmac_ctx, md, &len) ||
+    hmac_ctx = sxi_hmac_sha1_init();
+    if(!sxi_hmac_sha1_init_ex(hmac_ctx, &h->tokenkey, sizeof(h->tokenkey)) ||
+       !sxi_hmac_sha1_update(hmac_ctx, (unsigned char *)h->put_token, len) ||
+       !sxi_hmac_sha1_final(hmac_ctx, md, &len) ||
        len != AUTH_KEY_LEN) {
 	msg_set_reason("Failed to compute token hmac");
 	CRIT("Cannot genearate token hmac");
@@ -1825,7 +1825,7 @@ rc_ty sx_hashfs_make_token(sx_hashfs_t *h, const uint8_t *user, const char *rndh
 	h->put_token[sizeof(h->put_token)-1] = '\0';
 	*token = h->put_token;
     }
-    sxi_hmac_cleanup(&hmac_ctx);
+    sxi_hmac_sha1_cleanup(&hmac_ctx);
 
     return ret;
 }
@@ -1841,8 +1841,8 @@ struct token_data {
 static int parse_token(sxc_client_t *sx, const uint8_t *user, const char *token, const sx_hash_t *tokenkey, struct token_data *td) {
     char uuid_str[UUID_STRING_SIZE+1], hmac[AUTH_KEY_LEN*2+1];
     char *eptr;
-    uint8_t md[HASH_BIN_LEN];
-    sxi_hmac_ctx *hmac_ctx;
+    uint8_t md[SXI_SHA1_BIN_LEN];
+    sxi_hmac_sha1_ctx *hmac_ctx;
     unsigned int ml;
 
     if(!user || !token || !td) {
@@ -1861,16 +1861,16 @@ static int parse_token(sxc_client_t *sx, const uint8_t *user, const char *token,
 	return 1;
     }
 
-    hmac_ctx = sxi_hmac_init();
-    if(!sxi_hmac_init_ex(hmac_ctx, tokenkey, sizeof(*tokenkey)) ||
-       !sxi_hmac_update(hmac_ctx, (unsigned char *)token, TOKEN_SIGNED_LEN) ||
-       !sxi_hmac_final(hmac_ctx, md, &ml) ||
+    hmac_ctx = sxi_hmac_sha1_init();
+    if(!sxi_hmac_sha1_init_ex(hmac_ctx, tokenkey, sizeof(*tokenkey)) ||
+       !sxi_hmac_sha1_update(hmac_ctx, (unsigned char *)token, TOKEN_SIGNED_LEN) ||
+       !sxi_hmac_sha1_final(hmac_ctx, md, &ml) ||
        ml != AUTH_KEY_LEN) {
-	sxi_hmac_cleanup(&hmac_ctx);
+	sxi_hmac_sha1_cleanup(&hmac_ctx);
 	CRIT("Cannot generate token hmac");
 	return 1;
     }
-    sxi_hmac_cleanup(&hmac_ctx);
+    sxi_hmac_sha1_cleanup(&hmac_ctx);
     bin2hex(md, AUTH_KEY_LEN, hmac, sizeof(hmac));
     if(hmac_compare((const unsigned char *)&token[TOKEN_SIGNED_LEN], (const unsigned char *)hmac, AUTH_KEY_LEN*2)) {
 	msg_set_reason("Token signature does not match");
@@ -2019,7 +2019,7 @@ int sx_hashfs_check(sx_hashfs_t *h, int debug) {
 	    size = sqlite3_column_int64(list, 2);
 	    sqlite3_column_blob(list, 3);
 	    listlen = sqlite3_column_bytes(list, 3);
-	    if(size < 0 || (listlen % HASH_BIN_LEN) || size_to_blocks(size, NULL, NULL) != listlen / HASH_BIN_LEN) {
+	    if(size < 0 || (listlen % SXI_SHA1_BIN_LEN) || size_to_blocks(size, NULL, NULL) != listlen / SXI_SHA1_BIN_LEN) {
 		WARN("Invalid size for file %s (row %lld) in metadata database %08x", name, (long long int)row, i);
 		continue;
 	    }
@@ -2063,7 +2063,7 @@ int sx_hashfs_check(sx_hashfs_t *h, int debug) {
 	    }
 
 	    while(1) {
-		char h1[HASH_BIN_LEN * 2 + 1], h2[HASH_BIN_LEN * 2 + 1];
+		char h1[SXI_SHA1_BIN_LEN * 2 + 1], h2[SXI_SHA1_BIN_LEN * 2 + 1];
 		const sx_hash_t *refhash;
 		sx_hash_t comphash;
 		int64_t off, row;
@@ -2076,7 +2076,7 @@ int sx_hashfs_check(sx_hashfs_t *h, int debug) {
 		row = sqlite3_column_int64(list, 0);
 
 		refhash = (const sx_hash_t *)sqlite3_column_blob(list, 1);
-		if(!refhash || sqlite3_column_bytes(list, 1) != HASH_BIN_LEN) {
+		if(!refhash || sqlite3_column_bytes(list, 1) != SXI_SHA1_BIN_LEN) {
 		    WARN("Found invalid hash on row %lld in %s hash database %08x", (long long int)row, sizelongnames[j], i);
 		    res = 1;
 		    continue;
@@ -2113,7 +2113,7 @@ int sx_hashfs_check(sx_hashfs_t *h, int debug) {
 		INFO("Checking duplicates within %lld blocks in %s hash database %u / %u...", (long long int)rows, sizelongnames[j], i+1, HASHDBS);
 
 	    while(1) {
-		char h1[HASH_BIN_LEN * 2 + 1], h2[HASH_BIN_LEN * 2 + 1];
+		char h1[SXI_SHA1_BIN_LEN * 2 + 1], h2[SXI_SHA1_BIN_LEN * 2 + 1];
 		const sx_hash_t *hash1, *hash2;
 		int64_t row1, row2;
 		int r = qstep(dups);
@@ -2920,7 +2920,7 @@ rc_ty sx_hashfs_list_users(sx_hashfs_t *h, user_list_cb_t cb, void *ctx) {
 	int is_admin = sqlite3_column_int64(q, 4) == ROLE_ADMIN;
         lastuid = uid;
 
-	if(sqlite3_column_bytes(q, 2) != HASH_BIN_LEN || sqlite3_column_bytes(q, 3) != AUTH_KEY_LEN) {
+	if(sqlite3_column_bytes(q, 2) != SXI_SHA1_BIN_LEN || sqlite3_column_bytes(q, 3) != AUTH_KEY_LEN) {
 	    WARN("User %s (%lld) is invalid", name, (long long)uid);
 	    continue;
 	}
@@ -4689,8 +4689,8 @@ static rc_ty are_blocks_available(sx_hashfs_t *h, sx_hash_t *hashes,
         }
 	if (hdck->cb) {
 	    int code = r == SQLITE_ROW ? 200 : 404;
-	    char thash[HASH_TEXT_LEN + 1];
-	    if (bin2hex(hash->b, HASH_BIN_LEN, thash, sizeof(thash))) {
+	    char thash[SXI_SHA1_TEXT_LEN + 1];
+	    if (bin2hex(hash->b, SXI_SHA1_BIN_LEN, thash, sizeof(thash))) {
 		WARN("bin2hex failed for hash");
 		return FAIL_EINTERNAL;
 	    }
@@ -4891,7 +4891,7 @@ static int tmp_getmissing_cb(const char *hexhash, unsigned int index, int code, 
 
     if(!hexhash || !mis)
 	return -1;
-    DEBUG("remote hash #%.*s#: %d", HASH_TEXT_LEN, hexhash, code);
+    DEBUG("remote hash #%.*s#: %d", SXI_SHA1_TEXT_LEN, hexhash, code);
     if(code != 200)
 	return 0;
 
@@ -4900,12 +4900,12 @@ static int tmp_getmissing_cb(const char *hexhash, unsigned int index, int code, 
 	return -1;
     }
 
-    hex2bin(hexhash, HASH_TEXT_LEN, binhash.b, sizeof(binhash));
+    hex2bin(hexhash, SXI_SHA1_TEXT_LEN, binhash.b, sizeof(binhash));
     blockno = mis->uniq_ids[index];
     if(memcmp(&mis->all_blocks[blockno], &binhash, sizeof(binhash))) {
-	char idxhash[HASH_TEXT_LEN + 1];
+	char idxhash[SXI_SHA1_TEXT_LEN + 1];
 	bin2hex(&mis->all_blocks[blockno], sizeof(mis->all_blocks[0]), idxhash, sizeof(idxhash));
-	WARN("Hash mismatch: called for %.*s but index %d points to %s", HASH_TEXT_LEN, hexhash, index, idxhash);
+	WARN("Hash mismatch: called for %.*s but index %d points to %s", SXI_SHA1_TEXT_LEN, hexhash, index, idxhash);
 	return -1;
     }
 
@@ -4913,7 +4913,7 @@ static int tmp_getmissing_cb(const char *hexhash, unsigned int index, int code, 
 	mis->avlblty[blockno * mis->replica_count + mis->current_replica - 1] = 1;
 	mis->somestatechanged = 1;
         DEBUG("(cb): Block %.*s set %u is NOW available on node %c",
-              HASH_TEXT_LEN, hexhash, mis->current_replica - 1, 'a' +
+              SXI_SHA1_TEXT_LEN, hexhash, mis->current_replica - 1, 'a' +
               mis->nidxs[blockno * mis->replica_count + mis->current_replica - 1]);
     }
     return 0;
@@ -4925,13 +4925,13 @@ static int unique_fileid(sxc_client_t *sx, const sx_hashfs_volume_t *volume, con
     sxi_md_ctx *hash_ctx = sxi_md_init();
     if (!hash_ctx)
         return 1;
-    if (!sxi_digest_init(hash_ctx))
+    if (!sxi_sha1_init(hash_ctx))
         return 1;
 
-    if (!sxi_digest_update(hash_ctx, volume->name, strlen(volume->name) + 1) ||
-        !sxi_digest_update(hash_ctx, name, strlen(name) + 1) ||
-        !sxi_digest_update(hash_ctx, revision, strlen(revision)) ||
-        !sxi_digest_final(hash_ctx, fileid->b, NULL)) {
+    if (!sxi_sha1_update(hash_ctx, volume->name, strlen(volume->name) + 1) ||
+        !sxi_sha1_update(hash_ctx, name, strlen(name) + 1) ||
+        !sxi_sha1_update(hash_ctx, revision, strlen(revision)) ||
+        !sxi_sha1_final(hash_ctx, fileid->b, NULL)) {
         ret = 1;
     }
 
@@ -5371,7 +5371,7 @@ rc_ty sx_hashfs_file_delete(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, co
     sx_nodelist_t *belongsto;
     int64_t file_id, mh;
     rc_ty ret;
-    char fileidhex[HASH_TEXT_LEN+1];
+    char fileidhex[SXI_SHA1_TEXT_LEN+1];
 
     if(!h || !volume || !file) {
 	NULLARG();
@@ -6902,9 +6902,9 @@ rc_ty sx_hashfs_hdist_change_commit(sx_hashfs_t *h) {
 }
 
 rc_ty sx_hashfs_challenge_gen(sx_hashfs_t *h, sx_hash_challenge_t *c, int random_challenge) {
-    unsigned char md[HASH_BIN_LEN];
+    unsigned char md[SXI_SHA1_BIN_LEN];
     unsigned int mdlen;
-    sxi_hmac_ctx *hmac_ctx;
+    sxi_hmac_sha1_ctx *hmac_ctx;
     rc_ty ret;
 
     if(random_challenge) {
@@ -6915,13 +6915,13 @@ rc_ty sx_hashfs_challenge_gen(sx_hashfs_t *h, sx_hash_challenge_t *c, int random
 	}
     }
 
-    hmac_ctx = sxi_hmac_init();
+    hmac_ctx = sxi_hmac_sha1_init();
     if (!hmac_ctx)
         return 1;
-    if(!sxi_hmac_init_ex(hmac_ctx, &h->tokenkey, sizeof(h->tokenkey)) ||
-       !sxi_hmac_update(hmac_ctx, c->challenge, sizeof(c->challenge)) ||
-       !sxi_hmac_update(hmac_ctx, h->cluster_uuid.binary, sizeof(h->cluster_uuid.binary)) ||
-       !sxi_hmac_final(hmac_ctx, md, &mdlen) ||
+    if(!sxi_hmac_sha1_init_ex(hmac_ctx, &h->tokenkey, sizeof(h->tokenkey)) ||
+       !sxi_hmac_sha1_update(hmac_ctx, c->challenge, sizeof(c->challenge)) ||
+       !sxi_hmac_sha1_update(hmac_ctx, h->cluster_uuid.binary, sizeof(h->cluster_uuid.binary)) ||
+       !sxi_hmac_sha1_final(hmac_ctx, md, &mdlen) ||
        mdlen != sizeof(c->response)) {
 	msg_set_reason("Failed to compute nounce hmac");
 	CRIT("Cannot genearate nounce hmac");
@@ -6930,7 +6930,7 @@ rc_ty sx_hashfs_challenge_gen(sx_hashfs_t *h, sx_hash_challenge_t *c, int random
 	memcpy(c->response, md, sizeof(c->response));
 	ret = OK;
     }
-    sxi_hmac_cleanup(&hmac_ctx);
+    sxi_hmac_sha1_cleanup(&hmac_ctx);
 
     return ret;
 }
