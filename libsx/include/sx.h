@@ -52,7 +52,7 @@ const char *sxc_geterrmsg(sxc_client_t *sx);
 void sxc_loglasterr(sxc_client_t *sx);
 int sxc_set_confdir(sxc_client_t *sx, const char *config_dir);
 const char *sxc_get_confdir(sxc_client_t *sx);
-#define SXC_ALIAS_PREFIX ":"
+#define SXC_ALIAS_PREFIX "@"
 int sxc_set_alias(sxc_client_t *sx, const char *alias, const char *profile, const char *host);
 const char *sxc_get_alias(sxc_client_t *sx, const char *profile, const char *host);
 
