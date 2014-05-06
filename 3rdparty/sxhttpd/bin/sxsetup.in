@@ -665,9 +665,10 @@ fi
 
 mkdir -p $SXSETUP_TMPDIR
 if [ -z "$NOSSL_FLAG" ] ; then
-    sed -e "s/^#//g" "$ETCDIR/sxserver/sxhttpd.conf"\
+    sed -e "s/^#//g"\
 	-e "s|ssl_certificate .*|ssl_certificate $SX_SSL_CERT_FILE;|"\
-	-e "s|ssl_certificate_key .*|ssl_certificate_key $SX_SSL_KEY_FILE;|" >$OUT_TMP
+	-e "s|ssl_certificate_key .*|ssl_certificate_key $SX_SSL_KEY_FILE;|"\
+	"$ETCDIR/sxserver/sxhttpd.conf" >$OUT_TMP
     cp $OUT_TMP "$ETCDIR/sxserver/sxhttpd.conf"
 fi
 
