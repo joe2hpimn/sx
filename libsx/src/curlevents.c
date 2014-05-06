@@ -613,6 +613,7 @@ struct curl_events {
     const char *cafile;
     char *savefile;
     int saved, quiet;
+    int disable_proxy;
 };
 
 #define MAX_ACTIVE_PER_HOST 2
@@ -1025,6 +1026,12 @@ static int easy_set_default_opt(curl_events_t *e, curlev_t *ev)
             return -1;
         rc = curl_easy_setopt(curl, CURLOPT_CAPATH, NULL);
         if (curl_check(ev, rc, "set CURLOPT_CAPATH") == -1)
+            return -1;
+    }
+
+    if (e->disable_proxy) {
+        rc = curl_easy_setopt(curl, CURLOPT_PROXY, "");
+        if (curl_check(ev, rc, "set CURLOPT_PROXY") == -1)
             return -1;
     }
 
@@ -2058,4 +2065,12 @@ void sxi_curlev_set_verified(curlev_t *ev, int value)
 int sxi_curlev_verify_peer(curlev_t *ev)
 {
     return ev->verify_peer;
+}
+
+int sxi_curlev_disable_proxy(curl_events_t *ev)
+{
+    if (!ev)
+        return -1;
+    ev->disable_proxy = 1;
+    return 0;
 }

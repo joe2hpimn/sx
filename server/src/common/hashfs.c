@@ -1118,8 +1118,10 @@ static int load_config(sx_hashfs_t *h, sxc_client_t *sx) {
 
 	sqlite3_reset(h->q_getval);
 
-	if(!h->sx_clust)
+	if(!h->sx_clust) {
 	    h->sx_clust = sxi_conns_new(sx);
+            sxi_conns_disable_proxy(h->sx_clust);
+        }
 	if(!h->sx_clust ||
 	   sxi_conns_set_uuid(h->sx_clust, h->cluster_uuid.string) ||
 	   sxi_conns_set_auth(h->sx_clust, h->root_auth) ||

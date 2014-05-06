@@ -87,6 +87,7 @@ void sxc_cluster_reset_hosts(sxc_cluster_t *cluster);
 void sxc_cluster_free(sxc_cluster_t *cluster);
 int sxc_cluster_set_dnsname(sxc_cluster_t *cluster, const char *dnsname);
 int sxc_cluster_set_sslname(sxc_cluster_t *cluster, const char *sslname);
+int sxc_cluster_disable_proxy(sxc_cluster_t *cluster);
 int sxc_cluster_fetch_ca(sxc_cluster_t *cluster, int quiet);
 const char *sxc_cluster_get_dnsname(const sxc_cluster_t *cluster);
 const char *sxc_cluster_get_sslname(const sxc_cluster_t *cluster);

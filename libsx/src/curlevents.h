@@ -135,4 +135,6 @@ sxi_conns_t *sxi_curlev_get_conns(curlev_t *ev);
 void sxi_curlev_set_verified(curlev_t *ev, int value);
 int sxi_curlev_verify_peer(curlev_t *ev);
 
+int sxi_curlev_disable_proxy(curl_events_t *ev);
+
 #endif

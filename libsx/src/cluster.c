@@ -780,3 +780,10 @@ int sxi_conns_root_noauth(sxi_conns_t *conns, const char *tmpcafile, int quiet)
     }
     return 1;
 }
+
+int sxi_conns_disable_proxy(sxi_conns_t *conns)
+{
+    if (!conns)
+        return -1;
+    return sxi_curlev_disable_proxy(conns->curlev);
+}

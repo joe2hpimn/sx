@@ -74,4 +74,6 @@ int sxi_conns_root_noauth(sxi_conns_t *conns, const char *tmpcafile, int quiet);
 int sxi_upload_block_from_buf(sxi_conns_t *conns, sxi_hostlist_t *hlist, const char *token, uint8_t *block, unsigned int block_size, int64_t upload_size);
 void sxi_retry_throttle(sxc_client_t *sx, unsigned retry);
 
+int sxi_conns_disable_proxy(sxi_conns_t *conns);
+
 #endif

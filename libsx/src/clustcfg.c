@@ -2453,3 +2453,10 @@ int sxc_cluster_trigger_gc(sxc_cluster_t *cluster)
     }
     return failed;
 }
+
+int sxc_cluster_disable_proxy(sxc_cluster_t *cluster)
+{
+    if (!cluster)
+        return -1;
+    return sxi_conns_disable_proxy(cluster->conns);
+}
