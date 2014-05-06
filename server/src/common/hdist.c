@@ -602,37 +602,37 @@ static int hchecksum(sxi_hdist_t *model)
 	unsigned int i, j;
 	const char *pt;
         sxi_md_ctx *sctx = sxi_md_init();
-        if (!sctx)
-            return 0;
 
+    if(!sctx)
+	return 1;
     v = model->builds + model->node_count[0] + model->circle[0][0].point + model->state + model->max_builds + model->seed;
-    if (!sxi_digest_init(sctx))
-        return 0;
+    if(!sxi_digest_init(sctx))
+        return 1;
     for(i = 0; i < model->builds; i++) {
 	for(j = 0; j < model->node_count[i]; j++) {
 	    if(!model->node_list[i][j].sxn)
 		continue;
             if (!sxi_digest_update(sctx, sx_node_uuid(model->node_list[i][j].sxn), 16))
-                return 0;
+                return 1;
 	    pt = sx_node_addr(model->node_list[i][j].sxn);
 	    if(pt) {
-                if (!sxi_digest_update(sctx, pt, strlen(pt)))
-                    return 0;
+                if(!sxi_digest_update(sctx, pt, strlen(pt)))
+                    return 1;
             }
 	    pt = sx_node_internal_addr(model->node_list[i][j].sxn);
 	    if(pt) {
-                if (!sxi_digest_update(sctx, pt, strlen(pt)))
-                    return 0;
+                if(!sxi_digest_update(sctx, pt, strlen(pt)))
+                    return 1;
             }
 	    v += sx_node_capacity(model->node_list[i][j].sxn);
 	}
 	if(model->circle_points[i])
 	    v ^= model->circle[i][model->circle_points[i] - 1].rnd;
     }
-    if (!sxi_digest_final(sctx, sdig, NULL))
-        return 0;
+    if(!sxi_digest_final(sctx, sdig, NULL))
+        return 1;
     model->checksum = MurmurHash64(sdig, sizeof(sdig), model->seed) ^ v;
-    return 1;
+    return 0;
 }
 
 rc_ty sxi_hdist_rebalanced(sxi_hdist_t *model)
@@ -665,7 +665,7 @@ rc_ty sxi_hdist_rebalanced(sxi_hdist_t *model)
 
     model->builds = 1;
     model->version++;
-    if (!hchecksum(model)) {
+    if(hchecksum(model)) {
         CRIT("Can't allocate memory for digest");
         return ENOMEM;
     }
@@ -796,7 +796,10 @@ rc_ty sxi_hdist_build(sxi_hdist_t *model)
     model->state = 0xbabe;
     model->builds++;
     model->version++;
-    hchecksum(model);
+    if(hchecksum(model)) {
+        CRIT("Can't allocate memory for digest");
+        return ENOMEM;
+    }
 
     if(model->cfg_size + 28 > model->cfg_alloced) {
 	model->cfg_alloced += CFG_PREALLOC;
