@@ -77,7 +77,10 @@ static int filter_register(sxc_client_t *sx, const char *filename)
 		    }
 		    SXDEBUG("Replacing older version (%d.%d) of filter \"%s\"", fctx->filters[i].f->version[0], fctx->filters[i].f->version[1], fctx->filters[i].f->shortname);
 		    ph = &fctx->filters[i];
+		    if(ph->active && ph->f->shutdown)
+			ph->f->shutdown(ph, ph->ctx);
 		    lt_dlclose(ph->dlh);
+		    ph->active = 0;
 		    ret = 2;
 		}
 	    }
@@ -111,6 +114,7 @@ static int filter_register(sxc_client_t *sx, const char *filename)
 		lt_dlclose(dlh);
 		return 1;
 	    }
+	    ph->active = 1;
 	} else {
 	    SXDEBUG("Error while registering filter %s: %s", filename, lt_dlerror());
 	    return 1;
