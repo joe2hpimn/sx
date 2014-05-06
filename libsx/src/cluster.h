@@ -55,7 +55,8 @@ int sxi_conns_set_timeout(sxi_conns_t *conns, const char *host, int timeout_acti
 
 typedef int (*cluster_setupcb)(sxi_conns_t *conns, void *context, const char *host);
 int sxi_cluster_query(sxi_conns_t *conns, const sxi_hostlist_t *hlist, enum sxi_cluster_verb verb, const char *query, void *content, size_t content_size, cluster_setupcb setup_callback, cluster_datacb data_callback, void *context);
-int sxi_conns_hashcalc(const sxi_conns_t *conns, const void *buffer, unsigned int len, char *hash);
+int sxi_conns_hashcalc(sxi_conns_t *conns, const void *buffer, unsigned int len, char *hash);
+int sxi_conns_hashcalc_core(sxc_client_t *sx, const void *salt, unsigned salt_len, const void *buffer, unsigned int len, char *hash);
 int sxi_cluster_query_ev(curlev_context_t *cbdata,
                          sxi_conns_t *conns, const char *host,
                          enum sxi_cluster_verb verb, const char *query,

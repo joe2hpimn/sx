@@ -36,12 +36,11 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netdb.h>
-#include <openssl/pem.h>
-#include <openssl/rand.h>
 #include <yajl/yajl_parse.h>
 
 #include "../libsx/src/clustcfg.h"
 #include "../libsx/src/jobpoll.h"
+#include "../libsx/src/vcrypto.h"
 
 #include "cmd_main.h"
 #include "cmd_node.h"
@@ -408,46 +407,20 @@ static int create_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
 	/*     goto create_cluster_err; */
 	/* } */
     } else {
+        unsigned int len;
 	/* SSL cluster with certificate check */
-	FILE *f = fopen(args->ssl_ca_file_arg, "r");
-	unsigned char fpts[EVP_MAX_MD_SIZE];
-	char hexfpts[sizeof(fpts) * 2 + 1];
-	X509_NAME *subject, *issuer;
-	unsigned int nfpts, len;
-	X509 *crt = NULL;
-
-	if(f) {
-	    crt = PEM_read_X509(f, NULL, NULL, NULL);
-	    fclose(f);
-	}
-	if(!crt) {
-	    CRIT("Bad certificate file %s", args->ssl_ca_file_arg);
-	    goto create_cluster_err;
-	}
-
-	subject = X509_get_subject_name(crt);
-	issuer = X509_get_issuer_name(crt);
-	if(!subject || !issuer || !X509_digest(crt, EVP_sha1(), fpts, &nfpts)) {
-	    CRIT("Invalid certificate file %s", args->ssl_ca_file_arg);
-	    X509_free(crt);
+        if (sxi_vcrypt_print_cert_info(sx, args->ssl_ca_file_arg, args->batch_mode_given)) {
+	    CRIT("Bad certificate file %s: %s", args->ssl_ca_file_arg, sxc_geterrmsg(sx));
 	    goto create_cluster_err;
 	}
 
 	if(!args->batch_mode_given) {
-	    sxi_bin2hex(fpts, nfpts, hexfpts);
-	    printf("Details for the provided certificate file are:\n  - Issuer: ");
-	    X509_NAME_print_ex_fp(stdout, issuer, 0, XN_FLAG_ONELINE);
-	    printf("\n  - Subject: ");
-	    X509_NAME_print_ex_fp(stdout, subject, 0, XN_FLAG_ONELINE);
-	    printf("\n  - Fingerprints: %s\n", hexfpts);
 	    if(!sxi_yesno("Is the certificate correct?", 1)) {
 		printf("Cluster creation aborted by the user\n");
-		X509_free(crt);
 		goto create_cluster_err;
 	    }
 	}
 
-	X509_free(crt);
 	if(sxc_cluster_set_cafile(clust, args->ssl_ca_file_arg)) {
 	    CRIT("Failed to configure cluster security");
 	    goto create_cluster_err;

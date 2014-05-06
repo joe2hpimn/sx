@@ -32,8 +32,7 @@
 #include <strings.h>
 #include <stdlib.h>
 
-#include <openssl/evp.h>
-#include <openssl/hmac.h>
+#include "../libsx/src/vcrypto.h"
 
 #include "fcgi-utils.h"
 #include "fcgi-actions.h"
@@ -199,95 +198,21 @@ int is_http_10(void) {
     return strcmp(proto, "HTTP/1.0") == 0;
 }
 
-static int hmac_update_str(HMAC_CTX *ctx, const char *str) {
-    int r = sxi_hmac_update(ctx, (unsigned char *)str, strlen(str));
-    if(r)
-	r = sxi_hmac_update(ctx, (unsigned char *)"\n", 1);
-    if(!r)
-	WARN("hmac_update failed for '%s'", str);
-    return r;
-}
-
 uint8_t user[AUTH_UID_LEN], rhmac[20];
 sx_uid_t uid;
 static sx_priv_t role;
 
 static enum authed_t { AUTH_NOTAUTH, AUTH_BODYCHECK, AUTH_BODYCHECKING, AUTH_OK } authed;
-static HMAC_CTX hmac_ctx;
-static EVP_MD_CTX body_ctx;
-
-static void auth_begin(void) {
-    const char *param = FCGX_GetParam("HTTP_AUTHORIZATION", envp);
-    uint8_t buf[AUTHTOK_BIN_LEN], key[AUTH_KEY_LEN];
-    unsigned int blen = sizeof(buf);
-    time_t reqdate, now;
-
-    if(!param || strlen(param) != lenof("SKY ") + AUTHTOK_ASCII_LEN || strncmp(param, "SKY ", 4))
-	return;
-
-    if(sxi_b64_dec_core(param+4, buf, &blen) || blen != sizeof(buf))
-	return;
-    memcpy(user, buf, sizeof(user));
-    memcpy(rhmac, buf+20, sizeof(rhmac));
-
-    if(sx_hashfs_get_user_info(hashfs, user, &uid, key, &role) != OK) /* no such user */ {
-        WARN("No such user: %s", param+4);
-       return;
-    }
-    DEBUG("Request from uid %lld", (long long)uid);
-
-    if(!sxi_hmac_init_ex(&hmac_ctx, key, sizeof(key), EVP_sha1(), NULL)) {
-        WARN("hmac_init failed");
-        quit_errmsg(500, "Failed to initialize crypto engine");
-    }
-
-    param = FCGX_GetParam("REQUEST_METHOD", envp);
-    if(!param)
-	return;
-    if(!hmac_update_str(&hmac_ctx, param))
-        quit_errmsg(500, "Failed to initialize crypto engine");
-
-    param = FCGX_GetParam("REQUEST_URI", envp);
-    if(!param)
-	return;
-    if(!hmac_update_str(&hmac_ctx, param+1))
-        quit_errmsg(500, "Failed to initialize crypto engine");
-
-    param = FCGX_GetParam("HTTP_DATE", envp);
-    if(!param)
-        quit_errmsg(400, "Missing Date: header");
-    if(httpdate_to_time_t(param, &reqdate))
-        quit_errmsg(400, "Date header in wrong format");
-    now = time(NULL);
-    if(reqdate < now - MAX_CLOCK_DRIFT * 60 || reqdate > now + MAX_CLOCK_DRIFT * 60)
-        quit_errmsg(400, "Client clock drifted more than "STRIFY(MAX_CLOCK_DRIFT)" minutes");
-    if(!hmac_update_str(&hmac_ctx, param))
-        quit_errmsg(500, "Failed to initialize crypto engine");
-
-    if(!content_len()) {
-	uint8_t chmac[20];
-	unsigned int chmac_len = 20;
-	if(!hmac_update_str(&hmac_ctx, "da39a3ee5e6b4b0d3255bfef95601890afd80709"))
-            quit_errmsg(500, "Failed to initialize crypto engine");
-	if(!sxi_hmac_final(&hmac_ctx, chmac, &chmac_len))
-            quit_errmsg(500, "Failed to initialize crypto engine");
-	if(!hmac_compare(chmac, rhmac, sizeof(rhmac))) {
-	    authed = AUTH_OK;
-	} else {
-	    /* WARN("auth mismatch"); */
-	}
-	return;
-    } else
-	authed = AUTH_BODYCHECK;
-}
+static sxi_hmac_ctx *hmac_ctx;
+static sxi_md_ctx *body_ctx;
 
 int get_body_chunk(char *buf, int buflen) {
     int r = FCGX_GetStr(buf, buflen, fcgi_in);
     if(r>=0) {
 	if(authed == AUTH_BODYCHECK)
 	    authed = AUTH_BODYCHECKING;
-	if(authed == AUTH_BODYCHECKING && !EVP_DigestUpdate(&body_ctx, buf, r)) {
-            WARN("EVP_DigestUpdate failed");
+	if(authed == AUTH_BODYCHECKING && !sxi_digest_update(body_ctx, buf, r)) {
+            WARN("digest update failed");
 	    authed = AUTH_NOTAUTH;
 	    return -1;
 	}
@@ -307,16 +232,16 @@ void auth_complete(void) {
     if(authed != AUTH_BODYCHECK && authed != AUTH_BODYCHECKING)
 	goto auth_complete_fail;
     
-    if(!EVP_DigestFinal(&body_ctx, d, NULL))
+    if(!sxi_digest_final(body_ctx, d, NULL))
         quit_errmsg(500, "Failed to initialize crypto engine");
 
     bin2hex(d, sizeof(d), content_hash, sizeof(content_hash));
     content_hash[sizeof(content_hash)-1] = '\0';
     
-    if(!hmac_update_str(&hmac_ctx, content_hash))
+    if(!sxi_hmac_update_str(hmac_ctx, content_hash))
         quit_errmsg(500, "Failed to initialize crypto engine");
 
-    if(!sxi_hmac_final(&hmac_ctx, d, &dlen))
+    if(!sxi_hmac_final(hmac_ctx, d, &dlen))
         quit_errmsg(500, "Failed to initialize crypto engine");
 
     if(!hmac_compare(d, rhmac, sizeof(rhmac))) {
@@ -338,7 +263,7 @@ int is_sky(void) {
 }
 
 void send_authreq(void) {
-    CGI_PUTS("WWW-Authenticate: SKY realm=\""SERVER_NAME"\"\r\n");
+    CGI_PUTS("WWW-Authenticate: SKY realm=\"SXAUTH\"\r\n");
     quit_errmsg(401, "Invalid credentials");
 }
 
@@ -439,34 +364,34 @@ int arg_is(const char *arg, const char *ref) {
  */
 static char reqbuf[8174];
 void handle_request(void) {
-    const char *param;
+    const char *param, *p_method, *p_uri;
     char *argp;
     unsigned int plen;
 
     msg_new_id();
     verb = VERB_UNSUP;
-    param = FCGX_GetParam("REQUEST_METHOD", envp);
-    if(param) {
-	plen = strlen(param);
+    p_method = FCGX_GetParam("REQUEST_METHOD", envp);
+    if(p_method) {
+	plen = strlen(p_method);
 	switch(plen) {
 	case 3:
-	    if(!memcmp(param, "GET", 4))
+	    if(!memcmp(p_method, "GET", 4))
 		verb = VERB_GET;
-	    else if(!memcmp(param, "PUT", 4))
+	    else if(!memcmp(p_method, "PUT", 4))
 		verb = VERB_PUT;
 	    break;
 	case 4:
-	    if(!memcmp(param, "HEAD", 5))
+	    if(!memcmp(p_method, "HEAD", 5))
 		verb = VERB_HEAD;
-	    else if(!memcmp(param, "POST", 5))
+	    else if(!memcmp(p_method, "POST", 5))
 		verb = VERB_POST;
 	    break;
 	case 6:
-	    if(!memcmp(param, "DELETE", 7))
+	    if(!memcmp(p_method, "DELETE", 7))
 		verb = VERB_DELETE;
 	    break;
 	case 7:
-	    if(!memcmp(param, "OPTIONS", 8)) {
+	    if(!memcmp(p_method, "OPTIONS", 8)) {
 		CGI_PUTS("Allow: GET,HEAD,OPTIONS,PUT,DELETE\r\nContent-Length: 0\r\n\r\n");
 		return;
 	    }
@@ -479,11 +404,11 @@ void handle_request(void) {
     if(content_len()<0 || (verb != VERB_PUT && content_len()))
 	quit_errmsg(400, "Invalid Content-Length: must be positive and method must be PUT");
 
-    param = FCGX_GetParam("REQUEST_URI", envp);
-    if(!param)
+    p_uri = param = FCGX_GetParam("REQUEST_URI", envp);
+    if(!p_uri)
 	quit_errmsg(400, "No URI provided");
-    plen = strlen(param);
-    if(*param != '/')
+    plen = strlen(p_uri);
+    if(*p_uri != '/')
 	quit_errmsg(400, "URI must start with /");
     if(plen > sizeof(reqbuf) - 1)
 	quit_errmsg(414, "URL too long: request line must be <8k");
@@ -582,13 +507,87 @@ void handle_request(void) {
         quit_errmsg(414, msg_get_reason());
     }
 
-    if(!EVP_DigestInit(&body_ctx, EVP_sha1()))
+    body_ctx = sxi_md_init();
+    if (!body_ctx || !sxi_digest_init(body_ctx))
 	quit_errmsg(500, "Failed to initialize crypto engine");
-    HMAC_CTX_init(&hmac_ctx);
+    hmac_ctx = sxi_hmac_init();
+    if (!hmac_ctx)
+        quit_errmsg(503, "Cannot initialize crypto library");
 
     authed = AUTH_NOTAUTH;
     role = PRIV_NONE;
-    auth_begin();
+
+
+    /* Begin auth check */
+    uint8_t buf[AUTHTOK_BIN_LEN], key[AUTH_KEY_LEN];
+    unsigned int blen = sizeof(buf);
+    time_t reqdate, now;
+
+    param = FCGX_GetParam("HTTP_AUTHORIZATION", envp);
+    if(!param || strlen(param) != lenof("SKY ") + AUTHTOK_ASCII_LEN || strncmp(param, "SKY ", 4)) {
+	if(volume) {
+	    send_authreq();
+	    return;
+	}
+	quit_home();
+    }
+
+    if(sxi_b64_dec_core(param+4, buf, &blen) || blen != sizeof(buf)) {
+	send_authreq();
+	return;
+    }
+
+    memcpy(user, buf, sizeof(user));
+    memcpy(rhmac, buf+20, sizeof(rhmac));
+
+    if(sx_hashfs_get_user_info(hashfs, user, &uid, key, &role) != OK) /* no such user */ {
+	DEBUG("No such user: %s", param+4);
+	send_authreq();
+	return;
+    }
+    DEBUG("Request from uid %lld", (long long)uid);
+
+    if(!sxi_hmac_init_ex(hmac_ctx, key, sizeof(key))) {
+	WARN("hmac_init failed");
+	quit_errmsg(500, "Failed to initialize crypto engine");
+    }
+
+    if(!sxi_hmac_update_str(hmac_ctx, p_method))
+	quit_errmsg(500, "Crypto error authenticating the request");
+
+    if(!sxi_hmac_update_str(hmac_ctx, p_uri+1))
+	quit_errmsg(500, "Crypto error authenticating the request");
+
+    param = FCGX_GetParam("HTTP_DATE", envp);
+    if(!param)
+	quit_errmsg(400, "Missing Date: header");
+    if(httpdate_to_time_t(param, &reqdate))
+	quit_errmsg(400, "Date header in wrong format");
+    now = time(NULL);
+    if(reqdate < now - MAX_CLOCK_DRIFT * 60 || reqdate > now + MAX_CLOCK_DRIFT * 60) {
+	CGI_PUTS("WWW-Authenticate: SKY realm=\"SXCLOCK\"\r\n");
+	quit_errmsg(401, "Client clock drifted more than "STRIFY(MAX_CLOCK_DRIFT)" minutes");
+    }
+    if(!sxi_hmac_update_str(hmac_ctx, param))
+	quit_errmsg(500, "Crypto error authenticating the request");
+
+    if(!content_len()) {
+	/* If no body is present, complete authentication now */
+	uint8_t chmac[20];
+	unsigned int chmac_len = 20;
+	if(!sxi_hmac_update_str(hmac_ctx, "da39a3ee5e6b4b0d3255bfef95601890afd80709"))
+	    quit_errmsg(500, "Crypto error authenticating the request");
+	if(!sxi_hmac_final(hmac_ctx, chmac, &chmac_len))
+	    quit_errmsg(500, "Crypto error authenticating the request");
+	if(!hmac_compare(chmac, rhmac, sizeof(rhmac))) {
+	    authed = AUTH_OK;
+	} else {
+	    /* WARN("auth mismatch"); */
+	    send_authreq();
+	    return;
+	}
+    } else /* Otherwise set it as pending */
+	authed = AUTH_BODYCHECK;
 
     if(has_priv(PRIV_CLUSTER) && sx_hashfs_uses_secure_proto(hashfs) != is_https() &&
        !sx_storage_is_bare(hashfs)) {
@@ -619,8 +618,8 @@ void handle_request(void) {
     if(authed == AUTH_BODYCHECKING)
 	WARN("FIXME: Security fail");
 
-    HMAC_CTX_cleanup(&hmac_ctx);
-    EVP_MD_CTX_cleanup(&body_ctx);
+    sxi_hmac_cleanup(&hmac_ctx);
+    sxi_md_cleanup(&body_ctx);
 }
 
 int64_t content_len(void) {
@@ -799,13 +798,6 @@ void send_nodes_randomised(const sx_nodelist_t *nodes) {
 }
 
 void send_job_info(job_t job) {
-    /* FIXME:
-     * For now we just output the job id integer as a string.
-     * The client will treat it as an opaque type and simply
-     * replay it back as is when polling
-     * Therefore the format can be changed server side at any
-     * time if we see the need for that */
-
     CGI_PUTS("Content-Type: application/json\r\n\r\n{\"requestId\":\"");
     CGI_PUTLL(job);
     CGI_PUTS("\",\"minPollInterval\":100,\"maxPollInterval\":6000}");

@@ -31,9 +31,9 @@
 #include "libsx-int.h"
 #include "ltdl.h"
 #include "filter.h"
-#include <openssl/crypto.h>
 #include "clustcfg.h"
 #include "misc.h"
+#include "vcrypto.h"
 
 struct _sxc_client_t {
     char errbuf[65536];
@@ -52,9 +52,19 @@ struct _sxc_client_t {
     alias_list_t *alias;
 };
 
+static const char *guess_tempdir(void) {
+    const char *ret;
+
+    ret = getenv("TMPDIR");
+    if(!ret)
+	ret = getenv("TEMP");
+    if(!ret)
+	ret = "/tmp";
+
+    return ret;
+}
+
 sxc_client_t *sxc_init(const char *client_version, const sxc_logger_t *func, int (*confirm)(const char *prompt, int def)) {
-    uint32_t runtime_ver = SSLeay();
-    uint32_t compile_ver = SSLEAY_VERSION_NUMBER;
     sxc_client_t *sx;
     struct sxi_logger l;
     unsigned int config_len;
@@ -78,10 +88,8 @@ sxc_client_t *sxc_init(const char *client_version, const sxc_logger_t *func, int
     /* FIXME THIS IS NOT THREAD SAFE */
     srand(time(NULL));
     signal(SIGPIPE, SIG_IGN);
-    /* TODO: have a way to log this */
-    if((runtime_ver & 0xff0000000) != (compile_ver & 0xff0000000)) {
+    if (sxi_crypto_check_ver(&l))
         return NULL;
-    }
     CURLcode rc = curl_global_init(CURL_GLOBAL_ALL);
     if (rc) {
         sxi_log_msg(&l, "sxc_init", SX_LOG_CRIT, "Failed to initialize libcurl: %s",
@@ -122,15 +130,22 @@ sxc_client_t *sxc_init(const char *client_version, const sxc_logger_t *func, int
         snprintf(sx->confdir, config_len + 1, "%s/.sx", home_dir);
     }
     sx->alias = NULL;
+    if(sxc_set_tempdir(sx, NULL)) {
+	sxi_log_syserr(&l, "sxc_init", SX_LOG_CRIT, "Failed to set temporary path");
+	sxc_shutdown(sx, 0);
+	return NULL;
+    }
 
     return sx;
 }
 
 void sxc_shutdown(sxc_client_t *sx, int signal) {
+    int i;
     if(!sx)
 	return;
+    sxi_clear_operation(sx);
     if(sx->temptrack.slots) {
-	for(int i = 0; i < sx->temptrack.slots; i++) {
+	for(i = 0; i < sx->temptrack.slots; i++) {
 	    if(sx->temptrack.names[i]) {
 		/* TODO: for win32 we may also need to track descriptors */
 		unlink(sx->temptrack.names[i]);
@@ -152,9 +167,11 @@ void sxc_shutdown(sxc_client_t *sx, int signal) {
             sx->log.func->close(sx->log.func->ctx);
         }
 	sxi_filter_unloadall(sx);
+	free(sx->tempdir);
 	free(sx);
 	lt_dlexit();
 	curl_global_cleanup();
+        sxi_vcrypto_cleanup();
     }
 }
 
@@ -249,8 +266,29 @@ void sxi_notice(sxc_client_t *sx, const char *fmt, ...) {
 
 const char *sxi_get_tempdir(sxc_client_t *sx) {
     if(!sx)
-	return NULL;
+	return guess_tempdir();
     return sx->tempdir;
+}
+
+int sxc_set_tempdir(sxc_client_t *sx, const char *tempdir) {
+    char *newtmp;
+
+    if(!sx)
+	return -1;
+
+    if(!tempdir)
+	tempdir = guess_tempdir();
+
+    newtmp = strdup(tempdir);
+    if(!newtmp) {
+	sxi_seterr(sx, SXE_EMEM, "Failed to set temporary directory: out of memory");
+	return -1;
+    }
+
+    free(sx->tempdir);
+    sx->tempdir = newtmp;
+
+    return 0;
 }
 
 struct filter_ctx *sxi_get_fctx(sxc_client_t *sx) {

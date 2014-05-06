@@ -78,6 +78,18 @@ PRE_UNINSTALL = :
 POST_UNINSTALL = :
 build_triplet = @build@
 host_triplet = @host@
+@BUILD_LTDL_TRUE@am__append_1 = libltdl
+@BUILD_CURL_TRUE@am__append_2 = ../3rdparty/curl
+@BUILD_NFTW_TRUE@am__append_3 = \
+@BUILD_NFTW_TRUE@	src/nftw.c \
+@BUILD_NFTW_TRUE@	src/ftw.h
+
+@BUILD_NSS_TRUE@am__append_4 = src/nss.c
+@BUILD_OPENSSL_TRUE@am__append_5 = \
+@BUILD_OPENSSL_TRUE@	src/openssl.c\
+@BUILD_OPENSSL_TRUE@	src/cert.c \
+@BUILD_OPENSSL_TRUE@	src/cert.h
+
 subdir = .
 DIST_COMMON = $(srcdir)/Makefile.in $(srcdir)/Makefile.am \
 	$(top_srcdir)/configure $(am__configure_deps) \
@@ -140,16 +152,31 @@ am__uninstall_files_from_dir = { \
 am__installdirs = "$(DESTDIR)$(libdir)"
 LTLIBRARIES = $(lib_LTLIBRARIES)
 src_libsx_la_DEPENDENCIES =
+am__src_libsx_la_SOURCES_DIST = include/sx.h include/default.h \
+	include/gnuc.h include/types.h src/curlevents.c \
+	src/curlevents.h src/cluster.c src/cluster.h src/hostlist.c \
+	src/hostlist.h src/clustcfg.c src/clustcfg.h src/yajlwrap.c \
+	src/yajlwrap.h src/misc.c src/misc.h src/fileops.c \
+	src/volops.c src/volops.h src/jobpoll.c src/jobpoll.h \
+	src/libsx.c src/libsx-int.h src/filter.c src/filter.h \
+	src/sxlog.h src/sxlog.c src/sxproto.h src/sxproto.c \
+	src/sxreport.h src/sxreport.c src/version.c src/vcrypto.h \
+	src/vcryptocurl.h src/nftw.c src/ftw.h src/nss.c src/openssl.c \
+	src/cert.c src/cert.h
 am__dirstamp = $(am__leading_dot)dirstamp
-am_src_libsx_la_OBJECTS = src/src_libsx_la-cert.lo \
-	src/src_libsx_la-curlevents.lo src/src_libsx_la-cluster.lo \
-	src/src_libsx_la-hostlist.lo src/src_libsx_la-clustcfg.lo \
-	src/src_libsx_la-yajlwrap.lo src/src_libsx_la-misc.lo \
-	src/src_libsx_la-fileops.lo src/src_libsx_la-volops.lo \
-	src/src_libsx_la-jobpoll.lo src/src_libsx_la-libsx.lo \
-	src/src_libsx_la-filter.lo src/src_libsx_la-sxlog.lo \
-	src/src_libsx_la-sxproto.lo src/src_libsx_la-sxreport.lo \
-	src/src_libsx_la-version.lo
+@BUILD_NFTW_TRUE@am__objects_1 = src/src_libsx_la-nftw.lo
+@BUILD_NSS_TRUE@am__objects_2 = src/src_libsx_la-nss.lo
+@BUILD_OPENSSL_TRUE@am__objects_3 = src/src_libsx_la-openssl.lo \
+@BUILD_OPENSSL_TRUE@	src/src_libsx_la-cert.lo
+am_src_libsx_la_OBJECTS = src/src_libsx_la-curlevents.lo \
+	src/src_libsx_la-cluster.lo src/src_libsx_la-hostlist.lo \
+	src/src_libsx_la-clustcfg.lo src/src_libsx_la-yajlwrap.lo \
+	src/src_libsx_la-misc.lo src/src_libsx_la-fileops.lo \
+	src/src_libsx_la-volops.lo src/src_libsx_la-jobpoll.lo \
+	src/src_libsx_la-libsx.lo src/src_libsx_la-filter.lo \
+	src/src_libsx_la-sxlog.lo src/src_libsx_la-sxproto.lo \
+	src/src_libsx_la-sxreport.lo src/src_libsx_la-version.lo \
+	$(am__objects_1) $(am__objects_2) $(am__objects_3)
 src_libsx_la_OBJECTS = $(am_src_libsx_la_OBJECTS)
 AM_V_lt = $(am__v_lt_@AM_V@)
 am__v_lt_ = $(am__v_lt_@AM_DEFAULT_V@)
@@ -193,7 +220,7 @@ am__v_CCLD_ = $(am__v_CCLD_@AM_DEFAULT_V@)
 am__v_CCLD_0 = @echo "  CCLD    " $@;
 am__v_CCLD_1 = 
 SOURCES = $(src_libsx_la_SOURCES)
-DIST_SOURCES = $(src_libsx_la_SOURCES)
+DIST_SOURCES = $(am__src_libsx_la_SOURCES_DIST)
 RECURSIVE_TARGETS = all-recursive check-recursive cscopelist-recursive \
 	ctags-recursive dvi-recursive html-recursive info-recursive \
 	install-data-recursive install-dvi-recursive \
@@ -236,7 +263,6 @@ am__define_uniq_tagged_files = \
 ETAGS = etags
 CTAGS = ctags
 CSCOPE = cscope
-DIST_SUBDIRS = $(SUBDIRS)
 DISTFILES = $(DIST_COMMON) $(DIST_SOURCES) $(TEXINFOS) $(EXTRA_DIST)
 distdir = $(PACKAGE)-$(VERSION)
 top_distdir = $(distdir)
@@ -295,8 +321,6 @@ CCDEPMODE = @CCDEPMODE@
 CFLAGS = @CFLAGS@
 CPP = @CPP@
 CPPFLAGS = @CPPFLAGS@
-CRYPTO_CFLAGS = @CRYPTO_CFLAGS@
-CRYPTO_LIBS = @CRYPTO_LIBS@
 CURL_LIBS = @CURL_LIBS@
 CYGPATH_W = @CYGPATH_W@
 DEFS = @DEFS@
@@ -345,8 +369,12 @@ MANIFEST_TOOL = @MANIFEST_TOOL@
 MKDIR_P = @MKDIR_P@
 NM = @NM@
 NMEDIT = @NMEDIT@
+NSS_CFLAGS = @NSS_CFLAGS@
+NSS_LIBS = @NSS_LIBS@
 OBJDUMP = @OBJDUMP@
 OBJEXT = @OBJEXT@
+OPENSSL_CFLAGS = @OPENSSL_CFLAGS@
+OPENSSL_LIBS = @OPENSSL_LIBS@
 OTOOL = @OTOOL@
 OTOOL64 = @OTOOL64@
 PACKAGE = @PACKAGE@
@@ -365,6 +393,8 @@ SED = @SED@
 SET_MAKE = @SET_MAKE@
 SHELL = @SHELL@
 STRIP = @STRIP@
+VCRYPTO_CFLAGS = @VCRYPTO_CFLAGS@
+VCRYPTO_LIBS = @VCRYPTO_LIBS@
 VERSION = @VERSION@
 YAJL_CPPFLAGS = @YAJL_CPPFLAGS@
 YAJL_LIBS = @YAJL_LIBS@
@@ -418,6 +448,7 @@ psdir = @psdir@
 sbindir = @sbindir@
 sharedstatedir = @sharedstatedir@
 srcdir = @srcdir@
+subdirs = @subdirs@
 sys_symbol_underscore = @sys_symbol_underscore@
 sysconfdir = @sysconfdir@
 target_alias = @target_alias@
@@ -425,52 +456,27 @@ top_build_prefix = @top_build_prefix@
 top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
 ACLOCAL_AMFLAGS = -I m4
-SUBDIRS = libltdl
+SUBDIRS = $(am__append_1) $(am__append_2)
+DIST_SUBDIRS = $(SUBDIRS)
 AM_CPPFLAGS = -I $(top_srcdir)/include -I $(top_srcdir)/src $(LTDLINCL)
 lib_LTLIBRARIES = src/libsx.la
-src_libsx_la_SOURCES = \
-	include/sx.h \
-	include/default.h \
-	include/gnuc.h \
-	include/types.h \
-	src/cert.c \
-	src/cert.h \
-	src/curlevents.c \
-	src/curlevents.h \
-	src/cluster.c \
-	src/cluster.h \
-	src/hostlist.c \
-	src/hostlist.h \
-	src/clustcfg.c \
-	src/clustcfg.h \
-	src/yajlwrap.c \
-	src/yajlwrap.h \
-	src/misc.c \
-	src/misc.h \
-	src/fileops.c \
-	src/volops.c \
-	src/volops.h \
-	src/jobpoll.c \
-	src/jobpoll.h \
-	src/libsx.c \
-	src/libsx-int.h \
-	src/filter.c \
-	src/filter.h \
-	src/sxlog.h \
-	src/sxlog.c \
-	src/sxproto.h \
-	src/sxproto.c \
-	src/sxreport.h \
-	src/sxreport.c \
-	src/version.c
-
-src_libsx_la_LIBADD = @YAJL_LIBS@ @LIBCURL@ @CRYPTO_LIBS@ @LIBLTDL@ -lssl
+src_libsx_la_SOURCES = include/sx.h include/default.h include/gnuc.h \
+	include/types.h src/curlevents.c src/curlevents.h \
+	src/cluster.c src/cluster.h src/hostlist.c src/hostlist.h \
+	src/clustcfg.c src/clustcfg.h src/yajlwrap.c src/yajlwrap.h \
+	src/misc.c src/misc.h src/fileops.c src/volops.c src/volops.h \
+	src/jobpoll.c src/jobpoll.h src/libsx.c src/libsx-int.h \
+	src/filter.c src/filter.h src/sxlog.h src/sxlog.c \
+	src/sxproto.h src/sxproto.c src/sxreport.h src/sxreport.c \
+	src/version.c src/vcrypto.h src/vcryptocurl.h $(am__append_3) \
+	$(am__append_4) $(am__append_5)
+src_libsx_la_LIBADD = @YAJL_LIBS@ @LIBCURL@ @LIBLTDL@ @VCRYPTO_LIBS@
 # TODO: only sx_ should be exported not sxi_
 src_libsx_la_LDFLAGS = -no-undefined -export-symbols-regex sx.*
-src_libsx_la_CPPFLAGS = $(AM_CPPFLAGS) @YAJL_CPPFLAGS@ @LIBCURL_CPPFLAGS@ @CRYPTO_CFLAGS@ \
-			-DINFO_CPPFLAGS="\"$(AM_CPPFLAGS) $(CPPFLAGS) @FCGI_CPPFLAGS@ @CRYPTO_CFLAGS@ @YAJL_CPPFLAGS@\""\
+src_libsx_la_CPPFLAGS = $(AM_CPPFLAGS) @YAJL_CPPFLAGS@ @LIBCURL_CPPFLAGS@ @VCRYPTO_CFLAGS@ \
+			-DINFO_CPPFLAGS="\"$(AM_CPPFLAGS) $(CPPFLAGS) @YAJL_CPPFLAGS@ @LIBCURL_CPPFLAGS@ @OPENSSL_CFLAGS@ @NSS_CFLAGS@\""\
 			-DINFO_CFLAGS="\"$(AM_CFLAGS) $(CFLAGS)\""\
-			-DINFO_LDFLAGS="\"$(AM_LDFLAGS) $(LDFLAGS) @YAJL_LIBS@ @FCGI_LIBS@ @CRYPTO_LIBS@\""\
+			-DINFO_LDFLAGS="\"$(AM_LDFLAGS) $(LDFLAGS) @YAJL_LIBS@ @LIBCURL@ @LIBLTDL@ @VCRYPTO_LIBS@\""\
 			-DINFO_SYSCONFDIR="\"$(sysconfdir)\""\
 			-DINFO_BINDIR="\"$(bindir)\""\
 			-DINFO_LOCALSTATEDIR="\"$(localstatedir)\""\
@@ -575,8 +581,6 @@ src/$(am__dirstamp):
 src/$(DEPDIR)/$(am__dirstamp):
 	@$(MKDIR_P) src/$(DEPDIR)
 	@: > src/$(DEPDIR)/$(am__dirstamp)
-src/src_libsx_la-cert.lo: src/$(am__dirstamp) \
-	src/$(DEPDIR)/$(am__dirstamp)
 src/src_libsx_la-curlevents.lo: src/$(am__dirstamp) \
 	src/$(DEPDIR)/$(am__dirstamp)
 src/src_libsx_la-cluster.lo: src/$(am__dirstamp) \
@@ -607,6 +611,14 @@ src/src_libsx_la-sxreport.lo: src/$(am__dirstamp) \
 	src/$(DEPDIR)/$(am__dirstamp)
 src/src_libsx_la-version.lo: src/$(am__dirstamp) \
 	src/$(DEPDIR)/$(am__dirstamp)
+src/src_libsx_la-nftw.lo: src/$(am__dirstamp) \
+	src/$(DEPDIR)/$(am__dirstamp)
+src/src_libsx_la-nss.lo: src/$(am__dirstamp) \
+	src/$(DEPDIR)/$(am__dirstamp)
+src/src_libsx_la-openssl.lo: src/$(am__dirstamp) \
+	src/$(DEPDIR)/$(am__dirstamp)
+src/src_libsx_la-cert.lo: src/$(am__dirstamp) \
+	src/$(DEPDIR)/$(am__dirstamp)
 
 src/libsx.la: $(src_libsx_la_OBJECTS) $(src_libsx_la_DEPENDENCIES) $(EXTRA_src_libsx_la_DEPENDENCIES) src/$(am__dirstamp)
 	$(AM_V_CCLD)$(src_libsx_la_LINK) -rpath $(libdir) $(src_libsx_la_OBJECTS) $(src_libsx_la_LIBADD) $(LIBS)
@@ -629,6 +641,9 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@src/$(DEPDIR)/src_libsx_la-jobpoll.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/$(DEPDIR)/src_libsx_la-libsx.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/$(DEPDIR)/src_libsx_la-misc.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@src/$(DEPDIR)/src_libsx_la-nftw.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@src/$(DEPDIR)/src_libsx_la-nss.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@src/$(DEPDIR)/src_libsx_la-openssl.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/$(DEPDIR)/src_libsx_la-sxlog.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/$(DEPDIR)/src_libsx_la-sxproto.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/$(DEPDIR)/src_libsx_la-sxreport.Plo@am__quote@
@@ -659,13 +674,6 @@ distclean-compile:
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='$<' object='$@' libtool=yes @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LTCOMPILE) -c -o $@ $<
-
-src/src_libsx_la-cert.lo: src/cert.c
-@am__fastdepCC_TRUE@	$(AM_V_CC)$(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_libsx_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT src/src_libsx_la-cert.lo -MD -MP -MF src/$(DEPDIR)/src_libsx_la-cert.Tpo -c -o src/src_libsx_la-cert.lo `test -f 'src/cert.c' || echo '$(srcdir)/'`src/cert.c
-@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) src/$(DEPDIR)/src_libsx_la-cert.Tpo src/$(DEPDIR)/src_libsx_la-cert.Plo
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='src/cert.c' object='src/src_libsx_la-cert.lo' libtool=yes @AMDEPBACKSLASH@
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_libsx_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o src/src_libsx_la-cert.lo `test -f 'src/cert.c' || echo '$(srcdir)/'`src/cert.c
 
 src/src_libsx_la-curlevents.lo: src/curlevents.c
 @am__fastdepCC_TRUE@	$(AM_V_CC)$(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_libsx_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT src/src_libsx_la-curlevents.lo -MD -MP -MF src/$(DEPDIR)/src_libsx_la-curlevents.Tpo -c -o src/src_libsx_la-curlevents.lo `test -f 'src/curlevents.c' || echo '$(srcdir)/'`src/curlevents.c
@@ -771,6 +779,34 @@ src/src_libsx_la-version.lo: src/version.c
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='src/version.c' object='src/src_libsx_la-version.lo' libtool=yes @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_libsx_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o src/src_libsx_la-version.lo `test -f 'src/version.c' || echo '$(srcdir)/'`src/version.c
+
+src/src_libsx_la-nftw.lo: src/nftw.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_libsx_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT src/src_libsx_la-nftw.lo -MD -MP -MF src/$(DEPDIR)/src_libsx_la-nftw.Tpo -c -o src/src_libsx_la-nftw.lo `test -f 'src/nftw.c' || echo '$(srcdir)/'`src/nftw.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) src/$(DEPDIR)/src_libsx_la-nftw.Tpo src/$(DEPDIR)/src_libsx_la-nftw.Plo
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='src/nftw.c' object='src/src_libsx_la-nftw.lo' libtool=yes @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_libsx_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o src/src_libsx_la-nftw.lo `test -f 'src/nftw.c' || echo '$(srcdir)/'`src/nftw.c
+
+src/src_libsx_la-nss.lo: src/nss.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_libsx_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT src/src_libsx_la-nss.lo -MD -MP -MF src/$(DEPDIR)/src_libsx_la-nss.Tpo -c -o src/src_libsx_la-nss.lo `test -f 'src/nss.c' || echo '$(srcdir)/'`src/nss.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) src/$(DEPDIR)/src_libsx_la-nss.Tpo src/$(DEPDIR)/src_libsx_la-nss.Plo
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='src/nss.c' object='src/src_libsx_la-nss.lo' libtool=yes @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_libsx_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o src/src_libsx_la-nss.lo `test -f 'src/nss.c' || echo '$(srcdir)/'`src/nss.c
+
+src/src_libsx_la-openssl.lo: src/openssl.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_libsx_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT src/src_libsx_la-openssl.lo -MD -MP -MF src/$(DEPDIR)/src_libsx_la-openssl.Tpo -c -o src/src_libsx_la-openssl.lo `test -f 'src/openssl.c' || echo '$(srcdir)/'`src/openssl.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) src/$(DEPDIR)/src_libsx_la-openssl.Tpo src/$(DEPDIR)/src_libsx_la-openssl.Plo
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='src/openssl.c' object='src/src_libsx_la-openssl.lo' libtool=yes @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_libsx_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o src/src_libsx_la-openssl.lo `test -f 'src/openssl.c' || echo '$(srcdir)/'`src/openssl.c
+
+src/src_libsx_la-cert.lo: src/cert.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_libsx_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT src/src_libsx_la-cert.lo -MD -MP -MF src/$(DEPDIR)/src_libsx_la-cert.Tpo -c -o src/src_libsx_la-cert.lo `test -f 'src/cert.c' || echo '$(srcdir)/'`src/cert.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) src/$(DEPDIR)/src_libsx_la-cert.Tpo src/$(DEPDIR)/src_libsx_la-cert.Plo
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='src/cert.c' object='src/src_libsx_la-cert.lo' libtool=yes @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_libsx_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o src/src_libsx_la-cert.lo `test -f 'src/cert.c' || echo '$(srcdir)/'`src/cert.c
 
 mostlyclean-libtool:
 	-rm -f *.lo

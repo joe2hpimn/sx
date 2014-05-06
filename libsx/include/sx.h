@@ -28,6 +28,10 @@
 #include <sys/types.h>
 #include <time.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct _sxc_client_t sxc_client_t;
 
 typedef struct {
@@ -55,6 +59,7 @@ const char *sxc_get_confdir(sxc_client_t *sx);
 #define SXC_ALIAS_PREFIX "@"
 int sxc_set_alias(sxc_client_t *sx, const char *alias, const char *profile, const char *host);
 const char *sxc_get_alias(sxc_client_t *sx, const char *profile, const char *host);
+int sxc_set_tempdir(sxc_client_t *sx, const char *tempdir);
 
 enum sxc_error_t {
     SXE_NOERROR,	/* No error occoured */
@@ -246,5 +251,9 @@ enum sxc_log_level {
 };
 
 int sxc_filter_msg(const sxf_handle_t *handle, int level, const char *format, ...);
+
+#ifdef __cplusplus
+} /* extern "C" */
+#endif
 
 #endif

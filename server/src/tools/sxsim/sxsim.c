@@ -31,7 +31,6 @@
 #include <string.h>
 #include <dirent.h>
 #include <sys/stat.h>
-#include <openssl/evp.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <errno.h>
@@ -42,6 +41,7 @@
 #include "hdist.h"
 #include "utils.h"
 #include "linenoise.h"
+#include "../../../../libsx/src/vcrypto.h"
 
 #define MBVAL 1048576
 #define MINSIZE (10 * MBVAL)
@@ -916,20 +916,12 @@ static int dedup(struct sxcluster *cluster)
 }
 
 static uint64_t hashcalc(struct sxcluster *cluster, const void *buffer, unsigned int len) {
-	unsigned char d[20];
-	EVP_MD_CTX ctx;
+    unsigned char d[20];
 
-    if(!EVP_DigestInit(&ctx, EVP_sha1())) {
-	printf("ERROR: Cannot compute hash: unable to initialize crypto library\n");
-	return 0;
-    }
-
-    if(!EVP_DigestUpdate(&ctx, buffer, len) || !EVP_DigestFinal(&ctx, d, NULL)) {
+    if (sxi_hashcalc(NULL, 0, buffer, len, d)) {
 	printf("ERROR: Cannot compute hash: crypto library failure\n");
-	EVP_MD_CTX_cleanup(&ctx);
 	return 0;
     }
-    EVP_MD_CTX_cleanup(&ctx);
 
     return MurmurHash64(d, sizeof(d), SEED);
 }
@@ -938,7 +930,7 @@ static void shutdown(struct sxcluster *cluster, int ret)
 {
     free_cluster(cluster);
     cmdline_parser_free(&args);
-    EVP_cleanup();
+    sxi_vcrypto_cleanup();
     exit(ret);
 }
 
@@ -1658,7 +1650,6 @@ int main(int argc, char **argv)
 	    cmdline_parser_free(&args);
 	    return 1;
 	}
-	OpenSSL_add_all_digests();
 	memset(&cluster, 0, sizeof(cluster));
 	if(args.execute_given && execute(&cluster, args.execute_arg))
 	    shutdown(&cluster, 1);
@@ -1687,8 +1678,6 @@ int main(int argc, char **argv)
 	    return 1;
 	}
     }
-
-    OpenSSL_add_all_digests();
 
     memset(&cluster, 0, sizeof(cluster));
 

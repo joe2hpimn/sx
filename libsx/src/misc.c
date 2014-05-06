@@ -24,12 +24,17 @@
 #include <unistd.h>
 #include <dirent.h>
 #include <sys/stat.h>
-#include <ftw.h>
 #include <errno.h>
 #include <pwd.h>
+#if HAVE_NFTW
+#include <ftw.h>
+#else
+#include "ftw.h"
+#endif
 
 #include "libsx-int.h"
 #include "misc.h"
+#include "vcrypto.h"
 
 int sxc_fgetline(sxc_client_t *sx, FILE *f, char **ret) {
     char buf[2048], *cur;
@@ -729,9 +734,10 @@ static const int hexchars[256] = {
 
 int sxi_hex2bin(const char *src, uint32_t src_len, uint8_t *dst, uint32_t dst_len)
 {
+    uint32_t i;
     if((src_len % 2) || (dst_len < src_len / 2))
 	return -1;
-    for (uint32_t i = 0; i < src_len; i += 2) {
+    for (i = 0; i < src_len; i += 2) {
         int32_t h = (hexchars[(unsigned int)src[i]] << 4) | hexchars[(unsigned int)src[i+1]];
         if (h < 0)
             return -1;
@@ -777,12 +783,6 @@ char *sxi_make_tempfile(sxc_client_t *sx, const char *basedir, FILE **f) {
     }
     if(!basedir)
 	basedir = sxi_get_tempdir(sx);
-    if(!basedir)
-	basedir = getenv("TMPDIR");
-    if(!basedir)
-	basedir = getenv("TEMP");
-    if(!basedir)
-	basedir = "/tmp";
 
     len = strlen(basedir);
 
@@ -1515,6 +1515,8 @@ static int rm_fn(const char *path, const struct stat *sb, int typeflag, struct F
 	    return -1;
         return 0;
     }
+    if (typeflag == FTW_D)
+        return 0;
     return -1;
 }
 
@@ -1523,4 +1525,13 @@ int sxi_rmdirs(const char *dir)
     if(access(dir, F_OK) == -1 && errno == ENOENT)
 	return 0;
     return nftw(dir, rm_fn, 10, FTW_MOUNT | FTW_PHYS | FTW_DEPTH);
+}
+
+int sxi_hmac_update_str(sxi_hmac_ctx *ctx, const char *str) {
+    if (!ctx)
+        return 0;
+    int r = sxi_hmac_update(ctx, (unsigned char *)str, strlen(str));
+    if(r)
+	r = sxi_hmac_update(ctx, (unsigned char *)"\n", 1);
+    return r;
 }

@@ -634,6 +634,7 @@ ac_includes_default="\
 # include <unistd.h>
 #endif"
 
+enable_option_checking=no
 ac_subst_vars='ltdl_LTLIBOBJS
 ltdl_LIBOBJS
 am__EXEEXT_FALSE
@@ -642,18 +643,33 @@ LTLIBOBJS
 LIBOBJS
 AM_LDFLAGS
 AM_CFLAGS
+VCRYPTO_CFLAGS
+VCRYPTO_LIBS
 CURL_LIBS
-CRYPTO_LIBS
-CRYPTO_CFLAGS
-PKG_CONFIG_LIBDIR
-PKG_CONFIG_PATH
-PKG_CONFIG
+BUILD_CURL_FALSE
+BUILD_CURL_TRUE
+subdirs
+BUILD_NSS_FALSE
+BUILD_NSS_TRUE
+BUILD_OPENSSL_FALSE
+BUILD_OPENSSL_TRUE
+NSS_LIBS
+NSS_CFLAGS
+OPENSSL_LIBS
+OPENSSL_CFLAGS
 LIBCURL
 LIBCURL_CPPFLAGS
 _libcurl_config
+PKG_CONFIG_LIBDIR
+PKG_CONFIG_PATH
+PKG_CONFIG
+BUILD_NFTW_FALSE
+BUILD_NFTW_TRUE
 YAJL_LIBS
 YAJL_CPPFLAGS
 HASMAKE
+BUILD_LTDL_FALSE
+BUILD_LTDL_TRUE
 LTDLOPEN
 LT_CONFIG_H
 CONVENIENCE_LTDL_FALSE
@@ -804,6 +820,8 @@ with_included_ltdl
 with_ltdl_include
 with_ltdl_lib
 enable_ltdl_install
+with_ssl
+with_nss
 with_libcurl
 enable_assert
 enable_largefile
@@ -820,9 +838,11 @@ CPP
 PKG_CONFIG
 PKG_CONFIG_PATH
 PKG_CONFIG_LIBDIR
-CRYPTO_CFLAGS
-CRYPTO_LIBS'
-
+OPENSSL_CFLAGS
+OPENSSL_LIBS
+NSS_CFLAGS
+NSS_LIBS'
+ac_subdirs_all='../3rdparty/curl'
 
 # Initialize some variables set by options.
 ac_init_help=
@@ -1469,6 +1489,8 @@ Optional Packages:
   --with-included-ltdl    use the GNU ltdl sources included here
   --with-ltdl-include=DIR use the ltdl headers installed in DIR
   --with-ltdl-lib=DIR     use the libltdl.la installed in DIR
+      --with-ssl              Use OpenSSL, and require Curl/OpenSSL
+      --with-nss              Use NSS, and require Curl/NSS
   --with-libcurl=PREFIX   look for the curl library in PREFIX/lib and headers
                           in PREFIX/include
 
@@ -1486,9 +1508,12 @@ Some influential environment variables:
               directories to add to pkg-config's search path
   PKG_CONFIG_LIBDIR
               path overriding pkg-config's built-in search path
-  CRYPTO_CFLAGS
-              C compiler flags for CRYPTO, overriding pkg-config
-  CRYPTO_LIBS linker flags for CRYPTO, overriding pkg-config
+  OPENSSL_CFLAGS
+              C compiler flags for OPENSSL, overriding pkg-config
+  OPENSSL_LIBS
+              linker flags for OPENSSL, overriding pkg-config
+  NSS_CFLAGS  C compiler flags for NSS, overriding pkg-config
+  NSS_LIBS    linker flags for NSS, overriding pkg-config
 
 Use these variables to override the choices made by `configure' or to help
 it to find libraries and programs with nonstandard names/locations.
@@ -3111,6 +3136,7 @@ END
     as_fn_error $? "Your 'rm' program is bad, sorry." "$LINENO" 5
   fi
 fi
+
 # Check whether --enable-silent-rules was given.
 if test "${enable_silent_rules+set}" = set; then :
   enableval=$enable_silent_rules;
@@ -13084,7 +13110,23 @@ eval "LTDLOPEN=\"$libname_spec\""
 # Only expand once:
 
 
-ac_config_files="$ac_config_files libltdl/Makefile"
+
+if test "$with_included_libltdl" = "no"; then
+    { $as_echo "$as_me:${as_lineno-$LINENO}: using system ltldl" >&5
+$as_echo "$as_me: using system ltldl" >&6;}
+else
+    { $as_echo "$as_me:${as_lineno-$LINENO}: using included ltdl" >&5
+$as_echo "$as_me: using included ltdl" >&6;}
+    ac_config_files="$ac_config_files libltdl/Makefile"
+
+fi
+ if test "$with_included_ltdl" = "yes"; then
+  BUILD_LTDL_TRUE=
+  BUILD_LTDL_FALSE='#'
+else
+  BUILD_LTDL_TRUE='#'
+  BUILD_LTDL_FALSE=
+fi
 
 
 # Checks for programs.
@@ -14093,12 +14135,200 @@ fi
 
 LIBS=$ac_save_LIBS
 if test "$has_sys_yajl" = "no"; then
-    YAJL_LIBS="../3rdparty/yajl_build/build/libyajl.la"
+    YAJL_LIBS="../3rdparty/yajl_build/build/libyajl.la -lm"
     YAJL_CPPFLAGS="-I ../3rdparty/yajl_build/build"
 fi
 
 
 
+
+{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for nftw" >&5
+$as_echo_n "checking for nftw... " >&6; }
+if ${ac_cv_have_nftw+:} false; then :
+  $as_echo_n "(cached) " >&6
+else
+  cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+
+#define _XOPEN_SOURCE 600
+#include <ftw.h>
+
+int
+main ()
+{
+void *ptr = (void *)nftw;
+  ;
+  return 0;
+}
+_ACEOF
+if ac_fn_c_try_compile "$LINENO"; then :
+  ac_cv_have_nftw=yes
+else
+  ac_cv_have_nftw=no
+fi
+rm -f core conftest.err conftest.$ac_objext conftest.$ac_ext
+
+fi
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_have_nftw" >&5
+$as_echo "$ac_cv_have_nftw" >&6; }
+if test "$ac_cv_have_nftw" = "yes"; then
+
+$as_echo "#define HAVE_NFTW 1" >>confdefs.h
+
+fi
+ if test "$ac_cv_have_nftw" = "no"; then
+  BUILD_NFTW_TRUE=
+  BUILD_NFTW_FALSE='#'
+else
+  BUILD_NFTW_TRUE='#'
+  BUILD_NFTW_FALSE=
+fi
+
+
+
+# Check whether --with-ssl was given.
+if test "${with_ssl+set}" = set; then :
+  withval=$with_ssl;
+fi
+
+
+
+# Check whether --with-nss was given.
+if test "${with_nss+set}" = set; then :
+  withval=$with_nss;
+else
+  with_nss="no"
+fi
+
+
+# PKG_CHECK_MODULES is conditional, must explicitly run this here
+
+
+
+
+
+
+
+if test "x$ac_cv_env_PKG_CONFIG_set" != "xset"; then
+	if test -n "$ac_tool_prefix"; then
+  # Extract the first word of "${ac_tool_prefix}pkg-config", so it can be a program name with args.
+set dummy ${ac_tool_prefix}pkg-config; ac_word=$2
+{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for $ac_word" >&5
+$as_echo_n "checking for $ac_word... " >&6; }
+if ${ac_cv_path_PKG_CONFIG+:} false; then :
+  $as_echo_n "(cached) " >&6
+else
+  case $PKG_CONFIG in
+  [\\/]* | ?:[\\/]*)
+  ac_cv_path_PKG_CONFIG="$PKG_CONFIG" # Let the user override the test with a path.
+  ;;
+  *)
+  as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
+for as_dir in $PATH
+do
+  IFS=$as_save_IFS
+  test -z "$as_dir" && as_dir=.
+    for ac_exec_ext in '' $ac_executable_extensions; do
+  if as_fn_executable_p "$as_dir/$ac_word$ac_exec_ext"; then
+    ac_cv_path_PKG_CONFIG="$as_dir/$ac_word$ac_exec_ext"
+    $as_echo "$as_me:${as_lineno-$LINENO}: found $as_dir/$ac_word$ac_exec_ext" >&5
+    break 2
+  fi
+done
+  done
+IFS=$as_save_IFS
+
+  ;;
+esac
+fi
+PKG_CONFIG=$ac_cv_path_PKG_CONFIG
+if test -n "$PKG_CONFIG"; then
+  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $PKG_CONFIG" >&5
+$as_echo "$PKG_CONFIG" >&6; }
+else
+  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
+$as_echo "no" >&6; }
+fi
+
+
+fi
+if test -z "$ac_cv_path_PKG_CONFIG"; then
+  ac_pt_PKG_CONFIG=$PKG_CONFIG
+  # Extract the first word of "pkg-config", so it can be a program name with args.
+set dummy pkg-config; ac_word=$2
+{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for $ac_word" >&5
+$as_echo_n "checking for $ac_word... " >&6; }
+if ${ac_cv_path_ac_pt_PKG_CONFIG+:} false; then :
+  $as_echo_n "(cached) " >&6
+else
+  case $ac_pt_PKG_CONFIG in
+  [\\/]* | ?:[\\/]*)
+  ac_cv_path_ac_pt_PKG_CONFIG="$ac_pt_PKG_CONFIG" # Let the user override the test with a path.
+  ;;
+  *)
+  as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
+for as_dir in $PATH
+do
+  IFS=$as_save_IFS
+  test -z "$as_dir" && as_dir=.
+    for ac_exec_ext in '' $ac_executable_extensions; do
+  if as_fn_executable_p "$as_dir/$ac_word$ac_exec_ext"; then
+    ac_cv_path_ac_pt_PKG_CONFIG="$as_dir/$ac_word$ac_exec_ext"
+    $as_echo "$as_me:${as_lineno-$LINENO}: found $as_dir/$ac_word$ac_exec_ext" >&5
+    break 2
+  fi
+done
+  done
+IFS=$as_save_IFS
+
+  ;;
+esac
+fi
+ac_pt_PKG_CONFIG=$ac_cv_path_ac_pt_PKG_CONFIG
+if test -n "$ac_pt_PKG_CONFIG"; then
+  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_pt_PKG_CONFIG" >&5
+$as_echo "$ac_pt_PKG_CONFIG" >&6; }
+else
+  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
+$as_echo "no" >&6; }
+fi
+
+  if test "x$ac_pt_PKG_CONFIG" = x; then
+    PKG_CONFIG=""
+  else
+    case $cross_compiling:$ac_tool_warned in
+yes:)
+{ $as_echo "$as_me:${as_lineno-$LINENO}: WARNING: using cross tools not prefixed with host triplet" >&5
+$as_echo "$as_me: WARNING: using cross tools not prefixed with host triplet" >&2;}
+ac_tool_warned=yes ;;
+esac
+    PKG_CONFIG=$ac_pt_PKG_CONFIG
+  fi
+else
+  PKG_CONFIG="$ac_cv_path_PKG_CONFIG"
+fi
+
+fi
+if test -n "$PKG_CONFIG"; then
+	_pkg_min_version=0.9.0
+	{ $as_echo "$as_me:${as_lineno-$LINENO}: checking pkg-config is at least version $_pkg_min_version" >&5
+$as_echo_n "checking pkg-config is at least version $_pkg_min_version... " >&6; }
+	if $PKG_CONFIG --atleast-pkgconfig-version $_pkg_min_version; then
+		{ $as_echo "$as_me:${as_lineno-$LINENO}: result: yes" >&5
+$as_echo "yes" >&6; }
+	else
+		{ $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
+$as_echo "no" >&6; }
+		PKG_CONFIG=""
+	fi
+fi
+if test "x$with_nss" = "xno"; then
+    if test "x$with_nss" = "xyes"; then
+        as_fn_error $? "--with-ssl and --with-nss are mutually exclusive" "$LINENO" 5
+    else
+        # Building with OpenSSL, require a Curl built with OpenSSL, either system
+        # one or the embedded one
+        ac_configure_args="$ac_configure_args --with-ssl"
 
 
 
@@ -14279,11 +14509,11 @@ fi
 $as_echo "$libcurl_cv_lib_curl_version" >&6; }
 
         _libcurl_version=`echo $libcurl_cv_lib_curl_version | $_libcurl_version_parse`
-        _libcurl_wanted=`echo 0 | $_libcurl_version_parse`
+        _libcurl_wanted=`echo 7.34.0 | $_libcurl_version_parse`
 
         if test $_libcurl_wanted -gt 0 ; then
-           { $as_echo "$as_me:${as_lineno-$LINENO}: checking for libcurl >= version " >&5
-$as_echo_n "checking for libcurl >= version ... " >&6; }
+           { $as_echo "$as_me:${as_lineno-$LINENO}: checking for libcurl >= version 7.34.0" >&5
+$as_echo_n "checking for libcurl >= version 7.34.0... " >&6; }
 if ${libcurl_cv_lib_version_ok+:} false; then :
   $as_echo_n "(cached) " >&6
 else
@@ -14475,8 +14705,7 @@ _ACEOF
 
   if test x$_libcurl_with = xno || test x$libcurl_cv_lib_curl_usable != xyes ; then
      # This is the IF-NO path
-
-                      as_fn_error $? "Please install libcurl-dev or curl-devel" "$LINENO" 5
+     build_curl=yes
   else
      # This is the IF-YES path
      :
@@ -14484,210 +14713,81 @@ _ACEOF
 
   unset _libcurl_with
 
-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking whether curl is built with OpenSSL support" >&5
-$as_echo_n "checking whether curl is built with OpenSSL support... " >&6; }
-ac_save_CPPFLAGS="$CPPFLAGS"
-LIBS="$LIBCURL $ac_save_LIBS"
-CPPFLAGS="$LIBCURL_CPPFLAGS $ac_save_CPPFLAGS"
-if test "$cross_compiling" = yes; then :
-
-   { $as_echo "$as_me:${as_lineno-$LINENO}: result: unknown" >&5
-$as_echo "unknown" >&6; }
-
-
+        if test "x$build_curl" != "xyes"; then
+            { $as_echo "$as_me:${as_lineno-$LINENO}: checking whether curl is built with OpenSSL" >&5
+$as_echo_n "checking whether curl is built with OpenSSL... " >&6; }
+            ac_save_CPPFLAGS="$CPPFLAGS"
+            LIBS="$LIBCURL $ac_save_LIBS"
+            CPPFLAGS="$LIBCURL_CPPFLAGS $ac_save_CPPFLAGS"
+            if test "$cross_compiling" = yes; then :
+  build_curl=yes
 else
   cat confdefs.h - <<_ACEOF >conftest.$ac_ext
 /* end confdefs.h.  */
 
-    #include <curl/curl.h>
-    #include <stdio.h>
-    static CURLcode sslctxfun(CURL *curl, void *sslctx, void *parm) { return CURLE_OK; }
+                #include <curl/curl.h>
+                #include <stdio.h>
+                static CURLcode sslctxfun(CURL *curl, void *sslctx, void *parm) { return CURLE_OK; }
 
 int
 main ()
 {
 
-        CURL *curl;
-        curl_version_info_data *data;
-        CURLcode rc = curl_global_init(CURL_GLOBAL_ALL);
-        if (rc != CURLE_OK) {
-            fprintf(stderr,"Cannot initialize curl: %d\n", rc);
-            return 1;
-        }
-        data = curl_version_info(CURLVERSION_NOW);
-        if (data) {
-            printf("Curl SSL version: %s\n", data->ssl_version);
-        }
-        curl = curl_easy_init();
-        if (!curl) {
-            fprintf(stderr,"Cannot create curl handle\n");
-            return 1;
-        }
-        rc = curl_easy_setopt(curl, CURLOPT_SSL_CTX_FUNCTION, sslctxfun);
-        if (rc != CURLE_OK) {
-            fprintf(stderr,"Cannot set SSL context function: %s\nIs curl built with OpenSSL?\n", curl_easy_strerror(rc));
-            return 1;
-        }
-        curl_easy_cleanup(curl);
-        return 0;
+                    CURL *curl;
+                    curl_version_info_data *data;
+                    CURLcode rc = curl_global_init(CURL_GLOBAL_ALL);
+                    if (rc != CURLE_OK) {
+                        fprintf(stderr,"Cannot initialize curl: %d\n", rc);
+                        return 1;
+                    }
+                    data = curl_version_info(CURLVERSION_NOW);
+                    if (data && data->ssl_version)
+                        puts(data->ssl_version);
+                    curl = curl_easy_init();
+                    if (!curl) {
+                        fprintf(stderr,"Cannot create curl handle\n");
+                        return 1;
+                    }
+                    rc = curl_easy_setopt(curl, CURLOPT_SSL_CTX_FUNCTION, sslctxfun);
+                    if (rc != CURLE_OK) {
+                        fprintf(stderr,"Cannot set SSL context function: %s\nIs curl built with OpenSSL?\n", curl_easy_strerror(rc));
+                        return 1;
+                    }
+                    curl_easy_cleanup(curl);
+                    return 0;
 
   ;
   return 0;
 }
 _ACEOF
 if ac_fn_c_try_run "$LINENO"; then :
-  { $as_echo "$as_me:${as_lineno-$LINENO}: result: yes" >&5
-$as_echo "yes" >&6; }
+  build_curl=no
 else
-
-   { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
-$as_echo "no" >&6; }
-   as_fn_error $? "Make sure curl is built/linked with OpenSSL! (on Debian install libcurl4-openssl-dev)" "$LINENO" 5
-
+  build_curl=yes
 fi
 rm -f core *.core core.conftest.* gmon.out bb.out conftest$ac_exeext \
   conftest.$ac_objext conftest.beam conftest.$ac_ext
 fi
 
-CPPFLAGS="$ac_save_CPPFLAGS"
-LIBS="$ac_save_LIBS"
-
-ac_save_LIBS=$LIBS
-
-
-
-
-
-
-
-if test "x$ac_cv_env_PKG_CONFIG_set" != "xset"; then
-	if test -n "$ac_tool_prefix"; then
-  # Extract the first word of "${ac_tool_prefix}pkg-config", so it can be a program name with args.
-set dummy ${ac_tool_prefix}pkg-config; ac_word=$2
-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for $ac_word" >&5
-$as_echo_n "checking for $ac_word... " >&6; }
-if ${ac_cv_path_PKG_CONFIG+:} false; then :
-  $as_echo_n "(cached) " >&6
-else
-  case $PKG_CONFIG in
-  [\\/]* | ?:[\\/]*)
-  ac_cv_path_PKG_CONFIG="$PKG_CONFIG" # Let the user override the test with a path.
-  ;;
-  *)
-  as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
-for as_dir in $PATH
-do
-  IFS=$as_save_IFS
-  test -z "$as_dir" && as_dir=.
-    for ac_exec_ext in '' $ac_executable_extensions; do
-  if as_fn_executable_p "$as_dir/$ac_word$ac_exec_ext"; then
-    ac_cv_path_PKG_CONFIG="$as_dir/$ac_word$ac_exec_ext"
-    $as_echo "$as_me:${as_lineno-$LINENO}: found $as_dir/$ac_word$ac_exec_ext" >&5
-    break 2
-  fi
-done
-  done
-IFS=$as_save_IFS
-
-  ;;
-esac
-fi
-PKG_CONFIG=$ac_cv_path_PKG_CONFIG
-if test -n "$PKG_CONFIG"; then
-  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $PKG_CONFIG" >&5
-$as_echo "$PKG_CONFIG" >&6; }
-else
-  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
-$as_echo "no" >&6; }
-fi
-
-
-fi
-if test -z "$ac_cv_path_PKG_CONFIG"; then
-  ac_pt_PKG_CONFIG=$PKG_CONFIG
-  # Extract the first word of "pkg-config", so it can be a program name with args.
-set dummy pkg-config; ac_word=$2
-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for $ac_word" >&5
-$as_echo_n "checking for $ac_word... " >&6; }
-if ${ac_cv_path_ac_pt_PKG_CONFIG+:} false; then :
-  $as_echo_n "(cached) " >&6
-else
-  case $ac_pt_PKG_CONFIG in
-  [\\/]* | ?:[\\/]*)
-  ac_cv_path_ac_pt_PKG_CONFIG="$ac_pt_PKG_CONFIG" # Let the user override the test with a path.
-  ;;
-  *)
-  as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
-for as_dir in $PATH
-do
-  IFS=$as_save_IFS
-  test -z "$as_dir" && as_dir=.
-    for ac_exec_ext in '' $ac_executable_extensions; do
-  if as_fn_executable_p "$as_dir/$ac_word$ac_exec_ext"; then
-    ac_cv_path_ac_pt_PKG_CONFIG="$as_dir/$ac_word$ac_exec_ext"
-    $as_echo "$as_me:${as_lineno-$LINENO}: found $as_dir/$ac_word$ac_exec_ext" >&5
-    break 2
-  fi
-done
-  done
-IFS=$as_save_IFS
-
-  ;;
-esac
-fi
-ac_pt_PKG_CONFIG=$ac_cv_path_ac_pt_PKG_CONFIG
-if test -n "$ac_pt_PKG_CONFIG"; then
-  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_pt_PKG_CONFIG" >&5
-$as_echo "$ac_pt_PKG_CONFIG" >&6; }
-else
-  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
-$as_echo "no" >&6; }
-fi
-
-  if test "x$ac_pt_PKG_CONFIG" = x; then
-    PKG_CONFIG=""
-  else
-    case $cross_compiling:$ac_tool_warned in
-yes:)
-{ $as_echo "$as_me:${as_lineno-$LINENO}: WARNING: using cross tools not prefixed with host triplet" >&5
-$as_echo "$as_me: WARNING: using cross tools not prefixed with host triplet" >&2;}
-ac_tool_warned=yes ;;
-esac
-    PKG_CONFIG=$ac_pt_PKG_CONFIG
-  fi
-else
-  PKG_CONFIG="$ac_cv_path_PKG_CONFIG"
-fi
-
-fi
-if test -n "$PKG_CONFIG"; then
-	_pkg_min_version=0.9.0
-	{ $as_echo "$as_me:${as_lineno-$LINENO}: checking pkg-config is at least version $_pkg_min_version" >&5
-$as_echo_n "checking pkg-config is at least version $_pkg_min_version... " >&6; }
-	if $PKG_CONFIG --atleast-pkgconfig-version $_pkg_min_version; then
-		{ $as_echo "$as_me:${as_lineno-$LINENO}: result: yes" >&5
-$as_echo "yes" >&6; }
-	else
-		{ $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
-$as_echo "no" >&6; }
-		PKG_CONFIG=""
-	fi
-fi
+            CPPFLAGS="$ac_save_CPPFLAGS"
+            LIBS="$ac_save_LIBS"
+        fi
+        ac_save_LIBS=$LIBS
 
 pkg_failed=no
-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for CRYPTO" >&5
-$as_echo_n "checking for CRYPTO... " >&6; }
+{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for OPENSSL" >&5
+$as_echo_n "checking for OPENSSL... " >&6; }
 
-if test -n "$CRYPTO_CFLAGS"; then
-    pkg_cv_CRYPTO_CFLAGS="$CRYPTO_CFLAGS"
+if test -n "$OPENSSL_CFLAGS"; then
+    pkg_cv_OPENSSL_CFLAGS="$OPENSSL_CFLAGS"
  elif test -n "$PKG_CONFIG"; then
     if test -n "$PKG_CONFIG" && \
-    { { $as_echo "$as_me:${as_lineno-$LINENO}: \$PKG_CONFIG --exists --print-errors \"libcrypto\""; } >&5
-  ($PKG_CONFIG --exists --print-errors "libcrypto") 2>&5
+    { { $as_echo "$as_me:${as_lineno-$LINENO}: \$PKG_CONFIG --exists --print-errors \"libssl\""; } >&5
+  ($PKG_CONFIG --exists --print-errors "libssl") 2>&5
   ac_status=$?
   $as_echo "$as_me:${as_lineno-$LINENO}: \$? = $ac_status" >&5
   test $ac_status = 0; }; then
-  pkg_cv_CRYPTO_CFLAGS=`$PKG_CONFIG --cflags "libcrypto" 2>/dev/null`
+  pkg_cv_OPENSSL_CFLAGS=`$PKG_CONFIG --cflags "libssl" 2>/dev/null`
 		      test "x$?" != "x0" && pkg_failed=yes
 else
   pkg_failed=yes
@@ -14695,16 +14795,16 @@ fi
  else
     pkg_failed=untried
 fi
-if test -n "$CRYPTO_LIBS"; then
-    pkg_cv_CRYPTO_LIBS="$CRYPTO_LIBS"
+if test -n "$OPENSSL_LIBS"; then
+    pkg_cv_OPENSSL_LIBS="$OPENSSL_LIBS"
  elif test -n "$PKG_CONFIG"; then
     if test -n "$PKG_CONFIG" && \
-    { { $as_echo "$as_me:${as_lineno-$LINENO}: \$PKG_CONFIG --exists --print-errors \"libcrypto\""; } >&5
-  ($PKG_CONFIG --exists --print-errors "libcrypto") 2>&5
+    { { $as_echo "$as_me:${as_lineno-$LINENO}: \$PKG_CONFIG --exists --print-errors \"libssl\""; } >&5
+  ($PKG_CONFIG --exists --print-errors "libssl") 2>&5
   ac_status=$?
   $as_echo "$as_me:${as_lineno-$LINENO}: \$? = $ac_status" >&5
   test $ac_status = 0; }; then
-  pkg_cv_CRYPTO_LIBS=`$PKG_CONFIG --libs "libcrypto" 2>/dev/null`
+  pkg_cv_OPENSSL_LIBS=`$PKG_CONFIG --libs "libssl" 2>/dev/null`
 		      test "x$?" != "x0" && pkg_failed=yes
 else
   pkg_failed=yes
@@ -14725,15 +14825,15 @@ else
         _pkg_short_errors_supported=no
 fi
         if test $_pkg_short_errors_supported = yes; then
-	        CRYPTO_PKG_ERRORS=`$PKG_CONFIG --short-errors --print-errors --cflags --libs "libcrypto" 2>&1`
+	        OPENSSL_PKG_ERRORS=`$PKG_CONFIG --short-errors --print-errors --cflags --libs "libssl" 2>&1`
         else
-	        CRYPTO_PKG_ERRORS=`$PKG_CONFIG --print-errors --cflags --libs "libcrypto" 2>&1`
+	        OPENSSL_PKG_ERRORS=`$PKG_CONFIG --print-errors --cflags --libs "libssl" 2>&1`
         fi
 	# Put the nasty error message in config.log where it belongs
-	echo "$CRYPTO_PKG_ERRORS" >&5
+	echo "$OPENSSL_PKG_ERRORS" >&5
 
 
-    { $as_echo "$as_me:${as_lineno-$LINENO}: checking for HMAC_Update in -lcrypto" >&5
+            { $as_echo "$as_me:${as_lineno-$LINENO}: checking for HMAC_Update in -lcrypto" >&5
 $as_echo_n "checking for HMAC_Update in -lcrypto... " >&6; }
 if ${ac_cv_lib_crypto_HMAC_Update+:} false; then :
   $as_echo_n "(cached) " >&6
@@ -14770,17 +14870,17 @@ fi
 { $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_crypto_HMAC_Update" >&5
 $as_echo "$ac_cv_lib_crypto_HMAC_Update" >&6; }
 if test "x$ac_cv_lib_crypto_HMAC_Update" = xyes; then :
-  CRYPTO_LIBS=-lcrypto
+  OPENSSL_LIBS="-lcrypto -lssl"
 else
 
-              as_fn_error $? "Please install libssl-dev or openssl-devel" "$LINENO" 5
+                    as_fn_error $? "Please install libssl-dev or openssl-devel" "$LINENO" 5
 fi
 
 elif test $pkg_failed = untried; then
      	{ $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
 $as_echo "no" >&6; }
 
-    { $as_echo "$as_me:${as_lineno-$LINENO}: checking for HMAC_Update in -lcrypto" >&5
+            { $as_echo "$as_me:${as_lineno-$LINENO}: checking for HMAC_Update in -lcrypto" >&5
 $as_echo_n "checking for HMAC_Update in -lcrypto... " >&6; }
 if ${ac_cv_lib_crypto_HMAC_Update+:} false; then :
   $as_echo_n "(cached) " >&6
@@ -14817,21 +14917,21 @@ fi
 { $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_crypto_HMAC_Update" >&5
 $as_echo "$ac_cv_lib_crypto_HMAC_Update" >&6; }
 if test "x$ac_cv_lib_crypto_HMAC_Update" = xyes; then :
-  CRYPTO_LIBS=-lcrypto
+  OPENSSL_LIBS="-lcrypto -lssl"
 else
 
-              as_fn_error $? "Please install libssl-dev or openssl-devel" "$LINENO" 5
+                    as_fn_error $? "Please install libssl-dev or openssl-devel" "$LINENO" 5
 fi
 
 else
-	CRYPTO_CFLAGS=$pkg_cv_CRYPTO_CFLAGS
-	CRYPTO_LIBS=$pkg_cv_CRYPTO_LIBS
+	OPENSSL_CFLAGS=$pkg_cv_OPENSSL_CFLAGS
+	OPENSSL_LIBS=$pkg_cv_OPENSSL_LIBS
         { $as_echo "$as_me:${as_lineno-$LINENO}: result: yes" >&5
 $as_echo "yes" >&6; }
 
 fi
-LIBS=$ac_save_LIBS
-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking whether HMAC_Update returns int" >&5
+        LIBS=$ac_save_LIBS
+        { $as_echo "$as_me:${as_lineno-$LINENO}: checking whether HMAC_Update returns int" >&5
 $as_echo_n "checking whether HMAC_Update returns int... " >&6; }
 if ${ac_cv_type_HMAC_update+:} false; then :
   $as_echo_n "(cached) " >&6
@@ -14858,11 +14958,611 @@ rm -f core conftest.err conftest.$ac_objext conftest.$ac_ext
 fi
 { $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_type_HMAC_update" >&5
 $as_echo "$ac_cv_type_HMAC_update" >&6; }
-if test "$ac_cv_type_HMAC_update" = "yes"; then
+        if test "$ac_cv_type_HMAC_update" = "yes"; then
 
 $as_echo "#define HMAC_UPDATE_RETURNS_INT 1" >>confdefs.h
 
+        fi
+        VCRYPTO_LIBS="$OPENSSL_LIBS"
+        VRCYPTO_CFLAGS="$OPENSSL_CFLAGS"
+    fi
+else
+    with_ssl="no"
+    ac_configure_args="$ac_configure_args --with-nss --without-ssl"
+    # Building with NSS, require a Curl built with NSS, either system
+    # one or the embedded one
+    # TODO: on Debian libnss-pem.so is missing, so it won't be able to load
+    # certificates, is there a way to test for that?
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Check whether --with-libcurl was given.
+if test "${with_libcurl+set}" = set; then :
+  withval=$with_libcurl; _libcurl_with=$withval
+else
+  _libcurl_with=yes
 fi
+
+
+  if test "$_libcurl_with" != "no" ; then
+
+     for ac_prog in gawk mawk nawk awk
+do
+  # Extract the first word of "$ac_prog", so it can be a program name with args.
+set dummy $ac_prog; ac_word=$2
+{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for $ac_word" >&5
+$as_echo_n "checking for $ac_word... " >&6; }
+if ${ac_cv_prog_AWK+:} false; then :
+  $as_echo_n "(cached) " >&6
+else
+  if test -n "$AWK"; then
+  ac_cv_prog_AWK="$AWK" # Let the user override the test.
+else
+as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
+for as_dir in $PATH
+do
+  IFS=$as_save_IFS
+  test -z "$as_dir" && as_dir=.
+    for ac_exec_ext in '' $ac_executable_extensions; do
+  if as_fn_executable_p "$as_dir/$ac_word$ac_exec_ext"; then
+    ac_cv_prog_AWK="$ac_prog"
+    $as_echo "$as_me:${as_lineno-$LINENO}: found $as_dir/$ac_word$ac_exec_ext" >&5
+    break 2
+  fi
+done
+  done
+IFS=$as_save_IFS
+
+fi
+fi
+AWK=$ac_cv_prog_AWK
+if test -n "$AWK"; then
+  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $AWK" >&5
+$as_echo "$AWK" >&6; }
+else
+  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
+$as_echo "no" >&6; }
+fi
+
+
+  test -n "$AWK" && break
+done
+
+
+     _libcurl_version_parse="eval $AWK '{split(\$NF,A,\".\"); X=256*256*A[1]+256*A[2]+A[3]; print X;}'"
+
+     _libcurl_try_link=yes
+
+     if test -d "$_libcurl_with" ; then
+        LIBCURL_CPPFLAGS="-I$withval/include"
+        _libcurl_ldflags="-L$withval/lib"
+        # Extract the first word of "curl-config", so it can be a program name with args.
+set dummy curl-config; ac_word=$2
+{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for $ac_word" >&5
+$as_echo_n "checking for $ac_word... " >&6; }
+if ${ac_cv_path__libcurl_config+:} false; then :
+  $as_echo_n "(cached) " >&6
+else
+  case $_libcurl_config in
+  [\\/]* | ?:[\\/]*)
+  ac_cv_path__libcurl_config="$_libcurl_config" # Let the user override the test with a path.
+  ;;
+  *)
+  as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
+for as_dir in "$withval/bin"
+do
+  IFS=$as_save_IFS
+  test -z "$as_dir" && as_dir=.
+    for ac_exec_ext in '' $ac_executable_extensions; do
+  if as_fn_executable_p "$as_dir/$ac_word$ac_exec_ext"; then
+    ac_cv_path__libcurl_config="$as_dir/$ac_word$ac_exec_ext"
+    $as_echo "$as_me:${as_lineno-$LINENO}: found $as_dir/$ac_word$ac_exec_ext" >&5
+    break 2
+  fi
+done
+  done
+IFS=$as_save_IFS
+
+  ;;
+esac
+fi
+_libcurl_config=$ac_cv_path__libcurl_config
+if test -n "$_libcurl_config"; then
+  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $_libcurl_config" >&5
+$as_echo "$_libcurl_config" >&6; }
+else
+  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
+$as_echo "no" >&6; }
+fi
+
+
+     else
+        # Extract the first word of "curl-config", so it can be a program name with args.
+set dummy curl-config; ac_word=$2
+{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for $ac_word" >&5
+$as_echo_n "checking for $ac_word... " >&6; }
+if ${ac_cv_path__libcurl_config+:} false; then :
+  $as_echo_n "(cached) " >&6
+else
+  case $_libcurl_config in
+  [\\/]* | ?:[\\/]*)
+  ac_cv_path__libcurl_config="$_libcurl_config" # Let the user override the test with a path.
+  ;;
+  *)
+  as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
+for as_dir in $PATH
+do
+  IFS=$as_save_IFS
+  test -z "$as_dir" && as_dir=.
+    for ac_exec_ext in '' $ac_executable_extensions; do
+  if as_fn_executable_p "$as_dir/$ac_word$ac_exec_ext"; then
+    ac_cv_path__libcurl_config="$as_dir/$ac_word$ac_exec_ext"
+    $as_echo "$as_me:${as_lineno-$LINENO}: found $as_dir/$ac_word$ac_exec_ext" >&5
+    break 2
+  fi
+done
+  done
+IFS=$as_save_IFS
+
+  ;;
+esac
+fi
+_libcurl_config=$ac_cv_path__libcurl_config
+if test -n "$_libcurl_config"; then
+  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $_libcurl_config" >&5
+$as_echo "$_libcurl_config" >&6; }
+else
+  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
+$as_echo "no" >&6; }
+fi
+
+
+     fi
+
+     if test x$_libcurl_config != "x" ; then
+        { $as_echo "$as_me:${as_lineno-$LINENO}: checking for the version of libcurl" >&5
+$as_echo_n "checking for the version of libcurl... " >&6; }
+if ${libcurl_cv_lib_curl_version+:} false; then :
+  $as_echo_n "(cached) " >&6
+else
+  libcurl_cv_lib_curl_version=`$_libcurl_config --version | $AWK '{print $2}'`
+fi
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $libcurl_cv_lib_curl_version" >&5
+$as_echo "$libcurl_cv_lib_curl_version" >&6; }
+
+        _libcurl_version=`echo $libcurl_cv_lib_curl_version | $_libcurl_version_parse`
+        _libcurl_wanted=`echo 7.34.0 | $_libcurl_version_parse`
+
+        if test $_libcurl_wanted -gt 0 ; then
+           { $as_echo "$as_me:${as_lineno-$LINENO}: checking for libcurl >= version 7.34.0" >&5
+$as_echo_n "checking for libcurl >= version 7.34.0... " >&6; }
+if ${libcurl_cv_lib_version_ok+:} false; then :
+  $as_echo_n "(cached) " >&6
+else
+
+              if test $_libcurl_version -ge $_libcurl_wanted ; then
+                 libcurl_cv_lib_version_ok=yes
+              else
+                 libcurl_cv_lib_version_ok=no
+              fi
+
+fi
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $libcurl_cv_lib_version_ok" >&5
+$as_echo "$libcurl_cv_lib_version_ok" >&6; }
+        fi
+
+        if test $_libcurl_wanted -eq 0 || test x$libcurl_cv_lib_version_ok = xyes ; then
+           if test x"$LIBCURL_CPPFLAGS" = "x" ; then
+              LIBCURL_CPPFLAGS=`$_libcurl_config --cflags`
+           fi
+           if test x"$LIBCURL" = "x" ; then
+              LIBCURL=`$_libcurl_config --libs`
+
+              # This is so silly, but Apple actually has a bug in their
+              # curl-config script.  Fixed in Tiger, but there are still
+              # lots of Panther installs around.
+              case "${host}" in
+                 powerpc-apple-darwin7*)
+                    LIBCURL=`echo $LIBCURL | sed -e 's|-arch i386||g'`
+                 ;;
+              esac
+           fi
+
+           # All curl-config scripts support --feature
+           _libcurl_features=`$_libcurl_config --feature`
+
+           # Is it modern enough to have --protocols? (7.12.4)
+           if test $_libcurl_version -ge 461828 ; then
+              _libcurl_protocols=`$_libcurl_config --protocols`
+           fi
+        else
+           _libcurl_try_link=no
+        fi
+
+        unset _libcurl_wanted
+     fi
+
+     if test $_libcurl_try_link = yes ; then
+
+        # we didn't find curl-config, so let's see if the user-supplied
+        # link line (or failing that, "-lcurl") is enough.
+        LIBCURL=${LIBCURL-"$_libcurl_ldflags -lcurl"}
+
+        { $as_echo "$as_me:${as_lineno-$LINENO}: checking whether libcurl is usable" >&5
+$as_echo_n "checking whether libcurl is usable... " >&6; }
+if ${libcurl_cv_lib_curl_usable+:} false; then :
+  $as_echo_n "(cached) " >&6
+else
+
+           _libcurl_save_cppflags=$CPPFLAGS
+           CPPFLAGS="$LIBCURL_CPPFLAGS $CPPFLAGS"
+           _libcurl_save_libs=$LIBS
+           LIBS="$LIBCURL $LIBS"
+
+           cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+#include <curl/curl.h>
+int
+main ()
+{
+
+/* Try and use a few common options to force a failure if we are
+   missing symbols or can't link. */
+int x;
+curl_easy_setopt(NULL,CURLOPT_URL,NULL);
+x=CURL_ERROR_SIZE;
+x=CURLOPT_WRITEFUNCTION;
+x=CURLOPT_FILE;
+x=CURLOPT_ERRORBUFFER;
+x=CURLOPT_STDERR;
+x=CURLOPT_VERBOSE;
+if (x) ;
+
+  ;
+  return 0;
+}
+_ACEOF
+if ac_fn_c_try_link "$LINENO"; then :
+  libcurl_cv_lib_curl_usable=yes
+else
+  libcurl_cv_lib_curl_usable=no
+fi
+rm -f core conftest.err conftest.$ac_objext \
+    conftest$ac_exeext conftest.$ac_ext
+
+           CPPFLAGS=$_libcurl_save_cppflags
+           LIBS=$_libcurl_save_libs
+           unset _libcurl_save_cppflags
+           unset _libcurl_save_libs
+
+fi
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $libcurl_cv_lib_curl_usable" >&5
+$as_echo "$libcurl_cv_lib_curl_usable" >&6; }
+
+        if test $libcurl_cv_lib_curl_usable = yes ; then
+
+           # Does curl_free() exist in this version of libcurl?
+           # If not, fake it with free()
+
+           _libcurl_save_cppflags=$CPPFLAGS
+           CPPFLAGS="$CPPFLAGS $LIBCURL_CPPFLAGS"
+           _libcurl_save_libs=$LIBS
+           LIBS="$LIBS $LIBCURL"
+
+           ac_fn_c_check_func "$LINENO" "curl_free" "ac_cv_func_curl_free"
+if test "x$ac_cv_func_curl_free" = xyes; then :
+
+else
+
+$as_echo "#define curl_free free" >>confdefs.h
+
+fi
+
+
+           CPPFLAGS=$_libcurl_save_cppflags
+           LIBS=$_libcurl_save_libs
+           unset _libcurl_save_cppflags
+           unset _libcurl_save_libs
+
+
+$as_echo "#define HAVE_LIBCURL 1" >>confdefs.h
+
+
+
+
+           for _libcurl_feature in $_libcurl_features ; do
+              cat >>confdefs.h <<_ACEOF
+#define `$as_echo "libcurl_feature_$_libcurl_feature" | $as_tr_cpp` 1
+_ACEOF
+
+              eval `$as_echo "libcurl_feature_$_libcurl_feature" | $as_tr_sh`=yes
+           done
+
+           if test "x$_libcurl_protocols" = "x" ; then
+
+              # We don't have --protocols, so just assume that all
+              # protocols are available
+              _libcurl_protocols="HTTP FTP FILE TELNET LDAP DICT TFTP"
+
+              if test x$libcurl_feature_SSL = xyes ; then
+                 _libcurl_protocols="$_libcurl_protocols HTTPS"
+
+                 # FTPS wasn't standards-compliant until version
+                 # 7.11.0 (0x070b00 == 461568)
+                 if test $_libcurl_version -ge 461568; then
+                    _libcurl_protocols="$_libcurl_protocols FTPS"
+                 fi
+              fi
+
+              # RTSP, IMAP, POP3 and SMTP were added in
+              # 7.20.0 (0x071400 == 463872)
+              if test $_libcurl_version -ge 463872; then
+                 _libcurl_protocols="$_libcurl_protocols RTSP IMAP POP3 SMTP"
+              fi
+           fi
+
+           for _libcurl_protocol in $_libcurl_protocols ; do
+              cat >>confdefs.h <<_ACEOF
+#define `$as_echo "libcurl_protocol_$_libcurl_protocol" | $as_tr_cpp` 1
+_ACEOF
+
+              eval `$as_echo "libcurl_protocol_$_libcurl_protocol" | $as_tr_sh`=yes
+           done
+        else
+           unset LIBCURL
+           unset LIBCURL_CPPFLAGS
+        fi
+     fi
+
+     unset _libcurl_try_link
+     unset _libcurl_version_parse
+     unset _libcurl_config
+     unset _libcurl_feature
+     unset _libcurl_features
+     unset _libcurl_protocol
+     unset _libcurl_protocols
+     unset _libcurl_version
+     unset _libcurl_ldflags
+  fi
+
+  if test x$_libcurl_with = xno || test x$libcurl_cv_lib_curl_usable != xyes ; then
+     # This is the IF-NO path
+     build_curl=yes
+  else
+     # This is the IF-YES path
+     :
+  fi
+
+  unset _libcurl_with
+
+    if test "x$build_curl" != "xyes"; then
+        ac_save_CPPFLAGS="$CPPFLAGS"
+        LIBS="$LIBCURL $ac_save_LIBS"
+        CPPFLAGS="$LIBCURL_CPPFLAGS $ac_save_CPPFLAGS"
+        if test "$cross_compiling" = yes; then :
+  build_curl=yes
+else
+  cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+
+            #include <curl/curl.h>
+            #include <stdio.h>
+
+int
+main ()
+{
+
+                CURL *curl;
+                curl_version_info_data *data;
+                CURLcode rc = curl_global_init(CURL_GLOBAL_ALL);
+                if (rc != CURLE_OK) {
+                    fprintf(stderr,"Cannot initialize curl: %d\n", rc);
+                    return 1;
+                }
+                data = curl_version_info(CURLVERSION_NOW);
+                if (data && data->ssl_version) {
+                    puts(data->ssl_version);
+                    if (strstr(data->ssl_version,"NSS"))
+                        return 0;
+                }
+                return 1;
+
+  ;
+  return 0;
+}
+_ACEOF
+if ac_fn_c_try_run "$LINENO"; then :
+  build_curl=no
+else
+  build_curl=yes
+fi
+rm -f core *.core core.conftest.* gmon.out bb.out conftest$ac_exeext \
+  conftest.$ac_objext conftest.beam conftest.$ac_ext
+fi
+
+        CPPFLAGS="$ac_save_CPPFLAGS"
+        LIBS="$ac_save_LIBS"
+    fi
+    ac_save_LIBS=$LIBS
+
+pkg_failed=no
+{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for NSS" >&5
+$as_echo_n "checking for NSS... " >&6; }
+
+if test -n "$NSS_CFLAGS"; then
+    pkg_cv_NSS_CFLAGS="$NSS_CFLAGS"
+ elif test -n "$PKG_CONFIG"; then
+    if test -n "$PKG_CONFIG" && \
+    { { $as_echo "$as_me:${as_lineno-$LINENO}: \$PKG_CONFIG --exists --print-errors \"nss\""; } >&5
+  ($PKG_CONFIG --exists --print-errors "nss") 2>&5
+  ac_status=$?
+  $as_echo "$as_me:${as_lineno-$LINENO}: \$? = $ac_status" >&5
+  test $ac_status = 0; }; then
+  pkg_cv_NSS_CFLAGS=`$PKG_CONFIG --cflags "nss" 2>/dev/null`
+		      test "x$?" != "x0" && pkg_failed=yes
+else
+  pkg_failed=yes
+fi
+ else
+    pkg_failed=untried
+fi
+if test -n "$NSS_LIBS"; then
+    pkg_cv_NSS_LIBS="$NSS_LIBS"
+ elif test -n "$PKG_CONFIG"; then
+    if test -n "$PKG_CONFIG" && \
+    { { $as_echo "$as_me:${as_lineno-$LINENO}: \$PKG_CONFIG --exists --print-errors \"nss\""; } >&5
+  ($PKG_CONFIG --exists --print-errors "nss") 2>&5
+  ac_status=$?
+  $as_echo "$as_me:${as_lineno-$LINENO}: \$? = $ac_status" >&5
+  test $ac_status = 0; }; then
+  pkg_cv_NSS_LIBS=`$PKG_CONFIG --libs "nss" 2>/dev/null`
+		      test "x$?" != "x0" && pkg_failed=yes
+else
+  pkg_failed=yes
+fi
+ else
+    pkg_failed=untried
+fi
+
+
+
+if test $pkg_failed = yes; then
+   	{ $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
+$as_echo "no" >&6; }
+
+if $PKG_CONFIG --atleast-pkgconfig-version 0.20; then
+        _pkg_short_errors_supported=yes
+else
+        _pkg_short_errors_supported=no
+fi
+        if test $_pkg_short_errors_supported = yes; then
+	        NSS_PKG_ERRORS=`$PKG_CONFIG --short-errors --print-errors --cflags --libs "nss" 2>&1`
+        else
+	        NSS_PKG_ERRORS=`$PKG_CONFIG --print-errors --cflags --libs "nss" 2>&1`
+        fi
+	# Put the nasty error message in config.log where it belongs
+	echo "$NSS_PKG_ERRORS" >&5
+
+
+                       as_fn_error $? "libnss3-dev or nss-devel is required when --with-nss is used" "$LINENO" 5
+
+elif test $pkg_failed = untried; then
+     	{ $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
+$as_echo "no" >&6; }
+
+                       as_fn_error $? "libnss3-dev or nss-devel is required when --with-nss is used" "$LINENO" 5
+
+else
+	NSS_CFLAGS=$pkg_cv_NSS_CFLAGS
+	NSS_LIBS=$pkg_cv_NSS_LIBS
+        { $as_echo "$as_me:${as_lineno-$LINENO}: result: yes" >&5
+$as_echo "yes" >&6; }
+
+fi
+    VCRYPTO_LIBS="$NSS_LIBS"
+    VCRYPTO_CFLAGS="$NSS_CFLAGS"
+    LIBS=$ac_save_LIBS
+fi
+
+ if test "x$with_ssl" != "xno"; then
+  BUILD_OPENSSL_TRUE=
+  BUILD_OPENSSL_FALSE='#'
+else
+  BUILD_OPENSSL_TRUE='#'
+  BUILD_OPENSSL_FALSE=
+fi
+
+ if test "x$with_nss" != "xno"; then
+  BUILD_NSS_TRUE=
+  BUILD_NSS_FALSE='#'
+else
+  BUILD_NSS_TRUE='#'
+  BUILD_NSS_FALSE=
+fi
+
+
+if test "x$build_curl" = "xyes"; then
+    { $as_echo "$as_me:${as_lineno-$LINENO}: checking for idn_free in -lidn" >&5
+$as_echo_n "checking for idn_free in -lidn... " >&6; }
+if ${ac_cv_lib_idn_idn_free+:} false; then :
+  $as_echo_n "(cached) " >&6
+else
+  ac_check_lib_save_LIBS=$LIBS
+LIBS="-lidn  $LIBS"
+cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+
+/* Override any GCC internal prototype to avoid an error.
+   Use char because int might match the return type of a GCC
+   builtin and then its argument prototype would still apply.  */
+#ifdef __cplusplus
+extern "C"
+#endif
+char idn_free ();
+int
+main ()
+{
+return idn_free ();
+  ;
+  return 0;
+}
+_ACEOF
+if ac_fn_c_try_link "$LINENO"; then :
+  ac_cv_lib_idn_idn_free=yes
+else
+  ac_cv_lib_idn_idn_free=no
+fi
+rm -f core conftest.err conftest.$ac_objext \
+    conftest$ac_exeext conftest.$ac_ext
+LIBS=$ac_check_lib_save_LIBS
+fi
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_idn_idn_free" >&5
+$as_echo "$ac_cv_lib_idn_idn_free" >&6; }
+if test "x$ac_cv_lib_idn_idn_free" = xyes; then :
+  config_idn='--with-idn';link_idn='-lidn'
+else
+  config_idn='';link_idn=''
+fi
+
+    ac_configure_args="$ac_configure_args --with-zlib $with_idn --with-pic --disable-shared --without-libssh2 --without-librtmp --without-nghttp2 --disable-ftp --disable-file --disable-ldap --disable-ldaps --disable-rtsp --disable-dict --disable-telnet --disable-tftp --disable-pop3 --disable-imap --disable-smtp --disable-gopher"
+    LIBCURL="../3rdparty/curl/lib/libcurl.la $link_idn -lz"
+    LIBCURL_CPPFLAGS="-I../3rdparty/curl/include"
+
+
+subdirs="$subdirs ../3rdparty/curl"
+
+fi
+ if test "$build_curl" = "yes"; then
+  BUILD_CURL_TRUE=
+  BUILD_CURL_FALSE='#'
+else
+  BUILD_CURL_TRUE='#'
+  BUILD_CURL_FALSE=
+fi
+
+
 
 
 
@@ -14932,7 +15632,7 @@ else
     We can't simply define LARGE_OFF_T to be 9223372036854775807,
     since some C++ compilers masquerading as C compilers
     incorrectly reject 9223372036854775807.  */
-#define LARGE_OFF_T (((off_t) 1 << 62) - 1 + ((off_t) 1 << 62))
+#define LARGE_OFF_T ((((off_t) 1 << 31) << 31) - 1 + (((off_t) 1 << 31) << 31))
   int off_t_is_large[(LARGE_OFF_T % 2147483629 == 721
 		       && LARGE_OFF_T % 2147483647 == 1)
 		      ? 1 : -1];
@@ -14978,7 +15678,7 @@ else
     We can't simply define LARGE_OFF_T to be 9223372036854775807,
     since some C++ compilers masquerading as C compilers
     incorrectly reject 9223372036854775807.  */
-#define LARGE_OFF_T (((off_t) 1 << 62) - 1 + ((off_t) 1 << 62))
+#define LARGE_OFF_T ((((off_t) 1 << 31) << 31) - 1 + (((off_t) 1 << 31) << 31))
   int off_t_is_large[(LARGE_OFF_T % 2147483629 == 721
 		       && LARGE_OFF_T % 2147483647 == 1)
 		      ? 1 : -1];
@@ -15002,7 +15702,7 @@ rm -f core conftest.err conftest.$ac_objext conftest.$ac_ext
     We can't simply define LARGE_OFF_T to be 9223372036854775807,
     since some C++ compilers masquerading as C compilers
     incorrectly reject 9223372036854775807.  */
-#define LARGE_OFF_T (((off_t) 1 << 62) - 1 + ((off_t) 1 << 62))
+#define LARGE_OFF_T ((((off_t) 1 << 31) << 31) - 1 + (((off_t) 1 << 31) << 31))
   int off_t_is_large[(LARGE_OFF_T % 2147483629 == 721
 		       && LARGE_OFF_T % 2147483647 == 1)
 		      ? 1 : -1];
@@ -15047,7 +15747,7 @@ else
     We can't simply define LARGE_OFF_T to be 9223372036854775807,
     since some C++ compilers masquerading as C compilers
     incorrectly reject 9223372036854775807.  */
-#define LARGE_OFF_T (((off_t) 1 << 62) - 1 + ((off_t) 1 << 62))
+#define LARGE_OFF_T ((((off_t) 1 << 31) << 31) - 1 + (((off_t) 1 << 31) << 31))
   int off_t_is_large[(LARGE_OFF_T % 2147483629 == 721
 		       && LARGE_OFF_T % 2147483647 == 1)
 		      ? 1 : -1];
@@ -15071,7 +15771,7 @@ rm -f core conftest.err conftest.$ac_objext conftest.$ac_ext
     We can't simply define LARGE_OFF_T to be 9223372036854775807,
     since some C++ compilers masquerading as C compilers
     incorrectly reject 9223372036854775807.  */
-#define LARGE_OFF_T (((off_t) 1 << 62) - 1 + ((off_t) 1 << 62))
+#define LARGE_OFF_T ((((off_t) 1 << 31) << 31) - 1 + (((off_t) 1 << 31) << 31))
   int off_t_is_large[(LARGE_OFF_T % 2147483629 == 721
 		       && LARGE_OFF_T % 2147483647 == 1)
 		      ? 1 : -1];
@@ -15899,8 +16599,28 @@ LT_CONFIG_H=config.h
     ltdl_LTLIBOBJS=$_ltdl_ltlibobjs
 
 
+if test -z "${BUILD_LTDL_TRUE}" && test -z "${BUILD_LTDL_FALSE}"; then
+  as_fn_error $? "conditional \"BUILD_LTDL\" was never defined.
+Usually this means the macro was only invoked conditionally." "$LINENO" 5
+fi
 if test -z "${am__fastdepCC_TRUE}" && test -z "${am__fastdepCC_FALSE}"; then
   as_fn_error $? "conditional \"am__fastdepCC\" was never defined.
+Usually this means the macro was only invoked conditionally." "$LINENO" 5
+fi
+if test -z "${BUILD_NFTW_TRUE}" && test -z "${BUILD_NFTW_FALSE}"; then
+  as_fn_error $? "conditional \"BUILD_NFTW\" was never defined.
+Usually this means the macro was only invoked conditionally." "$LINENO" 5
+fi
+if test -z "${BUILD_OPENSSL_TRUE}" && test -z "${BUILD_OPENSSL_FALSE}"; then
+  as_fn_error $? "conditional \"BUILD_OPENSSL\" was never defined.
+Usually this means the macro was only invoked conditionally." "$LINENO" 5
+fi
+if test -z "${BUILD_NSS_TRUE}" && test -z "${BUILD_NSS_FALSE}"; then
+  as_fn_error $? "conditional \"BUILD_NSS\" was never defined.
+Usually this means the macro was only invoked conditionally." "$LINENO" 5
+fi
+if test -z "${BUILD_CURL_TRUE}" && test -z "${BUILD_CURL_FALSE}"; then
+  as_fn_error $? "conditional \"BUILD_CURL\" was never defined.
 Usually this means the macro was only invoked conditionally." "$LINENO" 5
 fi
 
@@ -18128,6 +18848,151 @@ if test "$no_create" != yes; then
   # Use ||, not &&, to avoid exiting from the if with $? = 1, which
   # would make configure fail if this is the last instruction.
   $ac_cs_success || as_fn_exit 1
+fi
+
+#
+# CONFIG_SUBDIRS section.
+#
+if test "$no_recursion" != yes; then
+
+  # Remove --cache-file, --srcdir, and --disable-option-checking arguments
+  # so they do not pile up.
+  ac_sub_configure_args=
+  ac_prev=
+  eval "set x $ac_configure_args"
+  shift
+  for ac_arg
+  do
+    if test -n "$ac_prev"; then
+      ac_prev=
+      continue
+    fi
+    case $ac_arg in
+    -cache-file | --cache-file | --cache-fil | --cache-fi \
+    | --cache-f | --cache- | --cache | --cach | --cac | --ca | --c)
+      ac_prev=cache_file ;;
+    -cache-file=* | --cache-file=* | --cache-fil=* | --cache-fi=* \
+    | --cache-f=* | --cache-=* | --cache=* | --cach=* | --cac=* | --ca=* \
+    | --c=*)
+      ;;
+    --config-cache | -C)
+      ;;
+    -srcdir | --srcdir | --srcdi | --srcd | --src | --sr)
+      ac_prev=srcdir ;;
+    -srcdir=* | --srcdir=* | --srcdi=* | --srcd=* | --src=* | --sr=*)
+      ;;
+    -prefix | --prefix | --prefi | --pref | --pre | --pr | --p)
+      ac_prev=prefix ;;
+    -prefix=* | --prefix=* | --prefi=* | --pref=* | --pre=* | --pr=* | --p=*)
+      ;;
+    --disable-option-checking)
+      ;;
+    *)
+      case $ac_arg in
+      *\'*) ac_arg=`$as_echo "$ac_arg" | sed "s/'/'\\\\\\\\''/g"` ;;
+      esac
+      as_fn_append ac_sub_configure_args " '$ac_arg'" ;;
+    esac
+  done
+
+  # Always prepend --prefix to ensure using the same prefix
+  # in subdir configurations.
+  ac_arg="--prefix=$prefix"
+  case $ac_arg in
+  *\'*) ac_arg=`$as_echo "$ac_arg" | sed "s/'/'\\\\\\\\''/g"` ;;
+  esac
+  ac_sub_configure_args="'$ac_arg' $ac_sub_configure_args"
+
+  # Pass --silent
+  if test "$silent" = yes; then
+    ac_sub_configure_args="--silent $ac_sub_configure_args"
+  fi
+
+  # Always prepend --disable-option-checking to silence warnings, since
+  # different subdirs can have different --enable and --with options.
+  ac_sub_configure_args="--disable-option-checking $ac_sub_configure_args"
+
+  ac_popdir=`pwd`
+  for ac_dir in : $subdirs; do test "x$ac_dir" = x: && continue
+
+    # Do not complain, so a configure script can configure whichever
+    # parts of a large source tree are present.
+    test -d "$srcdir/$ac_dir" || continue
+
+    ac_msg="=== configuring in $ac_dir (`pwd`/$ac_dir)"
+    $as_echo "$as_me:${as_lineno-$LINENO}: $ac_msg" >&5
+    $as_echo "$ac_msg" >&6
+    as_dir="$ac_dir"; as_fn_mkdir_p
+    ac_builddir=.
+
+case "$ac_dir" in
+.) ac_dir_suffix= ac_top_builddir_sub=. ac_top_build_prefix= ;;
+*)
+  ac_dir_suffix=/`$as_echo "$ac_dir" | sed 's|^\.[\\/]||'`
+  # A ".." for each directory in $ac_dir_suffix.
+  ac_top_builddir_sub=`$as_echo "$ac_dir_suffix" | sed 's|/[^\\/]*|/..|g;s|/||'`
+  case $ac_top_builddir_sub in
+  "") ac_top_builddir_sub=. ac_top_build_prefix= ;;
+  *)  ac_top_build_prefix=$ac_top_builddir_sub/ ;;
+  esac ;;
+esac
+ac_abs_top_builddir=$ac_pwd
+ac_abs_builddir=$ac_pwd$ac_dir_suffix
+# for backward compatibility:
+ac_top_builddir=$ac_top_build_prefix
+
+case $srcdir in
+  .)  # We are building in place.
+    ac_srcdir=.
+    ac_top_srcdir=$ac_top_builddir_sub
+    ac_abs_top_srcdir=$ac_pwd ;;
+  [\\/]* | ?:[\\/]* )  # Absolute name.
+    ac_srcdir=$srcdir$ac_dir_suffix;
+    ac_top_srcdir=$srcdir
+    ac_abs_top_srcdir=$srcdir ;;
+  *) # Relative name.
+    ac_srcdir=$ac_top_build_prefix$srcdir$ac_dir_suffix
+    ac_top_srcdir=$ac_top_build_prefix$srcdir
+    ac_abs_top_srcdir=$ac_pwd/$srcdir ;;
+esac
+ac_abs_srcdir=$ac_abs_top_srcdir$ac_dir_suffix
+
+
+    cd "$ac_dir"
+
+    # Check for guested configure; otherwise get Cygnus style configure.
+    if test -f "$ac_srcdir/configure.gnu"; then
+      ac_sub_configure=$ac_srcdir/configure.gnu
+    elif test -f "$ac_srcdir/configure"; then
+      ac_sub_configure=$ac_srcdir/configure
+    elif test -f "$ac_srcdir/configure.in"; then
+      # This should be Cygnus configure.
+      ac_sub_configure=$ac_aux_dir/configure
+    else
+      { $as_echo "$as_me:${as_lineno-$LINENO}: WARNING: no configuration information is in $ac_dir" >&5
+$as_echo "$as_me: WARNING: no configuration information is in $ac_dir" >&2;}
+      ac_sub_configure=
+    fi
+
+    # The recursion is here.
+    if test -n "$ac_sub_configure"; then
+      # Make the cache file name correct relative to the subdirectory.
+      case $cache_file in
+      [\\/]* | ?:[\\/]* ) ac_sub_cache_file=$cache_file ;;
+      *) # Relative name.
+	ac_sub_cache_file=$ac_top_build_prefix$cache_file ;;
+      esac
+
+      { $as_echo "$as_me:${as_lineno-$LINENO}: running $SHELL $ac_sub_configure $ac_sub_configure_args --cache-file=$ac_sub_cache_file --srcdir=$ac_srcdir" >&5
+$as_echo "$as_me: running $SHELL $ac_sub_configure $ac_sub_configure_args --cache-file=$ac_sub_cache_file --srcdir=$ac_srcdir" >&6;}
+      # The eval makes quoting arguments work.
+      eval "\$SHELL \"\$ac_sub_configure\" $ac_sub_configure_args \
+	   --cache-file=\"\$ac_sub_cache_file\" --srcdir=\"\$ac_srcdir\"" ||
+	as_fn_error $? "$ac_sub_configure failed for $ac_dir" "$LINENO" 5
+    fi
+
+    cd "$ac_popdir"
+  done
 fi
 if test -n "$ac_unrecognized_opts" && test "$enable_option_checking" != no; then
   { $as_echo "$as_me:${as_lineno-$LINENO}: WARNING: unrecognized options: $ac_unrecognized_opts" >&5

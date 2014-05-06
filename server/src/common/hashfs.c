@@ -37,9 +37,6 @@
 #include <errno.h>
 #include <fnmatch.h>
 
-#include <openssl/evp.h>
-#include <openssl/hmac.h>
-#include <openssl/rand.h>
 #include "sxdbi.h"
 #include "hashfs.h"
 #include "hdist.h"
@@ -48,6 +45,7 @@
 #include "sx.h"
 #include "qsort.h"
 #include "utils.h"
+#include "../libsx/src/vcrypto.h"
 
 #define HASHDBS 16
 #define METADBS 16
@@ -129,22 +127,7 @@ static int read_block(int fd, uint8_t *dt, uint64_t off, unsigned int buf_len) {
 }
 
 static int hash_buf(const void *salt, unsigned int salt_len, const void *buf, unsigned int buf_len, sx_hash_t *hash) {
-    EVP_MD_CTX hash_ctx;
-    int ret = 0;
-
-    if(!EVP_DigestInit(&hash_ctx, EVP_sha1())) {
-	SSLERR();
-	return 1;
-    }
-
-    if(!EVP_DigestUpdate(&hash_ctx, salt, salt_len) || !EVP_DigestUpdate(&hash_ctx, buf, buf_len) || !EVP_DigestFinal(&hash_ctx, hash->b, NULL)) {
-	SSLERR();
-	ret = 1;
-    }
-
-    EVP_MD_CTX_cleanup(&hash_ctx);
-
-    return ret;
+    return sxi_hashcalc(salt, salt_len, buf, buf_len, hash->b);
 }
 
 #define CREATE_DB(DBTYPE) \
@@ -915,7 +898,7 @@ rc_ty sx_hashfs_gc_open(sx_hashfs_t *h)
     uint8_t rndbin[TOKEN_RAND_BYTES];
 
     gettimeofday(&tv0, NULL);
-    if(RAND_pseudo_bytes(rndbin, sizeof(rndbin)) == -1) {
+    if(sxi_rand_pseudo_bytes(rndbin, sizeof(rndbin)) == -1) {
         /* can also return 0 or 1 but that doesn't matter here */
         WARN("Cannot generate random bytes");
         msg_set_reason("Failed to generate random string");
@@ -980,7 +963,6 @@ create_hashfs_fail:
 open_hashfs_fail:
     free(path);
     qnullify(q);
-    free(NULL);
     h->gcdb_used = 0;
     return ret;
 }
@@ -1206,7 +1188,7 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
      * forked processes */
     sqlite3_test_control(SQLITE_TESTCTRL_PRNG_RESET);
     /* reset OpenSSL's PRNG otherwise it'll share state after a fork */
-    RAND_cleanup();
+    sxi_rand_cleanup();
 
     sprintf(path, "%s/hashfs.db", dir);
     if(qopen(path, &h->db, "hashfs", NULL))
@@ -1783,8 +1765,8 @@ static int check_revision(const char *revision) {
 
 #define TOKEN_SIGNED_LEN UUID_STRING_SIZE + 1 + TOKEN_RAND_BYTES * 2 + 1 + TOKEN_REPLICA_LEN + 1 + TOKEN_EXPIRE_LEN + 1
 rc_ty sx_hashfs_make_token(sx_hashfs_t *h, const uint8_t *user, const char *rndhex, unsigned int replica, int64_t expires_at, const char **token) {
-    HMAC_CTX hmac_ctx;
-    uint8_t md[EVP_MAX_MD_SIZE], rndbin[TOKEN_RAND_BYTES];
+    sxi_hmac_ctx *hmac_ctx;
+    uint8_t md[HASH_BIN_LEN], rndbin[TOKEN_RAND_BYTES];
     char rndhexbuf[TOKEN_RAND_BYTES * 2 + 1], replicahex[2 + TOKEN_REPLICA_LEN + 1], expirehex[TOKEN_EXPIRE_LEN + 1];
     sx_uuid_t node_uuid;
     unsigned int len;
@@ -1804,19 +1786,22 @@ rc_ty sx_hashfs_make_token(sx_hashfs_t *h, const uint8_t *user, const char *rndh
 	/* non-blocking pseudo-random bytes, i.e. we don't want to block or deplete
 	 * entropy as we only need a unique sequence of bytes, not a secret one as
 	 * it is sent in plaintext anyway, and signed with an HMAC */
-	if(RAND_pseudo_bytes(rndbin, sizeof(rndbin)) == -1) {
+	if(sxi_rand_pseudo_bytes(rndbin, sizeof(rndbin)) == -1) {
 	    /* can also return 0 or 1 but that doesn't matter here */
 	    WARN("Cannot generate random bytes");
 	    msg_set_reason("Failed to generate random string");
 	    return FAIL_EINTERNAL;
 	}
-	bin2hex(rndbin, sizeof(rndbin), rndhexbuf, sizeof(rndhexbuf));
+	if (bin2hex(rndbin, sizeof(rndbin), rndhexbuf, sizeof(rndhexbuf)))
+            WARN("bin2hex failed");
 	rndhex = rndhexbuf;
     }
 
     ret = sx_hashfs_self_uuid(h, &node_uuid);
-    if(ret)
+    if(ret) {
+        WARN("self_uuid failed");
 	return ret;
+    }
 
     snprintf(replicahex, sizeof(replicahex), "%010x", replica);
     snprintf(expirehex, sizeof(expirehex), "%016llx", (long long)expires_at);
@@ -1827,10 +1812,10 @@ rc_ty sx_hashfs_make_token(sx_hashfs_t *h, const uint8_t *user, const char *rndh
 	return EINVAL;
     }
 
-    HMAC_CTX_init(&hmac_ctx);
-    if(!sxi_hmac_init_ex(&hmac_ctx, &h->tokenkey, sizeof(h->tokenkey), EVP_sha1(), NULL) ||
-       !sxi_hmac_update(&hmac_ctx, (unsigned char *)h->put_token, len) ||
-       !sxi_hmac_final(&hmac_ctx, md, &len) ||
+    hmac_ctx = sxi_hmac_init();
+    if(!sxi_hmac_init_ex(hmac_ctx, &h->tokenkey, sizeof(h->tokenkey)) ||
+       !sxi_hmac_update(hmac_ctx, (unsigned char *)h->put_token, len) ||
+       !sxi_hmac_final(hmac_ctx, md, &len) ||
        len != AUTH_KEY_LEN) {
 	msg_set_reason("Failed to compute token hmac");
 	CRIT("Cannot genearate token hmac");
@@ -1840,7 +1825,7 @@ rc_ty sx_hashfs_make_token(sx_hashfs_t *h, const uint8_t *user, const char *rndh
 	h->put_token[sizeof(h->put_token)-1] = '\0';
 	*token = h->put_token;
     }
-    HMAC_CTX_cleanup(&hmac_ctx);
+    sxi_hmac_cleanup(&hmac_ctx);
 
     return ret;
 }
@@ -1853,11 +1838,11 @@ struct token_data {
     int64_t expires_at;
 };
 
-static int parse_token(const uint8_t *user, const char *token, const sx_hash_t *tokenkey, struct token_data *td) {
+static int parse_token(sxc_client_t *sx, const uint8_t *user, const char *token, const sx_hash_t *tokenkey, struct token_data *td) {
     char uuid_str[UUID_STRING_SIZE+1], hmac[AUTH_KEY_LEN*2+1];
     char *eptr;
-    uint8_t md[EVP_MAX_MD_SIZE];
-    HMAC_CTX hmac_ctx;
+    uint8_t md[HASH_BIN_LEN];
+    sxi_hmac_ctx *hmac_ctx;
     unsigned int ml;
 
     if(!user || !token || !td) {
@@ -1876,17 +1861,16 @@ static int parse_token(const uint8_t *user, const char *token, const sx_hash_t *
 	return 1;
     }
 
-    HMAC_CTX_init(&hmac_ctx);
-    if(!sxi_hmac_init_ex(&hmac_ctx, tokenkey, sizeof(*tokenkey), EVP_sha1(), NULL) ||
-       !sxi_hmac_update(&hmac_ctx, (unsigned char *)token, TOKEN_SIGNED_LEN) ||
-       !sxi_hmac_final(&hmac_ctx, md, &ml) ||
+    hmac_ctx = sxi_hmac_init();
+    if(!sxi_hmac_init_ex(hmac_ctx, tokenkey, sizeof(*tokenkey)) ||
+       !sxi_hmac_update(hmac_ctx, (unsigned char *)token, TOKEN_SIGNED_LEN) ||
+       !sxi_hmac_final(hmac_ctx, md, &ml) ||
        ml != AUTH_KEY_LEN) {
-	SSLERR();
-	HMAC_CTX_cleanup(&hmac_ctx);
-	CRIT("Cannot genearate token hmac");
+	sxi_hmac_cleanup(&hmac_ctx);
+	CRIT("Cannot generate token hmac");
 	return 1;
     }
-    HMAC_CTX_cleanup(&hmac_ctx);
+    sxi_hmac_cleanup(&hmac_ctx);
     bin2hex(md, AUTH_KEY_LEN, hmac, sizeof(hmac));
     if(hmac_compare((const unsigned char *)&token[TOKEN_SIGNED_LEN], (const unsigned char *)hmac, AUTH_KEY_LEN*2)) {
 	msg_set_reason("Token signature does not match");
@@ -1920,7 +1904,7 @@ static int parse_token(const uint8_t *user, const char *token, const sx_hash_t *
 
 rc_ty sx_hashfs_token_get(sx_hashfs_t *h, const uint8_t *user, const char *token, unsigned int *replica_count, int64_t *expires_at) {
     struct token_data tkdt;
-    if(parse_token(user, token, &h->tokenkey, &tkdt))
+    if(parse_token(h->sx, user, token, &h->tokenkey, &tkdt))
 	return EINVAL;
     *replica_count = tkdt.replica;
     if (expires_at)
@@ -3991,7 +3975,7 @@ rc_ty sx_hashfs_putfile_begin(sx_hashfs_t *h, sx_uid_t user_id, const char *volu
     /* non-blocking pseudo-random bytes, i.e. we don't want to block or deplete
      * entropy as we only need a unique sequence of bytes, not a secret one as
      * it is sent in plaintext anyway, and signed with an HMAC */
-    if (RAND_pseudo_bytes(rnd, sizeof(rnd)) == -1) {
+    if (sxi_rand_pseudo_bytes(rnd, sizeof(rnd)) == -1) {
 	/* can also return 0 or 1 but that doesn't matter here */
 	WARN("Cannot generate random bytes");
 	return FAIL_EINTERNAL;
@@ -4021,7 +4005,7 @@ rc_ty sx_hashfs_putfile_extend_begin(sx_hashfs_t *h, sx_uid_t user_id, const uin
 
     putfile_reinit(h);
 
-    if(parse_token(user, token, &h->tokenkey, &tkdt))
+    if(parse_token(h->sx, user, token, &h->tokenkey, &tkdt))
 	return EINVAL;
 
     if(!(self = sx_hashfs_self(h)) || !(self_uuid = sx_node_uuid(self)))
@@ -4262,25 +4246,11 @@ static rc_ty filehash_mod_used(sx_hashfs_t *h, const sx_hash_t *filehash, int op
 
 static int unique_tmpid(sx_hashfs_t *h, const char *token, sx_hash_t *hash)
 {
-    EVP_MD_CTX hash_ctx;
     sx_uuid_t self;
-    int ret = 0;
 
-    if(!EVP_DigestInit(&hash_ctx, EVP_sha1())) {
-        SSLERR();
-        return 1;
-    }
     if (sx_hashfs_self_uuid(h, &self))
         return 1;
-    if (!EVP_DigestUpdate(&hash_ctx, &self.binary, sizeof(self.binary)) ||
-        !EVP_DigestUpdate(&hash_ctx, token, strlen(token)) ||
-        !EVP_DigestFinal(&hash_ctx, hash->b, NULL)) {
-        SSLERR();
-        ret = 1;
-    }
-
-    EVP_MD_CTX_cleanup(&hash_ctx);
-    return ret;
+    return hash_buf(self.binary, sizeof(self.binary), token, strlen(token), hash);
 }
 
 rc_ty sx_hashfs_putfile_gettoken(sx_hashfs_t *h, const uint8_t *user, int64_t size_or_seq, const char **token, hash_presence_cb_t hdck_cb, void *hdck_cb_ctx) {
@@ -4815,7 +4785,7 @@ rc_ty sx_hashfs_putfile_commitjob(sx_hashfs_t *h, const uint8_t *user, sx_uid_t 
 	NULLARG();
 	return EFAULT;
     }
-    if(parse_token(user, token, &h->tokenkey, &tkdt)) {
+    if(parse_token(h->sx, user, token, &h->tokenkey, &tkdt)) {
 	WARN("bad token: %s", token);
 	return EINVAL;
     }
@@ -4949,23 +4919,23 @@ static int tmp_getmissing_cb(const char *hexhash, unsigned int index, int code, 
     return 0;
 }
 
-static int unique_fileid(const sx_hashfs_volume_t *volume, const char *name, const char *revision, sx_hash_t *fileid)
+static int unique_fileid(sxc_client_t *sx, const sx_hashfs_volume_t *volume, const char *name, const char *revision, sx_hash_t *fileid)
 {
     int ret = 0;
-    EVP_MD_CTX hash_ctx;
-    if(!EVP_DigestInit(&hash_ctx, EVP_sha1())) {
-        SSLERR();
+    sxi_md_ctx *hash_ctx = sxi_md_init();
+    if (!hash_ctx)
         return 1;
-    }
-    if (!EVP_DigestUpdate(&hash_ctx, volume->name, strlen(volume->name) + 1) ||
-        !EVP_DigestUpdate(&hash_ctx, name, strlen(name) + 1) ||
-        !EVP_DigestUpdate(&hash_ctx, revision, strlen(revision)) ||
-        !EVP_DigestFinal(&hash_ctx, fileid->b, NULL)) {
-        SSLERR();
+    if (!sxi_digest_init(hash_ctx))
+        return 1;
+
+    if (!sxi_digest_update(hash_ctx, volume->name, strlen(volume->name) + 1) ||
+        !sxi_digest_update(hash_ctx, name, strlen(name) + 1) ||
+        !sxi_digest_update(hash_ctx, revision, strlen(revision)) ||
+        !sxi_digest_final(hash_ctx, fileid->b, NULL)) {
         ret = 1;
     }
 
-    EVP_MD_CTX_cleanup(&hash_ctx);
+    sxi_md_cleanup(&hash_ctx);
     return ret;
 }
 
@@ -5461,7 +5431,7 @@ rc_ty sx_hashfs_file_delete(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, co
         return ret;
 
     if(current_replica >= 0) {
-	if (unique_fileid(volume, file, revision, &hash) ||
+	if (unique_fileid(h->sx, volume, file, revision, &hash) ||
 	    bin2hex(hash.b, sizeof(hash.b), fileidhex, sizeof(fileidhex)))
 	    return FAIL_EINTERNAL;
 	sxi_hashop_begin(&h->hc, h->sx_clust, NULL, HASHOP_DELETE, &hash, NULL);
@@ -6932,24 +6902,26 @@ rc_ty sx_hashfs_hdist_change_commit(sx_hashfs_t *h) {
 }
 
 rc_ty sx_hashfs_challenge_gen(sx_hashfs_t *h, sx_hash_challenge_t *c, int random_challenge) {
-    uint8_t md[EVP_MAX_MD_SIZE];
+    unsigned char md[HASH_BIN_LEN];
     unsigned int mdlen;
-    HMAC_CTX hmac_ctx;
+    sxi_hmac_ctx *hmac_ctx;
     rc_ty ret;
 
     if(random_challenge) {
-	if(RAND_pseudo_bytes(c->challenge, sizeof(c->challenge)) == -1) {
+	if(sxi_rand_pseudo_bytes(c->challenge, sizeof(c->challenge)) == -1) {
 	    WARN("Cannot generate random bytes");
 	    msg_set_reason("Failed to generate random nounce");
 	    return FAIL_EINTERNAL;
 	}
     }
 
-    HMAC_CTX_init(&hmac_ctx);
-    if(!sxi_hmac_init_ex(&hmac_ctx, &h->tokenkey, sizeof(h->tokenkey), EVP_sha1(), NULL) ||
-       !sxi_hmac_update(&hmac_ctx, c->challenge, sizeof(c->challenge)) ||
-       !sxi_hmac_update(&hmac_ctx, h->cluster_uuid.binary, sizeof(h->cluster_uuid.binary)) ||
-       !sxi_hmac_final(&hmac_ctx, md, &mdlen) ||
+    hmac_ctx = sxi_hmac_init();
+    if (!hmac_ctx)
+        return 1;
+    if(!sxi_hmac_init_ex(hmac_ctx, &h->tokenkey, sizeof(h->tokenkey)) ||
+       !sxi_hmac_update(hmac_ctx, c->challenge, sizeof(c->challenge)) ||
+       !sxi_hmac_update(hmac_ctx, h->cluster_uuid.binary, sizeof(h->cluster_uuid.binary)) ||
+       !sxi_hmac_final(hmac_ctx, md, &mdlen) ||
        mdlen != sizeof(c->response)) {
 	msg_set_reason("Failed to compute nounce hmac");
 	CRIT("Cannot genearate nounce hmac");
@@ -6958,7 +6930,7 @@ rc_ty sx_hashfs_challenge_gen(sx_hashfs_t *h, sx_hash_challenge_t *c, int random
 	memcpy(c->response, md, sizeof(c->response));
 	ret = OK;
     }
-    HMAC_CTX_cleanup(&hmac_ctx);
+    sxi_hmac_cleanup(&hmac_ctx);
 
     return ret;
 }

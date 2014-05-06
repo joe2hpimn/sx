@@ -41,6 +41,7 @@
 #include "jobpoll.h"
 #include "libsx-int.h"
 #include "curlevents.h"
+#include "vcrypto.h"
 
 struct _sxc_file_t {
     sxc_client_t *sx;
@@ -2301,7 +2302,7 @@ struct file_download_ctx {
     unsigned blocksize;
     int64_t filesize;
     unsigned char *buf;
-    EVP_MD_CTX ctx;
+    sxi_md_ctx *ctx;
     unsigned int *dldblks;
     unsigned int *queries_finished;
     sxc_xres_t *xres;
@@ -2409,6 +2410,7 @@ static void dctx_free(struct file_download_ctx *ctx)
 {
     if (!ctx)
         return;
+    sxi_md_cleanup(&ctx->ctx);
     free(ctx->buf);
     free(ctx);
 }
@@ -2421,7 +2423,7 @@ static void gethash_finish(curlev_context_t *cctx, const char *url)
     unsigned i;
     int status;
 
-    EVP_MD_CTX_cleanup(&ctx->ctx);
+    sxi_md_cleanup(&ctx->ctx);
     status = sxi_cbdata_result(cctx, NULL);
     if (status== 200 && ctx->dldblks)
         (*ctx->dldblks) += ctx->hashes.i;
@@ -2453,7 +2455,6 @@ static void gethash_finish(curlev_context_t *cctx, const char *url)
     }
     if (ctx->hashes.i != ctx->hashes.n)
         SXDEBUG("batch truncated, %d hashes not transferred", ctx->hashes.n - ctx->hashes.i);
-    EVP_MD_CTX_cleanup(&ctx->ctx);
     dctx_free(ctx);
 }
 
@@ -2466,7 +2467,7 @@ static int path_is_root(const char *path)
     return !*path;
 }
 
-static int hashes_to_download(sxc_file_t *source, FILE **tf, char **tfname, unsigned int *blocksize, off_t *filesize, sxc_meta_t *vmeta) {
+static int hashes_to_download(sxc_file_t *source, FILE **tf, char **tfname, unsigned int *blocksize, int64_t *filesize, sxc_meta_t *vmeta) {
     char *enc_vol = NULL, *enc_path = NULL, *url = NULL, *hsfname = NULL;
     struct cb_getfile_ctx yctx;
     yajl_callbacks *yacb = &yctx.yacb;
@@ -2571,12 +2572,15 @@ hashes_to_download_err:
 
 static char zerobuf[SX_BS_LARGE];
 
-static struct file_download_ctx *dctx_new(sxc_xres_t *xres)
+static struct file_download_ctx *dctx_new(sxc_client_t *sx, sxc_xres_t *xres)
 {
+    sxi_md_ctx *mdctx = sxi_md_init();
+    if (!mdctx)
+        return NULL;
     struct file_download_ctx *ctx = calloc(1, sizeof(*ctx));
     if (!ctx)
         return NULL;
-    EVP_MD_CTX_init(&ctx->ctx);
+    ctx->ctx = mdctx;
     ctx->xres = xres;
     return ctx;
 }
@@ -2621,7 +2625,7 @@ static int check_block(sxc_cluster_t *cluster, sxi_ht *hashes, const char *zeroh
 
     if(i == hashdata->ocnt)
         return 0;
-    dctx = dctx_new(xres);
+    dctx = dctx_new(sxi_conns_get_client(conns), xres);
     dctx->buf = malloc(blocksize);
     if (!dctx->buf) {
         cluster_err(SXE_EMEM, "failed to allocate buffer");
@@ -2794,7 +2798,7 @@ static int multi_download(struct batch_hashes *bh, const char *dstname,
 
         if (sxi_ht_get(hostsmap, host, strlen(host)+1, (void**)&cbdata)) {
             /* host not found -> new host */
-            dctx = dctx_new(xres);
+            dctx = dctx_new(sx, xres);
             if (!dctx) {
                 cluster_err(SXE_EMEM, "Cannot download file: out of emory");
                 break;
@@ -2818,7 +2822,6 @@ static int multi_download(struct batch_hashes *bh, const char *dstname,
             dctx->queries_finished = &finished;
             dctx->blocksize = blocksize;
             dctx->hashes.hashes = bh->hashes;
-            EVP_MD_CTX_init(&dctx->ctx);
         } else
             dctx = sxi_cbdata_get_download_ctx(cbdata);
         if (!dctx)
@@ -2938,7 +2941,7 @@ static int remote_to_local(sxc_file_t *source, sxc_file_t *dest, sxc_xres_t *xre
     uint8_t *buf = NULL;
     sxc_client_t *sx = source->sx;
     struct stat st;
-    off_t filesize;
+    int64_t filesize;
     int ret = 1, rd = -1, d = -1, fail = 0;
     unsigned int blocksize;
     off_t curoff = 0;
@@ -3389,7 +3392,7 @@ static sxi_job_t* remote_to_remote_fast(sxc_file_t *source, sxc_meta_t *fmeta, s
     yajl_callbacks *yacb = &yctx.current.yacb;
     unsigned int blocksize;
     sxi_hostlist_t volhosts, flushost;
-    off_t filesize;
+    int64_t filesize;
     uint8_t *buf = NULL;
     FILE *hf;
     sxi_query_t *query = NULL;

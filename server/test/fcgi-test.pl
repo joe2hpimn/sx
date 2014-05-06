@@ -11,7 +11,7 @@ use HTTP::Date;
 use MIME::Base64;
 use Digest::HMAC_SHA1 'hmac_sha1';
 use Digest::SHA qw(sha1_hex sha1);
-use JSON::XS;
+use JSON;
 
 $| = 1;
 
@@ -668,7 +668,7 @@ test_create_user $writer;
 ### HOMEPAGE TESTS ###
 test_get 'cluster', $PUBLIC, '';
 test_head 'cluster (HEAD)', $PUBLIC, '/';
-test_delete 'cluster (bad method)', {'noauth'=>[405],'badauth'=>[405],$reader=>[405],$writer=>[405],'admin'=>[405]}, '';
+test_delete 'cluster (bad method)', {'badauth'=>[401],$reader=>[405],$writer=>[405],'admin'=>[405]}, '';
 
 ### CLUSTER TESTS ###
 # FIXME : properly check nodes and volume lists once they are unstubbed #

@@ -586,12 +586,15 @@ ac_subst_vars='am__EXEEXT_FALSE
 am__EXEEXT_TRUE
 LTLIBOBJS
 LIBOBJS
-BUILD_SXHTTPD_FALSE
-BUILD_SXHTTPD_TRUE
+BUILD_SERVER_FALSE
+BUILD_SERVER_TRUE
 BUILD_YAJL_FALSE
 BUILD_YAJL_TRUE
+BUILD_SXHTTPD_FALSE
+BUILD_SXHTTPD_TRUE
 BUILD_LIBFCGI_FALSE
 BUILD_LIBFCGI_TRUE
+subdirs
 am__fastdepCC_FALSE
 am__fastdepCC_TRUE
 CCDEPMODE
@@ -609,14 +612,6 @@ CPPFLAGS
 LDFLAGS
 CFLAGS
 CC
-BUILD_CHECK_FALSE
-BUILD_CHECK_TRUE
-subdirs
-check_LIBS
-check_CFLAGS
-PKG_CONFIG_LIBDIR
-PKG_CONFIG_PATH
-PKG_CONFIG
 MAINT
 MAINTAINER_MODE_FALSE
 MAINTAINER_MODE_TRUE
@@ -692,24 +687,19 @@ enable_silent_rules
 enable_maintainer_mode
 enable_dependency_tracking
 enable_sxhttpd
+enable_server
 '
       ac_precious_vars='build_alias
 host_alias
 target_alias
-PKG_CONFIG
-PKG_CONFIG_PATH
-PKG_CONFIG_LIBDIR
-check_CFLAGS
-check_LIBS
 CC
 CFLAGS
 LDFLAGS
 LIBS
 CPPFLAGS'
-ac_subdirs_all='3rdparty/check
-3rdparty/fcgi
-3rdparty/yajl_build
+ac_subdirs_all='3rdparty/fcgi
 3rdparty/sxhttpd
+3rdparty/yajl_build
 libsx
 client
 server'
@@ -1336,16 +1326,9 @@ Optional Features:
   --disable-dependency-tracking
                           speeds up one-time build
   --disable-sxhttpd	  do not build sxhttpd
+  --disable-server	  do not build server
 
 Some influential environment variables:
-  PKG_CONFIG  path to pkg-config utility
-  PKG_CONFIG_PATH
-              directories to add to pkg-config's search path
-  PKG_CONFIG_LIBDIR
-              path overriding pkg-config's built-in search path
-  check_CFLAGS
-              C compiler flags for check, overriding pkg-config
-  check_LIBS  linker flags for check, overriding pkg-config
   CC          C compiler command
   CFLAGS      C compiler flags
   LDFLAGS     linker flags, e.g. -L<lib dir> if you have libraries in a
@@ -2502,217 +2485,8 @@ fi
 
 
 ac_configure_args="$ac_configure_args --enable-shared=libsx,sxclient,sx"
-# Check
-
-
-
-
-
-
-
-if test "x$ac_cv_env_PKG_CONFIG_set" != "xset"; then
-	if test -n "$ac_tool_prefix"; then
-  # Extract the first word of "${ac_tool_prefix}pkg-config", so it can be a program name with args.
-set dummy ${ac_tool_prefix}pkg-config; ac_word=$2
-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for $ac_word" >&5
-$as_echo_n "checking for $ac_word... " >&6; }
-if ${ac_cv_path_PKG_CONFIG+:} false; then :
-  $as_echo_n "(cached) " >&6
-else
-  case $PKG_CONFIG in
-  [\\/]* | ?:[\\/]*)
-  ac_cv_path_PKG_CONFIG="$PKG_CONFIG" # Let the user override the test with a path.
-  ;;
-  *)
-  as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
-for as_dir in $PATH
-do
-  IFS=$as_save_IFS
-  test -z "$as_dir" && as_dir=.
-    for ac_exec_ext in '' $ac_executable_extensions; do
-  if as_fn_executable_p "$as_dir/$ac_word$ac_exec_ext"; then
-    ac_cv_path_PKG_CONFIG="$as_dir/$ac_word$ac_exec_ext"
-    $as_echo "$as_me:${as_lineno-$LINENO}: found $as_dir/$ac_word$ac_exec_ext" >&5
-    break 2
-  fi
-done
-  done
-IFS=$as_save_IFS
-
-  ;;
-esac
-fi
-PKG_CONFIG=$ac_cv_path_PKG_CONFIG
-if test -n "$PKG_CONFIG"; then
-  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $PKG_CONFIG" >&5
-$as_echo "$PKG_CONFIG" >&6; }
-else
-  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
-$as_echo "no" >&6; }
-fi
-
-
-fi
-if test -z "$ac_cv_path_PKG_CONFIG"; then
-  ac_pt_PKG_CONFIG=$PKG_CONFIG
-  # Extract the first word of "pkg-config", so it can be a program name with args.
-set dummy pkg-config; ac_word=$2
-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for $ac_word" >&5
-$as_echo_n "checking for $ac_word... " >&6; }
-if ${ac_cv_path_ac_pt_PKG_CONFIG+:} false; then :
-  $as_echo_n "(cached) " >&6
-else
-  case $ac_pt_PKG_CONFIG in
-  [\\/]* | ?:[\\/]*)
-  ac_cv_path_ac_pt_PKG_CONFIG="$ac_pt_PKG_CONFIG" # Let the user override the test with a path.
-  ;;
-  *)
-  as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
-for as_dir in $PATH
-do
-  IFS=$as_save_IFS
-  test -z "$as_dir" && as_dir=.
-    for ac_exec_ext in '' $ac_executable_extensions; do
-  if as_fn_executable_p "$as_dir/$ac_word$ac_exec_ext"; then
-    ac_cv_path_ac_pt_PKG_CONFIG="$as_dir/$ac_word$ac_exec_ext"
-    $as_echo "$as_me:${as_lineno-$LINENO}: found $as_dir/$ac_word$ac_exec_ext" >&5
-    break 2
-  fi
-done
-  done
-IFS=$as_save_IFS
-
-  ;;
-esac
-fi
-ac_pt_PKG_CONFIG=$ac_cv_path_ac_pt_PKG_CONFIG
-if test -n "$ac_pt_PKG_CONFIG"; then
-  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_pt_PKG_CONFIG" >&5
-$as_echo "$ac_pt_PKG_CONFIG" >&6; }
-else
-  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
-$as_echo "no" >&6; }
-fi
-
-  if test "x$ac_pt_PKG_CONFIG" = x; then
-    PKG_CONFIG=""
-  else
-    case $cross_compiling:$ac_tool_warned in
-yes:)
-{ $as_echo "$as_me:${as_lineno-$LINENO}: WARNING: using cross tools not prefixed with host triplet" >&5
-$as_echo "$as_me: WARNING: using cross tools not prefixed with host triplet" >&2;}
-ac_tool_warned=yes ;;
-esac
-    PKG_CONFIG=$ac_pt_PKG_CONFIG
-  fi
-else
-  PKG_CONFIG="$ac_cv_path_PKG_CONFIG"
-fi
-
-fi
-if test -n "$PKG_CONFIG"; then
-	_pkg_min_version=0.9.0
-	{ $as_echo "$as_me:${as_lineno-$LINENO}: checking pkg-config is at least version $_pkg_min_version" >&5
-$as_echo_n "checking pkg-config is at least version $_pkg_min_version... " >&6; }
-	if $PKG_CONFIG --atleast-pkgconfig-version $_pkg_min_version; then
-		{ $as_echo "$as_me:${as_lineno-$LINENO}: result: yes" >&5
-$as_echo "yes" >&6; }
-	else
-		{ $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
-$as_echo "no" >&6; }
-		PKG_CONFIG=""
-	fi
-fi
-
-pkg_failed=no
-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for check" >&5
-$as_echo_n "checking for check... " >&6; }
-
-if test -n "$check_CFLAGS"; then
-    pkg_cv_check_CFLAGS="$check_CFLAGS"
- elif test -n "$PKG_CONFIG"; then
-    if test -n "$PKG_CONFIG" && \
-    { { $as_echo "$as_me:${as_lineno-$LINENO}: \$PKG_CONFIG --exists --print-errors \"check >= 0.9.4\""; } >&5
-  ($PKG_CONFIG --exists --print-errors "check >= 0.9.4") 2>&5
-  ac_status=$?
-  $as_echo "$as_me:${as_lineno-$LINENO}: \$? = $ac_status" >&5
-  test $ac_status = 0; }; then
-  pkg_cv_check_CFLAGS=`$PKG_CONFIG --cflags "check >= 0.9.4" 2>/dev/null`
-		      test "x$?" != "x0" && pkg_failed=yes
-else
-  pkg_failed=yes
-fi
- else
-    pkg_failed=untried
-fi
-if test -n "$check_LIBS"; then
-    pkg_cv_check_LIBS="$check_LIBS"
- elif test -n "$PKG_CONFIG"; then
-    if test -n "$PKG_CONFIG" && \
-    { { $as_echo "$as_me:${as_lineno-$LINENO}: \$PKG_CONFIG --exists --print-errors \"check >= 0.9.4\""; } >&5
-  ($PKG_CONFIG --exists --print-errors "check >= 0.9.4") 2>&5
-  ac_status=$?
-  $as_echo "$as_me:${as_lineno-$LINENO}: \$? = $ac_status" >&5
-  test $ac_status = 0; }; then
-  pkg_cv_check_LIBS=`$PKG_CONFIG --libs "check >= 0.9.4" 2>/dev/null`
-		      test "x$?" != "x0" && pkg_failed=yes
-else
-  pkg_failed=yes
-fi
- else
-    pkg_failed=untried
-fi
-
-
-
-if test $pkg_failed = yes; then
-   	{ $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
-$as_echo "no" >&6; }
-
-if $PKG_CONFIG --atleast-pkgconfig-version 0.20; then
-        _pkg_short_errors_supported=yes
-else
-        _pkg_short_errors_supported=no
-fi
-        if test $_pkg_short_errors_supported = yes; then
-	        check_PKG_ERRORS=`$PKG_CONFIG --short-errors --print-errors --cflags --libs "check >= 0.9.4" 2>&1`
-        else
-	        check_PKG_ERRORS=`$PKG_CONFIG --print-errors --cflags --libs "check >= 0.9.4" 2>&1`
-        fi
-	# Put the nasty error message in config.log where it belongs
-	echo "$check_PKG_ERRORS" >&5
-
-	has_sys_check=no
-elif test $pkg_failed = untried; then
-     	{ $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
-$as_echo "no" >&6; }
-	has_sys_check=no
-else
-	check_CFLAGS=$pkg_cv_check_CFLAGS
-	check_LIBS=$pkg_cv_check_LIBS
-        { $as_echo "$as_me:${as_lineno-$LINENO}: result: yes" >&5
-$as_echo "yes" >&6; }
-	has_sys_check=yes
-fi
-ac_configure_args="$ac_configure_args --disable-timeout-tests --disable-agrep"
-if test "$has_sys_check" = "no"; then
-
-
-subdirs="$subdirs 3rdparty/check"
-
-fi
- if test "$has_sys_check" = "no"; then
-  BUILD_CHECK_TRUE=
-  BUILD_CHECK_FALSE='#'
-else
-  BUILD_CHECK_TRUE='#'
-  BUILD_CHECK_FALSE=
-fi
-
 
 # Libfcgi
-has_sys_fcgi=no
-# sys fcgi is buggy on EINTR handling
 DEPDIR="${am__leading_dot}deps"
 
 ac_config_commands="$ac_config_commands depfiles"
@@ -3790,21 +3564,60 @@ fi
 { $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_fcgi_FCGX_Accept" >&5
 $as_echo "$ac_cv_lib_fcgi_FCGX_Accept" >&6; }
 if test "x$ac_cv_lib_fcgi_FCGX_Accept" = xyes; then :
-  FCGI_LIBS=-lfcgi; has_sys_fcgi="yes"
+  FCGI_LIBS=-lfcgi; build_libfcgi="no"
 else
-  has_sys_fcgi="no"
+  build_libfcgi="yes"
 fi
 
-if test "$has_sys_fcgi" = "no"; then
-    subdirs="$subdirs 3rdparty/fcgi"
+
+# sxhttpd (nginx)
+# Check whether --enable-sxhttpd was given.
+if test "${enable_sxhttpd+set}" = set; then :
+  enableval=$enable_sxhttpd; build_sxhttpd=$enableval
+else
+  build_sxhttpd="yes"
+fi
+
+
+# server (sx.fcgi)
+# Check whether --enable-server was given.
+if test "${enable_server+set}" = set; then :
+  enableval=$enable_server; build_server=$enableval
+else
+  build_server="yes"
+fi
+
+
+if test "$build_server" = "no"; then
+    build_libfcgi=no
+    build_sxhttpd=no
+fi
+
+if test "$build_libfcgi" = "yes"; then
+
+
+subdirs="$subdirs 3rdparty/fcgi"
 
 fi
- if test "$has_sys_fcgi" = "no"; then
+ if test "$build_libfcgi" = "yes"; then
   BUILD_LIBFCGI_TRUE=
   BUILD_LIBFCGI_FALSE='#'
 else
   BUILD_LIBFCGI_TRUE='#'
   BUILD_LIBFCGI_FALSE=
+fi
+
+
+if test "$build_sxhttpd" = "yes"; then
+    subdirs="$subdirs 3rdparty/sxhttpd"
+
+fi
+ if test "$build_sxhttpd" = "yes"; then
+  BUILD_SXHTTPD_TRUE=
+  BUILD_SXHTTPD_FALSE='#'
+else
+  BUILD_SXHTTPD_TRUE='#'
+  BUILD_SXHTTPD_FALSE=
 fi
 
 
@@ -3865,32 +3678,23 @@ else
 fi
 
 
-# sxhttpd (nginx)
-# Check whether --enable-sxhttpd was given.
-if test "${enable_sxhttpd+set}" = set; then :
-  enableval=$enable_sxhttpd; build_sxhttpd=$enableval
-else
-  build_sxhttpd="yes"
-fi
-
-if test "$build_sxhttpd" = "yes"; then
-    subdirs="$subdirs 3rdparty/sxhttpd"
-
-fi
- if test "$build_sxhttpd" = "yes"; then
-  BUILD_SXHTTPD_TRUE=
-  BUILD_SXHTTPD_FALSE='#'
-else
-  BUILD_SXHTTPD_TRUE='#'
-  BUILD_SXHTTPD_FALSE=
-fi
-
-
 subdirs="$subdirs libsx"
 
 subdirs="$subdirs client"
 
-subdirs="$subdirs server"
+
+if test "$build_server" = "yes"; then
+    subdirs="$subdirs server"
+
+fi
+ if test "$build_server" = "yes"; then
+  BUILD_SERVER_TRUE=
+  BUILD_SERVER_FALSE='#'
+else
+  BUILD_SERVER_TRUE='#'
+  BUILD_SERVER_FALSE=
+fi
+
 
 ac_config_files="$ac_config_files Makefile"
 
@@ -4059,10 +3863,6 @@ if test -z "${MAINTAINER_MODE_TRUE}" && test -z "${MAINTAINER_MODE_FALSE}"; then
   as_fn_error $? "conditional \"MAINTAINER_MODE\" was never defined.
 Usually this means the macro was only invoked conditionally." "$LINENO" 5
 fi
-if test -z "${BUILD_CHECK_TRUE}" && test -z "${BUILD_CHECK_FALSE}"; then
-  as_fn_error $? "conditional \"BUILD_CHECK\" was never defined.
-Usually this means the macro was only invoked conditionally." "$LINENO" 5
-fi
 if test -z "${AMDEP_TRUE}" && test -z "${AMDEP_FALSE}"; then
   as_fn_error $? "conditional \"AMDEP\" was never defined.
 Usually this means the macro was only invoked conditionally." "$LINENO" 5
@@ -4075,12 +3875,16 @@ if test -z "${BUILD_LIBFCGI_TRUE}" && test -z "${BUILD_LIBFCGI_FALSE}"; then
   as_fn_error $? "conditional \"BUILD_LIBFCGI\" was never defined.
 Usually this means the macro was only invoked conditionally." "$LINENO" 5
 fi
+if test -z "${BUILD_SXHTTPD_TRUE}" && test -z "${BUILD_SXHTTPD_FALSE}"; then
+  as_fn_error $? "conditional \"BUILD_SXHTTPD\" was never defined.
+Usually this means the macro was only invoked conditionally." "$LINENO" 5
+fi
 if test -z "${BUILD_YAJL_TRUE}" && test -z "${BUILD_YAJL_FALSE}"; then
   as_fn_error $? "conditional \"BUILD_YAJL\" was never defined.
 Usually this means the macro was only invoked conditionally." "$LINENO" 5
 fi
-if test -z "${BUILD_SXHTTPD_TRUE}" && test -z "${BUILD_SXHTTPD_FALSE}"; then
-  as_fn_error $? "conditional \"BUILD_SXHTTPD\" was never defined.
+if test -z "${BUILD_SERVER_TRUE}" && test -z "${BUILD_SERVER_FALSE}"; then
+  as_fn_error $? "conditional \"BUILD_SERVER\" was never defined.
 Usually this means the macro was only invoked conditionally." "$LINENO" 5
 fi
 

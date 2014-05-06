@@ -80,7 +80,7 @@ EOF
     if [ $i -gt 1 ]; then
 	echo "SX_EXISTING_NODE_IP=\"127.0.1.1\"" >> $CONF_TMP
     fi
-    export SX_USE_VALGRIND=yes
+#    export SX_USE_VALGRIND=yes
     sudo -E $prefix/sbin/sxsetup --config-file $CONF_TMP
     rm -f $CONF_TMP
 
@@ -93,7 +93,7 @@ while [ $i -le $N ]; do
     list="$list,127.0.1.$i"
     i=$((i+1))
 done
-rm -rf $HOME/.sx/$CLUSTER_NAME # avoid sxinit bugs
+sudo rm -rf $HOME/.sx/$CLUSTER_NAME # avoid sxinit bugs
 echo "$ADMIN_KEY" | ../client/src/tools/init/sxinit --batch --host-list=$list sx://localhost
 test/valgrind-tests.sh
 i=1

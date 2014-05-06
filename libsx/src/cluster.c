@@ -24,13 +24,13 @@
 #include <strings.h>
 #include <curl/curl.h>
 #include <unistd.h>
-#include <openssl/evp.h>
 
 #include "libsx-int.h"
 #include "yajlwrap.h"
 #include "cluster.h"
 #include "curlevents.h"
 #include "misc.h"
+#include "vcrypto.h"
 
 #define CLSTDEBUG(...) do{ sxc_client_t *sx; if(conns && (sx = conns->sx)) SXDEBUG(__VA_ARGS__); } while(0)
 #define conns_err(...) do { if(conns) sxi_seterr(conns->sx, __VA_ARGS__); } while(0)
@@ -46,6 +46,7 @@ struct _sxi_conns_t {
     curl_events_t *curlev;
     time_t timediff;
     int insecure;
+    int clock_drifted;
 };
 
 sxi_conns_t *sxi_conns_new(sxc_client_t *sx) {
@@ -297,13 +298,39 @@ static enum head_result head_cb(sxi_conns_t *conns, char *ptr, size_t size, size
     }
 
     if(klen == lenof("date:") && !strncasecmp(ptr, "date:", lenof("date:"))) {
-	time_t mine = time(NULL), their = curl_getdate(v, NULL);
-	if(their == (time_t) -1) {
+	char datestr[32];
+	time_t mine, their;
+
+	if(vlen >= sizeof(datestr)) {
+	    CLSTDEBUG("got bogus date from server");
+	    conns_err(SXE_ECOMM, "Bad Date from server");
+	    return HEAD_FAIL;
+	}
+
+	memcpy(datestr, v, vlen);
+	datestr[vlen] = '\0';
+
+	mine = time(NULL);
+	if(mine == (time_t) -1) {
 	    CLSTDEBUG("time query failed");
 	    conns_err(SXE_ETIME, "Cannot retrieve current time");
 	    return HEAD_FAIL;
 	}
+
+	their = curl_getdate(datestr, NULL);
+	if(their == (time_t) -1) {
+	    CLSTDEBUG("got bogus date from server");
+	    conns_err(SXE_ECOMM, "Bad Date from server");
+	    return HEAD_FAIL;
+	}
+
 	sxi_conns_set_timediff(conns, their - mine);
+	return HEAD_OK;
+    }
+
+    if(klen == lenof("WWW-Authenticate:") && !strncasecmp(ptr, "WWW-Authenticate:", lenof("WWW-Authenticate:")) &&
+       vlen == lenof("SKY realm=\"SXCLOCK\"") && !strncasecmp(v, "SKY realm=\"SXCLOCK\"", lenof("SKY realm=\"SXCLOCK\""))) {
+	conns->clock_drifted = 1;
 	return HEAD_OK;
     }
 
@@ -349,6 +376,10 @@ int sxi_cluster_query_ev(curlev_context_t *cbdata,
 
     if (!cbdata) {
         conns_err(SXE_EARG, "Null cbdata");
+        return -1;
+    }
+    if (!host) {
+        conns_err(SXE_EARG, "Null host");
         return -1;
     }
     if (sxi_is_debug_enabled(conns->sx))
@@ -453,8 +484,7 @@ static int wrap_data_callback(curlev_context_t *ctx, const unsigned char *data, 
 
 int sxi_cluster_query(sxi_conns_t *conns, const sxi_hostlist_t *hlist, enum sxi_cluster_verb verb, const char *query, void *content, size_t content_size, cluster_setupcb setup_callback, cluster_datacb callback, void *context)
 {
-    unsigned i, ok = 0;
-    int rc;
+    unsigned int i, clock_fixed = 0;
     long status = -1;
     unsigned hostcount;
     struct generic_ctx gctx;
@@ -479,37 +509,49 @@ int sxi_cluster_query(sxi_conns_t *conns, const sxi_hostlist_t *hlist, enum sxi_
 	conns_err(SXE_EMEM, "Cluster query failed: out of memory allocating context");
 	return -1;
     }
-    rc = 0;
     retry = sxi_retry_init(conns->sx);
-    if (!retry)
+    if (!retry) {
+        sxi_cbdata_unref(&cbdata);
         return -1;
-    for(i=0; i<hostcount && rc != -1 && !ok; i++) {
-            sxi_cbdata_reset(cbdata);
-
-            /* clear errors: we're retrying on next host */
-            if (sxi_retry_check(retry, i)) {
-                break;
-                rc = -1;
-            }
-            const char *host = sxi_hostlist_get_host(hlist, i);
-            sxi_retry_msg(retry, host);
-            rc = sxi_cluster_query_ev(cbdata, conns, host, verb, query, content, content_size,
-                                      wrap_setup_callback, wrap_data_callback);
-            if (rc == -1)
-                break;
-            status = sxi_cbdata_wait(cbdata, conns->curlev, NULL);
-            if (status == -1)
-                break;
-            if (!status || status == 404 || status == 408
-               || status == 429
-               /*|| status == 400 this is not retriable */
-               || (status / 100 == 5 && status != 500))
-                continue; /* transient, retriable */
-            ok = 1;
     }
-    if (!ok && !rc)
-        CLSTDEBUG("All %d hosts returned failure",
-                  sxi_hostlist_get_count(hlist));
+    for(i=0; i<hostcount; i++) {
+	int rc;
+	sxi_cbdata_reset(cbdata);
+
+	/* clear errors: we're retrying on next host */
+	if (sxi_retry_check(retry, i)) {
+	    rc = -1;
+	    break;
+	}
+	const char *host = sxi_hostlist_get_host(hlist, i);
+	sxi_retry_msg(retry, host);
+
+	conns->clock_drifted = 0;
+	rc = sxi_cluster_query_ev(cbdata, conns, host, verb, query, content, content_size,
+				  wrap_setup_callback, wrap_data_callback);
+	if (rc == -1)
+	    break;
+
+	status = sxi_cbdata_wait(cbdata, conns->curlev, NULL);
+	if (status == -1)
+	    break;
+
+	if(status == 401 && !clock_fixed && conns->clock_drifted) {
+	    clock_fixed = 1; /* Only try to fix the clock once per request */
+	    i--;
+	    sxc_clearerr(conns->sx);
+	    continue;
+	}
+
+	/* Break out on success or if the failure is non retriable */
+	if((status == 200) ||
+	   (status / 100 == 4 && status != 404 && status != 408 && status != 429))
+	    break;
+    }
+
+    if(i==hostcount && status != 200)
+        CLSTDEBUG("All %d hosts returned failure", sxi_hostlist_get_count(hlist));
+
     sxi_cbdata_unref(&cbdata);
     if (sxi_retry_done(&retry) && status == 200) {
         /* error encountered in retry_done, even though status was successful
@@ -534,32 +576,46 @@ int sxi_cluster_query_ev_retry(curlev_context_t *cbdata,
                                 setup_callback, callback);
 }
 
-int sxi_conns_hashcalc(const sxi_conns_t *conns, const void *buffer, unsigned int len, char *hash) {
-    const char *uuid = sxi_conns_get_uuid(conns);
-    unsigned char d[20];
-    EVP_MD_CTX ctx;
+int sxi_hashcalc(const void *salt, unsigned salt_len, const void *buffer, unsigned int len, unsigned char *md)
+{
+    sxi_md_ctx *ctx = sxi_md_init();
+    if (!ctx)
+        return -1;
+    if (!sxi_digest_init(ctx))
+        return 1;
 
+    if(salt && !sxi_digest_update(ctx, salt, salt_len)) {
+        sxi_md_cleanup(&ctx);
+	return 1;
+    }
+    if(!sxi_digest_update(ctx, buffer, len) || !sxi_digest_final(ctx, md, NULL)) {
+        sxi_md_cleanup(&ctx);
+	return 1;
+    }
+    sxi_md_cleanup(&ctx);
+    return 0;
+}
+
+int sxi_conns_hashcalc_core(sxc_client_t *sx, const void *salt, unsigned salt_len, const void *buffer, unsigned int len, char *hash)
+{
+    unsigned char md[HASH_BIN_LEN];
+    if (sxi_hashcalc(salt, salt_len, buffer, len, md)) {
+        sxi_seterr(sx, SXE_ECRYPT, "Failed to calculate hash");
+        return 1;
+    }
+    sxi_bin2hex(md, sizeof(md), hash);
+    return 0;
+}
+
+int sxi_conns_hashcalc(sxi_conns_t *conns, const void *buffer, unsigned int len, char *hash) {
+    const char *uuid = sxi_conns_get_uuid(conns);
     if(!uuid) {
 	CLSTDEBUG("cluster has got no uuid");
 	conns_err(SXE_EARG, "Cannot compute hash: no cluster uuid is set");
 	return 1;
     }
 
-    if(!EVP_DigestInit(&ctx, EVP_sha1())) {
-	CLSTDEBUG("failed to init digest");
-	conns_err(SXE_ECRYPT, "Cannot compute hash: unable to initialize crypto library");
-	return 1;
-    }
-    if(!EVP_DigestUpdate(&ctx, uuid, strlen(uuid)) || !EVP_DigestUpdate(&ctx, buffer, len) || !EVP_DigestFinal(&ctx, d, NULL)) {
-	CLSTDEBUG("failed to update digest");
-	conns_err(SXE_ECRYPT, "Cannot compute hash: crypto library failure");
-	EVP_MD_CTX_cleanup(&ctx);
-	return 1;
-    }
-    EVP_MD_CTX_cleanup(&ctx);
-
-    sxi_bin2hex(d, sizeof(d), hash);
-    return 0;
+    return sxi_conns_hashcalc_core(sxi_conns_get_client(conns), uuid, strlen(uuid), buffer, len, hash);
 }
 
 static const int timeouts[] = { 3000, 6800, 9000, 10000, 11600, 14800, 20000 };
@@ -677,10 +733,6 @@ int sxi_conns_set_timeout(sxi_conns_t *conns, const char *host, int timeout_acti
     return 0;
 }
 
-static enum head_result noauth_headfn(sxi_conns_t *conns, char *ptr, size_t size, size_t nmemb) {
-    return HEAD_OK;
-}
-
 int sxi_conns_root_noauth(sxi_conns_t *conns, const char *tmpcafile, int quiet)
 {
     unsigned i, hostcount, n;
@@ -704,40 +756,27 @@ int sxi_conns_root_noauth(sxi_conns_t *conns, const char *tmpcafile, int quiet)
     }
 
     for(i=0; i<hostcount; i++) {
-        int status;
         const char *host = sxi_hostlist_get_host(&conns->hlist, i);
         bracket_open = strchr(host, ':') ? "[" : "";
         bracket_close = strchr(host, ':') ? "]" : "";
         n = lenof("https://[]") + strlen(host) + 1 + strlen(query) + 1;
-        curlev_context_t *cbdata = sxi_cbdata_create_generic(conns, NULL, NULL);
-        if (!cbdata)
-            return 1;
-
-        reply_t reply = {{ cbdata, noauth_headfn, errfn}, NULL};
 
         sxc_clearerr(conns->sx);/* clear errors: we're retrying on next host */
         url = malloc(n);
         if(!url) {
             conns_err(SXE_EMEM, "OOM allocating URL");
-            sxi_cbdata_unref(&cbdata);
             return -1;
         }
-        request_headers_t request = { host, url };
-        snprintf(url, n, "https://%s%s%s/%s", bracket_open, host, bracket_close, query);
-        rc = sxi_curlev_add_head(conns->curlev, &request, &reply.headers);
+        sxi_notice(sxi_conns_get_client(conns), "Connecting to %s", host);
+        snprintf(url, n, "https://%s%s%s/%s", bracket_open, host, bracket_close, query);\
+        rc = sxi_curlev_fetch_certificates(conns->curlev, url, quiet);
         free(url);
-        if (rc) {
-            sxi_cbdata_unref(&cbdata);
-            continue;
-        }
-        status = sxi_cbdata_wait(cbdata, conns->curlev, &rc);
-        sxi_cbdata_unref(&cbdata);
-
         if (rc == CURLE_SSL_CACERT)
             return 1;
-        /* all we wanted is to save the cert, ignore any errors after that */
-        if (status == 200 || sxi_curlev_is_saved(conns->curlev))
+        if (sxi_curlev_is_saved(conns->curlev))
             return 0;
+        if (sxc_geterrnum(conns->sx) != SXE_NOERROR)
+            sxi_notice(conns->sx, "%s", sxc_geterrmsg(conns->sx));
     }
     return 1;
 }

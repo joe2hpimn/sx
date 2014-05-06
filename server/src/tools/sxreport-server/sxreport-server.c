@@ -38,8 +38,6 @@
 #include <string.h>
 #include <unistd.h>
 #include <yajl/yajl_version.h>
-#include <openssl/crypto.h>
-#include <openssl/ssl.h>
 #include <errno.h>
 
 #include "config.h"
@@ -52,6 +50,7 @@
 #include "../../../libsx/src/sxreport.h"
 #include "../../../libsx/src/sxlog.h"
 #include "../../../libsx/src/misc.h"
+#include "../../../libsx/src/vcrypto.h"
 
 static struct gengetopt_args_info fcgi_args;
 static int fcgi_args_parsed;
@@ -245,17 +244,8 @@ static void print_cpuinfo()
 
 static void print_ssl_cert_info(sxc_client_t *sx, const char *file)
 {
-    unsigned int n = sizeof(n);
-
-    FILE *f = fopen(file,"r");
-    if(!f)
-	return;
-    X509 *x = PEM_read_X509(f, NULL, NULL, NULL);
-    fclose(f);
-    if (!x)
-        return;
     INFO("SSL server certificate:");
-    sxi_print_certificate_info(sx, x);
+    sxi_vcrypt_print_cert_info(sx, file, 0);
 }
 
 static void print_ssl_key_info(const char *file)
@@ -263,42 +253,6 @@ static void print_ssl_key_info(const char *file)
     if (!access(file, F_OK))
         WARN("SSL certificate key not readable");
     /* TODO: check that the private key belongs to the x509 cert */
-}
-
-static void print_cipherlist(SSL *ssl)
-{
-    struct sxi_fmt fmt;
-    unsigned i = 0;
-    const char *cipher;
-
-    sxi_fmt_start(&fmt);
-    sxi_fmt_msg(&fmt, "SSL cipherlist (expanded) ");
-    while((cipher = SSL_get_cipher_list(ssl, i++))) {
-        sxi_fmt_msg(&fmt, ":%s", cipher);
-    }
-    INFO("%s", fmt.buf);
-}
-
-static void print_ssl_ciphers_info(const char *list)
-{
-    SSL_CTX *ctx;
-    OpenSSL_add_ssl_algorithms();
-    ctx = SSL_CTX_new(SSLv23_server_method());
-    if (!ctx)
-        return;
-    SSL_CTX_set_options(ctx, SSL_OP_NO_SSLv2);
-    if (!SSL_CTX_set_cipher_list(ctx, list)) {
-        SSLERR();
-        return;
-    }
-    SSL *ssl=SSL_new(ctx);
-    if (ssl) {
-        /* note: this prints some ciphers that the server won't actually use
-         * without additional configuration like SRP, PSK, etc. */
-        print_cipherlist(ssl);
-        SSL_free(ssl);
-    }
-    SSL_CTX_free(ctx);
 }
 
 static int parse_key_value(char *line, const char **key, const char **value)
@@ -339,7 +293,7 @@ static void print_sxhttpd_conf(sxc_client_t *sx, const char *dir, const char *fi
         if (!strcmp(key, "ssl_certificate_key"))
             print_ssl_key_info(value);
         if (!strcmp(key, "ssl_ciphers"))
-            print_ssl_ciphers_info(value);
+            sxi_vcrypt_print_cipherlist(sx, value);
     }
     fclose(f);
 }

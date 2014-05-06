@@ -66,7 +66,6 @@ int null_data_finish(const sxf_handle_t *handle, void **ctx, sxf_mode_t mode)
     return 0;
 }
 
-/* FIXME: check why sxf_null_LTX_sxc_filter doesn't work */
 sxc_filter_t sxc_filter={
 /* int abi_version */		    SXF_ABI_VERSION,
 /* const char *shortname */	    "null",

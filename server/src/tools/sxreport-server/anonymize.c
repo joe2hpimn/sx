@@ -26,17 +26,17 @@
  */
 
 #include "default.h"
-#include <openssl/hmac.h>
-#include <openssl/rand.h>
 #include <string.h>
 #include "log.h"
 #include "hashfs.h"
 #include "../libsx/src/misc.h"
+#include "../libsx/src/vcrypto.h"
 #include <sys/types.h>
 #include <regex.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <sys/socket.h>
+#include <stdlib.h>
 
 static unsigned char hmac_key[20];
 
@@ -70,19 +70,18 @@ static int buf_append(struct buffer *buf, const char *str, unsigned n)
 
 int anonymize_item(struct buffer *buf, const char *category, const char *str, size_t len)
 {
-    HMAC_CTX hmac_ctx;
-    unsigned char md[EVP_MAX_MD_SIZE];
+    sxi_hmac_ctx *hmac_ctx;
+    unsigned char md[HASH_BIN_LEN];
     unsigned mdlen = sizeof(md);
     unsigned i;
-    HMAC_CTX_init(&hmac_ctx);
-    if (!sxi_hmac_init_ex(&hmac_ctx, hmac_key, sizeof(hmac_key), EVP_sha1(), NULL) ||
-        !sxi_hmac_update(&hmac_ctx, category, strlen(category)+1) ||
-        !sxi_hmac_update(&hmac_ctx, str, len) ||
-        !sxi_hmac_final(&hmac_ctx, md, &mdlen)) {
-        SSLERR();
+    hmac_ctx = sxi_hmac_init();
+    if (!sxi_hmac_init_ex(hmac_ctx, hmac_key, sizeof(hmac_key)) ||
+        !sxi_hmac_update(hmac_ctx, category, strlen(category)+1) ||
+        !sxi_hmac_update(hmac_ctx, str, len) ||
+        !sxi_hmac_final(hmac_ctx, md, &mdlen)) {
         return -1;
     }
-    HMAC_CTX_cleanup(&hmac_ctx);
+    sxi_hmac_cleanup(&hmac_ctx);
     /* Features:
      *  * same 'str' hashes to same value
      *      * so we can trace it in the logs (without knowing what it was)
@@ -333,8 +332,7 @@ int anonymize_filter(sxc_client_t *sx, const char *datadir, FILE *in, FILE *out)
     } else {
         WARN("[Using random key for anonymization]");
         /* When there is no working hashfs use a random key */
-        if(RAND_pseudo_bytes(hmac_key, sizeof(hmac_key)) == -1) {
-            SSLERR();
+        if(sxi_rand_pseudo_bytes(hmac_key, sizeof(hmac_key)) == -1) {
             return -1;
         }
     }

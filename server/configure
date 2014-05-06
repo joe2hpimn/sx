@@ -643,8 +643,6 @@ YAJL_LIBS
 YAJL_CPPFLAGS
 FCGI_CPPFLAGS
 FCGI_LIBS
-CHECK_LIBS
-CHECK_CFLAGS
 CRYPTO_LIBS
 CRYPTO_CFLAGS
 PKG_CONFIG_LIBDIR
@@ -805,9 +803,7 @@ PKG_CONFIG
 PKG_CONFIG_PATH
 PKG_CONFIG_LIBDIR
 CRYPTO_CFLAGS
-CRYPTO_LIBS
-CHECK_CFLAGS
-CHECK_LIBS'
+CRYPTO_LIBS'
 
 
 # Initialize some variables set by options.
@@ -1470,9 +1466,6 @@ Some influential environment variables:
   CRYPTO_CFLAGS
               C compiler flags for CRYPTO, overriding pkg-config
   CRYPTO_LIBS linker flags for CRYPTO, overriding pkg-config
-  CHECK_CFLAGS
-              C compiler flags for CHECK, overriding pkg-config
-  CHECK_LIBS  linker flags for CHECK, overriding pkg-config
 
 Use these variables to override the choices made by `configure' or to help
 it to find libraries and programs with nonstandard names/locations.
@@ -13201,86 +13194,6 @@ fi
 
 LIBS=$ac_save_LIBS
 
-# Check
-
-pkg_failed=no
-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for CHECK" >&5
-$as_echo_n "checking for CHECK... " >&6; }
-
-if test -n "$CHECK_CFLAGS"; then
-    pkg_cv_CHECK_CFLAGS="$CHECK_CFLAGS"
- elif test -n "$PKG_CONFIG"; then
-    if test -n "$PKG_CONFIG" && \
-    { { $as_echo "$as_me:${as_lineno-$LINENO}: \$PKG_CONFIG --exists --print-errors \"check >= 0.9.4\""; } >&5
-  ($PKG_CONFIG --exists --print-errors "check >= 0.9.4") 2>&5
-  ac_status=$?
-  $as_echo "$as_me:${as_lineno-$LINENO}: \$? = $ac_status" >&5
-  test $ac_status = 0; }; then
-  pkg_cv_CHECK_CFLAGS=`$PKG_CONFIG --cflags "check >= 0.9.4" 2>/dev/null`
-		      test "x$?" != "x0" && pkg_failed=yes
-else
-  pkg_failed=yes
-fi
- else
-    pkg_failed=untried
-fi
-if test -n "$CHECK_LIBS"; then
-    pkg_cv_CHECK_LIBS="$CHECK_LIBS"
- elif test -n "$PKG_CONFIG"; then
-    if test -n "$PKG_CONFIG" && \
-    { { $as_echo "$as_me:${as_lineno-$LINENO}: \$PKG_CONFIG --exists --print-errors \"check >= 0.9.4\""; } >&5
-  ($PKG_CONFIG --exists --print-errors "check >= 0.9.4") 2>&5
-  ac_status=$?
-  $as_echo "$as_me:${as_lineno-$LINENO}: \$? = $ac_status" >&5
-  test $ac_status = 0; }; then
-  pkg_cv_CHECK_LIBS=`$PKG_CONFIG --libs "check >= 0.9.4" 2>/dev/null`
-		      test "x$?" != "x0" && pkg_failed=yes
-else
-  pkg_failed=yes
-fi
- else
-    pkg_failed=untried
-fi
-
-
-
-if test $pkg_failed = yes; then
-   	{ $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
-$as_echo "no" >&6; }
-
-if $PKG_CONFIG --atleast-pkgconfig-version 0.20; then
-        _pkg_short_errors_supported=yes
-else
-        _pkg_short_errors_supported=no
-fi
-        if test $_pkg_short_errors_supported = yes; then
-	        CHECK_PKG_ERRORS=`$PKG_CONFIG --short-errors --print-errors --cflags --libs "check >= 0.9.4" 2>&1`
-        else
-	        CHECK_PKG_ERRORS=`$PKG_CONFIG --print-errors --cflags --libs "check >= 0.9.4" 2>&1`
-        fi
-	# Put the nasty error message in config.log where it belongs
-	echo "$CHECK_PKG_ERRORS" >&5
-
-	has_sys_check=no
-elif test $pkg_failed = untried; then
-     	{ $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
-$as_echo "no" >&6; }
-	has_sys_check=no
-else
-	CHECK_CFLAGS=$pkg_cv_CHECK_CFLAGS
-	CHECK_LIBS=$pkg_cv_CHECK_LIBS
-        { $as_echo "$as_me:${as_lineno-$LINENO}: result: yes" >&5
-$as_echo "yes" >&6; }
-	has_sys_check=yes
-fi
-
-if test "$has_sys_check" = "no"; then
-    CHECK_LIBS=../3rdparty/check/src/libcheck.la
-    CHECK_CFLAGS="-I ../3rdparty/check/src -I ../3rdparty/check"
-fi
-
-
-
 # Libfcgi
 FCGI_CPPFLAGS=
 { $as_echo "$as_me:${as_lineno-$LINENO}: checking for FCGX_Accept in -lfcgi" >&5
@@ -16616,17 +16529,6 @@ fi
 { $as_echo "$as_me:${as_lineno-$LINENO}: Summary" >&5
 $as_echo "$as_me: Summary" >&6;}
 echo "    crypto library: $CRYPTO_LIBS"
-
-
-    $as_echo_n "    check library: "
-    if test "$has_sys_check" = "no"; then :
-  $as_echo "(use embedded)"
-elif test "$has_sys_check" = "yes"; then :
-
-            $as_echo "(use system) $CHECK_CFLAGS $CHECK_LIBS";
-
-fi
-
 
 
     $as_echo_n "    libfcgi library: "

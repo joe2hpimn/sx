@@ -40,16 +40,6 @@
 #define AUTHTOK_ASCII_LEN 56
 #define AUTHTOK_BIN_LEN (AUTHTOK_ASCII_LEN / 4 * 3)
 
-#ifdef HMAC_UPDATE_RETURNS_INT
-#define sxi_hmac_init_ex HMAC_Init_ex
-#define sxi_hmac_update HMAC_Update
-#define sxi_hmac_final HMAC_Final
-#else
-#define sxi_hmac_init_ex(a, b, c, d, e) (HMAC_Init_ex((a), (b), (c), (d), (e)), 1)
-#define sxi_hmac_update(a, b, c) (HMAC_Update((a), (b), (c)), 1)
-#define sxi_hmac_final(a, b, c) (HMAC_Final((a), (b), (c)), 1)
-#endif
-
 #define HASH_BIN_LEN 20
 #define HASH_TEXT_LEN (HASH_BIN_LEN * 2)
 

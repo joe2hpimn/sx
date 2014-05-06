@@ -16,3 +16,9 @@ stamp-h1
 *~
 TAGS
 3rdparty/yajl_build/build/yajl/yajl_version.h
+3rdparty/curl/include/curl/curlbuild.h
+3rdparty/curl/curl-config
+3rdparty/curl/include/curl/stamp-h2
+3rdparty/curl/lib/curl_config.h
+3rdparty/curl/lib/libcurl.vers
+3rdparty/curl/libcurl.pc

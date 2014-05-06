@@ -36,11 +36,11 @@
 #include <sys/time.h>
 #include <fcntl.h>
 #include <unistd.h>
-#include <openssl/err.h>
-#include <openssl/evp.h>
 #include <syslog.h>
 #include "../libsx/src/sxlog.h"
 #include "../libsx/src/misc.h"
+#include "../libsx/src/cluster.h"
+#include "../libsx/src/vcrypto.h"
 
 static struct _sx_logger_ctx {
     pid_t pid;
@@ -194,17 +194,6 @@ void log_setminlevel(sxc_client_t *sx, int prio)
     }
 }
 
-void log_sslerrs(const char *func)
-{
-    char buf[256];
-    unsigned long e;
-    while ((e = ERR_get_error())) {
-        ERR_error_string_n(e, buf, sizeof(buf));
-        buf[sizeof(buf)-1] = 0;
-        sxi_log_msg(&logger, func, SX_LOG_WARNING, "OpenSSL error: %s", buf);
-    }
-}
-
 static int64_t counter;
 static struct {
     char reason[65536];
@@ -258,6 +247,7 @@ void msg_set_reason(const char *fmt, ...)
     vsnprintf(log_record.reason, sizeof(log_record.reason), fmt, ap);
     va_end(ap);
     log_record.reason[sizeof(log_record.reason)-1] = '\0';
+    DEBUG("Reason: %s", log_record.reason);
     msg_add_detail(NULL, "Reason", "%s", log_record.reason);
 }
 
@@ -285,14 +275,6 @@ const char *msg_get_reason(void)
     return log_record.reason;
 }
 
-void msg_add_sslerr(const char *func)
-{
-    unsigned long e;
-    while ((e = ERR_get_error())) {
-        msg_add_detail(func, "OpenSSL", "%s", ERR_error_string(e, NULL));
-    }
-}
-
 const char *msg_log_end(void)
 {
     log_record.details[log_record.n] = '\0';
@@ -303,8 +285,7 @@ const char *msg_log_end(void)
 
 int msg_new_id(void)
 {
-    EVP_MD_CTX hash_ctx;
-    unsigned char md[EVP_MAX_MD_SIZE];
+    unsigned char md[HASH_BIN_LEN];
     pid_t p = getpid();
     unsigned len = sizeof(md);
 
@@ -313,10 +294,7 @@ int msg_new_id(void)
     log_record.reason[0] = '\0';
     log_record.id[0] = '\0';
 
-    if (!EVP_DigestInit(&hash_ctx, EVP_sha1()) ||
-        !EVP_DigestUpdate(&hash_ctx, &p, sizeof(p)) ||
-        !EVP_DigestUpdate(&hash_ctx, &counter, sizeof(counter)) ||
-        !EVP_DigestFinal(&hash_ctx, md, &len)) {
+    if (sxi_hashcalc(&p, sizeof(p), &counter, sizeof(counter), md)) {
         WARN("Digest calculation failed");
         return -1;
     }
