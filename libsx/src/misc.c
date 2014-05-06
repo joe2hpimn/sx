@@ -782,12 +782,6 @@ char *sxi_make_tempfile(sxc_client_t *sx, const char *basedir, FILE **f) {
     }
     if(!basedir)
 	basedir = sxi_get_tempdir(sx);
-    if(!basedir)
-	basedir = getenv("TMPDIR");
-    if(!basedir)
-	basedir = getenv("TEMP");
-    if(!basedir)
-	basedir = "/tmp";
 
     len = strlen(basedir);
 

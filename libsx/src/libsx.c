@@ -52,6 +52,18 @@ struct _sxc_client_t {
     alias_list_t *alias;
 };
 
+static const char *guess_tempdir(void) {
+    const char *ret;
+
+    ret = getenv("TMPDIR");
+    if(!ret)
+	ret = getenv("TEMP");
+    if(!ret)
+	ret = "/tmp";
+
+    return ret;
+}
+
 sxc_client_t *sxc_init(const char *client_version, const sxc_logger_t *func, int (*confirm)(const char *prompt, int def)) {
     sxc_client_t *sx;
     struct sxi_logger l;
@@ -118,6 +130,11 @@ sxc_client_t *sxc_init(const char *client_version, const sxc_logger_t *func, int
         snprintf(sx->confdir, config_len + 1, "%s/.sx", home_dir);
     }
     sx->alias = NULL;
+    if(sxc_set_tempdir(sx, NULL)) {
+	sxi_log_syserr(&l, "sxc_init", SX_LOG_CRIT, "Failed to set temporary path");
+	sxc_shutdown(sx, 0);
+	return NULL;
+    }
 
     return sx;
 }
@@ -150,6 +167,7 @@ void sxc_shutdown(sxc_client_t *sx, int signal) {
             sx->log.func->close(sx->log.func->ctx);
         }
 	sxi_filter_unloadall(sx);
+	free(sx->tempdir);
 	free(sx);
 	lt_dlexit();
 	curl_global_cleanup();
@@ -248,8 +266,29 @@ void sxi_notice(sxc_client_t *sx, const char *fmt, ...) {
 
 const char *sxi_get_tempdir(sxc_client_t *sx) {
     if(!sx)
-	return NULL;
+	return guess_tempdir();
     return sx->tempdir;
+}
+
+int sxc_set_tempdir(sxc_client_t *sx, const char *tempdir) {
+    char *newtmp;
+
+    if(!sx)
+	return -1;
+
+    if(!tempdir)
+	tempdir = guess_tempdir();
+
+    newtmp = strdup(tempdir);
+    if(!newtmp) {
+	sxi_seterr(sx, SXE_EMEM, "Failed to set temporary directory: out of memory");
+	return -1;
+    }
+
+    free(sx->tempdir);
+    sx->tempdir = newtmp;
+
+    return 0;
 }
 
 struct filter_ctx *sxi_get_fctx(sxc_client_t *sx) {

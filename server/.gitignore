@@ -22,3 +22,4 @@
 /test/test-nginx1.conf
 /test/testfile
 /test/fastcgi_params
+/test/hdist-test

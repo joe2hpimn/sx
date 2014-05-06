@@ -55,6 +55,7 @@ const char *sxc_get_confdir(sxc_client_t *sx);
 #define SXC_ALIAS_PREFIX "@"
 int sxc_set_alias(sxc_client_t *sx, const char *alias, const char *profile, const char *host);
 const char *sxc_get_alias(sxc_client_t *sx, const char *profile, const char *host);
+int sxc_set_tempdir(sxc_client_t *sx, const char *tempdir);
 
 enum sxc_error_t {
     SXE_NOERROR,	/* No error occoured */
