@@ -525,6 +525,7 @@ int sxc_set_alias(sxc_client_t *sx, const char *alias, const char *profile, cons
         if(!tmp) {
             sxi_seterr(sx, SXE_EMEM, "Could not allocate memory for new alias");
             free(cluster_uri);
+	    free(tmp_name);
             return 1;
         }
         list->entry = tmp;
