@@ -342,31 +342,60 @@ ask_questions() {
 		DIR=@localstatedir@/lib/sxserver
 		mkdir -p $DIR
 		CERTCONF=$DIR/certconf.tmp
-		cat >"$CERTCONF" <<EOF
+		if [ "$ADVANCED_GIVEN" = "yes" ]; then
+		    cat > "$CERTCONF" <<EOF
 [ req ]
-default_bits	   = 2048
+default_bits	       = 2048
 distinguished_name     = req_distinguished_name
-prompt		   = no
 encrypt_key            = no
 x509_extensions        = v3_ca
 
 [ req_distinguished_name ]
-C		       = GB
-ST		       = UK
+countryName                    = Country Name (2 letter code)
+countryName_default            = UK
+countryName_min                = 2
+countryName_max                = 2
+
+localityName                    = Locality Name (eg, city)
+localityName_default            = London
+
+organizationalUnitName         = Organizational Unit Name (eg, section)
+organizationalUnitName_default = SX
+
+commonName                     = Common Name (must match SX cluster name)
+commonName_default	       = $SX_CLUSTER_NAME
+
+EOF
+		else
+		    cat > "$CERTCONF" <<EOF
+[ req ]
+default_bits		= 2048
+distinguished_name	= req_distinguished_name
+prompt			= no
+encrypt_key		= no
+x509_extensions		= v3_ca
+
+[ req_distinguished_name ]
+C		       = UK
+L		       = London
 O		       = SX
 CN		       = $SX_CLUSTER_NAME
 
+EOF
+		fi
+		cat >> "$CERTCONF" <<EOF
 [ v3_ca ]
 subjectKeyIdentifier=hash
 authorityKeyIdentifier=keyid:always,issuer:always
 basicConstraints = critical,CA:true
 keyUsage=keyCertSign,cRLSign,digitalSignature,keyEncipherment
 EOF
+
 		if [ -z "$SX_EXISTING_NODE_IP" ]; then
 		    CREATESSL=1
 		    if [ "$ADVANCED_GIVEN" = "yes" ]; then
 			echo
-			ask_yn "Do you want to automatically generate SSL certificate and key? (Y/n)"
+			ask_yn "Do you want to generate SSL certificate and key? (Y/n)"
 			test "$ANSWER" = "n" && CREATESSL=0
 		    fi
 		fi
