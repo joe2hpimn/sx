@@ -138,7 +138,7 @@ if test "x$with_nss" = "xno"; then
                 AC_DEFINE([HMAC_UPDATE_RETURNS_INT], 1, [Defined if HMAC_Update returns int])
         fi
         VCRYPTO_LIBS="$OPENSSL_LIBS"
-        VRCYPTO_CFLAGS="$OPENSSL_CFLAGS"
+        VCRYPTO_CFLAGS="$OPENSSL_CFLAGS"
     fi
 else
     with_ssl="no"

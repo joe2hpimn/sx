@@ -14966,7 +14966,7 @@ $as_echo "#define HMAC_UPDATE_RETURNS_INT 1" >>confdefs.h
 
         fi
         VCRYPTO_LIBS="$OPENSSL_LIBS"
-        VRCYPTO_CFLAGS="$OPENSSL_CFLAGS"
+        VCRYPTO_CFLAGS="$OPENSSL_CFLAGS"
     fi
 else
     with_ssl="no"
