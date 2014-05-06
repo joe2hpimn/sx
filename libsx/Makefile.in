@@ -79,6 +79,10 @@ POST_UNINSTALL = :
 build_triplet = @build@
 host_triplet = @host@
 @BUILD_CURL_TRUE@am__append_1 = ../3rdparty/curl
+@BUILD_NFTW_TRUE@am__append_2 = \
+@BUILD_NFTW_TRUE@	src/nftw.c \
+@BUILD_NFTW_TRUE@	src/ftw.h
+
 subdir = .
 DIST_COMMON = $(srcdir)/Makefile.in $(srcdir)/Makefile.am \
 	$(top_srcdir)/configure $(am__configure_deps) \
@@ -141,7 +145,18 @@ am__uninstall_files_from_dir = { \
 am__installdirs = "$(DESTDIR)$(libdir)"
 LTLIBRARIES = $(lib_LTLIBRARIES)
 src_libsx_la_DEPENDENCIES =
+am__src_libsx_la_SOURCES_DIST = include/sx.h include/default.h \
+	include/gnuc.h include/types.h src/cert.c src/cert.h \
+	src/curlevents.c src/curlevents.h src/cluster.c src/cluster.h \
+	src/hostlist.c src/hostlist.h src/clustcfg.c src/clustcfg.h \
+	src/yajlwrap.c src/yajlwrap.h src/misc.c src/misc.h \
+	src/fileops.c src/volops.c src/volops.h src/jobpoll.c \
+	src/jobpoll.h src/libsx.c src/libsx-int.h src/filter.c \
+	src/filter.h src/sxlog.h src/sxlog.c src/sxproto.h \
+	src/sxproto.c src/sxreport.h src/sxreport.c src/version.c \
+	src/nftw.c src/ftw.h
 am__dirstamp = $(am__leading_dot)dirstamp
+@BUILD_NFTW_TRUE@am__objects_1 = src/src_libsx_la-nftw.lo
 am_src_libsx_la_OBJECTS = src/src_libsx_la-cert.lo \
 	src/src_libsx_la-curlevents.lo src/src_libsx_la-cluster.lo \
 	src/src_libsx_la-hostlist.lo src/src_libsx_la-clustcfg.lo \
@@ -150,7 +165,7 @@ am_src_libsx_la_OBJECTS = src/src_libsx_la-cert.lo \
 	src/src_libsx_la-jobpoll.lo src/src_libsx_la-libsx.lo \
 	src/src_libsx_la-filter.lo src/src_libsx_la-sxlog.lo \
 	src/src_libsx_la-sxproto.lo src/src_libsx_la-sxreport.lo \
-	src/src_libsx_la-version.lo
+	src/src_libsx_la-version.lo $(am__objects_1)
 src_libsx_la_OBJECTS = $(am_src_libsx_la_OBJECTS)
 AM_V_lt = $(am__v_lt_@AM_V@)
 am__v_lt_ = $(am__v_lt_@AM_DEFAULT_V@)
@@ -194,7 +209,7 @@ am__v_CCLD_ = $(am__v_CCLD_@AM_DEFAULT_V@)
 am__v_CCLD_0 = @echo "  CCLD    " $@;
 am__v_CCLD_1 = 
 SOURCES = $(src_libsx_la_SOURCES)
-DIST_SOURCES = $(src_libsx_la_SOURCES)
+DIST_SOURCES = $(am__src_libsx_la_SOURCES_DIST)
 RECURSIVE_TARGETS = all-recursive check-recursive cscopelist-recursive \
 	ctags-recursive dvi-recursive html-recursive info-recursive \
 	install-data-recursive install-dvi-recursive \
@@ -430,42 +445,15 @@ SUBDIRS = libltdl $(am__append_1)
 DIST_SUBDIRS = $(SUBDIRS)
 AM_CPPFLAGS = -I $(top_srcdir)/include -I $(top_srcdir)/src $(LTDLINCL)
 lib_LTLIBRARIES = src/libsx.la
-src_libsx_la_SOURCES = \
-	include/sx.h \
-	include/default.h \
-	include/gnuc.h \
-	include/types.h \
-	src/cert.c \
-	src/cert.h \
-	src/curlevents.c \
-	src/curlevents.h \
-	src/cluster.c \
-	src/cluster.h \
-	src/hostlist.c \
-	src/hostlist.h \
-	src/clustcfg.c \
-	src/clustcfg.h \
-	src/yajlwrap.c \
-	src/yajlwrap.h \
-	src/misc.c \
-	src/misc.h \
-	src/fileops.c \
-	src/volops.c \
-	src/volops.h \
-	src/jobpoll.c \
-	src/jobpoll.h \
-	src/libsx.c \
-	src/libsx-int.h \
-	src/filter.c \
-	src/filter.h \
-	src/sxlog.h \
-	src/sxlog.c \
-	src/sxproto.h \
-	src/sxproto.c \
-	src/sxreport.h \
-	src/sxreport.c \
-	src/version.c
-
+src_libsx_la_SOURCES = include/sx.h include/default.h include/gnuc.h \
+	include/types.h src/cert.c src/cert.h src/curlevents.c \
+	src/curlevents.h src/cluster.c src/cluster.h src/hostlist.c \
+	src/hostlist.h src/clustcfg.c src/clustcfg.h src/yajlwrap.c \
+	src/yajlwrap.h src/misc.c src/misc.h src/fileops.c \
+	src/volops.c src/volops.h src/jobpoll.c src/jobpoll.h \
+	src/libsx.c src/libsx-int.h src/filter.c src/filter.h \
+	src/sxlog.h src/sxlog.c src/sxproto.h src/sxproto.c \
+	src/sxreport.h src/sxreport.c src/version.c $(am__append_2)
 src_libsx_la_LIBADD = @YAJL_LIBS@ @LIBCURL@ @CRYPTO_LIBS@ @LIBLTDL@ -lssl
 # TODO: only sx_ should be exported not sxi_
 src_libsx_la_LDFLAGS = -no-undefined -export-symbols-regex sx.*
@@ -609,6 +597,8 @@ src/src_libsx_la-sxreport.lo: src/$(am__dirstamp) \
 	src/$(DEPDIR)/$(am__dirstamp)
 src/src_libsx_la-version.lo: src/$(am__dirstamp) \
 	src/$(DEPDIR)/$(am__dirstamp)
+src/src_libsx_la-nftw.lo: src/$(am__dirstamp) \
+	src/$(DEPDIR)/$(am__dirstamp)
 
 src/libsx.la: $(src_libsx_la_OBJECTS) $(src_libsx_la_DEPENDENCIES) $(EXTRA_src_libsx_la_DEPENDENCIES) src/$(am__dirstamp)
 	$(AM_V_CCLD)$(src_libsx_la_LINK) -rpath $(libdir) $(src_libsx_la_OBJECTS) $(src_libsx_la_LIBADD) $(LIBS)
@@ -631,6 +621,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@src/$(DEPDIR)/src_libsx_la-jobpoll.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/$(DEPDIR)/src_libsx_la-libsx.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/$(DEPDIR)/src_libsx_la-misc.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@src/$(DEPDIR)/src_libsx_la-nftw.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/$(DEPDIR)/src_libsx_la-sxlog.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/$(DEPDIR)/src_libsx_la-sxproto.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/$(DEPDIR)/src_libsx_la-sxreport.Plo@am__quote@
@@ -773,6 +764,13 @@ src/src_libsx_la-version.lo: src/version.c
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='src/version.c' object='src/src_libsx_la-version.lo' libtool=yes @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_libsx_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o src/src_libsx_la-version.lo `test -f 'src/version.c' || echo '$(srcdir)/'`src/version.c
+
+src/src_libsx_la-nftw.lo: src/nftw.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_libsx_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT src/src_libsx_la-nftw.lo -MD -MP -MF src/$(DEPDIR)/src_libsx_la-nftw.Tpo -c -o src/src_libsx_la-nftw.lo `test -f 'src/nftw.c' || echo '$(srcdir)/'`src/nftw.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) src/$(DEPDIR)/src_libsx_la-nftw.Tpo src/$(DEPDIR)/src_libsx_la-nftw.Plo
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='src/nftw.c' object='src/src_libsx_la-nftw.lo' libtool=yes @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_libsx_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o src/src_libsx_la-nftw.lo `test -f 'src/nftw.c' || echo '$(srcdir)/'`src/nftw.c
 
 mostlyclean-libtool:
 	-rm -f *.lo

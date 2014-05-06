@@ -43,6 +43,11 @@ src_libsx_la_SOURCES = \
 	src/sxreport.h \
 	src/sxreport.c \
 	src/version.c
+if BUILD_NFTW
+src_libsx_la_SOURCES += \
+	src/nftw.c \
+	src/ftw.h
+endif
 
 src_libsx_la_LIBADD = @YAJL_LIBS@ @LIBCURL@ @CRYPTO_LIBS@ @LIBLTDL@ -lssl
 # TODO: only sx_ should be exported not sxi_

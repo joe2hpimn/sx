@@ -65,6 +65,20 @@ if test "$ac_cv_type_HMAC_update" = "yes"; then
 	AC_DEFINE([HMAC_UPDATE_RETURNS_INT], 1, [Defined if HMAC_Update returns int])
 fi
 
+AC_CACHE_CHECK([for nftw], ac_cv_have_nftw,
+[AC_COMPILE_IFELSE(
+	[AC_LANG_PROGRAM([
+#define _XOPEN_SOURCE 600
+#include <ftw.h>
+],[void *ptr = (void *)nftw;])],
+	[ac_cv_have_nftw=yes],
+	[ac_cv_have_nftw=no])
+])
+if test "$ac_cv_have_nftw" = "yes"; then
+    AC_DEFINE(HAVE_NFTW)
+fi
+AM_CONDITIONAL([BUILD_NFTW], [test "$ac_cv_have_nftw" = "no"])
+
 LIBCURL_CHECK_CONFIG([], [], [], [build_curl=yes])
 AC_MSG_CHECKING([whether curl is built with OpenSSL support])
 ac_save_CPPFLAGS="$CPPFLAGS"
