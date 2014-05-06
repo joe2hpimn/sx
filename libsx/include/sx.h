@@ -28,6 +28,10 @@
 #include <sys/types.h>
 #include <time.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct _sxc_client_t sxc_client_t;
 
 typedef struct {
@@ -247,5 +251,9 @@ enum sxc_log_level {
 };
 
 int sxc_filter_msg(const sxf_handle_t *handle, int level, const char *format, ...);
+
+#ifdef __cplusplus
+} /* extern "C" */
+#endif
 
 #endif
