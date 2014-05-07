@@ -1,4 +1,4 @@
-##  -- Process this file with automake to produce 
+## Makefile.am -- Process this file with automake to produce Makefile.in
 ##
 ##   Copyright (C) 2003, 2004, 2005, 2007 Free Software Foundation, Inc.
 ##   Written by Gary V. Vaughan, 2003
@@ -86,8 +86,8 @@ EXTRA_DIST	       += lt__dirent.c \
 
 libltdl_la_CPPFLAGS	= -DLTDLOPEN=$(LTDLOPEN) $(AM_CPPFLAGS)
 libltdl_la_LDFLAGS	= $(AM_LDFLAGS) $(LTDL_VERSION_INFO) $(LT_DLPREOPEN)
-libltdl_la_LIBADD	= $(ltdl_LTLIBOBJS)
-libltdl_la_DEPENDENCIES	= $(LT_DLLOADERS) $(ltdl_LTLIBOBJS)
+libltdl_la_LIBADD	= $(LTLIBOBJS)
+libltdl_la_DEPENDENCIES	= $(LT_DLLOADERS) $(LTLIBOBJS)
 
 libltdlc_la_SOURCES	= $(libltdl_la_SOURCES)
 libltdlc_la_CPPFLAGS	= -DLTDLOPEN=$(LTDLOPEN)c $(AM_CPPFLAGS)
@@ -134,19 +134,19 @@ CLEANFILES		       += libltdl.la \
 
 ## Automake-1.9.6 doesn't clean subdir AC_LIBOBJ compiled objects
 ## automatically:
-CLEANFILES	       += $(ltdl_LIBOBJS) $(ltdl_LTLIBOBJS)
+CLEANFILES	       += $(LIBOBJS) $(LTLIBOBJS)
 
 EXTRA_DIST	       += COPYING.LIB \
-			   \
-			   \
-			   \
-			   \
-			   \
-			   \
+			  configure.ac \
+			  Makefile.am \
+			  aclocal.m4 \
+			  Makefile.in \
+			  configure \
+			  config-h.in \
 			  README
 
 ## --------------------------- ##
-## Gnulib  snippets ##
+## Gnulib Makefile.am snippets ##
 ## --------------------------- ##
 
 BUILT_SOURCES	+= $(ARGZ_H)
@@ -157,6 +157,7 @@ EXTRA_DIST	+= argz_.h \
 # doesn't have one that works with the given compiler.
 all-local $(lib_OBJECTS): $(ARGZ_H)
 argz.h: argz_.h
+	$(mkinstalldirs) . 
 	cp $(srcdir)/argz_.h $@-t
 	mv $@-t $@
 MOSTLYCLEANFILES += argz.h \

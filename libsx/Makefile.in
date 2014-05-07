@@ -78,7 +78,7 @@ PRE_UNINSTALL = :
 POST_UNINSTALL = :
 build_triplet = @build@
 host_triplet = @host@
-@BUILD_LTDL_TRUE@am__append_1 = libltdl
+@BUILD_LTDL_TRUE@am__append_1 = ../3rdparty/libltdl
 @BUILD_CURL_TRUE@am__append_2 = ../3rdparty/curl
 @BUILD_NFTW_TRUE@am__append_3 = \
 @BUILD_NFTW_TRUE@	src/nftw.c \
