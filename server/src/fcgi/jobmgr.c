@@ -2081,9 +2081,16 @@ static uint16_t to_u16(const uint8_t *ptr) {
     return ((uint16_t)ptr[0] << 8) | ptr[1];
 }
 
+#define DNS_QUESTION_SECT 0
+#define DNS_ANSWER_SECT 1
+#define DNS_SERVERS_SECT 2
+#define DNS_EXTRA_SECT 3
+#define DNS_MAX_SECTS 4
+
+
 static void check_version(struct jobmgr_data_t *q) {
     char buf[1024], resbuf[1024], *p1, *p2;
-    uint16_t rrcount[ns_s_max];
+    uint16_t rrcount[DNS_MAX_SECTS];
     const uint8_t *rd, *eom;
     time_t now = time(NULL);
     int i, vmaj, vmin, secflag, len;
@@ -2112,14 +2119,14 @@ static void check_version(struct jobmgr_data_t *q) {
     rd = resbuf;
     eom = resbuf + len;
     do {
-	if(len < sizeof(uint16_t) + sizeof(uint16_t) + ns_s_max * sizeof(uint16_t))
+	if(len < sizeof(uint16_t) + sizeof(uint16_t) + DNS_MAX_SECTS * sizeof(uint16_t))
 	    break;
 	rd += sizeof(uint16_t) + sizeof(uint16_t); /* id + flags */
-	for(i=0; i<ns_s_max; i++) {
+	for(i=0; i<DNS_MAX_SECTS; i++) {
 	    rrcount[i] = to_u16(rd);
 	    rd += 2;
 	}
-	if(rrcount[ns_s_qd] != 1 || rrcount[ns_s_an] != 1)
+	if(rrcount[DNS_QUESTION_SECT] != 1 || rrcount[DNS_ANSWER_SECT] != 1)
 	    break;
 	/* At question section: name + type + class */
 	i = dn_skipname(rd, eom);
