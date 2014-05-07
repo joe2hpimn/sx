@@ -27,7 +27,7 @@
 
 const char *create_args_info_purpose = "";
 
-const char *create_args_info_usage = "Usage: sxvol create [OPTIONS] --owner=username sx://[profile@]cluster/NAME";
+const char *create_args_info_usage = "Usage: sxvol create [OPTIONS] --replica=n --owner=username sx://[profile@]cluster/NAME";
 
 const char *create_args_info_versiontext = "";
 

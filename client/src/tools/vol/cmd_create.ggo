@@ -1,6 +1,6 @@
 package "sxvol"
 args "--unamed-opts --no-handle-version --no-handle-error --file-name=cmd_create --func-name=create_cmdline_parser --arg-struct-name=create_args_info --strict-hidden"
-usage "sxvol create [OPTIONS] --owner=username sx://[profile@]cluster/NAME"
+usage "sxvol create [OPTIONS] --replica=n --owner=username sx://[profile@]cluster/NAME"
 
 text "\nVolume create options:\n"
 
