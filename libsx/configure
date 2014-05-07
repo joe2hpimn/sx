@@ -564,11 +564,9 @@ as_tr_cpp="eval sed 'y%*$as_cr_letters%P$as_cr_LETTERS%;s%[^_$as_cr_alnum]%_%g'"
 # Sed expression to map a string onto a valid variable name.
 as_tr_sh="eval sed 'y%*+%pp%;s%[^_$as_cr_alnum]%_%g'"
 
-lt_ltdl_dir='../3rdparty/libltdl'
+lt_ltdl_dir='libltdl'
 
 SHELL=${CONFIG_SHELL-/bin/sh}
-
-lt_dlopen_dir="$lt_ltdl_dir"
 
 
 test -n "$DJDIR" || exec 7<&0 </dev/null
@@ -652,6 +650,7 @@ VCRYPTO_LIBS
 CURL_LIBS
 BUILD_CURL_FALSE
 BUILD_CURL_TRUE
+subdirs
 BUILD_NSS_FALSE
 BUILD_NSS_TRUE
 BUILD_OPENSSL_FALSE
@@ -675,7 +674,6 @@ BUILD_LTDL_FALSE
 BUILD_LTDL_TRUE
 LTDLOPEN
 LT_CONFIG_H
-subdirs
 CONVENIENCE_LTDL_FALSE
 CONVENIENCE_LTDL_TRUE
 INSTALL_LTDL_FALSE
@@ -846,8 +844,7 @@ OPENSSL_CFLAGS
 OPENSSL_LIBS
 NSS_CFLAGS
 NSS_LIBS'
-ac_subdirs_all='../3rdparty/libltdl
-../3rdparty/curl'
+ac_subdirs_all='../3rdparty/curl'
 
 # Initialize some variables set by options.
 ac_init_help=
@@ -6866,7 +6863,7 @@ ia64-*-hpux*)
   rm -rf conftest*
   ;;
 
-x86_64-*kfreebsd*-gnu|x86_64-*linux*|powerpc*-*linux*| \
+x86_64-*kfreebsd*-gnu|x86_64-*linux*|ppc*-*linux*|powerpc*-*linux*| \
 s390*-*linux*|s390*-*tpf*|sparc*-*linux*)
   # Find out which ABI we are using.
   echo 'int i;' > conftest.$ac_ext
@@ -6891,10 +6888,7 @@ s390*-*linux*|s390*-*tpf*|sparc*-*linux*)
 		;;
 	    esac
 	    ;;
-	  powerpc64le-*)
-	    LD="${LD-ld} -m elf32lppclinux"
-	    ;;
-	  powerpc64-*)
+	  ppc64-*linux*|powerpc64-*linux*)
 	    LD="${LD-ld} -m elf32ppclinux"
 	    ;;
 	  s390x-*linux*)
@@ -6913,10 +6907,7 @@ s390*-*linux*|s390*-*tpf*|sparc*-*linux*)
 	  x86_64-*linux*)
 	    LD="${LD-ld} -m elf_x86_64"
 	    ;;
-	  powerpcle-*)
-	    LD="${LD-ld} -m elf64lppc"
-	    ;;
-	  powerpc-*)
+	  ppc*-*linux*|powerpc*-*linux*)
 	    LD="${LD-ld} -m elf64ppc"
 	    ;;
 	  s390*-*linux*|s390*-*tpf*)
@@ -12835,8 +12826,6 @@ $as_echo "#define HAVE_PRELOADED_SYMBOLS 1" >>confdefs.h
 
 fi
 
-
-
 # Set options
 
 
@@ -13035,8 +13024,6 @@ fi
 
 
 
-    subdirs="$subdirs ../3rdparty/libltdl"
-
 
 
 
@@ -13132,7 +13119,7 @@ $as_echo "$as_me: using system ltldl" >&6;}
 else
     { $as_echo "$as_me:${as_lineno-$LINENO}: using included ltdl" >&5
 $as_echo "$as_me: using included ltdl" >&6;}
-    ac_config_files="$ac_config_files ../3rdparty/libltdl/Makefile"
+    ac_config_files="$ac_config_files libltdl/Makefile"
 
 fi
  if test "$with_included_ltdl" = "yes"; then
@@ -15564,7 +15551,9 @@ fi
     ac_configure_args="$ac_configure_args --with-zlib $with_idn --with-pic --disable-shared --without-libssh2 --without-librtmp --without-nghttp2 --disable-ftp --disable-file --disable-ldap --disable-ldaps --disable-rtsp --disable-dict --disable-telnet --disable-tftp --disable-pop3 --disable-imap --disable-smtp --disable-gopher"
     LIBCURL="../3rdparty/curl/lib/libcurl.la $link_idn -lz"
     LIBCURL_CPPFLAGS="-I../3rdparty/curl/include"
-    subdirs="$subdirs ../3rdparty/curl"
+
+
+subdirs="$subdirs ../3rdparty/curl"
 
 fi
  if test "$build_curl" = "yes"; then
@@ -17529,7 +17518,7 @@ do
     "depfiles") CONFIG_COMMANDS="$CONFIG_COMMANDS depfiles" ;;
     "config.h") CONFIG_HEADERS="$CONFIG_HEADERS config.h" ;;
     "libtool") CONFIG_COMMANDS="$CONFIG_COMMANDS libtool" ;;
-    "../3rdparty/libltdl/Makefile") CONFIG_FILES="$CONFIG_FILES ../3rdparty/libltdl/Makefile" ;;
+    "libltdl/Makefile") CONFIG_FILES="$CONFIG_FILES libltdl/Makefile" ;;
     "Makefile") CONFIG_FILES="$CONFIG_FILES Makefile" ;;
 
   *) as_fn_error $? "invalid argument: \`$ac_config_target'" "$LINENO" 5;;

@@ -13,15 +13,15 @@ AC_CONFIG_HEADERS([config.h])
 AC_CONFIG_MACRO_DIR([m4])
 
 # libtool/ltdl
-LT_CONFIG_LTDL_DIR([../3rdparty/libltdl])
+LT_CONFIG_LTDL_DIR([libltdl])
 LT_INIT([disable-static dlopen])
-LTDL_INIT([subproject])
+LTDL_INIT([recursive])
 
 if test "$with_included_libltdl" = "no"; then
     AC_MSG_NOTICE([using system ltldl])
 else
     AC_MSG_NOTICE([using included ltdl])
-    AC_CONFIG_FILES([../3rdparty/libltdl/Makefile])
+    AC_CONFIG_FILES([libltdl/Makefile])
 fi
 AM_CONDITIONAL([BUILD_LTDL], [test "$with_included_ltdl" = "yes"])
 
