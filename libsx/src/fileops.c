@@ -83,7 +83,7 @@ static void print_xres(sxc_client_t *sx, sxc_xres_t *xres, const char *msg, cons
         return;
 #if 1
     sxi_info(sx, "%sing %s, %.3f MB completed overall",
-             msg, file, xres->download_bytes / 1048576.0);
+             msg, file, (xres->download_bytes + xres->upload_bytes) / 1048576.0);
 #else
     sxi_info(sx, "%s in progress: %.3f MB completed, current file: %s",
              msg, xres->copy_size / 1048576.0, file);
