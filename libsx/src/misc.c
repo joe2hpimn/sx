@@ -470,7 +470,6 @@ int sxc_set_alias(sxc_client_t *sx, const char *alias, const char *profile, cons
     char *tmp_name = NULL;
     int alias_found = -1;
     int cluster_found = -1;
-    int do_not_change = 0;
 
     if(!sx || !profile || !host || !alias) {
         sxi_seterr(sx, SXE_EARG, "Bad argument");
