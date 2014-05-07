@@ -159,9 +159,17 @@ AC_C_BIGENDIAN()
 # Checks for library functions.
 AC_CHECK_FUNCS([setproctitle memset fdatasync setgroups])
 
-# Checks for sqlite3 flags.
-AC_CHECK_FUNCS([posix_fallocate usleep], [SQLITE3_FLAGS="$SQLITE3_FLAGS [-DHAVE_]AS_TR_CPP($ac_func)[=1]]", [buggy_build=1])
-AC_SUBST(SQLITE3_FLAGS)
+AC_ARG_WITH(system_sqlite3,AC_HELP_STRING([--with-system-sqlite3],
+            [Use system SQLite3]))
+
+if test "x$with_system_sqlite3" == "xyes"; then
+    PKG_CHECK_MODULES([SQLITE3], [sqlite3 >= 3.8.4.3], [], [
+                         AC_MSG_ERROR([System SQLite3 version not found or too old])
+                       ])
+else
+    SQLITE3_CFLAGS="-I../3rdparty/libsqlite3/"
+    SQLITE3_LIBS="../3rdparty/libsqlite3/libsqlite3.la"
+fi
 
 AC_CONFIG_FILES([Makefile])
 AC_OUTPUT
@@ -170,6 +178,12 @@ AC_MSG_NOTICE([Summary])
 echo "    crypto library: $CRYPTO_LIBS"
 MY_STATUS([libfcgi], [$has_sys_fcgi],[$FCGI_CPPFLAGS], [$FCGI_LIBS])
 MY_STATUS([yajl], [$has_sys_yajl], [$YAJL_CPPFLAGS], [$YAJL_LIBS])
+
+use_sys_sqlite3="no"
+if test "x$with_system_sqlite3" = "xyes"; then
+    use_sys_sqlite3="yes"
+fi
+MY_STATUS([sqlite3],[$use_sys_sqlite3], [$SQLITE3_CFLAGS],[$SQLITE3_LIBS])
 cat <<EOF
     Compiler is GCC: $GCC
     Additional CPPFLAGS: $AM_CPPFLAGS

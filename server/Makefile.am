@@ -3,17 +3,12 @@ ACLOCAL_AMFLAGS = -I m4 -I /usr/share/aclocal
 AM_CPPFLAGS += -I $(top_srcdir)/../libsx/include -I $(top_srcdir)/src/common -I $(top_srcdir)/../
 SX_CPPFLAGS=-DDEFAULT_FCGI_CFGFILE=\"$(sysconfdir)/sxserver/sxfcgi.conf\"
 
-noinst_LTLIBRARIES = src/common/libcommon.la src/common/libsqlite3.la
+noinst_LTLIBRARIES = src/common/libcommon.la
+
 noinst_PROGRAMS = test/testfile test/hdist-test
 
 bin_PROGRAMS = src/tools/sxsim/sxsim test/randgen
 sbin_PROGRAMS = src/fcgi/sx.fcgi src/tools/sxreport-server/sxreport-server src/tools/sxadm/sxadm
-
-src_common_libsqlite3_la_SOURCES = src/common/sqlite3.c \
-			       src/common/sqlite3.h
-
-src_common_libsqlite3_la_CPPFLAGS = $(AM_CPPFLAGS) -DSQLITE_OMIT_LOAD_EXTENSION -DSQLITE_THREADSAFE=0 @SQLITE3_FLAGS@
-src_common_libsqlite3_la_LIBTOOLFLAGS = $(AM_LIBTOOLFLAGS) --tag=disable-shared
 
 src_common_libcommon_la_SOURCES = \
 		    include/default.h\
@@ -47,8 +42,9 @@ src_common_libcommon_la_SOURCES = \
 		    src/common/init.c \
 		    src/common/init.h
 
-src_common_libcommon_la_LIBADD = @CRYPTO_LIBS@ @HDIST_LIBS@ src/common/libsqlite3.la $(top_builddir)/../libsx/src/libsx.la
+src_common_libcommon_la_LIBADD = @CRYPTO_LIBS@ @HDIST_LIBS@ @SQLITE3_LIBS@ $(top_builddir)/../libsx/src/libsx.la
 src_common_libcommon_la_CPPFLAGS = $(AM_CPPFLAGS) @CRYPTO_CFLAGS@ @YAJL_CPPFLAGS@
+src_common_libcommon_la_CFLAGS = $(AM_CFLAGS) @SQLITE3_CFLAGS@
 src_common_libcommon_la_LIBTOOLFLAGS = $(AM_LIBTOOLFLAGS) --tag=disable-shared
 
 src_fcgi_sx_fcgi_SOURCES = \
@@ -83,7 +79,7 @@ src_fcgi_sx_fcgi_SOURCES = \
 		    src/fcgi/cmdline.c \
 		    src/fcgi/cmdline.h
 
-src_fcgi_sx_fcgi_CFLAGS = $(AM_CFLAGS) @WNPS_CFLAG@
+src_fcgi_sx_fcgi_CFLAGS = $(AM_CFLAGS) @WNPS_CFLAG@ @SQLITE3_CFLAGS@
 src_fcgi_sx_fcgi_LDADD = src/common/libcommon.la @FCGI_LIBS@ @YAJL_LIBS@ @HDIST_LIBS@ @RESOLV_LIBS@
 src_fcgi_sx_fcgi_CPPFLAGS = $(AM_CPPFLAGS) @FCGI_CPPFLAGS@ @YAJL_CPPFLAGS@ @CRYPTO_CFLAGS@ $(SX_CPPFLAGS)
 
@@ -95,7 +91,7 @@ src_tools_sxadm_sxadm_SOURCES = \
 		    src/tools/sxadm/cmd_node.h\
 		    src/tools/sxadm/cmd_main.c\
 		    src/tools/sxadm/cmd_main.h
-src_tools_sxadm_sxadm_CFLAGS = $(AM_CFLAGS) @WNPS_CFLAG@
+src_tools_sxadm_sxadm_CFLAGS = $(AM_CFLAGS) @WNPS_CFLAG@ @SQLITE3_CFLAGS@
 src_tools_sxadm_sxadm_LDADD = src/common/libcommon.la @YAJL_LIBS@
 src_tools_sxadm_sxadm_CPPFLAGS = $(AM_CPPFLAGS) @YAJL_CPPFLAGS@
 
@@ -106,7 +102,7 @@ src_tools_sxreport_server_sxreport_server_SOURCES = \
 		    src/fcgi/cfgfile.h\
 		    src/tools/sxreport-server/cmd_main.c\
 		    src/tools/sxreport-server/cmd_main.h
-src_tools_sxreport_server_sxreport_server_CFLAGS = $(AM_CFLAGS) @WNPS_CFLAG@
+src_tools_sxreport_server_sxreport_server_CFLAGS = $(AM_CFLAGS) @WNPS_CFLAG@ @SQLITE3_CFLAGS@
 src_tools_sxreport_server_sxreport_server_LDADD = src/common/libcommon.la @YAJL_LIBS@ @FCGI_LIBS@ @HDIST_LIBS@
 src_tools_sxreport_server_sxreport_server_CPPFLAGS = $(AM_CPPFLAGS) @FCGI_CPPFLAGS@ @CRYPTO_CFLAGS@ @YAJL_CPPFLAGS@ $(SX_CPPFLAGS)\
 				       -DINFO_CPPFLAGS="\"$(AM_CPPFLAGS) $(CPPFLAGS) @FCGI_CPPFLAGS@ @CRYPTO_CFLAGS@ @YAJL_CPPFLAGS@\""\

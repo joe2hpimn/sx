@@ -119,7 +119,7 @@ CONFIG_HEADER = config.h
 CONFIG_CLEAN_FILES =
 CONFIG_CLEAN_VPATH_FILES =
 LTLIBRARIES = $(noinst_LTLIBRARIES)
-src_common_libcommon_la_DEPENDENCIES = src/common/libsqlite3.la \
+src_common_libcommon_la_DEPENDENCIES =  \
 	$(top_builddir)/../libsx/src/libsx.la
 am__dirstamp = $(am__leading_dot)dirstamp
 am_src_common_libcommon_la_OBJECTS =  \
@@ -145,17 +145,8 @@ am__v_lt_0 = --silent
 am__v_lt_1 = 
 src_common_libcommon_la_LINK = $(LIBTOOL) $(AM_V_lt) --tag=CC \
 	$(src_common_libcommon_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) \
-	--mode=link $(CCLD) $(AM_CFLAGS) $(CFLAGS) $(AM_LDFLAGS) \
-	$(LDFLAGS) -o $@
-src_common_libsqlite3_la_LIBADD =
-am_src_common_libsqlite3_la_OBJECTS =  \
-	src/common/src_common_libsqlite3_la-sqlite3.lo
-src_common_libsqlite3_la_OBJECTS =  \
-	$(am_src_common_libsqlite3_la_OBJECTS)
-src_common_libsqlite3_la_LINK = $(LIBTOOL) $(AM_V_lt) --tag=CC \
-	$(src_common_libsqlite3_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) \
-	--mode=link $(CCLD) $(AM_CFLAGS) $(CFLAGS) $(AM_LDFLAGS) \
-	$(LDFLAGS) -o $@
+	--mode=link $(CCLD) $(src_common_libcommon_la_CFLAGS) \
+	$(CFLAGS) $(AM_LDFLAGS) $(LDFLAGS) -o $@
 am__installdirs = "$(DESTDIR)$(bindir)" "$(DESTDIR)$(sbindir)"
 PROGRAMS = $(bin_PROGRAMS) $(noinst_PROGRAMS) $(sbin_PROGRAMS)
 am_src_fcgi_sx_fcgi_OBJECTS =  \
@@ -263,14 +254,12 @@ am__v_CCLD_ = $(am__v_CCLD_@AM_DEFAULT_V@)
 am__v_CCLD_0 = @echo "  CCLD    " $@;
 am__v_CCLD_1 = 
 SOURCES = $(src_common_libcommon_la_SOURCES) \
-	$(src_common_libsqlite3_la_SOURCES) \
 	$(src_fcgi_sx_fcgi_SOURCES) $(src_tools_sxadm_sxadm_SOURCES) \
 	$(src_tools_sxreport_server_sxreport_server_SOURCES) \
 	$(src_tools_sxsim_sxsim_SOURCES) $(test_hdist_test_SOURCES) \
 	$(test_printerrno_SOURCES) $(test_randgen_SOURCES) \
 	$(test_testfile_SOURCES)
 DIST_SOURCES = $(src_common_libcommon_la_SOURCES) \
-	$(src_common_libsqlite3_la_SOURCES) \
 	$(src_fcgi_sx_fcgi_SOURCES) $(src_tools_sxadm_sxadm_SOURCES) \
 	$(src_tools_sxreport_server_sxreport_server_SOURCES) \
 	$(src_tools_sxsim_sxsim_SOURCES) $(test_hdist_test_SOURCES) \
@@ -599,7 +588,8 @@ RESOLV_LIBS = @RESOLV_LIBS@
 SED = @SED@
 SET_MAKE = @SET_MAKE@
 SHELL = @SHELL@
-SQLITE3_FLAGS = @SQLITE3_FLAGS@
+SQLITE3_CFLAGS = @SQLITE3_CFLAGS@
+SQLITE3_LIBS = @SQLITE3_LIBS@
 STRIP = @STRIP@
 VERSION = @VERSION@
 WNPS_CFLAG = @WNPS_CFLAG@
@@ -659,12 +649,7 @@ top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
 ACLOCAL_AMFLAGS = -I m4 -I /usr/share/aclocal
 SX_CPPFLAGS = -DDEFAULT_FCGI_CFGFILE=\"$(sysconfdir)/sxserver/sxfcgi.conf\"
-noinst_LTLIBRARIES = src/common/libcommon.la src/common/libsqlite3.la
-src_common_libsqlite3_la_SOURCES = src/common/sqlite3.c \
-			       src/common/sqlite3.h
-
-src_common_libsqlite3_la_CPPFLAGS = $(AM_CPPFLAGS) -DSQLITE_OMIT_LOAD_EXTENSION -DSQLITE_THREADSAFE=0 @SQLITE3_FLAGS@
-src_common_libsqlite3_la_LIBTOOLFLAGS = $(AM_LIBTOOLFLAGS) --tag=disable-shared
+noinst_LTLIBRARIES = src/common/libcommon.la
 src_common_libcommon_la_SOURCES = \
 		    include/default.h\
 		    include/errors.h\
@@ -697,8 +682,9 @@ src_common_libcommon_la_SOURCES = \
 		    src/common/init.c \
 		    src/common/init.h
 
-src_common_libcommon_la_LIBADD = @CRYPTO_LIBS@ @HDIST_LIBS@ src/common/libsqlite3.la $(top_builddir)/../libsx/src/libsx.la
+src_common_libcommon_la_LIBADD = @CRYPTO_LIBS@ @HDIST_LIBS@ @SQLITE3_LIBS@ $(top_builddir)/../libsx/src/libsx.la
 src_common_libcommon_la_CPPFLAGS = $(AM_CPPFLAGS) @CRYPTO_CFLAGS@ @YAJL_CPPFLAGS@
+src_common_libcommon_la_CFLAGS = $(AM_CFLAGS) @SQLITE3_CFLAGS@
 src_common_libcommon_la_LIBTOOLFLAGS = $(AM_LIBTOOLFLAGS) --tag=disable-shared
 src_fcgi_sx_fcgi_SOURCES = \
 		    src/fcgi/fcgi-actions.c \
@@ -732,7 +718,7 @@ src_fcgi_sx_fcgi_SOURCES = \
 		    src/fcgi/cmdline.c \
 		    src/fcgi/cmdline.h
 
-src_fcgi_sx_fcgi_CFLAGS = $(AM_CFLAGS) @WNPS_CFLAG@
+src_fcgi_sx_fcgi_CFLAGS = $(AM_CFLAGS) @WNPS_CFLAG@ @SQLITE3_CFLAGS@
 src_fcgi_sx_fcgi_LDADD = src/common/libcommon.la @FCGI_LIBS@ @YAJL_LIBS@ @HDIST_LIBS@ @RESOLV_LIBS@
 src_fcgi_sx_fcgi_CPPFLAGS = $(AM_CPPFLAGS) @FCGI_CPPFLAGS@ @YAJL_CPPFLAGS@ @CRYPTO_CFLAGS@ $(SX_CPPFLAGS)
 src_tools_sxadm_sxadm_SOURCES = \
@@ -744,7 +730,7 @@ src_tools_sxadm_sxadm_SOURCES = \
 		    src/tools/sxadm/cmd_main.c\
 		    src/tools/sxadm/cmd_main.h
 
-src_tools_sxadm_sxadm_CFLAGS = $(AM_CFLAGS) @WNPS_CFLAG@
+src_tools_sxadm_sxadm_CFLAGS = $(AM_CFLAGS) @WNPS_CFLAG@ @SQLITE3_CFLAGS@
 src_tools_sxadm_sxadm_LDADD = src/common/libcommon.la @YAJL_LIBS@
 src_tools_sxadm_sxadm_CPPFLAGS = $(AM_CPPFLAGS) @YAJL_CPPFLAGS@
 src_tools_sxreport_server_sxreport_server_SOURCES = \
@@ -755,7 +741,7 @@ src_tools_sxreport_server_sxreport_server_SOURCES = \
 		    src/tools/sxreport-server/cmd_main.c\
 		    src/tools/sxreport-server/cmd_main.h
 
-src_tools_sxreport_server_sxreport_server_CFLAGS = $(AM_CFLAGS) @WNPS_CFLAG@
+src_tools_sxreport_server_sxreport_server_CFLAGS = $(AM_CFLAGS) @WNPS_CFLAG@ @SQLITE3_CFLAGS@
 src_tools_sxreport_server_sxreport_server_LDADD = src/common/libcommon.la @YAJL_LIBS@ @FCGI_LIBS@ @HDIST_LIBS@
 src_tools_sxreport_server_sxreport_server_CPPFLAGS = $(AM_CPPFLAGS) @FCGI_CPPFLAGS@ @CRYPTO_CFLAGS@ @YAJL_CPPFLAGS@ $(SX_CPPFLAGS)\
 				       -DINFO_CPPFLAGS="\"$(AM_CPPFLAGS) $(CPPFLAGS) @FCGI_CPPFLAGS@ @CRYPTO_CFLAGS@ @YAJL_CPPFLAGS@\""\
@@ -903,12 +889,6 @@ src/common/src_common_libcommon_la-init.lo:  \
 
 src/common/libcommon.la: $(src_common_libcommon_la_OBJECTS) $(src_common_libcommon_la_DEPENDENCIES) $(EXTRA_src_common_libcommon_la_DEPENDENCIES) src/common/$(am__dirstamp)
 	$(AM_V_CCLD)$(src_common_libcommon_la_LINK)  $(src_common_libcommon_la_OBJECTS) $(src_common_libcommon_la_LIBADD) $(LIBS)
-src/common/src_common_libsqlite3_la-sqlite3.lo:  \
-	src/common/$(am__dirstamp) \
-	src/common/$(DEPDIR)/$(am__dirstamp)
-
-src/common/libsqlite3.la: $(src_common_libsqlite3_la_OBJECTS) $(src_common_libsqlite3_la_DEPENDENCIES) $(EXTRA_src_common_libsqlite3_la_DEPENDENCIES) src/common/$(am__dirstamp)
-	$(AM_V_CCLD)$(src_common_libsqlite3_la_LINK)  $(src_common_libsqlite3_la_OBJECTS) $(src_common_libsqlite3_la_LIBADD) $(LIBS)
 install-binPROGRAMS: $(bin_PROGRAMS)
 	@$(NORMAL_INSTALL)
 	@list='$(bin_PROGRAMS)'; test -n "$(bindir)" || list=; \
@@ -1193,7 +1173,6 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@src/common/$(DEPDIR)/src_common_libcommon_la-sxproc.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/common/$(DEPDIR)/src_common_libcommon_la-utils.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/common/$(DEPDIR)/src_common_libcommon_la-ver.Plo@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@src/common/$(DEPDIR)/src_common_libsqlite3_la-sqlite3.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/common/$(DEPDIR)/src_tools_sxsim_sxsim-hdist.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/common/$(DEPDIR)/src_tools_sxsim_sxsim-isaac.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/fcgi/$(DEPDIR)/src_fcgi_sx_fcgi-blockmgr.Po@am__quote@
@@ -1253,109 +1232,102 @@ distclean-compile:
 @am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LTCOMPILE) -c -o $@ $<
 
 src/common/src_common_libcommon_la-errors.lo: src/common/errors.c
-@am__fastdepCC_TRUE@	$(AM_V_CC)$(LIBTOOL) $(AM_V_lt) --tag=CC $(src_common_libcommon_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_common_libcommon_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT src/common/src_common_libcommon_la-errors.lo -MD -MP -MF src/common/$(DEPDIR)/src_common_libcommon_la-errors.Tpo -c -o src/common/src_common_libcommon_la-errors.lo `test -f 'src/common/errors.c' || echo '$(srcdir)/'`src/common/errors.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(LIBTOOL) $(AM_V_lt) --tag=CC $(src_common_libcommon_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_common_libcommon_la_CPPFLAGS) $(CPPFLAGS) $(src_common_libcommon_la_CFLAGS) $(CFLAGS) -MT src/common/src_common_libcommon_la-errors.lo -MD -MP -MF src/common/$(DEPDIR)/src_common_libcommon_la-errors.Tpo -c -o src/common/src_common_libcommon_la-errors.lo `test -f 'src/common/errors.c' || echo '$(srcdir)/'`src/common/errors.c
 @am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) src/common/$(DEPDIR)/src_common_libcommon_la-errors.Tpo src/common/$(DEPDIR)/src_common_libcommon_la-errors.Plo
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='src/common/errors.c' object='src/common/src_common_libcommon_la-errors.lo' libtool=yes @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CC $(src_common_libcommon_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_common_libcommon_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o src/common/src_common_libcommon_la-errors.lo `test -f 'src/common/errors.c' || echo '$(srcdir)/'`src/common/errors.c
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CC $(src_common_libcommon_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_common_libcommon_la_CPPFLAGS) $(CPPFLAGS) $(src_common_libcommon_la_CFLAGS) $(CFLAGS) -c -o src/common/src_common_libcommon_la-errors.lo `test -f 'src/common/errors.c' || echo '$(srcdir)/'`src/common/errors.c
 
 src/common/src_common_libcommon_la-log.lo: src/common/log.c
-@am__fastdepCC_TRUE@	$(AM_V_CC)$(LIBTOOL) $(AM_V_lt) --tag=CC $(src_common_libcommon_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_common_libcommon_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT src/common/src_common_libcommon_la-log.lo -MD -MP -MF src/common/$(DEPDIR)/src_common_libcommon_la-log.Tpo -c -o src/common/src_common_libcommon_la-log.lo `test -f 'src/common/log.c' || echo '$(srcdir)/'`src/common/log.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(LIBTOOL) $(AM_V_lt) --tag=CC $(src_common_libcommon_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_common_libcommon_la_CPPFLAGS) $(CPPFLAGS) $(src_common_libcommon_la_CFLAGS) $(CFLAGS) -MT src/common/src_common_libcommon_la-log.lo -MD -MP -MF src/common/$(DEPDIR)/src_common_libcommon_la-log.Tpo -c -o src/common/src_common_libcommon_la-log.lo `test -f 'src/common/log.c' || echo '$(srcdir)/'`src/common/log.c
 @am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) src/common/$(DEPDIR)/src_common_libcommon_la-log.Tpo src/common/$(DEPDIR)/src_common_libcommon_la-log.Plo
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='src/common/log.c' object='src/common/src_common_libcommon_la-log.lo' libtool=yes @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CC $(src_common_libcommon_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_common_libcommon_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o src/common/src_common_libcommon_la-log.lo `test -f 'src/common/log.c' || echo '$(srcdir)/'`src/common/log.c
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CC $(src_common_libcommon_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_common_libcommon_la_CPPFLAGS) $(CPPFLAGS) $(src_common_libcommon_la_CFLAGS) $(CFLAGS) -c -o src/common/src_common_libcommon_la-log.lo `test -f 'src/common/log.c' || echo '$(srcdir)/'`src/common/log.c
 
 src/common/src_common_libcommon_la-utils.lo: src/common/utils.c
-@am__fastdepCC_TRUE@	$(AM_V_CC)$(LIBTOOL) $(AM_V_lt) --tag=CC $(src_common_libcommon_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_common_libcommon_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT src/common/src_common_libcommon_la-utils.lo -MD -MP -MF src/common/$(DEPDIR)/src_common_libcommon_la-utils.Tpo -c -o src/common/src_common_libcommon_la-utils.lo `test -f 'src/common/utils.c' || echo '$(srcdir)/'`src/common/utils.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(LIBTOOL) $(AM_V_lt) --tag=CC $(src_common_libcommon_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_common_libcommon_la_CPPFLAGS) $(CPPFLAGS) $(src_common_libcommon_la_CFLAGS) $(CFLAGS) -MT src/common/src_common_libcommon_la-utils.lo -MD -MP -MF src/common/$(DEPDIR)/src_common_libcommon_la-utils.Tpo -c -o src/common/src_common_libcommon_la-utils.lo `test -f 'src/common/utils.c' || echo '$(srcdir)/'`src/common/utils.c
 @am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) src/common/$(DEPDIR)/src_common_libcommon_la-utils.Tpo src/common/$(DEPDIR)/src_common_libcommon_la-utils.Plo
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='src/common/utils.c' object='src/common/src_common_libcommon_la-utils.lo' libtool=yes @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CC $(src_common_libcommon_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_common_libcommon_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o src/common/src_common_libcommon_la-utils.lo `test -f 'src/common/utils.c' || echo '$(srcdir)/'`src/common/utils.c
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CC $(src_common_libcommon_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_common_libcommon_la_CPPFLAGS) $(CPPFLAGS) $(src_common_libcommon_la_CFLAGS) $(CFLAGS) -c -o src/common/src_common_libcommon_la-utils.lo `test -f 'src/common/utils.c' || echo '$(srcdir)/'`src/common/utils.c
 
 src/common/src_common_libcommon_la-blob.lo: src/common/blob.c
-@am__fastdepCC_TRUE@	$(AM_V_CC)$(LIBTOOL) $(AM_V_lt) --tag=CC $(src_common_libcommon_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_common_libcommon_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT src/common/src_common_libcommon_la-blob.lo -MD -MP -MF src/common/$(DEPDIR)/src_common_libcommon_la-blob.Tpo -c -o src/common/src_common_libcommon_la-blob.lo `test -f 'src/common/blob.c' || echo '$(srcdir)/'`src/common/blob.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(LIBTOOL) $(AM_V_lt) --tag=CC $(src_common_libcommon_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_common_libcommon_la_CPPFLAGS) $(CPPFLAGS) $(src_common_libcommon_la_CFLAGS) $(CFLAGS) -MT src/common/src_common_libcommon_la-blob.lo -MD -MP -MF src/common/$(DEPDIR)/src_common_libcommon_la-blob.Tpo -c -o src/common/src_common_libcommon_la-blob.lo `test -f 'src/common/blob.c' || echo '$(srcdir)/'`src/common/blob.c
 @am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) src/common/$(DEPDIR)/src_common_libcommon_la-blob.Tpo src/common/$(DEPDIR)/src_common_libcommon_la-blob.Plo
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='src/common/blob.c' object='src/common/src_common_libcommon_la-blob.lo' libtool=yes @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CC $(src_common_libcommon_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_common_libcommon_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o src/common/src_common_libcommon_la-blob.lo `test -f 'src/common/blob.c' || echo '$(srcdir)/'`src/common/blob.c
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CC $(src_common_libcommon_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_common_libcommon_la_CPPFLAGS) $(CPPFLAGS) $(src_common_libcommon_la_CFLAGS) $(CFLAGS) -c -o src/common/src_common_libcommon_la-blob.lo `test -f 'src/common/blob.c' || echo '$(srcdir)/'`src/common/blob.c
 
 src/common/src_common_libcommon_la-nodes.lo: src/common/nodes.c
-@am__fastdepCC_TRUE@	$(AM_V_CC)$(LIBTOOL) $(AM_V_lt) --tag=CC $(src_common_libcommon_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_common_libcommon_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT src/common/src_common_libcommon_la-nodes.lo -MD -MP -MF src/common/$(DEPDIR)/src_common_libcommon_la-nodes.Tpo -c -o src/common/src_common_libcommon_la-nodes.lo `test -f 'src/common/nodes.c' || echo '$(srcdir)/'`src/common/nodes.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(LIBTOOL) $(AM_V_lt) --tag=CC $(src_common_libcommon_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_common_libcommon_la_CPPFLAGS) $(CPPFLAGS) $(src_common_libcommon_la_CFLAGS) $(CFLAGS) -MT src/common/src_common_libcommon_la-nodes.lo -MD -MP -MF src/common/$(DEPDIR)/src_common_libcommon_la-nodes.Tpo -c -o src/common/src_common_libcommon_la-nodes.lo `test -f 'src/common/nodes.c' || echo '$(srcdir)/'`src/common/nodes.c
 @am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) src/common/$(DEPDIR)/src_common_libcommon_la-nodes.Tpo src/common/$(DEPDIR)/src_common_libcommon_la-nodes.Plo
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='src/common/nodes.c' object='src/common/src_common_libcommon_la-nodes.lo' libtool=yes @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CC $(src_common_libcommon_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_common_libcommon_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o src/common/src_common_libcommon_la-nodes.lo `test -f 'src/common/nodes.c' || echo '$(srcdir)/'`src/common/nodes.c
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CC $(src_common_libcommon_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_common_libcommon_la_CPPFLAGS) $(CPPFLAGS) $(src_common_libcommon_la_CFLAGS) $(CFLAGS) -c -o src/common/src_common_libcommon_la-nodes.lo `test -f 'src/common/nodes.c' || echo '$(srcdir)/'`src/common/nodes.c
 
 src/common/src_common_libcommon_la-hdist.lo: src/common/hdist.c
-@am__fastdepCC_TRUE@	$(AM_V_CC)$(LIBTOOL) $(AM_V_lt) --tag=CC $(src_common_libcommon_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_common_libcommon_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT src/common/src_common_libcommon_la-hdist.lo -MD -MP -MF src/common/$(DEPDIR)/src_common_libcommon_la-hdist.Tpo -c -o src/common/src_common_libcommon_la-hdist.lo `test -f 'src/common/hdist.c' || echo '$(srcdir)/'`src/common/hdist.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(LIBTOOL) $(AM_V_lt) --tag=CC $(src_common_libcommon_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_common_libcommon_la_CPPFLAGS) $(CPPFLAGS) $(src_common_libcommon_la_CFLAGS) $(CFLAGS) -MT src/common/src_common_libcommon_la-hdist.lo -MD -MP -MF src/common/$(DEPDIR)/src_common_libcommon_la-hdist.Tpo -c -o src/common/src_common_libcommon_la-hdist.lo `test -f 'src/common/hdist.c' || echo '$(srcdir)/'`src/common/hdist.c
 @am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) src/common/$(DEPDIR)/src_common_libcommon_la-hdist.Tpo src/common/$(DEPDIR)/src_common_libcommon_la-hdist.Plo
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='src/common/hdist.c' object='src/common/src_common_libcommon_la-hdist.lo' libtool=yes @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CC $(src_common_libcommon_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_common_libcommon_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o src/common/src_common_libcommon_la-hdist.lo `test -f 'src/common/hdist.c' || echo '$(srcdir)/'`src/common/hdist.c
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CC $(src_common_libcommon_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_common_libcommon_la_CPPFLAGS) $(CPPFLAGS) $(src_common_libcommon_la_CFLAGS) $(CFLAGS) -c -o src/common/src_common_libcommon_la-hdist.lo `test -f 'src/common/hdist.c' || echo '$(srcdir)/'`src/common/hdist.c
 
 src/common/src_common_libcommon_la-hashfs.lo: src/common/hashfs.c
-@am__fastdepCC_TRUE@	$(AM_V_CC)$(LIBTOOL) $(AM_V_lt) --tag=CC $(src_common_libcommon_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_common_libcommon_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT src/common/src_common_libcommon_la-hashfs.lo -MD -MP -MF src/common/$(DEPDIR)/src_common_libcommon_la-hashfs.Tpo -c -o src/common/src_common_libcommon_la-hashfs.lo `test -f 'src/common/hashfs.c' || echo '$(srcdir)/'`src/common/hashfs.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(LIBTOOL) $(AM_V_lt) --tag=CC $(src_common_libcommon_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_common_libcommon_la_CPPFLAGS) $(CPPFLAGS) $(src_common_libcommon_la_CFLAGS) $(CFLAGS) -MT src/common/src_common_libcommon_la-hashfs.lo -MD -MP -MF src/common/$(DEPDIR)/src_common_libcommon_la-hashfs.Tpo -c -o src/common/src_common_libcommon_la-hashfs.lo `test -f 'src/common/hashfs.c' || echo '$(srcdir)/'`src/common/hashfs.c
 @am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) src/common/$(DEPDIR)/src_common_libcommon_la-hashfs.Tpo src/common/$(DEPDIR)/src_common_libcommon_la-hashfs.Plo
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='src/common/hashfs.c' object='src/common/src_common_libcommon_la-hashfs.lo' libtool=yes @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CC $(src_common_libcommon_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_common_libcommon_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o src/common/src_common_libcommon_la-hashfs.lo `test -f 'src/common/hashfs.c' || echo '$(srcdir)/'`src/common/hashfs.c
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CC $(src_common_libcommon_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_common_libcommon_la_CPPFLAGS) $(CPPFLAGS) $(src_common_libcommon_la_CFLAGS) $(CFLAGS) -c -o src/common/src_common_libcommon_la-hashfs.lo `test -f 'src/common/hashfs.c' || echo '$(srcdir)/'`src/common/hashfs.c
 
 src/common/src_common_libcommon_la-hashop.lo: src/common/hashop.c
-@am__fastdepCC_TRUE@	$(AM_V_CC)$(LIBTOOL) $(AM_V_lt) --tag=CC $(src_common_libcommon_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_common_libcommon_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT src/common/src_common_libcommon_la-hashop.lo -MD -MP -MF src/common/$(DEPDIR)/src_common_libcommon_la-hashop.Tpo -c -o src/common/src_common_libcommon_la-hashop.lo `test -f 'src/common/hashop.c' || echo '$(srcdir)/'`src/common/hashop.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(LIBTOOL) $(AM_V_lt) --tag=CC $(src_common_libcommon_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_common_libcommon_la_CPPFLAGS) $(CPPFLAGS) $(src_common_libcommon_la_CFLAGS) $(CFLAGS) -MT src/common/src_common_libcommon_la-hashop.lo -MD -MP -MF src/common/$(DEPDIR)/src_common_libcommon_la-hashop.Tpo -c -o src/common/src_common_libcommon_la-hashop.lo `test -f 'src/common/hashop.c' || echo '$(srcdir)/'`src/common/hashop.c
 @am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) src/common/$(DEPDIR)/src_common_libcommon_la-hashop.Tpo src/common/$(DEPDIR)/src_common_libcommon_la-hashop.Plo
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='src/common/hashop.c' object='src/common/src_common_libcommon_la-hashop.lo' libtool=yes @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CC $(src_common_libcommon_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_common_libcommon_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o src/common/src_common_libcommon_la-hashop.lo `test -f 'src/common/hashop.c' || echo '$(srcdir)/'`src/common/hashop.c
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CC $(src_common_libcommon_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_common_libcommon_la_CPPFLAGS) $(CPPFLAGS) $(src_common_libcommon_la_CFLAGS) $(CFLAGS) -c -o src/common/src_common_libcommon_la-hashop.lo `test -f 'src/common/hashop.c' || echo '$(srcdir)/'`src/common/hashop.c
 
 src/common/src_common_libcommon_la-sxdbi.lo: src/common/sxdbi.c
-@am__fastdepCC_TRUE@	$(AM_V_CC)$(LIBTOOL) $(AM_V_lt) --tag=CC $(src_common_libcommon_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_common_libcommon_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT src/common/src_common_libcommon_la-sxdbi.lo -MD -MP -MF src/common/$(DEPDIR)/src_common_libcommon_la-sxdbi.Tpo -c -o src/common/src_common_libcommon_la-sxdbi.lo `test -f 'src/common/sxdbi.c' || echo '$(srcdir)/'`src/common/sxdbi.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(LIBTOOL) $(AM_V_lt) --tag=CC $(src_common_libcommon_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_common_libcommon_la_CPPFLAGS) $(CPPFLAGS) $(src_common_libcommon_la_CFLAGS) $(CFLAGS) -MT src/common/src_common_libcommon_la-sxdbi.lo -MD -MP -MF src/common/$(DEPDIR)/src_common_libcommon_la-sxdbi.Tpo -c -o src/common/src_common_libcommon_la-sxdbi.lo `test -f 'src/common/sxdbi.c' || echo '$(srcdir)/'`src/common/sxdbi.c
 @am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) src/common/$(DEPDIR)/src_common_libcommon_la-sxdbi.Tpo src/common/$(DEPDIR)/src_common_libcommon_la-sxdbi.Plo
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='src/common/sxdbi.c' object='src/common/src_common_libcommon_la-sxdbi.lo' libtool=yes @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CC $(src_common_libcommon_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_common_libcommon_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o src/common/src_common_libcommon_la-sxdbi.lo `test -f 'src/common/sxdbi.c' || echo '$(srcdir)/'`src/common/sxdbi.c
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CC $(src_common_libcommon_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_common_libcommon_la_CPPFLAGS) $(CPPFLAGS) $(src_common_libcommon_la_CFLAGS) $(CFLAGS) -c -o src/common/src_common_libcommon_la-sxdbi.lo `test -f 'src/common/sxdbi.c' || echo '$(srcdir)/'`src/common/sxdbi.c
 
 src/common/src_common_libcommon_la-qsort.lo: src/common/qsort.c
-@am__fastdepCC_TRUE@	$(AM_V_CC)$(LIBTOOL) $(AM_V_lt) --tag=CC $(src_common_libcommon_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_common_libcommon_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT src/common/src_common_libcommon_la-qsort.lo -MD -MP -MF src/common/$(DEPDIR)/src_common_libcommon_la-qsort.Tpo -c -o src/common/src_common_libcommon_la-qsort.lo `test -f 'src/common/qsort.c' || echo '$(srcdir)/'`src/common/qsort.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(LIBTOOL) $(AM_V_lt) --tag=CC $(src_common_libcommon_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_common_libcommon_la_CPPFLAGS) $(CPPFLAGS) $(src_common_libcommon_la_CFLAGS) $(CFLAGS) -MT src/common/src_common_libcommon_la-qsort.lo -MD -MP -MF src/common/$(DEPDIR)/src_common_libcommon_la-qsort.Tpo -c -o src/common/src_common_libcommon_la-qsort.lo `test -f 'src/common/qsort.c' || echo '$(srcdir)/'`src/common/qsort.c
 @am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) src/common/$(DEPDIR)/src_common_libcommon_la-qsort.Tpo src/common/$(DEPDIR)/src_common_libcommon_la-qsort.Plo
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='src/common/qsort.c' object='src/common/src_common_libcommon_la-qsort.lo' libtool=yes @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CC $(src_common_libcommon_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_common_libcommon_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o src/common/src_common_libcommon_la-qsort.lo `test -f 'src/common/qsort.c' || echo '$(srcdir)/'`src/common/qsort.c
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CC $(src_common_libcommon_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_common_libcommon_la_CPPFLAGS) $(CPPFLAGS) $(src_common_libcommon_la_CFLAGS) $(CFLAGS) -c -o src/common/src_common_libcommon_la-qsort.lo `test -f 'src/common/qsort.c' || echo '$(srcdir)/'`src/common/qsort.c
 
 src/common/src_common_libcommon_la-isaac.lo: src/common/isaac.c
-@am__fastdepCC_TRUE@	$(AM_V_CC)$(LIBTOOL) $(AM_V_lt) --tag=CC $(src_common_libcommon_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_common_libcommon_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT src/common/src_common_libcommon_la-isaac.lo -MD -MP -MF src/common/$(DEPDIR)/src_common_libcommon_la-isaac.Tpo -c -o src/common/src_common_libcommon_la-isaac.lo `test -f 'src/common/isaac.c' || echo '$(srcdir)/'`src/common/isaac.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(LIBTOOL) $(AM_V_lt) --tag=CC $(src_common_libcommon_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_common_libcommon_la_CPPFLAGS) $(CPPFLAGS) $(src_common_libcommon_la_CFLAGS) $(CFLAGS) -MT src/common/src_common_libcommon_la-isaac.lo -MD -MP -MF src/common/$(DEPDIR)/src_common_libcommon_la-isaac.Tpo -c -o src/common/src_common_libcommon_la-isaac.lo `test -f 'src/common/isaac.c' || echo '$(srcdir)/'`src/common/isaac.c
 @am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) src/common/$(DEPDIR)/src_common_libcommon_la-isaac.Tpo src/common/$(DEPDIR)/src_common_libcommon_la-isaac.Plo
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='src/common/isaac.c' object='src/common/src_common_libcommon_la-isaac.lo' libtool=yes @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CC $(src_common_libcommon_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_common_libcommon_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o src/common/src_common_libcommon_la-isaac.lo `test -f 'src/common/isaac.c' || echo '$(srcdir)/'`src/common/isaac.c
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CC $(src_common_libcommon_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_common_libcommon_la_CPPFLAGS) $(CPPFLAGS) $(src_common_libcommon_la_CFLAGS) $(CFLAGS) -c -o src/common/src_common_libcommon_la-isaac.lo `test -f 'src/common/isaac.c' || echo '$(srcdir)/'`src/common/isaac.c
 
 src/common/src_common_libcommon_la-ver.lo: src/common/ver.c
-@am__fastdepCC_TRUE@	$(AM_V_CC)$(LIBTOOL) $(AM_V_lt) --tag=CC $(src_common_libcommon_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_common_libcommon_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT src/common/src_common_libcommon_la-ver.lo -MD -MP -MF src/common/$(DEPDIR)/src_common_libcommon_la-ver.Tpo -c -o src/common/src_common_libcommon_la-ver.lo `test -f 'src/common/ver.c' || echo '$(srcdir)/'`src/common/ver.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(LIBTOOL) $(AM_V_lt) --tag=CC $(src_common_libcommon_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_common_libcommon_la_CPPFLAGS) $(CPPFLAGS) $(src_common_libcommon_la_CFLAGS) $(CFLAGS) -MT src/common/src_common_libcommon_la-ver.lo -MD -MP -MF src/common/$(DEPDIR)/src_common_libcommon_la-ver.Tpo -c -o src/common/src_common_libcommon_la-ver.lo `test -f 'src/common/ver.c' || echo '$(srcdir)/'`src/common/ver.c
 @am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) src/common/$(DEPDIR)/src_common_libcommon_la-ver.Tpo src/common/$(DEPDIR)/src_common_libcommon_la-ver.Plo
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='src/common/ver.c' object='src/common/src_common_libcommon_la-ver.lo' libtool=yes @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CC $(src_common_libcommon_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_common_libcommon_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o src/common/src_common_libcommon_la-ver.lo `test -f 'src/common/ver.c' || echo '$(srcdir)/'`src/common/ver.c
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CC $(src_common_libcommon_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_common_libcommon_la_CPPFLAGS) $(CPPFLAGS) $(src_common_libcommon_la_CFLAGS) $(CFLAGS) -c -o src/common/src_common_libcommon_la-ver.lo `test -f 'src/common/ver.c' || echo '$(srcdir)/'`src/common/ver.c
 
 src/common/src_common_libcommon_la-sxproc.lo: src/common/sxproc.c
-@am__fastdepCC_TRUE@	$(AM_V_CC)$(LIBTOOL) $(AM_V_lt) --tag=CC $(src_common_libcommon_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_common_libcommon_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT src/common/src_common_libcommon_la-sxproc.lo -MD -MP -MF src/common/$(DEPDIR)/src_common_libcommon_la-sxproc.Tpo -c -o src/common/src_common_libcommon_la-sxproc.lo `test -f 'src/common/sxproc.c' || echo '$(srcdir)/'`src/common/sxproc.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(LIBTOOL) $(AM_V_lt) --tag=CC $(src_common_libcommon_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_common_libcommon_la_CPPFLAGS) $(CPPFLAGS) $(src_common_libcommon_la_CFLAGS) $(CFLAGS) -MT src/common/src_common_libcommon_la-sxproc.lo -MD -MP -MF src/common/$(DEPDIR)/src_common_libcommon_la-sxproc.Tpo -c -o src/common/src_common_libcommon_la-sxproc.lo `test -f 'src/common/sxproc.c' || echo '$(srcdir)/'`src/common/sxproc.c
 @am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) src/common/$(DEPDIR)/src_common_libcommon_la-sxproc.Tpo src/common/$(DEPDIR)/src_common_libcommon_la-sxproc.Plo
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='src/common/sxproc.c' object='src/common/src_common_libcommon_la-sxproc.lo' libtool=yes @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CC $(src_common_libcommon_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_common_libcommon_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o src/common/src_common_libcommon_la-sxproc.lo `test -f 'src/common/sxproc.c' || echo '$(srcdir)/'`src/common/sxproc.c
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CC $(src_common_libcommon_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_common_libcommon_la_CPPFLAGS) $(CPPFLAGS) $(src_common_libcommon_la_CFLAGS) $(CFLAGS) -c -o src/common/src_common_libcommon_la-sxproc.lo `test -f 'src/common/sxproc.c' || echo '$(srcdir)/'`src/common/sxproc.c
 
 src/common/src_common_libcommon_la-init.lo: src/common/init.c
-@am__fastdepCC_TRUE@	$(AM_V_CC)$(LIBTOOL) $(AM_V_lt) --tag=CC $(src_common_libcommon_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_common_libcommon_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT src/common/src_common_libcommon_la-init.lo -MD -MP -MF src/common/$(DEPDIR)/src_common_libcommon_la-init.Tpo -c -o src/common/src_common_libcommon_la-init.lo `test -f 'src/common/init.c' || echo '$(srcdir)/'`src/common/init.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(LIBTOOL) $(AM_V_lt) --tag=CC $(src_common_libcommon_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_common_libcommon_la_CPPFLAGS) $(CPPFLAGS) $(src_common_libcommon_la_CFLAGS) $(CFLAGS) -MT src/common/src_common_libcommon_la-init.lo -MD -MP -MF src/common/$(DEPDIR)/src_common_libcommon_la-init.Tpo -c -o src/common/src_common_libcommon_la-init.lo `test -f 'src/common/init.c' || echo '$(srcdir)/'`src/common/init.c
 @am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) src/common/$(DEPDIR)/src_common_libcommon_la-init.Tpo src/common/$(DEPDIR)/src_common_libcommon_la-init.Plo
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='src/common/init.c' object='src/common/src_common_libcommon_la-init.lo' libtool=yes @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CC $(src_common_libcommon_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_common_libcommon_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o src/common/src_common_libcommon_la-init.lo `test -f 'src/common/init.c' || echo '$(srcdir)/'`src/common/init.c
-
-src/common/src_common_libsqlite3_la-sqlite3.lo: src/common/sqlite3.c
-@am__fastdepCC_TRUE@	$(AM_V_CC)$(LIBTOOL) $(AM_V_lt) --tag=CC $(src_common_libsqlite3_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_common_libsqlite3_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT src/common/src_common_libsqlite3_la-sqlite3.lo -MD -MP -MF src/common/$(DEPDIR)/src_common_libsqlite3_la-sqlite3.Tpo -c -o src/common/src_common_libsqlite3_la-sqlite3.lo `test -f 'src/common/sqlite3.c' || echo '$(srcdir)/'`src/common/sqlite3.c
-@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) src/common/$(DEPDIR)/src_common_libsqlite3_la-sqlite3.Tpo src/common/$(DEPDIR)/src_common_libsqlite3_la-sqlite3.Plo
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='src/common/sqlite3.c' object='src/common/src_common_libsqlite3_la-sqlite3.lo' libtool=yes @AMDEPBACKSLASH@
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CC $(src_common_libsqlite3_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_common_libsqlite3_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o src/common/src_common_libsqlite3_la-sqlite3.lo `test -f 'src/common/sqlite3.c' || echo '$(srcdir)/'`src/common/sqlite3.c
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CC $(src_common_libcommon_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_common_libcommon_la_CPPFLAGS) $(CPPFLAGS) $(src_common_libcommon_la_CFLAGS) $(CFLAGS) -c -o src/common/src_common_libcommon_la-init.lo `test -f 'src/common/init.c' || echo '$(srcdir)/'`src/common/init.c
 
 src/fcgi/src_fcgi_sx_fcgi-fcgi-actions.o: src/fcgi/fcgi-actions.c
 @am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_fcgi_sx_fcgi_CPPFLAGS) $(CPPFLAGS) $(src_fcgi_sx_fcgi_CFLAGS) $(CFLAGS) -MT src/fcgi/src_fcgi_sx_fcgi-fcgi-actions.o -MD -MP -MF src/fcgi/$(DEPDIR)/src_fcgi_sx_fcgi-fcgi-actions.Tpo -c -o src/fcgi/src_fcgi_sx_fcgi-fcgi-actions.o `test -f 'src/fcgi/fcgi-actions.c' || echo '$(srcdir)/'`src/fcgi/fcgi-actions.c

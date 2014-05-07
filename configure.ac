@@ -44,6 +44,21 @@ if test "$has_sys_yajl" = "no"; then
 fi
 AM_CONDITIONAL([BUILD_YAJL], [test "$has_sys_yajl" = "no"])
 
+AC_ARG_WITH(system_sqlite3, AC_HELP_STRING([--with-system-sqlite3],
+            [Use system SQLite3]))
+
+build_sqlite3="yes"
+if test "x$with_system_sqlite3" = "xyes"; then
+    build_sqlite3="no"
+else
+    AC_CONFIG_SUBDIRS([3rdparty/libsqlite3])
+fi
+
+AM_CONDITIONAL([BUILD_SQLITE3], [test "$build_sqlite3" = "yes"])
+
+AC_SUBST(SQLITE3_LIBS)
+AC_SUBST(SQLITE3_CFLAGS)
+
 AC_CONFIG_SUBDIRS([libsx])
 AC_CONFIG_SUBDIRS([client])
 
