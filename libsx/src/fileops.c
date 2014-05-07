@@ -397,6 +397,7 @@ struct file_upload_ctx {
     unsigned ok;
     unsigned flush_ok;
     unsigned fail;
+    unsigned all_fail;
     sxc_file_t *dest;
     sxc_meta_t *fmeta;
     sxi_query_t *query;
@@ -895,6 +896,10 @@ static int batch_hashes_to_hosts(struct file_upload_ctx *yctx, struct need_hash 
 {
     unsigned i;
     sxc_client_t *sx = yctx->sx;
+    if (yctx->all_fail) {
+        sxi_seterr(sx, SXE_ECOMM, "All replicas have previously failed");
+        return -1;
+    }
     for (i=from;i<size;i++) {
         struct need_hash *need = &needed[i];
         const char *host;
@@ -903,6 +908,7 @@ static int batch_hashes_to_hosts(struct file_upload_ctx *yctx, struct need_hash 
         if (!host) {
             sxi_seterr(sx, SXE_ECOMM, "All replicas have failed");
             SXDEBUG("All replicas have failed");
+            yctx->all_fail = 1;
             return -1;
         }
         if (sxi_retry_check(yctx->current.retry, need->replica) == -1) {
