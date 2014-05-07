@@ -198,6 +198,7 @@ int main(int argc, char **argv) {
 			sxc_file_t* volume_file = NULL;
 			const char *filter_name = NULL;
                         char *human_str = NULL;
+			char repstr[6];
 
 			/* Initialize volume file structure */
 			if(!(volume_file = sxc_file_remote(cluster, vname, NULL))) {
@@ -227,7 +228,8 @@ int main(int argc, char **argv) {
 			    filter_name = "-";
 			}
 
-			printf("    VOL %-3u %10s", vreplica, filter_name);
+			snprintf(repstr, sizeof(repstr), "r:%u", vreplica);
+			printf("    VOL %5s %10s", repstr, filter_name);
 
 			sxc_file_free(volume_file);
 			sxc_meta_free(vmeta);
