@@ -1083,7 +1083,7 @@ static void multi_part_upload_blocks(curlev_context_t *ctx, const char *url)
     int status = sxi_cbdata_result(ctx, NULL);
     if (status != 200) {
         SXDEBUG("query failed: %d", status);
-/*        yctx->fail++;*/
+        yctx->fail++;
         yctx->qret = status;
         if (yctx->current.ref > 0)
             yctx->current.ref--;
