@@ -415,7 +415,6 @@ void sxi_cbdata_finish(curl_events_t *e, curlev_context_t **ctxptr, const char *
                 if (ctx->recv_ctx.reply_status == 429 && ctx->retry.jobs) {
                     if (sxi_job_wait(ctx->conns, ctx->retry.jobs, NULL)) {
                         SXDEBUG("job wait failed");
-                        break;
                     }
                 }
                 sxi_retry_throttle(sx, ctx->retry.retries);
