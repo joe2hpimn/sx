@@ -27,6 +27,7 @@
 #include "sxproto.h"
 #include "vcrypto.h"
 #include "vcryptocurl.h"
+#include "jobpoll.h"
 #include <curl/curl.h>
 #include <errno.h>
 #include <stdlib.h>
@@ -62,6 +63,7 @@ struct retry_ctx {
     retry_cb_t cb;
     sxi_retry_t *retry;
     char *op;
+    sxi_jobs_t *jobs;
 };
 
 struct curlev_context {
@@ -236,7 +238,7 @@ void* sxi_cbdata_get_context(struct curlev_context *ctx)
 
 int sxi_set_retry_cb(curlev_context_t *ctx, const sxi_hostlist_t *hlist, retry_cb_t cb,
                      enum sxi_cluster_verb verb, const char *query, void *content, size_t content_size,
-                     ctx_setup_cb_t setup_callback)
+                     ctx_setup_cb_t setup_callback, sxi_jobs_t *jobs)
 {
     if (ctx) {
         sxc_client_t *sx = sxi_conns_get_client(ctx->conns);
@@ -254,6 +256,7 @@ int sxi_set_retry_cb(curlev_context_t *ctx, const sxi_hostlist_t *hlist, retry_c
             return -1;
         if (!(ctx->retry.retry = sxi_retry_init(sx)))
             return -1;
+        ctx->retry.jobs = jobs;
         return 0;
     }
     return -1;
@@ -409,6 +412,12 @@ void sxi_cbdata_finish(curl_events_t *e, curlev_context_t **ctxptr, const char *
             if (ctx->retry.retries < 2 || ctx->recv_ctx.reply_status == 429) {
                 ctx->retry.retries++;
                 ctx->retry.hostidx = 0;
+                if (ctx->recv_ctx.reply_status == 429 && ctx->retry.jobs) {
+                    if (sxi_job_wait(ctx->conns, ctx->retry.jobs, NULL)) {
+                        SXDEBUG("job wait failed");
+                        break;
+                    }
+                }
                 sxi_retry_throttle(sx, ctx->retry.retries);
             }
         }

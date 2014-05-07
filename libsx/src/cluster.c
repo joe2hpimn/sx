@@ -566,12 +566,13 @@ int sxi_cluster_query_ev_retry(curlev_context_t *cbdata,
                                sxi_conns_t *conns, const sxi_hostlist_t *hlist,
                                enum sxi_cluster_verb verb, const char *query,
                                void *content, size_t content_size,
-                               ctx_setup_cb_t setup_callback, body_cb_t callback)
+                               ctx_setup_cb_t setup_callback, body_cb_t callback,
+                               struct _sxi_jobs_t *jobs)
 {
     if (!cbdata || !conns)
         return -1;
     sxi_set_retry_cb(cbdata, hlist, sxi_cluster_query_ev,
-                     verb, query, content, content_size, setup_callback);
+                     verb, query, content, content_size, setup_callback, jobs);
     return sxi_cluster_query_ev(cbdata, conns, sxi_hostlist_get_host(hlist, 0), verb, query, content, content_size,
                                 setup_callback, callback);
 }

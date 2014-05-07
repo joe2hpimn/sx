@@ -1218,7 +1218,7 @@ static int multi_part_compute_hash_ev(struct file_upload_ctx *yctx)
 
     if(sxi_cluster_query_ev_retry(cbdata, sxi_cluster_get_conns(yctx->cluster), yctx->volhosts,
                                   yctx->query->verb, yctx->query->path, yctx->query->content, yctx->query->content_len,
-                                  createfile_setup_cb, createfile_cb) == -1)
+                                  createfile_setup_cb, createfile_cb, yctx->dest->jobs) == -1)
     {
         SXDEBUG("file create query failed");
         return -1;
@@ -3501,7 +3501,7 @@ static sxi_job_t* remote_to_remote_fast(sxc_file_t *source, sxc_meta_t *fmeta, s
     curlev_context_t *cbdata = sxi_cbdata_create_upload(sxi_cluster_get_conns(dest->cluster), NULL, &yctx);
     if (!cbdata)
         goto remote_to_remote_fast_err;
-    if(sxi_cluster_query_ev_retry(cbdata, sxi_cluster_get_conns(dest->cluster), &volhosts, query->verb, query->path, query->content, query->content_len, createfile_setup_cb, createfile_cb)) {
+    if(sxi_cluster_query_ev_retry(cbdata, sxi_cluster_get_conns(dest->cluster), &volhosts, query->verb, query->path, query->content, query->content_len, createfile_setup_cb, createfile_cb, NULL)) {
 	SXDEBUG("file create query failed");
 	goto remote_to_remote_fast_err;
     }

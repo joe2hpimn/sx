@@ -107,9 +107,11 @@ typedef int (*retry_cb_t)(curlev_context_t *ctx, sxi_conns_t *conns, const char 
                           enum sxi_cluster_verb verb, const char *query,
                           void *content, size_t content_size,
                           ctx_setup_cb_t setup_callback, body_cb_t callback);
+struct _sxi_jobs_t;
 int sxi_set_retry_cb(curlev_context_t *ctx, const sxi_hostlist_t *hlist, retry_cb_t cb,
                      enum sxi_cluster_verb verb, const char *query, void *content, size_t content_size,
-                     ctx_setup_cb_t setup_callback);
+                     ctx_setup_cb_t setup_callback,
+                     struct _sxi_jobs_t *jobs);
 
 void sxi_cbdata_ref(curlev_context_t *ctx);
 void sxi_cbdata_unref(curlev_context_t **ctx);

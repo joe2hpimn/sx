@@ -27,6 +27,7 @@
 #include "sxproto.h"
 #define UUID_LEN 36
 
+struct _sxi_jobs_t;
 typedef struct sxi_hashop sxi_hashop_t;
 typedef struct _sxi_conns_t sxi_conns_t;
 
@@ -68,7 +69,7 @@ int sxi_cluster_query_ev_retry(curlev_context_t *cbdata,
                          enum sxi_cluster_verb verb, const char *query,
                          void *content, size_t content_size,
                          ctx_setup_cb_t setup_callback,
-                         body_cb_t callback);
+                         body_cb_t callback, struct _sxi_jobs_t *jobs);
 int sxi_conns_root_noauth(sxi_conns_t *conns, const char *tmpcafile, int quiet);
 
 int sxi_upload_block_from_buf(sxi_conns_t *conns, sxi_hostlist_t *hlist, const char *token, uint8_t *block, unsigned int block_size, int64_t upload_size);
