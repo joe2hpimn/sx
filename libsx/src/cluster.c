@@ -228,7 +228,18 @@ static void errfn(sxi_conns_t *conns, int reply_code, const char *reason)
         yctx.sx = conns->sx;
         if(yajl_parse(yh, (uint8_t *)reason, strlen(reason)) != yajl_status_ok || yajl_complete_parse(yh) != yajl_status_ok)
             conns_err(SXE_ECOMM, "Cluster query failed with status %d", reply_code);
-        /* else: the parser already set the error in sx */
+        else {
+            /* else: the parser already set the error in sx */
+            if (reply_code == 429) {
+                sxc_client_t *sx = sxi_conns_get_client(conns);
+                char* msg = strdup(sxc_geterrmsg(sx));
+                if (msg) {
+                    sxc_clearerr(sx);
+                    sxi_seterr(sx, SXE_EAGAIN, "%s", msg);
+                    free(msg);
+                }
+            }
+        }
         yajl_free(yh);
     } else
         conns_err(SXE_EMEM, "Cluster query failed: out of memory");

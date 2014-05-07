@@ -1695,6 +1695,7 @@ int sxi_cbdata_result_fail(curlev_context_t* ctx)
 /* message to display to user, in order of increasing priority */
 enum msg_prio {
     MSG_PRIO_NOERROR,
+    MSG_PRIO_SERVER_EAGAIN,
     MSG_PRIO_CURL,
     MSG_PRIO_SERVER,
     MSG_PRIO_AUTH,
@@ -1735,6 +1736,8 @@ static enum msg_prio classify_error(int errnum)
             return MSG_PRIO_CURL;
         case SXE_ECOMM:
             return MSG_PRIO_SERVER;
+        case SXE_EAGAIN:
+            return MSG_PRIO_SERVER_EAGAIN;
         case SXE_EAUTH:
             return MSG_PRIO_AUTH;
         default:

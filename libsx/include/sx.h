@@ -76,6 +76,7 @@ enum sxc_error_t {
     SXE_ETIME,		/* Error retrieving the current time */
     SXE_EFILTER,	/* Filter related error */
     SXE_SKIP,           /* File was skipped */
+    SXE_EAGAIN,         /* Try again later  */
 };
 
 typedef struct _sxc_cluster_t sxc_cluster_t;
