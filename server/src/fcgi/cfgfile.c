@@ -41,7 +41,7 @@ const char *gengetopt_args_info_help[] = {
   "      data-dir=PATH        Path to data directory",
   "      logfile=FILE         Write all log information to FILE",
   "      pidfile=FILE         Write process ID to FILE",
-  "      children=N           Start N children processes  (default=`8')",
+  "      children=N           Start N children processes  (default=`32')",
   "      foreground           Do not daemonize  (default=off)",
   "      debug                Enable debug messages  (default=off)",
   "      run-as=user[:group]  Run as specified user[:group]",
@@ -124,7 +124,7 @@ void clear_args (struct gengetopt_args_info *args_info)
   args_info->logfile_orig = NULL;
   args_info->pidfile_arg = NULL;
   args_info->pidfile_orig = NULL;
-  args_info->children_arg = 8;
+  args_info->children_arg = 32;
   args_info->children_orig = NULL;
   args_info->foreground_flag = 0;
   args_info->debug_flag = 0;
@@ -698,7 +698,7 @@ cmdline_parser_internal (
           
             if (update_arg( (void *)&(args_info->children_arg), 
                  &(args_info->children_orig), &(args_info->children_given),
-                &(local_args_info.children_given), optarg, 0, "8", ARG_INT,
+                &(local_args_info.children_given), optarg, 0, "32", ARG_INT,
                 check_ambiguity, override, 0, 0,
                 "children", '-',
                 additional_error))

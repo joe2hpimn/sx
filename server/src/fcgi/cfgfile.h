@@ -54,7 +54,7 @@ struct gengetopt_args_info
   char * pidfile_arg;	/**< @brief Write process ID to FILE.  */
   char * pidfile_orig;	/**< @brief Write process ID to FILE original value given at command line.  */
   const char *pidfile_help; /**< @brief Write process ID to FILE help description.  */
-  int children_arg;	/**< @brief Start N children processes (default='8').  */
+  int children_arg;	/**< @brief Start N children processes (default='32').  */
   char * children_orig;	/**< @brief Start N children processes original value given at command line.  */
   const char *children_help; /**< @brief Start N children processes help description.  */
   int foreground_flag;	/**< @brief Do not daemonize (default=off).  */

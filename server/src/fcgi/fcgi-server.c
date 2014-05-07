@@ -212,7 +212,7 @@ void print_help(const char *prog)
   "      data-dir=PATH        Path to data directory",
   "      logfile=FILE         Write all log information to FILE",
   "      pidfile=FILE         Write process ID to FILE",
-  "      children=N           Start N children processes  (default=`8')",
+  "      children=N           Start N children processes  (default=`32')",
   "      foreground           Do not daemonize  (default=off)",
   "      debug                Enable debug messages  (default=off)",
   "      run-as=user[:group]  Run as specified user[:group]",

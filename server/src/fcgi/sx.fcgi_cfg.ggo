@@ -19,7 +19,7 @@ option  "pidfile"		- "Write process ID to FILE"
         string typestr="FILE" optional
 
 option  "children"		- "Start N children processes"
-        int default="8" typestr="N" optional
+        int default="32" typestr="N" optional
 
 option  "foreground"		- "Do not daemonize" flag off
 
