@@ -689,6 +689,7 @@ ac_user_opts='
 enable_option_checking
 enable_silent_rules
 enable_maintainer_mode
+with_system_libs
 enable_dependency_tracking
 enable_sxhttpd
 enable_server
@@ -1337,6 +1338,7 @@ Optional Features:
 Optional Packages:
   --with-PACKAGE[=ARG]    use PACKAGE [ARG=yes]
   --without-PACKAGE       do not use PACKAGE (same as --with-PACKAGE=no)
+  --with-system-libs      Use system libraries for everything
   --with-system-sqlite3   Use system SQLite3
 
 Some influential environment variables:
@@ -2497,6 +2499,19 @@ fi
 
 ac_configure_args="$ac_configure_args --enable-shared=libsx,sxclient,sx"
 
+
+
+# Check whether --with-system_libs was given.
+if test "${with_system_libs+set}" = set; then :
+  withval=$with_system_libs;
+fi
+
+
+if test "x$with_system_libs" = "xyes"; then
+    ac_configure_args="$ac_configure_args --without-included-libltdl --with-system-sqlite3"
+    with_system_sqlite3="yes"
+fi
+
 # Libfcgi
 DEPDIR="${am__leading_dot}deps"
 
@@ -3605,6 +3620,9 @@ if test "$build_server" = "no"; then
 fi
 
 if test "$build_libfcgi" = "yes"; then
+    if test "x$with_system_libs" = "xyes"; then
+        as_fn_error $? "Cannot use system libfcgi" "$LINENO" 5
+    fi
 
 
 subdirs="$subdirs 3rdparty/fcgi"
@@ -3677,6 +3695,9 @@ fi
 
 LIBS=$ac_save_LIBS
 if test "$has_sys_yajl" = "no"; then
+    if test "x$with_system_libs" = "xyes"; then
+        as_fn_error $? "Cannot use system libyajl" "$LINENO" 5
+    fi
     subdirs="$subdirs 3rdparty/yajl_build"
 
 fi

@@ -822,6 +822,7 @@ with_included_ltdl
 with_ltdl_include
 with_ltdl_lib
 enable_ltdl_install
+with_system_libs
 with_ssl
 with_nss
 with_libcurl
@@ -1491,8 +1492,9 @@ Optional Packages:
   --with-included-ltdl    use the GNU ltdl sources included here
   --with-ltdl-include=DIR use the ltdl headers installed in DIR
   --with-ltdl-lib=DIR     use the libltdl.la installed in DIR
-      --with-ssl              Use OpenSSL, and require Curl/OpenSSL
-      --with-nss              Use NSS, and require Curl/NSS
+  --with-system-libs      Use system libraries for everything
+  --with-ssl              Use OpenSSL, and require Curl/OpenSSL
+  --with-nss              Use NSS, and require Curl/NSS
   --with-libcurl=PREFIX   look for the curl library in PREFIX/lib and headers
                           in PREFIX/include
 
@@ -13113,10 +13115,20 @@ eval "LTDLOPEN=\"$libname_spec\""
 
 
 
+
+# Check whether --with-system_libs was given.
+if test "${with_system_libs+set}" = set; then :
+  withval=$with_system_libs;
+fi
+
+
 if test "$with_included_libltdl" = "no"; then
     { $as_echo "$as_me:${as_lineno-$LINENO}: using system ltldl" >&5
 $as_echo "$as_me: using system ltldl" >&6;}
 else
+    if test "$with_system_libs" = "yes"; then
+        as_fn_error $? "Cannot use system libltdl" "$LINENO" 5
+    fi
     { $as_echo "$as_me:${as_lineno-$LINENO}: using included ltdl" >&5
 $as_echo "$as_me: using included ltdl" >&6;}
     ac_config_files="$ac_config_files libltdl/Makefile"
@@ -15555,6 +15567,12 @@ fi
 
 subdirs="$subdirs ../3rdparty/curl"
 
+fi
+
+if test "$with_system_libs" = "yes"; then
+    if test "$build_curl" = "yes"; then
+        as_fn_error $? "Cannot use system libcurl" "$LINENO" 5
+    fi
 fi
  if test "$build_curl" = "yes"; then
   BUILD_CURL_TRUE=

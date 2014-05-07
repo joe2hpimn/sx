@@ -17,9 +17,15 @@ LT_CONFIG_LTDL_DIR([libltdl])
 LT_INIT([disable-static dlopen])
 LTDL_INIT([recursive])
 
+AC_ARG_WITH([system_libs],AC_HELP_STRING([--with-system-libs],
+            [Use system libraries for everything]))
+
 if test "$with_included_libltdl" = "no"; then
     AC_MSG_NOTICE([using system ltldl])
 else
+    if test "$with_system_libs" = "yes"; then
+        AC_MSG_ERROR([Cannot use system libltdl])
+    fi
     AC_MSG_NOTICE([using included ltdl])
     AC_CONFIG_FILES([libltdl/Makefile])
 fi
@@ -70,11 +76,9 @@ if test "$ac_cv_have_nftw" = "yes"; then
 fi
 AM_CONDITIONAL([BUILD_NFTW], [test "$ac_cv_have_nftw" = "no"])
 
-AC_ARG_WITH(ssl,dnl
-    AC_HELP_STRING([--with-ssl],[Use OpenSSL, and require Curl/OpenSSL]))
+AC_ARG_WITH(ssl,AC_HELP_STRING([--with-ssl],[Use OpenSSL, and require Curl/OpenSSL]))
 
-AC_ARG_WITH(nss,dnl
-    AC_HELP_STRING([--with-nss],[Use NSS, and require Curl/NSS]),[],[with_nss="no"])
+AC_ARG_WITH(nss,AC_HELP_STRING([--with-nss],[Use NSS, and require Curl/NSS]),[],[with_nss="no"])
 
 # PKG_CHECK_MODULES is conditional, must explicitly run this here
 PKG_PROG_PKG_CONFIG
@@ -192,6 +196,12 @@ if test "x$build_curl" = "xyes"; then
     LIBCURL="../3rdparty/curl/lib/libcurl.la $link_idn -lz"
     LIBCURL_CPPFLAGS="-I../3rdparty/curl/include"
     AC_CONFIG_SUBDIRS([../3rdparty/curl])
+fi
+
+if test "$with_system_libs" = "yes"; then
+    if test "$build_curl" = "yes"; then
+        AC_MSG_ERROR([Cannot use system libcurl])
+    fi
 fi
 AM_CONDITIONAL([BUILD_CURL], [test "$build_curl" = "yes"])
 

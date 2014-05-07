@@ -6,6 +6,15 @@ AM_MAINTAINER_MODE
 
 ac_configure_args="$ac_configure_args --enable-shared=libsx,sxclient,sx"
 
+
+AC_ARG_WITH([system_libs],AC_HELP_STRING([--with-system-libs],
+            [Use system libraries for everything]))
+
+if test "x$with_system_libs" = "xyes"; then
+    ac_configure_args="$ac_configure_args --without-included-libltdl --with-system-sqlite3"
+    with_system_sqlite3="yes"
+fi
+
 # Libfcgi
 AC_CHECK_LIB([fcgi], [FCGX_Accept], [FCGI_LIBS=-lfcgi; build_libfcgi="no"],
              [build_libfcgi="yes"])
@@ -26,6 +35,9 @@ if test "$build_server" = "no"; then
 fi
 
 if test "$build_libfcgi" = "yes"; then
+    if test "x$with_system_libs" = "xyes"; then
+        AC_MSG_ERROR([Cannot use system libfcgi])
+    fi
     AC_CONFIG_SUBDIRS([3rdparty/fcgi])
 fi
 AM_CONDITIONAL([BUILD_LIBFCGI], [test "$build_libfcgi" = "yes"])
@@ -36,10 +48,13 @@ fi
 AM_CONDITIONAL([BUILD_SXHTTPD], [test "$build_sxhttpd" = "yes"])
 
 # Yajl
-AC_CHECK_LIB([yajl], [yajl_complete_parse], [YAJL_LIBS=-lyajl; has_sys_yajl="yes"], 
+AC_CHECK_LIB([yajl], [yajl_complete_parse], [YAJL_LIBS=-lyajl; has_sys_yajl="yes"],
              [has_sys_yajl="no"])
 LIBS=$ac_save_LIBS
 if test "$has_sys_yajl" = "no"; then
+    if test "x$with_system_libs" = "xyes"; then
+        AC_MSG_ERROR([Cannot use system libyajl])
+    fi
     AC_CONFIG_SUBDIRS([3rdparty/yajl_build])
 fi
 AM_CONDITIONAL([BUILD_YAJL], [test "$has_sys_yajl" = "no"])
