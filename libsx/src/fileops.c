@@ -360,7 +360,6 @@ struct part_upload_ctx {
     yajl_callbacks yacb;
     FILE *f;
     char *token;
-    const char *host;
     yajl_handle yh;
     struct cb_error_ctx errctx;
     enum createfile_state { CF_ERROR, CF_BEGIN, CF_MAIN, CF_BS, CF_TOK, CF_DATA, CF_HASH, CF_HOSTS, CF_HOST, CF_COMPLETE } state;
@@ -394,6 +393,7 @@ struct file_upload_ctx {
     struct timeval t2;
     sxc_xres_t *xres;
     struct part_upload_ctx current;
+    char *host;
     unsigned ok;
     unsigned flush_ok;
     unsigned fail;
@@ -622,7 +622,13 @@ static int createfile_setup_cb(curlev_context_t *ctx, const char *host) {
     yactx->current.state = CF_BEGIN;
     free(yactx->current.token);
     yactx->current.token = NULL;
-    yactx->current.host = host;
+    if (!yactx->host) {
+        yactx->host = strdup(host);
+        if (!yactx->host) {
+            sxi_seterr(sx, SXE_EMEM, "Cannot allocate hostname");
+            return 1;
+        }
+    }
     if (yactx->current.f)
         rewind(yactx->current.f);
     return 0;
@@ -868,7 +874,7 @@ static void file_finish(struct file_upload_ctx *yctx)
         return;
     }
     /*  TODO: multiplex flush_file */
-    yctx->job = flush_file_ev(yctx->cluster, yctx->current.host, yctx->current.token, yctx->name, yctx->dest->jobs);
+    yctx->job = flush_file_ev(yctx->cluster, yctx->host, yctx->current.token, yctx->name, yctx->dest->jobs);
     if (!yctx->job) {
         SXDEBUG("fail incremented due to !job");
         yctx->fail++;
@@ -1141,6 +1147,10 @@ static int multi_part_compute_hash_ev(struct file_upload_ctx *yctx)
     } else {
 	fmeta = NULL;
 	yctx->query = sxi_fileadd_proto_begin(sx, ".upload", yctx->cur_token, NULL, yctx->pos, yctx->blocksize, yctx->size);
+        /* extend is only valid on the node that created the file
+         * (same as with flush!) */
+        sxi_hostlist_empty(yctx->volhosts);
+        sxi_hostlist_add_host(sx, yctx->volhosts, yctx->host);
     }
     if(!yctx->query) {
         SXDEBUG("failed to allocate query");
@@ -1747,8 +1757,10 @@ static int local_to_remote_begin(sxc_file_t *source, sxc_meta_t *fmeta, sxc_file
 	if(fname)
 	    unlink(fname);
     }
-    if (yctx)
+    if (yctx) {
         free(yctx->current.token);
+        free(yctx->host);
+    }
 
     if(fname)
 	sxi_tempfile_untrack(sx, fname);
@@ -3632,7 +3644,7 @@ static sxi_job_t* remote_to_remote_fast(sxc_file_t *source, sxc_meta_t *fmeta, s
 	}
     }
 
-    if (!(job = flush_file_ev(dest->cluster, yctx.current.host, yctx.current.token, yctx.name, NULL)))
+    if (!(job = flush_file_ev(dest->cluster, yctx.host, yctx.current.token, yctx.name, NULL)))
 	goto remote_to_remote_fast_err;
 
     if(xres) {
