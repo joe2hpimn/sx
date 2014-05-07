@@ -622,12 +622,12 @@ static int createfile_setup_cb(curlev_context_t *ctx, const char *host) {
     yactx->current.state = CF_BEGIN;
     free(yactx->current.token);
     yactx->current.token = NULL;
+    if (yactx->host)
+        free(yactx->host);
+    yactx->host = strdup(host);
     if (!yactx->host) {
-        yactx->host = strdup(host);
-        if (!yactx->host) {
-            sxi_seterr(sx, SXE_EMEM, "Cannot allocate hostname");
-            return 1;
-        }
+        sxi_seterr(sx, SXE_EMEM, "Cannot allocate hostname");
+        return 1;
     }
     if (yactx->current.f)
         rewind(yactx->current.f);
