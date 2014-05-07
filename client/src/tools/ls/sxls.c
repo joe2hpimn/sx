@@ -153,6 +153,14 @@ int main(int argc, char **argv) {
     sxc_set_verbose(sx, args.verbose_flag);
     sxc_set_debug(sx, args.debug_flag);
 
+    if(args.long_format_given) {
+	if(setup_filters(sx, args.filter_dir_arg) ) {
+	    cmdline_parser_free(&args);
+	    return 1;
+	}
+	filters = sxc_filter_list(sx, &filters_count);
+    }
+
     for(i = 0; i < args.inputs_num; i++) {
 	u = sxc_parse_uri(sx, args.inputs[i]);
 	if(!u) {
@@ -167,22 +175,6 @@ int main(int argc, char **argv) {
 	    sxc_free_uri(u);
 	    ret = 1;
 	    continue;
-	}
-
-	if(args.long_format_given) {
-	    if(setup_filters(sx, args.filter_dir_arg) ) {
-		sxc_free_uri(u);
-		ret = 1;
-		continue;
-	    }
-
-	    filters = sxc_filter_list(sx, &filters_count);
-	    if(!filters) {
-	    	fprintf(stderr, "Failed to load filters\n");
-		sxc_free_uri(u);
-		ret = 1;
-		continue;
-	    }
 	}
 
 	if(!u->volume) {
