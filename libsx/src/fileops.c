@@ -1488,7 +1488,6 @@ static int local_to_remote_begin(sxc_file_t *source, sxc_meta_t *fmeta, sxc_file
 
     if (maybe_append_path(dest, source, recursive))
         return 1;
-    print_xres(sx, xres, "Upload", dest->path);
 
     if (!(yctx = calloc(1, sizeof(*yctx)))) {
         sxi_seterr(sx, SXE_EMEM, "Copy failed: out of memory");
@@ -1517,6 +1516,7 @@ static int local_to_remote_begin(sxc_file_t *source, sxc_meta_t *fmeta, sxc_file
         goto local_to_remote_err;
     }
 
+    print_xres(sx, xres, "Upload", dest->path);
     if(!S_ISREG(st.st_mode) && !S_ISBLK(st.st_mode)) {
 	sxc_file_t *tsource;
 	if(!(fname = sxi_tempfile_track(source->sx, NULL, &yctx->current.f))) {
