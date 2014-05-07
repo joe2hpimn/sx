@@ -45,7 +45,6 @@
 #include <unistd.h>
 #include <ftw.h>
 #include "isaac.h"
-#include "3rdparty/valgrind/valgrind/memcheck.h"
 #include "../libsx/src/misc.h"
 #include "../libsx/src/vcrypto.h"
 
@@ -286,7 +285,7 @@ void uuid_generate(sx_uuid_t *u) {
     unsigned int i, seed;
     isaac_ctx is;
 
-    VALGRIND_MAKE_MEM_DEFINED(&is, sizeof(is));
+    memset(&is, 0, sizeof(is));
     gettimeofday(&t, NULL);
     seed = t.tv_sec ^ (t.tv_usec << 7) ^ (getpid() << 19) ^ ((uint64_t)(&seed) >> 4);
     isaac_seed(&is, seed);
