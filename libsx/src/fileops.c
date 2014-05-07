@@ -909,10 +909,12 @@ static int batch_hashes_to_hosts(struct file_upload_ctx *yctx, struct need_hash 
             sxi_seterr(sx, SXE_ECOMM, "All replicas have failed");
             SXDEBUG("All replicas have failed");
             yctx->all_fail = 1;
+            yctx->fail++;
             return -1;
         }
         if (sxi_retry_check(yctx->current.retry, need->replica) == -1) {
             SXDEBUG("retry_check failed");
+            yctx->fail++;
             return -1;
         }
         sxi_set_operation(sx, "file block upload", NULL, NULL, NULL);
@@ -1083,6 +1085,8 @@ static void multi_part_upload_blocks(curlev_context_t *ctx, const char *url)
         SXDEBUG("query failed: %d", status);
 /*        yctx->fail++;*/
         yctx->qret = status;
+        if (yctx->current.ref > 0)
+            yctx->current.ref--;
         return;
     }
     SXDEBUG("in multi_part_upload_blocks");
@@ -1093,6 +1097,8 @@ static void multi_part_upload_blocks(curlev_context_t *ctx, const char *url)
         }
         SXDEBUG("fail incremented, after parse");
         yctx->fail++;
+        if (yctx->current.ref > 0)
+            yctx->current.ref--;
         return;
     }
     SXDEBUG("need: %d hashes", yctx->current.needed_cnt);
