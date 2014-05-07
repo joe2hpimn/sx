@@ -1220,6 +1220,7 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
     }
     /* reset sqlite3's PRNG, to avoid generating colliding tempfile names in
      * forked processes */
+    sqlite3_initialize();
     sqlite3_test_control(SQLITE_TESTCTRL_PRNG_RESET);
     /* reset OpenSSL's PRNG otherwise it'll share state after a fork */
     sxi_rand_cleanup();
@@ -1491,7 +1492,7 @@ open_hashfs_fail:
     sqlite3_finalize(q);
 
     close_all_dbs(h);
-
+    sqlite3_shutdown();
     free(h->blockbuf);
     free(h);
     return NULL;
@@ -1572,6 +1573,7 @@ void sx_hashfs_close(sx_hashfs_t *h) {
     */
     if(h->sx_clust)
 	sxi_conns_free(h->sx_clust);
+    sqlite3_shutdown();
     free(h->ssl_ca_file);
     free(h->cluster_name);
     free(h->dir);
