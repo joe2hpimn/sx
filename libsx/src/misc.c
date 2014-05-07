@@ -619,11 +619,28 @@ sxc_uri_t *sxc_parse_uri(sxc_client_t *sx, const char *uri) {
                 break;
             }
         }
-    } 
+	if(!tmp_uri) {
+	    if(tmp_volume) {
+		len = tmp_volume - uri;
+		p = malloc(len + 1);
+		if(p) {
+		    strncpy(p, uri, len);
+		    sxi_seterr(sx, SXE_EMEM, "Alias '%s' doesn't exist", p);
+		    free(p);
+		} else {
+                    sxi_seterr(sx, SXE_EMEM, "Could not allocate memory");
+                }
+	    } else {
+		sxi_seterr(sx, SXE_EMEM, "Alias '%s' doesn't exist", uri);
+	    }
+	    return NULL;
+	}
+    }
 
     if(len <= lenof(SXPROTO) || strncmp(SXPROTO, uri, lenof(SXPROTO))) {
         SXDEBUG("URI '%s' is too short", uri);
         sxi_seterr(sx, SXE_EARG, "Cannot parse URL '%s': invalid argument", uri);
+        free(tmp_uri);
         return NULL;
     }
 

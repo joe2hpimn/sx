@@ -69,7 +69,7 @@ static sxc_file_t *sxfile_from_arg(sxc_cluster_t **cluster, const char *arg) {
 	sxc_uri_t *uri = sxc_parse_uri(sx, arg);
 
 	if(!uri) {
-	    fprintf(stderr, "Bad uri %s: %s", arg, sxc_geterrmsg(sx));
+	    fprintf(stderr, "Bad uri %s: %s\n", arg, sxc_geterrmsg(sx));
 	    return NULL;
 	}
 	if(!uri->volume) {
