@@ -31,6 +31,7 @@ features.\\
 
 \section*{Useful links}
 \begin{itemize}
+    \item \url{http://cdn.skylable.com/packages/}
     \item \url{http://lists.skylable.com}
     \item \url{https://bugzilla.skylable.com}
     \item \url{http://wiki.skylable.com}
@@ -42,15 +43,18 @@ features.\\
 
 Skylable \SX is tested on all popular UNIX platforms, including Linux,
 FreeBSD, and Mac OS X. We try to support as many platforms as possible,
-if you have troubles compiling or running our software on your platform
-please open a bug report.\\
+if you have troubles installing, compiling or running our software on
+your platform please open a bug report.\\
+
+The latest binary packages are available at\\
+\url{http://cdn.skylable.com/packages/}\\
 
 In order to compile \SX from source, you
 will need the following packages to be installed together with their
 development versions:
 \begin{itemize}
-    \item OpenSSL
-    \item libcurl
+    \item OpenSSL/NSS
+    \item libcurl >= 7.34.0 (otherwise the embedded one will be used)
 \end{itemize}
 For example, on Debian run:
 \small

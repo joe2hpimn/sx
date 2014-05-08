@@ -1,0 +1,23 @@
+0.2 (Second Beta)
+-----------------
+
+Changes in this release include:
+
+  * Support for building with either NSS or OpenSSL
+  * Minimum Curl version supported is now 7.34.0 (configure will use the
+    embedded version if the system's one is not supported - this allows
+    out-of-box build on CentOS 6)
+  * aes256 filter now generates per-volume salts; in order to preserve
+    deduplication support across different volumes using the same password
+    you can force a static salt, eg. --filter aes256="salt:af6a812ad0b1cb22"
+  * sxinit --force-reinit support (to recreate the entire local cluster config)
+  * sxinit --list support (to list all configured clusters and profiles)
+  * sxinit --alias support (to assign an alias for easy access), see
+    https://wiki.skylable.com/wiki/Sxinit#Aliases
+  * sxls -l now also lists filters used by volumes
+  * Other bugfixes and improvements
+
+0.1 (First Beta)
+----------------
+
+Initial public release of Skylable SX.
