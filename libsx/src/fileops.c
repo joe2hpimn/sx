@@ -1759,8 +1759,8 @@ static int local_to_remote_begin(sxc_file_t *source, sxc_meta_t *fmeta, sxc_file
     }
     if (yctx) {
         free(yctx->current.token);
-        free(yctx->host);
     }
+    free(state.host);
 
     if(fname)
 	sxi_tempfile_untrack(sx, fname);
