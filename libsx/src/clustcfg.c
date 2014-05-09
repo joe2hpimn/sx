@@ -534,6 +534,19 @@ sxc_cluster_t *sxc_cluster_load(sxc_client_t *sx, const char *config_dir, const 
     return NULL;
 }
 
+int64_t sxc_cluster_get_bandwidth_limit(const sxc_cluster_t *cluster) {
+    if(!cluster)
+        return -1;
+
+    return sxi_conns_get_bandwidth_limit(cluster->conns);
+}
+
+int sxc_cluster_set_bandwidth_limit(sxc_cluster_t *cluster, int64_t bandwidth_limit) {
+    if(!cluster || !cluster->conns)
+        return 1;
+        
+    return sxi_conns_set_bandwidth_limit(cluster->conns, bandwidth_limit);
+}
 
 struct cb_fetchnodes_ctx {
     sxc_client_t *sx;
