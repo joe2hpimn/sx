@@ -139,4 +139,13 @@ int sxi_curlev_verify_peer(curlev_t *ev);
 
 int sxi_curlev_disable_proxy(curl_events_t *ev);
 
+/* 
+ * Set bandwidth limit for CURL event. 
+ * global_bandwidth_limit - limit shared by all connections
+ * host_count - number of hosts sharing bandwidth limit 
+ * running - number of transfers running 
+ */
+int sxi_curlev_set_bandwidth_limit(curl_events_t *e, int64_t global_bandwidth_limit, unsigned int host_count, unsigned int running);
+/* Get local bandwidth limit for given connection */
+int64_t sxi_curlev_get_bandwidth_limit(const curl_events_t *e);
 #endif

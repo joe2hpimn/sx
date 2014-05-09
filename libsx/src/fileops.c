@@ -405,6 +405,9 @@ struct file_upload_ctx {
     /* only one part upload active at any on time.
      * This is to keep uploaded blocks sorted properly
      */
+
+    int upload_limit; /* Upload bandwidth limit */
+    int download_limit; /* Download bandwidth limit */
 };
 
 struct host_upload_ctx {
@@ -2767,6 +2770,7 @@ static int multi_download(struct batch_hashes *bh, const char *dstname,
         free(buf);
         return 1;
     }
+
     for(host_retry=0;retry && requested;host_retry++) {
       unsigned i;
       unsigned loop = 0;
@@ -2845,7 +2849,7 @@ static int multi_download(struct batch_hashes *bh, const char *dstname,
             dctx->dldblks = &transferred;
             dctx->queries_finished = &finished;
             dctx->blocksize = blocksize;
-            dctx->hashes.hashes = bh->hashes;
+            dctx->hashes.hashes = bh->hashes; 
         } else
             dctx = sxi_cbdata_get_download_ctx(cbdata);
         if (!dctx)

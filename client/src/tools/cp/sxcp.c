@@ -33,6 +33,7 @@
 #include <signal.h>
 #include <termios.h>
 #include <unistd.h>
+#include <ctype.h>
 
 #include "sx.h"
 #include "cmdline.h"
@@ -102,6 +103,50 @@ static sxc_file_t *sxfile_from_arg(sxc_cluster_t **cluster, const char *arg) {
     return file;
 }
 
+/* Return > 0 if given bandwidth limit argument could be properly parsed */
+static int process_bandwidth_arg(const char *str) {
+    int len = 0;
+    int64_t value = 0;
+    int i = 0, j = 0;
+    char units[] = { 'K', 'k', 'M', 'm', 'G', 'g'};
+    int units_size = sizeof(units) / sizeof(char);
+    if(!str|| !(len = strlen(str)))
+        return -1;
+
+    /* Check if unit is given */
+    for(i = 0; i < units_size; i++) {
+        if(str[len - 1] == units[i]) {
+            /* Unit found, break the loop if len is greater that 0 */
+            len--;
+            if(!len)
+                return -1;
+            else
+                break;
+        }
+    }
+
+    /* Check if number consist of digits only */
+    for(j = len - 1; j >= 0; j--) {
+        if(!isdigit(str[j])) {
+            return -1;
+        }
+    }
+
+    /* Get value and check if it is positive */
+    value = atoll(str);
+    if(value < 0) 
+        return -1;
+
+    if(i < units_size) {
+        for(j = 0; j <= i / 2; j++) {
+            value *= 1024;
+        }
+    } else {
+        value *= 1024;
+    }
+
+    return value;
+}
 
 int main(int argc, char **argv) {
     unsigned int all, requested, transferred;
@@ -112,6 +157,7 @@ int main(int argc, char **argv) {
     sxc_xres_t *xres = NULL;
     sxc_logger_t log;
     sxc_cluster_t *cluster1 = NULL, *cluster2 = NULL;
+    int64_t limit = 0;
 
     if(cmdline_parser(argc, argv, &args))
 	exit(1);
@@ -145,6 +191,16 @@ int main(int argc, char **argv) {
     sxc_set_debug(sx, args.debug_flag);
     sxc_set_verbose(sx, args.verbose_flag);
 
+    if(args.bwlimit_given) {
+        limit = process_bandwidth_arg(args.bwlimit_arg);
+        if(limit < 0) {
+            fprintf(stderr, "Could not parse bandwidth limit argument (see --help)\n");
+            cmdline_parser_free(&args);
+            sxc_shutdown(sx, 0);
+            return 1;
+        }
+    }
+
     if(args.filter_dir_given) {
 	filter_dir = strdup(args.filter_dir_arg);
     } else {
@@ -157,6 +213,7 @@ int main(int argc, char **argv) {
     if(!filter_dir) {
 	fprintf(stderr, "Failed to set filter dir\n");
 	cmdline_parser_free(&args);
+        sxc_shutdown(sx, 0);
 	return 1;
     }
     sxc_filter_loadall(sx, filter_dir);
@@ -167,6 +224,11 @@ int main(int argc, char **argv) {
 	fname = "/dev/stdout";
     if(!(dst_file = sxfile_from_arg(&cluster1, fname)))
 	goto main_err;
+
+    if(limit && cluster1 && sxc_cluster_set_bandwidth_limit(cluster1, limit)) {
+        fprintf(stderr, "Failed to set bandwidth limit to %s\n", args.bwlimit_arg);
+        goto main_err;
+    }
 
     if (args.inputs_num > 2 &&
         sxc_file_require_dir(dst_file)) {
@@ -180,6 +242,11 @@ int main(int argc, char **argv) {
             fname = "/dev/stdin";
         if(!(src_file = sxfile_from_arg(&cluster2, fname)))
             goto main_err;
+
+        if(limit && cluster2 && sxc_cluster_set_bandwidth_limit(cluster2, limit)) {
+            fprintf(stderr, "Failed to set bandwidth limit to %s\n", args.bwlimit_arg);
+            goto main_err;
+        }
 
         /* TODO: more than one input requires directory as target,
          * and do the filename appending if target *is* a directory */

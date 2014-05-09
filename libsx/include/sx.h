@@ -107,6 +107,11 @@ int sxc_cluster_remove(sxc_cluster_t *cluster, const char *config_dir);
 int sxc_cluster_fetchnodes(sxc_cluster_t *cluster);
 sxc_cluster_t *sxc_cluster_load_and_update(sxc_client_t *sx, const char *config_dir, const char *cluster_name, const char *profile_name);
 
+/* Set upload and download transfer bandwidth in bits per second */
+int sxc_cluster_set_bandwidth_limit(sxc_cluster_t *cluster, int64_t bandwidth_limit);
+/* Get upload and download transfer bandwidth in bits per second */
+int64_t sxc_cluster_get_bandwidth_limit(const sxc_cluster_t *cluster);
+
 int sxc_cluster_trigger_gc(sxc_cluster_t *cluster);
 
 typedef struct _sxc_cluster_lu_t sxc_cluster_lu_t;
