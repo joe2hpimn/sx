@@ -98,9 +98,9 @@ static int list_clusters(sxc_client_t *sx, const char *config_dir) {
                     }
                     snprintf(left, left_len, "sx://%s@%s", profile_dirent->d_name, cluster_dirent->d_name);
                     if(alias) 
-                        fprintf(stderr, "%-40s %s\n", left, alias);
+                        printf("%-40s %s\n", left, alias);
                     else
-                        fprintf(stderr, "%-40s %s\n", left, "-");
+                        printf("%-40s %s\n", left, "-");
                     free(left);
                 }
             }
