@@ -143,7 +143,8 @@ void sxc_shutdown(sxc_client_t *sx, int signal) {
     int i;
     if(!sx)
 	return;
-    sxi_clear_operation(sx);
+    if(!signal)
+        sxi_clear_operation(sx);
     if(sx->temptrack.slots) {
 	for(i = 0; i < sx->temptrack.slots; i++) {
 	    if(sx->temptrack.names[i]) {
@@ -157,12 +158,12 @@ void sxc_shutdown(sxc_client_t *sx, int signal) {
 	    free(sx->temptrack.names);
     }
 
-    /* See sxc_set_confdir */
-    free(sx->confdir);
-    sxi_free_aliases(sx->alias);
-    free(sx->alias);
-
     if(!signal) {
+        /* See sxc_set_confdir */
+        free(sx->confdir);
+        sxi_free_aliases(sx->alias);
+        free(sx->alias);
+
         if (sx->log.func && sx->log.func->close) {
             sx->log.func->close(sx->log.func->ctx);
         }
