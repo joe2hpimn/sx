@@ -245,7 +245,7 @@ static void errfn(sxi_conns_t *conns, int reply_code, const char *reason)
         conns_err(SXE_EMEM, "Cluster query failed: out of memory");
 }
 
-static enum head_result head_cb(sxi_conns_t *conns, char *ptr, size_t size, size_t nmemb) {
+static enum head_result head_cb(sxi_conns_t *conns, long http_status, char *ptr, size_t size, size_t nmemb) {
     size_t vlen = size * nmemb, klen;
     const char *v;
 
@@ -308,41 +308,43 @@ static enum head_result head_cb(sxi_conns_t *conns, char *ptr, size_t size, size
         return HEAD_SEEN;
     }
 
-    if(klen == lenof("date:") && !strncasecmp(ptr, "date:", lenof("date:"))) {
-	char datestr[32];
-	time_t mine, their;
+    if(http_status == 401) {
+	if(klen == lenof("date:") && !strncasecmp(ptr, "date:", lenof("date:"))) {
+	    char datestr[32];
+	    time_t mine, their;
 
-	if(vlen >= sizeof(datestr)) {
-	    CLSTDEBUG("got bogus date from server");
-	    conns_err(SXE_ECOMM, "Bad Date from server");
-	    return HEAD_FAIL;
+	    if(vlen >= sizeof(datestr)) {
+		CLSTDEBUG("got bogus date from server");
+		conns_err(SXE_ECOMM, "Bad Date from server");
+		return HEAD_FAIL;
+	    }
+
+	    memcpy(datestr, v, vlen);
+	    datestr[vlen] = '\0';
+
+	    mine = time(NULL);
+	    if(mine == (time_t) -1) {
+		CLSTDEBUG("time query failed");
+		conns_err(SXE_ETIME, "Cannot retrieve current time");
+		return HEAD_FAIL;
+	    }
+
+	    their = curl_getdate(datestr, NULL);
+	    if(their == (time_t) -1) {
+		CLSTDEBUG("got bogus date from server");
+		conns_err(SXE_ECOMM, "Bad Date from server");
+		return HEAD_FAIL;
+	    }
+
+	    sxi_conns_set_timediff(conns, their - mine);
+	    return HEAD_OK;
 	}
 
-	memcpy(datestr, v, vlen);
-	datestr[vlen] = '\0';
-
-	mine = time(NULL);
-	if(mine == (time_t) -1) {
-	    CLSTDEBUG("time query failed");
-	    conns_err(SXE_ETIME, "Cannot retrieve current time");
-	    return HEAD_FAIL;
+	if(klen == lenof("WWW-Authenticate:") && !strncasecmp(ptr, "WWW-Authenticate:", lenof("WWW-Authenticate:")) &&
+	   vlen == lenof("SKY realm=\"SXCLOCK\"") && !strncasecmp(v, "SKY realm=\"SXCLOCK\"", lenof("SKY realm=\"SXCLOCK\""))) {
+	    conns->clock_drifted = 1;
+	    return HEAD_OK;
 	}
-
-	their = curl_getdate(datestr, NULL);
-	if(their == (time_t) -1) {
-	    CLSTDEBUG("got bogus date from server");
-	    conns_err(SXE_ECOMM, "Bad Date from server");
-	    return HEAD_FAIL;
-	}
-
-	sxi_conns_set_timediff(conns, their - mine);
-	return HEAD_OK;
-    }
-
-    if(klen == lenof("WWW-Authenticate:") && !strncasecmp(ptr, "WWW-Authenticate:", lenof("WWW-Authenticate:")) &&
-       vlen == lenof("SKY realm=\"SXCLOCK\"") && !strncasecmp(v, "SKY realm=\"SXCLOCK\"", lenof("SKY realm=\"SXCLOCK\""))) {
-	conns->clock_drifted = 1;
-	return HEAD_OK;
     }
 
     return HEAD_OK;

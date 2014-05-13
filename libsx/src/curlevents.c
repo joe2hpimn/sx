@@ -545,7 +545,7 @@ static size_t headfn(void *ptr, size_t size, size_t nmemb, curlev_t *ev)
     }
     if (!ev->head)
         return size * nmemb;
-    switch (ev->head(ctx->conns, ptr, size, nmemb)) {
+    switch (ev->head(ctx->conns, rctx->reply_status, ptr, size, nmemb)) {
         case HEAD_SEEN:
             rctx->header_seen = 1;
             /* fall-through */

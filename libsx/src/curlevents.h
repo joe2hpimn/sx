@@ -31,7 +31,7 @@
 enum head_result { HEAD_OK, HEAD_FAIL, HEAD_SEEN };
 
 typedef void (*finish_cb_t)(curlev_context_t *ctx, const char *url);
-typedef enum head_result (*head_cb_t)(sxi_conns_t *conns, char *ptr, size_t size, size_t nmemb);
+typedef enum head_result (*head_cb_t)(sxi_conns_t *conns, long http_status, char *ptr, size_t size, size_t nmemb);
 typedef void (*error_cb_t)(sxi_conns_t *conns, int reply_code, const char *reason);
 
 typedef struct {
