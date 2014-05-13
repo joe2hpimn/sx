@@ -730,7 +730,7 @@ if [ ! -f "$SX_DATA_DIR/data/cluster.key" ]; then
         (
         set -x
         "@sbindir@/sxadm" node --new\
-            --batch-mode --run-as="$SX_SERVER_USER:$SX_SERVER_GROUP"\
+            --batch-mode --owner="$SX_SERVER_USER:$SX_SERVER_GROUP"\
             $FORCEUUID "$SX_DATA_DIR/data"
         )
 	if [ $? -ne 0 ]; then
@@ -822,7 +822,7 @@ if [ ! -f "$SX_DATA_DIR/data/cluster.key" ]; then
         (
         set -x
         "@sbindir@/sxadm" node --new\
-            --batch-mode --run-as="$SX_SERVER_USER:$SX_SERVER_GROUP"\
+            --batch-mode --owner="$SX_SERVER_USER:$SX_SERVER_GROUP"\
 	    --cluster-uuid="$SXUUID"\
 	    --key="$SX_DATA_DIR/cluster.key"\
             "$SX_DATA_DIR/data"
@@ -872,7 +872,7 @@ else
     # TODO loopback but remember what I typed
 fi
 
-"@sbindir@/sxadm" node --run-as="$SX_SERVER_USER:$SX_SERVER_GROUP" --info "$SX_DATA_DIR/data"
+"@sbindir@/sxadm" node --info "$SX_DATA_DIR/data"
 
 rm -f $OUT_TMP; rm -f $KEY_TMP; rm -f $CERT_TMP
 trap - EXIT INT

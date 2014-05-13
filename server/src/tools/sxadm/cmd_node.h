@@ -49,9 +49,9 @@ struct node_args_info
   char * key_orig;	/**< @brief File containing a pre-generated cluster authentication token or stdin if \"-\" is given (default autogenerate token). original value given at command line.  */
   const char *key_help; /**< @brief File containing a pre-generated cluster authentication token or stdin if \"-\" is given (default autogenerate token). help description.  */
   const char *batch_mode_help; /**< @brief Turn off interactive confirmations and assume yes for all questions help description.  */
-  char * run_as_arg;	/**< @brief Run as specified user[:group].  */
-  char * run_as_orig;	/**< @brief Run as specified user[:group] original value given at command line.  */
-  const char *run_as_help; /**< @brief Run as specified user[:group] help description.  */
+  char * owner_arg;	/**< @brief Set ownership of storage to user[:group].  */
+  char * owner_orig;	/**< @brief Set ownership of storage to user[:group] original value given at command line.  */
+  const char *owner_help; /**< @brief Set ownership of storage to user[:group] help description.  */
   int debug_flag;	/**< @brief Enable debug messages (default=off).  */
   const char *debug_help; /**< @brief Enable debug messages help description.  */
   
@@ -63,7 +63,7 @@ struct node_args_info
   unsigned int cluster_uuid_given ;	/**< @brief Whether cluster-uuid was given.  */
   unsigned int key_given ;	/**< @brief Whether key was given.  */
   unsigned int batch_mode_given ;	/**< @brief Whether batch-mode was given.  */
-  unsigned int run_as_given ;	/**< @brief Whether run-as was given.  */
+  unsigned int owner_given ;	/**< @brief Whether owner was given.  */
   unsigned int debug_given ;	/**< @brief Whether debug was given.  */
 
   char **inputs ; /**< @brief unamed options (options without names) */

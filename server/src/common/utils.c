@@ -519,38 +519,63 @@ static const struct group *getgroup(const char *name)
     return getgrnam(name);
 }
 
-int runas(char *usergroup)
+int parse_usergroup(const char *usergroup, uid_t *uid, gid_t *gid)
 {
-    if (!usergroup) {
+    char *cpy, *group;
+    const struct passwd *p;
+
+    if(!usergroup || !uid || !gid) {
         NULLARG();
         return -1;
     }
-    char *group = strchr(usergroup,':');
-    if (group)
-        *group++ = '\0';
-    if (!*usergroup && (!group || !*group)) {
-        WARN("Keeping user:group");
-        return 0;/* keep current user */
+    cpy = strdup(usergroup);
+    if(!cpy) {
+	CRIT("OOM");
+	return -1;
     }
-    const struct passwd *p = getuser(usergroup);
-    if (!p) {
-        CRIT("Unknown user '%s': %s", usergroup, strerror(errno));
+    group = strchr(cpy,':');
+    if(group)
+        *group++ = '\0';
+    if(!*cpy && (!group || !*group)) {
+	CRIT("Can't parse group in '%s'\n", usergroup);
+	free(cpy);
+	return -1;
+    }
+    p = getuser(cpy);
+    if(!p) {
+        CRIT("Unknown user '%s'", cpy);
+	free(cpy);
         endpwent();
         return -1;
     }
-    uid_t uid = p->pw_uid;
-    gid_t gid;
-    if (!group || !*group) {
-        gid = p->pw_gid;
+    *uid = p->pw_uid;
+    if(!group || !*group) {
+        *gid = p->pw_gid;
     } else {
         const struct group *g = getgroup(group);
-        if (!g) {
-            CRIT("Unknown group '%s': %s", group, strerror(errno));
+        if(!g) {
+            CRIT("Unknown group '%s'", group);
+	    free(cpy);
             endgrent();
+	    endpwent();
             return -1;
         }
-        gid = g->gr_gid;
+        *gid = g->gr_gid;
+        endgrent();
     }
+    free(cpy);
+    endpwent();
+    return 0;
+}
+
+int runas(const char *usergroup)
+{
+    uid_t uid;
+    gid_t gid;
+    const struct passwd *p;
+
+    if(parse_usergroup(usergroup, &uid, &gid))
+	return -1;
 
 #ifdef HAVE_SETGROUPS
     if(setgroups(1, &gid) == -1) {
@@ -569,7 +594,7 @@ int runas(char *usergroup)
 
     p = getpwuid(uid);
     const struct group *g = getgrgid(gid);
-    INFO("Switched to %s:%s (%d:%d)",
+    DEBUG("Switched to %s:%s (%d:%d)",
          p ? p->pw_name : "N/A",
          g ? g->gr_name : "N/A",
          uid, gid);

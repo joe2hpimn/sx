@@ -32,11 +32,14 @@
 #include <limits.h>
 #include <sys/time.h>
 #include <sys/resource.h>
+#include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netdb.h>
 #include <yajl/yajl_parse.h>
+#include <unistd.h>
+#include <errno.h>
 
 #include "../libsx/src/clustcfg.h"
 #include "../libsx/src/jobpoll.h"
@@ -152,6 +155,25 @@ static int create_node(struct node_args_info *args) {
 	    printf("Node creation aborted by the user\n");
 	    return 1;
 	}
+    }
+
+    if(mkdir(args->inputs[0], 0770)) {
+	printf("Cannot create storage directory %s: %s\n", args->inputs[0], strerror(errno));
+	return 1;
+    }
+
+    if(args->owner_given) {
+	uid_t uid;
+	gid_t gid;
+	if(parse_usergroup(args->owner_arg, &uid, &gid))
+	    return 1;
+
+	if(chown(args->inputs[0], uid, gid)) {
+	    printf("Can't set ownership of %s to %u:%u\n", args->inputs[0], (unsigned int) uid, (unsigned int) gid);
+	    return 1;
+	}
+	if(runas(args->owner_arg))
+	    return 1;
     }
 
     rc_ty create_fail = sx_storage_create(args->inputs[0], &cluster_uuid, auth.key, sizeof(auth.key));
@@ -1081,8 +1103,6 @@ int main(int argc, char **argv) {
 	    node_cmdline_parser_print_help();
 	    goto node_out;
 	}
-	if(node_args.run_as_given && runas(node_args.run_as_arg) == -1)
-	    goto node_out;
 	if(node_args.new_given)
 	    ret = create_node(&node_args);
 	else if(node_args.info_given)
@@ -1104,8 +1124,7 @@ int main(int argc, char **argv) {
 	    ret = 0;
 	    goto cluster_out;
 	}
-	if(cluster_args.run_as_given && runas(cluster_args.run_as_arg) == -1)
-	    goto cluster_out;
+
 	if(cluster_args.new_given && cluster_args.inputs_num == 2)
 	    ret = create_cluster(sx, &cluster_args);
 	else if(cluster_args.info_given && cluster_args.inputs_num == 1)

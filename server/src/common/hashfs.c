@@ -219,9 +219,8 @@ rc_ty sx_storage_create(const char *dir, sx_uuid_t *cluster, uint8_t *key, int k
     if(ssl_version_check())
 	return FAIL_EINIT;
 
-    /* Create db dir - must not exists */
-    if(mkdir(dir, 0770)) {
-	PCRIT("Cannot create hashfs directory %s", dir);
+    if(access(dir, R_OK | W_OK | X_OK)) {
+	PCRIT("Cannot access storage directory %s", dir);
 	return FAIL_EINIT;
     }
 

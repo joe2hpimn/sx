@@ -18,7 +18,6 @@ option "ssl-ca-file" - "SSL CA certificate file of the SX cluster (same file as 
 section "Common options"
 option "config-dir" c "Path to SX configuration directory" string typestr="PATH" optional
 option "batch-mode" b "Turn off interactive confirmations and assume yes for all questions" optional
-option "run-as"	    - "Run as specified user[:group]" string typestr="user[:group]" optional
 option "debug"      D "Enable debug messages" flag off
 
 text "

@@ -29,6 +29,7 @@
 #define UTILS_H
 #include "default.h"
 #include <sys/time.h>
+#include <sys/types.h>
 
 int bin2hex(const void *src, uint32_t src_len, char *dst, uint32_t dst_len);
 int hex2bin(const char *src, uint32_t src_len, uint8_t *dst, uint32_t dst_len);
@@ -93,7 +94,8 @@ int encode_auth_bin(const uint8_t *userhash, const unsigned char *key, unsigned 
 int ssl_version_check(void);
 const char *strptimegm(const char *s, const char *format, time_t *t);
 
-int runas(char *usergroup);
+int parse_usergroup(const char *usergroup, uid_t *uid, gid_t *gid);
+int runas(const char *usergroup);
 
 int cb_fail_null(void *ctx);
 int cb_fail_boolean(void *ctx, int boolean);
