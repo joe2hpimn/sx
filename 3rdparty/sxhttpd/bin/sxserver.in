@@ -114,8 +114,8 @@ case "$1" in
 	echo
 	echo "--- SX INFO ---"
 	echo "Cluster name: $SX_CLUSTER_NAME"
-        @sbindir@/sxadm node --info $SX_DATA_DIR/data
-	echo "Storage location: $SX_DATA_DIR/data"
+        @sbindir@/sxadm node --info $SX_DATA_DIR
+	echo "Storage location: $SX_DATA_DIR"
 	test "$SX_USE_SSL" = "yes" && echo "SSL private key: $SX_SSL_KEY_FILE"
 	echo "SX Logfile: $SX_LOG_FILE"
         ;;
