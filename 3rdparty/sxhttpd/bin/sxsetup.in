@@ -59,18 +59,12 @@ fi
 
 ETCDIR="@sysconfdir@"
 CONFIG="$ETCDIR/sxserver/sxsetup.conf"
-SXSETUP_TMPDIR=@localstatedir@/lib/sxserver
-mkdir -p $SXSETUP_TMPDIR
-OUT_TMP=$SXSETUP_TMPDIR/sed.tmp
-KEY_TMP=$SXSETUP_TMPDIR/key.tmp
-CERT_TMP=$SXSETUP_TMPDIR/cert.tmp
-trap "rm -f $OUT_TMP; rm -f $KEY_TMP; rm -f $CERT_TMP; exit 1" EXIT INT
 
 # Read previous answers, and initialize the defaults with them
 LOAD_CONFIG=${CONFIG_FILE:-"$CONFIG"}
 if [ -f "$LOAD_CONFIG" ]; then
     . "$LOAD_CONFIG"
-    if [ -d "$SX_DATA_DIR/data" ]; then 
+    if [ -f "$SX_DATA_DIR/hashfs.db" ]; then 
 	if [ "$FORCE_REINIT_GIVEN" != "yes" ]; then
 	    echo "This SX is already configured, run with --force-reinit to set it up again."
 	    exit 1
@@ -91,7 +85,7 @@ else
 fi
 
 # Set defaults if there are no previous answers
-SX_DATA_DIR=${SX_DATA_DIR:-"@localstatedir@/lib/sxserver"}
+SX_DATA_DIR=${SX_DATA_DIR:-"@localstatedir@/lib/sxserver/storage"}
 if [ -z "$SX_NODE_IP" ]; then
     SX_NODE_IP=`/sbin/ifconfig eth0 2>/dev/null|grep 'inet addr'|cut -d ':' -f 2|cut -d ' ' -f 1`
     if [ -z "$SX_NODE_IP" ]; then
@@ -112,6 +106,28 @@ if [ -z "$NOSSL_FLAG" ]; then
     SX_SSL_KEY_FILE=${SX_SSL_KEY_FILE:-"$ETCDIR/ssl/private/sxkey.pem"}
     HTTPS="https://"
 fi
+
+# temp files
+SXSETUP_TMPDIR="@localstatedir@/lib/sxserver-tmp"
+if [ -d $SXSETUP_TMPDIR ]; then
+    echo "Temporary directory $SXSETUP_TMPDIR already exists"
+    echo "Make sure there's no other sxsetup running or remove it manually"
+    exit 1
+fi
+mkdir -p $SXSETUP_TMPDIR
+if [ $? -ne 0 ]; then
+    echo "Can't create temporary directory $SXSETUP_TMPDIR"
+    exit 1
+fi
+chmod 700 $SXSETUP_TMPDIR
+chown "$SX_SERVER_USER":"$SX_SERVER_GROUP" $SXSETUP_TMPDIR
+OUT_TMP=$SXSETUP_TMPDIR/out.tmp
+SSLKEY_TMP=$SXSETUP_TMPDIR/sslkey.tmp
+SSLCERT_TMP=$SXSETUP_TMPDIR/sslcert.tmp
+CERTCONF_TMP=$SXSETUP_TMPDIR/certconf.tmp
+CLUSTKEY_TMP=$SXSETUP_TMPDIR/clustkey.tmp
+ADMINKEY_TMP=$SXSETUP_TMPDIR/adminkey.tmp
+trap "rm -rf $SXSETUP_TMPDIR; exit 1" EXIT INT
 
 ask_yn() {
     while true; do
@@ -180,18 +196,14 @@ ask_questions() {
 	    printf "Path to SX storage [default=$SX_DATA_DIR]: "
 	    read NEWVAL
 	    SX_DATA_DIR=${NEWVAL:-$SX_DATA_DIR}
-	    if [ -d "$SX_DATA_DIR/data" ]; then 
+	    if [ -d "$SX_DATA_DIR" ]; then 
 		echo
-		echo "Cluster is already initialized in $SX_DATA_DIR ."
-		echo "Provide a different directory or manually wipe it!"
-	    elif [ -e "$SX_DATA_DIR/data" ]; then
-		echo
-		echo "$SX_DATA_DIR/data already exists, but is not a directory."
-		echo "Provide a different directory or manually wipe it!"
+		echo "The data directory $SX_DATA_DIR already exists."
+		echo "Provide a different directory or wipe it before proceeding."
 	    elif [ -e "$SX_DATA_DIR" -a ! -d "$SX_DATA_DIR" ]; then
 		echo
 		echo "$SX_DATA_DIR already exists, but is not a directory."
-		echo "Provide a different directory or manually wipe it!"
+		echo "Provide a different directory or wipe it before proceeding."
 	    else
 		break
 	    fi
@@ -341,9 +353,8 @@ ask_questions() {
 		mkdir -p "$ETCDIR/ssl/private" "$ETCDIR/ssl/certs"
 		DIR=@localstatedir@/lib/sxserver
 		mkdir -p $DIR
-		CERTCONF=$DIR/certconf.tmp
 		if [ "$ADVANCED_GIVEN" = "yes" ]; then
-		    cat > "$CERTCONF" <<EOF
+		    cat > "$CERTCONF_TMP" <<EOF
 [ req ]
 default_bits	       = 2048
 distinguished_name     = req_distinguished_name
@@ -367,7 +378,7 @@ commonName_default	       = $SX_CLUSTER_NAME
 
 EOF
 		else
-		    cat > "$CERTCONF" <<EOF
+		    cat > "$CERTCONF_TMP" <<EOF
 [ req ]
 default_bits		= 2048
 distinguished_name	= req_distinguished_name
@@ -383,7 +394,7 @@ CN		       = $SX_CLUSTER_NAME
 
 EOF
 		fi
-		cat >> "$CERTCONF" <<EOF
+		cat >> "$CERTCONF_TMP" <<EOF
 [ v3_ca ]
 subjectKeyIdentifier=hash
 authorityKeyIdentifier=keyid:always,issuer:always
@@ -403,8 +414,7 @@ EOF
 		if [ -z "$SX_EXISTING_NODE_IP" -a "$CREATESSL" = "1" ]; then
 		    echo
 		    echo "Generating default SSL certificate and key in $SX_SSL_KEY_FILE $SX_SSL_CERT_FILE"
-		    openssl req -days 1825 -x509 -config "$CERTCONF" -new -keyout "$SX_SSL_KEY_FILE" -out "$SX_SSL_CERT_FILE" || exit 1
-		    rm -f "$CERTCONF"
+		    openssl req -days 1825 -x509 -config "$CERTCONF_TMP" -new -keyout "$SX_SSL_KEY_FILE" -out "$SX_SSL_CERT_FILE" || exit 1
 		    chown "$SX_SERVER_USER":"$SX_SERVER_GROUP" "$SX_SSL_KEY_FILE" "$SX_SSL_CERT_FILE"
 		    chmod 600 "$SX_SSL_KEY_FILE" "$SX_SSL_CERT_FILE"
 		    SX_SSL_KEY="`cat $SX_SSL_KEY_FILE`"
@@ -415,28 +425,28 @@ EOF
 		    echo "Please paste the SSL private key below (and press CTRL+D when done) or provide a path to it."
 		    echo "SSL private key:"
 		    # Cannot use read for multi-line input
-		    cat >$KEY_TMP
-		    if [ -s "$KEY_TMP" ]; then
-			if grep -q -F -- '-----BEGIN' "$KEY_TMP"; then
+		    cat >$SSLKEY_TMP
+		    if [ -s "$SSLKEY_TMP" ]; then
+			if grep -q -F -- '-----BEGIN' "$SSLKEY_TMP"; then
 			    # it was pasted
-			    if grep -q -F -- 'PRIVATE KEY-----' "$KEY_TMP"; then
-				cp "$KEY_TMP" "$SX_SSL_KEY_FILE"
+			    if grep -q -F -- 'PRIVATE KEY-----' "$SSLKEY_TMP"; then
+				cp "$SSLKEY_TMP" "$SX_SSL_KEY_FILE"
 			    else
 				echo
 				echo "*** The data provided is not a private key! ***"
 				continue
 			    fi
 			else
-			    cp "`cat "$KEY_TMP"`" "$SX_SSL_KEY_FILE"
+			    cp "`cat "$SSLKEY_TMP"`" "$SX_SSL_KEY_FILE"
 			fi
 		    fi
-		    rm -f $KEY_TMP
+		    rm -f $SSLKEY_TMP
 
 		    GOTSRVCERT=0
 		    if [ -n "$SX_EXISTING_NODE_IP" ]; then
 			SRVCERT="`echo "HEAD / HTTP/1.0\n Host: $SX_EXISTING_NODE_IP:443\n\n EOT\n" | openssl s_client -connect $SX_EXISTING_NODE_IP:443 -prexit 2>/dev/null`"
 			if [ $? = 0 ]; then
-			    echo "$SRVCERT" | openssl x509 > "$CERT_TMP"
+			    echo "$SRVCERT" | openssl x509 > "$SSLCERT_TMP"
 			    if [ $? = 0 ]; then
 				GOTSRVCERT=1
 			    fi
@@ -446,25 +456,25 @@ EOF
 		    echo
 		    if [ "$GOTSRVCERT" = "1" ]; then
 			echo "Successfully obtained SSL certificate from $SX_EXISTING_NODE_IP"
-			cp "$CERT_TMP" "$SX_SSL_CERT_FILE"
+			cp "$SSLCERT_TMP" "$SX_SSL_CERT_FILE"
 		    else
 			echo "Please paste the SSL certificate below (and press CTRL+D when done) or provide a path to it"
 			echo "SSL certificate: [default=$SX_SSL_CERT_FILE]"
-			cat >$CERT_TMP
-			if [ -s "$CERT_TMP" ]; then
-			    if grep -q -F -- '-----BEGIN' "$CERT_TMP"; then
+			cat >$SSLCERT_TMP
+			if [ -s "$SSLCERT_TMP" ]; then
+			    if grep -q -F -- '-----BEGIN' "$SSLCERT_TMP"; then
 				# it was pasted
-				if grep -q -F -- '-----BEGIN CERTIFICATE-----' "$CERT_TMP"; then
-				    cp "$CERT_TMP" "$SX_SSL_CERT_FILE"
+				if grep -q -F -- '-----BEGIN CERTIFICATE-----' "$SSLCERT_TMP"; then
+				    cp "$SSLCERT_TMP" "$SX_SSL_CERT_FILE"
 				else
 				    echo "Not a certificate!"
 				    continue
 				fi
 			    else
-				cp "`cat "$CERT_TMP"`" "$SX_SSL_CERT_FILE"
+				cp "`cat "$SSLCERT_TMP"`" "$SX_SSL_CERT_FILE"
 			    fi
 			fi
-			rm -f $CERT_TMP
+			rm -f $SSLCERT_TMP
 		    fi
 		fi
 		chown "$SX_SERVER_USER":"$SX_SERVER_GROUP" "$SX_SSL_KEY_FILE" "$SX_SSL_CERT_FILE" 2>/dev/null
@@ -528,7 +538,7 @@ OLDSTAMP="`date +%s`"
 if [ "$CONFIG_FILE_GIVEN" = "yes" ]; then
     echo "Using config file $CONFIG_FILE"
 
-    if [ -d "$SX_DATA_DIR/data" ]; then 
+    if [ -f "$SX_DATA_DIR/hashfs.db" ]; then 
 	echo "ERROR: Cluster is already initialized in $SX_DATA_DIR"
 	echo "Please wipe the existing data directory or provide a new one"
 	exit 1
@@ -652,7 +662,7 @@ pidfile="$SX_RUN_DIR/sxfcgi.pid"
 logfile="$SX_LOG_FILE"
 socket="$SX_RUN_DIR/sxfcgi.socket"
 socket-mode=0660
-data-dir="$SX_DATA_DIR/data"
+data-dir="$SX_DATA_DIR"
 run-as="$SX_SERVER_USER:$SX_SERVER_GROUP"
 children=$SX_CHILDREN_NUM
 EOF
@@ -692,7 +702,6 @@ if [ -n "$SX_EXISTING_NODE_IP" -a -n "$SXCLUSTERKEY" ]; then
     fi
 fi
 
-mkdir -p $SXSETUP_TMPDIR
 if [ -z "$NOSSL_FLAG" ] ; then
     sed -e "s/^#//g"\
 	-e "s|ssl_certificate .*|ssl_certificate $SX_SSL_CERT_FILE;|"\
@@ -708,22 +717,12 @@ sed -e "s/^user.*/user $SX_SERVER_USER $SX_SERVER_GROUP;/"\
     "$ETCDIR/sxserver/sxhttpd.conf" >$OUT_TMP
 cp $OUT_TMP "$ETCDIR/sxserver/sxhttpd.conf"
 
-mkdir -p @localstatedir@/lib/sxserver/sxhttpd
-chmod 750 @localstatedir@/lib/sxserver/sxhttpd
-chown "$SX_SERVER_USER":"$SX_SERVER_GROUP" @localstatedir@/lib/sxserver/sxhttpd
-
-if [ ! -f "$SX_DATA_DIR/data/cluster.key" ]; then
+if [ ! -f "$SX_DATA_DIR/hashfs.db" ]; then
     echo
     echo "--- CLUSTER INITIALIZATION ---"
     echo
-    echo "Initializing storage (hashfs):"
-    mkdir -p "$SX_DATA_DIR"
-    chown "$SX_SERVER_USER":"$SX_SERVER_GROUP" "$SX_DATA_DIR"
-    if [ -n "$SX_ADMIN_KEY" ]; then
-	echo "$SX_ADMIN_KEY" > "$SX_DATA_DIR/admin.key"
-	chmod 640 "$SX_DATA_DIR/admin.key"
-	chown "$SX_SERVER_USER":"$SX_SERVER_GROUP" "$SX_DATA_DIR/admin.key"
-    fi
+    mkdir -p "`dirname $SX_DATA_DIR`"
+    test -n "$SX_ADMIN_KEY" && echo "$SX_ADMIN_KEY" > $ADMINKEY_TMP
 
     if [ -z "$SX_EXISTING_NODE_IP" ]; then
 	test -n "$SX_CLUSTER_UUID" && FORCEUUID="--cluster-uuid=$SX_CLUSTER_UUID"
@@ -731,7 +730,7 @@ if [ ! -f "$SX_DATA_DIR/data/cluster.key" ]; then
         set -x
         "@sbindir@/sxadm" node --new\
             --batch-mode --owner="$SX_SERVER_USER:$SX_SERVER_GROUP"\
-            $FORCEUUID "$SX_DATA_DIR/data"
+            $FORCEUUID "$SX_DATA_DIR"
         )
 	if [ $? -ne 0 ]; then
 	    echo "Failed to create the first node. Please make sure that $SX_SERVER_USER:$SX_SERVER_GROUP"
@@ -747,14 +746,14 @@ if [ ! -f "$SX_DATA_DIR/data/cluster.key" ]; then
 	fi
 
 	if [ -n "$SX_ADMIN_KEY" ]; then
-	    echo $SX_ADMIN_KEY > $KEY_TMP
-	    ADMKEYFILE="--key $KEY_TMP"
+	    echo $SX_ADMIN_KEY > $ADMINKEY_TMP
+	    ADMKEYFILE="--key $ADMINKEY_TMP"
 	fi
         (
         set -x
         "@sbindir@/sxadm" cluster --new\
             --batch-mode\
-	    --node-dir="$SX_DATA_DIR/data"\
+	    --node-dir="$SX_DATA_DIR"\
 	    $ADMKEYFILE \
             $SSLCAFILE \
 	    $NEWNODE \
@@ -765,13 +764,8 @@ if [ ! -f "$SX_DATA_DIR/data/cluster.key" ]; then
 	    exit 1
 	fi
 
-	echo "SX_CLUSTER_UUID=`@sbindir@/sxadm node --info $SX_DATA_DIR/data | grep 'Cluster UUID' | cut -d\  -f 3`" >> $CONFIG
-	echo "SX_ADMIN_KEY=`@sbindir@/sxadm node --info $SX_DATA_DIR/data | grep 'Admin key' | cut -d\  -f 3`" >> $CONFIG
-
-	# FIXME: properly handle --run-as="$SX_SERVER_USER:$SX_SERVER_GROUP" above
-	# right now results in permission errors because sxadm also attempts
-	# to save the access configuration for root
-	chown -R "$SX_SERVER_USER:$SX_SERVER_GROUP" "$SX_DATA_DIR/data"
+	echo "SX_CLUSTER_UUID=`@sbindir@/sxadm node --info $SX_DATA_DIR | grep 'Cluster UUID' | cut -d\  -f 3`" >> $CONFIG
+	echo "SX_ADMIN_KEY=`@sbindir@/sxadm node --info $SX_DATA_DIR | grep 'Admin key' | cut -d\  -f 3`" >> $CONFIG
 
 	"@sbindir@/sxserver" start
 	if [ $? -ne 0 ]; then
@@ -782,7 +776,7 @@ if [ ! -f "$SX_DATA_DIR/data/cluster.key" ]; then
     else
 	# Config access to the cluster
 	test "$CONFIG_FILE_GIVEN" = "yes" && SXINITFLAGS="--batch-mode"
-	"@bindir@/sxinit" $NOSSL_FLAG $SXINITFLAGS --config-dir=$HOME/.sx --auth-file="$SX_DATA_DIR/admin.key" --host-list="$SX_EXISTING_NODE_IP" "sx://admin@$SX_CLUSTER_NAME"
+	"@bindir@/sxinit" $NOSSL_FLAG $SXINITFLAGS --config-dir=$HOME/.sx --auth-file="$ADMINKEY_TMP" --host-list="$SX_EXISTING_NODE_IP" "sx://admin@$SX_CLUSTER_NAME"
 	if [ $? -ne 0 ]; then
 	    echo "Failed to connect to the cluster. Please make sure the admin key is correct"
 	    echo "and $SX_EXISTING_NODE_IP is a valid and accessible node of the cluster sx://$SX_CLUSTER_NAME"
@@ -796,23 +790,20 @@ if [ ! -f "$SX_DATA_DIR/data/cluster.key" ]; then
 	echo "SX_CLUSTER_UUID=\"$SXUUID\"" >> "$CONFIG"
 
 	# Get current distribution
-        "@sbindir@/sxadm" cluster --config-dir=$HOME/.sx --info "sx://admin@$SX_CLUSTER_NAME" > $KEY_TMP
+        "@sbindir@/sxadm" cluster --config-dir=$HOME/.sx --info "sx://admin@$SX_CLUSTER_NAME" > $OUT_TMP
 	if [ $? -ne 0 ]; then
 	    echo "Failed to retrieve current configuration of the cluster."
 	    exit 1
 	fi
 	echo "SX_ADMIN_KEY=\"$SX_ADMIN_KEY\"" >> "$CONFIG"
-	CLUSTKEY=`cat $KEY_TMP | grep "Cluster authentication token: " | cut -d\  -f4`
-	echo "CLUSTKEY: '$CLUSTKEY'"
+	CLUSTKEY=`cat $OUT_TMP | grep "Cluster authentication token: " | cut -d\  -f4`
 	if [ -z "$CLUSTKEY" -o -z "`echo $CLUSTKEY | grep "CLUSTER/ALLNODE/ROOT/"`" ]; then
 	    echo "Failed to obtain the cluster key."
 	    exit 1
 	fi
-	echo "$CLUSTKEY" > "$SX_DATA_DIR/cluster.key"
-	chmod 640 "$SX_DATA_DIR/cluster.key"
-	chown "$SX_SERVER_USER":"$SX_SERVER_GROUP" "$SX_DATA_DIR/cluster.key"
+	echo "$CLUSTKEY" > $CLUSTKEY_TMP
 
-        SXDIST=`cat $KEY_TMP | grep "Current distribution" | cut -d: -f 2`
+        SXDIST=`cat $OUT_TMP | grep "Current distribution" | cut -d: -f 2`
 	if [ -z "$SXDIST" ]; then
 	    echo "Failed to obtain the node information."
 	    exit 1
@@ -824,8 +815,8 @@ if [ ! -f "$SX_DATA_DIR/data/cluster.key" ]; then
         "@sbindir@/sxadm" node --new\
             --batch-mode --owner="$SX_SERVER_USER:$SX_SERVER_GROUP"\
 	    --cluster-uuid="$SXUUID"\
-	    --key="$SX_DATA_DIR/cluster.key"\
-            "$SX_DATA_DIR/data"
+	    --key="$CLUSTKEY_TMP"\
+            "$SX_DATA_DIR"
         )
 	if [ $? -ne 0 ]; then
 	    echo "Failed to create the node. Please make sure that $SX_SERVER_USER:$SX_SERVER_GROUP"
@@ -872,9 +863,9 @@ else
     # TODO loopback but remember what I typed
 fi
 
-"@sbindir@/sxadm" node --info "$SX_DATA_DIR/data"
+"@sbindir@/sxadm" node --info "$SX_DATA_DIR"
 
-rm -f $OUT_TMP; rm -f $KEY_TMP; rm -f $CERT_TMP
+rm -rf $SXSETUP_TMPDIR
 trap - EXIT INT
 
 echo
@@ -896,7 +887,7 @@ if [ -n "$SX_NODE_INTERNAL_IP" -a "$SX_NODE_IP" != "$SX_NODE_INTERNAL_IP" ]; the
 else
     echo "This node: $SX_NODE_IP"
 fi
-"@sbindir@/sxadm" node --info "$SX_DATA_DIR/data"
+"@sbindir@/sxadm" node --info "$SX_DATA_DIR"
 echo "Storage location: $SX_DATA_DIR"
 echo "Run as user: $SX_SERVER_USER"
 echo "Sockets and pidfiles in: $SX_RUN_DIR"
