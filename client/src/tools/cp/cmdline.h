@@ -49,9 +49,6 @@ struct gengetopt_args_info
   char * filter_dir_arg;	/**< @brief Path to SX filter directory.  */
   char * filter_dir_orig;	/**< @brief Path to SX filter directory original value given at command line.  */
   const char *filter_dir_help; /**< @brief Path to SX filter directory help description.  */
-  char * bwlimit_arg;	/**< @brief Set bandwidth usage limit in kilobytes per second (allows K, M, G suffixes, assume K when no suffix given).  */
-  char * bwlimit_orig;	/**< @brief Set bandwidth usage limit in kilobytes per second (allows K, M, G suffixes, assume K when no suffix given) original value given at command line.  */
-  const char *bwlimit_help; /**< @brief Set bandwidth usage limit in kilobytes per second (allows K, M, G suffixes, assume K when no suffix given) help description.  */
   int debug_flag;	/**< @brief Enable debug messages (default=off).  */
   const char *debug_help; /**< @brief Enable debug messages help description.  */
   
@@ -61,7 +58,6 @@ struct gengetopt_args_info
   unsigned int verbose_given ;	/**< @brief Whether verbose was given.  */
   unsigned int config_dir_given ;	/**< @brief Whether config-dir was given.  */
   unsigned int filter_dir_given ;	/**< @brief Whether filter-dir was given.  */
-  unsigned int bwlimit_given ;	/**< @brief Whether bwlimit was given.  */
   unsigned int debug_given ;	/**< @brief Whether debug was given.  */
 
   char **inputs ; /**< @brief unamed options (options without names) */

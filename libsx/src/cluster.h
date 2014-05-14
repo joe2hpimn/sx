@@ -77,6 +77,4 @@ void sxi_retry_throttle(sxc_client_t *sx, unsigned retry);
 
 int sxi_conns_disable_proxy(sxi_conns_t *conns);
 
-int sxi_conns_set_bandwidth_limit(sxi_conns_t *conns, int64_t bandwidth_limit);
-int64_t sxi_conns_get_bandwidth_limit(const sxi_conns_t *conns);
 #endif

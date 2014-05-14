@@ -606,12 +606,6 @@ static size_t writefn(void *ptr, size_t size, size_t nmemb, void *ctxptr) {
     return 0;
 }
 
-/* Hold information needed to control transfer bandwidth */
-typedef struct bandwidth_t {
-    int64_t local_limit; /* Bandwidth limit [bytes per second] */
-    int64_t global_limit; /* Bandwidth limit for whole transfer [bytes per secont] */
-    unsigned int host_count; /* Number of hosts sharing network traffic */
-} bandwidth_t;
 
 /* to avoid using too much memory */
 struct curl_events {
@@ -628,37 +622,9 @@ struct curl_events {
     char *savefile;
     int saved, quiet;
     int disable_proxy;
-
-    bandwidth_t bandwidth;
 };
 
 #define MAX_ACTIVE_PER_HOST 2
-int sxi_curlev_set_bandwidth_limit(curl_events_t *e, int64_t global_bandwidth_limit, unsigned int host_count, unsigned int running) {
-    if(!e || !host_count) {
-        fprintf(stderr, "Events ptr: %lu, host count: %u\n", (unsigned long)e, host_count);        
-        return 1;
-    }
-
-    /* Bandwidth limitation for whole process */
-    e->bandwidth.global_limit = global_bandwidth_limit;
-    /* Number of hosts used for data transfering */
-    e->bandwidth.host_count = host_count;
-
-    /* Divide global bandwidth limit by up to host_count * MAX_ACTIVE_PER_HOST that it can be set for each transfer */
-    if(running && running < host_count * MAX_ACTIVE_PER_HOST)
-        e->bandwidth.local_limit = global_bandwidth_limit / running; 
-    else
-        e->bandwidth.local_limit = global_bandwidth_limit / (host_count * MAX_ACTIVE_PER_HOST);
-    return 0;
-}
-
-int64_t sxi_curlev_get_bandwidth_limit(const curl_events_t *e) {
-    if(!e) 
-        return -1;
-
-    return e->bandwidth.local_limit;
-}
-
 struct host_info {
     int active;
     curlev_fifo_t fifo;
@@ -679,6 +645,7 @@ static void ctx_err(curlev_context_t *ctx, CURLcode rc, const char *msg)
         }
     }
 }
+
 
 #define EVENTSDEBUG(e, ...) do {\
     if (e && e->conns) {\
@@ -835,12 +802,6 @@ curl_events_t *sxi_curlev_init(sxi_conns_t *conns)
         if (curlm_check(NULL, rc2, "set maxconnects") == -1)
             break;
 #endif
-
-        /* Initialize bandwidt limit information */
-        x->bandwidth.global_limit = 0;
-        x->bandwidth.local_limit = 0;
-        x->bandwidth.host_count = 0;
-
         return x;
     } while(0);
     sxi_curlev_done(&x);
@@ -1005,7 +966,6 @@ static int xferinfo(void *p, curl_off_t dltotal, curl_off_t dlnow,
         return -1;
     return 0;
 }
-
 static int easy_set_default_opt(curl_events_t *e, curlev_t *ev)
 {
     CURLcode rc;
@@ -1168,8 +1128,6 @@ static int curlev_apply(curl_events_t *e, curlev_t *ev, curlev_t *src)
             return -1;
         }
     }
-
-/*caveat*/
     ev->curl = handle;
     do {
 	unsigned int contimeout;
@@ -1245,19 +1203,6 @@ static int curlev_apply(curl_events_t *e, curlev_t *ev, curlev_t *src)
         if (curl_check(ev, rc, "set headers"))
             break;
         ev->ssl_verified = ev->ssl_ctx_called = 0;
-
-        if(e->bandwidth.global_limit) {
-            rc = curl_easy_setopt(ev->curl, CURLOPT_MAX_SEND_SPEED_LARGE, e->bandwidth.local_limit);
-            if (curl_check(ev,rc, "set CURLOPT_MAX_SEND_SPEED_LARGE") == -1) {
-                break;
-            }
-
-            rc = curl_easy_setopt(ev->curl, CURLOPT_MAX_RECV_SPEED_LARGE, e->bandwidth.local_limit);
-            if (curl_check(ev,rc, "set CURLOPT_MAX_RECV_SPEED_LARGE") == -1) {
-                break;
-            }
-        }
-
         ret = 0;
     } while(0);
     free(src->url);
@@ -1438,31 +1383,10 @@ static int compute_headers_url(curl_events_t *e, curlev_t *ev, curlev_t *src)
 
 static int enqueue_request(curl_events_t *e, curlev_t *ev, int re)
 {
-    struct host_info *info; 
+    struct host_info *info;
     info = get_host(e, ev->host);
     if (!info) {
         ctx_err(ev->ctx, CURLE_OUT_OF_MEMORY, "out of mem allocing host info");
-        return -1;
-    }
-
-    /* Ensure that host_count field is not 0 */
-    if(!e->bandwidth.host_count) {
-        sxi_hostlist_t *hosts = sxi_conns_get_hostlist(e->conns);
-        if(!hosts) {
-            EVDEBUG(ev, "Could not get host list");
-            return -1;
-        }
-
-        e->bandwidth.host_count = sxi_hostlist_get_count(hosts);
-        if(!e->bandwidth.host_count) {
-            EVDEBUG(ev, "Could not get host list length");
-            return -1;
-        }
-    }
-
-    /* Enqueuing new request needs to update bandwidth */
-    if(sxi_curlev_set_bandwidth_limit(e, e->bandwidth.global_limit, e->bandwidth.host_count, e->running+1)) {
-        EVDEBUG(ev, "sxi_curlev_set_bandwidth_limit failed");
         return -1;
     }
 
@@ -1473,7 +1397,7 @@ static int enqueue_request(curl_events_t *e, curlev_t *ev, int re)
 
         /* find free slot */
         for (i=0;i<MAX_ACTIVE_PER_HOST;i++) {
-            curlev_t *o; 
+            curlev_t *o;
             o = &info->reuse[i];
             if (!o->ctx) {
                 /* free slot */
@@ -1481,7 +1405,6 @@ static int enqueue_request(curl_events_t *e, curlev_t *ev, int re)
                     EVDEBUG(o,"curlev_apply failed");
                     return -1;
                 }
-
                 ev = o;
                 break;
             }
@@ -1490,7 +1413,6 @@ static int enqueue_request(curl_events_t *e, curlev_t *ev, int re)
             EVDEBUG(ev,"no free hosts?");
             return -1;
         }
-
         /* less than 2 active requests: launch requests now */
         CURLMcode rcm = curl_multi_add_handle(e->multi, ev->curl);
         if (curlm_check(ev,rcm,"add_handle") == -1) {
@@ -1672,7 +1594,6 @@ int sxi_curlev_poll(curl_events_t *e)
     if (!e) {
         return -1;
     }
-
     do {
         callbacks = 0;
         if (e->added_notpolled) {
@@ -1693,7 +1614,6 @@ int sxi_curlev_poll(curl_events_t *e)
 
         if ((callbacks += sxi_curlev_poll_immediate(e)) == -1)
             return -1;
-
     } while (e->running && !callbacks && !e->depth);
     sx = sxi_conns_get_client(e->conns);
     SXDEBUG("running: %d, callbacks executed: %d", e->running, callbacks);
@@ -1712,18 +1632,10 @@ int sxi_curlev_poll_immediate(curl_events_t *e)
     CURLMsg *msg;
     int msgs;
     int callbacks = 0;
-    int last_running = e->running;
+
     do {
         rc = curl_multi_perform(e->multi, &e->running);
     } while (rc == CURLM_CALL_MULTI_PERFORM);
-
-    /* If number of running transfers has changed, recalculate bandwidth */
-    if(last_running != e->running) {
-        if(sxi_curlev_set_bandwidth_limit(e, e->bandwidth.global_limit, e->bandwidth.host_count, e->running)) {
-            return -1;
-        }
-    }
-
     if (curlm_check(NULL,rc,"perform") == -1)
         return -1;
     e->added_notpolled = 0;
