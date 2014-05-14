@@ -225,6 +225,11 @@ int main(int argc, char **argv) {
 	}
     }
 
+    if(args.port_given && sxc_cluster_set_httpport(cluster, args.port_arg)) {
+	fprintf(stderr, "Failed to configure cluster communication port\n");
+	    goto init_err;
+    }
+
     if(args.no_ssl_flag) {
 	/* NON-SSL cluster */
 	if(sxc_cluster_set_cafile(cluster, NULL)) {

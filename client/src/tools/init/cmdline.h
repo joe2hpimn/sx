@@ -51,6 +51,9 @@ struct gengetopt_args_info
   const char *host_list_help; /**< @brief List of SX hosts (IP addresses) help description.  */
   int no_ssl_flag;	/**< @brief Disable secure communication (default=off).  */
   const char *no_ssl_help; /**< @brief Disable secure communication help description.  */
+  int port_arg;	/**< @brief Set the cluster destination TCP port (default 443 in secure mode or 80 in insecure mode).  */
+  char * port_orig;	/**< @brief Set the cluster destination TCP port (default 443 in secure mode or 80 in insecure mode) original value given at command line.  */
+  const char *port_help; /**< @brief Set the cluster destination TCP port (default 443 in secure mode or 80 in insecure mode) help description.  */
   int debug_flag;	/**< @brief Enable debug messages (default=off).  */
   const char *debug_help; /**< @brief Enable debug messages help description.  */
   int batch_mode_flag;	/**< @brief Turn off interactive confirmations and assume yes for all questions (default=off).  */
@@ -68,6 +71,7 @@ struct gengetopt_args_info
   unsigned int config_dir_given ;	/**< @brief Whether config-dir was given.  */
   unsigned int host_list_given ;	/**< @brief Whether host-list was given.  */
   unsigned int no_ssl_given ;	/**< @brief Whether no-ssl was given.  */
+  unsigned int port_given ;	/**< @brief Whether port was given.  */
   unsigned int debug_given ;	/**< @brief Whether debug was given.  */
   unsigned int batch_mode_given ;	/**< @brief Whether batch-mode was given.  */
   unsigned int auth_file_given ;	/**< @brief Whether auth-file was given.  */

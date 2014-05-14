@@ -15,6 +15,8 @@ option  "host-list"		l "List of SX hosts (IP addresses)"
 
 option  "no-ssl"	- "Disable secure communication" flag off
 
+option  "port"		- "Set the cluster destination TCP port (default 443 in secure mode or 80 in insecure mode)" int optional
+
 option  "debug"		D "Enable debug messages" flag off
 
 option "batch-mode" b "Turn off interactive confirmations and assume yes for all questions" flag off
