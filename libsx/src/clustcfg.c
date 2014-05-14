@@ -376,7 +376,14 @@ sxc_cluster_t *sxc_cluster_load(sxc_client_t *sx, const char *config_dir, const 
 		res = sxc_cluster_set_uuid(cluster, line + lenof("ClusterUUID="));
 	    else if(!strncmp(line, "Hostname=", lenof("Hostname=")))
 		res = sxc_cluster_set_dnsname(cluster, line + lenof("Hostname="));
-	    else if(!strncmp(line, "UseSSL=", lenof("UseSSL="))) {
+	    else if(!strncmp(line, "HttpPort=", lenof("HttpPort="))) {
+		char *eop;
+		int port = strtol(line + lenof("HttpPort="), &eop, 10);
+		if(port <= 0 ||
+		   *eop ||
+		   sxc_cluster_set_httpport(cluster, port))
+		    res = 1;
+	    } else if(!strncmp(line, "UseSSL=", lenof("UseSSL="))) {
 		const char *p = line + lenof("UseSSL=");
 		if(!strncasecmp(p, "yes", 3))
 		    secure = 1;
@@ -1131,7 +1138,7 @@ int sxi_is_valid_cluster(const sxc_cluster_t *cluster) {
 int sxc_cluster_save(sxc_cluster_t *cluster, const char *config_dir) {
     const sxi_hostlist_t *hlist;
     char *clusterd, *fname, *confdir;
-    unsigned int clusterd_len, hlist_len;
+    unsigned int clusterd_len, hlist_len, port;
     struct sxi_access *access;
     const char *s;
     FILE *f;
@@ -1184,6 +1191,10 @@ int sxc_cluster_save(sxc_cluster_t *cluster, const char *config_dir) {
     s = sxc_cluster_get_dnsname(cluster);
     if(s)
 	fprintf(f, "Hostname=%s\n", s);
+
+    port = sxc_cluster_get_httpport(cluster);
+    if(port)
+	fprintf(f, "HttpPort=%u\n", port);
 
     i = ferror(f);
     fclose(f);
@@ -2459,4 +2470,16 @@ int sxc_cluster_disable_proxy(sxc_cluster_t *cluster)
     if (!cluster)
         return -1;
     return sxi_conns_disable_proxy(cluster->conns);
+}
+
+int sxc_cluster_set_httpport(sxc_cluster_t *cluster, unsigned int port) {
+    if(!cluster)
+	return -1;
+    return sxi_conns_set_port(cluster->conns, port);
+}
+
+unsigned int sxc_cluster_get_httpport(const sxc_cluster_t *cluster) {
+    if(!cluster)
+	return -1;
+    return sxi_conns_get_port(cluster->conns);
 }

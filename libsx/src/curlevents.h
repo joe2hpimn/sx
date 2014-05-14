@@ -48,7 +48,7 @@ typedef struct {
 typedef struct {
   const char *host;
   const char *url;
-  size_t n;
+  uint16_t port;
 } request_headers_t;
 
 typedef struct {

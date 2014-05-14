@@ -462,6 +462,7 @@ struct curlev {
     int ssl_ctx_called;
     int is_http;
     int verify_peer;
+    uint16_t port;
 };
 
 #define MAX_EVENTS 64
@@ -1068,31 +1069,25 @@ static struct host_info *get_host(curl_events_t *e, const char *host)
     return info;
 }
 
-static void resolve(curlev_t *ev, const char *host)
+static void resolve(curlev_t *ev, const char *host, uint16_t port)
 {
 #if LIBCURL_VERSION_NUM >= 0x071503
     if (!ev || !host)
         return;
-    struct curl_slist *slist = NULL, *slist2 = NULL;
-    unsigned len = strlen(host) * 2 + 6;
+    struct curl_slist *slist;
+    unsigned len = strlen(host) * 2 + sizeof(":65535:");
     char *res = malloc(len);
     if (!res)
         return;
     /* avoid getaddrinfo */
-    snprintf(res, len, "%s:80:%s", host, host);
-    slist = curl_slist_append(slist, res);
+    snprintf(res, len, "%s:%u:%s", host, port, host);
+    slist = curl_slist_append(NULL, res);
     if (!slist) {
         free(res);
         return;
     }
-    snprintf(res, len, "%s:443:%s", host, host);
-    slist2 = curl_slist_append(slist, res);
-    free(res);
-    if (!slist2) {
-        curl_slist_free_all(slist);
-        return;
-    }
-    ev->resolve = slist2;
+
+    ev->resolve = slist;
     curl_easy_setopt(ev->curl, CURLOPT_RESOLVE, ev->resolve);
 #endif
 }
@@ -1131,7 +1126,7 @@ static int curlev_apply(curl_events_t *e, curlev_t *ev, curlev_t *src)
     ev->curl = handle;
     do {
 	unsigned int contimeout;
-        resolve(ev, src->host);
+        resolve(ev, src->host, src->port);
         if (compute_headers_url(e, ev, src) == -1) {
             EVDEBUG(ev, "compute_headers_url failed");
             break;
@@ -1515,6 +1510,7 @@ static int ev_add(curl_events_t *e,
             ctx_err(ctx, CURLE_OUT_OF_MEMORY, "cannot dup hostname");
             break;
         }
+	ev->port = headers->port;
         ev->url = strdup(headers->url);
         if (!ev->url) {
             ctx_err(ctx, CURLE_OUT_OF_MEMORY, "cannot dup URL");

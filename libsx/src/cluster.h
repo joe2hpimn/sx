@@ -53,6 +53,8 @@ int sxi_conns_set_hostlist(sxi_conns_t *conns, const sxi_hostlist_t *hlist);
 sxi_hostlist_t *sxi_conns_get_hostlist(sxi_conns_t *conns);
 unsigned int sxi_conns_get_timeout(sxi_conns_t *conns, const char *host);
 int sxi_conns_set_timeout(sxi_conns_t *conns, const char *host, int timeout_action);
+int sxi_conns_set_port(sxi_conns_t *conns, unsigned int port);
+unsigned int sxi_conns_get_port(const sxi_conns_t *conns);
 
 typedef int (*cluster_setupcb)(sxi_conns_t *conns, void *context, const char *host);
 int sxi_cluster_query(sxi_conns_t *conns, const sxi_hostlist_t *hlist, enum sxi_cluster_verb verb, const char *query, void *content, size_t content_size, cluster_setupcb setup_callback, cluster_datacb data_callback, void *context);

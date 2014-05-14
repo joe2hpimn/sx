@@ -47,6 +47,7 @@ struct _sxi_conns_t {
     time_t timediff;
     int insecure;
     int clock_drifted;
+    uint16_t port;
 };
 
 sxi_conns_t *sxi_conns_new(sxc_client_t *sx) {
@@ -354,10 +355,6 @@ static enum head_result head_cb(sxi_conns_t *conns, long http_status, char *ptr,
   FIXME: review possibly useful options like these...
 
     CURLOPT_INTERFACE;
-    CURLOPT_FOLLOWLOCATION;
-    CURLOPT_MAXFILESIZE;
-    CURLOPT_MAX_SEND_SPEED_LARGE;
-    CURLOPT_MAX_RECV_SPEED_LARGE;
 */
 
 static int reject_dots(const char *query)
@@ -415,9 +412,9 @@ int sxi_cluster_query_ev(curlev_context_t *cbdata,
 	return -1;
     }
 
-    n = lenof("https://[]") + strlen(host) + 1 + strlen(query) + 1;
+    n = lenof("https://[]:65535") + strlen(host) + 1 + strlen(query) + 1;
     char *url = malloc(n);
-    request_headers_t request = { host, url };
+    request_headers_t request = { host, url, conns->port ? conns->port : (conns->insecure ? 80 : 443) };
     reply_t reply = {{ cbdata, head_cb, errfn}, callback};
 
     if(!url) {
@@ -428,7 +425,10 @@ int sxi_cluster_query_ev(curlev_context_t *cbdata,
     bracket_open = strchr(host, ':') ? "[" : "";
     bracket_close = strchr(host, ':') ? "]" : "";
     /* caveats: we loose SNI support when connecting directly to IP */
-    snprintf(url, n, "http%s://%s%s%s/%s", conns->insecure ? "" : "s", bracket_open, host, bracket_close, query);
+    if(conns->port)
+	snprintf(url, n, "http%s://%s%s%s:%u/%s", conns->insecure ? "" : "s", bracket_open, host, bracket_close, conns->port, query);
+    else
+	snprintf(url, n, "http%s://%s%s%s/%s", conns->insecure ? "" : "s", bracket_open, host, bracket_close, query);
     sxi_cbdata_reset(cbdata);
 
     if(setup_callback && setup_callback(cbdata, host)) {
@@ -773,7 +773,7 @@ int sxi_conns_root_noauth(sxi_conns_t *conns, const char *tmpcafile, int quiet)
         const char *host = sxi_hostlist_get_host(&conns->hlist, i);
         bracket_open = strchr(host, ':') ? "[" : "";
         bracket_close = strchr(host, ':') ? "]" : "";
-        n = lenof("https://[]") + strlen(host) + 1 + strlen(query) + 1;
+        n = lenof("https://[]:65535") + strlen(host) + 1 + strlen(query) + 1;
 
         sxc_clearerr(conns->sx);/* clear errors: we're retrying on next host */
         url = malloc(n);
@@ -782,7 +782,10 @@ int sxi_conns_root_noauth(sxi_conns_t *conns, const char *tmpcafile, int quiet)
             return -1;
         }
         sxi_notice(sxi_conns_get_client(conns), "Connecting to %s", host);
-        snprintf(url, n, "https://%s%s%s/%s", bracket_open, host, bracket_close, query);\
+	if(conns->port)
+	    snprintf(url, n, "https://%s%s%s:%u/%s", bracket_open, host, bracket_close, conns->port, query);
+	else
+	    snprintf(url, n, "https://%s%s%s/%s", bracket_open, host, bracket_close, query);
         rc = sxi_curlev_fetch_certificates(conns->curlev, url, quiet);
         free(url);
         if (rc == CURLE_SSL_CACERT)
@@ -801,3 +804,19 @@ int sxi_conns_disable_proxy(sxi_conns_t *conns)
         return -1;
     return sxi_curlev_disable_proxy(conns->curlev);
 }
+
+int sxi_conns_set_port(sxi_conns_t *conns, unsigned int port) {
+    if(!conns || (port & 0xffff0000))
+	return -1;
+
+    conns->port = port;
+    return 0;
+}
+
+unsigned int sxi_conns_get_port(const sxi_conns_t *conns) {
+    if(!conns)
+	return 0;
+
+    return conns->port;
+}
+
