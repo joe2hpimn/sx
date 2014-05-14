@@ -310,6 +310,7 @@ static int create_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
     char *copy_cafile = NULL;
     sxc_uri_t *uri = NULL;
     int ret = 1;
+    unsigned int http_port;
 
     node = parse_nodef(args->inputs[0]);
     if(!node)
@@ -415,6 +416,15 @@ static int create_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
 	CRIT("Failed to set cluster name");
 	goto create_cluster_err;
     }
+    if(args->port_given) {
+	http_port = args->port_arg;
+	if(sxc_cluster_set_httpport(clust, http_port)) {
+	    CRIT("Failed to set cluster port");
+	    goto create_cluster_err;
+	}
+    } else
+	http_port = 0;
+
     if(!args->ssl_ca_file_given) {
 	/* NON-SSL cluster */
 	if(!args->batch_mode_given) {
@@ -530,7 +540,7 @@ static int create_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
 	fclose(wf);
     }
 
-    rc_ty rs = sx_storage_activate(stor, sxc_cluster_get_sslname(clust), sx_node_uuid(node), auth.uid, AUTH_UID_LEN, auth.key, AUTH_KEY_LEN, copy_cafile ? "ca.pem" : NULL, single_node);
+    rc_ty rs = sx_storage_activate(stor, sxc_cluster_get_sslname(clust), sx_node_uuid(node), auth.uid, AUTH_UID_LEN, auth.key, AUTH_KEY_LEN, http_port, copy_cafile ? "ca.pem" : NULL, single_node);
     if(rs != OK) {
 	CRIT("Failed to activate node");
 	goto create_cluster_err;

@@ -49,6 +49,9 @@ struct cluster_args_info
   char * key_arg;	/**< @brief File containing a pre-generated admin authentication token or stdin if \"-\" is given (default autogenerate token)..  */
   char * key_orig;	/**< @brief File containing a pre-generated admin authentication token or stdin if \"-\" is given (default autogenerate token). original value given at command line.  */
   const char *key_help; /**< @brief File containing a pre-generated admin authentication token or stdin if \"-\" is given (default autogenerate token). help description.  */
+  int port_arg;	/**< @brief Set the cluster destination TCP port (default 443 in secure mode or 80 in insecure mode).  */
+  char * port_orig;	/**< @brief Set the cluster destination TCP port (default 443 in secure mode or 80 in insecure mode) original value given at command line.  */
+  const char *port_help; /**< @brief Set the cluster destination TCP port (default 443 in secure mode or 80 in insecure mode) help description.  */
   char * ssl_ca_file_arg;	/**< @brief SSL CA certificate file of the SX cluster (same file as in httpd configuration).  */
   char * ssl_ca_file_orig;	/**< @brief SSL CA certificate file of the SX cluster (same file as in httpd configuration) original value given at command line.  */
   const char *ssl_ca_file_help; /**< @brief SSL CA certificate file of the SX cluster (same file as in httpd configuration) help description.  */
@@ -67,6 +70,7 @@ struct cluster_args_info
   unsigned int force_gc_given ;	/**< @brief Whether force-gc was given.  */
   unsigned int node_dir_given ;	/**< @brief Whether node-dir was given.  */
   unsigned int key_given ;	/**< @brief Whether key was given.  */
+  unsigned int port_given ;	/**< @brief Whether port was given.  */
   unsigned int ssl_ca_file_given ;	/**< @brief Whether ssl-ca-file was given.  */
   unsigned int config_dir_given ;	/**< @brief Whether config-dir was given.  */
   unsigned int batch_mode_given ;	/**< @brief Whether batch-mode was given.  */

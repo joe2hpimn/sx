@@ -103,7 +103,7 @@ const char *sx_hashfs_cluster_name(sx_hashfs_t *h);
 const char *sx_hashfs_ca_file(sx_hashfs_t *h);
 void sx_storage_usage(sx_hashfs_t *h, int64_t *allocated, int64_t *committed);
 const sx_uuid_t *sx_hashfs_distinfo(sx_hashfs_t *h, unsigned int *version, uint64_t *checksum);
-rc_ty sx_storage_activate(sx_hashfs_t *h, const char *name, const sx_uuid_t *node_uuid, uint8_t *admin_uid, unsigned int uid_size, uint8_t *admin_key, int key_size, const char *ssl_ca_file, const sx_nodelist_t *allnodes);
+rc_ty sx_storage_activate(sx_hashfs_t *h, const char *name, const sx_uuid_t *node_uuid, uint8_t *admin_uid, unsigned int uid_size, uint8_t *admin_key, int key_size, uint16_t port, const char *ssl_ca_file, const sx_nodelist_t *allnodes);
 rc_ty sx_hashfs_setnodedata(sx_hashfs_t *h, const char *name, const sx_uuid_t *node_uuid, int use_ssl, const char *ssl_ca_crt);
 int sx_hashfs_uses_secure_proto(sx_hashfs_t *h);
 void sx_hashfs_set_triggers(sx_hashfs_t *h, int job_trigger, int xfer_trigger, int gc_trigger);

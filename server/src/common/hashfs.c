@@ -969,6 +969,7 @@ open_hashfs_fail:
 static int load_config(sx_hashfs_t *h, sxc_client_t *sx) {
     const void *p;
     int r, ret = -1;
+    uint16_t port;
 
     DEBUG("Reloading cluster configuration");
 
@@ -1001,6 +1002,21 @@ static int load_config(sx_hashfs_t *h, sxc_client_t *sx) {
 	h->cluster_name = wrap_strdup((const char*)sqlite3_column_text(h->q_getval, 0));
 	if (!h->cluster_name)
 	    goto load_config_fail;
+
+	sqlite3_reset(h->q_getval);
+	if(qbind_text(h->q_getval, ":k", "http_port")) {
+	    CRIT("Failed to retrieve network settings from database");
+	    goto load_config_fail;
+	}
+	r = qstep(h->q_getval);
+	if(r == SQLITE_ROW)
+	    port = sqlite3_column_int(h->q_getval, 0);
+	else if(r == SQLITE_DONE)
+	    port = 0;
+	else {
+	    CRIT("Failed to retrieve network settings from database");
+	    goto load_config_fail;
+	}
 
 	sqlite3_reset(h->q_getval);
 	if(qbind_text(h->q_getval, ":k", "ssl_ca_file")) {
@@ -1124,6 +1140,7 @@ static int load_config(sx_hashfs_t *h, sxc_client_t *sx) {
 	if(!h->sx_clust ||
 	   sxi_conns_set_uuid(h->sx_clust, h->cluster_uuid.string) ||
 	   sxi_conns_set_auth(h->sx_clust, h->root_auth) ||
+	   sxi_conns_set_port(h->sx_clust, port) ||
 	   sxi_conns_set_sslname(h->sx_clust, h->cluster_name)) {
 	    CRIT("Failed to initialize cluster connectors");
 	    goto load_config_fail;
@@ -1545,7 +1562,7 @@ int sx_storage_is_bare(sx_hashfs_t *h) {
     return (h != NULL) && (h->cluster_name == NULL);
 }
 
-rc_ty sx_storage_activate(sx_hashfs_t *h, const char *name, const sx_uuid_t *node_uuid, uint8_t *admin_uid, unsigned int uid_size, uint8_t *admin_key, int key_size, const char *ssl_ca_file, const sx_nodelist_t *allnodes) {
+rc_ty sx_storage_activate(sx_hashfs_t *h, const char *name, const sx_uuid_t *node_uuid, uint8_t *admin_uid, unsigned int uid_size, uint8_t *admin_key, int key_size, uint16_t port, const char *ssl_ca_file, const sx_nodelist_t *allnodes) {
     rc_ty r, ret = FAIL_EINTERNAL;
     sqlite3_stmt *q = NULL;
     const sx_node_t *self;
@@ -1590,6 +1607,8 @@ rc_ty sx_storage_activate(sx_hashfs_t *h, const char *name, const sx_uuid_t *nod
     if(qbind_text(q, ":k", "cluster_name") || qbind_text(q, ":v", name) || qstep_noret(q))
 	goto storage_activate_fail;
     if(qbind_text(q, ":k", "node") || qbind_blob(q, ":v", node_uuid->binary, sizeof(node_uuid->binary)) || qstep_noret(q))
+	goto storage_activate_fail;
+    if(qbind_text(q, ":k", "http_port") || qbind_int(q, ":v", port) || qstep_noret(q))
 	goto storage_activate_fail;
 
     if(sx_hashfs_hdist_change_commit(h))

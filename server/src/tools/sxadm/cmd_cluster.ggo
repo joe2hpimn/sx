@@ -13,6 +13,7 @@ groupoption "force-gc" G "Force a garbage collection cycle on all noeds" group="
 section "New cluster options"
 option "node-dir" d "Path to the node directory" string typestr="PATH" dependon="new" optional
 option "key" k "File containing a pre-generated admin authentication token or stdin if \"-\" is given (default autogenerate token)." string typestr="PATH" dependon="new" optional
+option  "port"	- "Set the cluster destination TCP port (default 443 in secure mode or 80 in insecure mode)" int optional
 option "ssl-ca-file" - "SSL CA certificate file of the SX cluster (same file as in httpd configuration)" string typestr="PATH" dependon="new" optional
 
 section "Common options"
