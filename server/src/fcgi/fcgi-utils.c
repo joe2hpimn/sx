@@ -368,6 +368,12 @@ void handle_request(void) {
     char *argp;
     unsigned int plen;
 
+    int dc = sx_hashfs_distcheck(hashfs);
+    if(dc < 0) {
+	CRIT("Failed to reload distribution");
+	/* MODHDIST: should die here */
+    }
+
     msg_new_id();
     verb = VERB_UNSUP;
     p_method = FCGX_GetParam("REQUEST_METHOD", envp);
@@ -600,12 +606,6 @@ void handle_request(void) {
               sx_hashfs_uses_secure_proto(hashfs), is_https(),
               sx_storage_is_bare(hashfs));
 	quit_errmsg(403, sx_hashfs_uses_secure_proto(hashfs) ? "Cluster operations require SECURE mode" : "Cluster operations require INSECURE mode");
-    }
-
-    int dc = sx_hashfs_distcheck(hashfs);
-    if(dc < 0) {
-	CRIT("Failed to reload distribution");
-	/* MODHDIST: should die here */
     }
 
     if(!volume)

@@ -636,6 +636,7 @@ struct _sx_hashfs_t {
 
     char *ssl_ca_file;
     char *cluster_name;
+    uint16_t http_port;
 
     sxi_hdist_t *hd;
     sx_nodelist_t *prev_dist, *next_dist, *nextprev_dist, *prevnext_dist;
@@ -969,7 +970,6 @@ open_hashfs_fail:
 static int load_config(sx_hashfs_t *h, sxc_client_t *sx) {
     const void *p;
     int r, ret = -1;
-    uint16_t port;
 
     DEBUG("Reloading cluster configuration");
 
@@ -1003,6 +1003,7 @@ static int load_config(sx_hashfs_t *h, sxc_client_t *sx) {
 	if (!h->cluster_name)
 	    goto load_config_fail;
 
+	h->http_port = 0;
 	sqlite3_reset(h->q_getval);
 	if(qbind_text(h->q_getval, ":k", "http_port")) {
 	    CRIT("Failed to retrieve network settings from database");
@@ -1010,10 +1011,8 @@ static int load_config(sx_hashfs_t *h, sxc_client_t *sx) {
 	}
 	r = qstep(h->q_getval);
 	if(r == SQLITE_ROW)
-	    port = sqlite3_column_int(h->q_getval, 0);
-	else if(r == SQLITE_DONE)
-	    port = 0;
-	else {
+	    h->http_port = sqlite3_column_int(h->q_getval, 0);
+	else if(r != SQLITE_DONE) {
 	    CRIT("Failed to retrieve network settings from database");
 	    goto load_config_fail;
 	}
@@ -1140,7 +1139,7 @@ static int load_config(sx_hashfs_t *h, sxc_client_t *sx) {
 	if(!h->sx_clust ||
 	   sxi_conns_set_uuid(h->sx_clust, h->cluster_uuid.string) ||
 	   sxi_conns_set_auth(h->sx_clust, h->root_auth) ||
-	   sxi_conns_set_port(h->sx_clust, port) ||
+	   sxi_conns_set_port(h->sx_clust, h->http_port) ||
 	   sxi_conns_set_sslname(h->sx_clust, h->cluster_name)) {
 	    CRIT("Failed to initialize cluster connectors");
 	    goto load_config_fail;
@@ -1512,6 +1511,10 @@ time_t sx_hashfs_disttime(sx_hashfs_t *h) {
 
 const char *sx_hashfs_cluster_name(sx_hashfs_t *h) {
     return h ? h->cluster_name : NULL;
+}
+
+uint16_t sx_hashfs_http_port(sx_hashfs_t *h) {
+    return h ? h->http_port : 0;
 }
 
 const char *sx_hashfs_ca_file(sx_hashfs_t *h) {
@@ -6957,7 +6960,7 @@ rc_ty sx_hashfs_challenge_gen(sx_hashfs_t *h, sx_hash_challenge_t *c, int random
 
 /* MODHDIST: this has got a lot in common with sx_storage_activate
  * except it's the entry for the cluster instead od sxadm */
-rc_ty sx_hashfs_setnodedata(sx_hashfs_t *h, const char *name, const sx_uuid_t *node_uuid, int use_ssl, const char *ssl_ca_crt) {
+rc_ty sx_hashfs_setnodedata(sx_hashfs_t *h, const char *name, const sx_uuid_t *node_uuid, uint16_t port, int use_ssl, const char *ssl_ca_crt) {
     rc_ty ret = FAIL_EINTERNAL;
     char *ssl_ca_file = NULL;
     sqlite3_stmt *q = NULL;
@@ -7018,6 +7021,8 @@ rc_ty sx_hashfs_setnodedata(sx_hashfs_t *h, const char *name, const sx_uuid_t *n
     if(qbind_text(q, ":k", "ssl_ca_file") || qbind_text(q, ":v", ssl_ca_file ? ssl_ca_file : "") || qstep_noret(q))
 	goto setnodedata_fail;
     if(qbind_text(q, ":k", "cluster_name") || qbind_text(q, ":v", name) || qstep_noret(q))
+	goto setnodedata_fail;
+    if(qbind_text(q, ":k", "http_port") || qbind_int(q, ":v", port) || qstep_noret(q))
 	goto setnodedata_fail;
     if(qbind_text(q, ":k", "node") || qbind_blob(q, ":v", node_uuid->binary, sizeof(node_uuid->binary)) || qstep_noret(q))
 	goto setnodedata_fail;

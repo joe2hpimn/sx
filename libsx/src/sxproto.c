@@ -365,7 +365,7 @@ sxi_query_t *sxi_hashop_proto(sxc_client_t *sx, unsigned blocksize, const char *
 }
 
 
-sxi_query_t *sxi_nodeinit_proto(sxc_client_t *sx, const char *cluster_name, const char *node_uuid, int ssl_flag, const char *ssl_file) {
+sxi_query_t *sxi_nodeinit_proto(sxc_client_t *sx, const char *cluster_name, const char *node_uuid, uint16_t http_port, int ssl_flag, const char *ssl_file) {
     char *ca_data = NULL, *name = NULL, *node = NULL;
     sxi_query_t *ret;
     unsigned int n;
@@ -415,14 +415,18 @@ sxi_query_t *sxi_nodeinit_proto(sxc_client_t *sx, const char *cluster_name, cons
 	return NULL;
     }
 
-    n = sizeof("{\"clusterName\":,\"nodeUUID\":,\"secureProtocol\":false,\"caCertData\":\"\"}") +
+    n = sizeof("{\"clusterName\":,\"nodeUUID\":,\"httpPort\":65535,\"secureProtocol\":false,\"caCertData\":\"\"}") +
 	strlen(name) +
 	strlen(node);
     if(ca_data)
 	n += strlen(ca_data);
     ret = sxi_query_create(sx, ".node", REQ_PUT);
-    if(ret)
-        ret = sxi_query_append_fmt(sx, ret, n, "{\"clusterName\":%s,\"nodeUUID\":%s,\"secureProtocol\":%s,\"caCertData\":%s}", name, node, ssl_flag ? "true" : "false", ca_data ? ca_data : "\"\"");
+    if(ret) {
+	if(http_port)
+	    ret = sxi_query_append_fmt(sx, ret, n, "{\"clusterName\":%s,\"nodeUUID\":%s,\"httpPort\":%u,\"secureProtocol\":%s,\"caCertData\":%s}", name, node, http_port, ssl_flag ? "true" : "false", ca_data ? ca_data : "\"\"");
+	else
+	    ret = sxi_query_append_fmt(sx, ret, n, "{\"clusterName\":%s,\"nodeUUID\":%s,\"secureProtocol\":%s,\"caCertData\":%s}", name, node, ssl_flag ? "true" : "false", ca_data ? ca_data : "\"\"");
+    }
 
     free(ca_data);
     free(name);

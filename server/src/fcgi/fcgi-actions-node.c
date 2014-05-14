@@ -338,16 +338,18 @@ void fcgi_enable_distribution(void) {
    "clusterName":"name",
    "nodeUUID":"12345678-1234-1234-1234-123356789abcd",
    "secureProtocol":(true|false),
+   "httpPort":8080,
    "caCertData":"--- BEGIN ....",
   }
 */
 /* MODHDIST: maybe add revision here */
 struct cb_nodeinit_ctx {
-    enum cb_nodeinit_state { CB_NODEINIT_START, CB_NODEINIT_KEY, CB_NODEINIT_NAME, CB_NODEINIT_NODE, CB_NODEINIT_SSL, CB_NODEINIT_CA, CB_NODEINIT_COMPLETE } state;
+    enum cb_nodeinit_state { CB_NODEINIT_START, CB_NODEINIT_KEY, CB_NODEINIT_NAME, CB_NODEINIT_NODE, CB_NODEINIT_SSL, CB_NODEINIT_PORT, CB_NODEINIT_CA, CB_NODEINIT_COMPLETE } state;
     unsigned int have_uuid;
     int ssl;
     char *name, *ca;
     sx_uuid_t uuid;
+    uint16_t port;
 };
 
 static int cb_nodeinit_string(void *ctx, const unsigned char *s, size_t l) {
@@ -419,6 +421,11 @@ static int cb_nodeinit_map_key(void *ctx, const unsigned char *s, size_t l) {
 	return 1;
     }
 
+    if(l == lenof("httpPort") && !strncmp("httpPort", s, lenof("httpPort"))) {
+	c->state = CB_NODEINIT_PORT;
+	return 1;
+    }
+
     if(l == lenof("secureProtocol") && !strncmp("secureProtocol", s, lenof("secureProtocol"))) {
 	c->state = CB_NODEINIT_SSL;
 	return 1;
@@ -441,12 +448,33 @@ static int cb_nodeinit_end_map(void *ctx) {
     return 1;
 }
 
+
+static int cb_nodeinit_number(void *ctx, const char *s, size_t l) {
+    struct cb_nodeinit_ctx *c = (struct cb_nodeinit_ctx *)ctx;
+    char number[6], *eon;
+    long n;
+
+    if(c->state != CB_NODEINIT_PORT || l<1 || l>5)
+	return 0;
+
+    memcpy(number, s, l);
+    number[l] = '\0';
+    n = strtol(number, &eon, 10);
+    if(*eon || n < 0 || n > 0xffff)
+	return 0;
+
+    c->port = n;
+    c->state = CB_NODEINIT_KEY;
+    return 1;
+}
+
+
 static const yajl_callbacks nodeinit_parser = {
     cb_fail_null,
     cb_nodeinit_boolean,
     NULL,
     NULL,
-    cb_fail_number,
+    cb_nodeinit_number,
     cb_nodeinit_string,
     cb_nodeinit_start_map,
     cb_nodeinit_map_key,
@@ -484,7 +512,7 @@ void fcgi_node_init(void) {
     auth_complete();
     quit_unless_authed();
 
-    rc_ty s = sx_hashfs_setnodedata(hashfs, yctx.name, &yctx.uuid, yctx.ssl, yctx.ca);
+    rc_ty s = sx_hashfs_setnodedata(hashfs, yctx.name, &yctx.uuid, yctx.port, yctx.ssl, yctx.ca);
     free(yctx.name);
     free(yctx.ca);
 
@@ -599,6 +627,8 @@ static int cb_sync_number(void *ctx, const char *s, size_t l) {
     if(c->state != CB_SYNC_VOLREP && c->state != CB_SYNC_VOLSIZ)
 	return 0;
 
+    if(l<1 || l>20)
+	return 0;
     memcpy(number, s, l);
     number[l] = '\0';
     n = strtoll(number, &eon, 10);

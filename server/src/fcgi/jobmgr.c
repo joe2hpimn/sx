@@ -1690,10 +1690,11 @@ static act_result_t distribution_request(sx_hashfs_t *hashfs, job_t job_id, job_
 		action_error(ACT_RESULT_PERMFAIL, 500, "Bad challenge response");
 
 	    sxi_query_t *initproto = sxi_nodeinit_proto(sx,
-							    sx_hashfs_cluster_name(hashfs),
-							    sx_node_uuid_str(node),
-							    sx_hashfs_uses_secure_proto(hashfs),
-							    sx_hashfs_ca_file(hashfs));
+							sx_hashfs_cluster_name(hashfs),
+							sx_node_uuid_str(node),
+							sx_hashfs_http_port(hashfs),
+							sx_hashfs_uses_secure_proto(hashfs),
+							sx_hashfs_ca_file(hashfs));
 	    if(!initproto)
 		action_error(rc2actres(ENOMEM), rc2http(ENOMEM), "Failed to prepare query");
 

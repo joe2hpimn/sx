@@ -49,7 +49,7 @@ sxi_query_t *sxi_fileadd_proto_addhash(sxc_client_t *sx, sxi_query_t *query, con
 sxi_query_t *sxi_fileadd_proto_end(sxc_client_t *sx, sxi_query_t *query, sxc_meta_t *metadata);
 sxi_query_t *sxi_filedel_proto(sxc_client_t *sx, const char *volname, const char *path, const char *revision);
 sxi_query_t *sxi_hashop_proto(sxc_client_t *sx, unsigned blocksize, const char *hashes, unsigned hashes_len, enum sxi_hashop_kind kind, const char *id);
-sxi_query_t *sxi_nodeinit_proto(sxc_client_t *sx, const char *cluster_name, const char *node_uuid, int ssl_flag, const char *ssl_file);
+sxi_query_t *sxi_nodeinit_proto(sxc_client_t *sx, const char *cluster_name, const char *node_uuid, uint16_t http_port, int ssl_flag, const char *ssl_file);
 sxi_query_t *sxi_distribution_proto(sxc_client_t *sx, const void *cfg, unsigned int cfg_len);
 
 typedef const char* (*acl_cb_t)(void *ctx);
