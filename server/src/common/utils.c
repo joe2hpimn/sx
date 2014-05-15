@@ -577,6 +577,12 @@ int runas(const char *usergroup)
     if(parse_usergroup(usergroup, &uid, &gid))
 	return -1;
 
+    if (getuid() == uid && geteuid() == uid &&
+        getgid() == gid && getegid() == gid) {
+        INFO("Already running as %d:%d, request to change user:group ignored",
+             uid, gid);
+        return 0;
+    }
 #ifdef HAVE_SETGROUPS
     if(setgroups(1, &gid) == -1) {
         CRIT("setgroups failed: %s", strerror(errno));

@@ -1,14 +1,17 @@
 #!/bin/sh
 set -e
 
+SX_HTTP_PORT=8080
+SX_HTTPS_PORT=8443
+
 if [ `id -u` -eq 0 ]; then
     echo "You must NOT be root"
     exit 1
 fi
 # for valgrind, avoid aes_ni warnings
 export OPENSSL_ia32cap="~0x200000000000000"
-sudo rm -f /tmp/sxfcgi.valgrind.log.*
-sudo rm -f /tmp/v.log.*
+rm -f /tmp/sxfcgi.valgrind.log.*
+rm -f /tmp/v.log.*
 
 MESSAGE="LAST TEST FAILED!"
 print_status() {
@@ -25,7 +28,7 @@ ulimit -c unlimited
 export ASAN_OPTIONS=log_path=/tmp/asan.log
 
 ROOT=`pwd`/test-sx
-sudo rm -rf $ROOT
+rm -rf $ROOT
 CLUSTER_NAME=localhost
 
 # TODO: sxadm should generate these
@@ -33,8 +36,8 @@ ADMIN_KEY=0DPiKuNIrrVmD8IUCuw1hQxNqZc8kneQi3GoAPaxWgJng4mcDWfj8QAA
 CLUSTER_UUID=f2d5c774-b40e-4bbf-88fc-9ccaa8a9e8af
 
 echo "Killing old processes"
-sudo pkill -f sxhttpd || true
-sudo pkill -9 -f sx.fcgi || true
+pkill -f sxhttpd || true
+pkill -9 -f sx.fcgi || true
 
 i=1
 while [ $i -le $N ]; do
@@ -69,8 +72,8 @@ while [ $i -le $N ]; do
     SX_NODE_SIZE="1T"
     SX_NODE_IP="127.0.1.$i"
     SX_SERVER_USER=`id -n -u`
-    SX_HTTP_PORT="80"
-    SX_HTTPS_PORT="443"
+    SX_HTTP_PORT="$SX_HTTP_PORT"
+    SX_HTTPS_PORT="$SX_HTTPS_PORT"
     SX_USE_SSL="yes"
     SX_CLUSTER_UUID="$CLUSTER_UUID"
     SX_ADMIN_KEY="$ADMIN_KEY"
@@ -81,7 +84,7 @@ EOF
 	echo "SX_EXISTING_NODE_IP=\"127.0.1.1\"" >> $CONF_TMP
     fi
 #    export SX_USE_VALGRIND=yes
-    sudo -E $prefix/sbin/sxsetup --config-file $CONF_TMP
+    $prefix/sbin/sxsetup --config-file $CONF_TMP
     rm -f $CONF_TMP
 
     i=$(( i+1 ))
@@ -93,17 +96,17 @@ while [ $i -le $N ]; do
     list="$list,127.0.1.$i"
     i=$((i+1))
 done
-sudo rm -rf $HOME/.sx/$CLUSTER_NAME # avoid sxinit bugs
-echo "$ADMIN_KEY" | ../client/src/tools/init/sxinit --batch --host-list=$list sx://localhost
+rm -rf $HOME/.sx/$CLUSTER_NAME # avoid sxinit bugs
+echo "$ADMIN_KEY" | ../client/src/tools/init/sxinit --port "$SX_HTTPS_PORT" --batch --host-list=$list sx://localhost
 test/valgrind-tests.sh
 i=1
 while [ $i -le $N ]; do
     prefix=$ROOT/$i
-    sudo $prefix/sbin/sxserver stop
+    $prefix/sbin/sxserver stop
     i=$(( i+1 ))
 done
-sudo cat /tmp/sxfcgi.valgrind.log.* /tmp/v.log.* | grep 'ERROR SUMMARY' | grep -v ' 0 err'
-sudo cat /tmp/sxfcgi.valgrind.log.* /tmp/v.log.* | grep 'lost' | grep -v ' 0 byte'
+cat /tmp/sxfcgi.valgrind.log.* /tmp/v.log.* | grep 'ERROR SUMMARY' | grep -v ' 0 err'
+cat /tmp/sxfcgi.valgrind.log.* /tmp/v.log.* | grep 'lost' | grep -v ' 0 byte'
 
 MESSAGE="OK"
 exit 0
