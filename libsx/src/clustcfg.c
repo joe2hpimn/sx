@@ -541,16 +541,20 @@ sxc_cluster_t *sxc_cluster_load(sxc_client_t *sx, const char *config_dir, const 
     return NULL;
 }
 
-int64_t sxc_cluster_get_bandwidth_limit(const sxc_cluster_t *cluster) {
-    if(!cluster)
+int64_t sxc_cluster_get_bandwidth_limit(sxc_client_t *sx, const sxc_cluster_t *cluster) {
+    if(!cluster || !sx) {
+        SXDEBUG("Could not get bandwidth limit: NULL argument.");
         return -1;
+    }
 
     return sxi_conns_get_bandwidth_limit(cluster->conns);
 }
 
-int sxc_cluster_set_bandwidth_limit(sxc_cluster_t *cluster, int64_t bandwidth_limit) {
-    if(!cluster || !cluster->conns)
+int sxc_cluster_set_bandwidth_limit(sxc_client_t *sx, sxc_cluster_t *cluster, int64_t bandwidth_limit) {
+    if(!sx || !cluster || !cluster->conns) {
+        SXDEBUG("Could not set bandwidth limit: NULL argument");
         return 1;
+    }
         
     return sxi_conns_set_bandwidth_limit(cluster->conns, bandwidth_limit);
 }

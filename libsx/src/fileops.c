@@ -405,9 +405,6 @@ struct file_upload_ctx {
     /* only one part upload active at any on time.
      * This is to keep uploaded blocks sorted properly
      */
-
-    int upload_limit; /* Upload bandwidth limit */
-    int download_limit; /* Download bandwidth limit */
 };
 
 struct host_upload_ctx {

@@ -634,31 +634,6 @@ struct curl_events {
 };
 
 #define MAX_ACTIVE_PER_HOST 2
-int sxi_curlev_set_bandwidth_limit(curl_events_t *e, int64_t global_bandwidth_limit, unsigned int host_count, unsigned int running) {
-    if(!e || !host_count) {
-        fprintf(stderr, "Events ptr: %lu, host count: %u\n", (unsigned long)e, host_count);        
-        return 1;
-    }
-
-    /* Bandwidth limitation for whole process */
-    e->bandwidth.global_limit = global_bandwidth_limit;
-    /* Number of hosts used for data transfering */
-    e->bandwidth.host_count = host_count;
-
-    /* Divide global bandwidth limit by up to host_count * MAX_ACTIVE_PER_HOST that it can be set for each transfer */
-    if(running && running < host_count * MAX_ACTIVE_PER_HOST)
-        e->bandwidth.local_limit = global_bandwidth_limit / running; 
-    else
-        e->bandwidth.local_limit = global_bandwidth_limit / (host_count * MAX_ACTIVE_PER_HOST);
-    return 0;
-}
-
-int64_t sxi_curlev_get_bandwidth_limit(const curl_events_t *e) {
-    if(!e) 
-        return -1;
-
-    return e->bandwidth.local_limit;
-}
 
 struct host_info {
     int active;
@@ -692,6 +667,39 @@ static void ctx_err(curlev_context_t *ctx, CURLcode rc, const char *msg)
         sxc_client_t *sx = sxi_conns_get_client(ev->ctx->conns); \
         SXDEBUG(__VA_ARGS__);\
     }} while (0)
+
+int sxi_curlev_set_bandwidth_limit(curl_events_t *e, int64_t global_bandwidth_limit, unsigned int host_count, unsigned int running) {
+    if(!e) {
+        EVENTSDEBUG(e, "Could not set bandwidth limit, NULL argument");
+        return 1;
+    }
+
+    if(!host_count) {
+        EVENTSDEBUG(e, "Could not set bandwidth limit, 0 hosts available");        
+        return 1;
+    }
+
+    /* Bandwidth limitation for whole process */
+    e->bandwidth.global_limit = global_bandwidth_limit;
+    /* Number of hosts used for data transfering */
+    e->bandwidth.host_count = host_count;
+
+    /* Divide global bandwidth limit by up to host_count * MAX_ACTIVE_PER_HOST that it can be set for each transfer */
+    if(running && running < host_count * MAX_ACTIVE_PER_HOST)
+        e->bandwidth.local_limit = global_bandwidth_limit / running; 
+    else
+        e->bandwidth.local_limit = global_bandwidth_limit / (host_count * MAX_ACTIVE_PER_HOST);
+    return 0;
+}
+
+int64_t sxi_curlev_get_bandwidth_limit(const curl_events_t *e) {
+    if(!e) {
+        EVENTSDEBUG(e, "Could not get bandwidth limit, NULL argument");
+        return -1;
+    }
+
+    return e->bandwidth.local_limit;
+}
 
 static int curl_check(curlev_t *e, CURLcode code, const char *msg)
 {
@@ -1244,11 +1252,13 @@ static int curlev_apply(curl_events_t *e, curlev_t *ev, curlev_t *src)
         if(e->bandwidth.global_limit) {
             rc = curl_easy_setopt(ev->curl, CURLOPT_MAX_SEND_SPEED_LARGE, e->bandwidth.local_limit);
             if (curl_check(ev,rc, "set CURLOPT_MAX_SEND_SPEED_LARGE") == -1) {
+                EVDEBUG(ev, "Could not set CURL max send seed");
                 break;
             }
 
             rc = curl_easy_setopt(ev->curl, CURLOPT_MAX_RECV_SPEED_LARGE, e->bandwidth.local_limit);
             if (curl_check(ev,rc, "set CURLOPT_MAX_RECV_SPEED_LARGE") == -1) {
+                EVDEBUG(ev, "Could not set CURL max send seed");
                 break;
             }
         }
@@ -1440,25 +1450,27 @@ static int enqueue_request(curl_events_t *e, curlev_t *ev, int re)
         return -1;
     }
 
-    /* Ensure that host_count field is not 0 */
-    if(!e->bandwidth.host_count) {
-        sxi_hostlist_t *hosts = sxi_conns_get_hostlist(e->conns);
-        if(!hosts) {
-            EVDEBUG(ev, "Could not get host list");
-            return -1;
-        }
-
-        e->bandwidth.host_count = sxi_hostlist_get_count(hosts);
+    if(e->bandwidth.global_limit) {
+        /* Ensure that host_count field is not 0 */
         if(!e->bandwidth.host_count) {
-            EVDEBUG(ev, "Could not get host list length");
+            sxi_hostlist_t *hosts = sxi_conns_get_hostlist(e->conns);
+            if(!hosts) {
+                EVDEBUG(ev, "Could not get host list");
+                return -1;
+            }
+  
+            e->bandwidth.host_count = sxi_hostlist_get_count(hosts);
+            if(!e->bandwidth.host_count) {
+                EVDEBUG(ev, "Could not get host list length");
+                return -1;
+            }
+        }
+
+        /* Enqueuing new request needs to update bandwidth */
+        if(sxi_curlev_set_bandwidth_limit(e, e->bandwidth.global_limit, e->bandwidth.host_count, e->running+1)) {
+            EVDEBUG(ev, "sxi_curlev_set_bandwidth_limit failed");
             return -1;
         }
-    }
-
-    /* Enqueuing new request needs to update bandwidth */
-    if(sxi_curlev_set_bandwidth_limit(e, e->bandwidth.global_limit, e->bandwidth.host_count, e->running+1)) {
-        EVDEBUG(ev, "sxi_curlev_set_bandwidth_limit failed");
-        return -1;
     }
 
     if (info->active < MAX_ACTIVE_PER_HOST) {
@@ -1714,12 +1726,13 @@ int sxi_curlev_poll_immediate(curl_events_t *e)
     } while (rc == CURLM_CALL_MULTI_PERFORM);
 
     /* If number of running transfers has changed, recalculate bandwidth */
-    if(last_running != e->running) {
+    if(e->bandwidth.global_limit && last_running != e->running) {
         if(sxi_curlev_set_bandwidth_limit(e, e->bandwidth.global_limit, e->bandwidth.host_count, e->running)) {
+            EVENTSDEBUG(e, "Could not set bandwidth limit");
             return -1;
         }
     }
-
+    
     if (curlm_check(NULL,rc,"perform") == -1)
         return -1;
     e->added_notpolled = 0;

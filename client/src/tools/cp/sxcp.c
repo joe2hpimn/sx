@@ -225,7 +225,7 @@ int main(int argc, char **argv) {
     if(!(dst_file = sxfile_from_arg(&cluster1, fname)))
 	goto main_err;
 
-    if(limit && cluster1 && sxc_cluster_set_bandwidth_limit(cluster1, limit)) {
+    if(limit && cluster1 && sxc_cluster_set_bandwidth_limit(sx, cluster1, limit)) {
         fprintf(stderr, "Failed to set bandwidth limit to %s\n", args.bwlimit_arg);
         goto main_err;
     }
@@ -243,7 +243,7 @@ int main(int argc, char **argv) {
         if(!(src_file = sxfile_from_arg(&cluster2, fname)))
             goto main_err;
 
-        if(limit && cluster2 && sxc_cluster_set_bandwidth_limit(cluster2, limit)) {
+        if(limit && cluster2 && sxc_cluster_set_bandwidth_limit(sx, cluster2, limit)) {
             fprintf(stderr, "Failed to set bandwidth limit to %s\n", args.bwlimit_arg);
             goto main_err;
         }
