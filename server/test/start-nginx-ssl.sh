@@ -1,9 +1,6 @@
 #!/bin/sh
 set -e
 
-SX_HTTP_PORT=8080
-SX_HTTPS_PORT=8443
-
 if [ `id -u` -eq 0 ]; then
     echo "You must NOT be root"
     exit 1
@@ -72,8 +69,8 @@ while [ $i -le $N ]; do
     SX_NODE_SIZE="1T"
     SX_NODE_IP="127.0.1.$i"
     SX_SERVER_USER=`id -n -u`
-    SX_HTTP_PORT="$SX_HTTP_PORT"
-    SX_HTTPS_PORT="$SX_HTTPS_PORT"
+    SX_HTTP_PORT=5080
+    SX_HTTPS_PORT=5443
     SX_USE_SSL="yes"
     SX_CLUSTER_UUID="$CLUSTER_UUID"
     SX_ADMIN_KEY="$ADMIN_KEY"
@@ -84,7 +81,7 @@ EOF
 	echo "SX_EXISTING_NODE_IP=\"127.0.1.1\"" >> $CONF_TMP
     fi
 #    export SX_USE_VALGRIND=yes
-    $prefix/sbin/sxsetup --config-file $CONF_TMP
+    $prefix/sbin/sxsetup --config-file $CONF_TMP --advanced
     rm -f $CONF_TMP
 
     i=$(( i+1 ))
