@@ -24,26 +24,6 @@ http {
        client_body_temp_path @localstatedir@/lib/sxserver/sxhttpd;
        fastcgi_temp_path @localstatedir@/lib/sxserver/sxhttpd;
        server {
-            listen 80 default_server;
- #            listen [::]:80 default_server ipv6only=on;
-            location /.errors/ {
-                alias @sysconfdir@/sxserver/errors/;
-            }
- # For some reason the error page for 414 must include the headers too, but not
- # the 50x pages!
-            error_page 414 =414 /.errors/414.json;
-            error_page 502 =502 /.errors/50x.json;
-            error_page 503 =503 /.errors/50x.json;
-            error_page 504 =504 /.errors/50x.json;
-            location / {
-                fastcgi_pass unix:@localstatedir@/run/sxserver/sxfcgi.socket;
-                fastcgi_store off;
-                fastcgi_read_timeout 300s;
-                fastcgi_max_temp_file_size 0;
-                include fastcgi_params;
-            }
-       }
-#       server {
 #            ssl on;
 #            ssl_certificate @sysconfdir@/ssl/certs/sxcert.pem;
 #            ssl_certificate_key @sysconfdir@/ssl/private/sxkey.pem;
@@ -53,21 +33,21 @@ http {
 #          # Much slower but with PFS enabled
 #          # ssl_ciphers HIGH:!SSLv2:!aNULL:!eNULL:!3DES;
 #            ssl_prefer_server_ciphers on;
-#            listen 443 default_server;
-# #            listen [::]:443 default_server ipv6only=on;
-#            location /.errors/ {
-#                alias @sysconfdir@/sxserver/errors/;
-#            }
-#            error_page 414 =414 /.errors/414.json;
-#            error_page 502 =502 /.errors/50x.json;
-#            error_page 503 =503 /.errors/50x.json;
-#            error_page 504 =504 /.errors/50x.json;
-#            location / {
-#                fastcgi_pass unix:@localstatedir@/run/sxserver/sxfcgi.socket;
-#                fastcgi_store off;
-#                fastcgi_read_timeout 300s;
-#                fastcgi_max_temp_file_size 0;
-#                include fastcgi_params;
-#            }
-#      }
+             listen 80 default_server;
+# #            listen [::]:80 default_server ipv6only=on;
+             location /.errors/ {
+                 alias @sysconfdir@/sxserver/errors/;
+             }
+             error_page 414 =414 /.errors/414.json;
+             error_page 502 =502 /.errors/50x.json;
+             error_page 503 =503 /.errors/50x.json;
+             error_page 504 =504 /.errors/50x.json;
+             location / {
+                 fastcgi_pass unix:@localstatedir@/run/sxserver/sxfcgi.socket;
+                 fastcgi_store off;
+                 fastcgi_read_timeout 300s;
+                 fastcgi_max_temp_file_size 0;
+                 include fastcgi_params;
+             }
+       }
 }

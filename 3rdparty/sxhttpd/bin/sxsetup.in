@@ -72,19 +72,23 @@ if [ -f "$LOAD_CONFIG" ]; then
     fi
 fi
 
-if [ `id -u` -ne 0 -a -z "$SX_NO_ROOT" ]; then
-    if [ "$SX_HTTP_PORT" -le 1024 -o "$SX_HTTPS_PORT" -le 1024 ]; then
-        echo "You must be root"
-        exit 1
-    fi
+if [ `id -u` -ne 0 -a -z "$SX_NO_ROOT" ] && [ "$ADVANCED_GIVEN" != "yes" ]; then
+    echo "You must be root or call sxsetup with --advanced"
+    exit 1
 fi
 
+test `id -u` -ne 0 && SX_NO_ROOT="yes"
+
 if [ "$SX_USE_SSL" = "no" -o "$NO_SSL_GIVEN" = "yes" ]; then
-    NOSSL_FLAG="--no-ssl"
     SX_USE_SSL="no"
+    DEFAULT_PORT="80"
+    NOSSL_FLAG="--no-ssl"
 else
     SX_USE_SSL="yes"
+    DEFAULT_PORT="443"
 fi
+
+test "$SX_NO_ROOT" = "yes" && DEFAULT_PORT="50$DEFAULT_PORT"
 
 # Set defaults if there are no previous answers
 SX_DATA_DIR=${SX_DATA_DIR:-"@localstatedir@/lib/sxserver/storage"}
@@ -98,16 +102,9 @@ SX_SERVER_USER=${SX_SERVER_USER:-"nobody"}
 SX_SERVER_GROUP=`id -n -g "$SX_SERVER_USER"`
 SX_RUN_DIR=${SX_RUN_DIR:-"@localstatedir@/run/sxserver"}
 SX_NODE_SIZE=${SX_NODE_SIZE:-"1T"}
-SX_HTTP_PORT=${SX_HTTP_PORT:-"80"}
-SX_HTTPS_PORT=${SX_HTTPS_PORT:-"443"}
+SX_PORT=${SX_PORT:-"$DEFAULT_PORT"}
 SX_CHILDREN_NUM=${SX_CHILDREN_NUM:-"32"}
 SX_LOG_FILE=${SX_LOG_FILE:-"@localstatedir@/log/sxserver/sxfcgi.log"}
-
-if [ -z "$NOSSL_FLAG" ]; then
-    SX_PORT="$SX_HTTPS_PORT"
-else
-    SX_PORT="$SX_HTTP_PORT"
-fi
 
 if [ -z "$NOSSL_FLAG" ]; then
     SX_SSL_CERT_FILE=${SX_SSL_CERT_FILE:-"$ETCDIR/ssl/certs/sxcert.pem"}
@@ -128,7 +125,7 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 chmod 700 $SXSETUP_TMPDIR
-chown "$SX_SERVER_USER":"$SX_SERVER_GROUP" $SXSETUP_TMPDIR
+test -z "$SX_NO_ROOT" && chown "$SX_SERVER_USER":"$SX_SERVER_GROUP" $SXSETUP_TMPDIR
 OUT_TMP=$SXSETUP_TMPDIR/out.tmp
 SSLKEY_TMP=$SXSETUP_TMPDIR/sslkey.tmp
 SSLCERT_TMP=$SXSETUP_TMPDIR/sslcert.tmp
@@ -241,12 +238,16 @@ ask_questions() {
 	    read NEWVAL
 	    SX_NODE_IP=${NEWVAL:-$SX_NODE_IP}
 	    test -z "$SX_NODE_IP" && continue
-	    check_port "$SX_NODE_IP" $SX_HTTP_PORT
-	    test "$CHECK_PORT_RETVAL" = "1" && continue
-	    if [ -z "$NOSSL_FLAG" ]; then
-		check_port "$SX_NODE_IP" $SX_HTTPS_PORT
-		test "$CHECK_PORT_RETVAL" = "1" && continue
+	    if [ -n "$ADVANCED_GIVEN" ]; then
+		while true; do
+		    printf "Enter the port number (must be same for all nodes in the cluster) [default=$SX_PORT]: "
+		    read NEWVAL
+		    SX_PORT=${NEWVAL:-$SX_PORT}
+		    test -n "$SX_PORT" && break
+		done
 	    fi
+	    check_port "$SX_NODE_IP" $SX_PORT
+	    test "$CHECK_PORT_RETVAL" = "1" && continue
 	    break
 	done
 
@@ -268,12 +269,8 @@ ask_questions() {
 		    read NEWVAL
 		    SX_NODE_INTERNAL_IP=${NEWVAL:-$SX_NODE_INTERNAL_IP}
 		    test -z "$SX_NODE_INTERNAL_IP" && continue
-		    check_port "$SX_NODE_INTERNAL_IP" $SX_HTTP_PORT
+		    check_port "$SX_NODE_INTERNAL_IP" $SX_PORT
 		    test "$CHECK_PORT_RETVAL" = "1" && continue
-		    if [ -z "$NOSSL_FLAG" ]; then
-			check_port "$SX_NODE_INTERNAL_IP" $SX_HTTPS_PORT
-			test "$CHECK_PORT_RETVAL" = "1" && continue
-		    fi
 		    break
 		done
 	    fi
@@ -307,7 +304,7 @@ ask_questions() {
 		    echo "You must provide the IP address of a node that is already part of the cluster!"
 		else
 		    if type curl > /dev/null 2>&1; then
-			if curl -s -k -m 3 $HTTPS$SX_EXISTING_NODE_IP > /dev/null 2>&1; then
+			if curl -s -k -m 3 $HTTPS$SX_EXISTING_NODE_IP:$SX_PORT > /dev/null 2>&1; then
 			    break
 			else
 			    echo "Cannot contact node $HTTPS$SX_EXISTING_NODE_IP. Please make sure it's running and accessible from this node and try again."
@@ -423,7 +420,7 @@ EOF
 		    echo
 		    echo "Generating default SSL certificate and key in $SX_SSL_KEY_FILE $SX_SSL_CERT_FILE"
 		    openssl req -days 1825 -x509 -config "$CERTCONF_TMP" -new -keyout "$SX_SSL_KEY_FILE" -out "$SX_SSL_CERT_FILE" || exit 1
-		    chown "$SX_SERVER_USER":"$SX_SERVER_GROUP" "$SX_SSL_KEY_FILE" "$SX_SSL_CERT_FILE"
+		    test -z "$SX_NO_ROOT" && chown "$SX_SERVER_USER":"$SX_SERVER_GROUP" "$SX_SSL_KEY_FILE" "$SX_SSL_CERT_FILE"
 		    chmod 600 "$SX_SSL_KEY_FILE" "$SX_SSL_CERT_FILE"
 		    SX_SSL_KEY="`cat $SX_SSL_KEY_FILE`"
 		    SX_SSL_CERT="`cat $SX_SSL_CERT_FILE`"
@@ -452,7 +449,7 @@ EOF
 
 		    GOTSRVCERT=0
 		    if [ -n "$SX_EXISTING_NODE_IP" ]; then
-			SRVCERT="`echo "HEAD / HTTP/1.0\n Host: $SX_EXISTING_NODE_IP:443\n\n EOT\n" | openssl s_client -connect $SX_EXISTING_NODE_IP:443 -prexit 2>/dev/null`"
+			SRVCERT="`echo "HEAD / HTTP/1.0\n Host: $SX_EXISTING_NODE_IP:$SX_PORT\n\n EOT\n" | openssl s_client -connect $SX_EXISTING_NODE_IP:$SX_PORT -prexit 2>/dev/null`"
 			if [ $? = 0 ]; then
 			    echo "$SRVCERT" | openssl x509 > "$SSLCERT_TMP"
 			    if [ $? = 0 ]; then
@@ -485,7 +482,7 @@ EOF
 			rm -f $SSLCERT_TMP
 		    fi
 		fi
-		chown "$SX_SERVER_USER":"$SX_SERVER_GROUP" "$SX_SSL_KEY_FILE" "$SX_SSL_CERT_FILE" 2>/dev/null
+		test -z "$SX_NO_ROOT" && chown "$SX_SERVER_USER":"$SX_SERVER_GROUP" "$SX_SSL_KEY_FILE" "$SX_SSL_CERT_FILE" 2>/dev/null
 		chmod 600 "$SX_SSL_KEY_FILE" "$SX_SSL_CERT_FILE" 2>/dev/null
 		SX_SSL_KEY="`cat $SX_SSL_KEY_FILE`"
 		SX_SSL_CERT="`cat $SX_SSL_CERT_FILE`"
@@ -504,16 +501,20 @@ EOF
 	if [ -n "$ADVANCED_GIVEN" ]; then
 	    echo
 	    echo "--- SERVER CONFIGURATION ---"
-	    while true; do
-		printf "What user should the SX server be running as [default=$SX_SERVER_USER]: "
-		read NEWVAL
-		test -z "$NEWVAL" && break
-		id $NEWVAL > /dev/null 2>&1 && break
-		echo "User $NEWVAL doesn't exist!"
-	    done
-	    SX_SERVER_USER=${NEWVAL:-$SX_SERVER_USER}
-	    SX_SERVER_GROUP=`id -n -g "$SX_SERVER_USER"`
-
+	    if [ -z "$SX_NO_ROOT" ]; then
+		while true; do
+		    printf "What user should the SX server be running as [default=$SX_SERVER_USER]: "
+		    read NEWVAL
+		    test -z "$NEWVAL" && break
+		    id $NEWVAL > /dev/null 2>&1 && break
+		    echo "User $NEWVAL doesn't exist!"
+		done
+		SX_SERVER_USER=${NEWVAL:-$SX_SERVER_USER}
+		SX_SERVER_GROUP=`id -n -g "$SX_SERVER_USER"`
+	    else
+		SX_SERVER_USER=`whoami`
+		SX_SERVER_GROUP=`id -n -g "$SX_SERVER_USER"`
+	    fi
 	    echo
 	    printf "Number of children processes used by the server [default=$SX_CHILDREN_NUM]: "
 	    read NEWVAL
@@ -563,14 +564,12 @@ if [ "$CONFIG_FILE_GIVEN" = "yes" ]; then
 	exit 1
     fi
 
-    check_port "$SX_NODE_IP" $SX_HTTP_PORT
-    test "$CHECK_PORT_RETVAL" = "1" && exit 1
-    test "$SX_USE_SSL" != "no" && check_port "$SX_NODE_IP" $SX_HTTPS_PORT
+    check_port "$SX_NODE_IP" $SX_PORT
     test "$CHECK_PORT_RETVAL" = "1" && exit 1
 
     if [ -n "$SX_NODE_INTERNAL_IP" ]; then
-	check_port "$SX_NODE_INTERNAL_IP" $SX_HTTP_PORT
-	test "$SX_USE_SSL" != "no" && check_port "$SX_NODE_INTERNAL_IP" $SX_HTTPS_PORT
+	check_port "$SX_NODE_INTERNAL_IP" $SX_PORT
+	test "$CHECK_PORT_RETVAL" = "1" && exit 1
     fi
 
     if [ -n "$SX_EXISTING_NODE_IP" ]; then
@@ -592,7 +591,7 @@ if [ "$CONFIG_FILE_GIVEN" = "yes" ]; then
 /g' | sed -e ':a;N;$!ba;s/BEGIN\
 /BEGIN /g' | sed -e ':a;N;$!ba;s/END\
 /END /g' > "$SX_SSL_CERT_FILE"
-	    chown "$SX_SERVER_USER":"$SX_SERVER_GROUP" "$SX_SSL_CERT_FILE" 2>/dev/null
+	    test -z "$SX_NO_ROOT" && chown "$SX_SERVER_USER":"$SX_SERVER_GROUP" "$SX_SSL_CERT_FILE" 2>/dev/null
 	    chmod 600 "$SX_SSL_CERT_FILE" 2>/dev/null
 	fi
 
@@ -606,7 +605,7 @@ if [ "$CONFIG_FILE_GIVEN" = "yes" ]; then
 /BEGIN /g' | sed -e ':a;N;$!ba;s/END\
 /END /g' | sed -e ':a;N;$!ba;s/PRIVATE\
 /PRIVATE /g' > "$SX_SSL_KEY_FILE"
-	    chown "$SX_SERVER_USER":"$SX_SERVER_GROUP" "$SX_SSL_KEY_FILE" 2>/dev/null
+	    test -z "$SX_NO_ROOT" && chown "$SX_SERVER_USER":"$SX_SERVER_GROUP" "$SX_SSL_KEY_FILE" 2>/dev/null
 	    chmod 600 "$SX_SSL_KEY_FILE" 2>/dev/null
 	fi
     fi
@@ -645,9 +644,8 @@ SX_NODE_INTERNAL_IP="$SX_NODE_INTERNAL_IP"
 SX_EXISTING_NODE_IP="$SX_EXISTING_NODE_IP"
 SX_SERVER_USER="$SX_SERVER_USER"
 SX_SERVER_GROUP="$SX_SERVER_GROUP"
-SX_CHILDREN_NUM=${SX_CHILDREN_NUM:-"8"}
-SX_HTTP_PORT="$SX_HTTP_PORT"
-SX_HTTPS_PORT="$SX_HTTPS_PORT"
+SX_CHILDREN_NUM="$SX_CHILDREN_NUM"
+SX_PORT="$SX_PORT"
 SX_USE_SSL="$SX_USE_SSL"
 SX_SSL_KEY_FILE="$SX_SSL_KEY_FILE"
 SX_SSL_CERT_FILE="$SX_SSL_CERT_FILE"
@@ -671,9 +669,14 @@ logfile="$SX_LOG_FILE"
 socket="$SX_RUN_DIR/sxfcgi.socket"
 socket-mode=0660
 data-dir="$SX_DATA_DIR"
-run-as="$SX_SERVER_USER:$SX_SERVER_GROUP"
 children=$SX_CHILDREN_NUM
 EOF
+
+if [ -z "$SX_NO_ROOT" ]; then
+    cat >>"$ETCDIR/sxserver/sxfcgi.conf" <<EOF
+run-as="$SX_SERVER_USER:$SX_SERVER_GROUP"
+EOF
+fi
 
 if [ -z "$NOSSL_FLAG" ]; then
     cat >>"$ETCDIR/sxserver/sxfcgi.conf" <<EOF
@@ -719,11 +722,15 @@ if [ -z "$NOSSL_FLAG" ] ; then
 fi
 
 sed -e "s/^user.*/user $SX_SERVER_USER $SX_SERVER_GROUP;/"\
-    -e "s/listen.*80/listen $SX_NODE_IP:$SX_HTTP_PORT/g"\
-    -e "s/listen.*443/listen $SX_NODE_IP:$SX_HTTPS_PORT/g"\
-    -e "s/@user@/$SX_SERVER_USER/g" \
+    -e "s/listen.*80/listen $SX_NODE_IP:$SX_PORT/g"\
     "$ETCDIR/sxserver/sxhttpd.conf" >$OUT_TMP
 cp $OUT_TMP "$ETCDIR/sxserver/sxhttpd.conf"
+
+if [ "$SX_NO_ROOT" = "yes" ] ; then
+    sed -e "s/^user.*/#user $SX_SERVER_USER $SX_SERVER_GROUP;/"\
+    "$ETCDIR/sxserver/sxhttpd.conf" >$OUT_TMP
+    cp $OUT_TMP "$ETCDIR/sxserver/sxhttpd.conf"
+fi
 
 if [ ! -f "$SX_DATA_DIR/hashfs.db" ]; then
     echo
@@ -734,10 +741,11 @@ if [ ! -f "$SX_DATA_DIR/hashfs.db" ]; then
 
     if [ -z "$SX_EXISTING_NODE_IP" ]; then
 	test -n "$SX_CLUSTER_UUID" && FORCEUUID="--cluster-uuid=$SX_CLUSTER_UUID"
+	test -z "$SX_NO_ROOT" && OWNERFLAG="--owner=$SX_SERVER_USER:$SX_SERVER_GROUP"
         (
         set -x
         "@sbindir@/sxadm" node --new\
-            --batch-mode --owner="$SX_SERVER_USER:$SX_SERVER_GROUP"\
+            --batch-mode $OWNERFLAG\
             $FORCEUUID "$SX_DATA_DIR"
         )
 	if [ $? -ne 0 ]; then
@@ -760,7 +768,7 @@ if [ ! -f "$SX_DATA_DIR/hashfs.db" ]; then
         (
         set -x
         "@sbindir@/sxadm" cluster --new\
-            --port "$SX_PORT"\
+            --port="$SX_PORT"\
             --batch-mode\
 	    --node-dir="$SX_DATA_DIR"\
 	    $ADMKEYFILE \
@@ -785,7 +793,7 @@ if [ ! -f "$SX_DATA_DIR/hashfs.db" ]; then
     else
 	# Config access to the cluster
 	test "$CONFIG_FILE_GIVEN" = "yes" && SXINITFLAGS="--batch-mode"
-	"@bindir@/sxinit" --port "$SX_PORT" $NOSSL_FLAG $SXINITFLAGS --config-dir=$HOME/.sx --auth-file="$ADMINKEY_TMP" --host-list="$SX_EXISTING_NODE_IP" "sx://admin@$SX_CLUSTER_NAME"
+	"@bindir@/sxinit" --port="$SX_PORT" $NOSSL_FLAG $SXINITFLAGS --config-dir=$HOME/.sx --auth-file="$ADMINKEY_TMP" --host-list="$SX_EXISTING_NODE_IP" "sx://admin@$SX_CLUSTER_NAME"
 	if [ $? -ne 0 ]; then
 	    echo "Failed to connect to the cluster. Please make sure the admin key is correct"
 	    echo "and $SX_EXISTING_NODE_IP is a valid and accessible node of the cluster sx://$SX_CLUSTER_NAME"
@@ -819,10 +827,11 @@ if [ ! -f "$SX_DATA_DIR/hashfs.db" ]; then
 	fi
 
 	# Create node
+	test -z "$SX_NO_ROOT" && OWNERFLAG="--owner=$SX_SERVER_USER:$SX_SERVER_GROUP"
         (
         set -x
         "@sbindir@/sxadm" node --new\
-            --batch-mode --owner="$SX_SERVER_USER:$SX_SERVER_GROUP"\
+            --batch-mode $OWNERFLAG\
 	    --cluster-uuid="$SXUUID"\
 	    --key="$CLUSTKEY_TMP"\
             "$SX_DATA_DIR"
@@ -896,6 +905,7 @@ if [ -n "$SX_NODE_INTERNAL_IP" -a "$SX_NODE_IP" != "$SX_NODE_INTERNAL_IP" ]; the
 else
     echo "This node: $SX_NODE_IP"
 fi
+echo "Port number: $SX_PORT"
 "@sbindir@/sxadm" node --info "$SX_DATA_DIR"
 echo "Storage location: $SX_DATA_DIR"
 echo "Run as user: $SX_SERVER_USER"
