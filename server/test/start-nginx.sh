@@ -57,7 +57,7 @@ while [ $i -le $N ]; do
     CONF_TMP=$prefix/conf.tmp
     cat >>$CONF_TMP <<EOF
     SX_CLUSTER_NAME="$CLUSTER_NAME"
-    SX_DATA_DIR="$prefix/var/lib/sxserver"
+    SX_DATA_DIR="$prefix/var/lib/sxserver/storage"
     SX_RUN_DIR="$prefix/var/run/sxserver"
     SX_LOG_FILE="$prefix/var/log/sxserver/sxfcgi.log"
     SX_NODE_SIZE="1T"
