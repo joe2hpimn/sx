@@ -1,6 +1,7 @@
 #!/bin/sh
 set -e
 
+SX_PORT=9443
 if [ `id -u` -eq 0 ]; then
     echo "You must NOT be root"
     exit 1
@@ -69,8 +70,7 @@ while [ $i -le $N ]; do
     SX_NODE_SIZE="1T"
     SX_NODE_IP="127.0.1.$i"
     SX_SERVER_USER=`id -n -u`
-    SX_HTTP_PORT=5080
-    SX_HTTPS_PORT=5443
+    SX_PORT="$SX_PORT"
     SX_USE_SSL="yes"
     SX_CLUSTER_UUID="$CLUSTER_UUID"
     SX_ADMIN_KEY="$ADMIN_KEY"
@@ -94,7 +94,7 @@ while [ $i -le $N ]; do
     i=$((i+1))
 done
 rm -rf $HOME/.sx/$CLUSTER_NAME # avoid sxinit bugs
-echo "$ADMIN_KEY" | ../client/src/tools/init/sxinit --port "$SX_HTTPS_PORT" --batch --host-list=$list sx://localhost
+echo "$ADMIN_KEY" | ../client/src/tools/init/sxinit --port "$SX_PORT" --batch --host-list=$list sx://localhost
 test/valgrind-tests.sh
 i=1
 while [ $i -le $N ]; do

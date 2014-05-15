@@ -1,6 +1,8 @@
 #!/bin/sh
 set -e
 
+SX_PORT=9080
+
 if [ `id -u` -eq 0 ]; then
     echo "You must NOT be root"
     exit 1
@@ -63,8 +65,7 @@ while [ $i -le $N ]; do
     SX_NODE_SIZE="1T"
     SX_NODE_IP="127.0.1.$i"
     SX_SERVER_USER=`id -n -u`
-    SX_HTTP_PORT="5080"
-    SX_HTTPS_PORT="5443"
+    SX_PORT="$SX_PORT"
     SX_USE_SSL="no"
     SX_CLUSTER_UUID="$CLUSTER_UUID"
     SX_ADMIN_KEY="$ADMIN_KEY"
@@ -85,7 +86,7 @@ while [ $i -le $N ]; do
     i=$((i+1))
 done
 rm -rf $HOME/.sx/$CLUSTER_NAME # avoid sxinit bugs
-echo "$ADMIN_KEY" | ../client/src/tools/init/sxinit --port "$SX_HTTP_PORT" --host-list=$list sx://localhost --no-ssl
+echo "$ADMIN_KEY" | ../client/src/tools/init/sxinit --port "$SX_PORT" --host-list=$list sx://localhost --no-ssl
 #sudo -u $SUDO_USER ../client/src/tools/init/sxinit --no-ssl sx://`hostname` <$STOREDIR/admin.key
 ../client/src/tools/vol/sxvol create sx://localhost/volr2 -r 2 -o admin
 ../client/src/tools/acl/sxacl useradd user1 sx://localhost
