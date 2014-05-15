@@ -40,25 +40,25 @@
 #define CGI_PUTD(data, len)			\
     do {					\
 	if(FCGX_PutStr((const char *)(data), len, fcgi_out) < 0)	\
-	    WARN("FCGX_PutStr() failed: %s", strerror(FCGX_GetError(fcgi_out)));	\
+	    DEBUG("FCGX_PutStr() failed: %s", strerror(FCGX_GetError(fcgi_out)));	\
     } while(0)
 
 #define CGI_PUTS(s)				\
     do {					\
 	if(FCGX_PutS(s, fcgi_out) < 0)		\
-	    WARN("FCGX_PutS() failed");		\
+	    DEBUG("FCGX_PutS() failed");		\
     } while(0)
 
 #define CGI_PUTC(c)				\
     do {					\
 	if(FCGX_PutChar(c, fcgi_out) < 0)		\
-	    WARN("FCGX_PutChar() failed");	\
+	    DEBUG("FCGX_PutChar() failed");	\
     } while(0)
 
 #define CGI_PRINTF(...)				\
     do {					\
 	if(FCGX_FPrintF(fcgi_out, __VA_ARGS__) < 0)	\
-	    WARN("FCGX_FPrintF() failed");	\
+	    DEBUG("FCGX_FPrintF() failed");	\
     } while(0)
 
 #define CGI_PUTLL(ll)				\
