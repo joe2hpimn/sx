@@ -9,6 +9,8 @@ SUBDIRS += ../3rdparty/curl
 endif
 DIST_SUBDIRS=$(SUBDIRS)
 
+include_HEADERS = include/sx.h
+
 AM_CPPFLAGS = -I $(top_srcdir)/include -I $(top_srcdir)/src $(LTDLINCL)
 lib_LTLIBRARIES = src/libsx.la
 src_libsx_la_SOURCES = \
