@@ -125,19 +125,20 @@ am__uninstall_files_from_dir = { \
   }
 am__installdirs = "$(DESTDIR)$(pkglibdir)"
 LTLIBRARIES = $(pkglib_LTLIBRARIES)
-@BUILD_AES256_TRUE@sxf_aes256_la_DEPENDENCIES =  \
+@BUILD_AES256_TRUE@libsxf_aes256_la_DEPENDENCIES =  \
 @BUILD_AES256_TRUE@	$(top_srcdir)/../libsx/src/libsx.la
-am__sxf_aes256_la_SOURCES_DIST = aes256.c
-@BUILD_AES256_TRUE@am_sxf_aes256_la_OBJECTS = aes256.lo
-sxf_aes256_la_OBJECTS = $(am_sxf_aes256_la_OBJECTS)
+am__libsxf_aes256_la_SOURCES_DIST = aes256.c
+@BUILD_AES256_TRUE@am_libsxf_aes256_la_OBJECTS = aes256.lo
+libsxf_aes256_la_OBJECTS = $(am_libsxf_aes256_la_OBJECTS)
 AM_V_lt = $(am__v_lt_@AM_V@)
 am__v_lt_ = $(am__v_lt_@AM_DEFAULT_V@)
 am__v_lt_0 = --silent
 am__v_lt_1 = 
-sxf_aes256_la_LINK = $(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) \
-	$(LIBTOOLFLAGS) --mode=link $(CCLD) $(AM_CFLAGS) $(CFLAGS) \
-	$(sxf_aes256_la_LDFLAGS) $(LDFLAGS) -o $@
-@BUILD_AES256_TRUE@am_sxf_aes256_la_rpath = -rpath $(pkglibdir)
+libsxf_aes256_la_LINK = $(LIBTOOL) $(AM_V_lt) --tag=CC \
+	$(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=link $(CCLD) \
+	$(AM_CFLAGS) $(CFLAGS) $(libsxf_aes256_la_LDFLAGS) $(LDFLAGS) \
+	-o $@
+@BUILD_AES256_TRUE@am_libsxf_aes256_la_rpath = -rpath $(pkglibdir)
 AM_V_P = $(am__v_P_@AM_V@)
 am__v_P_ = $(am__v_P_@AM_DEFAULT_V@)
 am__v_P_0 = false
@@ -172,8 +173,8 @@ AM_V_CCLD = $(am__v_CCLD_@AM_V@)
 am__v_CCLD_ = $(am__v_CCLD_@AM_DEFAULT_V@)
 am__v_CCLD_0 = @echo "  CCLD    " $@;
 am__v_CCLD_1 = 
-SOURCES = $(sxf_aes256_la_SOURCES)
-DIST_SOURCES = $(am__sxf_aes256_la_SOURCES_DIST)
+SOURCES = $(libsxf_aes256_la_SOURCES)
+DIST_SOURCES = $(am__libsxf_aes256_la_SOURCES_DIST)
 am__can_run_installinfo = \
   case $$AM_UPDATE_INFO_DIR in \
     n|no|NO) false;; \
@@ -320,10 +321,10 @@ top_build_prefix = @top_build_prefix@
 top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
 @BUILD_AES256_TRUE@AM_CPPFLAGS = -I $(top_srcdir)/../libsx/include -I $(top_srcdir)/../
-@BUILD_AES256_TRUE@pkglib_LTLIBRARIES = sxf_aes256.la
-@BUILD_AES256_TRUE@sxf_aes256_la_SOURCES = aes256.c
-@BUILD_AES256_TRUE@sxf_aes256_la_LDFLAGS = -module -release 12
-@BUILD_AES256_TRUE@sxf_aes256_la_LIBADD = @AES256_LIBS@ $(top_srcdir)/../libsx/src/libsx.la
+@BUILD_AES256_TRUE@pkglib_LTLIBRARIES = libsxf_aes256.la
+@BUILD_AES256_TRUE@libsxf_aes256_la_SOURCES = aes256.c
+@BUILD_AES256_TRUE@libsxf_aes256_la_LDFLAGS = -module -release 12
+@BUILD_AES256_TRUE@libsxf_aes256_la_LIBADD = @AES256_LIBS@ $(top_srcdir)/../libsx/src/libsx.la
 all: all-am
 
 .SUFFIXES:
@@ -394,8 +395,8 @@ clean-pkglibLTLIBRARIES:
 	  rm -f $${locs}; \
 	}
 
-sxf_aes256.la: $(sxf_aes256_la_OBJECTS) $(sxf_aes256_la_DEPENDENCIES) $(EXTRA_sxf_aes256_la_DEPENDENCIES) 
-	$(AM_V_CCLD)$(sxf_aes256_la_LINK) $(am_sxf_aes256_la_rpath) $(sxf_aes256_la_OBJECTS) $(sxf_aes256_la_LIBADD) $(LIBS)
+libsxf_aes256.la: $(libsxf_aes256_la_OBJECTS) $(libsxf_aes256_la_DEPENDENCIES) $(EXTRA_libsxf_aes256_la_DEPENDENCIES) 
+	$(AM_V_CCLD)$(libsxf_aes256_la_LINK) $(am_libsxf_aes256_la_rpath) $(libsxf_aes256_la_OBJECTS) $(libsxf_aes256_la_LIBADD) $(LIBS)
 
 mostlyclean-compile:
 	-rm -f *.$(OBJEXT)

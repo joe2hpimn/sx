@@ -221,7 +221,7 @@ sxc_filter_t sxc_filter={
 /* const char *options */	    "level:N (N = 1..9)",
 /* const char *uuid */		    "d5dbdf0a-fb17-4d1b-a9ce-4060317af5b5",
 /* sxf_type_t type */		    SXF_TYPE_COMPRESS,
-/* int version[2] */		    {0, 2},
+/* int version[2] */		    {1, 0},
 /* int (*init)(const sxf_handle_t *handle, void **ctx) */	    zcomp_init,
 /* int (*shutdown)(const sxf_handle_t *handle, void *ctx) */    zcomp_shutdown,
 /* int (*configure)(const char *cfgstr, const char *cfgdir, void **cfgdata, unsigned int *cfgdata_len) */

@@ -54,7 +54,7 @@ static int filter_register(sxc_client_t *sx, const char *filename)
 	struct filter_handle *ph = NULL;
 	int i, ret = 0;
 
-    if(strstr(filename, "sxf_")) {
+    if(strstr(filename, "libsxf_")) {
 	dlh = lt_dlopen(filename);
 	if(dlh) {
 	    if(!(filter = (sxc_filter_t *) lt_dlsym(dlh, "sxc_filter"))) {
@@ -190,7 +190,7 @@ static int filter_loadall(sxc_client_t *sx, const char *filter_dir)
 
 	    if(S_ISDIR(sb.st_mode)) {
 		ret = filter_loadall(sx, path);
-	    } else if(S_ISREG(sb.st_mode) && !strncmp(dent->d_name, "sxf_", 4) && strstr(dent->d_name, ".so")) {
+	    } else if(S_ISREG(sb.st_mode) && !strncmp(dent->d_name, "libsxf_", 7) && strstr(dent->d_name, ".so")) {
 		ret = filter_register(sx, path);
 		if(!ret)
 		    pcnt++;

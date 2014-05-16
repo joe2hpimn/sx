@@ -125,16 +125,17 @@ am__uninstall_files_from_dir = { \
   }
 am__installdirs = "$(DESTDIR)$(pkglibdir)"
 LTLIBRARIES = $(pkglib_LTLIBRARIES)
-sxf_null_la_DEPENDENCIES = $(top_srcdir)/../libsx/src/libsx.la
-am_sxf_null_la_OBJECTS = null.lo
-sxf_null_la_OBJECTS = $(am_sxf_null_la_OBJECTS)
+libsxf_null_la_DEPENDENCIES = $(top_srcdir)/../libsx/src/libsx.la
+am_libsxf_null_la_OBJECTS = null.lo
+libsxf_null_la_OBJECTS = $(am_libsxf_null_la_OBJECTS)
 AM_V_lt = $(am__v_lt_@AM_V@)
 am__v_lt_ = $(am__v_lt_@AM_DEFAULT_V@)
 am__v_lt_0 = --silent
 am__v_lt_1 = 
-sxf_null_la_LINK = $(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) \
-	$(LIBTOOLFLAGS) --mode=link $(CCLD) $(AM_CFLAGS) $(CFLAGS) \
-	$(sxf_null_la_LDFLAGS) $(LDFLAGS) -o $@
+libsxf_null_la_LINK = $(LIBTOOL) $(AM_V_lt) --tag=CC \
+	$(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=link $(CCLD) \
+	$(AM_CFLAGS) $(CFLAGS) $(libsxf_null_la_LDFLAGS) $(LDFLAGS) -o \
+	$@
 AM_V_P = $(am__v_P_@AM_V@)
 am__v_P_ = $(am__v_P_@AM_DEFAULT_V@)
 am__v_P_0 = false
@@ -169,8 +170,8 @@ AM_V_CCLD = $(am__v_CCLD_@AM_V@)
 am__v_CCLD_ = $(am__v_CCLD_@AM_DEFAULT_V@)
 am__v_CCLD_0 = @echo "  CCLD    " $@;
 am__v_CCLD_1 = 
-SOURCES = $(sxf_null_la_SOURCES)
-DIST_SOURCES = $(sxf_null_la_SOURCES)
+SOURCES = $(libsxf_null_la_SOURCES)
+DIST_SOURCES = $(libsxf_null_la_SOURCES)
 am__can_run_installinfo = \
   case $$AM_UPDATE_INFO_DIR in \
     n|no|NO) false;; \
@@ -317,10 +318,10 @@ top_build_prefix = @top_build_prefix@
 top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
 AM_CPPFLAGS = -I $(top_srcdir)/../libsx/include
-pkglib_LTLIBRARIES = sxf_null.la
-sxf_null_la_SOURCES = null.c
-sxf_null_la_LDFLAGS = -module -shared
-sxf_null_la_LIBADD = $(top_srcdir)/../libsx/src/libsx.la
+pkglib_LTLIBRARIES = libsxf_null.la
+libsxf_null_la_SOURCES = null.c
+libsxf_null_la_LDFLAGS = -module -release 11
+libsxf_null_la_LIBADD = $(top_srcdir)/../libsx/src/libsx.la
 all: all-am
 
 .SUFFIXES:
@@ -391,8 +392,8 @@ clean-pkglibLTLIBRARIES:
 	  rm -f $${locs}; \
 	}
 
-sxf_null.la: $(sxf_null_la_OBJECTS) $(sxf_null_la_DEPENDENCIES) $(EXTRA_sxf_null_la_DEPENDENCIES) 
-	$(AM_V_CCLD)$(sxf_null_la_LINK) -rpath $(pkglibdir) $(sxf_null_la_OBJECTS) $(sxf_null_la_LIBADD) $(LIBS)
+libsxf_null.la: $(libsxf_null_la_OBJECTS) $(libsxf_null_la_DEPENDENCIES) $(EXTRA_libsxf_null_la_DEPENDENCIES) 
+	$(AM_V_CCLD)$(libsxf_null_la_LINK) -rpath $(pkglibdir) $(libsxf_null_la_OBJECTS) $(libsxf_null_la_LIBADD) $(LIBS)
 
 mostlyclean-compile:
 	-rm -f *.$(OBJEXT)
