@@ -198,44 +198,182 @@ int sxc_fgetline(sxc_client_t *sx, FILE *f, char **ret);
 /* filters */
 #define SXF_ABI_VERSION	6
 
+/** Defines a filter's type
+ * This is used to prioritize filters, for example
+ * an encryption filter must always be run last on upload.
+ */
 typedef enum {
     SXF_TYPE_NONE = 0,
-    SXF_TYPE_COMPRESS,
-    SXF_TYPE_CRYPT,
-    SXF_TYPE_GENERIC
+    SXF_TYPE_COMPRESS,/**< compression filter */
+    SXF_TYPE_CRYPT,/**< encryption filter */
+    SXF_TYPE_GENERIC /**< generic filter */
 } sxf_type_t;
 
+/** Defines the direction of the transfer
+ */
 typedef enum {
-    SXF_MODE_UPLOAD = 0,
-    SXF_MODE_DOWNLOAD
+    SXF_MODE_UPLOAD = 0,/**< file upload */
+    SXF_MODE_DOWNLOAD/**< file download */
 } sxf_mode_t;
 
+/** EOF and looping control
+ */
 typedef enum {
-    SXF_ACTION_NORMAL = 0,
-    SXF_ACTION_REPEAT,
-    SXF_ACTION_DATA_END
+    SXF_ACTION_NORMAL = 0,/**< first time a new block is processed */
+    SXF_ACTION_REPEAT,/**< repeat call with same 'in' and 'insize' parameters */
+    SXF_ACTION_DATA_END/**< marks the file's last block */
 } sxf_action_t;
 
 struct filter_handle;
 typedef struct filter_handle sxf_handle_t;
 
 typedef struct {
+    /** @{ */
     int abi_version;
+    /**< must always be SXF_ABI_VERSION, used to detect ABI mismatches */
+
     const char *shortname;
+    /**< filter name used by the tools: sxvol create -f shortname */
+
     const char *fullname;
+    /**< used by: sxvol filter --list */
+
     const char *summary;
+    /**< used by: sxvol filter --info shortname */
+
     const char *options;
+    /**< describes [filterargs] in sxvol create -f shortname=[filterargs] */
+
     const char *uuid;
+    /**< all clients must have a filter with this UUID to access the volume.
+     * Use uuidgen to create a unique value */
+
     sxf_type_t type;
+    /**< an \ref sxf_type_t enum value */
+
     int version[2];
-    /* filter functions */
+    /**< if there are multiple versions of a filter in the load path,
+     * then tools always load the filter with the highest version number */
+    /**< @} */
+
+    /**< @name filter functions */
+    /**< @{ */
+
     int (*init)(const sxf_handle_t *handle, void **ctx);
+    /**< Called once after a filter is loaded
+     *
+     * \note when a client tool starts it loads all filters
+     *
+     * @param[in] handle an opaque handle for sxc_filter_msg
+     * @param[out] ctx context structure allocated by the filter
+     * @retval 0 on success
+     * @retval <0 on error
+     * */
+
     int (*shutdown)(const sxf_handle_t *handle, void *ctx);
+    /**<
+     * Called once before a filter is unloaded
+     * @param[in] handle an opaque handle for sxc_filter_msg
+     * @param[in,out] ctx context structure
+     *                 allocated by \ref init or \ref data_prepare
+     */
+
     int (*configure)(const sxf_handle_t *handle, const char *cfgstr, const char *cfgdir, void **cfgdata, unsigned int *cfgdata_len);
+    /**< Called when a volume is created by sxvol
+     *
+     * @param[in] handle an opaque handle for sxc_filter_msg
+     * @param[in] cfgstr the filter arguments [filterargs]
+     * @param[in] cfgdir per-volume directory used to store client-local data
+     * @param[out] cfgdata allocate and store volume metadata here
+     * @param[out] cfgdata_len length of cfgdata
+     * @retval 0 on success
+     * @retval non-zero on error
+     * */
+
     int (*data_prepare)(const sxf_handle_t *handle, void **ctx, const char *filename, const char *cfgdir, const void *cfgdata, unsigned int cfgdata_len, sxf_mode_t mode);
+    /**< Called before processing a file
+     *
+     * If data_process is NULL this function might not be called at all.
+     *
+     * @param[in] handle an opaque handle for sxc_filter_msg
+     * @param[in,out] ctxptr context pointer
+     *                allocated by \ref init, or allocated here
+     * @param[in] filename name of the original input file (might be a tempfile)
+     * @param[in] cfgdir per-volume directory used to store client-local data
+     * @param[in] cfgdata volume metadata here, as defined by \ref configure
+     * @param[in] cfgdata_len length of cfgdata
+     * @param[in] mode either SXF_MODE_UPLOAD or SXF_MODE_DOWNLOAD
+     * @retval 0 on success
+     * @retval non-zero on error
+     * */
+
+
     ssize_t (*data_process)(const sxf_handle_t *handle, void *ctx, const void *in, size_t insize, void *out, size_t outsize, sxf_mode_t mode, sxf_action_t *action);
+    /**< Called to transform a file during an upload/download
+     *
+     * @param[in] handle an opaque handle for sxc_filter_msg
+     * @param[in] ctxptr context pointer
+     *                   allocated in \ref init or \ref data_prepare
+     * @param[in] in input buffer
+     * @param[in] insize size of the input buffer
+     *                   (not related to the file's blocksize)
+     * @param[out] out output buffer
+     * @param[in] outsize size of the output buffer
+     *                   (not related to the file's blocksize)
+     * @param[in] mode either SXF_MODE_UPLOAD or SXF_MODE_DOWNLOAD
+     * @param[in] action SXF_ACTION_DATA_END means EOF,
+     *                   SXF_ACTION_REPEAT means that 'in' and 'insize' is the same data
+     *                   as in the last call,
+     *                   SXF_ACTION_NORMAL means that 'in' points to a new buffer
+     * @param[out] action
+     *                   Set to SXF_ACTION_DATA_END to mark EOF on output
+     *                   Set to SXF_ACTION_REPEAT if the input buffer
+     *                   wasn't processed entirely, or the output buffer got full.
+     *                   data_process will then get called again with
+     *                   action=SXF_ACTION_REPEAT.
+     *             \note data_process receives SXF_ACTION_DATA_END only once
+     *                   SXF_ACTION_REPEAT takes precedence
+     * @return amount of bytes written to the output buffer
+     * \see sxf_action_t enum
+     */
+
     int (*data_finish)(const sxf_handle_t *handle, void **ctx, sxf_mode_t mode);
+    /**<
+     * Called after the last block is processed
+     *
+     * \note also called when an error is encountered during processing
+     *
+     * @param[in] handle an opaque handle for sxc_filter_msg
+     * @param[in,out] ctx context structure
+     *                you can free the context structure here, or in shutdown
+     * @param[in] mode either SXF_MODE_UPLOAD or SXF_MODE_DOWNLOAD
+     * @retval 0 on success
+     * @retval non-zero on error
+     */
+
+
     int (*file_process)(const sxf_handle_t *handle, void *ctx, const char *filename, sxc_meta_t *meta, const char *cfgdir, const void *cfgdata, unsigned int cfgdata_len, sxf_mode_t mode);
+    /**<
+     * Process an entire file and/or its metadata.
+     * It can process a file and set per-file metadata before the file begins to upload (called
+     * before \ref data_prepare).
+     * It can read per-file metadata and do additional file processing after a file finished
+     * downloading and the temporary file was renamed to the final filename.
+     *
+     * @param[in] handle an opaque handle for sxc_filter_msg
+     * @param[in] ctx context structure, allocated by \ref init
+     * @param[in,out] meta file metadata
+     * @param[in] cfgdir per-volume directory used to store client-local data
+     * @param[in] cfgdata volume metadata here, as defined by \ref configure
+     * @param[in] cfgdata_len length of cfgdata
+     * @param[in] mode either SXF_MODE_UPLOAD or SXF_MODE_DOWNLOAD
+     * @retval 0 on success
+     * @retval non-zero on error
+     */
+
+    /** */
+    /**< @} */
+
     /* internal */
     const char *tname;
 } sxc_filter_t;
