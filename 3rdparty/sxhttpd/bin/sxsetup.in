@@ -793,7 +793,7 @@ if [ ! -f "$SX_DATA_DIR/hashfs.db" ]; then
     else
 	# Config access to the cluster
 	test "$CONFIG_FILE_GIVEN" = "yes" && SXINITFLAGS="--batch-mode"
-	"@bindir@/sxinit" --port="$SX_PORT" $NOSSL_FLAG $SXINITFLAGS --config-dir=$HOME/.sx --auth-file="$ADMINKEY_TMP" --host-list="$SX_EXISTING_NODE_IP" "sx://admin@$SX_CLUSTER_NAME"
+	"@bindir@/sxinit" --force-reinit --port="$SX_PORT" $NOSSL_FLAG $SXINITFLAGS --config-dir=$HOME/.sx --auth-file="$ADMINKEY_TMP" --host-list="$SX_EXISTING_NODE_IP" "sx://admin@$SX_CLUSTER_NAME"
 	if [ $? -ne 0 ]; then
 	    echo "Failed to connect to the cluster. Please make sure the admin key is correct"
 	    echo "and $SX_EXISTING_NODE_IP is a valid and accessible node of the cluster sx://$SX_CLUSTER_NAME"
