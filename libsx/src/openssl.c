@@ -28,7 +28,6 @@
 #include <openssl/hmac.h>
 #include <openssl/rand.h>
 #include <openssl/x509.h>
-#include <openssl/err.h>
 
 #ifdef HMAC_UPDATE_RETURNS_INT
 #define hmac_init_ex HMAC_Init_ex
