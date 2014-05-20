@@ -6223,6 +6223,8 @@ static rc_ty sx_hashfs_gc_merge(sx_hashfs_t *h, sxi_db_t *db)
             if (ret != OK)
                 qrollback(db);
             qclose(&dbsource);
+            if (ret != OK)
+                continue;
             int lockfd = lock_file(path, 1);
             if (lockfd <= 0)
                 continue;/* it is still in use */
