@@ -721,8 +721,25 @@ if [ -z "$NOSSL_FLAG" ] ; then
     cp $OUT_TMP "$ETCDIR/sxserver/sxhttpd.conf"
 fi
 
+if [ -n "$SX_NODE_INTERNAL_IP" -a "$SX_NODE_IP" != "$SX_NODE_INTERNAL_IP" ]; then
+    if [ -n "`/sbin/ifconfig 2>/dev/null | grep $SX_NODE_IP`" ]; then
+	# bind to both public and internal IPs
+	sed -e "s/listen 80/listen $SX_NODE_IP:$SX_PORT default_server;\n\
+	     listen $SX_NODE_INTERNAL_IP:$SX_PORT/"\
+	"$ETCDIR/sxserver/sxhttpd.conf" >$OUT_TMP
+    else
+	# only listen on the internal IP (assume public IP is translated via 1:1 NAT)
+	sed -e "s/listen.*80/listen $SX_NODE_INTERNAL_IP:$SX_PORT/"\
+	"$ETCDIR/sxserver/sxhttpd.conf" >$OUT_TMP
+    fi
+else
+    # listen on the public IP
+    sed -e "s/listen.*80/listen $SX_NODE_IP:$SX_PORT/"\
+    "$ETCDIR/sxserver/sxhttpd.conf" >$OUT_TMP
+fi
+cp $OUT_TMP "$ETCDIR/sxserver/sxhttpd.conf"
+
 sed -e "s/^user.*/user $SX_SERVER_USER $SX_SERVER_GROUP;/"\
-    -e "s/listen.*80/listen $SX_NODE_IP:$SX_PORT/g"\
     "$ETCDIR/sxserver/sxhttpd.conf" >$OUT_TMP
 cp $OUT_TMP "$ETCDIR/sxserver/sxhttpd.conf"
 
