@@ -610,7 +610,7 @@ static size_t writefn(void *ptr, size_t size, size_t nmemb, void *ctxptr) {
 /* Hold information needed to control transfer bandwidth */
 typedef struct bandwidth_t {
     int64_t local_limit; /* Bandwidth limit [bytes per second] */
-    int64_t global_limit; /* Bandwidth limit for whole transfer [bytes per secont] */
+    int64_t global_limit; /* Bandwidth limit for whole transfer [bytes per second] */
     unsigned int host_count; /* Number of hosts sharing network traffic */
 } bandwidth_t;
 
@@ -845,7 +845,7 @@ curl_events_t *sxi_curlev_init(sxi_conns_t *conns)
             break;
 #endif
 
-        /* Initialize bandwidt limit information */
+        /* Initialize bandwidth limit information */
         x->bandwidth.global_limit = 0;
         x->bandwidth.local_limit = 0;
         x->bandwidth.host_count = 0;
@@ -1671,17 +1671,22 @@ int sxi_curlev_add_put(curl_events_t *e,
     return ev_add(e, req_headers, req_data, REQ_PUT, reply);
 }
 
+#define MAX_POLL_SEEP_TIME      100 /* 100ms */
 int sxi_curlev_poll(curl_events_t *e)
 {
     CURLMcode rc;
     int callbacks = 0;
     long timeout = -1;
+    int immediately_returned = 0;
+    double usleep_timeout = 0; 
     sxc_client_t *sx;
     if (!e) {
         return -1;
     }
 
     do {
+        int numfds = 0;
+
         callbacks = 0;
         if (e->added_notpolled) {
             /* If we added new queries that haven't been launched yet,
@@ -1690,18 +1695,41 @@ int sxi_curlev_poll(curl_events_t *e)
              * */
             if ((callbacks += sxi_curlev_poll_immediate(e)) == -1)
                 return -1;
-        }
+        } 
         rc = curl_multi_timeout(e->multi, &timeout);
+
         if (curlm_check(NULL,rc,"set timeout") == -1)
             return -1;
 
-        rc = curl_multi_wait(e->multi, NULL, 0, timeout, NULL);
+        rc = curl_multi_wait(e->multi, NULL, 0, timeout, &numfds);
+
         if (curlm_check(NULL,rc,"wait") == -1)
             return -1;
 
+        if(e->bandwidth.global_limit) {
+            if(!numfds && timeout > 0) {
+                immediately_returned++; 
+
+                /* 
+                 * Check if curl_multi_wait() returns too quickly more than 2 times in a row.
+                 * If true, usleep() and increase timeout.
+                 */
+                if(immediately_returned > 2) {
+                    usleep_timeout += 10; /* Add 10 ms */
+                    if(usleep_timeout > MAX_POLL_SEEP_TIME) 
+                        usleep_timeout = MAX_POLL_SEEP_TIME;
+
+                    usleep(usleep_timeout * 1000);
+                }
+            } else {
+                /* curl_multi_wait() did not return immediately, reset timeout */
+                usleep_timeout = 0;
+                immediately_returned = 0;
+            }
+        }
+
         if ((callbacks += sxi_curlev_poll_immediate(e)) == -1)
             return -1;
-
     } while (e->running && !callbacks && !e->depth);
     sx = sxi_conns_get_client(e->conns);
     SXDEBUG("running: %d, callbacks executed: %d", e->running, callbacks);

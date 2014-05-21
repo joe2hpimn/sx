@@ -823,8 +823,8 @@ unsigned int sxi_conns_get_port(const sxi_conns_t *conns) {
 int sxi_conns_set_bandwidth_limit(sxi_conns_t *conns, int64_t bandwidth_limit) {
     unsigned int count = 0;
     if(!conns || !conns->curlev) {
-        CLSTDEBUG("Could not set bandwidth limit to %ld, NULL argument: %lu", bandwidth_limit, 
-            (conns != NULL ? conns->curlev : conns));
+        CLSTDEBUG("Could not set bandwidth limit to %ld, NULL argument: %s", bandwidth_limit, 
+            (conns != NULL ? "conns" : "conns->curlev"));
         return 1;
     }
 
