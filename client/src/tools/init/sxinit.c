@@ -96,7 +96,10 @@ static int list_clusters(sxc_client_t *sx, const char *config_dir) {
                         fprintf(stderr, "Could not allocate memory\n");
                         break;
                     }
-                    snprintf(left, left_len, "sx://%s@%s", profile_dirent->d_name, cluster_dirent->d_name);
+		    if(!strcmp(profile_dirent->d_name, "default"))
+			snprintf(left, left_len, "sx://%s", cluster_dirent->d_name);
+		    else
+			snprintf(left, left_len, "sx://%s@%s", profile_dirent->d_name, cluster_dirent->d_name);
                     if(alias) 
                         printf("%-40s %s\n", left, alias);
                     else
@@ -169,12 +172,12 @@ int main(int argc, char **argv) {
     if(args.alias_given) {
         alias = args.alias_arg;
 
-        if(strncmp(alias, SXC_ALIAS_PREFIX, 1)) {
+        if(strncmp(alias, SXC_ALIAS_PREFIX, lenof(SXC_ALIAS_PREFIX))) {
              fprintf(stderr, "Bad alias name: it must start with %s\n", SXC_ALIAS_PREFIX);
              goto init_err;
         }
 
-        if(strlen(alias) <= 1) {
+        if(strlen(alias) <= lenof(SXC_ALIAS_PREFIX)) {
              fprintf(stderr, "Bad alias name: Alias name is too short\n");
              goto init_err;
         }

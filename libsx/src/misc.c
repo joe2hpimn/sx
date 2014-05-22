@@ -490,7 +490,11 @@ int sxc_set_alias(sxc_client_t *sx, const char *alias, const char *profile, cons
         return 1;
     }
 
-    snprintf(cluster_uri, cluster_uri_len, "%s%s@%s", SXPROTO, profile, host);
+    if(!strcmp(profile, "default"))
+	snprintf(cluster_uri, cluster_uri_len, "%s%s", SXPROTO, host);
+    else
+	snprintf(cluster_uri, cluster_uri_len, "%s%s@%s", SXPROTO, profile, host);
+
     for(i = 0; i < list->num; i++) {
         if(strcmp(list->entry[i].name, alias) == 0) {
             alias_found = i;
@@ -565,7 +569,10 @@ const char *sxc_get_alias(sxc_client_t *sx, const char *profile, const char *hos
         sxi_seterr(sx, SXE_EMEM, "Could not allocate memory");
         return NULL;
     }
-    snprintf(c, clen, "%s%s@%s", SXPROTO, profile, host);
+    if(!strcmp(profile, "default"))
+	snprintf(c, clen, "%s%s", SXPROTO, host);
+    else
+	snprintf(c, clen, "%s%s@%s", SXPROTO, profile, host);
 
     for(i = 0; i < list->num; i++) {
         if(strncmp(c, list->entry[i].cluster, clen) == 0) {
