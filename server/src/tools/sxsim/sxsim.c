@@ -382,7 +382,7 @@ static int rebalance(struct sxcluster *cluster)
 	    uint64_t datamoved = 0;
 	    struct sxblock *block;
 	    int stays;
-	    sx_nodelist_t *nl_cur, *nl_old;
+	    sx_nodelist_t *nl_cur;
 
 	node = &cluster->node[i];
 	if(node->del_flag == 2 || (node->del_flag == 1 && !node->stored))
@@ -397,12 +397,13 @@ static int rebalance(struct sxcluster *cluster)
 	    if(!block->hash)
 		continue;
 
+	    nl_cur = sxi_hdist_locate(newcluster.hdist, block->hash, block->replica_cnt, 0);
+	    if(!nl_cur) {
+		printf("ERROR: rebalance: Can't calculate destination nodes (bidx: 0)\n");
+		return -1;
+	    }
+
 	    if(!block->origin) {
-		nl_cur = sxi_hdist_locate(newcluster.hdist, block->hash, block->replica_cnt, 0);
-		if(!nl_cur) {
-		    printf("ERROR: rebalance: Can't calculate destination nodes (bidx: 0)\n");
-		    return -1;
-		}
 		stays = 0;
 		for(k = 0; k < block->replica_cnt; k++) {
 		    const sx_node_t *n = sx_nodelist_get(nl_cur, k);
@@ -411,9 +412,9 @@ static int rebalance(struct sxcluster *cluster)
 			break;
 		    }
 		}
-		sx_nodelist_delete(nl_cur);
 		if(!stays)
 		    datamoved += block->bs;
+		sx_nodelist_delete(nl_cur);
 		continue;
 	    }
 
@@ -422,28 +423,21 @@ static int rebalance(struct sxcluster *cluster)
 		printf("--- DUMP OF PARTIALLY REBALANCED CLUSTER ---\n");
 		print_cluster(&newcluster);
 		printf("--- END OF DUMP ---\n");
-		return -1;
-	    }
-
-	    nl_old = sxi_hdist_locate(cluster->hdist, block->hash, block->replica_cnt, 1);
-	    if(!nl_old) {
-		printf("ERROR: rebalance: Can't calculate destination nodes (bidx: 1)\n");
+		sx_nodelist_delete(nl_cur);
 		return -1;
 	    }
 
 	    stays = 0;
 	    for(k = 0; k < block->replica_cnt; k++) {
-		const sx_node_t *n = sx_nodelist_get(nl_old, k);
+		const sx_node_t *n = sx_nodelist_get(nl_cur, k);
 		if(!memcmp(&node->uuid, sx_node_uuid(n), sizeof(node->uuid))) {
 		    stays = 1;
 		    break;
 		}
 	    }
-	    sx_nodelist_delete(nl_old);
-	    if(!stays) {
+	    sx_nodelist_delete(nl_cur);
+	    if(!stays)
 		datamoved += block->bs;
-		printf("no-stays(2)\n");
-	    }
 	}
 	printf("Data moved from node '%s': %llu MB (%.1f%%)\n", node->host, (long long unsigned) datamoved / MBVAL, 100.0 * datamoved / node->stored);
 	if(cluster->node[i].del_flag == 1)
