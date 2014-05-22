@@ -675,6 +675,7 @@ struct _sx_hashfs_t {
     unsigned int put_hs;
     unsigned int put_success;
     sx_hash_t *put_blocks;
+    sx_hash_t put_reserve_id;
     unsigned int *put_nidxs;
     unsigned int *put_hashnos;
     unsigned int put_nblocks;
@@ -3791,13 +3792,8 @@ rc_ty sx_hashfs_hashop_perform(sx_hashfs_t *h, enum sxi_hashop_kind kind, const 
         case HASHOP_INUSE:
             /* we must only moduse if not ENOENT */
             rc = sx_hashfs_hashop_ishash(h, hash);
-            if (rc) {
-                /* if INUSE failed, then RESERVE:
-                 * needed for /.topush hashes as they don't do
-                 * any reservation of their own */
-                sx_hashfs_hashop_moduse(h, id, hash, 0);
+            if (rc)
                 break;
-            }
             rc = sx_hashfs_hashop_moduse(h, id, hash, 1);
             break;
         case HASHOP_DELETE:
@@ -4422,10 +4418,9 @@ rc_ty sx_hashfs_putfile_gettoken(sx_hashfs_t *h, const uint8_t *user, int64_t si
 	goto gettoken_err;
 
 
-    sx_hash_t tmphash;
-    if (unique_tmpid(h, ptr, &tmphash))
+    if (unique_tmpid(h, ptr, &h->put_reserve_id))
         goto gettoken_err;
-    sxi_hashop_begin(&h->hc, h->sx_clust, hdck_cb, HASHOP_RESERVE, &tmphash, hdck_cb_ctx);
+    sxi_hashop_begin(&h->hc, h->sx_clust, hdck_cb, HASHOP_RESERVE, &h->put_reserve_id, hdck_cb_ctx);
 #ifdef FILEHASH_OPTIMIZATION
     if (filehash_reserve(h, &filehash) == ITER_NO_MORE) {
         h->put_checkblock = h->put_putblock;/* no need to reserve each hash, we bumped the filehash's counter */
@@ -4745,18 +4740,74 @@ static rc_ty are_blocks_available(sx_hashfs_t *h, sx_hash_t *hashes,
     return OK;
 }
 
+rc_ty reserve_replicas(sx_hashfs_t *h)
+{
+    /*
+     * assign more understandable names to pointers and counters
+     */
+    rc_ty ret = OK;
+    sx_hash_t *all_hashes = h->put_blocks;
+    sxi_hashop_t *hashop = &h->hc;
+    unsigned int *uniq_hash_indexes = h->put_hashnos;
+    unsigned uniq_count = h->put_putblock;
+    if (!uniq_count)
+        return OK;
+    unsigned int *node_indexes = wrap_malloc((1+h->put_replica) * uniq_count * sizeof(*node_indexes));
+    unsigned hash_size = h->put_hs;
+    if (!node_indexes)
+        return ENOMEM;
+
+    unsigned i;
+    for(i=0; i<uniq_count; i++) {
+	/* MODHDIST: pick from _next, bidx=0 */
+	if(hash_nidx_tobuf(h, &all_hashes[uniq_hash_indexes[i]],
+                           h->put_replica, &node_indexes[uniq_hash_indexes[i]*h->put_replica])) {
+	    WARN("hash_nidx_tobuf failed");
+            ret = FAIL_EINTERNAL;
+	}
+    }
+    for(i=2; ret == OK && i<=h->put_replica; i++) {
+        unsigned int cur_item = 0;
+        sort_by_node_then_hash(all_hashes, uniq_hash_indexes, node_indexes, uniq_count, i, h->put_replica);
+        memset(hashop, 0, sizeof(*hashop));
+        sxi_hashop_begin(hashop, h->sx_clust, NULL,
+                         HASHOP_RESERVE, &h->put_reserve_id, NULL);
+        while((ret = are_blocks_available(h, all_hashes, hashop,
+                                          uniq_hash_indexes, node_indexes,
+                                          &cur_item, uniq_count, hash_size,
+                                          i, h->put_replica)) == OK) {
+            if(cur_item >= uniq_count)
+                break;
+        }
+        if (ret)
+            WARN("are_blocks_available failed: %s", rc2str(ret));
+        if (!ret && sxi_hashop_end(hashop) == -1) {
+            WARN("sxi_hashop_end failed: %s", sxc_geterrmsg(h->sx));
+            ret = FAIL_EINTERNAL;
+        }
+    }
+    free(node_indexes);
+    return ret;
+}
+
 rc_ty sx_hashfs_putfile_getblock(sx_hashfs_t *h) {
     rc_ty ret;
     if(!h || !h->put_token[0])
 	return EINVAL;
 
     if(h->put_checkblock >= h->put_putblock) {
-	if(sxi_hashop_end(&h->hc) == -1)
+	if(sxi_hashop_end(&h->hc) == -1) {
 	    WARN("hashop_end failed: %s", sxc_geterrmsg(h->sx));
-	else
+            return FAIL_EINTERNAL;
+        } else
 	    DEBUG("{%s}: finished:%d, queries:%d, ok:%d, enoent:%d, cbfail:%d",
 		  h->node_uuid.string,
 		  h->hc.finished, h->hc.queries, h->hc.ok, h->hc.enoent, h->hc.cb_fail);
+        ret = reserve_replicas(h);
+        if (ret) {
+            WARN("failed to reserve replicas: %s", rc2str(ret));
+            return ret;
+        }
 	h->put_success = 1;
 	return ITER_NO_MORE;
     }
