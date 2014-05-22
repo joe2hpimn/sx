@@ -221,7 +221,7 @@ int sxc_cluster_add_access(sxc_cluster_t *cluster, const char *profile_name, con
 	return 1;
     if(!sxi_is_valid_authtoken(sxi_cluster_get_client(cluster), access_token)) {
 	CFGDEBUG("refusing to add invalid auth token to config");
-	cluster_err(SXE_EARG, "Cannot add access credentials to config: invalid argument");
+	cluster_err(SXE_EARG, "Cannot add access credentials to config: invalid authentication token");
 	return 1;
     }
     if(!profile_name || !*profile_name)
