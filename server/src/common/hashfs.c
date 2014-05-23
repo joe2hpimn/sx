@@ -467,7 +467,7 @@ rc_ty sx_storage_create(const char *dir, sx_uuid_t *cluster, uint8_t *key, int k
     if(qprep(db, &q, "CREATE INDEX reserve_by_group ON reserved(groupid)") || qstep_noret(q))
 	goto create_hashfs_fail;
     qnullify(q);
-    if(qprep(db, &q, "CREATE INDEX counters_0_ver ON counters(used, ver) WHERE used=0 AND reserved=0") || qstep_noret(q))
+    if(qprep(db, &q, "CREATE INDEX counters_0_ver ON counters(used, reserved, ver) WHERE used=0") || qstep_noret(q))
 	goto create_hashfs_fail;
     qnullify(q);
     /* GC: two tasks: merge tables, track token activity, and
