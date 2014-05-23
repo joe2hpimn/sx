@@ -6210,7 +6210,7 @@ static rc_ty sx_hashfs_gc_merge(sx_hashfs_t *h, sxi_db_t *db)
            qprep(h->db, &q_del_gc, "DELETE FROM hashfs WHERE key IN (SELECT key FROM tmp_hashfs_delete)") ||
            qprep(db, &q_insert, "INSERT OR IGNORE INTO tmpmoduse(groupid, hash, hs, op, applied_expires_at) VALUES(:groupid, :hash, :hs, :op, NULL)") ||
            qprep(db, &q_get_maxidx, "SELECT maxidx FROM tmpmoduse_maxidx WHERE name=:key") ||
-           qprep(db, &q_update_maxidx, "UPDATE tmpmoduse_maxidx SET maxidx=:maxidx WHERE name=:key")
+           qprep(db, &q_update_maxidx, "INSERT OR REPLACE INTO tmpmoduse_maxidx(name, maxidx) VALUES(:key,:maxidx)")
           )
             break;
         sqlite3_reset(q_iter);
