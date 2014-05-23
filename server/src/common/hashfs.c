@@ -6662,7 +6662,8 @@ rc_ty sx_hashfs_gc_run(sx_hashfs_t *h)
     qclose(&db);
     if (!ret) {
         sqlite3_reset(h->qt_gc_tokens);
-        if (qstep_noret(h->qt_gc_tokens))
+        if (qbind_int64(h->qt_gc_tokens, ":now",time(NULL)) ||
+            qstep_noret(h->qt_gc_tokens))
             return FAIL_EINTERNAL;
         INFO("Deleted %d tokens", sqlite3_changes(h->tempdb->handle));
     }
