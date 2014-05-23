@@ -289,6 +289,15 @@ static int dump_cluster(struct sxcluster *cluster, FILE *file)
     return 0;
 }
 
+static int savecmds(const struct sxcluster *cluster, const char *file)
+{
+    if(linenoiseHistorySave(file)) {
+	printf("ERROR: Can't save commands to %s\n", file);
+	return -1;
+    }
+    return 0;
+}
+
 static int update(struct sxcluster *cluster)
 {
 	unsigned int i;
@@ -983,7 +992,7 @@ void manage_completion(const char *line, linenoiseCompletions *lc)
 	unsigned int len, i;
 	char *commands[] = { "addnode", "help", "info", "debug", "blkstats", "resize",
 			     "rebalance", /* "rebalanceV2", */ "continue", "save",
-			     "dump", "exit" };
+			     "savecmds", "dump", "exit" };
 
     while(*line == ' ')
 	line++;
@@ -997,7 +1006,7 @@ void interactive_completion(const char *line, linenoiseCompletions *lc)
 {
 	unsigned int len, i;
 	char *commands[] = { "addnode", "delnode", "help", "info", "debug", "blkstats", "resize",
-			     "rebalance", /* "rebalanceV2", */ "store", "save",
+			     "rebalance", /* "rebalanceV2", */ "store", "save", "savecmds",
 			     "load", "dump", "reset", "execute", "exit" };
 
     while(*line == ' ')
@@ -1030,6 +1039,7 @@ static int runcmd(struct sxcluster *cluster, int mode, char *line)
 	printf("  load		-> load cluster data from file\n");
 	printf("  save		-> save cluster data to file\n");
 	printf("  dump		-> dump cluster content to file in CSV format\n");
+	printf("  savecmds	-> save commands executed in this session to file\n");
 	if(mode == IA)
 	printf("  reset		-> reset cluster\n");
 	if(mode == CL)
@@ -1225,6 +1235,12 @@ static int runcmd(struct sxcluster *cluster, int mode, char *line)
 	    printf("Cluster data loaded from '%s'\n", &line[5]);
 	}
 
+    } else if(!strncmp(line, "savecmds", 8)) {
+	if(strlen(line) < 10)
+	    printf("Usage: savecmds FILE\n");
+	else
+	    savecmds(cluster, &line[9]);
+
     } else if(!strncmp(line, "save", 4)) {
 	if(strlen(line) < 6)
 	    printf("Usage: save FILE\n");
@@ -1313,6 +1329,7 @@ static int execute(struct sxcluster *cluster, const char *fname)
 	runcmd(cluster, IA, cmd);
     }
     fclose(file);
+    linenoiseHistoryLoad(fname);
     return 0;
 }
 
