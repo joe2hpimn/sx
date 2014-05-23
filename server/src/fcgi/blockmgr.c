@@ -243,9 +243,12 @@ void blockmgr_process_queue(struct blockmgr_data_t *q) {
 		}
 		curb = upbuffer;
 		for(j=0; j<=i; j++) {
+                    char _debughash[sizeof(sx_hash_t)*2+1];
+                    const sx_hash_t *hash = &hlist.binhs[j];
 		    if(hlist.havehs[j])
 			continue;
-		    INFO("Block %ld was transferred successfuly", hlist.ids[j]);
+                    bin2hex(hash->b, sizeof(hash->b), _debughash, sizeof(_debughash));
+		    INFO("Block %ld #%s# was transferred successfuly", hlist.ids[j], _debughash);
 		    blockmgr_del_xfer(q, hlist.ids[j]);
 		    hlist.havehs[j] = 1;
 		    trigger_jobmgr = 1;
