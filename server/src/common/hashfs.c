@@ -6183,7 +6183,7 @@ static sxi_db_t *open_gcdb(sx_hashfs_t *h)
     if(qprep(db, &q, "PRAGMA temp_store=MEMORY") || qstep_noret(q))
         goto open_hashfs_fail;
     qnullify(q);
-    if(qprep(db, &q, "PRAGMA wal_autocheckpoint=0") || qstep_ret(q))
+    if(qprep(db, &q, "PRAGMA wal_autocheckpoint=32768") || qstep_ret(q))
         goto open_hashfs_fail;
     qnullify(q);
     return db;
