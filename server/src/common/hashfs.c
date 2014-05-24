@@ -6552,6 +6552,21 @@ rc_ty sx_hashfs_gc_periodic(sx_hashfs_t *h)
     /* don't have a per-process gcdb open in the gc itself, it'll just fail with
      * BUSY */
     gcdb_close(h);
+    if (!h->gcver) {
+        int rc;
+        if (qprep(db, &q, "SELECT max(ver) FROM counters")) {
+            WARN("failed to prepare gcver query");
+            return FAIL_EINTERNAL;
+        }
+        rc = qstep(q);
+        if (rc == SQLITE_ROW)
+            h->gcver = sqlite3_column_int(q, 0);
+        qnullify(q);
+        if (rc != SQLITE_ROW && rc != SQLITE_DONE) {
+            WARN("failed to query gcver");
+            return FAIL_EINTERNAL;
+        }
+    }
     do {
         if(qprep(db, &q, "CREATE TEMP TABLE IF NOT EXISTS tmpdelreserves(groupid BLOB(20) NOT NULL PRIMARY KEY)") || qstep_noret(q))
             break;
