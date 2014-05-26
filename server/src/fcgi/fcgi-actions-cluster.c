@@ -45,7 +45,7 @@ static void send_distribution(const sx_nodelist_t *nodes) {
 	    CGI_PUTC(',');
 	CGI_PRINTF("{\"nodeUUID\":\"%s\",\"nodeAddress\":\"%s\",", uuid, addr);
 	if(strcmp(addr, int_addr))
-	    CGI_PRINTF("\"nodeInternalAddress\":\"%s\",}", int_addr);
+	    CGI_PRINTF("\"nodeInternalAddress\":\"%s\",", int_addr);
 	CGI_PUTS("\"nodeCapacity\":");
 	CGI_PUTLL(sx_node_capacity(node));
 	CGI_PUTC('}');

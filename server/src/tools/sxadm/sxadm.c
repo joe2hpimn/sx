@@ -904,6 +904,15 @@ static int cb_cstatus_string(void *ctx, const unsigned char *s, size_t l) {
 	memcpy(c->addr, s, l);
 	c->addr[l] = '\0';
 	c->state = CS_NODEKEY;
+    } else if(c->state == CS_INT_ADDR) {
+	if(c->int_addr)
+	    return 0;
+	c->int_addr = malloc(l+1);
+	if(!c->int_addr)
+	    return 0;
+	memcpy(c->int_addr, s, l);
+	c->int_addr[l] = '\0';
+	c->state = CS_NODEKEY;
     } else if(c->state == CS_AUTH) {
 	if(c->auth)
 	    return 0;
