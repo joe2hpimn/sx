@@ -4275,7 +4275,8 @@ static int unique_tmpid(sx_hashfs_t *h, const char *token, sx_hash_t *hash)
 rc_ty sx_hashfs_putfile_gettoken(sx_hashfs_t *h, const uint8_t *user, int64_t size_or_seq, const char **token, hash_presence_cb_t hdck_cb, void *hdck_cb_ctx) {
     const char *ptr;
     sqlite3_stmt *q;
-    unsigned int i, total_blocks;
+    unsigned int i;
+    uint64_t total_blocks;
     rc_ty ret = FAIL_EINTERNAL;
     unsigned int blocksize;
 #ifdef FILEHASH_OPTIMIZATION
