@@ -89,6 +89,7 @@ struct curlev_context {
         struct generic_ctx *generic_ctx;
     } u;
     void *context;
+
 };
 
 static struct curlev_context *sxi_cbdata_create(sxi_conns_t *conns, finish_cb_t cb)
@@ -1005,6 +1006,20 @@ static int sockoptfn(void *clientp, curl_socket_t curlfd, curlsocktype purpose)
 #ifdef USE_OPENSSL
 #endif
 
+/* Set information about current transfer download value */
+int sxi_file_download_set_xfer_stat(struct file_download_ctx* ctx, int64_t downloaded, int64_t to_download);
+/* Get numner of bytes to be downloaded */
+int64_t sxi_file_download_get_xfer_to_send(const struct file_download_ctx *ctx);
+/* Get number of bytes already downloaded */
+int64_t sxi_file_download_get_xfer_sent(const struct file_download_ctx *ctx);
+
+/* Set information about current transfer upload value */
+int sxi_host_upload_set_xfer_stat(struct host_upload_ctx* ctx, int64_t uploaded, int64_t to_upload);
+/* Get numner of bytes to be downloaded */
+int64_t sxi_host_upload_get_xfer_to_send(const struct host_upload_ctx *ctx);
+/* Get number of bytes already downloaded */
+int64_t sxi_host_upload_get_xfer_sent(const struct host_upload_ctx *ctx);
+
 static int xferinfo(void *p, curl_off_t dltotal, curl_off_t dlnow,
                     curl_off_t ultotal, curl_off_t ulnow)
 {
@@ -1012,6 +1027,32 @@ static int xferinfo(void *p, curl_off_t dltotal, curl_off_t dlnow,
 
     if (check_ssl_cert(ev))
         return -1;
+
+    if(!ev->ctx) {
+        EVDEBUG(ev, "Could not update xfer information: NULL argument");
+        printf("Could not update xfer information: NULL argument");
+        return -2;
+    }
+
+    switch(ev->ctx->tag) {
+        case CTX_DOWNLOAD: {
+            /* Update file download */
+            sxi_file_download_set_xfer_stat(ev->ctx->u.download_ctx, dlnow, dltotal);
+        } break;
+
+        case CTX_UPLOAD_HOST: {
+            /* Update file upload */
+            sxi_host_upload_set_xfer_stat(ev->ctx->u.host_ctx, ulnow, ultotal);
+        } break;
+
+        case CTX_GENERIC:
+        case CTX_HASHOP:
+        case CTX_JOB:
+        case CTX_UPLOAD: {
+            /* TODO: Default xfer information updates */
+        }
+    }
+
     return 0;
 }
 
@@ -1680,6 +1721,7 @@ int sxi_curlev_poll(curl_events_t *e)
     double usleep_timeout = 0; 
     sxc_client_t *sx;
     if (!e) {
+        EVENTSDEBUG(e, "NULL argument");
         return -1;
     }
 
@@ -1770,6 +1812,7 @@ int sxi_curlev_poll_immediate(curl_events_t *e)
             if (msg->msg != CURLMSG_DONE) {
                 continue;
             }
+
             /* TODO: invoke callbacks */
             curl_easy_getinfo(msg->easy_handle, CURLINFO_PRIVATE, &priv);
             if (priv) {
@@ -1798,6 +1841,30 @@ int sxi_curlev_poll_immediate(curl_events_t *e)
                 e->used--;
                 curlev_context_t *ctx = ev->ctx;
                 ev->ctx = NULL;
+
+                /* 
+                 * For some transfers xferinfo() function can be not called when all bytes were 
+                 * transferred. But in this place we are sure that transfer has finished, so following
+                 * updates transfer information to satisfy progress information 
+                 */
+                switch(ctx->tag) {
+                    case CTX_DOWNLOAD: {
+                        /* Update file download to be finished */
+                        int64_t to_dl = sxi_file_download_get_xfer_to_send(ctx->u.download_ctx);
+                        if(to_dl) sxi_file_download_set_xfer_stat(ctx->u.download_ctx, to_dl, to_dl);
+                    } break;
+
+                    case CTX_UPLOAD_HOST: {
+                        /* Update file upload */
+                        int64_t to_ul = sxi_host_upload_get_xfer_to_send(ctx->u.host_ctx);
+                        if(to_ul) sxi_host_upload_set_xfer_stat(ctx->u.host_ctx, to_ul, to_ul);
+                    } break;
+
+                    default: {
+                        /* Generic transfer updates */
+                    }
+                }
+
                 queue_next(e, ev);/* modifies ev */
                 sxi_cbdata_finish(e, &ctx, url, ev->error);
             } else {

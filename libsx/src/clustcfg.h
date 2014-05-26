@@ -46,4 +46,9 @@ int sxi_file_list_foreach(sxc_file_list_t *target, sxc_cluster_t *wait_cluster, 
 char *sxi_ith_slash(char *s, unsigned int i);
 unsigned sxi_count_slashes(const char *str);
 
+sxc_xfer_stat_t* sxi_cluster_xfer_new(sxc_client_t *sx);
+void sxi_cluster_xfer_free(sxc_xfer_stat_t *xfer);
+/* Get transfer stats from cluster */
+sxc_xfer_stat_t *sxi_cluster_get_xfer_stat(const sxc_cluster_t* cluster);
+
 #endif

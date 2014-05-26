@@ -42,6 +42,7 @@ const char *gengetopt_args_info_help[] = {
   "  -f, --filter-dir=PATH  Path to SX filter directory",
   "  -b, --bwlimit=RATE     Set bandwidth usage limit in kilobytes per second\n                           (allows K, M, G suffixes, assume K when no suffix\n                           given)",
   "  -D, --debug            Enable debug messages  (default=off)",
+  "  -q, --no-progress      Do not output progress bar  (default=off)",
     0
 };
 
@@ -74,6 +75,7 @@ void clear_given (struct gengetopt_args_info *args_info)
   args_info->filter_dir_given = 0 ;
   args_info->bwlimit_given = 0 ;
   args_info->debug_given = 0 ;
+  args_info->no_progress_given = 0 ;
 }
 
 static
@@ -89,6 +91,7 @@ void clear_args (struct gengetopt_args_info *args_info)
   args_info->bwlimit_arg = NULL;
   args_info->bwlimit_orig = NULL;
   args_info->debug_flag = 0;
+  args_info->no_progress_flag = 0;
   
 }
 
@@ -105,6 +108,7 @@ void init_args_info(struct gengetopt_args_info *args_info)
   args_info->filter_dir_help = gengetopt_args_info_help[5] ;
   args_info->bwlimit_help = gengetopt_args_info_help[6] ;
   args_info->debug_help = gengetopt_args_info_help[7] ;
+  args_info->no_progress_help = gengetopt_args_info_help[8] ;
   
 }
 
@@ -248,6 +252,8 @@ cmdline_parser_dump(FILE *outfile, struct gengetopt_args_info *args_info)
     write_into_file(outfile, "bwlimit", args_info->bwlimit_orig, 0);
   if (args_info->debug_given)
     write_into_file(outfile, "debug", 0, 0 );
+  if (args_info->no_progress_given)
+    write_into_file(outfile, "no-progress", 0, 0 );
   
 
   i = EXIT_SUCCESS;
@@ -484,10 +490,11 @@ cmdline_parser_internal (
         { "filter-dir",	1, NULL, 'f' },
         { "bwlimit",	1, NULL, 'b' },
         { "debug",	0, NULL, 'D' },
+        { "no-progress",	0, NULL, 'q' },
         { 0,  0, 0, 0 }
       };
 
-      c = getopt_long (argc, argv, "hVrvc:f:b:D", long_options, &option_index);
+      c = getopt_long (argc, argv, "hVrvc:f:b:Dq", long_options, &option_index);
 
       if (c == -1) break;	/* Exit from `while (1)' loop.  */
 
@@ -574,6 +581,16 @@ cmdline_parser_internal (
           if (update_arg((void *)&(args_info->debug_flag), 0, &(args_info->debug_given),
               &(local_args_info.debug_given), optarg, 0, 0, ARG_FLAG,
               check_ambiguity, override, 1, 0, "debug", 'D',
+              additional_error))
+            goto failure;
+        
+          break;
+        case 'q':	/* Do not output progress bar.  */
+        
+        
+          if (update_arg((void *)&(args_info->no_progress_flag), 0, &(args_info->no_progress_given),
+              &(local_args_info.no_progress_given), optarg, 0, 0, ARG_FLAG,
+              check_ambiguity, override, 1, 0, "no-progress", 'q',
               additional_error))
             goto failure;
         

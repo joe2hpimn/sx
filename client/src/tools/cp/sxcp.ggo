@@ -15,4 +15,6 @@ option  "filter-dir"		f "Path to SX filter directory"
 
 option "bwlimit"        b "Set bandwidth usage limit in kilobytes per second (allows K, M, G suffixes, assume K when no suffix given)" string typestr="RATE" optional 
 
-option  "debug"		D "Enable debug messages" flag off
+option  "debug"		        D "Enable debug messages" flag off
+
+option  "no-progress"              q "Do not output progress bar" flag off 

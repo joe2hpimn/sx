@@ -530,8 +530,8 @@ static int sxi_job_result(sxc_client_t *sx, sxi_job_t **yres, unsigned *successf
             return 1;
         case JOBST_OK:
             if ((*yres)->name)
-                sxi_info(sx, "%s: %s", (*yres)->name,
-                         (*yres)->verb == REQ_DELETE ? "Deleted" : "OK");
+                if((*yres)->verb == REQ_DELETE)
+                    sxi_info(sx, "%s: %s", (*yres)->name, "Deleted");
             if (successful)
                 (*successful)++;
             ret = 0;
@@ -643,7 +643,6 @@ static int sxi_job_poll(sxi_conns_t *conns, sxi_jobs_t *jobs, unsigned *successf
     int rc = 0;
     sxc_client_t *sx = sxi_conns_get_client(conns);
 
-
     if (!jobs) {
         sxi_seterr(sx, SXE_EARG, "null arg to job_wait");
         return -1;
@@ -703,7 +702,6 @@ static int sxi_job_poll(sxi_conns_t *conns, sxi_jobs_t *jobs, unsigned *successf
             break;
         gettimeofday(&t, NULL);
         if (sxi_timediff(&t, &t0) > PROGRESS_INTERVAL) {
-            sxi_info(sx, "Operation in progress: %d pending jobs", pending);
             memcpy(&t0, &t, sizeof(t));
         }
         SXDEBUG("Pending %d jobs, %d errors, %d queries", pending, errors, alive);
@@ -732,6 +730,7 @@ static int sxi_job_poll(sxi_conns_t *conns, sxi_jobs_t *jobs, unsigned *successf
         if (jobs->jobs[i])
             sxi_job_result(sx, &jobs->jobs[i], successful);
     }
+
     return ret;
 }
 

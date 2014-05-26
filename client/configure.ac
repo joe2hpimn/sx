@@ -75,6 +75,7 @@ AM_CONDITIONAL([COVERAGE], test "$do_coverage" = "yes")
 
 # Checks for library functions.
 AC_CHECK_FUNCS([memset])
+AC_CHECK_FUNCS([isatty])
 
 if test "x$GCC" = "xyes"; then
     AX_APPEND_COMPILE_FLAGS([-pedantic -Wall -Wformat-security -fstack-protector], [AM_CFLAGS])

@@ -48,6 +48,10 @@ struct _sxc_cluster_t {
     struct sxi_access *useprof;
     struct sxi_access *access;
     char *cafile;
+
+    /* Global transfer stats */
+    sxc_xfer_stat_t *xfer_stat;
+    sxc_xfer_callback xfer_callback;
 };
 
 
@@ -86,6 +90,7 @@ sxc_cluster_t *sxc_cluster_new(sxc_client_t *sx) {
 	free(cluster);
 	return NULL;
     }
+
     return cluster;
 }
 
@@ -108,6 +113,7 @@ void sxc_cluster_free(sxc_cluster_t *cluster) {
 	    free(delme);
 	}
 	free(cluster->cafile);
+        sxi_cluster_xfer_free(cluster->xfer_stat);
 	free(cluster);
     }
 }
@@ -2499,4 +2505,38 @@ unsigned int sxc_cluster_get_httpport(const sxc_cluster_t *cluster) {
     if(!cluster)
 	return -1;
     return sxi_conns_get_port(cluster->conns);
+}
+
+int sxc_cluster_set_progress_cb(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_xfer_callback cb) {
+    if(!cluster || !cb) {
+        SXDEBUG("NULL argument");        
+        sxi_seterr(sx, SXE_EARG, "NULL argument: %s", cluster != NULL ? "cb" : "cluster");
+        return 1;
+    }
+
+    if(!cluster->xfer_stat) {
+        cluster->xfer_stat = sxi_cluster_xfer_new(sx);
+        if(!cluster->xfer_stat) {
+            SXDEBUG("Could not allocate memory");
+            sxi_seterr(sx, SXE_EMEM, "Could not allocate memory");
+            return 1;
+        }
+    }
+
+    cluster->xfer_callback = cb;
+    return 0;
+}
+
+sxc_xfer_callback sxc_cluster_get_progress_cb(const sxc_cluster_t *cluster) {
+    if(!cluster)
+        return NULL;
+
+    return cluster->xfer_callback;
+}
+
+sxc_xfer_stat_t *sxi_cluster_get_xfer_stat(const sxc_cluster_t* cluster) {
+    if(!cluster)
+        return NULL;
+
+    return cluster->xfer_stat;
 }

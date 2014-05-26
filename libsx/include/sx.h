@@ -27,6 +27,7 @@
 #include <stdint.h>
 #include <sys/types.h>
 #include <time.h>
+#include <sys/time.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -134,6 +135,75 @@ sxc_cluster_lf_t *sxc_cluster_listfiles(sxc_cluster_t *cluster, const char *volu
 int sxc_cluster_listfiles_next(sxc_cluster_lf_t *lf, char **file_name, int64_t *file_size, time_t *file_created_at);
 void sxc_cluster_listfiles_free(sxc_cluster_lf_t *lf);
 
+/* Transfer direction */
+typedef enum { SXC_XFER_DIRECTION_DOWNLOAD, SXC_XFER_DIRECTION_UPLOAD } sxc_xfer_direction_t;
+
+/* Single direction transfer stats */
+typedef struct {
+    /* Currently transferred file name and size */
+    const char *file_name;
+    int64_t file_size;
+
+    /* Transfer direction */
+    sxc_xfer_direction_t direction;
+
+    /* 
+     * How much data should be transferred. At the begining it will be equal to file_size,
+     * but can change if some hashes already exist. 
+     */
+    int64_t to_send;
+
+    /* Total transferred */
+    int64_t sent;
+
+    /* Time spent on sending data */
+    double total_time;
+    /* Time when current transfer started */
+    struct timeval start_time;
+} sxc_xfer_progress_t;
+
+/* Transfer state, place to add "stalled" or "canceled"... statuses */
+typedef enum { 
+    SXC_XFER_STATUS_STARTED,
+    SXC_XFER_STATUS_RUNNING, 
+    SXC_XFER_STATUS_WAITING, 
+    SXC_XFER_STATUS_PART_STARTED,
+    SXC_XFER_STATUS_PART_FINISHED, 
+    SXC_XFER_STATUS_FINISHED, 
+    SXC_XFER_STATUS_FINISHED_ERROR,
+} sxc_xfer_status_t;
+
+typedef struct {
+    /* Current transfer information */
+    sxc_xfer_progress_t current_xfer;
+
+    /* Transfer status */
+    sxc_xfer_status_t status;
+
+    /* Global transfer timing information */
+    struct timeval start_time;
+    double total_time;
+
+    /* Generic download and upload values */
+    int64_t total_dl;
+    int64_t total_ul; 
+
+    /* Total number of bytes that needs to be downloaded and uploaded */
+    int64_t total_to_dl;
+    int64_t total_to_ul;
+
+    /* Total number of bytes that downloaded and uploaded data contains */
+    int64_t total_data_dl;
+    int64_t total_data_ul;
+
+    /* Timers used to compute speed and callbacks invocation frequency */
+    struct timeval interval_timer;
+} sxc_xfer_stat_t;
+
+typedef void (*sxc_xfer_callback)(const sxc_xfer_stat_t *stat);
+int sxc_cluster_set_progress_cb(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_xfer_callback cb);
+sxc_xfer_callback sxc_cluster_get_progress_cb(const sxc_cluster_t *cluster);
+
 typedef struct _sxc_file_t sxc_file_t;
 sxc_file_t *sxc_file_remote(sxc_cluster_t *cluster, const char *volume, const char *path);
 sxc_file_t *sxc_file_local(sxc_client_t *sx, const char *path);
@@ -142,17 +212,7 @@ int sxc_file_is_sx(sxc_file_t *file);
 int sxc_file_require_dir(sxc_file_t *file);
 void sxc_file_free(sxc_file_t *sxfile);
 
-typedef struct _sxc_xres_t sxc_xres_t;
-
-uint64_t sxc_xres_get_total_size(sxc_xres_t *xres);
-double sxc_xres_get_total_speed(sxc_xres_t *xres);
-void sxc_xres_get_upload_blocks(sxc_xres_t *xres, unsigned int *all, unsigned int *requested, unsigned int *transferred);
-void sxc_xres_get_download_blocks(sxc_xres_t *xres, unsigned int *all, unsigned int *requested, unsigned int *transferred);
-double sxc_xres_get_upload_speed(sxc_xres_t *xres);
-double sxc_xres_get_download_speed(sxc_xres_t *xres);
-void sxc_free_xres(sxc_xres_t *xres);
-
-int sxc_copy(sxc_file_t *source, sxc_file_t *dest, int recursive, sxc_xres_t **xres);
+int sxc_copy(sxc_file_t *source, sxc_file_t *dest, int recursive);
 int sxc_cat(sxc_file_t *source, int dest);
 
 typedef struct _sxc_file_list_t sxc_file_list_t;

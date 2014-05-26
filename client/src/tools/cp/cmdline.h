@@ -54,6 +54,8 @@ struct gengetopt_args_info
   const char *bwlimit_help; /**< @brief Set bandwidth usage limit in kilobytes per second (allows K, M, G suffixes, assume K when no suffix given) help description.  */
   int debug_flag;	/**< @brief Enable debug messages (default=off).  */
   const char *debug_help; /**< @brief Enable debug messages help description.  */
+  int no_progress_flag;	/**< @brief Do not output progress bar (default=off).  */
+  const char *no_progress_help; /**< @brief Do not output progress bar help description.  */
   
   unsigned int help_given ;	/**< @brief Whether help was given.  */
   unsigned int version_given ;	/**< @brief Whether version was given.  */
@@ -63,6 +65,7 @@ struct gengetopt_args_info
   unsigned int filter_dir_given ;	/**< @brief Whether filter-dir was given.  */
   unsigned int bwlimit_given ;	/**< @brief Whether bwlimit was given.  */
   unsigned int debug_given ;	/**< @brief Whether debug was given.  */
+  unsigned int no_progress_given ;	/**< @brief Whether no-progress was given.  */
 
   char **inputs ; /**< @brief unamed options (options without names) */
   unsigned inputs_num ; /**< @brief unamed options number */
