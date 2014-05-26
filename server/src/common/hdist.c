@@ -606,31 +606,42 @@ static int hchecksum(sxi_hdist_t *model)
     if(!sctx)
 	return 1;
     v = model->builds + model->node_count[0] + model->circle[0][0].point + model->state + model->max_builds + model->seed;
-    if(!sxi_sha1_init(sctx))
+    if(!sxi_sha1_init(sctx)) {
+        sxi_md_cleanup(&sctx);
         return 1;
+    }
     for(i = 0; i < model->builds; i++) {
 	for(j = 0; j < model->node_count[i]; j++) {
 	    if(!model->node_list[i][j].sxn)
 		continue;
-            if (!sxi_sha1_update(sctx, sx_node_uuid(model->node_list[i][j].sxn), 16))
+            if (!sxi_sha1_update(sctx, sx_node_uuid(model->node_list[i][j].sxn), 16)) {
+                sxi_md_cleanup(&sctx);
                 return 1;
+            }
 	    pt = sx_node_addr(model->node_list[i][j].sxn);
 	    if(pt) {
-                if(!sxi_sha1_update(sctx, pt, strlen(pt)))
+                if(!sxi_sha1_update(sctx, pt, strlen(pt))) {
+                    sxi_md_cleanup(&sctx);
                     return 1;
+                }
             }
 	    pt = sx_node_internal_addr(model->node_list[i][j].sxn);
 	    if(pt) {
-                if(!sxi_sha1_update(sctx, pt, strlen(pt)))
+                if(!sxi_sha1_update(sctx, pt, strlen(pt))) {
+                    sxi_md_cleanup(&sctx);
                     return 1;
+                }
             }
 	    v += sx_node_capacity(model->node_list[i][j].sxn);
 	}
 	if(model->circle_points[i])
 	    v ^= model->circle[i][model->circle_points[i] - 1].rnd;
     }
-    if(!sxi_sha1_final(sctx, sdig, NULL))
+    if(!sxi_sha1_final(sctx, sdig, NULL)) {
+        sxi_md_cleanup(&sctx);
         return 1;
+    }
+    sxi_md_cleanup(&sctx);
     model->checksum = MurmurHash64(sdig, sizeof(sdig), model->seed) ^ v;
     return 0;
 }

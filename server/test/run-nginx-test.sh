@@ -70,7 +70,7 @@ cleanup () {
     "$prefix/sbin/sxserver" stop
     rm -rf $prefix
 }
-"$prefix/sbin/sx.fcgi" --config-file "$prefix/etc/sxserver/sxfcgi.conf"
+./libtool --mode=execute valgrind --max-stackframe=2560000 --log-file=/tmp/sxfcgi.valgrind.log.%p --trace-children=yes --leak-check=full "$prefix/sbin/sx.fcgi" --config-file "$prefix/etc/sxserver/sxfcgi.conf"
 "$prefix/sbin/sxhttpd" -c "$prefix/etc/sxserver/sxhttpd.conf"
 
 trap cleanup EXIT INT

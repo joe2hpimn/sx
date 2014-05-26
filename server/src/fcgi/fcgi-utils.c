@@ -168,7 +168,11 @@ void send_partial_error(const char *message, rc_ty rc) {
     send_error_helper(',', 500, rc2str(rc));
 }
 
+static sxi_hmac_sha1_ctx *hmac_ctx;
+static sxi_md_ctx *body_ctx;
 void send_error(int errnum, const char *message) {
+    sxi_hmac_sha1_cleanup(&hmac_ctx);
+    sxi_md_cleanup(&body_ctx);
     if(!message || !*message)
 	message = http_err_str(errnum);
 
@@ -191,6 +195,8 @@ void send_error(int errnum, const char *message) {
 
 void send_home(void) {
     print_html(0, SERVER_NAME, 0, NULL);
+    sxi_hmac_sha1_cleanup(&hmac_ctx);
+    sxi_md_cleanup(&body_ctx);
 }
 
 int is_http_10(void) {
@@ -203,8 +209,6 @@ sx_uid_t uid;
 static sx_priv_t role;
 
 static enum authed_t { AUTH_NOTAUTH, AUTH_BODYCHECK, AUTH_BODYCHECKING, AUTH_OK } authed;
-static sxi_hmac_sha1_ctx *hmac_ctx;
-static sxi_md_ctx *body_ctx;
 
 int get_body_chunk(char *buf, int buflen) {
     int r = FCGX_GetStr(buf, buflen, fcgi_in);
