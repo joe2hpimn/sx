@@ -4753,7 +4753,7 @@ rc_ty reserve_replicas(sx_hashfs_t *h)
     unsigned uniq_count = h->put_putblock;
     if (!uniq_count)
         return OK;
-    unsigned int *node_indexes = wrap_malloc((1+h->put_replica) * uniq_count * sizeof(*node_indexes));
+    unsigned int *node_indexes = wrap_malloc((1+h->put_replica) * h->put_nblocks * sizeof(*node_indexes));
     unsigned hash_size = h->put_hs;
     if (!node_indexes)
         return ENOMEM;
