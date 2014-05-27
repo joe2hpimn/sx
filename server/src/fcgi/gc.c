@@ -104,6 +104,7 @@ int gc(sxc_client_t *sx, const char *self, const char *dir, int pipe) {
         }
         if (terminate)
             break;
+        sx_hashfs_checkpoint(hashfs);
     }
     sx_hashfs_close(hashfs);
 

@@ -86,16 +86,20 @@ sxi_db_t *qnew(sqlite3 *handle)
 
 void qcheckpoint(sxi_db_t *db, int kind)
 {
+    struct timeval tv0, tv1;
     int log, ckpt, rc;
     if (!db)
         return;
     if (db->wal_pages < GC_MAX_WAL_PAGES)
         return;
+    gettimeofday(&tv0, NULL);
     rc = sqlite3_wal_checkpoint_v2(db->handle, NULL, kind, &log, &ckpt);
+    gettimeofday(&tv1, NULL);
     if (rc != SQLITE_OK && rc != SQLITE_BUSY) {
         WARN("Failed to checkpoint GC db: %s", sqlite3_errmsg(db->handle));
     } else {
-        INFO("WAL %s: %d frames, %d checkpointed: %s", sqlite3_db_filename(db->handle, "main"), log, ckpt, sqlite3_errmsg(db->handle));
+        INFO("WAL %s: %d frames, %d checkpointed: %s in %.1fs", sqlite3_db_filename(db->handle, "main"), log, ckpt, sqlite3_errmsg(db->handle),
+             timediff(&tv0, &tv1));
     }
     db->wal_pages = 0;
 }

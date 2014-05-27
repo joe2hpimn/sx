@@ -2248,6 +2248,7 @@ static void jobmgr_process_queue(struct jobmgr_data_t *q, int forced) {
 	free(q->job_data);
 	INFO("Finished running job %lld", (long long)q->job_id);
 	/* Process next job */
+        sx_hashfs_checkpoint(q->hashfs);
     }
 
     if(!terminate)

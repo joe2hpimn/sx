@@ -258,6 +258,7 @@ void blockmgr_process_queue(struct blockmgr_data_t *q) {
 
 	if(trigger_jobmgr)
 	    sx_hashfs_job_trigger(q->hashfs);
+        sx_hashfs_checkpoint(q->hashfs);
     }
     sxi_hostlist_empty(&uploadto);
     sqlite3_reset(q->qlist); /* Better safe than deadlocked */
