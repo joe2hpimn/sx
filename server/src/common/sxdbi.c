@@ -97,7 +97,7 @@ void qcheckpoint(sxi_db_t *db, int kind)
     gettimeofday(&tv1, NULL);
     if (rc != SQLITE_OK && rc != SQLITE_BUSY) {
         WARN("Failed to checkpoint GC db: %s", sqlite3_errmsg(db->handle));
-    } else {
+    } else if (ckpt > 0) {
         INFO("WAL %s: %d frames, %d checkpointed: %s in %.1fs", sqlite3_db_filename(db->handle, "main"), log, ckpt, sqlite3_errmsg(db->handle),
              timediff(&tv0, &tv1));
     }
