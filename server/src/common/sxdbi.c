@@ -90,7 +90,7 @@ void qcheckpoint(sxi_db_t *db, int kind)
     int log, ckpt, rc;
     if (!db)
         return;
-    if (db->wal_pages < GC_MAX_WAL_PAGES)
+    if (db->wal_pages < GC_MAX_WAL_PAGES && kind == SQLITE_CHECKPOINT_PASSIVE)
         return;
     gettimeofday(&tv0, NULL);
     rc = sqlite3_wal_checkpoint_v2(db->handle, NULL, kind, &log, &ckpt);

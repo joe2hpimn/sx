@@ -86,6 +86,8 @@ int gc(sxc_client_t *sx, const char *self, const char *dir, int pipe) {
 
 	sx_hashfs_distcheck(hashfs);
         rc = sx_hashfs_gc_periodic(hashfs);
+        sx_hashfs_checkpoint_gc(hashfs);
+        sx_hashfs_checkpoint_passive(hashfs);
         if (rc) {
             WARN("GC error: %s", rc2str(rc));
         } else {
@@ -104,7 +106,8 @@ int gc(sxc_client_t *sx, const char *self, const char *dir, int pipe) {
         }
         if (terminate)
             break;
-        sx_hashfs_checkpoint(hashfs);
+        sx_hashfs_checkpoint_gc(hashfs);
+        sx_hashfs_checkpoint_passive(hashfs);
     }
     sx_hashfs_close(hashfs);
 

@@ -863,7 +863,7 @@ static int lock_file(const char *file, int do_unlink)
 
 static int counter = 0;
 
-void sx_hashfs_checkpoint(sx_hashfs_t *h)
+void sx_hashfs_checkpoint_passive(sx_hashfs_t *h)
 {
     unsigned i, j;
     /* PASSIVE: doesn't block writers/readers
@@ -875,12 +875,27 @@ void sx_hashfs_checkpoint(sx_hashfs_t *h)
     qcheckpoint(h->tempdb, SQLITE_CHECKPOINT_PASSIVE);
     for (i=0;i<METADBS;i++)
         qcheckpoint(h->metadb[i], SQLITE_CHECKPOINT_PASSIVE);
-    qcheckpoint(h->gcdb[0], SQLITE_CHECKPOINT_RESTART);
+    qcheckpoint(h->gcdb[0], SQLITE_CHECKPOINT_PASSIVE);
     for (i=0;i<SIZES;i++)
         for (j=0;j<SIZES;j++)
             qcheckpoint(h->datadb[i][j], SQLITE_CHECKPOINT_PASSIVE);
     qcheckpoint(h->eventdb, SQLITE_CHECKPOINT_PASSIVE);
     qcheckpoint(h->xferdb, SQLITE_CHECKPOINT_PASSIVE);
+}
+
+void sx_hashfs_checkpoint_gc(sx_hashfs_t *h)
+{
+    qcheckpoint(h->gcdb[0], SQLITE_CHECKPOINT_RESTART);
+}
+
+void sx_hashfs_checkpoint_xferdb(sx_hashfs_t *h)
+{
+    qcheckpoint(h->xferdb, SQLITE_CHECKPOINT_RESTART);
+}
+
+void sx_hashfs_checkpoint_eventdb(sx_hashfs_t *h)
+{
+    qcheckpoint(h->eventdb, SQLITE_CHECKPOINT_RESTART);
 }
 
 rc_ty sx_hashfs_gc_open(sx_hashfs_t *h)
@@ -1462,7 +1477,7 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 
     OPEN_DB("xferdb", &h->xferdb);
     if(qprep(h->xferdb, &h->qx_add, "INSERT INTO topush (block, size, node) VALUES (:b, :s, :n)"))
-	goto open_hashfs_fail;
+       goto open_hashfs_fail;
 
     qnullify(q);
     sqlite3_reset(h->q_getval);
@@ -5859,10 +5874,24 @@ rc_ty sx_hashfs_get_access(sx_hashfs_t *h, sx_uid_t uid, const char *volume, sx_
 }
 
 sxi_db_t *sx_hashfs_eventdb(sx_hashfs_t *h) {
+    /* jobmgr will auto-checkpoint to prevent WAL from growing huge,
+     * but we don't want to auto-checkpoint in workers
+     * as that would introduce unnecessary delays */
+    sqlite3_stmt *q = NULL;
+    if(!qprep(h->eventdb, &q, "PRAGMA wal_autocheckpoint=10000"))
+        qstep_ret(q);
+    qnullify(q);
     return h->eventdb;
 }
 
 sxi_db_t *sx_hashfs_xferdb(sx_hashfs_t *h) {
+    /* blockmgr will auto-checkpoint to prevent WAL from growing huge,
+     * but we don't want to auto-checkpoint in workers
+     * as that would introduce unnecessary delays */
+    sqlite3_stmt *q = NULL;
+    if(!qprep(h->xferdb, &q, "PRAGMA wal_autocheckpoint=10000"))
+        qstep_ret(q);
+    qnullify(q);
     return h->xferdb;
 }
 

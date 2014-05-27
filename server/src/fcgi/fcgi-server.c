@@ -184,7 +184,7 @@ static int accept_loop(sxc_client_t *sx, const char *self, const char *dir) {
         in_request = 1;
 	send_server_info();
 	handle_request();
-        sx_hashfs_checkpoint(hashfs);
+        sx_hashfs_checkpoint_passive(hashfs);
         in_request = 0;
     }
     FCGX_Finish_r(&req);

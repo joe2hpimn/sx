@@ -2248,7 +2248,7 @@ static void jobmgr_process_queue(struct jobmgr_data_t *q, int forced) {
 	free(q->job_data);
 	INFO("Finished running job %lld", (long long)q->job_id);
 	/* Process next job */
-        sx_hashfs_checkpoint(q->hashfs);
+        sx_hashfs_checkpoint_passive(q->hashfs);
     }
 
     if(!terminate)
@@ -2325,7 +2325,9 @@ int jobmgr(sxc_client_t *sx, const char *self, const char *dir, int pipe) {
 	}
 	jobmgr_process_queue(&q, forced_awake);
 	DEBUG("Done processing job queue");
-        sx_hashfs_checkpoint(q.hashfs);
+        sx_hashfs_checkpoint_eventdb(q.hashfs);
+        sx_hashfs_checkpoint_gc(q.hashfs);
+        sx_hashfs_checkpoint_passive(q.hashfs);
     }
 
  jobmgr_err:

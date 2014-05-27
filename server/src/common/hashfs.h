@@ -96,7 +96,10 @@ rc_ty sx_storage_create(const char *dir, sx_uuid_t *cluster, uint8_t *key, int k
 typedef struct _sx_hashfs_t sx_hashfs_t;
 sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx);
 rc_ty sx_hashfs_gc_open(sx_hashfs_t *h);
-void sx_hashfs_checkpoint(sx_hashfs_t *h);
+void sx_hashfs_checkpoint_passive(sx_hashfs_t *h);
+void sx_hashfs_checkpoint_gc(sx_hashfs_t *h);
+void sx_hashfs_checkpoint_eventdb(sx_hashfs_t *h);
+void sx_hashfs_checkpoint_xferdb(sx_hashfs_t *h);
 int sx_storage_is_bare(sx_hashfs_t *h);
 int sx_hashfs_is_rebalancing(sx_hashfs_t *h);
 const char *sx_hashfs_cluster_name(sx_hashfs_t *h);
