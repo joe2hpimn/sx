@@ -233,8 +233,8 @@ rc_ty sx_hashfs_block_put(sx_hashfs_t *h, const uint8_t *data, unsigned int bs, 
 rc_ty sx_hashfs_hashop_begin(sx_hashfs_t *h, unsigned bs);
 rc_ty sx_hashfs_hashop_perform(sx_hashfs_t *h, enum sxi_hashop_kind kind, const sx_hash_t *hash, const char *id);
 rc_ty sx_hashfs_hashop_finish(sx_hashfs_t *h, rc_ty rc);
-rc_ty sx_hashfs_gc_periodic(sx_hashfs_t *h);
-rc_ty sx_hashfs_gc_run(sx_hashfs_t *h);
+rc_ty sx_hashfs_gc_periodic(sx_hashfs_t *h, int *terminate);
+rc_ty sx_hashfs_gc_run(sx_hashfs_t *h, int *terminate);
 
 /* File put */
 

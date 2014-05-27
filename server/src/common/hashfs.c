@@ -6344,7 +6344,7 @@ static rc_ty sx_hashfs_gc_merge(sx_hashfs_t *h, sxi_db_t *db)
     return ret;
 }
 
-static rc_ty sx_hashfs_gc_apply(sx_hashfs_t *h, sxi_db_t *db)
+static rc_ty sx_hashfs_gc_apply(sx_hashfs_t *h, sxi_db_t *db, int *terminate)
 {
     rc_ty ret = FAIL_EINTERNAL;
     sqlite3_stmt *q = NULL, *q_delreservation = NULL, *q_add_counters = NULL,
@@ -6368,7 +6368,7 @@ static rc_ty sx_hashfs_gc_apply(sx_hashfs_t *h, sxi_db_t *db)
            qprep(db, &q_del_tmp, "DELETE FROM tmpmoduse WHERE applied_expires_at <= :now")
           )
             break;
-        while ((r = qstep(q)) == SQLITE_ROW) {
+        while ((r = qstep(q)) == SQLITE_ROW && !*terminate) {
             const sx_hash_t *group = sqlite3_column_blob(q, 0);
             const sx_hash_t *hash = sqlite3_column_blob(q, 1);
             unsigned hs = sqlite3_column_int(q, 2);
@@ -6441,7 +6441,7 @@ static rc_ty sx_hashfs_gc_apply(sx_hashfs_t *h, sxi_db_t *db)
     return ret;
 }
 
-static rc_ty sx_hashfs_gc_track(sx_hashfs_t *h, sxi_db_t *db)
+static rc_ty sx_hashfs_gc_track(sx_hashfs_t *h, sxi_db_t *db, int *terminate)
 {
     rc_ty ret = FAIL_EINTERNAL;
     sqlite3_stmt *q_res_groups = NULL,
@@ -6463,7 +6463,7 @@ static rc_ty sx_hashfs_gc_track(sx_hashfs_t *h, sxi_db_t *db)
            )
             break;
         /* track token activity */
-        while ((r = qstep(q_res_groups)) == SQLITE_ROW) {
+        while ((r = qstep(q_res_groups)) == SQLITE_ROW && !*terminate) {
             int r2;
             unsigned pending = 0, total = 0, prev_pending = 0, prev_total = 0, last_changed_at = 0;
             const sx_hash_t *group = sqlite3_column_blob(q_res_groups, 0);
@@ -6520,7 +6520,7 @@ static rc_ty sx_hashfs_gc_track(sx_hashfs_t *h, sxi_db_t *db)
             qbind_int64(q_del1, ":expires", expires) ||
             qbind_int64(q_del2, ":expires", expires))
             break;
-        while ((r = qstep(q_expired_reservations)) == SQLITE_ROW) {
+        while ((r = qstep(q_expired_reservations)) == SQLITE_ROW && !*terminate) {
             const sx_hash_t *hash = sqlite3_column_blob(q_expired_reservations, 0);
             if (!hash || sqlite3_column_bytes(q_expired_reservations, 0) != sizeof(*hash)) {
                 WARN("bad select results (expired)");
@@ -6571,7 +6571,7 @@ static rc_ty sx_hashfs_gc_info(sx_hashfs_t *h, sxi_db_t *db)
     return OK;
 }
 
-rc_ty sx_hashfs_gc_periodic(sx_hashfs_t *h)
+rc_ty sx_hashfs_gc_periodic(sx_hashfs_t *h, int *terminate)
 {
     struct timeval tv0, tv1, tv2;
     rc_ty ret = FAIL_EINTERNAL;
@@ -6606,11 +6606,14 @@ rc_ty sx_hashfs_gc_periodic(sx_hashfs_t *h)
             if (sx_hashfs_gc_merge(h, db) ||
                 qbegin(db))
                 break;
+            if (*terminate)
+                break;
             h->gcver++;
             gettimeofday(&tv1, NULL);
             INFO("Merged GC tables into temp table %.3f sec", timediff(&tv0, &tv1));
-            if (sx_hashfs_gc_apply(h, db) ||
-                sx_hashfs_gc_track(h, db) ||
+            if (sx_hashfs_gc_apply(h, db, terminate) ||
+                sx_hashfs_gc_track(h, db, terminate) ||
+                !*terminate ||
                 sx_hashfs_gc_info(h, db) ||
                 qcommit(db)) {
                 qrollback(db);
@@ -6632,7 +6635,7 @@ rc_ty sx_hashfs_gc_periodic(sx_hashfs_t *h)
     return ret;
 }
 
-rc_ty sx_hashfs_gc_run(sx_hashfs_t *h)
+rc_ty sx_hashfs_gc_run(sx_hashfs_t *h, int *terminate)
 {
     rc_ty ret = FAIL_EINTERNAL;
     sqlite3_stmt *q = NULL, *q_used0 = NULL,
@@ -6654,7 +6657,7 @@ rc_ty sx_hashfs_gc_run(sx_hashfs_t *h)
         if(qbegin(db))
             break;
         has_begun = 1;
-        while((r = qstep(q_used0)) == SQLITE_ROW) {
+        while((r = qstep(q_used0)) == SQLITE_ROW && !*terminate) {
             const sx_hash_t *hash = sqlite3_column_blob(q_used0, 0);
             unsigned hs = sqlite3_column_int(q_used0, 1);
             unsigned ndb;

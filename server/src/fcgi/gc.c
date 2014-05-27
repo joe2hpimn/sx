@@ -85,7 +85,7 @@ int gc(sxc_client_t *sx, const char *self, const char *dir, int pipe) {
             break;
 
 	sx_hashfs_distcheck(hashfs);
-        rc = sx_hashfs_gc_periodic(hashfs);
+        rc = sx_hashfs_gc_periodic(hashfs, &terminate);
         sx_hashfs_checkpoint_gc(hashfs);
         sx_hashfs_checkpoint_passive(hashfs);
         if (rc) {
@@ -98,7 +98,7 @@ int gc(sxc_client_t *sx, const char *self, const char *dir, int pipe) {
             gettimeofday(&tv1, NULL);
             if (timediff(&tv0, &tv1) > GC_INTERVAL || forced_awake) {
                 struct timeval tv2;
-                sx_hashfs_gc_run(hashfs);
+                sx_hashfs_gc_run(hashfs, &terminate);
                 gettimeofday(&tv2, NULL);
                 INFO("GC run completed in %.3f sec", timediff(&tv1, &tv2));
                 memcpy(&tv0, &tv1, sizeof(tv0));
