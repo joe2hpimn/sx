@@ -6224,7 +6224,7 @@ open_hashfs_fail:
     return NULL;
 }
 
-static rc_ty sx_hashfs_gc_merge(sx_hashfs_t *h, sxi_db_t *db)
+static rc_ty sx_hashfs_gc_merge(sx_hashfs_t *h, sxi_db_t *db, int *terminate)
 {
     sqlite3_stmt *q = NULL, *q_iter = NULL, *q_queue_del = NULL, *q_del_gc = NULL, *q_truncate_tmp = NULL;
     sqlite3_stmt *q_insert = NULL, *q_get_maxidx = NULL, *q_update_maxidx = NULL;
@@ -6244,7 +6244,7 @@ static rc_ty sx_hashfs_gc_merge(sx_hashfs_t *h, sxi_db_t *db)
           )
             break;
         sqlite3_reset(q_iter);
-        while((r = qstep(q_iter)) == SQLITE_ROW) {
+        while((r = qstep(q_iter)) == SQLITE_ROW && !*terminate) {
             sxi_db_t *dbsource = NULL;
             const char *key = (const char *)sqlite3_column_text(q_iter, 0);
             const char *path = (const char*)sqlite3_column_text(q_iter, 1);
@@ -6277,7 +6277,7 @@ static rc_ty sx_hashfs_gc_merge(sx_hashfs_t *h, sxi_db_t *db)
                 if(qprep(dbsource, &q, "SELECT groupid, hash, hs, op, idx FROM moduse WHERE idx > :previdx ORDER BY idx ASC") ||
                    qbind_int64(q, ":previdx", previdx))
                     break;
-                while((r2 = qstep(q)) == SQLITE_ROW) {
+                while((r2 = qstep(q)) == SQLITE_ROW && !*terminate) {
                     sqlite3_reset(q_insert);
                     if (qbind_blob(q_insert, ":groupid", sqlite3_column_blob(q, 0), sqlite3_column_bytes(q, 0)) ||
                         qbind_blob(q_insert, ":hash", sqlite3_column_blob(q, 1), sqlite3_column_bytes(q, 1)) ||
@@ -6603,7 +6603,7 @@ rc_ty sx_hashfs_gc_periodic(sx_hashfs_t *h, int *terminate)
         qnullify(q);
         gettimeofday(&tv0, NULL);
         do {
-            if (sx_hashfs_gc_merge(h, db) ||
+            if (sx_hashfs_gc_merge(h, db, terminate) ||
                 qbegin(db))
                 break;
             if (*terminate)
