@@ -1130,10 +1130,9 @@ static void resolve(curlev_t *ev, const char *host, uint16_t port)
     /* avoid getaddrinfo */
     snprintf(res, len, "%s:%u:%s", host, port, host);
     slist = curl_slist_append(NULL, res);
-    if (!slist) {
-        free(res);
+    free(res);
+    if (!slist)
         return;
-    }
 
     ev->resolve = slist;
     curl_easy_setopt(ev->curl, CURLOPT_RESOLVE, ev->resolve);
