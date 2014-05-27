@@ -940,6 +940,7 @@ static int batch_hashes_to_hosts(struct file_upload_ctx *yctx, struct need_hash 
                 SXDEBUG("fail incremented: OOM allocing hostneed");
 		sxi_seterr(sx, SXE_EMEM, "Out of memory");
                 yctx->fail++;
+		free(u);
                 return -1;
             }
             if (sxi_ht_add(yctx->current.hostsmap, host, strlen(host)+1, u)) {
