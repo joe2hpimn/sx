@@ -256,8 +256,10 @@ static void batch_finish(curlev_context_t *ctx, const char *url)
     } else {
         unsigned i, n = strlen(q) / SXI_SHA1_TEXT_LEN;
         /* error: report all hashes as missing */
-        for (i=0;i<n;i++)
-            hashop->cb(q + i * SXI_SHA1_TEXT_LEN, yactx->hashop_idx + i, 404, hashop->context);
+        if (hashop->cb) {
+            for (i=0;i<n;i++)
+                hashop->cb(q + i * SXI_SHA1_TEXT_LEN, yactx->hashop_idx + i, 404, hashop->context);
+        }
     }
     if (yh)
         yajl_free(yh);
