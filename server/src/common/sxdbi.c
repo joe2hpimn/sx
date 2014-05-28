@@ -45,6 +45,8 @@
 /* threshold for restart checkpoint (anywhere) */
 #define GC_MAX_RESTART_WAL_PAGES 20000
 
+#define IDLE_RESTART 60
+
 static void qclose_db(sqlite3 **dbp)
 {
     sqlite3 *db;
@@ -127,11 +129,20 @@ void qcheckpoint_restart(sxi_db_t *db)
         qcheckpoint_run(db, SQLITE_CHECKPOINT_RESTART);
 }
 
-void qcheckpoint_force_restart(sxi_db_t *db)
+void qcheckpoint_idle(sxi_db_t *db)
 {
-    if (!db)
-        return;
-    qcheckpoint_run(db, SQLITE_CHECKPOINT_RESTART);
+    if (db) {
+        int changes = sqlite3_total_changes(db->handle);
+        if (changes != db->last_total_changes) {
+            struct timeval tv;
+            gettimeofday(&tv, NULL);
+            if (timediff(&db->tv_last, &tv) >= IDLE_RESTART) {
+                qcheckpoint_run(db, SQLITE_CHECKPOINT_RESTART);
+                memcpy(&db->tv_last, &tv, sizeof(tv));
+                db->last_total_changes = changes;
+            }
+        }
+    }
 }
 
 void qclose(sxi_db_t **db)

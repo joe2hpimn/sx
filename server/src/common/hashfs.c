@@ -885,18 +885,18 @@ void sx_hashfs_checkpoint_passive(sx_hashfs_t *h)
 
 void sx_hashfs_checkpoint_gc(sx_hashfs_t *h)
 {
-    qcheckpoint_force_restart(h->gcdb[0]);
+    qcheckpoint_idle(h->gcdb[0]);
 }
 
 void sx_hashfs_checkpoint_xferdb(sx_hashfs_t *h)
 {
-    qcheckpoint_force_restart(h->xferdb);
+    qcheckpoint_idle(h->xferdb);
 }
 
 void sx_hashfs_checkpoint_eventdb(sx_hashfs_t *h)
 {
-    qcheckpoint_force_restart(h->eventdb);
-    qcheckpoint_force_restart(h->tempdb);
+    qcheckpoint_idle(h->eventdb);
+    qcheckpoint_idle(h->tempdb);
 }
 
 rc_ty sx_hashfs_gc_open(sx_hashfs_t *h)
