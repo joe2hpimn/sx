@@ -871,31 +871,32 @@ void sx_hashfs_checkpoint_passive(sx_hashfs_t *h)
      * by default sqlite performs a PASSIVE checkpoint every 1000 pages,
      * and ignores errors
      * */
-    qcheckpoint(h->db, SQLITE_CHECKPOINT_PASSIVE);
-    qcheckpoint(h->tempdb, SQLITE_CHECKPOINT_PASSIVE);
+    qcheckpoint(h->db);
+    qcheckpoint(h->tempdb);
     for (i=0;i<METADBS;i++)
-        qcheckpoint(h->metadb[i], SQLITE_CHECKPOINT_PASSIVE);
-    qcheckpoint(h->gcdb[0], SQLITE_CHECKPOINT_PASSIVE);
+        qcheckpoint(h->metadb[i]);
+    qcheckpoint(h->gcdb[0]);
     for (i=0;i<SIZES;i++)
         for (j=0;j<SIZES;j++)
-            qcheckpoint(h->datadb[i][j], SQLITE_CHECKPOINT_PASSIVE);
-    qcheckpoint(h->eventdb, SQLITE_CHECKPOINT_PASSIVE);
-    qcheckpoint(h->xferdb, SQLITE_CHECKPOINT_PASSIVE);
+            qcheckpoint(h->datadb[i][j]);
+    qcheckpoint(h->eventdb);
+    qcheckpoint(h->xferdb);
 }
 
 void sx_hashfs_checkpoint_gc(sx_hashfs_t *h)
 {
-    qcheckpoint(h->gcdb[0], SQLITE_CHECKPOINT_RESTART);
+    qcheckpoint_force_restart(h->gcdb[0]);
 }
 
 void sx_hashfs_checkpoint_xferdb(sx_hashfs_t *h)
 {
-    qcheckpoint(h->xferdb, SQLITE_CHECKPOINT_RESTART);
+    qcheckpoint_force_restart(h->xferdb);
 }
 
 void sx_hashfs_checkpoint_eventdb(sx_hashfs_t *h)
 {
-    qcheckpoint(h->eventdb, SQLITE_CHECKPOINT_RESTART);
+    qcheckpoint_force_restart(h->eventdb);
+    qcheckpoint_force_restart(h->tempdb);
 }
 
 rc_ty sx_hashfs_gc_open(sx_hashfs_t *h)
@@ -5874,24 +5875,10 @@ rc_ty sx_hashfs_get_access(sx_hashfs_t *h, sx_uid_t uid, const char *volume, sx_
 }
 
 sxi_db_t *sx_hashfs_eventdb(sx_hashfs_t *h) {
-    /* jobmgr will auto-checkpoint to prevent WAL from growing huge,
-     * but we don't want to auto-checkpoint in workers
-     * as that would introduce unnecessary delays */
-    sqlite3_stmt *q = NULL;
-    if(!qprep(h->eventdb, &q, "PRAGMA wal_autocheckpoint=10000"))
-        qstep_ret(q);
-    qnullify(q);
     return h->eventdb;
 }
 
 sxi_db_t *sx_hashfs_xferdb(sx_hashfs_t *h) {
-    /* blockmgr will auto-checkpoint to prevent WAL from growing huge,
-     * but we don't want to auto-checkpoint in workers
-     * as that would introduce unnecessary delays */
-    sqlite3_stmt *q = NULL;
-    if(!qprep(h->xferdb, &q, "PRAGMA wal_autocheckpoint=10000"))
-        qstep_ret(q);
-    qnullify(q);
     return h->xferdb;
 }
 
@@ -6211,9 +6198,6 @@ static sxi_db_t *open_gcdb(sx_hashfs_t *h)
         goto open_hashfs_fail;
     qnullify(q);
     if(qprep(db, &q, "PRAGMA temp_store=MEMORY") || qstep_noret(q))
-        goto open_hashfs_fail;
-    qnullify(q);
-    if(qprep(db, &q, "PRAGMA wal_autocheckpoint=32768") || qstep_ret(q))
         goto open_hashfs_fail;
     qnullify(q);
     return db;
