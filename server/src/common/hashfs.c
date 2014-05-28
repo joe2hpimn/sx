@@ -6338,6 +6338,7 @@ static rc_ty sx_hashfs_gc_apply(sx_hashfs_t *h, sxi_db_t *db, int *terminate)
     DEBUG("in gc_apply");
     int has_begun, has_rows = 1;
     rc_ty ret = FAIL_EINTERNAL;
+    uint64_t now = time(NULL);
     sqlite3_stmt *q = NULL, *q_delreservation = NULL, *q_add_counters = NULL,
                  *q_update_counters = NULL, *q_reserve = NULL,
                  *q_apply_delres = NULL, *q_get = NULL, *q_apply = NULL,
@@ -6357,7 +6358,6 @@ static rc_ty sx_hashfs_gc_apply(sx_hashfs_t *h, sxi_db_t *db, int *terminate)
         has_rows = 0;
     while (has_rows) {
         int r;
-        uint64_t now = time(NULL);
         uint64_t expiry = now + JOB_FILE_MAX_TIME;
         has_begun = has_rows = 0;
         ret = FAIL_EINTERNAL;
@@ -6428,11 +6428,13 @@ static rc_ty sx_hashfs_gc_apply(sx_hashfs_t *h, sxi_db_t *db, int *terminate)
             break;
         if (qstep_noret(q_apply_delres))
             break;
-        if (qbind_int64(q_del_tmp,":now", now) || qstep_noret(q_del_tmp))
-            break;
         if (qcommit(db))
             break;
         ret = OK;
+    }
+    if (ret == OK) {
+        if (qbind_int64(q_del_tmp,":now", now) || qstep_noret(q_del_tmp))
+            ret = FAIL_EINTERNAL;
     }
     qnullify(q);
     qnullify(q_delreservation);
@@ -6455,13 +6457,17 @@ static rc_ty sx_hashfs_gc_track(sx_hashfs_t *h, sxi_db_t *db, int *terminate)
     DEBUG("in gc_track");
     int has_rows = 1;
     int has_begun;
+    sx_hash_t prevgroupid;
+    int has_prev = 0;
+
     rc_ty ret = FAIL_EINTERNAL;
     sqlite3_stmt *q_res_groups = NULL,
                  *q_res_hashes = NULL, *q_get_activity = NULL,
                  *q_set_activity = NULL, *q_expired_reservations = NULL,
                  *q_update_counters = NULL,
                  *q_del1 = NULL, *q_del2 = NULL;
-    if (qprep(db, &q_res_groups, "SELECT DISTINCT(groupid) FROM reserved LIMIT " STRIFY(GC_ROW_LIMIT)) ||
+    memset(&prevgroupid, 0, sizeof(prevgroupid));
+    if (qprep(db, &q_res_groups, "SELECT DISTINCT(groupid) FROM reserved WHERE groupid > :prevgroupid LIMIT " STRIFY(GC_ROW_LIMIT)) ||
         qprep(db, &q_res_hashes, "SELECT hash, hs FROM reserved WHERE groupid = :groupid") ||
         qprep(db, &q_get_activity, "SELECT last_changed_at, pending, total FROM activity WHERE groupid = :groupid") ||
         qprep(db, &q_set_activity, "INSERT OR REPLACE INTO activity(groupid, last_changed_at, pending, total) VALUES(:groupid, :last_changed_at, :pending, :total)") ||
@@ -6471,7 +6477,7 @@ static rc_ty sx_hashfs_gc_track(sx_hashfs_t *h, sxi_db_t *db, int *terminate)
         qprep(db, &q_del2, "DELETE FROM activity WHERE last_changed_at < :expires")
        )
         has_rows = 0;
-    while (has_rows) {
+    while (has_rows && !*terminate) {
         int r;
         int64_t expires = time(NULL) - JOB_FILE_MAX_TIME;/* last_changed_at + JOB_FILE_MAX_TIME <= now */
         has_begun = has_rows = 0;
@@ -6480,14 +6486,19 @@ static rc_ty sx_hashfs_gc_track(sx_hashfs_t *h, sxi_db_t *db, int *terminate)
             break;
         has_begun = 1;
         /* track token activity */
+	sqlite3_reset(q_res_groups);
+	if (qbind_blob(q_res_groups, ":prevgroupid", &prevgroupid,
+	    has_prev ? sizeof(prevgroupid) : 0))
+		break;
         while ((r = qstep(q_res_groups)) == SQLITE_ROW && !*terminate) {
             int r2;
-            has_rows = 1;
+            has_rows = has_prev = 1;
             unsigned pending = 0, total = 0, prev_pending = 0, prev_total = 0, last_changed_at = 0;
             const sx_hash_t *group = sqlite3_column_blob(q_res_groups, 0);
             if (!group || sqlite3_column_bytes(q_res_groups, 0) != sizeof(*group) ||
                 qbind_blob(q_res_hashes, ":groupid", group, sizeof(*group)))
                 break;
+            memcpy(&prevgroupid, group, sizeof(*group));
             while ((r2 = qstep(q_res_hashes)) == SQLITE_ROW) {
                 int r3;
                 const sx_hash_t *hash = sqlite3_column_blob(q_res_hashes, 0);
