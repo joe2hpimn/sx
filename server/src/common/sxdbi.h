@@ -30,7 +30,7 @@
 
 #include "default.h"
 #include "sqlite3.h"
-
+#include <sys/time.h>
 typedef struct {
     sqlite3 *handle;
     int wal_pages;
