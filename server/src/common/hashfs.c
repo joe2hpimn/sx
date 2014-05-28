@@ -6256,8 +6256,7 @@ static rc_ty sx_hashfs_gc_merge(sx_hashfs_t *h, sxi_db_t *db, int *terminate)
             if (qopen(path, &dbsource, NULL, &h->cluster_uuid))
                 continue;
             ret = FAIL_EINTERNAL;
-            if(qprep(dbsource, &q, "SELECT groupid, hash, hs, op, idx FROM moduse WHERE idx > :previdx ORDER BY idx ASC LIMIT "STRIFY(GC_ROW_LIMIT)) ||
-               qbind_int64(q, ":previdx", previdx))
+            if(qprep(dbsource, &q, "SELECT groupid, hash, hs, op, idx FROM moduse WHERE idx > :previdx ORDER BY idx ASC LIMIT "STRIFY(GC_ROW_LIMIT)))
                 has_rows = 0;
             while(has_rows) {
                 int64_t maxidx = previdx;
@@ -6265,6 +6264,8 @@ static rc_ty sx_hashfs_gc_merge(sx_hashfs_t *h, sxi_db_t *db, int *terminate)
                 if (qbegin(db))
                     break;
                 INFO("Processing '%s'", path);
+                if (qbind_int64(q, ":previdx", previdx))
+                    break;
                 while((r2 = qstep(q)) == SQLITE_ROW && !*terminate) {
                     has_rows = 1;
                     sqlite3_reset(q_insert);
@@ -6279,7 +6280,7 @@ static rc_ty sx_hashfs_gc_merge(sx_hashfs_t *h, sxi_db_t *db, int *terminate)
                 if (r2 != SQLITE_DONE)
                     break;
                 INFO("Added %d entries", sqlite3_changes(db->handle));
-                qnullify(q);
+                sqlite3_reset(q);
                 sqlite3_reset(q_update_maxidx);
                 if (qbind_int64(q_update_maxidx, ":maxidx", maxidx) ||
                     qstep_noret(q_update_maxidx))
@@ -6287,6 +6288,7 @@ static rc_ty sx_hashfs_gc_merge(sx_hashfs_t *h, sxi_db_t *db, int *terminate)
                 sqlite3_reset(q_update_maxidx);
                 if (qcommit(db))
                     break;
+                previdx = maxidx;
                 ret = OK;
             };
             qnullify(q);
