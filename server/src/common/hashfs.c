@@ -6335,8 +6335,9 @@ static rc_ty sx_hashfs_gc_merge(sx_hashfs_t *h, sxi_db_t *db, int *terminate)
 
 static rc_ty sx_hashfs_gc_apply(sx_hashfs_t *h, sxi_db_t *db, int *terminate)
 {
+    DEBUG("in gc_apply");
     int has_begun, has_rows = 1;
-    rc_ty ret;
+    rc_ty ret = FAIL_EINTERNAL;
     sqlite3_stmt *q = NULL, *q_delreservation = NULL, *q_add_counters = NULL,
                  *q_update_counters = NULL, *q_reserve = NULL,
                  *q_apply_delres = NULL, *q_get = NULL, *q_apply = NULL,
@@ -6419,7 +6420,7 @@ static rc_ty sx_hashfs_gc_apply(sx_hashfs_t *h, sxi_db_t *db, int *terminate)
             sqlite3_reset(q_apply);
             if (qbind_blob(q_apply, ":groupid", group, sizeof(*group)) ||
                 qbind_blob(q_apply, ":hash", hash, sizeof(*hash)) ||
-                qbind_int(q_apply, ":hs", hs) ||
+                qbind_int(q_apply, ":op", op) ||
                 qstep_noret(q_apply))
                 break;
         }
@@ -6444,14 +6445,17 @@ static rc_ty sx_hashfs_gc_apply(sx_hashfs_t *h, sxi_db_t *db, int *terminate)
     qnullify(q_del_tmp);
     if (has_begun && ret)
         qrollback(db);
+    if (ret)
+        WARN("gc_apply failed");
     return ret;
 }
 
 static rc_ty sx_hashfs_gc_track(sx_hashfs_t *h, sxi_db_t *db, int *terminate)
 {
+    DEBUG("in gc_track");
     int has_rows = 1;
     int has_begun;
-    rc_ty ret;
+    rc_ty ret = FAIL_EINTERNAL;
     sqlite3_stmt *q_res_groups = NULL,
                  *q_res_hashes = NULL, *q_get_activity = NULL,
                  *q_set_activity = NULL, *q_expired_reservations = NULL,
@@ -6535,6 +6539,7 @@ static rc_ty sx_hashfs_gc_track(sx_hashfs_t *h, sxi_db_t *db, int *terminate)
             qbind_int64(q_del2, ":expires", expires))
             break;
         while ((r = qstep(q_expired_reservations)) == SQLITE_ROW && !*terminate) {
+            has_rows = 1;
             const sx_hash_t *hash = sqlite3_column_blob(q_expired_reservations, 0);
             if (!hash || sqlite3_column_bytes(q_expired_reservations, 0) != sizeof(*hash)) {
                 WARN("bad select results (expired)");
@@ -6564,6 +6569,9 @@ static rc_ty sx_hashfs_gc_track(sx_hashfs_t *h, sxi_db_t *db, int *terminate)
     qnullify(q_update_counters);
     if (has_begun && ret)
         qrollback(db);
+    if (ret)
+        WARN("gc_track failed");
+    DEBUG("gc_track returning %d", ret);
     return ret;
 }
 
@@ -6572,8 +6580,10 @@ static rc_ty print_count(sxi_db_t *db, const char *table)
     char query[128];
     sqlite3_stmt *q = NULL;
     snprintf(query, sizeof(query), "SELECT COUNT(*) FROM %s", table);
-    if (qprep(db, &q, query) || qstep_ret(q))
+    if (qprep(db, &q, query) || qstep_ret(q)) {
+        WARN("print_count failed");
         return FAIL_EINTERNAL;
+    }
     INFO("Table %s has %d entries", table, sqlite3_column_int(q, 0));
     qnullify(q);
     return OK;
@@ -6581,6 +6591,7 @@ static rc_ty print_count(sxi_db_t *db, const char *table)
 
 static rc_ty sx_hashfs_gc_info(sx_hashfs_t *h, sxi_db_t *db)
 {
+    DEBUG("in gc_info");
     if (print_count(db, "reserved") ||
         print_count(db, "activity") ||
         print_count(db, "tmpmoduse")
@@ -6621,17 +6632,22 @@ rc_ty sx_hashfs_gc_periodic(sx_hashfs_t *h, int *terminate)
         qnullify(q);
         gettimeofday(&tv0, NULL);
         do {
-            if (sx_hashfs_gc_merge(h, db, terminate))
+            if (sx_hashfs_gc_merge(h, db, terminate)) {
+                WARN("gc_merge failed");
                 break;
-            if (*terminate)
+            }
+            if (*terminate) {
+                INFO("terminate");
                 break;
+            }
             h->gcver++;
             gettimeofday(&tv1, NULL);
             INFO("Merged GC tables into temp table %.3f sec", timediff(&tv0, &tv1));
             if (sx_hashfs_gc_apply(h, db, terminate) ||
                 sx_hashfs_gc_track(h, db, terminate) ||
-                !*terminate ||
+                *terminate ||
                 sx_hashfs_gc_info(h, db)) {
+                WARN("failed to apply/track/info");
                 h->gcver--;
                 break;
             }
@@ -6640,6 +6656,7 @@ rc_ty sx_hashfs_gc_periodic(sx_hashfs_t *h, int *terminate)
             ret = OK;
         } while(0);
         if (qprep(db, &q, "DROP TABLE tmpdelreserves") || qstep_noret(q)) {
+            WARN("failed to drop temp table");
             ret = FAIL_EINTERNAL;
             break;
         }
@@ -6647,6 +6664,8 @@ rc_ty sx_hashfs_gc_periodic(sx_hashfs_t *h, int *terminate)
     } while(0);
     qnullify(q);
     qclose(&db);
+    if (ret)
+        WARN("periodic failed");
     return ret;
 }
 
