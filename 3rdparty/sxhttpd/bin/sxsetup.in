@@ -298,7 +298,7 @@ ask_questions() {
 	    DEFAULTFIRST="(y/N)"
 	    DEFAULTANSWER="n"
 	fi
-	ask_yn "Is this ($SX_NODE_IP) the first node of a new cluster? $DEFAULTFIRST[default=$DEFAULTANSWER]"
+	ask_yn "Is this ($SX_NODE_IP) the first node of a new cluster? $DEFAULTFIRST"
 	ANSWER=${ANSWER:-$DEFAULTANSWER}
 	if [ "$ANSWER" = "y" ]; then
 	    SX_EXISTING_NODE_IP=
@@ -547,7 +547,7 @@ EOF
 	echo "Run as user: $SX_SERVER_USER"
 	echo
 
-	ask_yn "Is this correct? (Y/n)[default=Y]"
+	ask_yn "Is this correct? (Y/n)"
 	if [ "$ANSWER" != "n" ]; then
 	    break
 	fi
