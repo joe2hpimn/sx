@@ -470,12 +470,11 @@ int main(int argc, char **argv) {
         fcgi_args_parsed = 1;
 
     if (!args.all_given && !args.append_given && !args.info_given &&
-        !args.logs_given && !args.cluster_given && !args.storage_given &&
-        !args.sxproxy_given)
+        !args.logs_given && !args.cluster_given && !args.storage_given)
         args.all_given = 1;
 
     if (args.all_given)
-        args.info_given = args.logs_given = args.cluster_given = args.storage_given = args.sxproxy_given = 1;
+        args.info_given = args.logs_given = args.cluster_given = args.storage_given = 1;
 
     if (args.info_given) {
         print_info(sx, sysconfdir);

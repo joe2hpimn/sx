@@ -48,7 +48,6 @@ const char *main_args_info_full_help[] = {
   "      --logs             Print error messages from logs only (NOT anonymized)",
   "      --cluster          Print information about cluster's status & health",
   "      --storage          Print information about the node's local storage",
-  "      --sxproxy          Print information about SXproxy (if installed)",
   "\nCalling sxreport without any options is equivalent to: sxreport --all\n--anonymize. The output is thus suitable for submission in a bugreport or\npublic mailing list discussions.\nIf you want just specific information use the other flags: they are not\nanonymized by default though.\nIf you want to append more information:\nsxreport --append=/path/to/file --anonymize >>sxreport.log",
     0
 };
@@ -70,12 +69,11 @@ init_help_array(void)
   main_args_info_help[11] = main_args_info_full_help[12];
   main_args_info_help[12] = main_args_info_full_help[13];
   main_args_info_help[13] = main_args_info_full_help[14];
-  main_args_info_help[14] = main_args_info_full_help[15];
-  main_args_info_help[15] = 0; 
+  main_args_info_help[14] = 0; 
   
 }
 
-const char *main_args_info_help[16];
+const char *main_args_info_help[15];
 
 typedef enum {ARG_NO
   , ARG_FLAG
@@ -113,7 +111,6 @@ void clear_given (struct main_args_info *args_info)
   args_info->logs_given = 0 ;
   args_info->cluster_given = 0 ;
   args_info->storage_given = 0 ;
-  args_info->sxproxy_given = 0 ;
 }
 
 static
@@ -150,7 +147,6 @@ void init_args_info(struct main_args_info *args_info)
   args_info->logs_help = main_args_info_full_help[11] ;
   args_info->cluster_help = main_args_info_full_help[12] ;
   args_info->storage_help = main_args_info_full_help[13] ;
-  args_info->sxproxy_help = main_args_info_full_help[14] ;
   
 }
 
@@ -355,8 +351,6 @@ main_cmdline_parser_dump(FILE *outfile, struct main_args_info *args_info)
     write_into_file(outfile, "cluster", 0, 0 );
   if (args_info->storage_given)
     write_into_file(outfile, "storage", 0, 0 );
-  if (args_info->sxproxy_given)
-    write_into_file(outfile, "sxproxy", 0, 0 );
   
 
   i = EXIT_SUCCESS;
@@ -874,7 +868,6 @@ main_cmdline_parser_internal (
         { "logs",	0, NULL, 0 },
         { "cluster",	0, NULL, 0 },
         { "storage",	0, NULL, 0 },
-        { "sxproxy",	0, NULL, 0 },
         { 0,  0, 0, 0 }
       };
 
@@ -1040,20 +1033,6 @@ main_cmdline_parser_internal (
                 &(local_args_info.storage_given), optarg, 0, 0, ARG_NO,
                 check_ambiguity, override, 0, 0,
                 "storage", '-',
-                additional_error))
-              goto failure;
-          
-          }
-          /* Print information about SXproxy (if installed).  */
-          else if (strcmp (long_options[option_index].name, "sxproxy") == 0)
-          {
-          
-          
-            if (update_arg( 0 , 
-                 0 , &(args_info->sxproxy_given),
-                &(local_args_info.sxproxy_given), optarg, 0, 0, ARG_NO,
-                check_ambiguity, override, 0, 0,
-                "sxproxy", '-',
                 additional_error))
               goto failure;
           

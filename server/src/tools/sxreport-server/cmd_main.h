@@ -59,7 +59,6 @@ struct main_args_info
   const char *logs_help; /**< @brief Print error messages from logs only (NOT anonymized) help description.  */
   const char *cluster_help; /**< @brief Print information about cluster's status & health help description.  */
   const char *storage_help; /**< @brief Print information about the node's local storage help description.  */
-  const char *sxproxy_help; /**< @brief Print information about SXproxy (if installed) help description.  */
   
   unsigned int help_given ;	/**< @brief Whether help was given.  */
   unsigned int full_help_given ;	/**< @brief Whether full-help was given.  */
@@ -74,7 +73,6 @@ struct main_args_info
   unsigned int logs_given ;	/**< @brief Whether logs was given.  */
   unsigned int cluster_given ;	/**< @brief Whether cluster was given.  */
   unsigned int storage_given ;	/**< @brief Whether storage was given.  */
-  unsigned int sxproxy_given ;	/**< @brief Whether sxproxy was given.  */
 
 } ;
 

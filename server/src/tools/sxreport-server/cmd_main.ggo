@@ -17,7 +17,6 @@ option "info" - "Print static configuration only" optional
 option "logs" - "Print error messages from logs only (NOT anonymized)" optional
 option "cluster" - "Print information about cluster's status & health" optional
 option "storage" - "Print information about the node's local storage" optional
-option "sxproxy" - "Print information about SXproxy (if installed)" optional
 
 text "\nCalling sxreport without any options is equivalent to: sxreport --all --anonymize."
 text " The output is thus suitable for submission in a bugreport or public mailing list discussions.\n"
