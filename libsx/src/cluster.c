@@ -781,7 +781,8 @@ int sxi_conns_root_noauth(sxi_conns_t *conns, const char *tmpcafile, int quiet)
             conns_err(SXE_EMEM, "OOM allocating URL");
             return -1;
         }
-        sxi_notice(sxi_conns_get_client(conns), "Connecting to %s", host);
+	if(!quiet)
+	    sxi_notice(sxi_conns_get_client(conns), "Connecting to %s", host);
 	if(conns->port)
 	    snprintf(url, n, "https://%s%s%s:%u/%s", bracket_open, host, bracket_close, conns->port, query);
 	else
