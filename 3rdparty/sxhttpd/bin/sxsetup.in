@@ -79,15 +79,6 @@ fi
 
 test `id -u` -ne 0 && SX_NO_ROOT="yes"
 
-if [ "$SX_USE_SSL" = "no" -o "$NO_SSL_GIVEN" = "yes" ]; then
-    SX_USE_SSL="no"
-    DEFAULT_PORT="80"
-    NOSSL_FLAG="--no-ssl"
-else
-    SX_USE_SSL="yes"
-    DEFAULT_PORT="443"
-fi
-
 test "$SX_NO_ROOT" = "yes" && DEFAULT_PORT="50$DEFAULT_PORT"
 
 # Set defaults if there are no previous answers
@@ -98,6 +89,28 @@ if [ -z "$SX_NODE_IP" ]; then
         SX_NODE_IP="127.0.0.1"
     fi
 fi
+
+if [ "$FORCE_REINIT_GIVEN" = "yes" ]; then
+    if [ "$ADVANCED_GIVEN" != "yes" ]; then
+	SX_PORT=
+	SX_SERVER_USER=
+	SX_SERVER_GROUP=
+	SX_NODE_INTERNAL_IP=
+    fi
+    if [ "$SX_USE_SSL" = "yes" -a "$NO_SSL_GIVEN" = "yes" ] || [ "$SX_USE_SSL" = "no" -a "$NO_SSL_GIVEN" != "yes" ]; then
+	SX_PORT=
+    fi
+fi
+
+if [ "$SX_USE_SSL" = "no" -o "$NO_SSL_GIVEN" = "yes" ]; then
+    SX_USE_SSL="no"
+    DEFAULT_PORT="80"
+    NOSSL_FLAG="--no-ssl"
+else
+    SX_USE_SSL="yes"
+    DEFAULT_PORT="443"
+fi
+
 SX_SERVER_USER=${SX_SERVER_USER:-"nobody"}
 SX_SERVER_GROUP=`id -n -g "$SX_SERVER_USER"`
 SX_RUN_DIR=${SX_RUN_DIR:-"@localstatedir@/run/sxserver"}
@@ -778,7 +791,7 @@ if [ ! -f "$SX_DATA_DIR/hashfs.db" ]; then
 	    NEWNODE="$SX_NODE_SIZE/$SX_NODE_IP"
 	fi
 
-	if [ -n "$SX_ADMIN_KEY" ]; then
+	if [ -n "$SX_ADMIN_KEY" -a "$FORCE_REINIT_GIVEN" != "yes" ]; then
 	    echo $SX_ADMIN_KEY > $ADMINKEY_TMP
 	    ADMKEYFILE="--key $ADMINKEY_TMP"
 	fi
