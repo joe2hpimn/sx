@@ -1625,8 +1625,9 @@ static void print_debug(struct sxcluster *cluster)
     printf(" - stored: %llu\n", (unsigned long long) cluster->stored);
     printf(" - deduped: %llu\n", (unsigned long long) cluster->deduped);
     printf("* Distribution model:\n");
+    printf(" - Version: %u\n", sxi_hdist_version(cluster->hdist));
+    printf(" - Number of builds: %u, max: %u\n", sxi_hdist_buildcnt(cluster->hdist), MAXBUILDS);
     printf(" - Checksum: %llu\n", (unsigned long long) sxi_hdist_checksum(cluster->hdist));
-    printf(" - Number of builds: %d, max: %d\n", sxi_hdist_buildcnt(cluster->hdist), MAXBUILDS);
     printf(" - Seed: 0x%x\n", SEED);
 }
 

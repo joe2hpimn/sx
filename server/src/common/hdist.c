@@ -765,13 +765,15 @@ rc_ty sxi_hdist_build(sxi_hdist_t *model)
 	qsort(model->circle[1], model->circle_points[1], sizeof(struct hdist_point), circle_cmp_rnd);
 	for(i = 0; i < model->node_count[0]; i++) {
 		    unsigned int node_points = (model->node_list[0][i].capacity / (float) model->capacity_total[0]) * points_total;
+		    unsigned int node_points_cnt;
 		    unsigned int point_num = 0;
 
 		if(!node_points)
 		    node_points++;
 
+		node_points_cnt = node_points;
 		if(node_in_set(NULL, model->node_list[1], model->node_count[1], model->node_list[0][i].id)) {
-		    for(j = 0; j < model->circle_points[1] && node_points; j++) {
+		    for(j = 0; j < model->circle_points[1] && node_points_cnt; j++) {
 			if(model->circle[1][j].node_id == model->node_list[0][i].id) {
 			    if(p >= points_total) {
 				CRIT("p >= points_total (2)");
@@ -782,11 +784,11 @@ rc_ty sxi_hdist_build(sxi_hdist_t *model)
 			    model->circle[0][p].node_points = node_points;
 			    model->circle[0][p].rnd = model->circle[1][j].rnd;
 			    model->circle[0][p++].point = model->circle[1][j].point;
-			    node_points--;
+			    node_points_cnt--;
 			}
 		    }
 		}
-		for(j = 0; j < node_points; j++) {
+		for(j = 0; j < node_points_cnt; j++) {
 		    if(p >= points_total) {
 			CRIT("p >= points_total (3)");
 			return FAIL_EINTERNAL;
