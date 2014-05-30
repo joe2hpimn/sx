@@ -194,7 +194,7 @@ static int volume_create(sxc_client_t *sx, const char *owner)
 
     if(create_args.filter_given) {
 	    const sxf_handle_t *filters;
-	    int fcount, i;
+	    int fcount, i, filter_idx;
 	    char *farg;
 	    char uuidcfg[41];
 	    uint8_t uuid[16];
@@ -217,8 +217,10 @@ static int volume_create(sxc_client_t *sx, const char *owner)
 	for(i = 0; i < fcount; i++) {
             const sxc_filter_t *f = sxc_get_filter(&filters[i]);
 	    if(!strcmp(f->shortname, create_args.filter_arg))
-		if(!filter || (f->version[0] >= filter->version[0] && f->version[1] > filter->version[1]))
+		if(!filter || (f->version[0] >= filter->version[0] && f->version[1] > filter->version[1])) {
 		    filter = f;
+		    filter_idx = i;
+		}
 	}
 
 	if(!filter) {
@@ -256,7 +258,7 @@ static int volume_create(sxc_client_t *sx, const char *owner)
 		    }
 		}
 	    }
-	    if(filter->configure(&filters[i], farg, fdir, &cfgdata, &cfgdata_len)) {
+	    if(filter->configure(&filters[filter_idx], farg, fdir, &cfgdata, &cfgdata_len)) {
 		fprintf(stderr, "ERROR: Can't configure filter '%s'\n", create_args.filter_arg);
 		sxc_meta_free(vmeta);
 		free(fdir);
