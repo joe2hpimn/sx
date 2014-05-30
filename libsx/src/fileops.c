@@ -1151,7 +1151,7 @@ static void upload_blocks_to_hosts(struct file_upload_ctx *yctx, struct host_upl
         if (yctx->end >= yctx->size) {
             SXDEBUG("finished uploads: %lld, %lld >= %lld",
                     (long long)yctx->pos, (long long)yctx->end, (long long)yctx->size);
-            if (yctx->end == yctx->size)
+            if (yctx->pos == yctx->size)
                 file_finish(yctx);
             else
                 last_part(yctx);
@@ -1364,6 +1364,10 @@ static int multi_part_upload_ev(struct file_upload_ctx *yctx)
         return -1;
     }
 
+    /* Check if upload is necessary */
+    if(yctx->pos == yctx->end) {
+        return 0;
+    }
     do {
         if (!(yctx->current.hashes = sxi_ht_new(sx, yctx->max_part_blocks))) {
             SXDEBUG("failed to create size hashtable for %u entries", yctx->max_part_blocks);
