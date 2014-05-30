@@ -4031,7 +4031,10 @@ int sxc_copy(sxc_file_t *source, sxc_file_t *dest, int recursive) {
 
     if (!is_remote(dest)) {
         struct stat sb;
-        if (dest->path && ends_with(dest->path, '/')) {
+	if(recursive) {
+	    if(sxc_file_require_dir(dest))
+		return 1;
+	} else if (dest->path && ends_with(dest->path, '/')) {
             if (stat(dest->path, &sb) == -1 || !S_ISDIR(sb.st_mode)) {
                 sxi_seterr(source->sx, SXE_EARG, "'%s' must be an existing directory", dest->path);
                 return 1;
