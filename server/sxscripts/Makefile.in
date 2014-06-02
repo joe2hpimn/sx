@@ -227,6 +227,7 @@ SHELL = @SHELL@
 SQLITE3_CFLAGS = @SQLITE3_CFLAGS@
 SQLITE3_LIBS = @SQLITE3_LIBS@
 STRIP = @STRIP@
+SXHTTPD = @SXHTTPD@
 VERSION = @VERSION@
 WNPS_CFLAG = @WNPS_CFLAG@
 YAJL_CPPFLAGS = @YAJL_CPPFLAGS@
@@ -290,11 +291,13 @@ edit = sed \
       -e 's|@sbindir[@]|$(sbindir)|g' \
       -e 's|@localstatedir[@]|$(localstatedir)|g' \
       -e 's|@sysconfdir[@]|$(sysconfdir)|g' \
-      -e 's|@prefix[@]|$(prefix)|g'
+      -e 's|@prefix[@]|$(prefix)|g' \
+      -e 's|@SXHTTPD[@]|$(SXHTTPD)|g'
 
 nobase_sysconf_DATA = sxserver/sxhttpd.conf.default sxserver/fastcgi_params sxserver/errors/414.json sxserver/errors/50x.json
 nobase_doc_DATA = logrotate.d/sxserver
 sbin_SCRIPTS = bin/sxserver bin/sxsetup
+CLEANFILES = $(sbin_SCRIPTS) $(nobase_doc_DATA) sxserver/sxhttpd.conf.default
 all: all-am
 
 .SUFFIXES:
@@ -483,6 +486,7 @@ install-strip:
 mostlyclean-generic:
 
 clean-generic:
+	-test -z "$(CLEANFILES)" || rm -f $(CLEANFILES)
 
 distclean-generic:
 	-test -z "$(CONFIG_CLEAN_FILES)" || rm -f $(CONFIG_CLEAN_FILES)

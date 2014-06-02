@@ -8,6 +8,7 @@ PATH=`getconf PATH`
 
 prefix=`mktemp -d $PWD/sx-test-XXXXXXXX`
 cleanup () {
+    make -C sxscripts clean
     rm -rf $prefix
 }
 trap cleanup EXIT INT
@@ -19,25 +20,17 @@ mkdir $HOME
 mkdir -p "$prefix/bin" "$prefix/sbin" "$prefix/etc/sxserver"
 mkdir -p "$prefix/var/lib/sxserver" "$prefix/var/log/sxserver" "$prefix/var/run/sxserver"
 
-edit () {
-    sed \
-        -e "s|@bindir@|$prefix/bin|g" \
-        -e "s|@sbindir@|$prefix/sbin|g" \
-        -e "s|@localstatedir@|$prefix/var|g" \
-        -e "s|@sysconfdir@|$prefix/etc|g" \
-        -e "s|@prefix@|$prefix|g" \
-    "$1" >"$2"
-}
-
-edit sxscripts/sxserver/sxhttpd.conf.default.in "$prefix/etc/sxserver/sxhttpd.conf"
-edit sxscripts/bin/sxserver.in "$prefix/sbin/sxserver"
-chmod +x "$prefix/sbin/sxserver"
-cp sxscripts/sxserver/fastcgi_params "$prefix/etc/sxserver/fastcgi_params"
+make -s -C sxscripts clean && make -s -C sxscripts prefix="$prefix" install
 
 ln -s `pwd`/../client/src/tools/init/sxinit "$prefix/bin/sxinit"
 ln -s `pwd`/src/tools/sxadm/sxadm "$prefix/sbin/sxadm"
 ln -s `pwd`/src/fcgi/sx.fcgi "$prefix/sbin/sx.fcgi"
-ln -s `pwd`/../3rdparty/nginx/objs/nginx "$prefix/sbin/sxhttpd"
+
+built_nginx=`pwd`/../3rdparty/nginx/objs/nginx
+rm -f "$prefix/sbin/sxhttpd"
+test -x "$built_nginx" && ln -s "$built_nginx" "$prefix/sbin/sxhttpd"
+
+cp "$prefix/etc/sxserver/sxhttpd.conf.default" "$prefix/etc/sxserver/sxhttpd.conf"
 
 SXRUNDIR="$prefix/var/run/sxserver"
 SXSTOREDIR="$prefix/var/lib/sxserver"
@@ -70,8 +63,8 @@ cleanup () {
     "$prefix/sbin/sxserver" stop
     rm -rf $prefix
 }
-"$prefix/sbin/sx.fcgi" --config-file "$prefix/etc/sxserver/sxfcgi.conf"
-"$prefix/sbin/sxhttpd" -c "$prefix/etc/sxserver/sxhttpd.conf"
+sed -i -e "s|/sx.fcgi|\0 --config-file $prefix/etc/sxserver/sxfcgi.conf|" $prefix/sbin/sxserver
+"$prefix/sbin/sxserver" start
 
 trap cleanup EXIT INT
 perl `dirname $0`/fcgi-test.pl 127.0.0.1:8013 $SXSTOREDIR/data || {

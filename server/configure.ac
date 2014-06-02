@@ -171,6 +171,22 @@ else
     SQLITE3_LIBS="../3rdparty/libsqlite3/libsqlite3.la"
 fi
 
+# sxhttpd (nginx)
+AC_ARG_ENABLE([sxhttpd],
+[  --disable-sxhttpd	  do not build sxhttpd ],
+build_sxhttpd=$enableval, build_sxhttpd="yes")
+
+
+if test "x$build_sxhttpd" = "xno"; then
+    AC_PATH_TOOL(SXHTTPD,nginx,
+                 [AC_MSG_ERROR([nginx is required when --disable-sxhttpd is used])],
+                 [/usr/sbin:/usr/local/sbin:$PATH])
+else
+    SXHTTPD="$sbindir/sxhttpd"
+fi
+
+AC_SUBST(SXHTTPD)
+
 AC_CONFIG_FILES([Makefile sxscripts/Makefile])
 AC_OUTPUT
 

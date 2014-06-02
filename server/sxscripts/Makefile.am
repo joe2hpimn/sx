@@ -4,11 +4,13 @@ edit= sed \
       -e 's|@sbindir[@]|$(sbindir)|g' \
       -e 's|@localstatedir[@]|$(localstatedir)|g' \
       -e 's|@sysconfdir[@]|$(sysconfdir)|g' \
-      -e 's|@prefix[@]|$(prefix)|g'
+      -e 's|@prefix[@]|$(prefix)|g' \
+      -e 's|@SXHTTPD[@]|$(SXHTTPD)|g'
 
 nobase_sysconf_DATA = sxserver/sxhttpd.conf.default sxserver/fastcgi_params sxserver/errors/414.json sxserver/errors/50x.json
 nobase_doc_DATA = logrotate.d/sxserver
 sbin_SCRIPTS = bin/sxserver bin/sxsetup
+CLEANFILES=$(sbin_SCRIPTS) $(nobase_doc_DATA) sxserver/sxhttpd.conf.default
 sxserver/sxhttpd.conf.default: $(srcdir)/sxserver/sxhttpd.conf.default.in Makefile
 	rm -f $@ $@.tmp
 	$(edit) $(srcdir)/sxserver/sxhttpd.conf.default.in >$@.tmp

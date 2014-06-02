@@ -636,6 +636,7 @@ ac_subst_vars='am__EXEEXT_FALSE
 am__EXEEXT_TRUE
 LTLIBOBJS
 LIBOBJS
+SXHTTPD
 SQLITE3_LIBS
 SQLITE3_CFLAGS
 RESOLV_LIBS
@@ -791,6 +792,7 @@ enable_coverage
 enable_assert
 enable_largefile
 with_system_sqlite3
+enable_sxhttpd
 '
       ac_precious_vars='build_alias
 host_alias
@@ -1443,6 +1445,7 @@ Optional Features:
   --enable-converage      Enable code coverage testing
   --disable-assert        turn off assertions
   --disable-largefile     omit support for large files
+  --disable-sxhttpd	  do not build sxhttpd
 
 Optional Packages:
   --with-PACKAGE[=ARG]    use PACKAGE [ARG=yes]
@@ -14227,6 +14230,123 @@ else
     SQLITE3_CFLAGS="-I../3rdparty/libsqlite3/"
     SQLITE3_LIBS="../3rdparty/libsqlite3/libsqlite3.la"
 fi
+
+# sxhttpd (nginx)
+# Check whether --enable-sxhttpd was given.
+if test "${enable_sxhttpd+set}" = set; then :
+  enableval=$enable_sxhttpd; build_sxhttpd=$enableval
+else
+  build_sxhttpd="yes"
+fi
+
+
+
+if test "x$build_sxhttpd" = "xno"; then
+    if test -n "$ac_tool_prefix"; then
+  # Extract the first word of "${ac_tool_prefix}nginx", so it can be a program name with args.
+set dummy ${ac_tool_prefix}nginx; ac_word=$2
+{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for $ac_word" >&5
+$as_echo_n "checking for $ac_word... " >&6; }
+if ${ac_cv_path_SXHTTPD+:} false; then :
+  $as_echo_n "(cached) " >&6
+else
+  case $SXHTTPD in
+  [\\/]* | ?:[\\/]*)
+  ac_cv_path_SXHTTPD="$SXHTTPD" # Let the user override the test with a path.
+  ;;
+  *)
+  as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
+as_dummy="/usr/sbin:/usr/local/sbin:$PATH"
+for as_dir in $as_dummy
+do
+  IFS=$as_save_IFS
+  test -z "$as_dir" && as_dir=.
+    for ac_exec_ext in '' $ac_executable_extensions; do
+  if as_fn_executable_p "$as_dir/$ac_word$ac_exec_ext"; then
+    ac_cv_path_SXHTTPD="$as_dir/$ac_word$ac_exec_ext"
+    $as_echo "$as_me:${as_lineno-$LINENO}: found $as_dir/$ac_word$ac_exec_ext" >&5
+    break 2
+  fi
+done
+  done
+IFS=$as_save_IFS
+
+  ;;
+esac
+fi
+SXHTTPD=$ac_cv_path_SXHTTPD
+if test -n "$SXHTTPD"; then
+  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $SXHTTPD" >&5
+$as_echo "$SXHTTPD" >&6; }
+else
+  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
+$as_echo "no" >&6; }
+fi
+
+
+fi
+if test -z "$ac_cv_path_SXHTTPD"; then
+  ac_pt_SXHTTPD=$SXHTTPD
+  # Extract the first word of "nginx", so it can be a program name with args.
+set dummy nginx; ac_word=$2
+{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for $ac_word" >&5
+$as_echo_n "checking for $ac_word... " >&6; }
+if ${ac_cv_path_ac_pt_SXHTTPD+:} false; then :
+  $as_echo_n "(cached) " >&6
+else
+  case $ac_pt_SXHTTPD in
+  [\\/]* | ?:[\\/]*)
+  ac_cv_path_ac_pt_SXHTTPD="$ac_pt_SXHTTPD" # Let the user override the test with a path.
+  ;;
+  *)
+  as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
+as_dummy="/usr/sbin:/usr/local/sbin:$PATH"
+for as_dir in $as_dummy
+do
+  IFS=$as_save_IFS
+  test -z "$as_dir" && as_dir=.
+    for ac_exec_ext in '' $ac_executable_extensions; do
+  if as_fn_executable_p "$as_dir/$ac_word$ac_exec_ext"; then
+    ac_cv_path_ac_pt_SXHTTPD="$as_dir/$ac_word$ac_exec_ext"
+    $as_echo "$as_me:${as_lineno-$LINENO}: found $as_dir/$ac_word$ac_exec_ext" >&5
+    break 2
+  fi
+done
+  done
+IFS=$as_save_IFS
+
+  ;;
+esac
+fi
+ac_pt_SXHTTPD=$ac_cv_path_ac_pt_SXHTTPD
+if test -n "$ac_pt_SXHTTPD"; then
+  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_pt_SXHTTPD" >&5
+$as_echo "$ac_pt_SXHTTPD" >&6; }
+else
+  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
+$as_echo "no" >&6; }
+fi
+
+  if test "x$ac_pt_SXHTTPD" = x; then
+    SXHTTPD="as_fn_error $? "nginx is required when --disable-sxhttpd is used" "$LINENO" 5"
+  else
+    case $cross_compiling:$ac_tool_warned in
+yes:)
+{ $as_echo "$as_me:${as_lineno-$LINENO}: WARNING: using cross tools not prefixed with host triplet" >&5
+$as_echo "$as_me: WARNING: using cross tools not prefixed with host triplet" >&2;}
+ac_tool_warned=yes ;;
+esac
+    SXHTTPD=$ac_pt_SXHTTPD
+  fi
+else
+  SXHTTPD="$ac_cv_path_SXHTTPD"
+fi
+
+else
+    SXHTTPD="$sbindir/sxhttpd"
+fi
+
+
 
 ac_config_files="$ac_config_files Makefile sxscripts/Makefile"
 

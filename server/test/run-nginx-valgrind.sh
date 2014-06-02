@@ -8,12 +8,12 @@ PATH=`getconf PATH`
 
 prefix=`mktemp -d $PWD/sx-test-valgrind-XXXXXXXX`
 cleanup () {
-    (cd ../3rdparty/sxhttpd && make clean && make -j5)
+    make -C sxscripts clean
     rm -rf $prefix
 }
 trap cleanup EXIT INT
 
-make -C ../3rdparty/sxhttpd install-sbinSCRIPTS install-nobase_sysconfDATA install-data prefix=$prefix -s
+make -C sxscripts clean install prefix="$prefix" -s
 touch src/fcgi/fcgi-server.c && make all prefix=$prefix -s && touch src/fcgi/fcgi-server.c
 mkdir -p $prefix/bin
 mkdir -p $prefix/sbin
@@ -63,7 +63,7 @@ cleanup () {
     rm -f valgrind.$ID.*.log
     cat /tmp/valgrind.$ID.log
     ls -lh /tmp/valgrind.$ID.log
-    (cd ../3rdparty/sxhttpd && make clean && make -j5)
+    make -C sxscripts clean
 }
 trap cleanup EXIT INT
 sh $prefix/sbin/sxserver start </dev/null

@@ -43,7 +43,7 @@ while [ $i -le $N ]; do
     echo "Preparing node $i"
     prefix=$ROOT/$i
     echo "Installing nginx config and scripts to $prefix"
-    (cd ../3rdparty/sxhttpd && make install-sbinSCRIPTS install-nobase_sysconfDATA install-data prefix=$prefix -s)
+    make -C sxscripts clean install prefix="$prefix" -s
     mkdir -p $prefix/bin $prefix/sbin $prefix/lib
     ln -s `pwd`/../client/src/tools/init/sxinit $prefix/bin/sxinit
     ln -s `pwd`/src/tools/sxadm/sxadm $prefix/sbin/sxadm
