@@ -38,6 +38,7 @@ extern "C" {
 struct gengetopt_args_info
 {
   const char *help_help; /**< @brief Print help and exit help description.  */
+  const char *full_help_help; /**< @brief Print help, including hidden options, and exit help description.  */
   const char *version_help; /**< @brief Print version and exit help description.  */
   int recursive_flag;	/**< @brief Recursively copy files from SOURCE to DEST directory (default=off).  */
   const char *recursive_help; /**< @brief Recursively copy files from SOURCE to DEST directory help description.  */
@@ -56,8 +57,15 @@ struct gengetopt_args_info
   const char *debug_help; /**< @brief Enable debug messages help description.  */
   int no_progress_flag;	/**< @brief Do not output progress bar (default=off).  */
   const char *no_progress_help; /**< @brief Do not output progress bar help description.  */
+  int total_conns_limit_arg;	/**< @brief Limit number of connections (default='5').  */
+  char * total_conns_limit_orig;	/**< @brief Limit number of connections original value given at command line.  */
+  const char *total_conns_limit_help; /**< @brief Limit number of connections help description.  */
+  int host_conns_limit_arg;	/**< @brief Limit number of connections with one host (default='2').  */
+  char * host_conns_limit_orig;	/**< @brief Limit number of connections with one host original value given at command line.  */
+  const char *host_conns_limit_help; /**< @brief Limit number of connections with one host help description.  */
   
   unsigned int help_given ;	/**< @brief Whether help was given.  */
+  unsigned int full_help_given ;	/**< @brief Whether full-help was given.  */
   unsigned int version_given ;	/**< @brief Whether version was given.  */
   unsigned int recursive_given ;	/**< @brief Whether recursive was given.  */
   unsigned int verbose_given ;	/**< @brief Whether verbose was given.  */
@@ -66,6 +74,8 @@ struct gengetopt_args_info
   unsigned int bwlimit_given ;	/**< @brief Whether bwlimit was given.  */
   unsigned int debug_given ;	/**< @brief Whether debug was given.  */
   unsigned int no_progress_given ;	/**< @brief Whether no-progress was given.  */
+  unsigned int total_conns_limit_given ;	/**< @brief Whether total-conns-limit was given.  */
+  unsigned int host_conns_limit_given ;	/**< @brief Whether host-conns-limit was given.  */
 
   char **inputs ; /**< @brief unamed options (options without names) */
   unsigned inputs_num ; /**< @brief unamed options number */
@@ -89,6 +99,8 @@ extern const char *gengetopt_args_info_usage;
 extern const char *gengetopt_args_info_description;
 /** @brief all the lines making the help output */
 extern const char *gengetopt_args_info_help[];
+/** @brief all the lines making the full help output (including hidden options) */
+extern const char *gengetopt_args_info_full_help[];
 
 /**
  * The command line parser
@@ -150,6 +162,10 @@ int cmdline_parser_file_save(const char *filename,
  * Print the help
  */
 void cmdline_parser_print_help(void);
+/**
+ * Print the full help (including hidden options)
+ */
+void cmdline_parser_print_full_help(void);
 /**
  * Print the version
  */

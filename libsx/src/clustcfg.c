@@ -2530,3 +2530,10 @@ sxc_xfer_stat_t *sxi_cluster_get_xfer_stat(const sxc_cluster_t* cluster) {
 
     return cluster->xfer_stat;
 }
+
+int sxc_cluster_set_conns_limit(sxc_cluster_t *cluster, unsigned int max_active, unsigned int max_active_per_host) {
+    if(!cluster)
+        return 1;
+
+    return sxi_conns_set_connections_limit(cluster->conns, max_active, max_active_per_host);
+}

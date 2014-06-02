@@ -822,20 +822,13 @@ unsigned int sxi_conns_get_port(const sxi_conns_t *conns) {
 }
 
 int sxi_conns_set_bandwidth_limit(sxi_conns_t *conns, int64_t bandwidth_limit) {
-    unsigned int count = 0;
     if(!conns || !conns->curlev) {
         CLSTDEBUG("Could not set bandwidth limit to %ld, NULL argument: %s", bandwidth_limit, 
             (conns != NULL ? "conns" : "conns->curlev"));
         return 1;
     }
 
-    count = sxi_hostlist_get_count(&conns->hlist);
-    if(count) {
-        return sxi_curlev_set_bandwidth_limit(conns->curlev, bandwidth_limit, count, 0);
-    } else {
-        CLSTDEBUG("Could not set bandwidth limit to %ld, 0 hosts available", bandwidth_limit);
-        return 1;
-    }
+    return sxi_curlev_set_bandwidth_limit(conns->curlev, bandwidth_limit, 0);
 }
 
 int64_t sxi_conns_get_bandwidth_limit(const sxi_conns_t *conns) {
@@ -845,4 +838,16 @@ int64_t sxi_conns_get_bandwidth_limit(const sxi_conns_t *conns) {
     }
 
     return sxi_curlev_get_bandwidth_limit(conns->curlev);
+}
+
+int sxi_conns_set_connections_limit(sxi_conns_t *conns, unsigned int max_active, unsigned int max_active_per_host) {
+    if(!conns) 
+        return 1;
+
+    if(max_active < max_active_per_host) {
+        sxi_seterr(conns->sx, SXE_EARG, "Global connections limit must be higher or equal to limit for host");
+        return 1;
+    }
+
+    return sxi_curlev_set_conns_limit(conns->curlev, max_active, max_active_per_host);
 }

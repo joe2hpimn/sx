@@ -143,7 +143,11 @@ int sxi_curlev_disable_proxy(curl_events_t *ev);
  * host_count - number of hosts sharing bandwidth limit 
  * running - number of transfers running 
  */
-int sxi_curlev_set_bandwidth_limit(curl_events_t *e, int64_t global_bandwidth_limit, unsigned int host_count, unsigned int running);
+int sxi_curlev_set_bandwidth_limit(curl_events_t *e, int64_t global_bandwidth_limit, unsigned int running);
 /* Get local bandwidth limit for given connection */
 int64_t sxi_curlev_get_bandwidth_limit(const curl_events_t *e);
+
+/* Set limits for number of active connections */
+int sxi_curlev_set_conns_limit(curl_events_t *e, unsigned int max_active, unsigned int max_active_per_host);
+
 #endif

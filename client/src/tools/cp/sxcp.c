@@ -662,6 +662,17 @@ int main(int argc, char **argv) {
     if(!(dst_file = sxfile_from_arg(&cluster1, fname)))
 	goto main_err;
 
+    if(cluster1 && (args.total_conns_limit_given || args.host_conns_limit_given)) {
+        if(args.total_conns_limit_arg < 0 || args.host_conns_limit_arg < 0) {
+            fprintf(stderr, "ERROR: Connections limit must be positive number\n");
+            goto main_err;
+        }
+        if(sxc_cluster_set_conns_limit(cluster1, args.total_conns_limit_arg, args.host_conns_limit_arg)) {
+            fprintf(stderr, "ERROR: Failed to set connections limits: %s\n", sxc_geterrmsg(sx));
+            goto main_err;
+        }
+    }
+
     if(limit && cluster1 && sxc_cluster_set_bandwidth_limit(sx, cluster1, limit)) {
         fprintf(stderr, "ERROR: Failed to set bandwidth limit to %s\n", args.bwlimit_arg);
         goto main_err;
@@ -703,6 +714,17 @@ int main(int argc, char **argv) {
 
         if(!(src_file = sxfile_from_arg(&cluster2, fname)))
             goto main_err;
+
+        if(cluster2 && (args.total_conns_limit_given || args.host_conns_limit_given)) {
+            if(args.total_conns_limit_arg < 0 || args.host_conns_limit_arg < 0) {
+                fprintf(stderr, "ERROR: Connections limit must be positive number\n");
+                goto main_err;
+            }
+            if(sxc_cluster_set_conns_limit(cluster2, args.total_conns_limit_arg, args.host_conns_limit_arg)) {
+                fprintf(stderr, "ERROR: Failed to set connections limits: %s\n", sxc_geterrmsg(sx));
+                goto main_err;
+            }
+        }
 
         if(limit && cluster2 && sxc_cluster_set_bandwidth_limit(sx, cluster2, limit)) {
             fprintf(stderr, "ERROR: Failed to set bandwidth limit to %s\n", args.bwlimit_arg);

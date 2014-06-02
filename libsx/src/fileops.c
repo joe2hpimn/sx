@@ -1000,7 +1000,7 @@ static int batch_hashes_to_hosts(struct file_upload_ctx *yctx, struct need_hash 
     }
     for (i=from;i<size;i++) {
         struct need_hash *need = &needed[i];
-        const char *host;
+        const char *host = NULL;
         need->replica += next_replica;
         host = sxi_hostlist_get_host(&need->upload_hosts, need->replica);
         if (!host) {
@@ -2889,7 +2889,7 @@ static int multi_download(struct batch_hashes *bh, const char *dstname,
     unsigned long total_downloaded;
     char zerohash[41];
     sxi_ht *hostsmap;
-    const char *host;
+    const char *host = NULL;
     unsigned char *buf;
     curlev_context_t *cbdata = NULL;
     sxc_client_t *sx = sxi_conns_get_client(conns);

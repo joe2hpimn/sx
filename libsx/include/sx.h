@@ -143,6 +143,13 @@ sxc_cluster_lf_t *sxc_cluster_listfiles(sxc_cluster_t *cluster, const char *volu
 int sxc_cluster_listfiles_next(sxc_cluster_lf_t *lf, char **file_name, int64_t *file_size, time_t *file_created_at);
 void sxc_cluster_listfiles_free(sxc_cluster_lf_t *lf);
 
+/*
+ * Set active connections limits.
+ * max_active - maximal number of running connections.
+ * max_active_per_host - maximal number of running connections with each host.
+ */
+int sxc_cluster_set_conns_limit(sxc_cluster_t *cluster, unsigned int max_active, unsigned int max_active_per_host);
+
 /* Transfer direction */
 typedef enum { SXC_XFER_DIRECTION_DOWNLOAD, SXC_XFER_DIRECTION_UPLOAD } sxc_xfer_direction_t;
 

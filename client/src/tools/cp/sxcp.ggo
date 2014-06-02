@@ -1,6 +1,6 @@
 package "sxcp"
 purpose "Copy files between local and SX storages"
-args "--unamed-opts --no-handle-version --no-handle-error --strict-hidden"
+args "--unamed-opts --no-handle-version --no-handle-error"
 usage "sxcp [OPTIONS]... SOURCE... DEST"
 
 option  "recursive"             r "Recursively copy files from SOURCE to DEST directory" flag off
@@ -18,3 +18,6 @@ option "bwlimit"        b "Set bandwidth usage limit in kilobytes per second (al
 option  "debug"		        D "Enable debug messages" flag off
 
 option  "no-progress"              q "Do not output progress bar" flag off 
+
+option  "total-conns-limit"         - "Limit number of connections" int default="5" optional hidden
+option  "host-conns-limit"          - "Limit number of connections with one host" int default="2" optional hidden

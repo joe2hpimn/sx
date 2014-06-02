@@ -75,7 +75,6 @@ struct curlev_context {
     struct recv_context recv_ctx;
 
     /* keep all of the below across retries */
-
     body_cb_t data_cb;
     finish_cb_t finish_cb;
     struct retry_ctx retry;
@@ -452,6 +451,7 @@ static void sxi_cbdata_finish(curl_events_t *e, curlev_context_t **ctxptr, const
 struct curlev {
     curlev_context_t *ctx;
     char *host;
+    sxi_ht *hosts; /* Hold information about active connections for each host */
     char *cluster;
     char *url;
     struct curl_slist *slist;
@@ -469,41 +469,22 @@ struct curlev {
     uint16_t port;
 };
 
-#define MAX_EVENTS 64
-typedef struct {
-    curlev_t *queue[MAX_EVENTS];
-    unsigned read;
-    unsigned write;
-} curlev_fifo_t;
-
-static int fifo_is_full(const curlev_fifo_t *fifo)
+static void ev_free(curlev_t *ev)
 {
-    return (fifo->write + 1) % MAX_EVENTS == fifo->read;
-}
-
-static int fifo_count(const curlev_fifo_t *fifo)
-{
-    return (fifo->write - fifo->read) % MAX_EVENTS;
-}
-
-static int fifo_put(curlev_fifo_t *fifo, curlev_t *ev)
-{
-    if (fifo_is_full(fifo))
-        return -1;
-    fifo->queue[fifo->write] = ev;
-    fifo->write = (fifo->write + 1) % MAX_EVENTS;
-    return 0;
-}
-
-static curlev_t *fifo_get(curlev_fifo_t *fifo)
-{
-    curlev_t *ev;
-    if (fifo->read == fifo->write)
-        return NULL;/* empty */
-    ev = fifo->queue[fifo->read];
-    fifo->queue[fifo->read] = NULL;
-    fifo->read = (fifo->read + 1) % MAX_EVENTS;
-    return ev;
+    if (!ev)
+        return;
+    if (ev->slist) {
+        curl_slist_free_all(ev->slist);
+        ev->slist = NULL;
+    }
+    if (ev->resolve) {
+        curl_slist_free_all(ev->resolve);
+        ev->resolve = NULL;
+    }
+    if (ev->curl)
+        curl_easy_cleanup(ev->curl);
+    free(ev->host);
+    memset(ev, 0, sizeof(*ev));
 }
 
 static int check_ssl_cert(curlev_t *ev)
@@ -612,17 +593,304 @@ static size_t writefn(void *ptr, size_t size, size_t nmemb, void *ctxptr) {
 }
 
 /* Hold information needed to control transfer bandwidth */
-typedef struct bandwidth_t {
+typedef struct {
     int64_t local_limit; /* Bandwidth limit [bytes per second] */
     int64_t global_limit; /* Bandwidth limit for whole transfer [bytes per second] */
-    unsigned int host_count; /* Number of hosts sharing network traffic */
 } bandwidth_t;
+
+/* Maximal number of connections to be done in parallel */
+#define MAX_EVENTS                              64
+#define MAX_ACTIVE_CONNECTIONS                  5
+#define MAX_ACTIVE_PER_HOST                     2
+
+/* Hold information about active connections for each host */
+struct host_info {
+    char *host;
+    unsigned int active;
+};
+
+static struct host_info *host_active_info_new(const char *host) {
+    struct host_info *info = malloc(sizeof(struct host_info));
+    if(!info) {
+        return NULL;
+    }
+
+    info->host = strdup(host);
+    if(!info->host) {
+        free(info);
+        return NULL;
+    }
+
+    info->active = 0;
+    return info;
+}
+
+static void host_active_info_free(struct host_info* info) {
+    if(info) {
+        free(info->host);
+    }
+    free(info);
+}
+
+/* Forward declaration */
+struct ev_fifo;
+
+/* Connections pool */
+typedef struct {
+    sxc_client_t *sx;
+    struct ev_fifo *fifo; /* Queued connections */
+    unsigned int max_active_total; /* Total number of active connections */
+    unsigned int max_active_per_host; /* Number of active connections that each node can connect */
+    curlev_t *active; /* Connections that are currently used */
+    unsigned int active_count; /* Number of active connections */
+    sxi_ht *hosts; /* Hold struct host_active_info structures */
+} connection_pool_t;
+
+struct ev_fifo_node {
+    curlev_t *element;
+    struct ev_fifo_node *next;
+};
+
+/* 
+ * Ivoked for each element in the list during ev_fifo_get() until first matching has been found. 
+ * Element will be removed only if rm_check() returns 1. 
+ */
+typedef int (*rm_check)(const connection_pool_t *pool, const curlev_t *element);
+
+struct ev_fifo {
+    struct ev_fifo_node *head; /* First list element */
+    struct ev_fifo_node *tail; /* Last element */
+    unsigned int length; /* Number of elements */
+    rm_check checker; /* Function used to check if element should be removed */
+    connection_pool_t *pool; /* Parent */
+};
+
+typedef struct ev_fifo ev_fifo_t;
+
+static ev_fifo_t *ev_fifo_new(connection_pool_t *pool, rm_check checker) {
+    ev_fifo_t *fifo = NULL;
+    sxc_client_t *sx = NULL;
+
+    if(!pool) {
+        return NULL;
+    }
+    sx = pool->sx;
+
+    fifo = calloc(1, sizeof(ev_fifo_t));
+    if(!fifo) {
+        SXDEBUG("OOM Allocating cURL events fifo");
+        return NULL;
+    }
+    fifo->checker = checker;
+    fifo->pool = pool;
+    return fifo;
+}
+
+/* Free events fifo */
+static void ev_fifo_free(ev_fifo_t *fifo) {
+    unsigned int i;
+    struct ev_fifo_node *n = NULL;
+    sxc_client_t *sx = NULL;
+
+    if(!fifo) 
+        return;
+        
+    sx = fifo->pool->sx;
+    n = fifo->head;
+
+    /* iterate over all elements */
+    for(i = 0; i < fifo->length; i++) {
+        struct ev_fifo_node *next = n->next;
+
+        if(!n) {
+            /* Number of elements should be exactly the same as number of not NULL pointers */
+            SXDEBUG("Error freeing cURL events fifo: invalid number of elements");
+            break;
+        }
+
+        ev_free(n->element);
+        free(n);
+        n = next;
+    }
+
+    free(fifo);
+}
+
+/* Add element to events fifo */
+static int ev_fifo_add(ev_fifo_t *fifo, curlev_t *element) {
+    struct ev_fifo_node *n = NULL;
+    sxc_client_t *sx = NULL;
+
+    if(!fifo || !element) {
+        SXDEBUG("NULL argument");
+        return 1;
+    }
+    sx = fifo->pool->sx;
+
+    if(fifo->length >= MAX_EVENTS) {
+        SXDEBUG("Reachecd maximal number of events");
+        return 1;
+    }
+
+    n = calloc(1, sizeof(struct ev_fifo_node));
+    if(!n) {
+        SXDEBUG("OOM Allocating new ev_fifo_node");
+        return 1;
+    }
+
+    n->element = element;
+    if(fifo->tail) {
+        fifo->tail->next = n;
+    } else {
+        /* First element in the queue */
+        fifo->head = n;
+    }
+    fifo->tail = n;
+    fifo->length++;
+    return 0;
+}
+
+/* Get and remove element from fifo */
+static curlev_t *ev_fifo_get(ev_fifo_t *fifo) {
+    struct ev_fifo_node *n = NULL; /* Current element */
+    struct ev_fifo_node *p = NULL; /* Previous element */
+    unsigned int i;
+    sxc_client_t *sx = NULL;
+
+    if(!fifo) {
+        return NULL;
+    }
+    sx = fifo->pool->sx;
+
+    n = fifo->head;
+    for(i = 0; i < fifo->length; i++) {
+        if(!n) {
+            SXDEBUG("Error getting cURL events from fifo: invalid number of elements");
+            return NULL;
+        }
+
+        if(!fifo->checker || fifo->checker(fifo->pool, n->element) == 1) {
+            curlev_t *element = n->element;
+
+            /* Remove node */
+            fifo->length--;
+            if(!p) {
+                /* Previous element is NULL, we are removing first element */
+                fifo->head = n->next;
+            } else {
+                /* Previous element is not NULL, we are removing middle or last element */
+                p->next = n->next;
+            }
+
+            if(n == fifo->tail) {
+                fifo->tail = p;
+            }
+            free(n);
+            return element;
+        } 
+
+        p = n;
+        n = n->next;
+    }
+
+    /* Element not found */
+    return NULL;
+}
+
+static int ev_fifo_length(ev_fifo_t *fifo) {
+    if(!fifo) {
+        return 0;
+    }
+
+    return fifo->length;
+}
+
+/* Return 1 if cURL event destination host hold less than pool->max_active_per_host */
+static int check_host_active_count(const connection_pool_t *pool,  const curlev_t *ev) {
+    struct host_info *host = NULL;
+
+    if(!ev) {
+        return 0;
+    }
+
+    if(sxi_ht_get(ev->hosts, (void*)ev->host, strlen(ev->host), (void **)&host) || !host) {
+        /* Could not get host info, this is an error, return -1 */
+        return -1;
+    }
+
+    return host->active < pool->max_active_per_host ? 1 : 0;
+}
+
+/* Get new connection pool instance */
+static connection_pool_t *connection_pool_new(sxc_client_t *sx) {
+    connection_pool_t *pool = NULL;
+
+    if(!sx) {
+        return NULL;
+    }
+
+    pool = calloc(1, sizeof(connection_pool_t));
+    if(!pool) {
+        return NULL;
+    }
+
+    pool->sx = sx;
+    pool->max_active_total = MAX_ACTIVE_CONNECTIONS;
+    pool->max_active_per_host = MAX_ACTIVE_PER_HOST;
+
+    pool->active = calloc(MAX_EVENTS, sizeof(curlev_t));
+    if(!pool->active) {
+        SXDEBUG("OOM Could not allocate array of events");
+        free(pool);
+        return NULL;
+    }
+
+    pool->fifo = ev_fifo_new(pool, check_host_active_count);
+    if(!pool->fifo) {
+        SXDEBUG("OOM Could not allocate fifo");
+        free(pool->active);
+        free(pool);
+        return NULL;
+    }
+
+    pool->hosts = sxi_ht_new(sx, 64);
+    if(!pool->hosts) {
+        SXDEBUG("OOM Could not allocate hosts hash table");
+        ev_fifo_free(pool->fifo);
+        free(pool->active);
+        free(pool);
+        return NULL;
+    }
+
+    return pool;
+}
+
+/* Free connections pool */
+static void connection_pool_free(connection_pool_t *pool) {
+    unsigned int i = 0;
+    struct host_info *info = NULL;
+    if(!pool)
+        return;
+
+    for(i = 0; i < MAX_EVENTS; i++) {
+        ev_free(&pool->active[i]);
+    }
+
+    ev_fifo_free(pool->fifo);
+
+    sxi_ht_enum_reset(pool->hosts);
+    while(!sxi_ht_enum_getnext(pool->hosts, NULL, NULL, (const void **)&info)) {
+        host_active_info_free(info);
+    }
+    sxi_ht_free(pool->hosts);
+    free(pool->active);
+    free(pool);
+}
 
 /* to avoid using too much memory */
 struct curl_events {
     CURLM *multi;
     CURLSH *share;
-    sxi_ht *hosts_map;
     sxi_conns_t *conns;
     int running;
     int verbose;
@@ -634,15 +902,11 @@ struct curl_events {
     int saved, quiet;
     int disable_proxy;
 
+    /* Connections pool handle connections shared between hosts */
+    connection_pool_t *conn_pool;
+
+    /* Used for bandwidth throttling */
     bandwidth_t bandwidth;
-};
-
-#define MAX_ACTIVE_PER_HOST 2
-
-struct host_info {
-    int active;
-    curlev_fifo_t fifo;
-    curlev_t reuse[MAX_ACTIVE_PER_HOST];
 };
 
 static void ctx_err(curlev_context_t *ctx, CURLcode rc, const char *msg)
@@ -672,27 +936,20 @@ static void ctx_err(curlev_context_t *ctx, CURLcode rc, const char *msg)
 	sxi_debug(_sx, __FUNCTION__, __VA_ARGS__);\
     }} while (0)
 
-int sxi_curlev_set_bandwidth_limit(curl_events_t *e, int64_t global_bandwidth_limit, unsigned int host_count, unsigned int running) {
+int sxi_curlev_set_bandwidth_limit(curl_events_t *e, int64_t global_bandwidth_limit, unsigned int running) {
     if(!e) {
         EVENTSDEBUG(e, "Could not set bandwidth limit, NULL argument");
         return 1;
     }
 
-    if(!host_count) {
-        EVENTSDEBUG(e, "Could not set bandwidth limit, 0 hosts available");        
-        return 1;
-    }
-
     /* Bandwidth limitation for whole process */
     e->bandwidth.global_limit = global_bandwidth_limit;
-    /* Number of hosts used for data transfering */
-    e->bandwidth.host_count = host_count;
 
-    /* Divide global bandwidth limit by up to host_count * MAX_ACTIVE_PER_HOST that it can be set for each transfer */
-    if(running && running < host_count * MAX_ACTIVE_PER_HOST)
+    /* Divide global bandwidth limit by up to that it can be set for each transfer */
+    if(running && running < e->conn_pool->max_active_total)
         e->bandwidth.local_limit = global_bandwidth_limit / running; 
     else
-        e->bandwidth.local_limit = global_bandwidth_limit / (host_count * MAX_ACTIVE_PER_HOST);
+        e->bandwidth.local_limit = global_bandwidth_limit / e->conn_pool->max_active_total;
     return 0;
 }
 
@@ -703,6 +960,38 @@ int64_t sxi_curlev_get_bandwidth_limit(const curl_events_t *e) {
     }
 
     return e->bandwidth.local_limit;
+}
+
+static int queue_next(curl_events_t *e);
+int sxi_curlev_set_conns_limit(curl_events_t *e, unsigned int max_active, unsigned int max_active_per_host) {
+    if(!e)
+        return 1;
+
+    /* Check and fallback to defaults if necessary */
+    if(!max_active) max_active = MAX_ACTIVE_CONNECTIONS;
+    if(!max_active_per_host) max_active_per_host = MAX_ACTIVE_PER_HOST;
+
+    e->conn_pool->max_active_per_host = max_active_per_host;
+    /* 
+     * If maximal number of running connections is not increased, simply wait for current
+     * connections to finish. 
+     */
+    if(max_active > e->conn_pool->max_active_total) {
+        int ret = 0;
+        /*
+         * Maximal number of running connections has been increased, we have to dequeue existing
+         * but not running connections.
+         */
+        e->conn_pool->max_active_total = max_active;
+        while(e->conn_pool->active_count < e->conn_pool->max_active_total) {
+            ret = queue_next(e);
+            if(!ret) /* This happens if no events are queued or all events reached per-host limit */
+                break;
+        }
+    } else {
+        e->conn_pool->max_active_total = max_active;
+    }
+    return 0;
 }
 
 static int curl_check(curlev_t *e, CURLcode code, const char *msg)
@@ -738,40 +1027,6 @@ static int curlsh_check(curl_events_t *e, CURLSHcode code)
     return 0;
 }
 
-static void ev_free(curlev_t *ev)
-{
-    if (!ev)
-        return;
-    if (ev->slist) {
-        curl_slist_free_all(ev->slist);
-        ev->slist = NULL;
-    }
-    if (ev->resolve) {
-        curl_slist_free_all(ev->resolve);
-        ev->resolve = NULL;
-    }
-    if (ev->curl)
-        curl_easy_cleanup(ev->curl);
-    free(ev->host);
-    memset(ev, 0, sizeof(*ev));
-}
-
-static int info_free(curl_events_t *e, struct host_info *info)
-{
-    unsigned i;
-
-    if (!info) {
-        return 0;
-    }
-    for (i=0;i<MAX_ACTIVE_PER_HOST;i++) {
-        ev_free(&info->reuse[i]);
-    }
-    for (i=0;i<MAX_EVENTS;i++)
-        ev_free(info->fifo.queue[i]);
-    free(info);
-    return 0;
-}
-
 void sxi_curlev_done(curl_events_t **c)
 {
     curl_events_t *e = c ? *c : NULL;
@@ -780,6 +1035,7 @@ void sxi_curlev_done(curl_events_t **c)
     if (e->used) {
         EVENTSDEBUG(e, "Leaked %d curl events!!", e->used);
     }
+    connection_pool_free(e->conn_pool);
     if (e->multi) {
         CURL *dummy;
         /* curl 7.29.0 bug: NULL dereference if multi handle has never seen an
@@ -792,17 +1048,6 @@ void sxi_curlev_done(curl_events_t **c)
         }
         curlm_check(NULL, curl_multi_cleanup(e->multi), "cleanup");
         e->multi = NULL;
-    }
-    if (e->hosts_map) {
-        struct host_info *info;
-        const void *host;
-        unsigned host_len;
-        /* TODO: iterate */
-        while (!sxi_ht_enum_getnext(e->hosts_map, &host, &host_len, (const void**)&info)) {
-            info_free(e, info);
-        }
-        sxi_ht_free(e->hosts_map);
-        e->hosts_map = NULL;
     }
     if (e->share) {
         curlsh_check(e, curl_share_cleanup(e->share));
@@ -823,8 +1068,6 @@ curl_events_t *sxi_curlev_init(sxi_conns_t *conns)
     do {
         x->cafile = "";/* verify with default root CAs */
         if (!(x->share = curl_share_init()))
-            break;
-        if (!(x->hosts_map = sxi_ht_new(sxi_conns_get_client(conns), 64)))
             break;
         if (!(x->multi = curl_multi_init()))
             break;
@@ -849,10 +1092,13 @@ curl_events_t *sxi_curlev_init(sxi_conns_t *conns)
             break;
 #endif
 
+        x->conn_pool = connection_pool_new(sxi_conns_get_client(conns));
+        if(!x->conn_pool) {
+            break;
+        }
         /* Initialize bandwidth limit information */
         x->bandwidth.global_limit = 0;
         x->bandwidth.local_limit = 0;
-        x->bandwidth.host_count = 0;
 
         return x;
     } while(0);
@@ -1130,20 +1376,6 @@ static int easy_set_default_opt(curl_events_t *e, curlev_t *ev)
 
 typedef size_t (*write_cb_t)(char *ptr, size_t size, size_t nmemb, void *ctx);
 
-static struct host_info *get_host(curl_events_t *e, const char *host)
-{
-    struct host_info *info = NULL;
-    if (sxi_ht_get(e->hosts_map, host, strlen(host)+1, (void**)&info) || !info) {
-        info = calloc(1, sizeof(*info));
-        if (sxi_ht_add(e->hosts_map, host, strlen(host)+1, info)) {
-            /* it failed */
-            free(info);
-            return NULL;
-        }
-    }
-    return info;
-}
-
 static void resolve(curlev_t *ev, const char *host, uint16_t port)
 {
 #if LIBCURL_VERSION_NUM >= 0x071503
@@ -1198,7 +1430,6 @@ static int curlev_apply(curl_events_t *e, curlev_t *ev, curlev_t *src)
         }
     }
 
-/*caveat*/
     ev->curl = handle;
     do {
 	unsigned int contimeout;
@@ -1469,45 +1700,50 @@ static int compute_headers_url(curl_events_t *e, curlev_t *ev, curlev_t *src)
 
 static int enqueue_request(curl_events_t *e, curlev_t *ev, int re)
 {
-    struct host_info *info; 
-    info = get_host(e, ev->host);
-    if (!info) {
-        ctx_err(ev->ctx, CURLE_OUT_OF_MEMORY, "out of mem allocing host info");
+    struct host_info *host = NULL;
+    sxc_client_t *sx = NULL;
+
+    if(!e || !ev) {
         return -1;
     }
 
-    if(e->bandwidth.global_limit) {
-        /* Ensure that host_count field is not 0 */
-        if(!e->bandwidth.host_count) {
-            sxi_hostlist_t *hosts = sxi_conns_get_hostlist(e->conns);
-            if(!hosts) {
-                EVDEBUG(ev, "Could not get host list");
+    sx = e->conn_pool->sx;
+
+    /* Store hosts list to be able to get information from single event */
+    ev->hosts = e->conn_pool->hosts;
+
+    /* Get information about active connections for each host */
+    if(sxi_ht_get(e->conn_pool->hosts, (void*)ev->host, strlen(ev->host), (void**)&host) || !host) {
+        /* Host could not be found, add given host */
+        host = host_active_info_new(ev->host);
+        if(!host) {
+            SXDEBUG("OOM Could not allocate memory for host");
                 return -1;
             }
-  
-            e->bandwidth.host_count = sxi_hostlist_get_count(hosts);
-            if(!e->bandwidth.host_count) {
-                EVDEBUG(ev, "Could not get host list length");
+        if(sxi_ht_add(e->conn_pool->hosts, (void*)ev->host, strlen(ev->host), (void*)host)) {
+            SXDEBUG("Could not add host to hashtable");
+            free(host);
                 return -1;
             }
         }
 
+    if(e->bandwidth.global_limit) {
         /* Enqueuing new request needs to update bandwidth */
-        if(sxi_curlev_set_bandwidth_limit(e, e->bandwidth.global_limit, e->bandwidth.host_count, e->running+1)) {
+        if(sxi_curlev_set_bandwidth_limit(e, e->bandwidth.global_limit, e->running+1)) {
             EVDEBUG(ev, "sxi_curlev_set_bandwidth_limit failed");
             return -1;
         }
     }
 
-    if (info->active < MAX_ACTIVE_PER_HOST) {
+    if (e->conn_pool->active_count < e->conn_pool->max_active_total && host->active < e->conn_pool->max_active_per_host) {
         unsigned i;
         /* reuse previous easy handle to reuse the connection and prevent
          * TIME_WAIT issues */
 
         /* find free slot */
-        for (i=0;i<MAX_ACTIVE_PER_HOST;i++) {
+        for (i=0;i<e->conn_pool->max_active_total;i++) {
             curlev_t *o; 
-            o = &info->reuse[i];
+            o = &e->conn_pool->active[i];
             if (!o->ctx) {
                 /* free slot */
                 if (curlev_apply(e, o, ev) == -1) {
@@ -1516,10 +1752,13 @@ static int enqueue_request(curl_events_t *e, curlev_t *ev, int re)
                 }
 
                 ev = o;
+
+                /* Update per-host active connections counters */
+                host->active++;                
                 break;
             }
         }
-        if (i == MAX_ACTIVE_PER_HOST) {
+        if (i == e->conn_pool->max_active_total) {
             EVDEBUG(ev,"no free hosts?");
             return -1;
         }
@@ -1530,43 +1769,52 @@ static int enqueue_request(curl_events_t *e, curlev_t *ev, int re)
             EVDEBUG(ev,"add_handle failed: %s", sxc_geterrmsg(sxi_conns_get_client(ev->ctx->conns)));
             return -1;
         }
-        info->active++;
-        EVDEBUG(ev, "::add_handle %p, active now: %d", ev->curl, info->active);
+        e->conn_pool->active_count++;
+        EVDEBUG(ev, "::add_handle %p, active now: %d", ev->curl, e->conn_pool->active_count);
 
         if (re)
-            EVDEBUG(ev, "Started next waiting request for host %s (%d active)", ev->host, info->active);
+            EVDEBUG(ev, "Started next waiting request for host %s (%d active)", ev->host, e->conn_pool->active_count);
         else
-            EVDEBUG(ev, "Started new request to host %s (%d active)", ev->host, info->active);
+            EVDEBUG(ev, "Started new request to host %s (%d active)", ev->host, e->conn_pool->active_count);
     } else {
         /* has pending request for this host, chain request to avoid
          * pipelining timeout.
          * Note: this list is actually reversed, but we only request
          * hashes so it doesn't matter. */
-        fifo_put(&info->fifo, ev);
-        EVDEBUG(ev, "queued now: %d", fifo_count(&info->fifo));
+        if(ev_fifo_add(e->conn_pool->fifo, ev)) {
+           EVDEBUG(ev, "Could not add event to a queue");
+           return -1;
+        }
+        EVDEBUG(ev, "queued now: %d", ev_fifo_length(e->conn_pool->fifo));
         EVDEBUG(ev, "Enqueued request to existing host %s", ev->host);
     }
+
     return 0;
 }
 
-static int queue_next(curl_events_t *e, curlev_t *ev)
+/* Return 1 if event was dequeued, else 0 */
+static int queue_next(curl_events_t *e)
 {
-    struct host_info *info;
-    info = get_host(e, ev->host);
-    if (!info) {
-        ctx_err(ev->ctx, CURLE_OUT_OF_MEMORY, "out of mem allocing host info");
+    curlev_t *ev = NULL;
+
+    if(!e) {
         return -1;
     }
-    info->active--;
-    EVDEBUG(ev, "%s active: %d, queued: %d", ev->host, info->active, fifo_count(&info->fifo));
-    ev = fifo_get(&info->fifo);
+
+    ev = ev_fifo_get(e->conn_pool->fifo);
     if (!ev) {
         EVDEBUG(ev,"finished %s", ev->host);
         EVDEBUG(ev, "finished queued requests for host %s", ev->host);
         /* TODO: remove the host after a timeout of a few mins */
         return 0;
     }
-    return enqueue_request(e, ev, 1);
+    
+    if (enqueue_request(e, ev, 1) == -1) {
+        EVENTSDEBUG(e, "enqueue_request failed");
+        return 0;
+    }
+
+    return 1;
 }
 
 static int ev_add(curl_events_t *e,
@@ -1782,7 +2030,7 @@ int sxi_curlev_poll_immediate(curl_events_t *e)
 
     /* If number of running transfers has changed, recalculate bandwidth */
     if(e->bandwidth.global_limit && last_running != e->running) {
-        if(sxi_curlev_set_bandwidth_limit(e, e->bandwidth.global_limit, e->bandwidth.host_count, e->running)) {
+        if(sxi_curlev_set_bandwidth_limit(e, e->bandwidth.global_limit, e->running)) {
             EVENTSDEBUG(e, "Could not set bandwidth limit");
             return -1;
         }
@@ -1805,6 +2053,7 @@ int sxi_curlev_poll_immediate(curl_events_t *e)
                 const char *url;
                 curlev_t *ev = (curlev_t*)priv;
                 struct recv_context *rctx = &ev->ctx->recv_ctx;
+                struct host_info *host = NULL;
 
                 curl_easy_getinfo(msg->easy_handle, CURLINFO_RESPONSE_CODE, &rctx->reply_status);
                 rctx->errbuf[sizeof(rctx->errbuf)-1] = 0;
@@ -1851,7 +2100,18 @@ int sxi_curlev_poll_immediate(curl_events_t *e)
                     }
                 }
 
-                queue_next(e, ev);/* modifies ev */
+                /* Look for host */
+                if(sxi_ht_get(e->conn_pool->hosts, (void*)ev->host, strlen(ev->host), (void **)&host) || !host) {
+                    EVDEBUG(ev, "Could not get host from hosts hash table");
+                    return -1;
+                }
+
+                /* Update per-host active connections counter */
+                host->active--;
+                /* Update global active connections counter */
+                e->conn_pool->active_count--;
+ 
+                queue_next(e);
                 sxi_cbdata_finish(e, &ctx, url, ev->error);
             } else {
                 EVENTSDEBUG(e,"WARNING: failed to find curl handle\n");
