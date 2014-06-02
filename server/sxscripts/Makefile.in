@@ -296,7 +296,7 @@ edit = sed \
 
 nobase_sysconf_DATA = sxserver/sxhttpd.conf.default sxserver/fastcgi_params sxserver/errors/414.json sxserver/errors/50x.json
 nobase_doc_DATA = logrotate.d/sxserver
-sbin_SCRIPTS = bin/sxserver bin/sxsetup
+sbin_SCRIPTS = sbin/sxserver sbin/sxsetup
 CLEANFILES = $(sbin_SCRIPTS) $(nobase_doc_DATA) sxserver/sxhttpd.conf.default
 all: all-am
 
@@ -583,13 +583,13 @@ sxserver/sxhttpd.conf.default: $(srcdir)/sxserver/sxhttpd.conf.default.in Makefi
 	rm -f $@ $@.tmp
 	$(edit) $(srcdir)/sxserver/sxhttpd.conf.default.in >$@.tmp
 	mv $@.tmp $@
-bin/sxserver: $(srcdir)/bin/sxserver.in Makefile
+sbin/sxserver: $(srcdir)/sbin/sxserver.in Makefile
 	rm -f $@ $@.tmp
-	$(edit) $(srcdir)/bin/sxserver.in >$@.tmp
+	$(edit) $(srcdir)/sbin/sxserver.in >$@.tmp
 	mv $@.tmp $@
-bin/sxsetup: $(srcdir)/bin/sxsetup.in Makefile
+sbin/sxsetup: $(srcdir)/sbin/sxsetup.in Makefile
 	rm -f $@ $@.tmp
-	$(edit) $(srcdir)/bin/sxsetup.in >$@.tmp
+	$(edit) $(srcdir)/sbin/sxsetup.in >$@.tmp
 	mv $@.tmp $@
 logrotate.d/sxserver: $(srcdir)/logrotate.d/sxserver.in Makefile
 	rm -f $@ $@.tmp
