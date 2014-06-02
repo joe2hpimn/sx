@@ -171,7 +171,7 @@ else
     SQLITE3_LIBS="../3rdparty/libsqlite3/libsqlite3.la"
 fi
 
-AC_CONFIG_FILES([Makefile])
+AC_CONFIG_FILES([Makefile sxscripts/Makefile])
 AC_OUTPUT
 
 AC_MSG_NOTICE([Summary])

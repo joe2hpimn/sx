@@ -14228,7 +14228,7 @@ else
     SQLITE3_LIBS="../3rdparty/libsqlite3/libsqlite3.la"
 fi
 
-ac_config_files="$ac_config_files Makefile"
+ac_config_files="$ac_config_files Makefile sxscripts/Makefile"
 
 cat >confcache <<\_ACEOF
 # This file is a shell script that caches the results of configure
@@ -15249,6 +15249,7 @@ do
     "libtool") CONFIG_COMMANDS="$CONFIG_COMMANDS libtool" ;;
     "config.h") CONFIG_HEADERS="$CONFIG_HEADERS config.h" ;;
     "Makefile") CONFIG_FILES="$CONFIG_FILES Makefile" ;;
+    "sxscripts/Makefile") CONFIG_FILES="$CONFIG_FILES sxscripts/Makefile" ;;
 
   *) as_fn_error $? "invalid argument: \`$ac_config_target'" "$LINENO" 5;;
   esac

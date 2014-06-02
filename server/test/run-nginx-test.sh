@@ -29,10 +29,10 @@ edit () {
     "$1" >"$2"
 }
 
-edit ../3rdparty/sxhttpd/sxserver/sxhttpd.conf.default.in "$prefix/etc/sxserver/sxhttpd.conf"
-edit ../3rdparty/sxhttpd/bin/sxserver.in "$prefix/sbin/sxserver"
+edit sxscripts/sxserver/sxhttpd.conf.default.in "$prefix/etc/sxserver/sxhttpd.conf"
+edit sxscripts/bin/sxserver.in "$prefix/sbin/sxserver"
 chmod +x "$prefix/sbin/sxserver"
-cp ../3rdparty/sxhttpd/sxserver/fastcgi_params "$prefix/etc/sxserver/fastcgi_params"
+cp sxscripts/sxserver/fastcgi_params "$prefix/etc/sxserver/fastcgi_params"
 
 ln -s `pwd`/../client/src/tools/init/sxinit "$prefix/bin/sxinit"
 ln -s `pwd`/src/tools/sxadm/sxadm "$prefix/sbin/sxadm"

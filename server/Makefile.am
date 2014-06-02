@@ -1,5 +1,5 @@
 ACLOCAL_AMFLAGS = -I m4 -I /usr/share/aclocal
-
+SUBDIRS = sxscripts
 AM_CPPFLAGS += -I $(top_srcdir)/../libsx/include -I $(top_srcdir)/src/common -I $(top_srcdir)/../
 SX_CPPFLAGS=-DDEFAULT_FCGI_CFGFILE=\"$(sysconfdir)/sxserver/sxfcgi.conf\"
 
