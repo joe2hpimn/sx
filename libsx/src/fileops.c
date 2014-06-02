@@ -1365,7 +1365,7 @@ static int multi_part_upload_ev(struct file_upload_ctx *yctx)
     }
 
     /* Check if upload is necessary */
-    if(yctx->pos == yctx->end) {
+    if(yctx->pos == yctx->end && yctx->size) {
         return 0;
     }
     do {
@@ -1842,14 +1842,13 @@ static int local_to_remote_begin(sxc_file_t *source, sxc_meta_t *fmeta, sxc_file
     xfer_stat = sxi_cluster_get_xfer_stat(dest->cluster);
     if(xfer_stat) {
         if(sxi_xfer_set_file(xfer_stat, source->path, state.size, SXC_XFER_DIRECTION_UPLOAD)) {
-            SXDEBUG("Could not set transfer information to file %s", source->path);
-            sxi_seterr(sx, SXE_EARG, "Could not set transfer information to file %s", source->path);
+            sxi_notice(sx, "Could not set transfer information to file %s", source->path);
             goto local_to_remote_err;
         }
         xfer_cb = sxc_cluster_get_progress_cb(dest->cluster);
         if(!xfer_cb) {
-            SXDEBUG("Could not get transfer callback from cluster");
-            sxi_seterr(sx, SXE_EARG, "Could not get transfer callback from cluster");
+            /* This situation should not happen, when xfer_stat is set, then callback should be set too */
+            sxi_notice(sx, "Could not get transfer callback from cluster");
             goto local_to_remote_err;
         } else {
             xfer_cb(xfer_stat);
@@ -1867,8 +1866,7 @@ static int local_to_remote_begin(sxc_file_t *source, sxc_meta_t *fmeta, sxc_file
     if(xfer_stat) {
         if(!xfer_cb) {
             /* This should not happen, if user set callback, xfer_stat should not be NULL */
-            SXDEBUG("Could not get progress callback from cluster");
-            sxi_seterr(sx, SXE_EARG, "Could not get progress callback from cluster");
+            sxi_notice(sx, "Could not get transfer callback from cluster");
             goto local_to_remote_err;
         } else {
             /* Upload process is waiting for job to finish */
@@ -3335,16 +3333,14 @@ static int remote_to_local(sxc_file_t *source, sxc_file_t *dest) {
         if(xfer_stat) {
             /* Set information about new file download */
             if(sxi_xfer_set_file(xfer_stat, source->path, filesize, SXC_XFER_DIRECTION_DOWNLOAD)) {
-                SXDEBUG("Could not set transfer file to %s", dstname);
-                sxi_seterr(sx, SXE_EARG, "Failed to set cluster transfer file info");
+                sxi_notice(sx, "Could not set transfer information to file %s", dstname);
                 fail = 1;
                 break;
             }
 
             xfer_cb = sxc_cluster_get_progress_cb(source->cluster);
             if(!xfer_cb) {
-                SXDEBUG("Could not get transfer callback from cluster");
-                sxi_seterr(sx, SXE_EARG, "Could not get transfer callback from cluster");
+                sxi_notice(sx, "Could not get transfer callback from cluster");
                 fail = 1;
                 break;
             } else {
@@ -3360,8 +3356,7 @@ static int remote_to_local(sxc_file_t *source, sxc_file_t *dest) {
             if(xfer_cb) {
                 xfer_cb(xfer_stat);
             } else {
-                SXDEBUG("Could not call transfer callback for cluster");
-                sxi_seterr(sx, SXE_EARG, "Could not call transfer callback for cluster");
+                sxi_notice(sx, "Could not get transfer callback from cluster");
                 fail = 1;
                 break;
             }
@@ -4077,8 +4072,7 @@ int sxc_copy(sxc_file_t *source, sxc_file_t *dest, int recursive) {
         xfer_cb = sxc_cluster_get_progress_cb(remote_cluster);
         if(!xfer_cb) {
             /* This situation should not happen, when xfer_stat is set, then callback should be set too */
-            SXDEBUG("Could not get progress callback from cluster");
-            sxi_seterr(sx, SXE_EARG, "Could not get progress callback from cluster");
+            sxi_notice(sx, "Could not get transfer callback from cluster");
             ret = 1;
         } else {
             xfer_stat->status = (ret ? SXC_XFER_STATUS_FINISHED_ERROR : SXC_XFER_STATUS_FINISHED);
