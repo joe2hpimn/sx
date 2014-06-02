@@ -63,7 +63,7 @@ cleanup () {
     "$prefix/sbin/sxserver" stop
     rm -rf $prefix
 }
-sed -e "s|/sx.fcgi|\0 --config-file $prefix/etc/sxserver/sxfcgi.conf|" $prefix/sbin/sxserver >$prefix/sbin/sxserver.1
+sed -e "s|/sx.fcgi|/sx.fcgi --config-file $prefix/etc/sxserver/sxfcgi.conf|" $prefix/sbin/sxserver >$prefix/sbin/sxserver.1
 mv $prefix/sbin/sxserver.1 $prefix/sbin/sxserver && chmod +x $prefix/sbin/sxserver
 "$prefix/sbin/sxserver" start
 
