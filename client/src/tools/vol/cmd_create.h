@@ -39,21 +39,21 @@ struct create_args_info
 {
   const char *help_help; /**< @brief Print help and exit help description.  */
   const char *version_help; /**< @brief Print version and exit help description.  */
-  char * size_arg;	/**< @brief Set the size of the new volume (allows k,m,g,t suffixes) (default='10G').  */
-  char * size_orig;	/**< @brief Set the size of the new volume (allows k,m,g,t suffixes) original value given at command line.  */
-  const char *size_help; /**< @brief Set the size of the new volume (allows k,m,g,t suffixes) help description.  */
   int replica_arg;	/**< @brief Set the replica count of the volume (mandatory).  */
   char * replica_orig;	/**< @brief Set the replica count of the volume (mandatory) original value given at command line.  */
   const char *replica_help; /**< @brief Set the replica count of the volume (mandatory) help description.  */
-  char * filter_arg;	/**< @brief Use filter 'NAME' for the new volume.  */
-  char * filter_orig;	/**< @brief Use filter 'NAME' for the new volume original value given at command line.  */
-  const char *filter_help; /**< @brief Use filter 'NAME' for the new volume help description.  */
-  char * config_dir_arg;	/**< @brief Path to SX configuration directory.  */
-  char * config_dir_orig;	/**< @brief Path to SX configuration directory original value given at command line.  */
-  const char *config_dir_help; /**< @brief Path to SX configuration directory help description.  */
   char * owner_arg;	/**< @brief Create new volume owned by specified user (mandatory).  */
   char * owner_orig;	/**< @brief Create new volume owned by specified user (mandatory) original value given at command line.  */
   const char *owner_help; /**< @brief Create new volume owned by specified user (mandatory) help description.  */
+  char * filter_arg;	/**< @brief Use filter 'NAME' for the new volume.  */
+  char * filter_orig;	/**< @brief Use filter 'NAME' for the new volume original value given at command line.  */
+  const char *filter_help; /**< @brief Use filter 'NAME' for the new volume help description.  */
+  char * size_arg;	/**< @brief Set the size of the new volume (allows k,m,g,t suffixes) (default='10G').  */
+  char * size_orig;	/**< @brief Set the size of the new volume (allows k,m,g,t suffixes) original value given at command line.  */
+  const char *size_help; /**< @brief Set the size of the new volume (allows k,m,g,t suffixes) help description.  */
+  char * config_dir_arg;	/**< @brief Path to SX configuration directory.  */
+  char * config_dir_orig;	/**< @brief Path to SX configuration directory original value given at command line.  */
+  const char *config_dir_help; /**< @brief Path to SX configuration directory help description.  */
   char * filter_dir_arg;	/**< @brief Path to SX filter directory.  */
   char * filter_dir_orig;	/**< @brief Path to SX filter directory original value given at command line.  */
   const char *filter_dir_help; /**< @brief Path to SX filter directory help description.  */
@@ -62,11 +62,11 @@ struct create_args_info
   
   unsigned int help_given ;	/**< @brief Whether help was given.  */
   unsigned int version_given ;	/**< @brief Whether version was given.  */
-  unsigned int size_given ;	/**< @brief Whether size was given.  */
   unsigned int replica_given ;	/**< @brief Whether replica was given.  */
-  unsigned int filter_given ;	/**< @brief Whether filter was given.  */
-  unsigned int config_dir_given ;	/**< @brief Whether config-dir was given.  */
   unsigned int owner_given ;	/**< @brief Whether owner was given.  */
+  unsigned int filter_given ;	/**< @brief Whether filter was given.  */
+  unsigned int size_given ;	/**< @brief Whether size was given.  */
+  unsigned int config_dir_given ;	/**< @brief Whether config-dir was given.  */
   unsigned int filter_dir_given ;	/**< @brief Whether filter-dir was given.  */
   unsigned int debug_given ;	/**< @brief Whether debug was given.  */
 

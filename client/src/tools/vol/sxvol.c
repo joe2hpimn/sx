@@ -336,12 +336,17 @@ int main(int argc, char **argv) {
     }
 
     if(argc < 2) {
-	printf("No command specified (see 'sxvol --help')\n");
+	main_cmdline_parser_print_help();
+	fprintf(stderr, "ERROR: No command specified\n");
 	return 1;
     }
 
     if(!strcmp(argv[1], "create")) {
 	if(create_cmdline_parser(argc - 1, &argv[1], &create_args)) {
+	    printf("\n");
+	    create_cmdline_parser_print_help();
+	    printf("\n");
+	    fprintf(stderr, "ERROR: Invalid syntax or usage\n");
 	    ret = 1;
 	    goto main_err;
 	}
@@ -352,7 +357,9 @@ int main(int argc, char **argv) {
 	}
 
 	if(create_args.inputs_num != 1) {
-	    fprintf(stderr, "ERROR: Invalid number of arguments (see 'sxvol create --help')\n");
+	    create_cmdline_parser_print_help();
+	    printf("\n");
+	    fprintf(stderr, "ERROR: Invalid number of arguments\n");
 	    create_cmdline_parser_free(&create_args);
 	    ret = 1;
 	    goto main_err;
@@ -377,13 +384,18 @@ int main(int argc, char **argv) {
 
     } else if(!strcmp(argv[1], "filter")) {
 	if(argc < 3) {
-	    fprintf(stderr, "ERROR: No option given (see 'sxvol filter --help')\n");
+	    filter_cmdline_parser_print_help();
+	    printf("\n");
+	    fprintf(stderr, "ERROR: No option given\n");
 	    ret = 1;
 	    goto main_err;
 	}
 
 	if(filter_cmdline_parser(argc - 1, &argv[1], &filter_args)) {
 	    ret = 1;
+	    filter_cmdline_parser_print_help();
+	    printf("\n");
+	    fprintf(stderr, "ERROR: Invalid syntax or usage\n");
 	    goto main_err;
 	}
 
@@ -411,7 +423,9 @@ int main(int argc, char **argv) {
 	else if(filter_args.info_given)
 	    ret = filter_info(sx, filter_args.info_arg);
 	else {
-	    fprintf(stderr, "ERROR: Invalid arguments (see 'sxvol filter --help')\n");
+	    filter_cmdline_parser_print_help();
+	    printf("\n");
+	    fprintf(stderr, "ERROR: Invalid arguments\n");
 	    ret = 1;
 	    goto main_err;
 	}

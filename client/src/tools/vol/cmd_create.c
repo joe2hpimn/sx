@@ -27,7 +27,7 @@
 
 const char *create_args_info_purpose = "";
 
-const char *create_args_info_usage = "Usage: sxvol create [OPTIONS] --replica=n --owner=username sx://[profile@]cluster/NAME";
+const char *create_args_info_usage = "Usage: sxvol create [OPTIONS] --replica=n --owner=username\nsx://[profile@]cluster/VOLUMENAME";
 
 const char *create_args_info_versiontext = "";
 
@@ -37,12 +37,12 @@ const char *create_args_info_help[] = {
   "  -h, --help             Print help and exit",
   "  -V, --version          Print version and exit",
   "\nVolume create options:\n",
-  "  -s, --size=STRING      Set the size of the new volume (allows k,m,g,t\n                           suffixes)  (default=`10G')",
   "  -r, --replica=INT      Set the replica count of the volume (mandatory)",
+  "  -o, --owner=STRING     Create new volume owned by specified user (mandatory)",
   "  -f, --filter=NAME      Use filter 'NAME' for the new volume",
+  "  -s, --size=STRING      Set the size of the new volume (allows k,m,g,t\n                           suffixes)  (default=`10G')",
   "\nAdditional options:\n",
   "  -c, --config-dir=PATH  Path to SX configuration directory",
-  "  -o, --owner=STRING     Create new volume owned by specified user (mandatory)",
   "      --filter-dir=PATH  Path to SX filter directory",
   "  -D, --debug            Enable debug messages  (default=off)",
     0
@@ -74,11 +74,11 @@ void clear_given (struct create_args_info *args_info)
 {
   args_info->help_given = 0 ;
   args_info->version_given = 0 ;
-  args_info->size_given = 0 ;
   args_info->replica_given = 0 ;
-  args_info->filter_given = 0 ;
-  args_info->config_dir_given = 0 ;
   args_info->owner_given = 0 ;
+  args_info->filter_given = 0 ;
+  args_info->size_given = 0 ;
+  args_info->config_dir_given = 0 ;
   args_info->filter_dir_given = 0 ;
   args_info->debug_given = 0 ;
 }
@@ -87,15 +87,15 @@ static
 void clear_args (struct create_args_info *args_info)
 {
   FIX_UNUSED (args_info);
-  args_info->size_arg = gengetopt_strdup ("10G");
-  args_info->size_orig = NULL;
   args_info->replica_orig = NULL;
-  args_info->filter_arg = NULL;
-  args_info->filter_orig = NULL;
-  args_info->config_dir_arg = NULL;
-  args_info->config_dir_orig = NULL;
   args_info->owner_arg = NULL;
   args_info->owner_orig = NULL;
+  args_info->filter_arg = NULL;
+  args_info->filter_orig = NULL;
+  args_info->size_arg = gengetopt_strdup ("10G");
+  args_info->size_orig = NULL;
+  args_info->config_dir_arg = NULL;
+  args_info->config_dir_orig = NULL;
   args_info->filter_dir_arg = NULL;
   args_info->filter_dir_orig = NULL;
   args_info->debug_flag = 0;
@@ -109,11 +109,11 @@ void init_args_info(struct create_args_info *args_info)
 
   args_info->help_help = create_args_info_help[0] ;
   args_info->version_help = create_args_info_help[1] ;
-  args_info->size_help = create_args_info_help[3] ;
-  args_info->replica_help = create_args_info_help[4] ;
+  args_info->replica_help = create_args_info_help[3] ;
+  args_info->owner_help = create_args_info_help[4] ;
   args_info->filter_help = create_args_info_help[5] ;
-  args_info->config_dir_help = create_args_info_help[7] ;
-  args_info->owner_help = create_args_info_help[8] ;
+  args_info->size_help = create_args_info_help[6] ;
+  args_info->config_dir_help = create_args_info_help[8] ;
   args_info->filter_dir_help = create_args_info_help[9] ;
   args_info->debug_help = create_args_info_help[10] ;
   
@@ -202,15 +202,15 @@ static void
 create_cmdline_parser_release (struct create_args_info *args_info)
 {
   unsigned int i;
-  free_string_field (&(args_info->size_arg));
-  free_string_field (&(args_info->size_orig));
   free_string_field (&(args_info->replica_orig));
-  free_string_field (&(args_info->filter_arg));
-  free_string_field (&(args_info->filter_orig));
-  free_string_field (&(args_info->config_dir_arg));
-  free_string_field (&(args_info->config_dir_orig));
   free_string_field (&(args_info->owner_arg));
   free_string_field (&(args_info->owner_orig));
+  free_string_field (&(args_info->filter_arg));
+  free_string_field (&(args_info->filter_orig));
+  free_string_field (&(args_info->size_arg));
+  free_string_field (&(args_info->size_orig));
+  free_string_field (&(args_info->config_dir_arg));
+  free_string_field (&(args_info->config_dir_orig));
   free_string_field (&(args_info->filter_dir_arg));
   free_string_field (&(args_info->filter_dir_orig));
   
@@ -252,16 +252,16 @@ create_cmdline_parser_dump(FILE *outfile, struct create_args_info *args_info)
     write_into_file(outfile, "help", 0, 0 );
   if (args_info->version_given)
     write_into_file(outfile, "version", 0, 0 );
-  if (args_info->size_given)
-    write_into_file(outfile, "size", args_info->size_orig, 0);
   if (args_info->replica_given)
     write_into_file(outfile, "replica", args_info->replica_orig, 0);
-  if (args_info->filter_given)
-    write_into_file(outfile, "filter", args_info->filter_orig, 0);
-  if (args_info->config_dir_given)
-    write_into_file(outfile, "config-dir", args_info->config_dir_orig, 0);
   if (args_info->owner_given)
     write_into_file(outfile, "owner", args_info->owner_orig, 0);
+  if (args_info->filter_given)
+    write_into_file(outfile, "filter", args_info->filter_orig, 0);
+  if (args_info->size_given)
+    write_into_file(outfile, "size", args_info->size_orig, 0);
+  if (args_info->config_dir_given)
+    write_into_file(outfile, "config-dir", args_info->config_dir_orig, 0);
   if (args_info->filter_dir_given)
     write_into_file(outfile, "filter-dir", args_info->filter_dir_orig, 0);
   if (args_info->debug_given)
@@ -538,17 +538,17 @@ create_cmdline_parser_internal (
       static struct option long_options[] = {
         { "help",	0, NULL, 'h' },
         { "version",	0, NULL, 'V' },
-        { "size",	1, NULL, 's' },
         { "replica",	1, NULL, 'r' },
-        { "filter",	1, NULL, 'f' },
-        { "config-dir",	1, NULL, 'c' },
         { "owner",	1, NULL, 'o' },
+        { "filter",	1, NULL, 'f' },
+        { "size",	1, NULL, 's' },
+        { "config-dir",	1, NULL, 'c' },
         { "filter-dir",	1, NULL, 0 },
         { "debug",	0, NULL, 'D' },
         { 0,  0, 0, 0 }
       };
 
-      c = getopt_long (argc, argv, "hVs:r:f:c:o:D", long_options, &option_index);
+      c = getopt_long (argc, argv, "hVr:o:f:s:c:D", long_options, &option_index);
 
       if (c == -1) break;	/* Exit from `while (1)' loop.  */
 
@@ -573,18 +573,6 @@ create_cmdline_parser_internal (
           return 0;
         
           break;
-        case 's':	/* Set the size of the new volume (allows k,m,g,t suffixes).  */
-        
-        
-          if (update_arg( (void *)&(args_info->size_arg), 
-               &(args_info->size_orig), &(args_info->size_given),
-              &(local_args_info.size_given), optarg, 0, "10G", ARG_STRING,
-              check_ambiguity, override, 0, 0,
-              "size", 's',
-              additional_error))
-            goto failure;
-        
-          break;
         case 'r':	/* Set the replica count of the volume (mandatory).  */
         
         
@@ -593,6 +581,18 @@ create_cmdline_parser_internal (
               &(local_args_info.replica_given), optarg, 0, 0, ARG_INT,
               check_ambiguity, override, 0, 0,
               "replica", 'r',
+              additional_error))
+            goto failure;
+        
+          break;
+        case 'o':	/* Create new volume owned by specified user (mandatory).  */
+        
+        
+          if (update_arg( (void *)&(args_info->owner_arg), 
+               &(args_info->owner_orig), &(args_info->owner_given),
+              &(local_args_info.owner_given), optarg, 0, 0, ARG_STRING,
+              check_ambiguity, override, 0, 0,
+              "owner", 'o',
               additional_error))
             goto failure;
         
@@ -609,6 +609,18 @@ create_cmdline_parser_internal (
             goto failure;
         
           break;
+        case 's':	/* Set the size of the new volume (allows k,m,g,t suffixes).  */
+        
+        
+          if (update_arg( (void *)&(args_info->size_arg), 
+               &(args_info->size_orig), &(args_info->size_given),
+              &(local_args_info.size_given), optarg, 0, "10G", ARG_STRING,
+              check_ambiguity, override, 0, 0,
+              "size", 's',
+              additional_error))
+            goto failure;
+        
+          break;
         case 'c':	/* Path to SX configuration directory.  */
         
         
@@ -617,18 +629,6 @@ create_cmdline_parser_internal (
               &(local_args_info.config_dir_given), optarg, 0, 0, ARG_STRING,
               check_ambiguity, override, 0, 0,
               "config-dir", 'c',
-              additional_error))
-            goto failure;
-        
-          break;
-        case 'o':	/* Create new volume owned by specified user (mandatory).  */
-        
-        
-          if (update_arg( (void *)&(args_info->owner_arg), 
-               &(args_info->owner_orig), &(args_info->owner_given),
-              &(local_args_info.owner_given), optarg, 0, 0, ARG_STRING,
-              check_ambiguity, override, 0, 0,
-              "owner", 'o',
               additional_error))
             goto failure;
         
