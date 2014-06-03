@@ -36,7 +36,10 @@
 #include <ctype.h>
 #include <sys/ioctl.h>
 #include <sys/time.h>
+#include <sys/types.h>
+#include <sys/stat.h>
 #include <time.h>
+#include <errno.h>
 
 #include "sx.h"
 #include "cmdline.h"
@@ -570,7 +573,7 @@ static int process_bandwidth_arg(const char *str) {
 }
 
 int main(int argc, char **argv) {
-    int ret = 1, i;
+    int ret = 1, i, skipped = 0;
     sxc_file_t *src_file = NULL, *dst_file = NULL;
     const char *fname;
     char *filter_dir;
@@ -662,8 +665,27 @@ int main(int argc, char **argv) {
 
     for(i = 0;i < args.inputs_num-1; i++) {
         fname = args.inputs[i];
-        if(!strcmp(fname, "-"))
+        if(!strcmp(fname, "-")) {
             fname = "/dev/stdin";
+	} else {
+	    struct stat sb;
+	    if(access(fname, R_OK)) {
+		fprintf(stderr, "Cannot access %s: %s\n", fname, strerror(errno));
+		skipped++;
+		continue;
+	    }
+	    if(stat(fname, &sb)) {
+		fprintf(stderr, "Cannot stat %s: %s\n", fname, strerror(errno));
+		skipped++;
+		continue;
+	    }
+	    if(S_ISDIR(sb.st_mode) && !args.recursive_flag) {
+		fprintf(stderr, "Cannot copy directory %s: use -r to copy recursively\n", fname);
+		skipped++;
+		continue;
+	    }
+	}
+
         if(!(src_file = sxfile_from_arg(&cluster2, fname)))
             goto main_err;
 
@@ -686,8 +708,8 @@ int main(int argc, char **argv) {
         sxc_file_free(src_file);
         src_file = NULL;
     }
-    
-    ret = 0;
+
+    ret = skipped ? 1 : 0;
 
  main_err:
     bar_free();

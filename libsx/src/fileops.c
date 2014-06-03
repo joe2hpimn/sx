@@ -1643,7 +1643,7 @@ static int local_to_remote_begin(sxc_file_t *source, sxc_meta_t *fmeta, sxc_file
     }
 
     if(S_ISDIR(st.st_mode)) {
-        sxi_seterr(sx, SXE_EARG, "Path '%s' is a directory, use -r", source->path);
+        sxi_seterr(sx, SXE_EARG, "Path '%s' is a directory and recursive mode is not enabled", source->path);
         goto local_to_remote_err;
     }
 
