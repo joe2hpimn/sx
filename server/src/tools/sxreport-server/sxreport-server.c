@@ -521,6 +521,8 @@ int main(int argc, char **argv) {
         fclose(out);
         fclose(logfile_in);
 	unlink(oname);
+	if(args.output_given && !rename(name, oname))
+	    strncpy(name, oname, sizeof(name));
     }
     if (fcgi_args_parsed)
         cmdline_parser_free(&fcgi_args);
