@@ -6694,7 +6694,7 @@ rc_ty sx_hashfs_gc_run(sx_hashfs_t *h, int *terminate)
     if (!db)
         return FAIL_EINTERNAL;
     int has_begun = 0;
-    do {
+    while(0) {
         int r;
         /* GC only hashes that didn't have the counters changed in last periodic
          * iteration to avoid race conditions */
@@ -6750,7 +6750,7 @@ rc_ty sx_hashfs_gc_run(sx_hashfs_t *h, int *terminate)
             break;
         INFO("GC freed %d hashes", n);
         ret = OK;
-    } while(0);
+    }
     if (has_begun && ret)
         qrollback(db);
     qnullify(q);
