@@ -55,13 +55,13 @@ static int list_clusters(sxc_client_t *sx, const char *config_dir) {
 
     confdir = sxc_get_confdir(sx);
     if(!confdir){
-        fprintf(stderr, "Could not locate configuration directory\n");
+        fprintf(stderr, "ERROR: Could not locate configuration directory\n");
         return 1;
     }
 
     clusters_dir = opendir(confdir);
     if(!clusters_dir) {
-        fprintf(stderr, "Could not open %s directory\n", confdir);
+        fprintf(stderr, "ERROR: Could not open %s directory\n", confdir);
         return 1;
     }
 
@@ -74,7 +74,7 @@ static int list_clusters(sxc_client_t *sx, const char *config_dir) {
         auth_dir_len = strlen(confdir) + strlen(cluster_dirent->d_name) + strlen("/auth") + 2;
         auth_dir_name = malloc(auth_dir_len);
         if(!auth_dir_name) {
-            fprintf(stderr, "Could not allocate memory for auth directory\n");
+            fprintf(stderr, "ERROR: Could not allocate memory for auth directory\n");
             break;
         }
         snprintf(auth_dir_name, auth_dir_len, "%s/%s/auth", confdir, cluster_dirent->d_name);
@@ -93,7 +93,7 @@ static int list_clusters(sxc_client_t *sx, const char *config_dir) {
                     /* Left is prepared separately because we want to justify ouptut */
                     char *left = malloc(left_len);
                     if(!left) {
-                        fprintf(stderr, "Could not allocate memory\n");
+                        fprintf(stderr, "ERROR: Could not allocate memory\n");
                         break;
                     }
 		    if(!strcmp(profile_dirent->d_name, "default"))
@@ -138,7 +138,9 @@ int main(int argc, char **argv) {
     /* Check if sx://profile@cluster/ or --list option is given but bot both */
     if((args.inputs_num != 1 && !args.list_given)
         || (args.inputs_num == 1 && args.list_given)) {
-	fprintf(stderr, "Wrong number of arguments (see --help)\n");
+	cmdline_parser_print_help();
+	printf("\n");
+	fprintf(stderr, "ERROR: Wrong number of arguments\n");
 	goto init_err;
     }
 
@@ -146,12 +148,12 @@ int main(int argc, char **argv) {
     signal(SIGTERM, sighandler);
 
     if(!(sx = sxc_init(SRC_VERSION, sxc_default_logger(&log, argv[0]), sxi_yesno))) {
-        fprintf(stderr, "Failed to initialize SX\n");
+        fprintf(stderr, "ERROR: Failed to initialize SX\n");
 	goto init_err;
     }
 
     if(args.config_dir_given && sxc_set_confdir(sx, args.config_dir_arg)) {
-        fprintf(stderr, "Could not set configuration directory %s: %s\n", args.config_dir_arg, sxc_geterrmsg(sx));
+        fprintf(stderr, "ERROR: Could not set configuration directory %s: %s\n", args.config_dir_arg, sxc_geterrmsg(sx));
         goto init_err;
     }
     sxc_set_debug(sx, args.debug_flag);
@@ -164,7 +166,7 @@ int main(int argc, char **argv) {
 
     u = sxc_parse_uri(sx, args.inputs[0]);
     if(!u) {
-	fprintf(stderr, "Invalid SX URI %s\n", args.inputs[0]);
+	fprintf(stderr, "ERROR: Invalid SX URI %s\n", args.inputs[0]);
 	goto init_err;
     }
 
@@ -173,12 +175,12 @@ int main(int argc, char **argv) {
         alias = args.alias_arg;
 
         if(strncmp(alias, SXC_ALIAS_PREFIX, lenof(SXC_ALIAS_PREFIX))) {
-             fprintf(stderr, "Bad alias name: it must start with %s\n", SXC_ALIAS_PREFIX);
+             fprintf(stderr, "ERROR: Bad alias name: it must start with %s\n", SXC_ALIAS_PREFIX);
              goto init_err;
         }
 
         if(strlen(alias) <= lenof(SXC_ALIAS_PREFIX)) {
-             fprintf(stderr, "Bad alias name: Alias name is too short\n");
+             fprintf(stderr, "ERROR: Bad alias name: Alias name is too short\n");
              goto init_err;
         }
     }
@@ -190,12 +192,12 @@ int main(int argc, char **argv) {
 	cluster = sxc_cluster_new(sx);
 
     if(!cluster) {
-	fprintf(stderr, "Cannot initialize new cluster: %s\n", sxc_geterrmsg(sx));
+	fprintf(stderr, "ERROR: Cannot initialize new cluster: %s\n", sxc_geterrmsg(sx));
 	goto init_err;
     }
 
     if(sxc_cluster_set_sslname(cluster, u->host)) {
-        fprintf(stderr, "Cannot initialize new cluster: %s\n", sxc_geterrmsg(sx));
+        fprintf(stderr, "ERROR: Cannot initialize new cluster: %s\n", sxc_geterrmsg(sx));
         goto init_err;
     }
 
@@ -204,7 +206,7 @@ int main(int argc, char **argv) {
 	char *this_host = args.host_list_arg, *next_host;
 
 	if(sxc_cluster_set_dnsname(cluster, NULL)) {
-	    fprintf(stderr, "Cannot set cluster DNS-less flag: %s\n", sxc_geterrmsg(sx));
+	    fprintf(stderr, "ERROR: Cannot set cluster DNS-less flag: %s\n", sxc_geterrmsg(sx));
 	    goto init_err;
 	}
 
@@ -215,7 +217,7 @@ int main(int argc, char **argv) {
 		next_host++;
 	    }
 	    if(sxc_cluster_add_host(cluster, this_host)) {
-		fprintf(stderr, "Cannot add %s to cluster nodes: %s\n", this_host, sxc_geterrmsg(sx));
+		fprintf(stderr, "ERROR: Cannot add %s to cluster nodes: %s\n", this_host, sxc_geterrmsg(sx));
 		goto init_err;
 	    }
 	    this_host = next_host;
@@ -223,26 +225,26 @@ int main(int argc, char **argv) {
     } else {
 	/* DNS based cluster */
 	if(sxc_cluster_set_dnsname(cluster, u->host)) {
-	    fprintf(stderr, "Cannot set cluster DNS name to %s: %s\n", u->host, sxc_geterrmsg(sx));
+	    fprintf(stderr, "ERROR: Cannot set cluster DNS name to %s: %s\n", u->host, sxc_geterrmsg(sx));
 	    goto init_err;
 	}
     }
 
     if(args.port_given && sxc_cluster_set_httpport(cluster, args.port_arg)) {
-	fprintf(stderr, "Failed to configure cluster communication port\n");
+	fprintf(stderr, "ERROR: Failed to configure cluster communication port\n");
 	    goto init_err;
     }
 
     if(args.no_ssl_flag) {
 	/* NON-SSL cluster */
 	if(sxc_cluster_set_cafile(cluster, NULL)) {
-	    fprintf(stderr, "Failed to configure cluster security\n");
+	    fprintf(stderr, "ERROR: Failed to configure cluster security\n");
 	    goto init_err;
 	}
     } else {
 	/* SSL cluster */
 	if(sxc_cluster_fetch_ca(cluster, args.batch_mode_flag)) {
-            fprintf(stderr, "Failed to fetch cluster CA: %s\n", sxc_geterrmsg(sx));
+            fprintf(stderr, "ERROR: Failed to fetch cluster CA: %s\n", sxc_geterrmsg(sx));
 	    goto init_err;
         }
     }
@@ -250,7 +252,7 @@ int main(int argc, char **argv) {
     if(args.auth_file_given && strcmp(args.auth_file_arg, "-")) {
 	FILE *f = fopen(args.auth_file_arg, "r");
 	if(!f) {
-	    fprintf(stderr, "Failed to open key file %s\n", args.auth_file_arg);
+	    fprintf(stderr, "ERROR: Failed to open key file %s\n", args.auth_file_arg);
 	    goto init_err;
 	}
 	token = fgets(tok_buf, sizeof(tok_buf), f);
@@ -261,7 +263,7 @@ int main(int argc, char **argv) {
     }
 
     if(!token) {
-	fprintf(stderr, "Failed to read user key\n");
+	fprintf(stderr, "ERROR: Failed to read user key\n");
 	goto init_err;
     }
 
@@ -270,30 +272,30 @@ int main(int argc, char **argv) {
 	token[toklen] = '\0';
 
     if(!strncmp("CLUSTER/ALLNODE/ROOT/USER", token, lenof("CLUSTER/ALLNODE/ROOT/USER"))) {
-	fprintf(stderr, "The token provided is a cluster identificator and cannot be used for user authentication\n");
+	fprintf(stderr, "ERROR: The token provided is a cluster identificator and cannot be used for user authentication\n");
 	goto init_err;
     }
 
     if(sxc_cluster_add_access(cluster, u->profile, token) ||
        sxc_cluster_set_access(cluster, u->profile)) {
-	fprintf(stderr, "Failed to set profile authentication: %s\n", sxc_geterrmsg(sx));
+	fprintf(stderr, "ERROR: Failed to set profile authentication: %s\n", sxc_geterrmsg(sx));
 	goto init_err;
     }
 
     if(sxc_cluster_fetchnodes(cluster)) {
-	fprintf(stderr, "Failed to retrieve cluster members: %s\n", sxc_geterrmsg(sx));
+	fprintf(stderr, "ERROR: Failed to retrieve cluster members: %s\n", sxc_geterrmsg(sx));
 	goto init_err;
     }
 
     if(args.force_reinit_flag) {
 	if(sxc_cluster_remove(cluster, args.config_dir_arg)) {
-	    fprintf(stderr, "Failed to remove the existing access configuration: %s\n", sxc_geterrmsg(sx));
+	    fprintf(stderr, "ERROR: Failed to remove the existing access configuration: %s\n", sxc_geterrmsg(sx));
 	    goto init_err;
 	}
     }
 
     if(sxc_cluster_save(cluster, args.config_dir_arg)) {
-	fprintf(stderr, "Failed to save the access configuration: %s\n", sxc_geterrmsg(sx));
+	fprintf(stderr, "ERROR: Failed to save the access configuration: %s\n", sxc_geterrmsg(sx));
 	goto init_err;
     }
 
@@ -302,7 +304,7 @@ int main(int argc, char **argv) {
 
         /* Save alias into .aliases file. Alias variable was set before. */
         if(sxc_set_alias(sx, alias, u->profile, u->host)) {
-            fprintf(stderr, "Failed to set alias %s: %s\n", alias, sxc_geterrmsg(sx));
+            fprintf(stderr, "ERROR: Failed to set alias %s: %s\n", alias, sxc_geterrmsg(sx));
             goto init_err;
         }
     }

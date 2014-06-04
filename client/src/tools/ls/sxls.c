@@ -62,7 +62,7 @@ static int setup_filters(sxc_client_t *sx, const char *fdir)
 	    filter_dir = strdup(SX_FILTER_DIR);
     }
     if(!filter_dir) {
-		fprintf(stderr, "Failed to set filter dir\n");
+	fprintf(stderr, "ERROR: Failed to set filter dir\n");
     	free(filter_dir);
 	return 1;
     }
@@ -132,7 +132,9 @@ int main(int argc, char **argv) {
     }
 
     if(!args.inputs_num) {
-	fprintf(stderr, "Wrong number of arguments (see --help)\n");
+	cmdline_parser_print_help();
+	printf("\n");
+	fprintf(stderr, "ERROR: Wrong number of arguments (see --help)\n");
 	cmdline_parser_free(&args);
 	exit(1);
     }
@@ -146,7 +148,7 @@ int main(int argc, char **argv) {
     }
 
     if(args.config_dir_given && sxc_set_confdir(sx, args.config_dir_arg)) {
-        fprintf(stderr, "Could not set configuration directory %s: %s\n", args.config_dir_arg, sxc_geterrmsg(sx));
+        fprintf(stderr, "ERROR: Could not set configuration directory %s: %s\n", args.config_dir_arg, sxc_geterrmsg(sx));
         cmdline_parser_free(&args);
         return 1;
     }
@@ -164,14 +166,14 @@ int main(int argc, char **argv) {
     for(i = 0; i < args.inputs_num; i++) {
 	u = sxc_parse_uri(sx, args.inputs[i]);
 	if(!u) {
-	    fprintf(stderr, "Error parsing URI %s: %s\n", args.inputs[i], sxc_geterrmsg(sx));
+	    fprintf(stderr, "ERROR: Can't parse URI %s: %s\n", args.inputs[i], sxc_geterrmsg(sx));
 	    ret = 1;
 	    continue;
 	}
 
 	cluster = sxc_cluster_load_and_update(sx, args.config_dir_arg, u->host, u->profile);
 	if(!cluster) {
-	    fprintf(stderr, "Failed to load config for %s: %s\n", u->host, sxc_geterrmsg(sx));
+	    fprintf(stderr, "ERROR: Failed to load config for %s: %s\n", u->host, sxc_geterrmsg(sx));
 	    sxc_free_uri(u);
 	    ret = 1;
 	    continue;
@@ -187,7 +189,7 @@ int main(int argc, char **argv) {
 		    int n = sxc_cluster_listvolumes_next(fv, &vname, &vsize, &vreplica);
 		    if(n<=0) {
 			if(n)
-			    fprintf(stderr, "Failed to retrieve file name for %s\n", args.inputs[i]);
+			    fprintf(stderr, "ERROR: Failed to retrieve file name for %s\n", args.inputs[i]);
 			break;
 		    }
 
@@ -202,14 +204,14 @@ int main(int argc, char **argv) {
 
 			/* Initialize volume file structure */
 			if(!(volume_file = sxc_file_remote(cluster, vname, NULL))) {
-			    fprintf(stderr, "%s\n", "sxc_file_remote failed!\n");
+			    fprintf(stderr, "ERROR: sxc_file_remote() failed\n");
 			    free(vname);
 			    break;
 			}
 
 			/* Retrieve metainformation about volume */
 			if(!(vmeta = sxc_volumemeta_new(volume_file))) {
-			    fprintf(stderr, "Failed to retrieve meta information for %s\n", args.inputs[i]);
+			    fprintf(stderr, "ERROR: Failed to retrieve meta information for %s\n", args.inputs[i]);
 			    sxc_file_free(volume_file);
 			    free(vname);
 			    break;
@@ -264,7 +266,7 @@ int main(int argc, char **argv) {
 		    int n = sxc_cluster_listfiles_next(fl, &fname, &fsize, &ftime);
 		    if(n<=0) {
 			if(n)
-			    fprintf(stderr, "Failed to retrieve file name for %s\n", args.inputs[i]);
+			    fprintf(stderr, "ERROR: Failed to retrieve file name for %s\n", args.inputs[i]);
 			break;
 		    }
 

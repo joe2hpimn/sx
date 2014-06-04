@@ -67,7 +67,9 @@ int main(int argc, char **argv) {
     }
 
     if(!args.inputs_num) {
-	fprintf(stderr, "Wrong number of arguments (see --help)\n");
+	cmdline_parser_print_help();
+	printf("\n");
+	fprintf(stderr, "ERROR: Wrong number of arguments\n");
 	cmdline_parser_free(&args);
 	exit(1);
     }
@@ -81,7 +83,7 @@ int main(int argc, char **argv) {
     }
 
     if(args.config_dir_given && sxc_set_confdir(sx, args.config_dir_arg)) {
-        fprintf(stderr, "Could not set configuration directory %s: %s\n", args.config_dir_arg, sxc_geterrmsg(sx));
+        fprintf(stderr, "ERROR: Could not set configuration directory %s: %s\n", args.config_dir_arg, sxc_geterrmsg(sx));
         cmdline_parser_free(&args);
         return 1;
     }
@@ -93,22 +95,22 @@ int main(int argc, char **argv) {
         const char *url = args.inputs[i];
         sxc_file_t *target = sxc_file_from_url(sx, &cluster, args.config_dir_arg, url);
         if (!target) {
-            fprintf(stderr,"Error processing URL '%s': %s\n", url, sxc_geterrmsg(sx));
+            fprintf(stderr, "ERROR: Can't process URL '%s': %s\n", url, sxc_geterrmsg(sx));
             ret = 1;
             break;
         }
         if (!sxc_file_is_sx(target)) {
-            fprintf(stderr,"Will not remove local file '%s'\n", url);
+            fprintf(stderr, "WARNING: Will not remove local file '%s'\n", url);
             ret = 1;
         }
         if (sxc_file_list_add(lst, target, 1)) {
-            fprintf(stderr,"Cannot add file list entry '%s': %s\n", url, sxc_geterrmsg(sx));
+            fprintf(stderr, "ERROR: Cannot add file list entry '%s': %s\n", url, sxc_geterrmsg(sx));
             ret = 1;
             sxc_file_free(target);
         }
     }
     if (sxc_rm(lst)) {
-        fprintf(stderr,"Failed to remove file(s): %s\n", sxc_geterrmsg(sx));
+        fprintf(stderr, "ERROR: Failed to remove file(s): %s\n", sxc_geterrmsg(sx));
         ret = 1;
     }
     printf("Deleted %d file(s)\n", sxc_file_list_get_successful(lst));

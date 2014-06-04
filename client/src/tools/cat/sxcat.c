@@ -68,18 +68,18 @@ static sxc_file_t *sxfile_from_arg(sxc_cluster_t **cluster, const char *arg) {
 	sxc_uri_t *uri = sxc_parse_uri(sx, arg);
 
 	if(!uri) {
-	    fprintf(stderr, "Bad uri %s: %s\n", arg, sxc_geterrmsg(sx));
+	    fprintf(stderr, "ERROR: Bad uri %s: %s\n", arg, sxc_geterrmsg(sx));
 	    return NULL;
 	}
 	if(!uri->volume) {
-	    fprintf(stderr, "Bad path %s\n", arg);
+	    fprintf(stderr, "ERROR: Bad path %s\n", arg);
 	    sxc_free_uri(uri);
 	    return NULL;
 	}
 
 	*cluster = sxc_cluster_load_and_update(sx, args.config_dir_arg, uri->host, uri->profile);
 	if(!*cluster) {
-	    fprintf(stderr, "Failed to load config for %s: %s\n", uri->host, sxc_geterrmsg(sx));
+	    fprintf(stderr, "ERROR: Failed to load config for %s: %s\n", uri->host, sxc_geterrmsg(sx));
 	    sxc_free_uri(uri);
 	    return NULL;
 	}
@@ -94,7 +94,7 @@ static sxc_file_t *sxfile_from_arg(sxc_cluster_t **cluster, const char *arg) {
 	file = sxc_file_local(sx, arg);
 
     if(!file) {
-	fprintf(stderr, "Failed to create file object: %s\n", sxc_geterrmsg(sx));
+	fprintf(stderr, "ERROR: Failed to create file object: %s\n", sxc_geterrmsg(sx));
 	return NULL;
     }
 
@@ -119,6 +119,13 @@ int main(int argc, char **argv) {
 	exit(0);
     }
 
+    if(!args.inputs_num) {
+	cmdline_parser_print_help();
+	printf("\n");
+	fprintf(stderr, "ERROR: Wrong number of arguments\n");
+	return 1;
+    };
+
     signal(SIGINT, sighandler);
     signal(SIGTERM, sighandler);
 
@@ -128,7 +135,7 @@ int main(int argc, char **argv) {
     }
 
     if(args.config_dir_given && sxc_set_confdir(sx, args.config_dir_arg)) {
-        fprintf(stderr, "Could not set configuration directory %s: %s\n", args.config_dir_arg, sxc_geterrmsg(sx));
+        fprintf(stderr, "ERROR: Could not set configuration directory %s: %s\n", args.config_dir_arg, sxc_geterrmsg(sx));
         cmdline_parser_free(&args);
         return 1;
     }
@@ -144,7 +151,7 @@ int main(int argc, char **argv) {
 	    filter_dir = strdup(SX_FILTER_DIR);
     }
     if(!filter_dir) {
-	fprintf(stderr, "Failed to set filter dir\n");
+	fprintf(stderr, "ERROR: Failed to set filter dir\n");
 	cmdline_parser_free(&args);
 	return 1;
     }
@@ -158,7 +165,7 @@ int main(int argc, char **argv) {
 	}
 
 	if(sxc_cat(src_file, STDOUT_FILENO)) {
-	    fprintf(stderr, "Failed to stream %s: %s\n", args.inputs[i], sxc_geterrmsg(sx));
+	    fprintf(stderr, "ERROR: Failed to stream %s: %s\n", args.inputs[i], sxc_geterrmsg(sx));
 	    ret = 1;
 	}
 	sxc_file_free(src_file);

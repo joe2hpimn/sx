@@ -67,22 +67,22 @@ static int volume_acl(sxc_client_t *sx, const struct perm_args_info *args)
     const char *volname = args->inputs[1];
     uri = sxc_parse_uri(sx, volname);
     if(!uri) {
-	fprintf(stderr, "Bad uri %s: %s\n", volname, sxc_geterrmsg(sx));
+	fprintf(stderr, "ERROR: Bad uri %s: %s\n", volname, sxc_geterrmsg(sx));
 	return 1;
     }
     if(!uri->volume) {
-	fprintf(stderr, "Bad path %s\n", volname);
+	fprintf(stderr, "ERROR: Bad path %s\n", volname);
 	sxc_free_uri(uri);
 	return 1;
     }
     if(uri->path) {
-	fprintf(stderr, "Bad path %s\n", volname);
+	fprintf(stderr, "ERROR: Bad path %s\n", volname);
 	sxc_free_uri(uri);
 	return 1;
     }
     cluster = sxc_cluster_load_and_update(sx, args->config_dir_arg, uri->host, uri->profile);
     if(!cluster) {
-	fprintf(stderr, "Failed to load config for %s: %s\n", uri->host, sxc_geterrmsg(sx));
+	fprintf(stderr, "ERROR: Failed to load config for %s: %s\n", uri->host, sxc_geterrmsg(sx));
 	sxc_free_uri(uri);
 	return 1;
     }
@@ -104,17 +104,17 @@ static int add_user(sxc_client_t *sx, const char *username, const char *uri, con
 /*    sxc_set_debug(sx, 1);*/
     u = sxc_parse_uri(sx, uri);
     if(!u) {
-	fprintf(stderr, "Error parsing URI %s: %s\n", uri, sxc_geterrmsg(sx));
+	fprintf(stderr, "ERROR: Can't parse URI %s: %s\n", uri, sxc_geterrmsg(sx));
 	return 1;
     }
     if(u->volume || u->path) {
-	fprintf(stderr, "Bad URI %s. Please omit volume and path\n", uri);
+	fprintf(stderr, "ERROR: Bad URI %s. Please omit volume and path\n", uri);
 	sxc_free_uri(u);
 	return 1;
     }
     cluster = sxc_cluster_load_and_update(sx, clusterdir, u->host, u->profile);
     if(!cluster) {
-	fprintf(stderr, "Failed to load config for %s: %s\n", u->host, sxc_geterrmsg(sx));
+	fprintf(stderr, "ERROR: Failed to load config for %s: %s\n", u->host, sxc_geterrmsg(sx));
 	sxc_free_uri(u);
 	return 1;
     }
@@ -123,7 +123,7 @@ static int add_user(sxc_client_t *sx, const char *username, const char *uri, con
     if (authfile) {
         f = fopen(authfile, "w");
         if (!f) {
-            fprintf(stderr,"Cannot open '%s' for writing: %s\n", authfile, strerror(errno));
+            fprintf(stderr, "ERROR: Cannot open '%s' for writing: %s\n", authfile, strerror(errno));
             sxc_free_uri(u);
             sxc_cluster_free(cluster);
             return 1;
@@ -133,7 +133,7 @@ static int add_user(sxc_client_t *sx, const char *username, const char *uri, con
     if (authfile)
         fclose(f);
     if (rc)
-        fprintf(stderr, "ERROR creating user %s: %s\n", username, sxc_geterrmsg(sx));
+        fprintf(stderr, "ERROR: Can't create user %s: %s\n", username, sxc_geterrmsg(sx));
     sxc_free_uri(u);
     sxc_cluster_free(cluster);
     return rc;
@@ -147,17 +147,17 @@ static int getkey_user(sxc_client_t *sx, const char *username, const char *uri, 
 
     u = sxc_parse_uri(sx, uri);
     if(!u) {
-	fprintf(stderr, "Error parsing URI %s: %s\n", uri, sxc_geterrmsg(sx));
+	fprintf(stderr, "ERROR: Can't parse URI %s: %s\n", uri, sxc_geterrmsg(sx));
 	return 1;
     }
     if(u->volume || u->path) {
-	fprintf(stderr, "Bad URI %s. Please omit volume and path\n", uri);
+	fprintf(stderr, "ERROR: Bad URI %s. Please omit volume and path\n", uri);
 	sxc_free_uri(u);
 	return 1;
     }
     cluster = sxc_cluster_load_and_update(sx, clusterdir, u->host, u->profile);
     if(!cluster) {
-	fprintf(stderr, "Failed to load config for %s: %s\n", u->host, sxc_geterrmsg(sx));
+	fprintf(stderr, "ERROR: Failed to load config for %s: %s\n", u->host, sxc_geterrmsg(sx));
 	sxc_free_uri(u);
 	return 1;
     }
@@ -166,7 +166,7 @@ static int getkey_user(sxc_client_t *sx, const char *username, const char *uri, 
     if (authfile) {
         f = fopen(authfile, "w");
         if (!f) {
-            fprintf(stderr,"Cannot open '%s' for writing: %s\n", authfile, strerror(errno));
+            fprintf(stderr, "ERROR: Cannot open '%s' for writing: %s\n", authfile, strerror(errno));
             sxc_free_uri(u);
             sxc_cluster_free(cluster);
             return 1;
@@ -176,7 +176,7 @@ static int getkey_user(sxc_client_t *sx, const char *username, const char *uri, 
     if (authfile)
         fclose(f);
     if (rc)
-        fprintf(stderr, "ERROR retrieving key for user %s: %s\n", username, sxc_geterrmsg(sx));
+        fprintf(stderr, "ERROR: Can't retrieve key for user %s: %s\n", username, sxc_geterrmsg(sx));
     sxc_free_uri(u);
     sxc_cluster_free(cluster);
     return rc;
@@ -192,17 +192,17 @@ static int list_users(sxc_client_t *sx, const char *uri, const char *clusterdir,
     sxc_set_debug(sx, debug);
     u = sxc_parse_uri(sx, uri);
     if(!u) {
-	fprintf(stderr, "Error parsing URI %s: %s\n", uri, sxc_geterrmsg(sx));
+	fprintf(stderr, "ERROR: Can't parse URI %s: %s\n", uri, sxc_geterrmsg(sx));
 	return 1;
     }
     if(u->volume || u->path) {
-	fprintf(stderr, "Bad URI %s. Please omit volume and path\n", uri);
+	fprintf(stderr, "ERROR: Bad URI %s. Please omit volume and path\n", uri);
 	sxc_free_uri(u);
 	return 1;
     }
     cluster = sxc_cluster_load_and_update(sx, clusterdir, u->host, u->profile);
     if(!cluster) {
-	fprintf(stderr, "Failed to load config for %s: %s\n", u->host, sxc_geterrmsg(sx));
+	fprintf(stderr, "ERROR: Failed to load config for %s: %s\n", u->host, sxc_geterrmsg(sx));
 	sxc_free_uri(u);
 	return 1;
     }
@@ -234,17 +234,17 @@ static int list_perms(sxc_client_t *sx, const char *uri, const char *clusterdir,
     sxc_set_debug(sx, debug);
     u = sxc_parse_uri(sx, uri);
     if(!u) {
-	fprintf(stderr, "Error parsing URI %s: %s\n", uri, sxc_geterrmsg(sx));
+	fprintf(stderr, "ERROR: Can't parse URI %s: %s\n", uri, sxc_geterrmsg(sx));
 	return 1;
     }
     if(u->path) {
-	fprintf(stderr, "Bad URI %s. Please omit path\n", uri);
+	fprintf(stderr, "ERROR: Bad URI %s. Please omit path\n", uri);
 	sxc_free_uri(u);
 	return 1;
     }
     cluster = sxc_cluster_load_and_update(sx, clusterdir, u->host, u->profile);
     if(!cluster) {
-	fprintf(stderr, "Failed to load config for %s: %s\n", u->host, sxc_geterrmsg(sx));
+	fprintf(stderr, "ERROR: Failed to load config for %s: %s\n", u->host, sxc_geterrmsg(sx));
 	sxc_free_uri(u);
 	return 1;
     }
@@ -284,7 +284,8 @@ int main(int argc, char **argv) {
     struct main_args_info main_args;
 
     if (argc < 2) {
-        fprintf(stderr,"No command specified (see 'sxacl --help')\n");
+	main_cmdline_parser_print_help();
+        fprintf(stderr, "ERROR: No command specified\n");
         return 1;
     }
 
@@ -293,9 +294,9 @@ int main(int argc, char **argv) {
 
     if(!(sx = gsx = sxc_init(SRC_VERSION, sxc_default_logger(&log, argv[0]), sxi_yesno))) {
         if(!strcmp(SRC_VERSION, sxc_get_version()))
-            fprintf(stderr, "Version mismatch: our version '%s' - library version '%s'\n", SRC_VERSION, sxc_get_version());
+            fprintf(stderr, "ERROR: Version mismatch: our version '%s' - library version '%s'\n", SRC_VERSION, sxc_get_version());
         else
-            fprintf(stderr, "Failed to init libsx\n");
+            fprintf(stderr, "ERROR: Failed to init libsx\n");
         return 1;
     }
 
@@ -311,13 +312,15 @@ int main(int argc, char **argv) {
 		break;
 	    }
             if(args.config_dir_given && sxc_set_confdir(sx, args.config_dir_arg)) {
-                fprintf(stderr, "Could not set configuration directory %s: %s\n", args.config_dir_arg, sxc_geterrmsg(sx));
+                fprintf(stderr, "ERROR: Could not set configuration directory %s: %s\n", args.config_dir_arg, sxc_geterrmsg(sx));
                 ret = 1;
                 break;
             }
             sxc_set_debug(sx, args.debug_flag);
             if (args.inputs_num != 2) {
-                fprintf(stderr,"Wrong number of arguments (see 'sxacl %s --help')\n", argv[1]);
+                useradd_cmdline_parser_print_help();
+		printf("\n");
+                fprintf(stderr, "ERROR: Wrong number of arguments\n");
                 ret = 1;
                 break;
             }
@@ -335,13 +338,15 @@ int main(int argc, char **argv) {
 		break;
 	    }
             if(args.config_dir_given && sxc_set_confdir(sx, args.config_dir_arg)) {
-                fprintf(stderr, "Could not set configuration directory %s: %s\n", args.config_dir_arg, sxc_geterrmsg(sx));
+                fprintf(stderr, "ERROR: Could not set configuration directory %s: %s\n", args.config_dir_arg, sxc_geterrmsg(sx));
                 ret = 1;
                 break;
             }
             sxc_set_debug(sx, args.debug_flag);
             if (args.inputs_num != 1) {
-                fprintf(stderr,"Wrong number of arguments (see 'sxacl %s --help')\n", argv[1]);
+                userlist_cmdline_parser_print_help();
+		printf("\n");
+                fprintf(stderr, "ERROR: Wrong number of arguments\n");
                 ret = 1;
                 break;
             }
@@ -358,13 +363,15 @@ int main(int argc, char **argv) {
 		break;
 	    }
             if(args.config_dir_given && sxc_set_confdir(sx, args.config_dir_arg)) {
-                fprintf(stderr, "Could not set configuration directory %s: %s\n", args.config_dir_arg, sxc_geterrmsg(sx));
+                fprintf(stderr, "ERROR: Could not set configuration directory %s: %s\n", args.config_dir_arg, sxc_geterrmsg(sx));
                 ret = 1;
                 break;
             }
             sxc_set_debug(sx, args.debug_flag);
             if (args.inputs_num != 2) {
-                fprintf(stderr,"Wrong number of arguments (see 'sxacl %s --help')\n", argv[1]);
+                usergetkey_cmdline_parser_print_help();
+		printf("\n");
+                fprintf(stderr, "ERROR: Wrong number of arguments\n");
                 ret = 1;
                 break;
             }
@@ -381,13 +388,15 @@ int main(int argc, char **argv) {
 		break;
 	    }
             if(args.config_dir_given && sxc_set_confdir(sx, args.config_dir_arg)) {
-                fprintf(stderr, "Could not set configuration directory %s: %s\n", args.config_dir_arg, sxc_geterrmsg(sx));
+                fprintf(stderr, "ERROR: Could not set configuration directory %s: %s\n", args.config_dir_arg, sxc_geterrmsg(sx));
                 ret = 1;
                 break;
             }
             sxc_set_debug(sx, args.debug_flag);
             if (args.inputs_num != 2) {
-                fprintf(stderr,"Wrong number of arguments (see 'sxacl %s --help')\n", argv[1]);
+                perm_cmdline_parser_print_help();
+		printf("\n");
+                fprintf(stderr, "ERROR: Wrong number of arguments\n");
                 ret = 1;
                 break;
             }
@@ -404,13 +413,15 @@ int main(int argc, char **argv) {
 		break;
 	    }
             if(args.config_dir_given && sxc_set_confdir(sx, args.config_dir_arg)) {
-                fprintf(stderr, "Could not set configuration directory %s: %s\n", args.config_dir_arg, sxc_geterrmsg(sx));
+                fprintf(stderr, "ERROR: Could not set configuration directory %s: %s\n", args.config_dir_arg, sxc_geterrmsg(sx));
                 ret = 1;
                 break;
             }
             sxc_set_debug(sx, args.debug_flag);
             if (args.inputs_num != 1) {
-                fprintf(stderr,"Wrong number of arguments (see 'sxacl %s --help')\n", argv[1]);
+                list_cmdline_parser_print_help();
+		printf("\n");
+                fprintf(stderr, "ERROR: Wrong number of arguments\n");
                 ret = 1;
                 break;
             }
@@ -426,7 +437,8 @@ int main(int argc, char **argv) {
             } else if(main_args.help_given) {
                 main_cmdline_parser_print_help();
             } else {
-                fprintf(stderr, "ERROR: Unknown command '%s' (see 'sxacl --help')\n", argv[1]);
+                main_cmdline_parser_print_help();
+                fprintf(stderr, "ERROR: Unknown command '%s'\n", argv[1]);
                 ret = 1;
             }
             main_cmdline_parser_free(&main_args);

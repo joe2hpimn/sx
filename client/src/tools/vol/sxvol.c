@@ -135,14 +135,14 @@ static int volume_create(sxc_client_t *sx, const char *owner)
 
     size = strtoll(create_args.size_arg, (char **)&ptr, 0);
     if(size < 0 || size == LLONG_MAX) {
-	fprintf(stderr, "Bad size %s\n", create_args.size_arg);
+	fprintf(stderr, "ERROR: Bad size %s\n", create_args.size_arg);
 	return 1;
     }
     if(*ptr) {
         unsigned int shl;
         ptr = strchr(suffixes, *ptr);
         if(!ptr) {
-	    fprintf(stderr, "Bad size %s\n", create_args.size_arg);
+	    fprintf(stderr, "ERROR: Bad size %s\n", create_args.size_arg);
             return 1;
         }
         shl = (((ptr-suffixes)/2) + 1) * 10;
@@ -153,23 +153,23 @@ static int volume_create(sxc_client_t *sx, const char *owner)
 
     uri = sxc_parse_uri(sx, volname);
     if(!uri) {
-	fprintf(stderr, "Bad uri %s: %s\n", volname, sxc_geterrmsg(sx));
+	fprintf(stderr, "ERROR: Bad uri %s: %s\n", volname, sxc_geterrmsg(sx));
 	return 1;
     }
     if(!uri->volume) {
-	fprintf(stderr, "Bad path %s\n", volname);
+	fprintf(stderr, "ERROR: Bad path %s\n", volname);
 	sxc_free_uri(uri);
 	return 1;
     }
     if(uri->path) {
-	fprintf(stderr, "Bad path %s\n", volname);
+	fprintf(stderr, "ERROR: Bad path %s\n", volname);
 	sxc_free_uri(uri);
 	return 1;
     }	
 
     cluster = sxc_cluster_load_and_update(sx, create_args.config_dir_arg, uri->host, uri->profile);
     if(!cluster) {
-	fprintf(stderr, "Failed to load config for %s: %s\n", uri->host, sxc_geterrmsg(sx));
+	fprintf(stderr, "ERROR: Failed to load config for %s: %s\n", uri->host, sxc_geterrmsg(sx));
 	sxc_free_uri(uri);
 	return 1;
     }
@@ -178,14 +178,14 @@ static int volume_create(sxc_client_t *sx, const char *owner)
     /* wipe existing local config */
     voldir = malloc(strlen(confdir) + strlen(uri->volume) + 10);
     if(!voldir) {
-	fprintf(stderr, "Out of memory\n");
+	fprintf(stderr, "ERROR: Out of memory\n");
 	sxc_free_uri(uri);
         sxc_cluster_free(cluster);
 	return 1;
     }
     sprintf(voldir, "%s/volumes/%s", confdir, uri->volume);
     if(!access(voldir, F_OK) && sxi_rmdirs(voldir)) {
-	fprintf(stderr, "Can't wipe old volume configuration directory %s\n", voldir);
+	fprintf(stderr, "ERROR: Can't wipe old volume configuration directory %s\n", voldir);
 	sxc_free_uri(uri);
 	free(voldir);
         sxc_cluster_free(cluster);
@@ -311,7 +311,7 @@ static int setup_filters(sxc_client_t *sx, const char *fdir)
 	    filter_dir = strdup(SX_FILTER_DIR);
     }
     if(!filter_dir) {
-	fprintf(stderr, "Failed to set filter dir\n");
+	fprintf(stderr, "ERROR: Failed to set filter dir\n");
 	return 1;
     }
     sxc_filter_loadall(sx, filter_dir);
@@ -329,9 +329,9 @@ int main(int argc, char **argv) {
 
     if(!(sx = gsx = sxc_init(SRC_VERSION, sxc_default_logger(&log, argv[0]), sxi_yesno))) {
 	if(!strcmp(SRC_VERSION, sxc_get_version()))
-	    fprintf(stderr, "Version mismatch: our version '%s' - library version '%s'\n", SRC_VERSION, sxc_get_version());
+	    fprintf(stderr, "ERROR: Version mismatch: our version '%s' - library version '%s'\n", SRC_VERSION, sxc_get_version());
 	else
-	    fprintf(stderr, "Failed to init libsx\n");
+	    fprintf(stderr, "ERROR: Failed to init libsx\n");
 	return 1;
     }
 
@@ -366,7 +366,7 @@ int main(int argc, char **argv) {
 	}
 
         if(create_args.config_dir_given && sxc_set_confdir(sx, create_args.config_dir_arg)) {
-            fprintf(stderr, "Could not set configuration directory %s: %s\n", create_args.config_dir_arg, sxc_geterrmsg(sx));
+            fprintf(stderr, "ERROR: Could not set configuration directory %s: %s\n", create_args.config_dir_arg, sxc_geterrmsg(sx));
             create_cmdline_parser_free(&create_args);
             ret = 1;
             goto main_err;
@@ -405,7 +405,7 @@ int main(int argc, char **argv) {
 	}
 
         if(filter_args.config_dir_given && sxc_set_confdir(sx, filter_args.config_dir_arg)) {
-            fprintf(stderr, "Could not set configuration directory %s: %s\n", filter_args.config_dir_arg, sxc_geterrmsg(sx));
+            fprintf(stderr, "ERROR: Could not set configuration directory %s: %s\n", filter_args.config_dir_arg, sxc_geterrmsg(sx));
             filter_cmdline_parser_free(&filter_args);
             ret = 1;
             goto main_err;

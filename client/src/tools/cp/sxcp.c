@@ -184,7 +184,7 @@ static int bar_new() {
     if(!bar_internal) {
         bar_internal = calloc(1, sizeof(struct bar_internal_t));
         if(!bar_internal) {
-            fprintf(stderr, "Could not allocate memory for progress bar\n");
+            fprintf(stderr, "ERROR: Could not allocate memory for progress bar\n");
             return 1;
         }
     }
@@ -193,7 +193,7 @@ static int bar_new() {
     if(!bar_internal->bar) {
         free(bar_internal);
         bar_internal = NULL;
-        fprintf(stderr, "Could not allocate memory for progress bar\n");
+        fprintf(stderr, "ERROR: Could not allocate memory for progress bar\n");
         return 1;
     }
     
@@ -500,18 +500,18 @@ static sxc_file_t *sxfile_from_arg(sxc_cluster_t **cluster, const char *arg) {
 	sxc_uri_t *uri = sxc_parse_uri(sx, arg);
 
 	if(!uri) {
-	    fprintf(stderr, "Bad uri %s: %s\n", arg, sxc_geterrmsg(sx));
+	    fprintf(stderr, "ERROR: Bad uri %s: %s\n", arg, sxc_geterrmsg(sx));
 	    return NULL;
 	}
 	if(!uri->volume) {
-	    fprintf(stderr, "Bad path %s\n", arg);
+	    fprintf(stderr, "ERROR: Bad path %s\n", arg);
 	    sxc_free_uri(uri);
 	    return NULL;
 	}
 
 	*cluster = sxc_cluster_load_and_update(sx, args.config_dir_arg, uri->host, uri->profile);
 	if(!*cluster) {
-	    fprintf(stderr, "Failed to load config for %s: %s\n", uri->host, sxc_geterrmsg(sx));
+	    fprintf(stderr, "ERROR: Failed to load config for %s: %s\n", uri->host, sxc_geterrmsg(sx));
 	    sxc_free_uri(uri);
 	    return NULL;
 	}
@@ -526,7 +526,7 @@ static sxc_file_t *sxfile_from_arg(sxc_cluster_t **cluster, const char *arg) {
 	file = sxc_file_local(sx, arg);
 
     if(!file) {
-	fprintf(stderr, "Failed to create file object: %s\n", sxc_geterrmsg(sx));
+	fprintf(stderr, "ERROR: Failed to create file object: %s\n", sxc_geterrmsg(sx));
 	return NULL;
     }
 
@@ -597,7 +597,9 @@ int main(int argc, char **argv) {
     }
 
     if(args.inputs_num < 2) {
-	fprintf(stderr, "Wrong number of arguments (see --help)\n");
+	cmdline_parser_print_help();
+	printf("\n");
+	fprintf(stderr, "ERROR: Wrong number of arguments\n");
 	cmdline_parser_free(&args);
 	exit(1);
     }
@@ -611,7 +613,7 @@ int main(int argc, char **argv) {
     }
 
     if(args.config_dir_given && sxc_set_confdir(sx, args.config_dir_arg)) {
-        fprintf(stderr, "Could not set configuration directory %s: %s\n", args.config_dir_arg, sxc_geterrmsg(sx));
+        fprintf(stderr, "ERROR: Could not set configuration directory %s: %s\n", args.config_dir_arg, sxc_geterrmsg(sx));
         ret = 1;
         goto main_err;
     }
@@ -622,7 +624,9 @@ int main(int argc, char **argv) {
     if(args.bwlimit_given) {
         limit = process_bandwidth_arg(args.bwlimit_arg);
         if(limit < 0) {
-            fprintf(stderr, "Could not parse bandwidth limit argument (see --help)\n");
+	    cmdline_parser_print_help();
+	    printf("\n");
+            fprintf(stderr, "ERROR: Could not parse bandwidth limit argument\n");
             cmdline_parser_free(&args);
             sxc_shutdown(sx, 0);
             return 1;
@@ -639,7 +643,7 @@ int main(int argc, char **argv) {
 	    filter_dir = strdup(SX_FILTER_DIR);
     }
     if(!filter_dir) {
-	fprintf(stderr, "Failed to set filter dir\n");
+	fprintf(stderr, "ERROR: Failed to set filter dir\n");
 	cmdline_parser_free(&args);
         sxc_shutdown(sx, 0);
 	return 1;
@@ -654,12 +658,12 @@ int main(int argc, char **argv) {
 	goto main_err;
 
     if(limit && cluster1 && sxc_cluster_set_bandwidth_limit(sx, cluster1, limit)) {
-        fprintf(stderr, "Failed to set bandwidth limit to %s\n", args.bwlimit_arg);
+        fprintf(stderr, "ERROR: Failed to set bandwidth limit to %s\n", args.bwlimit_arg);
         goto main_err;
     }
 
     if((!args.no_progress_flag || args.verbose_flag) && cluster1 && sxc_cluster_set_progress_cb(sx, cluster1, progress_callback)) {
-        fprintf(stderr, "Could not set progress callback\n");
+        fprintf(stderr, "ERROR: Could not set progress callback\n");
         goto main_err;
     }
         
@@ -676,17 +680,17 @@ int main(int argc, char **argv) {
 	} else if(!is_sx(fname)) {
 	    struct stat sb;
 	    if(access(fname, R_OK)) {
-		fprintf(stderr, "Cannot access %s: %s\n", fname, strerror(errno));
+		fprintf(stderr, "ERROR: Cannot access %s: %s\n", fname, strerror(errno));
 		skipped++;
 		continue;
 	    }
 	    if(stat(fname, &sb)) {
-		fprintf(stderr, "Cannot stat %s: %s\n", fname, strerror(errno));
+		fprintf(stderr, "ERROR: Cannot stat %s: %s\n", fname, strerror(errno));
 		skipped++;
 		continue;
 	    }
 	    if(S_ISDIR(sb.st_mode) && !args.recursive_flag) {
-		fprintf(stderr, "Cannot copy directory %s: use -r to copy recursively\n", fname);
+		fprintf(stderr, "WARNING: Cannot copy directory %s: use -r to copy recursively\n", fname);
 		skipped++;
 		continue;
 	    }
@@ -696,12 +700,12 @@ int main(int argc, char **argv) {
             goto main_err;
 
         if(limit && cluster2 && sxc_cluster_set_bandwidth_limit(sx, cluster2, limit)) {
-            fprintf(stderr, "Failed to set bandwidth limit to %s\n", args.bwlimit_arg);
+            fprintf(stderr, "ERROR: Failed to set bandwidth limit to %s\n", args.bwlimit_arg);
             goto main_err;
         }
 
         if((!args.no_progress_flag || args.verbose_flag) && cluster2 && sxc_cluster_set_progress_cb(sx, cluster2, progress_callback)) {
-            fprintf(stderr, "Could not set progress callback\n");
+            fprintf(stderr, "ERROR: Could not set progress callback\n");
             goto main_err;
         }
         
