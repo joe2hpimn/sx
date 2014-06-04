@@ -667,7 +667,7 @@ int main(int argc, char **argv) {
         fname = args.inputs[i];
         if(!strcmp(fname, "-")) {
             fname = "/dev/stdin";
-	} else {
+	} else if(!is_sx(fname)) {
 	    struct stat sb;
 	    if(access(fname, R_OK)) {
 		fprintf(stderr, "Cannot access %s: %s\n", fname, strerror(errno));
