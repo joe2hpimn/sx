@@ -215,11 +215,8 @@ static void bar_progress(const sxc_xfer_stat_t *xfer_stat) {
     double eta = 0;
     int i = 0;
     float x = 0;
-    int written = 0;
     static int64_t last_skipped = 0;
     int skipped_changed = 0; /* it is set to 1 when some blocks where skipped */
-    char *processed_speed = NULL;
-    char *processed_eta = NULL;
 
     if(!bar_internal) {
         return;
@@ -275,24 +272,31 @@ static void bar_progress(const sxc_xfer_stat_t *xfer_stat) {
 
     printf("\r");
 
-    processed_speed = process_number(speed);
-    processed_eta = process_time(eta);
-    if(processed_speed && processed_eta)
-        written = printf("%4d%% %s%s%s %7s%s ETA %s", percent, PREFIX, bar_internal->bar, POSTFIX, processed_speed, "B/s", processed_eta);
-    else
-        written = printf("%4d%% %s%s%s %13.2lf%s", percent, PREFIX, bar_internal->bar, POSTFIX, speed, "B/s");
-    free(processed_speed);
-    free(processed_eta);
+    if(xfer_stat->status != SXC_XFER_STATUS_PART_FINISHED && xfer_stat->status != SXC_XFER_STATUS_WAITING) {
+        char *processed_speed = process_number(speed);
+        char *processed_eta = process_time(eta);
+        int written = 0;
+        if(processed_speed && processed_eta)
+            written = printf("%4d%% %s%s%s %7s%s ETA %s", percent, PREFIX, bar_internal->bar, POSTFIX, processed_speed, "B/s", processed_eta);
+        else
+            written = printf("%4d%% %s%s%s %13.2lf%s", percent, PREFIX, bar_internal->bar, POSTFIX, speed, "B/s");
+        free(processed_speed);
+        free(processed_eta);
 
-    /* If bar has changed its length, then cleanup end of bar with spaces */
-    for(i = written; i < get_window_width(); i++) {
-        printf(" ");
-    }
+        /* If bar has changed its length, then cleanup end of bar with spaces */
+        for(i = written; i < get_window_width(); i++) {
+            printf(" ");
+        }
 
-    if(xfer_stat->status == SXC_XFER_STATUS_PART_FINISHED || xfer_stat->status == SXC_XFER_STATUS_WAITING) {
-        printf("\n");
+    } else {
         bar_internal->index = 0;
         memset(bar_internal->bar, 0, BAR_WIDTH + 1);
+
+        /* Clear previous bar */
+        for(i = 0; i < get_window_width(); i++) {
+            printf(" ");
+        }
+        printf("\r");
     }
 
     fflush(stdout);
@@ -447,6 +451,8 @@ static void progress_callback(const sxc_xfer_stat_t *xfer_stat) {
                     xfer_stat->current_xfer.file_name, xfer_stat->current_xfer.file_size);
             }
             free(processed_size);
+
+            get_callback_type()(xfer_stat);
         } break;
 
         case SXC_XFER_STATUS_FINISHED:
@@ -464,9 +470,9 @@ static void progress_callback(const sxc_xfer_stat_t *xfer_stat) {
                 const char *file_name = get_callback_type() == bar_progress ? "" : xfer_stat->current_xfer.file_name;
 
                 if(processed_number && processed_speed && processed_time) {
-                    printf("%s%s %sB in %s (@%sB/s)\n\n", file_name, transferred_str, processed_number, processed_time, processed_speed);
+                    printf("%s%s %sB in %s (@%sB/s)\n", file_name, transferred_str, processed_number, processed_time, processed_speed);
                 } else {
-                    printf("%s%s %ldB in %.0lf (@%0.2lfB/s)\n\n", file_name, transferred_str, xfer_stat->current_xfer.sent, 
+                    printf("%s%s %ldB in %.0lf (@%0.2lfB/s)\n", file_name, transferred_str, xfer_stat->current_xfer.sent, 
                         xfer_stat->current_xfer.total_time, xfer_stat->current_xfer.sent / xfer_stat->current_xfer.total_time);
                 }
                 free(processed_number);

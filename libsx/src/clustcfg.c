@@ -51,7 +51,6 @@ struct _sxc_cluster_t {
 
     /* Global transfer stats */
     sxc_xfer_stat_t *xfer_stat;
-    sxc_xfer_callback xfer_callback;
 };
 
 
@@ -2515,7 +2514,7 @@ int sxc_cluster_set_progress_cb(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_xf
     }
 
     if(!cluster->xfer_stat) {
-        cluster->xfer_stat = sxi_cluster_xfer_new(sx);
+        cluster->xfer_stat = sxi_cluster_xfer_new(sx, cb);
         if(!cluster->xfer_stat) {
             SXDEBUG("Could not allocate memory");
             sxi_seterr(sx, SXE_EMEM, "Could not allocate memory");
@@ -2523,15 +2522,7 @@ int sxc_cluster_set_progress_cb(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_xf
         }
     }
 
-    cluster->xfer_callback = cb;
     return 0;
-}
-
-sxc_xfer_callback sxc_cluster_get_progress_cb(const sxc_cluster_t *cluster) {
-    if(!cluster)
-        return NULL;
-
-    return cluster->xfer_callback;
 }
 
 sxc_xfer_stat_t *sxi_cluster_get_xfer_stat(const sxc_cluster_t* cluster) {

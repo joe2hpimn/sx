@@ -173,7 +173,9 @@ typedef enum {
     SXC_XFER_STATUS_FINISHED_ERROR,
 } sxc_xfer_status_t;
 
-typedef struct {
+struct _sxc_xfer_stat;
+typedef void (*sxc_xfer_callback)(const struct _sxc_xfer_stat *stat);
+struct _sxc_xfer_stat {
     /* Current transfer information */
     sxc_xfer_progress_t current_xfer;
 
@@ -198,11 +200,14 @@ typedef struct {
 
     /* Timers used to compute speed and callbacks invocation frequency */
     struct timeval interval_timer;
-} sxc_xfer_stat_t;
 
-typedef void (*sxc_xfer_callback)(const sxc_xfer_stat_t *stat);
+    /* Invoked when transfer information changes */
+    sxc_xfer_callback xfer_callback;
+};
+
+typedef struct _sxc_xfer_stat sxc_xfer_stat_t;
 int sxc_cluster_set_progress_cb(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_xfer_callback cb);
-sxc_xfer_callback sxc_cluster_get_progress_cb(const sxc_cluster_t *cluster);
+/*sxc_xfer_callback sxc_cluster_get_progress_cb(const sxc_cluster_t *cluster);*/
 
 typedef struct _sxc_file_t sxc_file_t;
 sxc_file_t *sxc_file_remote(sxc_cluster_t *cluster, const char *volume, const char *path);
