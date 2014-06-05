@@ -2124,20 +2124,20 @@ const char *sxi_cluster_get_confdir(const sxc_cluster_t *cluster) {
     return cluster ? cluster->config_dir : NULL;
 }
 
-int sxc_user_add(sxc_cluster_t *cluster, const char *username, int admin, FILE *storeauth)
+char *sxc_user_add(sxc_cluster_t *cluster, const char *username, int admin)
 {
     uint8_t buf[AUTH_UID_LEN + AUTH_KEY_LEN + 2], *uid = buf, *key = &buf[AUTH_UID_LEN];
-    char *tok;
+    char *tok, *retkey = NULL;
     sxc_client_t *sx;
     sxi_query_t *proto;
     sxi_md_ctx *ch_ctx;
     int l, qret;
 
     if(!cluster)
-	return 1;
+	return NULL;
     if(!username) {
         cluster_err(SXE_EARG, "Null args");
-        return 1;
+        return NULL;
     }
     sx = sxi_cluster_get_client(cluster);
 
@@ -2145,15 +2145,15 @@ int sxc_user_add(sxc_cluster_t *cluster, const char *username, int admin, FILE *
     l = strlen(username);
     ch_ctx = sxi_md_init();
     if (!ch_ctx)
-        return 1;
+        return NULL;
     if(!sxi_sha1_init(ch_ctx)) {
 	cluster_err(SXE_ECRYPT, "Cannot compute hash: unable to initialize crypto library");
-	return 1;
+	return NULL;
     }
     if(!sxi_sha1_update(ch_ctx, username, l) || !sxi_sha1_final(ch_ctx, uid, NULL)) {
 	cluster_err(SXE_ECRYPT, "Cannot compute hash: crypto library failure");
         sxi_md_cleanup(&ch_ctx);
-	return 1;
+	return NULL;
     }
     sxi_md_cleanup(&ch_ctx);
 
@@ -2166,12 +2166,12 @@ int sxc_user_add(sxc_cluster_t *cluster, const char *username, int admin, FILE *
     buf[sizeof(buf) - 1] = 0; /* Second reserved byte */
     tok = sxi_b64_enc(sx, buf, sizeof(buf));
     if(!tok)
-	return 1;
+	return NULL;
     if(strlen(tok) != AUTHTOK_ASCII_LEN) {
 	/* Always false but it doensn't hurt to be extra careful */
 	free(tok);
 	cluster_err(SXE_ECOMM, "The generated auth token has invalid size");
-	return 1;
+	return NULL;
     }
 
     /* Query */
@@ -2179,23 +2179,22 @@ int sxc_user_add(sxc_cluster_t *cluster, const char *username, int admin, FILE *
     if(!proto) {
 	cluster_err(SXE_EMEM, "Unable to allocate space for request data");
 	free(tok);
-	return 1;
+	return NULL;
     }
     sxi_set_operation(sxi_cluster_get_client(cluster), "create user", sxi_cluster_get_name(cluster), NULL, NULL);
     qret = sxi_job_submit_and_poll(sxi_cluster_get_conns(cluster), NULL, proto->path, proto->content, proto->content_len);
     if(!qret) {
-	char savetok[AUTHTOK_ASCII_LEN + 2];
-	strncpy(savetok, tok, AUTHTOK_ASCII_LEN);
-	savetok[AUTHTOK_ASCII_LEN] = '\n';
-	savetok[AUTHTOK_ASCII_LEN + 1] = '\0';
-	if (!fwrite(savetok, AUTHTOK_ASCII_LEN + 1, 1, storeauth)) {
-            sxi_setsyserr(sx, SXE_EWRITE, "Failed to save auth token");
-            qret = 1;
+	retkey = malloc(AUTHTOK_ASCII_LEN + 1);
+	if(!retkey) {
+	    cluster_err(SXE_EMEM, "Unable to allocate memory for user key");
+	} else {
+	    strncpy(retkey, tok, AUTHTOK_ASCII_LEN);
+	    retkey[AUTHTOK_ASCII_LEN] = '\0';
         }
     }
     sxi_query_free(proto);
     free(tok);
-    return qret;
+    return retkey;
 }
 
 struct cb_userkey_ctx {

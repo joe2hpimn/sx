@@ -97,9 +97,9 @@ static int volume_acl(sxc_client_t *sx, const struct perm_args_info *args)
 
 static int add_user(sxc_client_t *sx, const char *username, const char *uri, const char *clusterdir, enum enum_role type, const char *authfile)
 {
-    int rc = 0;
     sxc_uri_t *u;
     sxc_cluster_t *cluster;
+    char *key;
 
 /*    sxc_set_debug(sx, 1);*/
     u = sxc_parse_uri(sx, uri);
@@ -119,24 +119,44 @@ static int add_user(sxc_client_t *sx, const char *username, const char *uri, con
 	return 1;
     }
 
-    FILE *f = stdout;
-    if (authfile) {
-        f = fopen(authfile, "w");
-        if (!f) {
-            fprintf(stderr, "ERROR: Cannot open '%s' for writing: %s\n", authfile, strerror(errno));
-            sxc_free_uri(u);
-            sxc_cluster_free(cluster);
-            return 1;
-        }
-    }
-    rc = sxc_user_add(cluster, username, type == role_arg_admin, f);
-    if (authfile)
-        fclose(f);
-    if (rc)
+    key = sxc_user_add(cluster, username, type == role_arg_admin);
+    if(!key) {
         fprintf(stderr, "ERROR: Can't create user %s: %s\n", username, sxc_geterrmsg(sx));
+	sxc_free_uri(u);
+	return 1;
+    }
+
+    printf("User successfully created!\n");
+    printf("Name: %s\n", username);
+    printf("Key : %s\n", key);
+    printf("Type: %s\n\n", type == role_arg_admin ? "admin" : "normal");
+    printf("Run 'sxinit sx://%s@%s' to start using the cluster as user '%s'.\n", username, u->host, username);
+
+    if (authfile) {
+	FILE *f;
+	f = fopen(authfile, "w");
+	if (!f) {
+	    fprintf(stderr, "ERROR: Cannot open '%s' for writing: %s\n", authfile, strerror(errno));
+	    sxc_free_uri(u);
+	    sxc_cluster_free(cluster);
+	    free(key);
+	    return 1;
+	}
+	if(fprintf(f, "%s\n", key) != strlen(key) + 1) {
+	    fprintf(stderr, "ERROR: Cannot write key to '%s': %s\n", authfile, strerror(errno));
+	    sxc_free_uri(u);
+	    sxc_cluster_free(cluster);
+	    free(key);
+	    fclose(f);
+	    return 1;
+	}
+	fclose(f);
+    }
+
     sxc_free_uri(u);
     sxc_cluster_free(cluster);
-    return rc;
+    free(key);
+    return 0;
 }
 
 static int getkey_user(sxc_client_t *sx, const char *username, const char *uri, const char *clusterdir, const char *authfile)

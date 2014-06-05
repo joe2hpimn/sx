@@ -1,10 +1,10 @@
 #!/bin/sh -x
 set -e
-../client/src/tools/acl/sxacl useradd $SXINITFLAGS theadmin --role=admin sx://localhost --debug >admin2.auth
+../client/src/tools/acl/sxacl useradd $SXINITFLAGS theadmin --role=admin sx://localhost --debug --auth-file=admin2.auth
 # Create normal user
 OWNER=user1
 ../client/src/tools/acl/sxacl useradd $SXINITFLAGS $OWNER --role=normal sx://localhost --auth-file normal.auth
-../client/src/tools/acl/sxacl useradd $SXINITFLAGS user2 --role=normal sx://localhost >normal2.auth
+../client/src/tools/acl/sxacl useradd $SXINITFLAGS user2 --role=normal sx://localhost --auth-file=normal2.auth
 
 ../client/src/tools/acl/sxacl userlist sx://localhost
 
