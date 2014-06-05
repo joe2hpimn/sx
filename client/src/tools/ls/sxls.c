@@ -299,6 +299,9 @@ int main(int argc, char **argv) {
 		sxc_cluster_listfiles_free(fl);
 	    } else {
 		fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
+		if(strstr(sxc_geterrmsg(sx), "No such volume"))
+		    fprintf(stderr, "Use 'sxls sx://%s%s%s' to list the existing volumes.\n", u->profile ? u->profile : "", u->profile ? "@" : "", u->host);
+    
                 ret = 1;
             }
 	}

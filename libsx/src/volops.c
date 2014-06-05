@@ -1397,7 +1397,7 @@ int sxc_cluster_listaclusers_next(sxc_cluster_la_t *la, char **acluser_name, int
     struct cbl_acluser_t acluser;
     sxc_client_t *sx;
 
-    if (!la || !acluser_name || !can_read || !can_write || !is_owner)
+    if (!la || !acluser_name || !can_read || !can_write || !is_owner || !is_admin)
         return -1;
     sx = la->sx;
     if(!fread(&acluser, sizeof(acluser), 1, la->f)) {

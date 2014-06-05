@@ -111,6 +111,8 @@ int main(int argc, char **argv) {
     }
     if (sxc_rm(lst)) {
         fprintf(stderr, "ERROR: Failed to remove file(s): %s\n", sxc_geterrmsg(sx));
+	if(cluster && strstr(sxc_geterrmsg(sx), "No such volume"))
+	    fprintf(stderr, "Use 'sxls sx://%s' to list the existing volumes.\n", sxc_cluster_get_sslname(cluster));
         ret = 1;
     }
     printf("Deleted %d file(s)\n", sxc_file_list_get_successful(lst));

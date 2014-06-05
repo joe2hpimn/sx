@@ -713,6 +713,8 @@ int main(int argc, char **argv) {
          * and do the filename appending if target *is* a directory */
         if(sxc_copy(src_file, dst_file, args.recursive_flag)) {
             fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
+	    if((cluster1 || cluster2) && strstr(sxc_geterrmsg(sx), "No such volume"))
+		fprintf(stderr, "Use 'sxls sx://%s' to list the existing volumes.\n", cluster1 ? sxc_cluster_get_sslname(cluster1) : sxc_cluster_get_sslname(cluster2));
             goto main_err;
         }
         sxc_file_free(src_file);

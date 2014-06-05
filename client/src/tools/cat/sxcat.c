@@ -166,6 +166,8 @@ int main(int argc, char **argv) {
 
 	if(sxc_cat(src_file, STDOUT_FILENO)) {
 	    fprintf(stderr, "ERROR: Failed to stream %s: %s\n", args.inputs[i], sxc_geterrmsg(sx));
+	    if(cluster && strstr(sxc_geterrmsg(sx), "No such volume"))
+		fprintf(stderr, "Use 'sxls sx://%s' to list the existing volumes.\n", sxc_cluster_get_sslname(cluster));
 	    ret = 1;
 	}
 	sxc_file_free(src_file);

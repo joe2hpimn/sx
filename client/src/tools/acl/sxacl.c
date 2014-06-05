@@ -289,6 +289,8 @@ static int list_perms(sxc_client_t *sx, const char *uri, const char *clusterdir,
     sxc_cluster_listaclusers_free(lst);
     if (!lst) {
         fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
+	if(strstr(sxc_geterrmsg(sx), "No such volume"))
+	    fprintf(stderr, "Use 'sxls sx://%s' to list the existing volumes.\n", u->host);
         rc = 1;
     }
     sxc_free_uri(u);
