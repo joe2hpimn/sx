@@ -79,8 +79,6 @@ fi
 
 test `id -u` -ne 0 && SX_NO_ROOT="yes"
 
-test "$SX_NO_ROOT" = "yes" && DEFAULT_PORT="50$DEFAULT_PORT"
-
 # Set defaults if there are no previous answers
 SX_DATA_DIR=${SX_DATA_DIR:-"@localstatedir@/lib/sxserver/storage"}
 if [ -z "$SX_NODE_IP" ]; then
@@ -110,6 +108,7 @@ else
     SX_USE_SSL="yes"
     DEFAULT_PORT="443"
 fi
+test "$SX_NO_ROOT" = "yes" && DEFAULT_PORT="50$DEFAULT_PORT"
 
 SX_SERVER_USER=${SX_SERVER_USER:-"nobody"}
 SX_SERVER_GROUP=`id -n -g "$SX_SERVER_USER"`
