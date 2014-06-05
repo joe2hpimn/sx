@@ -3944,7 +3944,10 @@ static sxi_job_t* remote_copy_ev(sxc_file_t *pattern, sxc_file_t *source, sxc_fi
         else
             ret = remote_to_local(source, dest);
         if (sxc_geterrnum(source->sx) != SXE_NOERROR) {
-            sxi_notice(source->sx, "%s: %s", dest->path, sxc_geterrmsg(source->sx));
+	    if(dest->path)
+		sxi_notice(source->sx, "ERROR: %s: %s", dest->path, sxc_geterrmsg(source->sx));
+	    else
+		sxi_notice(source->sx, "ERROR: %s", sxc_geterrmsg(source->sx));
         }
         if (sxc_geterrnum(source->sx) == SXE_SKIP) {
             ret = 0;
