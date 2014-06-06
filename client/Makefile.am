@@ -2,7 +2,7 @@ ACLOCAL_AMFLAGS = -I m4
 
 SUBDIRS = src/filters/null src/filters/zcomp src/filters/attribs src/filters/aes256
 
-AM_CPPFLAGS = -I $(top_srcdir)/../libsx/include -I $(top_srcdir)/../ -DSX_FILTER_DIR=\"$(pkglibdir)\"
+AM_CPPFLAGS = -I $(top_srcdir)/../libsx/include -I $(top_srcdir)/../ -I $(top_srcdir)/src/common -DSX_FILTER_DIR=\"$(pkglibdir)\"
 
 bin_PROGRAMS = src/tools/init/sxinit src/tools/ls/sxls src/tools/cp/sxcp src/tools/cat/sxcat src/tools/vol/sxvol src/tools/acl/sxacl src/tools/sxreport-client/sxreport-client src/tools/rm/sxrm
 

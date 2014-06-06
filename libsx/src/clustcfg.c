@@ -80,7 +80,7 @@ sxc_cluster_t *sxc_cluster_new(sxc_client_t *sx) {
     cluster = calloc(1, sizeof(*cluster));
     if(!cluster) {
 	SXDEBUG("OOM allocating config");
-	sxi_seterr(sx, SXE_EMEM, "Failed to create config: out of memory");
+	sxi_seterr(sx, SXE_EMEM, "Failed to create config: Out of memory");
 	return NULL;
     }
     cluster->sx = sx;
@@ -226,7 +226,7 @@ int sxc_cluster_add_access(sxc_cluster_t *cluster, const char *profile_name, con
 	return 1;
     if(!sxi_is_valid_authtoken(sxi_cluster_get_client(cluster), access_token)) {
 	CFGDEBUG("refusing to add invalid auth token to config");
-	cluster_err(SXE_EARG, "Cannot add access credentials to config: invalid authentication token");
+	cluster_err(SXE_EARG, "Cannot add access credentials to config: Invalid authentication token");
 	return 1;
     }
     if(!profile_name || !*profile_name)
@@ -242,7 +242,7 @@ int sxc_cluster_add_access(sxc_cluster_t *cluster, const char *profile_name, con
 	access = malloc(authlen);
 	if(!access) {
 	    CFGDEBUG("OOM allocating access container");
-	    cluster_err(SXE_EMEM, "Cannot add access credentials to config: out of memory");
+	    cluster_err(SXE_EMEM, "Cannot add access credentials to config: Out of memory");
 	    return 1;
 	}
 	access->profile = (char *)(access+1);
@@ -264,7 +264,7 @@ int sxc_cluster_set_access(sxc_cluster_t *cluster, const char *profile_name) {
     sxc_clearerr(sx);
     if(!access) {
 	SXDEBUG("cannot set access to profile %s", profile_name ? profile_name : "default");
-	sxi_seterr(sx, SXE_EARG, "Cannot set config access credentials: invalid profile");
+	sxi_seterr(sx, SXE_EARG, "Cannot set config access credentials: Invalid profile");
 	return 1;
     }
     if(sxi_conns_set_auth(cluster->conns, access->auth)) {
@@ -282,14 +282,14 @@ static char *get_confdir(sxc_client_t *sx, const char *config_dir, const char *c
 
     if(!cluster_name || !*cluster_name) {
 	SXDEBUG("called with NULL or empty name");
-	sxi_seterr(sx, SXE_EARG, "Cannot locate config directory: invalid argument");
+	sxi_seterr(sx, SXE_EARG, "Cannot locate config directory: Invalid argument");
 	return NULL;
     }
 
     name_len = strlen(cluster_name);
     if(memchr(cluster_name, '/', name_len)) {
 	SXDEBUG("invalid cluster name %s", cluster_name);
-	sxi_seterr(sx, SXE_EARG, "Cannot locate config directory: invalid argument");
+	sxi_seterr(sx, SXE_EARG, "Cannot locate config directory: Invalid argument");
 	return NULL;
     }
 
@@ -301,7 +301,7 @@ static char *get_confdir(sxc_client_t *sx, const char *config_dir, const char *c
 		home_dir = pwd->pw_dir;
 	}
 	if(!home_dir) {
-	    sxi_seterr(sx, SXE_EARG, "Cannot locate config directory: cannot determine home directory");
+	    sxi_seterr(sx, SXE_EARG, "Cannot locate config directory: Cannot determine home directory");
 	    return NULL;
 	}
 	config_len = strlen(home_dir) + 1 + lenof(".sx");
@@ -311,7 +311,7 @@ static char *get_confdir(sxc_client_t *sx, const char *config_dir, const char *c
     confdir = malloc(config_len + name_len + 2);
     if(!confdir) {
 	SXDEBUG("OOM allocating config directory");
-	sxi_seterr(sx, SXE_EMEM, "Cannot locate config directory: out of memory");
+	sxi_seterr(sx, SXE_EMEM, "Cannot locate config directory: Out of memory");
 	return NULL;
     }
 
@@ -364,14 +364,14 @@ sxc_cluster_t *sxc_cluster_load(sxc_client_t *sx, const char *config_dir, const 
 	fname = malloc(confdir_len + 1 + sizeof("config")); /* Fits /nodes, /config, /auth and /ca.pem */
 	if(!fname) {
 	    SXDEBUG("OOM allocating config path");
-	    sxi_seterr(sx, SXE_EMEM, "Cannot load cluster config: out of memory");
+	    sxi_seterr(sx, SXE_EMEM, "Cannot load cluster config: Out of memory");
 	    break;
 	}
 	sprintf(fname, "%s/%s", cluster->config_dir, "config");
 
 	if(!(f = fopen(fname, "r"))) {
 	    SXDEBUG("failed to open config file %s", fname);
-	    sxi_setsyserr(sx, SXE_ECFG, "Cannot load cluster config: failed to open file %s", fname);
+	    sxi_setsyserr(sx, SXE_ECFG, "Cannot load cluster config: Failed to open file %s", fname);
 	    break;
 	}
 
@@ -408,12 +408,12 @@ sxc_cluster_t *sxc_cluster_load(sxc_client_t *sx, const char *config_dir, const 
 	fclose(f);
 	if(line) {
 	    SXDEBUG("bad config file %s", fname);
-	    sxi_seterr(sx, SXE_ECFG, "Cannot load cluster config: bad config file %s", fname);
+	    sxi_seterr(sx, SXE_ECFG, "Cannot load cluster config: Bad config file %s", fname);
 	    break;
 	}
 	if(!sxc_cluster_get_uuid(cluster)) {
 	    SXDEBUG("config file is missing the 'ClusterUUID' directive");
-	    sxi_seterr(sx, SXE_ECFG, "Cannot load cluster config: bad config file %s", fname);
+	    sxi_seterr(sx, SXE_ECFG, "Cannot load cluster config: Bad config file %s", fname);
 	    break;
 	}
 
@@ -421,7 +421,7 @@ sxc_cluster_t *sxc_cluster_load(sxc_client_t *sx, const char *config_dir, const 
 	d = opendir(fname);
 	if(!d) {
 	    SXDEBUG("failed to open nodes directory %s", fname);
-	    sxi_setsyserr(sx, SXE_ECFG, "Cannot load cluster config: cannot open nodes directory %s", fname);
+	    sxi_setsyserr(sx, SXE_ECFG, "Cannot load cluster config: Cannot open nodes directory %s", fname);
 	    break;
 	}
 	while((dent = readdir(d))) {
@@ -441,7 +441,7 @@ sxc_cluster_t *sxc_cluster_load(sxc_client_t *sx, const char *config_dir, const 
 	d = opendir(fname);
 	if(!d) {
 	    SXDEBUG("failed to open auth directory %s", fname);
-	    sxi_setsyserr(sx, SXE_ECFG, "Cannot load cluster config: cannot open auth directory %s", fname);
+	    sxi_setsyserr(sx, SXE_ECFG, "Cannot load cluster config: Cannot open auth directory %s", fname);
 	    break;
 	}
 
@@ -456,7 +456,7 @@ sxc_cluster_t *sxc_cluster_load(sxc_client_t *sx, const char *config_dir, const 
 	    auth_file = malloc(confdir_len + lenof("/auth") + 1 + auth_len + 1);
 	    if(!auth_file) {
 		SXDEBUG("OOM allocating full path to auth file %s", dent->d_name);
-		sxi_seterr(sx, SXE_EMEM, "Cannot load cluster config: out of memory");
+		sxi_seterr(sx, SXE_EMEM, "Cannot load cluster config: Out of memory");
 		err = 1;
 		break;
 	    }
@@ -469,21 +469,21 @@ sxc_cluster_t *sxc_cluster_load(sxc_client_t *sx, const char *config_dir, const 
 		    errno = 0;
 		    continue;
 		}
-		sxi_setsyserr(sx, SXE_ECFG, "Cannot load cluster config: cannot open auth file %s", dent->d_name);
+		sxi_setsyserr(sx, SXE_ECFG, "Cannot load cluster config: Cannot open auth file %s", dent->d_name);
 		err = 1;
 		break;
 	    }
 	    if(sxc_fgetline(sx, f, &line)) {
 		fclose(f);
 		SXDEBUG("failed to retrieve auth token for file %s", dent->d_name);
-		sxi_setsyserr(sx, SXE_ECFG, "Cannot load cluster config: cannot load auth token from file %s", dent->d_name);
+		sxi_setsyserr(sx, SXE_ECFG, "Cannot load cluster config: Cannot load auth token from file %s", dent->d_name);
 		err = 1;
 		break;
 	    }
 	    fclose(f);
 	    if(!line) {
 		SXDEBUG("found empty auth file %s", dent->d_name);
-		sxi_setsyserr(sx, SXE_ECFG, "Cannot load cluster config: cannot load auth file %s is empty", dent->d_name);
+		sxi_setsyserr(sx, SXE_ECFG, "Cannot load cluster config: Cannot load empty auth file %s", dent->d_name);
 		err = 1;
 		break;
 	    }
@@ -500,11 +500,11 @@ sxc_cluster_t *sxc_cluster_load(sxc_client_t *sx, const char *config_dir, const 
 	}
 	if(errno) {
 	    SXDEBUG("Readdir failed with %d", errno);
-	    sxi_setsyserr(sx, SXE_ECFG, "Cannot load cluster config: failed to list auth files");
+	    sxi_setsyserr(sx, SXE_ECFG, "Cannot load cluster config: Failed to list auth files");
 	    err = 1;
 	} else if(!ids) {
 	    SXDEBUG("No auth ids were loaded");
-	    sxi_setsyserr(sx, SXE_ECFG, "Cannot load cluster config: no auth files could be loaded");
+	    sxi_setsyserr(sx, SXE_ECFG, "Cannot load cluster config: No auth files could be loaded");
 	    err = 1;
 	}
 	closedir(d);
@@ -692,7 +692,7 @@ static int fetchnodes_setup_cb(sxi_conns_t *conns, void *ctx, const char *host) 
 
     if(!(yactx->yh  = yajl_alloc(&yactx->yacb, NULL, yactx))) {
 	SXDEBUG("OOM allocating yajl context");
-	sxi_seterr(sx, SXE_EMEM, "Cannot update list of nodes: out of memory");
+	sxi_seterr(sx, SXE_EMEM, "Cannot update list of nodes: Out of memory");
 	return 1;
     }
 
@@ -735,7 +735,7 @@ int sxc_cluster_fetchnodes(sxc_cluster_t *cluster) {
 
     orighlist = sxi_conns_get_hostlist(cluster->conns);
     if(!sxi_hostlist_get_count(orighlist)) {
-        cluster_err(SXE_ECOMM, "Cannot update list of nodes: no node found%s in local cache", sxc_cluster_get_dnsname(cluster) ? " via dns resolution nor" : "");
+        cluster_err(SXE_ECOMM, "Cannot update list of nodes: No node found%s in local cache", sxc_cluster_get_dnsname(cluster) ? " via dns resolution nor" : "");
 	goto config_fetchnodes_error;
     }
 
@@ -749,21 +749,21 @@ int sxc_cluster_fetchnodes(sxc_cluster_t *cluster) {
 
     if(!sxi_conns_get_uuid(cluster->conns)) {
 	SXDEBUG("no uuid was set by query");
-	sxi_seterr(sx, SXE_ECOMM, "Cannot update list of nodes: cluster uuid missing");
+	sxi_seterr(sx, SXE_ECOMM, "Cannot update list of nodes: Cluster uuid missing");
 	goto config_fetchnodes_error;
     }
 
     if(yajl_complete_parse(yctx.yh) != yajl_status_ok || yctx.state != FN_COMPLETE) {
         if (yctx.state != FN_ERROR) {
             SXDEBUG("JSON parsing failed");
-            sxi_seterr(sx, SXE_ECOMM, "Cannot update list of nodes: communication error");
+            sxi_seterr(sx, SXE_ECOMM, "Cannot update list of nodes: Communication error");
         }
 	goto config_fetchnodes_error;
     }
 
     if(!sxi_hostlist_get_count(&yctx.hlist)) {
 	SXDEBUG("no host retrieved");
-	sxi_seterr(sx, SXE_ECOMM, "Cannot update list of nodes: no nodes found");
+	sxi_seterr(sx, SXE_ECOMM, "Cannot update list of nodes: No nodes found");
 	goto config_fetchnodes_error;
     }
 
@@ -985,7 +985,7 @@ static int locate_setup_cb(sxi_conns_t *conns, void *ctx, const char *host) {
 
     if(!(yactx->yh  = yajl_alloc(&yactx->yacb, NULL, yactx))) {
 	SXDEBUG("failed to allocate yajl structure");
-	sxi_seterr(sx, SXE_EMEM, "Locate failed: out of memory");
+	sxi_seterr(sx, SXE_EMEM, "Locate failed: Out of memory");
 	return 1;
     }
 
@@ -1027,7 +1027,7 @@ int sxi_volume_info(sxc_cluster_t *cluster, const char *volume, sxi_hostlist_t *
 
     if(!(url = malloc(strlen(enc_vol) + lenof("?o=locate&volumeMeta&size=") + 64))) {
 	CFGDEBUG("OOM allocating url (%lu bytes)", strlen(enc_vol) + lenof("?o=locate&volumeMeta&size=") + 64);
-	cluster_err(SXE_EMEM, "List failed: out of memory");
+	cluster_err(SXE_EMEM, "List failed: Out of memory");
 	free(enc_vol);
 	return 1;
     }
@@ -1069,7 +1069,7 @@ int sxi_volume_info(sxc_cluster_t *cluster, const char *volume, sxi_hostlist_t *
     if(yajl_complete_parse(yctx.yh) != yajl_status_ok || yctx.state != LC_COMPLETE) {
         if (yctx.state != LC_ERROR) {
             CFGDEBUG("JSON parsing failed");
-            cluster_err(SXE_ECOMM, "Locate failed: communication error");
+            cluster_err(SXE_ECOMM, "Locate failed: Communication error");
         }
 	if(yctx.yh)
 	    yajl_free(yctx.yh);
@@ -1104,7 +1104,7 @@ int sxi_mkdir_hier(sxc_client_t *sx, const char *fullpath) {
 
     if(!fullpath || !*fullpath) {
 	SXDEBUG("called with NULL or empty path");
-	sxi_seterr(sx, SXE_EARG, "Directory creation failed: invalid argument");
+	sxi_seterr(sx, SXE_EARG, "Directory creation failed: Invalid argument");
 	return 1;
     }
 
@@ -1112,7 +1112,7 @@ int sxi_mkdir_hier(sxc_client_t *sx, const char *fullpath) {
     dir = malloc(len+1);
     if(!dir) {
 	SXDEBUG("OOM duplicating path");
-	sxi_seterr(sx, SXE_EMEM, "Directory creation failed: out of memory");
+	sxi_seterr(sx, SXE_EMEM, "Directory creation failed: Out of memory");
 	return 1;
     }
 
@@ -1171,7 +1171,7 @@ int sxc_cluster_save(sxc_cluster_t *cluster, const char *config_dir) {
     if(!sxi_is_valid_cluster(cluster)) {
 	CFGDEBUG("invalid config");
 	if(cluster)
-	    cluster_err(SXE_EARG, "Cannot save config: config is invalid");
+	    cluster_err(SXE_EARG, "Cannot save config: Config is invalid");
 	return 1;
     }
     hlist = sxi_conns_get_hostlist(cluster->conns);
@@ -1187,7 +1187,7 @@ int sxc_cluster_save(sxc_cluster_t *cluster, const char *config_dir) {
     clusterd = malloc(clusterd_len + sizeof("/config") + 1); /* fits /volumes too */
     if(!clusterd) {
 	CFGDEBUG("OOM allocating config file path");
-	cluster_err(SXE_EMEM, "Cannot save config: out of memory");
+	cluster_err(SXE_EMEM, "Cannot save config: Out of memory");
 	free(confdir);
 	return 1;
     }
@@ -1222,7 +1222,7 @@ int sxc_cluster_save(sxc_cluster_t *cluster, const char *config_dir) {
     fclose(f);
     if(i) {
 	CFGDEBUG("failed to write to config file %s", fname);
-	cluster_syserr(SXE_EWRITE, "Cannot save config: write to %s failed", fname);
+	cluster_syserr(SXE_EWRITE, "Cannot save config: Write to %s failed", fname);
 	free(clusterd);
 	sxi_tempfile_unlink_untrack(cluster->sx, fname);
 	return 1;
@@ -1231,7 +1231,7 @@ int sxc_cluster_save(sxc_cluster_t *cluster, const char *config_dir) {
     memcpy(&clusterd[clusterd_len], "/config", sizeof("/config"));
     if(rename(fname, clusterd)) {
 	CFGDEBUG("failed to rename %s to %s", fname, clusterd);
-	cluster_syserr(SXE_EWRITE, "Cannot save config: failed to rename %s to %s failed", fname, clusterd);
+	cluster_syserr(SXE_EWRITE, "Cannot save config: Failed to rename %s to %s failed", fname, clusterd);
 	free(clusterd);
 	sxi_tempfile_unlink_untrack(cluster->sx, fname);
 	return 1;
@@ -1259,7 +1259,7 @@ int sxc_cluster_save(sxc_cluster_t *cluster, const char *config_dir) {
 
 	if(!touchme) {
 	    CFGDEBUG("OOM allocating host file for %s", host);
-	    cluster_err(SXE_EMEM, "Cannot save config: out of memory");
+	    cluster_err(SXE_EMEM, "Cannot save config: Out of memory");
 	    free(clusterd);
 	    return 1;
 	}
@@ -1267,7 +1267,7 @@ int sxc_cluster_save(sxc_cluster_t *cluster, const char *config_dir) {
 	f = fopen(touchme, "w");
 	if(!f) {
 	    CFGDEBUG("failed to touch host file %s", touchme);
-	    cluster_syserr(SXE_EWRITE, "Cannot save config: failed to touch file %s", touchme);
+	    cluster_syserr(SXE_EWRITE, "Cannot save config: Failed to touch file %s", touchme);
 	    free(clusterd);
 	    free(touchme);
 	    return 1;
@@ -1279,7 +1279,7 @@ int sxc_cluster_save(sxc_cluster_t *cluster, const char *config_dir) {
     d = opendir(clusterd);
     if(!d) {
 	CFGDEBUG("failed to open nodes directory %s", clusterd);
-	cluster_syserr(SXE_ECFG, "Cannot save config: failed to open nodes directory %s", clusterd);
+	cluster_syserr(SXE_ECFG, "Cannot save config: Failed to open nodes directory %s", clusterd);
 	free(clusterd);
 	return 1;
     }
@@ -1294,7 +1294,7 @@ int sxc_cluster_save(sxc_cluster_t *cluster, const char *config_dir) {
 
 	    if(!rmme) {
 		CFGDEBUG("OOM allocating file name for node %s", dent->d_name);
-		cluster_err(SXE_EMEM, "Cannot save config: out of memory");
+		cluster_err(SXE_EMEM, "Cannot save config: Out of memory");
 		closedir(d);
 		free(clusterd);
 		return 1;
@@ -1320,7 +1320,7 @@ int sxc_cluster_save(sxc_cluster_t *cluster, const char *config_dir) {
 	sprintf(writeme, "%s/%s", clusterd, access->profile);
 	if(!writeme) {
 	    CFGDEBUG("OOM allocating name for profile %s", access->profile);
-	    cluster_err(SXE_EMEM, "Cannot save config: out of memory");
+	    cluster_err(SXE_EMEM, "Cannot save config: Out of memory");
 	    free(clusterd);
 	    return 1;
 	}
@@ -1337,7 +1337,7 @@ int sxc_cluster_save(sxc_cluster_t *cluster, const char *config_dir) {
 	fclose(f);
 	if(i) {
 	    CFGDEBUG("failed to write auth file for profile %s to tempfile %s", access->profile, fname);
-	    cluster_syserr(SXE_EWRITE, "Cannot save config: failed to write profile %s to tempfile", access->profile);
+	    cluster_syserr(SXE_EWRITE, "Cannot save config: Failed to write profile %s to tempfile", access->profile);
 	    sxi_tempfile_unlink_untrack(cluster->sx, fname);
 	    free(writeme);
 	    free(clusterd);
@@ -1346,7 +1346,7 @@ int sxc_cluster_save(sxc_cluster_t *cluster, const char *config_dir) {
 
 	if(rename(fname, writeme)) {
 	    CFGDEBUG("failed to rename %s to %s", fname, clusterd);
-	    cluster_syserr(SXE_EWRITE, "Cannot save config: failed to rename %s to %s failed", fname, clusterd);
+	    cluster_syserr(SXE_EWRITE, "Cannot save config: Failed to rename %s to %s", fname, clusterd);
 	    sxi_tempfile_unlink_untrack(cluster->sx, fname);
 	    free(writeme);
 	    free(clusterd);
@@ -1655,7 +1655,7 @@ static int listfiles_setup_cb(sxi_conns_t *conns, void *ctx, const char *host) {
 
     if(!(yactx->yh  = yajl_alloc(&yactx->yacb, NULL, yactx))) {
 	SXDEBUG("failed to allocate yajl structure");
-	sxi_seterr(sx, SXE_EMEM, "List failed: out of memory");
+	sxi_seterr(sx, SXE_EMEM, "List failed: Out of memory");
 	return 1;
     }
 
@@ -1767,7 +1767,7 @@ sxc_cluster_lf_t *sxc_cluster_listfiles(sxc_cluster_t *cluster, const char *volu
 
     if(!(url = malloc(len))) {
 	CFGDEBUG("OOM allocating url (%u bytes)", len);
-	cluster_err(SXE_EMEM, "List failed: out of memory");
+	cluster_err(SXE_EMEM, "List failed: Out of memory");
 	sxi_hostlist_empty(&volhosts);
 	free(enc_vol);
 	free(enc_glob);
@@ -1815,7 +1815,7 @@ sxc_cluster_lf_t *sxc_cluster_listfiles(sxc_cluster_t *cluster, const char *volu
     if(yajl_complete_parse(yctx.yh) != yajl_status_ok || yctx.state != LF_COMPLETE) {
         if (yctx.state != LF_ERROR) {
             CFGDEBUG("JSON parsing failed");
-            cluster_err(SXE_ECOMM, "List failed: communication error");
+            cluster_err(SXE_ECOMM, "List failed: Communication error");
         }
 	if(yctx.yh)
 	    yajl_free(yctx.yh);
@@ -1831,7 +1831,7 @@ sxc_cluster_lf_t *sxc_cluster_listfiles(sxc_cluster_t *cluster, const char *volu
     if(fflush(yctx.f) ||
        ftruncate(fileno(yctx.f), ftell(yctx.f)) ||
        fseek(yctx.f, 0, reverse ? SEEK_END : SEEK_SET)) {
-	cluster_err(SXE_EWRITE, "List failed: failed to write temporary data");
+	cluster_err(SXE_EWRITE, "List failed: Failed to write temporary data");
 	fclose(yctx.f);
 	unlink(fname);
 	free(fname);
@@ -1841,7 +1841,7 @@ sxc_cluster_lf_t *sxc_cluster_listfiles(sxc_cluster_t *cluster, const char *volu
     ret = malloc(sizeof(*ret));
     if(!ret) {
 	CFGDEBUG("OOM allocating results");
-	cluster_err(SXE_EMEM, "List failed: out of memory");
+	cluster_err(SXE_EMEM, "List failed: Out of memory");
 	fclose(yctx.f);
 	unlink(fname);
 	free(fname);
@@ -1978,7 +1978,7 @@ static int sxc_cluster_listfiles_prev(sxc_cluster_lf_t *lf, char **file_name, in
     pos = ftell(lf->f);
     if(pos < 0) {
 	SXDEBUG("error getting the current position in the result file");
-	sxi_setsyserr(sx, SXE_EREAD, "Failed to retrieve next file: read item from cache failed");
+	sxi_setsyserr(sx, SXE_EREAD, "Failed to retrieve next file: Read item from cache failed");
 	return -1;
     }
     if(pos < sizeof(file) * 2)
@@ -1987,7 +1987,7 @@ static int sxc_cluster_listfiles_prev(sxc_cluster_lf_t *lf, char **file_name, in
 
     if(!fread(&file, sizeof(file), 1, lf->f)) {
 	SXDEBUG("error reading attributes from results file");
-	sxi_setsyserr(sx, SXE_EREAD, "Failed to retrieve next file: read item from cache failed");
+	sxi_setsyserr(sx, SXE_EREAD, "Failed to retrieve next file: Read item from cache failed");
 	return -1;
     }
     if(pos < sizeof(file) * 2 + file.namelen)
@@ -1998,12 +1998,12 @@ static int sxc_cluster_listfiles_prev(sxc_cluster_lf_t *lf, char **file_name, in
 	*file_name = malloc(file.namelen + 1);
 	if(!*file_name) {
 	    SXDEBUG("OOM allocating result file name (%u bytes)", (unsigned)file.namelen);
-	    sxi_seterr(sx, SXE_EMEM, "Failed to retrieve next file: out of memory");
+	    sxi_seterr(sx, SXE_EMEM, "Failed to retrieve next file: Out of memory");
 	    return -1;
 	}
 	if(!fread(*file_name, file.namelen, 1, lf->f)) {
 	    SXDEBUG("error reading name from results file");
-	    sxi_setsyserr(sx, SXE_EREAD, "Failed to retrieve next file: read item from cache failed");
+	    sxi_setsyserr(sx, SXE_EREAD, "Failed to retrieve next file: Read item from cache failed");
 	    return -1;
 	}
 	(*file_name)[file.namelen] = '\0';
@@ -2029,7 +2029,7 @@ int sxc_cluster_listfiles_next(sxc_cluster_lf_t *lf, char **file_name, int64_t *
     if(!fread(&file, sizeof(file), 1, lf->f)) {
 	if(ferror(lf->f)) {
 	    SXDEBUG("error reading attributes from results file");
-	    sxi_setsyserr(sx, SXE_EREAD, "Failed to retrieve next file: read item from cache failed");
+	    sxi_setsyserr(sx, SXE_EREAD, "Failed to retrieve next file: Read item from cache failed");
 	    return -1;
 	}
 	return 0;
@@ -2039,12 +2039,12 @@ int sxc_cluster_listfiles_next(sxc_cluster_lf_t *lf, char **file_name, int64_t *
 	*file_name = malloc(file.namelen + 1);
 	if(!*file_name) {
 	    SXDEBUG("OOM allocating result file name (%u bytes)", (unsigned)file.namelen);
-	    sxi_seterr(sx, SXE_EMEM, "Failed to retrieve next file: out of memory");
+	    sxi_seterr(sx, SXE_EMEM, "Failed to retrieve next file: Out of memory");
 	    return -1;
 	}
 	if(!fread(*file_name, file.namelen, 1, lf->f)) {
 	    SXDEBUG("error reading name from results file");
-	    sxi_setsyserr(sx, SXE_EREAD, "Failed to retrieve next file: read item from cache failed");
+	    sxi_setsyserr(sx, SXE_EREAD, "Failed to retrieve next file: Read item from cache failed");
 	    return -1;
 	}
 	(*file_name)[file.namelen] = '\0';
@@ -2147,11 +2147,11 @@ char *sxc_user_add(sxc_cluster_t *cluster, const char *username, int admin)
     if (!ch_ctx)
         return NULL;
     if(!sxi_sha1_init(ch_ctx)) {
-	cluster_err(SXE_ECRYPT, "Cannot compute hash: unable to initialize crypto library");
+	cluster_err(SXE_ECRYPT, "Cannot compute hash: Unable to initialize crypto library");
 	return NULL;
     }
     if(!sxi_sha1_update(ch_ctx, username, l) || !sxi_sha1_final(ch_ctx, uid, NULL)) {
-	cluster_err(SXE_ECRYPT, "Cannot compute hash: crypto library failure");
+	cluster_err(SXE_ECRYPT, "Cannot compute hash: Crypto library failure");
         sxi_md_cleanup(&ch_ctx);
 	return NULL;
     }
@@ -2216,7 +2216,7 @@ static int userkey_setup_cb(sxi_conns_t *conns, void *ctx, const char *host)
 
     if(!(yactx->yh = yajl_alloc(&yactx->yacb, NULL, yactx))) {
         SXDEBUG("OOM allocating yajl context");
-        sxi_seterr(sx, SXE_EMEM, "Cannot get user key: out of memory");
+        sxi_seterr(sx, SXE_EMEM, "Cannot get user key: Out of memory");
         return 1;
     }
 
@@ -2299,12 +2299,12 @@ static int yacb_userkey_string(void *ctx, const unsigned char *s, size_t l) {
 
         ch_ctx = sxi_md_init();
         if(!sxi_sha1_init(ch_ctx)) {
-            sxi_seterr(yactx->sx, SXE_ECRYPT, "Cannot compute hash: unable to initialize crypto library");
+            sxi_seterr(yactx->sx, SXE_ECRYPT, "Cannot compute hash: Unable to initialize crypto library");
             return 1;
         }
         if(!sxi_sha1_update(ch_ctx, yactx->username, strlen(yactx->username)) ||
            !sxi_sha1_final(ch_ctx, token, NULL)) {
-            sxi_seterr(yactx->sx, SXE_ECRYPT, "Cannot compute hash: crypto library failure");
+            sxi_seterr(yactx->sx, SXE_ECRYPT, "Cannot compute hash: Crypto library failure");
             sxi_md_cleanup(&ch_ctx);
             return 1;
         }
@@ -2377,7 +2377,7 @@ int sxc_user_getkey(sxc_cluster_t *cluster, const char *username, FILE *storeaut
     if(yajl_complete_parse(yctx.yh) != yajl_status_ok || yctx.state != USERKEY_COMPLETE) {
         if (yctx.state != USERKEY_ERROR) {
             SXDEBUG("JSON parsing failed");
-            sxi_seterr(sx, SXE_ECOMM, "Cannot get user key: communication error");
+            sxi_seterr(sx, SXE_ECOMM, "Cannot get user key: Communication error");
         }
         goto done;
     }

@@ -63,7 +63,7 @@ static FMT_PRINTF(4, 5) sxi_query_t* sxi_query_append_fmt(sxc_client_t *sx, sxi_
     rc = vsnprintf((char*)query->content + query->content_len, n + 1, fmt, ap);
     va_end(ap);
     if (rc < 0 || rc > n) {
-        sxi_seterr(sx, SXE_EARG, "Failed to allocate query: format string overflow (%d -> %d) %s", n, rc, fmt);
+        sxi_seterr(sx, SXE_EARG, "Failed to allocate query: Format string overflow (%d -> %d) %s", n, rc, fmt);
         sxi_query_free(query);
         return NULL;
     }
@@ -171,7 +171,7 @@ sxi_query_t *sxi_volumeadd_proto(sxc_client_t *sx, const char *volname, const ch
 
     qowner = sxi_json_quote_string(owner);
     if(!qowner) {
-	sxi_seterr(sx, SXE_EMEM, "Failed to quote username: out of memory");
+	sxi_seterr(sx, SXE_EMEM, "Failed to quote username: Out of memory");
 	free(url);
 	return NULL;
     }
@@ -196,7 +196,7 @@ sxi_query_t *sxi_flushfile_proto(sxc_client_t *sx, const char *token) {
     sxi_query_t *ret;
 
     if(!url) {
-	sxi_seterr(sx, SXE_EMEM, "Failed to generate query: out of memory");
+	sxi_seterr(sx, SXE_EMEM, "Failed to generate query: Out of memory");
 	return NULL;
     }
 
@@ -286,7 +286,7 @@ sxi_query_t *sxi_filedel_proto(sxc_client_t *sx, const char *volname, const char
     if(!enc_vol || !enc_path) {
 	free(enc_vol);
 	free(enc_path);
-	sxi_setsyserr(sx, SXE_EMEM, "Failed to quote url: out of memory");
+	sxi_setsyserr(sx, SXE_EMEM, "Failed to quote url: Out of memory");
 	return NULL;
     }
 
@@ -298,7 +298,7 @@ sxi_query_t *sxi_filedel_proto(sxc_client_t *sx, const char *volname, const char
 	sprintf(url, "%s/%s", enc_vol, enc_path);
 
     if(!url) {
-	sxi_setsyserr(sx, SXE_EMEM, "Failed to generate query: out of memory");
+	sxi_setsyserr(sx, SXE_EMEM, "Failed to generate query: Out of memory");
 	ret = NULL;
     } else
 	ret = sxi_query_create(sx, url, REQ_DELETE);

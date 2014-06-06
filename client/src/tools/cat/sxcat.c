@@ -38,6 +38,7 @@
 #include "cmdline.h"
 #include "version.h"
 #include "libsx/src/misc.h"
+#include "bcrumbs.h"
 
 struct gengetopt_args_info args;
 static sxc_client_t *sx = NULL;
@@ -82,6 +83,8 @@ static sxc_file_t *sxfile_from_arg(sxc_cluster_t **cluster, const char *arg) {
 	}
 	if(!*cluster) {
 	    fprintf(stderr, "ERROR: Failed to load config for %s: %s\n", uri->host, sxc_geterrmsg(sx));
+	    if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_CFG_ERR))
+		fprintf(stderr, SXBC_TOOLS_CFG_MSG, uri->host, uri->host);
 	    sxc_free_uri(uri);
 	    return NULL;
 	}
@@ -168,8 +171,13 @@ int main(int argc, char **argv) {
 
 	if(sxc_cat(src_file, STDOUT_FILENO)) {
 	    fprintf(stderr, "ERROR: Failed to stream %s: %s\n", args.inputs[i], sxc_geterrmsg(sx));
-	    if(cluster && strstr(sxc_geterrmsg(sx), "No such volume"))
-		fprintf(stderr, "Use 'sxls sx://%s' to list the existing volumes.\n", sxc_cluster_get_sslname(cluster));
+	    if(cluster && strstr(sxc_geterrmsg(sx), SXBC_TOOLS_VOL_ERR)) {
+		sxc_uri_t *u = sxc_parse_uri(sx, args.inputs[i]);
+		if(u) {
+		    fprintf(stderr, SXBC_TOOLS_VOL_MSG, u->profile ? u->profile : "", u->profile ? "@" : "", u->host);
+		    sxc_free_uri(u);
+		}
+	    }
 	    ret = 1;
 	}
 	sxc_file_free(src_file);

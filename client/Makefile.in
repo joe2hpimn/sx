@@ -422,7 +422,7 @@ top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
 ACLOCAL_AMFLAGS = -I m4
 SUBDIRS = src/filters/null src/filters/zcomp src/filters/attribs src/filters/aes256
-AM_CPPFLAGS = -I $(top_srcdir)/../libsx/include -I $(top_srcdir)/../ -DSX_FILTER_DIR=\"$(pkglibdir)\"
+AM_CPPFLAGS = -I $(top_srcdir)/../libsx/include -I $(top_srcdir)/../ -I $(top_srcdir)/src/common -DSX_FILTER_DIR=\"$(pkglibdir)\"
 src_tools_init_sxinit_SOURCES = \
 	src/tools/init/sxinit.c \
 	src/tools/init/cmdline.c \

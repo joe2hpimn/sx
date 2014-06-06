@@ -47,6 +47,7 @@
 #include "libsx/src/misc.h"
 #include "libsx/src/clustcfg.h"
 #include "version.h"
+#include "bcrumbs.h"
 
 static sxc_client_t *gsx = NULL;
 
@@ -83,6 +84,9 @@ static int volume_acl(sxc_client_t *sx, const struct perm_args_info *args)
     cluster = sxc_cluster_load_and_update(sx, args->config_dir_arg, uri->host, uri->profile);
     if(!cluster) {
 	fprintf(stderr, "ERROR: Failed to load config for %s: %s\n", uri->host, sxc_geterrmsg(sx));
+
+	if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_CFG_ERR))
+	    fprintf(stderr, SXBC_TOOLS_CFG_MSG, uri->host, uri->host);
 	sxc_free_uri(uri);
 	return 1;
     }
@@ -115,6 +119,8 @@ static int add_user(sxc_client_t *sx, const char *username, const char *uri, con
     cluster = sxc_cluster_load_and_update(sx, clusterdir, u->host, u->profile);
     if(!cluster) {
 	fprintf(stderr, "ERROR: Failed to load config for %s: %s\n", u->host, sxc_geterrmsg(sx));
+	if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_CFG_ERR))
+	    fprintf(stderr, SXBC_TOOLS_CFG_MSG, u->host, u->host);
 	sxc_free_uri(u);
 	return 1;
     }
@@ -178,6 +184,8 @@ static int getkey_user(sxc_client_t *sx, const char *username, const char *uri, 
     cluster = sxc_cluster_load_and_update(sx, clusterdir, u->host, u->profile);
     if(!cluster) {
 	fprintf(stderr, "ERROR: Failed to load config for %s: %s\n", u->host, sxc_geterrmsg(sx));
+	if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_CFG_ERR))
+	    fprintf(stderr, SXBC_TOOLS_CFG_MSG, u->host, u->host);
 	sxc_free_uri(u);
 	return 1;
     }
@@ -223,6 +231,8 @@ static int list_users(sxc_client_t *sx, const char *uri, const char *clusterdir,
     cluster = sxc_cluster_load_and_update(sx, clusterdir, u->host, u->profile);
     if(!cluster) {
 	fprintf(stderr, "ERROR: Failed to load config for %s: %s\n", u->host, sxc_geterrmsg(sx));
+	if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_CFG_ERR))
+	    fprintf(stderr, SXBC_TOOLS_CFG_MSG, u->host, u->host);
 	sxc_free_uri(u);
 	return 1;
     }
@@ -265,6 +275,8 @@ static int list_perms(sxc_client_t *sx, const char *uri, const char *clusterdir,
     cluster = sxc_cluster_load_and_update(sx, clusterdir, u->host, u->profile);
     if(!cluster) {
 	fprintf(stderr, "ERROR: Failed to load config for %s: %s\n", u->host, sxc_geterrmsg(sx));
+	if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_CFG_ERR))
+	    fprintf(stderr, SXBC_TOOLS_CFG_MSG, u->host, u->host);
 	sxc_free_uri(u);
 	return 1;
     }
@@ -289,8 +301,8 @@ static int list_perms(sxc_client_t *sx, const char *uri, const char *clusterdir,
     sxc_cluster_listaclusers_free(lst);
     if (!lst) {
         fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
-	if(strstr(sxc_geterrmsg(sx), "No such volume"))
-	    fprintf(stderr, "Use 'sxls sx://%s' to list the existing volumes.\n", u->host);
+	if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_VOL_ERR))
+	    fprintf(stderr, SXBC_TOOLS_VOL_MSG, u->profile ? u->profile : "", u->profile ? "@" : "", u->host);
         rc = 1;
     }
     sxc_free_uri(u);

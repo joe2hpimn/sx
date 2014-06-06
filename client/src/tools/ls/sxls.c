@@ -37,6 +37,7 @@
 #include "version.h"
 #include "libsx/src/misc.h"
 #include "libsx/src/clustcfg.h"
+#include "bcrumbs.h"
 
 static sxc_client_t *sx = NULL;
 
@@ -174,6 +175,8 @@ int main(int argc, char **argv) {
 	cluster = sxc_cluster_load_and_update(sx, args.config_dir_arg, u->host, u->profile);
 	if(!cluster) {
 	    fprintf(stderr, "ERROR: Failed to load config for %s: %s\n", u->host, sxc_geterrmsg(sx));
+	    if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_CFG_ERR))
+		fprintf(stderr, SXBC_TOOLS_CFG_MSG, u->host, u->host);
 	    sxc_free_uri(u);
 	    ret = 1;
 	    continue;
@@ -299,8 +302,8 @@ int main(int argc, char **argv) {
 		sxc_cluster_listfiles_free(fl);
 	    } else {
 		fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
-		if(strstr(sxc_geterrmsg(sx), "No such volume"))
-		    fprintf(stderr, "Use 'sxls sx://%s%s%s' to list the existing volumes.\n", u->profile ? u->profile : "", u->profile ? "@" : "", u->host);
+		if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_VOL_ERR))
+		    fprintf(stderr, SXBC_TOOLS_VOL_MSG, u->profile ? u->profile : "", u->profile ? "@" : "", u->host);
     
                 ret = 1;
             }

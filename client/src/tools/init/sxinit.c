@@ -37,6 +37,7 @@
 #include "cmdline.h"
 #include "version.h"
 #include "libsx/src/misc.h"
+#include "bcrumbs.h"
 
 static sxc_client_t *sx = NULL;
 
@@ -311,6 +312,12 @@ int main(int argc, char **argv) {
 
     ret = 0;
  init_err:
+    if(ret) {
+	if(strstr(sxc_geterrmsg(sx), SXBC_SXINIT_RESOLVE_ERR))
+	    fprintf(stderr, SXBC_SXINIT_RESOLVE_MSG, u->host, u->host);
+	else if(strstr(sxc_geterrmsg(sx), SXBC_SXINIT_UUID_ERR))
+	    fprintf(stderr, SXBC_SXINIT_UUID_MSG);
+    }
     sxc_free_uri(u);
     sxc_cluster_free(cluster);
     signal(SIGINT, SIG_IGN);

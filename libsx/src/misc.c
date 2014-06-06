@@ -82,7 +82,7 @@ void *sxi_realloc(sxc_client_t *sx, void *ptr, unsigned int newlen) {
     ptr = realloc(ptr, newlen);
     if(!ptr) {
 	SXDEBUG("Failed to realloc to %u bytes", newlen);
-	sxi_seterr(sx, SXE_EMEM, "Cannot increase allocated size: out of memory");
+	sxi_seterr(sx, SXE_EMEM, "Cannot increase allocated size: Out of memory");
 	free(oldptr);
     }
     return ptr;
@@ -135,7 +135,7 @@ char *sxi_b64_enc(sxc_client_t *sx, const void *data, unsigned int data_size) {
     char *ret = sxi_b64_enc_core(data, data_size);
     if(!ret) {
 	SXDEBUG("OOM on %u bytes long input", data_size);
-	sxi_seterr(sx, SXE_EMEM, "Cannot encode data in base64: our of memory");
+	sxi_seterr(sx, SXE_EMEM, "Cannot encode data in base64: Out of memory");
 	return NULL;
     }
     return ret;
@@ -209,7 +209,7 @@ int sxi_b64_dec_core(const char *string, void *buf, unsigned int *buf_size) {
 int sxi_b64_dec(sxc_client_t *sx, const char *string, void *buf, unsigned int *buf_size) {
     if (!string || !buf || !buf_size) {
 	SXDEBUG("called with NULL argument");
-	sxi_seterr(sx, SXE_EARG, "Cannot decode base64 string: invalid argument");
+	sxi_seterr(sx, SXE_EARG, "Cannot decode base64 string: Invalid argument");
 	return 1;
     }
     if (sxi_b64_dec_core(string, buf, buf_size)) {
@@ -245,7 +245,7 @@ char *sxi_urlencode(sxc_client_t *sx, const char *string, int encode_slash) {
 
     if(!string) {
 	SXDEBUG("called with NULL argument");
-	sxi_seterr(sx, SXE_EARG, "Cannot encode URL: invalid argument");
+	sxi_seterr(sx, SXE_EARG, "Cannot encode URL: Invalid argument");
 	return NULL;
     }
 
@@ -255,7 +255,7 @@ char *sxi_urlencode(sxc_client_t *sx, const char *string, int encode_slash) {
     len++;
     if(!(ret = malloc(len))) {
 	SXDEBUG("OOM allocating output buffer (%u bytes)", len);
-	sxi_seterr(sx, SXE_EARG, "Cannot encode URL: out of memory");
+	sxi_seterr(sx, SXE_EARG, "Cannot encode URL: Out of memory");
 	return NULL;
     }
 
@@ -646,7 +646,7 @@ sxc_uri_t *sxc_parse_uri(sxc_client_t *sx, const char *uri) {
 
     if(len <= lenof(SXPROTO) || strncmp(SXPROTO, uri, lenof(SXPROTO))) {
         SXDEBUG("URI '%s' is too short", uri);
-        sxi_seterr(sx, SXE_EARG, "Cannot parse URL '%s': invalid argument", uri);
+        sxi_seterr(sx, SXE_EARG, "Cannot parse URL '%s': Invalid argument", uri);
         free(tmp_uri);
         return NULL;
     }
@@ -657,7 +657,7 @@ sxc_uri_t *sxc_parse_uri(sxc_client_t *sx, const char *uri) {
     u = malloc(sizeof(*u) + len + 1);
     if(!u) {
 	SXDEBUG("OOM allocating result struct for '%s'", uri);
-	sxi_seterr(sx, SXE_EMEM, "Cannot parse URL '%s': out of memory", uri);
+	sxi_seterr(sx, SXE_EMEM, "Cannot parse URL '%s': Out of memory", uri);
         free(tmp_uri);
 	return NULL;
     }
@@ -707,7 +707,7 @@ sxc_uri_t *sxc_parse_uri(sxc_client_t *sx, const char *uri) {
 
     if(!u->host || !*u->host) {
 	SXDEBUG("URI has a NULL or empty host");
-	sxi_seterr(sx, SXE_EARG, "Cannot parse URL '%s': invalid host", uri);
+	sxi_seterr(sx, SXE_EARG, "Cannot parse URL '%s': Invalid host", uri);
 	free(u);
         free(tmp_uri);
 	return NULL;
@@ -801,7 +801,7 @@ char *sxi_make_tempfile(sxc_client_t *sx, const char *basedir, FILE **f) {
 
     if(!f) {
 	SXDEBUG("called with NULL arg");
-	sxi_seterr(sx, SXE_EARG, "Cannot create temporary file: invalid argument");
+	sxi_seterr(sx, SXE_EARG, "Cannot create temporary file: Invalid argument");
 	return NULL;
     }
     if(!basedir)
@@ -812,7 +812,7 @@ char *sxi_make_tempfile(sxc_client_t *sx, const char *basedir, FILE **f) {
     tmpname = malloc(len + sizeof("/.sxtmpXXXXXX"));
     if(!tmpname) {
 	SXDEBUG("OOM allocating tempname (%u bytes)", len);
-	sxi_seterr(sx, SXE_EMEM, "Cannot create temporary file: out of memory");
+	sxi_seterr(sx, SXE_EMEM, "Cannot create temporary file: Out of memory");
 	return NULL;
     }
     memcpy(tmpname, basedir, len);
@@ -1002,13 +1002,13 @@ sxi_ht *sxi_ht_new(sxc_client_t *sx, unsigned int initial_size) {
 	initial_size = next_pow2(initial_size);
     if(!(ht = malloc(sizeof(*ht)))) {
 	SXDEBUG("failed to allocate hash struct");
-	sxi_seterr(sx, SXE_EMEM, "Cannot create new hash table: out of memory");
+	sxi_seterr(sx, SXE_EMEM, "Cannot create new hash table: Out of memory");
 	return NULL;
     }
 
     if(!(ht->tab = calloc(sizeof(struct sxi_ht_item_t *), initial_size))) {
 	SXDEBUG("failed to create a hash with %u items", initial_size);
-	sxi_seterr(sx, SXE_EMEM, "Cannot create new hash table: out of memory");
+	sxi_seterr(sx, SXE_EMEM, "Cannot create new hash table: Out of memory");
 	free(ht);
 	return NULL;
     }
@@ -1050,7 +1050,7 @@ int sxi_ht_add(sxi_ht *ht, const void *key, unsigned int key_length, void *value
     item = malloc(sizeof(*item) + key_length);
     if(!item) {
 	SXDEBUG("OOM allocating new item (key len: %u)", key_length);
-	sxi_seterr(sx, SXE_EMEM, "Cannot add item to hash table: out of memory");
+	sxi_seterr(sx, SXE_EMEM, "Cannot add item to hash table: Out of memory");
 	return 1;
     }
 
@@ -1073,7 +1073,7 @@ int sxi_ht_add(sxi_ht *ht, const void *key, unsigned int key_length, void *value
 	new_ht.tab = calloc(sizeof(struct sxi_ht_item_t *), new_ht.size);
 	if(!new_ht.tab) {
 	    SXDEBUG("OOM growing hash from %u to %u items", ht->size, new_ht.size);
-	    sxi_seterr(sx, SXE_EMEM, "Cannot add item to hash table: out of memory");
+	    sxi_seterr(sx, SXE_EMEM, "Cannot add item to hash table: Out of memory");
 	    return 1;
 	}
 	new_ht.items = 0;
@@ -1357,7 +1357,7 @@ int sxc_meta_getval(sxc_meta_t *meta, const char *key, const void **value, unsig
     if(!meta)
 	return -1;
     if(!key) {
-	sxi_seterr(meta->sx, SXE_EARG, "Cannot lookup key: invalid argument");
+	sxi_seterr(meta->sx, SXE_EARG, "Cannot lookup key: Invalid argument");
 	return -1;
     }
 
@@ -1398,7 +1398,7 @@ int sxc_meta_getkeyval(sxc_meta_t *meta, unsigned int itemno, const char **key, 
     if(!meta)
 	return -1;
     if(itemno >= nitems) {
-	sxi_seterr(meta->sx, SXE_EARG, "Cannot lookup item: index out of bounds");
+	sxi_seterr(meta->sx, SXE_EARG, "Cannot lookup item: Index out of bounds");
 	return -1;
     }
 
@@ -1425,13 +1425,13 @@ int sxc_meta_setval(sxc_meta_t *meta, const char *key, const void *value, unsign
     if(!meta)
 	return -1;
     if(!key || (!value && value_len)) {
-	sxi_seterr(meta->sx, SXE_EARG, "Cannot set meta value: invalid argument");
+	sxi_seterr(meta->sx, SXE_EARG, "Cannot set meta value: Invalid argument");
 	return -1;
     }
 
     item = malloc(sizeof(*item) + value_len);
     if(!item) {
-	sxi_seterr(meta->sx, SXE_EMEM, "Cannot set meta value: out of memory");
+	sxi_seterr(meta->sx, SXE_EMEM, "Cannot set meta value: Out of memory");
 	return 1;
     }
 
@@ -1454,31 +1454,31 @@ int sxc_meta_setval_fromhex(sxc_meta_t *meta, const char *key, const char *value
     if(!meta)
 	return -1;
     if(!key) {
-	sxi_seterr(meta->sx, SXE_EARG, "Cannot set meta value: invalid key");
+	sxi_seterr(meta->sx, SXE_EARG, "Cannot set meta value: Invalid key");
 	return -1;
     }
     if(valuehex) {
 	if(!valuehex_len)
 	    valuehex_len = strlen(valuehex);
 	if(valuehex_len & 1) {
-	    sxi_seterr(meta->sx, SXE_EARG, "Cannot set meta value: invalid value");
+	    sxi_seterr(meta->sx, SXE_EARG, "Cannot set meta value: Invalid value");
 	    return -1;
 	}
     } else if(valuehex_len) {
-	sxi_seterr(meta->sx, SXE_EARG, "Cannot set meta value: invalid value length");
+	sxi_seterr(meta->sx, SXE_EARG, "Cannot set meta value: Invalid value length");
 	return -1;
     }
 
     item = malloc(sizeof(*item) + valuehex_len / 2);
     if(!item) {
-	sxi_seterr(meta->sx, SXE_EMEM, "Cannot set meta value: out of memory");
+	sxi_seterr(meta->sx, SXE_EMEM, "Cannot set meta value: Out of memory");
 	return 1;
     }
 
     item->value = (uint8_t *)(item + 1);
     item->value_len = valuehex_len / 2;
     if(sxi_hex2bin(valuehex, valuehex_len, item->value, item->value_len)) {
-	sxi_seterr(meta->sx, SXE_EARG, "Cannot set meta value: invalid value");
+	sxi_seterr(meta->sx, SXE_EARG, "Cannot set meta value: Invalid value");
 	return -1;
     }
 

@@ -327,7 +327,7 @@ CURLcode sxi_verifyhost(sxc_client_t *sx, const char *hostname, X509 *server_cer
                 if(peer_CN && memchr(peer_CN, 0, j)) {
                     /* there was a terminating zero before the end of string, this
                        cannot match and we return failure! */
-                    sxi_seterr(sx, SXE_ECOMM, "SSL: illegal cert name field");
+                    sxi_seterr(sx, SXE_ECOMM, "SSL: Illegal cert name field");
                     res = CURLE_PEER_FAILED_VERIFICATION;
                 }
             }
@@ -341,11 +341,11 @@ CURLcode sxi_verifyhost(sxc_client_t *sx, const char *hostname, X509 *server_cer
             /* error already detected, pass through */
             ;
         else if(!peer_CN) {
-            SXDEBUG("SSL: unable to obtain common name from peer certificate");
+            SXDEBUG("SSL: Unable to obtain common name from peer certificate");
             res = CURLE_PEER_FAILED_VERIFICATION;
         }
         else if(!Curl_cert_hostcheck((const char *)peer_CN, hostname)) {
-            sxi_seterr(sx, SXE_ECOMM, "SSL: certificate subject name '%s' does not match "
+            sxi_seterr(sx, SXE_ECOMM, "SSL: Certificate subject name '%s' does not match "
                     "target host name '%s'", peer_CN, hostname);
             res = CURLE_PEER_FAILED_VERIFICATION;
         }

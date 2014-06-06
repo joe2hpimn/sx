@@ -294,7 +294,7 @@ void sxi_cbdata_unref(curlev_context_t **ctx_ptr)
         ctx->ref--;
         *ctx_ptr = NULL;
         if (ctx->ref < 0) {
-            sxi_seterr(sx, SXE_EARG, "cbdata: reference count wrong: %d", ctx->ref);
+            sxi_seterr(sx, SXE_EARG, "cbdata: Reference count wrong: %d", ctx->ref);
             /* don't free, the reference count is corrupt */
             return;
         }
@@ -350,7 +350,7 @@ int sxi_cbdata_result(curlev_context_t *ctx, int *curlcode)
         return rctx->reply_status;
     if (rctx->rc == CURLE_OUT_OF_MEMORY) {
         sxi_seterr(sxi_conns_get_client(ctx->conns), SXE_ECURL,
-                   "Cluster query failed: out of memory in library routine");
+                   "Cluster query failed: Out of memory in library routine");
         return -1;
     }
     return 0;
@@ -395,7 +395,7 @@ void sxi_cbdata_finish(curl_events_t *e, curlev_context_t **ctxptr, const char *
         if (rctx->rc != CURLE_WRITE_ERROR) {
             const char *msg = *rctx->errbuf ? rctx->errbuf : strerr;
             if (rctx->rc == CURLE_SSL_CACERT && sxi_curlev_has_cafile(e))
-                sxi_seterr(sx, SXE_ECURL, "%s: possible MITM attack: run sxinit again!",
+                sxi_seterr(sx, SXE_ECURL, "%s: Possible MITM attack, see https://wiki.skylable.com/wiki/FAQ#Possible_MITM_attack",
                            strerr);
             else
                 sxi_seterr(sx, SXE_ECURL, "%s: %s", url ? url : "", msg);
@@ -574,9 +574,9 @@ static size_t writefn(void *ptr, size_t size, size_t nmemb, void *ctxptr) {
     if(!wd->header_seen) {
 	if(wd->reply_status == 502 || wd->reply_status == 504) {
 	    /* Reply is very likely to come from a busy cluster */
-	    sxi_seterr(sx, SXE_ECOMM, "Bad cluster reply(%ld): the cluster may be under maintenance or overloaded, please try again later", wd->reply_status);
+	    sxi_seterr(sx, SXE_ECOMM, "Bad cluster reply(%ld): The cluster may be under maintenance or overloaded, please try again later", wd->reply_status);
 	} else if(wd->reply_status == 414) {
-	    sxi_seterr(sx, SXE_ECOMM, "URI too long: the path to the requested resource is too long");
+	    sxi_seterr(sx, SXE_ECOMM, "URI too long: Path to the requested resource is too long");
 	} else {
 	    /* Reply is certainly not from sx */
 	    sxi_seterr(sx, SXE_ECOMM, "The server contacted is not an SX Cluster node (http status: %ld)", wd->reply_status);
@@ -980,7 +980,7 @@ static int set_headers(curl_events_t *e, curlev_t *ev, const header_t *headers, 
         slist_next = curl_slist_append(ev->slist, header);
         if (!slist_next) {
             curl_slist_free_all(ev->slist);
-            ctx_err(ev->ctx, CURLE_OUT_OF_MEMORY, "curl_slist_append: out of memory");
+            ctx_err(ev->ctx, CURLE_OUT_OF_MEMORY, "curl_slist_append: Out of memory");
             ev->slist = NULL;
             return -1;
         }
@@ -1319,7 +1319,7 @@ static int compute_date(sxc_client_t *sx, char buf[32], time_t diff, sxi_hmac_sh
 
     if(!gmtime_r(&t, &ts)) {
 	SXDEBUG("failed to get time");
-	sxi_seterr(sx, SXE_EARG, "Cannot get current time: invalid argument");
+	sxi_seterr(sx, SXE_EARG, "Cannot get current time: Invalid argument");
 	return -1;
     }
     sprintf(buf, "%s, %02u %s %04u %02u:%02u:%02u GMT", wkday[ts.tm_wday], ts.tm_mday, month[ts.tm_mon], ts.tm_year + 1900, ts.tm_hour, ts.tm_min, ts.tm_sec);
@@ -1416,7 +1416,7 @@ static int compute_headers_url(curl_events_t *e, curlev_t *ev, curlev_t *src)
         query++;
         if(sxi_b64_dec(sx, token, bintoken, &keylen) || keylen != AUTHTOK_BIN_LEN) {
             EVDEBUG(ev, "failed to decode the auth token");
-            conns_err(SXE_EAUTH, "Cluster query failed: invalid authentication token");
+            conns_err(SXE_EAUTH, "Cluster query failed: Invalid authentication token");
             break;
         }
 
@@ -1438,12 +1438,12 @@ static int compute_headers_url(curl_events_t *e, curlev_t *ev, curlev_t *src)
 
             if (!sxi_sha1_init(ch_ctx)) {
 		EVDEBUG(ev, "failed to init content digest");
-		conns_err(SXE_ECRYPT, "Cannot compute hash: unable to initialize crypto library");
+		conns_err(SXE_ECRYPT, "Cannot compute hash: Unable to initialize crypto library");
 		break;
 	    }
             if (!sxi_sha1_update(ch_ctx, content, content_size) || !sxi_sha1_final(ch_ctx, d, NULL)) {
 		EVDEBUG(ev, "failed to update content digest");
-		conns_err(SXE_ECRYPT, "Cannot compute hash: crypto library failure");
+		conns_err(SXE_ECRYPT, "Cannot compute hash: Crypto library failure");
                 sxi_md_cleanup(&ch_ctx);
 		break;
 	    }

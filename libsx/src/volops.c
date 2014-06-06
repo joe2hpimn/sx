@@ -653,7 +653,7 @@ static int listvolumes_setup_cb(sxi_conns_t *conns, void *ctx, const char *host)
 
     if(!(yactx->yh  = yajl_alloc(&yactx->yacb, NULL, yactx))) {
 	SXDEBUG("failed to allocate yajl structure");
-	sxi_seterr(sx, SXE_EMEM, "List volumes failed: out of memory");
+	sxi_seterr(sx, SXE_EMEM, "List volumes failed: Out of memory");
 	return 1;
     }
 
@@ -726,7 +726,7 @@ sxc_cluster_lv_t *sxc_cluster_listvolumes(sxc_cluster_t *cluster) {
     if(yajl_complete_parse(yctx.yh) != yajl_status_ok || yctx.state != LV_COMPLETE) {
         if (yctx.state != LV_ERROR) {
             CFGDEBUG("JSON parsing failed");
-            cluster_err(SXE_ECOMM, "List volumes failed: communication error");
+            cluster_err(SXE_ECOMM, "List volumes failed: Communication error");
         }
 	free(yctx.volname);
 	if(yctx.yh)
@@ -744,7 +744,7 @@ sxc_cluster_lv_t *sxc_cluster_listvolumes(sxc_cluster_t *cluster) {
     ret = malloc(sizeof(*ret));
     if(!ret) {
 	CFGDEBUG("OOM allocating results");
-	cluster_err(SXE_EMEM, "Volume list failed: out of memory");
+	cluster_err(SXE_EMEM, "Volume list failed: Out of memory");
 	fclose(yctx.f);
 	unlink(fname);
 	free(fname);
@@ -766,7 +766,7 @@ int sxc_cluster_listvolumes_next(sxc_cluster_lv_t *lv, char **volume_name, int64
     if(!fread(&volume, sizeof(volume), 1, lv->f)) {
 	if(ferror(lv->f)) {
 	    SXDEBUG("error reading attributes from results file");
-	    sxi_setsyserr(sx, SXE_EREAD, "Failed to retrieve next volume: read item from cache failed");
+	    sxi_setsyserr(sx, SXE_EREAD, "Failed to retrieve next volume: Read item from cache failed");
 	    return -1;
 	}
 	return 0;
@@ -776,12 +776,12 @@ int sxc_cluster_listvolumes_next(sxc_cluster_lv_t *lv, char **volume_name, int64
 	*volume_name = malloc(volume.namelen + 1);
 	if(!*volume_name) {
 	    SXDEBUG("OOM allocating result file name (%u bytes)", (unsigned)volume.namelen);
-	    sxi_seterr(sx, SXE_EMEM, "Failed to retrieve next volume: out of memory");
+	    sxi_seterr(sx, SXE_EMEM, "Failed to retrieve next volume: Out of memory");
 	    return -1;
 	}
 	if(!fread(*volume_name, volume.namelen, 1, lv->f)) {
 	    SXDEBUG("error reading name from results file");
-	    sxi_setsyserr(sx, SXE_EREAD, "Failed to retrieve next volume: read item from cache failed");
+	    sxi_setsyserr(sx, SXE_EREAD, "Failed to retrieve next volume: Read item from cache failed");
 	    return -1;
 	}
         (*volume_name)[volume.namelen] = '\0';
@@ -956,7 +956,7 @@ static int listusers_setup_cb(sxi_conns_t *conns, void *ctx, const char *host) {
 
     if(!(yactx->yh  = yajl_alloc(&yactx->yacb, NULL, yactx))) {
 	SXDEBUG("failed to allocate yajl structure");
-	sxi_seterr(sx, SXE_EMEM, "List users failed: out of memory");
+	sxi_seterr(sx, SXE_EMEM, "List users failed: Out of memory");
 	return 1;
     }
 
@@ -1028,7 +1028,7 @@ sxc_cluster_lu_t *sxc_cluster_listusers(sxc_cluster_t *cluster) {
     if(yajl_complete_parse(yctx.yh) != yajl_status_ok || yctx.state != LU_COMPLETE) {
         if (yctx.state != LU_ERROR) {
             CFGDEBUG("JSON parsing failed: %d", yctx.state);
-            cluster_err(SXE_ECOMM, "List users failed: communication error");
+            cluster_err(SXE_ECOMM, "List users failed: Communication error");
         }
 	free(yctx.usrname);
 	if(yctx.yh)
@@ -1046,7 +1046,7 @@ sxc_cluster_lu_t *sxc_cluster_listusers(sxc_cluster_t *cluster) {
     ret = malloc(sizeof(*ret));
     if(!ret) {
 	CFGDEBUG("OOM allocating results");
-	cluster_err(SXE_EMEM, "Volume list failed: out of memory");
+	cluster_err(SXE_EMEM, "Volume list failed: Out of memory");
 	fclose(yctx.f);
 	unlink(fname);
 	free(fname);
@@ -1070,7 +1070,7 @@ int sxc_cluster_listusers_next(sxc_cluster_lu_t *lu, char **user_name, int *is_a
     if(!fread(&user, sizeof(user), 1, lu->f)) {
 	if(ferror(lu->f)) {
 	    SXDEBUG("error reading attributes from results file");
-	    sxi_setsyserr(sx, SXE_EREAD, "Failed to retrieve next user: read item from cache failed");
+	    sxi_setsyserr(sx, SXE_EREAD, "Failed to retrieve next user: Read item from cache failed");
 	    return -1;
 	}
 	return 0;
@@ -1080,12 +1080,12 @@ int sxc_cluster_listusers_next(sxc_cluster_lu_t *lu, char **user_name, int *is_a
 	*user_name = malloc(user.namelen + 1);
 	if(!*user_name) {
 	    SXDEBUG("OOM allocating result file name (%u bytes)", (unsigned)user.namelen);
-	    sxi_seterr(sx, SXE_EMEM, "Failed to retrieve next user: out of memory");
+	    sxi_seterr(sx, SXE_EMEM, "Failed to retrieve next user: Out of memory");
 	    return -1;
 	}
 	if(!fread(*user_name, user.namelen, 1, lu->f)) {
 	    SXDEBUG("error reading name from results file");
-	    sxi_setsyserr(sx, SXE_EREAD, "Failed to retrieve next user: read item from cache failed");
+	    sxi_setsyserr(sx, SXE_EREAD, "Failed to retrieve next user: Read item from cache failed");
 	    return -1;
 	}
 	(*user_name)[user.namelen] = '\0';
@@ -1244,7 +1244,7 @@ static int listaclusers_setup_cb(sxi_conns_t *conns, void *ctx, const char *host
 
     if(!(yactx->yh  = yajl_alloc(&yactx->yacb, NULL, yactx))) {
 	SXDEBUG("failed to allocate yajl structure");
-	sxi_seterr(sx, SXE_EMEM, "List failed: out of memory");
+	sxi_seterr(sx, SXE_EMEM, "List failed: Out of memory");
 	return 1;
     }
 
@@ -1310,7 +1310,7 @@ sxc_cluster_la_t *sxc_cluster_listaclusers(sxc_cluster_t *cluster, const char *v
 
     if(!(url = malloc(len))) {
 	CFGDEBUG("OOM allocating url (%u bytes)", len);
-	cluster_err(SXE_EMEM, "List failed: out of memory");
+	cluster_err(SXE_EMEM, "List failed: Out of memory");
 	sxi_hostlist_empty(&volhosts);
 	free(enc_vol);
 	return NULL;
@@ -1354,7 +1354,7 @@ sxc_cluster_la_t *sxc_cluster_listaclusers(sxc_cluster_t *cluster, const char *v
     if(yajl_complete_parse(yctx.yh) != yajl_status_ok || yctx.state != LA_COMPLETE) {
         if (yctx.state != LA_ERROR) {
             CFGDEBUG("JSON parsing failed");
-            cluster_err(SXE_ECOMM, "List failed: communication error");
+            cluster_err(SXE_ECOMM, "List failed: Communication error");
         }
 	if(yctx.yh)
 	    yajl_free(yctx.yh);
@@ -1370,7 +1370,7 @@ sxc_cluster_la_t *sxc_cluster_listaclusers(sxc_cluster_t *cluster, const char *v
     if(fflush(yctx.f) ||
        ftruncate(fileno(yctx.f), ftell(yctx.f)) ||
        fseek(yctx.f, 0L, SEEK_SET)) {
-	cluster_err(SXE_EWRITE, "List failed: failed to write temporary data");
+	cluster_err(SXE_EWRITE, "List failed: Failed to write temporary data");
 	fclose(yctx.f);
 	unlink(fname);
 	free(fname);
@@ -1380,7 +1380,7 @@ sxc_cluster_la_t *sxc_cluster_listaclusers(sxc_cluster_t *cluster, const char *v
     ret = malloc(sizeof(*ret));
     if(!ret) {
 	CFGDEBUG("OOM allocating results");
-	cluster_err(SXE_EMEM, "List failed: out of memory");
+	cluster_err(SXE_EMEM, "List failed: Out of memory");
 	fclose(yctx.f);
 	unlink(fname);
 	free(fname);
@@ -1403,7 +1403,7 @@ int sxc_cluster_listaclusers_next(sxc_cluster_la_t *la, char **acluser_name, int
     if(!fread(&acluser, sizeof(acluser), 1, la->f)) {
 	if(ferror(la->f)) {
 	    SXDEBUG("error reading attributes from results acluser");
-	    sxi_setsyserr(sx, SXE_EREAD, "Failed to retrieve next acluser: read item from cache failed");
+	    sxi_setsyserr(sx, SXE_EREAD, "Failed to retrieve next acluser: Read item from cache failed");
 	    return -1;
 	}
 	return 0;
@@ -1413,12 +1413,12 @@ int sxc_cluster_listaclusers_next(sxc_cluster_la_t *la, char **acluser_name, int
 	*acluser_name = malloc(acluser.namelen + 1);
 	if(!*acluser_name) {
 	    SXDEBUG("OOM allocating result acluser name (%u bytes)", (unsigned)acluser.namelen);
-	    sxi_seterr(sx, SXE_EMEM, "Failed to retrieve next acluser: out of memory");
+	    sxi_seterr(sx, SXE_EMEM, "Failed to retrieve next acluser: Out of memory");
 	    return -1;
 	}
 	if(!fread(*acluser_name, acluser.namelen, 1, la->f)) {
 	    SXDEBUG("error reading name from results acluser");
-	    sxi_setsyserr(sx, SXE_EREAD, "Failed to retrieve next acluser: read item from cache failed");
+	    sxi_setsyserr(sx, SXE_EREAD, "Failed to retrieve next acluser: Read item from cache failed");
 	    return -1;
 	}
 	(*acluser_name)[acluser.namelen] = '\0';

@@ -181,13 +181,13 @@ sxc_file_t *sxc_file_remote(sxc_cluster_t *cluster, const char *volume, const ch
 
     if(!volume) {
 	CFGDEBUG("called with NULL param");
-	cluster_err(SXE_EARG, "Cannot create remote file object: invalid argument");
+	cluster_err(SXE_EARG, "Cannot create remote file object: Invalid argument");
 	return NULL;
     }
 
     if(!(ret = calloc(1, sizeof(*ret)))) {
 	CFGDEBUG("OOM allocating results");
-	cluster_err(SXE_EMEM, "Cannot create remote file object: out of memory");
+	cluster_err(SXE_EMEM, "Cannot create remote file object: Out of memory");
 	return NULL;
     }
 
@@ -198,7 +198,7 @@ sxc_file_t *sxc_file_remote(sxc_cluster_t *cluster, const char *volume, const ch
 
     if(!ret->volume || !ret->path) {
 	CFGDEBUG("OOM duplicating item");
-	cluster_err(SXE_EMEM, "Cannot create remote file object: out of memory");
+	cluster_err(SXE_EMEM, "Cannot create remote file object: Out of memory");
 	sxc_file_free(ret);
 	return NULL;
     }
@@ -215,7 +215,7 @@ sxc_file_t *sxc_file_local(sxc_client_t *sx, const char *path) {
 
     if(!(ret = calloc(1, sizeof(*ret)))) {
 	SXDEBUG("OOM allocating results");
-	sxi_seterr(sx, SXE_EMEM, "Cannot create local file object: out of memory");
+	sxi_seterr(sx, SXE_EMEM, "Cannot create local file object: Out of memory");
 	return NULL;
     }
 
@@ -225,7 +225,7 @@ sxc_file_t *sxc_file_local(sxc_client_t *sx, const char *path) {
     ret->path = strdup(path);
     if(!ret->path) {
 	SXDEBUG("OOM duplicating item");
-	sxi_seterr(sx, SXE_EMEM, "Cannot create local file object: out of memory");
+	sxi_seterr(sx, SXE_EMEM, "Cannot create local file object: Out of memory");
 	free(ret);
 	return NULL;
     }
@@ -251,7 +251,7 @@ sxc_file_t *sxc_file_from_url(sxc_client_t *sx, sxc_cluster_t **cluster, const c
         sxc_file_t *file;
 
         if (!uri->volume) {
-            sxi_seterr(sx, SXE_EARG,"Bad path %s: volume name expected", url);
+            sxi_seterr(sx, SXE_EARG,"Bad path %s: Volume name expected", url);
             break;
         }
         /* if it is a different (or the first) cluster, load its config */
@@ -316,13 +316,13 @@ static int file_to_file(sxc_client_t *sx, const char *source, const char *dest)
 
     if(!(f = fopen(source, "rb"))) {
 	SXDEBUG("failed to open source file %s", source);
-	sxi_setsyserr(sx, SXE_EREAD, "Copy failed: cannot open source file");
+	sxi_setsyserr(sx, SXE_EREAD, "Copy failed: Cannot open source file");
 	return 1;
     }
 
     if(!(d = fopen(dest, "wb"))) {
 	SXDEBUG("failed to open dest file %s", dest);
-	sxi_setsyserr(sx, SXE_EWRITE, "Copy failed: cannot open destination file '%s'", dest);
+	sxi_setsyserr(sx, SXE_EWRITE, "Copy failed: Cannot open destination file '%s'", dest);
 	fclose(f);
 	return 1;
     }
@@ -336,7 +336,7 @@ static int file_to_file(sxc_client_t *sx, const char *source, const char *dest)
 
     if(!feof(f) && ferror(f)) {
 	SXDEBUG("error reading from source file");
-	sxi_setsyserr(sx, SXE_EREAD, "Copy failed: error reading source file");
+	sxi_setsyserr(sx, SXE_EREAD, "Copy failed: Error reading source file");
 	fclose(f);
 	fclose(d);
 	return 1;
@@ -345,7 +345,7 @@ static int file_to_file(sxc_client_t *sx, const char *source, const char *dest)
 
     if(ferror(d)) {
 	SXDEBUG("error writing to destination file");
-	sxi_setsyserr(sx, SXE_EWRITE, "Copy failed: error writing destination file");
+	sxi_setsyserr(sx, SXE_EWRITE, "Copy failed: Error writing destination file");
 	fclose(d);
 	return 1;
     }
@@ -376,12 +376,12 @@ static int load_hosts_for_hash(sxc_client_t *sx, FILE *f, const char *hash, sxi_
 
 	if(sz == EOF || sz >= (int) sizeof(ho)) {
 	    SXDEBUG("failed to read host size");
-	    sxi_seterr(sx, SXE_ETMP, "Copy failed: premature end of cache file");
+	    sxi_seterr(sx, SXE_ETMP, "Copy failed: Premature end of cache file");
 	    return 1;
 	}
 	if(!fread(ho, sz, 1, f)) {
 	    SXDEBUG("failed to read host");
-	    sxi_setsyserr(sx, SXE_ETMP, "Copy failed: cannot read from cache file");
+	    sxi_setsyserr(sx, SXE_ETMP, "Copy failed: Cannot read from cache file");
 	    return 1;
 	}
 	if(!host_list)
@@ -401,7 +401,7 @@ static int load_hosts_for_hash(sxc_client_t *sx, FILE *f, const char *hash, sxi_
 	    hlist = calloc(1, 40 * BLOCKS_PER_TABLE + 1);
 	    if(!hlist) {
 		SXDEBUG("OOM allocating hash list");
-		sxi_setsyserr(sx, SXE_EMEM, "Copy failed: out of memory");
+		sxi_setsyserr(sx, SXE_EMEM, "Copy failed: Out of memory");
 		return 1;
 	    }
 	    if(sxi_ht_add(host_table, ho, sz+1, hlist)) {
@@ -584,7 +584,7 @@ static int yacb_createfile_map_key(void *ctx, const unsigned char *s, size_t l) 
         }
         if (sxi_ht_get(yactx->current.hashes, s, SXI_SHA1_TEXT_LEN, (void**)&off)) {
 	    CBDEBUG("%p hash lookup failed for %.40s", (const void*)yactx, s);
-	    sxi_seterr(yactx->sx, SXE_ECOMM, "Copy failed: cannot locate block");
+	    sxi_seterr(yactx->sx, SXE_ECOMM, "Copy failed: Cannot locate block");
             return 0;
         }
         SXDEBUG("need %d off: %lld", yactx->current.needed_cnt, (long long)*off);
@@ -726,7 +726,7 @@ static int createfile_setup_cb(curlev_context_t *ctx, const char *host) {
 
     if(!(yactx->current.yh = yajl_alloc(&yactx->current.yacb, NULL, yactx))) {
 	SXDEBUG("OOM allocating yajl context");
-	sxi_seterr(sx, SXE_EMEM, "Cannot create file: out of memory");
+	sxi_seterr(sx, SXE_EMEM, "Cannot create file: Out of memory");
 	return 1;
     }
 
@@ -795,7 +795,7 @@ int sxi_upload_block_from_buf(sxi_conns_t *conns, sxi_hostlist_t *hlist, const c
 
     if(!url) {
 	SXDEBUG("OOM allocating url");
-	sxi_seterr(sx, SXE_EMEM, "Block upload failed: out of memory");
+	sxi_seterr(sx, SXE_EMEM, "Block upload failed: Out of memory");
 	return -1;
     }
     sprintf(url, ".data/%u/%s", block_size, token);
@@ -1196,7 +1196,7 @@ static void multi_part_upload_blocks(curlev_context_t *ctx, const char *url)
     if(yajl_complete_parse(yctx->current.yh) != yajl_status_ok || yctx->current.state != CF_COMPLETE) {
         if (yctx->current.state != CF_ERROR) {
             SXDEBUG("JSON parsing failed");
-            sxi_seterr(sx, SXE_ECOMM, "Copy failed: failed to parse cluster response");
+            sxi_seterr(sx, SXE_ECOMM, "Copy failed: Failed to parse cluster response");
         }
         SXDEBUG("fail incremented, after parse");
         yctx->fail++;
@@ -1282,7 +1282,7 @@ static int multi_part_compute_hash_ev(struct file_upload_ctx *yctx)
         yctx->pos += n;
         if (yctx->pos > yctx->end || (!n && yctx->pos != yctx->end)) {
             SXDEBUG("source file changed while being read");
-            sxi_seterr(sx, SXE_EREAD, "Copy failed: source file changed while being read");
+            sxi_seterr(sx, SXE_EREAD, "Copy failed: Source file changed while being read");
             return -1;
         }
         for (i=0;i<n;i += yctx->blocksize) {
@@ -1615,24 +1615,24 @@ static int local_to_remote_begin(sxc_file_t *source, sxc_meta_t *fmeta, sxc_file
         return 1;
 
     if (!(yctx = calloc(1, sizeof(*yctx)))) {
-        sxi_seterr(sx, SXE_EMEM, "Copy failed: out of memory");
+        sxi_seterr(sx, SXE_EMEM, "Copy failed: Out of memory");
         goto local_to_remote_err;
     }
     if(!(buf = malloc(UPLOAD_CHUNK_SIZE))) {
 	SXDEBUG("OOM allocating the block buffer (%u bytes)", UPLOAD_CHUNK_SIZE);
-	sxi_seterr(sx, SXE_EMEM, "Copy failed: out of memory");
+	sxi_seterr(sx, SXE_EMEM, "Copy failed: Out of memory");
 	goto local_to_remote_err;
     }
 
     if((s = open(source->path, O_RDONLY)) < 0) {
 	SXDEBUG("failed to open source file");
-	sxi_setsyserr(sx, SXE_EREAD, "Copy failed: failed to open source file");
+	sxi_setsyserr(sx, SXE_EREAD, "Copy failed: Failed to open source file");
 	goto local_to_remote_err;
     }
 
     if(fstat(s, &st)) {
 	SXDEBUG("failed to stat source file");
-	sxi_setsyserr(sx, SXE_EREAD, "Copy failed: failed to stat source file");
+	sxi_setsyserr(sx, SXE_EREAD, "Copy failed: Failed to stat source file");
 	goto local_to_remote_err;
     }
 
@@ -1653,14 +1653,14 @@ static int local_to_remote_begin(sxc_file_t *source, sxc_meta_t *fmeta, sxc_file
 		if(errno == EINTR)
 		    continue;
 		SXDEBUG("failed to read from source stream");
-		sxi_setsyserr(sx, SXE_EREAD, "Copy failed: failed to read input stream");
+		sxi_setsyserr(sx, SXE_EREAD, "Copy failed: Failed to read input stream");
 		goto local_to_remote_err;
 	    }
 	    if(!got)
 		break;
 	    if(!fwrite(buf, got, 1, yctx->current.f)) {
 		SXDEBUG("failed to write stream data to temporary file");
-		sxi_setsyserr(sx, SXE_EWRITE, "Copy failed: failed to copy input stream to temporary file");
+		sxi_setsyserr(sx, SXE_EWRITE, "Copy failed: Failed to copy input stream to temporary file");
 		goto local_to_remote_err;
 	    }
 	}
@@ -1777,7 +1777,7 @@ static int local_to_remote_begin(sxc_file_t *source, sxc_meta_t *fmeta, sxc_file
 			goto local_to_remote_err;
 		    }
 		    if(write(td, outbuff, bwrite) != bwrite) {
-			sxi_setsyserr(sx, SXE_EWRITE, "Filter failed: can't write to temporary file");
+			sxi_setsyserr(sx, SXE_EWRITE, "Filter failed: Can't write to temporary file");
 			fclose(tempfile);
 			if(fh->f->data_finish)
 			    fh->f->data_finish(fh, &fh->ctx, SXF_MODE_UPLOAD);
@@ -1795,14 +1795,14 @@ static int local_to_remote_begin(sxc_file_t *source, sxc_meta_t *fmeta, sxc_file
 
 	    if((td = open(tempfname, O_RDONLY)) < 0) {
 		SXDEBUG("can't open temporary file");
-		sxi_setsyserr(sx, SXE_EREAD, "Filter failed: can't open temporary file");
+		sxi_setsyserr(sx, SXE_EREAD, "Filter failed: Can't open temporary file");
 		goto local_to_remote_err;
 	    }
 	    close(s);
 	    s = td;
 	    if(fstat(s, &st)) {
 		SXDEBUG("failed to stat source file");
-		sxi_setsyserr(sx, SXE_EREAD, "Copy failed: failed to stat source file");
+		sxi_setsyserr(sx, SXE_EREAD, "Copy failed: Failed to stat source file");
 		goto local_to_remote_err;
 	    }
 
@@ -2305,7 +2305,7 @@ static int getfile_setup_cb(sxi_conns_t *conns, void *ctx, const char *host) {
 
     if(!(yactx->yh  = yajl_alloc(&yactx->yacb, NULL, yactx))) {
 	SXDEBUG("OOM allocating yajl context");
-	sxi_seterr(sx, SXE_EMEM, "Failed to retrieve the blocks to download: out of memory");
+	sxi_seterr(sx, SXE_EMEM, "Failed to retrieve the blocks to download: Out of memory");
 	return 1;
     }
 
@@ -2665,7 +2665,7 @@ static int hashes_to_download(sxc_file_t *source, FILE **tf, char **tfname, unsi
     url = malloc(strlen(enc_vol) + 1 + strlen(enc_path) + 1);
     if(!url) {
 	SXDEBUG("OOM allocating url");
-	sxi_seterr(sx, SXE_EMEM, "Failed to retrieve the blocks to download: out of memory");
+	sxi_seterr(sx, SXE_EMEM, "Failed to retrieve the blocks to download: Out of memory");
 	goto hashes_to_download_err;
     }
     sprintf(url, "%s/%s", enc_vol, enc_path);
@@ -2694,14 +2694,14 @@ static int hashes_to_download(sxc_file_t *source, FILE **tf, char **tfname, unsi
     if(yajl_complete_parse(yctx.yh) != yajl_status_ok || yctx.state != GF_COMPLETE) {
         if (yctx.state != GF_ERROR) {
             SXDEBUG("JSON parsing failed");
-            sxi_seterr(sx, SXE_ECOMM, "Failed to retrieve the blocks to download: communication error");
+            sxi_seterr(sx, SXE_ECOMM, "Failed to retrieve the blocks to download: Communication error");
         }
 	goto hashes_to_download_err;
     }
 
     if(!yctx.blocksize || yctx.filesize < 0 || yctx.blocksize * yctx.nblocks < yctx.filesize || yctx.blocksize * yctx.nblocks >= yctx.filesize + yctx.blocksize) {
 	SXDEBUG("bad reply from cluster");
-	sxi_seterr(sx, SXE_ECOMM, "Failed to retrieve the blocks to download: communication error");
+	sxi_seterr(sx, SXE_ECOMM, "Failed to retrieve the blocks to download: Communication error");
 	goto hashes_to_download_err;
     }
 
@@ -2978,12 +2978,12 @@ static int multi_download(struct batch_hashes *bh, const char *dstname,
             /* host not found -> new host */
             dctx = dctx_new(sx);
             if (!dctx) {
-                cluster_err(SXE_EMEM, "Cannot download file: out of emory");
+                cluster_err(SXE_EMEM, "Cannot download file: Out of emory");
                 break;
             }
             cbdata = sxi_cbdata_create_download(conns, gethash_finish, dctx);
             if (!cbdata) {
-                cluster_err(SXE_EMEM, "Cannot download file: out of memory");
+                cluster_err(SXE_EMEM, "Cannot download file: Out of memory");
                 dctx_free(dctx);
                 break;
             }
@@ -3149,7 +3149,7 @@ static int remote_to_local(sxc_file_t *source, sxc_file_t *dest) {
 
     if(!(buf = malloc(blocksize))) {
 	SXDEBUG("OOM allocating the block buffer (%u bytes)", blocksize);
-	sxi_seterr(sx, SXE_ECOMM, "Download failed: out of memory");
+	sxi_seterr(sx, SXE_ECOMM, "Download failed: Out of memory");
 	goto remote_to_local_err;
     }
 
@@ -3259,7 +3259,7 @@ static int remote_to_local(sxc_file_t *source, sxc_file_t *dest) {
 	    if(!fread(ha, 40, 1, hf)) {
 		if(ferror(hf)) {
 		    SXDEBUG("failed to read hash");
-		    sxi_setsyserr(sx, SXE_ETMP, "Download failed: cannot read from cache file");
+		    sxi_setsyserr(sx, SXE_ETMP, "Download failed: Cannot read from cache file");
 		    fail = 1;
 		}
 		break;
@@ -3291,7 +3291,7 @@ static int remote_to_local(sxc_file_t *source, sxc_file_t *dest) {
                 size = sizeof(*hashdata->offsets) * hashdata->osize;
                 if (!(hashdata->offsets = sxi_realloc(sx, hashdata->offsets, size))) {
                     SXDEBUG("OOM growing offsets buffer");
-                    sxi_seterr(sx, SXE_EMEM, "Copy failed: out of memory");
+                    sxi_seterr(sx, SXE_EMEM, "Copy failed: Out of memory");
                     fail = 1;
                     break;
                 }
@@ -3347,7 +3347,7 @@ static int remote_to_local(sxc_file_t *source, sxc_file_t *dest) {
 		    if(errno == EINTR)
 			continue;
 		    SXDEBUG("Failed to read intermediate file");
-		    sxi_setsyserr(sx, SXE_ETMP, "Download failed: cannot read from intermediate file");
+		    sxi_setsyserr(sx, SXE_ETMP, "Download failed: Cannot read from intermediate file");
 		    fail = 1;
 		    break;
 		}
@@ -3368,7 +3368,7 @@ static int remote_to_local(sxc_file_t *source, sxc_file_t *dest) {
 				if(errno == EINTR)
 				    continue;
 				SXDEBUG("Failed to write output file");			
-				sxi_setsyserr(sx, SXE_EWRITE, "Download failed: cannot write to output file");
+				sxi_setsyserr(sx, SXE_EWRITE, "Download failed: Cannot write to output file");
 				fail = 1;
 				break;
 			    }
@@ -3380,7 +3380,7 @@ static int remote_to_local(sxc_file_t *source, sxc_file_t *dest) {
 			    if(errno == EINTR)
 				continue;
 			    SXDEBUG("Failed to write output file");			
-			    sxi_setsyserr(sx, SXE_EWRITE, "Download failed: cannot write to output file");
+			    sxi_setsyserr(sx, SXE_EWRITE, "Download failed: Cannot write to output file");
 			    fail = 1;
 			    break;
 			}
@@ -3396,7 +3396,7 @@ static int remote_to_local(sxc_file_t *source, sxc_file_t *dest) {
 	    lseek(d, 0, SEEK_SET);
 	    if(ftruncate(d, 0)) {
 		SXDEBUG("Failed to truncate intermediate file");
-		sxi_setsyserr(sx, SXE_ETMP, "Download failed: cannot truncate intermediate file");
+		sxi_setsyserr(sx, SXE_ETMP, "Download failed: Cannot truncate intermediate file");
 		fail = 1;
 		break;
 	    }
@@ -3456,7 +3456,7 @@ static int remote_to_local(sxc_file_t *source, sxc_file_t *dest) {
 		    goto remote_to_local_err;
 		}
 		if(fwrite(outbuff, 1, bwrite, tempfile) != bwrite) {
-		    sxi_setsyserr(sx, SXE_EWRITE, "Filter ID %s failed: can't write to temporary file", filter_uuid);
+		    sxi_setsyserr(sx, SXE_EWRITE, "Filter ID %s failed: Can't write to temporary file", filter_uuid);
 		    fclose(tempfile);
 		    if(fh->f->data_finish)
 			fh->f->data_finish(fh, &fh->ctx, SXF_MODE_DOWNLOAD);
@@ -3482,7 +3482,7 @@ static int remote_to_local(sxc_file_t *source, sxc_file_t *dest) {
 	if(!dstexisted || S_ISREG(st.st_mode)) {
 	    if(rename(tempfilter, dest->path)) {
 		SXDEBUG("can't rename temporary file");
-		sxi_setsyserr(sx, SXE_EWRITE, "Filter ID %s failed: can't rename temporary file", filter_uuid);
+		sxi_setsyserr(sx, SXE_EWRITE, "Filter ID %s failed: Can't rename temporary file", filter_uuid);
 		goto remote_to_local_err;
 	    }
 	} else {
@@ -3599,7 +3599,7 @@ static sxi_job_t* remote_to_remote_fast(sxc_file_t *source, sxc_meta_t *fmeta, s
 	if(!fread(ha, 40, 1, hf)) {
 	    if(ferror(hf)) {
 		SXDEBUG("failed to read hash");
-		sxi_setsyserr(sx, SXE_ETMP, "Transfer failed: failed to read from cache file");
+		sxi_setsyserr(sx, SXE_ETMP, "Transfer failed: Failed to read from cache file");
 		goto remote_to_remote_fast_err;
 	    }
 	    break;
@@ -3613,7 +3613,7 @@ static sxi_job_t* remote_to_remote_fast(sxc_file_t *source, sxc_meta_t *fmeta, s
 	    hoff = malloc(sizeof(*hoff));
 	    if(!hoff) {
 		SXDEBUG("OOM allocating offset storage");
-		sxi_seterr(sx, SXE_EMEM, "Transfer failed: out of memory");
+		sxi_seterr(sx, SXE_EMEM, "Transfer failed: Out of memory");
 		goto remote_to_remote_fast_err;
 	    }
 	    *hoff = ftell(hf);
@@ -3628,12 +3628,12 @@ static sxi_job_t* remote_to_remote_fast(sxc_file_t *source, sxc_meta_t *fmeta, s
 
 	    if(sz == EOF || sz >= (int) sizeof(ho)) {
 		SXDEBUG("failed to read host size");
-		sxi_seterr(sx, SXE_ETMP, "Transfer failed: failed to read from cache file");
+		sxi_seterr(sx, SXE_ETMP, "Transfer failed: Failed to read from cache file");
 		goto remote_to_remote_fast_err;
 	    }
 	    if(!fread(ho, sz, 1, hf)) {
 		SXDEBUG("failed to read host");
-		sxi_setsyserr(sx, SXE_ETMP, "Transfer failed: failed to read from cache file");
+		sxi_setsyserr(sx, SXE_ETMP, "Transfer failed: Failed to read from cache file");
 		goto remote_to_remote_fast_err;
 	    }
 	}
@@ -3685,7 +3685,7 @@ static sxi_job_t* remote_to_remote_fast(sxc_file_t *source, sxc_meta_t *fmeta, s
 
     if(yajl_complete_parse(yctx.current.yh) != yajl_status_ok || yctx.current.state != CF_COMPLETE) {
 	SXDEBUG("JSON parsing failed");
-	sxi_seterr(sx, SXE_ECOMM, "Transfer failed: communication error");
+	sxi_seterr(sx, SXE_ECOMM, "Transfer failed: Communication error");
 	goto remote_to_remote_fast_err;
     }
 
@@ -3695,7 +3695,7 @@ static sxi_job_t* remote_to_remote_fast(sxc_file_t *source, sxc_meta_t *fmeta, s
 
     if(!(buf = malloc(blocksize))) {
 	SXDEBUG("OOM allocating the block buffer (%u bytes)", blocksize);
-	sxi_seterr(sx, SXE_EMEM, "Transfer failed: out of memory");
+	sxi_seterr(sx, SXE_EMEM, "Transfer failed: Out of memory");
 	goto remote_to_remote_fast_err;
     }
 
@@ -3724,7 +3724,7 @@ static sxi_job_t* remote_to_remote_fast(sxc_file_t *source, sxc_meta_t *fmeta, s
 		hashdata = malloc(sizeof(*hashdata));
 		if(!hashdata) {
 		    SXDEBUG("OOM allocating hash container");
-		    sxi_seterr(sx, SXE_EMEM, "Transfer failed: out of memory");
+		    sxi_seterr(sx, SXE_EMEM, "Transfer failed: Out of memory");
 		    goto remote_to_remote_fast_err;
 		}
 		sxi_hostlist_init(&hashdata->src_hosts);
@@ -3736,7 +3736,7 @@ static sxi_job_t* remote_to_remote_fast(sxc_file_t *source, sxc_meta_t *fmeta, s
 		}
 		if(sxi_ht_get(src_hashes, ha, 40, (void **)&hfoff)) {
 		    SXDEBUG("hash lookup failed for %.40s", ha);
-		    sxi_seterr(sx, SXE_ECOMM, "Transfer failed: unable to find hash");
+		    sxi_seterr(sx, SXE_ECOMM, "Transfer failed: Unable to find hash");
 		    goto remote_to_remote_fast_err;
 		}
 		fseek(hf, *hfoff, SEEK_SET);
@@ -4073,7 +4073,7 @@ static int cat_remote_file(sxc_file_t *source, int dest) {
 
     if(!(buf = malloc(blocksize))) {
 	SXDEBUG("OOM allocating the block buffer (%u bytes)", blocksize);
-	sxi_seterr(sx, SXE_ECOMM, "Download failed: out of memory");
+	sxi_seterr(sx, SXE_ECOMM, "Download failed: Out of memory");
 	goto sxc_cat_fail;
     }
 
@@ -4111,7 +4111,7 @@ static int cat_remote_file(sxc_file_t *source, int dest) {
 	}
 	if(!(fbuf = malloc(blocksize))) {
 	    SXDEBUG("OOM allocating the filter buffer (%u bytes)", blocksize);
-	    sxi_seterr(sx, SXE_ECOMM, "Download failed: out of memory");
+	    sxi_seterr(sx, SXE_ECOMM, "Download failed: Out of memory");
 	    goto sxc_cat_fail;
 	}
     }
@@ -4145,7 +4145,7 @@ static int cat_remote_file(sxc_file_t *source, int dest) {
 		    goto sxc_cat_fail;
 		}
 		if(write(dest, fbuf, bwrite) != bwrite) {
-		    sxi_setsyserr(sx, SXE_EWRITE, "Filter failed: can't write to fd %d", dest);
+		    sxi_setsyserr(sx, SXE_EWRITE, "Filter failed: Can't write to fd %d", dest);
 		    if(fh->f->data_finish)
 			fh->f->data_finish(fh, &fh->ctx, SXF_MODE_DOWNLOAD);
 		    goto sxc_cat_fail;
@@ -4179,7 +4179,7 @@ static int cat_remote_file(sxc_file_t *source, int dest) {
     }
     if(ferror(hf)) {
 	SXDEBUG("failed to read hash");
-	sxi_setsyserr(sx, SXE_ETMP, "Download failed: cannot read from cache file");
+	sxi_setsyserr(sx, SXE_ETMP, "Download failed: Cannot read from cache file");
 	goto sxc_cat_fail;
     }
 
@@ -4398,7 +4398,7 @@ static int filemeta_setup_cb(sxi_conns_t *conns, void *ctx, const char *host) {
 
     if(!(yactx->yh  = yajl_alloc(&yactx->yacb, NULL, yactx))) {
 	SXDEBUG("OOM allocating yajl context");
-	sxi_seterr(sx, SXE_EMEM, "Failed to retrieve the blocks to download: out of memory");
+	sxi_seterr(sx, SXE_EMEM, "Failed to retrieve the blocks to download: Out of memory");
 	return 1;
     }
 
@@ -4484,7 +4484,7 @@ sxc_meta_t *sxc_filemeta_new(sxc_file_t *file) {
     url = malloc(strlen(enc_vol) + 1 + strlen(enc_path) + sizeof("?fileMeta"));
     if(!url) {
 	SXDEBUG("OOM allocating url");
-	sxi_seterr(sx, SXE_EMEM, "Failed to retrieve file metadata: out of memory");
+	sxi_seterr(sx, SXE_EMEM, "Failed to retrieve file metadata: Out of memory");
 	goto filemeta_begin_err;
     }
     sprintf(url, "%s/%s?fileMeta", enc_vol, enc_path);

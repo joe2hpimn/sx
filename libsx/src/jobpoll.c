@@ -176,7 +176,7 @@ static int jobres_setup_cb(curlev_context_t *ctx, const char *host) {
 
     if(!(yactx->yh  = yajl_alloc(&yactx->yacb, NULL, yactx))) {
 	SXDEBUG("failed to allocate yajl structure");
-	sxi_seterr(sx, SXE_EMEM, "List failed: out of memory");
+	sxi_seterr(sx, SXE_EMEM, "List failed: Out of memory");
 	return 1;
     }
 
@@ -357,7 +357,7 @@ static int jobget_setup_cb(sxi_conns_t *conns, void *ctx, const char *host) {
 
     if(!(yactx->yh  = yajl_alloc(&yactx->yacb, NULL, yactx))) {
 	SXDEBUG("failed to allocate yajl structure");
-	sxi_seterr(sx, SXE_EMEM, "List failed: out of memory");
+	sxi_seterr(sx, SXE_EMEM, "List failed: Out of memory");
 	return 1;
     }
 

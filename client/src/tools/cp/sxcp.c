@@ -45,6 +45,7 @@
 #include "cmdline.h"
 #include "version.h"
 #include "libsx/src/misc.h"
+#include "bcrumbs.h"
 
 struct gengetopt_args_info args;
 
@@ -514,6 +515,8 @@ static sxc_file_t *sxfile_from_arg(sxc_cluster_t **cluster, const char *arg) {
 	}
 	if(!*cluster) {
 	    fprintf(stderr, "ERROR: Failed to load config for %s: %s\n", uri->host, sxc_geterrmsg(sx));
+	    if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_CFG_ERR))
+		fprintf(stderr, SXBC_TOOLS_CFG_MSG, uri->host, uri->host);
 	    sxc_free_uri(uri);
 	    return NULL;
 	}
@@ -715,8 +718,8 @@ int main(int argc, char **argv) {
          * and do the filename appending if target *is* a directory */
         if(sxc_copy(src_file, dst_file, args.recursive_flag)) {
             fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
-	    if((cluster1 || cluster2) && strstr(sxc_geterrmsg(sx), "No such volume"))
-		fprintf(stderr, "Use 'sxls sx://%s' to list the existing volumes.\n", cluster1 ? sxc_cluster_get_sslname(cluster1) : sxc_cluster_get_sslname(cluster2));
+	    if((cluster1 || cluster2) && strstr(sxc_geterrmsg(sx), SXBC_TOOLS_VOL_ERR))
+		fprintf(stderr, SXBC_TOOLS_VOL_MSG, "", "", cluster1 ? sxc_cluster_get_sslname(cluster1) : sxc_cluster_get_sslname(cluster2));
             goto main_err;
         }
         sxc_file_free(src_file);

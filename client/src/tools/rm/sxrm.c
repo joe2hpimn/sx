@@ -36,6 +36,7 @@
 #include "cmdline.h"
 #include "version.h"
 #include "libsx/src/misc.h"
+#include "bcrumbs.h"
 
 static sxc_client_t *sx = NULL;
 
@@ -96,6 +97,13 @@ int main(int argc, char **argv) {
         sxc_file_t *target = sxc_file_from_url(sx, &cluster, args.config_dir_arg, url);
         if (!target) {
             fprintf(stderr, "ERROR: Can't process URL '%s': %s\n", url, sxc_geterrmsg(sx));
+	    if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_CFG_ERR)) {
+		sxc_uri_t *u = sxc_parse_uri(sx, url);
+		if(u) {
+		    fprintf(stderr, SXBC_TOOLS_CFG_MSG, u->host, u->host);
+		    sxc_free_uri(u);
+		}
+	    }
             ret = 1;
             break;
         }
@@ -111,8 +119,8 @@ int main(int argc, char **argv) {
     }
     if (sxc_rm(lst)) {
         fprintf(stderr, "ERROR: Failed to remove file(s): %s\n", sxc_geterrmsg(sx));
-	if(cluster && strstr(sxc_geterrmsg(sx), "No such volume"))
-	    fprintf(stderr, "Use 'sxls sx://%s' to list the existing volumes.\n", sxc_cluster_get_sslname(cluster));
+	if(cluster && strstr(sxc_geterrmsg(sx), SXBC_TOOLS_VOL_ERR))
+	    fprintf(stderr, SXBC_TOOLS_VOL_MSG, "", "", sxc_cluster_get_sslname(cluster));
         ret = 1;
     }
     printf("Deleted %d file(s)\n", sxc_file_list_get_successful(lst));

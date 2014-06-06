@@ -80,7 +80,7 @@ sxc_client_t *sxc_init(const char *client_version, const sxc_logger_t *func, int
 
     const char *this_version = sxc_get_version();
     if (!client_version || strcmp(client_version, this_version)) {
-        sxi_log_msg(&l, "sxc_init", SX_LOG_CRIT, "Version mismatch: our version '%s' - library version '%s'",
+        sxi_log_msg(&l, "sxc_init", SX_LOG_CRIT, "Version mismatch: Our version '%s' - library version '%s'",
                     client_version, this_version);
         return NULL;
     }
@@ -282,7 +282,7 @@ int sxc_set_tempdir(sxc_client_t *sx, const char *tempdir) {
 
     newtmp = strdup(tempdir);
     if(!newtmp) {
-	sxi_seterr(sx, SXE_EMEM, "Failed to set temporary directory: out of memory");
+	sxi_seterr(sx, SXE_EMEM, "Failed to set temporary directory: Out of memory");
 	return -1;
     }
 

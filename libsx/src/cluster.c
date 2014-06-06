@@ -54,7 +54,7 @@ sxi_conns_t *sxi_conns_new(sxc_client_t *sx) {
     sxi_conns_t *conns = calloc(1, sizeof(*conns));
     if(!conns) {
 	SXDEBUG("OOM allocating conns");
-	sxi_seterr(sx, SXE_EMEM, "Failed to create conns: out of memory");
+	sxi_seterr(sx, SXE_EMEM, "Failed to create conns: Out of memory");
 	return NULL;
     }
     conns->sx = sx;
@@ -89,7 +89,7 @@ int sxi_conns_set_dnsname(sxi_conns_t *conns, const char *dnsname) {
     if(dnsname && *dnsname) {
 	if(!(name = strdup(dnsname))) {
 	    CLSTDEBUG("failed to duplicate %s", dnsname);
-	    conns_err(SXE_EMEM, "Cannot set cluster dnsname: out of memory");
+	    conns_err(SXE_EMEM, "Cannot set cluster dnsname: Out of memory");
 	    return 1;
 	}
     } else
@@ -104,7 +104,7 @@ int sxi_conns_set_sslname(sxi_conns_t *conns, const char *sslname) {
     if(sslname && *sslname) {
 	if(!(name = strdup(sslname))) {
 	    CLSTDEBUG("failed to duplicate %s", sslname);
-	    conns_err(SXE_EMEM, "Cannot set cluster sslname: out of memory");
+	    conns_err(SXE_EMEM, "Cannot set cluster sslname: Out of memory");
 	    return 1;
 	}
     } else
@@ -159,12 +159,12 @@ int sxi_conns_set_uuid(sxi_conns_t *conns, const char *uuid) {
 
     if(!uuid || !*uuid) { /* FIXME: check for valid guid */
 	CLSTDEBUG("called with NULL/empty uuid");
-	conns_err(SXE_EARG, "Cannot set cluster uuid: invalid argument");
+	conns_err(SXE_EARG, "Cannot set cluster uuid: Invalid argument");
 	return 1;
     }
     if(!(id = strdup(uuid))) {
 	CLSTDEBUG("failed to duplicate %s", uuid);
-	conns_err(SXE_EMEM, "Cannot set cluster uuid: out of memory");
+	conns_err(SXE_EMEM, "Cannot set cluster uuid: Out of memory");
 	return 1;
     }
     free(conns->uuid);
@@ -186,12 +186,12 @@ int sxi_conns_set_auth(sxi_conns_t *conns, const char *token) {
     char *tok;
     if(!sxi_is_valid_authtoken(conns->sx, token)) {
 	CLSTDEBUG("failed to set auth to %s", token ? token : "(null token)");
-	conns_err(SXE_EARG, "Cannot setup cluster authentication: invalid authentication token");
+	conns_err(SXE_EARG, "Cannot setup cluster authentication: Invalid authentication token");
 	return 1;
     }
     if(!(tok = strdup(token))) {
 	CLSTDEBUG("failed to duplicate %s", tok);
-	conns_err(SXE_EMEM, "Cannot setup cluster authentication: out of memory");
+	conns_err(SXE_EMEM, "Cannot setup cluster authentication: Out of memory");
 	return 1;
     }
     free(conns->auth_token);
@@ -206,7 +206,7 @@ const char *sxi_conns_get_auth(const sxi_conns_t *conns) {
 int sxi_conns_set_hostlist(sxi_conns_t *conns, const sxi_hostlist_t *hlist) {
     if(!hlist) {
 	CLSTDEBUG("called with NULL list");
-	conns_err(SXE_EARG, "Cannot set cluster nodes: invalid argument");
+	conns_err(SXE_EARG, "Cannot set cluster nodes: Invalid argument");
 	return 1;
     }
     sxi_hostlist_empty(&conns->hlist);
@@ -243,7 +243,7 @@ static void errfn(sxi_conns_t *conns, int reply_code, const char *reason)
         }
         yajl_free(yh);
     } else
-        conns_err(SXE_EMEM, "Cluster query failed: out of memory");
+        conns_err(SXE_EMEM, "Cluster query failed: Out of memory");
 }
 
 static enum head_result head_cb(sxi_conns_t *conns, long http_status, char *ptr, size_t size, size_t nmemb) {
@@ -303,7 +303,7 @@ static enum head_result head_cb(sxi_conns_t *conns, long http_status, char *ptr,
 	}
 	if(strcmp(uuid, suuid)) {
 	    CLSTDEBUG("server uuid mismatch (got %s, expected %s)", uuid, suuid);
-	    conns_err(SXE_ECOMM, "Server UUID mismatch: found %s, expected %s", uuid, suuid);
+	    conns_err(SXE_ECOMM, "Server UUID mismatch: Found %s, expected %s", uuid, suuid);
 	    return HEAD_FAIL;
 	}
         return HEAD_SEEN;
@@ -398,7 +398,7 @@ int sxi_cluster_query_ev(curlev_context_t *cbdata,
 
     if(!query || !*query || (content_size && !content) || verb < REQ_GET || verb > REQ_DELETE) {
 	CLSTDEBUG("called with unexpected NULL or empty arguments");
-	conns_err(SXE_EARG, "Cluster query failed: invalid argument");
+	conns_err(SXE_EARG, "Cluster query failed: Invalid argument");
 	return -1;
     }
     if (reject_dots(query)) {
@@ -408,7 +408,7 @@ int sxi_cluster_query_ev(curlev_context_t *cbdata,
 
     if(!conns->auth_token) {
 	CLSTDEBUG("cluster is not authed");
-	conns_err(SXE_EAUTH, "Cluster query failed: not authorised");
+	conns_err(SXE_EAUTH, "Cluster query failed: Not authorised");
 	return -1;
     }
 
@@ -419,7 +419,7 @@ int sxi_cluster_query_ev(curlev_context_t *cbdata,
 
     if(!url) {
 	CLSTDEBUG("OOM allocating request url: %s / %s", host, query);
-	conns_err(SXE_EMEM, "Cluster query failed: out of memory");
+	conns_err(SXE_EMEM, "Cluster query failed: Out of memory");
 	return -1;
     }
     bracket_open = strchr(host, ':') ? "[" : "";
@@ -509,7 +509,7 @@ int sxi_cluster_query(sxi_conns_t *conns, const sxi_hostlist_t *hlist, enum sxi_
 
     if (!hostcount) {
 	CLSTDEBUG("called with unexpected NULL or empty arguments");
-	conns_err(SXE_EARG, "Cluster query failed: invalid argument");
+	conns_err(SXE_EARG, "Cluster query failed: Invalid argument");
 	return -1;
     }
 
@@ -519,7 +519,7 @@ int sxi_cluster_query(sxi_conns_t *conns, const sxi_hostlist_t *hlist, enum sxi_
     curlev_context_t *cbdata = sxi_cbdata_create_generic(conns, NULL, &gctx);
 
     if (!cbdata) {
-	conns_err(SXE_EMEM, "Cluster query failed: out of memory allocating context");
+	conns_err(SXE_EMEM, "Cluster query failed: Out of memory allocating context");
 	return -1;
     }
     retry = sxi_retry_init(conns->sx);
@@ -625,7 +625,7 @@ int sxi_conns_hashcalc(sxi_conns_t *conns, const void *buffer, unsigned int len,
     const char *uuid = sxi_conns_get_uuid(conns);
     if(!uuid) {
 	CLSTDEBUG("cluster has got no uuid");
-	conns_err(SXE_EARG, "Cannot compute hash: no cluster uuid is set");
+	conns_err(SXE_EARG, "Cannot compute hash: No cluster uuid is set");
 	return 1;
     }
 
@@ -759,7 +759,7 @@ int sxi_conns_root_noauth(sxi_conns_t *conns, const char *tmpcafile, int quiet)
 	sxi_curlev_set_verbose(conns->curlev, 1);
     hostcount = sxi_hostlist_get_count(&conns->hlist);
     if (!hostcount) {
-        conns_err(SXE_EARG, "Cannot fetch cluster CA certificate: no node found%s in local cache",
+        conns_err(SXE_EARG, "Cannot fetch cluster CA certificate: No node found%s in local cache",
                     sxi_conns_get_dnsname(conns) ? " via dns resolution nor" : "");
 	CLSTDEBUG("called with empty hostlist");
 	return -1;
@@ -793,7 +793,7 @@ int sxi_conns_root_noauth(sxi_conns_t *conns, const char *tmpcafile, int quiet)
             return 1;
         if (sxi_curlev_is_saved(conns->curlev))
             return 0;
-        if (sxc_geterrnum(conns->sx) != SXE_NOERROR)
+        if (hostcount > 1 && sxc_geterrnum(conns->sx) != SXE_NOERROR)
             sxi_notice(conns->sx, "%s", sxc_geterrmsg(conns->sx));
     }
     return 1;

@@ -46,6 +46,7 @@
 #include "libsx/src/volops.h"
 #include "libsx/src/clustcfg.h"
 #include "version.h"
+#include "bcrumbs.h"
 
 struct main_args_info main_args;
 struct create_args_info create_args;
@@ -170,6 +171,8 @@ static int volume_create(sxc_client_t *sx, const char *owner)
     cluster = sxc_cluster_load_and_update(sx, create_args.config_dir_arg, uri->host, uri->profile);
     if(!cluster) {
 	fprintf(stderr, "ERROR: Failed to load config for %s: %s\n", uri->host, sxc_geterrmsg(sx));
+	if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_CFG_ERR))
+	    fprintf(stderr, SXBC_TOOLS_CFG_MSG, uri->host, uri->host);
 	sxc_free_uri(uri);
 	return 1;
     }
