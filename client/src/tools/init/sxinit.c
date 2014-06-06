@@ -312,7 +312,7 @@ int main(int argc, char **argv) {
 
     ret = 0;
  init_err:
-    if(ret) {
+    if(sx && ret) {
 	if(strstr(sxc_geterrmsg(sx), SXBC_SXINIT_RESOLVE_ERR))
 	    fprintf(stderr, SXBC_SXINIT_RESOLVE_MSG, u->host, u->host);
 	else if(strstr(sxc_geterrmsg(sx), SXBC_SXINIT_UUID_ERR))
