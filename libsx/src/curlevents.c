@@ -435,9 +435,11 @@ void sxi_cbdata_finish(curl_events_t *e, curlev_context_t **ctxptr, const char *
                 return; /* not finished yet, context reused */
         }
         else {
-            SXDEBUG("All %d hosts returned failure, retried %d times",
+            sxc_client_t *sx = sxi_conns_get_client(ctx->conns);
+            sxi_seterr(sx, SXE_EAGAIN, "All %d hosts returned failure, retried %d times",
                     sxi_hostlist_get_count(&ctx->retry.hosts),
                     ctx->retry.retries);
+            sxi_retry_done(&ctx->retry.retry);
         }
     }
     } while(0);
