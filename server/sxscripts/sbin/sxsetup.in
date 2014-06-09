@@ -27,8 +27,6 @@ while [ $OPTNUM -le $# ]; do
     elif [ "$OPTION" = "--force-reinit" ]; then
 	FORCE_REINIT_GIVEN="yes"
 
-    elif [ "$OPTION" = "--no-ssl" ]; then
-	NO_SSL_GIVEN="yes"
     elif [ "$OPTION" = "--debug" ]; then
 	DEBUG_GIVEN="yes"
     else
@@ -51,7 +49,6 @@ if [ "$HELP_GIVEN" = "yes" ]; then
     echo "                        automatically."
     echo "    --advanced          Enable advanced configuration"
     echo "    --force-reinit      Overwrite existing configuration"
-    echo "    --no-ssl            Disable secure communication"
     echo "    --debug             Turn on debug mode for the created node"
     echo
     exit 0
@@ -95,34 +92,14 @@ if [ "$FORCE_REINIT_GIVEN" = "yes" ]; then
 	SX_SERVER_GROUP=
 	SX_NODE_INTERNAL_IP=
     fi
-    if [ "$SX_USE_SSL" = "yes" -a "$NO_SSL_GIVEN" = "yes" ] || [ "$SX_USE_SSL" = "no" -a "$NO_SSL_GIVEN" != "yes" ]; then
-	SX_PORT=
-    fi
 fi
-
-if [ "$SX_USE_SSL" = "no" -o "$NO_SSL_GIVEN" = "yes" ]; then
-    SX_USE_SSL="no"
-    DEFAULT_PORT="80"
-    NOSSL_FLAG="--no-ssl"
-else
-    SX_USE_SSL="yes"
-    DEFAULT_PORT="443"
-fi
-test "$SX_NO_ROOT" = "yes" && DEFAULT_PORT="50$DEFAULT_PORT"
 
 SX_SERVER_USER=${SX_SERVER_USER:-"nobody"}
 SX_SERVER_GROUP=`id -n -g "$SX_SERVER_USER"`
 SX_RUN_DIR=${SX_RUN_DIR:-"@localstatedir@/run/sxserver"}
 SX_NODE_SIZE=${SX_NODE_SIZE:-"1T"}
-SX_PORT=${SX_PORT:-"$DEFAULT_PORT"}
 SX_CHILDREN_NUM=${SX_CHILDREN_NUM:-"32"}
 SX_LOG_FILE=${SX_LOG_FILE:-"@localstatedir@/log/sxserver/sxfcgi.log"}
-
-if [ -z "$NOSSL_FLAG" ]; then
-    SX_SSL_CERT_FILE=${SX_SSL_CERT_FILE:-"$ETCDIR/ssl/certs/sxcert.pem"}
-    SX_SSL_KEY_FILE=${SX_SSL_KEY_FILE:-"$ETCDIR/ssl/private/sxkey.pem"}
-    HTTPS="https://"
-fi
 
 # temp files
 SXSETUP_TMPDIR="@localstatedir@/lib/sxserver-tmp"
@@ -243,8 +220,30 @@ ask_questions() {
 	done
 
 	echo
-	echo "--- NODE ADDRESS ---"
+	echo "--- NETWORKING ---"
 	echo
+	if [ -z "$SX_USE_SSL" -o "$SX_USE_SSL" != "no" ]; then
+	    DEFAULTFIRST="(Y/n)"
+	    DEFAULTANSWER="y"
+	else
+	    DEFAULTFIRST="(y/N)"
+	    DEFAULTANSWER="n"
+	fi
+	ask_yn "Enable SSL? (use the same setting for all nodes in the cluster) $DEFAULTFIRST"
+	ANSWER=${ANSWER:-$DEFAULTANSWER}
+	if [ "$ANSWER" != "n" ]; then
+	    SX_USE_SSL="yes"
+	    DEFAULT_PORT="443"
+	    SX_SSL_CERT_FILE=${SX_SSL_CERT_FILE:-"$ETCDIR/ssl/certs/sxcert.pem"}
+	    SX_SSL_KEY_FILE=${SX_SSL_KEY_FILE:-"$ETCDIR/ssl/private/sxkey.pem"}
+	    HTTPS="https://"
+	else
+	    SX_USE_SSL="no"
+	    DEFAULT_PORT="80"
+	fi
+	test "$SX_NO_ROOT" = "yes" && DEFAULT_PORT="50$DEFAULT_PORT"
+	SX_PORT=${SX_PORT:-"$DEFAULT_PORT"}
+
 	while true; do
 	    printf "Enter the IP address of this node [default=$SX_NODE_IP]: "
 	    read NEWVAL
@@ -252,7 +251,7 @@ ask_questions() {
 	    test -z "$SX_NODE_IP" && continue
 	    if [ -n "$ADVANCED_GIVEN" ]; then
 		while true; do
-		    printf "Enter the port number (must be same for all nodes in the cluster) [default=$SX_PORT]: "
+		    printf "Enter the port number (use the same value all nodes in the cluster) [default=$SX_PORT]: "
 		    read NEWVAL
 		    SX_PORT=${NEWVAL:-$SX_PORT}
 		    test -n "$SX_PORT" && break
@@ -263,15 +262,15 @@ ask_questions() {
 	    break
 	done
 
-	if [ -z "$SX_NODE_INTERNAL_IP" -o "$SX_NODE_INTERNAL_IP" = "$SX_NODE_IP" ]; then
-	    DEFAULTFIRST="(y/N)"
-	    DEFAULTANSWER="n"
-	else
-	    DEFAULTFIRST="(Y/n)"
-	    DEFAULTANSWER="y"
-	fi
 	if [ -n "$ADVANCED_GIVEN" ]; then
 	    echo
+	    if [ -z "$SX_NODE_INTERNAL_IP" -o "$SX_NODE_INTERNAL_IP" = "$SX_NODE_IP" ]; then
+		DEFAULTFIRST="(y/N)"
+		DEFAULTANSWER="n"
+	    else
+		DEFAULTFIRST="(Y/n)"
+		DEFAULTANSWER="y"
+	    fi
 	    ask_yn "Use separated network for inter-node communication? $DEFAULTFIRST"
 	    ANSWER=${ANSWER:-$DEFAULTANSWER}
 	    if [ "$ANSWER" != "n" ]; then
@@ -320,7 +319,7 @@ ask_questions() {
 			    break
 			else
 			    echo "Cannot contact node $HTTPS$SX_EXISTING_NODE_IP. Please make sure it's running and accessible from this node and try again."
-			    test -n "$HTTPS" && echo "Call sxsetup with --no-ssl in case the cluster you want to join doesn't use secure connection."
+			    test -n "$HTTPS" && echo "Disable SSL in case the cluster you want to join doesn't use secure connection."
 			fi
 		    else
 			break
@@ -359,9 +358,9 @@ ask_questions() {
 	    done
 	fi
 
-	echo
-	echo "--- SSL CONFIGURATION ---"
-	if [ -z "$NOSSL_FLAG" ] ; then
+	if [ "$SX_USE_SSL" = "yes" ] ; then
+	    echo
+	    echo "--- SSL CONFIGURATION ---"
 	    if [ "$FORCE_REINIT_GIVEN" = "yes" ]; then
 		rm -f "$SX_SSL_KEY_FILE" "$SX_SSL_CERT_FILE"
 	    fi
@@ -542,6 +541,7 @@ EOF
 	else
 	    echo "Node: $SX_NODE_IP"
 	fi
+	echo "Use SSL: $SX_USE_SSL"
 	echo "Storage: $SX_DATA_DIR"
 	echo "Run as user: $SX_SERVER_USER"
 	echo
@@ -670,6 +670,8 @@ EOF
 ################
 
 mkdir -p "$ETCDIR/sxserver"
+
+test "$SX_USE_SSL" = "no" && NOSSL_FLAG="--no-ssl"
 
 # sxfcgi.conf
 if [ -f "$ETCDIR/sxserver/sxfcgi.conf" ]; then
