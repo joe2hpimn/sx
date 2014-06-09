@@ -117,7 +117,37 @@ void fcgi_handle_cluster_requests(void) {
 
 	    json_send_qstring(vol->name);
 	    CGI_PRINTF(":{\"replicaCount\":%u,\"sizeBytes\":", vol->replica_count);
+
 	    CGI_PUTLL(vol->size);
+            if(has_arg("volumeMeta")) {
+                const char *metakey;
+                const void *metavalue;
+                int metasize, comma = 0;
+
+                if(s = sx_hashfs_volumemeta_begin(hashfs, vol)) {
+                    CGI_PUTS('}}');
+                    quit_itererr("Cannot lookup volume metadata", s);
+                }
+
+                CGI_PUTS(",\"volumeMeta\":{");
+                while((s = sx_hashfs_volumemeta_next(hashfs, &metakey, &metavalue, &metasize)) == OK) {
+                    char hexval[SXLIMIT_META_MAX_VALUE_LEN*2+1];
+                    if(comma)
+                        CGI_PUTC(',');
+                    else
+                        comma |= 1;
+                    json_send_qstring(metakey);
+                    CGI_PUTS(":\"");
+                    bin2hex(metavalue, metasize, hexval, sizeof(hexval));
+                    CGI_PUTS(hexval);
+                    CGI_PUTC('"');
+                }
+                CGI_PUTC('}');
+                if(s != ITER_NO_MORE) {
+                    CGI_PUTS("}}");
+                    quit_itererr("Failed to list volume metadata", s);
+                }
+            }
 	    CGI_PUTS("}");
 	}
 

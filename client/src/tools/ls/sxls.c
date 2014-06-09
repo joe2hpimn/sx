@@ -183,13 +183,20 @@ int main(int argc, char **argv) {
 	}
 
 	if(!u->volume) {
-	    sxc_cluster_lv_t *fv = sxc_cluster_listvolumes(cluster);
+	    sxc_cluster_lv_t *fv = sxc_cluster_listvolumes(cluster, args.long_format_given);
 	    if(fv) {
 		while(1) {
 		    char *vname;
 		    int64_t vsize;
 		    unsigned int vreplica;
-		    int n = sxc_cluster_listvolumes_next(fv, &vname, &vsize, &vreplica);
+                    sxc_meta_t *vmeta = NULL;
+                    int n = 0;
+
+                    if(args.long_format_given)
+		        n = sxc_cluster_listvolumes_next(fv, &vname, &vsize, &vreplica, &vmeta);
+                    else
+                        n = sxc_cluster_listvolumes_next(fv, &vname, &vsize, &vreplica, NULL);
+
 		    if(n<=0) {
 			if(n)
 			    fprintf(stderr, "ERROR: Failed to retrieve file name for %s\n", args.inputs[i]);
@@ -197,7 +204,6 @@ int main(int argc, char **argv) {
 		    }
 
 		    if(args.long_format_given) {
-			sxc_meta_t *vmeta = NULL;
 			const void *mval = NULL;
 			unsigned int mval_len;
 			sxc_file_t* volume_file = NULL;
@@ -208,14 +214,7 @@ int main(int argc, char **argv) {
 			/* Initialize volume file structure */
 			if(!(volume_file = sxc_file_remote(cluster, vname, NULL))) {
 			    fprintf(stderr, "ERROR: sxc_file_remote() failed\n");
-			    free(vname);
-			    break;
-			}
-
-			/* Retrieve metainformation about volume */
-			if(!(vmeta = sxc_volumemeta_new(volume_file))) {
-			    fprintf(stderr, "ERROR: Failed to retrieve meta information for %s\n", args.inputs[i]);
-			    sxc_file_free(volume_file);
+			    sxc_meta_free(vmeta);
 			    free(vname);
 			    break;
 			}

@@ -132,9 +132,10 @@ sxc_cluster_la_t *sxc_cluster_listaclusers(sxc_cluster_t *cluster, const char *v
 int sxc_cluster_listaclusers_next(sxc_cluster_la_t *la, char **acluser_name, int *can_read, int *can_write, int *is_owner, int *is_admin);
 void sxc_cluster_listaclusers_free(sxc_cluster_la_t *la);
 
+typedef struct _sxi_ht_t sxc_meta_t;
 typedef struct _sxc_cluster_lv_t sxc_cluster_lv_t;
-sxc_cluster_lv_t *sxc_cluster_listvolumes(sxc_cluster_t *cluster);
-int sxc_cluster_listvolumes_next(sxc_cluster_lv_t *lv, char **volume_name, int64_t *volume_size, unsigned int *replica_count);
+sxc_cluster_lv_t *sxc_cluster_listvolumes(sxc_cluster_t *cluster, int get_meta);
+int sxc_cluster_listvolumes_next(sxc_cluster_lv_t *lv, char **volume_name, int64_t *volume_size, unsigned int *replica_count, sxc_meta_t **meta);
 void sxc_cluster_listvolumes_free(sxc_cluster_lv_t *lv);
 
 typedef struct _sxc_cluster_lf_t sxc_cluster_lf_t;
@@ -239,7 +240,6 @@ unsigned sxc_file_list_get_successful(const sxc_file_list_t *lst);
 int sxc_rm(sxc_file_list_t *target);
 
 
-typedef struct _sxi_ht_t sxc_meta_t;
 sxc_meta_t *sxc_meta_new(sxc_client_t *sx);
 sxc_meta_t *sxc_filemeta_new(sxc_file_t *file);
 sxc_meta_t *sxc_volumemeta_new(sxc_file_t *file);

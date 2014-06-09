@@ -462,7 +462,7 @@ int sxc_volume_acl(sxc_cluster_t *cluster, const char *url,
     return rc;
 }
 
-// {"volumeList":{"vol":{"replicaCount":1,"sizeBytes":10737418240},"volxxx":{"replicaCount":1,"sizeBytes":10737418240}}
+// {"volumeList":{"vol":{"replicaCount":1,"sizeBytes":10737418240,"volumeMeta:{"key1":"val1","key2":"val2"}"},"volxxx":{"replicaCount":1,"sizeBytes":10737418240,"volumeMeta:{"key1":"val1","key2":"val2"}"}}
 struct cb_listvolumes_ctx {
     sxc_client_t *sx;
     yajl_callbacks yacb;
@@ -476,7 +476,11 @@ struct cb_listvolumes_ctx {
 	unsigned int namelen;
     } voldata;
 
-    enum listvolumes_state { LV_ERROR, LV_BEGIN, LV_BASE, LV_VOLUMES, LV_NAME, LV_VALUES, LV_VALNAME, LV_REPLICA, LV_SIZE, LV_DONE, LV_COMPLETE } state;
+    sxc_meta_t *meta;
+    unsigned int meta_count;
+    char *curkey;
+    enum listvolumes_state { LV_ERROR, LV_BEGIN, LV_BASE, LV_VOLUMES, LV_NAME, LV_VALUES, LV_VALNAME,
+			     LV_REPLICA, LV_SIZE, LV_META, LV_META_KEY, LV_META_VALUE, LV_DONE, LV_COMPLETE } state;
 };
 #define expect_state(expst) do { if(yactx->state != (expst)) { CBDEBUG("bad state (in %d, expected %d)", yactx->state, expst); return 0; } } while(0)
 
@@ -484,15 +488,16 @@ static int yacb_listvolumes_start_map(void *ctx) {
     struct cb_listvolumes_ctx *yactx = (struct cb_listvolumes_ctx *)ctx;
     if(!ctx)
 	return 0;
-
     if(yactx->state == LV_BEGIN)
 	yactx->state = LV_BASE;
     else if(yactx->state == LV_VOLUMES)
 	yactx->state = LV_NAME;
     else if(yactx->state == LV_VALUES)
 	yactx->state = LV_VALNAME;
+    else if(yactx->state == LV_META)
+        yactx->state = LV_META_KEY;
     else {
-	CBDEBUG("bad state (in %d, expected %d, %d or %d)", yactx->state, LV_BEGIN, LV_VOLUMES, LV_VALUES);
+	CBDEBUG("bad state (in %d, expected %d, %d, %d or %d)", yactx->state, LV_BEGIN, LV_VOLUMES, LV_VALUES, LV_META);
 	return 0;
     }
     return 1;
@@ -502,14 +507,17 @@ static int yacb_listvolumes_end_map(void *ctx) {
     struct cb_listvolumes_ctx *yactx = (struct cb_listvolumes_ctx *)ctx;
     if(!ctx)
 	return 0;
-
     if (yactx->state == LV_ERROR)
         return yacb_error_end_map(&yactx->errctx);
     if(yactx->state == LV_DONE)
 	yactx->state = LV_COMPLETE;
     else if(yactx->state == LV_NAME)
 	yactx->state = LV_DONE;
+    else if(yactx->state == LV_META_KEY)
+        yactx->state = LV_VALNAME;
     else if(yactx->state == LV_VALNAME) {
+        unsigned int i;
+
 	if(yactx->voldata.replica_count < 1 || yactx->voldata.size < 0 || !yactx->volname || !yactx->voldata.namelen) {
 	    CBDEBUG("incomplete entry");
 	    return 0;
@@ -523,8 +531,42 @@ static int yacb_listvolumes_end_map(void *ctx) {
 	yactx->volname = NULL;
 	yactx->voldata.namelen = 0;
 	yactx->state = LV_NAME;
+
+        /* Handle meta */
+        if(!fwrite(&yactx->meta_count, sizeof(yactx->meta_count), 1, yactx->f)) {
+            CBDEBUG("Failed to save meta count to temporary file");
+            sxi_setsyserr(yactx->sx, SXE_EWRITE, "Failed to save meta count to temporary file");
+            return 0;
+        }
+
+        /* Iterate over all metas and write them to temp file */
+        for(i = 0; i < sxc_meta_count(yactx->meta); i++) {
+            const char *key = NULL;
+            unsigned int key_len = 0;
+            const void *value = NULL;
+            unsigned int value_len = 0;
+            if(sxc_meta_getkeyval(yactx->meta, i, &key, &value, &value_len)) {
+                CBDEBUG("Could not get meta key-value pair: %s", sxc_geterrmsg(yactx->sx));
+                return 0;
+            }
+
+            key_len = strlen(key);
+            if(!fwrite(&key_len, sizeof(key_len), 1, yactx->f) || !fwrite(key, key_len, 1, yactx->f)) {
+                CBDEBUG("Failed to save meta key to temporary file");
+                sxi_setsyserr(yactx->sx, SXE_EWRITE, "Failed to save meta key to temporary file");
+                return 0;
+            }
+            if(!fwrite(&value_len, sizeof(value_len), 1, yactx->f) || !fwrite(value, value_len, 1, yactx->f)) {
+                CBDEBUG("Failed to save meta value to temporary file");
+		sxi_setsyserr(yactx->sx, SXE_EWRITE, "Failed to save meta key to temporary file");
+                return 0;
+            }
+        }
+        sxc_meta_free(yactx->meta);
+        yactx->meta = NULL;
+        yactx->meta_count = 0;
     } else {
-	CBDEBUG("bad state (in %d, expected %d, %d or %d)", yactx->state, LV_DONE, LV_NAME, LV_VALNAME);
+	CBDEBUG("bad state (in %d, expected %d, %d, %d or %d)", yactx->state, LV_DONE, LV_NAME, LV_META_KEY, LV_VALNAME);
 	return 0;
     }
     return 1;
@@ -534,6 +576,18 @@ static int yacb_listvolumes_string(void *ctx, const unsigned char *s, size_t l) 
     struct cb_listvolumes_ctx *yactx = (struct cb_listvolumes_ctx *)ctx;
     if (yactx->state == LV_ERROR)
         return yacb_error_string(&yactx->errctx, s, l);
+    if(yactx->state == LV_META_VALUE) {
+        if(sxc_meta_setval_fromhex(yactx->meta, yactx->curkey, (const char *)s, l)) {
+            CBDEBUG("failed to add meta value: %s", sxc_geterrmsg(yactx->sx));
+            return 0;
+        }
+        free(yactx->curkey);
+        yactx->curkey = NULL;
+        yactx->state = LV_META_KEY;
+        yactx->meta_count++;
+        return 1;
+    }
+
     return 0;
 }
 
@@ -588,11 +642,33 @@ static int yacb_listvolumes_map_key(void *ctx, const unsigned char *s, size_t l)
 	    yactx->state = LV_SIZE;
 	    return 1;
 	}
+        if(l == lenof("volumeMeta") && !memcmp(s, "volumeMeta", lenof("volumeMeta"))) {
+            yactx->state = LV_META;
+            yactx->meta = sxc_meta_new(yactx->sx);
+	    if(!yactx->meta) {
+		CBDEBUG("OOM Allocating meta");
+		return 0;
+	    }
+            return 1;
+        }
 	CBDEBUG("unexpected voldata key '%.*s'", (unsigned)l, s);
 	return 0;
     }
 
-    CBDEBUG("bad state (in %d, expected %d, %d or %d)", yactx->state, LV_BASE, LV_NAME, LV_VALNAME);
+    if(yactx->state == LV_META_KEY) {
+        yactx->curkey = malloc(l + 1);
+        if(!yactx->curkey) {
+            CBDEBUG("OOM Allocating temporary meta key '%.*s'", (unsigned)l, s);
+            sxi_seterr(yactx->sx, SXE_EMEM, "Out of memory");
+            return 0;
+        }
+        memcpy(yactx->curkey, s, l);
+        yactx->curkey[l] = '\0';
+        yactx->state = LV_META_VALUE;
+        return 1;
+    }
+
+    CBDEBUG("bad state (in %d, expected %d, %d, %d or %d)", yactx->state, LV_BASE, LV_NAME, LV_VALNAME, LV_META_KEY);
     return 0;
 }
 
@@ -662,6 +738,13 @@ static int listvolumes_setup_cb(sxi_conns_t *conns, void *ctx, const char *host)
     yactx->state = LV_BEGIN;
     yactx->sx = sx;
 
+    /* Meta handling */
+    sxc_meta_free(yactx->meta);
+    free(yactx->curkey);
+    yactx->meta = NULL;
+    yactx->curkey = NULL;
+    yactx->meta_count = 0;
+
     return 0;
 }
 
@@ -684,7 +767,7 @@ struct _sxc_cluster_lv_t {
     char *fname;
 };
 
-sxc_cluster_lv_t *sxc_cluster_listvolumes(sxc_cluster_t *cluster) {
+sxc_cluster_lv_t *sxc_cluster_listvolumes(sxc_cluster_t *cluster, int get_meta) {
     sxc_client_t *sx = sxi_cluster_get_client(cluster);
     struct cb_listvolumes_ctx yctx;
     yajl_callbacks *yacb = &yctx.yacb;
@@ -703,6 +786,8 @@ sxc_cluster_lv_t *sxc_cluster_listvolumes(sxc_cluster_t *cluster) {
 
     yctx.yh = NULL;
     yctx.volname = NULL;
+    yctx.meta = NULL;
+    yctx.curkey = NULL;
 
     if(!(fname = sxi_make_tempfile(sx, NULL, &yctx.f))) {
 	CFGDEBUG("failed to create temporary storage for volume list");
@@ -710,10 +795,12 @@ sxc_cluster_lv_t *sxc_cluster_listvolumes(sxc_cluster_t *cluster) {
     }
 
     sxi_set_operation(sx, "list volumes", sxi_cluster_get_name(cluster), NULL, NULL);
-    qret = sxi_cluster_query(sxi_cluster_get_conns(cluster), NULL, REQ_GET, "?volumeList", NULL, 0, listvolumes_setup_cb, listvolumes_cb, &yctx);
+    qret = sxi_cluster_query(sxi_cluster_get_conns(cluster), NULL, REQ_GET, get_meta ? "?volumeList&volumeMeta":"?volumeList", NULL, 0, listvolumes_setup_cb, listvolumes_cb, &yctx);
     if(qret != 200) {
 	CFGDEBUG("query returned %d", qret);
 	free(yctx.volname);
+	sxc_meta_free(yctx.meta);
+	free(yctx.curkey);
 	if(yctx.yh)
 	    yajl_free(yctx.yh);
 	fclose(yctx.f);
@@ -728,6 +815,8 @@ sxc_cluster_lv_t *sxc_cluster_listvolumes(sxc_cluster_t *cluster) {
             cluster_err(SXE_ECOMM, "List volumes failed: Communication error");
         }
 	free(yctx.volname);
+	sxc_meta_free(yctx.meta);
+	free(yctx.curkey);
 	if(yctx.yh)
 	    yajl_free(yctx.yh);
 	fclose(yctx.f);
@@ -737,6 +826,8 @@ sxc_cluster_lv_t *sxc_cluster_listvolumes(sxc_cluster_t *cluster) {
     }
 
     free(yctx.volname);
+    sxc_meta_free(yctx.meta);
+    free(yctx.curkey);
     if(yctx.yh)
 	yajl_free(yctx.yh);
 
@@ -758,9 +849,13 @@ sxc_cluster_lv_t *sxc_cluster_listvolumes(sxc_cluster_t *cluster) {
     return ret;
 }
 
-int sxc_cluster_listvolumes_next(sxc_cluster_lv_t *lv, char **volume_name, int64_t *volume_size, unsigned int *replica_count) {
+int sxc_cluster_listvolumes_next(sxc_cluster_lv_t *lv, char **volume_name, int64_t *volume_size, unsigned int *replica_count, sxc_meta_t **meta) {
     struct cbl_volume_t volume;
     sxc_client_t *sx = lv->sx;
+    unsigned int meta_count = 0;
+    unsigned int i = 0;
+    char *key = NULL;
+    void *value = NULL;
 
     if(!fread(&volume, sizeof(volume), 1, lv->f)) {
 	if(ferror(lv->f)) {
@@ -805,6 +900,89 @@ int sxc_cluster_listvolumes_next(sxc_cluster_lv_t *lv, char **volume_name, int64
 
     if(replica_count)
 	*replica_count = volume.replica_count;
+
+    if(!fread(&meta_count, sizeof(meta_count), 1, lv->f)) {
+        SXDEBUG("error reading meta count from results file");
+        sxi_setsyserr(sx, SXE_EREAD, "error reading meta count from results file");
+        return -1; /* TODO: free sth? */
+    }
+
+    if(meta) {
+        *meta = sxc_meta_new(sx);
+        if(!*meta) {
+            SXDEBUG("OOM could not allocate meta");
+            sxi_setsyserr(sx, SXE_EMEM, "OOM could not allocate meta");
+            return -1;
+        }
+    }
+
+    for(i = 0; i < meta_count; i++) {
+	unsigned int key_len, value_len;
+	key = value = NULL;
+
+        if(!fread(&key_len, sizeof(key_len), 1, lv->f)) {
+            SXDEBUG("error reading meta key length from results file");
+            sxi_setsyserr(sx, SXE_EREAD, "error reading meta key length from results file");
+            break;
+        }
+
+	if(meta) {
+	    key = calloc(key_len + 1, sizeof(char));
+	    if(!key) {
+		SXDEBUG("OOM could not allocate memory for meta key");
+		sxi_setsyserr(sx, SXE_EMEM, "OOM could not allocate memory for meta key");
+		break;
+	    }
+
+	    if(!fread(key, key_len, 1, lv->f)) {
+		SXDEBUG("error reading meta key length from results file");
+		sxi_setsyserr(sx, SXE_EREAD, "error reading meta key length from results file");
+		break;
+	    }
+	} else
+	    fseek(lv->f, key_len, SEEK_CUR);
+
+        if(!fread(&value_len, sizeof(value_len), 1, lv->f)) {
+            SXDEBUG("error reading meta key length from results file");
+            sxi_setsyserr(sx, SXE_EREAD, "error reading meta key length from results file");
+            break;
+        }
+
+	if(meta) {
+	    value = calloc(value_len + 1, sizeof(char));
+	    if(!value) {
+		SXDEBUG("OOM could not allocate memory for meta value");
+		sxi_setsyserr(sx, SXE_EMEM, "OOM could not allocate memory for meta value");
+		break;
+	    }
+
+	    if(!fread(value, value_len, 1, lv->f)) {
+		SXDEBUG("error reading meta value length from results file");
+		sxi_setsyserr(sx, SXE_EREAD, "error reading meta value length from results file");
+		break;
+	    }
+
+	    /* Value and key are read, add them to meta if needed */
+	    if(sxc_meta_setval(*meta, key, value, value_len)) {
+		SXDEBUG("Could not add meta key-value pair: %s", sxc_geterrmsg(sx));
+		break;
+	    }
+
+	    free(key);
+	    free(value);
+	} else
+	    fseek(lv->f, value_len, SEEK_CUR);
+    }
+
+    if(i != meta_count) {
+	if(meta) {
+	    free(key);
+	    free(value);
+	    sxc_meta_free(*meta);
+	    *meta = NULL;
+	}
+	return -1;
+    }
 
     return 1;
 }
