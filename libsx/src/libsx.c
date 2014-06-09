@@ -382,7 +382,7 @@ void sxi_setclusterr(sxc_client_t *sx, const char *nodeid, const char *reqid, in
             sxi_fmt_msg(&sx->log.fmt, "\nHTTP %d: %s", status, details);
         }
     }
-    sxi_seterr(sx, SXE_ECOMM, "%s", sx->log.fmt.buf);
+    sxi_seterr(sx, status == 403 ? SXE_EAUTH : SXE_ECOMM, "%s", sx->log.fmt.buf);
     sxi_clear_operation(sx);
     SXDEBUG("Cluster query failed (HTTP %d): %s", status, sx->errbuf);
     if (details && *details)

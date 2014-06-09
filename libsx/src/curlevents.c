@@ -1965,7 +1965,7 @@ int sxi_retry_check(sxi_retry_t *retry, unsigned current_try)
         else
             SXDEBUG("stored error message (prio %d): %s", prio, retry->errmsg);
     }
-    if (prio == MSG_PRIO_LOCAL_FATAL) {
+    if (prio == MSG_PRIO_LOCAL_FATAL || prio == MSG_PRIO_AUTH) {
         SXDEBUG("error is fatal, forbidding retry: %s", errmsg);
         return -1;/* do not retry */
     }
