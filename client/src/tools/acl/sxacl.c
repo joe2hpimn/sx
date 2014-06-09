@@ -99,7 +99,7 @@ static int volume_acl(sxc_client_t *sx, const struct perm_args_info *args)
     return ret;
 }
 
-static int add_user(sxc_client_t *sx, const char *username, const char *uri, const char *clusterdir, enum enum_role type, const char *authfile)
+static int add_user(sxc_client_t *sx, const char *username, const char *uri, const char *clusterdir, enum enum_role type, const char *authfile, int batch_mode)
 {
     sxc_uri_t *u;
     sxc_cluster_t *cluster;
@@ -132,11 +132,15 @@ static int add_user(sxc_client_t *sx, const char *username, const char *uri, con
 	return 1;
     }
 
-    printf("User successfully created!\n");
-    printf("Name: %s\n", username);
-    printf("Key : %s\n", key);
-    printf("Type: %s\n\n", type == role_arg_admin ? "admin" : "normal");
-    printf("Run 'sxinit sx://%s@%s' to start using the cluster as user '%s'.\n", username, u->host, username);
+    if(batch_mode) {
+	printf("%s\n", key);
+    } else {
+	printf("User successfully created!\n");
+	printf("Name: %s\n", username);
+	printf("Key : %s\n", key);
+	printf("Type: %s\n\n", type == role_arg_admin ? "admin" : "normal");
+	printf("Run 'sxinit sx://%s@%s' to start using the cluster as user '%s'.\n", username, u->host, username);
+    }
 
     if (authfile) {
 	FILE *f;
@@ -358,7 +362,7 @@ int main(int argc, char **argv) {
                 ret = 1;
                 break;
             }
-            ret = add_user(sx, args.inputs[0], args.inputs[1], args.config_dir_arg, args.role_arg, args.auth_file_arg);
+            ret = add_user(sx, args.inputs[0], args.inputs[1], args.config_dir_arg, args.role_arg, args.auth_file_arg, args.batch_mode_flag);
             useradd_cmdline_parser_free(&args);
 
         } else if (!strcmp(argv[1], "userlist")) {

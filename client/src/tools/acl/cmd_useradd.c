@@ -41,6 +41,7 @@ const char *useradd_args_info_help[] = {
   "  -a, --auth-file=STRING  Store authentication token in given file (instead of\n                            stdout)",
   "\nCommon options:",
   "  -c, --config-dir=PATH   Path to SX configuration directory",
+  "  -b, --batch-mode        Disable additional information and only print the\n                            authentication token  (default=off)",
   "  -D, --debug             Enable debug messages  (default=off)",
     0
 };
@@ -74,6 +75,7 @@ void clear_given (struct useradd_args_info *args_info)
   args_info->role_given = 0 ;
   args_info->auth_file_given = 0 ;
   args_info->config_dir_given = 0 ;
+  args_info->batch_mode_given = 0 ;
   args_info->debug_given = 0 ;
 }
 
@@ -87,6 +89,7 @@ void clear_args (struct useradd_args_info *args_info)
   args_info->auth_file_orig = NULL;
   args_info->config_dir_arg = NULL;
   args_info->config_dir_orig = NULL;
+  args_info->batch_mode_flag = 0;
   args_info->debug_flag = 0;
   
 }
@@ -101,7 +104,8 @@ void init_args_info(struct useradd_args_info *args_info)
   args_info->role_help = useradd_args_info_help[3] ;
   args_info->auth_file_help = useradd_args_info_help[4] ;
   args_info->config_dir_help = useradd_args_info_help[6] ;
-  args_info->debug_help = useradd_args_info_help[7] ;
+  args_info->batch_mode_help = useradd_args_info_help[7] ;
+  args_info->debug_help = useradd_args_info_help[8] ;
   
 }
 
@@ -279,6 +283,8 @@ useradd_cmdline_parser_dump(FILE *outfile, struct useradd_args_info *args_info)
     write_into_file(outfile, "auth-file", args_info->auth_file_orig, 0);
   if (args_info->config_dir_given)
     write_into_file(outfile, "config-dir", args_info->config_dir_orig, 0);
+  if (args_info->batch_mode_given)
+    write_into_file(outfile, "batch-mode", 0, 0 );
   if (args_info->debug_given)
     write_into_file(outfile, "debug", 0, 0 );
   
@@ -528,11 +534,12 @@ useradd_cmdline_parser_internal (
         { "role",	1, NULL, 't' },
         { "auth-file",	1, NULL, 'a' },
         { "config-dir",	1, NULL, 'c' },
+        { "batch-mode",	0, NULL, 'b' },
         { "debug",	0, NULL, 'D' },
         { 0,  0, 0, 0 }
       };
 
-      c = getopt_long (argc, argv, "hVt:a:c:D", long_options, &option_index);
+      c = getopt_long (argc, argv, "hVt:a:c:bD", long_options, &option_index);
 
       if (c == -1) break;	/* Exit from `while (1)' loop.  */
 
@@ -589,6 +596,16 @@ useradd_cmdline_parser_internal (
               &(local_args_info.config_dir_given), optarg, 0, 0, ARG_STRING,
               check_ambiguity, override, 0, 0,
               "config-dir", 'c',
+              additional_error))
+            goto failure;
+        
+          break;
+        case 'b':	/* Disable additional information and only print the authentication token.  */
+        
+        
+          if (update_arg((void *)&(args_info->batch_mode_flag), 0, &(args_info->batch_mode_given),
+              &(local_args_info.batch_mode_given), optarg, 0, 0, ARG_FLAG,
+              check_ambiguity, override, 1, 0, "batch-mode", 'b',
               additional_error))
             goto failure;
         
