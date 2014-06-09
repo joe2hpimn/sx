@@ -3168,7 +3168,7 @@ static int remote_to_local(sxc_file_t *source, sxc_file_t *dest) {
         d = STDOUT_FILENO;
     } else if((d = open(dest->path, O_RDWR|O_CREAT, S_IWUSR|S_IRUSR|S_IWGRP|S_IRGRP|S_IWOTH|S_IROTH))<0) {
 	SXDEBUG("failed to create destination file");
-	sxi_setsyserr(sx, SXE_EWRITE, "cannot open destination file %s", dstname);
+	sxi_setsyserr(sx, SXE_EWRITE, "Cannot open destination file %s", dstname);
 	goto remote_to_local_err;
     }
     if(fstat(d, &st)) {
@@ -4002,6 +4002,10 @@ int sxc_copy(sxc_file_t *source, sxc_file_t *dest, int recursive) {
 	} else if (dest->path && ends_with(dest->path, '/')) {
             if (stat(dest->path, &sb) == -1 || !S_ISDIR(sb.st_mode)) {
                 sxi_seterr(source->sx, SXE_EARG, "'%s' must be an existing directory", dest->path);
+                return 1;
+            }
+	    if(access(dest->path, X_OK | W_OK)) {
+                sxi_seterr(source->sx, SXE_EARG, "Cannot access %s", dest->path);
                 return 1;
             }
         }
@@ -4847,6 +4851,10 @@ int sxc_file_require_dir(sxc_file_t *file)
     if (stat(file->path, &sb) == 0 && S_ISDIR(sb.st_mode)) {
         unsigned n;
         char *path;
+	if(access(file->path, X_OK | W_OK)) {
+	    sxi_seterr(file->sx, SXE_EARG, "Cannot access %s: %s", file->path, strerror(errno));
+            return -1;
+        }
         /* modify path to have trailing slash */
         n = strlen(file->path) + 2;
         path = malloc(n);
