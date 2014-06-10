@@ -21,6 +21,7 @@ mkdir -p "$prefix/bin" "$prefix/sbin" "$prefix/etc/sxserver"
 mkdir -p "$prefix/var/lib/sxserver" "$prefix/var/log/sxserver" "$prefix/var/run/sxserver"
 
 make -s -C sxscripts clean && make -s -C sxscripts prefix="$prefix" SXHTTPD="$prefix/sbin/sxhttpd" sbindir="$prefix/sbin" bindir="$prefix/bin" sysconfdir="$prefix/etc" localstatedir="$prefix/var" install
+make -s -C sxscripts clean && make -s -C sxscripts
 
 ln -s `pwd`/../client/src/tools/init/sxinit "$prefix/bin/sxinit"
 ln -s `pwd`/src/tools/sxadm/sxadm "$prefix/sbin/sxadm"
