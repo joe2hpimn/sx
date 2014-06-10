@@ -632,6 +632,7 @@ sxc_uri_t *sxc_parse_uri(sxc_client_t *sx, const char *uri) {
 		p = malloc(len + 1);
 		if(p) {
 		    strncpy(p, uri, len);
+                    p[len] = '\0';
 		    sxi_seterr(sx, SXE_EMEM, "Alias '%s' doesn't exist", p);
 		    free(p);
 		} else {
