@@ -228,6 +228,7 @@ static int volume_create(sxc_client_t *sx, const char *owner)
 
 	if(!filter) {
 	    fprintf(stderr, "ERROR: Filter '%s' not found\n", create_args.filter_arg);
+	    sxc_meta_free(vmeta);
 	    goto create_err;
 	}
 
