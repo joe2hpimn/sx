@@ -90,7 +90,11 @@ static int getpassword(const sxf_handle_t *handle, int repeat, sxf_mode_t mode, 
 
     printf("[aes256]: Enter %s password: ", mode == SXF_MODE_UPLOAD ? "encryption" : "decryption");
     mlock(pass1, sizeof(pass1));
-    fgets(pass1, sizeof(pass1), stdin);
+    if(!fgets(pass1, sizeof(pass1), stdin)) {
+	munlock(pass1, sizeof(pass1));
+	printf("[aes256]: fgets() failed\n");
+	return -1;
+    }
     pass1[strlen(pass1) - 1] = 0;
     if(strlen(pass1) < 8) {
 	tcsetattr(0, TCSANOW, &told);
@@ -103,10 +107,18 @@ static int getpassword(const sxf_handle_t *handle, int repeat, sxf_mode_t mode, 
     if(repeat) {
 	printf("[aes256]: Re-enter encryption password: ");
 	mlock(pass2, sizeof(pass2));
-	fgets(pass2, sizeof(pass2), stdin);
+	if(!fgets(pass2, sizeof(pass2), stdin)) {
+	    memset(pass1, 0, sizeof(pass1));
+	    munlock(pass1, sizeof(pass1));
+	    munlock(pass2, sizeof(pass2));
+	    printf("[aes256]: fgets() failed\n");
+	    return -1;
+	}
 	pass2[strlen(pass2) - 1] = 0;
 	if(strcmp(pass1, pass2)) {
 	    tcsetattr(0, TCSANOW, &told);
+	    memset(pass1, 0, sizeof(pass1));
+	    munlock(pass1, sizeof(pass1));
 	    memset(pass2, 0, sizeof(pass2));
 	    munlock(pass2, sizeof(pass2));
 	    printf("[aes256]: ERROR: Passwords don't match\n");
