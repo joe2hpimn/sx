@@ -609,7 +609,9 @@ sxc_uri_t *sxc_parse_uri(sxc_client_t *sx, const char *uri) {
             len = tmp_volume - uri;
 
         for(i = 0; i < list->num; i++) {
-            if(strncmp(list->entry[i].name, uri, len) == 0) {
+            if(strncmp(list->entry[i].name, uri, strlen(list->entry[i].name)) == 0) {
+                if(strlen(list->entry[i].name) < strlen(uri) && uri[strlen(list->entry[i].name)] != '/')
+                    continue;
                 len = strlen(list->entry[i].cluster) + strlen(uri) - strlen(list->entry[i].name);
                 tmp_uri = malloc(len + 1);
                 if(!tmp_uri) {
