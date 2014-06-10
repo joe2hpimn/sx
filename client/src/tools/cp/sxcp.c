@@ -479,8 +479,6 @@ static void progress_callback(const sxc_xfer_stat_t *xfer_stat) {
                 free(processed_number);
                 free(processed_speed);
                 free(processed_time);
-            } else {
-                printf("\n");
             }
         } break;
 
