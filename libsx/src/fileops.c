@@ -1594,7 +1594,7 @@ static int local_to_remote_begin(sxc_file_t *source, sxc_meta_t *fmeta, sxc_file
     sxi_ht *hosts = NULL, *hashes = NULL;
     struct stat st;
     uint8_t *buf = NULL;
-    struct file_upload_ctx *yctx;
+    struct file_upload_ctx *yctx, *state;
     struct hash_up_data_t *hashdata;
     int ret = 1, s = -1;
     sxi_hostlist_t shost, volhosts;
@@ -1603,16 +1603,19 @@ static int local_to_remote_begin(sxc_file_t *source, sxc_meta_t *fmeta, sxc_file
     sxc_meta_t *vmeta = NULL;
     const void *mval;
     unsigned int mval_len;
-    struct file_upload_ctx state;
     int qret = -1;
     sxc_xfer_stat_t *xfer_stat = NULL;
 
     sxi_hostlist_init(&volhosts);
     sxi_hostlist_init(&shost);
-    memset(&state, 0, sizeof(state));
 
     if (maybe_append_path(dest, source, recursive))
         return 1;
+
+    if(!(state = calloc(1, sizeof(*state)))) {
+        sxi_seterr(sx, SXE_EMEM, "Copy failed: Out of memory");
+        goto local_to_remote_err;
+    }
 
     if (!(yctx = calloc(1, sizeof(*yctx)))) {
         sxi_seterr(sx, SXE_EMEM, "Copy failed: Out of memory");
@@ -1822,20 +1825,20 @@ static int local_to_remote_begin(sxc_file_t *source, sxc_meta_t *fmeta, sxc_file
 	free(fdir);
     }
 
-    state.max_part_blocks = UPLOAD_PART_THRESHOLD / blocksize;
-    state.cluster = dest->cluster;
-    state.fd = s;
-    state.blocksize = blocksize;
-    state.volhosts = &volhosts;
-    state.sx = sx;
-    state.name = strdup(dest->path);
-    state.fmeta = fmeta;
-    state.dest = dest;
-    state.size = st.st_size;
+    state->max_part_blocks = UPLOAD_PART_THRESHOLD / blocksize;
+    state->cluster = dest->cluster;
+    state->fd = s;
+    state->blocksize = blocksize;
+    state->volhosts = &volhosts;
+    state->sx = sx;
+    state->name = strdup(dest->path);
+    state->fmeta = fmeta;
+    state->dest = dest;
+    state->size = st.st_size;
 
     xfer_stat = sxi_cluster_get_xfer_stat(dest->cluster);
     if(xfer_stat) {
-        if(sxi_xfer_set_file(xfer_stat, source->path, state.size, SXC_XFER_DIRECTION_UPLOAD)) {
+        if(sxi_xfer_set_file(xfer_stat, source->path, state->size, SXC_XFER_DIRECTION_UPLOAD)) {
             SXDEBUG("Could not set transfer information to file %s", source->path);
             goto local_to_remote_err;
         }
@@ -1843,10 +1846,10 @@ static int local_to_remote_begin(sxc_file_t *source, sxc_meta_t *fmeta, sxc_file
         xfer_stat->status = SXC_XFER_STATUS_RUNNING;
     }
 
-    dest->job = multi_upload(&state);
+    dest->job = multi_upload(state);
     if (!dest->job) {
-        if (state.qret > 0)
-            qret = state.qret;
+        if (state->qret > 0)
+            qret = state->qret;
         goto local_to_remote_err;
     }
 
@@ -1872,7 +1875,7 @@ static int local_to_remote_begin(sxc_file_t *source, sxc_meta_t *fmeta, sxc_file
     if (yctx) {
         free(yctx->current.token);
     }
-    free(state.host);
+    free(state->host);
 
     if(fname)
 	sxi_tempfile_untrack(sx, fname);
@@ -1903,7 +1906,8 @@ static int local_to_remote_begin(sxc_file_t *source, sxc_meta_t *fmeta, sxc_file
 	sxi_tempfile_untrack(sx, tempfname);
     }
 
-    free(state.name);
+    free(state->name);
+    free(state);
     free(yctx);
     sxi_hostlist_empty(&shost);
     sxi_hostlist_empty(&volhosts);
