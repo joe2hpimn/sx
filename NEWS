@@ -1,3 +1,17 @@
+0.3 (Third Beta)
+----------------
+
+The key features and improvements in this release include:
+
+  * Support for using a custom port number (configure with sxsetup --advanced).
+    This also allows sxsetup to run without root privileges when SX is
+    configured to run on a port higher than 1024.
+  * sxcp now displays a progress bar while transferring files
+  * sxcp --bwlimit support (to set a bandwidth usage limit)
+  * configure --with-system-libs support (to force the use of system libraries
+    instead of those bundled in 3rdparty/)
+  * Many minor improvements and bugfixes
+
 0.2 (Second Beta)
 -----------------
 

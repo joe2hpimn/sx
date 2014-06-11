@@ -24,10 +24,7 @@
 
 \indent Welcome to Skylable \SX, a complete framework for building distributed data
 clusters. This Quick Start Guide gives you the basics to install, configure
-and start using our software. While \SX was designed to be user friendly and easy to
-set up, we encourage you to read the User Guide (sorry, it may not exist yet :-)) for
-complete information on all the
-features.\\
+and start using our software.\\
 
 \section*{Useful links}
 \begin{itemize}
@@ -80,8 +77,9 @@ $ ./configure --prefix=/opt/sx && make
 
 \section*{Requirements}
 
-\SX operates on ports 80 and 443, which need to be available on a given
-IP address. You can build even a single-node \SX cluster, however for data
+\SX by default operates on the port 443 or 80, which needs to be available on
+a given IP address\footnote{You can choose a custom port when running sxsetup with
+in advanced mode}. You can build even a single-node \SX cluster, however for data
 safety reasons it is recommended to create at least a two-node cluster and
 use replica higher than 1.
 
