@@ -1832,6 +1832,10 @@ static int local_to_remote_begin(sxc_file_t *source, sxc_meta_t *fmeta, sxc_file
     state->volhosts = &volhosts;
     state->sx = sx;
     state->name = strdup(dest->path);
+    if (!state->name) {
+	sxi_seterr(sx, SXE_EMEM, "Cannot allocate filename: Out of memory");
+        goto local_to_remote_err;
+    }
     state->fmeta = fmeta;
     state->dest = dest;
     state->size = st.st_size;
