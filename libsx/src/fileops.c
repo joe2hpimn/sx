@@ -4676,7 +4676,7 @@ int sxi_file_list_foreach(sxc_file_list_t *target, sxc_cluster_t *wait_cluster, 
     sxc_cluster_t *cluster;
     sxi_job_t *job;
     int rc = -1;
-    unsigned i;
+    unsigned i, j;
     if (!target)
         return -1;
 
@@ -4732,10 +4732,10 @@ int sxi_file_list_foreach(sxc_file_list_t *target, sxc_cluster_t *wait_cluster, 
                 break;
             }
             rc = 0;
-            for (i=0;i<entry->nfiles && !rc;i++) {
+            for (j=0;j<entry->nfiles && !rc;j++) {
                 time_t t;
                 if (sxc_cluster_listfiles_next(lst, &filename, &size, &t) <= 0) {
-                    CFGDEBUG("Failed to list file %d/%d", i, entry->nfiles);
+                    CFGDEBUG("Failed to list file %d/%d", j, entry->nfiles);
                     break;
                 }
                 CFGDEBUG("Processing file '%s/%s'", pattern->volume, filename);
