@@ -339,7 +339,7 @@ static void dots_progress(const sxc_xfer_stat_t *xfer_stat) {
     while(xfer_stat->current_xfer.sent + skipped > xfer_written) {
         /* If new line was added, dots_written should be 0 */
         if(dots_written == 0) {
-            printf("%14ldK ", xfer_written / DOTS_BYTES);
+            printf("%14lluK ", (unsigned long long) xfer_written / DOTS_BYTES);
         }
 
         /* Add number of bytes corresponding to one dot */
