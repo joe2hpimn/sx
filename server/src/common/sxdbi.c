@@ -52,7 +52,7 @@ static void qclose_db(sqlite3 **dbp)
     sqlite3 *db;
     int r;
     if (!dbp) {
-        WARN("Null DBp");
+        DEBUG("Null DBp");
         return;
     }
     db = *dbp;
