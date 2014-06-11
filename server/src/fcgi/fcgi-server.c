@@ -554,7 +554,7 @@ int main(int argc, char **argv) {
 	sx_hashfs_close(test_hashfs);
     } else {
 	CRIT("Failed to initialize the storage interface");
-	fprintf(stderr, "Failed to initialize the storage interface - check the logfile\n");
+	fprintf(stderr, "Failed to initialize the storage interface - check the logfile %s\n", args.logfile_arg);
         cmdline_parser_free(&args);
         server_done(&sx);
 	return EXIT_FAILURE;
