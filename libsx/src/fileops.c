@@ -1594,7 +1594,7 @@ static int local_to_remote_begin(sxc_file_t *source, sxc_meta_t *fmeta, sxc_file
     sxi_ht *hosts = NULL, *hashes = NULL;
     struct stat st;
     uint8_t *buf = NULL;
-    struct file_upload_ctx *yctx, *state;
+    struct file_upload_ctx *yctx = NULL, *state = NULL;
     struct hash_up_data_t *hashdata;
     int ret = 1, s = -1;
     sxi_hostlist_t shost, volhosts;
@@ -1867,15 +1867,15 @@ static int local_to_remote_begin(sxc_file_t *source, sxc_meta_t *fmeta, sxc_file
     if(yctx && yctx->current.yh)
 	yajl_free(yctx->current.yh);
 
-    if(yctx && yctx->current.f) {
-	fclose(yctx->current.f);
-	if(fname)
-	    unlink(fname);
-    }
-    if (yctx) {
+    if(yctx) {
+	if(yctx->current.f) {
+	    fclose(yctx->current.f);
+	    if(fname)
+		unlink(fname);
+	}
         free(yctx->current.token);
+	free(yctx);
     }
-    free(state->host);
 
     if(fname)
 	sxi_tempfile_untrack(sx, fname);
@@ -1906,9 +1906,11 @@ static int local_to_remote_begin(sxc_file_t *source, sxc_meta_t *fmeta, sxc_file
 	sxi_tempfile_untrack(sx, tempfname);
     }
 
-    free(state->name);
-    free(state);
-    free(yctx);
+    if(state) {
+	free(state->name);
+	free(state->host);
+	free(state);
+    }
     sxi_hostlist_empty(&shost);
     sxi_hostlist_empty(&volhosts);
     if (restore_path(dest))
