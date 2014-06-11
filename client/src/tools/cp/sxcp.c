@@ -245,6 +245,7 @@ static void bar_progress(const sxc_xfer_stat_t *xfer_stat) {
     }
     
     percent = c <= 1.0 ? 100 * c : 100;
+    if(percent < 0) percent = 0;
     speed = xfer_stat->current_xfer.total_time > 0 ? xfer_stat->current_xfer.sent / xfer_stat->current_xfer.total_time : 0;
     eta = speed > 0 ? xfer_stat->current_xfer.to_send / speed - xfer_stat->current_xfer.total_time : 0;
     x = bar_internal->index * m;
@@ -360,6 +361,7 @@ static void dots_progress(const sxc_xfer_stat_t *xfer_stat) {
             c = xfer_stat->current_xfer.file_size > 0 ? (double)xfer_written / (double)xfer_stat->current_xfer.file_size : 1.0;     
             speed = xfer_stat->current_xfer.total_time > 0 ? (double)xfer_stat->current_xfer.sent / xfer_stat->current_xfer.total_time : 0;
             percent = c <= 1.0 ? 100 * c : 100;
+            if(percent < 0) percent = 0;
             eta = speed > 0 ? xfer_stat->current_xfer.to_send / speed - xfer_stat->current_xfer.total_time : 0;
 
             dots_written = 0;
