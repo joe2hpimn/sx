@@ -145,7 +145,7 @@ void sxi_report_build_info(sxc_client_t *sx)
     sxi_info(sx, "%s", fmt.buf);
 
 #ifdef _POSIX_C_SOURCE
-    sxi_info(sx, "POSIX version: %ld", _POSIX_C_SOURCE);
+    sxi_info(sx, "POSIX version: %ld", (long)(_POSIX_C_SOURCE));
 #endif
 #ifdef PATH_MAX
     sxi_info(sx, "PATH_MAX: %d", PATH_MAX);
