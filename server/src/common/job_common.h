@@ -35,6 +35,7 @@
 typedef int64_t job_t;
 
 #define JOB_FAILURE (-1LL)
+#define JOB_NOPARENT JOB_FAILURE
 #define JOB_FAIL_REASON_SIZE 512
 
 typedef enum _job_status_t {

@@ -294,8 +294,10 @@ rc_ty sx_hashfs_get_access(sx_hashfs_t *h, sx_uid_t uid, const char *volume, sx_
 
 /* Jobs */
 rc_ty sx_hashfs_job_result(sx_hashfs_t *h, job_t job, sx_uid_t uid, job_status_t *status, const char **message);
+rc_ty sx_hashfs_job_new_begin(sx_hashfs_t *h);
+rc_ty sx_hashfs_job_new_end(sx_hashfs_t *h);
 rc_ty sx_hashfs_job_new(sx_hashfs_t *h, sx_uid_t user_id, job_t *job_id, jobtype_t type, unsigned int timeout_secs, const char *lock, const void *data, unsigned int datalen, const sx_nodelist_t *targets);
-rc_ty sx_hashfs_job_new_notrigger(sx_hashfs_t *h, sx_uid_t user_id, job_t *job_id, jobtype_t type, unsigned int timeout_secs, const char *lock, const void *data, unsigned int datalen, const sx_nodelist_t *targets);
+rc_ty sx_hashfs_job_new_notrigger(sx_hashfs_t *h, job_t parent, sx_uid_t user_id, job_t *job_id, jobtype_t type, unsigned int timeout_secs, const char *lock, const void *data, unsigned int datalen, const sx_nodelist_t *targets);
 void sx_hashfs_job_trigger(sx_hashfs_t *h);
 rc_ty sx_hashfs_countjobs(sx_hashfs_t *h, sx_uid_t user_id);
 

@@ -51,7 +51,7 @@
 #define METADBS 16
 #define GCDBS 1
 /* NOTE: HASHFS_VERSION must be kept below 15 bytes */
-#define HASHFS_VERSION "SX-Storage 1.0"
+#define HASHFS_VERSION "SX-Storage 1.1"
 #define SIZES 3
 const char sizedirs[SIZES] = "sml";
 const char *sizelongnames[SIZES] = { "small", "medium", "large" };
@@ -409,7 +409,7 @@ rc_ty sx_storage_create(const char *dir, sx_uuid_t *cluster, uint8_t *key, int k
     if(qprep(db, &q, "INSERT INTO hashfs (key, value) VALUES ('next_version_check', datetime(strftime('%s', 'now') + (abs(random()) % 10800), 'unixepoch'))") || qstep_noret(q)) /* Schedule next version check within 3 hours */
 	goto create_hashfs_fail;
     qnullify(q);
-    if(qprep(db, &q, "CREATE TABLE jobs (job INTEGER NOT NULL PRIMARY KEY, type INTEGER NOT NULL, lock TEXT NULL, data BLOB NOT NULL, sched_time TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f')), expiry_time TEXT NOT NULL, complete INTEGER NOT NULL DEFAULT 0, result INTEGER NOT NULL DEFAULT 0, reason TEXT NOT NULL DEFAULT \"\", user INTEGER NULL, UNIQUE(lock))") || qstep_noret(q))
+    if(qprep(db, &q, "CREATE TABLE jobs (job INTEGER NOT NULL PRIMARY KEY, parent INTEGER NULL, type INTEGER NOT NULL, lock TEXT NULL, data BLOB NOT NULL, sched_time TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f')), expiry_time TEXT NOT NULL, complete INTEGER NOT NULL DEFAULT 0, result INTEGER NOT NULL DEFAULT 0, reason TEXT NOT NULL DEFAULT \"\", user INTEGER NULL, UNIQUE(lock))") || qstep_noret(q))
 	goto create_hashfs_fail;
     qnullify(q);
     if(qprep(db, &q, "CREATE INDEX jobs_status ON jobs (complete, sched_time)") || qstep_noret(q))
@@ -630,6 +630,7 @@ struct _sx_hashfs_t {
     sqlite3_stmt *qe_addjob;
     sqlite3_stmt *qe_addact;
     sqlite3_stmt *qe_countjobs;
+    int addjob_begun;
 
     sxi_db_t *xferdb;
     sqlite3_stmt *qx_add;
@@ -1470,7 +1471,7 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
     if(qprep(h->eventdb, &h->qe_getjob, "SELECT complete, result, reason FROM jobs WHERE job = :id AND :owner IN (user, 0)"))
 	goto open_hashfs_fail;
     /* FIXME: job TTL should be dependent on the type */
-    if(qprep(h->eventdb, &h->qe_addjob, "INSERT INTO jobs (type, lock, expiry_time, data, user) VALUES (:type, :lock, datetime(:expiry, 'unixepoch'), :data, :uid)"))
+    if(qprep(h->eventdb, &h->qe_addjob, "INSERT INTO jobs (parent, type, lock, expiry_time, data, user) VALUES (:parent, :type, :lock, datetime(:expiry, 'unixepoch'), :data, :uid)"))
 	goto open_hashfs_fail;
     if(qprep(h->eventdb, &h->qe_addact, "INSERT INTO actions (job_id, target, addr, internaladdr, capacity) VALUES (:job, :node, :addr, :int_addr, :capa)"))
 	goto open_hashfs_fail;
@@ -4953,9 +4954,24 @@ rc_ty sx_hashfs_putfile_commitjob(sx_hashfs_t *h, const uint8_t *user, sx_uid_t 
     job_timeout += expected_blocks / DOWNLOAD_MAX_BLOCKS * 4;
     if(job_timeout > JOB_FILE_MAX_TIME)
 	job_timeout = JOB_FILE_MAX_TIME;
-    ret2 = sx_hashfs_job_new_notrigger(h, user_id, job_id, JOBTYPE_FLUSH_FILE, job_timeout, token, &tmpfile_id, sizeof(tmpfile_id), volnodes);
+
+    ret2 = sx_hashfs_job_new_begin(h);
+    if(ret2) {
+        INFO("Failed to begin jobadd");
+	ret = ret2;
+	goto putfile_commitjob_err;
+    }
+
+    ret2 = sx_hashfs_job_new_notrigger(h, JOB_NOPARENT, user_id, job_id, JOBTYPE_FLUSH_FILE, job_timeout, token, &tmpfile_id, sizeof(tmpfile_id), volnodes);
     if(ret2) {
         INFO("job_new returned: %s", rc2str(ret2));
+	ret = ret2;
+	goto putfile_commitjob_err;
+    }
+
+    ret2 = sx_hashfs_job_new_end(h);
+    if(ret2) {
+        INFO("Failed to commit jobadd");
 	ret = ret2;
 	goto putfile_commitjob_err;
     }
@@ -5974,7 +5990,49 @@ rc_ty sx_hashfs_countjobs(sx_hashfs_t *h, sx_uid_t user_id) {
     return ret;
 }
 
-rc_ty sx_hashfs_job_new_notrigger(sx_hashfs_t *h, sx_uid_t user_id, job_t *job_id, jobtype_t type, unsigned int timeout_secs, const char *lock, const void *data, unsigned int datalen, const sx_nodelist_t *targets) {
+rc_ty sx_hashfs_job_new_begin(sx_hashfs_t *h) {
+    if(!h) {
+	NULLARG();
+	return EFAULT;
+    }
+
+    if(h->addjob_begun) {
+	msg_set_reason("Internal error: job_new_begin phase error");
+	return FAIL_EINTERNAL;
+    }
+
+    if(qbegin(h->eventdb)) {
+	msg_set_reason("Internal error: failed to start database transaction");
+	return FAIL_EINTERNAL;
+    }
+
+    h->addjob_begun = 1;
+    return OK;
+}
+
+rc_ty sx_hashfs_job_new_end(sx_hashfs_t *h) {
+    if(!h) {
+	NULLARG();
+	return EFAULT;
+    }
+
+    if(!h->addjob_begun) {
+	msg_set_reason("Internal error: job_new_end phase error");
+	return FAIL_EINTERNAL;
+    }
+
+    h->addjob_begun = 0;
+
+    if(!qcommit(h->eventdb))
+	return OK;
+
+    msg_set_reason("Internal error: failed to commit new job(s) to database");
+    qrollback(h->eventdb);
+
+    return FAIL_EINTERNAL;
+}
+
+rc_ty sx_hashfs_job_new_notrigger(sx_hashfs_t *h, job_t parent, sx_uid_t user_id, job_t *job_id, jobtype_t type, unsigned int timeout_secs, const char *lock, const void *data, unsigned int datalen, const sx_nodelist_t *targets) {
     job_t id = JOB_FAILURE;
     char *lockstr = NULL;
     unsigned int i, ntargets;
@@ -5982,15 +6040,25 @@ rc_ty sx_hashfs_job_new_notrigger(sx_hashfs_t *h, sx_uid_t user_id, job_t *job_i
     rc_ty ret = FAIL_EINTERNAL, ret2;
 
     /* FIXME: add support for delayed jobs */
-    if(!h || !job_id || (datalen && !data) || !targets) {
+    if(!h) {
 	msg_set_reason("Internal error: NULL argument given");
-        return ret;
+        return FAIL_EINTERNAL;
+    }
+
+    if(!h->addjob_begun) {
+	msg_set_reason("Internal error: job_new phase error");
+	return FAIL_EINTERNAL;
+    }
+
+    if(!job_id || (datalen && !data) || !targets) {
+	msg_set_reason("Internal error: NULL argument given");
+	goto addjob_error;
     }
 
     ntargets = sx_nodelist_count(targets);
     if(!ntargets) {
 	msg_set_reason("Internal error: request with no targets");
-	goto addjob_out;
+	goto addjob_error;
     }
 
     if(!data)
@@ -5998,12 +6066,12 @@ rc_ty sx_hashfs_job_new_notrigger(sx_hashfs_t *h, sx_uid_t user_id, job_t *job_i
 
     if (type < 0 || type >= sizeof(locknames) / sizeof(locknames[0])) {
 	msg_set_reason("Internal error: bad action type");
-	goto addjob_out;
+	goto addjob_error;
     }
     if(lock && locknames[type]) {
 	if(!(lockstr = malloc(2 + strlen(locknames[type]) + strlen(lock) + 1))) {
 	    msg_set_reason("Not enough memory to create job");
-	    goto addjob_out;
+	    goto addjob_error;
 	}
 	sprintf(lockstr, "$%s$%s", locknames[type], lock);
     }
@@ -6011,11 +6079,7 @@ rc_ty sx_hashfs_job_new_notrigger(sx_hashfs_t *h, sx_uid_t user_id, job_t *job_i
     ret2 = sx_hashfs_countjobs(h, user_id);
     if(ret2 != OK) {
 	ret = ret2;
-	goto addjob_out;
-    }
-    if(qbegin(h->eventdb)) {
-	msg_set_reason("Internal error: failed to start database transaction");
-	goto addjob_out;
+	goto addjob_error;
     }
 
     /* Cap the minimum timeout to 2.5 * SXDBI_BUSY_TIMEOUT
@@ -6024,18 +6088,26 @@ rc_ty sx_hashfs_job_new_notrigger(sx_hashfs_t *h, sx_uid_t user_id, job_t *job_i
     if (timeout_secs < (SXDBI_BUSY_TIMEOUT * 2 + SXDBI_BUSY_TIMEOUT / 2))
         timeout_secs = (SXDBI_BUSY_TIMEOUT * 2 + SXDBI_BUSY_TIMEOUT / 2);
 
+    if(parent == JOB_NOPARENT) {
+	if(qbind_null(h->qe_addjob, ":parent"))
+	    goto addjob_error;
+    } else {
+	if(qbind_int64(h->qe_addjob, ":parent", parent))
+	    goto addjob_error;
+    }
+
     if(qbind_int(h->qe_addjob, ":type", type) ||
        qbind_int(h->qe_addjob, ":expiry", time(NULL) + timeout_secs) ||
        qbind_blob(h->qe_addjob, ":data", data, datalen)) {
 	msg_set_reason("Internal error: failed to add job to database");
-	goto addjob_rollback;
+	goto addjob_error;
     }
     if(user_id == 0) {
 	if(qbind_null(h->qe_addjob, ":uid"))
-	    goto addjob_rollback;
+	    goto addjob_error;
     } else {
 	if(qbind_int64(h->qe_addjob, ":uid", user_id))
-	    goto addjob_rollback;
+	    goto addjob_error;
     }
 
     if(lockstr)
@@ -6044,25 +6116,25 @@ rc_ty sx_hashfs_job_new_notrigger(sx_hashfs_t *h, sx_uid_t user_id, job_t *job_i
 	r = qbind_null(h->qe_addjob, ":lock");
     if(r) {
 	msg_set_reason("Internal error: failed to add job to database");
-	goto addjob_rollback;
+	goto addjob_error;
     }
 
     r = qstep(h->qe_addjob);
     if(r == SQLITE_CONSTRAINT) {
 	msg_set_reason("Resource is temporarily locked");
 	ret = FAIL_LOCKED;
-	goto addjob_rollback;
+	goto addjob_error;
     }
     if(r != SQLITE_DONE) {
 	msg_set_reason("Internal error: failed to add job to database");
-	goto addjob_rollback;
+	goto addjob_error;
     }
 
     id = sqlite3_last_insert_rowid(sqlite3_db_handle(h->qe_addjob));
 
     if(qbind_int64(h->qe_addact, ":job", id)) {
 	msg_set_reason("Internal error: failed to add job action to database");
-	goto addjob_rollback;
+	goto addjob_error;
     }
     for(i=0; i<ntargets; i++) {
 	const sx_node_t *node = sx_nodelist_get(targets, i);
@@ -6073,21 +6145,19 @@ rc_ty sx_hashfs_job_new_notrigger(sx_hashfs_t *h, sx_uid_t user_id, job_t *job_i
 	   qbind_int64(h->qe_addact, ":capa", sx_node_capacity(node)) ||
 	   qstep_noret(h->qe_addact)) {
 	    msg_set_reason("Internal error: failed to add job action to database");
-	    goto addjob_rollback;
+	    goto addjob_error;
 	}
     }
 
-    if(!qcommit(h->eventdb)) {
-	ret = OK;
-	goto addjob_out;
+    ret = OK;
+
+ addjob_error:
+    if(ret != OK) {
+	qrollback(h->eventdb);
+	h->addjob_begun = 0;
+	id = JOB_FAILURE;
     }
-    msg_set_reason("Internal error: failed to commit new job to database");
 
- addjob_rollback:
-    qrollback(h->eventdb);
-    id = JOB_FAILURE;
-
- addjob_out:
     free(lockstr);
     sqlite3_reset(h->qe_addjob);
     sqlite3_reset(h->qe_addact);
@@ -6097,9 +6167,11 @@ rc_ty sx_hashfs_job_new_notrigger(sx_hashfs_t *h, sx_uid_t user_id, job_t *job_i
 }
 
 rc_ty sx_hashfs_job_new(sx_hashfs_t *h, sx_uid_t user_id, job_t *job_id, jobtype_t type, unsigned int timeout_secs, const char *lock, const void *data, unsigned int datalen, const sx_nodelist_t *targets) {
-    rc_ty ret = sx_hashfs_job_new_notrigger(h, user_id, job_id, type, timeout_secs, lock, data, datalen, targets);
+    rc_ty ret;
 
-    if(ret == OK)
+    if((ret = sx_hashfs_job_new_begin(h)) == OK && 
+       (ret = sx_hashfs_job_new_notrigger(h, JOB_NOPARENT, user_id, job_id, type, timeout_secs, lock, data, datalen, targets)) == OK &&
+       (ret = sx_hashfs_job_new_end(h)) == OK)
 	sx_hashfs_job_trigger(h);
 
     return ret;

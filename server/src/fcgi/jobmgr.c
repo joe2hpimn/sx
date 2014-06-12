@@ -2337,7 +2337,7 @@ int jobmgr(sxc_client_t *sx, const char *self, const char *dir, int pipe) {
 
     eventdb = sx_hashfs_eventdb(q.hashfs);
 
-    if(qprep(eventdb, &q.qjob, "SELECT job, type, data, expiry_time < datetime('now'), result FROM jobs WHERE complete = 0 AND sched_time <= strftime('%Y-%m-%d %H:%M:%f') ORDER BY sched_time ASC LIMIT 1") ||
+    if(qprep(eventdb, &q.qjob, "SELECT job, type, data, expiry_time < datetime('now'), result FROM jobs WHERE complete = 0 AND sched_time <= strftime('%Y-%m-%d %H:%M:%f') AND NOT EXISTS (SELECT 1 FROM jobs AS subjobs WHERE subjobs.job = jobs.parent AND subjobs.complete = 0) ORDER BY sched_time ASC LIMIT 1") ||
        qprep(eventdb, &q.qact, "SELECT id, phase, target, addr, internaladdr, capacity FROM actions WHERE job_id = :job AND phase < :maxphase ORDER BY phase") ||
        qprep(eventdb, &q.qres, "UPDATE jobs SET result = :res, reason = :reason WHERE job = :job AND result = 0") ||
        qprep(eventdb, &q.qcpl, "UPDATE jobs SET complete = 1, lock = NULL WHERE job = :job") ||
