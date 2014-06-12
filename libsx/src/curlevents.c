@@ -2222,9 +2222,12 @@ int sxi_curlev_fetch_certificates(curl_events_t *e, const char *url, int quiet)
                 }
                 const struct curl_certinfo *info = get_certinfo(&ev);
                 if (!quiet) {
+		    char ans;
+		    int inp;
 		    if (print_certificate_info(e, info))
 			break;
-                    if (!sxi_confirm(sx, "Do you trust this SSL certificate?", 0)) {
+                    inp = sxi_get_input(sx, SXC_INPUT_YN, "Do you trust this SSL certificate?", "n", &ans, 1);
+		    if(inp != 1 && ans != 'y') {
                         sxi_seterr(sx, SXE_ECOMM, "User rejected the certificate");
                         break;
                     }

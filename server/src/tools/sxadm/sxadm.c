@@ -134,6 +134,30 @@ static int read_or_gen_key(const char *token_file, int role, struct token_pair_t
     return 0;
 }
 
+/*
+ * def == 1 -> [Y/n], 0 ==> [y/N]
+ * return 1 ==> yes, 0 ==> no
+ */
+int yesno(const char *prompt, int def)
+{
+    char c;
+    while(1) {
+	if(def)
+	    printf("%s [Y/n] ", prompt);
+	else
+	    printf("%s [y/N] ", prompt);
+	fflush(stdout);
+	c = sxi_read_one_char();
+	if(c == 'y' || c == 'Y')
+	    return 1;
+	if(c == 'n' || c == 'N')
+	    return 0;
+	if(c == '\n' || c == EOF)
+	    return def;
+    }
+    return 0;
+}
+
 static int create_node(struct node_args_info *args) {
     struct token_pair_t auth;
     sx_uuid_t cluster_uuid;
@@ -151,7 +175,7 @@ static int create_node(struct node_args_info *args) {
 
     if(!args->batch_mode_given) {
 	printf("A new node is about to be created in \"%s\"...\nIf this node shall be joined to an existing SX cluster, please make sure the following info matches:\n  - Cluster UUID: %s\n  - Cluster authentication: %s\n\n", args->inputs[0], cluster_uuid.string, auth.token);
-	if(!sxi_yesno("Confirm?", 1)) {
+	if(!yesno("Confirm?", 1)) {
 	    printf("Node creation aborted by the user\n");
 	    return 1;
 	}
@@ -350,7 +374,7 @@ static int create_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
 	if(!curai) {
 	    if(!args->batch_mode_given) {
 		printf("The address specified for the node (%s) is not returned when resolving the cluster name (%s).\nThis is generally the result of a DNS misconfiguration.\nIf the mismatch is intended (or if you'd rather fix the issue later) you can still create the cluster now, but please note that in the meantime the cluster may be hard to reach.\n", sx_node_addr(node), uri->host);
-		if(!sxi_yesno("Do you wish to proceed?", 1)) {
+		if(!yesno("Do you wish to proceed?", 1)) {
 		    printf("Cluster creation aborted by the user\n");
 		    goto create_cluster_err;
 		}
@@ -360,7 +384,7 @@ static int create_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
     } else {
 	if(!args->batch_mode_given) {
 	    printf("The SX cluster you are creating appears to be DNS-less: i.e. the cluster name (%s) cannot be resolved.\nWhile this may be perfectly fine in certain local or specific environemnts, a DNS-less SX cluster is generally harder to reach.\n", uri->host);
-	    if(!sxi_yesno("Do you confirm you are ok with a DNS-less SX cluster?", 1)) {
+	    if(!yesno("Do you confirm you are ok with a DNS-less SX cluster?", 1)) {
 		printf("Cluster creation aborted by the user\n");
 		goto create_cluster_err;
 	    }
@@ -389,7 +413,7 @@ static int create_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
 	clust = sxc_cluster_load(sx, args->config_dir_arg, uri->host);
 	if(clust) {
 	    printf("It appears that a configuration for the SX cluster %s already exists.\nSince you are creating a new cluster, the existing configuration will be overwritten.\n", uri->host);
-	    if(!sxi_yesno("Do you wish to continue?", 1)) {
+	    if(!yesno("Do you wish to continue?", 1)) {
 		printf("Cluster creation aborted by the user\n");
 		goto create_cluster_err;
 	    }
@@ -429,7 +453,7 @@ static int create_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
 	/* NON-SSL cluster */
 	if(!args->batch_mode_given) {
 	    printf("The SX cluster you are creating will not support SSL encryption.\nThis is generally a bad idea because all the communication will be in clear text and it's strongly discouraged.\nIf you intend to create a secure cluster, please rerun this tool with the \"--ssl-ca-file\" parameter.\n");
-	    if(!sxi_yesno("Do you wish to create an INSECURE cluster?", 1)) {
+	    if(!yesno("Do you wish to create an INSECURE cluster?", 1)) {
 		printf("Cluster creation aborted by the user\n");
 		goto create_cluster_err;
 	    }
@@ -447,7 +471,7 @@ static int create_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
 	}
 
 	if(!args->batch_mode_given) {
-	    if(!sxi_yesno("Is the certificate correct?", 1)) {
+	    if(!yesno("Is the certificate correct?", 1)) {
 		printf("Cluster creation aborted by the user\n");
 		goto create_cluster_err;
 	    }
@@ -493,7 +517,7 @@ static int create_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
 	    printf("  - Node internal address: %s\n", sx_node_internal_addr(node));
 	fmt_capa(sx_node_capacity(node), capastr, sizeof(capastr));
 	printf("  - Node capacity: %s\n\nThe access configuration for the cluster will be saved under \"%s\" with the name \"%s\"\n\n", capastr, args->config_dir_given ? args->config_dir_arg : "~/.sx", sxc_cluster_get_sslname(clust));
-	if(!sxi_yesno("Confirm cluster creation?", 1)) {
+	if(!yesno("Confirm cluster creation?", 1)) {
 	    printf("Cluster creation aborted by the user\n");
 	    goto create_cluster_err;
 	}

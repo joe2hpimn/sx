@@ -41,7 +41,8 @@ struct _sxc_client_t {
     int last_error;
     int verbose;
     struct sxi_logger log;
-    int (*confirm)(const char *prompt, int default_answer);
+    sxc_input_cb input_cb;
+    void *input_ctx;
     struct filter_ctx fctx;
     struct tempfile_track temptrack;
     const char *op;
@@ -64,7 +65,8 @@ static const char *guess_tempdir(void) {
     return ret;
 }
 
-sxc_client_t *sxc_init(const char *client_version, const sxc_logger_t *func, int (*confirm)(const char *prompt, int def)) {
+sxc_client_t *sxc_init(const char *client_version, const sxc_logger_t *func, sxc_input_cb input_cb, void *input_ctx)
+{
     sxc_client_t *sx;
     struct sxi_logger l;
     unsigned int config_len;
@@ -109,7 +111,8 @@ sxc_client_t *sxc_init(const char *client_version, const sxc_logger_t *func, int
     }
     sx->log.max_level = SX_LOG_NOTICE;
     sx->log.func = func;
-    sx->confirm = confirm;
+    sx->input_cb = input_cb;
+    sx->input_ctx = input_ctx;
 
     /* To set configuration directory use sxc_set_confdir(). Default value is taken from HOME directory. */
     home_dir = getenv("HOME");
@@ -430,13 +433,15 @@ void sxc_loglasterr(sxc_client_t *sx)
     sxi_log_msg(&sx->log, NULL, SX_LOG_ERR, "%s", sxc_geterrmsg(sx));
 }
 
-int sxi_confirm(sxc_client_t *sx, const char *prompt, int default_answer)
+/*
+ * returns -1 on error, 0 on success and 1 if no input callback registered
+ */
+int sxi_get_input(sxc_client_t *sx, sxc_input_t type, const char *prompt, const char *def, char *in, unsigned int insize)
 {
-    /* if there's no confirm callback always assume true */
-    if(!sx || !sx->confirm)
+    if(!sx || !sx->input_cb)
 	return 1;
 
-    return sx->confirm(prompt, default_answer);
+    return sx->input_cb(sx, type, prompt, def, in, insize, sx->input_ctx);
 }
 
 /* Set configuration directory */

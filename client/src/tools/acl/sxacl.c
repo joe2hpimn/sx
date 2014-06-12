@@ -330,7 +330,7 @@ int main(int argc, char **argv) {
     signal(SIGINT, sighandler);
     signal(SIGTERM, sighandler);
 
-    if(!(sx = gsx = sxc_init(SRC_VERSION, sxc_default_logger(&log, argv[0]), sxi_yesno))) {
+    if(!(sx = gsx = sxc_init(SRC_VERSION, sxc_default_logger(&log, argv[0]), sxc_input_fn, NULL))) {
         if(!strcmp(SRC_VERSION, sxc_get_version()))
             fprintf(stderr, "ERROR: Version mismatch: our version '%s' - library version '%s'\n", SRC_VERSION, sxc_get_version());
         else

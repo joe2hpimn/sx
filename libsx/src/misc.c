@@ -1509,26 +1509,42 @@ char sxi_read_one_char(void)
 }
 
 /*
- * def == 1 -> [Y/n], 0 ==> [y/N]
- * return 1 ==> yes, 0 ==> no
+ * returns -1 on error and 0 when input was received and stored
+ * SXC_INPUT_YN: def == "y" or "n", stores 'y' or 'n' in in[0]
  */
-int sxi_yesno(const char *prompt, int def)
+int sxc_input_fn(sxc_client_t *sx, sxc_input_t type, const char *prompt, const char *def, char *in, unsigned int insize, void *ctx)
 {
     char c;
-    while(1) {
-	if(def)
-	    printf("%s [Y/n] ", prompt);
-	else
-	    printf("%s [y/N] ", prompt);
-	fflush(stdout);
-	c = sxi_read_one_char();
-	if(c == 'y' || c == 'Y')
-	    return 1;
-	if(c == 'n' || c == 'N')
-	    return 0;
-	if(c == '\n' || c == EOF)
-	    return def;
+
+    if(!sx || !prompt || !def || !in || !insize)
+	return -1;
+
+    switch(type) {
+	case SXC_INPUT_YN:
+	    if(*def == 'y')
+		printf("%s [Y/n] ", prompt);
+	    else
+		printf("%s [y/N] ", prompt);
+	    fflush(stdout);
+	    c = sxi_read_one_char();
+	    if(c == 'y' || c == 'Y')
+		*in = 'y';
+	    else if(c == 'n' || c == 'N')
+		*in = 'n';
+	    else if(c == '\n' || c == EOF)
+		*in = *def;
+	    break;
+
+	case SXC_INPUT_PLAIN:
+	case SXC_INPUT_SENSITIVE:
+	    /* TODO */
+	    break;
+
+	default:
+	    sxi_seterr(sx, SXE_EARG, "Unknown input type");
+	    return -1;
     }
+
     return 0;
 }
 

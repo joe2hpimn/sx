@@ -45,9 +45,16 @@ typedef struct {
 const sxc_logger_t* sxc_default_logger(sxc_logger_t *logger, const char *argv0);
 const sxc_logger_t* sxc_file_logger(sxc_logger_t *logger, const char *argv0, const char *file, int no_errors);
 
+typedef enum {
+    SXC_INPUT_PLAIN,	    /* Plain text input */
+    SXC_INPUT_SENSITIVE,    /* Sensitive input (password, etc.) */
+    SXC_INPUT_YN	    /* Y/N question */
+} sxc_input_t;
+typedef int (*sxc_input_cb)(sxc_client_t *sx, sxc_input_t type, const char *prompt, const char *def, char *in, unsigned int insize, void *ctx);
+
+sxc_client_t *sxc_init(const char *client_version, const sxc_logger_t *func, sxc_input_cb input_cb, void *input_ctx);
 const char *sxc_get_version(void);
 int sxc_compatible_with(sxc_client_t *sx, const char *server_version);
-sxc_client_t *sxc_init(const char *client_version, const sxc_logger_t *func, int (*confirm)(const char *prompt, int default_answer));
 void sxc_shutdown(sxc_client_t *sx, int signal);
 void sxc_set_debug(sxc_client_t *sx, int enabled);
 void sxc_set_verbose(sxc_client_t *sx, int enabled);
@@ -264,6 +271,8 @@ sxc_uri_t *sxc_parse_uri(sxc_client_t *sx, const char *uri);
 void sxc_free_uri(sxc_uri_t *uri);
 
 int sxc_fgetline(sxc_client_t *sx, FILE *f, char **ret);
+
+int sxc_input_fn(sxc_client_t *sx, sxc_input_t type, const char *prompt, const char *def, char *in, unsigned int insize, void *ctx); /* default input function */
 
 /* filters */
 #define SXF_ABI_VERSION	6

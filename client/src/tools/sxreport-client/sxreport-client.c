@@ -99,7 +99,7 @@ int main(int argc, char **argv) {
 	snprintf(file, sizeof(file), "sxreport-client-%ld.log", (long)time(NULL));
 
     umask(077);
-    if(!(sx = sxc_init(SRC_VERSION, sxc_file_logger(&log, argv[0], file, 1), NULL))) {
+    if(!(sx = sxc_init(SRC_VERSION, sxc_file_logger(&log, argv[0], file, 1), NULL, NULL))) {
 	cmdline_parser_free(&args);
 	return 1;
     }

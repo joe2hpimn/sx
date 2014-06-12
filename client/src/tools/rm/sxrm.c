@@ -78,7 +78,7 @@ int main(int argc, char **argv) {
     signal(SIGINT, sighandler);
     signal(SIGTERM, sighandler);
 
-    if(!(sx = sxc_init(SRC_VERSION, sxc_default_logger(&log, argv[0]), sxi_yesno))) {
+    if(!(sx = sxc_init(SRC_VERSION, sxc_default_logger(&log, argv[0]), sxc_input_fn, NULL))) {
 	cmdline_parser_free(&args);
 	return 1;
     }

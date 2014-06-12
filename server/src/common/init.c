@@ -34,7 +34,7 @@ sxc_client_t* server_init(const sxc_logger_t *custom_logger, const char *applica
 {
     sxc_client_t *sx;
     log_init(&custom_logger, application ? application : argv[0], logfile, log_foreground);
-    sx = sxc_init(src_version(), custom_logger, NULL);
+    sx = sxc_init(src_version(), custom_logger, NULL, NULL);
     if (!sx) {
         CRIT("Cannot initialize SX");
         return NULL;
