@@ -1316,7 +1316,8 @@ static act_result_t filedelete_request(sx_hashfs_t *hashfs, job_t job_id, job_da
     const char *volname, *filename, *revision;
     const sx_hashfs_volume_t *volume;
     act_result_t ret = ACT_RESULT_OK;
-    unsigned int nnode, nnodes, gotrev = 0;
+    unsigned int nnode, nnodes = 0, nqueries = 0, nrevs = 0, lastrev = 0;
+    query_list_t *qrylist = NULL;
     sxi_query_t *proto = NULL;
     sx_blob_t *b = NULL;
     rc_ty s;
@@ -1353,32 +1354,33 @@ static act_result_t filedelete_request(sx_hashfs_t *hashfs, job_t job_id, job_da
 	}
 
 	if(!*revision) {
-	    if(!gotrev) {
+	    if(!nrevs) {
 		WARN("Cannot job %lld has got no revisions", (long long)job_id);
 		action_error(ACT_RESULT_PERMFAIL, 500, "Internal error: data corruption detected");
 	    }
 	    break;
 	}
-
-	gotrev = 1;
+	nrevs++;
 	sxi_query_free(proto);
 	proto = NULL;
 	INFO("Deleting '%s' on '%s' revision '%s'", filename, volname, revision);
+	query_list_t *nql = realloc(qrylist, sizeof(*qrylist) * (nqueries + nnodes));
+	if(!nql)
+	    action_error(rc2actres(ENOMEM), rc2http(ENOMEM), "Failed to prepare file delete query");
+	qrylist = nql;
+	memset(&qrylist[nqueries], 0, sizeof(*qrylist) * nnodes);
 
-	for(nnode = 0; nnode<nnodes; nnode++) {
+	for(nnode = 0; nnode<nnodes; nnode++, nqueries++) {
 	    const sx_node_t *node = sx_nodelist_get(nodes, nnode);
 	    if(!sx_node_cmp(me, node)) {
 		/* Local node */
 		s = sx_hashfs_file_delete(hashfs, volume, filename, revision);
 		if(s == OK || s == ENOENT)
-		    succeeded[nnode] = 1;
+		    succeeded[nnode] += 1;
 		else
-		    action_error(rc2actres(s), rc2http(s), msg_get_reason());
+		    action_error(rc2actres(s), rc2http(s), msg_get_reason()); //ACAB
 	    } else {
 		/* Remote node */
-		sxi_hostlist_t hlist;
-		int qret;
-
 		if(!proto) {
 		    proto = sxi_filedel_proto(sx, volname, filename, revision);
 		    if(!proto) {
@@ -1387,21 +1389,55 @@ static act_result_t filedelete_request(sx_hashfs_t *hashfs, job_t job_id, job_da
 		    }
 		}
 
-		sxi_hostlist_init(&hlist);
-		if(sxi_hostlist_add_host(sx, &hlist, sx_node_internal_addr(node)))
-		    action_error(ACT_RESULT_TEMPFAIL, 500, "Not enough memory to dispatch file delete request");
-		qret = sxi_cluster_query(clust, &hlist, proto->verb, proto->path, proto->content, proto->content_len, NULL, NULL, NULL); /* FIXME: shall i use query_ev here? */
-		sxi_hostlist_empty(&hlist);
-
-		if(qret != 200 && qret != 404)
-		    action_error(http2actres(qret), qret, sxc_geterrmsg(sx));
-
-		succeeded[nnode] = 1;
+		qrylist[nqueries].cbdata = sxi_cbdata_create_generic(clust, NULL, NULL);
+		if(!sxi_cluster_query_ev(qrylist[nqueries].cbdata, clust, sx_node_internal_addr(node), proto->verb, proto->path, NULL, 0, NULL, NULL))
+		    qrylist[nqueries].query_sent = 1;
 	    }
 	}
     }
 
+    lastrev = nrevs;
+    ret = ACT_RESULT_OK;
+
  action_failed:
+    if(qrylist) {
+	unsigned int i;
+	for(nnode=0, i=0; i<nqueries; i++, nnode++) {
+	    if(nnode >= nnodes)
+		nnode = 0;
+	    if(qrylist[i].query_sent) {
+		int rc = sxi_cbdata_wait(qrylist[i].cbdata, sxi_conns_get_curlev(clust), NULL);
+		if(rc != -1) {
+		    rc = sxi_cbdata_result(qrylist[i].cbdata, NULL);
+		    if(sxi_cbdata_result_fail(qrylist[i].cbdata)) {
+			WARN("Query failed with %d", rc);
+			if(ret > ACT_RESULT_TEMPFAIL) /* Only raise OK to TEMP */
+			    action_set_fail(ACT_RESULT_TEMPFAIL, 503, sxc_geterrmsg(sx_hashfs_client(hashfs)));
+		    } else if(rc == 200 || rc == 404) {
+			succeeded[nnode] += 1;
+		    } else {
+			act_result_t newret = http2actres(rc);
+			if(newret < ret) /* Severity shall only be raised */
+			    action_set_fail(newret, rc, sxc_geterrmsg(sx_hashfs_client(hashfs)));
+		    }
+		} else {
+		    CRIT("Failed to wait for query");
+		    action_set_fail(ACT_RESULT_PERMFAIL, 500, "Internal error in cluster communication");
+		    /* FIXME should abort here */
+		}
+	    }
+	    free(sxi_cbdata_get_context(qrylist[i].cbdata));
+	}
+        query_list_free(qrylist, nqueries);
+    }
+
+    for(nnode = 0; nnode<nnodes; nnode++) {
+	if(lastrev && succeeded[nnode] == lastrev)
+	    succeeded[nnode] = 1;
+	else
+	    succeeded[nnode] = 0;
+    }
+
     sxi_query_free(proto);
     sx_blob_free(b);
     return ret;
