@@ -444,6 +444,14 @@ int sxi_get_input(sxc_client_t *sx, sxc_input_t type, const char *prompt, const 
     return sx->input_cb(sx, type, prompt, def, in, insize, sx->input_ctx);
 }
 
+int sxc_filter_get_input(const sxf_handle_t *h, sxc_input_t type, const char *prompt, const char *def, char *in, unsigned int insize)
+{
+    if(!h || !h->sx || !h->sx->input_cb)
+        return 1;
+
+    return h->sx->input_cb(h->sx, type, prompt, def, in, insize, h->sx->input_ctx);
+}
+
 /* Set configuration directory */
 int sxc_set_confdir(sxc_client_t *sx, const char *config_dir) 
 {

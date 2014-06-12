@@ -34,7 +34,6 @@
 #include <sys/stat.h>
 #include <sys/mman.h>
 #include <fcntl.h>
-#include <termios.h>
 #include <openssl/evp.h>
 #include <openssl/aes.h>
 #include <openssl/sha.h>
@@ -74,30 +73,19 @@ static int aes256_init(const sxf_handle_t *handle, void **ctx)
 
 static int getpassword(const sxf_handle_t *handle, int repeat, sxf_mode_t mode, unsigned char *key, unsigned char *iv, const unsigned char *salt)
 {
-	char pass1[1024], pass2[1024];
-	struct termios told, tnew;
+	char pass1[1024], pass2[1024], prompt[64];
 	SHA256_CTX sctx;
 	unsigned char digest[SHA256_DIGEST_LENGTH];
 
-    tcgetattr(0, &told);
-    tnew = told;
-    tnew.c_lflag &= ~ECHO;
-    tnew.c_lflag |= ECHONL;
-    if(tcsetattr(0, TCSANOW, &tnew)) {
-	ERROR("tcsetattr failed");
+    snprintf(prompt, sizeof(prompt), "[aes256]: Enter %s password: ", mode == SXF_MODE_UPLOAD ? "encryption" : "decryption");
+    mlock(pass1, sizeof(pass1));
+    if(sxc_filter_get_input(handle, SXC_INPUT_SENSITIVE, prompt, NULL, pass1, sizeof(pass1))) {
+	munlock(pass1, sizeof(pass1));
+	printf("[aes256]: Can't obtain password\n");
 	return -1;
     }
 
-    printf("[aes256]: Enter %s password: ", mode == SXF_MODE_UPLOAD ? "encryption" : "decryption");
-    mlock(pass1, sizeof(pass1));
-    if(!fgets(pass1, sizeof(pass1), stdin)) {
-	munlock(pass1, sizeof(pass1));
-	printf("[aes256]: fgets() failed\n");
-	return -1;
-    }
-    pass1[strlen(pass1) - 1] = 0;
     if(strlen(pass1) < 8) {
-	tcsetattr(0, TCSANOW, &told);
 	memset(pass1, 0, sizeof(pass1));
 	munlock(pass1, sizeof(pass1));
 	printf("[aes256]: ERROR: Password must be at least 8 characters long\n");
@@ -105,18 +93,15 @@ static int getpassword(const sxf_handle_t *handle, int repeat, sxf_mode_t mode, 
     }
 
     if(repeat) {
-	printf("[aes256]: Re-enter encryption password: ");
 	mlock(pass2, sizeof(pass2));
-	if(!fgets(pass2, sizeof(pass2), stdin)) {
+	if(sxc_filter_get_input(handle, SXC_INPUT_SENSITIVE, "[aes256]: Re-enter encryption password: ", NULL, pass2, sizeof(pass2))) {
 	    memset(pass1, 0, sizeof(pass1));
 	    munlock(pass1, sizeof(pass1));
 	    munlock(pass2, sizeof(pass2));
-	    printf("[aes256]: fgets() failed\n");
+	    printf("[aes256]: Can't obtain password\n");
 	    return -1;
 	}
-	pass2[strlen(pass2) - 1] = 0;
 	if(strcmp(pass1, pass2)) {
-	    tcsetattr(0, TCSANOW, &told);
 	    memset(pass1, 0, sizeof(pass1));
 	    munlock(pass1, sizeof(pass1));
 	    memset(pass2, 0, sizeof(pass2));
@@ -126,13 +111,6 @@ static int getpassword(const sxf_handle_t *handle, int repeat, sxf_mode_t mode, 
 	}
 	memset(pass2, 0, sizeof(pass2));
 	munlock(pass2, sizeof(pass2));
-    }
-
-    if(tcsetattr(0, TCSANOW, &told)) {
-	memset(pass1, 0, sizeof(pass1));
-	munlock(pass1, sizeof(pass1));
-	ERROR("tcsetattr failed");
-	return -1;
     }
 
     if(!SHA256_Init(&sctx) ||

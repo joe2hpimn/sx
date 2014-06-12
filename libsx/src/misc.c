@@ -25,6 +25,7 @@
 #include <dirent.h>
 #include <sys/stat.h>
 #include <errno.h>
+#include <termios.h>
 #include <pwd.h>
 #if HAVE_NFTW
 #include <ftw.h>
@@ -1515,13 +1516,17 @@ char sxi_read_one_char(void)
 int sxc_input_fn(sxc_client_t *sx, sxc_input_t type, const char *prompt, const char *def, char *in, unsigned int insize, void *ctx)
 {
     char c;
+    struct termios told, tnew;
 
-    if(!sx || !prompt || !def || !in || !insize)
+    if(!sx || !prompt || !in || !insize) {
+	if(sx)
+	    sxi_seterr(sx, SXE_EARG, "NULL argument");
 	return -1;
+    }
 
     switch(type) {
 	case SXC_INPUT_YN:
-	    if(*def == 'y')
+	    if(def && *def == 'y')
 		printf("%s [Y/n] ", prompt);
 	    else
 		printf("%s [y/N] ", prompt);
@@ -1532,12 +1537,40 @@ int sxc_input_fn(sxc_client_t *sx, sxc_input_t type, const char *prompt, const c
 	    else if(c == 'n' || c == 'N')
 		*in = 'n';
 	    else if(c == '\n' || c == EOF)
-		*in = *def;
+		*in = def ? *def : 'n';
 	    break;
 
 	case SXC_INPUT_PLAIN:
+	    printf("%s", prompt);
+	    fflush(stdout);
+	    if(!fgets(in, insize, stdin)) {
+		sxi_seterr(sx, SXE_EREAD, "fgets() failed");
+		return -1;
+	    }
+	    in[strlen(in) - 1] = 0;
+	    break;
+
 	case SXC_INPUT_SENSITIVE:
-	    /* TODO */
+	    tcgetattr(0, &told);
+	    tnew = told;
+	    tnew.c_lflag &= ~ECHO;
+	    tnew.c_lflag |= ECHONL;
+	    if(tcsetattr(0, TCSANOW, &tnew)) {
+		sxi_seterr(sx, SXE_EARG, "tcsetattr() failed");
+		return -1;
+	    }
+	    printf("%s", prompt);
+	    fflush(stdout);
+	    if(!fgets(in, insize, stdin)) {
+		sxi_seterr(sx, SXE_EREAD, "fgets() failed");
+		return -1;
+	    }
+	    in[strlen(in) - 1] = 0;
+	    if(tcsetattr(0, TCSANOW, &told)) {
+		memset(in, 0, insize);
+		sxi_seterr(sx, SXE_EARG, "tcsetattr() failed");
+		return -1;
+	    }
 	    break;
 
 	default:
