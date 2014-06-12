@@ -4868,7 +4868,7 @@ rc_ty sx_hashfs_putfile_commitjob(sx_hashfs_t *h, const uint8_t *user, sx_uid_t 
     unsigned int expected_blocks, actual_blocks, job_timeout, ndests;
     int64_t tmpfile_id, expected_size, volid;
     rc_ty ret = FAIL_EINTERNAL, ret2;
-    sx_nodelist_t *volnodes = NULL;
+    sx_nodelist_t *singlenode = NULL, *volnodes = NULL;
     const sx_hashfs_volume_t *vol;
     const sx_uuid_t *self_uuid;
     const sx_node_t *self;
@@ -4889,6 +4889,18 @@ rc_ty sx_hashfs_putfile_commitjob(sx_hashfs_t *h, const uint8_t *user, sx_uid_t 
     if(memcmp(self_uuid->binary, tkdt.uuid.binary, sizeof(tkdt.uuid.binary))) {
 	WARN("bad token uuid");
 	return EINVAL;
+    }
+
+    singlenode = sx_nodelist_new();
+    if(!singlenode) {
+	WARN("Cannot allocate single node nodelist");
+	return ENOMEM;
+    }
+    ret = sx_nodelist_add(singlenode, sx_node_dup(self));
+    if(ret) {
+	WARN("Cannot add self to nodelist");
+	sx_nodelist_delete(singlenode);
+	return ret;
     }
 
     if(qbegin(h->tempdb))
@@ -4962,9 +4974,16 @@ rc_ty sx_hashfs_putfile_commitjob(sx_hashfs_t *h, const uint8_t *user, sx_uid_t 
 	goto putfile_commitjob_err;
     }
 
-    ret2 = sx_hashfs_job_new_notrigger(h, JOB_NOPARENT, user_id, job_id, JOBTYPE_FLUSH_FILE, job_timeout, token, &tmpfile_id, sizeof(tmpfile_id), volnodes);
+    ret2 = sx_hashfs_job_new_notrigger(h, JOB_NOPARENT, user_id, job_id, JOBTYPE_REPLICATE_BLOCKS, job_timeout, token, &tmpfile_id, sizeof(tmpfile_id), singlenode);
     if(ret2) {
-        INFO("job_new returned: %s", rc2str(ret2));
+        INFO("job_new (replicate) returned: %s", rc2str(ret2));
+	ret = ret2;
+	goto putfile_commitjob_err;
+    }
+
+    ret2 = sx_hashfs_job_new_notrigger(h, *job_id, user_id, job_id, JOBTYPE_FLUSH_FILE, job_timeout, token, &tmpfile_id, sizeof(tmpfile_id), volnodes);
+    if(ret2) {
+        INFO("job_new (flush) returned: %s", rc2str(ret2));
 	ret = ret2;
 	goto putfile_commitjob_err;
     }
@@ -4989,12 +5008,13 @@ rc_ty sx_hashfs_putfile_commitjob(sx_hashfs_t *h, const uint8_t *user, sx_uid_t 
     sqlite3_reset(h->qt_tokenstats);
 
     sx_nodelist_delete(volnodes);
+    sx_nodelist_delete(singlenode);
 
     return ret;
 }
 
 static int tmp_getmissing_cb(const char *hexhash, unsigned int index, int code, void *context) {
-    sx_hashfs_missing_t *mis = (sx_hashfs_missing_t *)context;
+    sx_hashfs_tmpinfo_t *mis = (sx_hashfs_tmpinfo_t *)context;
     sx_hash_t binhash;
     unsigned int blockno;
 
@@ -5048,13 +5068,13 @@ static int unique_fileid(sxc_client_t *sx, const sx_hashfs_volume_t *volume, con
     return ret;
 }
 
-rc_ty sx_hashfs_tmp_getmissing(sx_hashfs_t *h, int64_t tmpfile_id, sx_hashfs_missing_t **missing, int commit) {
+rc_ty sx_hashfs_tmp_getinfo(sx_hashfs_t *h, int64_t tmpfile_id, sx_hashfs_tmpinfo_t **tmpinfo, int recheck_presence) {
     unsigned int contentsz, nblocks, bs, nuniqs, i, hash_size, navl;
     const unsigned int *uniqs;
     const sx_hashfs_volume_t *volume;
     rc_ty ret = FAIL_EINTERNAL, ret2;
     const sx_hash_t *content;
-    sx_hashfs_missing_t *tbd = NULL;
+    sx_hashfs_tmpinfo_t *tbd = NULL;
     const char *name, *revision;
     const uint8_t *avl;
     int64_t file_size;
@@ -5064,11 +5084,11 @@ rc_ty sx_hashfs_tmp_getmissing(sx_hashfs_t *h, int64_t tmpfile_id, sx_hashfs_mis
     int r;
     char token[TOKEN_RAND_BYTES*2 + 1];
 
-    if(!h || !missing) {
+    if(!h || !tmpinfo) {
 	NULLARG();
 	return EFAULT;
     }
-    DEBUG("tmp_getmissing for file %ld", tmpfile_id);
+    DEBUG("tmp_getinfo for file %ld", tmpfile_id);
 
     /* Get tmp data */
     sqlite3_reset(h->qt_tmpdata);
@@ -5217,7 +5237,7 @@ rc_ty sx_hashfs_tmp_getmissing(sx_hashfs_t *h, int64_t tmpfile_id, sx_hashfs_mis
     token[sizeof(token)-1] = '\0';
     sqlite3_reset(h->qt_tmpdata); /* Do not deadlock if we need to update this very entry */
 
-    if(nuniqs) {
+    if(nuniqs && recheck_presence) {
 	unsigned int r, l;
 
 	/* For each replica set populate tbd->avlblty via hash_presence callback */
@@ -5284,7 +5304,7 @@ rc_ty sx_hashfs_tmp_getmissing(sx_hashfs_t *h, int64_t tmpfile_id, sx_hashfs_mis
 	}
     }
 
-    *missing = tbd;
+    *tmpinfo = tbd;
     ret = OK;
 
  getmissing_err:
@@ -5296,7 +5316,8 @@ rc_ty sx_hashfs_tmp_getmissing(sx_hashfs_t *h, int64_t tmpfile_id, sx_hashfs_mis
     return ret;
 }
 
-rc_ty sx_hashfs_tmp_tofile(sx_hashfs_t *h, const sx_hashfs_missing_t *missing) {
+
+rc_ty sx_hashfs_tmp_tofile(sx_hashfs_t *h, const sx_hashfs_tmpinfo_t *missing) {
     rc_ty ret = FAIL_EINTERNAL, ret2;
     const sx_hashfs_volume_t *volume;
     int64_t file_id;
@@ -5964,6 +5985,7 @@ static const char *locknames[] = {
     "VOL", /* JOBTYPE_CREATE_VOLUME */
     "USER", /* JOBTYPE_CREATE_USER */
     "ACL",
+    NULL, /* JOBTYPE_REPLICATE_BLOCKS */
     "TOKEN", /* JOBTYPE_FLUSH_FILE */
     "DELFILE", /* JOBTYPE_DELETE_FILE */
     "*" /* JOBTYPE_DIST - MODHDIST: this must become a global lock */

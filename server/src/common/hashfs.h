@@ -254,7 +254,7 @@ rc_ty sx_hashfs_make_token(sx_hashfs_t *h, const uint8_t *user, const char *rndh
 rc_ty sx_hashfs_token_get(sx_hashfs_t *h, const uint8_t *user, const char *token, unsigned int *replica_count, int64_t *expires_at);
 rc_ty sx_hashfs_putfile_commitjob(sx_hashfs_t *h, const uint8_t *user, sx_uid_t user_id, const char *token, job_t *job_id);
 
-typedef struct _sx_hashfs_missing_t {
+typedef struct _sx_hashfs_tmpinfo_t {
     int64_t volume_id;
     int64_t file_size;
     int64_t tmpfile_id;
@@ -272,10 +272,10 @@ typedef struct _sx_hashfs_missing_t {
     char name[SXLIMIT_MAX_FILENAME_LEN+1]; /* File name */
     char revision[128]; /* File revision */
     int somestatechanged;
-} sx_hashfs_missing_t;
+} sx_hashfs_tmpinfo_t;
 rc_ty sx_hashfs_tmp_getmeta(sx_hashfs_t *h, const char *name, int64_t tmpfile_id, sxc_meta_t *metadata);
-rc_ty sx_hashfs_tmp_getmissing(sx_hashfs_t *h, int64_t tmpfile_id, sx_hashfs_missing_t **missing, int commit);
-rc_ty sx_hashfs_tmp_tofile(sx_hashfs_t *h, const sx_hashfs_missing_t *missing);
+rc_ty sx_hashfs_tmp_getinfo(sx_hashfs_t *h, int64_t tmpfile_id, sx_hashfs_tmpinfo_t **tmpinfo, int recheck_presence);
+rc_ty sx_hashfs_tmp_tofile(sx_hashfs_t *h, const sx_hashfs_tmpinfo_t *missing);
 
 /* File delete */
 rc_ty sx_hashfs_file_delete(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const char *file, const char *revision);
