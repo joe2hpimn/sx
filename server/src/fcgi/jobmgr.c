@@ -80,7 +80,7 @@ typedef struct _job_data_t {
     unsigned int len;
 } job_data_t;
 
-typedef act_result_t (*job_action_t)(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *node, int *succeeded, int *fail_code, char *fail_msg);
+typedef act_result_t (*job_action_t)(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *node, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl);
 
 #define action_set_fail(retcode, failcode, failmsg)	    \
     do {						    \
@@ -138,7 +138,7 @@ static void query_list_free(query_list_t *qrylist, unsigned nnodes)
     free(qrylist);
 }
 
-static act_result_t createuser_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg) {
+static act_result_t createuser_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     sx_blob_t *b;
     const void *auth;
     unsigned auth_len;
@@ -244,7 +244,7 @@ action_failed:
     return ret;
 }
 
-static act_result_t createuser_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg) {
+static act_result_t createuser_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     unsigned nnode, s, ret = ACT_RESULT_OK;
     unsigned nnodes = sx_nodelist_count(nodes);
     sxc_client_t *sx = sx_hashfs_client(hashfs);
@@ -340,16 +340,16 @@ static act_result_t createuser_commit(sx_hashfs_t *hashfs, job_t job_id, job_dat
     return ret;
 }
 
-static act_result_t createuser_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg) {
+static act_result_t createuser_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     INFO("createuser_abort");
     return ACT_RESULT_PERMFAIL;
 }
-static act_result_t createuser_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg){
+static act_result_t createuser_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl){
     INFO("createuser_undo");
     return ACT_RESULT_PERMFAIL;
 }
 
-static act_result_t createvol_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg) {
+static act_result_t createvol_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     const char *volname, *owner;
     int64_t volsize, owner_uid;
     unsigned int nnode, nnodes;
@@ -500,7 +500,7 @@ static act_result_t createvol_request(sx_hashfs_t *hashfs, job_t job_id, job_dat
     return ret;
 }
 
-static act_result_t createvol_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg) {
+static act_result_t createvol_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     unsigned int nnode, nnodes;
     const char *volname;
     act_result_t ret = ACT_RESULT_OK;
@@ -600,7 +600,7 @@ static act_result_t createvol_commit(sx_hashfs_t *hashfs, job_t job_id, job_data
     return ret;
 }
 
-static act_result_t createvol_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg) {
+static act_result_t createvol_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     unsigned int nnode, nnodes;
     const char *volname;
     act_result_t ret = ACT_RESULT_OK;
@@ -692,7 +692,7 @@ static act_result_t createvol_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_
     return ret;
 }
 
-static act_result_t createvol_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg) {
+static act_result_t createvol_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     unsigned int nnode, nnodes;
     nnodes = sx_nodelist_count(nodes);
     for(nnode = 0; nnode<nnodes; nnode++)
@@ -783,19 +783,19 @@ static act_result_t job_twophase_execute(const job_2pc_t *spec, jobphase_t phase
     return ret;
 }
 
-static act_result_t acl_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg) {
+static act_result_t acl_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
    return job_twophase_execute(&acl_spec, JOBPHASE_REQUEST, hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg);
 }
 
-static act_result_t acl_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg) {
+static act_result_t acl_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
    return job_twophase_execute(&acl_spec, JOBPHASE_COMMIT, hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg);
 }
 
-static act_result_t acl_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg) {
+static act_result_t acl_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
    return job_twophase_execute(&acl_spec, JOBPHASE_ABORT, hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg);
 }
 
-static act_result_t acl_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg) {
+static act_result_t acl_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
    return job_twophase_execute(&acl_spec, JOBPHASE_UNDO, hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg);
 }
 
@@ -821,7 +821,7 @@ static int req_append(char **req, unsigned int *req_len, const char *append_me) 
     return 0;
 }
 
-static act_result_t replicateblocks_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg) {
+static act_result_t replicateblocks_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     sxi_conns_t *clust = sx_hashfs_conns(hashfs);
     unsigned int i, j, worstcase_rpl, nqueries = 0;
     act_result_t ret = ACT_RESULT_OK;
@@ -1100,7 +1100,7 @@ static act_result_t replicateblocks_request(sx_hashfs_t *hashfs, job_t job_id, j
     return ret;
 }
 
-static act_result_t replicateblocks_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg) {
+static act_result_t replicateblocks_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     unsigned int nnode, nnodes;
 
     /* Nothing to do here */
@@ -1110,7 +1110,7 @@ static act_result_t replicateblocks_commit(sx_hashfs_t *hashfs, job_t job_id, jo
     return ACT_RESULT_OK;
 }
 
-static act_result_t replicateblocks_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg) {
+static act_result_t replicateblocks_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     unsigned int nnode, nnodes;
     nnodes = sx_nodelist_count(nodes);
     for(nnode = 0; nnode<nnodes; nnode++)
@@ -1119,7 +1119,7 @@ static act_result_t replicateblocks_abort(sx_hashfs_t *hashfs, job_t job_id, job
     return ACT_RESULT_OK;
 }
 
-static act_result_t replicateblocks_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg) {
+static act_result_t replicateblocks_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     unsigned int nnode, nnodes;
     nnodes = sx_nodelist_count(nodes);
     for(nnode = 0; nnode<nnodes; nnode++)
@@ -1129,7 +1129,7 @@ static act_result_t replicateblocks_undo(sx_hashfs_t *hashfs, job_t job_id, job_
 }
 
 
-static act_result_t fileflush_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg) {
+static act_result_t fileflush_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     sxi_conns_t *clust = sx_hashfs_conns(hashfs);
     sxc_client_t *sx = sx_hashfs_client(hashfs);
     const sx_node_t *me = sx_hashfs_self(hashfs);
@@ -1245,7 +1245,7 @@ static act_result_t fileflush_request(sx_hashfs_t *hashfs, job_t job_id, job_dat
     return ret;
 }
 
-static act_result_t fileflush_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg) {
+static act_result_t fileflush_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     act_result_t ret = ACT_RESULT_OK;
     sx_hashfs_tmpinfo_t *mis = NULL;
     const sx_node_t *me, *node;
@@ -1292,7 +1292,7 @@ static act_result_t fileflush_commit(sx_hashfs_t *hashfs, job_t job_id, job_data
     return ret;
 }
 
-static act_result_t fileflush_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg) {
+static act_result_t fileflush_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     unsigned int nnode, nnodes;
     nnodes = sx_nodelist_count(nodes);
     for(nnode = 0; nnode<nnodes; nnode++)
@@ -1301,7 +1301,7 @@ static act_result_t fileflush_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_
     return ACT_RESULT_OK;
 }
 
-static act_result_t fileflush_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg) {
+static act_result_t fileflush_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     unsigned int nnode, nnodes;
     nnodes = sx_nodelist_count(nodes);
     for(nnode = 0; nnode<nnodes; nnode++)
@@ -1310,7 +1310,7 @@ static act_result_t fileflush_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t
     return ACT_RESULT_OK;
 }
 
-static act_result_t filedelete_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg) {
+static act_result_t filedelete_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     sxi_conns_t *clust = sx_hashfs_conns(hashfs);
     sxc_client_t *sx = sx_hashfs_client(hashfs);
     const char *volname, *filename, *revision;
@@ -1407,7 +1407,7 @@ static act_result_t filedelete_request(sx_hashfs_t *hashfs, job_t job_id, job_da
     return ret;
 }
 
-static act_result_t filedelete_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg) {
+static act_result_t filedelete_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     unsigned int nnode, nnodes;
     nnodes = sx_nodelist_count(nodes);
     for(nnode = 0; nnode<nnodes; nnode++)
@@ -1415,7 +1415,7 @@ static act_result_t filedelete_commit(sx_hashfs_t *hashfs, job_t job_id, job_dat
     return ACT_RESULT_OK;
 }
 
-static act_result_t filedelete_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg) {
+static act_result_t filedelete_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     unsigned int nnode, nnodes;
     nnodes = sx_nodelist_count(nodes);
     for(nnode = 0; nnode<nnodes; nnode++)
@@ -1423,7 +1423,7 @@ static act_result_t filedelete_abort(sx_hashfs_t *hashfs, job_t job_id, job_data
     return ACT_RESULT_OK;
 }
 
-static act_result_t filedelete_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg) {
+static act_result_t filedelete_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     unsigned int nnode, nnodes;
     nnodes = sx_nodelist_count(nodes);
     for(nnode = 0; nnode<nnodes; nnode++)
@@ -1721,7 +1721,7 @@ static int sync_global_objects(sx_hashfs_t *hashfs, const sxi_hostlist_t *hlist)
 
 
 
-static act_result_t distribution_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg) {
+static act_result_t distribution_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     sxi_hdist_t *hdist;
     const sx_nodelist_t *prev, *next;
     act_result_t ret = ACT_RESULT_OK;
@@ -1847,7 +1847,7 @@ action_failed:
     return ret;
 }
 
-static act_result_t distribution_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg) {
+static act_result_t distribution_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     sxi_hdist_t *hdist;
     act_result_t ret = ACT_RESULT_OK;
     sxi_hostlist_t hlist;
@@ -1908,7 +1908,7 @@ action_failed:
     return ret;
 }
 
-static act_result_t distribution_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg) {
+static act_result_t distribution_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     unsigned int nnode, nnodes;
     nnodes = sx_nodelist_count(nodes);
     for(nnode = 0; nnode<nnodes; nnode++)
@@ -1916,7 +1916,7 @@ static act_result_t distribution_abort(sx_hashfs_t *hashfs, job_t job_id, job_da
     return ACT_RESULT_OK;
 }
 
-static act_result_t distribution_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg) {
+static act_result_t distribution_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     unsigned int nnode, nnodes;
     nnodes = sx_nodelist_count(nodes);
     for(nnode = 0; nnode<nnodes; nnode++)
@@ -1978,6 +1978,7 @@ struct jobmgr_data_t {
     sqlite3_stmt *qcpl;
     sqlite3_stmt *qphs;
     sqlite3_stmt *qdly;
+    sqlite3_stmt *qlfe;
     sqlite3_stmt *qvbump;
     time_t next_vcheck;
 
@@ -1995,6 +1996,7 @@ struct jobmgr_data_t {
     jobtype_t job_type;
     unsigned int nacts;
     int act_phase;
+    int adjust_ttl;
     char fail_reason[JOB_FAIL_REASON_SIZE];
 };
 
@@ -2013,9 +2015,9 @@ static act_result_t jobmgr_execute_actions_batch(int *http_status, struct jobmgr
 	    /* Nothing to (un)do */
 	    act_res = ACT_RESULT_OK;
 	} else if(q->act_phase == JOB_PHASE_COMMIT) {
-	    act_res = actions[q->job_type].fn_abort(q->hashfs, q->job_id, q->job_data, q->targets, act_succeeded, http_status, q->fail_reason);
+	    act_res = actions[q->job_type].fn_abort(q->hashfs, q->job_id, q->job_data, q->targets, act_succeeded, http_status, q->fail_reason, &q->adjust_ttl);
 	} else { /* act_phase == JOB_PHASE_DONE */
-	    act_res = actions[q->job_type].fn_undo(q->hashfs, q->job_id, q->job_data, q->targets, act_succeeded, http_status, q->fail_reason);
+	    act_res = actions[q->job_type].fn_undo(q->hashfs, q->job_id, q->job_data, q->targets, act_succeeded, http_status, q->fail_reason, &q->adjust_ttl);
 	}
 	if(act_res == ACT_RESULT_PERMFAIL) {
 	    CRIT("Some undo action permanently failed for job %lld.", (long long)q->job_id);
@@ -2023,9 +2025,9 @@ static act_result_t jobmgr_execute_actions_batch(int *http_status, struct jobmgr
 	}
     } else {
 	if(q->act_phase == JOB_PHASE_REQUEST) {
-	    act_res = actions[q->job_type].fn_request(q->hashfs, q->job_id, q->job_data, q->targets, act_succeeded, http_status, q->fail_reason);
+	    act_res = actions[q->job_type].fn_request(q->hashfs, q->job_id, q->job_data, q->targets, act_succeeded, http_status, q->fail_reason, &q->adjust_ttl);
 	} else { /* act_phase == JOB_PHASE_COMMIT */
-	    act_res = actions[q->job_type].fn_commit(q->hashfs, q->job_id, q->job_data, q->targets, act_succeeded, http_status, q->fail_reason);
+	    act_res = actions[q->job_type].fn_commit(q->hashfs, q->job_id, q->job_data, q->targets, act_succeeded, http_status, q->fail_reason, &q->adjust_ttl);
 	}
     }
     if(act_res != ACT_RESULT_OK && act_res != ACT_RESULT_TEMPFAIL && act_res != ACT_RESULT_PERMFAIL) {
@@ -2159,7 +2161,18 @@ static void jobmgr_run_job(struct jobmgr_data_t *q) {
 	}
 
 	/* Execute actions */
+	q->adjust_ttl = 0;
 	act_res = jobmgr_execute_actions_batch(&http_status, q);
+
+	if(q->adjust_ttl) {
+	    char lifeadj[24];
+	    snprintf(lifeadj, sizeof(lifeadj), "%d seconds", q->adjust_ttl);
+	    if(qbind_text(q->qlfe, ":ttldiff", lifeadj) ||
+	       qstep_noret(q->qlfe))
+		WARN("Cannot adjust lifetime of job %lld", (long long)q->job_id);
+	    else
+		INFO("Lifetime of job %lld adjusted by %s", (long long)q->job_id, lifeadj);
+	}
 
 	/* Temporary failure: mark job as to-be-retried and stop processing it for now */
 	if(act_res == ACT_RESULT_TEMPFAIL) {
@@ -2414,6 +2427,7 @@ int jobmgr(sxc_client_t *sx, const char *self, const char *dir, int pipe) {
        qprep(eventdb, &q.qcpl, "UPDATE jobs SET complete = 1, lock = NULL WHERE job = :job") ||
        qprep(eventdb, &q.qphs, "UPDATE actions SET phase = :phase WHERE id = :act") ||
        qprep(eventdb, &q.qdly, "UPDATE jobs SET sched_time = strftime('%Y-%m-%d %H:%M:%f', 'now', :delay), reason = :reason WHERE job = :job") ||
+       qprep(eventdb, &q.qlfe, "UPDATE jobs SET expiry_time = datetime(expiry_time, :ttldiff)  WHERE job = :job") ||
        qprep(eventdb, &q.qvbump, "INSERT OR REPLACE INTO hashfs (key, value) VALUES ('next_version_check', datetime(:next, 'unixepoch'))") ||
        qprep(eventdb, &q_vcheck, "SELECT strftime('%s', value) FROM hashfs WHERE key = 'next_version_check'"))
 	goto jobmgr_err;
@@ -2453,6 +2467,7 @@ int jobmgr(sxc_client_t *sx, const char *self, const char *dir, int pipe) {
     sqlite3_finalize(q.qcpl);
     sqlite3_finalize(q.qphs);
     sqlite3_finalize(q.qdly);
+    sqlite3_finalize(q.qlfe);
     sqlite3_finalize(q.qvbump);
     sqlite3_finalize(q_vcheck);
     sx_nodelist_delete(q.targets);
