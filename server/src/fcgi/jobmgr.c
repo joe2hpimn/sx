@@ -235,7 +235,6 @@ action_failed:
 		succeeded[nnode] = 1;
 	    else
 		ret = ACT_RESULT_PERMFAIL; /* Raise OK and TEMP to PERMFAIL */
-            sxi_cbdata_unref(&qrylist[nnode].cbdata);
 	}
 	sxi_query_free(proto);
     }
@@ -311,7 +310,7 @@ static act_result_t createuser_commit(sx_hashfs_t *hashfs, job_t job_id, job_dat
  action_failed:
     sx_blob_free(b);
     if(query) {
-	for(nnode=0; nnode<nnodes; nnode++) {
+	for(nnode=0; qrylist && nnode<nnodes; nnode++) {
 	    int rc = 0;
 	    if(!qrylist[nnode].query_sent)
 		continue;
@@ -334,7 +333,6 @@ static act_result_t createuser_commit(sx_hashfs_t *hashfs, job_t job_id, job_dat
 		if(newret < ret) /* Severity shall only be raised */
 		    action_set_fail(newret, rc, sxc_geterrmsg(sx));
 	    }
-            sxi_cbdata_unref(&qrylist[nnode].cbdata);
 	}
         query_list_free(qrylist, nnodes);
 	free(query);
@@ -471,7 +469,7 @@ static act_result_t createvol_request(sx_hashfs_t *hashfs, job_t job_id, job_dat
  action_failed:
     sx_blob_free(b);
     if(proto) {
-	for(nnode=0; nnode<nnodes; nnode++) {
+	for(nnode=0; qrylist && nnode<nnodes; nnode++) {
 	    int rc = 0;
 	    if(!qrylist[nnode].query_sent)
 		continue;
@@ -494,7 +492,6 @@ static act_result_t createvol_request(sx_hashfs_t *hashfs, job_t job_id, job_dat
 		if(newret < ret) /* Severity shall only be raised */
 		    action_set_fail(newret, rc, sxc_geterrmsg(sx));
 	    }
-            sxi_cbdata_unref(&qrylist[nnode].cbdata);
 	}
 	sxc_meta_free(vmeta);
         query_list_free(qrylist, nnodes);
@@ -573,7 +570,7 @@ static act_result_t createvol_commit(sx_hashfs_t *hashfs, job_t job_id, job_data
  action_failed:
     sx_blob_free(b);
     if(query) {
-	for(nnode=0; nnode<nnodes; nnode++) {
+	for(nnode=0; qrylist && nnode<nnodes; nnode++) {
 	    int rc = 0;
 	    if(!qrylist[nnode].query_sent)
 		continue;
@@ -596,7 +593,6 @@ static act_result_t createvol_commit(sx_hashfs_t *hashfs, job_t job_id, job_data
 		if(newret < ret) /* Severity shall only be raised */
 		    action_set_fail(newret, rc, sxc_geterrmsg(sx));
 	    }
-            sxi_cbdata_unref(&qrylist[nnode].cbdata);
 	}
         query_list_free(qrylist, nnodes);
 	free(query);
@@ -666,7 +662,7 @@ static act_result_t createvol_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_
  action_failed:
     sx_blob_free(b);
     if(query) {
-	for(nnode=0; nnode<nnodes; nnode++) {
+	for(nnode=0; qrylist && nnode<nnodes; nnode++) {
 	    int rc = 0;
 	    if(!qrylist[nnode].query_sent)
 		continue;
@@ -689,7 +685,6 @@ static act_result_t createvol_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_
 		if(newret < ret) /* Severity shall only be raised */
 		    action_set_fail(newret, rc, sxc_geterrmsg(sx));
 	    }
-            sxi_cbdata_unref(&qrylist[nnode].cbdata);
 	}
         query_list_free(qrylist, nnodes);
 	free(query);
@@ -781,7 +776,6 @@ static act_result_t job_twophase_execute(const job_2pc_t *spec, jobphase_t phase
 		if(newret < ret) /* Severity shall only be raised */
 		    action_set_fail(newret, rc, sxc_geterrmsg(sx_hashfs_client(hashfs)));
 	    }
-            sxi_cbdata_unref(&qrylist[nnode].cbdata);
 	}
         query_list_free(qrylist, nnodes);
 	sxi_query_free(proto);
@@ -830,11 +824,12 @@ static int req_append(char **req, unsigned int *req_len, const char *append_me) 
 static act_result_t fileflush_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg) {
     sxi_conns_t *clust = sx_hashfs_conns(hashfs);
     sxc_client_t *sx = sx_hashfs_client(hashfs);
-    unsigned int i, j, worstcase_rpl;
+    unsigned int i, j, worstcase_rpl, nqueries = 0;
     act_result_t ret = ACT_RESULT_OK;
     sx_hashfs_missing_t *mis = NULL;
     sxi_hostlist_t hlist;
     int64_t tmpfile_id;
+    query_list_t *qrylist = NULL;
     int qret;
     rc_ty s;
 
@@ -965,7 +960,7 @@ static act_result_t fileflush_request(sx_hashfs_t *hashfs, job_t job_id, job_dat
 	    if(!have_pusher || !have_junkies)
 		continue;
 
-	    j++; /* This acts a look-ahead limiter */
+	    j++; /* This acts as a look-ahead limiter */
 
 	    sx_hash_t *current_hash = &mis->all_blocks[current_blockno];
             DEBUGHASH("asking hash to be pushed", current_hash);
@@ -1040,25 +1035,63 @@ static act_result_t fileflush_request(sx_hashfs_t *hashfs, job_t job_id, job_dat
 	    /* Remote xfers are flushed at each pushing node */
 	    char url[sizeof(".pushto/")+64];
 
-	    sxi_hostlist_init(&hlist);
 	    req[strlen(req)-1] = '}';
-	    if(sxi_hostlist_add_host(sx, &hlist, sx_node_internal_addr(pusher))) {
-		free(req);
-		action_error(ACT_RESULT_TEMPFAIL, 500, "Not enough memory to dispatch block transfer request");
+
+	    if(!(nqueries % 64)) {
+		query_list_t *nuqlist = realloc(qrylist, sizeof(*qrylist) * (nqueries+64));
+		if(!nuqlist) {
+		    free(req);
+		    action_error(ACT_RESULT_TEMPFAIL, 500, "Not enough memory to dispatch block transfer request");
+		}
+		memset(nuqlist + nqueries, 0, sizeof(*qrylist) * 64);
+		qrylist = nuqlist;
 	    }
+            qrylist[nqueries].cbdata = sxi_cbdata_create_generic(clust, NULL, NULL);
+	    sxi_cbdata_set_context(qrylist[nqueries].cbdata, req);
+
 	    snprintf(url, sizeof(url), ".pushto/%u", mis->block_size);
-
-	    qret = sxi_cluster_query(clust, &hlist, REQ_PUT, url, req, strlen(req), NULL, NULL, NULL); /* FIXME: shall i use query_ev here? */
-	    sxi_hostlist_empty(&hlist);
-	    free(req);
-
-            if (qret == 404)
-                action_error(ACT_RESULT_PERMFAIL, 400, "Some remote blocks are missing");
-
-	    if(qret != 200)
-		action_error(http2actres(qret), qret, sxc_geterrmsg(sx));
+	    if(sxi_cluster_query_ev(qrylist[nqueries].cbdata, clust, sx_node_internal_addr(pusher), REQ_PUT, url, req, strlen(req), NULL, NULL)) {
+		WARN("Failed to query node %s: %s", sx_node_uuid_str(pusher), sxc_geterrmsg(sx_hashfs_client(hashfs)));
+		nqueries++;
+		action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to setup cluster communication");
+	    }
+	    qrylist[nqueries].query_sent = 1;
+	    nqueries++;
 	} else
 	    sx_hashfs_xfer_trigger(hashfs);
+    }
+
+
+    if(qrylist) {
+	for(i=0; i<nqueries; i++) {
+	    if(qrylist[i].query_sent) {
+		int rc = sxi_cbdata_wait(qrylist[i].cbdata, sxi_conns_get_curlev(clust), NULL);
+		if(rc != -1) {
+		    rc = sxi_cbdata_result(qrylist[i].cbdata, NULL);
+		    if(sxi_cbdata_result_fail(qrylist[i].cbdata)) {
+			WARN("Query failed with %d", rc);
+			if(ret > ACT_RESULT_TEMPFAIL) /* Only raise OK to TEMP */
+			    action_set_fail(ACT_RESULT_TEMPFAIL, 503, sxc_geterrmsg(sx_hashfs_client(hashfs)));
+		    } else if(rc == 404) {
+			action_set_fail(ACT_RESULT_PERMFAIL, 400, "Some remote blocks are missing");
+		    } else if(rc != 200) {
+			act_result_t newret = http2actres(rc);
+			if(newret < ret) /* Severity shall only be raised */
+			    action_set_fail(newret, rc, sxc_geterrmsg(sx_hashfs_client(hashfs)));
+		    }
+		} else {
+		    CRIT("Failed to wait for query");
+		    action_set_fail(ACT_RESULT_PERMFAIL, 500, "Internal error in cluster communication");
+		    /* FIXME should abort here */
+		}
+	    }
+	    free(sxi_cbdata_get_context(qrylist[i].cbdata));
+	}
+        query_list_free(qrylist, nqueries);
+	nqueries = 0;
+	qrylist = NULL;
+	if(ret != ACT_RESULT_OK)
+	    goto action_failed;
     }
 
     INFO("Job id %lld - current replica %u out of %u", (long long)job_id, worstcase_rpl, mis->replica_count);
@@ -1126,6 +1159,18 @@ static act_result_t fileflush_request(sx_hashfs_t *hashfs, job_t job_id, job_dat
     }
 
  action_failed:
+
+    if(qrylist) {
+	/* We only land here if something went wrong earlier
+	 * Since Error is already set, we only clean up */
+	for(i=0; i<nqueries; i++) {
+	    if(qrylist[i].query_sent)
+		sxi_cbdata_wait(qrylist[i].cbdata, sxi_conns_get_curlev(clust), NULL);
+	    free(sxi_cbdata_get_context(qrylist[i].cbdata));
+	}
+        query_list_free(qrylist, nqueries);
+    }
+
     free(mis);
     return ret;
 }

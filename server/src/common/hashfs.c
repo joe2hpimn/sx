@@ -6000,7 +6000,7 @@ rc_ty sx_hashfs_job_new_notrigger(sx_hashfs_t *h, sx_uid_t user_id, job_t *job_i
 	msg_set_reason("Internal error: bad action type");
 	goto addjob_out;
     }
-    if(lock) {
+    if(lock && locknames[type]) {
 	if(!(lockstr = malloc(2 + strlen(locknames[type]) + strlen(lock) + 1))) {
 	    msg_set_reason("Not enough memory to create job");
 	    goto addjob_out;
