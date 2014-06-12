@@ -702,7 +702,7 @@ my $nuke = chr(0x2622);
 my $utfvol = "$vol$nuke";
 test_put_job "volume creation (utf-8)", admin_only(200), escape_uri($utfvol), "{\"owner\":\"admin\",\"volumeSize\":$volumesize}";
 test_put 'granting rights on newly created volume', admin_only(200), escape_uri($utfvol)."?o=acl", "{\"grant-read\":[\"$reader\",\"$writer\"],\"grant-write\":[\"$writer\"] }";
-test_get 'the newly created volume', authed_only(200, 'application/json'), "$vol\xe2\x98\xa2", undef, sub { my $json = get_json(shift) or return 0; return is_int($json->{'volumeSize'}) && $json->{'volumeSize'} == $volumesize && is_hash($json->{'fileList'}) && scalar keys %{$json->{'fileList'}} == 0 };
+test_get 'the newly created volume', authed_only(200, 'application/json'), escape_uri($utfvol), undef, sub { my $json = get_json(shift) or return 0; return is_int($json->{'volumeSize'}) && $json->{'volumeSize'} == $volumesize && is_hash($json->{'fileList'}) && scalar keys %{$json->{'fileList'}} == 0 };
 test_put_job 'volume creation (with meta)', admin_only(200), "meta.$vol", "{\"owner\":\"admin\",\"volumeSize\":$volumesize,\"volumeMeta\":{\"one\":\"01\",\"two\":\"2222\",\"three\":\"333333\"}}";
 test_put 'granting rights on newly created volume', admin_only(200), "meta.$vol?o=acl", "{\"grant-read\":[\"$reader\",\"$writer\"],\"grant-write\":[\"$writer\"] }";
 test_get 'the newly created volume', authed_only(200, 'application/json'), "meta.$vol?o=locate&volumeMeta", undef, sub { my $json = get_json(shift) or return 0; return is_array($json->{'nodeList'}) && is_hash($json->{'volumeMeta'}) && (scalar keys %{$json->{'volumeMeta'}} == 3) && $json->{'volumeMeta'}->{'one'} eq '01' && $json->{'volumeMeta'}->{'two'} eq '2222' && $json->{'volumeMeta'}->{'three'} eq '333333' };
