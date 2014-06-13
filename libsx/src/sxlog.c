@@ -34,7 +34,7 @@ void sxi_fmt_start(struct sxi_fmt *fmt)
 static const char truncated[] = "[...]";
 static int sxi_fmt_available(const struct sxi_fmt *fmt)
 {
-    return fmt ? sizeof(fmt->buf) - sizeof(truncated) - fmt->pos : -1;
+    return fmt ? (int) (sizeof(fmt->buf) - sizeof(truncated) - fmt->pos) : -1;
 }
 
 void sxi_vfmt_msg(struct sxi_fmt *fmt, const char *format, va_list ap)

@@ -36,6 +36,7 @@
 #include <arpa/inet.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include "fileops.h"
 
 #define ERRBUF_SIZE 512
 enum ctx_tag { CTX_UPLOAD, CTX_UPLOAD_HOST, CTX_DOWNLOAD, CTX_JOB, CTX_HASHOP, CTX_GENERIC };
@@ -376,7 +377,7 @@ int sxi_cbdata_wait(curlev_context_t *ctx, curl_events_t *e, int *curlcode)
     return -1;
 }
 
-void sxi_cbdata_finish(curl_events_t *e, curlev_context_t **ctxptr, const char *url, error_cb_t err)
+static void sxi_cbdata_finish(curl_events_t *e, curlev_context_t **ctxptr, const char *url, error_cb_t err)
 {
     struct recv_context *rctx;
     curlev_context_t *ctx;
@@ -408,7 +409,7 @@ void sxi_cbdata_finish(curl_events_t *e, curlev_context_t **ctxptr, const char *
 
     do {
     if (ctx->retry.cb && (rctx->rc != CURLE_OK || rctx->reply_status / 100 != 2)) {
-        unsigned n = sxi_hostlist_get_count(&ctx->retry.hosts);
+        int n = sxi_hostlist_get_count(&ctx->retry.hosts);
         if (++ctx->retry.hostidx >= n) {
             if (ctx->retry.retries < 2 || ctx->recv_ctx.reply_status == 429) {
                 ctx->retry.retries++;
@@ -435,8 +436,8 @@ void sxi_cbdata_finish(curl_events_t *e, curlev_context_t **ctxptr, const char *
                 return; /* not finished yet, context reused */
         }
         else {
-            sxc_client_t *sx = sxi_conns_get_client(ctx->conns);
-            sxi_seterr(sx, SXE_EAGAIN, "All %d hosts returned failure, retried %d times",
+            sxc_client_t *sxc = sxi_conns_get_client(ctx->conns);
+            sxi_seterr(sxc, SXE_EAGAIN, "All %d hosts returned failure, retried %d times",
                     sxi_hostlist_get_count(&ctx->retry.hosts),
                     ctx->retry.retries);
             sxi_retry_done(&ctx->retry.retry);
@@ -661,14 +662,14 @@ static void ctx_err(curlev_context_t *ctx, CURLcode rc, const char *msg)
 
 #define EVENTSDEBUG(e, ...) do {\
     if (e && e->conns) {\
-        sxc_client_t *sx = sxi_conns_get_client(e->conns); \
-        SXDEBUG(__VA_ARGS__);\
+        sxc_client_t *_sx = sxi_conns_get_client(e->conns); \
+	sxi_debug(_sx, __FUNCTION__, __VA_ARGS__);\
     }} while (0)
 
 #define EVDEBUG(ev, ...) do {\
     if (ev && ev->ctx && ev->ctx->conns) {\
-        sxc_client_t *sx = sxi_conns_get_client(ev->ctx->conns); \
-        SXDEBUG(__VA_ARGS__);\
+        sxc_client_t *_sx = sxi_conns_get_client(ev->ctx->conns); \
+	sxi_debug(_sx, __FUNCTION__, __VA_ARGS__);\
     }} while (0)
 
 int sxi_curlev_set_bandwidth_limit(curl_events_t *e, int64_t global_bandwidth_limit, unsigned int host_count, unsigned int running) {
@@ -1004,23 +1005,6 @@ static int sockoptfn(void *clientp, curl_socket_t curlfd, curlsocktype purpose)
 #if ERRBUF_SIZE < CURL_ERROR_SIZE
 #error "errbuf too small: ERRBUF_SIZE < CURL_ERROR_SIZE"
 #endif
-
-#ifdef USE_OPENSSL
-#endif
-
-/* Set information about current transfer download value */
-int sxi_file_download_set_xfer_stat(struct file_download_ctx* ctx, int64_t downloaded, int64_t to_download);
-/* Get numner of bytes to be downloaded */
-int64_t sxi_file_download_get_xfer_to_send(const struct file_download_ctx *ctx);
-/* Get number of bytes already downloaded */
-int64_t sxi_file_download_get_xfer_sent(const struct file_download_ctx *ctx);
-
-/* Set information about current transfer upload value */
-int sxi_host_upload_set_xfer_stat(struct host_upload_ctx* ctx, int64_t uploaded, int64_t to_upload);
-/* Get numner of bytes to be downloaded */
-int64_t sxi_host_upload_get_xfer_to_send(const struct host_upload_ctx *ctx);
-/* Get number of bytes already downloaded */
-int64_t sxi_host_upload_get_xfer_sent(const struct host_upload_ctx *ctx);
 
 static int xferinfo(void *p, curl_off_t dltotal, curl_off_t dlnow,
                     curl_off_t ultotal, curl_off_t ulnow)
@@ -1896,7 +1880,7 @@ enum msg_prio {
 
 struct sxi_retry {
     sxc_client_t *sx;
-    unsigned last_try;
+    int last_try;
     int last_printed;
     int errnum;
     char errmsg[65536];
@@ -1971,7 +1955,7 @@ int sxi_retry_check(sxi_retry_t *retry, unsigned current_try)
         SXDEBUG("error is fatal, forbidding retry: %s", errmsg);
         return -1;/* do not retry */
     }
-    if (current_try != retry->last_try) {
+    if ((int)current_try != retry->last_try) {
         sxc_clearerr(sx);
         retry->last_try = current_try;
         SXDEBUG("cleared error for next retry");

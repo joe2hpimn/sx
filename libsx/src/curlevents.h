@@ -27,6 +27,7 @@
 #include "misc.h"
 #include "cluster.h"
 #include "curlevents-common.h"
+#include "fileops.h"
 
 enum head_result { HEAD_OK, HEAD_FAIL, HEAD_SEEN };
 
@@ -76,15 +77,12 @@ int sxi_curlev_poll(curl_events_t *e);
 int sxi_curlev_poll_immediate(curl_events_t *e);
 
 
-struct file_upload_ctx;
 curlev_context_t* sxi_cbdata_create_upload(sxi_conns_t *conns, finish_cb_t cb, struct file_upload_ctx *ctx);
 struct file_upload_ctx *sxi_cbdata_get_upload_ctx(curlev_context_t *ctx);
 
-struct host_upload_ctx;
 curlev_context_t* sxi_cbdata_create_host(sxi_conns_t *conns, finish_cb_t cb, struct host_upload_ctx *ctx);
 struct host_upload_ctx *sxi_cbdata_get_host_ctx(curlev_context_t *ctx);
 
-struct file_download_ctx;
 curlev_context_t* sxi_cbdata_create_download(sxi_conns_t *conns, finish_cb_t cb, struct file_download_ctx *ctx);
 struct file_download_ctx *sxi_cbdata_get_download_ctx(curlev_context_t *ctx);
 

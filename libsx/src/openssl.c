@@ -271,7 +271,7 @@ static int sxi_fmt_X509_name(struct sxi_fmt* fmt, X509_NAME *name)
     return 0;
 }
 
-int sxi_print_certificate_info(sxc_client_t *sx, X509 *x)
+static int sxi_print_certificate_info(sxc_client_t *sx, X509 *x)
 {
     struct sxi_fmt fmt;
     unsigned int i, n;

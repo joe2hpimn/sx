@@ -574,7 +574,6 @@ struct cb_fetchnodes_ctx {
     yajl_handle yh;
     enum fetchnodes_state { FN_ERROR, FN_BEGIN, FN_CLUSTER, FN_NODES, FN_NODE, FN_COMPLETE } state;
 };
-#define CBDEBUG(...) do{ sxc_client_t *sx = yactx->sx; SXDEBUG(__VA_ARGS__); } while(0)
 #define expect_state(expst) do { if(yactx->state != (expst)) { CBDEBUG("bad state (in %d, expected %d)", yactx->state, expst); return 0; } } while(0)
 
 static int yacb_fetchnodes_start_map(void *ctx) {
@@ -1982,7 +1981,7 @@ static int sxc_cluster_listfiles_prev(sxc_cluster_lf_t *lf, char **file_name, in
 	sxi_setsyserr(sx, SXE_EREAD, "Failed to retrieve next file: Read item from cache failed");
 	return -1;
     }
-    if(pos < sizeof(file) * 2)
+    if((size_t) pos < sizeof(file) * 2)
 	return 0;
     fseek(lf->f, pos-sizeof(file), SEEK_SET);
 
@@ -1991,7 +1990,7 @@ static int sxc_cluster_listfiles_prev(sxc_cluster_lf_t *lf, char **file_name, in
 	sxi_setsyserr(sx, SXE_EREAD, "Failed to retrieve next file: Read item from cache failed");
 	return -1;
     }
-    if(pos < sizeof(file) * 2 + file.namelen)
+    if((size_t) pos < sizeof(file) * 2 + file.namelen)
 	return 0;
     fseek(lf->f, pos - file.namelen - sizeof(file), SEEK_SET);
 

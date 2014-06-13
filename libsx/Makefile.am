@@ -31,6 +31,7 @@ src_libsx_la_SOURCES = \
 	src/misc.c \
 	src/misc.h \
 	src/fileops.c \
+	src/fileops.h \
 	src/volops.c \
 	src/volops.h \
 	src/jobpoll.c \

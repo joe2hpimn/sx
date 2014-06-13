@@ -62,7 +62,7 @@ static FMT_PRINTF(4, 5) sxi_query_t* sxi_query_append_fmt(sxc_client_t *sx, sxi_
     va_start(ap, fmt);
     rc = vsnprintf((char*)query->content + query->content_len, n + 1, fmt, ap);
     va_end(ap);
-    if (rc < 0 || rc > n) {
+    if (rc < 0 || rc > (int) n) {
         sxi_seterr(sx, SXE_EARG, "Failed to allocate query: Format string overflow (%d -> %d) %s", n, rc, fmt);
         sxi_query_free(query);
         return NULL;
@@ -212,18 +212,31 @@ sxi_query_t *sxi_fileadd_proto_begin(sxc_client_t *sx, const char *volname, cons
 
     enc_vol = sxi_urlencode(sx, volname, 0);
     enc_path = sxi_urlencode(sx, path, 0);
-    enc_rev = revision ? sxi_urlencode(sx, revision, 1) : "";
-    if(enc_vol && enc_path && enc_rev && 
-       (url = malloc(strlen(enc_vol) + 1 + strlen(enc_path) + lenof("?rev=") + strlen(enc_rev) + 1))) {
-	if(revision)
+    if(!enc_vol || !enc_path) {
+	free(enc_vol);
+	free(enc_path);
+	sxi_setsyserr(sx, SXE_EMEM, "Failed to quote url: Out of memory");
+	return NULL;
+    }
+    if(revision) {
+	enc_rev = sxi_urlencode(sx, revision, 1);
+	if(!enc_rev) {
+	    sxi_setsyserr(sx, SXE_EMEM, "Failed to quote url: Out of memory");
+	    free(enc_vol);
+	    free(enc_path);
+	    return NULL;
+	}
+    }
+
+    if((url = malloc(strlen(enc_vol) + 1 + strlen(enc_path) + lenof("?rev=") + strlen(enc_rev ? enc_rev : "") + 1))) {
+	if(enc_rev)
 	    sprintf(url, "%s/%s?rev=%s", enc_vol, enc_path, enc_rev);
 	else
 	    sprintf(url, "%s/%s", enc_vol, enc_path);
     }
     free(enc_vol);
     free(enc_path);
-    if(revision)
-	free(enc_rev);
+    free(enc_rev);
     if(!url) {
 	sxi_setsyserr(sx, SXE_EMEM, "Cannot allocate URL");
         return NULL;
@@ -292,10 +305,20 @@ sxi_query_t *sxi_filedel_proto(sxc_client_t *sx, const char *volname, const char
 
     if(revision) {
 	enc_rev = sxi_urlencode(sx, revision, 1);
-	if(enc_rev && (url = malloc(strlen(enc_vol) + 1 + strlen(enc_path) + lenof("?rev=") + strlen(enc_rev) + 1)))
+	if(!enc_rev) {
+	    sxi_setsyserr(sx, SXE_EMEM, "Failed to quote url: Out of memory");
+	    free(enc_vol);
+	    free(enc_path);
+	    return NULL;
+	}
+    }
+
+    if((url = malloc(strlen(enc_vol) + 1 + strlen(enc_path) + lenof("?rev=") + strlen(enc_rev ? enc_rev : "") + 1))) {
+	if(enc_rev)
 	    sprintf(url, "%s/%s?rev=%s", enc_vol, enc_path, enc_rev);
-    } else if((url = malloc(strlen(enc_vol) + 1 + strlen(enc_path) + 1)))
-	sprintf(url, "%s/%s", enc_vol, enc_path);
+	else
+	    sprintf(url, "%s/%s", enc_vol, enc_path);
+    }
 
     if(!url) {
 	sxi_setsyserr(sx, SXE_EMEM, "Failed to generate query: Out of memory");
@@ -356,7 +379,7 @@ sxi_query_t *sxi_hashop_proto(sxc_client_t *sx, unsigned blocksize, const char *
             return NULL;
     }
 
-    if (rc < 0 || rc >= sizeof(url)) {
+    if (rc < 0 || (size_t) rc >= sizeof(url)) {
         sxi_seterr(sx, SXE_EARG, "Failed to build hashop url: URL too long");
         return NULL;
     }

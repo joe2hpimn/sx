@@ -271,7 +271,7 @@ sxc_file_t *sxc_file_from_url(sxc_client_t *sx, sxc_cluster_t **cluster, const c
     return NULL;
 }
 
-sxc_file_t *sxi_file_dup(sxc_file_t *file)
+static sxc_file_t *sxi_file_dup(sxc_file_t *file)
 {
     sxc_file_t *ret;
     sxc_client_t *sx;
@@ -529,8 +529,6 @@ int64_t sxi_host_upload_get_xfer_sent(const struct host_upload_ctx *ctx) {
 
     return ctx->ul;
 }
-
-#define CBDEBUG(...) do{ sxc_client_t *sx = yactx->sx; SXDEBUG(__VA_ARGS__); } while(0)
 
 static int yacb_createfile_start_map(void *ctx) {
     struct file_upload_ctx *yactx = (struct file_upload_ctx *)ctx;
@@ -2021,7 +2019,6 @@ static int local_to_remote_iterate(sxc_file_t *source, int recursive, int depth,
     sxc_file_t *dst = NULL;
     /* FIXME: not thread-safe, should use readdir_r */
     while ((entry = readdir(dir))) {
-        struct stat sb;
         if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, ".."))
             continue;
         snprintf(path, n, "%s/%s", source->path, entry->d_name);
@@ -2253,7 +2250,7 @@ static int yacb_getfile_string(void *ctx, const unsigned char *s, size_t l) {
 
     if(getenv("SX_DEBUG_SINGLEHOST")) {
 	s = (unsigned char*)getenv("SX_DEBUG_SINGLEHOST");
-	l = strlen((char *)s);
+	l = strlen((const char *)s);
     }
 
     if(fputc(l, yactx->f) == EOF) {
@@ -3465,7 +3462,7 @@ static int remote_to_local(sxc_file_t *source, sxc_file_t *dest) {
 			fh->f->data_finish(fh, &fh->ctx, SXF_MODE_DOWNLOAD);
 		    goto remote_to_local_err;
 		}
-		if(fwrite(outbuff, 1, bwrite, tempfile) != bwrite) {
+		if(fwrite(outbuff, 1, bwrite, tempfile) != (size_t) bwrite) {
 		    sxi_setsyserr(sx, SXE_EWRITE, "Filter ID %s failed: Can't write to temporary file", filter_uuid);
 		    fclose(tempfile);
 		    if(fh->f->data_finish)
@@ -3999,7 +3996,6 @@ static int mkdir_parents(sxc_client_t *sx, const char *path)
 
 static int remote_iterate(sxc_file_t *source, int recursive, sxc_file_t *dest);
 int sxc_copy(sxc_file_t *source, sxc_file_t *dest, int recursive) {
-    sxc_client_t *sx = source->sx;
     int ret;
     sxc_xfer_stat_t *xfer_stat = NULL;
     sxc_cluster_t *remote_cluster = NULL;
@@ -4723,7 +4719,7 @@ int sxi_file_list_foreach(sxc_file_list_t *target, sxc_cluster_t *wait_cluster, 
                 break;
             }
             if (!entry->glob) {
-                sxi_job_t *job = sxi_file_list_process(target, pattern, cluster, cb, volhosts, pattern->volume, pattern->path, ctx);
+                job = sxi_file_list_process(target, pattern, cluster, cb, volhosts, pattern->volume, pattern->path, ctx);
                 rc = sxi_jobs_add(target->sx, &target->jobs, job);
                 break;
             }

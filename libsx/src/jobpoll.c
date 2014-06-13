@@ -28,8 +28,6 @@
 #include "jobpoll.h"
 #include "curlevents.h"
 
-#define CBDEBUG(...) do{ sxc_client_t *sx = yactx->sx; SXDEBUG(__VA_ARGS__); } while(0)
-
 #define POLL_INTERVAL 30.0
 #define PROGRESS_INTERVAL 6.0
 struct job_ctx {
@@ -100,7 +98,7 @@ static int yacb_jobres_string(void *ctx, const unsigned char *s, size_t l) {
 	return 0;
 
     if(yactx->state == JR_ID) {
-	int jl = strlen(yactx->job_id);
+	size_t jl = strlen(yactx->job_id);
 	if(jl != l || memcmp(yactx->job_id, s, l)) {
 	    CBDEBUG("Request ID mismatch");
 	    return 0;
@@ -509,7 +507,7 @@ sxi_job_t* sxi_job_submit(sxi_conns_t *conns, sxi_hostlist_t *hlist, enum sxi_cl
     return NULL;
 }
 
-unsigned sxi_job_min_delay(sxi_job_t *poll)
+static unsigned sxi_job_min_delay(sxi_job_t *poll)
 {
     unsigned ret;
 
@@ -655,7 +653,6 @@ static int sxi_job_poll(sxi_conns_t *conns, sxi_jobs_t *jobs, unsigned *successf
         int msg_printed = 0;
         gettimeofday(&tv0, NULL);
         for (i=0;i<jobs->n;i++) {
-            int rc;
             if (!jobs->jobs[i])
                 continue;
             delay = sxi_job_min_delay(jobs->jobs[i]);

@@ -114,7 +114,7 @@ int sxi_volume_cfg_store(sxc_client_t *sx, sxc_cluster_t *cluster, const char *v
 	free(path);
 	return 1;
     }
-    if(write(fd, filter_uuid, strlen(filter_uuid)) != strlen(filter_uuid)) {
+    if(write(fd, filter_uuid, strlen(filter_uuid)) != (ssize_t) strlen(filter_uuid)) {
 	sxi_seterr(sx, SXE_EWRITE, "Can't write to %s", path);
 	free(path);
 	close(fd);
@@ -478,7 +478,6 @@ struct cb_listvolumes_ctx {
 
     enum listvolumes_state { LV_ERROR, LV_BEGIN, LV_BASE, LV_VOLUMES, LV_NAME, LV_VALUES, LV_VALNAME, LV_REPLICA, LV_SIZE, LV_DONE, LV_COMPLETE } state;
 };
-#define CBDEBUG(...) do{ sxc_client_t *sx = yactx->sx; SXDEBUG(__VA_ARGS__); } while(0)
 #define expect_state(expst) do { if(yactx->state != (expst)) { CBDEBUG("bad state (in %d, expected %d)", yactx->state, expst); return 0; } } while(0)
 
 static int yacb_listvolumes_start_map(void *ctx) {
@@ -816,7 +815,6 @@ void sxc_cluster_listvolumes_free(sxc_cluster_lv_t *lv) {
     free(lv->fname);
     free(lv);
 }
-#define CBDEBUG(...) do{ sxc_client_t *sx = yactx->sx; SXDEBUG(__VA_ARGS__); } while(0)
 #define expect_state(expst) do { if(yactx->state != (expst)) { CBDEBUG("bad state (in %d, expected %d)", yactx->state, expst); return 0; } } while(0)
 
 struct cb_listusers_ctx {

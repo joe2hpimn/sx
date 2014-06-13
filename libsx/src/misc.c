@@ -728,7 +728,7 @@ void sxc_free_uri(sxc_uri_t *uri) {
 
 static const char hexchar[16] = "0123456789abcdef";
 void sxi_bin2hex(const void *bin, unsigned int len, char *hex) {
-    uint8_t *s = (uint8_t *)bin;
+    const uint8_t *s = (const uint8_t *)bin;
     while(len--) {
         uint8_t c = *s;
 	s++;
