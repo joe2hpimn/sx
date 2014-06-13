@@ -745,7 +745,7 @@ int sxi_job_submit_and_poll(sxi_conns_t *conns, sxi_hostlist_t *hlist, const cha
     };
     if (!jtable[0])
         return -1;
-    sxi_jobs_t jobs = { jtable, 1 };
+    sxi_jobs_t jobs = { jtable, 1, { 0, 0 } };
     rc = sxi_job_wait(conns, &jobs, NULL);
     sxi_job_free(jtable[0]);
     return rc;
