@@ -27,6 +27,7 @@
 #include <time.h>
 #include <curl/curl.h>
 #include <pwd.h>
+#include <ctype.h>
 
 #include "libsx-int.h"
 #include "ltdl.h"
@@ -325,7 +326,7 @@ int sxc_geterrnum(sxc_client_t *sx) {
 const char *sxc_geterrmsg(sxc_client_t *sx) {
     if(!sx)
 	return NULL;
-    return sx->errbuf;
+    return sxc_escstr(sx->errbuf);
 }
 
 void sxc_clearerr(sxc_client_t *sx) {
@@ -486,4 +487,13 @@ alias_list_t *sxi_get_alias_list(sxc_client_t *sx) {
         }
     }
     return sx->alias;
+}
+
+char* sxc_escstr(char *str) {
+    unsigned int i;
+    for(i = 0; i < strlen(str); i++) {
+        if(iscntrl(str[i]))
+            str[i] = '?';
+    }
+    return str;
 }

@@ -149,7 +149,7 @@ int main(int argc, char **argv) {
     }
 
     if(args.config_dir_given && sxc_set_confdir(sx, args.config_dir_arg)) {
-        fprintf(stderr, "ERROR: Could not set configuration directory %s: %s\n", args.config_dir_arg, sxc_geterrmsg(sx));
+        fprintf(stderr, "ERROR: Could not set configuration directory %s: %s\n", sxc_escstr(args.config_dir_arg), sxc_geterrmsg(sx));
         cmdline_parser_free(&args);
         return 1;
     }
@@ -167,16 +167,16 @@ int main(int argc, char **argv) {
     for(i = 0; i < args.inputs_num; i++) {
 	u = sxc_parse_uri(sx, args.inputs[i]);
 	if(!u) {
-	    fprintf(stderr, "ERROR: Can't parse URI %s: %s\n", args.inputs[i], sxc_geterrmsg(sx));
+	    fprintf(stderr, "ERROR: Can't parse URI %s: %s\n", sxc_escstr(args.inputs[i]), sxc_geterrmsg(sx));
 	    ret = 1;
 	    continue;
 	}
 
 	cluster = sxc_cluster_load_and_update(sx, args.config_dir_arg, u->host, u->profile);
 	if(!cluster) {
-	    fprintf(stderr, "ERROR: Failed to load config for %s: %s\n", u->host, sxc_geterrmsg(sx));
+	    fprintf(stderr, "ERROR: Failed to load config for %s: %s\n", sxc_escstr(u->host), sxc_geterrmsg(sx));
 	    if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_CFG_ERR))
-		fprintf(stderr, SXBC_TOOLS_CFG_MSG, u->host, u->host);
+		fprintf(stderr, SXBC_TOOLS_CFG_MSG, sxc_escstr(u->host), sxc_escstr(u->host));
 	    sxc_free_uri(u);
 	    ret = 1;
 	    continue;
@@ -199,7 +199,7 @@ int main(int argc, char **argv) {
 
 		    if(n<=0) {
 			if(n)
-			    fprintf(stderr, "ERROR: Failed to retrieve file name for %s\n", args.inputs[i]);
+        		    fprintf(stderr, "ERROR: Failed to retrieve file name for %s\n", sxc_escstr(args.inputs[i]));
 			break;
 		    }
 
@@ -247,9 +247,9 @@ int main(int argc, char **argv) {
 		    }
 
 		    if(u->profile)
-			printf("sx://%s@%s/%s\n", u->profile, u->host, vname);
+			printf("sx://%s@%s/%s\n", sxc_escstr(u->profile), sxc_escstr(u->host), sxc_escstr(vname));
 		    else
-			printf("sx://%s/%s\n", u->host, vname);
+			printf("sx://%s/%s\n", sxc_escstr(u->host), sxc_escstr(vname));
 		    free(vname);
 		}
 		sxc_cluster_listvolumes_free(fv);
@@ -268,7 +268,7 @@ int main(int argc, char **argv) {
 		    int n = sxc_cluster_listfiles_next(fl, &fname, &fsize, &ftime);
 		    if(n<=0) {
 			if(n)
-			    fprintf(stderr, "ERROR: Failed to retrieve file name for %s\n", args.inputs[i]);
+			    fprintf(stderr, "ERROR: Failed to retrieve file name for %s\n", sxc_escstr(args.inputs[i]));
 			break;
 		    }
 
@@ -293,9 +293,9 @@ int main(int argc, char **argv) {
 		        } 
 		    }
 		    if(u->profile)
-			printf("sx://%s@%s/%s%s\n", u->profile, u->host, u->volume, fname);
+			printf("sx://%s@%s/%s%s\n", sxc_escstr(u->profile), sxc_escstr(u->host), sxc_escstr(u->volume), sxc_escstr(fname));
 		    else
-			printf("sx://%s/%s%s\n", u->host, u->volume, fname);
+			printf("sx://%s/%s%s\n", sxc_escstr(u->host), sxc_escstr(u->volume), sxc_escstr(fname));
 		    free(fname);
 		}
 		sxc_cluster_listfiles_free(fl);

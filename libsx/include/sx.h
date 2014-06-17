@@ -474,6 +474,9 @@ enum sxc_log_level {
 int sxc_filter_msg(const sxf_handle_t *handle, int level, const char *format, ...);
 int sxc_filter_get_input(const sxf_handle_t *h, sxc_input_t type, const char *prompt, const char *def, char *in, unsigned int insize);
 
+/* Escape string */
+char *sxc_escstr(char *str);
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

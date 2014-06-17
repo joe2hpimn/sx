@@ -103,7 +103,7 @@ static void sxi_log_call(struct sxi_logger *l, int level)
 {
     if (!l || !l->func)
         return;
-    l->func->log(l->func->ctx, l->func->argv0, level, l->fmt.buf);
+    l->func->log(l->func->ctx, l->func->argv0, level, sxc_escstr(l->fmt.buf));
 }
 
 void sxi_vlog_msg(struct sxi_logger *l, const char *fn, int level, const char *format, va_list ap)
