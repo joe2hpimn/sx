@@ -1378,7 +1378,7 @@ static act_result_t filedelete_request(sx_hashfs_t *hashfs, job_t job_id, job_da
 		if(s == OK || s == ENOENT)
 		    succeeded[nnode] += 1;
 		else
-		    action_error(rc2actres(s), rc2http(s), msg_get_reason()); //ACAB
+		    action_error(rc2actres(s), rc2http(s), msg_get_reason());
 	    } else {
 		/* Remote node */
 		if(!proto) {
@@ -1960,6 +1960,104 @@ static act_result_t distribution_undo(sx_hashfs_t *hashfs, job_t job_id, job_dat
     return ACT_RESULT_OK;
 }
 
+
+static act_result_t jlock_common(int lock, sx_hashfs_t *hashfs, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg) {
+    sxi_conns_t *clust = sx_hashfs_conns(hashfs);
+    const sx_node_t *me = sx_hashfs_self(hashfs);
+    unsigned int i, nnodes = sx_nodelist_count(nodes);
+    act_result_t ret = ACT_RESULT_OK;
+    query_list_t *qrylist = NULL;
+    char *query = NULL;
+    rc_ty s;
+
+    for(i=0; i<nnodes; i++) {
+	const sx_node_t *node = sx_nodelist_get(nodes, i);
+	const char *owner = sx_node_uuid_str(me);
+	if(sx_node_cmp(me, node)) {
+	    /* Remote node */
+	    if(!query) {
+		query = wrap_malloc(lenof(".jlock/") + strlen(owner) + 1);
+		qrylist = wrap_calloc(nnodes, sizeof(*qrylist));
+		if(!query || !qrylist) {
+		    WARN("Cannot allocate query");
+		    action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
+		}
+		sprintf(query, ".jlock/%s", owner);
+	    }
+
+            qrylist[i].cbdata = sxi_cbdata_create_generic(clust, NULL, NULL);
+	    if(sxi_cluster_query_ev(qrylist[i].cbdata, clust, sx_node_internal_addr(node), lock ? REQ_PUT : REQ_DELETE, query, NULL, 0, NULL, NULL)) {
+		WARN("Failed to query node %s: %s", sx_node_uuid_str(node), sxc_geterrmsg(sx_hashfs_client(hashfs)));
+		action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to setup cluster communication");
+	    }
+	    qrylist[i].query_sent = 1;
+	} else {
+	    /* Local node */
+	    if(lock)
+		s = sx_hashfs_job_lock(hashfs, owner);
+	    else
+		s = sx_hashfs_job_unlock(hashfs, owner);
+	    if(s != OK)
+		action_error(rc2actres(s), rc2http(s), msg_get_reason());
+	    succeeded[i] = 1;
+	}
+    }
+
+ action_failed:
+    if(qrylist) {
+	for(i=0; i<nnodes; i++) {
+	    if(qrylist[i].query_sent) {
+		int rc = sxi_cbdata_wait(qrylist[i].cbdata, sxi_conns_get_curlev(clust), NULL);
+		if(rc != -1) {
+		    rc = sxi_cbdata_result(qrylist[i].cbdata, NULL);
+		    if(sxi_cbdata_result_fail(qrylist[i].cbdata)) {
+			WARN("Query failed with %d", rc);
+			if(ret > ACT_RESULT_TEMPFAIL) /* Only raise OK to TEMP */
+			    action_set_fail(ACT_RESULT_TEMPFAIL, 503, sxc_geterrmsg(sx_hashfs_client(hashfs)));
+		    } else if(rc != 200) {
+			act_result_t newret = http2actres(rc);
+			if(newret < ret) /* Severity shall only be raised */
+			    action_set_fail(newret, rc, sxc_geterrmsg(sx_hashfs_client(hashfs)));
+		    } else
+			succeeded[i] = 1;
+		} else {
+		    CRIT("Failed to wait for query");
+		    action_set_fail(ACT_RESULT_PERMFAIL, 500, "Internal error in cluster communication");
+		    /* FIXME should abort here */
+		}
+	    }
+	}
+        query_list_free(qrylist, nnodes);
+    }
+
+    free(query);
+    return ret;
+}
+
+static act_result_t jlock_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    return jlock_common(1, hashfs, nodes, succeeded, fail_code, fail_msg);
+}
+
+static act_result_t jlock_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    unsigned int nnode, nnodes;
+    nnodes = sx_nodelist_count(nodes);
+    for(nnode = 0; nnode<nnodes; nnode++)
+	succeeded[nnode] = 1;
+    return ACT_RESULT_OK;
+}
+
+static act_result_t jlock_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    return jlock_common(0, hashfs, nodes, succeeded, fail_code, fail_msg);
+}
+
+static act_result_t jlock_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    unsigned int nnode, nnodes;
+    nnodes = sx_nodelist_count(nodes);
+    for(nnode = 0; nnode<nnodes; nnode++)
+	succeeded[nnode] = 1;
+    return ACT_RESULT_OK;
+}
+
 static struct {
     job_action_t fn_request;
     job_action_t fn_commit;
@@ -1973,6 +2071,7 @@ static struct {
     { fileflush_request, fileflush_commit, fileflush_abort, fileflush_undo }, /* JOBTYPE_FLUSH_FILE */
     { filedelete_request, filedelete_commit, filedelete_abort, filedelete_undo }, /* JOBTYPE_DELETE_FILE */
     { distribution_request, distribution_commit, distribution_abort, distribution_undo }, /* JOBTYPE_DISTRIBUTION */
+    { jlock_request, jlock_commit, jlock_abort, jlock_undo }, /* JOBTYPE_JLOCK */
 };
 
 

@@ -631,7 +631,7 @@ struct _sx_hashfs_t {
     sqlite3_stmt *qe_addact;
     sqlite3_stmt *qe_countjobs;
     sqlite3_stmt *qe_islocked;
-    sqlite3_stmt *qe_cantlock;
+    sqlite3_stmt *qe_hasjobs;
     sqlite3_stmt *qe_lock;
     sqlite3_stmt *qe_unlock;
     int addjob_begun;
@@ -735,7 +735,7 @@ static void close_all_dbs(sx_hashfs_t *h) {
     sqlite3_finalize(h->qe_addact);
     sqlite3_finalize(h->qe_countjobs);
     sqlite3_finalize(h->qe_islocked);
-    sqlite3_finalize(h->qe_cantlock);
+    sqlite3_finalize(h->qe_hasjobs);
     sqlite3_finalize(h->qe_lock);
     sqlite3_finalize(h->qe_unlock);
 
@@ -1197,7 +1197,7 @@ static int load_config(sx_hashfs_t *h, sxc_client_t *sx) {
 sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
     unsigned int dirlen, pathlen, i, j;
     sqlite3_stmt *q = NULL;
-    char *path, dbitem[64];
+    char *path, dbitem[64], dynqry[128];
     const char *str;
     sx_hashfs_t *h;
 
@@ -1479,7 +1479,6 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
     OPEN_DB("eventdb", &h->eventdb);
     if(qprep(h->eventdb, &h->qe_getjob, "SELECT complete, result, reason FROM jobs WHERE job = :id AND :owner IN (user, 0)"))
 	goto open_hashfs_fail;
-    /* FIXME: job TTL should be dependent on the type */
     if(qprep(h->eventdb, &h->qe_addjob, "INSERT INTO jobs (parent, type, lock, expiry_time, data, user) VALUES (:parent, :type, :lock, datetime(:expiry, 'unixepoch'), :data, :uid)"))
 	goto open_hashfs_fail;
     if(qprep(h->eventdb, &h->qe_addact, "INSERT INTO actions (job_id, target, addr, internaladdr, capacity) VALUES (:job, :node, :addr, :int_addr, :capa)"))
@@ -1488,7 +1487,8 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 	goto open_hashfs_fail;
     if(qprep(h->eventdb, &h->qe_islocked, "SELECT value from hashfs WHERE key = 'lockedby'"))
 	goto open_hashfs_fail;
-    if(qprep(h->eventdb, &h->qe_cantlock, "SELECT 1 FROM jobs WHERE complete = 0 LIMIT 1"))
+    snprintf(dynqry, sizeof(dynqry), "SELECT 1 FROM jobs WHERE complete = 0 AND type NOT IN (%d, %d) LIMIT 1", JOBTYPE_DISTRIBUTION, JOBTYPE_JLOCK);
+    if(qprep(h->eventdb, &h->qe_hasjobs, dynqry))
 	goto open_hashfs_fail;
     if(qprep(h->eventdb, &h->qe_lock, "INSERT INTO hashfs (key, value) VALUES ('lockedby', :node)"))
 	goto open_hashfs_fail;
@@ -6005,7 +6005,8 @@ static const char *locknames[] = {
     NULL, /* JOBTYPE_REPLICATE_BLOCKS */
     "TOKEN", /* JOBTYPE_FLUSH_FILE */
     "DELFILE", /* JOBTYPE_DELETE_FILE */
-    "*" /* JOBTYPE_DIST - MODHDIST: this must become a global lock */
+    "*", /* JOBTYPE_DIST */
+    NULL, /* JOBTYPE_JLOCK */
 };
 
 
@@ -6267,11 +6268,11 @@ rc_ty sx_hashfs_job_lock(sx_hashfs_t *h, const char *owner) {
 	goto job_lock_err;
     }
 
-    sqlite3_reset(h->qe_cantlock);
-    r = qstep(h->qe_cantlock);
+    sqlite3_reset(h->qe_hasjobs);
+    r = qstep(h->qe_hasjobs);
     if(r == SQLITE_ROW) {
 	msg_set_reason("There are active jobs on this node and it currently cannot be locked. Please try again later.");
-	sqlite3_reset(h->qe_islocked);
+	sqlite3_reset(h->qe_hasjobs);
 	ret = FAIL_LOCKED;
 	goto job_lock_err;
     }
@@ -6301,12 +6302,12 @@ rc_ty sx_hashfs_job_unlock(sx_hashfs_t *h, const char *owner) {
     sx_uuid_t node;
     int r;
 
-    if(!h || !owner) {
+    if(!h) {
 	NULLARG();
 	return EFAULT;
     }
 
-    if(uuid_from_string(&node, owner)) {
+    if(owner && uuid_from_string(&node, owner)) {
 	msg_set_reason("Invalid lock owner");
 	return EINVAL;
     }
@@ -6328,13 +6329,16 @@ rc_ty sx_hashfs_job_unlock(sx_hashfs_t *h, const char *owner) {
 	goto job_unlock_err;
     }
 
-    curowner = (const char *)sqlite3_column_text(h->qe_islocked, 0);
-    r = strcmp(owner, curowner);
-    sqlite3_reset(h->qe_islocked);
-    if(r) {
-	msg_set_reason("This node is locked by someone else and cannot be unlocked");
-	goto job_unlock_err;
+    if(owner) {
+	curowner = (const char *)sqlite3_column_text(h->qe_islocked, 0);
+	r = strcmp(owner, curowner);
+	if(r) {
+	    msg_set_reason("This node is locked by %s and cannot be unlocked by %s", curowner, owner);
+	    sqlite3_reset(h->qe_islocked);
+	    goto job_unlock_err;
+	}
     }
+    sqlite3_reset(h->qe_islocked);
 
     sqlite3_reset(h->qe_unlock);
     if(qstep_noret(h->qe_unlock) ||
@@ -7143,9 +7147,35 @@ rc_ty sx_hashfs_hdist_change_req(sx_hashfs_t *h, const sx_nodelist_t *newdist, j
 	return r;
     }
 
-    r = sx_hashfs_job_new(h, 0, job_id, JOBTYPE_DISTRIBUTION, sx_nodelist_count(targets) * 20, "MODHDIST: this should lock everything!", cfg, cfg_len, targets);
+    r = sx_hashfs_job_new_begin(h);
+    if(r) {
+	sx_nodelist_delete(targets);
+	sxi_hdist_free(newmod);
+	msg_set_reason("Failed to setup job targets");
+	return r;
+    }
+
+    r = sx_hashfs_job_new_notrigger(h, JOB_NOPARENT, 0, job_id, JOBTYPE_JLOCK, sx_nodelist_count(targets) * 20, "JLOCK", NULL, 0, targets);
+    if(r) {
+        INFO("job_new (jlock) returned: %s", rc2str(r));
+	sx_nodelist_delete(targets);
+	sxi_hdist_free(newmod);
+	return r;
+    }
+
+    r = sx_hashfs_job_new_notrigger(h, *job_id, 0, job_id, JOBTYPE_DISTRIBUTION, sx_nodelist_count(targets) * 40, "DISTRIBUTION", cfg, cfg_len, targets);
     sx_nodelist_delete(targets);
     sxi_hdist_free(newmod);
+    if(r) {
+        INFO("job_new (distribution) returned: %s", rc2str(r));
+	return r;
+    }
+
+    r = sx_hashfs_job_new_end(h);
+    if(r)
+        INFO("Failed to commit jobadd");
+    else
+	sx_hashfs_job_trigger(h);
 
     return r;
 }
@@ -7312,6 +7342,8 @@ rc_ty sx_hashfs_hdist_change_commit(sx_hashfs_t *h) {
     if(qprep(h->db, &q, "DELETE FROM hashfs WHERE key IN ('current_dist', 'current_dist_rev')") ||
        qstep_noret(q))
 	s = FAIL_EINTERNAL;
+    else if((s = sx_hashfs_job_unlock(h, NULL)) != OK)
+	WARN("Failed to unlock jobs after enabling new model");
     else
 	DEBUG("Distribution change committed");
 

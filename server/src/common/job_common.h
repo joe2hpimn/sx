@@ -51,7 +51,8 @@ typedef enum _jobtype_t {
     JOBTYPE_REPLICATE_BLOCKS,
     JOBTYPE_FLUSH_FILE,
     JOBTYPE_DELETE_FILE,
-    JOBTYPE_DISTRIBUTION
+    JOBTYPE_DISTRIBUTION,
+    JOBTYPE_JLOCK,
 } jobtype_t;
 
 typedef enum {

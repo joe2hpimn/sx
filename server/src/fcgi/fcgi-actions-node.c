@@ -327,7 +327,7 @@ void fcgi_enable_distribution(void) {
     if(s != OK)
 	quit_errmsg(rc2http(s), msg_get_reason());
 
-    /* MODHDIST: unlock and create jobs for rebalancing */
+    /* MODHDIST: create jobs for rebalancing */
 
     CGI_PUTS("\r\n");
 }
