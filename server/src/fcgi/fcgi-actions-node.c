@@ -825,3 +825,21 @@ void fcgi_sync_globs(void) {
 
     CGI_PUTS("\r\n");
 }
+
+
+void fcgi_node_jlock(void) {
+    rc_ty s = sx_hashfs_job_lock(hashfs, path);
+    if(s != OK)
+	quit_errmsg(rc2http(s), msg_get_reason());
+
+    CGI_PUTS("\r\n");
+}
+
+
+void fcgi_node_junlock(void) {
+    rc_ty s = sx_hashfs_job_unlock(hashfs, path);
+    if(s != OK)
+	quit_errmsg(rc2http(s), msg_get_reason());
+
+    CGI_PUTS("\r\n");
+}

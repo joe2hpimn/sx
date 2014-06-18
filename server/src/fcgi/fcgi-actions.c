@@ -237,6 +237,13 @@ void file_ops(void) {
 	    return;
 	}
 
+	if(!strcmp(volume, ".jlock") && !content_len()) {
+	    /* Giant locking - CLUSTER required */
+	    quit_unless_has(PRIV_CLUSTER);
+	    fcgi_node_jlock();
+	    return;
+	}
+
 	if(!strcmp(volume, ".users") && (arg_is("o","disable") || arg_is("o","enable"))) {
 	    /* Enable/disable users (2pc/s2s) - CLUSTER required */
 	    quit_unless_has(PRIV_CLUSTER);
@@ -290,6 +297,14 @@ void file_ops(void) {
             fcgi_hashop_blocks(HASHOP_DELETE);
             return;
 	}
+
+	if(!strcmp(volume, ".jlock")) {
+	    /* Giant unlocking - CLUSTER required */
+	    quit_unless_has(PRIV_CLUSTER);
+	    fcgi_node_junlock();
+	    return;
+	}
+
 	/* File deletion - WRITE required */
 	quit_unless_has(PRIV_WRITE);
 	fcgi_delete_file();

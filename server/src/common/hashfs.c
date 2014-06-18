@@ -6235,11 +6235,17 @@ rc_ty sx_hashfs_job_new(sx_hashfs_t *h, sx_uid_t user_id, job_t *job_id, jobtype
 
 rc_ty sx_hashfs_job_lock(sx_hashfs_t *h, const char *owner) {
     rc_ty ret = FAIL_EINTERNAL;
+    sx_uuid_t node;
     int r;
 
     if(!h || !owner) {
 	NULLARG();
 	return EFAULT;
+    }
+
+    if(uuid_from_string(&node, owner)) {
+	msg_set_reason("Invalid lock owner");
+	return EINVAL;
     }
 
     if(qbegin(h->eventdb)) {
@@ -6292,11 +6298,17 @@ rc_ty sx_hashfs_job_lock(sx_hashfs_t *h, const char *owner) {
 rc_ty sx_hashfs_job_unlock(sx_hashfs_t *h, const char *owner) {
     rc_ty ret = FAIL_EINTERNAL;
     const char *curowner;
+    sx_uuid_t node;
     int r;
 
     if(!h || !owner) {
 	NULLARG();
 	return EFAULT;
+    }
+
+    if(uuid_from_string(&node, owner)) {
+	msg_set_reason("Invalid lock owner");
+	return EINVAL;
     }
 
     if(qbegin(h->eventdb)) {
