@@ -138,6 +138,21 @@ static void query_list_free(query_list_t *qrylist, unsigned nnodes)
     free(qrylist);
 }
 
+static act_result_t force_phase_success(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    unsigned int nnode, nnodes;
+    nnodes = sx_nodelist_count(nodes);
+    for(nnode = 0; nnode<nnodes; nnode++)
+	succeeded[nnode] = 1;
+    return ACT_RESULT_OK;
+}
+
+static act_result_t FIXME_phase_placeholder(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    WARN("Phase not implmented for job %lld", (long long)job_id);
+    strncpy(fail_msg, "Action not implemented", JOB_FAIL_REASON_SIZE);
+    fail_msg[JOB_FAIL_REASON_SIZE - 1] = '\0';
+    return ACT_RESULT_PERMFAIL;
+}
+
 static act_result_t createuser_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     sx_blob_t *b;
     const void *auth;
@@ -340,14 +355,6 @@ static act_result_t createuser_commit(sx_hashfs_t *hashfs, job_t job_id, job_dat
     return ret;
 }
 
-static act_result_t createuser_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
-    INFO("createuser_abort");
-    return ACT_RESULT_PERMFAIL;
-}
-static act_result_t createuser_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl){
-    INFO("createuser_undo");
-    return ACT_RESULT_PERMFAIL;
-}
 
 static act_result_t createvol_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     const char *volname, *owner;
@@ -692,13 +699,6 @@ static act_result_t createvol_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_
     return ret;
 }
 
-static act_result_t createvol_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
-    unsigned int nnode, nnodes;
-    nnodes = sx_nodelist_count(nodes);
-    for(nnode = 0; nnode<nnodes; nnode++)
-	succeeded[nnode] = 0;
-    return ACT_RESULT_PERMFAIL;
-}
 
 static act_result_t job_twophase_execute(const job_2pc_t *spec, jobphase_t phase, sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg) {
     act_result_t ret = ACT_RESULT_OK;
@@ -1100,35 +1100,6 @@ static act_result_t replicateblocks_request(sx_hashfs_t *hashfs, job_t job_id, j
     return ret;
 }
 
-static act_result_t replicateblocks_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
-    unsigned int nnode, nnodes;
-
-    /* Nothing to do here */
-    nnodes = sx_nodelist_count(nodes);
-    for(nnode = 0; nnode<nnodes; nnode++)
-	succeeded[nnode] = 1;
-    return ACT_RESULT_OK;
-}
-
-static act_result_t replicateblocks_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
-    unsigned int nnode, nnodes;
-    nnodes = sx_nodelist_count(nodes);
-    for(nnode = 0; nnode<nnodes; nnode++)
-	succeeded[nnode] = 1;
-    /* TODO: must DECUSE all the hashes of the token */
-    return ACT_RESULT_OK;
-}
-
-static act_result_t replicateblocks_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
-    unsigned int nnode, nnodes;
-    nnodes = sx_nodelist_count(nodes);
-    for(nnode = 0; nnode<nnodes; nnode++)
-	succeeded[nnode] = 1;
-    /* TODO: must DECUSE all the hashes of the token */
-    return ACT_RESULT_OK;
-}
-
-
 static act_result_t fileflush_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     sxi_conns_t *clust = sx_hashfs_conns(hashfs);
     sxc_client_t *sx = sx_hashfs_client(hashfs);
@@ -1292,24 +1263,6 @@ static act_result_t fileflush_commit(sx_hashfs_t *hashfs, job_t job_id, job_data
     return ret;
 }
 
-static act_result_t fileflush_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
-    unsigned int nnode, nnodes;
-    nnodes = sx_nodelist_count(nodes);
-    for(nnode = 0; nnode<nnodes; nnode++)
-	succeeded[nnode] = 1;
-    /* TODO: must remove the file */
-    return ACT_RESULT_OK;
-}
-
-static act_result_t fileflush_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
-    unsigned int nnode, nnodes;
-    nnodes = sx_nodelist_count(nodes);
-    for(nnode = 0; nnode<nnodes; nnode++)
-	succeeded[nnode] = 1;
-    /* TODO: must remove the file */
-    return ACT_RESULT_OK;
-}
-
 static act_result_t filedelete_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     sxi_conns_t *clust = sx_hashfs_conns(hashfs);
     sxc_client_t *sx = sx_hashfs_client(hashfs);
@@ -1321,6 +1274,8 @@ static act_result_t filedelete_request(sx_hashfs_t *hashfs, job_t job_id, job_da
     sxi_query_t *proto = NULL;
     sx_blob_t *b = NULL;
     rc_ty s;
+
+    /* FIXME: this is effectively single phase. do we need actual 2pc here? */
 
     if(!job_data) {
 	NULLARG();
@@ -1442,31 +1397,6 @@ static act_result_t filedelete_request(sx_hashfs_t *hashfs, job_t job_id, job_da
     sx_blob_free(b);
     return ret;
 }
-
-static act_result_t filedelete_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
-    unsigned int nnode, nnodes;
-    nnodes = sx_nodelist_count(nodes);
-    for(nnode = 0; nnode<nnodes; nnode++)
-	succeeded[nnode] = 1;
-    return ACT_RESULT_OK;
-}
-
-static act_result_t filedelete_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
-    unsigned int nnode, nnodes;
-    nnodes = sx_nodelist_count(nodes);
-    for(nnode = 0; nnode<nnodes; nnode++)
-	succeeded[nnode] = 1;
-    return ACT_RESULT_OK;
-}
-
-static act_result_t filedelete_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
-    unsigned int nnode, nnodes;
-    nnodes = sx_nodelist_count(nodes);
-    for(nnode = 0; nnode<nnodes; nnode++)
-	succeeded[nnode] = 1;
-    return ACT_RESULT_OK;
-}
-
 
 struct cb_challenge_ctx {
     sx_hash_challenge_t chlrsp;
@@ -1944,23 +1874,6 @@ action_failed:
     return ret;
 }
 
-static act_result_t distribution_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
-    unsigned int nnode, nnodes;
-    nnodes = sx_nodelist_count(nodes);
-    for(nnode = 0; nnode<nnodes; nnode++)
-	succeeded[nnode] = 1;
-    return ACT_RESULT_OK;
-}
-
-static act_result_t distribution_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
-    unsigned int nnode, nnodes;
-    nnodes = sx_nodelist_count(nodes);
-    for(nnode = 0; nnode<nnodes; nnode++)
-	succeeded[nnode] = 1;
-    return ACT_RESULT_OK;
-}
-
-
 static act_result_t jlock_common(int lock, sx_hashfs_t *hashfs, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg) {
     sxi_conns_t *clust = sx_hashfs_conns(hashfs);
     const sx_node_t *me = sx_hashfs_self(hashfs);
@@ -2038,24 +1951,8 @@ static act_result_t jlock_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t 
     return jlock_common(1, hashfs, nodes, succeeded, fail_code, fail_msg);
 }
 
-static act_result_t jlock_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
-    unsigned int nnode, nnodes;
-    nnodes = sx_nodelist_count(nodes);
-    for(nnode = 0; nnode<nnodes; nnode++)
-	succeeded[nnode] = 1;
-    return ACT_RESULT_OK;
-}
-
 static act_result_t jlock_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     return jlock_common(0, hashfs, nodes, succeeded, fail_code, fail_msg);
-}
-
-static act_result_t jlock_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
-    unsigned int nnode, nnodes;
-    nnodes = sx_nodelist_count(nodes);
-    for(nnode = 0; nnode<nnodes; nnode++)
-	succeeded[nnode] = 1;
-    return ACT_RESULT_OK;
 }
 
 static struct {
@@ -2064,14 +1961,14 @@ static struct {
     job_action_t fn_abort;
     job_action_t fn_undo;
 } actions[] = {
-    { createvol_request, createvol_commit, createvol_abort, createvol_undo }, /* JOBTYPE_CREATE_VOLUME */
-    { createuser_request, createuser_commit, createuser_abort, createuser_undo }, /* JOBTYPE_CREATE_USER */
+    { createvol_request, createvol_commit, createvol_abort, FIXME_phase_placeholder }, /* JOBTYPE_CREATE_VOLUME */
+    { createuser_request, createuser_commit, FIXME_phase_placeholder, FIXME_phase_placeholder }, /* JOBTYPE_CREATE_USER */
     { acl_request, acl_commit, acl_abort, acl_undo }, /* JOBTYPE_VOLUME_ACL */
-    { replicateblocks_request, replicateblocks_commit, replicateblocks_abort, replicateblocks_undo }, /* JOBTYPE_REPLICATE_BLOCKS */
-    { fileflush_request, fileflush_commit, fileflush_abort, fileflush_undo }, /* JOBTYPE_FLUSH_FILE */
-    { filedelete_request, filedelete_commit, filedelete_abort, filedelete_undo }, /* JOBTYPE_DELETE_FILE */
-    { distribution_request, distribution_commit, distribution_abort, distribution_undo }, /* JOBTYPE_DISTRIBUTION */
-    { jlock_request, jlock_commit, jlock_abort, jlock_undo }, /* JOBTYPE_JLOCK */
+    { replicateblocks_request, force_phase_success, FIXME_phase_placeholder, force_phase_success }, /* JOBTYPE_REPLICATE_BLOCKS */
+    { fileflush_request, fileflush_commit, FIXME_phase_placeholder,FIXME_phase_placeholder }, /* JOBTYPE_FLUSH_FILE */
+    { filedelete_request, force_phase_success, FIXME_phase_placeholder, force_phase_success }, /* JOBTYPE_DELETE_FILE */
+    { distribution_request, distribution_commit, FIXME_phase_placeholder, FIXME_phase_placeholder }, /* JOBTYPE_DISTRIBUTION */
+    { jlock_request, force_phase_success, jlock_abort, force_phase_success }, /* JOBTYPE_JLOCK */
 };
 
 
