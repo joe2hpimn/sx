@@ -630,6 +630,10 @@ struct _sx_hashfs_t {
     sqlite3_stmt *qe_addjob;
     sqlite3_stmt *qe_addact;
     sqlite3_stmt *qe_countjobs;
+    sqlite3_stmt *qe_islocked;
+    sqlite3_stmt *qe_cantlock;
+    sqlite3_stmt *qe_lock;
+    sqlite3_stmt *qe_unlock;
     int addjob_begun;
 
     sxi_db_t *xferdb;
@@ -730,6 +734,11 @@ static void close_all_dbs(sx_hashfs_t *h) {
     sqlite3_finalize(h->qe_addjob);
     sqlite3_finalize(h->qe_addact);
     sqlite3_finalize(h->qe_countjobs);
+    sqlite3_finalize(h->qe_islocked);
+    sqlite3_finalize(h->qe_cantlock);
+    sqlite3_finalize(h->qe_lock);
+    sqlite3_finalize(h->qe_unlock);
+
     qclose(&h->eventdb);
 
     for(j=0; j<SIZES; j++) {
@@ -1476,6 +1485,14 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
     if(qprep(h->eventdb, &h->qe_addact, "INSERT INTO actions (job_id, target, addr, internaladdr, capacity) VALUES (:job, :node, :addr, :int_addr, :capa)"))
 	goto open_hashfs_fail;
     if(qprep(h->eventdb, &h->qe_countjobs, "SELECT COUNT(*) FROM jobs WHERE user = :uid AND complete = 0"))
+	goto open_hashfs_fail;
+    if(qprep(h->eventdb, &h->qe_islocked, "SELECT value from hashfs WHERE key = 'lockedby'"))
+	goto open_hashfs_fail;
+    if(qprep(h->eventdb, &h->qe_cantlock, "SELECT 1 FROM jobs WHERE complete = 0 LIMIT 1"))
+	goto open_hashfs_fail;
+    if(qprep(h->eventdb, &h->qe_lock, "INSERT INTO hashfs (key, value) VALUES ('lockedby', :node)"))
+	goto open_hashfs_fail;
+    if(qprep(h->eventdb, &h->qe_unlock, "DELETE FROM hashfs WHERE key = 'lockedby'"))
 	goto open_hashfs_fail;
 
     OPEN_DB("xferdb", &h->xferdb);
@@ -6013,6 +6030,8 @@ rc_ty sx_hashfs_countjobs(sx_hashfs_t *h, sx_uid_t user_id) {
 }
 
 rc_ty sx_hashfs_job_new_begin(sx_hashfs_t *h) {
+    int r;
+
     if(!h) {
 	NULLARG();
 	return EFAULT;
@@ -6025,6 +6044,21 @@ rc_ty sx_hashfs_job_new_begin(sx_hashfs_t *h) {
 
     if(qbegin(h->eventdb)) {
 	msg_set_reason("Internal error: failed to start database transaction");
+	return FAIL_EINTERNAL;
+    }
+
+    sqlite3_reset(h->qe_islocked);
+    r = qstep(h->qe_islocked);
+    if(r == SQLITE_ROW) {
+	const char *owner = (const char *)sqlite3_column_text(h->qe_islocked, 0);
+	msg_set_reason("The requested action cannot be completed because a complex operation is being executed on the cluster (by node %s). Please try again later.", owner);
+	sqlite3_reset(h->qe_islocked);
+	qrollback(h->eventdb);
+	return FAIL_LOCKED;
+    }
+    if(r != SQLITE_DONE) {
+	msg_set_reason("Internal error: failed to verify job lock");
+	qrollback(h->eventdb);
 	return FAIL_EINTERNAL;
     }
 
@@ -6199,6 +6233,110 @@ rc_ty sx_hashfs_job_new(sx_hashfs_t *h, sx_uid_t user_id, job_t *job_id, jobtype
     return ret;
 }
 
+rc_ty sx_hashfs_job_lock(sx_hashfs_t *h, const char *owner) {
+    rc_ty ret = FAIL_EINTERNAL;
+    int r;
+
+    if(!h || !owner) {
+	NULLARG();
+	return EFAULT;
+    }
+
+    if(qbegin(h->eventdb)) {
+	msg_set_reason("Internal error: failed to start database transaction");
+	return FAIL_EINTERNAL;
+    }
+
+    sqlite3_reset(h->qe_islocked);
+    r = qstep(h->qe_islocked);
+    if(r == SQLITE_ROW) {
+	const char *curowner = (const char *)sqlite3_column_text(h->qe_islocked, 0);
+	msg_set_reason("This node is already locked (by node %s). Please try again later.", curowner);
+	sqlite3_reset(h->qe_islocked);
+	ret = FAIL_LOCKED;
+	goto job_lock_err;
+    }
+    if(r != SQLITE_DONE) {
+	msg_set_reason("Internal error: failed to verify job lock");
+	goto job_lock_err;
+    }
+
+    sqlite3_reset(h->qe_cantlock);
+    r = qstep(h->qe_cantlock);
+    if(r == SQLITE_ROW) {
+	msg_set_reason("There are active jobs on this node and it currently cannot be locked. Please try again later.");
+	sqlite3_reset(h->qe_islocked);
+	ret = FAIL_LOCKED;
+	goto job_lock_err;
+    }
+    if(r != SQLITE_DONE) {
+	msg_set_reason("Internal error: failed to verify active job presence");
+	goto job_lock_err;
+    }
+
+    sqlite3_reset(h->qe_lock);
+    if(qbind_text(h->qe_lock, ":node", owner) ||
+       qstep_noret(h->qe_lock) ||
+       qcommit(h->eventdb)) {
+	msg_set_reason("Internal error: failed to activate cluster locking");
+	goto job_lock_err;
+    }
+
+    return OK;
+
+ job_lock_err:
+    qrollback(h->eventdb);
+    return ret;
+}
+
+rc_ty sx_hashfs_job_unlock(sx_hashfs_t *h, const char *owner) {
+    rc_ty ret = FAIL_EINTERNAL;
+    const char *curowner;
+    int r;
+
+    if(!h || !owner) {
+	NULLARG();
+	return EFAULT;
+    }
+
+    if(qbegin(h->eventdb)) {
+	msg_set_reason("Internal error: failed to start database transaction");
+	return FAIL_EINTERNAL;
+    }
+
+    sqlite3_reset(h->qe_islocked);
+    r = qstep(h->qe_islocked);
+    if(r == SQLITE_DONE) {
+	ret = OK;
+	goto job_unlock_err;
+    }
+
+    if(r != SQLITE_ROW) {
+	msg_set_reason("Internal error: failed to verify job lock");
+	goto job_unlock_err;
+    }
+
+    curowner = (const char *)sqlite3_column_text(h->qe_islocked, 0);
+    r = strcmp(owner, curowner);
+    sqlite3_reset(h->qe_islocked);
+    if(r) {
+	msg_set_reason("This node is locked by someone else and cannot be unlocked");
+	goto job_unlock_err;
+    }
+
+    sqlite3_reset(h->qe_unlock);
+    if(qstep_noret(h->qe_unlock) ||
+       qcommit(h->eventdb)) {
+	msg_set_reason("Internal error: failed to deactivate cluster locking");
+	goto job_unlock_err;
+    }
+
+    return OK;
+
+ job_unlock_err:
+    qrollback(h->eventdb);
+    return ret;
+}
 
 void sx_hashfs_job_trigger(sx_hashfs_t *h) {
     if(h && h->job_trigger >= 0) {

@@ -300,6 +300,8 @@ rc_ty sx_hashfs_job_new(sx_hashfs_t *h, sx_uid_t user_id, job_t *job_id, jobtype
 rc_ty sx_hashfs_job_new_notrigger(sx_hashfs_t *h, job_t parent, sx_uid_t user_id, job_t *job_id, jobtype_t type, unsigned int timeout_secs, const char *lock, const void *data, unsigned int datalen, const sx_nodelist_t *targets);
 void sx_hashfs_job_trigger(sx_hashfs_t *h);
 rc_ty sx_hashfs_countjobs(sx_hashfs_t *h, sx_uid_t user_id);
+rc_ty sx_hashfs_job_lock(sx_hashfs_t *h, const char *owner);
+rc_ty sx_hashfs_job_unlock(sx_hashfs_t *h, const char *owner);
 
 /* Xfers */
 rc_ty sx_hashfs_xfer_tonodes(sx_hashfs_t *h, sx_hash_t *block, unsigned int size, const sx_nodelist_t *targets);
