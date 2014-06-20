@@ -302,9 +302,57 @@ static int bar_progress(const sxc_xfer_stat_t *xfer_stat) {
     return SXE_NOERROR;
 }
 
-#define DOTS_BYTES              1024
-#define DOTS_PER_CLUSTER        10 
-#define DOTS_CLUSTERS           5
+/* hold progress callback type */
+static sxc_xfer_callback progress_callback_type = NULL;
+
+typedef enum { DOTS_SMALL, DOTS_LARGE, DOTS_SCALE } dots_type_t;
+
+#define DOTS_BYTES_DEFAULT              1024
+#define DOTS_PER_CLUSTER_DEFAULT        10
+#define DOTS_CLUSTERS_DEFAULT           5
+
+typedef struct {
+    unsigned int bytes;
+    unsigned int per_cluster;
+    unsigned int clusters;
+    dots_type_t type;
+} dots_sizes_t;
+static dots_sizes_t dots_sizes = { DOTS_BYTES_DEFAULT, DOTS_PER_CLUSTER_DEFAULT, DOTS_CLUSTERS_DEFAULT, DOTS_SMALL};
+
+/* Forward declaration, used by function below */
+static int dots_progress(const sxc_xfer_stat_t *xfer_stat);
+
+/* Set dots output type */
+static int set_dots_type(const char *type) {
+    if(!type)
+        return 1;
+
+    /* User demanded to change dots output type, set progress callback to dots */
+    progress_callback_type = dots_progress;
+
+    if(!strcmp(type, "long")) {
+        /* Follow wget, 8KB blocks, 3 clusters with 16 dots each */
+        dots_sizes.bytes = 8192;
+        dots_sizes.per_cluster = 16;
+        dots_sizes.clusters = 3;
+        dots_sizes.type = DOTS_LARGE;
+    } else if (!strcmp(type, "scale")) {
+        /* Scale dots depending on blocksize */
+        dots_sizes.bytes = 0; /* Will be used later */
+        dots_sizes.per_cluster = 10;
+        dots_sizes.clusters = 5;
+        dots_sizes.type = DOTS_SCALE;
+    } else if(!strcmp(type, "short")) {
+        dots_sizes.bytes = DOTS_BYTES_DEFAULT;
+        dots_sizes.per_cluster = DOTS_PER_CLUSTER_DEFAULT;
+        dots_sizes.clusters = DOTS_CLUSTERS_DEFAULT;
+        dots_sizes.type = DOTS_SMALL;
+    } else {
+        return 1;
+    }
+
+    return 0;
+}
 
 static int dots_progress(const sxc_xfer_stat_t *xfer_stat) {
     static int dots_written = 0;
@@ -325,6 +373,10 @@ static int dots_progress(const sxc_xfer_stat_t *xfer_stat) {
         return SXE_ABORT;
     }
 
+    if(dots_sizes.type == DOTS_SCALE) {
+        dots_sizes.bytes = xfer_stat->current_xfer.blocksize;
+    }
+
     skipped = xfer_stat->current_xfer.file_size - xfer_stat->current_xfer.to_send;
     if(skipped < 0) skipped = 0;
 
@@ -338,11 +390,12 @@ static int dots_progress(const sxc_xfer_stat_t *xfer_stat) {
     while(xfer_stat->current_xfer.sent + skipped > xfer_written) {
         /* If new line was added, dots_written should be 0 */
         if(dots_written == 0) {
-            printf("%14lluK ", (unsigned long long) xfer_written / DOTS_BYTES);
+            /* Divide by 1KB to have output in kilobytes */
+            printf("%14lluK ", (unsigned long long) xfer_written / 1024);
         }
 
         /* Add number of bytes corresponding to one dot */
-        xfer_written += DOTS_BYTES;
+        xfer_written += dots_sizes.bytes;
 
         j++; 
         dots_written++;
@@ -350,13 +403,13 @@ static int dots_progress(const sxc_xfer_stat_t *xfer_stat) {
             printf("+");
         else
             printf(".");
-        if((j + 1) % (DOTS_PER_CLUSTER + 1) == 0) {
+        if((j + 1) % (dots_sizes.per_cluster + 1) == 0) {
             printf(" ");
             j++;
         }
         
         /* If all dots fot this line was printed, write out stats and break line */
-        if(dots_written == DOTS_PER_CLUSTER * DOTS_CLUSTERS) {
+        if(dots_written == dots_sizes.per_cluster * dots_sizes.clusters) {
             c = xfer_stat->current_xfer.file_size > 0 ? (double)xfer_written / (double)xfer_stat->current_xfer.file_size : 1.0;     
             speed = xfer_stat->current_xfer.total_time > 0 ? (double)xfer_stat->current_xfer.sent / xfer_stat->current_xfer.total_time : 0;
             percent = c <= 1.0 ? 100 * c : 100;
@@ -384,25 +437,28 @@ static int dots_progress(const sxc_xfer_stat_t *xfer_stat) {
         speed = xfer_stat->current_xfer.total_time > 0 ? (double)xfer_stat->current_xfer.sent / xfer_stat->current_xfer.total_time : 0;
         eta = speed > 0 ? xfer_stat->current_xfer.to_send / speed - xfer_stat->current_xfer.total_time : 0.0;
 
-        for(; j < DOTS_CLUSTERS * (DOTS_PER_CLUSTER + 1); j++) {
-            printf("%c", ' ');
-        }
+        /* Handle newline when all dots for last line were written */
+        if(dots_written) {
+            for(; j < dots_sizes.clusters * (dots_sizes.per_cluster + 1); j++) {
+                printf("%c", ' ');
+            }
 
-        processed_speed = process_number(speed);
-        if(xfer_stat->current_xfer.sent > 0)
-            processed_eta = process_time(eta);
-        else 
-            processed_eta = strdup("n/a");
+            processed_speed = process_number(speed);
+            if(xfer_stat->current_xfer.sent > 0)
+                processed_eta = process_time(eta);
+            else 
+                processed_eta = strdup("n/a");
     
-        if(processed_speed && processed_eta) {
-            printf("%4d%% %8s%s ETA %s\n", 100, processed_speed, "B/s", processed_eta);
-        } else {
-            printf("%4d%% %lf%s\n", 100, speed, "B/s");
+            if(processed_speed && processed_eta) {
+                printf("%4d%% %8s%s ETA %s\n", 100, processed_speed, "B/s", processed_eta);
+            } else {
+                printf("%4d%% %lf%s\n", 100, speed, "B/s");
+            }
+            free(processed_speed);
+            free(processed_eta);
+            dots_written = 0;
         }
-        free(processed_speed);
-        free(processed_eta);
 
-        dots_written = 0;
         xfer_written = 0;
         last_skipped = 0;
         j = 0;
@@ -414,7 +470,6 @@ static int dots_progress(const sxc_xfer_stat_t *xfer_stat) {
 
 /* If possible, get type of callback (progress bar or dots) */
 static sxc_xfer_callback get_callback_type(void) {
-    static sxc_xfer_callback progress_callback_type = NULL;
     if(progress_callback_type) return progress_callback_type;
 
     #ifdef HAVE_ISATTY
@@ -659,6 +714,13 @@ int main(int argc, char **argv) {
     }
     sxc_filter_loadall(sx, filter_dir);
     free(filter_dir);
+
+    if(args.dot_size_given) {
+        if(set_dots_type(args.dot_size_arg)) {
+            fprintf(stderr, "ERROR: Failed to set dots size: invalid argument: %s\n", args.dot_size_arg);
+            goto main_err;
+        }
+    }
 
     fname = args.inputs[args.inputs_num-1];
     if(!strcmp(fname, "-"))

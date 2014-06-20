@@ -63,6 +63,9 @@ struct gengetopt_args_info
   int host_conns_limit_arg;	/**< @brief Limit number of connections with one host (default='2').  */
   char * host_conns_limit_orig;	/**< @brief Limit number of connections with one host original value given at command line.  */
   const char *host_conns_limit_help; /**< @brief Limit number of connections with one host help description.  */
+  char * dot_size_arg;	/**< @brief Use specified size for each dot printed with file transfer progress (short: 1KB, long: 8KB, scale: block size).  */
+  char * dot_size_orig;	/**< @brief Use specified size for each dot printed with file transfer progress (short: 1KB, long: 8KB, scale: block size) original value given at command line.  */
+  const char *dot_size_help; /**< @brief Use specified size for each dot printed with file transfer progress (short: 1KB, long: 8KB, scale: block size) help description.  */
   
   unsigned int help_given ;	/**< @brief Whether help was given.  */
   unsigned int full_help_given ;	/**< @brief Whether full-help was given.  */
@@ -76,6 +79,7 @@ struct gengetopt_args_info
   unsigned int no_progress_given ;	/**< @brief Whether no-progress was given.  */
   unsigned int total_conns_limit_given ;	/**< @brief Whether total-conns-limit was given.  */
   unsigned int host_conns_limit_given ;	/**< @brief Whether host-conns-limit was given.  */
+  unsigned int dot_size_given ;	/**< @brief Whether dot-size was given.  */
 
   char **inputs ; /**< @brief unamed options (options without names) */
   unsigned inputs_num ; /**< @brief unamed options number */

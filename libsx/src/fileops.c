@@ -112,7 +112,7 @@ static int set_xfer_stat(sxc_xfer_stat_t *xfer_stat, int64_t bytes) {
     return SXE_NOERROR;
 }
 
-static int sxi_xfer_set_file(sxc_xfer_stat_t *xfer_stat, const char *file_name, int64_t file_size, sxc_xfer_direction_t xfer_direction) {
+static int sxi_xfer_set_file(sxc_xfer_stat_t *xfer_stat, const char *file_name, int64_t file_size, unsigned int blocksize, sxc_xfer_direction_t xfer_direction) {
     if(!xfer_stat)
         return 1;
 
@@ -129,6 +129,7 @@ static int sxi_xfer_set_file(sxc_xfer_stat_t *xfer_stat, const char *file_name, 
 
     xfer_stat->current_xfer.file_name = file_name;
     xfer_stat->current_xfer.file_size = file_size;
+    xfer_stat->current_xfer.blocksize = blocksize;
     xfer_stat->current_xfer.direction = xfer_direction;
     xfer_stat->current_xfer.to_send = file_size;
     xfer_stat->current_xfer.sent = 0;
@@ -1837,7 +1838,7 @@ static int local_to_remote_begin(sxc_file_t *source, sxc_meta_t *fmeta, sxc_file
 
     xfer_stat = sxi_cluster_get_xfer_stat(dest->cluster);
     if(xfer_stat) {
-        if(sxi_xfer_set_file(xfer_stat, source->path, state->size, SXC_XFER_DIRECTION_UPLOAD)) {
+        if(sxi_xfer_set_file(xfer_stat, source->path, state->size, blocksize, SXC_XFER_DIRECTION_UPLOAD)) {
             SXDEBUG("Could not set transfer information to file %s", source->path);
             goto local_to_remote_err;
         }
@@ -3324,7 +3325,7 @@ static int remote_to_local(sxc_file_t *source, sxc_file_t *dest) {
         xfer_stat = sxi_cluster_get_xfer_stat(source->cluster);
         if(xfer_stat) {
             /* Set information about new file download */
-            if(sxi_xfer_set_file(xfer_stat, source->path, filesize, SXC_XFER_DIRECTION_DOWNLOAD)) {
+            if(sxi_xfer_set_file(xfer_stat, source->path, filesize, blocksize, SXC_XFER_DIRECTION_DOWNLOAD)) {
                 SXDEBUG("Could not set transfer information to file %s", dstname);
                 fail = 1;
                 break;

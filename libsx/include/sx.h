@@ -159,6 +159,7 @@ typedef struct {
     /* Currently transferred file name and size */
     const char *file_name;
     int64_t file_size;
+    unsigned int blocksize; /* Size of blocks used to divide file */
 
     /* Transfer direction */
     sxc_xfer_direction_t direction;

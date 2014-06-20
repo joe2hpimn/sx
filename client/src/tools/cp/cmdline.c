@@ -46,6 +46,7 @@ const char *gengetopt_args_info_full_help[] = {
   "  -q, --no-progress            Do not output progress bar  (default=off)",
   "      --total-conns-limit=INT  Limit number of connections  (default=`5')",
   "      --host-conns-limit=INT   Limit number of connections with one host\n                                 (default=`2')",
+  "  -s, --dot-size=STRING        Use specified size for each dot printed with\n                                 file transfer progress (short: 1KB, long: 8KB,\n                                 scale: block size)",
     0
 };
 
@@ -62,11 +63,12 @@ init_help_array(void)
   gengetopt_args_info_help[7] = gengetopt_args_info_full_help[7];
   gengetopt_args_info_help[8] = gengetopt_args_info_full_help[8];
   gengetopt_args_info_help[9] = gengetopt_args_info_full_help[9];
-  gengetopt_args_info_help[10] = 0; 
+  gengetopt_args_info_help[10] = gengetopt_args_info_full_help[12];
+  gengetopt_args_info_help[11] = 0; 
   
 }
 
-const char *gengetopt_args_info_help[11];
+const char *gengetopt_args_info_help[12];
 
 typedef enum {ARG_NO
   , ARG_FLAG
@@ -102,6 +104,7 @@ void clear_given (struct gengetopt_args_info *args_info)
   args_info->no_progress_given = 0 ;
   args_info->total_conns_limit_given = 0 ;
   args_info->host_conns_limit_given = 0 ;
+  args_info->dot_size_given = 0 ;
 }
 
 static
@@ -122,6 +125,8 @@ void clear_args (struct gengetopt_args_info *args_info)
   args_info->total_conns_limit_orig = NULL;
   args_info->host_conns_limit_arg = 2;
   args_info->host_conns_limit_orig = NULL;
+  args_info->dot_size_arg = NULL;
+  args_info->dot_size_orig = NULL;
   
 }
 
@@ -142,6 +147,7 @@ void init_args_info(struct gengetopt_args_info *args_info)
   args_info->no_progress_help = gengetopt_args_info_full_help[9] ;
   args_info->total_conns_limit_help = gengetopt_args_info_full_help[10] ;
   args_info->host_conns_limit_help = gengetopt_args_info_full_help[11] ;
+  args_info->dot_size_help = gengetopt_args_info_full_help[12] ;
   
 }
 
@@ -245,6 +251,8 @@ cmdline_parser_release (struct gengetopt_args_info *args_info)
   free_string_field (&(args_info->bwlimit_orig));
   free_string_field (&(args_info->total_conns_limit_orig));
   free_string_field (&(args_info->host_conns_limit_orig));
+  free_string_field (&(args_info->dot_size_arg));
+  free_string_field (&(args_info->dot_size_orig));
   
   
   for (i = 0; i < args_info->inputs_num; ++i)
@@ -304,6 +312,8 @@ cmdline_parser_dump(FILE *outfile, struct gengetopt_args_info *args_info)
     write_into_file(outfile, "total-conns-limit", args_info->total_conns_limit_orig, 0);
   if (args_info->host_conns_limit_given)
     write_into_file(outfile, "host-conns-limit", args_info->host_conns_limit_orig, 0);
+  if (args_info->dot_size_given)
+    write_into_file(outfile, "dot-size", args_info->dot_size_orig, 0);
   
 
   i = EXIT_SUCCESS;
@@ -558,10 +568,11 @@ cmdline_parser_internal (
         { "no-progress",	0, NULL, 'q' },
         { "total-conns-limit",	1, NULL, 0 },
         { "host-conns-limit",	1, NULL, 0 },
+        { "dot-size",	1, NULL, 's' },
         { 0,  0, 0, 0 }
       };
 
-      c = getopt_long (argc, argv, "hVrvc:f:b:Dq", long_options, &option_index);
+      c = getopt_long (argc, argv, "hVrvc:f:b:Dqs:", long_options, &option_index);
 
       if (c == -1) break;	/* Exit from `while (1)' loop.  */
 
@@ -658,6 +669,18 @@ cmdline_parser_internal (
           if (update_arg((void *)&(args_info->no_progress_flag), 0, &(args_info->no_progress_given),
               &(local_args_info.no_progress_given), optarg, 0, 0, ARG_FLAG,
               check_ambiguity, override, 1, 0, "no-progress", 'q',
+              additional_error))
+            goto failure;
+        
+          break;
+        case 's':	/* Use specified size for each dot printed with file transfer progress (short: 1KB, long: 8KB, scale: block size).  */
+        
+        
+          if (update_arg( (void *)&(args_info->dot_size_arg), 
+               &(args_info->dot_size_orig), &(args_info->dot_size_given),
+              &(local_args_info.dot_size_given), optarg, 0, 0, ARG_STRING,
+              check_ambiguity, override, 0, 0,
+              "dot-size", 's',
               additional_error))
             goto failure;
         

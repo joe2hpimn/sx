@@ -21,3 +21,5 @@ option  "no-progress"              q "Do not output progress bar" flag off
 
 option  "total-conns-limit"         - "Limit number of connections" int default="5" optional hidden
 option  "host-conns-limit"          - "Limit number of connections with one host" int default="2" optional hidden
+
+option  "dot-size"             s "Use specified size for each dot printed with file transfer progress (short: 1KB, long: 8KB, scale: block size)" optional string
