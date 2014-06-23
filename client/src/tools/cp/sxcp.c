@@ -591,6 +591,7 @@ int main(int argc, char **argv) {
     sxc_logger_t log;
     sxc_cluster_t *cluster1 = NULL, *cluster2 = NULL;
     int64_t limit = 0;
+    char stdin_fname[] = "/dev/stdin";
 
     if(cmdline_parser(argc, argv, &args))
 	exit(1);
@@ -658,7 +659,7 @@ int main(int argc, char **argv) {
 
     fname = args.inputs[args.inputs_num-1];
     if(!strcmp(fname, "-"))
-	fname = "/dev/stdout";
+	fname = stdin_fname;
     if(!(dst_file = sxfile_from_arg(&cluster1, fname)))
 	goto main_err;
 
@@ -692,7 +693,7 @@ int main(int argc, char **argv) {
     for(i = 0;i < args.inputs_num-1; i++) {
         fname = args.inputs[i];
         if(!strcmp(fname, "-")) {
-            fname = "/dev/stdin";
+            fname = stdin_fname;
 	} else if(!is_sx(fname)) {
 	    struct stat sb;
 	    if(access(fname, R_OK)) {
