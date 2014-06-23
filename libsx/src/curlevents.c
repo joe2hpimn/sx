@@ -633,12 +633,12 @@ static void host_active_info_free(struct host_info* info) {
 }
 
 /* Forward declaration */
-struct ev_fifo;
+struct ev_queue;
 
 /* Connections pool */
 typedef struct {
     sxc_client_t *sx;
-    struct ev_fifo *fifo; /* Queued connections */
+    struct ev_queue *queue; /* Queued connections */
     unsigned int max_active_total; /* Total number of active connections */
     unsigned int max_active_per_host; /* Number of active connections that each node can connect */
     curlev_t *active; /* Connections that are currently used */
@@ -646,29 +646,29 @@ typedef struct {
     sxi_ht *hosts; /* Hold struct host_active_info structures */
 } connection_pool_t;
 
-struct ev_fifo_node {
+struct ev_queue_node {
     curlev_t *element;
-    struct ev_fifo_node *next;
+    struct ev_queue_node *next;
 };
 
 /* 
- * Ivoked for each element in the list during ev_fifo_get() until first matching has been found. 
+ * Ivoked for each element in the list during ev_queue_get() until first matching has been found. 
  * Element will be removed only if rm_check() returns 1. 
  */
 typedef int (*rm_check)(const connection_pool_t *pool, const curlev_t *element);
 
-struct ev_fifo {
-    struct ev_fifo_node *head; /* First list element */
-    struct ev_fifo_node *tail; /* Last element */
+struct ev_queue {
+    struct ev_queue_node *head; /* First list element */
+    struct ev_queue_node *tail; /* Last element */
     unsigned int length; /* Number of elements */
     rm_check checker; /* Function used to check if element should be removed */
     connection_pool_t *pool; /* Parent */
 };
 
-typedef struct ev_fifo ev_fifo_t;
+typedef struct ev_queue ev_queue_t;
 
-static ev_fifo_t *ev_fifo_new(connection_pool_t *pool, rm_check checker) {
-    ev_fifo_t *fifo = NULL;
+static ev_queue_t *ev_queue_new(connection_pool_t *pool, rm_check checker) {
+    ev_queue_t *q = NULL;
     sxc_client_t *sx = NULL;
 
     if(!pool) {
@@ -676,35 +676,35 @@ static ev_fifo_t *ev_fifo_new(connection_pool_t *pool, rm_check checker) {
     }
     sx = pool->sx;
 
-    fifo = calloc(1, sizeof(ev_fifo_t));
-    if(!fifo) {
-        SXDEBUG("OOM Allocating cURL events fifo");
+    q = calloc(1, sizeof(*q));
+    if(!q) {
+        SXDEBUG("OOM Allocating cURL events queue");
         return NULL;
     }
-    fifo->checker = checker;
-    fifo->pool = pool;
-    return fifo;
+    q->checker = checker;
+    q->pool = pool;
+    return q;
 }
 
-/* Free events fifo */
-static void ev_fifo_free(ev_fifo_t *fifo) {
+/* Free events queue */
+static void ev_queue_free(ev_queue_t *q) {
     unsigned int i;
-    struct ev_fifo_node *n = NULL;
+    struct ev_queue_node *n = NULL;
     sxc_client_t *sx = NULL;
 
-    if(!fifo) 
+    if(!q) 
         return;
         
-    sx = fifo->pool->sx;
-    n = fifo->head;
+    sx = q->pool->sx;
+    n = q->head;
 
     /* iterate over all elements */
-    for(i = 0; i < fifo->length; i++) {
-        struct ev_fifo_node *next = n->next;
+    for(i = 0; i < q->length; i++) {
+        struct ev_queue_node *next = n->next;
 
         if(!n) {
             /* Number of elements should be exactly the same as number of not NULL pointers */
-            SXDEBUG("Error freeing cURL events fifo: invalid number of elements");
+            SXDEBUG("Error freeing cURL events queue: invalid number of elements");
             break;
         }
 
@@ -713,77 +713,77 @@ static void ev_fifo_free(ev_fifo_t *fifo) {
         n = next;
     }
 
-    free(fifo);
+    free(q);
 }
 
-/* Add element to events fifo */
-static int ev_fifo_add(ev_fifo_t *fifo, curlev_t *element) {
-    struct ev_fifo_node *n = NULL;
+/* Add element to events queue */
+static int ev_queue_add(ev_queue_t *q, curlev_t *element) {
+    struct ev_queue_node *n = NULL;
     sxc_client_t *sx = NULL;
 
-    if(!fifo || !element) {
+    if(!q || !element) {
         SXDEBUG("NULL argument");
         return 1;
     }
-    sx = fifo->pool->sx;
+    sx = q->pool->sx;
 
-    if(fifo->length >= MAX_EVENTS) {
+    if(q->length >= MAX_EVENTS) {
         SXDEBUG("Reachecd maximal number of events");
         return 1;
     }
 
-    n = calloc(1, sizeof(struct ev_fifo_node));
+    n = calloc(1, sizeof(*n));
     if(!n) {
-        SXDEBUG("OOM Allocating new ev_fifo_node");
+        SXDEBUG("OOM Allocating new ev_queue_node");
         return 1;
     }
 
     n->element = element;
-    if(fifo->tail) {
-        fifo->tail->next = n;
+    if(q->tail) {
+        q->tail->next = n;
     } else {
         /* First element in the queue */
-        fifo->head = n;
+        q->head = n;
     }
-    fifo->tail = n;
-    fifo->length++;
+    q->tail = n;
+    q->length++;
     return 0;
 }
 
-/* Get and remove element from fifo */
-static curlev_t *ev_fifo_get(ev_fifo_t *fifo) {
-    struct ev_fifo_node *n = NULL; /* Current element */
-    struct ev_fifo_node *p = NULL; /* Previous element */
+/* Get and remove element from queue */
+static curlev_t *ev_queue_get(ev_queue_t *q) {
+    struct ev_queue_node *n = NULL; /* Current element */
+    struct ev_queue_node *p = NULL; /* Previous element */
     unsigned int i;
     sxc_client_t *sx = NULL;
 
-    if(!fifo) {
+    if(!q) {
         return NULL;
     }
-    sx = fifo->pool->sx;
+    sx = q->pool->sx;
 
-    n = fifo->head;
-    for(i = 0; i < fifo->length; i++) {
+    n = q->head;
+    for(i = 0; i < q->length; i++) {
         if(!n) {
-            SXDEBUG("Error getting cURL events from fifo: invalid number of elements");
+            SXDEBUG("Error getting cURL events from queue: invalid number of elements");
             return NULL;
         }
 
-        if(!fifo->checker || fifo->checker(fifo->pool, n->element) == 1) {
+        if(!q->checker || q->checker(q->pool, n->element) == 1) {
             curlev_t *element = n->element;
 
             /* Remove node */
-            fifo->length--;
+            q->length--;
             if(!p) {
                 /* Previous element is NULL, we are removing first element */
-                fifo->head = n->next;
+                q->head = n->next;
             } else {
                 /* Previous element is not NULL, we are removing middle or last element */
                 p->next = n->next;
             }
 
-            if(n == fifo->tail) {
-                fifo->tail = p;
+            if(n == q->tail) {
+                q->tail = p;
             }
             free(n);
             return element;
@@ -797,12 +797,12 @@ static curlev_t *ev_fifo_get(ev_fifo_t *fifo) {
     return NULL;
 }
 
-static int ev_fifo_length(ev_fifo_t *fifo) {
-    if(!fifo) {
+static int ev_queue_length(ev_queue_t *q) {
+    if(!q) {
         return 0;
     }
 
-    return fifo->length;
+    return q->length;
 }
 
 /* Return 1 if cURL event destination host hold less than pool->max_active_per_host */
@@ -829,7 +829,7 @@ static connection_pool_t *connection_pool_new(sxc_client_t *sx) {
         return NULL;
     }
 
-    pool = calloc(1, sizeof(connection_pool_t));
+    pool = calloc(1, sizeof(*pool));
     if(!pool) {
         return NULL;
     }
@@ -838,16 +838,16 @@ static connection_pool_t *connection_pool_new(sxc_client_t *sx) {
     pool->max_active_total = MAX_ACTIVE_CONNECTIONS;
     pool->max_active_per_host = MAX_ACTIVE_PER_HOST;
 
-    pool->active = calloc(MAX_EVENTS, sizeof(curlev_t));
+    pool->active = calloc(MAX_EVENTS, sizeof(*pool->active));
     if(!pool->active) {
         SXDEBUG("OOM Could not allocate array of events");
         free(pool);
         return NULL;
     }
 
-    pool->fifo = ev_fifo_new(pool, check_host_active_count);
-    if(!pool->fifo) {
-        SXDEBUG("OOM Could not allocate fifo");
+    pool->queue = ev_queue_new(pool, check_host_active_count);
+    if(!pool->queue) {
+        SXDEBUG("OOM Could not allocate queue");
         free(pool->active);
         free(pool);
         return NULL;
@@ -856,7 +856,7 @@ static connection_pool_t *connection_pool_new(sxc_client_t *sx) {
     pool->hosts = sxi_ht_new(sx, 64);
     if(!pool->hosts) {
         SXDEBUG("OOM Could not allocate hosts hash table");
-        ev_fifo_free(pool->fifo);
+        ev_queue_free(pool->queue);
         free(pool->active);
         free(pool);
         return NULL;
@@ -876,7 +876,7 @@ static void connection_pool_free(connection_pool_t *pool) {
         ev_free(&pool->active[i]);
     }
 
-    ev_fifo_free(pool->fifo);
+    ev_queue_free(pool->queue);
 
     sxi_ht_enum_reset(pool->hosts);
     while(!sxi_ht_enum_getnext(pool->hosts, NULL, NULL, (const void **)&info)) {
@@ -962,7 +962,7 @@ int64_t sxi_curlev_get_bandwidth_limit(const curl_events_t *e) {
     return e->bandwidth.local_limit;
 }
 
-static int queue_next(curl_events_t *e);
+static int queue_next_inactive(curl_events_t *e);
 int sxi_curlev_set_conns_limit(curl_events_t *e, unsigned int max_active, unsigned int max_active_per_host) {
     if(!e)
         return 1;
@@ -984,7 +984,7 @@ int sxi_curlev_set_conns_limit(curl_events_t *e, unsigned int max_active, unsign
          */
         e->conn_pool->max_active_total = max_active;
         while(e->conn_pool->active_count < e->conn_pool->max_active_total) {
-            ret = queue_next(e);
+            ret = queue_next_inactive(e);
             if(!ret) /* This happens if no events are queued or all events reached per-host limit */
                 break;
         }
@@ -1262,7 +1262,6 @@ static int xferinfo(void *p, curl_off_t dltotal, curl_off_t dlnow,
 
     if(!ev->ctx) {
         EVDEBUG(ev, "Could not update xfer information: NULL argument");
-        printf("Could not update xfer information: NULL argument");
         return -2;
     }
 
@@ -1781,11 +1780,11 @@ static int enqueue_request(curl_events_t *e, curlev_t *ev, int re)
          * pipelining timeout.
          * Note: this list is actually reversed, but we only request
          * hashes so it doesn't matter. */
-        if(ev_fifo_add(e->conn_pool->fifo, ev)) {
+        if(ev_queue_add(e->conn_pool->queue, ev)) {
            EVDEBUG(ev, "Could not add event to a queue");
            return -1;
         }
-        EVDEBUG(ev, "queued now: %d", ev_fifo_length(e->conn_pool->fifo));
+        EVDEBUG(ev, "queued now: %d", ev_queue_length(e->conn_pool->queue));
         EVDEBUG(ev, "Enqueued request to existing host %s", ev->host);
     }
 
@@ -1793,7 +1792,7 @@ static int enqueue_request(curl_events_t *e, curlev_t *ev, int re)
 }
 
 /* Return 1 if event was dequeued, else 0 */
-static int queue_next(curl_events_t *e)
+static int queue_next_inactive(curl_events_t *e)
 {
     curlev_t *ev = NULL;
 
@@ -1801,7 +1800,15 @@ static int queue_next(curl_events_t *e)
         return -1;
     }
 
-    ev = ev_fifo_get(e->conn_pool->fifo);
+    /*
+     * If total connections limit is not higher than current active connections number,
+     * then do not dequeue event. Ohterwise it would be put here again.
+     */
+    if(e->conn_pool->active_count >= e->conn_pool->max_active_total) {
+        return 0;
+    }
+
+    ev = ev_queue_get(e->conn_pool->queue);
     if (!ev) {
         EVDEBUG(ev,"finished %s", ev->host);
         EVDEBUG(ev, "finished queued requests for host %s", ev->host);
@@ -2111,7 +2118,7 @@ int sxi_curlev_poll_immediate(curl_events_t *e)
                 /* Update global active connections counter */
                 e->conn_pool->active_count--;
  
-                queue_next(e);
+                queue_next_inactive(e);
                 sxi_cbdata_finish(e, &ctx, url, ev->error);
             } else {
                 EVENTSDEBUG(e,"WARNING: failed to find curl handle\n");
