@@ -230,6 +230,7 @@ static void bar_progress(const sxc_xfer_stat_t *xfer_stat) {
 
     if(xfer_stat->status != SXC_XFER_STATUS_PART_FINISHED && xfer_stat->status != SXC_XFER_STATUS_WAITING) {
         int64_t skipped = xfer_stat->current_xfer.file_size - xfer_stat->current_xfer.to_send;
+        if(skipped < 0) skipped = 0;
         c = xfer_stat->current_xfer.file_size > 0 ? (double)(skipped + xfer_stat->current_xfer.sent) / (double)xfer_stat->current_xfer.file_size : 1.0;
         if(skipped != last_skipped) {
             last_skipped = skipped;
@@ -245,7 +246,6 @@ static void bar_progress(const sxc_xfer_stat_t *xfer_stat) {
     }
     
     percent = c <= 1.0 ? 100 * c : 100;
-    if(percent < 0) percent = 0;
     speed = xfer_stat->current_xfer.total_time > 0 ? xfer_stat->current_xfer.sent / xfer_stat->current_xfer.total_time : 0;
     eta = speed > 0 ? xfer_stat->current_xfer.to_send / speed - xfer_stat->current_xfer.total_time : 0;
     x = bar_internal->index * m;
@@ -328,6 +328,7 @@ static void dots_progress(const sxc_xfer_stat_t *xfer_stat) {
     }
 
     skipped = xfer_stat->current_xfer.file_size - xfer_stat->current_xfer.to_send;
+    if(skipped < 0) skipped = 0;
 
     if(skipped > last_skipped) {
         last_skipped = skipped;
@@ -361,7 +362,6 @@ static void dots_progress(const sxc_xfer_stat_t *xfer_stat) {
             c = xfer_stat->current_xfer.file_size > 0 ? (double)xfer_written / (double)xfer_stat->current_xfer.file_size : 1.0;     
             speed = xfer_stat->current_xfer.total_time > 0 ? (double)xfer_stat->current_xfer.sent / xfer_stat->current_xfer.total_time : 0;
             percent = c <= 1.0 ? 100 * c : 100;
-            if(percent < 0) percent = 0;
             eta = speed > 0 ? xfer_stat->current_xfer.to_send / speed - xfer_stat->current_xfer.total_time : 0;
 
             dots_written = 0;
