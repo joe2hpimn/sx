@@ -492,8 +492,12 @@ alias_list_t *sxi_get_alias_list(sxc_client_t *sx) {
 char* sxc_escstr(char *str) {
     unsigned int i;
     for(i = 0; i < strlen(str); i++) {
-        if(iscntrl(str[i]))
-            str[i] = '?';
+        switch(str[i]) {
+            case 27: /* ESC */
+            case '\r': {
+                str[i] = '?';
+            } break;
+        }
     }
     return str;
 }
