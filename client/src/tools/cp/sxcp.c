@@ -494,18 +494,18 @@ static void progress_callback(const sxc_xfer_stat_t *xfer_stat) {
     }
 }
 
-static sxc_file_t *sxfile_from_arg(sxc_cluster_t **cluster, const char *arg) {
+static sxc_file_t *sxfile_from_arg(sxc_cluster_t **cluster, char *arg) {
     sxc_file_t *file;
 
     if(is_sx(arg)) {
 	sxc_uri_t *uri = sxc_parse_uri(sx, arg);
 
 	if(!uri) {
-	    fprintf(stderr, "ERROR: Bad uri %s: %s\n", arg, sxc_geterrmsg(sx));
+	    fprintf(stderr, "ERROR: Bad uri %s: %s\n", sxc_escstr(arg), sxc_geterrmsg(sx));
 	    return NULL;
 	}
 	if(!uri->volume) {
-	    fprintf(stderr, "ERROR: Bad path %s\n", arg);
+	    fprintf(stderr, "ERROR: Bad path %s\n", sxc_escstr(arg));
 	    sxc_free_uri(uri);
 	    return NULL;
 	}
@@ -514,9 +514,9 @@ static sxc_file_t *sxfile_from_arg(sxc_cluster_t **cluster, const char *arg) {
 	    *cluster = sxc_cluster_load_and_update(sx, args.config_dir_arg, uri->host, uri->profile);
 	}
 	if(!*cluster) {
-	    fprintf(stderr, "ERROR: Failed to load config for %s: %s\n", uri->host, sxc_geterrmsg(sx));
+	    fprintf(stderr, "ERROR: Failed to load config for %s: %s\n", sxc_escstr(uri->host), sxc_geterrmsg(sx));
 	    if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_CFG_ERR))
-		fprintf(stderr, SXBC_TOOLS_CFG_MSG, uri->host, uri->host);
+		fprintf(stderr, SXBC_TOOLS_CFG_MSG, sxc_escstr(uri->host), sxc_escstr(uri->host));
 	    sxc_free_uri(uri);
 	    return NULL;
 	}
@@ -586,7 +586,7 @@ static int process_bandwidth_arg(const char *str) {
 int main(int argc, char **argv) {
     int ret = 1, i, skipped = 0;
     sxc_file_t *src_file = NULL, *dst_file = NULL;
-    const char *fname;
+    char *fname;
     char *filter_dir;
     sxc_logger_t log;
     sxc_cluster_t *cluster1 = NULL, *cluster2 = NULL;
@@ -618,7 +618,7 @@ int main(int argc, char **argv) {
     }
 
     if(args.config_dir_given && sxc_set_confdir(sx, args.config_dir_arg)) {
-        fprintf(stderr, "ERROR: Could not set configuration directory %s: %s\n", args.config_dir_arg, sxc_geterrmsg(sx));
+        fprintf(stderr, "ERROR: Could not set configuration directory %s: %s\n", sxc_escstr(args.config_dir_arg), sxc_geterrmsg(sx));
         ret = 1;
         goto main_err;
     }
@@ -674,7 +674,7 @@ int main(int argc, char **argv) {
     }
 
     if(limit && cluster1 && sxc_cluster_set_bandwidth_limit(sx, cluster1, limit)) {
-        fprintf(stderr, "ERROR: Failed to set bandwidth limit to %s\n", args.bwlimit_arg);
+        fprintf(stderr, "ERROR: Failed to set bandwidth limit to %s\n", sxc_escstr(args.bwlimit_arg));
         goto main_err;
     }
 
@@ -696,17 +696,17 @@ int main(int argc, char **argv) {
 	} else if(!is_sx(fname)) {
 	    struct stat sb;
 	    if(access(fname, R_OK)) {
-		fprintf(stderr, "ERROR: Cannot access %s: %s\n", fname, strerror(errno));
+		fprintf(stderr, "ERROR: Cannot access %s: %s\n", sxc_escstr(fname), strerror(errno));
 		skipped++;
 		continue;
 	    }
 	    if(stat(fname, &sb)) {
-		fprintf(stderr, "ERROR: Cannot stat %s: %s\n", fname, strerror(errno));
+		fprintf(stderr, "ERROR: Cannot stat %s: %s\n", sxc_escstr(fname), strerror(errno));
 		skipped++;
 		continue;
 	    }
 	    if(S_ISDIR(sb.st_mode) && !args.recursive_flag) {
-		fprintf(stderr, "WARNING: Cannot copy directory %s: use -r to copy recursively\n", fname);
+		fprintf(stderr, "WARNING: Cannot copy directory %s: use -r to copy recursively\n", sxc_escstr(fname));
 		skipped++;
 		continue;
 	    }
@@ -727,7 +727,7 @@ int main(int argc, char **argv) {
         }
 
         if(limit && cluster2 && sxc_cluster_set_bandwidth_limit(sx, cluster2, limit)) {
-            fprintf(stderr, "ERROR: Failed to set bandwidth limit to %s\n", args.bwlimit_arg);
+            fprintf(stderr, "ERROR: Failed to set bandwidth limit to %s\n", sxc_escstr(args.bwlimit_arg));
             goto main_err;
         }
 
