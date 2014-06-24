@@ -446,14 +446,15 @@ static void progress_callback(const sxc_xfer_stat_t *xfer_stat) {
     switch(xfer_stat->status) {
         case SXC_XFER_STATUS_PART_STARTED : {
             char *processed_size = process_number(xfer_stat->current_xfer.file_size);
-            if(processed_size) {
-                printf("%s %s (size: %sB)\n", xfer_stat->current_xfer.direction == SXC_XFER_DIRECTION_DOWNLOAD ? "Downloading" : "Uploading", 
-                    xfer_stat->current_xfer.file_name, processed_size);
-            } else {
-                printf("%s %s (size: %ldB)\n", xfer_stat->current_xfer.direction == SXC_XFER_DIRECTION_DOWNLOAD ? "Downloading" : "Uploading", 
-                    xfer_stat->current_xfer.file_name, xfer_stat->current_xfer.file_size);
+            char *file_name_esc = strdup(xfer_stat->current_xfer.file_name);
+            if(file_name_esc) {
+                sxc_escstr(file_name_esc);
             }
+            if(processed_size && file_name_esc)
+                printf("%s %s (size: %sB)\n", xfer_stat->current_xfer.direction == SXC_XFER_DIRECTION_DOWNLOAD ? "Downloading" : "Uploading", 
+                    file_name_esc, processed_size);
             free(processed_size);
+            free(file_name_esc);
 
             get_callback_type()(xfer_stat);
         } break;
@@ -471,13 +472,16 @@ static void progress_callback(const sxc_xfer_stat_t *xfer_stat) {
                 char *processed_time = process_time(xfer_stat->current_xfer.total_time);
                 const char *transferred_str = get_callback_type() == bar_progress ? "Transferred" : " transferred";
                 const char *file_name = get_callback_type() == bar_progress ? "" : xfer_stat->current_xfer.file_name;
+                char *file_name_esc = strdup(file_name);
 
-                if(processed_number && processed_speed && processed_time) {
-                    printf("%s%s %sB in %s (@%sB/s)\n", file_name, transferred_str, processed_number, processed_time, processed_speed);
-                } else {
-                    printf("%s%s %ldB in %.0lf (@%0.2lfB/s)\n", file_name, transferred_str, xfer_stat->current_xfer.sent, 
-                        xfer_stat->current_xfer.total_time, xfer_stat->current_xfer.sent / xfer_stat->current_xfer.total_time);
+                if(file_name_esc) {
+                    sxc_escstr(file_name_esc);
                 }
+
+                if(processed_number && processed_speed && processed_time && file_name_esc)
+                    printf("%s%s %sB in %s (@%sB/s)\n", file_name_esc, transferred_str, processed_number, processed_time, processed_speed);
+
+                free(file_name_esc);
                 free(processed_number);
                 free(processed_speed);
                 free(processed_time);
@@ -494,18 +498,18 @@ static void progress_callback(const sxc_xfer_stat_t *xfer_stat) {
     }
 }
 
-static sxc_file_t *sxfile_from_arg(sxc_cluster_t **cluster, char *arg) {
+static sxc_file_t *sxfile_from_arg(sxc_cluster_t **cluster, const char *arg) {
     sxc_file_t *file;
 
     if(is_sx(arg)) {
 	sxc_uri_t *uri = sxc_parse_uri(sx, arg);
 
 	if(!uri) {
-	    fprintf(stderr, "ERROR: Bad uri %s: %s\n", sxc_escstr(arg), sxc_geterrmsg(sx));
+	    fprintf(stderr, "ERROR: Bad uri %s: %s\n", arg, sxc_geterrmsg(sx));
 	    return NULL;
 	}
 	if(!uri->volume) {
-	    fprintf(stderr, "ERROR: Bad path %s\n", sxc_escstr(arg));
+	    fprintf(stderr, "ERROR: Bad path %s\n", arg);
 	    sxc_free_uri(uri);
 	    return NULL;
 	}
@@ -514,9 +518,9 @@ static sxc_file_t *sxfile_from_arg(sxc_cluster_t **cluster, char *arg) {
 	    *cluster = sxc_cluster_load_and_update(sx, args.config_dir_arg, uri->host, uri->profile);
 	}
 	if(!*cluster) {
-	    fprintf(stderr, "ERROR: Failed to load config for %s: %s\n", sxc_escstr(uri->host), sxc_geterrmsg(sx));
+	    fprintf(stderr, "ERROR: Failed to load config for %s: %s\n", uri->host, sxc_geterrmsg(sx));
 	    if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_CFG_ERR))
-		fprintf(stderr, SXBC_TOOLS_CFG_MSG, sxc_escstr(uri->host), sxc_escstr(uri->host));
+		fprintf(stderr, SXBC_TOOLS_CFG_MSG, uri->host, uri->host);
 	    sxc_free_uri(uri);
 	    return NULL;
 	}
@@ -586,12 +590,11 @@ static int process_bandwidth_arg(const char *str) {
 int main(int argc, char **argv) {
     int ret = 1, i, skipped = 0;
     sxc_file_t *src_file = NULL, *dst_file = NULL;
-    char *fname;
+    const char *fname;
     char *filter_dir;
     sxc_logger_t log;
     sxc_cluster_t *cluster1 = NULL, *cluster2 = NULL;
     int64_t limit = 0;
-    char stdin_fname[] = "/dev/stdin";
 
     if(cmdline_parser(argc, argv, &args))
 	exit(1);
@@ -619,7 +622,7 @@ int main(int argc, char **argv) {
     }
 
     if(args.config_dir_given && sxc_set_confdir(sx, args.config_dir_arg)) {
-        fprintf(stderr, "ERROR: Could not set configuration directory %s: %s\n", sxc_escstr(args.config_dir_arg), sxc_geterrmsg(sx));
+        fprintf(stderr, "ERROR: Could not set configuration directory %s: %s\n", args.config_dir_arg, sxc_geterrmsg(sx));
         ret = 1;
         goto main_err;
     }
@@ -659,7 +662,7 @@ int main(int argc, char **argv) {
 
     fname = args.inputs[args.inputs_num-1];
     if(!strcmp(fname, "-"))
-	fname = stdin_fname;
+	fname = "/dev/stdin";
     if(!(dst_file = sxfile_from_arg(&cluster1, fname)))
 	goto main_err;
 
@@ -675,7 +678,7 @@ int main(int argc, char **argv) {
     }
 
     if(limit && cluster1 && sxc_cluster_set_bandwidth_limit(sx, cluster1, limit)) {
-        fprintf(stderr, "ERROR: Failed to set bandwidth limit to %s\n", sxc_escstr(args.bwlimit_arg));
+        fprintf(stderr, "ERROR: Failed to set bandwidth limit to %s\n", args.bwlimit_arg);
         goto main_err;
     }
 
@@ -693,21 +696,21 @@ int main(int argc, char **argv) {
     for(i = 0;i < args.inputs_num-1; i++) {
         fname = args.inputs[i];
         if(!strcmp(fname, "-")) {
-            fname = stdin_fname;
+            fname = "/dev/stdin";
 	} else if(!is_sx(fname)) {
 	    struct stat sb;
 	    if(access(fname, R_OK)) {
-		fprintf(stderr, "ERROR: Cannot access %s: %s\n", sxc_escstr(fname), strerror(errno));
+		fprintf(stderr, "ERROR: Cannot access %s: %s\n", fname, strerror(errno));
 		skipped++;
 		continue;
 	    }
 	    if(stat(fname, &sb)) {
-		fprintf(stderr, "ERROR: Cannot stat %s: %s\n", sxc_escstr(fname), strerror(errno));
+		fprintf(stderr, "ERROR: Cannot stat %s: %s\n", fname, strerror(errno));
 		skipped++;
 		continue;
 	    }
 	    if(S_ISDIR(sb.st_mode) && !args.recursive_flag) {
-		fprintf(stderr, "WARNING: Cannot copy directory %s: use -r to copy recursively\n", sxc_escstr(fname));
+		fprintf(stderr, "WARNING: Cannot copy directory %s: use -r to copy recursively\n", fname);
 		skipped++;
 		continue;
 	    }
@@ -728,7 +731,7 @@ int main(int argc, char **argv) {
         }
 
         if(limit && cluster2 && sxc_cluster_set_bandwidth_limit(sx, cluster2, limit)) {
-            fprintf(stderr, "ERROR: Failed to set bandwidth limit to %s\n", sxc_escstr(args.bwlimit_arg));
+            fprintf(stderr, "ERROR: Failed to set bandwidth limit to %s\n", args.bwlimit_arg);
             goto main_err;
         }
 
