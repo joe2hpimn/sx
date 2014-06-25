@@ -140,10 +140,19 @@ static char *process_time(double seconds) {
     return str;
 }
 
+static void print_number(char *str, int maxlen, double number, char *unit) {
+    if(number - (unsigned long long)number < 0.01)
+        snprintf(str, maxlen, "%.0lf%c", number, unit ? *unit : '\0');
+    else if(number * 10.0 - (unsigned long long)(number * 10.0) < 0.1)
+        snprintf(str, maxlen, "%.1lf%c", number, unit ? *unit : '\0');
+    else
+        snprintf(str, maxlen, "%.2lf%c", number, unit ? *unit : '\0');
+}
+
 /* Process given number to produce short bytes representation */
 static char *process_number(int64_t number) {
     char *str = NULL;
-    int len = 8; /* 6 digits + comma + NUL byte */
+    int len = 9; /* 6 digits + comma + unit + NUL byte */
     int i = -1;
     char units[] = { 'K', 'M', 'G', 'T', 'P' };
     double tmpnumber = number;
@@ -155,19 +164,11 @@ static char *process_number(int64_t number) {
     if(i >= (int)(sizeof(units) / sizeof(char))) 
         return NULL;
 
-    /* Add space for unit */
-    if(i >= 0) {
-        len++;
-    }
-
     str = calloc(len, sizeof(char));
     if(!str)
         return NULL;
 
-    if(i >= 0)
-        snprintf(str, len, "%.0lf%c", tmpnumber, units[i]);
-    else
-        snprintf(str, len, "%.0lf", tmpnumber);
+    print_number(str, len, tmpnumber, i >= 0 ? &units[i] : NULL);
 
     return str;
 }
