@@ -462,7 +462,7 @@ int sxc_volume_acl(sxc_cluster_t *cluster, const char *url,
     return rc;
 }
 
-// {"volumeList":{"vol":{"replicaCount":1,"sizeBytes":10737418240,"volumeMeta:{"key1":"val1","key2":"val2"}"},"volxxx":{"replicaCount":1,"sizeBytes":10737418240,"volumeMeta:{"key1":"val1","key2":"val2"}"}}
+// {"volumeList":{"vol":{"replicaCount":1,"sizeBytes":10737418240,"volumeMeta":{"key1":"val1","key2":"val2"}},"volxxx":{"replicaCount":1,"sizeBytes":10737418240,"volumeMeta":{"key1":"val1","key2":"val2"}}}
 struct cb_listvolumes_ctx {
     sxc_client_t *sx;
     yajl_callbacks yacb;

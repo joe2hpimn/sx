@@ -122,20 +122,20 @@ void fcgi_handle_cluster_requests(void) {
             if(has_arg("volumeMeta")) {
                 const char *metakey;
                 const void *metavalue;
-                int metasize, comma = 0;
+                int metasize, comma_meta = 0;
 
-                if(s = sx_hashfs_volumemeta_begin(hashfs, vol)) {
-                    CGI_PUTS('}}');
+                if((s = sx_hashfs_volumemeta_begin(hashfs, vol)) != OK) {
+                    CGI_PUTS("}}");
                     quit_itererr("Cannot lookup volume metadata", s);
                 }
 
                 CGI_PUTS(",\"volumeMeta\":{");
                 while((s = sx_hashfs_volumemeta_next(hashfs, &metakey, &metavalue, &metasize)) == OK) {
                     char hexval[SXLIMIT_META_MAX_VALUE_LEN*2+1];
-                    if(comma)
+                    if(comma_meta)
                         CGI_PUTC(',');
                     else
-                        comma |= 1;
+                        comma_meta |= 1;
                     json_send_qstring(metakey);
                     CGI_PUTS(":\"");
                     bin2hex(metavalue, metasize, hexval, sizeof(hexval));
