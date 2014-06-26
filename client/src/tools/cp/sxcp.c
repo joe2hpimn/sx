@@ -209,7 +209,7 @@ static void bar_free() {
     free(bar_internal);
 }
 
-static void bar_progress(const sxc_xfer_stat_t *xfer_stat) {
+static int bar_progress(const sxc_xfer_stat_t *xfer_stat) {
     double m = 1.0f / (double)BAR_WIDTH;
     double c = 0;
     int percent = 0;
@@ -220,13 +220,8 @@ static void bar_progress(const sxc_xfer_stat_t *xfer_stat) {
     static int64_t last_skipped = 0;
     int skipped_changed = 0; /* it is set to 1 when some blocks where skipped */
 
-    if(!bar_internal) {
-        return;
-    }
-
-    if(!xfer_stat){
-        /* Could not get stats, do not print error, since this function can be called frequently during transfer */
-        return;
+    if(!bar_internal || !xfer_stat) {
+        return SXE_ABORT;
     }
 
     if(xfer_stat->status != SXC_XFER_STATUS_PART_FINISHED && xfer_stat->status != SXC_XFER_STATUS_WAITING) {
@@ -303,13 +298,15 @@ static void bar_progress(const sxc_xfer_stat_t *xfer_stat) {
     }
 
     fflush(stdout);
+
+    return SXE_NOERROR;
 }
 
 #define DOTS_BYTES              1024
 #define DOTS_PER_CLUSTER        10 
 #define DOTS_CLUSTERS           5
 
-static void dots_progress(const sxc_xfer_stat_t *xfer_stat) {
+static int dots_progress(const sxc_xfer_stat_t *xfer_stat) {
     static int dots_written = 0;
     static int64_t xfer_written = 0;
     static int64_t last_skipped = 0;
@@ -325,7 +322,7 @@ static void dots_progress(const sxc_xfer_stat_t *xfer_stat) {
 
     if(!xfer_stat){
         /* Could not get stats, do not print error, since this function can be called frequently during transfer */
-        return;
+        return SXE_ABORT;
     }
 
     skipped = xfer_stat->current_xfer.file_size - xfer_stat->current_xfer.to_send;
@@ -412,6 +409,7 @@ static void dots_progress(const sxc_xfer_stat_t *xfer_stat) {
     }
 
     fflush(stdout);
+    return SXE_NOERROR;
 }
 
 /* If possible, get type of callback (progress bar or dots) */
@@ -434,10 +432,9 @@ static sxc_xfer_callback get_callback_type(void) {
     return progress_callback_type;
 }
 
-static void progress_callback(const sxc_xfer_stat_t *xfer_stat) {
+static int progress_callback(const sxc_xfer_stat_t *xfer_stat) {
     if(!xfer_stat) {
-        /* Do not report an error becuse this callback can be called frequently during transfer */
-        return;
+        return SXE_ABORT;
     }
 
     /* Called to let callbacks finishing lines */
@@ -457,7 +454,7 @@ static void progress_callback(const sxc_xfer_stat_t *xfer_stat) {
             free(processed_size);
             free(file_name_esc);
 
-            get_callback_type()(xfer_stat);
+            return get_callback_type()(xfer_stat);
         } break;
 
         case SXC_XFER_STATUS_FINISHED:
@@ -490,13 +487,15 @@ static void progress_callback(const sxc_xfer_stat_t *xfer_stat) {
         } break;
 
         case SXC_XFER_STATUS_RUNNING: {
-            get_callback_type()(xfer_stat);
+            return get_callback_type()(xfer_stat);
         } break;
 
         case SXC_XFER_STATUS_STARTED: {
             /* Do nothing, transfer starts */
         } break;
     }
+
+    return SXE_NOERROR;
 }
 
 static sxc_file_t *sxfile_from_arg(sxc_cluster_t **cluster, const char *arg, int require_remote_path) {
@@ -683,7 +682,7 @@ int main(int argc, char **argv) {
         goto main_err;
     }
 
-    if((!args.no_progress_flag || args.verbose_flag) && cluster1 && sxc_cluster_set_progress_cb(sx, cluster1, progress_callback)) {
+    if((!args.no_progress_flag || args.verbose_flag) && cluster1 && sxc_cluster_set_progress_cb(sx, cluster1, progress_callback, NULL)) {
         fprintf(stderr, "ERROR: Could not set progress callback\n");
         goto main_err;
     }
@@ -736,7 +735,7 @@ int main(int argc, char **argv) {
             goto main_err;
         }
 
-        if((!args.no_progress_flag || args.verbose_flag) && cluster2 && sxc_cluster_set_progress_cb(sx, cluster2, progress_callback)) {
+        if((!args.no_progress_flag || args.verbose_flag) && cluster2 && sxc_cluster_set_progress_cb(sx, cluster2, progress_callback, NULL)) {
             fprintf(stderr, "ERROR: Could not set progress callback\n");
             goto main_err;
         }

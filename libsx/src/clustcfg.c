@@ -2505,7 +2505,7 @@ unsigned int sxc_cluster_get_httpport(const sxc_cluster_t *cluster) {
     return sxi_conns_get_port(cluster->conns);
 }
 
-int sxc_cluster_set_progress_cb(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_xfer_callback cb) {
+int sxc_cluster_set_progress_cb(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_xfer_callback cb, void *ctx) {
     if(!cluster || !cb) {
         SXDEBUG("NULL argument");        
         sxi_seterr(sx, SXE_EARG, "NULL argument: %s", cluster != NULL ? "cb" : "cluster");
@@ -2513,7 +2513,7 @@ int sxc_cluster_set_progress_cb(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_xf
     }
 
     if(!cluster->xfer_stat) {
-        cluster->xfer_stat = sxi_cluster_xfer_new(sx, cb);
+        cluster->xfer_stat = sxi_cluster_xfer_new(sx, cb, ctx);
         if(!cluster->xfer_stat) {
             SXDEBUG("Could not allocate memory");
             sxi_seterr(sx, SXE_EMEM, "Could not allocate memory");

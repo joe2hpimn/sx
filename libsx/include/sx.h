@@ -85,6 +85,7 @@ enum sxc_error_t {
     SXE_EFILTER,	/* Filter related error */
     SXE_SKIP,           /* File was skipped */
     SXE_EAGAIN,         /* Try again later  */
+    SXE_ABORT,          /* Operation aborted */
 };
 
 typedef struct _sxc_cluster_t sxc_cluster_t;
@@ -189,7 +190,7 @@ typedef enum {
 } sxc_xfer_status_t;
 
 struct _sxc_xfer_stat;
-typedef void (*sxc_xfer_callback)(const struct _sxc_xfer_stat *stat);
+typedef int (*sxc_xfer_callback)(const struct _sxc_xfer_stat *stat);
 struct _sxc_xfer_stat {
     /* Current transfer information */
     sxc_xfer_progress_t current_xfer;
@@ -218,10 +219,13 @@ struct _sxc_xfer_stat {
 
     /* Invoked when transfer information changes */
     sxc_xfer_callback xfer_callback;
+
+    /* Context */
+    void *ctx;
 };
 
 typedef struct _sxc_xfer_stat sxc_xfer_stat_t;
-int sxc_cluster_set_progress_cb(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_xfer_callback cb);
+int sxc_cluster_set_progress_cb(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_xfer_callback cb, void *ctx);
 /*sxc_xfer_callback sxc_cluster_get_progress_cb(const sxc_cluster_t *cluster);*/
 
 typedef struct _sxc_file_t sxc_file_t;

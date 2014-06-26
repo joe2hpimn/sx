@@ -367,7 +367,8 @@ int sxi_cbdata_wait(curlev_context_t *ctx, curl_events_t *e, int *curlcode)
         struct recv_context *rctx = &ctx->recv_ctx;
         while (!rctx->finished) {
             if (sxi_curlev_poll(e)) {
-                *curlcode = rctx->rc;
+                if(curlcode)
+                    *curlcode = rctx->rc;
                 return -1;
             }
         }
@@ -1256,6 +1257,7 @@ static int xferinfo(void *p, curl_off_t dltotal, curl_off_t dlnow,
                     curl_off_t ultotal, curl_off_t ulnow)
 {
     curlev_t *ev = p;
+    int err = SXE_ABORT;
 
     if (check_ssl_cert(ev))
         return -1;
@@ -1268,22 +1270,34 @@ static int xferinfo(void *p, curl_off_t dltotal, curl_off_t dlnow,
     switch(ev->ctx->tag) {
         case CTX_DOWNLOAD: {
             /* Update file download */
-            sxi_file_download_set_xfer_stat(ev->ctx->u.download_ctx, dlnow, dltotal);
+            err = sxi_file_download_set_xfer_stat(ev->ctx->u.download_ctx, dlnow, dltotal);
         } break;
 
         case CTX_UPLOAD_HOST: {
             /* Update file upload */
-            sxi_host_upload_set_xfer_stat(ev->ctx->u.host_ctx, ulnow, ultotal);
+            err = sxi_host_upload_set_xfer_stat(ev->ctx->u.host_ctx, ulnow, ultotal);
         } break;
 
         case CTX_GENERIC:
         case CTX_HASHOP:
         case CTX_JOB:
         case CTX_UPLOAD: {
-            /* TODO: Default xfer information updates */
+            /* Do nothing simply assign error value as no error */
+            err = SXE_NOERROR;
         }
     }
 
+    if(err != SXE_NOERROR) {
+        /* Try to set error message */
+        if(ev->ctx && ev->ctx->conns) {
+            sxc_client_t *sx = sxi_conns_get_client(ev->ctx->conns);
+            if(sx) {
+                sxi_seterr(sx, SXE_ABORT, "Transfer aborted");
+            }
+        }
+        /* This stops transfers and causes libcurl to fail */
+        return 1;
+    }
     return 0;
 }
 
@@ -2061,6 +2075,7 @@ int sxi_curlev_poll_immediate(curl_events_t *e)
                 curlev_t *ev = (curlev_t*)priv;
                 struct recv_context *rctx = &ev->ctx->recv_ctx;
                 struct host_info *host = NULL;
+                int xfer_err = SXE_NOERROR;
 
                 curl_easy_getinfo(msg->easy_handle, CURLINFO_RESPONSE_CODE, &rctx->reply_status);
                 rctx->errbuf[sizeof(rctx->errbuf)-1] = 0;
@@ -2093,18 +2108,29 @@ int sxi_curlev_poll_immediate(curl_events_t *e)
                     case CTX_DOWNLOAD: {
                         /* Update file download to be finished */
                         int64_t to_dl = sxi_file_download_get_xfer_to_send(ctx->u.download_ctx);
-                        if(to_dl) sxi_file_download_set_xfer_stat(ctx->u.download_ctx, to_dl, to_dl);
+                        if(to_dl)
+                            xfer_err = sxi_file_download_set_xfer_stat(ctx->u.download_ctx, to_dl, to_dl);
                     } break;
 
                     case CTX_UPLOAD_HOST: {
                         /* Update file upload */
                         int64_t to_ul = sxi_host_upload_get_xfer_to_send(ctx->u.host_ctx);
-                        if(to_ul) sxi_host_upload_set_xfer_stat(ctx->u.host_ctx, to_ul, to_ul);
+                        if(to_ul)
+                            xfer_err = sxi_host_upload_set_xfer_stat(ctx->u.host_ctx, to_ul, to_ul);
                     } break;
 
                     default: {
                         /* Generic transfer updates */
                     }
+                }
+
+                /* Check if user transfer callbacks did not return error message */
+                if(xfer_err != SXE_NOERROR) {
+                    sxc_client_t *sx = sxi_conns_get_client(e->conns);
+                    if(sx)
+                        sxi_seterr(sx, SXE_ABORT, "Transfer aborted");
+                    e->depth--;
+                    return -1;
                 }
 
                 /* Look for host */

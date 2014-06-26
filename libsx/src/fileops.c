@@ -55,7 +55,7 @@ struct _sxc_file_t {
     int cat_fd;
 };
 
-sxc_xfer_stat_t* sxi_cluster_xfer_new(sxc_client_t *sx, sxc_xfer_callback xfer_callback) {
+sxc_xfer_stat_t* sxi_cluster_xfer_new(sxc_client_t *sx, sxc_xfer_callback xfer_callback, void *ctx) {
     sxc_xfer_stat_t *xfer_stat = NULL;
     if(!sx || !xfer_callback)
         return NULL;
@@ -67,6 +67,7 @@ sxc_xfer_stat_t* sxi_cluster_xfer_new(sxc_client_t *sx, sxc_xfer_callback xfer_c
     }
 
     xfer_stat->status = SXC_XFER_STATUS_STARTED;
+    xfer_stat->ctx = ctx;
     gettimeofday(&xfer_stat->start_time, NULL);
     gettimeofday(&xfer_stat->interval_timer, NULL);
     xfer_stat->xfer_callback = xfer_callback;
@@ -80,11 +81,11 @@ void sxi_cluster_xfer_free(sxc_xfer_stat_t *xfer) {
 /* Rate at wchich progress function should call external progress handler */
 #define XFER_PROGRESS_INTERVAL 0.5
 
-static int set_xfer_stat(sxc_xfer_stat_t *xfer_stat, int64_t bytes) { 
+static int set_xfer_stat(sxc_xfer_stat_t *xfer_stat, int64_t bytes) {
     double timediff = 0;
     struct timeval now;
     if(!xfer_stat || !xfer_stat->xfer_callback)
-        return 1;
+        return SXE_ABORT;
 
     /* Increase current file counter */
     xfer_stat->current_xfer.sent += bytes;
@@ -105,10 +106,10 @@ static int set_xfer_stat(sxc_xfer_stat_t *xfer_stat, int64_t bytes) {
         xfer_stat->current_xfer.total_time = sxi_timediff(&now, &xfer_stat->current_xfer.start_time);
 
         /* Invoke callback */
-        xfer_stat->xfer_callback(xfer_stat);
+        return xfer_stat->xfer_callback(xfer_stat);
     }
 
-    return 0;
+    return SXE_NOERROR;
 }
 
 static int sxi_xfer_set_file(sxc_xfer_stat_t *xfer_stat, const char *file_name, int64_t file_size, sxc_xfer_direction_t xfer_direction) {
@@ -142,7 +143,7 @@ static int skip_xfer(sxc_cluster_t *cluster, int64_t bytes) {
     sxc_xfer_stat_t *xfer_stat = sxi_cluster_get_xfer_stat(cluster);
 
     if(!xfer_stat || !xfer_stat->xfer_callback) 
-        return 1;
+        return SXE_ABORT;
 
     xfer_stat->current_xfer.to_send -= bytes;
 
@@ -156,9 +157,7 @@ static int skip_xfer(sxc_cluster_t *cluster, int64_t bytes) {
     }
 
     /* Invoke callback to allow client side to present skipped blocks */
-    xfer_stat->xfer_callback(xfer_stat);
-
-    return 0;
+    return xfer_stat->xfer_callback(xfer_stat);
 }
 
 /* Download table is at most 5MB and allows for up to 128GB of uniq content */
@@ -166,8 +165,6 @@ static int skip_xfer(sxc_cluster_t *cluster, int64_t bytes) {
 #define INITIAL_HASH_ITEMS MIN(BLOCKS_PER_TABLE, 256)
 #define cluster_err(...) sxi_seterr(sxi_cluster_get_client(cluster), __VA_ARGS__)
 #define cluster_syserr(...) sxi_setsyserr(sxi_cluster_get_client(cluster), __VA_ARGS__)
-
-#define PROGRESS_INTERVAL 6.0
 
 static int is_remote(sxc_file_t *f) {
     return f->cluster != NULL;
@@ -498,11 +495,11 @@ struct host_upload_ctx {
 int sxi_host_upload_set_xfer_stat(struct host_upload_ctx* ctx, int64_t uploaded, int64_t to_upload) {
     int64_t ul_diff = 0;
     if(!ctx)
-        return 1;
+        return SXE_ABORT;
 
     /* This is not considered as error, cluster == NULL if we do not want to check progress */
     if(!ctx->cluster)
-        return 0;
+        return SXE_NOERROR;
 
     ctx->to_ul = to_upload;
     ul_diff = uploaded - ctx->ul;
@@ -511,7 +508,7 @@ int sxi_host_upload_set_xfer_stat(struct host_upload_ctx* ctx, int64_t uploaded,
     if(ul_diff > 0) {
         return set_xfer_stat(sxi_cluster_get_xfer_stat(ctx->cluster), ul_diff);
     } else
-        return 0;
+        return SXE_NOERROR;
 }
 
 /* Get numner of bytes to be uploaded */
@@ -1207,9 +1204,9 @@ static void multi_part_upload_blocks(curlev_context_t *ctx, const char *url)
     xfer_stat = sxi_cluster_get_xfer_stat(yctx->cluster);
     if(xfer_stat) {
         int64_t to_skip = yctx->pos - yctx->last_pos - yctx->current.needed_cnt * yctx->blocksize; 
-        if(to_skip && skip_xfer(yctx->cluster, to_skip)) {
+        if(to_skip && skip_xfer(yctx->cluster, to_skip) != SXE_NOERROR) {
             SXDEBUG("Could not skip part of transfer");
-            sxi_seterr(sx, SXE_EARG, "Could not skip part of transfer");
+            sxi_seterr(sx, SXE_ABORT, "Could not skip part of transfer");
             return;
         }
     }
@@ -1844,7 +1841,11 @@ static int local_to_remote_begin(sxc_file_t *source, sxc_meta_t *fmeta, sxc_file
             SXDEBUG("Could not set transfer information to file %s", source->path);
             goto local_to_remote_err;
         }
-        xfer_stat->xfer_callback(xfer_stat);
+        if(xfer_stat->xfer_callback(xfer_stat) != SXE_NOERROR) {
+            SXDEBUG("Could not start transfer");
+            sxi_seterr(sx, SXE_ABORT, "Transfer aborted");
+            goto local_to_remote_err;
+        }
         xfer_stat->status = SXC_XFER_STATUS_RUNNING;
     }
 
@@ -1858,7 +1859,11 @@ static int local_to_remote_begin(sxc_file_t *source, sxc_meta_t *fmeta, sxc_file
     if(xfer_stat) {
         /* Upload process is waiting for job to finish */
         xfer_stat->status = SXC_XFER_STATUS_WAITING;
-        xfer_stat->xfer_callback(xfer_stat);
+        if(xfer_stat->xfer_callback(xfer_stat) != SXE_NOERROR) {
+            SXDEBUG("Could not finish transfer");
+            sxi_seterr(sx, SXE_ABORT, "Transfer aborted");
+            goto local_to_remote_err;
+        }
     }
 
     ret = 0;
@@ -2464,11 +2469,11 @@ struct file_download_ctx {
 int sxi_file_download_set_xfer_stat(struct file_download_ctx* ctx, int64_t downloaded, int64_t to_download) {
     int64_t dl_diff = 0;
     if(!ctx)
-        return 1;
+        return SXE_ABORT;
 
     /* This is not considered as error, cluster == NULL if we do not want to check progress */
     if(!ctx->cluster)
-        return 0;
+        return SXE_NOERROR;
 
     ctx->to_dl = to_download;
     dl_diff = downloaded - ctx->dl;
@@ -2476,7 +2481,7 @@ int sxi_file_download_set_xfer_stat(struct file_download_ctx* ctx, int64_t downl
     if(dl_diff > 0)
         return set_xfer_stat(sxi_cluster_get_xfer_stat(ctx->cluster), dl_diff);
     else 
-        return 0;
+        return SXE_NOERROR;
 }
 
 /* Get numner of bytes to be downloaded */
@@ -2971,9 +2976,9 @@ static int multi_download(struct batch_hashes *bh, const char *dstname,
                 sxi_ht_del(bh->hashes, hash, 40);
 
                 xfer_stat = sxi_cluster_get_xfer_stat(cluster);
-                if(xfer_stat && skip_xfer(cluster, blocksize * hashdata->ocnt)) {
+                if(xfer_stat && skip_xfer(cluster, blocksize * hashdata->ocnt) != SXE_NOERROR) {
                     CFGDEBUG("Could not skip %u bytes of transfer", blocksize * hashdata->ocnt);
-                    sxi_seterr(sx, SXE_EARG, "Could not skip %u bytes of transfer", blocksize * hashdata->ocnt);
+                    sxi_seterr(sx, SXE_ABORT, "Could not skip %u bytes of transfer", blocksize * hashdata->ocnt);
                     break;
                 }
 
@@ -3325,7 +3330,12 @@ static int remote_to_local(sxc_file_t *source, sxc_file_t *dest) {
                 break;
             }
 
-            xfer_stat->xfer_callback(xfer_stat);
+            if(xfer_stat->xfer_callback(xfer_stat) != SXE_NOERROR) {
+                SXDEBUG("Could not start transfer");
+                sxi_seterr(sx, SXE_ABORT, "Transfer aborted");
+                fail = 1;
+                break;
+            }
             xfer_stat->status = SXC_XFER_STATUS_RUNNING;
         }
 
@@ -3333,7 +3343,12 @@ static int remote_to_local(sxc_file_t *source, sxc_file_t *dest) {
 
         if(xfer_stat) {
             xfer_stat->status = SXC_XFER_STATUS_PART_FINISHED;
-            xfer_stat->xfer_callback(xfer_stat);
+            if(xfer_stat->xfer_callback(xfer_stat) != SXE_NOERROR) {
+                SXDEBUG("Could not finish transfer");
+                sxi_seterr(sx, SXE_ABORT, "Transfer aborted");
+                fail = 1;
+                break;
+            }
         }
 
 
@@ -4049,7 +4064,10 @@ int sxc_copy(sxc_file_t *source, sxc_file_t *dest, int recursive) {
     xfer_stat = sxi_cluster_get_xfer_stat(remote_cluster);
     if(xfer_stat) {
         xfer_stat->status = (ret ? SXC_XFER_STATUS_FINISHED_ERROR : SXC_XFER_STATUS_FINISHED);
-        xfer_stat->xfer_callback(xfer_stat);
+        if(xfer_stat->xfer_callback(xfer_stat) != SXE_NOERROR) {
+            sxi_seterr(source->sx, SXE_ABORT, "Transfer aborted");
+            ret = 1;
+        }
     }
 
     return ret;
