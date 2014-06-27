@@ -59,6 +59,12 @@ sxi_conns_t *sxi_conns_new(sxc_client_t *sx) {
     }
     conns->sx = sx;
     conns->curlev = sxi_curlev_init(conns);
+    if(!conns->curlev) {
+        SXDEBUG("OOM allocating curl events");
+        sxi_seterr(sx, SXE_EMEM, "Failed to initialize curl events");
+        free(conns);
+        return NULL;
+    }
     sxi_conns_set_cafile(conns, NULL);
     return conns;
 }
