@@ -1945,7 +1945,7 @@ static int sxi_jobs_wait_one(sxc_file_t *file, sxi_job_t *job)
 
     if (!file || !job || sxi_jobs_add(file->sx, &jobs, job))
         return -1;
-    ret = sxi_job_wait(sxi_cluster_get_conns(file->cluster), &jobs, NULL);
+    ret = sxi_job_wait(sxi_cluster_get_conns(file->cluster), &jobs);
     free(jobs.jobs);
 
     return ret;
@@ -2094,7 +2094,7 @@ static int local_to_remote_iterate(sxc_file_t *source, int recursive, int depth,
 
         if (dest->jobs) {
             SXDEBUG("waiting for %d jobs", dest->jobs->n);
-            ret = sxi_job_wait(sxi_cluster_get_conns(dest->cluster), dest->jobs, NULL);
+            ret = sxi_job_wait(sxi_cluster_get_conns(dest->cluster), dest->jobs);
             if (ret) {
                 SXDEBUG("job_wait failed");
                 failed = 1;
@@ -4551,7 +4551,6 @@ struct _sxc_file_list_t {
     struct sxc_file_entry *entries;
     unsigned n;
     unsigned total;
-    unsigned successful;
     unsigned error;
     sxc_cluster_t *cluster;
     unsigned recursive;
@@ -4571,7 +4570,7 @@ unsigned sxc_file_list_get_successful(const sxc_file_list_t *lst)
 {
     if (!lst)
         return 0;
-    return lst->successful;
+    return sxi_jobs_get_successful(&lst->jobs);
 }
 
 sxc_file_list_t *sxc_file_list_new(sxc_client_t *sx, int recursive)
@@ -4668,7 +4667,7 @@ static int sxi_file_list_foreach_wait(sxc_file_list_t *target, sxc_cluster_t *cl
     sxc_client_t *sx = target->sx;
 
     SXDEBUG("Waiting for %d jobs", target->jobs.n);
-    ret = sxi_job_wait(sxi_cluster_get_conns(cluster), &target->jobs, &target->successful);
+    ret = sxi_job_wait(sxi_cluster_get_conns(cluster), &target->jobs);
     for (i=0;i < target->jobs.n; i++) {
         sxi_job_free(target->jobs.jobs[i]);
     }
