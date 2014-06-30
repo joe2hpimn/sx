@@ -383,7 +383,7 @@ static struct sxnode *getnode(struct sxcluster *cluster, const sx_uuid_t *uuid)
 
 static int rebalance(struct sxcluster *cluster)
 {
-	unsigned int i, j, k, cfg_len, ret;
+	unsigned int i, j, k, cfg_len;
 	struct sxnode *node;
 	struct sxcluster newcluster;
 	const void *cfg;
@@ -393,8 +393,8 @@ static int rebalance(struct sxcluster *cluster)
 	return -1;
     }
 
-    if((ret = update(cluster)) < 0)
-	return ret;
+    if(update(cluster))
+	return -1;
 
     if(sxi_hdist_buildcnt(cluster->hdist) < 2) {
 	printf("No rebalance required\n");
