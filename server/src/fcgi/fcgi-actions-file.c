@@ -534,6 +534,7 @@ void fcgi_delete_file(void) {
 	    const void *job_data;
 	    unsigned int job_datalen;
 	    job_t job;
+            unsigned int job_timeout = 0;
 
 	    if(b && !sx_blob_add_string(b, volume) && !sx_blob_add_string(b, path)) {
 		if(!rev || !*rev) {
@@ -542,17 +543,25 @@ void fcgi_delete_file(void) {
 		    while(s == OK) {
 			if(sx_blob_add_string(b, file->revision))
 			    s = ENOMEM;
-			else
+			else {
+                            (void)sx_hashfs_getfile_begin(hashfs, vol->name, path, file->revision, NULL, NULL, NULL, NULL);
+                            job_timeout += sx_hashfs_job_file_timeout(hashfs, sx_nodelist_count(targets), 0, sx_hashfs_getfile_count(hashfs));
+                            sx_hashfs_getfile_end(hashfs);
 			    s = sx_hashfs_revision_next(hashfs);
+                        }
 		    }
 		    if(s == ITER_NO_MORE)
 			s = OK;
 		} else if(sx_blob_add_string(b, rev))
 		    s = ENOMEM;
+                else {
+                    (void)sx_hashfs_getfile_begin(hashfs, vol->name, path, rev, NULL, NULL, NULL, NULL);
+                    job_timeout += sx_hashfs_job_file_timeout(hashfs, sx_nodelist_count(targets), 0, sx_hashfs_getfile_count(hashfs));
+                    sx_hashfs_getfile_end(hashfs);
+                }
 
 		if(s == OK) {
 		    if(!sx_blob_add_string(b, "")) {
-			unsigned int job_timeout = 15 * sx_nodelist_count(targets);
 			sx_blob_to_data(b, &job_data, &job_datalen);
 			s = sx_hashfs_job_new(hashfs, uid, &job, JOBTYPE_DELETE_FILE, job_timeout, NULL, job_data, job_datalen, targets);
 		    } else

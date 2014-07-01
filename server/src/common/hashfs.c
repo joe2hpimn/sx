@@ -3810,6 +3810,11 @@ rc_ty sx_hashfs_getfile_begin(sx_hashfs_t *h, const char *volume, const char *fi
     return OK;
 }
 
+uint64_t sx_hashfs_getfile_count(sx_hashfs_t *h)
+{
+    return h->get_nblocks;
+}
+
 rc_ty sx_hashfs_getfile_block(sx_hashfs_t *h, const sx_hash_t **hash, sx_nodelist_t **nodes) {
     if(!h || !hash || !nodes || (h->get_nblocks && !h->get_content))
 	return EINVAL;
@@ -5117,6 +5122,22 @@ void sx_hashfs_putfile_end(sx_hashfs_t *h) {
     putfile_reinit(h);
 }
 
+unsigned int sx_hashfs_job_file_timeout(sx_hashfs_t *h, unsigned int ndests, uint64_t expected_size, uint64_t expected_blocks)
+{
+    unsigned int job_timeout;
+    if(ndests > 1) {
+	for(job_timeout = 50; expected_size; expected_size >>= 3)
+	    job_timeout <<= 1;
+	if(ndests > 2)
+	    job_timeout = job_timeout * ndests / (ndests - 1);
+    } else
+	job_timeout = 20;
+    job_timeout += expected_blocks / DOWNLOAD_MAX_BLOCKS * 4;
+    if(job_timeout > JOB_FILE_MAX_TIME)
+	job_timeout = JOB_FILE_MAX_TIME;
+    return job_timeout;
+}
+
 rc_ty sx_hashfs_putfile_commitjob(sx_hashfs_t *h, const uint8_t *user, sx_uid_t user_id, const char *token, job_t *job_id) {
     unsigned int expected_blocks, actual_blocks, job_timeout, ndests;
     int64_t tmpfile_id, expected_size, volid;
@@ -5211,16 +5232,7 @@ rc_ty sx_hashfs_putfile_commitjob(sx_hashfs_t *h, const uint8_t *user, sx_uid_t 
 
     expected_size = expected_size / 1024 / 1024;
     ndests = sx_nodelist_count(volnodes);
-    if(ndests > 1) {
-	for(job_timeout = 50; expected_size; expected_size >>= 3)
-	    job_timeout <<= 1;
-	if(ndests > 2)
-	    job_timeout = job_timeout * ndests / (ndests - 1);
-    } else
-	job_timeout = 20;
-    job_timeout += expected_blocks / DOWNLOAD_MAX_BLOCKS * 4;
-    if(job_timeout > JOB_FILE_MAX_TIME)
-	job_timeout = JOB_FILE_MAX_TIME;
+    job_timeout = sx_hashfs_job_file_timeout(h, ndests, expected_size, expected_blocks);
 
     ret2 = sx_hashfs_job_new_begin(h);
     if(ret2) {
