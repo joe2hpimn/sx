@@ -499,7 +499,7 @@ static void progress_callback(const sxc_xfer_stat_t *xfer_stat) {
     }
 }
 
-static sxc_file_t *sxfile_from_arg(sxc_cluster_t **cluster, const char *arg) {
+static sxc_file_t *sxfile_from_arg(sxc_cluster_t **cluster, const char *arg, int require_remote_path) {
     sxc_file_t *file;
 
     if(is_sx(arg)) {
@@ -509,7 +509,7 @@ static sxc_file_t *sxfile_from_arg(sxc_cluster_t **cluster, const char *arg) {
 	    fprintf(stderr, "ERROR: Bad uri %s: %s\n", arg, sxc_geterrmsg(sx));
 	    return NULL;
 	}
-	if(!uri->volume) {
+	if(!uri->volume || (require_remote_path && !uri->path)) {
 	    fprintf(stderr, "ERROR: Bad path %s\n", arg);
 	    sxc_free_uri(uri);
 	    return NULL;
@@ -664,7 +664,7 @@ int main(int argc, char **argv) {
     fname = args.inputs[args.inputs_num-1];
     if(!strcmp(fname, "-"))
 	fname = "/dev/stdin";
-    if(!(dst_file = sxfile_from_arg(&cluster1, fname)))
+    if(!(dst_file = sxfile_from_arg(&cluster1, fname, 0)))
 	goto main_err;
 
     if(cluster1 && (args.total_conns_limit_given || args.host_conns_limit_given)) {
@@ -717,7 +717,7 @@ int main(int argc, char **argv) {
 	    }
 	}
 
-        if(!(src_file = sxfile_from_arg(&cluster2, fname)))
+        if(!(src_file = sxfile_from_arg(&cluster2, fname, !args.recursive_flag)))
             goto main_err;
 
         if(cluster2 && (args.total_conns_limit_given || args.host_conns_limit_given)) {
