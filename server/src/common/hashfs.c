@@ -600,6 +600,8 @@ struct _sx_hashfs_t {
     sqlite3_stmt *qm_ins[METADBS];
     sqlite3_stmt *qm_list[METADBS];
     sqlite3_stmt *qm_listrevs[METADBS];
+    unsigned char qm_list_done[METADBS];
+    uint64_t qm_list_queries;
     sqlite3_stmt *qm_get[METADBS];
     sqlite3_stmt *qm_getrev[METADBS];
     sqlite3_stmt *qm_tooold[METADBS];
@@ -657,7 +659,8 @@ struct _sx_hashfs_t {
     int64_t list_volid;
     /* 2*SXLIMIT because each char can be a wildcard that might need to be
      * escaped for an exact match */
-    char list_pattern[2*SXLIMIT_MAX_FILENAME_LEN+3];
+    char list_pattern[SXLIMIT_MAX_FILENAME_LEN+1];
+    char list_pattern_esc[2*SXLIMIT_MAX_FILENAME_LEN+3];
     unsigned int list_pattern_slashes;
 
     int64_t get_id;
@@ -2510,8 +2513,7 @@ static inline int has_wildcard(const char *str)
 }
 
 rc_ty sx_hashfs_list_first(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const char *pattern, const sx_hashfs_file_t **file, int recurse) {
-    int l, r, plen;
-    rc_ty rc;
+    int l = 0, r = 0, plen, glob = -1;
 
     if(!pattern)
 	pattern = "/";
@@ -2535,53 +2537,78 @@ rc_ty sx_hashfs_list_first(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, con
     }
 
     memcpy(h->list_pattern, pattern, plen + 1);
+    if(h->list_pattern[l] == '*' || h->list_pattern[l] == '?' || h->list_pattern[l] == '[')
+        glob = 0;
     for(l = 0, r = 1; r<plen; r++) {
 	if(h->list_pattern[l] != '/' || h->list_pattern[r] != '/') {
 	    l++;
 	    if(l!=r)
 		h->list_pattern[l] = h->list_pattern[r];
 	}
+        if(glob == -1 && (h->list_pattern[l] == '*' || h->list_pattern[l] == '?' || h->list_pattern[l] == '[')) {
+            glob = l;
+        }
     }
     plen = l+1;
     h->list_pattern[plen] = '\0';
+    for (l=0, r=0; r<plen;) {
+        if (strchr("*?[]\\", h->list_pattern[r]))
+            h->list_pattern_esc[l++] = '\\';
+        h->list_pattern_esc[l++] = h->list_pattern[r++];
+    }
+    h->list_pattern_esc[l] = '\0';
     if (h->list_pattern[plen-1] == '/') {
         plen--;
-        if (plen > 0)
+        l--;
+        if (plen > 0) {
             memcpy(&h->list_pattern[plen], "/*", 3);
-        else
+            memcpy(&h->list_pattern_esc[l], "/*", 3);
+            if(glob == -1)
+                glob = plen + 1;
+        } else {
             memcpy(&h->list_pattern[plen], "*", 2);
+            memcpy(&h->list_pattern_esc[l], "*", 2);
+            if(glob == -1)
+                glob = plen;
+        }
+    } else {
+        if(glob == -1) /* Exact file name match */
+            glob = plen;
     }
+
+    if(glob > 0) {
+        strncpy(h->list_file.itername, h->list_pattern, glob);
+        strncpy(h->list_file.itername_limit, h->list_pattern, glob);
+    }
+
     h->list_pattern_slashes = slashes_in(h->list_pattern);
     h->list_file.name[0] = '\0';
-    h->list_file.itername[0] = '\0';
+    if(glob != -1) {
+        h->list_file.itername[glob] = '\0';
+        h->list_file.itername_limit[glob] = '\0';
+        h->list_file.itername_limit_len = glob;
+        /* Do not skip exact match (e.g. pattern = /foo* -> result would not contain /foo */
+        if(glob > 0) {
+           h->list_file.itername[glob-1]--;
+           h->list_file.itername_limit[glob-1]++;
+        }
+    } else {
+        h->list_file.itername[0] = '\0';
+        h->list_file.itername_limit[0] = '\0';
+        h->list_file.itername_limit_len = 0;
+    }
+
     h->list_file.lastname[0] = '\0';
     h->list_recurse = recurse;
     h->list_volid = volume->id;
     *file = &h->list_file;
 
-    rc = sx_hashfs_list_next(h);
-    if (rc == ITER_NO_MORE && has_wildcard(h->list_pattern)) {
-        char old_pattern[sizeof(h->list_pattern)];
-        strncpy(old_pattern, h->list_pattern, sizeof(old_pattern)-1);
-        old_pattern[sizeof(old_pattern)-1] = '\0';
-        /* matching with wildcards failed, try exact match now:
-         * build a pattern with all wildcards escaped, except
-         * the one used for dir listing.*/
-        for (l=0, r=0; r<plen;) {
-            if (strchr("*?[", old_pattern[r])) {
-                h->list_pattern[l++] = '\\';
-            }
-            h->list_pattern[l++] = old_pattern[r++];
-        }
-        /* copy plen => strlen unchanged, needed for dir listing */
-        memcpy(&h->list_pattern[l], &old_pattern[r], strlen(old_pattern) - r + 1);
-        DEBUG("doing exact match: %s", h->list_pattern);
-        h->list_file.name[0] = '\0';
-        h->list_file.itername[0] = '\0';
-        h->list_file.lastname[0] = '\0';
-        rc = sx_hashfs_list_next(h);
-    }
-    return rc;
+    memset(h->qm_list_done, 0, METADBS);
+
+    /* For debugging */
+    h->qm_list_queries = 0;
+
+    return sx_hashfs_list_next(h);
 }
 
 rc_ty sx_hashfs_list_next(sx_hashfs_t *h) {
@@ -2592,12 +2619,18 @@ rc_ty sx_hashfs_list_next(sx_hashfs_t *h) {
     do {
 	found = 0;
 	for(list_ndb=0; list_ndb < METADBS; list_ndb++) {
+            if(h->qm_list_done[list_ndb])
+                continue;
+
 	    sqlite3_reset(h->qm_list[list_ndb]);
 	    if(qbind_int64(h->qm_list[list_ndb], ":volume", h->list_volid) ||
 	       qbind_text(h->qm_list[list_ndb], ":previous", h->list_file.itername))
 		return FAIL_EINTERNAL;
 
 	    int r = qstep(h->qm_list[list_ndb]);
+
+            /* For debugging, can be removed */
+            h->qm_list_queries++;
 
 	    if(r == SQLITE_DONE)
 		continue;
@@ -2610,6 +2643,11 @@ rc_ty sx_hashfs_list_next(sx_hashfs_t *h) {
 		WARN("Cannot list NULL filename on meta database %u", list_ndb);
 		return FAIL_EINTERNAL;
 	    }
+
+            if(h->list_file.itername_limit[0] != '\0' && strncmp(n, h->list_file.itername_limit, h->list_file.itername_limit_len) >= 0) {
+                h->qm_list_done[list_ndb] = 1; /* This db won't be queried again */
+                continue;
+            }
 
 	    if(!found || strcmp(n, h->list_file.name+1) < 0) {
 		found = 1;
@@ -2633,8 +2671,10 @@ rc_ty sx_hashfs_list_next(sx_hashfs_t *h) {
 	    sqlite3_reset(h->qm_list[list_ndb]);
 	}
 
-	if(!found)
+	if(!found) {
+            DEBUG("List queries performed: %llu", (unsigned long long)h->qm_list_queries);
 	    return ITER_NO_MORE;
+        }
 
 	strncpy(h->list_file.itername, h->list_file.name+1, sizeof(h->list_file.itername));
 	h->list_file.itername[sizeof(h->list_file.itername)-1] = '\0';
@@ -2643,8 +2683,11 @@ rc_ty sx_hashfs_list_next(sx_hashfs_t *h) {
 	if (q)
 	    *q = '\0';/* match just dir part */
 
-        match_failed = fnmatch(h->list_pattern, h->list_file.name+1, FNM_PATHNAME);
-        DEBUG("pattern: %s, path: %s -> %d",
+        match_failed = fnmatch(h->list_pattern, h->list_file.name+1, FNM_PATHNAME | FNM_NOESCAPE);
+        if(match_failed) /* If matching with globbing enabled failed, try to match with globbing escaped */
+            match_failed = fnmatch(h->list_pattern_esc, h->list_file.name+1, FNM_PATHNAME);
+
+        DEBUG("itername: %s, pattern: %s, path: %s -> %d", h->list_file.itername,
               h->list_pattern, h->list_file.name+1, match_failed);
 
 	if (q)
