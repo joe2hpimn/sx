@@ -211,6 +211,7 @@ int main(int argc, char **argv) {
 	    goto init_err;
 	}
 
+	sxc_cluster_reset_hosts(cluster);
 	do {
 	    next_host = strchr(this_host, ',');
 	    if(next_host) {
