@@ -35,6 +35,8 @@
 #include "sxdbi.h"
 #include "utils.h"
 #include "log.h"
+#include <fnmatch.h>
+#include "hashfs.h"
 
 static void qclose_db(sqlite3 **dbp)
 {
@@ -425,4 +427,100 @@ void qrollback(sxi_db_t *db) {
     if(qprep(db, &q, "ROLLBACK") ||  qstep_noret(q))
 	CRIT("ROLLBACK failed");
     sqlite3_finalize(q);
+}
+
+/*
+ * Get index from file name that matches number of slashes in pattern.
+ * Possibly returned values:
+ * Index of a slash (pattern_slashes+1)th slash of file name OR
+ * -2 if number of slashes in path is less than number of slashes in pattern OR
+ * -1 if file contains exactly the same number of slashes as pattern.
+ */
+static int file_name_match_slashes(const char *path, unsigned int pattern_slashes) {
+    unsigned int found = 0;
+    const char *p = path;
+    while ((p = strchr(p, '/'))) {
+        found++;
+        if (found == pattern_slashes + 1)
+            return p - path;
+        p++;
+    }
+    if(found == pattern_slashes)
+        return -1;
+    else
+        return -2;
+}
+
+/* Match paths for sxls */
+void pmatch(sqlite3_context *ctx, int argc, sqlite3_value **argv) {
+    const char *path;
+    const char *pattern;
+    int pattern_slashes;
+    int r = 0;
+    int path_slash_idx;
+    int slash_ending;
+    
+    if(argc != 4 || sqlite3_value_type(argv[0]) != SQLITE3_TEXT
+       || sqlite3_value_type(argv[1]) != SQLITE3_TEXT || sqlite3_value_type(argv[2]) != SQLITE_INTEGER
+       || sqlite3_value_type(argv[3]) != SQLITE_INTEGER) {
+        sqlite3_result_null(ctx);
+        return;
+    }
+
+    path = (const char*)sqlite3_value_text(argv[0]);
+    if(!path) {
+        sqlite3_result_null(ctx);
+        return;
+    }
+
+    pattern = (const char*)sqlite3_value_text(argv[1]);
+    if(!pattern) {
+        sqlite3_result_null(ctx);
+        return;
+    }
+    pattern_slashes = sqlite3_value_int(argv[2]);
+    slash_ending = sqlite3_value_int(argv[3]);
+    path_slash_idx = file_name_match_slashes(path, pattern_slashes);
+
+    /* If file name contains less slashes than pattern, we can stop matching here */
+    if(path_slash_idx == -2)
+        goto pmatch_return;
+
+    /* Check if file name has the same number of slashes as pattern, fnmatch() should do the job now */
+    if(path_slash_idx == -1) {
+        if(!fnmatch(pattern, path, FNM_PATHNAME)) {
+            r = 1;
+        } else {
+            /* Fallback */
+            if(slash_ending) {
+                int plen = strlen(pattern);
+                if(plen > 0 && pattern[plen-1] == '*' && !strncmp(pattern, path, plen-1))
+                    r = 2;
+            } else if(!strcmp(pattern, path))
+                r = 3;
+        }
+    } else {
+        /* File name needs to be truncated to the slash position found, we need to copy it to temp buffer though */
+        char buffer[SXLIMIT_MAX_FILENAME_LEN+1];
+
+        memcpy(buffer, path, path_slash_idx);
+        buffer[path_slash_idx] = '\0';
+
+        /* Now use fnmatch with truncated file name */
+        if(!fnmatch(pattern, buffer, FNM_PATHNAME)) {
+            /* File name matches given pattern, we are ok now */
+            r = 4;
+        } else {
+            /* Fallback */
+            int plen = strlen(pattern);
+            if(slash_ending) {
+                if(plen > 0 && pattern[plen-1] == '*' && !strncmp(pattern, path, plen-1))
+                    r = 5;
+            } else if(plen == path_slash_idx && !strcmp(pattern, buffer))
+                r = 6;
+        }
+    }
+
+    pmatch_return:
+    sqlite3_result_int(ctx, r);
 }

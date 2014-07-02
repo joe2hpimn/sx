@@ -58,6 +58,7 @@ int qbegin(sxi_db_t *db);
 int qcommit(sxi_db_t *db);
 void qrollback(sxi_db_t *db);
 void qclose(sxi_db_t **db);
+void pmatch(sqlite3_context *ctx, int argc, sqlite3_value **argv);
 
 #define qnullify(Q) do { sqlite3_finalize(Q); Q = NULL; } while(0)
 

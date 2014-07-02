@@ -809,6 +809,204 @@ test_get 'listing files - filter /dir/', authed_only(200, 'application/json'), "
 test_get 'listing files - filter /dir/file', authed_only(200, 'application/json'), "$vol?filter=/dir/file", undef, sub { my $json = get_json(shift) or return 0; return is_hash($json->{'fileList'}) && scalar keys %{$json->{'fileList'}} == 1 && is_hash($json->{'fileList'}->{'/dir/file'}); };
 test_get 'listing files (utf-8)', authed_only(200, 'application/json'), escape_uri($utfvol), undef, sub { my $json = get_json(shift) or return 0; return is_hash($json->{'fileList'}) && scalar keys %{$json->{'fileList'}} == 1 && is_hash($json->{'fileList'}->{"/$utffile"});};
 
+### Check listing files more precisely (for lscache changes testing) ###
+
+### Make files tree on volume: ###
+# vol/tree
+# vol/tree/a/a
+# vol/tree/a/b
+# vol/tree/a/c
+# vol/tree/b
+# vol/tree/b/a
+# vol/tree/b/b
+# vol/tree/[]
+# vol/tree/[]/a
+# vol/tree/[]/\a
+# vol/tree/[]/\a/a
+# vol/tree/[]/?*\
+
+test_upload 'file upload (tree)', $writer, '', $vol, 'tree';
+test_upload 'file upload (tree/a/a)', $writer, '', $vol, 'tree/a/a';
+test_upload 'file upload (tree/a/b)', $writer, '', $vol, 'tree/a/b';
+test_upload 'file upload (tree/a/c)', $writer, '', $vol, 'tree/a/c';
+test_upload 'file upload (tree/b)', $writer, '', $vol, 'tree/b';
+test_upload 'file upload (tree/b/a)', $writer, '', $vol, 'tree/b/a';
+test_upload 'file upload (tree/b/b)', $writer, '', $vol, 'tree/b/b';
+test_upload 'file upload (tree/[])', $writer, '', $vol, 'tree/[]';
+test_upload 'file upload (tree/[]/a)', $writer, '', $vol, 'tree/[]/a';
+test_upload 'file upload (tree/[]/\a)', $writer, '', $vol, 'tree/[]/\a';
+test_upload 'file upload (tree/[]/\a/a)', $writer, '', $vol, 'tree/[]/\a/a';
+test_upload 'file upload (tree/[]/?*\\', $writer, '', $vol, 'tree/[]/?*\\';
+
+# List only 'tree' file (fakedir will also be returned)
+test_get 'listing \'tree\' files', authed_only(200, 'application/json'), "$vol?filter=tree", undef,
+    sub {
+        my $json_raw = shift;
+        my $json = get_json($json_raw) or return 0;
+        return 0 unless is_int($json->{'volumeSize'}) && $json->{'volumeSize'} == $volumesize && is_int($json->{'replicaCount'}) &&
+            $json->{'replicaCount'} == 1 && is_hash($json->{'fileList'}) && scalar keys %{$json->{'fileList'}} == 2;
+        return 0 unless is_hash($json->{'fileList'}->{'/tree'});
+        my $f = $json->{'fileList'}->{'/tree'} or return 0;
+        return 0 unless is_int($f->{'fileSize'}) && $f->{'fileSize'} == 0 && is_int($f->{'blockSize'}) && $f->{'blockSize'} == 4096;
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/'});
+    };
+
+# List all files from tree
+test_get 'listing all \'tree/\' files', authed_only(200, 'application/json'), "$vol?filter=tree/", undef,
+    sub {
+        my $json_raw = shift;
+        my $json = get_json($json_raw) or return 0;
+        return 0 unless is_int($json->{'volumeSize'}) && $json->{'volumeSize'} == $volumesize && is_int($json->{'replicaCount'}) &&
+            $json->{'replicaCount'} == 1 && is_hash($json->{'fileList'}) && scalar keys %{$json->{'fileList'}} == 5;
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/[]'});
+        my $f = $json->{'fileList'}->{'/tree/[]'} or return 0;
+        return 0 unless is_int($f->{'fileSize'}) && $f->{'fileSize'} == 0 && is_int($f->{'blockSize'}) && $f->{'blockSize'} == 4096;
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/[]/'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/a/'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/b'});
+        $f = $json->{'fileList'}->{'/tree/b'} or return 0;
+        return 0 unless is_int($f->{'fileSize'}) && $f->{'fileSize'} == 0 && is_int($f->{'blockSize'}) && $f->{'blockSize'} == 4096;
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/b/'});
+    };
+
+# List all files from 'tree' (recursively)
+test_get 'listing all \'tree\' files (recursively)', authed_only(200, 'application/json'), "$vol?filter=tree&recursive", undef,
+    sub {
+        my $json_raw = shift;
+        my $json = get_json($json_raw) or return 0;
+        return 0 unless is_int($json->{'volumeSize'}) && $json->{'volumeSize'} == $volumesize && is_int($json->{'replicaCount'}) &&
+             $json->{'replicaCount'} == 1 && is_hash($json->{'fileList'}) && scalar keys %{$json->{'fileList'}} == 12;
+        return 0 unless is_hash($json->{'fileList'}->{'/tree'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/a/a'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/a/b'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/a/c'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/b'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/b/a'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/b/b'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/[]'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/[]/a'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/[]/\a'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/[]/\a/a'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/[]/?*\\'});
+    };
+
+# List all files from 'tree' after 'tree/a'
+test_get 'listing all \'tree\' files after /tree/a', authed_only(200, 'application/json'), "$vol?filter=tree/&after=tree/a", undef,
+    sub {
+        my $json_raw = shift;
+        my $json = get_json($json_raw) or return 0;
+        return 0 unless is_int($json->{'volumeSize'}) && $json->{'volumeSize'} == $volumesize && is_int($json->{'replicaCount'}) &&
+             $json->{'replicaCount'} == 1 && is_hash($json->{'fileList'}) && scalar keys %{$json->{'fileList'}} == 3;
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/a/'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/b'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/b/'});
+    };
+
+# List all files from 'tree/??/' (recursively)
+test_get 'listing all \'tree/??/\' files (recursively)', authed_only(200, 'application/json'), "$vol?filter=tree/??/&recursive", undef,
+    sub {
+        my $json_raw = shift;
+        my $json = get_json($json_raw) or return 0;
+        return 0 unless is_int($json->{'volumeSize'}) && $json->{'volumeSize'} == $volumesize && is_int($json->{'replicaCount'}) &&
+             $json->{'replicaCount'} == 1 && is_hash($json->{'fileList'}) && scalar keys %{$json->{'fileList'}} == 4;
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/[]/a'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/[]/\a'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/[]/\a/a'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/[]/?*\\'});
+    };
+
+# List 'tree/\[\]/' (recursively)
+test_get 'listing all \'tree/\[\]/\' files (recursively)', authed_only(200, 'application/json'), "$vol?filter=tree/\[\]/&recursive", undef,
+    sub {
+        my $json_raw = shift;
+        my $json = get_json($json_raw) or return 0;
+        return 0 unless is_int($json->{'volumeSize'}) && $json->{'volumeSize'} == $volumesize && is_int($json->{'replicaCount'}) &&
+             $json->{'replicaCount'} == 1 && is_hash($json->{'fileList'}) && scalar keys %{$json->{'fileList'}} == 4;
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/[]/a'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/[]/\a'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/[]/\a/a'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/[]/?*\\'});
+    };
+
+# List 'tree/??/\[abc]''
+test_get 'listing all \'tree/??/\\[abc]\' files', authed_only(200, 'application/json'), "$vol?filter=tree/??/\\\\[abc]", undef,
+    sub {
+        my $json_raw = shift;
+        my $json = get_json($json_raw) or return 0;
+        return 0 unless is_int($json->{'volumeSize'}) && $json->{'volumeSize'} == $volumesize && is_int($json->{'replicaCount'}) &&
+             $json->{'replicaCount'} == 1 && is_hash($json->{'fileList'}) && scalar keys %{$json->{'fileList'}} == 2;
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/[]/\a'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/[]/\a/'});
+    };
+
+# List 'tree/??/\[abc]'' (recursively)
+test_get 'listing all \'tree/??/\\[abc]\' files (recursively)', authed_only(200, 'application/json'), "$vol?filter=tree/??/\\\\[abc]&recursive", undef,
+    sub {
+        my $json_raw = shift;
+        my $json = get_json($json_raw) or return 0;
+        return 0 unless is_int($json->{'volumeSize'}) && $json->{'volumeSize'} == $volumesize && is_int($json->{'replicaCount'}) &&
+             $json->{'replicaCount'} == 1 && is_hash($json->{'fileList'}) && scalar keys %{$json->{'fileList'}} == 2;
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/[]/\a'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/[]/\a/a'});
+    };
+
+# List 'tree/*/\?'' (recursively)
+test_get 'listing all \'tree/*/\\?\' files (recursively)', authed_only(200, 'application/json'), "$vol?filter=tree/*/\\\\?&recursive", undef,
+    sub {
+        my $json_raw = shift;
+        my $json = get_json($json_raw) or return 0;
+        return 0 unless is_int($json->{'volumeSize'}) && $json->{'volumeSize'} == $volumesize && is_int($json->{'replicaCount'}) &&
+             $json->{'replicaCount'} == 1 && is_hash($json->{'fileList'}) && scalar keys %{$json->{'fileList'}} == 2;
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/[]/\a'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/[]/\a/a'});
+    };
+
+# List 'tree/*/*\*''
+test_get 'listing all \'tree/*/\\*\' files', authed_only(200, 'application/json'), "$vol?filter=tree/*/*\\\\*", undef,
+    sub {
+        my $json_raw = shift;
+        my $json = get_json($json_raw) or return 0;
+        return 0 unless is_int($json->{'volumeSize'}) && $json->{'volumeSize'} == $volumesize && is_int($json->{'replicaCount'}) &&
+             $json->{'replicaCount'} == 1 && is_hash($json->{'fileList'}) && scalar keys %{$json->{'fileList'}} == 3;
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/[]/\a'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/[]/\a/'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/[]/?*\\'});
+    };
+
+# List  'tree/[ab]/[ab]''
+test_get 'listing all \'tree/[ab]/[ab]\' files', authed_only(200, 'application/json'), "$vol?filter=tree/[ab]/[ab]", undef,
+    sub {
+        my $json_raw = shift;
+        my $json = get_json($json_raw) or return 0;
+        return 0 unless is_int($json->{'volumeSize'}) && $json->{'volumeSize'} == $volumesize && is_int($json->{'replicaCount'}) &&
+            $json->{'replicaCount'} == 1 && is_hash($json->{'fileList'}) && scalar keys %{$json->{'fileList'}} == 4;
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/a/a'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/a/b'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/b/a'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/b/b'});
+    };
+
+# List  'tree/*/''
+test_get 'listing all \'tree/*/\' files', authed_only(200, 'application/json'), "$vol?filter=tree/*/", undef,
+    sub {
+        my $json_raw = shift;
+        my $json = get_json($json_raw) or return 0;
+        return 0 unless is_int($json->{'volumeSize'}) && $json->{'volumeSize'} == $volumesize && is_int($json->{'replicaCount'}) &&
+            $json->{'replicaCount'} == 1 && is_hash($json->{'fileList'}) && scalar keys %{$json->{'fileList'}} == 9;
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/a/a'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/a/b'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/a/c'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/b/a'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/b/b'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/[]/a'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/[]/\a'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/[]/\a/'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/[]/?*\\'});
+    };
+
+
+
+
 test_get 'listing all volumes', {'badauth'=>[401],$reader=>[200,'application/json'],$writer=>[200,'application/json'],'admin'=>[200,'application/json']}, '?volumeList', undef,
     sub {
         my $json_raw = shift;

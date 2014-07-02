@@ -609,6 +609,15 @@ struct rebalance_iter {
     sqlite3_stmt *q_count;
 };
 
+typedef struct {
+    int64_t file_size;
+    unsigned int block_size;
+    unsigned int nblocks;
+    unsigned int created_at;
+    char name[SXLIMIT_MAX_FILENAME_LEN+2];
+    char revision[REV_LEN+1];
+} list_entry_t;
+
 struct _sx_hashfs_t {
     uint8_t *blockbuf;
 
@@ -675,6 +684,7 @@ struct _sx_hashfs_t {
     sxi_db_t *metadb[METADBS];
     sqlite3_stmt *qm_ins[METADBS];
     sqlite3_stmt *qm_list[METADBS];
+    sqlite3_stmt *qm_list_eq[METADBS];
     sqlite3_stmt *qm_listrevs[METADBS];
     sqlite3_stmt *qm_listrevs_rev[METADBS];
     unsigned char qm_list_done[METADBS];
@@ -763,11 +773,16 @@ struct _sx_hashfs_t {
     sx_hashfs_file_t list_file;
     int list_recurse;
     int64_t list_volid;
-    /* 2*SXLIMIT because each char can be a wildcard that might need to be
-     * escaped for an exact match */
-    char list_pattern[SXLIMIT_MAX_FILENAME_LEN+1];
-    char list_pattern_esc[2*SXLIMIT_MAX_FILENAME_LEN+3];
-    unsigned int list_pattern_slashes;
+    char list_pattern[SXLIMIT_MAX_FILENAME_LEN+2]; /* +2 -> NUL byte plus possibly added glob if pattern ends with slash */
+    list_entry_t list_cache[METADBS];
+    unsigned int list_pattern_slashes; /* Number of slashes in pattern */
+    int list_pattern_end_with_slash; /* 1 if pattern ends with slash */
+
+    /* fields below are used during iteration */
+    /* No need to append byte for asterisk, because that limit is up to first NUL byte */
+    char list_lower_limit[SXLIMIT_MAX_FILENAME_LEN+1];
+    char list_upper_limit[SXLIMIT_MAX_FILENAME_LEN+1];
+    int list_limit_len; /* Both itername and itername_limit will have the same length */
 
     int64_t get_id;
     const sx_hash_t *get_content;
@@ -888,6 +903,7 @@ static void close_all_dbs(sx_hashfs_t *h) {
     for(i=0; i<METADBS; i++) {
 	sqlite3_finalize(h->qm_ins[i]);
 	sqlite3_finalize(h->qm_list[i]);
+        sqlite3_finalize(h->qm_list_eq[i]);
 	sqlite3_finalize(h->qm_listrevs[i]);
         sqlite3_finalize(h->qm_listrevs_rev[i]);
 	sqlite3_finalize(h->qm_get[i]);
@@ -1263,8 +1279,6 @@ static int load_config(sx_hashfs_t *h, sxc_client_t *sx) {
     return ret;
 }
 
-
-
 sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
     unsigned int dirlen, pathlen, i, j;
     sqlite3_stmt *q = NULL;
@@ -1598,10 +1612,14 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 	if(qprep(h->metadb[i], &q, "PRAGMA foreign_keys = ON") || qstep_noret(q))
 	    goto open_hashfs_fail;
 	qnullify(q);
+        if(sqlite3_create_function(h->metadb[i]->handle, "pmatch", 4, SQLITE_UTF8 | SQLITE_DETERMINISTIC, NULL, pmatch, NULL, NULL))
+            goto open_hashfs_fail;
 	if(qprep(h->metadb[i], &h->qm_ins[i], "INSERT INTO files (volume_id, name, size, content, rev) VALUES (:volume, :name, :size, :hashes, :revision)"))
 	    goto open_hashfs_fail;
-	if(qprep(h->metadb[i], &h->qm_list[i], "SELECT name, size, rev FROM files WHERE volume_id = :volume AND name > :previous GROUP BY name HAVING rev = MAX(rev) ORDER BY name ASC LIMIT 1"))
-	    goto open_hashfs_fail;
+        if(qprep(h->metadb[i], &h->qm_list[i], "SELECT name, size, rev FROM files WHERE volume_id = :volume AND name > :previous AND (:limit is NULL OR name < :limit) AND pmatch(name, :pattern, :pattern_slashes, :slash_ending) > 0 GROUP BY name HAVING rev = MAX(rev) ORDER BY name ASC LIMIT 1"))
+            goto open_hashfs_fail;
+        if(qprep(h->metadb[i], &h->qm_list_eq[i], "SELECT name, size, rev FROM files WHERE volume_id = :volume AND name >= :previous AND (:limit is NULL OR name < :limit) AND pmatch(name, :pattern, :pattern_slashes, :slash_ending) > 0 GROUP BY name HAVING rev = MAX(rev) ORDER BY name ASC LIMIT 2"))
+            goto open_hashfs_fail;
 	if(qprep(h->metadb[i], &h->qm_listrevs[i], "SELECT size, rev FROM files WHERE volume_id = :volume AND name = :name AND rev > :previous ORDER BY rev ASC LIMIT 1"))
 	    goto open_hashfs_fail;
 	if(qprep(h->metadb[i], &h->qm_get[i], "SELECT fid, size, content, rev FROM files WHERE volume_id = :volume AND name = :name GROUP BY name HAVING rev = MAX(rev) LIMIT 1"))
@@ -3757,29 +3775,6 @@ int sx_hashfs_is_node_faulty(sx_hashfs_t *h, const sx_uuid_t *node_uuid) {
     return sx_nodelist_lookup(h->faulty_nodes, node_uuid) != NULL;
 }
 
-static unsigned int slashes_in(const char *s) {
-    unsigned int l = strlen(s), found = 0;
-    const char *sl;
-    while(l && (sl = memchr(s, '/', l))) {
-	found++;
-	sl++;
-	l -= sl -s;
-	s = sl;
-    }
-    return found;
-}
-
-static char *ith_slash(char *s, unsigned int i) {
-    unsigned found = 0;
-    while ((s = strchr(s, '/'))) {
-        found++;
-        if (found == i)
-            return s;
-        s++;
-    }
-    return NULL;
-}
-
 rc_ty sx_hashfs_revision_first(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const char *name, const sx_hashfs_file_t **file, int reversed) {
     sqlite3_stmt *q;
     if(!volume || !file) {
@@ -3919,226 +3914,357 @@ rc_ty sx_hashfs_list_etag(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, cons
     return rc;
 }
 
-rc_ty sx_hashfs_list_first(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const char *pattern, const sx_hashfs_file_t **file, int recurse, const char *after) {
-    int l = 0, r = 0, plen, glob = -1;
-    DEBUG("pattern: %s, recurse: %d, after: %s", pattern ? pattern : "", recurse, after ? after : "");
+static unsigned int slashes_in(const char *s) {
+    unsigned int l = strlen(s), found = 0;
+    const char *sl;
+    while(l && (sl = memchr(s, '/', l))) {
+        found++;
+        sl++;
+        l -= sl -s;
+        s = sl;
+    }
+    return found;
+}
 
+static const char *ith_slash(const char *s, unsigned int i) {
+    unsigned found = 0;
+    while ((s = strchr(s, '/'))) {
+        found++;
+        if (found == i)
+            return s;
+        s++;
+    }
+    return NULL;
+}
+
+/* Compare paths */
+static int pcmp(sx_hashfs_t *h, const char *p1, const char *p2, unsigned int maxlen) {
+    int r = 0;
+
+    if(!p1 || !p2) {
+        WARN("Null argument");
+        return 0;
+    }
+
+    if(!h->list_recurse) {
+        const char *s1 = ith_slash(p1, h->list_pattern_slashes + 1);
+        const char *s2 = ith_slash(p2, h->list_pattern_slashes + 1);
+        if(!s1 || !s2 || s1 - p1 != s2 - p2)
+            r = strncmp(p1, p2, maxlen);
+        else
+            r = strncmp(p1, p2, s1 - p1 < maxlen ? s1 - p1 : maxlen); /* Slash in the same place*/
+    } else
+        r = strncmp(p1, p2, maxlen);
+
+    return r;
+}
+
+static rc_ty lookup_file_name(sx_hashfs_t *h, int db_idx, int update_cache) {
+    int r;
+    rc_ty ret = FAIL_EINTERNAL;
+    const char *n, *revision;
+    sqlite3_stmt *stmt;
+    list_entry_t *e = &h->list_cache[db_idx];
+    const char *q = NULL;
+
+    if(!h->list_recurse && (q = ith_slash(e->name, h->list_pattern_slashes + 1))) {
+        /* We are not searching recursively and next slash was found in pervious name,
+         * we can skip all files that are prefixed by that dir. To achieve that we can simply move
+         * starting name to next one, but we will have to also be carefull and use >= for name mathing
+         */
+        e->name[q - e->name]++;
+        e->name[q - e->name + 1] = '\0';
+    }
+
+    /* Use statement with > or >= regarding to previous q assignment (or if using h->list_lower_limit) */
+    if(q || !update_cache)
+        stmt = h->qm_list_eq[db_idx];
+    else
+        stmt = h->qm_list[db_idx];
+    sqlite3_reset(stmt);
+    if(qbind_int64(stmt, ":volume", h->list_volid) ||
+       qbind_text(stmt, ":previous", update_cache ? e->name : h->list_lower_limit) ||
+       qbind_text(stmt, ":pattern", h->list_pattern) ||
+       qbind_int(stmt, ":pattern_slashes", h->list_pattern_slashes) ||
+       qbind_int(stmt, ":slash_ending", h->list_pattern_end_with_slash)) {
+        WARN("Failed to bind list query values");
+        goto lookup_file_name_err;
+    }
+
+    if(h->list_limit_len) {
+        if(qbind_text(stmt, ":limit", h->list_upper_limit)) {
+            WARN("Failed to bind upper limit");
+            goto lookup_file_name_err;
+        }
+    } else {
+        if(qbind_null(stmt, ":limit")) {
+            WARN("Failed to bind upper limit (null)");
+            goto lookup_file_name_err;
+        }
+    }
+
+    r = qstep(stmt);
+    h->qm_list_queries++;
+    if(r == SQLITE_DONE) {
+        e->name[0] = '\0';
+        /* Done for this db, no more reading needed */
+        ret = OK;
+        goto lookup_file_name_err;
+    }
+
+    if(r != SQLITE_ROW)
+        goto lookup_file_name_err;
+
+    n = (const char *)sqlite3_column_text(stmt, 0);
+    if(!n) {
+        WARN("Cannot list NULL filename on meta database %u", db_idx);
+        goto lookup_file_name_err;
+    }
+
+    e->file_size = sqlite3_column_int64(stmt, 1);
+    e->nblocks = size_to_blocks(e->file_size, NULL, &e->block_size);
+
+    revision = (const char *)sqlite3_column_text(stmt, 2);
+    if(!revision || parse_revision(revision, &e->created_at)) {
+        WARN("Bad revision found on file %s, volid %lld", h->list_file.name, (long long)h->list_volid);
+        goto lookup_file_name_err;
+    } else {
+        strncpy(e->revision, revision, sizeof(e->revision));
+        e->revision[sizeof(e->revision)-1] = '\0';
+    }
+
+    strncpy(e->name, n, sizeof(e->name));
+    e->name[sizeof(e->name)-1] = '\0';
+
+    ret = OK;
+    lookup_file_name_err:
+    /* Always reset statement to avoid locking server */
+    sqlite3_reset(stmt);
+
+    return ret;
+}
+
+static int parse_pattern(sx_hashfs_t *h, const char *pattern) {
+    int plen;
+    unsigned int l, r;
+
+    /* If pattern is empty, make it a single slash */
     if(!pattern)
-	pattern = "/";
+        pattern = "/";
 
     while(pattern[0] == '/')
-	pattern++;
+        pattern++;
 
     if (!*pattern)
-	pattern = "/";
+        pattern = "/";
 
+    /* Pattern length is at leas 1, so this call is OK */
     plen = check_file_name(pattern);
-    if(!h || !volume || plen < 0) {
-	NULLARG();
-	return EINVAL;
+    if(plen < 0) {
+        WARN("Could not get pattern length");
+        return 1;
+    }
+
+    /* Reset globbing character position */
+    h->list_limit_len = -1;
+
+    /* Clone pattern, plen is up to SXLIMIT_MAX_FILE_NAME_LEN */
+    memcpy(h->list_pattern, pattern, plen);
+    h->list_pattern[plen] = '\0';
+
+    /* Check if first character is a globbing one. */
+    if(strchr("*?[\\", h->list_pattern[0]))
+        h->list_limit_len = 0;
+
+    /*
+     * Iterate over pattern and remove multiplied slashes from that
+     * l points to chars in new pattern and r points to char in old one
+     */
+    for(l = 0, r = 1; r < (unsigned int)plen; r++) {
+        if(h->list_pattern[l] != '/' || h->list_pattern[r] != '/') {
+            l++;
+            if(l!=r)
+                h->list_pattern[l] = h->list_pattern[r];
+        }
+        /* Check if character is a globbing one and then set first globbing char position if not set yet */
+        if(h->list_limit_len == -1 && strchr("*?[\\", h->list_pattern[l]))
+            h->list_limit_len = l;
+    }
+
+    /* Update pattern length */
+    plen = l + 1;
+    h->list_pattern[plen] = '\0';
+
+    /* Check if pattern ends with slash, then we want to list fake dir contents, append asterisk at the end */
+    if (h->list_pattern[plen-1] == '/') {
+        h->list_pattern_end_with_slash = 1;
+        if (plen > 1) {
+            memcpy(&h->list_pattern[plen], "*", 2);
+            /* Set position of first globbin character */
+            if(h->list_limit_len == -1)
+                h->list_limit_len = plen;
+        } else {
+            /* Pattern is only one character, so it is a slash, it should become just asterisk */
+            memcpy(h->list_pattern, "*", 2);
+            /* Set position of first globbing character */
+            if(h->list_limit_len == -1)
+                h->list_limit_len = 0;
+        }
+    } else {
+        h->list_pattern_end_with_slash = 0;
+        if(h->list_limit_len == -1) /* Exact file name match */
+            h->list_limit_len = plen;
+    }
+
+    /* Check number of slashes stored in pattern */
+    h->list_pattern_slashes = slashes_in(h->list_pattern);
+
+    return 0;
+}
+
+rc_ty sx_hashfs_list_first(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const char *pattern, const sx_hashfs_file_t **file, int recurse, const char *after) {
+    unsigned int l = 0;
+
+    if(!h || !volume) {
+        NULLARG();
+        return EINVAL;
     }
 
     if(!sx_hashfs_is_or_was_my_volume(h, volume)) {
-	/* TODO: got, expected: */
-	msg_set_reason("Wrong node for volume '%s': ...", volume->name);
-	return ENOENT;
+        /* TODO: got, expected: */
+        msg_set_reason("Wrong node for volume '%s': ...", volume->name);
+        return ENOENT;
     }
 
-    memcpy(h->list_pattern, pattern, plen + 1);
-    if(h->list_pattern[l] == '*' || h->list_pattern[l] == '?' || h->list_pattern[l] == '[')
-        glob = 0;
-    for(l = 0, r = 1; r<plen; r++) {
-	if(h->list_pattern[l] != '/' || h->list_pattern[r] != '/') {
-	    l++;
-	    if(l!=r)
-		h->list_pattern[l] = h->list_pattern[r];
-	}
-        if(glob == -1 && (h->list_pattern[l] == '*' || h->list_pattern[l] == '?' || h->list_pattern[l] == '[')) {
-            glob = l;
-        }
-    }
-    plen = l+1;
-    h->list_pattern[plen] = '\0';
-    for (l=0, r=0; r<plen;) {
-        if (strchr("*?[]\\", h->list_pattern[r]))
-            h->list_pattern_esc[l++] = '\\';
-        h->list_pattern_esc[l++] = h->list_pattern[r++];
-    }
-    h->list_pattern_esc[l] = '\0';
-    if (h->list_pattern[plen-1] == '/') {
-        plen--;
-        l--;
-        if (plen > 0) {
-            memcpy(&h->list_pattern[plen], "/*", 3);
-            memcpy(&h->list_pattern_esc[l], "/*", 3);
-            if(glob == -1)
-                glob = plen + 1;
-        } else {
-            memcpy(&h->list_pattern[plen], "*", 2);
-            memcpy(&h->list_pattern_esc[l], "*", 2);
-            if(glob == -1)
-                glob = plen;
-        }
-    } else {
-        if(glob == -1) /* Exact file name match */
-            glob = plen;
+    /* Check given search pattern for globbing characters */
+    if(parse_pattern(h, pattern)) {
+        WARN("Failed to parse listing pattern");
+        return EINVAL;
     }
 
-    if(glob > 0) {
-        /* [glob] set to \0 below */
-        sxi_strlcpy(h->list_file.itername, h->list_pattern, sizeof(h->list_file.itername));
-        sxi_strlcpy(h->list_file.itername_limit, h->list_pattern, sizeof(h->list_file.itername_limit));
-    }
+    /* If 'after' parameter is bigger than pattern prefix, then ther is no need to query database */
+    if(after && strncmp(h->list_pattern, after, h->list_limit_len) < 0)
+        return ITER_NO_MORE;
 
-    h->list_pattern_slashes = slashes_in(h->list_pattern);
-    h->list_file.name[0] = '\0';
-    if(glob != -1) {
-        h->list_file.itername[glob] = '\0';
-        h->list_file.itername_limit[glob] = '\0';
-        h->list_file.itername_limit_len = glob;
-        /* Do not skip exact match (e.g. pattern = /foo* -> result would not contain /foo */
-        if(glob > 0) {
-           h->list_file.itername[glob-1]--;
-           h->list_file.itername_limit[glob-1]++;
-        }
-    } else {
-        h->list_file.itername[0] = '\0';
-        h->list_file.itername_limit[0] = '\0';
-        h->list_file.itername_limit_len = 0;
-    }
-    if (after) {
-        sxi_strlcpy(h->list_file.itername, after, sizeof(h->list_file.itername));
-        sxi_strlcpy(h->list_file.lastname, after, sizeof(h->list_file.lastname));
-    }
-
-    h->list_file.lastname[0] = '\0';
+    /* Store number of slashes in listing pattern, used for comparing file names modulo fake directory name */
     h->list_recurse = recurse;
     h->list_volid = volume->id;
     if(file)
-	*file = &h->list_file;
+        *file = &h->list_file;
 
-    memset(h->qm_list_done, 0, METADBS);
+    /* If after given, try to start from later position if after is greater or equal to truncated search pattern */
+    if (after && strncmp(h->list_pattern, after, h->list_limit_len) >= 0)
+        sxi_strlcpy(h->list_lower_limit, after, strlen(after)+1);
+    else /* Copy pattern to list_itername and list_itername_limit variables to limit search boundaries */
+        sxi_strlcpy(h->list_lower_limit, h->list_pattern, h->list_limit_len+1);
+
+    sxi_strlcpy(h->list_upper_limit, h->list_pattern, h->list_limit_len+1);
+
+    /* Increment upper limit that file names */
+    if(h->list_limit_len > 0)
+        h->list_upper_limit[h->list_limit_len-1]++;
 
     /* For debugging */
     h->qm_list_queries = 0;
+
+    /* Store first file names in cache */
+    for(l = 0; l < METADBS; l++) {
+        h->list_cache[l].name[0] = '\0';
+        if(lookup_file_name(h, l, 0) != OK) {
+            WARN("Failed fetching file name from db %d", l);
+            return FAIL_EINTERNAL;
+        }
+    }
 
     return sx_hashfs_list_next(h);
 }
 
 rc_ty sx_hashfs_list_next(sx_hashfs_t *h) {
-    int found, list_ndb, match_failed;
-    int ret = OK;
-    if(!h || !*h->list_pattern)
-	return EINVAL;
+    int i, min_idx = -1;
+    const char *q = NULL;
 
-    do {
-	found = 0;
-	for(list_ndb=0; list_ndb < METADBS; list_ndb++) {
-            if(h->qm_list_done[list_ndb])
-                continue;
+    if(!h || !h->list_pattern || !*h->list_pattern)
+        return EINVAL;
 
-	    sqlite3_reset(h->qm_list[list_ndb]);
-	    if(qbind_int64(h->qm_list[list_ndb], ":volume", h->list_volid) ||
-	       qbind_text(h->qm_list[list_ndb], ":previous", h->list_file.itername)) {
-                ret = FAIL_EINTERNAL;
-                break;
+    for(i=0; i < METADBS; i++) {
+        int comp;
+        if(h->list_cache[i].name[0] == '\0')
+            continue; /* No more file names found in that db */
+
+        if(min_idx == -1)
+            min_idx = i;
+        else {
+            /* In case this db has stored file name that is equal (modulo directory name) to current name, lookup next one */
+            if(!(comp = pcmp(h, h->list_cache[i].name, h->list_cache[min_idx].name, sizeof(h->list_cache[i].name)))) {
+                if(lookup_file_name(h, i, 1)) {
+                    WARN("Could not lookup file name");
+                    return FAIL_EINTERNAL;
+                }
+                /* No more in that db */
+                if(h->list_cache[i].name[0] == '\0')
+                    continue;
+
+                comp = pcmp(h, h->list_cache[i].name, h->list_cache[min_idx].name, sizeof(h->list_cache[i].name));
             }
 
-	    int r = qstep(h->qm_list[list_ndb]);
-
-            /* For debugging, can be removed */
-            h->qm_list_queries++;
-
-	    if(r == SQLITE_DONE)
-		continue;
-
-	    if(r != SQLITE_ROW) {
-                ret = FAIL_EINTERNAL;
-                break;
-            }
-
-	    const char *n = (char *)sqlite3_column_text(h->qm_list[list_ndb], 0);
-	    if(!n) {
-		WARN("Cannot list NULL filename on meta database %u", list_ndb);
-                ret = FAIL_EINTERNAL;
-                break;
-	    }
-
-            if(h->list_file.itername_limit[0] != '\0' && strncmp(n, h->list_file.itername_limit, h->list_file.itername_limit_len) >= 0) {
-                h->qm_list_done[list_ndb] = 1; /* This db won't be queried again */
-                continue;
-            }
-
-	    if(!found || strcmp(n, h->list_file.name+1) < 0) {
-		found = 1;
-		h->list_file.name[0] = '/';
-		sxi_strlcpy(h->list_file.name+1, n, sizeof(h->list_file.name)-1);
-
-		h->list_file.file_size = sqlite3_column_int64(h->qm_list[list_ndb], 1);
-		h->list_file.nblocks = size_to_blocks(h->list_file.file_size, NULL, &h->list_file.block_size);
-
-		const char *revision = (const char *)sqlite3_column_text(h->qm_list[list_ndb], 2);
-		if(!revision || parse_revision(revision, &h->list_file.created_at)) {
-		    WARN("Bad revision found on file %s, volid %lld", h->list_file.name, (long long)h->list_volid);
-		    ret = FAIL_EINTERNAL;
-		    break;
-		} else {
-		    sxi_strlcpy(h->list_file.revision, revision, sizeof(h->list_file.revision));
-		}
-	    }
-	    sqlite3_reset(h->qm_list[list_ndb]);
-	}
-        if (ret)
-            break;
-
-	if(!found) {
-            DEBUG("List queries performed: %llu", (unsigned long long)h->qm_list_queries);
-	    ret = ITER_NO_MORE;
-            break;
+            if(comp < 0) /* Found smaller file name */
+                min_idx = i;
         }
-
-	sxi_strlcpy(h->list_file.itername, h->list_file.name+1, sizeof(h->list_file.itername));
-
-	char *q = ith_slash(h->list_file.name+1, h->list_pattern_slashes + 1);
-	if (q)
-	    *q = '\0';/* match just dir part */
-
-        match_failed = fnmatch(h->list_pattern, h->list_file.name+1, FNM_PATHNAME | FNM_NOESCAPE);
-        if(match_failed) /* If matching with globbing enabled failed, try to match with globbing escaped */
-            match_failed = fnmatch(h->list_pattern_esc, h->list_file.name+1, FNM_PATHNAME);
-
-        DEBUG("itername: %s, pattern: %s, path: %s -> %d", h->list_file.itername,
-              h->list_pattern, h->list_file.name+1, match_failed);
-
-	if (q)
-	    *q = '/';/* full path again */
-	if (!h->list_recurse && q) {
-	    q[1] = '\0';
-
-	    /* This is a fake dir, all unrelated items are zeroed */
-	    h->list_file.file_size = 0;
-	    h->list_file.block_size = 0;
-	    h->list_file.nblocks = 0;
-	    h->list_file.revision[0] = '\0';
-	    /*
-	      h->list_file.created_at = 0;
-
-	      The created_at value here is not the fakedir mtime, but rather the mtime of
-	      some random file inside it.
-	      This value is not reported back to the client because it is incorrect
-	      (the correct dir mtime would be the max(mtime) of all the files inside the fakedir and all its children).
-	      This value is only used internally to adjust the Last-Modified header.
-	    */
-        }
-        /* only continue if pattern matched, and it is a new file / directory */
-    } while (match_failed || !strcmp(h->list_file.lastname, h->list_file.name));
-
-    for(list_ndb=0; list_ndb < METADBS; list_ndb++) {
-        sqlite3_reset(h->qm_list[list_ndb]);
     }
-    if (ret)
-        return ret;
-    sxi_strlcpy(h->list_file.lastname, h->list_file.name, sizeof(h->list_file.lastname));
+
+    if(min_idx < 0) {
+        INFO("Queried %lld times", (long long)h->qm_list_queries);
+        return ITER_NO_MORE;
+    }
+
+    h->list_file.file_size = h->list_cache[min_idx].file_size;
+    h->list_file.nblocks = h->list_cache[min_idx].nblocks;
+    h->list_file.block_size = h->list_cache[min_idx].block_size;
+
+    strncpy(h->list_file.revision, h->list_cache[min_idx].revision, sizeof(h->list_file.revision));
+    h->list_file.revision[sizeof(h->list_file.revision)-1] = '\0';
+    h->list_file.created_at = h->list_cache[min_idx].created_at;
+
+    h->list_file.name[0] = '/';
+    /* Truncate dir file name */
+    if(!h->list_recurse && (q = ith_slash(h->list_cache[min_idx].name, h->list_pattern_slashes + 1))) {
+        /* Truncate file name */
+        strncpy(h->list_file.name + 1, h->list_cache[min_idx].name, q - h->list_cache[min_idx].name + 1);
+        h->list_file.name[q - h->list_cache[min_idx].name + 2] = '\0';
+        /* This is a fake dir, all unrelated items are zeroed */
+        h->list_file.file_size = 0;
+        h->list_file.block_size = 0;
+        h->list_file.nblocks = 0;
+        h->list_file.revision[0] = '\0';
+        /*
+          h->list_file.created_at = 0;
+
+          The created_at value here is not the fakedir mtime, but rather the mtime of
+          some random file inside it.
+          This value is not reported back to the client because it is incorrect
+          (the correct dir mtime would be the max(mtime) of all the files inside the fakedir and all its children).
+          This value is only used internally to adjust the Last-Modified header.
+        */
+    } else {
+        strncpy(h->list_file.name + 1, h->list_cache[min_idx].name, sizeof(h->list_file.name)-1);
+        h->list_file.name[sizeof(h->list_file.name)-1] = '\0';
+    }
+
+    /* Lookup next file name for this database */
+    if(lookup_file_name(h, min_idx, 1) != OK) {
+        WARN("Could not lookup next file name");
+        return FAIL_EINTERNAL;
+    }
+
+    /* If path comparison returned same string, query again, applicable only when not listing recursively */
+    if(h->list_cache[min_idx].name[0] != '\0' && !h->list_recurse &&
+       !pcmp(h, h->list_cache[min_idx].name, h->list_file.name + 1, sizeof(h->list_cache[min_idx].name))) {
+        if(lookup_file_name(h, min_idx, 1)) {
+            WARN("Could not lookup file name");
+            return FAIL_EINTERNAL;
+        }
+    }
+
     return OK;
 }
 

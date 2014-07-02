@@ -252,11 +252,6 @@ typedef struct _sx_hashfs_file_t {
     unsigned int created_at;
     char name[SXLIMIT_MAX_FILENAME_LEN+2];
     char revision[REV_LEN+1];
-    /* below fields are used internally during iteration */
-    char itername[SXLIMIT_MAX_FILENAME_LEN+2];
-    char itername_limit[SXLIMIT_MAX_FILENAME_LEN+2];
-    unsigned int itername_limit_len;
-    char lastname[SXLIMIT_MAX_FILENAME_LEN+2];
 } sx_hashfs_file_t;
 rc_ty sx_hashfs_list_first(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const char *pattern, const sx_hashfs_file_t **file, int recurse, const char *after);
 rc_ty sx_hashfs_list_next(sx_hashfs_t *h);
