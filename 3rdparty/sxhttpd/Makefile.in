@@ -507,7 +507,7 @@ ps: ps-am
 
 ps-am:
 
-uninstall-am:
+uninstall-am: uninstall-local
 
 .MAKE: install-am install-strip
 
@@ -524,7 +524,7 @@ uninstall-am:
 	install-strip installcheck installcheck-am installdirs \
 	maintainer-clean maintainer-clean-generic mostlyclean \
 	mostlyclean-generic pdf pdf-am ps ps-am tags-am uninstall \
-	uninstall-am
+	uninstall-am uninstall-local
 
 all:
 	@olddir=`pwd`; \
@@ -555,6 +555,9 @@ distclean-local:
 	$(MAKE) $(AM_MAKEFLAGS) distclean; \
 	test "x$$?" != "x0" && exit 1; \
 	cd $(olddir)
+
+uninstall-local:
+	@rm -f $(sbindir)/sxhttpd
 
 # Tell versions [3.59,3.63) of GNU make to not export all variables.
 # Otherwise a system limit (for SysV at least) may be exceeded.

@@ -27,3 +27,6 @@ distclean-local:
 	$(MAKE) $(AM_MAKEFLAGS) distclean; \
 	test "x$$?" != "x0" && exit 1; \
 	cd $(olddir)
+
+uninstall-local:
+	@rm -f $(sbindir)/sxhttpd
