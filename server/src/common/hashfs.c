@@ -5325,8 +5325,10 @@ rc_ty sx_hashfs_tmp_getinfo(sx_hashfs_t *h, int64_t tmpfile_id, sx_hashfs_tmpinf
     ret = OK;
 
  getmissing_err:
-    if(ret != OK)
+    if(ret != OK) {
+        (void)sxi_hashop_end(&h->hc);
 	free(tbd);
+    }
 
     sqlite3_reset(h->qt_tmpdata);
 
