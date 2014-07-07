@@ -401,12 +401,12 @@ rc_ty sxi_hdist_get_cfg(const sxi_hdist_t *model, const void **cfg, unsigned int
     return OK;
 }
 
-static int get_node_idx(const sxi_hdist_t *model, unsigned int node_id)
+static int get_node_idx(const sxi_hdist_t *model, unsigned int bidx, unsigned int node_id)
 {
 	unsigned int i;
 
-    for(i = 0; i < model->node_count[0]; i++)
-	if(model->node_list[0][i].id == node_id)
+    for(i = 0; i < model->node_count[bidx]; i++)
+	if(model->node_list[bidx][i].id == node_id)
 	    return i;
     return -1;
 }
@@ -901,7 +901,7 @@ static rc_ty hdist_hash(const sxi_hdist_t *model, uint64_t hash, unsigned int re
     else
 	m = l;
 
-    node_idx = get_node_idx(model, model->circle[bidx][m].node_id);
+    node_idx = get_node_idx(model, bidx, model->circle[bidx][m].node_id);
     if(node_idx < 0) {
 	CRIT("Node with ID %d not found", model->circle[bidx][m].node_id);
 	return FAIL_EINTERNAL;
@@ -919,7 +919,7 @@ static rc_ty hdist_hash(const sxi_hdist_t *model, uint64_t hash, unsigned int re
 			node_idx = -1;
 			continue;
 		    }
-		    node_idx = get_node_idx(model, p->node_id);
+		    node_idx = get_node_idx(model, bidx, p->node_id);
 		    m = h;
 		    break;
 		}
@@ -932,7 +932,7 @@ static rc_ty hdist_hash(const sxi_hdist_t *model, uint64_t hash, unsigned int re
 			    node_idx = -1;
 			    continue;
 			}
-			node_idx = get_node_idx(model, p->node_id);
+			node_idx = get_node_idx(model, bidx, p->node_id);
 			m = h;
 			break;
 		    }
