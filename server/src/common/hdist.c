@@ -55,6 +55,7 @@ uint32_t swapu32(uint32_t v)
 #endif
 
 #define CFG_PREALLOC	4096
+#define MAX_RDIV	5
 
 struct hdist_point {
     uint64_t point;
@@ -861,7 +862,7 @@ void sxi_hdist_free(sxi_hdist_t *model)
  */
 static rc_ty hdist_hash(const sxi_hdist_t *model, uint64_t hash, unsigned int replica_count, unsigned int *dest_nodes, unsigned int bidx, int store)
 {
-	unsigned int i, j, l = 0, h, m;
+	unsigned int i, j, l = 0, h, m, rdiv;
 	int node_idx;
 
     if(!model || model->state != 0xbabe) {
@@ -909,13 +910,14 @@ static rc_ty hdist_hash(const sxi_hdist_t *model, uint64_t hash, unsigned int re
 
     dest_nodes[0] = model->circle[bidx][m].node_id;
 
+    rdiv = MAX_RDIV;
     for(i = 1; i < replica_count; i++) {
 	node_idx = -1;
 	for(j = 0; j < 2; j++) {
 	    for(h = m + 1; h < model->circle_points[bidx]; h++) {
 		    struct hdist_point *p = &model->circle[bidx][h];
 		if(!node_in_set(dest_nodes, NULL, i, p->node_id)) {
-		    if(!j && p->num > (p->node_points / replica_count)) {
+		    if(!j && p->num > (p->node_points / rdiv)) {
 			node_idx = -1;
 			continue;
 		    }
@@ -928,7 +930,7 @@ static rc_ty hdist_hash(const sxi_hdist_t *model, uint64_t hash, unsigned int re
 		for(h = 0; h < m; h++) {
 		    struct hdist_point *p = &model->circle[bidx][h];
 		    if(!node_in_set(dest_nodes, NULL, i, p->node_id)) {
-			if(!j && p->num > (p->node_points / replica_count)) {
+			if(!j && p->num > (p->node_points / rdiv)) {
 			    node_idx = -1;
 			    continue;
 			}
@@ -946,6 +948,8 @@ static rc_ty hdist_hash(const sxi_hdist_t *model, uint64_t hash, unsigned int re
 	    return FAIL_EINTERNAL;
 	}
 	dest_nodes[i] = model->circle[bidx][h].node_id;
+	if(rdiv >= 2)
+	    rdiv--;
     }
 
     return 0;

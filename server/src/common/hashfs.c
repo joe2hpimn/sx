@@ -51,7 +51,7 @@
 #define METADBS 16
 #define GCDBS 1
 /* NOTE: HASHFS_VERSION must be kept below 15 bytes */
-#define HASHFS_VERSION "SX-Storage 1.1"
+#define HASHFS_VERSION "SX-Storage 1.2"
 #define SIZES 3
 const char sizedirs[SIZES] = "sml";
 const char *sizelongnames[SIZES] = { "small", "medium", "large" };
