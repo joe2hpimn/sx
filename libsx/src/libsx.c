@@ -122,18 +122,16 @@ sxc_client_t *sxc_init(const char *client_version, const sxc_logger_t *func, sxc
         if(pwd)
             home_dir = pwd->pw_dir;
     }
-    if(!home_dir) {
-        sx->confdir = NULL;
-    } else {
+    if(home_dir) {
         config_len = strlen(home_dir) + strlen("/.sx");
         sx->confdir = malloc(config_len + 1);
         if(!sx->confdir) {
             sxi_log_syserr(&l, "sxc_init", SX_LOG_ERR, "Could not allocate memory for configuration directory");
+	    sxc_shutdown(sx, 0);
             return NULL;
         }
         snprintf(sx->confdir, config_len + 1, "%s/.sx", home_dir);
     }
-    sx->alias = NULL;
     if(sxc_set_tempdir(sx, NULL)) {
 	sxi_log_syserr(&l, "sxc_init", SX_LOG_CRIT, "Failed to set temporary path");
 	sxc_shutdown(sx, 0);
