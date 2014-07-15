@@ -87,6 +87,8 @@ static int volume_acl(sxc_client_t *sx, const struct perm_args_info *args)
 
 	if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_CFG_ERR))
 	    fprintf(stderr, SXBC_TOOLS_CFG_MSG, uri->host, uri->host);
+        else if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_CONN_ERR))
+            fprintf(stderr, SXBC_TOOLS_CONN_MSG);
 	sxc_free_uri(uri);
 	return 1;
     }
@@ -121,6 +123,8 @@ static int add_user(sxc_client_t *sx, const char *username, const char *uri, con
 	fprintf(stderr, "ERROR: Failed to load config for %s: %s\n", u->host, sxc_geterrmsg(sx));
 	if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_CFG_ERR))
 	    fprintf(stderr, SXBC_TOOLS_CFG_MSG, u->host, u->host);
+        else if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_CONN_ERR))
+            fprintf(stderr, SXBC_TOOLS_CONN_MSG);
 	sxc_free_uri(u);
 	return 1;
     }
@@ -190,6 +194,8 @@ static int getkey_user(sxc_client_t *sx, const char *username, const char *uri, 
 	fprintf(stderr, "ERROR: Failed to load config for %s: %s\n", u->host, sxc_geterrmsg(sx));
 	if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_CFG_ERR))
 	    fprintf(stderr, SXBC_TOOLS_CFG_MSG, u->host, u->host);
+        else if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_CONN_ERR))
+            fprintf(stderr, SXBC_TOOLS_CONN_MSG);
 	sxc_free_uri(u);
 	return 1;
     }
@@ -237,6 +243,8 @@ static int list_users(sxc_client_t *sx, const char *uri, const char *clusterdir,
 	fprintf(stderr, "ERROR: Failed to load config for %s: %s\n", u->host, sxc_geterrmsg(sx));
 	if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_CFG_ERR))
 	    fprintf(stderr, SXBC_TOOLS_CFG_MSG, u->host, u->host);
+        else if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_CONN_ERR))
+            fprintf(stderr, SXBC_TOOLS_CONN_MSG);
 	sxc_free_uri(u);
 	return 1;
     }
@@ -281,6 +289,8 @@ static int list_perms(sxc_client_t *sx, const char *uri, const char *clusterdir,
 	fprintf(stderr, "ERROR: Failed to load config for %s: %s\n", u->host, sxc_geterrmsg(sx));
 	if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_CFG_ERR))
 	    fprintf(stderr, SXBC_TOOLS_CFG_MSG, u->host, u->host);
+        else if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_CONN_ERR))
+            fprintf(stderr, SXBC_TOOLS_CONN_MSG);
 	sxc_free_uri(u);
 	return 1;
     }

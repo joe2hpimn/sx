@@ -103,7 +103,8 @@ int main(int argc, char **argv) {
 		    fprintf(stderr, SXBC_TOOLS_CFG_MSG, u->host, u->host);
 		    sxc_free_uri(u);
 		}
-	    }
+	    } else if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_CONN_ERR))
+                fprintf(stderr, SXBC_TOOLS_CONN_MSG);
             ret = 1;
             break;
         }

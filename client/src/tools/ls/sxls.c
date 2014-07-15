@@ -177,6 +177,8 @@ int main(int argc, char **argv) {
 	    fprintf(stderr, "ERROR: Failed to load config for %s: %s\n", u->host, sxc_geterrmsg(sx));
 	    if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_CFG_ERR))
 		fprintf(stderr, SXBC_TOOLS_CFG_MSG, u->host, u->host);
+            else if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_CONN_ERR))
+                fprintf(stderr, SXBC_TOOLS_CONN_MSG);
 	    sxc_free_uri(u);
 	    ret = 1;
 	    continue;

@@ -173,6 +173,8 @@ static int volume_create(sxc_client_t *sx, const char *owner)
 	fprintf(stderr, "ERROR: Failed to load config for %s: %s\n", uri->host, sxc_geterrmsg(sx));
 	if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_CFG_ERR))
 	    fprintf(stderr, SXBC_TOOLS_CFG_MSG, uri->host, uri->host);
+        else if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_CONN_ERR))
+            fprintf(stderr, SXBC_TOOLS_CONN_MSG);
 	sxc_free_uri(uri);
 	return 1;
     }

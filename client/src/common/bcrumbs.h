@@ -34,5 +34,7 @@
 #define SXBC_TOOLS_VOL_ERR "No such volume"
 #define SXBC_TOOLS_VOL_MSG "Use 'sxls sx://%s%s%s' to list the existing volumes.\n"
 
+#define SXBC_TOOLS_CONN_ERR "Failed to connect"
+#define SXBC_TOOLS_CONN_MSG "Please check your network connection or run sxinit again.\n"
 
 #endif
