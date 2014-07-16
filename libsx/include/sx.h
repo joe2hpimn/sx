@@ -237,7 +237,7 @@ int sxc_file_is_sx(sxc_file_t *file);
 int sxc_file_require_dir(sxc_file_t *file);
 void sxc_file_free(sxc_file_t *sxfile);
 
-int sxc_copy(sxc_file_t *source, sxc_file_t *dest, int recursive);
+int sxc_copy(sxc_file_t *source, sxc_file_t *dest, int recursive, int onefs);
 int sxc_cat(sxc_file_t *source, int dest);
 
 typedef struct _sxc_file_list_t sxc_file_list_t;

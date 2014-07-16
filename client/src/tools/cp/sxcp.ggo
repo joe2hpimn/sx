@@ -15,9 +15,11 @@ option  "filter-dir"		f "Path to SX filter directory"
 
 option "bwlimit"        b "Set bandwidth usage limit in kilobytes per second (allows K, M, G suffixes, assume K when no suffix given)" string typestr="RATE" optional 
 
+option "one-file-system"        x "Don't cross filesystem boundaries" flag off
+
 option  "debug"		        D "Enable debug messages" flag off
 
-option  "no-progress"              q "Do not output progress bar" flag off 
+option  "no-progress"              q "Don't output progress bar" flag off 
 
 option  "total-conns-limit"         - "Limit number of connections" int default="5" optional hidden
 option  "host-conns-limit"          - "Limit number of connections with one host" int default="2" optional hidden

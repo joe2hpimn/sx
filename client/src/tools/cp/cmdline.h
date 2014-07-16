@@ -53,10 +53,12 @@ struct gengetopt_args_info
   char * bwlimit_arg;	/**< @brief Set bandwidth usage limit in kilobytes per second (allows K, M, G suffixes, assume K when no suffix given).  */
   char * bwlimit_orig;	/**< @brief Set bandwidth usage limit in kilobytes per second (allows K, M, G suffixes, assume K when no suffix given) original value given at command line.  */
   const char *bwlimit_help; /**< @brief Set bandwidth usage limit in kilobytes per second (allows K, M, G suffixes, assume K when no suffix given) help description.  */
+  int one_file_system_flag;	/**< @brief Don't cross filesystem boundaries (default=off).  */
+  const char *one_file_system_help; /**< @brief Don't cross filesystem boundaries help description.  */
   int debug_flag;	/**< @brief Enable debug messages (default=off).  */
   const char *debug_help; /**< @brief Enable debug messages help description.  */
-  int no_progress_flag;	/**< @brief Do not output progress bar (default=off).  */
-  const char *no_progress_help; /**< @brief Do not output progress bar help description.  */
+  int no_progress_flag;	/**< @brief Don't output progress bar (default=off).  */
+  const char *no_progress_help; /**< @brief Don't output progress bar help description.  */
   int total_conns_limit_arg;	/**< @brief Limit number of connections (default='5').  */
   char * total_conns_limit_orig;	/**< @brief Limit number of connections original value given at command line.  */
   const char *total_conns_limit_help; /**< @brief Limit number of connections help description.  */
@@ -75,6 +77,7 @@ struct gengetopt_args_info
   unsigned int config_dir_given ;	/**< @brief Whether config-dir was given.  */
   unsigned int filter_dir_given ;	/**< @brief Whether filter-dir was given.  */
   unsigned int bwlimit_given ;	/**< @brief Whether bwlimit was given.  */
+  unsigned int one_file_system_given ;	/**< @brief Whether one-file-system was given.  */
   unsigned int debug_given ;	/**< @brief Whether debug was given.  */
   unsigned int no_progress_given ;	/**< @brief Whether no-progress was given.  */
   unsigned int total_conns_limit_given ;	/**< @brief Whether total-conns-limit was given.  */

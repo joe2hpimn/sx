@@ -1965,7 +1965,7 @@ static int local_to_remote(sxc_file_t *source, sxc_meta_t *fmeta, sxc_file_t *de
     return sxi_jobs_wait_one(dest, dest->job);
 }
 
-static int local_to_remote_iterate(sxc_file_t *source, int recursive, int depth, sxc_file_t *dest)
+static int local_to_remote_iterate(sxc_file_t *source, int recursive, int depth, int onefs, sxc_file_t *dest)
 {
     struct dirent *entry;
     sxc_client_t *sx = source->sx;
@@ -1976,6 +1976,7 @@ static int local_to_remote_iterate(sxc_file_t *source, int recursive, int depth,
     struct stat sb;
     int ret = 0, qret = -1;
     sxc_meta_t *emptymeta = sxc_meta_new(sx);
+    dev_t sdev;
 
     if(!emptymeta) {
         SXDEBUG("emptymeta is NULL");
@@ -1986,6 +1987,7 @@ static int local_to_remote_iterate(sxc_file_t *source, int recursive, int depth,
 	sxc_meta_free(emptymeta);
         return -1;
     }
+    sdev = sb.st_dev;
 
     if (!recursive || !S_ISDIR(sb.st_mode)) {
 	ret = local_to_remote(source, emptymeta, dest);
@@ -2033,6 +2035,8 @@ static int local_to_remote_iterate(sxc_file_t *source, int recursive, int depth,
             ret = -1;
             continue;
         }
+	if(onefs && sb.st_dev != sdev)
+	    continue;
         src = sxi_file_dup(source);
         dst = sxi_file_dup(dest);
         if (!src || !dst)
@@ -2044,7 +2048,7 @@ static int local_to_remote_iterate(sxc_file_t *source, int recursive, int depth,
         }
         snprintf(destpath, n2, "%s/%s", dest->path, entry->d_name);
         if (S_ISDIR(sb.st_mode)) {
-            if ((qret = local_to_remote_iterate(src, 1, depth+1, dst))) {
+            if ((qret = local_to_remote_iterate(src, 1, depth+1, onefs, dst))) {
                 SXDEBUG("failure in directory: %s", destpath);
                 if (qret == 403 || qret == 404) {
                     ret = qret;
@@ -4010,8 +4014,8 @@ static int mkdir_parents(sxc_client_t *sx, const char *path)
     return ret;
 }
 
-static int remote_iterate(sxc_file_t *source, int recursive, sxc_file_t *dest);
-int sxc_copy(sxc_file_t *source, sxc_file_t *dest, int recursive) {
+static int remote_iterate(sxc_file_t *source, int recursive, int onefs, sxc_file_t *dest);
+int sxc_copy(sxc_file_t *source, sxc_file_t *dest, int recursive, int onefs) {
     int ret;
     sxc_xfer_stat_t *xfer_stat = NULL;
     sxc_cluster_t *remote_cluster = NULL;
@@ -4049,10 +4053,10 @@ int sxc_copy(sxc_file_t *source, sxc_file_t *dest, int recursive) {
                 sxi_setsyserr(source->sx, SXE_EMEM, "Cannot dup path");
                 ret = 1;
             } else 
-                ret = local_to_remote_iterate(source, recursive, 0, dest);
+                ret = local_to_remote_iterate(source, recursive, 0, onefs, dest);
         }
     } else {
-        ret = remote_iterate(source, recursive, dest);
+        ret = remote_iterate(source, recursive, onefs, dest);
     }
 
     if(is_remote(dest)) {
@@ -4282,7 +4286,7 @@ int sxc_cat(sxc_file_t *source, int dest) {
         sxi_seterr(source->sx, SXE_EARG, "Cannot write to stdin");
         rc = 1;
     } else
-        rc = sxc_copy(source, destfile, 0);
+        rc = sxc_copy(source, destfile, 0, 0);
     sxc_file_free(destfile);
     return rc;
 }
@@ -4911,7 +4915,7 @@ static int multi_cb(sxc_file_list_t *target, void *ctx)
     return sxc_file_require_dir(dest);
 }
 
-static int remote_iterate(sxc_file_t *source, int recursive, sxc_file_t *dest)
+static int remote_iterate(sxc_file_t *source, int recursive, int onefs, sxc_file_t *dest)
 {
     sxc_file_list_t *lst;
     int ret;
