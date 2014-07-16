@@ -499,7 +499,7 @@ int sxi_host_upload_set_xfer_stat(struct host_upload_ctx* ctx, int64_t uploaded,
         return SXE_ABORT;
 
     /* This is not considered as error, cluster == NULL if we do not want to check progress */
-    if(!ctx->cluster)
+    if(!sxi_cluster_get_xfer_stat(ctx->cluster))
         return SXE_NOERROR;
 
     ctx->to_ul = to_upload;
@@ -514,7 +514,7 @@ int sxi_host_upload_set_xfer_stat(struct host_upload_ctx* ctx, int64_t uploaded,
 
 /* Get numner of bytes to be uploaded */
 int64_t sxi_host_upload_get_xfer_to_send(const struct host_upload_ctx *ctx) {
-    if(!ctx) 
+    if(!ctx || !sxi_cluster_get_xfer_stat(ctx->cluster)) 
         return 0;
 
     return ctx->to_ul;
@@ -522,7 +522,7 @@ int64_t sxi_host_upload_get_xfer_to_send(const struct host_upload_ctx *ctx) {
 
 /* Get number of bytes already uploaded */
 int64_t sxi_host_upload_get_xfer_sent(const struct host_upload_ctx *ctx) {
-    if(!ctx)
+    if(!ctx || !sxi_cluster_get_xfer_stat(ctx->cluster))
         return 0;
 
     return ctx->ul;
@@ -2477,7 +2477,7 @@ int sxi_file_download_set_xfer_stat(struct file_download_ctx* ctx, int64_t downl
         return SXE_ABORT;
 
     /* This is not considered as error, cluster == NULL if we do not want to check progress */
-    if(!ctx->cluster)
+    if(!sxi_cluster_get_xfer_stat(ctx->cluster))
         return SXE_NOERROR;
 
     ctx->to_dl = to_download;
@@ -2491,7 +2491,7 @@ int sxi_file_download_set_xfer_stat(struct file_download_ctx* ctx, int64_t downl
 
 /* Get numner of bytes to be downloaded */
 int64_t sxi_file_download_get_xfer_to_send(const struct file_download_ctx *ctx) {
-    if(!ctx)
+    if(!ctx || !sxi_cluster_get_xfer_stat(ctx->cluster))
         return 0;
 
     return ctx->to_dl;
@@ -2499,7 +2499,7 @@ int64_t sxi_file_download_get_xfer_to_send(const struct file_download_ctx *ctx) 
 
 /* Get number of bytes already downloaded */
 int64_t sxi_file_download_get_xfer_sent(const struct file_download_ctx *ctx) {
-    if(!ctx) 
+    if(!ctx || !sxi_cluster_get_xfer_stat(ctx->cluster)) 
         return 0;
 
     return ctx->dl;
