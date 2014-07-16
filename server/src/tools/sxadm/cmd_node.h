@@ -38,13 +38,11 @@ extern "C" {
 struct node_args_info
 {
   const char *help_help; /**< @brief Print help and exit help description.  */
+  const char *full_help_help; /**< @brief Print help, including hidden options, and exit help description.  */
   const char *version_help; /**< @brief Print version and exit help description.  */
   const char *new_help; /**< @brief Creates a new local SX node in PATH help description.  */
   const char *info_help; /**< @brief Print details about the local node in PATH help description.  */
   const char *check_help; /**< @brief Perform sanity check on the local node in PATH help description.  */
-  char * cluster_uuid_arg;	/**< @brief The SX cluster UUID (default autogenerate UUID)..  */
-  char * cluster_uuid_orig;	/**< @brief The SX cluster UUID (default autogenerate UUID). original value given at command line.  */
-  const char *cluster_uuid_help; /**< @brief The SX cluster UUID (default autogenerate UUID). help description.  */
   char * key_arg;	/**< @brief File containing a pre-generated cluster authentication token or stdin if \"-\" is given (default autogenerate token)..  */
   char * key_orig;	/**< @brief File containing a pre-generated cluster authentication token or stdin if \"-\" is given (default autogenerate token). original value given at command line.  */
   const char *key_help; /**< @brief File containing a pre-generated cluster authentication token or stdin if \"-\" is given (default autogenerate token). help description.  */
@@ -52,18 +50,22 @@ struct node_args_info
   char * owner_arg;	/**< @brief Set ownership of storage to user[:group].  */
   char * owner_orig;	/**< @brief Set ownership of storage to user[:group] original value given at command line.  */
   const char *owner_help; /**< @brief Set ownership of storage to user[:group] help description.  */
+  char * cluster_uuid_arg;	/**< @brief The SX cluster UUID (default autogenerate UUID)..  */
+  char * cluster_uuid_orig;	/**< @brief The SX cluster UUID (default autogenerate UUID). original value given at command line.  */
+  const char *cluster_uuid_help; /**< @brief The SX cluster UUID (default autogenerate UUID). help description.  */
   int debug_flag;	/**< @brief Enable debug messages (default=off).  */
   const char *debug_help; /**< @brief Enable debug messages help description.  */
   
   unsigned int help_given ;	/**< @brief Whether help was given.  */
+  unsigned int full_help_given ;	/**< @brief Whether full-help was given.  */
   unsigned int version_given ;	/**< @brief Whether version was given.  */
   unsigned int new_given ;	/**< @brief Whether new was given.  */
   unsigned int info_given ;	/**< @brief Whether info was given.  */
   unsigned int check_given ;	/**< @brief Whether check was given.  */
-  unsigned int cluster_uuid_given ;	/**< @brief Whether cluster-uuid was given.  */
   unsigned int key_given ;	/**< @brief Whether key was given.  */
   unsigned int batch_mode_given ;	/**< @brief Whether batch-mode was given.  */
   unsigned int owner_given ;	/**< @brief Whether owner was given.  */
+  unsigned int cluster_uuid_given ;	/**< @brief Whether cluster-uuid was given.  */
   unsigned int debug_given ;	/**< @brief Whether debug was given.  */
 
   char **inputs ; /**< @brief unamed options (options without names) */
@@ -89,6 +91,8 @@ extern const char *node_args_info_usage;
 extern const char *node_args_info_description;
 /** @brief all the lines making the help output */
 extern const char *node_args_info_help[];
+/** @brief all the lines making the full help output (including hidden options) */
+extern const char *node_args_info_full_help[];
 
 /**
  * The command line parser
@@ -150,6 +154,10 @@ int node_cmdline_parser_file_save(const char *filename,
  * Print the help
  */
 void node_cmdline_parser_print_help(void);
+/**
+ * Print the full help (including hidden options)
+ */
+void node_cmdline_parser_print_full_help(void);
 /**
  * Print the version
  */

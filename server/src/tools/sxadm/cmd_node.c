@@ -33,23 +33,47 @@ const char *node_args_info_versiontext = "";
 
 const char *node_args_info_description = "";
 
-const char *node_args_info_help[] = {
+const char *node_args_info_full_help[] = {
   "  -h, --help                Print help and exit",
+  "      --full-help           Print help, including hidden options, and exit",
   "  -V, --version             Print version and exit",
   "\n Group: MODE",
   "  -N, --new                 Creates a new local SX node in PATH",
   "  -I, --info                Print details about the local node in PATH",
   "  -C, --check               Perform sanity check on the local node in PATH",
   "\nNew node options:",
-  "  -u, --cluster-uuid=UUID   The SX cluster UUID (default autogenerate UUID).",
   "  -k, --key=FILE            File containing a pre-generated cluster\n                              authentication token or stdin if \"-\" is given\n                              (default autogenerate token).",
   "  -b, --batch-mode          Turn off interactive confirmations and assume yes\n                              for all questions",
   "      --owner=user[:group]  Set ownership of storage to user[:group]",
+  "  -u, --cluster-uuid=UUID   The SX cluster UUID (default autogenerate UUID).",
   "NOTE: all nodes of an SX cluster must be created with the same UUID and the\nsame authentication token.",
   "\nCommon options:",
   "  -D, --debug               Enable debug messages  (default=off)",
     0
 };
+
+static void
+init_help_array(void)
+{
+  node_args_info_help[0] = node_args_info_full_help[0];
+  node_args_info_help[1] = node_args_info_full_help[1];
+  node_args_info_help[2] = node_args_info_full_help[2];
+  node_args_info_help[3] = node_args_info_full_help[3];
+  node_args_info_help[4] = node_args_info_full_help[4];
+  node_args_info_help[5] = node_args_info_full_help[5];
+  node_args_info_help[6] = node_args_info_full_help[6];
+  node_args_info_help[7] = node_args_info_full_help[7];
+  node_args_info_help[8] = node_args_info_full_help[8];
+  node_args_info_help[9] = node_args_info_full_help[9];
+  node_args_info_help[10] = node_args_info_full_help[10];
+  node_args_info_help[11] = node_args_info_full_help[12];
+  node_args_info_help[12] = node_args_info_full_help[13];
+  node_args_info_help[13] = node_args_info_full_help[14];
+  node_args_info_help[14] = 0; 
+  
+}
+
+const char *node_args_info_help[15];
 
 typedef enum {ARG_NO
   , ARG_FLAG
@@ -75,14 +99,15 @@ static
 void clear_given (struct node_args_info *args_info)
 {
   args_info->help_given = 0 ;
+  args_info->full_help_given = 0 ;
   args_info->version_given = 0 ;
   args_info->new_given = 0 ;
   args_info->info_given = 0 ;
   args_info->check_given = 0 ;
-  args_info->cluster_uuid_given = 0 ;
   args_info->key_given = 0 ;
   args_info->batch_mode_given = 0 ;
   args_info->owner_given = 0 ;
+  args_info->cluster_uuid_given = 0 ;
   args_info->debug_given = 0 ;
   args_info->MODE_group_counter = 0 ;
 }
@@ -91,12 +116,12 @@ static
 void clear_args (struct node_args_info *args_info)
 {
   FIX_UNUSED (args_info);
-  args_info->cluster_uuid_arg = NULL;
-  args_info->cluster_uuid_orig = NULL;
   args_info->key_arg = NULL;
   args_info->key_orig = NULL;
   args_info->owner_arg = NULL;
   args_info->owner_orig = NULL;
+  args_info->cluster_uuid_arg = NULL;
+  args_info->cluster_uuid_orig = NULL;
   args_info->debug_flag = 0;
   
 }
@@ -105,17 +130,18 @@ static
 void init_args_info(struct node_args_info *args_info)
 {
 
-
-  args_info->help_help = node_args_info_help[0] ;
-  args_info->version_help = node_args_info_help[1] ;
-  args_info->new_help = node_args_info_help[3] ;
-  args_info->info_help = node_args_info_help[4] ;
-  args_info->check_help = node_args_info_help[5] ;
-  args_info->cluster_uuid_help = node_args_info_help[7] ;
-  args_info->key_help = node_args_info_help[8] ;
-  args_info->batch_mode_help = node_args_info_help[9] ;
-  args_info->owner_help = node_args_info_help[10] ;
-  args_info->debug_help = node_args_info_help[13] ;
+  init_help_array(); 
+  args_info->help_help = node_args_info_full_help[0] ;
+  args_info->full_help_help = node_args_info_full_help[1] ;
+  args_info->version_help = node_args_info_full_help[2] ;
+  args_info->new_help = node_args_info_full_help[4] ;
+  args_info->info_help = node_args_info_full_help[5] ;
+  args_info->check_help = node_args_info_full_help[6] ;
+  args_info->key_help = node_args_info_full_help[8] ;
+  args_info->batch_mode_help = node_args_info_full_help[9] ;
+  args_info->owner_help = node_args_info_full_help[10] ;
+  args_info->cluster_uuid_help = node_args_info_full_help[11] ;
+  args_info->debug_help = node_args_info_full_help[14] ;
   
 }
 
@@ -152,6 +178,15 @@ node_cmdline_parser_print_help (void)
   print_help_common();
   while (node_args_info_help[i])
     printf("%s\n", node_args_info_help[i++]);
+}
+
+void
+node_cmdline_parser_print_full_help (void)
+{
+  int i = 0;
+  print_help_common();
+  while (node_args_info_full_help[i])
+    printf("%s\n", node_args_info_full_help[i++]);
 }
 
 void
@@ -202,12 +237,12 @@ static void
 node_cmdline_parser_release (struct node_args_info *args_info)
 {
   unsigned int i;
-  free_string_field (&(args_info->cluster_uuid_arg));
-  free_string_field (&(args_info->cluster_uuid_orig));
   free_string_field (&(args_info->key_arg));
   free_string_field (&(args_info->key_orig));
   free_string_field (&(args_info->owner_arg));
   free_string_field (&(args_info->owner_orig));
+  free_string_field (&(args_info->cluster_uuid_arg));
+  free_string_field (&(args_info->cluster_uuid_orig));
   
   
   for (i = 0; i < args_info->inputs_num; ++i)
@@ -245,6 +280,8 @@ node_cmdline_parser_dump(FILE *outfile, struct node_args_info *args_info)
 
   if (args_info->help_given)
     write_into_file(outfile, "help", 0, 0 );
+  if (args_info->full_help_given)
+    write_into_file(outfile, "full-help", 0, 0 );
   if (args_info->version_given)
     write_into_file(outfile, "version", 0, 0 );
   if (args_info->new_given)
@@ -253,14 +290,14 @@ node_cmdline_parser_dump(FILE *outfile, struct node_args_info *args_info)
     write_into_file(outfile, "info", 0, 0 );
   if (args_info->check_given)
     write_into_file(outfile, "check", 0, 0 );
-  if (args_info->cluster_uuid_given)
-    write_into_file(outfile, "cluster-uuid", args_info->cluster_uuid_orig, 0);
   if (args_info->key_given)
     write_into_file(outfile, "key", args_info->key_orig, 0);
   if (args_info->batch_mode_given)
     write_into_file(outfile, "batch-mode", 0, 0 );
   if (args_info->owner_given)
     write_into_file(outfile, "owner", args_info->owner_orig, 0);
+  if (args_info->cluster_uuid_given)
+    write_into_file(outfile, "cluster-uuid", args_info->cluster_uuid_orig, 0);
   if (args_info->debug_given)
     write_into_file(outfile, "debug", 0, 0 );
   
@@ -382,11 +419,6 @@ node_cmdline_parser_required2 (struct node_args_info *args_info, const char *pro
   
 
   /* checks for dependences among options */
-  if (args_info->cluster_uuid_given && ! args_info->new_given)
-    {
-      fprintf (stderr, "%s: '--cluster-uuid' ('-u') option depends on option 'new'%s\n", prog_name, (additional_error ? additional_error : ""));
-      error_occurred = 1;
-    }
   if (args_info->key_given && ! args_info->new_given)
     {
       fprintf (stderr, "%s: '--key' ('-k') option depends on option 'new'%s\n", prog_name, (additional_error ? additional_error : ""));
@@ -395,6 +427,11 @@ node_cmdline_parser_required2 (struct node_args_info *args_info, const char *pro
   if (args_info->batch_mode_given && ! args_info->new_given)
     {
       fprintf (stderr, "%s: '--batch-mode' ('-b') option depends on option 'new'%s\n", prog_name, (additional_error ? additional_error : ""));
+      error_occurred = 1;
+    }
+  if (args_info->cluster_uuid_given && ! args_info->new_given)
+    {
+      fprintf (stderr, "%s: '--cluster-uuid' ('-u') option depends on option 'new'%s\n", prog_name, (additional_error ? additional_error : ""));
       error_occurred = 1;
     }
 
@@ -542,19 +579,20 @@ node_cmdline_parser_internal (
 
       static struct option long_options[] = {
         { "help",	0, NULL, 'h' },
+        { "full-help",	0, NULL, 0 },
         { "version",	0, NULL, 'V' },
         { "new",	0, NULL, 'N' },
         { "info",	0, NULL, 'I' },
         { "check",	0, NULL, 'C' },
-        { "cluster-uuid",	1, NULL, 'u' },
         { "key",	1, NULL, 'k' },
         { "batch-mode",	0, NULL, 'b' },
         { "owner",	1, NULL, 0 },
+        { "cluster-uuid",	1, NULL, 'u' },
         { "debug",	0, NULL, 'D' },
         { 0,  0, 0, 0 }
       };
 
-      c = getopt_long (argc, argv, "hVNICu:k:bD", long_options, &option_index);
+      c = getopt_long (argc, argv, "hVNICk:bu:D", long_options, &option_index);
 
       if (c == -1) break;	/* Exit from `while (1)' loop.  */
 
@@ -624,18 +662,6 @@ node_cmdline_parser_internal (
             goto failure;
         
           break;
-        case 'u':	/* The SX cluster UUID (default autogenerate UUID)..  */
-        
-        
-          if (update_arg( (void *)&(args_info->cluster_uuid_arg), 
-               &(args_info->cluster_uuid_orig), &(args_info->cluster_uuid_given),
-              &(local_args_info.cluster_uuid_given), optarg, 0, 0, ARG_STRING,
-              check_ambiguity, override, 0, 0,
-              "cluster-uuid", 'u',
-              additional_error))
-            goto failure;
-        
-          break;
         case 'k':	/* File containing a pre-generated cluster authentication token or stdin if \"-\" is given (default autogenerate token)..  */
         
         
@@ -660,6 +686,18 @@ node_cmdline_parser_internal (
             goto failure;
         
           break;
+        case 'u':	/* The SX cluster UUID (default autogenerate UUID)..  */
+        
+        
+          if (update_arg( (void *)&(args_info->cluster_uuid_arg), 
+               &(args_info->cluster_uuid_orig), &(args_info->cluster_uuid_given),
+              &(local_args_info.cluster_uuid_given), optarg, 0, 0, ARG_STRING,
+              check_ambiguity, override, 0, 0,
+              "cluster-uuid", 'u',
+              additional_error))
+            goto failure;
+        
+          break;
         case 'D':	/* Enable debug messages.  */
         
         
@@ -672,6 +710,12 @@ node_cmdline_parser_internal (
           break;
 
         case 0:	/* Long option with no short option */
+          if (strcmp (long_options[option_index].name, "full-help") == 0) {
+            node_cmdline_parser_print_full_help ();
+            node_cmdline_parser_free (&local_args_info);
+            exit (EXIT_SUCCESS);
+          }
+
           /* Set ownership of storage to user[:group].  */
           if (strcmp (long_options[option_index].name, "owner") == 0)
           {
