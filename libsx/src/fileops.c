@@ -4020,6 +4020,7 @@ int sxc_copy(sxc_file_t *source, sxc_file_t *dest, int recursive, int onefs) {
     sxc_xfer_stat_t *xfer_stat = NULL;
     sxc_cluster_t *remote_cluster = NULL;
 
+/* FIXME: Drop this code if there are no side effects of turning it off
     if (!is_remote(dest)) {
         struct stat sb;
 	if(recursive) {
@@ -4036,6 +4037,7 @@ int sxc_copy(sxc_file_t *source, sxc_file_t *dest, int recursive, int onefs) {
             }
         }
     }
+*/
 
     if(!is_remote(source)) {
 	if(!is_remote(dest)) {
