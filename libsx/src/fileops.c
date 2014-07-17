@@ -495,11 +495,9 @@ struct host_upload_ctx {
 /* Set information about current transfer upload value */
 int sxi_host_upload_set_xfer_stat(struct host_upload_ctx* ctx, int64_t uploaded, int64_t to_upload) {
     int64_t ul_diff = 0;
-    if(!ctx)
-        return SXE_ABORT;
 
-    /* This is not considered as error, cluster == NULL if we do not want to check progress */
-    if(!sxi_cluster_get_xfer_stat(ctx->cluster))
+    /* This is not considered as error, ctx or cluster == NULL if we do not want to check progress */
+    if(!ctx || !sxi_cluster_get_xfer_stat(ctx->cluster))
         return SXE_NOERROR;
 
     ctx->to_ul = to_upload;
@@ -856,6 +854,8 @@ static void part_free(struct part_upload_ctx *yctx)
         struct host_upload_ctx *u;
         sxi_ht_enum_reset(yctx->hostsmap);
         while(!sxi_ht_enum_getnext(yctx->hostsmap, NULL, NULL, (const void **)&u)) {
+            if(u)
+                sxi_curlev_nullify_upload_context(sxi_cluster_get_conns(u->cluster), u);
             host_upload_free(u);
         }
         sxi_ht_free(yctx->hostsmap);
@@ -2473,11 +2473,9 @@ struct file_download_ctx {
 /* Set information about current transfer download value */
 int sxi_file_download_set_xfer_stat(struct file_download_ctx* ctx, int64_t downloaded, int64_t to_download) {
     int64_t dl_diff = 0;
-    if(!ctx)
-        return SXE_ABORT;
 
-    /* This is not considered as error, cluster == NULL if we do not want to check progress */
-    if(!sxi_cluster_get_xfer_stat(ctx->cluster))
+    /* This is not considered as error, ctx or cluster == NULL if we do not want to check progress */
+    if(!ctx || !sxi_cluster_get_xfer_stat(ctx->cluster))
         return SXE_NOERROR;
 
     ctx->to_dl = to_download;

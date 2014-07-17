@@ -150,4 +150,7 @@ int64_t sxi_curlev_get_bandwidth_limit(const curl_events_t *e);
 /* Set limits for number of active connections */
 int sxi_curlev_set_conns_limit(curl_events_t *e, unsigned int max_active, unsigned int max_active_per_host);
 
+/* Nullify context for each curlev_t element from active and inactive cURL events */
+void sxi_curlev_nullify_upload_context(sxi_conns_t *conns, void *context);
+
 #endif

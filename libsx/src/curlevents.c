@@ -910,6 +910,62 @@ struct curl_events {
     bandwidth_t bandwidth;
 };
 
+/* Nullify context for each curlev_t element from active and inactive cURL events */
+void sxi_curlev_nullify_upload_context(sxi_conns_t *conns, void *ctx) {
+    unsigned int i;
+    connection_pool_t *pool;
+    struct ev_queue_node *n;
+    curl_events_t *e;
+    if(!ctx || !conns)
+        return;
+    e = sxi_conns_get_curlev(conns);
+    if(!e)
+        return;
+    pool = e->conn_pool;
+    if(!pool || !pool->queue)
+        return;
+
+    for(i = 0; i < MAX_EVENTS; i++) {
+        curlev_context_t *c = pool->active[i].ctx;
+        if(!c)
+            continue;
+        switch(c->tag) {
+            case CTX_UPLOAD_HOST:
+                if(c->u.host_ctx == ctx)
+                    c->u.host_ctx = NULL;
+                break;
+            case CTX_DOWNLOAD:
+                if(c->u.download_ctx == ctx)
+                    c->u.download_ctx = NULL;
+                break;
+            default: 
+                break;
+        }
+    }
+
+    n = pool->queue->head;
+
+    /* iterate over all elements and nullify context */
+    while(n) {
+        if(n->element && n->element->ctx) {
+            curlev_context_t *c = n->element->ctx;
+            switch(c->tag) {
+                case CTX_UPLOAD_HOST:
+                    if(c->u.host_ctx == ctx)
+                        c->u.host_ctx = NULL;
+                    break;
+                case CTX_DOWNLOAD:
+                    if(c->u.download_ctx == ctx)
+                        c->u.download_ctx = NULL;
+                    break;
+                default: 
+                    break;
+            }
+        }
+        n = n->next;
+    }
+}
+
 static void ctx_err(curlev_context_t *ctx, CURLcode rc, const char *msg)
 {
     if (!ctx)
@@ -1262,10 +1318,8 @@ static int xferinfo(void *p, curl_off_t dltotal, curl_off_t dlnow,
     if (check_ssl_cert(ev))
         return -1;
 
-    if(!ev->ctx) {
-        EVDEBUG(ev, "Could not update xfer information: NULL argument");
-        return -2;
-    }
+    if(!ev->ctx) /* Not an error, context could be disabled */
+        return 0;
 
     switch(ev->ctx->tag) {
         case CTX_DOWNLOAD: {
