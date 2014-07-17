@@ -85,7 +85,7 @@ if [ -z "$SX_NODE_IP" ]; then
     fi
 fi
 
-if [ "$FORCE_REINIT_GIVEN" = "yes" ]; then
+if [ "$FORCE_REINIT_GIVEN" = "yes" -a "$CONFIG_FILE_GIVEN" != "yes" ]; then
     if [ "$ADVANCED_GIVEN" != "yes" ]; then
 	SX_PORT=
 	SX_SERVER_USER=
