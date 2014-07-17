@@ -2255,7 +2255,7 @@ static void check_version(struct jobmgr_data_t *q) {
     uint16_t rrcount[DNS_MAX_SECTS];
     const uint8_t *rd, *eom;
     time_t now = time(NULL);
-    int i, vmaj, vmin, secflag, len;
+    int i, vmaj, vmin, newver, secflag, len;
 
     if(q->next_vcheck > now)
 	return;
@@ -2339,20 +2339,18 @@ static void check_version(struct jobmgr_data_t *q) {
 	return;
     }
 
-    i=0;
     if(vmaj > SRC_MAJOR_VERSION)
-	secflag = 1;
-    else if(vmaj == SRC_MAJOR_VERSION) {
+	newver = 2;
+    else if(vmaj == SRC_MAJOR_VERSION && vmin > SRC_MINOR_VERSION) {
 	if(secflag || vmin > SRC_MINOR_VERSION + 1)
-	    secflag = 1;
-	else if(vmin > SRC_MINOR_VERSION)
-	    secflag = 0;
+	    newver = 2;
 	else
-	    i = 1;
+	    newver = 1;
     } else
-	i = 1;
-    if(!i) {
-	if(secflag) {
+	newver=0;
+
+    if(newver) {
+	if(newver > 1) {
 	    CRIT("CRITICAL update found! Skylable SX %d.%d is available (this node is running version %d.%d)", vmaj, vmin, SRC_MAJOR_VERSION, SRC_MINOR_VERSION);
 	    CRIT("See http://www.skylable.com/products/sx/release/%d.%d for upgrade instructions", vmaj, vmin);
 	} else {
