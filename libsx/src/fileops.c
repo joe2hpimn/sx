@@ -4954,7 +4954,7 @@ static int remote_iterate(sxc_file_t *source, int recursive, int onefs, sxc_file
 
     sxc_file_list_free(lst);
     if(!ret && recursive && it.errors) {
-	sxi_setsyserr(source->sx, SXE_EWRITE, "Failed to download %u file(s)", it.errors);
+	sxi_seterr(source->sx, SXE_EWRITE, "Failed to download %u file(s)", it.errors);
 	return 1;
     }
 
