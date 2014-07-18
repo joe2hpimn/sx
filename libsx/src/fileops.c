@@ -3184,6 +3184,8 @@ static int remote_to_local(sxc_file_t *source, sxc_file_t *dest) {
     if (!strcmp(dest->path, "/dev/stdout")) {
         d = STDOUT_FILENO;
     } else if((d = open(dest->path, O_RDWR|O_CREAT, S_IWUSR|S_IRUSR|S_IWGRP|S_IRGRP|S_IWOTH|S_IROTH))<0) {
+	if(errno == EISDIR)
+	    ret = 2;
 	SXDEBUG("failed to create destination file");
 	sxi_setsyserr(sx, SXE_EWRITE, "Cannot open destination file %s", dstname);
 	goto remote_to_local_err;
@@ -3954,7 +3956,7 @@ remote_to_remote_err:
 }
 
 static int mkdir_parents(sxc_client_t *sx, const char *path);
-static sxi_job_t* remote_copy_ev(sxc_file_t *pattern, sxc_file_t *source, sxc_file_t *dest, int recursive)
+static sxi_job_t* remote_copy_ev(sxc_file_t *pattern, sxc_file_t *source, sxc_file_t *dest, int recursive, unsigned int *errors)
 {
     sxi_job_t *job;
     free(source->origpath);
@@ -3980,6 +3982,11 @@ static sxi_job_t* remote_copy_ev(sxc_file_t *pattern, sxc_file_t *source, sxc_fi
         }
         if (sxc_geterrnum(source->sx) == SXE_SKIP) {
             ret = 0;
+            sxc_clearerr(source->sx);
+        }
+	if(recursive && ret == 2) { /* EISDIR */
+	    (*errors)++;
+	    ret = 0;
             sxc_clearerr(source->sx);
         }
         if (ret) {
@@ -4825,6 +4832,7 @@ int sxc_rm(sxc_file_list_t *target) {
 struct remote_iter {
     sxc_file_t *dest;
     int recursive;
+    unsigned int errors;
 };
 
 static int different_file(const char *path1, const char *path2)
@@ -4857,7 +4865,7 @@ static sxi_job_t *remote_copy_cb(sxc_file_list_t *target, sxc_file_t *pattern, s
 
     /* we could support parallelization for remote_to_remote and
      * remote_to_remote_fast if they would just return a job ... */
-    ret = remote_copy_ev(pattern, &source, it->dest, it->recursive && different_file(source.path, pattern->path));
+    ret = remote_copy_ev(pattern, &source, it->dest, it->recursive && different_file(source.path, pattern->path), &it->errors);
     free(source.volume);
     free(source.path);
     free(source.origpath);
@@ -4925,6 +4933,7 @@ static int remote_iterate(sxc_file_t *source, int recursive, int onefs, sxc_file
 
     it.dest = dest;
     it.recursive = recursive;
+    it.errors = 0;
 
     lst = sxc_file_list_new(source->sx, recursive);
     if (!lst)
@@ -4944,5 +4953,10 @@ static int remote_iterate(sxc_file_t *source, int recursive, int onefs, sxc_file
     }
 
     sxc_file_list_free(lst);
+    if(!ret && recursive && it.errors) {
+	sxi_setsyserr(source->sx, SXE_EWRITE, "Failed to download %u file(s)", it.errors);
+	return 1;
+    }
+
     return ret;
 }
