@@ -1314,12 +1314,18 @@ static int xferinfo(void *p, curl_off_t dltotal, curl_off_t dlnow,
 {
     curlev_t *ev = p;
     int err = SXE_ABORT;
+    sxc_client_t *sx;
 
     if (check_ssl_cert(ev))
         return -1;
 
-    if(!ev->ctx) /* Not an error, context could be disabled */
+    if(!ev || !ev->ctx) /* Not an error, context could be disabled */
         return 0;
+
+    sx = sxi_conns_get_client(ev->ctx->conns);
+    /* If we want to abort transfers, other cURL transfers will be killed now */
+    if(sxc_geterrnum(sx) == SXE_ABORT)
+        return 1;
 
     switch(ev->ctx->tag) {
         case CTX_DOWNLOAD: {
@@ -1342,14 +1348,13 @@ static int xferinfo(void *p, curl_off_t dltotal, curl_off_t dlnow,
     }
 
     if(err != SXE_NOERROR) {
-        /* Try to set error message */
-        if(ev->ctx && ev->ctx->conns) {
-            sxc_client_t *sx = sxi_conns_get_client(ev->ctx->conns);
-            if(sx) {
-                sxi_seterr(sx, SXE_ABORT, "Transfer aborted");
-            }
-        }
-        /* This stops transfers and causes libcurl to fail */
+        /* Set error message */
+        if(err == SXE_ABORT)
+            sxi_seterr(sx, err, "Transfer aborted");
+        else
+            sxi_seterr(sx, err, "Could not update progress information");
+
+        /* This stops transfer and causes libcurl to fail */
         return 1;
     }
     return 0;
@@ -2181,8 +2186,10 @@ int sxi_curlev_poll_immediate(curl_events_t *e)
                 /* Check if user transfer callbacks did not return error message */
                 if(xfer_err != SXE_NOERROR) {
                     sxc_client_t *sx = sxi_conns_get_client(e->conns);
-                    if(sx)
-                        sxi_seterr(sx, SXE_ABORT, "Transfer aborted");
+                    if(xfer_err == SXE_ABORT)
+                        sxi_seterr(sx, xfer_err, "Transfer aborted");
+                    else
+                        sxi_seterr(sx, xfer_err, "Could not update progress information");
                     e->depth--;
                     return -1;
                 }

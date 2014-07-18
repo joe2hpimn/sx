@@ -1857,7 +1857,8 @@ static int local_to_remote_begin(sxc_file_t *source, sxc_meta_t *fmeta, sxc_file
         goto local_to_remote_err;
     }
 
-    if(xfer_stat) {
+    /* Update transfer information, but not when aborting */
+    if(xfer_stat && sxc_geterrnum(sx) != SXE_ABORT) {
         /* Upload process is waiting for job to finish */
         xfer_stat->status = SXC_XFER_STATUS_WAITING;
         if(xfer_stat->xfer_callback(xfer_stat) != SXE_NOERROR) {
@@ -3346,7 +3347,8 @@ static int remote_to_local(sxc_file_t *source, sxc_file_t *dest) {
 
         fail = multi_download(&bh, dstname, blocksize, source->cluster, d, filesize - shiftoff);
 
-        if(xfer_stat) {
+        /* Update information about transfers, but not when aborting */
+        if(xfer_stat && sxc_geterrnum(sx) != SXE_ABORT) {
             xfer_stat->status = SXC_XFER_STATUS_PART_FINISHED;
             if(xfer_stat->xfer_callback(xfer_stat) != SXE_NOERROR) {
                 SXDEBUG("Could not finish transfer");
@@ -4074,7 +4076,7 @@ int sxc_copy(sxc_file_t *source, sxc_file_t *dest, int recursive, int onefs) {
         }
     }
     xfer_stat = sxi_cluster_get_xfer_stat(remote_cluster);
-    if(xfer_stat) {
+    if(xfer_stat && sxc_geterrnum(source->sx) != SXE_ABORT) {
         xfer_stat->status = (ret ? SXC_XFER_STATUS_FINISHED_ERROR : SXC_XFER_STATUS_FINISHED);
         if(xfer_stat->xfer_callback(xfer_stat) != SXE_NOERROR) {
             sxi_seterr(source->sx, SXE_ABORT, "Transfer aborted");
