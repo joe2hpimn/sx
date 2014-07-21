@@ -38,44 +38,46 @@ extern "C" {
 struct gengetopt_args_info
 {
   const char *help_help; /**< @brief Print help and exit help description.  */
+  const char *full_help_help; /**< @brief Print help, including hidden options, and exit help description.  */
   const char *version_help; /**< @brief Print version and exit help description.  */
   const char *list_help; /**< @brief List configured clusters and aliases help description.  */
-  char * alias_arg;	/**< @brief Alias that will be used instead of full sx://[profile@]cluster/.  */
-  char * alias_orig;	/**< @brief Alias that will be used instead of full sx://[profile@]cluster/ original value given at command line.  */
-  const char *alias_help; /**< @brief Alias that will be used instead of full sx://[profile@]cluster/ help description.  */
-  char * config_dir_arg;	/**< @brief Path to SX configuration directory.  */
-  char * config_dir_orig;	/**< @brief Path to SX configuration directory original value given at command line.  */
-  const char *config_dir_help; /**< @brief Path to SX configuration directory help description.  */
-  char * host_list_arg;	/**< @brief List of SX hosts (IP addresses).  */
-  char * host_list_orig;	/**< @brief List of SX hosts (IP addresses) original value given at command line.  */
-  const char *host_list_help; /**< @brief List of SX hosts (IP addresses) help description.  */
   int no_ssl_flag;	/**< @brief Disable secure communication (default=off).  */
   const char *no_ssl_help; /**< @brief Disable secure communication help description.  */
-  int port_arg;	/**< @brief Set the cluster destination TCP port (default 443 in secure mode or 80 in insecure mode).  */
-  char * port_orig;	/**< @brief Set the cluster destination TCP port (default 443 in secure mode or 80 in insecure mode) original value given at command line.  */
-  const char *port_help; /**< @brief Set the cluster destination TCP port (default 443 in secure mode or 80 in insecure mode) help description.  */
-  int debug_flag;	/**< @brief Enable debug messages (default=off).  */
-  const char *debug_help; /**< @brief Enable debug messages help description.  */
-  int batch_mode_flag;	/**< @brief Turn off interactive confirmations and assume yes for all questions (default=off).  */
-  const char *batch_mode_help; /**< @brief Turn off interactive confirmations and assume yes for all questions help description.  */
   char * auth_file_arg;	/**< @brief File containing user key (instead of stdin).  */
   char * auth_file_orig;	/**< @brief File containing user key (instead of stdin) original value given at command line.  */
   const char *auth_file_help; /**< @brief File containing user key (instead of stdin) help description.  */
+  int port_arg;	/**< @brief Set the cluster destination TCP port (default 443 in secure mode and 80 in insecure mode).  */
+  char * port_orig;	/**< @brief Set the cluster destination TCP port (default 443 in secure mode and 80 in insecure mode) original value given at command line.  */
+  const char *port_help; /**< @brief Set the cluster destination TCP port (default 443 in secure mode and 80 in insecure mode) help description.  */
+  char * host_list_arg;	/**< @brief List of SX hosts (IP addresses).  */
+  char * host_list_orig;	/**< @brief List of SX hosts (IP addresses) original value given at command line.  */
+  const char *host_list_help; /**< @brief List of SX hosts (IP addresses) help description.  */
+  char * alias_arg;	/**< @brief Alias that will be used instead of full sx://[profile@]cluster/.  */
+  char * alias_orig;	/**< @brief Alias that will be used instead of full sx://[profile@]cluster/ original value given at command line.  */
+  const char *alias_help; /**< @brief Alias that will be used instead of full sx://[profile@]cluster/ help description.  */
+  int batch_mode_flag;	/**< @brief Turn off interactive confirmations and assume yes for all questions (default=off).  */
+  const char *batch_mode_help; /**< @brief Turn off interactive confirmations and assume yes for all questions help description.  */
   int force_reinit_flag;	/**< @brief Remove old cluster configuration and init from scratch (default=off).  */
   const char *force_reinit_help; /**< @brief Remove old cluster configuration and init from scratch help description.  */
+  int debug_flag;	/**< @brief Enable debug messages (default=off).  */
+  const char *debug_help; /**< @brief Enable debug messages help description.  */
+  char * config_dir_arg;	/**< @brief Path to SX configuration directory.  */
+  char * config_dir_orig;	/**< @brief Path to SX configuration directory original value given at command line.  */
+  const char *config_dir_help; /**< @brief Path to SX configuration directory help description.  */
   
   unsigned int help_given ;	/**< @brief Whether help was given.  */
+  unsigned int full_help_given ;	/**< @brief Whether full-help was given.  */
   unsigned int version_given ;	/**< @brief Whether version was given.  */
   unsigned int list_given ;	/**< @brief Whether list was given.  */
-  unsigned int alias_given ;	/**< @brief Whether alias was given.  */
-  unsigned int config_dir_given ;	/**< @brief Whether config-dir was given.  */
-  unsigned int host_list_given ;	/**< @brief Whether host-list was given.  */
   unsigned int no_ssl_given ;	/**< @brief Whether no-ssl was given.  */
-  unsigned int port_given ;	/**< @brief Whether port was given.  */
-  unsigned int debug_given ;	/**< @brief Whether debug was given.  */
-  unsigned int batch_mode_given ;	/**< @brief Whether batch-mode was given.  */
   unsigned int auth_file_given ;	/**< @brief Whether auth-file was given.  */
+  unsigned int port_given ;	/**< @brief Whether port was given.  */
+  unsigned int host_list_given ;	/**< @brief Whether host-list was given.  */
+  unsigned int alias_given ;	/**< @brief Whether alias was given.  */
+  unsigned int batch_mode_given ;	/**< @brief Whether batch-mode was given.  */
   unsigned int force_reinit_given ;	/**< @brief Whether force-reinit was given.  */
+  unsigned int debug_given ;	/**< @brief Whether debug was given.  */
+  unsigned int config_dir_given ;	/**< @brief Whether config-dir was given.  */
 
   char **inputs ; /**< @brief unamed options (options without names) */
   unsigned inputs_num ; /**< @brief unamed options number */
@@ -99,6 +101,8 @@ extern const char *gengetopt_args_info_usage;
 extern const char *gengetopt_args_info_description;
 /** @brief all the lines making the help output */
 extern const char *gengetopt_args_info_help[];
+/** @brief all the lines making the full help output (including hidden options) */
+extern const char *gengetopt_args_info_full_help[];
 
 /**
  * The command line parser
@@ -160,6 +164,10 @@ int cmdline_parser_file_save(const char *filename,
  * Print the help
  */
 void cmdline_parser_print_help(void);
+/**
+ * Print the full help (including hidden options)
+ */
+void cmdline_parser_print_full_help(void);
 /**
  * Print the version
  */

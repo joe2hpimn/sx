@@ -1,12 +1,11 @@
 package "sxrm"
 purpose "Remove files from SX volumes"
-args "--unamed-opts --no-handle-version --no-handle-error --strict-hidden"
+args "--unamed-opts --no-handle-version --no-handle-error"
 usage "sxrm [OPTIONS]... sx://[profile@]cluster/volume/[path]..."
-
-option  "config-dir"		c "Path to SX configuration directory"
-        string typestr="PATH" optional
 
 option  "recursive"	r "Recursively list entire directories" flag off
 
 option  "debug"		D "Enable debug messages" flag off
 option  "verbose"       v "Enable verbose errors" flag off
+
+option  "config-dir"	c "Path to SX configuration directory" string typestr="PATH" optional hidden

@@ -42,23 +42,23 @@ struct gengetopt_args_info
   const char *version_help; /**< @brief Print version and exit help description.  */
   int recursive_flag;	/**< @brief Recursively copy files from SOURCE to DEST directory (default=off).  */
   const char *recursive_help; /**< @brief Recursively copy files from SOURCE to DEST directory help description.  */
+  int one_file_system_flag;	/**< @brief Don't cross filesystem boundaries (default=off).  */
+  const char *one_file_system_help; /**< @brief Don't cross filesystem boundaries help description.  */
+  char * bwlimit_arg;	/**< @brief Set bandwidth usage limit in kilobytes per second (allows K, M, G suffixes, assume K when no suffix given).  */
+  char * bwlimit_orig;	/**< @brief Set bandwidth usage limit in kilobytes per second (allows K, M, G suffixes, assume K when no suffix given) original value given at command line.  */
+  const char *bwlimit_help; /**< @brief Set bandwidth usage limit in kilobytes per second (allows K, M, G suffixes, assume K when no suffix given) help description.  */
+  int no_progress_flag;	/**< @brief Don't output progress bar (default=off).  */
+  const char *no_progress_help; /**< @brief Don't output progress bar help description.  */
   int verbose_flag;	/**< @brief Print more details about the upload (default=off).  */
   const char *verbose_help; /**< @brief Print more details about the upload help description.  */
+  int debug_flag;	/**< @brief Enable debug messages (default=off).  */
+  const char *debug_help; /**< @brief Enable debug messages help description.  */
   char * config_dir_arg;	/**< @brief Path to SX configuration directory.  */
   char * config_dir_orig;	/**< @brief Path to SX configuration directory original value given at command line.  */
   const char *config_dir_help; /**< @brief Path to SX configuration directory help description.  */
   char * filter_dir_arg;	/**< @brief Path to SX filter directory.  */
   char * filter_dir_orig;	/**< @brief Path to SX filter directory original value given at command line.  */
   const char *filter_dir_help; /**< @brief Path to SX filter directory help description.  */
-  char * bwlimit_arg;	/**< @brief Set bandwidth usage limit in kilobytes per second (allows K, M, G suffixes, assume K when no suffix given).  */
-  char * bwlimit_orig;	/**< @brief Set bandwidth usage limit in kilobytes per second (allows K, M, G suffixes, assume K when no suffix given) original value given at command line.  */
-  const char *bwlimit_help; /**< @brief Set bandwidth usage limit in kilobytes per second (allows K, M, G suffixes, assume K when no suffix given) help description.  */
-  int one_file_system_flag;	/**< @brief Don't cross filesystem boundaries (default=off).  */
-  const char *one_file_system_help; /**< @brief Don't cross filesystem boundaries help description.  */
-  int debug_flag;	/**< @brief Enable debug messages (default=off).  */
-  const char *debug_help; /**< @brief Enable debug messages help description.  */
-  int no_progress_flag;	/**< @brief Don't output progress bar (default=off).  */
-  const char *no_progress_help; /**< @brief Don't output progress bar help description.  */
   int total_conns_limit_arg;	/**< @brief Limit number of connections (default='5').  */
   char * total_conns_limit_orig;	/**< @brief Limit number of connections original value given at command line.  */
   const char *total_conns_limit_help; /**< @brief Limit number of connections help description.  */
@@ -73,13 +73,13 @@ struct gengetopt_args_info
   unsigned int full_help_given ;	/**< @brief Whether full-help was given.  */
   unsigned int version_given ;	/**< @brief Whether version was given.  */
   unsigned int recursive_given ;	/**< @brief Whether recursive was given.  */
+  unsigned int one_file_system_given ;	/**< @brief Whether one-file-system was given.  */
+  unsigned int bwlimit_given ;	/**< @brief Whether bwlimit was given.  */
+  unsigned int no_progress_given ;	/**< @brief Whether no-progress was given.  */
   unsigned int verbose_given ;	/**< @brief Whether verbose was given.  */
+  unsigned int debug_given ;	/**< @brief Whether debug was given.  */
   unsigned int config_dir_given ;	/**< @brief Whether config-dir was given.  */
   unsigned int filter_dir_given ;	/**< @brief Whether filter-dir was given.  */
-  unsigned int bwlimit_given ;	/**< @brief Whether bwlimit was given.  */
-  unsigned int one_file_system_given ;	/**< @brief Whether one-file-system was given.  */
-  unsigned int debug_given ;	/**< @brief Whether debug was given.  */
-  unsigned int no_progress_given ;	/**< @brief Whether no-progress was given.  */
   unsigned int total_conns_limit_given ;	/**< @brief Whether total-conns-limit was given.  */
   unsigned int host_conns_limit_given ;	/**< @brief Whether host-conns-limit was given.  */
   unsigned int dot_size_given ;	/**< @brief Whether dot-size was given.  */

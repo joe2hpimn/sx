@@ -38,6 +38,7 @@ extern "C" {
 struct perm_args_info
 {
   const char *help_help; /**< @brief Print help and exit help description.  */
+  const char *full_help_help; /**< @brief Print help, including hidden options, and exit help description.  */
   const char *version_help; /**< @brief Print version and exit help description.  */
   char * grant_arg;	/**< @brief Grant a privilege on the volume to the user.  */
   char * grant_orig;	/**< @brief Grant a privilege on the volume to the user original value given at command line.  */
@@ -52,6 +53,7 @@ struct perm_args_info
   const char *debug_help; /**< @brief Enable debug messages help description.  */
   
   unsigned int help_given ;	/**< @brief Whether help was given.  */
+  unsigned int full_help_given ;	/**< @brief Whether full-help was given.  */
   unsigned int version_given ;	/**< @brief Whether version was given.  */
   unsigned int grant_given ;	/**< @brief Whether grant was given.  */
   unsigned int revoke_given ;	/**< @brief Whether revoke was given.  */
@@ -80,6 +82,8 @@ extern const char *perm_args_info_usage;
 extern const char *perm_args_info_description;
 /** @brief all the lines making the help output */
 extern const char *perm_args_info_help[];
+/** @brief all the lines making the full help output (including hidden options) */
+extern const char *perm_args_info_full_help[];
 
 /**
  * The command line parser
@@ -141,6 +145,10 @@ int perm_cmdline_parser_file_save(const char *filename,
  * Print the help
  */
 void perm_cmdline_parser_print_help(void);
+/**
+ * Print the full help (including hidden options)
+ */
+void perm_cmdline_parser_print_full_help(void);
 /**
  * Print the version
  */

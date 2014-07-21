@@ -1,10 +1,10 @@
 package "sxacl"
-args "--unamed-opts --no-handle-version --no-handle-error --file-name=cmd_list --func-name=list_cmdline_parser --arg-struct-name=list_args_info --strict-hidden"
+args "--unamed-opts --no-handle-version --no-handle-error --file-name=cmd_list --func-name=list_cmdline_parser --arg-struct-name=list_args_info"
 usage "sxacl list [OPTIONS] sx://[profile@]cluster/volume"
 
 section "Common options"
 
 option  "config-dir"		c "Path to SX configuration directory"
-        string typestr="PATH" optional
+        string typestr="PATH" optional hidden
 
 option  "debug"		D "Enable debug messages" flag off

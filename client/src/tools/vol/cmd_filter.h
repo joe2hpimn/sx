@@ -38,27 +38,29 @@ extern "C" {
 struct filter_args_info
 {
   const char *help_help; /**< @brief Print help and exit help description.  */
+  const char *full_help_help; /**< @brief Print help, including hidden options, and exit help description.  */
   const char *version_help; /**< @brief Print version and exit help description.  */
   const char *list_help; /**< @brief List available filters help description.  */
   char * info_arg;	/**< @brief Display details about filter NAME.  */
   char * info_orig;	/**< @brief Display details about filter NAME original value given at command line.  */
   const char *info_help; /**< @brief Display details about filter NAME help description.  */
+  int debug_flag;	/**< @brief Enable debug messages (default=off).  */
+  const char *debug_help; /**< @brief Enable debug messages help description.  */
   char * config_dir_arg;	/**< @brief Path to SX configuration directory.  */
   char * config_dir_orig;	/**< @brief Path to SX configuration directory original value given at command line.  */
   const char *config_dir_help; /**< @brief Path to SX configuration directory help description.  */
   char * filter_dir_arg;	/**< @brief Path to SX filter directory.  */
   char * filter_dir_orig;	/**< @brief Path to SX filter directory original value given at command line.  */
   const char *filter_dir_help; /**< @brief Path to SX filter directory help description.  */
-  int debug_flag;	/**< @brief Enable debug messages (default=off).  */
-  const char *debug_help; /**< @brief Enable debug messages help description.  */
   
   unsigned int help_given ;	/**< @brief Whether help was given.  */
+  unsigned int full_help_given ;	/**< @brief Whether full-help was given.  */
   unsigned int version_given ;	/**< @brief Whether version was given.  */
   unsigned int list_given ;	/**< @brief Whether list was given.  */
   unsigned int info_given ;	/**< @brief Whether info was given.  */
+  unsigned int debug_given ;	/**< @brief Whether debug was given.  */
   unsigned int config_dir_given ;	/**< @brief Whether config-dir was given.  */
   unsigned int filter_dir_given ;	/**< @brief Whether filter-dir was given.  */
-  unsigned int debug_given ;	/**< @brief Whether debug was given.  */
 
 } ;
 
@@ -80,6 +82,8 @@ extern const char *filter_args_info_usage;
 extern const char *filter_args_info_description;
 /** @brief all the lines making the help output */
 extern const char *filter_args_info_help[];
+/** @brief all the lines making the full help output (including hidden options) */
+extern const char *filter_args_info_full_help[];
 
 /**
  * The command line parser
@@ -141,6 +145,10 @@ int filter_cmdline_parser_file_save(const char *filename,
  * Print the help
  */
 void filter_cmdline_parser_print_help(void);
+/**
+ * Print the full help (including hidden options)
+ */
+void filter_cmdline_parser_print_full_help(void);
 /**
  * Print the version
  */

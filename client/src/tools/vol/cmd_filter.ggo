@@ -11,10 +11,10 @@ option  "info"		- "Display details about filter NAME"
 
 text "\nAdditional options:\n"
 
+option  "debug"			D "Enable debug messages" flag off
+
 option  "config-dir"		c "Path to SX configuration directory"
-        string typestr="PATH" optional
+        string typestr="PATH" optional hidden
 
 option  "filter-dir"		- "Path to SX filter directory"
-        string typestr="PATH" optional
-
-option  "debug"		D "Enable debug messages" flag off
+        string typestr="PATH" optional hidden

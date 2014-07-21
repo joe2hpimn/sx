@@ -17,9 +17,9 @@ option "ssl-ca-file" - "SSL CA certificate file of the SX cluster (same file as 
 option "admin-key" k "File containing a pre-generated admin authentication token or stdin if \"-\" is given (default autogenerate token)." string typestr="PATH" dependon="new" optional hidden
 
 section "Common options"
-option "config-dir" c "Path to SX configuration directory" string typestr="PATH" optional
 option "batch-mode" b "Turn off interactive confirmations and assume yes for all questions" optional
 option "debug"      D "Enable debug messages" flag off
+option "config-dir" c "Path to SX configuration directory" string typestr="PATH" optional hidden
 
 text "
 NODE definition is a string in the form <capacity>/<address>/[internal_address]/[node_uuid]

@@ -38,6 +38,7 @@ extern "C" {
 struct gengetopt_args_info
 {
   const char *help_help; /**< @brief Print help and exit help description.  */
+  const char *full_help_help; /**< @brief Print help, including hidden options, and exit help description.  */
   const char *version_help; /**< @brief Print version and exit help description.  */
   char * output_arg;	/**< @brief Save output to given file (default: sxreport-client-<timestamp>.log).  */
   char * output_orig;	/**< @brief Save output to given file (default: sxreport-client-<timestamp>.log) original value given at command line.  */
@@ -50,6 +51,7 @@ struct gengetopt_args_info
   const char *filter_dir_help; /**< @brief Path to SX filter directory help description.  */
   
   unsigned int help_given ;	/**< @brief Whether help was given.  */
+  unsigned int full_help_given ;	/**< @brief Whether full-help was given.  */
   unsigned int version_given ;	/**< @brief Whether version was given.  */
   unsigned int output_given ;	/**< @brief Whether output was given.  */
   unsigned int config_dir_given ;	/**< @brief Whether config-dir was given.  */
@@ -77,6 +79,8 @@ extern const char *gengetopt_args_info_usage;
 extern const char *gengetopt_args_info_description;
 /** @brief all the lines making the help output */
 extern const char *gengetopt_args_info_help[];
+/** @brief all the lines making the full help output (including hidden options) */
+extern const char *gengetopt_args_info_full_help[];
 
 /**
  * The command line parser
@@ -138,6 +142,10 @@ int cmdline_parser_file_save(const char *filename,
  * Print the help
  */
 void cmdline_parser_print_help(void);
+/**
+ * Print the full help (including hidden options)
+ */
+void cmdline_parser_print_full_help(void);
 /**
  * Print the version
  */

@@ -56,12 +56,12 @@ struct cluster_args_info
   char * admin_key_arg;	/**< @brief File containing a pre-generated admin authentication token or stdin if \"-\" is given (default autogenerate token)..  */
   char * admin_key_orig;	/**< @brief File containing a pre-generated admin authentication token or stdin if \"-\" is given (default autogenerate token). original value given at command line.  */
   const char *admin_key_help; /**< @brief File containing a pre-generated admin authentication token or stdin if \"-\" is given (default autogenerate token). help description.  */
-  char * config_dir_arg;	/**< @brief Path to SX configuration directory.  */
-  char * config_dir_orig;	/**< @brief Path to SX configuration directory original value given at command line.  */
-  const char *config_dir_help; /**< @brief Path to SX configuration directory help description.  */
   const char *batch_mode_help; /**< @brief Turn off interactive confirmations and assume yes for all questions help description.  */
   int debug_flag;	/**< @brief Enable debug messages (default=off).  */
   const char *debug_help; /**< @brief Enable debug messages help description.  */
+  char * config_dir_arg;	/**< @brief Path to SX configuration directory.  */
+  char * config_dir_orig;	/**< @brief Path to SX configuration directory original value given at command line.  */
+  const char *config_dir_help; /**< @brief Path to SX configuration directory help description.  */
   
   unsigned int help_given ;	/**< @brief Whether help was given.  */
   unsigned int full_help_given ;	/**< @brief Whether full-help was given.  */
@@ -74,9 +74,9 @@ struct cluster_args_info
   unsigned int port_given ;	/**< @brief Whether port was given.  */
   unsigned int ssl_ca_file_given ;	/**< @brief Whether ssl-ca-file was given.  */
   unsigned int admin_key_given ;	/**< @brief Whether admin-key was given.  */
-  unsigned int config_dir_given ;	/**< @brief Whether config-dir was given.  */
   unsigned int batch_mode_given ;	/**< @brief Whether batch-mode was given.  */
   unsigned int debug_given ;	/**< @brief Whether debug was given.  */
+  unsigned int config_dir_given ;	/**< @brief Whether config-dir was given.  */
 
   char **inputs ; /**< @brief unamed options (options without names) */
   unsigned inputs_num ; /**< @brief unamed options number */

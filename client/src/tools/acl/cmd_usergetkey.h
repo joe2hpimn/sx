@@ -38,6 +38,7 @@ extern "C" {
 struct usergetkey_args_info
 {
   const char *help_help; /**< @brief Print help and exit help description.  */
+  const char *full_help_help; /**< @brief Print help, including hidden options, and exit help description.  */
   const char *version_help; /**< @brief Print version and exit help description.  */
   char * auth_file_arg;	/**< @brief Store authentication token in given file (instead of stdout).  */
   char * auth_file_orig;	/**< @brief Store authentication token in given file (instead of stdout) original value given at command line.  */
@@ -49,6 +50,7 @@ struct usergetkey_args_info
   const char *debug_help; /**< @brief Enable debug messages help description.  */
   
   unsigned int help_given ;	/**< @brief Whether help was given.  */
+  unsigned int full_help_given ;	/**< @brief Whether full-help was given.  */
   unsigned int version_given ;	/**< @brief Whether version was given.  */
   unsigned int auth_file_given ;	/**< @brief Whether auth-file was given.  */
   unsigned int config_dir_given ;	/**< @brief Whether config-dir was given.  */
@@ -76,6 +78,8 @@ extern const char *usergetkey_args_info_usage;
 extern const char *usergetkey_args_info_description;
 /** @brief all the lines making the help output */
 extern const char *usergetkey_args_info_help[];
+/** @brief all the lines making the full help output (including hidden options) */
+extern const char *usergetkey_args_info_full_help[];
 
 /**
  * The command line parser
@@ -137,6 +141,10 @@ int usergetkey_cmdline_parser_file_save(const char *filename,
  * Print the help
  */
 void usergetkey_cmdline_parser_print_help(void);
+/**
+ * Print the full help (including hidden options)
+ */
+void usergetkey_cmdline_parser_print_full_help(void);
 /**
  * Print the version
  */

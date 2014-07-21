@@ -1,5 +1,5 @@
 package "sxacl"
-args "--unamed-opts --no-handle-version --no-handle-error --file-name=cmd_useradd --func-name=useradd_cmdline_parser --arg-struct-name=useradd_args_info --strict-hidden"
+args "--unamed-opts --no-handle-version --no-handle-error --file-name=cmd_useradd --func-name=useradd_cmdline_parser --arg-struct-name=useradd_args_info"
 usage "sxacl useradd [OPTIONS] <username> sx://[profile@]cluster"
 
 section "User creation options"
@@ -9,7 +9,7 @@ option "auth-file" a "Store authentication token in given file (instead of stdou
 section "Common options"
 
 option  "config-dir"		c "Path to SX configuration directory"
-        string typestr="PATH" optional
+        string typestr="PATH" optional hidden
 
 option "batch-mode" b		"Disable additional information and only print the authentication token" flag off
 

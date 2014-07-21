@@ -1,5 +1,5 @@
 package "sxacl"
-args "--unamed-opts --no-handle-version --no-handle-error --file-name=cmd_perm --func-name=perm_cmdline_parser --arg-struct-name=perm_args_info --strict-hidden"
+args "--unamed-opts --no-handle-version --no-handle-error --file-name=cmd_perm --func-name=perm_cmdline_parser --arg-struct-name=perm_args_info"
 usage "sxacl perm [OPTIONS] user sx://[profile@]cluster/volume"
 
 section "Volume permission modification options"
@@ -14,6 +14,6 @@ text "where <privilege> can be any of \"read\", \"write\" or \"read,write\""
 section "Common options"
 
 option  "config-dir"		c "Path to SX configuration directory"
-        string typestr="PATH" optional
+        string typestr="PATH" optional hidden
 
 option  "debug"		D "Enable debug messages" flag off

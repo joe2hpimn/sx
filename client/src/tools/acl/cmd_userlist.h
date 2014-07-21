@@ -38,6 +38,7 @@ extern "C" {
 struct userlist_args_info
 {
   const char *help_help; /**< @brief Print help and exit help description.  */
+  const char *full_help_help; /**< @brief Print help, including hidden options, and exit help description.  */
   const char *version_help; /**< @brief Print version and exit help description.  */
   char * config_dir_arg;	/**< @brief Path to SX configuration directory.  */
   char * config_dir_orig;	/**< @brief Path to SX configuration directory original value given at command line.  */
@@ -46,6 +47,7 @@ struct userlist_args_info
   const char *debug_help; /**< @brief Enable debug messages help description.  */
   
   unsigned int help_given ;	/**< @brief Whether help was given.  */
+  unsigned int full_help_given ;	/**< @brief Whether full-help was given.  */
   unsigned int version_given ;	/**< @brief Whether version was given.  */
   unsigned int config_dir_given ;	/**< @brief Whether config-dir was given.  */
   unsigned int debug_given ;	/**< @brief Whether debug was given.  */
@@ -72,6 +74,8 @@ extern const char *userlist_args_info_usage;
 extern const char *userlist_args_info_description;
 /** @brief all the lines making the help output */
 extern const char *userlist_args_info_help[];
+/** @brief all the lines making the full help output (including hidden options) */
+extern const char *userlist_args_info_full_help[];
 
 /**
  * The command line parser
@@ -133,6 +137,10 @@ int userlist_cmdline_parser_file_save(const char *filename,
  * Print the help
  */
 void userlist_cmdline_parser_print_help(void);
+/**
+ * Print the full help (including hidden options)
+ */
+void userlist_cmdline_parser_print_full_help(void);
 /**
  * Print the version
  */
