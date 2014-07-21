@@ -46,7 +46,7 @@ const char *cluster_args_info_full_help[] = {
   "  -d, --node-dir=PATH     Path to the node directory",
   "      --port=INT          Set the cluster destination TCP port (default 443 in\n                            secure mode or 80 in insecure mode)",
   "      --ssl-ca-file=PATH  SSL CA certificate file of the SX cluster (same file\n                            as in httpd configuration)",
-  "  -k, --key=PATH          File containing a pre-generated admin authentication\n                            token or stdin if \"-\" is given (default\n                            autogenerate token).",
+  "  -k, --admin-key=PATH    File containing a pre-generated admin authentication\n                            token or stdin if \"-\" is given (default\n                            autogenerate token).",
   "\nCommon options:",
   "  -c, --config-dir=PATH   Path to SX configuration directory",
   "  -b, --batch-mode        Turn off interactive confirmations and assume yes for\n                            all questions",
@@ -115,7 +115,7 @@ void clear_given (struct cluster_args_info *args_info)
   args_info->node_dir_given = 0 ;
   args_info->port_given = 0 ;
   args_info->ssl_ca_file_given = 0 ;
-  args_info->key_given = 0 ;
+  args_info->admin_key_given = 0 ;
   args_info->config_dir_given = 0 ;
   args_info->batch_mode_given = 0 ;
   args_info->debug_given = 0 ;
@@ -131,8 +131,8 @@ void clear_args (struct cluster_args_info *args_info)
   args_info->port_orig = NULL;
   args_info->ssl_ca_file_arg = NULL;
   args_info->ssl_ca_file_orig = NULL;
-  args_info->key_arg = NULL;
-  args_info->key_orig = NULL;
+  args_info->admin_key_arg = NULL;
+  args_info->admin_key_orig = NULL;
   args_info->config_dir_arg = NULL;
   args_info->config_dir_orig = NULL;
   args_info->debug_flag = 0;
@@ -154,7 +154,7 @@ void init_args_info(struct cluster_args_info *args_info)
   args_info->node_dir_help = cluster_args_info_full_help[9] ;
   args_info->port_help = cluster_args_info_full_help[10] ;
   args_info->ssl_ca_file_help = cluster_args_info_full_help[11] ;
-  args_info->key_help = cluster_args_info_full_help[12] ;
+  args_info->admin_key_help = cluster_args_info_full_help[12] ;
   args_info->config_dir_help = cluster_args_info_full_help[14] ;
   args_info->batch_mode_help = cluster_args_info_full_help[15] ;
   args_info->debug_help = cluster_args_info_full_help[16] ;
@@ -258,8 +258,8 @@ cluster_cmdline_parser_release (struct cluster_args_info *args_info)
   free_string_field (&(args_info->port_orig));
   free_string_field (&(args_info->ssl_ca_file_arg));
   free_string_field (&(args_info->ssl_ca_file_orig));
-  free_string_field (&(args_info->key_arg));
-  free_string_field (&(args_info->key_orig));
+  free_string_field (&(args_info->admin_key_arg));
+  free_string_field (&(args_info->admin_key_orig));
   free_string_field (&(args_info->config_dir_arg));
   free_string_field (&(args_info->config_dir_orig));
   
@@ -317,8 +317,8 @@ cluster_cmdline_parser_dump(FILE *outfile, struct cluster_args_info *args_info)
     write_into_file(outfile, "port", args_info->port_orig, 0);
   if (args_info->ssl_ca_file_given)
     write_into_file(outfile, "ssl-ca-file", args_info->ssl_ca_file_orig, 0);
-  if (args_info->key_given)
-    write_into_file(outfile, "key", args_info->key_orig, 0);
+  if (args_info->admin_key_given)
+    write_into_file(outfile, "admin-key", args_info->admin_key_orig, 0);
   if (args_info->config_dir_given)
     write_into_file(outfile, "config-dir", args_info->config_dir_orig, 0);
   if (args_info->batch_mode_given)
@@ -460,9 +460,9 @@ cluster_cmdline_parser_required2 (struct cluster_args_info *args_info, const cha
       fprintf (stderr, "%s: '--ssl-ca-file' option depends on option 'new'%s\n", prog_name, (additional_error ? additional_error : ""));
       error_occurred = 1;
     }
-  if (args_info->key_given && ! args_info->new_given)
+  if (args_info->admin_key_given && ! args_info->new_given)
     {
-      fprintf (stderr, "%s: '--key' ('-k') option depends on option 'new'%s\n", prog_name, (additional_error ? additional_error : ""));
+      fprintf (stderr, "%s: '--admin-key' ('-k') option depends on option 'new'%s\n", prog_name, (additional_error ? additional_error : ""));
       error_occurred = 1;
     }
 
@@ -633,7 +633,7 @@ cluster_cmdline_parser_internal (
         { "node-dir",	1, NULL, 'd' },
         { "port",	1, NULL, 0 },
         { "ssl-ca-file",	1, NULL, 0 },
-        { "key",	1, NULL, 'k' },
+        { "admin-key",	1, NULL, 'k' },
         { "config-dir",	1, NULL, 'c' },
         { "batch-mode",	0, NULL, 'b' },
         { "debug",	0, NULL, 'D' },
@@ -740,11 +740,11 @@ cluster_cmdline_parser_internal (
         case 'k':	/* File containing a pre-generated admin authentication token or stdin if \"-\" is given (default autogenerate token)..  */
         
         
-          if (update_arg( (void *)&(args_info->key_arg), 
-               &(args_info->key_orig), &(args_info->key_given),
-              &(local_args_info.key_given), optarg, 0, 0, ARG_STRING,
+          if (update_arg( (void *)&(args_info->admin_key_arg), 
+               &(args_info->admin_key_orig), &(args_info->admin_key_given),
+              &(local_args_info.admin_key_given), optarg, 0, 0, ARG_STRING,
               check_ambiguity, override, 0, 0,
-              "key", 'k',
+              "admin-key", 'k',
               additional_error))
             goto failure;
         

@@ -794,7 +794,7 @@ if [ ! -f "$SX_DATA_DIR/hashfs.db" ]; then
 
 	if [ -n "$SX_ADMIN_KEY" -a "$FORCE_REINIT_GIVEN" != "yes" ]; then
 	    echo $SX_ADMIN_KEY > $ADMINKEY_TMP
-	    ADMKEYFILE="--key $ADMINKEY_TMP"
+	    ADMKEYFILE="--admin-key $ADMINKEY_TMP"
 	fi
         (
         set -x
@@ -864,7 +864,7 @@ if [ ! -f "$SX_DATA_DIR/hashfs.db" ]; then
         "@sbindir@/sxadm" node --new\
             --batch-mode $OWNERFLAG\
 	    --cluster-uuid="$SXUUID"\
-	    --key="$CLUSTKEY_TMP"\
+	    --cluster-key="$CLUSTKEY_TMP"\
             "$SX_DATA_DIR"
         )
 	if [ $? -ne 0 ]; then

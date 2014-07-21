@@ -43,9 +43,9 @@ struct node_args_info
   const char *new_help; /**< @brief Creates a new local SX node in PATH help description.  */
   const char *info_help; /**< @brief Print details about the local node in PATH help description.  */
   const char *check_help; /**< @brief Perform sanity check on the local node in PATH help description.  */
-  char * key_arg;	/**< @brief File containing a pre-generated cluster authentication token or stdin if \"-\" is given (default autogenerate token)..  */
-  char * key_orig;	/**< @brief File containing a pre-generated cluster authentication token or stdin if \"-\" is given (default autogenerate token). original value given at command line.  */
-  const char *key_help; /**< @brief File containing a pre-generated cluster authentication token or stdin if \"-\" is given (default autogenerate token). help description.  */
+  char * cluster_key_arg;	/**< @brief File containing a pre-generated cluster authentication token or stdin if \"-\" is given (default autogenerate token)..  */
+  char * cluster_key_orig;	/**< @brief File containing a pre-generated cluster authentication token or stdin if \"-\" is given (default autogenerate token). original value given at command line.  */
+  const char *cluster_key_help; /**< @brief File containing a pre-generated cluster authentication token or stdin if \"-\" is given (default autogenerate token). help description.  */
   const char *batch_mode_help; /**< @brief Turn off interactive confirmations and assume yes for all questions help description.  */
   char * owner_arg;	/**< @brief Set ownership of storage to user[:group].  */
   char * owner_orig;	/**< @brief Set ownership of storage to user[:group] original value given at command line.  */
@@ -62,7 +62,7 @@ struct node_args_info
   unsigned int new_given ;	/**< @brief Whether new was given.  */
   unsigned int info_given ;	/**< @brief Whether info was given.  */
   unsigned int check_given ;	/**< @brief Whether check was given.  */
-  unsigned int key_given ;	/**< @brief Whether key was given.  */
+  unsigned int cluster_key_given ;	/**< @brief Whether cluster-key was given.  */
   unsigned int batch_mode_given ;	/**< @brief Whether batch-mode was given.  */
   unsigned int owner_given ;	/**< @brief Whether owner was given.  */
   unsigned int cluster_uuid_given ;	/**< @brief Whether cluster-uuid was given.  */

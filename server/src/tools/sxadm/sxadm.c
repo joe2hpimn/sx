@@ -170,7 +170,7 @@ static int create_node(struct node_args_info *args) {
     } else
 	uuid_generate(&cluster_uuid);
 
-    if(read_or_gen_key(args->key_arg, ROLE_CLUSTER, &auth))
+    if(read_or_gen_key(args->cluster_key_arg, ROLE_CLUSTER, &auth))
 	return 1;
 
     if(!args->batch_mode_given) {
@@ -491,7 +491,7 @@ static int create_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
 	sprintf(copy_cafile, "%s/ca.pem", args->node_dir_arg);
     }
 
-    if(read_or_gen_key(args->key_arg, ROLE_ADMIN, &auth))
+    if(read_or_gen_key(args->admin_key_arg, ROLE_ADMIN, &auth))
 	goto create_cluster_err;
 
     if(sxc_cluster_add_access(clust, profile, auth.token) ||

@@ -42,7 +42,7 @@ const char *node_args_info_full_help[] = {
   "  -I, --info                Print details about the local node in PATH",
   "  -C, --check               Perform sanity check on the local node in PATH",
   "\nNew node options:",
-  "  -k, --key=FILE            File containing a pre-generated cluster\n                              authentication token or stdin if \"-\" is given\n                              (default autogenerate token).",
+  "  -k, --cluster-key=FILE    File containing a pre-generated cluster\n                              authentication token or stdin if \"-\" is given\n                              (default autogenerate token).",
   "  -b, --batch-mode          Turn off interactive confirmations and assume yes\n                              for all questions",
   "      --owner=user[:group]  Set ownership of storage to user[:group]",
   "  -u, --cluster-uuid=UUID   The SX cluster UUID (default autogenerate UUID).",
@@ -104,7 +104,7 @@ void clear_given (struct node_args_info *args_info)
   args_info->new_given = 0 ;
   args_info->info_given = 0 ;
   args_info->check_given = 0 ;
-  args_info->key_given = 0 ;
+  args_info->cluster_key_given = 0 ;
   args_info->batch_mode_given = 0 ;
   args_info->owner_given = 0 ;
   args_info->cluster_uuid_given = 0 ;
@@ -116,8 +116,8 @@ static
 void clear_args (struct node_args_info *args_info)
 {
   FIX_UNUSED (args_info);
-  args_info->key_arg = NULL;
-  args_info->key_orig = NULL;
+  args_info->cluster_key_arg = NULL;
+  args_info->cluster_key_orig = NULL;
   args_info->owner_arg = NULL;
   args_info->owner_orig = NULL;
   args_info->cluster_uuid_arg = NULL;
@@ -137,7 +137,7 @@ void init_args_info(struct node_args_info *args_info)
   args_info->new_help = node_args_info_full_help[4] ;
   args_info->info_help = node_args_info_full_help[5] ;
   args_info->check_help = node_args_info_full_help[6] ;
-  args_info->key_help = node_args_info_full_help[8] ;
+  args_info->cluster_key_help = node_args_info_full_help[8] ;
   args_info->batch_mode_help = node_args_info_full_help[9] ;
   args_info->owner_help = node_args_info_full_help[10] ;
   args_info->cluster_uuid_help = node_args_info_full_help[11] ;
@@ -237,8 +237,8 @@ static void
 node_cmdline_parser_release (struct node_args_info *args_info)
 {
   unsigned int i;
-  free_string_field (&(args_info->key_arg));
-  free_string_field (&(args_info->key_orig));
+  free_string_field (&(args_info->cluster_key_arg));
+  free_string_field (&(args_info->cluster_key_orig));
   free_string_field (&(args_info->owner_arg));
   free_string_field (&(args_info->owner_orig));
   free_string_field (&(args_info->cluster_uuid_arg));
@@ -290,8 +290,8 @@ node_cmdline_parser_dump(FILE *outfile, struct node_args_info *args_info)
     write_into_file(outfile, "info", 0, 0 );
   if (args_info->check_given)
     write_into_file(outfile, "check", 0, 0 );
-  if (args_info->key_given)
-    write_into_file(outfile, "key", args_info->key_orig, 0);
+  if (args_info->cluster_key_given)
+    write_into_file(outfile, "cluster-key", args_info->cluster_key_orig, 0);
   if (args_info->batch_mode_given)
     write_into_file(outfile, "batch-mode", 0, 0 );
   if (args_info->owner_given)
@@ -419,9 +419,9 @@ node_cmdline_parser_required2 (struct node_args_info *args_info, const char *pro
   
 
   /* checks for dependences among options */
-  if (args_info->key_given && ! args_info->new_given)
+  if (args_info->cluster_key_given && ! args_info->new_given)
     {
-      fprintf (stderr, "%s: '--key' ('-k') option depends on option 'new'%s\n", prog_name, (additional_error ? additional_error : ""));
+      fprintf (stderr, "%s: '--cluster-key' ('-k') option depends on option 'new'%s\n", prog_name, (additional_error ? additional_error : ""));
       error_occurred = 1;
     }
   if (args_info->batch_mode_given && ! args_info->new_given)
@@ -584,7 +584,7 @@ node_cmdline_parser_internal (
         { "new",	0, NULL, 'N' },
         { "info",	0, NULL, 'I' },
         { "check",	0, NULL, 'C' },
-        { "key",	1, NULL, 'k' },
+        { "cluster-key",	1, NULL, 'k' },
         { "batch-mode",	0, NULL, 'b' },
         { "owner",	1, NULL, 0 },
         { "cluster-uuid",	1, NULL, 'u' },
@@ -665,11 +665,11 @@ node_cmdline_parser_internal (
         case 'k':	/* File containing a pre-generated cluster authentication token or stdin if \"-\" is given (default autogenerate token)..  */
         
         
-          if (update_arg( (void *)&(args_info->key_arg), 
-               &(args_info->key_orig), &(args_info->key_given),
-              &(local_args_info.key_given), optarg, 0, 0, ARG_STRING,
+          if (update_arg( (void *)&(args_info->cluster_key_arg), 
+               &(args_info->cluster_key_orig), &(args_info->cluster_key_given),
+              &(local_args_info.cluster_key_given), optarg, 0, 0, ARG_STRING,
               check_ambiguity, override, 0, 0,
-              "key", 'k',
+              "cluster-key", 'k',
               additional_error))
             goto failure;
         

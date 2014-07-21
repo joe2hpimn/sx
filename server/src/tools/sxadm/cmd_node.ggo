@@ -8,7 +8,7 @@ groupoption "info" I "Print details about the local node in PATH" group="MODE"
 groupoption "check" C "Perform sanity check on the local node in PATH" group="MODE"
 
 section "New node options"
-option "key" k "File containing a pre-generated cluster authentication token or stdin if \"-\" is given (default autogenerate token)." string typestr="FILE" dependon="new" optional
+option "cluster-key" k "File containing a pre-generated cluster authentication token or stdin if \"-\" is given (default autogenerate token)." string typestr="FILE" dependon="new" optional
 option "batch-mode" b "Turn off interactive confirmations and assume yes for all questions" dependon="new" optional
 option "owner" - "Set ownership of storage to user[:group]" string typestr="user[:group]" optional
 option "cluster-uuid" u "The SX cluster UUID (default autogenerate UUID)." string typestr="UUID" dependon="new" optional hidden

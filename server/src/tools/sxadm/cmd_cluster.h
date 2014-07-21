@@ -53,9 +53,9 @@ struct cluster_args_info
   char * ssl_ca_file_arg;	/**< @brief SSL CA certificate file of the SX cluster (same file as in httpd configuration).  */
   char * ssl_ca_file_orig;	/**< @brief SSL CA certificate file of the SX cluster (same file as in httpd configuration) original value given at command line.  */
   const char *ssl_ca_file_help; /**< @brief SSL CA certificate file of the SX cluster (same file as in httpd configuration) help description.  */
-  char * key_arg;	/**< @brief File containing a pre-generated admin authentication token or stdin if \"-\" is given (default autogenerate token)..  */
-  char * key_orig;	/**< @brief File containing a pre-generated admin authentication token or stdin if \"-\" is given (default autogenerate token). original value given at command line.  */
-  const char *key_help; /**< @brief File containing a pre-generated admin authentication token or stdin if \"-\" is given (default autogenerate token). help description.  */
+  char * admin_key_arg;	/**< @brief File containing a pre-generated admin authentication token or stdin if \"-\" is given (default autogenerate token)..  */
+  char * admin_key_orig;	/**< @brief File containing a pre-generated admin authentication token or stdin if \"-\" is given (default autogenerate token). original value given at command line.  */
+  const char *admin_key_help; /**< @brief File containing a pre-generated admin authentication token or stdin if \"-\" is given (default autogenerate token). help description.  */
   char * config_dir_arg;	/**< @brief Path to SX configuration directory.  */
   char * config_dir_orig;	/**< @brief Path to SX configuration directory original value given at command line.  */
   const char *config_dir_help; /**< @brief Path to SX configuration directory help description.  */
@@ -73,7 +73,7 @@ struct cluster_args_info
   unsigned int node_dir_given ;	/**< @brief Whether node-dir was given.  */
   unsigned int port_given ;	/**< @brief Whether port was given.  */
   unsigned int ssl_ca_file_given ;	/**< @brief Whether ssl-ca-file was given.  */
-  unsigned int key_given ;	/**< @brief Whether key was given.  */
+  unsigned int admin_key_given ;	/**< @brief Whether admin-key was given.  */
   unsigned int config_dir_given ;	/**< @brief Whether config-dir was given.  */
   unsigned int batch_mode_given ;	/**< @brief Whether batch-mode was given.  */
   unsigned int debug_given ;	/**< @brief Whether debug was given.  */
