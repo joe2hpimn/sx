@@ -524,12 +524,12 @@ static int create_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
     }
 
     if(sxc_cluster_remove(clust, args->config_dir_arg)) {
-	CRIT("Failed to wipe the existing access configuration: %s", sxc_geterrmsg(sx));
+	CRIT("Failed to wipe the existing access configuration at %s: %s", args->config_dir_arg, sxc_geterrmsg(sx));
 	goto create_cluster_err;
     }
 
     if(sxc_cluster_save(clust, args->config_dir_arg)) {
-	CRIT("Failed to save the access configuration: %s", sxc_geterrmsg(sx));
+	CRIT("Failed to save the access configuration at %s: %s", args->config_dir_arg, sxc_geterrmsg(sx));
 	goto create_cluster_err;
     }
 
