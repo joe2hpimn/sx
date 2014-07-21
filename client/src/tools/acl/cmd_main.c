@@ -36,7 +36,7 @@ const char *main_args_info_description = "";
 const char *main_args_info_help[] = {
   "  -h, --help     Print help and exit",
   "  -V, --version  Print version and exit",
-  "\nAvailable commands:\n\n  useradd     Create a new user\n  userlist    List users\n  usergetkey  Retrieve the auth key of a user\n  perm        Manage volume permissions\n  list        List volume permissions\n\nSee 'sxacl <command> --help' for more information on a specific command.\n",
+  "\nAvailable commands:\n\n  useradd     Create a new user\n  userlist    List users\n  usergetkey  Retrieve the auth key of a user\n  perm        Manage volume permissions\n  show        Show all ACLs on a volume\n\nSee 'sxacl <command> --help' for more information on a specific command.\n",
     0
 };
 

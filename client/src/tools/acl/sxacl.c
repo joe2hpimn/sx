@@ -43,7 +43,7 @@
 #include "cmd_userlist.h"
 #include "cmd_usergetkey.h"
 #include "cmd_perm.h"
-#include "cmd_list.h"
+#include "cmd_show.h"
 #include "libsx/src/misc.h"
 #include "libsx/src/clustcfg.h"
 #include "version.h"
@@ -266,7 +266,7 @@ static int list_users(sxc_client_t *sx, const char *uri, const char *clusterdir,
     return rc;
 }
 
-static int list_perms(sxc_client_t *sx, const char *uri, const char *clusterdir, int debug)
+static int show_acls(sxc_client_t *sx, const char *uri, const char *clusterdir, int debug)
 {
     int rc = 0;
     sxc_uri_t *u;
@@ -450,9 +450,9 @@ int main(int argc, char **argv) {
             }
             ret = volume_acl(sx, &args);
             perm_cmdline_parser_free(&args);
-        } else if (!strcmp(argv[1], "list")) {
-            struct list_args_info args;
-            if (list_cmdline_parser(argc - 1, &argv[1], &args)) {
+        } else if (!strcmp(argv[1], "show")) {
+            struct show_args_info args;
+            if (show_cmdline_parser(argc - 1, &argv[1], &args)) {
                 ret = 1;
                 break;
             }
@@ -467,14 +467,14 @@ int main(int argc, char **argv) {
             }
             sxc_set_debug(sx, args.debug_flag);
             if (args.inputs_num != 1) {
-                list_cmdline_parser_print_help();
+                show_cmdline_parser_print_help();
 		printf("\n");
                 fprintf(stderr, "ERROR: Wrong number of arguments\n");
                 ret = 1;
                 break;
             }
-            ret = list_perms(sx, args.inputs[0], args.config_dir_arg, args.debug_flag);
-            list_cmdline_parser_free(&args);
+            ret = show_acls(sx, args.inputs[0], args.config_dir_arg, args.debug_flag);
+            show_cmdline_parser_free(&args);
         } else {
             if (main_cmdline_parser(argc, argv, &main_args)) {
                 ret = 1;

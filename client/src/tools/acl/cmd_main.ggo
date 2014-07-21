@@ -10,6 +10,6 @@ text "  useradd     Create a new user\n"
 text "  userlist    List users\n"
 text "  usergetkey  Retrieve the auth key of a user\n"
 text "  perm        Manage volume permissions\n"
-text "  list        List volume permissions\n"
+text "  show        Show all ACLs on a volume\n"
 
 text "\nSee 'sxacl <command> --help' for more information on a specific command.\n"

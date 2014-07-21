@@ -59,13 +59,13 @@ src_tools_acl_sxacl_SOURCES = \
 	src/tools/acl/sxacl.c \
 	src/tools/acl/cmd_main.c \
 	src/tools/acl/cmd_perm.c \
-	src/tools/acl/cmd_list.c \
+	src/tools/acl/cmd_show.c \
 	src/tools/acl/cmd_useradd.c \
 	src/tools/acl/cmd_userlist.c \
 	src/tools/acl/cmd_usergetkey.c \
 	src/tools/acl/cmd_main.h \
 	src/tools/acl/cmd_perm.h \
-	src/tools/acl/cmd_list.h \
+	src/tools/acl/cmd_show.h \
 	src/tools/acl/cmd_useradd.h \
 	src/tools/acl/cmd_userlist.h
 src_tools_acl_sxacl_LDADD = $(top_builddir)/../libsx/src/libsx.la

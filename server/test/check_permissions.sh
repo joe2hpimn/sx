@@ -76,7 +76,7 @@ if ../client/src/tools/acl/sxacl perm $OWNER --grant=read,write sx://localhost/v
 fi
 # Grant permission to user2 on my volume
 ../client/src/tools/acl/sxacl perm user2 --grant=read,write sx://localhost/vol2
-../client/src/tools/acl/sxacl list sx://localhost/vol2
+../client/src/tools/acl/sxacl show sx://localhost/vol2
 
 # User2
 ../client/src/tools/init/sxinit --no-ssl --host-list=$1 sx://localhost --auth-file normal2.auth
