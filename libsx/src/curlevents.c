@@ -1309,12 +1309,40 @@ static int sockoptfn(void *clientp, curl_socket_t curlfd, curlsocktype purpose)
 #error "errbuf too small: ERRBUF_SIZE < CURL_ERROR_SIZE"
 #endif
 
+static int curlev_update_bandwidth_limit(curlev_t *ev) {
+    curl_events_t *e;
+    int rc;
+    if(!ev || !ev->ctx)
+        return 1;
+
+    e = sxi_conns_get_curlev(ev->ctx->conns);
+    if(!e)
+        return 1;
+
+    if(e->bandwidth.global_limit) {
+        rc = curl_easy_setopt(ev->curl, CURLOPT_MAX_SEND_SPEED_LARGE, e->bandwidth.local_limit);
+        if (curl_check(ev,rc, "set CURLOPT_MAX_SEND_SPEED_LARGE") == -1) {
+            EVDEBUG(ev, "Could not set CURL max send seed");
+            return 1;
+        }
+
+        rc = curl_easy_setopt(ev->curl, CURLOPT_MAX_RECV_SPEED_LARGE, e->bandwidth.local_limit);
+        if (curl_check(ev,rc, "set CURLOPT_MAX_RECV_SPEED_LARGE") == -1) {
+            EVDEBUG(ev, "Could not set CURL max recv seed");
+            return 1;
+        }
+    }
+
+    return 0;
+}
 static int xferinfo(void *p, curl_off_t dltotal, curl_off_t dlnow,
                     curl_off_t ultotal, curl_off_t ulnow)
 {
     curlev_t *ev = p;
     int err = SXE_ABORT;
     sxc_client_t *sx;
+    double speed = 0;
+    curl_events_t *e;
 
     if (check_ssl_cert(ev))
         return -1;
@@ -1322,20 +1350,32 @@ static int xferinfo(void *p, curl_off_t dltotal, curl_off_t dlnow,
     if(!ev || !ev->ctx) /* Not an error, context could be disabled */
         return 0;
 
+    e = sxi_conns_get_curlev(ev->ctx->conns);
     sx = sxi_conns_get_client(ev->ctx->conns);
+
     /* If we want to abort transfers, other cURL transfers will be killed now */
     if(sxc_geterrnum(sx) == SXE_ABORT)
         return 1;
 
     switch(ev->ctx->tag) {
         case CTX_DOWNLOAD: {
-            /* Update file download */
-            err = sxi_file_download_set_xfer_stat(ev->ctx->u.download_ctx, dlnow, dltotal);
+            if(!e || (e->bandwidth.global_limit && curl_easy_getinfo(ev->curl, CURLINFO_SPEED_DOWNLOAD, &speed) != CURLE_OK)) {
+                err = SXE_ECURL;
+            } else {
+                err = sxi_file_download_set_xfer_stat(ev->ctx->u.download_ctx, dlnow, dltotal);
+                if(e->bandwidth.global_limit && speed * e->running > e->bandwidth.global_limit * 1.2)
+                    curlev_update_bandwidth_limit(ev);
+            }
         } break;
 
         case CTX_UPLOAD_HOST: {
-            /* Update file upload */
-            err = sxi_host_upload_set_xfer_stat(ev->ctx->u.host_ctx, ulnow, ultotal);
+            if(!e || (e->bandwidth.global_limit && curl_easy_getinfo(ev->curl, CURLINFO_SPEED_UPLOAD, &speed) != CURLE_OK)) {
+                err = SXE_ECURL;
+            } else {
+                err = sxi_host_upload_set_xfer_stat(ev->ctx->u.host_ctx, ulnow, ultotal);
+                if(e->bandwidth.global_limit && speed * e->running > e->bandwidth.global_limit * 1.2)
+                    curlev_update_bandwidth_limit(ev);
+            }
         } break;
 
         case CTX_GENERIC:
