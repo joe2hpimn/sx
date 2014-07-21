@@ -9,6 +9,10 @@ if [ ! -f "$CONFIG" ]; then
     exit 1
 fi
 
+if [ ! -r "$CONFIG" ]; then
+    echo "No permission to read $CONFIG"
+    exit 1
+fi
 . $CONFIG
 
 if [ -z "$SX_NO_ROOT" -a `id -u` -ne 0 ]; then
