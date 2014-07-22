@@ -1005,8 +1005,11 @@ int sxi_curlev_set_bandwidth_limit(curl_events_t *e, int64_t global_bandwidth_li
     /* Divide global bandwidth limit by up to that it can be set for each transfer */
     if(running && running < e->conn_pool->max_active_total)
         e->bandwidth.local_limit = global_bandwidth_limit / running; 
-    else
+    else if(running)
         e->bandwidth.local_limit = global_bandwidth_limit / e->conn_pool->max_active_total;
+    else
+        e->bandwidth.local_limit = global_bandwidth_limit;
+
     return 0;
 }
 
@@ -1836,14 +1839,6 @@ static int enqueue_request(curl_events_t *e, curlev_t *ev, int re)
             SXDEBUG("Could not add host to hashtable");
             free(host);
                 return -1;
-            }
-        }
-
-    if(e->bandwidth.global_limit) {
-        /* Enqueuing new request needs to update bandwidth */
-        if(sxi_curlev_set_bandwidth_limit(e, e->bandwidth.global_limit, e->running+1)) {
-            EVDEBUG(ev, "sxi_curlev_set_bandwidth_limit failed");
-            return -1;
         }
     }
 
@@ -1873,6 +1868,14 @@ static int enqueue_request(curl_events_t *e, curlev_t *ev, int re)
         if (i == e->conn_pool->max_active_total) {
             EVDEBUG(ev,"no free hosts?");
             return -1;
+        }
+
+        if(e->bandwidth.global_limit) {
+            /* Enqueuing new request needs to update bandwidth */
+            if(sxi_curlev_set_bandwidth_limit(e, e->bandwidth.global_limit, e->running+1)) {
+                EVDEBUG(ev, "sxi_curlev_set_bandwidth_limit failed");
+                return -1;
+            }
         }
 
         /* less than 2 active requests: launch requests now */
