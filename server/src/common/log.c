@@ -79,13 +79,15 @@ static void log_to_fd(const char *argv0, int fd, int prio, const char *msg)
     time_t t = tv.tv_sec;
     struct tm tm;
     localtime_r(&t, &tm);
-    snprintf(buf, sizeof(buf),
-             "[%04u-%02u-%02u %02u:%02u:%02u.%03u] %s[%d]: %-8s| %s\n",
+    snprintf(buf, sizeof(buf)-1,
+             "[%04u-%02u-%02u %02u:%02u:%02u.%03u] %s[%d]: %-8s| %s",
              tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
              tm.tm_hour, tm.tm_min, tm.tm_sec,
              (unsigned)tv.tv_usec/1000,
              argv0 ? argv0 : "", ctx.pid, s, msg);
     long len = strlen(buf);
+    buf[len++] = '\n';
+    buf[len] = '\0';
     const char *b = buf;
     while (len > 0) {
         ssize_t n = write(fd, b, len);
