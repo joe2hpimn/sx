@@ -769,7 +769,13 @@ int sxc_cluster_fetchnodes(sxc_cluster_t *cluster) {
 
     if(getenv("SX_DEBUG_SINGLEHOST")) {
 	sxi_hostlist_empty(&yctx.hlist);
-	sxi_hostlist_add_host(sx, &yctx.hlist, getenv("SX_DEBUG_SINGLEHOST"));
+	if(sxi_hostlist_add_host(sx, &yctx.hlist, getenv("SX_DEBUG_SINGLEHOST"))) {
+	    if(sxc_geterrnum(sx) == SXE_EARG) {
+		sxc_clearerr(sx);
+		sxi_seterr(sx, SXE_EARG, "Invalid value of SX_DEBUG_SINGLEHOST");
+	    }
+	    goto config_fetchnodes_error;
+	}
     }
 
     if(sxi_conns_set_hostlist(cluster->conns, &yctx.hlist)) {
