@@ -1,0 +1,10 @@
+package "sxacl"
+args "--unamed-opts --no-handle-version --no-handle-error --file-name=cmd_volshow --func-name=volshow_cmdline_parser --arg-struct-name=volshow_args_info"
+usage "sxacl volshow [OPTIONS] sx://[profile@]cluster/volume"
+
+section "Common options"
+
+option  "config-dir"		c "Path to SX configuration directory"
+        string typestr="PATH" optional hidden
+
+option  "debug"		D "Enable debug messages" flag off

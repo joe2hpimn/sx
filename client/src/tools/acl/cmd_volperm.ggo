@@ -1,6 +1,6 @@
 package "sxacl"
-args "--unamed-opts --no-handle-version --no-handle-error --file-name=cmd_perm --func-name=perm_cmdline_parser --arg-struct-name=perm_args_info"
-usage "sxacl perm [OPTIONS] user sx://[profile@]cluster/volume"
+args "--unamed-opts --no-handle-version --no-handle-error --file-name=cmd_volperm --func-name=volperm_cmdline_parser --arg-struct-name=volperm_args_info"
+usage "sxacl volperm [OPTIONS] user sx://[profile@]cluster/volume"
 
 section "Volume permission modification options"
 

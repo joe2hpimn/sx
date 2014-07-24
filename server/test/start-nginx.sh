@@ -91,20 +91,20 @@ echo "$ADMIN_KEY" | ../client/src/tools/init/sxinit --port "$SX_PORT" --host-lis
 ../client/src/tools/vol/sxvol create sx://localhost/volr2 -r 2 -o admin
 ../client/src/tools/acl/sxacl useradd user1 sx://localhost
 ../client/src/tools/acl/sxacl useradd user2 sx://localhost
-../client/src/tools/acl/sxacl perm --grant=write user1,user2 sx://localhost/volr2
-../client/src/tools/acl/sxacl perm --grant=read user1 sx://localhost/volr2
+../client/src/tools/acl/sxacl volperm --grant=write user1,user2 sx://localhost/volr2
+../client/src/tools/acl/sxacl volperm --grant=read user1 sx://localhost/volr2
 
 MESSAGE="OK"
 exit 0
 
-SX_DEBUG_SINGLE_VOLUMEHOST=127.0.1.1 ../client/src/tools/acl/sxacl show sx://localhost/volr2
+SX_DEBUG_SINGLE_VOLUMEHOST=127.0.1.1 ../client/src/tools/acl/sxacl volshow sx://localhost/volr2
 echo
-SX_DEBUG_SINGLE_VOLUMEHOST=127.0.1.2 ../client/src/tools/acl/sxacl show sx://localhost/volr2
+SX_DEBUG_SINGLE_VOLUMEHOST=127.0.1.2 ../client/src/tools/acl/sxacl volshow sx://localhost/volr2
 echo
-../client/src/tools/acl/sxacl perm --revoke=write user2 sx://localhost/volr2
-SX_DEBUG_SINGLE_VOLUMEHOST=127.0.1.1 ../client/src/tools/acl/sxacl show sx://localhost/volr2
+../client/src/tools/acl/sxacl volperm --revoke=write user2 sx://localhost/volr2
+SX_DEBUG_SINGLE_VOLUMEHOST=127.0.1.1 ../client/src/tools/acl/sxacl volshow sx://localhost/volr2
 echo
-SX_DEBUG_SINGLE_VOLUMEHOST=127.0.1.2 ../client/src/tools/acl/sxacl show sx://localhost/volr2
+SX_DEBUG_SINGLE_VOLUMEHOST=127.0.1.2 ../client/src/tools/acl/sxacl volshow sx://localhost/volr2
 echo
 test/uldl.sh
 exit 1

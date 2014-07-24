@@ -70,13 +70,13 @@ fi
 # TODO: test delete
 
 # Cannot grant myself permission to admin's volume
-if ../client/src/tools/acl/sxacl perm $OWNER --grant=read,write sx://localhost/vol1; then
+if ../client/src/tools/acl/sxacl volperm $OWNER --grant=read,write sx://localhost/vol1; then
     echo "Grant supposed to fail"
     exit 1
 fi
 # Grant permission to user2 on my volume
-../client/src/tools/acl/sxacl perm user2 --grant=read,write sx://localhost/vol2
-../client/src/tools/acl/sxacl show sx://localhost/vol2
+../client/src/tools/acl/sxacl volperm user2 --grant=read,write sx://localhost/vol2
+../client/src/tools/acl/sxacl volshow sx://localhost/vol2
 
 # User2
 ../client/src/tools/init/sxinit --no-ssl --host-list=$1 sx://localhost --auth-file normal2.auth
@@ -86,7 +86,7 @@ fi
 ../client/src/tools/cp/sxcp sx://localhost/vol2/z z
 
 # Got write permission but cannot grant permissions to others!
-if ../client/src/tools/acl/sxacl perm admin --grant=read sx://localhost/vol2; then
+if ../client/src/tools/acl/sxacl volperm admin --grant=read sx://localhost/vol2; then
     echo "Expected grant to fail"
     exit 1
 fi
