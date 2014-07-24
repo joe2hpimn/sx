@@ -154,6 +154,11 @@ int sxc_cluster_set_conns_limit(sxc_cluster_t *cluster, unsigned int max_active,
 /* Transfer direction */
 typedef enum { SXC_XFER_DIRECTION_DOWNLOAD = 1, SXC_XFER_DIRECTION_UPLOAD = 2, SXC_XFER_DIRECTION_BOTH = 3 } sxc_xfer_direction_t;
 
+typedef struct {
+    int64_t sent;
+    int64_t skipped;
+} sxc_xfer_timing_t;
+
 /* Single direction transfer stats */
 typedef struct {
     /* Currently transferred file name and size */
@@ -177,6 +182,14 @@ typedef struct {
     double total_time;
     /* Time when current transfer started */
     struct timeval start_time;
+
+    /* Time window for ETA computation */
+    sxc_xfer_timing_t timing[256];
+    unsigned int last_time_idx;
+
+    double eta; /* Estimated finish time */
+    double speed; /* Number of bytes send and skipped divided by total time */
+    double real_speed; /* Number of bytes sent divided by total time */
 } sxc_xfer_progress_t;
 
 /* Transfer state, place to add "stalled" or "canceled"... statuses */

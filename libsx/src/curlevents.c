@@ -1338,6 +1338,7 @@ static int curlev_update_bandwidth_limit(curlev_t *ev) {
 
     return 0;
 }
+
 static int xferinfo(void *p, curl_off_t dltotal, curl_off_t dlnow,
                     curl_off_t ultotal, curl_off_t ulnow)
 {

@@ -516,10 +516,15 @@ static int wrap_data_callback(curlev_context_t *ctx, const unsigned char *data, 
 int sxi_generic_set_xfer_stat(struct generic_ctx *ctx, int64_t downloaded, int64_t to_download, int64_t uploaded, int64_t to_upload) {
     int64_t ul_diff = 0;
     int64_t dl_diff = 0;
+    double timediff = 0;
+    struct timeval now;
 
     /* This is not considered as error, ctx or ctx->xfer_stat is NULL if we do not want to check progress */
     if(!ctx || !ctx->xfer_stat)
         return SXE_NOERROR;
+
+    gettimeofday(&now, NULL);
+    timediff = sxi_timediff(&now, &ctx->xfer_stat->interval_timer);
 
     ctx->to_dl = to_download;
     dl_diff = downloaded - ctx->dl;
@@ -529,8 +534,8 @@ int sxi_generic_set_xfer_stat(struct generic_ctx *ctx, int64_t downloaded, int64
     ul_diff = uploaded - ctx->ul;
     ctx->ul = uploaded;
 
-    if(dl_diff > 0 || ul_diff > 0)
-        return sxi_set_xfer_stat(ctx->xfer_stat, dl_diff, ul_diff);
+    if(dl_diff > 0 || ul_diff > 0 || timediff >= XFER_PROGRESS_INTERVAL)
+        return sxi_set_xfer_stat(ctx->xfer_stat, dl_diff, ul_diff, timediff);
     else
         return SXE_NOERROR;
 }

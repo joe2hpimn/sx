@@ -75,14 +75,71 @@ sxc_xfer_stat_t* sxi_xfer_new(sxc_client_t *sx, sxc_xfer_callback xfer_callback,
     return xfer_stat;
 }
 
-/* Rate at wchich progress function should call external progress handler */
-#define XFER_PROGRESS_INTERVAL 0.5
+static void xfer_update_speed(sxc_xfer_progress_t *xfer) {
+    unsigned int i;
+    int64_t total_sent = 0; /* Total number of bytes sent in time window */
+    int64_t total_skipped = 0; /* Total number of bytes skipped in time window */
 
-int sxi_set_xfer_stat(sxc_xfer_stat_t *xfer_stat, int64_t dl, int64_t ul) {
-    double timediff = 0;
+    for(i = 0; i < 256; i++) {
+        total_sent += xfer->timing[i].sent;
+        total_skipped += xfer->timing[i].skipped;
+    }
+
+    if(xfer->total_time > XFER_PROGRESS_ETA_DELAY) {
+        xfer->speed = (total_sent + total_skipped) / xfer->total_time;
+        xfer->eta = xfer->speed > 0 && xfer->to_send > 0 ? xfer->to_send / xfer->speed - xfer->total_time : 0;
+    }
+    xfer->real_speed = total_sent / xfer->total_time;
+}
+
+/* Update timing information for progress stats */
+int sxi_update_time_window(sxc_xfer_progress_t *xfer, int64_t bytes, int64_t skipped) {
+    struct timeval now;
+    unsigned int s, i;
+
+    if(!xfer)
+        return 1;
+
+    s = (long long)xfer->total_time & 255;
+
+    if(xfer->last_time_idx != s) {
+        for(i = 1; i < 256 && ((xfer->last_time_idx + i) & 255) != s; i++) {
+            xfer->timing[(xfer->last_time_idx + i) & 255].sent = 0;
+            xfer->timing[(xfer->last_time_idx + i) & 255].skipped = 0;
+        }
+        xfer->timing[s].sent = 0;
+        xfer->timing[s].skipped = 0;
+    }
+
+    xfer->timing[s].sent += bytes;
+    xfer->timing[s].skipped += skipped;
+
+    xfer_update_speed(xfer);
+
+    /* Remember last update index */
+    xfer->last_time_idx = s;
+
+    return 0;
+}
+
+static void reset_time_window(sxc_xfer_progress_t *xfer) {
+    unsigned int i;
+
+    xfer->last_time_idx = 0;
+    for(i = 0; i < 256; i++) {
+        xfer->timing[i].sent = 0;
+        xfer->timing[i].skipped = 0;
+    }
+
+    xfer->speed = 0;
+    xfer->real_speed = 0;
+    xfer->eta = 0;
+}
+
+int sxi_set_xfer_stat(sxc_xfer_stat_t *xfer_stat, int64_t dl, int64_t ul, double timediff) {
     struct timeval now;
     if(!xfer_stat || !xfer_stat->xfer_callback)
-        return SXE_ABORT;
+        return SXE_EARG; /* Called with wrong arguments */
 
     /* Increase current file counter */
     xfer_stat->current_xfer.sent += dl + ul;
@@ -94,12 +151,16 @@ int sxi_set_xfer_stat(sxc_xfer_stat_t *xfer_stat, int64_t dl, int64_t ul) {
         xfer_stat->total_ul += ul;
 
     gettimeofday(&now, NULL);
-    if((timediff = sxi_timediff(&now, &xfer_stat->interval_timer)) >= XFER_PROGRESS_INTERVAL) {
+    xfer_stat->current_xfer.total_time = sxi_timediff(&now, &xfer_stat->current_xfer.start_time);
+
+    if(sxi_update_time_window(&xfer_stat->current_xfer, dl + ul, 0)) /* update timing information */
+        return SXE_EARG; /* sxi_update_time_window returns error only if given arguments are not correct */
+
+    if(timediff >= XFER_PROGRESS_INTERVAL) {
         memcpy(&xfer_stat->interval_timer, &now, sizeof(struct timeval));
 
         /* Update total transfer time */
         xfer_stat->total_time += timediff;
-        xfer_stat->current_xfer.total_time = sxi_timediff(&now, &xfer_stat->current_xfer.start_time);
 
         /* Invoke callback */
         return xfer_stat->xfer_callback(xfer_stat);
@@ -132,20 +193,25 @@ static int sxi_xfer_set_file(sxc_xfer_stat_t *xfer_stat, const char *file_name, 
         xfer_stat->current_xfer.to_send *= 2;
 
     xfer_stat->current_xfer.sent = 0;
+    xfer_stat->current_xfer.total_time = 0;
     gettimeofday(&xfer_stat->current_xfer.start_time, NULL);
+    reset_time_window(&xfer_stat->current_xfer);
 
     xfer_stat->status = SXC_XFER_STATUS_PART_STARTED;
     return 0;
 }
 
-/* Skip part of transfer data */
+/*
+ * Skip part of transfer data
+ * Return error code
+ */
 static int skip_xfer(sxc_cluster_t *cluster, int64_t bytes) {
-    sxc_xfer_stat_t *xfer_stat = sxi_cluster_get_xfer_stat(cluster);
     sxc_client_t *sx = sxi_cluster_get_client(cluster);
+    sxc_xfer_stat_t *xfer_stat = sxi_cluster_get_xfer_stat(cluster);
     struct timeval now;
 
     if(!xfer_stat || !xfer_stat->xfer_callback) 
-        return SXE_ABORT;
+        return SXE_EARG;
 
     xfer_stat->current_xfer.to_send -= bytes;
 
@@ -159,6 +225,10 @@ static int skip_xfer(sxc_cluster_t *cluster, int64_t bytes) {
         xfer_stat->total_to_ul -= bytes;
 
     gettimeofday(&now, NULL);
+    xfer_stat->current_xfer.total_time = sxi_timediff(&now, &xfer_stat->current_xfer.start_time);
+
+    if(sxi_update_time_window(&xfer_stat->current_xfer, 0, bytes))
+        return SXE_EARG; /* sxi_update_time_window returns an error if wrong arguments were given */
 
     if(sxc_geterrnum(sx) != SXE_ABORT && sxi_timediff(&now, &xfer_stat->interval_timer) >= XFER_PROGRESS_INTERVAL) {
         memcpy(&xfer_stat->interval_timer, &now, sizeof(struct timeval));
@@ -503,17 +573,23 @@ struct host_upload_ctx {
 /* Set information about current transfer upload value */
 int sxi_host_upload_set_xfer_stat(struct host_upload_ctx* ctx, int64_t uploaded, int64_t to_upload) {
     int64_t ul_diff = 0;
+    double timediff = 0;
+    struct timeval now;
+    sxc_xfer_stat_t *xfer_stat;
 
     /* This is not considered as error, ctx or cluster == NULL if we do not want to check progress */
-    if(!ctx || !sxi_conns_get_xfer_stat(ctx->conns))
+    if(!ctx || !(xfer_stat = sxi_conns_get_xfer_stat(ctx->conns)))
         return SXE_NOERROR;
+
+    gettimeofday(&now, NULL);
+    timediff = sxi_timediff(&now, &xfer_stat->interval_timer);
 
     ctx->to_ul = to_upload;
     ul_diff = uploaded - ctx->ul;
     ctx->ul = uploaded;
 
-    if(ul_diff > 0) {
-        return sxi_set_xfer_stat(sxi_conns_get_xfer_stat(ctx->conns), 0, ul_diff);
+    if(ul_diff > 0 || timediff >= XFER_PROGRESS_INTERVAL) {
+        return sxi_set_xfer_stat(xfer_stat, 0, ul_diff, timediff);
     } else
         return SXE_NOERROR;
 }
@@ -2492,16 +2568,23 @@ struct file_download_ctx {
 /* Set information about current transfer download value */
 int sxi_file_download_set_xfer_stat(struct file_download_ctx* ctx, int64_t downloaded, int64_t to_download) {
     int64_t dl_diff = 0;
+    double timediff = 0;
+    struct timeval now;
+    sxc_xfer_stat_t *xfer_stat;
 
     /* This is not considered as error, ctx or cluster == NULL if we do not want to check progress */
-    if(!ctx || !sxi_conns_get_xfer_stat(ctx->conns))
+    if(!ctx || !(xfer_stat = sxi_conns_get_xfer_stat(ctx->conns)))
         return SXE_NOERROR;
+
+    gettimeofday(&now, NULL);
+    timediff = sxi_timediff(&now, &xfer_stat->interval_timer);
 
     ctx->to_dl = to_download;
     dl_diff = downloaded - ctx->dl;
     ctx->dl = downloaded;
-    if(dl_diff > 0)
-        return sxi_set_xfer_stat(sxi_conns_get_xfer_stat(ctx->conns), dl_diff, 0);
+
+    if(dl_diff > 0 || timediff >= XFER_PROGRESS_INTERVAL)
+        return sxi_set_xfer_stat(xfer_stat, dl_diff, 0, timediff);
     else 
         return SXE_NOERROR;
 }

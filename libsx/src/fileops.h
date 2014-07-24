@@ -30,6 +30,10 @@ struct host_upload_ctx;
 struct file_download_ctx;
 struct generic_ctx;
 
+/* Rate at wchich progress function should call external progress handler */
+#define XFER_PROGRESS_INTERVAL          0.5
+#define XFER_PROGRESS_ETA_DELAY         2.0 /* after 2 seconds we will compute speed and eta */
+
 /* Set information about current transfer download value */
 int sxi_file_download_set_xfer_stat(struct file_download_ctx* ctx, int64_t downloaded, int64_t to_download);
 /* Get numner of bytes to be downloaded */
@@ -45,6 +49,9 @@ int64_t sxi_host_upload_get_xfer_to_send(const struct host_upload_ctx *ctx);
 int64_t sxi_host_upload_get_xfer_sent(const struct host_upload_ctx *ctx);
 
 /* Update transfer information */
-int sxi_set_xfer_stat(sxc_xfer_stat_t *xfer_stat, int64_t dl, int64_t ul);
+int sxi_set_xfer_stat(sxc_xfer_stat_t *xfer_stat, int64_t dl, int64_t ul, double timediff);
+
+/* Update timing information for progress stats */
+int sxi_update_time_window(sxc_xfer_progress_t *xfer, int64_t bytes, int64_t skipped);
 
 #endif
