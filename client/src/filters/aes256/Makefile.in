@@ -127,8 +127,9 @@ am__installdirs = "$(DESTDIR)$(pkglibdir)"
 LTLIBRARIES = $(pkglib_LTLIBRARIES)
 @BUILD_AES256_TRUE@libsxf_aes256_la_DEPENDENCIES =  \
 @BUILD_AES256_TRUE@	$(top_srcdir)/../libsx/src/libsx.la
-am__libsxf_aes256_la_SOURCES_DIST = aes256.c
-@BUILD_AES256_TRUE@am_libsxf_aes256_la_OBJECTS = aes256.lo
+am__libsxf_aes256_la_SOURCES_DIST = aes256.c crypt_blowfish.c
+@BUILD_AES256_TRUE@am_libsxf_aes256_la_OBJECTS = aes256.lo \
+@BUILD_AES256_TRUE@	crypt_blowfish.lo
 libsxf_aes256_la_OBJECTS = $(am_libsxf_aes256_la_OBJECTS)
 AM_V_lt = $(am__v_lt_@AM_V@)
 am__v_lt_ = $(am__v_lt_@AM_DEFAULT_V@)
@@ -322,8 +323,8 @@ top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
 @BUILD_AES256_TRUE@AM_CPPFLAGS = -I $(top_srcdir)/../libsx/include -I $(top_srcdir)/../
 @BUILD_AES256_TRUE@pkglib_LTLIBRARIES = libsxf_aes256.la
-@BUILD_AES256_TRUE@libsxf_aes256_la_SOURCES = aes256.c
-@BUILD_AES256_TRUE@libsxf_aes256_la_LDFLAGS = -module -release 12
+@BUILD_AES256_TRUE@libsxf_aes256_la_SOURCES = aes256.c crypt_blowfish.c
+@BUILD_AES256_TRUE@libsxf_aes256_la_LDFLAGS = -module -release 13
 @BUILD_AES256_TRUE@libsxf_aes256_la_LIBADD = @AES256_LIBS@ $(top_srcdir)/../libsx/src/libsx.la
 all: all-am
 
@@ -405,6 +406,7 @@ distclean-compile:
 	-rm -f *.tab.c
 
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/aes256.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/crypt_blowfish.Plo@am__quote@
 
 .c.o:
 @am__fastdepCC_TRUE@	$(AM_V_CC)depbase=`echo $@ | sed 's|[^/]*$$|$(DEPDIR)/&|;s|\.o$$||'`;\
