@@ -58,6 +58,16 @@
 #define SALT_SIZE 16
 #define FP_SIZE (SALT_SIZE + KEY_SIZE)
 
+#ifdef HMAC_UPDATE_RETURNS_INT
+#define hmac_init_ex HMAC_Init_ex
+#define hmac_update HMAC_Update
+#define hmac_final HMAC_Final
+#else
+#define hmac_init_ex(a, b, c, d, e) (HMAC_Init_ex((a), (b), (c), (d), (e)), 1)
+#define hmac_update(a, b, c) (HMAC_Update((a), (b), (c)), 1)
+#define hmac_final(a, b, c) (HMAC_Final((a), (b), (c)), 1)
+#endif
+
 struct aes256_ctx {
     EVP_CIPHER_CTX ectx, dctx;
     HMAC_CTX ivhash;
@@ -394,13 +404,13 @@ static int aes256_data_prepare(const sxf_handle_t *handle, void **ctx, const cha
     HMAC_CTX_init(&actx->ivhash);
     HMAC_CTX_init(&actx->hmac);
 
-    if (HMAC_Init_ex(&actx->ivhash, actx->key, KEY_SIZE/2, EVP_sha1(), NULL) != 1) {
+    if (hmac_init_ex(&actx->ivhash, actx->key, KEY_SIZE/2, EVP_sha1(), NULL) != 1) {
         ERROR("Can't initialize HMAC context(1)");
         free(keyfile);
         free(actx);
         return -1;
     }
-    if (HMAC_Init_ex(&actx->hmac, actx->key, KEY_SIZE/2, EVP_sha512(), NULL) != 1) {
+    if (hmac_init_ex(&actx->hmac, actx->key, KEY_SIZE/2, EVP_sha512(), NULL) != 1) {
         ERROR("Can't initialize HMAC context(2)");
         free(keyfile);
         free(actx);
@@ -494,16 +504,16 @@ static ssize_t aes256_data_process(const sxf_handle_t *handle, void *ctx, const 
             int final;
 	    if(mode == SXF_MODE_UPLOAD) {
                 unsigned int ivlen;
-                if (HMAC_Init_ex(&actx->ivhash, NULL, 0, NULL, NULL) != 1) {
-                    ERROR("HMAC_Init_ex failed(1)");
+                if (hmac_init_ex(&actx->ivhash, NULL, 0, NULL, NULL) != 1) {
+                    ERROR("hmac_init_ex failed(1)");
                     return -1;
                 }
-                if (HMAC_Update(&actx->ivhash, actx->ivmac, sizeof(actx->ivmac)) != 1 ||
-                    HMAC_Update(&actx->ivhash, actx->in, actx->inbytes) != 1) {
+                if (hmac_update(&actx->ivhash, actx->ivmac, sizeof(actx->ivmac)) != 1 ||
+                    hmac_update(&actx->ivhash, actx->in, actx->inbytes) != 1) {
                     ERROR("EVP_DigestUpdate failed");
                     return -1;
                 }
-                if (HMAC_Final(&actx->ivhash, mac, &ivlen) != 1) {
+                if (hmac_final(&actx->ivhash, mac, &ivlen) != 1) {
                     ERROR("DigestFinal_ex failed");
                     return -1;
                 }
@@ -528,17 +538,17 @@ static ssize_t aes256_data_process(const sxf_handle_t *handle, void *ctx, const 
 		    ERROR("EVP_EncryptFinal_ex failed");
 		    return -1;
 		}
-                if (HMAC_Init_ex(&actx->hmac, NULL, 0, NULL, NULL) != 1) {
-                    ERROR("HMAC_Init_ex failed");
+                if (hmac_init_ex(&actx->hmac, NULL, 0, NULL, NULL) != 1) {
+                    ERROR("hmac_init_ex failed");
                     return -1;
                 }
                 actx->blkbytes += final;
-                if (HMAC_Update(&actx->hmac, actx->blk, actx->blkbytes) != 1) {
-                    ERROR("HMAC_Update failed");
+                if (hmac_update(&actx->hmac, actx->blk, actx->blkbytes) != 1) {
+                    ERROR("hmac_update failed");
                     return -1;
                 }
-                if (HMAC_Final(&actx->hmac, mac, &maclen) != 1) {
-                    ERROR("HMAC_Final failed");
+                if (hmac_final(&actx->hmac, mac, &maclen) != 1) {
+                    ERROR("hmac_final failed");
                     return -1;
                 }
                 maclen /= 2;
@@ -549,8 +559,8 @@ static ssize_t aes256_data_process(const sxf_handle_t *handle, void *ctx, const 
                 memcpy(actx->blk + actx->blkbytes, mac, maclen);
                 actx->blkbytes += maclen;
 	    } else {
-                if (HMAC_Init_ex(&actx->hmac, NULL, 0, NULL, NULL) != 1) {
-                    ERROR("HMAC_Init_ex failed");
+                if (hmac_init_ex(&actx->hmac, NULL, 0, NULL, NULL) != 1) {
+                    ERROR("hmac_init_ex failed");
                     return -1;
                 }
                 if (actx->inbytes < IV_SIZE + MAC_SIZE) {
@@ -558,12 +568,12 @@ static ssize_t aes256_data_process(const sxf_handle_t *handle, void *ctx, const 
                     return -1;
                 }
                 actx->inbytes -= MAC_SIZE;
-                if (HMAC_Update(&actx->hmac, actx->in, actx->inbytes) != 1) {
-                    ERROR("HMAC_Update failed");
+                if (hmac_update(&actx->hmac, actx->in, actx->inbytes) != 1) {
+                    ERROR("hmac_update failed");
                     return -1;
                 }
-                if (HMAC_Final(&actx->hmac, mac, &maclen) != 1) {
-                    ERROR("HMAC_Final failed");
+                if (hmac_final(&actx->hmac, mac, &maclen) != 1) {
+                    ERROR("hmac_final failed");
                     return -1;
                 }
                 maclen /= 2;
