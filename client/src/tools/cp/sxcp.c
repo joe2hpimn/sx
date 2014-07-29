@@ -76,13 +76,13 @@ static void sighandler(int signal)
 #define STANDARD_WINDOW_WIDTH   80 /* Standard window size */
 #define MINIMAL_WINDOW_WIDTH    (43 + BRACKETS) /* percent -> 5 chars + space, speed up 16 to chars + space, B/s -> 3 chars + ETA -> 5 chars + eta time -> up to 12 chars + 2 chars for [] */
 
-static int get_window_width(void) {
-    static int window_width = 0;
+static unsigned int get_window_width(void) {
+    static unsigned int window_width = 0;
 
     /* If window width was set do nothing */
-    if(window_width) {
+    if(window_width)
         return window_width;
-    } else {
+    else {
         #ifdef TIOCGWINSZ
             struct winsize window_size;
             if(!ioctl(fileno(stdout), TIOCGWINSZ, &window_size))
@@ -121,20 +121,19 @@ static char *process_time(double seconds) {
         h %= 24;
     }
 
-    if(seconds < 1.0) {
+    if(seconds < 1.0)
         snprintf(str, 5, "<1s");
-    } else if(!m) {
+    else if(!m)
         snprintf(str, 4, "%ds", s);
-    } else if(!h) {
+    else if(!h)
         snprintf(str, 7, "%dm%ds", m, s);
-    } else if(!d) {
+    else if(!d)
         snprintf(str, 10, "%dh%dm%ds", h, m, s);
-    } else if(d >= 100) { 
+    else if(d >= 100)
         /* Number of days is so high that we could exceed maximum time string */
         snprintf(str, 6, "100d+");
-    } else {
+    else
         snprintf(str, 13, "%dd%dh%dm%ds", d, h, m, s);
-    }
 
     return str;
 }
@@ -174,7 +173,7 @@ static char *process_number(int64_t number) {
 
 static struct bar_internal_t {
     char *bar;
-    int index;
+    unsigned int index;
 } *bar_internal = NULL;
 
 static int bar_new() {
@@ -210,7 +209,7 @@ static int bar_progress(const sxc_xfer_stat_t *xfer_stat) {
     double m = 1.0f / (double)BAR_WIDTH;
     double c = 0;
     int percent = 0;
-    int i = 0;
+    unsigned int i = 0;
     float x = 0;
     int64_t skipped = 0;
     double sc = 0;
@@ -250,12 +249,10 @@ static int bar_progress(const sxc_xfer_stat_t *xfer_stat) {
             if(sc > 0) {
                 bar_internal->bar[i] = '+';
                 sc -= m;
-            } else {
+            } else
                 bar_internal->bar[i] = '=';
-            }
-        } else {
+        } else
             break;
-        }
         x += m;
         bar_internal->index++;
     }
@@ -349,18 +346,17 @@ static int set_dots_type(const char *type) {
         dots_sizes.per_cluster = DOTS_PER_CLUSTER_DEFAULT;
         dots_sizes.clusters = DOTS_CLUSTERS_DEFAULT;
         dots_sizes.type = DOTS_SMALL;
-    } else {
+    } else
         return 1;
-    }
 
     return 0;
 }
 
 static int dots_progress(const sxc_xfer_stat_t *xfer_stat) {
-    static int dots_written = 0;
+    static unsigned int dots_written = 0;
     static int64_t xfer_written = 0;
     static int64_t last_skipped = 0;
-    static int j = 0;
+    static unsigned int j = 0;
     double c = 0;
     int percent = 0;
     char *processed_speed = NULL;
@@ -471,9 +467,8 @@ static sxc_xfer_callback get_callback_type(void) {
             if(bar_new()) {
                 progress_callback_type = dots_progress;
             }
-        } else {
+        } else
             progress_callback_type = dots_progress;
-        }
     #else
         progress_callback_type = dots_progress;
     #endif
@@ -481,9 +476,8 @@ static sxc_xfer_callback get_callback_type(void) {
 }
 
 static int progress_callback(const sxc_xfer_stat_t *xfer_stat) {
-    if(!xfer_stat) {
+    if(!xfer_stat)
         return SXE_ABORT;
-    }
 
     /* Called to let callbacks finishing lines */
     if(xfer_stat->status == SXC_XFER_STATUS_PART_FINISHED || xfer_stat->status == SXC_XFER_STATUS_WAITING)
@@ -493,9 +487,9 @@ static int progress_callback(const sxc_xfer_stat_t *xfer_stat) {
         case SXC_XFER_STATUS_PART_STARTED : {
             char *processed_size = process_number(xfer_stat->current_xfer.file_size);
             char *file_name_esc = strdup(xfer_stat->current_xfer.file_name);
-            if(file_name_esc) {
+            if(file_name_esc)
                 sxc_escstr(file_name_esc);
-            }
+
             if(processed_size && file_name_esc) {
                 const char *op;
                 if(xfer_stat->current_xfer.direction == SXC_XFER_DIRECTION_DOWNLOAD)
@@ -507,6 +501,7 @@ static int progress_callback(const sxc_xfer_stat_t *xfer_stat) {
 
                 printf("%s %s (size: %sB)\n", op, file_name_esc, processed_size);
             }
+
             free(processed_size);
             free(file_name_esc);
 
@@ -528,9 +523,8 @@ static int progress_callback(const sxc_xfer_stat_t *xfer_stat) {
                 const char *file_name = get_callback_type() == bar_progress ? "" : xfer_stat->current_xfer.file_name;
                 char *file_name_esc = strdup(file_name);
 
-                if(file_name_esc) {
+                if(file_name_esc)
                     sxc_escstr(file_name_esc);
-                }
 
                 if(processed_number && processed_speed && processed_time && file_name_esc)
                     printf("%s%s %sB in %s (@%sB/s)\n", file_name_esc, transferred_str, processed_number, processed_time, processed_speed);
@@ -627,9 +621,8 @@ static int process_bandwidth_arg(const char *str) {
 
     /* Check if number consist of digits only */
     for(j = len - 1; j >= 0; j--) {
-        if(!isdigit(str[j])) {
+        if(!isdigit(str[j]))
             return -1;
-        }
     }
 
     /* Get value and check if it is positive */
@@ -638,12 +631,10 @@ static int process_bandwidth_arg(const char *str) {
         return -1;
 
     if(i < units_size) {
-        for(j = 0; j <= i / 2; j++) {
+        for(j = 0; j <= i / 2; j++)
             value *= 1024;
-        }
-    } else {
+    } else
         value *= 1024;
-    }
 
     return value;
 }
