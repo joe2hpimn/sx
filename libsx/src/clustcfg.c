@@ -1098,9 +1098,9 @@ int sxi_volume_info(sxc_cluster_t *cluster, const char *volume, sxi_hostlist_t *
     return 0;
 }
 
-int sxi_locate_volume(sxc_cluster_t *cluster, const char *volume, sxi_hostlist_t *nodes, int64_t *size) {
+int sxi_locate_volume(sxc_cluster_t *cluster, const char *volume, sxi_hostlist_t *nodes, int64_t *size, sxc_meta_t *metadata) {
     sxi_set_operation(cluster->sx, "locate volume", volume, NULL, NULL);
-    return sxi_volume_info(cluster, volume, nodes, size, NULL);
+    return sxi_volume_info(cluster, volume, nodes, size, metadata);
 }
 
 
@@ -1746,7 +1746,7 @@ sxc_cluster_lf_t *sxc_cluster_listfiles(sxc_cluster_t *cluster, const char *volu
     sxc_clearerr(cluster->sx);
 
     sxi_hostlist_init(&volhosts);
-    if(sxi_locate_volume(cluster, volume, &volhosts, NULL)) {
+    if(sxi_locate_volume(cluster, volume, &volhosts, NULL, NULL)) {
 	sxi_hostlist_empty(&volhosts);
 	return NULL;
     }

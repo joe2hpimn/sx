@@ -54,6 +54,7 @@ int main(int argc, char **argv) {
     int ret = 0;
     unsigned int i;
     struct gengetopt_args_info args;
+    char *filter_dir;
     sxc_logger_t log;
     sxc_cluster_t *cluster = NULL;
     sxc_file_list_t *lst = NULL;
@@ -90,6 +91,24 @@ int main(int argc, char **argv) {
     }
     sxc_set_verbose(sx, args.verbose_flag);
     sxc_set_debug(sx, args.debug_flag);
+
+    if(args.filter_dir_given) {
+	filter_dir = strdup(args.filter_dir_arg);
+    } else {
+	const char *pt = getenv("SX_FILTER_DIR");
+	if(pt)
+	    filter_dir = strdup(pt);
+	else
+	    filter_dir = strdup(SX_FILTER_DIR);
+    }
+    if(!filter_dir) {
+	fprintf(stderr, "ERROR: Failed to set filter dir\n");
+	cmdline_parser_free(&args);
+        sxc_shutdown(sx, 0);
+	return 1;
+    }
+    sxc_filter_loadall(sx, filter_dir);
+    free(filter_dir);
 
     lst = sxc_file_list_new(sx, args.recursive_given);
     for(i = 0; lst && i < args.inputs_num; i++) {

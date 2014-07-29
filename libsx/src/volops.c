@@ -882,7 +882,7 @@ int sxc_cluster_listvolumes_next(sxc_cluster_lv_t *lv, char **volume_name, int64
         if(sxi_is_debug_enabled(sx)) {
             sxi_hostlist_t nodes;
             sxi_hostlist_init(&nodes);
-            if (!sxi_locate_volume(lv->cluster, *volume_name, &nodes,NULL)) {
+            if (!sxi_locate_volume(lv->cluster, *volume_name, &nodes, NULL, NULL)) {
                 unsigned n = sxi_hostlist_get_count(&nodes);
                 unsigned i;
                 SXDEBUG("Volume %s master nodes:", *volume_name);
@@ -1471,7 +1471,7 @@ sxc_cluster_la_t *sxc_cluster_listaclusers(sxc_cluster_t *cluster, const char *v
     sxc_clearerr(sx);
 
     sxi_hostlist_init(&volhosts);
-    if(sxi_locate_volume(cluster, volume, &volhosts, NULL)) {
+    if(sxi_locate_volume(cluster, volume, &volhosts, NULL, NULL)) {
 	sxi_hostlist_empty(&volhosts);
 	return NULL;
     }

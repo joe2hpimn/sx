@@ -32,7 +32,7 @@ sxc_cluster_lf_t *sxi_cluster_list_local_files(sxc_client_t *sx, const char *pat
 char *sxi_urlencode(sxc_client_t *sx, const char *string, int encode_slash);
 sxi_conns_t *sxi_cluster_get_conns(sxc_cluster_t *cluster);
 #define sxi_cluster_get_name(CLUSTER) sxc_cluster_get_sslname(CLUSTER)
-int sxi_locate_volume(sxc_cluster_t *cluster, const char *volume, sxi_hostlist_t *nodes, int64_t *size);
+int sxi_locate_volume(sxc_cluster_t *cluster, const char *volume, sxi_hostlist_t *nodes, int64_t *size, sxc_meta_t *metadata);
 int sxi_volume_info(sxc_cluster_t *cluster, const char *volume, sxi_hostlist_t *nodes, int64_t *size, sxi_ht *metadata);
 const char *sxi_cluster_get_confdir(const sxc_cluster_t *cluster);
 
@@ -40,7 +40,7 @@ const char *sxi_cluster_get_confdir(const sxc_cluster_t *cluster);
  * inside! */
 
 typedef sxi_job_t* (*file_list_cb_t)(sxc_file_list_t *target, sxc_file_t *pattern, sxc_cluster_t *cfg, sxi_hostlist_t *hlist,
-                                   const char *vol, const char *path, void *ctx);
+                                   const char *vol, const char *path, void *ctx, struct filter_handle *fh);
 typedef int (*multi_cb_t)(sxc_file_list_t *target, void *ctx);
 int sxi_file_list_foreach(sxc_file_list_t *target, sxc_cluster_t *wait_cluster, multi_cb_t multi_cb, file_list_cb_t cb, int need_locate, void *ctx);
 char *sxi_ith_slash(char *s, unsigned int i);

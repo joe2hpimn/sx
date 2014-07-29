@@ -1599,6 +1599,7 @@ static int local_to_remote_begin(sxc_file_t *source, sxc_meta_t *fmeta, sxc_file
     sxc_meta_t *vmeta = NULL;
     const void *mval;
     unsigned int mval_len;
+    struct filter_handle *fh = NULL;
     int qret = -1;
     sxc_xfer_stat_t *xfer_stat = NULL;
 
@@ -1704,7 +1705,6 @@ static int local_to_remote_begin(sxc_file_t *source, sxc_meta_t *fmeta, sxc_file
 	    char inbuff[8192], outbuff[8192], filter_uuid[37], cfgkey[37 + 5];
 	    ssize_t bread, bwrite;
 	    sxf_action_t action = SXF_ACTION_NORMAL;
-	    struct filter_handle *fh;
 	    FILE *tempfile = NULL;
 	    int td;
 	    const void *cfgval = NULL;
@@ -1922,8 +1922,13 @@ static int local_to_remote_begin(sxc_file_t *source, sxc_meta_t *fmeta, sxc_file
     }
     sxi_hostlist_empty(&shost);
     sxi_hostlist_empty(&volhosts);
+
+    if(!ret && fh && fh->f->file_notify)
+	fh->f->file_notify(fh, fh->ctx, SXF_NOTIFY_UPLOAD, NULL, NULL, source->path, sxc_cluster_get_sslname(dest->cluster), dest->volume, dest->path);
+
     if (restore_path(dest))
         ret = 1;
+
     return ret;
 }
 
@@ -3541,6 +3546,9 @@ static int remote_to_local(sxc_file_t *source, sxc_file_t *dest) {
 
     ret = 0;
 
+    if(fh && fh->f->file_notify)
+	fh->f->file_notify(fh, fh->ctx, SXF_NOTIFY_DOWNLOAD, sxc_cluster_get_sslname(source->cluster), source->volume, source->path, NULL, NULL, dest->path);
+
 remote_to_local_err:
 
     batch_hashes_free(&bh);
@@ -3672,7 +3680,7 @@ static sxi_job_t* remote_to_remote_fast(sxc_file_t *source, sxc_meta_t *fmeta, s
     if(!query)
 	goto remote_to_remote_fast_err;
 
-    if(sxi_locate_volume(dest->cluster, dest->volume, &volhosts, NULL)) {
+    if(sxi_locate_volume(dest->cluster, dest->volume, &volhosts, NULL, NULL)) {
 	SXDEBUG("failed to locate destination file");
 	goto remote_to_remote_fast_err;
     }
@@ -3861,6 +3869,7 @@ remote_to_remote_fast_err:
     sxi_tempfile_untrack(sx, src_hashfile);
     sxi_hostlist_empty(&flushost);
     sxi_hostlist_empty(&volhosts);
+
     return job;
 }
 
@@ -4508,7 +4517,7 @@ sxc_meta_t *sxc_filemeta_new(sxc_file_t *file) {
 
     memset(&yctx, 0, sizeof(yctx));
     sxi_hostlist_init(&volnodes);
-    if(sxi_locate_volume(file->cluster, file->volume, &volnodes, NULL)) {
+    if(sxi_locate_volume(file->cluster, file->volume, &volnodes, NULL, NULL)) {
 	SXDEBUG("failed to locate file");
 	goto filemeta_begin_err;
     }
@@ -4681,11 +4690,11 @@ void sxc_file_list_free(sxc_file_list_t *lst)
 
 static sxi_job_t* sxi_file_list_process(sxc_file_list_t *target, sxc_file_t *pattern, sxc_cluster_t *cluster,
                                         file_list_cb_t cb, sxi_hostlist_t *hlist, const char *vol, const char *path,
-                                        void *ctx)
+                                        void *ctx, struct filter_handle *fh)
 {
     sxi_job_t *job = NULL;
     do {
-        job = cb(target, pattern, cluster, hlist, vol, path, ctx);
+        job = cb(target, pattern, cluster, hlist, vol, path, ctx, fh);
         if (!job)
             target->total++;
     } while(0);
@@ -4742,15 +4751,43 @@ int sxi_file_list_foreach(sxc_file_list_t *target, sxc_cluster_t *wait_cluster, 
             int64_t size;
             unsigned replica;
             struct timeval t0, t1;
+	    const void *mval;
+	    unsigned int mval_len;
+	    sxc_meta_t *vmeta;
+	    struct filter_handle *fh = NULL;
 
             gettimeofday(&t0, NULL);
 
-            if(volhosts && sxi_locate_volume(cluster, pattern->volume, volhosts, NULL)) {
+	    if(!(vmeta = sxc_meta_new(target->sx))) {
+		rc = -1;
+		break;
+	    }
+            if(volhosts && sxi_locate_volume(cluster, pattern->volume, volhosts, NULL, vmeta)) {
                 CFGDEBUG("failed to locate volume %s", pattern->volume);
+		sxc_meta_free(vmeta);
                 break;
             }
+	    if(!sxc_meta_getval(vmeta, "filterActive", &mval, &mval_len)) {
+		char filter_uuid[37];
+		if(mval_len != 16) {
+		    CFGDEBUG("Filter(s) enabled but can't handle metadata");
+		    rc = -1;
+		    sxc_meta_free(vmeta);
+		    break;
+		}
+		sxi_uuid_unparse(mval, filter_uuid);
+		fh = sxi_filter_gethandle(target->sx, mval);
+		if(!fh) {
+		    CFGDEBUG("Filter ID %s required by destination volume not found", filter_uuid);
+		    rc = -1;
+		    sxc_meta_free(vmeta);
+		    break;
+		}
+	    }
+	    sxc_meta_free(vmeta);
+
             if (!entry->glob) {
-                job = sxi_file_list_process(target, pattern, cluster, cb, volhosts, pattern->volume, pattern->path, ctx);
+                job = sxi_file_list_process(target, pattern, cluster, cb, volhosts, pattern->volume, pattern->path, ctx, fh);
                 rc = sxi_jobs_add(target->sx, &target->jobs, job);
                 break;
             }
@@ -4778,7 +4815,7 @@ int sxi_file_list_foreach(sxc_file_list_t *target, sxc_cluster_t *wait_cluster, 
                 CFGDEBUG("Processing file '%s/%s'", pattern->volume, filename);
                 if (filename && *filename && filename[strlen(filename)-1] == '/')
                     continue;/* attempt to delete only files, not dirs */
-                job = sxi_file_list_process(target, pattern, cluster, cb, volhosts, pattern->volume, filename, ctx);
+                job = sxi_file_list_process(target, pattern, cluster, cb, volhosts, pattern->volume, filename, ctx, fh);
                 rc = sxi_jobs_add(target->sx, &target->jobs, job);
                 free(filename);
                 filename = NULL;
@@ -4804,7 +4841,7 @@ int sxi_file_list_foreach(sxc_file_list_t *target, sxc_cluster_t *wait_cluster, 
 
 /* --- file list END ---- */
 
-static sxi_job_t* sxi_rm_cb(sxc_file_list_t *target, sxc_file_t *pattern, sxc_cluster_t *cluster, sxi_hostlist_t *hlist, const char *vol, const char *path, void *ctx)
+static sxi_job_t* sxi_rm_cb(sxc_file_list_t *target, sxc_file_t *pattern, sxc_cluster_t *cluster, sxi_hostlist_t *hlist, const char *vol, const char *path, void *ctx, struct filter_handle *fh)
 {
     sxi_query_t *query;
     sxi_job_t *job;
@@ -4816,6 +4853,8 @@ static sxi_job_t* sxi_rm_cb(sxc_file_list_t *target, sxc_file_t *pattern, sxc_cl
         return NULL;
     sxi_set_operation(target->sx, "remove files", sxi_cluster_get_name(cluster), query->path, NULL);
     job = sxi_job_submit(sxi_cluster_get_conns(cluster), hlist, query->verb, query->path, path, NULL, 0, &http_code, &target->jobs);
+    if(job && fh && fh->f->file_notify)
+	fh->f->file_notify(fh, fh->ctx, SXF_NOTIFY_DELETE, sxi_cluster_get_name(cluster), vol, path, NULL, NULL, NULL);
     if (!job && http_code == 404)
         job = &JOB_NONE;
     sxi_query_free(query);
@@ -4843,7 +4882,7 @@ static int different_file(const char *path1, const char *path2)
 }
 
 static sxi_job_t *remote_copy_cb(sxc_file_list_t *target, sxc_file_t *pattern, sxc_cluster_t *cluster, sxi_hostlist_t *hlist,
-                                 const char *vol, const char *path, void *ctx)
+                                 const char *vol, const char *path, void *ctx, struct filter_handle *fh)
 {
     sxc_file_t source;
     sxc_client_t *sx = target->sx;

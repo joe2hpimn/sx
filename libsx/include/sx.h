@@ -287,7 +287,7 @@ int sxc_fgetline(sxc_client_t *sx, FILE *f, char **ret);
 int sxc_input_fn(sxc_client_t *sx, sxc_input_t type, const char *prompt, const char *def, char *in, unsigned int insize, void *ctx); /* default input function */
 
 /* filters */
-#define SXF_ABI_VERSION	6
+#define SXF_ABI_VERSION	7
 
 /** Defines a filter's type
  * This is used to prioritize filters, for example
@@ -314,6 +314,15 @@ typedef enum {
     SXF_ACTION_REPEAT,/**< repeat call with same 'in' and 'insize' parameters */
     SXF_ACTION_DATA_END/**< marks the file's last block */
 } sxf_action_t;
+
+/** File notification modes
+ */
+typedef enum {
+    SXF_NOTIFY_UPLOAD, /**< file uploaded to cluster from local path */
+    SXF_NOTIFY_DOWNLOAD, /**< file downloaded from cluster */
+    SXF_NOTIFY_RCOPY, /**< remote file copied into another remote path (in fast mode) */
+    SXF_NOTIFY_DELETE /**< remote file deleted */
+} sxf_notify_t;
 
 struct filter_handle;
 typedef struct filter_handle sxf_handle_t;
@@ -460,6 +469,21 @@ typedef struct {
      * @param[in] mode either SXF_MODE_UPLOAD or SXF_MODE_DOWNLOAD
      * @retval 0 on success
      * @retval non-zero on error
+     */
+
+    void (*file_notify)(const sxf_handle_t *handle, void *ctx, sxf_notify_t mode, const char *source_cluster, const char *source_volume, const char *source_path, const char *dest_cluster, const char *dest_volume, const char *dest_path);
+    /**<
+     * Called when a specific action (such as file upload, download) takes place.
+     *
+     * @param[in] handle an opaque handle for sxc_filter_msg
+     * @param[in] ctx context structure, allocated by \ref init
+     * @param[in] mode notification type (SXF_NOTIFY_*)
+     * @param[in] source_cluster name of cluster containing source file (NULL for local files)
+     * @param[in] source_volume name of volume containing source file (NULL for local files)
+     * @param[in] source_path source file path
+     * @param[in] dest_cluster name of cluster for destination file (NULL for local files)
+     * @param[in] dest_volume name of volume for destination file (NULL for local files)
+     * @param[in] dest_path destination file path
      */
 
     /** */

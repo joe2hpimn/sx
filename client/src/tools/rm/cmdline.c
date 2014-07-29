@@ -41,6 +41,7 @@ const char *gengetopt_args_info_full_help[] = {
   "  -D, --debug            Enable debug messages  (default=off)",
   "  -v, --verbose          Enable verbose errors  (default=off)",
   "  -c, --config-dir=PATH  Path to SX configuration directory",
+  "  -f, --filter-dir=PATH  Path to SX filter directory",
     0
 };
 
@@ -87,6 +88,7 @@ void clear_given (struct gengetopt_args_info *args_info)
   args_info->debug_given = 0 ;
   args_info->verbose_given = 0 ;
   args_info->config_dir_given = 0 ;
+  args_info->filter_dir_given = 0 ;
 }
 
 static
@@ -98,6 +100,8 @@ void clear_args (struct gengetopt_args_info *args_info)
   args_info->verbose_flag = 0;
   args_info->config_dir_arg = NULL;
   args_info->config_dir_orig = NULL;
+  args_info->filter_dir_arg = NULL;
+  args_info->filter_dir_orig = NULL;
   
 }
 
@@ -113,6 +117,7 @@ void init_args_info(struct gengetopt_args_info *args_info)
   args_info->debug_help = gengetopt_args_info_full_help[4] ;
   args_info->verbose_help = gengetopt_args_info_full_help[5] ;
   args_info->config_dir_help = gengetopt_args_info_full_help[6] ;
+  args_info->filter_dir_help = gengetopt_args_info_full_help[7] ;
   
 }
 
@@ -210,6 +215,8 @@ cmdline_parser_release (struct gengetopt_args_info *args_info)
   unsigned int i;
   free_string_field (&(args_info->config_dir_arg));
   free_string_field (&(args_info->config_dir_orig));
+  free_string_field (&(args_info->filter_dir_arg));
+  free_string_field (&(args_info->filter_dir_orig));
   
   
   for (i = 0; i < args_info->inputs_num; ++i)
@@ -259,6 +266,8 @@ cmdline_parser_dump(FILE *outfile, struct gengetopt_args_info *args_info)
     write_into_file(outfile, "verbose", 0, 0 );
   if (args_info->config_dir_given)
     write_into_file(outfile, "config-dir", args_info->config_dir_orig, 0);
+  if (args_info->filter_dir_given)
+    write_into_file(outfile, "filter-dir", args_info->filter_dir_orig, 0);
   
 
   i = EXIT_SUCCESS;
@@ -494,10 +503,11 @@ cmdline_parser_internal (
         { "debug",	0, NULL, 'D' },
         { "verbose",	0, NULL, 'v' },
         { "config-dir",	1, NULL, 'c' },
+        { "filter-dir",	1, NULL, 'f' },
         { 0,  0, 0, 0 }
       };
 
-      c = getopt_long (argc, argv, "hVrDvc:", long_options, &option_index);
+      c = getopt_long (argc, argv, "hVrDvc:f:", long_options, &option_index);
 
       if (c == -1) break;	/* Exit from `while (1)' loop.  */
 
@@ -560,6 +570,18 @@ cmdline_parser_internal (
               &(local_args_info.config_dir_given), optarg, 0, 0, ARG_STRING,
               check_ambiguity, override, 0, 0,
               "config-dir", 'c',
+              additional_error))
+            goto failure;
+        
+          break;
+        case 'f':	/* Path to SX filter directory.  */
+        
+        
+          if (update_arg( (void *)&(args_info->filter_dir_arg), 
+               &(args_info->filter_dir_orig), &(args_info->filter_dir_given),
+              &(local_args_info.filter_dir_given), optarg, 0, 0, ARG_STRING,
+              check_ambiguity, override, 0, 0,
+              "filter-dir", 'f',
               additional_error))
             goto failure;
         
