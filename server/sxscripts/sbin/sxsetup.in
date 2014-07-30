@@ -837,7 +837,7 @@ if [ ! -f "$SX_DATA_DIR/hashfs.db" ]; then
 	fi
 	echo "SX_CLUSTER_UUID=\"$SXUUID\"" >> "$CONFIG"
 
-	# Get current distribution
+	# Get cluster key
         "@sbindir@/sxadm" cluster --config-dir=$HOME/.sx --info "sx://admin@$SX_CLUSTER_NAME" > $OUT_TMP
 	if [ $? -ne 0 ]; then
 	    echo "Failed to retrieve current configuration of the cluster."
@@ -850,12 +850,6 @@ if [ ! -f "$SX_DATA_DIR/hashfs.db" ]; then
 	    exit 1
 	fi
 	echo "$CLUSTKEY" > $CLUSTKEY_TMP
-
-        SXDIST=`cat $OUT_TMP | grep "Current distribution" | cut -d: -f 2`
-	if [ -z "$SXDIST" ]; then
-	    echo "Failed to obtain the node information."
-	    exit 1
-	fi
 
 	# Create node
 	test -z "$SX_NO_ROOT" && OWNERFLAG="--owner=$SX_SERVER_USER:$SX_SERVER_GROUP"
@@ -886,9 +880,34 @@ if [ ! -f "$SX_DATA_DIR/hashfs.db" ]; then
 	else
 	    NEWNODE="$SX_NODE_SIZE/$SX_NODE_IP"
 	fi
-	SXDIST="$SXDIST $NEWNODE"
+	REBCNT=1
 	MODCNT=1
 	while true; do
+	    "@sbindir@/sxadm" cluster --config-dir=$HOME/.sx --info "sx://admin@$SX_CLUSTER_NAME" > $OUT_TMP
+	    if [ $? -ne 0 ]; then
+		echo "Failed to retrieve current configuration of the cluster."
+		"@sbindir@/sxserver" stop
+		exit 1
+	    fi
+	    if [ -n "`cat $OUT_TMP | grep "Target distribution"`" ]; then
+		if [ $REBCNT -gt 10 ]; then
+		    echo "Failed to add the new node to the cluster, which is currently being rebalanced."
+		    echo "The rebalance process can take a long time, please try again later."
+		    "@sbindir@/sxserver" stop
+		    exit 1
+		fi
+		echo "Cluster is busy (rebalance in progress)... retrying in 60 seconds (attempt $REBCNT of 10)."
+		REBCNT=`expr $REBCNT + 1`
+		sleep 60
+		continue
+	    fi
+	    SXDIST=`cat $OUT_TMP | grep "Current distribution" | cut -d: -f 2`
+	    if [ -z "$SXDIST" ]; then
+		echo "Failed to obtain the node information."
+		"@sbindir@/sxserver" stop
+		exit 1
+	    fi
+	    SXDIST="$SXDIST $NEWNODE"
 	    (
 	    set -x
 	    "@sbindir@/sxadm" cluster --mod $SXDIST "sx://$SX_CLUSTER_NAME" 2>$OUT_TMP
