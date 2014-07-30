@@ -346,7 +346,7 @@ static int sxi_hashop_batch(sxi_hashop_t *hashop)
             break;
         case HASHOP_DELETE:/* fall-through */
         case HASHOP_INUSE:
-            query = sxi_hashop_proto_inuse_begin(sxi_conns_get_client(hashop->conns), hashop->id);
+            query = sxi_hashop_proto_inuse_begin(sxi_conns_get_client(hashop->conns), SX_ID_TOKEN, hashop->id, strlen(hashop->id));
             for (i=0;i < n;i++) {
                 block_meta_entry_t entry;
                 block_meta_t meta;

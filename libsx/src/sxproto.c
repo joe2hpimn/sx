@@ -24,6 +24,7 @@
 #include "libsx-int.h"
 #include "sxproto.h"
 #include "misc.h"
+#include "vcrypto.h"
 
 void sxi_query_free(sxi_query_t *query)
 {
@@ -360,16 +361,34 @@ sxi_query_t *sxi_hashop_proto_reserve(sxc_client_t *sx, unsigned blocksize, cons
     return sxi_hashop_proto_list(sx, blocksize, hashes, hashes_len, REQ_PUT, "reserve", id);
 }
 
-sxi_query_t *sxi_hashop_proto_inuse_begin(sxc_client_t *sx, const char *id)
+sxi_query_t *sxi_hashop_proto_inuse_begin(sxc_client_t *sx, int kind, const void *id, unsigned id_size)
 {
     char url[128];
+    char idhex[SXI_SHA1_TEXT_LEN+1];
     sxi_query_t *ret;
+    sxi_md_ctx *hash_ctx;
+    sx_hash_t hash;
 
     if (!id) {
         sxi_seterr(sx, SXE_EARG, "Null id");
         return NULL;
     }
-    snprintf(url, sizeof(url), ".data/?id=%s", id);
+    hash_ctx = sxi_md_init();
+    if (!hash_ctx)
+        return NULL;
+    if (!sxi_sha1_init(hash_ctx))
+        return NULL;
+
+    if (!sxi_sha1_update(hash_ctx, &kind, sizeof(kind)) ||
+        !sxi_sha1_update(hash_ctx, id, id_size) ||
+        !sxi_sha1_final(hash_ctx, hash.b, NULL)) {
+        sxi_md_cleanup(&hash_ctx);
+        return NULL;
+    }
+
+    sxi_md_cleanup(&hash_ctx);
+    sxi_bin2hex(hash.b, sizeof(hash.b), idhex);
+    snprintf(url, sizeof(url), ".data/?id=%s", idhex);
     ret = sxi_query_create(sx, url, REQ_PUT);
     ret = sxi_query_append_fmt(sx, ret, 1, "{");
     return ret;
@@ -383,6 +402,8 @@ sxi_query_t *sxi_hashop_proto_inuse_hash(sxc_client_t *sx, sxi_query_t *query, c
         sxi_seterr(sx, SXE_EARG, "Null/empty blockmeta");
         return NULL;
     }
+    if (!query)
+        return NULL;
     if (query->comma)
         sxi_query_append_fmt(sx, query, 1, ",");
     else

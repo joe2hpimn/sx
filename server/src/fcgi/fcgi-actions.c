@@ -147,6 +147,10 @@ void volume_ops(void) {
 		fcgi_new_distribution();
 	    else
 		fcgi_enable_distribution();
+	} else if(!strcmp(".rebalance", volume) || !content_len()) {
+	    /* Initiate rebalance process (s2s) - CLUSTER required */
+	    quit_unless_has(PRIV_CLUSTER);
+	    fcgi_start_rebalance();
 	} else if(!strcmp(volume, ".sync")) {
 	    /* Syncronize global objects (s2s) - CLUSTER required */
 	    quit_unless_has(PRIV_CLUSTER);

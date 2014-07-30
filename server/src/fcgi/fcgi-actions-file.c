@@ -143,6 +143,8 @@ void fcgi_send_file(void) {
 	CGI_PUTC('{');
 	send_qstring_hash(hash);
 	CGI_PUTC(':');
+	/* Nodes are in NL_PREVNEXT order and MUST NOT be randomized
+	 * (see comments in sx_hashfs_getfile_block) */
 	send_nodes(nodes);
 	CGI_PUTC('}');
 
@@ -188,6 +190,8 @@ static int hash_presence_callback(const char *hexhash, unsigned int index, int c
         DEBUG("Requesting from user: #%.*s#", 40, hexhash);
 	send_qstring_hash(&hash);
 	CGI_PUTC(':');
+	/* Although there is no danger in doing so, nodes SHOULD NOT be randomized:
+	 * hdist already does a pretty good job here */
 	send_nodes(nodes);
 	sx_nodelist_delete(nodes);
     }

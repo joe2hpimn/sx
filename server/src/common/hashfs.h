@@ -138,6 +138,7 @@ rc_ty sx_hashfs_modhdist(sx_hashfs_t *h, const sx_nodelist_t *list);
 rc_ty sx_hashfs_hdist_change_req(sx_hashfs_t *h, const sx_nodelist_t *newdist, job_t *job_id);
 rc_ty sx_hashfs_hdist_change_add(sx_hashfs_t *h, const void *cfg, unsigned int cfg_len);
 rc_ty sx_hashfs_hdist_change_commit(sx_hashfs_t *h);
+rc_ty sx_hashfs_hdist_rebalance(sx_hashfs_t *h);
 const sx_nodelist_t *sx_hashfs_nodelist(sx_hashfs_t *h, sx_hashfs_nl_t which);
 const sx_node_t *sx_hashfs_self(sx_hashfs_t *h);
 rc_ty sx_hashfs_self_uuid(sx_hashfs_t *h, sx_uuid_t *uuid);
@@ -304,6 +305,7 @@ rc_ty sx_hashfs_job_unlock(sx_hashfs_t *h, const char *owner);
 
 /* Xfers */
 rc_ty sx_hashfs_xfer_tonodes(sx_hashfs_t *h, sx_hash_t *block, unsigned int size, const sx_nodelist_t *targets);
+rc_ty sx_hashfs_xfer_tonode(sx_hashfs_t *h, sx_hash_t *block, unsigned int size, const sx_node_t *target);
 void sx_hashfs_xfer_trigger(sx_hashfs_t *h);
 
 void sx_hashfs_gc_trigger(sx_hashfs_t *h);
@@ -328,5 +330,33 @@ rc_ty sx_hashfs_br_next(sx_hashfs_t *h, block_meta_t **blockmetaptr);
  * that if all hashes are ignored iteration stops and returns ITER_NO_MORE. */
 rc_ty sx_hashfs_br_delete(sx_hashfs_t *h, const block_meta_t *blockmeta);
 rc_ty sx_hashfs_br_ignore(sx_hashfs_t *h, const block_meta_t *blockmeta);
+
+rc_ty sx_hashfs_blkrb_hold(sx_hashfs_t *h, const sx_hash_t *block, unsigned int blocksize, const sx_node_t *node);
+rc_ty sx_hashfs_blkrb_can_gc(sx_hashfs_t *h, const sx_hash_t *block, unsigned int blocksize);
+rc_ty sx_hashfs_blkrb_release(sx_hashfs_t *h, uint64_t pushq_id);
+rc_ty sx_hashfs_blkrb_is_complete(sx_hashfs_t *h);
+
+typedef struct _sx_reloc_t {
+    sx_hashfs_volume_t volume;
+    sx_hashfs_file_t file;
+    sx_hash_t *blocks;
+    sxc_meta_t *metadata;
+    const sx_node_t *target;
+    /* internal fields */
+    int64_t reloc_id;
+    unsigned int reloc_db;
+} sx_reloc_t;
+rc_ty sx_hashfs_relocs_populate(sx_hashfs_t *h);
+void sx_hashfs_relocs_begin(sx_hashfs_t *h);
+rc_ty sx_hashfs_relocs_next(sx_hashfs_t *h, const sx_reloc_t **reloc);
+rc_ty sx_hashfs_relocs_delete(sx_hashfs_t *h, const sx_reloc_t *reloc);
+void sx_hashfs_reloc_free(const sx_reloc_t *reloc);
+rc_ty sx_hashfs_rb_cleanup(sx_hashfs_t *h);
+rc_ty sx_hashfs_hdist_set_rebalanced(sx_hashfs_t *h);
+
+enum {
+    SX_ID_TOKEN=1,
+    SX_ID_REBALANCE
+};
 
 #endif

@@ -339,6 +339,9 @@ rc_ty sx_storage_create(const char *dir, sx_uuid_t *cluster, uint8_t *key, int k
 	if(qprep(db, &q, "CREATE TABLE fmeta (file_id INTEGER NOT NULL REFERENCES files(fid) ON DELETE CASCADE ON UPDATE CASCADE, key TEXT ("STRIFY(SXLIMIT_META_MAX_KEY_LEN)") NOT NULL, value BLOB ("STRIFY(SXLIMIT_META_MAX_VALUE_LEN)") NOT NULL, PRIMARY KEY(file_id, key))") || qstep_noret(q))
 	    goto create_hashfs_fail;
 	qnullify(q);
+	if(qprep(db, &q, "CREATE TABLE relocs (file_id INTEGER NOT NULL PRIMARY KEY, dest BLOB("STRIFY(UUID_BINARY_SIZE)") NOT NULL)") || qstep_noret(q)) /* NO FK for better normal use performance */
+	    goto create_hashfs_fail;
+	qnullify(q);
 
 	qclose(&db);
     }
@@ -445,6 +448,9 @@ rc_ty sx_storage_create(const char *dir, sx_uuid_t *cluster, uint8_t *key, int k
     if(qprep(db, &q, "CREATE INDEX jobs_status ON jobs (complete, sched_time)") || qstep_noret(q))
 	goto create_hashfs_fail;
     qnullify(q);
+    if(qprep(db, &q, "CREATE INDEX jobs_parent ON jobs (parent)") || qstep_noret(q))
+	goto create_hashfs_fail;
+    qnullify(q);
 
     if(qprep(db, &q, "CREATE TABLE actions (id INTEGER NOT NULL PRIMARY KEY, job_id INTEGER NOT NULL REFERENCES jobs(job) ON DELETE CASCADE ON UPDATE CASCADE, phase INTEGER NOT NULL DEFAULT 0, target BLOB("STRIFY(UUID_BINARY_SIZE)") NOT NULL, addr TEXT NOT NULL, internaladdr TEXT NOT NULL, capacity INTEGER NOT NULL)") || qstep_noret(q))
 	goto create_hashfs_fail;
@@ -463,6 +469,9 @@ rc_ty sx_storage_create(const char *dir, sx_uuid_t *cluster, uint8_t *key, int k
     qnullify(q);
     if(qprep(db, &q, "CREATE INDEX topush_sched ON topush(sched_time ASC, expiry_time)") || qstep_noret(q))
         goto create_hashfs_fail;
+    qnullify(q);
+    if(qprep(db, &q, "CREATE TABLE onhold (hid INTEGER NOT NULL PRIMARY KEY, hblock BLOB("STRIFY(SXI_SHA1_BIN_LEN)") NOT NULL, hsize INTEGER NOT NULL, hnode BLOB("STRIFY(UUID_BINARY_SIZE)") NOT NULL, UNIQUE (hblock, hsize, hnode))") || qstep_noret(q))
+	goto create_hashfs_fail;
     qnullify(q);
     qclose(&db);
 
@@ -651,6 +660,11 @@ struct _sx_hashfs_t {
     sqlite3_stmt *qm_metaset[METADBS];
     sqlite3_stmt *qm_metadel[METADBS];
     sqlite3_stmt *qm_delfile[METADBS];
+    sqlite3_stmt *qm_wiperelocs[METADBS];
+    sqlite3_stmt *qm_addrelocs[METADBS];
+    sqlite3_stmt *qm_getreloc[METADBS];
+    sqlite3_stmt *qm_delreloc[METADBS];
+    sqlite3_stmt *qm_delbyvol[METADBS];
 
     sxi_db_t *gcdb[GCDBS];
     sqlite3_stmt *qg_bump_reserved[GCDBS];
@@ -686,6 +700,11 @@ struct _sx_hashfs_t {
 
     sxi_db_t *xferdb;
     sqlite3_stmt *qx_add;
+    sqlite3_stmt *qx_wipehold;
+    sqlite3_stmt *qx_hold;
+    sqlite3_stmt *qx_isheld;
+    sqlite3_stmt *qx_release;
+    sqlite3_stmt *qx_hasheld;
 
     char *ssl_ca_file;
     char *cluster_name;
@@ -741,6 +760,10 @@ struct _sx_hashfs_t {
     } meta[SXLIMIT_META_MAX_ITEMS];
     unsigned int nmeta;
 
+    unsigned int relocdb_start, relocdb_cur;
+    int64_t relocid;
+
+
     int datafd[SIZES][HASHDBS];
     sx_uuid_t cluster_uuid, node_uuid; /* MODHDIST: store sx_node_t instead - see sx_hashfs_self */
     char version[16];
@@ -777,6 +800,11 @@ static void close_all_dbs(sx_hashfs_t *h) {
     gcdb_close(h);
 
     sqlite3_finalize(h->qx_add);
+    sqlite3_finalize(h->qx_hold);
+    sqlite3_finalize(h->qx_isheld);
+    sqlite3_finalize(h->qx_release);
+    sqlite3_finalize(h->qx_hasheld);
+    sqlite3_finalize(h->qx_wipehold);
     qclose(&h->xferdb);
 
     sqlite3_finalize(h->qe_getjob);
@@ -823,6 +851,11 @@ static void close_all_dbs(sx_hashfs_t *h) {
 	sqlite3_finalize(h->qm_metaset[i]);
 	sqlite3_finalize(h->qm_metadel[i]);
 	sqlite3_finalize(h->qm_delfile[i]);
+	sqlite3_finalize(h->qm_wiperelocs[i]);
+	sqlite3_finalize(h->qm_addrelocs[i]);
+	sqlite3_finalize(h->qm_getreloc[i]);
+	sqlite3_finalize(h->qm_delreloc[i]);
+	sqlite3_finalize(h->qm_delbyvol[i]);
 	qclose(&h->metadb[i]);
     }
 
@@ -1051,6 +1084,7 @@ static int load_config(sx_hashfs_t *h, sxc_client_t *sx) {
     int r, ret = -1;
 
     DEBUG("Reloading cluster configuration");
+    INFO("IN %s", __FUNCTION__);
 
     free(h->cluster_name);
     h->cluster_name = NULL;
@@ -1140,6 +1174,7 @@ static int load_config(sx_hashfs_t *h, sxc_client_t *sx) {
 	    CRIT("Failed to retrieve cluster distribution from database");
 	    goto load_config_fail;
 	}
+
 	r = qstep(h->q_getval);
 	if(r == SQLITE_ROW) {
 	    h->hd_rev = sqlite3_column_int64(h->q_getval, 0);
@@ -1186,18 +1221,42 @@ static int load_config(sx_hashfs_t *h, sxc_client_t *sx) {
 
 	h->next_dist = sx_nodelist_dup(sxi_hdist_nodelist(h->hd, 0));
 	if(sxi_hdist_buildcnt(h->hd) == 1) {
-	    if(sx_nodelist_lookup(h->next_dist, &h->node_uuid)) {
-		/* MODHDIST:
-		 * we are out of the cluster
-		 * turn on reject all mode (503 to every request) */
+	    unsigned int xx;
+	    WARN("I am %s in single model hdist", h->node_uuid.string);
+	    for(xx=0; xx<sx_nodelist_count(h->next_dist); xx++) {
+		const sx_node_t *nn = sx_nodelist_get(h->next_dist, xx);
+		WARN(" - %s (%s)", sx_node_uuid_str(nn), sx_node_addr(nn));
 	    }
 	    h->prev_dist = sx_nodelist_dup(h->next_dist);
 	} else if(sxi_hdist_buildcnt(h->hd) == 2) {
+	    unsigned int xx;
+
 	    h->prev_dist = sx_nodelist_dup(sxi_hdist_nodelist(h->hd, 1));
+
+	    WARN("I am %s in a dual  model hdist", h->node_uuid.string);
+	    WARN("Prev");
+	    for(xx=0; xx<sx_nodelist_count(h->prev_dist); xx++) {
+		const sx_node_t *nn = sx_nodelist_get(h->prev_dist, xx);
+		WARN(" - %s (%s)", sx_node_uuid_str(nn), sx_node_addr(nn));
+	    }
+
+	    WARN("Next");
+	    for(xx=0; xx<sx_nodelist_count(h->next_dist); xx++) {
+		const sx_node_t *nn = sx_nodelist_get(h->next_dist, xx);
+		WARN(" - %s (%s)", sx_node_uuid_str(nn), sx_node_addr(nn));
+	    }
+
 	    h->is_rebalancing = 1;
 	} else {
 	    CRIT("Failed to load cluster distribution: too many models");
 	    goto load_config_fail;
+	}
+
+	if(!sx_nodelist_lookup(h->next_dist, &h->node_uuid)) {
+	    WARN("FIXMERB: DO SOMETHING HERE");
+	    /* MODHDIST:
+	     * we are out of the cluster
+	     * turn on reject all mode (503 to every request) */
 	}
 
 	h->nextprev_dist = sx_nodelist_dup(h->next_dist);
@@ -1548,6 +1607,16 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 	    goto open_hashfs_fail;
 	if(qprep(h->metadb[i], &h->qm_delfile[i], "DELETE FROM files WHERE fid = :file"))
 	    goto open_hashfs_fail;
+	if(qprep(h->metadb[i], &h->qm_wiperelocs[i], "DELETE FROM relocs"))
+	    goto open_hashfs_fail;
+	if(qprep(h->metadb[i], &h->qm_addrelocs[i], "INSERT INTO relocs (file_id, dest) SELECT fid, :node FROM files WHERE volume_id = :volid"))
+	    goto open_hashfs_fail;
+	if(qprep(h->metadb[i], &h->qm_getreloc[i], "SELECT file_id, dest, volume_id, name, size, rev, content FROM relocs LEFT JOIN files ON relocs.file_id = files.fid WHERE file_id > :prev"))
+	    goto open_hashfs_fail;
+	if(qprep(h->metadb[i], &h->qm_delreloc[i], "DELETE FROM relocs WHERE file_id = :fileid"))
+	    goto open_hashfs_fail;
+	if(qprep(h->metadb[i], &h->qm_delbyvol[i], "DELETE FROM files WHERE volume_id = :volid"))
+	    goto open_hashfs_fail;
     }
 
     OPEN_DB("eventdb", &h->eventdb);
@@ -1561,7 +1630,7 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 	goto open_hashfs_fail;
     if(qprep(h->eventdb, &h->qe_islocked, "SELECT value from hashfs WHERE key = 'lockedby'"))
 	goto open_hashfs_fail;
-    snprintf(dynqry, sizeof(dynqry), "SELECT 1 FROM jobs WHERE complete = 0 AND type NOT IN (%d, %d) LIMIT 1", JOBTYPE_DISTRIBUTION, JOBTYPE_JLOCK);
+    snprintf(dynqry, sizeof(dynqry), "SELECT 1 FROM jobs WHERE complete = 0 AND type NOT IN (%d, %d, %d) LIMIT 1", JOBTYPE_DISTRIBUTION, JOBTYPE_JLOCK, JOBTYPE_STARTREBALANCE);
     if(qprep(h->eventdb, &h->qe_hasjobs, dynqry))
 	goto open_hashfs_fail;
     if(qprep(h->eventdb, &h->qe_lock, "INSERT INTO hashfs (key, value) VALUES ('lockedby', :node)"))
@@ -1572,6 +1641,17 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
     OPEN_DB("xferdb", &h->xferdb);
     if(qprep(h->xferdb, &h->qx_add, "INSERT INTO topush (block, size, node) VALUES (:b, :s, :n)"))
        goto open_hashfs_fail;
+    if(qprep(h->xferdb, &h->qx_hold, "INSERT OR IGNORE INTO onhold (hblock, hsize, hnode) VALUES (:b, :s, :n)"))
+       goto open_hashfs_fail;
+    if(qprep(h->xferdb, &h->qx_isheld, "SELECT 1 FROM onhold WHERE hblock = :b AND hsize = :s"))
+       goto open_hashfs_fail;
+    if(qprep(h->xferdb, &h->qx_release, "DELETE FROM onhold WHERE hid IN (SELECT hid FROM onhold, topush WHERE id = :pushid AND hblock = block AND hsize = size AND hnode = node)"))
+       goto open_hashfs_fail;
+    if(qprep(h->xferdb, &h->qx_hasheld, "SELECT 1 FROM onhold LIMIT 1"))
+       goto open_hashfs_fail;
+    if(qprep(h->xferdb, &h->qx_wipehold, "DELETE FROM onhold"))
+       goto open_hashfs_fail;
+
 
     qnullify(q);
     sqlite3_reset(h->q_getval);
@@ -2883,7 +2963,7 @@ rc_ty sx_hashfs_volnodes(sx_hashfs_t *h, sx_hashfs_nl_t which, const sx_hashfs_v
 const sx_node_t *sx_hashfs_self(sx_hashfs_t *h) {
     if(!h || sx_storage_is_bare(h))
 	return NULL;
-    return sx_nodelist_lookup(h->next_dist, &h->node_uuid);
+    return sx_nodelist_lookup(h->nextprev_dist, &h->node_uuid);
 }
 
 rc_ty sx_hashfs_self_uuid(sx_hashfs_t *h, sx_uuid_t *uuid) {
@@ -3119,9 +3199,6 @@ rc_ty sx_hashfs_list_acl(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, sx_uid_t
     if (!h || !cb || !ctx)
 	return EINVAL;
 
-    if(!sx_hashfs_is_or_was_my_volume(h, vol))
-	return ENOENT;
-
     /* list privileges for self */
     priv = uid_priv;
     if (uid > 0 ) {
@@ -3282,7 +3359,7 @@ rc_ty sx_hashfs_volume_new_finish(sx_hashfs_t *h, const char *volume, int64_t si
 	return ret;
 
     if(h->have_hd) {
-	unsigned int nnodes = sx_nodelist_count(sx_hashfs_nodelist(h, NL_NEXT));
+	unsigned int nnodes = MIN(sx_nodelist_count(sx_hashfs_nodelist(h, NL_PREV)), sx_nodelist_count(sx_hashfs_nodelist(h, NL_NEXT)));
 	if(replica < 1 || replica > nnodes) {
 	    msg_set_reason("Invalid replica count %d: must be between %d and %d",
 			   replica, 1, nnodes);
@@ -3762,7 +3839,13 @@ rc_ty sx_hashfs_getfile_block(sx_hashfs_t *h, const sx_hash_t **hash, sx_nodelis
     if(!h->get_nblocks)
 	return ITER_NO_MORE;
 
-    *nodes = sx_hashfs_hashnodes(h, NL_NEXTPREV, h->get_content, h->get_replica);
+    /* NEXTPREV would be more efficient
+     * (because it's pointless to lookup new blocks in PREV)
+     * but PREVNEXT is not prone to the following race condition:
+     * 1. client -> next: not found
+     * 2. prev -> next: move block
+     * 3. client -> prev: not found */
+    *nodes = sx_hashfs_hashnodes(h, NL_PREVNEXT, h->get_content, h->get_replica);
     if(!*nodes) {
 	sx_hashfs_getfile_end(h);
 	return FAIL_EINTERNAL;
@@ -4544,7 +4627,7 @@ rc_ty sx_hashfs_putfile_gettoken(sx_hashfs_t *h, const uint8_t *user, int64_t si
 
 	/* Lookup first node */
 	for(i=0; i<h->put_putblock; i++) {
-	    /* MODHDIST: pick only from _next, bidx = 0 */
+	    /* We (via hash_nidx_tobuf) check presence on the ultimate target nodes, i.e. NL_NEXT */
 	    if(hash_nidx_tobuf(h, &h->put_blocks[h->put_hashnos[i]], 1, &h->put_nidxs[h->put_hashnos[i]]))
 		goto gettoken_err;
 	}
@@ -4722,16 +4805,24 @@ static rc_ty create_file(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const
        qbind_text(h->qm_ins[mdb], ":name", name) ||
        qbind_text(h->qm_ins[mdb], ":revision", revision) ||
        qbind_int64(h->qm_ins[mdb], ":size", size) ||
-       qbind_blob(h->qm_ins[mdb], ":hashes", nblocks ? (const void *)blocks : "", nblocks * sizeof(blocks[0])) ||
-       qstep_noret(h->qm_ins[mdb])) {
+       qbind_blob(h->qm_ins[mdb], ":hashes", nblocks ? (const void *)blocks : "", nblocks * sizeof(blocks[0]))) {
 	WARN("Failed to create file '%s' on volume '%s'", name, volume->name);
 	sqlite3_reset(h->qm_ins[mdb]);
 	return FAIL_EINTERNAL;
     }
 
+    r = qstep(h->qm_ins[mdb]);
+    sqlite3_reset(h->qm_ins[mdb]);
+    if(r == SQLITE_CONSTRAINT) {
+	INFO("File '%s (%s)' on volume '%s' is already here", name, revision, volume->name);
+	return EEXIST;
+    } else if(r != SQLITE_DONE) {
+	WARN("Failed to create file '%s' on volume '%s'", name, volume->name);
+	return FAIL_EINTERNAL;
+    }
+
     if(file_id)
 	*file_id = sqlite3_last_insert_rowid(sqlite3_db_handle(h->qm_ins[mdb]));
-    sqlite3_reset(h->qm_ins[mdb]);
     return OK;
 }
 
@@ -4828,6 +4919,8 @@ rc_ty sx_hashfs_createfile_commit(sx_hashfs_t *h, const char *volume, const char
     if(ret != OK)
 	qrollback(h->metadb[mdb]);
 
+    if(ret == EEXIST)
+	ret = OK;
     sx_hashfs_createfile_end(h);
 
     return ret;
@@ -5109,6 +5202,8 @@ rc_ty sx_hashfs_putfile_commitjob(sx_hashfs_t *h, const uint8_t *user, sx_uid_t 
 	ret = ret2;
 	goto putfile_commitjob_err;
     }
+    /* Flushed tempfiles are propagated to all volnodes (both PREV and NEXT),
+     * in no particular order (NL_PREVNEXT would be fine as well) */
     ret2 = sx_hashfs_volnodes(h, NL_NEXTPREV, vol, 0, &volnodes, NULL);
     if(ret2) {
 	WARN("Cannot determine volume nodes for '%s'", vol->name);
@@ -5833,34 +5928,28 @@ rc_ty sx_hashfs_file_delete(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, co
     return ret;
 }
 
-rc_ty sx_hashfs_getfilemeta_begin(sx_hashfs_t *h, const char *volume, const char *filename, const char *revision, unsigned int *created_at, sx_hash_t *etag) {
-    rc_ty res, ret = FAIL_EINTERNAL;
-    int metaget_ndb, r;
-    int64_t file_id;
 
-    if(!h)
-	return EINVAL;
+static rc_ty fill_filemeta(sx_hashfs_t *h, unsigned int metadb, int64_t file_id) {
+    sqlite3_stmt *q = h->qm_metaget[metadb];
+    rc_ty ret = FAIL_EINTERNAL;
+    int r;
 
-    res = get_file_id(h, volume, filename, revision, &file_id, &metaget_ndb, created_at, etag);
-    if(res)
-	return res;
-
-    sqlite3_reset(h->qm_metaget[metaget_ndb]);
-    if(qbind_int64(h->qm_metaget[metaget_ndb], ":file", file_id))
+    sqlite3_reset(q);
+    if(qbind_int64(q, ":file", file_id))
 	return FAIL_EINTERNAL;
 
     h->nmeta = 0;
-    while((r = qstep(h->qm_metaget[metaget_ndb])) == SQLITE_ROW) {
-	const char *key = (const char *)sqlite3_column_text(h->qm_metaget[metaget_ndb], 0);
-	const void *value = sqlite3_column_text(h->qm_metaget[metaget_ndb], 1);
-	int value_len = sqlite3_column_bytes(h->qm_metaget[metaget_ndb], 1), key_len;
+    while((r = qstep(q)) == SQLITE_ROW) {
+	const char *key = (const char *)sqlite3_column_text(q, 0);
+	const void *value = sqlite3_column_text(q, 1);
+	int value_len = sqlite3_column_bytes(q, 1), key_len;
 	if(!key)
-	    goto getfilemeta_begin_err;
+	    break;
 	key_len = strlen(key);
 	if(key_len >= sizeof(h->meta[0].key))
-	    goto getfilemeta_begin_err;
+	    break;
 	if(!value || value_len > sizeof(h->meta[0].value))
-	    goto getfilemeta_begin_err;
+	    break;
 	memcpy(h->meta[h->nmeta].key, key, key_len+1);
 	memcpy(h->meta[h->nmeta].value, value, value_len);
 	h->meta[h->nmeta].value_len = value_len;
@@ -5869,15 +5958,28 @@ rc_ty sx_hashfs_getfilemeta_begin(sx_hashfs_t *h, const char *volume, const char
 	    break;
     }
 
-    if(r != SQLITE_DONE)
-	goto getfilemeta_begin_err;
+    if(r == SQLITE_DONE)
+	ret = OK;
 
-    ret = OK;
-
- getfilemeta_begin_err:
-    sqlite3_reset(h->qm_metaget[metaget_ndb]);
+    sqlite3_reset(q);
 
     return ret;
+}
+
+
+rc_ty sx_hashfs_getfilemeta_begin(sx_hashfs_t *h, const char *volume, const char *filename, const char *revision, unsigned int *created_at, sx_hash_t *etag) {
+    rc_ty ret;
+    int metaget_ndb;
+    int64_t file_id;
+
+    if(!h)
+	return EINVAL;
+
+    ret = get_file_id(h, volume, filename, revision, &file_id, &metaget_ndb, created_at, etag);
+    if(ret)
+	return ret;
+
+    return fill_filemeta(h, metaget_ndb, file_id);
 }
 
 rc_ty sx_hashfs_getfilemeta_next(sx_hashfs_t *h, const char **key, const void **value, unsigned int *value_len) {
@@ -6172,8 +6274,12 @@ static const char *locknames[] = {
     NULL, /* JOBTYPE_REPLICATE_BLOCKS */
     "TOKEN", /* JOBTYPE_FLUSH_FILE */
     "DELFILE", /* JOBTYPE_DELETE_FILE */
-    "*", /* JOBTYPE_DIST */
+    "*", /* JOBTYPE_DISTRIBUTION */
+    "STARTREBALANCE", /* JOBTYPE_STARTREBALANCE */
     NULL, /* JOBTYPE_JLOCK */
+    "REBALANCE_BLOCKS", /* JOBTYPE_REBALANCE_BLOCKS */
+    "REBALANCE_FILES", /* JOBTYPE_REBALANCE_FILES */
+    "REBALANCE_CLEANUP", /* JOBTYPE_REBALANCE_CLEANUP */
 };
 
 
@@ -6200,6 +6306,7 @@ rc_ty sx_hashfs_countjobs(sx_hashfs_t *h, sx_uid_t user_id) {
 rc_ty sx_hashfs_job_new_begin(sx_hashfs_t *h) {
     int r;
 
+    INFO("IN %s", __FUNCTION__);
     if(!h) {
 	NULLARG();
 	return EFAULT;
@@ -6264,7 +6371,7 @@ rc_ty sx_hashfs_job_new_notrigger(sx_hashfs_t *h, job_t parent, sx_uid_t user_id
     rc_ty ret = FAIL_EINTERNAL, ret2;
 
     /* FIXME: add support for delayed jobs */
-    if(!h) {
+    if(!h || !job_id) {
 	msg_set_reason("Internal error: NULL argument given");
         return FAIL_EINTERNAL;
     }
@@ -6274,7 +6381,7 @@ rc_ty sx_hashfs_job_new_notrigger(sx_hashfs_t *h, job_t parent, sx_uid_t user_id
 	return FAIL_EINTERNAL;
     }
 
-    if(!job_id || (datalen && !data) || !targets) {
+    if((datalen && !data) || !targets) {
 	msg_set_reason("Internal error: NULL argument given");
 	goto addjob_error;
     }
@@ -6599,6 +6706,24 @@ rc_ty sx_hashfs_xfer_tonodes(sx_hashfs_t *h, sx_hash_t *block, unsigned int size
 
     if(ret != OK)
 	msg_set_reason("Internal error: failed to add block transfer request to database");
+
+    return ret;
+}
+
+/* FIXMERB: unify with rbl_hold ? */
+rc_ty sx_hashfs_xfer_tonode(sx_hashfs_t *h, sx_hash_t *block, unsigned int size, const sx_node_t *target) {
+    sx_nodelist_t *targets = sx_nodelist_new();
+    rc_ty ret;
+
+    if(!targets)
+	return ENOMEM;
+
+    ret = sx_nodelist_add(targets, sx_node_dup(target));
+
+    if(ret == OK)
+	ret = sx_hashfs_xfer_tonodes(h, block, size, targets);
+
+    sx_nodelist_delete(targets);
 
     return ret;
 }
@@ -7208,6 +7333,7 @@ rc_ty sx_hashfs_hdist_change_req(sx_hashfs_t *h, const sx_nodelist_t *newdist, j
     const void *cfg;
     rc_ty r;
 
+    INFO("IN %s", __FUNCTION__);
     if(!h || !newdist || !job_id) {
 	NULLARG();
 	return EFAULT;
@@ -7222,16 +7348,6 @@ rc_ty sx_hashfs_hdist_change_req(sx_hashfs_t *h, const sx_nodelist_t *newdist, j
 	msg_set_reason("The cluster is still being rebalanced");
 	return EINVAL;
     }
-
-    /* REBALANCED HACK BEGIN */
-    do {
-	const sx_hashfs_volume_t *vol;
-	if(sx_hashfs_volume_first(h, &vol, 0) != ITER_NO_MORE) {
-	    msg_set_reason("The cluster cannot be modified because it contains data. *** NOTE: SUCH LIMITATION IS ONLY PRESENT IN THIS BETA AND WILL BE REMOVED IN THE FINAL RELEASE. WE ARE SORRY FOR THE INCOVENIENCE ***");
-	    return EINVAL;
-	}
-    } while(0);
-    /* REBALANCED HACK ENDS */
 
     r = get_min_reqs(h, &minnodes, &minclustersize);
     if(r) {
@@ -7324,13 +7440,21 @@ rc_ty sx_hashfs_hdist_change_req(sx_hashfs_t *h, const sx_nodelist_t *newdist, j
 
     r = sx_hashfs_job_new_notrigger(h, JOB_NOPARENT, 0, job_id, JOBTYPE_JLOCK, sx_nodelist_count(targets) * 20, "JLOCK", NULL, 0, targets);
     if(r) {
-        INFO("job_new (jlock) returned: %s", rc2str(r));
+	INFO("job_new (jlock) returned: %s", rc2str(r));
 	sx_nodelist_delete(targets);
 	sxi_hdist_free(newmod);
 	return r;
     }
 
     r = sx_hashfs_job_new_notrigger(h, *job_id, 0, job_id, JOBTYPE_DISTRIBUTION, sx_nodelist_count(targets) * 40, "DISTRIBUTION", cfg, cfg_len, targets);
+    if(r) {
+	INFO("job_new (distribution) returned: %s", rc2str(r));
+	sx_nodelist_delete(targets);
+	sxi_hdist_free(newmod);
+	return r;
+    }
+
+    r = sx_hashfs_job_new_notrigger(h, *job_id, 0, job_id, JOBTYPE_STARTREBALANCE, sx_nodelist_count(targets) * 20, "DISTRIBUTION", NULL, 0, targets);
     sx_nodelist_delete(targets);
     sxi_hdist_free(newmod);
     if(r) {
@@ -7355,6 +7479,7 @@ rc_ty sx_hashfs_hdist_change_add(sx_hashfs_t *h, const void *cfg, unsigned int c
     sqlite3_stmt *q = NULL;
     rc_ty ret;
 
+    INFO("IN %s", __FUNCTION__);
     if(!h || !cfg) {
 	NULLARG();
 	return EINVAL;
@@ -7377,19 +7502,6 @@ rc_ty sx_hashfs_hdist_change_add(sx_hashfs_t *h, const void *cfg, unsigned int c
 	msg_set_reason("The new model is not a direct descendent of the current model");
 	return EINVAL;
     }
-
-    /* REBALANCED HACK BEGIN */
-    if(sxi_hdist_rebalanced(newmod)) {
-	msg_set_reason("Failed to flat the distribution");
-	sxi_hdist_free(newmod);
-	return EINVAL;
-    }
-    if(sxi_hdist_get_cfg(newmod, &cfg, &cfg_len)) {
-	msg_set_reason("Failed to read flat config");
-	sxi_hdist_free(newmod);
-	return EINVAL;
-    }
-    /* REBALANCED HACK END */
 
     if(qbegin(h->db)) {
 	sxi_hdist_free(newmod);
@@ -7502,20 +7614,176 @@ rc_ty sx_hashfs_hdist_change_add(sx_hashfs_t *h, const void *cfg, unsigned int c
     return ret;
 }
 
+rc_ty sx_hashfs_hdist_set_rebalanced(sx_hashfs_t *h) {
+    sxi_hdist_t *rebalanced;
+    const void *cfg;
+    unsigned int cfg_len;
+    sqlite3_stmt *q = NULL;
+    rc_ty ret;
+
+    if(!h) {
+	NULLARG();
+	return EINVAL;
+    }
+
+    if(!h->have_hd) {
+	msg_set_reason("The cluster is already rebalanced");
+	return EINVAL;
+    }
+
+    if(!h->is_rebalancing) {
+	msg_set_reason("The cluster is already rebalanced");
+	return EINVAL;
+    }	
+
+    ret = sxi_hdist_get_cfg(h->hd, &cfg, &cfg_len);
+    if(ret) {
+	msg_set_reason("Failed to retrieve the current distribution model");
+	return ret;
+    }
+
+    rebalanced = sxi_hdist_from_cfg(cfg, cfg_len);
+    if(!rebalanced) {
+	msg_set_reason("Failed to clone the current distribution model");
+	return FAIL_EINTERNAL;
+    }
+
+    if(sxi_hdist_rebalanced(rebalanced)) {
+	msg_set_reason("Failed to flat the current distribution");
+	sxi_hdist_free(rebalanced);
+	return FAIL_EINTERNAL;
+    }
+
+    ret = sxi_hdist_get_cfg(rebalanced, &cfg, &cfg_len);
+    if(ret) {
+	msg_set_reason("Failed to retrieve the rebalanced distribution model");
+	sxi_hdist_free(rebalanced);
+	return ret;
+    }
+
+    if(qbegin(h->db)) {
+	sxi_hdist_free(rebalanced);
+	return FAIL_EINTERNAL;
+    }
+
+    if(qprep(h->db, &q, "INSERT OR REPLACE INTO hashfs (key, value) VALUES (:k , :v)")) {
+	msg_set_reason("Failed to save the rebalanced distribution model");
+	ret = FAIL_EINTERNAL;
+	goto rebalanced_fail;
+    }
+
+    if(qbind_text(q, ":k", "dist") ||
+       qbind_blob(q, ":v", cfg, cfg_len) ||
+       qstep_noret(q)) {
+	msg_set_reason("Failed to save the rebalanced distribution model");
+	ret = FAIL_EINTERNAL;
+	goto rebalanced_fail;
+    }
+
+    sqlite3_reset(q);
+    if(qbind_text(q, ":k", "dist_rev") ||
+       qbind_int64(q, ":v", sxi_hdist_version(rebalanced)) ||
+       qstep_noret(q)) {
+	msg_set_reason("Failed to save the rebalanced distribution model");
+	ret = FAIL_EINTERNAL;
+	goto rebalanced_fail;
+    }
+
+    qnullify(q);
+    if(qprep(h->db, &q, "DELETE FROM hashfs WHERE key IN ('current_dist', 'current_dist_rev')") ||
+       qstep_noret(q)) {
+	msg_set_reason("Failed to enable the rebalanced distribution model");
+	ret = FAIL_EINTERNAL;
+	goto rebalanced_fail;
+    }
+
+    if(qcommit(h->db)) {
+	msg_set_reason("Failed to commit the rebalanced distribution model");
+	ret = FAIL_EINTERNAL;
+	goto rebalanced_fail;
+    }
+
+    ret = OK;
+    INFO("Distribution rebalanced (version changed from %lld to %lld)", (long long)h->hd_rev, (long long)sxi_hdist_version(rebalanced));
+
+ rebalanced_fail:
+    qnullify(q);
+    if(ret != OK)
+	qrollback(h->db);
+    sxi_hdist_free(rebalanced);
+
+    return ret;
+}
+
 rc_ty sx_hashfs_hdist_change_commit(sx_hashfs_t *h) {
     sqlite3_stmt *q;
     rc_ty s = OK;
 
+    INFO("IN %s", __FUNCTION__);
     if(qprep(h->db, &q, "DELETE FROM hashfs WHERE key IN ('current_dist', 'current_dist_rev')") ||
-       qstep_noret(q))
+       qstep_noret(q)) {
+	msg_set_reason("Failed to enable new distribution model");
 	s = FAIL_EINTERNAL;
-    else if((s = sx_hashfs_job_unlock(h, NULL)) != OK)
+    } else if((s = sx_hashfs_job_unlock(h, NULL)) != OK)
 	WARN("Failed to unlock jobs after enabling new model");
     else
 	DEBUG("Distribution change committed");
 
     qnullify(q);
     return s;
+}
+
+rc_ty sx_hashfs_hdist_rebalance(sx_hashfs_t *h) {
+    job_t job_id;
+    sx_nodelist_t *singlenode = NULL;
+    const sx_node_t *self = sx_hashfs_self(h);
+    rc_ty ret;
+
+    INFO("IN %s %s", __FUNCTION__, self);
+
+    sqlite3_reset(h->qx_wipehold);
+    if(qstep_noret(h->qx_wipehold)) {
+	WARN("Failed to wipe hold list");
+	return FAIL_EINTERNAL;
+    }
+
+    singlenode = sx_nodelist_new();
+    if(!singlenode) {
+	WARN("Cannot allocate single node nodelist");
+	return ENOMEM;
+    }
+
+    ret = sx_nodelist_add(singlenode, sx_node_dup(self));
+    if(ret) {
+	WARN("Cannot add self to nodelist");
+	goto hdistreb_fail;
+    }
+
+    ret = sx_hashfs_job_new_begin(h);
+    if(ret)
+	goto hdistreb_fail;
+
+    ret = sx_hashfs_job_new_notrigger(h, JOB_NOPARENT, 0, &job_id, JOBTYPE_REBALANCE_BLOCKS, 60 * 60, "BLOCKRB", NULL, 0, singlenode);
+    if(ret)
+	goto hdistreb_fail;
+
+    ret = sx_hashfs_job_new_notrigger(h, job_id, 0, &job_id, JOBTYPE_REBALANCE_FILES, 60 * 60, "FILERB", NULL, 0, singlenode);
+    if(ret)
+	goto hdistreb_fail;
+
+    ret = sx_hashfs_job_new_notrigger(h, job_id, 0, &job_id, JOBTYPE_REBALANCE_CLEANUP, 60 * 60, "CLEANRB", NULL, 0, singlenode);
+    if(ret)
+	goto hdistreb_fail;
+
+    ret = sx_hashfs_job_new_end(h);
+    if(ret)
+	goto hdistreb_fail;
+
+    ret = OK;
+
+ hdistreb_fail:
+    sx_nodelist_delete(singlenode);
+    return ret;
 }
 
 rc_ty sx_hashfs_challenge_gen(sx_hashfs_t *h, sx_hash_challenge_t *c, int random_challenge) {
@@ -7876,7 +8144,7 @@ rc_ty sx_hashfs_br_begin(sx_hashfs_t *h)
     if (h->rit.deleted + h->rit.ignored > h->rit.all)
         WARN("bad deleted/ignored counters");
     /* iteration finished, check whether we processed all hashes */
-    if (h->rit.restart_count && h->rit.deleted + h->rit.ignored == h->rit.all) {
+    if (h->rit.iter_no_more && h->rit.restart_count && h->rit.deleted + h->rit.ignored == h->rit.all) {
         DEBUG("outer iteration done!");
         return ITER_NO_MORE;
     }
@@ -7952,3 +8220,398 @@ rc_ty sx_hashfs_br_ignore(sx_hashfs_t *h, const block_meta_t *blockmeta)
     return OK;
 }
 
+
+rc_ty sx_hashfs_blkrb_hold(sx_hashfs_t *h, const sx_hash_t *block, unsigned int blocksize, const sx_node_t *node) {
+    const sx_uuid_t *uuid;
+
+    if(!h || !block || !node) {
+        NULLARG();
+        return EFAULT;
+    }
+
+    if(sx_hashfs_check_blocksize(blocksize) != OK)
+	return FAIL_BADBLOCKSIZE;
+
+    uuid = sx_node_uuid(node);
+    if(!uuid) {
+	msg_set_reason("Invalid node target for block to put on hold");
+	return EINVAL;
+    }
+
+    sqlite3_reset(h->qx_hold);
+    if(qbind_blob(h->qx_hold, ":b", block, sizeof(*block)) ||
+       qbind_int(h->qx_hold, ":s", blocksize) ||
+       qbind_blob(h->qx_hold, ":n", uuid->binary, sizeof(uuid->binary)) ||
+       qstep_noret(h->qx_hold))
+	return FAIL_EINTERNAL;
+
+    return OK;
+}
+
+rc_ty sx_hashfs_blkrb_can_gc(sx_hashfs_t *h, const sx_hash_t *block, unsigned int blocksize) {
+    rc_ty ret;
+    int r;
+
+    if(!h || !block) {
+        NULLARG();
+        return EFAULT;
+    }
+
+    if(sx_hashfs_check_blocksize(blocksize) != OK)
+	return FAIL_BADBLOCKSIZE;
+
+    sqlite3_reset(h->qx_isheld);
+    if(qbind_blob(h->qx_isheld, ":b", block, sizeof(block)) ||
+       qbind_int(h->qx_isheld, ":s", blocksize))
+	return FAIL_EINTERNAL;
+
+    r = qstep(h->qx_isheld);
+    if(r == SQLITE_ROW) {
+	sqlite3_reset(h->qx_isheld);
+	ret = FAIL_LOCKED;
+    } else if(r == SQLITE_DONE)
+	ret = OK;
+    else
+	ret = FAIL_EINTERNAL;
+
+    return ret;
+}
+
+rc_ty sx_hashfs_blkrb_release(sx_hashfs_t *h, uint64_t pushq_id) {
+    if(!h) {
+        NULLARG();
+        return EFAULT;
+    }
+
+    sqlite3_reset(h->qx_isheld);
+    if(qbind_int64(h->qx_release, ":pushid", pushq_id) ||
+       qstep_noret(h->qx_release))
+	return FAIL_EINTERNAL;
+
+    return OK;
+}
+
+rc_ty sx_hashfs_blkrb_is_complete(sx_hashfs_t *h) {
+    int s;
+
+    sqlite3_reset(h->qx_hasheld);
+    s = qstep(h->qx_hasheld);
+    sqlite3_reset(h->qx_hasheld);
+
+    if(s == SQLITE_ROW)
+	return EEXIST;
+    else if(s == SQLITE_DONE)
+	return OK;
+    else
+	return FAIL_EINTERNAL;
+}
+
+rc_ty sx_hashfs_relocs_populate(sx_hashfs_t *h) {
+    const sx_hashfs_volume_t *vol;
+    sx_uuid_t selfuuid;
+    unsigned int i;
+    rc_ty r;
+
+    for(i=0; i<METADBS; i++) {
+	sqlite3_reset(h->qm_wiperelocs[i]);
+	if(qstep_noret(h->qm_wiperelocs[i])) {
+	    WARN("Failed to wipe relocation queue on db %u", i);
+	    return FAIL_EINTERNAL;
+	}
+    }
+
+    if(sx_hashfs_self_uuid(h, &selfuuid))
+	return FAIL_EINTERNAL;
+	
+    r = sx_hashfs_volume_first(h, &vol, 0);
+    while(r == OK) {
+	sx_nodelist_t *prevnodes, *nextnodes;
+	const sx_node_t *prev, *next;
+	sx_hash_t hash;
+
+	INFO("Got volume %s", vol->name);
+	if(hash_buf(h->cluster_uuid.string, strlen(h->cluster_uuid.string), vol->name, strlen(vol->name), &hash)) {
+	    WARN("hashing volume name failed");
+	    return FAIL_EINTERNAL;
+	}
+
+	prevnodes = sx_hashfs_hashnodes(h, NL_PREV, &hash, vol->replica_count);
+	if(!prevnodes) {
+	    WARN("cannot determine the previous owner of block: %s", msg_get_reason());
+	    return FAIL_EINTERNAL;
+	}
+
+	nextnodes = sx_hashfs_hashnodes(h, NL_NEXT, &hash, vol->replica_count);
+	if(!nextnodes) {
+	    WARN("cannot determine the next owner of block");
+	    sx_nodelist_delete(prevnodes);
+	    return FAIL_EINTERNAL;
+	}
+
+	prev = sx_nodelist_lookup_index(prevnodes, &selfuuid, &i);
+	if(prev) {
+	    /* I was the i-th owner of this volume */
+	    next = sx_nodelist_get(nextnodes, i);
+	    if(next && !sx_nodelist_lookup(prevnodes, sx_node_uuid(next))) {
+		const sx_uuid_t *uuid = sx_node_uuid(next);
+
+		INFO("Setting files in volume %s to be relocated from here to %s(%s) for replica %u", vol->name, sx_node_uuid_str(next), sx_node_addr(next), i);
+		/* The upcoming i-th owner of this volume wans't already an owner:
+		 * all volume files are setup for relocation */
+		for(i=0; i<METADBS; i++) {
+		    sqlite3_reset(h->qm_addrelocs[i]);
+		    if(qbind_blob(h->qm_addrelocs[i], ":node", uuid->binary, sizeof(uuid->binary)) ||
+		       qbind_int64(h->qm_addrelocs[i], ":volid", vol->id) ||
+		       qstep_noret(h->qm_addrelocs[i])) {
+			WARN("Failed to add relocation queue on db %u for volume %llu", i, (long long)vol->id);
+			sx_nodelist_delete(prevnodes);
+			sx_nodelist_delete(nextnodes);
+			return FAIL_EINTERNAL;
+		    }
+		}
+	    }
+	}
+
+	sx_nodelist_delete(prevnodes);
+	sx_nodelist_delete(nextnodes);
+	r = sx_hashfs_volume_next(h);
+    }
+
+    return r == ITER_NO_MORE ? OK : r;
+}
+
+
+void sx_hashfs_relocs_begin(sx_hashfs_t *h) {
+    h->relocdb_start = h->relocdb_cur = rand() % METADBS;
+    h->relocid = 0;
+}
+
+static rc_ty relocs_delete(sx_hashfs_t *h, unsigned int relocdb, int64_t relocid) {
+    sqlite3_reset(h->qm_delreloc[relocdb]);
+    if(qbind_int64(h->qm_delreloc[relocdb], ":fileid", relocid) ||
+       qstep_noret(h->qm_delreloc[relocdb]))
+	return FAIL_EINTERNAL;
+    return OK;
+}
+
+
+void sx_hashfs_reloc_free(const sx_reloc_t *reloc) {
+    sx_reloc_t *dr = (sx_reloc_t *)reloc;
+    if(!dr)
+	return;
+    free(dr->blocks);
+    sxc_meta_free(dr->metadata);
+    free(dr);
+}
+
+
+rc_ty sx_hashfs_relocs_next(sx_hashfs_t *h, const sx_reloc_t **reloc) {
+    if(!h || !reloc) {
+	NULLARG();
+	return EFAULT;
+    }
+
+    *reloc = NULL;
+    while(1) {
+	unsigned int ndb = h->relocdb_cur;
+	sqlite3_stmt *q = h->qm_getreloc[ndb];
+	const sx_hashfs_volume_t *volume;
+    	const char *name, *rev;
+	const void *content;
+	unsigned int content_len, i;
+	sx_uuid_t targetid;
+	sx_reloc_t *rlc;
+	int64_t volid;
+	rc_ty ret;
+	int r;
+
+	sqlite3_reset(q);
+	if(qbind_int64(q, ":prev", h->relocid))
+	    return FAIL_EINTERNAL;
+
+	r = qstep(q);
+	if(r == SQLITE_DONE) {
+	    h->relocid = 0;
+	    h->relocdb_cur = (ndb + 1) % METADBS;
+	    if(h->relocdb_cur == h->relocdb_start)
+		return ITER_NO_MORE;
+	    continue;
+	}
+
+	if(r != SQLITE_ROW)
+	    return FAIL_EINTERNAL;
+
+	h->relocid = sqlite3_column_int64(q, 0);
+	if(sqlite3_column_type(q, 2) == SQLITE_NULL) {
+	    /* This file no longer exists */
+	    sqlite3_reset(q);
+	    ret = relocs_delete(h, ndb, h->relocid);
+	    if(ret != OK)
+		return ret;
+	    continue;
+	}
+
+	volid = sqlite3_column_int64(q, 2);
+	name = (const char *)sqlite3_column_text(q, 3);
+	rev = (const char *)sqlite3_column_text(q, 5);
+	content_len = sqlite3_column_bytes(q, 6);
+	content = sqlite3_column_blob(q, 6);
+	if(!name ||
+	   sqlite3_column_bytes(q, 1) != sizeof(targetid.binary) ||
+	   !rev ||
+	   (!content && content_len) ||
+	   content_len % sizeof(sx_hash_t)) {
+	    WARN("Bad file %lld in %u", (long long)h->relocid, ndb);
+	    sqlite3_reset(q);
+	    return FAIL_EINTERNAL;
+	}
+
+	rlc = wrap_calloc(1, sizeof(*rlc));
+	if(!rlc) {
+	    sqlite3_reset(q);
+	    return ENOMEM;
+	}
+	if(content_len) {
+	    rlc->blocks = wrap_malloc(content_len);
+	    if(!rlc->blocks) {
+		sqlite3_reset(q);
+		sx_hashfs_reloc_free(rlc);
+		return ENOMEM;
+	    }
+	}
+	rlc->metadata = sxc_meta_new(h->sx);
+	if(!rlc->metadata) {
+	    sqlite3_reset(q);
+	    sx_hashfs_reloc_free(rlc);
+	    return ENOMEM;
+	}
+
+	if(parse_revision(rev, &rlc->file.created_at)) {
+	    WARN("Bad revision on file %lld in %u", (long long)h->relocid, ndb);
+	    sqlite3_reset(q);
+	    sx_hashfs_reloc_free(rlc);
+	    return FAIL_EINTERNAL;
+	}
+
+	rlc->file.file_size = sqlite3_column_int64(q, 4);
+	uuid_from_binary(&targetid, sqlite3_column_blob(q, 1));
+	rlc->target = sx_nodelist_lookup(sx_hashfs_nodelist(h, NL_NEXT), &targetid);
+	if(!rlc->target) {
+	    WARN("File id %lld in %u has invalid target %s", (long long)h->relocid, ndb, targetid.string);
+	    sqlite3_reset(q);
+	    sx_hashfs_reloc_free(rlc);
+	    return FAIL_EINTERNAL;
+	}
+
+	strncpy(rlc->file.name, name, sizeof(rlc->file.name));
+	strncpy(rlc->file.revision, rev, sizeof(rlc->file.revision));
+	rlc->file.revision[sizeof(rlc->file.revision)-1] = '\0';
+	rlc->file.nblocks = size_to_blocks(rlc->file.file_size, NULL, &rlc->file.block_size);
+	if(content_len)
+	    memcpy(rlc->blocks, content, content_len);
+
+	ret = sx_hashfs_volume_by_id(h, volid, &volume);
+	if(ret) {
+	    sqlite3_reset(q);
+	    sx_hashfs_reloc_free(rlc);
+	    return ret;
+	}
+	memcpy(&rlc->volume, volume, sizeof(*volume));
+
+	ret = fill_filemeta(h, ndb, h->relocid);
+	sqlite3_reset(q);
+	if(ret != OK) {
+	    WARN("Failed to load metadata for file %lld in %u", (long long)h->relocid, ndb);
+	    sx_hashfs_reloc_free(rlc);
+	    return ret;
+	}
+
+	for(i=0; i<h->nmeta; i++) {
+	    if(sxc_meta_setval(rlc->metadata, h->meta[i].key, h->meta[i].value, h->meta[i].value_len)) {
+		sx_hashfs_reloc_free(rlc);
+		return ENOMEM;
+	    }
+	}
+
+	rlc->reloc_id = h->relocid;
+	rlc->reloc_db = ndb;
+
+	*reloc = rlc;
+	return OK;
+    }
+}
+
+rc_ty sx_hashfs_relocs_delete(sx_hashfs_t *h, const sx_reloc_t *reloc) {
+    if(!h || !reloc) {
+	NULLARG();
+	return EFAULT;
+    }
+
+    return relocs_delete(h, reloc->reloc_db, reloc->reloc_id);
+}
+
+
+rc_ty sx_hashfs_rb_cleanup(sx_hashfs_t *h) {
+    const sx_hashfs_volume_t *vol;
+    sx_uuid_t selfuuid;
+    unsigned int i;
+    rc_ty r;
+
+    sqlite3_reset(h->qx_wipehold);
+    if(qstep_noret(h->qx_wipehold)) {
+	WARN("Failed to wipe hold list");
+	return FAIL_EINTERNAL;
+    }
+
+    for(i=0; i<METADBS; i++) {
+	sqlite3_reset(h->qm_wiperelocs[i]);
+	if(qstep_noret(h->qm_wiperelocs[i])) {
+	    WARN("Failed to wipe relocation queue on db %u", i);
+	    return FAIL_EINTERNAL;
+	}
+    }
+
+    if(sx_hashfs_self_uuid(h, &selfuuid))
+	return FAIL_EINTERNAL;
+ 
+    r = sx_hashfs_volume_first(h, &vol, 0);
+    while(r == OK) {
+	sx_nodelist_t *volnodes;
+	sx_hash_t hash;
+
+	if(hash_buf(h->cluster_uuid.string, strlen(h->cluster_uuid.string), vol->name, strlen(vol->name), &hash)) {
+	    WARN("hashing volume name failed");
+	    return FAIL_EINTERNAL;
+	}
+
+	volnodes = sx_hashfs_hashnodes(h, NL_NEXT, &hash, vol->replica_count);
+	if(!volnodes)
+	    return FAIL_EINTERNAL;
+
+	do {
+	    unsigned int i;
+	    INFO("Nodes for volume %s:", vol->name);
+	    for(i=0; i<sx_nodelist_count(volnodes); i++) {
+		const sx_node_t *n = sx_nodelist_get(volnodes, i);
+		INFO(" - %s(%s)", sx_node_uuid_str(n), sx_node_addr(n));
+	    }
+	} while(0);
+
+	if(!sx_nodelist_lookup(volnodes, &selfuuid)) {
+	    INFO("Removing all files from %s which no longer belong in here", vol->name);
+	    for(i=0; i<METADBS; i++) {
+		sqlite3_reset(h->qm_delbyvol[i]);
+		if(qbind_int64(h->qm_delbyvol[i], ":volid", vol->id) ||
+		   qstep_noret(h->qm_delbyvol[i]))
+		    WARN("Failed to delete relocated files on %u for volume %llu", i, (long long)vol->id);
+	    }
+	}
+	sx_nodelist_delete(volnodes);
+	r = sx_hashfs_volume_next(h);
+    }
+
+    if(r == ITER_NO_MORE)
+	r = OK;
+
+    return r;
+}

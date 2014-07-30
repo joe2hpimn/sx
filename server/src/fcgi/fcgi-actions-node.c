@@ -327,11 +327,17 @@ void fcgi_enable_distribution(void) {
     if(s != OK)
 	quit_errmsg(rc2http(s), msg_get_reason());
 
-    /* MODHDIST: create jobs for rebalancing */
-
     CGI_PUTS("\r\n");
 }
 
+void fcgi_start_rebalance(void) {
+    rc_ty s = sx_hashfs_hdist_rebalance(hashfs);
+
+    if(s != OK)
+	quit_errmsg(rc2http(s), msg_get_reason());
+
+    CGI_PUTS("\r\n");
+}
 
 /*
   {

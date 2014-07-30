@@ -35,7 +35,6 @@
 #include "hashfs.h"
 #include "log.h"
 #include "blockmgr.h"
-#include "../libsx/src/curlevents.h"
 
 static int terminate = 0;
 
@@ -79,7 +78,9 @@ struct blockmgr_data_t {
 
 static void blockmgr_del_xfer(struct blockmgr_data_t *q, int64_t xfer_id) {
     sqlite3_reset(q->qdel);
-    if(qbind_int64(q->qdel, ":id", xfer_id) ||
+    if(sx_hashfs_blkrb_release(q->hashfs, xfer_id) != OK)
+	WARN("Failed to release block %lld", (long long)xfer_id);
+    else if(qbind_int64(q->qdel, ":id", xfer_id) ||
        qstep_noret(q->qdel))
 	WARN("Failed to delete transfer %lld", (long long)xfer_id);
     sqlite3_reset(q->qdel);
@@ -97,6 +98,7 @@ static uint8_t upbuffer[UPLOAD_CHUNK_SIZE];
 void blockmgr_process_queue(struct blockmgr_data_t *q) {
     sxc_client_t *sx = sx_hashfs_client(q->hashfs);
     sxi_conns_t *clust = sx_hashfs_conns(q->hashfs);
+    const sx_node_t *me = sx_hashfs_self(q->hashfs);
     sxi_hostlist_t uploadto;
 
     sxi_hostlist_init(&uploadto);
@@ -147,7 +149,7 @@ void blockmgr_process_queue(struct blockmgr_data_t *q) {
 	    continue;
 	}
 
-	if(!sx_node_cmp(node, sx_hashfs_self(q->hashfs))) {
+	if(!sx_node_cmp(node, me)) {
 	    WARN("Removing transfer to self");
 	    sqlite3_reset(q->qlist);
 	    blockmgr_del_xfer(q, xfer_id);
@@ -295,7 +297,7 @@ int blockmgr(sxc_client_t *sx, const char *self, const char *dir, int pipe) {
 
     xferdb = sx_hashfs_xferdb(q.hashfs);
 
-    if(qprep(xferdb, &q.qprune, "DELETE FROM topush WHERE sched_time > expiry_time"))
+    if(qprep(xferdb, &q.qprune, "DELETE FROM topush WHERE id IN (SELECT id FROM topush LEFT JOIN onhold ON block = hblock AND size = hsize AND node = hnode WHERE hid IS NULL) AND sched_time > expiry_time")) /* If you touch this query, please double check index usage! */
 	goto blockmgr_err;
     if(qprep(xferdb, &q.qlist, "SELECT a.id, a.block, a.size, a.node FROM topush AS a LEFT JOIN (SELECT size, node FROM topush ORDER BY sched_time ASC LIMIT 1) AS b ON a.node = b.node AND a.size = b.size WHERE b.node IS NOT NULL AND b.size IS NOT NULL AND sched_time <= strftime('%Y-%m-%d %H:%M:%f') ORDER BY sched_time ASC LIMIT "STRIFY(DOWNLOAD_MAX_BLOCKS)))
 	goto blockmgr_err;

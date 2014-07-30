@@ -147,6 +147,7 @@ static void print_html(int status, const char *title, int errnum, const char *er
 }
 
 static void send_error_helper(const char sep, int errnum, const char *message) {
+    sx_uuid_t node_uuid;
     CGI_PRINTF("%c\"ErrorMessage\":", sep);
     json_send_qstring(message);
     if (errnum == 500 || errnum == 400) {
@@ -156,8 +157,7 @@ static void send_error_helper(const char sep, int errnum, const char *message) {
         json_send_qstring(msg_log_end());
     }
     CGI_PUTS(",\"NodeId\":");
-    const sx_node_t *me = sx_hashfs_self(hashfs);
-    json_send_qstring(me ? sx_node_uuid(me)->string : "<UNKNOWN>");
+    json_send_qstring(sx_hashfs_self_uuid(hashfs, &node_uuid)==OK ? node_uuid.string : "<UNKNOWN>");
     CGI_PUTS(",\"ErrorId\":");
     json_send_qstring(msg_get_id());
     CGI_PUTC('}');

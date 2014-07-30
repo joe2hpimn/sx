@@ -246,6 +246,7 @@ void fcgi_create_user(void)
 
 	sx_blob_to_data(joblb, &job_data, &job_datalen);
 	INFO("job_add user");
+	/* Users are created globally, in no particluar order (PREVNEXT would be fine too) */
 	allnodes = sx_hashfs_nodelist(hashfs, NL_NEXTPREV);
 	job_timeout = 12 * sx_nodelist_count(allnodes);
 	res = sx_hashfs_job_new(hashfs, uid, &job, JOBTYPE_CREATE_USER, job_timeout, uctx.name, job_data, job_datalen, allnodes);

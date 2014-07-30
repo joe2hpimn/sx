@@ -52,17 +52,11 @@ void fcgi_locate_volume(const sx_hashfs_volume_t *vol) {
     } else
 	fsize = 0;
 
-    /* MODHDIST:
-     * try the previous set first as old nodes always found there
-     * (but possibly not yet on the next set) */
+    /* The locate_volume query is shared between different ops.
+     * Although most of them (file creation, file deletion, etc) can be
+     * safely target to PREV and NEXT volumes, listing files is only 
+     * guaranteed to be accurate when performed against a PREV volnode */
     s = sx_hashfs_volnodes(hashfs, NL_PREV, vol, fsize, &nodes, &blocksize);
-    /* MODHDIST:
-     * OTOH newly created vols will only be found on the next set, so
-     * on failure we look it up there as well */
-    if(s!=OK) {
-	WARN("Volume %s not on the old set", vol->name);
-	s = sx_hashfs_volnodes(hashfs, NL_NEXT, vol, fsize, &nodes, &blocksize);
-    }
     switch(s) {
 	case OK:
 	    break;
@@ -810,6 +804,7 @@ void fcgi_create_volume(void) {
 	sx_blob_free(yctx.metablb);
 
 	sx_blob_to_data(joblb, &job_data, &job_datalen);
+	/* Volumes are created globally, in no particluar order (PREVNEXT would be fine too) */
 	allnodes = sx_hashfs_nodelist(hashfs, NL_NEXTPREV);
 	job_timeout = 12 * sx_nodelist_count(allnodes);
 	res = sx_hashfs_job_new(hashfs, uid, &job, JOBTYPE_CREATE_VOLUME, job_timeout, volume, job_data, job_datalen, allnodes);

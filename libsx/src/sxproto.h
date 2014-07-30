@@ -67,7 +67,7 @@ typedef struct {
 
 sxi_query_t *sxi_hashop_proto_check(sxc_client_t *sx, unsigned blocksize, const char *hashes, unsigned hashes_len);
 sxi_query_t *sxi_hashop_proto_reserve(sxc_client_t *sx, unsigned blocksize, const char *hashes, unsigned hashes_len, const char *id);
-sxi_query_t *sxi_hashop_proto_inuse_begin(sxc_client_t *sx, const char *id);
+sxi_query_t *sxi_hashop_proto_inuse_begin(sxc_client_t *sx, int kind, const void *id, unsigned id_size);
 sxi_query_t *sxi_hashop_proto_inuse_hash(sxc_client_t *sx, sxi_query_t *query, const block_meta_t *blockmeta);
 sxi_query_t *sxi_hashop_proto_inuse_end(sxc_client_t *sx, sxi_query_t *query);
 
