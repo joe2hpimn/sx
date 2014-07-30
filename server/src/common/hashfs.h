@@ -35,10 +35,6 @@
 #include "../libsx/src/cluster.h"
 #include "sxdbi.h"
 
-typedef struct _sx_hash_t {
-    uint8_t b[SXI_SHA1_BIN_LEN];
-} sx_hash_t;
-
 #include "hashop.h"
 
 #define TOKEN_RAND_BYTES 16
@@ -233,7 +229,8 @@ rc_ty sx_hashfs_block_put(sx_hashfs_t *h, const uint8_t *data, unsigned int bs, 
 
 /* hash batch ops for GC */
 rc_ty sx_hashfs_hashop_begin(sx_hashfs_t *h, unsigned bs);
-rc_ty sx_hashfs_hashop_perform(sx_hashfs_t *h, enum sxi_hashop_kind kind, const sx_hash_t *hash, const char *id);
+rc_ty sx_hashfs_hashop_perform(sx_hashfs_t *h, unsigned replica, enum sxi_hashop_kind kind, const sx_hash_t *hash, const char *id);
+rc_ty sx_hashfs_hashop_mod(sx_hashfs_t *h, const sx_hash_t *hash, const char *id, unsigned int blocksize, unsigned replica, int64_t count);
 rc_ty sx_hashfs_hashop_finish(sx_hashfs_t *h, rc_ty rc);
 rc_ty sx_hashfs_gc_periodic(sx_hashfs_t *h, int *terminate);
 rc_ty sx_hashfs_gc_run(sx_hashfs_t *h, int *terminate);
@@ -310,5 +307,26 @@ rc_ty sx_hashfs_xfer_tonodes(sx_hashfs_t *h, sx_hash_t *block, unsigned int size
 void sx_hashfs_xfer_trigger(sx_hashfs_t *h);
 
 void sx_hashfs_gc_trigger(sx_hashfs_t *h);
+
+typedef struct {
+    block_meta_t *all;
+    unsigned long n;
+} blocks_t;
+
+void sx_hashfs_blockmeta_free(block_meta_t **blockmeta);
+
+typedef int (*cb_hash)(void *context, unsigned int bs, const sx_hash_t *hash);
+
+/* a no-op, for compatibility with the dumb iteration API proposal */
+rc_ty sx_hashfs_br_begin(sx_hashfs_t *h);
+
+/* call this until you get ITER_NO_MORE or an error */
+rc_ty sx_hashfs_br_next(sx_hashfs_t *h, block_meta_t **blockmetaptr);
+
+/* must call either delete or ignore, or you'll eventually see the hash again.
+ * Note: calling ignore doesn't mean you won't see it again, it just means
+ * that if all hashes are ignored iteration stops and returns ITER_NO_MORE. */
+rc_ty sx_hashfs_br_delete(sx_hashfs_t *h, const block_meta_t *blockmeta);
+rc_ty sx_hashfs_br_ignore(sx_hashfs_t *h, const block_meta_t *blockmeta);
 
 #endif

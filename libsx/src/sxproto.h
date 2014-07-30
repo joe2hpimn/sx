@@ -48,7 +48,29 @@ sxi_query_t *sxi_fileadd_proto_begin(sxc_client_t *sx, const char *volname, cons
 sxi_query_t *sxi_fileadd_proto_addhash(sxc_client_t *sx, sxi_query_t *query, const char *hexhash);
 sxi_query_t *sxi_fileadd_proto_end(sxc_client_t *sx, sxi_query_t *query, sxc_meta_t *metadata);
 sxi_query_t *sxi_filedel_proto(sxc_client_t *sx, const char *volname, const char *path, const char *revision);
-sxi_query_t *sxi_hashop_proto(sxc_client_t *sx, unsigned blocksize, const char *hashes, unsigned hashes_len, enum sxi_hashop_kind kind, const char *id);
+
+typedef struct {
+    unsigned replica;
+    int64_t count;
+} block_meta_entry_t;
+
+typedef struct {
+    uint8_t b[SXI_SHA1_BIN_LEN];
+} sx_hash_t;
+
+typedef struct {
+    sx_hash_t hash;
+    unsigned int blocksize;
+    block_meta_entry_t *entries;
+    unsigned long count;
+} block_meta_t;
+
+sxi_query_t *sxi_hashop_proto_check(sxc_client_t *sx, unsigned blocksize, const char *hashes, unsigned hashes_len);
+sxi_query_t *sxi_hashop_proto_reserve(sxc_client_t *sx, unsigned blocksize, const char *hashes, unsigned hashes_len, const char *id);
+sxi_query_t *sxi_hashop_proto_inuse_begin(sxc_client_t *sx, const char *id);
+sxi_query_t *sxi_hashop_proto_inuse_hash(sxc_client_t *sx, sxi_query_t *query, const block_meta_t *blockmeta);
+sxi_query_t *sxi_hashop_proto_inuse_end(sxc_client_t *sx, sxi_query_t *query);
+
 sxi_query_t *sxi_nodeinit_proto(sxc_client_t *sx, const char *cluster_name, const char *node_uuid, uint16_t http_port, int ssl_flag, const char *ssl_file);
 sxi_query_t *sxi_distribution_proto(sxc_client_t *sx, const void *cfg, unsigned int cfg_len);
 

@@ -30,6 +30,7 @@
 void fcgi_send_blocks(void);
 void fcgi_save_blocks(void);
 void fcgi_hashop_blocks(enum sxi_hashop_kind kind);
+void fcgi_hashop_inuse(void);
 void fcgi_push_blocks(void);
 
 #endif

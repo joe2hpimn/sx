@@ -35,6 +35,7 @@
 #include "hashfs.h"
 #include "log.h"
 #include "blockmgr.h"
+#include "../libsx/src/curlevents.h"
 
 static int terminate = 0;
 
@@ -167,7 +168,7 @@ void blockmgr_process_queue(struct blockmgr_data_t *q) {
         }
         /* just check for presence, reservation was already done by the failed
          * INUSE */
-	sxi_hashop_begin(&hc, clust, hcb, HASHOP_CHECK, NULL, &hlist);
+	sxi_hashop_begin(&hc, clust, hcb, HASHOP_CHECK, 0, NULL, &hlist);
         for(hlist.nblocks = 0; r == SQLITE_ROW; hlist.nblocks++) {
 	    /* Some preliminary extra checks; broken entries will be wiped on the next (outer) loop */
 	    h = sqlite3_column_blob(q->qlist, 1);
@@ -263,7 +264,6 @@ void blockmgr_process_queue(struct blockmgr_data_t *q) {
     sxi_hostlist_empty(&uploadto);
     sqlite3_reset(q->qlist); /* Better safe than deadlocked */
 }
-
 
 int blockmgr(sxc_client_t *sx, const char *self, const char *dir, int pipe) {
     struct blockmgr_data_t q;

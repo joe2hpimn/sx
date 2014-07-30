@@ -33,6 +33,7 @@
 #include "fcgi-utils.h"
 #include "utils.h"
 #include "blob.h"
+#include "fcgi-actions-block.h"
 
 void fcgi_send_blocks(void) {
     unsigned int blocksize;
@@ -47,8 +48,10 @@ void fcgi_send_blocks(void) {
     if(sx_hashfs_check_blocksize(blocksize))
 	quit_errmsg(404, "The requested block size does not exist");
 
-    if(*hpath != '/')
-	quit_errmsg(404, "Path must begin with /");
+    if(*hpath != '/') {
+        msg_set_reason("Path must begin with / after blocksize: %s", path);
+        quit_errmsg(404, msg_get_reason());
+    }
     while(*hpath == '/')
 	hpath++;
     urlen = strlen(hpath);
@@ -127,8 +130,10 @@ void fcgi_hashop_blocks(enum sxi_hashop_kind kind) {
     id = get_arg("id");
 
     blocksize = strtol(path, (char **)&hpath, 10);
-    if(*hpath != '/')
-	quit_errmsg(404, "Path must begin with /");
+    if(*hpath != '/') {
+        msg_set_reason("Path must begin with / after blocksize: %s", path);
+        quit_errmsg(404, msg_get_reason());
+    }
     while(*hpath == '/')
 	hpath++;
     rc = sx_hashfs_hashop_begin(hashfs, blocksize);
@@ -150,7 +155,7 @@ void fcgi_hashop_blocks(enum sxi_hashop_kind kind) {
             quit_itererr("bad URL format for hashop", 400);
         }
         n++;
-        rc = sx_hashfs_hashop_perform(hashfs, kind, &reqhash, id);
+        rc = sx_hashfs_hashop_perform(hashfs, 0, kind, &reqhash, id);
         present = rc == OK;
         if (comma)
             CGI_PUTC(',');
@@ -176,6 +181,269 @@ void fcgi_hashop_blocks(enum sxi_hashop_kind kind) {
     }
     CGI_PUTS("]}");
     DEBUG("hashop: missing %d, n: %d", missing, n);
+}
+
+static int meta_add(block_meta_t *meta, unsigned replica, int64_t count)
+{
+    block_meta_entry_t *e;
+    if (!meta)
+        return -1;
+    meta->entries = wrap_realloc_or_free(meta->entries, ++meta->count * sizeof(*meta->entries));
+    if (!meta->entries)
+        return -1;
+    e = &meta->entries[meta->count - 1];
+    e->replica = replica;
+    e->count = count;
+    return 0;
+}
+
+static int all_add(blocks_t *all, const block_meta_t *m)
+{
+    if (!all)
+        return -1;
+    all->all = wrap_realloc_or_free(all->all, ++all->n * sizeof(*all->all));
+    if (!all->all)
+        return -1;
+    memcpy(&all->all[all->n - 1], m, sizeof(*m));
+    return 0;
+}
+
+struct inuse_ctx {
+    rc_ty error;
+    block_meta_t meta;
+    blocks_t all;
+    unsigned replica;
+    unsigned blocksize;
+    enum inuse_state { CB_IU_START, CB_IU_MAP, CB_IU_HASH, CB_IU_VALUES, CB_IU_BLOCKSIZE, CB_IU_REPLICA, CB_IU_COMPLETE  } state;
+};
+
+static int cb_inuse_number(void *ctx, const char *s, size_t l)
+{
+    char numb[24], *enumb;
+    int64_t nnumb;
+    struct inuse_ctx *yactx = (struct inuse_ctx*)ctx;
+    if (!yactx)
+        return 0;
+    if(l > 20) {
+	DEBUG("number too long (%u bytes)", (unsigned)l);
+	return 0;
+    }
+    if (yactx->state != CB_IU_REPLICA && yactx->state != CB_IU_BLOCKSIZE) {
+        DEBUG("bad number state %d", yactx->state);
+        return 0;
+    }
+    memcpy(numb, s, l);
+    numb[l] = '\0';
+    nnumb = strtoll(numb, &enumb, 10);
+    if(*enumb) {
+	DEBUG("failed to parse number %.*s", (int)l, s);
+	return 0;
+    }
+
+    if (yactx->state == CB_IU_BLOCKSIZE) {
+        DEBUG("blocksize: %d", nnumb);
+        yactx->meta.blocksize = nnumb;
+        yactx->replica = 0;
+        yactx->state = CB_IU_VALUES;
+        return 1;
+    }
+
+    if (!yactx->replica) {
+        DEBUG("zero replica");
+        return 0;
+    }
+
+    if (meta_add(&yactx->meta, yactx->replica, nnumb)) {
+        DEBUG("meta_add failed");
+        return 0;
+    }
+    yactx->replica = 0;
+    yactx->state = CB_IU_VALUES;
+    return 1;
+}
+
+static int cb_inuse_start_map(void *ctx) {
+    struct inuse_ctx *yactx = (struct inuse_ctx*)ctx;
+    if (!yactx) {
+        DEBUG("null yactx");
+        return 0;
+    }
+    switch (yactx->state) {
+        case CB_IU_START:
+            yactx->state = CB_IU_MAP;
+            break;
+        case CB_IU_HASH:
+            yactx->state = CB_IU_VALUES;
+            break;
+        default:
+            DEBUG("bad map state: %d", yactx->state);
+            return 0;
+    }
+    DEBUG("start_map OK");
+    return 1;
+}
+
+static int cb_inuse_end_map(void *ctx) {
+    struct inuse_ctx *yactx = (struct inuse_ctx*)ctx;
+    if (!yactx)
+        return 0;
+    switch (yactx->state) {
+        case CB_IU_MAP:
+            yactx->state = CB_IU_COMPLETE;
+            break;
+        case CB_IU_VALUES:
+            if (all_add(&yactx->all, &yactx->meta)) {
+                free(yactx->meta.entries);
+                return 0;
+            }
+            memset(&yactx->meta, 0, sizeof(yactx->meta));
+            yactx->state = CB_IU_MAP;
+            break;
+        default:
+            DEBUG("bad map state: %d", yactx->state);
+            return 0;
+    }
+    return 1;
+}
+
+static int cb_inuse_map_key(void *ctx, const unsigned char *s, size_t l) {
+    char numb[24], *enumb;
+    int64_t nnumb;
+    struct inuse_ctx *yactx = (struct inuse_ctx*)ctx;
+    if (!yactx)
+        return 0;
+    switch (yactx->state) {
+        case CB_IU_MAP:
+            yactx->state = CB_IU_HASH;
+            memset(&yactx->meta, 0, sizeof(yactx->meta));
+            if(hex2bin(s, l, (uint8_t *)&yactx->meta.hash, sizeof(yactx->meta.hash)))
+                return 0;
+            break;
+        case CB_IU_VALUES:
+            if (!strncmp("b", s , l)) {
+                yactx->state = CB_IU_BLOCKSIZE;
+            } else {
+                yactx->state = CB_IU_REPLICA;
+                memcpy(numb, s, l);
+                numb[l] = '\0';
+                nnumb = strtoll(numb, &enumb, 10);
+                if(*enumb) {
+                    DEBUG("failed to parse number %.*s", (int)l, s);
+                    return 0;
+                }
+                yactx->replica = nnumb;
+            }
+            break;
+        default:
+            DEBUG("bad map key state: %d", yactx->state);
+            return 0;
+    }
+    return 1;
+}
+
+static void blocks_free(blocks_t *blocks)
+{
+    unsigned i;
+    for (i=0;i<blocks->n;i++)
+        free(blocks->all[i].entries);
+    free(blocks->all);
+    blocks->all = NULL;
+}
+
+static const yajl_callbacks inuse_parser = {
+    cb_fail_null,
+    cb_fail_boolean,
+    NULL,
+    NULL,
+    cb_inuse_number,
+    cb_fail_string,
+    cb_inuse_start_map,
+    cb_inuse_map_key,
+    cb_inuse_end_map,
+    cb_fail_start_array,
+    cb_fail_end_array
+};
+
+void fcgi_hashop_inuse(void) {
+    unsigned i, j;
+    sx_hash_t reqhash;
+    rc_ty rc;
+    unsigned missing = 0;
+    const char *id;
+    int comma = 0;
+    unsigned idx = 0;
+
+    struct inuse_ctx yctx;
+    memset(&yctx, 0, sizeof(yctx));
+
+    id = get_arg("id");
+
+    yajl_handle yh = yajl_alloc(&inuse_parser, NULL, &yctx);
+    if (!yh) {
+        quit_errmsg(500, "Cannot allocate json parser");
+    }
+    int len;
+    while((len = get_body_chunk(hashbuf, sizeof(hashbuf))) > 0) {
+        DEBUG("parsing: %.*s", len, hashbuf);
+	if(yajl_parse(yh, hashbuf, len) != yajl_status_ok) {
+            DEBUG("yajl_parse failed on chunk: %.*s", len, hashbuf);
+            break;
+        }
+    }
+
+    if(len || yajl_complete_parse(yh) != yajl_status_ok || yctx.state != CB_IU_COMPLETE) {
+        free(yctx.meta.entries);
+        blocks_free(&yctx.all);
+        DEBUG("yajl parse failed, state: %d (%d)", yctx.state, CB_IU_COMPLETE);
+	yajl_free(yh);
+	quit_errmsg(rc2http(yctx.error), (yctx.error == ENOMEM) ? "Out of memory processing the request" : "Invalid request content");
+    }
+    free(yctx.meta.entries);
+    yctx.meta.entries = NULL;
+    yajl_free(yh);
+
+    auth_complete();
+    if(!is_authed()) {
+	send_authreq();
+	return;
+    }
+
+    CGI_PUTS("Content-type: application/json\r\n\r\n{\"presence\":[");
+
+    for (i=0;i<yctx.all.n;i++) {
+        int present;
+        const block_meta_t *m = &yctx.all.all[i];
+        rc = FAIL_EINTERNAL;
+        for (j=0;j<m->count;j++) {
+            const block_meta_entry_t *e = &m->entries[j];
+            rc = sx_hashfs_hashop_mod(hashfs, &m->hash, id, m->blocksize, e->replica, e->count);
+            if (rc)
+                break;
+        }
+        present = rc == OK;
+        if (comma)
+            CGI_PUTC(',');
+        /* the presence callback wants an index not the actual hash...
+         * */
+        CGI_PUTS(present ? "true" : "false");
+        DEBUGHASH("Status sent for ", &reqhash);
+        DEBUG("Hash index %d, present: %d", idx, present);
+        comma = 1;
+        if (rc != OK) {
+            if (rc == ENOENT)
+                rc = OK;
+            else
+                break;
+        }
+        idx++;
+    }
+    if (rc != OK) {
+        WARN("hashop: %s", rc2str(rc));
+        CGI_PUTC(']');
+        quit_itererr(msg_get_reason(), rc2http(rc));
+    }
+    CGI_PUTS("]}");
+    DEBUG("hashop: missing %d, n: %ld", missing, yctx.all.n);
 }
 
 void fcgi_save_blocks(void) {

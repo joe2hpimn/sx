@@ -164,6 +164,9 @@ void volume_ops(void) {
                 quit_errmsg(403, "Key operations require SECURE mode");
             }
 	    fcgi_create_user();
+        } else if (!strcmp(volume, ".data")) {
+            quit_unless_has(PRIV_CLUSTER);
+            fcgi_hashop_inuse();
 	} else {
 	    /* Create new volume - ADMIN required */
 	    if(is_reserved())
@@ -194,8 +197,14 @@ void file_ops(void) {
 
     if(verb == VERB_HEAD || verb == VERB_GET) {
 	if(!strcmp(volume, ".data")) {
-	    /* Get block content - any valid user allowed */
-	    fcgi_send_blocks();
+            if (has_arg("o")) {
+                quit_unless_has(PRIV_CLUSTER);
+                if (arg_is("o","check"))
+                    fcgi_hashop_blocks(HASHOP_CHECK);
+            } else {
+                /* Get block content - any valid user allowed */
+                fcgi_send_blocks();
+            }
 	} else if(!strcmp(volume, ".results")) {
 	    /* Get job result - job owner or ADMIN required (enforcement in fcgi_job_result()) */
 	    fcgi_job_result();
@@ -258,10 +267,6 @@ void file_ops(void) {
                 quit_unless_has(PRIV_CLUSTER);
                 if (arg_is("o","reserve"))
                     kind = HASHOP_RESERVE;
-                else if (arg_is("o","inuse"))
-                    kind = HASHOP_INUSE;
-                else if (arg_is("o","check"))
-                    kind = HASHOP_CHECK;
                 else
                     quit_errmsg(400,"Invalid operation requested on hash batch");
                 fcgi_hashop_blocks(kind);
@@ -292,9 +297,7 @@ void file_ops(void) {
 
     if(verb == VERB_DELETE) {
 	if(!strcmp(volume, ".data")) {
-	    /* Hashop delete (gc/s2s) - CLUSTER required */
-            quit_unless_has(PRIV_CLUSTER);
-            fcgi_hashop_blocks(HASHOP_DELETE);
+            quit_errmsg(405, "Method Not Allowed");
             return;
 	}
 

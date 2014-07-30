@@ -36,13 +36,14 @@
 #include "utils.h"
 #include <yajl/yajl_parse.h>
 
-void sxi_hashop_begin(sxi_hashop_t *hashop, sxi_conns_t *conns, hash_presence_cb_t cb, enum sxi_hashop_kind kind, const sx_hash_t *idhash, void *context)
+void sxi_hashop_begin(sxi_hashop_t *hashop, sxi_conns_t *conns, hash_presence_cb_t cb, enum sxi_hashop_kind kind, unsigned replica, const sx_hash_t *idhash, void *context)
 {
     memset(hashop, 0, sizeof(*hashop));
     hashop->conns = conns;
     hashop->cb = cb;
     hashop->context = context;
     hashop->kind = kind;
+    hashop->replica = replica;
     if (idhash && bin2hex(idhash->b, sizeof(idhash->b), hashop->id, sizeof(hashop->id)))
         WARN("bin2hex failed");
     sxc_clearerr(sxi_conns_get_client(conns));
@@ -51,6 +52,7 @@ void sxi_hashop_begin(sxi_hashop_t *hashop, sxi_conns_t *conns, hash_presence_cb
 struct hashop_ctx {
     yajl_handle yh;
     char *hexhashes;
+    sxi_query_t *query;
     enum { MISS_ERROR, MISS_BEGIN, MISS_MAP, MISS_PRESENCE, MISS_ARRAY, MISS_COMPLETE } state;
     unsigned idx;
     unsigned hashop_idx;
@@ -226,6 +228,7 @@ static void batch_finish(curlev_context_t *ctx, const char *url)
         WARN("NULL context");
         return;
     }
+    sxi_query_free(yactx->query);
 
     sxi_hashop_t *hashop = yactx->hashop;
     if (!hashop) {
@@ -289,7 +292,7 @@ static int presence_cb(curlev_context_t *ctx, const unsigned char *data, size_t 
 static int sxi_hashop_batch(sxi_hashop_t *hashop)
 {
     const char *host, *hexhashes;
-    unsigned int blocksize;
+    unsigned int blocksize, i, n;
     sxi_query_t *query;
     int rc;
     if (!hashop || !hashop->conns)
@@ -333,15 +336,47 @@ static int sxi_hashop_batch(sxi_hashop_t *hashop)
     hashop->queries += strlen(hexhashes) / 40;
 
     SXDEBUG("hashop %d, idx:%d on %s, hexhashes: %s", hashop->hashes_count, pp->hashop_idx, hashop->hashes, hashop->hexhashes);
-    query = sxi_hashop_proto(sxi_conns_get_client(hashop->conns), blocksize, hashop->hashes, hashop->hashes_pos, hashop->kind, hashop->id);
+    n = strlen(hexhashes) / SXI_SHA1_TEXT_LEN;
+    switch (hashop->kind) {
+        case HASHOP_CHECK:
+            query = sxi_hashop_proto_check(sxi_conns_get_client(hashop->conns), blocksize, hashop->hashes, hashop->hashes_pos);
+            break;
+        case HASHOP_RESERVE:
+            query = sxi_hashop_proto_reserve(sxi_conns_get_client(hashop->conns), blocksize, hashop->hashes, hashop->hashes_pos, hashop->id);
+            break;
+        case HASHOP_DELETE:/* fall-through */
+        case HASHOP_INUSE:
+            query = sxi_hashop_proto_inuse_begin(sxi_conns_get_client(hashop->conns), hashop->id);
+            for (i=0;i < n;i++) {
+                block_meta_entry_t entry;
+                block_meta_t meta;
+                if (hex2bin(hexhashes + i * SXI_SHA1_TEXT_LEN, SXI_SHA1_TEXT_LEN, meta.hash.b, sizeof(meta.hash.b))) {
+                    sxi_query_free(query);
+                    query = NULL;
+                    break;
+                }
+                entry.replica = hashop->replica;
+                entry.count = hashop->kind == HASHOP_INUSE ? 1 : -1;
+                meta.entries = &entry;
+                meta.count = 1;
+                meta.blocksize = hashop->current_blocksize;
+                query = sxi_hashop_proto_inuse_hash(sx, query, &meta);
+            }
+            query = sxi_hashop_proto_inuse_end(sx, query);
+            break;
+        default:
+            query = NULL;
+            break;
+    }
+    pp->query = query;
     if (query) {
-        rc = sxi_cluster_query_ev(cbdata, hashop->conns, host, query->verb, query->path, NULL, 0, presence_setup_cb, presence_cb);
+        rc = sxi_cluster_query_ev(cbdata, hashop->conns, host, query->verb, query->path, query->content, query->content_len, presence_setup_cb, presence_cb);
     } else {
         free(pp->hexhashes);
+        sxi_query_free(pp->query);
         free(pp);
         rc = -1;
     }
-    sxi_query_free(query);
     sxi_cbdata_unref(&cbdata);
     return rc;
 }
