@@ -372,11 +372,13 @@ void handle_request(void) {
     char *argp;
     unsigned int plen;
 
-    int dc = sx_hashfs_distcheck(hashfs);
-    if(dc < 0) {
+    if(sx_hashfs_distcheck(hashfs) < 0) {
 	CRIT("Failed to reload distribution");
-	/* MODHDIST: should die here */
+	quit_errmsg(503, "Internal error: failed to load distribution");
     }
+
+    if(sx_hashfs_is_orphan(hashfs))
+	quit_errmsg(410, "This node is no longer a cluster member");
 
     msg_new_id();
     verb = VERB_UNSUP;

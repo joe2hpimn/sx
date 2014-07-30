@@ -564,7 +564,7 @@ int sxi_cluster_query(sxi_conns_t *conns, const sxi_hostlist_t *hlist, enum sxi_
 
 	/* Break out on success or if the failure is non retriable */
 	if((status == 200) ||
-	   (status / 100 == 4 && status != 404 && status != 408 && status != 429))
+	   (status / 100 == 4 && status != 404 && status != 408 && status != 410 && status != 429))
 	    break;
     }
 

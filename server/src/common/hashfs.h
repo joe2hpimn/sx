@@ -98,6 +98,7 @@ void sx_hashfs_checkpoint_eventdb(sx_hashfs_t *h);
 void sx_hashfs_checkpoint_xferdb(sx_hashfs_t *h);
 int sx_storage_is_bare(sx_hashfs_t *h);
 int sx_hashfs_is_rebalancing(sx_hashfs_t *h);
+int sx_hashfs_is_orphan(sx_hashfs_t *h);
 const char *sx_hashfs_cluster_name(sx_hashfs_t *h);
 uint16_t sx_hashfs_http_port(sx_hashfs_t *h);
 const char *sx_hashfs_ca_file(sx_hashfs_t *h);

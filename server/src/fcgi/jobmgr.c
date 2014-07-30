@@ -246,7 +246,7 @@ action_failed:
 		WARN("Query failed with %d", rc);
 		if(ret > ACT_RESULT_TEMPFAIL) /* Only raise OK to TEMP */
 		    action_set_fail(ACT_RESULT_TEMPFAIL, 503, sxc_geterrmsg(sx_hashfs_client(hashfs)));
-	    } else if(rc == 200)
+	    } else if(rc == 200 || rc == 410)
 		succeeded[nnode] = 1;
 	    else
 		ret = ACT_RESULT_PERMFAIL; /* Raise OK and TEMP to PERMFAIL */
@@ -341,7 +341,7 @@ static act_result_t createuser_commit(sx_hashfs_t *hashfs, job_t job_id, job_dat
 		WARN("Query failed with %d", rc);
 		if(ret > ACT_RESULT_TEMPFAIL) /* Only raise OK to TEMP */
 		    action_set_fail(ACT_RESULT_TEMPFAIL, 503, sxc_geterrmsg(sx));
-	    } else if(rc == 200) {
+	    } else if(rc == 200 || rc == 410) {
 		succeeded[nnode] = 1;
 	    } else {
 		act_result_t newret = http2actres(rc);
@@ -492,7 +492,7 @@ static act_result_t createvol_request(sx_hashfs_t *hashfs, job_t job_id, job_dat
 		WARN("Query failed with %d", rc);
 		if(ret > ACT_RESULT_TEMPFAIL) /* Only raise OK to TEMP */
 		    action_set_fail(ACT_RESULT_TEMPFAIL, 503, sxc_geterrmsg(sx));
-	    } else if(rc == 200) {
+	    } else if(rc == 200 || rc == 410) {
 		succeeded[nnode] = 1;
 	    } else {
 		act_result_t newret = http2actres(rc);
@@ -593,7 +593,7 @@ static act_result_t createvol_commit(sx_hashfs_t *hashfs, job_t job_id, job_data
 		WARN("Query failed with %d", rc);
 		if(ret > ACT_RESULT_TEMPFAIL) /* Only raise OK to TEMP */
 		    action_set_fail(ACT_RESULT_TEMPFAIL, 503, sxc_geterrmsg(sx));
-	    } else if(rc == 200) {
+	    } else if(rc == 200 || rc == 410) {
 		succeeded[nnode] = 1;
 	    } else {
 		act_result_t newret = http2actres(rc);
@@ -685,7 +685,7 @@ static act_result_t createvol_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_
 		WARN("Query failed with %d", rc);
 		if(ret > ACT_RESULT_TEMPFAIL) /* Only raise OK to TEMP */
 		    action_set_fail(ACT_RESULT_TEMPFAIL, 503, sxc_geterrmsg(sx));
-	    } else if (rc == 200) {
+	    } else if (rc == 200 || rc == 410) {
 		succeeded[nnode] = 1;
 	    } else {
 		act_result_t newret = http2actres(rc);
@@ -769,7 +769,7 @@ static act_result_t job_twophase_execute(const job_2pc_t *spec, jobphase_t phase
 		WARN("Query failed with %d", rc);
 		if(ret > ACT_RESULT_TEMPFAIL) /* Only raise OK to TEMP */
 		    action_set_fail(ACT_RESULT_TEMPFAIL, 503, sxc_geterrmsg(sx_hashfs_client(hashfs)));
-	    } else if(rc == 200) {
+	    } else if(rc == 200 || rc == 410) {
 		succeeded[nnode] = 1;
 	    } else {
 		act_result_t newret = http2actres(rc);
@@ -1196,7 +1196,7 @@ static act_result_t fileflush_request(sx_hashfs_t *hashfs, job_t job_id, job_dat
 			WARN("Query failed with %d", rc);
 			if(ret > ACT_RESULT_TEMPFAIL) /* Only raise OK to TEMP */
 			    action_set_fail(ACT_RESULT_TEMPFAIL, 503, sxc_geterrmsg(sx_hashfs_client(hashfs)));
-		    } else if(rc != 200) {
+		    } else if(rc != 200 && rc != 410) {
 			act_result_t newret = http2actres(rc);
 			if(newret < ret) /* Severity shall only be raised */
 			    action_set_fail(newret, rc, sxc_geterrmsg(sx_hashfs_client(hashfs)));
@@ -1369,7 +1369,7 @@ static act_result_t filedelete_request(sx_hashfs_t *hashfs, job_t job_id, job_da
 			WARN("Query failed with %d", rc);
 			if(ret > ACT_RESULT_TEMPFAIL) /* Only raise OK to TEMP */
 			    action_set_fail(ACT_RESULT_TEMPFAIL, 503, sxc_geterrmsg(sx_hashfs_client(hashfs)));
-		    } else if(rc == 200 || rc == 404) {
+		    } else if(rc == 200 || rc == 404 || rc == 410) {
 			succeeded[nnode] += 1;
 		    } else {
 			act_result_t newret = http2actres(rc);

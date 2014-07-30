@@ -713,7 +713,7 @@ struct _sx_hashfs_t {
     sxi_hdist_t *hd;
     sx_nodelist_t *prev_dist, *next_dist, *nextprev_dist, *prevnext_dist;
     int64_t hd_rev;
-    unsigned int have_hd, is_rebalancing;
+    unsigned int have_hd, is_rebalancing, is_orphan;
     time_t last_dist_change;
 
     sx_hashfs_volume_t curvol;
@@ -1228,6 +1228,11 @@ static int load_config(sx_hashfs_t *h, sxc_client_t *sx) {
 		WARN(" - %s (%s)", sx_node_uuid_str(nn), sx_node_addr(nn));
 	    }
 	    h->prev_dist = sx_nodelist_dup(h->next_dist);
+
+	    if(!sx_nodelist_lookup(h->next_dist, &h->node_uuid)) {
+		INFO("THIS NODE IS NO LONGER A CLUSTER MEMBER");
+		h->is_orphan = 1;
+	    }
 	} else if(sxi_hdist_buildcnt(h->hd) == 2) {
 	    unsigned int xx;
 
@@ -1250,13 +1255,6 @@ static int load_config(sx_hashfs_t *h, sxc_client_t *sx) {
 	} else {
 	    CRIT("Failed to load cluster distribution: too many models");
 	    goto load_config_fail;
-	}
-
-	if(!sx_nodelist_lookup(h->next_dist, &h->node_uuid)) {
-	    WARN("FIXMERB: DO SOMETHING HERE");
-	    /* MODHDIST:
-	     * we are out of the cluster
-	     * turn on reject all mode (503 to every request) */
 	}
 
 	h->nextprev_dist = sx_nodelist_dup(h->next_dist);
@@ -2389,6 +2387,10 @@ const sx_uuid_t *sx_hashfs_uuid(sx_hashfs_t *h) {
 
 int sx_hashfs_is_rebalancing(sx_hashfs_t *h) {
     return h ? h->is_rebalancing : 0;
+}
+
+int sx_hashfs_is_orphan(sx_hashfs_t *h) {
+    return h ? h->is_orphan : 0;
 }
 
 /* MODHDIST: this was forked off into sx_hashfs_hdist_change_add
