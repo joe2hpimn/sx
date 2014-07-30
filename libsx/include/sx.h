@@ -152,7 +152,7 @@ void sxc_cluster_listfiles_free(sxc_cluster_lf_t *lf);
 int sxc_cluster_set_conns_limit(sxc_cluster_t *cluster, unsigned int max_active, unsigned int max_active_per_host);
 
 /* Transfer direction */
-typedef enum { SXC_XFER_DIRECTION_DOWNLOAD, SXC_XFER_DIRECTION_UPLOAD } sxc_xfer_direction_t;
+typedef enum { SXC_XFER_DIRECTION_DOWNLOAD = 1, SXC_XFER_DIRECTION_UPLOAD = 2, SXC_XFER_DIRECTION_BOTH = 3 } sxc_xfer_direction_t;
 
 /* Single direction transfer stats */
 typedef struct {

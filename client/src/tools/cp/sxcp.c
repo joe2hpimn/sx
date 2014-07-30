@@ -224,13 +224,19 @@ static int bar_progress(const sxc_xfer_stat_t *xfer_stat) {
     if(!bar_internal || !xfer_stat) {
         return SXE_ABORT;
     }
+    if(xfer_stat->current_xfer.direction == SXC_XFER_DIRECTION_BOTH)
+        skipped = 2 * xfer_stat->current_xfer.file_size - xfer_stat->current_xfer.to_send;
+    else
+        skipped = xfer_stat->current_xfer.file_size - xfer_stat->current_xfer.to_send;
 
     if(xfer_stat->status != SXC_XFER_STATUS_PART_FINISHED && xfer_stat->status != SXC_XFER_STATUS_WAITING) {
-        skipped = xfer_stat->current_xfer.file_size - xfer_stat->current_xfer.to_send;
-        if(skipped < 0)
-            skipped = 0;
-        sc = ((double)(skipped - last_skipped) / xfer_stat->current_xfer.file_size);
-        c = xfer_stat->current_xfer.file_size > 0 ? (double)(skipped + xfer_stat->current_xfer.sent) / (double)xfer_stat->current_xfer.file_size : 1.0;
+        if(xfer_stat->current_xfer.direction == SXC_XFER_DIRECTION_BOTH) {
+            sc = xfer_stat->current_xfer.file_size > 0 ? (double)(skipped - last_skipped) / (double)(xfer_stat->current_xfer.file_size * 2) : 0;
+            c = xfer_stat->current_xfer.file_size > 0 ? (double)(skipped + xfer_stat->current_xfer.sent) / (double)(xfer_stat->current_xfer.file_size * 2): 1.0;
+        } else {
+            sc = xfer_stat->current_xfer.file_size > 0 ? (double)(skipped - last_skipped) / (double)xfer_stat->current_xfer.file_size : 0;
+            c = xfer_stat->current_xfer.file_size > 0 ? (double)(skipped + xfer_stat->current_xfer.sent) / (double)xfer_stat->current_xfer.file_size : 1.0;
+        }
         if(skipped != last_skipped)
             last_skipped = skipped;
     } else {
@@ -376,7 +382,11 @@ static int dots_progress(const sxc_xfer_stat_t *xfer_stat) {
         dots_sizes.bytes = xfer_stat->current_xfer.blocksize;
     }
 
-    skipped = xfer_stat->current_xfer.file_size - xfer_stat->current_xfer.to_send;
+    if(xfer_stat->current_xfer.direction == SXC_XFER_DIRECTION_BOTH)
+        skipped = 2 * xfer_stat->current_xfer.file_size - xfer_stat->current_xfer.to_send;
+    else
+        skipped = xfer_stat->current_xfer.file_size - xfer_stat->current_xfer.to_send;
+
     if(skipped < 0) skipped = 0;
 
     while(xfer_stat->current_xfer.sent + skipped > xfer_written) {
@@ -403,7 +413,11 @@ static int dots_progress(const sxc_xfer_stat_t *xfer_stat) {
         
         /* If all dots fot this line was printed, write out stats and break line */
         if(dots_written == dots_sizes.per_cluster * dots_sizes.clusters) {
-            c = xfer_stat->current_xfer.file_size > 0 ? (double)xfer_written / (double)xfer_stat->current_xfer.file_size : 1.0;     
+            if(xfer_stat->current_xfer.direction == SXC_XFER_DIRECTION_BOTH)
+                c = xfer_stat->current_xfer.file_size > 0 ? (double)xfer_written / (double)(xfer_stat->current_xfer.file_size * 2) : 1.0;
+            else
+                c = xfer_stat->current_xfer.file_size > 0 ? (double)xfer_written / (double)xfer_stat->current_xfer.file_size : 1.0;
+
             speed = xfer_stat->current_xfer.total_time > 0 ? (double)xfer_stat->current_xfer.sent / xfer_stat->current_xfer.total_time : 0;
             percent = c <= 1.0 ? 100 * c : 100;
             eta = speed > 0 ? xfer_stat->current_xfer.to_send / speed - xfer_stat->current_xfer.total_time : 0;
@@ -496,9 +510,17 @@ static int progress_callback(const sxc_xfer_stat_t *xfer_stat) {
             if(file_name_esc) {
                 sxc_escstr(file_name_esc);
             }
-            if(processed_size && file_name_esc)
-                printf("%s %s (size: %sB)\n", xfer_stat->current_xfer.direction == SXC_XFER_DIRECTION_DOWNLOAD ? "Downloading" : "Uploading", 
-                    file_name_esc, processed_size);
+            if(processed_size && file_name_esc) {
+                const char *op;
+                if(xfer_stat->current_xfer.direction == SXC_XFER_DIRECTION_DOWNLOAD)
+                    op = "Downloading";
+                else if(xfer_stat->current_xfer.direction == SXC_XFER_DIRECTION_UPLOAD)
+                    op = "Uploading";
+                else
+                    op = "Transferring";
+
+                printf("%s %s (size: %sB)\n", op, file_name_esc, processed_size);
+            }
             free(processed_size);
             free(file_name_esc);
 

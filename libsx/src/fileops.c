@@ -55,9 +55,10 @@ struct _sxc_file_t {
     int cat_fd;
 };
 
-sxc_xfer_stat_t* sxi_cluster_xfer_new(sxc_client_t *sx, sxc_xfer_callback xfer_callback, void *ctx) {
-    sxc_xfer_stat_t *xfer_stat = NULL;
-    if(!sx || !xfer_callback)
+sxc_xfer_stat_t* sxi_xfer_new(sxc_client_t *sx, sxc_xfer_callback xfer_callback, void *ctx) {
+    sxc_xfer_stat_t *xfer_stat;
+
+    if(!xfer_callback)
         return NULL;
 
     xfer_stat = calloc(1, sizeof(sxc_xfer_stat_t));
@@ -74,27 +75,23 @@ sxc_xfer_stat_t* sxi_cluster_xfer_new(sxc_client_t *sx, sxc_xfer_callback xfer_c
     return xfer_stat;
 }
 
-void sxi_cluster_xfer_free(sxc_xfer_stat_t *xfer) {
-    free(xfer);
-}
-
 /* Rate at wchich progress function should call external progress handler */
 #define XFER_PROGRESS_INTERVAL 0.5
 
-static int set_xfer_stat(sxc_xfer_stat_t *xfer_stat, int64_t bytes) {
+int sxi_set_xfer_stat(sxc_xfer_stat_t *xfer_stat, int64_t dl, int64_t ul) {
     double timediff = 0;
     struct timeval now;
     if(!xfer_stat || !xfer_stat->xfer_callback)
         return SXE_ABORT;
 
     /* Increase current file counter */
-    xfer_stat->current_xfer.sent += bytes;
+    xfer_stat->current_xfer.sent += dl + ul;
 
     /* Increase total counters */
-    if(xfer_stat->current_xfer.direction == SXC_XFER_DIRECTION_DOWNLOAD)
-        xfer_stat->total_dl += bytes;
-    else
-        xfer_stat->total_ul += bytes;
+    if(xfer_stat->current_xfer.direction | SXC_XFER_DIRECTION_DOWNLOAD)
+        xfer_stat->total_dl += dl;
+    if(xfer_stat->current_xfer.direction | SXC_XFER_DIRECTION_UPLOAD)
+        xfer_stat->total_ul += ul;
 
     gettimeofday(&now, NULL);
     if((timediff = sxi_timediff(&now, &xfer_stat->interval_timer)) >= XFER_PROGRESS_INTERVAL) {
@@ -115,15 +112,13 @@ static int sxi_xfer_set_file(sxc_xfer_stat_t *xfer_stat, const char *file_name, 
     if(!xfer_stat)
         return 1;
 
-    switch(xfer_direction) {
-        case SXC_XFER_DIRECTION_DOWNLOAD: {
-            xfer_stat->total_to_dl += file_size;
-            xfer_stat->total_data_dl += file_size;
-        } break;
-        case SXC_XFER_DIRECTION_UPLOAD: {
-            xfer_stat->total_to_ul += file_size;
-            xfer_stat->total_data_ul += file_size;
-        } break;
+    if(xfer_direction | SXC_XFER_DIRECTION_DOWNLOAD) {
+        xfer_stat->total_to_dl += file_size;
+        xfer_stat->total_data_dl += file_size;
+    }
+    if(xfer_direction | SXC_XFER_DIRECTION_UPLOAD) {
+        xfer_stat->total_to_ul += file_size;
+        xfer_stat->total_data_ul += file_size;
     }
 
     xfer_stat->current_xfer.file_name = file_name;
@@ -131,6 +126,11 @@ static int sxi_xfer_set_file(sxc_xfer_stat_t *xfer_stat, const char *file_name, 
     xfer_stat->current_xfer.blocksize = blocksize;
     xfer_stat->current_xfer.direction = xfer_direction;
     xfer_stat->current_xfer.to_send = file_size;
+
+    /* If data is to be transferred both ways we have to double size of data to send */
+    if(xfer_stat->current_xfer.direction == SXC_XFER_DIRECTION_BOTH)
+        xfer_stat->current_xfer.to_send *= 2;
+
     xfer_stat->current_xfer.sent = 0;
     gettimeofday(&xfer_stat->current_xfer.start_time, NULL);
 
@@ -149,14 +149,14 @@ static int skip_xfer(sxc_cluster_t *cluster, int64_t bytes) {
 
     xfer_stat->current_xfer.to_send -= bytes;
 
-    switch(xfer_stat->current_xfer.direction) {
-        case SXC_XFER_DIRECTION_DOWNLOAD: {
-            xfer_stat->total_to_dl -= bytes;
-        } break;
-        case SXC_XFER_DIRECTION_UPLOAD: {
-            xfer_stat->total_to_ul -= bytes;
-        } break;
-    }
+    /* If we are skipping transfers that are needed to be downloaded and uploaded, we have to double its value */
+    if(xfer_stat->current_xfer.direction == SXC_XFER_DIRECTION_BOTH)
+        xfer_stat->current_xfer.to_send -= bytes;
+
+    if(xfer_stat->current_xfer.direction | SXC_XFER_DIRECTION_DOWNLOAD)
+        xfer_stat->total_to_dl -= bytes;
+    if(xfer_stat->current_xfer.direction | SXC_XFER_DIRECTION_UPLOAD)
+        xfer_stat->total_to_ul -= bytes;
 
     gettimeofday(&now, NULL);
 
@@ -495,7 +495,7 @@ struct host_upload_ctx {
     struct file_upload_ctx *yctx;
 
     /* Current download information, updated on CURL callbacks */
-    sxc_cluster_t *cluster;
+    sxi_conns_t *conns;
     int64_t ul;
     int64_t to_ul;
 };
@@ -505,7 +505,7 @@ int sxi_host_upload_set_xfer_stat(struct host_upload_ctx* ctx, int64_t uploaded,
     int64_t ul_diff = 0;
 
     /* This is not considered as error, ctx or cluster == NULL if we do not want to check progress */
-    if(!ctx || !sxi_cluster_get_xfer_stat(ctx->cluster))
+    if(!ctx || !sxi_conns_get_xfer_stat(ctx->conns))
         return SXE_NOERROR;
 
     ctx->to_ul = to_upload;
@@ -513,14 +513,14 @@ int sxi_host_upload_set_xfer_stat(struct host_upload_ctx* ctx, int64_t uploaded,
     ctx->ul = uploaded;
 
     if(ul_diff > 0) {
-        return set_xfer_stat(sxi_cluster_get_xfer_stat(ctx->cluster), ul_diff);
+        return sxi_set_xfer_stat(sxi_conns_get_xfer_stat(ctx->conns), 0, ul_diff);
     } else
         return SXE_NOERROR;
 }
 
 /* Get numner of bytes to be uploaded */
 int64_t sxi_host_upload_get_xfer_to_send(const struct host_upload_ctx *ctx) {
-    if(!ctx || !sxi_cluster_get_xfer_stat(ctx->cluster)) 
+    if(!ctx || !sxi_conns_get_xfer_stat(ctx->conns))
         return 0;
 
     return ctx->to_ul;
@@ -528,7 +528,7 @@ int64_t sxi_host_upload_get_xfer_to_send(const struct host_upload_ctx *ctx) {
 
 /* Get number of bytes already uploaded */
 int64_t sxi_host_upload_get_xfer_sent(const struct host_upload_ctx *ctx) {
-    if(!ctx || !sxi_cluster_get_xfer_stat(ctx->cluster))
+    if(!ctx || !sxi_conns_get_xfer_stat(ctx->conns))
         return 0;
 
     return ctx->ul;
@@ -789,7 +789,7 @@ struct hash_up_data_t {
 };
 
 
-int sxi_upload_block_from_buf(sxi_conns_t *conns, sxi_hostlist_t *hlist, const char *token, uint8_t *block, unsigned int block_size, int64_t upload_size) {
+int sxi_upload_block_from_buf_track(sxi_conns_t *conns, sxi_hostlist_t *hlist, const char *token, uint8_t *block, unsigned int block_size, int64_t upload_size, int track_xfer) {
     sxc_client_t *sx = sxi_conns_get_client(conns);
     char *url = malloc(sizeof(".data") + 32 + strlen(token) + 1);
     /* FIXME: we should share a define beween the server and the client, as it's pointless to alloc the url */
@@ -803,13 +803,17 @@ int sxi_upload_block_from_buf(sxi_conns_t *conns, sxi_hostlist_t *hlist, const c
     sprintf(url, ".data/%u/%s", block_size, token);
 
     sxi_set_operation(sx, "upload file contents", NULL, NULL, NULL);
-    qret = sxi_cluster_query(conns, hlist, REQ_PUT, url, block, upload_size, NULL, NULL, NULL);
+    qret = sxi_cluster_query_track(conns, hlist, REQ_PUT, url, block, upload_size, NULL, NULL, NULL, track_xfer);
     free(url);
     if(qret != 200) {
 	SXDEBUG("query failed");
 	return 1;
     }
     return 0;
+}
+
+int sxi_upload_block_from_buf(sxi_conns_t *conns, sxi_hostlist_t *hlist, const char *token, uint8_t *block, unsigned int block_size, int64_t upload_size) {
+    return sxi_upload_block_from_buf_track(conns, hlist, token, block, block_size, upload_size, 0);
 }
 
 static sxi_job_t* flush_file_ev(sxc_cluster_t *cluster, const char *host, const char *token, const char *name, sxi_jobs_t *jobs) {
@@ -863,7 +867,7 @@ static void part_free(struct part_upload_ctx *yctx)
         sxi_ht_enum_reset(yctx->hostsmap);
         while(!sxi_ht_enum_getnext(yctx->hostsmap, NULL, NULL, (const void **)&u)) {
             if(u)
-                sxi_curlev_nullify_upload_context(sxi_cluster_get_conns(u->cluster), u);
+                sxi_curlev_nullify_upload_context(u->conns, u);
             host_upload_free(u);
         }
         sxi_ht_free(yctx->hostsmap);
@@ -1041,7 +1045,7 @@ static int batch_hashes_to_hosts(struct file_upload_ctx *yctx, struct need_hash 
 		free(u);
                 return -1;
             }
-            u->cluster = yctx->cluster;
+            u->conns = sxi_cluster_get_conns(yctx->cluster);
             if (sxi_ht_add(yctx->current.hostsmap, host, strlen(host)+1, u)) {
                 SXDEBUG("fail incremented: error adding to hostsmap");
                 yctx->fail++;
@@ -2439,7 +2443,7 @@ static int gethash_cb_old(sxi_conns_t *conns, void *ctx, const void *data, size_
     return 0;
 }
 
-static int download_block_to_buf(sxc_cluster_t *cluster, sxi_hostlist_t *hostlist, const char *hash, uint8_t *buf, unsigned int blocksize) {
+static int download_block_to_buf_track(sxc_cluster_t *cluster, sxi_hostlist_t *hostlist, const char *hash, uint8_t *buf, unsigned int blocksize, int track_xfer) {
     struct cb_gethash_ctx ctx;
     char url[6 + 64 + 40 + 1];
     int qret, l;
@@ -2454,13 +2458,17 @@ static int download_block_to_buf(sxc_cluster_t *cluster, sxi_hostlist_t *hostlis
     ctx.at = 0;
     ctx.bsize = blocksize;
     sxi_set_operation(sxi_cluster_get_client(cluster), "download file contents", NULL, NULL, NULL);
-    qret = sxi_cluster_query(sxi_cluster_get_conns(cluster), hostlist, REQ_GET, url, NULL, 0,
-                             gethash_setup_cb_old, gethash_cb_old, &ctx);
+    qret = sxi_cluster_query_track(sxi_cluster_get_conns(cluster), hostlist, REQ_GET, url, NULL, 0,
+                             gethash_setup_cb_old, gethash_cb_old, &ctx, track_xfer);
     if(qret != 200) {
        CFGDEBUG("Failed to retrieve %s - status: %d", url, qret);
        return 1;
     }
     return 0;
+}
+
+static int download_block_to_buf(sxc_cluster_t *cluster, sxi_hostlist_t *hostlist, const char *hash, uint8_t *buf, unsigned int blocksize) {
+    return download_block_to_buf_track(cluster, hostlist, hash, buf, blocksize, 0);
 }
 
 struct file_download_ctx {
@@ -2475,7 +2483,7 @@ struct file_download_ctx {
     unsigned int *queries_finished;
 
     /* Current download information, updated on CURL callbacks */
-    sxc_cluster_t *cluster;
+    sxi_conns_t *conns;
     int64_t dl;
     int64_t to_dl;
 };
@@ -2486,21 +2494,21 @@ int sxi_file_download_set_xfer_stat(struct file_download_ctx* ctx, int64_t downl
     int64_t dl_diff = 0;
 
     /* This is not considered as error, ctx or cluster == NULL if we do not want to check progress */
-    if(!ctx || !sxi_cluster_get_xfer_stat(ctx->cluster))
+    if(!ctx || !sxi_conns_get_xfer_stat(ctx->conns))
         return SXE_NOERROR;
 
     ctx->to_dl = to_download;
     dl_diff = downloaded - ctx->dl;
     ctx->dl = downloaded;
     if(dl_diff > 0)
-        return set_xfer_stat(sxi_cluster_get_xfer_stat(ctx->cluster), dl_diff);
+        return sxi_set_xfer_stat(sxi_conns_get_xfer_stat(ctx->conns), dl_diff, 0);
     else 
         return SXE_NOERROR;
 }
 
 /* Get numner of bytes to be downloaded */
 int64_t sxi_file_download_get_xfer_to_send(const struct file_download_ctx *ctx) {
-    if(!ctx || !sxi_cluster_get_xfer_stat(ctx->cluster))
+    if(!ctx || !sxi_conns_get_xfer_stat(ctx->conns))
         return 0;
 
     return ctx->to_dl;
@@ -2508,7 +2516,7 @@ int64_t sxi_file_download_get_xfer_to_send(const struct file_download_ctx *ctx) 
 
 /* Get number of bytes already downloaded */
 int64_t sxi_file_download_get_xfer_sent(const struct file_download_ctx *ctx) {
-    if(!ctx || !sxi_cluster_get_xfer_stat(ctx->cluster)) 
+    if(!ctx || !sxi_conns_get_xfer_stat(ctx->conns))
         return 0;
 
     return ctx->dl;
@@ -2773,8 +2781,6 @@ static struct file_download_ctx *dctx_new(sxc_client_t *sx)
     if (!ctx)
         return NULL;
     ctx->ctx = mdctx;
-    ctx->dl = 0;
-    ctx->cluster = NULL;
     return ctx;
 }
 
@@ -2928,7 +2934,7 @@ static curlev_context_t *create_download(sxc_cluster_t *cluster, unsigned int bl
     dctx->filesize = filesize;
     dctx->skip = -1;
     dctx->blocksize = blocksize;
-    dctx->cluster = cluster;
+    dctx->conns = sxi_cluster_get_conns(cluster);
 
     return ret;
 }
@@ -3724,7 +3730,10 @@ static sxi_job_t* remote_to_remote_fast(sxc_file_t *source, sxc_meta_t *fmeta, s
     FILE *hf;
     sxi_query_t *query = NULL;
     sxi_job_t *job = NULL;
+    sxc_xfer_stat_t *xfer_stat;
     unsigned int i;
+    int64_t to_skip;
+
     sxi_hostlist_t src_hosts;
     curlev_context_t *cbdata = NULL;
 
@@ -3851,6 +3860,29 @@ static sxi_job_t* remote_to_remote_fast(sxc_file_t *source, sxc_meta_t *fmeta, s
 	goto remote_to_remote_fast_err;
     }
 
+    xfer_stat = sxi_cluster_get_xfer_stat(source->cluster);
+    if(xfer_stat) {
+        if(sxi_xfer_set_file(xfer_stat, source->path, filesize, blocksize, SXC_XFER_DIRECTION_BOTH)) {
+            SXDEBUG("Could not set transfer information to file %s", source->path);
+            goto remote_to_remote_fast_err;
+        }
+        if(xfer_stat->xfer_callback(xfer_stat) != SXE_NOERROR) {
+            SXDEBUG("Could not start transfer");
+            sxi_seterr(sx, SXE_ABORT, "Transfer aborted");
+            goto remote_to_remote_fast_err;
+        }
+        xfer_stat->status = SXC_XFER_STATUS_RUNNING;
+    }
+
+    to_skip = filesize - (int64_t)yctx.current.needed_cnt * (int64_t)blocksize;
+    if(xfer_stat && sxc_geterrnum(sx) != SXE_ABORT) {
+        if(to_skip && skip_xfer(source->cluster, to_skip) != SXE_NOERROR) {
+            SXDEBUG("Could not skip part of transfer");
+            sxi_seterr(sx, SXE_ABORT, "Could not skip part of transfer");
+            goto remote_to_remote_fast_err;
+        }
+    }
+
     for(i = 0; i < yctx.current.needed_cnt; i++) {
         struct need_hash *need = &yctx.current.needed[i];
         int sz;
@@ -3882,19 +3914,30 @@ static sxi_job_t* remote_to_remote_fast(sxc_file_t *source, sxc_meta_t *fmeta, s
             }
         }
 
-        if(download_block_to_buf(source->cluster, &src_hosts, ha, buf, blocksize)) {
+        if(download_block_to_buf_track(source->cluster, &src_hosts, ha, buf, blocksize, 1)) {
             SXDEBUG("failed to download hash %.40s", ha);
             goto remote_to_remote_fast_err;
         }
 
-        if(sxi_upload_block_from_buf(sxi_cluster_get_conns(source->cluster), &need->upload_hosts, yctx.current.token, buf, blocksize, blocksize)) {
+        if(sxi_upload_block_from_buf_track(sxi_cluster_get_conns(source->cluster), &need->upload_hosts, yctx.current.token, buf, blocksize, blocksize, 1)) {
             SXDEBUG("failed to upload hash %.40s", ha);
             goto remote_to_remote_fast_err;
         }
     }
 
     if (!(job = flush_file_ev(dest->cluster, yctx.host, yctx.current.token, yctx.name, NULL)))
-	goto remote_to_remote_fast_err;
+        goto remote_to_remote_fast_err;
+
+    /* Update transfer information, but not when aborting */
+    if(xfer_stat && sxc_geterrnum(sx) != SXE_ABORT) {
+        /* Upload process is waiting for job to finish */
+        xfer_stat->status = SXC_XFER_STATUS_PART_FINISHED;
+        if(xfer_stat->xfer_callback(xfer_stat) != SXE_NOERROR) {
+            SXDEBUG("Could not finish transfer");
+            sxi_seterr(sx, SXE_ABORT, "Transfer aborted");
+            goto remote_to_remote_fast_err;
+        }
+    }
 
 remote_to_remote_fast_err:
     if(src_hashes) {

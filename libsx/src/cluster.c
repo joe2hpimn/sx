@@ -48,6 +48,9 @@ struct _sxi_conns_t {
     int insecure;
     int clock_drifted;
     uint16_t port;
+
+    /* Transfer progress stats */
+    sxc_xfer_stat_t *xfer_stat;
 };
 
 sxi_conns_t *sxi_conns_new(sxc_client_t *sx) {
@@ -80,6 +83,7 @@ void sxi_conns_free(sxi_conns_t *conns) {
     sxi_hostlist_empty(&conns->hlist);
     free(conns->auth_token);
     free(conns->sslname);
+    free(conns->xfer_stat);
 
     if(conns->timeouts) {
 	while(!sxi_ht_enum_getnext(conns->timeouts, NULL, NULL, (const void **)&value))
@@ -483,6 +487,13 @@ struct generic_ctx {
     cluster_setupcb setup_callback;
     cluster_datacb callback;
     void *context;
+
+    /* Hold information about transfer progress */
+    sxc_xfer_stat_t *xfer_stat;
+    int64_t to_ul;
+    int64_t to_dl;
+    int64_t ul;
+    int64_t dl;
 };
 
 static int wrap_setup_callback(curlev_context_t *ctx, const char *host)
@@ -501,7 +512,42 @@ static int wrap_data_callback(curlev_context_t *ctx, const unsigned char *data, 
     return gctx->callback(sxi_cbdata_get_conns(ctx), gctx->context, (void*)data, size);
 }
 
-int sxi_cluster_query(sxi_conns_t *conns, const sxi_hostlist_t *hlist, enum sxi_cluster_verb verb, const char *query, void *content, size_t content_size, cluster_setupcb setup_callback, cluster_datacb callback, void *context)
+/* Set information about current generic transfer */
+int sxi_generic_set_xfer_stat(struct generic_ctx *ctx, int64_t downloaded, int64_t to_download, int64_t uploaded, int64_t to_upload) {
+    int64_t ul_diff = 0;
+    int64_t dl_diff = 0;
+
+    /* This is not considered as error, ctx or ctx->xfer_stat is NULL if we do not want to check progress */
+    if(!ctx || !ctx->xfer_stat)
+        return SXE_NOERROR;
+
+    ctx->to_dl = to_download;
+    dl_diff = downloaded - ctx->dl;
+    ctx->dl = downloaded;
+
+    ctx->to_ul = to_upload;
+    ul_diff = uploaded - ctx->ul;
+    ctx->ul = uploaded;
+
+    if(dl_diff > 0 || ul_diff > 0)
+        return sxi_set_xfer_stat(ctx->xfer_stat, dl_diff, ul_diff);
+    else
+        return SXE_NOERROR;
+}
+
+/* Get number of bytes to be downloaded for generic transfer context */
+int64_t sxi_generic_get_xfer_to_dl(const struct generic_ctx *ctx) {
+    return ctx && ctx->xfer_stat ? ctx->to_dl : 0;
+}
+
+/* Get number of bytes to be uploaded for generic transfer context */
+int64_t sxi_generic_get_xfer_to_ul(const struct generic_ctx *ctx) {
+    return ctx && ctx->xfer_stat ? ctx->to_ul : 0;
+}
+
+int sxi_cluster_query_track(sxi_conns_t *conns, const sxi_hostlist_t *hlist, enum sxi_cluster_verb verb, const char *query,
+                            void *content, size_t content_size, cluster_setupcb setup_callback, cluster_datacb callback,
+                            void *context, int track_xfer)
 {
     unsigned int i, clock_fixed = 0;
     long status = -1;
@@ -522,6 +568,10 @@ int sxi_cluster_query(sxi_conns_t *conns, const sxi_hostlist_t *hlist, enum sxi_
     gctx.setup_callback = setup_callback;
     gctx.callback = callback;
     gctx.context = context;
+    if(track_xfer)
+        gctx.xfer_stat = sxi_conns_get_xfer_stat(conns);
+    else
+        gctx.xfer_stat = NULL;
     curlev_context_t *cbdata = sxi_cbdata_create_generic(conns, NULL, &gctx);
 
     if (!cbdata) {
@@ -578,6 +628,10 @@ int sxi_cluster_query(sxi_conns_t *conns, const sxi_hostlist_t *hlist, enum sxi_
         status = -1;
     }
     return status;
+}
+
+int sxi_cluster_query(sxi_conns_t *conns, const sxi_hostlist_t *hlist, enum sxi_cluster_verb verb, const char *query, void *content, size_t content_size, cluster_setupcb setup_callback, cluster_datacb callback, void *context) {
+    return sxi_cluster_query_track(conns, hlist, verb, query, content, content_size, setup_callback, callback, context, 0);
 }
 
 int sxi_cluster_query_ev_retry(curlev_context_t *cbdata,
@@ -855,4 +909,18 @@ int sxi_conns_set_connections_limit(sxi_conns_t *conns, unsigned int max_active,
     }
 
     return sxi_curlev_set_conns_limit(conns->curlev, max_active, max_active_per_host);
+}
+
+/* Set progress statistics information */
+int sxi_conns_set_xfer_stat(sxi_conns_t *conns, sxc_xfer_stat_t *xfer_stat) {
+    if(!conns)
+        return 1;
+
+    conns->xfer_stat = xfer_stat;
+    return 0;
+}
+
+/* Retrieve progress statistics information */
+sxc_xfer_stat_t *sxi_conns_get_xfer_stat(const sxi_conns_t *conns) {
+    return conns ? conns->xfer_stat : NULL;
 }

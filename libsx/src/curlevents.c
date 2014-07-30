@@ -1344,7 +1344,8 @@ static int xferinfo(void *p, curl_off_t dltotal, curl_off_t dlnow,
     curlev_t *ev = p;
     int err = SXE_ABORT;
     sxc_client_t *sx;
-    double speed = 0;
+    double dl_speed = 0;
+    double ul_speed = 0;
     curl_events_t *e;
 
     if (check_ssl_cert(ev))
@@ -1362,26 +1363,37 @@ static int xferinfo(void *p, curl_off_t dltotal, curl_off_t dlnow,
 
     switch(ev->ctx->tag) {
         case CTX_DOWNLOAD: {
-            if(!e || (e->bandwidth.global_limit && curl_easy_getinfo(ev->curl, CURLINFO_SPEED_DOWNLOAD, &speed) != CURLE_OK)) {
+            if(!e || (e->bandwidth.global_limit && curl_easy_getinfo(ev->curl, CURLINFO_SPEED_DOWNLOAD, &dl_speed) != CURLE_OK)) {
                 err = SXE_ECURL;
             } else {
                 err = sxi_file_download_set_xfer_stat(ev->ctx->u.download_ctx, dlnow, dltotal);
-                if(e->bandwidth.global_limit && speed * e->running > e->bandwidth.global_limit * 1.2)
+                if(e->bandwidth.global_limit && dl_speed * e->running > e->bandwidth.global_limit * 1.2)
                     curlev_update_bandwidth_limit(ev);
             }
         } break;
 
         case CTX_UPLOAD_HOST: {
-            if(!e || (e->bandwidth.global_limit && curl_easy_getinfo(ev->curl, CURLINFO_SPEED_UPLOAD, &speed) != CURLE_OK)) {
+            if(!e || (e->bandwidth.global_limit && curl_easy_getinfo(ev->curl, CURLINFO_SPEED_UPLOAD, &ul_speed) != CURLE_OK)) {
                 err = SXE_ECURL;
             } else {
                 err = sxi_host_upload_set_xfer_stat(ev->ctx->u.host_ctx, ulnow, ultotal);
-                if(e->bandwidth.global_limit && speed * e->running > e->bandwidth.global_limit * 1.2)
+                if(e->bandwidth.global_limit && ul_speed * e->running > e->bandwidth.global_limit * 1.2)
                     curlev_update_bandwidth_limit(ev);
             }
         } break;
 
-        case CTX_GENERIC:
+        case CTX_GENERIC: {
+            if(!e || (e->bandwidth.global_limit && (curl_easy_getinfo(ev->curl, CURLINFO_SPEED_DOWNLOAD, &dl_speed) != CURLE_OK ||
+               curl_easy_getinfo(ev->curl, CURLINFO_SPEED_UPLOAD, &ul_speed) != CURLE_OK))) {
+                err = SXE_ECURL;
+            } else {
+                err = sxi_generic_set_xfer_stat(ev->ctx->u.generic_ctx, dlnow, dltotal, ulnow, ultotal);
+                if(e->bandwidth.global_limit && (dl_speed * e->running > e->bandwidth.global_limit * 1.2 ||
+                   ul_speed * e->running > e->bandwidth.global_limit * 1.2))
+                    curlev_update_bandwidth_limit(ev);
+            }
+        } break;
+
         case CTX_HASHOP:
         case CTX_JOB:
         case CTX_UPLOAD: {
@@ -2219,6 +2231,25 @@ int sxi_curlev_poll_immediate(curl_events_t *e)
                         int64_t to_ul = sxi_host_upload_get_xfer_to_send(ctx->u.host_ctx);
                         if(to_ul)
                             xfer_err = sxi_host_upload_set_xfer_stat(ctx->u.host_ctx, to_ul, to_ul);
+                    } break;
+
+                    case CTX_GENERIC: {
+                        switch(ev->verb) {
+                            case REQ_GET: {
+                                int64_t to_dl = sxi_generic_get_xfer_to_dl(ctx->u.generic_ctx);
+                                if(to_dl)
+                                    xfer_err = sxi_generic_set_xfer_stat(ctx->u.generic_ctx, to_dl, to_dl, 0, 0);
+                            } break;
+
+                            case REQ_PUT: {
+                                int64_t to_ul = sxi_generic_get_xfer_to_ul(ctx->u.generic_ctx);
+                                if(to_ul)
+                                    xfer_err = sxi_generic_set_xfer_stat(ctx->u.generic_ctx, 0, 0, to_ul, to_ul);
+                            } break;
+
+                            default:
+                                break;
+                        }
                     } break;
 
                     default: {
