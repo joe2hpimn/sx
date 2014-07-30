@@ -80,8 +80,14 @@ void fcgi_handle_cluster_requests(void) {
     CGI_PUTS("Content-type: application/json\r\n\r\n{");
 
     if(has_arg("clusterStatus")) {
+	const char *rbl_msg;
+	int rbl_done;
 
+	s = sx_hashfs_get_rbl_info(hashfs, &rbl_done, &rbl_msg);
+	if(s != OK && s != ENOENT)
+	    quit_errmsg(rc2http(s), msg_get_reason());
 	CGI_PUTS("\"clusterStatus\":{\"distributionModels\":[");
+
 	if(!sx_storage_is_bare(hashfs)) {
 	    const sx_nodelist_t *nodes = sx_hashfs_nodelist(hashfs, NL_PREV);
 	    const sx_uuid_t *dist_uuid;
@@ -98,6 +104,12 @@ void fcgi_handle_cluster_requests(void) {
 	    dist_uuid = sx_hashfs_distinfo(hashfs, &version, &checksum);
 	    CGI_PRINTF("],\"distributionUUID\":\"%s\",\"distributionVersion\":%u,\"distributionChecksum\":", dist_uuid->string, version);
 	    CGI_PUTLL(checksum);
+
+	    if(s == OK) {
+		CGI_PRINTF(",\"rebalanceStatus\":{\"inProgress\":%s,\"statusInfo\":", rbl_done ? "false" : "true");
+		json_send_qstring(rbl_msg);
+		CGI_PUTC('}');
+	    }
 	    CGI_PRINTF(",\"clusterAuth\":\"%s\"}", sx_hashfs_authtoken(hashfs));
 	} else
 	    CGI_PUTS("]}");
@@ -159,7 +171,7 @@ void fcgi_handle_cluster_requests(void) {
 	comma |= 1;
     }
     if(has_arg("nodeList")) {
-	const sx_nodelist_t *nodes = sx_hashfs_nodelist(hashfs, NL_NEXT);
+	const sx_nodelist_t *nodes = sx_hashfs_nodelist(hashfs, NL_NEXTPREV);
 
 	if(comma) CGI_PUTC(',');
 	CGI_PUTS("\"nodeList\":");

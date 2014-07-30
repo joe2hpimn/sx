@@ -67,6 +67,7 @@
 #include "blob.h"
 #include "nodes.h"
 #include "version.h"
+#include "clstqry.h"
 
 typedef enum _act_result_t {
     ACT_RESULT_UNSET = 0,
@@ -1058,7 +1059,7 @@ static act_result_t replicateblocks_request(sx_hashfs_t *hashfs, job_t job_id, j
 	    sx_hashfs_xfer_trigger(hashfs);
     }
 
-    INFO("Job id %lld - current replica %u out of %u", (long long)job_id, worstcase_rpl, mis->replica_count);
+    DEBUG("Job id %lld - current replica %u out of %u", (long long)job_id, worstcase_rpl, mis->replica_count);
 
     if(worstcase_rpl < mis->replica_count) // FIXME: check all vs one (or min required)
 	action_error(ACT_RESULT_TEMPFAIL, 500, "Replica not yet completed");
@@ -2052,7 +2053,6 @@ static const sx_node_t *blocktarget(sx_hashfs_t *hashfs, const block_meta_t *b) 
 	return NULL;
     }
 
-    WARN("Checking block target");
     for(i=0; i<or; i++) {
 	const sx_node_t *target;
 	if(sx_node_cmp(sx_nodelist_get(oldnodes, i), self))
@@ -2105,12 +2105,13 @@ static act_result_t blockrb_request(sx_hashfs_t *hashfs, job_t job_id, job_data_
 	action_error(ACT_RESULT_PERMFAIL, 500, "Internal job data error");
     }
 
-    INFO("In %s", __FUNCTION__);
     memset(rbdata, 0, sizeof(rbdata));
+
+    sx_hashfs_set_rbl_info(hashfs, 1, 0, "Relocating data (FIXME: make me pretty)");
 
     s = sx_hashfs_br_begin(hashfs);
     if(s == ITER_NO_MORE) {
-	INFO("No more blocks to be rebalanced (begin)");
+	INFO("No more blocks to be relocated");
 	succeeded[0] = 1;
 	return ACT_RESULT_OK;
     } else if(s != OK)
@@ -2119,27 +2120,25 @@ static act_result_t blockrb_request(sx_hashfs_t *hashfs, job_t job_id, job_data_
     while(1) {
 	const sx_node_t *target;
 	block_meta_t *blockmeta;
+	char hstr[sizeof(blockmeta->hash) * 2 +1];
+
 	s = sx_hashfs_br_next(hashfs, &blockmeta);
 	if(s != OK)
 	    break;
 
-	do { 
-	    char h[sizeof(blockmeta->hash) * 2 +1];
-	    bin2hex(&blockmeta->hash, sizeof(blockmeta->hash), h, sizeof(h));
-	    INFO("Considering block %s", h);
-	} while(0);
+	bin2hex(&blockmeta->hash, sizeof(blockmeta->hash), hstr, sizeof(hstr));
 
 	target = blocktarget(hashfs, blockmeta);
 	if(!target) {
 	    /* Should never trigger */
-	    WARN("Failed to identify target");
+	    WARN("Failed to identify target for %s", hstr);
 	    sx_hashfs_blockmeta_free(&blockmeta);
 	    s = FAIL_EINTERNAL;
 	    break;
 	}
 	if(!sx_node_cmp(self, target)) {
 	    /* Not to be moved */
-	    INFO("Block stays here");
+	    DEBUG("Block %s is not to be moved", hstr);
 	    sx_hashfs_br_ignore(hashfs, blockmeta);
 	    sx_hashfs_blockmeta_free(&blockmeta);
 	    continue;
@@ -2154,13 +2153,13 @@ static act_result_t blockrb_request(sx_hashfs_t *hashfs, job_t job_id, job_data_
 	}
 	if(i == maxnodes) {
 	    /* All target slots are taken, will target again later */
-	    INFO("Block is targeted for %s(%s) to which we currently do not have a channel", sx_node_uuid_str(target), sx_node_internal_addr(target));
+	    DEBUG("Block %s is targeted for %s(%s) to which we currently do not have a channel", hstr, sx_node_uuid_str(target), sx_node_internal_addr(target));
 	    sx_hashfs_blockmeta_free(&blockmeta);
 	    continue;
 	}
 	if(rbdata[i].nblocks >= RB_MAX_BLOCKS) {
 	    /* This target is already full */
-	    INFO("Channel to %s (%s) have all the slots full", sx_node_uuid_str(target), sx_node_internal_addr(target));
+	    DEBUG("Channel to %s (%s) have all the slots full: block %s will be moved later", sx_node_uuid_str(target), sx_node_internal_addr(target), hstr);
 	    sx_hashfs_blockmeta_free(&blockmeta);
 	    continue;
 	}
@@ -2173,7 +2172,7 @@ static act_result_t blockrb_request(sx_hashfs_t *hashfs, job_t job_id, job_data_
 		if(rbdata[j].nblocks < RB_MAX_BLOCKS)
 		    break;
 	    if(j == maxnodes) {
-		INFO("All slots on all channels are now complete");
+		DEBUG("All slots on all channels are now complete");
 		break; /* All slots for all targets are full */
 	    }
 	}
@@ -2190,7 +2189,6 @@ static act_result_t blockrb_request(sx_hashfs_t *hashfs, job_t job_id, job_data_
 	    if(!rbdata[i].node)
 		break;
 
-	    /* FIXMERB: use an hdist guid here */
 	    rbdata[i].proto = sxi_hashop_proto_inuse_begin(sx, SX_ID_REBALANCE, &dist_version, sizeof(dist_version));
 	    for(j=0; j<rbdata[i].nblocks; j++)
 		rbdata[i].proto = sxi_hashop_proto_inuse_hash(sx, rbdata[i].proto, rbdata[i].blocks[j]);
@@ -2237,8 +2235,8 @@ action_failed:
 			    WARN("Cannot delete block"); /* Unexpected but not critical, will retry later */
 			else {
 			    char h[sizeof(sx_hash_t) * 2 +1];
-			    bin2hex(&rbdata[i].blocks[j], sizeof(sx_hash_t), h, sizeof(h));
-			    INFO("Deleted block %s", h);
+			    bin2hex(&rbdata[i].blocks[j]->hash, sizeof(sx_hash_t), h, sizeof(h));
+			    DEBUG("Deleted block %s", h);
 			}
 		    }
 		}
@@ -2259,7 +2257,7 @@ action_failed:
 
     /* If some block was skipped, return tempfail so we get called again later */
     if(ret == ACT_RESULT_OK) {
-	INFO("All blocks in this batch queued for tranfer; more to come later...");
+	DEBUG("All blocks in this batch queued for tranfer; more to come later...");
 	action_set_fail(ACT_RESULT_TEMPFAIL, 503, "Block propagation in progress");
     }
 
@@ -2295,6 +2293,8 @@ static act_result_t filerb_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t
 	CRIT("Bad job data");
 	action_error(ACT_RESULT_PERMFAIL, 500, "Internal job data error");
     }
+
+    sx_hashfs_set_rbl_info(hashfs, 1, 0, "Relocating metadata (FIXME: make me pretty)");
 
     if(sx_hashfs_relocs_populate(hashfs) != OK) {
 	INFO("Failed to populate the relocation queue");
@@ -2408,8 +2408,139 @@ static act_result_t filerb_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t 
 	sx_hashfs_reloc_free(rbdata[i].reloc);
     }
 
-    if(ret == ACT_RESULT_OK)
-	succeeded[0] = 1;
+    if(ret == ACT_RESULT_OK) {
+	if(sx_hashfs_set_rbl_info(hashfs, 1, 1, "Relocation complete (FIXME: make me pretty)") == OK) {
+	    INFO(">>>>>>>>>>>> OBJECT RELOCATION COMPLETE <<<<<<<<<<<<");
+	    succeeded[0] = 1;
+	} else
+	    action_set_fail(ACT_RESULT_TEMPFAIL, 503, msg_get_reason());
+    }
+
+    return ret;
+}
+
+
+static act_result_t finishrebalance_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    sxi_conns_t *clust = sx_hashfs_conns(hashfs);
+    const sx_node_t *me = sx_hashfs_self(hashfs);
+    sxc_client_t *sx = sx_hashfs_client(hashfs);
+    unsigned int i, nnodes = sx_nodelist_count(nodes);
+    act_result_t ret = ACT_RESULT_TEMPFAIL;
+    sxi_hostlist_t hlist;
+
+    sxi_hostlist_init(&hlist);
+
+    for(i=0; i<nnodes; i++) {
+	const sx_node_t *node = sx_nodelist_get(nodes, i);
+	DEBUG("Checking for rebalance completion on %s", sx_node_internal_addr(node));
+	if(sx_node_cmp(me, node)) {
+	    /* Remote node */
+	    clst_t *clst;
+	    int qret;
+
+	    if(sxi_hostlist_add_host(sx, &hlist, sx_node_internal_addr(node)))
+		action_error(ACT_RESULT_TEMPFAIL, 500, "Not enough memory to query rebalance status");
+	    clst = clst_query(clust, &hlist);
+	    if(!clst)
+		action_error(ACT_RESULT_TEMPFAIL, 500, "Failed to query rebalance status");
+
+	    qret = clst_rblstate(clst, NULL);
+	    clst_destroy(clst);
+
+	    if(qret == 0)
+		succeeded[i] = 1;
+	    else if(qret > 0) {
+		INFO("Relocation still running on node %s", sx_node_uuid_str(node));
+		action_error(ACT_RESULT_TEMPFAIL, 500, "Relocation still running");
+	    } else {
+		WARN("Unexpected rebalance state on node %s", sx_node_uuid_str(node));
+		action_error(ACT_RESULT_TEMPFAIL, 500, "Unexpected rebalance status");
+	    }
+
+	    sxi_hostlist_empty(&hlist);
+	} else {
+	    /* Local node */
+	    int rbl_done;
+	    rc_ty s = sx_hashfs_get_rbl_info(hashfs, &rbl_done, NULL);
+	    if(s != OK)
+		action_error(ACT_RESULT_TEMPFAIL, 500, "Unexpected rebalance state on local node");
+	    else if(rbl_done)
+		succeeded[i] = 1;
+	    else
+		action_error(ACT_RESULT_TEMPFAIL, 500, "Rebalance still running on local node");
+	}
+    }
+
+    ret = ACT_RESULT_OK;
+
+ action_failed:
+    sxi_hostlist_empty(&hlist);
+    return ret;
+}
+
+
+static act_result_t finishrebalance_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    sxi_conns_t *clust = sx_hashfs_conns(hashfs);
+    const sx_node_t *me = sx_hashfs_self(hashfs);
+    unsigned int i, nnodes = sx_nodelist_count(nodes);
+    act_result_t ret = ACT_RESULT_OK;
+    query_list_t *qrylist = NULL;
+    rc_ty s;
+
+    for(i=0; i<nnodes; i++) {
+	const sx_node_t *node = sx_nodelist_get(nodes, i);
+	INFO("Stopping rebalance on %s", sx_node_internal_addr(node));
+	if(sx_node_cmp(me, node)) {
+	    /* Remote node */
+	    if(!qrylist) {
+		qrylist = wrap_calloc(nnodes, sizeof(*qrylist));
+		if(!qrylist) {
+		    WARN("Cannot allocate query");
+		    action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
+		}
+	    }
+
+            qrylist[i].cbdata = sxi_cbdata_create_generic(clust, NULL, NULL);
+	    if(sxi_cluster_query_ev(qrylist[i].cbdata, clust, sx_node_internal_addr(node), REQ_DELETE, ".rebalance", NULL, 0, NULL, NULL)) {
+		WARN("Failed to query node %s: %s", sx_node_uuid_str(node), sxc_geterrmsg(sx_hashfs_client(hashfs)));
+		action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to setup cluster communication");
+	    }
+	    qrylist[i].query_sent = 1;
+	} else {
+	    /* Local node */
+	    s = sx_hashfs_hdist_endrebalance(hashfs);
+	    if(s != OK)
+		action_error(rc2actres(s), rc2http(s), msg_get_reason());
+	    succeeded[i] = 1;
+	}
+    }
+
+ action_failed:
+    if(qrylist) {
+	for(i=0; i<nnodes; i++) {
+	    if(qrylist[i].query_sent) {
+		int rc = sxi_cbdata_wait(qrylist[i].cbdata, sxi_conns_get_curlev(clust), NULL);
+		if(rc != -1) {
+		    rc = sxi_cbdata_result(qrylist[i].cbdata, NULL);
+		    if(sxi_cbdata_result_fail(qrylist[i].cbdata)) {
+			WARN("Query failed with %d", rc);
+			if(ret > ACT_RESULT_TEMPFAIL) /* Only raise OK to TEMP */
+			    action_set_fail(ACT_RESULT_TEMPFAIL, 503, sxc_geterrmsg(sx_hashfs_client(hashfs)));
+		    } else if(rc != 200) {
+			act_result_t newret = http2actres(rc);
+			if(newret < ret) /* Severity shall only be raised */
+			    action_set_fail(newret, rc, sxc_geterrmsg(sx_hashfs_client(hashfs)));
+		    } else
+			succeeded[i] = 1;
+		} else {
+		    CRIT("Failed to wait for query");
+		    action_set_fail(ACT_RESULT_PERMFAIL, 500, "Internal error in cluster communication");
+		    /* FIXME should abort here */
+		}
+	    }
+	}
+        query_list_free(qrylist, nnodes);
+    }
 
     return ret;
 }
@@ -2429,6 +2560,8 @@ static act_result_t cleanrb_request(sx_hashfs_t *hashfs, job_t job_id, job_data_
 	action_error(rc2actres(s), rc2http(s), msg_get_reason());
     }
 
+    sx_hashfs_set_rbl_info(hashfs, 1, 1, "Cleaning up relocated objects after successful rebalance (FIXME: make me pretty)");
+
     succeeded[0] = 1;
     ret = ACT_RESULT_OK;
 
@@ -2447,9 +2580,12 @@ static act_result_t cleanrb_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t
     if(sx_hashfs_rb_cleanup(hashfs) != OK)
 	action_error(ACT_RESULT_TEMPFAIL, 503, "Cleanup failed");
 
+    sx_hashfs_set_rbl_info(hashfs, 0, 0, NULL);
+
     succeeded[0] = 1;
     ret = ACT_RESULT_OK;
-    WARN(">>>>>>>>>>>> THIS NODE IS NOW FULLY REBALANCED <<<<<<<<<<<<");
+
+    INFO(">>>>>>>>>>>> THIS NODE IS NOW FULLY REBALANCED <<<<<<<<<<<<");
 
  action_failed:
     return ret;
@@ -2470,6 +2606,7 @@ static struct {
     { filedelete_request, force_phase_success, FIXME_phase_placeholder, force_phase_success }, /* JOBTYPE_DELETE_FILE */
     { distribution_request, distribution_commit, FIXME_phase_placeholder, FIXME_phase_placeholder }, /* JOBTYPE_DISTRIBUTION */
     { startrebalance_request, force_phase_success, FIXME_phase_placeholder, FIXME_phase_placeholder }, /* JOBTYPE_STARTREBALANCE */
+    { finishrebalance_request, finishrebalance_commit, FIXME_phase_placeholder, FIXME_phase_placeholder }, /* JOBTYPE_FINISHREBALANCE */
     { jlock_request, force_phase_success, jlock_abort, force_phase_success }, /* JOBTYPE_JLOCK */
     { blockrb_request, blockrb_commit, FIXME_phase_placeholder, FIXME_phase_placeholder }, /* JOBTYPE_REBALANCE_BLOCKS */
     { filerb_request, filerb_commit, FIXME_phase_placeholder, FIXME_phase_placeholder }, /* JOBTYPE_REBALANCE_FILES */

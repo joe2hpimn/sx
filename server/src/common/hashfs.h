@@ -140,6 +140,7 @@ rc_ty sx_hashfs_hdist_change_req(sx_hashfs_t *h, const sx_nodelist_t *newdist, j
 rc_ty sx_hashfs_hdist_change_add(sx_hashfs_t *h, const void *cfg, unsigned int cfg_len);
 rc_ty sx_hashfs_hdist_change_commit(sx_hashfs_t *h);
 rc_ty sx_hashfs_hdist_rebalance(sx_hashfs_t *h);
+rc_ty sx_hashfs_hdist_endrebalance(sx_hashfs_t *h);
 const sx_nodelist_t *sx_hashfs_nodelist(sx_hashfs_t *h, sx_hashfs_nl_t which);
 const sx_node_t *sx_hashfs_self(sx_hashfs_t *h);
 rc_ty sx_hashfs_self_uuid(sx_hashfs_t *h, sx_uuid_t *uuid);
@@ -354,6 +355,8 @@ rc_ty sx_hashfs_relocs_delete(sx_hashfs_t *h, const sx_reloc_t *reloc);
 void sx_hashfs_reloc_free(const sx_reloc_t *reloc);
 rc_ty sx_hashfs_rb_cleanup(sx_hashfs_t *h);
 rc_ty sx_hashfs_hdist_set_rebalanced(sx_hashfs_t *h);
+rc_ty sx_hashfs_get_rbl_info(sx_hashfs_t *h, int *complete, const char **description);
+rc_ty sx_hashfs_set_rbl_info(sx_hashfs_t *h, int active, int complete, const char *description);
 
 enum {
     SX_ID_TOKEN=1,

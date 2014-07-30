@@ -23,6 +23,8 @@ src_common_libcommon_la_SOURCES = \
 		    include/hashfs.h\
 		    include/sxdbi.h\
 		    include/isaac.h\
+		    src/common/clstqry.h\
+		    src/common/clstqry.c\
 		    src/common/qsort.h \
 		    src/common/errors.c\
 		    src/common/log.c\

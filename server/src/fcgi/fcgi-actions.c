@@ -147,7 +147,7 @@ void volume_ops(void) {
 		fcgi_new_distribution();
 	    else
 		fcgi_enable_distribution();
-	} else if(!strcmp(".rebalance", volume) || !content_len()) {
+	} else if(!strcmp(".rebalance", volume) && !content_len()) {
 	    /* Initiate rebalance process (s2s) - CLUSTER required */
 	    quit_unless_has(PRIV_CLUSTER);
 	    fcgi_start_rebalance();
@@ -181,11 +181,17 @@ void volume_ops(void) {
     }
 
     if(verb == VERB_DELETE) {
-	/* Delete volume (currently s2s only) - CLUSTER required */
-	quit_unless_has(PRIV_CLUSTER);
-	if(is_reserved())
-	    quit_errmsg(403, "Volume name is reserved");
-	fcgi_delete_volume();
+	if(!strcmp(".rebalance", volume) || !content_len()) {
+	    /* Complete rebalance process (s2s) - CLUSTER required */
+	    quit_unless_has(PRIV_CLUSTER);
+	    fcgi_stop_rebalance();
+	} else {
+	    /* Delete volume (currently s2s only) - CLUSTER required */
+	    quit_unless_has(PRIV_CLUSTER);
+	    if(is_reserved())
+		quit_errmsg(403, "Volume name is reserved");
+	    fcgi_delete_volume();
+	}
 	return;
     }
 }

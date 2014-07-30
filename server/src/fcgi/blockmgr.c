@@ -211,10 +211,8 @@ void blockmgr_process_queue(struct blockmgr_data_t *q) {
 
 	sqlite3_reset(q->qlist);
 
-	INFO("Checking on %s", node_uuid.string);
-
 	if(sxi_hashop_end(&hc) == -1) {
-	    WARN("Cannot verify block presence: %s", sxc_geterrmsg(sx));
+	    WARN("Cannot verify block presence on node %s: %s", node_uuid.string, sxc_geterrmsg(sx));
 	    for(j=0; j<hlist.nblocks; j++)
 		blockmgr_reschedule_xfer(q, hlist.ids[j]);
 	    continue;
@@ -225,7 +223,7 @@ void blockmgr_process_queue(struct blockmgr_data_t *q) {
 	    const uint8_t *b;
 	    if(hlist.havehs[i]) {
                 /* TODO: print actual hash */
-		INFO("Block %d was found remotely", i);
+		DEBUG("Block %d was found remotely", i);
 		blockmgr_del_xfer(q, hlist.ids[i]);
 	    } else if(sx_hashfs_block_get(q->hashfs, bs, &hlist.binhs[i], &b)) {
 		INFO("Block %ld was not found locally", hlist.ids[i]);
@@ -246,12 +244,12 @@ void blockmgr_process_queue(struct blockmgr_data_t *q) {
 		}
 		curb = upbuffer;
 		for(j=0; j<=i; j++) {
-                    char _debughash[sizeof(sx_hash_t)*2+1];
+                    char debughash[sizeof(sx_hash_t)*2+1];
                     const sx_hash_t *hash = &hlist.binhs[j];
 		    if(hlist.havehs[j])
 			continue;
-                    bin2hex(hash->b, sizeof(hash->b), _debughash, sizeof(_debughash));
-		    INFO("Block %ld #%s# was transferred successfuly", hlist.ids[j], _debughash);
+                    bin2hex(hash->b, sizeof(hash->b), debughash, sizeof(debughash));
+		    DEBUG("Block %ld #%s# was transferred successfuly", hlist.ids[j], debughash);
 		    blockmgr_del_xfer(q, hlist.ids[j]);
 		    hlist.havehs[j] = 1;
 		    trigger_jobmgr = 1;

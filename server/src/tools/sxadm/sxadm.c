@@ -50,6 +50,7 @@
 #include "cmd_cluster.h"
 
 #include "hashfs.h"
+#include "clstqry.h"
 #include "sx.h"
 #include "init.h"
 
@@ -770,348 +771,62 @@ static int force_gc_cluster(sxc_client_t *sx, struct cluster_args_info *args)
     return sxc_cluster_trigger_gc(clust);
 }
 
-struct cb_cstatus_ctx {
-    sx_nodelist_t *one;
-    sx_nodelist_t *two;
-    yajl_handle yh;
-    char *addr, *auth;
-    char *int_addr;
-    sx_uuid_t uuid, distid;
-    uint64_t checksum;
-    int64_t capa;
-    int which, have_uuid, have_distid;
-    unsigned int version;
-
-    enum cstatus_state { CS_BEGIN, CS_BASEKEY, CS_CSTATUS, CS_SKEY, CS_DISTS, CS_DIST, CS_NODES, CS_NODEKEY, CS_UUID, CS_ADDR, CS_INT_ADDR, CS_CAPA, CS_DISTID, CS_DISTVER, CS_DISTCHK, CS_AUTH, CS_COMPLETE } state;
-};
-
-static int cb_cstatus_start_map(void *ctx) {
-    struct cb_cstatus_ctx *c = (struct cb_cstatus_ctx *)ctx;
-
-    if(c->state == CS_BEGIN)
-	c->state = CS_BASEKEY;
-    else if(c->state == CS_CSTATUS)
-	c->state = CS_SKEY;
-    else if(c->state == CS_NODES) {
-	c->state = CS_NODEKEY;
-    } else
-	return 0;
-
-    return 1;
-}
-
-static int cb_cstatus_map_key(void *ctx, const unsigned char *s, size_t l) {
-    struct cb_cstatus_ctx *c = (struct cb_cstatus_ctx *)ctx;
-
-    if(c->state == CS_BASEKEY) {
-	if(l == lenof("clusterStatus") && !strncmp("clusterStatus", s, lenof("clusterStatus")))
-	    c->state = CS_CSTATUS;
-	else
-	    return 0;
-    } else if(c->state == CS_SKEY) {
-	if(l == lenof("distributionModels") && !strncmp("distributionModels", s, lenof("distributionModels")))
-	    c->state = CS_DISTS;
-	else if(l == lenof("distributionUUID") && !strncmp("distributionUUID", s, lenof("distributionUUID")))
-	    c->state = CS_DISTID;
-	else if(l == lenof("distributionVersion") && !strncmp("distributionVersion", s, lenof("distributionVersion")))
-	    c->state = CS_DISTVER;
-	else if(l == lenof("distributionChecksum") && !strncmp("distributionChecksum", s, lenof("distributionChecksum")))
-	    c->state = CS_DISTCHK;
-	else if(l == lenof("clusterAuth") && !strncmp("clusterAuth", s, lenof("clusterAuth")))
-	    c->state = CS_AUTH;
-	else
-	    return 0;
-    } else if(c->state == CS_NODEKEY) {
-	if(l == lenof("nodeUUID") && !strncmp("nodeUUID", s, lenof("nodeUUID")))
-	    c->state = CS_UUID;
-	else if(l == lenof("nodeAddress") && !strncmp("nodeAddress", s, lenof("nodeAddress")))
-	    c->state = CS_ADDR;
-	else if(l == lenof("nodeInternalAddress") && !strncmp("nodeInternalAddress", s, lenof("nodeInternalAddress")))
-	    c->state = CS_INT_ADDR;
-	else if(l == lenof("nodeCapacity") && !strncmp("nodeCapacity", s, lenof("nodeCapacity")))
-	    c->state = CS_CAPA;
-	else
-	    return 0;
-    } else
-	return 0;
-
-    return 1;
-}
-
-static int cb_cstatus_end_map(void *ctx) {
-    struct cb_cstatus_ctx *c = (struct cb_cstatus_ctx *)ctx;
-
-    if(c->state == CS_NODEKEY) {
-	sx_node_t *node;
-	if(!c->have_uuid || !c->addr || c->capa <= 0 || c->which < 0 || c->which > 1)
-	    return 0;
-	node = sx_node_new(&c->uuid, c->addr, c->int_addr, c->capa);
-	if(sx_nodelist_add(c->which ? c->two : c->one, node))
-	    return 0;
-	free(c->addr);
-	free(c->int_addr);
-	c->addr = NULL;
-	c->int_addr = NULL;
-	c->capa = 0;
-	c->have_uuid = 0;
-	c->state = CS_NODES;
-    } else if(c->state == CS_SKEY)
-	c->state = CS_BASEKEY;
-    else if(c->state == CS_BASEKEY)
-	c->state = CS_COMPLETE;
-    else
-	return 0;
-
-    return 1;
-}
-
-static int cb_cstatus_start_array(void *ctx) {
-    struct cb_cstatus_ctx *c = (struct cb_cstatus_ctx *)ctx;
-
-    if(c->state == CS_DISTS)
-	c->state = CS_DIST;
-    else if(c->state == CS_DIST) {
-	if(c->which < 0 || c->which > 1)
-	    return 0;
-	if(c->which < 0 || c->which > 1)
-	    return 0;
-	c->state = CS_NODES;
-    } else
-	return 0;
-
-    return 1;
-}
-
-static int cb_cstatus_end_array(void *ctx) {
-    struct cb_cstatus_ctx *c = (struct cb_cstatus_ctx *)ctx;
-
-    if(c->state == CS_NODES) {
-	c->which++;
-	c->state = CS_DIST;
-    } else if(c->state == CS_DIST)
-	c->state = CS_SKEY;
-    else
-	return 0;
-
-    return 1;
-}
-
-
-static int cb_cstatus_string(void *ctx, const unsigned char *s, size_t l) {
-    struct cb_cstatus_ctx *c = (struct cb_cstatus_ctx *)ctx;
-    char uuid[UUID_STRING_SIZE + 1];
-
-    if(c->state == CS_UUID) {
-	if(c->have_uuid || l != UUID_STRING_SIZE)
-	    return 0;
-	memcpy(uuid, s, UUID_STRING_SIZE);
-	uuid[UUID_STRING_SIZE] = '\0';
-	if(uuid_from_string(&c->uuid, uuid))
-	    return 0;
-	c->have_uuid = 1;
-	c->state = CS_NODEKEY;
-    } else if(c->state == CS_DISTID) {
-	if(c->have_distid || l != UUID_STRING_SIZE)
-	    return 0;
-	memcpy(uuid, s, UUID_STRING_SIZE);
-	uuid[UUID_STRING_SIZE] = '\0';
-	if(uuid_from_string(&c->distid, uuid))
-	    return 0;
-	c->have_distid = 1;
-	c->state = CS_SKEY;
-    } else if(c->state == CS_ADDR) {
-	if(c->addr)
-	    return 0;
-	c->addr = malloc(l+1);
-	if(!c->addr)
-	    return 0;
-	memcpy(c->addr, s, l);
-	c->addr[l] = '\0';
-	c->state = CS_NODEKEY;
-    } else if(c->state == CS_INT_ADDR) {
-	if(c->int_addr)
-	    return 0;
-	c->int_addr = malloc(l+1);
-	if(!c->int_addr)
-	    return 0;
-	memcpy(c->int_addr, s, l);
-	c->int_addr[l] = '\0';
-	c->state = CS_NODEKEY;
-    } else if(c->state == CS_AUTH) {
-	if(c->auth)
-	    return 0;
-	c->auth = malloc(l+1);
-	if(!c->auth)
-	    return 0;
-	memcpy(c->auth, s, l);
-	c->auth[l] = '\0';
-	c->state = CS_SKEY;
-    } else
-	return 0;
-
-    return 1;
-}
-
-static int cb_cstatus_number(void *ctx, const char *s, size_t l) {
-    struct cb_cstatus_ctx *c = (struct cb_cstatus_ctx *)ctx;
-    char number[24], *eon;
-    int64_t lld;
-
-    if(c->state != CS_CAPA && c->state != CS_DISTVER && c->state != CS_DISTCHK)
-	return 0;
-
-    if(c->capa || l<1 || l>20)
-	return 0;
-
-    memcpy(number, s, l);
-    number[l] = '\0';
-    lld = strtoll(number, &eon, 10);
-    if(*eon)
-	return 0;
-
-    if(c->state == CS_CAPA) {
-	if(lld < 0)
-	    return 0;
-	c->capa = lld;
-	c->state = CS_NODEKEY;
-    } else if(c->state == CS_DISTVER) {
-	if(lld < 0 || lld >0xffffffff)
-	    return 0;
-	c->version = (unsigned int)(lld & 0xffffffff);
-	c->state = CS_SKEY;
-    } else {
-	c->checksum = (uint64_t)lld;
-	c->state = CS_SKEY;
-    }
-
-    return 1;
-}
-
-static const yajl_callbacks cstatus_parser = {
-    cb_fail_null,
-    cb_fail_boolean,
-    NULL,
-    NULL,
-    cb_cstatus_number,
-    cb_cstatus_string,
-    cb_cstatus_start_map,
-    cb_cstatus_map_key,
-    cb_cstatus_end_map,
-    cb_cstatus_start_array,
-    cb_cstatus_end_array
-};
-
-static int cstatus_setup_cb(sxi_conns_t *conns, void *ctx, const char *host) {
-    struct cb_cstatus_ctx *yactx = (struct cb_cstatus_ctx *)ctx;
-
-    if(yactx->yh)
-	yajl_free(yactx->yh);
-
-    if(!(yactx->yh  = yajl_alloc(&cstatus_parser, NULL, yactx))) {
-	CRIT("Cannot get cluster status: out of memory");
-	return 1;
-    }
-
-    if(yactx->one)
-	sx_nodelist_empty(yactx->one);
-    else if(!(yactx->one = sx_nodelist_new())) {
-	CRIT("Cannot get cluster status: out of memory");
-	return 1;
-    }
-
-    if(yactx->two)
-	sx_nodelist_empty(yactx->two);
-    else if(!(yactx->two = sx_nodelist_new())) {
-	CRIT("Cannot get cluster status: out of memory");
-	return 1;
-    }
-
-    free(yactx->auth);
-    free(yactx->addr);
-    free(yactx->int_addr);
-    yactx->auth = NULL;
-    yactx->addr = NULL;
-    yactx->int_addr = NULL;
-    yactx->have_uuid = 0;
-    yactx->have_distid = 0;
-    yactx->which = 0;
-    yactx->version = 0;
-    yactx->checksum = 0;
-    yactx->capa = 0;
-    yactx->state = CS_BEGIN;
-
-    return 0;
-}
-
-static int cstatus_cb(sxi_conns_t *conns, void *ctx, const void *data, size_t size) {
-    struct cb_cstatus_ctx *yactx = (struct cb_cstatus_ctx *)ctx;
-    if(yajl_parse(yactx->yh, data, size) != yajl_status_ok)
-	return 1;
-    return 0;
-}
-
 void print_dist(const sx_nodelist_t *nodes) {
-    unsigned int i, nnodes = sx_nodelist_count(nodes);
-    for(i = 0; i < nnodes; i++) {
-	const sx_node_t *node = sx_nodelist_get(nodes, i);
-	const char *addr = sx_node_addr(node);
-	const char *int_addr = sx_node_internal_addr(node);
+    if(nodes) {
+	unsigned int i, nnodes = sx_nodelist_count(nodes);
+	for(i = 0; i < nnodes; i++) {
+	    const sx_node_t *node = sx_nodelist_get(nodes, i);
+	    const char *addr = sx_node_addr(node);
+	    const char *int_addr = sx_node_internal_addr(node);
 
-	if(strcmp(addr, int_addr))
-	    printf("%lld/%s/%s/%s ", (long long)sx_node_capacity(node), addr, int_addr, sx_node_uuid_str(node));
-	else
-	    printf("%lld/%s/%s ", (long long)sx_node_capacity(node), addr, sx_node_uuid_str(node));
-    }
-    printf("\n");
+	    if(strcmp(addr, int_addr))
+		printf("%lld/%s/%s/%s ", (long long)sx_node_capacity(node), addr, int_addr, sx_node_uuid_str(node));
+	    else
+		printf("%lld/%s/%s ", (long long)sx_node_capacity(node), addr, sx_node_uuid_str(node));
+	}
+	printf("\n");
+    } else
+	printf("Invalid distribution\n");
 }
 
 static int info_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
     sxc_cluster_t *clust = cluster_load(sx, args);
-    struct cb_cstatus_ctx yctx;
-    int ret = 1;
+    clst_t *clst;
 
     if(!clust)
 	return 1;
 
-    memset(&yctx, 0, sizeof(yctx));
-
-    /* MODHDIST add more query params and print them out */
-    if(sxi_cluster_query(sxi_cluster_get_conns(clust), NULL, REQ_GET, "?clusterStatus", NULL, 0, cstatus_setup_cb, cstatus_cb, &yctx) != 200) {
-	CRIT("Failed to query cluster");
-	goto info_cluster_err;
+    clst = clst_query(sxi_cluster_get_conns(clust), NULL);
+    if(!clst) {
+	CRIT("Failed to query cluster status");
+	return 1;
     }
 
-    if(yajl_complete_parse(yctx.yh) != yajl_status_ok || yctx.state != CS_COMPLETE || yctx.which < 0 || yctx.which > 2) {
-	CRIT("Invalid cluster reply");
-	goto info_cluster_err;
-    }
-
-    switch(yctx.which) {
+    switch(clst_ndists(clst)) {
     case 0:
 	printf("Node is not part of a cluster\n");
 	break;
     case 2:
 	printf("Target distribution: ");
-	print_dist(yctx.two);
+	print_dist(clst_nodes(clst, 1));
     case 1:
 	printf("Current distribution: ");
-	print_dist(yctx.one);
-	if(yctx.have_distid)
-	    printf("Distribution: %s(v.%u) - checksum: %llu\n", yctx.distid.string, yctx.version, (unsigned long long)yctx.checksum);
-	if(yctx.auth)
-	    printf("Cluster authentication token: %s\n", yctx.auth);
+	print_dist(clst_nodes(clst, 0));
+
+	unsigned int version;
+	uint64_t checksum;
+	const sx_uuid_t *distid = clst_distuuid(clst, &version, &checksum);
+	if(distid)
+	    printf("Distribution: %s(v.%u) - checksum: %llu\n", distid->string, version, (unsigned long long)checksum);
+
+	const char *auth = clst_auth(clst);
+	if(auth)
+	    printf("Cluster authentication token: %s\n", auth);
     }
-    ret = 0;
 
- info_cluster_err:
-    free(yctx.auth);
-    free(yctx.addr);
-    free(yctx.int_addr);
-    if(yctx.yh)
-	yajl_free(yctx.yh);
-
+    clst_destroy(clst);
     sxc_cluster_free(clust);
-    return ret;
+    return 0;
 }
 
 int main(int argc, char **argv) {

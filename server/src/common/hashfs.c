@@ -1084,7 +1084,6 @@ static int load_config(sx_hashfs_t *h, sxc_client_t *sx) {
     int r, ret = -1;
 
     DEBUG("Reloading cluster configuration");
-    INFO("IN %s", __FUNCTION__);
 
     free(h->cluster_name);
     h->cluster_name = NULL;
@@ -1221,36 +1220,13 @@ static int load_config(sx_hashfs_t *h, sxc_client_t *sx) {
 
 	h->next_dist = sx_nodelist_dup(sxi_hdist_nodelist(h->hd, 0));
 	if(sxi_hdist_buildcnt(h->hd) == 1) {
-	    unsigned int xx;
-	    WARN("I am %s in single model hdist", h->node_uuid.string);
-	    for(xx=0; xx<sx_nodelist_count(h->next_dist); xx++) {
-		const sx_node_t *nn = sx_nodelist_get(h->next_dist, xx);
-		WARN(" - %s (%s)", sx_node_uuid_str(nn), sx_node_addr(nn));
-	    }
 	    h->prev_dist = sx_nodelist_dup(h->next_dist);
-
 	    if(!sx_nodelist_lookup(h->next_dist, &h->node_uuid)) {
 		INFO("THIS NODE IS NO LONGER A CLUSTER MEMBER");
 		h->is_orphan = 1;
 	    }
 	} else if(sxi_hdist_buildcnt(h->hd) == 2) {
-	    unsigned int xx;
-
 	    h->prev_dist = sx_nodelist_dup(sxi_hdist_nodelist(h->hd, 1));
-
-	    WARN("I am %s in a dual  model hdist", h->node_uuid.string);
-	    WARN("Prev");
-	    for(xx=0; xx<sx_nodelist_count(h->prev_dist); xx++) {
-		const sx_node_t *nn = sx_nodelist_get(h->prev_dist, xx);
-		WARN(" - %s (%s)", sx_node_uuid_str(nn), sx_node_addr(nn));
-	    }
-
-	    WARN("Next");
-	    for(xx=0; xx<sx_nodelist_count(h->next_dist); xx++) {
-		const sx_node_t *nn = sx_nodelist_get(h->next_dist, xx);
-		WARN(" - %s (%s)", sx_node_uuid_str(nn), sx_node_addr(nn));
-	    }
-
 	    h->is_rebalancing = 1;
 	} else {
 	    CRIT("Failed to load cluster distribution: too many models");
@@ -1628,7 +1604,7 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 	goto open_hashfs_fail;
     if(qprep(h->eventdb, &h->qe_islocked, "SELECT value from hashfs WHERE key = 'lockedby'"))
 	goto open_hashfs_fail;
-    snprintf(dynqry, sizeof(dynqry), "SELECT 1 FROM jobs WHERE complete = 0 AND type NOT IN (%d, %d, %d) LIMIT 1", JOBTYPE_DISTRIBUTION, JOBTYPE_JLOCK, JOBTYPE_STARTREBALANCE);
+    snprintf(dynqry, sizeof(dynqry), "SELECT 1 FROM jobs WHERE complete = 0 AND type NOT IN (%d, %d, %d, %d) LIMIT 1", JOBTYPE_DISTRIBUTION, JOBTYPE_JLOCK, JOBTYPE_STARTREBALANCE, JOBTYPE_FINISHREBALANCE);
     if(qprep(h->eventdb, &h->qe_hasjobs, dynqry))
 	goto open_hashfs_fail;
     if(qprep(h->eventdb, &h->qe_lock, "INSERT INTO hashfs (key, value) VALUES ('lockedby', :node)"))
@@ -6278,6 +6254,7 @@ static const char *locknames[] = {
     "DELFILE", /* JOBTYPE_DELETE_FILE */
     "*", /* JOBTYPE_DISTRIBUTION */
     "STARTREBALANCE", /* JOBTYPE_STARTREBALANCE */
+    "FINISHREBALANCE", /* JOBTYPE_FINISHREBALANCE */
     NULL, /* JOBTYPE_JLOCK */
     "REBALANCE_BLOCKS", /* JOBTYPE_REBALANCE_BLOCKS */
     "REBALANCE_FILES", /* JOBTYPE_REBALANCE_FILES */
@@ -6308,7 +6285,7 @@ rc_ty sx_hashfs_countjobs(sx_hashfs_t *h, sx_uid_t user_id) {
 rc_ty sx_hashfs_job_new_begin(sx_hashfs_t *h) {
     int r;
 
-    INFO("IN %s", __FUNCTION__);
+    DEBUG("IN %s", __FUNCTION__);
     if(!h) {
 	NULLARG();
 	return EFAULT;
@@ -7332,10 +7309,11 @@ rc_ty sx_hashfs_hdist_change_req(sx_hashfs_t *h, const sx_nodelist_t *newdist, j
     unsigned int nnodes, minnodes, i, cfg_len;
     int64_t newclustersize = 0, minclustersize;
     sx_nodelist_t *targets;
+    job_t finish_job;
     const void *cfg;
     rc_ty r;
 
-    INFO("IN %s", __FUNCTION__);
+    DEBUG("IN %s", __FUNCTION__);
     if(!h || !newdist || !job_id) {
 	NULLARG();
 	return EFAULT;
@@ -7440,6 +7418,7 @@ rc_ty sx_hashfs_hdist_change_req(sx_hashfs_t *h, const sx_nodelist_t *newdist, j
 	return r;
     }
 
+    /* FIXMERB: review TTL and ttl_extend */
     r = sx_hashfs_job_new_notrigger(h, JOB_NOPARENT, 0, job_id, JOBTYPE_JLOCK, sx_nodelist_count(targets) * 20, "JLOCK", NULL, 0, targets);
     if(r) {
 	INFO("job_new (jlock) returned: %s", rc2str(r));
@@ -7457,10 +7436,19 @@ rc_ty sx_hashfs_hdist_change_req(sx_hashfs_t *h, const sx_nodelist_t *newdist, j
     }
 
     r = sx_hashfs_job_new_notrigger(h, *job_id, 0, job_id, JOBTYPE_STARTREBALANCE, sx_nodelist_count(targets) * 20, "DISTRIBUTION", NULL, 0, targets);
+    if(r) {
+	INFO("job_new (startrebalance) returned: %s", rc2str(r));
+	sx_nodelist_delete(targets);
+	sxi_hdist_free(newmod);
+	return r;
+    }
+
+    /* FIXMERB: shall i make this a child of the to-be-created JOBTYPE_REBALANCE_FILES but only on the initiator? */
+    r = sx_hashfs_job_new_notrigger(h, *job_id, 0, &finish_job, JOBTYPE_FINISHREBALANCE, 60 * 60, "DISTRIBUTION", NULL, 0, targets);
     sx_nodelist_delete(targets);
     sxi_hdist_free(newmod);
     if(r) {
-        INFO("job_new (distribution) returned: %s", rc2str(r));
+	INFO("job_new (finishrebalance) returned: %s", rc2str(r));
 	return r;
     }
 
@@ -7481,7 +7469,7 @@ rc_ty sx_hashfs_hdist_change_add(sx_hashfs_t *h, const void *cfg, unsigned int c
     sqlite3_stmt *q = NULL;
     rc_ty ret;
 
-    INFO("IN %s", __FUNCTION__);
+    DEBUG("IN %s", __FUNCTION__);
     if(!h || !cfg) {
 	NULLARG();
 	return EINVAL;
@@ -7596,6 +7584,11 @@ rc_ty sx_hashfs_hdist_change_add(sx_hashfs_t *h, const void *cfg, unsigned int c
        qbind_int64(q, ":v", sxi_hdist_version(newmod)) ||
        qstep_noret(q)) {
 	msg_set_reason("Failed to save target distribution model");
+	ret = FAIL_EINTERNAL;
+	goto change_add_fail;
+    }
+
+    if(sx_hashfs_set_rbl_info(h, 1, 0, "Updating distribution model")) {
 	ret = FAIL_EINTERNAL;
 	goto change_add_fail;
     }
@@ -7721,7 +7714,7 @@ rc_ty sx_hashfs_hdist_change_commit(sx_hashfs_t *h) {
     sqlite3_stmt *q;
     rc_ty s = OK;
 
-    INFO("IN %s", __FUNCTION__);
+    DEBUG("IN %s", __FUNCTION__);
     if(qprep(h->db, &q, "DELETE FROM hashfs WHERE key IN ('current_dist', 'current_dist_rev')") ||
        qstep_noret(q)) {
 	msg_set_reason("Failed to enable new distribution model");
@@ -7741,7 +7734,7 @@ rc_ty sx_hashfs_hdist_rebalance(sx_hashfs_t *h) {
     const sx_node_t *self = sx_hashfs_self(h);
     rc_ty ret;
 
-    INFO("IN %s %s", __FUNCTION__, self);
+    DEBUG("IN %s", __FUNCTION__);
 
     sqlite3_reset(h->qx_wipehold);
     if(qstep_noret(h->qx_wipehold)) {
@@ -7770,10 +7763,6 @@ rc_ty sx_hashfs_hdist_rebalance(sx_hashfs_t *h) {
 	goto hdistreb_fail;
 
     ret = sx_hashfs_job_new_notrigger(h, job_id, 0, &job_id, JOBTYPE_REBALANCE_FILES, 60 * 60, "FILERB", NULL, 0, singlenode);
-    if(ret)
-	goto hdistreb_fail;
-
-    ret = sx_hashfs_job_new_notrigger(h, job_id, 0, &job_id, JOBTYPE_REBALANCE_CLEANUP, 60 * 60, "CLEANRB", NULL, 0, singlenode);
     if(ret)
 	goto hdistreb_fail;
 
@@ -8331,7 +8320,6 @@ rc_ty sx_hashfs_relocs_populate(sx_hashfs_t *h) {
 	const sx_node_t *prev, *next;
 	sx_hash_t hash;
 
-	INFO("Got volume %s", vol->name);
 	if(hash_buf(h->cluster_uuid.string, strlen(h->cluster_uuid.string), vol->name, strlen(vol->name), &hash)) {
 	    WARN("hashing volume name failed");
 	    return FAIL_EINTERNAL;
@@ -8617,3 +8605,120 @@ rc_ty sx_hashfs_rb_cleanup(sx_hashfs_t *h) {
 
     return r;
 }
+
+rc_ty sx_hashfs_get_rbl_info(sx_hashfs_t *h, int *complete, const char **description) {
+    rc_ty ret = FAIL_EINTERNAL;
+    int r;
+
+    if(!h) {
+	NULLARG();
+	return EFAULT;
+    }
+
+    sqlite3_reset(h->q_getval);
+    if(qbind_text(h->q_getval, ":k", "rebalance_message"))
+	goto getrblinfo_fail;
+    r = qstep(h->q_getval);
+    if(r != SQLITE_ROW) {
+	if(r == SQLITE_DONE)
+	    ret = ENOENT;
+	goto getrblinfo_fail;
+    }
+
+    if(description) {
+	const char *desc = (const char *)sqlite3_column_text(h->q_getval, 0);
+	if(!desc)
+	    desc = "Status description not available";
+	strncpy(h->job_message, desc, sizeof(h->job_message));
+	h->job_message[sizeof(h->job_message)-1] = '\0';
+	*description = h->job_message;
+    }
+
+    /* Small race in here but it's not worth a transaction
+     * "rebalance_complete" has got the last saying */
+    sqlite3_reset(h->q_getval);
+    if(qbind_text(h->q_getval, ":k", "rebalance_complete"))
+	goto getrblinfo_fail;
+    r = qstep(h->q_getval);
+    if(r != SQLITE_ROW) {
+	*description = NULL;
+	if(r == SQLITE_DONE)
+	    ret = ENOENT;
+	goto getrblinfo_fail;
+    }
+
+    if(complete)
+	*complete = sqlite3_column_int(h->q_getval, 0);
+    ret = OK;
+
+ getrblinfo_fail:
+    sqlite3_reset(h->q_getval);
+    if(ret == FAIL_EINTERNAL)
+	msg_set_reason("Failed to retrieve rebalance state info from the database");
+
+    return ret;
+}
+
+rc_ty sx_hashfs_set_rbl_info(sx_hashfs_t *h, int active, int complete, const char *description) {
+    rc_ty ret = FAIL_EINTERNAL;
+    sqlite3_stmt *q = NULL;
+
+    if(!h) {
+	NULLARG();
+	return EFAULT;
+    }
+
+    if(!active) {
+	if(qprep(h->db, &q, "DELETE FROM hashfs WHERE key IN ('rebalance_message', 'rebalance_complete')") ||
+	   qstep_noret(q))
+	    msg_set_reason("Failed to set rebalance state info to inactive");
+	else
+	    ret = OK;
+	goto setrblinfo_fail;
+    }
+
+    if(!description)
+	description = "Status description not available";
+
+    if(qprep(h->db, &q, "INSERT OR REPLACE INTO hashfs (key, value) VALUES (:k , :v)"))
+	goto setrblinfo_fail;
+    if(qbind_text(q, ":k", "rebalance_message") || qbind_text(q, ":v", description) || qstep_noret(q))
+	goto setrblinfo_fail;
+    if(qbind_text(q, ":k", "rebalance_complete") || qbind_int(q, ":v", (complete != 0)) || qstep_noret(q))
+	goto setrblinfo_fail;
+    ret = OK;
+
+ setrblinfo_fail:
+    sqlite3_finalize(q);
+
+    if(ret == FAIL_EINTERNAL)
+	msg_set_reason("Failed to update rebalance state info");
+
+    return ret;
+}
+
+
+rc_ty sx_hashfs_hdist_endrebalance(sx_hashfs_t *h) {
+    job_t job_id;
+    sx_nodelist_t *singlenode = NULL;
+    const sx_node_t *self = sx_hashfs_self(h);
+    rc_ty ret;
+
+    DEBUG("IN %s", __FUNCTION__);
+
+    singlenode = sx_nodelist_new();
+    if(!singlenode) {
+	WARN("Cannot allocate single node nodelist");
+	return ENOMEM;
+    }
+
+    ret = sx_nodelist_add(singlenode, sx_node_dup(self));
+    if(ret)
+	WARN("Cannot add self to nodelist");
+    else
+	ret = sx_hashfs_job_new(h, 0, &job_id, JOBTYPE_REBALANCE_CLEANUP, 60 * 60, "CLEANRB", NULL, 0, singlenode);
+
+    sx_nodelist_delete(singlenode);
+    return ret;
+}
+

@@ -25,17 +25,23 @@
  *  this exception statement from your version.
  */
 
-#ifndef FCGI_ACTIONS_NODE_H
-#define FCGI_ACTIONS_NODE_H
+#ifndef __CLSTQRY_H
+#define __CLSTQRY_H
 
-void fcgi_set_nodes(void);
-void fcgi_new_distribution(void);
-void fcgi_enable_distribution(void);
-void fcgi_start_rebalance(void);
-void fcgi_stop_rebalance(void);
-void fcgi_node_init(void);
-void fcgi_sync_globs(void);
-void fcgi_node_jlock(void);
-void fcgi_node_junlock(void);
+#include "default.h"
+
+#include "../libsx/src/clustcfg.h"
+
+#include "nodes.h"
+
+typedef struct cstatus clst_t;
+clst_t *clst_query(sxi_conns_t *conns, sxi_hostlist_t *hlist);
+unsigned int clst_ndists(clst_t *st);
+const sx_nodelist_t *clst_nodes(clst_t *st, unsigned int dist);
+const sx_uuid_t *clst_distuuid(clst_t *st, unsigned int *version, uint64_t *checksum);
+const char *clst_auth(clst_t *st);
+int clst_rblstate(clst_t *st, const char **statedesc);
+void clst_destroy(clst_t *st);
 
 #endif
+
