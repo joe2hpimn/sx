@@ -3821,6 +3821,11 @@ static sxi_job_t* remote_to_remote_fast(sxc_file_t *source, sxc_meta_t *fmeta, s
     yctx.blocksize = blocksize;
     yctx.name = strdup(dest->path);
 
+    yctx.current.hashes = src_hashes;
+    if (!(yctx.current.needed = calloc(sizeof(*yctx.current.needed), sxi_ht_count(src_hashes)))) {
+        sxi_seterr(sx, SXE_EMEM, "Cannot allocate needed buffer");
+        goto remote_to_remote_fast_err;
+    }
     sxi_set_operation(sxi_cluster_get_client(dest->cluster), "upload file content hashes",
                       sxi_cluster_get_name(dest->cluster), dest->volume, dest->path);
     curlev_context_t *cbdata = sxi_cbdata_create_upload(sxi_cluster_get_conns(dest->cluster), NULL, &yctx);
@@ -3971,6 +3976,8 @@ remote_to_remote_fast_err:
 
     free(yctx.name);
     free(yctx.current.token);
+    free(yctx.current.needed);
+    free(yctx.host);
     if(yctx.current.yh)
 	yajl_free(yctx.current.yh);
 
