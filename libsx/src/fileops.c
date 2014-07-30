@@ -2364,6 +2364,10 @@ struct hash_down_data_t {
     char hash[SXI_SHA1_TEXT_LEN];
 };
 
+/*
+ * TODO: Make this structure arrays allocatable to minimize memory.
+ * Those arrays could contain one element for single_download function.
+ */
 typedef struct {
   sxi_ht *hashes;
   struct hash_down_data_t *hashdata[DOWNLOAD_MAX_BLOCKS];
@@ -2817,6 +2821,7 @@ static int check_block(sxc_cluster_t *cluster, sxi_ht *hashes, const char *zeroh
     dctx->buf = malloc(blocksize);
     if (!dctx->buf) {
         cluster_err(SXE_EMEM, "failed to allocate buffer");
+        dctx_free(dctx);
         return -1;
     }
     /* do not set finish_callback to avoid freeing stacked data */
@@ -2888,6 +2893,157 @@ struct batch_hashes {
     unsigned n;
 };
 
+static curlev_context_t *create_download(sxc_cluster_t *cluster, unsigned int blocksize, int fd, off_t filesize) {
+    sxi_conns_t *conns = sxi_cluster_get_conns(cluster);
+    sxc_client_t *sx = sxi_conns_get_client(conns);
+    struct file_download_ctx *dctx;
+    curlev_context_t *ret;
+
+    if(!conns || !sx)
+        return NULL;
+
+    dctx = dctx_new(sx);
+    if (!dctx) {
+        sxi_seterr(sx, SXE_EMEM, "Cannot download file: Out of emory");
+        return NULL;
+    }
+
+    ret = sxi_cbdata_create_download(conns, gethash_finish, dctx);
+    if (!ret) {
+        sxi_seterr(sx, SXE_EMEM, "Cannot download file: Out of memory");
+        dctx_free(dctx);
+        return NULL;
+    }
+
+    dctx->buf = malloc(blocksize);
+    if (!dctx->buf) {
+        sxi_seterr(sx, SXE_EMEM, "Cannot allocate buffer");
+        sxi_cbdata_unref(&ret);
+        dctx_free(dctx);
+        return NULL;
+    }
+
+    dctx->fd = fd;
+    dctx->filesize = filesize;
+    dctx->skip = -1;
+    dctx->blocksize = blocksize;
+    dctx->cluster = cluster;
+
+    return ret;
+}
+
+static int single_download(struct batch_hashes *bh, const char *dstname,
+                          unsigned blocksize, sxc_cluster_t *cluster,
+                          int fd, off_t filesize) {
+    sxi_conns_t *conns = sxi_cluster_get_conns(cluster);
+    sxc_client_t *sx = sxi_conns_get_client(conns);
+    sxi_retry_t *retry;
+    unsigned int i;
+    int ret = 1;
+
+    retry = sxi_retry_init(sx);
+    if (!retry) {
+        cluster_err(SXE_EMEM, "Cannot allocate retry");
+        return 1;
+    }
+
+    /* Iterate over all hashes */
+    for(i = 0; i < bh->i; i++) {
+        struct hash_down_data_t *hashdata = &bh->hashdata[i];
+        const char *hash = hashdata->hash;
+        unsigned int j;
+        unsigned int hostcount = sxi_hostlist_get_count(&hashdata->hosts);
+
+        /* Check if we want to download given hash taking into account its status */
+        if (hashdata->state == TRANSFER_PENDING || hashdata->state == TRANSFER_NOT_NECESSARY ||
+            hashdata->state == 200) {
+            SXDEBUG("[%.8s] Transfer not necessary: %ld", hashdata->hash, hashdata->state);
+            continue;
+        }
+
+        /*
+         * Check if host list is not empty for given hash. If so, we have an error, because if status is not OK,
+         * this list should not be cleared.
+         */
+        if(hostcount == 0) {
+            SXDEBUG("[%.8s] 0 hosts available", hashdata->hash);
+            cluster_err(SXE_EARG, "Empty list of hosts when transfer status is not OK");
+            break;
+        }
+
+        for(j = 0; j < hostcount; j++) {
+            struct file_download_ctx *dctx;
+            curlev_context_t *cbdata;
+            unsigned int finished = 0;
+            char url[4096];
+            char *q;
+            const char *host;
+            int rc;
+
+            cbdata = create_download(cluster, blocksize, fd, filesize);
+            if (!cbdata)
+                break;
+
+            dctx = sxi_cbdata_get_download_ctx(cbdata);
+            dctx->dldblks = NULL;
+            dctx->queries_finished = &finished;
+            dctx->hashes.hashes = bh->hashes;
+            dctx->hashes.n = 1;
+            /* We only use one block */
+            dctx->hashes.hash[0] = hash;
+            dctx->hashes.hashdata[0] = hashdata;
+
+            snprintf(url, sizeof(url), ".data/%u/", dctx->blocksize);
+            q = url + strlen(url);
+            memcpy(q, hash, 40);
+            q[40] = '\0';
+
+            host = sxi_hostlist_get_host(&hashdata->hosts, j);
+
+            sxi_retry_check(retry, j);
+            sxi_retry_msg(retry, host);
+
+            sxi_set_operation(sx, "download file contents", NULL, NULL, NULL);
+            rc = sxi_cluster_query_ev(cbdata, conns, host, REQ_GET, url, NULL, 0, NULL, gethash_cb);
+
+            if(rc) {
+                SXDEBUG("[%.8s] Could not add %s query: %s", hash, url, sxc_geterrmsg(sx));
+                do {
+                    rc = sxi_curlev_poll(sxi_conns_get_curlev(conns));
+                } while (!rc);
+                sxi_cbdata_unref(&cbdata);
+                goto single_download_fail;
+            }
+
+            sxi_cbdata_unref(&cbdata);
+
+            while (finished != 1 && !rc) {
+                rc = sxi_curlev_poll(sxi_conns_get_curlev(conns));
+            }
+
+            /* We successfully finished this block download */
+            if(!rc && finished == 1 && hashdata->state == 200)
+                break;
+        }
+
+        if(hashdata->state != 200) {
+            cluster_err(SXE_ECOMM, "Could not download hash %s: %s", hashdata->hash, sxc_geterrmsg(sx));
+            break;
+        }
+    }
+
+    /* Loop went successfully through all blocks, we are happy */
+    if(i == bh->i)
+        ret = 0;
+
+    single_download_fail:
+
+    if (sxi_retry_done(&retry))
+        CFGDEBUG("retry_done failed");
+
+    return ret;
+}
+
 static int multi_download(struct batch_hashes *bh, const char *dstname,
                           unsigned blocksize, sxc_cluster_t *cluster,
                           int fd, off_t filesize)
@@ -2898,7 +3054,6 @@ static int multi_download(struct batch_hashes *bh, const char *dstname,
     unsigned int requested = 0;
     unsigned int finished = 0;
     unsigned int transferred = 0;
-    unsigned int host_retry;
     unsigned long total_hashes;
     unsigned long total_downloaded;
     char zerohash[41];
@@ -2909,7 +3064,9 @@ static int multi_download(struct batch_hashes *bh, const char *dstname,
     sxc_client_t *sx = sxi_conns_get_client(conns);
     unsigned hostcount = 0;
     struct file_download_ctx *dctx;
-    sxi_retry_t *retry = NULL;
+    unsigned i;
+    unsigned loop = 0;
+    unsigned outstanding=0;
 
     if (sxi_cluster_hashcalc(cluster, zerobuf, blocksize, zerohash)) {
         CFGDEBUG("Failed to compute hash of zero");
@@ -2925,30 +3082,18 @@ static int multi_download(struct batch_hashes *bh, const char *dstname,
     total_hashes = bh->i;
     total_downloaded = 0;
     requested = -1;
-    retry = sxi_retry_init(sx);
-    if (!retry) {
-        cluster_err(SXE_EMEM, "Cannot allocate retry");
+
+    hostsmap = sxi_ht_new(sxi_cluster_get_client(cluster), 128);
+    if (!hostsmap) {
+        cluster_err(SXE_EMEM, "Cannot allocate hosts hash");
         free(buf);
         return 1;
     }
-
-    for(host_retry=0;retry && requested;host_retry++) {
-      unsigned i;
-      unsigned loop = 0;
-      unsigned outstanding=0;
-
-      /* save&clear previous errors */
-      sxi_retry_check(retry, host_retry);
-      /* then grab by hash */
-      CFGDEBUG("hash retrieve loop #%d", host_retry);
-      hostsmap = sxi_ht_new(sxi_cluster_get_client(cluster), 128);
-      if (!hostsmap) {
-          cluster_err(SXE_EMEM, "Cannot allocate hosts hash");
-          break;
-      }
-      requested = finished = transferred = 0;
-      for (i=0;i<bh->i;i++) {
+    requested = finished = transferred = 0;
+    for (i=0;i<bh->i;i++) {
         unsigned dctxn;
+        int rc;
+
         hashdata = &bh->hashdata[i];
         hash = hashdata->hash;
 	loop++;
@@ -2956,11 +3101,11 @@ static int multi_download(struct batch_hashes *bh, const char *dstname,
             hashdata->state == 200)
             continue;
         hostcount = sxi_hostlist_get_count(&hashdata->hosts);
-        if (hostcount <= host_retry) {
-            CFGDEBUG("All hosts have failed for hash %.*s!", 40, hash);
+        if (!hostcount) {
+            CFGDEBUG("No hosts available for hash %.*s!", 40, hash);
             break;
         }
-        host = sxi_hostlist_get_host(&hashdata->hosts, host_retry);
+        host = sxi_hostlist_get_host(&hashdata->hosts, 0);
         if (!host) {
             CFGDEBUG("Ran out of hosts for hash: (last HTTP code %ld)", hashdata->state);
             /* TODO: set err and break */
@@ -2968,69 +3113,41 @@ static int multi_download(struct batch_hashes *bh, const char *dstname,
         }
         hashdata->state = TRANSFER_PENDING;
         sxi_set_operation(sx, "file block download", NULL, NULL, NULL);
-        sxi_retry_msg(retry, host);
 
-        if (!host_retry) {
-            int rc = check_block(cluster, bh->hashes, zerohash, hash, hashdata, fd, filesize, buf, blocksize);
-            if (rc == -1) {
-                CFGDEBUG("checking block failed");
+        rc = check_block(cluster, bh->hashes, zerohash, hash, hashdata, fd, filesize, buf, blocksize);
+        if (rc == -1) {
+            CFGDEBUG("checking block failed");
+            break;
+        }
+        if (rc) {
+            sxc_xfer_stat_t *xfer_stat = NULL;
+            CFGDEBUG("Got the hash!");
+            total_downloaded++;
+            sxi_hostlist_empty(&hashdata->hosts);
+            sxi_ht_del(bh->hashes, hash, 40);
+
+            xfer_stat = sxi_cluster_get_xfer_stat(cluster);
+            if(xfer_stat && skip_xfer(cluster, blocksize * hashdata->ocnt) != SXE_NOERROR) {
+                CFGDEBUG("Could not skip %u bytes of transfer", blocksize * hashdata->ocnt);
+                sxi_seterr(sx, SXE_ABORT, "Could not skip %u bytes of transfer", blocksize * hashdata->ocnt);
                 break;
             }
-            if (rc) {
-                sxc_xfer_stat_t *xfer_stat = NULL;
 
-                CFGDEBUG("Got the hash!");
-                total_downloaded++;
-                sxi_hostlist_empty(&hashdata->hosts);
-                sxi_ht_del(bh->hashes, hash, 40);
-
-                xfer_stat = sxi_cluster_get_xfer_stat(cluster);
-                if(xfer_stat && skip_xfer(cluster, blocksize * hashdata->ocnt) != SXE_NOERROR) {
-                    CFGDEBUG("Could not skip %u bytes of transfer", blocksize * hashdata->ocnt);
-                    sxi_seterr(sx, SXE_ABORT, "Could not skip %u bytes of transfer", blocksize * hashdata->ocnt);
-                    break;
-                }
-
-                continue;/* we've got the hash */
-            }
+            continue;/* we've got the hash */
         }
 
         if (sxi_ht_get(hostsmap, host, strlen(host)+1, (void**)&cbdata)) {
             /* host not found -> new host */
-            dctx = dctx_new(sx);
-            if (!dctx) {
-                cluster_err(SXE_EMEM, "Cannot download file: Out of emory");
+            cbdata = create_download(cluster, blocksize, fd, filesize);
+            if (!cbdata)
                 break;
-            }
-            cbdata = sxi_cbdata_create_download(conns, gethash_finish, dctx);
-            if (!cbdata) {
-                cluster_err(SXE_EMEM, "Cannot download file: Out of memory");
-                dctx_free(dctx);
-                break;
-            }
-            dctx->buf = malloc(blocksize);
-            if (!dctx->buf) {
-                cluster_err(SXE_EMEM, "Cannot allocate buffer");
-                sxi_cbdata_unref(&cbdata);
-                /* dctx_free(dctx) ?? */
-                break;
-            }
-            dctx->fd = fd;
-            dctx->filesize = filesize;
-            dctx->skip = -1;
+            dctx = sxi_cbdata_get_download_ctx(cbdata);
             dctx->dldblks = &transferred;
             dctx->queries_finished = &finished;
-            dctx->blocksize = blocksize;
             dctx->hashes.hashes = bh->hashes; 
         } else
             dctx = sxi_cbdata_get_download_ctx(cbdata);
 
-        if(dctx)
-            dctx->cluster = cluster;
-        if (!dctx)
-            break;
-
-/*        snprintf(url, sizeof(url), ".data/%u/%.*s", blocksize, 40, hash);*/
         dctx->hashes.hash[dctx->hashes.n] = hash;
         dctx->hashes.hashdata[dctx->hashes.n] = hashdata;
         outstanding++;
@@ -3038,6 +3155,7 @@ static int multi_download(struct batch_hashes *bh, const char *dstname,
         if (dctxn >= DOWNLOAD_MAX_BLOCKS) {
             if (send_batch(hostsmap, conns, host, &cbdata, &requested) == -1)
                 break;
+
 	    outstanding -= dctxn;
         } else {
             if (sxi_ht_add(hostsmap, host, strlen(host)+1, cbdata)) {
@@ -3047,15 +3165,15 @@ static int multi_download(struct batch_hashes *bh, const char *dstname,
             }
         }
 	SXDEBUG("loop: %d, host:%s, n:%d, outstanding:%d, requested: %d", loop, host, dctxn,outstanding, requested);
-      }
-      sxi_ht_enum_reset(hostsmap);
-      SXDEBUG("looped: %d; requested: %d", loop, requested);
-      while(/*sxc_geterrnum(sx) == SXE_NOERROR &&*/
-            !sxi_ht_enum_getnext(hostsmap, (const void **)&host, NULL, (const void **)&cbdata)) {
-          send_batch(hostsmap, conns, host, &cbdata, &requested);
-      }
-      sxi_cbdata_unref(&cbdata);
-      if (1 /*sxc_geterrnum(sx) == SXE_NOERROR*/) {
+    }
+    sxi_ht_enum_reset(hostsmap);
+    SXDEBUG("looped: %d; requested: %d", loop, requested);
+    while(/*sxc_geterrnum(sx) == SXE_NOERROR &&*/
+          !sxi_ht_enum_getnext(hostsmap, (const void **)&host, NULL, (const void **)&cbdata)) {
+        send_batch(hostsmap, conns, host, &cbdata, &requested);
+    }
+    sxi_cbdata_unref(&cbdata);
+    if (1 /*sxc_geterrnum(sx) == SXE_NOERROR*/) {
         int rc = 0;
         while (finished != requested && !rc) {
             CFGDEBUG("finished: %d, requested: %d, rc: %d",
@@ -3071,13 +3189,10 @@ static int multi_download(struct batch_hashes *bh, const char *dstname,
                 sxi_seterr(sx, SXE_ECOMM, "%d hashes could not be downloaed",
                            finished - transferred);
         }
-      }
-      total_downloaded += transferred;
-      sxi_ht_free(hostsmap);
     }
+    total_downloaded += transferred;
+    sxi_ht_free(hostsmap);
 
-    if (sxi_retry_done(&retry))
-        CFGDEBUG("retry_done failed");
     free(buf);
     if (total_downloaded != total_hashes) {
         CFGDEBUG("Not all hashes were downloaded: %ld != %ld",
@@ -3351,6 +3466,10 @@ static int remote_to_local(sxc_file_t *source, sxc_file_t *dest) {
         }
 
         fail = multi_download(&bh, dstname, blocksize, source->cluster, d, filesize - shiftoff);
+
+        SXDEBUG("multi_download failed, trying single download");
+        if(fail)
+            fail = single_download(&bh, dstname, blocksize, source->cluster, d, filesize - shiftoff);
 
         /* Update information about transfers, but not when aborting */
         if(xfer_stat && sxc_geterrnum(sx) != SXE_ABORT) {
