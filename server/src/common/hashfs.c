@@ -6859,7 +6859,7 @@ static rc_ty sx_hashfs_gc_merge(sx_hashfs_t *h, sxi_db_t *db, int *terminate)
 static rc_ty sx_hashfs_gc_apply(sx_hashfs_t *h, sxi_db_t *db, int *terminate)
 {
     DEBUG("in gc_apply");
-    int has_begun, has_rows = 1;
+    int has_begun = 0, has_rows = 1;
     rc_ty ret = FAIL_EINTERNAL;
     uint64_t now = time(NULL);
     sqlite3_stmt *q = NULL, *q_delreservation = NULL, *q_add_counters = NULL,
@@ -6979,7 +6979,7 @@ static rc_ty sx_hashfs_gc_track(sx_hashfs_t *h, sxi_db_t *db, int *terminate)
 {
     DEBUG("in gc_track");
     int has_rows = 1;
-    int has_begun;
+    int has_begun = 0;
     sx_hash_t prevgroupid;
     int has_prev = 0;
 
@@ -8641,7 +8641,8 @@ rc_ty sx_hashfs_get_rbl_info(sx_hashfs_t *h, int *complete, const char **descrip
 	goto getrblinfo_fail;
     r = qstep(h->q_getval);
     if(r != SQLITE_ROW) {
-	*description = NULL;
+	if(description)
+	    *description = NULL;
 	if(r == SQLITE_DONE)
 	    ret = ENOENT;
 	goto getrblinfo_fail;

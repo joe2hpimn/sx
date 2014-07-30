@@ -367,7 +367,7 @@ static const yajl_callbacks inuse_parser = {
 void fcgi_hashop_inuse(void) {
     unsigned i, j;
     sx_hash_t reqhash;
-    rc_ty rc;
+    rc_ty rc = FAIL_EINTERNAL;
     unsigned missing = 0;
     const char *id;
     int comma = 0;
