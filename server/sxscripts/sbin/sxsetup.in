@@ -824,7 +824,7 @@ if [ ! -f "$SX_DATA_DIR/hashfs.db" ]; then
     else
 	# Config access to the cluster
 	test "$CONFIG_FILE_GIVEN" = "yes" && SXINITFLAGS="--batch-mode"
-	"@bindir@/sxinit" --force-reinit --port="$SX_PORT" $NOSSL_FLAG $SXINITFLAGS --config-dir=$HOME/.sx --auth-file="$ADMINKEY_TMP" --host-list="$SX_EXISTING_NODE_IP" "sx://admin@$SX_CLUSTER_NAME"
+	"@bindir@/sxinit" --force-reinit --port="$SX_PORT" $NOSSL_FLAG $SXINITFLAGS --auth-file="$ADMINKEY_TMP" --host-list="$SX_EXISTING_NODE_IP" "sx://admin@$SX_CLUSTER_NAME"
 	if [ $? -ne 0 ]; then
 	    echo "Failed to connect to the cluster. Please make sure the admin key is correct"
 	    echo "and $SX_EXISTING_NODE_IP is a valid and accessible node of the cluster sx://$SX_CLUSTER_NAME"
@@ -838,7 +838,7 @@ if [ ! -f "$SX_DATA_DIR/hashfs.db" ]; then
 	echo "SX_CLUSTER_UUID=\"$SXUUID\"" >> "$CONFIG"
 
 	# Get cluster key
-        "@sbindir@/sxadm" cluster --config-dir=$HOME/.sx --info "sx://admin@$SX_CLUSTER_NAME" > $OUT_TMP
+        "@sbindir@/sxadm" cluster --info "sx://admin@$SX_CLUSTER_NAME" > $OUT_TMP
 	if [ $? -ne 0 ]; then
 	    echo "Failed to retrieve current configuration of the cluster."
 	    exit 1
@@ -883,7 +883,7 @@ if [ ! -f "$SX_DATA_DIR/hashfs.db" ]; then
 	REBCNT=1
 	MODCNT=1
 	while true; do
-	    "@sbindir@/sxadm" cluster --config-dir=$HOME/.sx --info "sx://admin@$SX_CLUSTER_NAME" > $OUT_TMP
+	    "@sbindir@/sxadm" cluster --info "sx://admin@$SX_CLUSTER_NAME" > $OUT_TMP
 	    if [ $? -ne 0 ]; then
 		echo "Failed to retrieve current configuration of the cluster."
 		"@sbindir@/sxserver" stop
@@ -910,7 +910,7 @@ if [ ! -f "$SX_DATA_DIR/hashfs.db" ]; then
 	    SXDIST="$SXDIST $NEWNODE"
 	    (
 	    set -x
-	    "@sbindir@/sxadm" cluster --mod $SXDIST "sx://$SX_CLUSTER_NAME" 2>$OUT_TMP
+	    "@sbindir@/sxadm" cluster --mod $SXDIST "sx://admin@$SX_CLUSTER_NAME" 2>$OUT_TMP
 	    )
 	    test $? = 0 && break
 	    if [ -n "`grep "temporarily locked" $OUT_TMP`" -a $MODCNT -le 10 ]; then
@@ -975,4 +975,9 @@ else
     echo "When prompted, enter the 'admin key' printed above."
 fi
 echo
+echo "You can run 'sxacl useradd joe sx://admin@$SX_CLUSTER_NAME' to add a new user."
+echo "To create a new volume owned by user 'joe' run:"
+echo "'sxvol create --owner joe --replica N sx://admin@$SX_CLUSTER_NAME/VOLNAME'"
+echo
+
 exit 0

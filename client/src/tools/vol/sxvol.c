@@ -389,14 +389,6 @@ int main(int argc, char **argv) {
 	create_cmdline_parser_free(&create_args);
 
     } else if(!strcmp(argv[1], "filter")) {
-	if(argc < 3) {
-	    filter_cmdline_parser_print_help();
-	    printf("\n");
-	    fprintf(stderr, "ERROR: No option given\n");
-	    ret = 1;
-	    goto main_err;
-	}
-
 	if(filter_cmdline_parser(argc - 1, &argv[1], &filter_args)) {
 	    ret = 1;
 	    filter_cmdline_parser_print_help();
@@ -407,6 +399,7 @@ int main(int argc, char **argv) {
 
 	if(filter_args.version_given) {
 	    printf("%s %s\n", MAIN_CMDLINE_PARSER_PACKAGE, SRC_VERSION);
+	    filter_cmdline_parser_free(&filter_args);
 	    goto main_err;
 	}
 
@@ -424,15 +417,18 @@ int main(int argc, char **argv) {
 	    goto main_err;
 	}
 
-	if(filter_args.list_given)
+	if(filter_args.list_given || argc == 2) {
 	    ret = filter_list(sx);
-	else if(filter_args.info_given)
+	    if(!ret && argc == 2)
+		fprintf(stderr, "\nRun sxvol filter --info=<filtername> to get usage help for a specific filter.\n");
+	} else if(filter_args.info_given)
 	    ret = filter_info(sx, filter_args.info_arg);
 	else {
 	    filter_cmdline_parser_print_help();
 	    printf("\n");
 	    fprintf(stderr, "ERROR: Invalid arguments\n");
 	    ret = 1;
+	    filter_cmdline_parser_free(&filter_args);
 	    goto main_err;
 	}
 
