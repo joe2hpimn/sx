@@ -441,8 +441,8 @@ sxi_job_t* sxi_job_submit(sxi_conns_t *conns, sxi_hostlist_t *hlist, enum sxi_cl
                 }
                 memcpy(&jobs->tv, &tv, sizeof(tv));
                 SXDEBUG("throttle wait finished");
-                sxc_clearerr(sx);
             }
+            sxc_clearerr(sx);
             if (j++ > 0)
                 sxi_retry_throttle(sxi_conns_get_client(conns), j);
         }
