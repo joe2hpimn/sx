@@ -640,6 +640,11 @@ static int change_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
     if(!clust)
 	return 1;
 
+    if(sxc_cluster_fetchnodes(clust)) {
+	CRIT("%s", sxc_geterrmsg(sx));
+	goto change_cluster_err;
+    }
+
     query = malloc(4096);
     query_sz = 4096;
     strcpy(query, "{\"nodeList\":[");
@@ -695,6 +700,9 @@ static int change_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
 	goto change_cluster_err;
     }
 
+    if(sxc_cluster_fetchnodes(clust) ||
+       sxc_cluster_save(clust, args->config_dir_arg))
+	WARN("Cannot update local cluster configuration: %s", sxc_geterrmsg(sx));
     ret = 0;
 
  change_cluster_err:
