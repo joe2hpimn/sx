@@ -1664,9 +1664,6 @@ static int local_to_remote_begin(sxc_file_t *source, sxc_meta_t *fmeta, sxc_file
 		goto local_to_remote_err;
 	    }
 	}
-	close(s);
-	free(buf);
-	fclose(yctx->current.f);
 	tsource = sxc_file_local(sx, fname);
 	if(!tsource)
 	    SXDEBUG("failed to create source file object for temporary input file");
@@ -1674,11 +1671,7 @@ static int local_to_remote_begin(sxc_file_t *source, sxc_meta_t *fmeta, sxc_file
 	    ret = local_to_remote_begin(tsource, fmeta, dest, recursive);
 	    sxc_file_free(tsource);
 	}
-	unlink(fname);
-	sxi_tempfile_untrack(sx, fname);
-        if (restore_path(dest))
-            ret = 1;
-	return ret;
+	goto local_to_remote_err; /* cleanup, not necessarily an error */
     }
 
     if(!(vmeta = sxc_meta_new(sx)))
