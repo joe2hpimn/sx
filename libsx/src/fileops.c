@@ -3703,28 +3703,25 @@ remote_to_local_err:
     return ret;
 }
 
-struct hash_fastcopy_data_t {
-    sxi_hostlist_t src_hosts;
-    sxi_hostlist_t dst_hosts;
-};
-
 static sxi_job_t* remote_to_remote_fast(sxc_file_t *source, sxc_meta_t *fmeta, sxc_file_t *dest) {
-    char *src_hashfile, *dst_hashfile = NULL, *rcur, ha[42];
-    sxi_ht *src_hashes = NULL, *dst_hashes = NULL, *dst_hosts = NULL;
-    struct hash_fastcopy_data_t *hashdata;
+    char *src_hashfile, *rcur, ha[42];
+    sxi_ht *src_hashes = NULL;
     sxc_client_t *sx = source->sx;
     struct file_upload_ctx yctx;
     yajl_callbacks *yacb = &yctx.current.yacb;
     unsigned int blocksize;
-    sxi_hostlist_t volhosts, flushost;
+    sxi_hostlist_t volhosts;
     int64_t filesize;
     uint8_t *buf = NULL;
     FILE *hf;
     sxi_query_t *query = NULL;
     sxi_job_t *job = NULL;
+    unsigned int i;
+    sxi_hostlist_t src_hosts;
+    curlev_context_t *cbdata = NULL;
 
     sxi_hostlist_init(&volhosts);
-    sxi_hostlist_init(&flushost);
+    sxi_hostlist_init(&src_hosts);
     memset(&yctx, 0, sizeof(yctx));
 
     if(hashes_to_download(source, &hf, &src_hashfile, &blocksize, &filesize, NULL)) {
@@ -3780,11 +3777,7 @@ static sxi_job_t* remote_to_remote_fast(sxc_file_t *source, sxc_meta_t *fmeta, s
 		sxi_seterr(sx, SXE_ETMP, "Transfer failed: Failed to read from cache file");
 		goto remote_to_remote_fast_err;
 	    }
-	    if(!fread(ho, sz, 1, hf)) {
-		SXDEBUG("failed to read host");
-		sxi_setsyserr(sx, SXE_ETMP, "Transfer failed: Failed to read from cache file");
-		goto remote_to_remote_fast_err;
-	    }
+            fseek(hf, sz, SEEK_CUR);
 	}
     }
 
@@ -3797,10 +3790,6 @@ static sxi_job_t* remote_to_remote_fast(sxc_file_t *source, sxc_meta_t *fmeta, s
 	goto remote_to_remote_fast_err;
     }
 
-    if(!(dst_hashfile = sxi_tempfile_track(dest->sx, NULL, &yctx.current.f))) {
-	SXDEBUG("failed to generate results file");
-	goto remote_to_remote_fast_err;
-    }
     ya_init(yacb);
     yacb->yajl_start_map = yacb_createfile_start_map;
     yacb->yajl_map_key = yacb_createfile_map_key;
@@ -3813,6 +3802,10 @@ static sxi_job_t* remote_to_remote_fast(sxc_file_t *source, sxc_meta_t *fmeta, s
     yctx.current.yh = NULL;
     yctx.blocksize = blocksize;
     yctx.name = strdup(dest->path);
+    if(!yctx.name) {
+        sxi_seterr(sx, SXE_EMEM, "Cannot allocate destination path buffer");
+        goto remote_to_remote_fast_err;
+    }
 
     yctx.current.hashes = src_hashes;
     if (!(yctx.current.needed = calloc(sizeof(*yctx.current.needed), sxi_ht_count(src_hashes)))) {
@@ -3821,7 +3814,7 @@ static sxi_job_t* remote_to_remote_fast(sxc_file_t *source, sxc_meta_t *fmeta, s
     }
     sxi_set_operation(sxi_cluster_get_client(dest->cluster), "upload file content hashes",
                       sxi_cluster_get_name(dest->cluster), dest->volume, dest->path);
-    curlev_context_t *cbdata = sxi_cbdata_create_upload(sxi_cluster_get_conns(dest->cluster), NULL, &yctx);
+    cbdata = sxi_cbdata_create_upload(sxi_cluster_get_conns(dest->cluster), NULL, &yctx);
     if (!cbdata)
         goto remote_to_remote_fast_err;
     if(sxi_cluster_query_ev_retry(cbdata, sxi_cluster_get_conns(dest->cluster), &volhosts, query->verb, query->path, query->content, query->content_len, createfile_setup_cb, createfile_cb, NULL)) {
@@ -3833,9 +3826,6 @@ static sxi_job_t* remote_to_remote_fast(sxc_file_t *source, sxc_meta_t *fmeta, s
 	SXDEBUG("file create query failed");
 	goto remote_to_remote_fast_err;
     }
-    sxi_cbdata_unref(&cbdata);
-    sxi_query_free(query);
-    query = NULL;
 
     if(yajl_complete_parse(yctx.current.yh) != yajl_status_ok || yctx.current.state != CF_COMPLETE) {
 	SXDEBUG("JSON parsing failed");
@@ -3853,141 +3843,78 @@ static sxi_job_t* remote_to_remote_fast(sxc_file_t *source, sxc_meta_t *fmeta, s
 	goto remote_to_remote_fast_err;
     }
 
-    if(!(dst_hashes = sxi_ht_new(dest->sx, INITIAL_HASH_ITEMS))) {
-	SXDEBUG("failed to create dest hashtable");
-	goto remote_to_remote_fast_err;
-    }
+    for(i = 0; i < yctx.current.needed_cnt; i++) {
+        struct need_hash *need = &yctx.current.needed[i];
+        int sz;
 
-    if(!(dst_hosts = sxi_ht_new(dest->sx, INITIAL_HASH_ITEMS))) {
-	SXDEBUG("failed to create hosts table");
-	goto remote_to_remote_fast_err;
-    }
-    rewind(yctx.current.f);
-    while(!feof(yctx.current.f)) {
-	const char *cur_host;
-	char *hash_list;
-	unsigned int i;
+        fseek(hf, need->off - 40, SEEK_SET);
+        if(!fread(ha, 40, 1, hf)) {
+            SXDEBUG("Could not read hash at offset %ld", need->off - 40);
+            goto remote_to_remote_fast_err;
+        }
 
-	for(i=0;i<BLOCKS_PER_TABLE;i++) {
-	    long *hfoff;
+        sxi_hostlist_empty(&src_hosts);
+        while((sz = fgetc(hf))) {
+            char ho[64];
 
-	    if(!fread(ha, 40, 1, yctx.current.f))
-		break;
+            if(sz == EOF || sz >= (int) sizeof(ho)) {
+                SXDEBUG("failed to read host size");
+                sxi_seterr(sx, SXE_ETMP, "Transfer failed: Failed to read from cache file");
+                goto remote_to_remote_fast_err;
+            }
+            if(!fread(ho, sz, 1, hf)) {
+                SXDEBUG("failed to read host");
+                sxi_setsyserr(sx, SXE_ETMP, "Transfer failed: Failed to read from cache file");
+                goto remote_to_remote_fast_err;
+            }
 
-	    if(sxi_ht_get(dst_hashes, ha, 40, NULL)) {
-		hashdata = malloc(sizeof(*hashdata));
-		if(!hashdata) {
-		    SXDEBUG("OOM allocating hash container");
-		    sxi_seterr(sx, SXE_EMEM, "Transfer failed: Out of memory");
-		    goto remote_to_remote_fast_err;
-		}
-		sxi_hostlist_init(&hashdata->src_hosts);
-		sxi_hostlist_init(&hashdata->dst_hosts);
-		if(sxi_ht_add(dst_hashes, ha, 40, hashdata)) {
-		    SXDEBUG("failed to add hash %.40s to dest table", ha);
-		    free(hashdata);
-		    goto remote_to_remote_fast_err;
-		}
-		if(sxi_ht_get(src_hashes, ha, 40, (void **)&hfoff)) {
-		    SXDEBUG("hash lookup failed for %.40s", ha);
-		    sxi_seterr(sx, SXE_ECOMM, "Transfer failed: Unable to find hash");
-		    goto remote_to_remote_fast_err;
-		}
-		fseek(hf, *hfoff, SEEK_SET);
-		free(hfoff);
-		sxi_ht_del(src_hashes, ha, 40);
-		if(load_hosts_for_hash(sx, hf, ha, &hashdata->src_hosts, NULL)) {
-		    SXDEBUG("failed to add src hosts for %.40s", ha);
-		    goto remote_to_remote_fast_err;
-		}
-	    } else 
-		hashdata = NULL;
+            if(sxi_hostlist_add_host(sx, &src_hosts, ho)) {
+                SXDEBUG("failed to add host");
+                goto remote_to_remote_fast_err;
+            }
+        }
 
-	    if(load_hosts_for_hash(sx, yctx.current.f, ha, hashdata ? &hashdata->dst_hosts : NULL, dst_hosts)) {
-		SXDEBUG("failed to load dest hosts for %.40s", ha);
-		goto remote_to_remote_fast_err;
-	    }
-	}
+        if(download_block_to_buf(source->cluster, &src_hosts, ha, buf, blocksize)) {
+            SXDEBUG("failed to download hash %.40s", ha);
+            goto remote_to_remote_fast_err;
+        }
 
-	sxi_ht_enum_reset(dst_hosts);
-	while(!sxi_ht_enum_getnext(dst_hosts, (const void **)&cur_host, &i, (const void **)&hash_list)) {
-	    char *curhash;
-	    for(curhash = hash_list; *curhash; curhash += 40) {
-		if(sxi_ht_get(dst_hashes, curhash, 40, (void **)&hashdata))
-		    continue;
-
-		if(download_block_to_buf(source->cluster, &hashdata->src_hosts, curhash, buf, blocksize)) {
-		    SXDEBUG("failed to download hash %.40s", curhash);
-		    goto remote_to_remote_fast_err;
-		}
-
-		if(sxi_upload_block_from_buf(sxi_cluster_get_conns(dest->cluster), &hashdata->dst_hosts, yctx.current.token, buf, blocksize, blocksize)) {
-		    SXDEBUG("failed to upload hash %.40s", curhash);
-		    goto remote_to_remote_fast_err;
-		}
-
-		sxi_hostlist_empty(&hashdata->src_hosts);
-		sxi_hostlist_empty(&hashdata->dst_hosts);
-		free(hashdata);
-		sxi_ht_del(dst_hashes, curhash, 40);
-	    }
-
-	    free(hash_list);
-	    sxi_ht_del(dst_hosts, cur_host, i);
-	}
+        if(sxi_upload_block_from_buf(sxi_cluster_get_conns(source->cluster), &need->upload_hosts, yctx.current.token, buf, blocksize, blocksize)) {
+            SXDEBUG("failed to upload hash %.40s", ha);
+            goto remote_to_remote_fast_err;
+        }
     }
 
     if (!(job = flush_file_ev(dest->cluster, yctx.host, yctx.current.token, yctx.name, NULL)))
 	goto remote_to_remote_fast_err;
 
 remote_to_remote_fast_err:
-    if(dst_hosts) {
-	sxi_ht_enum_reset(dst_hosts);
-	while(!sxi_ht_enum_getnext(dst_hosts, NULL, NULL, (const void **)&rcur))
-	    free(rcur);
-	sxi_ht_free(dst_hosts);
-    }
-
-    if(dst_hashes) {
-	sxi_ht_enum_reset(dst_hashes);
-	while(!sxi_ht_enum_getnext(dst_hashes, NULL, NULL, (const void **)&hashdata)) {
-	    sxi_hostlist_empty(&hashdata->src_hosts);
-	    sxi_hostlist_empty(&hashdata->dst_hosts);
-	    free(hashdata);
-	}
-	sxi_ht_free(dst_hashes);
-    }
-
     if(src_hashes) {
 	sxi_ht_enum_reset(src_hashes);
 	while(!sxi_ht_enum_getnext(src_hashes, NULL, NULL, (const void **)&rcur))
 	    free(rcur);
 	sxi_ht_free(src_hashes);
     }
+    sxi_cbdata_unref(&cbdata);
+    sxi_query_free(query);
 
     free(buf);
 
     free(yctx.name);
     free(yctx.current.token);
+    for(i = 0; i < yctx.current.needed_cnt; i++)
+        sxi_hostlist_empty(&yctx.current.needed[i].upload_hosts);
     free(yctx.current.needed);
     free(yctx.host);
     if(yctx.current.yh)
 	yajl_free(yctx.current.yh);
 
-    if(dst_hashfile) {
-	fclose(yctx.current.f);
-	unlink(dst_hashfile);
-	sxi_tempfile_untrack(sx, dst_hashfile);
-    }
-
-    sxi_query_free(query);
-
     if (hf)
         fclose(hf);
     unlink(src_hashfile);
     sxi_tempfile_untrack(sx, src_hashfile);
-    sxi_hostlist_empty(&flushost);
     sxi_hostlist_empty(&volhosts);
+    sxi_hostlist_empty(&src_hosts);
 
     return job;
 }
