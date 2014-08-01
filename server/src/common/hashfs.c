@@ -2744,6 +2744,7 @@ rc_ty sx_hashfs_list_first(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, con
 
 rc_ty sx_hashfs_list_next(sx_hashfs_t *h) {
     int found, list_ndb, match_failed;
+    int ret = OK;
     if(!h || !h->list_pattern || !*h->list_pattern)
 	return EINVAL;
 
@@ -2755,8 +2756,10 @@ rc_ty sx_hashfs_list_next(sx_hashfs_t *h) {
 
 	    sqlite3_reset(h->qm_list[list_ndb]);
 	    if(qbind_int64(h->qm_list[list_ndb], ":volume", h->list_volid) ||
-	       qbind_text(h->qm_list[list_ndb], ":previous", h->list_file.itername))
-		return FAIL_EINTERNAL;
+	       qbind_text(h->qm_list[list_ndb], ":previous", h->list_file.itername)) {
+                ret = FAIL_EINTERNAL;
+                break;
+            }
 
 	    int r = qstep(h->qm_list[list_ndb]);
 
@@ -2766,13 +2769,16 @@ rc_ty sx_hashfs_list_next(sx_hashfs_t *h) {
 	    if(r == SQLITE_DONE)
 		continue;
 
-	    if(r != SQLITE_ROW)
-		return FAIL_EINTERNAL;
+	    if(r != SQLITE_ROW) {
+                ret = FAIL_EINTERNAL;
+                break;
+            }
 
 	    const char *n = (char *)sqlite3_column_text(h->qm_list[list_ndb], 0);
 	    if(!n) {
 		WARN("Cannot list NULL filename on meta database %u", list_ndb);
-		return FAIL_EINTERNAL;
+                ret = FAIL_EINTERNAL;
+                break;
 	    }
 
             if(h->list_file.itername_limit[0] != '\0' && strncmp(n, h->list_file.itername_limit, h->list_file.itername_limit_len) >= 0) {
@@ -2801,10 +2807,13 @@ rc_ty sx_hashfs_list_next(sx_hashfs_t *h) {
 	    }
 	    sqlite3_reset(h->qm_list[list_ndb]);
 	}
+        if (ret)
+            break;
 
 	if(!found) {
             DEBUG("List queries performed: %llu", (unsigned long long)h->qm_list_queries);
-	    return ITER_NO_MORE;
+	    ret = ITER_NO_MORE;
+            break;
         }
 
 	strncpy(h->list_file.itername, h->list_file.name+1, sizeof(h->list_file.itername));
@@ -2830,6 +2839,11 @@ rc_ty sx_hashfs_list_next(sx_hashfs_t *h) {
         /* only continue if pattern matched, and it is a new file / directory */
     } while (match_failed || !strcmp(h->list_file.lastname, h->list_file.name));
 
+    for(list_ndb=0; list_ndb < METADBS; list_ndb++) {
+        sqlite3_reset(h->qm_list[list_ndb]);
+    }
+    if (ret)
+        return ret;
     strncpy(h->list_file.lastname, h->list_file.name, sizeof(h->list_file.lastname));
     h->list_file.lastname[sizeof(h->list_file.lastname)-1] = '\0';
     return OK;
