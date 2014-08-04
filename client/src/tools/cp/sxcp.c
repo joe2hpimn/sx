@@ -217,28 +217,26 @@ static int bar_progress(const sxc_xfer_stat_t *xfer_stat) {
     double eta = 0;
     int i = 0;
     float x = 0;
+    int64_t skipped = 0;
+    double sc = 0;
     static int64_t last_skipped = 0;
-    int skipped_changed = 0; /* it is set to 1 when some blocks where skipped */
 
     if(!bar_internal || !xfer_stat) {
         return SXE_ABORT;
     }
 
     if(xfer_stat->status != SXC_XFER_STATUS_PART_FINISHED && xfer_stat->status != SXC_XFER_STATUS_WAITING) {
-        int64_t skipped = xfer_stat->current_xfer.file_size - xfer_stat->current_xfer.to_send;
-        if(skipped < 0) skipped = 0;
+        skipped = xfer_stat->current_xfer.file_size - xfer_stat->current_xfer.to_send;
+        if(skipped < 0)
+            skipped = 0;
+        sc = ((double)(skipped - last_skipped) / xfer_stat->current_xfer.file_size)* m;
         c = xfer_stat->current_xfer.file_size > 0 ? (double)(skipped + xfer_stat->current_xfer.sent) / (double)xfer_stat->current_xfer.file_size : 1.0;
-        if(skipped != last_skipped) {
+        if(skipped != last_skipped)
             last_skipped = skipped;
-            skipped_changed = 1;
-        } else {
-            skipped_changed = 0;
-        }
     } else {
         /* Skip rest of the file since this is part finished or waiting status */
         c = 1.0;
         last_skipped = 0;
-        skipped_changed = 0;
     }
     
     percent = c <= 1.0 ? 100 * c : 100;
@@ -247,8 +245,9 @@ static int bar_progress(const sxc_xfer_stat_t *xfer_stat) {
     x = bar_internal->index * m;
     for(i = bar_internal->index; i < BAR_WIDTH; i++) {
         if(x < c) {
-            if(skipped_changed) {
+            if(sc > 0) {
                 bar_internal->bar[i] = '+';
+                sc -= m;
             } else {
                 bar_internal->bar[i] = '=';
             }
@@ -364,7 +363,6 @@ static int dots_progress(const sxc_xfer_stat_t *xfer_stat) {
     double speed = 0;
     char *processed_speed = NULL;
     int64_t skipped = 0;
-    int64_t skipped_changed = 0;
     double eta = 0;
     char *processed_eta = NULL;
 
@@ -380,13 +378,6 @@ static int dots_progress(const sxc_xfer_stat_t *xfer_stat) {
     skipped = xfer_stat->current_xfer.file_size - xfer_stat->current_xfer.to_send;
     if(skipped < 0) skipped = 0;
 
-    if(skipped > last_skipped) {
-        last_skipped = skipped;
-        skipped_changed = 1;
-    } else {
-        skipped_changed = 0;
-    }
-
     while(xfer_stat->current_xfer.sent + skipped > xfer_written) {
         /* If new line was added, dots_written should be 0 */
         if(dots_written == 0) {
@@ -399,9 +390,10 @@ static int dots_progress(const sxc_xfer_stat_t *xfer_stat) {
 
         j++; 
         dots_written++;
-        if(skipped_changed)
+        if(skipped > last_skipped) {
+            last_skipped += dots_sizes.bytes;
             printf("+");
-        else
+        } else
             printf(".");
         if((j + 1) % (dots_sizes.per_cluster + 1) == 0) {
             printf(" ");
@@ -521,7 +513,8 @@ static int progress_callback(const sxc_xfer_stat_t *xfer_stat) {
         case SXC_XFER_STATUS_WAITING: {
             if(xfer_stat->current_xfer.to_send > 0) {
                 char *processed_number = process_number(xfer_stat->current_xfer.sent);
-                char *processed_speed = process_number(xfer_stat->current_xfer.sent / xfer_stat->current_xfer.total_time);
+                double speed = xfer_stat->current_xfer.total_time > 0 ? xfer_stat->current_xfer.sent / xfer_stat->current_xfer.total_time : 0;
+                char *processed_speed = process_number(speed);
                 char *processed_time = process_time(xfer_stat->current_xfer.total_time);
                 const char *transferred_str = get_callback_type() == bar_progress ? "Transferred" : " transferred";
                 const char *file_name = get_callback_type() == bar_progress ? "" : xfer_stat->current_xfer.file_name;

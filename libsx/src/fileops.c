@@ -97,8 +97,7 @@ static int set_xfer_stat(sxc_xfer_stat_t *xfer_stat, int64_t bytes) {
         xfer_stat->total_ul += bytes;
 
     gettimeofday(&now, NULL);
-    if((timediff = sxi_timediff(&now, &xfer_stat->interval_timer)) >= XFER_PROGRESS_INTERVAL 
-        || xfer_stat->current_xfer.to_send <= xfer_stat->current_xfer.sent) {
+    if((timediff = sxi_timediff(&now, &xfer_stat->interval_timer)) >= XFER_PROGRESS_INTERVAL) {
         memcpy(&xfer_stat->interval_timer, &now, sizeof(struct timeval));
 
         /* Update total transfer time */
@@ -142,6 +141,8 @@ static int sxi_xfer_set_file(sxc_xfer_stat_t *xfer_stat, const char *file_name, 
 /* Skip part of transfer data */
 static int skip_xfer(sxc_cluster_t *cluster, int64_t bytes) {
     sxc_xfer_stat_t *xfer_stat = sxi_cluster_get_xfer_stat(cluster);
+    sxc_client_t *sx = sxi_cluster_get_client(cluster);
+    struct timeval now;
 
     if(!xfer_stat || !xfer_stat->xfer_callback) 
         return SXE_ABORT;
@@ -157,8 +158,15 @@ static int skip_xfer(sxc_cluster_t *cluster, int64_t bytes) {
         } break;
     }
 
-    /* Invoke callback to allow client side to present skipped blocks */
-    return xfer_stat->xfer_callback(xfer_stat);
+    gettimeofday(&now, NULL);
+
+    if(sxc_geterrnum(sx) != SXE_ABORT && sxi_timediff(&now, &xfer_stat->interval_timer) >= XFER_PROGRESS_INTERVAL) {
+        memcpy(&xfer_stat->interval_timer, &now, sizeof(struct timeval));
+
+        /* Invoke callback to allow client side to present skipped blocks */
+        return xfer_stat->xfer_callback(xfer_stat);
+    } else
+        return sxc_geterrnum(sx);
 }
 
 /* Download table is at most 5MB and allows for up to 128GB of uniq content */
