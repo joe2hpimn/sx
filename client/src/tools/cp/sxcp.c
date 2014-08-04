@@ -564,7 +564,10 @@ static sxc_file_t *sxfile_from_arg(sxc_cluster_t **cluster, const char *arg, int
 	    return NULL;
 	}
 	if(!uri->volume || (require_remote_path && !uri->path)) {
-	    fprintf(stderr, "ERROR: Bad path %s\n", arg);
+	    if(!uri->volume)
+		fprintf(stderr, "ERROR: Bad path %s: Missing volume name\n", arg);
+	    else
+		fprintf(stderr, "ERROR: Bad path %s: Missing file path\n", arg);
 	    sxc_free_uri(uri);
 	    return NULL;
 	}
