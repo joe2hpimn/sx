@@ -848,7 +848,7 @@ int main(int argc, char **argv) {
     sxc_client_t *sx = server_init(sxc_default_logger(&log, argv[0]), NULL, NULL, 0, argc, argv);
 
     if(!sx) {
-	fprintf(stderr, "Fatal error: server_init() failed\b");
+	fprintf(stderr, "Fatal error: server_init() failed\n");
 	return 1;
     }
 
