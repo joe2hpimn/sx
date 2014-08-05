@@ -736,7 +736,6 @@ static int info_node(sxc_client_t *sx, const char *path)
 	return 1;
     }
     free(hpath);
-    log_setminlevel(sx, SX_LOG_WARNING);
     h = sx_hashfs_open(path, sx);
     if(!h)
 	return 1;
@@ -851,6 +850,7 @@ int main(int argc, char **argv) {
 	fprintf(stderr, "Fatal error: server_init() failed\n");
 	return 1;
     }
+    log_setminlevel(sx, SX_LOG_WARNING);
 
     if(!getrlimit(RLIMIT_NOFILE, &rlim) && (rlim.rlim_cur < MAX_FDS || rlim.rlim_max < MAX_FDS)) {
 	unsigned int l_soft = rlim.rlim_cur, l_hard = rlim.rlim_max;

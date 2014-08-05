@@ -185,7 +185,7 @@ void sxc_set_verbose(sxc_client_t *sx, int enabled) {
     if (enabled)
         sxi_log_enable_level(&sx->log, SX_LOG_INFO);
     else
-        sxi_log_enable_level(&sx->log, SX_LOG_NOTICE);
+        sxi_log_set_level(&sx->log, SX_LOG_NOTICE);
 }
 
 void sxi_clear_operation(sxc_client_t *sx)

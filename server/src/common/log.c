@@ -194,6 +194,8 @@ void log_setminlevel(sxc_client_t *sx, int prio)
     if (prio == SX_LOG_DEBUG) {
         sxc_set_debug(sx, 1);
     }
+    if (prio < SX_LOG_INFO)
+        sxc_set_verbose(sx, 0);
 }
 
 static int64_t counter;
