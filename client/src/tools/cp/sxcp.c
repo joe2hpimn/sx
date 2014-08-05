@@ -229,7 +229,7 @@ static int bar_progress(const sxc_xfer_stat_t *xfer_stat) {
         skipped = xfer_stat->current_xfer.file_size - xfer_stat->current_xfer.to_send;
         if(skipped < 0)
             skipped = 0;
-        sc = ((double)(skipped - last_skipped) / xfer_stat->current_xfer.file_size)* m;
+        sc = ((double)(skipped - last_skipped) / xfer_stat->current_xfer.file_size);
         c = xfer_stat->current_xfer.file_size > 0 ? (double)(skipped + xfer_stat->current_xfer.sent) / (double)xfer_stat->current_xfer.file_size : 1.0;
         if(skipped != last_skipped)
             last_skipped = skipped;
@@ -269,7 +269,8 @@ static int bar_progress(const sxc_xfer_stat_t *xfer_stat) {
 
     printf("\r");
 
-    if(xfer_stat->status != SXC_XFER_STATUS_PART_FINISHED && xfer_stat->status != SXC_XFER_STATUS_WAITING) {
+    if(xfer_stat->status != SXC_XFER_STATUS_PART_FINISHED && xfer_stat->status != SXC_XFER_STATUS_WAITING &&
+       xfer_stat->status != SXC_XFER_STATUS_PART_STARTED) {
         char *processed_speed = process_number(speed);
         char *processed_eta = process_time(eta);
         int written = 0;
