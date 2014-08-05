@@ -107,7 +107,7 @@ static void qcheckpoint_run(sxi_db_t *db, int kind)
     if (rc != SQLITE_OK && rc != SQLITE_BUSY) {
         WARN("Failed to checkpoint GC db: %s", sqlite3_errmsg(db->handle));
     } else if (ckpt > 0) {
-        INFO("WAL %s: %d frames, %d checkpointed: %s in %.1fs", sqlite3_db_filename(db->handle, "main"), log, ckpt, sqlite3_errmsg(db->handle),
+        DEBUG("WAL %s: %d frames, %d checkpointed: %s in %.1fs", sqlite3_db_filename(db->handle, "main"), log, ckpt, sqlite3_errmsg(db->handle),
              timediff(&tv0, &tv1));
     }
     db->wal_pages = 0;
