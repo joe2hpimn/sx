@@ -7074,7 +7074,7 @@ static rc_ty sx_hashfs_gc_track(sx_hashfs_t *h, sxi_db_t *db, int *terminate)
                 break;
             r2 = qstep(q_get_activity);
             if (r2 == SQLITE_ROW) {
-                last_changed_at = sqlite3_column_int(q_get_activity, 0);
+                /* last_changed_at = sqlite3_column_int(q_get_activity, 0); */
                 prev_pending = sqlite3_column_int(q_get_activity, 1);
                 prev_total = sqlite3_column_int(q_get_activity, 2);
             }

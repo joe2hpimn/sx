@@ -538,10 +538,9 @@ int sxi_cluster_query(sxi_conns_t *conns, const sxi_hostlist_t *hlist, enum sxi_
 	sxi_cbdata_reset(cbdata);
 
 	/* clear errors: we're retrying on next host */
-	if (sxi_retry_check(retry, i)) {
-	    rc = -1;
+	if (sxi_retry_check(retry, i))
 	    break;
-	}
+
 	const char *host = sxi_hostlist_get_host(hlist, i);
 	sxi_retry_msg(retry, host);
 

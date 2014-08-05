@@ -4090,25 +4090,6 @@ int sxc_copy(sxc_file_t *source, sxc_file_t *dest, int recursive, int onefs) {
     sxc_xfer_stat_t *xfer_stat = NULL;
     sxc_cluster_t *remote_cluster = NULL;
 
-/* FIXME: Drop this code if there are no side effects of turning it off
-    if (!is_remote(dest)) {
-        struct stat sb;
-	if(recursive) {
-	    if(sxc_file_require_dir(dest))
-		return 1;
-	} else if (dest->path && ends_with(dest->path, '/')) {
-            if (stat(dest->path, &sb) == -1 || !S_ISDIR(sb.st_mode)) {
-                sxi_seterr(source->sx, SXE_EARG, "'%s' must be an existing directory", dest->path);
-                return 1;
-            }
-	    if(access(dest->path, X_OK | W_OK)) {
-                sxi_seterr(source->sx, SXE_EARG, "Cannot access %s", dest->path);
-                return 1;
-            }
-        }
-    }
-*/
-
     if(!is_remote(source)) {
 	if(!is_remote(dest)) {
             if (dest->cat_fd > 0) {

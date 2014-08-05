@@ -2623,7 +2623,8 @@ static job_data_t *make_jobdata(const void *data, unsigned int data_len) {
 	return NULL;
     ret->ptr = (void *)(ret+1);
     ret->len = data_len;
-    memcpy(ret->ptr, data, data_len);
+    if(data_len)
+	memcpy(ret->ptr, data, data_len);
     return ret;
 }
 
