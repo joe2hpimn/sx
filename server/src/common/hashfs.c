@@ -5136,20 +5136,20 @@ void sx_hashfs_putfile_end(sx_hashfs_t *h) {
     putfile_reinit(h);
 }
 
-unsigned int sx_hashfs_job_file_timeout(sx_hashfs_t *h, unsigned int ndests, uint64_t expected_size, uint64_t expected_blocks)
+unsigned int sx_hashfs_job_file_timeout(sx_hashfs_t *h, unsigned int ndests, uint64_t size)
 {
-    unsigned int job_timeout;
-    if(ndests > 1) {
-	for(job_timeout = 50; expected_size; expected_size >>= 3)
-	    job_timeout <<= 1;
-	if(ndests > 2)
-	    job_timeout = job_timeout * ndests / (ndests - 1);
-    } else
-	job_timeout = 20;
-    job_timeout += expected_blocks / DOWNLOAD_MAX_BLOCKS * 4;
-    if(job_timeout > JOB_FILE_MAX_TIME)
-	job_timeout = JOB_FILE_MAX_TIME;
-    return job_timeout;
+    unsigned int blocks = size_to_blocks(size, NULL, NULL), timeout = 35;
+    timeout += 20 * (ndests-1);
+    timeout += 10 * blocks;
+
+    /* Empirically determined very crude cap; to be reworked later */
+    if(timeout < 160 * ndests)
+	timeout = 160 * ndests;
+
+    if(timeout > JOB_FILE_MAX_TIME)
+	timeout = JOB_FILE_MAX_TIME;
+
+    return timeout;
 }
 
 rc_ty sx_hashfs_putfile_commitjob(sx_hashfs_t *h, const uint8_t *user, sx_uid_t user_id, const char *token, job_t *job_id) {
@@ -5244,9 +5244,8 @@ rc_ty sx_hashfs_putfile_commitjob(sx_hashfs_t *h, const uint8_t *user, sx_uid_t 
 	goto putfile_commitjob_err;
     }
 
-    expected_size = expected_size / 1024 / 1024;
     ndests = sx_nodelist_count(volnodes);
-    job_timeout = sx_hashfs_job_file_timeout(h, ndests, expected_size, expected_blocks);
+    job_timeout = sx_hashfs_job_file_timeout(h, ndests, expected_size);
 
     ret2 = sx_hashfs_job_new_begin(h);
     if(ret2) {

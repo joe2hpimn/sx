@@ -305,7 +305,7 @@ void sx_hashfs_job_trigger(sx_hashfs_t *h);
 rc_ty sx_hashfs_countjobs(sx_hashfs_t *h, sx_uid_t user_id);
 rc_ty sx_hashfs_job_lock(sx_hashfs_t *h, const char *owner);
 rc_ty sx_hashfs_job_unlock(sx_hashfs_t *h, const char *owner);
-unsigned int sx_hashfs_job_file_timeout(sx_hashfs_t *h, unsigned int ndests, uint64_t expected_size, uint64_t expected_blocks);
+unsigned int sx_hashfs_job_file_timeout(sx_hashfs_t *h, unsigned int ndests, uint64_t size);
 
 /* Xfers */
 rc_ty sx_hashfs_xfer_tonodes(sx_hashfs_t *h, sx_hash_t *block, unsigned int size, const sx_nodelist_t *targets);
