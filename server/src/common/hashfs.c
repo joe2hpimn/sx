@@ -7452,7 +7452,7 @@ rc_ty sx_hashfs_hdist_change_req(sx_hashfs_t *h, const sx_nodelist_t *newdist, j
 	return r;
     }
 
-    r = sx_hashfs_job_new_notrigger(h, *job_id, 0, job_id, JOBTYPE_DISTRIBUTION, sx_nodelist_count(targets) * 40, "DISTRIBUTION", cfg, cfg_len, targets);
+    r = sx_hashfs_job_new_notrigger(h, *job_id, 0, job_id, JOBTYPE_DISTRIBUTION, sx_nodelist_count(targets) * 60, "DISTRIBUTION", cfg, cfg_len, targets);
     if(r) {
 	INFO("job_new (distribution) returned: %s", rc2str(r));
 	sx_nodelist_delete(targets);
@@ -7460,7 +7460,7 @@ rc_ty sx_hashfs_hdist_change_req(sx_hashfs_t *h, const sx_nodelist_t *newdist, j
 	return r;
     }
 
-    r = sx_hashfs_job_new_notrigger(h, *job_id, 0, job_id, JOBTYPE_STARTREBALANCE, sx_nodelist_count(targets) * 20, "DISTRIBUTION", NULL, 0, targets);
+    r = sx_hashfs_job_new_notrigger(h, *job_id, 0, job_id, JOBTYPE_STARTREBALANCE, sx_nodelist_count(targets) * 60, "DISTRIBUTION", NULL, 0, targets);
     if(r) {
 	INFO("job_new (startrebalance) returned: %s", rc2str(r));
 	sx_nodelist_delete(targets);
@@ -7469,7 +7469,7 @@ rc_ty sx_hashfs_hdist_change_req(sx_hashfs_t *h, const sx_nodelist_t *newdist, j
     }
 
     /* FIXMERB: shall i make this a child of the to-be-created JOBTYPE_REBALANCE_FILES but only on the initiator? */
-    r = sx_hashfs_job_new_notrigger(h, *job_id, 0, &finish_job, JOBTYPE_FINISHREBALANCE, 60 * 60, "DISTRIBUTION", NULL, 0, targets);
+    r = sx_hashfs_job_new_notrigger(h, *job_id, 0, &finish_job, JOBTYPE_FINISHREBALANCE, 7 * 24 * 60 * 60, "DISTRIBUTION", NULL, 0, targets);
     sx_nodelist_delete(targets);
     sxi_hdist_free(newmod);
     if(r) {
@@ -7783,11 +7783,11 @@ rc_ty sx_hashfs_hdist_rebalance(sx_hashfs_t *h) {
     if(ret)
 	goto hdistreb_fail;
 
-    ret = sx_hashfs_job_new_notrigger(h, JOB_NOPARENT, 0, &job_id, JOBTYPE_REBALANCE_BLOCKS, 60 * 60, "BLOCKRB", NULL, 0, singlenode);
+    ret = sx_hashfs_job_new_notrigger(h, JOB_NOPARENT, 0, &job_id, JOBTYPE_REBALANCE_BLOCKS, 7 * 24 * 60 * 60, "BLOCKRB", NULL, 0, singlenode);
     if(ret)
 	goto hdistreb_fail;
 
-    ret = sx_hashfs_job_new_notrigger(h, job_id, 0, &job_id, JOBTYPE_REBALANCE_FILES, 60 * 60, "FILERB", NULL, 0, singlenode);
+    ret = sx_hashfs_job_new_notrigger(h, job_id, 0, &job_id, JOBTYPE_REBALANCE_FILES, 7 * 24 * 60 * 60, "FILERB", NULL, 0, singlenode);
     if(ret)
 	goto hdistreb_fail;
 
@@ -8742,7 +8742,7 @@ rc_ty sx_hashfs_hdist_endrebalance(sx_hashfs_t *h) {
     if(ret)
 	WARN("Cannot add self to nodelist");
     else
-	ret = sx_hashfs_job_new(h, 0, &job_id, JOBTYPE_REBALANCE_CLEANUP, 60 * 60, "CLEANRB", NULL, 0, singlenode);
+	ret = sx_hashfs_job_new(h, 0, &job_id, JOBTYPE_REBALANCE_CLEANUP, 7 * 24 * 60 * 60, "CLEANRB", NULL, 0, singlenode);
 
     sx_nodelist_delete(singlenode);
     return ret;
