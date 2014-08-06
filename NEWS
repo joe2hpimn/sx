@@ -1,3 +1,18 @@
+0.4 (Fourth Beta)
+-----------------
+
+This release contains important enhancements and bugfixes, including:
+
+  * Automatic rebalance when nodes are added, modified or removed
+    from the cluster
+  * aes256 filter now uses the AES-256-CBC-HMAC-512 mode and bcrypt for
+    key derivation
+  * sxcp --one-file-system support (to not cross filesystem boundaries)
+  * sxcp can now limit the number of connections (global and per host), see
+    --full-help for usage information
+  * Many usability enhancements in the client tools
+  * Other improvements and bugfixes
+
 0.3 (Third Beta)
 ----------------
 
