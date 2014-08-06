@@ -669,7 +669,7 @@ sxc_filter_t sxc_filter={
 /* int abi_version */		    SXF_ABI_VERSION,
 /* const char *shortname */	    "aes256",
 /* const char *fullname */	    "Encrypt data using AES-256-CBC-HMAC-512 mode.",
-/* const char *summary */	    "The filter automatically encrypts and decrypts all data using OpenSSL's AES-256 in CBC mode.",
+/* const char *summary */	    "The filter automatically encrypts and decrypts all data using OpenSSL's AES-256 in CBC-HMAC-512 mode.",
 /* const char *options */	    "\n\tparanoid (don't use key files)\n\tsalt:HEX (force given salt, HEX must be 16 chars long)",
 /* const char *uuid */		    "35a5404d-1513-4009-904c-6ee5b0cd8634",
 /* sxf_type_t type */		    SXF_TYPE_CRYPT,

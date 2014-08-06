@@ -41,7 +41,7 @@ const char *cluster_args_info_full_help[] = {
   "  -N, --new               Creates a new SX cluster with a local node",
   "  -M, --mod               Modifies an existing SX cluster",
   "  -I, --info              Shows status and details of a running cluster",
-  "  -G, --force-gc          Force a garbage collection cycle on all noeds",
+  "  -G, --force-gc          Force a garbage collection cycle on all nodes",
   "\nNew cluster options:",
   "  -d, --node-dir=PATH     Path to the node directory",
   "      --port=INT          Set the cluster destination TCP port (default 443 in\n                            secure mode or 80 in insecure mode)",
@@ -709,7 +709,7 @@ cluster_cmdline_parser_internal (
             goto failure;
         
           break;
-        case 'G':	/* Force a garbage collection cycle on all noeds.  */
+        case 'G':	/* Force a garbage collection cycle on all nodes.  */
         
           if (args_info->MODE_group_counter && override)
             reset_group_MODE (args_info);

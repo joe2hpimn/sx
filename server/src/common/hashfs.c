@@ -6261,7 +6261,7 @@ rc_ty sx_hashfs_job_result(sx_hashfs_t *h, job_t job, sx_uid_t uid, job_status_t
 	} else {
 	    /* Succeded */
 	    *status = JOB_OK;
-	    *message = "Job completed succesfully";
+	    *message = "Job completed successfully";
 	}
     }
 

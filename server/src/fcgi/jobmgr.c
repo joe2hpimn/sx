@@ -2820,7 +2820,7 @@ static void jobmgr_run_job(struct jobmgr_data_t *q) {
 	 * Of limited use but maybe nice to have */
 	if(qbind_int64(q->qfail, ":job", q->job_id) ||
 	   qbind_int(q->qfail, ":res", 500) ||
-	   qbind_text(q->qfail, ":reason", "Cluster time out") ||
+	   qbind_text(q->qfail, ":reason", "Cluster timeout") ||
 	   qstep_noret(q->qfail)) {
 	    WARN("Cannot update status of expired job %lld", (long long)q->job_id);
 	    return;

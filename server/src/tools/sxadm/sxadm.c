@@ -384,7 +384,7 @@ static int create_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
 	}
     } else {
 	if(!args->batch_mode_given) {
-	    printf("The SX cluster you are creating appears to be DNS-less: i.e. the cluster name (%s) cannot be resolved.\nWhile this may be perfectly fine in certain local or specific environemnts, a DNS-less SX cluster is generally harder to reach.\n", uri->host);
+	    printf("The SX cluster you are creating appears to be DNS-less: i.e. the cluster name (%s) cannot be resolved.\nWhile this may be perfectly fine in certain local or specific environments, a DNS-less SX cluster is generally harder to reach.\n", uri->host);
 	    if(!yesno("Do you confirm you are ok with a DNS-less SX cluster?", 1)) {
 		printf("Cluster creation aborted by the user\n");
 		goto create_cluster_err;
