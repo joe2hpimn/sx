@@ -1,12 +1,10 @@
 AC_PREREQ([2.68])
-AC_INIT([YAJL-build],[2.0.4],[])
+AC_INIT([sqlite3-build],[3.8.6],[])
 AC_CONFIG_AUX_DIR([build-aux])
 AC_CONFIG_MACRO_DIR([m4])
 AM_INIT_AUTOMAKE([foreign -Wall])
 AM_SILENT_RULES([yes])
 AM_MAINTAINER_MODE
-
-LIBYAJL_VERSION="$YAJL_MAJOR":"$YAJL_MICRO":"$YAJL_MINOR"
 
 AM_PROG_AR
 LT_INIT([disable-shared])
