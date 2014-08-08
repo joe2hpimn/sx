@@ -182,6 +182,8 @@ void sxc_set_verbose(sxc_client_t *sx, int enabled) {
     if (!sx)
         return;
     sx->verbose = enabled;
+    if (sxi_log_is_debug(&sx->log))
+	return;
     if (enabled)
         sxi_log_enable_level(&sx->log, SX_LOG_INFO);
     else
