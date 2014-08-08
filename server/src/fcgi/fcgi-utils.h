@@ -98,6 +98,7 @@ int arg_num(const char *arg);
 const char *get_arg(const char *arg);
 int arg_is(const char *arg, const char *ref);
 void json_send_qstring(const char *s);
+int json_qstring(char *buf, unsigned int buflen, const char *s);
 void send_httpdate(time_t t);
 void send_qstring_hash(const sx_hash_t *h);
 int is_http_10(void);
@@ -110,6 +111,7 @@ void send_keepalive(void);
 void send_nodes(const sx_nodelist_t *nodes);
 void send_nodes_randomised(const sx_nodelist_t *nodes);
 void send_job_info(job_t job);
+int is_object_fresh(const sx_hash_t *etag, unsigned int created_at, char type);
 
 #define quit_errmsg(errnum, message) do { send_error(errnum, message); return; } while(0)
 #define quit_errnum(errnum) do { send_error(errnum, NULL); return; } while(0)

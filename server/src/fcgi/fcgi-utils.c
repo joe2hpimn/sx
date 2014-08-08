@@ -698,6 +698,48 @@ void json_send_qstring(const char *s) {
     }
 }
 
+int json_qstring(char *buf, unsigned int buflen, const char *s) {
+    const char *hex_digits = "0123456789abcdef", *begin = s;
+    unsigned int len = 0;
+    char escaped[6] = { '\\', 'u', '0', '0', 'x', 'x' };
+
+    if(buflen < 3)
+	return -1;
+
+    *buf = '"';
+    buf++;
+    buflen--;
+    while(1) {
+	unsigned char c = begin[len];
+	/* flush on end of string and escape quotation mark, reverse solidus,
+	 * and the control characters (U+0000 through U+001F) */
+	if(c < ' ' || c == '"' || c== '\\') {
+	    if(buflen < len + 2) /* Also check for close quote and NUL */
+		return -1;
+	    if(len) { /* flush */
+		memcpy(buf, begin, len);
+		buf += len;
+		buflen -= len;
+	    }
+	    begin = &begin[len+1];
+	    len = 0;
+	    if(!c) {
+		buf[0] = '"';
+		buf[1] = '\0';
+		return 0;
+	    }
+	    escaped[4] = hex_digits[c >> 4];
+	    escaped[5] = hex_digits[c & 0xf];
+	    if(buflen < 6 + 2)
+		return -1;
+	    memcpy(buf, escaped, 6);
+	    buf += 6;
+	    buflen -= 6;
+	} else
+	    len++;
+    }
+}
+
 void send_httpdate(time_t t) {
     const char *month[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
     const char *wkday[] = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
@@ -812,4 +854,46 @@ void send_job_info(job_t job) {
 int is_https(void) {
     const char *proto = FCGX_GetParam("HTTPS", envp);
     return (proto && !strcasecmp(proto, "on"));
+}
+
+int is_object_fresh(const sx_hash_t *etag, unsigned int created_at, char type) {
+    char tagbuf[3 + sizeof(*etag) * 2 + 1];
+    const char *cond;
+    int is_cached = 0, skip_modsince = 0;
+
+    tagbuf[0] = '"';
+    tagbuf[1] = type;
+    bin2hex(etag, sizeof(*etag), tagbuf + 2, sizeof(tagbuf) - 2);
+    tagbuf[sizeof(tagbuf) - 2] = '"';
+    tagbuf[sizeof(tagbuf) - 1] = '\0';
+    CGI_PRINTF("ETag: %s\r\nCache-control: public, must-revalidate\r\nLast-Modified: ", tagbuf);
+    send_httpdate(created_at);
+    CGI_PUTS("\r\n");
+    if((cond = FCGX_GetParam("HTTP_IF_NONE_MATCH", envp))) {
+	if(!strcmp(tagbuf, cond))
+	    is_cached = 1;
+	else
+	    skip_modsince = 1;
+    }
+
+    /* FIXME:
+     * Our file mtime has got subsecond precision, but last-modified/if-modified
+     * semantics only allow precision up to the second.
+     * If we only provide an ETag we effectively kill caching on most proxies.
+     * If we also provide Last-Modified, we risk caches serving stale content.
+     * WAT DO? */
+    if(!skip_modsince && (cond = FCGX_GetParam("HTTP_IF_MODIFIED_SINCE", envp))) {
+	time_t modsince;
+	if(!httpdate_to_time_t(cond, &modsince) && modsince >= created_at)
+	    is_cached = 1;
+	else
+	    is_cached = 0;
+    }
+
+    if(is_cached) {
+	CGI_PUTS("Status: 304\r\n\r\n");
+	return 1;
+    }
+
+    return 0;
 }

@@ -35,48 +35,6 @@
 #include "utils.h"
 #include "blob.h"
 
-static int can_handle_cached_objects(const sx_hash_t *etag, unsigned int created_at, char type) {
-    char tagbuf[3 + sizeof(*etag) * 2 + 1];
-    const char *cond;
-    int is_cached = 0, skip_modsince = 0;
-
-    tagbuf[0] = '"';
-    tagbuf[1] = type;
-    bin2hex(etag, sizeof(*etag), tagbuf + 2, sizeof(tagbuf) - 2);
-    tagbuf[sizeof(tagbuf) - 2] = '"';
-    tagbuf[sizeof(tagbuf) - 1] = '\0';
-    CGI_PRINTF("ETag: %s\r\nCache-control: public, must-revalidate\r\nLast-Modified: ", tagbuf);
-    send_httpdate(created_at);
-    CGI_PUTS("\r\n");
-    if((cond = FCGX_GetParam("HTTP_IF_NONE_MATCH", envp))) {
-	if(!strcmp(tagbuf, cond))
-	    is_cached = 1;
-	else
-	    skip_modsince = 1;
-    }
-
-    /* FIXME:
-     * Our file mtime has got subsecond precision, but last-modified/if-modified
-     * semantics only allow precision up to the second.
-     * If we only provide an ETag we effectively kill caching on most proxies.
-     * If we also provide Last-Modified, we risk caches serving stale content.
-     * WAT DO? */
-    if(!skip_modsince && (cond = FCGX_GetParam("HTTP_IF_MODIFIED_SINCE", envp))) {
-	time_t modsince;
-	if(!httpdate_to_time_t(cond, &modsince) && modsince >= created_at)
-	    is_cached = 1;
-	else
-	    is_cached = 0;
-    }
-
-    if(is_cached) {
-	CGI_PUTS("Status: 304\r\n\r\n");
-	return 1;
-    }
-
-    return 0;
-}
-
 void fcgi_send_file_meta(void) {
     const char *metakey;
     const void *metavalue;
@@ -90,7 +48,7 @@ void fcgi_send_file_meta(void) {
     if(s != OK)
 	quit_errnum(s == ENOENT ? 404 : 500);
 
-    if(can_handle_cached_objects(&etag, created_at, 'M'))
+    if(is_object_fresh(&etag, created_at, 'M'))
 	return;
 
     CGI_PUTS("Content-type: application/json\r\n\r\n{\"fileMeta\":{");
@@ -125,7 +83,7 @@ void fcgi_send_file(void) {
     if(s != OK)
 	quit_errnum(s == ENOENT ? 404 : 500);
 
-    if(can_handle_cached_objects(&etag, created_at, 'F')) {
+    if(is_object_fresh(&etag, created_at, 'F')) {
 	sx_hashfs_getfile_end(hashfs);
 	return;
     }
