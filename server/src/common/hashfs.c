@@ -126,9 +126,10 @@ static int read_block(int fd, uint8_t *dt, uint64_t off, unsigned int buf_len) {
     return 0;
 }
 
-static int hash_buf(const void *salt, unsigned int salt_len, const void *buf, unsigned int buf_len, sx_hash_t *hash) {
+int sx_hashfs_hash_buf(const void *salt, unsigned int salt_len, const void *buf, unsigned int buf_len, sx_hash_t *hash) {
     return sxi_sha1_calc(salt, salt_len, buf, buf_len, hash->b);
 }
+#define hash_buf sx_hashfs_hash_buf
 
 #define CREATE_DB(DBTYPE) \
 do { \
@@ -2839,8 +2840,16 @@ rc_ty sx_hashfs_list_next(sx_hashfs_t *h) {
 	    h->list_file.file_size = 0;
 	    h->list_file.block_size = 0;
 	    h->list_file.nblocks = 0;
-	    h->list_file.created_at = 0;
 	    h->list_file.revision[0] = '\0';
+	    /*
+	      h->list_file.created_at = 0;
+
+	      The created_at value here is not the fakedir mtime, but rather the mtime of
+	      some random file inside it.
+	      This value is not reported back to the client because it is incorrect
+	      (the correct dir mtime would be the max(mtime) of all the files inside the fakedir and all its children).
+	      This value is only used internally to adjust the Last-Modified header.
+	    */
         }
         /* only continue if pattern matched, and it is a new file / directory */
     } while (match_failed || !strcmp(h->list_file.lastname, h->list_file.name));

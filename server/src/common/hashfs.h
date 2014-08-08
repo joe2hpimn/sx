@@ -121,6 +121,7 @@ sxi_db_t *sx_hashfs_eventdb(sx_hashfs_t *h);
 sxi_db_t *sx_hashfs_xferdb(sx_hashfs_t *h);
 sxc_client_t *sx_hashfs_client(sx_hashfs_t *h);
 sxi_conns_t *sx_hashfs_conns(sx_hashfs_t *h);
+int sx_hashfs_hash_buf(const void *salt, unsigned int salt_len, const void *buf, unsigned int buf_len, sx_hash_t *hash);
 
 typedef struct _sx_hash_challenge_t {
     uint8_t challenge[TOKEN_RAND_BYTES];

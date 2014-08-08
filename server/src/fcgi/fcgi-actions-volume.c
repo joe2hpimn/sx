@@ -105,7 +105,8 @@ void fcgi_locate_volume(const sx_hashfs_volume_t *vol) {
 void fcgi_list_volume(const sx_hashfs_volume_t *vol) {
     const sx_hashfs_file_t *file;
     char *reply, *cur;
-    unsigned int comma = 0, rplavail, len;
+    unsigned int comma = 0, rplavail, len, max_created_at = 0;
+    sx_hash_t etag;
     rc_ty s;
 
     s = sx_hashfs_list_first(hashfs, vol, get_arg("filter"), &file, has_arg("recursive"));
@@ -174,6 +175,7 @@ void fcgi_list_volume(const sx_hashfs_volume_t *vol) {
 	len = strlen(cur);
 	cur += len;
 	rplavail -= len;
+	max_created_at = MAX(max_created_at, file->created_at);
     }
 
     strcpy(cur, "}}"); /* Bound checked above */
@@ -182,6 +184,14 @@ void fcgi_list_volume(const sx_hashfs_volume_t *vol) {
 	free(reply);
 	quit_errmsg(rc2http(s), "Failed to list files");
     }
+
+    if(!sx_hashfs_hash_buf(NULL, 0, reply, strlen(reply), &etag)) {
+	if(is_object_fresh(&etag, max_created_at, 'L')) {
+	    free(reply);
+	    return;
+	}
+    } else
+	WARN("Failed to compute ETag");
 
     CGI_PUTS(reply);
     free(reply);
