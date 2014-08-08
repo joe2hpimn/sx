@@ -104,7 +104,8 @@ void fcgi_locate_volume(const sx_hashfs_volume_t *vol) {
 
 void fcgi_list_volume(const sx_hashfs_volume_t *vol) {
     const sx_hashfs_file_t *file;
-    int comma = 0;
+    char *reply, *cur;
+    unsigned int comma = 0, rplavail, len;
     rc_ty s;
 
     s = sx_hashfs_list_first(hashfs, vol, get_arg("filter"), &file, has_arg("recursive"));
@@ -120,36 +121,70 @@ void fcgi_list_volume(const sx_hashfs_volume_t *vol) {
 	quit_errnum(500);
     }
 
-    /* FIXME: there could be great potential here in caching large lists of files.
-     * However the very nature of this api which is very much like a search, makes
-     * it hard to do so. At the end of the day, the extra resources and effort required
-     * to mantain a syncronized cache of previous listings, sort of defeats the purpose.
-     * Item is open for discussion... */
+    reply = malloc(8192); /* Have room for the volume info, the json closure and the string terminator */
+    if(!reply)
+	quit_errnum(503);
 
-    CGI_PUTS("Content-type: application/json\r\n\r\n{\"volumeSize\":");
-    CGI_PUTLL(vol->size);
-    CGI_PRINTF(",\"replicaCount\":%u,\"fileList\":{", vol->replica_count);
+    sprintf(reply, "Content-type: application/json\r\n\r\n{\"volumeSize\":%lld,\"replicaCount\":%u,\"fileList\":{",
+	    (long long)vol->size, vol->replica_count);
+    len = strlen(reply);
+    cur = reply + len;
+    rplavail = 8192 - len;
 
     for(; s == OK; s = sx_hashfs_list_next(hashfs)) {
-	/* "filename":{"fileSize":123,"blockSize":4096,"createdAt":456} */
-	if(comma)
-	    CGI_PUTC(',');
-	else {
-	    comma |= 1;
+	/* Make room for the comma,
+	 * the worst case encoded filename,
+	 * the whole file data,
+	 * the json closure
+	 * and the string terminator */
+
+	/* "filename":{"fileSize":123,"blockSize":4096,"createdAt":456,"fileRev":"REVISON_STRING"} */
+	if(rplavail < strlen(file->name) * 6 + 256 + REV_LEN) {
+	    char *nureply = realloc(reply, (cur - reply) + rplavail + 8192);
+	    if(!nureply) {
+		free(reply);
+		quit_errnum(503);
+	    }
+	    cur = nureply + (cur - reply);
+	    reply = nureply;
+	    rplavail += 8192;
 	}
-	json_send_qstring(file->name);
-	CGI_PUTS(":{\"fileSize\":");
-	CGI_PUTLL(file->file_size);
-	CGI_PRINTF(",\"blockSize\":%u,\"createdAt\":", file->block_size);
-	CGI_PUTT(file->created_at);
-	CGI_PUTC('}');
+	if(comma) {
+	    *cur = ','; /* Bound checked above */
+	    cur++;
+	    rplavail--;
+	} else
+	    comma |= 1;
+
+	json_qstring(cur, rplavail, file->name);
+	len = strlen(cur);
+	cur += len;
+	rplavail -= len;
+	if(file->revision[0]) {
+	    /* A File */
+	    snprintf(cur, rplavail, ":{\"fileSize\":%lld,\"blockSize\":%u,\"createdAt\":%lld,\"fileRevision\":\"%s\"}",
+		     (long long)file->file_size,
+		     file->block_size,
+		     (long long)file->created_at,
+		     file->revision);
+	} else {
+	    /* A Fakedir */
+	    snprintf(cur, rplavail, ":{}");
+	}
+	len = strlen(cur);
+	cur += len;
+	rplavail -= len;
     }
 
-    CGI_PUTS("}");
-    if(s != ITER_NO_MORE)
-	quit_itererr("Failed to list files", s);
+    strcpy(cur, "}}"); /* Bound checked above */
 
-    CGI_PUTS("}");
+    if(s != ITER_NO_MORE)  {
+	free(reply);
+	quit_errmsg(rc2http(s), "Failed to list files");
+    }
+
+    CGI_PUTS(reply);
+    free(reply);
 }
 
 

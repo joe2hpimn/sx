@@ -4886,7 +4886,7 @@ int sxi_file_list_foreach(sxc_file_list_t *target, sxc_cluster_t *wait_cluster, 
             rc = 0;
             for (j=0;j<entry->nfiles && !rc;j++) {
                 time_t t;
-                if (sxc_cluster_listfiles_next(lst, &filename, &size, &t) <= 0) {
+                if (sxc_cluster_listfiles_next(lst, &filename, &size, &t, NULL) <= 0) {
                     CFGDEBUG("Failed to list file %d/%d", j, entry->nfiles);
                     break;
                 }

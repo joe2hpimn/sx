@@ -2797,9 +2797,9 @@ rc_ty sx_hashfs_list_next(sx_hashfs_t *h) {
 
 		const char *revision = (const char *)sqlite3_column_text(h->qm_list[list_ndb], 2);
 		if(!revision || parse_revision(revision, &h->list_file.created_at)) {
-		    /* Failsafe, not reached */
-		    h->list_file.created_at = 0;
-		    h->list_file.revision[0] = '\0';
+		    WARN("Bad revision found on file %s, volid %lld", h->list_file.name, (long long)h->list_volid);
+		    ret = FAIL_EINTERNAL;
+		    break;
 		} else {
 		    strncpy(h->list_file.revision, revision, sizeof(h->list_file.revision));
 		    h->list_file.revision[sizeof(h->list_file.revision)-1] = '\0';
@@ -2834,7 +2834,13 @@ rc_ty sx_hashfs_list_next(sx_hashfs_t *h) {
 	    *q = '/';/* full path again */
 	if (!h->list_recurse && q) {
 	    q[1] = '\0';
-            h->list_file.file_size = h->list_file.nblocks = 0;
+
+	    /* This is a fake dir, all unrelated items are zeroed */
+	    h->list_file.file_size = 0;
+	    h->list_file.block_size = 0;
+	    h->list_file.nblocks = 0;
+	    h->list_file.created_at = 0;
+	    h->list_file.revision[0] = '\0';
         }
         /* only continue if pattern matched, and it is a new file / directory */
     } while (match_failed || !strcmp(h->list_file.lastname, h->list_file.name));

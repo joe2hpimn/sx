@@ -274,7 +274,7 @@ int main(int argc, char **argv) {
 		    int64_t fsize;
 		    time_t ftime;
                     char *human_str = NULL;
-		    int n = sxc_cluster_listfiles_next(fl, &fname, &fsize, &ftime);
+		    int n = sxc_cluster_listfiles_next(fl, &fname, &fsize, &ftime, NULL);
 		    if(n<=0) {
 			if(n)
 			    fprintf(stderr, "ERROR: Failed to retrieve file name for %s\n", args.inputs[i]);

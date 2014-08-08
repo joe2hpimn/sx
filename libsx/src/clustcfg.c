@@ -1425,6 +1425,7 @@ struct cbl_file_t {
     int64_t filesize;
     time_t created_at;
     size_t namelen;
+    size_t revlen;
     unsigned int blocksize;
     unsigned int fuck_off_valgrind;
 };
@@ -1434,13 +1435,13 @@ struct cb_listfiles_ctx {
     yajl_callbacks yacb;
     yajl_handle yh;
     FILE *f;
-    struct cb_error_ctx errctx;
     uint64_t volume_size;
     char *fname;
+    char *frev;
     struct cbl_file_t file;
     unsigned int replica;
     unsigned int nfiles;
-    enum list_files_state { LF_ERROR, LF_BEGIN, LF_MAIN, LF_REPLICACNT, LF_VOLUMESIZE, LF_FILES, LF_FILE, LF_FILECONTENT, LF_FILEATTRS, LF_FILESIZE, LF_BLOCKSIZE, LF_FILETIME, LF_COMPLETE } state;
+    enum list_files_state { LF_BEGIN, LF_MAIN, LF_REPLICACNT, LF_VOLUMESIZE, LF_FILES, LF_FILE, LF_FILECONTENT, LF_FILEATTRS, LF_FILESIZE, LF_BLOCKSIZE, LF_FILETIME, LF_FILEREV, LF_COMPLETE } state;
 };
 
 
@@ -1469,14 +1470,6 @@ static int yacb_listfiles_map_key(void *ctx, const unsigned char *s, size_t l) {
     if(!ctx || !l)
 	return 0;
 
-    if (yactx->state == LF_ERROR)
-        return yacb_error_map_key(&yactx->errctx, s, l);
-    if (yactx->state == LF_MAIN) {
-        if (ya_check_error(yactx->sx, &yactx->errctx, s, l)) {
-            yactx->state = LF_ERROR;
-            return 1;
-        }
-    }
     if(yactx->state == LF_MAIN) {
 	if(l == lenof("volumeSize") && !memcmp(s, "volumeSize", lenof("volumeSize")))
 	    yactx->state = LF_VOLUMESIZE;
@@ -1493,7 +1486,7 @@ static int yacb_listfiles_map_key(void *ctx, const unsigned char *s, size_t l) {
 
     if(yactx->state == LF_FILE) {
 	yactx->state = LF_FILECONTENT;
-	yactx->fname = malloc(l+1);
+	yactx->fname = malloc(l);
 	if(!yactx->fname) {
 	    CBDEBUG("OOM duplicating file name '%.*s'", (unsigned)l, s);
 	    sxi_setsyserr(yactx->sx, SXE_EMEM, "Out of memory");
@@ -1501,7 +1494,8 @@ static int yacb_listfiles_map_key(void *ctx, const unsigned char *s, size_t l) {
 	}
 	memcpy(yactx->fname, s, l);
 	yactx->file.namelen = l;
-	yactx->file.created_at = 0;
+	yactx->file.revlen = 0;
+	yactx->file.created_at = -1;
 	yactx->file.filesize = -1;
 	yactx->file.blocksize = 0;
 	yactx->nfiles++;
@@ -1515,6 +1509,8 @@ static int yacb_listfiles_map_key(void *ctx, const unsigned char *s, size_t l) {
 	    yactx->state = LF_BLOCKSIZE;
 	else if(l == lenof("createdAt") && !memcmp(s, "createdAt", lenof("createdAt")))
 	    yactx->state = LF_FILETIME;
+	else if(l == lenof("fileRevision") && !memcmp(s, "fileRevision", lenof("fileRevision")))
+	    yactx->state = LF_FILEREV;
 	else {
 	    CBDEBUG("unexpected attribute '%.*s' in LF_FILEATTRS", (unsigned)l, s);
 	    return 0;
@@ -1578,7 +1574,7 @@ static int yacb_listfiles_number(void *ctx, const char *s, size_t l) {
 	yactx->file.blocksize = nnumb;
 	break;
     case LF_FILETIME:
-	if(yactx->file.created_at) {
+	if(yactx->file.created_at >= 0) {
 	    CBDEBUG("createdAt already received");
 	    return 0;
 	}
@@ -1597,8 +1593,20 @@ static int yacb_listfiles_string(void *ctx, const unsigned char *s, size_t l) {
     struct cb_listfiles_ctx *yactx = (struct cb_listfiles_ctx *)ctx;
     if(!ctx)
 	return 0;
-    if (yactx->state == LF_ERROR)
-        return yacb_error_string(&yactx->errctx, s, l);
+
+    if(yactx->state == LF_FILEREV) {
+	yactx->frev = malloc(l);
+	if(!yactx->frev) {
+	    CBDEBUG("OOM duplicating file rev '%.*s'", (unsigned)l, s);
+	    sxi_setsyserr(yactx->sx, SXE_EMEM, "Out of memory");
+	    return 0;
+	}
+	memcpy(yactx->frev, s, l);
+	yactx->file.revlen = l;
+	yactx->state = LF_FILEATTRS;
+	return 1;
+    }
+
     return 0;
 }
 
@@ -1607,15 +1615,32 @@ static int yacb_listfiles_end_map(void *ctx) {
     if(!ctx)
 	return 0;
 
-    if (yactx->state == LF_ERROR)
-        return yacb_error_end_map(&yactx->errctx);
     if(yactx->state == LF_FILEATTRS) {
-	if(!yactx->fname || yactx->file.filesize < 0 || !yactx->file.blocksize) {
-	    CBDEBUG("missing file attributes");
+	if(!yactx->fname) {
+	    CBDEBUG("missing file name");
 	    return 0;
+	}
+	if(!yactx->file.revlen) {
+	    if(yactx->fname[yactx->file.namelen-1] != '/') {
+		CBDEBUG("bad directory name");
+		return 0;
+	    }
+	    if(yactx->file.filesize >= 0 || yactx->file.blocksize || yactx->file.created_at >= 0) {
+		CBDEBUG("bad directory attributes");
+		return 0;
+	    }
+	    yactx->file.filesize = 0;
+	    yactx->file.blocksize = 0;
+	    yactx->file.created_at = 0;
+	} else {
+	    if(yactx->file.filesize < 0 || !yactx->file.blocksize || yactx->file.created_at < 0) {
+		CBDEBUG("missing file attributes");
+		return 0;
+	    }
 	}
 	if(!fwrite(&yactx->file, sizeof(yactx->file), 1, yactx->f) ||
 	   !fwrite(yactx->fname, yactx->file.namelen, 1, yactx->f) ||
+	   (yactx->file.revlen && !fwrite(yactx->frev, yactx->file.revlen, 1, yactx->f)) ||
 	   !fwrite(&yactx->file, sizeof(yactx->file), 1, yactx->f)) {
 	    CBDEBUG("failed to save file attributes to temporary file");
 	    sxi_setsyserr(yactx->sx, SXE_EWRITE, "Failed to write to temporary file");
@@ -1623,6 +1648,8 @@ static int yacb_listfiles_end_map(void *ctx) {
 	}
 	free(yactx->fname);
 	yactx->fname = NULL;
+	free(yactx->frev);
+	yactx->frev = NULL;
 	yactx->state = LF_FILE;
 	return 1;
     }
@@ -1668,9 +1695,12 @@ static int listfiles_setup_cb(sxi_conns_t *conns, void *ctx, const char *host) {
     yactx->replica = 0;
     free(yactx->fname);
     yactx->fname = NULL;
+    free(yactx->frev);
+    yactx->frev = NULL;
     yactx->file.filesize = -1;
-    yactx->file.created_at = 0;
+    yactx->file.created_at = -1;
     yactx->file.namelen = 0;
+    yactx->file.revlen = 0;
     yactx->file.fuck_off_valgrind = 0;
     yactx->nfiles = 0;
 
@@ -1680,11 +1710,9 @@ static int listfiles_setup_cb(sxi_conns_t *conns, void *ctx, const char *host) {
 static int listfiles_cb(sxi_conns_t *conns, void *ctx, const void *data, size_t size) {
     struct cb_listfiles_ctx *yctx = (struct cb_listfiles_ctx *)ctx;
     if(yajl_parse(yctx->yh, data, size) != yajl_status_ok) {
-        if (yctx->state != LF_ERROR) {
-            sxc_client_t *sx = sxi_conns_get_client(conns);
-            SXDEBUG("failed to parse JSON data");
-            sxi_seterr(sxi_conns_get_client(conns), SXE_ECOMM, "communication error");
-        }
+	sxc_client_t *sx = sxi_conns_get_client(conns);
+	SXDEBUG("failed to parse JSON data");
+	sxi_seterr(sxi_conns_get_client(conns), SXE_ECOMM, "communication error");
 	return 1;
     }
 
@@ -1798,12 +1826,14 @@ sxc_cluster_lf_t *sxc_cluster_listfiles(sxc_cluster_t *cluster, const char *volu
 
     yctx.yh = NULL;
     yctx.fname = NULL;
+    yctx.frev = NULL;
 
     sxi_set_operation(sxi_cluster_get_client(cluster), "list volume files", sxi_cluster_get_name(cluster), volume, NULL);
     qret = sxi_cluster_query(cluster->conns, &volhosts, REQ_GET, url, NULL, 0, listfiles_setup_cb, listfiles_cb, &yctx);
     sxi_hostlist_empty(&volhosts);
     free(url);
     free(yctx.fname);
+    free(yctx.frev);
     if(qret != 200) {
 	CFGDEBUG("query returned %d", qret);
 	if(yctx.yh)
@@ -1815,10 +1845,8 @@ sxc_cluster_lf_t *sxc_cluster_listfiles(sxc_cluster_t *cluster, const char *volu
     }
 
     if(yajl_complete_parse(yctx.yh) != yajl_status_ok || yctx.state != LF_COMPLETE) {
-        if (yctx.state != LF_ERROR) {
-            CFGDEBUG("JSON parsing failed");
-            cluster_err(SXE_ECOMM, "List failed: Communication error");
-        }
+	CFGDEBUG("JSON parsing failed");
+	cluster_err(SXE_ECOMM, "List failed: Communication error");
 	if(yctx.yh)
 	    yajl_free(yctx.yh);
 	fclose(yctx.f);
@@ -1972,7 +2000,7 @@ sxc_cluster_lf_t *sxc_cluster_listfiles(sxc_cluster_t *cluster, const char *volu
 /*     return ret; */
 /* } */
 
-static int sxc_cluster_listfiles_prev(sxc_cluster_lf_t *lf, char **file_name, int64_t *file_size, time_t *file_created_at) {
+static int sxc_cluster_listfiles_prev(sxc_cluster_lf_t *lf, char **file_name, int64_t *file_size, time_t *file_created_at, char **file_revision) {
     struct cbl_file_t file;
     long pos;
     sxc_client_t *sx = lf->sx;
@@ -1992,11 +2020,11 @@ static int sxc_cluster_listfiles_prev(sxc_cluster_lf_t *lf, char **file_name, in
 	sxi_setsyserr(sx, SXE_EREAD, "Failed to retrieve next file: Read item from cache failed");
 	return -1;
     }
-    if((size_t) pos < sizeof(file) * 2 + file.namelen)
+    if((size_t) pos < sizeof(file) * 2 + file.namelen + file.revlen)
 	return 0;
-    fseek(lf->f, pos - file.namelen - sizeof(file), SEEK_SET);
 
     if(file_name) {
+	fseek(lf->f, pos - file.namelen - file.revlen - sizeof(file), SEEK_SET);
 	*file_name = malloc(file.namelen + 1);
 	if(!*file_name) {
 	    SXDEBUG("OOM allocating result file name (%u bytes)", (unsigned)file.namelen);
@@ -2010,7 +2038,24 @@ static int sxc_cluster_listfiles_prev(sxc_cluster_lf_t *lf, char **file_name, in
 	}
 	(*file_name)[file.namelen] = '\0';
     }
-    fseek(lf->f, pos - file.namelen - sizeof(file)*2, SEEK_SET);
+
+    if(file_revision) {
+	fseek(lf->f, pos - file.revlen - sizeof(file), SEEK_SET);
+	*file_revision = malloc(file.revlen + 1);
+	if(!*file_revision) {
+	    SXDEBUG("OOM allocating result file rev (%u bytes)", (unsigned)file.revlen);
+	    sxi_seterr(sx, SXE_EMEM, "Failed to retrieve next file: Out of memory");
+	    return -1;
+	}
+	if(!fread(*file_revision, file.revlen, 1, lf->f)) {
+	    SXDEBUG("error reading revision name from results file");
+	    sxi_setsyserr(sx, SXE_EREAD, "Failed to retrieve next file: Read item from cache failed");
+	    return -1;
+	}
+	(*file_revision)[file.revlen] = '\0';
+    }
+
+    fseek(lf->f, pos - file.namelen - file.revlen - sizeof(file)*2, SEEK_SET);
 
     if(file_size)
 	*file_size = file.filesize;
@@ -2021,20 +2066,28 @@ static int sxc_cluster_listfiles_prev(sxc_cluster_lf_t *lf, char **file_name, in
     return 1;
 }
 
-int sxc_cluster_listfiles_next(sxc_cluster_lf_t *lf, char **file_name, int64_t *file_size, time_t *file_created_at) {
+int sxc_cluster_listfiles_next(sxc_cluster_lf_t *lf, char **file_name, int64_t *file_size, time_t *file_created_at, char **file_revision) {
     struct cbl_file_t file;
     sxc_client_t *sx = lf->sx;
+    int ret = -1;
 
-    if(lf->reverse)
-	return sxc_cluster_listfiles_prev(lf, file_name, file_size, file_created_at);
+    if(file_name)
+	*file_name = NULL;
+    if(file_revision)
+	*file_revision = NULL;
+
+    if(lf->reverse) {
+	ret = sxc_cluster_listfiles_prev(lf, file_name, file_size, file_created_at, file_revision);
+	goto lfnext_out;
+    }
 
     if(!fread(&file, sizeof(file), 1, lf->f)) {
 	if(ferror(lf->f)) {
 	    SXDEBUG("error reading attributes from results file");
 	    sxi_setsyserr(sx, SXE_EREAD, "Failed to retrieve next file: Read item from cache failed");
-	    return -1;
-	}
-	return 0;
+	} else
+	    ret = 0;
+	goto lfnext_out;
     }
 
     if(file_name) {
@@ -2042,17 +2095,38 @@ int sxc_cluster_listfiles_next(sxc_cluster_lf_t *lf, char **file_name, int64_t *
 	if(!*file_name) {
 	    SXDEBUG("OOM allocating result file name (%u bytes)", (unsigned)file.namelen);
 	    sxi_seterr(sx, SXE_EMEM, "Failed to retrieve next file: Out of memory");
-	    return -1;
+	    goto lfnext_out;
 	}
 	if(!fread(*file_name, file.namelen, 1, lf->f)) {
 	    SXDEBUG("error reading name from results file");
 	    sxi_setsyserr(sx, SXE_EREAD, "Failed to retrieve next file: Read item from cache failed");
-	    return -1;
+	    goto lfnext_out;
 	}
 	(*file_name)[file.namelen] = '\0';
 	file.namelen = 0;
     }
-    fseek(lf->f, file.namelen + sizeof(file), SEEK_CUR);
+
+    if(file_revision) {
+	if(file.revlen) {
+	    fseek(lf->f, file.namelen, SEEK_CUR);
+
+	    *file_revision = malloc(file.revlen + 1);
+	    if(!*file_revision) {
+		SXDEBUG("OOM allocating result file revision (%u bytes)", (unsigned)file.revlen);
+		sxi_seterr(sx, SXE_EMEM, "Failed to retrieve next file: Out of memory");
+		goto lfnext_out;
+	    }
+	    if(!fread(*file_revision, file.revlen, 1, lf->f)) {
+		SXDEBUG("error reading revision from results file");
+		sxi_setsyserr(sx, SXE_EREAD, "Failed to retrieve next file: Read item from cache failed");
+		goto lfnext_out;
+	    }
+	    (*file_revision)[file.revlen] = '\0';
+	    file.revlen = 0;
+	}
+    }
+
+    fseek(lf->f, file.namelen + file.revlen + sizeof(file), SEEK_CUR);
 
     if(file_size)
 	*file_size = file.filesize;
@@ -2060,7 +2134,21 @@ int sxc_cluster_listfiles_next(sxc_cluster_lf_t *lf, char **file_name, int64_t *
     if(file_created_at)
 	*file_created_at = file.created_at;
 
-    return 1;
+    ret = 1;
+
+ lfnext_out:
+    if(ret != 1) {
+	if(file_name) {
+	    free(*file_name);
+	    *file_name = NULL;
+	}
+	if(file_revision) {
+	    free(*file_revision);
+	    *file_revision = NULL;
+	}
+    }
+
+    return ret;
 }
 
 void sxc_cluster_listfiles_free(sxc_cluster_lf_t *lf) {
