@@ -1620,6 +1620,8 @@ static int yacb_listfiles_end_map(void *ctx) {
 	    CBDEBUG("missing file name");
 	    return 0;
 	}
+
+#if 0
 	if(!yactx->file.revlen) {
 	    if(yactx->fname[yactx->file.namelen-1] != '/') {
 		CBDEBUG("bad directory name");
@@ -1638,6 +1640,26 @@ static int yacb_listfiles_end_map(void *ctx) {
 		return 0;
 	    }
 	}
+#else
+	/* FIXME: TEMPORARY WORKAROUND FOR OLD SERVERS */
+	if(yactx->fname[yactx->file.namelen-1] == '/') {
+	    free(yactx->frev);
+	    yactx->frev = NULL;
+	    yactx->file.revlen = 0;
+	    yactx->file.filesize = 0;
+	    yactx->file.blocksize = 0;
+	    yactx->file.created_at = 0;
+	} else if(!yactx->file.revlen) {
+	    char fakerev[128];
+	    sprintf(fakerev, "FAKEREV%u", (unsigned)yactx->file.created_at);
+	    yactx->frev = strdup(fakerev);
+	    if(!yactx->frev) {
+		sxi_setsyserr(yactx->sx, SXE_EMEM, "Out of memory");
+		return 0;
+	    }
+	    yactx->file.revlen = strlen(yactx->frev);
+	}
+#endif
 	if(!fwrite(&yactx->file, sizeof(yactx->file), 1, yactx->f) ||
 	   !fwrite(yactx->fname, yactx->file.namelen, 1, yactx->f) ||
 	   (yactx->file.revlen && !fwrite(yactx->frev, yactx->file.revlen, 1, yactx->f)) ||
