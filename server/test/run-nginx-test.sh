@@ -60,7 +60,7 @@ sed -e "s|^user.*|user `whoami`;|" -e "s|listen .*443|listen 127.0.0.1:8443|g" -
 mv "$prefix/etc/sxserver/sxhttpd.conf.1" "$prefix/etc/sxserver/sxhttpd.conf"
 
 "$prefix/sbin/sxadm" node --new --batch-mode "$SXSTOREDIR/data"
-"$prefix/sbin/sxadm" cluster --new --batch-mode --node-dir="$SXSTOREDIR/data" "100M/127.0.0.1" "sx://localhost"
+"$prefix/sbin/sxadm" cluster --new --batch-mode --node-dir="$SXSTOREDIR/data" "6G/127.0.0.1" "sx://localhost"
 
 # TODO: sxadm should be more easily scriptable
 "$prefix/sbin/sxadm" node --info "$SXSTOREDIR/data" | grep 'Admin key: ' | cut -d\  -f3 >"$SXSTOREDIR/data/admin.key"

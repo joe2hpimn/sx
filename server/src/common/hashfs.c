@@ -631,6 +631,7 @@ struct _sx_hashfs_t {
     sqlite3_stmt *q_onoffvol;
     sqlite3_stmt *q_getvolstate;
     sqlite3_stmt *q_delvol;
+    sqlite3_stmt *q_minreqs;
 
     sxi_db_t *tempdb;
     sqlite3_stmt *qt_new;
@@ -866,6 +867,7 @@ static void close_all_dbs(sx_hashfs_t *h) {
     sqlite3_finalize(h->q_onoffvol);
     sqlite3_finalize(h->q_getvolstate);
     sqlite3_finalize(h->q_delvol);
+    sqlite3_finalize(h->q_minreqs);
     sqlite3_finalize(h->q_onoffuser);
     sqlite3_finalize(h->q_gethdrev);
     sqlite3_finalize(h->q_getuser);
@@ -1436,6 +1438,8 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 	goto open_hashfs_fail;
     if(qprep(h->db, &h->q_delvol, "DELETE FROM volumes WHERE volume = :volume AND enabled = 0"))
 	goto open_hashfs_fail;
+    if(qprep(h->db, &h->q_minreqs, "SELECT COALESCE(MAX(replica), 1), COALESCE(SUM(maxsize*replica), 0) FROM volumes"))
+        goto open_hashfs_fail;
 
     OPEN_DB("tempdb", &h->tempdb);
     /* needed for ON DELETE CASCADE to work */
@@ -3352,6 +3356,80 @@ rc_ty sx_hashfs_volume_new_addmeta(sx_hashfs_t *h, const char *key, const void *
     return OK;
 }
 
+static rc_ty get_min_reqs(sx_hashfs_t *h, unsigned int *min_nodes, int64_t *min_capa) {
+    sqlite3_reset(h->q_minreqs);
+    if(qstep_ret(h->q_minreqs))
+        return FAIL_EINTERNAL;
+
+    if(min_nodes)
+        *min_nodes = sqlite3_column_int(h->q_minreqs, 0);
+    if(min_capa)
+        *min_capa = sqlite3_column_int64(h->q_minreqs, 1);
+
+    sqlite3_reset(h->q_minreqs);
+    return OK;
+}
+
+static int64_t get_cluster_capaticy(sx_hashfs_t *h, sx_hashfs_nl_t which) {
+    int64_t size = 0;
+    unsigned int i, nnodes;
+
+    nnodes = sx_nodelist_count(sx_hashfs_nodelist(h, which));
+    for(i = 0; i < nnodes; i++)
+        size += sx_node_capacity(sx_nodelist_get(sx_hashfs_nodelist(h, which), i));
+
+    return size;
+}
+
+/* Return error if given size is incorrect */
+rc_ty sx_hashfs_check_volume_size(sx_hashfs_t *h, int64_t size, unsigned int replica) {
+    int64_t vols_size;
+    int64_t nodes_size = 0;
+
+    if(size < SXLIMIT_MIN_VOLUME_SIZE || size > SXLIMIT_MAX_VOLUME_SIZE) {
+        msg_set_reason("Invalid volume size %lld: must be betweed %lld and %lld",
+                       (long long)size,
+                       (long long)SXLIMIT_MIN_VOLUME_SIZE,
+                       (long long)SXLIMIT_MAX_VOLUME_SIZE);
+        return EINVAL;
+    }
+
+    if(!h->have_hd) /* No hdist, so skip checking if sum of volumes fits in cluster capacity */
+        return OK;
+
+    if(get_min_reqs(h, NULL, &vols_size)) {
+        msg_set_reason("Failed to get volume sizes");
+        return FAIL_EINTERNAL;
+    }
+
+    if(sx_hashfs_is_rebalancing(h)) /* NL_PREV will differ from NL_NEXT */
+        nodes_size = MIN(get_cluster_capaticy(h, NL_PREV), get_cluster_capaticy(h, NL_NEXT));
+    else
+        nodes_size = get_cluster_capaticy(h, NL_PREV); /* All dists are equal, doesn't matter which one will we take here */
+
+    if(!nodes_size) {
+        msg_set_reason("Failed to get node sizes");
+        return FAIL_EINTERNAL;
+    }
+
+    /* Check if cluster capacity is not reached yet (better error message) */
+    if(SXLIMIT_MIN_VOLUME_SIZE > nodes_size - vols_size) {
+        msg_set_reason("Invalid volume size %lld: reached cluster capacity", (long long)size);
+        return EINVAL;
+    }
+
+    /* Total volumes size is greater than cluster capacity */
+    if(vols_size + size * (int64_t)replica > nodes_size) {
+        msg_set_reason("Invalid volume size %lld (replica %u): must be betweed %lld and %lld",
+                       (long long)size, replica,
+                       (long long)SXLIMIT_MIN_VOLUME_SIZE,
+                       (long long)(nodes_size - vols_size));
+        return EINVAL;
+    }
+
+    return OK;
+}
+
 rc_ty sx_hashfs_volume_new_finish(sx_hashfs_t *h, const char *volume, int64_t size, unsigned int replica, unsigned int revisions, sx_uid_t uid) {
     unsigned int reqlen = 0;
     rc_ty ret = FAIL_EINTERNAL;
@@ -3373,13 +3451,6 @@ rc_ty sx_hashfs_volume_new_finish(sx_hashfs_t *h, const char *volume, int64_t si
 	    return EINVAL;
 	}
     }
-    if(size < SXLIMIT_MIN_VOLUME_SIZE || size > SXLIMIT_MAX_VOLUME_SIZE) {
-	msg_set_reason("Invalid volume size %lld: must be between %lld and %lld",
-		       (long long)size,
-		       (long long)SXLIMIT_MIN_VOLUME_SIZE,
-		       (long long)SXLIMIT_MAX_VOLUME_SIZE);
-	return EINVAL;
-    }
 
     if(revisions < SXLIMIT_MIN_REVISIONS || revisions > SXLIMIT_MAX_REVISIONS) {
 	msg_set_reason("Invalid volume revisions: must be between %u and %u", SXLIMIT_MIN_REVISIONS, SXLIMIT_MAX_REVISIONS);
@@ -3392,6 +3463,11 @@ rc_ty sx_hashfs_volume_new_finish(sx_hashfs_t *h, const char *volume, int64_t si
 
     if(qbegin(h->db))
 	return FAIL_EINTERNAL;
+
+    /* Check volume size inside transaction to not fall into race */
+    if((ret = sx_hashfs_check_volume_size(h, size, replica)) != OK)
+        goto volume_new_err;
+    ret = FAIL_EINTERNAL;
 
     if(qbind_text(h->q_addvol, ":volume", volume) ||
        qbind_int(h->q_addvol, ":replica", replica) ||
@@ -7326,24 +7402,6 @@ rc_ty sx_hashfs_gc_run(sx_hashfs_t *h, int *terminate)
         INFO("Deleted %d tokens", sqlite3_changes(h->tempdb->handle));
     }
     return ret;
-}
-
-static rc_ty get_min_reqs(sx_hashfs_t *h, unsigned int *min_nodes, int64_t *min_capa) {
-    sqlite3_stmt *q = NULL;
-
-    if(qprep(h->db, &q, "SELECT COALESCE(MAX(replica), 1), COALESCE(SUM(maxsize*replica), 0) FROM volumes") ||
-       qstep_ret(q)) {
-	qnullify(q);
-	return FAIL_EINTERNAL;
-    }
-
-    if(min_nodes)
-	*min_nodes = sqlite3_column_int(q, 0);
-    if(min_capa)
-	*min_capa = sqlite3_column_int64(q, 1);
-
-    qnullify(q);
-    return OK;
 }
 
 rc_ty sx_hashfs_hdist_change_req(sx_hashfs_t *h, const sx_nodelist_t *newdist, job_t *job_id) {

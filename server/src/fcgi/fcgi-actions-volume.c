@@ -783,10 +783,6 @@ void fcgi_create_volume(void) {
 	return;
     }
 
-    if(yctx.volsize < SXLIMIT_MIN_VOLUME_SIZE || yctx.volsize > SXLIMIT_MAX_VOLUME_SIZE) {
-	sx_blob_free(yctx.metablb);
-	quit_errmsg(400, "Bad volume size");
-    }
     int64_t owner_uid;
     if(sx_hashfs_get_uid(hashfs, yctx.owner, &owner_uid)) {
 	sx_blob_free(yctx.metablb);
@@ -841,7 +837,7 @@ void fcgi_create_volume(void) {
 	return;
     } else {
 	/* Request comes in from the user: broadcst to all nodes */
-	sx_blob_t *joblb = sx_blob_new();
+	sx_blob_t *joblb;
 	const void *job_data;
 	unsigned int job_datalen;
 	const sx_nodelist_t *allnodes = sx_hashfs_nodelist(hashfs, NL_NEXTPREV);
@@ -849,7 +845,16 @@ void fcgi_create_volume(void) {
 	job_t job;
 	rc_ty res;
 
-	if(!joblb) {
+        res = sx_hashfs_check_volume_size(hashfs, yctx.volsize, yctx.replica);
+        if(res != OK) {
+            sx_blob_free(yctx.metablb);
+            if(res == EINVAL)
+                quit_errmsg(400, msg_get_reason());
+            else
+                quit_errmsg(500, "The requested volume could not be created");
+        }
+
+	if(!(joblb = sx_blob_new())) {
 	    sx_blob_free(yctx.metablb);
 	    quit_errmsg(500, "Cannot allocate job blob");
 	}

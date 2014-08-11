@@ -675,10 +675,13 @@ test_get 'list nodes (HEAD)', {'noauth'=>[200,'text/html'],'badauth'=>[401],$rea
 my $vol = random_string 32;
 my $blocksize = 4096;
 my $volumesize = 0x40000000;
+my $tinyvolumesize = 1024*1024;
+my $bigvolumesize = 6*1024*1024*1024+1; #Cluster is 6GB size, this one should exceed that size
 
 test_put_job 'volume creation (no content)', admin_only(400), $vol;
 test_put_job 'volume creation (bad content)', admin_only(400), $vol, "{\"owner\":\"admin\",\"volumeSize\":$volumesize";
-test_put_job 'volume creation (bad volume size)', admin_only(400), $vol, '{"owner":"admin","volumeSize":10}';
+test_put_job 'volume creation (bad volume size - too small)', admin_only(400), $vol, '{"owner":"admin","volumeSize":10}';
+test_put_job 'volume creation (bad volume size - too big)', admin_only(400), $vol, "{\"owner\":\"admin\",\"volumeSize\":$bigvolumesize}";
 test_put_job 'volume creation (no owner)', admin_only(400), $vol, '{"volumeSize":$volumesize}';
 test_put_job 'volume creation (reserved name)', admin_only(403), '.reserved', "{\"owner\":\"admin\",\"volumeSize\":$volumesize}";
 test_put_job "volume creation", admin_only(200), $vol, "{\"volumeSize\":$volumesize,\"owner\":\"admin\"}";
@@ -690,7 +693,7 @@ test_put_job 'granting rights on newly created volume', admin_only(200), "anothe
 test_get 'the newly created volume', authed_only(200, 'application/json'), "another.$vol", undef, sub { my $json = get_json(shift) or return 0; return is_int($json->{'volumeSize'}) && $json->{'volumeSize'} == $volumesize && is_hash($json->{'fileList'}) && scalar keys %{$json->{'fileList'}} == 0 };
 test_get 'the old volume again', authed_only(200, 'application/json'), "another.$vol", undef, sub { my $json = get_json(shift) or return 0; return is_int($json->{'volumeSize'}) && $json->{'volumeSize'} == $volumesize && is_hash($json->{'fileList'}) && scalar keys %{$json->{'fileList'}} == 0 };
 test_put_job 'volume creation (negative replica)', admin_only(400), "large$vol", "{\"owner\":\"admin\",\"replicaCount\":-1,\"volumeSize\":$volumesize}";
-test_put_job 'volume creation (replica > nodes)', admin_only(200), "large$vol", "{\"owner\":\"admin\",\"replicaCount\":1000000,\"volumeSize\":$volumesize}", 1;
+test_put_job 'volume creation (replica > nodes)', admin_only(200), "large$vol", "{\"owner\":\"admin\",\"replicaCount\":1000,\"volumeSize\":$tinyvolumesize}", 1;
 test_put_job 'volume creation (non default replica)', admin_only(200), "large$vol", "{\"owner\":\"admin\",\"replicaCount\":1,\"volumeSize\":$volumesize}";
 test_put_job 'granting rights on newly created volume', admin_only(200), "large$vol?o=acl", "{\"grant-read\":[\"$reader\",\"$writer\"],\"grant-write\":[\"$writer\"] }";
 
