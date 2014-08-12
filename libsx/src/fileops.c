@@ -997,7 +997,8 @@ static void upload_blocks_to_hosts(struct file_upload_ctx *yctx, struct host_upl
 static void upload_blocks_to_hosts_uctx(curlev_context_t *ctx, const char *url)
 {
     struct host_upload_ctx *uctx = sxi_cbdata_get_host_ctx(ctx);
-    int status = sxi_cbdata_result(ctx, NULL);
+    long status = 0;
+    sxi_cbdata_result(ctx, NULL, NULL, &status);
     if (uctx)
         upload_blocks_to_hosts(uctx->yctx, uctx, status, url);
 }
@@ -1266,10 +1267,10 @@ static void multi_part_upload_blocks(curlev_context_t *ctx, const char *url)
     struct file_upload_ctx *yctx = sxi_cbdata_get_upload_ctx(ctx);
     sxc_client_t *sx = yctx->sx;
     sxc_xfer_stat_t *xfer_stat = NULL;
+    long status = 0;
 
-    int status = sxi_cbdata_result(ctx, NULL);
-    if (status != 200) {
-        SXDEBUG("query failed: %d", status);
+    if (sxi_cbdata_result(ctx, NULL, NULL, &status) == -1 || status != 200) {
+        SXDEBUG("query failed: %ld", status);
         yctx->fail++;
         yctx->qret = status;
         if (yctx->current.ref > 0)
@@ -2719,13 +2720,13 @@ static void gethash_finish(curlev_context_t *cctx, const char *url)
     sxc_client_t *sx = conns ? sxi_conns_get_client(conns) : NULL;
     struct file_download_ctx *ctx = sxi_cbdata_get_download_ctx(cctx);
     unsigned i;
-    int status;
+    long status = 0;
 
     sxi_md_cleanup(&ctx->ctx);
-    status = sxi_cbdata_result(cctx, NULL);
+    sxi_cbdata_result(cctx, NULL, NULL, &status);
     if (status== 200 && ctx->dldblks)
         (*ctx->dldblks) += ctx->hashes.i;
-    SXDEBUG("finished %d hashes with code %d", ctx->hashes.i, status);
+    SXDEBUG("finished %d hashes with code %ld", ctx->hashes.i, status);
     if (ctx->queries_finished)/* finished, not necesarely successfully */
         (*ctx->queries_finished) += ctx->hashes.n;
     if (ctx->hashes.written == ctx->blocksize)
@@ -3831,7 +3832,7 @@ static sxi_job_t* remote_to_remote_fast(sxc_file_t *source, sxc_meta_t *fmeta, s
     sxc_xfer_stat_t *xfer_stat;
     unsigned int i;
     int64_t to_skip;
-
+    long http_status = 0;
     sxi_hostlist_t src_hosts;
     curlev_context_t *cbdata = NULL;
 
@@ -3936,8 +3937,8 @@ static sxi_job_t* remote_to_remote_fast(sxc_file_t *source, sxc_meta_t *fmeta, s
 	SXDEBUG("file create query failed");
 	goto remote_to_remote_fast_err;
     }
-    sxi_cbdata_wait(cbdata, sxi_conns_get_curlev(sxi_cluster_get_conns(dest->cluster)), NULL);
-    if (sxi_cbdata_result(cbdata, NULL) != 200) {
+
+    if (sxi_cbdata_wait(cbdata, sxi_conns_get_curlev(sxi_cluster_get_conns(dest->cluster)), &http_status) || http_status != 200) {
 	SXDEBUG("file create query failed");
 	goto remote_to_remote_fast_err;
     }

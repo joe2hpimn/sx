@@ -81,7 +81,7 @@ struct curlev_context {
 
     /* Store error messages locally */
     char errbuf[ERRBUF_SIZE+1];
-    int errnum;
+    enum sxc_error_t errnum;
 
     enum ctx_tag tag;
     union {
@@ -331,6 +331,7 @@ void sxi_cbdata_reset(curlev_context_t *ctx)
         struct recv_context *rctx = &ctx->recv_ctx;
         free(rctx->reason);
         memset(rctx, 0, sizeof(*rctx));
+        sxi_cbdata_clearerr(ctx);
     }
 }
 
@@ -347,20 +348,24 @@ void sxi_cbdata_set_result(curlev_context_t *ctx, int status)
     ctx->recv_ctx.reply_status = status;
 }
 
-int sxi_cbdata_result(curlev_context_t *ctx, int *curlcode)
+int sxi_cbdata_result(curlev_context_t *ctx, int *curlcode, enum sxc_error_t *errnum, long *http_status)
 {
     struct recv_context *rctx = ctx ?  &ctx->recv_ctx : NULL;
     if (!rctx)
         return -1;
+
+    if(http_status)
+        *http_status = rctx->reply_status;
+    if(errnum)
+        *errnum = sxi_cbdata_geterrnum(ctx);
     if (curlcode)
         *curlcode = rctx->rc;
-    if (rctx->rc == CURLE_OK || rctx->rc == CURLE_WRITE_ERROR)
-        return rctx->reply_status;
-    if (rctx->rc == CURLE_OUT_OF_MEMORY) {
-        sxi_seterr(sxi_conns_get_client(ctx->conns), SXE_ECURL,
-                   "Cluster query failed: Out of memory in library routine");
+
+    if (rctx->rc == CURLE_OUT_OF_MEMORY)
+        sxi_cbdata_seterr(ctx, SXE_ECURL, "Cluster query failed: Out of memory in library routine");
+
+    if (ctx->errnum != SXE_NOERROR || rctx->rc != CURLE_OK)
         return -1;
-    }
     return 0;
 }
 
@@ -410,19 +415,17 @@ sxi_conns_t *sxi_cbdata_get_conns(curlev_context_t *ctx)
     return ctx ? ctx->conns : NULL;
 }
 
-int sxi_cbdata_wait(curlev_context_t *ctx, curl_events_t *e, int *curlcode)
+int sxi_cbdata_wait(curlev_context_t *ctx, curl_events_t *e, long *http_status)
 {
     if (ctx) {
         struct recv_context *rctx = &ctx->recv_ctx;
         while (!rctx->finished) {
             if (sxi_curlev_poll(e))
-                if(curlcode)
-                    *curlcode = rctx->rc;
-                return -1;
+                return -2;
         }
-        return sxi_cbdata_result(ctx, curlcode);
+        return sxi_cbdata_result(ctx, NULL, NULL, http_status);
     }
-    return -1;
+    return -2;
 }
 
 static void sxi_cbdata_finish(curl_events_t *e, curlev_context_t **ctxptr, const char *url, error_cb_t err)
@@ -2338,11 +2341,6 @@ int sxi_curlev_poll_immediate(curl_events_t *e)
     }
     e->depth--;
     return callbacks;
-}
-
-int sxi_cbdata_result_fail(curlev_context_t* ctx)
-{
-    return !ctx || ctx->recv_ctx.rc != CURLE_OK;
 }
 
 /* message to display to user, in order of increasing priority */

@@ -223,7 +223,8 @@ static int presence_setup_cb(curlev_context_t *ctx, const char *host) {
 static void batch_finish(curlev_context_t *ctx, const char *url)
 {
     struct hashop_ctx *yactx = sxi_cbdata_get_hashop_ctx(ctx);
-    int status = sxi_cbdata_result(ctx, NULL);
+    long status = 0;
+    int rc = sxi_cbdata_result(ctx, NULL, NULL, &status);
     if (!yactx) {
         WARN("NULL context");
         return;
@@ -246,7 +247,7 @@ static void batch_finish(curlev_context_t *ctx, const char *url)
     yajl_handle yh = yactx->yh;
 
     SXDEBUG("batch_finish for %s (idx %d): %d", yactx->hexhashes, yactx->hashop_idx, status);
-    if (status == 200) {
+    if (rc != -1 && status == 200) {
         /* some hashes (maybe all) are present,
          * the server reports us the presence ones */
         if (!yh) {

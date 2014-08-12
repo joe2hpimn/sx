@@ -232,25 +232,24 @@ static act_result_t createuser_request(sx_hashfs_t *hashfs, job_t job_id, job_da
 action_failed:
     if (proto) {
 	for(nnode=0; nnode<nnodes; nnode++) {
-	    int rc = 0;
+	    int rc;
+            long http_status = 0;
 	    if(!qrylist[nnode].query_sent)
 		continue;
 	    INFO("Polling");
-            rc = sxi_cbdata_wait(qrylist[nnode].cbdata, sxi_conns_get_curlev(clust), NULL);
+            rc = sxi_cbdata_wait(qrylist[nnode].cbdata, sxi_conns_get_curlev(clust), &http_status);
 	    INFO("Polling done");
-	    if(rc == -1) {
+	    if(rc == -2) {
 		CRIT("Failed to wait for query");
 		ret = ACT_RESULT_PERMFAIL;
 		/* FIXME should abort here */
 		continue;
 	    }
-            rc = sxi_cbdata_result(qrylist[nnode].cbdata, NULL);
-	    if(sxi_cbdata_result_fail(qrylist[nnode].cbdata) ||
-               rc / 100 == 5) {
-		WARN("Query failed with %d", rc);
+	    if(rc == -1 || http_status / 100 == 5) {
+		WARN("Query failed with %ld", http_status);
 		if(ret > ACT_RESULT_TEMPFAIL) /* Only raise OK to TEMP */
-		    action_set_fail(ACT_RESULT_TEMPFAIL, 503, sxc_geterrmsg(sx_hashfs_client(hashfs)));
-	    } else if(rc == 200 || rc == 410)
+		    action_set_fail(ACT_RESULT_TEMPFAIL, 503, sxi_cbdata_geterrmsg(qrylist[nnode].cbdata));
+	    } else if(http_status == 200 || http_status == 410)
 		succeeded[nnode] = 1;
 	    else
 		ret = ACT_RESULT_PERMFAIL; /* Raise OK and TEMP to PERMFAIL */
@@ -330,27 +329,27 @@ static act_result_t createuser_commit(sx_hashfs_t *hashfs, job_t job_id, job_dat
     sx_blob_free(b);
     if(query) {
 	for(nnode=0; qrylist && nnode<nnodes; nnode++) {
-	    int rc = 0;
+	    int rc;
+            long http_status = 0;
 	    if(!qrylist[nnode].query_sent)
 		continue;
-            rc = sxi_cbdata_wait(qrylist[nnode].cbdata, sxi_conns_get_curlev(clust), NULL);
-	    if(rc == -1) {
+            rc = sxi_cbdata_wait(qrylist[nnode].cbdata, sxi_conns_get_curlev(clust), &http_status);
+	    if(rc == -2) {
 		CRIT("Failed to wait for query");
 		action_set_fail(ACT_RESULT_PERMFAIL, 500, "Internal error in cluster communication");
 		/* FIXME should abort here */
 		continue;
 	    }
-            rc = sxi_cbdata_result(qrylist[nnode].cbdata, NULL);
-	    if(sxi_cbdata_result_fail(qrylist[nnode].cbdata)) {
-		WARN("Query failed with %d", rc);
+	    if(rc == -1) {
+		WARN("Query failed with %ld", http_status);
 		if(ret > ACT_RESULT_TEMPFAIL) /* Only raise OK to TEMP */
-		    action_set_fail(ACT_RESULT_TEMPFAIL, 503, sxc_geterrmsg(sx));
-	    } else if(rc == 200 || rc == 410) {
+		    action_set_fail(ACT_RESULT_TEMPFAIL, 503, sxi_cbdata_geterrmsg(qrylist[nnode].cbdata));
+	    } else if(http_status == 200 || http_status == 410) {
 		succeeded[nnode] = 1;
 	    } else {
-		act_result_t newret = http2actres(rc);
+		act_result_t newret = http2actres(http_status);
 		if(newret < ret) /* Severity shall only be raised */
-		    action_set_fail(newret, rc, sxc_geterrmsg(sx));
+		    action_set_fail(newret, http_status, sxi_cbdata_geterrmsg(qrylist[nnode].cbdata));
 	    }
 	}
         query_list_free(qrylist, nnodes);
@@ -483,27 +482,27 @@ static act_result_t createvol_request(sx_hashfs_t *hashfs, job_t job_id, job_dat
     sx_blob_free(b);
     if(proto) {
 	for(nnode=0; qrylist && nnode<nnodes; nnode++) {
-	    int rc = 0;
+	    int rc;
+            long http_status = 0;
 	    if(!qrylist[nnode].query_sent)
 		continue;
-            rc = sxi_cbdata_wait(qrylist[nnode].cbdata, sxi_conns_get_curlev(clust), NULL);
-	    if(rc == -1) {
+            rc = sxi_cbdata_wait(qrylist[nnode].cbdata, sxi_conns_get_curlev(clust), &http_status);
+	    if(rc == -2) {
 		CRIT("Failed to wait for query");
 		action_set_fail(ACT_RESULT_PERMFAIL, 500, "Internal error in cluster communication");
 		/* FIXME should abort here */
 		continue;
 	    }
-            rc = sxi_cbdata_result(qrylist[nnode].cbdata, NULL);
-	    if(sxi_cbdata_result_fail(qrylist[nnode].cbdata)) {
-		WARN("Query failed with %d", rc);
+	    if(rc == -1) {
+		WARN("Query failed with %ld", http_status);
 		if(ret > ACT_RESULT_TEMPFAIL) /* Only raise OK to TEMP */
-		    action_set_fail(ACT_RESULT_TEMPFAIL, 503, sxc_geterrmsg(sx));
-	    } else if(rc == 200 || rc == 410) {
+		    action_set_fail(ACT_RESULT_TEMPFAIL, 503, sxi_cbdata_geterrmsg(qrylist[nnode].cbdata));
+	    } else if(http_status == 200 || http_status == 410) {
 		succeeded[nnode] = 1;
 	    } else {
-		act_result_t newret = http2actres(rc);
+		act_result_t newret = http2actres(http_status);
 		if(newret < ret) /* Severity shall only be raised */
-		    action_set_fail(newret, rc, sxc_geterrmsg(sx));
+		    action_set_fail(newret, http_status, sxi_cbdata_geterrmsg(qrylist[nnode].cbdata));
 	    }
 	}
 	sxc_meta_free(vmeta);
@@ -584,27 +583,27 @@ static act_result_t createvol_commit(sx_hashfs_t *hashfs, job_t job_id, job_data
     sx_blob_free(b);
     if(query) {
 	for(nnode=0; qrylist && nnode<nnodes; nnode++) {
-	    int rc = 0;
+	    int rc;
+            long http_status = 0;
 	    if(!qrylist[nnode].query_sent)
 		continue;
-            rc = sxi_cbdata_wait(qrylist[nnode].cbdata, sxi_conns_get_curlev(clust), NULL);
-	    if(rc == -1) {
+            rc = sxi_cbdata_wait(qrylist[nnode].cbdata, sxi_conns_get_curlev(clust), &http_status);
+	    if(rc == -2) {
 		CRIT("Failed to wait for query");
 		action_set_fail(ACT_RESULT_PERMFAIL, 500, "Internal error in cluster communication");
 		/* FIXME should abort here */
 		continue;
 	    }
-            rc = sxi_cbdata_result(qrylist[nnode].cbdata, NULL);
-	    if(sxi_cbdata_result_fail(qrylist[nnode].cbdata)) {
-		WARN("Query failed with %d", rc);
+	    if(rc == -1) {
+		WARN("Query failed with %ld", http_status);
 		if(ret > ACT_RESULT_TEMPFAIL) /* Only raise OK to TEMP */
-		    action_set_fail(ACT_RESULT_TEMPFAIL, 503, sxc_geterrmsg(sx));
-	    } else if(rc == 200 || rc == 410) {
+		    action_set_fail(ACT_RESULT_TEMPFAIL, 503, sxi_cbdata_geterrmsg(qrylist[nnode].cbdata));
+	    } else if(http_status == 200 || http_status == 410) {
 		succeeded[nnode] = 1;
 	    } else {
-		act_result_t newret = http2actres(rc);
+		act_result_t newret = http2actres(http_status);
 		if(newret < ret) /* Severity shall only be raised */
-		    action_set_fail(newret, rc, sxc_geterrmsg(sx));
+		    action_set_fail(newret, http_status, sxi_cbdata_geterrmsg(qrylist[nnode].cbdata));
 	    }
 	}
         query_list_free(qrylist, nnodes);
@@ -676,27 +675,27 @@ static act_result_t createvol_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_
     sx_blob_free(b);
     if(query) {
 	for(nnode=0; qrylist && nnode<nnodes; nnode++) {
-	    int rc = 0;
+	    int rc;
+            long http_status = 0;
 	    if(!qrylist[nnode].query_sent)
 		continue;
-            rc = sxi_cbdata_wait(qrylist[nnode].cbdata, sxi_conns_get_curlev(clust), NULL);
-	    if(rc == -1) {
+            rc = sxi_cbdata_wait(qrylist[nnode].cbdata, sxi_conns_get_curlev(clust), &http_status);
+	    if(rc == -2) {
 		CRIT("Failed to wait for query");
 		action_set_fail(ACT_RESULT_PERMFAIL, 500, "Internal error in cluster communication");
 		/* FIXME should abort here */
 		continue;
 	    }
-            rc = sxi_cbdata_result(qrylist[nnode].cbdata, NULL);
-	    if(sxi_cbdata_result_fail(qrylist[nnode].cbdata)) {
-		WARN("Query failed with %d", rc);
+	    if(rc == -1) {
+		WARN("Query failed with %ld", http_status);
 		if(ret > ACT_RESULT_TEMPFAIL) /* Only raise OK to TEMP */
-		    action_set_fail(ACT_RESULT_TEMPFAIL, 503, sxc_geterrmsg(sx));
-	    } else if (rc == 200 || rc == 410) {
+		    action_set_fail(ACT_RESULT_TEMPFAIL, 503, sxi_cbdata_geterrmsg(qrylist[nnode].cbdata));
+	    } else if (http_status == 200 || http_status == 410) {
 		succeeded[nnode] = 1;
 	    } else {
-		act_result_t newret = http2actres(rc);
+		act_result_t newret = http2actres(http_status);
 		if(newret < ret) /* Severity shall only be raised */
-		    action_set_fail(newret, rc, sxc_geterrmsg(sx));
+		    action_set_fail(newret, http_status, sxi_cbdata_geterrmsg(qrylist[nnode].cbdata));
 	    }
 	}
         query_list_free(qrylist, nnodes);
@@ -760,27 +759,27 @@ static act_result_t job_twophase_execute(const job_2pc_t *spec, jobphase_t phase
     sx_blob_free(b);
     if(proto) {
 	for(nnode=0; nnode<nnodes; nnode++) {
-	    int rc = 0;
+	    int rc;
+            long http_status = 0;
 	    if(!qrylist[nnode].query_sent)
 		continue;
-            rc = sxi_cbdata_wait(qrylist[nnode].cbdata, sxi_conns_get_curlev(clust), NULL);
-	    if(rc == -1) {
+            rc = sxi_cbdata_wait(qrylist[nnode].cbdata, sxi_conns_get_curlev(clust), &http_status);
+	    if(rc == -2) {
 		CRIT("Failed to wait for query");
 		action_set_fail(ACT_RESULT_PERMFAIL, 500, "Internal error in cluster communication");
 		/* FIXME should abort here */
 		continue;
 	    }
-            rc = sxi_cbdata_result(qrylist[nnode].cbdata, NULL);
-	    if(sxi_cbdata_result_fail(qrylist[nnode].cbdata)) {
-		WARN("Query failed with %d", rc);
+	    if(rc == -1) {
+		WARN("Query failed with %ld", http_status);
 		if(ret > ACT_RESULT_TEMPFAIL) /* Only raise OK to TEMP */
-		    action_set_fail(ACT_RESULT_TEMPFAIL, 503, sxc_geterrmsg(sx_hashfs_client(hashfs)));
-	    } else if(rc == 200 || rc == 410) {
+		    action_set_fail(ACT_RESULT_TEMPFAIL, 503, sxi_cbdata_geterrmsg(qrylist[nnode].cbdata));
+	    } else if(http_status == 200 || http_status == 410) {
 		succeeded[nnode] = 1;
 	    } else {
-		act_result_t newret = http2actres(rc);
+		act_result_t newret = http2actres(http_status);
 		if(newret < ret) /* Severity shall only be raised */
-		    action_set_fail(newret, rc, sxc_geterrmsg(sx_hashfs_client(hashfs)));
+		    action_set_fail(newret, http_status, sxi_cbdata_geterrmsg(qrylist[nnode].cbdata));
 	    }
 	}
         query_list_free(qrylist, nnodes);
@@ -1073,20 +1072,20 @@ static act_result_t replicateblocks_request(sx_hashfs_t *hashfs, job_t job_id, j
     if(qrylist) {
 	for(i=0; i<nqueries; i++) {
 	    if(qrylist[i].query_sent) {
-		int rc = sxi_cbdata_wait(qrylist[i].cbdata, sxi_conns_get_curlev(clust), NULL);
-		if(rc != -1) {
-		    rc = sxi_cbdata_result(qrylist[i].cbdata, NULL);
-		    if(sxi_cbdata_result_fail(qrylist[i].cbdata)) {
-			WARN("Query failed with %d", rc);
+                long http_status = 0;
+		int rc = sxi_cbdata_wait(qrylist[i].cbdata, sxi_conns_get_curlev(clust), &http_status);
+		if(rc != -2) {
+		    if(rc == -1) {
+			WARN("Query failed with %ld", http_status);
 			if(ret > ACT_RESULT_TEMPFAIL) /* Only raise OK to TEMP */
-			    action_set_fail(ACT_RESULT_TEMPFAIL, 503, sxc_geterrmsg(sx_hashfs_client(hashfs)));
-		    } else if(rc == 404) {
+			    action_set_fail(ACT_RESULT_TEMPFAIL, 503, sxi_cbdata_geterrmsg(qrylist[i].cbdata));
+		    } else if(http_status == 404) {
 			/* Syntactically invalid request (bad token or block size, etc) */
 			action_set_fail(ACT_RESULT_PERMFAIL, 400, "Internal error: replicate block request failed");
-		    } else if(rc != 200) {
-			act_result_t newret = http2actres(rc);
+		    } else if(http_status != 200) {
+			act_result_t newret = http2actres(http_status);
 			if(newret < ret) /* Severity shall only be raised */
-			    action_set_fail(newret, rc, sxc_geterrmsg(sx_hashfs_client(hashfs)));
+			    action_set_fail(newret, http_status, sxi_cbdata_geterrmsg(qrylist[i].cbdata));
 		    }
 		} else {
 		    CRIT("Failed to wait for query");
@@ -1195,17 +1194,17 @@ static act_result_t fileflush_request(sx_hashfs_t *hashfs, job_t job_id, job_dat
     if(qrylist) {
 	for(i=0; i<nnodes; i++) {
 	    if(qrylist[i].query_sent) {
-		int rc = sxi_cbdata_wait(qrylist[i].cbdata, sxi_conns_get_curlev(clust), NULL);
-		if(rc != -1) {
-		    rc = sxi_cbdata_result(qrylist[i].cbdata, NULL);
-		    if(sxi_cbdata_result_fail(qrylist[i].cbdata)) {
-			WARN("Query failed with %d", rc);
+                long http_status = 0;
+		int rc = sxi_cbdata_wait(qrylist[i].cbdata, sxi_conns_get_curlev(clust), &http_status);
+		if(rc != -2) {
+		    if(rc == -1) {
+			WARN("Query failed with %ld", http_status);
 			if(ret > ACT_RESULT_TEMPFAIL) /* Only raise OK to TEMP */
-			    action_set_fail(ACT_RESULT_TEMPFAIL, 503, sxc_geterrmsg(sx_hashfs_client(hashfs)));
-		    } else if(rc != 200 && rc != 410) {
-			act_result_t newret = http2actres(rc);
+			    action_set_fail(ACT_RESULT_TEMPFAIL, 503, sxi_cbdata_geterrmsg(qrylist[i].cbdata));
+		    } else if(http_status != 200 && http_status != 410) {
+			act_result_t newret = http2actres(http_status);
 			if(newret < ret) /* Severity shall only be raised */
-			    action_set_fail(newret, rc, sxc_geterrmsg(sx_hashfs_client(hashfs)));
+			    action_set_fail(newret, http_status, sxi_cbdata_geterrmsg(qrylist[i].cbdata));
 		    } else
 			succeeded[i] = 1;
 		} else {
@@ -1368,19 +1367,19 @@ static act_result_t filedelete_request(sx_hashfs_t *hashfs, job_t job_id, job_da
 	    if(nnode >= nnodes)
 		nnode = 0;
 	    if(qrylist[i].query_sent) {
-		int rc = sxi_cbdata_wait(qrylist[i].cbdata, sxi_conns_get_curlev(clust), NULL);
-		if(rc != -1) {
-		    rc = sxi_cbdata_result(qrylist[i].cbdata, NULL);
-		    if(sxi_cbdata_result_fail(qrylist[i].cbdata)) {
-			WARN("Query failed with %d", rc);
+                long http_status = 0;
+		int rc = sxi_cbdata_wait(qrylist[i].cbdata, sxi_conns_get_curlev(clust), &http_status);
+		if(rc != -2) {
+		    if(rc == -1) {
+			WARN("Query failed with %ld", http_status);
 			if(ret > ACT_RESULT_TEMPFAIL) /* Only raise OK to TEMP */
-			    action_set_fail(ACT_RESULT_TEMPFAIL, 503, sxc_geterrmsg(sx_hashfs_client(hashfs)));
-		    } else if(rc == 200 || rc == 404 || rc == 410) {
+			    action_set_fail(ACT_RESULT_TEMPFAIL, 503, sxi_cbdata_geterrmsg(qrylist[i].cbdata));
+		    } else if(http_status == 200 || http_status == 404 || http_status == 410) {
 			succeeded[nnode] += 1;
 		    } else {
-			act_result_t newret = http2actres(rc);
+			act_result_t newret = http2actres(http_status);
 			if(newret < ret) /* Severity shall only be raised */
-			    action_set_fail(newret, rc, sxc_geterrmsg(sx_hashfs_client(hashfs)));
+			    action_set_fail(newret, http_status, sxi_cbdata_geterrmsg(qrylist[i].cbdata));
 		    }
 		} else {
 		    CRIT("Failed to wait for query");
@@ -1918,17 +1917,17 @@ static act_result_t startrebalance_request(sx_hashfs_t *hashfs, job_t job_id, jo
     if(qrylist) {
 	for(i=0; i<nnodes; i++) {
 	    if(qrylist[i].query_sent) {
-		int rc = sxi_cbdata_wait(qrylist[i].cbdata, sxi_conns_get_curlev(clust), NULL);
-		if(rc != -1) {
-		    rc = sxi_cbdata_result(qrylist[i].cbdata, NULL);
-		    if(sxi_cbdata_result_fail(qrylist[i].cbdata)) {
-			WARN("Query failed with %d", rc);
+                long http_status = 0;
+		int rc = sxi_cbdata_wait(qrylist[i].cbdata, sxi_conns_get_curlev(clust), &http_status);
+		if(rc != -2) {
+		    if(rc == -1) {
+			WARN("Query failed with %ld", http_status);
 			if(ret > ACT_RESULT_TEMPFAIL) /* Only raise OK to TEMP */
-			    action_set_fail(ACT_RESULT_TEMPFAIL, 503, sxc_geterrmsg(sx_hashfs_client(hashfs)));
-		    } else if(rc != 200) {
-			act_result_t newret = http2actres(rc);
+			    action_set_fail(ACT_RESULT_TEMPFAIL, 503, sxi_cbdata_geterrmsg(qrylist[i].cbdata));
+		    } else if(http_status != 200) {
+			act_result_t newret = http2actres(http_status);
 			if(newret < ret) /* Severity shall only be raised */
-			    action_set_fail(newret, rc, sxc_geterrmsg(sx_hashfs_client(hashfs)));
+			    action_set_fail(newret, http_status, sxi_cbdata_geterrmsg(qrylist[i].cbdata));
 		    } else
 			succeeded[i] = 1;
 		} else {
@@ -1991,17 +1990,17 @@ static act_result_t jlock_common(int lock, sx_hashfs_t *hashfs, const sx_nodelis
     if(qrylist) {
 	for(i=0; i<nnodes; i++) {
 	    if(qrylist[i].query_sent) {
-		int rc = sxi_cbdata_wait(qrylist[i].cbdata, sxi_conns_get_curlev(clust), NULL);
-		if(rc != -1) {
-		    rc = sxi_cbdata_result(qrylist[i].cbdata, NULL);
-		    if(sxi_cbdata_result_fail(qrylist[i].cbdata)) {
-			WARN("Query failed with %d", rc);
+                long http_status = 0;
+		int rc = sxi_cbdata_wait(qrylist[i].cbdata, sxi_conns_get_curlev(clust), &http_status);
+		if(rc != -2) {
+		    if(rc == -1) {
+			WARN("Query failed with %ld", http_status);
 			if(ret > ACT_RESULT_TEMPFAIL) /* Only raise OK to TEMP */
-			    action_set_fail(ACT_RESULT_TEMPFAIL, 503, sxc_geterrmsg(sx_hashfs_client(hashfs)));
-		    } else if(rc != 200) {
-			act_result_t newret = http2actres(rc);
+			    action_set_fail(ACT_RESULT_TEMPFAIL, 503, sxi_cbdata_geterrmsg(qrylist[i].cbdata));
+		    } else if(http_status != 200) {
+			act_result_t newret = http2actres(http_status);
 			if(newret < ret) /* Severity shall only be raised */
-			    action_set_fail(newret, rc, sxc_geterrmsg(sx_hashfs_client(hashfs)));
+			    action_set_fail(newret, http_status, sxi_cbdata_geterrmsg(qrylist[i].cbdata));
 		    } else
 			succeeded[i] = 1;
 		} else {
@@ -2219,17 +2218,17 @@ action_failed:
 	    break;
 
 	if(rbdata[i].query_sent) {
-	    int rc = sxi_cbdata_wait(rbdata[i].cbdata, sxi_conns_get_curlev(clust), NULL);
-	    if(rc != -1) {
-		rc = sxi_cbdata_result(rbdata[i].cbdata, NULL);
-		if(sxi_cbdata_result_fail(rbdata[i].cbdata)) {
-		    WARN("Query failed with %d", rc);
+            long http_status = 0;
+	    int rc = sxi_cbdata_wait(rbdata[i].cbdata, sxi_conns_get_curlev(clust), &http_status);
+	    if(rc != -2) {
+		if(rc == -1) {
+		    WARN("Query failed with %ld", http_status);
 		    if(ret > ACT_RESULT_TEMPFAIL) /* Only raise OK to TEMP */
-			action_set_fail(ACT_RESULT_TEMPFAIL, 503, sxc_geterrmsg(sx_hashfs_client(hashfs)));
-		} else if(rc != 200) {
-		    act_result_t newret = http2actres(rc);
+			action_set_fail(ACT_RESULT_TEMPFAIL, 503, sxi_cbdata_geterrmsg(rbdata[i].cbdata));
+		} else if(http_status != 200) {
+		    act_result_t newret = http2actres(http_status);
 		    if(newret < ret) /* Severity shall only be raised */
-			action_set_fail(newret, rc, sxc_geterrmsg(sx_hashfs_client(hashfs)));
+			action_set_fail(newret, http_status, sxi_cbdata_geterrmsg(rbdata[i].cbdata));
 		} else {
 		    for(j=0; j<rbdata[i].nblocks; j++) {
 			if(sx_hashfs_blkrb_hold(hashfs, &rbdata[i].blocks[j]->hash, rbdata[i].blocks[j]->blocksize, rbdata[i].node) != OK)
@@ -2386,17 +2385,17 @@ static act_result_t filerb_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t 
  action_failed:
     for(i = 0; i<RB_MAX_FILES; i++) {
 	if(rbdata[i].query_sent) {
-	    int rc = sxi_cbdata_wait(rbdata[i].cbdata, sxi_conns_get_curlev(clust), NULL);
-	    if(rc != -1) {
-		rc = sxi_cbdata_result(rbdata[i].cbdata, NULL);
-		if(sxi_cbdata_result_fail(rbdata[i].cbdata)) {
-		    WARN("Query failed with %d", rc);
+            long http_status = 0;
+	    int rc = sxi_cbdata_wait(rbdata[i].cbdata, sxi_conns_get_curlev(clust), &http_status);
+	    if(rc != -2) {
+		if(rc == -1) {
+		    WARN("Query failed with %ld", http_status);
 		    if(ret > ACT_RESULT_TEMPFAIL) /* Only raise OK to TEMP */
-			action_set_fail(ACT_RESULT_TEMPFAIL, 503, sxc_geterrmsg(sx_hashfs_client(hashfs)));
-		} else if(rc != 200) {
-		    act_result_t newret = http2actres(rc);
+			action_set_fail(ACT_RESULT_TEMPFAIL, 503, sxi_cbdata_geterrmsg(rbdata[i].cbdata));
+		} else if(http_status != 200) {
+		    act_result_t newret = http2actres(http_status);
 		    if(newret < ret) /* Severity shall only be raised */
-			action_set_fail(newret, rc, sxc_geterrmsg(sx_hashfs_client(hashfs)));
+			action_set_fail(newret, http_status, sxi_cbdata_geterrmsg(rbdata[i].cbdata));
 		} else if(sx_hashfs_relocs_delete(hashfs, rbdata[i].reloc) != OK) {
 		    if(ret == ACT_RESULT_OK)
 			action_set_fail(ACT_RESULT_TEMPFAIL, 503, "Failed to delete file from relocation queue");
@@ -2524,17 +2523,17 @@ static act_result_t finishrebalance_commit(sx_hashfs_t *hashfs, job_t job_id, jo
     if(qrylist) {
 	for(i=0; i<nnodes; i++) {
 	    if(qrylist[i].query_sent) {
-		int rc = sxi_cbdata_wait(qrylist[i].cbdata, sxi_conns_get_curlev(clust), NULL);
-		if(rc != -1) {
-		    rc = sxi_cbdata_result(qrylist[i].cbdata, NULL);
-		    if(sxi_cbdata_result_fail(qrylist[i].cbdata)) {
-			WARN("Query failed with %d", rc);
+                long http_status = 0;
+		int rc = sxi_cbdata_wait(qrylist[i].cbdata, sxi_conns_get_curlev(clust), &http_status);
+		if(rc != -2) {
+		    if(rc == -1) {
+			WARN("Query failed with %ld", http_status);
 			if(ret > ACT_RESULT_TEMPFAIL) /* Only raise OK to TEMP */
-			    action_set_fail(ACT_RESULT_TEMPFAIL, 503, sxc_geterrmsg(sx_hashfs_client(hashfs)));
-		    } else if(rc != 200) {
-			act_result_t newret = http2actres(rc);
+			    action_set_fail(ACT_RESULT_TEMPFAIL, 503, sxi_cbdata_geterrmsg(qrylist[i].cbdata));
+		    } else if(http_status != 200) {
+			act_result_t newret = http2actres(http_status);
 			if(newret < ret) /* Severity shall only be raised */
-			    action_set_fail(newret, rc, sxc_geterrmsg(sx_hashfs_client(hashfs)));
+			    action_set_fail(newret, http_status, sxi_cbdata_geterrmsg(qrylist[i].cbdata));
 		    } else
 			succeeded[i] = 1;
 		} else {

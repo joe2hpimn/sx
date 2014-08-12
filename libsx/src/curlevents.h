@@ -114,8 +114,13 @@ int sxi_set_retry_cb(curlev_context_t *ctx, const sxi_hostlist_t *hlist, retry_c
 void sxi_cbdata_ref(curlev_context_t *ctx);
 void sxi_cbdata_unref(curlev_context_t **ctx);
 
-int sxi_cbdata_wait(curlev_context_t *ctx, curl_events_t *e, int *curlcode);
-int sxi_cbdata_result(curlev_context_t *ctx, int *curlcode);
+/* Wait until current request finishes.
+ *
+ * Return 0 on success, -2 if cannot wait for finishing request (usually critical error),
+ * -1 if query failed. When error code is not -2, http status will be assigned.
+ */
+int sxi_cbdata_wait(curlev_context_t *ctx, curl_events_t *e, long *http_status);
+int sxi_cbdata_result(curlev_context_t *ctx, int *curlcode, enum sxc_error_t *errnum, long *http_status);
 int sxi_cbdata_is_finished(curlev_context_t *ctx);
 
 void sxi_cbdata_reset(curlev_context_t *ctx);

@@ -606,8 +606,7 @@ int sxi_cluster_query_track(sxi_conns_t *conns, const sxi_hostlist_t *hlist, enu
 	if (rc == -1)
 	    break;
 
-	status = sxi_cbdata_wait(cbdata, conns->curlev, NULL);
-	if (status == -1)
+	if (sxi_cbdata_wait(cbdata, conns->curlev, &status))
 	    break;
 
 	if(status == 401 && !clock_fixed && conns->clock_drifted) {
