@@ -32,8 +32,8 @@
 enum head_result { HEAD_OK, HEAD_FAIL, HEAD_SEEN };
 
 typedef void (*finish_cb_t)(curlev_context_t *ctx, const char *url);
-typedef enum head_result (*head_cb_t)(sxi_conns_t *conns, long http_status, char *ptr, size_t size, size_t nmemb);
-typedef void (*error_cb_t)(sxi_conns_t *conns, int reply_code, const char *reason);
+typedef enum head_result (*head_cb_t)(curlev_context_t *ctx, long http_status, char *ptr, size_t size, size_t nmemb);
+typedef void (*error_cb_t)(curlev_context_t *ctx, int reply_code, const char *reason);
 
 typedef struct {
   curlev_context_t *ctx;
@@ -122,6 +122,15 @@ void sxi_cbdata_reset(curlev_context_t *ctx);
 int sxi_cbdata_result_fail(curlev_context_t* ctx);
 sxi_conns_t *sxi_cbdata_get_conns(curlev_context_t *ctx);
 void sxi_cbdata_set_result(curlev_context_t *ctx, int status);
+
+/* Store error message and code into curlev context */
+void sxi_cbdata_seterr(curlev_context_t *ctx, enum sxc_error_t err, const char *fmt, ...);
+/* Retrieve error message from curlev context */
+const char *sxi_cbdata_geterrmsg(const curlev_context_t *ctx);
+/* Retrieve error code from curlev context */
+enum sxc_error_t sxi_cbdata_geterrnum(const curlev_context_t *ctx);
+/* Clear previously stored error message */
+void sxi_cbdata_clearerr(curlev_context_t *cbdata);
 
 struct sxi_retry;
 typedef struct sxi_retry sxi_retry_t;

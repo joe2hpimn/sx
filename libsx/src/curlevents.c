@@ -79,6 +79,10 @@ struct curlev_context {
     finish_cb_t finish_cb;
     struct retry_ctx retry;
 
+    /* Store error messages locally */
+    char errbuf[ERRBUF_SIZE+1];
+    int errnum;
+
     enum ctx_tag tag;
     union {
         struct file_upload_ctx *upload_ctx;
@@ -109,6 +113,7 @@ static struct curlev_context *sxi_cbdata_create(sxi_conns_t *conns, finish_cb_t 
     ret->conns = conns;
     ret->finish_cb = cb;
     ret->ref = 1;
+    sxi_cbdata_clearerr(ret);
     sxi_hostlist_init(&ret->retry.hosts);
     return ret;
 }
@@ -301,6 +306,9 @@ void sxi_cbdata_unref(curlev_context_t **ctx_ptr)
         SXDEBUG("cbdata reference count for %p: %d", (void*)ctx, ctx->ref);
         if (!ctx->ref) {
             SXDEBUG("freeing cbdata %p", (void*)ctx);
+            /* Store local error message in global error buffer, otherwise it would be lost */
+            if(ctx->errnum != SXE_NOERROR)
+                sxi_seterr(sx, ctx->errnum, "%s", ctx->errbuf);
             sxi_cbdata_reset(ctx);
             sxi_hostlist_empty(&ctx->retry.hosts);
             sxi_retry_done(&ctx->retry.retry);
@@ -356,6 +364,47 @@ int sxi_cbdata_result(curlev_context_t *ctx, int *curlcode)
     return 0;
 }
 
+void sxi_cbdata_seterr(curlev_context_t *ctx, enum sxc_error_t err, const char *fmt, ...) {
+    va_list ap;
+
+    if(!ctx)
+        return;
+    ctx->errnum = err;
+    va_start(ap, fmt);
+    vsnprintf(ctx->errbuf, sizeof(ctx->errbuf) - 1, fmt, ap);
+    va_end(ap);
+    ctx->errbuf[sizeof(ctx->errbuf)-1] = '\0';
+}
+
+void sxi_cbdata_clearerr(curlev_context_t *cbdata) {
+    if(!cbdata)
+        return;
+    if(cbdata->errnum != SXE_NOERROR)
+        CBDATADEBUG("Clearing error stored in cbdata [%d]: %s", cbdata->errnum, cbdata->errbuf);
+    cbdata->errnum = SXE_NOERROR;
+    strcpy(cbdata->errbuf, "No error");
+}
+
+const char *sxi_cbdata_geterrmsg(const curlev_context_t *ctx) {
+    if(!ctx)
+        return NULL;
+
+    if(ctx->errnum != SXE_NOERROR)
+        return ctx->errbuf;
+    else
+        return sxc_geterrmsg(sxi_conns_get_client(ctx->conns));
+}
+
+enum sxc_error_t sxi_cbdata_geterrnum(const curlev_context_t *ctx) {
+    if(!ctx)
+        return SXE_NOERROR;
+
+    if(ctx->errnum != SXE_NOERROR)
+        return ctx->errnum;
+    else
+        return sxc_geterrnum(sxi_conns_get_client(ctx->conns));
+}
+
 sxi_conns_t *sxi_cbdata_get_conns(curlev_context_t *ctx)
 {
     return ctx ? ctx->conns : NULL;
@@ -366,11 +415,10 @@ int sxi_cbdata_wait(curlev_context_t *ctx, curl_events_t *e, int *curlcode)
     if (ctx) {
         struct recv_context *rctx = &ctx->recv_ctx;
         while (!rctx->finished) {
-            if (sxi_curlev_poll(e)) {
+            if (sxi_curlev_poll(e))
                 if(curlcode)
                     *curlcode = rctx->rc;
                 return -1;
-            }
         }
         return sxi_cbdata_result(ctx, curlcode);
     }
@@ -404,7 +452,7 @@ static void sxi_cbdata_finish(curl_events_t *e, curlev_context_t **ctxptr, const
     } else if (rctx->reply_status > 0 && rctx->reason && rctx->reasonsz > 0) {
         rctx->reason[rctx->reasonsz] = '\0';
         if (err)
-            err(ctx->conns, rctx->reply_status, rctx->reason);
+            err(ctx, rctx->reply_status, rctx->reason);
     }
 
     do {
@@ -532,7 +580,7 @@ static size_t headfn(void *ptr, size_t size, size_t nmemb, curlev_t *ev)
     }
     if (!ev->head)
         return size * nmemb;
-    switch (ev->head(ctx->conns, rctx->reply_status, ptr, size, nmemb)) {
+    switch (ev->head(ctx, rctx->reply_status, ptr, size, nmemb)) {
         case HEAD_SEEN:
             rctx->header_seen = 1;
             /* fall-through */

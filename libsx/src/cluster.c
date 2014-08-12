@@ -227,7 +227,7 @@ sxi_hostlist_t *sxi_conns_get_hostlist(sxi_conns_t *conns) {
     return &conns->hlist;
 }
 
-static void errfn(sxi_conns_t *conns, int reply_code, const char *reason)
+static void errfn(curlev_context_t *ctx, int reply_code, const char *reason)
 {
     struct cb_error_ctx yctx;
     yajl_callbacks yacb;
@@ -236,29 +236,29 @@ static void errfn(sxi_conns_t *conns, int reply_code, const char *reason)
     if(yh) {
         memset(&yctx, 0, sizeof(yctx));
         yctx.status = reply_code;
-        yctx.sx = conns->sx;
+        yctx.sx = sxi_conns_get_client(sxi_cbdata_get_conns(ctx));
         if(yajl_parse(yh, (uint8_t *)reason, strlen(reason)) != yajl_status_ok || yajl_complete_parse(yh) != yajl_status_ok)
-            conns_err(SXE_ECOMM, "Cluster query failed with status %d", reply_code);
+            sxi_cbdata_seterr(ctx, SXE_ECOMM, "Cluster query failed with status %d", reply_code);
         else {
             /* else: the parser already set the error in sx */
             if (reply_code == 429) {
-                sxc_client_t *sx = sxi_conns_get_client(conns);
-                char* msg = strdup(sxc_geterrmsg(sx));
+                char* msg = strdup(sxi_cbdata_geterrmsg(ctx));
                 if (msg) {
-                    sxc_clearerr(sx);
-                    sxi_seterr(sx, SXE_EAGAIN, "%s", msg);
+                    sxi_cbdata_clearerr(ctx);
+                    sxi_cbdata_seterr(ctx, SXE_EAGAIN, "%s", msg);
                     free(msg);
                 }
             }
         }
         yajl_free(yh);
     } else
-        conns_err(SXE_EMEM, "Cluster query failed: Out of memory");
+        sxi_cbdata_seterr(ctx, SXE_EMEM, "Cluster query failed: Out of memory");
 }
 
-static enum head_result head_cb(sxi_conns_t *conns, long http_status, char *ptr, size_t size, size_t nmemb) {
+static enum head_result head_cb(curlev_context_t *ctx, long http_status, char *ptr, size_t size, size_t nmemb) {
     size_t vlen = size * nmemb, klen;
     const char *v;
+    sxi_conns_t *conns = sxi_cbdata_get_conns(ctx);
 
     if(!(v = memchr(ptr, ':', vlen)))
 	return HEAD_OK;
@@ -284,19 +284,20 @@ static enum head_result head_cb(sxi_conns_t *conns, long http_status, char *ptr,
 
         vv = memchr(v,' ',vlen);
         if(!vv) {
-            conns_err(SXE_ECOMM,"Invalid cluster header (no uuid)");
+            sxi_cbdata_seterr(ctx, SXE_ECOMM,"Invalid cluster header (no uuid)");
             return HEAD_FAIL;
         }
 	if(!getenv("SX_DEBUG_NOVERSIONCHECK")) {
-            if (!sxc_compatible_with(conns->sx, v)) {
-		conns_err(SXE_ECOMM, "Invalid cluster version (client version %s, server version %.*s)", sxc_get_version(), (int)(vv - v), v);
+            sxc_client_t *sx = sxi_conns_get_client(conns);
+            if (!sxc_compatible_with(sx, v)) {
+		sxi_cbdata_seterr(ctx, SXE_ECOMM, "Invalid cluster version (client version %s, server version %.*s)", sxc_get_version(), (int)(vv - v), v);
 		return HEAD_FAIL;
 	    }
 	}
 	vlen -= vv -v;
         v = vv + 2;
 	if(vlen < UUID_LEN + 1 || v[UUID_LEN] != ')') {
-	    conns_err(SXE_ECOMM, "Invalid server UUID");
+	    sxi_cbdata_seterr(ctx, SXE_ECOMM, "Invalid server UUID");
 	    return HEAD_FAIL;
 	}
 
@@ -313,7 +314,7 @@ static enum head_result head_cb(sxi_conns_t *conns, long http_status, char *ptr,
 	}
 	if(strcmp(uuid, suuid)) {
 	    CLSTDEBUG("server uuid mismatch (got %s, expected %s)", uuid, suuid);
-	    conns_err(SXE_ECOMM, "Server UUID mismatch: Found %s, expected %s", uuid, suuid);
+	    sxi_cbdata_seterr(ctx, SXE_ECOMM, "Server UUID mismatch: Found %s, expected %s", uuid, suuid);
 	    return HEAD_FAIL;
 	}
         return HEAD_SEEN;
@@ -326,7 +327,7 @@ static enum head_result head_cb(sxi_conns_t *conns, long http_status, char *ptr,
 
 	    if(vlen >= sizeof(datestr)) {
 		CLSTDEBUG("got bogus date from server");
-		conns_err(SXE_ECOMM, "Bad Date from server");
+		sxi_cbdata_seterr(ctx, SXE_ECOMM, "Bad Date from server");
 		return HEAD_FAIL;
 	    }
 
@@ -336,14 +337,14 @@ static enum head_result head_cb(sxi_conns_t *conns, long http_status, char *ptr,
 	    mine = time(NULL);
 	    if(mine == (time_t) -1) {
 		CLSTDEBUG("time query failed");
-		conns_err(SXE_ETIME, "Cannot retrieve current time");
+		sxi_cbdata_seterr(ctx, SXE_ETIME, "Cannot retrieve current time");
 		return HEAD_FAIL;
 	    }
 
 	    their = curl_getdate(datestr, NULL);
 	    if(their == (time_t) -1) {
 		CLSTDEBUG("got bogus date from server");
-		conns_err(SXE_ECOMM, "Bad Date from server");
+		sxi_cbdata_seterr(ctx, SXE_ECOMM, "Bad Date from server");
 		return HEAD_FAIL;
 	    }
 
