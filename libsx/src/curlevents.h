@@ -76,6 +76,17 @@ int sxi_curlev_add_put(curl_events_t *e,
 int sxi_curlev_poll(curl_events_t *e);
 int sxi_curlev_poll_immediate(curl_events_t *e);
 
+/* Typedefs for error handling functions */
+typedef const char *(*geterrmsg_cb)(void *ctx);
+typedef enum sxc_error_t (*geterrnum_cb)(void *ctx);
+typedef void (*seterr_cb)(void *ctx, enum sxc_error_t errnum, const char *fmt, ...);
+typedef void (*setsyserr_cb)(void *ctx, enum sxc_error_t errnum, const char *fmt, ...);
+typedef void (*clearerr_cb)(void *ctx);
+
+typedef enum {
+    RCTX_SX, /* Global context, errors will be stored globally */
+    RCTX_CBDATA /* cbdata context, errors will be stored inside curlev_context_t */
+} retry_ctx_type_t;
 
 curlev_context_t* sxi_cbdata_create_upload(sxi_conns_t *conns, finish_cb_t cb, struct file_upload_ctx *ctx);
 struct file_upload_ctx *sxi_cbdata_get_upload_ctx(curlev_context_t *ctx);
@@ -139,9 +150,9 @@ void sxi_cbdata_clearerr(curlev_context_t *cbdata);
 
 struct sxi_retry;
 typedef struct sxi_retry sxi_retry_t;
-sxi_retry_t* sxi_retry_init(sxc_client_t *sx);
+sxi_retry_t* sxi_retry_init(void *ctx, retry_ctx_type_t ctx_type);
 int sxi_retry_check(sxi_retry_t *retry, unsigned current_try);
-void sxi_retry_msg(sxi_retry_t *retry, const char *host);
+void sxi_retry_msg(sxc_client_t *sx, sxi_retry_t *retry, const char *host);
 int sxi_retry_done(sxi_retry_t **retry);
 int sxi_curlev_fetch_certificates(curl_events_t *e, const char *url, int quiet);
 

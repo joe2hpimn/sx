@@ -1103,7 +1103,7 @@ static int batch_hashes_to_hosts(struct file_upload_ctx *yctx, struct need_hash 
             return -1;
         }
         sxi_set_operation(sx, "file block upload", NULL, NULL, NULL);
-        sxi_retry_msg(yctx->current.retry, host);
+        sxi_retry_msg(sx, yctx->current.retry, host);
         SXDEBUG("replica #%d: %s", need->replica, host);
         struct host_upload_ctx *u = NULL;
 
@@ -1467,7 +1467,8 @@ static int multi_part_upload_ev(struct file_upload_ctx *yctx)
             sxi_seterr(sx, SXE_EMEM, "Cannot allocate read buffer");
             break;
         }
-        if (!(yctx->current.retry = sxi_retry_init(sx))) {
+        if (!(yctx->current.retry = sxi_retry_init(sx, RCTX_SX))) {
+            sxi_seterr(sx, SXE_EMEM, "Could not allocate retry");
             SXDEBUG("retry_init failed");
             break;
         }
@@ -3047,7 +3048,7 @@ static int single_download(struct batch_hashes *bh, const char *dstname,
     unsigned int i;
     int ret = 1;
 
-    retry = sxi_retry_init(sx);
+    retry = sxi_retry_init(sx, RCTX_SX);
     if (!retry) {
         cluster_err(SXE_EMEM, "Cannot allocate retry");
         return 1;
@@ -3107,7 +3108,7 @@ static int single_download(struct batch_hashes *bh, const char *dstname,
             host = sxi_hostlist_get_host(&hashdata->hosts, j);
 
             sxi_retry_check(retry, j);
-            sxi_retry_msg(retry, host);
+            sxi_retry_msg(sx, retry, host);
 
             sxi_set_operation(sx, "download file contents", NULL, NULL, NULL);
             rc = sxi_cluster_query_ev(cbdata, conns, host, REQ_GET, url, NULL, 0, NULL, gethash_cb);

@@ -584,8 +584,9 @@ int sxi_cluster_query_track(sxi_conns_t *conns, const sxi_hostlist_t *hlist, enu
 	conns_err(SXE_EMEM, "Cluster query failed: Out of memory allocating context");
 	return -1;
     }
-    retry = sxi_retry_init(conns->sx);
+    retry = sxi_retry_init(cbdata, RCTX_CBDATA);
     if (!retry) {
+        sxi_cbdata_seterr(cbdata, SXE_EMEM, "Could not allocate retry");
         sxi_cbdata_unref(&cbdata);
         return -1;
     }
@@ -598,7 +599,7 @@ int sxi_cluster_query_track(sxi_conns_t *conns, const sxi_hostlist_t *hlist, enu
 	    break;
 
 	const char *host = sxi_hostlist_get_host(hlist, i);
-	sxi_retry_msg(retry, host);
+	sxi_retry_msg(sxi_conns_get_client(conns), retry, host);
 
 	conns->clock_drifted = 0;
 	rc = sxi_cluster_query_ev(cbdata, conns, host, verb, query, content, content_size,
@@ -625,13 +626,13 @@ int sxi_cluster_query_track(sxi_conns_t *conns, const sxi_hostlist_t *hlist, enu
     if(i==hostcount && status != 200)
         CLSTDEBUG("All %d hosts returned failure", sxi_hostlist_get_count(hlist));
 
-    sxi_cbdata_unref(&cbdata);
     if (sxi_retry_done(&retry) && status == 200) {
         /* error encountered in retry_done, even though status was successful
          * do not change status in other cases, we want to return an actual
          * http status code if we have it on an error */
         status = -1;
     }
+    sxi_cbdata_unref(&cbdata);
     return status;
 }
 

@@ -260,8 +260,10 @@ int sxi_set_retry_cb(curlev_context_t *ctx, const sxi_hostlist_t *hlist, retry_c
         ctx->retry.content_size = content_size;
         if (sxi_hostlist_add_list(sx, &ctx->retry.hosts, hlist))
             return -1;
-        if (!(ctx->retry.retry = sxi_retry_init(sx)))
+        if (!(ctx->retry.retry = sxi_retry_init(ctx, RCTX_CBDATA))) {
+            sxi_cbdata_seterr(ctx, SXE_EMEM, "Out of memory allocating retry");
             return -1;
+        }
         ctx->retry.jobs = jobs;
         return 0;
     }
@@ -477,7 +479,7 @@ static void sxi_cbdata_finish(curl_events_t *e, curlev_context_t **ctxptr, const
         if (sxi_retry_check(ctx->retry.retry, ctx->retry.retries * n + ctx->retry.hostidx))
             break;
         sxi_set_operation(sx, ctx->retry.op, NULL, NULL, NULL);
-        sxi_retry_msg(ctx->retry.retry, host);
+        sxi_retry_msg(sx, ctx->retry.retry, host);
         sxi_cbdata_reset(ctx);
         if (host) {
             if (!ctx->retry.cb(ctx, ctx->conns, host,
@@ -2354,26 +2356,52 @@ enum msg_prio {
 };
 
 struct sxi_retry {
-    sxc_client_t *sx;
+    void *ctx;
     int last_try;
     int last_printed;
     int errnum;
     char errmsg[65536];
     enum msg_prio prio;
+
+    /* Error handling callbacks */
+    geterrmsg_cb geterrmsg;
+    geterrnum_cb geterrnum;
+    seterr_cb seterr;
+    setsyserr_cb setsyserr;
+    clearerr_cb clrerr;
 };
 
-sxi_retry_t* sxi_retry_init(sxc_client_t *sx)
-{
+static void retry_init_err_callbacks(sxi_retry_t *retry, retry_ctx_type_t ctx_type) {
+    switch(ctx_type) {
+        case RCTX_SX: {
+            retry->geterrmsg = (geterrmsg_cb)sxc_geterrmsg;
+            retry->geterrnum = (geterrnum_cb)sxc_geterrnum;
+            retry->seterr = (seterr_cb)sxi_seterr;
+            retry->setsyserr = (seterr_cb)sxi_setsyserr;
+            retry->clrerr = (clearerr_cb)sxc_clearerr;
+        } break;
+
+        case RCTX_CBDATA: {
+            retry->geterrmsg = (geterrmsg_cb)sxi_cbdata_geterrmsg;
+            retry->geterrnum = (geterrnum_cb)sxi_cbdata_geterrnum;
+            retry->seterr = (seterr_cb)sxi_cbdata_seterr;
+            retry->setsyserr = (seterr_cb)sxi_cbdata_setsyserr;
+            retry->clrerr = (clearerr_cb)sxi_cbdata_clearerr;
+        } break;
+    }
+}
+
+sxi_retry_t* sxi_retry_init(void *ctx, retry_ctx_type_t ctx_type) {
     sxi_retry_t *ret;
-    if (!sx)
+    if (!ctx)
         return NULL;
 
     ret = calloc(1, sizeof(*ret));
-    if (!ret) {
-        sxi_setsyserr(sx, SXE_EMEM, "OOM allocating retry struct");
+    if (!ret)
         return NULL;
-    }
-    ret->sx = sx;
+
+    retry_init_err_callbacks(ret, ctx_type);
+    ret->ctx = ctx;
     ret->last_printed = -1;
     return ret;
 }
@@ -2401,17 +2429,14 @@ int sxi_retry_check(sxi_retry_t *retry, unsigned current_try)
     const char *errmsg;
     int errnum;
     enum msg_prio prio;
-    sxc_client_t *sx;
 
-    if (!retry)
+    if (!retry || !retry->ctx)
         return -1;
-    sx = retry->sx;
-    errmsg = sxc_geterrmsg(sx);
-    errnum = sxc_geterrnum(sx);
+    errmsg = retry->geterrmsg(retry->ctx);
+    errnum = retry->geterrnum(retry->ctx);
     if (!errmsg)
         return -1;
     prio = classify_error(errnum);
-    SXDEBUG("prio: %d, stored prio: %d", prio, retry->prio);
     /* noerror can be overridden by anything, and in turn it can override
      * anything */
     if (prio > retry->prio || prio == MSG_PRIO_NOERROR) {
@@ -2421,34 +2446,26 @@ int sxi_retry_check(sxi_retry_t *retry, unsigned current_try)
         /* do not malloc/strdup so that we can store OOM messages too */
         strncpy(retry->errmsg, errmsg, sizeof(retry->errmsg)-1);
         retry->errmsg[sizeof(retry->errmsg)-1] = 0;
-        if (errnum == SXE_NOERROR)
-            SXDEBUG("cleared stored error message");
-        else
-            SXDEBUG("stored error message (prio %d): %s", prio, retry->errmsg);
     }
     if (prio == MSG_PRIO_LOCAL_FATAL || prio == MSG_PRIO_AUTH) {
-        SXDEBUG("error is fatal, forbidding retry: %s", errmsg);
         return -1;/* do not retry */
     }
     if ((int)current_try != retry->last_try) {
-        sxc_clearerr(sx);
+        retry->clrerr(retry->ctx);
         retry->last_try = current_try;
-        SXDEBUG("cleared error for next retry");
     }
     return 0;
 }
 
-void sxi_retry_msg(sxi_retry_t *retry, const char *host)
+void sxi_retry_msg(sxc_client_t *sx, sxi_retry_t *retry, const char *host)
 {
-    sxc_client_t *sx;
     const char *op;
-    if (!retry)
+    if (!sx || !retry || !retry->ctx)
         return;
-    sx = retry->sx;
     op = sxi_get_operation(sx);
     SXDEBUG("op: %s", op ? op : "N/A");
     if (op && retry->errnum && retry->last_try != retry->last_printed) {
-        sxi_info(retry->sx, "%s, retrying %s%s%s ...", retry->errmsg, op,
+        sxi_info(sx, "%s, retrying %s%s%s ...", retry->errmsg, op,
                  host ? " on " : "",
                  host ? host : "");
         retry->last_printed = retry->last_try;
@@ -2457,18 +2474,17 @@ void sxi_retry_msg(sxi_retry_t *retry, const char *host)
 
 int sxi_retry_done(sxi_retry_t **retryptr)
 {
-    sxc_client_t *sx;
     sxi_retry_t *retry = retryptr ? *retryptr : NULL;
+    int ret;
     if (!retry)
         return -1;
-    sx = retry->sx;
-    SXDEBUG("in retry_done");
     sxi_retry_check(retry, retry->last_try+1);
     if (retry->errnum != SXE_NOERROR)
-        sxi_seterr(sx, retry->errnum, "%s", retry->errmsg);
+        retry->seterr(retry->ctx, retry->errnum, "%s", retry->errmsg);
+    ret = retry->geterrnum(retry->ctx) != SXE_NOERROR;
     free(retry);
     *retryptr = NULL;
-    return sxc_geterrnum(sx) != SXE_NOERROR;
+    return ret;
 }
 
 static const struct curl_certinfo *get_certinfo(curlev_t *ctx)
