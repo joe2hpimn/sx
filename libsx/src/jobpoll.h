@@ -44,4 +44,8 @@ int sxi_job_submit_and_poll(sxi_conns_t *conns, sxi_hostlist_t *hlist, const cha
 /* Return number of successfully finished jobs */
 unsigned sxi_jobs_get_successful(const sxi_jobs_t *jobs);
 
+/* temporary notify filter hack */
+typedef void (*nf_fn_t)(const sxf_handle_t *handle, void *ctx, sxf_notify_t mode, const char *source_cluster, const char *source_volume, const char *source_path, const char *dest_cluster, const char *dest_volume, const char *dest_path);
+void sxi_job_set_nf(sxi_job_t *job, const sxf_handle_t *nf_fh, nf_fn_t nf_fn, void *nf_ctx, const char *nf_src_path, const char *nf_dst_clust, const char *nf_dst_vol, const char *nf_dst_path);
+
 #endif

@@ -2004,8 +2004,8 @@ static int local_to_remote_begin(sxc_file_t *source, sxc_meta_t *fmeta, sxc_file
     sxi_hostlist_empty(&shost);
     sxi_hostlist_empty(&volhosts);
 
-    if(!ret && fh && fh->f->file_notify)
-	fh->f->file_notify(fh, fh->ctx, SXF_NOTIFY_UPLOAD, NULL, NULL, source->path, sxc_cluster_get_sslname(dest->cluster), dest->volume, dest->path);
+    if(!ret && fh && fh->f->file_notify && dest->job)
+	sxi_job_set_nf(dest->job, fh, fh->f->file_notify, fh->ctx, source->path, sxc_cluster_get_sslname(dest->cluster), dest->volume, dest->path);
 
     if (restore_path(dest))
         ret = 1;
