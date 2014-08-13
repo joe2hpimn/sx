@@ -32,6 +32,7 @@ struct generic_ctx;
 
 /* Rate at wchich progress function should call external progress handler */
 #define XFER_PROGRESS_INTERVAL          0.5
+#define XFER_TIME_WINDOW_WIDTH          (256.0 * XFER_PROGRESS_INTERVAL)
 #define XFER_PROGRESS_ETA_DELAY         2.0 /* after 2 seconds we will compute speed and eta */
 
 /* Set information about current transfer download value */

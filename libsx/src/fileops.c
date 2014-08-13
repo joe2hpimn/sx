@@ -79,6 +79,7 @@ static void xfer_update_speed(sxc_xfer_progress_t *xfer) {
     unsigned int i;
     int64_t total_sent = 0; /* Total number of bytes sent in time window */
     int64_t total_skipped = 0; /* Total number of bytes skipped in time window */
+    double total_time = xfer->total_time < XFER_TIME_WINDOW_WIDTH ? xfer->total_time : XFER_TIME_WINDOW_WIDTH;
 
     for(i = 0; i < 256; i++) {
         total_sent += xfer->timing[i].sent;
@@ -86,21 +87,20 @@ static void xfer_update_speed(sxc_xfer_progress_t *xfer) {
     }
 
     if(xfer->total_time > XFER_PROGRESS_ETA_DELAY) {
-        xfer->speed = (total_sent + total_skipped) / xfer->total_time;
+        xfer->speed = (total_sent + total_skipped) / total_time;
         xfer->eta = xfer->speed > 0 && xfer->to_send > 0 ? xfer->to_send / xfer->speed - xfer->total_time : 0;
     }
-    xfer->real_speed = total_sent / xfer->total_time;
+    xfer->real_speed = total_sent / total_time;
 }
 
 /* Update timing information for progress stats */
 int sxi_update_time_window(sxc_xfer_progress_t *xfer, int64_t bytes, int64_t skipped) {
-    struct timeval now;
     unsigned int s, i;
 
     if(!xfer)
         return 1;
 
-    s = (long long)xfer->total_time & 255;
+    s = (long long)(xfer->total_time / XFER_PROGRESS_INTERVAL) & 255;
 
     if(xfer->last_time_idx != s) {
         for(i = 1; i < 256 && ((xfer->last_time_idx + i) & 255) != s; i++) {
