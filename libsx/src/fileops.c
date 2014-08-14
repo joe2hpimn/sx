@@ -1294,6 +1294,9 @@ static void multi_part_upload_blocks(curlev_context_t *ctx, const char *url)
         int64_t to_skip = yctx->pos - yctx->last_pos - yctx->current.needed_cnt * yctx->blocksize; 
         if(to_skip && skip_xfer(yctx->cluster, to_skip) != SXE_NOERROR) {
             SXDEBUG("Could not skip part of transfer");
+            yctx->fail++;
+            if (yctx->current.ref > 0)
+                yctx->current.ref--;
             sxi_cbdata_seterr(ctx, SXE_ABORT, "Could not skip part of transfer");
             return;
         }
@@ -1427,6 +1430,7 @@ static int multi_part_compute_hash_ev(struct file_upload_ctx *yctx)
                                   createfile_setup_cb, createfile_cb, yctx->dest->jobs) == -1)
     {
         SXDEBUG("file create query failed");
+        sxi_cbdata_unref(&cbdata);
         return -1;
     }
     sxi_cbdata_unref(&cbdata);
@@ -3116,7 +3120,6 @@ static int single_download(struct batch_hashes *bh, const char *dstname,
                 do {
                     rc = sxi_curlev_poll(sxi_conns_get_curlev(conns));
                 } while (!rc);
-                sxi_cbdata_unref(&cbdata);
                 goto single_download_fail;
             }
 

@@ -500,7 +500,7 @@ struct generic_ctx {
 static int wrap_setup_callback(curlev_context_t *ctx, const char *host)
 {
     struct generic_ctx *gctx = sxi_cbdata_get_generic_ctx(ctx);
-    if (!gctx->setup_callback)
+    if (!gctx || !gctx->setup_callback)
         return 0;
     return gctx->setup_callback(sxi_cbdata_get_conns(ctx), gctx->context, host);
 }
@@ -508,7 +508,7 @@ static int wrap_setup_callback(curlev_context_t *ctx, const char *host)
 static int wrap_data_callback(curlev_context_t *ctx, const unsigned char *data, size_t size)
 {
     struct generic_ctx *gctx = sxi_cbdata_get_generic_ctx(ctx);
-    if (!gctx->callback)
+    if (!gctx || !gctx->callback)
         return 0;
     return gctx->callback(sxi_cbdata_get_conns(ctx), gctx->context, (void*)data, size);
 }
@@ -649,8 +649,9 @@ int sxi_cluster_query_ev_retry(curlev_context_t *cbdata,
 {
     if (!cbdata || !conns)
         return -1;
-    sxi_set_retry_cb(cbdata, hlist, sxi_cluster_query_ev,
-                     verb, query, content, content_size, setup_callback, jobs);
+    if(sxi_set_retry_cb(cbdata, hlist, sxi_cluster_query_ev,
+                     verb, query, content, content_size, setup_callback, jobs))
+        return -1;
     return sxi_cluster_query_ev(cbdata, conns, sxi_hostlist_get_host(hlist, 0), verb, query, content, content_size,
                                 setup_callback, callback);
 }

@@ -125,7 +125,6 @@ static struct curlev_context *sxi_cbdata_create(sxi_conns_t *conns, finish_cb_t 
 static int sxi_cbdata_is_tag(struct curlev_context *ctx, enum ctx_tag expected)
 {
     if (ctx) {
-        sxc_client_t *sx = sxi_conns_get_client(ctx->conns);
         if (ctx->tag == expected)
             return 1;
         sxi_cbdata_seterr(ctx, SXE_EARG, "context tag mismatch: %d != %d", ctx->tag, expected);
@@ -577,8 +576,10 @@ static void sxi_cbdata_finish(curl_events_t *e, curlev_context_t **ctxptr, const
             if (!ctx->retry.cb(ctx, ctx->conns, host,
                                ctx->retry.verb, ctx->retry.query, ctx->retry.content, ctx->retry.content_size,
                                ctx->retry.setup_callback,
-                               ctx->data_cb))
+                               ctx->data_cb)) {
+                sxi_cbdata_unref(ctxptr);
                 return; /* not finished yet, context reused */
+            }
         }
         else {
             sxi_cbdata_seterr(ctx, SXE_EAGAIN, "All %d hosts returned failure, retried %d times",
@@ -1207,7 +1208,7 @@ static int curlm_check(curlev_t *ev, CURLMcode code, const char *msg)
     if (code != CURLM_OK && code != CURLM_CALL_MULTI_PERFORM) {
         EVDEBUG(ev, "WARNING: curl multi %s: %s\n", msg,
                 curl_multi_strerror(code));
-        if (ev)
+        if (ev && ev->ctx)
             sxi_cbdata_seterr(ev->ctx, SXE_ECURL, "curl multi failed: %s, %s",
                        curl_multi_strerror(code), ev->ctx->recv_ctx.errbuf);
         return -1;
@@ -1882,6 +1883,7 @@ static int compute_headers_url(curl_events_t *e, curlev_t *ev, curlev_t *src)
         if (curl_check(ev, rc, "get URL"))
             break;
 
+        rc = -1;
         if (!strncmp(url, "http://", 7)) {
             query = url + 7;
             ev->is_http = 1;
@@ -1909,12 +1911,16 @@ static int compute_headers_url(curl_events_t *e, curlev_t *ev, curlev_t *src)
 	    break;
 	}
 
-	if(!sxi_hmac_sha1_update_str(hmac_ctx, verb) || !sxi_hmac_sha1_update_str(hmac_ctx, query))
+	if(!sxi_hmac_sha1_update_str(hmac_ctx, verb) || !sxi_hmac_sha1_update_str(hmac_ctx, query)) {
+            sxi_cbdata_seterr(ev->ctx, SXE_ECRYPT, "Cluster query failed: HMAC calculation failed");
 	    break;
+        }
 
 	if (compute_date(ev->ctx, datebuf, sxi_conns_get_timediff(e->conns), hmac_ctx) == -1) {
             sxi_cbdata_seterr(ev->ctx, SXE_ECRYPT, "Cluster query failed: Failed to compute date");
 	    break;
+        }
+
 	if(content_size) {
 	    char content_hash[41];
 	    unsigned char d[20];
@@ -1922,6 +1928,7 @@ static int compute_headers_url(curl_events_t *e, curlev_t *ev, curlev_t *src)
 
             if (!sxi_sha1_init(ch_ctx)) {
 		EVDEBUG(ev, "failed to init content digest");
+                sxi_md_cleanup(&ch_ctx);
 		sxi_cbdata_seterr(ev->ctx, SXE_ECRYPT, "Cannot compute hash: Unable to initialize crypto library");
 		break;
 	    }
@@ -1936,10 +1943,14 @@ static int compute_headers_url(curl_events_t *e, curlev_t *ev, curlev_t *src)
 	    sxi_bin2hex(d, sizeof(d), content_hash);
 	    content_hash[sizeof(content_hash)-1] = '\0';
 
-	    if(!sxi_hmac_sha1_update_str(hmac_ctx, content_hash))
+	    if(!sxi_hmac_sha1_update_str(hmac_ctx, content_hash)) {
+                sxi_cbdata_seterr(ev->ctx, SXE_ECRYPT, "Cluster query failed: HMAC calculation failed");
 		break;
-	} else if(!sxi_hmac_sha1_update_str(hmac_ctx, "da39a3ee5e6b4b0d3255bfef95601890afd80709"))
+            }
+	} else if(!sxi_hmac_sha1_update_str(hmac_ctx, "da39a3ee5e6b4b0d3255bfef95601890afd80709")) {
+            sxi_cbdata_seterr(ev->ctx, SXE_ECRYPT, "Cluster query failed: HMAC calculation failed");
 	    break;
+        }
 
 	keylen = AUTH_KEY_LEN;
 	if(!sxi_hmac_sha1_final(hmac_ctx, bintoken + AUTH_UID_LEN, &keylen) || keylen != AUTH_KEY_LEN) {
@@ -1949,6 +1960,7 @@ static int compute_headers_url(curl_events_t *e, curlev_t *ev, curlev_t *src)
 	}
         if(!(sendtok = sxi_b64_enc(sx, bintoken, AUTHTOK_BIN_LEN))) {
             EVDEBUG(ev, "failed to encode computed auth token");
+            sxi_cbdata_seterr(ev->ctx, SXE_ECRYPT, "failed to encode computed auth token");
             break;
         }
 
@@ -1985,12 +1997,13 @@ static int enqueue_request(curl_events_t *e, curlev_t *ev, int re)
         host = host_active_info_new(ev->host);
         if(!host) {
             SXDEBUG("OOM Could not allocate memory for host");
-                return -1;
-            }
+            return -1;
+        }
         if(sxi_ht_add(e->conn_pool->hosts, (void*)ev->host, strlen(ev->host), (void*)host)) {
             SXDEBUG("Could not add host to hashtable");
+            free(host->host);
             free(host);
-                return -1;
+            return -1;
         }
     }
 
@@ -2398,7 +2411,6 @@ int sxi_curlev_poll_immediate(curl_events_t *e)
 
                 /* Check if user transfer callbacks did not return error message */
                 if(xfer_err != SXE_NOERROR) {
-                    sxc_client_t *sx = sxi_conns_get_client(e->conns);
                     if(xfer_err == SXE_ABORT)
                         sxi_cbdata_seterr(ctx, xfer_err, "Transfer aborted");
                     else

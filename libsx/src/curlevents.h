@@ -141,6 +141,7 @@ void sxi_cbdata_set_result(curlev_context_t *ctx, int status);
 
 /* Store error message and code into curlev context */
 void sxi_cbdata_seterr(curlev_context_t *ctx, enum sxc_error_t err, const char *fmt, ...);
+void sxi_cbdata_setsyserr(curlev_context_t *ctx, enum sxc_error_t err, const char *fmt, ...);
 /* Retrieve error message from curlev context */
 const char *sxi_cbdata_geterrmsg(const curlev_context_t *ctx);
 /* Retrieve error code from curlev context */
