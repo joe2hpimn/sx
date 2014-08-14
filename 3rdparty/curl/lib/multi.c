@@ -404,8 +404,6 @@ CURLMcode curl_multi_add_handle(CURLM *multi_handle,
   /* Point to the multi's connection cache */
   data->state.conn_cache = multi->conn_cache;
 
-  data->state.infilesize = data->set.filesize;
-
   /* This adds the new entry at the 'end' of the doubly-linked circular
      list of SessionHandle structs to try and maintain a FIFO queue so
      the pipelined requests are in order. */
@@ -515,7 +513,7 @@ CURLMcode curl_multi_remove_handle(CURLM *multi_handle,
       /* If the handle is in a pipeline and has started sending off its
          request but not received its response yet, we need to close
          connection. */
-      connclose(data->easy_conn, "Removed with partial response");
+      data->easy_conn->bits.close = TRUE;
       /* Set connection owner so that Curl_done() closes it.
          We can sefely do this here since connection is killed. */
       data->easy_conn->data = easy;
@@ -830,7 +828,7 @@ CURLMcode curl_multi_wait(CURLM *multi_handle,
   curlfds = nfds; /* number of internal file descriptors */
   nfds += extra_nfds; /* add the externally provided ones */
 
-  if(nfds || extra_nfds) {
+  if(nfds) {
     ufds = malloc(nfds * sizeof(struct pollfd));
     if(!ufds)
       return CURLM_OUT_OF_MEMORY;
@@ -1011,7 +1009,7 @@ static CURLMcode multi_runsingle(struct Curl_multi *multi,
         /* Force the connection closed because the server could continue to
            send us stuff at any time. (The disconnect_conn logic used below
            doesn't work at this point). */
-        connclose(data->easy_conn, "Disconnected with pending data");
+        data->easy_conn->bits.close = TRUE;
         data->result = CURLE_OPERATION_TIMEDOUT;
         multistate(data, CURLM_STATE_COMPLETED);
         break;
@@ -1026,7 +1024,7 @@ static CURLMcode multi_runsingle(struct Curl_multi *multi,
       if(CURLE_OK == data->result) {
         /* after init, go CONNECT */
         multistate(data, CURLM_STATE_CONNECT);
-        Curl_pgrsTime(data, TIMER_STARTOP);
+        Curl_pgrsTime(data, TIMER_STARTSINGLE);
         result = CURLM_CALL_MULTI_PERFORM;
       }
       break;
@@ -1038,7 +1036,6 @@ static CURLMcode multi_runsingle(struct Curl_multi *multi,
 
     case CURLM_STATE_CONNECT:
       /* Connect. We want to get a connection identifier filled in. */
-      Curl_pgrsTime(data, TIMER_STARTSINGLE);
       data->result = Curl_connect(data, &data->easy_conn,
                                   &async, &protocol_connect);
       if(CURLE_NO_CONNECTION_AVAILABLE == data->result) {
@@ -1239,7 +1236,7 @@ static CURLMcode multi_runsingle(struct Curl_multi *multi,
     case CURLM_STATE_DO:
       if(data->set.connect_only) {
         /* keep connection open for application to use the socket */
-        connkeep(data->easy_conn, "CONNECT_ONLY");
+        data->easy_conn->bits.close = FALSE;
         multistate(data, CURLM_STATE_DONE);
         data->result = CURLE_OK;
         result = CURLM_CALL_MULTI_PERFORM;
@@ -1525,7 +1522,7 @@ static CURLMcode multi_runsingle(struct Curl_multi *multi,
          */
 
         if(!(data->easy_conn->handler->flags & PROTOPT_DUAL))
-          connclose(data->easy_conn, "Transfer returned error");
+          data->easy_conn->bits.close = TRUE;
 
         Curl_posttransfer(data);
         Curl_done(&data->easy_conn, data->result, FALSE);
@@ -1610,7 +1607,7 @@ static CURLMcode multi_runsingle(struct Curl_multi *multi,
         Curl_multi_process_pending_handles(multi);
 
         /* post-transfer command */
-        res = Curl_done(&data->easy_conn, data->result, FALSE);
+        res = Curl_done(&data->easy_conn, CURLE_OK, FALSE);
 
         /* allow a previously set error code take precedence */
         if(!data->result)
@@ -1705,7 +1702,7 @@ static CURLMcode multi_runsingle(struct Curl_multi *multi,
         /* aborted due to progress callback return code must close the
            connection */
         data->result = CURLE_ABORTED_BY_CALLBACK;
-        connclose(data->easy_conn, "Aborted by callback");
+        data->easy_conn->bits.close = TRUE;
 
         /* if not yet in DONE state, go there, otherwise COMPLETED */
         multistate(data, (data->mstate < CURLM_STATE_DONE)?
@@ -1807,13 +1804,10 @@ static void close_all_connections(struct Curl_multi *multi)
 
   conn = Curl_conncache_find_first_connection(multi->conn_cache);
   while(conn) {
-    SIGPIPE_VARIABLE(pipe_st);
     conn->data = multi->closure_handle;
 
-    sigpipe_ignore(conn->data, &pipe_st);
     /* This will remove the connection from the cache */
     (void)Curl_disconnect(conn, FALSE);
-    sigpipe_restore(&pipe_st);
 
     conn = Curl_conncache_find_first_connection(multi->conn_cache);
   }

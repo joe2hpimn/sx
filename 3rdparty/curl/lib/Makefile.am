@@ -36,13 +36,13 @@ EXTRA_DIST = Makefile.b32 Makefile.m32 Makefile.vc6 config-win32.h	\
  firefox-db2pem.sh config-vxworks.h Makefile.vxworks checksrc.pl	\
  objnames-test08.sh objnames-test10.sh objnames.inc
 
-lib_LTLIBRARIES = libcurl.la
 
 if BUILD_UNITTESTS
 noinst_LTLIBRARIES = libcurlu.la
 else
 noinst_LTLIBRARIES =
 endif
+noinst_LTLIBRARIES += libcurl.la
 
 # This might hold -Werror
 CFLAGS += @CURL_CFLAG_EXTRAS@

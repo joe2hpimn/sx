@@ -5,7 +5,7 @@
  *                            | (__| |_| |  _ <| |___
  *                             \___|\___/|_| \_\_____|
  *
- * Copyright (C) 1998 - 2014, Daniel Stenberg, <daniel@haxx.se>, et al.
+ * Copyright (C) 1998 - 2013, Daniel Stenberg, <daniel@haxx.se>, et al.
  *
  * This software is licensed as described in the file COPYING, which
  * you should have received as part of this distribution. The terms
@@ -61,7 +61,7 @@ int Curl_parsenetrc(const char *host,
 {
   FILE *file;
   int retcode=1;
-  int specific_login = (*loginp && **loginp != 0);
+  int specific_login = (**loginp != 0);
   bool netrc_alloc = FALSE;
   enum host_lookup_state state=NOTHING;
 
@@ -76,19 +76,7 @@ int Curl_parsenetrc(const char *host,
     char *home = curl_getenv("HOME"); /* portable environment reader */
     if(home) {
       home_alloc = TRUE;
-#if defined(HAVE_GETPWUID_R) && defined(HAVE_GETEUID)
-    }
-    else {
-      struct passwd pw, *pw_res;
-      char pwbuf[1024];
-      if(!getpwuid_r(geteuid(), &pw, pwbuf, sizeof(pwbuf), &pw_res)
-         && pw_res) {
-        home = strdup(pw.pw_dir);
-        if(!home)
-          return CURLE_OUT_OF_MEMORY;
-        home_alloc = TRUE;
-      }
-#elif defined(HAVE_GETPWUID) && defined(HAVE_GETEUID)
+#if defined(HAVE_GETPWUID) && defined(HAVE_GETEUID)
     }
     else {
       struct passwd *pw;
@@ -100,7 +88,7 @@ int Curl_parsenetrc(const char *host,
     }
 
     if(!home)
-      return retcode; /* no home directory found (or possibly out of memory) */
+      return -1;
 
     netrcfile = curl_maprintf("%s%s%s", home, DIR_CHAR, NETRC);
     if(home_alloc)
@@ -125,7 +113,7 @@ int Curl_parsenetrc(const char *host,
       tok=strtok_r(netrcbuffer, " \t\n", &tok_buf);
       while(!done && tok) {
 
-        if((*loginp && **loginp) && (*passwordp && **passwordp)) {
+        if(**loginp && **passwordp) {
           done=TRUE;
           break;
         }

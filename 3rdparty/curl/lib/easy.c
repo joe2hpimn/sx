@@ -5,7 +5,7 @@
  *                            | (__| |_| |  _ <| |___
  *                             \___|\___/|_| \_\_____|
  *
- * Copyright (C) 1998 - 2014, Daniel Stenberg, <daniel@haxx.se>, et al.
+ * Copyright (C) 1998 - 2013, Daniel Stenberg, <daniel@haxx.se>, et al.
  *
  * This software is licensed as described in the file COPYING, which
  * you should have received as part of this distribution. The terms
@@ -299,13 +299,9 @@ CURLcode curl_global_init_mem(long flags, curl_malloc_callback m,
   if(!m || !f || !r || !s || !c)
     return CURLE_FAILED_INIT;
 
-  if(initialized) {
-    /* Already initialized, don't do it again, but bump the variable anyway to
-       work like curl_global_init() and require the same amount of cleanup
-       calls. */
-    initialized++;
+  /* Already initialized, don't do it again */
+  if(initialized)
     return CURLE_OK;
-  }
 
   /* Call the actual init function first */
   code = curl_global_init(flags);
@@ -674,7 +670,7 @@ static CURLcode easy_transfer(CURLM *multi)
                            curl_multi_wait() without any filedescriptors */
 
   while(!done && !mcode) {
-    int still_running = 0;
+    int still_running;
     int ret;
 
     before = curlx_tvnow();
@@ -760,7 +756,7 @@ static CURLcode easy_perform(struct SessionHandle *data, bool events)
     return CURLE_BAD_FUNCTION_ARGUMENT;
 
   if(data->multi) {
-    failf(data, "easy handle already used in multi handle");
+    failf(data, "easy handled already used in multi handle");
     return CURLE_FAILED_INIT;
   }
 

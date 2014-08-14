@@ -1,67 +1,86 @@
-Curl and libcurl 7.37.1
+Curl and libcurl 7.36.0
 
- Public curl releases:         140
- Command line options:         162
- curl_easy_setopt() options:   208
+ Public curl releases:         138
+ Command line options:         161
+ curl_easy_setopt() options:   206
  Public functions in libcurl:  58
- Contributors:                 1155
+ Known libcurl bindings:       42
+ Contributors:                 1123
+
+This release includes the following SECURITY ADVISORIES:
+
+ o wrong re-use of connections [16]
+ o IP address wildcard certificate validation [17]
+ o not verifying certs for TLS to IP address / Darwinssl [18]
+ o not verifying certs for TLS to IP address / Winssl [19]
 
 This release includes the following changes:
 
- o bits.close: introduce connection close tracking
- o darwinssl: Add support for --cacert
- o polarssl: add ALPN support
- o docs: Added new option man pages
+ o ntlm: Added support for NTLMv2 [2]
+ o tool: Added support for URL specific options [3]
+ o openssl: add ALPN support
+ o gtls: add ALPN support
+ o nss: add ALPN and NPN support
+ o added CURLOPT_EXPECT_100_TIMEOUT_MS [7]
+ o tool: add --no-alpn and --no-npn
+ o added CURLOPT_SSL_ENABLE_NPN and CURLOPT_SSL_ENABLE_ALPN
+ o winssl: enable TLSv1.1 and TLSv1.2 by default
+ o winssl: TLSv1.2 disables certificate signatures using MD5 hash
+ o winssl: enable hostname verification of IP address using SAN or CN [11]
+ o darwinssl: Don't omit CN verification when an IP address is used [12]
+ o http2: build with current nghttp2 version
+ o polarssl: dropped support for PolarSSL < 1.3.0
+ o openssl: info message with SSL version used
 
 This release includes the following bugfixes:
 
- o build: Fixed incorrect reference to curl_setup.h in Visual Studio files
- o build: Use $(TargetDir) and $(TargetName) macros for .pdb and .lib output
- o curl.1: clarify that -u can't specify a user with colon [1]
- o openssl: Fix uninitialized variable use in NPN callback
- o curl_easy_reset: reset the URL [2]
- o curl_version_info.3: returns a pointer to a static struct
- o url-parser: only use if_nametoindex if detected by configure [3]
- o select: with winsock, avoid passing unsupported arguments to select() [4]
- o gnutls: don't use deprecated type names anymore
- o gnutls: allow building with nghttp2 but without ALPN support
- o tests: Fix portability issue with the tftpd server
- o curl_sasl_sspi: Fixed corrupt hostname in DIGEST-MD5 SPN
- o curl_sasl: extended native DIGEST-MD5 cnonce to be a 32-byte hex string
- o random: use Curl_rand() for proper random data [5]
- o Curl_ossl_init: call OPENSSL_config for initing engines [6]
- o config-win32.h: Updated for VC12 [7]
- o winbuild: Don't USE_WINSSL when WITH_SSL is being used
- o getinfo: HTTP CONNECT code not reset between transfers [8]
- o Curl_rand: Use a fake entropy for debug builds when CURL_ENTROPY set
- o http2: avoid segfault when using the plain-text http2
- o conncache: move the connection counter to the cache struct
- o http2: better return code error checking
- o curlbuild: fix GCC build on SPARC systems without configure script
- o tool_metalink: Support polarssl as digest provider
- o curl.h: reverse the enum/define setup for old symbols
- o curl.h: moved two really old deprecated symbols
- o curl.h: renamed CURLOPT_DEPRECATEDx to CURLOPT_OBSOLETEx
- o buildconf: do not search tools in current directory.
- o OS400: make it compilable again. Make RPG binding up to date
- o nss: do not abort on connection failure (failing tests 305 and 404)
- o nss: make the fallback to SSLv3 work again
- o tool: prevent valgrind from reporting possibly lost memory (nss only)
- o progress callback: skip last callback update on errors [9]
- o nss: fix a memory leak when CURLOPT_CRLFILE is used
- o compiler warnings: potentially uninitialized variables [10]
- o url.c: Fixed memory leak on OOM
- o gnutls: ignore invalid certificate dates with VERIFYPEER disabled
- o gnutls: fix SRP support with versions of GnuTLS from 2.99.0
- o gnutls: fixed a couple of uninitialized variable references
- o gnutls: fixed compilation against versions < 2.12.0
- o build: Fixed overridden compiler PDB settings in VC7 to VC12
- o ntlm_wb: Fixed buffer size not being large enough for NTLMv2 sessions [11]
- o netrc: don't abort if home dir cannot be found
- o netrc: fixed thread safety problem by using getpwuid_r if available
- o cookie: avoid mutex deadlock [12]
- o configure: respect host tool prefix for krb5-config
- o gnutls: handle IP address in cert name check
+ o nss: allow to use ECC ciphers if NSS implements them [1]
+ o netrc: Fixed a memory leak in an OOM condition
+ o ftp: fixed a memory leak on wildcard error path
+ o pipeline: Fixed a NULL pointer dereference on OOM
+ o nss: prefer highest available TLS version
+ o 100-continue: fix timeout condition [4]
+ o ssh: Fixed a NULL pointer dereference on OOM condition
+ o formpost: use semicolon in multipart/mixed [5]
+ o --help: add missing --tlsv1.x options
+ o formdata: Fixed memory leak on OOM condition
+ o ConnectionExists: reusing possible HTTP+NTLM connections better [6]
+ o mingw32: fix compilation
+ o chunked decoder: track overflows correctly [8]
+ o curl_easy_setopt.3: add CURL_HTTP_VERSION_2_0
+ o dict: fix memory leak in OOM exit path
+ o valgrind: added suppression on optimized code
+ o curl: output protocol headers using binary mode
+ o tool: Added URL index to password prompt for multiple operations
+ o ConnectionExists: re-use non-NTLM connections better [9]
+ o axtls: call ssl_read repeatedly
+ o multi: make MAXCONNECTS default 4 x number of easy handles function
+ o configure: Fix the --disable-crypto-auth option
+ o multi: ignore SIGPIPE internally
+ o curl.1: update the description of --tlsv1
+ o SFTP: skip reading the dir when NOBODY=1 [10]
+ o easy: Fixed a memory leak on OOM condition
+ o tool: Fixed incorrect return code when setting HTTP request fails
+ o configure: Tiny fix to honor POSIX
+ o tool: Do not output libcurl source for the information only parameters
+ o Rework Open Watcom make files to use standard Wmake features
+ o x509asn: moved out Curl_verifyhost from NSS builds
+ o configure: call it GSS-API
+ o hostcheck: Curl_cert_hostcheck is not used by NSS builds
+ o multi_runsingle: move timestamp into INIT [13]
+ o remote_port: allow connect to port 0
+ o parse_remote_port: error out on illegal port numbers better
+ o ssh: Pass errors from libssh2_sftp_read up the stack
+ o docs: remove documentation on setting up krb4 support
+ o polarssl: build fixes to work with PolarSSL 1.3.x
+ o polarssl: fix possible handshake timeout issue in multi
+ o nss: allow to enable/disable cipher-suites better
+ o ssh: prevent a logic error that could result in an infinite loop
+ o http2: free resources on disconnect
+ o polarssl: avoid extra newlines in debug messages
+ o rtsp: parse "Session:" header properly [14]
+ o trynextip: don't store 'ai' on failed connects
+ o Curl_cert_hostcheck: strip trailing dots in host name and wildcard
 
 This release includes the following known bugs:
 
@@ -70,26 +89,33 @@ This release includes the following known bugs:
 This release would not have looked like this without help, code, reports and
 advice from friends like these:
 
-  Alessandro Ghedini, Brad Spencer, Chris Young, Colin Hogben, Dan Fandrich,
-  Daniel Stenberg, David Woodhouse, Dimitrios Siganos, Fabian Frank,
-  Glen A Johnson Jr., Hubert Kario, Jeff Pohlmeyer, Jonathan Cardoso Machado,
-  Kamil Dudka, Lindley French, Marcel Raad, Michał Górny, Nick Zitzmann,
-  Patrick Monnerat, Ray Satiro, Steve Holme, Tatsuhiro Tsujikawa,
-  Vilmos Nebehaj, Yousuke Kimoto, Dmitry Falko
+  Adam Sampson, Arvid Norberg, Brad Spencer, Colin Hogben, Dan Fandrich,
+  Daniel Stenberg, David Ryskalczyk, Fabian Frank, Gaël PORTAY, Gisle Vanem,
+  Hubert Kario, Jeff King, Jiri Malak, Kamil Dudka, Maks Naumov, Marc Hoersken,
+  Michael Osipov, Mike Hasselberg, Nick Zitzmann, Patrick Monnerat, Prash Dush,
+  Remi Gacogne, Rob Davies, Romulo A. Ceccon, Shao Shuchao, Steve Holme,
+  Tatsuhiro Tsujikawa, Thomas Braun, Tiit Pikma, Yehezkel Horowitz,
 
         Thanks! (and sorry if I forgot to mention someone)
 
 References to bug reports and discussions on issues:
 
- [1] = http://curl.haxx.se/bug/view.cgi?id=1375
- [2] = http://curl.haxx.se/mail/lib-2014-05/0235.html
- [3] = http://curl.haxx.se/mail/lib-2014-05/0260.html
- [4] = http://curl.haxx.se/mail/lib-2014-05/0278.html
- [5] = http://curl.haxx.se/mail/lib-2014-06/0001.html
- [6] = http://curl.haxx.se/mail/lib-2014-06/0003.html
- [7] = http://curl.haxx.se/bug/view.cgi?id=1378
- [8] = http://curl.haxx.se/bug/view.cgi?id=1380
- [9] = http://curl.haxx.se/mail/lib-2014-06/0062.html
- [10] = http://curl.haxx.se/bug/view.cgi?id=1391
- [11] = http://curl.haxx.se/mail/lib-2014-07/0103.html
- [12] = http://curl.haxx.se/mail/lib-2014-02/0184.html
+ [1] = https://bugzilla.redhat.com/1058776
+ [2] = http://curl.haxx.se/mail/lib-2014-01/0183.html
+ [3] = http://curl.haxx.se/mail/archive-2013-11/0006.html
+ [4] = http://curl.haxx.se/bug/view.cgi?id=1334
+ [5] = http://curl.haxx.se/bug/view.cgi?id=1333
+ [6] = http://curl.haxx.se/mail/lib-2014-02/0100.html
+ [7] = http://curl.haxx.se/libcurl/c/curl_easy_setopt.html#CURLOPTEXPECT100TIMEOUTMS
+ [8] = http://curl.haxx.se/mail/lib-2014-02/0097.html
+ [9] = http://thread.gmane.org/gmane.comp.version-control.git/242213
+ [10] = http://curl.haxx.se/mail/lib-2014-02/0155.html
+ [11] = http://curl.haxx.se/mail/lib-2014-02/0243.html
+ [12] = https://github.com/bagder/curl/pull/93
+ [13] = http://curl.haxx.se/mail/lib-2014-02/0036.html
+ [14] = http://curl.haxx.se/mail/lib-2014-03/0134.html
+ [15] = http://curl.haxx.se/bug/view.cgi?id=1337
+ [16] = http://curl.haxx.se/docs/adv_20140326A.html
+ [17] = http://curl.haxx.se/docs/adv_20140326B.html
+ [18] = http://curl.haxx.se/docs/adv_20140326C.html
+ [19] = http://curl.haxx.se/docs/adv_20140326D.html

@@ -19,11 +19,10 @@
 # KIND, either express or implied.
 #
 ###########################################################################
-pkginclude_HEADERS = \
+noinst_HEADERS = \
 	curl.h curlver.h easy.h mprintf.h stdcheaders.h multi.h \
 	typecheck-gcc.h curlbuild.h curlrules.h
 
-pkgincludedir= $(includedir)/curl
 
 # curlbuild.h does not exist in the git tree. When the original libcurl
 # source code distribution archive file is created, curlbuild.h.dist is
@@ -45,7 +44,7 @@ EXTRA_DIST = curlbuild.h.in
 DISTCLEANFILES = curlbuild.h
 
 checksrc:
-	@@PERL@ $(top_srcdir)/lib/checksrc.pl -Wcurlbuild.h -D$(top_srcdir)/include/curl $(pkginclude_HEADERS) $(EXTRA_DIST)
+	@@PERL@ $(top_srcdir)/lib/checksrc.pl -Wcurlbuild.h -D$(top_srcdir)/include/curl $(noinst_HEADERS) $(EXTRA_DIST)
 
 if CURLDEBUG
 # for debug builds, we scan the sources on all regular make invokes
