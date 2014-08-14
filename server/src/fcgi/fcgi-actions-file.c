@@ -48,7 +48,7 @@ void fcgi_send_file_meta(void) {
     if(s != OK)
 	quit_errnum(s == ENOENT ? 404 : 500);
 
-    if(is_object_fresh(&etag, created_at, 'M'))
+    if(is_object_fresh(&etag, 'M', created_at))
 	return;
 
     CGI_PUTS("Content-type: application/json\r\n\r\n{\"fileMeta\":{");
@@ -83,7 +83,7 @@ void fcgi_send_file(void) {
     if(s != OK)
 	quit_errnum(s == ENOENT ? 404 : 500);
 
-    if(is_object_fresh(&etag, created_at, 'F')) {
+    if(is_object_fresh(&etag, 'F', created_at)) {
 	sx_hashfs_getfile_end(hashfs);
 	return;
     }

@@ -105,7 +105,7 @@ void fcgi_locate_volume(const sx_hashfs_volume_t *vol) {
 void fcgi_list_volume(const sx_hashfs_volume_t *vol) {
     const sx_hashfs_file_t *file;
     char *reply, *cur;
-    unsigned int comma = 0, rplavail, len, max_created_at = 0;
+    unsigned int comma = 0, rplavail, len;
     sx_hash_t etag;
     rc_ty s;
 
@@ -175,7 +175,6 @@ void fcgi_list_volume(const sx_hashfs_volume_t *vol) {
 	len = strlen(cur);
 	cur += len;
 	rplavail -= len;
-	max_created_at = MAX(max_created_at, file->created_at);
     }
 
     strcpy(cur, "}}"); /* Bound checked above */
@@ -186,7 +185,7 @@ void fcgi_list_volume(const sx_hashfs_volume_t *vol) {
     }
 
     if(!sx_hashfs_hash_buf(NULL, 0, reply, strlen(reply), &etag)) {
-	if(is_object_fresh(&etag, max_created_at, 'L')) {
+	if(is_object_fresh(&etag, 'L', NO_LAST_MODIFIED)) {
 	    free(reply);
 	    return;
 	}

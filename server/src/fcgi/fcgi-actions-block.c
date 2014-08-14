@@ -241,7 +241,7 @@ static int cb_inuse_number(void *ctx, const char *s, size_t l)
     }
 
     if (yactx->state == CB_IU_BLOCKSIZE) {
-        DEBUG("blocksize: %d", nnumb);
+        DEBUG("blocksize: %lld", (long long)nnumb);
         yactx->meta.blocksize = nnumb;
         yactx->replica = 0;
         yactx->state = CB_IU_VALUES;
