@@ -68,6 +68,7 @@
 #include "inet_pton.h"
 #include "inet_ntop.h"
 #include "curl_threads.h"
+#include "connect.h"
 
 #define _MPRINTF_REPLACE /* use our functions only */
 #include <curl/mprintf.h>
@@ -446,7 +447,7 @@ CURLcode Curl_resolver_wait_resolv(struct connectdata *conn,
   destroy_async_data(&conn->async);
 
   if(!conn->async.dns)
-    conn->bits.close = TRUE;
+    connclose(conn, "asynch resolve failed");
 
   return (rc);
 }

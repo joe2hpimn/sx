@@ -5,7 +5,7 @@
  *                            | (__| |_| |  _ <| |___
  *                             \___|\___/|_| \_\_____|
  *
- * Copyright (C) 1998 - 2013, Daniel Stenberg, <daniel@haxx.se>, et al.
+ * Copyright (C) 1998 - 2014, Daniel Stenberg, <daniel@haxx.se>, et al.
  *
  * This software is licensed as described in the file COPYING, which
  * you should have received as part of this distribution. The terms
@@ -155,7 +155,7 @@ const struct Curl_handler Curl_handler_smtps = {
   smtp_disconnect,                  /* disconnect */
   ZERO_NULL,                        /* readwrite */
   PORT_SMTPS,                       /* defport */
-  CURLPROTO_SMTP | CURLPROTO_SMTPS, /* protocol */
+  CURLPROTO_SMTPS,                  /* protocol */
   PROTOPT_CLOSEACTION | PROTOPT_SSL
   | PROTOPT_NOURLQUERY              /* flags */
 };
@@ -349,10 +349,11 @@ static CURLcode smtp_perform_ehlo(struct connectdata *conn)
   CURLcode result = CURLE_OK;
   struct smtp_conn *smtpc = &conn->proto.smtpc;
 
-  smtpc->authmechs = 0;         /* No known authentication mechanisms yet */
-  smtpc->authused = 0;          /* Clear the authentication mechanism used
-                                   for esmtp connections */
-  smtpc->tls_supported = FALSE; /* Clear the TLS capability */
+  smtpc->authmechs = 0;           /* No known authentication mechanisms yet */
+  smtpc->authused = 0;            /* Clear the authentication mechanism used
+                                     for esmtp connections */
+  smtpc->tls_supported = FALSE;   /* Clear the TLS capability */
+  smtpc->auth_supported = FALSE;  /* Clear the AUTH capability */
 
   /* Send the EHLO command */
   result = Curl_pp_sendf(&smtpc->pp, "EHLO %s", smtpc->domain);
@@ -475,15 +476,16 @@ static CURLcode smtp_perform_auth(struct connectdata *conn,
 static CURLcode smtp_perform_authentication(struct connectdata *conn)
 {
   CURLcode result = CURLE_OK;
+  struct smtp_conn *smtpc = &conn->proto.smtpc;
   const char *mech = NULL;
   char *initresp = NULL;
   size_t len = 0;
   smtpstate state1 = SMTP_STOP;
   smtpstate state2 = SMTP_STOP;
 
-  /* Check we have a username and password to authenticate with and end the
-     connect phase if we don't */
-  if(!conn->bits.user_passwd) {
+  /* Check we have a username and password to authenticate with, and the
+     server supports authentiation, and end the connect phase if not */
+  if(!conn->bits.user_passwd || !smtpc->auth_supported) {
     state(conn, SMTP_STOP);
 
     return result;
@@ -581,8 +583,8 @@ static CURLcode smtp_perform_mail(struct connectdata *conn)
   }
 
   /* Calculate the optional SIZE parameter */
-  if(conn->proto.smtpc.size_supported && conn->data->set.infilesize > 0) {
-    size = aprintf("%" CURL_FORMAT_CURL_OFF_T, data->set.infilesize);
+  if(conn->proto.smtpc.size_supported && conn->data->state.infilesize > 0) {
+    size = aprintf("%" CURL_FORMAT_CURL_OFF_T, data->state.infilesize);
 
     if(!size) {
       Curl_safefree(from);
@@ -719,8 +721,7 @@ static CURLcode smtp_state_ehlo_resp(struct connectdata *conn, int smtpcode,
   (void)instate; /* no use for this yet */
 
   if(smtpcode/100 != 2 && smtpcode != 1) {
-    if((data->set.use_ssl <= CURLUSESSL_TRY || conn->ssl[FIRSTSOCKET].use) &&
-     !conn->bits.user_passwd)
+    if(data->set.use_ssl <= CURLUSESSL_TRY || conn->ssl[FIRSTSOCKET].use)
       result = smtp_perform_helo(conn);
     else {
       failf(data, "Remote access denied: %d", smtpcode);
@@ -739,8 +740,11 @@ static CURLcode smtp_state_ehlo_resp(struct connectdata *conn, int smtpcode,
     else if(len >= 4 && !memcmp(line, "SIZE", 4))
       smtpc->size_supported = TRUE;
 
-    /* Do we have the authentication mechanism list? */
+    /* Does the server support authentication? */
     else if(len >= 5 && !memcmp(line, "AUTH ", 5)) {
+      smtpc->auth_supported = TRUE;
+
+      /* Advance past the AUTH keyword */
       line += 5;
       len -= 5;
 
@@ -992,10 +996,6 @@ static CURLcode smtp_state_auth_digest_resp(struct connectdata *conn,
   char *rplyb64 = NULL;
   size_t len = 0;
 
-  char nonce[64];
-  char realm[128];
-  char algorithm[64];
-
   (void)instate; /* no use for this yet */
 
   if(smtpcode != 334) {
@@ -1006,29 +1006,25 @@ static CURLcode smtp_state_auth_digest_resp(struct connectdata *conn,
   /* Get the challenge message */
   smtp_get_message(data->state.buffer, &chlg64);
 
-  /* Decode the challange message */
-  result = Curl_sasl_decode_digest_md5_message(chlg64, nonce, sizeof(nonce),
-                                               realm, sizeof(realm),
-                                               algorithm, sizeof(algorithm));
-  if(result || strcmp(algorithm, "md5-sess") != 0) {
-    /* Send the cancellation */
-    result = Curl_pp_sendf(&conn->proto.smtpc.pp, "%s", "*");
-
-    if(!result)
-      state(conn, SMTP_AUTH_CANCEL);
-  }
-  else {
-    /* Create the response message */
-    result = Curl_sasl_create_digest_md5_message(data, nonce, realm,
-                                                 conn->user, conn->passwd,
-                                                 "smtp", &rplyb64, &len);
-    if(!result && rplyb64) {
-      /* Send the response */
-      result = Curl_pp_sendf(&conn->proto.smtpc.pp, "%s", rplyb64);
+  /* Create the response message */
+  result = Curl_sasl_create_digest_md5_message(data, chlg64,
+                                               conn->user, conn->passwd,
+                                               "smtp", &rplyb64, &len);
+  if(result) {
+    if(result == CURLE_BAD_CONTENT_ENCODING) {
+      /* Send the cancellation */
+      result = Curl_pp_sendf(&conn->proto.smtpc.pp, "%s", "*");
 
       if(!result)
-        state(conn, SMTP_AUTH_DIGESTMD5_RESP);
+        state(conn, SMTP_AUTH_CANCEL);
     }
+  }
+  else {
+    /* Send the response */
+    result = Curl_pp_sendf(&conn->proto.smtpc.pp, "%s", rplyb64);
+
+    if(!result)
+      state(conn, SMTP_AUTH_DIGESTMD5_RESP);
   }
 
   Curl_safefree(rplyb64);
@@ -1360,7 +1356,7 @@ static CURLcode smtp_state_data_resp(struct connectdata *conn, int smtpcode,
   }
   else {
     /* Set the progress upload size */
-    Curl_pgrsSetUploadSize(data, data->set.infilesize);
+    Curl_pgrsSetUploadSize(data, data->state.infilesize);
 
     /* SMTP upload */
     Curl_setup_transfer(conn, -1, -1, FALSE, NULL, FIRSTSOCKET, NULL);
@@ -1592,7 +1588,7 @@ static CURLcode smtp_connect(struct connectdata *conn, bool *done)
   *done = FALSE; /* default to not done yet */
 
   /* We always support persistent connections in SMTP */
-  conn->bits.close = FALSE;
+  connkeep(conn, "SMTP default");
 
   /* Set the default response time-out */
   pp->response_time = RESP_TIMEOUT;
@@ -1654,7 +1650,7 @@ static CURLcode smtp_done(struct connectdata *conn, CURLcode status,
     return CURLE_OK;
 
   if(status) {
-    conn->bits.close = TRUE; /* marked for closure */
+    connclose(conn, "SMTP done with bad status"); /* marked for closure */
     result = status;         /* use the already set error code */
   }
   else if(!data->set.connect_only && data->set.upload && data->set.mail_rcpt) {
@@ -1663,7 +1659,7 @@ static CURLcode smtp_done(struct connectdata *conn, CURLcode status,
        is "no mail data". RFC-5321, sect. 4.1.1.4. */
     eob = SMTP_EOB;
     len = SMTP_EOB_LEN;
-    if(smtp->trailing_crlf || !conn->data->set.infilesize) {
+    if(smtp->trailing_crlf || !conn->data->state.infilesize) {
       eob += 2;
       len -= 2;
     }
