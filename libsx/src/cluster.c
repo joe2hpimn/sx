@@ -400,7 +400,7 @@ int sxi_cluster_query_ev(curlev_context_t *cbdata,
         return -1;
     }
     if (!host) {
-        conns_err(SXE_EARG, "Null host");
+        sxi_cbdata_seterr(cbdata, SXE_EARG, "Null host");
         return -1;
     }
     if (sxi_is_debug_enabled(conns->sx))
@@ -409,17 +409,17 @@ int sxi_cluster_query_ev(curlev_context_t *cbdata,
 
     if(!query || !*query || (content_size && !content) || verb < REQ_GET || verb > REQ_DELETE) {
 	CLSTDEBUG("called with unexpected NULL or empty arguments");
-	conns_err(SXE_EARG, "Cluster query failed: Invalid argument");
+	sxi_cbdata_seterr(cbdata, SXE_EARG, "Cluster query failed: Invalid argument");
 	return -1;
     }
     if (reject_dots(query)) {
-        conns_err(SXE_EARG, "URL with '.' or '..' is not accepted");
+        sxi_cbdata_seterr(cbdata, SXE_EARG, "URL with '.' or '..' is not accepted");
         return -1;
     }
 
     if(!conns->auth_token) {
 	CLSTDEBUG("cluster is not authed");
-	conns_err(SXE_EAUTH, "Cluster query failed: Not authorised");
+	sxi_cbdata_seterr(cbdata, SXE_EAUTH, "Cluster query failed: Not authorised");
 	return -1;
     }
 
@@ -430,7 +430,7 @@ int sxi_cluster_query_ev(curlev_context_t *cbdata,
 
     if(!url) {
 	CLSTDEBUG("OOM allocating request url: %s / %s", host, query);
-	conns_err(SXE_EMEM, "Cluster query failed: Out of memory");
+	sxi_cbdata_seterr(cbdata, SXE_EMEM, "Cluster query failed: Out of memory");
 	return -1;
     }
     bracket_open = strchr(host, ':') ? "[" : "";
@@ -466,7 +466,7 @@ int sxi_cluster_query_ev(curlev_context_t *cbdata,
 	    rc = sxi_curlev_add_delete(conns->curlev, &request, &reply);
 	    break;
 	default:
-	    conns_err(SXE_EARG, "Unknown verb");
+	    sxi_cbdata_seterr(cbdata, SXE_EARG, "Unknown verb");
             return -1;
     }
 
@@ -613,7 +613,7 @@ int sxi_cluster_query_track(sxi_conns_t *conns, const sxi_hostlist_t *hlist, enu
 	if(status == 401 && !clock_fixed && conns->clock_drifted) {
 	    clock_fixed = 1; /* Only try to fix the clock once per request */
 	    i--;
-	    sxc_clearerr(conns->sx);
+	    sxi_cbdata_clearerr(cbdata);
 	    continue;
 	}
 

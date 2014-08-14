@@ -58,6 +58,7 @@ int sxc_compatible_with(sxc_client_t *sx, const char *server_version);
 void sxc_shutdown(sxc_client_t *sx, int signal);
 void sxc_set_debug(sxc_client_t *sx, int enabled);
 void sxc_set_verbose(sxc_client_t *sx, int enabled);
+int sxc_is_verbose(sxc_client_t *sx);
 void sxc_clearerr(sxc_client_t *sx);
 int sxc_geterrnum(sxc_client_t *sx);
 const char *sxc_geterrmsg(sxc_client_t *sx);

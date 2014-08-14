@@ -179,7 +179,7 @@ static int jobres_setup_cb(curlev_context_t *ctx, const char *host) {
 
     if(!(yactx->yh  = yajl_alloc(&yactx->yacb, NULL, yactx))) {
 	SXDEBUG("failed to allocate yajl structure");
-	sxi_seterr(sx, SXE_EMEM, "List failed: Out of memory");
+	sxi_cbdata_seterr(ctx, SXE_EMEM, "List failed: Out of memory");
 	return 1;
     }
 
@@ -197,7 +197,7 @@ static int jobres_cb(curlev_context_t *ctx, const unsigned char *data, size_t si
     if(yajl_parse(yctx->yh, data, size) != yajl_status_ok) {
 	sxc_client_t *sx = sxi_conns_get_client(sxi_cbdata_get_conns(ctx));
 	SXDEBUG("failed to parse JSON data");
-        sxi_seterr(sx, SXE_ECOMM, "communication error");
+        sxi_cbdata_seterr(ctx, SXE_ECOMM, "communication error AAA");
 	return 1;
     }
 

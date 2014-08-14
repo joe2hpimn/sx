@@ -796,15 +796,14 @@ static int yacb_createfile_end_map(void *ctx) {
 
 static int createfile_setup_cb(curlev_context_t *ctx, const char *host) {
     struct file_upload_ctx *yactx = sxi_cbdata_get_upload_ctx(ctx);
-    sxi_conns_t *conns = sxi_cbdata_get_conns(ctx);
-    sxc_client_t *sx = sxi_conns_get_client(conns);
+    sxc_client_t *sx = sxi_conns_get_client(sxi_cbdata_get_conns(ctx));
 
     if(yactx->current.yh)
 	yajl_free(yactx->current.yh);
 
     if(!(yactx->current.yh = yajl_alloc(&yactx->current.yacb, NULL, yactx))) {
 	SXDEBUG("OOM allocating yajl context");
-	sxi_seterr(sx, SXE_EMEM, "Cannot create file: Out of memory");
+	sxi_cbdata_seterr(ctx, SXE_EMEM, "Cannot create file: Out of memory");
 	return 1;
     }
 
@@ -816,7 +815,7 @@ static int createfile_setup_cb(curlev_context_t *ctx, const char *host) {
         free(yactx->host);
     yactx->host = strdup(host);
     if (!yactx->host) {
-        sxi_seterr(sx, SXE_EMEM, "Cannot allocate hostname");
+        sxi_cbdata_seterr(ctx, SXE_EMEM, "Cannot allocate hostname");
         return 1;
     }
     if (yactx->current.f)
@@ -826,11 +825,10 @@ static int createfile_setup_cb(curlev_context_t *ctx, const char *host) {
 
 static int createfile_cb(curlev_context_t *ctx, const unsigned char *data, size_t size) {
     struct file_upload_ctx *yactx = sxi_cbdata_get_upload_ctx(ctx);
-    sxi_conns_t *conns = sxi_cbdata_get_conns(ctx);
     if(yajl_parse(yactx->current.yh, data, size) != yajl_status_ok) {
         if (yactx->current.state != CF_ERROR) {
             CBDEBUG("failed to parse JSON data");
-            sxi_seterr(sxi_conns_get_client(conns), SXE_ECOMM, "communication error");
+            sxi_cbdata_seterr(ctx, SXE_ECOMM, "communication error");
         }
 	return 1;
     }
@@ -1281,7 +1279,7 @@ static void multi_part_upload_blocks(curlev_context_t *ctx, const char *url)
     if(yajl_complete_parse(yctx->current.yh) != yajl_status_ok || yctx->current.state != CF_COMPLETE) {
         if (yctx->current.state != CF_ERROR) {
             SXDEBUG("JSON parsing failed");
-            sxi_seterr(sx, SXE_ECOMM, "Copy failed: Failed to parse cluster response");
+            sxi_cbdata_seterr(ctx, SXE_ECOMM, "Copy failed: Failed to parse cluster response");
         }
         SXDEBUG("fail incremented, after parse");
         yctx->fail++;
@@ -1296,7 +1294,7 @@ static void multi_part_upload_blocks(curlev_context_t *ctx, const char *url)
         int64_t to_skip = yctx->pos - yctx->last_pos - yctx->current.needed_cnt * yctx->blocksize; 
         if(to_skip && skip_xfer(yctx->cluster, to_skip) != SXE_NOERROR) {
             SXDEBUG("Could not skip part of transfer");
-            sxi_seterr(sx, SXE_ABORT, "Could not skip part of transfer");
+            sxi_cbdata_seterr(ctx, SXE_ABORT, "Could not skip part of transfer");
             return;
         }
     }
@@ -2649,7 +2647,7 @@ static int process_block(sxi_conns_t *conns, curlev_context_t *cctx)
 /*            SXDEBUG("writing hash%d @%lld - %lld",i,
                 (long long)hashdata->offsets[j], (long long)hashdata->offsets[j] + writesz);*/
         if(pwrite_all(ctx->fd, ctx->buf, writesz, hashdata->offsets[j])) {
-            sxi_setsyserr(sx, SXE_EWRITE, "write");
+            sxi_cbdata_setsyserr(cctx, SXE_EWRITE, "write");
             SXDEBUG("Failed to write block at offset %llu", (long long unsigned)hashdata->offsets[j]);
             return -1;
         }
@@ -3114,7 +3112,7 @@ static int single_download(struct batch_hashes *bh, const char *dstname,
             rc = sxi_cluster_query_ev(cbdata, conns, host, REQ_GET, url, NULL, 0, NULL, gethash_cb);
 
             if(rc) {
-                SXDEBUG("[%.8s] Could not add %s query: %s", hash, url, sxc_geterrmsg(sx));
+                SXDEBUG("[%.8s] Could not add %s query: %s", hash, url, sxi_cbdata_geterrmsg(cbdata));
                 do {
                     rc = sxi_curlev_poll(sxi_conns_get_curlev(conns));
                 } while (!rc);
@@ -3254,6 +3252,12 @@ static int multi_download(struct batch_hashes *bh, const char *dstname,
             dctx->hashes.hashes = bh->hashes; 
         } else
             dctx = sxi_cbdata_get_download_ctx(cbdata);
+
+        if(!dctx) {
+            CFGDEBUG("Null cbdata");
+            sxi_seterr(sx, SXE_EMEM, "Null cbdata");
+            break;
+        }
 
         dctx->hashes.hash[dctx->hashes.n] = hash;
         dctx->hashes.hashdata[dctx->hashes.n] = hashdata;
@@ -3946,7 +3950,7 @@ static sxi_job_t* remote_to_remote_fast(sxc_file_t *source, sxc_meta_t *fmeta, s
 
     if(yajl_complete_parse(yctx.current.yh) != yajl_status_ok || yctx.current.state != CF_COMPLETE) {
 	SXDEBUG("JSON parsing failed");
-	sxi_seterr(sx, SXE_ECOMM, "Transfer failed: Communication error");
+	sxi_cbdata_seterr(cbdata, SXE_ECOMM, "Transfer failed: Communication error");
 	goto remote_to_remote_fast_err;
     }
 

@@ -190,6 +190,10 @@ void sxc_set_verbose(sxc_client_t *sx, int enabled) {
         sxi_log_set_level(&sx->log, SX_LOG_NOTICE);
 }
 
+int sxc_is_verbose(sxc_client_t *sx) {
+    return sx ? sx->verbose : 0;
+}
+
 void sxi_clear_operation(sxc_client_t *sx)
 {
     if (!sx)
@@ -206,6 +210,19 @@ void sxi_clear_operation(sxc_client_t *sx)
 const char * sxi_get_operation(sxc_client_t *sx)
 {
     return sx ? sx->op : NULL;
+}
+
+void sxi_operation_info(const sxc_client_t *sx, const char **op, const char **host, const char **vol, const char **path) {
+    if(!sx)
+        return;
+    if(op)
+        *op = sx->op;
+    if(host)
+        *host = sx->op_host;
+    if(vol)
+        *vol = sx->op_vol;
+    if(path)
+        *path = sx->op_path;
 }
 
 void sxi_set_operation(sxc_client_t *sx, const char *op, const char *cluster, const char *vol, const char *path)

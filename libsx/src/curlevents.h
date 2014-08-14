@@ -147,6 +147,10 @@ const char *sxi_cbdata_geterrmsg(const curlev_context_t *ctx);
 enum sxc_error_t sxi_cbdata_geterrnum(const curlev_context_t *ctx);
 /* Clear previously stored error message */
 void sxi_cbdata_clearerr(curlev_context_t *cbdata);
+void sxi_cbdata_clearerr(curlev_context_t *ctx);
+void sxi_cbdata_setclusterr(curlev_context_t *ctx, const char *nodeid, const char *reqid, int status, const char *msg, const char *details);
+void sxi_cbdata_set_operation(curlev_context_t *ctx, const char *op, const char *host, const char *vol, const char *path);
+void sxi_cbdata_clear_operation(curlev_context_t *ctx);
 
 struct sxi_retry;
 typedef struct sxi_retry sxi_retry_t;

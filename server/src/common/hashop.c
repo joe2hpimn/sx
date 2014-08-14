@@ -210,7 +210,7 @@ static int presence_setup_cb(curlev_context_t *ctx, const char *host) {
 
     if(!(yactx->yh  = yajl_alloc(&presence_parser, NULL, yactx))) {
 	SXDEBUG("OOM allocating yajl context");
-	sxi_seterr(sx, SXE_EMEM, "Failed to setup hashop: out of memory");
+	sxi_cbdata_seterr(ctx, SXE_EMEM, "Failed to setup hashop: out of memory");
 	return 1;
     }
 
@@ -246,15 +246,15 @@ static void batch_finish(curlev_context_t *ctx, const char *url)
     sxc_client_t *sx = sxi_conns_get_client(sxi_cbdata_get_conns(ctx));
     yajl_handle yh = yactx->yh;
 
-    SXDEBUG("batch_finish for %s (idx %d): %d", yactx->hexhashes, yactx->hashop_idx, status);
+    SXDEBUG("batch_finish for %s (idx %d): %ld", yactx->hexhashes, yactx->hashop_idx, status);
     if (rc != -1 && status == 200) {
         /* some hashes (maybe all) are present,
          * the server reports us the presence ones */
         if (!yh) {
-            sxi_seterr(sx, SXE_EARG, "null yajl handle");
+            sxi_cbdata_seterr(ctx, SXE_EARG, "null yajl handle");
             hashop->cb_fail++;
         } else if(yajl_complete_parse(yh) != yajl_status_ok || yactx->state != MISS_COMPLETE) {
-            sxi_seterr(sx, SXE_ECOMM, "hashop failed: failed to parse cluster response");
+            sxi_cbdata_seterr(ctx, SXE_ECOMM, "hashop failed: failed to parse cluster response");
             hashop->cb_fail++;
         }
     } else {
