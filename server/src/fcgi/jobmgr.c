@@ -166,6 +166,7 @@ static act_result_t createuser_request(sx_hashfs_t *hashfs, job_t job_id, job_da
     query_list_t *qrylist = NULL;
     sxi_conns_t *clust = sx_hashfs_conns(hashfs);
     const sx_node_t *me = sx_hashfs_self(hashfs);
+    int bumpttl;
 
     if (!job_data) {
 	NULLARG();
@@ -180,7 +181,8 @@ static act_result_t createuser_request(sx_hashfs_t *hashfs, job_t job_id, job_da
     }
     if (sx_blob_get_string(b, &name) ||
 	sx_blob_get_blob(b, &auth, &auth_len) ||
-	sx_blob_get_int32(b, &role)) {
+	sx_blob_get_int32(b, &role) ||
+	sx_blob_get_int32(b, &bumpttl)) {
 	sx_blob_free(b);
 	/* why? OOM on get_string should be TEMPFAIL */
 	action_set_fail(ACT_RESULT_PERMFAIL, 500, "Internal error: data corruption detected");
@@ -208,6 +210,7 @@ static act_result_t createuser_request(sx_hashfs_t *hashfs, job_t job_id, job_da
 		action_error(rc2actres(rc), rc2http(rc), rc2str(rc));
 	    }
 	    succeeded[nnode] = 1;
+	    *adjust_ttl += bumpttl;
 	} else {
 	    if(!proto) {
 		proto = sxi_useradd_proto(sx_hashfs_client(hashfs), name, auth, (role == ROLE_ADMIN));
@@ -361,7 +364,7 @@ static act_result_t createvol_request(sx_hashfs_t *hashfs, job_t job_id, job_dat
     const char *volname, *owner;
     int64_t volsize, owner_uid;
     unsigned int nnode, nnodes;
-    int i, replica, nmeta;
+    int i, replica, nmeta, bumpttl;
     sx_blob_t *b = NULL;
     act_result_t ret = ACT_RESULT_OK;
     sxi_query_t *proto = NULL;
@@ -382,7 +385,8 @@ static act_result_t createvol_request(sx_hashfs_t *hashfs, job_t job_id, job_dat
        sx_blob_get_string(b, &owner) ||
        sx_blob_get_int64(b, &volsize) ||
        sx_blob_get_int32(b, &replica) ||
-       sx_blob_get_int32(b, &nmeta)) {
+       sx_blob_get_int32(b, &nmeta) ||
+       sx_blob_get_int32(b, &bumpttl)) {
 	WARN("Cannot get volume data from blob for job %lld", (long long)job_id);
 	action_error(ACT_RESULT_PERMFAIL, 500, "Internal error: data corruption detected");
     }
@@ -427,6 +431,7 @@ static act_result_t createvol_request(sx_hashfs_t *hashfs, job_t job_id, job_dat
 		action_error(rc2actres(s), rc2http(s), msg);
             }
 	    succeeded[nnode] = 1;
+	    *adjust_ttl = bumpttl;
 	} else {
 	    if(!proto) {
 		if(nmeta) {

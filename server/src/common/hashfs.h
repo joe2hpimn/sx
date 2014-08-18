@@ -297,6 +297,7 @@ rc_ty sx_hashfs_get_access(sx_hashfs_t *h, sx_uid_t uid, const char *volume, sx_
 
 
 /* Jobs */
+#define JOB_NO_EXPIRY (60 * 365 * 24 * 60 * 60)
 rc_ty sx_hashfs_job_result(sx_hashfs_t *h, job_t job, sx_uid_t uid, job_status_t *status, const char **message);
 rc_ty sx_hashfs_job_new_begin(sx_hashfs_t *h);
 rc_ty sx_hashfs_job_new_end(sx_hashfs_t *h);

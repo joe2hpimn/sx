@@ -1597,7 +1597,7 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
     OPEN_DB("eventdb", &h->eventdb);
     if(qprep(h->eventdb, &h->qe_getjob, "SELECT complete, result, reason FROM jobs WHERE job = :id AND :owner IN (user, 0)"))
 	goto open_hashfs_fail;
-    if(qprep(h->eventdb, &h->qe_addjob, "INSERT INTO jobs (parent, type, lock, expiry_time, data, user) VALUES (:parent, :type, :lock, datetime(:expiry, 'unixepoch'), :data, :uid)"))
+    if(qprep(h->eventdb, &h->qe_addjob, "INSERT INTO jobs (parent, type, lock, expiry_time, data, user) SELECT :parent, :type, :lock, datetime(:expiry + strftime('%s', COALESCE((SELECT expiry_time FROM jobs WHERE job = :parent), 'now')), 'unixepoch'), :data, :uid"))
 	goto open_hashfs_fail;
     if(qprep(h->eventdb, &h->qe_addact, "INSERT INTO actions (job_id, target, addr, internaladdr, capacity) VALUES (:job, :node, :addr, :int_addr, :capa)"))
 	goto open_hashfs_fail;
@@ -5168,7 +5168,7 @@ unsigned int sx_hashfs_job_file_timeout(sx_hashfs_t *h, unsigned int ndests, uin
 }
 
 rc_ty sx_hashfs_putfile_commitjob(sx_hashfs_t *h, const uint8_t *user, sx_uid_t user_id, const char *token, job_t *job_id) {
-    unsigned int expected_blocks, actual_blocks, job_timeout, ndests;
+    unsigned int expected_blocks, actual_blocks, ndests;
     int64_t tmpfile_id, expected_size, volid;
     rc_ty ret = FAIL_EINTERNAL, ret2;
     sx_nodelist_t *singlenode = NULL, *volnodes = NULL;
@@ -5260,8 +5260,6 @@ rc_ty sx_hashfs_putfile_commitjob(sx_hashfs_t *h, const uint8_t *user, sx_uid_t 
     }
 
     ndests = sx_nodelist_count(volnodes);
-    job_timeout = sx_hashfs_job_file_timeout(h, ndests, expected_size);
-
     ret2 = sx_hashfs_job_new_begin(h);
     if(ret2) {
         INFO("Failed to begin jobadd");
@@ -5269,14 +5267,14 @@ rc_ty sx_hashfs_putfile_commitjob(sx_hashfs_t *h, const uint8_t *user, sx_uid_t 
 	goto putfile_commitjob_err;
     }
 
-    ret2 = sx_hashfs_job_new_notrigger(h, JOB_NOPARENT, user_id, job_id, JOBTYPE_REPLICATE_BLOCKS, job_timeout, token, &tmpfile_id, sizeof(tmpfile_id), singlenode);
+    ret2 = sx_hashfs_job_new_notrigger(h, JOB_NOPARENT, user_id, job_id, JOBTYPE_REPLICATE_BLOCKS, sx_hashfs_job_file_timeout(h, ndests, expected_size), token, &tmpfile_id, sizeof(tmpfile_id), singlenode);
     if(ret2) {
         INFO("job_new (replicate) returned: %s", rc2str(ret2));
 	ret = ret2;
 	goto putfile_commitjob_err;
     }
 
-    ret2 = sx_hashfs_job_new_notrigger(h, *job_id, user_id, job_id, JOBTYPE_FLUSH_FILE, job_timeout, token, &tmpfile_id, sizeof(tmpfile_id), volnodes);
+    ret2 = sx_hashfs_job_new_notrigger(h, *job_id, user_id, job_id, JOBTYPE_FLUSH_FILE, 60*ndests, token, &tmpfile_id, sizeof(tmpfile_id), volnodes);
     if(ret2) {
         INFO("job_new (flush) returned: %s", rc2str(ret2));
 	ret = ret2;
@@ -6432,12 +6430,6 @@ rc_ty sx_hashfs_job_new_notrigger(sx_hashfs_t *h, job_t parent, sx_uid_t user_id
 	goto addjob_error;
     }
 
-    /* Cap the minimum timeout to 2.5 * SXDBI_BUSY_TIMEOUT
-       which lets a very simple job complete even if 50% of
-       its queries are slow - by default this is 50 seconds */
-    if (timeout_secs < (SXDBI_BUSY_TIMEOUT * 2 + SXDBI_BUSY_TIMEOUT / 2))
-        timeout_secs = (SXDBI_BUSY_TIMEOUT * 2 + SXDBI_BUSY_TIMEOUT / 2);
-
     if(parent == JOB_NOPARENT) {
 	if(qbind_null(h->qe_addjob, ":parent"))
 	    goto addjob_error;
@@ -6447,7 +6439,7 @@ rc_ty sx_hashfs_job_new_notrigger(sx_hashfs_t *h, job_t parent, sx_uid_t user_id
     }
 
     if(qbind_int(h->qe_addjob, ":type", type) ||
-       qbind_int(h->qe_addjob, ":expiry", time(NULL) + timeout_secs) ||
+       qbind_int(h->qe_addjob, ":expiry", timeout_secs) ||
        qbind_blob(h->qe_addjob, ":data", data, datalen)) {
 	msg_set_reason("Internal error: failed to add job to database");
 	goto addjob_error;
@@ -7467,7 +7459,7 @@ rc_ty sx_hashfs_hdist_change_req(sx_hashfs_t *h, const sx_nodelist_t *newdist, j
 	return r;
     }
 
-    r = sx_hashfs_job_new_notrigger(h, *job_id, 0, job_id, JOBTYPE_DISTRIBUTION, sx_nodelist_count(targets) * 60, "DISTRIBUTION", cfg, cfg_len, targets);
+    r = sx_hashfs_job_new_notrigger(h, *job_id, 0, job_id, JOBTYPE_DISTRIBUTION, sx_nodelist_count(targets) * 120, "DISTRIBUTION", cfg, cfg_len, targets);
     if(r) {
 	INFO("job_new (distribution) returned: %s", rc2str(r));
 	sx_nodelist_delete(targets);
@@ -7475,7 +7467,7 @@ rc_ty sx_hashfs_hdist_change_req(sx_hashfs_t *h, const sx_nodelist_t *newdist, j
 	return r;
     }
 
-    r = sx_hashfs_job_new_notrigger(h, *job_id, 0, job_id, JOBTYPE_STARTREBALANCE, sx_nodelist_count(targets) * 60, "DISTRIBUTION", NULL, 0, targets);
+    r = sx_hashfs_job_new_notrigger(h, *job_id, 0, job_id, JOBTYPE_STARTREBALANCE, sx_nodelist_count(targets) * 120, "DISTRIBUTION", NULL, 0, targets);
     if(r) {
 	INFO("job_new (startrebalance) returned: %s", rc2str(r));
 	sx_nodelist_delete(targets);
@@ -7483,8 +7475,7 @@ rc_ty sx_hashfs_hdist_change_req(sx_hashfs_t *h, const sx_nodelist_t *newdist, j
 	return r;
     }
 
-    /* FIXMERB: shall i make this a child of the to-be-created JOBTYPE_REBALANCE_FILES but only on the initiator? */
-    r = sx_hashfs_job_new_notrigger(h, *job_id, 0, &finish_job, JOBTYPE_FINISHREBALANCE, 7 * 24 * 60 * 60, "DISTRIBUTION", NULL, 0, targets);
+    r = sx_hashfs_job_new_notrigger(h, *job_id, 0, &finish_job, JOBTYPE_FINISHREBALANCE, JOB_NO_EXPIRY, "DISTRIBUTION", NULL, 0, targets);
     sx_nodelist_delete(targets);
     sxi_hdist_free(newmod);
     if(r) {
@@ -7798,11 +7789,11 @@ rc_ty sx_hashfs_hdist_rebalance(sx_hashfs_t *h) {
     if(ret)
 	goto hdistreb_fail;
 
-    ret = sx_hashfs_job_new_notrigger(h, JOB_NOPARENT, 0, &job_id, JOBTYPE_REBALANCE_BLOCKS, 7 * 24 * 60 * 60, "BLOCKRB", NULL, 0, singlenode);
+    ret = sx_hashfs_job_new_notrigger(h, JOB_NOPARENT, 0, &job_id, JOBTYPE_REBALANCE_BLOCKS, JOB_NO_EXPIRY, "BLOCKRB", NULL, 0, singlenode);
     if(ret)
 	goto hdistreb_fail;
 
-    ret = sx_hashfs_job_new_notrigger(h, job_id, 0, &job_id, JOBTYPE_REBALANCE_FILES, 7 * 24 * 60 * 60, "FILERB", NULL, 0, singlenode);
+    ret = sx_hashfs_job_new_notrigger(h, job_id, 0, &job_id, JOBTYPE_REBALANCE_FILES, JOB_NO_EXPIRY, "FILERB", NULL, 0, singlenode);
     if(ret)
 	goto hdistreb_fail;
 
@@ -8757,7 +8748,7 @@ rc_ty sx_hashfs_hdist_endrebalance(sx_hashfs_t *h) {
     if(ret)
 	WARN("Cannot add self to nodelist");
     else
-	ret = sx_hashfs_job_new(h, 0, &job_id, JOBTYPE_REBALANCE_CLEANUP, 7 * 24 * 60 * 60, "CLEANRB", NULL, 0, singlenode);
+	ret = sx_hashfs_job_new(h, 0, &job_id, JOBTYPE_REBALANCE_CLEANUP, JOB_NO_EXPIRY, "CLEANRB", NULL, 0, singlenode);
 
     sx_nodelist_delete(singlenode);
     return ret;

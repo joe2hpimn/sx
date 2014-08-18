@@ -229,8 +229,9 @@ void fcgi_create_user(void)
 	/* user request: create job */
 	sx_blob_t *joblb = sx_blob_new();
 	const void *job_data;
-	unsigned int job_datalen, job_timeout;
-	const sx_nodelist_t *allnodes;
+	unsigned int job_datalen;
+	const sx_nodelist_t *allnodes = sx_hashfs_nodelist(hashfs, NL_NEXTPREV);
+	int job_timeout = 50 * (sx_nodelist_count(allnodes)-1);
 	job_t job;
 	rc_ty res;
 
@@ -239,7 +240,8 @@ void fcgi_create_user(void)
 
 	if (sx_blob_add_string(joblb, uctx.name) ||
 	    sx_blob_add_blob(joblb, uctx.auth, AUTH_KEY_LEN) ||
-	    sx_blob_add_int32(joblb, role)) {
+	    sx_blob_add_int32(joblb, role) ||
+	    sx_blob_add_int32(joblb, job_timeout)) {
 	    sx_blob_free(joblb);
 	    quit_errmsg(500, "Cannot create job blob");
 	}
@@ -247,9 +249,7 @@ void fcgi_create_user(void)
 	sx_blob_to_data(joblb, &job_data, &job_datalen);
 	INFO("job_add user");
 	/* Users are created globally, in no particluar order (PREVNEXT would be fine too) */
-	allnodes = sx_hashfs_nodelist(hashfs, NL_NEXTPREV);
-	job_timeout = 12 * sx_nodelist_count(allnodes);
-	res = sx_hashfs_job_new(hashfs, uid, &job, JOBTYPE_CREATE_USER, job_timeout, uctx.name, job_data, job_datalen, allnodes);
+	res = sx_hashfs_job_new(hashfs, uid, &job, JOBTYPE_CREATE_USER, 20, uctx.name, job_data, job_datalen, allnodes);
 	sx_blob_free(joblb);
 	if(res != OK)
 	    quit_errmsg(rc2http(res), msg_get_reason());

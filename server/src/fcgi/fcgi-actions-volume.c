@@ -826,8 +826,9 @@ void fcgi_create_volume(void) {
 	/* Request comes in from the user: broadcst to all nodes */
 	sx_blob_t *joblb = sx_blob_new();
 	const void *job_data;
-	unsigned int job_datalen, job_timeout;
-	const sx_nodelist_t *allnodes;
+	unsigned int job_datalen;
+	const sx_nodelist_t *allnodes = sx_hashfs_nodelist(hashfs, NL_NEXTPREV);
+	int job_timeout = 50 * (sx_nodelist_count(allnodes)-1);
 	job_t job;
 	rc_ty res;
 
@@ -840,6 +841,7 @@ void fcgi_create_volume(void) {
 	   sx_blob_add_int64(joblb, yctx.volsize) ||
 	   sx_blob_add_int32(joblb, yctx.replica) ||
 	   sx_blob_add_int32(joblb, yctx.nmeta) ||
+	   sx_blob_add_int32(joblb, job_timeout) ||
 	   sx_blob_cat(joblb, yctx.metablb)) {
 	    sx_blob_free(yctx.metablb);
 	    sx_blob_free(joblb);
@@ -849,9 +851,7 @@ void fcgi_create_volume(void) {
 
 	sx_blob_to_data(joblb, &job_data, &job_datalen);
 	/* Volumes are created globally, in no particluar order (PREVNEXT would be fine too) */
-	allnodes = sx_hashfs_nodelist(hashfs, NL_NEXTPREV);
-	job_timeout = 12 * sx_nodelist_count(allnodes);
-	res = sx_hashfs_job_new(hashfs, uid, &job, JOBTYPE_CREATE_VOLUME, job_timeout, volume, job_data, job_datalen, allnodes);
+	res = sx_hashfs_job_new(hashfs, uid, &job, JOBTYPE_CREATE_VOLUME, 20, volume, job_data, job_datalen, allnodes);
 	sx_blob_free(joblb);
 	if(res != OK)
 	    quit_errmsg(rc2http(res), msg_get_reason());
