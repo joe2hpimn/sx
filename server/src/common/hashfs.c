@@ -3758,9 +3758,10 @@ static void sx_hashfs_getfile_reset(sx_hashfs_t *h)
     }
 }
 
-rc_ty sx_hashfs_getfile_begin(sx_hashfs_t *h, const char *volume, const char *filename, const char *revision, int64_t *file_size, unsigned int *block_size, unsigned int *created_at, sx_hash_t *etag) {
+rc_ty sx_hashfs_getfile_begin(sx_hashfs_t *h, const char *volume, const char *filename, const char *revision, sx_hashfs_file_t *filedata, sx_hash_t *etag) {
     const sx_hashfs_volume_t *vol;
-    unsigned int content_len, bsize;
+    unsigned int content_len, created_at, bsize;
+    const char *rev;
     sqlite3_stmt *q;
     int64_t size;
     rc_ty res;
@@ -3814,16 +3815,13 @@ rc_ty sx_hashfs_getfile_begin(sx_hashfs_t *h, const char *volume, const char *fi
     h->get_content = sqlite3_column_blob(q, 2);
     content_len = sqlite3_column_bytes(q, 2);
 
-    if(created_at || etag) {
-	const char *rev = (const char *)sqlite3_column_text(q, 3);
-	if(!rev ||
-	   (created_at && parse_revision(rev, created_at)) ||
-	   (etag && hash_buf(h->cluster_uuid.string, strlen(h->cluster_uuid.string), rev, strlen(rev), etag))) {
-	    sx_hashfs_getfile_end(h);
-	    return FAIL_EINTERNAL;
-	}
+    rev = (const char *)sqlite3_column_text(q, 3);
+    if(!rev ||
+       parse_revision(rev, &created_at) ||
+       (etag && hash_buf(h->cluster_uuid.string, strlen(h->cluster_uuid.string), rev, strlen(rev), etag))) {
+	sx_hashfs_getfile_end(h);
+	return FAIL_EINTERNAL;
     }
-
     if(content_len != sizeof(sx_hash_t) * h->get_nblocks) {
 	WARN("Inconsistent entry for %s:%s", volume, filename);
 	sx_hashfs_getfile_end(h);
@@ -3832,10 +3830,14 @@ rc_ty sx_hashfs_getfile_begin(sx_hashfs_t *h, const char *volume, const char *fi
 
     h->get_replica = vol->replica_count;
 
-    if(file_size)
-	*file_size = size;
-    if(block_size)
-	*block_size = bsize;
+    if(filedata) {
+	filedata->file_size = size;
+	filedata->block_size = bsize;
+	filedata->nblocks = h->get_nblocks;
+	filedata->created_at = created_at;
+	strncpy(filedata->name, filename, sizeof(filedata->name));
+	strncpy(filedata->revision, rev, sizeof(filedata->revision));
+    }
     return OK;
 }
 
@@ -5790,7 +5792,7 @@ static rc_ty get_file_id(sx_hashfs_t *h, const char *volume, const char *filenam
 }
 
 rc_ty sx_hashfs_file_delete(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const char *file, const char *revision) {
-    unsigned int bs, i, idx = 0, *idxs = NULL, uniq;
+    unsigned int i, idx = 0, *idxs = NULL, uniq;
     sx_hash_t hash;
     int ndb, current_replica;
     sx_nodelist_t *belongsto;
@@ -5856,11 +5858,12 @@ rc_ty sx_hashfs_file_delete(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, co
         return ret;
 
     if(current_replica >= 0) {
+	sx_hashfs_file_t filedata;
 	if (unique_fileid(h->sx, volume, file, revision, &hash) ||
 	    bin2hex(hash.b, sizeof(hash.b), fileidhex, sizeof(fileidhex)))
 	    return FAIL_EINTERNAL;
 	sxi_hashop_begin(&h->hc, h->sx_clust, NULL, HASHOP_DELETE, volume->replica_count, &hash, NULL);
-	ret = sx_hashfs_getfile_begin(h, volume->name, file, revision, NULL, &bs, NULL, NULL);
+	ret = sx_hashfs_getfile_begin(h, volume->name, file, revision, &filedata, NULL);
 	if (ret != OK)
 	    return ret;
 
@@ -5898,7 +5901,7 @@ rc_ty sx_hashfs_file_delete(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, co
 			const sx_node_t *node = sx_nodelist_get(nodes[i], current_replica);
 			DEBUGHASH("decuse on", hash);
 			if (!sx_node_cmp(node, self)) {
-			    ret = sx_hashfs_hashop_begin(h, bs);
+			    ret = sx_hashfs_hashop_begin(h, filedata.block_size);
 			    if (ret == OK) {
 				ret = sx_hashfs_hashop_perform(h, volume->replica_count, HASHOP_DELETE, hash, fileidhex);
 				if (ret != OK)
@@ -5907,7 +5910,7 @@ rc_ty sx_hashfs_file_delete(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, co
 			    } else
 				WARN("hashop_begin failed: %s", rc2str(ret));
 			} else {
-			    ret = sxi_hashop_batch_add(&h->hc, sx_node_internal_addr(node), idx++, hash->b, bs);
+			    ret = sxi_hashop_batch_add(&h->hc, sx_node_internal_addr(node), idx++, hash->b, filedata.block_size);
 			    if (ret)
 				WARN("hashop_batch_add failed: %s", rc2str(ret));
 			}
