@@ -828,7 +828,7 @@ void fcgi_create_volume(void) {
 	const void *job_data;
 	unsigned int job_datalen;
 	const sx_nodelist_t *allnodes = sx_hashfs_nodelist(hashfs, NL_NEXTPREV);
-	int job_timeout = 50 * (sx_nodelist_count(allnodes)-1);
+	int extra_job_timeout = 50 * (sx_nodelist_count(allnodes)-1);
 	job_t job;
 	rc_ty res;
 
@@ -841,7 +841,7 @@ void fcgi_create_volume(void) {
 	   sx_blob_add_int64(joblb, yctx.volsize) ||
 	   sx_blob_add_int32(joblb, yctx.replica) ||
 	   sx_blob_add_int32(joblb, yctx.nmeta) ||
-	   sx_blob_add_int32(joblb, job_timeout) ||
+	   sx_blob_add_int32(joblb, extra_job_timeout) ||
 	   sx_blob_cat(joblb, yctx.metablb)) {
 	    sx_blob_free(yctx.metablb);
 	    sx_blob_free(joblb);

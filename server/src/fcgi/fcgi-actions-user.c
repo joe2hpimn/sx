@@ -231,7 +231,7 @@ void fcgi_create_user(void)
 	const void *job_data;
 	unsigned int job_datalen;
 	const sx_nodelist_t *allnodes = sx_hashfs_nodelist(hashfs, NL_NEXTPREV);
-	int job_timeout = 50 * (sx_nodelist_count(allnodes)-1);
+	int extra_job_timeout = 50 * (sx_nodelist_count(allnodes)-1);
 	job_t job;
 	rc_ty res;
 
@@ -241,7 +241,7 @@ void fcgi_create_user(void)
 	if (sx_blob_add_string(joblb, uctx.name) ||
 	    sx_blob_add_blob(joblb, uctx.auth, AUTH_KEY_LEN) ||
 	    sx_blob_add_int32(joblb, role) ||
-	    sx_blob_add_int32(joblb, job_timeout)) {
+	    sx_blob_add_int32(joblb, extra_job_timeout)) {
 	    sx_blob_free(joblb);
 	    quit_errmsg(500, "Cannot create job blob");
 	}
