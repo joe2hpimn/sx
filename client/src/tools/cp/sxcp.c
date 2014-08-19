@@ -717,7 +717,7 @@ int main(int argc, char **argv) {
 
     fname = args.inputs[args.inputs_num-1];
     if(!strcmp(fname, "-"))
-	fname = "/dev/stdin";
+	fname = "/dev/stdout";
     if(!(dst_file = sxfile_from_arg(&cluster1, fname, 0)))
 	goto main_err;
 
