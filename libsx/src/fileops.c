@@ -2215,7 +2215,7 @@ struct cb_getfile_ctx {
     int64_t filesize, blocksize;
     unsigned int nblocks;
     yajl_handle yh;
-    enum getfile_state { GF_ERROR, GF_BEGIN, GF_MAIN, GF_BLOCKSIZE, GF_FILESIZE, GF_DATA, GF_CONTENT, GF_BLOCK, GF_HOSTS, GF_HOST, GF_ENDBLOCK, GF_COMPLETE } state;
+    enum getfile_state { GF_ERROR, GF_BEGIN, GF_MAIN, GF_BLOCKSIZE, GF_FILESIZE, GF_MTIME, GF_REVISION, GF_DATA, GF_CONTENT, GF_BLOCK, GF_HOSTS, GF_HOST, GF_ENDBLOCK, GF_COMPLETE } state;
 };
 
 static int yacb_getfile_start_map(void *ctx) {
@@ -2249,6 +2249,10 @@ static int yacb_getfile_map_key(void *ctx, const unsigned char *s, size_t l) {
 	    yactx->state = GF_FILESIZE;
 	else if(l == lenof("fileData") && !memcmp(s, "fileData", lenof("fileData")))
 	    yactx->state = GF_DATA;
+	else if(l == lenof("createdAt") && !memcmp(s, "createdAt", lenof("createdAt")))
+	    yactx->state = GF_MTIME;
+	else if(l == lenof("fileRevision") && !memcmp(s, "fileRevision", lenof("fileRevision")))
+	    yactx->state = GF_REVISION;
 	else {
 	    CBDEBUG("unknown key %.*s", (int)l, s);
 	    return 0;
@@ -2306,6 +2310,9 @@ static int yacb_getfile_number(void *ctx, const char *s, size_t l) {
 	    return 0;
 	}
 	yactx->filesize = nnumb;
+    } else if(yactx->state == GF_MTIME) {
+	/* Nothing to do here */
+	CBDEBUG("HEREEE");
     } else {
 	CBDEBUG("bad state %d", yactx->state);
 	return 0;
@@ -2335,6 +2342,13 @@ static int yacb_getfile_string(void *ctx, const unsigned char *s, size_t l) {
 
     if (yactx->state == GF_ERROR)
         return yacb_error_string(&yactx->errctx, s, l);
+
+    if(yactx->state == GF_REVISION) {
+	/* Nothign to do */
+	yactx->state = GF_MAIN;
+	return 1;
+    }
+
     if(yactx->state != GF_HOST) {
 	CBDEBUG("bad state %d", yactx->state);
 	return 0;

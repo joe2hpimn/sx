@@ -86,10 +86,9 @@ void fcgi_send_file(void) {
 	return;
     }
 
-    /* FIXME: should stuff created_at into the json ? */
     CGI_PRINTF("Content-type: application/json\r\n\r\n{\"blockSize\":%d,\"fileSize\":", filedata.block_size);
     CGI_PUTLL(filedata.file_size);
-    CGI_PUTS(",\"fileData\":[");
+    CGI_PRINTF(",\"createdAt\":%u,\"fileRevision\":\"%s\",\"fileData\":[", filedata.created_at, filedata.revision);
 
     while((s = sx_hashfs_getfile_block(hashfs, &hash, &nodes)) == OK) {
 	if(comma)
