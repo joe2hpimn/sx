@@ -58,6 +58,14 @@
 #define CURL_DEFAULT_USER "anonymous"
 #define CURL_DEFAULT_PASSWORD "ftp@example.com"
 
+/* Convenience defines for checking protocols or their SSL based version. Each
+   protocol handler should only ever have a single CURLPROTO_ in its protocol
+   field. */
+#define PROTO_FAMILY_HTTP (CURLPROTO_HTTP|CURLPROTO_HTTPS)
+#define PROTO_FAMILY_FTP  (CURLPROTO_FTP|CURLPROTO_FTPS)
+#define PROTO_FAMILY_POP3 (CURLPROTO_POP3|CURLPROTO_POP3S)
+#define PROTO_FAMILY_SMTP (CURLPROTO_SMTP|CURLPROTO_SMTPS)
+
 #define DEFAULT_CONNCACHE_SIZE 5
 
 /* length of longest IPv6 address string including the trailing null */
@@ -288,10 +296,10 @@ struct ssl_connect_data {
   ssl_connect_state connecting_state;
 #endif /* USE_SSLEAY */
 #ifdef USE_GNUTLS
-  gnutls_session session;
-  gnutls_certificate_credentials cred;
+  gnutls_session_t session;
+  gnutls_certificate_credentials_t cred;
 #ifdef USE_TLS_SRP
-  gnutls_srp_client_credentials srp_client_cred;
+  gnutls_srp_client_credentials_t srp_client_cred;
 #endif
   ssl_connect_state connecting_state;
 #endif /* USE_GNUTLS */
@@ -318,6 +326,7 @@ struct ssl_connect_data {
   struct SessionHandle *data;
   struct curl_llist *obj_list;
   PK11GenericObject *obj_clicert;
+  ssl_connect_state connecting_state;
 #endif /* USE_NSS */
 #ifdef USE_QSOSSL
   SSLHandle *handle;
@@ -466,6 +475,7 @@ struct negotiatedata {
  * Boolean values that concerns this connection.
  */
 struct ConnectBits {
+  /* always modify bits.close with the connclose() and connkeep() macros! */
   bool close; /* if set, we close the connection after this request */
   bool reuse; /* if set, this is a re-used connection */
   bool proxy; /* if set, this transfer is done through a proxy - any type */
@@ -595,7 +605,7 @@ enum upgrade101 {
 enum negotiatenpn {
   NPN_INIT,                   /* default state */
   NPN_HTTP1_1,                /* HTTP/1.1 negotiated */
-  NPN_HTTP2_DRAFT09           /* HTTP-draft-0.9/2.0 negotiated */
+  NPN_HTTP2                   /* HTTP2 (draft-xx) negotiated */
 };
 
 /*
@@ -777,7 +787,8 @@ struct Curl_handler {
                         ssize_t *nread, bool *readmore);
 
   long defport;           /* Default port. */
-  unsigned int protocol;  /* See CURLPROTO_*  */
+  unsigned int protocol;  /* See CURLPROTO_* - this needs to be the single
+                             specific protocol bit */
   unsigned int flags;     /* Extra particular characteristics, see PROTOPT_* */
 };
 
@@ -795,8 +806,8 @@ struct Curl_handler {
                                       gets a default */
 #define PROTOPT_NOURLQUERY (1<<6)   /* protocol can't handle
                                         url query strings (?foo=bar) ! */
-#define PROTOPT_CREDSPERREQUEST (1<<7) /* requires login creditials per request
-                                          as opposed to per connection */
+#define PROTOPT_CREDSPERREQUEST (1<<7) /* requires login credentials per
+                                          request instead of per connection */
 
 
 /* return the count of bytes sent, or -1 on error */
@@ -1125,6 +1136,7 @@ struct Progress {
 
   struct timeval start;
   struct timeval t_startsingle;
+  struct timeval t_startop;
   struct timeval t_acceptdata;
 #define CURR_TIME (5+1) /* 6 entries for 5 seconds */
 
@@ -1296,6 +1308,8 @@ struct UrlState {
 
   /* if true, force SSL connection retry (workaround for certain servers) */
   bool ssl_connect_retry;
+  curl_off_t infilesize; /* size of file to upload, -1 means unknown.
+                            Copied from set.filesize at start of operation */
 };
 
 
@@ -1457,7 +1471,7 @@ struct UserDefined {
   long accepttimeout;   /* in milliseconds, 0 means no timeout */
   long server_response_timeout; /* in milliseconds, 0 means no timeout */
   long tftp_blksize ; /* in bytes, 0 means use default */
-  curl_off_t infilesize;      /* size of file to upload, -1 means unknown */
+  curl_off_t filesize;  /* size of file to upload, -1 means unknown */
   long low_speed_limit; /* bytes/second */
   long low_speed_time;  /* number of seconds */
   curl_off_t max_send_speed; /* high speed limit in bytes/second for upload */
@@ -1465,7 +1479,9 @@ struct UserDefined {
                                 download */
   curl_off_t set_resume_from;  /* continue [ftp] transfer from here */
   struct curl_slist *headers; /* linked list of extra headers */
+  struct curl_slist *proxyheaders; /* linked list of extra CONNECT headers */
   struct curl_httppost *httppost;  /* linked list of POST data */
+  bool sep_headers;     /* handle host and proxy headers separately */
   bool cookiesession;   /* new cookie session? */
   bool crlf;            /* convert crlf on ftp upload(?) */
   struct curl_slist *quote;     /* after connection is established */

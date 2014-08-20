@@ -40,6 +40,8 @@
 #include "curl_sasl.h"
 #include "warnless.h"
 #include "curl_memory.h"
+#include "strtok.h"
+#include "rawstr.h"
 
 #ifdef USE_NSS
 #include "vtls/nssg.h" /* for Curl_nss_force_init() */
@@ -51,7 +53,15 @@
 /* The last #include file should be: */
 #include "memdebug.h"
 
-#ifndef CURL_DISABLE_CRYPTO_AUTH
+#if !defined(CURL_DISABLE_CRYPTO_AUTH) && !defined(USE_WINDOWS_SSPI)
+#define DIGEST_QOP_VALUE_AUTH             (1 << 0)
+#define DIGEST_QOP_VALUE_AUTH_INT         (1 << 1)
+#define DIGEST_QOP_VALUE_AUTH_CONF        (1 << 2)
+
+#define DIGEST_QOP_VALUE_STRING_AUTH      "auth"
+#define DIGEST_QOP_VALUE_STRING_AUTH_INT  "auth-int"
+#define DIGEST_QOP_VALUE_STRING_AUTH_CONF "auth-conf"
+
 /* Retrieves the value for a corresponding key from the challenge string
  * returns TRUE if the key could be found, FALSE if it does not exists
  */
@@ -75,6 +85,38 @@ static bool sasl_digest_get_key_value(const char *chlg,
   value[i] = '\0';
 
   return TRUE;
+}
+
+static CURLcode sasl_digest_get_qop_values(const char *options, int *value)
+{
+  char *tmp;
+  char *token;
+  char *tok_buf;
+
+  /* Initialise the output */
+  *value = 0;
+
+  /* Tokenise the list of qop values. Use a temporary clone of the buffer since
+     strtok_r() ruins it. */
+  tmp = strdup(options);
+  if(!tmp)
+    return CURLE_OUT_OF_MEMORY;
+
+  token = strtok_r(tmp, ",", &tok_buf);
+  while(token != NULL) {
+    if(Curl_raw_equal(token, DIGEST_QOP_VALUE_STRING_AUTH))
+      *value |= DIGEST_QOP_VALUE_AUTH;
+    else if(Curl_raw_equal(token, DIGEST_QOP_VALUE_STRING_AUTH_INT))
+      *value |= DIGEST_QOP_VALUE_AUTH_INT;
+    else if(Curl_raw_equal(token, DIGEST_QOP_VALUE_STRING_AUTH_CONF))
+      *value |= DIGEST_QOP_VALUE_AUTH_CONF;
+
+    token = strtok_r(NULL, ",", &tok_buf);
+  }
+
+  Curl_safefree(tmp);
+
+  return CURLE_OK;
 }
 #endif
 
@@ -263,10 +305,12 @@ CURLcode Curl_sasl_create_cram_md5_message(struct SessionHandle *data,
   return result;
 }
 
+#ifndef USE_WINDOWS_SSPI
 /*
- * Curl_sasl_decode_digest_md5_message()
+ * sasl_decode_digest_md5_message()
  *
- * This is used to decode an already encoded DIGEST-MD5 challenge message.
+ * This is used internally to decode an already encoded DIGEST-MD5 challenge
+ * message into the seperate attributes.
  *
  * Parameters:
  *
@@ -277,19 +321,23 @@ CURLcode Curl_sasl_create_cram_md5_message(struct SessionHandle *data,
  * rlen    [in]     - The length of the realm buffer.
  * alg     [in/out] - The buffer where the algorithm will be stored.
  * alen    [in]     - The length of the algorithm buffer.
+ * qop     [in/out] - The buffer where the qop-options will be stored.
+ * qlen    [in]     - The length of the qop buffer.
  *
  * Returns CURLE_OK on success.
  */
-CURLcode Curl_sasl_decode_digest_md5_message(const char *chlg64,
-                                             char *nonce, size_t nlen,
-                                             char *realm, size_t rlen,
-                                             char *alg, size_t alen)
+static CURLcode sasl_decode_digest_md5_message(const char *chlg64,
+                                               char *nonce, size_t nlen,
+                                               char *realm, size_t rlen,
+                                               char *alg, size_t alen,
+                                               char *qop, size_t qlen)
 {
   CURLcode result = CURLE_OK;
   unsigned char *chlg = NULL;
   size_t chlglen = 0;
   size_t chlg64len = strlen(chlg64);
 
+  /* Decode the base-64 encoded challenge message */
   if(chlg64len && *chlg64 != '=') {
     result = Curl_base64_decode(chlg64, &chlg, &chlglen);
     if(result)
@@ -318,6 +366,12 @@ CURLcode Curl_sasl_decode_digest_md5_message(const char *chlg64,
     return CURLE_BAD_CONTENT_ENCODING;
   }
 
+  /* Retrieve qop-options string from the challenge */
+  if(!sasl_digest_get_key_value((char *)chlg, "qop=\"", qop, qlen, '\"')) {
+    Curl_safefree(chlg);
+    return CURLE_BAD_CONTENT_ENCODING;
+  }
+
   Curl_safefree(chlg);
 
   return CURLE_OK;
@@ -332,8 +386,7 @@ CURLcode Curl_sasl_decode_digest_md5_message(const char *chlg64,
  * Parameters:
  *
  * data    [in]     - The session handle.
- * nonce   [in]     - The nonce.
- * realm   [in]     - The realm.
+ * chlg64  [in]     - Pointer to the base64 encoded challenge message.
  * userp   [in]     - The user name.
  * passdwp [in]     - The user's password.
  * service [in]     - The service type such as www, smtp, pop or imap.
@@ -344,16 +397,12 @@ CURLcode Curl_sasl_decode_digest_md5_message(const char *chlg64,
  * Returns CURLE_OK on success.
  */
 CURLcode Curl_sasl_create_digest_md5_message(struct SessionHandle *data,
-                                             const char *nonce,
-                                             const char *realm,
+                                             const char *chlg64,
                                              const char *userp,
                                              const char *passwdp,
                                              const char *service,
                                              char **outptr, size_t *outlen)
 {
-#ifndef DEBUGBUILD
-  static const char table16[] = "0123456789abcdef";
-#endif
   CURLcode result = CURLE_OK;
   size_t i;
   MD5_context *ctxt;
@@ -362,18 +411,48 @@ CURLcode Curl_sasl_create_digest_md5_message(struct SessionHandle *data,
   char HA1_hex[2 * MD5_DIGEST_LEN + 1];
   char HA2_hex[2 * MD5_DIGEST_LEN + 1];
   char resp_hash_hex[2 * MD5_DIGEST_LEN + 1];
-
+  char nonce[64];
+  char realm[128];
+  char algorithm[64];
+  char qop_options[64];
+  int qop_values;
+  char cnonce[33];
+  unsigned int entropy[4];
   char nonceCount[] = "00000001";
-  char cnonce[]     = "12345678"; /* will be changed */
   char method[]     = "AUTHENTICATE";
-  char qop[]        = "auth";
+  char qop[]        = DIGEST_QOP_VALUE_STRING_AUTH;
   char uri[128];
 
-#ifndef DEBUGBUILD
-  /* Generate 64 bits of random data */
-  for(i = 0; i < 8; i++)
-    cnonce[i] = table16[Curl_rand(data)%16];
-#endif
+  /* Decode the challange message */
+  result = sasl_decode_digest_md5_message(chlg64, nonce, sizeof(nonce),
+                                          realm, sizeof(realm),
+                                          algorithm, sizeof(algorithm),
+                                          qop_options, sizeof(qop_options));
+  if(result)
+    return result;
+
+  /* We only support md5 sessions */
+  if(strcmp(algorithm, "md5-sess") != 0)
+    return CURLE_BAD_CONTENT_ENCODING;
+
+  /* Get the qop-values from the qop-options */
+  result = sasl_digest_get_qop_values(qop_options, &qop_values);
+  if(result)
+    return result;
+
+  /* We only support auth quality-of-protection */
+  if(!(qop_values & DIGEST_QOP_VALUE_AUTH))
+    return CURLE_BAD_CONTENT_ENCODING;
+
+  /* Generate 16 bytes of random data */
+  entropy[0] = Curl_rand(data);
+  entropy[1] = Curl_rand(data);
+  entropy[2] = Curl_rand(data);
+  entropy[3] = Curl_rand(data);
+
+  /* Convert the random data into a 32 byte hex string */
+  snprintf(cnonce, sizeof(cnonce), "%08x%08x%08x%08x",
+           entropy[0], entropy[1], entropy[2], entropy[3]);
 
   /* So far so good, now calculate A1 and H(A1) according to RFC 2831 */
   ctxt = Curl_MD5_init(Curl_DIGEST_MD5);
@@ -454,20 +533,22 @@ CURLcode Curl_sasl_create_digest_md5_message(struct SessionHandle *data,
 
   /* Generate the response */
   response = aprintf("username=\"%s\",realm=\"%s\",nonce=\"%s\","
-                     "cnonce=\"%s\",nc=\"%s\",digest-uri=\"%s\",response=%s",
+                     "cnonce=\"%s\",nc=\"%s\",digest-uri=\"%s\",response=%s,"
+                     "qop=%s",
                      userp, realm, nonce,
-                     cnonce, nonceCount, uri, resp_hash_hex);
+                     cnonce, nonceCount, uri, resp_hash_hex, qop);
   if(!response)
     return CURLE_OUT_OF_MEMORY;
 
   /* Base64 encode the response */
   result = Curl_base64_encode(data, response, 0, outptr, outlen);
 
-  Curl_safefree(response);
-
+  free(response);
   return result;
 }
-#endif
+#endif  /* USE_WINDOWS_SSPI */
+
+#endif  /* CURL_DISABLE_CRYPTO_AUTH */
 
 #ifdef USE_NTLM
 /*

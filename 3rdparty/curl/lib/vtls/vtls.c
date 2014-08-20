@@ -5,7 +5,7 @@
  *                            | (__| |_| |  _ <| |___
  *                             \___|\___/|_| \_\_____|
  *
- * Copyright (C) 1998 - 2013, Daniel Stenberg, <daniel@haxx.se>, et al.
+ * Copyright (C) 1998 - 2014, Daniel Stenberg, <daniel@haxx.se>, et al.
  *
  * This software is licensed as described in the file COPYING, which
  * you should have received as part of this distribution. The terms
@@ -197,11 +197,27 @@ unsigned int Curl_rand(struct SessionHandle *data)
   static unsigned int randseed;
   static bool seeded = FALSE;
 
+#ifdef CURLDEBUG
+  char *force_entropy = getenv("CURL_ENTROPY");
+  if(force_entropy) {
+    if(!seeded) {
+      size_t elen = strlen(force_entropy);
+      size_t clen = sizeof(randseed);
+      size_t min = elen < clen ? elen : clen;
+      memcpy((char *)&randseed, force_entropy, min);
+      seeded = TRUE;
+    }
+    else
+      randseed++;
+    return randseed;
+  }
+#endif
+
 #ifndef have_curlssl_random
   (void)data;
 #else
   if(data) {
-    Curl_ssl_random(data, (unsigned char *)&r, sizeof(r));
+    curlssl_random(data, (unsigned char *)&r, sizeof(r));
     return r;
   }
 #endif
@@ -664,17 +680,6 @@ CURLcode Curl_ssl_push_certinfo(struct SessionHandle *data,
 
   return Curl_ssl_push_certinfo_len(data, certnum, label, value, valuelen);
 }
-
-/* these functions are only provided by some SSL backends */
-
-#ifdef have_curlssl_random
-void Curl_ssl_random(struct SessionHandle *data,
-                     unsigned char *entropy,
-                     size_t length)
-{
-  curlssl_random(data, entropy, length);
-}
-#endif
 
 #ifdef have_curlssl_md5sum
 void Curl_ssl_md5sum(unsigned char *tmp, /* input */
