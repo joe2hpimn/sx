@@ -236,7 +236,7 @@ static void errfn(curlev_context_t *ctx, int reply_code, const char *reason)
     if(yh) {
         memset(&yctx, 0, sizeof(yctx));
         yctx.status = reply_code;
-        yctx.sx = sxi_conns_get_client(sxi_cbdata_get_conns(ctx));
+        yctx.cbdata = ctx;
         if(yajl_parse(yh, (uint8_t *)reason, strlen(reason)) != yajl_status_ok || yajl_complete_parse(yh) != yajl_status_ok)
             sxi_cbdata_seterr(ctx, SXE_ECOMM, "Cluster query failed with status %d", reply_code);
         else {
@@ -497,20 +497,20 @@ struct generic_ctx {
     int64_t dl;
 };
 
-static int wrap_setup_callback(curlev_context_t *ctx, const char *host)
+static int wrap_setup_callback(curlev_context_t *cbdata, const char *host)
 {
-    struct generic_ctx *gctx = sxi_cbdata_get_generic_ctx(ctx);
+    struct generic_ctx *gctx = sxi_cbdata_get_generic_ctx(cbdata);
     if (!gctx || !gctx->setup_callback)
         return 0;
-    return gctx->setup_callback(sxi_cbdata_get_conns(ctx), gctx->context, host);
+    return gctx->setup_callback(cbdata, gctx->context, host);
 }
 
-static int wrap_data_callback(curlev_context_t *ctx, const unsigned char *data, size_t size)
+static int wrap_data_callback(curlev_context_t *cbdata, const unsigned char *data, size_t size)
 {
-    struct generic_ctx *gctx = sxi_cbdata_get_generic_ctx(ctx);
+    struct generic_ctx *gctx = sxi_cbdata_get_generic_ctx(cbdata);
     if (!gctx || !gctx->callback)
         return 0;
-    return gctx->callback(sxi_cbdata_get_conns(ctx), gctx->context, (void*)data, size);
+    return gctx->callback(cbdata, gctx->context, (void*)data, size);
 }
 
 /* Set information about current generic transfer */

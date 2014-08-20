@@ -44,6 +44,7 @@ struct cstatus {
     int nsets, have_uuid, have_distid, rbl_state;
     unsigned int version;
     char rbl_msg[1024];
+    curlev_context_t *cbdata;
 
     enum cstatus_state { CS_BEGIN, CS_BASEKEY, CS_CSTATUS, CS_SKEY, CS_DISTS, CS_DIST, CS_NODES, CS_NODEKEY, CS_UUID, CS_ADDR, CS_INT_ADDR, CS_CAPA, CS_DISTID, CS_DISTVER, CS_DISTCHK, CS_AUTH, CS_RBL, CS_RBLKEY, CS_RBLFLAG, CS_RBLMSG, CS_COMPLETE } state;
 };
@@ -293,7 +294,7 @@ static const yajl_callbacks cstatus_parser = {
     cb_cstatus_end_array
 };
 
-static int cstatus_setup_cb(sxi_conns_t *conns, void *ctx, const char *host) {
+static int cstatus_setup_cb(curlev_context_t *cbdata, void *ctx, const char *host) {
     struct cstatus *yactx = (struct cstatus *)ctx;
 
     if(yactx->yh)
@@ -333,11 +334,12 @@ static int cstatus_setup_cb(sxi_conns_t *conns, void *ctx, const char *host) {
     yactx->rbl_state = -1;
     yactx->rbl_msg[0] = '\0';
     yactx->state = CS_BEGIN;
+    yactx->cbdata = cbdata;
 
     return 0;
 }
 
-static int cstatus_cb(sxi_conns_t *conns, void *ctx, const void *data, size_t size) {
+static int cstatus_cb(curlev_context_t *cbdata, void *ctx, const void *data, size_t size) {
     struct cstatus *yactx = (struct cstatus *)ctx;
     if(yajl_parse(yactx->yh, data, size) != yajl_status_ok)
 	return 1;

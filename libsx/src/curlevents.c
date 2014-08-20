@@ -261,8 +261,10 @@ int sxi_set_retry_cb(curlev_context_t *ctx, const sxi_hostlist_t *hlist, retry_c
         }
         ctx->retry.content = content;
         ctx->retry.content_size = content_size;
-        if (sxi_hostlist_add_list(sx, &ctx->retry.hosts, hlist))
+        if (sxi_hostlist_add_list(sx, &ctx->retry.hosts, hlist)) {
+            sxi_cbdata_restore_global_error(sx, ctx);
             return -1;
+        }
         if (!(ctx->retry.retry = sxi_retry_init(ctx, RCTX_CBDATA))) {
             sxi_cbdata_seterr(ctx, SXE_EMEM, "Out of memory allocating retry");
             return -1;
@@ -501,6 +503,17 @@ enum sxc_error_t sxi_cbdata_geterrnum(const curlev_context_t *ctx) {
         return ctx->errnum;
     else
         return sxc_geterrnum(sxi_conns_get_client(ctx->conns));
+}
+
+int sxi_cbdata_restore_global_error(sxc_client_t *sx, curlev_context_t *cbdata) {
+    if(!sx || !cbdata)
+        return 1;
+
+    if(sxc_geterrnum(sx) != SXE_NOERROR) {
+        sxi_cbdata_seterr(cbdata, sxc_geterrnum(sx), "%s", sxc_geterrmsg(sx));
+        sxc_clearerr(sx);
+    }
+    return 0;
 }
 
 sxi_conns_t *sxi_cbdata_get_conns(curlev_context_t *ctx)

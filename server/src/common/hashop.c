@@ -57,7 +57,7 @@ struct hashop_ctx {
     unsigned idx;
     unsigned hashop_idx;
     sxi_hashop_t *hashop;
-    sxc_client_t *sx;
+    curlev_context_t *cbdata;
     struct cb_error_ctx errctx;
 };
 
@@ -200,21 +200,19 @@ static const yajl_callbacks presence_parser = {
     cb_presence_end_array
 };
 
-static int presence_setup_cb(curlev_context_t *ctx, const char *host) {
-    struct hashop_ctx *yactx = sxi_cbdata_get_hashop_ctx(ctx);
-    sxi_conns_t *conns = sxi_cbdata_get_conns(ctx);
-    sxc_client_t *sx = sxi_conns_get_client(conns);
+static int presence_setup_cb(curlev_context_t *cbdata, const char *host) {
+    struct hashop_ctx *yactx = sxi_cbdata_get_hashop_ctx(cbdata);
 
     if(yactx->yh)
 	yajl_free(yactx->yh);
 
+    yactx->cbdata = cbdata;
     if(!(yactx->yh  = yajl_alloc(&presence_parser, NULL, yactx))) {
-	SXDEBUG("OOM allocating yajl context");
-	sxi_cbdata_seterr(ctx, SXE_EMEM, "Failed to setup hashop: out of memory");
+	CBDEBUG("OOM allocating yajl context");
+	sxi_cbdata_seterr(cbdata, SXE_EMEM, "Failed to setup hashop: out of memory");
 	return 1;
     }
 
-    yactx->sx = sx;
     yactx->idx = 0;
     yactx->state = MISS_BEGIN;
     return 0;

@@ -1409,7 +1409,7 @@ struct cb_challenge_ctx {
     unsigned int at;
 };
 
-static int challenge_cb(sxi_conns_t *conns, void *ctx, const void *data, size_t size) {
+static int challenge_cb(curlev_context_t *cbdata, void *ctx, const void *data, size_t size) {
     struct cb_challenge_ctx *c = (struct cb_challenge_ctx *)ctx;
     if(c->at + size > sizeof(c->chlrsp.response))
 	return 1;

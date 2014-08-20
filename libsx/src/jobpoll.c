@@ -169,35 +169,33 @@ static int yacb_jobres_end_map(void *ctx) {
     return 1;
 }
 
-static int jobres_setup_cb(curlev_context_t *ctx, const char *host) {
-    struct job_ctx *jctx = sxi_cbdata_get_job_ctx(ctx);
+static int jobres_setup_cb(curlev_context_t *cbdata, const char *host) {
+    struct job_ctx *jctx = sxi_cbdata_get_job_ctx(cbdata);
     sxi_job_t *yactx = jctx->yactx;
-    sxc_client_t *sx = sxi_conns_get_client(sxi_cbdata_get_conns(ctx));
 
+    yactx->cbdata = cbdata;
     if(yactx->yh)
 	yajl_free(yactx->yh);
 
     if(!(yactx->yh  = yajl_alloc(&yactx->yacb, NULL, yactx))) {
-	SXDEBUG("failed to allocate yajl structure");
-	sxi_cbdata_seterr(ctx, SXE_EMEM, "List failed: Out of memory");
+	CBDEBUG("failed to allocate yajl structure");
+	sxi_cbdata_seterr(yactx->cbdata, SXE_EMEM, "List failed: Out of memory");
 	return 1;
     }
 
     yactx->state = JR_BEGIN;
-    yactx->sx = sx;
     free(yactx->message);
     yactx->message = NULL;
     yactx->status = JOBST_UNDEF;
     return 0;
 }
 
-static int jobres_cb(curlev_context_t *ctx, const unsigned char *data, size_t size) {
-    struct job_ctx *jctx = sxi_cbdata_get_job_ctx(ctx);
-    sxi_job_t *yctx = jctx->yactx;
-    if(yajl_parse(yctx->yh, data, size) != yajl_status_ok) {
-	sxc_client_t *sx = sxi_conns_get_client(sxi_cbdata_get_conns(ctx));
-	SXDEBUG("failed to parse JSON data");
-        sxi_cbdata_seterr(ctx, SXE_ECOMM, "communication error AAA");
+static int jobres_cb(curlev_context_t *cbdata, const unsigned char *data, size_t size) {
+    struct job_ctx *jctx = sxi_cbdata_get_job_ctx(cbdata);
+    sxi_job_t *yactx = jctx->yactx;
+    if(yajl_parse(yactx->yh, data, size) != yajl_status_ok) {
+	CBDEBUG("failed to parse JSON data: %s", sxi_cbdata_geterrmsg(yactx->cbdata));
+        sxi_cbdata_seterr(yactx->cbdata, SXE_ECOMM, "communication error AAA");
 	return 1;
     }
 
@@ -226,7 +224,7 @@ void sxi_job_free(sxi_job_t *yres)
 }
 
 struct cb_jobget_ctx {
-    sxc_client_t *sx;
+    curlev_context_t *cbdata;
     yajl_callbacks yacb;
     yajl_handle yh;
     char *job_id;
@@ -357,21 +355,20 @@ static int yacb_jobget_end_map(void *ctx) {
     return 1;
 }
 
-static int jobget_setup_cb(sxi_conns_t *conns, void *ctx, const char *host) {
+static int jobget_setup_cb(curlev_context_t *cbdata, void *ctx, const char *host) {
     struct cb_jobget_ctx *yactx = (struct cb_jobget_ctx *)ctx;
-    sxc_client_t *sx = sxi_conns_get_client(conns);
 
     if(yactx->yh)
 	yajl_free(yactx->yh);
 
+    yactx->cbdata = cbdata;
     if(!(yactx->yh  = yajl_alloc(&yactx->yacb, NULL, yactx))) {
-	SXDEBUG("failed to allocate yajl structure");
-	sxi_seterr(sx, SXE_EMEM, "List failed: Out of memory");
+	CBDEBUG("failed to allocate yajl structure");
+	sxi_cbdata_seterr(cbdata, SXE_EMEM, "List failed: Out of memory");
 	return 1;
     }
 
     yactx->state = JG_BEGIN;
-    yactx->sx = sx;
     free(yactx->job_id);
     yactx->job_id = NULL;
     yactx->job_host = host;
@@ -381,11 +378,10 @@ static int jobget_setup_cb(sxi_conns_t *conns, void *ctx, const char *host) {
     return 0;
 }
 
-static int jobget_cb(sxi_conns_t *conns, void *ctx, const void *data, size_t size) {
-    struct cb_jobget_ctx *yctx = (struct cb_jobget_ctx *)ctx;
-    if(yajl_parse(yctx->yh, data, size) != yajl_status_ok) {
-	sxc_client_t *sx = sxi_conns_get_client(conns);
-	SXDEBUG("failed to parse JSON data");
+static int jobget_cb(curlev_context_t *cbdata, void *ctx, const void *data, size_t size) {
+    struct cb_jobget_ctx *yactx = (struct cb_jobget_ctx *)ctx;
+    if(yajl_parse(yactx->yh, data, size) != yajl_status_ok) {
+	CBDEBUG("failed to parse JSON data");
 	return 1;
     }
 

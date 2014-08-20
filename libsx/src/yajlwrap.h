@@ -22,10 +22,11 @@
 
 #include <yajl/yajl_parse.h>
 #include "sx.h"
+#include "curlevents.h"
 
 #define CB_ERROR_STRSZ 256
 struct cb_error_ctx {
-  sxc_client_t *sx;
+  curlev_context_t *cbdata;
   char node[CB_ERROR_STRSZ];
   char id[CB_ERROR_STRSZ];
   char msg[CB_ERROR_STRSZ];
@@ -46,7 +47,7 @@ int yacb_error_end_map(void *ctx);
 /* Check whether the key is ErrorMessage, and initialize the error parser if so.
  * You should start calling yacb_error_* functions after this.
  */
-int ya_check_error(sxc_client_t *sx, struct cb_error_ctx *ctx, const unsigned char *s, size_t l);
+int ya_check_error(curlev_context_t *cbdata, struct cb_error_ctx *ctx, const unsigned char *s, size_t l);
 int sxi_parse_error_message(const unsigned char *s, size_t l, yajl_callbacks *yacb, sxc_client_t *sx);
 
 #endif

@@ -562,8 +562,7 @@ int sxc_cluster_set_bandwidth_limit(sxc_client_t *sx, sxc_cluster_t *cluster, in
 }
 
 struct cb_fetchnodes_ctx {
-    sxc_client_t *sx;
-    sxi_conns_t *conns;
+    curlev_context_t *cbdata;
     yajl_callbacks yacb;
     struct cb_error_ctx errctx;
     sxi_hostlist_t hlist;
@@ -594,7 +593,7 @@ static int yacb_fetchnodes_map_key(void *ctx, const unsigned char *s, size_t l) 
     if (yactx->state == FN_ERROR)
         return yacb_error_map_key(&yactx->errctx, s, l);
     if (yactx->state == FN_CLUSTER) {
-        if (ya_check_error(yactx->sx, &yactx->errctx, s, l)) {
+        if (ya_check_error(yactx->cbdata, &yactx->errctx, s, l)) {
             yactx->state = FN_ERROR;
             return 1;
         }
@@ -626,26 +625,30 @@ static int yacb_fetchnodes_start_array(void *ctx) {
 static int yacb_fetchnodes_string(void *ctx, const unsigned char *s, size_t l) {
     struct cb_fetchnodes_ctx *yactx = (struct cb_fetchnodes_ctx *)ctx;
     char *host;
+    sxc_client_t *sx;
     if(!ctx)
 	return 0;
     if (yactx->state == FN_ERROR)
         return yacb_error_string(&yactx->errctx, s, l);
 
+    sx = sxi_conns_get_client(sxi_cbdata_get_conns(yactx->cbdata));
     expect_state(FN_NODE);
     if(l<=0)
 	return 0;
 
     if(!(host = malloc(l+1))) {
 	CBDEBUG("OOM duplicating hostname '%.*s'", (unsigned)l, s);
-	sxi_seterr(yactx->sx, SXE_EMEM, "Out of memory");
+	sxi_cbdata_seterr(yactx->cbdata, SXE_EMEM, "Out of memory");
 	return 0;
     }
 
     memcpy(host, s, l);
     host[l] = '\0';
-    if(sxi_hostlist_add_host(yactx->sx, &yactx->hlist, host)) {
+    if(sxi_hostlist_add_host(sx, &yactx->hlist, host)) {
 	CBDEBUG("failed to add host %s", host);
 	free(host);
+        /* FIXME: Do not store errors in global buffer (bb#751) */
+        sxi_cbdata_restore_global_error(sx, yactx->cbdata);
 	return 0;
     }
 
@@ -679,32 +682,31 @@ static int yacb_fetchnodes_end_map(void *ctx) {
     return 1;
 }
 
-static int fetchnodes_setup_cb(sxi_conns_t *conns, void *ctx, const char *host) {
+static int fetchnodes_setup_cb(curlev_context_t *cbdata, void *ctx, const char *host) {
     struct cb_fetchnodes_ctx *yactx = (struct cb_fetchnodes_ctx *)ctx;
-    sxc_client_t *sx = sxi_conns_get_client(conns);
 
     if(yactx->yh)
 	yajl_free(yactx->yh);
 
     if(!(yactx->yh  = yajl_alloc(&yactx->yacb, NULL, yactx))) {
-	SXDEBUG("OOM allocating yajl context");
-	sxi_seterr(sx, SXE_EMEM, "Cannot update list of nodes: Out of memory");
+	CBDEBUG("OOM allocating yajl context");
+	sxi_cbdata_seterr(cbdata, SXE_EMEM, "Cannot update list of nodes: Out of memory");
 	return 1;
     }
 
     yactx->state = FN_BEGIN;
-    yactx->sx = sx;
+    yactx->cbdata = cbdata;
     sxi_hostlist_empty(&yactx->hlist);
 
     return 0;
 }
 
-static int fetchnodes_cb(sxi_conns_t *conns, void *ctx, const void *data, size_t size) {
+static int fetchnodes_cb(curlev_context_t *cbdata, void *ctx, const void *data, size_t size) {
     struct cb_fetchnodes_ctx *yactx = (struct cb_fetchnodes_ctx *)ctx;
     if(yajl_parse(yactx->yh, data, size) != yajl_status_ok) {
         if (yactx->state != FN_ERROR) {
-            CBDEBUG("failed to parse JSON data");
-            sxi_seterr(sxi_conns_get_client(conns), SXE_ECOMM, "communication error");
+            CBDEBUG("failed to parse JSON data: %s", sxi_cbdata_geterrmsg(yactx->cbdata));
+            sxi_cbdata_seterr(yactx->cbdata, SXE_ECOMM, "communication error");
         }
 	return 1;
     }
@@ -727,7 +729,6 @@ int sxc_cluster_fetchnodes(sxc_cluster_t *cluster) {
     yacb->yajl_end_array = yacb_fetchnodes_end_array;
     yacb->yajl_end_map = yacb_fetchnodes_end_map;
     yctx.yh = NULL;
-    yctx.conns = sxi_cluster_get_conns(cluster);
 
     orighlist = sxi_conns_get_hostlist(cluster->conns);
     if(!sxi_hostlist_get_count(orighlist)) {
@@ -794,7 +795,7 @@ int sxc_cluster_fetchnodes(sxc_cluster_t *cluster) {
 
 
 struct cb_locate_ctx {
-    sxc_client_t *sx;
+    curlev_context_t *cbdata;
     yajl_callbacks yacb;
     sxi_hostlist_t *hlist;
     struct cb_error_ctx errctx;
@@ -826,7 +827,7 @@ static int yacb_locate_map_key(void *ctx, const unsigned char *s, size_t l) {
     if (yactx->state == LC_ERROR)
         return yacb_error_map_key(&yactx->errctx, s, l);
     if (yactx->state == LC_KEYS) {
-        if (ya_check_error(yactx->sx, &yactx->errctx, s, l)) {
+        if (ya_check_error(yactx->cbdata, &yactx->errctx, s, l)) {
             yactx->state = LC_ERROR;
             return 1;
         }
@@ -848,7 +849,7 @@ static int yacb_locate_map_key(void *ctx, const unsigned char *s, size_t l) {
 	    yactx->curkey = malloc(l+1);
 	    if(!yactx->curkey) {
 		CBDEBUG("OOM duplicating meta key '%.*s'", (unsigned)l, s);
-		sxi_seterr(yactx->sx, SXE_EMEM, "Out of memory");
+		sxi_cbdata_seterr(yactx->cbdata, SXE_EMEM, "Out of memory");
 		return 0;
 	    }
 	    memcpy(yactx->curkey, s, l);
@@ -906,8 +907,10 @@ static int yacb_locate_start_array(void *ctx) {
 
 static int yacb_locate_string(void *ctx, const unsigned char *s, size_t l) {
     struct cb_locate_ctx *yactx = (struct cb_locate_ctx *)ctx;
+    sxc_client_t *sx;
     if(!ctx)
 	return 0;
+    sx = sxi_conns_get_client(sxi_cbdata_get_conns(yactx->cbdata));
 
     if (yactx->state == LC_ERROR)
         return yacb_error_string(&yactx->errctx, s, l);
@@ -918,15 +921,18 @@ static int yacb_locate_string(void *ctx, const unsigned char *s, size_t l) {
 
 	if(!(host = malloc(l+1))) {
 	    CBDEBUG("OOM duplicating hostname '%.*s'", (unsigned)l, s);
-	    sxi_seterr(yactx->sx, SXE_EMEM, "Out of memory");
+	    sxi_cbdata_seterr(yactx->cbdata, SXE_EMEM, "Out of memory");
 	    return 0;
 	}
 
 	memcpy(host, s, l);
 	host[l] = '\0';
-	if(sxi_hostlist_add_host(yactx->sx, yactx->hlist, host)) {
+	if(sxi_hostlist_add_host(sx, yactx->hlist, host)) {
 	    CBDEBUG("failed to add host %s", host);
 	    free(host);
+
+            /* FIXME: Do not store errors in global buffer (bb#751) */
+            sxi_cbdata_restore_global_error(sx, yactx->cbdata);
 	    return 0;
 	}
 
@@ -936,6 +942,7 @@ static int yacb_locate_string(void *ctx, const unsigned char *s, size_t l) {
 	if(yactx->meta) {
 	    if(sxc_meta_setval_fromhex(yactx->meta, yactx->curkey, (const char *)s, l)) {
 		CBDEBUG("failed to add value");
+                sxi_cbdata_restore_global_error(sx, yactx->cbdata);
 		return 0;
 	    }
 	    free(yactx->curkey);
@@ -978,16 +985,16 @@ static int yacb_locate_end_map(void *ctx) {
 }
 
 
-static int locate_setup_cb(sxi_conns_t *conns, void *ctx, const char *host) {
+static int locate_setup_cb(curlev_context_t *cbdata, void *ctx, const char *host) {
     struct cb_locate_ctx *yactx = (struct cb_locate_ctx *)ctx;
-    sxc_client_t *sx = sxi_conns_get_client(conns);
 
     if(yactx->yh)
 	yajl_free(yactx->yh);
 
+    yactx->cbdata = cbdata;
     if(!(yactx->yh  = yajl_alloc(&yactx->yacb, NULL, yactx))) {
-	SXDEBUG("failed to allocate yajl structure");
-	sxi_seterr(sx, SXE_EMEM, "Locate failed: Out of memory");
+	CBDEBUG("failed to allocate yajl structure");
+	sxi_cbdata_seterr(yactx->cbdata, SXE_EMEM, "Locate failed: Out of memory");
 	return 1;
     }
 
@@ -996,19 +1003,18 @@ static int locate_setup_cb(sxi_conns_t *conns, void *ctx, const char *host) {
     sxc_meta_empty(yactx->meta);
 
     yactx->state = LC_BEGIN;
-    yactx->sx = sx;
     yactx->blocksize = -1;
     sxi_hostlist_empty(yactx->hlist);
 
     return 0;
 }
 
-static int locate_cb(sxi_conns_t *conns, void *ctx, const void *data, size_t size) {
+static int locate_cb(curlev_context_t *cbdata, void *ctx, const void *data, size_t size) {
     struct cb_locate_ctx *yactx = (struct cb_locate_ctx *)ctx;
     if(yajl_parse(yactx->yh, data, size) != yajl_status_ok) {
         if (yactx->state != LC_ERROR) {
             CBDEBUG("failed to parse JSON data");
-            sxi_seterr(sxi_conns_get_client(conns), SXE_ECOMM, "communication error");
+            sxi_cbdata_seterr(yactx->cbdata, SXE_ECOMM, "communication error");
         }
 	return 1;
     }
@@ -1431,7 +1437,7 @@ struct cbl_file_t {
 };
 
 struct cb_listfiles_ctx {
-    sxc_client_t *sx;
+    curlev_context_t *cbdata;
     yajl_callbacks yacb;
     yajl_handle yh;
     FILE *f;
@@ -1489,7 +1495,7 @@ static int yacb_listfiles_map_key(void *ctx, const unsigned char *s, size_t l) {
 	yactx->fname = malloc(l);
 	if(!yactx->fname) {
 	    CBDEBUG("OOM duplicating file name '%.*s'", (unsigned)l, s);
-	    sxi_setsyserr(yactx->sx, SXE_EMEM, "Out of memory");
+	    sxi_cbdata_setsyserr(yactx->cbdata, SXE_EMEM, "Out of memory");
 	    return 0;
 	}
 	memcpy(yactx->fname, s, l);
@@ -1598,7 +1604,7 @@ static int yacb_listfiles_string(void *ctx, const unsigned char *s, size_t l) {
 	yactx->frev = malloc(l);
 	if(!yactx->frev) {
 	    CBDEBUG("OOM duplicating file rev '%.*s'", (unsigned)l, s);
-	    sxi_setsyserr(yactx->sx, SXE_EMEM, "Out of memory");
+	    sxi_cbdata_setsyserr(yactx->cbdata, SXE_EMEM, "Out of memory");
 	    return 0;
 	}
 	memcpy(yactx->frev, s, l);
@@ -1643,7 +1649,7 @@ static int yacb_listfiles_end_map(void *ctx) {
 	   (yactx->file.revlen && !fwrite(yactx->frev, yactx->file.revlen, 1, yactx->f)) ||
 	   !fwrite(&yactx->file, sizeof(yactx->file), 1, yactx->f)) {
 	    CBDEBUG("failed to save file attributes to temporary file");
-	    sxi_setsyserr(yactx->sx, SXE_EWRITE, "Failed to write to temporary file");
+	    sxi_cbdata_setsyserr(yactx->cbdata, SXE_EWRITE, "Failed to write to temporary file");
 	    return 0;
 	}
 	free(yactx->fname);
@@ -1675,21 +1681,20 @@ static int yacb_listfiles_end_map(void *ctx) {
 }
 
 
-static int listfiles_setup_cb(sxi_conns_t *conns, void *ctx, const char *host) {
+static int listfiles_setup_cb(curlev_context_t *cbdata, void *ctx, const char *host) {
     struct cb_listfiles_ctx *yactx = (struct cb_listfiles_ctx *)ctx;
-    sxc_client_t *sx = sxi_conns_get_client(conns);
 
     if(yactx->yh)
 	yajl_free(yactx->yh);
 
+    yactx->cbdata = cbdata;
     if(!(yactx->yh  = yajl_alloc(&yactx->yacb, NULL, yactx))) {
-	SXDEBUG("failed to allocate yajl structure");
-	sxi_seterr(sx, SXE_EMEM, "List failed: Out of memory");
+	CBDEBUG("failed to allocate yajl structure");
+	sxi_cbdata_seterr(cbdata, SXE_EMEM, "List failed: Out of memory");
 	return 1;
     }
 
     yactx->state = LF_BEGIN;
-    yactx->sx = sx;
     rewind(yactx->f);
     yactx->volume_size = 0;
     yactx->replica = 0;
@@ -1707,12 +1712,11 @@ static int listfiles_setup_cb(sxi_conns_t *conns, void *ctx, const char *host) {
     return 0;
 }
 
-static int listfiles_cb(sxi_conns_t *conns, void *ctx, const void *data, size_t size) {
-    struct cb_listfiles_ctx *yctx = (struct cb_listfiles_ctx *)ctx;
-    if(yajl_parse(yctx->yh, data, size) != yajl_status_ok) {
-	sxc_client_t *sx = sxi_conns_get_client(conns);
-	SXDEBUG("failed to parse JSON data");
-	sxi_seterr(sxi_conns_get_client(conns), SXE_ECOMM, "communication error");
+static int listfiles_cb(curlev_context_t *cbdata, void *ctx, const void *data, size_t size) {
+    struct cb_listfiles_ctx *yactx = (struct cb_listfiles_ctx *)ctx;
+    if(yajl_parse(yactx->yh, data, size) != yajl_status_ok) {
+	CBDEBUG("failed to parse JSON data: %s", sxi_cbdata_geterrmsg(yactx->cbdata));
+	sxi_cbdata_seterr(yactx->cbdata, SXE_ECOMM, "communication error");
 	return 1;
     }
 
@@ -2188,36 +2192,35 @@ struct cb_userkey_ctx {
     enum userkey_state { USERKEY_ERROR, USERKEY_BEGIN, USERKEY_MAP, USERKEY_KEY, USERKEY_COMPLETE } state;
     struct cb_error_ctx errctx;
     yajl_callbacks yacb;
-    sxc_client_t *sx;
+    curlev_context_t *cbdata;
     yajl_handle yh;
     const char *username;
     FILE *f;
 };
 
-static int userkey_setup_cb(sxi_conns_t *conns, void *ctx, const char *host)
+static int userkey_setup_cb(curlev_context_t *cbdata, void *ctx, const char *host)
 {
     struct cb_userkey_ctx *yactx = ctx;
-    sxc_client_t *sx = sxi_conns_get_client(conns);
     if (yactx->yh)
         yajl_free(yactx->yh);
 
+    yactx->cbdata = cbdata;
     if(!(yactx->yh = yajl_alloc(&yactx->yacb, NULL, yactx))) {
-        SXDEBUG("OOM allocating yajl context");
-        sxi_seterr(sx, SXE_EMEM, "Cannot get user key: Out of memory");
+        CBDEBUG("OOM allocating yajl context");
+        sxi_cbdata_seterr(cbdata, SXE_EMEM, "Cannot get user key: Out of memory");
         return 1;
     }
 
     yactx->state = USERKEY_BEGIN;
-    yactx->sx = sx;
     return 0;
 }
 
-static int userkey_cb(sxi_conns_t *conns, void *ctx, const void *data, size_t size) {
+static int userkey_cb(curlev_context_t *cbdata, void *ctx, const void *data, size_t size) {
     struct cb_userkey_ctx *yactx = ctx;
     if (yajl_parse(yactx->yh, data, size) != yajl_status_ok) {
         if (yactx->state != USERKEY_ERROR) {
-            CBDEBUG("failed to parse JSON data");
-            sxi_seterr(sxi_conns_get_client(conns), SXE_ECOMM, "communication error");
+            CBDEBUG("failed to parse JSON data: %s", sxi_cbdata_geterrmsg(yactx->cbdata));
+            sxi_cbdata_seterr(yactx->cbdata, SXE_ECOMM, "communication error");
         }
         return 1;
     }
@@ -2246,7 +2249,7 @@ static int yacb_userkey_map_key(void *ctx, const unsigned char *s, size_t l) {
     if (yactx->state == USERKEY_ERROR)
         return yacb_error_map_key(&yactx->errctx, s, l);
     if (yactx->state == USERKEY_MAP) {
-        if (ya_check_error(yactx->sx, &yactx->errctx, s, l)) {
+        if (ya_check_error(yactx->cbdata, &yactx->errctx, s, l)) {
             yactx->state = USERKEY_ERROR;
             return 1;
         }
@@ -2277,26 +2280,32 @@ static int yacb_userkey_string(void *ctx, const unsigned char *s, size_t l) {
     if (yactx->state == USERKEY_KEY) {
         unsigned char token[AUTHTOK_BIN_LEN];
         sxi_md_ctx *ch_ctx;
+        sxc_client_t *sx = sxi_conns_get_client(sxi_cbdata_get_conns(yactx->cbdata));
 
         memset(token, 0, sizeof(token));
 	if(sxi_hex2bin((const char *)s, l, token + AUTH_UID_LEN, AUTH_KEY_LEN)) {
-            sxi_seterr(yactx->sx, SXE_ECOMM, "Failed to convert user key from hex");
+            sxi_cbdata_seterr(yactx->cbdata, SXE_ECOMM, "Failed to convert user key from hex");
             return 0;
         }
 
         ch_ctx = sxi_md_init();
         if(!sxi_sha1_init(ch_ctx)) {
-            sxi_seterr(yactx->sx, SXE_ECRYPT, "Cannot compute hash: Unable to initialize crypto library");
+            sxi_cbdata_seterr(yactx->cbdata, SXE_ECRYPT, "Cannot compute hash: Unable to initialize crypto library");
+            sxi_md_cleanup(&ch_ctx);
             return 1;
         }
         if(!sxi_sha1_update(ch_ctx, yactx->username, strlen(yactx->username)) ||
            !sxi_sha1_final(ch_ctx, token, NULL)) {
-            sxi_seterr(yactx->sx, SXE_ECRYPT, "Cannot compute hash: Crypto library failure");
+            sxi_cbdata_seterr(yactx->cbdata, SXE_ECRYPT, "Cannot compute hash: Crypto library failure");
             sxi_md_cleanup(&ch_ctx);
             return 1;
         }
         sxi_md_cleanup(&ch_ctx);
-        char *tok = sxi_b64_enc(yactx->sx, token, sizeof(token));
+        char *tok = sxi_b64_enc(sx, token, sizeof(token));
+
+        /* FIXME: Do not store errors in global buffer (bb#751) */
+        sxi_cbdata_restore_global_error(sx, yactx->cbdata);
+
         fprintf(yactx->f, "%s\n", tok);
         free(tok);
         yactx->state = USERKEY_MAP;

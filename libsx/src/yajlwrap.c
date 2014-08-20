@@ -150,11 +150,8 @@ int yacb_error_map_key(void *ctx, const unsigned char *s, size_t l) {
 
 int yacb_error_end_map(void *ctx) {
     struct cb_error_ctx *yactx = (struct cb_error_ctx *)ctx;
-    sxc_client_t *sx = yactx->sx;
     yactx->nmaps--;
-    if (sx) {
-        sxi_setclusterr(sx, yactx->node, yactx->id, yactx->status, yactx->msg, yactx->details);
-    }
+    sxi_cbdata_setclusterr(yactx->cbdata, yactx->node, yactx->id, yactx->status, yactx->msg, yactx->details);
     return 1;
 }
 static int yacb_error_start_array(void *ctx) {
@@ -186,12 +183,12 @@ void ya_error_parser(yajl_callbacks *c) {
     memcpy(c, &error_callbacks, sizeof(*c));
 }
 
-int ya_check_error(sxc_client_t *sx, struct cb_error_ctx *ctx, const unsigned char *s, size_t l)
+int ya_check_error(curlev_context_t *cbdata, struct cb_error_ctx *ctx, const unsigned char *s, size_t l)
 {
     if(is_err_msg(s, l)) {
         memset(ctx, 0, sizeof(*ctx));
         ctx->nmaps = 1;
-        ctx->sx = sx;
+        ctx->cbdata = cbdata;
         ctx->state = ER_MSG;
         return 1;
     }
