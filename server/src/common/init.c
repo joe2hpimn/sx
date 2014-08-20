@@ -30,7 +30,7 @@
 #include "sxproc.h"
 #include "utils.h"
 
-sxc_client_t* server_init(const sxc_logger_t *custom_logger, const char *application, const char *logfile, int log_foreground, int argc, char *argv[])
+sxc_client_t* sx_init(const sxc_logger_t *custom_logger, const char *application, const char *logfile, int log_foreground, int argc, char *argv[])
 {
     sxc_client_t *sx;
     log_init(&custom_logger, application ? application : argv[0], logfile, log_foreground);
@@ -47,7 +47,7 @@ sxc_client_t* server_init(const sxc_logger_t *custom_logger, const char *applica
     return sx;
 }
 
-void server_done(sxc_client_t **sx)
+void sx_done(sxc_client_t **sx)
 {
     sxc_shutdown(*sx, 0);
     *sx = NULL;

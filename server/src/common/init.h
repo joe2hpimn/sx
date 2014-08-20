@@ -28,6 +28,6 @@
 #ifndef INIT_H
 #define INIT_H
 #include "sx.h"
-sxc_client_t* server_init(const sxc_logger_t *custom_logger, const char *application, const char *logfile, int log_foreground, int argc, char *argv[]);
-void server_done(sxc_client_t **sx);
+sxc_client_t* sx_init(const sxc_logger_t *custom_logger, const char *application, const char *logfile, int log_foreground, int argc, char *argv[]);
+void sx_done(sxc_client_t **sx);
 #endif

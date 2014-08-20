@@ -544,7 +544,7 @@ int main(int argc, char **argv)
     const sx_node_t *node;
     const void *cfg;
     int ret = 1;
-    sxc_client_t *sx = server_init(NULL, NULL, NULL, 0, argc, argv);
+    sxc_client_t *sx = sx_init(NULL, NULL, NULL, 0, argc, argv);
 
     if(argc == 2 && !strcmp(argv[1], "--debug")) {
 	log_setminlevel(sx, SX_LOG_DEBUG);
@@ -702,6 +702,6 @@ main_err:
 
     sxi_hdist_free(hdist);
     sxi_hdist_free(hdist2);
-    server_done(&sx);
+    sx_done(&sx);
     return ret;
 }

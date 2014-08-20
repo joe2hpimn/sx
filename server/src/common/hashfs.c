@@ -1716,7 +1716,7 @@ void sx_hashfs_close(sx_hashfs_t *h) {
 /*    if(h->sx)
 	sx_shutdown(h->sx, 0);
     do not free sx here: it is not owned by hashfs.c!
-    freeing it here would cause use-after-free if server_done() is called
+    freeing it here would cause use-after-free if sx_done() is called
     */
     if(h->sx_clust)
 	sxi_conns_free(h->sx_clust);

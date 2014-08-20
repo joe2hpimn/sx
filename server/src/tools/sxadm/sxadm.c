@@ -844,10 +844,10 @@ int main(int argc, char **argv) {
     struct rlimit rlim;
     sxc_logger_t log;
     int have_command=(argc >= 2), ret = 1;
-    sxc_client_t *sx = server_init(sxc_default_logger(&log, argv[0]), NULL, NULL, 0, argc, argv);
+    sxc_client_t *sx = sx_init(sxc_default_logger(&log, argv[0]), NULL, NULL, 0, argc, argv);
 
     if(!sx) {
-	fprintf(stderr, "Fatal error: server_init() failed\n");
+	fprintf(stderr, "Fatal error: sx_init() failed\n");
 	return 1;
     }
     log_setminlevel(sx, SX_LOG_WARNING);
@@ -862,7 +862,7 @@ int main(int argc, char **argv) {
     if(have_command && !strcmp(argv[1], "node")) {
 	if(node_cmdline_parser(argc-1, argv+1, &node_args)) {
 	    printf("See 'sxadm node --help' for usage information.\n");
-            server_done(&sx);
+            sx_done(&sx);
 	    return 1;
         }
 	sxc_set_debug(sx, node_args.debug_flag);
@@ -881,13 +881,13 @@ int main(int argc, char **argv) {
 	    ret = info_node(sx, node_args.inputs[0]);
     node_out:
 	node_cmdline_parser_free(&node_args);
-        server_done(&sx);
+        sx_done(&sx);
 	return ret;
 
     } else if(have_command && !strcmp(argv[1], "cluster")) {
 	if(cluster_cmdline_parser(argc-1, argv+1, &cluster_args)) {
 	    printf("See 'sxadm cluster --help' for usage information.\n");
-            server_done(&sx);
+            sx_done(&sx);
 	    return 1;
         }
 	sxc_set_debug(sx, cluster_args.debug_flag);
@@ -909,11 +909,11 @@ int main(int argc, char **argv) {
 	    cluster_cmdline_parser_print_help();
     cluster_out:
 	cluster_cmdline_parser_free(&cluster_args);
-        server_done(&sx);
+        sx_done(&sx);
 	return ret;
     } else {
 	if(main_cmdline_parser(argc, argv, &main_args)) {
-            server_done(&sx);
+            sx_done(&sx);
 	    return 1;
         }
 	if(main_args.version_given)
@@ -923,7 +923,7 @@ int main(int argc, char **argv) {
 	main_cmdline_parser_free(&main_args);
     }
 
-    server_done(&sx);
+    sx_done(&sx);
     return 0;
 
 }

@@ -285,7 +285,7 @@ int main(int argc, char **argv) {
     free(params);
     cmdline_args_free(&cmdargs);
 
-    sx = server_init(NULL, NULL, NULL, foreground, argc, argv);
+    sx = sx_init(NULL, NULL, NULL, foreground, argc, argv);
     if (!sx)
         return EXIT_FAILURE;
 
@@ -304,11 +304,11 @@ int main(int argc, char **argv) {
     }
     /* must init with logfile after we switched uid, otherwise children wouldn't be able
      * to open the logfile */
-    server_done(&sx);
-    sx = server_init(NULL, NULL, args.logfile_arg, foreground, argc, argv);
+    sx_done(&sx);
+    sx = sx_init(NULL, NULL, args.logfile_arg, foreground, argc, argv);
     if (!sx) {
         cmdline_parser_free(&args);
-        server_done(&sx);
+        sx_done(&sx);
 	return EXIT_FAILURE;
     }
 
@@ -321,7 +321,7 @@ int main(int argc, char **argv) {
     if(!FCGX_IsCGI()) {
 	CRIT("This program cannot be run as a fastcgi application; please refer to the documentation or --help for invocation instuctions.");
         cmdline_parser_free(&args);
-        server_done(&sx);
+        sx_done(&sx);
 	return EXIT_FAILURE;
     }
 
@@ -331,7 +331,7 @@ int main(int argc, char **argv) {
     if(args.children_arg <= 0 || args.children_arg > MAX_CHILDREN) {
 	CRIT("Invalid number of children");
         cmdline_parser_free(&args);
-        server_done(&sx);
+        sx_done(&sx);
 	return EXIT_FAILURE;
     }
 
@@ -343,7 +343,7 @@ int main(int argc, char **argv) {
 	if(sockmode<=0) {
 	    CRIT("Invalid socket mode");
             cmdline_parser_free(&args);
-            server_done(&sx);
+            sx_done(&sx);
             return EXIT_FAILURE;
 	}
     }
@@ -352,7 +352,7 @@ int main(int argc, char **argv) {
     if(pipe(trig)) {
 	PCRIT("Cannot create communication pipe");
         cmdline_parser_free(&args);
-        server_done(&sx);
+        sx_done(&sx);
 	return EXIT_FAILURE;
     }
     job_trigger = trig[1];
@@ -361,7 +361,7 @@ int main(int argc, char **argv) {
     if(pipe(trig)) {
 	PCRIT("Cannot create communication pipe");
         cmdline_parser_free(&args);
-        server_done(&sx);
+        sx_done(&sx);
 	return EXIT_FAILURE;
     }
     block_trigger = trig[1];
@@ -370,7 +370,7 @@ int main(int argc, char **argv) {
     if(pipe(trig)) {
 	PCRIT("Cannot create communication pipe");
         cmdline_parser_free(&args);
-        server_done(&sx);
+        sx_done(&sx);
 	return EXIT_FAILURE;
     }
     gc_trigger = trig[1];
@@ -385,7 +385,7 @@ int main(int argc, char **argv) {
 	    if(!getcwd(buf, sizeof(buf))) {
 		PCRIT("Cannot get the current work directory");
                 cmdline_parser_free(&args);
-                server_done(&sx);
+                sx_done(&sx);
 		return EXIT_FAILURE;
 	    }
 	    pidfile = malloc(strlen(buf) + 1 + strlen(pfile) + 1);
@@ -395,7 +395,7 @@ int main(int argc, char **argv) {
 	if(!pidfile) {
 	    PCRIT("Failed to allocate pidfile");
             cmdline_parser_free(&args);
-            server_done(&sx);
+            sx_done(&sx);
 	    return EXIT_FAILURE;
 	}
 	for(i=0;i<MAX_PID_ATTEMPTS;i++) {
@@ -409,7 +409,7 @@ int main(int argc, char **argv) {
 		PCRIT("Failed to create pidfile %s", pidfile);
                 cmdline_parser_free(&args);
                 free(pidfile);
-                server_done(&sx);
+                sx_done(&sx);
 		return EXIT_FAILURE;
 	    }
 
@@ -420,7 +420,7 @@ int main(int argc, char **argv) {
 		PCRIT("Failed to open existing pidfile %s", pidfile);
                 cmdline_parser_free(&args);
                 free(pidfile);
-                server_done(&sx);
+                sx_done(&sx);
 		return EXIT_FAILURE;
 	    }
 
@@ -430,7 +430,7 @@ int main(int argc, char **argv) {
 		PCRIT("Failed to read pid from existing pidfile %s", pidfile);
                 cmdline_parser_free(&args);
                 free(pidfile);
-                server_done(&sx);
+                sx_done(&sx);
 		return EXIT_FAILURE;
 	    }
 
@@ -442,7 +442,7 @@ int main(int argc, char **argv) {
 		    CRIT("Failed to read pid from existing pidfile %s", pidfile);
                     cmdline_parser_free(&args);
                     free(pidfile);
-                    server_done(&sx);
+                    sx_done(&sx);
 		    return EXIT_FAILURE;
 		}
 
@@ -452,7 +452,7 @@ int main(int argc, char **argv) {
 			    PCRIT("Failed to remove stale pidfile %s", pidfile);
                             cmdline_parser_free(&args);
                             free(pidfile);
-                            server_done(&sx);
+                            sx_done(&sx);
 			    return EXIT_FAILURE;
 			}
 			INFO("Removed stale pidfile %s", pidfile);
@@ -462,7 +462,7 @@ int main(int argc, char **argv) {
 			PCRIT("Cannot determine if pid %d is alive", pidsz);
                         cmdline_parser_free(&args);
                         free(pidfile);
-                        server_done(&sx);
+                        sx_done(&sx);
 			return EXIT_FAILURE;
 		    }
 		}
@@ -470,7 +470,7 @@ int main(int argc, char **argv) {
 		CRIT("Pid %d is still alive", pidsz);
                 cmdline_parser_free(&args);
                 free(pidfile);
-                server_done(&sx);
+                sx_done(&sx);
 		return EXIT_FAILURE;
 	    }
 
@@ -479,7 +479,7 @@ int main(int argc, char **argv) {
 		PCRIT("Failed to remove empty pidfile %s", pidfile);
                 cmdline_parser_free(&args);
                 free(pidfile);
-                server_done(&sx);
+                sx_done(&sx);
 		return EXIT_FAILURE;
 	    }
 	    INFO("Removed empty pidfile %s", pidfile);
@@ -489,7 +489,7 @@ int main(int argc, char **argv) {
 	    CRIT("Cannot create pidfile after "STRIFY(MAX_PID_ATTEMPTS)" tries");
             cmdline_parser_free(&args);
             free(pidfile);
-            server_done(&sx);
+            sx_done(&sx);
 	    return EXIT_FAILURE;
 	}
     }
@@ -502,7 +502,7 @@ int main(int argc, char **argv) {
     if(s<0) {
 	CRIT("Failed to open socket '%s'", args.socket_arg);
         cmdline_parser_free(&args);
-        server_done(&sx);
+        sx_done(&sx);
 	return EXIT_FAILURE;
     }
     INFO("Socket '%s' opened successfully", args.socket_arg);
@@ -514,20 +514,20 @@ int main(int argc, char **argv) {
 	if(getsockname(s, (struct sockaddr *)&sa, &salen)) {
 	    PCRIT("failed to determine socket domain");
             cmdline_parser_free(&args);
-            server_done(&sx);
+            sx_done(&sx);
 	    return EXIT_FAILURE;
 	}
 	if(sa.sun_family == AF_UNIX) {
 	    if(salen > sizeof(sa)) {
 		CRIT("Cannot locate socket: path too long");
                 cmdline_parser_free(&args);
-                server_done(&sx);
+                sx_done(&sx);
 		return EXIT_FAILURE;
 	    }
 	    if(chmod(sa.sun_path, sockmode)) {
 		PCRIT("Cannot set permissions on socket %s", sa.sun_path);
                 cmdline_parser_free(&args);
-                server_done(&sx);
+                sx_done(&sx);
 		return EXIT_FAILURE;
 	    }
 	} else
@@ -538,7 +538,7 @@ int main(int argc, char **argv) {
 	if(dup2(s, FCGI_LISTENSOCK_FILENO)<0) {
 	    PCRIT("Failed to rename socket descriptor %d to %d", s, FCGI_LISTENSOCK_FILENO);
             cmdline_parser_free(&args);
-            server_done(&sx);
+            sx_done(&sx);
 	    return EXIT_FAILURE;
 	}
 	close(s);
@@ -556,7 +556,7 @@ int main(int argc, char **argv) {
 	CRIT("Failed to initialize the storage interface");
 	fprintf(stderr, "Failed to initialize the storage interface - check the logfile %s\n", args.logfile_arg);
         cmdline_parser_free(&args);
-        server_done(&sx);
+        sx_done(&sx);
 	return EXIT_FAILURE;
     }
 
@@ -567,7 +567,7 @@ int main(int argc, char **argv) {
 	    PCRIT("Failed to change to root directory");
             cmdline_parser_free(&args);
             free(pidfile);
-            server_done(&sx);
+            sx_done(&sx);
 	    return EXIT_FAILURE;
 	}
 #if STDIN_FILENO != FCGI_LISTENSOCK_FILENO
@@ -575,7 +575,7 @@ int main(int argc, char **argv) {
 	    PCRIT("Failed to redirect standard input to null");
             cmdline_parser_free(&args);
             free(pidfile);
-            server_done(&sx);
+            sx_done(&sx);
 	    return EXIT_FAILURE;
 	}
         close(fd);
@@ -585,7 +585,7 @@ int main(int argc, char **argv) {
 	    PCRIT("Failed to redirect standard output to null");
             cmdline_parser_free(&args);
             free(pidfile);
-            server_done(&sx);
+            sx_done(&sx);
 	    return EXIT_FAILURE;
 	}
         close(fd);
@@ -595,7 +595,7 @@ int main(int argc, char **argv) {
 	    PCRIT("Failed to redirect standard error to null");
             cmdline_parser_free(&args);
             free(pidfile);
-            server_done(&sx);
+            sx_done(&sx);
 	    return EXIT_FAILURE;
 	}
         close(fd);
@@ -607,14 +607,14 @@ int main(int argc, char **argv) {
 	    PCRIT("Cannot fork into background");
             cmdline_parser_free(&args);
             free(pidfile);
-            server_done(&sx);
+            sx_done(&sx);
 	    return EXIT_FAILURE;
 	default:
 	    INFO("Successfully daemonized");
             cmdline_parser_free(&args);
             free(pidfile);
             OS_LibShutdown();
-            server_done(&sx);
+            sx_done(&sx);
 	    return EXIT_SUCCESS;
 	}
 
@@ -643,7 +643,7 @@ int main(int argc, char **argv) {
 	    PCRIT("Failed to write pid to pidfile %s", pidfile);
             cmdline_parser_free(&args);
             free(pidfile);
-            server_done(&sx);
+            sx_done(&sx);
 	    return EXIT_FAILURE;
 	}
 	close(pidfd);
@@ -655,12 +655,12 @@ int main(int argc, char **argv) {
 	PCRIT("Cannot spawn the job manager");
         cmdline_parser_free(&args);
         free(pidfile);
-        server_done(&sx);
+        sx_done(&sx);
 	return EXIT_FAILURE;
     } else if(!pids[JOBMGR]) {
         int ret;
-        server_done(&sx);
-        sx = server_init(NULL, "job manager", args.logfile_arg, foreground, argc, argv);
+        sx_done(&sx);
+        sx = sx_init(NULL, "job manager", args.logfile_arg, foreground, argc, argv);
         if (sx) {
             if(debug)
                 log_setminlevel(sx,SX_LOG_DEBUG);
@@ -670,7 +670,7 @@ int main(int argc, char **argv) {
         }
         cmdline_parser_free(&args);
         free(pidfile);
-        server_done(&sx);
+        sx_done(&sx);
         OS_LibShutdown();
         return ret;
     }
@@ -683,12 +683,12 @@ int main(int argc, char **argv) {
         cmdline_parser_free(&args);
         free(pidfile);
 	kill(pids[JOBMGR], SIGTERM);
-        server_done(&sx);
+        sx_done(&sx);
 	return EXIT_FAILURE;
     } else if(!pids[BLKMGR]) {
         int ret;
-        server_done(&sx);
-        sx = server_init(NULL, "block manager", args.logfile_arg, foreground, argc, argv);
+        sx_done(&sx);
+        sx = sx_init(NULL, "block manager", args.logfile_arg, foreground, argc, argv);
         if (sx) {
             if(debug)
                 log_setminlevel(sx,SX_LOG_DEBUG);
@@ -702,7 +702,7 @@ int main(int argc, char **argv) {
 	close(block_trigger);
         close(gc_trigger);
         OS_LibShutdown();
-        server_done(&sx);
+        sx_done(&sx);
         return ret;
     }
     close(inner_block_trigger);
@@ -715,12 +715,12 @@ int main(int argc, char **argv) {
         free(pidfile);
 	kill(pids[JOBMGR], SIGTERM);
 	kill(pids[BLKMGR], SIGTERM);
-        server_done(&sx);
+        sx_done(&sx);
 	return EXIT_FAILURE;
     } else if(!pids[GCMGR]) {
         int ret;
-        server_done(&sx);
-        sx = server_init(NULL, "garbage collector", args.logfile_arg, foreground, argc, argv);
+        sx_done(&sx);
+        sx = sx_init(NULL, "garbage collector", args.logfile_arg, foreground, argc, argv);
         if (sx) {
             if(debug)
                 log_setminlevel(sx,SX_LOG_DEBUG);
@@ -734,7 +734,7 @@ int main(int argc, char **argv) {
 	close(block_trigger);
         close(gc_trigger);
         OS_LibShutdown();
-        server_done(&sx);
+        sx_done(&sx);
         return ret;
     }
     close(inner_block_trigger);
@@ -758,8 +758,8 @@ int main(int argc, char **argv) {
 		    terminate = -1;
 		    break;
 		case 0:
-                    server_done(&sx);
-                    sx = server_init(&fcgilog, "fastcgi worker", args.logfile_arg, foreground, argc, argv);
+                    sx_done(&sx);
+                    sx = sx_init(&fcgilog, "fastcgi worker", args.logfile_arg, foreground, argc, argv);
                     if (sx) {
                         if(debug)
                             log_setminlevel(sx,SX_LOG_DEBUG);
@@ -770,7 +770,7 @@ int main(int argc, char **argv) {
 		    cmdline_parser_free(&args);
 		    free(pidfile);
 		    OS_LibShutdown();
-                    server_done(&sx);
+                    sx_done(&sx);
 		    return status;
 		}
 		DEBUG("Spawned new worker: pid %d", pids[i]);
@@ -878,7 +878,7 @@ int main(int argc, char **argv) {
     close(block_trigger);
     close(gc_trigger);
     cmdline_parser_free(&args);
-    server_done(&sx);
+    sx_done(&sx);
 
     return terminate == 1 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

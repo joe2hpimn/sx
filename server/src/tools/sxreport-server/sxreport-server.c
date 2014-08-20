@@ -459,7 +459,7 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    sx = server_init(sxc_file_logger(&flogger, argv[0], name, 0), NULL, NULL, 0, argc, argv);
+    sx = sx_init(sxc_file_logger(&flogger, argv[0], name, 0), NULL, NULL, 0, argc, argv);
     sxc_set_verbose(sx, 1);
     params->initialize = 1;
     cmdline_parser_init(&fcgi_args);/* without this it'll crash */
@@ -530,6 +530,6 @@ int main(int argc, char **argv) {
     printf("%s stored in %s\n", args.anonymize_given ? "Anonymized report" : "Report", name);
     printf("You can attach it to a bugreport at %s\n", PACKAGE_BUGREPORT);
     main_cmdline_parser_free(&args);
-    server_done(&sx);
+    sx_done(&sx);
     return 0;
 }
