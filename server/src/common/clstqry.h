@@ -35,7 +35,7 @@
 #include "nodes.h"
 
 typedef struct cstatus clst_t;
-clst_t *clst_query(sxi_conns_t *conns, sxi_hostlist_t *hlist);
+clst_t *clst_query(sxi_conns_t *conns, sxi_hostlist_t *hlist, int *qret);
 unsigned int clst_ndists(clst_t *st);
 const sx_nodelist_t *clst_nodes(clst_t *st, unsigned int dist);
 const sx_uuid_t *clst_distuuid(clst_t *st, unsigned int *version, uint64_t *checksum);

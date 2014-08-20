@@ -57,7 +57,7 @@ void fcgi_handle_cluster_requests(void) {
     int comma = 0;
     rc_ty s;
 
-    if(has_arg("clusterStatus") && !has_priv(PRIV_ADMIN))
+    if(has_arg("clusterStatus") && (!has_priv(PRIV_ADMIN) || is_https() < sx_hashfs_uses_secure_proto(hashfs)))
 	quit_errnum(403);
 
     /* Allow caching of rarely changing hdist-based items but force
