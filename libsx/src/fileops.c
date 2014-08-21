@@ -1752,6 +1752,7 @@ static int local_to_remote_begin(sxc_file_t *source, sxc_meta_t *fmeta, sxc_file
 		goto local_to_remote_err;
 	    }
 	}
+        fflush(yctx->current.f);
 	tsource = sxc_file_local(sx, fname);
 	if(!tsource)
 	    SXDEBUG("failed to create source file object for temporary input file");
