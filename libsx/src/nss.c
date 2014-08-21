@@ -36,6 +36,12 @@ int sxi_sslctxfun(sxc_client_t *sx, curlev_t *ev, const struct curl_tlssessionin
     }
     PRFileDesc *desc = info->internals;
     CERTCertificate *cert = SSL_PeerCertificate(desc);
+    if (!cert) {
+        PRInt32 err = PR_GetError();
+        SXDEBUG("Unable to retrieve certificate for cluster: %s",
+                PR_ErrorToString(err, PR_LANGUAGE_I_DEFAULT));
+        return 0;
+    }
     sxi_conns_t *conns = sxi_curlev_get_conns(ev);
     const char *hostname = sxi_conns_get_sslname(conns);
     SECStatus ret = CERT_VerifyCertName(cert, hostname);
