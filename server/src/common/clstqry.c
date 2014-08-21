@@ -348,8 +348,8 @@ static int cstatus_cb(sxi_conns_t *conns, void *ctx, const void *data, size_t si
 void clst_destroy(clst_t *st) {
     if(!st)
 	return;
-    sx_nodelist_empty(st->one);
-    sx_nodelist_empty(st->two);
+    sx_nodelist_delete(st->one);
+    sx_nodelist_delete(st->two);
     free(st->auth);
     free(st->addr);
     free(st->int_addr);

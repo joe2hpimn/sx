@@ -628,6 +628,7 @@ static sxc_cluster_t *cluster_load(sxc_client_t *sx, struct cluster_args_info *a
 
     /* MODHDIST: update cluster */
 
+    sxc_free_uri(uri);
     return clust;
 }
 
