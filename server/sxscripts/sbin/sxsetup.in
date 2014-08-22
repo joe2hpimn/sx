@@ -24,6 +24,9 @@ while [ $OPTNUM -le $# ]; do
     elif [ "$OPTION" = "--advanced" ]; then
 	ADVANCED_GIVEN="yes"
 
+    elif [ "$OPTION" = "--bare" ]; then
+	BARE_GIVEN="yes"
+
     elif [ "$OPTION" = "--force-reinit" ]; then
 	FORCE_REINIT_GIVEN="yes"
 
@@ -48,10 +51,16 @@ if [ "$HELP_GIVEN" = "yes" ]; then
     echo "    --config-file FILE  Use config FILE to configure the node"
     echo "                        automatically."
     echo "    --advanced          Enable advanced configuration"
+    echo "    --bare              Create a bare (unprogrammed) node"
     echo "    --force-reinit      Overwrite existing configuration"
     echo "    --debug             Turn on debug mode for the created node"
     echo
     exit 0
+fi
+
+if [ "$BARE_GIVEN" = "yes" -a "$CONFIG_FILE_GIVEN" != "yes" ]; then
+    echo "ERROR: --bare is only supported together with --config-file"
+    exit 1
 fi
 
 ETCDIR="@sysconfdir@"
@@ -874,12 +883,21 @@ if [ ! -f "$SX_DATA_DIR/hashfs.db" ]; then
 	    exit 1
 	fi
 
-	# Commit new cluster config
 	if [ -n "$SX_NODE_INTERNAL_IP" -a "$SX_NODE_INTERNAL_IP" != "$SX_NODE_IP" ]; then
 	    NEWNODE="$SX_NODE_SIZE/$SX_NODE_IP/$SX_NODE_INTERNAL_IP"
 	else
 	    NEWNODE="$SX_NODE_SIZE/$SX_NODE_IP"
 	fi
+
+	if [ "$BARE_GIVEN" = "yes" ]; then
+	    echo "Bare node created. Use 'sxadm cluster --mod' to add it to the distribution."
+	    echo "Node specification: $NEWNODE"
+	    rm -rf $SXSETUP_TMPDIR
+	    trap - EXIT INT
+	    exit 0
+	fi
+
+	# Commit new cluster config
 	REBCNT=1
 	MODCNT=1
 	while true; do
