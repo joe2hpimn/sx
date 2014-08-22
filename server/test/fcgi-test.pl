@@ -357,6 +357,7 @@ sub test_upload {
     my $fname = shift;
     my $expect = shift;
     my $meta = shift;
+    my $expectrc = shift; #Expected return code for PUT operation
     my $len = length $file;
 
     print "Checking $test ($who)... ";
@@ -432,10 +433,21 @@ sub test_upload {
 	$repl = do_query $req, $auth;
 #	print $req->as_string."\n";
 #	print $repl->decoded_content."\n";
-	if($repl->code != 200) {
-	    fail 'cannot request file upload - bad status '.$repl->code;
-	    return;
-	}
+        if($i == 0 && defined $expectrc) {
+            if($expectrc != $repl->code) {
+                fail 'Unexpected return code: got '.$repl->code;
+                return;
+            }
+            if($expectrc != 200) {
+                ok "Got expected return code";
+                return;
+            }
+        } else {
+            if($repl->code != 200) {
+	        fail 'cannot request file upload - bad status '.$repl->code;
+	        return;
+	    }
+        }
 	if($repl->content_type ne 'application/json') {
 	    fail 'cannot request file upload - bad content type '.$repl->content_type;
 	    return;
@@ -709,8 +721,15 @@ test_get 'the newly created volume for meta ', {'badauth'=>[401],$reader=>[200,'
 
 test_put_job 'volume creation (with bad meta)', admin_only(400), "badmeta.$vol", "{\"owner\":\"admin\",\"volumeSize\":$volumesize,\"volumeMeta\":{\"badval\":\"0dd\"}}";
 
+# Tiny volume will be used for volume size enforcement tests
+test_put_job "volume creation (tiny volume)", admin_only(200), "tiny$vol", "{\"volumeSize\":$tinyvolumesize,\"owner\":\"admin\"}";
+test_put_job 'granting rights on newly created volume', admin_only(200), "tiny$vol?o=acl", "{\"grant-read\":[\"$reader\",\"$writer\"],\"grant-write\":[\"$writer\"] }";
+test_get 'the newly created volume', authed_only(200, 'application/json'), "tiny$vol", undef, sub { my $json = get_json(shift) or return 0; return is_int($json->{'volumeSize'}) && $json->{'volumeSize'} == $tinyvolumesize && is_hash($json->{'fileList'}) && scalar keys %{$json->{'fileList'}} == 0 };
+
 ### FILE TESTS ###
 my $blk;
+test_upload 'file upload (not exceeding volume capacity)', $writer, random_data($tinyvolumesize), "tiny$vol", 'toobig';
+
 test_upload 'file upload (small blocksize)', $writer, random_data($blocksize), $vol, '1bs';
 test_upload 'file upload (small blocksize + 500)', $writer, random_data($blocksize + 500), $vol, '1bs+1', undef, {};
 test_upload 'file upload (0.5x small blocksize)', $writer, random_data($blocksize / 2), $vol, '0.5bs', undef, { 'key1' => '6669727374', 'key2' => '7365636f6e64' };
@@ -747,6 +766,8 @@ test_upload 'file upload (big blocksize + 500)', $writer, $blk, "large$vol", '1b
 random_data_r(\$blk, $blocksize);
 test_upload 'file upload (big blocksize, repeating)', $writer, ($blk x 64).random_data($blocksize).($blk x 64), "large$vol", 'rep', 2;
 test_upload 'file upload (big blocksize, previous)', $writer, $blk x 160, "large$vol", 'prev', 0;
+
+test_upload 'file upload (exceeding volume capacity)', $writer, random_data($tinyvolumesize+1), "tiny$vol", 'toobig', undef, {}, 413;
 
 test_get 'listing all files', authed_only(200, 'application/json'), $vol, undef, sub { my $json = get_json(shift) or return 0; return is_int($json->{'volumeSize'}) && $json->{'volumeSize'} == $volumesize && is_int($json->{'replicaCount'}) && $json->{'replicaCount'} == 1 && is_hash($json->{'fileList'}) && is_hash($json->{'fileList'}->{'/empty'}) && is_int($json->{'fileList'}->{'/empty'}->{'fileSize'}) && $json->{'fileList'}->{'/empty'}->{'fileSize'} == 0 && is_int($json->{'fileList'}->{'/empty'}->{'blockSize'}) && $json->{'fileList'}->{'/empty'}->{'blockSize'} == 4096 && is_int($json->{'fileList'}->{'/empty'}->{'createdAt'}) && is_string($json->{'fileList'}->{'/empty'}->{'fileRevision'}) };
 test_get 'listing files - filter exact', authed_only(200, 'application/json'), "$vol?filter=file", undef, sub { my $json = get_json(shift) or return 0; return is_hash($json->{'fileList'}) && scalar keys %{$json->{'fileList'}} == 2 && is_hash($json->{'fileList'}->{'/file'}) };

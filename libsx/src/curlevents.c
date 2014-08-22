@@ -447,9 +447,9 @@ void sxi_cbdata_setclusterr(curlev_context_t *ctx, const char *nodeid, const cha
         msg = httpcode;
     }
     sxi_fmt_start(&f);
-    sxi_fmt_msg(&f, "Failed to %s: %s (", ctx->op ? ctx->op : "query cluster", msg);
+    sxi_fmt_msg(&f, "Failed to %s: %s", ctx->op ? ctx->op : "query cluster", msg);
     if (ctx->op_host) {
-        sxi_fmt_msg(&f, "sx://%s", ctx->op_host);
+        sxi_fmt_msg(&f, ": sx://%s", ctx->op_host);
         if (ctx->op_vol) {
             sxi_fmt_msg(&f, "/%s", ctx->op_vol);
             if (ctx->op_path) {
@@ -457,14 +457,13 @@ void sxi_cbdata_setclusterr(curlev_context_t *ctx, const char *nodeid, const cha
             }
         }
     }
-    sxi_fmt_msg(&f," on");
-    if (nodeid)
-        sxi_fmt_msg(&f, " node:%s", nodeid);
-    if (reqid)
-        sxi_fmt_msg(&f, " reqid:%s", reqid);
-    sxi_fmt_msg(&f, ")");
-    if (status < 400 || status >= 500) {
-        /* do not print details on 40x */
+    if(status == 500 || status == 503) {
+        sxi_fmt_msg(&f," (on");
+        if (nodeid)
+            sxi_fmt_msg(&f, " node:%s", nodeid);
+        if (reqid)
+            sxi_fmt_msg(&f, " reqid:%s", reqid);
+        sxi_fmt_msg(&f, ")");
         if (sxc_is_verbose(sx) && details && *details)
             sxi_fmt_msg(&f, "\nHTTP %d: %s", status, details);
     }

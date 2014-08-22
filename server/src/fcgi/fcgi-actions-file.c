@@ -399,8 +399,7 @@ void fcgi_create_file(void) {
     CGI_PUTS("\r\n");
 }
 
-
-static void create_or_extend_tempfile(int extending) {
+static void create_or_extend_tempfile(const sx_hashfs_volume_t *vol, const char *filename, int extending) {
     hash_presence_ctx_t ctx;
     const char *token;
     int len;
@@ -429,6 +428,15 @@ static void create_or_extend_tempfile(int extending) {
     yajl_free(yh);
     auth_complete();
     quit_unless_authed();
+
+    if(vol && filename && !extending && (s = sx_hashfs_check_file_size(hashfs, vol, filename, yctx.filesize)) != OK) {
+        sx_hashfs_getfile_end(hashfs);
+        WARN("File size is not correct: %s", msg_get_reason());
+        if(s == ENOSPC)
+            quit_errmsg(413, msg_get_reason());
+        else
+            quit_errmsg(500, msg_get_reason());
+    }
 
     /* FIXME: extend should reuse old token, not get a new one because the
      * expiry time will be wrong... */
@@ -460,17 +468,18 @@ static void create_or_extend_tempfile(int extending) {
 }
 
 void fcgi_create_tempfile(void) {
-    rc_ty s = sx_hashfs_putfile_begin(hashfs, uid, volume, path);
+    const sx_hashfs_volume_t *vol;
+    rc_ty s = sx_hashfs_putfile_begin(hashfs, uid, volume, path, &vol);
     if(s != OK)
 	quit_errmsg(rc2http(s), msg_get_reason());
-    create_or_extend_tempfile(0);
+    create_or_extend_tempfile(vol, path, 0);
 }
 
 void fcgi_extend_tempfile(void) {
     rc_ty s = sx_hashfs_putfile_extend_begin(hashfs, uid, user, path);
     if(s != OK)
 	quit_errmsg(rc2http(s), msg_get_reason());
-    create_or_extend_tempfile(1);
+    create_or_extend_tempfile(NULL, NULL, 1);
 }
 
 void fcgi_flush_tempfile(void) {

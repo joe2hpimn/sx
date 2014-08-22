@@ -188,6 +188,7 @@ rc_ty sx_hashfs_volume_delete(sx_hashfs_t *h, const char *volume);
 typedef struct _sx_hashfs_volume_t {
     int64_t id;
     int64_t size;
+    int64_t cursize;
     unsigned int replica_count;
     unsigned int revisions;
     char name[SXLIMIT_MAX_VOLNAME_LEN + 1];
@@ -248,7 +249,8 @@ rc_ty sx_hashfs_gc_run(sx_hashfs_t *h, int *terminate);
 /* File put */
 
 const char *sx_hashfs_geterrmsg(sx_hashfs_t *h);
-rc_ty sx_hashfs_putfile_begin(sx_hashfs_t *h, sx_uid_t user_id, const char *volume, const char *file);
+rc_ty sx_hashfs_check_file_size(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, const char *filename, int64_t size);
+rc_ty sx_hashfs_putfile_begin(sx_hashfs_t *h, sx_uid_t user_id, const char *volume, const char *file, const sx_hashfs_volume_t **volptr);
 rc_ty sx_hashfs_putfile_extend_begin(sx_hashfs_t *h, sx_uid_t user_id, const uint8_t *user, const char *token);
 rc_ty sx_hashfs_putfile_putblock(sx_hashfs_t *h, sx_hash_t *hash);
 rc_ty sx_hashfs_putfile_putmeta(sx_hashfs_t *h, const char *key, void *value, unsigned int value_len);

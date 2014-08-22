@@ -1461,7 +1461,7 @@ static int multi_part_compute_hash_ev(struct file_upload_ctx *yctx)
     /* TODO: state->end should be yctx->end */
     yctx->current.ref++;
     /* TODO: multiple volhost support */
-    sxi_set_operation(sx, "upload file content hashes", NULL, NULL, NULL);
+    sxi_cbdata_set_operation(cbdata, "upload file content hashes", NULL, NULL, NULL);
 
     if(sxi_cluster_query_ev_retry(cbdata, sxi_cluster_get_conns(yctx->cluster), yctx->volhosts,
                                   yctx->query->verb, yctx->query->path, yctx->query->content, yctx->query->content_len,
@@ -1529,7 +1529,6 @@ static sxi_job_t* multi_upload(struct file_upload_ctx *state)
 {
     sxc_client_t *sx = sxi_cluster_get_client(state->cluster);;
     int ret = -1;
-
     do {
         state->end = state->pos + state->max_part_blocks * state->blocksize;
         if (state->end <= state->size) {
