@@ -363,18 +363,18 @@ int sxi_cbdata_result(curlev_context_t *ctx, int *curlcode, enum sxc_error_t *er
     if (!rctx)
         return -1;
 
-    if(http_status)
+    if(http_status && (rctx->rc == CURLE_OK || rctx->rc == CURLE_WRITE_ERROR))
         *http_status = rctx->reply_status;
     if(errnum)
         *errnum = sxi_cbdata_geterrnum(ctx);
     if (curlcode)
         *curlcode = rctx->rc;
 
-    if (rctx->rc == CURLE_OUT_OF_MEMORY)
+    if (rctx->rc == CURLE_OUT_OF_MEMORY) {
         sxi_cbdata_seterr(ctx, SXE_ECURL, "Cluster query failed: Out of memory in library routine");
-
-    if (ctx->errnum != SXE_NOERROR || rctx->rc != CURLE_OK)
         return -1;
+    }
+
     return 0;
 }
 
