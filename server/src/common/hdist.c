@@ -445,7 +445,7 @@ static rc_ty hdist_addnode(sxi_hdist_t *model, unsigned int id, uint64_t capacit
 
     if(model->cfg_size + 140 > model->cfg_alloced) {
 	model->cfg_alloced += CFG_PREALLOC;
-	model->cfg = (char *) wrap_realloc(model->cfg, sizeof(char) * model->cfg_alloced);
+	model->cfg = (char *) wrap_realloc_or_free(model->cfg, sizeof(char) * model->cfg_alloced);
 	if(!model->cfg) {
 	    CRIT("Can't realloc model->cfg");
 	    return ENOMEM;
@@ -684,7 +684,7 @@ rc_ty sxi_hdist_rebalanced(sxi_hdist_t *model)
 
     if(model->cfg_size + 33 > model->cfg_alloced) {
 	model->cfg_alloced += CFG_PREALLOC;
-	model->cfg = (char *) wrap_realloc(model->cfg, sizeof(char) * model->cfg_alloced);
+	model->cfg = (char *) wrap_realloc_or_free(model->cfg, sizeof(char) * model->cfg_alloced);
 	if(!model->cfg) {
 	    CRIT("Can't realloc model->cfg");
 	    return ENOMEM;
@@ -736,7 +736,7 @@ rc_ty sxi_hdist_build(sxi_hdist_t *model)
 
     qsort(model->node_list[0], model->node_count[0], sizeof(struct hdist_node), node_cmp);
 
-    model->circle[0] = (struct hdist_point *) wrap_calloc(points_total, sizeof(struct hdist_point));
+    model->circle[0] = (struct hdist_point *) wrap_malloc(points_total * sizeof(struct hdist_point));
     if(!model->circle[0]) {
 	CRIT("Can't allocate model->circle[0]");
 	return ENOMEM;
@@ -747,8 +747,14 @@ rc_ty sxi_hdist_build(sxi_hdist_t *model)
 	for(i = 0; i < model->node_count[0]; i++) {
 		unsigned int node_points = (model->node_list[0][i].capacity / (float) model->capacity_total[0]) * points_total;
 
-	    if(!node_points)
+	    if(!node_points) {
 		node_points++;
+		model->circle[0] = wrap_realloc_or_free(model->circle[0], ++points_total * sizeof(struct hdist_point));
+		if(!model->circle[0]) {
+		    CRIT("Can't realloc model->circle[0]");
+		    return ENOMEM;
+		}
+	    }
 
 	    for(j = 0; j < node_points; j++) {
 		if(p >= points_total) {
@@ -769,8 +775,14 @@ rc_ty sxi_hdist_build(sxi_hdist_t *model)
 		    unsigned int node_points_cnt;
 		    unsigned int point_num = 0;
 
-		if(!node_points)
+		if(!node_points) {
 		    node_points++;
+		    model->circle[0] = wrap_realloc_or_free(model->circle[0], ++points_total * sizeof(struct hdist_point));
+		    if(!model->circle[0]) {
+			CRIT("Can't realloc model->circle[0]");
+			return ENOMEM;
+		    }
+		}
 
 		node_points_cnt = node_points;
 		if(node_in_set(NULL, model->node_list[1], model->node_count[1], model->node_list[0][i].id)) {
@@ -817,7 +829,7 @@ rc_ty sxi_hdist_build(sxi_hdist_t *model)
 
     if(model->cfg_size + 28 > model->cfg_alloced) {
 	model->cfg_alloced += CFG_PREALLOC;
-	model->cfg = (char *) wrap_realloc(model->cfg, sizeof(char) * model->cfg_alloced);
+	model->cfg = (char *) wrap_realloc_or_free(model->cfg, sizeof(char) * model->cfg_alloced);
 	if(!model->cfg) {
 	    CRIT("Can't realloc model->cfg");
 	    return ENOMEM;
