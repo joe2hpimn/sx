@@ -197,12 +197,12 @@ void fcgi_list_volume(const sx_hashfs_volume_t *vol) {
 }
 
 
-/* {"volumeSize":123, "replicaCount":2, "volumeMeta":{"metaKey":"hex(value)"}, "user":"jack"} */
+/* {"volumeSize":123, "replicaCount":2, "volumeMeta":{"metaKey":"hex(value)"}, "user":"jack", "maxRevisions":5} */
 struct cb_vol_ctx {
-    enum cb_vol_state { CB_VOL_START, CB_VOL_KEY, CB_VOL_VOLSIZE, CB_VOL_REPLICACNT, CB_VOL_OWNER, CB_VOL_META, CB_VOL_METAKEY, CB_VOL_METAVALUE, CB_VOL_COMPLETE } state;
+    enum cb_vol_state { CB_VOL_START, CB_VOL_KEY, CB_VOL_VOLSIZE, CB_VOL_REPLICACNT, CB_VOL_OWNER, CB_VOL_NREVS, CB_VOL_META, CB_VOL_METAKEY, CB_VOL_METAVALUE, CB_VOL_COMPLETE } state;
     int64_t volsize;
     int replica;
-    unsigned int nmeta;
+    unsigned int nmeta, revisions;
     char owner[SXLIMIT_MAX_USERNAME_LEN+1];
     char metakey[SXLIMIT_META_MAX_KEY_LEN+1];
     sx_blob_t *metablb;
@@ -228,6 +228,14 @@ static int cb_vol_number(void *ctx, const char *s, size_t l) {
 	number[l] = '\0';
 	c->replica = strtol(number, &eon, 10);
 	if(*eon || c->replica < 1)
+	    return 0;
+    } else if(c->state == CB_VOL_NREVS) {
+	if(c->revisions || l<1 || l>10)
+	    return 0;
+	memcpy(number, s, l);
+	number[l] = '\0';
+	c->revisions = strtol(number, &eon, 10);
+	if(*eon || c->revisions < 1)
 	    return 0;
     } else
 	return 0;
@@ -264,6 +272,10 @@ static int cb_vol_map_key(void *ctx, const unsigned char *s, size_t l) {
 	}
 	if(l == lenof("owner") && !strncmp("owner", s, l)) {
 	    c->state = CB_VOL_OWNER;
+	    return 1;
+	}
+	if(l == lenof("maxRevisions") && !strncmp("maxRevisions", s, l)) {
+	    c->state = CB_VOL_NREVS;
 	    return 1;
 	}
     } else if(c->state == CB_VOL_METAKEY) {
@@ -739,6 +751,7 @@ void fcgi_create_volume(void) {
     yctx.state = CB_VOL_START;
     yctx.volsize = -1LL;
     yctx.replica = 0;
+    yctx.revisions = 0;
     yctx.owner[0] = '\0';
     yctx.nmeta = 0;
     yctx.metablb = sx_blob_new();
@@ -779,6 +792,10 @@ void fcgi_create_volume(void) {
 	sx_blob_free(yctx.metablb);
 	quit_errmsg(400, "Invalid owner");
     }
+
+    if(yctx.revisions == 0)
+	yctx.revisions = 1;
+
     if(has_priv(PRIV_CLUSTER)) {
 	/* Request comes in from the cluster: apply locally */
 	sx_hashfs_volume_new_begin(hashfs);
@@ -802,7 +819,7 @@ void fcgi_create_volume(void) {
 	    }
 	}
 
-	s = sx_hashfs_volume_new_finish(hashfs, volume, yctx.volsize, yctx.replica, owner_uid);
+	s = sx_hashfs_volume_new_finish(hashfs, volume, yctx.volsize, yctx.replica, yctx.revisions, owner_uid);
 	sx_blob_free(yctx.metablb);
 
 	switch (s) {
@@ -840,6 +857,7 @@ void fcgi_create_volume(void) {
 	   sx_blob_add_string(joblb, yctx.owner) ||
 	   sx_blob_add_int64(joblb, yctx.volsize) ||
 	   sx_blob_add_int32(joblb, yctx.replica) ||
+	   sx_blob_add_int32(joblb, yctx.revisions) ||
 	   sx_blob_add_int32(joblb, yctx.nmeta) ||
 	   sx_blob_add_int32(joblb, extra_job_timeout) ||
 	   sx_blob_cat(joblb, yctx.metablb)) {

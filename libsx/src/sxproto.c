@@ -161,7 +161,7 @@ sxi_query_t *sxi_useradd_proto(sxc_client_t *sx, const char *username, const uin
     return ret;
 }
 
-sxi_query_t *sxi_volumeadd_proto(sxc_client_t *sx, const char *volname, const char *owner, int64_t size, unsigned int replica, sxc_meta_t *metadata) {
+sxi_query_t *sxi_volumeadd_proto(sxc_client_t *sx, const char *volname, const char *owner, int64_t size, unsigned int replica, unsigned int revisions, sxc_meta_t *metadata) {
     unsigned int tlen;
     char *url, *qowner;
     sxi_query_t *ret;
@@ -180,9 +180,9 @@ sxi_query_t *sxi_volumeadd_proto(sxc_client_t *sx, const char *volname, const ch
     ret = sxi_query_create(sx, url, REQ_PUT);
     free(url);
     if (ret) {
-        tlen = lenof("{\"volumeSize\":,\"replicaCount\":,\"owner\":,\"volumeMeta\":{}}") + strlen(qowner) + 128; /* content */
-        ret = sxi_query_append_fmt(sx, ret, tlen, "{\"volumeSize\":%lld,\"owner\":%s,\"replicaCount\":%u",
-                                   (long long)size, qowner, replica);
+        tlen = lenof("{\"volumeSize\":,\"replicaCount\":,\"maxRevisions\":,\"owner\":,\"volumeMeta\":{}}") + strlen(qowner) + 128; /* content */
+        ret = sxi_query_append_fmt(sx, ret, tlen, "{\"volumeSize\":%lld,\"owner\":%s,\"replicaCount\":%u,\"maxRevisions\":%u",
+                                   (long long)size, qowner, replica, revisions);
     }
     free(qowner);
     if (sxi_query_add_meta(sx, ret, "volumeMeta", metadata) == -1) {

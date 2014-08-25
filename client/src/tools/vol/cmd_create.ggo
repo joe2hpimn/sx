@@ -12,6 +12,8 @@ option	"filter"    f "Use filter 'NAME' for the new volume" string typestr="NAME
 
 option  "size"	    s "Set the size of the new volume (allows k,m,g,t suffixes)" string default="10G" optional
 
+option  "max-revisions" - "Set the maximum number of revisions to keep for files in this volume" int default="1" optional
+
 text "\nAdditional options:\n"
 
 option  "debug"			D "Enable debug messages" flag off

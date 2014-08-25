@@ -39,7 +39,7 @@
 #include "volops.h"
 #include "vcrypto.h"
 
-int sxc_volume_add(sxc_cluster_t *cluster, const char *name, int64_t size, unsigned int replica, sxc_meta_t *metadata, const char *owner)
+int sxc_volume_add(sxc_cluster_t *cluster, const char *name, int64_t size, unsigned int replica, unsigned int revisions, sxc_meta_t *metadata, const char *owner)
 {
     sxc_client_t *sx = sxi_cluster_get_client(cluster);
     sxi_query_t *proto;
@@ -52,7 +52,7 @@ int sxc_volume_add(sxc_cluster_t *cluster, const char *name, int64_t size, unsig
 	return 1;
     }
 
-    proto = sxi_volumeadd_proto(sx, name, owner, size, replica, metadata);
+    proto = sxi_volumeadd_proto(sx, name, owner, size, replica, revisions, metadata);
     if(!proto) {
 	SXDEBUG("Cannot allocate request");
 	return 1;

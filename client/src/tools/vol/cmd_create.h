@@ -52,6 +52,9 @@ struct create_args_info
   char * size_arg;	/**< @brief Set the size of the new volume (allows k,m,g,t suffixes) (default='10G').  */
   char * size_orig;	/**< @brief Set the size of the new volume (allows k,m,g,t suffixes) original value given at command line.  */
   const char *size_help; /**< @brief Set the size of the new volume (allows k,m,g,t suffixes) help description.  */
+  int max_revisions_arg;	/**< @brief Set the maximum number of revisions to keep for files in this volume (default='1').  */
+  char * max_revisions_orig;	/**< @brief Set the maximum number of revisions to keep for files in this volume original value given at command line.  */
+  const char *max_revisions_help; /**< @brief Set the maximum number of revisions to keep for files in this volume help description.  */
   int debug_flag;	/**< @brief Enable debug messages (default=off).  */
   const char *debug_help; /**< @brief Enable debug messages help description.  */
   char * config_dir_arg;	/**< @brief Path to SX configuration directory.  */
@@ -68,6 +71,7 @@ struct create_args_info
   unsigned int owner_given ;	/**< @brief Whether owner was given.  */
   unsigned int filter_given ;	/**< @brief Whether filter was given.  */
   unsigned int size_given ;	/**< @brief Whether size was given.  */
+  unsigned int max_revisions_given ;	/**< @brief Whether max-revisions was given.  */
   unsigned int debug_given ;	/**< @brief Whether debug was given.  */
   unsigned int config_dir_given ;	/**< @brief Whether config-dir was given.  */
   unsigned int filter_dir_given ;	/**< @brief Whether filter-dir was given.  */

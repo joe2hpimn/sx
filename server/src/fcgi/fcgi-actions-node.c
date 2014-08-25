@@ -551,7 +551,7 @@ void fcgi_node_init(void) {
 
     {
         "volumes":{
-	    "volume1":{"owner":"xxxx","replica":1,"size":1234,""meta":{"key":"val","key2":"val2"}},
+	    "volume1":{"owner":"xxxx","replica":1,"revs":1,"size":1234,""meta":{"key":"val","key2":"val2"}},
 	    "volume2":{"owner":"yyyy","replica":2,"size":5678},
         }
     }
@@ -564,14 +564,14 @@ void fcgi_node_init(void) {
 */
 
 struct cb_sync_ctx {
-    enum cb_sync_state { CB_SYNC_START, CB_SYNC_MAIN, CB_SYNC_USERS, CB_SYNC_VOLUMES, CB_SYNC_PERMS, CB_SYNC_INUSERS, CB_SYNC_INVOLUMES, CB_SYNC_INPERMS, CB_SYNC_USR, CB_SYNC_VOL, CB_SYNC_PRM, CB_SYNC_USRKEY, CB_SYNC_VOLKEY, CB_SYNC_PRMKEY, CB_SYNC_USRAUTH, CB_SYNC_USRROLE, CB_SYNC_VOLOWNR, CB_SYNC_VOLREP, CB_SYNC_VOLSIZ, CB_SYNC_VOLMETA, CB_SYNC_VOLMETAKEY, CB_SYNC_VOLMETAVAL, CB_SYNC_PRMVAL, CB_SYNC_OUTRO, CB_SYNC_COMPLETE } state;
+    enum cb_sync_state { CB_SYNC_START, CB_SYNC_MAIN, CB_SYNC_USERS, CB_SYNC_VOLUMES, CB_SYNC_PERMS, CB_SYNC_INUSERS, CB_SYNC_INVOLUMES, CB_SYNC_INPERMS, CB_SYNC_USR, CB_SYNC_VOL, CB_SYNC_PRM, CB_SYNC_USRKEY, CB_SYNC_VOLKEY, CB_SYNC_PRMKEY, CB_SYNC_USRAUTH, CB_SYNC_USRROLE, CB_SYNC_VOLOWNR, CB_SYNC_VOLREP, CB_SYNC_VOLREVS, CB_SYNC_VOLSIZ, CB_SYNC_VOLMETA, CB_SYNC_VOLMETAKEY, CB_SYNC_VOLMETAVAL, CB_SYNC_PRMVAL, CB_SYNC_OUTRO, CB_SYNC_COMPLETE } state;
     int64_t size;
     char name[MAX(SXLIMIT_MAX_VOLNAME_LEN, SXLIMIT_MAX_USERNAME_LEN) + 1];
     char mkey[SXLIMIT_META_MAX_KEY_LEN+1];
     uint8_t key[AUTH_KEY_LEN];
     sx_uid_t uid;
     int admin, have_key;
-    unsigned int replica;
+    unsigned int replica, revs;
 };
 
 static int cb_sync_string(void *ctx, const unsigned char *s, size_t l) {
@@ -639,7 +639,7 @@ static int cb_sync_number(void *ctx, const char *s, size_t l) {
     char number[24], *eon;
     int64_t n;
 
-    if(c->state != CB_SYNC_VOLREP && c->state != CB_SYNC_VOLSIZ)
+    if(c->state != CB_SYNC_VOLREP && c->state != CB_SYNC_VOLSIZ && c->state != CB_SYNC_VOLREVS)
 	return 0;
 
     if(l<1 || l>20)
@@ -650,12 +650,14 @@ static int cb_sync_number(void *ctx, const char *s, size_t l) {
     if(*eon || n <= 0)
 	return 0;
 
-    if(c->state == CB_SYNC_VOLREP) {
-	if(n > 0xffffffff)
-	    return 0;
-	c->replica = (unsigned int)n;
-    } else
+    if(c->state == CB_SYNC_VOLSIZ)
 	c->size = n;
+    else if(n > 0xffffffff)
+	return 0;
+    else if(c->state == CB_SYNC_VOLREP)
+	c->replica = (unsigned int)n;
+    else 
+	c->revs = (unsigned int)n;
 
     c->state = CB_SYNC_VOLKEY;
 
@@ -718,6 +720,7 @@ static int cb_sync_map_key(void *ctx, const unsigned char *s, size_t l) {
 	    sx_hashfs_volume_new_begin(hashfs);
 	    c->uid = -1;
 	    c->replica = 0;
+	    c->revs = 0;
 	    c->size = -1;
 	    c->state = CB_SYNC_VOL;
 	} else
@@ -734,6 +737,8 @@ static int cb_sync_map_key(void *ctx, const unsigned char *s, size_t l) {
 	    c->state = CB_SYNC_VOLOWNR;
 	else if(l == lenof("replica") && !strncmp("replica", s, lenof("replica")))
 	    c->state = CB_SYNC_VOLREP;
+	else if(l == lenof("revs") && !strncmp("revs", s, lenof("revs")))
+	    c->state = CB_SYNC_VOLREVS;
 	else if(l == lenof("size") && !strncmp("size", s, lenof("size")))
 	    c->state = CB_SYNC_VOLSIZ;
 	else if(l == lenof("meta") && !strncmp("meta", s, lenof("meta")))
@@ -775,7 +780,9 @@ static int cb_sync_end_map(void *ctx) {
     } else if(c->state == CB_SYNC_VOLKEY) {
 	if(c->uid < 0 || c->size <= 0 || !c->replica)
 	    return 0;
-	if(sx_hashfs_volume_new_finish(hashfs, c->name, c->size, c->replica, c->uid))
+	if(!c->revs)
+	    c->revs = 1;
+	if(sx_hashfs_volume_new_finish(hashfs, c->name, c->size, c->replica, c->revs, c->uid))
 	    return 0;
 	if(sx_hashfs_volume_enable(hashfs, c->name))
 	    return 0;

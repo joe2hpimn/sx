@@ -363,7 +363,7 @@ static act_result_t createvol_request(sx_hashfs_t *hashfs, job_t job_id, job_dat
     const char *volname, *owner;
     int64_t volsize, owner_uid;
     unsigned int nnode, nnodes;
-    int i, replica, nmeta, bumpttl;
+    int i, replica, revisions, nmeta, bumpttl;
     sx_blob_t *b = NULL;
     act_result_t ret = ACT_RESULT_OK;
     sxi_query_t *proto = NULL;
@@ -384,6 +384,7 @@ static act_result_t createvol_request(sx_hashfs_t *hashfs, job_t job_id, job_dat
        sx_blob_get_string(b, &owner) ||
        sx_blob_get_int64(b, &volsize) ||
        sx_blob_get_int32(b, &replica) ||
+       sx_blob_get_int32(b, &revisions) ||
        sx_blob_get_int32(b, &nmeta) ||
        sx_blob_get_int32(b, &bumpttl)) {
 	WARN("Cannot get volume data from blob for job %lld", (long long)job_id);
@@ -401,7 +402,7 @@ static act_result_t createvol_request(sx_hashfs_t *hashfs, job_t job_id, job_dat
     for(nnode = 0; nnode<nnodes; nnode++) {
 	const sx_node_t *node = sx_nodelist_get(nodes, nnode);
 
-	INFO("Making volume %s - owner: %s, size: %lld, replica: %d, meta: %d on %s", volname, owner, (long long)volsize, replica, nmeta, sx_node_uuid_str(node));
+	INFO("Making volume %s - owner: %s, size: %lld, replica: %d, revs: %u, meta: %d on %s", volname, owner, (long long)volsize, replica, revisions, nmeta, sx_node_uuid_str(node));
 
 	if(!sx_node_cmp(me, node)) {
 	    sx_hashfs_volume_new_begin(hashfs);
@@ -424,7 +425,7 @@ static act_result_t createvol_request(sx_hashfs_t *hashfs, job_t job_id, job_dat
 		}
 	    }
 
-	    s = sx_hashfs_volume_new_finish(hashfs, volname, volsize, replica, owner_uid);
+	    s = sx_hashfs_volume_new_finish(hashfs, volname, volsize, replica, revisions, owner_uid);
 	    if(s != OK) {
                 const char *msg = s == EINVAL ? msg_get_reason() : rc2str(s);
 		action_error(rc2actres(s), rc2http(s), msg);
@@ -456,7 +457,7 @@ static act_result_t createvol_request(sx_hashfs_t *hashfs, job_t job_id, job_dat
 		    }
 		}
 
-		proto = sxi_volumeadd_proto(sx, volname, owner, volsize, replica, vmeta);
+		proto = sxi_volumeadd_proto(sx, volname, owner, volsize, replica, revisions, vmeta);
 		if(!proto) {
 		    WARN("Cannot allocate proto for job %lld", (long long)job_id);
 		    action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
@@ -1573,7 +1574,7 @@ static int sync_global_objects(sx_hashfs_t *hashfs, const sxi_hostlist_t *hlist)
 	   - the fully encoded volume name - 2 + length(name) * 6
 	   - the owner - 40 bytes
 	   - the meta (computed and added later)
-	   - the json skeleton ':{"owner":"","size":,"replica":,"meta":{}},' - ~95 bytes
+	   - the json skeleton ':{"owner":"","size":,"replica":,"revs":,"meta":{}},' - ~100 bytes
 	   - the trailing '}}\0' - 3 bytes
 	*/
 
@@ -1632,7 +1633,7 @@ static int sync_global_objects(sx_hashfs_t *hashfs, const sxi_hostlist_t *hlist)
 	    s = ENOMEM;
 	    break;
 	}
-	sprintf(&ctx.buffer[ctx.at], "%s:{\"owner\":\"%s\",\"size\":%lld,\"replica\":%u", enc_name, userhex, (long long)vol->size, vol->replica_count);
+	sprintf(&ctx.buffer[ctx.at], "%s:{\"owner\":\"%s\",\"size\":%lld,\"replica\":%u,\"revs\":%u", enc_name, userhex, (long long)vol->size, vol->replica_count, vol->revisions);
 	free(enc_name);
 	if(ctx.nmeta) {
 	    unsigned int i;

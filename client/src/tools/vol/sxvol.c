@@ -282,7 +282,7 @@ static int volume_create(sxc_client_t *sx, const char *owner)
 	}
     }
 
-    ret = sxc_volume_add(cluster, uri->volume, size, create_args.replica_arg, vmeta, owner);
+    ret = sxc_volume_add(cluster, uri->volume, size, create_args.replica_arg, create_args.max_revisions_arg, vmeta, owner);
     sxc_meta_free(vmeta);
 
     if(!ret)

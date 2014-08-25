@@ -51,7 +51,7 @@
 #define METADBS 16
 #define GCDBS 1
 /* NOTE: HASHFS_VERSION must be kept below 15 bytes */
-#define HASHFS_VERSION "SX-Storage 1.3"
+#define HASHFS_VERSION "SX-Storage 1.4"
 #define SIZES 3
 const char sizedirs[SIZES] = "sml";
 const char *sizelongnames[SIZES] = { "small", "medium", "large" };
@@ -312,7 +312,7 @@ rc_ty sx_storage_create(const char *dir, sx_uuid_t *cluster, uint8_t *key, int k
 	goto create_hashfs_fail;
     qnullify(q);
 
-    if(qprep(db, &q, "CREATE TABLE volumes (vid INTEGER PRIMARY KEY NOT NULL, volume TEXT ("STRIFY(SXLIMIT_MAX_VOLNAME_LEN)") NOT NULL UNIQUE, replica INTEGER NOT NULL, maxsize INTEGER NOT NULL, enabled INTEGER NOT NULL DEFAULT 0, owner_id INTEGER NOT NULL REFERENCES users(uid))") || qstep_noret(q))
+    if(qprep(db, &q, "CREATE TABLE volumes (vid INTEGER PRIMARY KEY NOT NULL, volume TEXT ("STRIFY(SXLIMIT_MAX_VOLNAME_LEN)") NOT NULL UNIQUE, replica INTEGER NOT NULL, revs INTEGER NOT NULL, maxsize INTEGER NOT NULL, enabled INTEGER NOT NULL DEFAULT 0, owner_id INTEGER NOT NULL REFERENCES users(uid))") || qstep_noret(q))
 	goto create_hashfs_fail;
     qnullify(q);
 
@@ -1416,15 +1416,15 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 	goto open_hashfs_fail;
     /* To keep the next query simple we do not check if the user is enabled
      * This is preliminary enforced in auth_begin */
-    if(qprep(h->db, &h->q_nextvol, "SELECT volumes.vid, volumes.volume, volumes.replica, volumes.maxsize, volumes.owner_id FROM volumes LEFT JOIN privs ON privs.volume_id = volumes.vid WHERE volumes.volume > :previous AND volumes.enabled = 1 AND (:user = 0 OR (privs.priv > 0 AND privs.user_id=:user)) ORDER BY volumes.volume ASC LIMIT 1"))
+    if(qprep(h->db, &h->q_nextvol, "SELECT volumes.vid, volumes.volume, volumes.replica, volumes.maxsize, volumes.owner_id, volumes.revs FROM volumes LEFT JOIN privs ON privs.volume_id = volumes.vid WHERE volumes.volume > :previous AND volumes.enabled = 1 AND (:user = 0 OR (privs.priv > 0 AND privs.user_id=:user)) ORDER BY volumes.volume ASC LIMIT 1"))
 	goto open_hashfs_fail;
-    if(qprep(h->db, &h->q_volbyname, "SELECT vid, volume, replica, maxsize, owner_id FROM volumes WHERE volume = :name AND enabled = 1"))
+    if(qprep(h->db, &h->q_volbyname, "SELECT vid, volume, replica, maxsize, owner_id, revs FROM volumes WHERE volume = :name AND enabled = 1"))
 	goto open_hashfs_fail;
-    if(qprep(h->db, &h->q_volbyid, "SELECT vid, volume, replica, maxsize, owner_id FROM volumes WHERE vid = :volid AND enabled = 1"))
+    if(qprep(h->db, &h->q_volbyid, "SELECT vid, volume, replica, maxsize, owner_id, revs FROM volumes WHERE vid = :volid AND enabled = 1"))
 	goto open_hashfs_fail;
     if(qprep(h->db, &h->q_metaget, "SELECT key, value FROM vmeta WHERE volume_id = :volume"))
 	goto open_hashfs_fail;
-    if(qprep(h->db, &h->q_addvol, "INSERT INTO volumes (volume, replica, maxsize, owner_id) VALUES (:volume, :replica, :size, :owner)"))
+    if(qprep(h->db, &h->q_addvol, "INSERT INTO volumes (volume, replica, revs, maxsize, owner_id) VALUES (:volume, :replica, :revs, :size, :owner)"))
 	goto open_hashfs_fail;
     if(qprep(h->db, &h->q_addvolmeta, "INSERT INTO vmeta (volume_id, key, value) VALUES (:volume, :key, :value)"))
 	goto open_hashfs_fail;
@@ -3352,7 +3352,7 @@ rc_ty sx_hashfs_volume_new_addmeta(sx_hashfs_t *h, const char *key, const void *
     return OK;
 }
 
-rc_ty sx_hashfs_volume_new_finish(sx_hashfs_t *h, const char *volume, int64_t size, unsigned int replica, sx_uid_t uid) {
+rc_ty sx_hashfs_volume_new_finish(sx_hashfs_t *h, const char *volume, int64_t size, unsigned int replica, unsigned int revisions, sx_uid_t uid) {
     unsigned int reqlen = 0;
     rc_ty ret = FAIL_EINTERNAL;
     int64_t volid;
@@ -3381,6 +3381,11 @@ rc_ty sx_hashfs_volume_new_finish(sx_hashfs_t *h, const char *volume, int64_t si
 	return EINVAL;
     }
 
+    if(revisions < SXLIMIT_MIN_REVISIONS || revisions > SXLIMIT_MAX_REVISIONS) {
+	msg_set_reason("Invalid volume revisions: must be between "STRIFY(SXLIMIT_MIN_VOLUME_SIZE)" and "STRIFY(SXLIMIT_MAX_VOLUME_SIZE));
+	return EINVAL;
+    }
+
     sqlite3_reset(h->q_addvol);
     sqlite3_reset(h->q_addvolmeta);
     sqlite3_reset(h->q_addvolprivs);
@@ -3390,6 +3395,7 @@ rc_ty sx_hashfs_volume_new_finish(sx_hashfs_t *h, const char *volume, int64_t si
 
     if(qbind_text(h->q_addvol, ":volume", volume) ||
        qbind_int(h->q_addvol, ":replica", replica) ||
+       qbind_int(h->q_addvol, ":revs", revisions) ||
        qbind_int64(h->q_addvol, ":size", size) ||
        qbind_int64(h->q_addvol, ":owner", uid))
 	goto volume_new_err;
@@ -3626,6 +3632,7 @@ rc_ty sx_hashfs_volume_next(sx_hashfs_t *h) {
     h->curvol.replica_count = sqlite3_column_int(h->q_nextvol, 2);
     h->curvol.size = sqlite3_column_int64(h->q_nextvol, 3);
     h->curvol.owner = sqlite3_column_int64(h->q_nextvol, 4);
+    h->curvol.revisions = sqlite3_column_int(h->q_nextvol, 5);
     res = OK;
 
     volume_list_err:
@@ -3672,6 +3679,7 @@ static rc_ty volume_get_common(sx_hashfs_t *h, const char *name, int64_t volid, 
     h->curvol.replica_count = sqlite3_column_int(q, 2);
     h->curvol.size = sqlite3_column_int64(q, 3);
     h->curvol.owner = sqlite3_column_int64(q, 4);
+    h->curvol.revisions = sqlite3_column_int(q, 5);
     *volume = &h->curvol;
     res = OK;
 
@@ -4739,7 +4747,6 @@ rc_ty sx_hashfs_putfile_gettoken(sx_hashfs_t *h, const uint8_t *user, int64_t si
 }
 
 /* WARNING: MUST BE CALLED WITHIN A TANSACTION ON META !!! */
-#define FIXME_MAX_NREVS 5
 static rc_ty create_file(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const char *name, const char *revision, sx_hash_t *blocks, unsigned int nblocks, int64_t size, int64_t *file_id) {
     unsigned int nblocks2;
     int r, mdb;
@@ -4786,7 +4793,7 @@ static rc_ty create_file(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const
         rc_ty rc = EINVAL;
 
         do {
-            if(nrevs >= FIXME_MAX_NREVS) {
+            if(nrevs >= volume->revisions) {
                 /* There are too many revs */
                 if(!can_replace) {
                     /* All existing revs are more recent than this one */
