@@ -30,6 +30,9 @@ while [ $OPTNUM -le $# ]; do
     elif [ "$OPTION" = "--force-reinit" ]; then
 	FORCE_REINIT_GIVEN="yes"
 
+    elif [ "$OPTION" = "--wait" ]; then
+	WAIT_GIVEN="yes"
+
     elif [ "$OPTION" = "--debug" ]; then
 	DEBUG_GIVEN="yes"
     else
@@ -53,6 +56,7 @@ if [ "$HELP_GIVEN" = "yes" ]; then
     echo "    --advanced          Enable advanced configuration"
     echo "    --bare              Create a bare (unprogrammed) node"
     echo "    --force-reinit      Overwrite existing configuration"
+    echo "    --wait              Wait till rebalance finishes after joining the cluster"
     echo "    --debug             Turn on debug mode for the created node"
     echo
     exit 0
@@ -942,6 +946,23 @@ if [ ! -f "$SX_DATA_DIR/hashfs.db" ]; then
 		exit 1
 	    fi
 	done
+
+	if [ "$WAIT_GIVEN" = "yes" ]; then
+	    echo "Waiting for cluster to finish rebalancing..."
+	    while true; do
+		"@sbindir@/sxadm" cluster --info "sx://admin@$SX_CLUSTER_NAME" > $OUT_TMP
+		if [ $? -ne 0 ]; then
+		    sleep 60
+		    continue
+		fi
+		if [ -n "`cat $OUT_TMP | grep "Target distribution"`" ]; then
+		    sleep 60
+		    continue
+		else
+		    break
+		fi
+	    done
+	fi
     fi
 
 else
