@@ -38,7 +38,6 @@ src_common_libcommon_la_SOURCES = \
 		    src/common/sxdbi.c\
 		    src/common/qsort.c \
 		    src/common/isaac.c \
-		    src/common/ver.c \
 		    src/common/sxproc.c \
 		    src/common/sxproc.h \
 		    src/common/init.c \

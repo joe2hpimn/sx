@@ -31,6 +31,7 @@
 #include "curlevents.h"
 #include "misc.h"
 #include "vcrypto.h"
+#include "version.h"
 
 #define CLSTDEBUG(...) do{ sxc_client_t *_sx; if(conns && (_sx = conns->sx)) sxi_debug(_sx, __FUNCTION__, __VA_ARGS__); } while(0)
 #define conns_err(...) do { if(conns) sxi_seterr(conns->sx, __VA_ARGS__); } while(0)
@@ -47,6 +48,7 @@ struct _sxi_conns_t {
     time_t timediff;
     int insecure;
     int clock_drifted;
+    int vcheckwarn;
     uint16_t port;
 
     /* Transfer progress stats */
@@ -259,6 +261,9 @@ static enum head_result head_cb(curlev_context_t *ctx, long http_status, char *p
     size_t vlen = size * nmemb, klen;
     const char *v;
     sxi_conns_t *conns = sxi_cbdata_get_conns(ctx);
+    char nstr[16], *eon;
+    int nlen;
+    long num;
 
     if(!(v = memchr(ptr, ':', vlen)))
 	return HEAD_OK;
@@ -287,11 +292,22 @@ static enum head_result head_cb(curlev_context_t *ctx, long http_status, char *p
             sxi_cbdata_seterr(ctx, SXE_ECOMM,"Invalid cluster header (no uuid)");
             return HEAD_FAIL;
         }
-	if(!getenv("SX_DEBUG_NOVERSIONCHECK")) {
-            sxc_client_t *sx = sxi_conns_get_client(conns);
-            if (!sxc_compatible_with(sx, v)) {
-		sxi_cbdata_seterr(ctx, SXE_ECOMM, "Invalid cluster version (client version %s, server version %.*s)", sxc_get_version(), (int)(vv - v), v);
-		return HEAD_FAIL;
+	if(!conns->vcheckwarn && !getenv("SX_DEBUG_NOVERSIONCHECK")) {
+	    int badver = 0;
+	    nlen = MIN(vv-v, sizeof(nstr) - 1);
+	    memcpy(nstr, v, nlen);
+	    nstr[nlen] = '\0';
+	    num = strtol(nstr, &eon, 10);
+	    if(eon == nstr || *eon != '.' || num > SRC_MAJOR_VERSION)
+		badver = 1;
+	    else {
+		num = strtol(eon+1, &eon, 10);
+		if(*eon != '.' || num > SRC_MINOR_VERSION + 1)
+		    badver = 1;
+	    }
+	    if(badver) {
+		fprintf(stderr, "WARNING: cluster version is much newer; please upgrade your client software (client version %s, server version %.*s)\n", sxc_get_version(), nlen, v);
+		conns->vcheckwarn = 1;
 	    }
 	}
 	vlen -= vv -v;
@@ -318,6 +334,19 @@ static enum head_result head_cb(curlev_context_t *ctx, long http_status, char *p
 	    return HEAD_FAIL;
 	}
         return HEAD_SEEN;
+    }
+
+    if(klen == lenof("SX-API-Version:") &&
+       !strncasecmp(ptr, "SX-API-Version:", lenof("SX-API-Version:")) &&
+       !getenv("SX_DEBUG_NOVERSIONCHECK")) {
+	nlen = MIN(vlen, sizeof(nstr) - 1);
+	memcpy(nstr, v, nlen);
+	nstr[nlen] = '\0';
+	num = strtol(nstr, &eon, 10);
+	if(eon == nstr || *eon != '\0' || num > SRC_API_VERSION) {
+	    sxi_cbdata_seterr(ctx, SXE_ECOMM, "Unsupported protocol version (client version %u, server version %.*s)", SRC_API_VERSION, nlen, v);
+	    return HEAD_FAIL;
+	}
     }
 
     if(http_status == 401) {

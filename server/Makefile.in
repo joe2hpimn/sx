@@ -135,7 +135,6 @@ am_src_common_libcommon_la_OBJECTS =  \
 	src/common/src_common_libcommon_la-sxdbi.lo \
 	src/common/src_common_libcommon_la-qsort.lo \
 	src/common/src_common_libcommon_la-isaac.lo \
-	src/common/src_common_libcommon_la-ver.lo \
 	src/common/src_common_libcommon_la-sxproc.lo \
 	src/common/src_common_libcommon_la-init.lo
 src_common_libcommon_la_OBJECTS =  \
@@ -722,7 +721,6 @@ src_common_libcommon_la_SOURCES = \
 		    src/common/sxdbi.c\
 		    src/common/qsort.c \
 		    src/common/isaac.c \
-		    src/common/ver.c \
 		    src/common/sxproc.c \
 		    src/common/sxproc.h \
 		    src/common/init.c \
@@ -926,8 +924,6 @@ src/common/src_common_libcommon_la-qsort.lo:  \
 	src/common/$(DEPDIR)/$(am__dirstamp)
 src/common/src_common_libcommon_la-isaac.lo:  \
 	src/common/$(am__dirstamp) \
-	src/common/$(DEPDIR)/$(am__dirstamp)
-src/common/src_common_libcommon_la-ver.lo: src/common/$(am__dirstamp) \
 	src/common/$(DEPDIR)/$(am__dirstamp)
 src/common/src_common_libcommon_la-sxproc.lo:  \
 	src/common/$(am__dirstamp) \
@@ -1222,7 +1218,6 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@src/common/$(DEPDIR)/src_common_libcommon_la-sxdbi.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/common/$(DEPDIR)/src_common_libcommon_la-sxproc.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/common/$(DEPDIR)/src_common_libcommon_la-utils.Plo@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@src/common/$(DEPDIR)/src_common_libcommon_la-ver.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/common/$(DEPDIR)/src_tools_sxsim_sxsim-hdist.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/common/$(DEPDIR)/src_tools_sxsim_sxsim-isaac.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/fcgi/$(DEPDIR)/src_fcgi_sx_fcgi-blockmgr.Po@am__quote@
@@ -1364,13 +1359,6 @@ src/common/src_common_libcommon_la-isaac.lo: src/common/isaac.c
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='src/common/isaac.c' object='src/common/src_common_libcommon_la-isaac.lo' libtool=yes @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CC $(src_common_libcommon_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_common_libcommon_la_CPPFLAGS) $(CPPFLAGS) $(src_common_libcommon_la_CFLAGS) $(CFLAGS) -c -o src/common/src_common_libcommon_la-isaac.lo `test -f 'src/common/isaac.c' || echo '$(srcdir)/'`src/common/isaac.c
-
-src/common/src_common_libcommon_la-ver.lo: src/common/ver.c
-@am__fastdepCC_TRUE@	$(AM_V_CC)$(LIBTOOL) $(AM_V_lt) --tag=CC $(src_common_libcommon_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_common_libcommon_la_CPPFLAGS) $(CPPFLAGS) $(src_common_libcommon_la_CFLAGS) $(CFLAGS) -MT src/common/src_common_libcommon_la-ver.lo -MD -MP -MF src/common/$(DEPDIR)/src_common_libcommon_la-ver.Tpo -c -o src/common/src_common_libcommon_la-ver.lo `test -f 'src/common/ver.c' || echo '$(srcdir)/'`src/common/ver.c
-@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) src/common/$(DEPDIR)/src_common_libcommon_la-ver.Tpo src/common/$(DEPDIR)/src_common_libcommon_la-ver.Plo
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='src/common/ver.c' object='src/common/src_common_libcommon_la-ver.lo' libtool=yes @AMDEPBACKSLASH@
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CC $(src_common_libcommon_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_common_libcommon_la_CPPFLAGS) $(CPPFLAGS) $(src_common_libcommon_la_CFLAGS) $(CFLAGS) -c -o src/common/src_common_libcommon_la-ver.lo `test -f 'src/common/ver.c' || echo '$(srcdir)/'`src/common/ver.c
 
 src/common/src_common_libcommon_la-sxproc.lo: src/common/sxproc.c
 @am__fastdepCC_TRUE@	$(AM_V_CC)$(LIBTOOL) $(AM_V_lt) --tag=CC $(src_common_libcommon_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_common_libcommon_la_CPPFLAGS) $(CPPFLAGS) $(src_common_libcommon_la_CFLAGS) $(CFLAGS) -MT src/common/src_common_libcommon_la-sxproc.lo -MD -MP -MF src/common/$(DEPDIR)/src_common_libcommon_la-sxproc.Tpo -c -o src/common/src_common_libcommon_la-sxproc.lo `test -f 'src/common/sxproc.c' || echo '$(srcdir)/'`src/common/sxproc.c

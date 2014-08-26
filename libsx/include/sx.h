@@ -54,7 +54,6 @@ typedef int (*sxc_input_cb)(sxc_client_t *sx, sxc_input_t type, const char *prom
 
 sxc_client_t *sxc_init(const char *client_version, const sxc_logger_t *func, sxc_input_cb input_cb, void *input_ctx);
 const char *sxc_get_version(void);
-int sxc_compatible_with(sxc_client_t *sx, const char *server_version);
 void sxc_shutdown(sxc_client_t *sx, int signal);
 void sxc_set_debug(sxc_client_t *sx, int enabled);
 void sxc_set_verbose(sxc_client_t *sx, int enabled);

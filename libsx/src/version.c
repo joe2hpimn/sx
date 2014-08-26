@@ -28,28 +28,3 @@ const char *sxc_get_version(void) {
 const char *sxi_get_useragent(void) {
     return "libSX/"SRC_VERSION;
 }
-
-int sxc_compatible_with(sxc_client_t *sx, const char *server_version)
-{
-    unsigned smaj, smin;
-    if (sscanf(server_version, "%u.%u", &smaj, &smin) != 2) {
-        SXDEBUG("Cannot parse server version: %s", server_version);
-        return 0;
-    }
-    if (smaj != SRC_MAJOR_VERSION) {
-        SXDEBUG("Server not compatible with client: major version is different: %d != %d",
-                smaj, SRC_MAJOR_VERSION);
-        return 0;
-    }
-    if (smin >= SRC_MINOR_VERSION)
-        return 1;/* major.minor versions match exactly */
-    if (smin > SRC_MINOR_VERSION) {
-        /* minor revisions of the server MUST be backward compatible with same
-         * major version */
-        SXDEBUG("Server is newer than the client, compatible: %d > %d", smin, SRC_MINOR_VERSION);
-        return 1;
-    }
-    SXDEBUG("Client version is newer than the server: %d.%d > %d.%d", SRC_MAJOR_VERSION, SRC_MINOR_VERSION, smaj, smin);
-    /* pretend it is compatible */
-    return 1;
-}

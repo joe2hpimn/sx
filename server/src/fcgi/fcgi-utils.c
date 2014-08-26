@@ -39,6 +39,7 @@
 #include "utils.h"
 #include "hashfs.h"
 #include "../libsx/src/misc.h"
+#include "version.h"
 
 #define MAX_CLOCK_DRIFT 10
 
@@ -46,7 +47,7 @@ uint8_t hashbuf[UPLOAD_CHUNK_SIZE];
 time_t last_flush;
 void send_server_info(void) {
     last_flush = time(NULL);
-    CGI_PRINTF("Server: Skylable SX\r\nSX-Cluster: %s (%s)\r\nVary: Accept-Encoding\r\n", src_version(), sx_hashfs_uuid(hashfs)->string);
+    CGI_PRINTF("Server: Skylable SX\r\nSX-Cluster: %s (%s)\r\nSX-API-Version: %u\r\nVary: Accept-Encoding\r\n", src_version(), sx_hashfs_uuid(hashfs)->string, SRC_API_VERSION);
 }
 
 static const char *http_err_str(int http_status) {

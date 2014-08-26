@@ -47,6 +47,7 @@
 #include "isaac.h"
 #include "../libsx/src/misc.h"
 #include "../libsx/src/vcrypto.h"
+#include "version.h"
 
 static const char hexchar[16] = "0123456789abcdef";
 int bin2hex(const void *src, uint32_t src_len, char *dst, uint32_t dst_len)
@@ -711,4 +712,9 @@ int wait_trigger(int pipe, unsigned max_wait_sec, int *forced_awake)
     if (sl && errno != EINTR)
         return -1;
     return 0;
+}
+
+const char *src_version(void)
+{
+    return SRC_VERSION;
 }
