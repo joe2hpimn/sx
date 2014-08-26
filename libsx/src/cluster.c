@@ -46,7 +46,7 @@ struct _sxi_conns_t {
     char *auth_token;
     curl_events_t *curlev;
     time_t timediff;
-    int insecure;
+    int insecure, internal_security;
     int clock_drifted;
     int vcheckwarn;
     uint16_t port;
@@ -320,6 +320,16 @@ static enum head_result head_cb(curlev_context_t *ctx, long http_status, char *p
 	memcpy(uuid, v, UUID_LEN);
 	uuid[UUID_LEN] = '\0';
 
+	v += UUID_LEN + 1;
+	vlen -= UUID_LEN + 1;
+	if(vlen >= 4 && !strncmp(v, " ssl", 4)) {
+	    CLSTDEBUG("Server reports internal communication is secure");
+	    conns->internal_security = 1;
+	} else {
+	    CLSTDEBUG("Server reports internal communication is insecure");
+	    conns->internal_security = 0;
+	}
+
 	suuid = sxi_conns_get_uuid(conns);
 	if(!suuid) {
 	    if(sxi_conns_set_uuid(conns, uuid)) {
@@ -333,6 +343,7 @@ static enum head_result head_cb(curlev_context_t *ctx, long http_status, char *p
 	    sxi_cbdata_seterr(ctx, SXE_ECOMM, "Server UUID mismatch: Found %s, expected %s", uuid, suuid);
 	    return HEAD_FAIL;
 	}
+
         return HEAD_SEEN;
     }
 
@@ -959,4 +970,10 @@ int sxi_conns_set_xfer_stat(sxi_conns_t *conns, sxc_xfer_stat_t *xfer_stat) {
 /* Retrieve progress statistics information */
 sxc_xfer_stat_t *sxi_conns_get_xfer_stat(const sxi_conns_t *conns) {
     return conns ? conns->xfer_stat : NULL;
+}
+
+int sxi_conns_internally_secure(sxi_conns_t *conns) {
+    if(!conns)
+	return -1;
+    return conns->internal_security != 0;
 }

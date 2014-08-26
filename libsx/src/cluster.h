@@ -54,6 +54,7 @@ unsigned int sxi_conns_get_timeout(sxi_conns_t *conns, const char *host);
 int sxi_conns_set_timeout(sxi_conns_t *conns, const char *host, int timeout_action);
 int sxi_conns_set_port(sxi_conns_t *conns, unsigned int port);
 unsigned int sxi_conns_get_port(const sxi_conns_t *conns);
+int sxi_conns_internally_secure(sxi_conns_t *conns);
 
 typedef int (*cluster_datacb)(curlev_context_t *cbdata, void *context, const void *data, size_t size);
 typedef int (*cluster_setupcb)(curlev_context_t *cbdata, void *context, const char *host);
