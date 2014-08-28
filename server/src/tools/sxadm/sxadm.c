@@ -801,17 +801,13 @@ void print_dist(const sx_nodelist_t *nodes) {
 static int info_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
     sxc_cluster_t *clust = cluster_load(sx, args);
     clst_t *clst;
-    int qret = 0;
 
     if(!clust)
 	return 1;
 
-    clst = clst_query(sxi_cluster_get_conns(clust), NULL, &qret);
+    clst = clst_query(sxi_cluster_get_conns(clust), NULL);
     if(!clst) {
-	if(qret == 403)
-	    CRIT("Access forbidden");
-	else
-	    CRIT("Failed to query cluster status");
+	CRIT("Failed to query cluster status");
 	return 1;
     }
 

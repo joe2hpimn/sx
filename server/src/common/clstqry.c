@@ -360,9 +360,8 @@ void clst_destroy(clst_t *st) {
     free(st);
 }
 
-clst_t *clst_query(sxi_conns_t *conns, sxi_hostlist_t *hlist, int *qret) {
+clst_t *clst_query(sxi_conns_t *conns, sxi_hostlist_t *hlist) {
     struct cstatus *yctx = NULL;
-    int ret;
 
     if(!conns)
 	return NULL;
@@ -370,10 +369,7 @@ clst_t *clst_query(sxi_conns_t *conns, sxi_hostlist_t *hlist, int *qret) {
     if(!(yctx = calloc(1, sizeof(*yctx))))
 	return NULL;
 
-    ret = sxi_cluster_query(conns, hlist, REQ_GET, "?clusterStatus", NULL, 0, cstatus_setup_cb, cstatus_cb, yctx);
-    if(qret)
-	*qret = ret;
-    if(ret != 200) {
+    if(sxi_cluster_query(conns, hlist, REQ_GET, "?clusterStatus", NULL, 0, cstatus_setup_cb, cstatus_cb, yctx) != 200) {
 	clst_destroy(yctx);
 	return NULL;
     }

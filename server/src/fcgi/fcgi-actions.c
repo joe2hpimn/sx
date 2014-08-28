@@ -163,10 +163,6 @@ void volume_ops(void) {
 	    fcgi_set_nodes();
 	} else if (!strcmp(".users", volume)) {
 	    /* Create new user - ADMIN required */
-	    if(is_https() < sx_hashfs_uses_secure_proto(hashfs)) {
-                WARN("Key operations require SECURE mode");
-                quit_errmsg(403, "Key operations require SECURE mode");
-            }
 	    fcgi_create_user();
         } else if (!strcmp(volume, ".data")) {
             quit_unless_has(PRIV_CLUSTER);
@@ -221,10 +217,6 @@ void file_ops(void) {
         } else if (!strcmp(volume, ".users")) {
 	    /* Get user data - ADMIN required */
 	    quit_unless_has(PRIV_ADMIN);
-            if(is_https() < sx_hashfs_uses_secure_proto(hashfs)) {
-                WARN("key operations require SECURE mode");
-                quit_errmsg(403, "Key operations require SECURE mode");
-            }
             fcgi_send_user();
         } else if(!strcmp(volume, ".challenge")) {
 	    /* Response to challenge (s2s) - CLUSTER required */

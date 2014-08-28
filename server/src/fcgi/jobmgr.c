@@ -2445,7 +2445,7 @@ static act_result_t finishrebalance_request(sx_hashfs_t *hashfs, job_t job_id, j
 
 	    if(sxi_hostlist_add_host(sx, &hlist, sx_node_internal_addr(node)))
 		action_error(ACT_RESULT_TEMPFAIL, 500, "Not enough memory to query rebalance status");
-	    clst = clst_query(clust, &hlist, NULL);
+	    clst = clst_query(clust, &hlist);
 	    if(!clst)
 		action_error(ACT_RESULT_TEMPFAIL, 500, "Failed to query rebalance status");
 
