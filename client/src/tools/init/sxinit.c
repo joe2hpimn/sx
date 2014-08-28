@@ -37,6 +37,8 @@
 #include "cmdline.h"
 #include "version.h"
 #include "libsx/src/misc.h"
+#include "libsx/src/clustcfg.h"
+#include "libsx/src/cluster.h"
 #include "bcrumbs.h"
 
 static sxc_client_t *sx = NULL;
@@ -115,6 +117,26 @@ static int list_clusters(sxc_client_t *sx, const char *config_dir) {
     }
 
     closedir(clusters_dir);
+    return 0;
+}
+
+static int yesno(const char *prompt, int def)
+{
+    char c;
+    while(1) {
+	if(def)
+	    printf("%s [Y/n] ", prompt);
+	else
+	    printf("%s [y/N] ", prompt);
+	fflush(stdout);
+	c = sxi_read_one_char();
+	if(c == 'y' || c == 'Y')
+	    return 1;
+	if(c == 'n' || c == 'N')
+	    return 0;
+	if(c == '\n' || c == EOF)
+	    return def;
+    }
     return 0;
 }
 
@@ -242,6 +264,27 @@ int main(int argc, char **argv) {
 	if(sxc_cluster_set_cafile(cluster, NULL)) {
 	    fprintf(stderr, "ERROR: Failed to configure cluster security\n");
 	    goto init_err;
+	}
+
+	if(!args.batch_mode_flag) {
+	    /* do a bogus query with a fake key to get the remote security flag */
+	    strncpy(tok_buf, "wFPs+e1B3wMRud8TzGw7YHjS08LWGuoIdfALMZTPLMVFKYM41rVlDwAA", sizeof(tok_buf));
+	    if(sxc_cluster_add_access(cluster, u->profile, tok_buf) || sxc_cluster_set_access(cluster, u->profile)) {
+		fprintf(stderr, "ERROR: Failed to set profile authentication: %s\n", sxc_geterrmsg(sx));
+		goto init_err;
+	    }
+	    if(sxc_cluster_fetchnodes(cluster) && sxc_geterrnum(sx) != SXE_EAUTH) {
+		fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
+		goto init_err;
+	    }
+
+	    if(sxi_conns_internally_secure(sxi_cluster_get_conns(cluster)) == 1) {
+		printf("*** WARNING ***: The cluster reports secure internal communication, however you're attempting to connect with the SSL disabled.\n");
+		if(!yesno("Do you want to continue?", 0)) {
+		    fprintf(stderr, "Aborted\n");
+		    goto init_err;
+		}
+	    }
 	}
     } else {
 	/* SSL cluster */

@@ -85,6 +85,8 @@ int sxi_conns_disable_proxy(sxi_conns_t *conns);
 int sxi_conns_set_bandwidth_limit(sxi_conns_t *conns, int64_t bandwidth_limit);
 int64_t sxi_conns_get_bandwidth_limit(const sxi_conns_t *conns);
 
+int sxi_conns_internally_secure(sxi_conns_t *conns);
+
 /* Set active connections limits */
 int sxi_conns_set_connections_limit(sxi_conns_t *conns, unsigned int max_active, unsigned int max_active_per_host);
 

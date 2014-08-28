@@ -59,7 +59,6 @@ char *sxi_json_quote_string(const char *s);
 int sxi_uri_is_sx(sxc_client_t *sx, const char *uri);
 
 char sxi_read_one_char(void);
-int sxi_yesno(const char *prompt, int def);
 int sxi_mkdir_hier(sxc_client_t *sx, const char *fullpath);
 int sxi_rmdirs(const char *dir);
 
