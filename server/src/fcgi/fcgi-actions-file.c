@@ -70,6 +70,32 @@ void fcgi_send_file_meta(void) {
     CGI_PUTS("}");
 }
 
+void fcgi_send_file_revisions(void) {
+    const sx_hashfs_volume_t *vol;
+    const sx_hashfs_file_t *file;
+    int comma = 0;
+    rc_ty s;
+
+    s = sx_hashfs_volume_by_name(hashfs, volume, &vol);
+    if(s != OK)
+	quit_errmsg(rc2http(s), msg_get_reason());
+
+    s = sx_hashfs_revision_first(hashfs, vol, path, &file);
+    if(s != OK)
+	quit_errmsg(rc2http(s), msg_get_reason());
+
+    CGI_PUTS("Content-type: application/json\r\n\r\n{\"fileRevisions\":{");
+    do {
+	CGI_PRINTF("%s\"%s\":{\"blockSize\":%d,\"fileSize\":", comma ? "," : "", file->revision, file->block_size);
+	CGI_PUTLL(file->file_size);
+	CGI_PRINTF(",\"createdAt\":%u}", file->created_at);
+	comma = 1;
+	s = sx_hashfs_revision_next(hashfs);
+    } while(s == OK);
+    if(s == ITER_NO_MORE)
+	CGI_PUTS("}}");
+}
+
 void fcgi_send_file(void) {
     sx_hashfs_file_t filedata;
     const sx_hash_t *hash;

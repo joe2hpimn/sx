@@ -228,6 +228,9 @@ void file_ops(void) {
 	    if(has_arg("fileMeta")) {
 		/* Get file metadata */
 		fcgi_send_file_meta();
+	    } else if(has_arg("fileRevisions")) {
+		/* Get available revisions for the requested file */
+		fcgi_send_file_revisions();
 	    } else {
 		/* Get file content */
 		fcgi_send_file();

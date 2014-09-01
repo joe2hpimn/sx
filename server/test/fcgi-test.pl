@@ -776,6 +776,8 @@ test_get 'listing all volumes', {'badauth'=>[401],$reader=>[200,'application/jso
 test_get 'meta get - empty on create', authed_only(200, 'application/json'), "$vol/1bs+1?fileMeta", undef, sub { my $json = get_json(shift) or return 0; return is_hash($json->{'fileMeta'}) && keys %{$json->{'fileMeta'}} == 0 };
 test_get 'meta get - set on create', authed_only(200, 'application/json'), "$vol/0.5bs?fileMeta", undef, sub { my $json = get_json(shift) or return 0; return is_hash($json->{'fileMeta'}) && keys %{$json->{'fileMeta'}} == 2 && ($json->{'fileMeta'}->{'key1'} eq '6669727374') && ($json->{'fileMeta'}->{'key2'} eq '7365636f6e64'); };
 
+test_get 'get revisions', authed_only(200, 'application/json'), "$vol/1bs?fileRevisions", undef, sub { my $json = get_json(shift) or return 0; return is_hash($json->{'fileRevisions'}) && keys %{$json->{'fileRevisions'}} == 1 && join(',',sort keys((%{$json->{'fileRevisions'}})[1])) eq "blockSize,createdAt,fileSize"; };
+
 test_delete_job "delete file as writer", {'badauth'=>[401],$reader=>[403],$writer=>[200]}, "$vol/file";
 test_get 'checking deleted file', authed_only(200, 'application/json'), "$vol?filter=file", undef, sub { my $json = get_json(shift) or return 0; return is_hash($json->{'fileList'}) && scalar keys %{$json->{'fileList'}} == 1 };
 test_delete_job "delete file as admin", {'badauth'=>[401],$reader=>[403],'admin'=>[200]}, "$vol/file/file";
