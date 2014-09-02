@@ -1517,6 +1517,7 @@ int sxc_input_fn(sxc_client_t *sx, sxc_input_t type, const char *prompt, const c
 {
     char c;
     struct termios told, tnew;
+    int restore_ta = 1;
 
     if(!sx || !prompt || !in || !insize) {
 	if(sx)
@@ -1556,8 +1557,8 @@ int sxc_input_fn(sxc_client_t *sx, sxc_input_t type, const char *prompt, const c
 	    tnew.c_lflag &= ~ECHO;
 	    tnew.c_lflag |= ECHONL;
 	    if(tcsetattr(0, TCSANOW, &tnew)) {
-		sxi_seterr(sx, SXE_EARG, "tcsetattr() failed");
-		return -1;
+		fprintf(stderr, "WARNING: Unable to set terminal attributes, your password may be echoed.\n");
+		restore_ta = 0;
 	    }
 	    printf("%s", prompt);
 	    fflush(stdout);
@@ -1566,7 +1567,7 @@ int sxc_input_fn(sxc_client_t *sx, sxc_input_t type, const char *prompt, const c
 		return -1;
 	    }
 	    in[strlen(in) - 1] = 0;
-	    if(tcsetattr(0, TCSANOW, &told)) {
+	    if(restore_ta && tcsetattr(0, TCSANOW, &told)) {
 		memset(in, 0, insize);
 		sxi_seterr(sx, SXE_EARG, "tcsetattr() failed");
 		return -1;
