@@ -4096,6 +4096,8 @@ static sxi_job_t* remote_to_remote(sxc_file_t *source, sxc_file_t *dest) {
 	unsigned int mval_len;
 	sxc_meta_t *vmeta = sxc_volumemeta_new(source);
 
+	if(!vmeta)
+	    return NULL;
 	if(sxi_volume_cfg_check(sx, source->cluster, vmeta, source->volume)) {
 	    sxc_meta_free(vmeta);
 	    return NULL;
@@ -4111,7 +4113,8 @@ static sxi_job_t* remote_to_remote(sxc_file_t *source, sxc_file_t *dest) {
 	sxc_meta_free(vmeta);
 
 	if(!nofast) {
-	    vmeta = sxc_volumemeta_new(dest);
+	    if(!(vmeta = sxc_volumemeta_new(dest)))
+		return NULL;
 	    if(sxi_volume_cfg_check(sx, dest->cluster, vmeta, dest->volume)) {
 		sxc_meta_free(vmeta);
 		return NULL;
@@ -4312,7 +4315,8 @@ static int cat_remote_file(sxc_file_t *source, int dest) {
 	goto sxc_cat_fail;
     }
 
-    vmeta = sxc_volumemeta_new(source);
+    if(!(vmeta = sxc_volumemeta_new(source)))
+	goto sxc_cat_fail;
     if(sxi_volume_cfg_check(sx, source->cluster, vmeta, source->volume))
 	goto sxc_cat_fail;
     if(vmeta && !sxc_meta_getval(vmeta, "filterActive", &mval, &mval_len)) {
