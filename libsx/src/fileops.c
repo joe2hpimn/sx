@@ -1174,6 +1174,8 @@ static void upload_blocks_to_hosts(struct file_upload_ctx *yctx, struct host_upl
         if (u->in_use)
             continue;
         if (u->buf_used < sizeof(u->buf)) {
+            /* Reset currently uploaded size */
+            u->ul = 0;
             for (;u->i < u->n;) {
                 struct need_hash *need = &u->needed[u->i++];
                 SXDEBUG("adding data %d from pos %lld", u->i, (long long)need->off);
@@ -1212,6 +1214,8 @@ static void upload_blocks_to_hosts(struct file_upload_ctx *yctx, struct host_upl
         if (u->in_use)
             continue;
         if (u->buf_used) {
+            /* Reset currently uploaded size */
+            u->ul = 0;
             SXDEBUG("u: i:%d,n:%d", u->i, u->n);
             if (send_up_batch(yctx, h, u) == -1) {
                 SXDEBUG("fail incremented: failed to upload partial chunk");
