@@ -177,7 +177,7 @@ void volume_ops(void) {
     }
 
     if(verb == VERB_DELETE) {
-	if(!strcmp(".rebalance", volume) || !content_len()) {
+	if(!strcmp(".rebalance", volume) && !content_len()) {
 	    /* Complete rebalance process (s2s) - CLUSTER required */
 	    quit_unless_has(PRIV_CLUSTER);
 	    fcgi_stop_rebalance();
