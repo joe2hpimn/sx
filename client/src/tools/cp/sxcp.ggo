@@ -1,5 +1,5 @@
 package "sxcp"
-purpose "Copy files between local and SX storages"
+purpose "Copy files between local and SX clusters"
 args "--unamed-opts --no-handle-version --no-handle-error"
 usage "sxcp [OPTIONS]... SOURCE... DEST"
 

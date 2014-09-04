@@ -1,6 +1,5 @@
 package "sxcat"
-purpose "Concatenate and print files"
-description "sxcat allows printing files both from and to SX nodes"
+purpose "Concatenate and print files from SX clusters"
 args "--unamed-opts --no-handle-version --no-handle-error"
 usage "sxcat [OPTIONS]... sx://[profile@]cluster/volume/[path]..."
 

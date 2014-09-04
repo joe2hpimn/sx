@@ -1,5 +1,5 @@
 package "sxinit"
-purpose "Manage local configuration of SX"
+purpose "Manage local configuration of SX clusters"
 args "--unamed-opts=sx://[profile@]cluster --no-handle-version --no-handle-error"
 usage "sxinit [OPTIONS]... { sx://[profile@]cluster | --list }"
 
