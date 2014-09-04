@@ -4755,6 +4755,11 @@ sxc_meta_t *sxc_filemeta_new(sxc_file_t *file) {
 	goto filemeta_begin_err;
     }
 
+    if(yajl_complete_parse(yctx.yh) != yajl_status_ok || yctx.state != FM_COMPLETE) {
+	sxi_seterr(sx, SXE_ECOMM, "Failed to retrieve the file metadata: Communication error");
+	goto filemeta_begin_err;
+    }
+
     ret = yctx.meta;
     yctx.meta = NULL;
 
