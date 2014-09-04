@@ -3382,7 +3382,7 @@ rc_ty sx_hashfs_volume_new_finish(sx_hashfs_t *h, const char *volume, int64_t si
     }
 
     if(revisions < SXLIMIT_MIN_REVISIONS || revisions > SXLIMIT_MAX_REVISIONS) {
-	msg_set_reason("Invalid volume revisions: must be between "STRIFY(SXLIMIT_MIN_VOLUME_SIZE)" and "STRIFY(SXLIMIT_MAX_VOLUME_SIZE));
+	msg_set_reason("Invalid volume revisions: must be between %u and %u", SXLIMIT_MIN_REVISIONS, SXLIMIT_MAX_REVISIONS);
 	return EINVAL;
     }
 
