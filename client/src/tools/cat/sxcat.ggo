@@ -1,7 +1,7 @@
 package "sxcat"
 purpose "Concatenate and print files from SX clusters"
 args "--unamed-opts --no-handle-version --no-handle-error"
-usage "sxcat [OPTIONS]... sx://[profile@]cluster/volume/[path]..."
+usage "sxcat [OPTIONS]... sx://[profile@]cluster/volume/path..."
 
 
 option  "config-dir"		c "Path to SX configuration directory"

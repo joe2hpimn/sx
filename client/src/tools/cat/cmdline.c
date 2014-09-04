@@ -27,7 +27,7 @@
 
 const char *gengetopt_args_info_purpose = "Concatenate and print files from SX clusters";
 
-const char *gengetopt_args_info_usage = "Usage: sxcat [OPTIONS]... sx://[profile@]cluster/volume/[path]...";
+const char *gengetopt_args_info_usage = "Usage: sxcat [OPTIONS]... sx://[profile@]cluster/volume/path...";
 
 const char *gengetopt_args_info_versiontext = "";
 
