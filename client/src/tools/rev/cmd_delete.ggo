@@ -1,0 +1,17 @@
+package "sxrev"
+args "--unamed-opts --no-handle-version --no-handle-error --file-name=cmd_delete --func-name=delete_cmdline_parser --arg-struct-name=delete_args_info"
+usage "sxrev delete [--rev REVISION] sx://[profile@]cluster/volume/path"
+
+text "\nRevision delete options:\n"
+
+option "rev"			r "Specify which revision to restore/delete (turns off interactive mode)"
+       string typestr="REVISION" optional
+
+option  "config-dir"		c "Path to SX configuration directory"
+        string typestr="PATH" optional hidden
+
+option  "filter-dir"		f "Path to SX filter directory"
+        string typestr="PATH" optional hidden
+
+option  "debug"		D "Enable debug messages" flag off
+	

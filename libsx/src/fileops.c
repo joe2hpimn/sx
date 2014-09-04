@@ -4263,6 +4263,12 @@ int sxc_copy(sxc_file_t *source, sxc_file_t *dest, int recursive, int onefs) {
     int ret;
     sxc_xfer_stat_t *xfer_stat = NULL;
     sxc_cluster_t *remote_cluster = NULL;
+    sxc_file_t src;
+
+    /* Remove the revision */
+    memcpy(&src, source, sizeof(src));
+    src.rev = NULL;
+    source = &src;
 
     if(!is_remote(source)) {
 	if(!is_remote(dest)) {
@@ -5100,30 +5106,20 @@ static int different_file(const char *path1, const char *path2)
 static sxi_job_t *remote_copy_cb(sxc_file_list_t *target, sxc_file_t *pattern, sxc_cluster_t *cluster, sxi_hostlist_t *hlist,
                                  const char *vol, const char *path, void *ctx, struct filter_handle *fh)
 {
-    sxc_file_t source;
-    sxc_client_t *sx = target->sx;
+    sxc_file_t *source;
     struct remote_iter *it = ctx;
     sxi_job_t *ret;
 
-    source.sx = sx;
-    source.cluster = cluster;
-    source.origpath = NULL;
-    if (!(source.volume = strdup(vol))) {
-        sxi_setsyserr(sx, SXE_EMEM, "cannot allocate volume name");
+    source = sxc_file_remote(cluster, vol, path, NULL);
+    if(!source)
         return NULL;
-    }
-    if (!(source.path = strdup(path))) {
-	free(source.volume);
-        sxi_setsyserr(sx, SXE_EMEM, "cannot allocate path name");
-        return NULL;
-    }
 
     /* we could support parallelization for remote_to_remote and
      * remote_to_remote_fast if they would just return a job ... */
-    ret = remote_copy_ev(pattern, &source, it->dest, it->recursive && different_file(source.path, pattern->path), &it->errors);
-    free(source.volume);
-    free(source.path);
-    free(source.origpath);
+    ret = remote_copy_ev(pattern, source, it->dest, it->recursive && different_file(source->path, pattern->path), &it->errors);
+
+    sxc_file_free(source);
+
     return ret;
 }
 
@@ -5552,18 +5548,15 @@ int sxc_remove_sxfile(sxc_file_t *file) {
 
 int sxc_copy_sxfile(sxc_file_t *source, sxc_file_t *dest) {
     sxc_client_t *sx = dest->sx;
-    sxi_job_t *job;
-    int ret = -1;
 
     if(!is_remote(source)) {
 	sxi_seterr(sx, SXE_EARG, "Called with local source file");
 	return -1;
     }
 
-    if(is_remote(dest))
-	job = remote_to_remote(source, dest);
-    else
-	job = remote_to_local(source, dest);
-
-    return sxi_jobs_wait_one(dest, job);
+    if(is_remote(dest)) {
+	sxi_job_t *job =  remote_to_remote(source, dest);
+	return sxi_jobs_wait_one(dest, job);
+    } else
+	return remote_to_local(source, dest);
 }

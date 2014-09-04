@@ -1,0 +1,14 @@
+package "sxrev"
+args "--unamed-opts --no-handle-version --no-handle-error --file-name=cmd_list --func-name=list_cmdline_parser --arg-struct-name=list_args_info"
+usage "sxrev list sx://[profile@]cluster/volume/path"
+
+text "\nRevision list options:\n"
+
+option  "config-dir"		c "Path to SX configuration directory"
+        string typestr="PATH" optional hidden
+
+option  "filter-dir"		f "Path to SX filter directory"
+        string typestr="PATH" optional hidden
+
+option  "debug"		D "Enable debug messages" flag off
+	

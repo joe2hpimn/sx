@@ -4,7 +4,7 @@ SUBDIRS = src/filters/null src/filters/zcomp src/filters/attribs src/filters/aes
 
 AM_CPPFLAGS = -I $(top_srcdir)/../libsx/include -I $(top_srcdir)/../ -I $(top_srcdir)/src/common -DSX_FILTER_DIR=\"$(pkglibdir)\"
 
-bin_PROGRAMS = src/tools/init/sxinit src/tools/ls/sxls src/tools/cp/sxcp src/tools/cat/sxcat src/tools/vol/sxvol src/tools/acl/sxacl src/tools/sxreport-client/sxreport-client src/tools/rm/sxrm
+bin_PROGRAMS = src/tools/init/sxinit src/tools/ls/sxls src/tools/cp/sxcp src/tools/cat/sxcat src/tools/vol/sxvol src/tools/acl/sxacl src/tools/sxreport-client/sxreport-client src/tools/rm/sxrm src/tools/rev/sxrev
 
 src_tools_init_sxinit_SOURCES = \
 	src/tools/init/sxinit.c \
@@ -74,4 +74,18 @@ src_tools_rm_sxrm_SOURCES = \
 	src/tools/rm/sxrm.c \
 	src/tools/rm/cmdline.c \
 	src/tools/rm/cmdline.h
+
 src_tools_rm_sxrm_LDADD = $(top_builddir)/../libsx/src/libsx.la
+
+src_tools_rev_sxrev_SOURCES = \
+	src/tools/rev/sxrev.c \
+	src/tools/rev/cmd_main.c \
+	src/tools/rev/cmd_main.h \
+	src/tools/rev/cmd_list.c \
+	src/tools/rev/cmd_list.h \
+	src/tools/rev/cmd_copy.c \
+	src/tools/rev/cmd_copy.h \
+	src/tools/rev/cmd_delete.c \
+	src/tools/rev/cmd_delete.h
+
+src_tools_rev_sxrev_LDADD = $(top_builddir)/../libsx/src/libsx.la

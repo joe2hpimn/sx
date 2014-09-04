@@ -208,7 +208,7 @@ int main(int argc, char **argv) {
 		    if(args.long_format_given) {
 			const void *mval = NULL;
 			unsigned int mval_len;
-			sxc_file_t* volume_file = NULL;
+			sxc_file_t *volume_file = NULL;
 			const char *filter_name = NULL;
                         char *human_str = NULL;
 			char repstr[6];

@@ -1,0 +1,12 @@
+package "sxrev"
+purpose "Manage file revisions on SX volumes"
+args "--no-handle-version --no-handle-error --file-name=cmd_main --func-name=main_cmdline_parser --arg-struct-name=main_args_info"
+usage "sxrev <command> OPTIONS"
+
+text "\nAvailable commands:\n\n"
+
+text "  lis         List the revision of a file\n"
+text "  copy        Copy the a specific revision of a file\n"
+text "  delete      Deletes a specific revision of a file\n"
+
+text "\nSee 'sxrev <command> --help' for more information on a specific command.\n"
