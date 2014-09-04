@@ -243,7 +243,7 @@ int sxc_cluster_set_progress_cb(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_xf
 /*sxc_xfer_callback sxc_cluster_get_progress_cb(const sxc_cluster_t *cluster);*/
 
 typedef struct _sxc_file_t sxc_file_t;
-sxc_file_t *sxc_file_remote(sxc_cluster_t *cluster, const char *volume, const char *path);
+    sxc_file_t *sxc_file_remote(sxc_cluster_t *cluster, const char *volume, const char *path, const char *revision);
 sxc_file_t *sxc_file_local(sxc_client_t *sx, const char *path);
 sxc_file_t *sxc_file_from_url(sxc_client_t *sx, sxc_cluster_t **cluster, const char *confdir, const char *url);
 int sxc_file_is_sx(sxc_file_t *file);
@@ -251,6 +251,7 @@ int sxc_file_require_dir(sxc_file_t *file);
 void sxc_file_free(sxc_file_t *sxfile);
 
 int sxc_copy(sxc_file_t *source, sxc_file_t *dest, int recursive, int onefs);
+int sxc_copy_sxfile(sxc_file_t *source, sxc_file_t *dest);
 int sxc_cat(sxc_file_t *source, int dest);
 
 typedef struct _sxc_file_list_t sxc_file_list_t;
@@ -263,6 +264,7 @@ unsigned sxc_file_list_get_total(const sxc_file_list_t *lst);
 unsigned sxc_file_list_get_successful(const sxc_file_list_t *lst);
 
 int sxc_rm(sxc_file_list_t *target);
+int sxc_remove_sxfile(sxc_file_t *file);
 
 
 sxc_meta_t *sxc_meta_new(sxc_client_t *sx);
@@ -284,6 +286,23 @@ int sxc_volume_add(sxc_cluster_t *cluster, const char *url, int64_t size, unsign
 
 int sxc_volume_acl(sxc_cluster_t *cluster, const char *url,
                   const char *user, const char *grant, const char *revoke);
+
+
+typedef struct {
+    char *revision;
+    int64_t file_size;
+    unsigned int block_size;
+    time_t created_at;
+} sxc_revision_t;
+
+typedef struct {
+    sxc_revision_t **revisions;
+    unsigned int count;
+} sxc_revlist_t;
+    
+sxc_revlist_t *sxc_revisions(sxc_file_t *file);
+void sxc_revisions_free(sxc_revlist_t *revisions);
+
 
 typedef struct _sxc_uri_t {
     char *profile;

@@ -576,7 +576,7 @@ static sxc_file_t *sxfile_from_arg(sxc_cluster_t **cluster, const char *arg, int
 	    return NULL;
 	}
 
-	file = sxc_file_remote(*cluster, uri->volume, uri->path);
+	file = sxc_file_remote(*cluster, uri->volume, uri->path, NULL);
 	sxc_free_uri(uri);
 	if(!file) {
 	    sxc_cluster_free(*cluster);

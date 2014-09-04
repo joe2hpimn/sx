@@ -214,7 +214,7 @@ int main(int argc, char **argv) {
 			char repstr[6];
 
 			/* Initialize volume file structure */
-			if(!(volume_file = sxc_file_remote(cluster, vname, NULL))) {
+			if(!(volume_file = sxc_file_remote(cluster, vname, NULL, NULL))) {
 			    fprintf(stderr, "ERROR: sxc_file_remote() failed\n");
 			    sxc_meta_free(vmeta);
 			    free(vname);

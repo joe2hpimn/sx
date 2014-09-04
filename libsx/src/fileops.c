@@ -50,6 +50,7 @@ struct _sxc_file_t {
     sxi_jobs_t *jobs;
     char *volume;
     char *path;
+    char *rev;
     char *origpath;
     sxi_ht *seen;
     int cat_fd;
@@ -249,7 +250,7 @@ static int is_remote(sxc_file_t *f) {
     return f->cluster != NULL;
 }
 
-sxc_file_t *sxc_file_remote(sxc_cluster_t *cluster, const char *volume, const char *path) {
+sxc_file_t *sxc_file_remote(sxc_cluster_t *cluster, const char *volume, const char *path, const char *revision) {
     sxc_file_t *ret;
 
     if(!cluster || !sxi_is_valid_cluster(cluster))
@@ -271,8 +272,9 @@ sxc_file_t *sxc_file_remote(sxc_cluster_t *cluster, const char *volume, const ch
     ret->cluster = cluster;
     ret->volume = strdup(volume);
     ret->path = path ? strdup(path) : strdup("");
+    ret->rev = revision ? strdup(revision) : NULL;
 
-    if(!ret->volume || !ret->path) {
+    if(!ret->volume || !ret->path || (revision && !ret->rev)) {
 	CFGDEBUG("OOM duplicating item");
 	cluster_err(SXE_EMEM, "Cannot create remote file object: Out of memory");
 	sxc_file_free(ret);
@@ -339,7 +341,7 @@ sxc_file_t *sxc_file_from_url(sxc_client_t *sx, sxc_cluster_t **cluster, const c
 /*            sxi_notice(sx, "Failed to load config for %s: %s\n", uri->host, sxc_geterrmsg(sx));*/
             break;
         }
-	file = sxc_file_remote(*cluster, uri->volume, uri->path);
+	file = sxc_file_remote(*cluster, uri->volume, uri->path, NULL);
         sxc_free_uri(uri);
         return file;
     } while(0);
@@ -381,6 +383,7 @@ void sxc_file_free(sxc_file_t *sxfile) {
     free(sxfile->origpath);
     free(sxfile->volume);
     free(sxfile->path);
+    free(sxfile->rev);
     sxi_ht_free(sxfile->seen);
     free(sxfile);
 }
@@ -2773,11 +2776,12 @@ static int path_is_root(const char *path)
 }
 
 static int hashes_to_download(sxc_file_t *source, FILE **tf, char **tfname, unsigned int *blocksize, int64_t *filesize, sxc_meta_t *vmeta) {
-    char *enc_vol = NULL, *enc_path = NULL, *url = NULL, *hsfname = NULL;
+    char *enc_vol = NULL, *enc_path = NULL, *url = NULL, *enc_rev = NULL, *hsfname = NULL;
     struct cb_getfile_ctx yctx;
     yajl_callbacks *yacb = &yctx.yacb;
     sxi_hostlist_t volnodes;
     sxc_client_t *sx = source->sx;
+    unsigned int urlen;
     int ret = 1;
 
     memset(&yctx, 0, sizeof(yctx));
@@ -2801,13 +2805,26 @@ static int hashes_to_download(sxc_file_t *source, FILE **tf, char **tfname, unsi
 	goto hashes_to_download_err;
     }
 
-    url = malloc(strlen(enc_vol) + 1 + strlen(enc_path) + 1);
+    urlen = strlen(enc_vol) + 1 + strlen(enc_path) + 1;
+    if(source->rev) {
+	if(!(enc_rev = sxi_urlencode(source->sx, source->rev, 0))) {
+	    SXDEBUG("failed to encode revision %s", source->rev);
+	    goto hashes_to_download_err;
+	}
+	urlen += lenof("?rev=") + strlen(enc_rev);
+    }
+
+    url = malloc(urlen);
     if(!url) {
 	SXDEBUG("OOM allocating url");
 	sxi_seterr(sx, SXE_EMEM, "Failed to retrieve the blocks to download: Out of memory");
 	goto hashes_to_download_err;
     }
-    sprintf(url, "%s/%s", enc_vol, enc_path);
+
+    if(enc_rev)
+	sprintf(url, "%s/%s?rev=%s", enc_vol, enc_path, enc_rev);
+    else
+	sprintf(url, "%s/%s", enc_vol, enc_path);
 
     if(!(hsfname = sxi_tempfile_track(source->sx, NULL, &yctx.f))) {
 	SXDEBUG("failed to generate results file");
@@ -2865,6 +2882,7 @@ hashes_to_download_err:
 	}
     }
     sxi_hostlist_empty(&volnodes);
+    free(enc_rev);
     free(enc_path);
     free(enc_vol);
     return ret;
@@ -5196,4 +5214,356 @@ static int remote_iterate(sxc_file_t *source, int recursive, int onefs, sxc_file
     }
 
     return ret;
+}
+
+// {"fileRevisions":{"rev#1":{"blockSize":1234,"fileSize":4567,"createdAt":12345}, "rev#2":{"blockSize":1234,"fileSize":4567,"createdAt":12345}}}
+
+struct cb_filerev_ctx {
+    curlev_context_t *cbdata;
+    yajl_handle yh;
+    struct cb_error_ctx errctx;
+    yajl_callbacks yacb;
+    enum filerev_state { FR_BEGIN, FR_FR, FR_START, FR_REVS, FR_REV, FR_REVDATA, FR_BSIZE, FR_FSIZE, FR_MTIME, FR_END, FR_COMPLETE } state;
+    sxc_revision_t **revs;
+    unsigned int nrevs;
+};
+
+static int yacb_filerev_start_map(void *ctx) {
+    struct cb_filerev_ctx *yactx = (struct cb_filerev_ctx *)ctx;
+
+    if(yactx->state == FR_BEGIN)
+	yactx->state = FR_FR;
+    else if(yactx->state == FR_START)
+	yactx->state = FR_REVS;
+    else if(yactx->state == FR_REV)
+	yactx->state = FR_REVDATA;
+    else {
+	CBDEBUG("bad state %d", yactx->state);
+	return 0;
+    }
+
+    return 1;
+}
+
+static int yacb_filerev_map_key(void *ctx, const unsigned char *s, size_t l) {
+    struct cb_filerev_ctx *yactx = (struct cb_filerev_ctx *)ctx;
+
+    if(yactx->state == FR_FR) {
+	if(l == lenof("fileRevisions") && !memcmp(s, "fileRevisions", lenof("fileRevisions"))) {
+	    yactx->state = FR_START;
+	    return 1;
+	}
+	CBDEBUG("bad key expecing 'fileRevisions', got '%.*s'", (int)l, s);
+	return 0;
+    }
+
+    if(yactx->state == FR_REVS) {
+	sxc_revision_t *rev = malloc(sizeof(*rev) + l + 1);
+	unsigned int nrevs = yactx->nrevs;
+	if(!rev) {
+	    CBDEBUG("OOM allocating rev");
+	    return 0;
+	}
+
+	rev->revision = (char *)(rev+1);
+	rev->block_size = 0;
+	rev->file_size = -1;
+	rev->created_at = -1;
+	memcpy(rev->revision, s, l);
+	rev->revision[l] = '\0';
+
+	if(!(nrevs & 0xf)) {
+	    sxc_revision_t **nurevs = realloc(yactx->revs, (nrevs+16) *sizeof(*nurevs));
+	    if(!nurevs) {
+		CBDEBUG("OOM reallocating revs array");
+		free(rev);
+		return 0;
+	    }
+	    yactx->revs = nurevs;
+	}
+
+	yactx->revs[nrevs] = rev;
+	yactx->state = FR_REV;
+	yactx->nrevs++;
+	return 1;
+    }
+
+    if(yactx->state == FR_REVDATA) {
+	if(l == lenof("blockSize") && !memcmp(s, "blockSize", lenof("blockSize")))
+	    yactx->state = FR_BSIZE;
+	else if(l == lenof("fileSize") && !memcmp(s, "fileSize", lenof("fileSize")))
+	    yactx->state = FR_FSIZE;
+	else if(l == lenof("createdAt") && !memcmp(s, "createdAt", lenof("createdAt")))
+	    yactx->state = FR_MTIME;
+	else {
+	    CBDEBUG("unknown key %.*s", (int)l, s);
+	    return 0;
+	}
+	return 1;
+    }
+
+    CBDEBUG("key %.*s in bad state %u", (int)l, s, yactx->state);
+    return 0;
+}
+
+static int yacb_filerev_number(void *ctx, const char *s, size_t l) {
+    struct cb_filerev_ctx *yactx = (struct cb_filerev_ctx *)ctx;
+    sxc_revision_t *rev;
+    char numb[24], *enumb;
+    unsigned int curev;
+    int64_t nnumb;
+
+    if(!ctx || !yactx->revs || !(curev = yactx->nrevs) || !yactx->revs[curev-1])
+	return 0;
+
+    rev = yactx->revs[curev-1];
+    if(l > 20) {
+	CBDEBUG("number too long (%u bytes)", (unsigned)l);
+	return 0;
+    }
+    memcpy(numb, s, l);
+    numb[l] = '\0';
+    nnumb = strtoll(numb, &enumb, 10);
+    if(*enumb) {
+	CBDEBUG("failed to parse number %.*s", (int)l, s);
+	return 0;
+    }
+
+    if(yactx->state == FR_BSIZE) {
+	if(rev->block_size) {
+	    CBDEBUG("blockSize duplicated");
+	    return 0;
+	}
+	rev->block_size = nnumb;
+    } else if(yactx->state == FR_FSIZE) {
+	if(rev->file_size >= 0) {
+	    CBDEBUG("fileSize duplicated");
+	    return 0;
+	}
+	rev->file_size = nnumb;
+    } else if(yactx->state == FR_MTIME) {
+	if(rev->created_at >= 0) {
+	    CBDEBUG("createdAt duplicated");
+	    return 0;
+	}
+	rev->created_at = nnumb;
+    } else {
+	CBDEBUG("bad state %d", yactx->state);
+	return 0;
+    }
+
+    yactx->state = FR_REVDATA;
+    return 1;
+}
+
+static int yacb_filerev_end_map(void *ctx) {
+    struct cb_filerev_ctx *yactx = (struct cb_filerev_ctx *)ctx;
+
+    if(yactx->state == FR_REVDATA)
+	yactx->state = FR_REVS;
+    else if(yactx->state == FR_REVS)
+	yactx->state = FR_END;
+    else if(yactx->state == FR_END)
+	yactx->state = FR_COMPLETE;
+    else {
+	CBDEBUG("bad state %d", yactx->state);
+	return 0;
+    }
+
+    return 1;
+}
+
+static int filerev_setup_cb(curlev_context_t *cbdata, void *ctx, const char *host) {
+    struct cb_filerev_ctx *yactx = (struct cb_filerev_ctx *)ctx;
+
+    if(yactx->yh)
+	yajl_free(yactx->yh);
+
+    yactx->cbdata = cbdata;
+    if(!(yactx->yh  = yajl_alloc(&yactx->yacb, NULL, yactx))) {
+	CBDEBUG("OOM allocating yajl context");
+	sxi_cbdata_seterr(yactx->cbdata, SXE_EMEM, "Failed to retrieve file revisions: Out of memory");
+	return 1;
+    }
+
+    if(yactx->revs) {
+	unsigned int i;
+	for(i=0; i<yactx->nrevs; i++)
+	    free(yactx->revs[i]);
+	free(yactx->revs);
+	yactx->revs = NULL;
+    }
+    yactx->nrevs = 0;
+
+    yactx->state = FR_BEGIN;
+
+    return 0;
+}
+
+static int filerev_cb(curlev_context_t *cbdata, void *ctx, const void *data, size_t size) {
+    struct cb_filerev_ctx *yactx = (struct cb_filerev_ctx *)ctx;
+    if(yajl_parse(yactx->yh, data, size) != yajl_status_ok) {
+	CBDEBUG("failed to parse JSON data: %s", sxi_cbdata_geterrmsg(yactx->cbdata));
+	sxi_cbdata_seterr(yactx->cbdata, SXE_ECOMM, "communication error");
+	return 1;
+    }
+
+    return 0;
+}
+
+static int cmprevdsc(const void *a, const void *b) {
+    const sxc_revision_t *ra = *(const sxc_revision_t **)a;
+    const sxc_revision_t *rb = *(const sxc_revision_t **)b;
+
+    return strcmp(rb->revision, ra->revision);
+}
+
+sxc_revlist_t *sxc_revisions(sxc_file_t *file) {
+    sxi_hostlist_t volnodes;
+    sxc_client_t *sx;
+    char *enc_vol = NULL, *enc_path = NULL, *url = NULL;
+    struct cb_filerev_ctx yctx;
+    yajl_callbacks *yacb = &yctx.yacb;
+    sxc_revlist_t *ret = NULL;
+
+    if(!file)
+	return NULL;
+    sx = file->sx;
+    if(!is_remote(file)) {
+	sxi_seterr(sx, SXE_EARG, "Called with local file");
+	return NULL;
+    }
+
+    memset(&yctx, 0, sizeof(yctx));
+    sxi_hostlist_init(&volnodes);
+    if(sxi_locate_volume(file->cluster, file->volume, &volnodes, NULL, NULL)) {
+	SXDEBUG("failed to locate file");
+	goto frev_err;
+    }
+
+    if(!(enc_vol = sxi_urlencode(file->sx, file->volume, 0))) {
+	SXDEBUG("failed to encode volume %s", file->volume);
+	goto frev_err;
+    }
+
+    if(!(enc_path = sxi_urlencode(file->sx, file->path, 0))) {
+	SXDEBUG("failed to encode path %s", file->path);
+	goto frev_err;
+    }
+
+    url = malloc(strlen(enc_vol) + 1 + strlen(enc_path) + sizeof("?fileRevisions"));
+    if(!url) {
+	SXDEBUG("OOM allocating url");
+	sxi_seterr(sx, SXE_EMEM, "Failed to retrieve file revisions: Out of memory");
+	goto frev_err;
+    }
+    sprintf(url, "%s/%s?fileRevisions", enc_vol, enc_path);
+    free(enc_vol);
+    free(enc_path);
+    enc_vol = enc_path = NULL;
+
+    ya_init(yacb);
+    yacb->yajl_start_map = yacb_filerev_start_map;
+    yacb->yajl_map_key = yacb_filerev_map_key;
+    yacb->yajl_number = yacb_filerev_number;
+    yacb->yajl_end_map = yacb_filerev_end_map;
+
+    sxi_set_operation(sxi_cluster_get_client(file->cluster), "list file revisions", sxi_cluster_get_name(file->cluster), file->volume, file->path);
+    if(sxi_cluster_query(sxi_cluster_get_conns(file->cluster), &volnodes, REQ_GET, url, NULL, 0, filerev_setup_cb, filerev_cb, &yctx) != 200) {
+	SXDEBUG("rev list query failed");
+	goto frev_err;
+    }
+
+    if(yajl_complete_parse(yctx.yh) != yajl_status_ok || yctx.state != FR_COMPLETE) {
+	sxi_seterr(sx, SXE_ECOMM, "Failed to retrieve the blocks to download: Communication error");
+	goto frev_err;
+    }
+
+    qsort(yctx.revs, yctx.nrevs, sizeof(yctx.revs[0]), cmprevdsc);
+    ret = malloc(sizeof(*ret));
+    if(!ret) {
+	SXDEBUG("OOM allocating results");
+	sxi_seterr(sx, SXE_EMEM, "Failed to retrieve file revisions: Out of memory");
+	goto frev_err;
+    }
+
+    ret->revisions = yctx.revs;
+    ret->count = yctx.nrevs;
+
+ frev_err:
+    if(!ret) {
+	unsigned int i;
+	for(i=0; i<yctx.nrevs; i++)
+	    free(yctx.revs[i]);
+	free(yctx.revs);
+    }
+
+    sxi_hostlist_empty(&volnodes);
+    free(enc_vol);
+    free(enc_path);
+    free(url);
+    if(yctx.yh)
+	yajl_free(yctx.yh);
+
+    return ret;
+}
+
+void sxc_revisions_free(sxc_revlist_t *revlist) {
+    if(!revlist)
+	return;
+    while(revlist->count--)
+	free(revlist->revisions[revlist->count]);
+    free(revlist->revisions);
+    free(revlist);
+}
+
+int sxc_remove_sxfile(sxc_file_t *file) {
+    sxi_hostlist_t volnodes;
+    sxi_query_t *query = NULL;
+    sxc_client_t *sx = file->sx;
+    int ret = -1;
+
+    if(!is_remote(file)) {
+	sxi_seterr(sx, SXE_EARG, "Called with local file");
+	return -1;
+    }
+
+    sxi_hostlist_init(&volnodes);
+    if(sxi_locate_volume(file->cluster, file->volume, &volnodes, NULL, NULL)) {
+	SXDEBUG("failed to locate file");
+	goto rmfile_err;
+    }
+
+    if(!(query = sxi_filedel_proto(sx, file->volume, file->path, file->rev)))
+	goto rmfile_err;
+
+    sxi_set_operation(sx, "remove files", sxi_cluster_get_name(file->cluster), query->path, NULL);
+    if(sxi_job_submit_and_poll(sxi_cluster_get_conns(file->cluster), &volnodes, query->verb, query->path, NULL, 0))
+	goto rmfile_err;
+
+    ret = 0;
+
+ rmfile_err:
+    sxi_query_free(query);
+    sxi_hostlist_empty(&volnodes);
+
+    return ret;
+}
+
+int sxc_copy_sxfile(sxc_file_t *source, sxc_file_t *dest) {
+    sxc_client_t *sx = dest->sx;
+    sxi_job_t *job;
+    int ret = -1;
+
+    if(!is_remote(source)) {
+	sxi_seterr(sx, SXE_EARG, "Called with local source file");
+	return -1;
+    }
+
+    if(is_remote(dest))
+	job = remote_to_remote(source, dest);
+    else
+	job = remote_to_local(source, dest);
+
+    return sxi_jobs_wait_one(dest, job);
 }

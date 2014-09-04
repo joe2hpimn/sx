@@ -39,7 +39,7 @@ void sxi_job_free(sxi_job_t *job);
 
 int sxi_job_wait(sxi_conns_t *conn, sxi_jobs_t *jobs);
 
-int sxi_job_submit_and_poll(sxi_conns_t *conns, sxi_hostlist_t *hlist, const char *query, void *content, size_t content_size);
+int sxi_job_submit_and_poll(sxi_conns_t *conns, sxi_hostlist_t *hlist, enum sxi_cluster_verb verb, const char *query, void *content, size_t content_size);
 
 /* Return number of successfully finished jobs */
 unsigned sxi_jobs_get_successful(const sxi_jobs_t *jobs);

@@ -696,7 +696,7 @@ static int change_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
 
     strcat(query, "]}"); /* Always fits due to need above */
 
-    if(sxi_job_submit_and_poll(sxi_cluster_get_conns(clust), NULL, ".nodes", query, strlen(query))) {
+    if(sxi_job_submit_and_poll(sxi_cluster_get_conns(clust), NULL, REQ_PUT, ".nodes", query, strlen(query))) {
 	CRIT("The update request failed: %s", sxc_geterrmsg(sx));
 	goto change_cluster_err;
     }

@@ -2173,7 +2173,7 @@ char *sxc_user_add(sxc_cluster_t *cluster, const char *username, int admin)
 	return NULL;
     }
     sxi_set_operation(sxi_cluster_get_client(cluster), "create user", sxi_cluster_get_name(cluster), NULL, NULL);
-    qret = sxi_job_submit_and_poll(sxi_cluster_get_conns(cluster), NULL, proto->path, proto->content, proto->content_len);
+    qret = sxi_job_submit_and_poll(sxi_cluster_get_conns(cluster), NULL, proto->verb, proto->path, proto->content, proto->content_len);
     if(!qret) {
 	retkey = malloc(AUTHTOK_ASCII_LEN + 1);
 	if(!retkey) {

@@ -744,11 +744,11 @@ int sxi_job_wait(sxi_conns_t *conns, sxi_jobs_t *jobs)
     return sxi_job_poll(conns, jobs, 1);
 }
 
-int sxi_job_submit_and_poll(sxi_conns_t *conns, sxi_hostlist_t *hlist, const char *query, void *content, size_t content_size)
+int sxi_job_submit_and_poll(sxi_conns_t *conns, sxi_hostlist_t *hlist, enum sxi_cluster_verb verb, const char *query, void *content, size_t content_size)
 {
     int rc;
     sxi_job_t *jtable[1] = {
-        sxi_job_submit(conns, hlist, REQ_PUT, query, NULL, content, content_size, NULL, NULL)
+        sxi_job_submit(conns, hlist, verb, query, NULL, content, content_size, NULL, NULL)
     };
     if (!jtable[0])
         return -1;

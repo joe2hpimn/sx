@@ -58,7 +58,7 @@ int sxc_volume_add(sxc_cluster_t *cluster, const char *name, int64_t size, unsig
 	return 1;
     }
     sxi_set_operation(sx, "add volume", sxi_cluster_get_name(cluster), name, NULL);
-    qret = sxi_job_submit_and_poll(sxi_cluster_get_conns(cluster), NULL, proto->path, proto->content, proto->content_len);
+    qret = sxi_job_submit_and_poll(sxi_cluster_get_conns(cluster), NULL, proto->verb, proto->path, proto->content, proto->content_len);
     sxi_query_free(proto);
     return qret;
 }
@@ -457,7 +457,7 @@ int sxc_volume_acl(sxc_cluster_t *cluster, const char *url,
     free(user_iter.user);
 
     sxi_set_operation(sxi_cluster_get_client(cluster), "modify volume acl", sxi_cluster_get_name(cluster), url, NULL);
-    rc = sxi_job_submit_and_poll(sxi_cluster_get_conns(cluster), NULL, proto->path, proto->content, proto->content_len);
+    rc = sxi_job_submit_and_poll(sxi_cluster_get_conns(cluster), NULL, proto->verb, proto->path, proto->content, proto->content_len);
     sxi_query_free(proto);
     return rc;
 }
