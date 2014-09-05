@@ -6,6 +6,12 @@ set -x
 # we might miss essential utilities like chown
 PATH=`getconf PATH`
 
+# Disable proxies
+unset HTTP_PROXY
+unset http_proxy
+unset HTTPS_PROXY
+unset https_proxy
+
 prefix=`mktemp -d $PWD/sx-test-XXXXXXXX`
 cleanup () {
     make -C sxscripts clean
