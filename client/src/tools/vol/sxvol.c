@@ -121,6 +121,21 @@ static int filter_info(sxc_client_t *sx, const char *name)
     return 0;
 }
 
+static int reject_dots(const char *str)
+{
+    const char *lastslash;
+    if(*str == '.' || strstr(str, "/../") || strstr(str, "/./"))
+        return 1;
+    lastslash = strrchr(str, '/');
+    if(lastslash)
+        lastslash++;
+    else
+        lastslash = str;
+    if(!strcmp(lastslash, "..") || !strcmp(lastslash, "."))
+        return 1;
+    return 0;
+}
+
 static int volume_create(sxc_client_t *sx, const char *owner)
 {
 	sxc_cluster_t *cluster;
@@ -180,21 +195,24 @@ static int volume_create(sxc_client_t *sx, const char *owner)
     }
     confdir = sxi_cluster_get_confdir(cluster);
 
-    /* wipe existing local config */
     voldir = malloc(strlen(confdir) + strlen(uri->volume) + 10);
     if(!voldir) {
 	fprintf(stderr, "ERROR: Out of memory\n");
 	sxc_free_uri(uri);
-        sxc_cluster_free(cluster);
+	sxc_cluster_free(cluster);
 	return 1;
     }
     sprintf(voldir, "%s/volumes/%s", confdir, uri->volume);
-    if(!access(voldir, F_OK) && sxi_rmdirs(voldir)) {
-	fprintf(stderr, "ERROR: Can't wipe old volume configuration directory %s\n", voldir);
-	sxc_free_uri(uri);
-	free(voldir);
-        sxc_cluster_free(cluster);
-	return 1;
+
+    /* wipe existing local config */
+    if(!reject_dots(uri->volume)) {
+	if(!access(voldir, F_OK) && sxi_rmdirs(voldir)) {
+	    fprintf(stderr, "ERROR: Can't wipe old volume configuration directory %s\n", voldir);
+	    sxc_free_uri(uri);
+	    free(voldir);
+	    sxc_cluster_free(cluster);
+	    return 1;
+	}
     }
 
     if(create_args.filter_given) {
@@ -294,7 +312,7 @@ static int volume_create(sxc_client_t *sx, const char *owner)
 	printf("Volume '%s' (replica: %d, size: %lld) created.\n", uri->volume, create_args.replica_arg, (long long) size);
 
 create_err:
-    if(ret && voldir && !access(voldir, F_OK))
+    if(ret && voldir && !access(voldir, F_OK) && !reject_dots(uri->volume))
 	sxi_rmdirs(voldir);
 
     free(voldir);
