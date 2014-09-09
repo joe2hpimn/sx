@@ -29,11 +29,12 @@ sxc_client_t *sxi_cluster_get_client(const sxc_cluster_t *cluster);
 int sxi_is_valid_cluster(const sxc_cluster_t *cluster);
 int sxi_cluster_hashcalc(const sxc_cluster_t *cluster, const void *buffer, unsigned int len, char *hash);
 sxc_cluster_lf_t *sxi_cluster_list_local_files(sxc_client_t *sx, const char *path, int recursive, unsigned int *nfiles);
+sxc_cluster_lf_t *sxi_conns_listfiles(sxi_conns_t *conns, const char *volume, sxi_hostlist_t *volhosts, const char *glob_pattern, int recursive, int64_t *volume_used_size, int64_t *volume_size, unsigned int *replica_count, unsigned int *nfiles, int reverse, int sizeOnly);
 char *sxi_urlencode(sxc_client_t *sx, const char *string, int encode_slash);
 sxi_conns_t *sxi_cluster_get_conns(sxc_cluster_t *cluster);
 #define sxi_cluster_get_name(CLUSTER) sxc_cluster_get_sslname(CLUSTER)
-int sxi_locate_volume(sxc_cluster_t *cluster, const char *volume, sxi_hostlist_t *nodes, int64_t *size, sxc_meta_t *metadata);
-int sxi_volume_info(sxc_cluster_t *cluster, const char *volume, sxi_hostlist_t *nodes, int64_t *size, sxi_ht *metadata);
+int sxi_locate_volume(sxi_conns_t *conns, const char *volume, sxi_hostlist_t *nodes, int64_t *size, sxc_meta_t *metadata);
+int sxi_volume_info(sxi_conns_t *conns, const char *volume, sxi_hostlist_t *nodes, int64_t *size, sxi_ht *metadata);
 const char *sxi_cluster_get_confdir(const sxc_cluster_t *cluster);
 
 /* Note: volume/path may be freed after exit from cb, make a copy if needed

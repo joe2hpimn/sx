@@ -1021,21 +1021,22 @@ static int locate_cb(curlev_context_t *cbdata, void *ctx, const void *data, size
     return 0;
 }
 
-int sxi_volume_info(sxc_cluster_t *cluster, const char *volume, sxi_hostlist_t *nodes, int64_t *size, sxc_meta_t *metadata) {
+int sxi_volume_info(sxi_conns_t *conns, const char *volume, sxi_hostlist_t *nodes, int64_t *size, sxc_meta_t *metadata) {
     struct cb_locate_ctx yctx;
     yajl_callbacks *yacb = &yctx.yacb;
     char *enc_vol, *url;
     int qret;
+    sxc_client_t *sx = sxi_conns_get_client(conns);
 
-    sxc_clearerr(cluster->sx);
-    if(!(enc_vol = sxi_urlencode(cluster->sx, volume, 0))) {
-	CFGDEBUG("failed to encode volume %s", volume);
+    sxc_clearerr(sx);
+    if(!(enc_vol = sxi_urlencode(sx, volume, 0))) {
+	SXDEBUG("failed to encode volume %s", volume);
 	return 1;
     }
 
     if(!(url = malloc(strlen(enc_vol) + lenof("?o=locate&volumeMeta&size=") + 64))) {
-	CFGDEBUG("OOM allocating url (%lu bytes)", strlen(enc_vol) + lenof("?o=locate&volumeMeta&size=") + 64);
-	cluster_err(SXE_EMEM, "List failed: Out of memory");
+	SXDEBUG("OOM allocating url (%lu bytes)", strlen(enc_vol) + lenof("?o=locate&volumeMeta&size=") + 64);
+	sxi_seterr(sx, SXE_EMEM, "List failed: Out of memory");
 	free(enc_vol);
 	return 1;
     }
@@ -1061,23 +1062,23 @@ int sxi_volume_info(sxc_cluster_t *cluster, const char *volume, sxi_hostlist_t *
     yctx.meta = metadata;
     yctx.curkey = NULL;
 
-    sxi_set_operation(sxi_cluster_get_client(cluster), "locate volume", sxi_cluster_get_name(cluster), volume, NULL);
-    qret = sxi_cluster_query(cluster->conns, NULL, REQ_GET, url, NULL, 0, locate_setup_cb, locate_cb, &yctx);
+    sxi_set_operation(sx, "locate volume", sxi_conns_get_sslname(conns), volume, NULL);
+    qret = sxi_cluster_query(conns, NULL, REQ_GET, url, NULL, 0, locate_setup_cb, locate_cb, &yctx);
     free(url);
     if(qret != 200) {
-	CFGDEBUG("query returned %d", qret);
+	SXDEBUG("query returned %d", qret);
 	if(yctx.yh)
 	    yajl_free(yctx.yh);
 	sxc_meta_empty(metadata);
-        cluster_err(SXE_ECOMM, "failed to query volume location");
+        sxi_seterr(sx, SXE_ECOMM, "failed to query volume location");
         /* we must return an error code */
 	return qret ? qret : -1;
     }
 
     if(yajl_complete_parse(yctx.yh) != yajl_status_ok || yctx.state != LC_COMPLETE) {
         if (yctx.state != LC_ERROR) {
-            CFGDEBUG("JSON parsing failed");
-            cluster_err(SXE_ECOMM, "Locate failed: Communication error");
+            SXDEBUG("JSON parsing failed");
+            sxi_seterr(sx, SXE_ECOMM, "Locate failed: Communication error");
         }
 	if(yctx.yh)
 	    yajl_free(yctx.yh);
@@ -1091,18 +1092,18 @@ int sxi_volume_info(sxc_cluster_t *cluster, const char *volume, sxi_hostlist_t *
 
     if(getenv("SX_DEBUG_SINGLEHOST")) {
 	sxi_hostlist_empty(nodes);
-	sxi_hostlist_add_host(cluster->sx, nodes, getenv("SX_DEBUG_SINGLEHOST"));
+	sxi_hostlist_add_host(sx, nodes, getenv("SX_DEBUG_SINGLEHOST"));
     }
     if(getenv("SX_DEBUG_SINGLE_VOLUMEHOST")) {
         sxi_hostlist_empty(nodes);
-        sxi_hostlist_add_host(cluster->sx, nodes, getenv("SX_DEBUG_SINGLE_VOLUMEHOST"));
+        sxi_hostlist_add_host(sx, nodes, getenv("SX_DEBUG_SINGLE_VOLUMEHOST"));
     }
     return 0;
 }
 
-int sxi_locate_volume(sxc_cluster_t *cluster, const char *volume, sxi_hostlist_t *nodes, int64_t *size, sxc_meta_t *metadata) {
-    sxi_set_operation(cluster->sx, "locate volume", volume, NULL, NULL);
-    return sxi_volume_info(cluster, volume, nodes, size, metadata);
+int sxi_locate_volume(sxi_conns_t *conns, const char *volume, sxi_hostlist_t *nodes, int64_t *size, sxc_meta_t *metadata) {
+    sxi_set_operation(sxi_conns_get_client(conns), "locate volume", volume, NULL, NULL);
+    return sxi_volume_info(conns, volume, nodes, size, metadata);
 }
 
 
@@ -1442,12 +1443,13 @@ struct cb_listfiles_ctx {
     yajl_handle yh;
     FILE *f;
     uint64_t volume_size;
+    int64_t volume_used_size;
     char *fname;
     char *frev;
     struct cbl_file_t file;
     unsigned int replica;
     unsigned int nfiles;
-    enum list_files_state { LF_BEGIN, LF_MAIN, LF_REPLICACNT, LF_VOLUMESIZE, LF_FILES, LF_FILE, LF_FILECONTENT, LF_FILEATTRS, LF_FILESIZE, LF_BLOCKSIZE, LF_FILETIME, LF_FILEREV, LF_COMPLETE } state;
+    enum list_files_state { LF_BEGIN, LF_MAIN, LF_REPLICACNT, LF_VOLUMEUSEDSIZE, LF_VOLUMESIZE, LF_FILES, LF_FILE, LF_FILECONTENT, LF_FILEATTRS, LF_FILESIZE, LF_BLOCKSIZE, LF_FILETIME, LF_FILEREV, LF_COMPLETE } state;
 };
 
 
@@ -1479,6 +1481,8 @@ static int yacb_listfiles_map_key(void *ctx, const unsigned char *s, size_t l) {
     if(yactx->state == LF_MAIN) {
 	if(l == lenof("volumeSize") && !memcmp(s, "volumeSize", lenof("volumeSize")))
 	    yactx->state = LF_VOLUMESIZE;
+        else if(l == lenof("volumeUsedSize") && !memcmp(s, "volumeUsedSize", lenof("volumeUsedSize")))
+            yactx->state = LF_VOLUMEUSEDSIZE;
 	else if(l == lenof("replicaCount") && !memcmp(s, "replicaCount", lenof("replicaCount")))
 	    yactx->state = LF_REPLICACNT;
 	else if(l == lenof("fileList") && !memcmp(s, "fileList", lenof("fileList")))
@@ -1557,6 +1561,14 @@ static int yacb_listfiles_number(void *ctx, const char *s, size_t l) {
 	yactx->volume_size = nnumb;
 	yactx->state = LF_MAIN;
 	return 1;
+    case LF_VOLUMEUSEDSIZE:
+        if(yactx->volume_used_size) {
+            CBDEBUG("volumeUsedSize already received");
+            return 0;
+        }
+        yactx->volume_used_size = nnumb;
+        yactx->state = LF_MAIN;
+        return 1;
     case LF_REPLICACNT:
 	if(yactx->replica) {
 	    CBDEBUG("replicaCount already received");
@@ -1697,6 +1709,7 @@ static int listfiles_setup_cb(curlev_context_t *cbdata, void *ctx, const char *h
     yactx->state = LF_BEGIN;
     rewind(yactx->f);
     yactx->volume_size = 0;
+    yactx->volume_used_size = 0;
     yactx->replica = 0;
     free(yactx->fname);
     yactx->fname = NULL;
@@ -1762,61 +1775,77 @@ char *sxi_ith_slash(char *s, unsigned int i) {
     return NULL;
 }
 
-sxc_cluster_lf_t *sxc_cluster_listfiles(sxc_cluster_t *cluster, const char *volume, const char *glob_pattern, int recursive, int64_t *volume_size, unsigned int *replica_count, unsigned int *nfiles, int reverse) {
+sxc_cluster_lf_t *sxi_conns_listfiles(sxi_conns_t *conns, const char *volume, sxi_hostlist_t *volhosts, const char *glob_pattern, int recursive, int64_t *volume_used_size, int64_t *volume_size, unsigned int *replica_count, unsigned int *nfiles, int reverse, int sizeOnly) {
     char *enc_vol, *enc_glob = NULL, *url, *fname;
     struct cb_listfiles_ctx yctx;
     yajl_callbacks *yacb = &yctx.yacb;
-    sxi_hostlist_t volhosts;
     sxc_cluster_lf_t *ret;
     unsigned int len;
     int qret;
+    char *cur;
+    sxc_client_t *sx = sxi_conns_get_client(conns);
+    int qm = 1; /* state if we want to add quotation mark or ampersand */
 
-    sxc_clearerr(cluster->sx);
+    sxc_clearerr(sx);
 
-    sxi_hostlist_init(&volhosts);
-    if(sxi_locate_volume(cluster, volume, &volhosts, NULL, NULL)) {
-	sxi_hostlist_empty(&volhosts);
-	return NULL;
+    if(!volume || !volhosts) {
+        SXDEBUG("NULL argument");
+        return NULL;
     }
-    sxi_set_operation(cluster->sx, "list files", sxi_cluster_get_name(cluster), volume, NULL);
 
-    if(!(enc_vol = sxi_urlencode(cluster->sx, volume, 0))) {
-	CFGDEBUG("failed to encode volume %s", volume);
-	sxi_hostlist_empty(&volhosts);
-	return NULL;
+    sxi_set_operation(sx, "list files", sxi_conns_get_sslname(conns), volume, NULL);
+
+    if(!(enc_vol = sxi_urlencode(sx, volume, 0))) {
+        SXDEBUG("failed to encode volume %s", volume);
+        return NULL;
     }
 
     len = strlen(enc_vol) + 1;
     if(glob_pattern) {
-	if(!(enc_glob = sxi_urlencode(cluster->sx, glob_pattern, 1))) {
-	    CFGDEBUG("failed to encode pattern %s", glob_pattern);
-	    sxi_hostlist_empty(&volhosts);
+        if(!(enc_glob = sxi_urlencode(sx, glob_pattern, 1))) {
+            SXDEBUG("failed to encode pattern %s", glob_pattern);
 	    free(enc_vol);
 	    return NULL;
 	}
 	len += lenof("?filter=") + strlen(enc_glob);
     }
+
     if(recursive)
 	len += lenof("&recursive");
 
+    if(sizeOnly)
+        len += lenof("&sizeOnly");
+
     if(!(url = malloc(len))) {
-	CFGDEBUG("OOM allocating url (%u bytes)", len);
-	cluster_err(SXE_EMEM, "List failed: Out of memory");
-	sxi_hostlist_empty(&volhosts);
+        SXDEBUG("OOM allocating url (%u bytes)", len);
+        sxi_seterr(sx, SXE_EMEM, "List failed: Out of memory");
 	free(enc_vol);
 	free(enc_glob);
 	return NULL;
     }
-    if(enc_glob)
-	sprintf(url, "%s?filter=%s%s", enc_vol, enc_glob, recursive ? "&recursive" : "");
-    else
-	sprintf(url, "%s%s", enc_vol, recursive ? "?recursive" : "");
+
+    sprintf(url, "%s", enc_vol);
+    cur = url + strlen(enc_vol);
+    if(enc_glob) {
+        sprintf(cur, "?filter=%s", enc_glob);
+        qm = 0;
+        cur += strlen(cur);
+    }
+    if(recursive) {
+        sprintf(cur, "%s", qm ? "?recursive" : "&recursive");
+        qm = 0;
+        cur += strlen(cur);
+    }
+    if(sizeOnly) {
+        sprintf(cur, "%s", qm ? "?sizeOnly" : "&sizeOnly");
+        qm = 0;
+        cur += strlen(cur);
+    }
     free(enc_vol);
     free(enc_glob);
 
-    if(!(fname = sxi_make_tempfile(cluster->sx, NULL, &yctx.f))) {
-	CFGDEBUG("failed to create temporary storage for file list");
-	sxi_hostlist_empty(&volhosts);
+    if(!(fname = sxi_make_tempfile(sx, NULL, &yctx.f))) {
+        SXDEBUG("failed to create temporary storage for file list");
 	free(url);
 	return NULL;
     }
@@ -1832,14 +1861,13 @@ sxc_cluster_lf_t *sxc_cluster_listfiles(sxc_cluster_t *cluster, const char *volu
     yctx.fname = NULL;
     yctx.frev = NULL;
 
-    sxi_set_operation(sxi_cluster_get_client(cluster), "list volume files", sxi_cluster_get_name(cluster), volume, NULL);
-    qret = sxi_cluster_query(cluster->conns, &volhosts, REQ_GET, url, NULL, 0, listfiles_setup_cb, listfiles_cb, &yctx);
-    sxi_hostlist_empty(&volhosts);
+    sxi_set_operation(sx, "list volume files", sxi_conns_get_sslname(conns), volume, NULL);
+    qret = sxi_cluster_query(conns, volhosts, REQ_GET, url, NULL, 0, listfiles_setup_cb, listfiles_cb, &yctx);
     free(url);
     free(yctx.fname);
     free(yctx.frev);
     if(qret != 200) {
-	CFGDEBUG("query returned %d", qret);
+        SXDEBUG("query returned %d", qret);
 	if(yctx.yh)
 	    yajl_free(yctx.yh);
 	fclose(yctx.f);
@@ -1849,8 +1877,8 @@ sxc_cluster_lf_t *sxc_cluster_listfiles(sxc_cluster_t *cluster, const char *volu
     }
 
     if(yajl_complete_parse(yctx.yh) != yajl_status_ok || yctx.state != LF_COMPLETE) {
-	CFGDEBUG("JSON parsing failed");
-	cluster_err(SXE_ECOMM, "List failed: Communication error");
+        SXDEBUG("JSON parsing failed");
+        sxi_seterr(sx, SXE_ECOMM, "List failed: Communication error");
 	if(yctx.yh)
 	    yajl_free(yctx.yh);
 	fclose(yctx.f);
@@ -1865,7 +1893,7 @@ sxc_cluster_lf_t *sxc_cluster_listfiles(sxc_cluster_t *cluster, const char *volu
     if(fflush(yctx.f) ||
        ftruncate(fileno(yctx.f), ftell(yctx.f)) ||
        fseek(yctx.f, 0, reverse ? SEEK_END : SEEK_SET)) {
-	cluster_err(SXE_EWRITE, "List failed: Failed to write temporary data");
+        sxi_seterr(sx, SXE_EWRITE, "List failed: Failed to write temporary data");
 	fclose(yctx.f);
 	unlink(fname);
 	free(fname);
@@ -1874,13 +1902,16 @@ sxc_cluster_lf_t *sxc_cluster_listfiles(sxc_cluster_t *cluster, const char *volu
 
     ret = malloc(sizeof(*ret));
     if(!ret) {
-	CFGDEBUG("OOM allocating results");
-	cluster_err(SXE_EMEM, "List failed: Out of memory");
+        SXDEBUG("OOM allocating results");
+        sxi_seterr(sx, SXE_EMEM, "List failed: Out of memory");
 	fclose(yctx.f);
 	unlink(fname);
 	free(fname);
 	return NULL;
     }
+
+    if(volume_used_size)
+        *volume_used_size = yctx.volume_used_size;
 
     if(volume_size)
 	*volume_size = yctx.volume_size;
@@ -1891,7 +1922,7 @@ sxc_cluster_lf_t *sxc_cluster_listfiles(sxc_cluster_t *cluster, const char *volu
     if(nfiles)
 	*nfiles = yctx.nfiles;
 
-    ret->sx = cluster->sx;
+    ret->sx = sx;
     ret->f = yctx.f;
     ret->fname = fname;
     ret->want_relative = glob_pattern && *glob_pattern && glob_pattern[strlen(glob_pattern)-1] == '/';
@@ -1900,6 +1931,21 @@ sxc_cluster_lf_t *sxc_cluster_listfiles(sxc_cluster_t *cluster, const char *volu
     return ret;
 }
 
+sxc_cluster_lf_t *sxc_cluster_listfiles(sxc_cluster_t *cluster, const char *volume, const char *glob_pattern, int recursive, int64_t *volume_used_size, int64_t *volume_size, unsigned int *replica_count, unsigned int *nfiles, int reverse) {
+    sxi_hostlist_t volhosts;
+    sxc_cluster_lf_t *ret;
+
+    sxi_hostlist_init(&volhosts);
+    if(sxi_locate_volume(sxi_cluster_get_conns(cluster), volume, &volhosts, NULL, NULL)) {
+        CFGDEBUG("Failed to locate volume %s", volume);
+        sxi_hostlist_empty(&volhosts);
+        return NULL;
+    }
+
+    ret = sxi_conns_listfiles(sxi_cluster_get_conns(cluster), volume, &volhosts, glob_pattern, recursive, volume_used_size, volume_size, replica_count, nfiles, reverse, 0);
+    sxi_hostlist_empty(&volhosts);
+    return ret;
+}
 
 static int sxc_cluster_listfiles_prev(sxc_cluster_lf_t *lf, char **file_name, int64_t *file_size, time_t *file_created_at, char **file_revision) {
     struct cbl_file_t file;

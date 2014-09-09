@@ -128,9 +128,12 @@ void fcgi_handle_cluster_requests(void) {
 		comma |= 1;
 
 	    json_send_qstring(vol->name);
-	    CGI_PRINTF(":{\"replicaCount\":%u,\"sizeBytes\":", vol->replica_count);
+	    CGI_PRINTF(":{\"replicaCount\":%u,\"usedSize\":", vol->replica_count);
 
-	    CGI_PUTLL(vol->size);
+	    CGI_PUTLL(vol->cursize);
+            CGI_PRINTF(",\"sizeBytes\":");
+            CGI_PUTLL(vol->size);
+
             if(has_arg("volumeMeta")) {
                 const char *metakey;
                 const void *metavalue;

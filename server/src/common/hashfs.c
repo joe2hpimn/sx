@@ -46,6 +46,7 @@
 #include "qsort.h"
 #include "utils.h"
 #include "../libsx/src/vcrypto.h"
+#include "../libsx/src/clustcfg.h"
 
 #define HASHDBS 16
 #define METADBS 16
@@ -1425,7 +1426,7 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 	goto open_hashfs_fail;
     /* To keep the next query simple we do not check if the user is enabled
      * This is preliminary enforced in auth_begin */
-    if(qprep(h->db, &h->q_nextvol, "SELECT volumes.vid, volumes.volume, volumes.replica, volumes.maxsize, volumes.owner_id, volumes.revs FROM volumes LEFT JOIN privs ON privs.volume_id = volumes.vid WHERE volumes.volume > :previous AND volumes.enabled = 1 AND (:user = 0 OR (privs.priv > 0 AND privs.user_id=:user)) ORDER BY volumes.volume ASC LIMIT 1"))
+    if(qprep(h->db, &h->q_nextvol, "SELECT volumes.vid, volumes.volume, volumes.replica, volumes.cursize, volumes.maxsize, volumes.owner_id, volumes.revs FROM volumes LEFT JOIN privs ON privs.volume_id = volumes.vid WHERE volumes.volume > :previous AND volumes.enabled = 1 AND (:user = 0 OR (privs.priv > 0 AND privs.user_id=:user)) ORDER BY volumes.volume ASC LIMIT 1"))
 	goto open_hashfs_fail;
     if(qprep(h->db, &h->q_volbyname, "SELECT vid, volume, replica, cursize, maxsize, owner_id, revs FROM volumes WHERE volume = :name AND enabled = 1"))
 	goto open_hashfs_fail;
@@ -3672,6 +3673,46 @@ rc_ty sx_hashfs_user_onoff(sx_hashfs_t *h, const char *user, int enable) {
     return ret;
 }
 
+static rc_ty get_remote_volume_size(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, int64_t *size) {
+    rc_ty ret = FAIL_EINTERNAL;
+    sx_nodelist_t *volnodes;
+    sx_hash_t hash;
+    sxc_cluster_lf_t *list = NULL;
+    sxi_hostlist_t hosts;
+    unsigned int i;
+
+    if(hash_buf(h->cluster_uuid.string, strlen(h->cluster_uuid.string), vol->name, strlen(vol->name), &hash)) {
+        WARN("hashing volume name failed");
+        return ret;
+    }
+
+    sxi_hostlist_init(&hosts);
+    volnodes = sx_hashfs_hashnodes(h, NL_NEXTPREV, &hash, vol->replica_count);
+    if(!volnodes) {
+        WARN("Failed to get volnodes for volume %s", vol->name);
+        goto get_remote_volume_size_err;
+    }
+
+    for(i = 0; i < sx_nodelist_count(volnodes); i++) {
+        if(sxi_hostlist_add_host(h->sx, &hosts, sx_node_internal_addr(sx_nodelist_get(volnodes, i)))) {
+            WARN("Failed to add host to hostlist");
+            goto get_remote_volume_size_err;
+        }
+    }
+
+    list = sxi_conns_listfiles(h->sx_clust, vol->name, &hosts, NULL, 0, size, NULL, NULL, NULL, 0, 1);
+    if(!list) {
+        WARN("Failed to list volume %s in order to get its size: %s", vol->name, sxc_geterrmsg(h->sx));
+        goto get_remote_volume_size_err;
+    }
+
+    ret = OK;
+get_remote_volume_size_err:
+    sxi_hostlist_empty(&hosts);
+    sx_nodelist_delete(volnodes);
+    sxc_cluster_listfiles_free(list);
+    return ret;
+}
 
 rc_ty sx_hashfs_volume_first(sx_hashfs_t *h, const sx_hashfs_volume_t **volume, int64_t uid) {
     if(!h || !volume) {
@@ -3715,11 +3756,21 @@ rc_ty sx_hashfs_volume_next(sx_hashfs_t *h) {
     h->curvol.name[sizeof(h->curvol.name) - 1] = '\0';
     h->curvol.id = sqlite3_column_int64(h->q_nextvol, 0);
     h->curvol.replica_count = sqlite3_column_int(h->q_nextvol, 2);
-    h->curvol.size = sqlite3_column_int64(h->q_nextvol, 3);
-    h->curvol.owner = sqlite3_column_int64(h->q_nextvol, 4);
-    h->curvol.revisions = sqlite3_column_int(h->q_nextvol, 5);
-    res = OK;
+    h->curvol.size = sqlite3_column_int64(h->q_nextvol, 4);
+    h->curvol.owner = sqlite3_column_int64(h->q_nextvol, 5);
+    h->curvol.revisions = sqlite3_column_int(h->q_nextvol, 6);
 
+    if(sx_hashfs_is_or_was_my_volume(h, &h->curvol)) {
+        /* This host is a volhost, no need to query different hosts */
+        h->curvol.cursize = sqlite3_column_int64(h->q_nextvol, 3);
+    } else {
+        /* Get current volume usage from volhost of current volume */
+        res = get_remote_volume_size(h, &h->curvol, &h->curvol.cursize);
+        if(res != OK)
+            goto volume_list_err;
+    }
+
+    res = OK;
     volume_list_err:
     sqlite3_reset(h->q_nextvol);
     return res;

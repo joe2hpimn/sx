@@ -190,14 +190,15 @@ int main(int argc, char **argv) {
 		while(1) {
 		    char *vname;
 		    int64_t vsize;
+                    int64_t vusedsize;
 		    unsigned int vreplica;
                     sxc_meta_t *vmeta = NULL;
                     int n = 0;
 
                     if(args.long_format_given)
-		        n = sxc_cluster_listvolumes_next(fv, &vname, &vsize, &vreplica, &vmeta);
+		        n = sxc_cluster_listvolumes_next(fv, &vname, &vusedsize, &vsize, &vreplica, &vmeta);
                     else
-                        n = sxc_cluster_listvolumes_next(fv, &vname, &vsize, &vreplica, NULL);
+                        n = sxc_cluster_listvolumes_next(fv, &vname, &vusedsize, &vsize, &vreplica, NULL);
 
 		    if(n<=0) {
 			if(n)
@@ -210,7 +211,8 @@ int main(int argc, char **argv) {
 			unsigned int mval_len;
 			sxc_file_t *volume_file = NULL;
 			const char *filter_name = NULL;
-                        char *human_str = NULL;
+                        char *human_size = NULL, *human_used_size = NULL;
+                        int64_t percent;
 			char repstr[6];
 
 			/* Initialize volume file structure */
@@ -240,12 +242,19 @@ int main(int argc, char **argv) {
 			sxc_file_free(volume_file);
 			sxc_meta_free(vmeta);
 
-		        if(args.human_readable_flag && (human_str = process_size((long long)vsize))) {
-                            printf("      %12s ", human_str);
-                            free(human_str);
+                        percent = 100LL * vusedsize / vsize;
+                        if(args.human_readable_flag) {
+                            human_used_size = process_size(vusedsize);
+                            human_size = process_size(vsize);
+                        }
+		        if(human_used_size && human_size) {
+                            printf("      %12s %12s %3lld%% ", human_used_size, human_size, (long long)percent);
 			} else {
-			    printf("      %12lld ", (long long)vsize);
+			    printf("      %12lld %12lld %3lld%% ", (long long)vusedsize, (long long)vsize, (long long)percent);
 			}
+                        free(human_used_size);
+                        free(human_size);
+
 		    }
 
 		    if(u->profile) {
@@ -267,7 +276,7 @@ int main(int argc, char **argv) {
                 ret = 1;
             }
 	} else {
-	    sxc_cluster_lf_t *fl = sxc_cluster_listfiles(cluster, u->volume, u->path, args.recursive_flag, NULL, NULL, NULL, 0);
+	    sxc_cluster_lf_t *fl = sxc_cluster_listfiles(cluster, u->volume, u->path, args.recursive_flag, NULL, NULL, NULL, NULL, 0);
 	    if(fl) {
 		while(1) {
 		    char *fname;

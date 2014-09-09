@@ -109,26 +109,45 @@ void fcgi_list_volume(const sx_hashfs_volume_t *vol) {
     sx_hash_t etag;
     rc_ty s;
 
+    reply = malloc(8192); /* Have room for the volume info, the json closure and the string terminator */
+    if(!reply)
+        quit_errnum(503);
+
+    sprintf(reply, "Content-type: application/json\r\n\r\n{\"volumeSize\":%lld,\"replicaCount\":%u,\"volumeUsedSize\":%lld",
+        (long long)vol->size, vol->replica_count, (long long)vol->cursize);
+
+    len = strlen(reply);
+    cur = reply + len;
+
+    /* If we have sizeOnly parameter given, no listing will be performed */
+    if(has_arg("sizeOnly")) {
+        strcpy(cur, "}");
+        CGI_PUTS(reply);
+        free(reply);
+        return;
+    }
+
     s = sx_hashfs_list_first(hashfs, vol, get_arg("filter"), &file, has_arg("recursive"));
     switch(s) {
     case OK:
     case ITER_NO_MORE:
 	break;
-    case ENOENT:
+    case ENOENT: {
+        free(reply);
 	quit_errmsg(404, "The list for the volume is not available here");
-    case EINVAL:
+    }
+    case EINVAL: {
+        free(reply);
 	quit_errnum(400);
-    default:
+    }
+    default: {
+        free(reply);
 	quit_errnum(500);
     }
+    }
 
-    reply = malloc(8192); /* Have room for the volume info, the json closure and the string terminator */
-    if(!reply)
-	quit_errnum(503);
-
-    sprintf(reply, "Content-type: application/json\r\n\r\n{\"volumeSize\":%lld,\"replicaCount\":%u,\"fileList\":{",
-	    (long long)vol->size, vol->replica_count);
-    len = strlen(reply);
+    sprintf(cur, ",\"fileList\":{");
+    len += strlen(",\"fileList\":{");
     cur = reply + len;
     rplavail = 8192 - len;
 

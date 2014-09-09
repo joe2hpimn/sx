@@ -472,6 +472,7 @@ struct cb_listvolumes_ctx {
     char *volname;
     struct cbl_volume_t {
 	int64_t size;
+        int64_t used_size;
 	unsigned int replica_count;
 	unsigned int namelen;
     } voldata;
@@ -480,7 +481,7 @@ struct cb_listvolumes_ctx {
     unsigned int meta_count;
     char *curkey;
     enum listvolumes_state { LV_ERROR, LV_BEGIN, LV_BASE, LV_VOLUMES, LV_NAME, LV_VALUES, LV_VALNAME,
-			     LV_REPLICA, LV_SIZE, LV_META, LV_META_KEY, LV_META_VALUE, LV_DONE, LV_COMPLETE } state;
+			     LV_REPLICA, LV_USEDSIZE, LV_SIZE, LV_META, LV_META_KEY, LV_META_VALUE, LV_DONE, LV_COMPLETE } state;
 };
 #define expect_state(expst) do { if(yactx->state != (expst)) { CBDEBUG("bad state (in %d, expected %d)", yactx->state, expst); return 0; } } while(0)
 
@@ -518,7 +519,7 @@ static int yacb_listvolumes_end_map(void *ctx) {
     else if(yactx->state == LV_VALNAME) {
         unsigned int i;
 
-	if(yactx->voldata.replica_count < 1 || yactx->voldata.size < 0 || !yactx->volname || !yactx->voldata.namelen) {
+	if(yactx->voldata.replica_count < 1 || yactx->voldata.used_size < 0 || yactx->voldata.size < 0 || !yactx->volname || !yactx->voldata.namelen) {
 	    CBDEBUG("incomplete entry");
 	    return 0;
 	}
@@ -632,6 +633,7 @@ static int yacb_listvolumes_map_key(void *ctx, const unsigned char *s, size_t l)
 	}
 	memcpy(yactx->volname, s, l);
 	yactx->voldata.replica_count = 0;
+        yactx->voldata.used_size = -1;
 	yactx->voldata.size = -1;
 	yactx->voldata.namelen = l;
 
@@ -644,6 +646,10 @@ static int yacb_listvolumes_map_key(void *ctx, const unsigned char *s, size_t l)
 	    yactx->state = LV_REPLICA;
 	    return 1;
 	}
+        if(l == lenof("usedSize") && !memcmp(s, "usedSize", lenof("usedSize"))) {
+            yactx->state = LV_USEDSIZE;
+            return 1;
+        }
 	if(l == lenof("sizeBytes") && !memcmp(s, "sizeBytes", lenof("sizeBytes"))) {
 	    yactx->state = LV_SIZE;
 	    return 1;
@@ -703,6 +709,22 @@ static int yacb_listvolumes_number(void *ctx, const char *s, size_t l) {
 	    CBDEBUG("invalid number '%.*s'", (unsigned)l, s);
 	    return 0;
 	}
+    } else if(yactx->state == LV_USEDSIZE){
+        if(yactx->voldata.used_size > 0) {
+            CBDEBUG("Volume used size already received: %lld", (long long)yactx->voldata.used_size);
+            return 0;
+        }
+        if(l < 1 || l > 20) {
+            CBDEBUG("Invalid volume used size '%.*s'", (unsigned)l, s);
+            return 0;
+        }
+        memcpy(numb, s, l);
+        numb[l] = '\0';
+        yactx->voldata.used_size = strtoll(numb, &enumb, 10);
+        if(*enumb || yactx->voldata.used_size < 0) {
+            CBDEBUG("invalid number '%.*s'", (unsigned)l, s);
+            return 0;
+        }
     } else if(yactx->state == LV_SIZE){
 	if(yactx->voldata.size > 0) {
 	    CBDEBUG("Volume size already received");
@@ -857,7 +879,7 @@ sxc_cluster_lv_t *sxc_cluster_listvolumes(sxc_cluster_t *cluster, int get_meta) 
     return ret;
 }
 
-int sxc_cluster_listvolumes_next(sxc_cluster_lv_t *lv, char **volume_name, int64_t *volume_size, unsigned int *replica_count, sxc_meta_t **meta) {
+int sxc_cluster_listvolumes_next(sxc_cluster_lv_t *lv, char **volume_name, int64_t *volume_used_size, int64_t *volume_size, unsigned int *replica_count, sxc_meta_t **meta) {
     struct cbl_volume_t volume;
     sxc_client_t *sx = lv->sx;
     unsigned int meta_count = 0;
@@ -890,7 +912,7 @@ int sxc_cluster_listvolumes_next(sxc_cluster_lv_t *lv, char **volume_name, int64
         if(sxi_is_debug_enabled(sx)) {
             sxi_hostlist_t nodes;
             sxi_hostlist_init(&nodes);
-            if (!sxi_locate_volume(lv->cluster, *volume_name, &nodes, NULL, NULL)) {
+            if (!sxi_locate_volume(sxi_cluster_get_conns(lv->cluster), *volume_name, &nodes, NULL, NULL)) {
                 unsigned n = sxi_hostlist_get_count(&nodes);
                 SXDEBUG("Volume %s master nodes:", *volume_name);
                 for (i=0;i<n;i++)
@@ -901,6 +923,9 @@ int sxc_cluster_listvolumes_next(sxc_cluster_lv_t *lv, char **volume_name, int64
         }
     } else
 	fseek(lv->f, volume.namelen, SEEK_CUR);
+
+    if(volume_used_size)
+        *volume_used_size = volume.used_size;
 
     if(volume_size)
 	*volume_size = volume.size;
@@ -1475,7 +1500,7 @@ sxc_cluster_la_t *sxc_cluster_listaclusers(sxc_cluster_t *cluster, const char *v
     sxc_clearerr(sx);
 
     sxi_hostlist_init(&volhosts);
-    if(sxi_locate_volume(cluster, volume, &volhosts, NULL, NULL)) {
+    if(sxi_locate_volume(sxi_cluster_get_conns(cluster), volume, &volhosts, NULL, NULL)) {
 	sxi_hostlist_empty(&volhosts);
 	return NULL;
     }
