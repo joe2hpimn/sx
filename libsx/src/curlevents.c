@@ -564,7 +564,7 @@ static void sxi_cbdata_finish(curl_events_t *e, curlev_context_t **ctxptr, const
     }
 
     do {
-    if (ctx->retry.cb && (rctx->rc != CURLE_OK || rctx->reply_status / 100 != 2)) {
+    if (ctx->retry.cb && (rctx->rc != CURLE_OK || rctx->reply_status / 100 != 2) && rctx->reply_status != 413) {
         int n = sxi_hostlist_get_count(&ctx->retry.hosts);
         if (++ctx->retry.hostidx >= n) {
             if (ctx->retry.retries < 2 || ctx->recv_ctx.reply_status == 429) {
@@ -581,7 +581,7 @@ static void sxi_cbdata_finish(curl_events_t *e, curlev_context_t **ctxptr, const
         const char *host = sxi_hostlist_get_host(&ctx->retry.hosts, ctx->retry.hostidx);
         if (sxi_retry_check(ctx->retry.retry, ctx->retry.retries * n + ctx->retry.hostidx))
             break;
-        sxi_set_operation(sx, ctx->retry.op, NULL, NULL, NULL);
+        sxi_cbdata_set_operation(ctx, ctx->retry.op, NULL, NULL, NULL);
         sxi_retry_msg(sx, ctx->retry.retry, host);
         sxi_cbdata_reset(ctx);
         if (host) {

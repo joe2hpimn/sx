@@ -2183,7 +2183,7 @@ static int local_to_remote_iterate(sxc_file_t *source, int recursive, int depth,
         if (S_ISDIR(sb.st_mode)) {
             if ((qret = local_to_remote_iterate(src, 1, depth+1, onefs, dst))) {
                 SXDEBUG("failure in directory: %s", destpath);
-                if (qret == 403 || qret == 404) {
+                if (qret == 403 || qret == 404 || qret == 413) {
                     ret = qret;
                     break;
                 }
@@ -2196,7 +2196,7 @@ static int local_to_remote_iterate(sxc_file_t *source, int recursive, int depth,
             if ((qret = local_to_remote_begin(src, emptymeta, dst, 1)) != 0) {
                 sxi_notice(sx, "%s: %s", path, sxc_geterrmsg(sx));
                 SXDEBUG("failed to begin upload on %s", path);
-                if (qret == 403 || qret == 404) {
+                if (qret == 403 || qret == 404 || qret == 413) {
                     ret = qret;
                     break;
                 }
