@@ -311,7 +311,7 @@ sxc_file_t *sxc_file_local(sxc_client_t *sx, const char *path) {
     return ret;
 }
 
-sxc_file_t *sxc_file_from_url(sxc_client_t *sx, sxc_cluster_t **cluster, const char *confdir, const char *url)
+sxc_file_t *sxc_file_from_url(sxc_client_t *sx, sxc_cluster_t **cluster, const char *url)
 {
     sxc_uri_t *uri;
     if (!sx)
@@ -335,7 +335,7 @@ sxc_file_t *sxc_file_from_url(sxc_client_t *sx, sxc_cluster_t **cluster, const c
         /* if it is a different (or the first) cluster, load its config */
         if (!*cluster || strcmp(sxi_cluster_get_name(*cluster), uri->host)) {
 	    sxc_cluster_free(*cluster);
-            *cluster = sxc_cluster_load_and_update(sx, confdir, uri->host, uri->profile);
+            *cluster = sxc_cluster_load_and_update(sx, uri->host, uri->profile);
 	}
         if (!*cluster) {
 /*            sxi_notice(sx, "Failed to load config for %s: %s\n", uri->host, sxc_geterrmsg(sx));*/

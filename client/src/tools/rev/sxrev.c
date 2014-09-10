@@ -64,7 +64,7 @@ static void sighandler(int signal)
     exit(1);
 }
 
-static sxc_file_t *make_sxfile(sxc_cluster_t **cluster, const char *host, const char *profile, const char *volume, const char *path, const char *rev, const char *config_dir) {
+static sxc_file_t *make_sxfile(sxc_cluster_t **cluster, const char *host, const char *profile, const char *volume, const char *path, const char *rev) {
     sxc_file_t *file;
 
     if(!volume || !path) {
@@ -73,7 +73,7 @@ static sxc_file_t *make_sxfile(sxc_cluster_t **cluster, const char *host, const 
     }
 
     if(!*cluster)
-	*cluster = sxc_cluster_load_and_update(sx, config_dir, host, profile);
+	*cluster = sxc_cluster_load_and_update(sx, host, profile);
 
     if(!*cluster) {
 	fprintf(stderr, "ERROR: Failed to load config for %s: %s\n", host, sxc_geterrmsg(sx));
@@ -277,7 +277,7 @@ int main(int argc, char **argv) {
 		fprintf(stderr, "ERROR: Bad uri %s: %s\n", dst, sxc_geterrmsg(sx));
 		goto err;
 	    }
-	    destfile = make_sxfile(&destcluster, desturi->host, desturi->profile, desturi->volume, desturi->path, NULL, config_dir);
+	    destfile = make_sxfile(&destcluster, desturi->host, desturi->profile, desturi->volume, desturi->path, NULL);
 	    sxc_free_uri(desturi);
 	    if(!destfile)
 		goto err;
@@ -295,7 +295,7 @@ int main(int argc, char **argv) {
 	goto err;
     }
 
-    if(!(file = make_sxfile(&cluster, uri->host, uri->profile, uri->volume, uri->path, NULL, config_dir)))
+    if(!(file = make_sxfile(&cluster, uri->host, uri->profile, uri->volume, uri->path, NULL)))
 	goto err;
     revs = sxc_revisions(file);
     sxc_file_free(file);
@@ -351,7 +351,7 @@ int main(int argc, char **argv) {
     }
 
 
-    file = make_sxfile(&cluster, uri->host, uri->profile, uri->volume, uri->path, selected_rev, config_dir);
+    file = make_sxfile(&cluster, uri->host, uri->profile, uri->volume, uri->path, selected_rev);
     if(!file)
 	goto err;
 

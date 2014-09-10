@@ -172,7 +172,7 @@ int main(int argc, char **argv) {
 	    continue;
 	}
 
-	cluster = sxc_cluster_load_and_update(sx, args.config_dir_arg, u->host, u->profile);
+	cluster = sxc_cluster_load_and_update(sx, u->host, u->profile);
 	if(!cluster) {
 	    fprintf(stderr, "ERROR: Failed to load config for %s: %s\n", u->host, sxc_geterrmsg(sx));
 	    if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_CFG_ERR))

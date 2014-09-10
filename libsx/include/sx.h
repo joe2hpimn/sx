@@ -114,7 +114,7 @@ sxc_cluster_t *sxc_cluster_load(sxc_client_t *sx, const char *config_dir, const 
 int sxc_cluster_save(sxc_cluster_t *cluster, const char *config_dir);
 int sxc_cluster_remove(sxc_cluster_t *cluster, const char *config_dir);
 int sxc_cluster_fetchnodes(sxc_cluster_t *cluster);
-sxc_cluster_t *sxc_cluster_load_and_update(sxc_client_t *sx, const char *config_dir, const char *cluster_name, const char *profile_name);
+sxc_cluster_t *sxc_cluster_load_and_update(sxc_client_t *sx, const char *cluster_name, const char *profile_name);
 
 /* Set upload and download transfer bandwidth in bits per second */
 int sxc_cluster_set_bandwidth_limit(sxc_client_t *sx, sxc_cluster_t *cluster, int64_t bandwidth_limit);
@@ -243,9 +243,9 @@ int sxc_cluster_set_progress_cb(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_xf
 /*sxc_xfer_callback sxc_cluster_get_progress_cb(const sxc_cluster_t *cluster);*/
 
 typedef struct _sxc_file_t sxc_file_t;
-    sxc_file_t *sxc_file_remote(sxc_cluster_t *cluster, const char *volume, const char *path, const char *revision);
+sxc_file_t *sxc_file_remote(sxc_cluster_t *cluster, const char *volume, const char *path, const char *revision);
 sxc_file_t *sxc_file_local(sxc_client_t *sx, const char *path);
-sxc_file_t *sxc_file_from_url(sxc_client_t *sx, sxc_cluster_t **cluster, const char *confdir, const char *url);
+sxc_file_t *sxc_file_from_url(sxc_client_t *sx, sxc_cluster_t **cluster, const char *url);
 int sxc_file_is_sx(sxc_file_t *file);
 int sxc_file_require_dir(sxc_file_t *file);
 void sxc_file_free(sxc_file_t *sxfile);

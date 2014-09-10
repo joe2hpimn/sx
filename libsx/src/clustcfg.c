@@ -2068,10 +2068,10 @@ int sxi_cluster_hashcalc(const sxc_cluster_t *cluster, const void *buffer, unsig
     return sxi_conns_hashcalc(cluster->conns, buffer, len, hash);
 }
 
-sxc_cluster_t *sxc_cluster_load_and_update(sxc_client_t *sx, const char *config_dir, const char *cluster_name, const char *profile_name) {
+sxc_cluster_t *sxc_cluster_load_and_update(sxc_client_t *sx, const char *cluster_name, const char *profile_name) {
     sxi_hostlist_t oldlist;
     int need_save = 0, n1, n2;
-    sxc_cluster_t *ret = sxc_cluster_load(sx, config_dir, cluster_name);
+    sxc_cluster_t *ret = sxc_cluster_load(sx, sxc_get_confdir(sx), cluster_name);
     if(!ret)
 	return NULL;
 
@@ -2100,7 +2100,7 @@ sxc_cluster_t *sxc_cluster_load_and_update(sxc_client_t *sx, const char *config_
 
     if (!need_save)
 	    SXDEBUG("Skipping cluster save, nodelist wasn't changed");
-    if(need_save && sxc_cluster_save(ret, config_dir))
+    if(need_save && sxc_cluster_save(ret, sxc_get_confdir(sx)))
 	goto load_and_update_err;
 
     return ret;

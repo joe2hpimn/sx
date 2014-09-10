@@ -59,7 +59,7 @@ static void sighandler(int signal)
     exit(1);
 }
 
-sxc_cluster_t *load_config(sxc_client_t *sx, const char *uri, sxc_uri_t **sxuri, const char *clusterdir)
+sxc_cluster_t *load_config(sxc_client_t *sx, const char *uri, sxc_uri_t **sxuri)
 {
     sxc_uri_t *u;
     sxc_cluster_t *cluster;
@@ -74,7 +74,7 @@ sxc_cluster_t *load_config(sxc_client_t *sx, const char *uri, sxc_uri_t **sxuri,
 	sxc_free_uri(u);
 	return NULL;
     }
-    cluster = sxc_cluster_load_and_update(sx, clusterdir, u->host, u->profile);
+    cluster = sxc_cluster_load_and_update(sx, u->host, u->profile);
     if(!cluster) {
 	fprintf(stderr, "ERROR: Failed to load config for %s: %s\n", u->host, sxc_geterrmsg(sx));
 	if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_CFG_ERR))
@@ -288,7 +288,7 @@ int main(int argc, char **argv) {
                 ret = 1;
                 break;
             }
-	    cluster = load_config(sx, args.inputs[1], &uri, args.config_dir_arg);
+	    cluster = load_config(sx, args.inputs[1], &uri);
 	    if(!cluster) {
                 ret = 1;
                 break;
@@ -319,7 +319,7 @@ int main(int argc, char **argv) {
                 ret = 1;
                 break;
             }
-	    cluster = load_config(sx, args.inputs[0], &uri, args.config_dir_arg);
+	    cluster = load_config(sx, args.inputs[0], &uri);
 	    if(!cluster) {
                 ret = 1;
                 break;
@@ -349,7 +349,7 @@ int main(int argc, char **argv) {
                 ret = 1;
                 break;
             }
-	    cluster = load_config(sx, args.inputs[1], &uri, args.config_dir_arg);
+	    cluster = load_config(sx, args.inputs[1], &uri);
 	    if(!cluster) {
                 ret = 1;
                 break;
@@ -379,7 +379,7 @@ int main(int argc, char **argv) {
                 ret = 1;
                 break;
             }
-	    cluster = load_config(sx, args.inputs[1], &uri, args.config_dir_arg);
+	    cluster = load_config(sx, args.inputs[1], &uri);
 	    if(!cluster) {
                 ret = 1;
                 break;
@@ -410,7 +410,7 @@ int main(int argc, char **argv) {
                 ret = 1;
                 break;
             }
-	    cluster = load_config(sx, args.inputs[0], &uri, args.config_dir_arg);
+	    cluster = load_config(sx, args.inputs[0], &uri);
 	    if(!cluster) {
                 ret = 1;
                 break;

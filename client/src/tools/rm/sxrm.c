@@ -113,7 +113,7 @@ int main(int argc, char **argv) {
     lst = sxc_file_list_new(sx, args.recursive_given);
     for(i = 0; lst && i < args.inputs_num; i++) {
         const char *url = args.inputs[i];
-        sxc_file_t *target = sxc_file_from_url(sx, &cluster, args.config_dir_arg, url);
+        sxc_file_t *target = sxc_file_from_url(sx, &cluster, url);
         if (!target) {
             fprintf(stderr, "ERROR: Can't process URL '%s': %s\n", url, sxc_geterrmsg(sx));
 	    if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_CFG_ERR)) {

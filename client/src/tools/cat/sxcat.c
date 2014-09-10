@@ -79,7 +79,7 @@ static sxc_file_t *sxfile_from_arg(sxc_cluster_t **cluster, const char *arg) {
 	}
         if(!*cluster || strcmp(sxc_cluster_get_sslname(*cluster), uri->host)) {
 	    sxc_cluster_free(*cluster);
-	    *cluster = sxc_cluster_load_and_update(sx, args.config_dir_arg, uri->host, uri->profile);
+	    *cluster = sxc_cluster_load_and_update(sx, uri->host, uri->profile);
 	}
 	if(!*cluster) {
 	    fprintf(stderr, "ERROR: Failed to load config for %s: %s\n", uri->host, sxc_geterrmsg(sx));
