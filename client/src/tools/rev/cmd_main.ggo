@@ -5,8 +5,8 @@ usage "sxrev <command> OPTIONS"
 
 text "\nAvailable commands:\n\n"
 
-text "  lis         List the revision of a file\n"
-text "  copy        Copy the a specific revision of a file\n"
-text "  delete      Deletes a specific revision of a file\n"
+text "  list        List the revision of a file\n"
+text "  copy        Copy a specific revision of a file\n"
+text "  delete      Delete a specific revision of a file\n"
 
 text "\nSee 'sxrev <command> --help' for more information on a specific command.\n"

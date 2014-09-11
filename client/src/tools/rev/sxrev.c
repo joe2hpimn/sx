@@ -100,7 +100,7 @@ int main(int argc, char **argv) {
     sxc_cluster_t *cluster = NULL, *destcluster = NULL;
     sxc_revlist_t *revs = NULL;
     sxc_uri_t *uri = NULL;
-    unsigned int i, match = 0;
+    unsigned int i, match = 0, debug = 0;
     enum { OPNONE, OPMAIN, OPLIST, OPCOPY, OPDELETE } op = OPNONE;
     struct main_args_info main_args;
     struct list_args_info list_args;
@@ -138,7 +138,7 @@ int main(int argc, char **argv) {
 	    goto err;
 	}
 
-	sxc_set_debug(sx, list_args.debug_flag);
+	debug = list_args.debug_flag;
 	if(list_args.filter_dir_given)
 	    filter_dir = list_args.filter_dir_arg;
 	if(list_args.config_dir_given)
@@ -173,7 +173,7 @@ int main(int argc, char **argv) {
 	    goto err;
 	}
 
-	sxc_set_debug(sx, copy_args.debug_flag);
+	debug = copy_args.debug_flag;
 	if(copy_args.filter_dir_given)
 	    filter_dir = copy_args.filter_dir_arg;
 	if(copy_args.config_dir_given)
@@ -210,7 +210,7 @@ int main(int argc, char **argv) {
 	    goto err;
 	}
 
-	sxc_set_debug(sx, delete_args.debug_flag);
+	debug = delete_args.debug_flag;
 	if(delete_args.filter_dir_given)
 	    filter_dir = delete_args.filter_dir_arg;
 	if(delete_args.config_dir_given)
@@ -247,6 +247,7 @@ int main(int argc, char **argv) {
     if(!(sx = sxc_init(SRC_VERSION, sxc_default_logger(&log, argv[0]), sxc_input_fn, NULL)))
 	goto err;
 
+    sxc_set_debug(sx, debug);
     if(config_dir && sxc_set_confdir(sx, config_dir)) {
         fprintf(stderr, "ERROR: Could not set configuration directory %s: %s\n", config_dir, sxc_geterrmsg(sx));
 	goto err;
