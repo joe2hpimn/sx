@@ -236,6 +236,8 @@ sxc_filter_t sxc_filter={
 				    NULL,
 /* void (*file_notify)(const sxf_handle_t *handle, void *ctx, sxf_mode_t mode, const char *source_cluster, const char *source_volume, const char *source_path, const char *dest_cluster, const char *dest_volume, const char *dest_path) */
 				    NULL,
+/* int (*file_update)(const sxf_handle_t *handle, void *ctx, sxf_mode_t mode, sxc_file_t *source, sxc_file_t *dest) */
+				    NULL,
 /* internal */
 /* const char *tname; */	    NULL
 };
