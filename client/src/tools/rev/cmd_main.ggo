@@ -5,7 +5,7 @@ usage "sxrev <command> OPTIONS"
 
 text "\nAvailable commands:\n\n"
 
-text "  list        List the revision of a file\n"
+text "  list        List available revisions of a file\n"
 text "  copy        Copy a specific revision of a file\n"
 text "  delete      Delete a specific revision of a file\n"
 

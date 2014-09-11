@@ -36,7 +36,7 @@ const char *main_args_info_description = "";
 const char *main_args_info_help[] = {
   "  -h, --help     Print help and exit",
   "  -V, --version  Print version and exit",
-  "\nAvailable commands:\n\n  list        List the revision of a file\n  copy        Copy a specific revision of a file\n  delete      Delete a specific revision of a file\n\nSee 'sxrev <command> --help' for more information on a specific command.\n",
+  "\nAvailable commands:\n\n  list        List available revisions of a file\n  copy        Copy a specific revision of a file\n  delete      Delete a specific revision of a file\n\nSee 'sxrev <command> --help' for more information on a specific command.\n",
     0
 };
 
