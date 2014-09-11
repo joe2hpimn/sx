@@ -159,7 +159,7 @@ sxc_filter_t sxc_filter={
 				    NULL,
 /* int (*file_process)(const sxf_handle_t *handle, void *ctx, const char *filename, sxc_meta_t *meta, const char *cfgdir, const void *cfgdata, unsigned int cfgdata_len, sxf_mode_t mode) */
 				    attribs_process,
-/* void (*file_notify)(const sxf_handle_t *handle, void *ctx, sxf_notify_t mode, const char *source_cluster, const char *source_volume, const char *source_path, const char *dest_cluster, const char *dest_volume, const char *dest_path) */
+/* void (*file_notify)(const sxf_handle_t *handle, void *ctx, sxf_mode_t mode, const char *source_cluster, const char *source_volume, const char *source_path, const char *dest_cluster, const char *dest_volume, const char *dest_path) */
 				    NULL,
 /* internal */
 /* const char *tname; */	    NULL

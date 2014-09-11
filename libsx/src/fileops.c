@@ -349,7 +349,37 @@ sxc_file_t *sxc_file_from_url(sxc_client_t *sx, sxc_cluster_t **cluster, const c
     return NULL;
 }
 
-static sxc_file_t *sxi_file_dup(sxc_file_t *file)
+sxc_cluster_t *sxc_file_get_cluster(sxc_file_t *file)
+{
+    return file ? file->cluster : NULL;
+}
+
+const char *sxc_file_get_volume(sxc_file_t *file)
+{
+    return file ? file->volume : NULL;
+}
+
+const char *sxc_file_get_path(sxc_file_t *file)
+{
+    return file ? file->path : NULL;
+}
+
+int sxc_file_set_path(sxc_file_t *file, const char *newpath)
+{
+    char *pt;
+    if(!file || !newpath)
+	return 1;
+    pt = strdup(newpath);
+    if(!pt) {
+	sxi_setsyserr(file->sx, SXE_EMEM, "Cannot strdup newpath");
+	return 1;
+    }
+    free(file->path);
+    file->path = pt;
+    return 0;
+}
+
+sxc_file_t *sxi_file_dup(sxc_file_t *file)
 {
     sxc_file_t *ret;
     sxc_client_t *sx;
@@ -1913,6 +1943,11 @@ static int local_to_remote_begin(sxc_file_t *source, sxc_meta_t *fmeta, sxc_file
 	    }
 	}
 	free(fdir);
+
+	if(fh->f->file_update && fh->f->file_update(fh, fh->ctx, SXF_MODE_UPLOAD, source, dest)) {
+	    sxi_seterr(sx, SXE_EFILTER, "Filter ID %s failed to process files", filter_uuid);
+	    goto local_to_remote_err;
+	}
     }
 
     state->max_part_blocks = UPLOAD_PART_THRESHOLD / blocksize;
@@ -3505,6 +3540,11 @@ static int remote_to_local(sxc_file_t *source, sxc_file_t *dest) {
 	}
 
 	fmeta = sxc_filemeta_new(source);
+
+	if(fh->f->file_update && fh->f->file_update(fh, fh->ctx, SXF_MODE_DOWNLOAD, source, dest)) {
+	    sxi_seterr(sx, SXE_EFILTER, "Filter ID %s failed to process files", filter_uuid);
+	    goto remote_to_local_err;
+	}
     }
 
     while(!feof(hf)) {
@@ -3801,7 +3841,7 @@ static int remote_to_local(sxc_file_t *source, sxc_file_t *dest) {
     ret = 0;
 
     if(fh && fh->f->file_notify)
-	fh->f->file_notify(fh, fh->ctx, SXF_NOTIFY_DOWNLOAD, sxc_cluster_get_sslname(source->cluster), source->volume, source->path, NULL, NULL, dest->path);
+	fh->f->file_notify(fh, fh->ctx, SXF_MODE_DOWNLOAD, sxc_cluster_get_sslname(source->cluster), source->volume, source->path, NULL, NULL, dest->path);
 
 remote_to_local_err:
 
@@ -5070,13 +5110,24 @@ static sxi_job_t* sxi_rm_cb(sxc_file_list_t *target, sxc_file_t *pattern, sxc_cl
     int http_code;
     if (!cluster || !hlist || !vol || !path)
         return NULL;
+    if(fh && fh->f->file_update) {
+	sxc_file_t *file = sxc_file_remote(cluster, vol, path, NULL);
+	if(!file)
+	    return NULL;
+	if(fh->f->file_update(fh, fh->ctx, SXF_MODE_DELETE, file, NULL)) {
+	    sxi_seterr(target->sx, SXE_EFILTER, "Filter failed to process files");
+	    sxc_file_free(file);
+	    return NULL;
+	}
+	sxc_file_free(file);
+    };
     query = sxi_filedel_proto(target->sx, vol, path, NULL);
     if (!query)
         return NULL;
     sxi_set_operation(target->sx, "remove files", sxi_cluster_get_name(cluster), query->path, NULL);
     job = sxi_job_submit(sxi_cluster_get_conns(cluster), hlist, query->verb, query->path, path, NULL, 0, &http_code, &target->jobs);
     if(job && fh && fh->f->file_notify)
-	fh->f->file_notify(fh, fh->ctx, SXF_NOTIFY_DELETE, sxi_cluster_get_name(cluster), vol, path, NULL, NULL, NULL);
+	fh->f->file_notify(fh, fh->ctx, SXF_MODE_DELETE, sxi_cluster_get_name(cluster), vol, path, NULL, NULL, NULL);
     if (!job && http_code == 404)
         job = &JOB_NONE;
     sxi_query_free(query);

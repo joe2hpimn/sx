@@ -540,7 +540,7 @@ static int sxi_job_result(sxc_client_t *sx, sxi_job_t **yres, unsigned *successf
             if (successful)
                 (*successful)++;
 	    if((*yres)->nf_fn)
-		(*yres)->nf_fn((*yres)->nf_fh, (*yres)->nf_ctx, SXF_NOTIFY_UPLOAD, NULL, NULL, (*yres)->nf_src_path, (*yres)->nf_dst_clust, (*yres)->nf_dst_vol, (*yres)->nf_dst_path);
+		(*yres)->nf_fn((*yres)->nf_fh, (*yres)->nf_ctx, SXF_MODE_UPLOAD, NULL, NULL, (*yres)->nf_src_path, (*yres)->nf_dst_clust, (*yres)->nf_dst_vol, (*yres)->nf_dst_path);
             ret = 0;
             break;
         case JOBST_ERROR:

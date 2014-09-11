@@ -248,6 +248,10 @@ sxc_file_t *sxc_file_local(sxc_client_t *sx, const char *path);
 sxc_file_t *sxc_file_from_url(sxc_client_t *sx, sxc_cluster_t **cluster, const char *url);
 int sxc_file_is_sx(sxc_file_t *file);
 int sxc_file_require_dir(sxc_file_t *file);
+sxc_cluster_t *sxc_file_get_cluster(sxc_file_t *file);
+const char *sxc_file_get_volume(sxc_file_t *file);
+const char *sxc_file_get_path(sxc_file_t *file);
+int sxc_file_set_path(sxc_file_t *file, const char *newpath);
 void sxc_file_free(sxc_file_t *sxfile);
 
 int sxc_copy(sxc_file_t *source, sxc_file_t *dest, int recursive, int onefs);
@@ -319,7 +323,7 @@ int sxc_fgetline(sxc_client_t *sx, FILE *f, char **ret);
 int sxc_input_fn(sxc_client_t *sx, sxc_input_t type, const char *prompt, const char *def, char *in, unsigned int insize, void *ctx); /* default input function */
 
 /* filters */
-#define SXF_ABI_VERSION	7
+#define SXF_ABI_VERSION	8
 
 /** Defines a filter's type
  * This is used to prioritize filters, for example
@@ -336,7 +340,9 @@ typedef enum {
  */
 typedef enum {
     SXF_MODE_UPLOAD = 0,/**< file upload */
-    SXF_MODE_DOWNLOAD/**< file download */
+    SXF_MODE_DOWNLOAD,/**< file download */
+    SXF_MODE_RCOPY, /**< remote-to-remote copy (fast mode) */
+    SXF_MODE_DELETE /**< file delete */
 } sxf_mode_t;
 
 /** EOF and looping control
@@ -346,15 +352,6 @@ typedef enum {
     SXF_ACTION_REPEAT,/**< repeat call with same 'in' and 'insize' parameters */
     SXF_ACTION_DATA_END/**< marks the file's last block */
 } sxf_action_t;
-
-/** File notification modes
- */
-typedef enum {
-    SXF_NOTIFY_UPLOAD, /**< file uploaded to cluster from local path */
-    SXF_NOTIFY_DOWNLOAD, /**< file downloaded from cluster */
-    SXF_NOTIFY_RCOPY, /**< remote file copied into another remote path (in fast mode) */
-    SXF_NOTIFY_DELETE /**< remote file deleted */
-} sxf_notify_t;
 
 struct filter_handle;
 typedef struct filter_handle sxf_handle_t;
@@ -503,19 +500,30 @@ typedef struct {
      * @retval non-zero on error
      */
 
-    void (*file_notify)(const sxf_handle_t *handle, void *ctx, sxf_notify_t mode, const char *source_cluster, const char *source_volume, const char *source_path, const char *dest_cluster, const char *dest_volume, const char *dest_path);
+    void (*file_notify)(const sxf_handle_t *handle, void *ctx, sxf_mode_t mode, const char *source_cluster, const char *source_volume, const char *source_path, const char *dest_cluster, const char *dest_volume, const char *dest_path);
     /**<
-     * Called when a specific action (such as file upload, download) takes place.
+     * Called after a specific action (such as file upload, download) took place.
      *
      * @param[in] handle an opaque handle for sxc_filter_msg
      * @param[in] ctx context structure, allocated by \ref init
-     * @param[in] mode notification type (SXF_NOTIFY_*)
+     * @param[in] mode notification type (SXF_MODE_*)
      * @param[in] source_cluster name of cluster containing source file (NULL for local files)
      * @param[in] source_volume name of volume containing source file (NULL for local files)
      * @param[in] source_path source file path
      * @param[in] dest_cluster name of cluster for destination file (NULL for local files)
      * @param[in] dest_volume name of volume for destination file (NULL for local files)
      * @param[in] dest_path destination file path
+     */
+
+    int (*file_update)(const sxf_handle_t *handle, void *ctx, sxf_mode_t mode, sxc_file_t *source, sxc_file_t *dest);
+    /**<
+     * Process/update file objects before a specific action (such as upload, download) takes place.
+     *
+     * @param[in] handle an opaque handle for sxc_filter_msg
+     * @param[in] ctx context structure, allocated by \ref init
+     * @param[in] mode mode type (SXF_MODE_*)
+     * @param[in] source source file object
+     * @param[in] dest destination file object
      */
 
     /** */
