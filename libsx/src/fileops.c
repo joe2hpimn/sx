@@ -1854,6 +1854,8 @@ static int local_to_remote_begin(sxc_file_t *source, sxc_meta_t *fmeta, sxc_file
 
 	snprintf(cfgkey, sizeof(cfgkey), "%s-cfg", filter_uuid);
 	sxc_meta_getval(vmeta, cfgkey, &cfgval, &cfgval_len);
+	if(cfgval_len && sxi_filter_add_cfg(fh, dest->volume, cfgval, cfgval_len))
+	    goto local_to_remote_err;
 
 	if(confdir) {
 	    fdir = get_filter_dir(sx, confdir, filter_uuid, dest->volume);
@@ -1945,7 +1947,7 @@ static int local_to_remote_begin(sxc_file_t *source, sxc_meta_t *fmeta, sxc_file
 	}
 	free(fdir);
 
-	if(fh->f->file_update && fh->f->file_update(fh, fh->ctx, SXF_MODE_UPLOAD, source, dest)) {
+	if(fh->f->file_update && fh->f->file_update(fh, fh->ctx, cfgval, cfgval_len, SXF_MODE_UPLOAD, source, dest)) {
 	    sxi_seterr(sx, SXE_EFILTER, "Filter ID %s failed to process files", filter_uuid);
 	    goto local_to_remote_err;
 	}
@@ -2053,7 +2055,7 @@ static int local_to_remote_begin(sxc_file_t *source, sxc_meta_t *fmeta, sxc_file
     sxi_hostlist_empty(&volhosts);
 
     if(!ret && fh && fh->f->file_notify && dest->job)
-	sxi_job_set_nf(dest->job, fh, fh->f->file_notify, fh->ctx, source->path, sxc_cluster_get_sslname(dest->cluster), dest->volume, dest->path);
+	sxi_job_set_nf(dest->job, fh, fh->f->file_notify, source->path, sxc_cluster_get_sslname(dest->cluster), dest->volume, dest->path);
 
     if (restore_path(dest))
         ret = 1;
@@ -3525,6 +3527,8 @@ static int remote_to_local(sxc_file_t *source, sxc_file_t *dest) {
 
 	snprintf(filter_cfgkey, sizeof(filter_cfgkey), "%s-cfg", filter_uuid);
 	sxc_meta_getval(vmeta, filter_cfgkey, &cfgval, &cfgval_len);
+	if(cfgval_len && sxi_filter_add_cfg(fh, source->volume, cfgval, cfgval_len))
+	    goto remote_to_local_err;
 
 	confdir = sxi_cluster_get_confdir(source->cluster);
 	if(confdir) {
@@ -3542,7 +3546,7 @@ static int remote_to_local(sxc_file_t *source, sxc_file_t *dest) {
 
 	fmeta = sxc_filemeta_new(source);
 
-	if(fh->f->file_update && fh->f->file_update(fh, fh->ctx, SXF_MODE_DOWNLOAD, source, dest)) {
+	if(fh->f->file_update && fh->f->file_update(fh, fh->ctx, cfgval, cfgval_len, SXF_MODE_DOWNLOAD, source, dest)) {
 	    sxi_seterr(sx, SXE_EFILTER, "Filter ID %s failed to process files", filter_uuid);
 	    goto remote_to_local_err;
 	}
@@ -3842,7 +3846,7 @@ static int remote_to_local(sxc_file_t *source, sxc_file_t *dest) {
     ret = 0;
 
     if(fh && fh->f->file_notify)
-	fh->f->file_notify(fh, fh->ctx, SXF_MODE_DOWNLOAD, sxc_cluster_get_sslname(source->cluster), source->volume, source->path, NULL, NULL, dest->path);
+	fh->f->file_notify(fh, fh->ctx, sxi_filter_get_cfg(fh, source->volume), sxi_filter_get_cfg_len(fh, source->volume), SXF_MODE_DOWNLOAD, sxc_cluster_get_sslname(source->cluster), source->volume, source->path, NULL, NULL, dest->path);
 
 remote_to_local_err:
 
@@ -4404,6 +4408,9 @@ static int cat_remote_file(sxc_file_t *source, int dest) {
 
 	snprintf(filter_cfgkey, sizeof(filter_cfgkey), "%s-cfg", filter_uuid);
 	sxc_meta_getval(vmeta, filter_cfgkey, &cfgval, &cfgval_len);
+	if(cfgval_len && sxi_filter_add_cfg(fh, source->volume, cfgval, cfgval_len))
+	    goto sxc_cat_fail;
+
 	confdir = sxi_cluster_get_confdir(source->cluster);
 	if(confdir) {
 	    filter_cfgdir = get_filter_dir(sx, confdir, filter_uuid, source->volume);
@@ -5031,7 +5038,9 @@ int sxi_file_list_foreach(sxc_file_list_t *target, sxc_cluster_t *wait_cluster, 
                 break;
             }
 	    if(!sxc_meta_getval(vmeta, "filterActive", &mval, &mval_len)) {
-		char filter_uuid[37];
+		char filter_uuid[37], cfgkey[37 + 5];
+		const void *cfgval = NULL;
+		unsigned int cfgval_len = 0;
 		if(mval_len != 16) {
 		    CFGDEBUG("Filter(s) enabled but can't handle metadata");
 		    rc = -1;
@@ -5042,6 +5051,13 @@ int sxi_file_list_foreach(sxc_file_list_t *target, sxc_cluster_t *wait_cluster, 
 		fh = sxi_filter_gethandle(target->sx, mval);
 		if(!fh) {
 		    CFGDEBUG("Filter ID %s required by destination volume not found", filter_uuid);
+		    rc = -1;
+		    sxc_meta_free(vmeta);
+		    break;
+		}
+		snprintf(cfgkey, sizeof(cfgkey), "%s-cfg", filter_uuid);
+		sxc_meta_getval(vmeta, cfgkey, &cfgval, &cfgval_len);
+		if(cfgval_len && sxi_filter_add_cfg(fh, pattern->volume, cfgval, cfgval_len)) {
 		    rc = -1;
 		    sxc_meta_free(vmeta);
 		    break;
@@ -5115,7 +5131,7 @@ static sxi_job_t* sxi_rm_cb(sxc_file_list_t *target, sxc_file_t *pattern, sxc_cl
 	sxc_file_t *file = sxc_file_remote(cluster, vol, path, NULL);
 	if(!file)
 	    return NULL;
-	if(fh->f->file_update(fh, fh->ctx, SXF_MODE_DELETE, file, NULL)) {
+	if(fh->f->file_update(fh, fh->ctx, sxi_filter_get_cfg(fh, vol), sxi_filter_get_cfg_len(fh, vol), SXF_MODE_DELETE, file, NULL)) {
 	    sxi_seterr(target->sx, SXE_EFILTER, "Filter failed to process files");
 	    sxc_file_free(file);
 	    return NULL;
@@ -5128,7 +5144,7 @@ static sxi_job_t* sxi_rm_cb(sxc_file_list_t *target, sxc_file_t *pattern, sxc_cl
     sxi_set_operation(target->sx, "remove files", sxi_cluster_get_name(cluster), query->path, NULL);
     job = sxi_job_submit(sxi_cluster_get_conns(cluster), hlist, query->verb, query->path, path, NULL, 0, &http_code, &target->jobs);
     if(job && fh && fh->f->file_notify)
-	fh->f->file_notify(fh, fh->ctx, SXF_MODE_DELETE, sxi_cluster_get_name(cluster), vol, path, NULL, NULL, NULL);
+	fh->f->file_notify(fh, fh->ctx, sxi_filter_get_cfg(fh, vol), sxi_filter_get_cfg_len(fh, vol), SXF_MODE_DELETE, sxi_cluster_get_name(cluster), vol, path, NULL, NULL, NULL);
     if (!job && http_code == 404)
         job = &JOB_NONE;
     sxi_query_free(query);

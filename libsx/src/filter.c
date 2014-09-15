@@ -104,6 +104,7 @@ static int filter_register(sxc_client_t *sx, const char *filename)
 	    ph->dlh = dlh;
 	    ph->ctx = NULL;
 	    ph->active = 0;
+	    ph->cfg = NULL;
             ph->sx = sx;
 	    filter->tname = filter_gettname(filter->type);
 	    if(sxi_uuid_parse(filter->uuid, ph->uuid_bin) == -1) {
@@ -226,11 +227,73 @@ int sxc_filter_loadall(sxc_client_t *sx, const char *filter_dir)
     return ret;
 }
 
+static const struct filter_cfg *filter_get_cfg(struct filter_handle *fh, const char *volname)
+{
+    const struct filter_cfg *cfg;
+    if(!fh || !volname)
+	return NULL;
+
+    cfg = fh->cfg;
+    while(cfg) {
+	if(!strcmp(cfg->volname, volname))
+	    return cfg;
+	cfg = cfg->next;
+    }
+    return NULL;
+}
+
+const void *sxi_filter_get_cfg(struct filter_handle *fh, const char *volname)
+{
+    const struct filter_cfg *cfg = filter_get_cfg(fh, volname);
+    return cfg ? cfg->cfg : NULL;
+}
+
+unsigned int sxi_filter_get_cfg_len(struct filter_handle *fh, const char *volname)
+{
+    const struct filter_cfg *cfg = filter_get_cfg(fh, volname);
+    return cfg ? cfg->cfg_len : 0;
+}
+
+int sxi_filter_add_cfg(struct filter_handle *fh, const char *volname, const void *cfg, unsigned int cfg_len)
+{
+    struct filter_cfg *newcfg;
+    if(!fh || !volname || !cfg || !cfg_len)
+	return -1;
+
+    if(filter_get_cfg(fh, volname))
+	return 0;
+
+    newcfg = malloc(sizeof(struct filter_cfg));
+    if(!newcfg) {
+	sxi_seterr(fh->sx, SXE_EMEM, "OOM");
+	return -1;
+    }
+    newcfg->volname = strdup(volname);
+    if(!newcfg->volname) {
+	free(newcfg);
+	sxi_seterr(fh->sx, SXE_EMEM, "OOM");
+	return -1;
+    }
+    newcfg->cfg = malloc(cfg_len);
+    if(!newcfg->cfg) {
+	free(newcfg->volname);
+	free(newcfg);
+	sxi_seterr(fh->sx, SXE_EMEM, "OOM");
+	return -1;
+    }
+    memcpy(newcfg->cfg, cfg, cfg_len);
+    newcfg->cfg_len = cfg_len;
+    newcfg->next = fh->cfg;
+    fh->cfg = newcfg;
+    return 0;
+}
+
 void sxi_filter_unloadall(sxc_client_t *sx)
 {
     struct filter_ctx *fctx;
     int i;
     struct filter_handle *ph;
+    struct filter_cfg *c;
 
     if(!sx)
 	return;
@@ -244,6 +307,13 @@ void sxi_filter_unloadall(sxc_client_t *sx)
 	ph = &fctx->filters[i];
 	if(ph->active && ph->f->shutdown)
 	    ph->f->shutdown(ph, ph->ctx);
+	while(ph->cfg) {
+	    c = ph->cfg;
+	    free(c->volname);
+	    free(c->cfg);
+	    ph->cfg = ph->cfg->next;
+	    free(c);
+	}
 	lt_dlclose((lt_dlhandle) ph->dlh);
     }
     free(fctx->filters);

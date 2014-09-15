@@ -59,9 +59,8 @@ struct _sxi_job_t {
     } status;
     enum jobres_state { JR_BEGIN, JR_BASE, JR_ID, JR_RES, JR_MSG, JR_COMPLETE } state;
     /* temporary notify filter hack */
-    const sxf_handle_t *nf_fh;
+    const struct filter_handle *nf_fh;
     nf_fn_t nf_fn;
-    void *nf_ctx;
     char *nf_src_path, *nf_dst_clust, *nf_dst_vol, *nf_dst_path;
 };
 
@@ -539,8 +538,10 @@ static int sxi_job_result(sxc_client_t *sx, sxi_job_t **yres, unsigned *successf
                     sxi_info(sx, "%s: %s", (*yres)->name, "Deleted");
             if (successful)
                 (*successful)++;
-	    if((*yres)->nf_fn)
-		(*yres)->nf_fn((*yres)->nf_fh, (*yres)->nf_ctx, SXF_MODE_UPLOAD, NULL, NULL, (*yres)->nf_src_path, (*yres)->nf_dst_clust, (*yres)->nf_dst_vol, (*yres)->nf_dst_path);
+	    if((*yres)->nf_fn) {
+		const struct filter_handle *fh = (*yres)->nf_fh;
+		(*yres)->nf_fn(fh, fh->ctx, sxi_filter_get_cfg(fh, (*yres)->nf_dst_vol), sxi_filter_get_cfg_len(fh, (*yres)->nf_dst_vol), SXF_MODE_UPLOAD, NULL, NULL, (*yres)->nf_src_path, (*yres)->nf_dst_clust, (*yres)->nf_dst_vol, (*yres)->nf_dst_path);
+	    }
             ret = 0;
             break;
         case JOBST_ERROR:
@@ -765,11 +766,10 @@ unsigned sxi_jobs_get_successful(const sxi_jobs_t *jobs) {
 
 sxi_job_t JOB_NONE;
 
-void sxi_job_set_nf(sxi_job_t *job, const sxf_handle_t *nf_fh, nf_fn_t nf_fn, void *nf_ctx, const char *nf_src_path, const char *nf_dst_clust, const char *nf_dst_vol, const char *nf_dst_path)
+void sxi_job_set_nf(sxi_job_t *job, const struct filter_handle *nf_fh, nf_fn_t nf_fn, const char *nf_src_path, const char *nf_dst_clust, const char *nf_dst_vol, const char *nf_dst_path)
 {
     job->nf_fh = nf_fh;
     job->nf_fn = nf_fn;
-    job->nf_ctx = nf_ctx;
     job->nf_src_path = strdup(nf_src_path);
     job->nf_dst_clust = strdup(nf_dst_clust);
     job->nf_dst_vol = strdup(nf_dst_vol);

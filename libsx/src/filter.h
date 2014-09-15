@@ -37,5 +37,8 @@ static const struct {
 };
 
 struct filter_handle *sxi_filter_gethandle(sxc_client_t *sx, const uint8_t *uuid);
+int sxi_filter_add_cfg(struct filter_handle *fh, const char *volname, const void *cfg, unsigned int cfg_len);
+const void *sxi_filter_get_cfg(struct filter_handle *fh, const char *volname);
+unsigned int sxi_filter_get_cfg_len(struct filter_handle *fh, const char *volname);
 
 #endif

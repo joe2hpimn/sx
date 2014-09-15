@@ -500,12 +500,14 @@ typedef struct {
      * @retval non-zero on error
      */
 
-    void (*file_notify)(const sxf_handle_t *handle, void *ctx, sxf_mode_t mode, const char *source_cluster, const char *source_volume, const char *source_path, const char *dest_cluster, const char *dest_volume, const char *dest_path);
+    void (*file_notify)(const sxf_handle_t *handle, void *ctx, const void *cfgdata, unsigned int cfgdata_len, sxf_mode_t mode, const char *source_cluster, const char *source_volume, const char *source_path, const char *dest_cluster, const char *dest_volume, const char *dest_path);
     /**<
      * Called after a specific action (such as file upload, download) took place.
      *
      * @param[in] handle an opaque handle for sxc_filter_msg
      * @param[in] ctx context structure, allocated by \ref init
+     * @param[in] cfgdata volume configuration metadata, as defined by \ref configure
+     * @param[in] cfgdata_len length of cfgdata
      * @param[in] mode notification type (SXF_MODE_*)
      * @param[in] source_cluster name of cluster containing source file (NULL for local files)
      * @param[in] source_volume name of volume containing source file (NULL for local files)
@@ -515,12 +517,14 @@ typedef struct {
      * @param[in] dest_path destination file path
      */
 
-    int (*file_update)(const sxf_handle_t *handle, void *ctx, sxf_mode_t mode, sxc_file_t *source, sxc_file_t *dest);
+    int (*file_update)(const sxf_handle_t *handle, void *ctx, const void *cfgdata, unsigned int cfgdata_len, sxf_mode_t mode, sxc_file_t *source, sxc_file_t *dest);
     /**<
      * Process/update file objects before a specific action (such as upload, download) takes place.
      *
      * @param[in] handle an opaque handle for sxc_filter_msg
      * @param[in] ctx context structure, allocated by \ref init
+     * @param[in] cfgdata volume configuration metadata, as defined by \ref configure
+     * @param[in] cfgdata_len length of cfgdata
      * @param[in] mode mode type (SXF_MODE_*)
      * @param[in] source source file object
      * @param[in] dest destination file object

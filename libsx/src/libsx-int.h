@@ -46,12 +46,20 @@ const char *sxi_get_tempdir(sxc_client_t *sx);
 #define CBDEBUG(...) do{ sxc_client_t *_sx = sxi_conns_get_client(sxi_cbdata_get_conns(yactx->cbdata)); sxi_debug(_sx, __FUNCTION__, __VA_ARGS__); } while(0)
 #define CBDATADEBUG(...) do{ sxc_client_t *_sx = sxi_conns_get_client(sxi_cbdata_get_conns(cbdata)); sxi_debug(_sx, __FUNCTION__, __VA_ARGS__); } while(0)
 
+struct filter_cfg {
+    char *volname;
+    void *cfg;
+    unsigned int cfg_len;
+    struct filter_cfg *next;
+};
+
 struct filter_handle {
     void *dlh;	/* dlhandle */
     void *ctx; /* filter's own data/ctx */
     int active;
     sxc_filter_t *f;
     uint8_t uuid_bin[16];
+    struct filter_cfg *cfg;
     sxc_client_t *sx;
 };
 
