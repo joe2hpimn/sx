@@ -104,4 +104,5 @@ AC_CONFIG_FILES([src/filters/attribs/Makefile])
 AC_CONFIG_FILES([src/filters/null/Makefile])
 AC_CONFIG_FILES([src/filters/zcomp/Makefile])
 AC_CONFIG_FILES([src/filters/aes256/Makefile])
+AC_CONFIG_FILES([src/filters/undelete/Makefile])
 AC_OUTPUT

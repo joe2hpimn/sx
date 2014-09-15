@@ -1,6 +1,6 @@
 ACLOCAL_AMFLAGS = -I m4
 
-SUBDIRS = src/filters/null src/filters/zcomp src/filters/attribs src/filters/aes256
+SUBDIRS = src/filters/null src/filters/zcomp src/filters/attribs src/filters/aes256 src/filters/undelete
 
 AM_CPPFLAGS = -I $(top_srcdir)/../libsx/include -I $(top_srcdir)/../ -I $(top_srcdir)/src/common -DSX_FILTER_DIR=\"$(pkglibdir)\"
 

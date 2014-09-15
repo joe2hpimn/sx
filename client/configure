@@ -13925,6 +13925,8 @@ ac_config_files="$ac_config_files src/filters/zcomp/Makefile"
 
 ac_config_files="$ac_config_files src/filters/aes256/Makefile"
 
+ac_config_files="$ac_config_files src/filters/undelete/Makefile"
+
 cat >confcache <<\_ACEOF
 # This file is a shell script that caches the results of configure
 # tests run on this system so they can be shared between configure
@@ -14956,6 +14958,7 @@ do
     "src/filters/null/Makefile") CONFIG_FILES="$CONFIG_FILES src/filters/null/Makefile" ;;
     "src/filters/zcomp/Makefile") CONFIG_FILES="$CONFIG_FILES src/filters/zcomp/Makefile" ;;
     "src/filters/aes256/Makefile") CONFIG_FILES="$CONFIG_FILES src/filters/aes256/Makefile" ;;
+    "src/filters/undelete/Makefile") CONFIG_FILES="$CONFIG_FILES src/filters/undelete/Makefile" ;;
 
   *) as_fn_error $? "invalid argument: \`$ac_config_target'" "$LINENO" 5;;
   esac
