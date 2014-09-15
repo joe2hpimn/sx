@@ -25,6 +25,7 @@
 #include <pk11pub.h>
 #include <nspr.h>
 #include <secmod.h>
+#include <errno.h>
 
 int sxi_sslctxfun(sxc_client_t *sx, curlev_t *ev, const struct curl_tlssessioninfo *info)
 {
