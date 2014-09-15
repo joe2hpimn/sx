@@ -659,10 +659,14 @@ static int check_ssl_cert(curlev_t *ev)
         CURLcode res = curl_easy_getinfo(ev->curl, CURLINFO_TLS_SESSION, &to_info);
         memcpy(&info, &to_info, sizeof(to_info));
         if (!res) {
+            int rc;
             if (info->backend == CURLSSLBACKEND_NONE)
                 return 0;/* no SSL connection yet */
+            rc = sxi_sslctxfun(sx, ev, info);
+            if (rc == -EAGAIN)
+                return 0;
             ev->ssl_ctx_called = 1;
-            if (sxi_sslctxfun(sx, ev, info))
+            if (rc)
                 return 1;
             SXDEBUG("ctx function called");
         }
