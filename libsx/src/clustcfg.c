@@ -1106,53 +1106,6 @@ int sxi_locate_volume(sxi_conns_t *conns, const char *volume, sxi_hostlist_t *no
     return sxi_volume_info(conns, volume, nodes, size, metadata);
 }
 
-
-int sxi_mkdir_hier(sxc_client_t *sx, const char *fullpath) {
-    unsigned int i, len;
-    char *dir;
-
-    if(!fullpath || !*fullpath) {
-	SXDEBUG("called with NULL or empty path");
-	sxi_seterr(sx, SXE_EARG, "Directory creation failed: Invalid argument");
-	return 1;
-    }
-
-    len = strlen(fullpath);
-    dir = malloc(len+1);
-    if(!dir) {
-	SXDEBUG("OOM duplicating path");
-	sxi_seterr(sx, SXE_EMEM, "Directory creation failed: Out of memory");
-	return 1;
-    }
-
-    memcpy(dir, fullpath, len+1);
-    while(len && dir[len-1] == '/') {
-        /* len > 0 */
-	len--;
-        /* len >= 0 */
-	dir[len] = '\0';
-    }
-
-    for(i=1; i<=len; i++) {
-	if(dir[i] == '/' || !dir[i]) {
-	    dir[i] = '\0';
-	    if(mkdir(dir, 0700) < 0 && errno != EEXIST)
-		break;
-	    dir[i] = '/';
-	}
-    }
-
-    if(i<=len) {
-	sxi_setsyserr(sx, SXE_EWRITE, "Directory creation failed");
-	SXDEBUG("failed to create directory %s", dir);
-	free(dir);
-	return 1;
-    }
-
-    free(dir);
-    return 0;
-}
-
 int sxi_is_valid_cluster(const sxc_cluster_t *cluster) {
     const sxi_hostlist_t *hlist;
     if(!cluster ||
@@ -1203,7 +1156,7 @@ int sxc_cluster_save(sxc_cluster_t *cluster, const char *config_dir) {
     memcpy(clusterd, confdir, clusterd_len + 1);
     free(confdir);
 
-    if(sxi_mkdir_hier(cluster->sx, clusterd)) {
+    if(sxi_mkdir_hier(cluster->sx, clusterd, 0700)) {
 	CFGDEBUG("failed to create config directory %s", clusterd);
 	free(clusterd);
 	return 1;
@@ -1248,14 +1201,14 @@ int sxc_cluster_save(sxc_cluster_t *cluster, const char *config_dir) {
     sxi_tempfile_untrack(cluster->sx, fname);
 
     memcpy(&clusterd[clusterd_len], "/volumes", sizeof("/volumes"));
-    if(sxi_mkdir_hier(cluster->sx, clusterd)) {
+    if(sxi_mkdir_hier(cluster->sx, clusterd, 0700)) {
 	CFGDEBUG("failed to create volumes directory %s", clusterd);
 	free(clusterd);
 	return 1;
     }
 
     memcpy(&clusterd[clusterd_len], "/nodes", sizeof("/nodes"));
-    if(sxi_mkdir_hier(cluster->sx, clusterd)) {
+    if(sxi_mkdir_hier(cluster->sx, clusterd, 0700)) {
 	CFGDEBUG("failed to create nodes directory %s", clusterd);
 	free(clusterd);
 	return 1;
@@ -1317,7 +1270,7 @@ int sxc_cluster_save(sxc_cluster_t *cluster, const char *config_dir) {
     closedir(d);
 
     memcpy(&clusterd[clusterd_len], "/auth", sizeof("/auth"));
-    if(sxi_mkdir_hier(cluster->sx, clusterd)) {
+    if(sxi_mkdir_hier(cluster->sx, clusterd, 0700)) {
 	CFGDEBUG("failed to create auth directory %s", clusterd);
 	free(clusterd);
 	return 1;

@@ -1603,6 +1603,52 @@ int sxi_rmdirs(const char *dir)
     return nftw(dir, rm_fn, 10, FTW_MOUNT | FTW_PHYS | FTW_DEPTH);
 }
 
+int sxi_mkdir_hier(sxc_client_t *sx, const char *fullpath, mode_t mode) {
+    unsigned int i, len;
+    char *dir;
+
+    if(!fullpath || !*fullpath) {
+	SXDEBUG("called with NULL or empty path");
+	sxi_seterr(sx, SXE_EARG, "Directory creation failed: Invalid argument");
+	return 1;
+    }
+
+    len = strlen(fullpath);
+    dir = malloc(len+1);
+    if(!dir) {
+	SXDEBUG("OOM duplicating path");
+	sxi_seterr(sx, SXE_EMEM, "Directory creation failed: Out of memory");
+	return 1;
+    }
+
+    memcpy(dir, fullpath, len+1);
+    while(len && dir[len-1] == '/') {
+        /* len > 0 */
+	len--;
+        /* len >= 0 */
+	dir[len] = '\0';
+    }
+
+    for(i=1; i<=len; i++) {
+	if(dir[i] == '/' || !dir[i]) {
+	    dir[i] = '\0';
+	    if(mkdir(dir, mode) < 0 && errno != EEXIST)
+		break;
+	    dir[i] = '/';
+	}
+    }
+
+    if(i<=len) {
+	sxi_setsyserr(sx, SXE_EWRITE, "Directory creation failed");
+	SXDEBUG("failed to create directory %s", dir);
+	free(dir);
+	return 1;
+    }
+
+    free(dir);
+    return 0;
+}
+
 int sxi_hmac_sha1_update_str(sxi_hmac_sha1_ctx *ctx, const char *str) {
     if (!ctx)
         return 0;

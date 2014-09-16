@@ -22,6 +22,7 @@
 
 #include "sx.h"
 #include <sys/time.h>
+#include <sys/types.h>
 
 void *sxi_realloc(sxc_client_t *sx, void *ptr, unsigned int newlen);
 int sxi_is_valid_authtoken(sxc_client_t *sx, const char *token);
@@ -59,7 +60,7 @@ char *sxi_json_quote_string(const char *s);
 int sxi_uri_is_sx(sxc_client_t *sx, const char *uri);
 
 char sxi_read_one_char(void);
-int sxi_mkdir_hier(sxc_client_t *sx, const char *fullpath);
+int sxi_mkdir_hier(sxc_client_t *sx, const char *fullpath, mode_t mode);
 int sxi_rmdirs(const char *dir);
 
 /* Hold information about alias */

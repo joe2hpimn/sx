@@ -470,7 +470,7 @@ static int local_to_local(sxc_file_t *source, sxc_file_t *dest) {
     if (strcmp(dest->origpath, dest->path)) {
         /* dest is a dir, we must only mkdir exactly the given dest, not
          * subdirs */
-        if (mkdir(dest->origpath, 0700) == -1 && errno != EEXIST) {
+        if (mkdir(dest->origpath, 0777) == -1 && errno != EEXIST) {
             sxi_setsyserr(source->sx, SXE_EARG, "Cannot create directory '%s'", dest->origpath);
             return -1;
         }
@@ -4300,7 +4300,7 @@ static int mkdir_parents(sxc_client_t *sx, const char *path)
     }
     memcpy(parent, path, end - path);
     parent[end-path] = '\0';
-    ret = sxi_mkdir_hier(sx, parent);
+    ret = sxi_mkdir_hier(sx, parent, 0777);
     free(parent);
     return ret;
 }
@@ -5238,7 +5238,7 @@ static int multi_cb(sxc_file_list_t *target, void *ctx)
     sxc_file_t *dest = it->dest;
     target->multi = 1;
     if (target->recursive && !is_remote(dest)) {
-        if (mkdir(dest->path, 0700) == -1 && errno != EEXIST) {
+        if (mkdir(dest->path, 0777) == -1 && errno != EEXIST) {
             sxi_setsyserr(target->sx, SXE_EARG, "Cannot create directory '%s'", dest->path);
             return -1;
         }
@@ -5265,7 +5265,7 @@ static int remote_iterate(sxc_file_t *source, int recursive, int onefs, sxc_file
         ret = sxi_file_list_foreach(lst, dest->cluster, multi_cb, remote_copy_cb, 0, &it);
         if (!ret) {
             /* create dest dir if successful list of empty volume */
-            if (!is_remote(dest) && recursive && mkdir(dest->path, 0700) == -1 && errno != EEXIST) {
+            if (!is_remote(dest) && recursive && mkdir(dest->path, 0777) == -1 && errno != EEXIST) {
                 sxi_setsyserr(source->sx, SXE_EARG, "Cannot create directory '%s'", dest->path);
                 ret = 1;
             }
