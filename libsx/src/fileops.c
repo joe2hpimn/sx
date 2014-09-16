@@ -400,6 +400,8 @@ sxc_file_t *sxi_file_dup(sxc_file_t *file)
             break;
         if (file->origpath && !(ret->origpath = strdup(file->origpath)))
             break;
+        if (file->rev && !(ret->rev = strdup(file->rev)))
+            break;
         return ret;
     } while(0);
     sxi_setsyserr(sx, SXE_EMEM, "Cannot dup file");
@@ -4308,12 +4310,11 @@ int sxc_copy(sxc_file_t *source, sxc_file_t *dest, int recursive, int onefs) {
     int ret;
     sxc_xfer_stat_t *xfer_stat = NULL;
     sxc_cluster_t *remote_cluster = NULL;
-    sxc_file_t src;
+    char *rev;
 
     /* Remove the revision */
-    memcpy(&src, source, sizeof(src));
-    src.rev = NULL;
-    source = &src;
+    rev = source->rev;
+    source->rev = NULL;
 
     if(!is_remote(source)) {
 	if(!is_remote(dest)) {
@@ -4336,6 +4337,7 @@ int sxc_copy(sxc_file_t *source, sxc_file_t *dest, int recursive, int onefs) {
     } else {
         ret = remote_iterate(source, recursive, onefs, dest);
     }
+    source->rev = rev;
 
     if(is_remote(dest)) {
         remote_cluster = dest->cluster;
