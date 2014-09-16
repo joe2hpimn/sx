@@ -27,6 +27,7 @@
 #include "hostlist.h"
 #include "jobpoll.h"
 #include "curlevents.h"
+#include "filter.h"
 
 #define POLL_INTERVAL 30.0
 #define PROGRESS_INTERVAL 6.0
@@ -59,7 +60,7 @@ struct _sxi_job_t {
     } status;
     enum jobres_state { JR_BEGIN, JR_BASE, JR_ID, JR_RES, JR_MSG, JR_COMPLETE } state;
     /* temporary notify filter hack */
-    const struct filter_handle *nf_fh;
+    struct filter_handle *nf_fh;
     nf_fn_t nf_fn;
     char *nf_src_path, *nf_dst_clust, *nf_dst_vol, *nf_dst_path;
 };
@@ -539,7 +540,7 @@ static int sxi_job_result(sxc_client_t *sx, sxi_job_t **yres, unsigned *successf
             if (successful)
                 (*successful)++;
 	    if((*yres)->nf_fn) {
-		const struct filter_handle *fh = (*yres)->nf_fh;
+		struct filter_handle *fh = (*yres)->nf_fh;
 		(*yres)->nf_fn(fh, fh->ctx, sxi_filter_get_cfg(fh, (*yres)->nf_dst_vol), sxi_filter_get_cfg_len(fh, (*yres)->nf_dst_vol), SXF_MODE_UPLOAD, NULL, NULL, (*yres)->nf_src_path, (*yres)->nf_dst_clust, (*yres)->nf_dst_vol, (*yres)->nf_dst_path);
 	    }
             ret = 0;
@@ -766,7 +767,7 @@ unsigned sxi_jobs_get_successful(const sxi_jobs_t *jobs) {
 
 sxi_job_t JOB_NONE;
 
-void sxi_job_set_nf(sxi_job_t *job, const struct filter_handle *nf_fh, nf_fn_t nf_fn, const char *nf_src_path, const char *nf_dst_clust, const char *nf_dst_vol, const char *nf_dst_path)
+void sxi_job_set_nf(sxi_job_t *job, struct filter_handle *nf_fh, nf_fn_t nf_fn, const char *nf_src_path, const char *nf_dst_clust, const char *nf_dst_vol, const char *nf_dst_path)
 {
     job->nf_fh = nf_fh;
     job->nf_fn = nf_fn;
