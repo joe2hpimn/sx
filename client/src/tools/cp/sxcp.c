@@ -121,19 +121,19 @@ static char *process_time(double seconds) {
         h %= 24;
     }
 
-    if(seconds < 1.0)
-        snprintf(str, 5, "<1s");
-    else if(!m)
-        snprintf(str, 4, "%ds", s);
-    else if(!h)
-        snprintf(str, 7, "%dm%ds", m, s);
-    else if(!d)
-        snprintf(str, 10, "%dh%dm%ds", h, m, s);
-    else if(d >= 100)
+    if(d >= 100)
         /* Number of days is so high that we could exceed maximum time string */
         snprintf(str, 6, "100d+");
-    else
+    else if(d)
         snprintf(str, 13, "%dd%dh%dm%ds", d, h, m, s);
+    else if(h)
+        snprintf(str, 10, "%dh%dm%ds", h, m, s);
+    else if(m)
+        snprintf(str, 7, "%dm%ds", m, s);
+    else if(seconds >= 1.0)
+        snprintf(str, 4, "%ds", s);
+    else
+        snprintf(str, 5, "<1s");
 
     return str;
 }

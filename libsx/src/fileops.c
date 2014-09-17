@@ -89,7 +89,7 @@ static void xfer_update_speed(sxc_xfer_progress_t *xfer) {
 
     if(xfer->total_time > XFER_PROGRESS_ETA_DELAY) {
         xfer->speed = (total_sent + total_skipped) / total_time;
-        xfer->eta = xfer->speed > 0 && xfer->to_send > 0 ? xfer->to_send / xfer->speed - xfer->total_time : 0;
+        xfer->eta = xfer->speed > 0 && xfer->to_send - xfer->sent > 0 ? (xfer->to_send - xfer->sent) / xfer->speed : 0;
     }
     xfer->real_speed = total_sent / total_time;
 }
