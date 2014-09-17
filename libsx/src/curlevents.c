@@ -2279,6 +2279,8 @@ int sxi_curlev_poll(curl_events_t *e)
         if (curlm_check(NULL,rc,"set timeout") == -1)
             return -1;
 
+        if (timeout < 0)
+            timeout = 2000;
         rc = curl_multi_wait(e->multi, NULL, 0, timeout, &numfds);
 
         if (curlm_check(NULL,rc,"wait") == -1)
