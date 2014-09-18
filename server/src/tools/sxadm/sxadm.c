@@ -774,10 +774,13 @@ static int info_node(sxc_client_t *sx, const char *path)
 
 static int force_gc_cluster(sxc_client_t *sx, struct cluster_args_info *args, int delete_reservations)
 {
+    int ret;
     sxc_cluster_t *clust = cluster_load(sx, args);
     if(!clust)
 	return 1;
-    return sxc_cluster_trigger_gc(clust, delete_reservations);
+    ret = sxc_cluster_trigger_gc(clust, delete_reservations);
+    sxc_cluster_free(clust);
+    return ret;
 }
 
 void print_dist(const sx_nodelist_t *nodes) {
