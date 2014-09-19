@@ -6032,15 +6032,92 @@ static rc_ty get_file_id(sx_hashfs_t *h, const char *volume, const char *filenam
     return res;
 }
 
-rc_ty sx_hashfs_file_delete(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const char *file, const char *revision) {
+static rc_ty file_unbump(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const char *file, const char *revision, sx_hashfs_nl_t dist, int current_replica) {
     unsigned int i, idx = 0, *idxs = NULL, uniq;
-    sx_hash_t hash;
-    int ndb, current_replica;
-    sx_nodelist_t *belongsto;
-    int64_t file_id, mh;
-    rc_ty ret;
     char fileidhex[SXI_SHA1_TEXT_LEN+1];
+    sx_hashfs_file_t filedata;
+    uint64_t op_expires_at;
+    sx_hash_t hash;
+    rc_ty ret;
+
+    if (unique_fileid(h->sx, volume, file, revision, &hash) ||
+	bin2hex(hash.b, sizeof(hash.b), fileidhex, sizeof(fileidhex)))
+	return FAIL_EINTERNAL;
+    ret = sx_hashfs_getfile_begin(h, volume->name, file, revision, &filedata, NULL);
+    if (ret != OK)
+	return ret;
+    op_expires_at = time(NULL) + sx_hashfs_job_file_timeout(h, current_replica, filedata.file_size);
+    sxi_hashop_begin(&h->hc, h->sx_clust, NULL, HASHOP_DELETE, volume->replica_count, NULL, &hash, NULL, op_expires_at);
+
+    if (h->get_nblocks) do {
+	    idxs = wrap_malloc(h->get_nblocks * sizeof(*idxs));
+	    if (!idxs) {
+		ret = ENOMEM;
+		break;
+	    }
+
+	    const sx_node_t *self = sx_hashfs_self(h);
+
+	    uniq = h->get_nblocks;
+	    build_uniq_hash_index(h->get_content, idxs, &uniq);
+	    if (uniq > 0) {
+		sx_nodelist_t **nodes = wrap_calloc(uniq, sizeof(*nodes));
+		if (!nodes) {
+		    ret = ENOMEM;
+		    break;
+		}
+
+		for (i=0; i<uniq; i++) {
+		    const sx_hash_t *hash = &h->get_content[idxs[i]];
+		    nodes[i] = sx_hashfs_hashnodes(h, NL_NEXT, hash, h->get_replica);
+		    const sx_node_t *node = sx_nodelist_get(nodes[i], current_replica);
+		    DEBUGHASH("decuse on", hash);
+		    if (!sx_node_cmp(node, self)) {
+			ret = sx_hashfs_hashop_begin(h, filedata.block_size);
+			if (ret == OK) {
+			    ret = sx_hashfs_hashop_perform(h, volume->replica_count, HASHOP_DELETE, hash, fileidhex, op_expires_at);
+			    if (ret != OK)
+				WARN("hashop_perform failed: %s", rc2str(ret));
+			    ret = sx_hashfs_hashop_finish(h, ret);
+			} else
+			    WARN("hashop_begin failed: %s", rc2str(ret));
+		    } else {
+			ret = sxi_hashop_batch_add(&h->hc, sx_node_internal_addr(node), idx++, hash->b, filedata.block_size);
+			if (ret)
+			    WARN("hashop_batch_add failed: %s", rc2str(ret));
+		    }
+		    if (ret)
+			WARN("Failed to query hash...: %s", rc2str(ret));
+		}
+		sx_hashfs_getfile_end(h);
+		DEBUG("waiting for hashop_end");
+		if (sxi_hashop_end(&h->hc) == -1) {
+		    WARN("hashop_end failed: %s", sxc_geterrmsg(h->sx));
+		    ret = sxc_geterrnum(h->sx);
+		}
+		for (i=0; i<uniq;i++)
+		    sx_nodelist_delete(nodes[i]);
+		free(nodes);
+		nodes = NULL;
+		free(idxs);
+		idxs = NULL;
+	    }
+	} while(0);
+    sx_hashfs_getfile_end(h);
+    free(idxs);
+    if (ret != OK && ret != ITER_NO_MORE)
+	return ret;
+
+    return OK;
+}
+
+rc_ty sx_hashfs_file_delete(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const char *file, const char *revision) {
+    sx_nodelist_t *belongsto;
+    int ndb, prev_replica, next_replica;
+    int64_t file_id, mh;
+    sx_hash_t hash;
     int64_t size = 0;
+    rc_ty ret;
 
     if(!h || !volume || !file) {
 	NULLARG();
@@ -6050,39 +6127,6 @@ rc_ty sx_hashfs_file_delete(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, co
     if(!h->have_hd) {
 	WARN("Called before initialization");
 	return FAIL_EINIT;
-    }
-
-    /* MODHDIST: only decrementing hash refcounts from the newer distibution atm
-     * This does not work for files deleted when not yet sync'd.
-     * Review the delete/unbump strategy based on the final rebalance process */
-    if(hash_buf(h->cluster_uuid.string, strlen(h->cluster_uuid.string), volume->name, strlen(volume->name), &hash)) {
-        WARN("Cannot calculate volume hash");
-        return FAIL_EINTERNAL;
-    }
-    mh = MurmurHash64(&hash, sizeof(hash), HDIST_SEED);
-    belongsto = sxi_hdist_locate(h->hd, mh, volume->replica_count, 0);
-    if(!belongsto) {
-        WARN("Cannot get nodes for volume");
-        return FAIL_EINTERNAL;
-    }
-    if(!sx_nodelist_lookup_index(belongsto, &h->node_uuid, (unsigned int *)&current_replica))
-	current_replica = -1;
-    sx_nodelist_delete(belongsto);
-    if(current_replica < 0) {
-	int is_mine = 1;
-	if(h->is_rebalancing) {
-	    belongsto = sxi_hdist_locate(h->hd, mh, volume->replica_count, 1);
-	    if(!belongsto) {
-		WARN("Cannot get nodes for volume");
-		return FAIL_EINTERNAL;
-	    }
-	    is_mine = sx_nodelist_lookup(belongsto, &h->node_uuid) != NULL;
-	    sx_nodelist_delete(belongsto);
-	}
-	if(!is_mine) {
-	    msg_set_reason("Wrong node for volume '%s': ...", volume->name);
-	    return ENOENT;
-	}
     }
 
     if(check_file_name(file)<0) {
@@ -6095,90 +6139,51 @@ rc_ty sx_hashfs_file_delete(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, co
 	return EINVAL;
     }
 
-    ret = get_file_id(h, volume->name, file, revision, &file_id, &ndb, NULL, NULL, &size);
-    if (ret)
-        return ret;
+    if(hash_buf(h->cluster_uuid.string, strlen(h->cluster_uuid.string), volume->name, strlen(volume->name), &hash)) {
+        WARN("Cannot calculate volume hash");
+        return FAIL_EINTERNAL;
+    }
+    mh = MurmurHash64(&hash, sizeof(hash), HDIST_SEED);
 
-    if(current_replica >= 0) {
-	sx_hashfs_file_t filedata;
-        uint64_t op_expires_at;
-	if (unique_fileid(h->sx, volume, file, revision, &hash) ||
-	    bin2hex(hash.b, sizeof(hash.b), fileidhex, sizeof(fileidhex)))
-	    return FAIL_EINTERNAL;
-	ret = sx_hashfs_getfile_begin(h, volume->name, file, revision, &filedata, NULL);
-	if (ret != OK)
-	    return ret;
-        op_expires_at = time(NULL) + sx_hashfs_job_file_timeout(h, current_replica, filedata.file_size);
-	sxi_hashop_begin(&h->hc, h->sx_clust, NULL, HASHOP_DELETE, volume->replica_count, NULL, &hash, NULL, op_expires_at);
+    belongsto = sxi_hdist_locate(h->hd, mh, volume->replica_count, 0);
+    if(!belongsto) {
+        WARN("Cannot get nodes for volume %s", volume->name);
+        return FAIL_EINTERNAL;
+    }
+    if(!sx_nodelist_lookup_index(belongsto, &h->node_uuid, (unsigned int *)&next_replica))
+	next_replica = -1;
+    sx_nodelist_delete(belongsto);
 
-#ifdef FILEHASH_OPTIMIZATION
-	if (hash_buf("", 0, h->get_content, h->get_nblocks * sizeof(sx_hash_t), &hash)) {
-	    WARN("Cannot calculate file hash");
+    if(h->is_rebalancing) {
+	belongsto = sxi_hdist_locate(h->hd, mh, volume->replica_count, 1);
+	if(!belongsto) {
+	    WARN("Cannot get nodes for volume %s", volume->name);
 	    return FAIL_EINTERNAL;
 	}
-	if (filehash_mod_used(h, &hash, 1) == ITER_NO_MORE)
-	    h->get_nblocks = 0; /* do not modify/check any hash counters */
-#endif
+	if(!sx_nodelist_lookup_index(belongsto, &h->node_uuid, (unsigned int *)&prev_replica))
+	    prev_replica = -1;
+	sx_nodelist_delete(belongsto);
+    } else
+	prev_replica = -1;
 
-	if (h->get_nblocks) do {
-		idxs = wrap_malloc(h->get_nblocks * sizeof(*idxs));
-		if (!idxs) {
-		    ret = ENOMEM;
-		    break;
-		}
+    if(next_replica < 0 && prev_replica < 0) {
+	msg_set_reason("Wrong node for volume '%s': ...", volume->name);
+	return ENOENT;
+    }
 
-		const sx_node_t *self = sx_hashfs_self(h);
+    ret = get_file_id(h, volume->name, file, revision, &file_id, &ndb, NULL, NULL, &size);
+    if(ret)
+        return ret;
 
-		uniq = h->get_nblocks;
-		build_uniq_hash_index(h->get_content, idxs, &uniq);
-		if (uniq > 0) {
-		    sx_nodelist_t **nodes = wrap_calloc(uniq, sizeof(*nodes));
-		    if (!nodes) {
-			ret = ENOMEM;
-			break;
-		    }
+    /* MODHDIST: decrement hash refcounts from all distibutions */
+    if(next_replica >= 0)
+	ret = file_unbump(h, volume, file, revision, NL_NEXT, next_replica);
+    if(ret == OK && prev_replica >= 0)
+	ret = file_unbump(h, volume, file, revision, NL_PREV, prev_replica);
 
-		    for (i=0; i<uniq; i++) {
-			const sx_hash_t *hash = &h->get_content[idxs[i]];
-			/* MODHDIST: if we move all the blocks first, then it is safe to only delete from _NEXT */
-			nodes[i] = sx_hashfs_hashnodes(h, NL_NEXT, hash, h->get_replica);
-			const sx_node_t *node = sx_nodelist_get(nodes[i], current_replica);
-			DEBUGHASH("decuse on", hash);
-			if (!sx_node_cmp(node, self)) {
-			    ret = sx_hashfs_hashop_begin(h, filedata.block_size);
-			    if (ret == OK) {
-				ret = sx_hashfs_hashop_perform(h, volume->replica_count, HASHOP_DELETE, hash, fileidhex, op_expires_at);
-				if (ret != OK)
-				    WARN("hashop_perform failed: %s", rc2str(ret));
-				ret = sx_hashfs_hashop_finish(h, ret);
-			    } else
-				WARN("hashop_begin failed: %s", rc2str(ret));
-			} else {
-			    ret = sxi_hashop_batch_add(&h->hc, sx_node_internal_addr(node), idx++, hash->b, filedata.block_size);
-			    if (ret)
-				WARN("hashop_batch_add failed: %s", rc2str(ret));
-			}
-			if (ret)
-			    WARN("Failed to query hash...: %s", rc2str(ret));
-		    }
-		    sx_hashfs_getfile_end(h);
-		    DEBUG("waiting for hashop_end");
-		    if (sxi_hashop_end(&h->hc) == -1) {
-			WARN("hashop_end failed: %s", sxc_geterrmsg(h->sx));
-			ret = sxc_geterrnum(h->sx);
-		    }
-		    for (i=0; i<uniq;i++)
-			sx_nodelist_delete(nodes[i]);
-		    free(nodes);
-		    nodes = NULL;
-		    free(idxs);
-		    idxs = NULL;
-		}
-	    } while(0);
-	sx_hashfs_getfile_end(h);
-	free(idxs);
-	if (ret != OK && ret != ITER_NO_MORE)
-	    return ret;
+    if(ret != OK) {
+	msg_set_reason("File delete failed: cannot update block counters for %s/%s", volume->name, file);
+	return ret;
     }
 
     sqlite3_reset(h->qm_delfile[ndb]);
@@ -6209,8 +6214,8 @@ rc_ty sx_hashfs_file_delete(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, co
     }
 
     return ret;
-}
 
+}
 
 static rc_ty fill_filemeta(sx_hashfs_t *h, unsigned int metadb, int64_t file_id) {
     sqlite3_stmt *q = h->qm_metaget[metadb];
