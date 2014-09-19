@@ -44,6 +44,9 @@ typedef enum {
   SMTP_AUTH_DIGESTMD5_RESP,
   SMTP_AUTH_NTLM,
   SMTP_AUTH_NTLM_TYPE2MSG,
+  SMTP_AUTH_GSSAPI,
+  SMTP_AUTH_GSSAPI_TOKEN,
+  SMTP_AUTH_GSSAPI_NO_DATA,
   SMTP_AUTH_XOAUTH2,
   SMTP_AUTH_CANCEL,
   SMTP_AUTH_FINAL,
@@ -83,6 +86,7 @@ struct smtp_conn {
   bool size_supported;     /* If server supports SIZE extension according to
                               RFC 1870 */
   bool auth_supported;     /* AUTH capability supported by server */
+  bool mutual_auth;        /* Mutual authentication enabled (GSSAPI only) */
 };
 
 extern const struct Curl_handler Curl_handler_smtp;

@@ -425,6 +425,19 @@ typedef enum {
 #include <iconv.h>
 #endif
 
+/* Struct used for GSSAPI (Kerberos V5) authentication */
+#if defined(USE_WINDOWS_SSPI)
+struct kerberos5data {
+  CredHandle *credentials;
+  CtxtHandle *context;
+  TCHAR *spn;
+  SEC_WINNT_AUTH_IDENTITY identity;
+  SEC_WINNT_AUTH_IDENTITY *p_identity;
+  size_t token_max;
+  BYTE *output_token;
+};
+#endif
+
 /* Struct used for NTLM challenge-response authentication */
 struct ntlmdata {
   curlntlm state;
@@ -433,6 +446,8 @@ struct ntlmdata {
   CtxtHandle c_handle;
   SEC_WINNT_AUTH_IDENTITY identity;
   SEC_WINNT_AUTH_IDENTITY *p_identity;
+  size_t max_token_length;
+  BYTE *output_token;
   int has_handles;
   void *type_2;
   unsigned long n_type_2;
@@ -444,13 +459,11 @@ struct ntlmdata {
 #endif
 };
 
-#ifdef USE_HTTP_NEGOTIATE
+#ifdef USE_SPNEGO
 struct negotiatedata {
-  /* when doing Negotiate we first need to receive an auth token and then we
-     need to send our header */
+  /* When doing Negotiate (SPNEGO) auth, we first need to send a token
+     and then validate the received one. */
   enum { GSS_AUTHNONE, GSS_AUTHRECV, GSS_AUTHSENT } state;
-  bool gss; /* Whether we're processing GSS-Negotiate or Negotiate */
-  const char* protocol; /* "GSS-Negotiate" or "Negotiate" */
 #ifdef HAVE_GSSAPI
   OM_uint32 status;
   gss_ctx_id_t context;
@@ -461,7 +474,9 @@ struct negotiatedata {
   DWORD status;
   CtxtHandle *context;
   CredHandle *credentials;
-  char server_name[1024];
+  SEC_WINNT_AUTH_IDENTITY identity;
+  SEC_WINNT_AUTH_IDENTITY *p_identity;
+  TCHAR *server_name;
   size_t max_token_length;
   BYTE *output_token;
   size_t output_token_length;
@@ -971,6 +986,10 @@ struct connectdata {
   struct sockaddr_in local_addr;
 #endif
 
+#if defined(USE_WINDOWS_SSPI) /* Consider moving some of the above GSS-API */
+  struct kerberos5data krb5;  /* variables into the structure definition, */
+#endif                        /* however, some of them are ftp specific. */
+
   /* the two following *_inuse fields are only flags, not counters in any way.
      If TRUE it means the channel is in use, and if FALSE it means the channel
      is up for grabs by one. */
@@ -1247,7 +1266,7 @@ struct UrlState {
   struct digestdata digest;      /* state data for host Digest auth */
   struct digestdata proxydigest; /* state data for proxy Digest auth */
 
-#ifdef USE_HTTP_NEGOTIATE
+#ifdef USE_SPNEGO
   struct negotiatedata negotiate; /* state data for host Negotiate auth */
   struct negotiatedata proxyneg; /* state data for proxy Negotiate auth */
 #endif
@@ -1597,7 +1616,7 @@ struct UserDefined {
                                     to pattern (e.g. if WILDCARDMATCH is on) */
   void *fnmatch_data;
 
-  long gssapi_delegation; /* GSSAPI credential delegation, see the
+  long gssapi_delegation; /* GSS-API credential delegation, see the
                              documentation of CURLOPT_GSSAPI_DELEGATION */
 
   bool tcp_keepalive;    /* use TCP keepalives */

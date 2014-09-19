@@ -39,6 +39,8 @@ void Curl_free_ssl_config(struct ssl_config_data* sslc);
 
 unsigned int Curl_rand(struct SessionHandle *);
 
+int Curl_ssl_backend(void);
+
 #ifdef USE_SSL
 int Curl_ssl_init(void);
 void Curl_ssl_cleanup(void);
@@ -88,7 +90,10 @@ void Curl_ssl_kill_session(struct curl_ssl_session *session);
 /* delete a session from the cache */
 void Curl_ssl_delsessionid(struct connectdata *conn, void *ssl_sessionid);
 
-/* get N random bytes into the buffer */
+/* get N random bytes into the buffer, return 0 if a find random is filled
+   in */
+int Curl_ssl_random(struct SessionHandle *data, unsigned char *buffer,
+                    size_t length);
 void Curl_ssl_md5sum(unsigned char *tmp, /* input */
                      size_t tmplen,
                      unsigned char *md5sum, /* output */
@@ -96,9 +101,6 @@ void Curl_ssl_md5sum(unsigned char *tmp, /* input */
 
 #define SSL_SHUTDOWN_TIMEOUT 10000 /* ms */
 
-#ifdef have_curlssl_random
-#define HAVE_CURL_SSL_RANDOM
-#endif
 #ifdef have_curlssl_md5sum
 #define HAVE_CURL_SSL_MD5SUM
 #endif
@@ -123,6 +125,8 @@ void Curl_ssl_md5sum(unsigned char *tmp, /* input */
 #define Curl_ssl_free_certinfo(x) Curl_nop_stmt
 #define Curl_ssl_connect_nonblocking(x,y,z) CURLE_NOT_BUILT_IN
 #define Curl_ssl_kill_session(x) Curl_nop_stmt
+#define Curl_ssl_random(x,y,z) CURLE_NOT_BUILT_IN
+#define CURL_SSL_BACKEND CURLSSLBACKEND_NONE
 #endif
 
 #endif /* HEADER_CURL_VTLS_H */

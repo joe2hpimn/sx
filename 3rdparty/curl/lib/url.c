@@ -424,6 +424,12 @@ CURLcode Curl_close(struct SessionHandle *data)
   Curl_safefree(data->state.scratch);
   Curl_ssl_free_certinfo(data);
 
+  /* Cleanup possible redirect junk */
+  if(data->req.newurl) {
+    free(data->req.newurl);
+    data->req.newurl = NULL;
+  }
+
   if(data->change.referer_alloc) {
     Curl_safefree(data->change.referer);
     data->change.referer_alloc = FALSE;
@@ -543,7 +549,7 @@ CURLcode Curl_init_userdefined(struct UserDefined *set)
    * seem not to follow rfc1961 section 4.3/4.4
    */
   set->socks5_gssapi_nec = FALSE;
-  /* set default gssapi service name */
+  /* set default GSS-API service name */
   res = setstropt(&set->str[STRING_SOCKS5_GSSAPI_SERVICE],
                   (char *) CURL_DEFAULT_SOCKS5_GSSAPI_SERVICE);
   if(res != CURLE_OK)
@@ -1267,9 +1273,9 @@ CURLcode Curl_setopt(struct SessionHandle *data, CURLoption option,
 #elif !defined(NTLM_WB_ENABLED)
     auth &= ~CURLAUTH_NTLM_WB; /* no NTLM_WB support */
 #endif
-#ifndef USE_HTTP_NEGOTIATE
-    auth &= ~CURLAUTH_GSSNEGOTIATE; /* no GSS-Negotiate without GSSAPI or
-                                       WINDOWS_SSPI */
+#ifndef USE_SPNEGO
+    auth &= ~CURLAUTH_NEGOTIATE; /* no Negotiate (SPNEGO) auth without
+                                    GSS-API or SSPI */
 #endif
 
     /* check if any auth bit lower than CURLAUTH_ONLY is still set */
@@ -1355,9 +1361,9 @@ CURLcode Curl_setopt(struct SessionHandle *data, CURLoption option,
 #elif !defined(NTLM_WB_ENABLED)
     auth &= ~CURLAUTH_NTLM_WB; /* no NTLM_WB support */
 #endif
-#ifndef USE_HTTP_NEGOTIATE
-    auth &= ~CURLAUTH_GSSNEGOTIATE; /* no GSS-Negotiate without GSSAPI or
-                                       WINDOWS_SSPI */
+#ifndef USE_SPNEGO
+    auth &= ~CURLAUTH_NEGOTIATE; /* no Negotiate (SPNEGO) auth without
+                                    GSS-API or SSPI */
 #endif
 
     /* check if any auth bit lower than CURLAUTH_ONLY is still set */
@@ -1419,7 +1425,7 @@ CURLcode Curl_setopt(struct SessionHandle *data, CURLoption option,
 #if defined(HAVE_GSSAPI) || defined(USE_WINDOWS_SSPI)
   case CURLOPT_SOCKS5_GSSAPI_SERVICE:
     /*
-     * Set gssapi service name
+     * Set GSS-API service name
      */
     result = setstropt(&data->set.str[STRING_SOCKS5_GSSAPI_SERVICE],
                        va_arg(param, char *));
@@ -1487,7 +1493,7 @@ CURLcode Curl_setopt(struct SessionHandle *data, CURLoption option,
     data->set.ftp_skip_ip = (0 != va_arg(param, long))?TRUE:FALSE;
     break;
 
-  case CURLOPT_INFILE:
+  case CURLOPT_READDATA:
     /*
      * FILE pointer to read the file to be uploaded from. Or possibly
      * used as argument to the read callback.
@@ -1925,7 +1931,7 @@ CURLcode Curl_setopt(struct SessionHandle *data, CURLoption option,
     break;
   case CURLOPT_GSSAPI_DELEGATION:
     /*
-     * GSSAPI credential delegation
+     * GSS-API credential delegation
      */
     data->set.gssapi_delegation = va_arg(param, long);
     break;
@@ -2596,6 +2602,16 @@ static void conn_free(struct connectdata *conn)
   free(conn); /* free all the connection oriented data */
 }
 
+/*
+ * Disconnects the given connection. Note the connection may not be the
+ * primary connection, like when freeing room in the connection cache or
+ * killing of a dead old connection.
+ *
+ * This function MUST NOT reset state in the SessionHandle struct if that
+ * isn't strictly bound to the life-time of *this* particular connection.
+ *
+ */
+
 CURLcode Curl_disconnect(struct connectdata *conn, bool dead_connection)
 {
   struct SessionHandle *data;
@@ -2615,38 +2631,8 @@ CURLcode Curl_disconnect(struct connectdata *conn, bool dead_connection)
 
   Curl_hostcache_prune(data); /* kill old DNS cache entries */
 
-  {
-    int has_host_ntlm = (conn->ntlm.state != NTLMSTATE_NONE);
-    int has_proxy_ntlm = (conn->proxyntlm.state != NTLMSTATE_NONE);
-
-    /* Authentication data is a mix of connection-related and sessionhandle-
-       related stuff. NTLM is connection-related so when we close the shop
-       we shall forget. */
-
-    if(has_host_ntlm) {
-      data->state.authhost.done = FALSE;
-      data->state.authhost.picked =
-        data->state.authhost.want;
-    }
-
-    if(has_proxy_ntlm) {
-      data->state.authproxy.done = FALSE;
-      data->state.authproxy.picked =
-        data->state.authproxy.want;
-    }
-
-    if(has_host_ntlm || has_proxy_ntlm)
-      data->state.authproblem = FALSE;
-  }
-
   /* Cleanup NTLM connection-related data */
   Curl_http_ntlm_cleanup(conn);
-
-  /* Cleanup possible redirect junk */
-  if(data->req.newurl) {
-    free(data->req.newurl);
-    data->req.newurl = NULL;
-  }
 
   if(conn->handler->disconnect)
     /* This is set if protocol-specific cleanups should be made */
@@ -2684,8 +2670,6 @@ CURLcode Curl_disconnect(struct connectdata *conn, bool dead_connection)
   }
 
   conn_free(conn);
-
-  Curl_speedinit(data);
 
   return CURLE_OK;
 }
@@ -2913,6 +2897,69 @@ find_oldest_idle_connection_in_bundle(struct SessionHandle *data,
 }
 
 /*
+ * This function checks if given connection is dead and disconnects if so.
+ * (That also removes it from the connection cache.)
+ *
+ * Returns TRUE if the connection actually was dead and disconnected.
+ */
+static bool disconnect_if_dead(struct connectdata *conn,
+                               struct SessionHandle *data)
+{
+  size_t pipeLen = conn->send_pipe->size + conn->recv_pipe->size;
+  if(!pipeLen && !conn->inuse) {
+    /* The check for a dead socket makes sense only if there are no
+       handles in pipeline and the connection isn't already marked in
+       use */
+    bool dead;
+    if(conn->handler->protocol & CURLPROTO_RTSP)
+      /* RTSP is a special case due to RTP interleaving */
+      dead = Curl_rtsp_connisdead(conn);
+    else
+      dead = SocketIsDead(conn->sock[FIRSTSOCKET]);
+
+    if(dead) {
+      conn->data = data;
+      infof(data, "Connection %ld seems to be dead!\n", conn->connection_id);
+
+      /* disconnect resources */
+      Curl_disconnect(conn, /* dead_connection */TRUE);
+      return TRUE;
+    }
+  }
+  return FALSE;
+}
+
+/*
+ * Wrapper to use disconnect_if_dead() function in Curl_conncache_foreach()
+ *
+ * Returns always 0.
+ */
+static int call_disconnect_if_dead(struct connectdata *conn,
+                                      void *param)
+{
+  struct SessionHandle* data = (struct SessionHandle*)param;
+  disconnect_if_dead(conn, data);
+  return 0; /* continue iteration */
+}
+
+/*
+ * This function scans the connection cache for half-open/dead connections,
+ * closes and removes them.
+ * The cleanup is done at most once per second.
+ */
+static void prune_dead_connections(struct SessionHandle *data)
+{
+  struct timeval now = Curl_tvnow();
+  long elapsed = Curl_tvdiff(now, data->state.conn_cache->last_cleanup);
+
+  if(elapsed >= 1000L) {
+    Curl_conncache_foreach(data->state.conn_cache, data,
+                           call_disconnect_if_dead);
+    data->state.conn_cache->last_cleanup = now;
+  }
+}
+
+/*
  * Given one filled in connection struct (named needle), this function should
  * detect if there already is one that has all the significant details
  * exactly the same and thus should be used instead.
@@ -2976,29 +3023,10 @@ ConnectionExists(struct SessionHandle *data,
       check = curr->ptr;
       curr = curr->next;
 
+      if(disconnect_if_dead(check, data))
+        continue;
+
       pipeLen = check->send_pipe->size + check->recv_pipe->size;
-
-      if(!pipeLen && !check->inuse) {
-        /* The check for a dead socket makes sense only if there are no
-           handles in pipeline and the connection isn't already marked in
-           use */
-        bool dead;
-        if(check->handler->protocol & CURLPROTO_RTSP)
-          /* RTSP is a special case due to RTP interleaving */
-          dead = Curl_rtsp_connisdead(check);
-        else
-          dead = SocketIsDead(check->sock[FIRSTSOCKET]);
-
-        if(dead) {
-          check->data = data;
-          infof(data, "Connection %ld seems to be dead!\n",
-                check->connection_id);
-
-          /* disconnect resources */
-          Curl_disconnect(check, /* dead_connection */ TRUE);
-          continue;
-        }
-      }
 
       if(canPipeline) {
         /* Make sure the pipe has only GET requests */
@@ -3717,7 +3745,7 @@ static CURLcode findprotocol(struct SessionHandle *data,
   /* The protocol was not found in the table, but we don't have to assign it
      to anything since it is already assigned to a dummy-struct in the
      create_conn() function when the connectdata struct is allocated. */
-  failf(data, "Protocol %s not supported or disabled in " LIBCURL_NAME,
+  failf(data, "Protocol \"%s\" not supported or disabled in " LIBCURL_NAME,
         protostr);
 
   return CURLE_UNSUPPORTED_PROTOCOL;
@@ -5460,6 +5488,8 @@ static CURLcode create_conn(struct SessionHandle *data,
     goto out;
   }
 
+  prune_dead_connections(data);
+
   /*************************************************************
    * Check the current list of connections to see if we can
    * re-use an already existing one or if we have to create a
@@ -5571,6 +5601,21 @@ static CURLcode create_conn(struct SessionHandle *data,
        */
       ConnectionStore(data, conn);
     }
+
+    /* If NTLM is requested in a part of this connection, make sure we don't
+       assume the state is fine as this is a fresh connection and NTLM is
+       connection based. */
+    if((data->state.authhost.picked & (CURLAUTH_NTLM | CURLAUTH_NTLM_WB)) &&
+       data->state.authhost.done) {
+      infof(data, "NTLM picked AND auth done set, clear picked!\n");
+      data->state.authhost.picked = CURLAUTH_NONE;
+    }
+    if((data->state.authproxy.picked & (CURLAUTH_NTLM | CURLAUTH_NTLM_WB)) &&
+       data->state.authproxy.done) {
+      infof(data, "NTLM-proxy picked AND auth done set, clear picked!\n");
+      data->state.authproxy.picked = CURLAUTH_NONE;
+    }
+
   }
 
   /* Mark the connection as used */
@@ -5813,7 +5858,8 @@ CURLcode Curl_done(struct connectdata **connp,
   }
 
   /* if data->set.reuse_forbid is TRUE, it means the libcurl client has
-     forced us to close this no matter what we think.
+     forced us to close this connection. This is ignored for requests taking
+     place in a NTLM authentication handshake
 
      if conn->bits.close is TRUE, it means that the connection should be
      closed in spite of all our efforts to be nice, due to protocol
@@ -5825,7 +5871,10 @@ CURLcode Curl_done(struct connectdata **connp,
      we can add code that keep track of if we really must close it here or not,
      but currently we have no such detail knowledge.
   */
-  if(data->set.reuse_forbid || conn->bits.close || premature) {
+
+  if((data->set.reuse_forbid && !(conn->ntlm.state == NTLMSTATE_TYPE2 ||
+                                  conn->proxyntlm.state == NTLMSTATE_TYPE2))
+     || conn->bits.close || premature) {
     CURLcode res2 = Curl_disconnect(conn, premature); /* close connection */
 
     /* If we had an error already, make sure we return that one. But
@@ -5981,4 +6030,3 @@ CURLcode Curl_do_more(struct connectdata *conn, int *complete)
 
   return result;
 }
-

@@ -28,6 +28,10 @@ struct SessionHandle;
 struct connectdata;
 struct ntlmdata;
 
+#if defined(USE_WINDOWS_SSPI)
+struct kerberos5data;
+#endif
+
 /* Authentication mechanism values */
 #define SASL_AUTH_NONE          0
 #define SASL_AUTH_ANY           ~0U
@@ -56,6 +60,13 @@ struct ntlmdata;
 #define sasl_mech_equal(line, wordlen, mech) \
   (wordlen == (sizeof(mech) - 1) / sizeof(char) && \
    !memcmp(line, mech, wordlen))
+
+/* This is used to build a SPN string */
+#if !defined(USE_WINDOWS_SSPI)
+char *Curl_sasl_build_spn(const char *service, const char *instance);
+#else
+TCHAR *Curl_sasl_build_spn(const char *service, const char *instance);
+#endif
 
 /* This is used to generate a base64 encoded PLAIN authentication message */
 CURLcode Curl_sasl_create_plain_message(struct SessionHandle *data,
@@ -111,6 +122,27 @@ CURLcode Curl_sasl_create_ntlm_type3_message(struct SessionHandle *data,
                                              char **outptr, size_t *outlen);
 
 #endif /* USE_NTLM */
+
+#if defined(USE_WINDOWS_SSPI)
+/* This is used to generate a base64 encoded GSSAPI (Kerberos V5) user token
+   message */
+CURLcode Curl_sasl_create_gssapi_user_message(struct SessionHandle *data,
+                                              const char *userp,
+                                              const char *passwdp,
+                                              const char *service,
+                                              const bool mutual,
+                                              const char *chlg64,
+                                              struct kerberos5data *krb5,
+                                              char **outptr, size_t *outlen);
+
+/* This is used to generate a base64 encoded GSSAPI (Kerberos V5) security
+   token message */
+CURLcode Curl_sasl_create_gssapi_security_message(struct SessionHandle *data,
+                                                  const char *input,
+                                                  struct kerberos5data *krb5,
+                                                  char **outptr,
+                                                  size_t *outlen);
+#endif
 
 /* This is used to generate a base64 encoded XOAUTH2 authentication message
    containing the user name and bearer token */

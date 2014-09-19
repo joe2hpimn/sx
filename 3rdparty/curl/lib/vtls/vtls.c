@@ -213,14 +213,12 @@ unsigned int Curl_rand(struct SessionHandle *data)
   }
 #endif
 
-#ifndef have_curlssl_random
-  (void)data;
-#else
-  if(data) {
-    curlssl_random(data, (unsigned char *)&r, sizeof(r));
+  /* data may be NULL! */
+  if(!Curl_ssl_random(data, (unsigned char *)&r, sizeof(r)))
     return r;
-  }
-#endif
+
+  /* If Curl_ssl_random() returns non-zero it couldn't offer randomness and we
+     instead perform a "best effort" */
 
 #ifdef RANDOM_FILE
   if(!seeded) {
@@ -238,6 +236,7 @@ unsigned int Curl_rand(struct SessionHandle *data)
 
   if(!seeded) {
     struct timeval now = curlx_tvnow();
+    infof(data, "WARNING: Using weak random seed\n");
     randseed += (unsigned int)now.tv_usec + (unsigned int)now.tv_sec;
     randseed = randseed * 1103515245 + 12345;
     randseed = randseed * 1103515245 + 12345;
@@ -248,6 +247,11 @@ unsigned int Curl_rand(struct SessionHandle *data)
   /* Return an unsigned 32-bit pseudo-random number. */
   r = randseed = randseed * 1103515245 + 12345;
   return (r << 16) | ((r >> 16) & 0xFFFF);
+}
+
+int Curl_ssl_backend(void)
+{
+  return (int)CURL_SSL_BACKEND;
 }
 
 #ifdef USE_SSL
@@ -679,6 +683,13 @@ CURLcode Curl_ssl_push_certinfo(struct SessionHandle *data,
   size_t valuelen = strlen(value);
 
   return Curl_ssl_push_certinfo_len(data, certnum, label, value, valuelen);
+}
+
+int Curl_ssl_random(struct SessionHandle *data,
+                     unsigned char *entropy,
+                     size_t length)
+{
+  return curlssl_random(data, entropy, length);
 }
 
 #ifdef have_curlssl_md5sum

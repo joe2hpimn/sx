@@ -148,7 +148,7 @@ polarssl_connect_step1(struct connectdata *conn,
   void *old_session = NULL;
   size_t old_session_size = 0;
   char errorbuf[128];
-  memset(errorbuf, 0, sizeof(errorbuf));
+  errorbuf[0]=0;
 
   /* PolarSSL only supports SSLv3 and TLSv1 */
   if(data->set.ssl.version == CURL_SSLVERSION_SSLv2) {
@@ -195,6 +195,22 @@ polarssl_connect_step1(struct connectdata *conn,
 #endif /* POLARSSL_ERROR_C */
       failf(data, "Error reading ca cert file %s - PolarSSL: (-0x%04X) %s",
             data->set.str[STRING_SSL_CAFILE], -ret, errorbuf);
+
+      if(data->set.ssl.verifypeer)
+        return CURLE_SSL_CACERT_BADFILE;
+    }
+  }
+
+  if(data->set.str[STRING_SSL_CAPATH]) {
+    ret = x509_crt_parse_path(&connssl->cacert,
+                              data->set.str[STRING_SSL_CAPATH]);
+
+    if(ret<0) {
+#ifdef POLARSSL_ERROR_C
+      error_strerror(ret, errorbuf, sizeof(errorbuf));
+#endif /* POLARSSL_ERROR_C */
+      failf(data, "Error reading ca cert path %s - PolarSSL: (-0x%04X) %s",
+            data->set.str[STRING_SSL_CAPATH], -ret, errorbuf);
 
       if(data->set.ssl.verifypeer)
         return CURLE_SSL_CACERT_BADFILE;
@@ -270,6 +286,29 @@ polarssl_connect_step1(struct connectdata *conn,
     return CURLE_SSL_CONNECT_ERROR;
   }
 
+  switch(data->set.ssl.version) {
+  case CURL_SSLVERSION_SSLv3:
+    ssl_set_min_version(&connssl->ssl, SSL_MAJOR_VERSION_3,
+                        SSL_MINOR_VERSION_0);
+    infof(data, "PolarSSL: Forced min. SSL Version to be SSLv3\n");
+    break;
+  case CURL_SSLVERSION_TLSv1_0:
+    ssl_set_min_version(&connssl->ssl, SSL_MAJOR_VERSION_3,
+                        SSL_MINOR_VERSION_1);
+    infof(data, "PolarSSL: Forced min. SSL Version to be TLS 1.0\n");
+    break;
+  case CURL_SSLVERSION_TLSv1_1:
+    ssl_set_min_version(&connssl->ssl, SSL_MAJOR_VERSION_3,
+                        SSL_MINOR_VERSION_2);
+    infof(data, "PolarSSL: Forced min. SSL Version to be TLS 1.1\n");
+    break;
+  case CURL_SSLVERSION_TLSv1_2:
+    ssl_set_min_version(&connssl->ssl, SSL_MAJOR_VERSION_3,
+                        SSL_MINOR_VERSION_3);
+    infof(data, "PolarSSL: Forced min. SSL Version to be TLS 1.2\n");
+    break;
+  }
+
   ssl_set_endpoint(&connssl->ssl, SSL_IS_CLIENT);
   ssl_set_authmode(&connssl->ssl, SSL_VERIFY_OPTIONAL);
 
@@ -341,7 +380,7 @@ polarssl_connect_step2(struct connectdata *conn,
 #endif
 
   char errorbuf[128];
-  memset(errorbuf, 0, sizeof(errorbuf));
+  errorbuf[0] = 0;
 
   conn->recv[sockindex] = polarssl_recv;
   conn->send[sockindex] = polarssl_send;

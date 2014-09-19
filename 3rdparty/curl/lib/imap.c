@@ -24,6 +24,7 @@
  * RFC3501 IMAPv4 protocol
  * RFC4422 Simple Authentication and Security Layer (SASL)
  * RFC4616 PLAIN authentication
+ * RFC4752 The Kerberos V5 ("GSSAPI") SASL Mechanism
  * RFC4959 IMAP Extension for SASL Initial Client Response
  * RFC5092 IMAP URL Scheme
  * RFC6749 OAuth 2.0 Authorization Framework
@@ -433,6 +434,9 @@ static void state(struct connectdata *conn, imapstate newstate)
     "AUTHENTICATE_DIGESTMD5_RESP",
     "AUTHENTICATE_NTLM",
     "AUTHENTICATE_NTLM_TYPE2MSG",
+    "AUTHENTICATE_GSSAPI",
+    "AUTHENTICATE_GSSAPI_TOKEN",
+    "AUTHENTICATE_GSSAPI_NO_DATA",
     "AUTHENTICATE_XOAUTH2",
     "AUTHENTICATE_CANCEL",
     "AUTHENTICATE_FINAL",
@@ -1296,6 +1300,158 @@ static CURLcode imap_state_auth_ntlm_type2msg_resp(struct connectdata *conn,
 }
 #endif
 
+#if defined(USE_WINDOWS_SSPI)
+/* For AUTHENTICATE GSSAPI (without initial response) responses */
+static CURLcode imap_state_auth_gssapi_resp(struct connectdata *conn,
+                                            int imapcode,
+                                            imapstate instate)
+{
+  CURLcode result = CURLE_OK;
+  struct SessionHandle *data = conn->data;
+  struct imap_conn *imapc = &conn->proto.imapc;
+  size_t len = 0;
+  char *respmsg = NULL;
+
+  (void)instate; /* no use for this yet */
+
+  if(imapcode != '+') {
+    failf(data, "Access denied: %d", imapcode);
+    result = CURLE_LOGIN_DENIED;
+  }
+  else {
+    /* Create the initial response message */
+    result = Curl_sasl_create_gssapi_user_message(data, conn->user,
+                                                  conn->passwd, "imap",
+                                                  imapc->mutual_auth,
+                                                  NULL, &conn->krb5,
+                                                  &respmsg, &len);
+    if(!result && respmsg) {
+      /* Send the message */
+      result = Curl_pp_sendf(&imapc->pp, "%s", respmsg);
+
+      if(!result)
+        state(conn, IMAP_AUTHENTICATE_GSSAPI_TOKEN);
+    }
+  }
+
+  Curl_safefree(respmsg);
+
+  return result;
+}
+
+/* For AUTHENTICATE GSSAPI user token responses */
+static CURLcode imap_state_auth_gssapi_token_resp(struct connectdata *conn,
+                                                  int imapcode,
+                                                  imapstate instate)
+{
+  CURLcode result = CURLE_OK;
+  struct SessionHandle *data = conn->data;
+  struct imap_conn *imapc = &conn->proto.imapc;
+  char *chlgmsg = NULL;
+  char *respmsg = NULL;
+  size_t len = 0;
+
+  (void)instate; /* no use for this yet */
+
+  if(imapcode != '+') {
+    failf(data, "Access denied: %d", imapcode);
+    result = CURLE_LOGIN_DENIED;
+  }
+  else {
+    /* Get the challenge message */
+    imap_get_message(data->state.buffer, &chlgmsg);
+
+    if(imapc->mutual_auth)
+      /* Decode the user token challenge and create the optional response
+         message */
+      result = Curl_sasl_create_gssapi_user_message(data, NULL, NULL, NULL,
+                                                    imapc->mutual_auth,
+                                                    chlgmsg, &conn->krb5,
+                                                    &respmsg, &len);
+    else
+      /* Decode the security challenge and create the response message */
+      result = Curl_sasl_create_gssapi_security_message(data, chlgmsg,
+                                                        &conn->krb5,
+                                                        &respmsg, &len);
+
+    if(result) {
+      if(result == CURLE_BAD_CONTENT_ENCODING) {
+        /* Send the cancellation */
+        result = Curl_pp_sendf(&imapc->pp, "%s", "*");
+
+        if(!result)
+          state(conn, IMAP_AUTHENTICATE_CANCEL);
+      }
+    }
+    else {
+      /* Send the response */
+      if(respmsg)
+        result = Curl_pp_sendf(&imapc->pp, "%s", respmsg);
+      else
+        result = Curl_pp_sendf(&imapc->pp, "%s", "");
+
+      if(!result)
+        state(conn, (imapc->mutual_auth ? IMAP_AUTHENTICATE_GSSAPI_NO_DATA :
+                                          IMAP_AUTHENTICATE_FINAL));
+    }
+  }
+
+  Curl_safefree(respmsg);
+
+  return result;
+}
+
+/* For AUTHENTICATE GSSAPI no data responses */
+static CURLcode imap_state_auth_gssapi_no_data_resp(struct connectdata *conn,
+                                                    int imapcode,
+                                                    imapstate instate)
+{
+  CURLcode result = CURLE_OK;
+  struct SessionHandle *data = conn->data;
+  char *chlgmsg = NULL;
+  char *respmsg = NULL;
+  size_t len = 0;
+
+  (void)instate; /* no use for this yet */
+
+  if(imapcode != '+') {
+    failf(data, "Access denied: %d", imapcode);
+    result = CURLE_LOGIN_DENIED;
+  }
+  else {
+    /* Get the challenge message */
+    imap_get_message(data->state.buffer, &chlgmsg);
+
+    /* Decode the security challenge and create the response message */
+    result = Curl_sasl_create_gssapi_security_message(data, chlgmsg,
+                                                      &conn->krb5,
+                                                      &respmsg, &len);
+    if(result) {
+      if(result == CURLE_BAD_CONTENT_ENCODING) {
+        /* Send the cancellation */
+        result = Curl_pp_sendf(&conn->proto.imapc.pp, "%s", "*");
+
+        if(!result)
+          state(conn, IMAP_AUTHENTICATE_CANCEL);
+      }
+    }
+    else {
+      /* Send the response */
+      if(respmsg) {
+        result = Curl_pp_sendf(&conn->proto.imapc.pp, "%s", respmsg);
+
+        if(!result)
+          state(conn, IMAP_AUTHENTICATE_FINAL);
+      }
+    }
+  }
+
+  Curl_safefree(respmsg);
+
+  return result;
+}
+#endif
+
 /* For AUTHENTICATE XOAUTH2 (without initial response) responses */
 static CURLcode imap_state_auth_xoauth2_resp(struct connectdata *conn,
                                              int imapcode,
@@ -1506,7 +1662,7 @@ static CURLcode imap_state_fetch_resp(struct connectdata *conn, int imapcode,
   (void)instate; /* no use for this yet */
 
   if(imapcode != '*') {
-    Curl_pgrsSetDownloadSize(data, 0);
+    Curl_pgrsSetDownloadSize(data, -1);
     state(conn, IMAP_STOP);
     return CURLE_REMOTE_FILE_NOT_FOUND; /* TODO: Fix error code */
   }
@@ -1752,6 +1908,21 @@ static CURLcode imap_statemach_act(struct connectdata *conn)
     case IMAP_AUTHENTICATE_NTLM_TYPE2MSG:
       result = imap_state_auth_ntlm_type2msg_resp(conn, imapcode,
                                                   imapc->state);
+      break;
+#endif
+
+#if defined(USE_WINDOWS_SSPI)
+    case IMAP_AUTHENTICATE_GSSAPI:
+      result = imap_state_auth_gssapi_resp(conn, imapcode, imapc->state);
+      break;
+
+    case IMAP_AUTHENTICATE_GSSAPI_TOKEN:
+      result = imap_state_auth_gssapi_token_resp(conn, imapcode, imapc->state);
+      break;
+
+    case IMAP_AUTHENTICATE_GSSAPI_NO_DATA:
+      result = imap_state_auth_gssapi_no_data_resp(conn, imapcode,
+                                                   imapc->state);
       break;
 #endif
 
@@ -2165,8 +2336,8 @@ static CURLcode imap_regular_transfer(struct connectdata *conn,
   /* Set the progress data */
   Curl_pgrsSetUploadCounter(data, 0);
   Curl_pgrsSetDownloadCounter(data, 0);
-  Curl_pgrsSetUploadSize(data, 0);
-  Curl_pgrsSetDownloadSize(data, 0);
+  Curl_pgrsSetUploadSize(data, -1);
+  Curl_pgrsSetDownloadSize(data, -1);
 
   /* Carry out the perform */
   result = imap_perform(conn, &connected, dophase_done);
@@ -2632,6 +2803,25 @@ static CURLcode imap_calc_sasl_details(struct connectdata *conn,
 
   /* Calculate the supported authentication mechanism, by decreasing order of
      security, as well as the initial response where appropriate */
+#if defined(USE_WINDOWS_SSPI)
+    if((imapc->authmechs & SASL_MECH_GSSAPI) &&
+       (imapc->prefmech & SASL_MECH_GSSAPI)) {
+    imapc->mutual_auth = FALSE; /* TODO: Calculate mutual authentication */
+
+    *mech = SASL_MECH_STRING_GSSAPI;
+    *state1 = IMAP_AUTHENTICATE_GSSAPI;
+    *state2 = IMAP_AUTHENTICATE_GSSAPI_TOKEN;
+    imapc->authused = SASL_MECH_GSSAPI;
+
+    if(imapc->ir_supported || data->set.sasl_ir)
+      result = Curl_sasl_create_gssapi_user_message(data, conn->user,
+                                                    conn->passwd, "imap",
+                                                    imapc->mutual_auth,
+                                                    NULL, &conn->krb5,
+                                                    initresp, len);
+  }
+  else
+#endif
 #ifndef CURL_DISABLE_CRYPTO_AUTH
   if((imapc->authmechs & SASL_MECH_DIGEST_MD5) &&
      (imapc->prefmech & SASL_MECH_DIGEST_MD5)) {

@@ -259,7 +259,7 @@ static int ossl_seed(struct SessionHandle *data)
   return nread;
 }
 
-int Curl_ossl_seed(struct SessionHandle *data)
+static int Curl_ossl_seed(struct SessionHandle *data)
 {
   /* we have the "SSL is seeded" boolean static to prevent multiple
      time-consuming seedings in vain */
@@ -741,7 +741,17 @@ int Curl_ossl_init(void)
     return 0;
 
   OpenSSL_add_all_algorithms();
-  OPENSSL_config(NULL);
+
+
+  /* OPENSSL_config(NULL); is "strongly recommended" to use but unfortunately
+     that function makes an exit() call on wrongly formatted config files
+     which makes it hard to use in some situations. OPENSSL_config() itself
+     calls CONF_modules_load_file() and we use that instead and we ignore
+     its return code! */
+
+  (void)CONF_modules_load_file(NULL, NULL,
+                               CONF_MFLAGS_DEFAULT_SECTION|
+                               CONF_MFLAGS_IGNORE_MISSING_FILE);
 
   return 1;
 }
@@ -2752,6 +2762,7 @@ static ssize_t ossl_send(struct connectdata *conn,
     *curlcode = CURLE_SEND_ERROR;
     return -1;
   }
+  *curlcode = CURLE_OK;
   return (ssize_t)rc; /* number of bytes */
 }
 
@@ -2813,8 +2824,9 @@ size_t Curl_ossl_version(char *buffer, size_t size)
 
 #if(SSLEAY_VERSION_NUMBER >= 0x905000)
   {
-    char sub[2];
+    char sub[3];
     unsigned long ssleay_value;
+    sub[2]='\0';
     sub[1]='\0';
     ssleay_value=SSLeay();
     if(ssleay_value < 0x906000) {
@@ -2823,14 +2835,31 @@ size_t Curl_ossl_version(char *buffer, size_t size)
     }
     else {
       if(ssleay_value&0xff0) {
-        sub[0]=(char)(((ssleay_value>>4)&0xff) + 'a' -1);
+        int minor_ver = (ssleay_value >> 4) & 0xff;
+        if(minor_ver > 26) {
+          /* handle extended version introduced for 0.9.8za */
+          sub[1] = (char) ((minor_ver - 1) % 26 + 'a' + 1);
+          sub[0] = 'z';
+        }
+        else {
+          sub[0]=(char)(((ssleay_value>>4)&0xff) + 'a' -1);
+        }
       }
       else
         sub[0]='\0';
     }
 
-    return snprintf(buffer, size, "OpenSSL/%lx.%lx.%lx%s",
-                    (ssleay_value>>28)&0xf,
+    return snprintf(buffer, size, "%s/%lx.%lx.%lx%s",
+#ifdef OPENSSL_IS_BORINGSSL
+                    "BoringSSL"
+#else
+#ifdef LIBRESSL_VERSION_NUMBER
+                    "LibreSSL"
+#else
+                    "OpenSSL"
+#endif
+#endif
+                    , (ssleay_value>>28)&0xf,
                     (ssleay_value>>20)&0xff,
                     (ssleay_value>>12)&0xff,
                     sub);
@@ -2865,11 +2894,14 @@ size_t Curl_ossl_version(char *buffer, size_t size)
 #endif /* YASSL_VERSION */
 }
 
-void Curl_ossl_random(struct SessionHandle *data, unsigned char *entropy,
-                      size_t length)
+/* can be called with data == NULL */
+int Curl_ossl_random(struct SessionHandle *data, unsigned char *entropy,
+                     size_t length)
 {
-  Curl_ossl_seed(data); /* Initiate the seed if not already done */
+  if(data)
+    Curl_ossl_seed(data); /* Initiate the seed if not already done */
   RAND_bytes(entropy, curlx_uztosi(length));
+  return 0; /* 0 as in no problem */
 }
 
 void Curl_ossl_md5sum(unsigned char *tmp, /* input */

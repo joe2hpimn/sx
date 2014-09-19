@@ -1030,8 +1030,7 @@ static CURLcode nss_init_core(struct SessionHandle *data, const char *cert_dir)
   initparams.length = sizeof(initparams);
 
   if(cert_dir) {
-    const bool use_sql = NSS_VersionCheck("3.12.0");
-    char *certpath = aprintf("%s%s", use_sql ? "sql:" : "", cert_dir);
+    char *certpath = aprintf("sql:%s", cert_dir);
     if(!certpath)
       return CURLE_OUT_OF_MEMORY;
 
@@ -1914,16 +1913,19 @@ int Curl_nss_seed(struct SessionHandle *data)
   return !!Curl_nss_force_init(data);
 }
 
-void Curl_nss_random(struct SessionHandle *data,
-                     unsigned char *entropy,
-                     size_t length)
+/* data might be NULL */
+int Curl_nss_random(struct SessionHandle *data,
+                    unsigned char *entropy,
+                    size_t length)
 {
-  Curl_nss_seed(data);  /* Initiate the seed if not already done */
+  if(data)
+    Curl_nss_seed(data);  /* Initiate the seed if not already done */
   if(SECSuccess != PK11_GenerateRandom(entropy, curlx_uztosi(length))) {
     /* no way to signal a failure from here, we have to abort */
     failf(data, "PK11_GenerateRandom() failed, calling abort()...");
     abort();
   }
+  return 0;
 }
 
 void Curl_nss_md5sum(unsigned char *tmp, /* input */
