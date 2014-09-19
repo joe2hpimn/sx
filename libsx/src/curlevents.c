@@ -469,7 +469,7 @@ void sxi_cbdata_setclusterr(curlev_context_t *ctx, const char *nodeid, const cha
     }
     sxi_cbdata_seterr(ctx, (status == 403 || status == 401) ? SXE_EAUTH : SXE_ECOMM, "%s", f.buf);
     sxi_cbdata_clear_operation(ctx);
-    SXDEBUG("Cluster query failed (HTTP %d): %s", status, sxc_geterrmsg(sx));
+    SXDEBUG("Cluster query failed (HTTP %d): %s", status, f.buf);
     if (details && *details)
         SXDEBUG("Cluster error: %s", details);
 }
@@ -491,17 +491,14 @@ const char *sxi_cbdata_geterrmsg(const curlev_context_t *ctx) {
     if(ctx->errnum != SXE_NOERROR)
         return ctx->errbuf;
     else
-        return sxc_geterrmsg(sxi_conns_get_client(ctx->conns));
+        return "No error";
 }
 
 enum sxc_error_t sxi_cbdata_geterrnum(const curlev_context_t *ctx) {
     if(!ctx)
         return SXE_NOERROR;
 
-    if(ctx->errnum != SXE_NOERROR)
-        return ctx->errnum;
-    else
-        return sxc_geterrnum(sxi_conns_get_client(ctx->conns));
+    return ctx->errnum;
 }
 
 int sxi_cbdata_restore_global_error(sxc_client_t *sx, curlev_context_t *cbdata) {
