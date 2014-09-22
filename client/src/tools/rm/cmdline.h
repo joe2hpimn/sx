@@ -40,8 +40,8 @@ struct gengetopt_args_info
   const char *help_help; /**< @brief Print help and exit help description.  */
   const char *full_help_help; /**< @brief Print help, including hidden options, and exit help description.  */
   const char *version_help; /**< @brief Print version and exit help description.  */
-  int recursive_flag;	/**< @brief Recursively list entire directories (default=off).  */
-  const char *recursive_help; /**< @brief Recursively list entire directories help description.  */
+  int recursive_flag;	/**< @brief Recursively remove entire directories (default=off).  */
+  const char *recursive_help; /**< @brief Recursively remove entire directories help description.  */
   int debug_flag;	/**< @brief Enable debug messages (default=off).  */
   const char *debug_help; /**< @brief Enable debug messages help description.  */
   int verbose_flag;	/**< @brief Enable verbose errors (default=off).  */

@@ -19,6 +19,9 @@ Print version and exit
 \fB\-a\fR, \fB\-\-auth\-file\fR=\fI\,FILE\/\fR
 Store authentication token in a given file (instead of printing it).
 .TP
+\fB\-c\fR, \fB\-\-config\-dir\fR=\fI\,PATH\/\fR
+Path to the SX configuration directory (default: ~/.sx)
+.TP
 \fB\-D\fR, \fB\-\-debug\fR
 Enable debug messages.
 .SH "EXAMPLES"

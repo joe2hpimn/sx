@@ -99,8 +99,17 @@ fi
 AC_SUBST([AM_CFLAGS])
 AC_SUBST([AM_LDFLAGS])
 
+if test "x$prefix" = xNONE; then
+  filter_dir=$ac_default_prefix/lib/$PACKAGE
+else
+  filter_dir=$prefix/lib/$PACKAGE
+fi
+AC_SUBST([SX_FILTER_DIR], [$filter_dir])
+
 AC_CONFIG_FILES([Makefile])
 AC_CONFIG_FILES([man/sxacl.1 man/sxacl-useradd.1 man/sxacl-userlist.1 man/sxacl-usergetkey.1 man/sxacl-volperm.1 man/sxacl-volshow.1])
+AC_CONFIG_FILES([man/sxcat.1])
+AC_CONFIG_FILES([man/sxrm.1])
 AC_CONFIG_FILES([src/filters/attribs/Makefile])
 AC_CONFIG_FILES([src/filters/null/Makefile])
 AC_CONFIG_FILES([src/filters/zcomp/Makefile])

@@ -22,6 +22,9 @@ Grant a privilege on the volume to the user. The accepted values are "read", "wr
 \fB\-\-revoke=<privilege>\fR
 Revoke a privilege on the volume from the user. The accepted values are "read", "write" or "read,write".
 .TP
+\fB\-c\fR, \fB\-\-config\-dir\fR=\fI\,PATH\/\fR
+Path to the SX configuration directory (default: ~/.sx)
+.TP
 \fB\-D\fR, \fB\-\-debug\fR
 Enable debug messages.
 .SH "EXAMPLES"

@@ -93,6 +93,7 @@ DIST_COMMON = $(srcdir)/Makefile.in $(srcdir)/Makefile.am \
 	$(top_srcdir)/man/sxacl-usergetkey.1.in \
 	$(top_srcdir)/man/sxacl-volperm.1.in \
 	$(top_srcdir)/man/sxacl-volshow.1.in \
+	$(top_srcdir)/man/sxcat.1.in $(top_srcdir)/man/sxrm.1.in \
 	$(top_srcdir)/build-aux/depcomp build-aux/ar-lib \
 	build-aux/compile build-aux/config.guess build-aux/config.sub \
 	build-aux/depcomp build-aux/install-sh build-aux/missing \
@@ -120,7 +121,7 @@ mkinstalldirs = $(install_sh) -d
 CONFIG_HEADER = config.h
 CONFIG_CLEAN_FILES = man/sxacl.1 man/sxacl-useradd.1 \
 	man/sxacl-userlist.1 man/sxacl-usergetkey.1 \
-	man/sxacl-volperm.1 man/sxacl-volshow.1
+	man/sxacl-volperm.1 man/sxacl-volshow.1 man/sxcat.1 man/sxrm.1
 CONFIG_CLEAN_VPATH_FILES =
 am__installdirs = "$(DESTDIR)$(bindir)" "$(DESTDIR)$(man1dir)"
 PROGRAMS = $(bin_PROGRAMS)
@@ -412,6 +413,7 @@ SED = @SED@
 SET_MAKE = @SET_MAKE@
 SHELL = @SHELL@
 STRIP = @STRIP@
+SX_FILTER_DIR = @SX_FILTER_DIR@
 VERSION = @VERSION@
 ZCOMP_LIBS = @ZCOMP_LIBS@
 abs_builddir = @abs_builddir@
@@ -470,7 +472,7 @@ ACLOCAL_AMFLAGS = -I m4
 SUBDIRS = src/filters/null src/filters/zcomp src/filters/attribs src/filters/aes256 src/filters/undelete
 AM_CPPFLAGS = -I $(top_srcdir)/../libsx/include -I $(top_srcdir)/../ -I $(top_srcdir)/src/common -DSX_FILTER_DIR=\"$(pkglibdir)\"
 EXTRA_DIST = man/*.in
-man_MANS = man/sxacl.1 man/sxacl-useradd.1 man/sxacl-userlist.1 man/sxacl-usergetkey.1 man/sxacl-volperm.1 man/sxacl-volshow.1
+man_MANS = man/sxacl.1 man/sxacl-useradd.1 man/sxacl-userlist.1 man/sxacl-usergetkey.1 man/sxacl-volperm.1 man/sxacl-volshow.1 man/sxcat.1 man/sxrm.1
 src_tools_init_sxinit_SOURCES = \
 	src/tools/init/sxinit.c \
 	src/tools/init/cmdline.c \
@@ -617,6 +619,10 @@ man/sxacl-usergetkey.1: $(top_builddir)/config.status $(top_srcdir)/man/sxacl-us
 man/sxacl-volperm.1: $(top_builddir)/config.status $(top_srcdir)/man/sxacl-volperm.1.in
 	cd $(top_builddir) && $(SHELL) ./config.status $@
 man/sxacl-volshow.1: $(top_builddir)/config.status $(top_srcdir)/man/sxacl-volshow.1.in
+	cd $(top_builddir) && $(SHELL) ./config.status $@
+man/sxcat.1: $(top_builddir)/config.status $(top_srcdir)/man/sxcat.1.in
+	cd $(top_builddir) && $(SHELL) ./config.status $@
+man/sxrm.1: $(top_builddir)/config.status $(top_srcdir)/man/sxrm.1.in
 	cd $(top_builddir) && $(SHELL) ./config.status $@
 install-binPROGRAMS: $(bin_PROGRAMS)
 	@$(NORMAL_INSTALL)

@@ -1,0 +1,34 @@
+.TH SXRM "1" "September 2014" "sxrm @VERSION@" "Skylable SX Manual"
+.SH NAME
+sxrm \- remove files or directories
+.SH SYNOPSIS
+.B sxrm
+[\fI\,OPTIONS\/\fR]... \fI\,sx://\/\fR[\fI\,profile@\/\fR]\fI\,cluster/volume/path\/\fR...
+.SH DESCRIPTION
+Remove files or directories from SX volumes.
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help and exit
+.TP
+\fB\-\-full\-help\fR
+Print help, including hidden options, and exit
+.TP
+\fB\-V\fR, \fB\-\-version\fR
+Print version and exit
+.TP
+\fB\-r\fR, \fB\-\-recursive\fR
+Recursively remove entire directories
+.TP
+\fB\-c\fR, \fB\-\-config\-dir\fR=\fI\,PATH\/\fR
+Path to the SX configuration directory (default: ~/.sx)
+.TP
+\fB\-c\fR, \fB\-\-filter\-dir\fR=\fI\,PATH\/\fR
+Path to the SX filter directory (default: @SX_FILTER_DIR@)
+.TP
+\fB\-D\fR, \fB\-\-debug\fR
+Enable debug messages.
+.SH "EXAMPLES"
+To recursively remove the directory 'example' from the volume 'data' run:
+.br
+\fB    sxrm -r sx://cluster/data/example/\fP
+.br
