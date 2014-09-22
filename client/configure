@@ -13917,6 +13917,8 @@ fi
 
 ac_config_files="$ac_config_files Makefile"
 
+ac_config_files="$ac_config_files man/sxacl.1 man/sxacl-useradd.1 man/sxacl-userlist.1 man/sxacl-usergetkey.1 man/sxacl-volperm.1 man/sxacl-volshow.1"
+
 ac_config_files="$ac_config_files src/filters/attribs/Makefile"
 
 ac_config_files="$ac_config_files src/filters/null/Makefile"
@@ -14954,6 +14956,12 @@ do
     "libtool") CONFIG_COMMANDS="$CONFIG_COMMANDS libtool" ;;
     "config.h") CONFIG_HEADERS="$CONFIG_HEADERS config.h" ;;
     "Makefile") CONFIG_FILES="$CONFIG_FILES Makefile" ;;
+    "man/sxacl.1") CONFIG_FILES="$CONFIG_FILES man/sxacl.1" ;;
+    "man/sxacl-useradd.1") CONFIG_FILES="$CONFIG_FILES man/sxacl-useradd.1" ;;
+    "man/sxacl-userlist.1") CONFIG_FILES="$CONFIG_FILES man/sxacl-userlist.1" ;;
+    "man/sxacl-usergetkey.1") CONFIG_FILES="$CONFIG_FILES man/sxacl-usergetkey.1" ;;
+    "man/sxacl-volperm.1") CONFIG_FILES="$CONFIG_FILES man/sxacl-volperm.1" ;;
+    "man/sxacl-volshow.1") CONFIG_FILES="$CONFIG_FILES man/sxacl-volshow.1" ;;
     "src/filters/attribs/Makefile") CONFIG_FILES="$CONFIG_FILES src/filters/attribs/Makefile" ;;
     "src/filters/null/Makefile") CONFIG_FILES="$CONFIG_FILES src/filters/null/Makefile" ;;
     "src/filters/zcomp/Makefile") CONFIG_FILES="$CONFIG_FILES src/filters/zcomp/Makefile" ;;

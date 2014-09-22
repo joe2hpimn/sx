@@ -1,0 +1,28 @@
+.TH SXACL-USERGETKEY "1" "September 2014" "sxacl @VERSION@" "Skylable SX Manual"
+.SH NAME
+sxacl-usergetkey \- get key of a specific user
+.SH SYNOPSIS
+.B sxacl usergetkey
+\fR[\fI\,OPTIONS\/\fR] \fI\,<username> sx://\/\fR[\fI\,profile@\/\fR]\fI\,cluster\/\fR
+.SH DESCRIPTION
+\fBsxacl usergetkey\fR retrieves an authentication key of a specific user. Only cluster administrators can retrieve users' keys.
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help and exit
+.TP
+\fB\-\-full\-help\fR
+Print help, including hidden options, and exit
+.TP
+\fB\-V\fR, \fB\-\-version\fR
+Print version and exit
+.TP
+\fB\-a\fR, \fB\-\-auth\-file\fR=\fI\,FILE\/\fR
+Store authentication token in a given file (instead of printing it).
+.TP
+\fB\-D\fR, \fB\-\-debug\fR
+Enable debug messages.
+.SH "EXAMPLES"
+To obtain the key of the user 'joe' run:
+.br
+\fB    sxacl usergetkey joe sx://admin@cluster\fP
+.br

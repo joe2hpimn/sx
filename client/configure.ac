@@ -100,6 +100,7 @@ AC_SUBST([AM_CFLAGS])
 AC_SUBST([AM_LDFLAGS])
 
 AC_CONFIG_FILES([Makefile])
+AC_CONFIG_FILES([man/sxacl.1 man/sxacl-useradd.1 man/sxacl-userlist.1 man/sxacl-usergetkey.1 man/sxacl-volperm.1 man/sxacl-volshow.1])
 AC_CONFIG_FILES([src/filters/attribs/Makefile])
 AC_CONFIG_FILES([src/filters/null/Makefile])
 AC_CONFIG_FILES([src/filters/zcomp/Makefile])

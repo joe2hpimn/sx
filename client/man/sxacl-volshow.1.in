@@ -1,0 +1,25 @@
+.TH SXACL-VOLSHOW "1" "September 2014" "sxacl @VERSION@" "Skylable SX Manual"
+.SH NAME
+sxacl-volshow \- list an access control list for a volume
+.SH SYNOPSIS
+.B sxacl volshow
+\fR[\fI\,OPTIONS\/\fR] \fI\,sx://\/\fR[\fI\,profile@\/\fR]\fI\,cluster\/\fR
+.SH DESCRIPTION
+\fBsxacl volshow\fR displays an access control list (ACL) for a given volume. This includes information about users who can access a volume and their rights. Only volume owners and cluster administrators can list volume ACL.
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help and exit
+.TP
+\fB\-\-full\-help\fR
+Print help, including hidden options, and exit
+.TP
+\fB\-V\fR, \fB\-\-version\fR
+Print version and exit
+.TP
+\fB\-D\fR, \fB\-\-debug\fR
+Enable debug messages.
+.SH "EXAMPLES"
+To show ACL for the volume 'data' run:
+.br
+\fB    sxacl volshow sx://admin@cluster/data\fP
+.br

@@ -1,0 +1,34 @@
+.TH SXACL-USERADD "1" "September 2014" "sxacl @VERSION@" "Skylable SX Manual"
+.SH NAME
+sxacl-useradd \- create a new user
+.SH SYNOPSIS
+.B sxacl useradd
+\fR[\fI\,OPTIONS\/\fR] \fI\,<username> sx://\/\fR[\fI\,profile@\/\fR]\fI\,cluster\/\fR
+.SH DESCRIPTION
+\fBsxacl useradd\fR adds a new user to a Skylable SX cluster. By default, a regular user will be created. Only cluster administrators can create new users.
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help and exit
+.TP
+\fB\-\-full\-help\fR
+Print help, including hidden options, and exit
+.TP
+\fB\-V\fR, \fB\-\-version\fR
+Print version and exit
+.TP
+\fB\-t\fR, \fB\-\-role\fR=\fI\,TYPE\/\fR
+User type. Accepted values are "admin" and "normal" (default).
+.TP
+\fB\-a\fR, \fB\-\-auth\-file\fR=\fI\,FILE\/\fR
+Store authentication token in a given file (instead of printing it).
+.TP
+\fB\-b\fR, \fB\-\-batch\-mode\fR
+Disable additional information and only print the authentication token.
+.TP
+\fB\-D\fR, \fB\-\-debug\fR
+Enable debug messages.
+.SH "EXAMPLES"
+To add the user 'joe' to the cluster run:
+.br
+\fB    sxacl useradd joe sx://admin@cluster\fP
+.br

@@ -4,6 +4,9 @@ SUBDIRS = src/filters/null src/filters/zcomp src/filters/attribs src/filters/aes
 
 AM_CPPFLAGS = -I $(top_srcdir)/../libsx/include -I $(top_srcdir)/../ -I $(top_srcdir)/src/common -DSX_FILTER_DIR=\"$(pkglibdir)\"
 
+EXTRA_DIST = man/*.in
+man_MANS = man/sxacl.1 man/sxacl-useradd.1 man/sxacl-userlist.1 man/sxacl-usergetkey.1 man/sxacl-volperm.1 man/sxacl-volshow.1
+
 bin_PROGRAMS = src/tools/init/sxinit src/tools/ls/sxls src/tools/cp/sxcp src/tools/cat/sxcat src/tools/vol/sxvol src/tools/acl/sxacl src/tools/sxreport-client/sxreport-client src/tools/rm/sxrm src/tools/rev/sxrev
 
 src_tools_init_sxinit_SOURCES = \

@@ -1,0 +1,25 @@
+.TH SXACL-USERLIST "1" "September 2014" "sxacl @VERSION@" "Skylable SX Manual"
+.SH NAME
+sxacl-userlist \- list all users in a cluster
+.SH SYNOPSIS
+.B sxacl userlist
+\fR[\fI\,OPTIONS\/\fR] \fI\,sx://\/\fR[\fI\,profile@\/\fR]\fI\,cluster\/\fR
+.SH DESCRIPTION
+\fBsxacl userlist\fR lists all users (and their types) in a Skylable SX cluster. Only cluster administrators can list users.
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help and exit
+.TP
+\fB\-\-full\-help\fR
+Print help, including hidden options, and exit
+.TP
+\fB\-V\fR, \fB\-\-version\fR
+Print version and exit
+.TP
+\fB\-D\fR, \fB\-\-debug\fR
+Enable debug messages.
+.SH "EXAMPLES"
+To list all users in the cluster run:
+.br
+\fB    sxacl userlist sx://admin@cluster\fP
+.br
