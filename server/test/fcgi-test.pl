@@ -732,7 +732,7 @@ test_put_job 'granting rights on newly created volume', admin_only(200), "tiny$v
 test_get 'the newly created volume', authed_only(200, 'application/json'), "tiny$vol", undef, sub { my $json = get_json(shift) or return 0; return is_int($json->{'volumeSize'}) && $json->{'volumeSize'} == $tinyvolumesize && is_hash($json->{'fileList'}) && scalar keys %{$json->{'fileList'}} == 0 };
 
 # Misc volume used to test user deletion and revisions
-test_put_job "volume creation (misc volume)", admin_only(200), "misc$vol", "{\"volumeSize\":$volumesize,\"owner\":\"$delme\",\"replicaCount\":1,\"maxRevisions\":2}";
+test_put_job "volume creation (misc volume)", admin_only(200), "misc$vol", "{\"volumeSize\":$tinyvolumesize,\"owner\":\"$delme\",\"replicaCount\":1,\"maxRevisions\":2}";
 #FIXME this tests is a workaround due to bb#555
 test_get 'checking volume ownership', admin_only(200, 'application/json'), "misc$vol?o=acl", undef, sub { my $json = get_json(shift); return is_array($json->{$delme}); };
 test_delete_job "user deletion", admin_only(200), ".users/$delme";
