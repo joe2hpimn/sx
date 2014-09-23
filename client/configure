@@ -13926,7 +13926,7 @@ SX_FILTER_DIR=$filter_dir
 
 ac_config_files="$ac_config_files Makefile"
 
-ac_config_files="$ac_config_files man/sxacl.1 man/sxacl-useradd.1 man/sxacl-userlist.1 man/sxacl-usergetkey.1 man/sxacl-volperm.1 man/sxacl-volshow.1"
+ac_config_files="$ac_config_files man/sxacl.1 man/sxacl-useradd.1 man/sxacl-userdel.1 man/sxacl-userlist.1 man/sxacl-usergetkey.1 man/sxacl-volperm.1 man/sxacl-volshow.1"
 
 ac_config_files="$ac_config_files man/sxcat.1"
 
@@ -14971,6 +14971,7 @@ do
     "Makefile") CONFIG_FILES="$CONFIG_FILES Makefile" ;;
     "man/sxacl.1") CONFIG_FILES="$CONFIG_FILES man/sxacl.1" ;;
     "man/sxacl-useradd.1") CONFIG_FILES="$CONFIG_FILES man/sxacl-useradd.1" ;;
+    "man/sxacl-userdel.1") CONFIG_FILES="$CONFIG_FILES man/sxacl-userdel.1" ;;
     "man/sxacl-userlist.1") CONFIG_FILES="$CONFIG_FILES man/sxacl-userlist.1" ;;
     "man/sxacl-usergetkey.1") CONFIG_FILES="$CONFIG_FILES man/sxacl-usergetkey.1" ;;
     "man/sxacl-volperm.1") CONFIG_FILES="$CONFIG_FILES man/sxacl-volperm.1" ;;

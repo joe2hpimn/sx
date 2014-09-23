@@ -1,0 +1,28 @@
+.TH SXACL-USERDEL "1" "September 2014" "sxacl @VERSION@" "Skylable SX Manual"
+.SH NAME
+sxacl-userdel \- remove an existing user
+.SH SYNOPSIS
+.B sxacl userdel
+\fR[\fI\,OPTIONS\/\fR] \fI\,<username> sx://\/\fR[\fI\,profile@\/\fR]\fI\,cluster\/\fR
+.SH DESCRIPTION
+\fBsxacl userdel\fR removes an existing user from a Skylable SX cluster. All volumes owned by the user will be reassigned to the cluster administrator performing the removal.
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help and exit
+.TP
+\fB\-\-full\-help\fR
+Print help, including hidden options, and exit
+.TP
+\fB\-V\fR, \fB\-\-version\fR
+Print version and exit
+.TP
+\fB\-c\fR, \fB\-\-config\-dir\fR=\fI\,PATH\/\fR
+Path to the SX configuration directory (default: ~/.sx)
+.TP
+\fB\-D\fR, \fB\-\-debug\fR
+Enable debug messages.
+.SH "EXAMPLES"
+To remove the user 'joe' from the cluster run:
+.br
+\fB    sxacl userdel joe sx://admin@cluster\fP
+.br

@@ -19,6 +19,9 @@ To get more information about a specific command run 'man sxacl COMMAND'.
 .B useradd
 Create a new user.
 .TP
+.B userdel
+Remove an existing user.
+.TP
 .B userlist
 List users.
 .TP
