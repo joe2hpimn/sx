@@ -2187,6 +2187,41 @@ char *sxc_user_add(sxc_cluster_t *cluster, const char *username, int admin)
     return retkey;
 }
 
+int sxc_user_remove(sxc_cluster_t *cluster, const char *username) {
+    char *enc_name, *query;
+    sxc_client_t *sx;
+    int ret;
+
+    if(!cluster)
+	return 1;
+    if(!username || !*username) {
+        cluster_err(SXE_EARG, "Null args");
+        return 1;
+    }
+    sx = sxi_cluster_get_client(cluster);
+
+    enc_name = sxi_urlencode(sx, username, 0);
+    if(!enc_name) {
+	cluster_err(SXE_EMEM, "Failed to encode username");
+	return 1;
+    }
+
+    query = malloc(lenof(".users/") + strlen(enc_name) + 1);
+    if(!query) {
+	free(enc_name);
+	cluster_err(SXE_EMEM, "Unable to allocate space for request data");
+	return 1;
+    }
+    sprintf(query, ".users/%s", enc_name);
+    free(enc_name);
+
+    sxi_set_operation(sx, "remove user", sxi_cluster_get_name(cluster), NULL, NULL);
+    ret = sxi_job_submit_and_poll(sxi_cluster_get_conns(cluster), NULL, REQ_DELETE, query, NULL, 0);
+
+    free(query);
+    return ret;
+}
+
 struct cb_userkey_ctx {
     enum userkey_state { USERKEY_ERROR, USERKEY_BEGIN, USERKEY_MAP, USERKEY_KEY, USERKEY_COMPLETE } state;
     struct cb_error_ctx errctx;

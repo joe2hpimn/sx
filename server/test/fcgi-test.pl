@@ -34,6 +34,7 @@ sub random_string {
 
 my $reader = "reader" . (random_string 32);
 my $writer = "writer" . (random_string 32);
+my $delme = "disposable" . (random_string 32);
 
 # TODO: create $reader and $writer user, and assign privs to them when
 # creating the volumes!
@@ -672,6 +673,7 @@ sub test_create_user {
 # Needed for below tests
 test_create_user $reader;
 test_create_user $writer;
+test_create_user $delme;
 
 ### HOMEPAGE TESTS ###
 test_get 'cluster', $PUBLIC, '';
@@ -683,12 +685,15 @@ test_delete 'cluster (bad method)', {'badauth'=>[401],$reader=>[405],$writer=>[4
 test_get 'list nodes', {'noauth'=>[200,'text/html'],'badauth'=>[401],$reader=>[200,'application/json'],$writer=>[200,'application/json'],'admin'=>[200,'application/json']}, '?nodeList';
 test_get 'list nodes (HEAD)', {'noauth'=>[200,'text/html'],'badauth'=>[401],$reader=>[200,'application/json'],$writer=>[200,'application/json'],'admin'=>[200,'application/json']}, '?nodeList';
 
+my $nodesize = 1*1024*1024*1024*1024*1024;
+test_get 'cluster status', {'badauth'=>[401],$reader=>[403],$writer=>[403],'admin'=>[200,'application/json']}, '?clusterStatus', undef, sub { my $json = get_json(shift) or return 0; return 0 unless (is_hash($json->{'clusterStatus'}) && is_array($json->{'clusterStatus'}->{'distributionModels'}) && @{$json->{'clusterStatus'}->{'distributionModels'}} == 1); my $dist = $json->{'clusterStatus'}->{'distributionModels'}->[0]; return 0 unless(is_array($dist) && scalar @$dist == 1); $dist = $dist->[0]; return 0 unless (is_hash($dist) && is_string($dist->{'nodeUUID'}) && is_string($dist->{'nodeAddress'}) && is_int($dist->{'nodeCapacity'})); $nodesize = $dist->{'nodeCapacity'}; return 1};
+
 ### VOLUME TESTS ###
 my $vol = random_string 32;
 my $blocksize = 4096;
 my $volumesize = 0x40000000;
 my $tinyvolumesize = 1024*1024;
-my $bigvolumesize = 6*1024*1024*1024+1; #Cluster is 6GB size, this one should exceed that size
+my $bigvolumesize = $nodesize+1;
 
 test_put_job 'volume creation (no content)', admin_only(400), $vol;
 test_put_job 'volume creation (bad content)', admin_only(400), $vol, "{\"owner\":\"admin\",\"volumeSize\":$volumesize";
@@ -725,6 +730,13 @@ test_put_job 'volume creation (with bad meta)', admin_only(400), "badmeta.$vol",
 test_put_job "volume creation (tiny volume)", admin_only(200), "tiny$vol", "{\"volumeSize\":$tinyvolumesize,\"owner\":\"admin\"}";
 test_put_job 'granting rights on newly created volume', admin_only(200), "tiny$vol?o=acl", "{\"grant-read\":[\"$reader\",\"$writer\"],\"grant-write\":[\"$writer\"] }";
 test_get 'the newly created volume', authed_only(200, 'application/json'), "tiny$vol", undef, sub { my $json = get_json(shift) or return 0; return is_int($json->{'volumeSize'}) && $json->{'volumeSize'} == $tinyvolumesize && is_hash($json->{'fileList'}) && scalar keys %{$json->{'fileList'}} == 0 };
+
+# Misc volume used to test user deletion and revisions
+test_put_job "volume creation (misc volume)", admin_only(200), "misc$vol", "{\"volumeSize\":$volumesize,\"owner\":\"$delme\",\"replicaCount\":1,\"maxRevisions\":2}";
+#FIXME this tests is a workaround due to bb#555
+test_get 'checking volume ownership', admin_only(200, 'application/json'), "misc$vol?o=acl", undef, sub { my $json = get_json(shift); return is_array($json->{$delme}); };
+test_delete_job "user deletion", admin_only(200), ".users/$delme";
+test_get 'checking volume ownership', admin_only(200, 'application/json'), "misc$vol?o=acl", undef, sub { my $json = get_json(shift); return !exists $json->{$delme};};
 
 ### FILE TESTS ###
 my $blk;

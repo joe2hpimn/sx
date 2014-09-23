@@ -47,6 +47,65 @@ void fcgi_user_onoff(int enable) {
     CGI_PUTS("\r\n");
 }
 
+void fcgi_delete_user() {
+    if(has_priv(PRIV_CLUSTER)) {
+	/* Coming in from cluster */
+	const char *new_owner = get_arg("chgto");
+	rc_ty s;
+
+	s = sx_hashfs_delete_user(hashfs, path, new_owner);
+	if(s != OK) {
+	    WARN("Failed to delete user %s and replace with %s: %s", path, new_owner, msg_get_reason());
+	    quit_errmsg(rc2http(s), msg_get_reason());
+	}
+	CGI_PUTS("\r\n");
+
+    } else {
+	/* Coming in from (admin) user */
+	const sx_nodelist_t *allnodes = sx_hashfs_nodelist(hashfs, NL_NEXTPREV);
+	unsigned int timeout = 5 * 60 * sx_nodelist_count(allnodes);
+	char new_owner[SXLIMIT_MAX_USERNAME_LEN+2];
+	uint8_t deluser[AUTH_UID_LEN];
+	const void *job_data;
+	unsigned int job_datalen;
+	sx_blob_t *joblb;
+	job_t job;
+	rc_ty s;
+
+	s = sx_hashfs_get_user_by_name(hashfs, path, deluser);
+	if(s != OK)
+	    quit_errmsg(rc2http(s), msg_get_reason());
+
+	s = sx_hashfs_uid_get_name(hashfs, uid, new_owner, sizeof(new_owner));
+	if(s != OK)
+	    quit_errmsg(rc2http(s), msg_get_reason());
+	if(sx_hashfs_check_username(new_owner))
+	    quit_errmsg(500, "Internal error (requesting user has an invalid name)");
+
+	if(!memcmp(user, deluser, sizeof(*user)))
+	    quit_errmsg(400, "You may not delete yourself");
+
+	joblb = sx_blob_new();
+	if(!joblb)
+	    quit_errmsg(500, "Cannot allocate job blob");
+
+	if(sx_blob_add_string(joblb, path) ||
+	   sx_blob_add_string(joblb, new_owner)) {
+	    sx_blob_free(joblb);
+	    quit_errmsg(500, "Cannot create job blob");
+	}
+
+	sx_blob_to_data(joblb, &job_data, &job_datalen);
+	s = sx_hashfs_job_new(hashfs, 0, &job, JOBTYPE_DELETE_USER, timeout, path, job_data, job_datalen, allnodes);
+	sx_blob_free(joblb);
+
+	if(s != OK)
+	    quit_errmsg(rc2http(s), msg_get_reason());
+
+	send_job_info(job);
+    }
+}
+
 void fcgi_send_user(void) {
     uint8_t user[SXI_SHA1_BIN_LEN];
     sx_uid_t requid;

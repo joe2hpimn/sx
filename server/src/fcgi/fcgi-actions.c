@@ -305,10 +305,6 @@ void file_ops(void) {
     }
 
     if(verb == VERB_DELETE) {
-	if(!strcmp(volume, ".data")) {
-            quit_errmsg(405, "Method Not Allowed");
-            return;
-	}
 
 	if(!strcmp(volume, ".jlock")) {
 	    /* Giant unlocking - CLUSTER required */
@@ -316,6 +312,16 @@ void file_ops(void) {
 	    fcgi_node_junlock();
 	    return;
 	}
+
+	if(!strcmp(volume, ".users")) {
+	    /* Delete user */
+	    quit_unless_has(PRIV_ADMIN);
+	    fcgi_delete_user();
+	    return;
+	}
+
+	if(is_reserved())
+            quit_errmsg(405, "Method Not Allowed");
 
 	/* File deletion - WRITE required */
 	quit_unless_has(PRIV_WRITE);

@@ -314,7 +314,7 @@ rc_ty sx_storage_create(const char *dir, sx_uuid_t *cluster, uint8_t *key, int k
 	goto create_hashfs_fail;
     qnullify(q);
 
-    if(qprep(db, &q, "CREATE TABLE privs (volume_id INTEGER NOT NULL REFERENCES volumes(vid) ON DELETE CASCADE ON UPDATE CASCADE, user_id INTEGER NOT NULL REFERENCES users(uid), priv INTEGER NOT NULL, PRIMARY KEY (volume_id, user_id))") || qstep_noret(q))
+    if(qprep(db, &q, "CREATE TABLE privs (volume_id INTEGER NOT NULL REFERENCES volumes(vid) ON DELETE CASCADE ON UPDATE CASCADE, user_id INTEGER NOT NULL REFERENCES users(uid) ON DELETE CASCADE, priv INTEGER NOT NULL, PRIMARY KEY (volume_id, user_id))") || qstep_noret(q))
 	goto create_hashfs_fail;
     qnullify(q);
 
@@ -596,6 +596,7 @@ struct _sx_hashfs_t {
     sqlite3_stmt *q_listadmins;
     sqlite3_stmt *q_listacl;
     sqlite3_stmt *q_createuser;
+    sqlite3_stmt *q_deleteuser;
     sqlite3_stmt *q_onoffuser;
     sqlite3_stmt *q_grant;
     sqlite3_stmt *q_getuid;
@@ -612,6 +613,7 @@ struct _sx_hashfs_t {
     sqlite3_stmt *q_onoffvol;
     sqlite3_stmt *q_getvolstate;
     sqlite3_stmt *q_delvol;
+    sqlite3_stmt *q_chownvol;
     sqlite3_stmt *q_minreqs;
     sqlite3_stmt *q_setvolcursize;
 
@@ -850,6 +852,7 @@ static void close_all_dbs(sx_hashfs_t *h) {
     sqlite3_finalize(h->q_onoffvol);
     sqlite3_finalize(h->q_getvolstate);
     sqlite3_finalize(h->q_delvol);
+    sqlite3_finalize(h->q_chownvol);
     sqlite3_finalize(h->q_minreqs);
     sqlite3_finalize(h->q_setvolcursize);
     sqlite3_finalize(h->q_onoffuser);
@@ -862,6 +865,7 @@ static void close_all_dbs(sx_hashfs_t *h) {
     sqlite3_finalize(h->q_listadmins);
     sqlite3_finalize(h->q_getaccess);
     sqlite3_finalize(h->q_createuser);
+    sqlite3_finalize(h->q_deleteuser);
     sqlite3_finalize(h->q_grant);
     sqlite3_finalize(h->q_getuid);
     sqlite3_finalize(h->q_getuidname);
@@ -1268,6 +1272,8 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 	goto open_hashfs_fail;
     if(qprep(h->db, &h->q_createuser, "INSERT INTO users(user, name, key, role) VALUES(:userhash,:name,:key,:role)"))
 	goto open_hashfs_fail;
+    if(qprep(h->db, &h->q_deleteuser, "DELETE FROM users WHERE uid = :uid"))
+	goto open_hashfs_fail;
     if(qprep(h->db, &h->q_onoffuser, "UPDATE users SET enabled = :enable WHERE name = :username"))
 	goto open_hashfs_fail;
     /* update if present otherwise insert:
@@ -1279,7 +1285,7 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 		    COALESCE((SELECT priv FROM privs WHERE volume_id=:volid AND user_id=:uid), 0)\
 		    | :priv)"))
 	goto open_hashfs_fail;
-    if(qprep(h->db, &h->q_getuid, "SELECT uid, role FROM users WHERE name = :name AND enabled=1"))
+    if(qprep(h->db, &h->q_getuid, "SELECT uid, role FROM users WHERE name = :name AND (:inactivetoo OR enabled=1)"))
 	goto open_hashfs_fail;
     if(qprep(h->db, &h->q_getuidname, "SELECT name FROM users WHERE uid = :uid AND enabled=1"))
 	goto open_hashfs_fail;
@@ -1309,6 +1315,8 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
     if(qprep(h->db, &h->q_getvolstate, "SELECT enabled FROM volumes WHERE volume = :volume"))
 	goto open_hashfs_fail;
     if(qprep(h->db, &h->q_delvol, "DELETE FROM volumes WHERE volume = :volume AND enabled = 0"))
+	goto open_hashfs_fail;
+    if(qprep(h->db, &h->q_chownvol, "UPDATE volumes SET owner_id = :new WHERE owner_id = :old"))
 	goto open_hashfs_fail;
     if(qprep(h->db, &h->q_minreqs, "SELECT COALESCE(MAX(replica), 1), COALESCE(SUM(maxsize*replica), 0) FROM volumes"))
         goto open_hashfs_fail;
@@ -3166,16 +3174,18 @@ rc_ty sx_hashfs_list_acl(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, sx_uid_t
     return rc;
 }
 
-rc_ty sx_hashfs_get_uid_role(sx_hashfs_t *h, const char *user, int64_t *uid, int *role)
-{
+
+static rc_ty get_uid_role(sx_hashfs_t *h, const char *username, int64_t *uid, int *role, int inactivetoo) {
     rc_ty rc = FAIL_EINTERNAL;
-    if (!h || !user)
+    if (!h || !username || sx_hashfs_check_username(username))
 	return EINVAL;
     sqlite3_stmt *q = h->q_getuid;
     sqlite3_reset(q);
     do {
-	if (qbind_text(q, ":name", user))
+	if(qbind_text(q, ":name", username) ||
+	   qbind_int(q, ":inactivetoo", (inactivetoo != 0)))
 	    break;
+
 	int ret = qstep(q);
 	if (ret == SQLITE_DONE) {
 	    rc = ENOENT;
@@ -3191,6 +3201,10 @@ rc_ty sx_hashfs_get_uid_role(sx_hashfs_t *h, const char *user, int64_t *uid, int
     } while(0);
     sqlite3_reset(q);
     return rc;
+}
+
+rc_ty sx_hashfs_get_uid_role(sx_hashfs_t *h, const char *user, int64_t *uid, int *role) {
+    return get_uid_role(h, user, uid, role, 0);
 }
 
 rc_ty sx_hashfs_get_uid(sx_hashfs_t *h, const char *user, int64_t *uid)
@@ -3222,6 +3236,52 @@ rc_ty sx_hashfs_uid_get_name(sx_hashfs_t *h, uint64_t uid, char *name, unsigned 
     sqlite3_reset(q);
     return rc;
 }
+
+
+rc_ty sx_hashfs_delete_user(sx_hashfs_t *h, const char *username, const char *new_owner) {
+    rc_ty rc, ret = FAIL_EINTERNAL;
+    sx_uid_t old, new;
+
+    if(qbegin(h->db))
+	return FAIL_EINTERNAL;
+
+    rc = get_uid_role(h, username, &old, NULL, 1);
+    if(rc != OK) {
+	ret = rc;
+	goto delete_user_err;
+    }
+
+    rc = sx_hashfs_get_uid(h, new_owner, &new);
+    if(rc != OK) {
+	/* FIXME: shall i rather fall back to any admin user? */
+	ret = rc;
+	goto delete_user_err;
+    }
+
+    if(qbind_int64(h->q_chownvol, ":new", new) || 
+       qbind_int64(h->q_chownvol, ":old", old) ||
+       qstep_noret(h->q_chownvol))
+	goto delete_user_err;
+
+    if(qbind_int64(h->q_deleteuser, ":uid", old) ||
+       qstep_noret(h->q_deleteuser))
+	goto delete_user_err;
+
+    if(qcommit(h->db))
+	goto delete_user_err;
+
+    ret = OK;
+    INFO("User %s successfully removed (and replaced by %s)", username, new_owner);
+
+ delete_user_err:
+    sqlite3_reset(h->q_getuser);
+
+    if(ret != OK)
+	qrollback(h->db);
+
+    return ret;
+}
+
 
 void sx_hashfs_volume_new_begin(sx_hashfs_t *h) {
     h->nmeta = 0;
@@ -6417,6 +6477,10 @@ static rc_ty get_user_common(sx_hashfs_t *h, sx_uid_t uid, const char *name, uin
 	if(qbind_int64(q, ":uid", uid)) 
 	    goto get_user_common_fail;
     } else {
+	if(sx_hashfs_check_username(name)) {
+	    msg_set_reason("Invalid username");
+	    return EINVAL;
+	}
 	q = h->q_getuserbyname;
 	sqlite3_reset(q);
 	if(qbind_text(q, ":name", name)) 
@@ -6447,7 +6511,6 @@ rc_ty sx_hashfs_get_user_by_uid(sx_hashfs_t *h, sx_uid_t uid, uint8_t *user) {
 rc_ty sx_hashfs_get_user_by_name(sx_hashfs_t *h, const char *name, uint8_t *user) {
     return get_user_common(h, -1, name, user);
 }
-	      
 
 rc_ty sx_hashfs_get_access(sx_hashfs_t *h, sx_uid_t uid, const char *volume, sx_priv_t *access) {
     const sx_hashfs_volume_t *vol;
@@ -6569,6 +6632,7 @@ static const char *locknames[] = {
     "REBALANCE_BLOCKS", /* JOBTYPE_REBALANCE_BLOCKS */
     "REBALANCE_FILES", /* JOBTYPE_REBALANCE_FILES */
     "REBALANCE_CLEANUP", /* JOBTYPE_REBALANCE_CLEANUP */
+    "USER", /* JOBTYPE_DELETE_USER */
 };
 
 

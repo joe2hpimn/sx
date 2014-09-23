@@ -76,7 +76,7 @@
 #define SXLIMIT_META_MAX_ITEMS 128
 
 #define SXLIMIT_MIN_USERNAME_LEN 2
-#define SXLIMIT_MAX_USERNAME_LEN 256
+#define SXLIMIT_MAX_USERNAME_LEN 64
 
 #define SXLIMIT_MIN_REVISIONS 1
 #define SXLIMIT_MAX_REVISIONS 64
@@ -153,6 +153,7 @@ const char *sx_hashfs_version(sx_hashfs_t *h);
 const sx_uuid_t *sx_hashfs_uuid(sx_hashfs_t *h);
 
 rc_ty sx_hashfs_create_user(sx_hashfs_t *h, const char *user, const uint8_t *uid, unsigned uid_size, const uint8_t *key, unsigned key_size, int role);
+rc_ty sx_hashfs_delete_user(sx_hashfs_t *h, const char *username, const char *new_owner);
 rc_ty sx_hashfs_get_uid(sx_hashfs_t *h, const char *user, int64_t *uid);
 rc_ty sx_hashfs_get_uid_role(sx_hashfs_t *h, const char *user, int64_t *uid, int *role);
 rc_ty sx_hashfs_get_user_by_uid(sx_hashfs_t *h, sx_uid_t uid, uint8_t *user);

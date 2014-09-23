@@ -131,6 +131,7 @@ am_src_tools_acl_sxacl_OBJECTS = src/tools/acl/sxacl.$(OBJEXT) \
 	src/tools/acl/cmd_volperm.$(OBJEXT) \
 	src/tools/acl/cmd_volshow.$(OBJEXT) \
 	src/tools/acl/cmd_useradd.$(OBJEXT) \
+	src/tools/acl/cmd_userdel.$(OBJEXT) \
 	src/tools/acl/cmd_userlist.$(OBJEXT) \
 	src/tools/acl/cmd_usergetkey.$(OBJEXT)
 src_tools_acl_sxacl_OBJECTS = $(am_src_tools_acl_sxacl_OBJECTS)
@@ -527,13 +528,16 @@ src_tools_acl_sxacl_SOURCES = \
 	src/tools/acl/cmd_volperm.c \
 	src/tools/acl/cmd_volshow.c \
 	src/tools/acl/cmd_useradd.c \
+	src/tools/acl/cmd_userdel.c \
 	src/tools/acl/cmd_userlist.c \
 	src/tools/acl/cmd_usergetkey.c \
 	src/tools/acl/cmd_main.h \
 	src/tools/acl/cmd_volperm.h \
 	src/tools/acl/cmd_volshow.h \
 	src/tools/acl/cmd_useradd.h \
-	src/tools/acl/cmd_userlist.h
+	src/tools/acl/cmd_userdel.h \
+	src/tools/acl/cmd_userlist.h \
+	src/tools/acl/cmd_usergetkey.h
 
 src_tools_acl_sxacl_LDADD = $(top_builddir)/../libsx/src/libsx.la
 src_tools_rm_sxrm_SOURCES = \
@@ -705,6 +709,8 @@ src/tools/acl/cmd_volshow.$(OBJEXT): src/tools/acl/$(am__dirstamp) \
 	src/tools/acl/$(DEPDIR)/$(am__dirstamp)
 src/tools/acl/cmd_useradd.$(OBJEXT): src/tools/acl/$(am__dirstamp) \
 	src/tools/acl/$(DEPDIR)/$(am__dirstamp)
+src/tools/acl/cmd_userdel.$(OBJEXT): src/tools/acl/$(am__dirstamp) \
+	src/tools/acl/$(DEPDIR)/$(am__dirstamp)
 src/tools/acl/cmd_userlist.$(OBJEXT): src/tools/acl/$(am__dirstamp) \
 	src/tools/acl/$(DEPDIR)/$(am__dirstamp)
 src/tools/acl/cmd_usergetkey.$(OBJEXT): src/tools/acl/$(am__dirstamp) \
@@ -855,6 +861,7 @@ distclean-compile:
 
 @AMDEP_TRUE@@am__include@ @am__quote@src/tools/acl/$(DEPDIR)/cmd_main.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/tools/acl/$(DEPDIR)/cmd_useradd.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@src/tools/acl/$(DEPDIR)/cmd_userdel.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/tools/acl/$(DEPDIR)/cmd_usergetkey.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/tools/acl/$(DEPDIR)/cmd_userlist.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/tools/acl/$(DEPDIR)/cmd_volperm.Po@am__quote@

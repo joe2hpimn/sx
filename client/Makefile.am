@@ -64,13 +64,16 @@ src_tools_acl_sxacl_SOURCES = \
 	src/tools/acl/cmd_volperm.c \
 	src/tools/acl/cmd_volshow.c \
 	src/tools/acl/cmd_useradd.c \
+	src/tools/acl/cmd_userdel.c \
 	src/tools/acl/cmd_userlist.c \
 	src/tools/acl/cmd_usergetkey.c \
 	src/tools/acl/cmd_main.h \
 	src/tools/acl/cmd_volperm.h \
 	src/tools/acl/cmd_volshow.h \
 	src/tools/acl/cmd_useradd.h \
-	src/tools/acl/cmd_userlist.h
+	src/tools/acl/cmd_userdel.h \
+	src/tools/acl/cmd_userlist.h \
+	src/tools/acl/cmd_usergetkey.h
 src_tools_acl_sxacl_LDADD = $(top_builddir)/../libsx/src/libsx.la
 
 src_tools_rm_sxrm_SOURCES = \

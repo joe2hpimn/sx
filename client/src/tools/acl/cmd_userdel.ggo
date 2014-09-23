@@ -1,0 +1,10 @@
+package "sxacl"
+args "--unamed-opts --no-handle-version --no-handle-error --file-name=cmd_userdel --func-name=userdel_cmdline_parser --arg-struct-name=userdel_args_info"
+usage "sxacl userdel [OPTIONS] <username> sx://[profile@]cluster"
+
+section "Common options"
+
+option  "config-dir"        c "Path to SX configuration directory"
+        string typestr="PATH" optional hidden
+
+option  "debug"             D "Enable debug messages" flag off

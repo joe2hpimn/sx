@@ -58,6 +58,7 @@ typedef enum _jobtype_t {
     JOBTYPE_REBALANCE_BLOCKS,
     JOBTYPE_REBALANCE_FILES,
     JOBTYPE_REBALANCE_CLEANUP,
+    JOBTYPE_DELETE_USER,
 } jobtype_t;
 
 typedef enum {

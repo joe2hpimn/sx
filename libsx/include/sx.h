@@ -284,6 +284,7 @@ void sxc_meta_delval(sxc_meta_t *meta, const char *key);
 void sxc_meta_empty(sxc_meta_t *meta);
 
 char *sxc_user_add(sxc_cluster_t *cluster, const char *username, int admin);
+int sxc_user_remove(sxc_cluster_t *cluster, const char *username);
 int sxc_user_getkey(sxc_cluster_t *cluster, const char *username, FILE *storeauth);
 
 int sxc_volume_add(sxc_cluster_t *cluster, const char *url, int64_t size, unsigned int replica, unsigned int revisions, sxc_meta_t *metadata, const char *owner);

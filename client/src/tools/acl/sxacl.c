@@ -40,6 +40,7 @@
 #include "sx.h"
 #include "cmd_main.h"
 #include "cmd_useradd.h"
+#include "cmd_userdel.h"
 #include "cmd_userlist.h"
 #include "cmd_usergetkey.h"
 #include "cmd_volperm.h"
@@ -295,6 +296,42 @@ int main(int argc, char **argv) {
             }
 	    ret = add_user(sx, cluster, uri, args.inputs[0], args.role_arg, args.auth_file_arg, args.batch_mode_flag);
             useradd_cmdline_parser_free(&args);
+
+	} else if(!strcmp(argv[1], "userdel")) {
+            struct userdel_args_info args;
+            if(userdel_cmdline_parser(argc - 1, &argv[1], &args)) {
+                ret = 1;
+                break;
+            }
+            if(args.version_given) {
+                printf("%s %s\n", MAIN_CMDLINE_PARSER_PACKAGE, SRC_VERSION);
+		break;
+	    }
+            if(args.config_dir_given && sxc_set_confdir(sx, args.config_dir_arg)) {
+                fprintf(stderr, "ERROR: Could not set configuration directory %s: %s\n", args.config_dir_arg, sxc_geterrmsg(sx));
+                ret = 1;
+                break;
+            }
+            sxc_set_debug(sx, args.debug_flag);
+            if(args.inputs_num != 2) {
+                userdel_cmdline_parser_print_help();
+		printf("\n");
+                fprintf(stderr, "ERROR: Wrong number of arguments\n");
+                ret = 1;
+                break;
+            }
+	    cluster = load_config(sx, args.inputs[1], &uri);
+	    if(!cluster) {
+                ret = 1;
+                break;
+            }
+	    if(sxc_user_remove(cluster, args.inputs[0])) {
+		fprintf(stderr, "ERROR: Can't remove user %s: %s\n", args.inputs[0], sxc_geterrmsg(sx));
+		ret = 1;
+	    } else {
+		printf("User '%s' successfully removed.\n", args.inputs[0]);
+	    }
+            userdel_cmdline_parser_free(&args);
 
         } else if (!strcmp(argv[1], "userlist")) {
             struct userlist_args_info args;
