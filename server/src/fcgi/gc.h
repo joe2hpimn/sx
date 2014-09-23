@@ -28,6 +28,6 @@
 #ifndef GC_H
 #define GC_H
 #include "sx.h"
-int gc(sxc_client_t *sx, const char *self, const char *dir, int pipe);
+int gc(sxc_client_t *sx, const char *self, const char *dir, int pipe, int pipe_expire);
 
 #endif

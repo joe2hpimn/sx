@@ -109,7 +109,7 @@ const sx_uuid_t *sx_hashfs_distinfo(sx_hashfs_t *h, unsigned int *version, uint6
 rc_ty sx_storage_activate(sx_hashfs_t *h, const char *name, const sx_uuid_t *node_uuid, uint8_t *admin_uid, unsigned int uid_size, uint8_t *admin_key, int key_size, uint16_t port, const char *ssl_ca_file, const sx_nodelist_t *allnodes);
 rc_ty sx_hashfs_setnodedata(sx_hashfs_t *h, const char *name, const sx_uuid_t *node_uuid, uint16_t port, int use_ssl, const char *ssl_ca_crt);
 int sx_hashfs_uses_secure_proto(sx_hashfs_t *h);
-void sx_hashfs_set_triggers(sx_hashfs_t *h, int job_trigger, int xfer_trigger, int gc_trigger);
+void sx_hashfs_set_triggers(sx_hashfs_t *h, int job_trigger, int xfer_trigger, int gc_trigger, int gc_expire_trigger);
 void sx_hashfs_close(sx_hashfs_t *h);
 int sx_hashfs_check(sx_hashfs_t *h, int verbose);
 void sx_hashfs_stats(sx_hashfs_t *h);
@@ -242,8 +242,10 @@ rc_ty sx_hashfs_hashop_begin(sx_hashfs_t *h, unsigned bs);
 rc_ty sx_hashfs_hashop_perform(sx_hashfs_t *h, unsigned replica, enum sxi_hashop_kind kind, const sx_hash_t *hash, const char *id, uint64_t op_expires_at);
 rc_ty sx_hashfs_hashop_mod(sx_hashfs_t *h, const sx_hash_t *hash, const char *id, unsigned int blocksize, unsigned replica, int64_t count, uint64_t op_expires_at);
 rc_ty sx_hashfs_hashop_finish(sx_hashfs_t *h, rc_ty rc);
-rc_ty sx_hashfs_gc_periodic(sx_hashfs_t *h, int *terminate);
+rc_ty sx_hashfs_gc_periodic(sx_hashfs_t *h, int *terminate, int grace_period);
 rc_ty sx_hashfs_gc_run(sx_hashfs_t *h, int *terminate);
+rc_ty sx_hashfs_gc_info(sx_hashfs_t *h, int *terminate);
+rc_ty sx_hashfs_gc_expire_all_reservations(sx_hashfs_t *h);
 
 /* File put */
 

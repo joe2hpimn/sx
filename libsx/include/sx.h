@@ -121,7 +121,7 @@ int sxc_cluster_set_bandwidth_limit(sxc_client_t *sx, sxc_cluster_t *cluster, in
 /* Get upload and download transfer bandwidth in bits per second */
 int64_t sxc_cluster_get_bandwidth_limit(sxc_client_t *sx, const sxc_cluster_t *cluster);
 
-int sxc_cluster_trigger_gc(sxc_cluster_t *cluster);
+int sxc_cluster_trigger_gc(sxc_cluster_t *cluster, int delete_reservations);
 
 typedef struct _sxc_cluster_lu_t sxc_cluster_lu_t;
 sxc_cluster_lu_t *sxc_cluster_listusers(sxc_cluster_t *cluster);

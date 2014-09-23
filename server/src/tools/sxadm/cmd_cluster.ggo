@@ -9,6 +9,7 @@ groupoption "new" N "Creates a new SX cluster with a local node" group="MODE" de
 groupoption "mod" M "Modifies an existing SX cluster" group="MODE"
 groupoption "info" I "Shows status and details of a running cluster" group="MODE"
 groupoption "force-gc" G "Force a garbage collection cycle on all nodes" group="MODE"
+groupoption "force-expire" X "Force GC and expiration of reservations on all nodes" group="MODE"
 
 section "New cluster options"
 option "node-dir" d "Path to the node directory" string typestr="PATH" dependon="new" optional

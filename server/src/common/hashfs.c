@@ -763,7 +763,7 @@ struct _sx_hashfs_t {
     sxi_hashop_t hc;
     char root_auth[AUTHTOK_ASCII_LEN+1];
 
-    int job_trigger, xfer_trigger, gc_trigger;
+    int job_trigger, xfer_trigger, gc_trigger, gc_expire_trigger;
     char job_message[JOB_FAIL_REASON_SIZE];
 
     char *dir;
@@ -1169,7 +1169,7 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 	return NULL;
     memset(h->datafd, -1, sizeof(h->datafd));
     h->sx = NULL;
-    h->job_trigger = h->xfer_trigger = h->gc_trigger = -1;
+    h->job_trigger = h->xfer_trigger = h->gc_trigger = h->gc_expire_trigger = -1;
     /* TODO: read from hashfs kv store */
     h->upload_minspeed = GC_UPLOAD_MINSPEED;
 
@@ -1590,12 +1590,13 @@ int sx_hashfs_uses_secure_proto(sx_hashfs_t *h) {
     return (h->ssl_ca_file != NULL);
 }
 
-void sx_hashfs_set_triggers(sx_hashfs_t *h, int job_trigger, int xfer_trigger, int gc_trigger) {
+void sx_hashfs_set_triggers(sx_hashfs_t *h, int job_trigger, int xfer_trigger, int gc_trigger, int gc_expire_trigger) {
     if(!h)
 	return;
     h->job_trigger = job_trigger;
     h->xfer_trigger = xfer_trigger;
     h->gc_trigger = gc_trigger;
+    h->gc_expire_trigger = gc_expire_trigger;
 }
 
 void sx_hashfs_close(sx_hashfs_t *h) {
@@ -7007,13 +7008,12 @@ rc_ty sx_hashfs_xfer_tonode(sx_hashfs_t *h, sx_hash_t *block, unsigned int size,
 
 #define GC_ROW_LIMIT 10000
 
-rc_ty sx_hashfs_gc_periodic(sx_hashfs_t *h, int *terminate)
+rc_ty sx_hashfs_gc_periodic(sx_hashfs_t *h, int *terminate, int grace_period)
 {
     unsigned i, j;
     /* tokens expire when there was no upload activity within GC_GRACE_PERIOD
      * (i.e. ~2 days) */
     uint64_t real_now = time(NULL), now;
-    int grace_period = GC_GRACE_PERIOD;
     uint64_t gc = 0, gcops = 0, expires = real_now - grace_period;
     int ret1 = 0, ret2 = 0;
     sqlite3_reset(h->qt_gc_tokens);
@@ -7238,6 +7238,17 @@ rc_ty sx_hashfs_gc_info(sx_hashfs_t *h, int *terminate)
     gettimeofday(&tv1, NULL);
     INFO("GC info completed in %.1fs", timediff(&tv0, &tv1));
     return ret;
+}
+
+rc_ty sx_hashfs_gc_expire_all_reservations(sx_hashfs_t *h)
+{
+    if(h && h->gc_trigger >= 0 && h->gc_expire_trigger >= 0) {
+        INFO("triggered force expire");
+        int w = write(h->gc_expire_trigger, ".", 1);
+	w = write(h->gc_trigger, ".", 1);
+	w = w;
+    }
+    return OK;
 }
 
 rc_ty sx_hashfs_hdist_change_req(sx_hashfs_t *h, const sx_nodelist_t *newdist, job_t *job_id) {

@@ -49,11 +49,11 @@ static void sighandler(int signum) {
 }
 
 
-int gc(sxc_client_t *sx, const char *self, const char *dir, int pipe) {
+int gc(sxc_client_t *sx, const char *self, const char *dir, int pipe, int pipe_expire) {
     struct sigaction act;
     sx_hashfs_t *hashfs;
     rc_ty rc;
-    struct timeval tv0, tv1;
+    struct timeval tv0, tv1, tv2;
 
     sigemptyset(&act.sa_mask);
     act.sa_flags = 0;
@@ -74,33 +74,40 @@ int gc(sxc_client_t *sx, const char *self, const char *dir, int pipe) {
 
     memset(&tv0, 0, sizeof(tv0));
     while(!terminate) {
-        int forced_awake = 0;
+        int forced_awake = 0, force_expire = 0;
         /* this MUST run periodically even if we don't want to
          * GC any hashes right now */
         if (wait_trigger(pipe, GC_INTERVAL, &forced_awake))
             break;
         if (forced_awake)
             INFO("GC triggered by user");
+        if (wait_trigger(pipe_expire, 0, &force_expire))
+            break;
+        if (force_expire)
+            INFO("GC force expire is set");
         if (terminate)
             break;
 
+	gettimeofday(&tv1, NULL);
 	sx_hashfs_distcheck(hashfs);
-        rc = sx_hashfs_gc_periodic(hashfs, &terminate);
+        rc = sx_hashfs_gc_periodic(hashfs, &terminate, force_expire ? -1 : GC_GRACE_PERIOD);
         sx_hashfs_checkpoint_gc(hashfs);
         sx_hashfs_checkpoint_passive(hashfs);
+	gettimeofday(&tv2, NULL);
+	INFO("GC periodic completed in %.1f sec", timediff(&tv1, &tv2));
         if (rc) {
             WARN("GC error: %s", rc2str(rc));
         } else {
             if (terminate)
                 break;
             if (!forced_awake)
-                sleep(60);
+                sleep(1);
             gettimeofday(&tv1, NULL);
             if (timediff(&tv0, &tv1) > GC_INTERVAL || forced_awake) {
-                struct timeval tv2;
                 sx_hashfs_gc_run(hashfs, &terminate);
                 gettimeofday(&tv2, NULL);
-                INFO("GC run completed in %.3f sec", timediff(&tv1, &tv2));
+                INFO("GC run completed in %.1f sec", timediff(&tv1, &tv2));
+                sx_hashfs_gc_info(hashfs, &terminate);
                 memcpy(&tv0, &tv1, sizeof(tv0));
             }
         }

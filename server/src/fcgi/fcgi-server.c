@@ -56,7 +56,7 @@
 FCGX_Stream *fcgi_in, *fcgi_out, *fcgi_err;
 FCGX_ParamArray envp;
 sx_hashfs_t *hashfs;
-int job_trigger, block_trigger, gc_trigger;
+int job_trigger, block_trigger, gc_trigger, gc_expire_trigger;
 static pid_t ownpid;
 
 #define MAX_WAIT_TIME 300
@@ -156,7 +156,7 @@ static int accept_loop(sxc_client_t *sx, const char *self, const char *dir) {
         rc = EXIT_FAILURE;
 	goto accept_loop_end;
     }
-    sx_hashfs_set_triggers(hashfs, job_trigger, block_trigger, gc_trigger);
+    sx_hashfs_set_triggers(hashfs, job_trigger, block_trigger, gc_trigger, gc_expire_trigger);
 
     ownpid = getpid();
     FCGX_Init();
@@ -194,6 +194,7 @@ static int accept_loop(sxc_client_t *sx, const char *self, const char *dir) {
     close(job_trigger);
     close(block_trigger);
     close(gc_trigger);
+    close(gc_expire_trigger);
     return rc;
 }
 
@@ -231,7 +232,7 @@ void print_help(const char *prog)
 }
 
 int main(int argc, char **argv) {
-    int i, s, pidfd =-1, sockmode = -1, trig[2], inner_job_trigger, inner_block_trigger, inner_gc_trigger, alive;
+    int i, s, pidfd =-1, sockmode = -1, trig[2], inner_job_trigger, inner_block_trigger, inner_gc_trigger, inner_gc_expire_trigger, alive;
     int debug, foreground, have_nodeid = 0;
     sx_uuid_t cluster_uuid, node_uuid;
     char *pidfile = NULL;
@@ -369,6 +370,14 @@ int main(int argc, char **argv) {
     }
     gc_trigger = trig[1];
     inner_gc_trigger = trig[0];
+    if(pipe(trig)) {
+	PCRIT("Cannot create communication pipe");
+        cmdline_parser_free(&args);
+        sx_done(&sx);
+	return EXIT_FAILURE;
+    }
+    gc_expire_trigger = trig[1];
+    inner_gc_expire_trigger = trig[0];
     /* Create the pidfile before detaching from terminal */
 #define MAX_PID_ATTEMPTS 10
     if(pidfile) {
@@ -695,6 +704,7 @@ int main(int argc, char **argv) {
 	close(job_trigger);
 	close(block_trigger);
         close(gc_trigger);
+        close(gc_expire_trigger);
         OS_LibShutdown();
         sx_done(&sx);
         return ret;
@@ -718,7 +728,7 @@ int main(int argc, char **argv) {
         if (sx) {
             if(debug)
                 log_setminlevel(sx,SX_LOG_DEBUG);
-            ret = gc(sx, argv[0], args.data_dir_arg, inner_gc_trigger);
+            ret = gc(sx, argv[0], args.data_dir_arg, inner_gc_trigger, inner_gc_expire_trigger);
         } else {
             ret = 1;
         }
@@ -727,6 +737,7 @@ int main(int argc, char **argv) {
 	close(job_trigger);
 	close(block_trigger);
         close(gc_trigger);
+        close(gc_expire_trigger);
         OS_LibShutdown();
         sx_done(&sx);
         return ret;
@@ -871,6 +882,7 @@ int main(int argc, char **argv) {
     close(job_trigger);
     close(block_trigger);
     close(gc_trigger);
+    close(gc_expire_trigger);
     cmdline_parser_free(&args);
     sx_done(&sx);
 

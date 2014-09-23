@@ -181,7 +181,11 @@ void volume_ops(void) {
 	    /* Complete rebalance process (s2s) - CLUSTER required */
 	    quit_unless_has(PRIV_CLUSTER);
 	    fcgi_stop_rebalance();
-	} else {
+	} else if (!strcmp(volume, ".gc")) {
+	    quit_unless_has(PRIV_ADMIN);
+            sx_hashfs_gc_expire_all_reservations(hashfs);
+            fcgi_trigger_gc();
+        } else {
 	    /* Delete volume (currently s2s only) - CLUSTER required */
 	    quit_unless_has(PRIV_CLUSTER);
 	    if(is_reserved())

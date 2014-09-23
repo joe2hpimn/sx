@@ -772,12 +772,12 @@ static int info_node(sxc_client_t *sx, const char *path)
     return ret;
 }
 
-static int force_gc_cluster(sxc_client_t *sx, struct cluster_args_info *args)
+static int force_gc_cluster(sxc_client_t *sx, struct cluster_args_info *args, int delete_reservations)
 {
     sxc_cluster_t *clust = cluster_load(sx, args);
     if(!clust)
 	return 1;
-    return sxc_cluster_trigger_gc(clust);
+    return sxc_cluster_trigger_gc(clust, delete_reservations);
 }
 
 void print_dist(const sx_nodelist_t *nodes) {
@@ -905,7 +905,9 @@ int main(int argc, char **argv) {
 	else if(cluster_args.mod_given && cluster_args.inputs_num >= 2)
 	    ret = change_cluster(sx, &cluster_args);
 	else if(cluster_args.force_gc_given && cluster_args.inputs_num == 1)
-	    ret = force_gc_cluster(sx, &cluster_args);
+	    ret = force_gc_cluster(sx, &cluster_args, 0);
+	else if(cluster_args.force_expire_given && cluster_args.inputs_num == 1)
+	    ret = force_gc_cluster(sx, &cluster_args, 1);
 	else
 	    cluster_cmdline_parser_print_help();
     cluster_out:
