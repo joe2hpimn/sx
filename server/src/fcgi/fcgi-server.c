@@ -156,12 +156,6 @@ static int accept_loop(sxc_client_t *sx, const char *self, const char *dir) {
         rc = EXIT_FAILURE;
 	goto accept_loop_end;
     }
-    if (sx_hashfs_gc_open(hashfs)) {
-	CRIT("Failed to initialize the hash server interface (local gcdb)");
-        sx_hashfs_close(hashfs);
-        rc = EXIT_FAILURE;
-	goto accept_loop_end;
-    }
     sx_hashfs_set_triggers(hashfs, job_trigger, block_trigger, gc_trigger);
 
     ownpid = getpid();

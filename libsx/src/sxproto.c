@@ -333,13 +333,17 @@ sxi_query_t *sxi_filedel_proto(sxc_client_t *sx, const char *volname, const char
     return ret;
 }
 
-static sxi_query_t *sxi_hashop_proto_list(sxc_client_t *sx, unsigned blocksize, const char *hashes, unsigned hashes_len, enum sxi_cluster_verb verb, const char *op, const char *id)
+static sxi_query_t *sxi_hashop_proto_list(sxc_client_t *sx, unsigned blocksize, const char *hashes, unsigned hashes_len, enum sxi_cluster_verb verb, const char *op, const char *id, uint64_t op_expires_at)
 {
     char url[DOWNLOAD_MAX_BLOCKS * (EXPIRE_TEXT_LEN + SXI_SHA1_TEXT_LEN) + sizeof(".data/1048576/?o=reserve&id=") + 64];
+    char expires_str[24];
     int rc;
-    rc = snprintf(url, sizeof(url), ".data/%u/%.*s?%s%s%s%s", blocksize, hashes_len, hashes,
+
+    snprintf(expires_str, sizeof(expires_str), "%llu", (long long)op_expires_at);
+    rc = snprintf(url, sizeof(url), ".data/%u/%.*s?%s%s%s%s%s%s", blocksize, hashes_len, hashes,
                   op ? "o=" : "", op ? op : "",
-                  id ? op ? "&id=" : "id=" : "", id ? id : "");
+                  id ? op ? "&id=" : "id=" : "", id ? id : "",
+                  op_expires_at ? "&op_expires_at=" : "", op_expires_at ? expires_str : "");
     if (rc < 0 || rc >= sizeof(url)) {
         sxi_seterr(sx, SXE_EARG, "Failed to build hashop url: URL too long");
         return NULL;
@@ -349,30 +353,28 @@ static sxi_query_t *sxi_hashop_proto_list(sxc_client_t *sx, unsigned blocksize, 
 
 sxi_query_t *sxi_hashop_proto_check(sxc_client_t *sx, unsigned blocksize, const char *hashes, unsigned hashes_len)
 {
-    return sxi_hashop_proto_list(sx, blocksize, hashes, hashes_len, REQ_GET, "check", NULL);
+    return sxi_hashop_proto_list(sx, blocksize, hashes, hashes_len, REQ_GET, "check", NULL, 0);
 }
 
-sxi_query_t *sxi_hashop_proto_reserve(sxc_client_t *sx, unsigned blocksize, const char *hashes, unsigned hashes_len, const char *id)
+sxi_query_t *sxi_hashop_proto_reserve(sxc_client_t *sx, unsigned blocksize, const char *hashes, unsigned hashes_len, const char *id, uint64_t op_expires_at)
 {
     if (!id) {
         sxi_seterr(sx, SXE_EARG, "Null id");
         return NULL;
     }
-    return sxi_hashop_proto_list(sx, blocksize, hashes, hashes_len, REQ_PUT, "reserve", id);
+    if (!op_expires_at) {
+        sxi_seterr(sx, SXE_EARG, "Missing expires");
+        return NULL;
+    }
+    return sxi_hashop_proto_list(sx, blocksize, hashes, hashes_len, REQ_PUT, "reserve", id, op_expires_at);
 }
 
-sxi_query_t *sxi_hashop_proto_inuse_begin(sxc_client_t *sx, int kind, const void *id, unsigned id_size)
+sxi_query_t *sxi_hashop_proto_inuse_begin_bin(sxc_client_t *sx, int kind, const void *id, unsigned id_size, uint64_t op_expires_at)
 {
-    char url[128];
     char idhex[SXI_SHA1_TEXT_LEN+1];
-    sxi_query_t *ret;
     sxi_md_ctx *hash_ctx;
     sx_hash_t hash;
 
-    if (!id) {
-        sxi_seterr(sx, SXE_EARG, "Null id");
-        return NULL;
-    }
     hash_ctx = sxi_md_init();
     if (!hash_ctx)
         return NULL;
@@ -388,7 +390,19 @@ sxi_query_t *sxi_hashop_proto_inuse_begin(sxc_client_t *sx, int kind, const void
 
     sxi_md_cleanup(&hash_ctx);
     sxi_bin2hex(hash.b, sizeof(hash.b), idhex);
-    snprintf(url, sizeof(url), ".data/?id=%s", idhex);
+    return sxi_hashop_proto_inuse_begin(sx, kind, idhex, op_expires_at);
+}
+
+sxi_query_t *sxi_hashop_proto_inuse_begin(sxc_client_t *sx, int kind, const char *id, uint64_t op_expires_at)
+{
+    char url[128];
+    sxi_query_t *ret;
+
+    if (!id) {
+        sxi_seterr(sx, SXE_EARG, "Null id");
+        return NULL;
+    }
+    snprintf(url, sizeof(url), ".data/?id=%s&op_expires_at=%llu", id, (long long)op_expires_at);
     ret = sxi_query_create(sx, url, REQ_PUT);
     ret = sxi_query_append_fmt(sx, ret, 1, "{");
     return ret;

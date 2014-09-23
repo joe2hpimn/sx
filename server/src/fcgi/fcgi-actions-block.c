@@ -120,14 +120,25 @@ void fcgi_hashop_blocks(enum sxi_hashop_kind kind) {
     sx_hash_t reqhash;
     rc_ty rc;
     unsigned missing = 0;
-    const char *id;
+    const char *id, *expires;
+    char *end = NULL;
     int comma = 0;
     unsigned idx = 0;
+    uint64_t op_expires_at;
 
     auth_complete();
     quit_unless_authed();
 
     id = get_arg("id");
+    expires = get_arg("op_expires_at");
+    if (kind != HASHOP_CHECK) {
+        if (!id || !expires)
+            quit_errmsg(400, "Missing id/expires");
+        op_expires_at = strtoll(expires, &end, 10);
+        if (!end || *end)
+            quit_errmsg(400, "Invalid number for op_expires_at");
+    } else
+        op_expires_at = 0;
 
     blocksize = strtol(path, (char **)&hpath, 10);
     if(*hpath != '/') {
@@ -155,7 +166,7 @@ void fcgi_hashop_blocks(enum sxi_hashop_kind kind) {
             quit_itererr("bad URL format for hashop", 400);
         }
         n++;
-        rc = sx_hashfs_hashop_perform(hashfs, 0, kind, &reqhash, id);
+        rc = sx_hashfs_hashop_perform(hashfs, 0, kind, &reqhash, id, op_expires_at);
         present = rc == OK;
         if (comma)
             CGI_PUTC(',');
@@ -366,17 +377,24 @@ static const yajl_callbacks inuse_parser = {
 
 void fcgi_hashop_inuse(void) {
     unsigned i, j;
-    sx_hash_t reqhash;
     rc_ty rc = FAIL_EINTERNAL;
     unsigned missing = 0;
-    const char *id;
+    const char *id, *expires;
     int comma = 0;
     unsigned idx = 0;
+    int64_t op_expires_at;
+    char *end;
 
     struct inuse_ctx yctx;
     memset(&yctx, 0, sizeof(yctx));
 
     id = get_arg("id");
+    expires = get_arg("op_expires_at");
+    if (!id || !expires)
+        quit_errmsg(400, "Missing id/expires");
+    op_expires_at = strtoll(expires, &end, 10);
+    if (!end || *end)
+        quit_errmsg(400, "Invalid number for op_expires_at");
 
     yajl_handle yh = yajl_alloc(&inuse_parser, NULL, &yctx);
     if (!yh) {
@@ -404,6 +422,7 @@ void fcgi_hashop_inuse(void) {
 
     auth_complete();
     if(!is_authed()) {
+        blocks_free(&yctx.all);
 	send_authreq();
 	return;
     }
@@ -416,8 +435,8 @@ void fcgi_hashop_inuse(void) {
         rc = FAIL_EINTERNAL;
         for (j=0;j<m->count;j++) {
             const block_meta_entry_t *e = &m->entries[j];
-            rc = sx_hashfs_hashop_mod(hashfs, &m->hash, id, m->blocksize, e->replica, e->count);
-            if (rc)
+            rc = sx_hashfs_hashop_mod(hashfs, &m->hash, id, m->blocksize, e->replica, e->count, op_expires_at);
+            if (rc && rc != ENOENT)
                 break;
         }
         present = rc == OK;
@@ -426,7 +445,6 @@ void fcgi_hashop_inuse(void) {
         /* the presence callback wants an index not the actual hash...
          * */
         CGI_PUTS(present ? "true" : "false");
-        DEBUGHASH("Status sent for ", &reqhash);
         DEBUG("Hash index %d, present: %d", idx, present);
         comma = 1;
         if (rc != OK) {
@@ -437,6 +455,7 @@ void fcgi_hashop_inuse(void) {
         }
         idx++;
     }
+    blocks_free(&yctx.all);
     if (rc != OK) {
         WARN("hashop: %s", rc2str(rc));
         CGI_PUTC(']');

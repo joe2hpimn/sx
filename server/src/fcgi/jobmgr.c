@@ -79,6 +79,7 @@ typedef enum _act_result_t {
 typedef struct _job_data_t {
     void *ptr;
     unsigned int len;
+    uint64_t op_expires_at;
 } job_data_t;
 
 typedef act_result_t (*job_action_t)(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *node, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl);
@@ -844,7 +845,7 @@ static act_result_t replicateblocks_request(sx_hashfs_t *hashfs, job_t job_id, j
 
     memcpy(&tmpfile_id, job_data->ptr, sizeof(tmpfile_id));
     DEBUG("replocateblocks_request for file %lld", (long long)tmpfile_id);
-    s = sx_hashfs_tmp_getinfo(hashfs, tmpfile_id, &mis, 1);
+    s = sx_hashfs_tmp_getinfo(hashfs, tmpfile_id, &mis, 1, job_data->op_expires_at);
     if(s == EFAULT || s == EINVAL) {
 	CRIT("Error getting tmpinfo: %s", msg_get_reason());
 	action_error(ACT_RESULT_PERMFAIL, 500, msg_get_reason());
@@ -1126,7 +1127,7 @@ static act_result_t fileflush_request(sx_hashfs_t *hashfs, job_t job_id, job_dat
 
     memcpy(&tmpfile_id, job_data->ptr, sizeof(tmpfile_id));
     DEBUG("fileflush_request for file %lld", (long long)tmpfile_id);
-    s = sx_hashfs_tmp_getinfo(hashfs, tmpfile_id, &mis, 0);
+    s = sx_hashfs_tmp_getinfo(hashfs, tmpfile_id, &mis, 0, job_data->op_expires_at);
     if(s == EFAULT || s == EINVAL) {
 	CRIT("Error getting tmpinfo: %s", msg_get_reason());
 	action_error(ACT_RESULT_PERMFAIL, 500, msg_get_reason());
@@ -1238,7 +1239,7 @@ static act_result_t fileflush_commit(sx_hashfs_t *hashfs, job_t job_id, job_data
     memcpy(&tmpfile_id, job_data->ptr, sizeof(tmpfile_id));
 
     DEBUG("fileflush_commit for file %lld", (long long)tmpfile_id);
-    s = sx_hashfs_tmp_getinfo(hashfs, tmpfile_id, &mis, 0);
+    s = sx_hashfs_tmp_getinfo(hashfs, tmpfile_id, &mis, 0, job_data->op_expires_at);
     if(s == EFAULT || s == EINVAL) {
 	CRIT("Error getting tmpinfo: %s", msg_get_reason());
 	action_error(ACT_RESULT_PERMFAIL, 500, msg_get_reason());
@@ -2194,7 +2195,8 @@ static act_result_t blockrb_request(sx_hashfs_t *hashfs, job_t job_id, job_data_
 	    if(!rbdata[i].node)
 		break;
 
-	    rbdata[i].proto = sxi_hashop_proto_inuse_begin(sx, SX_ID_REBALANCE, &dist_version, sizeof(dist_version));
+            /* FIXME: proper expiration time */
+	    rbdata[i].proto = sxi_hashop_proto_inuse_begin_bin(sx, SX_ID_REBALANCE, &dist_version, sizeof(dist_version), time(NULL) + 604800);
 	    for(j=0; j<rbdata[i].nblocks; j++)
 		rbdata[i].proto = sxi_hashop_proto_inuse_hash(sx, rbdata[i].proto, rbdata[i].blocks[j]);
 	    rbdata[i].proto = sxi_hashop_proto_inuse_end(sx, rbdata[i].proto);
@@ -2619,7 +2621,7 @@ static struct {
 };
 
 
-static job_data_t *make_jobdata(const void *data, unsigned int data_len) {
+static job_data_t *make_jobdata(const void *data, unsigned int data_len, uint64_t op_expires_at) {
     job_data_t *ret;
 
     if(!data && data_len)
@@ -2628,6 +2630,7 @@ static job_data_t *make_jobdata(const void *data, unsigned int data_len) {
 	return NULL;
     ret->ptr = (void *)(ret+1);
     ret->len = data_len;
+    ret->op_expires_at = op_expires_at;
     if(data_len)
 	memcpy(ret->ptr, data, data_len);
     return ret;
@@ -3052,7 +3055,7 @@ static void jobmgr_process_queue(struct jobmgr_data_t *q, int forced) {
 	plen = sqlite3_column_bytes(q->qjob, 2);
 	q->job_expired = sqlite3_column_int(q->qjob, 3);
 	q->job_failed = (sqlite3_column_int(q->qjob, 4) < 0);
-	q->job_data = make_jobdata(ptr, plen);
+	q->job_data = make_jobdata(ptr, plen, sqlite3_column_int(q->qjob, 5));
 	sqlite3_reset(q->qjob);
 
 	if(!q->job_data) {
@@ -3098,8 +3101,6 @@ int jobmgr(sxc_client_t *sx, const char *self, const char *dir, int pipe) {
 	CRIT("Failed to initialize the hash server interface");
 	goto jobmgr_err;
     }
-    if (sx_hashfs_gc_open(q.hashfs))
-        goto jobmgr_err;
 
     q.targets = sx_nodelist_new();
     if(!q.targets) {
@@ -3109,7 +3110,7 @@ int jobmgr(sxc_client_t *sx, const char *self, const char *dir, int pipe) {
 
     eventdb = sx_hashfs_eventdb(q.hashfs);
 
-    if(qprep(eventdb, &q.qjob, "SELECT job, type, data, expiry_time < datetime('now'), result FROM jobs WHERE complete = 0 AND sched_time <= strftime('%Y-%m-%d %H:%M:%f') AND NOT EXISTS (SELECT 1 FROM jobs AS subjobs WHERE subjobs.job = jobs.parent AND subjobs.complete = 0) ORDER BY sched_time ASC LIMIT 1") ||
+    if(qprep(eventdb, &q.qjob, "SELECT job, type, data, expiry_time < datetime('now'), result, strftime('%s',expiry_time) FROM jobs WHERE complete = 0 AND sched_time <= strftime('%Y-%m-%d %H:%M:%f') AND NOT EXISTS (SELECT 1 FROM jobs AS subjobs WHERE subjobs.job = jobs.parent AND subjobs.complete = 0) ORDER BY sched_time ASC LIMIT 1") ||
        qprep(eventdb, &q.qact, "SELECT id, phase, target, addr, internaladdr, capacity FROM actions WHERE job_id = :job AND phase < :maxphase ORDER BY phase") ||
        qprep(eventdb, &q.qfail, "WITH RECURSIVE descendents_of(jb) AS (VALUES(:job) UNION SELECT job FROM jobs, descendents_of WHERE jobs.parent = descendents_of.jb) UPDATE jobs SET result = :res, reason = :reason WHERE job IN (SELECT * FROM descendents_of) AND result = 0") ||
        qprep(eventdb, &q.qcpl, "UPDATE jobs SET complete = 1, lock = NULL WHERE job = :job") ||

@@ -46,7 +46,7 @@
 
 /* various constants, see bug #335, all times in seconds */
 /* FIXME: find a better place, make admin settable */
-#define JOB_FILE_MAX_TIME (2*24*60*60 /* 2 days */)
+#define JOB_FILE_MAX_TIME (24*60*60 /* 1 day */)
 #define JOBMGR_DELAY_MIN 1
 #define JOBMGR_DELAY_MAX 2
 #define TOPUSH_EXPIRE 900
@@ -94,7 +94,6 @@ typedef int64_t sx_uid_t;
 rc_ty sx_storage_create(const char *dir, sx_uuid_t *cluster, uint8_t *key, int key_size);
 typedef struct _sx_hashfs_t sx_hashfs_t;
 sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx);
-rc_ty sx_hashfs_gc_open(sx_hashfs_t *h);
 void sx_hashfs_checkpoint_passive(sx_hashfs_t *h);
 void sx_hashfs_checkpoint_gc(sx_hashfs_t *h);
 void sx_hashfs_checkpoint_eventdb(sx_hashfs_t *h);
@@ -240,8 +239,8 @@ rc_ty sx_hashfs_block_put(sx_hashfs_t *h, const uint8_t *data, unsigned int bs, 
 
 /* hash batch ops for GC */
 rc_ty sx_hashfs_hashop_begin(sx_hashfs_t *h, unsigned bs);
-rc_ty sx_hashfs_hashop_perform(sx_hashfs_t *h, unsigned replica, enum sxi_hashop_kind kind, const sx_hash_t *hash, const char *id);
-rc_ty sx_hashfs_hashop_mod(sx_hashfs_t *h, const sx_hash_t *hash, const char *id, unsigned int blocksize, unsigned replica, int64_t count);
+rc_ty sx_hashfs_hashop_perform(sx_hashfs_t *h, unsigned replica, enum sxi_hashop_kind kind, const sx_hash_t *hash, const char *id, uint64_t op_expires_at);
+rc_ty sx_hashfs_hashop_mod(sx_hashfs_t *h, const sx_hash_t *hash, const char *id, unsigned int blocksize, unsigned replica, int64_t count, uint64_t op_expires_at);
 rc_ty sx_hashfs_hashop_finish(sx_hashfs_t *h, rc_ty rc);
 rc_ty sx_hashfs_gc_periodic(sx_hashfs_t *h, int *terminate);
 rc_ty sx_hashfs_gc_run(sx_hashfs_t *h, int *terminate);
@@ -285,7 +284,7 @@ typedef struct _sx_hashfs_tmpinfo_t {
     int somestatechanged;
 } sx_hashfs_tmpinfo_t;
 rc_ty sx_hashfs_tmp_getmeta(sx_hashfs_t *h, const char *name, int64_t tmpfile_id, sxc_meta_t *metadata);
-rc_ty sx_hashfs_tmp_getinfo(sx_hashfs_t *h, int64_t tmpfile_id, sx_hashfs_tmpinfo_t **tmpinfo, int recheck_presence);
+rc_ty sx_hashfs_tmp_getinfo(sx_hashfs_t *h, int64_t tmpfile_id, sx_hashfs_tmpinfo_t **tmpinfo, int recheck_presence, uint64_t op_expires_at);
 rc_ty sx_hashfs_tmp_tofile(sx_hashfs_t *h, const sx_hashfs_tmpinfo_t *missing);
 
 /* File delete */

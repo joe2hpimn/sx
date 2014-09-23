@@ -170,7 +170,7 @@ void blockmgr_process_queue(struct blockmgr_data_t *q) {
         }
         /* just check for presence, reservation was already done by the failed
          * INUSE */
-	sxi_hashop_begin(&hc, clust, hcb, HASHOP_CHECK, 0, NULL, &hlist);
+	sxi_hashop_begin(&hc, clust, hcb, HASHOP_CHECK, 0, NULL, NULL, &hlist, 0);
         for(hlist.nblocks = 0; r == SQLITE_ROW; hlist.nblocks++) {
 	    /* Some preliminary extra checks; broken entries will be wiped on the next (outer) loop */
 	    h = sqlite3_column_blob(q->qlist, 1);
@@ -290,8 +290,6 @@ int blockmgr(sxc_client_t *sx, const char *self, const char *dir, int pipe) {
 	CRIT("Failed to initialize the hash server interface");
 	goto blockmgr_err;
     }
-    if (sx_hashfs_gc_open(q.hashfs))
-        goto blockmgr_err;
 
     xferdb = sx_hashfs_xferdb(q.hashfs);
 
