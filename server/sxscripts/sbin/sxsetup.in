@@ -952,11 +952,11 @@ if [ ! -f "$SX_DATA_DIR/hashfs.db" ]; then
 	    while true; do
 		"@sbindir@/sxadm" cluster --info "sx://admin@$SX_CLUSTER_NAME" > $OUT_TMP
 		if [ $? -ne 0 ]; then
-		    sleep 60
+		    sleep 1
 		    continue
 		fi
 		if [ -n "`cat $OUT_TMP | grep "Target distribution"`" ]; then
-		    sleep 60
+		    sleep 1
 		    continue
 		else
 		    break

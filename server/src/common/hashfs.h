@@ -48,7 +48,7 @@
 /* FIXME: find a better place, make admin settable */
 #define JOB_FILE_MAX_TIME (2*24*60*60 /* 2 days */)
 #define JOBMGR_DELAY_MIN 1
-#define JOBMGR_DELAY_MAX 7
+#define JOBMGR_DELAY_MAX 2
 #define TOPUSH_EXPIRE 900
 #define BLOCKMGR_DELAY 3
 #define BLOCKMGR_RESCHEDULE 24
