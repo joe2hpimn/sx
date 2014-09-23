@@ -483,7 +483,7 @@ static const yajl_callbacks acl_ops_parser = {
     cb_acl_end_array
 };
 
-static int print_acl(const char *username, int priv, void *ctx)
+static int print_acl(const char *username, int priv, int is_owner, void *ctx)
 {
     int *first = ctx;
     if (*first)
@@ -501,10 +501,7 @@ static int print_acl(const char *username, int priv, void *ctx)
 	CGI_PRINTF("%s\"write\"", comma ? "," : "");
 	comma = 1;
     }
-    if (priv & PRIV_ADMIN) {
-        CGI_PRINTF("%s\"admin\"", comma ? ",":"");
-        comma = 1;
-    } else if (priv & PRIV_OWNER) {
+    if (is_owner) {
 	CGI_PRINTF("%s\"owner\"", comma ? ",":"");
 	comma = 1;
     }

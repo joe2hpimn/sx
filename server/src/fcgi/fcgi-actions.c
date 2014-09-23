@@ -85,8 +85,8 @@ void volume_ops(void) {
 	    quit_errnum(500);
 	}
 
-	/* Locating or listing volume data requires READ|WRITE|OWNER access or better */
-        if (!has_priv(PRIV_READ) && !has_priv(PRIV_WRITE) && !has_priv(PRIV_OWNER) && !has_priv(PRIV_ADMIN))
+	/* Locating or listing volume data requires READ|WRITE|ACL access or better */
+        if (!has_priv(PRIV_READ) && !has_priv(PRIV_WRITE) && !has_priv(PRIV_ACL) && !has_priv(PRIV_ADMIN))
             quit_errmsg(403, "Permission denied: not enough privileges");
 
 	if(has_arg("o")) {
@@ -118,7 +118,7 @@ void volume_ops(void) {
 	if(is_reserved())
 	    quit_errmsg(403, "Volume name is reserved");
 	if(!has_priv(PRIV_ADMIN))
-	    quit_unless_has(PRIV_OWNER);
+	    quit_unless_has(PRIV_ACL);
 	fcgi_acl_volume();
 	return;
     }

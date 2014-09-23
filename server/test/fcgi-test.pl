@@ -734,9 +734,15 @@ test_get 'the newly created volume', authed_only(200, 'application/json'), "tiny
 # Misc volume used to test user deletion and revisions
 test_put_job "volume creation (misc volume)", admin_only(200), "misc$vol", "{\"volumeSize\":$tinyvolumesize,\"owner\":\"$delme\",\"replicaCount\":1,\"maxRevisions\":2}";
 #FIXME this tests is a workaround due to bb#555
-test_get 'checking volume ownership', admin_only(200, 'application/json'), "misc$vol?o=acl", undef, sub { my $json = get_json(shift); return is_array($json->{$delme}); };
+test_get 'checking volume ownership', admin_only(200, 'application/json'), "misc$vol?o=acl", undef, sub { my $json = get_json(shift);
+    my %is_priv   = map { $_, 1 } @{$json->{$delme}};
+    return is_array($json->{$delme}) && $is_priv{'owner'}; };
 test_delete_job "user deletion", admin_only(200), ".users/$delme";
-test_get 'checking volume ownership', admin_only(200, 'application/json'), "misc$vol?o=acl", undef, sub { my $json = get_json(shift); return !exists $json->{$delme};};
+test_get 'checking volume ownership', admin_only(200, 'application/json'), "misc$vol?o=acl", undef, sub { 
+    my $json = get_json(shift);
+    my %is_priv = ();
+    foreach (@{$json->{'admin'}}) { $is_priv{$_} = 1 };
+    return is_array($json->{'admin'}) && $is_priv{'owner'} && !exists $json->{$delme}; };
 
 ### FILE TESTS ###
 my $blk;

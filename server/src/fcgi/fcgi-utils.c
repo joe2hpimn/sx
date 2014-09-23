@@ -649,7 +649,7 @@ int get_priv(int volume_priv) {
 	/* Non volume check, use the base role */
         mypriv = 0;
         if (role >= PRIV_ADMIN)
-            mypriv |= PRIV_READ | PRIV_WRITE | PRIV_OWNER | PRIV_ADMIN;/* admin has all below */
+            mypriv |= PRIV_READ | PRIV_WRITE | PRIV_ACL | PRIV_ADMIN;/* admin has all below */
         if (role >= PRIV_CLUSTER)
             mypriv |= PRIV_CLUSTER;
     }
@@ -657,7 +657,7 @@ int get_priv(int volume_priv) {
 }
 
 int has_priv(sx_priv_t reqpriv) {
-    return get_priv(!(reqpriv & ~(PRIV_READ | PRIV_WRITE | PRIV_OWNER))) & reqpriv;
+    return get_priv(!(reqpriv & ~(PRIV_READ | PRIV_WRITE | PRIV_ACL))) & reqpriv;
 }
 
 int is_reserved(void) {

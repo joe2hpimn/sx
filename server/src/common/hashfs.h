@@ -202,7 +202,7 @@ rc_ty sx_hashfs_volumemeta_begin(sx_hashfs_t *h, const sx_hashfs_volume_t *volum
 rc_ty sx_hashfs_volumemeta_next(sx_hashfs_t *h, const char **key, const void **value, unsigned int *value_len);
 rc_ty sx_hashfs_volnodes(sx_hashfs_t *h, sx_hashfs_nl_t which, const sx_hashfs_volume_t *volume, int64_t size, sx_nodelist_t **nodes, unsigned int *block_size);
 int sx_hashfs_is_or_was_my_volume(sx_hashfs_t *h, const sx_hashfs_volume_t *vol);
-typedef int (*acl_list_cb_t)(const char *username, int priv, void *ctx);
+typedef int (*acl_list_cb_t)(const char *username, int priv, int is_owner, void *ctx);
 rc_ty sx_hashfs_list_acl(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, sx_uid_t uid, int uid_priv, acl_list_cb_t cb, void *ctx);
 
 
@@ -298,7 +298,7 @@ typedef enum {
   PRIV_NONE = 0,
   PRIV_READ = 1,
   PRIV_WRITE = 2,
-  PRIV_OWNER = 4,
+  PRIV_ACL = 4,
   PRIV_ADMIN = 8,
   PRIV_CLUSTER = 16} sx_priv_t;
 rc_ty sx_hashfs_get_user_info(sx_hashfs_t *h, const uint8_t *user, sx_uid_t *uid, uint8_t *key, sx_priv_t *basepriv);

@@ -593,7 +593,6 @@ struct _sx_hashfs_t {
     sqlite3_stmt *q_getuserbyid;
     sqlite3_stmt *q_getuserbyname;
     sqlite3_stmt *q_listusers;
-    sqlite3_stmt *q_listadmins;
     sqlite3_stmt *q_listacl;
     sqlite3_stmt *q_createuser;
     sqlite3_stmt *q_deleteuser;
@@ -862,7 +861,6 @@ static void close_all_dbs(sx_hashfs_t *h) {
     sqlite3_finalize(h->q_getuserbyname);
     sqlite3_finalize(h->q_listusers);
     sqlite3_finalize(h->q_listacl);
-    sqlite3_finalize(h->q_listadmins);
     sqlite3_finalize(h->q_getaccess);
     sqlite3_finalize(h->q_createuser);
     sqlite3_finalize(h->q_deleteuser);
@@ -1255,8 +1253,6 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
     if(qprep(h->db, &h->q_getuserbyname, "SELECT user FROM users WHERE name = :name AND enabled=1"))
 	goto open_hashfs_fail;
     if(qprep(h->db, &h->q_listusers, "SELECT uid, name, user, key, role FROM users WHERE uid > :lastuid AND enabled=1 ORDER BY uid ASC LIMIT 1"))
-	goto open_hashfs_fail;
-    if(qprep(h->db, &h->q_listadmins, "SELECT name, uid FROM users WHERE uid > :lastuid AND role = "STRIFY(ROLE_ADMIN)" AND enabled=1"))
 	goto open_hashfs_fail;
     /* FIXME: this query is broken and should be rewritten - index usage not checked */
     /* e.g.:
@@ -3114,11 +3110,11 @@ rc_ty sx_hashfs_list_acl(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, sx_uid_t
             return rc;
 
         rc = FAIL_EINTERNAL;
-        if (cb(user, priv, ctx))
+        if (cb(user, priv, uid == vol->owner, ctx))
             return rc;
     }
 
-    if (!(priv & (PRIV_ADMIN | PRIV_OWNER))) {
+    if (!(priv & (PRIV_ADMIN | PRIV_ACL))) {
         DEBUG("Not an owner/admin: printed only self privileges");
         return OK;
     }
@@ -3141,33 +3137,11 @@ rc_ty sx_hashfs_list_acl(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, sx_uid_t
             if (list_uid == uid)
                 continue;/* we've already printed permissions for self */
 	    int perm = sqlite3_column_int64(q, 1);
-	    if (list_uid == sqlite3_column_int64(q, 3))
-		perm |= PRIV_OWNER;
-	    if (cb((const char*)sqlite3_column_text(q, 0), perm, ctx))
+	    if (cb((const char*)sqlite3_column_text(q, 0), perm, list_uid == vol->owner, ctx))
 		break;
 	}
 	if (ret != SQLITE_DONE)
 	    break;
-        q = h->q_listadmins;
-        lastuid = 0;
-        ret = SQLITE_ROW;
-        while (1) {
-            sqlite3_reset(q);
-            if (qbind_int64(q, ":lastuid", lastuid))
-                break;
-            ret = qstep(q);
-            if (ret != SQLITE_ROW)
-                break;
-            int64_t list_uid = sqlite3_column_int64(q, 1);
-            lastuid = list_uid;
-            if (list_uid == uid || list_uid == vol->owner)
-                continue;/* we've already printed permissions for self and owner */
-            if (cb((const char*)sqlite3_column_text(q, 0), PRIV_ADMIN | PRIV_OWNER | PRIV_READ | PRIV_WRITE, ctx))
-                break;
-        }
-	if (ret != SQLITE_DONE)
-	    break;
-        sqlite3_reset(q);
 	rc = OK;
     } while(0);
     sqlite3_reset(q);
@@ -6544,7 +6518,7 @@ rc_ty sx_hashfs_get_access(sx_hashfs_t *h, sx_uid_t uid, const char *volume, sx_
     } else
 	WARN("Found invalid priv for user %lld on volume %lld: %d", (long long int)uid, (long long int)vol->id, r);
     if (sqlite3_column_int(h->q_getaccess, 1) == uid)
-	*access |= PRIV_OWNER;
+	*access |= PRIV_ACL;
 
     sqlite3_reset(h->q_getaccess);
     return ret;

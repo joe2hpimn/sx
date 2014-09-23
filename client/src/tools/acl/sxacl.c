@@ -210,6 +210,8 @@ static int show_acls(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_uri_t *u)
 	if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_VOL_ERR))
 	    fprintf(stderr, SXBC_TOOLS_VOL_MSG, u->profile ? u->profile : "", u->profile ? "@" : "", u->host);
         rc = 1;
+    } else {
+        printf("(all admin users): read write admin\n");
     }
     return rc;
 }

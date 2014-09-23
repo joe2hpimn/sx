@@ -1692,7 +1692,7 @@ static int syncusers_cb(sx_uid_t user_id, const char *username, const uint8_t *u
     return 0;
 }
 
-static int syncperms_cb(const char *username, int priv, void *ctx) {
+static int syncperms_cb(const char *username, int priv, int is_owner, void *ctx) {
     struct sync_ctx *sy = (struct sync_ctx *)ctx;
     unsigned int left = sizeof(sy->buffer) - sy->at;
     char userhex[AUTH_UID_LEN * 2 + 1];
