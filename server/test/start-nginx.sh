@@ -14,7 +14,8 @@ print_status() {
 }
 export TMPDIR=/tmp
 trap print_status EXIT
-N=3
+N=${N-4}
+echo "Preparing cluster with $N nodes"
 if [ `uname` = "OpenBSD" ]; then
    # we hit ENOLCK otherwise
    N=1
@@ -69,15 +70,25 @@ while [ $i -le $N ]; do
     SX_USE_SSL="no"
     SX_CLUSTER_UUID="$CLUSTER_UUID"
     SX_ADMIN_KEY="$ADMIN_KEY"
+    SX_CHILDREN_NUM=4
 EOF
+#    export SX_USE_VALGRIND=yes
     if [ $i -gt 1 ]; then
 	echo "SX_EXISTING_NODE_IP=\"127.0.1.1\"" >> $CONF_TMP
     fi
-    $prefix/sbin/sxsetup --config-file $CONF_TMP --debug --advanced
+    $prefix/sbin/sxsetup --config-file $CONF_TMP --debug --advanced --wait
     rm -f $CONF_TMP
+    ../client/src/tools/vol/sxvol create sx://localhost/vol$i -r $i -o admin
+    ../client/src/tools/cp/sxcp configure sx://localhost/vol$i/
+    if [ $i -eq 1 ]; then
+        echo "$ADMIN_KEY" | ../client/src/tools/init/sxinit --port "$SX_PORT"  --host-list=127.0.1.1 sx://localhost --no-ssl
+        test/randgen 40960 40960 >mvtest
+        ../client/src/tools/cp/sxcp mvtest sx://localhost/vol1/
+    fi
 
     i=$(( i+1 ))
 done
+rm -f mvtestx && ../client/src/tools/cp/sxcp sx://localhost/vol1/mvtest mvtestx
 
 list=127.0.1.1
 i=2
