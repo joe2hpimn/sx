@@ -1,0 +1,51 @@
+.TH SXLS "1" "September 2014" "sxls @VERSION@" "Skylable SX Manual"
+.SH NAME
+sxls \- list available volumes and their contents
+.SH SYNOPSIS
+.B sxls
+[\fI\,OPTIONS\/\fR]... \fI\,sx://\/\fR[\fI\,profile@\/\fR]\fI\,cluster\/\fR[\fI\,/volume\/\fR[\fI\,/path\/\fR]]...
+.SH DESCRIPTION
+List information about the volumes available in the cluster (when called without a volume name) or contents of a particular volume.
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help and exit
+.TP
+\fB\-\-full\-help\fR
+Print help, including hidden options, and exit
+.TP
+\fB\-V\fR, \fB\-\-version\fR
+Print version and exit
+.TP
+\fB\-r\fR, \fB\-\-recursive\fR
+Recursively list entire directories
+.TP
+\fB\-l\fR, \fB\-\-long\-format\fR
+Use a long listing format. This provides additional information about volumes (such as the replica number, active filter, current usage or the size limit) and files (modification time and size).
+.TP
+\fB\-H\fR, \fB\-\-human\-readable\fR
+Convert all sizes to an easily readable format
+.TP
+\fB\-D\fR, \fB\-\-debug\fR
+Enable debug messages
+.TP
+\fB\-v\fR, \fB\-\-verbose\fR
+Enable verbose errors
+.TP
+\fB\-\-print0\fR
+Separate file names with \e0 instead of \en
+.TP
+\fB\-c\fR, \fB\-\-config\-dir\fR=\fI\,PATH\/\fR
+Path to SX configuration directory
+.TP
+\fB\-\-filter\-dir\fR=\fI\,PATH\/\fR
+Path to SX filter directory
+.SH "EXAMPLES"
+To list all volumes, which you can access on 'cluster' run:
+.br
+\fB    sxls -l sx://cluster\fP
+
+.br
+To recursively list the contents of the volume 'data' run:
+.br
+\fB    sxls -r sx://cluster/data\fP
+.br

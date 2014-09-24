@@ -1,0 +1,60 @@
+.TH SXCP "1" "September 2014" "sxcp @VERSION@" "Skylable SX Manual"
+.SH NAME
+sxcp \- Copy files from, to and between SX clusters
+.SH SYNOPSIS
+.B sxcp
+[\fI\,OPTIONS\/\fR]... \fI\,SOURCE\/\fR... \fI\,DEST\/\fR
+.SH DESCRIPTION
+sxcp can copy files and entire directories from and to Skylable SX clusters. It can also copy data between two different SX clusters. By default for each file a progress bar is displayed, which shows the copy speed and the estimated time of arrival. sxcp makes use of all the advanced features of Skylable SX, such as deduplication and transfer resuming to minimize the bandwidth usage.
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help and exit
+.TP
+\fB\-\-full\-help\fR
+Print help, including hidden options, and exit
+.TP
+\fB\-V\fR, \fB\-\-version\fR
+Print version and exit
+.TP
+\fB\-r\fR, \fB\-\-recursive\fR
+Recursively copy files from SOURCE to DEST directory
+.TP
+\fB\-x\fR, \fB\-\-one\-file\-system\fR
+Don't cross filesystem boundaries when recursing. When this option is turned on sxcp will skip all mount-point directories.
+.TP
+\fB\-b\fR, \fB\-\-bwlimit\fR=\fI\,RATE\/\fR
+Set bandwidth usage limit in kilobytes per second. The RATE value can additionally be followed by K(-ilobytes), M(-egabytes), or G(-igabytes) suffixes (K is the default one).
+.TP
+\fB\-q\fR, \fB\-\-no\-progress\fR
+Don't display the progress bar
+.TP
+\fB\-v\fR, \fB\-\-verbose\fR
+Print more details about the transfer
+.TP
+\fB\-D\fR, \fB\-\-debug\fR
+Enable debug messages
+.TP
+\fB\-c\fR, \fB\-\-config\-dir\fR=\fI\,PATH\/\fR
+Path to SX configuration directory
+.TP
+\fB\-f\fR, \fB\-\-filter\-dir\fR=\fI\,PATH\/\fR
+Path to SX filter directory
+.TP
+\fB\-\-total\-conns\-limit\fR=\fI\,INT\/\fR
+Limit the total number of connections used in a session. The default limit is 5 connections.
+.TP
+\fB\-\-host\-conns\-limit\fR=\fI\,INT\/\fR
+Limit the number of connections to a single host. The default is 2 and means that sxcp will not use more than 2 connections to a single node of an SX cluster. The value for this limit may not exceed the limit for the total number of connections.
+.TP
+\fB\-s\fR, \fB\-\-dot\-size\fR=\fI\,STRING\/\fR
+When the output of sxcp is redirected to a file, sxcp switches to a dot format. With this option you can control the size represented by each of the dots. The allowed values are: "short" (1 dot = 1KB), "long" (1 dot = 8KB) and "scale" (1 dot = 1 SX block size, which depends on the file size).
+.SH "EXAMPLES"
+To recursively copy '/home/user' to the 'home' volume on the SX cluster run:
+.br
+\fB    sxcp -r /home/user/ sx://cluster/home\fP
+
+.br
+To download the entire directory 'movies' from the volume 'data' and limit the bandwidth usage to 1MB/s run:
+.br
+\fB    sxcp -r --bwlimit=1M sx://cluster/data/movies/ /home/user/\fP
+.br

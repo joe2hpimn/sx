@@ -27,7 +27,7 @@
 
 const char *gengetopt_args_info_purpose = "List contents of SX volumes";
 
-const char *gengetopt_args_info_usage = "Usage: sxls [OPTIONS]... sx://[profile@]cluster/[volume/[path]]...";
+const char *gengetopt_args_info_usage = "Usage: sxls [OPTIONS]... sx://[profile@]cluster[/volume[/path]]...";
 
 const char *gengetopt_args_info_versiontext = "";
 
@@ -38,13 +38,13 @@ const char *gengetopt_args_info_full_help[] = {
   "      --full-help        Print help, including hidden options, and exit",
   "  -V, --version          Print version and exit",
   "  -r, --recursive        Recursively list entire directories  (default=off)",
-  "  -l, --long-format      use a long listing format  (default=off)",
+  "  -l, --long-format      Use a long listing format  (default=off)",
   "  -H, --human-readable   Print human readable output  (default=off)",
   "  -D, --debug            Enable debug messages  (default=off)",
   "  -v, --verbose          Enable verbose errors  (default=off)",
+  "      --print0           Separate file names with \\0 instead of \\n\n                           (default=off)",
   "  -c, --config-dir=PATH  Path to SX configuration directory",
   "      --filter-dir=PATH  Path to SX filter directory",
-  "      --print0           Separate file names with \\0 instead of \\n\n                           (default=off)",
     0
 };
 
@@ -94,9 +94,9 @@ void clear_given (struct gengetopt_args_info *args_info)
   args_info->human_readable_given = 0 ;
   args_info->debug_given = 0 ;
   args_info->verbose_given = 0 ;
+  args_info->print0_given = 0 ;
   args_info->config_dir_given = 0 ;
   args_info->filter_dir_given = 0 ;
-  args_info->print0_given = 0 ;
 }
 
 static
@@ -108,11 +108,11 @@ void clear_args (struct gengetopt_args_info *args_info)
   args_info->human_readable_flag = 0;
   args_info->debug_flag = 0;
   args_info->verbose_flag = 0;
+  args_info->print0_flag = 0;
   args_info->config_dir_arg = NULL;
   args_info->config_dir_orig = NULL;
   args_info->filter_dir_arg = NULL;
   args_info->filter_dir_orig = NULL;
-  args_info->print0_flag = 0;
   
 }
 
@@ -129,9 +129,9 @@ void init_args_info(struct gengetopt_args_info *args_info)
   args_info->human_readable_help = gengetopt_args_info_full_help[5] ;
   args_info->debug_help = gengetopt_args_info_full_help[6] ;
   args_info->verbose_help = gengetopt_args_info_full_help[7] ;
-  args_info->config_dir_help = gengetopt_args_info_full_help[8] ;
-  args_info->filter_dir_help = gengetopt_args_info_full_help[9] ;
-  args_info->print0_help = gengetopt_args_info_full_help[10] ;
+  args_info->print0_help = gengetopt_args_info_full_help[8] ;
+  args_info->config_dir_help = gengetopt_args_info_full_help[9] ;
+  args_info->filter_dir_help = gengetopt_args_info_full_help[10] ;
   
 }
 
@@ -282,12 +282,12 @@ cmdline_parser_dump(FILE *outfile, struct gengetopt_args_info *args_info)
     write_into_file(outfile, "debug", 0, 0 );
   if (args_info->verbose_given)
     write_into_file(outfile, "verbose", 0, 0 );
+  if (args_info->print0_given)
+    write_into_file(outfile, "print0", 0, 0 );
   if (args_info->config_dir_given)
     write_into_file(outfile, "config-dir", args_info->config_dir_orig, 0);
   if (args_info->filter_dir_given)
     write_into_file(outfile, "filter-dir", args_info->filter_dir_orig, 0);
-  if (args_info->print0_given)
-    write_into_file(outfile, "print0", 0, 0 );
   
 
   i = EXIT_SUCCESS;
@@ -524,9 +524,9 @@ cmdline_parser_internal (
         { "human-readable",	0, NULL, 'H' },
         { "debug",	0, NULL, 'D' },
         { "verbose",	0, NULL, 'v' },
+        { "print0",	0, NULL, 0 },
         { "config-dir",	1, NULL, 'c' },
         { "filter-dir",	1, NULL, 0 },
-        { "print0",	0, NULL, 0 },
         { 0,  0, 0, 0 }
       };
 
@@ -565,7 +565,7 @@ cmdline_parser_internal (
             goto failure;
         
           break;
-        case 'l':	/* use a long listing format.  */
+        case 'l':	/* Use a long listing format.  */
         
         
           if (update_arg((void *)&(args_info->long_format_flag), 0, &(args_info->long_format_given),
@@ -625,8 +625,20 @@ cmdline_parser_internal (
             exit (EXIT_SUCCESS);
           }
 
+          /* Separate file names with \\0 instead of \\n.  */
+          if (strcmp (long_options[option_index].name, "print0") == 0)
+          {
+          
+          
+            if (update_arg((void *)&(args_info->print0_flag), 0, &(args_info->print0_given),
+                &(local_args_info.print0_given), optarg, 0, 0, ARG_FLAG,
+                check_ambiguity, override, 1, 0, "print0", '-',
+                additional_error))
+              goto failure;
+          
+          }
           /* Path to SX filter directory.  */
-          if (strcmp (long_options[option_index].name, "filter-dir") == 0)
+          else if (strcmp (long_options[option_index].name, "filter-dir") == 0)
           {
           
           
@@ -635,18 +647,6 @@ cmdline_parser_internal (
                 &(local_args_info.filter_dir_given), optarg, 0, 0, ARG_STRING,
                 check_ambiguity, override, 0, 0,
                 "filter-dir", '-',
-                additional_error))
-              goto failure;
-          
-          }
-          /* Separate file names with \\0 instead of \\n.  */
-          else if (strcmp (long_options[option_index].name, "print0") == 0)
-          {
-          
-          
-            if (update_arg((void *)&(args_info->print0_flag), 0, &(args_info->print0_given),
-                &(local_args_info.print0_given), optarg, 0, 0, ARG_FLAG,
-                check_ambiguity, override, 1, 0, "print0", '-',
                 additional_error))
               goto failure;
           
