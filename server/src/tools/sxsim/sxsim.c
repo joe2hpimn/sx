@@ -1126,9 +1126,9 @@ static int runcmd(struct sxcluster *cluster, int mode, char *line)
 		}
 		found = 1;
 		node->del_flag = 1;
+		cluster->need_update = 1;
 		if(!node->stored) {
 		    cluster->capacity -= node->capacity;
-		    cluster->need_update = 1;
 		} else {
 		    if(!sxi_hdist_version(cluster->hdist)) {
 			printf("Updating distribution model...\n");
