@@ -142,6 +142,7 @@ void sxc_cluster_listvolumes_free(sxc_cluster_lv_t *lv);
 typedef struct _sxc_cluster_lf_t sxc_cluster_lf_t;
 sxc_cluster_lf_t *sxc_cluster_listfiles(sxc_cluster_t *cluster, const char *volume, const char *glob_pattern, int recursive, int64_t *volume_used_size, int64_t *volume_size, unsigned int *replica_count, unsigned int *nfiles, int reverse);
 int sxc_cluster_listfiles_next(sxc_cluster_lf_t *lf, char **file_name, int64_t *file_size, time_t *file_created_at, char **file_revision);
+int sxc_cluster_listfiles_prev(sxc_cluster_lf_t *lf, char **file_name, int64_t *file_size, time_t *file_created_at, char **file_revision);
 void sxc_cluster_listfiles_free(sxc_cluster_lf_t *lf);
 
 /*

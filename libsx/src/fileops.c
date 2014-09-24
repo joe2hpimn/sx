@@ -4865,7 +4865,6 @@ struct _sxc_file_list_t {
     sxc_cluster_t *cluster;
     unsigned recursive;
     sxi_jobs_t jobs;
-    int multi;
 };
 
 
@@ -4986,6 +4985,15 @@ static int sxi_file_list_foreach_wait(sxc_file_list_t *target, sxc_cluster_t *cl
     return ret;
 }
 
+static int is_single_file_match(const char *pattern, unsigned pattern_slashes, const char *filename)
+{
+    /*  /a/b/? can match /a/b/x which is a file, but it can also match
+     *  /a/b/y/o which is a file in the y directory */
+    unsigned file_slashes = sxi_count_slashes(filename);
+    return pattern_slashes == file_slashes &&
+        (!ends_with(pattern, '/') || ends_with(filename, '/'));
+}
+
 int sxi_file_list_foreach(sxc_file_list_t *target, sxc_cluster_t *wait_cluster, multi_cb_t multi_cb, file_list_cb_t cb, int need_locate, void *ctx)
 {
     sxc_cluster_t *cluster;
@@ -5022,7 +5030,8 @@ int sxi_file_list_foreach(sxc_file_list_t *target, sxc_cluster_t *wait_cluster, 
         if (volhosts)
             sxi_hostlist_init(volhosts);
         do {
-            int64_t size;
+            uint64_t single_files = 0;
+            uint64_t files_in_dir = 0;
             unsigned replica;
             struct timeval t0, t1;
 	    const void *mval;
@@ -5076,7 +5085,7 @@ int sxi_file_list_foreach(sxc_file_list_t *target, sxc_cluster_t *wait_cluster, 
             }
             /* glob */
             CFGDEBUG("Listing using glob pattern '%s'", pattern->path);
-            lst = sxc_cluster_listfiles(cluster, pattern->volume, pattern->path, target->recursive, NULL, &size, &replica, &entry->nfiles, 1);
+            lst = sxc_cluster_listfiles(cluster, pattern->volume, pattern->path, target->recursive, NULL, NULL, &replica, &entry->nfiles, 0);
             if (!lst) {
                 CFGDEBUG("Cannot list files");
                 break;
@@ -5084,22 +5093,40 @@ int sxi_file_list_foreach(sxc_file_list_t *target, sxc_cluster_t *wait_cluster, 
             gettimeofday(&t1, NULL);
             /*sxi_info(target->sx, "Received list of %d files in %.1fs", entry->nfiles, sxi_timediff(&t1, &t0));*/
             CFGDEBUG("Glob pattern matched %d files", entry->nfiles);
-            if (entry->nfiles > 1 && multi_cb && multi_cb(target, ctx)) {
-                CFGDEBUG("multiple source file rejected by callback");
-                break;
-            }
             rc = 0;
+            unsigned pattern_slashes = sxi_count_slashes(pattern->path) + 1;
             for (j=0;j<entry->nfiles && !rc;j++) {
-                time_t t;
-                if (sxc_cluster_listfiles_next(lst, &filename, &size, &t, NULL) <= 0) {
+                if (sxc_cluster_listfiles_next(lst, &filename, NULL, NULL, NULL) <= 0) {
                     CFGDEBUG("Failed to list file %d/%d", j, entry->nfiles);
                     break;
                 }
-                CFGDEBUG("Processing file '%s/%s'", pattern->volume, filename);
-                if (filename && *filename && filename[strlen(filename)-1] == '/')
-                    continue;/* attempt to delete only files, not dirs */
-                job = sxi_file_list_process(target, pattern, cluster, cb, volhosts, pattern->volume, filename, ctx, fh);
-                rc = sxi_jobs_add(target->sx, &target->jobs, job);
+                if (is_single_file_match(pattern->path, pattern_slashes, filename))
+                    single_files++;
+                else
+                    files_in_dir++;
+                free(filename);
+                filename = NULL;
+            }
+            if (!target->recursive)
+                files_in_dir = 0;/* omitted */
+            if ((single_files > 1 || files_in_dir > 0) && multi_cb && multi_cb(target, ctx)) {
+                CFGDEBUG("multiple source file rejected by callback");
+                rc = -1;
+                break;
+            }
+            CFGDEBUG("Single files: %lld, files in dir: %lld", (long long)single_files, (long long)files_in_dir);
+            for (j=0;j<entry->nfiles && !rc;j++) {
+                if (sxc_cluster_listfiles_prev(lst, &filename, NULL, NULL, NULL) <= 0) {
+                    CFGDEBUG("Failed to list file %d/%d", j, entry->nfiles);
+                    break;
+                }
+                if (!target->recursive && !is_single_file_match(pattern->path, pattern_slashes, filename)) {
+                    sxi_notice(target->sx, "Omitting (file in) directory: %s", filename);
+                } else {
+                    CFGDEBUG("Processing file '%s/%s'", pattern->volume, filename);
+                    job = sxi_file_list_process(target, pattern, cluster, cb, volhosts, pattern->volume, filename, ctx, fh);
+                    rc = sxi_jobs_add(target->sx, &target->jobs, job);
+                }
                 free(filename);
                 filename = NULL;
             }
@@ -5238,13 +5265,14 @@ static int multi_cb(sxc_file_list_t *target, void *ctx)
 {
     struct remote_iter *it = ctx;
     sxc_file_t *dest = it->dest;
-    target->multi = 1;
-    if (target->recursive && !is_remote(dest)) {
+    if ((target->recursive || ends_with(dest->path,'/')) && !is_remote(dest)) {
         if (mkdir(dest->path, 0777) == -1 && errno != EEXIST) {
             sxi_setsyserr(target->sx, SXE_EARG, "Cannot create directory '%s'", dest->path);
             return -1;
         }
     }
+    if (target->recursive && is_remote(dest))
+        return 0;/* allow copying sx://cluster/vol/a to sx://cluster/vol/b, when 'a' is a dir */
     return sxc_file_require_dir(dest);
 }
 

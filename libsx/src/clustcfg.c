@@ -1904,7 +1904,7 @@ sxc_cluster_lf_t *sxc_cluster_listfiles(sxc_cluster_t *cluster, const char *volu
     return ret;
 }
 
-static int sxc_cluster_listfiles_prev(sxc_cluster_lf_t *lf, char **file_name, int64_t *file_size, time_t *file_created_at, char **file_revision) {
+int sxc_cluster_listfiles_prev(sxc_cluster_lf_t *lf, char **file_name, int64_t *file_size, time_t *file_created_at, char **file_revision) {
     struct cbl_file_t file;
     long pos;
     sxc_client_t *sx = lf->sx;
