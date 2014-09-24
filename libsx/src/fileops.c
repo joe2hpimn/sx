@@ -895,6 +895,26 @@ static ssize_t pread_hard(int fd, void *buf, size_t count, off_t offset) {
     return ret;
 }
 
+static ssize_t write_hard(int fd, const void *buf, size_t count)
+{
+    const uint8_t *wbuf = buf;
+    size_t todo = count;
+    ssize_t done;
+
+    while(todo) {
+	done = write(fd, wbuf, todo);
+	if(done < 0) {
+	    if(errno == EINTR)
+		continue;
+	    return -1;
+	}
+	todo -= done;
+	wbuf += done;
+    }
+
+    return count;
+}
+
 struct hash_up_data_t {
     sxi_hostlist_t hosts;
     off_t offset;
@@ -1904,7 +1924,7 @@ static int local_to_remote_begin(sxc_file_t *source, sxc_meta_t *fmeta, sxc_file
 			    fh->f->data_finish(fh, &fh->ctx, SXF_MODE_UPLOAD);
 			goto local_to_remote_err;
 		    }
-		    if(write(td, outbuff, bwrite) != bwrite) {
+		    if(write_hard(td, outbuff, bwrite) == -1) {
 			sxi_setsyserr(sx, SXE_EWRITE, "Filter failed: Can't write to temporary file");
 			fclose(tempfile);
 			if(fh->f->data_finish)
@@ -3698,10 +3718,8 @@ static int remote_to_local(sxc_file_t *source, sxc_file_t *dest) {
 				fail = 1;
 				break;
 			    }
-			    done = write(rd, outbuff, done);
+			    done = write_hard(rd, outbuff, done);
 			    if(done < 0) {
-				if(errno == EINTR)
-				    continue;
 				SXDEBUG("Failed to write output file");			
 				sxi_setsyserr(sx, SXE_EWRITE, "Download failed: Cannot write to output file");
 				fail = 1;
@@ -3710,10 +3728,8 @@ static int remote_to_local(sxc_file_t *source, sxc_file_t *dest) {
 			} while(action == SXF_ACTION_REPEAT);
 			got = 0;
 		    } else {
-			done = write(rd, buff, got);
+			done = write_hard(rd, buff, got);
 			if(done < 0) {
-			    if(errno == EINTR)
-				continue;
 			    SXDEBUG("Failed to write output file");			
 			    sxi_setsyserr(sx, SXE_EWRITE, "Download failed: Cannot write to output file");
 			    fail = 1;
@@ -4461,7 +4477,7 @@ static int cat_remote_file(sxc_file_t *source, int dest) {
 			fh->f->data_finish(fh, &fh->ctx, SXF_MODE_DOWNLOAD);
 		    goto sxc_cat_fail;
 		}
-		if(write(dest, fbuf, bwrite) != bwrite) {
+		if(write_hard(dest, fbuf, bwrite) == -1) {
 		    sxi_setsyserr(sx, SXE_EWRITE, "Filter failed: Can't write to fd %d", dest);
 		    if(fh->f->data_finish)
 			fh->f->data_finish(fh, &fh->ctx, SXF_MODE_DOWNLOAD);
@@ -4469,20 +4485,7 @@ static int cat_remote_file(sxc_file_t *source, int dest) {
 		}
 	    } while(action == SXF_ACTION_REPEAT);
 	} else {
-	    while(todo) {
-		ssize_t done;
-		done = write(dest, wbuf, todo);
-		if(done < 0) {
-		    if(errno == EINTR)
-			continue;
-		    sxi_setsyserr(sx, SXE_EWRITE, "Failed to write to fd %d", dest);
-		    break;
-		}
-		todo -= done;
-		wbuf += done;
-	    }
-
-	    if(todo)
+	    if(write_hard(dest, wbuf, todo) == -1)
 		goto sxc_cat_fail;
 	}
 	sxi_hostlist_empty(&hostlist);
@@ -4527,7 +4530,6 @@ static int cat_local_file(sxc_file_t *source, int dest) {
 
     while(1) {
 	ssize_t got = read(src, buf, sizeof(buf));
-	char *curbuf;
 	if(!got)
 	    break;
 	if(got < 0) {
@@ -4538,20 +4540,11 @@ static int cat_local_file(sxc_file_t *source, int dest) {
 	    close(src);
 	    return 1;
 	}
-
-	curbuf = buf;
-	while(got) {
-	    ssize_t wrote = write(dest, curbuf, got);
-	    if(wrote < 0) {
-		if(errno == EINTR)
-		    continue;
-		SXDEBUG("failed to write to output stream");
-		sxi_setsyserr(sx, SXE_EWRITE, "Failed to write to output stream");
-		close(src);
-		return 1;
-	    }
-	    got -= wrote;
-	    curbuf += wrote;
+	if(write_hard(dest, buf, got) == -1) {
+	    SXDEBUG("failed to write to output stream");
+	    sxi_setsyserr(sx, SXE_EWRITE, "Failed to write to output stream");
+	    close(src);
+	    return 1;
 	}
     }
     close(src);
