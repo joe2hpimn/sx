@@ -82,7 +82,7 @@ void fcgi_delete_user() {
 	if(sx_hashfs_check_username(new_owner))
 	    quit_errmsg(500, "Internal error (requesting user has an invalid name)");
 
-	if(!memcmp(user, deluser, sizeof(*user)))
+	if(!memcmp(user, deluser, sizeof(user)))
 	    quit_errmsg(400, "You may not delete yourself");
 
 	joblb = sx_blob_new();
