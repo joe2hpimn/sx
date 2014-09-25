@@ -4,9 +4,9 @@ usage "sxvol filter <OPTIONS>..."
 
 text "\nFilter options:\n"
 
-option  "list"		- "List available filters" optional
+option  "list"		l "List available filters" optional
 
-option  "info"		- "Display details about filter NAME"
+option  "info"		i "Display details about filter NAME"
         string typestr="NAME" optional
 
 text "\nAdditional options:\n"

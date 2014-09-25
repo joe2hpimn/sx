@@ -1,0 +1,26 @@
+.TH SXVOL "1" "September 2014" "sxvol @VERSION@" "Skylable SX Manual"
+.SH NAME
+sxvol \- manage volumes and filters
+.SH SYNOPSIS
+.B sxvol
+\fI\,<command> \/\fR[\fI\,OPTIONS\/\fR]...
+.SH DESCRIPTION
+sxvol can create and delete remote volumes and display information about available filters.
+.SH COMMANDS
+The available commands are listed below. To get more information about a specific command run \fB'man sxvol COMMAND'\fR.
+.TP
+.B create
+Create a remote volume.
+.TP
+.B delete
+Remove a remote volume.
+.TP
+.B filter
+Display information about available filters.
+.SH OPTIONS
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help and exit
+.TP
+\fB\-V\fR, \fB\-\-version\fR
+Print version and exit

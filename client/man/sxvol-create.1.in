@@ -1,0 +1,52 @@
+.TH SXVOL-CREATE "1" "September 2014" "sxvol @VERSION@" "Skylable SX Manual"
+.SH NAME
+sxvol create \- create volumes on SX clusters
+.SH SYNOPSIS
+.B sxvol create
+\fR[\fI\,OPTIONS\/\fR] \fI\,-r N -o username sx://\/\fR[\fI\,profile@\/\fR]\fI\,cluster/volume\/\fR
+.SH DESCRIPTION
+Create a remote volume with specific settings. Only cluster administrators can create volumes.
+.SH OPTIONS
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help and exit
+.TP
+\fB\-\-full\-help\fR
+Print help, including hidden options, and exit
+.TP
+\fB\-V\fR, \fB\-\-version\fR
+Print version and exit
+.TP
+\fB\-r\fR, \fB\-\-replica\fR=\fI\,NUMBER\/\fR
+Set the replica count for the volume. This is a mandatory option and specifies how many times the data will be replicated on different nodes. For example, with replica count 2 the volume data will still be available when one of the nodes, which includes the volume data fails (because there's still another node with the copy of the data).
+.TP
+\fB\-o\fR, \fB\-\-owner\fR=\fI\,NAME\/\fR
+Set the owner of the volume. The owners can modify volume ACLs (see \fBsxacl(1)\fR) and other settings. This option is mandatory.
+.TP
+\fB\-f\fR, \fB\-\-filter\fR=\fI\,NAME[="FILTER_OPTIONS"]\/\fR
+Enable selected filter for the new volume. The filters can do some additional processing of the data (such as compression or encryption), see \fBsxvol-filter(1)\fR for more information.
+.TP
+\fB\-s\fR, \fB\-\-size\fR=\fI\,SIZE\/\fR
+Set the size of the new volume. The size can be followed by one of the following suffixes: K(-ilobytes), M(-megabytes), G(-igabytes) and T(-erabytes) suffixes. The default value is 10G.
+.TP
+\fB\-\-max\-revisions\fR=\fI\,NUMBER\/\fR
+Set the maximum number of revisions to keep for files in the volume. The revisions are other versions of the file stored when the file gets modified. The default value is 1, which means that only a single version of the file will be stored. See \fBsxrev(1)\fR for more information about revisions.
+.TP
+\fB\-D\fR, \fB\-\-debug\fR
+Enable debug messages
+.TP
+\fB\-c\fR, \fB\-\-config\-dir\fR=\fI\,PATH\/\fR
+Path to the SX configuration directory (default: ~/.sx)
+.TP
+\fB\-c\fR, \fB\-\-filter\-dir\fR=\fI\,PATH\/\fR
+Path to the SX filter directory (default: @SX_FILTER_DIR@)
+.SH "EXAMPLES"
+To create a 5GB volume 'data' with replica count 2, owned by 'joe', which uses the compression filter 'zcomp' run:
+.br
+\fB    sxvol create -r 2 -o joe -s 5G -f zcomp sx://admin@cluster/data\fP
+
+.br
+To create an encrypted volume with replica 3 and default settings for 'admin' run:
+.br
+\fB    sxvol create -r 3 -o admin -f aes256 sx://admin@cluster/encrypted\fP
+.br

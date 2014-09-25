@@ -38,8 +38,8 @@ const char *filter_args_info_full_help[] = {
   "      --full-help        Print help, including hidden options, and exit",
   "  -V, --version          Print version and exit",
   "\nFilter options:\n",
-  "      --list             List available filters",
-  "      --info=NAME        Display details about filter NAME",
+  "  -l, --list             List available filters",
+  "  -i, --info=NAME        Display details about filter NAME",
   "\nAdditional options:\n",
   "  -D, --debug            Enable debug messages  (default=off)",
   "  -c, --config-dir=PATH  Path to SX configuration directory",
@@ -497,15 +497,15 @@ filter_cmdline_parser_internal (
         { "help",	0, NULL, 'h' },
         { "full-help",	0, NULL, 0 },
         { "version",	0, NULL, 'V' },
-        { "list",	0, NULL, 0 },
-        { "info",	1, NULL, 0 },
+        { "list",	0, NULL, 'l' },
+        { "info",	1, NULL, 'i' },
         { "debug",	0, NULL, 'D' },
         { "config-dir",	1, NULL, 'c' },
         { "filter-dir",	1, NULL, 0 },
         { 0,  0, 0, 0 }
       };
 
-      c = getopt_long (argc, argv, "hVDc:", long_options, &option_index);
+      c = getopt_long (argc, argv, "hVli:Dc:", long_options, &option_index);
 
       if (c == -1) break;	/* Exit from `while (1)' loop.  */
 
@@ -528,6 +528,30 @@ filter_cmdline_parser_internal (
             goto failure;
           filter_cmdline_parser_free (&local_args_info);
           return 0;
+        
+          break;
+        case 'l':	/* List available filters.  */
+        
+        
+          if (update_arg( 0 , 
+               0 , &(args_info->list_given),
+              &(local_args_info.list_given), optarg, 0, 0, ARG_NO,
+              check_ambiguity, override, 0, 0,
+              "list", 'l',
+              additional_error))
+            goto failure;
+        
+          break;
+        case 'i':	/* Display details about filter NAME.  */
+        
+        
+          if (update_arg( (void *)&(args_info->info_arg), 
+               &(args_info->info_orig), &(args_info->info_given),
+              &(local_args_info.info_given), optarg, 0, 0, ARG_STRING,
+              check_ambiguity, override, 0, 0,
+              "info", 'i',
+              additional_error))
+            goto failure;
         
           break;
         case 'D':	/* Enable debug messages.  */
@@ -560,36 +584,8 @@ filter_cmdline_parser_internal (
             exit (EXIT_SUCCESS);
           }
 
-          /* List available filters.  */
-          if (strcmp (long_options[option_index].name, "list") == 0)
-          {
-          
-          
-            if (update_arg( 0 , 
-                 0 , &(args_info->list_given),
-                &(local_args_info.list_given), optarg, 0, 0, ARG_NO,
-                check_ambiguity, override, 0, 0,
-                "list", '-',
-                additional_error))
-              goto failure;
-          
-          }
-          /* Display details about filter NAME.  */
-          else if (strcmp (long_options[option_index].name, "info") == 0)
-          {
-          
-          
-            if (update_arg( (void *)&(args_info->info_arg), 
-                 &(args_info->info_orig), &(args_info->info_given),
-                &(local_args_info.info_given), optarg, 0, 0, ARG_STRING,
-                check_ambiguity, override, 0, 0,
-                "info", '-',
-                additional_error))
-              goto failure;
-          
-          }
           /* Path to SX filter directory.  */
-          else if (strcmp (long_options[option_index].name, "filter-dir") == 0)
+          if (strcmp (long_options[option_index].name, "filter-dir") == 0)
           {
           
           

@@ -1,0 +1,30 @@
+.TH SXREV-DELETE "1" "September 2014" "sxrev @VERSION@" "Skylable SX Manual"
+.SH NAME
+sxrev delete \- delete a revision
+.SH SYNOPSIS
+.B sxrev delete
+[\fI\,OPTIONS\/\fR] \fI sx://\/\fR[\fI\,profile@\/\fR]\fI\,cluster/volume/path\/\fR
+.SH DESCRIPTION
+Delete a specific revision of a file.
+.SH OPTIONS
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help and exit
+.TP
+\fB\-\-full\-help\fR
+Print help, including hidden options, and exit
+.TP
+\fB\-V\fR, \fB\-\-version\fR
+Print version and exit
+.TP
+\fB\-r\fR, \fB\-\-rev\fR=\fI\,REVISION\/\fR
+By default sxrev asks interactively, which revision should be deleted. With this option you can avoid the interactive mode and specify the revision that should be deleted. The list of revisions can be obtained with \fBsxrev-list(1)\fR.
+.TP
+\fB\-c\fR, \fB\-\-config\-dir\fR=\fI\,PATH\/\fR
+Path to the SX configuration directory (default: ~/.sx)
+.TP
+\fB\-c\fR, \fB\-\-filter\-dir\fR=\fI\,PATH\/\fR
+Path to the SX filter directory (default: @SX_FILTER_DIR@)
+.TP
+\fB\-D\fR, \fB\-\-debug\fR
+Enable debug messages

@@ -1,0 +1,43 @@
+.TH SXVOL-FILTER "1" "September 2014" "sxvol @VERSION@" "Skylable SX Manual"
+.SH NAME
+sxvol filter \- display information about filters
+.SH SYNOPSIS
+.B sxvol
+\fI\,filter <OPTIONS>\/\fR...
+.SH DESCRIPTION
+Filters are special plug-ins, which run locally and perform specific operations when the client tools access the data on SX clusters. A use case example is data encryption, which is performed before the data gets uploaded to the cluster and after it gets downloaded to the local computer. This command lists filters available in the system and their details.
+.SH OPTIONS
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help and exit
+.TP
+\fB\-\-full\-help\fR
+Print help, including hidden options, and exit
+.TP
+\fB\-V\fR, \fB\-\-version\fR
+Print version and exit
+.TP
+\fB\-l\fR, \fB\-\-list\fR
+List all available filters
+.TP
+\fB\-i\fR, \fB\-\-info\fR=\fI\,NAME\/\fR
+Display details about a particular filter. It expects a short name of a filter as an argument.
+.TP
+\fB\-D\fR, \fB\-\-debug\fR
+Enable debug messages  (default=off)
+.TP
+\fB\-c\fR, \fB\-\-config\-dir\fR=\fI\,PATH\/\fR
+Path to the SX configuration directory (default: ~/.sx)
+.TP
+\fB\-c\fR, \fB\-\-filter\-dir\fR=\fI\,PATH\/\fR
+Path to the SX filter directory (default: @SX_FILTER_DIR@)
+.SH "EXAMPLES"
+To list all available filters run:
+.br
+\fB    sxvol filter -l\fP
+
+.br
+To display details about the filter 'aes256' run:
+.br
+\fB    sxvol filter -i aes256\fP
+.br

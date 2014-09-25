@@ -25,6 +25,7 @@ Retrieve the authentication key of a user.
 Manage volume permissions.
 .TP
 .B volshow
+Display volume permissions.
 .SH OPTIONS
 .TP
 \fB\-h\fR, \fB\-\-help\fR
@@ -32,4 +33,3 @@ Print help and exit
 .TP
 \fB\-V\fR, \fB\-\-version\fR
 Print version and exit
-.PP
