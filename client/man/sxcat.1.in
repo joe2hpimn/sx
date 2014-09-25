@@ -6,6 +6,7 @@ sxcat \- concatenate files and print on the standard output
 [\fI\,OPTIONS\/\fR]... \fI\,sx://\/\fR[\fI\,profile@\/\fR]\fI\,cluster/volume/path\/\fR...
 .SH DESCRIPTION
 Concatenate and print remote files from SX volumes.
+.SH OPTIONS
 .TP
 \fB\-h\fR, \fB\-\-help\fR
 Print help and exit

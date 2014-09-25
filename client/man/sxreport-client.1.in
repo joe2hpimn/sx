@@ -1,0 +1,27 @@
+.TH SXREPORT-CLIENT "1" "September 2014" "sxreport-client @VERSION@" "Skylable SX Manual"
+.SH NAME
+sxreport-client \- generate a report about the system and client configuration
+.SH SYNOPSIS
+.B sxreport-client
+[\fI\,OPTIONS\/\fR]
+.SH DESCRIPTION
+This tool automatically generates a report about the system, client configuration, libraries and various dependencies, which can be useful when reporting a bug.
+.SH OPTIONS
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help and exit
+.TP
+\fB\-\-full\-help\fR
+Print help, including hidden options, and exit
+.TP
+\fB\-V\fR, \fB\-\-version\fR
+Print version and exit
+.TP
+\fB\-o\fR, \fB\-\-output\fR=\fI\,PATH\/\fR
+Save output to a given file. By default the report will be saved in the current directory as sxreport\-client\-<timestamp>.log.
+.TP
+\fB\-c\fR, \fB\-\-config\-dir\fR=\fI\,PATH\/\fR
+Path to the SX configuration directory (default: ~/.sx)
+.TP
+\fB\-c\fR, \fB\-\-filter\-dir\fR=\fI\,PATH\/\fR
+Path to the SX filter directory (default: @SX_FILTER_DIR@)

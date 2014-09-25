@@ -6,6 +6,7 @@ sxls \- list available volumes and their contents
 [\fI\,OPTIONS\/\fR]... \fI\,sx://\/\fR[\fI\,profile@\/\fR]\fI\,cluster\/\fR[\fI\,/volume\/\fR[\fI\,/path\/\fR]]...
 .SH DESCRIPTION
 List information about the volumes available in the cluster (when called without a volume name) or contents of a particular volume.
+.SH OPTIONS
 .TP
 \fB\-h\fR, \fB\-\-help\fR
 Print help and exit
@@ -35,10 +36,10 @@ Enable verbose errors
 Separate file names with \e0 instead of \en
 .TP
 \fB\-c\fR, \fB\-\-config\-dir\fR=\fI\,PATH\/\fR
-Path to SX configuration directory
+Path to the SX configuration directory (default: ~/.sx)
 .TP
-\fB\-\-filter\-dir\fR=\fI\,PATH\/\fR
-Path to SX filter directory
+\fB\-c\fR, \fB\-\-filter\-dir\fR=\fI\,PATH\/\fR
+Path to the SX filter directory (default: @SX_FILTER_DIR@)
 .SH "EXAMPLES"
 To list all volumes, which you can access on 'cluster' run:
 .br

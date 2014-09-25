@@ -6,6 +6,7 @@ sxcp \- Copy files from, to and between SX clusters
 [\fI\,OPTIONS\/\fR]... \fI\,SOURCE\/\fR... \fI\,DEST\/\fR
 .SH DESCRIPTION
 sxcp can copy files and entire directories from and to Skylable SX clusters. It can also copy data between two different SX clusters. By default for each file a progress bar is displayed, which shows the copy speed and the estimated time of arrival. sxcp makes use of all the advanced features of Skylable SX, such as deduplication and transfer resuming to minimize the bandwidth usage.
+.SH OPTIONS
 .TP
 \fB\-h\fR, \fB\-\-help\fR
 Print help and exit
@@ -35,10 +36,10 @@ Print more details about the transfer
 Enable debug messages
 .TP
 \fB\-c\fR, \fB\-\-config\-dir\fR=\fI\,PATH\/\fR
-Path to SX configuration directory
+Path to the SX configuration directory (default: ~/.sx)
 .TP
-\fB\-f\fR, \fB\-\-filter\-dir\fR=\fI\,PATH\/\fR
-Path to SX filter directory
+\fB\-c\fR, \fB\-\-filter\-dir\fR=\fI\,PATH\/\fR
+Path to the SX filter directory (default: @SX_FILTER_DIR@)
 .TP
 \fB\-\-total\-conns\-limit\fR=\fI\,INT\/\fR
 Limit the total number of connections used in a session. The default limit is 5 connections.

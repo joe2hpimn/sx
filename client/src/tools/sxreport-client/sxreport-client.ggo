@@ -1,6 +1,6 @@
 package "sxreport-client"
 args "--unamed-opts --no-handle-version --no-handle-error"
-usage "sxreport-client [OPTIONS] [sx://[profile@]cluster/NAME]"
+usage "sxreport-client [OPTIONS]"
 
 text "\nAdditional options:\n"
 

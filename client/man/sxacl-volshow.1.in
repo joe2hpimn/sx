@@ -6,6 +6,7 @@ sxacl-volshow \- list an access control list for a volume
 \fR[\fI\,OPTIONS\/\fR] \fI\,sx://\/\fR[\fI\,profile@\/\fR]\fI\,cluster\/\fR
 .SH DESCRIPTION
 \fBsxacl volshow\fR displays an access control list (ACL) for a given volume. This includes information about users who can access a volume and their rights. Only volume owners and cluster administrators can list volume ACL.
+.SH OPTIONS
 .TP
 \fB\-h\fR, \fB\-\-help\fR
 Print help and exit

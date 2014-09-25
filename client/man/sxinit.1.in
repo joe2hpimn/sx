@@ -1,0 +1,61 @@
+.TH SXINIT "1" "September 2014" "sxinit @VERSION@" "Skylable SX Manual"
+.SH NAME
+sxinit \- manage local access configuration for SX clusters
+.SH SYNOPSIS
+.B sxinit
+[\fI\,OPTIONS\/\fR]... \fI\,{ sx://\/\fR[\fI\,profile@\/\fR]\fI\,cluster | --list }\/\fR
+.SH DESCRIPTION
+sxinit sets up access to remote SX clusters and must be used when accessing a cluster for the first time. It performs the initial access to the cluster, including the certificate verification, and stores the configuration locally (by default in ~/.sx), which the other tools automatically use to connect to the cluster. It expects the cluster URI together with an optional profile name (useful when configuring multiple accesses to the same cluster).
+.SH OPTIONS
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help and exit
+.TP
+\fB\-\-full\-help\fR
+Print help, including hidden options, and exit
+.TP
+\fB\-V\fR, \fB\-\-version\fR
+Print version and exit
+.TP
+\fB\-L\fR, \fB\-\-list\fR
+List configured clusters and aliases
+.TP
+\fB\-\-no\-ssl\fR
+Disable secure communication. For security reasons, only use this option when the cluster doesn't offer SSL connections.
+.TP
+\fB\-a\fR, \fB\-\-auth\-file\fR=\fI\,PATH\/\fR
+By default sxinit works in interactive mode and asks for the user key. With this option it will read it from the provided file.
+.TP
+\fB\-\-port\fR=\fI\,NUMBER\/\fR
+Set the cluster TCP port. By default, sxinit will use the port 443 (https) or 80 (http), when it's called with \-\-no\-ssl. The SX clusters can operate on custom ports and this option instructs sxinit to use a specific one.
+.TP
+\fB\-l\fR, \fB\-\-host\-list\fR=\fI\,IP_1\/\fR,IP_2,IP_3,...
+When setting up access to a cluster, which doesn't use a DNS name, it's required to point sxinit to at least one node in the cluster by its IP address. This option is not needed for DNS-enabled clusters.
+.TP
+\fB\-A\fR, \fB\-\-alias\fR=\fI\,@ALIAS\/\fR
+This option sets up an alias for the provided URI/profile. The alias is a string preceded with '@', which allows you to quickly refer to the cluster, eg. @cloud can be an alias for sx://myprofile@mypersonalcloud.com
+.TP
+\fB\-b\fR, \fB\-\-batch\-mode\fR
+Turn off interactive confirmations and assume yes for all questions. This option should only be used in scripts and with caution, because it will accept the certificates automatically.
+.TP
+\fB\-\-force\-reinit\fR
+Remove old cluster configuration and init from scratch. This option should be used when the remote cluster has been recreated and its identifier has changed (making sxinit report an error).
+.TP
+\fB\-D\fR, \fB\-\-debug\fR
+Enable debug messages  (default=off)
+.TP
+\fB\-c\fR, \fB\-\-config\-dir\fR=\fI\,PATH\/\fR
+Path to the SX configuration directory (default: ~/.sx)
+.SH "EXAMPLES"
+To configure access to a DNS-based SSL-enabled cluster using the default profile and the alias @sx run:
+.br
+\fB    sxinit --alias=@sx sx://somecluster.com\fP
+.br
+After accepting the certificate and providing the key you can access the cluster by sx://somecluster/ or just @sx
+
+.br
+To configure an access to a non-DNS cluster in a local network, which doesn't offer SSL connection and one of its nodes is 192.168.200.120 run:
+.br
+\fB    sxinit --no-ssl -l 192.168.200.120 sx://cluster\fP
+.br
+sxinit will automatically fetch the list of other nodes in the cluster and make it available through sx://cluster for the tools.

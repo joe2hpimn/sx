@@ -6,6 +6,7 @@ sxacl-userlist \- list all users in a cluster
 \fR[\fI\,OPTIONS\/\fR] \fI\,sx://\/\fR[\fI\,profile@\/\fR]\fI\,cluster\/\fR
 .SH DESCRIPTION
 \fBsxacl userlist\fR lists all users (and their types) in a Skylable SX cluster. Only cluster administrators can list users.
+.SH OPTIONS
 .TP
 \fB\-h\fR, \fB\-\-help\fR
 Print help and exit

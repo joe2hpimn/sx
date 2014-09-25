@@ -27,7 +27,7 @@
 
 const char *gengetopt_args_info_purpose = "";
 
-const char *gengetopt_args_info_usage = "Usage: sxreport-client [OPTIONS] [sx://[profile@]cluster/NAME]";
+const char *gengetopt_args_info_usage = "Usage: sxreport-client [OPTIONS]";
 
 const char *gengetopt_args_info_versiontext = "";
 

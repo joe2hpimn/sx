@@ -6,6 +6,7 @@ sxacl-userdel \- remove an existing user
 \fR[\fI\,OPTIONS\/\fR] \fI\,<username> sx://\/\fR[\fI\,profile@\/\fR]\fI\,cluster\/\fR
 .SH DESCRIPTION
 \fBsxacl userdel\fR removes an existing user from a Skylable SX cluster. All volumes owned by the user will be reassigned to the cluster administrator performing the removal.
+.SH OPTIONS
 .TP
 \fB\-h\fR, \fB\-\-help\fR
 Print help and exit

@@ -6,6 +6,7 @@ sxacl-usergetkey \- get key of a specific user
 \fR[\fI\,OPTIONS\/\fR] \fI\,<username> sx://\/\fR[\fI\,profile@\/\fR]\fI\,cluster\/\fR
 .SH DESCRIPTION
 \fBsxacl usergetkey\fR retrieves an authentication key of a specific user. Only cluster administrators can retrieve users' keys.
+.SH OPTIONS
 .TP
 \fB\-h\fR, \fB\-\-help\fR
 Print help and exit

@@ -6,6 +6,7 @@ sxacl-useradd \- create a new user
 \fR[\fI\,OPTIONS\/\fR] \fI\,<username> sx://\/\fR[\fI\,profile@\/\fR]\fI\,cluster\/\fR
 .SH DESCRIPTION
 \fBsxacl useradd\fR adds a new user to a Skylable SX cluster. By default, a regular user will be created. Only cluster administrators can create new users.
+.SH OPTIONS
 .TP
 \fB\-h\fR, \fB\-\-help\fR
 Print help and exit

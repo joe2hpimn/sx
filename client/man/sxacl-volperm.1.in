@@ -6,6 +6,7 @@ sxacl-volperm \- manage volume permissions
 \fR[\fI\,OPTIONS\/\fR] \fI\,<username> sx://\/\fR[\fI\,profile@\/\fR]\fI\,cluster/volume\/\fR
 .SH DESCRIPTION
 \fBsxacl volperm\fR manages volume permissions for a specific user. It can be used to grant or revoke read/write access. Only volume owners and cluster administrators can change volume permissions.
+.SH OPTIONS
 .TP
 \fB\-h\fR, \fB\-\-help\fR
 Print help and exit
