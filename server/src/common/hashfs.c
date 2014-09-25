@@ -8581,9 +8581,18 @@ rc_ty sx_hashfs_rb_cleanup(sx_hashfs_t *h) {
 	    for(i=0; i<METADBS; i++) {
 		sqlite3_reset(h->qm_delbyvol[i]);
 		if(qbind_int64(h->qm_delbyvol[i], ":volid", vol->id) ||
-		   qstep_noret(h->qm_delbyvol[i]))
-		    WARN("Failed to delete relocated files on %u for volume %llu", i, (long long)vol->id);
+		   qstep_noret(h->qm_delbyvol[i])) {
+                    WARN("Failed to delete relocated files on %u for volume %llu", i, (long long)vol->id);
+                    return FAIL_EINTERNAL;
+                }
 	    }
+            sqlite3_reset(h->q_setvolcursize);
+            if(qbind_int64(h->q_setvolcursize, ":size", 0) ||
+               qbind_int64(h->q_setvolcursize, ":volume", vol->id) ||
+               qstep_noret(h->q_setvolcursize)) {
+                WARN("Failed to reset volume size for volume %lld", (long long)vol->id);
+                return FAIL_EINTERNAL;
+            }
 	}
 	sx_nodelist_delete(volnodes);
 	r = sx_hashfs_volume_next(h);
