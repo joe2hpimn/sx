@@ -52,7 +52,7 @@ src_libsx_la_SOURCES = \
 if BUILD_NFTW
 src_libsx_la_SOURCES += \
 	src/nftw.c \
-	src/ftw.h
+	src/sxftw.h
 endif
 if BUILD_NSS
 src_libsx_la_SOURCES += src/nss.c

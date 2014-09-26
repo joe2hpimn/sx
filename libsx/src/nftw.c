@@ -27,7 +27,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/stat.h>
 #include <errno.h>
 #include <fts.h>
-#include <ftw.h>
+#include <sxftw.h>
 
 int
 nftw(const char *path, int (*fn)(const char *, const struct stat *, int,

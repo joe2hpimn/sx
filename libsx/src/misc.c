@@ -30,7 +30,7 @@
 #if HAVE_NFTW
 #include <ftw.h>
 #else
-#include "ftw.h"
+#include "sxftw.h"
 #endif
 
 #include "libsx-int.h"
