@@ -2188,7 +2188,9 @@ static int local_to_remote_iterate(sxc_file_t *source, int recursive, int depth,
     while ((entry = readdir(dir))) {
         if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, ".."))
             continue;
-        snprintf(path, n, "%s/%s", source->path, entry->d_name);
+        snprintf(path, n, "%s%s%s", source->path,
+                 ends_with(source->path, '/') ? "" : "/",
+                 entry->d_name);
         if (lstat(path, &sb) == -1) {
             sxi_setsyserr(sx, SXE_EREAD, "Cannot stat '%s'", path);
             ret = -1;
@@ -2205,7 +2207,9 @@ static int local_to_remote_iterate(sxc_file_t *source, int recursive, int depth,
             sxi_setsyserr(sx, SXE_EMEM, "Cannot dup path");
             break;
         }
-        snprintf(destpath, n2, "%s/%s", dest->path, entry->d_name);
+        snprintf(destpath, n2, "%s%s%s", dest->path,
+                 ends_with(dest->path, '/') ? "" : "/",
+                 entry->d_name);
         if (S_ISDIR(sb.st_mode)) {
             if ((qret = local_to_remote_iterate(src, 1, depth+1, onefs, dst))) {
                 SXDEBUG("failure in directory: %s", destpath);
