@@ -5015,7 +5015,7 @@ int sxi_file_list_foreach(sxc_file_list_t *target, sxc_cluster_t *wait_cluster, 
         sxi_hostlist_t *volhosts = need_locate ? &volhosts_storage : NULL;
 
         if (!target->recursive && (!*pattern->path || (pattern->path[0] == '/' && !pattern->path[1]))) {
-            sxi_seterr(target->sx, SXE_EARG, "Cannot operate on volume root without -r: '/%s/%s'", pattern->volume, pattern->path);
+            sxi_seterr(target->sx, SXE_EARG, "Cannot operate on volume root in non-recursive mode: '/%s'", pattern->volume);
             break;
         }
 
