@@ -12,7 +12,7 @@ The available commands are listed below. To get more information about a specifi
 .B create
 Create a remote volume.
 .TP
-.B delete
+.B remove
 Remove a remote volume.
 .TP
 .B filter
