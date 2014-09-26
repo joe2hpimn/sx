@@ -197,6 +197,7 @@ src_tools_sxreport_client_sxreport_client_DEPENDENCIES =  \
 am_src_tools_vol_sxvol_OBJECTS = src/tools/vol/sxvol.$(OBJEXT) \
 	src/tools/vol/cmd_main.$(OBJEXT) \
 	src/tools/vol/cmd_create.$(OBJEXT) \
+	src/tools/vol/cmd_remove.$(OBJEXT) \
 	src/tools/vol/cmd_filter.$(OBJEXT)
 src_tools_vol_sxvol_OBJECTS = $(am_src_tools_vol_sxvol_OBJECTS)
 src_tools_vol_sxvol_DEPENDENCIES =  \
@@ -532,6 +533,8 @@ src_tools_vol_sxvol_SOURCES = \
 	src/tools/vol/cmd_main.h \
 	src/tools/vol/cmd_create.c \
 	src/tools/vol/cmd_create.h \
+	src/tools/vol/cmd_remove.c \
+	src/tools/vol/cmd_remove.h \
 	src/tools/vol/cmd_filter.c \
 	src/tools/vol/cmd_filter.h
 
@@ -875,6 +878,8 @@ src/tools/vol/cmd_main.$(OBJEXT): src/tools/vol/$(am__dirstamp) \
 	src/tools/vol/$(DEPDIR)/$(am__dirstamp)
 src/tools/vol/cmd_create.$(OBJEXT): src/tools/vol/$(am__dirstamp) \
 	src/tools/vol/$(DEPDIR)/$(am__dirstamp)
+src/tools/vol/cmd_remove.$(OBJEXT): src/tools/vol/$(am__dirstamp) \
+	src/tools/vol/$(DEPDIR)/$(am__dirstamp)
 src/tools/vol/cmd_filter.$(OBJEXT): src/tools/vol/$(am__dirstamp) \
 	src/tools/vol/$(DEPDIR)/$(am__dirstamp)
 
@@ -925,6 +930,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@src/tools/vol/$(DEPDIR)/cmd_create.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/tools/vol/$(DEPDIR)/cmd_filter.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/tools/vol/$(DEPDIR)/cmd_main.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@src/tools/vol/$(DEPDIR)/cmd_remove.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/tools/vol/$(DEPDIR)/sxvol.Po@am__quote@
 
 .c.o:

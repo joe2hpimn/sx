@@ -63,6 +63,35 @@ int sxc_volume_add(sxc_cluster_t *cluster, const char *name, int64_t size, unsig
     return qret;
 }
 
+int sxc_volume_remove(sxc_cluster_t *cluster, const char *name) {
+    sxc_client_t *sx = sxi_cluster_get_client(cluster);
+    sxi_hostlist_t volhosts;
+    char *enc_vol;
+    int ret;
+
+    sxc_clearerr(sx);
+
+    sxi_hostlist_init(&volhosts);
+    if(sxi_locate_volume(sxi_cluster_get_conns(cluster), name, &volhosts, NULL, NULL)) {
+	sxi_hostlist_empty(&volhosts);
+	return 1;
+    }
+
+    enc_vol = sxi_urlencode(sx, name, 0);
+    if(!enc_vol) {
+	SXDEBUG("Cannot encode volume name");
+	sxi_hostlist_empty(&volhosts);
+	return 1;
+    }
+
+    sxi_set_operation(sx, "remnove volume", sxi_cluster_get_name(cluster), name, NULL);
+    ret = sxi_job_submit_and_poll(sxi_cluster_get_conns(cluster), &volhosts, REQ_DELETE, enc_vol, NULL, 0);
+
+    sxi_hostlist_empty(&volhosts);
+    free(enc_vol);
+    return ret;
+}
+
 int sxi_volume_cfg_store(sxc_client_t *sx, sxc_cluster_t *cluster, const char *vname, const char *filter_uuid, const unsigned char *filter_cfg, unsigned int filter_cfglen)
 {
     const char *confdir;

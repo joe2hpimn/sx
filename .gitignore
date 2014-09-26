@@ -8,6 +8,7 @@ config.log
 config.status
 libtool
 stamp-h1
+*.1
 *.o
 *.lo
 *.la

@@ -1,0 +1,13 @@
+package "sxvol"
+args "--unamed-opts --no-handle-version --no-handle-error --file-name=cmd_remove --func-name=remove_cmdline_parser --arg-struct-name=remove_args_info"
+usage "sxvol remove [OPTIONS] sx://[profile@]cluster/volume"
+
+text "\nAdditional options:\n"
+
+option  "debug"			D "Enable debug messages" flag off
+
+option  "config-dir"		c "Path to SX configuration directory"
+        string typestr="PATH" optional hidden
+
+option  "filter-dir"		- "Path to SX filter directory"
+        string typestr="PATH" optional hidden

@@ -53,6 +53,8 @@ src_tools_vol_sxvol_SOURCES = \
 	src/tools/vol/cmd_main.h \
 	src/tools/vol/cmd_create.c \
 	src/tools/vol/cmd_create.h \
+	src/tools/vol/cmd_remove.c \
+	src/tools/vol/cmd_remove.h \
 	src/tools/vol/cmd_filter.c \
 	src/tools/vol/cmd_filter.h
 

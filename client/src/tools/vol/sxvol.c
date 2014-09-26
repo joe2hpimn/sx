@@ -39,6 +39,7 @@
 
 #include "cmd_main.h"
 #include "cmd_create.h"
+#include "cmd_remove.h"
 #include "cmd_filter.h"
 
 #include "sx.h"
@@ -136,11 +137,69 @@ static int reject_dots(const char *str)
     return 0;
 }
 
+
+static sxc_cluster_t *getcluster_common(sxc_client_t *sx, const char *sxurl, const char *confdir, sxc_uri_t **clusturi) {
+    sxc_cluster_t *cluster;
+    sxc_uri_t *uri;
+
+    *clusturi = NULL;
+    if(confdir && sxc_set_confdir(sx, confdir)) {
+	fprintf(stderr, "ERROR: Could not set configuration directory %s: %s\n", confdir, sxc_geterrmsg(sx));
+	return NULL;
+    }
+
+    uri = sxc_parse_uri(sx, sxurl);
+    if(!uri) {
+	fprintf(stderr, "ERROR: Bad uri %s: %s\n", sxurl, sxc_geterrmsg(sx));
+	return NULL;
+    }
+    if(!uri->volume || uri->path) {
+	fprintf(stderr, "ERROR: Bad path %s\n", sxurl);
+	sxc_free_uri(uri);
+	return NULL;
+    }
+
+    cluster = sxc_cluster_load_and_update(sx, uri->host, uri->profile);
+    if(!cluster) {
+	fprintf(stderr, "ERROR: Failed to load config for %s: %s\n", uri->host, sxc_geterrmsg(sx));
+	if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_CFG_ERR))
+	    fprintf(stderr, SXBC_TOOLS_CFG_MSG, uri->host, uri->host);
+        else if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_CONN_ERR))
+            fprintf(stderr, SXBC_TOOLS_CONN_MSG);;
+	sxc_free_uri(uri);
+    } else
+	*clusturi = uri;
+
+    return cluster;
+}
+
+static int setup_filters(sxc_client_t *sx, const char *fdir)
+{
+	char *filter_dir;
+
+    if(fdir) {
+	filter_dir = strdup(fdir);
+    } else {
+	const char *pt = getenv("SX_FILTER_DIR");
+	if(pt)
+	    filter_dir = strdup(pt);
+	else
+	    filter_dir = strdup(SX_FILTER_DIR);
+    }
+    if(!filter_dir) {
+	fprintf(stderr, "ERROR: Failed to set filter dir\n");
+	return 1;
+    }
+    sxc_filter_loadall(sx, filter_dir);
+    free(filter_dir);
+    return 0;
+}
+
 static int volume_create(sxc_client_t *sx, const char *owner)
 {
 	sxc_cluster_t *cluster;
 	sxc_uri_t *uri;
-	const char *volname, *suffixes = "kKmMgGtT", *confdir;
+	const char *suffixes = "kKmMgGtT", *confdir;
 	char *ptr, *voldir;
 	int ret = 1;
 	int64_t size;
@@ -165,36 +224,17 @@ static int volume_create(sxc_client_t *sx, const char *owner)
         size <<= shl;
     }
 
-    volname = create_args.inputs[0];
+    cluster = getcluster_common(sx, create_args.inputs[0], create_args.config_dir_arg, &uri);
+    if(!cluster)
+	return 1;
 
-    uri = sxc_parse_uri(sx, volname);
-    if(!uri) {
-	fprintf(stderr, "ERROR: Bad uri %s: %s\n", volname, sxc_geterrmsg(sx));
+    if(setup_filters(sx, create_args.filter_dir_arg)) {
+	sxc_free_uri(uri);
+	sxc_cluster_free(cluster);
 	return 1;
     }
-    if(!uri->volume) {
-	fprintf(stderr, "ERROR: Bad path %s\n", volname);
-	sxc_free_uri(uri);
-	return 1;
-    }
-    if(uri->path) {
-	fprintf(stderr, "ERROR: Bad path %s\n", volname);
-	sxc_free_uri(uri);
-	return 1;
-    }	
 
-    cluster = sxc_cluster_load_and_update(sx, uri->host, uri->profile);
-    if(!cluster) {
-	fprintf(stderr, "ERROR: Failed to load config for %s: %s\n", uri->host, sxc_geterrmsg(sx));
-	if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_CFG_ERR))
-	    fprintf(stderr, SXBC_TOOLS_CFG_MSG, uri->host, uri->host);
-        else if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_CONN_ERR))
-            fprintf(stderr, SXBC_TOOLS_CONN_MSG);
-	sxc_free_uri(uri);
-	return 1;
-    }
     confdir = sxi_cluster_get_confdir(cluster);
-
     voldir = malloc(strlen(confdir) + strlen(uri->volume) + 10);
     if(!voldir) {
 	fprintf(stderr, "ERROR: Out of memory\n");
@@ -321,28 +361,6 @@ create_err:
     return ret;
 }
 
-static int setup_filters(sxc_client_t *sx, const char *fdir)
-{
-	char *filter_dir;
-
-    if(fdir) {
-	filter_dir = strdup(fdir);
-    } else {
-	const char *pt = getenv("SX_FILTER_DIR");
-	if(pt)
-	    filter_dir = strdup(pt);
-	else
-	    filter_dir = strdup(SX_FILTER_DIR);
-    }
-    if(!filter_dir) {
-	fprintf(stderr, "ERROR: Failed to set filter dir\n");
-	return 1;
-    }
-    sxc_filter_loadall(sx, filter_dir);
-    free(filter_dir);
-    return 0;
-}
-
 int main(int argc, char **argv) {
     int ret = 0;
     sxc_client_t *sx;
@@ -397,14 +415,51 @@ int main(int argc, char **argv) {
         }
 	sxc_set_debug(sx, create_args.debug_flag);
 
-	if(setup_filters(sx, create_args.filter_dir_arg)) {
-	    create_cmdline_parser_free(&create_args);
-	    ret = 1;
+	ret = volume_create(sx, create_args.owner_arg);
+	create_cmdline_parser_free(&create_args);
+
+    } else if(!strcmp(argv[1], "remove")) {
+	struct remove_args_info remove_args;
+	sxc_cluster_t *cluster;
+	sxc_uri_t *uri;
+
+	ret = 1;
+	if(remove_cmdline_parser(argc - 1, &argv[1], &remove_args)) {
+	    remove_cmdline_parser_print_help();
+	    printf("\n");
+	    fprintf(stderr, "ERROR: Invalid syntax or usage\n");
 	    goto main_err;
 	}
 
-	ret = volume_create(sx, create_args.owner_arg);
-	create_cmdline_parser_free(&create_args);
+	if(remove_args.version_given) {
+	    printf("%s %s\n", MAIN_CMDLINE_PARSER_PACKAGE, SRC_VERSION);
+	    ret = 0;
+	    goto main_err;
+	}
+
+	if(remove_args.inputs_num != 1) {
+	    remove_cmdline_parser_print_help();
+	    printf("\n");
+	    fprintf(stderr, "ERROR: Invalid number of arguments\n");
+	    remove_cmdline_parser_free(&remove_args);
+	    goto main_err;
+	}
+	sxc_set_debug(sx, remove_args.debug_flag);
+
+	cluster = getcluster_common(sx, remove_args.inputs[0], remove_args.config_dir_arg, &uri);
+	if(!cluster) {
+	    remove_cmdline_parser_free(&remove_args);
+	    goto main_err;
+	}
+
+	ret = sxc_volume_remove(cluster, uri->volume);
+	if(ret)
+	    fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
+	else
+	    printf("Volume '%s' removed.\n", uri->volume);
+
+	sxc_free_uri(uri);
+	sxc_cluster_free(cluster);
 
     } else if(!strcmp(argv[1], "filter")) {
 	if(filter_cmdline_parser(argc - 1, &argv[1], &filter_args)) {

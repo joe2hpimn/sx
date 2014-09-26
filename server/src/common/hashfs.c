@@ -2554,7 +2554,7 @@ rc_ty sx_hashfs_list_first(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, con
 	pattern = "/";
 
     plen = check_file_name(pattern);
-    if(!h || !volume || plen < 0 || !file) {
+    if(!h || !volume || plen < 0) {
 	NULLARG();
 	return EINVAL;
     }
@@ -2630,7 +2630,8 @@ rc_ty sx_hashfs_list_first(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, con
     h->list_file.lastname[0] = '\0';
     h->list_recurse = recurse;
     h->list_volid = volume->id;
-    *file = &h->list_file;
+    if(file)
+	*file = &h->list_file;
 
     memset(h->qm_list_done, 0, METADBS);
 
@@ -3465,7 +3466,6 @@ rc_ty sx_hashfs_volume_enable(sx_hashfs_t *h, const char *volume) {
 
 rc_ty sx_hashfs_volume_disable(sx_hashfs_t *h, const char *volume) {
     const sx_hashfs_volume_t *vol;
-    const sx_hashfs_file_t *file;
     unsigned int mdb = 0;
     rc_ty ret;
 
@@ -3492,7 +3492,7 @@ rc_ty sx_hashfs_volume_disable(sx_hashfs_t *h, const char *volume) {
     if(ret != OK)
 	goto volume_disable_err;
 
-    ret = sx_hashfs_list_first(h, vol, NULL, &file, 1);
+    ret = sx_hashfs_list_first(h, vol, NULL, NULL, 1);
     if(ret == OK) {
 	msg_set_reason("Cannot disable non empty volume");
 	ret = ENOTEMPTY;
@@ -6607,6 +6607,7 @@ static const char *locknames[] = {
     "REBALANCE_FILES", /* JOBTYPE_REBALANCE_FILES */
     "REBALANCE_CLEANUP", /* JOBTYPE_REBALANCE_CLEANUP */
     "USER", /* JOBTYPE_DELETE_USER */
+    "VOL", /* JOBTYPE_DELETE_VOLUME */
 };
 
 

@@ -827,5 +827,12 @@ test_get 'checking deleted file', authed_only(200, 'application/json'), "$vol?fi
 test_delete_job "delete file again", {$writer=>[404]}, "$vol/file";
 test_delete_job "delete file again #2", {$writer=>[404]}, "$vol/file/file";
 
+
+# Volume deletion
+test_delete_job "volume deletion (nonempty)", admin_only(409), "$vol";
+test_delete_job "volume deletion", admin_only(200), "another.$vol";
+test_get 'deletion effect (via file list)', authed_only(404), "another.$vol";
+test_get 'deletion effect (via volume list)', {'badauth'=>[401],$reader=>[200,'application/json'],$writer=>[200,'application/json'],'admin'=>[200,'application/json']}, '?volumeList', undef, sub { my $json = get_json(shift) or return 0; return is_hash($json->{'volumeList'}) && exists($json->{'volumeList'}->{$vol}) && !exists($json->{'volumeList'}->{"another.$vol"}); };
+
 print "\nTests performed: ".($okies+$fails)." - $fails failed, $okies succeeded\n";
 exit ($fails > 0);

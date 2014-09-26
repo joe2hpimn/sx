@@ -186,8 +186,8 @@ void volume_ops(void) {
             sx_hashfs_gc_expire_all_reservations(hashfs);
             fcgi_trigger_gc();
         } else {
-	    /* Delete volume (currently s2s only) - CLUSTER required */
-	    quit_unless_has(PRIV_CLUSTER);
+	    /* Delete volume - ADMIN or CLUSTER required */
+	    quit_unless_has(PRIV_ADMIN);
 	    if(is_reserved())
 		quit_errmsg(403, "Volume name is reserved");
 	    fcgi_delete_volume();

@@ -921,11 +921,63 @@ void fcgi_delete_volume(void) {
     if(is_reserved())
 	quit_errmsg(403, "Invalid volume name: must not start with a '.'");
 
-    s = sx_hashfs_volume_delete(hashfs, volume);
-    if(s != OK)
-	quit_errnum(rc2http(s));
+    if(has_priv(PRIV_CLUSTER)) {
+	/* Coming in from cluster */
+	s = sx_hashfs_volume_delete(hashfs, volume);
+	if(s != OK)
+	    quit_errnum(rc2http(s));
 
-    CGI_PUTS("\r\n");
+	CGI_PUTS("\r\n");
+
+    } else {
+	/* Coming in from (admin) user */
+	const sx_hashfs_volume_t *vol;
+	const sx_nodelist_t *allnodes;
+	unsigned int timeout;
+	const void *job_data;
+	unsigned int job_datalen;
+	sx_blob_t *joblb;
+	int emptyvol = 0;
+	job_t job;
+
+	if((s = sx_hashfs_volume_by_name(hashfs, volume, &vol)))
+	    quit_errmsg(rc2http(s), msg_get_reason());
+
+	if(!sx_hashfs_is_or_was_my_volume(hashfs, vol))
+	    quit_errmsg(404, "This volume does not belong here");
+
+	if(!vol->cursize) {
+	    s = sx_hashfs_list_first(hashfs, vol, NULL, NULL, 1);
+	    if(s == ITER_NO_MORE)
+		emptyvol = 1;
+	    else if(s != OK)
+		quit_errmsg(rc2http(s), msg_get_reason());
+	}
+
+	if(!emptyvol)
+	    quit_errmsg(409, "Cannot delete non empty volume");
+
+	allnodes = sx_hashfs_nodelist(hashfs, NL_NEXTPREV);
+	timeout = 5 * 60 * sx_nodelist_count(allnodes);
+	joblb = sx_blob_new();
+	if(!joblb)
+	    quit_errmsg(500, "Cannot allocate job blob");
+
+	if(sx_blob_add_string(joblb, volume)) {
+	    sx_blob_free(joblb);
+	    quit_errmsg(500, "Cannot create job blob");
+	}
+
+	sx_blob_to_data(joblb, &job_data, &job_datalen);
+	s = sx_hashfs_job_new(hashfs, 0, &job, JOBTYPE_DELETE_VOLUME, timeout, path, job_data, job_datalen, allnodes);
+	sx_blob_free(joblb);
+
+	if(s != OK)
+	    quit_errmsg(rc2http(s), msg_get_reason());
+
+	send_job_info(job);
+
+    }
 }
 
 void fcgi_trigger_gc(void)
