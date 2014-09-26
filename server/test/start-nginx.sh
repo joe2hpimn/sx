@@ -79,6 +79,7 @@ EOF
     fi
     $prefix/sbin/sxsetup --config-file $CONF_TMP --debug --advanced --wait
     rm -f $CONF_TMP
+        echo "$ADMIN_KEY" | ../client/src/tools/init/sxinit --port "$SX_PORT"  --host-list=127.0.1.1 sx://localhost --no-ssl
     ../client/src/tools/vol/sxvol create sx://localhost/vol$i -r $i -o admin
     ../client/src/tools/cp/sxcp configure sx://localhost/vol$i/
     if [ $i -eq 1 ]; then

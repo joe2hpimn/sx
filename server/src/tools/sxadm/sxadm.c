@@ -629,6 +629,12 @@ static sxc_cluster_t *cluster_load(sxc_client_t *sx, struct cluster_args_info *a
     /* MODHDIST: update cluster */
 
     sxc_free_uri(uri);
+    if(sxc_cluster_fetchnodes(clust)) {
+	CRIT("%s", sxc_geterrmsg(sx));
+        sxc_cluster_free(clust);
+        return NULL;
+    }
+
     return clust;
 }
 
@@ -640,11 +646,6 @@ static int change_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
 
     if(!clust)
 	return 1;
-
-    if(sxc_cluster_fetchnodes(clust)) {
-	CRIT("%s", sxc_geterrmsg(sx));
-	goto change_cluster_err;
-    }
 
     query = malloc(4096);
     query_sz = 4096;
@@ -779,6 +780,10 @@ static int force_gc_cluster(sxc_client_t *sx, struct cluster_args_info *args, in
     if(!clust)
 	return 1;
     ret = sxc_cluster_trigger_gc(clust, delete_reservations);
+    if(sxc_cluster_save(clust, args->config_dir_arg)) {
+	CRIT("Failed to save the access configuration at %s: %s", args->config_dir_given ? args->config_dir_arg : "~/.sx", sxc_geterrmsg(sx));
+        ret = 1;
+    }
     sxc_cluster_free(clust);
     return ret;
 }
