@@ -955,7 +955,7 @@ void fcgi_delete_volume(void) {
 	}
 
 	if(!emptyvol)
-	    quit_errmsg(409, "Cannot delete non empty volume");
+	    quit_errmsg(409, "Cannot delete non-empty volume");
 
 	allnodes = sx_hashfs_nodelist(hashfs, NL_NEXTPREV);
 	timeout = 5 * 60 * sx_nodelist_count(allnodes);

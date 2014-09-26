@@ -453,9 +453,13 @@ int main(int argc, char **argv) {
 	}
 
 	ret = sxc_volume_remove(cluster, uri->volume);
-	if(ret)
+	if(ret) {
 	    fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
-	else {
+	    if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_VOL_ERR))
+		fprintf(stderr, SXBC_TOOLS_VOL_MSG, uri->profile ? uri->profile : "", uri->profile ? "@" : "", uri->host);
+	    else if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_VOLDEL_ERR))
+		fprintf(stderr, SXBC_TOOLS_VOLDEL_MSG, uri->profile ? uri->profile : "", uri->profile ? "@" : "", uri->host, uri->volume);
+	} else {
 	    const char *confdir = sxi_cluster_get_confdir(cluster);
 	    char *voldir;
 	    printf("Volume '%s' removed.\n", uri->volume);
