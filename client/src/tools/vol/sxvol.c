@@ -455,11 +455,37 @@ int main(int argc, char **argv) {
 	ret = sxc_volume_remove(cluster, uri->volume);
 	if(ret)
 	    fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
-	else
+	else {
+	    const char *confdir = sxi_cluster_get_confdir(cluster);
+	    char *voldir;
 	    printf("Volume '%s' removed.\n", uri->volume);
 
+	    voldir = malloc(strlen(confdir) + strlen(uri->volume) + 10);
+	    if(!voldir) {
+		ret = 1;
+		fprintf(stderr, "ERROR: Out of memory\n");
+		remove_cmdline_parser_free(&remove_args);
+		sxc_free_uri(uri);
+		sxc_cluster_free(cluster);
+		goto main_err;
+	    }
+	    sprintf(voldir, "%s/volumes/%s", confdir, uri->volume);
+	    /* wipe existing local config */
+	    if(!reject_dots(uri->volume)) {
+		if(!access(voldir, F_OK) && sxi_rmdirs(voldir)) {
+		    ret = 1;
+		    fprintf(stderr, "ERROR: Can't wipe volume configuration directory %s\n", voldir);
+		    free(voldir);
+		    sxc_free_uri(uri);
+		    sxc_cluster_free(cluster);
+		    goto main_err;
+		}
+	    }
+	    free(voldir);
+	}
 	sxc_free_uri(uri);
 	sxc_cluster_free(cluster);
+	remove_cmdline_parser_free(&remove_args);
 
     } else if(!strcmp(argv[1], "filter")) {
 	if(filter_cmdline_parser(argc - 1, &argv[1], &filter_args)) {

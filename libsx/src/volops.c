@@ -84,7 +84,7 @@ int sxc_volume_remove(sxc_cluster_t *cluster, const char *name) {
 	return 1;
     }
 
-    sxi_set_operation(sx, "remnove volume", sxi_cluster_get_name(cluster), name, NULL);
+    sxi_set_operation(sx, "remove volume", sxi_cluster_get_name(cluster), name, NULL);
     ret = sxi_job_submit_and_poll(sxi_cluster_get_conns(cluster), &volhosts, REQ_DELETE, enc_vol, NULL, 0);
 
     sxi_hostlist_empty(&volhosts);

@@ -579,7 +579,7 @@ static rc_ty volonoff_common(sx_hashfs_t *hashfs, job_t job_id, const sx_nodelis
 		}
 	    } else {
 		if((s = sx_hashfs_volume_disable(hashfs, volname))) {
-		    WARN("Failed to disble volume '%s' job %lld: %s", volname, (long long)job_id, msg_get_reason());
+		    WARN("Failed to disable volume '%s' job %lld: %s", volname, (long long)job_id, msg_get_reason());
 		    action_error(ACT_RESULT_PERMFAIL, rc2http(s), "Failed to disable volume");
 		}
 	    }
