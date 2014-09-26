@@ -494,22 +494,22 @@ void handle_request(void) {
     }
 
     int vlen = volume ? utf8_validate_len(volume) : 0;
-    int flen = path ? utf8_validate_len(path) : 0;
+    int flen = path ? strlen(path) : 0;
 
     if (vlen < 0 || flen < 0)
        quit_errmsg(400, "URL with invalid utf-8 encoding");
 
     if (is_reserved()) {
-        /* No UTF8 used on reserved volumes, allow higher limit.
-         * Otherwise we hit the 512 limit with batch requests already */
-        if (path && strlen(path) > SXLIMIT_MAX_FILENAME_LEN * 12) {
-            msg_set_reason("Path too long: filename must be <%d characters (%ld)",
-                           SXLIMIT_MAX_FILENAME_LEN*12+ 1, strlen(path));
+        /* No UTF8/url-encoding used on reserved volumes, allow higher limit.
+         * Otherwise we hit the 1024 limit with batch requests already */
+        if (path && strlen(path) > SXLIMIT_MAX_FILENAME_LEN * 3) {
+            msg_set_reason("Path too long: filename must be <%d bytes (%ld)",
+                           SXLIMIT_MAX_FILENAME_LEN*3+ 1, strlen(path));
             quit_errmsg(414, msg_get_reason());
         }
     } else {
         if (flen > SXLIMIT_MAX_FILENAME_LEN) {
-            msg_set_reason("Path too long: filename must be <%d UTF8 characters (%d)",
+            msg_set_reason("Path too long: filename must be <%d bytes (%d)",
                            SXLIMIT_MAX_FILENAME_LEN + 1, flen);
             quit_errmsg(414, msg_get_reason());
         }

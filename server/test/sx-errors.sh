@@ -31,7 +31,7 @@ runtest() {
 # => 512 limit we designed originally
 
 VOLNAMEMAX=$(printf "%255s" " "|sed 's/ /a/g')
-FILENAMEMAX=$(printf "%511s" "%F0%80%80%80"|sed 's/ /f/g')
+FILENAMEMAX=$(printf "%1024s" "%F0%80%80%80"|sed 's/ /f/g')
 OVERLONGFILENAME=$(printf "%8192s" " "|sed 's/ /o/g')
 
 echo "Checking limits (have to pass)."
