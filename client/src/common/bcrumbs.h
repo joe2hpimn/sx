@@ -37,6 +37,9 @@
 #define SXBC_TOOLS_VOLDEL_ERR "Cannot delete non-empty volume"
 #define SXBC_TOOLS_VOLDEL_MSG "Use 'sxrm -r sx://%s%s%s/%s' to remove all data from the volume.\n"
 
+#define SXBC_TOOLS_RMVOL_ERR "Cannot operate on volume root in non-recursive mode"
+#define SXBC_TOOLS_RMVOL_MSG "Use 'sxvol remove sx://%s%s%s/%s' to remove the empty volume.\n"
+
 #define SXBC_TOOLS_CONN_ERR "Failed to connect"
 #define SXBC_TOOLS_CONN_MSG "Please check your network connection or run sxinit again.\n"
 

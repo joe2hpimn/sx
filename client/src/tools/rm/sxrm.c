@@ -141,6 +141,15 @@ int main(int argc, char **argv) {
         fprintf(stderr, "ERROR: Failed to remove file(s): %s\n", sxc_geterrmsg(sx));
 	if(cluster && strstr(sxc_geterrmsg(sx), SXBC_TOOLS_VOL_ERR))
 	    fprintf(stderr, SXBC_TOOLS_VOL_MSG, "", "", sxc_cluster_get_sslname(cluster));
+	else if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_RMVOL_ERR)) {
+	    /* only check the first argument */
+	    sxc_uri_t *u = sxc_parse_uri(sx, args.inputs[0]);
+	    if(u) {
+		if(!u->path)
+		    fprintf(stderr, SXBC_TOOLS_RMVOL_MSG, u->profile ? u->profile : "", u->profile ? "@" : "", u->host, u->volume);
+		sxc_free_uri(u);
+	    }
+	}
         ret = 1;
     }
     printf("Deleted %d file(s)\n", sxc_file_list_get_successful(lst));
