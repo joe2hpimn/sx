@@ -3476,7 +3476,22 @@ rc_ty sx_hashfs_volume_disable(sx_hashfs_t *h, const char *volume) {
     if((ret = sx_hashfs_check_volume_name(volume)))
 	return ret;
 
+    ret = sx_hashfs_volume_by_name(h, volume, &vol);
+    if(ret != OK)
+	return ret;
+
     sqlite3_reset(h->q_onoffvol);
+
+    /* If not a volnode, then disable right away */
+    if(!sx_hashfs_is_or_was_my_volume(h, vol)) {
+	if(qbind_text(h->q_onoffvol, ":volume", volume) ||
+	   qbind_int(h->q_onoffvol, ":enable", 0) ||
+	   qstep_noret(h->q_onoffvol))
+	    return FAIL_EINTERNAL;
+	return OK;
+    }
+
+    /* Otherwise make sure the volume is empty */
     if(qbegin(h->db)) {
 	ret = FAIL_EINTERNAL;
 	goto volume_disable_err;
@@ -3487,10 +3502,6 @@ rc_ty sx_hashfs_volume_disable(sx_hashfs_t *h, const char *volume) {
 	    goto volume_disable_err;
 	}
     }
-    ret = sx_hashfs_volume_by_name(h, volume, &vol);
-    /* FIXME: should _disable() fail if already disabled? if not _by_name cannot be used */
-    if(ret != OK)
-	goto volume_disable_err;
 
     ret = sx_hashfs_list_first(h, vol, NULL, NULL, 1);
     if(ret == OK) {
