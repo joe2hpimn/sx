@@ -18,7 +18,7 @@ Print help, including hidden options, and exit
 Print version and exit
 .TP
 \fB\-r\fR, \fB\-\-rev\fR=\fI\,REVISION\/\fR
-By default sxrev asks interactively, which revision should be copied. With this option you can avoid the interactive mode and specify the revision that should be copied. The list of revisions can be obtained with \fBsxrev-list(1)\fR.
+By default sxrev asks interactively, which revision should be copied. With this option you can avoid the interactive mode and specify the revision that should be copied. The list of revisions can be obtained with \fBsxrev-list\fR(1).
 .TP
 \fB\-c\fR, \fB\-\-config\-dir\fR=\fI\,PATH\/\fR
 Path to the SX configuration directory (default: ~/.sx)
@@ -28,3 +28,5 @@ Path to the SX filter directory (default: @SX_FILTER_DIR@)
 .TP
 \fB\-D\fR, \fB\-\-debug\fR
 Enable debug messages
+.SH SEE ALSO
+\fBsxrev-list\fR(1), \fBsxrev-delete\fR(1)

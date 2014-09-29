@@ -30,3 +30,5 @@ To obtain the key of the user 'joe' run:
 .br
 \fB    sxacl usergetkey joe sx://admin@cluster\fP
 .br
+.SH SEE ALSO
+\fBsxacl-userlist\fR(1), \fBsxacl-useradd\fR(1), \fBsxacl-userdel\fR(1)

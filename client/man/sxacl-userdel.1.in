@@ -27,3 +27,5 @@ To remove the user 'joe' from the cluster run:
 .br
 \fB    sxacl userdel joe sx://admin@cluster\fP
 .br
+.SH SEE ALSO
+\fBsxacl-useradd\fR(1), \fBsxacl-usergetkey\fR(1), \fBsxacl-userlist\fR(1)

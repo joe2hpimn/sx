@@ -25,3 +25,5 @@ Path to the SX configuration directory (default: ~/.sx)
 .TP
 \fB\-c\fR, \fB\-\-filter\-dir\fR=\fI\,PATH\/\fR
 Path to the SX filter directory (default: @SX_FILTER_DIR@)
+.SH SEE ALSO
+\fBsxinit\fR(1)

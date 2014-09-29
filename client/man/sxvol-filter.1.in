@@ -41,3 +41,5 @@ To display details about the filter 'aes256' run:
 .br
 \fB    sxvol filter -i aes256\fP
 .br
+.SH SEE ALSO
+\fBsxvol-create\fR(1), \fBsxvol-remove\fR(1)

@@ -27,3 +27,5 @@ To show ACL for the volume 'data' run:
 .br
 \fB    sxacl volshow sx://admin@cluster/data\fP
 .br
+.SH SEE ALSO
+\fBsxacl-volperm\fR(1)

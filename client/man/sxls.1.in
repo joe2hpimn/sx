@@ -50,3 +50,5 @@ To recursively list the contents of the volume 'data' run:
 .br
 \fB    sxls -r sx://cluster/data\fP
 .br
+.SH SEE ALSO
+\fBsxcp\fR(1), \fBsxcat\fR(1), \fBsxrm\fR(1), \fBsxrev\fR(1), \fBsxinit\fR(1)

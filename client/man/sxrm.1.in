@@ -33,3 +33,5 @@ To recursively remove the directory 'example' from the volume 'data' run:
 .br
 \fB    sxrm -r sx://cluster/data/example/\fP
 .br
+.SH SEE ALSO
+\fBsxls\fR(1), \fBsxcp\fR(1), \fBsxcat\fR(1), \fBsxrev\fR(1), \fBsxinit\fR(1)

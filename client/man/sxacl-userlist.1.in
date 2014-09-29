@@ -27,3 +27,5 @@ To list all users in the cluster run:
 .br
 \fB    sxacl userlist sx://admin@cluster\fP
 .br
+.SH SEE ALSO
+\fBsxacl-useradd\fR(1), \fBsxacl-userdel\fR(1), \fBsxacl-usergetkey\fR(1)

@@ -38,3 +38,5 @@ To make sure user 'joe' has only read-access to the volume 'data' run:
 .br
 \fB    sxacl volperm \-\-grant=read \-\-revoke=write joe sx://admin@cluster/data\fP
 .br
+.SH SEE ALSO
+\fBsxacl-volshow\fR(1)

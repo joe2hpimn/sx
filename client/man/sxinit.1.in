@@ -51,7 +51,7 @@ To configure access to a DNS-based SSL-enabled cluster using the default profile
 .br
 \fB    sxinit --alias=@sx sx://somecluster.com\fP
 .br
-After accepting the certificate and providing the key you can access the cluster by sx://somecluster/ or just @sx
+After accepting the certificate and providing the key you can access the cluster by sx://somecluster.com or just @sx
 
 .br
 To configure an access to a non-DNS cluster in a local network, which doesn't offer SSL connection and one of its nodes is 192.168.200.120 run:
@@ -59,3 +59,5 @@ To configure an access to a non-DNS cluster in a local network, which doesn't of
 \fB    sxinit --no-ssl -l 192.168.200.120 sx://cluster\fP
 .br
 sxinit will automatically fetch the list of other nodes in the cluster and make it available through sx://cluster for the tools.
+.SH SEE ALSO
+\fBsxvol\fR(1), \fBsxacl\fR(1), \fBsxcp\fR(1), \fBsxls\fR(1), \fBsxcat\fR(1), \fBsxrm\fR(1), \fBsxrev\fR(1), \fBsxinit\fR(1)

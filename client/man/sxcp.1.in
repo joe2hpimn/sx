@@ -59,3 +59,5 @@ To download the entire directory 'movies' from the volume 'data' and limit the b
 .br
 \fB    sxcp -r --bwlimit=1M sx://cluster/data/movies/ /home/user/\fP
 .br
+.SH SEE ALSO
+\fBsxls\fR(1), \fBsxcat\fR(1), \fBsxrm\fR(1), \fBsxrev\fR(1), \fBsxinit\fR(1)

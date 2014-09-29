@@ -24,3 +24,5 @@ Print help and exit
 .TP
 \fB\-V\fR, \fB\-\-version\fR
 Print version and exit
+.SH SEE ALSO
+\fBsxls\fR(1), \fBsxcp\fR(1), \fBsxrm\fR(1), \fBsxcat\fR(1), \fBsxinit\fR(1)

@@ -25,3 +25,5 @@ Path to the SX filter directory (default: @SX_FILTER_DIR@)
 .TP
 \fB\-D\fR, \fB\-\-debug\fR
 Enable debug messages.
+.SH SEE ALSO
+\fBsxls\fR(1), \fBsxcp\fR(1), \fBsxrm\fR(1), \fBsxrev\fR(1), \fBsxinit\fR(1)

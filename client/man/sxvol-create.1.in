@@ -21,16 +21,16 @@ Print version and exit
 Set the replica count for the volume. This is a mandatory option and specifies how many times the data will be replicated on different nodes. For example, with replica count 2 the volume data will still be available when one of the nodes, which includes the volume data fails (because there's still another node with the copy of the data).
 .TP
 \fB\-o\fR, \fB\-\-owner\fR=\fI\,NAME\/\fR
-Set the owner of the volume. The owners can modify volume ACLs (see \fBsxacl(1)\fR) and other settings. This option is mandatory.
+Set the owner of the volume. The owners can modify volume ACLs (see \fBsxacl\fR(1)) and other settings. This option is mandatory.
 .TP
 \fB\-f\fR, \fB\-\-filter\fR=\fI\,NAME[="FILTER_OPTIONS"]\/\fR
-Enable selected filter for the new volume. The filters can do some additional processing of the data (such as compression or encryption), see \fBsxvol-filter(1)\fR for more information.
+Enable selected filter for the new volume. The filters can do some additional processing of the data (such as compression or encryption), see \fBsxvol-filter\fR(1) for more information.
 .TP
 \fB\-s\fR, \fB\-\-size\fR=\fI\,SIZE\/\fR
 Set the size of the new volume. The size can be followed by one of the following suffixes: K(-ilobytes), M(-megabytes), G(-igabytes) and T(-erabytes) suffixes. The default value is 10G.
 .TP
 \fB\-\-max\-revisions\fR=\fI\,NUMBER\/\fR
-Set the maximum number of revisions to keep for files in the volume. The revisions are other versions of the file stored when the file gets modified. The default value is 1, which means that only a single version of the file will be stored. See \fBsxrev(1)\fR for more information about revisions.
+Set the maximum number of revisions to keep for files in the volume. The revisions are other versions of the file stored when the file gets modified. The default value is 1, which means that only a single version of the file will be stored. See \fBsxrev\fR(1) for more information about revisions.
 .TP
 \fB\-D\fR, \fB\-\-debug\fR
 Enable debug messages
@@ -50,3 +50,5 @@ To create an encrypted volume with replica 3 and default settings for 'admin' ru
 .br
 \fB    sxvol create -r 3 -o admin -f aes256 sx://admin@cluster/encrypted\fP
 .br
+.SH SEE ALSO
+\fBsxvol-filter\fR(1), \fBsxvol-remove\fR(1)

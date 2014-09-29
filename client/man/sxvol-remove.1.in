@@ -5,7 +5,7 @@ sxvol remove \- remove volumes from SX clusters
 .B sxvol remove
 [\fI\,OPTIONS\/\fR] \fI\,sx://\/\fR[\fI\,profile@\/\fR]\fI\,cluster/volume\/\fR
 .SH DESCRIPTION
-Remove an empty volume from a cluster. Only cluster administrators can remove volumes and for safety reasons, it is not possible to remove a volume until all its files get deleted first (see \fBsxrm(1)\fR on how to delete files).
+Remove an empty volume from a cluster. Only cluster administrators can remove volumes and for safety reasons, it is not possible to remove a volume until all its files get deleted first (see \fBsxrm\fR(1) on how to delete files).
 .SH OPTIONS
 .TP
 \fB\-h\fR, \fB\-\-help\fR
@@ -30,3 +30,5 @@ To remove a non-empty volume 'trash' first recursively remove all its files and 
 .br
 \fB    sxrm -r sx://admin@cluster/trash\fP
 \fB    sxvol remove sx://admin@cluster/trash\fP
+.SH SEE ALSO
+\fBsxvol-create\fR(1), \fBsxvol-filter\fR(1)
