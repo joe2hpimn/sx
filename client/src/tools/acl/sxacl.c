@@ -296,7 +296,7 @@ int main(int argc, char **argv) {
                 ret = 1;
                 break;
             }
-	    ret = add_user(sx, cluster, uri, args.inputs[0], args.role_arg, args.auth_file_arg, args.batch_mode_flag, args.token_arg);
+	    ret = add_user(sx, cluster, uri, args.inputs[0], args.role_arg, args.auth_file_arg, args.batch_mode_flag, args.force_key_arg);
             useradd_cmdline_parser_free(&args);
 
 	} else if(!strcmp(argv[1], "userdel")) {

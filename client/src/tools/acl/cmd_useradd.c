@@ -42,7 +42,7 @@ const char *useradd_args_info_full_help[] = {
   "  -a, --auth-file=STRING  Store authentication token in given file (instead of\n                            stdout)",
   "\nCommon options:",
   "  -c, --config-dir=PATH   Path to SX configuration directory",
-  "      --token=TOKEN       Create user with an old authentication token",
+  "      --force-key=TOKEN   Create user with an old authentication token",
   "  -b, --batch-mode        Disable additional information and only print the\n                            authentication token  (default=off)",
   "  -D, --debug             Enable debug messages  (default=off)",
     0
@@ -96,7 +96,7 @@ void clear_given (struct useradd_args_info *args_info)
   args_info->role_given = 0 ;
   args_info->auth_file_given = 0 ;
   args_info->config_dir_given = 0 ;
-  args_info->token_given = 0 ;
+  args_info->force_key_given = 0 ;
   args_info->batch_mode_given = 0 ;
   args_info->debug_given = 0 ;
 }
@@ -111,8 +111,8 @@ void clear_args (struct useradd_args_info *args_info)
   args_info->auth_file_orig = NULL;
   args_info->config_dir_arg = NULL;
   args_info->config_dir_orig = NULL;
-  args_info->token_arg = NULL;
-  args_info->token_orig = NULL;
+  args_info->force_key_arg = NULL;
+  args_info->force_key_orig = NULL;
   args_info->batch_mode_flag = 0;
   args_info->debug_flag = 0;
   
@@ -129,7 +129,7 @@ void init_args_info(struct useradd_args_info *args_info)
   args_info->role_help = useradd_args_info_full_help[4] ;
   args_info->auth_file_help = useradd_args_info_full_help[5] ;
   args_info->config_dir_help = useradd_args_info_full_help[7] ;
-  args_info->token_help = useradd_args_info_full_help[8] ;
+  args_info->force_key_help = useradd_args_info_full_help[8] ;
   args_info->batch_mode_help = useradd_args_info_full_help[9] ;
   args_info->debug_help = useradd_args_info_full_help[10] ;
   
@@ -232,8 +232,8 @@ useradd_cmdline_parser_release (struct useradd_args_info *args_info)
   free_string_field (&(args_info->auth_file_orig));
   free_string_field (&(args_info->config_dir_arg));
   free_string_field (&(args_info->config_dir_orig));
-  free_string_field (&(args_info->token_arg));
-  free_string_field (&(args_info->token_orig));
+  free_string_field (&(args_info->force_key_arg));
+  free_string_field (&(args_info->force_key_orig));
   
   
   for (i = 0; i < args_info->inputs_num; ++i)
@@ -322,8 +322,8 @@ useradd_cmdline_parser_dump(FILE *outfile, struct useradd_args_info *args_info)
     write_into_file(outfile, "auth-file", args_info->auth_file_orig, 0);
   if (args_info->config_dir_given)
     write_into_file(outfile, "config-dir", args_info->config_dir_orig, 0);
-  if (args_info->token_given)
-    write_into_file(outfile, "token", args_info->token_orig, 0);
+  if (args_info->force_key_given)
+    write_into_file(outfile, "force-key", args_info->force_key_orig, 0);
   if (args_info->batch_mode_given)
     write_into_file(outfile, "batch-mode", 0, 0 );
   if (args_info->debug_given)
@@ -576,7 +576,7 @@ useradd_cmdline_parser_internal (
         { "role",	1, NULL, 't' },
         { "auth-file",	1, NULL, 'a' },
         { "config-dir",	1, NULL, 'c' },
-        { "token",	1, NULL, 0 },
+        { "force-key",	1, NULL, 0 },
         { "batch-mode",	0, NULL, 'b' },
         { "debug",	0, NULL, 'D' },
         { 0,  0, 0, 0 }
@@ -672,15 +672,15 @@ useradd_cmdline_parser_internal (
           }
 
           /* Create user with an old authentication token.  */
-          if (strcmp (long_options[option_index].name, "token") == 0)
+          if (strcmp (long_options[option_index].name, "force-key") == 0)
           {
           
           
-            if (update_arg( (void *)&(args_info->token_arg), 
-                 &(args_info->token_orig), &(args_info->token_given),
-                &(local_args_info.token_given), optarg, 0, 0, ARG_STRING,
+            if (update_arg( (void *)&(args_info->force_key_arg), 
+                 &(args_info->force_key_orig), &(args_info->force_key_given),
+                &(local_args_info.force_key_given), optarg, 0, 0, ARG_STRING,
                 check_ambiguity, override, 0, 0,
-                "token", '-',
+                "force-key", '-',
                 additional_error))
               goto failure;
           
