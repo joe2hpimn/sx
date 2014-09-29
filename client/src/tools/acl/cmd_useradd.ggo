@@ -11,6 +11,8 @@ section "Common options"
 option  "config-dir"		c "Path to SX configuration directory"
         string typestr="PATH" optional hidden
 
+option  "token"                - "Create user with an old authentication token" string typestr="TOKEN" optional hidden
+
 option "batch-mode" b		"Disable additional information and only print the authentication token" flag off
 
 option  "debug"		D "Enable debug messages" flag off

@@ -51,6 +51,9 @@ struct useradd_args_info
   char * config_dir_arg;	/**< @brief Path to SX configuration directory.  */
   char * config_dir_orig;	/**< @brief Path to SX configuration directory original value given at command line.  */
   const char *config_dir_help; /**< @brief Path to SX configuration directory help description.  */
+  char * token_arg;	/**< @brief Create user with an old authentication token.  */
+  char * token_orig;	/**< @brief Create user with an old authentication token original value given at command line.  */
+  const char *token_help; /**< @brief Create user with an old authentication token help description.  */
   int batch_mode_flag;	/**< @brief Disable additional information and only print the authentication token (default=off).  */
   const char *batch_mode_help; /**< @brief Disable additional information and only print the authentication token help description.  */
   int debug_flag;	/**< @brief Enable debug messages (default=off).  */
@@ -62,6 +65,7 @@ struct useradd_args_info
   unsigned int role_given ;	/**< @brief Whether role was given.  */
   unsigned int auth_file_given ;	/**< @brief Whether auth-file was given.  */
   unsigned int config_dir_given ;	/**< @brief Whether config-dir was given.  */
+  unsigned int token_given ;	/**< @brief Whether token was given.  */
   unsigned int batch_mode_given ;	/**< @brief Whether batch-mode was given.  */
   unsigned int debug_given ;	/**< @brief Whether debug was given.  */
 

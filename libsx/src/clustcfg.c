@@ -2114,7 +2114,7 @@ const char *sxi_cluster_get_confdir(const sxc_cluster_t *cluster) {
     return cluster ? cluster->config_dir : NULL;
 }
 
-char *sxc_user_add(sxc_cluster_t *cluster, const char *username, int admin)
+char *sxc_user_add(sxc_cluster_t *cluster, const char *username, int admin, const char *oldtoken)
 {
     uint8_t buf[AUTH_UID_LEN + AUTH_KEY_LEN + 2], *uid = buf, *key = &buf[AUTH_UID_LEN];
     char *tok, *retkey = NULL;
@@ -2147,9 +2147,23 @@ char *sxc_user_add(sxc_cluster_t *cluster, const char *username, int admin)
     }
     sxi_md_cleanup(&ch_ctx);
 
-    /* KEY part - really random bytes */
-    if (sxi_rand_bytes(key, AUTH_KEY_LEN) != 1)
-	cluster_err(SXE_ECRYPT, "Unable to produce a random key");
+    if (oldtoken) {
+        char old[AUTHTOK_BIN_LEN];
+        unsigned l = sizeof(old);
+        if (sxi_b64_dec(sx, oldtoken, old, &l))
+            return NULL;
+        if (l != sizeof(old)) {
+            cluster_err(SXE_EARG, "Bad length for old authentication token");
+            return NULL;
+        }
+        memcpy(key, &old[AUTH_UID_LEN], AUTH_KEY_LEN);
+    } else {
+        /* KEY part - really random bytes */
+        if (sxi_rand_bytes(key, AUTH_KEY_LEN) != 1) {
+            cluster_err(SXE_ECRYPT, "Unable to produce a random key");
+            return NULL;
+        }
+    }
 
     /* Encode token */
     buf[sizeof(buf) - 2] = 0; /* First reserved byte */
@@ -2162,6 +2176,12 @@ char *sxc_user_add(sxc_cluster_t *cluster, const char *username, int admin)
 	free(tok);
 	cluster_err(SXE_ECOMM, "The generated auth token has invalid size");
 	return NULL;
+    }
+
+    if (oldtoken && strcmp(tok, oldtoken)) {
+        free(tok);
+        cluster_err(SXE_EARG, "The provided old authentication token and username don't match");
+        return NULL;
     }
 
     /* Query */

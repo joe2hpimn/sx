@@ -283,7 +283,7 @@ int sxc_meta_setval_fromhex(sxc_meta_t *meta, const char *key, const char *value
 void sxc_meta_delval(sxc_meta_t *meta, const char *key);
 void sxc_meta_empty(sxc_meta_t *meta);
 
-char *sxc_user_add(sxc_cluster_t *cluster, const char *username, int admin);
+char *sxc_user_add(sxc_cluster_t *cluster, const char *username, int admin, const char *oldtoken);
 int sxc_user_remove(sxc_cluster_t *cluster, const char *username);
 int sxc_user_getkey(sxc_cluster_t *cluster, const char *username, FILE *storeauth);
 
