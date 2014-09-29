@@ -26,6 +26,9 @@ Store authentication token in a given file (instead of printing it).
 \fB\-b\fR, \fB\-\-batch\-mode\fR
 Disable additional information and only print the authentication token.
 .TP
+\fB\-\-force\-key\fR=\fI\,KEY\/\fR
+By default, the authentication key is automatically generated for the new user. With this option one can force the use of an old key (obtained with \fBsxacl\-usergetkey(1)\fR), when recreating the user on a new or another cluster. Only a key that was previously generated for the same username will be accepted.
+.TP
 \fB\-c\fR, \fB\-\-config\-dir\fR=\fI\,PATH\/\fR
 Path to the SX configuration directory (default: ~/.sx)
 .TP
