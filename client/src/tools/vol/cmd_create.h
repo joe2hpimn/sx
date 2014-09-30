@@ -49,7 +49,7 @@ struct create_args_info
   char * filter_arg;	/**< @brief Use filter 'NAME' for the new volume.  */
   char * filter_orig;	/**< @brief Use filter 'NAME' for the new volume original value given at command line.  */
   const char *filter_help; /**< @brief Use filter 'NAME' for the new volume help description.  */
-  char * size_arg;	/**< @brief Set the size of the new volume (allows k,m,g,t suffixes) (default='10G').  */
+  char * size_arg;	/**< @brief Set the size of the new volume (allows k,m,g,t suffixes) (default='500G').  */
   char * size_orig;	/**< @brief Set the size of the new volume (allows k,m,g,t suffixes) original value given at command line.  */
   const char *size_help; /**< @brief Set the size of the new volume (allows k,m,g,t suffixes) help description.  */
   int max_revisions_arg;	/**< @brief Set the maximum number of revisions to keep for files in this volume (default='1').  */
