@@ -496,6 +496,7 @@ static int progress_callback(const sxc_xfer_stat_t *xfer_stat) {
                     op = "Transferring";
 
                 printf("%s %s (size: %sB)\n", op, file_name_esc, processed_size);
+                fflush(stdout);
             }
 
             free(processed_size);
@@ -522,8 +523,10 @@ static int progress_callback(const sxc_xfer_stat_t *xfer_stat) {
                 if(file_name_esc)
                     sxc_escstr(file_name_esc);
 
-                if(processed_number && processed_speed && processed_time && file_name_esc)
+                if(processed_number && processed_speed && processed_time && file_name_esc) {
                     printf("%s%s %sB in %s (@%sB/s)\n", file_name_esc, transferred_str, processed_number, processed_time, processed_speed);
+                    fflush(stdout);
+                }
 
                 free(file_name_esc);
                 free(processed_number);
