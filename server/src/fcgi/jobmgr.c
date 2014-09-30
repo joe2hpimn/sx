@@ -3183,6 +3183,8 @@ static void jobmgr_run_job(struct jobmgr_data_t *q) {
 	/* Permanent failure: mark job as failed and go on (with cleanup actions) */
 	if(act_res == ACT_RESULT_PERMFAIL) {
 	    const char *fail_reason = q->fail_reason[0] ? q->fail_reason : "Unknown failure";
+            if (!http_status)
+                http_status = -1;
 	    if(qbind_int64(q->qfail, ":job", q->job_id) ||
 	       qbind_int(q->qfail, ":res", http_status) ||
 	       qbind_text(q->qfail, ":reason", fail_reason) ||
