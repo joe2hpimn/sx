@@ -149,10 +149,10 @@ static act_result_t force_phase_success(sx_hashfs_t *hashfs, job_t job_id, job_d
 }
 
 static act_result_t FIXME_phase_placeholder(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    act_result_t ret;
     WARN("Phase not implmented for job %lld", (long long)job_id);
-    strncpy(fail_msg, "Action not implemented", JOB_FAIL_REASON_SIZE);
-    fail_msg[JOB_FAIL_REASON_SIZE - 1] = '\0';
-    return ACT_RESULT_PERMFAIL;
+    action_set_fail(ACT_RESULT_PERMFAIL, 500, "Action not implemented");
+    return ret;
 }
 
 static act_result_t createuser_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
@@ -242,7 +242,7 @@ action_failed:
 	    INFO("Polling done");
 	    if(rc == -2) {
 		CRIT("Failed to wait for query");
-		ret = ACT_RESULT_PERMFAIL;
+                action_set_fail(ACT_RESULT_PERMFAIL, 500, "Failed to wait for query");
 		/* FIXME should abort here */
 		continue;
 	    }
@@ -254,7 +254,6 @@ action_failed:
 		succeeded[nnode] = 1;
 	    else {
                 action_set_fail(ACT_RESULT_PERMFAIL, 500, sxi_cbdata_geterrmsg(qrylist[nnode].cbdata));
-		ret = ACT_RESULT_PERMFAIL; /* Raise OK and TEMP to PERMFAIL */
             }
 	}
 	sxi_query_free(proto);
@@ -3186,7 +3185,7 @@ static void jobmgr_run_job(struct jobmgr_data_t *q) {
 	if(act_res == ACT_RESULT_PERMFAIL) {
 	    const char *fail_reason = q->fail_reason[0] ? q->fail_reason : "Unknown failure";
             if (!http_status)
-                http_status = -1;
+                WARN("Job failed but didn't set fail code, missing action_set_fail/action_error call?");
 	    if(qbind_int64(q->qfail, ":job", q->job_id) ||
 	       qbind_int(q->qfail, ":res", http_status) ||
 	       qbind_text(q->qfail, ":reason", fail_reason) ||
