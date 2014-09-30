@@ -2353,6 +2353,7 @@ int sxi_curlev_poll_immediate(curl_events_t *e)
             curl_easy_getinfo(msg->easy_handle, CURLINFO_PRIVATE, &priv);
             if (priv) {
                 const char *url;
+                char *urldup;
                 curlev_t *ev = (curlev_t*)priv;
                 struct recv_context *rctx = &ev->ctx->recv_ctx;
                 struct host_info *host = NULL;
@@ -2445,8 +2446,10 @@ int sxi_curlev_poll_immediate(curl_events_t *e)
                 /* Update global active connections counter */
                 e->conn_pool->active_count--;
  
+                urldup = strdup(url);
                 queue_next_inactive(e);
-                sxi_cbdata_finish(e, &ctx, url, ev->error);
+                sxi_cbdata_finish(e, &ctx, urldup, ev->error);
+                free(urldup);
             } else {
                 EVENTSDEBUG(e,"WARNING: failed to find curl handle\n");
                 e->depth--;
