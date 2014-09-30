@@ -1,3 +1,15 @@
+0.9 (Final Beta)
+----------------
+
+This is a final beta of Skylable SX! Changes in this release include:
+
+  * New garbage collector implementation, both more robust and scalable
+  * Full support for file revisions (see 'man sxrev' and 'man sxvol' for
+    details on how to manage and work with the revisions)
+  * "undelete" filter (see 'sxvol filter --info undelete')
+  * Usability improvements, including new man pages for the client tools
+  * Many minor improvements and bugfixes
+
 0.4 (Fourth Beta)
 -----------------
 
