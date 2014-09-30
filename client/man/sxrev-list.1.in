@@ -3,7 +3,7 @@
 sxrev list \- list revisions
 .SH SYNOPSIS
 .B sxrev list
-\fI\sx://\/\fR[\fI\,profile@\/\fR]\fI\,cluster/volume/path\/\fR
+\fIsx://\/\fR[\fI\,profile@\/\fR]\fI\,cluster/volume/path\/\fR
 .SH DESCRIPTION
 List all available revisions for a given file.
 .SH OPTIONS
