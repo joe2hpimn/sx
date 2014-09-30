@@ -252,8 +252,10 @@ action_failed:
 		    action_set_fail(ACT_RESULT_TEMPFAIL, 503, sxi_cbdata_geterrmsg(qrylist[nnode].cbdata));
 	    } else if(http_status == 200 || http_status == 410)
 		succeeded[nnode] = 1;
-	    else
+	    else {
+                action_set_fail(ACT_RESULT_PERMFAIL, 500, sxi_cbdata_geterrmsg(qrylist[nnode].cbdata));
 		ret = ACT_RESULT_PERMFAIL; /* Raise OK and TEMP to PERMFAIL */
+            }
 	}
 	sxi_query_free(proto);
     }
