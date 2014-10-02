@@ -639,29 +639,65 @@ static sxc_cluster_t *cluster_load(sxc_client_t *sx, struct cluster_args_info *a
 }
 
 static int change_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
-    unsigned int i, query_sz, query_at;
+    unsigned int i, j, query_sz, query_at, nnodes = args->inputs_num - 1;
     sxc_cluster_t *clust = cluster_load(sx, args);
     char *query = NULL;
     int ret = 1;
+    sx_node_t **nodes;
 
     if(!clust)
 	return 1;
 
+    nodes = (sx_node_t **) calloc(nnodes, sizeof(sx_node_t *));
+    if(!nodes) {
+	CRIT("Out of memory when allocating the list of nodes");
+	return 1;
+    }
+
+    for(i=0; i<nnodes; i++) {
+	nodes[i] = parse_nodef(args->inputs[i]);
+	if(!nodes[i])
+	    goto change_cluster_err;
+
+	if(i) {
+	    const char *uuid, *addr, *int_addr;
+	    uuid = sx_node_uuid_str(nodes[i]);
+	    addr = sx_node_addr(nodes[i]);
+	    int_addr = sx_node_internal_addr(nodes[i]);
+
+	    for(j = 0; j < i; j++) {
+		if(!strcmp(sx_node_uuid_str(nodes[j]), uuid)) {
+		    CRIT("Same UUID '%s' specified for multiple nodes", uuid);
+		    goto change_cluster_err;
+		}
+		if(!strcmp(sx_node_addr(nodes[j]), addr) || !strcmp(sx_node_internal_addr(nodes[j]), addr)) {
+		    CRIT("Same IP address '%s' specified for multiple nodes", addr);
+		    goto change_cluster_err;
+		}
+		if(!strcmp(sx_node_addr(nodes[j]), int_addr) || !strcmp(sx_node_internal_addr(nodes[j]), int_addr)) {
+		    CRIT("Same IP address '%s' specified for multiple nodes", int_addr);
+		    goto change_cluster_err;
+		}
+	    }
+	}
+    }
+
     query = malloc(4096);
+    if(!query) {
+	CRIT("Out of memory when allocating the update query");
+	goto change_cluster_err;
+    }
     query_sz = 4096;
     strcpy(query, "{\"nodeList\":[");
     query_at = strlen(query);
 
-    for(i=0; i<args->inputs_num-1; i++) {
-	sx_node_t *node = parse_nodef(args->inputs[i]);
+    for(i=0; i<nnodes; i++) {
 	unsigned int need;
 	const char *uuid, *addr, *int_addr;
-	if(!node)
-	    goto change_cluster_err;
 
-	uuid = sx_node_uuid_str(node);
-	addr = sx_node_addr(node);
-	int_addr = sx_node_internal_addr(node);
+	uuid = sx_node_uuid_str(nodes[i]);
+	addr = sx_node_addr(nodes[i]);
+	int_addr = sx_node_internal_addr(nodes[i]);
 	if(!strcmp(int_addr, addr))
 	    int_addr = NULL;
 	need = sizeof("{\"nodeUUID\":\"\",\"nodeAddress\":\"\",\"nodeInternalAddress\":\"\",\"nodeCapacity\":},") + 32;
@@ -676,23 +712,20 @@ static int change_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
 	    newquery = realloc(query, query_sz + 4096);
 	    if(!newquery) {
 		CRIT("Out of memory when generating the update query");
-		sx_node_delete(node);
 		goto change_cluster_err;
 	    }
 	    query = newquery;
 	}
 	if(int_addr)
-	    sprintf(query + query_at, "{\"nodeUUID\":\"%s\",\"nodeAddress\":\"%s\",\"nodeInternalAddress\":\"%s\",\"nodeCapacity\":%lld}", uuid, addr, int_addr, (long long)sx_node_capacity(node));
+	    sprintf(query + query_at, "{\"nodeUUID\":\"%s\",\"nodeAddress\":\"%s\",\"nodeInternalAddress\":\"%s\",\"nodeCapacity\":%lld}", uuid, addr, int_addr, (long long)sx_node_capacity(nodes[i]));
 	else
-	    sprintf(query + query_at, "{\"nodeUUID\":\"%s\",\"nodeAddress\":\"%s\",\"nodeCapacity\":%lld}", uuid, addr, (long long)sx_node_capacity(node));
+	    sprintf(query + query_at, "{\"nodeUUID\":\"%s\",\"nodeAddress\":\"%s\",\"nodeCapacity\":%lld}", uuid, addr, (long long)sx_node_capacity(nodes[i]));
 	query_at = strlen(query);
 
 	if(i != args->inputs_num-2) {
 	    query[query_at++] = ',';
 	    query[query_at] = '\0';
 	}
-
-	sx_node_delete(node);
     }
 
     strcat(query, "]}"); /* Always fits due to need above */
@@ -708,6 +741,9 @@ static int change_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
     ret = 0;
 
  change_cluster_err:
+    for(i=0; i<nnodes; i++)
+	sx_node_delete(nodes[i]);
+    free(nodes);
     free(query);
     sxc_cluster_free(clust);
     return ret;
