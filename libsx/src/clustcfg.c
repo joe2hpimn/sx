@@ -1500,7 +1500,7 @@ static int yacb_listfiles_number(void *ctx, const char *s, size_t l) {
     memcpy(numb, s, l);
     numb[l] = '\0';
     nnumb = strtoll(numb, &enumb, 10);
-    if(*enumb || nnumb < 0) {
+    if(*enumb || (yactx->state != LF_VOLUMEUSEDSIZE && nnumb < 0)) {
 	CBDEBUG("invalid number '%.*s'", (unsigned)l, s);
 	return 0;
     }
@@ -1520,6 +1520,10 @@ static int yacb_listfiles_number(void *ctx, const char *s, size_t l) {
             return 0;
         }
         yactx->volume_used_size = nnumb;
+        if(nnumb < 0) {
+            CBDEBUG("Current volume size is less than 0: %lld, falling back to 0", (long long)nnumb);
+            yactx->volume_used_size = 0;
+        }
         yactx->state = LF_MAIN;
         return 1;
     case LF_REPLICACNT:

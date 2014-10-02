@@ -750,9 +750,13 @@ static int yacb_listvolumes_number(void *ctx, const char *s, size_t l) {
         memcpy(numb, s, l);
         numb[l] = '\0';
         yactx->voldata.used_size = strtoll(numb, &enumb, 10);
-        if(*enumb || yactx->voldata.used_size < 0) {
+        if(*enumb) {
             CBDEBUG("invalid number '%.*s'", (unsigned)l, s);
             return 0;
+        }
+        if(yactx->voldata.used_size < 0) {
+            CBDEBUG("Current volume size is less than 0: %lld, falling back to 0", (long long)yactx->voldata.used_size);
+            yactx->voldata.used_size = 0;
         }
     } else if(yactx->state == LV_SIZE){
 	if(yactx->voldata.size > 0) {
