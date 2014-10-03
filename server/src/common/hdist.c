@@ -322,6 +322,8 @@ sxi_hdist_t *sxi_hdist_from_cfg(const void *cfg, unsigned int cfg_len)
 	} else {
 		char addr[40], addr_int[40];
 		long long int capacity;
+		char *prev_uuid;
+		sx_uuid_t puuid;
 
 	    /* UUID */
 	    if(uuid_from_string(&uuid, pt)) {
@@ -346,13 +348,23 @@ sxi_hdist_t *sxi_hdist_from_cfg(const void *cfg, unsigned int cfg_len)
 		break;
 	    }
 
-	    /* capacity */
+	    /* capacity + (optional) prev_uuid */
 	    pt = gettoken(cs, &pos, token, sizeof(token));
 	    if(!pt || !isdigit(*pt)) {
 		CRIT("Invalid configuration data (capacity)");
 		ret = EINVAL;
 		break;
 	    }
+
+	    if((prev_uuid = strchr(pt, '@'))) {
+		*prev_uuid++ = 0;
+		if(uuid_from_string(&puuid, prev_uuid)) {
+		    CRIT("Invalid configuration data (prev_uuid = %s)", prev_uuid);
+		    ret = EINVAL;
+		    break;
+		}
+	    }
+
 	    capacity = strtoll(pt, NULL, 0);
 	    if(capacity <= 0 || capacity == LLONG_MAX) {
 		CRIT("Invalid configuration data (capacity conversion)");
@@ -365,7 +377,7 @@ sxi_hdist_t *sxi_hdist_from_cfg(const void *cfg, unsigned int cfg_len)
 		break;
 	    }
 
-	    ret = sxi_hdist_addnode(model, &uuid, addr, addr_int, capacity);
+	    ret = sxi_hdist_addnode(model, &uuid, addr, addr_int, capacity, prev_uuid ? &puuid : NULL);
 	    if(ret)
 		break;
 	}
@@ -412,7 +424,7 @@ static int get_node_idx(const sxi_hdist_t *model, unsigned int bidx, unsigned in
     return -1;
 }
 
-static rc_ty hdist_addnode(sxi_hdist_t *model, unsigned int id, uint64_t capacity, sx_node_t *sxn, unsigned int hashes_stored, unsigned int replicas_stored, uint64_t *hashes, uint8_t *replica_cnt)
+static rc_ty hdist_addnode(sxi_hdist_t *model, unsigned int id, uint64_t capacity, sx_node_t *sxn, unsigned int hashes_stored, unsigned int replicas_stored, uint64_t *hashes, uint8_t *replica_cnt, const sx_uuid_t *prev_uuid)
 {
 	struct hdist_node *node_list_new;
 
@@ -443,7 +455,7 @@ static rc_ty hdist_addnode(sxi_hdist_t *model, unsigned int id, uint64_t capacit
     node_list_new[model->node_count[0]].capacity = capacity;
     model->node_count[0]++;
 
-    if(model->cfg_size + 140 > model->cfg_alloced) {
+    if(model->cfg_size + 180 > model->cfg_alloced) {
 	model->cfg_alloced += CFG_PREALLOC;
 	model->cfg = (char *) wrap_realloc_or_free(model->cfg, sizeof(char) * model->cfg_alloced);
 	if(!model->cfg) {
@@ -452,12 +464,12 @@ static rc_ty hdist_addnode(sxi_hdist_t *model, unsigned int id, uint64_t capacit
 	}
     }
     if(sxn)
-	model->cfg_size += sprintf(model->cfg + model->cfg_size, ":%s:%s:%s:%llu", sx_node_uuid_str(sxn), sx_node_addr(sxn), sx_node_internal_addr(sxn), (unsigned long long) sx_node_capacity(sxn));
+	model->cfg_size += sprintf(model->cfg + model->cfg_size, ":%s:%s:%s:%llu%s%s", sx_node_uuid_str(sxn), sx_node_addr(sxn), sx_node_internal_addr(sxn), (unsigned long long) sx_node_capacity(sxn), prev_uuid ? "@" : "", prev_uuid ? prev_uuid->string : "");
 
     return OK;
 }
 
-rc_ty sxi_hdist_addnode(sxi_hdist_t *model, const sx_uuid_t *uuid, const char *addr, const char *internal_addr, int64_t capacity)
+rc_ty sxi_hdist_addnode(sxi_hdist_t *model, const sx_uuid_t *uuid, const char *addr, const char *internal_addr, int64_t capacity, const sx_uuid_t *prev_uuid)
 {
 	unsigned int i, id = 0;
 	sx_node_t *sxn;
@@ -469,7 +481,7 @@ rc_ty sxi_hdist_addnode(sxi_hdist_t *model, const sx_uuid_t *uuid, const char *a
     /* retain the internal ID if possible */
     if(model->builds) {
 	for(i = 0; i < model->node_count[1]; i++)
-	    if(model->node_list[1][i].sxn && !memcmp(sx_node_uuid(model->node_list[1][i].sxn), uuid, sizeof(*uuid)))
+	    if(model->node_list[1][i].sxn && (!memcmp(sx_node_uuid(model->node_list[1][i].sxn), uuid, sizeof(*uuid)) || (prev_uuid && !memcmp(sx_node_uuid(model->node_list[1][i].sxn), prev_uuid, sizeof(*prev_uuid)))))
 		id = model->node_list[1][i].id;
     }
 
@@ -480,7 +492,7 @@ rc_ty sxi_hdist_addnode(sxi_hdist_t *model, const sx_uuid_t *uuid, const char *a
     if(!sxn)
 	return EINVAL;
 
-    rc = hdist_addnode(model, id, capacity, sxn, 0, 0, NULL, NULL);
+    rc = hdist_addnode(model, id, capacity, sxn, 0, 0, NULL, NULL, prev_uuid);
     if(rc) {
 	sx_node_delete(sxn);
 	return rc;
@@ -763,7 +775,6 @@ rc_ty sxi_hdist_build(sxi_hdist_t *model)
 		}
 		model->circle[0][p].node_id = model->node_list[0][i].id;
 		model->circle[0][p].rnd = isaac_rand(&model->rctx);
-		model->circle[0][p].num = j;
 		model->circle[0][p].node_points = node_points;
 		model->circle[0][p++].point = isaac_rand(&model->rctx);
 	    }
@@ -773,7 +784,6 @@ rc_ty sxi_hdist_build(sxi_hdist_t *model)
 	for(i = 0; i < model->node_count[0]; i++) {
 		    unsigned int node_points = (model->node_list[0][i].capacity / (float) model->capacity_total[0]) * points_total;
 		    unsigned int node_points_cnt;
-		    unsigned int point_num = 0;
 
 		if(!node_points) {
 		    node_points++;
@@ -793,7 +803,6 @@ rc_ty sxi_hdist_build(sxi_hdist_t *model)
 				return FAIL_EINTERNAL;
 			    }
 			    model->circle[0][p].node_id = model->node_list[0][i].id;
-			    model->circle[0][p].num = point_num++;
 			    model->circle[0][p].node_points = node_points;
 			    model->circle[0][p].rnd = model->circle[1][j].rnd;
 			    model->circle[0][p++].point = model->circle[1][j].point;
@@ -807,7 +816,6 @@ rc_ty sxi_hdist_build(sxi_hdist_t *model)
 			return FAIL_EINTERNAL;
 		    }
 		    model->circle[0][p].node_id = model->node_list[0][i].id;
-		    model->circle[0][p].num = point_num++;
 		    model->circle[0][p].node_points = node_points;
 		    model->circle[0][p].point = isaac_rand(&model->rctx);
 		    model->circle[0][p++].rnd = isaac_rand(&model->rctx);
@@ -815,6 +823,18 @@ rc_ty sxi_hdist_build(sxi_hdist_t *model)
 	}
 	qsort(model->circle[1], model->circle_points[1], sizeof(struct hdist_point), circle_cmp_point);
     }
+
+    /*
+    qsort(model->circle[0], p, sizeof(struct hdist_point), circle_cmp_rnd);
+    nums = (unsigned int *) calloc(model->last_id, sizeof(unsigned int));
+    if(!nums) {
+        CRIT("Can't allocate memory (nums)");
+        return ENOMEM;
+    }
+    for(i = 0; i < p; i++)
+	model->circle[0][i].num = nums[model->circle[0][i].node_id - 1]++;
+    free(nums);
+    */
 
     qsort(model->circle[0], p, sizeof(struct hdist_point), circle_cmp_point);
     model->circle_points[0] = p;
@@ -929,10 +949,12 @@ static rc_ty hdist_hash(const sxi_hdist_t *model, uint64_t hash, unsigned int re
 	    for(h = m + 1; h < model->circle_points[bidx]; h++) {
 		    struct hdist_point *p = &model->circle[bidx][h];
 		if(!node_in_set(dest_nodes, NULL, i, p->node_id)) {
+		    /*
 		    if(!j && p->num > (p->node_points / rdiv)) {
 			node_idx = -1;
 			continue;
 		    }
+		    */
 		    node_idx = get_node_idx(model, bidx, p->node_id);
 		    m = h;
 		    break;
@@ -942,10 +964,12 @@ static rc_ty hdist_hash(const sxi_hdist_t *model, uint64_t hash, unsigned int re
 		for(h = 0; h < m; h++) {
 		    struct hdist_point *p = &model->circle[bidx][h];
 		    if(!node_in_set(dest_nodes, NULL, i, p->node_id)) {
+			/*
 			if(!j && p->num > (p->node_points / rdiv)) {
 			    node_idx = -1;
 			    continue;
 			}
+			*/
 			node_idx = get_node_idx(model, bidx, p->node_id);
 			m = h;
 			break;

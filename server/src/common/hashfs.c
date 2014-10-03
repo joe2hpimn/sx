@@ -52,7 +52,7 @@
 #define METADBS 16
 #define GCDBS 1
 /* NOTE: HASHFS_VERSION must be kept below 15 bytes */
-#define HASHFS_VERSION "SX-Storage 1.4"
+#define HASHFS_VERSION "SX-Storage 1.5"
 #define SIZES 3
 const char sizedirs[SIZES] = "sml";
 const char *sizelongnames[SIZES] = { "small", "medium", "large" };
@@ -2310,7 +2310,7 @@ rc_ty sx_hashfs_modhdist(sx_hashfs_t *h, const sx_nodelist_t *list) {
 
     for(i=0; i<nnodes; i++) {
 	const sx_node_t *n = sx_nodelist_get(list, i);
-	ret = sxi_hdist_addnode(newmod, sx_node_uuid(n), sx_node_addr(n), sx_node_internal_addr(n), sx_node_capacity(n));
+	ret = sxi_hdist_addnode(newmod, sx_node_uuid(n), sx_node_addr(n), sx_node_internal_addr(n), sx_node_capacity(n), NULL);
 	if(ret == OK)
 	    continue;
 	msg_set_reason("Failed to add the distribution node");
@@ -7382,7 +7382,7 @@ rc_ty sx_hashfs_hdist_change_req(sx_hashfs_t *h, const sx_nodelist_t *newdist, j
 	    }
 	}
 	newclustersize += sx_node_capacity(n);
-	r = sxi_hdist_addnode(newmod, sx_node_uuid(n), sx_node_addr(n), sx_node_internal_addr(n), sx_node_capacity(n));
+	r = sxi_hdist_addnode(newmod, sx_node_uuid(n), sx_node_addr(n), sx_node_internal_addr(n), sx_node_capacity(n), NULL);
 	if(r) {
 	    sxi_hdist_free(newmod);
 	    msg_set_reason("Failed to update current distribution");

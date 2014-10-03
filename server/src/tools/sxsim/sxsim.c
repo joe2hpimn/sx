@@ -354,7 +354,7 @@ static int update(struct sxcluster *cluster)
     }
 
     for(i = 0; i < cluster->node_cnt; i++) {
-	if(!cluster->node[i].del_flag && sxi_hdist_addnode(cluster->hdist, &cluster->node[i].uuid, "0.0.0.0", "0.0.0.0", cluster->node[i].capacity) != OK) {
+	if(!cluster->node[i].del_flag && sxi_hdist_addnode(cluster->hdist, &cluster->node[i].uuid, "0.0.0.0", "0.0.0.0", cluster->node[i].capacity, NULL) != OK) {
 	    printf("ERROR: Can't add new node to hdist\n");
 	    return -1;
 	}
@@ -1756,7 +1756,7 @@ int main(int argc, char **argv)
     }
 
     for(i = 0; i < cluster.node_cnt; i++) {
-	if(sxi_hdist_addnode(cluster.hdist, &cluster.node[i].uuid, "0.0.0.0", "0.0.0.0", cluster.node[i].capacity) != OK) {
+	if(sxi_hdist_addnode(cluster.hdist, &cluster.node[i].uuid, "0.0.0.0", "0.0.0.0", cluster.node[i].capacity, NULL) != OK) {
 	    printf("ERROR: Can't add new node to hdist\n");
 	    shutdown(&cluster, 1);
 	}
