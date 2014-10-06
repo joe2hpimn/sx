@@ -47,6 +47,7 @@
 #include "utils.h"
 #include "../libsx/src/vcrypto.h"
 #include "../libsx/src/clustcfg.h"
+#include "../libsx/src/cluster.h"
 
 #define HASHDBS 16
 #define METADBS 16
@@ -306,8 +307,12 @@ rc_ty sx_storage_create(const char *dir, sx_uuid_t *cluster, uint8_t *key, int k
 	goto create_hashfs_fail;
     qnullify(q);
 
-    if(qprep(db, &q, "CREATE TABLE volumes (vid INTEGER PRIMARY KEY NOT NULL, volume TEXT ("STRIFY(SXLIMIT_MAX_VOLNAME_LEN)") NOT NULL UNIQUE, replica INTEGER NOT NULL, revs INTEGER NOT NULL, cursize INTEGER NOT NULL, maxsize INTEGER NOT NULL, enabled INTEGER NOT NULL DEFAULT 0, owner_id INTEGER NOT NULL REFERENCES users(uid))") || qstep_noret(q))
+    if(qprep(db, &q, "CREATE TABLE volumes (vid INTEGER PRIMARY KEY NOT NULL, volume TEXT ("STRIFY(SXLIMIT_MAX_VOLNAME_LEN)") NOT NULL UNIQUE, replica INTEGER NOT NULL, revs INTEGER NOT NULL, cursize INTEGER NOT NULL, maxsize INTEGER NOT NULL, enabled INTEGER NOT NULL DEFAULT 0, owner_id INTEGER NOT NULL REFERENCES users(uid), changed INTEGER NOT NULL DEFAULT 0)") || qstep_noret(q))
 	goto create_hashfs_fail;
+    qnullify(q);
+
+    if(qprep(db, &q, "CREATE TABLE node_volume_updates (node BLOB ("STRIFY(UUID_BINARY_SIZE)") PRIMARY KEY NOT NULL, last_push INTEGER NOT NULL DEFAULT 0)") || qstep_noret(q))
+        goto create_hashfs_fail;
     qnullify(q);
 
     if(qprep(db, &q, "CREATE TABLE vmeta (volume_id INTEGER NOT NULL REFERENCES volumes(vid) ON DELETE CASCADE ON UPDATE CASCADE, key TEXT ("STRIFY(SXLIMIT_META_MAX_KEY_LEN)") NOT NULL, value BLOB ("STRIFY(SXLIMIT_META_MAX_VALUE_LEN)") NOT NULL, PRIMARY KEY(volume_id, key))") || qstep_noret(q))
@@ -621,6 +626,8 @@ struct _sx_hashfs_t {
     sqlite3_stmt *q_minreqs;
     sqlite3_stmt *q_updatevolcursize;
     sqlite3_stmt *q_setvolcursize;
+    sqlite3_stmt *q_getnodepushtime;
+    sqlite3_stmt *q_setnodepushtime;
 
     sxi_db_t *tempdb;
     sqlite3_stmt *qt_new;
@@ -656,6 +663,7 @@ struct _sx_hashfs_t {
     sqlite3_stmt *qm_getreloc[METADBS];
     sqlite3_stmt *qm_delreloc[METADBS];
     sqlite3_stmt *qm_delbyvol[METADBS];
+    sqlite3_stmt *qm_sumfilesizes[METADBS];
 
     sxi_db_t *datadb[SIZES][HASHDBS];
     sqlite3_stmt *qb_get[SIZES][HASHDBS];
@@ -701,7 +709,7 @@ struct _sx_hashfs_t {
     sqlite3_stmt *qx_release;
     sqlite3_stmt *qx_hasheld;
 
-    struct timeval jmgr_timestamp;
+    struct timeval volsizes_push_timestamp;
 
     char *ssl_ca_file;
     char *cluster_name;
@@ -850,6 +858,7 @@ static void close_all_dbs(sx_hashfs_t *h) {
 	sqlite3_finalize(h->qm_getreloc[i]);
 	sqlite3_finalize(h->qm_delreloc[i]);
 	sqlite3_finalize(h->qm_delbyvol[i]);
+        sqlite3_finalize(h->qm_sumfilesizes[i]);
 	qclose(&h->metadb[i]);
     }
 
@@ -863,6 +872,8 @@ static void close_all_dbs(sx_hashfs_t *h) {
     sqlite3_finalize(h->q_minreqs);
     sqlite3_finalize(h->q_updatevolcursize);
     sqlite3_finalize(h->q_setvolcursize);
+    sqlite3_finalize(h->q_getnodepushtime);
+    sqlite3_finalize(h->q_setnodepushtime);
     sqlite3_finalize(h->q_onoffuser);
     sqlite3_finalize(h->q_gethdrev);
     sqlite3_finalize(h->q_getuser);
@@ -1197,7 +1208,7 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 	qlog_set = 1;
     }
 
-    gettimeofday(&h->jmgr_timestamp, NULL);
+    gettimeofday(&h->volsizes_push_timestamp, NULL);
 
     /* reset sqlite3's PRNG, to avoid generating colliding tempfile names in
      * forked processes */
@@ -1301,11 +1312,11 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 	goto open_hashfs_fail;
     /* To keep the next query simple we do not check if the user is enabled
      * This is preliminary enforced in auth_begin */
-    if(qprep(h->db, &h->q_nextvol, "SELECT volumes.vid, volumes.volume, volumes.replica, volumes.cursize, volumes.maxsize, volumes.owner_id, volumes.revs FROM volumes LEFT JOIN privs ON privs.volume_id = volumes.vid WHERE volumes.volume > :previous AND volumes.enabled = 1 AND (:user = 0 OR (privs.priv > 0 AND privs.user_id=:user)) ORDER BY volumes.volume ASC LIMIT 1"))
+    if(qprep(h->db, &h->q_nextvol, "SELECT volumes.vid, volumes.volume, volumes.replica, volumes.cursize, volumes.maxsize, volumes.owner_id, volumes.revs, volumes.changed FROM volumes LEFT JOIN privs ON privs.volume_id = volumes.vid WHERE volumes.volume > :previous AND volumes.enabled = 1 AND (:user = 0 OR (privs.priv > 0 AND privs.user_id=:user)) ORDER BY volumes.volume ASC LIMIT 1"))
 	goto open_hashfs_fail;
-    if(qprep(h->db, &h->q_volbyname, "SELECT vid, volume, replica, cursize, maxsize, owner_id, revs FROM volumes WHERE volume = :name AND enabled = 1"))
+    if(qprep(h->db, &h->q_volbyname, "SELECT vid, volume, replica, cursize, maxsize, owner_id, revs, changed FROM volumes WHERE volume = :name AND enabled = 1"))
 	goto open_hashfs_fail;
-    if(qprep(h->db, &h->q_volbyid, "SELECT vid, volume, replica, cursize, maxsize, owner_id, revs FROM volumes WHERE vid = :volid AND enabled = 1"))
+    if(qprep(h->db, &h->q_volbyid, "SELECT vid, volume, replica, cursize, maxsize, owner_id, revs, changed FROM volumes WHERE vid = :volid AND enabled = 1"))
 	goto open_hashfs_fail;
     if(qprep(h->db, &h->q_metaget, "SELECT key, value FROM vmeta WHERE volume_id = :volume"))
 	goto open_hashfs_fail;
@@ -1325,9 +1336,13 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 	goto open_hashfs_fail;
     if(qprep(h->db, &h->q_minreqs, "SELECT COALESCE(MAX(replica), 1), COALESCE(SUM(maxsize*replica), 0) FROM volumes"))
         goto open_hashfs_fail;
-    if(qprep(h->db, &h->q_updatevolcursize, "UPDATE volumes SET cursize = cursize + :size WHERE vid = :volume"))
+    if(qprep(h->db, &h->q_updatevolcursize, "UPDATE volumes SET cursize = cursize + :size, changed = :now WHERE vid = :volume"))
         goto open_hashfs_fail;
-    if(qprep(h->db, &h->q_setvolcursize, "UPDATE volumes SET cursize = :size WHERE vid = :volume"))
+    if(qprep(h->db, &h->q_setvolcursize, "UPDATE volumes SET cursize = :size, changed = :now WHERE vid = :volume"))
+        goto open_hashfs_fail;
+    if(qprep(h->db, &h->q_getnodepushtime, "SELECT last_push FROM node_volume_updates WHERE node = :node"))
+        goto open_hashfs_fail;
+    if(qprep(h->db, &h->q_setnodepushtime, "INSERT OR REPLACE INTO node_volume_updates VALUES (:node, :now)"))
         goto open_hashfs_fail;
 
     OPEN_DB("tempdb", &h->tempdb);
@@ -1507,6 +1522,8 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 	    goto open_hashfs_fail;
 	if(qprep(h->metadb[i], &h->qm_delbyvol[i], "DELETE FROM files WHERE volume_id = :volid"))
 	    goto open_hashfs_fail;
+        if(qprep(h->metadb[i], &h->qm_sumfilesizes[i], "SELECT SUM(size) FROM files WHERE volume_id = :volid"))
+            goto open_hashfs_fail;
     }
 
     OPEN_DB("eventdb", &h->eventdb);
@@ -2433,27 +2450,47 @@ static int hash_nidx_tobuf(sx_hashfs_t *h, const sx_hash_t *hash, unsigned int r
     return 0;
 }
 
-int sx_hashfs_is_or_was_my_volume(sx_hashfs_t *h, const sx_hashfs_volume_t *vol) {
+int sx_hashfs_is_node_volume_owner(sx_hashfs_t *h, sx_hashfs_nl_t which, const sx_node_t *n, const sx_hashfs_volume_t *vol) {
     sx_nodelist_t *volnodes;
     sx_hash_t hash;
     int ret = 0;
 
-    if(!h || !vol || !h->have_hd)
-	return 0;
+    if(!h || !vol || !h->have_hd || !n)
+        return 0;
 
     if(hash_buf(h->cluster_uuid.string, strlen(h->cluster_uuid.string), vol->name, strlen(vol->name), &hash)) {
-	WARN("hashing volume name failed");
-	return 0;
+        WARN("hashing volume name failed");
+        return 0;
     }
 
-    volnodes = sx_hashfs_hashnodes(h, NL_NEXTPREV, &hash, vol->replica_count);
+    volnodes = sx_hashfs_hashnodes(h, which, &hash, vol->replica_count);
     if(volnodes) {
-	if(sx_nodelist_lookup(volnodes, &h->node_uuid))
-	    ret = 1;
-	sx_nodelist_delete(volnodes);
+        if(sx_nodelist_lookup(volnodes, sx_node_uuid(n)))
+            ret = 1;
+        sx_nodelist_delete(volnodes);
     }
 
     return ret;
+}
+
+/* Return 1 only if node is not a volnode on PREV but is on NEXT */
+static int is_new_volnode(sx_hashfs_t *h, const sx_hashfs_volume_t *vol) {
+    if(!h || !vol) {
+        NULLARG();
+        return -1;
+    }
+
+    if(!h->have_hd || !sx_hashfs_is_rebalancing(h))
+        return 0;
+
+    if(!sx_hashfs_is_node_volume_owner(h, NL_PREV, sx_hashfs_self(h), vol) && sx_hashfs_is_node_volume_owner(h, NL_NEXT, sx_hashfs_self(h), vol))
+        return 1;
+
+    return 0;
+}
+
+int sx_hashfs_is_or_was_my_volume(sx_hashfs_t *h, const sx_hashfs_volume_t *vol) {
+    return sx_hashfs_is_node_volume_owner(h, NL_NEXTPREV, sx_hashfs_self(h), vol);
 }
 
 static unsigned int slashes_in(const char *s) {
@@ -3724,19 +3761,11 @@ rc_ty sx_hashfs_volume_next(sx_hashfs_t *h) {
     h->curvol.name[sizeof(h->curvol.name) - 1] = '\0';
     h->curvol.id = sqlite3_column_int64(h->q_nextvol, 0);
     h->curvol.replica_count = sqlite3_column_int(h->q_nextvol, 2);
+    h->curvol.cursize = sqlite3_column_int64(h->q_nextvol, 3);
     h->curvol.size = sqlite3_column_int64(h->q_nextvol, 4);
     h->curvol.owner = sqlite3_column_int64(h->q_nextvol, 5);
     h->curvol.revisions = sqlite3_column_int(h->q_nextvol, 6);
-
-    if(sx_hashfs_is_or_was_my_volume(h, &h->curvol)) {
-        /* This host is a volhost, no need to query different hosts */
-        h->curvol.cursize = sqlite3_column_int64(h->q_nextvol, 3);
-    } else {
-        /* Get current volume usage from volhost of current volume */
-        res = get_remote_volume_size(h, &h->curvol, &h->curvol.cursize);
-        if(res != OK)
-            goto volume_list_err;
-    }
+    h->curvol.changed = sqlite3_column_int64(h->q_nextvol, 7);
 
     res = OK;
     volume_list_err:
@@ -3785,6 +3814,7 @@ static rc_ty volume_get_common(sx_hashfs_t *h, const char *name, int64_t volid, 
     h->curvol.size = sqlite3_column_int64(q, 4);
     h->curvol.owner = sqlite3_column_int64(q, 5);
     h->curvol.revisions = sqlite3_column_int(q, 6);
+    h->curvol.changed = sqlite3_column_int64(q, 7);
     *volume = &h->curvol;
     res = OK;
 
@@ -4497,22 +4527,74 @@ rc_ty sx_hashfs_check_file_size(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, c
     return ret;
 }
 
-/* Must be called inside transaction on h->db! */
-static rc_ty update_volume_current_size(sx_hashfs_t *h, int64_t volume_id, int64_t size) {
-    if(!volume_id) {
-        CRIT("Invalid volume_id argument");
-        return EINVAL;
+int64_t sx_hashfs_get_node_push_time(sx_hashfs_t *h, const sx_node_t *n) {
+    int64_t timestamp;
+    int r;
+
+    if(!h || !n)
+        return -1;
+
+    sqlite3_reset(h->q_getnodepushtime);
+    if(qbind_blob(h->q_getnodepushtime, ":node", sx_node_uuid(n), UUID_BINARY_SIZE)) {
+        WARN("Failed to prepare query for getting last push timestamp for node %s", sx_node_addr(n));
+        sqlite3_reset(h->q_getnodepushtime);
+        return -1;
     }
 
-    sqlite3_reset(h->q_updatevolcursize);
-    if(qbind_int64(h->q_updatevolcursize, ":size", size) ||
-       qbind_int64(h->q_updatevolcursize, ":volume", volume_id) ||
-       qstep_noret(h->q_updatevolcursize)) {
-        msg_set_reason("Failed to update volume size");
+    r = qstep(h->q_getnodepushtime);
+    if(r == SQLITE_DONE) {
+        /* No row found, no push yet */
+        timestamp = 0;
+    } else if(r == SQLITE_ROW) {
+        /* Found a push timestamp, get it */
+        timestamp = sqlite3_column_int64(h->q_getnodepushtime, 0);
+    } else {
+        WARN("Failed to get last push timestamp");
+        timestamp = -1;
+    }
+
+    sqlite3_reset(h->q_getnodepushtime);
+    return timestamp;
+}
+
+int sx_hashfs_is_volume_to_push(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, const sx_node_t *node) {
+    if(!h || !vol || !h->have_hd || !node)
+        return 0;
+
+    /* If this is not my volume on PREV distribution, then I should not push volume size to other nodes */
+    if(!sx_hashfs_is_node_volume_owner(h, NL_PREV, sx_hashfs_self(h), vol))
+        return 0;
+
+    /* If cluster is rebalancing, then we should send volume sizes to new volnodes as well as to non-volnodes */
+    if(!sx_hashfs_is_node_volume_owner(h, NL_PREV, node, vol))
+        return 1;
+
+    return 0;
+}
+
+rc_ty sx_hashfs_update_node_push_time(sx_hashfs_t *h, const sx_node_t *n) {
+    rc_ty ret = FAIL_EINTERNAL;
+
+    if(!h || !n)
         return FAIL_EINTERNAL;
+
+    /* Update push time */
+    sqlite3_reset(h->q_setnodepushtime);
+    if(qbind_int64(h->q_setnodepushtime, ":now", time(NULL))
+       || qbind_blob(h->q_setnodepushtime, ":node", sx_node_uuid(n), UUID_BINARY_SIZE)
+       || qstep_noret(h->q_setnodepushtime)) {
+        WARN("Failed to update node push timestamp");
+        goto update_node_push_time_err;
     }
 
-    return OK;
+    ret = OK;
+    update_node_push_time_err:
+    sqlite3_reset(h->q_setnodepushtime);
+    return ret;
+}
+
+struct timeval* sx_hashfs_volsizes_timestamp(sx_hashfs_t *h) {
+    return &h->volsizes_push_timestamp;
 }
 
 rc_ty sx_hashfs_putfile_begin(sx_hashfs_t *h, sx_uid_t user_id, const char *volume, const char *file, const sx_hashfs_volume_t **volptr) {
@@ -5107,7 +5189,8 @@ static rc_ty create_file(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const
     if(file_id)
 	*file_id = sqlite3_last_insert_rowid(sqlite3_db_handle(h->qm_ins[mdb]));
 
-    if(size && update_volume_current_size(h, volume->id, size)) {
+    /* Update volume size counter only when size is positive and this node is not becoming a volnode */
+    if(size && !is_new_volnode(h, volume) && sx_hashfs_update_volume_cursize(h, volume->id, size)) {
         WARN("Failed to update volume size");
         return FAIL_EINTERNAL;
     }
@@ -6263,7 +6346,8 @@ rc_ty sx_hashfs_file_delete(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, co
     deleted = sqlite3_changes(h->metadb[ndb]->handle);
     sqlite3_reset(h->qm_delfile[ndb]);
 
-    if(ret == OK && size && deleted && update_volume_current_size(h, volume->id, -size)) {
+    /* Update counters only when file deletion succeeded and this node is not becoming a volnode */
+    if(ret == OK && size && deleted && !is_new_volnode(h, volume) && sx_hashfs_update_volume_cursize(h, volume->id, -size)) {
         WARN("Failed to update volume size");
         return FAIL_EINTERNAL;
     }
@@ -8675,12 +8759,56 @@ rc_ty sx_hashfs_relocs_delete(sx_hashfs_t *h, const sx_reloc_t *reloc) {
     return relocs_delete(h, reloc->reloc_db, reloc->reloc_id);
 }
 
+rc_ty sx_hashfs_reset_volume_cursize(sx_hashfs_t *h, int64_t volume_id, int64_t size) {
+    rc_ty ret = FAIL_EINTERNAL;
+
+    sqlite3_reset(h->q_setvolcursize);
+    if(qbind_int64(h->q_setvolcursize, ":size", size) ||
+       qbind_int64(h->q_setvolcursize, ":volume", volume_id) ||
+       qbind_int64(h->q_setvolcursize, ":now", time(NULL)) ||
+       qstep_noret(h->q_setvolcursize)) {
+        WARN("Failed to reset volume size for volume %lld", (long long)volume_id);
+        msg_set_reason("Failed to reset volume size");
+        goto sx_hashfs_reset_volume_cursize_err;
+    }
+
+    ret = OK;
+    sx_hashfs_reset_volume_cursize_err:
+    sqlite3_reset(h->q_setvolcursize);
+    return ret;
+}
+
+rc_ty sx_hashfs_update_volume_cursize(sx_hashfs_t *h, int64_t volume_id, int64_t size) {
+    rc_ty ret = FAIL_EINTERNAL;
+
+    if(!volume_id) {
+        CRIT("Invalid volume_id argument");
+        return EINVAL;
+    }
+
+    sqlite3_reset(h->q_updatevolcursize);
+    if(qbind_int64(h->q_updatevolcursize, ":size", size) ||
+       qbind_int64(h->q_updatevolcursize, ":volume", volume_id) ||
+       qbind_int64(h->q_updatevolcursize, ":now", time(NULL)) ||
+       qstep_noret(h->q_updatevolcursize)) {
+        WARN("Failed to update volume size for volume %lld", (long long)volume_id);
+        msg_set_reason("Failed to update volume size");
+        goto sx_hashfs_update_volume_cursize_err;
+    }
+
+    ret = OK;
+    sx_hashfs_update_volume_cursize_err:
+    sqlite3_reset(h->q_setvolcursize);
+    return ret;
+}
 
 rc_ty sx_hashfs_rb_cleanup(sx_hashfs_t *h) {
     const sx_hashfs_volume_t *vol;
     sx_uuid_t selfuuid;
     unsigned int i;
     rc_ty r;
+    const sx_nodelist_t *nodes;
+    unsigned int nnodes;
 
     sqlite3_reset(h->qx_wipehold);
     if(qstep_noret(h->qx_wipehold)) {
@@ -8694,6 +8822,30 @@ rc_ty sx_hashfs_rb_cleanup(sx_hashfs_t *h) {
 	    WARN("Failed to wipe relocation queue on db %u", i);
 	    return FAIL_EINTERNAL;
 	}
+    }
+
+    /* Get list of all nodes */
+    nodes = sx_hashfs_nodelist(h, NL_PREVNEXT);
+    if(!nodes) {
+        WARN("Failed to get NL_PREVNEXT nodes list");
+        return FAIL_EINTERNAL;
+    }
+    nnodes = sx_nodelist_count(nodes);
+
+    /* Iterate over nodes and reset their last push time */
+    for(i = 0; i < nnodes; i++) {
+        const sx_node_t *n = sx_nodelist_get(nodes, i);
+        if(!n) {
+            WARN("Failed to get node from nodes list");
+            return FAIL_EINTERNAL;
+        }
+
+        sqlite3_reset(h->q_setnodepushtime);
+        if(qbind_blob(h->q_setnodepushtime, ":node", sx_node_uuid(n)->binary, UUID_BINARY_SIZE)
+           || qbind_int64(h->q_setnodepushtime, ":now", 0) || qstep_noret(h->q_setnodepushtime)) {
+            WARN("Failed to reset node %s push time", sx_node_addr(n));
+            return FAIL_EINTERNAL;
+        }
     }
 
     if(sx_hashfs_self_uuid(h, &selfuuid))
@@ -8714,7 +8866,6 @@ rc_ty sx_hashfs_rb_cleanup(sx_hashfs_t *h) {
 	    return FAIL_EINTERNAL;
 
 	do {
-	    unsigned int i;
 	    INFO("Nodes for volume %s:", vol->name);
 	    for(i=0; i<sx_nodelist_count(volnodes); i++) {
 		const sx_node_t *n = sx_nodelist_get(volnodes, i);
@@ -8729,14 +8880,12 @@ rc_ty sx_hashfs_rb_cleanup(sx_hashfs_t *h) {
 		if(qbind_int64(h->qm_delbyvol[i], ":volid", vol->id) ||
 		   qstep_noret(h->qm_delbyvol[i])) {
                     WARN("Failed to delete relocated files on %u for volume %llu", i, (long long)vol->id);
+                    sx_nodelist_delete(volnodes);
                     return FAIL_EINTERNAL;
                 }
 	    }
-            sqlite3_reset(h->q_setvolcursize);
-            if(qbind_int64(h->q_setvolcursize, ":size", 0) ||
-               qbind_int64(h->q_setvolcursize, ":volume", vol->id) ||
-               qstep_noret(h->q_setvolcursize)) {
-                WARN("Failed to reset volume size for volume %lld", (long long)vol->id);
+            if(sx_hashfs_reset_volume_cursize(h, vol->id, 0)) {
+                sx_nodelist_delete(volnodes);
                 return FAIL_EINTERNAL;
             }
 	}
@@ -8842,6 +8991,91 @@ rc_ty sx_hashfs_set_rbl_info(sx_hashfs_t *h, int active, int complete, const cha
     return ret;
 }
 
+static rc_ty compute_volume_sizes(sx_hashfs_t *h) {
+    rc_ty ret = FAIL_EINTERNAL, s;
+    const sx_hashfs_volume_t *vol = NULL;
+    sqlite3_stmt *q = NULL;
+    unsigned int i;
+    int locks[METADBS+1];
+
+    memset(locks, 0, sizeof(int) * (METADBS+1));
+
+    /* Iterate over all volumes */
+    for(s = sx_hashfs_volume_first(h, &vol, 0); s == OK; s = sx_hashfs_volume_next(h)) {
+        int64_t size = 0;
+
+        /* Update volume size only if I've' just become a volnode for given volume */
+        if(!is_new_volnode(h, vol))
+            continue;
+
+        if(qbegin(h->db))
+            goto compute_volume_sizes_err;
+        locks[METADBS] = 1;
+
+        for(i=0; i<METADBS; i++) {
+            if(qbegin(h->metadb[i]))
+                goto compute_volume_sizes_err;
+            locks[i] = 1;
+        }
+
+        /* Iterate over all meta databases */
+        for(i = 0; i < METADBS; i++) {
+            q = h->qm_sumfilesizes[i];
+            int r;
+
+            sqlite3_reset(q);
+            if(qbind_int64(q, ":volid", vol->id)) {
+                WARN("Failed to bind volume ID to a query");
+                goto compute_volume_sizes_err;
+            }
+
+            /* Get volume size from one of meta databases */
+            while((r = qstep(q)) == SQLITE_ROW)
+                size += sqlite3_column_int64(q, 0);
+
+            if(r != SQLITE_DONE) {
+                WARN("Failed to query sum of file sizes for meta db: %d", i);
+                goto compute_volume_sizes_err;
+            }
+        }
+
+        /* Set proper volume size */
+        if(sx_hashfs_reset_volume_cursize(h, vol->id, size)) {
+            WARN("Failed to set volume %s size to %lld", vol->name, (long long)size);
+            goto compute_volume_sizes_err;
+        }
+
+        if(qcommit(h->db))
+            goto compute_volume_sizes_err;
+        else
+            locks[METADBS] = 0;
+
+        /* Unlock meta dbs */
+        for(i = 0; i < METADBS; i++) {
+            qrollback(h->metadb[i]);
+            locks[i] = 0;
+        }
+    }
+
+    /* Check for iteration correctness */
+    if(s != ITER_NO_MORE) {
+        WARN("Failed to iterate volumes");
+        goto compute_volume_sizes_err;
+    }
+
+    ret = OK;
+    compute_volume_sizes_err:
+
+    if(ret != OK && locks[METADBS])
+        qrollback(h->db);
+
+    for(i = 0; i < METADBS; i++)
+        if(locks[i])
+            qrollback(h->metadb[i]);
+
+    sqlite3_reset(q);
+    return ret;
+}
 
 rc_ty sx_hashfs_hdist_endrebalance(sx_hashfs_t *h) {
     job_t job_id;
@@ -8864,6 +9098,13 @@ rc_ty sx_hashfs_hdist_endrebalance(sx_hashfs_t *h) {
 	ret = sx_hashfs_job_new(h, 0, &job_id, JOBTYPE_REBALANCE_CLEANUP, JOB_NO_EXPIRY, "CLEANRB", NULL, 0, singlenode);
 
     sx_nodelist_delete(singlenode);
+
+    /* Compute volume sizes */
+    if((ret = compute_volume_sizes(h)) != OK) {
+        WARN("Failed to compute volume sizes");
+        return ret;
+    }
+
     return ret;
 }
 

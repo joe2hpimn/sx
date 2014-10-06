@@ -2716,6 +2716,295 @@ static act_result_t cleanrb_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t
     return ret;
 }
 
+/* Context used to push volume sizes */
+struct volsizes_push_ctx {
+    unsigned int idx; /* index of a node which query was sent to */
+    unsigned int fail; /* Will be set to 0 if query has been successfully sent to all nodes */
+    sxi_query_t *query; /* query reference used to send query */
+};
+
+/* Push volume sizes to particular node */
+static curlev_context_t *push_volume_sizes(sx_hashfs_t *h, const sx_node_t *n, unsigned int node_index, sxi_query_t *query) {
+    curlev_context_t *ret;
+    struct volsizes_push_ctx *ctx;
+
+    if(!h || !n || !query) {
+        NULLARG();
+        return NULL;
+    }
+
+    ret = sxi_cbdata_create_generic(sx_hashfs_conns(h), NULL, NULL);
+    if(!ret) {
+        WARN("Failed to allocate cbdata");
+        sxi_query_free(query);
+        return NULL;
+    }
+
+    /* Create context which will be added to cbdata */
+    ctx = malloc(sizeof(*ctx));
+    if(!ctx) {
+        WARN("Failed to allocate push context");
+        sxi_query_free(query);
+        sxi_cbdata_unref(&ret);
+        return NULL;
+    }
+
+    /* Assign index to distinguish nodes during polling */
+    ctx->idx = node_index;
+    /* Assign query to free it later (its content may be used in async callbacks) */
+    ctx->query = query;
+    /* Set fail flag to 1 (failed), it will be assgined to 0 later */
+    ctx->fail = 1;
+    /* Add context to cbdata */
+    sxi_cbdata_set_context(ret, ctx);
+
+    if(sxi_cluster_query_ev(ret, sx_hashfs_conns(h), sx_node_internal_addr(n), REQ_PUT, query->path, query->content, query->content_len, NULL, NULL)) {
+        WARN("Failed to push volume size to host %s: %s", sx_node_internal_addr(n), sxc_geterrmsg(sx_hashfs_client(h)));
+        sxi_query_free(query);
+        free(ctx);
+        sxi_cbdata_unref(&ret);
+        return NULL;
+    }
+
+    return ret;
+}
+
+static void check_distribution(sx_hashfs_t *h) {
+    int dc;
+
+    dc = sx_hashfs_distcheck(h);
+    if(dc < 0) {
+        CRIT("Failed to reload distribution");
+        return;
+    }
+    if(dc > 0)
+        INFO("Distribution reloaded");
+}
+
+/* Update cbdata array with new context and send volsizes query to given node */
+static rc_ty finalize_query(sx_hashfs_t *h, curlev_context_t ***cbdata, unsigned int *ncbdata, const sx_node_t *n, unsigned int node_index, sxi_query_t *query) {
+    curlev_context_t *ctx;
+    curlev_context_t **newptr;
+    rc_ty ret = FAIL_EINTERNAL;
+
+    if(!h || !cbdata || !ncbdata || !n || !query) {
+        NULLARG();
+        sxi_query_free(query);
+        goto finalize_query_err;
+    }
+
+    if(!(query = sxi_volsizes_proto_end(sx_hashfs_client(h), query))) {
+        WARN("Failed to close query proto");
+        goto finalize_query_err;
+    }
+
+    newptr = realloc(*cbdata, sizeof(curlev_context_t*) * (*ncbdata + 1));
+    if(!newptr) {
+        WARN("Failed to allocate memory for next cbdata");
+        sxi_query_free(query);
+        goto finalize_query_err;
+    }
+    *cbdata = newptr;
+
+    ctx = push_volume_sizes(h, n, node_index, query);
+    if(!ctx) {
+        WARN("Failed to push volume sizes to node %s: Failed to send query", sx_node_addr(n));
+        /* Allocation of cbdata succeeded, so this pointer should be returned to handle the rest of queries,
+         * but we do not want to increase a counter and set a NULL pointer */
+        goto finalize_query_err;
+    }
+
+    ret = OK;
+finalize_query_err:
+    /* Add new cbdata context to array */
+    if(ret == OK) {
+        (*cbdata)[*ncbdata] = ctx;
+        (*ncbdata)++;
+    }
+    return ret;
+}
+
+#define VOLSIZES_PUSH_INTERVAL 10.0
+#define VOLSIZES_VOLS_PER_QUERY 128
+
+static rc_ty checkpoint_volume_sizes(sx_hashfs_t *h) {
+    rc_ty ret = FAIL_EINTERNAL;
+    const sx_nodelist_t *nodes;
+    unsigned int i;
+    const sx_node_t *me;
+    struct timeval now;
+    sxc_client_t *sx = sx_hashfs_client(h);
+    curlev_context_t **cbdata = NULL;
+    unsigned int ncbdata = 0;
+    unsigned int nnodes;
+    unsigned int fail;
+
+    /* Reload hashfs */
+    check_distribution(h);
+
+    me = sx_hashfs_self(h);
+
+    /* If storage is bare, won't push volume size changes*/
+    if(sx_storage_is_bare(h))
+        return OK;
+
+    /* Check if its time to push volume sizes */
+    gettimeofday(&now, NULL);
+    if(sxi_timediff(&now, sx_hashfs_volsizes_timestamp(h)) < VOLSIZES_PUSH_INTERVAL)
+        return OK;
+    memcpy(sx_hashfs_volsizes_timestamp(h), &now, sizeof(now));
+
+    nodes = sx_hashfs_nodelist(h, NL_PREVNEXT);
+    if(!nodes) {
+        WARN("Failed to get node list");
+        goto checkpoint_volume_sizes_err;
+    }
+    nnodes = sx_nodelist_count(nodes);
+
+    /* Iterate over all nodes */
+    for(i = 0; i < nnodes; i++) {
+        int64_t last_push_time;
+        int s;
+        int required = 0;
+        sxi_query_t *query = NULL;
+        const sx_node_t *n = sx_nodelist_get(nodes, i);
+        const sx_hashfs_volume_t *vol = NULL;
+        int j;
+
+        if(!n) {
+            WARN("Failed to get node at index %d", i);
+            goto checkpoint_volume_sizes_err;
+        }
+
+        if(!sx_node_cmp(me, n)) {
+            /* Skipping myself... */
+            continue;
+        }
+
+        /* Get last push time */
+        last_push_time = sx_hashfs_get_node_push_time(h, n);
+        if(last_push_time < 0) {
+            WARN("Failed to get last push time for node %s", sx_node_addr(n));
+            goto checkpoint_volume_sizes_err;
+        }
+
+        for(s = sx_hashfs_volume_first(h, &vol, 0); s == OK; s = sx_hashfs_volume_next(h)) {
+            /* Check if node n is not a volnode for volume and it is this node's volume */
+            if(sx_hashfs_is_volume_to_push(h, vol, n)) {
+                /* Check if its about time to push current volume size */
+                if((!last_push_time && vol->changed) || last_push_time <= vol->changed) {
+                    if(!query) {
+                        query = sxi_volsizes_proto_begin(sx);
+                        if(!query) {
+                            WARN("Failed to prepare query for pushing volume size");
+                            goto checkpoint_volume_sizes_err;
+                        }
+                    }
+
+                    if(!(query = sxi_volsizes_proto_add_volume(sx, query, vol->name, vol->cursize))) {
+                        WARN("Failed to append volume to the query string");
+                        goto checkpoint_volume_sizes_err;
+                    }
+
+                    /* Increase number of required volumes */
+                    required++;
+                    /* Check if number of volumes is not too big, we should avoid too long json */
+                    if(required >= VOLSIZES_VOLS_PER_QUERY && finalize_query(h, &cbdata, &ncbdata, n, i, query)) {
+                        WARN("Failed to finalize and send query");
+                        goto checkpoint_volume_sizes_err;
+                    }
+                }
+            }
+        }
+
+        if(required && finalize_query(h, &cbdata, &ncbdata, n, i, query)) {
+            WARN("Failed to finalize and send query");
+            goto checkpoint_volume_sizes_err;
+        }
+
+        if(s != ITER_NO_MORE) {
+            WARN("Failed to list volumes");
+            goto checkpoint_volume_sizes_err;
+        }
+
+        /* All volumes were checked for current node, set fail flag to 0 for it */
+        for(j = ncbdata-1; j >= 0; j--) {
+            struct volsizes_push_ctx *ctx = sxi_cbdata_get_context(cbdata[j]);
+
+            if(i == ctx->idx)
+                ctx->fail = 0;
+            else
+                break; /* Index is different, stop iteration because we reach different node */
+        }
+    }
+
+    ret = OK;
+checkpoint_volume_sizes_err:
+    /* First wait for all queries to finish */
+    for(i = 0; i < ncbdata; i++) {
+        struct volsizes_push_ctx *ctx;
+        long status = -1;
+        ctx = sxi_cbdata_get_context(cbdata[i]);
+
+        if(sxi_cbdata_wait(cbdata[i], sxi_conns_get_curlev(sx_hashfs_conns(h)), &status)) {
+            WARN("Failed to wait for query to finish: %s", sxi_cbdata_geterrmsg(cbdata[i]));
+            ctx->fail = 1;
+            ret = FAIL_EINTERNAL;
+        } else if(status != 200) {
+            WARN("Volume size update query failed: %s", sxi_cbdata_geterrmsg(cbdata[i]));
+            ctx->fail = 1;
+            ret = FAIL_EINTERNAL;
+        }
+    }
+
+    /* Second, Update node push time if all queries for particular node succeeded */
+    fail = 0;
+    for(i = 0; i < ncbdata; i++) {
+        struct volsizes_push_ctx *ctx = sxi_cbdata_get_context(cbdata[i]);
+
+        if(i > 0) {
+            struct volsizes_push_ctx *prevctx = sxi_cbdata_get_context(cbdata[i-1]);
+
+            if(ctx->idx != prevctx->idx) { /* Node has changed, check for fail and update push time */
+                const sx_node_t *n = sx_nodelist_get(nodes, prevctx->idx);
+
+                if(n && !fail && sx_hashfs_update_node_push_time(h, n)) {
+                    WARN("Failed to update node push time");
+                    ret = FAIL_EINTERNAL;
+                    break;
+                }
+                fail = 0;
+            }
+        }
+
+        if(ctx->fail)
+            fail = 1;
+    }
+
+    /* Handle last node */
+    if(ncbdata && i == ncbdata && !fail) {
+        struct volsizes_push_ctx *ctx = sxi_cbdata_get_context(cbdata[ncbdata-1]);
+        const sx_node_t *n = sx_nodelist_get(nodes, ctx->idx);
+
+        if(sx_hashfs_update_node_push_time(h, n)) {
+            WARN("Failed to update node push time");
+            ret = FAIL_EINTERNAL;
+        }
+    }
+
+    /* Third, cleanup */
+    for(i = 0; i < ncbdata; i++) {
+        struct volsizes_push_ctx *ctx = sxi_cbdata_get_context(cbdata[i]);
+        if(ctx) {
+            sxi_query_free(ctx->query);
+            free(ctx);
+        }
+        sxi_cbdata_unref(&cbdata[i]);
+    }
+
+    free(cbdata);
+    return ret;
+}
 
 static struct {
     job_action_t fn_request;
@@ -2963,18 +3252,11 @@ static int set_job_failed(struct jobmgr_data_t *q, int result, const char *reaso
     return -1;
 }
 
-
 static void jobmgr_run_job(struct jobmgr_data_t *q) {
-    int r, dc;
+    int r;
 
-    dc = sx_hashfs_distcheck(q->hashfs);
-    if(dc < 0) {
-	CRIT("Failed to reload distribution");
-	return;
-    }
-    if(dc > 0)
-	INFO("Distribution reloaded");
-
+    /* Reload distribution */
+    check_distribution(q->hashfs);
     if(q->job_expired && !q->job_failed) {
 	/* FIXME: we could keep a trace of the reason of the last delay
 	 * which is stored in db in case of tempfail.
@@ -3284,6 +3566,7 @@ int jobmgr(sxc_client_t *sx, const char *self, const char *dir, int pipe) {
         sx_hashfs_checkpoint_eventdb(q.hashfs);
         sx_hashfs_checkpoint_gc(q.hashfs);
         sx_hashfs_checkpoint_passive(q.hashfs);
+        checkpoint_volume_sizes(q.hashfs);
     }
 
  jobmgr_err:

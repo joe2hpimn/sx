@@ -190,6 +190,8 @@ typedef struct _sx_hashfs_volume_t {
     unsigned int revisions;
     char name[SXLIMIT_MAX_VOLNAME_LEN + 1];
     sx_uid_t owner;
+    /* UNIX timestamp of last change time */
+    int64_t changed;
 } sx_hashfs_volume_t;
 rc_ty sx_hashfs_volume_first(sx_hashfs_t *h, const sx_hashfs_volume_t **volume, int64_t uid);
 rc_ty sx_hashfs_volume_next(sx_hashfs_t *h);
@@ -201,7 +203,21 @@ rc_ty sx_hashfs_volnodes(sx_hashfs_t *h, sx_hashfs_nl_t which, const sx_hashfs_v
 int sx_hashfs_is_or_was_my_volume(sx_hashfs_t *h, const sx_hashfs_volume_t *vol);
 typedef int (*acl_list_cb_t)(const char *username, int priv, int is_owner, void *ctx);
 rc_ty sx_hashfs_list_acl(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, sx_uid_t uid, int uid_priv, acl_list_cb_t cb, void *ctx);
+/* Set volume size to given value */
+rc_ty sx_hashfs_reset_volume_cursize(sx_hashfs_t *h, int64_t volume_id, int64_t size);
+/* Atomically add given value to volume size */
+rc_ty sx_hashfs_update_volume_cursize(sx_hashfs_t *h, int64_t volume_id, int64_t size);
 
+/* Retrieve timestamp used to compute intervals of volumes pushing */
+struct timeval* sx_hashfs_volsizes_timestamp(sx_hashfs_t *h);
+/* Update push time for particular node */
+rc_ty sx_hashfs_update_node_push_time(sx_hashfs_t *h, const sx_node_t *n);
+/* Check if given volume is not owned by given node and it is not owned by this node */
+int sx_hashfs_is_volume_to_push(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, const sx_node_t *node);
+/* Return time of last push performed to given node */
+int64_t sx_hashfs_get_node_push_time(sx_hashfs_t *h, const sx_node_t *n);
+/* Return 1 if given node is a volnode for given volume */
+int sx_hashfs_is_node_volume_owner(sx_hashfs_t *h, sx_hashfs_nl_t which, const sx_node_t *n, const sx_hashfs_volume_t *vol);
 
 /* File list */
 typedef struct _sx_hashfs_file_t {
@@ -244,6 +260,9 @@ rc_ty sx_hashfs_gc_periodic(sx_hashfs_t *h, int *terminate, int grace_period);
 rc_ty sx_hashfs_gc_run(sx_hashfs_t *h, int *terminate);
 rc_ty sx_hashfs_gc_info(sx_hashfs_t *h, int *terminate);
 rc_ty sx_hashfs_gc_expire_all_reservations(sx_hashfs_t *h);
+
+/* Update volume sizes on remote non-volnodes */
+rc_ty sx_hashfs_push_volume_sizes(sx_hashfs_t *h);
 
 /* File put */
 

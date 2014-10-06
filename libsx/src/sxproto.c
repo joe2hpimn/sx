@@ -656,3 +656,67 @@ sxi_query_t *sxi_volumeacl_proto(sxc_client_t *sx, const char *volname,
     return ret;
 }
 
+sxi_query_t *sxi_volsizes_proto_begin(sxc_client_t *sx) {
+    sxi_query_t *query;
+
+    if(!sx) {
+        SXDEBUG("Called with NULL argument");
+        return NULL;
+    }
+
+    query = sxi_query_create(sx, ".volsizes", REQ_PUT);
+    if(!query) {
+        SXDEBUG("Failed to create query");
+        return NULL;
+    }
+
+    query = sxi_query_append_fmt(sx, query, 2, "{");
+    if(!query) {
+        SXDEBUG("Failed to append opening bracket to query");
+        return NULL;
+    }
+
+    return query;
+}
+
+sxi_query_t *sxi_volsizes_proto_add_volume(sxc_client_t *sx, sxi_query_t *query, const char *volname, int64_t size) {
+    char *enc_vol;
+
+    if(!sx || !query || !volname) {
+        SXDEBUG("Called with NULL argument");
+        return NULL;
+    }
+
+    enc_vol = sxi_json_quote_string(volname);
+    if(!enc_vol) {
+        SXDEBUG("Failed to encode volume name");
+        return NULL;
+    }
+
+    if(query->comma) {
+        query = sxi_query_append_fmt(sx, query, strlen(",:") + 20 + strlen(enc_vol) + 1,
+            ",%s:%lld", enc_vol, (long long)size);
+    } else {
+        query = sxi_query_append_fmt(sx, query, strlen(":") + 20 + strlen(enc_vol) + 1,
+            "%s:%lld", enc_vol, (long long)size);
+    }
+
+    if(!query) {
+        SXDEBUG("Failed to append volume to a query");
+        free(enc_vol);
+        return NULL;
+    }
+
+    query->comma = 1;
+    free(enc_vol);
+    return query;
+}
+
+sxi_query_t *sxi_volsizes_proto_end(sxc_client_t *sx, sxi_query_t *query) {
+    if(!sx || !query) {
+        SXDEBUG("Called with NULL argument");
+        return NULL;
+    }
+
+    return sxi_query_append_fmt(sx, query, 2, "}");
+}

@@ -167,7 +167,10 @@ void volume_ops(void) {
         } else if (!strcmp(volume, ".data")) {
             quit_unless_has(PRIV_CLUSTER);
             fcgi_hashop_inuse();
-	} else {
+	} else if(!strcmp(volume, ".volsizes")) {
+            quit_unless_has(PRIV_CLUSTER);
+            fcgi_volsizes();
+        } else {
 	    /* Create new volume - ADMIN required */
 	    if(is_reserved())
 		quit_errmsg(403, "Volume name is reserved");

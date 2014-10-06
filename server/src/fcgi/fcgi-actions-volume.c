@@ -215,7 +215,6 @@ void fcgi_list_volume(const sx_hashfs_volume_t *vol) {
     free(reply);
 }
 
-
 /* {"volumeSize":123, "replicaCount":2, "volumeMeta":{"metaKey":"hex(value)"}, "user":"jack", "maxRevisions":5} */
 struct cb_vol_ctx {
     enum cb_vol_state { CB_VOL_START, CB_VOL_KEY, CB_VOL_VOLSIZE, CB_VOL_REPLICACNT, CB_VOL_OWNER, CB_VOL_NREVS, CB_VOL_META, CB_VOL_METAKEY, CB_VOL_METAVALUE, CB_VOL_COMPLETE } state;
@@ -992,4 +991,170 @@ void fcgi_trigger_gc(void)
     quit_unless_authed();
     sx_hashfs_gc_trigger(hashfs);
     CGI_PUTS("\r\n");
+}
+
+/* {"vol1":123,"vol2":122} */
+struct cb_volsizes_ctx {
+    enum cb_volsizes_state { CB_VOLSIZES_START, CB_VOLSIZES_KEY, CB_VOLSIZES_SIZE, CB_VOLSIZES_COMPLETE } state;
+    sx_hashfs_volume_t *vols;
+    unsigned int nvols;
+};
+
+static int cb_volsizes_number(void *ctx, const char *s, size_t l) {
+    struct cb_volsizes_ctx *c = (struct cb_volsizes_ctx *)ctx;
+    char number[21], *eon;
+    if(c->state == CB_VOLSIZES_SIZE) {
+        sx_hashfs_volume_t *vol = &c->vols[c->nvols-1];
+
+        if(vol->cursize >= 0 || l<1 || l>20) {
+            WARN("Failed to parse volume size");
+            return 0;
+        }
+
+        memcpy(number, s, l);
+        number[l] = '\0';
+        vol->cursize = strtoll(number, &eon, 10);
+        if(*eon)
+            return 0;
+        if(vol->cursize < 0) {
+            WARN("Volume size is negative, falling back to 0");
+            vol->cursize = 0;
+        }
+    }
+    c->state = CB_VOLSIZES_KEY;
+    return 1;
+}
+
+static int cb_volsizes_start_map(void *ctx) {
+    struct cb_volsizes_ctx *c = (struct cb_volsizes_ctx *)ctx;
+    if(c->state == CB_VOLSIZES_START)
+        c->state = CB_VOLSIZES_KEY;
+    else
+        return 0;
+    return 1;
+}
+
+static int cb_volsizes_map_key(void *ctx, const unsigned char *s, size_t l) {
+    struct cb_volsizes_ctx *c = (struct cb_volsizes_ctx *)ctx;
+    if(c->state == CB_VOLSIZES_KEY) {
+        char name[SXLIMIT_MAX_VOLNAME_LEN+1];
+        const sx_hashfs_volume_t *vol;
+        sx_hashfs_volume_t *oldptr;
+
+        if(l > SXLIMIT_MAX_VOLNAME_LEN) {
+            WARN("Failed to parse volume: name is too long");
+            return 0;
+        }
+
+        /* Copy to local buffer to support nulbyte termination */
+        memcpy(name, s, l);
+        name[l] = '\0';
+
+        /* Get volume instance */
+        if(sx_hashfs_volume_by_name(hashfs, name, &vol) != OK) {
+            WARN("Failed to get volume %s instance: %s", name, msg_get_reason());
+            return 0;
+        }
+
+        /* Check if volume was mine on PREV */
+        if(sx_hashfs_is_node_volume_owner(hashfs, NL_PREV, sx_hashfs_self(hashfs), vol)) {
+            WARN("Request was sent to node that is a volnode of %s", vol->name);
+            msg_set_reason(".volsizes request sent to a volnode of %s", vol->name);
+            return 0;
+        }
+
+        /* Get memory for new volume */
+        oldptr = c->vols;
+        c->vols = realloc(c->vols, (++c->nvols) * sizeof(*vol));
+        if(!c->vols) {
+            WARN("Failed to realloc volumes array");
+            free(oldptr);
+            return 0;
+        }
+
+        /* Copy current volume to the array */
+        memcpy(&c->vols[c->nvols-1], vol, sizeof(*vol));
+
+        /* Reset cursize */
+        c->vols[c->nvols-1].cursize = -1LL;
+
+        c->state = CB_VOLSIZES_SIZE;
+        return 1;
+    }
+    return 0;
+}
+
+static int cb_volsizes_end_map(void *ctx) {
+    struct cb_volsizes_ctx *c = (struct cb_volsizes_ctx *)ctx;
+    if(c->state == CB_VOLSIZES_KEY)
+        c->state = CB_VOLSIZES_COMPLETE;
+    else
+        return 0;
+    return 1;
+}
+
+static const yajl_callbacks volsizes_parser = {
+    cb_fail_null,
+    cb_fail_boolean,
+    NULL,
+    NULL,
+    cb_volsizes_number,
+    NULL,
+    cb_volsizes_start_map,
+    cb_volsizes_map_key,
+    cb_volsizes_end_map,
+    NULL,
+    NULL
+};
+
+void fcgi_volsizes(void) {
+    struct cb_volsizes_ctx yctx;
+    yajl_handle yh;
+    int len;
+    unsigned int i;
+
+    /* Assign begin state */
+    yctx.state = CB_VOLSIZES_START;
+    yctx.nvols = 0;
+    yctx.vols = NULL;
+
+    yh = yajl_alloc(&volsizes_parser, NULL, &yctx);
+    if(!yh)
+        quit_errmsg(500, "Cannot allocate json parser");
+
+    while((len = get_body_chunk(hashbuf, sizeof(hashbuf))) > 0)
+        if(yajl_parse(yh, hashbuf, len) != yajl_status_ok) break;
+
+    if(len || yajl_complete_parse(yh) != yajl_status_ok || yctx.state != CB_VOLSIZES_COMPLETE) {
+        free(yctx.vols);
+        yajl_free(yh);
+        WARN("Failed to parse JSON");
+        quit_errmsg(400, "Invalid request content");
+    }
+
+    /* JSON parsing completed */
+    auth_complete();
+    if(!is_authed()) {
+        free(yctx.vols);
+        yajl_free(yh);
+        send_authreq();
+        return;
+    }
+
+    for(i = 0; i < yctx.nvols; i++) {
+        const sx_hashfs_volume_t *vol = &yctx.vols[i];
+        rc_ty rc;
+
+        /* Set volume size */
+        if((rc = sx_hashfs_reset_volume_cursize(hashfs, vol->id, vol->cursize)) != OK) {
+            WARN("Failed to set volume %s size to %lld", vol->name, (long long)vol->cursize);
+            free(yctx.vols);
+            yajl_free(yh);
+            quit_errmsg(rc2http(rc), rc2str(rc));
+        }
+    }
+
+    CGI_PUTS("\r\n");
+    free(yctx.vols);
+    yajl_free(yh);
 }
