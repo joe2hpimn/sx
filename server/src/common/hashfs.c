@@ -614,6 +614,7 @@ struct _sx_hashfs_t {
     sqlite3_stmt *q_delvol;
     sqlite3_stmt *q_chownvol;
     sqlite3_stmt *q_minreqs;
+    sqlite3_stmt *q_updatevolcursize;
     sqlite3_stmt *q_setvolcursize;
 
     sxi_db_t *tempdb;
@@ -853,6 +854,7 @@ static void close_all_dbs(sx_hashfs_t *h) {
     sqlite3_finalize(h->q_delvol);
     sqlite3_finalize(h->q_chownvol);
     sqlite3_finalize(h->q_minreqs);
+    sqlite3_finalize(h->q_updatevolcursize);
     sqlite3_finalize(h->q_setvolcursize);
     sqlite3_finalize(h->q_onoffuser);
     sqlite3_finalize(h->q_gethdrev);
@@ -1315,6 +1317,8 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
     if(qprep(h->db, &h->q_chownvol, "UPDATE volumes SET owner_id = :new WHERE owner_id = :old"))
 	goto open_hashfs_fail;
     if(qprep(h->db, &h->q_minreqs, "SELECT COALESCE(MAX(replica), 1), COALESCE(SUM(maxsize*replica), 0) FROM volumes"))
+        goto open_hashfs_fail;
+    if(qprep(h->db, &h->q_updatevolcursize, "UPDATE volumes SET cursize = cursize + :size WHERE vid = :volume"))
         goto open_hashfs_fail;
     if(qprep(h->db, &h->q_setvolcursize, "UPDATE volumes SET cursize = :size WHERE vid = :volume"))
         goto open_hashfs_fail;
@@ -4471,29 +4475,19 @@ rc_ty sx_hashfs_check_file_size(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, c
 
 /* Must be called inside transaction on h->db! */
 static rc_ty update_volume_current_size(sx_hashfs_t *h, int64_t volume_id, int64_t size) {
-    const sx_hashfs_volume_t *vol;
-
     if(!volume_id) {
         CRIT("Invalid volume_id argument");
         return EINVAL;
     }
 
-    if(sx_hashfs_volume_by_id(h, volume_id, &vol) != OK) {
-        WARN("Cannot locate volume %lld", (long long)volume_id);
-        msg_set_reason("Failed to locate volume");
-        return FAIL_EINTERNAL;
-    }
-
-    sqlite3_reset(h->q_setvolcursize);
-    if(qbind_int64(h->q_setvolcursize, ":size", size + vol->cursize) ||
-       qbind_int64(h->q_setvolcursize, ":volume", volume_id) ||
-       qstep_noret(h->q_setvolcursize)) {
+    sqlite3_reset(h->q_updatevolcursize);
+    if(qbind_int64(h->q_updatevolcursize, ":size", size) ||
+       qbind_int64(h->q_updatevolcursize, ":volume", volume_id) ||
+       qstep_noret(h->q_updatevolcursize)) {
         msg_set_reason("Failed to update volume size");
-        sqlite3_reset(h->q_setvolcursize);
         return FAIL_EINTERNAL;
     }
 
-    sqlite3_reset(h->q_setvolcursize);
     return OK;
 }
 
@@ -5089,21 +5083,9 @@ static rc_ty create_file(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const
     if(file_id)
 	*file_id = sqlite3_last_insert_rowid(sqlite3_db_handle(h->qm_ins[mdb]));
 
-    if(size) {
-        if(qbegin(h->db)) {
-            WARN("Failed to lock database for updating volume size");
-            return FAIL_EINTERNAL;
-        }
-        if(update_volume_current_size(h, volume->id, size)) {
-            WARN("Failed to update volume size");
-            qrollback(h->db);
-            return FAIL_EINTERNAL;
-        }
-        if(qcommit(h->db)) {
-            WARN("Failed to commit volume size update");
-            qrollback(h->db);
-            return FAIL_EINTERNAL;
-        }
+    if(size && update_volume_current_size(h, volume->id, size)) {
+        WARN("Failed to update volume size");
+        return FAIL_EINTERNAL;
     }
 
     return OK;
@@ -6179,6 +6161,7 @@ rc_ty sx_hashfs_file_delete(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, co
     sx_hash_t hash;
     int64_t size = 0;
     rc_ty ret;
+    int deleted;
 
     if(!h || !volume || !file) {
 	NULLARG();
@@ -6253,25 +6236,12 @@ rc_ty sx_hashfs_file_delete(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, co
 	ret = FAIL_EINTERNAL;
     else
 	ret = OK;
+    deleted = sqlite3_changes(h->metadb[ndb]->handle);
     sqlite3_reset(h->qm_delfile[ndb]);
 
-    if(ret == OK && size) {
-        if(qbegin(h->db)) {
-            WARN("Failed to lock volumes db");
-            return FAIL_EINTERNAL;
-        }
-
-        if(update_volume_current_size(h, volume->id, -size)) {
-            WARN("Failed to update volume size");
-            qrollback(h->db);
-            return FAIL_EINTERNAL;
-        }
-
-        if(qcommit(h->db)) {
-            WARN("Failed to commit volume size update");
-            qrollback(h->db);
-            return FAIL_EINTERNAL;
-        }
+    if(ret == OK && size && deleted && update_volume_current_size(h, volume->id, -size)) {
+        WARN("Failed to update volume size");
+        return FAIL_EINTERNAL;
     }
 
     return ret;
