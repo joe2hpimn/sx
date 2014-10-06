@@ -222,7 +222,7 @@ static char *gettoken(const char *str, unsigned int *pos, char *buf, size_t bufs
 sxi_hdist_t *sxi_hdist_from_cfg(const void *cfg, unsigned int cfg_len)
 {
 	char *cs;
-	char token[64], *pt;
+	char token[128], *pt;
 	unsigned int pos = 0, seed, max_builds;
 	uLongf destlen, got;
 	sx_uuid_t uuid;
@@ -325,7 +325,15 @@ sxi_hdist_t *sxi_hdist_from_cfg(const void *cfg, unsigned int cfg_len)
 		char *prev_uuid;
 		sx_uuid_t puuid;
 
-	    /* UUID */
+	    /* UUID + (optional) prev_uuid */
+	    if((prev_uuid = strchr(pt, '@'))) {
+		*prev_uuid++ = 0;
+		if(uuid_from_string(&puuid, prev_uuid)) {
+		    CRIT("Invalid configuration data (prev_uuid = %s)", prev_uuid);
+		    ret = EINVAL;
+		    break;
+		}
+	    }
 	    if(uuid_from_string(&uuid, pt)) {
 		CRIT("Invalid configuration data (UUID = %s)", pt);
 		ret = EINVAL;
@@ -348,23 +356,13 @@ sxi_hdist_t *sxi_hdist_from_cfg(const void *cfg, unsigned int cfg_len)
 		break;
 	    }
 
-	    /* capacity + (optional) prev_uuid */
+	    /* capacity + prev_uuid */
 	    pt = gettoken(cs, &pos, token, sizeof(token));
 	    if(!pt || !isdigit(*pt)) {
 		CRIT("Invalid configuration data (capacity)");
 		ret = EINVAL;
 		break;
 	    }
-
-	    if((prev_uuid = strchr(pt, '@'))) {
-		*prev_uuid++ = 0;
-		if(uuid_from_string(&puuid, prev_uuid)) {
-		    CRIT("Invalid configuration data (prev_uuid = %s)", prev_uuid);
-		    ret = EINVAL;
-		    break;
-		}
-	    }
-
 	    capacity = strtoll(pt, NULL, 0);
 	    if(capacity <= 0 || capacity == LLONG_MAX) {
 		CRIT("Invalid configuration data (capacity conversion)");
@@ -464,7 +462,7 @@ static rc_ty hdist_addnode(sxi_hdist_t *model, unsigned int id, uint64_t capacit
 	}
     }
     if(sxn)
-	model->cfg_size += sprintf(model->cfg + model->cfg_size, ":%s:%s:%s:%llu%s%s", sx_node_uuid_str(sxn), sx_node_addr(sxn), sx_node_internal_addr(sxn), (unsigned long long) sx_node_capacity(sxn), prev_uuid ? "@" : "", prev_uuid ? prev_uuid->string : "");
+	model->cfg_size += sprintf(model->cfg + model->cfg_size, ":%s%s%s:%s:%s:%llu", sx_node_uuid_str(sxn), prev_uuid ? "@" : "", prev_uuid ? prev_uuid->string : "", sx_node_addr(sxn), sx_node_internal_addr(sxn), (unsigned long long) sx_node_capacity(sxn));
 
     return OK;
 }
