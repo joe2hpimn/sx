@@ -1858,6 +1858,7 @@ static int local_to_remote_begin(sxc_file_t *source, sxc_meta_t *fmeta, sxc_file
 	    unsigned int cfgval_len = 0;
 	    const char *confdir = sxi_cluster_get_confdir(dest->cluster);
 	    char *fdir = NULL;
+	    int fret;
 
 	if(mval_len != 16) {
 	    sxi_seterr(sx, SXE_EFILTER, "Filter(s) enabled but can't handle metadata");
@@ -1969,9 +1970,15 @@ static int local_to_remote_begin(sxc_file_t *source, sxc_meta_t *fmeta, sxc_file
 	}
 	free(fdir);
 
-	if(fh->f->file_update && fh->f->file_update(fh, fh->ctx, cfgval, cfgval_len, SXF_MODE_UPLOAD, source, dest)) {
-	    sxi_seterr(sx, SXE_EFILTER, "Filter ID %s failed to process files", filter_uuid);
-	    goto local_to_remote_err;
+	if(fh->f->file_update) {
+	    fret = fh->f->file_update(fh, fh->ctx, cfgval, cfgval_len, SXF_MODE_UPLOAD, source, dest, recursive);
+	    if(fret == 100) {
+		ret = 0;
+		goto local_to_remote_err;
+	    } else if(fret) {
+		sxi_seterr(sx, SXE_EFILTER, "Filter ID %s failed to process files", filter_uuid);
+		goto local_to_remote_err;
+	    }
 	}
     }
 
@@ -3447,7 +3454,7 @@ static int sxi_seen(sxc_client_t *sx, sxc_file_t *dest)
 }
 
 static int cat_remote_file(sxc_file_t *source, int dest);
-static int remote_to_local(sxc_file_t *source, sxc_file_t *dest) {
+static int remote_to_local(sxc_file_t *source, sxc_file_t *dest, int recursive) {
     char *hashfile = NULL, *tempdst = NULL, *tempfilter = NULL;
     sxi_ht *hosts = NULL;
     struct hash_down_data_t *hashdata;
@@ -3455,7 +3462,7 @@ static int remote_to_local(sxc_file_t *source, sxc_file_t *dest) {
     sxc_client_t *sx = source->sx;
     struct stat st;
     int64_t filesize;
-    int ret = 1, rd = -1, d = -1, fail = 0;
+    int ret = 1, rd = -1, d = -1, fail = 0, fret;
     unsigned int blocksize;
     off_t curoff = 0;
     FILE *hf = NULL, *tf;
@@ -3572,9 +3579,15 @@ static int remote_to_local(sxc_file_t *source, sxc_file_t *dest) {
 
 	fmeta = sxc_filemeta_new(source);
 
-	if(fh->f->file_update && fh->f->file_update(fh, fh->ctx, cfgval, cfgval_len, SXF_MODE_DOWNLOAD, source, dest)) {
-	    sxi_seterr(sx, SXE_EFILTER, "Filter ID %s failed to process files", filter_uuid);
-	    goto remote_to_local_err;
+	if(fh->f->file_update) {
+	    fret = fh->f->file_update(fh, fh->ctx, cfgval, cfgval_len, SXF_MODE_DOWNLOAD, source, dest, recursive);
+	    if(fret == 100) {
+		ret = 0;
+		goto remote_to_local_err;
+	    } else if(fret) {
+		sxi_seterr(sx, SXE_EFILTER, "Filter ID %s failed to process files", filter_uuid);
+		goto remote_to_local_err;
+	    }
 	}
     }
 
@@ -4240,7 +4253,7 @@ static sxi_job_t* remote_to_remote(sxc_file_t *source, sxc_file_t *dest) {
     if(!(cache = sxc_file_local(source->sx, tmpname)))
 	goto remote_to_remote_err;
 
-    if(remote_to_local(source, cache)) {
+    if(remote_to_local(source, cache, 0)) {
 	SXDEBUG("failed to download source file");
 	goto remote_to_remote_err;
     }
@@ -4277,7 +4290,7 @@ static sxi_job_t* remote_copy_ev(sxc_file_t *pattern, sxc_file_t *source, sxc_fi
         if (dest->cat_fd > 0)
             ret = cat_remote_file(source, dest->cat_fd);
         else
-            ret = remote_to_local(source, dest);
+            ret = remote_to_local(source, dest, recursive);
         if (sxc_geterrnum(source->sx) != SXE_NOERROR) {
 	    if(dest->path)
 		sxi_notice(source->sx, "ERROR: %s: %s", dest->path, sxc_geterrmsg(source->sx));
@@ -5160,9 +5173,15 @@ static sxi_job_t* sxi_rm_cb(sxc_file_list_t *target, sxc_file_t *pattern, sxc_cl
         return NULL;
     if(fh && fh->f->file_update) {
 	sxc_file_t *file = sxc_file_remote(cluster, vol, path, NULL);
+	int ret;
 	if(!file)
 	    return NULL;
-	if(fh->f->file_update(fh, fh->ctx, sxi_filter_get_cfg(fh, vol), sxi_filter_get_cfg_len(fh, vol), SXF_MODE_DELETE, file, NULL)) {
+	ret = fh->f->file_update(fh, fh->ctx, sxi_filter_get_cfg(fh, vol), sxi_filter_get_cfg_len(fh, vol), SXF_MODE_DELETE, file, NULL, target->recursive);
+	if(ret == 100) {
+	    job = &JOB_NONE;
+	    sxc_file_free(file);
+	    return job;
+	} else if(ret) {
 	    sxi_seterr(target->sx, SXE_EFILTER, "Filter failed to process files");
 	    sxc_file_free(file);
 	    return NULL;
@@ -5658,5 +5677,5 @@ int sxc_copy_sxfile(sxc_file_t *source, sxc_file_t *dest) {
 	sxi_job_t *job =  remote_to_remote(source, dest);
 	return sxi_jobs_wait_one(dest, job);
     } else
-	return remote_to_local(source, dest);
+	return remote_to_local(source, dest, 0);
 }

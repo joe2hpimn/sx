@@ -326,7 +326,7 @@ int sxc_fgetline(sxc_client_t *sx, FILE *f, char **ret);
 int sxc_input_fn(sxc_client_t *sx, sxc_input_t type, const char *prompt, const char *def, char *in, unsigned int insize, void *ctx); /* default input function */
 
 /* filters */
-#define SXF_ABI_VERSION	8
+#define SXF_ABI_VERSION	9
 
 /** Defines a filter's type
  * This is used to prioritize filters, for example
@@ -520,7 +520,7 @@ typedef struct {
      * @param[in] dest_path destination file path
      */
 
-    int (*file_update)(const sxf_handle_t *handle, void *ctx, const void *cfgdata, unsigned int cfgdata_len, sxf_mode_t mode, sxc_file_t *source, sxc_file_t *dest);
+    int (*file_update)(const sxf_handle_t *handle, void *ctx, const void *cfgdata, unsigned int cfgdata_len, sxf_mode_t mode, sxc_file_t *source, sxc_file_t *dest, int recursive);
     /**<
      * Process/update file objects before a specific action (such as upload, download) takes place.
      *
@@ -531,6 +531,7 @@ typedef struct {
      * @param[in] mode mode type (SXF_MODE_*)
      * @param[in] source source file object
      * @param[in] dest destination file object
+     * @param[in] recursive information whether a file operation is performed within recursive mode
      */
 
     /** */

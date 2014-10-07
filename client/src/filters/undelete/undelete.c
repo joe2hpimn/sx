@@ -35,6 +35,29 @@
 #define DEFAULT_TRASH "/.Trash/"
 
 #define ERROR(...)      sxc_filter_msg(handle, SX_LOG_ERR, __VA_ARGS__)
+#define WARNING(...)    sxc_filter_msg(handle, SX_LOG_WARNING, __VA_ARGS__)
+
+struct undelete_ctx {
+    int warn;
+};
+
+static int undelete_init(const sxf_handle_t *handle, void **ctx)
+{
+    struct undelete_ctx *uctx;
+
+    uctx = malloc(sizeof(struct undelete_ctx));
+    if(!uctx)
+	return 1;
+    uctx->warn = 0;
+    *ctx = uctx;
+    return 0;
+}
+
+static int undelete_shutdown(const sxf_handle_t *handle, void *ctx)
+{
+    free(ctx);
+    return 0;
+}
 
 static int undelete_configure(const sxf_handle_t *handle, const char *cfg, const char *cfgdir, void **cfgdata, unsigned int *cfgdata_len)
 {
@@ -80,8 +103,9 @@ static int undelete_configure(const sxf_handle_t *handle, const char *cfg, const
     return 0;
 }
 
-int copy_to_trash(const sxf_handle_t *handle, void *ctx, const void *cfgdata, unsigned int cfgdata_len, sxf_mode_t mode, sxc_file_t *source, sxc_file_t *dest)
+int copy_to_trash(const sxf_handle_t *handle, void *ctx, const void *cfgdata, unsigned int cfgdata_len, sxf_mode_t mode, sxc_file_t *source, sxc_file_t *dest, int recursive)
 {
+    struct undelete_ctx *uctx = ctx;
     sxc_file_t *copy;
     char *cfg = NULL, *newpath;
     const char *vol = sxc_file_get_volume(source), *trash = DEFAULT_TRASH, *path = sxc_file_get_path(source), *tp;
@@ -109,6 +133,14 @@ int copy_to_trash(const sxf_handle_t *handle, void *ctx, const void *cfgdata, un
 
     tp = (*path == '/') ? trash : &trash[1];
     if(!strncmp(path, tp, strlen(tp)) && !strcmp(vol, sxc_file_get_volume(source))) {
+	if(recursive) {
+	    if(!uctx->warn) {
+		WARNING("Files from '%s' will not be removed in recursive mode", trash);
+		uctx->warn = 1;
+	    }
+	    free(cfg);
+	    return 100;
+	}
 	free(cfg);
 	return 0;
     }
@@ -143,9 +175,9 @@ sxc_filter_t sxc_filter={
 /* sxf_type_t type */		    SXF_TYPE_GENERIC,
 /* int version[2] */		    {1, 0},
 /* int (*init)(const sxf_handle_t *handle, void **ctx) */
-				    NULL,
+				    undelete_init,
 /* int (*shutdown)(const sxf_handle_t *handle, void *ctx) */
-				    NULL,
+				    undelete_shutdown,
 /* int (*configure)(const char *cfgstr, const char *cfgdir, void **cfgdata, unsigned int *cfgdata_len) */
 				    undelete_configure,
 /* int (*data_prepare)(const sxf_handle_t *handle, void **ctx, const char *filename, const char *cfgdir, const void *cfgdata, unsigned int cfgdata_len, sxf_mode_t mode) */
@@ -158,7 +190,7 @@ sxc_filter_t sxc_filter={
 				    NULL,
 /* void (*file_notify)(const sxf_handle_t *handle, void *ctx, const void *cfgdata, unsigned int cfgdata_len, sxf_mode_t mode, const char *source_cluster, const char *source_volume, const char *source_path, const char *dest_cluster, const char *dest_volume, const char *dest_path) */
 				    NULL,
-/* int (*file_update)(const sxf_handle_t *handle, void *ctx, const void *cfgdata, unsigned int cfgdata_len, sxf_mode_t mode, sxc_file_t *source, sxc_file_t *dest) */
+/* int (*file_update)(const sxf_handle_t *handle, void *ctx, const void *cfgdata, unsigned int cfgdata_len, sxf_mode_t mode, sxc_file_t *source, sxc_file_t *dest, int recursive) */
 				    copy_to_trash,
 /* internal */
 /* const char *tname; */	    NULL
