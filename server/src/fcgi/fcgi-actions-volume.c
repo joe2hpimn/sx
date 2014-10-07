@@ -923,7 +923,7 @@ void fcgi_delete_volume(void) {
 
     if(has_priv(PRIV_CLUSTER)) {
 	/* Coming in from cluster */
-	s = sx_hashfs_volume_delete(hashfs, volume);
+	s = sx_hashfs_volume_delete(hashfs, volume, has_arg("force"));
 	if(s != OK)
 	    quit_errnum(rc2http(s));
 

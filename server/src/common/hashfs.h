@@ -184,7 +184,7 @@ rc_ty sx_hashfs_volume_new_finish(sx_hashfs_t *h, const char *volume, int64_t si
  */
 rc_ty sx_hashfs_volume_enable(sx_hashfs_t *h, const char *volume);
 rc_ty sx_hashfs_volume_disable(sx_hashfs_t *h, const char *volume);
-rc_ty sx_hashfs_volume_delete(sx_hashfs_t *h, const char *volume);
+rc_ty sx_hashfs_volume_delete(sx_hashfs_t *h, const char *volume, int force);
 typedef struct _sx_hashfs_volume_t {
     int64_t id;
     int64_t size;

@@ -651,7 +651,7 @@ static rc_ty volonoff_common(sx_hashfs_t *hashfs, job_t job_id, const sx_nodelis
 }
 
 
-static rc_ty voldelete_common(sx_hashfs_t *hashfs, job_t job_id, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, const char *volname) {
+static rc_ty voldelete_common(sx_hashfs_t *hashfs, job_t job_id, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, const char *volname, int force) {
     sxc_client_t *sx = sx_hashfs_client(hashfs);
     sxi_conns_t *clust = sx_hashfs_conns(hashfs);
     const sx_node_t *me = sx_hashfs_self(hashfs);
@@ -669,7 +669,7 @@ static rc_ty voldelete_common(sx_hashfs_t *hashfs, job_t job_id, const sx_nodeli
 	INFO("Deleting volume %s on %s", volname, sx_node_uuid_str(node));
 
 	if(!sx_node_cmp(me, node)) {
-	    if((s = sx_hashfs_volume_delete(hashfs, volname))) {
+	    if((s = sx_hashfs_volume_delete(hashfs, volname, force))) {
 		WARN("Failed to delete volume '%s' for job %lld", volname, (long long)job_id);
 		action_error(ACT_RESULT_PERMFAIL, rc2http(s), "Failed to enable volume");
 	    }
@@ -680,6 +680,14 @@ static rc_ty voldelete_common(sx_hashfs_t *hashfs, job_t job_id, const sx_nodeli
 		if(!query) {
 		    WARN("Cannot encode path");
 		    action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
+		}
+		if(force) {
+		    char *nuq = malloc(strlen(query) + lenof("?force") + 1);
+		    if(!nuq)
+			action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
+		    sprintf(nuq, "%s?force", query);
+		    free(query);
+		    query = nuq;
 		}
 
 		qrylist = wrap_calloc(nnodes, sizeof(*qrylist));
@@ -909,7 +917,7 @@ static act_result_t createvol_commit(sx_hashfs_t *hashfs, job_t job_id, job_data
     return ret;
 }
 
-static act_result_t createvol_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+static act_result_t createvol_abort_and_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     const char *volname;
     sx_blob_t *b = NULL;
     act_result_t ret;
@@ -925,7 +933,7 @@ static act_result_t createvol_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_
 	action_error(ACT_RESULT_PERMFAIL, 500, "Internal error: data corruption detected");
     }
 
-    ret = voldelete_common(hashfs, job_id, nodes, succeeded, fail_code, fail_msg, volname);
+    ret = voldelete_common(hashfs, job_id, nodes, succeeded, fail_code, fail_msg, volname, 1);
 
  action_failed:
     sx_blob_free(b);
@@ -974,7 +982,7 @@ static act_result_t deletevol_commit(sx_hashfs_t *hashfs, job_t job_id, job_data
 	action_error(ACT_RESULT_PERMFAIL, 500, "Internal error: data corruption detected");
     }
 
-    ret = voldelete_common(hashfs, job_id, nodes, succeeded, fail_code, fail_msg, volname);
+    ret = voldelete_common(hashfs, job_id, nodes, succeeded, fail_code, fail_msg, volname, 0);
 
  action_failed:
     sx_blob_free(b);
@@ -999,6 +1007,30 @@ static act_result_t deletevol_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_
     }
 
     ret = volonoff_common(hashfs, job_id, nodes, succeeded, fail_code, fail_msg, volname, 1);
+
+ action_failed:
+    sx_blob_free(b);
+
+    return ret;
+}
+
+static act_result_t deletevol_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    const char *volname;
+    sx_blob_t *b = NULL;
+    act_result_t ret;
+
+    if(!b) {
+	WARN("Cannot allocate blob for job %lld", (long long)job_id);
+	action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
+    }
+
+    if(sx_blob_get_string(b, &volname)) {
+	WARN("Cannot get volume data from blob for job %lld", (long long)job_id);
+	action_error(ACT_RESULT_PERMFAIL, 500, "Internal error: data corruption detected");
+    }
+
+    CRIT("Volume '%s' may have been left in an inconsistent state after a failed removal attempt", volname);
+    action_set_fail(ACT_RESULT_PERMFAIL, 500, "Volume removal failed: the volume may have been left in an inconsistent state");
 
  action_failed:
     sx_blob_free(b);
@@ -2669,7 +2701,7 @@ static act_result_t filerb_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t 
 	    action_error(rc2actres(ENOMEM), rc2http(ENOMEM), "Failed to prepare file relocation query");
 
 	rbdata[i].cbdata = sxi_cbdata_create_generic(clust, NULL, NULL);
-	INFO("File query: %u %s [ %s ]", rbdata[i].proto->verb, rbdata[i].proto->path, (char *)rbdata[i].proto->content);
+	DEBUG("File query: %u %s [ %s ]", rbdata[i].proto->verb, rbdata[i].proto->path, (char *)rbdata[i].proto->content);
 	if(sxi_cluster_query_ev(rbdata[i].cbdata, clust, sx_node_internal_addr(rlc->target), rbdata[i].proto->verb, rbdata[i].proto->path, rbdata[i].proto->content, rbdata[i].proto->content_len, NULL, NULL)) {
 	    WARN("Failed to query node %s: %s", sx_node_uuid_str(rlc->target), sxc_geterrmsg(sx));
 	    action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to setup cluster communication");
@@ -2678,7 +2710,7 @@ static act_result_t filerb_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t 
     }
 
     if(i == RB_MAX_FILES) {
-	INFO("Reached file limit, will resume later");
+	DEBUG("Reached file limit, will resume later");
 	action_error(ACT_RESULT_TEMPFAIL, 503, "File relocation in progress");
     }
 
@@ -2756,7 +2788,7 @@ static act_result_t finishrebalance_request(sx_hashfs_t *hashfs, job_t job_id, j
 	    if(qret == 0)
 		succeeded[i] = 1;
 	    else if(qret > 0) {
-		INFO("Relocation still running on node %s", sx_node_uuid_str(node));
+		DEBUG("Relocation still running on node %s", sx_node_uuid_str(node));
 		action_error(ACT_RESULT_TEMPFAIL, 500, "Relocation still running");
 	    } else {
 		WARN("Unexpected rebalance state on node %s", sx_node_uuid_str(node));
@@ -2795,7 +2827,7 @@ static act_result_t finishrebalance_commit(sx_hashfs_t *hashfs, job_t job_id, jo
 
     for(i=0; i<nnodes; i++) {
 	const sx_node_t *node = sx_nodelist_get(nodes, i);
-	INFO("Stopping rebalance on %s", sx_node_internal_addr(node));
+	DEBUG("Stopping rebalance on %s", sx_node_internal_addr(node));
 	if(sx_node_cmp(me, node)) {
 	    /* Remote node */
 	    if(!qrylist) {
@@ -2904,7 +2936,7 @@ static struct {
     job_action_t fn_abort;
     job_action_t fn_undo;
 } actions[] = {
-    { createvol_request, createvol_commit, createvol_abort, FIXME_phase_placeholder }, /* JOBTYPE_CREATE_VOLUME */
+    { createvol_request, createvol_commit, createvol_abort_and_undo, createvol_abort_and_undo }, /* JOBTYPE_CREATE_VOLUME */
     { createuser_request, createuser_commit, FIXME_phase_placeholder, FIXME_phase_placeholder }, /* JOBTYPE_CREATE_USER */
     { acl_request, acl_commit, acl_abort, acl_undo }, /* JOBTYPE_VOLUME_ACL */
     { replicateblocks_request, force_phase_success, FIXME_phase_placeholder, force_phase_success }, /* JOBTYPE_REPLICATE_BLOCKS */
@@ -2918,7 +2950,7 @@ static struct {
     { filerb_request, filerb_commit, FIXME_phase_placeholder, FIXME_phase_placeholder }, /* JOBTYPE_REBALANCE_FILES */
     { cleanrb_request, cleanrb_commit, FIXME_phase_placeholder, FIXME_phase_placeholder }, /* JOBTYPE_REBALANCE_CLEANUP */
     { deleteuser_request, deleteuser_commit, FIXME_phase_placeholder, FIXME_phase_placeholder }, /* JOBTYPE_DELETE_USER */
-    { deletevol_request, deletevol_commit, deletevol_abort, FIXME_phase_placeholder }, /* JOBTYPE_DELETE_VOLUME */
+    { deletevol_request, deletevol_commit, deletevol_abort, deletevol_undo }, /* JOBTYPE_DELETE_VOLUME */
 };
 
 
@@ -3026,7 +3058,7 @@ static act_result_t jobmgr_execute_actions_batch(int *http_status, struct jobmgr
 	       qstep_noret(q->qphs))
 		WARN("Cannot advance action phase for %lld.%lld", (long long)q->job_id, (long long)q->act_ids[nacts]);
 	    else
-		INFO("Action %lld advanced to phase %d", (long long)q->act_ids[nacts], q->job_failed ? JOB_PHASE_FAIL : q->act_phase + 1);
+		DEBUG("Action %lld advanced to phase %d", (long long)q->act_ids[nacts], q->job_failed ? JOB_PHASE_FAIL : q->act_phase + 1);
 	}
     }
 
@@ -3051,7 +3083,7 @@ static int jobmgr_get_actions_batch(struct jobmgr_data_t *q) {
 	   qstep_noret(q->qcpl))
 	    WARN("Cannot set job %lld to complete", (long long)q->job_id);
 	else
-	    INFO("No actions for job %lld", (long long)q->job_id);
+	    DEBUG("No actions for job %lld", (long long)q->job_id);
 	return 1; /* Job completed */
     } else if(r == SQLITE_ROW)
 	q->act_phase = sqlite3_column_int(q->qact, 1); /* Define the current batch phase */
@@ -3103,7 +3135,7 @@ static int jobmgr_get_actions_batch(struct jobmgr_data_t *q) {
 	    sqlite3_reset(q->qact);
 	    return -1;
 	}
-	INFO("Action %lld (phase %d, target %s) loaded", (long long)act_id, q->act_phase, uuid.string);
+	DEBUG("Action %lld (phase %d, target %s) loaded", (long long)act_id, q->act_phase, uuid.string);
 	r = qstep(q->qact);
     }
 
@@ -3134,7 +3166,7 @@ static void jobmgr_run_job(struct jobmgr_data_t *q) {
 	    WARN("Cannot update status of expired job %lld", (long long)q->job_id);
 	    return;
 	}
-	INFO("Job %lld is now expired", (long long)q->job_id);
+	DEBUG("Job %lld is now expired", (long long)q->job_id);
 	q->job_failed = 1;
     }
 
@@ -3164,7 +3196,7 @@ static void jobmgr_run_job(struct jobmgr_data_t *q) {
 	       qstep_noret(q->qlfe))
 		WARN("Cannot adjust lifetime of job %lld", (long long)q->job_id);
 	    else
-		INFO("Lifetime of job %lld adjusted by %s", (long long)q->job_id, lifeadj);
+		DEBUG("Lifetime of job %lld adjusted by %s", (long long)q->job_id, lifeadj);
 	}
 
 	/* Temporary failure: mark job as to-be-retried and stop processing it for now */
@@ -3177,7 +3209,7 @@ static void jobmgr_run_job(struct jobmgr_data_t *q) {
 	       qstep_noret(q->qdly))
 		CRIT("Cannot reschedule job %lld (you are gonna see this again!)", (long long)q->job_id);
 	    else
-		INFO("Job %lld will be retried later", (long long)q->job_id);
+		DEBUG("Job %lld will be retried later", (long long)q->job_id);
 	    break;
 	}
 
@@ -3193,7 +3225,7 @@ static void jobmgr_run_job(struct jobmgr_data_t *q) {
 		WARN("Cannot update status of failed job %lld", (long long)q->job_id);
 		break;
 	    }
-	    INFO("Job %lld failed: %s", (long long)q->job_id, fail_reason);
+	    DEBUG("Job %lld failed: %s", (long long)q->job_id, fail_reason);
 	    q->job_failed = 1;
 	}
 
@@ -3366,10 +3398,10 @@ static void jobmgr_process_queue(struct jobmgr_data_t *q, int forced) {
 	    continue; /* Process next job */
 	}
 
-	INFO("Running job %lld (type %d, %s, %s)", (long long)q->job_id, q->job_type, q->job_expired?"expired":"not expired", q->job_failed?"failed":"not failed");
+	DEBUG("Running job %lld (type %d, %s, %s)", (long long)q->job_id, q->job_type, q->job_expired?"expired":"not expired", q->job_failed?"failed":"not failed");
 	jobmgr_run_job(q);
 	free(q->job_data);
-	INFO("Finished running job %lld", (long long)q->job_id);
+	DEBUG("Finished running job %lld", (long long)q->job_id);
 	/* Process next job */
         sx_hashfs_checkpoint_passive(q->hashfs);
     }
