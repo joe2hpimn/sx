@@ -3574,11 +3574,13 @@ rc_ty sx_hashfs_volume_delete(sx_hashfs_t *h, const char *volume, int force) {
 	ret = FAIL_EINTERNAL;
 	goto volume_delete_err;
     }
-    r = sqlite3_column_int(h->q_getvolstate, 0);
-    if(r) {
-	ret = EPERM;
-	msg_set_reason("Cannot delete an enabled volume");
-	goto volume_delete_err;
+    if(!force) {
+	r = sqlite3_column_int(h->q_getvolstate, 0);
+	if(r) {
+	    ret = EPERM;
+	    msg_set_reason("Cannot delete an enabled volume");
+	    goto volume_delete_err;
+	}
     }
     if(qbind_text(h->q_delvol, ":volume", volume) ||
        qstep_noret(h->q_delvol) ||
