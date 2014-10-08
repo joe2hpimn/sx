@@ -7,7 +7,7 @@ AM_CPPFLAGS = -I $(top_srcdir)/../libsx/include -I $(top_srcdir)/../ -I $(top_sr
 EXTRA_DIST = man/*.in
 man_MANS = man/sxacl.1 man/sxacl-useradd.1 man/sxacl-userdel.1 man/sxacl-userlist.1 man/sxacl-usergetkey.1 man/sxacl-volperm.1 man/sxacl-volshow.1 man/sxcat.1 man/sxrm.1 man/sxls.1 man/sxcp.1 man/sxinit.1 man/sxreport-client.1 man/sxvol.1 man/sxvol-create.1 man/sxvol-remove.1 man/sxvol-filter.1 man/sxrev.1 man/sxrev-list.1 man/sxrev-copy.1 man/sxrev-delete.1
 
-bin_PROGRAMS = src/tools/init/sxinit src/tools/ls/sxls src/tools/cp/sxcp src/tools/cat/sxcat src/tools/vol/sxvol src/tools/acl/sxacl src/tools/sxreport-client/sxreport-client src/tools/rm/sxrm src/tools/rev/sxrev
+bin_PROGRAMS = src/tools/init/sxinit src/tools/ls/sxls src/tools/mv/sxmv src/tools/cp/sxcp src/tools/cat/sxcat src/tools/vol/sxvol src/tools/acl/sxacl src/tools/sxreport-client/sxreport-client src/tools/rm/sxrm src/tools/rev/sxrev
 
 src_tools_init_sxinit_SOURCES = \
 	src/tools/init/sxinit.c \
@@ -34,6 +34,12 @@ src_tools_ls_sxls_SOURCES = \
 	src/tools/ls/cmdline.c \
 	src/tools/ls/cmdline.h
 src_tools_ls_sxls_LDADD = $(top_builddir)/../libsx/src/libsx.la
+
+src_tools_mv_sxmv_SOURCES = \
+	src/tools/mv/sxmv.c \
+	src/tools/mv/cmdline.c \
+	src/tools/mv/cmdline.h
+src_tools_mv_sxmv_LDADD = $(top_builddir)/../libsx/src/libsx.la
 
 src_tools_cp_sxcp_SOURCES = \
 	src/tools/cp/sxcp.c \

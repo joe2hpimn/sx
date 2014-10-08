@@ -79,9 +79,9 @@ POST_UNINSTALL = :
 build_triplet = @build@
 host_triplet = @host@
 bin_PROGRAMS = src/tools/init/sxinit$(EXEEXT) \
-	src/tools/ls/sxls$(EXEEXT) src/tools/cp/sxcp$(EXEEXT) \
-	src/tools/cat/sxcat$(EXEEXT) src/tools/vol/sxvol$(EXEEXT) \
-	src/tools/acl/sxacl$(EXEEXT) \
+	src/tools/ls/sxls$(EXEEXT) src/tools/mv/sxmv$(EXEEXT) \
+	src/tools/cp/sxcp$(EXEEXT) src/tools/cat/sxcat$(EXEEXT) \
+	src/tools/vol/sxvol$(EXEEXT) src/tools/acl/sxacl$(EXEEXT) \
 	src/tools/sxreport-client/sxreport-client$(EXEEXT) \
 	src/tools/rm/sxrm$(EXEEXT) src/tools/rev/sxrev$(EXEEXT)
 subdir = .
@@ -176,6 +176,11 @@ am_src_tools_ls_sxls_OBJECTS = src/tools/ls/sxls.$(OBJEXT) \
 src_tools_ls_sxls_OBJECTS = $(am_src_tools_ls_sxls_OBJECTS)
 src_tools_ls_sxls_DEPENDENCIES =  \
 	$(top_builddir)/../libsx/src/libsx.la
+am_src_tools_mv_sxmv_OBJECTS = src/tools/mv/sxmv.$(OBJEXT) \
+	src/tools/mv/cmdline.$(OBJEXT)
+src_tools_mv_sxmv_OBJECTS = $(am_src_tools_mv_sxmv_OBJECTS)
+src_tools_mv_sxmv_DEPENDENCIES =  \
+	$(top_builddir)/../libsx/src/libsx.la
 am_src_tools_rev_sxrev_OBJECTS = src/tools/rev/sxrev.$(OBJEXT) \
 	src/tools/rev/cmd_main.$(OBJEXT) \
 	src/tools/rev/cmd_list.$(OBJEXT) \
@@ -240,13 +245,15 @@ am__v_CCLD_1 =
 SOURCES = $(src_tools_acl_sxacl_SOURCES) \
 	$(src_tools_cat_sxcat_SOURCES) $(src_tools_cp_sxcp_SOURCES) \
 	$(src_tools_init_sxinit_SOURCES) $(src_tools_ls_sxls_SOURCES) \
-	$(src_tools_rev_sxrev_SOURCES) $(src_tools_rm_sxrm_SOURCES) \
+	$(src_tools_mv_sxmv_SOURCES) $(src_tools_rev_sxrev_SOURCES) \
+	$(src_tools_rm_sxrm_SOURCES) \
 	$(src_tools_sxreport_client_sxreport_client_SOURCES) \
 	$(src_tools_vol_sxvol_SOURCES)
 DIST_SOURCES = $(src_tools_acl_sxacl_SOURCES) \
 	$(src_tools_cat_sxcat_SOURCES) $(src_tools_cp_sxcp_SOURCES) \
 	$(src_tools_init_sxinit_SOURCES) $(src_tools_ls_sxls_SOURCES) \
-	$(src_tools_rev_sxrev_SOURCES) $(src_tools_rm_sxrm_SOURCES) \
+	$(src_tools_mv_sxmv_SOURCES) $(src_tools_rev_sxrev_SOURCES) \
+	$(src_tools_rm_sxrm_SOURCES) \
 	$(src_tools_sxreport_client_sxreport_client_SOURCES) \
 	$(src_tools_vol_sxvol_SOURCES)
 RECURSIVE_TARGETS = all-recursive check-recursive cscopelist-recursive \
@@ -516,6 +523,12 @@ src_tools_ls_sxls_SOURCES = \
 	src/tools/ls/cmdline.h
 
 src_tools_ls_sxls_LDADD = $(top_builddir)/../libsx/src/libsx.la
+src_tools_mv_sxmv_SOURCES = \
+	src/tools/mv/sxmv.c \
+	src/tools/mv/cmdline.c \
+	src/tools/mv/cmdline.h
+
+src_tools_mv_sxmv_LDADD = $(top_builddir)/../libsx/src/libsx.la
 src_tools_cp_sxcp_SOURCES = \
 	src/tools/cp/sxcp.c \
 	src/tools/cp/cmdline.c \
@@ -819,6 +832,20 @@ src/tools/ls/cmdline.$(OBJEXT): src/tools/ls/$(am__dirstamp) \
 src/tools/ls/sxls$(EXEEXT): $(src_tools_ls_sxls_OBJECTS) $(src_tools_ls_sxls_DEPENDENCIES) $(EXTRA_src_tools_ls_sxls_DEPENDENCIES) src/tools/ls/$(am__dirstamp)
 	@rm -f src/tools/ls/sxls$(EXEEXT)
 	$(AM_V_CCLD)$(LINK) $(src_tools_ls_sxls_OBJECTS) $(src_tools_ls_sxls_LDADD) $(LIBS)
+src/tools/mv/$(am__dirstamp):
+	@$(MKDIR_P) src/tools/mv
+	@: > src/tools/mv/$(am__dirstamp)
+src/tools/mv/$(DEPDIR)/$(am__dirstamp):
+	@$(MKDIR_P) src/tools/mv/$(DEPDIR)
+	@: > src/tools/mv/$(DEPDIR)/$(am__dirstamp)
+src/tools/mv/sxmv.$(OBJEXT): src/tools/mv/$(am__dirstamp) \
+	src/tools/mv/$(DEPDIR)/$(am__dirstamp)
+src/tools/mv/cmdline.$(OBJEXT): src/tools/mv/$(am__dirstamp) \
+	src/tools/mv/$(DEPDIR)/$(am__dirstamp)
+
+src/tools/mv/sxmv$(EXEEXT): $(src_tools_mv_sxmv_OBJECTS) $(src_tools_mv_sxmv_DEPENDENCIES) $(EXTRA_src_tools_mv_sxmv_DEPENDENCIES) src/tools/mv/$(am__dirstamp)
+	@rm -f src/tools/mv/sxmv$(EXEEXT)
+	$(AM_V_CCLD)$(LINK) $(src_tools_mv_sxmv_OBJECTS) $(src_tools_mv_sxmv_LDADD) $(LIBS)
 src/tools/rev/$(am__dirstamp):
 	@$(MKDIR_P) src/tools/rev
 	@: > src/tools/rev/$(am__dirstamp)
@@ -897,6 +924,7 @@ mostlyclean-compile:
 	-rm -f src/tools/cp/*.$(OBJEXT)
 	-rm -f src/tools/init/*.$(OBJEXT)
 	-rm -f src/tools/ls/*.$(OBJEXT)
+	-rm -f src/tools/mv/*.$(OBJEXT)
 	-rm -f src/tools/rev/*.$(OBJEXT)
 	-rm -f src/tools/rm/*.$(OBJEXT)
 	-rm -f src/tools/sxreport-client/*.$(OBJEXT)
@@ -921,6 +949,8 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@src/tools/init/$(DEPDIR)/sxinit.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/tools/ls/$(DEPDIR)/cmdline.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/tools/ls/$(DEPDIR)/sxls.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@src/tools/mv/$(DEPDIR)/cmdline.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@src/tools/mv/$(DEPDIR)/sxmv.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/tools/rev/$(DEPDIR)/cmd_copy.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/tools/rev/$(DEPDIR)/cmd_delete.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/tools/rev/$(DEPDIR)/cmd_list.Po@am__quote@
@@ -998,6 +1028,7 @@ clean-libtool:
 	-rm -rf src/tools/cp/.libs src/tools/cp/_libs
 	-rm -rf src/tools/init/.libs src/tools/init/_libs
 	-rm -rf src/tools/ls/.libs src/tools/ls/_libs
+	-rm -rf src/tools/mv/.libs src/tools/mv/_libs
 	-rm -rf src/tools/rev/.libs src/tools/rev/_libs
 	-rm -rf src/tools/rm/.libs src/tools/rm/_libs
 	-rm -rf src/tools/sxreport-client/.libs src/tools/sxreport-client/_libs
@@ -1387,6 +1418,8 @@ distclean-generic:
 	-rm -f src/tools/init/$(am__dirstamp)
 	-rm -f src/tools/ls/$(DEPDIR)/$(am__dirstamp)
 	-rm -f src/tools/ls/$(am__dirstamp)
+	-rm -f src/tools/mv/$(DEPDIR)/$(am__dirstamp)
+	-rm -f src/tools/mv/$(am__dirstamp)
 	-rm -f src/tools/rev/$(DEPDIR)/$(am__dirstamp)
 	-rm -f src/tools/rev/$(am__dirstamp)
 	-rm -f src/tools/rm/$(DEPDIR)/$(am__dirstamp)
@@ -1405,7 +1438,7 @@ clean-am: clean-binPROGRAMS clean-generic clean-libtool mostlyclean-am
 
 distclean: distclean-recursive
 	-rm -f $(am__CONFIG_DISTCLEAN_FILES)
-	-rm -rf src/tools/acl/$(DEPDIR) src/tools/cat/$(DEPDIR) src/tools/cp/$(DEPDIR) src/tools/init/$(DEPDIR) src/tools/ls/$(DEPDIR) src/tools/rev/$(DEPDIR) src/tools/rm/$(DEPDIR) src/tools/sxreport-client/$(DEPDIR) src/tools/vol/$(DEPDIR)
+	-rm -rf src/tools/acl/$(DEPDIR) src/tools/cat/$(DEPDIR) src/tools/cp/$(DEPDIR) src/tools/init/$(DEPDIR) src/tools/ls/$(DEPDIR) src/tools/mv/$(DEPDIR) src/tools/rev/$(DEPDIR) src/tools/rm/$(DEPDIR) src/tools/sxreport-client/$(DEPDIR) src/tools/vol/$(DEPDIR)
 	-rm -f Makefile
 distclean-am: clean-am distclean-compile distclean-generic \
 	distclean-hdr distclean-libtool distclean-tags
@@ -1453,7 +1486,7 @@ installcheck-am: installcheck-binPROGRAMS
 maintainer-clean: maintainer-clean-recursive
 	-rm -f $(am__CONFIG_DISTCLEAN_FILES)
 	-rm -rf $(top_srcdir)/autom4te.cache
-	-rm -rf src/tools/acl/$(DEPDIR) src/tools/cat/$(DEPDIR) src/tools/cp/$(DEPDIR) src/tools/init/$(DEPDIR) src/tools/ls/$(DEPDIR) src/tools/rev/$(DEPDIR) src/tools/rm/$(DEPDIR) src/tools/sxreport-client/$(DEPDIR) src/tools/vol/$(DEPDIR)
+	-rm -rf src/tools/acl/$(DEPDIR) src/tools/cat/$(DEPDIR) src/tools/cp/$(DEPDIR) src/tools/init/$(DEPDIR) src/tools/ls/$(DEPDIR) src/tools/mv/$(DEPDIR) src/tools/rev/$(DEPDIR) src/tools/rm/$(DEPDIR) src/tools/sxreport-client/$(DEPDIR) src/tools/vol/$(DEPDIR)
 	-rm -f Makefile
 maintainer-clean-am: distclean-am maintainer-clean-generic
 
