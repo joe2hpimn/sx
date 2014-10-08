@@ -161,6 +161,59 @@ sxi_query_t *sxi_useradd_proto(sxc_client_t *sx, const char *username, const uin
     return ret;
 }
 
+sxi_query_t *sxi_useronoff_proto(sxc_client_t *sx, const char *username, int enable) {
+    sxi_query_t *ret = NULL;
+    unsigned n;
+    char *path = NULL;
+    char *query = NULL;
+
+    do {
+        path = sxi_urlencode(sx, username, 0);
+        if(!path) {
+            sxi_setsyserr(sx, SXE_EMEM, "out of memory encoding user query");
+            break;
+        }
+        n = lenof(".users/?o=disable") + strlen(path) + 1;
+        query = malloc(n);
+        if(!query) {
+            sxi_setsyserr(sx, SXE_EMEM, "out of memory allocating user query");
+            break;
+        }
+        snprintf(query, n, ".users/%s?o=%s", path, enable ? "enable" : "disable");
+        ret = sxi_query_create(sx, query, REQ_PUT);
+    } while(0);
+    free(path);
+    free(query);
+    return ret;
+}
+
+sxi_query_t *sxi_userdel_proto(sxc_client_t *sx, const char *username, const char *newowner) {
+    sxi_query_t *ret = NULL;
+    unsigned n;
+    char *oldusr = sxi_urlencode(sx, username, 0);
+    char *newusr = sxi_urlencode(sx, newowner, 0);
+    char *query = NULL;
+
+    do {
+        if(!oldusr || !newusr) {
+            sxi_setsyserr(sx, SXE_EMEM, "out of memory encoding user query");
+            break;
+        }
+        n = lenof(".users/?chgto=") + strlen(oldusr) + strlen(newusr) + 1;
+        query = malloc(n);
+        if(!query) {
+            sxi_setsyserr(sx, SXE_EMEM, "out of memory allocating user query");
+            break;
+        }
+        snprintf(query, n, ".users/%s?chgto=%s", oldusr, newusr);
+        ret = sxi_query_create(sx, query, REQ_DELETE);
+    } while(0);
+    free(oldusr);
+    free(newusr);
+    free(query);
+    return ret;
+}
+
 sxi_query_t *sxi_volumeadd_proto(sxc_client_t *sx, const char *volname, const char *owner, int64_t size, unsigned int replica, unsigned int revisions, sxc_meta_t *metadata) {
     unsigned int tlen;
     char *url, *qowner;

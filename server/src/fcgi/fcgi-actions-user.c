@@ -47,63 +47,157 @@ void fcgi_user_onoff(int enable) {
     CGI_PUTS("\r\n");
 }
 
-void fcgi_delete_user() {
-    if(has_priv(PRIV_CLUSTER)) {
-	/* Coming in from cluster */
-	const char *new_owner = get_arg("chgto");
-	rc_ty s;
+static const char *user_get_lock(sx_blob_t *b)
+{
+    const char *name = NULL;
+    return !sx_blob_get_string(b, &name) ? name : NULL;
+}
 
-	s = sx_hashfs_delete_user(hashfs, path, new_owner);
-	if(s != OK) {
-	    WARN("Failed to delete user %s and replace with %s: %s", path, new_owner, msg_get_reason());
-	    quit_errmsg(rc2http(s), msg_get_reason());
-	}
-	CGI_PUTS("\r\n");
+static rc_ty user_nodes(sxc_client_t *sx, sx_blob_t *blob, sx_nodelist_t **nodes)
+{
+    if (!nodes)
+        return FAIL_EINTERNAL;
+    /* Users are created globally, in no particluar order (PREVNEXT would be fine too) */
+    *nodes = sx_nodelist_dup(sx_hashfs_nodelist(hashfs, NL_NEXTPREV));
+    if (!*nodes)
+        return FAIL_EINTERNAL;
+    return OK;
+}
 
-    } else {
-	/* Coming in from (admin) user */
-	const sx_nodelist_t *allnodes = sx_hashfs_nodelist(hashfs, NL_NEXTPREV);
-	unsigned int timeout = 5 * 60 * sx_nodelist_count(allnodes);
-	char new_owner[SXLIMIT_MAX_USERNAME_LEN+2];
-	uint8_t deluser[AUTH_UID_LEN];
-	const void *job_data;
-	unsigned int job_datalen;
-	sx_blob_t *joblb;
-	job_t job;
-	rc_ty s;
+struct userdel_ctx {
+    const char *name;
+    const char *newowner;
+};
 
-	s = sx_hashfs_get_user_by_name(hashfs, path, deluser);
-	if(s != OK)
-	    quit_errmsg(rc2http(s), msg_get_reason());
-
-	s = sx_hashfs_uid_get_name(hashfs, uid, new_owner, sizeof(new_owner));
-	if(s != OK)
-	    quit_errmsg(rc2http(s), msg_get_reason());
-	if(sx_hashfs_check_username(new_owner))
-	    quit_errmsg(500, "Internal error (requesting user has an invalid name)");
-
-	if(!memcmp(user, deluser, sizeof(user)))
-	    quit_errmsg(400, "You may not delete yourself");
-
-	joblb = sx_blob_new();
-	if(!joblb)
-	    quit_errmsg(500, "Cannot allocate job blob");
-
-	if(sx_blob_add_string(joblb, path) ||
-	   sx_blob_add_string(joblb, new_owner)) {
-	    sx_blob_free(joblb);
-	    quit_errmsg(500, "Cannot create job blob");
-	}
-
-	sx_blob_to_data(joblb, &job_data, &job_datalen);
-	s = sx_hashfs_job_new(hashfs, 0, &job, JOBTYPE_DELETE_USER, timeout, path, job_data, job_datalen, allnodes);
-	sx_blob_free(joblb);
-
-	if(s != OK)
-	    quit_errmsg(rc2http(s), msg_get_reason());
-
-	send_job_info(job);
+static int userdel_to_blob(sxc_client_t *sx, int nodes, void *yctx, sx_blob_t *joblb)
+{
+    struct userdel_ctx *uctx = yctx;
+    if (!joblb) {
+        msg_set_reason("Cannot allocate job blob");
+        return -1;
     }
+
+    if (sx_blob_add_string(joblb, uctx->name) ||
+        sx_blob_add_string(joblb, uctx->newowner)) {
+        msg_set_reason("Cannot create job blob");
+        return -1;
+    }
+    return 0;
+}
+
+static unsigned userdel_timeout(sxc_client_t *sx, int nodes)
+{
+    return 5 * 60 * nodes;
+}
+
+static sxi_query_t* userdel_proto_from_blob(sxc_client_t *sx, sx_blob_t *b, jobphase_t phase)
+{
+    const char *name;
+    const char *newowner;
+
+    if (sx_blob_get_string(b, &name) ||
+	sx_blob_get_string(b, &newowner)) {
+        WARN("Corrupt userdel blob");
+        return NULL;
+    }
+    switch (phase) {
+        case JOBPHASE_REQUEST:
+            return sxi_useronoff_proto(sx, name, 0);
+        case JOBPHASE_COMMIT:
+            return sxi_userdel_proto(sx, name, newowner);
+        case JOBPHASE_ABORT:
+            INFO("Delete user '%s': aborting", name);
+            return sxi_useronoff_proto(sx, name, 1);
+        case JOBPHASE_UNDO:
+            INFO("Delete user '%s': undoing", name);
+            return sxi_useronoff_proto(sx, name, 0);
+        default:
+            return NULL;
+    }
+}
+
+static rc_ty userdel_execute_blob(sx_hashfs_t *hashfs, sx_blob_t *b, jobphase_t phase, int remote)
+{
+    const char *name;
+    const char *newowner;
+    rc_ty rc = OK;
+
+    if (!hashfs || !b) {
+        msg_set_reason("NULL arguments");
+        return FAIL_EINTERNAL;
+    }
+    if (sx_blob_get_string(b, &name) ||
+        sx_blob_get_string(b, &newowner)) {
+        msg_set_reason("Corrupted blob");
+        return FAIL_EINTERNAL;
+    }
+
+    if (remote && phase == JOBPHASE_REQUEST)
+        phase = JOBPHASE_COMMIT;
+
+    switch (phase) {
+        case JOBPHASE_REQUEST:
+            DEBUG("userdel request '%s'", name);
+	    return sx_hashfs_user_onoff(hashfs, name, 0);
+        case JOBPHASE_COMMIT:
+            DEBUG("userdel commit '%s'", name);
+            rc = sx_hashfs_delete_user(hashfs, name, newowner);
+            if (rc == ENOENT)
+                rc = OK;
+            if (rc != OK)
+                WARN("Failed to delete user %s and replace with %s: %s", name, newowner, msg_get_reason());
+            return rc;
+        case JOBPHASE_ABORT:
+            INFO("Delete user '%s': aborted", name);
+            DEBUG("userdel abort '%s'", name);
+	    return sx_hashfs_user_onoff(hashfs, name, 1);
+        case JOBPHASE_UNDO:
+            CRIT("User '%s' may have been left in an inconsistent state after a failed removal attempt", name);
+            msg_set_reason("User may have been left in an inconsistent state after a failed removal attempt");
+            return FAIL_EINTERNAL;
+        default:
+            WARN("Impossible job phase: %d", phase);
+            return FAIL_EINTERNAL;
+    }
+}
+
+const job_2pc_t userdel_spec = {
+    NULL,
+    JOBTYPE_DELETE_USER,
+    NULL,
+    user_get_lock,
+    userdel_to_blob,
+    userdel_execute_blob,
+    userdel_proto_from_blob,
+    user_nodes,
+    userdel_timeout
+};
+
+void fcgi_delete_user() {
+    struct userdel_ctx uctx;
+    char new_owner[SXLIMIT_MAX_USERNAME_LEN+2];
+    uctx.name = path;
+    if (has_priv(PRIV_CLUSTER))
+        uctx.newowner = get_arg("chgto");
+    else {
+        uint8_t deluser[AUTH_UID_LEN];
+        rc_ty s;
+
+        s = sx_hashfs_get_user_by_name(hashfs, path, deluser);
+        if(s != OK)
+            quit_errmsg(rc2http(s), msg_get_reason());
+
+        s = sx_hashfs_uid_get_name(hashfs, uid, new_owner, sizeof(new_owner));
+        if(s != OK)
+            quit_errmsg(rc2http(s), msg_get_reason());
+        if(sx_hashfs_check_username(new_owner))
+            quit_errmsg(500, "Internal error (requesting user has an invalid name)");
+
+        if(!memcmp(user, deluser, sizeof(user)))
+            quit_errmsg(400, "You may not delete yourself");
+        uctx.newowner = new_owner;
+    }
+    job_2pc_handle_request(sx_hashfs_client(hashfs), &userdel_spec, &uctx);
 }
 
 void fcgi_send_user(void) {
@@ -139,6 +233,7 @@ struct user_ctx {
     int has_auth;
     int has_user;
     int has_type;
+    int role;
     enum user_state { CB_USER_START=0, CB_USER_KEY, CB_USER_NAME, CB_USER_AUTH, CB_USER_TYPE, CB_USER_COMPLETE } state;
 };
 
@@ -233,88 +328,159 @@ static const yajl_callbacks user_ops_parser = {
     cb_fail_end_array
 };
 
+static int user_parse_complete(void *yctx)
+{
+    struct user_ctx *uctx = yctx;
+    if (!uctx || uctx->state != CB_USER_COMPLETE)
+        return 0;
+    if(sx_hashfs_check_username(uctx->name)) {
+	msg_set_reason("Invalid username");
+        return 0;
+    }
+
+    uctx->role = 0;
+    if (!strcmp(uctx->type, "admin"))
+	uctx->role = ROLE_ADMIN;
+    else if (!strcmp(uctx->type, "normal"))
+	uctx->role = ROLE_USER;
+    else {
+        msg_set_reason("Invalid user type");
+        return 0;
+    }
+    return 1;
+}
+
+static int user_to_blob(sxc_client_t *sx, int nodes, void *yctx, sx_blob_t *joblb)
+{
+    struct user_ctx *uctx = yctx;
+    if (!joblb) {
+        msg_set_reason("Cannot allocate job blob");
+        return -1;
+    }
+
+    if (sx_blob_add_string(joblb, uctx->name) ||
+        sx_blob_add_blob(joblb, uctx->auth, AUTH_KEY_LEN) ||
+        sx_blob_add_int32(joblb, uctx->role)) {
+        msg_set_reason("Cannot create job blob");
+        return -1;
+    }
+    return 0;
+}
+
+static unsigned user_timeout(sxc_client_t *sx, int nodes)
+{
+    return 50 * (nodes - 1);
+}
+
+static sxi_query_t* user_proto_from_blob(sxc_client_t *sx, sx_blob_t *b, jobphase_t phase)
+{
+    const char *name;
+    unsigned role;
+    const void *auth;
+    unsigned auth_len;
+
+    if (sx_blob_get_string(b, &name) ||
+	sx_blob_get_blob(b, &auth, &auth_len) ||
+	sx_blob_get_int32(b, &role)) {
+        WARN("Corrupt user blob");
+        return NULL;
+    }
+    switch (phase) {
+        case JOBPHASE_REQUEST:
+            return sxi_useradd_proto(sx, name, auth, (role == ROLE_ADMIN));
+        case JOBPHASE_COMMIT:
+            return sxi_useronoff_proto(sx, name, 1);
+        case JOBPHASE_ABORT:/* fall-through */
+            INFO("Create user '%s': aborting", name);
+            return sxi_userdel_proto(sx, name, "admin");
+        case JOBPHASE_UNDO:
+            INFO("Create user '%s': undoing", name);
+            return sxi_userdel_proto(sx, name, "admin");
+        default:
+            return NULL;
+    }
+}
+
+static rc_ty user_execute_blob(sx_hashfs_t *hashfs, sx_blob_t *b, jobphase_t phase, int remote)
+{
+    const char *name;
+    const void *auth;
+    unsigned auth_len;
+    int role;
+    rc_ty rc = OK, rc2 = OK;
+
+    if (!hashfs || !b) {
+        msg_set_reason("NULL arguments");
+        return FAIL_EINTERNAL;
+    }
+    if (sx_blob_get_string(b, &name) ||
+	sx_blob_get_blob(b, &auth, &auth_len) ||
+        auth_len != AUTH_KEY_LEN ||
+	sx_blob_get_int32(b, &role)) {
+        msg_set_reason("Corrupted blob");
+        return FAIL_EINTERNAL;
+    }
+
+    switch (phase) {
+        case JOBPHASE_REQUEST:
+            DEBUG("useradd request '%s'", name);
+            rc = sx_hashfs_create_user(hashfs, name, NULL, 0, auth, AUTH_KEY_LEN, role);
+            if(rc == EINVAL)
+                return rc;
+            if (rc == EEXIST) {
+                msg_set_reason("User already exists");
+                return rc;
+            }
+            if (rc != OK) {
+                msg_set_reason("Unable to add user");
+                rc = FAIL_EINTERNAL;
+            }
+            return rc;
+        case JOBPHASE_COMMIT:
+            DEBUG("useradd commit '%s'", name);
+	    rc = sx_hashfs_user_onoff(hashfs, name, 1);
+            if (rc)
+		WARN("Failed to enable user '%s'", name);
+            return rc;
+        case JOBPHASE_ABORT:
+            DEBUG("useradd abort '%s'", name);
+            INFO("Create user '%s': aborted", name);
+            /* try hard to deactivate / delete */
+	    rc = sx_hashfs_user_onoff(hashfs, name, 0);
+            rc2 = sx_hashfs_delete_user(hashfs, name, "admin");
+            return rc2 == OK ? rc : rc2;
+        case JOBPHASE_UNDO:
+            DEBUG("useradd undo '%s'", name);
+            /* try hard to deactivate / delete */
+	    rc = sx_hashfs_user_onoff(hashfs, name, 0);
+            rc2 = sx_hashfs_delete_user(hashfs, name, "admin");
+            CRIT("User '%s' may have been left in an inconsistent state after a failed removal attempt", name);
+            msg_set_reason("User may have been left in an inconsistent state after a failed removal attempt");
+            return FAIL_EINTERNAL;
+        default:
+            WARN("Impossible job phase: %d", phase);
+            return FAIL_EINTERNAL;
+    }
+}
+
+const job_2pc_t user_spec = {
+    &user_ops_parser,
+    JOBTYPE_CREATE_USER,
+    user_parse_complete,
+    user_get_lock,
+    user_to_blob,
+    user_execute_blob,
+    user_proto_from_blob,
+    user_nodes,
+    user_timeout
+};
+
 void fcgi_create_user(void)
 {
     struct user_ctx uctx;
     memset(&uctx, 0, sizeof(uctx));
-    rc_ty rc;
-    yajl_handle yh = yajl_alloc(&user_ops_parser, NULL, &uctx);
-    if (!yh) {
-	OOM();
-	quit_errmsg(500, "Cannot allocate json parser");
-    }
 
-    int len;
-    while((len = get_body_chunk(hashbuf, sizeof(hashbuf))) > 0) {
-	if(yajl_parse(yh, hashbuf, len) != yajl_status_ok) break;
-    }
-
-    if(len || yajl_complete_parse(yh) != yajl_status_ok || !uctx.has_auth ||
-       !uctx.has_user || !uctx.has_type || uctx.state != CB_USER_COMPLETE
-       ) {
-        const char *reason = msg_get_reason();
-	yajl_free(yh);
-	/* TODO: log yajl parse error better... */
-	WARN("bad user create request: %d,%d,%d,%d", uctx.has_auth, uctx.has_user, uctx.has_type, uctx.state);
-	quit_errmsg(400, *reason ? reason : "Invalid request content");
-    }
-    yajl_free(yh);
-    auth_complete();
-    quit_unless_authed();
-
-    if(sx_hashfs_check_username(uctx.name))
-	quit_errmsg(400, "Invalid username");
-
-    int role = 0;
-    if (!strcmp(uctx.type, "admin"))
-	role = ROLE_ADMIN;
-    else if (!strcmp(uctx.type, "normal"))
-	role = ROLE_USER;
-    else
-	quit_errmsg(400, "Invalid user type");
-
-    if (has_priv(PRIV_CLUSTER)) {
-	INFO("create user from cluster");
-	rc = sx_hashfs_create_user(hashfs, uctx.name, NULL, 0, uctx.auth, AUTH_KEY_LEN, role);
-	if(rc == EINVAL)
-	    quit_errmsg(400, msg_get_reason());
-	if (rc == EEXIST)
-	    quit_errmsg(409, "User already exists");
-	if (rc != OK)
-	    quit_errmsg(500, "Unable to add user");
-	CGI_PUTS("\r\n");
-	INFO("user creation done (from cluster)");
-    } else {
-	/* user request: create job */
-	sx_blob_t *joblb = sx_blob_new();
-	const void *job_data;
-	unsigned int job_datalen;
-	const sx_nodelist_t *allnodes = sx_hashfs_nodelist(hashfs, NL_NEXTPREV);
-	int extra_job_timeout = 50 * (sx_nodelist_count(allnodes)-1);
-	job_t job;
-	rc_ty res;
-
-	if (!joblb)
-	    quit_errmsg(500, "Cannot allocate job blob");
-
-	if (sx_blob_add_string(joblb, uctx.name) ||
-	    sx_blob_add_blob(joblb, uctx.auth, AUTH_KEY_LEN) ||
-	    sx_blob_add_int32(joblb, role) ||
-	    sx_blob_add_int32(joblb, extra_job_timeout)) {
-	    sx_blob_free(joblb);
-	    quit_errmsg(500, "Cannot create job blob");
-	}
-
-	sx_blob_to_data(joblb, &job_data, &job_datalen);
-	INFO("job_add user");
-	/* Users are created globally, in no particluar order (PREVNEXT would be fine too) */
-	res = sx_hashfs_job_new(hashfs, uid, &job, JOBTYPE_CREATE_USER, 20, uctx.name, job_data, job_datalen, allnodes);
-	sx_blob_free(joblb);
-	if(res != OK)
-	    quit_errmsg(rc2http(res), msg_get_reason());
-	send_job_info(job);
-	INFO("user creation done");
-    }
+    job_2pc_handle_request(sx_hashfs_client(hashfs), &user_spec, &uctx);
 }
 
 static int print_user(sx_uid_t user_id, const char *username, const uint8_t *user, const uint8_t *key, int is_admin, void *ctx)

@@ -75,13 +75,16 @@ typedef struct {
     int job_type;
     int (*parse_complete)(void *ctx);
     const char* (*get_lock)(sx_blob_t *blob);
-    int (*to_blob)(sxc_client_t *sx, void *ctx, sx_blob_t *blob);
-    rc_ty (*execute_blob)(struct _sx_hashfs_t *hashfs, sx_blob_t *blob, jobphase_t phase);
+    int (*to_blob)(sxc_client_t *sx, int nodes, void *ctx, sx_blob_t *blob);
+    rc_ty (*execute_blob)(struct _sx_hashfs_t *hashfs, sx_blob_t *blob, jobphase_t phase, int remote);
     sxi_query_t* (*proto_from_blob)(sxc_client_t *sx, sx_blob_t *blob, jobphase_t phase);
     int (*nodes)(sxc_client_t *sx, sx_blob_t *blob, sx_nodelist_t **nodes);
+    unsigned (*timeout)(sxc_client_t *sx, int nodes);
 } job_2pc_t;
 
 extern const job_2pc_t acl_spec;
+extern const job_2pc_t user_spec;
+extern const job_2pc_t userdel_spec;
 
 void job_2pc_handle_request(sxc_client_t *sx, const job_2pc_t *spec, void *yctx);
 #endif

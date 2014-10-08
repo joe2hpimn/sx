@@ -534,7 +534,7 @@ static int acl_parse_complete(void *yctx)
     return actx && actx->state == CB_ACL_COMPLETE;
 }
 
-static int acl_to_blob(sxc_client_t *sx, void *yctx, sx_blob_t *blob)
+static int acl_to_blob(sxc_client_t *sx, int nodes, void *yctx, sx_blob_t *blob)
 {
     struct acl_ctx *actx = yctx;
     int i;
@@ -573,7 +573,7 @@ static int acl_to_blob(sxc_client_t *sx, void *yctx, sx_blob_t *blob)
     return 0;
 }
 
-static rc_ty acl_execute_blob(sx_hashfs_t *hashfs, sx_blob_t *b, jobphase_t phase)
+static rc_ty acl_execute_blob(sx_hashfs_t *hashfs, sx_blob_t *b, jobphase_t phase, int remote)
 {
     const char *volume;
     rc_ty rc = OK;
@@ -717,6 +717,11 @@ static rc_ty acl_nodes(sxc_client_t *sx, sx_blob_t *blob, sx_nodelist_t **nodes)
     return OK;
 }
 
+static unsigned acl_timeout(sxc_client_t *sx, int nodes)
+{
+    return 12 * nodes;
+}
+
 const job_2pc_t acl_spec = {
     &acl_ops_parser,
     JOBTYPE_VOLUME_ACL,
@@ -725,7 +730,8 @@ const job_2pc_t acl_spec = {
     acl_to_blob,
     acl_execute_blob,
     acl_proto_from_blob,
-    acl_nodes
+    acl_nodes,
+    acl_timeout
 };
 
 void fcgi_acl_volume(void) {

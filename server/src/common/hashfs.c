@@ -2984,6 +2984,7 @@ rc_ty sx_hashfs_create_user(sx_hashfs_t *h, const char *user, const uint8_t *uid
 	}
 	if (ret != SQLITE_DONE)
 	    break;
+        INFO("User '%s' created", user);
 	rc = OK;
     } while(0);
     sqlite3_reset(q);
@@ -3246,7 +3247,7 @@ rc_ty sx_hashfs_delete_user(sx_hashfs_t *h, const char *username, const char *ne
 	goto delete_user_err;
 
     ret = OK;
-    INFO("User %s successfully removed (and replaced by %s)", username, new_owner);
+    INFO("User %s removed (and replaced by %s)", username, new_owner);
 
  delete_user_err:
     sqlite3_reset(h->q_getuser);
@@ -3606,6 +3607,8 @@ rc_ty sx_hashfs_user_onoff(sx_hashfs_t *h, const char *user, int enable) {
        qbind_int(h->q_onoffuser, ":enable", enable) ||
        qstep_noret(h->q_onoffuser))
 	ret = FAIL_EINTERNAL;
+    if (ret == OK)
+        INFO("User '%s' %s", user, enable ? "enabled" : "disabled");
 
     return ret;
 }
