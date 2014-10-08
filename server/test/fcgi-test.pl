@@ -346,7 +346,7 @@ sub job_result {
 	}
 	my $status = $json->{'requestStatus'};
 	next if($status eq 'PENDING');
-	return $status;
+	return ($status, $json->{'requestMessage'});
     }
 }
 
@@ -639,13 +639,13 @@ sub test_job {
 	    next;
 	}
 
-	my $jobres = job_result $jobid, $auth;
+	my ($jobres, $msg) = job_result $jobid, $auth;
 	if(!defined($rescmp{$jobres})) {
 	    fail "unknown status '$jobres')";
 	} elsif($rescmp{$jobres}) {
 	    ok;
 	} else {
-	    fail "request failed: unexpected job result ($jobres)";
+	    fail "request failed: unexpected job result ($jobres, $msg)";
 	}
     }
 }

@@ -369,7 +369,7 @@ static int user_to_blob(sxc_client_t *sx, int nodes, void *yctx, sx_blob_t *jobl
 
 static unsigned user_timeout(sxc_client_t *sx, int nodes)
 {
-    return 50 * (nodes - 1);
+    return nodes > 0 ? 50 * (nodes - 1) : 50;
 }
 
 static sxi_query_t* user_proto_from_blob(sxc_client_t *sx, sx_blob_t *b, jobphase_t phase)
