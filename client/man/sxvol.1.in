@@ -25,4 +25,4 @@ Print help and exit
 \fB\-V\fR, \fB\-\-version\fR
 Print version and exit
 .SH SEE ALSO
-\fBsxacl\fR(1), \fBsxls\fR(1), \fBsxcp\fR(1), \fBsxcat\fR(1), \fBsxrm\fR(1), \fBsxrev\fR(1), \fBsxinit\fR(1)
+\fBsxacl\fR(1), \fBsxls\fR(1), \fBsxcp\fR(1), \fBsxmv\fR(1), \fBsxcat\fR(1), \fBsxrm\fR(1), \fBsxrev\fR(1), \fBsxinit\fR(1)

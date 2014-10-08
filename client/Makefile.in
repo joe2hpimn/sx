@@ -95,8 +95,8 @@ DIST_COMMON = $(srcdir)/Makefile.in $(srcdir)/Makefile.am \
 	$(top_srcdir)/man/sxacl-volperm.1.in \
 	$(top_srcdir)/man/sxacl-volshow.1.in \
 	$(top_srcdir)/man/sxcat.1.in $(top_srcdir)/man/sxrm.1.in \
-	$(top_srcdir)/man/sxls.1.in $(top_srcdir)/man/sxcp.1.in \
-	$(top_srcdir)/man/sxinit.1.in \
+	$(top_srcdir)/man/sxls.1.in $(top_srcdir)/man/sxmv.1.in \
+	$(top_srcdir)/man/sxcp.1.in $(top_srcdir)/man/sxinit.1.in \
 	$(top_srcdir)/man/sxreport-client.1.in \
 	$(top_srcdir)/man/sxvol.1.in \
 	$(top_srcdir)/man/sxvol-create.1.in \
@@ -133,12 +133,14 @@ CONFIG_HEADER = config.h
 CONFIG_CLEAN_FILES = man/sxacl.1 man/sxacl-useradd.1 \
 	man/sxacl-userdel.1 man/sxacl-userlist.1 \
 	man/sxacl-usergetkey.1 man/sxacl-volperm.1 man/sxacl-volshow.1 \
-	man/sxcat.1 man/sxrm.1 man/sxls.1 man/sxcp.1 man/sxinit.1 \
-	man/sxreport-client.1 man/sxvol.1 man/sxvol-create.1 \
-	man/sxvol-remove.1 man/sxvol-filter.1 man/sxrev.1 \
-	man/sxrev-list.1 man/sxrev-copy.1 man/sxrev-delete.1
+	man/sxcat.1 man/sxrm.1 man/sxls.1 man/sxmv.1 man/sxcp.1 \
+	man/sxinit.1 man/sxreport-client.1 man/sxvol.1 \
+	man/sxvol-create.1 man/sxvol-remove.1 man/sxvol-filter.1 \
+	man/sxrev.1 man/sxrev-list.1 man/sxrev-copy.1 \
+	man/sxrev-delete.1
 CONFIG_CLEAN_VPATH_FILES =
-am__installdirs = "$(DESTDIR)$(bindir)" "$(DESTDIR)$(man1dir)"
+am__installdirs = "$(DESTDIR)$(bindir)" "$(DESTDIR)$(man1dir)" \
+	"$(DESTDIR)$(manidir)"
 PROGRAMS = $(bin_PROGRAMS)
 am__dirstamp = $(am__leading_dot)dirstamp
 am_src_tools_acl_sxacl_OBJECTS = src/tools/acl/sxacl.$(OBJEXT) \
@@ -297,6 +299,7 @@ am__uninstall_files_from_dir = { \
          $(am__cd) "$$dir" && rm -f $$files; }; \
   }
 man1dir = $(mandir)/man1
+manidir = $(mandir)/mani
 NROFF = nroff
 MANS = $(man_MANS)
 RECURSIVE_CLEAN_TARGETS = mostlyclean-recursive clean-recursive	\
@@ -496,7 +499,7 @@ ACLOCAL_AMFLAGS = -I m4
 SUBDIRS = src/filters/null src/filters/zcomp src/filters/attribs src/filters/aes256 src/filters/undelete
 AM_CPPFLAGS = -I $(top_srcdir)/../libsx/include -I $(top_srcdir)/../ -I $(top_srcdir)/src/common -DSX_FILTER_DIR=\"$(pkglibdir)\"
 EXTRA_DIST = man/*.in
-man_MANS = man/sxacl.1 man/sxacl-useradd.1 man/sxacl-userdel.1 man/sxacl-userlist.1 man/sxacl-usergetkey.1 man/sxacl-volperm.1 man/sxacl-volshow.1 man/sxcat.1 man/sxrm.1 man/sxls.1 man/sxcp.1 man/sxinit.1 man/sxreport-client.1 man/sxvol.1 man/sxvol-create.1 man/sxvol-remove.1 man/sxvol-filter.1 man/sxrev.1 man/sxrev-list.1 man/sxrev-copy.1 man/sxrev-delete.1
+man_MANS = man/sxacl.1 man/sxacl-useradd.1 man/sxacl-userdel.1 man/sxacl-userlist.1 man/sxacl-usergetkey.1 man/sxacl-volperm.1 man/sxacl-volshow.1 man/sxcat.1 man/sxrm.1 man/sxls.1 man/sxmv.1.in man/sxcp.1 man/sxinit.1 man/sxreport-client.1 man/sxvol.1 man/sxvol-create.1 man/sxvol-remove.1 man/sxvol-filter.1 man/sxrev.1 man/sxrev-list.1 man/sxrev-copy.1 man/sxrev-delete.1
 src_tools_init_sxinit_SOURCES = \
 	src/tools/init/sxinit.c \
 	src/tools/init/cmdline.c \
@@ -662,6 +665,8 @@ man/sxcat.1: $(top_builddir)/config.status $(top_srcdir)/man/sxcat.1.in
 man/sxrm.1: $(top_builddir)/config.status $(top_srcdir)/man/sxrm.1.in
 	cd $(top_builddir) && $(SHELL) ./config.status $@
 man/sxls.1: $(top_builddir)/config.status $(top_srcdir)/man/sxls.1.in
+	cd $(top_builddir) && $(SHELL) ./config.status $@
+man/sxmv.1: $(top_builddir)/config.status $(top_srcdir)/man/sxmv.1.in
 	cd $(top_builddir) && $(SHELL) ./config.status $@
 man/sxcp.1: $(top_builddir)/config.status $(top_srcdir)/man/sxcp.1.in
 	cd $(top_builddir) && $(SHELL) ./config.status $@
@@ -1079,6 +1084,49 @@ uninstall-man1:
 	} | sed -e 's,.*/,,;h;s,.*\.,,;s,^[^1][0-9a-z]*$$,1,;x' \
 	      -e 's,\.[0-9a-z]*$$,,;$(transform);G;s,\n,.,'`; \
 	dir='$(DESTDIR)$(man1dir)'; $(am__uninstall_files_from_dir)
+install-mani: $(man_MANS)
+	@$(NORMAL_INSTALL)
+	@list1=''; \
+	list2='$(man_MANS)'; \
+	test -n "$(manidir)" \
+	  && test -n "`echo $$list1$$list2`" \
+	  || exit 0; \
+	echo " $(MKDIR_P) '$(DESTDIR)$(manidir)'"; \
+	$(MKDIR_P) "$(DESTDIR)$(manidir)" || exit 1; \
+	{ for i in $$list1; do echo "$$i"; done;  \
+	if test -n "$$list2"; then \
+	  for i in $$list2; do echo "$$i"; done \
+	    | sed -n '/\.i[a-z]*$$/p'; \
+	fi; \
+	} | while read p; do \
+	  if test -f $$p; then d=; else d="$(srcdir)/"; fi; \
+	  echo "$$d$$p"; echo "$$p"; \
+	done | \
+	sed -e 'n;s,.*/,,;p;h;s,.*\.,,;s,^[^i][0-9a-z]*$$,i,;x' \
+	      -e 's,\.[0-9a-z]*$$,,;$(transform);G;s,\n,.,' | \
+	sed 'N;N;s,\n, ,g' | { \
+	list=; while read file base inst; do \
+	  if test "$$base" = "$$inst"; then list="$$list $$file"; else \
+	    echo " $(INSTALL_DATA) '$$file' '$(DESTDIR)$(manidir)/$$inst'"; \
+	    $(INSTALL_DATA) "$$file" "$(DESTDIR)$(manidir)/$$inst" || exit $$?; \
+	  fi; \
+	done; \
+	for i in $$list; do echo "$$i"; done | $(am__base_list) | \
+	while read files; do \
+	  test -z "$$files" || { \
+	    echo " $(INSTALL_DATA) $$files '$(DESTDIR)$(manidir)'"; \
+	    $(INSTALL_DATA) $$files "$(DESTDIR)$(manidir)" || exit $$?; }; \
+	done; }
+
+uninstall-mani:
+	@$(NORMAL_UNINSTALL)
+	@list=''; test -n "$(manidir)" || exit 0; \
+	files=`{ for i in $$list; do echo "$$i"; done; \
+	l2='$(man_MANS)'; for i in $$l2; do echo "$$i"; done | \
+	  sed -n '/\.i[a-z]*$$/p'; \
+	} | sed -e 's,.*/,,;h;s,.*\.,,;s,^[^i][0-9a-z]*$$,i,;x' \
+	      -e 's,\.[0-9a-z]*$$,,;$(transform);G;s,\n,.,'`; \
+	dir='$(DESTDIR)$(manidir)'; $(am__uninstall_files_from_dir)
 
 # This directory's subdirectories are mostly independent; you can cd
 # into them and run 'make' without going through this Makefile.
@@ -1379,7 +1427,7 @@ check: check-recursive
 all-am: Makefile $(PROGRAMS) $(MANS) config.h
 installdirs: installdirs-recursive
 installdirs-am:
-	for dir in "$(DESTDIR)$(bindir)" "$(DESTDIR)$(man1dir)"; do \
+	for dir in "$(DESTDIR)$(bindir)" "$(DESTDIR)$(man1dir)" "$(DESTDIR)$(manidir)"; do \
 	  test -z "$$dir" || $(MKDIR_P) "$$dir"; \
 	done
 install: install-recursive
@@ -1471,7 +1519,7 @@ install-info: install-info-recursive
 
 install-info-am:
 
-install-man: install-man1
+install-man: install-man1 install-mani
 
 install-pdf: install-pdf-recursive
 
@@ -1505,7 +1553,7 @@ ps-am:
 
 uninstall-am: uninstall-binPROGRAMS uninstall-man
 
-uninstall-man: uninstall-man1
+uninstall-man: uninstall-man1 uninstall-mani
 
 .MAKE: $(am__recursive_targets) all install-am install-strip
 
@@ -1520,14 +1568,15 @@ uninstall-man: uninstall-man1
 	install install-am install-binPROGRAMS install-data \
 	install-data-am install-dvi install-dvi-am install-exec \
 	install-exec-am install-html install-html-am install-info \
-	install-info-am install-man install-man1 install-pdf \
-	install-pdf-am install-ps install-ps-am install-strip \
-	installcheck installcheck-am installcheck-binPROGRAMS \
-	installdirs installdirs-am maintainer-clean \
-	maintainer-clean-generic mostlyclean mostlyclean-compile \
-	mostlyclean-generic mostlyclean-libtool pdf pdf-am ps ps-am \
-	tags tags-am uninstall uninstall-am uninstall-binPROGRAMS \
-	uninstall-man uninstall-man1
+	install-info-am install-man install-man1 install-mani \
+	install-pdf install-pdf-am install-ps install-ps-am \
+	install-strip installcheck installcheck-am \
+	installcheck-binPROGRAMS installdirs installdirs-am \
+	maintainer-clean maintainer-clean-generic mostlyclean \
+	mostlyclean-compile mostlyclean-generic mostlyclean-libtool \
+	pdf pdf-am ps ps-am tags tags-am uninstall uninstall-am \
+	uninstall-binPROGRAMS uninstall-man uninstall-man1 \
+	uninstall-mani
 
 
 # Tell versions [3.59,3.63) of GNU make to not export all variables.

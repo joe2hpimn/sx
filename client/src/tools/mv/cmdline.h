@@ -40,8 +40,8 @@ struct gengetopt_args_info
   const char *help_help; /**< @brief Print help and exit help description.  */
   const char *full_help_help; /**< @brief Print help, including hidden options, and exit help description.  */
   const char *version_help; /**< @brief Print version and exit help description.  */
-  int recursive_flag;	/**< @brief Recursively copy files from SOURCE to DEST directory (default=off).  */
-  const char *recursive_help; /**< @brief Recursively copy files from SOURCE to DEST directory help description.  */
+  int recursive_flag;	/**< @brief Recursively move files from SOURCE to DEST directory (default=off).  */
+  const char *recursive_help; /**< @brief Recursively move files from SOURCE to DEST directory help description.  */
   int debug_flag;	/**< @brief Enable debug messages (default=off).  */
   const char *debug_help; /**< @brief Enable debug messages help description.  */
   char * config_dir_arg;	/**< @brief Path to SX configuration directory.  */

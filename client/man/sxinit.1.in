@@ -60,4 +60,4 @@ To configure an access to a non-DNS cluster in a local network, which doesn't of
 .br
 sxinit will automatically fetch the list of other nodes in the cluster and make it available through sx://cluster for the tools.
 .SH SEE ALSO
-\fBsxvol\fR(1), \fBsxacl\fR(1), \fBsxcp\fR(1), \fBsxls\fR(1), \fBsxcat\fR(1), \fBsxrm\fR(1), \fBsxrev\fR(1), \fBsxinit\fR(1)
+\fBsxvol\fR(1), \fBsxacl\fR(1), \fBsxcp\fR(1), \fBsxmv\fR(1),\fBsxls\fR(1), \fBsxcat\fR(1), \fBsxrm\fR(1), \fBsxrev\fR(1), \fBsxinit\fR(1)

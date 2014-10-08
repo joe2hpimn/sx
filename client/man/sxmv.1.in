@@ -1,0 +1,42 @@
+.TH SXMV "1" "October 2014" "sxmv @VERSION@" "Skylable SX Manual"
+.SH NAME
+sxmv \- move files between SX volumes and clusters
+.SH SYNOPSIS
+.B sxmv
+[\fI\,OPTIONS\/\fR]... \fI\,SOURCE\/\fR... \fI\,DEST\/\fR
+.SH DESCRIPTION
+sxmv can move files and entire directories within a single volume or between volumes and different Skylable SX clusters.
+.SH OPTIONS
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help and exit
+.TP
+\fB\-\-full\-help\fR
+Print help, including hidden options, and exit
+.TP
+\fB\-V\fR, \fB\-\-version\fR
+Print version and exit
+.TP
+\fB\-r\fR, \fB\-\-recursive\fR
+Recursively move files from SOURCE to DEST directory
+.TP
+\fB\-D\fR, \fB\-\-debug\fR
+Enable debug messages
+.TP
+\fB\-c\fR, \fB\-\-config\-dir\fR=\fI\,PATH\/\fR
+Path to the SX configuration directory (default: ~/.sx)
+.TP
+\fB\-c\fR, \fB\-\-filter\-dir\fR=\fI\,PATH\/\fR
+Path to the SX filter directory (default: @SX_FILTER_DIR@)
+.SH "EXAMPLES"
+To rename the file 'foo' to 'bar' run:
+.br
+\fB    sxmv sx://cluster/vol/foo sx://cluster/vol/bar\fP
+
+.br
+To move directory 'movies' from the volume 'data' to 'oldstuff' run:
+.br
+\fB    sxmv -r sx://cluster/data/movies/ sx://cluster/oldstuff/movies/\fP
+.br
+.SH SEE ALSO
+\fBsxcp\fR(1), \fBsxls\fR(1), \fBsxcat\fR(1), \fBsxrm\fR(1), \fBsxrev\fR(1), \fBsxinit\fR(1)

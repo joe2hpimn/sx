@@ -3,7 +3,7 @@ purpose "Move between SX volumes and clusters"
 args "--unamed-opts --no-handle-version --no-handle-error"
 usage "sxmv [OPTIONS]... SOURCE... DEST"
 
-option  "recursive"             r "Recursively copy files from SOURCE to DEST directory" flag off
+option  "recursive"             r "Recursively move files from SOURCE to DEST directory" flag off
 
 option  "debug"		        D "Enable debug messages" flag off
 
