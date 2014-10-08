@@ -512,7 +512,7 @@ sub test_upload {
 
     my $jobid = job_submit 'PUT', ".upload/$token", undef, $auth, 200;
     return unless defined($jobid);
-    my $jobres = job_result $jobid, $auth;
+    my ($jobres, $msg) = job_result $jobid, $auth;
     return unless defined($jobres);
     if($jobres ne 'OK') {
 	fail "failed to check the result status";
