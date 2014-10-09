@@ -7587,7 +7587,7 @@ rc_ty sx_hashfs_hdist_change_add(sx_hashfs_t *h, const void *cfg, unsigned int c
 	}
 	sqlite3_reset(q);
     }
-	
+
     if(qbind_text(q, ":k", "dist") ||
        qbind_blob(q, ":v", cfg, cfg_len) ||
        qstep_noret(q)) {
