@@ -268,7 +268,7 @@ static rc_ty voldelete_common(sx_hashfs_t *hashfs, job_t job_id, const sx_nodeli
 	INFO("Deleting volume %s on %s", volname, sx_node_uuid_str(node));
 
 	if(!sx_node_cmp(me, node)) {
-	    if((s = sx_hashfs_volume_delete(hashfs, volname, force))) {
+	    if((s = sx_hashfs_volume_delete(hashfs, volname, force)) != OK && s != ENOENT) {
 		WARN("Failed to delete volume '%s' for job %lld", volname, (long long)job_id);
 		action_error(ACT_RESULT_PERMFAIL, rc2http(s), "Failed to enable volume");
 	    }
@@ -323,7 +323,7 @@ static rc_ty voldelete_common(sx_hashfs_t *hashfs, job_t job_id, const sx_nodeli
 		WARN("Query failed with %ld", http_status);
 		if(ret > ACT_RESULT_TEMPFAIL) /* Only raise OK to TEMP */
 		    action_set_fail(ACT_RESULT_TEMPFAIL, 503, sxi_cbdata_geterrmsg(qrylist[nnode].cbdata));
-	    } else if (http_status == 200 || http_status == 410) {
+	    } else if (http_status == 200 || http_status == 410 || http_status == 404) {
 		succeeded[nnode] = 1;
 	    } else {
 		act_result_t newret = http2actres(http_status);
