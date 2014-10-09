@@ -1853,6 +1853,75 @@ action_failed:
     return ret;
 }
 
+static act_result_t distribution_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    sxi_hdist_t *hdist;
+    act_result_t ret = ACT_RESULT_OK;
+    sxi_hostlist_t hlist;
+    sxi_conns_t *clust = sx_hashfs_conns(hashfs);
+    sxc_client_t *sx = sx_hashfs_client(hashfs);
+    const sx_node_t *me = sx_hashfs_self(hashfs);
+    unsigned int nnode, nnodes;
+    rc_ty s;
+
+    if(!job_data) {
+	NULLARG();
+	action_set_fail(ACT_RESULT_PERMFAIL, 500, "Null job");
+	return ret;
+    }
+
+    hdist = sxi_hdist_from_cfg(job_data->ptr, job_data->len);
+    if(!hdist) {
+	WARN("Cannot load hdist config");
+	s = ENOMEM;
+	action_set_fail(rc2actres(s), rc2http(s), msg_get_reason());
+	return ret;
+    }
+
+    sxi_hostlist_init(&hlist);
+
+    if(sxi_hdist_buildcnt(hdist) != 2) {
+	WARN("Invalid distribution found (builds = %d)", sxi_hdist_buildcnt(hdist));
+	action_error(ACT_RESULT_PERMFAIL, 500, "Bad distribution data");
+    }
+
+    nnodes = sx_nodelist_count(nodes);
+    for(nnode = 0; nnode < nnodes; nnode++) {
+	const sx_node_t *node = sx_nodelist_get(nodes, nnode);
+
+	if(sxi_hostlist_add_host(sx, &hlist, sx_node_internal_addr(node)))
+	    action_error(ACT_RESULT_TEMPFAIL, 500, "Not enough memory to perform the enable distribution request");
+
+	if(sx_node_cmp(me, node)) {
+	    int qret = sxi_cluster_query(clust, &hlist, REQ_DELETE, ".dist", NULL, 0, NULL, NULL, NULL);
+	    if(qret != 200)
+		action_error(http2actres(qret), qret, sxc_geterrmsg(sx));
+	} else {
+	    s = sx_hashfs_hdist_change_revoke(hashfs);
+	    if(s)
+		action_set_fail(rc2actres(s), rc2http(s), msg_get_reason());
+	}
+
+	sxi_hostlist_empty(&hlist);
+	succeeded[nnode] = 1;
+    }
+
+action_failed:
+    sxi_hostlist_empty(&hlist);
+    sxi_hdist_free(hdist);
+
+    return ret;
+}
+
+
+static act_result_t distribution_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    act_result_t ret;
+
+    CRIT("The attempt to change the cluster distribution model (i.e. nodes) resulted in a fatal failure leaving it in an inconsistent state");
+    action_set_fail(ACT_RESULT_PERMFAIL, 500, "The attempt to change the cluster distribution model (i.e. nodes) resulted in a fatal failure leaving it in an inconsistent state");
+    return ret;
+}
+
+
 static act_result_t startrebalance_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     sxi_conns_t *clust = sx_hashfs_conns(hashfs);
     const sx_node_t *me = sx_hashfs_self(hashfs);
@@ -2584,7 +2653,7 @@ static struct {
     { replicateblocks_request, force_phase_success, FIXME_phase_placeholder, force_phase_success }, /* JOBTYPE_REPLICATE_BLOCKS */
     { fileflush_request, fileflush_commit, FIXME_phase_placeholder,FIXME_phase_placeholder }, /* JOBTYPE_FLUSH_FILE */
     { filedelete_request, force_phase_success, FIXME_phase_placeholder, force_phase_success }, /* JOBTYPE_DELETE_FILE */
-    { distribution_request, distribution_commit, FIXME_phase_placeholder, FIXME_phase_placeholder }, /* JOBTYPE_DISTRIBUTION */
+    { distribution_request, distribution_commit, distribution_abort, distribution_undo }, /* JOBTYPE_DISTRIBUTION */
     { startrebalance_request, force_phase_success, FIXME_phase_placeholder, FIXME_phase_placeholder }, /* JOBTYPE_STARTREBALANCE */
     { finishrebalance_request, finishrebalance_commit, FIXME_phase_placeholder, FIXME_phase_placeholder }, /* JOBTYPE_FINISHREBALANCE */
     { jlock_request, force_phase_success, jlock_abort_and_undo, jlock_abort_and_undo }, /* JOBTYPE_JLOCK */

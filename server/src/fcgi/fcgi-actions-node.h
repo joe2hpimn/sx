@@ -31,6 +31,7 @@
 void fcgi_set_nodes(void);
 void fcgi_new_distribution(void);
 void fcgi_enable_distribution(void);
+void fcgi_revoke_distribution(void);
 void fcgi_start_rebalance(void);
 void fcgi_stop_rebalance(void);
 void fcgi_node_init(void);

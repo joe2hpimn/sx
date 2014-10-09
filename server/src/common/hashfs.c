@@ -1562,7 +1562,7 @@ int sx_hashfs_distcheck(sx_hashfs_t *h) {
     case SQLITE_DONE:
 	break;
     case SQLITE_ROW:
-	if(sqlite3_column_int64(h->q_gethdrev, 0) > h->hd_rev)
+	if(sqlite3_column_int64(h->q_gethdrev, 0) != h->hd_rev)
 	    ret = 1;
 	break;
     default:
@@ -7592,6 +7592,66 @@ rc_ty sx_hashfs_hdist_change_add(sx_hashfs_t *h, const void *cfg, unsigned int c
     if(ret != OK)
 	qrollback(h->db);
     sxi_hdist_free(newmod);
+
+    return ret;
+}
+
+rc_ty sx_hashfs_hdist_change_revoke(sx_hashfs_t *h) {
+    sqlite3_stmt *q = NULL;
+    rc_ty ret = FAIL_EINTERNAL;
+
+    if(qbegin(h->db))
+	return FAIL_EINTERNAL;
+
+    if(h->have_hd) {
+	/* Revert to previous distribution */
+	if(qprep(h->db, &q, "DELETE FROM hashfs WHERE key IN ('dist_rev', 'dist')") || qstep_noret(q))
+	    goto change_revoke_fail;
+	qnullify(q);
+
+	if(qprep(h->db, &q, "UPDATE hashfs SET key = 'dist' WHERE key = 'current_dist'") || qstep_noret(q))
+	    goto change_revoke_fail;
+	qnullify(q);
+
+	if(qprep(h->db, &q, "UPDATE hashfs SET key = 'dist_rev' WHERE key = 'current_dist_rev'") || qstep_noret(q))
+	    goto change_revoke_fail;
+	qnullify(q);
+    } else {
+	/* Revirgin the node */
+	if(qprep(h->db, &q, "DELETE FROM hashfs WHERE key IN ('current_dist_rev', 'current_dist', 'dist_rev', 'dist', 'cluster_name')") || qstep_noret(q))
+	    goto change_revoke_fail;
+	qnullify(q);
+
+	if(qprep(h->db, &q, "INSERT INTO hashfs (key, value) VALUES (:k , :v)"))
+	    goto change_revoke_fail;
+
+	if(qbind_text(q, ":k", "current_dist_rev") || qbind_int64(q, ":v", 0) || qstep_noret(q))
+	    goto change_revoke_fail;
+	sqlite3_reset(q);
+	if(qbind_text(q, ":k", "current_dist") || qbind_blob(q, ":v", "", 0) || qstep_noret(q))
+	    goto change_revoke_fail;
+	qnullify(q);
+    }
+
+    if(sx_hashfs_set_rbl_info(h, 0, 0, NULL))
+	goto change_revoke_fail;
+
+    ret = sx_hashfs_job_unlock(h, NULL);
+    if(ret)
+	goto change_revoke_fail;
+
+    if(qcommit(h->db))
+	goto change_revoke_fail;
+
+    ret = OK;
+
+ change_revoke_fail:
+    qnullify(q);
+
+    if(ret != OK) {
+	msg_set_reason("Failed to rewoke the updated distribution model");
+	qrollback(h->db);
+    }
 
     return ret;
 }

@@ -143,6 +143,7 @@ rc_ty sx_hashfs_modhdist(sx_hashfs_t *h, const sx_nodelist_t *list);
 rc_ty sx_hashfs_hdist_change_req(sx_hashfs_t *h, const sx_nodelist_t *newdist, job_t *job_id);
 rc_ty sx_hashfs_hdist_change_add(sx_hashfs_t *h, const void *cfg, unsigned int cfg_len);
 rc_ty sx_hashfs_hdist_change_commit(sx_hashfs_t *h);
+rc_ty sx_hashfs_hdist_change_revoke(sx_hashfs_t *h);
 rc_ty sx_hashfs_hdist_rebalance(sx_hashfs_t *h);
 rc_ty sx_hashfs_hdist_endrebalance(sx_hashfs_t *h);
 const sx_nodelist_t *sx_hashfs_nodelist(sx_hashfs_t *h, sx_hashfs_nl_t which);

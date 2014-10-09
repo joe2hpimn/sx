@@ -177,7 +177,7 @@ void volume_ops(void) {
     }
 
     if(verb == VERB_DELETE) {
-	if(!strcmp(".rebalance", volume) && !content_len()) {
+	if(!strcmp(".rebalance", volume)) {
 	    /* Complete rebalance process (s2s) - CLUSTER required */
 	    quit_unless_has(PRIV_CLUSTER);
 	    fcgi_stop_rebalance();
@@ -185,6 +185,9 @@ void volume_ops(void) {
 	    quit_unless_has(PRIV_ADMIN);
             sx_hashfs_gc_expire_all_reservations(hashfs);
             fcgi_trigger_gc();
+	} else if(!strcmp(volume, ".dist")) {
+	    quit_unless_has(PRIV_CLUSTER);
+	    fcgi_revoke_distribution();
         } else {
 	    /* Delete volume - ADMIN or CLUSTER required */
 	    quit_unless_has(PRIV_ADMIN);

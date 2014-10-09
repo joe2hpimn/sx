@@ -330,6 +330,14 @@ void fcgi_enable_distribution(void) {
     CGI_PUTS("\r\n");
 }
 
+void fcgi_revoke_distribution(void) {
+    rc_ty s = sx_hashfs_hdist_change_revoke(hashfs);
+    if(s != OK)
+	quit_errmsg(rc2http(s), msg_get_reason());
+    CGI_PUTS("\r\n");
+}
+
+
 void fcgi_start_rebalance(void) {
     rc_ty s = sx_hashfs_hdist_rebalance(hashfs);
 
