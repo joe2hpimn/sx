@@ -2630,9 +2630,11 @@ static void sighandler(int signum) {
 struct jobmgr_data_t {
     /* The following items are filled in once by jobmgr() */
     sx_hashfs_t *hashfs;
+    sxi_db_t *eventdb;
     sqlite3_stmt *qjob;
     sqlite3_stmt *qact;
-    sqlite3_stmt *qfail;
+    sqlite3_stmt *qfail_children;
+    sqlite3_stmt *qfail_parent;
     sqlite3_stmt *qcpl;
     sqlite3_stmt *qphs;
     sqlite3_stmt *qdly;
@@ -2786,6 +2788,37 @@ static int jobmgr_get_actions_batch(struct jobmgr_data_t *q) {
     return 0;
 }
 
+
+static int set_job_failed(struct jobmgr_data_t *q, int result, const char *reason) {
+    if(qbegin(q->eventdb)) {
+	CRIT("Cannot set job %lld to failed: cannot start transaction", (long long)q->job_id);
+	return -1;
+    }
+
+    if(qbind_int64(q->qfail_children, ":job", q->job_id) ||
+       qbind_int(q->qfail_children, ":res", result) ||
+       qbind_text(q->qfail_children, ":reason", reason) ||
+       qstep_noret(q->qfail_children))
+	goto setfailed_error;
+
+
+    if(qbind_int64(q->qfail_parent, ":job", q->job_id) ||
+       qbind_int(q->qfail_parent, ":res", result) ||
+       qbind_text(q->qfail_parent, ":reason", reason) ||
+       qstep_noret(q->qfail_parent))
+	goto setfailed_error;
+
+    if(qcommit(q->eventdb))
+	goto setfailed_error;
+
+    return 0;
+
+ setfailed_error:
+    CRIT("Cannot mark job %lld (and children) as failed", (long long)q->job_id);
+    return -1;
+}
+
+
 static void jobmgr_run_job(struct jobmgr_data_t *q) {
     int r, dc;
 
@@ -2801,13 +2834,8 @@ static void jobmgr_run_job(struct jobmgr_data_t *q) {
 	/* FIXME: we could keep a trace of the reason of the last delay
 	 * which is stored in db in case of tempfail.
 	 * Of limited use but maybe nice to have */
-	if(qbind_int64(q->qfail, ":job", q->job_id) ||
-	   qbind_int(q->qfail, ":res", 500) ||
-	   qbind_text(q->qfail, ":reason", "Cluster timeout") ||
-	   qstep_noret(q->qfail)) {
-	    WARN("Cannot update status of expired job %lld", (long long)q->job_id);
+	if(set_job_failed(q, 500, "Cluster timeout"))
 	    return;
-	}
 	DEBUG("Job %lld is now expired", (long long)q->job_id);
 	q->job_failed = 1;
     }
@@ -2860,13 +2888,8 @@ static void jobmgr_run_job(struct jobmgr_data_t *q) {
 	    const char *fail_reason = q->fail_reason[0] ? q->fail_reason : "Unknown failure";
             if (!http_status)
                 WARN("Job failed but didn't set fail code, missing action_set_fail/action_error call?");
-	    if(qbind_int64(q->qfail, ":job", q->job_id) ||
-	       qbind_int(q->qfail, ":res", http_status) ||
-	       qbind_text(q->qfail, ":reason", fail_reason) ||
-	       qstep_noret(q->qfail)) {
-		WARN("Cannot update status of failed job %lld", (long long)q->job_id);
+	    if(set_job_failed(q, http_status, fail_reason))
 		break;
-	    }
 	    DEBUG("Job %lld failed: %s", (long long)q->job_id, fail_reason);
 	    q->job_failed = 1;
 	}
@@ -3057,7 +3080,6 @@ int jobmgr(sxc_client_t *sx, const char *self, const char *dir, int pipe) {
     sqlite3_stmt *q_vcheck = NULL;
     struct jobmgr_data_t q;
     struct sigaction act;
-    sxi_db_t *eventdb;
 
     sigemptyset(&act.sa_mask);
     act.sa_flags = 0;
@@ -3085,17 +3107,18 @@ int jobmgr(sxc_client_t *sx, const char *self, const char *dir, int pipe) {
 	goto jobmgr_err;
     }
 
-    eventdb = sx_hashfs_eventdb(q.hashfs);
+    q.eventdb = sx_hashfs_eventdb(q.hashfs);
 
-    if(qprep(eventdb, &q.qjob, "SELECT job, type, data, expiry_time < datetime('now'), result, strftime('%s',expiry_time) FROM jobs WHERE complete = 0 AND sched_time <= strftime('%Y-%m-%d %H:%M:%f') AND NOT EXISTS (SELECT 1 FROM jobs AS subjobs WHERE subjobs.job = jobs.parent AND subjobs.complete = 0) ORDER BY sched_time ASC LIMIT 1") ||
-       qprep(eventdb, &q.qact, "SELECT id, phase, target, addr, internaladdr, capacity FROM actions WHERE job_id = :job AND phase < :maxphase ORDER BY phase") ||
-       qprep(eventdb, &q.qfail, "WITH RECURSIVE descendents_of(jb) AS (VALUES(:job) UNION SELECT job FROM jobs, descendents_of WHERE jobs.parent = descendents_of.jb) UPDATE jobs SET result = :res, reason = :reason WHERE job IN (SELECT * FROM descendents_of) AND result = 0") ||
-       qprep(eventdb, &q.qcpl, "UPDATE jobs SET complete = 1, lock = NULL WHERE job = :job") ||
-       qprep(eventdb, &q.qphs, "UPDATE actions SET phase = :phase WHERE id = :act") ||
-       qprep(eventdb, &q.qdly, "UPDATE jobs SET sched_time = strftime('%Y-%m-%d %H:%M:%f', 'now', :delay), reason = :reason WHERE job = :job") ||
-       qprep(eventdb, &q.qlfe, "WITH RECURSIVE descendents_of(jb) AS (VALUES(:job) UNION SELECT job FROM jobs, descendents_of WHERE jobs.parent = descendents_of.jb) UPDATE jobs SET expiry_time = datetime(expiry_time, :ttldiff)  WHERE job IN (SELECT * FROM descendents_of)") ||
-       qprep(eventdb, &q.qvbump, "INSERT OR REPLACE INTO hashfs (key, value) VALUES ('next_version_check', datetime(:next, 'unixepoch'))") ||
-       qprep(eventdb, &q_vcheck, "SELECT strftime('%s', value) FROM hashfs WHERE key = 'next_version_check'"))
+    if(qprep(q.eventdb, &q.qjob, "SELECT job, type, data, expiry_time < datetime('now'), result, strftime('%s',expiry_time) FROM jobs WHERE complete = 0 AND sched_time <= strftime('%Y-%m-%d %H:%M:%f') AND NOT EXISTS (SELECT 1 FROM jobs AS subjobs WHERE subjobs.job = jobs.parent AND subjobs.complete = 0) ORDER BY sched_time ASC LIMIT 1") ||
+       qprep(q.eventdb, &q.qact, "SELECT id, phase, target, addr, internaladdr, capacity FROM actions WHERE job_id = :job AND phase < :maxphase ORDER BY phase") ||
+       qprep(q.eventdb, &q.qfail_children, "WITH RECURSIVE descendents_of(jb) AS (SELECT job FROM jobs WHERE parent = :job UNION SELECT job FROM jobs, descendents_of WHERE jobs.parent = descendents_of.jb) UPDATE jobs SET result = :res, reason = :reason, complete = 1, lock = NULL WHERE job IN (SELECT * FROM descendents_of) AND result = 0") ||
+       qprep(q.eventdb, &q.qfail_parent, "UPDATE jobs SET result = :res, reason = :reason WHERE job = :job AND result = 0") ||
+       qprep(q.eventdb, &q.qcpl, "UPDATE jobs SET complete = 1, lock = NULL WHERE job = :job") ||
+       qprep(q.eventdb, &q.qphs, "UPDATE actions SET phase = :phase WHERE id = :act") ||
+       qprep(q.eventdb, &q.qdly, "UPDATE jobs SET sched_time = strftime('%Y-%m-%d %H:%M:%f', 'now', :delay), reason = :reason WHERE job = :job") ||
+       qprep(q.eventdb, &q.qlfe, "WITH RECURSIVE descendents_of(jb) AS (VALUES(:job) UNION SELECT job FROM jobs, descendents_of WHERE jobs.parent = descendents_of.jb) UPDATE jobs SET expiry_time = datetime(expiry_time, :ttldiff)  WHERE job IN (SELECT * FROM descendents_of)") ||
+       qprep(q.eventdb, &q.qvbump, "INSERT OR REPLACE INTO hashfs (key, value) VALUES ('next_version_check', datetime(:next, 'unixepoch'))") ||
+       qprep(q.eventdb, &q_vcheck, "SELECT strftime('%s', value) FROM hashfs WHERE key = 'next_version_check'"))
 	goto jobmgr_err;
 
     if(qstep(q_vcheck) == SQLITE_ROW)
@@ -3121,7 +3144,8 @@ int jobmgr(sxc_client_t *sx, const char *self, const char *dir, int pipe) {
  jobmgr_err:
     sqlite3_finalize(q.qjob);
     sqlite3_finalize(q.qact);
-    sqlite3_finalize(q.qfail);
+    sqlite3_finalize(q.qfail_children);
+    sqlite3_finalize(q.qfail_parent);
     sqlite3_finalize(q.qcpl);
     sqlite3_finalize(q.qphs);
     sqlite3_finalize(q.qdly);
