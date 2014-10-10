@@ -280,7 +280,7 @@ static int volume_create(sxc_client_t *sx, const char *owner)
 	for(i = 0; i < fcount; i++) {
             const sxc_filter_t *f = sxc_get_filter(&filters[i]);
 	    if(!strcmp(f->shortname, create_args.filter_arg))
-		if(!filter || (f->version[0] >= filter->version[0] && f->version[1] > filter->version[1])) {
+		if(!filter || f->version[0] > filter->version[0] || (f->version[0] == filter->version[0] && f->version[1] > filter->version[1])) {
 		    filter = f;
 		    filter_idx = i;
 		}
