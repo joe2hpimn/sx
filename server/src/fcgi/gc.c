@@ -36,8 +36,6 @@
 #include "log.h"
 #include "hashfs.h"
 
-#define GC_INTERVAL (60*60 /* 1 hour for now */)
-
 static int terminate = 0;
 
 static void sighandler(int signum) {
@@ -77,7 +75,7 @@ int gc(sxc_client_t *sx, const char *self, const char *dir, int pipe, int pipe_e
         int forced_awake = 0, force_expire = 0;
         /* this MUST run periodically even if we don't want to
          * GC any hashes right now */
-        if (wait_trigger(pipe, GC_INTERVAL, &forced_awake))
+        if (wait_trigger(pipe, gc_interval, &forced_awake))
             break;
         if (forced_awake)
             INFO("GC triggered by user");
@@ -103,7 +101,7 @@ int gc(sxc_client_t *sx, const char *self, const char *dir, int pipe, int pipe_e
             if (!forced_awake)
                 sleep(1);
             gettimeofday(&tv1, NULL);
-            if (timediff(&tv0, &tv1) > GC_INTERVAL || forced_awake) {
+            if (timediff(&tv0, &tv1) > gc_interval || forced_awake) {
                 sx_hashfs_gc_run(hashfs, &terminate);
                 gettimeofday(&tv2, NULL);
                 INFO("GC run completed in %.1f sec", timediff(&tv1, &tv2));

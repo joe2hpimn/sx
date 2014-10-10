@@ -38,7 +38,7 @@ int utf8_validate_len(const char *str);
 int hmac_compare(const unsigned char *hmac1, const unsigned char *hmac2, size_t len);
 uint64_t MurmurHash64(const void *key, size_t len, unsigned int seed);
 
-int wait_trigger(int pipe, unsigned max_wait_sec, int *forced_awake);
+int wait_trigger(int pipe, float max_wait_sec, int *forced_awake);
 
 extern const int hexchars[256];
 static inline int hexcharval(unsigned char c) {
@@ -124,3 +124,15 @@ char *wrap_strdup_impl(const char *src, const char *_f);
 #define wrap_waitpid(...) WRAP(waitpid, __VA_ARGS__)
 pid_t wrap_waitpid_impl(pid_t pid, int *status, int options, const char *_f);
 #endif
+
+/* tweaks */
+extern int gc_interval;
+extern int gc_max_batch;
+extern float blockmgr_delay;
+extern int db_min_passive_wal_pages;
+extern int db_max_passive_wal_pages;
+extern int db_max_restart_wal_pages;
+extern int db_idle_restart;
+extern int db_busy_timeout;
+extern int worker_max_wait;
+extern int worker_max_requests;

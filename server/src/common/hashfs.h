@@ -50,14 +50,10 @@
 #define JOBMGR_DELAY_MIN 1
 #define JOBMGR_DELAY_MAX 2
 #define TOPUSH_EXPIRE 900
-#define BLOCKMGR_DELAY 3
 #define BLOCKMGR_RESCHEDULE 24
 #define GC_GRACE_PERIOD JOB_FILE_MAX_TIME
-#define GC_FALLBACK_EXPIRES (86400 * 7)
 #define GC_UPLOAD_MINSPEED 65536 /* in bytes / s */
 #define GC_MIN_LATENCY 200 /* ms */
-/* maximum number of operations to perform in a single transaction */
-#define GC_MAX_OPS 50
 
 #define SXLIMIT_MIN_VOLNAME_LEN 2
 #define SXLIMIT_MAX_VOLNAME_LEN 255

@@ -304,7 +304,7 @@ int blockmgr(sxc_client_t *sx, const char *self, const char *dir, int pipe) {
 
     while(!terminate) {
 	int dc;
-        if (wait_trigger(pipe, BLOCKMGR_DELAY, NULL))
+        if (wait_trigger(pipe, blockmgr_delay, NULL))
             break;
 
 	DEBUG("Start processing block queue");

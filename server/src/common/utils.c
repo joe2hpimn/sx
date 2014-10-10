@@ -678,14 +678,14 @@ const char *strptimegm(const char *s, const char *format, time_t *t) {
     return ret;
 }
 
-int wait_trigger(int pipe, unsigned max_wait_sec, int *forced_awake)
+int wait_trigger(int pipe, float max_wait_sec, int *forced_awake)
 {
     struct timeval tv;
     fd_set rfds;
     int sl;
 
-    tv.tv_sec = max_wait_sec;
-    tv.tv_usec = 0;
+    tv.tv_sec = (int)max_wait_sec;
+    tv.tv_usec = (max_wait_sec - tv.tv_sec) * 1000000.0;
     FD_ZERO(&rfds);
     FD_SET(pipe, &rfds);
     if (forced_awake)
@@ -718,3 +718,15 @@ const char *src_version(void)
 {
     return SRC_VERSION;
 }
+
+int gc_interval;
+int gc_max_batch;
+float blockmgr_delay;
+/* used outside of fcgi */
+int db_min_passive_wal_pages=5000;
+int db_max_passive_wal_pages=10000;
+int db_max_restart_wal_pages=20000;
+int db_idle_restart=60;
+int db_busy_timeout=20;
+int worker_max_wait;
+int worker_max_requests;

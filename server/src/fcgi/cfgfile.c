@@ -33,26 +33,60 @@ const char *gengetopt_args_info_versiontext = "";
 
 const char *gengetopt_args_info_description = "";
 
-const char *gengetopt_args_info_help[] = {
-  "",
-  "",
-  "      socket=SOCKET        Set socket for connection with httpd",
-  "      socket-mode=MODE     Set socket mode to MODE (octal number; unix\n                               sockets only)",
-  "      data-dir=PATH        Path to data directory",
-  "      logfile=FILE         Write all log information to FILE",
-  "      pidfile=FILE         Write process ID to FILE",
-  "      children=N           Start N children processes  (default=`32')",
-  "      foreground           Do not daemonize  (default=off)",
-  "      debug                Enable debug messages  (default=off)",
-  "      run-as=user[:group]  Run as specified user[:group]",
-  "      ssl_ca=STRING        Path to SSL CA certificate",
+const char *gengetopt_args_info_full_help[] = {
+  "  -h, --help                    Print help and exit",
+  "      --full-help               Print help, including hidden options, and exit",
+  "  -V, --version                 Print version and exit",
+  "      --socket=SOCKET           Set socket for connection with httpd",
+  "      --socket-mode=MODE        Set socket mode to MODE (octal number; unix\n                                  sockets only)",
+  "      --data-dir=PATH           Path to data directory",
+  "      --logfile=FILE            Write all log information to FILE",
+  "      --pidfile=FILE            Write process ID to FILE",
+  "      --children=N              Start N children processes  (default=`32')",
+  "      --foreground              Do not daemonize  (default=off)",
+  "      --debug                   Enable debug messages  (default=off)",
+  "      --run-as=user[:group]     Run as specified user[:group]",
+  "      --ssl_ca=STRING           Path to SSL CA certificate",
+  "      --gc-interval=sec         How often to run the GC  (default=`3600')",
+  "      --gc-max-batch=N          Maximum number of rows/transaction in the GC\n                                  (default=`100')",
+  "      --blockmgr-delay=sec      Blockmgr delay  (default=`3')",
+  "      --db-min-passive-wal-pages=N\n                                Minimum number of pages in WAL to trigger a\n                                  passive checkpoint  (default=`5000')",
+  "      --db-max-passive-wal-pages=N\n                                Maximum number of pages in WAL to trigger a\n                                  passive checkpoint  (default=`10000')",
+  "      --db-max-wal-restart-pages=N\n                                Maximum number of pages in WAL before forcing a\n                                  WAL restart  (default=`20000')",
+  "      --db-idle-restart=sec     Interval to force a WAL restart when idle\n                                  (default=`60')",
+  "      --db-busy-timeout=sec     SQLite database busy timeout  (default=`20')",
+  "      --worker-max-wait=sec     Maximum time to wait before killing a worker\n                                  (default=`300')",
+  "      --worker-max-requests=N   Maximum number of requests / worker\n                                  (default=`5000')",
     0
 };
+
+static void
+init_help_array(void)
+{
+  gengetopt_args_info_help[0] = gengetopt_args_info_full_help[0];
+  gengetopt_args_info_help[1] = gengetopt_args_info_full_help[1];
+  gengetopt_args_info_help[2] = gengetopt_args_info_full_help[2];
+  gengetopt_args_info_help[3] = gengetopt_args_info_full_help[3];
+  gengetopt_args_info_help[4] = gengetopt_args_info_full_help[4];
+  gengetopt_args_info_help[5] = gengetopt_args_info_full_help[5];
+  gengetopt_args_info_help[6] = gengetopt_args_info_full_help[6];
+  gengetopt_args_info_help[7] = gengetopt_args_info_full_help[7];
+  gengetopt_args_info_help[8] = gengetopt_args_info_full_help[8];
+  gengetopt_args_info_help[9] = gengetopt_args_info_full_help[9];
+  gengetopt_args_info_help[10] = gengetopt_args_info_full_help[10];
+  gengetopt_args_info_help[11] = gengetopt_args_info_full_help[11];
+  gengetopt_args_info_help[12] = gengetopt_args_info_full_help[12];
+  gengetopt_args_info_help[13] = 0; 
+  
+}
+
+const char *gengetopt_args_info_help[14];
 
 typedef enum {ARG_NO
   , ARG_FLAG
   , ARG_STRING
   , ARG_INT
+  , ARG_FLOAT
 } cmdline_parser_arg_type;
 
 static
@@ -98,6 +132,7 @@ static
 void clear_given (struct gengetopt_args_info *args_info)
 {
   args_info->help_given = 0 ;
+  args_info->full_help_given = 0 ;
   args_info->version_given = 0 ;
   args_info->socket_given = 0 ;
   args_info->socket_mode_given = 0 ;
@@ -109,6 +144,16 @@ void clear_given (struct gengetopt_args_info *args_info)
   args_info->debug_given = 0 ;
   args_info->run_as_given = 0 ;
   args_info->ssl_ca_given = 0 ;
+  args_info->gc_interval_given = 0 ;
+  args_info->gc_max_batch_given = 0 ;
+  args_info->blockmgr_delay_given = 0 ;
+  args_info->db_min_passive_wal_pages_given = 0 ;
+  args_info->db_max_passive_wal_pages_given = 0 ;
+  args_info->db_max_wal_restart_pages_given = 0 ;
+  args_info->db_idle_restart_given = 0 ;
+  args_info->db_busy_timeout_given = 0 ;
+  args_info->worker_max_wait_given = 0 ;
+  args_info->worker_max_requests_given = 0 ;
 }
 
 static
@@ -132,6 +177,26 @@ void clear_args (struct gengetopt_args_info *args_info)
   args_info->run_as_orig = NULL;
   args_info->ssl_ca_arg = NULL;
   args_info->ssl_ca_orig = NULL;
+  args_info->gc_interval_arg = 3600;
+  args_info->gc_interval_orig = NULL;
+  args_info->gc_max_batch_arg = 100;
+  args_info->gc_max_batch_orig = NULL;
+  args_info->blockmgr_delay_arg = 3;
+  args_info->blockmgr_delay_orig = NULL;
+  args_info->db_min_passive_wal_pages_arg = 5000;
+  args_info->db_min_passive_wal_pages_orig = NULL;
+  args_info->db_max_passive_wal_pages_arg = 10000;
+  args_info->db_max_passive_wal_pages_orig = NULL;
+  args_info->db_max_wal_restart_pages_arg = 20000;
+  args_info->db_max_wal_restart_pages_orig = NULL;
+  args_info->db_idle_restart_arg = 60;
+  args_info->db_idle_restart_orig = NULL;
+  args_info->db_busy_timeout_arg = 20;
+  args_info->db_busy_timeout_orig = NULL;
+  args_info->worker_max_wait_arg = 300;
+  args_info->worker_max_wait_orig = NULL;
+  args_info->worker_max_requests_arg = 5000;
+  args_info->worker_max_requests_orig = NULL;
   
 }
 
@@ -139,19 +204,30 @@ static
 void init_args_info(struct gengetopt_args_info *args_info)
 {
 
-
-  args_info->help_help = gengetopt_args_info_help[0] ;
-  args_info->version_help = gengetopt_args_info_help[1] ;
-  args_info->socket_help = gengetopt_args_info_help[2] ;
-  args_info->socket_mode_help = gengetopt_args_info_help[3] ;
-  args_info->data_dir_help = gengetopt_args_info_help[4] ;
-  args_info->logfile_help = gengetopt_args_info_help[5] ;
-  args_info->pidfile_help = gengetopt_args_info_help[6] ;
-  args_info->children_help = gengetopt_args_info_help[7] ;
-  args_info->foreground_help = gengetopt_args_info_help[8] ;
-  args_info->debug_help = gengetopt_args_info_help[9] ;
-  args_info->run_as_help = gengetopt_args_info_help[10] ;
-  args_info->ssl_ca_help = gengetopt_args_info_help[11] ;
+  init_help_array(); 
+  args_info->help_help = gengetopt_args_info_full_help[0] ;
+  args_info->full_help_help = gengetopt_args_info_full_help[1] ;
+  args_info->version_help = gengetopt_args_info_full_help[2] ;
+  args_info->socket_help = gengetopt_args_info_full_help[3] ;
+  args_info->socket_mode_help = gengetopt_args_info_full_help[4] ;
+  args_info->data_dir_help = gengetopt_args_info_full_help[5] ;
+  args_info->logfile_help = gengetopt_args_info_full_help[6] ;
+  args_info->pidfile_help = gengetopt_args_info_full_help[7] ;
+  args_info->children_help = gengetopt_args_info_full_help[8] ;
+  args_info->foreground_help = gengetopt_args_info_full_help[9] ;
+  args_info->debug_help = gengetopt_args_info_full_help[10] ;
+  args_info->run_as_help = gengetopt_args_info_full_help[11] ;
+  args_info->ssl_ca_help = gengetopt_args_info_full_help[12] ;
+  args_info->gc_interval_help = gengetopt_args_info_full_help[13] ;
+  args_info->gc_max_batch_help = gengetopt_args_info_full_help[14] ;
+  args_info->blockmgr_delay_help = gengetopt_args_info_full_help[15] ;
+  args_info->db_min_passive_wal_pages_help = gengetopt_args_info_full_help[16] ;
+  args_info->db_max_passive_wal_pages_help = gengetopt_args_info_full_help[17] ;
+  args_info->db_max_wal_restart_pages_help = gengetopt_args_info_full_help[18] ;
+  args_info->db_idle_restart_help = gengetopt_args_info_full_help[19] ;
+  args_info->db_busy_timeout_help = gengetopt_args_info_full_help[20] ;
+  args_info->worker_max_wait_help = gengetopt_args_info_full_help[21] ;
+  args_info->worker_max_requests_help = gengetopt_args_info_full_help[22] ;
   
 }
 
@@ -188,6 +264,15 @@ cmdline_parser_print_help (void)
   print_help_common();
   while (gengetopt_args_info_help[i])
     printf("%s\n", gengetopt_args_info_help[i++]);
+}
+
+void
+cmdline_parser_print_full_help (void)
+{
+  int i = 0;
+  print_help_common();
+  while (gengetopt_args_info_full_help[i])
+    printf("%s\n", gengetopt_args_info_full_help[i++]);
 }
 
 void
@@ -249,6 +334,16 @@ cmdline_parser_release (struct gengetopt_args_info *args_info)
   free_string_field (&(args_info->run_as_orig));
   free_string_field (&(args_info->ssl_ca_arg));
   free_string_field (&(args_info->ssl_ca_orig));
+  free_string_field (&(args_info->gc_interval_orig));
+  free_string_field (&(args_info->gc_max_batch_orig));
+  free_string_field (&(args_info->blockmgr_delay_orig));
+  free_string_field (&(args_info->db_min_passive_wal_pages_orig));
+  free_string_field (&(args_info->db_max_passive_wal_pages_orig));
+  free_string_field (&(args_info->db_max_wal_restart_pages_orig));
+  free_string_field (&(args_info->db_idle_restart_orig));
+  free_string_field (&(args_info->db_busy_timeout_orig));
+  free_string_field (&(args_info->worker_max_wait_orig));
+  free_string_field (&(args_info->worker_max_requests_orig));
   
   
 
@@ -281,6 +376,8 @@ cmdline_parser_dump(FILE *outfile, struct gengetopt_args_info *args_info)
 
   if (args_info->help_given)
     write_into_file(outfile, "help", 0, 0 );
+  if (args_info->full_help_given)
+    write_into_file(outfile, "full-help", 0, 0 );
   if (args_info->version_given)
     write_into_file(outfile, "version", 0, 0 );
   if (args_info->socket_given)
@@ -303,6 +400,26 @@ cmdline_parser_dump(FILE *outfile, struct gengetopt_args_info *args_info)
     write_into_file(outfile, "run-as", args_info->run_as_orig, 0);
   if (args_info->ssl_ca_given)
     write_into_file(outfile, "ssl_ca", args_info->ssl_ca_orig, 0);
+  if (args_info->gc_interval_given)
+    write_into_file(outfile, "gc-interval", args_info->gc_interval_orig, 0);
+  if (args_info->gc_max_batch_given)
+    write_into_file(outfile, "gc-max-batch", args_info->gc_max_batch_orig, 0);
+  if (args_info->blockmgr_delay_given)
+    write_into_file(outfile, "blockmgr-delay", args_info->blockmgr_delay_orig, 0);
+  if (args_info->db_min_passive_wal_pages_given)
+    write_into_file(outfile, "db-min-passive-wal-pages", args_info->db_min_passive_wal_pages_orig, 0);
+  if (args_info->db_max_passive_wal_pages_given)
+    write_into_file(outfile, "db-max-passive-wal-pages", args_info->db_max_passive_wal_pages_orig, 0);
+  if (args_info->db_max_wal_restart_pages_given)
+    write_into_file(outfile, "db-max-wal-restart-pages", args_info->db_max_wal_restart_pages_orig, 0);
+  if (args_info->db_idle_restart_given)
+    write_into_file(outfile, "db-idle-restart", args_info->db_idle_restart_orig, 0);
+  if (args_info->db_busy_timeout_given)
+    write_into_file(outfile, "db-busy-timeout", args_info->db_busy_timeout_orig, 0);
+  if (args_info->worker_max_wait_given)
+    write_into_file(outfile, "worker-max-wait", args_info->worker_max_wait_orig, 0);
+  if (args_info->worker_max_requests_given)
+    write_into_file(outfile, "worker-max-requests", args_info->worker_max_requests_orig, 0);
   
 
   i = EXIT_SUCCESS;
@@ -403,19 +520,19 @@ cmdline_parser_required2 (struct gengetopt_args_info *args_info, const char *pro
   /* checks for required options */
   if (! args_info->socket_given)
     {
-      fprintf (stderr, "%s: 'socket' option required%s\n", prog_name, (additional_error ? additional_error : ""));
+      fprintf (stderr, "%s: '--socket' option required%s\n", prog_name, (additional_error ? additional_error : ""));
       error_occurred = 1;
     }
   
   if (! args_info->data_dir_given)
     {
-      fprintf (stderr, "%s: 'data-dir' option required%s\n", prog_name, (additional_error ? additional_error : ""));
+      fprintf (stderr, "%s: '--data-dir' option required%s\n", prog_name, (additional_error ? additional_error : ""));
       error_occurred = 1;
     }
   
   if (! args_info->logfile_given)
     {
-      fprintf (stderr, "%s: 'logfile' option required%s\n", prog_name, (additional_error ? additional_error : ""));
+      fprintf (stderr, "%s: '--logfile' option required%s\n", prog_name, (additional_error ? additional_error : ""));
       error_occurred = 1;
     }
   
@@ -469,11 +586,11 @@ int update_arg(void *field, char **orig_field,
   if (!multiple_option && prev_given && (*prev_given || (check_ambiguity && *field_given)))
     {
       if (short_opt != '-')
-        fprintf (stderr, "%s: `%s' (`-%c') option given more than once%s\n", 
+        fprintf (stderr, "%s: `--%s' (`-%c') option given more than once%s\n", 
                package_name, long_opt, short_opt,
                (additional_error ? additional_error : ""));
       else
-        fprintf (stderr, "%s: `%s' option given more than once%s\n", 
+        fprintf (stderr, "%s: `--%s' option given more than once%s\n", 
                package_name, long_opt,
                (additional_error ? additional_error : ""));
       return 1; /* failure */
@@ -497,6 +614,9 @@ int update_arg(void *field, char **orig_field,
   case ARG_INT:
     if (val) *((int *)field) = strtol (val, &stop_char, 0);
     break;
+  case ARG_FLOAT:
+    if (val) *((float *)field) = (float)strtod (val, &stop_char);
+    break;
   case ARG_STRING:
     if (val) {
       string_field = (char **)field;
@@ -512,6 +632,7 @@ int update_arg(void *field, char **orig_field,
   /* check numeric conversion */
   switch(arg_type) {
   case ARG_INT:
+  case ARG_FLOAT:
     if (val && !(stop_char && *stop_char == '\0')) {
       fprintf(stderr, "%s: invalid numeric value: %s\n", package_name, val);
       return 1; /* failure */
@@ -580,6 +701,7 @@ cmdline_parser_internal (
 
       static struct option long_options[] = {
         { "help",	0, NULL, 'h' },
+        { "full-help",	0, NULL, 0 },
         { "version",	0, NULL, 'V' },
         { "socket",	1, NULL, 0 },
         { "socket-mode",	1, NULL, 0 },
@@ -591,6 +713,16 @@ cmdline_parser_internal (
         { "debug",	0, NULL, 0 },
         { "run-as",	1, NULL, 0 },
         { "ssl_ca",	1, NULL, 0 },
+        { "gc-interval",	1, NULL, 0 },
+        { "gc-max-batch",	1, NULL, 0 },
+        { "blockmgr-delay",	1, NULL, 0 },
+        { "db-min-passive-wal-pages",	1, NULL, 0 },
+        { "db-max-passive-wal-pages",	1, NULL, 0 },
+        { "db-max-wal-restart-pages",	1, NULL, 0 },
+        { "db-idle-restart",	1, NULL, 0 },
+        { "db-busy-timeout",	1, NULL, 0 },
+        { "worker-max-wait",	1, NULL, 0 },
+        { "worker-max-requests",	1, NULL, 0 },
         { 0,  0, 0, 0 }
       };
 
@@ -621,6 +753,12 @@ cmdline_parser_internal (
           break;
 
         case 0:	/* Long option with no short option */
+          if (strcmp (long_options[option_index].name, "full-help") == 0) {
+            cmdline_parser_print_full_help ();
+            cmdline_parser_free (&local_args_info);
+            exit (EXIT_SUCCESS);
+          }
+
           /* Set socket for connection with httpd.  */
           if (strcmp (long_options[option_index].name, "socket") == 0)
           {
@@ -753,6 +891,146 @@ cmdline_parser_internal (
                 &(local_args_info.ssl_ca_given), optarg, 0, 0, ARG_STRING,
                 check_ambiguity, override, 0, 0,
                 "ssl_ca", '-',
+                additional_error))
+              goto failure;
+          
+          }
+          /* How often to run the GC.  */
+          else if (strcmp (long_options[option_index].name, "gc-interval") == 0)
+          {
+          
+          
+            if (update_arg( (void *)&(args_info->gc_interval_arg), 
+                 &(args_info->gc_interval_orig), &(args_info->gc_interval_given),
+                &(local_args_info.gc_interval_given), optarg, 0, "3600", ARG_INT,
+                check_ambiguity, override, 0, 0,
+                "gc-interval", '-',
+                additional_error))
+              goto failure;
+          
+          }
+          /* Maximum number of rows/transaction in the GC.  */
+          else if (strcmp (long_options[option_index].name, "gc-max-batch") == 0)
+          {
+          
+          
+            if (update_arg( (void *)&(args_info->gc_max_batch_arg), 
+                 &(args_info->gc_max_batch_orig), &(args_info->gc_max_batch_given),
+                &(local_args_info.gc_max_batch_given), optarg, 0, "100", ARG_INT,
+                check_ambiguity, override, 0, 0,
+                "gc-max-batch", '-',
+                additional_error))
+              goto failure;
+          
+          }
+          /* Blockmgr delay.  */
+          else if (strcmp (long_options[option_index].name, "blockmgr-delay") == 0)
+          {
+          
+          
+            if (update_arg( (void *)&(args_info->blockmgr_delay_arg), 
+                 &(args_info->blockmgr_delay_orig), &(args_info->blockmgr_delay_given),
+                &(local_args_info.blockmgr_delay_given), optarg, 0, "3", ARG_FLOAT,
+                check_ambiguity, override, 0, 0,
+                "blockmgr-delay", '-',
+                additional_error))
+              goto failure;
+          
+          }
+          /* Minimum number of pages in WAL to trigger a passive checkpoint.  */
+          else if (strcmp (long_options[option_index].name, "db-min-passive-wal-pages") == 0)
+          {
+          
+          
+            if (update_arg( (void *)&(args_info->db_min_passive_wal_pages_arg), 
+                 &(args_info->db_min_passive_wal_pages_orig), &(args_info->db_min_passive_wal_pages_given),
+                &(local_args_info.db_min_passive_wal_pages_given), optarg, 0, "5000", ARG_INT,
+                check_ambiguity, override, 0, 0,
+                "db-min-passive-wal-pages", '-',
+                additional_error))
+              goto failure;
+          
+          }
+          /* Maximum number of pages in WAL to trigger a passive checkpoint.  */
+          else if (strcmp (long_options[option_index].name, "db-max-passive-wal-pages") == 0)
+          {
+          
+          
+            if (update_arg( (void *)&(args_info->db_max_passive_wal_pages_arg), 
+                 &(args_info->db_max_passive_wal_pages_orig), &(args_info->db_max_passive_wal_pages_given),
+                &(local_args_info.db_max_passive_wal_pages_given), optarg, 0, "10000", ARG_INT,
+                check_ambiguity, override, 0, 0,
+                "db-max-passive-wal-pages", '-',
+                additional_error))
+              goto failure;
+          
+          }
+          /* Maximum number of pages in WAL before forcing a WAL restart.  */
+          else if (strcmp (long_options[option_index].name, "db-max-wal-restart-pages") == 0)
+          {
+          
+          
+            if (update_arg( (void *)&(args_info->db_max_wal_restart_pages_arg), 
+                 &(args_info->db_max_wal_restart_pages_orig), &(args_info->db_max_wal_restart_pages_given),
+                &(local_args_info.db_max_wal_restart_pages_given), optarg, 0, "20000", ARG_INT,
+                check_ambiguity, override, 0, 0,
+                "db-max-wal-restart-pages", '-',
+                additional_error))
+              goto failure;
+          
+          }
+          /* Interval to force a WAL restart when idle.  */
+          else if (strcmp (long_options[option_index].name, "db-idle-restart") == 0)
+          {
+          
+          
+            if (update_arg( (void *)&(args_info->db_idle_restart_arg), 
+                 &(args_info->db_idle_restart_orig), &(args_info->db_idle_restart_given),
+                &(local_args_info.db_idle_restart_given), optarg, 0, "60", ARG_INT,
+                check_ambiguity, override, 0, 0,
+                "db-idle-restart", '-',
+                additional_error))
+              goto failure;
+          
+          }
+          /* SQLite database busy timeout.  */
+          else if (strcmp (long_options[option_index].name, "db-busy-timeout") == 0)
+          {
+          
+          
+            if (update_arg( (void *)&(args_info->db_busy_timeout_arg), 
+                 &(args_info->db_busy_timeout_orig), &(args_info->db_busy_timeout_given),
+                &(local_args_info.db_busy_timeout_given), optarg, 0, "20", ARG_INT,
+                check_ambiguity, override, 0, 0,
+                "db-busy-timeout", '-',
+                additional_error))
+              goto failure;
+          
+          }
+          /* Maximum time to wait before killing a worker.  */
+          else if (strcmp (long_options[option_index].name, "worker-max-wait") == 0)
+          {
+          
+          
+            if (update_arg( (void *)&(args_info->worker_max_wait_arg), 
+                 &(args_info->worker_max_wait_orig), &(args_info->worker_max_wait_given),
+                &(local_args_info.worker_max_wait_given), optarg, 0, "300", ARG_INT,
+                check_ambiguity, override, 0, 0,
+                "worker-max-wait", '-',
+                additional_error))
+              goto failure;
+          
+          }
+          /* Maximum number of requests / worker.  */
+          else if (strcmp (long_options[option_index].name, "worker-max-requests") == 0)
+          {
+          
+          
+            if (update_arg( (void *)&(args_info->worker_max_requests_arg), 
+                 &(args_info->worker_max_requests_orig), &(args_info->worker_max_requests_given),
+                &(local_args_info.worker_max_requests_given), optarg, 0, "5000", ARG_INT,
+                check_ambiguity, override, 0, 0,
+                "worker-max-requests", '-',
                 additional_error))
               goto failure;
           

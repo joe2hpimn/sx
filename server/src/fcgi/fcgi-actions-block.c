@@ -105,8 +105,6 @@ void fcgi_send_blocks(void) {
     }
 }
 
-#define GC_HASHOP_PERIOD 60
-
 #define DEBUGHASH(MSG, X) do {				\
     char _debughash[sizeof(sx_hash_t)*2+1];		\
     if (UNLIKELY(sxi_log_is_debug(&logger))) {          \

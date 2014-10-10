@@ -29,3 +29,33 @@ option  "run-as"                - "Run as specified user[:group]" string
     typestr="user[:group]" optional
 
 option  "ssl_ca"                - "Path to SSL CA certificate" string optional
+
+option "gc-interval"            - "How often to run the GC"
+       int default="3600" typestr="sec" optional hidden
+
+option "gc-max-batch"           - "Maximum number of rows/transaction in the GC"
+       int default="100" typestr="N" optional hidden
+
+option "blockmgr-delay"       - "Blockmgr delay"
+       float default="3" typestr="sec" optional hidden
+
+option "db-min-passive-wal-pages"  - "Minimum number of pages in WAL to trigger a passive checkpoint"
+       int default="5000" typestr="N" optional hidden
+
+option "db-max-passive-wal-pages"   - "Maximum number of pages in WAL to trigger a passive checkpoint"
+       int default="10000" typestr="N" optional hidden
+
+option "db-max-wal-restart-pages"   - "Maximum number of pages in WAL before forcing a WAL restart"
+       int default="20000" typestr="N" optional hidden
+
+option "db-idle-restart"            - "Interval to force a WAL restart when idle"
+       int default="60" typestr="sec" optional hidden
+
+option "db-busy-timeout"            - "SQLite database busy timeout"
+       int default="20" typestr="sec" optional hidden
+
+option "worker-max-wait"          - "Maximum time to wait before killing a worker"
+       int default="300" typestr="sec" optional hidden
+
+option "worker-max-requests"      - "Maximum number of requests / worker"
+       int default="5000" typestr="N" optional hidden

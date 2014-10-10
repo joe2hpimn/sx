@@ -524,7 +524,7 @@ static int qopen(const char *path, sxi_db_t **dbp, const char *dbtype, sx_uuid_t
     }
     if (!(*dbp = qnew(handle)))
         goto qopen_fail;
-    if(sqlite3_busy_timeout(handle, SXDBI_BUSY_TIMEOUT * 1000)) {
+    if(sqlite3_busy_timeout(handle, db_busy_timeout * 1000)) {
 	CRIT("Failed to set timeout on database %s: %s", path, sqlite3_errmsg(handle));
 	goto qopen_fail;
     }
@@ -7056,8 +7056,6 @@ rc_ty sx_hashfs_xfer_tonode(sx_hashfs_t *h, sx_hash_t *block, unsigned int size,
     return ret;
 }
 
-#define GC_ROW_LIMIT 10000
-
 rc_ty sx_hashfs_gc_periodic(sx_hashfs_t *h, int *terminate, int grace_period)
 {
     unsigned i, j;
@@ -7177,8 +7175,6 @@ rc_ty sx_hashfs_gc_periodic(sx_hashfs_t *h, int *terminate, int grace_period)
     return (ret1 || ret2) ? FAIL_EINTERNAL : OK;
 }
 
-#define GC_MAX_BATCH 100
-
 rc_ty sx_hashfs_gc_run(sx_hashfs_t *h, int *terminate)
 {
     unsigned i, j, k;
@@ -7221,7 +7217,7 @@ rc_ty sx_hashfs_gc_run(sx_hashfs_t *h, int *terminate)
                     ret = -1;
                     break;
                 }
-                for (k=0;k<GC_MAX_BATCH && (ret = qstep(q)) == SQLITE_ROW; k++) {
+                for (k=0;k<gc_max_batch && (ret = qstep(q)) == SQLITE_ROW; k++) {
                     int is_null = sqlite3_column_type(q, 1) == SQLITE_NULL;
                     last = sqlite3_column_int64(q, 0);
                     const sx_hash_t *hash = sqlite3_column_blob(q, 2);

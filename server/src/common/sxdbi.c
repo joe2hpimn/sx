@@ -36,17 +36,6 @@
 #include "utils.h"
 #include "log.h"
 
-/* threshold for passive checkpoint outside commits */
-#define GC_MIN_PASSIVE_WAL_PAGES 5000
-
-/* threshold for passive checkpoint inside commits */
-#define GC_MAX_PASSIVE_WAL_PAGES 10000
-
-/* threshold for restart checkpoint (anywhere) */
-#define GC_MAX_RESTART_WAL_PAGES 20000
-
-#define IDLE_RESTART 60
-
 static void qclose_db(sqlite3 **dbp)
 {
     sqlite3 *db;
@@ -75,7 +64,7 @@ static int qwal_hook(void *ctx, sqlite3 *handle, const char *name, int pages)
     sxi_db_t *db = ctx;
     if (db)
         db->wal_pages = pages;
-    if (pages >= GC_MAX_PASSIVE_WAL_PAGES)
+    if (pages >= db_max_passive_wal_pages)
         qcheckpoint(db);
     return SQLITE_OK;
 }
@@ -117,15 +106,15 @@ void qcheckpoint(sxi_db_t *db)
 {
     if (!db)
         return;
-    if (db->wal_pages >= GC_MAX_RESTART_WAL_PAGES)
+    if (db->wal_pages >= db_max_restart_wal_pages)
         qcheckpoint_run(db, SQLITE_CHECKPOINT_RESTART);
-    else if (db->wal_pages >= GC_MAX_PASSIVE_WAL_PAGES)
+    else if (db->wal_pages >= db_max_passive_wal_pages)
         qcheckpoint_run(db, SQLITE_CHECKPOINT_PASSIVE);
 }
 
 void qcheckpoint_restart(sxi_db_t *db)
 {
-    if (db && db->wal_pages >= GC_MIN_PASSIVE_WAL_PAGES)
+    if (db && db->wal_pages >= db_min_passive_wal_pages)
         qcheckpoint_run(db, SQLITE_CHECKPOINT_RESTART);
 }
 
@@ -136,7 +125,7 @@ void qcheckpoint_idle(sxi_db_t *db)
         if (changes != db->last_total_changes) {
             struct timeval tv;
             gettimeofday(&tv, NULL);
-            if (timediff(&db->tv_last, &tv) >= IDLE_RESTART) {
+            if (timediff(&db->tv_last, &tv) >= db_idle_restart) {
                 qcheckpoint_run(db, SQLITE_CHECKPOINT_RESTART);
                 memcpy(&db->tv_last, &tv, sizeof(tv));
                 db->last_total_changes = changes;

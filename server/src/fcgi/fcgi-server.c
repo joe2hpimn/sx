@@ -52,6 +52,7 @@
 #include "cmdline.h"
 #include "init.h"
 #include "gc.h"
+#include "utils.h"
 
 FCGX_Stream *fcgi_in, *fcgi_out, *fcgi_err;
 FCGX_ParamArray envp;
@@ -59,8 +60,6 @@ sx_hashfs_t *hashfs;
 int job_trigger, block_trigger, gc_trigger, gc_expire_trigger;
 static pid_t ownpid;
 
-#define MAX_WAIT_TIME 300
-#define MAX_REQUESTS 5000
 #define MAX_CHILDREN 256
 #define JOBMGR MAX_CHILDREN
 #define BLKMGR MAX_CHILDREN+1
@@ -161,7 +160,7 @@ static int accept_loop(sxc_client_t *sx, const char *self, const char *dir) {
     ownpid = getpid();
     FCGX_Init();
     FCGX_InitRequest(&req, FCGI_LISTENSOCK_FILENO, FCGI_FAIL_ACCEPT_ON_INTR);
-    for(i=0; !terminate && i < MAX_REQUESTS; i++) {
+    for(i=0; !terminate && i < worker_max_requests; i++) {
 	if(FCGX_Accept_r(&req) < 0) {
             if (errno != EINTR)
                 break;
@@ -184,10 +183,10 @@ static int accept_loop(sxc_client_t *sx, const char *self, const char *dir) {
     FCGX_Finish_r(&req);
     sx_hashfs_close(hashfs);
 
-    if(i!=MAX_REQUESTS)
+    if(i!=worker_max_requests)
 	INFO("Accept loop exiting upon request");
     else
-        INFO("Accept loop exiting after %u requests", MAX_REQUESTS);
+        INFO("Accept loop exiting after %u requests", worker_max_requests);
 
  accept_loop_end:
     OS_LibShutdown();
@@ -322,6 +321,19 @@ int main(int argc, char **argv) {
 
     if(debug)
 	log_setminlevel(sx,SX_LOG_DEBUG);
+
+    /* the interactions between these values are complex,
+     * no validation: responsibility of the admin when tweaking hidden vars */
+    gc_interval = args.gc_interval_arg;
+    gc_max_batch = args.gc_max_batch_arg;
+    blockmgr_delay = args.blockmgr_delay_arg;
+    db_min_passive_wal_pages = args.db_min_passive_wal_pages_arg;
+    db_max_passive_wal_pages = args.db_max_passive_wal_pages_arg;
+    db_max_restart_wal_pages = args.db_max_wal_restart_pages_arg;
+    db_idle_restart = args.db_idle_restart_arg;
+    db_busy_timeout = args.db_busy_timeout_arg;
+    worker_max_wait = args.worker_max_wait_arg;
+    worker_max_requests = args.worker_max_requests_arg;
 
     if(args.children_arg <= 0 || args.children_arg > MAX_CHILDREN) {
 	CRIT("Invalid number of children");
@@ -838,11 +850,11 @@ int main(int argc, char **argv) {
     }
 
     killall(SIGTERM); /* ask all children to quit */
-    INFO("Waiting up to "STRIFY(MAX_WAIT_TIME)" seconds for all children to quit...");
+    INFO("Waiting up to %d seconds for all children to quit...", worker_max_wait);
     alive = 1;
     wait_start = time(NULL);
     while(alive) {
-	if(wait_start + MAX_WAIT_TIME <= time(NULL))
+	if(wait_start + worker_max_wait <= time(NULL))
 	    break;
 
 	dead = waitpid(-1, NULL, WNOHANG);

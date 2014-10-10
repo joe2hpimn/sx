@@ -38,6 +38,7 @@ extern "C" {
 struct gengetopt_args_info
 {
   const char *help_help; /**< @brief Print help and exit help description.  */
+  const char *full_help_help; /**< @brief Print help, including hidden options, and exit help description.  */
   const char *version_help; /**< @brief Print version and exit help description.  */
   char * socket_arg;	/**< @brief Set socket for connection with httpd.  */
   char * socket_orig;	/**< @brief Set socket for connection with httpd original value given at command line.  */
@@ -67,8 +68,39 @@ struct gengetopt_args_info
   char * ssl_ca_arg;	/**< @brief Path to SSL CA certificate.  */
   char * ssl_ca_orig;	/**< @brief Path to SSL CA certificate original value given at command line.  */
   const char *ssl_ca_help; /**< @brief Path to SSL CA certificate help description.  */
+  int gc_interval_arg;	/**< @brief How often to run the GC (default='3600').  */
+  char * gc_interval_orig;	/**< @brief How often to run the GC original value given at command line.  */
+  const char *gc_interval_help; /**< @brief How often to run the GC help description.  */
+  int gc_max_batch_arg;	/**< @brief Maximum number of rows/transaction in the GC (default='100').  */
+  char * gc_max_batch_orig;	/**< @brief Maximum number of rows/transaction in the GC original value given at command line.  */
+  const char *gc_max_batch_help; /**< @brief Maximum number of rows/transaction in the GC help description.  */
+  float blockmgr_delay_arg;	/**< @brief Blockmgr delay (default='3').  */
+  char * blockmgr_delay_orig;	/**< @brief Blockmgr delay original value given at command line.  */
+  const char *blockmgr_delay_help; /**< @brief Blockmgr delay help description.  */
+  int db_min_passive_wal_pages_arg;	/**< @brief Minimum number of pages in WAL to trigger a passive checkpoint (default='5000').  */
+  char * db_min_passive_wal_pages_orig;	/**< @brief Minimum number of pages in WAL to trigger a passive checkpoint original value given at command line.  */
+  const char *db_min_passive_wal_pages_help; /**< @brief Minimum number of pages in WAL to trigger a passive checkpoint help description.  */
+  int db_max_passive_wal_pages_arg;	/**< @brief Maximum number of pages in WAL to trigger a passive checkpoint (default='10000').  */
+  char * db_max_passive_wal_pages_orig;	/**< @brief Maximum number of pages in WAL to trigger a passive checkpoint original value given at command line.  */
+  const char *db_max_passive_wal_pages_help; /**< @brief Maximum number of pages in WAL to trigger a passive checkpoint help description.  */
+  int db_max_wal_restart_pages_arg;	/**< @brief Maximum number of pages in WAL before forcing a WAL restart (default='20000').  */
+  char * db_max_wal_restart_pages_orig;	/**< @brief Maximum number of pages in WAL before forcing a WAL restart original value given at command line.  */
+  const char *db_max_wal_restart_pages_help; /**< @brief Maximum number of pages in WAL before forcing a WAL restart help description.  */
+  int db_idle_restart_arg;	/**< @brief Interval to force a WAL restart when idle (default='60').  */
+  char * db_idle_restart_orig;	/**< @brief Interval to force a WAL restart when idle original value given at command line.  */
+  const char *db_idle_restart_help; /**< @brief Interval to force a WAL restart when idle help description.  */
+  int db_busy_timeout_arg;	/**< @brief SQLite database busy timeout (default='20').  */
+  char * db_busy_timeout_orig;	/**< @brief SQLite database busy timeout original value given at command line.  */
+  const char *db_busy_timeout_help; /**< @brief SQLite database busy timeout help description.  */
+  int worker_max_wait_arg;	/**< @brief Maximum time to wait before killing a worker (default='300').  */
+  char * worker_max_wait_orig;	/**< @brief Maximum time to wait before killing a worker original value given at command line.  */
+  const char *worker_max_wait_help; /**< @brief Maximum time to wait before killing a worker help description.  */
+  int worker_max_requests_arg;	/**< @brief Maximum number of requests / worker (default='5000').  */
+  char * worker_max_requests_orig;	/**< @brief Maximum number of requests / worker original value given at command line.  */
+  const char *worker_max_requests_help; /**< @brief Maximum number of requests / worker help description.  */
   
   unsigned int help_given ;	/**< @brief Whether help was given.  */
+  unsigned int full_help_given ;	/**< @brief Whether full-help was given.  */
   unsigned int version_given ;	/**< @brief Whether version was given.  */
   unsigned int socket_given ;	/**< @brief Whether socket was given.  */
   unsigned int socket_mode_given ;	/**< @brief Whether socket-mode was given.  */
@@ -80,6 +112,16 @@ struct gengetopt_args_info
   unsigned int debug_given ;	/**< @brief Whether debug was given.  */
   unsigned int run_as_given ;	/**< @brief Whether run-as was given.  */
   unsigned int ssl_ca_given ;	/**< @brief Whether ssl_ca was given.  */
+  unsigned int gc_interval_given ;	/**< @brief Whether gc-interval was given.  */
+  unsigned int gc_max_batch_given ;	/**< @brief Whether gc-max-batch was given.  */
+  unsigned int blockmgr_delay_given ;	/**< @brief Whether blockmgr-delay was given.  */
+  unsigned int db_min_passive_wal_pages_given ;	/**< @brief Whether db-min-passive-wal-pages was given.  */
+  unsigned int db_max_passive_wal_pages_given ;	/**< @brief Whether db-max-passive-wal-pages was given.  */
+  unsigned int db_max_wal_restart_pages_given ;	/**< @brief Whether db-max-wal-restart-pages was given.  */
+  unsigned int db_idle_restart_given ;	/**< @brief Whether db-idle-restart was given.  */
+  unsigned int db_busy_timeout_given ;	/**< @brief Whether db-busy-timeout was given.  */
+  unsigned int worker_max_wait_given ;	/**< @brief Whether worker-max-wait was given.  */
+  unsigned int worker_max_requests_given ;	/**< @brief Whether worker-max-requests was given.  */
 
 } ;
 
@@ -101,6 +143,8 @@ extern const char *gengetopt_args_info_usage;
 extern const char *gengetopt_args_info_description;
 /** @brief all the lines making the help output */
 extern const char *gengetopt_args_info_help[];
+/** @brief all the lines making the full help output (including hidden options) */
+extern const char *gengetopt_args_info_full_help[];
 
 /**
  * The command line parser
@@ -162,6 +206,10 @@ int cmdline_parser_file_save(const char *filename,
  * Print the help
  */
 void cmdline_parser_print_help(void);
+/**
+ * Print the full help (including hidden options)
+ */
+void cmdline_parser_print_full_help(void);
 /**
  * Print the version
  */
