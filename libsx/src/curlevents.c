@@ -551,8 +551,10 @@ static void sxi_cbdata_finish(curl_events_t *e, curlev_context_t **ctxptr, const
             if (rctx->rc == CURLE_SSL_CACERT && sxi_curlev_has_cafile(e))
                 sxi_cbdata_seterr(ctx, SXE_ECURL, "%s: Possible MITM attack, see https://wiki.skylable.com/wiki/FAQ#Possible_MITM_attack",
                            strerr);
-            else
-                sxi_cbdata_seterr(ctx, SXE_ECURL, "%s: %s", url ? url : "", msg);
+            else {
+                SXDEBUG("%s: %s", url ? url : "", msg);
+                sxi_cbdata_seterr(ctx, SXE_ECURL, "Failed to %s: %s", ctx->op ? ctx->op : "query cluster", msg);
+            }
         }
     } else if (rctx->reply_status > 0 && rctx->reason && rctx->reasonsz > 0) {
         rctx->reason[rctx->reasonsz] = '\0';
