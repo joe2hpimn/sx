@@ -7058,7 +7058,7 @@ rc_ty sx_hashfs_xfer_tonode(sx_hashfs_t *h, sx_hash_t *block, unsigned int size,
 
 rc_ty sx_hashfs_gc_periodic(sx_hashfs_t *h, int *terminate, int grace_period)
 {
-    unsigned i, j;
+    unsigned i, j, k;
     /* tokens expire when there was no upload activity within GC_GRACE_PERIOD
      * (i.e. ~2 days) */
     uint64_t real_now = time(NULL), now;
@@ -7081,7 +7081,13 @@ rc_ty sx_hashfs_gc_periodic(sx_hashfs_t *h, int *terminate, int grace_period)
                 break;
             }
             /* TODO: eliminate code duplication and use a function */
+            ret1 = SQLITE_ROW;
             do {
+              if (qbegin(h->datadb[j][i])) {
+                    ret1 = -1;
+                    break;
+              }
+              for (k=0;k<gc_max_batch && ret1 == SQLITE_ROW && !*terminate;k++) {
                 sx_hash_t last;
                 sqlite3_stmt *q = h->qb_find_expired_reservation[j][i];
                 sqlite3_stmt *q_gc = h->qb_gc_reserve[j][i];
@@ -7116,12 +7122,26 @@ rc_ty sx_hashfs_gc_periodic(sx_hashfs_t *h, int *terminate, int grace_period)
                     DEBUG("find_expired: done");
                     ret1 = 0;
                 }
-	   } while (ret1 == SQLITE_ROW);
-           if (qbind_int64(h->qb_find_expired_reservation2[j][i], ":lastrowid", 0)) {
+	     }
+             if (qcommit(h->datadb[j][i])) {
+                 ret1 = -1;
+                 break;
+             }
+            } while (ret1 == SQLITE_ROW);
+            if (ret1) {
+               qrollback(h->datadb[j][i]);
+               break;
+            }
+            if (qbind_int64(h->qb_find_expired_reservation2[j][i], ":lastrowid", 0)) {
                 ret1 = -1;
                 break;
-           }
-           do {
+            }
+            do {
+              if (qbegin(h->datadb[j][i])) {
+                    ret1 = -1;
+                    break;
+              }
+              for (k=0;k<gc_max_batch && ret1 == SQLITE_ROW && !*terminate;k++) {
                 sqlite3_stmt *q = h->qb_find_expired_reservation2[j][i];
                 sqlite3_stmt *q_gc = h->qb_gc_reserve2[j][i];
                 sqlite3_reset(q);
@@ -7147,8 +7167,23 @@ rc_ty sx_hashfs_gc_periodic(sx_hashfs_t *h, int *terminate, int grace_period)
                 sqlite3_reset(q_gc);
                 if (ret1 == SQLITE_DONE)
                     ret1 = 0;
-	   } while (ret1 == SQLITE_ROW);
-	   do {
+             }
+             if (qcommit(h->datadb[j][i])) {
+                 ret1 = -1;
+                 break;
+             }
+	    } while (ret1 == SQLITE_ROW);
+            if (ret1) {
+               qrollback(h->datadb[j][i]);
+               break;
+            }
+            ret2 = SQLITE_ROW;
+	    do {
+              if (qbegin(h->datadb[j][i])) {
+                    ret1 = -1;
+                    break;
+              }
+              for (k=0;k<gc_max_batch && ret2 == SQLITE_ROW && !*terminate;k++) {
 		sqlite3_stmt *q = h->qb_find_expired_ops[j][i];
                 sqlite3_stmt *q_gc = h->qb_gc_op[j][i];
                 sqlite3_reset(q);
@@ -7168,7 +7203,16 @@ rc_ty sx_hashfs_gc_periodic(sx_hashfs_t *h, int *terminate, int grace_period)
                     ret2 = 0;
                 sqlite3_reset(q);
                 sqlite3_reset(q_gc);
+              }
+              if (qcommit(h->datadb[j][i])) {
+                 ret2 = -1;
+                 break;
+              }
             } while (ret2 == SQLITE_ROW);
+            if (ret2) {
+               qrollback(h->datadb[j][i]);
+               break;
+            }
         }
     }
     INFO("GCed %lld reservations, %lld operations", (long long)gc, (long long)gcops);
@@ -7217,7 +7261,7 @@ rc_ty sx_hashfs_gc_run(sx_hashfs_t *h, int *terminate)
                     ret = -1;
                     break;
                 }
-                for (k=0;k<gc_max_batch && (ret = qstep(q)) == SQLITE_ROW; k++) {
+                for (k=0;k<gc_max_batch && (ret = qstep(q)) == SQLITE_ROW && !*terminate; k++) {
                     int is_null = sqlite3_column_type(q, 1) == SQLITE_NULL;
                     last = sqlite3_column_int64(q, 0);
                     const sx_hash_t *hash = sqlite3_column_blob(q, 2);
