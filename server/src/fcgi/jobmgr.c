@@ -1984,6 +1984,15 @@ static act_result_t startrebalance_request(sx_hashfs_t *hashfs, job_t job_id, jo
         query_list_free(qrylist, nnodes);
     }
 
+    if(ret == ACT_RESULT_PERMFAIL) {
+	/* Since there is no way we can recover at this point we
+	 * downgrade to temp failure and try to notify about the issue.
+	 * There is no timeout anyway */
+	CRIT("A critical condition has occoured (see messages above): please check the health and reachability of all cluster nodes");
+	ret = ACT_RESULT_TEMPFAIL;
+	*fail_code = 503;
+    }
+
     return ret;
 }
 
@@ -2310,7 +2319,15 @@ action_failed:
 	action_set_fail(ACT_RESULT_TEMPFAIL, 503, "Block propagation in progress");
     }
 
-    /* FIXMERB: bump ttl on progress */
+    if(ret == ACT_RESULT_PERMFAIL) {
+	/* Since there is no way we can recover at this point we
+	 * downgrade to temp failure and try to notify about the issue.
+	 * There is no timeout anyway */
+	CRIT("A critical condition has occoured (see messages above): please check the health and reachability of all cluster nodes");
+	ret = ACT_RESULT_TEMPFAIL;
+	*fail_code = 503;
+    }
+
     return ret;
 }
 
@@ -2331,6 +2348,14 @@ static act_result_t blockrb_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t
     succeeded[0] = 1;
 
  action_failed:
+    if(ret == ACT_RESULT_PERMFAIL) {
+	/* Since there is no way we can recover at this point we
+	 * downgrade to temp failure and try to notify about the issue.
+	 * There is no timeout anyway */
+	CRIT("A critical condition has occoured (see messages above): please check the health and reachability of all cluster nodes");
+	ret = ACT_RESULT_TEMPFAIL;
+	*fail_code = 503;
+    }
     return ret;
 }
 
@@ -2353,6 +2378,14 @@ static act_result_t filerb_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t
     succeeded[0] = 1;
 
  action_failed:
+    if(ret == ACT_RESULT_PERMFAIL) {
+	/* Since there is no way we can recover at this point we
+	 * downgrade to temp failure and try to notify about the issue.
+	 * There is no timeout anyway */
+	CRIT("A critical condition has occoured (see messages above): please check the health and reachability of all cluster nodes");
+	ret = ACT_RESULT_TEMPFAIL;
+	*fail_code = 503;
+    }
     return ret;
 }
 
@@ -2465,6 +2498,14 @@ static act_result_t filerb_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t 
 	    action_set_fail(ACT_RESULT_TEMPFAIL, 503, msg_get_reason());
     }
 
+    if(ret == ACT_RESULT_PERMFAIL) {
+	/* Since there is no way we can recover at this point we
+	 * downgrade to temp failure and try to notify about the issue.
+	 * There is no timeout anyway */
+	CRIT("A critical condition has occoured (see messages above): please check the health and reachability of all cluster nodes");
+	ret = ACT_RESULT_TEMPFAIL;
+	*fail_code = 503;
+    }
     return ret;
 }
 
@@ -2524,6 +2565,17 @@ static act_result_t finishrebalance_request(sx_hashfs_t *hashfs, job_t job_id, j
 
  action_failed:
     sxi_hostlist_empty(&hlist);
+
+    if(ret == ACT_RESULT_PERMFAIL) {
+	/* Since there is no way we can recover at this point we
+	 * downgrade to temp failure and try to notify about the issue.
+	 * There is no timeout anyway */
+	/* NOTE: this block was put in here for consistency with other handler, even if it cannot be reached */
+	CRIT("A critical condition has occoured (see messages above): please check the health and reachability of all cluster nodes");
+	ret = ACT_RESULT_TEMPFAIL;
+	*fail_code = 503;
+    }
+
     return ret;
 }
 
@@ -2591,6 +2643,14 @@ static act_result_t finishrebalance_commit(sx_hashfs_t *hashfs, job_t job_id, jo
         query_list_free(qrylist, nnodes);
     }
 
+    if(ret == ACT_RESULT_PERMFAIL) {
+	/* Since there is no way we can recover at this point we
+	 * downgrade to temp failure and try to notify about the issue.
+	 * There is no timeout anyway */
+	CRIT("A critical condition has occoured (see messages above): please check the health and reachability of all cluster nodes");
+	ret = ACT_RESULT_TEMPFAIL;
+	*fail_code = 503;
+    }
     return ret;
 }
 
@@ -2615,6 +2675,14 @@ static act_result_t cleanrb_request(sx_hashfs_t *hashfs, job_t job_id, job_data_
     ret = ACT_RESULT_OK;
 
  action_failed:
+    if(ret == ACT_RESULT_PERMFAIL) {
+	/* Since there is no way we can recover at this point we
+	 * downgrade to temp failure and try to notify about the issue.
+	 * There is no timeout anyway */
+	CRIT("A critical condition has occoured (see messages above): please check the health and reachability of all cluster nodes");
+	ret = ACT_RESULT_TEMPFAIL;
+	*fail_code = 503;
+    }
     return ret;
 }
 
@@ -2637,6 +2705,14 @@ static act_result_t cleanrb_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t
     INFO(">>>>>>>>>>>> THIS NODE IS NOW FULLY REBALANCED <<<<<<<<<<<<");
 
  action_failed:
+    if(ret == ACT_RESULT_PERMFAIL) {
+	/* Since there is no way we can recover at this point we
+	 * downgrade to temp failure and try to notify about the issue.
+	 * There is no timeout anyway */
+	CRIT("A critical condition has occoured (see messages above): please check the health and reachability of all cluster nodes");
+	ret = ACT_RESULT_TEMPFAIL;
+	*fail_code = 503;
+    }
     return ret;
 }
 
@@ -2654,12 +2730,12 @@ static struct {
     { fileflush_request, fileflush_commit, FIXME_phase_placeholder,FIXME_phase_placeholder }, /* JOBTYPE_FLUSH_FILE */
     { filedelete_request, force_phase_success, FIXME_phase_placeholder, force_phase_success }, /* JOBTYPE_DELETE_FILE */
     { distribution_request, distribution_commit, distribution_abort, distribution_undo }, /* JOBTYPE_DISTRIBUTION */
-    { startrebalance_request, force_phase_success, FIXME_phase_placeholder, FIXME_phase_placeholder }, /* JOBTYPE_STARTREBALANCE */
-    { finishrebalance_request, finishrebalance_commit, FIXME_phase_placeholder, FIXME_phase_placeholder }, /* JOBTYPE_FINISHREBALANCE */
+    { startrebalance_request, force_phase_success, force_phase_success, force_phase_success }, /* JOBTYPE_STARTREBALANCE */
+    { finishrebalance_request, finishrebalance_commit, force_phase_success, force_phase_success }, /* JOBTYPE_FINISHREBALANCE */
     { jlock_request, force_phase_success, jlock_abort_and_undo, jlock_abort_and_undo }, /* JOBTYPE_JLOCK */
-    { blockrb_request, blockrb_commit, FIXME_phase_placeholder, FIXME_phase_placeholder }, /* JOBTYPE_REBALANCE_BLOCKS */
-    { filerb_request, filerb_commit, FIXME_phase_placeholder, FIXME_phase_placeholder }, /* JOBTYPE_REBALANCE_FILES */
-    { cleanrb_request, cleanrb_commit, FIXME_phase_placeholder, FIXME_phase_placeholder }, /* JOBTYPE_REBALANCE_CLEANUP */
+    { blockrb_request, blockrb_commit, force_phase_success, force_phase_success }, /* JOBTYPE_REBALANCE_BLOCKS */
+    { filerb_request, filerb_commit, force_phase_success, force_phase_success }, /* JOBTYPE_REBALANCE_FILES */
+    { cleanrb_request, cleanrb_commit, force_phase_success, force_phase_success }, /* JOBTYPE_REBALANCE_CLEANUP */
     { deleteuser_request, deleteuser_commit, deleteuser_abort, deleteuser_undo }, /* JOBTYPE_DELETE_USER */
     { deletevol_request, deletevol_commit, deletevol_abort, deletevol_undo }, /* JOBTYPE_DELETE_VOLUME */
 };
