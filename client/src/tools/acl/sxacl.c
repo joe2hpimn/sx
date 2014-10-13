@@ -128,7 +128,11 @@ static int add_user(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_uri_t *u, cons
 	    fclose(f);
 	    return 1;
 	}
-	fclose(f);
+	if(fclose(f)) {
+	    fprintf(stderr, "ERROR: Cannot close file '%s': %s\n", authfile, strerror(errno));
+	    free(key);
+	    return 1;
+	}
     }
 
     free(key);
@@ -153,8 +157,11 @@ static int getkey_user(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_uri_t *u, c
         }
     }
     rc = sxc_user_getkey(cluster, username, f);
-    if (authfile)
-        fclose(f);
+    if (authfile && fclose(f)) {
+        fprintf(stderr, "ERROR: Can't close file %s: %s\n", authfile, strerror(errno));
+	return 1;
+    }
+
     if (rc)
         fprintf(stderr, "ERROR: Can't retrieve key for user %s: %s\n", username, sxc_geterrmsg(sx));
     return rc;

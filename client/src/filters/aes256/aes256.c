@@ -289,12 +289,18 @@ static int aes256_configure(const sxf_handle_t *handle, const char *cfgstr, cons
 	}
 	if(write(fd, key, sizeof(key)) != sizeof(key)) {
 	    ERROR("Can't write key data to file %s", keyfile);
-	    free(keyfile);
 	    close(fd);
+	    unlink(keyfile);
+	    free(keyfile);
+	    return -1;
+	}
+	if(close(fd)) {
+	    ERROR("Can't close file %s", keyfile);
+	    unlink(keyfile);
+	    free(keyfile);
 	    return -1;
 	}
 	free(keyfile);
-	close(fd);
 
 	*cfgdata = malloc(SALT_SIZE + FP_SIZE);
 	if(!*cfgdata)
@@ -382,9 +388,14 @@ static int aes256_data_prepare(const sxf_handle_t *handle, void **ctx, const cha
 	    if(fd == -1) {
 		WARN("Can't open file %s for writing -- continuing without key file", keyfile);
 	    } else {
-		if(write(fd, key, sizeof(key)) != sizeof(key))
+		if(write(fd, key, sizeof(key)) != sizeof(key)) {
+		    close(fd);
+		    unlink(keyfile);
 		    WARN("Can't write key data to file %s -- continuing without key file", keyfile);
-		close(fd);
+		} else if(close(fd)) {
+		    unlink(keyfile);
+		    WARN("Can't close file %s -- continuing without key file", keyfile);
+		}
 	    }
 	}
     }

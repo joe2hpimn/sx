@@ -149,7 +149,11 @@ int sxi_volume_cfg_store(sxc_client_t *sx, sxc_cluster_t *cluster, const char *v
 	close(fd);
 	return 1;
     }
-    close(fd);
+    if(close(fd)) {
+	sxi_seterr(sx, SXE_EWRITE, "Can't close file %s", path);
+	free(path);
+	return 1;
+    }
 
     sprintf(path, "%s/volumes/%s/%s", confdir, vname, filter_uuid);
     if(access(path, F_OK)) {
@@ -175,7 +179,12 @@ int sxi_volume_cfg_store(sxc_client_t *sx, sxc_cluster_t *cluster, const char *v
 	    close(fd);
 	    return 1;
 	}
-	close(fd);
+	if(close(fd)) {
+	    sxi_seterr(sx, SXE_EWRITE, "Can't close file %s", path);
+	    free(path);
+	    return 1;
+	}
+
     }
 
     free(path);

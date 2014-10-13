@@ -460,9 +460,8 @@ static int file_to_file(sxc_client_t *sx, const char *source, const char *dest)
 	fclose(d);
 	return 1;
     }
-    fclose(d);
 
-    return 0;
+    return fclose(d);
 }
 
 static int cat_local_file(sxc_file_t *source, int dest);
@@ -1921,6 +1920,7 @@ static int local_to_remote_begin(sxc_file_t *source, sxc_meta_t *fmeta, sxc_file
 		    bwrite = fh->f->data_process(fh, fh->ctx, inbuff, bread, outbuff, sizeof(outbuff), SXF_MODE_UPLOAD, &action);
 		    if(bwrite < 0) {
 			sxi_seterr(sx, SXE_EFILTER, "Filter ID %s failed to process input data", filter_uuid);
+			fclose(tempfile);
 			if(fh->f->data_finish)
 			    fh->f->data_finish(fh, &fh->ctx, SXF_MODE_UPLOAD);
 			goto local_to_remote_err;
@@ -1934,14 +1934,16 @@ static int local_to_remote_begin(sxc_file_t *source, sxc_meta_t *fmeta, sxc_file
 		    }
 		} while(action == SXF_ACTION_REPEAT);
 	    }
+	    if(fclose(tempfile)) {
+		sxi_setsyserr(sx, SXE_EWRITE, "Filter failed: Can't close temporary file");
+		goto local_to_remote_err;
+	    }
 	    if(fh->f->data_finish) {
 		if(fh->f->data_finish(fh, &fh->ctx, SXF_MODE_UPLOAD)) {
 		    sxi_seterr(sx, SXE_EFILTER, "Filter ID %s failed to clean up itself", filter_uuid);
 		    goto local_to_remote_err;
 		}
 	    }
-	    fclose(tempfile);
-
 	    if((td = open(tempfname, O_RDONLY)) < 0) {
 		SXDEBUG("can't open temporary file");
 		sxi_setsyserr(sx, SXE_EREAD, "Filter failed: Can't open temporary file");
@@ -3832,7 +3834,10 @@ static int remote_to_local(sxc_file_t *source, sxc_file_t *dest, int recursive) 
 		}
 	    } while(action == SXF_ACTION_REPEAT);
 	}
-	fclose(tempfile);
+	if(fclose(tempfile)) {
+	    sxi_seterr(sx, SXE_EWRITE, "Filter ID %s failed: Can't close temporary file", filter_uuid);
+	    goto remote_to_local_err;
+	}
 	if(fh->f->data_finish) {
 	    if(fh->f->data_finish(fh, &fh->ctx, SXF_MODE_DOWNLOAD)) {
 		sxi_seterr(sx, SXE_EFILTER, "Filter ID %s failed to clean up itself", filter_uuid);

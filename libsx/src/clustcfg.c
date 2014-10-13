@@ -1181,7 +1181,7 @@ int sxc_cluster_save(sxc_cluster_t *cluster, const char *config_dir) {
 	fprintf(f, "HttpPort=%u\n", port);
 
     i = ferror(f);
-    fclose(f);
+    i |= fclose(f);
     if(i) {
 	CFGDEBUG("failed to write to config file %s", fname);
 	cluster_syserr(SXE_EWRITE, "Cannot save config: Write to %s failed", fname);
@@ -1227,7 +1227,7 @@ int sxc_cluster_save(sxc_cluster_t *cluster, const char *config_dir) {
 	}
 	sprintf(touchme, "%s/%s", clusterd, host);
 	f = fopen(touchme, "w");
-	if(!f) {
+	if(!f || fclose(f)) {
 	    CFGDEBUG("failed to touch host file %s", touchme);
 	    cluster_syserr(SXE_EWRITE, "Cannot save config: Failed to touch file %s", touchme);
 	    free(clusterd);
@@ -1235,7 +1235,6 @@ int sxc_cluster_save(sxc_cluster_t *cluster, const char *config_dir) {
 	    return 1;
 	}
 	free(touchme);
-	fclose(f);
     }
 
     d = opendir(clusterd);
@@ -1296,7 +1295,7 @@ int sxc_cluster_save(sxc_cluster_t *cluster, const char *config_dir) {
 
 	fprintf(f, "%s", access->auth);
 	i = ferror(f);
-	fclose(f);
+	i |= fclose(f);
 	if(i) {
 	    CFGDEBUG("failed to write auth file for profile %s to tempfile %s", access->profile, fname);
 	    cluster_syserr(SXE_EWRITE, "Cannot save config: Failed to write profile %s to tempfile", access->profile);

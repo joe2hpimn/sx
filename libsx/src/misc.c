@@ -455,9 +455,15 @@ static int write_aliases(sxc_client_t *sx, const alias_list_t *list) {
                 return 1;
             }
         }
-  
+
+	if(fclose(f)) {
+            unlink(aliases_file_name);
+            sxi_seterr(sx, SXE_EWRITE, "fclose() failed for file %s", aliases_file_name);
+            free(aliases_file_name);
+            return 1;
+        }
+
         free(aliases_file_name);
-        fclose(f);
     }
 
     return 0;
