@@ -461,7 +461,7 @@ sxi_query_t *sxi_hashop_proto_inuse_begin(sxc_client_t *sx, int kind, const char
     return ret;
 }
 
-sxi_query_t *sxi_hashop_proto_inuse_hash(sxc_client_t *sx, sxi_query_t *query, const block_meta_t *blockmeta)
+static sxi_query_t *sxi_hashop_proto_inuse_hash_helper(sxc_client_t *sx, sxi_query_t *query, const block_meta_t *blockmeta, int invert)
 {
     unsigned i;
     char hexhash[SXI_SHA1_TEXT_LEN + 1];
@@ -478,10 +478,23 @@ sxi_query_t *sxi_hashop_proto_inuse_hash(sxc_client_t *sx, sxi_query_t *query, c
     sxi_bin2hex(blockmeta->hash.b, sizeof(blockmeta->hash.b), hexhash);
     query = sxi_query_append_fmt(sx, query, sizeof(hexhash) + 8 + 7, "\"%s\":{\"b\":%u", hexhash, blockmeta->blocksize);
     for (i=0;i<blockmeta->count;i++) {
+        long long count = blockmeta->entries[i].count;
         query = sxi_query_append_fmt(sx, query, 1, ",");
-        query = sxi_query_append_fmt(sx, query, 32, "\"%u\":%lld", blockmeta->entries[i].replica, (long long)blockmeta->entries[i].count);
+        if (invert)
+            count = -count;
+        query = sxi_query_append_fmt(sx, query, 32, "\"%u\":%lld", blockmeta->entries[i].replica, count);
     }
     return sxi_query_append_fmt(sx, query, 1, "}");
+}
+
+sxi_query_t *sxi_hashop_proto_inuse_hash(sxc_client_t *sx, sxi_query_t *query, const block_meta_t *blockmeta)
+{
+    return sxi_hashop_proto_inuse_hash_helper(sx, query, blockmeta, 0);
+}
+
+sxi_query_t *sxi_hashop_proto_decuse_hash(sxc_client_t *sx, sxi_query_t *query, const block_meta_t *blockmeta)
+{
+    return sxi_hashop_proto_inuse_hash_helper(sx, query, blockmeta, 1);
 }
 
 sxi_query_t *sxi_hashop_proto_inuse_end(sxc_client_t *sx, sxi_query_t *query)

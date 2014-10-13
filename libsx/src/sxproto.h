@@ -72,6 +72,7 @@ sxi_query_t *sxi_hashop_proto_reserve(sxc_client_t *sx, unsigned blocksize, cons
 sxi_query_t *sxi_hashop_proto_inuse_begin(sxc_client_t *sx, int kind, const char *id, uint64_t op_expires_at);
 sxi_query_t *sxi_hashop_proto_inuse_begin_bin(sxc_client_t *sx, int kind, const void *id, unsigned int id_size, uint64_t op_expires_at);
 sxi_query_t *sxi_hashop_proto_inuse_hash(sxc_client_t *sx, sxi_query_t *query, const block_meta_t *blockmeta);
+sxi_query_t *sxi_hashop_proto_decuse_hash(sxc_client_t *sx, sxi_query_t *query, const block_meta_t *blockmeta);
 sxi_query_t *sxi_hashop_proto_inuse_end(sxc_client_t *sx, sxi_query_t *query);
 
 sxi_query_t *sxi_nodeinit_proto(sxc_client_t *sx, const char *cluster_name, const char *node_uuid, uint16_t http_port, int ssl_flag, const char *ssl_file);
