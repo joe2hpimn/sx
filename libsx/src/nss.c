@@ -294,12 +294,6 @@ int sxi_vcrypt_print_cipherlist(sxc_client_t *sx, const char *list)
 int sxi_vcrypt_print_cert_info(sxc_client_t *sx, const char *file, int batch_mode)
 {
     int rc= 0;
-    FILE *f = fopen(file, "r");
-    if (!f) {
-        sxi_setsyserr(sx, SXE_ECFG, "Cannot open CA file '%s'", file);
-        return -1;
-    }
-
     SECMODModule *mod = SECMOD_LoadUserModule("library=libnsspem.so name=PEM", NULL, PR_FALSE);
     if (!mod || !mod->loaded) {
         if (mod)
@@ -366,6 +360,5 @@ int sxi_vcrypt_print_cert_info(sxc_client_t *sx, const char *file, int batch_mod
         rc = -1;
     }
 
-    fclose(f);
     return rc;
 }
