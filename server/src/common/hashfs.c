@@ -432,9 +432,14 @@ rc_ty sx_storage_create(const char *dir, sx_uuid_t *cluster, uint8_t *key, int k
 	    memset(path, 0, bsz[j]);
 	    sprintf(path, "%-16sdatafile_%c_%08x             %08x", HASHFS_VERSION, sizedirs[j], i, bsz[j]);
 	    memcpy(path+64, cluster->binary, sizeof(cluster->binary));
-	    if(write_block(fd, path, 0, bsz[j]))
+	    if(write_block(fd, path, 0, bsz[j])) {
+		close(fd);
 		goto create_hashfs_fail;
-	    close(fd);
+	    }
+	    if(close(fd)) {
+		PCRIT("Cannot close data file %s", path);
+		goto create_hashfs_fail;
+	    }
 	}
     }
 
@@ -7905,7 +7910,10 @@ rc_ty sx_hashfs_setnodedata(sx_hashfs_t *h, const char *name, const sx_uuid_t *n
 		    cadatalen -= done;
 		    ssl_ca_crt += done;
 		}
-		close(fd);
+		if(close(fd)) {
+		    msg_set_reason("Cannot close CA certificate file");
+		    goto setnodedata_fail;
+		}
 		break;
 	    }
 	}

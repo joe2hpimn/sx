@@ -189,7 +189,7 @@ static int save_cluster(const struct sxcluster *cluster, const char *file)
 
     ret = 0;
 save_err:
-    close(fd);
+    ret |= close(fd);
     if(ret)
 	unlink(file);
     else
@@ -279,7 +279,7 @@ static int load_cluster(struct sxcluster *cluster, const char *file)
     }
 
     if(read(fd, &cluster->magic, sizeof(cluster->magic)) != sizeof(cluster->magic)) {
-	printf("ERROR: Can't write to %s\n", file);
+	printf("ERROR: Can't read from %s\n", file);
 	goto load_err;
     }
 
@@ -1300,8 +1300,10 @@ static int runcmd(struct sxcluster *cluster, int mode, char *line)
 			return 0;
 		    }
 		    dump_cluster(cluster, file);
-		    fclose(file);
-		    printf("Cluster data dumped to '%s'\n", &line[5]);
+		    if(fclose(file))
+			printf("ERROR: Failed to close file '%s'\n", &line[5]);
+		    else
+			printf("Cluster data dumped to '%s'\n", &line[5]);
 		}
 	    }
 	}

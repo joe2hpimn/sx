@@ -511,14 +511,26 @@ int main(int argc, char **argv) {
 	snprintf(name, sizeof(name), "sxreport-server-%ld-anon.log", t);
         out = fopen(name, "w");
         if (!out) {
+	    fclose(logfile_in);
             WARN("Cannot open anonymized output file '%s': %s",
                  name, strerror(errno));
             return 1;
         }
-        fclose(logfile);
+        if(fclose(logfile)) {
+	    fclose(logfile_in);
+	    fclose(out);
+            WARN("Cannot close output file '%s': %s",
+                 oname, strerror(errno));
+            return 1;
+        }
         logfile = out;
         anonymize_filter(sx, fcgi_args.data_dir_arg, logfile_in, out);
-        fclose(out);
+        if(fclose(out)) {
+	    fclose(logfile_in);
+            WARN("Cannot close output file '%s': %s",
+                 name, strerror(errno));
+            return 1;
+        }
         fclose(logfile_in);
 	unlink(oname);
 	if(args.output_given && !rename(name, oname))
