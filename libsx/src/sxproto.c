@@ -518,10 +518,12 @@ sxi_query_t *sxi_nodeinit_proto(sxc_client_t *sx, const char *cluster_name, cons
 	    ca_data_len += fread(ca_tmp_data + ca_data_len, 1, ca_alloc_sz - ca_data_len, f);
 	    if(ferror(f)) {
 		free(ca_tmp_data);
+		fclose(f);
 		sxi_setsyserr(sx, SXE_EREAD, "Failed to read ssl file");
 		return NULL;
 	    }
 	}
+	fclose(f);
 	if(!ca_tmp_data) /* shut up clang */
 	    return NULL;
         ca_tmp_data[ca_data_len] = '\0';
