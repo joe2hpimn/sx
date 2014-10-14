@@ -30,6 +30,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <ctype.h>
 #include <signal.h>
 #include <limits.h>
 #include <unistd.h>
@@ -215,6 +216,7 @@ static int volume_create(sxc_client_t *sx, const char *owner)
     }
     if(*ptr) {
         unsigned int shl;
+	*ptr = (char) toupper(*ptr);
         ptr = strchr(suffixes, *ptr);
         if(!ptr) {
 	    fprintf(stderr, "ERROR: Bad size %s\n", create_args.size_arg);
@@ -349,7 +351,7 @@ static int volume_create(sxc_client_t *sx, const char *owner)
     if(ret)
 	fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
     else
-	printf("Volume '%s' (replica: %d, size: %lld) created.\n", uri->volume, create_args.replica_arg, (long long) size);
+	printf("Volume '%s' (replica: %d, size: %s, max-revisions: %d) created.\n", uri->volume, create_args.replica_arg, create_args.size_arg, create_args.max_revisions_arg);
 
 create_err:
     if(ret && voldir && !access(voldir, F_OK) && !reject_dots(uri->volume))

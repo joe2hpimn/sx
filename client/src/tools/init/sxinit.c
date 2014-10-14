@@ -32,6 +32,7 @@
 #include <pwd.h>
 #include <dirent.h>
 #include <unistd.h>
+#include <errno.h>
 
 #include "sx.h"
 #include "cmdline.h"
@@ -64,7 +65,7 @@ static int list_clusters(sxc_client_t *sx, const char *config_dir) {
 
     clusters_dir = opendir(confdir);
     if(!clusters_dir) {
-        fprintf(stderr, "ERROR: Could not open %s directory\n", confdir);
+        fprintf(stderr, "ERROR: Could not open %s directory: %s\n", confdir, strerror(errno));
         return 1;
     }
 
