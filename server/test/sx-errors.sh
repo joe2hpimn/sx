@@ -1,6 +1,6 @@
 #!/bin/sh -x
 set -e
-SXVOL_CREATE="../client/src/tools/vol/sxvol create --no-ssl -o admin -r 1"
+SXVOL_CREATE="../client/src/tools/vol/sxvol create --no-ssl -o admin -r 1 -s 100M"
 SXCP="../client/src/tools/cp/sxcp --no-ssl"
 SXLS="../client/src/tools/ls/sxls --no-ssl"
 SXRM="../client/src/tools/rm/sxrm --no-ssl"
@@ -117,8 +117,8 @@ runtest "Init with SSL on non-SSL server" ../client/src/tools/init/sxinit --host
 # TODO: sxinit should remove ca.pem
 rm -rf ~/.sx/localhost
 ../client/src/tools/init/sxinit --host-list=127.0.1.1 sx://localhost --no-ssl <$ADMINKEY
-runtest "SSL use after no-SSL init" ../client/src/tools/vol/sxvol create --no-ssl sx://localhost/volu -o admin -r1
-runtest "SSL use after no-SSL init" ../client/src/tools/vol/sxvol create sx://localhost/volu -o admin -r 1
+runtest "SSL use after no-SSL init" ../client/src/tools/vol/sxvol create --no-ssl sx://localhost/volu -o admin -r1 -s 100M
+runtest "SSL use after no-SSL init" ../client/src/tools/vol/sxvol create sx://localhost/volu -o admin -r 1 -s 100M
 
 echo "Testing upload/deletes"
 for i in x x1 x2 y y1 xfoo x/foo x3/foo 'x*foo' 'x?foo'; do

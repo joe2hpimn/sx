@@ -7,8 +7,8 @@ print_status() {
     set -x
 }
 set -e
-../client/src/tools/vol/sxvol create -o admin --no-ssl sx://localhost/volgc -r 1 || true
-../client/src/tools/vol/sxvol create -o admin --no-ssl sx://localhost/volgc2 -r 2 || true
+../client/src/tools/vol/sxvol create -o admin -s 100M --no-ssl sx://localhost/volgc -r 1 || true
+../client/src/tools/vol/sxvol create -o admin -s 100M --no-ssl sx://localhost/volgc2 -r 2 || true
 for vol in volgc volgc2; do
     test/randgen 4095 4095 >ftest
     # Upload a file, used should be 1

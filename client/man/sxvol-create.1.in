@@ -23,11 +23,11 @@ Set the replica count for the volume. This is a mandatory option and specifies h
 \fB\-o\fR, \fB\-\-owner\fR=\fI\,NAME\/\fR
 Set the owner of the volume. The owners can modify volume ACLs (see \fBsxacl\fR(1)) and other settings. This option is mandatory.
 .TP
+\fB\-s\fR, \fB\-\-size\fR=\fI\,SIZE\/\fR
+Set the size of the new volume. The size can be followed by one of the following suffixes: K(-ilobytes), M(-megabytes), G(-igabytes) and T(-erabytes) suffixes. This option is mandatory.
+.TP
 \fB\-f\fR, \fB\-\-filter\fR=\fI\,NAME[="FILTER_OPTIONS"]\/\fR
 Enable selected filter for the new volume. The filters can do some additional processing of the data (such as compression or encryption), see \fBsxvol-filter\fR(1) for more information.
-.TP
-\fB\-s\fR, \fB\-\-size\fR=\fI\,SIZE\/\fR
-Set the size of the new volume. The size can be followed by one of the following suffixes: K(-ilobytes), M(-megabytes), G(-igabytes) and T(-erabytes) suffixes. The default value is 10G.
 .TP
 \fB\-\-max\-revisions\fR=\fI\,NUMBER\/\fR
 Set the maximum number of revisions to keep for files in the volume. The revisions are other versions of the file stored when the file gets modified. The default value is 1, which means that only a single version of the file will be stored. See \fBsxrev\fR(1) for more information about revisions.

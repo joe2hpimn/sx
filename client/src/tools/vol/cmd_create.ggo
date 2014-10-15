@@ -8,9 +8,9 @@ option  "replica"   r "Set the replica count of the volume (mandatory)" int requ
 
 option  "owner"	    o "Create new volume owned by specified user (mandatory)" string required
 
-option	"filter"    f "Use filter 'NAME' for the new volume" string typestr="NAME" optional
+option  "size"	    s "Set the size of the new volume (mandatory; allows K,M,G,T suffixes)" string required
 
-option  "size"	    s "Set the size of the new volume (allows k,m,g,t suffixes)" string default="500G" optional
+option	"filter"    f "Use filter 'NAME' for the new volume" string typestr="NAME" optional
 
 option  "max-revisions" - "Set the maximum number of revisions to keep for files in this volume" int default="1" optional
 

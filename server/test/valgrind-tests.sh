@@ -36,8 +36,8 @@ echo
 echo "$ADMIN_KEY" | valgrind_run $SXINIT --no-ssl --batch --host-list=$list sx://localhost-nossl
 echo
 
-valgrind_run $SXVOL create sx://localhost/$VOL -o admin -r 1
-valgrind_run $SXVOL create sx://localhost/$VOLr -o admin -r $N
+valgrind_run $SXVOL create sx://localhost/$VOL -o admin -r 1 -s 100M
+valgrind_run $SXVOL create sx://localhost/$VOLr -o admin -r $N -s 100M
 
 valgrind_run $SXACL useradd $USER sx://localhost
 valgrind_run $SXACL userlist sx://localhost
@@ -113,7 +113,7 @@ done
 # filters that don't require input
 for filter in attribs null zcomp; do
     vol=vf$filter
-    valgrind_run $SXVOL create -f $filter -o admin -r $N sx://localhost/$vol
+    valgrind_run $SXVOL create -f $filter -o admin -r $N -s 100M sx://localhost/$vol
     valgrind_run $SXCP configure sx://localhost/$vol/
     rm -f ftest
     valgrind_run $SXCP sx://localhost/$vol/configure ftest

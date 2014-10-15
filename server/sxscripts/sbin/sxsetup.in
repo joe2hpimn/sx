@@ -1034,7 +1034,7 @@ fi
 echo
 echo "You can run 'sxacl useradd joe sx://admin@$SX_CLUSTER_NAME' to add a new user."
 echo "To create a new volume owned by user 'joe' run:"
-echo "'sxvol create --owner joe --replica N sx://admin@$SX_CLUSTER_NAME/VOLNAME'"
+echo "'sxvol create --owner joe --replica N --size SIZE sx://admin@$SX_CLUSTER_NAME/VOLNAME'"
 echo
 
 exit 0

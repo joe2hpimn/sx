@@ -80,7 +80,7 @@ EOF
     $prefix/sbin/sxsetup --config-file $CONF_TMP --debug --advanced --wait
     rm -f $CONF_TMP
         echo "$ADMIN_KEY" | ../client/src/tools/init/sxinit --port "$SX_PORT"  --host-list=127.0.1.1 sx://localhost --no-ssl
-    ../client/src/tools/vol/sxvol create sx://localhost/vol$i -r $i -o admin
+    ../client/src/tools/vol/sxvol create sx://localhost/vol$i -r $i -o admin -s 100M
     ../client/src/tools/cp/sxcp configure sx://localhost/vol$i/
     if [ $i -eq 1 ]; then
         echo "$ADMIN_KEY" | ../client/src/tools/init/sxinit --port "$SX_PORT"  --host-list=127.0.1.1 sx://localhost --no-ssl
@@ -101,7 +101,7 @@ done
 rm -rf $HOME/.sx/$CLUSTER_NAME # avoid sxinit bugs
 echo "$ADMIN_KEY" | ../client/src/tools/init/sxinit --port "$SX_PORT" --host-list=$list sx://localhost --no-ssl
 #sudo -u $SUDO_USER ../client/src/tools/init/sxinit --no-ssl sx://`hostname` <$STOREDIR/admin.key
-../client/src/tools/vol/sxvol create sx://localhost/volr2 -r 2 -o admin
+../client/src/tools/vol/sxvol create sx://localhost/volr2 -r 2 -o admin -s 100M
 ../client/src/tools/acl/sxacl useradd user1 sx://localhost
 ../client/src/tools/acl/sxacl useradd user2 sx://localhost
 ../client/src/tools/acl/sxacl volperm --grant=write user1,user2 sx://localhost/volr2

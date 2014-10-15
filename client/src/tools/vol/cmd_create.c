@@ -40,8 +40,8 @@ const char *create_args_info_full_help[] = {
   "\nVolume create options:\n",
   "  -r, --replica=INT        Set the replica count of the volume (mandatory)",
   "  -o, --owner=STRING       Create new volume owned by specified user\n                             (mandatory)",
+  "  -s, --size=STRING        Set the size of the new volume (mandatory; allows\n                             K,M,G,T suffixes)",
   "  -f, --filter=NAME        Use filter 'NAME' for the new volume",
-  "  -s, --size=STRING        Set the size of the new volume (allows k,m,g,t\n                             suffixes)  (default=`500G')",
   "      --max-revisions=INT  Set the maximum number of revisions to keep for\n                             files in this volume  (default=`1')",
   "\nAdditional options:\n",
   "  -D, --debug              Enable debug messages  (default=off)",
@@ -99,8 +99,8 @@ void clear_given (struct create_args_info *args_info)
   args_info->version_given = 0 ;
   args_info->replica_given = 0 ;
   args_info->owner_given = 0 ;
-  args_info->filter_given = 0 ;
   args_info->size_given = 0 ;
+  args_info->filter_given = 0 ;
   args_info->max_revisions_given = 0 ;
   args_info->debug_given = 0 ;
   args_info->config_dir_given = 0 ;
@@ -114,10 +114,10 @@ void clear_args (struct create_args_info *args_info)
   args_info->replica_orig = NULL;
   args_info->owner_arg = NULL;
   args_info->owner_orig = NULL;
+  args_info->size_arg = NULL;
+  args_info->size_orig = NULL;
   args_info->filter_arg = NULL;
   args_info->filter_orig = NULL;
-  args_info->size_arg = gengetopt_strdup ("500G");
-  args_info->size_orig = NULL;
   args_info->max_revisions_arg = 1;
   args_info->max_revisions_orig = NULL;
   args_info->debug_flag = 0;
@@ -138,8 +138,8 @@ void init_args_info(struct create_args_info *args_info)
   args_info->version_help = create_args_info_full_help[2] ;
   args_info->replica_help = create_args_info_full_help[4] ;
   args_info->owner_help = create_args_info_full_help[5] ;
-  args_info->filter_help = create_args_info_full_help[6] ;
-  args_info->size_help = create_args_info_full_help[7] ;
+  args_info->size_help = create_args_info_full_help[6] ;
+  args_info->filter_help = create_args_info_full_help[7] ;
   args_info->max_revisions_help = create_args_info_full_help[8] ;
   args_info->debug_help = create_args_info_full_help[10] ;
   args_info->config_dir_help = create_args_info_full_help[11] ;
@@ -242,10 +242,10 @@ create_cmdline_parser_release (struct create_args_info *args_info)
   free_string_field (&(args_info->replica_orig));
   free_string_field (&(args_info->owner_arg));
   free_string_field (&(args_info->owner_orig));
-  free_string_field (&(args_info->filter_arg));
-  free_string_field (&(args_info->filter_orig));
   free_string_field (&(args_info->size_arg));
   free_string_field (&(args_info->size_orig));
+  free_string_field (&(args_info->filter_arg));
+  free_string_field (&(args_info->filter_orig));
   free_string_field (&(args_info->max_revisions_orig));
   free_string_field (&(args_info->config_dir_arg));
   free_string_field (&(args_info->config_dir_orig));
@@ -296,10 +296,10 @@ create_cmdline_parser_dump(FILE *outfile, struct create_args_info *args_info)
     write_into_file(outfile, "replica", args_info->replica_orig, 0);
   if (args_info->owner_given)
     write_into_file(outfile, "owner", args_info->owner_orig, 0);
-  if (args_info->filter_given)
-    write_into_file(outfile, "filter", args_info->filter_orig, 0);
   if (args_info->size_given)
     write_into_file(outfile, "size", args_info->size_orig, 0);
+  if (args_info->filter_given)
+    write_into_file(outfile, "filter", args_info->filter_orig, 0);
   if (args_info->max_revisions_given)
     write_into_file(outfile, "max-revisions", args_info->max_revisions_orig, 0);
   if (args_info->debug_given)
@@ -415,6 +415,12 @@ create_cmdline_parser_required2 (struct create_args_info *args_info, const char 
   if (! args_info->owner_given)
     {
       fprintf (stderr, "%s: '--owner' ('-o') option required%s\n", prog_name, (additional_error ? additional_error : ""));
+      error_occurred = 1;
+    }
+  
+  if (! args_info->size_given)
+    {
+      fprintf (stderr, "%s: '--size' ('-s') option required%s\n", prog_name, (additional_error ? additional_error : ""));
       error_occurred = 1;
     }
   
@@ -583,8 +589,8 @@ create_cmdline_parser_internal (
         { "version",	0, NULL, 'V' },
         { "replica",	1, NULL, 'r' },
         { "owner",	1, NULL, 'o' },
-        { "filter",	1, NULL, 'f' },
         { "size",	1, NULL, 's' },
+        { "filter",	1, NULL, 'f' },
         { "max-revisions",	1, NULL, 0 },
         { "debug",	0, NULL, 'D' },
         { "config-dir",	1, NULL, 'c' },
@@ -592,7 +598,7 @@ create_cmdline_parser_internal (
         { 0,  0, 0, 0 }
       };
 
-      c = getopt_long (argc, argv, "hVr:o:f:s:Dc:", long_options, &option_index);
+      c = getopt_long (argc, argv, "hVr:o:s:f:Dc:", long_options, &option_index);
 
       if (c == -1) break;	/* Exit from `while (1)' loop.  */
 
@@ -641,6 +647,18 @@ create_cmdline_parser_internal (
             goto failure;
         
           break;
+        case 's':	/* Set the size of the new volume (mandatory; allows K,M,G,T suffixes).  */
+        
+        
+          if (update_arg( (void *)&(args_info->size_arg), 
+               &(args_info->size_orig), &(args_info->size_given),
+              &(local_args_info.size_given), optarg, 0, 0, ARG_STRING,
+              check_ambiguity, override, 0, 0,
+              "size", 's',
+              additional_error))
+            goto failure;
+        
+          break;
         case 'f':	/* Use filter 'NAME' for the new volume.  */
         
         
@@ -649,18 +667,6 @@ create_cmdline_parser_internal (
               &(local_args_info.filter_given), optarg, 0, 0, ARG_STRING,
               check_ambiguity, override, 0, 0,
               "filter", 'f',
-              additional_error))
-            goto failure;
-        
-          break;
-        case 's':	/* Set the size of the new volume (allows k,m,g,t suffixes).  */
-        
-        
-          if (update_arg( (void *)&(args_info->size_arg), 
-               &(args_info->size_orig), &(args_info->size_given),
-              &(local_args_info.size_given), optarg, 0, "500G", ARG_STRING,
-              check_ambiguity, override, 0, 0,
-              "size", 's',
               additional_error))
             goto failure;
         

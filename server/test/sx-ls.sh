@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 set -x
-SXVOL_CREATE=`pwd`/"../client/src/tools/vol/sxvol create --no-ssl -o admin -r 1"
+SXVOL_CREATE=`pwd`/"../client/src/tools/vol/sxvol create --no-ssl -o admin -r 1 -s 100M"
 SXCP=`pwd`/"../client/src/tools/cp/sxcp --no-ssl"
 SXLS=`pwd`/"../client/src/tools/ls/sxls --no-ssl"
 HOSTNAME=$1

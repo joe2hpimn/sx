@@ -9,9 +9,9 @@ OWNER=user1
 ../client/src/tools/acl/sxacl userlist sx://localhost
 
 # Volume creation (owned by admin)
-../client/src/tools/vol/sxvol create sx://localhost/vol1 --owner admin -r 1
+../client/src/tools/vol/sxvol create sx://localhost/vol1 --owner admin -r 1 -s 100M
 # Volume creation (owned by user)
-../client/src/tools/vol/sxvol create sx://localhost/vol2 --owner $OWNER -r 1
+../client/src/tools/vol/sxvol create sx://localhost/vol2 --owner $OWNER -r 1 -s 100M
 # Volume listing
 ../client/src/tools/ls/sxls sx://localhost
 # TODO: sxvol delete a volume
