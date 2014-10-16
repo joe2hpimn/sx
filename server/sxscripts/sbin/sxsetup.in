@@ -67,7 +67,7 @@ if [ "$BARE_GIVEN" = "yes" -a "$CONFIG_FILE_GIVEN" != "yes" ]; then
     exit 1
 fi
 
-CFG_VERSION=1
+CFG_VERSION=2
 ETCDIR="@sysconfdir@"
 CONFIG="$ETCDIR/sxserver/sxsetup.conf"
 
@@ -111,6 +111,7 @@ fi
 SX_SERVER_USER=${SX_SERVER_USER:-"nobody"}
 SX_SERVER_GROUP=`id -n -g "$SX_SERVER_USER"`
 SX_RUN_DIR=${SX_RUN_DIR:-"@localstatedir@/run/sxserver"}
+SX_LIB_DIR=${SX_LIB_DIR:-"@localstatedir@/lib/sxserver"}
 SX_NODE_SIZE=${SX_NODE_SIZE:-"1T"}
 SX_CHILDREN_NUM=${SX_CHILDREN_NUM:-"32"}
 SX_LOG_FILE=${SX_LOG_FILE:-"@localstatedir@/log/sxserver/sxfcgi.log"}
@@ -381,8 +382,6 @@ ask_questions() {
 	    CREATED=0
 	    while [ ! -r "$SX_SSL_KEY_FILE" -o ! -r "$SX_SSL_CERT_FILE" ]; do
 		mkdir -p "$ETCDIR/ssl/private" "$ETCDIR/ssl/certs"
-		DIR=@localstatedir@/lib/sxserver
-		mkdir -p $DIR
 		if [ "$ADVANCED_GIVEN" = "yes" ]; then
 		    cat > "$CERTCONF_TMP" <<EOF
 [ req ]
@@ -679,6 +678,7 @@ cat >"$CONFIG" <<EOF
 SX_CLUSTER_NAME="$SX_CLUSTER_NAME"
 SX_DATA_DIR="$SX_DATA_DIR"
 SX_RUN_DIR="$SX_RUN_DIR"
+SX_LIB_DIR="$SX_LIB_DIR"
 SX_LOG_FILE="$SX_LOG_FILE"
 SX_NODE_SIZE="$SX_NODE_SIZE"
 SX_NODE_IP="$SX_NODE_IP"

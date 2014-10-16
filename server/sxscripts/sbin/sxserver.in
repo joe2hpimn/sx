@@ -59,8 +59,9 @@ wait_pids() {
 case "$1" in
     start)
         SXLOGDIR=`dirname "$SX_LOG_FILE"`
-        mkdir -p "$SX_RUN_DIR" "$SXLOGDIR"
+        mkdir -p "$SX_RUN_DIR" "$SX_LIB_DIR" "$SXLOGDIR"
         test -z "$SX_NO_ROOT" && test -n "$SX_RUN_DIR" && chown -R "$SX_SERVER_USER:$SX_SERVER_GROUP" "$SX_RUN_DIR"
+        test -z "$SX_NO_ROOT" && test -n "$SX_LIB_DIR" && chown -R "$SX_SERVER_USER:$SX_SERVER_GROUP" "$SX_LIB_DIR"
         test -z "$SX_NO_ROOT" && test -n "$SXLOGDIR" && chown -R "$SX_SERVER_USER:$SX_SERVER_GROUP" "$SXLOGDIR"
         test -z "$SX_NO_ROOT" && test -n "$SX_DATA_DIR" && chown -R "$SX_SERVER_USER:$SX_SERVER_GROUP" "$SX_DATA_DIR"
 
