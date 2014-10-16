@@ -867,7 +867,7 @@ void fcgi_create_volume(void) {
 	job_t job;
 	rc_ty res;
 
-        res = sx_hashfs_check_volume_size(hashfs, yctx.volsize, yctx.replica);
+        res = sx_hashfs_check_volume_settings(hashfs, volume, yctx.volsize, yctx.replica, yctx.revisions);
         if(res != OK) {
             sx_blob_free(yctx.metablb);
             if(res == EINVAL)

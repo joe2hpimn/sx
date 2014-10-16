@@ -3320,7 +3320,7 @@ static int64_t get_cluster_capacity(sx_hashfs_t *h, sx_hashfs_nl_t which) {
 }
 
 /* Return error if given size is incorrect */
-rc_ty sx_hashfs_check_volume_size(sx_hashfs_t *h, int64_t size, unsigned int replica) {
+static rc_ty sx_hashfs_check_volume_size(sx_hashfs_t *h, int64_t size, unsigned int replica) {
     int64_t vols_size;
     int64_t nodes_size = 0;
 
@@ -3352,10 +3352,10 @@ rc_ty sx_hashfs_check_volume_size(sx_hashfs_t *h, int64_t size, unsigned int rep
 
     /*** temporary work-around for bb#813 ***/
     if(size * (int64_t)replica > nodes_size) {
-        msg_set_reason("Invalid volume size %lld (replica %u): must be between %lld and %lld",
+        msg_set_reason("Invalid volume size %lld - with replica %u it must be between %lld and %lld",
                        (long long)size, replica,
                        (long long)SXLIMIT_MIN_VOLUME_SIZE,
-                       (long long)nodes_size);
+                       (long long)nodes_size / replica);
         return EINVAL;
     }
     return OK;
@@ -3379,23 +3379,24 @@ rc_ty sx_hashfs_check_volume_size(sx_hashfs_t *h, int64_t size, unsigned int rep
     return OK;
 }
 
-rc_ty sx_hashfs_volume_new_finish(sx_hashfs_t *h, const char *volume, int64_t size, unsigned int replica, unsigned int revisions, sx_uid_t uid) {
-    unsigned int reqlen = 0;
-    rc_ty ret = FAIL_EINTERNAL;
-    int64_t volid;
-    int r;
+rc_ty sx_hashfs_check_volume_settings(sx_hashfs_t *h, const char *volume, int64_t size, unsigned int replica, unsigned int revisions) {
+    rc_ty ret;
 
     if(!h) {
 	NULLARG();
 	return EFAULT;
     }
-    if ((ret = sx_hashfs_check_volume_name(volume)))
+
+    if((ret = sx_hashfs_check_volume_name(volume)))
 	return ret;
 
     if(h->have_hd) {
 	unsigned int nnodes = MIN(sx_nodelist_count(sx_hashfs_nodelist(h, NL_PREV)), sx_nodelist_count(sx_hashfs_nodelist(h, NL_NEXT)));
 	if(replica < 1 || replica > nnodes) {
-	    msg_set_reason("Invalid replica count %d: must be between %d and %d",
+	    if(nnodes == 1)
+		msg_set_reason("Invalid replica count %d: must be 1 for a single-node cluster", replica);
+	    else
+		msg_set_reason("Invalid replica count %d: must be between %d and %d",
 			   replica, 1, nnodes);
 	    return EINVAL;
 	}
@@ -3406,6 +3407,20 @@ rc_ty sx_hashfs_volume_new_finish(sx_hashfs_t *h, const char *volume, int64_t si
 	return EINVAL;
     }
 
+    return sx_hashfs_check_volume_size(h, size, replica);
+}
+
+rc_ty sx_hashfs_volume_new_finish(sx_hashfs_t *h, const char *volume, int64_t size, unsigned int replica, unsigned int revisions, sx_uid_t uid) {
+    unsigned int reqlen = 0;
+    rc_ty ret = FAIL_EINTERNAL;
+    int64_t volid;
+    int r;
+
+    if(!h) {
+	NULLARG();
+	return EFAULT;
+    }
+
     sqlite3_reset(h->q_addvol);
     sqlite3_reset(h->q_addvolmeta);
     sqlite3_reset(h->q_addvolprivs);
@@ -3414,7 +3429,7 @@ rc_ty sx_hashfs_volume_new_finish(sx_hashfs_t *h, const char *volume, int64_t si
 	return FAIL_EINTERNAL;
 
     /* Check volume size inside transaction to not fall into race */
-    if((ret = sx_hashfs_check_volume_size(h, size, replica)) != OK)
+    if((ret = sx_hashfs_check_volume_settings(h, volume, size, replica, revisions)) != OK)
         goto volume_new_err;
     ret = FAIL_EINTERNAL;
 

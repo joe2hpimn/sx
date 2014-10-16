@@ -128,7 +128,7 @@ typedef struct _sx_hash_challenge_t {
 rc_ty sx_hashfs_challenge_gen(sx_hashfs_t *h, sx_hash_challenge_t *c, int random_challenge);
 
 int sx_hashfs_check_volume_name(const char *name);
-rc_ty sx_hashfs_check_volume_size(sx_hashfs_t *h, int64_t size, unsigned int replica);
+rc_ty sx_hashfs_check_volume_settings(sx_hashfs_t *h, const char *volume, int64_t size, unsigned int replica, unsigned int revisions);
 int sx_hashfs_check_meta(const char *key, const void *value, unsigned int value_len);
 int sx_hashfs_check_username(const char *name);
 
