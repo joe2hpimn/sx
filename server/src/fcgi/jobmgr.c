@@ -801,7 +801,7 @@ static int req_append(char **req, unsigned int *req_len, const char *append_me) 
     return 0;
 }
 
-static act_result_t replicateblocks_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+static act_result_t replicateblocks_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     sxi_conns_t *clust = sx_hashfs_conns(hashfs);
     const sx_node_t *me = sx_hashfs_self(hashfs);
     unsigned int i, j, worstcase_rpl, nqueries = 0;
@@ -1080,6 +1080,29 @@ static act_result_t replicateblocks_request(sx_hashfs_t *hashfs, job_t job_id, j
 
     return ret;
 }
+
+
+static act_result_t replicateblocks_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    act_result_t ret = ACT_RESULT_OK;
+    int64_t tmpfile_id;
+    rc_ty s;
+
+    if(job_data->len != sizeof(tmpfile_id) || sx_nodelist_count(nodes) != 1) {
+	CRIT("Bad job data");
+	action_error(ACT_RESULT_PERMFAIL, 500, "Internal job data error");
+    }
+
+    memcpy(&tmpfile_id, job_data->ptr, sizeof(tmpfile_id));
+    s = sx_hashfs_tmp_unbump(hashfs, tmpfile_id);
+    if(s == OK)
+	action_error(ACT_RESULT_TEMPFAIL, 500, "Unbump not yet completed");
+    if(s != ITER_NO_MORE)
+	action_error(rc2actres(s), rc2http(s), "Unbump failed");
+
+ action_failed:
+    return ret;
+}
+
 
 static act_result_t fileflush_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     sxi_conns_t *clust = sx_hashfs_conns(hashfs);
@@ -3015,7 +3038,7 @@ static struct {
     { createvol_request, createvol_commit, createvol_abort_and_undo, createvol_abort_and_undo }, /* JOBTYPE_CREATE_VOLUME */
     { createuser_request, createuser_commit, createuser_abort, createuser_undo }, /* JOBTYPE_CREATE_USER */
     { acl_request, acl_commit, acl_abort, acl_undo }, /* JOBTYPE_VOLUME_ACL */
-    { replicateblocks_request, force_phase_success, FIXME_phase_placeholder, force_phase_success }, /* JOBTYPE_REPLICATE_BLOCKS */
+    { force_phase_success, replicateblocks_commit, replicateblocks_abort, replicateblocks_abort }, /* JOBTYPE_REPLICATE_BLOCKS */
     { fileflush_request, fileflush_commit, FIXME_phase_placeholder,FIXME_phase_placeholder }, /* JOBTYPE_FLUSH_FILE */
     { filedelete_request, force_phase_success, FIXME_phase_placeholder, force_phase_success }, /* JOBTYPE_DELETE_FILE */
     { distribution_request, distribution_commit, distribution_abort, distribution_undo }, /* JOBTYPE_DISTRIBUTION */

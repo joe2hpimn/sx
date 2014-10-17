@@ -5138,21 +5138,6 @@ rc_ty sx_hashfs_block_get(sx_hashfs_t *h, unsigned int bs, const sx_hash_t *hash
     return OK;
 }
 
-rc_ty sx_hashfs_hashop_begin(sx_hashfs_t *h, unsigned bs)
-{
-    unsigned hs;
-    /* FIXME: code duplicated with block_put */
-    for(hs = 0; hs < SIZES; hs++)
-	if(bsz[hs] == bs)
-	    break;
-    if(hs == SIZES)
-	return FAIL_BADBLOCKSIZE;
-    h->put_hs = hs;
-    /* would be nice to begin a transaction here, but the DB we use depends on
-     * the hash...*/
-    return OK;
-}
-
 static rc_ty sx_hashfs_hashop_ishash(sx_hashfs_t *h, unsigned hs, const sx_hash_t *hash)
 {
     rc_ty ret;
@@ -5284,18 +5269,11 @@ static rc_ty sx_hashfs_hashop_moduse(sx_hashfs_t *h, const char *id, unsigned in
     return ret;
 }
 
-rc_ty sx_hashfs_hashop_finish(sx_hashfs_t *h, rc_ty rc)
+rc_ty sx_hashfs_hashop_perform(sx_hashfs_t *h, unsigned int block_size, unsigned replica_count, enum sxi_hashop_kind kind, const sx_hash_t *hash, const char *id, uint64_t op_expires_at, int *present)
 {
-    if (rc == ENOENT)
-        rc = OK;
-    /* would have to commit/rollback if we can batch updates */
-    return rc;
-}
-
-rc_ty sx_hashfs_hashop_perform(sx_hashfs_t *h, unsigned replica_count, enum sxi_hashop_kind kind, const sx_hash_t *hash, const char *id, uint64_t op_expires_at)
-{
-    unsigned int hs = h->put_hs;
+    unsigned int hs;
     rc_ty rc;
+
     if (UNLIKELY(sxi_log_is_debug(&logger))) {
         char debughash[sizeof(sx_hash_t)*2+1];		\
         bin2hex(hash->b, sizeof(*hash), debughash, sizeof(debughash));	\
@@ -5305,6 +5283,13 @@ rc_ty sx_hashfs_hashop_perform(sx_hashfs_t *h, unsigned replica_count, enum sxi_
               kind == HASHOP_DELETE ? "decuse" : "??",
               debughash, id ? id : "");
     }
+
+    for(hs = 0; hs < SIZES; hs++)
+	if(bsz[hs] == block_size)
+	    break;
+    if(hs == SIZES)
+	return FAIL_BADBLOCKSIZE;
+
     switch (kind) {
         case HASHOP_CHECK:
             rc = sx_hashfs_hashop_ishash(h, hs, hash);
@@ -5336,6 +5321,10 @@ rc_ty sx_hashfs_hashop_perform(sx_hashfs_t *h, unsigned replica_count, enum sxi_
             return EINVAL;
     }
     DEBUG("result: %s", rc2str(rc));
+    if(present && rc == OK)
+	*present = OK;
+    if(rc == ENOENT)
+	rc = OK;
     return rc;
 }
 
@@ -6432,14 +6421,8 @@ static rc_ty are_blocks_available(sx_hashfs_t *h, sx_hash_t *hashes,
 	    hdck->ok++;
 	else
 	    hdck->enoent++;
-        rc = sx_hashfs_hashop_begin(h, bsz[hash_size]);
-        if (rc) {
-            WARN("hashop_begin failed: %s", rc2str(rc));
-            return rc;
-        }
-        rc = sx_hashfs_hashop_perform(h, replica_count, hdck->kind, hash, hdck->id, hdck->op_expires_at);
-        rc = sx_hashfs_hashop_finish(h, rc);
-        if (rc && rc != ENOENT) {
+        rc = sx_hashfs_hashop_perform(h, bsz[hash_size], replica_count, hdck->kind, hash, hdck->id, hdck->op_expires_at, NULL);
+        if(rc != OK) {
             WARN("hashop_perform/finish failed: %s", rc2str(rc));
             return rc;
         }
@@ -7015,6 +6998,10 @@ rc_ty sx_hashfs_tmp_getinfo(sx_hashfs_t *h, int64_t tmpfile_id, sx_hashfs_tmpinf
 					       hash_size,
 					       i,
 					       tbd->replica_count)) == OK) {
+		if(cur_item >= 3) {
+		    ret = EINVAL;
+		    break;
+		}
 		if(cur_item >= nuniqs)
 		    break;
 	    }
@@ -7253,6 +7240,168 @@ static rc_ty get_file_id(sx_hashfs_t *h, const char *volume, const char *filenam
     return res;
 }
 
+static int tmp_unbump_cb(const char *hexhash, unsigned int idx, int code, void *context) {
+    sx_hashfs_tmpinfo_t *tmp = (sx_hashfs_tmpinfo_t *)context;
+    char idxhash[SXI_SHA1_TEXT_LEN + 1];
+    unsigned int nblock, replica;
+
+
+    INFO("IN %s", __FUNCTION__);
+
+    if(!hexhash || !tmp) {
+	WARN("Called with NULL values");
+	return -1;
+    }
+
+    if(code != 200 && code != 404)
+	return 0;
+
+    if(!tmp->replica_count) {
+	WARN("Called with null replica count");
+	return -1;
+    }
+
+    nblock = idx / tmp->replica_count;
+    replica = idx % tmp->replica_count;
+
+    if(nblock >= tmp->nall) {
+	WARN("Block out of range (%u / %u)", nblock, tmp->nall);
+	return -1;
+    }
+
+    bin2hex(&tmp->all_blocks[nblock], sizeof(tmp->all_blocks[0]), idxhash, sizeof(idxhash));
+    if(memcmp(idxhash, hexhash, SXI_SHA1_TEXT_LEN)) {
+	WARN("Hash mismatch: called for %.*s but index %d points to %s", SXI_SHA1_TEXT_LEN, hexhash, idx, idxhash);
+	return -1;
+    }
+
+    if(tmp->avlblty[idx] != 0) {
+	tmp->avlblty[idx] = 0;
+	tmp->somestatechanged = 1;
+        INFO("Block %s (replica %u) unbumped", idxhash, replica);
+    } else
+	DEBUG("Called for block %s (replica %u) which was not bumped", idxhash, replica);
+
+    return 0;
+}
+
+rc_ty sx_hashfs_tmp_unbump(sx_hashfs_t *h, int64_t tmpfile_id) {
+    unsigned int nnode, nnodes, nblock, replica;
+    char fileidhex[SXI_SHA1_TEXT_LEN+1];
+    const sx_hashfs_volume_t *vol;
+    sx_hashfs_tmpinfo_t *tmp;
+    uint64_t op_expires_at;
+    const sx_node_t *self;
+    sx_hash_t fileid;
+    rc_ty s, ret = OK;
+
+    s = sx_hashfs_tmp_getinfo(h, tmpfile_id, &tmp, 0, 0);
+    if(s != OK)
+	return s;
+
+    s = sx_hashfs_volume_by_id(h, tmp->volume_id, &vol);
+    if(s) {
+	free(tmp);
+	return s;
+    }
+    if(!tmp->nall) {
+	free(tmp);
+	return ITER_NO_MORE;
+    }
+
+    for(nblock=0; nblock<tmp->nall; nblock++) {
+	/* MODHDIST: pick from _next, bidx=0 */
+	if(hash_nidx_tobuf(h, &tmp->all_blocks[nblock], vol->replica_count, &tmp->nidxs[nblock*vol->replica_count])) {
+	    WARN("hash_nidx_tobuf failed");
+	    free(tmp);
+	    return FAIL_EINTERNAL;
+	}
+    }
+
+    if(unique_fileid(h->sx, vol, tmp->name, tmp->revision, &fileid)) {
+	free(tmp);
+	return FAIL_EINTERNAL;
+    }
+    bin2hex(&fileid, sizeof(fileid), fileidhex, sizeof(fileidhex));
+
+    op_expires_at = time(NULL) + JOB_FILE_MAX_TIME;
+    sxi_hashop_begin(&h->hc, h->sx_clust, tmp_unbump_cb, HASHOP_DELETE, vol->replica_count, NULL, &fileid, tmp, op_expires_at);
+
+    self = sx_hashfs_self(h);
+    nnodes = sx_nodelist_count(tmp->allnodes);
+    for(nnode = 0; nnode < nnodes; nnode++) {
+	const sx_node_t *node = sx_nodelist_get(tmp->allnodes, nnode);
+	int local = !sx_node_cmp(node, self);
+
+	INFO("Node %u / %u", nnode, nnodes);
+    
+	for(nblock = 0; nblock < tmp->nall; nblock++) {
+
+	    INFO("Block %u / %u", nblock, tmp->nall);
+
+	    for(replica = 0; replica < tmp->replica_count; replica++) {
+		unsigned int idx = nblock * tmp->replica_count + replica;
+		unsigned int ntarget = tmp->nidxs[idx];
+		unsigned int avail = tmp->avlblty[idx];
+
+		INFO("Replica %u / %u: target %u, avail %u", replica, tmp->replica_count, ntarget, avail);
+
+		if(ntarget != nnode || !avail)
+		    continue;
+
+		if(local) {
+		    s = sx_hashfs_hashop_perform(h, tmp->block_size, tmp->replica_count, HASHOP_DELETE, &tmp->all_blocks[nblock], fileidhex, op_expires_at, NULL);
+		    if(s == OK) {
+			char hexhash[sizeof(sx_hash_t) * 2 + 1];
+			bin2hex(&tmp->all_blocks[nblock], sizeof(tmp->all_blocks[0]), hexhash, sizeof(hexhash));
+			tmp_unbump_cb(hexhash, idx, 200, tmp);
+		    } else {
+			WARN("hashop_perform failed: %s", rc2str(s));
+			ret = s;
+		    }
+		} else {
+		    s = sxi_hashop_batch_add(&h->hc, sx_node_internal_addr(node), idx, tmp->all_blocks[nblock].b, tmp->block_size);
+		    if(s) {
+			ret = s;
+			WARN("hashop_batch_add failed: %s", rc2str(s));
+		    }
+		}
+	    }
+	}
+    }
+
+    if(sxi_hashop_end(&h->hc) == -1) {
+	WARN("hashop_end failed: %s", sxc_geterrmsg(h->sx));
+	ret = FAIL_EINTERNAL;
+    }
+
+    if(tmp->somestatechanged) {
+	sqlite3_reset(h->qt_updateuniq);
+	if(!qbind_int64(h->qt_updateuniq, ":id", tmpfile_id) &&
+	   !qbind_blob(h->qt_updateuniq, ":uniq", "", 0) &&
+	   !qbind_blob(h->qt_updateuniq, ":avail", tmp->avlblty, tmp->nall * vol->replica_count))
+	    qstep_noret(h->qt_updateuniq);
+	sqlite3_reset(h->qt_updateuniq);
+    }
+
+
+    if(ret == OK) {
+	unsigned int idx = tmp->nall * tmp->replica_count;
+	ret = ITER_NO_MORE;
+	while(idx--) {
+	    if(tmp->avlblty[idx] != 0) {
+		ret = OK;
+		break;
+	    }
+	}
+    }
+
+    free(tmp);
+
+    return ret;
+}
+
+
 static rc_ty file_unbump(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const char *file, const char *revision, sx_hashfs_nl_t dist, int current_replica) {
     unsigned int i, idx = 0, *idxs = NULL, uniq;
     char fileidhex[SXI_SHA1_TEXT_LEN+1];
@@ -7294,14 +7443,9 @@ static rc_ty file_unbump(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const
 		    const sx_node_t *node = sx_nodelist_get(nodes[i], current_replica);
 		    DEBUGHASH("decuse on", hash);
 		    if (!sx_node_cmp(node, self)) {
-			ret = sx_hashfs_hashop_begin(h, filedata.block_size);
-			if (ret == OK) {
-			    ret = sx_hashfs_hashop_perform(h, volume->replica_count, HASHOP_DELETE, hash, fileidhex, op_expires_at);
-			    if (ret != OK)
-				WARN("hashop_perform failed: %s", rc2str(ret));
-			    ret = sx_hashfs_hashop_finish(h, ret);
-			} else
-			    WARN("hashop_begin failed: %s", rc2str(ret));
+			ret = sx_hashfs_hashop_perform(h, filedata.block_size, volume->replica_count, HASHOP_DELETE, hash, fileidhex, op_expires_at, NULL);
+			if (ret != OK)
+			    WARN("hashop_perform failed: %s", rc2str(ret));
 		    } else {
 			ret = sxi_hashop_batch_add(&h->hc, sx_node_internal_addr(node), idx++, hash->b, filedata.block_size);
 			if (ret)

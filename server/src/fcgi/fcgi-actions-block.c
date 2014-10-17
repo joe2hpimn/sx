@@ -116,7 +116,7 @@ void fcgi_hashop_blocks(enum sxi_hashop_kind kind) {
     unsigned blocksize, n=0;
     const char *hpath;
     sx_hash_t reqhash;
-    rc_ty rc;
+    rc_ty rc = OK;
     unsigned missing = 0;
     const char *id, *expires;
     char *end = NULL;
@@ -145,14 +145,9 @@ void fcgi_hashop_blocks(enum sxi_hashop_kind kind) {
     }
     while(*hpath == '/')
 	hpath++;
-    rc = sx_hashfs_hashop_begin(hashfs, blocksize);
-    if (rc) {
-        msg_set_reason("Failed to reserve hashes: %s", rc2str(rc));
-        quit_errmsg(500, msg_get_reason());
-    }
     CGI_PUTS("Content-type: application/json\r\n\r\n{\"presence\":[");
     while (*hpath) {
-        int present;
+	int present;
         if(hex2bin(hpath, SXI_SHA1_TEXT_LEN, reqhash.b, SXI_SHA1_BIN_LEN)) {
             msg_set_reason("Invalid hash %*.s", SXI_SHA1_TEXT_LEN, hpath);
             rc = EINVAL;
@@ -164,25 +159,19 @@ void fcgi_hashop_blocks(enum sxi_hashop_kind kind) {
             quit_itererr("bad URL format for hashop", 400);
         }
         n++;
-        rc = sx_hashfs_hashop_perform(hashfs, 0, kind, &reqhash, id, op_expires_at);
-        present = rc == OK;
+        rc = sx_hashfs_hashop_perform(hashfs, blocksize, 0, kind, &reqhash, id, op_expires_at, &present);
         if (comma)
             CGI_PUTC(',');
         /* the presence callback wants an index not the actual hash...
          * */
         CGI_PUTS(present ? "true" : "false");
         DEBUGHASH("Status sent for ", &reqhash);
-        DEBUG("Hash index %d, present: %d", idx, present);
+	DEBUG("Hash index %d, present: %d", idx, present);
         comma = 1;
-        if (rc != OK) {
-            if (rc == ENOENT)
-                rc = OK;
-            else
+        if (rc != OK)
                 break;
-        }
         idx++;
     }
-    rc = sx_hashfs_hashop_finish(hashfs, rc);
     if (rc != OK) {
         WARN("hashop: %s", rc2str(rc));
         CGI_PUTC(']');

@@ -253,10 +253,8 @@ rc_ty sx_hashfs_block_get(sx_hashfs_t *h, unsigned int bs, const sx_hash_t *hash
 rc_ty sx_hashfs_block_put(sx_hashfs_t *h, const uint8_t *data, unsigned int bs, unsigned int replica_count, int propagate);
 
 /* hash batch ops for GC */
-rc_ty sx_hashfs_hashop_begin(sx_hashfs_t *h, unsigned bs);
-rc_ty sx_hashfs_hashop_perform(sx_hashfs_t *h, unsigned replica, enum sxi_hashop_kind kind, const sx_hash_t *hash, const char *id, uint64_t op_expires_at);
+rc_ty sx_hashfs_hashop_perform(sx_hashfs_t *h, unsigned int block_size, unsigned replica_count, enum sxi_hashop_kind kind, const sx_hash_t *hash, const char *id, uint64_t op_expires_at, int *present);
 rc_ty sx_hashfs_hashop_mod(sx_hashfs_t *h, const sx_hash_t *hash, const char *id, unsigned int blocksize, unsigned replica, int64_t count, uint64_t op_expires_at);
-rc_ty sx_hashfs_hashop_finish(sx_hashfs_t *h, rc_ty rc);
 rc_ty sx_hashfs_gc_periodic(sx_hashfs_t *h, int *terminate, int grace_period);
 rc_ty sx_hashfs_gc_run(sx_hashfs_t *h, int *terminate);
 rc_ty sx_hashfs_gc_info(sx_hashfs_t *h, int *terminate);
@@ -306,6 +304,8 @@ typedef struct _sx_hashfs_tmpinfo_t {
 rc_ty sx_hashfs_tmp_getmeta(sx_hashfs_t *h, const char *name, int64_t tmpfile_id, sxc_meta_t *metadata);
 rc_ty sx_hashfs_tmp_getinfo(sx_hashfs_t *h, int64_t tmpfile_id, sx_hashfs_tmpinfo_t **tmpinfo, int recheck_presence, uint64_t op_expires_at);
 rc_ty sx_hashfs_tmp_tofile(sx_hashfs_t *h, const sx_hashfs_tmpinfo_t *missing);
+rc_ty sx_hashfs_tmp_unbump(sx_hashfs_t *h, int64_t tmpfile_id);
+
 
 /* File delete */
 rc_ty sx_hashfs_file_delete(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const char *file, const char *revision);
