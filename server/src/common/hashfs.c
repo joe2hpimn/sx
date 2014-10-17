@@ -1791,9 +1791,10 @@ rc_ty sx_hashfs_check_volume_name(const char *name) {
 
 static int check_file_name(const char *name) {
     unsigned int namelen;
+
     if(!name) {
-	NULLARG();
-	return -1;
+        NULLARG();
+        return -1;
     }
     namelen = strlen(name);
     if(namelen < SXLIMIT_MIN_FILENAME_LEN || namelen > SXLIMIT_MAX_FILENAME_LEN) {
@@ -2064,221 +2065,981 @@ void sx_hashfs_stats(sx_hashfs_t *h)
     }
 }
 
-static void analyze_db(sxi_db_t *db)
+/* Return number of encountered errors, -1 if failed */
+static int analyze_db(sxi_db_t *db, int verbose)
 {
+    int ret = 0, r;
     const char *name = sqlite3_db_filename(db->handle, "main");
-    if (!name) name = "";
-    INFO("%s:", name);
-    sqlite3_stmt *q = NULL;
-    if (!qprep(db, &q, "PRAGMA integrity_check;")) {
-	while(qstep(q) == SQLITE_ROW)
-	    INFO("\tintegrity_check: %s", sqlite3_column_text(q,0));
+    sqlite3_stmt *qint = NULL, *qfk = NULL;
+    if(name && verbose)
+        INFO("%s:", name);
+    if (qprep(db, &qint, "PRAGMA integrity_check;") || qprep(db, &qfk, "PRAGMA foreign_key_check")) {
+        ret = -1;
+        WARN("Failed to bind query");
+        goto analyze_db_err;
     }
-    sqlite3_finalize(q);
+
+    /* Check first row for "ok" string */
+    if((r = qstep(qint)) == SQLITE_ROW) {
+        const char *line = (const char*)sqlite3_column_text(qint, 0);
+        if(line && !strcmp(line, "ok")) {
+            if(verbose)
+                INFO("\tintegrity_check: %s", line);
+        } else {
+            WARN("\tintegrity_check: %s", line);
+            ret++;
+        }
+    }
+
+    /* Get errors, if there was "ok" in the first row, we shouldn't receive more rows, but its ok to check all */
+    while((r = qstep(qint)) == SQLITE_ROW) {
+        const char *line = (const char*)sqlite3_column_text(qint, 0);
+        WARN("\tintegrity_check: %s", line);
+        ret++;
+    }
+
+    if(r != SQLITE_DONE) {
+        WARN("Failed to perform PRAGMA integrity_check");
+        ret = -1;
+    }
+
+    /* Check first row for "ok" string */
+    if((r = qstep(qfk)) == SQLITE_ROW) {
+        const char *line = (const char*)sqlite3_column_text(qfk, 0);
+        if(line && !strcmp(line, "ok")) {
+            if(verbose)
+                INFO("\tforeign_key_check: %s", line);
+        } else {
+            WARN("\tforeign_key_check: %s", line);
+            ret++;
+        }
+    }
+
+    /* Get errors, if there was "ok" in the first row, we shouldn't receive more rows, but its ok to check all */
+    while((r = qstep(qfk)) == SQLITE_ROW) {
+        const char *line = (const char*)sqlite3_column_text(qfk,0);
+        WARN("\tforeign_key_check: %s", line);
+        ret++;
+    }
+
+    if(r != SQLITE_DONE) {
+        WARN("Failed to perform PRAGMA foreign_key_check");
+        ret = -1;
+    }
+
+analyze_db_err:
+    sqlite3_finalize(qint);
+    sqlite3_finalize(qfk);
+    return ret;
 }
 
-void sx_hashfs_analyze(sx_hashfs_t *h)
+int sx_hashfs_analyze(sx_hashfs_t *h, int verbose)
 {
-    /* TODO: some reporting about jobs/events table */
-    INFO("Analyzing databases...");
-    analyze_db(h->db);
+    int ret = 0, r;
+    if(verbose)
+        INFO("Analyzing databases...");
+    r = analyze_db(h->db, verbose);
+    if(r == -1)
+        return -1;
+    ret += r;
     unsigned i, j;
     for(i=0; i<METADBS; i++)
-	analyze_db(h->metadb[i]);
+	r = analyze_db(h->metadb[i], verbose);
+        if(r == -1)
+            return -1;
+        ret += r;
     for (j=0; j<SIZES; j++) {
 	for(i=0;i<HASHDBS;i++) {
-	    analyze_db(h->datadb[j][i]);
+	    analyze_db(h->datadb[j][i], verbose);
+            if(r == -1)
+                return -1;
+            ret += r;
 	}
+    }
+    r = analyze_db(h->tempdb, verbose);
+    if(r == -1)
+        return -1;
+    ret += r;
+    r = analyze_db(h->eventdb, verbose);
+    if(r == -1)
+        return -1;
+    ret += r;
+    r = analyze_db(h->xferdb, verbose);
+    if(r == -1)
+        return -1;
+    ret += r;
+    return ret;
+}
+
+static int check_warn_printed = 0;
+static int check_info_printed = 0;
+
+static void check_print_pgrs(void) {
+    static char chars[] = { '-', '\\', '|', '/'};
+    static int idx = -1;
+    static struct timeval last_time;
+    struct timeval now;
+
+    if(idx == -1) {
+        idx = 0;
+        gettimeofday(&last_time, NULL);
+    }
+
+    gettimeofday(&now, NULL);
+    if(sxi_timediff(&now, &last_time) > 0.1) {
+        idx = (idx + 1) % 4;
+        memcpy(&last_time, &now, sizeof(now));
+        fprintf(stderr,"\b%c", chars[idx]);
     }
 }
 
-int sx_hashfs_check(sx_hashfs_t *h, int debug) {
-    unsigned int i, j;
-    int64_t rows = 0; /* because arguing with gcc is pointless */
-    int res = 0;
+#define CHECK_PRINT_WARN(...) do { CHECK_LOG_INTERNAL(SX_LOG_WARNING, __VA_ARGS__, "   "); } while(0)
+#define CHECK_ERROR(...) do { ret++; CHECK_PRINT_WARN(__VA_ARGS__); } while(0)
+#define CHECK_FATAL(...) CHECK_PRINT_WARN(__VA_ARGS__)
+#define CHECK_INFO(...) do { CHECK_LOG_INTERNAL(SX_LOG_INFO, __VA_ARGS__, "   "); } while(0)
+#define CHECK_START do { CHECK_PRINT_WARN("Integrity check started"); } while(0)
+#define CHECK_FINISH do { fprintf(stderr, "%s", check_warn_printed ? "\b \n" : "\b"); printf("%s", check_info_printed ? "\n" : ""); } while(0)
+#define CHECK_PGRS do { check_print_pgrs(); } while(0)
+
+#define CHECK_LOG_INTERNAL(lvl, msg, ...) do { \
+                                            if((lvl) == SX_LOG_WARNING) { \
+                                                fprintf(stderr, "%s[%s]: ", (check_warn_printed || check_info_printed) ? "\b \n" : "\b", __FUNCTION__); \
+                                                fprintf(stderr, msg"%s", __VA_ARGS__); \
+                                                check_warn_printed = 1; \
+                                            } else { \
+                                                fprintf(stderr, "\b%s", check_info_printed ? " " : ""); \
+                                                fprintf(stdout, "%s[%s]: "msg"%s", check_info_printed ? "\n" : "", __FUNCTION__, __VA_ARGS__); \
+                                                fflush(stdout); \
+                                                check_info_printed = 1; \
+                                            } \
+                                         } while(0)
+
+
+static int check_file_hashes(sx_hashfs_t *h, int debug, const sx_hash_t *hashes, unsigned int hashes_count, unsigned int block_size, unsigned int replica_count) {
+    int ret = 0;
+    unsigned int j, bs;
+    unsigned int processed_hashes = 0;
+    const sx_uuid_t *self;
+    sqlite3_stmt *q = NULL;
+
+    /* Get block size index */
+    for(j = 0; j < SIZES; j++) {
+        if(bsz[j] == block_size) {
+            bs = j;
+            break;
+        }
+    }
+
+    if(j >= SIZES) {
+        ret = -1;
+        goto check_file_hashes_err;
+    }
+
+    self = sx_node_uuid(sx_hashfs_self(h));
+    if(!self) {
+        CHECK_FATAL("Failed to get node UUID");
+        ret = -1;
+        goto check_file_hashes_err;
+    }
+
+    for(j = 0; j < hashes_count; j++) {
+        const sx_hash_t* hash = hashes + j;
+        unsigned int ndb = gethashdb(hash);
+        int r;
+        sxi_db_t *db = h->datadb[bs][ndb];
+        q = h->qb_get[bs][ndb];
+        char hex[SXI_SHA1_TEXT_LEN+1];
+        sx_nodelist_t *hashnodes;
+
+        CHECK_PGRS;
+
+        if(!db || !q) {
+            ret = -1;
+            goto check_file_hashes_err;
+        }
+
+        /* Get hash text representation for debugging*/
+        if(bin2hex(hash->b, SXI_SHA1_BIN_LEN, hex, SXI_SHA1_TEXT_LEN+1)) {
+            ret = -1;
+            goto check_file_hashes_err;
+        }
+
+        hashnodes = sx_hashfs_hashnodes(h, NL_PREV, hash, replica_count);
+        if(hashnodes) {
+            int skip = 0;
+            /* Skip hashes stored on remote nodes */
+            if(!sx_nodelist_lookup(hashnodes, self))
+                skip = 1;
+            sx_nodelist_delete(hashnodes);
+            if(skip)
+                continue;
+        } else {
+            ret = -1;
+            goto check_file_hashes_err;
+        }
+
+        if(debug)
+            CHECK_INFO("-> Checking hash %.8s existence [%u]", hex, ndb);
+
+        sqlite3_reset(q);
+        if(qbind_blob(q, ":hash", hash, sizeof(*hash))) {
+            ret = -1;
+            goto check_file_hashes_err;
+        }
+
+        r = qstep(q);
+        if(r == SQLITE_DONE) {
+            CHECK_ERROR("Hash %s could not be found in database", hex);
+            sqlite3_reset(q);
+        } else if(r != SQLITE_ROW) {
+            ret = -1;
+            goto check_file_hashes_err;
+        }
+
+        processed_hashes++;
+    }
+
+    if(debug)
+        CHECK_INFO("Checked hashes stored locally: %u/%u", processed_hashes, hashes_count);
+
+check_file_hashes_err:
+    sqlite3_reset(q);
+    if(ret == -1)
+        WARN("Failed to check file hashes existence due to error");
+    return ret;
+}
+
+static int is_new_volnode(sx_hashfs_t *h, const sx_hashfs_volume_t *vol);
+static int check_file_sizes(sx_hashfs_t *h, const sx_hashfs_volume_t *vol) {
+    int ret = 0, r;
+    unsigned int i;
+    sqlite3_stmt *q = NULL;
+    int64_t size = 0;
+
+    if(!vol)
+        return -1;
+
+    /* If this node becomes a new volnode for vol, the volume will restore correct values after rebalance is finished */
+    if(is_new_volnode(h, vol))
+        return 0;
+
+    /* Sum up all files */
+    for(i = 0; i < METADBS; i++) {
+        q = h->qm_sumfilesizes[i];
+
+        sqlite3_reset(q);
+        if(qbind_int64(q, ":volid", vol->id)) {
+            ret = -1;
+            goto check_file_sizes_err;
+        }
+
+        r = qstep(q);
+        if(r == SQLITE_ROW) {
+            size += sqlite3_column_int64(q, 0);
+            sqlite3_reset(q);
+        } else if(r != SQLITE_DONE) {
+            CHECK_FATAL("Failed to query sum of file sizes for volume %s at meta db %d", vol->name, i);
+            ret = -1;
+            goto check_file_sizes_err;
+        }
+    }
+
+    /* Check if current volume size is same as sum of all its files */
+    if(size != vol->cursize)
+        CHECK_ERROR("Volume %s usage %lld is different than sum of all files: %lld", vol->name, (long long)vol->cursize, (long long)size);
+
+check_file_sizes_err:
+    sqlite3_reset(q);
+    return ret;
+}
+
+/* Check one volume correctness */
+static int check_volume(sx_hashfs_t *h, int debug, const sx_hashfs_volume_t *vol) {
+    int ret = 0;
+    int r;
+
+    if(!vol) {
+        CHECK_FATAL("Failed to check volume: NULL argument given");
+        return -1;
+    }
+
+    CHECK_PGRS;
+    if(sx_hashfs_check_volume_settings(h, vol->name, vol->size, vol->replica_count, vol->revisions) != OK)
+        CHECK_ERROR("Bad volume %s settings: %s", vol->name, msg_get_reason());
+
+    /* If this volume is mine, sum up all stored files and check if they match vol->cursize field */
+    if(sx_hashfs_is_or_was_my_volume(h, vol)) {
+        r = check_file_sizes(h, vol);
+        if(r == -1) {
+            ret = -1;
+            goto check_volume_err;
+        }
+        ret += r;
+    } else {
+        if(debug)
+            CHECK_INFO("Skipping volume %s - it does not belong to this node", vol->name);
+    }
+
+check_volume_err:
+    if(ret == -1)
+        CHECK_FATAL("Failed to check volume %s due to error", vol->name);
+    return ret;
+}
+
+static int check_meta(sx_hashfs_t *h, sxi_db_t *db, const char *table, const char *id_field) {
+    int ret = 0, r, len;
+    sqlite3_stmt *q = NULL, *qcount = NULL;
+    char *qry;
+
+    if(!h || !db || !table || !*table || !id_field || !*id_field) {
+        CHECK_FATAL("Failed to check meta table: NULL argument");
+        return -1;
+    }
+
+    /* Can't use :table marker in query for table name, need to create string */
+    len = strlen("SELECT key, value FROM ") + strlen(table) + 1;
+    qry = malloc(len);
+    if(!qry) {
+        CHECK_FATAL("Failed to allocate memory");
+        return -1;
+    }
+    snprintf(qry, len, "SELECT key, value FROM %s", table);
+
+    if(qprep(db, &q, qry)) {
+        CHECK_FATAL("Failed to prepare query");
+        ret = -1;
+        goto check_meta_err;
+    }
+
+    while((r = qstep(q)) == SQLITE_ROW) {
+        const char *key = (const char*)sqlite3_column_text(q, 0);
+        const void *value = sqlite3_column_blob(q, 1);
+        unsigned int value_len = sqlite3_column_bytes(q, 1);
+        if(sx_hashfs_check_meta(key, value, value_len) != OK)
+            CHECK_ERROR("Bad meta entry found: %s", msg_get_reason());
+    }
+
+    if(r != SQLITE_DONE) {
+        CHECK_FATAL("Failed to query meta value");
+        ret = -1;
+        goto check_meta_err;
+    }
+
+    free(qry);
+    len = strlen("SELECT , COUNT(*) as count FROM  GROUP BY  HAVING count > :limit") + 2 * strlen(id_field) + strlen(table) + 1;
+    qry = malloc(len);
+    if(!qry) {
+        CHECK_FATAL("Failed to allocate memory");
+        ret = -1;
+        goto check_meta_err;
+    }
+    snprintf(qry, len, "SELECT %s, COUNT(*) as count FROM %s GROUP BY %s HAVING count > :limit", id_field, table, id_field);
+    if(qprep(db, &qcount, qry)|| qbind_int64(qcount, ":limit", SXLIMIT_META_MAX_ITEMS)) {
+        CHECK_FATAL("Failed to prepare meta limits query");
+        ret = -1;
+        goto check_meta_err;
+    }
+
+    while((r = qstep(qcount)) == SQLITE_ROW) {
+        int64_t id = sqlite3_column_int64(qcount, 0);
+        int64_t count = sqlite3_column_int64(qcount, 1);
+        CHECK_ERROR("Bad number of meta values for ID %lld: %lld", (long long)id, (long long)count);
+    }
+
+    if(r != SQLITE_DONE) {
+        CHECK_FATAL("Failed to query invalid meta values number");
+        ret = -1;
+        goto check_meta_err;
+    }
+
+check_meta_err:
+    sqlite3_finalize(q);
+    sqlite3_finalize(qcount);
+    free(qry);
+    return ret;
+}
+
+/* Iterate over volumes and report errors. Return number of errors or -1 if checking failed */
+static int check_volumes(sx_hashfs_t *h, int debug) {
+    int ret = 0;
+    int r, s;
+    const sx_hashfs_volume_t *vol = NULL;
+
+    for(s = sx_hashfs_volume_first(h, &vol, 0); s == OK; s = sx_hashfs_volume_next(h)) {
+        if(debug && vol)
+            CHECK_INFO("Checking volume %s", vol->name);
+        CHECK_PGRS;
+
+        r = check_volume(h, debug, vol);
+        if(r == -1) {
+            ret = -1;
+            goto check_volumes_err;
+        }
+        ret += r;
+    }
+
+    if(s != ITER_NO_MORE) {
+        ret = -1;
+        goto check_volumes_err;
+    }
+
+    r = check_meta(h, h->db, "vmeta", "volume_id");
+    if(r == -1) {
+        ret = -1;
+        goto check_volumes_err;
+    }
+    ret += r;
+
+check_volumes_err:
+    return ret;
+}
+
+static rc_ty volume_get_common(sx_hashfs_t *h, const char *name, int64_t volid, const sx_hashfs_volume_t **volume);
+
+/* Iterate over meta databases and check all files for their correctness */
+static int check_files(sx_hashfs_t *h, int debug) {
+    int ret = 0, r;
+    unsigned int i;
+    const sx_hashfs_volume_t *vol = NULL;
 
     for(i=0; i<METADBS; i++) {
-	sqlite3_stmt *lock = NULL, *count = NULL, *list = NULL, *unlock = NULL;
-	int fail = 1;
+        sqlite3_stmt *list = NULL;
+        int fail = 1;
+        int rows = 0;
 
-	if(qprep(h->metadb[i], &lock, "BEGIN EXCLUSIVE TRANSACTION") ||
-	   qprep(h->metadb[i], &count, "SELECT COUNT(*) FROM files") ||
-	   qprep(h->metadb[i], &list, "SELECT rowid, name, size, content FROM files ORDER BY name ASC") ||
-	   qprep(h->metadb[i], &unlock, "ROLLBACK"))
-	    goto hashfs_check_fileerr;
-	if(qstep_noret(lock))
-	    goto hashfs_check_fileerr;
+        if(qprep(h->metadb[i], &list, "SELECT fid, volume_id, name, size, content FROM files ORDER BY name ASC")) {
+            ret = -1;
+            CHECK_FATAL("Failed to prepare queries");
+            goto check_files_itererr;
+        }
 
-	if(debug) {
-	    if(qstep_ret(count))
-		goto hashfs_check_fileerr;
-	    rows = sqlite3_column_int64(count, 0);
-	    INFO("Checking consistency of %lld files in metadata database %u / %u...", (long long int)rows, i+1, METADBS);
-	}
+        if(debug) {
+            rows = get_count(h->metadb[i], "files");
+            CHECK_INFO("Checking consistency of %lld files in metadata database %u / %u...", (long long int)rows, i+1, METADBS);
+        }
 
-	while(1) {
-	    const char *name;
-	    int64_t size, row;
-	    unsigned int listlen;
-	    int r = qstep(list);
-	    if(r == SQLITE_DONE)
-		break;
-	    if(r != SQLITE_ROW)
-		goto hashfs_check_fileerr;
+        while(1) {
+            const char *name;
+            int64_t size, row;
+            unsigned int listlen;
+            r = qstep(list);
+            unsigned int block_size, blocks;
+            const sx_hash_t *hashes;
+            int64_t volid;
 
-	    row = sqlite3_column_int64(list, 0);
-	    name = (const char *)sqlite3_column_text(list, 1);
+            if(r == SQLITE_DONE)
+                break;
+            if(r != SQLITE_ROW)
+                goto check_files_itererr;
 
-	    if(!name || !strlen(name)) {
-		WARN("Found invalid name on row %lld in metadata database %08x", (long long int)row, i);
-		continue;
-	    }
+            CHECK_PGRS;
+            row = sqlite3_column_int64(list, 0);
+            name = (const char *)sqlite3_column_text(list, 2);
 
-	    size = sqlite3_column_int64(list, 2);
-	    sqlite3_column_blob(list, 3);
-	    listlen = sqlite3_column_bytes(list, 3);
-	    if(size < 0 || (listlen % SXI_SHA1_BIN_LEN) || size_to_blocks(size, NULL, NULL) != listlen / SXI_SHA1_BIN_LEN) {
-		WARN("Invalid size for file %s (row %lld) in metadata database %08x", name, (long long int)row, i);
-		continue;
-	    }
-	}
+            /* Check if file name is correct */
+            if(check_file_name(name) < 0)
+                CHECK_ERROR("Found invalid name on row %lld in metadata database %08x: %s", (long long int)row, i, msg_get_reason());
 
-	fail = 0;
+            size = sqlite3_column_int64(list, 3);
+            hashes = sqlite3_column_blob(list, 4);
+            if(!hashes) {
+                CHECK_ERROR("Empty list of hashes for file %s", name);
+                goto check_files_itererr;
+            }
+            listlen = sqlite3_column_bytes(list, 4);
+            blocks = size_to_blocks(size, NULL, &block_size);
+            if(size < 0 || (listlen % SXI_SHA1_BIN_LEN) || blocks != listlen / SXI_SHA1_BIN_LEN)
+                CHECK_ERROR("Invalid size for file %s (row %lld) in metadata database %08x", name, (long long int)row, i);
 
-	hashfs_check_fileerr:
-	if(unlock)
-	    qstep(unlock);
-	sqlite3_finalize(unlock);
-	sqlite3_finalize(list);
-	sqlite3_finalize(count);
-	sqlite3_finalize(lock);
+            vol = NULL;
+            volid = sqlite3_column_int64(list, 1);
+            if(volid <= 0) {
+                CHECK_ERROR("Invalid volume id for file %s", name);
+                continue; /* Stop checking current file now, volume reference is needed for blocks checking */
+            } else {
+                rc_ty rc = sx_hashfs_volume_by_id(h, volid, &vol);
+                if(rc == ENOENT) {
+                    CHECK_ERROR("Volume with ID %lld does not exist, but file %s references to it", (long long)volid, name);
+                    continue; /* Stop checking current file now, volume reference is needed for blocks checking */
+                } else if(rc || !vol) {
+                    ret = -1;
+                    goto check_files_itererr;
+                }
+            }
 
-	if(fail) {
-	    WARN("Verification of files in metadata database %08x aborted due to errors", i);
-	    res = 1;
-	}
+            /* Check if all hashes for given file are stored in database */
+            if(debug)
+                CHECK_INFO("Checking existence of hashes for file %s: %u", name, blocks);
+            r = check_file_hashes(h, debug, hashes, listlen / SXI_SHA1_BIN_LEN, block_size, vol->replica_count);
+            if(r == -1)
+                goto check_files_itererr;
+            else if(r) {
+                ret += r;
+                CHECK_PRINT_WARN("%d hashes were not found in database", r);
+            }
+        }
+
+        r = check_meta(h, h->metadb[i], "fmeta", "file_id");
+        if(r == -1) {
+            ret = -1;
+            goto check_files_itererr;
+        }
+        ret += r;
+
+        fail = 0;
+
+    check_files_itererr:
+        sqlite3_finalize(list);
+
+        if(fail) {
+            CHECK_FATAL("Verification of files in metadata database %08x aborted due to errors", i);
+            ret = -1;
+            goto check_files_err;
+        }
     }
+
+check_files_err:
+    return ret;
+}
+
+/* Check if all blocks stored in database are also stored in binary files */
+static int check_blocks_existence(sx_hashfs_t *h, int debug, unsigned int hs, unsigned int ndb) {
+    int ret = 0, r;
+    sqlite3_stmt *q = NULL;
+    sxi_db_t *db;
+
+    if(hs >= SIZES || ndb >= HASHDBS) {
+        ret = -1;
+        goto check_blocks_existence_err;
+    }
+
+    db = h->datadb[hs][ndb];
+
+    if(debug) {
+        CHECK_INFO("Checking consistency of %lld blocks in %s hash database %u / %u...",
+             (long long int)get_count(db, "blocks"), sizelongnames[hs], ndb+1, HASHDBS);
+    }
+
+    if(qprep(db, &q, "SELECT id, hash, blockno FROM blocks WHERE blockno IS NOT NULL ORDER BY blockno ASC")) {
+        ret = -1;
+        goto check_blocks_existence_err;
+    }
+
+    while(1) {
+        char h1[SXI_SHA1_BIN_LEN * 2 + 1], h2[SXI_SHA1_BIN_LEN * 2 + 1];
+        const sx_hash_t *refhash;
+        sx_hash_t comphash;
+        int64_t off, row;
+        r = qstep(q);
+        if(r == SQLITE_DONE)
+            break;
+        if(r != SQLITE_ROW) {
+            ret = -1;
+            goto check_blocks_existence_err;
+        }
+
+        CHECK_PGRS;
+
+        row = sqlite3_column_int64(q, 0);
+
+        refhash = (const sx_hash_t *)sqlite3_column_blob(q, 1);
+        if(!refhash || sqlite3_column_bytes(q, 1) != SXI_SHA1_BIN_LEN) {
+            CHECK_ERROR("Found invalid hash on row %lld in %s hash database %08x", (long long int)row, sizelongnames[hs], ndb);
+            continue;
+        }
+
+        off = sqlite3_column_int64(q, 2);
+        if(off <= 0) {
+            bin2hex(refhash->b, sizeof(*refhash), h1, sizeof(h1));
+            CHECK_ERROR("Invalid offset (%lld) found for hash %s (row %lld) in %s data file %08x",
+                (long long)off, h1, (long long int)row, sizelongnames[hs], ndb);
+            continue;
+        }
+        off *= bsz[hs];
+
+        if(read_block(h->datafd[hs][ndb], h->blockbuf, off, bsz[hs])) {
+            bin2hex(refhash->b, sizeof(*refhash), h1, sizeof(h1));
+            CHECK_ERROR("Failed to read hash %s (row %lld) from %s data file %08x at offset %lld", h1, (long long int)row, sizelongnames[hs], ndb, (long long int)off);
+            continue;
+        }
+
+        if(hash_buf(h->cluster_uuid.string, strlen(h->cluster_uuid.string), h->blockbuf, bsz[hs], &comphash)) {
+            ret = -1;
+            goto check_blocks_existence_err;
+        }
+
+        if(cmphash(refhash, &comphash)) {
+            bin2hex(refhash->b, sizeof(*refhash), h1, sizeof(h1));
+            bin2hex(comphash.b, sizeof(comphash), h2, sizeof(h2));
+            CHECK_ERROR("Mismatch %s (row %lld) vs %s on %s data file %08x at offset %lld", h1, (long long int)row, h2, sizelongnames[hs], ndb, (long long int)off);
+        }
+    }
+
+check_blocks_existence_err:
+    sqlite3_finalize(q);
+    return ret;
+}
+
+static int check_blocks_counters(sx_hashfs_t *h, int debug, unsigned int hs, unsigned int ndb) {
+    int ret = 0, r;
+    sqlite3_stmt *q = NULL, *qget = NULL;
+    sxi_db_t *db;
+
+    if(hs >= SIZES || ndb >= HASHDBS) {
+        ret = -1;
+        goto check_blocks_counters_err;
+    }
+
+    db = h->datadb[hs][ndb];
+
+    if(debug) {
+        CHECK_INFO("Checking negative counters within %lld rows in %s hash database %u / %u...",
+            (long long int)get_count(db, "use"), sizelongnames[hs], ndb+1, HASHDBS);
+    }
+
+    if(qprep(db, &q, "SELECT blockid, used FROM use WHERE used < 0")) {
+        ret = -1;
+        goto check_blocks_counters_err;
+    }
+
+    while((r = qstep(q)) == SQLITE_ROW) {
+        CHECK_PGRS;
+        int64_t blockid = sqlite3_column_int64(q, 0);
+        int64_t counter = sqlite3_column_int64(q, 1);
+
+        CHECK_ERROR("Usage counter for block with ID %lld is negative: %lld", (long long)blockid, (long long)counter);
+    }
+
+    if(r != SQLITE_DONE)
+        ret = -1;
+
+check_blocks_counters_err:
+    sqlite3_finalize(q);
+    sqlite3_finalize(qget);
+    return ret;
+}
+
+/* Check if there exist any duplicated hashes in block databases */
+static int check_blocks_dups(sx_hashfs_t *h, int debug, unsigned int hs, unsigned int ndb) {
+    int ret = 0, r;
+    sqlite3_stmt *q = NULL;
+    sxi_db_t *db;
+
+    if(hs >= SIZES || ndb >= HASHDBS) {
+        ret = -1;
+        goto check_blocks_dups_err;
+    }
+
+    db = h->datadb[hs][ndb];
+
+    if(debug) {
+        CHECK_INFO("Checking duplicates within %lld blocks in %s hash database %u / %u...",
+            (long long int)get_count(db, "blocks"), sizelongnames[hs], ndb+1, HASHDBS);
+    }
+
+    if(qprep(db, &q, "SELECT b1.id, b1.hash, b2.id, b2.hash, b1.blockno FROM blocks AS b1 LEFT JOIN blocks AS b2 ON b1.id < b2.id WHERE b1.blockno = b2.blockno"))
+        goto check_blocks_dups_err;
+
+    while(1) {
+        char h1[SXI_SHA1_BIN_LEN * 2 + 1], h2[SXI_SHA1_BIN_LEN * 2 + 1];
+        const sx_hash_t *hash1, *hash2;
+        int64_t row1, row2;
+        r = qstep(q);
+        if(r == SQLITE_DONE)
+            break;
+        if(r != SQLITE_ROW) {
+            ret = -1;
+            goto check_blocks_dups_err;
+        }
+
+        CHECK_PGRS;
+
+        row1 = sqlite3_column_int64(q, 0);
+        row2 = sqlite3_column_int64(q, 2);
+        if(row1 > row2) /* Filtering out half of the set i.e. we report (A, B) but not (B, A) */
+            continue;   /* For some reasons doing this in sql is very slow */
+
+        hash1 = (const sx_hash_t *)sqlite3_column_blob(q, 1);
+        hash2 = (const sx_hash_t *)sqlite3_column_blob(q, 3);
+        if(sqlite3_column_bytes(q, 1) != sizeof(*hash1))
+            strcpy(h1, "<INVALID HASH>");
+        else
+            bin2hex(hash1->b, sizeof(*hash1), h1, sizeof(h1));
+        if(sqlite3_column_bytes(q, 3) != sizeof(*hash2))
+            strcpy(h2, "<INVALID HASH>");
+        else
+            bin2hex(hash2->b, sizeof(*hash2), h2, sizeof(h2));
+
+        CHECK_ERROR("Hash %s (row %lld) and hash %s (row %lld) in %s hash database %08x share the same block number %lld",
+            h1, (long long int)row1, h2, (long long int)row2, sizelongnames[hs], ndb, sqlite3_column_int64(q, 4));
+    }
+
+check_blocks_dups_err:
+    sqlite3_finalize(q);
+    return ret;
+}
+
+/* Check if blocks stored in binary files correspond to hases stored in database */
+static int check_blocks(sx_hashfs_t *h, int debug) {
+    int ret = 0, r;
+    unsigned int i, j;
 
     for(j = 0; j < SIZES; j++) {
-	for(i=0; i<HASHDBS; i++) {
-	    sqlite3_stmt *lock = NULL, *count= NULL, *dups = NULL, *list = NULL, *unlock = NULL;
-	    int fail = 1;
+        for(i = 0; i < HASHDBS; i++) {
+            sqlite3_stmt *index = NULL;
 
-	    if(qprep(h->datadb[j][i], &lock, "BEGIN EXCLUSIVE TRANSACTION") ||
-	       qprep(h->datadb[j][i], &count, "SELECT count(*) FROM blocks") ||
-	       qprep(h->datadb[j][i], &list, "SELECT rowid, hash, blockno FROM blocks ORDER BY blockno ASC") ||
-	       qprep(h->datadb[j][i], &dups, "SELECT b1.rowid, b1.hash, b2.rowid, b2.hash, b1.blockno FROM blocks AS b1 LEFT JOIN blocks AS b2 ON b1.rowid != b2.rowid WHERE b1.blockno = b2.blockno") ||
-	       qprep(h->datadb[j][i], &unlock, "ROLLBACK"))
-		goto hashfs_check_dataerr;
-	    if(qstep_noret(lock))
-		goto hashfs_check_dataerr;
+            /* Create index on blockno field to prevent sqlite from doning this */
+            if(qprep(h->datadb[j][i], &index, "CREATE INDEX blocknoidx ON blocks(blockno)") || qstep_noret(index)) {
+                ret = -1;
+                goto check_blocks_itererr;
+            }
 
-	    if(debug) {
-		if(qstep_ret(count))
-		    goto hashfs_check_dataerr;
-		rows = sqlite3_column_int64(count, 0);
-		INFO("Checking consistency of %lld blocks in %s hash database %u / %u...", (long long int)rows, sizelongnames[j], i+1, HASHDBS);
-	    }
+            CHECK_PGRS;
+            /* Look for non-existing blocks */
+            r = check_blocks_existence(h, debug, j, i);
+            if(r == -1) {
+                ret = -1;
+                goto check_blocks_itererr;
+            }
+            ret += r;
 
-	    while(1) {
-		char h1[SXI_SHA1_BIN_LEN * 2 + 1], h2[SXI_SHA1_BIN_LEN * 2 + 1];
-		const sx_hash_t *refhash;
-		sx_hash_t comphash;
-		int64_t off, row;
-		int r = qstep(list);
-		if(r == SQLITE_DONE)
-		    break;
-		if(r != SQLITE_ROW)
-		    goto hashfs_check_dataerr;
+            /* Look for duplicated hashes */
+            r = check_blocks_dups(h, debug, j, i);
+            if(r == -1) {
+                ret = -1;
+                goto check_blocks_itererr;
+            }
+            ret += r;
 
-		row = sqlite3_column_int64(list, 0);
+            /* Look for bad counters */
+            r = check_blocks_counters(h, debug, j, i);
+            if(r == -1) {
+                ret = -1;
+                goto check_blocks_itererr;
+            }
+            ret += r;
 
-		refhash = (const sx_hash_t *)sqlite3_column_blob(list, 1);
-		if(!refhash || sqlite3_column_bytes(list, 1) != SXI_SHA1_BIN_LEN) {
-		    WARN("Found invalid hash on row %lld in %s hash database %08x", (long long int)row, sizelongnames[j], i);
-		    res = 1;
-		    continue;
-		}
+            check_blocks_itererr:
+            sqlite3_finalize(index);
 
-		off = sqlite3_column_int(list, 2);
-		if(off <= 0) {
-		    bin2hex(refhash->b, sizeof(*refhash), h1, sizeof(h1));
-		    WARN("Invalid offset found for hash %s (row %lld) in %s data file %08x", h1, (long long int)row, sizelongnames[j], i);
-		    res = 1;
-		    continue;
-		}
-		off *= bsz[j];
-
-		if(read_block(h->datafd[j][i], h->blockbuf, off, bsz[j])) {
-		    bin2hex(refhash->b, sizeof(*refhash), h1, sizeof(h1));
-		    WARN("Failed to read hash %s (row %lld) from %s data file %08x at offset %lld", h1, (long long int)row, sizelongnames[j], i, (long long int)off);
-		    res = 1;
-		    continue;
-		}
-
-		if(hash_buf(h->cluster_uuid.string, strlen(h->cluster_uuid.string), h->blockbuf, bsz[j], &comphash))
-		    goto hashfs_check_dataerr;
-
-		if(cmphash(refhash, &comphash)) {
-		    bin2hex(refhash->b, sizeof(*refhash), h1, sizeof(h1));
-		    bin2hex(comphash.b, sizeof(comphash), h2, sizeof(h2));
-		    WARN("Mismatch %s (row %lld) vs %s on %s data file %08x at offset %lld", h1, (long long int)row, h2, sizelongnames[j], i, (long long int)off);
-		    res = 1;
-		}
-	    }
-
-	    if(debug)
-		INFO("Checking duplicates within %lld blocks in %s hash database %u / %u...", (long long int)rows, sizelongnames[j], i+1, HASHDBS);
-
-	    while(1) {
-		char h1[SXI_SHA1_BIN_LEN * 2 + 1], h2[SXI_SHA1_BIN_LEN * 2 + 1];
-		const sx_hash_t *hash1, *hash2;
-		int64_t row1, row2;
-		int r = qstep(dups);
-		if(r == SQLITE_DONE)
-		    break;
-		if(r != SQLITE_ROW)
-		    goto hashfs_check_dataerr;
-
-		row1 = sqlite3_column_int64(dups, 0);
-		row2 = sqlite3_column_int64(dups, 2);
-		if(row1 > row2) /* Filtering out half of the set i.e. we report (A, B) but not (B, A) */
-		    continue;   /* For some reasons doing this in sql is very slow */
-
-		hash1 = (const sx_hash_t *)sqlite3_column_blob(dups, 1);
-		hash2 = (const sx_hash_t *)sqlite3_column_blob(dups, 3);
-		if(sqlite3_column_bytes(dups, 1) != sizeof(*hash1))
-		    strcpy(h1, "<INVALID HASH>");
-		else
-		    bin2hex(hash1->b, sizeof(*hash1), h1, sizeof(h1));
-		if(sqlite3_column_bytes(dups, 3) != sizeof(*hash2))
-		    strcpy(h2, "<INVALID HASH>");
-		else
-		    bin2hex(hash2->b, sizeof(*hash2), h2, sizeof(h2));
-
-		WARN("Hash %s (row %lld) and hash %s (row %lld) in %s hash database %08x share the same block number %lld", h1, (long long int)row1, h2, (long long int)row2, sizelongnames[j], i, sqlite3_column_int64(dups, 4));
-		res = 1;
-	    }
-
-	    fail = 0;
-
-	    hashfs_check_dataerr:
-	    if(unlock)
-		qstep(unlock);
-	    sqlite3_finalize(unlock);
-	    sqlite3_finalize(list);
-	    sqlite3_finalize(dups);
-	    sqlite3_finalize(count);
-	    sqlite3_finalize(lock);
-
-	    if(fail) {
-		WARN("Verification of hashes in %s hash database %08x aborted due to errors", sizelongnames[j], i);
-		res = 1;
-	    }
-	}
+            if(ret == -1) {
+                CHECK_FATAL("Verification of hashes in %s hash database %08x aborted due to errors", sizelongnames[j], i);
+                goto check_blocks_err;
+            }
+        }
     }
-    return res;
 
+check_blocks_err:
+    return ret;
+}
+
+static int check_users(sx_hashfs_t *h, int debug) {
+    int ret = 0, r;
+    unsigned int admin_found = 0;
+    sqlite3_stmt *q = NULL;
+
+    if(qprep(h->db, &q, "SELECT uid, user, name, role, enabled FROM users")) {
+        ret = -1;
+        goto check_users_err;
+    }
+
+    while((r = qstep(q)) == SQLITE_ROW) {
+        int64_t userid = sqlite3_column_int64(q, 0);
+        int uid_len = sqlite3_column_bytes(q, 1);
+        const char *name = (const char*)sqlite3_column_text(q, 2);
+        int role = sqlite3_column_int(q, 3);
+
+        CHECK_PGRS;
+        if(uid_len != AUTH_UID_LEN)
+            CHECK_ERROR("User with ID %lld has bad UID assigned", (long long)userid);
+
+        if(sx_hashfs_check_username(name))
+            CHECK_ERROR("Bad name for user with ID %lld", (long long)userid);
+
+        /* Check special admin user existence */
+        if(name && !strcmp(name, "admin")) {
+            int enabled = sqlite3_column_int(q, 4);
+
+            if(role != ROLE_ADMIN)
+                CHECK_ERROR("admin user has bad role: %d", role);
+
+            if(!enabled)
+                CHECK_ERROR("admin user is disabled");
+
+            admin_found = 1;
+            continue; /* Skip roles checking, already done */
+        }
+
+        if(role != ROLE_CLUSTER && role != ROLE_ADMIN && role != ROLE_USER)
+            CHECK_ERROR("User %s has incorrect role", name);
+
+        if(name && strcmp(name, "rootcluster") && role == ROLE_CLUSTER)
+            CHECK_ERROR("User %s has CLUSTER role", name);
+    }
+
+    if(!admin_found)
+        CHECK_ERROR("admin user was not found");
+
+    if(r != SQLITE_DONE)
+        ret = -1;
+
+check_users_err:
+    sqlite3_finalize(q);
+    return ret;
+}
+
+/* Check all entries in tmp db for correct names, meta values and volume references */
+static int check_tmpdb(sx_hashfs_t *h, int debug) {
+    int ret = 0, r;
+    sqlite3_stmt *q = NULL;
+
+    if(qprep(h->tempdb, &q, "SELECT tid, volume_id, name FROM tmpfiles")) {
+        CHECK_FATAL("Failed to prepare query for temp db");
+        ret = -1;
+        goto check_tmpdb_err;
+    }
+
+    while((r = qstep(q)) == SQLITE_ROW) {
+        int64_t tid = sqlite3_column_int64(q, 0);
+        int64_t volid = sqlite3_column_int64(q, 1);
+        const char *name = (const char*)sqlite3_column_text(q, 2);
+        const sx_hashfs_volume_t *vol = NULL;
+
+        if(check_file_name(name) < 0)
+            CHECK_ERROR("Bad file name for ID %lld", (long long)tid);
+
+        if(sx_hashfs_volume_by_id(h, volid, &vol) != OK)
+            CHECK_ERROR("Volume with ID %lld is referenced by tempfile %s, but it does not exist or is disabled", (long long)volid, name);
+    }
+
+    r = check_meta(h, h->tempdb, "tmpmeta", "tid");
+    if(r == -1) {
+        ret = -1;
+        goto check_tmpdb_err;
+    }
+    ret += r;
+
+check_tmpdb_err:
+    sqlite3_finalize(q);
+    return ret;
+}
+
+/* Check for broken parent IDs and user IDs in jobs table */
+static int check_jobs(sx_hashfs_t *h, int debug) {
+    int ret = 0, r;
+    sqlite3_stmt *q = NULL;
+
+    if(qprep(h->eventdb, &q, "SELECT j1.job, j2.job, j1.user, j1.parent FROM jobs j1 LEFT JOIN jobs j2 ON j1.parent = j2.job WHERE j1.parent IS NOT NULL AND j1.user IS NOT NULL")) {
+        CHECK_FATAL("Failed to prepare query");
+        return -1;
+    }
+
+    while((r = qstep(q)) == SQLITE_ROW) {
+        int64_t job = sqlite3_column_int64(q, 0);
+        int64_t userid = sqlite3_column_int64(q, 2);
+        uint8_t useruid[AUTH_UID_LEN];
+        if(sx_hashfs_get_user_by_uid(h, (sx_uid_t)userid, useruid) != OK)
+            CHECK_ERROR("User with ID %lld is job %lld owner but does not exist or is disabled", (long long)userid, (long long)job);
+
+        if(sqlite3_column_type(q, 1) == SQLITE_NULL) {
+            int64_t parent = sqlite3_column_int64(q, 3);
+            CHECK_ERROR("Job with ID %lld is a parent for job with ID %lld but it could not be found", (long long)parent, (long long)job);
+        }
+    }
+
+    sqlite3_finalize(q);
+    return ret;
+}
+
+/* Lock given database exclusively and initialize locking and unlocking queries */
+static int lock_db(sxi_db_t *db, sqlite3_stmt **lock, sqlite3_stmt **unlock) {
+    const char *l = "BEGIN EXCLUSIVE TRANSACTION", *ul = "ROLLBACK";
+
+    if(!db || !lock || !unlock) {
+        CHECK_FATAL("Failed to prepare locks: NULL argument");
+        return -1;
+    }
+
+    if(qprep(db, lock, l) || qprep(db, unlock, ul)) {
+        CHECK_FATAL("Failed to prepare locks queries");
+        goto lock_db_err;
+    }
+
+    if(qstep_noret(*lock)) {
+        CHECK_FATAL("Failed to lock database: query failed");
+        goto lock_db_err;
+    }
+
+    return 0;
+lock_db_err:
+    sqlite3_finalize(*lock);
+    *lock = NULL;
+    sqlite3_finalize(*unlock);
+    *unlock = NULL;
+    return -1;
+}
+
+#define RUN_CHECK(func) do { r = func(h, debug); if(r == -1) { ret = -1; goto sx_hashfs_check_err; } ret += r; } while(0)
+
+int sx_hashfs_check(sx_hashfs_t *h, int debug) {
+    int ret = -1, r, i, j;
+    sqlite3_stmt *locks[METADBS + SIZES * HASHDBS + 4], *unlocks[METADBS + SIZES * HASHDBS + 4];
+
+    memset(locks, 0, sizeof(locks));
+    memset(unlocks, 0, sizeof(unlocks));
+
+    r = 0;
+    if(lock_db(h->db, locks, unlocks) || lock_db(h->tempdb, locks + 1, unlocks + 1)
+       || lock_db(h->xferdb, locks + 2, unlocks + 2) || lock_db(h->eventdb, locks + 3, unlocks + 3)) {
+        CHECK_FATAL("Failed to lock database");
+        goto sx_hashfs_check_err;
+    }
+
+    r = 4;
+    for(i = 0; i < METADBS; i++, r++) {
+        if(lock_db(h->metadb[i], locks + r, unlocks + r)) {
+            CHECK_FATAL("Failed to lock database meta database");
+            goto sx_hashfs_check_err;
+        }
+    }
+
+    for(i = 0; i < SIZES; i++) {
+        for(j = 0; j < HASHDBS; j++, r++)
+        if(lock_db(h->datadb[i][j], locks + r, unlocks + r)) {
+            CHECK_FATAL("Failed to lock database hash database");
+            goto sx_hashfs_check_err;
+        }
+    }
+
+    ret = 0;
+    CHECK_START;
+
+    /* Analyze databases using PRAGMA integrity_check query */
+    RUN_CHECK(sx_hashfs_analyze);
+    /* Check volumes correctness */
+    RUN_CHECK(check_volumes);
+    /* Check files correctness */
+    RUN_CHECK(check_files);
+    /* Check blocks sanity */
+    RUN_CHECK(check_blocks);
+    /* Check users table */
+    RUN_CHECK(check_users);
+    /* Check tempfiles database for IDs and meta correectness */
+    RUN_CHECK(check_tmpdb);
+    /* Check jobs correctness */
+    RUN_CHECK(check_jobs);
+
+sx_hashfs_check_err:
+    CHECK_FINISH;
+
+    for(i = 0; i < SIZES * HASHDBS + METADBS + 4; i++) {
+        if(unlocks[i])
+            qstep(unlocks[i]);
+        sqlite3_finalize(locks[i]);
+        sqlite3_finalize(unlocks[i]);
+    }
+
+    return ret;
 }
 
 const char *sx_hashfs_version(sx_hashfs_t *h) {

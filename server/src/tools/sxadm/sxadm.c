@@ -885,6 +885,46 @@ static int info_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
     return 0;
 }
 
+static int check_node(sxc_client_t *sx, const char *path, int debug) {
+    int ret = -1;
+    sx_hashfs_t *h = NULL;
+
+    if(!sx || !path) {
+        sxi_seterr(sx, SXE_EARG, "Failed to check HashFS: NULL argument");
+        goto check_node_err;
+    }
+
+    if(access(path, R_OK)) {
+        if(errno == EACCES)
+            fprintf(stderr, "ERROR: Can't access %s\n", path);
+        else if(errno == ENOENT)
+            fprintf(stderr, "ERROR: No valid SX storage found at %s\n", path);
+        else
+            fprintf(stderr, "ERROR: Can't open SX storage at %s\n", path);
+        goto check_node_err;
+    }
+
+    h = sx_hashfs_open(path, sx);
+    if(!h) {
+        sxi_seterr(sx, SXE_ECFG, "Failed to open HashFS storage");
+        goto check_node_err;
+    }
+
+    ret = sx_hashfs_check(h, debug);
+
+check_node_err:
+    sx_hashfs_close(h);
+    if(ret > 0) {
+        fprintf(stderr, "Found %d error(s) during HashFS integrity check\n", ret);
+        ret = 1;
+    } else if(ret)
+        fprintf(stderr, "Failed to check HashFS integrity\n");
+    else
+        printf("HashFS is clean, no errors found\n");
+
+    return ret;
+}
+
 int main(int argc, char **argv) {
     struct main_args_info main_args;
     struct node_args_info node_args;
@@ -927,6 +967,8 @@ int main(int argc, char **argv) {
 	    ret = create_node(&node_args);
 	else if(node_args.info_given)
 	    ret = info_node(sx, node_args.inputs[0]);
+        else if(node_args.check_given)
+            ret = check_node(sx, node_args.inputs[0], node_args.debug_flag);
     node_out:
 	node_cmdline_parser_free(&node_args);
         sx_done(&sx);

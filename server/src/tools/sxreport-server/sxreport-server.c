@@ -171,7 +171,7 @@ static void print_hashfs(sxc_client_t *sx, const char *path)
     INFO("HashFS Version: %s", sx_hashfs_version(h));
 
     sx_hashfs_stats(h);
-    sx_hashfs_analyze(h);
+    sx_hashfs_analyze(h, 1);
     sx_hashfs_close(h);
 }
 

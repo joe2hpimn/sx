@@ -107,9 +107,9 @@ rc_ty sx_hashfs_setnodedata(sx_hashfs_t *h, const char *name, const sx_uuid_t *n
 int sx_hashfs_uses_secure_proto(sx_hashfs_t *h);
 void sx_hashfs_set_triggers(sx_hashfs_t *h, int job_trigger, int xfer_trigger, int gc_trigger, int gc_expire_trigger);
 void sx_hashfs_close(sx_hashfs_t *h);
-int sx_hashfs_check(sx_hashfs_t *h, int verbose);
+int sx_hashfs_check(sx_hashfs_t *h, int debug);
 void sx_hashfs_stats(sx_hashfs_t *h);
-void sx_hashfs_analyze(sx_hashfs_t *h);
+int sx_hashfs_analyze(sx_hashfs_t *h, int verbose);
 sx_nodelist_t *sx_hashfs_hashnodes(sx_hashfs_t *h, sx_hashfs_nl_t which, const sx_hash_t *hash, unsigned int replica_count);
 sx_nodelist_t *sx_hashfs_putfile_hashnodes(sx_hashfs_t *h, const sx_hash_t *hash);
 rc_ty sx_hashfs_check_blocksize(unsigned int bs);
