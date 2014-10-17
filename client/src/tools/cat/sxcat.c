@@ -170,6 +170,12 @@ int main(int argc, char **argv) {
 	    ret = 1;
 	    break;
 	}
+	if(args.inputs[i][strlen(args.inputs[i]) - 1] == '/') {
+	    fprintf(stderr, "ERROR: Can't cat directories (trailing slash in %s)\n", args.inputs[i]);
+	    sxc_file_free(src_file);
+	    ret = 1;
+	    break;
+	}
 
 	if(sxc_cat(src_file, STDOUT_FILENO)) {
 	    fprintf(stderr, "ERROR: Failed to stream %s: %s\n", args.inputs[i], sxc_geterrmsg(sx));
