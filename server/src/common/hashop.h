@@ -46,6 +46,7 @@ struct sxi_hashop {
   unsigned int current_blocksize;
   char hexhashes[DOWNLOAD_MAX_BLOCKS * SXI_SHA1_TEXT_LEN + 1];
   char hashes[DOWNLOAD_MAX_BLOCKS * (SXI_SHA1_TEXT_LEN + EXPIRE_TEXT_LEN) + 1];
+  int idxs_tmp[DOWNLOAD_MAX_BLOCKS];
   unsigned hashes_count;
   unsigned hashes_pos;
   unsigned replica;

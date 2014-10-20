@@ -5301,19 +5301,10 @@ rc_ty sx_hashfs_hashop_perform(sx_hashfs_t *h, unsigned int block_size, unsigned
                 rc = sx_hashfs_hashop_ishash(h, hs, hash);
             break;
         case HASHOP_INUSE:
-            /* we must only moduse if not ENOENT */
-            rc = sx_hashfs_hashop_ishash(h, hs, hash);
-            if (rc)
-                break;
-            rc = sx_hashfs_hashop_moduse(h, id, hs, hash, replica_count, 1, op_expires_at);
+            rc = sx_hashfs_hashop_mod(h, hash, id, block_size, replica_count, 1, op_expires_at);
             break;
         case HASHOP_DELETE:
-            rc = sx_hashfs_hashop_moduse(h, id, hs, hash, replica_count, -1, op_expires_at);
-            if (rc == OK)
-                /* we must always moduse because we might run a rm during a
-                 * rebalance, and we want to record the -1 so that it cancels
-                 * out when the hash is finally pushed */
-                rc = sx_hashfs_hashop_ishash(h, hs, hash);
+            rc = sx_hashfs_hashop_mod(h, hash, id, block_size, replica_count, -1, op_expires_at);
             break;
 
         default:
@@ -5321,8 +5312,8 @@ rc_ty sx_hashfs_hashop_perform(sx_hashfs_t *h, unsigned int block_size, unsigned
             return EINVAL;
     }
     DEBUG("result: %s", rc2str(rc));
-    if(present && rc == OK)
-	*present = OK;
+    if(present)
+	*present = rc == OK;
     if(rc == ENOENT)
 	rc = OK;
     return rc;
@@ -6415,12 +6406,6 @@ static rc_ty are_blocks_available(sx_hashfs_t *h, sx_hash_t *hashes,
 	*current = check_item+1;
         if (sxi_hashop_batch_flush(hdck))
             WARN("Failed to query hash: %s", sxc_geterrmsg(h->sx));
-	hdck->queries++;
-	hdck->finished++;
-	if (r == SQLITE_ROW)
-	    hdck->ok++;
-	else
-	    hdck->enoent++;
         rc = sx_hashfs_hashop_perform(h, bsz[hash_size], replica_count, hdck->kind, hash, hdck->id, hdck->op_expires_at, NULL);
         if(rc != OK) {
             WARN("hashop_perform/finish failed: %s", rc2str(rc));
@@ -6753,7 +6738,7 @@ static int tmp_getmissing_cb(const char *hexhash, unsigned int index, int code, 
           index, blockno,
           mis->current_replica-1, sx_node_internal_addr(pusher), pushingidx, mis->replica_count, mis->current_replica);
     DEBUG("remote hash #%.*s#: %d", SXI_SHA1_TEXT_LEN, hexhash, code);
-    if(code != 200)
+    if(code != 200 && code != 404)
 	return 0;
 
     if(index >= mis->nuniq) {
@@ -6770,11 +6755,14 @@ static int tmp_getmissing_cb(const char *hexhash, unsigned int index, int code, 
 	return -1;
     }
 
-    if(mis->avlblty[blockno * mis->replica_count + mis->current_replica - 1] != 1) {
-	mis->avlblty[blockno * mis->replica_count + mis->current_replica - 1] = 1;
+    int changeto = code == 200 ? 1 : -1;
+    if(mis->avlblty[blockno * mis->replica_count + mis->current_replica - 1] != changeto) {
+	mis->avlblty[blockno * mis->replica_count + mis->current_replica - 1] = changeto;
 	mis->somestatechanged = 1;
-        DEBUG("(cb): Block %.*s set %u is NOW available on node %c",
-              SXI_SHA1_TEXT_LEN, hexhash, mis->current_replica - 1, 'a' +
+        DEBUG("(cb): Block %.*s set %u is NOW bumped and %s on node %c",
+              SXI_SHA1_TEXT_LEN, hexhash, mis->current_replica - 1,
+              changeto == 1 ? "available" : "unavailable",
+              'a' +
               mis->nidxs[blockno * mis->replica_count + mis->current_replica - 1]);
     }
     return 0;
@@ -6808,7 +6796,7 @@ rc_ty sx_hashfs_tmp_getinfo(sx_hashfs_t *h, int64_t tmpfile_id, sx_hashfs_tmpinf
     const sx_hash_t *content;
     sx_hashfs_tmpinfo_t *tbd = NULL;
     const char *name, *revision;
-    const uint8_t *avl;
+    const int8_t *avl;
     int64_t file_size;
 #ifdef FILEHASH_OPTIMIZATION
     sx_hash_t filehash;
@@ -6939,7 +6927,7 @@ rc_ty sx_hashfs_tmp_getinfo(sx_hashfs_t *h, int64_t tmpfile_id, sx_hashfs_tmpinf
     tbd->all_blocks = (sx_hash_t *)(tbd+1);
     tbd->uniq_ids = (unsigned int *)&tbd->all_blocks[nblocks];
     tbd->nidxs = &tbd->uniq_ids[nuniqs];
-    tbd->avlblty = (uint8_t *)&tbd->nidxs[nblocks * volume->replica_count];
+    tbd->avlblty = (int8_t *)&tbd->nidxs[nblocks * volume->replica_count];
     memcpy(tbd->all_blocks, content, nblocks * sizeof(sx_hash_t));
     memcpy(tbd->uniq_ids, uniqs, nuniqs * sizeof(tbd->uniq_ids[0]));
     memset(tbd->nidxs, -1, nblocks * sizeof(tbd->nidxs[0]) * volume->replica_count);
@@ -6999,20 +6987,20 @@ rc_ty sx_hashfs_tmp_getinfo(sx_hashfs_t *h, int64_t tmpfile_id, sx_hashfs_tmpinf
 					       i,
 					       tbd->replica_count)) == OK) {
 		if(cur_item >= 3) {
-		    ret = EINVAL;
+		    ret2 = EINVAL;
 		    break;
 		}
 		if(cur_item >= nuniqs)
 		    break;
 	    }
-	    if(ret2 != OK) {
+	    if(ret2 != OK)
 		ret = ret2;
-		goto getmissing_err;
-	    }
 	    if(sxi_hashop_end(&h->hc) == -1) {
-                ret = EAGAIN;
-		goto getmissing_err;
+                if (ret2 == OK)
+                    ret = ret2 = EAGAIN;
             }
+            if (ret2 != OK)
+		goto getmissing_err;
             DEBUG("end queries for replica #%d", i);
 	}
 
@@ -7032,24 +7020,25 @@ rc_ty sx_hashfs_tmp_getinfo(sx_hashfs_t *h, int64_t tmpfile_id, sx_hashfs_tmpinf
 	    l++;
 	}
 
-	if(tbd->somestatechanged) {
-	    /* If we've harvested some hash bring the counter down */
-	    tbd->nuniq = nuniqs;
-
-	    /* and update the db so they won't be hashop'd again on the next run */
-	    sqlite3_reset(h->qt_updateuniq);
-	    if(!qbind_int64(h->qt_updateuniq, ":id", tmpfile_id) &&
-	       !qbind_blob(h->qt_updateuniq, ":uniq", tbd->uniq_ids, sizeof(*tbd->uniq_ids) * tbd->nuniq) &&
-	       !qbind_blob(h->qt_updateuniq, ":avail", tbd->avlblty, navl))
-		qstep_noret(h->qt_updateuniq);
-	    sqlite3_reset(h->qt_updateuniq);
-	}
     }
 
     *tmpinfo = tbd;
     ret = OK;
 
  getmissing_err:
+    if(tbd && tbd->somestatechanged) {
+        /* If we've harvested some hash bring the counter down */
+        tbd->nuniq = nuniqs;
+
+        /* and update the db so they won't be hashop'd again on the next run */
+        sqlite3_reset(h->qt_updateuniq);
+        if(!qbind_int64(h->qt_updateuniq, ":id", tmpfile_id) &&
+           !qbind_blob(h->qt_updateuniq, ":uniq", tbd->uniq_ids, sizeof(*tbd->uniq_ids) * tbd->nuniq) &&
+           !qbind_blob(h->qt_updateuniq, ":avail", tbd->avlblty, navl))
+            qstep_noret(h->qt_updateuniq);
+        sqlite3_reset(h->qt_updateuniq);
+    }
+
     if(ret != OK) {
         (void)sxi_hashop_end(&h->hc);
 	free(tbd);
@@ -7342,9 +7331,9 @@ rc_ty sx_hashfs_tmp_unbump(sx_hashfs_t *h, int64_t tmpfile_id) {
 	    for(replica = 0; replica < tmp->replica_count; replica++) {
 		unsigned int idx = nblock * tmp->replica_count + replica;
 		unsigned int ntarget = tmp->nidxs[idx];
-		unsigned int avail = tmp->avlblty[idx];
+		int avail = tmp->avlblty[idx];
 
-		INFO("Replica %u / %u: target %u, avail %u", replica, tmp->replica_count, ntarget, avail);
+		INFO("Replica %u / %u: target %u, avail %d", replica, tmp->replica_count, ntarget, avail);
 
 		if(ntarget != nnode || !avail)
 		    continue;

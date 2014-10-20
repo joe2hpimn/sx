@@ -845,13 +845,13 @@ static act_result_t replicateblocks_commit(sx_hashfs_t *hashfs, job_t job_id, jo
 
 	/* Compute the current replica level for this block */
 	for(j=0; j<mis->replica_count; j++) {
-	    uint8_t avlbl = mis->avlblty[blockno * mis->replica_count + j];
+	    int8_t avlbl = mis->avlblty[blockno * mis->replica_count + j];
 	    if(avlbl == 1) {
 		ndone++;
 		ndone_or_pending++;
 		pushingidx = mis->nidxs[blockno * mis->replica_count + j];
 		DEBUG("Block %s is available on set %u (node %u)", blockname, j, mis->nidxs[blockno * mis->replica_count + j]);
-	    } else if(avlbl) {
+	    } else if(avlbl > 0) {
 		ndone_or_pending++;
 		DEBUG("Block %s pending upload on set %u (node %u)", blockname, j, mis->nidxs[blockno * mis->replica_count + j]);
 	    } else {
@@ -911,7 +911,7 @@ static act_result_t replicateblocks_commit(sx_hashfs_t *hashfs, job_t job_id, jo
 	    /* Scan the replica set of the current block... */
 	    for(current_replica = 0; current_replica < mis->replica_count; current_replica++) {
 		/* ...checking for some node in need of this block...  */
-		if(!mis->avlblty[current_blockno * mis->replica_count + current_replica]) {
+		if(mis->avlblty[current_blockno * mis->replica_count + current_replica] <= 0) {
 		    DEBUG("Followup block %s is NOT available on set %u (node %u)", blockname, current_replica, mis->nidxs[current_blockno * mis->replica_count + current_replica]);
 		    have_junkies = 1;
 		    continue;
@@ -961,7 +961,7 @@ static act_result_t replicateblocks_commit(sx_hashfs_t *hashfs, job_t job_id, jo
 		const sx_node_t *target;
 
 		/* Skip all nodes that have the block already */
-		if(mis->avlblty[current_blockno * mis->replica_count + current_replica])
+		if(mis->avlblty[current_blockno * mis->replica_count + current_replica] > 0)
 		    continue;
 
 		DEBUG("Block %s is set to be transfered to node %u", blockname, mis->nidxs[current_blockno * mis->replica_count + current_replica]);
