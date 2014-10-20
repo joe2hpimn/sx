@@ -201,7 +201,7 @@ static int volume_create(sxc_client_t *sx, const char *owner)
 	sxc_cluster_t *cluster;
 	sxc_uri_t *uri;
 	const char *suffixes = "kKmMgGtT", *confdir;
-	char *ptr, *voldir;
+	char *ptr, *voldir = NULL, *voldir_old = NULL;
 	int ret = 1;
 	int64_t size;
 	sxc_meta_t *vmeta = NULL;
@@ -230,30 +230,26 @@ static int volume_create(sxc_client_t *sx, const char *owner)
     if(!cluster)
 	return 1;
 
-    if(setup_filters(sx, create_args.filter_dir_arg)) {
-	sxc_free_uri(uri);
-	sxc_cluster_free(cluster);
-	return 1;
-    }
+    if(setup_filters(sx, create_args.filter_dir_arg))
+	goto create_err;
 
     confdir = sxi_cluster_get_confdir(cluster);
     voldir = malloc(strlen(confdir) + strlen(uri->volume) + 10);
-    if(!voldir) {
+    voldir_old = malloc(strlen(confdir) + strlen(uri->volume) + 14);
+    if(!voldir || !voldir_old) {
 	fprintf(stderr, "ERROR: Out of memory\n");
-	sxc_free_uri(uri);
-	sxc_cluster_free(cluster);
-	return 1;
+	goto create_err;
     }
     sprintf(voldir, "%s/volumes/%s", confdir, uri->volume);
+    sprintf(voldir_old, "%s/volumes/%s.old", confdir, uri->volume);
 
-    /* wipe existing local config */
+    /* rename existing local config */
     if(!reject_dots(uri->volume)) {
-	if(!access(voldir, F_OK) && sxi_rmdirs(voldir)) {
-	    fprintf(stderr, "ERROR: Can't wipe old volume configuration directory %s\n", voldir);
-	    sxc_free_uri(uri);
-	    free(voldir);
-	    sxc_cluster_free(cluster);
-	    return 1;
+	if(!access(voldir_old, F_OK))
+	    sxi_rmdirs(voldir_old);
+	if(!access(voldir, F_OK) && rename(voldir, voldir_old)) {
+	    fprintf(stderr, "ERROR: Can't rename old volume configuration directory %s\n", voldir);
+	    goto create_err;
 	}
     }
 
@@ -357,7 +353,14 @@ create_err:
     if(ret && voldir && !access(voldir, F_OK) && !reject_dots(uri->volume))
 	sxi_rmdirs(voldir);
 
+    if(voldir_old && !access(voldir_old, F_OK)) {
+	if(ret)
+	    rename(voldir_old, voldir);
+	else
+	    sxi_rmdirs(voldir_old);
+    }
     free(voldir);
+    free(voldir_old);
     sxc_free_uri(uri);
     sxc_cluster_free(cluster);
     return ret;
