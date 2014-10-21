@@ -190,7 +190,7 @@ void log_reopen(void)
 
 void log_setminlevel(sxc_client_t *sx, int prio)
 {
-    sxi_log_enable_level(&logger, prio);
+    sxi_log_set_level(&logger, prio);
     if (prio == SX_LOG_DEBUG) {
         sxc_set_debug(sx, 1);
     }
