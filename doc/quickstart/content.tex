@@ -10,20 +10,22 @@
     \rule{\textwidth}{1.6pt}\\[\baselineskip]
 \end{center}
 
-%\definecolor{lightblue}{rgb}{.780,.886,.953}
 \definecolor{lightblue}{rgb}{.835,.910,.965}
 \lstset {
     escapeinside=\^\^,
     frame=single,
     breaklines=true,
-    backgroundcolor=\color{lightblue},
+    backgroundcolor=\color{black},
+    %backgroundcolor=\color{lightblue},
+    basicstyle=\scriptsize\color{white}\ttfamily
 }
+\newcommand{\marked}[1]{\color{yellow}\textbf{#1}}
 
 \LARGE
 \chapter{Introduction}
 
-\indent Welcome to Skylable \SX, a complete framework for building distributed data
-clusters. This Quick Start Guide gives you the basics to install, configure
+\indent Welcome to Skylable \SX, a complete private cloud framework.
+This Quick Start Guide gives you the basics to install, configure
 and start using our software.\\
 
 \section*{Useful links}
@@ -79,9 +81,9 @@ $ ./configure --prefix=/opt/sx && make
 
 \SX by default operates on the port 443 or 80, which needs to be available on
 a given IP address\footnote{You can choose a custom port when running sxsetup with
-in advanced mode}. You can build even a single-node \SX cluster, however for data
-safety reasons it is recommended to create at least a two-node cluster and
-use replica higher than 1.
+in advanced mode}. You can build just a single-node \SX cluster, however for data
+safety reasons it is recommended to create at least two nodes and use replica higher
+than 1. You can add more nodes to the cluster at any time.
 
 \section*{The first node}
 
@@ -92,8 +94,8 @@ data storage, SSL certificate, and default admin account. You will only
 need to answer a few basic questions!
 
 In the example we assume the IP address of the first node is
-192.168.1.101, the name of the cluster is "mycluster", and \SX was
-installed into \verb+/opt/sx+. Also in some cases (eg. the path to
+\textbf{192.168.1.101}, the name of the cluster is \textbf{mycluster},
+and \SX was installed into \verb+/opt/sx+. Also in some cases (eg. the path to
 \SX storage) we assume default values, however your mileage may vary.\\
 
 \small
@@ -109,28 +111,28 @@ cluster.
 Clients will access your cluster using a sx://clustername/volume/path
 URI. It is recommended to use a FQDN for clustername, but not
 required. Refer to the documentation for more info.
-Enter the cluster name (use the same across all nodes) []: ^\textbf{mycluster}^
+Enter the cluster name (use the same across all nodes) []: ^\marked{mycluster}^
 
 --- DATA STORAGE ---
 
 Please provide the location where all incoming data will be stored.
-Path to SX storage [default=/opt/sx/var/lib/sxserver]: ^\textbf{<confirm default>}^
+Path to SX storage [default=/opt/sx/var/lib/sxserver]: ^\marked{<confirm default>}^
 
 Please specify the maximum size of the storage for this node. You can
 use M, G and T suffixes, eg. 100T for 100 terabytes.
-Maximum size [default=1T]: ^\textbf{500G}^
+Maximum size [default=1T]: ^\marked{500G}^
 
---- NODE ADDRESS ---
+--- NETWORKING ---
 
-Enter the IP address of this node [default=192.168.1.101]:
-^\textbf{<confirm default>}^
-Checking port 80 on 192.168.1.101 ... OK
+Enable SSL? (use the same setting for all nodes in the cluster) (Y/n)
+^\marked{<confirm default>}^
+Enter the IP address of this node [default=192.168.1.101]: ^\marked{<confirm default>}^
 Checking port 443 on 192.168.1.101 ... OK
 
 --- CLUSTER CONFIGURATION ---
 
-Is this (192.168.1.101) the first node of a new cluster?
-(Y/n)[default=y] ^\textbf{<confirm default>}^
+Is this (192.168.1.101) the first node of a new cluster? (Y/n)
+^\marked{<confirm default>}^
 
 --- SSL CONFIGURATION ---
 
@@ -145,23 +147,20 @@ writing new private key to '/opt/sx/etc/ssl/private/sxkey.pem'
 
 Cluster: sx://mycluster
 Node: 192.168.1.101
+Use SSL: yes
 Storage: /opt/sx/var/lib/sxserver
 Run as user: nobody
 
-Is this correct? (Y/n)[default=Y] ^\textbf{<confirm default>}^
+Is this correct? (Y/n) ^\marked{<confirm default>}^
 
 --- CLUSTER INITIALIZATION ---
 
-Initializing storage (hashfs):
-+ /opt/sx/sbin/sxadm node --new --batch-mode --run-as=nobody:nogroup /opt/sx/var/lib/sxserver/data
++ /opt/sx/sbin/sxadm node --new --batch-mode --owner=nobody:nogroup /opt/sx/var/lib/sxserver/data
 [runas]: Switched to nobody:nogroup (65534:65534)
-+ /opt/sx/sbin/sxadm cluster --new --batch-mode --node-dir=/opt/sx/var/lib/sxserver/data --ssl-ca-file=/opt/sx/etc/ssl/certs/sxcert.pem 500G/192.168.1.101 sx://mycluster
++ /opt/sx/sbin/sxadm cluster --new --port=443 --batch-mode --node-dir=/opt/sx/var/lib/sxserver/data --ssl-ca-file=/opt/sx/etc/ssl/certs/sxcert.pem 500G/192.168.1.101 sx://mycluster
 Starting SX.fcgi
-[runas]: Switched to nobody:nogroup (65534:65534)
 Starting sxhttpd
-SX node started successfully
-[runas]: Switched to nobody:nogroup (65534:65534)
-HashFS Version: WiPfs 2.0
+HashFS Version: SX-Storage 1.5
 Cluster UUID: 01dca714-8cc9-4e26-960e-daf04892b1e2
 Cluster authentication: CLUSTER/ALLNODE/ROOT/USERwBdjfz3tKcnTF2ouWIkTipreYuYjAAA
 Admin key: 0DPiKuNIrrVmD8IUCuw1hQxNqZfIkCY+oKwxi5zHSPn5y0SOi3IMawAA
@@ -229,7 +228,7 @@ YGgPNaWwBnH3jfsJ/kMXcJS52q/zPOIvUCz0
 
 Cluster: sx://mycluster
 This node: 192.168.1.101
-HashFS Version: WiPfs 2.0
+HashFS Version: SX-Storage 1.5
 Cluster UUID: 01dca714-8cc9-4e26-960e-daf04892b1e2
 Cluster authentication:
 CLUSTER/ALLNODE/ROOT/USERwBdjfz3tKcnTF2ouWIkTipreYuYjAAA
@@ -252,6 +251,10 @@ You can control it with '/opt/sx/sbin/sxserver'
 You can add a new node to the cluster by running 'sxsetup' on another
 server. When prompted, enter the 'admin key', 'SSL private key' and
 'SSL certificate' printed above.
+
+You can run 'sxacl useradd joe sx://admin@mycluster' to add a new user.
+To create a new volume owned by user 'joe' run:
+'sxvol create --owner joe --replica N --size SIZE sx://admin@mycluster/VOLNAME'
 \end{lstlisting}
 \LARGE
 When the script finishes successfully, the node is already functional.
@@ -266,16 +269,17 @@ sx.fcgi is running (PID 14394)
 sxhttpd is running (PID 14407)
 
 --- SX INFO ---
-Cluster name: mycluster
-HashFS Version: WiPfs 2.0
+Cluster name: ^\marked{mycluster}^
+Cluster port: 443
+HashFS Version: SX-Storage 1.5
 Cluster UUID: 01dca714-8cc9-4e26-960e-daf04892b1e2
 Cluster authentication: CLUSTER/ALLNODE/ROOT/USERwBdjfz3tKcnTF2ouWIkTipreYuYjAAA
-^\textbf{Admin key: 0DPiKuNIrrVmD8IUCuw1hQxNqZfIkCY+oKwxi5zHSPn5y0SOi3IMawAA}^
+Admin key: ^\marked{0DPiKuNIrrVmD8IUCuw1hQxNqZfIkCY+oKwxi5zHSPn5y0SOi3IMawAA}^
 Internal cluster protocol: SECURE
 Used disk space: 17568768
 Actual data size: 463872
 List of nodes:
-         * ec4d9d63-9fa3-4d45-838d-3e521f124ed3 192.168.1.101 (192.168.1.101) 536870912000
+         * ec4d9d63-9fa3-4d45-838d-3e521f124ed3 ^\marked{192.168.1.101}^ (192.168.1.101) 536870912000
 Storage location: /opt/sx/var/lib/sxserver/data
 SSL private key: /opt/sx/etc/ssl/private/sxkey.pem
 SX Logfile: /opt/sx/var/log/sxserver/sxfcgi.log
@@ -317,44 +321,43 @@ cluster.
 Clients will access your cluster using a sx://clustername/volume/path
 URI. It is recommended to use a FQDN for clustername, but not
 required. Refer to the documentation for more info.
-Enter the cluster name (use the same across all nodes) []: ^\textbf{mycluster}^
+Enter the cluster name (use the same across all nodes) []: ^\marked{mycluster}^
 
 --- DATA STORAGE ---
 
 Please provide the location where all incoming data will be stored.
-Path to SX storage [default=/opt/sx/var/lib/sxserver]: ^\textbf{<confirm default>}^
+Path to SX storage [default=/opt/sx/var/lib/sxserver]: ^\marked{<confirm default>}^
 
 Please specify the maximum size of the storage for this node. You can
 use M, G and T suffixes, eg. 100T for 100 terabytes.
-Maximum size [default=1T]: ^\textbf{250G}^
+Maximum size [default=1T]: ^\marked{250G}^
 
---- NODE ADDRESS ---
+--- NETWORKING ---
 
-Enter the IP address of this node [default=192.168.1.102]:
-^\textbf{<confirm default>}^
-Checking port 80 on 192.168.1.102 ... OK
+Enable SSL? (use the same setting for all nodes in the cluster) (Y/n)
+^\marked{<confirm default>}^
+Enter the IP address of this node [default=192.168.1.102]: ^\marked{<confirm default>}^
 Checking port 443 on 192.168.1.102 ... OK
 
 --- CLUSTER CONFIGURATION ---
 
-Is this (192.168.1.102) the first node of a new cluster?
-(Y/n)[default=y] ^\textbf{n}^
+Is this (192.168.1.102) the first node of a new cluster? (Y/n) ^\marked{n}^
 Please provide the IP address of a working node in 'mycluster'.
-IP address: ^\textbf{192.168.1.101}^
+IP address: ^\marked{192.168.1.101}^
 
 The admin key is required to join the existing cluster.
 If you don't have it, run 'sxserver status' on 192.168.1.101.
 Below you can provide the key itself or path to the file
 containing the key.
 Admin key or path to key-file:
-^\textbf{0DPiKuNIrrVmD8IUCuw1hQxNqZfIkCY+oKwxi5zHSPn5y0SOi3IMawAA}^
+^\marked{0DPiKuNIrrVmD8IUCuw1hQxNqZfIkCY+oKwxi5zHSPn5y0SOi3IMawAA}^
 
 --- SSL CONFIGURATION ---
 
 Please paste the SSL private key below (and press CTRL+D when
 done) or provide a path to it.
 SSL private key:
-^\textbf{<paste private key from 192.168.1.101 and press CTRL+D>}^
+^\marked{<below paste the private key from 192.168.1.101>}^
 -----BEGIN PRIVATE KEY-----
 MIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQCYNdtHyNglHZQ8
 vaO1HJWtZ/eerB2H80XyQTZpDFRS87qGUNcrRudDN09EypcueXaW1UN/3L8KKn7t
@@ -383,9 +386,9 @@ oi9Cnm4FNW7Z/VVgCCRFIwHxpqqAau63/naSGxkLUlK+U0StReiLC2D4FPrqs9Jh
 scUH9hTIp3hxwznZBRFkuvUOm3h6CwQ0t3km7AffLRsGQZ9EMlvNb4T5mR/Izgxy
 smcEPJfJgX61fx7c//bU6Q==
 -----END PRIVATE KEY-----
+^\marked{<press CTRL+D>}^
 
-
-Successfuly obtained SSL certificate from 192.168.1.101
+Successfully obtained SSL certificate from 192.168.1.101
 
 --- YOUR CHOICES ---
 
@@ -394,20 +397,23 @@ Node: 192.168.1.102
 Storage: /opt/sx/var/lib/sxserver
 Run as user: nobody
 
-Is this correct? (Y/n)[default=Y] ^\textbf{<confirm default>}^
+Is this correct? (Y/n) ^\marked{<confirm default>}^
 
 --- CLUSTER INITIALIZATION ---
 
-Initializing storage (hashfs):
-+ /opt/sx/sbin/sxadm node --new --batch-mode --run-as=nobody:nogroup --cluster-uuid=01dca714-8cc9-4e26-960e-daf04892b1e2 --key=/opt/sx/var/lib/sxserver/cluster.key /opt/sx/var/lib/sxserver/data
-[runas]: Switched to nobody:nogroup (65534:65534)
+Connecting to 127.0.0.1
+Server certificate:
+        Subject: C=UK; L=London; O=SX; CN=mycluster
+	Issuer: C=UK; L=London; O=SX; CN=mycluster
+	SHA1 fingerprint: 627917198424168ad0c144e721567eb4ebc90db1
+
+Do you trust this SSL certificate? [y/N] ^\marked{y}^
++ /opt/sx/sbin/sxadm node --new --batch-mode --owner=nobody:nogroup --cluster-uuid=01dca714-8cc9-4e26-960e-daf04892b1e2 --cluster-key=/opt/sx/var/lib/sxserver/cluster.key /opt/sx/var/lib/sxserver/data
 Starting SX.fcgi
-[runas]: Switched to nobody:nogroup (65534:65534)
 Starting sxhttpd
 SX node started successfully
-+ /opt/sx/sbin/sxadm cluster --mod 536870912000/192.168.1.101/ec4d9d63-9fa3-4d45-838d-3e521f124ed3 250G/192.168.1.102 sx://mycluster
-[runas]: Switched to nobody:nogroup (65534:65534)
-HashFS Version: WiPfs 2.0
++ /opt/sx/sbin/sxadm cluster --mod 536870912000/192.168.1.101/ec4d9d63-9fa3-4d45-838d-3e521f124ed3 250G/192.168.1.102 sx://admin@mycluster
+HashFS Version: SX-Storage 1.5
 Cluster UUID: 01dca714-8cc9-4e26-960e-daf04892b1e2
 Cluster authentication:
 CLUSTER/ALLNODE/ROOT/USERwBdjfz3tKcnTF2ouWIkTipreYuYjAAA
@@ -479,7 +485,8 @@ YGgPNaWwBnH3jfsJ/kMXcJS52q/zPOIvUCz0
 
 Cluster: sx://mycluster
 This node: 192.168.1.102
-HashFS Version: WiPfs 2.0
+Port number: 443
+HashFS Version: SX-Storage 1.5
 Cluster UUID: 01dca714-8cc9-4e26-960e-daf04892b1e2
 Cluster authentication: CLUSTER/ALLNODE/ROOT/USERwBdjfz3tKcnTF2ouWIkTipreYuYjAAA
 Admin key: 0DPiKuNIrrVmD8IUCuw1hQxNqZfIkCY+oKwxi5zHSPn5y0SOi3IMawAA
@@ -495,42 +502,47 @@ Sockets and pidfiles in: /opt/sx/var/run/sxserver
 Logs in: /opt/sx/var/log/sxserver/sxfcgi.log
 
 --- END OF SUMMARY ---
+
 Congratulations, the new node is up and running!
 You can control it with '/opt/sx/sbin/sxserver'
 
 You can add a new node to the cluster by running 'sxsetup' on another
-server.  When prompted, enter the 'admin key', 'SSL private key' and
+server. When prompted, enter the 'admin key', 'SSL private key' and
 'SSL certificate' printed above.
+
+You can run 'sxacl useradd joe sx://admin@mycluster' to add a new user.
+To create a new volume owned by user 'joe' run:
+'sxvol create --owner joe --replica N --size SIZE sx://admin@mycluster/VOLNAME'
 \end{lstlisting}
 \LARGE
-The node successfuly joined the cluster - at the end of the summary you can
-see the current list of nodes in the cluster. Repeat the same steps
-to add more nodes to the cluster.
+The node successfully joined the cluster - at the end of the summary you can
+see the current list of nodes in the cluster. Repeat the same steps to add more
+nodes to the cluster.
 
 \chapter{Client operations}
 
 \section*{Accessing the cluster}
 To access the cluster you need to have credentials for an existing
 account. In this example we will use the default admin account created
-during cluster setup. The following command sets up the admin access to
+during cluster setup.The following command sets up the admin access to
 the \SX cluster "mycluster" for the client tools. Because "mycluster"
 is not a DNS name, we need to point sxinit to one of the nodes of the
 cluster. It will automatically discover the IP addresses of the other
-nodes. After the initialization you can access the cluster just as "mycluster",
-without specifying any IP address.
+nodes. Additionally, we create an alias \textbf{@cluster}, which later
+can be used instead of\\ \textbf{sx://admin@mycluster}.
 \small
 \begin{lstlisting}
-$ ./sxinit -l 192.168.1.101 sx://admin@mycluster
+$ sxinit -l 192.168.1.101 -A @cluster sx://admin@mycluster
 Warning: self-signed certificate:
 
         Subject: C=GB, ST=UK, O=SX, CN=mycluster
 	Issuer: C=GB, ST=UK, O=SX, CN=mycluster
 	SHA1 Fingerprint: 84:EF:39:80:1E:28:9C:4A:C8:80:E6:56:57:A4:CD:64:2E:23:99:7A
 
-Do you trust this SSL certificate? [y/N] ^\textbf{y}^
+Do you trust this SSL certificate? [y/N] ^\marked{y}^
 Trusting self-signed certificate
 Please enter the user key:
-^\textbf{0DPiKuNIrrVmD8IUCuw1hQxNqZfIkCY+oKwxi5zHSPn5y0SOi3IMawAA}^
+^\marked{0DPiKuNIrrVmD8IUCuw1hQxNqZfIkCY+oKwxi5zHSPn5y0SOi3IMawAA}^
 \end{lstlisting}
 \LARGE
 \SX allows creating additional users of your choice and assigning them
@@ -540,28 +552,14 @@ on how to add new users to the cluster.
 
 \section*{Creating new volumes}
 Volumes are logical partitions of the \SX storage assigned to particular
-groups of users.
-What you need to know about volumes at this point is that their names
-need to be unique across the entire cluster, and you can create
-special volumes by enabling data processing filters. For example,
-the filters allow you to create volumes, which can be transparently
-encrypted, compressed, or preserve file attributes.
-The tool to manage volumes is named "sxvol". Here we show how to
-list available filters and create a client-side encrypted volume "mydata"
-owned by the admin user.
+groups of users and managed with the \verb+sxvol+ tool. Below we create
+a basic volume of size 50G owned by admin and fully replicated on two nodes.
+We're also making use of the @cluster alias, which stands for\\ sx://admin@mycluster.
 \small
 \begin{lstlisting}
-$ /opt/sx/bin/sxvol filter --list
-Name            Ver     Type            Full name
-----            ---     ----            ---------
-null            1.1     generic         Null Filter
-zcomp           0.2     compress        Zlib Compression Filter
-aes256          1.0     crypt           Encrypt data using AES-256
-attribs         1.1     generic         File Attributes
-$ /opt/sx/bin/sxvol create --filter=aes256 --owner=admin --replica=2
-    sx://admin@mycluster/mydata
-aes256: Enter encryption password: 
-aes256: Re-enter encryption password: 
+$ /opt/sx/bin/sxvol create --owner=admin --replica=2 --size=50G
+  @cluster/mydata
+Volume 'mydata' (replica: 2, size: 50G, max-revisions: 1) created.
 \end{lstlisting}
 \LARGE
 
@@ -573,12 +571,12 @@ and list files in the volume.
 \small
 \begin{lstlisting}
 $ echo Hello World! > /tmp/hello.txt
-$ sxcp /tmp/hello.txt sx://admin@mycluster/mydata/
-$ sxcat sx://admin@mycluster/mydata/hello.txt
+$ sxcp /tmp/hello.txt @cluster/mydata/
+$ sxcat @cluster/mydata/hello.txt
 Hello World!
-$ sxls sx://admin@mycluster/mydata/
+$ sxls @cluster/mydata/
 sx://admin@mycluster/mydata/hello.txt
-$ sxrm sx://admin@mycluster/mydata/hello.txt
+$ sxrm @cluster/mydata/hello.txt
 Deleted 1 file(s)
 \end{lstlisting}
 \LARGE
