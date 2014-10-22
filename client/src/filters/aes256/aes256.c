@@ -76,7 +76,7 @@ struct aes256_ctx {
     unsigned int inbytes, blkbytes, data_in, data_out_left, data_end;
     unsigned char in[IV_SIZE + FILTER_BLOCK_SIZE + AES_BLOCK_SIZE + MAC_SIZE];
     unsigned char blk[IV_SIZE + FILTER_BLOCK_SIZE + AES_BLOCK_SIZE + MAC_SIZE];
-    char *new_keyfile;
+    char *keyfile;
     int decrypt_err;
 };
 
@@ -227,27 +227,32 @@ static int aes256_configure(const sxf_handle_t *handle, const char *cfgstr, cons
 {
 	unsigned char key[KEY_SIZE], salt[SALT_SIZE];
 	char *keyfile;
-	int fd, user_salt = 0;
+	int fd, user_salt = 0, nogenkey = 0, paranoid = 0;
+	const char *pt;
 
     if(cfgstr) {
 	if(strstr(cfgstr, "paranoid") && strstr(cfgstr, "salt:")) {
 	    ERROR("User provided salt cannot be used in paranoid mode");
 	    return -1;
+	} else if(strncmp(cfgstr, "paranoid", 8) && strncmp(cfgstr, "salt:", 5) && strncmp(cfgstr, "nogenkey", 8)) {
+	    ERROR("Invalid configuration '%s'", cfgstr);
+	    return -1;
 	}
-	if(!strncmp(cfgstr, "salt:", 5)) {
-	    if(strlen(cfgstr) != 21) {
+	if((pt = strstr(cfgstr, "salt:"))) {
+	    if(strlen(pt) < 5 + 2 * SALT_SIZE) {
 		ERROR("Invalid salt length - must be %u bytes (hex string len %u)\n", SALT_SIZE, SALT_SIZE * 2);
 		return -1;
 	    }
-	    if(sxi_hex2bin(&cfgstr[5], strlen(&cfgstr[5]), salt, sizeof(salt))) {
-		ERROR("Invalid salt - can't decode hex string\n");
+	    if(sxi_hex2bin(&pt[5], 2 * SALT_SIZE, salt, sizeof(salt))) {
+		ERROR("Invalid salt - can't decode hex string '%s'\n", &pt[5]);
 		return -1;
 	    }
 	    user_salt = 1;
-	} else if(strcmp(cfgstr, "paranoid")) {
-	    ERROR("Invalid configuration option '%s'", cfgstr);
-	    return -1;
 	}
+	if(strstr(cfgstr, "nogenkey"))
+	    nogenkey = 1;
+	if(strstr(cfgstr, "paranoid"))
+	    paranoid = 1;
     }
 
     if(!user_salt) {
@@ -257,14 +262,14 @@ static int aes256_configure(const sxf_handle_t *handle, const char *cfgstr, cons
 	}
     }
 
-    if(cfgstr && !strcmp(cfgstr, "paranoid")) {
-	*cfgdata = malloc(sizeof(salt));
+    if(paranoid || nogenkey) {
+	*cfgdata = calloc(sizeof(salt) + nogenkey, sizeof(char));
 	if(!*cfgdata) {
 	    ERROR("OOM");
 	    return -1;
 	}
 	memcpy(*cfgdata, salt, sizeof(salt));
-	*cfgdata_len = sizeof(salt);
+	*cfgdata_len = sizeof(salt) + nogenkey;
 	return 0;
     }
 
@@ -343,6 +348,8 @@ static int aes256_data_prepare(const sxf_handle_t *handle, void **ctx, const cha
 	    if(ret)
 		return -1;
 	    keyread = 1;
+	} else if(cfgdata_len == SALT_SIZE + 1) { /* nogenkey mode -> no fingerprint available */
+	    memcpy(salt, cfgdata, SALT_SIZE);
 	} else if(cfgdata_len == SALT_SIZE + FP_SIZE) {
 	    memcpy(salt, cfgdata, SALT_SIZE);
 	    memcpy(fp, (unsigned char *) cfgdata + SALT_SIZE, FP_SIZE);
@@ -375,7 +382,7 @@ static int aes256_data_prepare(const sxf_handle_t *handle, void **ctx, const cha
 	    close(fd);
 	}
 	if(!keyread) {
-	    while((ret = getpassword(handle, 0, mode, key, salt)) == 1);
+	    while((ret = getpassword(handle, have_fp ? 0 : 1, mode, key, salt)) == 1);
 	    if(ret) {
 		free(keyfile);
 		return -1;
@@ -406,7 +413,7 @@ static int aes256_data_prepare(const sxf_handle_t *handle, void **ctx, const cha
         free(keyfile);
 	return -1;
     }
-    actx->new_keyfile = keyfile;
+    actx->keyfile = keyfile;
     mlock(actx->key, sizeof(actx->key));
     memcpy(actx->key, key, sizeof(actx->key));
     memset(key, 0, sizeof(key));
@@ -594,6 +601,7 @@ static ssize_t aes256_data_process(const sxf_handle_t *handle, void *ctx, const 
                 }
                 if (hmac_compare(actx->in + actx->inbytes, mac, maclen)) {
                     ERROR("HMAC mismatch (Invalid password/key file or broken data)");
+		    actx->decrypt_err = 1;
                     return -1;
                 }
                 memcpy(ivaes, actx->in, IV_SIZE);
@@ -665,9 +673,9 @@ static int aes256_data_finish(const sxf_handle_t *handle, void **ctx, sxf_mode_t
 	    memset(&actx->dctx, 0, sizeof(actx->dctx));
 	    munlock(&actx->dctx, sizeof(actx->dctx));
 	}
-	if(actx->decrypt_err && actx->new_keyfile)
-	    unlink(actx->new_keyfile);
-	free(actx->new_keyfile);
+	if(actx->decrypt_err && actx->keyfile)
+	    unlink(actx->keyfile);
+	free(actx->keyfile);
 	memset(*ctx, 0, sizeof(struct aes256_ctx));
 	munlock(actx->key, sizeof(actx->key));
 	free(*ctx);
@@ -681,10 +689,10 @@ sxc_filter_t sxc_filter={
 /* const char *shortname */	    "aes256",
 /* const char *fullname */	    "Encrypt data using AES-256-CBC-HMAC-512 mode.",
 /* const char *summary */	    "The filter automatically encrypts and decrypts all data using OpenSSL's AES-256 in CBC-HMAC-512 mode.",
-/* const char *options */	    "\n\tparanoid (don't use key files)\n\tsalt:HEX (force given salt, HEX must be 16 chars long)",
+/* const char *options */	    "\n\tnogenkey (don't generate a key file when creating a volume)\n\tparanoid (don't use key files)\n\tsalt:HEX (force given salt, HEX must be 32 chars long)",
 /* const char *uuid */		    "35a5404d-1513-4009-904c-6ee5b0cd8634",
 /* sxf_type_t type */		    SXF_TYPE_CRYPT,
-/* int version[2] */		    {1, 3},
+/* int version[2] */		    {1, 4},
 /* int (*init)(const sxf_handle_t *handle, void **ctx) */	    aes256_init,
 /* int (*shutdown)(const sxf_handle_t *handle, void *ctx) */    aes256_shutdown,
 /* int (*parse_cfgstr)(const char *cfgstr, void **cfgdata, unsigned int *cfgdata_len) */
