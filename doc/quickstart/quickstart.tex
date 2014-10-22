@@ -1,7 +1,10 @@
 \documentclass[oneside]{memoir}
-\usepackage{color,calc,graphicx,soul,fourier,anyfontsize,xspace,listings,url,hyperref}
+\PassOptionsToPackage{obeyspaces}{url}
+\usepackage{color,calc,graphicx,soul,fourier,anyfontsize,xspace,listings,hyperref,url}
 \definecolor{skylableblue}{rgb}{0,.467,.757}
+\definecolor{lightblue}{rgb}{.835,.910,.965}
 \makeatletter
+\sloppy
 \newlength\dlf@normtxtw
 \setlength\dlf@normtxtw{\textwidth}
 \def\myhelvetfont{\def\sfdefault{mdput}}
@@ -44,5 +47,27 @@
 \setlength\afterchapskip {\onelineskip }
 \setlength\beforechapskip {\onelineskip }
 \begin{document}
+\pagestyle{empty}
+
+\begin{center}
+    \includegraphics[width=120mm]{logo.eps}\\
+    \vspace{4cm}
+    \rule{\textwidth}{1.6pt}\vspace*{-\baselineskip}\vspace*{2pt}
+    \rule{\textwidth}{0.4pt}\\[\baselineskip]
+    {\fontsize{40}{50}\bfseries\scshape \SX Quick Start Guide}
+    \rule{\textwidth}{0.4pt}\vspace*{-\baselineskip}\vspace{3.2pt}
+    \rule{\textwidth}{1.6pt}\\[\baselineskip]
+\end{center}
+
+\lstset {
+    escapeinside=\^\^,
+    frame=single,
+    breaklines=true,
+    backgroundcolor=\color{black},
+    %backgroundcolor=\color{lightblue},
+    basicstyle=\scriptsize\color{white}\ttfamily
+}
+\newcommand{\marked}[1]{\color{yellow}\textbf{#1}}
+
 \input{content.tex}
 \end{document}
