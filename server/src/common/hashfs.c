@@ -631,6 +631,7 @@ struct _sx_hashfs_t {
 
     sxi_db_t *tempdb;
     sqlite3_stmt *qt_new;
+    sqlite3_stmt *qt_new4del;
     sqlite3_stmt *qt_update;
     sqlite3_stmt *qt_updateuniq;
     sqlite3_stmt *qt_extend;
@@ -653,7 +654,7 @@ struct _sx_hashfs_t {
     uint64_t qm_list_queries;
     sqlite3_stmt *qm_get[METADBS];
     sqlite3_stmt *qm_getrev[METADBS];
-    sqlite3_stmt *qm_tooold[METADBS];
+    sqlite3_stmt *qm_oldrevs[METADBS];
     sqlite3_stmt *qm_metaget[METADBS];
     sqlite3_stmt *qm_metaset[METADBS];
     sqlite3_stmt *qm_metadel[METADBS];
@@ -848,7 +849,7 @@ static void close_all_dbs(sx_hashfs_t *h) {
 	sqlite3_finalize(h->qm_listrevs[i]);
 	sqlite3_finalize(h->qm_get[i]);
 	sqlite3_finalize(h->qm_getrev[i]);
-	sqlite3_finalize(h->qm_tooold[i]);
+	sqlite3_finalize(h->qm_oldrevs[i]);
 	sqlite3_finalize(h->qm_metaget[i]);
 	sqlite3_finalize(h->qm_metaset[i]);
 	sqlite3_finalize(h->qm_metadel[i]);
@@ -891,6 +892,7 @@ static void close_all_dbs(sx_hashfs_t *h) {
     sqlite3_finalize(h->q_nextvol);
 
     sqlite3_finalize(h->qt_new);
+    sqlite3_finalize(h->qt_new4del);
     sqlite3_finalize(h->qt_update);
     sqlite3_finalize(h->qt_updateuniq);
     sqlite3_finalize(h->qt_extend);
@@ -1353,6 +1355,8 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 
     if(qprep(h->tempdb, &h->qt_new, "INSERT INTO tmpfiles (volume_id, name, token) VALUES (:volume, :name, lower(hex(:random)))"))
 	goto open_hashfs_fail;
+    if(qprep(h->tempdb, &h->qt_new4del, "INSERT INTO tmpfiles (volume_id, name, size, token, t, content, avail, ttl, uniqidx, flushed) VALUES (:volume, :name, :size, :token, :time, :content, :avail, :expires, x'', 1)"))
+	goto open_hashfs_fail;
     if(qprep(h->tempdb, &h->qt_update, "UPDATE tmpfiles SET size = :size, content = :all, uniqidx = :uniq, ttl = :expiry WHERE tid = :id AND flushed = 0"))
 	goto open_hashfs_fail;
     if(qprep(h->tempdb, &h->qt_extend, "UPDATE tmpfiles SET content = cast((content || :all) as blob), uniqidx = cast((uniqidx || :uniq) as blob) WHERE tid = :id AND length(content) = :size AND flushed = 0"))
@@ -1502,7 +1506,7 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 	    goto open_hashfs_fail;
 	if(qprep(h->metadb[i], &h->qm_getrev[i], "SELECT fid, size, content, rev, size FROM files WHERE volume_id = :volume AND name = :name AND rev = :revision LIMIT 1"))
 	    goto open_hashfs_fail;
-	if(qprep(h->metadb[i], &h->qm_tooold[i], "SELECT fid, rev, COUNT(*) AS nrevs, size FROM files WHERE volume_id = :volume AND name = :name GROUP BY name HAVING rev = MIN(rev) LIMIT 1"))
+	if(qprep(h->metadb[i], &h->qm_oldrevs[i], "SELECT rev, size, (SELECT COUNT(*) FROM files AS b WHERE b.volume_id = a.volume_id AND b.name = a.name) FROM files AS a WHERE a.volume_id = :volume AND a.name = :name ORDER BY rev ASC"))
 	    goto open_hashfs_fail;
 	if(qprep(h->metadb[i], &h->qm_metaget[i], "SELECT key, value FROM fmeta WHERE file_id = :file"))
 	    goto open_hashfs_fail;
@@ -5524,15 +5528,23 @@ rc_ty sx_hashfs_createfile_begin(sx_hashfs_t *h) {
 }
 
 rc_ty sx_hashfs_check_file_size(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, const char *filename, int64_t size) {
-    int64_t lastsize = 0;
-    rc_ty ret = FAIL_EINTERNAL;
+    int64_t revsz = 0;
     sqlite3_stmt *q;
-    int mdb, r;
+    int mdb, r, nrevs;
+    rc_ty ret = OK;
 
     if(!vol || size < 0 || !filename) {
         NULLARG();
         return FAIL_EINTERNAL;
     }
+
+    if(vol->size < size) { /* Avoid subsequent int wraps */
+	msg_set_reason("Quota exceeded");
+	return ENOSPC;
+    }
+
+    if(vol->cursize <= vol->size - size)
+	return OK;
 
     mdb = getmetadb(filename);
     if(mdb < 0) {
@@ -5541,40 +5553,47 @@ rc_ty sx_hashfs_check_file_size(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, c
         return FAIL_EINTERNAL;
     }
 
-    q = h->qm_tooold[mdb];
+    q = h->qm_oldrevs[mdb];
     sqlite3_reset(q);
 
-    if(qbind_int64(q, ":volume", vol->id) || qbind_text(q, ":name", filename)) {
-        WARN("Failed to bind query values");
-        goto sh_hashfs_check_file_size_err;
-    }
+    if(qbind_int64(q, ":volume", vol->id) || qbind_text(q, ":name", filename))
+        return FAIL_EINTERNAL;
 
     r = qstep(q);
     if(r == SQLITE_DONE) {
-        /* File was not stored yet, whole size should be checked */
-    } else if(r == SQLITE_ROW) {
-        int nrevs = sqlite3_column_int(h->qm_tooold[mdb], 2);
-        if(nrevs >= vol->revisions) {
-            /* There are too many revs, the oldest one will be overwritten, we need to take its size */
-            lastsize = sqlite3_column_int64(h->qm_tooold[mdb], 3);
-        }
-    } else {
-        WARN("Failed to query last file size");
-        msg_set_reason("Failed to query last file size");
-        goto sh_hashfs_check_file_size_err;
+	sqlite3_reset(q);
+	msg_set_reason("Quota exceeded");
+	return ENOSPC;
+    }
+    if(r != SQLITE_ROW) {
+	msg_set_reason("Failed to check volume quota");
+	return FAIL_EINTERNAL;
     }
 
-    if(vol->cursize + size - lastsize > vol->size) {
-        /* No space on volume */
-        msg_set_reason("Quota exceeded");
-        ret = ENOSPC;
-        goto sh_hashfs_check_file_size_err;
-    }
+    nrevs = sqlite3_column_int(q, 2);
+    while(nrevs >= vol->revisions) {
+	revsz += sqlite3_column_int64(q, 1);
+	if(revsz >= vol->cursize) {
+	    revsz = vol->cursize;
+	    break;
+	}
 
-    ret = OK;
-    sh_hashfs_check_file_size_err:
+	nrevs--;
+	if(!nrevs)
+	    break;
+
+	r = qstep(q);
+	if(r != SQLITE_ROW) {
+	    msg_set_reason("Failed to check volume quota");
+	    return FAIL_EINTERNAL;
+	}
+    }
     sqlite3_reset(q);
 
+    if(ret == OK && vol->cursize - revsz > vol->size - size) {
+	msg_set_reason("Quota exceeded");
+	ret = ENOSPC;
+    }
     return ret;
 }
 
@@ -6173,43 +6192,53 @@ static rc_ty create_file(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const
     }
 
     /* Count current file revisions */
-    sqlite3_reset(h->qm_tooold[mdb]);
-    if(qbind_int64(h->qm_tooold[mdb], ":volume", volume->id) ||
-       qbind_text(h->qm_tooold[mdb], ":name", name))
+    sqlite3_reset(h->qm_oldrevs[mdb]);
+    if(qbind_int64(h->qm_oldrevs[mdb], ":volume", volume->id) ||
+       qbind_text(h->qm_oldrevs[mdb], ":name", name))
 	return FAIL_EINTERNAL;
 
-    r = qstep(h->qm_tooold[mdb]);
+    r = qstep(h->qm_oldrevs[mdb]);
     if(r == SQLITE_ROW) {
+	int nrevs = sqlite3_column_int(h->qm_oldrevs[mdb], 2);
+	rc_ty rc = OK;
+	job_t job;
+
 	/* There are some revs */
-	const char *tooold_rev = (const char *)sqlite3_column_text(h->qm_tooold[mdb], 1);
-	int nrevs = sqlite3_column_int(h->qm_tooold[mdb], 2);
-	int can_replace = tooold_rev && strcmp(revision, tooold_rev) >= 0;
-        rc_ty rc = EINVAL;
+	while(nrevs >= volume->revisions) {
+	    const char *tooold_rev = (const char *)sqlite3_column_text(h->qm_oldrevs[mdb], 0);
+	    
+	    if(strcmp(revision, (const char *)sqlite3_column_text(h->qm_oldrevs[mdb], 0)) < 0) {
+		msg_set_reason("Newer copies of this file already exist");
+		rc = EINVAL;
+		break;
+	    }
 
-        do {
-            if(nrevs >= volume->revisions) {
-                /* There are too many revs */
-                if(!can_replace) {
-                    /* All existing revs are more recent than this one */
-                    msg_set_reason("Newer copies of this file already exist");
-                    break;
-                }
+	    rc = sx_hashfs_filedelete_job(h, 0, volume, name, tooold_rev, &job);
+	    if(rc == EEXIST)
+		rc = OK;
+	    else if(rc) {
+		msg_set_reason("Failed to mark older older file revision '%s' for deletion", tooold_rev);
+		break;
+	    }
 
-                /* Remove the oldest */
-                if (sx_hashfs_file_delete(h, volume, name, tooold_rev)) {
-                    /* Removal failed */
-                    msg_set_reason("Failed to delete older file revision: %s", tooold_rev);
-                    break;
-                }
-            }
-            rc = OK;
-        } while(0);
-        sqlite3_reset(h->qm_tooold[mdb]);
-        if (rc)
-            return rc;
+	    nrevs--;
+	    if(!nrevs)
+		break;
+
+	    r = qstep(h->qm_oldrevs[mdb]);
+	    if(r != SQLITE_ROW) {
+		msg_set_reason("There was a problem enumerating current revisions of the file");
+		rc = FAIL_EINTERNAL;
+		break;
+	    }
+	}	
+
+        sqlite3_reset(h->qm_oldrevs[mdb]);
+	if(rc)
+	    return rc;
         /* Yay we have a slot now */
     } else {
-	sqlite3_reset(h->qm_tooold[mdb]);
+	sqlite3_reset(h->qm_oldrevs[mdb]);
 	if(r != SQLITE_DONE) /* Something didn't quite work */
 	    return FAIL_EINTERNAL;
 
@@ -6552,13 +6581,8 @@ void sx_hashfs_putfile_end(sx_hashfs_t *h) {
     free(h->put_blocks);
     free(h->put_nidxs);
 
-    if(!h->put_success && h->put_id) {
-	sqlite3_reset(h->qt_delete);
-	if(!qbind_int64(h->qt_delete, ":id", h->put_id))
-	    qstep_noret(h->qt_delete);
-	sqlite3_reset(h->qt_delete);
-    }
-
+    if(!h->put_success && h->put_id)
+	sx_hashfs_tmp_delete(h, h->put_id);
     putfile_reinit(h);
 }
 
@@ -6986,10 +7010,6 @@ rc_ty sx_hashfs_tmp_getinfo(sx_hashfs_t *h, int64_t tmpfile_id, sx_hashfs_tmpinf
 					       hash_size,
 					       i,
 					       tbd->replica_count)) == OK) {
-		if(cur_item >= 3) {
-		    ret2 = EINVAL;
-		    break;
-		}
 		if(cur_item >= nuniqs)
 		    break;
 	    }
@@ -7108,11 +7128,7 @@ rc_ty sx_hashfs_tmp_tofile(sx_hashfs_t *h, const sx_hashfs_tmpinfo_t *missing) {
     if(qcommit(h->metadb[mdb]))
 	goto tmp2file_rollback;
 
-    sqlite3_reset(h->qt_delete);
-    if(!qbind_int64(h->qt_delete, ":id", missing->tmpfile_id))
-	qstep_noret(h->qt_delete);
-    sqlite3_reset(h->qt_delete);
-
+    sx_hashfs_tmp_delete(h, missing->tmpfile_id);
     ret = OK;
 
  tmp2file_rollback:
@@ -7125,6 +7141,163 @@ rc_ty sx_hashfs_tmp_tofile(sx_hashfs_t *h, const sx_hashfs_tmpinfo_t *missing) {
     return ret;
 }
 
+
+static rc_ty file_totmp(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, const char *name, const char *revision, int64_t *tmpfile_id, unsigned int *timeout) {
+    unsigned int nblocks, bsize, content_len, avail_len;
+    char rev[REV_LEN + 1];
+    const void *content;
+    int8_t *avail;
+    int64_t size;
+    int r, ndb;
+
+    if(!h || !vol || !name || !revision || !tmpfile_id || !timeout) {
+	NULLARG();
+	return EFAULT;
+    }
+
+    if(check_file_name(name)<0) {
+	msg_set_reason("Invalid file name");
+	return EINVAL;
+    }
+
+    strncpy(rev, revision, sizeof(rev));
+    if(check_revision(rev)) {
+	msg_set_reason("Invalid file revision");
+	return EINVAL;
+    }
+    rev[REV_TIME_LEN] = '\0';
+
+    ndb = getmetadb(name);
+    if(ndb < 0) {
+	msg_set_reason("Failed to locate file database");
+	return FAIL_EINTERNAL;
+    }
+
+    if(qbind_int64(h->qm_getrev[ndb], ":volume", vol->id) ||
+       qbind_text(h->qm_getrev[ndb], ":name", name) ||
+       qbind_text(h->qm_getrev[ndb], ":revision", revision))
+	return FAIL_EINTERNAL;
+
+    r = qstep(h->qm_getrev[ndb]);
+    if(r == SQLITE_DONE)
+	return ENOENT;
+    if(r != SQLITE_ROW)
+	return FAIL_EINTERNAL;
+
+    size = sqlite3_column_int64(h->qm_getrev[ndb], 1);
+    nblocks = size_to_blocks(size, NULL, &bsize);
+    content = sqlite3_column_blob(h->qm_getrev[ndb], 2);
+    content_len = sqlite3_column_bytes(h->qm_getrev[ndb], 2);
+    avail_len = nblocks * vol->replica_count;
+    avail = malloc(avail_len);
+    if(!avail) {
+	sqlite3_reset(h->qm_getrev[ndb]);
+	return ENOMEM;
+    }
+    memset(avail, 1, avail_len);
+
+    *timeout = sx_hashfs_job_file_timeout(h, vol->replica_count, size);
+
+    if(qbind_int64(h->qt_new4del, ":volume", vol->id) ||
+       qbind_text(h->qt_new4del, ":name", name) ||
+       qbind_int64(h->qt_new4del, ":size", size) ||
+       qbind_text(h->qt_new4del, ":token", &rev[REV_TIME_LEN+1]) ||
+       qbind_text(h->qt_new4del, ":time", rev) ||
+       qbind_blob(h->qt_new4del, ":content", content, content_len) ||
+       qbind_blob(h->qt_new4del, ":avail", avail, avail_len) ||
+       qbind_int64(h->qt_new4del, ":expires", time(NULL) + *timeout)) {
+	sqlite3_reset(h->qm_getrev[ndb]);
+	return FAIL_EINTERNAL;
+    }
+
+    r = qstep(h->qt_new4del);
+    sqlite3_reset(h->qm_getrev[ndb]);
+    free(avail);
+
+    if(r == SQLITE_CONSTRAINT)
+	return EEXIST;
+    if(r != SQLITE_DONE)
+	return FAIL_EINTERNAL;
+
+    *tmpfile_id = sqlite3_last_insert_rowid(sqlite3_db_handle(h->qt_new4del));
+    WARN("Turned file %s/%s::%s into tempfile id %lld", vol->name, name, revision, (long long)*tmpfile_id);
+    return OK;
+}
+
+rc_ty sx_hashfs_filedelete_job(sx_hashfs_t *h, sx_uid_t user_id, const sx_hashfs_volume_t *vol, const char *name, const char *revision, job_t *job_id) {
+    const sx_hashfs_file_t *filerev;
+    sx_nodelist_t *targets;
+    unsigned int timeout;
+    int64_t tmpfile_id;
+    rc_ty ret;
+
+    if(!h || !vol || !name || !job_id) {
+	NULLARG();
+	return EFAULT;
+    }
+
+    ret = sx_hashfs_volnodes(h, NL_NEXTPREV, vol, 0, &targets, NULL);
+    if(ret)
+	return ret;
+
+    if(revision) {
+	do {
+	    ret = file_totmp(h, vol, name, revision, &tmpfile_id, &timeout);
+	    if(ret)
+		break;
+	    ret = sx_hashfs_job_new(h, user_id, job_id, JOBTYPE_DELETE_FILE, timeout, name, &tmpfile_id, sizeof(tmpfile_id), targets);
+	    if(ret)
+		sx_hashfs_tmp_delete(h, tmpfile_id);
+	} while(0);
+	
+	sx_nodelist_delete(targets);
+	return ret;
+    }
+
+    ret = sx_hashfs_revision_first(h, vol, name, &filerev);
+    if(ret != OK) {
+	sx_nodelist_delete(targets);
+	return ret;
+    }
+
+    if(qbegin(h->tempdb)) {
+	sx_nodelist_delete(targets);
+	msg_set_reason("Internal error: failed to start database transaction");
+	return FAIL_EINTERNAL;
+    }
+
+    ret = sx_hashfs_job_new_begin(h);
+    if(ret) {
+	sx_nodelist_delete(targets);
+	qrollback(h->tempdb);
+	return ret;
+    }
+
+    *job_id = JOB_NOPARENT;
+    do {
+	ret = file_totmp(h, vol, name, filerev->revision, &tmpfile_id, &timeout);
+	if(ret)
+	    break;
+
+	ret = sx_hashfs_job_new_notrigger(h, *job_id, user_id, job_id, JOBTYPE_DELETE_FILE, timeout, name, &tmpfile_id, sizeof(tmpfile_id), targets);
+	if(ret)
+	    break;
+	ret = sx_hashfs_revision_next(h);
+    } while(ret == OK);
+
+    sx_nodelist_delete(targets);
+
+    if(ret == ITER_NO_MORE) {
+	if(!qcommit(h->tempdb))
+	    return sx_hashfs_job_new_end(h);
+	ret = FAIL_EINTERNAL;
+	msg_set_reason("Internal error: failed to commit database transaction");
+    }
+
+    qrollback(h->tempdb);
+    sx_hashfs_job_new_abort(h);
+    return ret;
+}
 
 rc_ty sx_hashfs_tmp_getmeta(sx_hashfs_t *h, const char *name, int64_t tmpfile_id, sxc_meta_t *metadata) {
     rc_ty ret = FAIL_EINTERNAL;
@@ -7166,6 +7339,19 @@ rc_ty sx_hashfs_tmp_getmeta(sx_hashfs_t *h, const char *name, int64_t tmpfile_id
     sqlite3_reset(h->qm_metaset[mdb]);
 
     return ret;
+}
+
+rc_ty sx_hashfs_tmp_delete(sx_hashfs_t *h, int64_t tmpfile_id) {
+    if(!h) {
+	NULLARG();
+	return EFAULT;
+    }
+
+    if(!qbind_int64(h->qt_delete, ":id", tmpfile_id) &&
+       !qstep_noret(h->qt_delete))
+	return OK;
+
+    return FAIL_EINTERNAL;
 }
 
 static rc_ty get_file_id(sx_hashfs_t *h, const char *volume, const char *filename, const char *revision, int64_t *file_id, int *database_number, unsigned int *created_at, sx_hash_t *etag, int64_t *size) {
@@ -7229,13 +7415,62 @@ static rc_ty get_file_id(sx_hashfs_t *h, const char *volume, const char *filenam
     return res;
 }
 
+rc_ty sx_hashfs_file_delete(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const char *file, const char *revision) {
+    int64_t file_id, size;
+    int mdb, deleted;
+    rc_ty ret;
+
+    if(!h || !volume) {
+	NULLARG();
+	return EFAULT;
+    }
+
+    if(!h->have_hd) {
+        WARN("Called before initialization");
+        return FAIL_EINIT;
+    }
+
+    if(!sx_hashfs_is_or_was_my_volume(h, volume)) {
+	msg_set_reason("Wrong node for volume '%s': ...", volume->name);
+	return ENOENT;
+    }
+
+    if(check_file_name(file)<0) {
+	msg_set_reason("Invalid file name");
+	return EINVAL;
+    }
+
+    if(check_revision(revision)) {
+	msg_set_reason("Invalid file revision");
+	return EINVAL;
+    }
+
+    ret = get_file_id(h, volume->name, file, revision, &file_id, &mdb, NULL, NULL, &size);
+    if(ret)
+        return ret;
+
+    if(qbind_int64(h->qm_delfile[mdb], ":file", file_id) ||
+       qstep_noret(h->qm_delfile[mdb])) {
+	msg_set_reason("Failed to delete file from database");
+	return FAIL_EINTERNAL;
+    }
+
+    deleted = sqlite3_changes(h->metadb[mdb]->handle);
+
+    /* Update counters only when file deletion succeeded and this node is not becoming a volnode */
+    if(ret == OK && size && deleted && !is_new_volnode(h, volume) && sx_hashfs_update_volume_cursize(h, volume->id, -size)) {
+        WARN("Failed to update volume size");
+        return FAIL_EINTERNAL;
+    }
+
+    return OK;
+}
+
 static int tmp_unbump_cb(const char *hexhash, unsigned int idx, int code, void *context) {
     sx_hashfs_tmpinfo_t *tmp = (sx_hashfs_tmpinfo_t *)context;
     char idxhash[SXI_SHA1_TEXT_LEN + 1];
     unsigned int nblock, replica;
 
-
-    INFO("IN %s", __FUNCTION__);
 
     if(!hexhash || !tmp) {
 	WARN("Called with NULL values");
@@ -7267,7 +7502,7 @@ static int tmp_unbump_cb(const char *hexhash, unsigned int idx, int code, void *
     if(tmp->avlblty[idx] != 0) {
 	tmp->avlblty[idx] = 0;
 	tmp->somestatechanged = 1;
-        INFO("Block %s (replica %u) unbumped", idxhash, replica);
+        DEBUG("Block %s (replica %u) unbumped", idxhash, replica);
     } else
 	DEBUG("Called for block %s (replica %u) which was not bumped", idxhash, replica);
 
@@ -7322,19 +7557,15 @@ rc_ty sx_hashfs_tmp_unbump(sx_hashfs_t *h, int64_t tmpfile_id) {
 	const sx_node_t *node = sx_nodelist_get(tmp->allnodes, nnode);
 	int local = !sx_node_cmp(node, self);
 
-	INFO("Node %u / %u", nnode, nnodes);
-    
+	DEBUG("Processing node %u / %u", nnode, nnodes);
 	for(nblock = 0; nblock < tmp->nall; nblock++) {
-
-	    INFO("Block %u / %u", nblock, tmp->nall);
-
+	    DEBUG("Processing block %u / %u", nblock, tmp->nall);
 	    for(replica = 0; replica < tmp->replica_count; replica++) {
 		unsigned int idx = nblock * tmp->replica_count + replica;
 		unsigned int ntarget = tmp->nidxs[idx];
 		int avail = tmp->avlblty[idx];
 
-		INFO("Replica %u / %u: target %u, avail %d", replica, tmp->replica_count, ntarget, avail);
-
+		DEBUG("Processing replica %u / %u: target %u, avail %d", replica, tmp->replica_count, ntarget, avail);
 		if(ntarget != nnode || !avail)
 		    continue;
 
@@ -7390,175 +7621,6 @@ rc_ty sx_hashfs_tmp_unbump(sx_hashfs_t *h, int64_t tmpfile_id) {
     return ret;
 }
 
-
-static rc_ty file_unbump(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const char *file, const char *revision, sx_hashfs_nl_t dist, int current_replica) {
-    unsigned int i, idx = 0, *idxs = NULL, uniq;
-    char fileidhex[SXI_SHA1_TEXT_LEN+1];
-    sx_hashfs_file_t filedata;
-    uint64_t op_expires_at;
-    sx_hash_t hash;
-    rc_ty ret;
-
-    if (unique_fileid(h->sx, volume, file, revision, &hash) ||
-	bin2hex(hash.b, sizeof(hash.b), fileidhex, sizeof(fileidhex)))
-	return FAIL_EINTERNAL;
-    ret = sx_hashfs_getfile_begin(h, volume->name, file, revision, &filedata, NULL);
-    if (ret != OK)
-	return ret;
-    op_expires_at = time(NULL) + sx_hashfs_job_file_timeout(h, current_replica, filedata.file_size);
-    sxi_hashop_begin(&h->hc, h->sx_clust, NULL, HASHOP_DELETE, volume->replica_count, NULL, &hash, NULL, op_expires_at);
-
-    if (h->get_nblocks) do {
-	    idxs = wrap_malloc(h->get_nblocks * sizeof(*idxs));
-	    if (!idxs) {
-		ret = ENOMEM;
-		break;
-	    }
-
-	    const sx_node_t *self = sx_hashfs_self(h);
-
-	    uniq = h->get_nblocks;
-	    build_uniq_hash_index(h->get_content, idxs, &uniq);
-	    if (uniq > 0) {
-		sx_nodelist_t **nodes = wrap_calloc(uniq, sizeof(*nodes));
-		if (!nodes) {
-		    ret = ENOMEM;
-		    break;
-		}
-
-		for (i=0; i<uniq; i++) {
-		    const sx_hash_t *hash = &h->get_content[idxs[i]];
-		    nodes[i] = sx_hashfs_hashnodes(h, NL_NEXT, hash, h->get_replica);
-		    const sx_node_t *node = sx_nodelist_get(nodes[i], current_replica);
-		    DEBUGHASH("decuse on", hash);
-		    if (!sx_node_cmp(node, self)) {
-			ret = sx_hashfs_hashop_perform(h, filedata.block_size, volume->replica_count, HASHOP_DELETE, hash, fileidhex, op_expires_at, NULL);
-			if (ret != OK)
-			    WARN("hashop_perform failed: %s", rc2str(ret));
-		    } else {
-			ret = sxi_hashop_batch_add(&h->hc, sx_node_internal_addr(node), idx++, hash->b, filedata.block_size);
-			if (ret)
-			    WARN("hashop_batch_add failed: %s", rc2str(ret));
-		    }
-		    if (ret)
-			WARN("Failed to query hash...: %s", rc2str(ret));
-		}
-		sx_hashfs_getfile_end(h);
-		DEBUG("waiting for hashop_end");
-		if (sxi_hashop_end(&h->hc) == -1) {
-		    WARN("hashop_end failed: %s", sxc_geterrmsg(h->sx));
-		    ret = sxc_geterrnum(h->sx);
-		}
-		for (i=0; i<uniq;i++)
-		    sx_nodelist_delete(nodes[i]);
-		free(nodes);
-		nodes = NULL;
-		free(idxs);
-		idxs = NULL;
-	    }
-	} while(0);
-    sx_hashfs_getfile_end(h);
-    free(idxs);
-    if (ret != OK && ret != ITER_NO_MORE)
-	return ret;
-
-    return OK;
-}
-
-rc_ty sx_hashfs_file_delete(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const char *file, const char *revision) {
-    sx_nodelist_t *belongsto;
-    int ndb, prev_replica, next_replica;
-    int64_t file_id, mh;
-    sx_hash_t hash;
-    int64_t size = 0;
-    rc_ty ret;
-    int deleted;
-
-    if(!h || !volume || !file) {
-	NULLARG();
-	return EFAULT;
-    }
-
-    if(!h->have_hd) {
-	WARN("Called before initialization");
-	return FAIL_EINIT;
-    }
-
-    if(check_file_name(file)<0) {
-	msg_set_reason("Invalid file name");
-	return EINVAL;
-    }
-
-    if(check_revision(revision)) {
-	msg_set_reason("Invalid revision");
-	return EINVAL;
-    }
-
-    if(hash_buf(h->cluster_uuid.string, strlen(h->cluster_uuid.string), volume->name, strlen(volume->name), &hash)) {
-        WARN("Cannot calculate volume hash");
-        return FAIL_EINTERNAL;
-    }
-    mh = MurmurHash64(&hash, sizeof(hash), HDIST_SEED);
-
-    belongsto = sxi_hdist_locate(h->hd, mh, volume->replica_count, 0);
-    if(!belongsto) {
-        WARN("Cannot get nodes for volume %s", volume->name);
-        return FAIL_EINTERNAL;
-    }
-    if(!sx_nodelist_lookup_index(belongsto, &h->node_uuid, (unsigned int *)&next_replica))
-	next_replica = -1;
-    sx_nodelist_delete(belongsto);
-
-    if(h->is_rebalancing) {
-	belongsto = sxi_hdist_locate(h->hd, mh, volume->replica_count, 1);
-	if(!belongsto) {
-	    WARN("Cannot get nodes for volume %s", volume->name);
-	    return FAIL_EINTERNAL;
-	}
-	if(!sx_nodelist_lookup_index(belongsto, &h->node_uuid, (unsigned int *)&prev_replica))
-	    prev_replica = -1;
-	sx_nodelist_delete(belongsto);
-    } else
-	prev_replica = -1;
-
-    if(next_replica < 0 && prev_replica < 0) {
-	msg_set_reason("Wrong node for volume '%s': ...", volume->name);
-	return ENOENT;
-    }
-
-    ret = get_file_id(h, volume->name, file, revision, &file_id, &ndb, NULL, NULL, &size);
-    if(ret)
-        return ret;
-
-    /* MODHDIST: decrement hash refcounts from all distibutions */
-    if(next_replica >= 0)
-	ret = file_unbump(h, volume, file, revision, NL_NEXT, next_replica);
-    if(ret == OK && prev_replica >= 0)
-	ret = file_unbump(h, volume, file, revision, NL_PREV, prev_replica);
-
-    if(ret != OK) {
-	msg_set_reason("File delete failed: cannot update block counters for %s/%s", volume->name, file);
-	return ret;
-    }
-
-    sqlite3_reset(h->qm_delfile[ndb]);
-    if(qbind_int64(h->qm_delfile[ndb], ":file", file_id) ||
-       qstep_noret(h->qm_delfile[ndb]))
-	ret = FAIL_EINTERNAL;
-    else
-	ret = OK;
-    deleted = sqlite3_changes(h->metadb[ndb]->handle);
-    sqlite3_reset(h->qm_delfile[ndb]);
-
-    /* Update counters only when file deletion succeeded and this node is not becoming a volnode */
-    if(ret == OK && size && deleted && !is_new_volnode(h, volume) && sx_hashfs_update_volume_cursize(h, volume->id, -size)) {
-        WARN("Failed to update volume size");
-        return FAIL_EINTERNAL;
-    }
-
-    return ret;
-
-}
 
 static rc_ty fill_filemeta(sx_hashfs_t *h, unsigned int metadb, int64_t file_id) {
     sqlite3_stmt *q = h->qm_metaget[metadb];
@@ -7995,6 +8057,22 @@ rc_ty sx_hashfs_job_new_end(sx_hashfs_t *h) {
 	return OK;
 
     msg_set_reason("Internal error: failed to commit new job(s) to database");
+    qrollback(h->eventdb);
+
+    return FAIL_EINTERNAL;
+}
+
+rc_ty sx_hashfs_job_new_abort(sx_hashfs_t *h) {
+    if(!h) {
+	NULLARG();
+	return EFAULT;
+    }
+    
+    if(!h->addjob_begun) {
+	msg_set_reason("Internal error: job_new_end phase error");
+	return FAIL_EINTERNAL;
+    }
+
     qrollback(h->eventdb);
 
     return FAIL_EINTERNAL;

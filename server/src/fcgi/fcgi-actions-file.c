@@ -438,6 +438,7 @@ static void create_or_extend_tempfile(const sx_hashfs_volume_t *vol, const char 
             quit_errmsg(500, msg_get_reason());
     }
 
+
     /* FIXME: extend should reuse old token, not get a new one because the
      * expiry time will be wrong... */
     s = sx_hashfs_putfile_gettoken(hashfs, user, yctx.filesize, &token, hash_presence_callback, &ctx);
@@ -516,65 +517,10 @@ void fcgi_delete_file(void) {
 	CGI_PUTS("\r\n");
     } else {
 	/* Request comes in from the user: create job */
-	sx_nodelist_t *targets;
-
-	s = sx_hashfs_volnodes(hashfs, NL_NEXTPREV, vol, 0, &targets, NULL);
-	if(s == OK) {
-	    sx_blob_t *b = sx_blob_new();
-	    const void *job_data;
-	    unsigned int job_datalen;
-	    job_t job;
-
-	    if(b && !sx_blob_add_string(b, volume) && !sx_blob_add_string(b, path)) {
-		unsigned int job_timeout = 20;
-		sx_hashfs_file_t filedata;
-
-		if(!rev || !*rev) {
-		    const sx_hashfs_file_t *file;
-		    s = sx_hashfs_revision_first(hashfs, vol, path, &file);
-		    while(s == OK) {
-			if(sx_blob_add_string(b, file->revision))
-			    s = ENOMEM;
-			else {
-                            if(sx_hashfs_getfile_begin(hashfs, vol->name, path, file->revision, &filedata, NULL) == OK) {
-				job_timeout += sx_hashfs_job_file_timeout(hashfs, sx_nodelist_count(targets), filedata.file_size);
-				sx_hashfs_getfile_end(hashfs);
-			    }
-			    s = sx_hashfs_revision_next(hashfs);
-                        }
-		    }
-		    if(s == ITER_NO_MORE)
-			s = OK;
-		} else if(sx_blob_add_string(b, rev))
-		    s = ENOMEM;
-                else {
-                    if(sx_hashfs_getfile_begin(hashfs, vol->name, path, rev, &filedata, NULL) == OK) {
-			job_timeout += sx_hashfs_job_file_timeout(hashfs, sx_nodelist_count(targets), filedata.file_size);
-			sx_hashfs_getfile_end(hashfs);
-		    }
-                }
-
-		if(s == OK) {
-		    if(!sx_blob_add_string(b, "")) {
-			sx_blob_to_data(b, &job_data, &job_datalen);
-			s = sx_hashfs_job_new(hashfs, uid, &job, JOBTYPE_DELETE_FILE, job_timeout, NULL, job_data, job_datalen, targets);
-		    } else
-			s = ENOMEM;
-		}
-	    } else
-		s = ENOMEM;
-
-	    sx_nodelist_delete(targets);
-	    sx_blob_free(b);
-
-	    if(s == OK) {
-		send_job_info(job);
-		return;
-	    }
-	}
-	if(s == ENOMEM)
-	    quit_errmsg(503, "Cannot allocate job data");
-	else
+	job_t job;
+	s = sx_hashfs_filedelete_job(hashfs, uid, vol, path, rev, &job);
+	if(s != OK)
 	    quit_errmsg(rc2http(s), msg_get_reason());
+	send_job_info(job);
     }
 }
