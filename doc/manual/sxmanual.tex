@@ -1,5 +1,6 @@
 \documentclass[oneside]{memoir}
 \PassOptionsToPackage{obeyspaces}{url}
+\PassOptionsToPackage{linktocpage}{hyperref}
 \usepackage{color,calc,graphicx,soul,fourier,anyfontsize,xspace,listings,hyperref,url}
 \definecolor{skylableblue}{rgb}{0,.467,.757}
 \definecolor{lightblue}{rgb}{.835,.910,.965}
@@ -50,11 +51,11 @@
 \pagestyle{empty}
 
 \begin{center}
-    \includegraphics[width=120mm]{../manual/logo.eps}\\
+    \includegraphics[width=120mm]{logo.eps}\\
     \vspace{4cm}
     \rule{\textwidth}{1.6pt}\vspace*{-\baselineskip}\vspace*{2pt}
     \rule{\textwidth}{0.4pt}\\[\baselineskip]
-    {\fontsize{40}{50}\bfseries\scshape \SX Quick Start Guide}
+    {\fontsize{40}{50}\bfseries\scshape \SX Manual}
     \rule{\textwidth}{0.4pt}\vspace*{-\baselineskip}\vspace{3.2pt}
     \rule{\textwidth}{1.6pt}\\[\baselineskip]
 \end{center}
@@ -69,5 +70,15 @@
 }
 \newcommand{\marked}[1]{\color{yellow}\textbf{#1}}
 
-\input{content.tex}
+\newpage
+\tableofcontents
+\vspace{1.0cm}
+
+\input{intro.tex}
+\input{install.tex}
+\input{deploy.tex}
+\input{manage.tex}
+\input{client.tex}
+\input{trouble.tex}
+
 \end{document}
