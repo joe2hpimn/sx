@@ -40,9 +40,12 @@ struct node_args_info
   const char *help_help; /**< @brief Print help and exit help description.  */
   const char *full_help_help; /**< @brief Print help, including hidden options, and exit help description.  */
   const char *version_help; /**< @brief Print version and exit help description.  */
-  const char *new_help; /**< @brief Creates a new local SX node in PATH help description.  */
-  const char *info_help; /**< @brief Print details about the local node in PATH help description.  */
-  const char *check_help; /**< @brief Perform sanity check on the local node in PATH help description.  */
+  const char *new_help; /**< @brief Creates a new local SX node in STORAGE_PATH help description.  */
+  const char *info_help; /**< @brief Print details about the local node in STORAGE_PATH help description.  */
+  const char *check_help; /**< @brief Perform sanity check on the local node in STORAGE_PATH help description.  */
+  char * extract_arg;	/**< @brief Extract all files from the local node in STORAGE_PATH to DESTPATH.  */
+  char * extract_orig;	/**< @brief Extract all files from the local node in STORAGE_PATH to DESTPATH original value given at command line.  */
+  const char *extract_help; /**< @brief Extract all files from the local node in STORAGE_PATH to DESTPATH help description.  */
   char * cluster_key_arg;	/**< @brief File containing a pre-generated cluster authentication token or stdin if \"-\" is given (default autogenerate token)..  */
   char * cluster_key_orig;	/**< @brief File containing a pre-generated cluster authentication token or stdin if \"-\" is given (default autogenerate token). original value given at command line.  */
   const char *cluster_key_help; /**< @brief File containing a pre-generated cluster authentication token or stdin if \"-\" is given (default autogenerate token). help description.  */
@@ -62,6 +65,7 @@ struct node_args_info
   unsigned int new_given ;	/**< @brief Whether new was given.  */
   unsigned int info_given ;	/**< @brief Whether info was given.  */
   unsigned int check_given ;	/**< @brief Whether check was given.  */
+  unsigned int extract_given ;	/**< @brief Whether extract was given.  */
   unsigned int cluster_key_given ;	/**< @brief Whether cluster-key was given.  */
   unsigned int batch_mode_given ;	/**< @brief Whether batch-mode was given.  */
   unsigned int owner_given ;	/**< @brief Whether owner was given.  */

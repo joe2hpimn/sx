@@ -3042,6 +3042,357 @@ sx_hashfs_check_err:
     return ret;
 }
 
+/* Create temporary file inside given path.
+ * Return file name or NULL in case of error. File descriptor is set via fd argument. */
+static char *create_partfile(sx_hashfs_t *h, const char *destpath, const char *volname, const char *name, int64_t size, int *fd) {
+    int ret = -1;
+    unsigned int len;
+    char *fname = NULL;
+
+    if(!h || !destpath || !volname || !name || !fd) {
+        WARN("Failed to create partfile: NULL argument");
+        return NULL;
+    }
+
+    len = strlen(destpath) + strlen(volname) + 10; /* 6 chars for tempfile, 2 slashes, dot and nulbyte */
+    fname = malloc(len);
+    if(!fname) {
+        WARN("Failed to allocate memory for file name");
+        goto create_partfile_err;
+    }
+
+    snprintf(fname, len, "%s/.%s/XXXXXX", destpath, volname);
+
+    if((*fd = mkstemp(fname)) < 0 || ftruncate(*fd, size)) {
+        WARN("Failed to create file %s", fname);
+        goto create_partfile_err;
+    }
+
+    ret = 0;
+create_partfile_err:
+    if(ret) {
+        free(fname);
+        return NULL;
+    }
+    return fname;
+}
+
+static void close_partfile(sx_hashfs_t *h, const char *destpath, const char *volname, const char *name, char *partname, int fd, int64_t nhashes, int64_t restored_hashes) {
+    char *newname = NULL;
+
+    if(!destpath || !volname || !name) {
+        WARN("Failed to close partflie: NULL argument");
+        goto close_partfile_err;
+    }
+
+    if(!partname)
+        goto close_partfile_err;
+
+    /* Rename partfile only if all blocks were restored properly */
+    if(nhashes == restored_hashes) {
+        unsigned int len = strlen(destpath) + strlen(volname) + strlen(name) + 3;
+        char *tmp;
+
+        /* Allocate mem for new file name */
+        newname = malloc(len);
+        if(!newname) {
+            WARN("Failed to allocate memory for file name");
+            goto close_partfile_err;
+        }
+
+        snprintf(newname, len, "%s/%s/%s", destpath, volname, name);
+
+        /* Make needed directories */
+        if((tmp = strrchr(newname, '/'))) {
+            *tmp = '\0';
+            if(access(newname, R_OK) && sxi_mkdir_hier(h->sx, newname, 0700)) {
+                WARN("Failed to create directory %s for file %s: Move partial file %s manually", newname, name, partname);
+                goto close_partfile_err;
+            }
+            *tmp = '/';
+        }
+
+        if(rename(partname, newname)) {
+            WARN("Failed to rename partial file %s to %s: Move it manually", partname, newname);
+            goto close_partfile_err;
+        }
+    }
+
+close_partfile_err:
+    if(fd > 0)
+        close(fd);
+    if(partname && volname && name) {
+        /* If no hashes were restored, remove partfile */
+        if(restored_hashes == 0 && nhashes != 0)
+            unlink(partname);
+
+        if(restored_hashes != nhashes && restored_hashes > 0)
+            WARN("File %s/%s was restored to partial file %s: saved %lld of %lld blocks", volname, name, partname, (long long)restored_hashes, (long long)nhashes);
+    }
+    free(newname);
+    free(partname);
+}
+
+static int extract_file(sx_hashfs_t *h, const char *destpath, const char *volname, const char *name, int64_t size, const sx_hash_t *hashes, int64_t nhashes, int64_t *restored_hashes) {
+    int ret = -1;
+    sqlite3_stmt *q = NULL;
+    unsigned int blocksize = 0, hs = 0;
+    int64_t i;
+    int fd = -1;
+    char *fname = NULL;
+    sx_hash_t zerohash;
+
+    if(!destpath || !volname || !name || !restored_hashes || (nhashes > 0 && !hashes)) {
+        WARN("Failed to extract file: bad argument");
+        return -1;
+    }
+
+    /* Get block size for file */
+    size_to_blocks(size, NULL, &blocksize);
+
+    if(!blocksize) {
+        WARN("Failed to compute block size for file %s", name);
+        goto extract_file_err;
+    }
+
+    /* Get hash size index */
+    for(hs = 0; hs < SIZES; hs++) {
+        if(blocksize == bsz[hs])
+            break;
+    }
+
+    if(hs == SIZES) {
+        WARN("Failed to get hash size database, blocksize: %u", blocksize);
+        goto extract_file_err;
+    }
+
+    memset(h->blockbuf, 0, blocksize);
+    /* Calculate zerohash */
+    if(hash_buf(h->cluster_uuid.string, strlen(h->cluster_uuid.string), h->blockbuf, blocksize, &zerohash))
+        goto extract_file_err;
+
+    /* Create part file */
+    if(!(fname = create_partfile(h, destpath, volname, name, size, &fd)) || fd < 0) {
+        WARN("Failed to create part file");
+        goto extract_file_err;
+    }
+
+    /* Iterate over all hashes */
+    for(i = 0LL; i < nhashes; i++) {
+        int64_t hoff = i * blocksize;
+        const sx_hash_t *hash = hashes + i;
+        unsigned int hdb;
+        int r;
+        int64_t to_write;
+        char hex[SXI_SHA1_TEXT_LEN+1];
+
+        if(!memcmp(zerohash.b, hash->b, sizeof(sx_hash_t))) {
+            /* This hash correspond to block filled with zeroes, skip it */
+            if(restored_hashes)
+                (*restored_hashes)++;
+            continue;
+        }
+
+        /* Used for printing hash, can be remove if not needed */
+        bin2hex(hash->b, sizeof(sx_hash_t), hex, SXI_SHA1_TEXT_LEN+1);
+
+        hdb = gethashdb(hash);
+        q = h->qb_get[hs][hdb];
+
+        sqlite3_reset(q);
+        if(qbind_blob(q, ":hash", hash->b, sizeof(sx_hash_t))) {
+            WARN("Failed to bind hash to query");
+            goto extract_file_err;
+        }
+
+        /* Check whether we want to write whole block or its file last block */
+        if(hoff + blocksize < size)
+            to_write = blocksize;
+        else
+            to_write = size - hoff;
+
+        /* Get offset */
+        r = qstep(q);
+        if(r == SQLITE_ROW) {
+            /* Hash was found in database, now get its offset */
+            int64_t offset = sqlite3_column_int64(q, 0);
+            offset *= blocksize;
+            if(read_block(h->datafd[hs][hdb], h->blockbuf, offset, to_write)) /* Block was not found in storage, but continue extraction */
+                continue;
+
+            if(lseek(fd, hoff, SEEK_SET) != hoff) {
+                WARN("Failed to seek file to %lld", (long long)hoff);
+                goto extract_file_err;
+            }
+
+            if(write_block(fd, h->blockbuf, hoff, to_write)) {
+                WARN("Failed to write block to part file");
+                goto extract_file_err;
+            }
+            if(restored_hashes)
+                (*restored_hashes)++;
+        } else if(r != SQLITE_DONE) {
+            WARN("Failed to query database for block offset");
+            goto extract_file_err;
+        }
+    }
+
+    ret = 0;
+extract_file_err:
+    sqlite3_reset(q);
+    close_partfile(h, destpath, volname, name, fname, fd, nhashes, *restored_hashes);
+    return ret;
+}
+
+static int extract_volume_files(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, const char *destpath, int64_t *restored, int64_t *nfiles) {
+    int ret = -1, r, i;
+    sqlite3_stmt *list[METADBS];
+
+    if(!vol || !destpath || !restored || !nfiles) {
+        NULLARG();
+        return ret;
+    }
+
+    memset(list, 0, sizeof(list));
+
+    for(i = 0; i < METADBS; i++) {
+        if(qprep(h->metadb[i], &list[i], "SELECT name, size, content FROM files WHERE volume_id = :volid")
+           || qbind_int64(list[i], ":volid", vol->id)) {
+            WARN("Failed to prepare files list query for volume %s", vol->name);
+            goto extract_volume_files_err;
+        }
+    }
+
+    /* Iterate over meta databases
+     * This loop is not going to be broken when error occurs - this is a backup routine */
+    ret = 0; /* Start counting errors during extraction */
+    *restored = 0;
+    *nfiles = 0;
+    for(i = 0; i < METADBS; i++) {
+        while((r = qstep(list[i])) == SQLITE_ROW) {
+            const char *name = (const char*)sqlite3_column_text(list[i], 0);
+            int64_t size = sqlite3_column_int64(list[i], 1);
+            const sx_hash_t *hashes = (const sx_hash_t*)sqlite3_column_blob(list[i], 2);
+            int64_t nhashes = sqlite3_column_bytes(list[i], 2);
+            int64_t restored_hashes = 0;
+
+            if(nhashes % sizeof(sx_hash_t)) {
+                WARN("Bad list of hashes for file: %s", name);
+                continue;
+            }
+            nhashes /= sizeof(sx_hash_t);
+
+            if(extract_file(h, destpath, vol->name, name, size, hashes, nhashes, &restored_hashes) < 0) {
+                ret++;
+                WARN("Failed to extract file %s/%s", vol->name, name);
+            } else
+                (*restored)++;
+            (*nfiles)++;
+        }
+
+        if(r != SQLITE_DONE) {
+            ret++;
+            WARN("Failed to list files from meta database %d / %d for volume %s", i, METADBS, vol->name);
+        }
+    }
+
+extract_volume_files_err:
+    for(i = 0; i < METADBS; i++)
+        sqlite3_finalize(list[i]);
+
+    return ret;
+}
+
+int sx_hashfs_extract(sx_hashfs_t *h, const char *destpath) {
+    int ret = -1, s, r, i;
+    sqlite3_stmt *locks[METADBS+1], *unlocks[METADBS+1];
+    const sx_hashfs_volume_t *vol = NULL;
+
+    if(!destpath || !*destpath) {
+        WARN("Failed to extract files: Bad output path");
+        return -1;
+    }
+
+    memset(locks, 0, sizeof(locks));
+    memset(unlocks, 0, sizeof(unlocks));
+
+    /* Lock meta databases */
+    for(i = 0; i < METADBS; i++) {
+        if(qprep(h->metadb[i], &locks[i], "BEGIN EXCLUSIVE TRANSACTION") || qprep(h->metadb[i], &unlocks[i], "ROLLBACK") || qstep_noret(locks[i])) {
+            WARN("Failed to lock meta database at index %d", i);
+            goto sx_hashfs_extract_err;
+        }
+    }
+
+    /* Lock hahsfs database */
+    if(qprep(h->db, &locks[METADBS], "BEGIN EXCLUSIVE TRANSACTION") || qprep(h->db, &unlocks[METADBS], "ROLLBACK") || qstep_noret(locks[METADBS])) {
+        WARN("Failed to lock volumes database");
+        goto sx_hashfs_extract_err;
+    }
+
+    /* Iterate over all volumes */
+    for(s = sx_hashfs_volume_first(h, &vol, 0); s == OK; s = sx_hashfs_volume_next(h)) {
+        int64_t restored = 0, nfiles = 0;
+        unsigned int len;
+        char *partdir = NULL;
+
+        if(!vol) {
+            WARN("Failed to iterate volumes: bad volume reference");
+            goto sx_hashfs_extract_err;
+        }
+
+        /* Part files directory should be empty now, clean up now */
+        len = strlen(destpath) + strlen(vol->name) + 3;
+        partdir = malloc(len);
+        if(!partdir) {
+            WARN("Failed to allocate memory");
+            goto sx_hashfs_extract_err;
+        }
+        snprintf(partdir, len, "%s/.%s", destpath, vol->name);
+
+        /* Make needed directories */
+        if(access(partdir, R_OK) && sxi_mkdir_hier(h->sx, partdir, 0700)) {
+            WARN("Failed to create directory %s for volume %s files", partdir, vol->name);
+            free(partdir);
+            goto sx_hashfs_extract_err;
+        }
+
+        if((r = extract_volume_files(h, vol, destpath, &restored, &nfiles)) < 0) {
+            WARN("Failed to restore files for volume %s", vol->name);
+        } else {
+            if(r > 0) {
+                WARN("Encountered %d error(s) during volume %s files extraction, restored %lld of %lld files ", r, vol->name,
+                    (long long)restored, (long long)nfiles);
+            } else if(nfiles > 0) {
+                INFO("All %lld files for volume %s were extracted successfully", (long long)nfiles, vol->name);
+            }
+        }
+
+        if(rmdir(partdir) && errno != EEXIST && errno != ENOTEMPTY)
+            WARN("Failed to remove part files directory: %s", partdir);
+
+        free(partdir);
+    }
+
+    if(s != ITER_NO_MORE) {
+        WARN("Failed to iterate volumes");
+        goto sx_hashfs_extract_err;
+    }
+
+    ret = 0;
+
+sx_hashfs_extract_err:
+    /* Unlock all databases */
+    for(i = METADBS; i >= 0; i--) {
+        if(unlocks[i])
+            qstep(unlocks[i]);
+        sqlite3_finalize(locks[i]);
+        sqlite3_finalize(unlocks[i]);
+    }
+
+    return ret;
+}
+
 const char *sx_hashfs_version(sx_hashfs_t *h) {
     return h->version;
 }

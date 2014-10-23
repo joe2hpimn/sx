@@ -1,11 +1,12 @@
 package "sxadm"
 args "--unamed-opts --no-handle-version --no-handle-error --file-name=cmd_node --func-name=node_cmdline_parser --arg-struct-name=node_args_info"
-usage "sxadm node <MODE> [OPTIONS]... <PATH>"
+usage "sxadm node <MODE> [OPTIONS]... <STORAGE_PATH>"
 
 defgroup "MODE" required
-groupoption "new" N "Creates a new local SX node in PATH" group="MODE"
-groupoption "info" I "Print details about the local node in PATH" group="MODE"
-groupoption "check" C "Perform sanity check on the local node in PATH" group="MODE"
+groupoption "new" N "Creates a new local SX node in STORAGE_PATH" group="MODE"
+groupoption "info" I "Print details about the local node in STORAGE_PATH" group="MODE"
+groupoption "check" C "Perform sanity check on the local node in STORAGE_PATH" group="MODE"
+groupoption "extract" E "Extract all files from the local node in STORAGE_PATH to DESTPATH" group="MODE" string typestr="DESTPATH" hidden
 
 section "New node options"
 option "cluster-key" k "File containing a pre-generated cluster authentication token or stdin if \"-\" is given (default autogenerate token)." string typestr="FILE" dependon="new" optional
@@ -16,4 +17,3 @@ text "NOTE: all nodes of an SX cluster must be created with the same UUID and th
 
 section "Common options"
 option "debug"  D "Enable debug messages" flag off
-

@@ -921,7 +921,42 @@ check_node_err:
         fprintf(stderr, "Failed to check HashFS integrity\n");
     else
         printf("HashFS is clean, no errors found\n");
+    return ret;
+}
 
+static int extract_node(sxc_client_t *sx, const char *path, const char *destpath) {
+    int ret = -1;
+    sx_hashfs_t *h = NULL;
+
+    if(!path || !destpath || !sx) {
+        fprintf(stderr, "ERROR: Failed to extract data: NULL argument\n");
+        return 1;
+    }
+
+    /* Chekc if we can read hashfs */
+    if(access(path, R_OK)) {
+        if(errno == EACCES)
+            fprintf(stderr, "ERROR: Can't access %s\n", path);
+        else if(errno == ENOENT)
+            fprintf(stderr, "ERROR: No valid SX storage found at %s\n", path);
+        else
+            fprintf(stderr, "ERROR: Can't open SX storage at %s\n", path);
+        goto extract_node_err;
+    }
+
+    h = sx_hashfs_open(path, sx);
+    if(!h)
+        goto extract_node_err;
+
+    /* Perform data extraction */
+    ret = sx_hashfs_extract(h, destpath);
+
+extract_node_err:
+    sx_hashfs_close(h);
+    if(ret)
+        fprintf(stderr, "Failed to extract data from node %s\n", path);
+    else
+        printf("Finished data extraction from node %s\n", path);
     return ret;
 }
 
@@ -960,7 +995,10 @@ int main(int argc, char **argv) {
 	    goto node_out;
 	}
 	if(node_args.inputs_num != 1) {
-	    node_cmdline_parser_print_help();
+            if(node_args.extract_given)
+                node_cmdline_parser_print_full_help();
+            else
+	        node_cmdline_parser_print_help();
 	    goto node_out;
 	}
 	if(node_args.new_given)
@@ -969,6 +1007,8 @@ int main(int argc, char **argv) {
 	    ret = info_node(sx, node_args.inputs[0]);
         else if(node_args.check_given)
             ret = check_node(sx, node_args.inputs[0], node_args.debug_flag);
+        else if(node_args.extract_given)
+            ret = extract_node(sx, node_args.inputs[0], node_args.extract_arg);
     node_out:
 	node_cmdline_parser_free(&node_args);
         sx_done(&sx);

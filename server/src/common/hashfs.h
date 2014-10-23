@@ -108,6 +108,7 @@ int sx_hashfs_uses_secure_proto(sx_hashfs_t *h);
 void sx_hashfs_set_triggers(sx_hashfs_t *h, int job_trigger, int xfer_trigger, int gc_trigger, int gc_expire_trigger);
 void sx_hashfs_close(sx_hashfs_t *h);
 int sx_hashfs_check(sx_hashfs_t *h, int debug);
+int sx_hashfs_extract(sx_hashfs_t *h, const char *destpath);
 void sx_hashfs_stats(sx_hashfs_t *h);
 int sx_hashfs_analyze(sx_hashfs_t *h, int verbose);
 sx_nodelist_t *sx_hashfs_hashnodes(sx_hashfs_t *h, sx_hashfs_nl_t which, const sx_hash_t *hash, unsigned int replica_count);
