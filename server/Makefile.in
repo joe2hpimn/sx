@@ -79,13 +79,15 @@ PRE_UNINSTALL = :
 POST_UNINSTALL = :
 build_triplet = @build@
 host_triplet = @host@
-noinst_PROGRAMS = test/testfile$(EXEEXT) test/hdist-test$(EXEEXT)
+noinst_PROGRAMS = test/testfile$(EXEEXT) test/hdist-test$(EXEEXT) \
+	test/client-test$(EXEEXT)
 bin_PROGRAMS = src/tools/sxsim/sxsim$(EXEEXT) test/randgen$(EXEEXT)
 sbin_PROGRAMS = src/fcgi/sx.fcgi$(EXEEXT) \
 	src/tools/sxreport-server/sxreport-server$(EXEEXT) \
 	src/tools/sxadm/sxadm$(EXEEXT)
 check_PROGRAMS = test/printerrno$(EXEEXT)
-TESTS = test/hdist-test$(EXEEXT) test/run-nginx-test.sh
+TESTS = test/hdist-test$(EXEEXT) test/run-nginx-test.sh \
+	test/client-test$(EXEEXT)
 subdir = .
 DIST_COMMON = $(srcdir)/Makefile.in $(srcdir)/Makefile.am \
 	$(top_srcdir)/configure $(am__configure_deps) \
@@ -206,6 +208,12 @@ src_tools_sxsim_sxsim_LINK = $(LIBTOOL) $(AM_V_lt) --tag=CC \
 	$(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=link $(CCLD) \
 	$(src_tools_sxsim_sxsim_CFLAGS) $(CFLAGS) $(AM_LDFLAGS) \
 	$(LDFLAGS) -o $@
+am_test_client_test_OBJECTS =  \
+	test/test_client_test-client-test.$(OBJEXT) \
+	test/test_client_test-rgen.$(OBJEXT) \
+	test/test_client_test-client-test-cmdline.$(OBJEXT)
+test_client_test_OBJECTS = $(am_test_client_test_OBJECTS)
+test_client_test_DEPENDENCIES = src/common/libcommon.la
 am_test_hdist_test_OBJECTS =  \
 	test/test_hdist_test-hdist-test.$(OBJEXT)
 test_hdist_test_OBJECTS = $(am_test_hdist_test_OBJECTS)
@@ -256,15 +264,15 @@ am__v_CCLD_1 =
 SOURCES = $(src_common_libcommon_la_SOURCES) \
 	$(src_fcgi_sx_fcgi_SOURCES) $(src_tools_sxadm_sxadm_SOURCES) \
 	$(src_tools_sxreport_server_sxreport_server_SOURCES) \
-	$(src_tools_sxsim_sxsim_SOURCES) $(test_hdist_test_SOURCES) \
-	$(test_printerrno_SOURCES) $(test_randgen_SOURCES) \
-	$(test_testfile_SOURCES)
+	$(src_tools_sxsim_sxsim_SOURCES) $(test_client_test_SOURCES) \
+	$(test_hdist_test_SOURCES) $(test_printerrno_SOURCES) \
+	$(test_randgen_SOURCES) $(test_testfile_SOURCES)
 DIST_SOURCES = $(src_common_libcommon_la_SOURCES) \
 	$(src_fcgi_sx_fcgi_SOURCES) $(src_tools_sxadm_sxadm_SOURCES) \
 	$(src_tools_sxreport_server_sxreport_server_SOURCES) \
-	$(src_tools_sxsim_sxsim_SOURCES) $(test_hdist_test_SOURCES) \
-	$(test_printerrno_SOURCES) $(test_randgen_SOURCES) \
-	$(test_testfile_SOURCES)
+	$(src_tools_sxsim_sxsim_SOURCES) $(test_client_test_SOURCES) \
+	$(test_hdist_test_SOURCES) $(test_printerrno_SOURCES) \
+	$(test_randgen_SOURCES) $(test_testfile_SOURCES)
 RECURSIVE_TARGETS = all-recursive check-recursive cscopelist-recursive \
 	ctags-recursive dvi-recursive html-recursive info-recursive \
 	install-data-recursive install-dvi-recursive \
@@ -815,6 +823,9 @@ test_hdist_test_SOURCES = test/hdist-test.c
 test_hdist_test_LDADD = src/common/libcommon.la @HDIST_LIBS@
 test_hdist_test_CPPFLAGS = $(AM_CPPFLAGS) -I$(top_srcdir)/src/common
 test_testfile_SOURCES = test/testfile.c
+test_client_test_SOURCES = test/client-test.c test/rgen.h test/rgen.c test/client-test-cmdline.h test/client-test-cmdline.c
+test_client_test_LDADD = src/common/libcommon.la @HDIST_LIBS@
+test_client_test_CPPFLAGS = $(AM_CPPFLAGS) -I$(top_srcdir)/src/common
 check_SCRIPTS = test/runvg.sh test/run-nginx-test.sh test/fcgi-test.pl
 EXTRA_DIST = $(check_SCRIPTS)
 test_printerrno_SOURCES = test/printerrno.c
@@ -1164,6 +1175,16 @@ test/$(am__dirstamp):
 test/$(DEPDIR)/$(am__dirstamp):
 	@$(MKDIR_P) test/$(DEPDIR)
 	@: > test/$(DEPDIR)/$(am__dirstamp)
+test/test_client_test-client-test.$(OBJEXT): test/$(am__dirstamp) \
+	test/$(DEPDIR)/$(am__dirstamp)
+test/test_client_test-rgen.$(OBJEXT): test/$(am__dirstamp) \
+	test/$(DEPDIR)/$(am__dirstamp)
+test/test_client_test-client-test-cmdline.$(OBJEXT):  \
+	test/$(am__dirstamp) test/$(DEPDIR)/$(am__dirstamp)
+
+test/client-test$(EXEEXT): $(test_client_test_OBJECTS) $(test_client_test_DEPENDENCIES) $(EXTRA_test_client_test_DEPENDENCIES) test/$(am__dirstamp)
+	@rm -f test/client-test$(EXEEXT)
+	$(AM_V_CCLD)$(LINK) $(test_client_test_OBJECTS) $(test_client_test_LDADD) $(LIBS)
 test/test_hdist_test-hdist-test.$(OBJEXT): test/$(am__dirstamp) \
 	test/$(DEPDIR)/$(am__dirstamp)
 
@@ -1249,6 +1270,9 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@test/$(DEPDIR)/printerrno.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@test/$(DEPDIR)/randgen.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@test/$(DEPDIR)/rgen.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@test/$(DEPDIR)/test_client_test-client-test-cmdline.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@test/$(DEPDIR)/test_client_test-client-test.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@test/$(DEPDIR)/test_client_test-rgen.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@test/$(DEPDIR)/test_hdist_test-hdist-test.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@test/$(DEPDIR)/testfile.Po@am__quote@
 
@@ -1766,6 +1790,48 @@ src/tools/sxsim/src_tools_sxsim_sxsim-cmdline.obj: src/tools/sxsim/cmdline.c
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_tools_sxsim_sxsim_CPPFLAGS) $(CPPFLAGS) $(src_tools_sxsim_sxsim_CFLAGS) $(CFLAGS) -c -o src/tools/sxsim/src_tools_sxsim_sxsim-cmdline.obj `if test -f 'src/tools/sxsim/cmdline.c'; then $(CYGPATH_W) 'src/tools/sxsim/cmdline.c'; else $(CYGPATH_W) '$(srcdir)/src/tools/sxsim/cmdline.c'; fi`
 
+test/test_client_test-client-test.o: test/client-test.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_client_test_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT test/test_client_test-client-test.o -MD -MP -MF test/$(DEPDIR)/test_client_test-client-test.Tpo -c -o test/test_client_test-client-test.o `test -f 'test/client-test.c' || echo '$(srcdir)/'`test/client-test.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) test/$(DEPDIR)/test_client_test-client-test.Tpo test/$(DEPDIR)/test_client_test-client-test.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='test/client-test.c' object='test/test_client_test-client-test.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_client_test_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o test/test_client_test-client-test.o `test -f 'test/client-test.c' || echo '$(srcdir)/'`test/client-test.c
+
+test/test_client_test-client-test.obj: test/client-test.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_client_test_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT test/test_client_test-client-test.obj -MD -MP -MF test/$(DEPDIR)/test_client_test-client-test.Tpo -c -o test/test_client_test-client-test.obj `if test -f 'test/client-test.c'; then $(CYGPATH_W) 'test/client-test.c'; else $(CYGPATH_W) '$(srcdir)/test/client-test.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) test/$(DEPDIR)/test_client_test-client-test.Tpo test/$(DEPDIR)/test_client_test-client-test.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='test/client-test.c' object='test/test_client_test-client-test.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_client_test_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o test/test_client_test-client-test.obj `if test -f 'test/client-test.c'; then $(CYGPATH_W) 'test/client-test.c'; else $(CYGPATH_W) '$(srcdir)/test/client-test.c'; fi`
+
+test/test_client_test-rgen.o: test/rgen.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_client_test_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT test/test_client_test-rgen.o -MD -MP -MF test/$(DEPDIR)/test_client_test-rgen.Tpo -c -o test/test_client_test-rgen.o `test -f 'test/rgen.c' || echo '$(srcdir)/'`test/rgen.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) test/$(DEPDIR)/test_client_test-rgen.Tpo test/$(DEPDIR)/test_client_test-rgen.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='test/rgen.c' object='test/test_client_test-rgen.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_client_test_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o test/test_client_test-rgen.o `test -f 'test/rgen.c' || echo '$(srcdir)/'`test/rgen.c
+
+test/test_client_test-rgen.obj: test/rgen.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_client_test_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT test/test_client_test-rgen.obj -MD -MP -MF test/$(DEPDIR)/test_client_test-rgen.Tpo -c -o test/test_client_test-rgen.obj `if test -f 'test/rgen.c'; then $(CYGPATH_W) 'test/rgen.c'; else $(CYGPATH_W) '$(srcdir)/test/rgen.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) test/$(DEPDIR)/test_client_test-rgen.Tpo test/$(DEPDIR)/test_client_test-rgen.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='test/rgen.c' object='test/test_client_test-rgen.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_client_test_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o test/test_client_test-rgen.obj `if test -f 'test/rgen.c'; then $(CYGPATH_W) 'test/rgen.c'; else $(CYGPATH_W) '$(srcdir)/test/rgen.c'; fi`
+
+test/test_client_test-client-test-cmdline.o: test/client-test-cmdline.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_client_test_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT test/test_client_test-client-test-cmdline.o -MD -MP -MF test/$(DEPDIR)/test_client_test-client-test-cmdline.Tpo -c -o test/test_client_test-client-test-cmdline.o `test -f 'test/client-test-cmdline.c' || echo '$(srcdir)/'`test/client-test-cmdline.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) test/$(DEPDIR)/test_client_test-client-test-cmdline.Tpo test/$(DEPDIR)/test_client_test-client-test-cmdline.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='test/client-test-cmdline.c' object='test/test_client_test-client-test-cmdline.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_client_test_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o test/test_client_test-client-test-cmdline.o `test -f 'test/client-test-cmdline.c' || echo '$(srcdir)/'`test/client-test-cmdline.c
+
+test/test_client_test-client-test-cmdline.obj: test/client-test-cmdline.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_client_test_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT test/test_client_test-client-test-cmdline.obj -MD -MP -MF test/$(DEPDIR)/test_client_test-client-test-cmdline.Tpo -c -o test/test_client_test-client-test-cmdline.obj `if test -f 'test/client-test-cmdline.c'; then $(CYGPATH_W) 'test/client-test-cmdline.c'; else $(CYGPATH_W) '$(srcdir)/test/client-test-cmdline.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) test/$(DEPDIR)/test_client_test-client-test-cmdline.Tpo test/$(DEPDIR)/test_client_test-client-test-cmdline.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='test/client-test-cmdline.c' object='test/test_client_test-client-test-cmdline.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_client_test_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o test/test_client_test-client-test-cmdline.obj `if test -f 'test/client-test-cmdline.c'; then $(CYGPATH_W) 'test/client-test-cmdline.c'; else $(CYGPATH_W) '$(srcdir)/test/client-test-cmdline.c'; fi`
+
 test/test_hdist_test-hdist-test.o: test/hdist-test.c
 @am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_hdist_test_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT test/test_hdist_test-hdist-test.o -MD -MP -MF test/$(DEPDIR)/test_hdist_test-hdist-test.Tpo -c -o test/test_hdist_test-hdist-test.o `test -f 'test/hdist-test.c' || echo '$(srcdir)/'`test/hdist-test.c
 @am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) test/$(DEPDIR)/test_hdist_test-hdist-test.Tpo test/$(DEPDIR)/test_hdist_test-hdist-test.Po
@@ -2052,6 +2118,13 @@ test/hdist-test.log: test/hdist-test$(EXEEXT)
 test/run-nginx-test.sh.log: test/run-nginx-test.sh
 	@p='test/run-nginx-test.sh'; \
 	b='test/run-nginx-test.sh'; \
+	$(am__check_pre) $(LOG_DRIVER) --test-name "$$f" \
+	--log-file $$b.log --trs-file $$b.trs \
+	$(am__common_driver_flags) $(AM_LOG_DRIVER_FLAGS) $(LOG_DRIVER_FLAGS) -- $(LOG_COMPILE) \
+	"$$tst" $(AM_TESTS_FD_REDIRECT)
+test/client-test.log: test/client-test$(EXEEXT)
+	@p='test/client-test$(EXEEXT)'; \
+	b='test/client-test'; \
 	$(am__check_pre) $(LOG_DRIVER) --test-name "$$f" \
 	--log-file $$b.log --trs-file $$b.trs \
 	$(am__common_driver_flags) $(AM_LOG_DRIVER_FLAGS) $(LOG_DRIVER_FLAGS) -- $(LOG_COMPILE) \

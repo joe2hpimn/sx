@@ -1,0 +1,10 @@
+package "client-test"
+description "SX client testing tool."
+args "--unamed-opts --no-handle-version --no-handle-error --file-name=client-test-cmdline"
+usage "client-test [OPTIONS] sx://[profile@]cluster"
+
+option "replica" r "Set tested volume replica value" int default="1" optional
+option "owner" o "Set 'USER' as the volume owner" string default="admin" typestr="USER" optional
+option "human" h "Print sizes in human readable format" flag off
+option "debug" D "Enable debug messages" flag off
+option "all" a "Run all possible tests" flag off

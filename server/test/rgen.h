@@ -29,11 +29,14 @@
 #define RGEN_H
 #include "types.h"
 
+#define rotl(x,n) (((x)<<(n)) | ((x)>>((8*sizeof(x))-(n))))
+
 typedef struct {
   uint64_t xx;
   uint64_t yy;
 } rnd_state_t;
 
+uint64_t rand_2cmres(rnd_state_t *state);
 uint64_t make_seed(void);
 void rnd_seed(rnd_state_t *state, uint64_t seed);
 void rnd_generate(rnd_state_t *state, uint64_t *buf, uint64_t size);

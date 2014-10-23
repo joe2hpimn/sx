@@ -5,7 +5,7 @@ SX_CPPFLAGS=-DDEFAULT_FCGI_CFGFILE=\"$(sysconfdir)/sxserver/sxfcgi.conf\"
 
 noinst_LTLIBRARIES = src/common/libcommon.la
 
-noinst_PROGRAMS = test/testfile test/hdist-test
+noinst_PROGRAMS = test/testfile test/hdist-test test/client-test
 
 bin_PROGRAMS = src/tools/sxsim/sxsim test/randgen
 sbin_PROGRAMS = src/fcgi/sx.fcgi src/tools/sxreport-server/sxreport-server src/tools/sxadm/sxadm
@@ -137,11 +137,15 @@ test_hdist_test_CPPFLAGS = $(AM_CPPFLAGS) -I$(top_srcdir)/src/common
 
 test_testfile_SOURCES = test/testfile.c
 
+test_client_test_SOURCES = test/client-test.c test/rgen.h test/rgen.c test/client-test-cmdline.h test/client-test-cmdline.c
+test_client_test_LDADD = src/common/libcommon.la @HDIST_LIBS@
+test_client_test_CPPFLAGS = $(AM_CPPFLAGS) -I$(top_srcdir)/src/common
+
 check_PROGRAMS = test/printerrno
 
 check_SCRIPTS = test/runvg.sh test/run-nginx-test.sh test/fcgi-test.pl
 EXTRA_DIST = $(check_SCRIPTS)
-TESTS = test/hdist-test test/run-nginx-test.sh
+TESTS = test/hdist-test test/run-nginx-test.sh test/client-test
 
 test_printerrno_SOURCES = test/printerrno.c
 

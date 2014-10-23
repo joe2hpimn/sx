@@ -30,8 +30,7 @@
 #include <sys/time.h>
 #include <unistd.h>
 
-#define rotl(x,n) (((x)<<(n)) | ((x)>>((8*sizeof(x))-(n))))
-static inline uint64_t rand_2cmres(rnd_state_t *state)
+uint64_t rand_2cmres(rnd_state_t *state)
 {
     uint64_t t;
     t = state->xx;  state->xx *=  3188803096312630803ULL;  state->xx = rotl(state->xx,33) - t;
