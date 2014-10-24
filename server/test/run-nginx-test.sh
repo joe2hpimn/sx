@@ -75,7 +75,8 @@ export SX_FCGI_OPTS="--config-file=$prefix/etc/sxserver/sxfcgi.conf"
 
 trap cleanup EXIT INT
 
-`dirname $0`/client-test sx://localhost || exit 1
+"$prefix/bin/sxinit" --batch-mode --port=8013 --no-ssl --auth-file="$SXSTOREDIR/data/admin.key" --config-dir="$prefix/.sx" sx://localhost
+`dirname $0`/client-test --config-dir="$prefix/.sx" --filter-dir="`pwd`/../client/src/filters" sx://localhost || exit 1
 
 perl `dirname $0`/fcgi-test.pl 127.0.0.1:8013 $SXSTOREDIR/data || {
     rc=$?
