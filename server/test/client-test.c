@@ -129,7 +129,7 @@ int create_volume(sxc_client_t *sx, sxc_cluster_t *cluster, const char *volname,
         }
         filters = sxc_filter_list(sx, &fcount);
         if(!filters) {
-            fprintf(stderr, "create_volume: ERROR: Cannot use filter '%s' - no filters available: %s\n", filter_name, sxc_geterrmsg(sx));
+            fprintf(stderr, "create_volume: ERROR: Cannot use filter '%s' - no filters available\n", filter_name);
             goto create_volume_err;
         }
         meta = sxc_meta_new(sx);
