@@ -86,8 +86,7 @@ sbin_PROGRAMS = src/fcgi/sx.fcgi$(EXEEXT) \
 	src/tools/sxreport-server/sxreport-server$(EXEEXT) \
 	src/tools/sxadm/sxadm$(EXEEXT)
 check_PROGRAMS = test/printerrno$(EXEEXT)
-TESTS = test/hdist-test$(EXEEXT) test/run-nginx-test.sh \
-	test/client-test$(EXEEXT)
+TESTS = test/hdist-test$(EXEEXT) test/run-nginx-test.sh
 subdir = .
 DIST_COMMON = $(srcdir)/Makefile.in $(srcdir)/Makefile.am \
 	$(top_srcdir)/configure $(am__configure_deps) \
@@ -565,7 +564,8 @@ ACLOCAL = @ACLOCAL@
 AMTAR = @AMTAR@
 AM_CFLAGS = @AM_CFLAGS@
 AM_CPPFLAGS = @AM_CPPFLAGS@ -I $(top_srcdir)/../libsx/include -I \
-	$(top_srcdir)/src/common -I $(top_srcdir)/../
+	$(top_srcdir)/src/common -I $(top_srcdir)/../ \
+	-DSX_FILTER_DIR=\"$(pkglibdir)\"
 AM_DEFAULT_VERBOSITY = @AM_DEFAULT_VERBOSITY@
 AM_LDFLAGS = @AM_LDFLAGS@
 AR = @AR@
@@ -2118,13 +2118,6 @@ test/hdist-test.log: test/hdist-test$(EXEEXT)
 test/run-nginx-test.sh.log: test/run-nginx-test.sh
 	@p='test/run-nginx-test.sh'; \
 	b='test/run-nginx-test.sh'; \
-	$(am__check_pre) $(LOG_DRIVER) --test-name "$$f" \
-	--log-file $$b.log --trs-file $$b.trs \
-	$(am__common_driver_flags) $(AM_LOG_DRIVER_FLAGS) $(LOG_DRIVER_FLAGS) -- $(LOG_COMPILE) \
-	"$$tst" $(AM_TESTS_FD_REDIRECT)
-test/client-test.log: test/client-test$(EXEEXT)
-	@p='test/client-test$(EXEEXT)'; \
-	b='test/client-test'; \
 	$(am__check_pre) $(LOG_DRIVER) --test-name "$$f" \
 	--log-file $$b.log --trs-file $$b.trs \
 	$(am__common_driver_flags) $(AM_LOG_DRIVER_FLAGS) $(LOG_DRIVER_FLAGS) -- $(LOG_COMPILE) \

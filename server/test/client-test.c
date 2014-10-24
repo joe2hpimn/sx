@@ -1218,6 +1218,10 @@ int main(int argc, char **argv) {
         fprintf(stderr, "main: ERROR: Cannot initiate SX.\n");
         goto main_err;
     }
+    if(args.config_dir_given && sxc_set_confdir(sx, args.config_dir_arg)) {
+        fprintf(stderr, "ERROR: Could not set configuration directory %s: %s\n", args.config_dir_arg, sxc_geterrmsg(sx));
+        goto main_err;
+    }
     sxc_set_debug(sx, args.debug_flag);
     for(i=0; i<args.inputs_num; i++) {
         uri = sxc_parse_uri(sx, args.inputs[i]);
@@ -1281,13 +1285,17 @@ int main(int argc, char **argv) {
         goto main_err;
     }
     strcat(local_dir_path,"/");
-    env_var = getenv("SX_FILTER_DIR");
-    if(env_var)
-        filter_dir = strdup(env_var);
-    /* TODO */
-    /*else
-        filter_dir = strdup(SX_FILTER_DIR);*/
-    else {
+
+    if(args.filter_dir_given) {
+	filter_dir = strdup(args.filter_dir_arg);
+    } else {
+	const char *pt = getenv("SX_FILTER_DIR");
+	if(pt)
+	    filter_dir = strdup(pt);
+	else
+	    filter_dir = strdup(SX_FILTER_DIR);
+    }
+    if(!filter_dir) {
         fprintf(stderr, "main: ERROR: Cannot get filter directory. Try: 'export SX_FILTER_DIR=<git_dir>/client/src/filters/'\n");
         goto main_err;
     }

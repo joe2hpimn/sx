@@ -74,6 +74,9 @@ export SX_FCGI_OPTS="--config-file=$prefix/etc/sxserver/sxfcgi.conf"
 "$prefix/sbin/sxserver" start
 
 trap cleanup EXIT INT
+
+`dirname $0`/client-test sx://localhost || exit 1
+
 perl `dirname $0`/fcgi-test.pl 127.0.0.1:8013 $SXSTOREDIR/data || {
     rc=$?
     cat "$SXLOGFILE";

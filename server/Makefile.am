@@ -1,6 +1,6 @@
 ACLOCAL_AMFLAGS = -I m4 -I /usr/share/aclocal
 SUBDIRS = sxscripts
-AM_CPPFLAGS += -I $(top_srcdir)/../libsx/include -I $(top_srcdir)/src/common -I $(top_srcdir)/../
+AM_CPPFLAGS += -I $(top_srcdir)/../libsx/include -I $(top_srcdir)/src/common -I $(top_srcdir)/../ -DSX_FILTER_DIR=\"$(pkglibdir)\"
 SX_CPPFLAGS=-DDEFAULT_FCGI_CFGFILE=\"$(sysconfdir)/sxserver/sxfcgi.conf\"
 
 noinst_LTLIBRARIES = src/common/libcommon.la
@@ -145,7 +145,7 @@ check_PROGRAMS = test/printerrno
 
 check_SCRIPTS = test/runvg.sh test/run-nginx-test.sh test/fcgi-test.pl
 EXTRA_DIST = $(check_SCRIPTS)
-TESTS = test/hdist-test test/run-nginx-test.sh test/client-test
+TESTS = test/hdist-test test/run-nginx-test.sh
 
 test_printerrno_SOURCES = test/printerrno.c
 
