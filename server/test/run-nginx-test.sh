@@ -2,9 +2,9 @@
 set -e
 set -x
 
-# reset PATH to standard utilities, otherwise if the user changed PATH
+# update PATH to standard utilities, otherwise if the user changed PATH
 # we might miss essential utilities like chown
-PATH=`getconf PATH`
+PATH="`getconf PATH`:$PATH"
 
 # Disable proxies
 unset HTTP_PROXY
