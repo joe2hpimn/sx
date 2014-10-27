@@ -370,46 +370,6 @@ void sxi_seterr(sxc_client_t *sx, enum sxc_error_t err, const char *fmt, ...) {
     va_end(ap);
 }
 
-void sxi_setclusterr(sxc_client_t *sx, const char *nodeid, const char *reqid, int status,
-                     const char *msg, const char *details)
-{
-    char httpcode[16];
-    if (!sx)
-        return;
-    if (!*msg) {
-        snprintf(httpcode, sizeof(httpcode), "HTTP code %d", status);
-        msg = httpcode;
-    }
-    sxi_fmt_start(&sx->log.fmt);
-    sxi_fmt_msg(&sx->log.fmt, "Failed to %s: %s (", sx->op ? sx->op : "query cluster", msg);
-    if (sx->op_host) {
-        sxi_fmt_msg(&sx->log.fmt, "sx://%s", sx->op_host);
-        if (sx->op_vol) {
-            sxi_fmt_msg(&sx->log.fmt, "/%s", sx->op_vol);
-            if (sx->op_path) {
-                sxi_fmt_msg(&sx->log.fmt, "/%s", sx->op_path);
-            }
-        }
-    }
-    sxi_fmt_msg(&sx->log.fmt," on");
-    if (nodeid)
-        sxi_fmt_msg(&sx->log.fmt, " node:%s", nodeid);
-    if (reqid)
-        sxi_fmt_msg(&sx->log.fmt, " reqid:%s", reqid);
-    sxi_fmt_msg(&sx->log.fmt, ")");
-    if (status < 400 || status >= 500) {
-        /* do not print details on 40x */
-        if (sx->verbose && details && *details) {
-            sxi_fmt_msg(&sx->log.fmt, "\nHTTP %d: %s", status, details);
-        }
-    }
-    sxi_seterr(sx, (status == 403 || status == 401) ? SXE_EAUTH : SXE_ECOMM, "%s", sx->log.fmt.buf);
-    sxi_clear_operation(sx);
-    SXDEBUG("Cluster query failed (HTTP %d): %s", status, sx->errbuf);
-    if (details && *details)
-        SXDEBUG("Cluster error: %s", details);
-}
-
 void sxi_setsyserr(sxc_client_t *sx, enum sxc_error_t err, const char *fmt, ...) {
     va_list ap;
 

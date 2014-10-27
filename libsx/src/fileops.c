@@ -1048,14 +1048,14 @@ static int block_reply_cb(curlev_context_t *ctx, const unsigned char *data, size
     return 0;
 }
 
-static void upload_blocks_to_hosts(struct file_upload_ctx *yctx, struct host_upload_ctx *uctx, int status, const char *url);
+static void upload_blocks_to_hosts(curlev_context_t *cbdata, struct file_upload_ctx *yctx, struct host_upload_ctx *uctx, int status, const char *url);
 static void upload_blocks_to_hosts_uctx(curlev_context_t *ctx, const char *url)
 {
     struct host_upload_ctx *uctx = sxi_cbdata_get_host_ctx(ctx);
     long status = 0;
     sxi_cbdata_result(ctx, NULL, NULL, &status);
     if (uctx)
-        upload_blocks_to_hosts(uctx->yctx, uctx, status, url);
+        upload_blocks_to_hosts(ctx, uctx->yctx, uctx, status, url);
 }
 
 static int send_up_batch(struct file_upload_ctx *yctx, const char *host, struct host_upload_ctx *u)
@@ -1081,13 +1081,15 @@ static int send_up_batch(struct file_upload_ctx *yctx, const char *host, struct 
     SXDEBUG("buf_used: %d", u->buf_used);
     u->in_use = 1;
     yctx->uploaded += u->buf_used;
-    sxi_set_operation(sx, "upload file contents", NULL, NULL, NULL);
+    sxi_cbdata_set_operation(cbdata, "upload file contents", NULL, NULL, NULL);
     if (sxi_cluster_query_ev(cbdata,
                              sxi_cluster_get_conns(yctx->cluster),
                              host, REQ_PUT, url,
                              u->buf, u->buf_used, NULL, block_reply_cb) == -1) {
         SXDEBUG("cluster upload query failed");
         free(url);
+        /* Do not leak cbdata and restore error message to global buffer */
+        sxi_cbdata_unref(&cbdata);
         return -1;
     }
     sxi_cbdata_unref(&cbdata);
@@ -1132,7 +1134,7 @@ static void last_part(struct file_upload_ctx *state)
     }
 }
 
-static int batch_hashes_to_hosts(struct file_upload_ctx *yctx, struct need_hash *needed, unsigned from, unsigned size, unsigned next_replica)
+static int batch_hashes_to_hosts(curlev_context_t *cbdata, struct file_upload_ctx *yctx, struct need_hash *needed, unsigned from, unsigned size, unsigned next_replica)
 {
     unsigned i;
     sxc_client_t *sx = sxi_cluster_get_client(yctx->cluster);
@@ -1146,7 +1148,7 @@ static int batch_hashes_to_hosts(struct file_upload_ctx *yctx, struct need_hash 
         need->replica += next_replica;
         host = sxi_hostlist_get_host(&need->upload_hosts, need->replica);
         if (!host) {
-            sxi_seterr(sx, SXE_ECOMM, "All replicas have failed");
+            sxi_cbdata_seterr(cbdata, SXE_ECOMM, "All replicas have failed");
             SXDEBUG("All replicas have failed");
             yctx->all_fail = 1;
             yctx->fail++;
@@ -1157,7 +1159,7 @@ static int batch_hashes_to_hosts(struct file_upload_ctx *yctx, struct need_hash 
             yctx->fail++;
             return -1;
         }
-        sxi_set_operation(sx, "file block upload", NULL, NULL, NULL);
+        sxi_cbdata_set_operation(cbdata, "file block upload", NULL, NULL, NULL);
         sxi_retry_msg(sx, yctx->current.retry, host);
         SXDEBUG("replica #%d: %s", need->replica, host);
         struct host_upload_ctx *u = NULL;
@@ -1189,7 +1191,7 @@ static int batch_hashes_to_hosts(struct file_upload_ctx *yctx, struct need_hash 
     return 0;
 }
 
-static void upload_blocks_to_hosts(struct file_upload_ctx *yctx, struct host_upload_ctx *uctx, int status, const char *url)
+static void upload_blocks_to_hosts(curlev_context_t *cbdata, struct file_upload_ctx *yctx, struct host_upload_ctx *uctx, int status, const char *url)
 {
     const char *h;
     struct host_upload_ctx *u;
@@ -1214,7 +1216,7 @@ static void upload_blocks_to_hosts(struct file_upload_ctx *yctx, struct host_upl
             /* move to next replica: the last batch, and everything else
              * currently queued for this host */
             uctx->i = uctx->n = 0;
-            if (batch_hashes_to_hosts(yctx, uctx->needed, uctx->last_successful, n, 1)) {
+            if (batch_hashes_to_hosts(cbdata, yctx, uctx->needed, uctx->last_successful, n, 1)) {
                 SXDEBUG("fail incremented");
                 yctx->fail++;
             }
@@ -1363,7 +1365,7 @@ static void multi_part_upload_blocks(curlev_context_t *ctx, const char *url)
         }
     }
 
-    if (batch_hashes_to_hosts(yctx, yctx->current.needed, 0, yctx->current.needed_cnt, 0)) {
+    if (batch_hashes_to_hosts(ctx, yctx, yctx->current.needed, 0, yctx->current.needed_cnt, 0)) {
         SXDEBUG("fail incremented");
         yctx->fail++;
     }
@@ -1381,7 +1383,7 @@ static void multi_part_upload_blocks(curlev_context_t *ctx, const char *url)
         }
     } while(0);
 
-    upload_blocks_to_hosts(yctx, NULL, status, url);
+    upload_blocks_to_hosts(ctx, yctx, NULL, status, url);
 }
 
 static int multi_part_compute_hash_ev(struct file_upload_ctx *yctx)
@@ -3073,7 +3075,7 @@ static int send_batch(sxi_ht *hostsmap, sxi_conns_t *conns,
         q += 40;
     }
     *q = 0;
-    sxi_set_operation(sx, "download file contents", NULL, NULL, NULL);
+    sxi_cbdata_set_operation(*cbdata, "download file contents", NULL, NULL, NULL);
     n = dctx->hashes.n;
     rc = sxi_cluster_query_ev(*cbdata, conns, host, REQ_GET, url, NULL, 0,
                               NULL, gethash_cb);
@@ -3206,7 +3208,7 @@ static int single_download(struct batch_hashes *bh, const char *dstname,
             sxi_retry_check(retry, j);
             sxi_retry_msg(sx, retry, host);
 
-            sxi_set_operation(sx, "download file contents", NULL, NULL, NULL);
+            sxi_cbdata_set_operation(cbdata, "download file contents", NULL, NULL, NULL);
             rc = sxi_cluster_query_ev(cbdata, conns, host, REQ_GET, url, NULL, 0, NULL, gethash_cb);
 
             if(rc) {
@@ -3214,6 +3216,7 @@ static int single_download(struct batch_hashes *bh, const char *dstname,
                 do {
                     rc = sxi_curlev_poll(sxi_conns_get_curlev(conns));
                 } while (!rc);
+                sxi_cbdata_unref(&cbdata);
                 goto single_download_fail;
             }
 

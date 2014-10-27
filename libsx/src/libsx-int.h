@@ -34,8 +34,6 @@ void sxi_clear_operation(sxc_client_t *sx);
 void sxi_set_operation(sxc_client_t *sx, const char *op, const char *cluster, const char *vol, const char *path);
 const char *sxi_get_operation(sxc_client_t *sx);
 void sxi_operation_info(const sxc_client_t *sx, const char **op, const char **host, const char **vol, const char **path);
-void sxi_setclusterr(sxc_client_t *sx, const char *nodeid, const char *reqid, int status,
-                     const char *msg, const char *details);
 
 int sxi_is_debug_enabled(sxc_client_t *sx);
 

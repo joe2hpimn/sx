@@ -313,9 +313,10 @@ void sxi_cbdata_unref(curlev_context_t **ctx_ptr)
         if (!ctx->ref) {
             SXDEBUG("freeing cbdata %p", (void*)ctx);
             /* Store local error message in global error buffer, otherwise it would be lost */
-            if(ctx->errnum != SXE_NOERROR)
+            if(ctx->errnum != SXE_NOERROR) {
                 sxi_seterr(sx, ctx->errnum, "%s", ctx->errbuf);
-            SXDEBUG("Clearing cbdata, error set [%d]: %s", sxc_geterrnum(sx), sxc_geterrmsg(sx));
+                SXDEBUG("Clearing cbdata, global error message set [%d]: %s", sxc_geterrnum(sx), sxc_geterrmsg(sx));
+            }
             /* Restore operation globally */
             sxi_set_operation(sx, ctx->op, ctx->op_host, ctx->op_vol, ctx->op_path);
             sxi_cbdata_reset(ctx);
