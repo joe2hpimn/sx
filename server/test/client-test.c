@@ -43,7 +43,7 @@
 #include "client-test-cmdline.h"
 
 #define _BSD_SOURCE
-#define VOLSIZE args.replica_arg*1024LL*1024LL*1024LL /* TODO: bigger precision */
+#define VOLSIZE 2*args.replica_arg*1024LL*1024LL*1024LL /* TODO: bigger precision */
 #define VOLNAME "vol" /* There will be 6 random characters suffix added. There CANNOT be '..' inside! */
 #define LOCAL_DIR "/tmp/.test" /* There will be 6 random characters suffix added. */
 #define REMOTE_DIR ".test"
@@ -54,6 +54,9 @@
 #define ATTRIBS_FILE_NAME "file_attrib"
 #define TRASH_NAME "/.Trash"
 #define UNDELETE_FILE_NAME "file_undelete"
+#define QUOTA_FILE_NAME "file_quota"
+#define QUOTA_VOL_SIZE 1
+#define QUOTA_FILE_SIZE 5 /* Must be more then QUOTA_VOL_SIZE */
 
 int64_t bytes; /* FIXME: small change in libsx to avoid this to be global */
 
@@ -539,16 +542,12 @@ int test_empty_file(sxc_client_t *sx, sxc_cluster_t *cluster, char *local_dir_pa
         fprintf(stderr, "test_empty_file: ERROR: Cannot create '%s' file: %s\n", local_file_path, strerror(errno));
         goto test_empty_file_err;
     }
-    if(fclose(file)==EOF) {
+    if(fclose(file) == EOF) {
         fprintf(stderr, "test_empty_file: ERROR: Cannot close '%s' file: %s\n", local_file_path, strerror(errno));
         goto test_empty_file_err;
     }
     if(upload_file(sx, cluster, local_file_path, remote_dir_path)) {
         fprintf(stderr, "test_empty_file: ERROR: Uploading '%s' file failed: %s\n", local_file_path, sxc_geterrmsg(sx));
-        goto test_empty_file_err;
-    }
-    if(unlink(local_file_path)) {
-        fprintf(stderr, "test_empty_file: ERROR: Cannot delete '%s' file: %s\n", local_file_path, strerror(errno));
         goto test_empty_file_err;
     }
     remote_file_path = (char*)malloc(strlen(remote_dir_path) + strlen(EMPTY_FILE_NAME) + 1);
@@ -565,6 +564,10 @@ int test_empty_file(sxc_client_t *sx, sxc_cluster_t *cluster, char *local_dir_pa
     ret = 0;
     printf("test_empty_file: Succeeded\n");
 test_empty_file_err:
+    if(file && unlink(local_file_path)) {
+        fprintf(stderr, "test_empty_file: ERROR: Cannot delete '%s' file: %s\n", local_file_path, strerror(errno));
+        ret = 1;
+    }
     free(remote_file_path);
     free(local_file_path);
     sxc_free_uri(uri);
@@ -575,7 +578,7 @@ void create_block(rnd_state_t *state, unsigned char *block, uint64_t block_size)
 {
     uint64_t i;
     for(i=0; i<block_size; i++)
-        block[i] = rand_2cmres(state) & UCHAR_MAX;
+        block[i] = rand_2cmres(state);
 } /* create_block */
 
 int test_upload_and_download(sxc_client_t *sx, sxc_cluster_t *cluster, char *local_dir_path, char *remote_dir_path, uint64_t block_size, uint64_t count, int human, int size_flag) {
@@ -667,8 +670,10 @@ int test_upload_and_download(sxc_client_t *sx, sxc_cluster_t *cluster, char *loc
         fprintf(stderr, "test_upload_and_download: ERROR: SHA1_Final() failure.\n");
         goto test_upload_and_download_err;
     }
-    if(fclose(file)==EOF) {
+    if(fclose(file) == EOF) {
         fprintf(stderr, "test_upload_and_download: ERROR: Cannot close '%s' file: %s\n", local_file_path, strerror(errno));
+        if(unlink(local_file_path))
+            fprintf(stderr, "test_upload_and_download: ERROR: Cannot delete '%s' file: %s\n", local_file_path, strerror(errno));
         file = NULL;
         goto test_upload_and_download_err;
     }
@@ -737,7 +742,7 @@ test_upload_and_download_err:
     free(hash2);
     free(block);
     if(file) {
-        if(fclose(file)==EOF) {
+        if(fclose(file) == EOF) {
             fprintf(stderr, "test_upload_and_download: ERROR: Cannot close '%s' file: %s\n", local_file_path, strerror(errno));
             ret = 1;
         } else if(unlink(local_file_path)) {
@@ -859,8 +864,10 @@ int test_revision(sxc_client_t *sx, sxc_cluster_t *cluster, char *local_dir_path
     }
     printf("test_revision: Downloading and checking file versions.\n");
     for(i=0; i<max_revisions; i++) {
-        if(fclose(file)==EOF) {
+        if(fclose(file) == EOF) {
             fprintf(stderr, "test_revision: ERROR: Cannot close '%s' file: %s\n", local_file_path, strerror(errno));
+            if(unlink(local_file_path))
+                fprintf(stderr, "test_revision: ERROR: Cannot delete '%s' file: %s\n", local_file_path, strerror(errno));
             file = NULL;
             goto test_revision_err;
         }
@@ -915,7 +922,7 @@ int test_revision(sxc_client_t *sx, sxc_cluster_t *cluster, char *local_dir_path
     printf("test_revision: Succeeded\n");
 test_revision_err:
     if(file) {
-        if(fclose(file)==EOF) {
+        if(fclose(file) == EOF) {
             fprintf(stderr, "test_revision: ERROR: Cannot close '%s' file: %s\n", local_file_path, strerror(errno));
             ret = 1;
         } else if(unlink(local_file_path)) {
@@ -984,8 +991,9 @@ int test_attribs(sxc_client_t *sx, sxc_cluster_t *cluster, char *local_dir_path,
     struct stat st, t_st[ATTRIBS_COUNT];
     FILE *files[ATTRIBS_COUNT];
 
-    printf("test_attribs: Started (experimental)\n");
-    memset(files, 0, ATTRIBS_COUNT);
+    printf("test_attribs: Started\n");
+    puts(local_dir_path);
+    memset(files, 0, sizeof(files));
     local_files_paths = (char**)calloc(ATTRIBS_COUNT, sizeof(char*));
     if(!local_files_paths) {
         fprintf(stderr, "test_attribs: ERROR: Cannot allocate memory for local_files_paths.\n");
@@ -1017,7 +1025,7 @@ int test_attribs(sxc_client_t *sx, sxc_cluster_t *cluster, char *local_dir_path,
             fprintf(stderr, "test_attribs: ERROR: Cannot open '%s' file: %s\n", local_files_paths[i], strerror(errno));
             goto test_attribs_err;
         }
-        if(fclose(files[i])) {
+        if(fclose(files[i]) == EOF) {
             fprintf(stderr, "test_attribs: ERROR: Cannot close '%s' file: %s\n", local_files_paths[i], strerror(errno));
             goto test_attribs_err;
         }
@@ -1037,6 +1045,7 @@ int test_attribs(sxc_client_t *sx, sxc_cluster_t *cluster, char *local_dir_path,
         tmp_time = (long int)rand_2cmres(&state)%100000000;
         if((owner + group + other)&1)
             tmp_time *= -1;
+        time.actime = 0;
         time.modtime = tv.tv_sec + tmp_time;
         if(utime(local_files_paths[i], &time)) {
             fprintf(stderr, "test_attribs: ERROR: Cannot set modification time for '%s' file: %s\n", local_files_paths[i], strerror(errno));
@@ -1048,15 +1057,18 @@ int test_attribs(sxc_client_t *sx, sxc_cluster_t *cluster, char *local_dir_path,
         fprintf(stderr, "test_attribs: ERROR: Uploading files from %s failed: %s\n", local_dir_path, sxc_geterrmsg(sx));
         goto test_attribs_err;
     }
-    for(i=0; i<ATTRIBS_COUNT; i++)
+    for(i=0; i<ATTRIBS_COUNT; i++) {
+       files[i] = NULL;
        if(unlink(local_files_paths[i])) {
             fprintf(stderr, "test_attribs: ERROR: Cannot remove '%s' file: %s\n", local_files_paths[i], strerror(errno));
             goto test_attribs_err;
        }
+    }
     if(download_files(sx, cluster, local_dir_path, remote_dir_path)) {
         fprintf(stderr, "test_attribs: ERROR: Cannot download files: %s\n", sxc_geterrmsg(sx));
         goto test_attribs_err;
     }
+    memset(files, 1, sizeof(files));
     for(i=0; i<ATTRIBS_COUNT; i++) {
         stat(local_files_paths[i], &st);
         if(st.st_mode != t_st[i].st_mode) {
@@ -1121,7 +1133,7 @@ int test_undelete(sxc_client_t *sx, sxc_cluster_t *cluster, char *local_dir_path
         fprintf(stderr, "test_undelete: ERROR: Cannot open '%s' file: %s\n", local_file_path, strerror(errno));
         goto test_undelete_err;
     }
-    if(fclose(file)) {
+    if(fclose(file) == EOF) {
         fprintf(stderr, "test_undelete: ERROR: Cannot close '%s' file: %s\n", local_file_path, strerror(errno));
         goto test_undelete_err;
     }
@@ -1192,10 +1204,132 @@ int volume_test(sxc_client_t *sx, sxc_cluster_t *cluster, char *volname, char *f
     return 0;
 } /* volume_test */
 
+int test_quota(sxc_client_t *sx, sxc_cluster_t *cluster, char *local_dir_path, char *remote_dir_path, struct gengetopt_args_info args) {
+    int i, fd, ret = 1;
+    uint64_t seed;
+    char *volname = NULL, *local_file_path = NULL, *remote_path = NULL;
+    unsigned char *block = NULL;
+    FILE *file = NULL;
+    sxc_file_t *src = NULL, *dest = NULL;
+    rnd_state_t state;
+
+    printf("test_quota: Started\n");
+    volname = (char*)malloc(strlen(VOLNAME) + strlen("XXXXXX") + 1);
+    if(!volname) {
+        fprintf(stderr, "test_quota: ERROR: Cannot allocate memory for volname.\n");
+        goto test_quota_err;
+    }
+    sprintf(volname, "%sXXXXXX", VOLNAME);
+    local_file_path = (char*)malloc(strlen(local_dir_path) + strlen(QUOTA_FILE_NAME) + 1);
+    if(!local_file_path) {
+        fprintf(stderr, "test_quota: ERROR: Cannot allocate memory for local_file_path.\n");
+        goto test_quota_err;
+    }
+    sprintf(local_file_path, "%s%s", local_dir_path, QUOTA_FILE_NAME);
+    remote_path = (char*)malloc(strlen(volname) + 1 + strlen(QUOTA_FILE_NAME) + 1);
+    if(!remote_path) {
+        fprintf(stderr, "test_quota: ERROR: Cannot allocate memory for remote_path.\n");
+        goto test_quota_err;
+    }
+    sprintf(remote_path, "%s/%s", volname, QUOTA_FILE_NAME);
+    block = (unsigned char*)malloc(SX_BS_LARGE * sizeof(unsigned char));
+    if(!block) {
+        fprintf(stderr, "test_quota: ERROR: Cannot allocate memory for block.\n");
+        goto test_quota_err;
+    }
+    seed = make_seed();
+    printf("test_quota: Seed: %012lx\n", seed);
+    rnd_seed(&state,seed);
+    create_block(&state, block, SX_BS_LARGE);
+    fd = mkstemp(volname);
+    if(fd < 0) {
+        fprintf(stderr, "test_quota: ERROR: Cannot generate temporary directory name.\n");
+        goto test_quota_err;
+    }
+    if(close(fd)) {
+        fprintf(stderr, "test_quota: ERROR: Cannot close file descriptor: %s\n", strerror(errno));
+        goto test_quota_err;
+    }
+    if(unlink(volname)) {
+        fprintf(stderr, "test_quota: ERROR: Cannot delete '%s' file: %s\n", volname, strerror(errno));
+        goto test_quota_err;
+    }
+    if(sxc_volume_add(cluster, volname, QUOTA_VOL_SIZE*1024*1024, 1, 1, NULL, args.owner_arg)) {
+        fprintf(stderr, "test_quota: ERROR: Cannot create new volume: %s\n", sxc_geterrmsg(sx));
+        goto test_quota_err;
+    }
+    if(sxi_volume_cfg_store(sx, cluster, volname, NULL, NULL, 0)) {
+        fprintf(stderr, "test_quota: ERROR: Configuration problem: %s\n", sxc_geterrmsg(sx));
+        goto test_quota_err;
+    }
+    if(args.human_flag) {
+        printf("test_quota: Volume '%s' (replica: 1, size: %dM) created.\n", volname, QUOTA_VOL_SIZE);
+        printf("test_quota: Creating file of size: %dM\n", QUOTA_FILE_SIZE);
+    } else {
+        printf("test_quota: Volume '%s' (replica: 1, size: %lld) created.\n", volname, QUOTA_VOL_SIZE*1024LL*1024LL);
+        printf("test_quota: Creating file of size: %" PRIu64 "\n", (uint64_t)QUOTA_FILE_SIZE*1024*1024);
+    }
+    file = fopen(local_file_path, "wb");
+    if(!file) {
+        fprintf(stderr, "test_quota: ERROR: Cannot create '%s' file: %s\n", local_file_path, strerror(errno));
+        goto test_quota_err;
+    }
+    for(i=0; i<QUOTA_FILE_SIZE; i++)
+        if(fwrite(block, sizeof(unsigned char), SX_BS_LARGE, file) != SX_BS_LARGE) {
+            fprintf(stderr, "test_quota: ERROR: Error while writing to '%s' file. (%d)\n", local_file_path, i);
+            if(fclose(file) == EOF)
+                fprintf(stderr, "test_quota: ERROR: Cannot close '%s' file: %s\n", local_file_path, strerror(errno));
+            goto test_quota_err;
+        }
+    if(fclose(file) == EOF) {
+        fprintf(stderr, "test_quota: ERROR: Cannot close '%s' file: %s\n", local_file_path, strerror(errno));
+        goto test_quota_err;
+    }
+    src = sxc_file_local(sx, local_file_path);
+    if(!src) {
+        fprintf(stderr, "test_quota: ERROR: Cannot open '%s' file: %s\n", local_file_path, sxc_geterrmsg(sx));
+        goto test_quota_err;
+    }
+    dest = sxc_file_remote(cluster, volname, remote_path, NULL);
+    if(!dest) {
+        fprintf(stderr, "test_quota: ERROR: Cannot open destination directory.\n");
+        goto test_quota_err;
+    }
+    switch(sxc_copy(src, dest, local_file_path[strlen(local_file_path) - 1] == '/', 0)) {
+        case 0:
+            fprintf(stderr, "test_quota: ERROR: Volume size limit not enforced.\n");
+            goto test_quota_err;
+        case 413:
+            printf("test_quota: Volume size limit enforced correctly.\n");
+            break;
+        default:
+            fprintf(stderr, "test_quota: ERROR: Cannot upload file: %s\n", sxc_geterrmsg(sx));
+            goto test_quota_err;
+    }
+    if(remove_volume(sx, cluster, volname)) {
+        fprintf(stderr, "test_quota: ERROR: Cannot remove '%s' volume: %s\n", volname, sxc_geterrmsg(sx));
+        goto test_quota_err;
+    }
+
+    printf("test_quota: Succeeded\n");
+    ret = 0;
+test_quota_err:
+    if(file && unlink(local_file_path)) {
+        fprintf(stderr, "test_quota: ERROR: Cannot remove '%s' file: %s\n", local_file_path, strerror(errno));
+        ret = 1;
+    }
+    free(block);
+    free(volname);
+    free(local_file_path);
+    free(remote_path);
+    sxc_file_free(src);
+    sxc_file_free(dest);
+    return ret;
+} /* test_quota */
+
 int main(int argc, char **argv) {
     int i, fd, ret = 1;
     char *local_dir_path = NULL, *remote_dir_path = NULL, *volname = NULL, *filter_dir = NULL;
-    const char *env_var;
     sxc_client_t *sx = NULL;
     sxc_logger_t log;
     sxc_cluster_t *cluster = NULL;
@@ -1287,13 +1421,13 @@ int main(int argc, char **argv) {
     strcat(local_dir_path,"/");
 
     if(args.filter_dir_given) {
-	filter_dir = strdup(args.filter_dir_arg);
+        filter_dir = strdup(args.filter_dir_arg);
     } else {
-	const char *pt = getenv("SX_FILTER_DIR");
-	if(pt)
-	    filter_dir = strdup(pt);
-	else
-	    filter_dir = strdup(SX_FILTER_DIR);
+        const char *pt = getenv("SX_FILTER_DIR");
+        if(pt)
+            filter_dir = strdup(pt);
+        else
+            filter_dir = strdup(SX_FILTER_DIR);
     }
     if(!filter_dir) {
         fprintf(stderr, "main: ERROR: Cannot get filter directory. Try: 'export SX_FILTER_DIR=<git_dir>/client/src/filters/'\n");
@@ -1315,10 +1449,12 @@ int main(int argc, char **argv) {
         goto main_err;
     if(volume_test(sx, cluster, volname, filter_dir, "undelete", TRASH_NAME, local_dir_path, remote_dir_path, args, 5))
         goto main_err;
+    if(test_quota(sx, cluster, local_dir_path, remote_dir_path, args))
+        goto main_err;
     /* The end of tests */
 
     ret = 0;
-    printf("main: All tests succeeded.\n");
+    printf("\nmain: All tests succeeded.\n");
 main_err:
     if(local_dir_path && rmdir(local_dir_path)) {
         fprintf(stderr, "main: ERROR: Cannot delete '%s' directory: %s\n", local_dir_path, strerror(errno));
