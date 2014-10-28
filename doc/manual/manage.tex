@@ -1,3 +1,89 @@
 \chapter{Cluster Management}
 
-FILL ME
+\section{Local node status}
+You can check status of a specific node by running \path{sxserver status} on
+that node:
+\begin{lstlisting}
+# /opt/sx/sbin/sxserver status
+--- SX STATUS ---
+sx.fcgi is running (PID 14394)
+sxhttpd is running (PID 14407)
+
+--- SX INFO ---
+Cluster name: ^\marked{mycluster}^
+Cluster port: 443
+HashFS Version: SX-Storage 1.5
+Cluster UUID: 01dca714-8cc9-4e26-960e-daf04892b1e2
+Cluster authentication: CLUSTER/ALLNODE/ROOT/USERwBdjfz3tKcnTF2ouWIkTipreYuYjAAA
+Admin key: ^\marked{0DPiKuNIrrVmD8IUCuw1hQxNqZfIkCY+oKwxi5zHSPn5y0SOi3IMawAA}^
+Internal cluster protocol: SECURE
+Used disk space: 17568768
+Actual data size: 463872
+List of nodes:
+         * ec4d9d63-9fa3-4d45-838d-3e521f124ed3 ^\marked{192.168.1.101}^ (192.168.1.101) 536870912000
+Storage location: /opt/sx/var/lib/sxserver/data
+SSL private key: /opt/sx/etc/ssl/private/sxkey.pem
+SX Logfile: /opt/sx/var/log/sxserver/sxfcgi.log
+\end{lstlisting}
+This gives you the information about local services and disk usage, but
+also provides the admin key, which is needed for accessing the cluster
+itself.
+
+\section{Administrator access}
+During cluster deployment a default admin account gets created
+and initialized. You should be able to access the cluster from
+any node using \path{sx://admin@mycluster} profile. In order
+to manage the cluster remotely or from another system account,
+you need to initialize access to the cluster using \path{sxinit}. 
+In the example below we use the default admin account created
+during cluster setup. Since "mycluster" is not a DNS name, we need
+to point sxinit to one of the nodes of the cluster. It will
+automatically discover the IP addresses of the other nodes.
+Additionally, we create an alias \path{@cladm}, which later
+can be used instead of \path{sx://admin@mycluster}.
+\begin{lstlisting}
+$ sxinit -l 192.168.1.101 -A @cladm sx://admin@mycluster
+Warning: self-signed certificate:
+
+        Subject: C=GB, ST=UK, O=SX, CN=mycluster
+	Issuer: C=GB, ST=UK, O=SX, CN=mycluster
+	SHA1 Fingerprint: 84:EF:39:80:1E:28:9C:4A:C8:80:E6:56:57:A4:CD:64:2E:23:99:7A
+
+Do you trust this SSL certificate? [y/N] ^\marked{y}^
+Trusting self-signed certificate
+Please enter the user key:
+^\marked{0DPiKuNIrrVmD8IUCuw1hQxNqZfIkCY+oKwxi5zHSPn5y0SOi3IMawAA}^
+\end{lstlisting}
+
+\section{User management}
+A new cluster has only a single admin user. It is recommended to only use the
+admin account for administrative purposes and perform regular operations
+as a normal user. Use \path{sxacl useradd} to add new users to the cluster:
+\begin{lstlisting}
+$ sxacl useradd joe @cladm
+User successfully created!
+Name: joe
+Key : FqmlTd9CWZUuPBGMdjE46DaT1/3kx+EYbahlrhcdVpy/9ePfrtWCIgAA
+Type: normal
+
+Run 'sxinit sx://joe@mycluster' to start using the cluster as user 'joe'.
+\end{lstlisting}
+Existing users can be listed with:
+\begin{lstlisting}
+$ sxacl userlist @cladm
+admin (admin)
+joe (normal)
+\end{lstlisting}
+To retrieve the current authentication key for a user run:
+\begin{lstlisting}
+$ sxacl usergetkey joe @cladm
+5tJdVr+RSpA/IPuFeSwUeePtKdbDLWUKqoaoZLkmCcXTw5qzPg5e7AAA
+\end{lstlisting}
+Finally, to permanently delete a user from the cluster run the following
+command:
+\begin{lstlisting}
+$ sxacl userdel joe @cladm
+User 'joe' successfully removed.
+\end{lstlisting}
+All volumes owned by the user will be reassigned to the cluster
+administrator performing the removal.

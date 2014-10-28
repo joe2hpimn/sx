@@ -21,7 +21,6 @@ In the example we assume the IP address of the first node is
 and \SX was installed into \path{/opt/sx}. Also in some cases (eg. the path to
 \SX storage) we assume default values, however your mileage may vary.
 
-\small
 \begin{lstlisting}
 # /opt/sx/sbin/sxsetup
 --- SKYLABLE SX CONFIGURATION SCRIPT ---
@@ -179,12 +178,10 @@ You can run 'sxacl useradd joe sx://admin@mycluster' to add a new user.
 To create a new volume owned by user 'joe' run:
 'sxvol create --owner joe --replica N --size SIZE sx://admin@mycluster/VOLNAME'
 \end{lstlisting}
-\LARGE
 When the script finishes successfully, the node is already functional.
 Please notice the admin key listed at the end of the summary: it will be
 needed for both adding more nodes and accessing the cluster. You can
 always retrieve the admin key with the following command:
-\small
 \begin{lstlisting}
 # /opt/sx/sbin/sxserver status
 --- SX STATUS ---
@@ -207,7 +204,6 @@ Storage location: /opt/sx/var/lib/sxserver/data
 SSL private key: /opt/sx/etc/ssl/private/sxkey.pem
 SX Logfile: /opt/sx/var/log/sxserver/sxfcgi.log
 \end{lstlisting}
-\LARGE
 That's it - your SX storage is already up and running! You can now
 go to the next step and add more nodes or go to the next chapter and
 learn how to perform basic client operations.
@@ -230,7 +226,6 @@ Follow these steps to add a new node to the cluster:
 	  Below we assume the new node is 192.168.1.102 and it's size is 250 GBs.
 \end{itemize}
 
-\small
 \begin{lstlisting}
 # /opt/sx/sbin/sxsetup
 --- SKYLABLE SX CONFIGURATION SCRIPT ---
@@ -436,7 +431,6 @@ You can run 'sxacl useradd joe sx://admin@mycluster' to add a new user.
 To create a new volume owned by user 'joe' run:
 'sxvol create --owner joe --replica N --size SIZE sx://admin@mycluster/VOLNAME'
 \end{lstlisting}
-\LARGE
 The node successfully joined the cluster - at the end of the summary you can
 see the current list of nodes in the cluster. Repeat the same steps to add more
 nodes to the cluster.

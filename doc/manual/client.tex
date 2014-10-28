@@ -9,7 +9,6 @@ is not a DNS name, we need to point sxinit to one of the nodes of the
 cluster. It will automatically discover the IP addresses of the other
 nodes. Additionally, we create an alias \path{@cluster}, which later
 can be used instead of \path{sx://admin@mycluster}.
-\small
 \begin{lstlisting}
 $ sxinit -l 192.168.1.101 -A @cluster sx://admin@mycluster
 Warning: self-signed certificate:
@@ -24,7 +23,6 @@ Please enter the user key:
 ^\marked{0DPiKuNIrrVmD8IUCuw1hQxNqZfIkCY+oKwxi5zHSPn5y0SOi3IMawAA}^
 \end{lstlisting}
 
-\LARGE
 \SX allows creating additional users of your choice and assigning them
 appropriate privileges. In this Quick Start Guide we will only use the
 default admin account, though. Please refer to \path{sxacl useradd --help}
@@ -35,20 +33,17 @@ Volumes are logical partitions of the \SX storage assigned to particular
 groups of users and managed with the \path{sxvol} tool. Below we create
 a basic volume of size 50G owned by admin and fully replicated on two nodes.
 We're also making use of the \path{@cluster} alias, which stands for \path{sx://admin@mycluster}.
-\small
 \begin{lstlisting}
 $ /opt/sx/bin/sxvol create --owner=admin --replica=2 --size=50G
   @cluster/mydata
 Volume 'mydata' (replica: 2, size: 50G, max-revisions: 1) created.
 \end{lstlisting}
-\LARGE
 
 \section*{Working with files}
 \SX provides easy to use file tools, which resemble typical UNIX commands.
 Below we show how to upload a file to the 'mydata' volume, display it,
 and list files in the volume.
 
-\small
 \begin{lstlisting}
 $ echo Hello World! > /tmp/hello.txt
 $ sxcp /tmp/hello.txt @cluster/mydata/
@@ -59,6 +54,5 @@ sx://admin@mycluster/mydata/hello.txt
 $ sxrm @cluster/mydata/hello.txt
 Deleted 1 file(s)
 \end{lstlisting}
-\LARGE
 Use \path{sxcp -r} to recursively upload directories to \SX. See the man pages
 (eg. \path{man sxcp}) for examples and usage details.
