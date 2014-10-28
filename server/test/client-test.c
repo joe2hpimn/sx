@@ -992,7 +992,6 @@ int test_attribs(sxc_client_t *sx, sxc_cluster_t *cluster, char *local_dir_path,
     FILE *files[ATTRIBS_COUNT];
 
     printf("test_attribs: Started\n");
-    puts(local_dir_path);
     memset(files, 0, sizeof(files));
     local_files_paths = (char**)calloc(ATTRIBS_COUNT, sizeof(char*));
     if(!local_files_paths) {
@@ -1258,10 +1257,6 @@ int test_quota(sxc_client_t *sx, sxc_cluster_t *cluster, char *local_dir_path, c
         fprintf(stderr, "test_quota: ERROR: Cannot create new volume: %s\n", sxc_geterrmsg(sx));
         goto test_quota_err;
     }
-    if(sxi_volume_cfg_store(sx, cluster, volname, NULL, NULL, 0)) {
-        fprintf(stderr, "test_quota: ERROR: Configuration problem: %s\n", sxc_geterrmsg(sx));
-        goto test_quota_err;
-    }
     if(args.human_flag) {
         printf("test_quota: Volume '%s' (replica: 1, size: %dM) created.\n", volname, QUOTA_VOL_SIZE);
         printf("test_quota: Creating file of size: %dM\n", QUOTA_FILE_SIZE);
@@ -1426,11 +1421,9 @@ int main(int argc, char **argv) {
         const char *pt = getenv("SX_FILTER_DIR");
         if(pt)
             filter_dir = strdup(pt);
-        else
-            filter_dir = strdup(SX_FILTER_DIR);
     }
     if(!filter_dir) {
-        fprintf(stderr, "main: ERROR: Cannot get filter directory. Try: 'export SX_FILTER_DIR=<git_dir>/client/src/filters/'\n");
+        fprintf(stderr, "main: ERROR: Cannot get filter directory. Use --filter-dir or 'export SX_FILTER_DIR=<src_dir>/client/src/filters/'\n");
         goto main_err;
     }
     if(!filter_dir) {
