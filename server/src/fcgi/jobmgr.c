@@ -1396,6 +1396,60 @@ static act_result_t filedelete_commit(sx_hashfs_t *hashfs, job_t job_id, job_dat
     return ret;
 }
 
+static act_result_t filedelete_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    act_result_t ret = ACT_RESULT_OK;
+    unsigned int nnode, nnodes;
+    sx_hashfs_tmpinfo_t *tmp;
+    int64_t tmpfile_id;
+
+    if(job_data->len != sizeof(tmpfile_id)) {
+	CRIT("Bad job data");
+	action_error(ACT_RESULT_PERMFAIL, 500, "Internal job data error");
+    }
+    memcpy(&tmpfile_id, job_data->ptr, sizeof(tmpfile_id));
+
+    if(sx_hashfs_tmp_getinfo(hashfs, tmpfile_id, &tmp, 0, 0) == OK) {
+	CRIT("File %s (rev %s) on volume %lld was left in an inconsitent state after a failed deletion attempt", tmp->name, tmp->revision, (long long)tmp->volume_id);
+	free(tmp);
+	sx_hashfs_tmp_delete(hashfs, tmpfile_id);
+    } else
+	CRIT("Failed to delete tmpfile %lld", (long long)tmpfile_id);
+
+    nnodes = sx_nodelist_count(nodes);
+    for(nnode = 0; nnode<nnodes; nnode++)
+	succeeded[nnode] = 1;
+
+ action_failed:
+    return ret;
+}
+
+static act_result_t filedelete_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    act_result_t ret = ACT_RESULT_OK;
+    unsigned int nnode, nnodes;
+    sx_hashfs_tmpinfo_t *tmp;
+    int64_t tmpfile_id;
+
+    if(job_data->len != sizeof(tmpfile_id)) {
+	CRIT("Bad job data");
+	action_error(ACT_RESULT_PERMFAIL, 500, "Internal job data error");
+    }
+    memcpy(&tmpfile_id, job_data->ptr, sizeof(tmpfile_id));
+
+    if(sx_hashfs_tmp_getinfo(hashfs, tmpfile_id, &tmp, 0, 0) == OK) {
+	WARN("Some blocks of file %s (rev %s) on volume %lld may have incorrect counts after a failed deletion attempt", tmp->name, tmp->revision, (long long)tmp->volume_id);
+	free(tmp);
+	sx_hashfs_tmp_delete(hashfs, tmpfile_id);
+    } else
+	CRIT("Some blocks of tmpfile %lld may have incorrect counts after a failed deletion attempt", (long long)tmpfile_id);
+
+    nnodes = sx_nodelist_count(nodes);
+    for(nnode = 0; nnode<nnodes; nnode++)
+	succeeded[nnode] = 1;
+
+ action_failed:
+    return ret;
+}
+
 
 struct cb_challenge_ctx {
     sx_hash_challenge_t chlrsp;
@@ -3035,7 +3089,7 @@ static struct {
     { acl_request, acl_commit, acl_abort, acl_undo }, /* JOBTYPE_VOLUME_ACL */
     { force_phase_success, replicateblocks_commit, replicateblocks_abort, replicateblocks_abort }, /* JOBTYPE_REPLICATE_BLOCKS */
     { fileflush_request, fileflush_commit, FIXME_phase_placeholder,FIXME_phase_placeholder }, /* JOBTYPE_FLUSH_FILE */
-    { filedelete_request, filedelete_commit, FIXME_phase_placeholder, force_phase_success }, /* JOBTYPE_DELETE_FILE */
+    { filedelete_request, filedelete_commit, filedelete_abort, filedelete_undo }, /* JOBTYPE_DELETE_FILE */
     { distribution_request, distribution_commit, distribution_abort, distribution_undo }, /* JOBTYPE_DISTRIBUTION */
     { startrebalance_request, force_phase_success, force_phase_success, force_phase_success }, /* JOBTYPE_STARTREBALANCE */
     { finishrebalance_request, finishrebalance_commit, force_phase_success, force_phase_success }, /* JOBTYPE_FINISHREBALANCE */
