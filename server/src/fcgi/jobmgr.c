@@ -148,13 +148,6 @@ static act_result_t force_phase_success(sx_hashfs_t *hashfs, job_t job_id, job_d
     return ACT_RESULT_OK;
 }
 
-static act_result_t FIXME_phase_placeholder(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
-    act_result_t ret;
-    WARN("Phase not implmented for job %lld", (long long)job_id);
-    action_set_fail(ACT_RESULT_PERMFAIL, 500, "Action not implemented");
-    return ret;
-}
-
 static rc_ty volonoff_common(sx_hashfs_t *hashfs, job_t job_id, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, const char *volname, int enable) {
     sxc_client_t *sx = sx_hashfs_client(hashfs);
     sxi_conns_t *clust = sx_hashfs_conns(hashfs);
@@ -1267,6 +1260,144 @@ static act_result_t fileflush_commit(sx_hashfs_t *hashfs, job_t job_id, job_data
     return ret;
 }
 
+
+static act_result_t fileflush_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    const sx_node_t *me = sx_hashfs_self(hashfs);
+    unsigned int nnode, nnodes;
+    act_result_t ret = ACT_RESULT_OK;
+    int64_t tmpfile_id;
+    rc_ty s;
+
+    if(job_data->len != sizeof(tmpfile_id)) {
+	CRIT("Bad job data");
+	action_error(ACT_RESULT_PERMFAIL, 500, "Internal job data error");
+    }
+
+    nnodes = sx_nodelist_count(nodes);
+    for(nnode = 0; nnode<nnodes; nnode++) {
+	if(!sx_node_cmp(me, sx_nodelist_get(nodes, nnode))) {
+	    memcpy(&tmpfile_id, job_data->ptr, sizeof(tmpfile_id));
+	    s = sx_hashfs_tmp_unbump(hashfs, tmpfile_id);
+	    if(s == OK)
+		action_error(ACT_RESULT_TEMPFAIL, 500, "Unbump not yet completed");
+	    if(s != ITER_NO_MORE)
+		action_error(rc2actres(s), rc2http(s), "Unbump failed");
+	}
+
+	succeeded[nnode] = 1;
+    }
+
+ action_failed:
+    return ret;
+}
+
+
+static act_result_t fileflush_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    sxi_conns_t *clust = sx_hashfs_conns(hashfs);
+    sxc_client_t *sx = sx_hashfs_client(hashfs);
+    const sx_node_t *me = sx_hashfs_self(hashfs);
+    const sx_hashfs_volume_t *volume;
+    act_result_t ret = ACT_RESULT_OK;
+    sx_hashfs_tmpinfo_t *tmp = NULL;
+    query_list_t *qrylist = NULL;
+    unsigned int nnode, nnodes;
+    sxi_query_t *proto = NULL;
+    int64_t tmpfile_id;
+    rc_ty s;
+
+    if(job_data->len != sizeof(tmpfile_id)) {
+	CRIT("Bad job data");
+	action_error(ACT_RESULT_PERMFAIL, 500, "Internal job data error");
+    }
+    memcpy(&tmpfile_id, job_data->ptr, sizeof(tmpfile_id));
+
+    s = sx_hashfs_tmp_getinfo(hashfs, tmpfile_id, &tmp, 0, 0);
+    if(s == ENOENT)
+	return force_phase_success(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
+    if(s != OK) {
+	WARN("Failed to retrive file info for tempfile %lld which will not be cleanly removed", (long long)tmpfile_id);
+	action_error(rc2actres(s), rc2http(s), msg_get_reason());
+    }
+
+    s = sx_hashfs_volume_by_id(hashfs, tmp->volume_id, &volume);
+    if(s == ENOENT) {
+	free(tmp);
+	return force_phase_success(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
+    }
+    if(s != OK)
+	action_error(rc2actres(s), rc2http(s), "Failed to find file to delete");
+
+    nnodes = sx_nodelist_count(nodes);
+    for(nnode = 0; nnode<nnodes; nnode++) {
+	const sx_node_t *node = sx_nodelist_get(nodes, nnode);
+	if(!sx_node_cmp(me, node)) {
+	    /* Local node */
+	    s = sx_hashfs_file_delete(hashfs, volume, tmp->name, tmp->revision);
+	    if(s == OK || s == ENOENT) {
+		sx_nodelist_t *justme = sx_nodelist_new();
+		if(!justme ||
+		   sx_nodelist_add(justme, sx_node_dup(me)) ||
+		   fileflush_abort(hashfs, job_id, job_data, justme, &succeeded[nnode], fail_code, fail_msg, adjust_ttl) != ACT_RESULT_OK)
+		    WARN("Failed to umbump blocks for file %s (rev %s) on volume %s", tmp->name, tmp->revision, volume->name);
+		else
+		    succeeded[nnode] = 1;
+		sx_nodelist_delete(justme);
+	    } else
+		action_error(rc2actres(s), rc2http(s), msg_get_reason());
+	} else {
+	    /* Remote node */
+	    if(!proto) {
+		proto = sxi_filedel_proto(sx, volume->name, tmp->name, tmp->revision);
+		qrylist = calloc(nnodes, sizeof(*qrylist));
+		if(!proto || !qrylist) {
+		    WARN("Cannot allocate proto for job %lld", (long long)job_id);
+		    action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
+		}
+	    }
+	    qrylist[nnode].cbdata = sxi_cbdata_create_generic(clust, NULL, NULL);
+	    if(sxi_cluster_query_ev(qrylist[nnode].cbdata, clust, sx_node_internal_addr(node), proto->verb, proto->path, proto->content, proto->content_len, NULL, NULL)) {
+		WARN("Failed to query node %s: %s", sx_node_uuid_str(node), sxc_geterrmsg(sx));
+		action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to setup cluster communication");
+	    }
+	    qrylist[nnode].query_sent = 1;
+	}
+    }
+
+
+ action_failed:
+    if(proto) {
+	for(nnode=0; qrylist && nnode<nnodes; nnode++) {
+	    int rc;
+	    long http_status = 0;
+	    if(!qrylist[nnode].query_sent)
+		continue;
+	    rc = sxi_cbdata_wait(qrylist[nnode].cbdata, sxi_conns_get_curlev(clust), &http_status);
+	    if(rc == -2) {
+		CRIT("Failed to wait for query");
+		action_set_fail(ACT_RESULT_PERMFAIL, 500, "Internal error in cluster communication");
+		/* FIXME should abort here */
+		continue;
+	    }
+	    if(rc == -1) {
+		WARN("Query failed with %ld", http_status);
+		if(ret > ACT_RESULT_TEMPFAIL) /* Only raise OK to TEMP */
+		    action_set_fail(ACT_RESULT_TEMPFAIL, 503, sxi_cbdata_geterrmsg(qrylist[nnode].cbdata));
+	    } else if(http_status == 200 || http_status == 404) {
+		succeeded[nnode] = 1;
+	    } else {
+		act_result_t newret = http2actres(http_status);
+		if(newret < ret) /* Severity shall only be raised */
+		    action_set_fail(newret, http_status, sxi_cbdata_geterrmsg(qrylist[nnode].cbdata));
+	    }
+	}
+	query_list_free(qrylist, nnodes);
+	free(proto);
+    }
+
+    return ret;
+}
+
+
 static act_result_t filedelete_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     sxi_conns_t *clust = sx_hashfs_conns(hashfs);
     sxc_client_t *sx = sx_hashfs_client(hashfs);
@@ -1367,6 +1498,7 @@ static act_result_t filedelete_request(sx_hashfs_t *hashfs, job_t job_id, job_da
 
 
 static act_result_t filedelete_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    const sx_node_t *me = sx_hashfs_self(hashfs);
     act_result_t ret = ACT_RESULT_OK;
     unsigned int nnode, nnodes;
     int64_t tmpfile_id;
@@ -1377,20 +1509,21 @@ static act_result_t filedelete_commit(sx_hashfs_t *hashfs, job_t job_id, job_dat
 	action_error(ACT_RESULT_PERMFAIL, 500, "Internal job data error");
     }
 
-    memcpy(&tmpfile_id, job_data->ptr, sizeof(tmpfile_id));
-    s = sx_hashfs_tmp_unbump(hashfs, tmpfile_id);
-
-    if(s == OK)
-	action_error(ACT_RESULT_TEMPFAIL, 500, "Unbump not yet completed");
-    if(s != ITER_NO_MORE)
-	action_error(rc2actres(s), rc2http(s), "Unbump failed");
-
-    if(sx_hashfs_tmp_delete(hashfs, tmpfile_id))
-	INFO("Failed to delete tempfile %lld", (long long)tmpfile_id); /* Not a big deal */
-
     nnodes = sx_nodelist_count(nodes);
-    for(nnode = 0; nnode<nnodes; nnode++)
+    for(nnode = 0; nnode<nnodes; nnode++) {
+	if(!sx_node_cmp(me, sx_nodelist_get(nodes, nnode))) {
+	    memcpy(&tmpfile_id, job_data->ptr, sizeof(tmpfile_id));
+	    s = sx_hashfs_tmp_unbump(hashfs, tmpfile_id);
+	    if(s == OK)
+		action_error(ACT_RESULT_TEMPFAIL, 500, "Unbump not yet completed");
+	    if(s != ITER_NO_MORE)
+		action_error(rc2actres(s), rc2http(s), "Unbump failed");
+
+	    if(sx_hashfs_tmp_delete(hashfs, tmpfile_id))
+		INFO("Failed to delete tempfile %lld", (long long)tmpfile_id); /* Not a big deal */
+	}
 	succeeded[nnode] = 1;
+    }
 
  action_failed:
     return ret;
@@ -3088,7 +3221,7 @@ static struct {
     { createuser_request, createuser_commit, createuser_abort, createuser_undo }, /* JOBTYPE_CREATE_USER */
     { acl_request, acl_commit, acl_abort, acl_undo }, /* JOBTYPE_VOLUME_ACL */
     { force_phase_success, replicateblocks_commit, replicateblocks_abort, replicateblocks_abort }, /* JOBTYPE_REPLICATE_BLOCKS */
-    { fileflush_request, fileflush_commit, FIXME_phase_placeholder,FIXME_phase_placeholder }, /* JOBTYPE_FLUSH_FILE */
+    { fileflush_request, fileflush_commit, fileflush_abort, fileflush_undo }, /* JOBTYPE_FLUSH_FILE */
     { filedelete_request, filedelete_commit, filedelete_abort, filedelete_undo }, /* JOBTYPE_DELETE_FILE */
     { distribution_request, distribution_commit, distribution_abort, distribution_undo }, /* JOBTYPE_DISTRIBUTION */
     { startrebalance_request, force_phase_success, force_phase_success, force_phase_success }, /* JOBTYPE_STARTREBALANCE */
