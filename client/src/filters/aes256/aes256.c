@@ -687,9 +687,9 @@ static int aes256_data_finish(const sxf_handle_t *handle, void **ctx, sxf_mode_t
 sxc_filter_t sxc_filter={
 /* int abi_version */		    SXF_ABI_VERSION,
 /* const char *shortname */	    "aes256",
-/* const char *fullname */	    "Encrypt data using AES-256-CBC-HMAC-512 mode.",
+/* const char *shortdesc */	    "Encrypt data using AES-256-CBC-HMAC-512 mode.",
 /* const char *summary */	    "The filter automatically encrypts and decrypts all data using OpenSSL's AES-256 in CBC-HMAC-512 mode.",
-/* const char *options */	    "\n\tnogenkey (don't generate a key file when creating a volume)\n\tparanoid (don't use key files)\n\tsalt:HEX (force given salt, HEX must be 32 chars long)",
+/* const char *options */	    "\n\tnogenkey (don't generate a key file when creating a volume)\n\tparanoid (don't use key files at all - always ask for a password)\n\tsalt:HEX (force given salt, HEX must be 32 chars long)",
 /* const char *uuid */		    "35a5404d-1513-4009-904c-6ee5b0cd8634",
 /* sxf_type_t type */		    SXF_TYPE_CRYPT,
 /* int version[2] */		    {1, 4},

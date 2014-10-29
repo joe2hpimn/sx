@@ -55,7 +55,7 @@ static int filter_list(sxc_client_t *sx)
     for(i = 0; i < count; i++) {
         const sxc_filter_t *f = sxc_get_filter(&filters[i]);
         sxi_info(sx, "'%s' filter details:", f->shortname);
-        sxi_info(sx,"\tFull name: %s", f->fullname);
+        sxi_info(sx,"\tShort description: %s", f->shortdesc);
         sxi_info(sx,"\tSummary: %s", f->summary);
         sxi_info(sx,"\tOptions: %s", f->options ? f->options : "No options");
         sxi_info(sx,"\tUUID: %s", f->uuid);

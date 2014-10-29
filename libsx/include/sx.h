@@ -367,7 +367,7 @@ typedef struct {
     const char *shortname;
     /**< filter name used by the tools: sxvol create -f shortname */
 
-    const char *fullname;
+    const char *shortdesc;
     /**< used by: sxvol filter --list */
 
     const char *summary;

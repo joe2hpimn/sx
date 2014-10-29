@@ -216,7 +216,7 @@ static int zcomp_data_finish(const sxf_handle_t *handle, void **ctx, sxf_mode_t 
 sxc_filter_t sxc_filter={
 /* int abi_version */		    SXF_ABI_VERSION,
 /* const char *shortname */	    "zcomp",
-/* const char *fullname */	    "Zlib Compression Filter",
+/* const char *shortdesc */	    "Compress files using zlib",
 /* const char *summary */	    "The filter automatically compresses and decompresses all data using zlib library.",
 /* const char *options */	    "level:N (N = 1..9)",
 /* const char *uuid */		    "d5dbdf0a-fb17-4d1b-a9ce-4060317af5b5",

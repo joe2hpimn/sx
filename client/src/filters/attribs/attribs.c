@@ -141,7 +141,7 @@ static int attribs_process(const sxf_handle_t *handle, void *ctx, const char *fi
 sxc_filter_t sxc_filter={
 /* int abi_version */		    SXF_ABI_VERSION,
 /* const char *shortname */	    "attribs",
-/* const char *fullname */	    "File Attributes",
+/* const char *shortdesc */	    "Preserve file attributes",
 /* const char *summary */	    "Preserve attributes while storing files in SX.",
 /* const char *options */	    NULL,
 /* const char *uuid */		    "43122b8c-56d1-4671-8500-aa6831eb983c",

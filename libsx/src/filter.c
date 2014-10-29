@@ -66,7 +66,7 @@ static int filter_register(sxc_client_t *sx, const char *filename)
 		lt_dlclose(dlh);
 		return 1;
 	    }
-	    if(!filter->shortname || !filter->fullname || !filter->summary || !filter->uuid) {
+	    if(!filter->shortname || !filter->shortdesc || !filter->summary || !filter->uuid) {
 		SXDEBUG("Invalid filter %s (name/summary/uuid fields missing)", filename);
 		lt_dlclose(dlh);
 		return 1;

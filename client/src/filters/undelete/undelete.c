@@ -168,7 +168,7 @@ int copy_to_trash(const sxf_handle_t *handle, void *ctx, const void *cfgdata, un
 sxc_filter_t sxc_filter={
 /* int abi_version */		    SXF_ABI_VERSION,
 /* const char *shortname */	    "undelete",
-/* const char *fullname */	    "Backup removed files",
+/* const char *shortdesc */	    "Backup removed files",
 /* const char *summary */	    "Move files to a trash directory (default /.Trash/) when they're deleted. Deleting files from trash will remove them permanently.",
 /* const char *options */	    "[volume:]/path/to/trash",
 /* const char *uuid */		    "7e7b7a8f-e294-458a-a2ab-ed8944ffce5c",

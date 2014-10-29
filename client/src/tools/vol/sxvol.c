@@ -81,11 +81,11 @@ static int filter_list(sxc_client_t *sx)
 	printf("No filters available\n");
 	return 1;
     }
-    printf("Name\t\tVer\tType\t\tFull name\n");
-    printf("----\t\t---\t----\t\t---------\n");
+    printf("Name\t\tVer\tType\t\tShort description\n");
+    printf("----\t\t---\t----\t\t-----------------\n");
     for(i = 0; i < count; i++) {
          const sxc_filter_t *f = sxc_get_filter(&filters[i]);
-	printf("%-12s\t%d.%d\t%s\t%s%s\n", f->shortname, f->version[0], f->version[1], f->tname, strlen(f->tname) >= 8 ? "" : "\t", f->fullname);
+	printf("%-12s\t%d.%d\t%s\t%s%s\n", f->shortname, f->version[0], f->version[1], f->tname, strlen(f->tname) >= 8 ? "" : "\t", f->shortdesc);
     }
 
     return 0;
@@ -105,7 +105,7 @@ static int filter_info(sxc_client_t *sx, const char *name)
          const sxc_filter_t *f = sxc_get_filter(&filters[i]);
 	if(!strcmp(f->shortname, name)) {
 	    printf("'%s' filter details:\n", f->shortname);
-	    printf("Full name: %s\n", f->fullname);
+	    printf("Short description: %s\n", f->shortdesc);
 	    printf("Summary: %s\n", f->summary);
 	    printf("Options: %s\n", f->options ? f->options : "No options");
 	    printf("UUID: %s\n", f->uuid);
