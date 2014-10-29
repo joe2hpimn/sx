@@ -56,9 +56,13 @@ Please enter the user key:
 \end{lstlisting}
 
 \section{User management}
-A new cluster has only a single admin user. It is recommended to only use the
-admin account for administrative purposes and perform regular operations
-as a normal user. Use \path{sxacl useradd} to add new users to the cluster:
+\SX similarly to UNIX systems supports two types of users: regular and
+administrators. A new cluster has only a single 'admin' user enabled by
+default. The administrators can perform all cluster operations and access
+all data in the cluster, while the regular users can only work with volumes
+they have access to. It is recommended to only use the admin account for
+administrative purposes and perform regular operations as a normal user.
+Use \path{sxacl useradd} to add new users to the cluster:
 \begin{lstlisting}
 $ sxacl useradd joe @cladm
 User successfully created!
@@ -68,13 +72,14 @@ Type: normal
 
 Run 'sxinit sx://joe@mycluster' to start using the cluster as user 'joe'.
 \end{lstlisting}
-Existing users can be listed with:
+By default a regular user account gets created. In order to list existing
+users run:
 \begin{lstlisting}
 $ sxacl userlist @cladm
 admin (admin)
 joe (normal)
 \end{lstlisting}
-To retrieve the current authentication key for a user run:
+To retrieve the current authentication key for a specific user run:
 \begin{lstlisting}
 $ sxacl usergetkey joe @cladm
 5tJdVr+RSpA/IPuFeSwUeePtKdbDLWUKqoaoZLkmCcXTw5qzPg5e7AAA
@@ -85,5 +90,74 @@ command:
 $ sxacl userdel joe @cladm
 User 'joe' successfully removed.
 \end{lstlisting}
-All volumes owned by the user will be reassigned to the cluster
-administrator performing the removal.
+All volumes owned by the user will be reassigned to the cluster administrator performing the removal.
+
+\section{Volume management}
+Volumes are logical partitions of the \SX storage of a specific size and accessible
+by a particular group of users. Additionally, the volumes can be connected with client
+side filters to perform additional operations, such as compression or encryption.
+Only cluster administrators can create and remove volumes.
+
+\subsection{Creating a plain volume}
+Below we create a basic volume of size 50G owned by the user 'joe' and fully replicated on two nodes.
+\begin{lstlisting}
+$ sxvol create -o joe -r 2 -s 50G @cladm/vol-joe
+Volume 'vol-joe' (replica: 2, size: 50G, max-revisions: 1) created.
+\end{lstlisting}
+By default, a volume will only keep a single revision of each file (\path{max-revisions}
+parameter set to 1). The revisions are previous versions of the file stored when the file
+gets modified. For example, when a volume gets created with \path{max-revisions} set to
+3, and some file gets modified multiple times, then the latest 3 versions of the file will
+be preserved. All revisions are accounted for their size. See FIXME for more information on
+how to manage file revisions.
+
+\subsection{Creating a filtered volume}
+Filters are client side plugins, which perform operations on files or their contents, before
+and after they get transferred from the \SX cluster. When a filter gets assigned to a volume,
+all remote clients will be required to have that filter installed in order to access the volume.
+Run the following command to list the available filters:
+\begin{lstlisting}
+$ sxvol filter --list
+Name            Ver     Type        Short description
+----            ---     ----        -----------------
+undelete        1.1     generic     Backup removed files
+zcomp           1.0     compress    Zlib Compression Filter
+aes256          1.4     crypt	    Encrypt data using AES-256-CBC-HMAC-512
+attribs         1.1     generic     File Attributes
+\end{lstlisting}
+We will create an encrypted volume for user 'joe'. To obtain more information
+about the \path{aes256} filter run:
+\begin{lstlisting}
+$ sxvol filter -i aes256
+'aes256' filter details:
+Short description: Encrypt data using AES-256-CBC-HMAC-512 mode.
+Summary: The filter automatically encrypts and decrypts all data using
+	 OpenSSL's AES-256 in CBC-HMAC-512 mode.
+Options: 
+	nogenkey (don't generate a key file when creating a volume)
+	paranoid (don't use key files at all - always ask for a password)
+	salt:HEX (force given salt, HEX must be 32 chars long)
+UUID: 35a5404d-1513-4009-904c-6ee5b0cd8634
+Type: crypt
+Version: 1.4
+\end{lstlisting}
+By default, the \path{aes256} filter asks for the password during volume
+creation. Since we're creating a volume for another user, we pass the
+\path{nogenkey} option, which delays the key creation till the first data
+transfer.
+\begin{lstlisting}
+$ sxvol create -o joe -r 2 -s 50G -f aes256=nogenkey @cladm/vol-joe-aes
+Volume 'vol-joe-aes' (replica: 2, size: 50G, max-revisions: 1) created.
+\end{lstlisting}
+
+\subsection{Listing volumes}
+To get a list of all volumes in the cluster run \path{sxls} with the cluster
+argument as an administrator. When the same command is run by a normal user,
+it will list all volumes, which the user has access to.
+\begin{lstlisting}
+$ sxls -l @cladm
+  VOL  r:2  -        0  53687091200   0% sx://admin@mycluster/vol-joe
+  VOL  r:2  aes256   0  53687091200   0% sx://admin@mycluster/vol-joe-aes
+\end{lstlisting}
+When the \path{-l (--long-format)} flag is used, the command also provides
+information about the volume settings and the current space usage.
