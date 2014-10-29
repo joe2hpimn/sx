@@ -12114,7 +12114,7 @@ $as_echo "#define _XOPEN_SOURCE 600" >>confdefs.h
 
 
 
-$as_echo "#define _BSD_SOURCE /**/" >>confdefs.h
+$as_echo "#define _BSD_SOURCE 1" >>confdefs.h
 
 
    { $as_echo "$as_me:${as_lineno-$LINENO}: checking for $CC option to accept ISO C99" >&5

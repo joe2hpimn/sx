@@ -42,7 +42,6 @@
 #include "rgen.h"
 #include "client-test-cmdline.h"
 
-#define _BSD_SOURCE
 #define VOLSIZE 2*args.replica_arg*1024LL*1024LL*1024LL /* TODO: bigger precision */
 #define VOLNAME "vol" /* There will be 6 random characters suffix added. There CANNOT be '..' inside! */
 #define LOCAL_DIR "/tmp/.test" /* There will be 6 random characters suffix added. */
