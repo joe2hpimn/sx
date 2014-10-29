@@ -13930,8 +13930,6 @@ ac_config_files="$ac_config_files man/sxacl.1 man/sxacl-useradd.1 man/sxacl-user
 
 ac_config_files="$ac_config_files src/filters/attribs/Makefile"
 
-ac_config_files="$ac_config_files src/filters/null/Makefile"
-
 ac_config_files="$ac_config_files src/filters/zcomp/Makefile"
 
 ac_config_files="$ac_config_files src/filters/aes256/Makefile"
@@ -14988,7 +14986,6 @@ do
     "man/sxrev-copy.1") CONFIG_FILES="$CONFIG_FILES man/sxrev-copy.1" ;;
     "man/sxrev-delete.1") CONFIG_FILES="$CONFIG_FILES man/sxrev-delete.1" ;;
     "src/filters/attribs/Makefile") CONFIG_FILES="$CONFIG_FILES src/filters/attribs/Makefile" ;;
-    "src/filters/null/Makefile") CONFIG_FILES="$CONFIG_FILES src/filters/null/Makefile" ;;
     "src/filters/zcomp/Makefile") CONFIG_FILES="$CONFIG_FILES src/filters/zcomp/Makefile" ;;
     "src/filters/aes256/Makefile") CONFIG_FILES="$CONFIG_FILES src/filters/aes256/Makefile" ;;
     "src/filters/undelete/Makefile") CONFIG_FILES="$CONFIG_FILES src/filters/undelete/Makefile" ;;
