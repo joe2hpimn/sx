@@ -982,7 +982,7 @@ int run_tests(sxc_client_t *sx, sxc_cluster_t *cluster, char *local_dir_path, ch
 int test_attribs(sxc_client_t *sx, sxc_cluster_t *cluster, char *local_dir_path, char *remote_dir_path) {
     int i, ret = 1, owner, group, other;
     long int tmp_time;
-    char **local_files_paths = NULL, **remote_files_paths = NULL;
+    char *local_files_paths[ATTRIBS_COUNT], *remote_files_paths[ATTRIBS_COUNT];
     uint64_t seed;
     mode_t attribs;
     rnd_state_t state;
@@ -993,16 +993,8 @@ int test_attribs(sxc_client_t *sx, sxc_cluster_t *cluster, char *local_dir_path,
 
     printf("test_attribs: Started\n");
     memset(files, 0, sizeof(files));
-    local_files_paths = (char**)calloc(ATTRIBS_COUNT, sizeof(char*));
-    if(!local_files_paths) {
-        fprintf(stderr, "test_attribs: ERROR: Cannot allocate memory for local_files_paths.\n");
-        goto test_attribs_err;
-    }
-    remote_files_paths = (char**)calloc(ATTRIBS_COUNT, sizeof(char*));
-    if(!remote_files_paths) {
-        fprintf(stderr, "test_attribs: ERROR: Cannot allocate memory for remote_files_paths.\n");
-        goto test_attribs_err;
-    }
+    memset(local_files_paths, 0, sizeof(local_files_paths));
+    memset(remote_files_paths, 0, sizeof(remote_files_paths));
     seed = make_seed();
     printf("test_attribs: Seed: %012lx\n", seed);
     rnd_seed(&state,seed);
@@ -1087,19 +1079,13 @@ int test_attribs(sxc_client_t *sx, sxc_cluster_t *cluster, char *local_dir_path,
     printf("test_attribs: Succeeded\n");
     ret = 0;
 test_attribs_err:
-    if(local_files_paths) {
-        for(i=0; i<ATTRIBS_COUNT; i++) {
-	    if(local_files_paths[i]) {
-		unlink(local_files_paths[i]);
-		free(local_files_paths[i]);
-	    }
-	}
+    for(i=0; i<ATTRIBS_COUNT; i++) {
+        if(local_files_paths[i]) {
+            unlink(local_files_paths[i]);
+            free(local_files_paths[i]);
+        }
+        free(remote_files_paths[i]);
     }
-    if(remote_files_paths)
-        for(i=0; i<ATTRIBS_COUNT; i++)
-            free(remote_files_paths[i]);
-    free(local_files_paths);
-    free(remote_files_paths);
     return ret;
 } /* test_attribs */
 
