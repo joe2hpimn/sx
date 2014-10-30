@@ -9059,10 +9059,8 @@ rc_ty sx_hashfs_hdist_endrebalance(sx_hashfs_t *h) {
     sx_nodelist_delete(singlenode);
 
     /* Compute volume sizes */
-    if((ret = compute_volume_sizes(h)) != OK) {
+    if(compute_volume_sizes(h) != OK)
         WARN("Failed to compute volume sizes");
-        return ret;
-    }
 
     return ret;
 }
