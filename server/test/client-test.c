@@ -1087,14 +1087,14 @@ int test_attribs(sxc_client_t *sx, sxc_cluster_t *cluster, char *local_dir_path,
     printf("test_attribs: Succeeded\n");
     ret = 0;
 test_attribs_err:
-    for(i=0; i<ATTRIBS_COUNT; i++)
-        if(files[i] && unlink(local_files_paths[i])) {
-            fprintf(stderr, "test_attribs: ERROR: Cannot remove '%s' file: %s\n", local_files_paths[i], strerror(errno));
-            ret = 1;
-        }
-    if(local_files_paths)
-        for(i=0; i<ATTRIBS_COUNT; i++)
-            free(local_files_paths[i]);
+    if(local_files_paths) {
+        for(i=0; i<ATTRIBS_COUNT; i++) {
+	    if(local_files_paths[i]) {
+		unlink(local_files_paths[i]);
+		free(local_files_paths[i]);
+	    }
+	}
+    }
     if(remote_files_paths)
         for(i=0; i<ATTRIBS_COUNT; i++)
             free(remote_files_paths[i]);
