@@ -3481,7 +3481,7 @@ static void jobmgr_process_queue(struct jobmgr_data_t *q, int forced) {
 	ptr = sqlite3_column_blob(q->qjob, 2);
 	plen = sqlite3_column_bytes(q->qjob, 2);
 	q->job_expired = sqlite3_column_int(q->qjob, 3);
-	q->job_failed = (sqlite3_column_int(q->qjob, 4) < 0);
+	q->job_failed = (sqlite3_column_int(q->qjob, 4) != 0);
 	q->job_data = make_jobdata(ptr, plen, sqlite3_column_int(q->qjob, 5));
 	sqlite3_reset(q->qjob);
 
