@@ -42,6 +42,7 @@
 #include "cmd_create.h"
 #include "cmd_remove.h"
 #include "cmd_filter.h"
+#include "cmd_modify.h"
 
 #include "sx.h"
 #include "libsx/src/misc.h"
@@ -196,12 +197,37 @@ static int setup_filters(sxc_client_t *sx, const char *fdir)
     return 0;
 }
 
+static int64_t parse_size(const char *str) {
+    const char *suffixes = "kKmMgGtT";
+    char *ptr;
+    int64_t size;
+
+    size = strtoll(str, (char **)&ptr, 0);
+    if(size <= 0 || size == LLONG_MAX) {
+        fprintf(stderr, "ERROR: Bad size: %s\n", str);
+        return -1;
+    }
+    if(*ptr) {
+        unsigned int shl;
+        *ptr = (char) toupper(*ptr);
+        ptr = strchr(suffixes, *ptr);
+        if(!ptr) {
+            fprintf(stderr, "ERROR: Bad size: %s\n", str);
+            return -1;
+        }
+        shl = (((ptr-suffixes)/2) + 1) * 10;
+        size <<= shl;
+    }
+
+    return size;
+}
+
 static int volume_create(sxc_client_t *sx, const char *owner)
 {
 	sxc_cluster_t *cluster;
 	sxc_uri_t *uri;
-	const char *suffixes = "kKmMgGtT", *confdir;
-	char *ptr, *voldir = NULL, *voldir_old = NULL;
+	const char *confdir;
+	char *voldir = NULL, *voldir_old = NULL;
 	int ret = 1;
 	int64_t size;
 	sxc_meta_t *vmeta = NULL;
@@ -209,22 +235,9 @@ static int volume_create(sxc_client_t *sx, const char *owner)
 	void *cfgdata = NULL;
 	unsigned int cfgdata_len = 0;
 
-    size = strtoll(create_args.size_arg, (char **)&ptr, 0);
-    if(size < 0 || size == LLONG_MAX) {
-	fprintf(stderr, "ERROR: Bad size %s\n", create_args.size_arg);
-	return 1;
-    }
-    if(*ptr) {
-        unsigned int shl;
-	*ptr = (char) toupper(*ptr);
-        ptr = strchr(suffixes, *ptr);
-        if(!ptr) {
-	    fprintf(stderr, "ERROR: Bad size %s\n", create_args.size_arg);
-            return 1;
-        }
-        shl = (((ptr-suffixes)/2) + 1) * 10;
-        size <<= shl;
-    }
+    size = parse_size(create_args.size_arg);
+    if(size <= 0) /* Bad size, message is printed already */
+        return 1;
 
     cluster = getcluster_common(sx, create_args.inputs[0], create_args.config_dir_arg, &uri);
     if(!cluster)
@@ -495,6 +508,57 @@ int main(int argc, char **argv) {
 	sxc_free_uri(uri);
 	sxc_cluster_free(cluster);
 	remove_cmdline_parser_free(&remove_args);
+
+    } else if(!strcmp(argv[1], "modify")) {
+        struct modify_args_info modify_args;
+        sxc_cluster_t *cluster;
+        sxc_uri_t *uri;
+        int64_t size = -1;
+
+        ret = 1;
+        if(modify_cmdline_parser(argc - 1, &argv[1], &modify_args)) {
+            modify_cmdline_parser_print_help();
+            printf("\n");
+            fprintf(stderr, "ERROR: Invalid syntax or usage\n");
+            goto main_err;
+        }
+
+        if(modify_args.version_given) {
+            printf("%s %s\n", MAIN_CMDLINE_PARSER_PACKAGE, SRC_VERSION);
+            ret = 0;
+            goto main_err;
+        }
+
+        if(modify_args.inputs_num != 1) {
+            modify_cmdline_parser_print_help();
+            printf("\n");
+            fprintf(stderr, "ERROR: Invalid number of arguments\n");
+            modify_cmdline_parser_free(&modify_args);
+            goto main_err;
+        }
+        sxc_set_debug(sx, modify_args.debug_flag);
+
+        cluster = getcluster_common(sx, modify_args.inputs[0], modify_args.config_dir_arg, &uri);
+        if(!cluster) {
+            modify_cmdline_parser_free(&modify_args);
+            goto main_err;
+        }
+
+        if(modify_args.size_given) {
+            size = parse_size(modify_args.size_arg);
+            if(size <= 0)
+                goto modify_err;
+        }
+
+        ret = sxc_volume_modify(cluster, uri->volume, modify_args.owner_arg, size);
+        if(ret) {
+            fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
+            goto modify_err;
+        }
+    modify_err:
+        sxc_free_uri(uri);
+        sxc_cluster_free(cluster);
+        modify_cmdline_parser_free(&modify_args);
 
     } else if(!strcmp(argv[1], "filter")) {
 	if(filter_cmdline_parser(argc - 1, &argv[1], &filter_args)) {

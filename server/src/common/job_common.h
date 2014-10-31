@@ -60,7 +60,8 @@ typedef enum _jobtype_t {
     JOBTYPE_REBALANCE_CLEANUP,
     JOBTYPE_DELETE_USER,
     JOBTYPE_DELETE_VOLUME,
-    JOBTYPE_NEWKEY_USER
+    JOBTYPE_NEWKEY_USER,
+    JOBTYPE_MODIFY_VOLUME,
 } jobtype_t;
 
 typedef enum {
@@ -74,7 +75,7 @@ struct _sx_hashfs_t; /* fwd */
 typedef struct {
     const yajl_callbacks *parser;
     int job_type;
-    int (*parse_complete)(void *ctx);
+    rc_ty (*parse_complete)(void *ctx);
     const char* (*get_lock)(sx_blob_t *blob);
     int (*to_blob)(sxc_client_t *sx, int nodes, void *ctx, sx_blob_t *blob);
     rc_ty (*execute_blob)(struct _sx_hashfs_t *hashfs, sx_blob_t *blob, jobphase_t phase, int remote);
@@ -87,6 +88,7 @@ extern const job_2pc_t acl_spec;
 extern const job_2pc_t user_spec;
 extern const job_2pc_t userdel_spec;
 extern const job_2pc_t user_newkey_spec;
+extern const job_2pc_t volmod_spec;
 
 void job_2pc_handle_request(sxc_client_t *sx, const job_2pc_t *spec, void *yctx);
 #endif

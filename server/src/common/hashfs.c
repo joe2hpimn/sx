@@ -628,10 +628,13 @@ struct _sx_hashfs_t {
     sqlite3_stmt *q_addvol;
     sqlite3_stmt *q_addvolmeta;
     sqlite3_stmt *q_addvolprivs;
+    sqlite3_stmt *q_dropvolprivs;
     sqlite3_stmt *q_onoffvol;
     sqlite3_stmt *q_getvolstate;
     sqlite3_stmt *q_delvol;
     sqlite3_stmt *q_chownvol;
+    sqlite3_stmt *q_chownvolbyid;
+    sqlite3_stmt *q_resizevol;
     sqlite3_stmt *q_minreqs;
     sqlite3_stmt *q_updatevolcursize;
     sqlite3_stmt *q_setvolcursize;
@@ -875,10 +878,13 @@ static void close_all_dbs(sx_hashfs_t *h) {
     sqlite3_finalize(h->q_addvol);
     sqlite3_finalize(h->q_addvolmeta);
     sqlite3_finalize(h->q_addvolprivs);
+    sqlite3_finalize(h->q_dropvolprivs);
     sqlite3_finalize(h->q_onoffvol);
     sqlite3_finalize(h->q_getvolstate);
     sqlite3_finalize(h->q_delvol);
     sqlite3_finalize(h->q_chownvol);
+    sqlite3_finalize(h->q_chownvolbyid);
+    sqlite3_finalize(h->q_resizevol);
     sqlite3_finalize(h->q_minreqs);
     sqlite3_finalize(h->q_updatevolcursize);
     sqlite3_finalize(h->q_setvolcursize);
@@ -1324,6 +1330,8 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 		    COALESCE((SELECT priv FROM privs WHERE volume_id=:volid AND user_id=:uid), 0)\
 		    & :privmask)"))
 	goto open_hashfs_fail;
+    if(qprep(h->db, &h->q_dropvolprivs, "DELETE FROM privs WHERE volume_id=:volid AND user_id=:uid"))
+        goto open_hashfs_fail;
     /* To keep the next query simple we do not check if the user is enabled
      * This is preliminary enforced in auth_begin */
     if(qprep(h->db, &h->q_nextvol, "SELECT volumes.vid, volumes.volume, volumes.replica, volumes.cursize, volumes.maxsize, volumes.owner_id, volumes.revs, volumes.changed FROM volumes LEFT JOIN privs ON privs.volume_id = volumes.vid WHERE volumes.volume > :previous AND volumes.enabled = 1 AND (:user = 0 OR (privs.priv > 0 AND privs.user_id=:user)) ORDER BY volumes.volume ASC LIMIT 1"))
@@ -1348,6 +1356,10 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 	goto open_hashfs_fail;
     if(qprep(h->db, &h->q_chownvol, "UPDATE volumes SET owner_id = :new WHERE owner_id = :old"))
 	goto open_hashfs_fail;
+    if(qprep(h->db, &h->q_chownvolbyid, "UPDATE volumes SET owner_id = :owner WHERE vid = :volid"))
+        goto open_hashfs_fail;
+    if(qprep(h->db, &h->q_resizevol, "UPDATE volumes SET maxsize = :size WHERE vid = :volid"))
+        goto open_hashfs_fail;
     if(qprep(h->db, &h->q_minreqs, "SELECT COALESCE(MAX(replica), 1), COALESCE(SUM(maxsize*replica), 0) FROM volumes"))
         goto open_hashfs_fail;
     if(qprep(h->db, &h->q_updatevolcursize, "UPDATE volumes SET cursize = cursize + :size, changed = :now WHERE vid = :volume"))
@@ -7875,7 +7887,6 @@ get_user_info_err:
     return ret;
 }
 
-
 static rc_ty get_user_common(sx_hashfs_t *h, sx_uid_t uid, const char *name, uint8_t *user) {
     rc_ty ret = FAIL_EINTERNAL;
     sqlite3_stmt *q;
@@ -8049,7 +8060,8 @@ static const char *locknames[] = {
     "REBALANCE_CLEANUP", /* JOBTYPE_REBALANCE_CLEANUP */
     "USER", /* JOBTYPE_DELETE_USER */
     "VOL", /* JOBTYPE_DELETE_VOLUME */
-    "USER"
+    "USER",
+    "VOL" /* JOBTYPE_MODIFY_VOLUME */
 };
 
 
@@ -10457,3 +10469,131 @@ rc_ty sx_hashfs_hdist_endrebalance(sx_hashfs_t *h) {
     return ret;
 }
 
+/* Change volume ownership. newid -> new user ID */
+static rc_ty volume_chown(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, int64_t newid) {
+    rc_ty ret = FAIL_EINTERNAL;
+
+    if(!vol || newid < 0) {
+        WARN("Failed to change volume ownership: incorrect argument");
+        msg_set_reason("Incorrect argument");
+        return EINVAL;
+    }
+
+    /* Change volume owner */
+    sqlite3_reset(h->q_chownvolbyid);
+    if(qbind_int64(h->q_chownvolbyid, ":owner", newid) ||
+       qbind_int64(h->q_chownvolbyid, ":volid", vol->id) ||
+       qstep_noret(h->q_chownvolbyid)) {
+        msg_set_reason("Could not change volume ownership");
+        goto volume_chown_err;
+    }
+
+    sqlite3_reset(h->q_grant);
+    if(qbind_int64(h->q_grant, ":volid", vol->id) || qbind_int64(h->q_grant, ":uid", newid) ||
+       qbind_int(h->q_grant, ":priv", PRIV_READ | PRIV_WRITE) || qstep_noret(h->q_grant)) {
+        msg_set_reason("Could not add read-write privs for new volume owner");
+        goto volume_chown_err;
+    }
+
+    /* Remove old volume owner privs */
+    sqlite3_reset(h->q_dropvolprivs);
+    if(qbind_int64(h->q_dropvolprivs, ":volid", vol->id) || qbind_int64(h->q_dropvolprivs, ":uid", vol->owner) || qstep_noret(h->q_dropvolprivs)) {
+        msg_set_reason("Could not drop privs for old volume owner");
+        goto volume_chown_err;
+    }
+
+    ret = OK;
+volume_chown_err:
+    sqlite3_reset(h->q_chownvolbyid);
+    sqlite3_reset(h->q_grant);
+    sqlite3_reset(h->q_dropvolprivs);
+    return ret;
+}
+
+static rc_ty volume_resize(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, int64_t newsize) {
+    rc_ty ret = FAIL_EINTERNAL;
+
+    if(!vol) {
+        NULLARG();
+        return EINVAL;
+    }
+
+    sqlite3_reset(h->q_resizevol);
+    if(qbind_int64(h->q_resizevol, ":size", newsize)
+       || qbind_int64(h->q_resizevol, ":volid", vol->id)
+       || qstep_noret(h->q_resizevol)) {
+        msg_set_reason("Could not update volume size");
+        goto volume_resize_err;
+    }
+
+    ret = OK;
+volume_resize_err:
+    sqlite3_reset(h->q_resizevol);
+    return ret;
+}
+
+rc_ty sx_hashfs_volume_mod(sx_hashfs_t *h, const char *volume, const char *newowner, int64_t newsize) {
+    rc_ty ret = FAIL_EINTERNAL, s;
+    const sx_hashfs_volume_t *vol = NULL;
+    sx_uid_t newid;
+
+    if(!volume || !newowner) {
+        NULLARG();
+        return ret;
+    }
+
+    if(!newowner && newsize == -1)
+        return OK;
+
+    if(qbegin(h->db)) {
+        msg_set_reason("Database is locked");
+        return ret;
+    }
+
+    if(sx_hashfs_volume_by_name(h, volume, &vol) != OK) {
+        msg_set_reason("Volume does not exist or is enabled");
+        return ENOENT;
+    }
+
+    if(*newowner) {
+        if(sx_hashfs_get_uid(h, newowner, &newid) != OK) {
+            msg_set_reason("New volume owner does not exist or is disabled");
+            ret = ENOENT;
+            goto sx_hashfs_volume_mod_err;
+        }
+
+        if(newid != vol->owner && (s = volume_chown(h, vol, newid)) != OK) {
+            ret = s;
+            msg_set_reason("Failed to change volume owner: %s", msg_get_reason());
+            goto sx_hashfs_volume_mod_err;
+        }
+    }
+
+    if(newsize != -1 && newsize != vol->size) {
+        /* Check new volume size correctness */
+        if((s = sx_hashfs_check_volume_size(h, newsize, vol->replica_count))) {
+            WARN("Invalid volume size given");
+            ret = s;
+            goto sx_hashfs_volume_mod_err;
+        }
+
+        /* Perform resize operation */
+        if((s = volume_resize(h, vol, newsize)) != OK) {
+            msg_set_reason("Failed to resize volume: %s", msg_get_reason());
+            ret = s;
+            goto sx_hashfs_volume_mod_err;
+        }
+    }
+
+    if(qcommit(h->db)) {
+        WARN("Failed to commit changes");
+        goto sx_hashfs_volume_mod_err;
+    }
+
+    ret = OK;
+sx_hashfs_volume_mod_err:
+    if(ret != OK)
+        qrollback(h->db);
+
+    return ret;
+}

@@ -527,10 +527,10 @@ void fcgi_list_acl(const sx_hashfs_volume_t *vol) {
     CGI_PUTS("}");
 }
 
-static int acl_parse_complete(void *yctx)
+static rc_ty acl_parse_complete(void *yctx)
 {
     struct acl_ctx *actx = yctx;
-    return actx && actx->state == CB_ACL_COMPLETE;
+    return actx && actx->state == CB_ACL_COMPLETE ? OK : EINVAL;
 }
 
 static int acl_to_blob(sxc_client_t *sx, int nodes, void *yctx, sx_blob_t *blob)
@@ -1157,4 +1157,313 @@ void fcgi_volsizes(void) {
     CGI_PUTS("\r\n");
     free(yctx.vols);
     yajl_free(yh);
+}
+
+/* {"owner":"alice","size":1000000000} */
+struct volmod_ctx {
+    enum cb_volmod_state { CB_VOLMOD_START, CB_VOLMOD_KEY, CB_VOLMOD_OWNER, CB_VOLMOD_SIZE, CB_VOLMOD_COMPLETE } state;
+    const char *volume;
+    char oldowner[SXLIMIT_MAX_FILENAME_LEN+1];
+    char newowner[SXLIMIT_MAX_FILENAME_LEN+1];
+    int64_t oldsize;
+    int64_t newsize;
+};
+
+static const char *volmod_get_lock(sx_blob_t *b)
+{
+    const char *vol = NULL;
+    return !sx_blob_get_string(b, &vol) ? vol : NULL;
+}
+
+static rc_ty volmod_nodes(sxc_client_t *sx, sx_blob_t *blob, sx_nodelist_t **nodes)
+{
+    if (!nodes)
+        return FAIL_EINTERNAL;
+    /* All nodes have to receive modification request since owners and sizes are set globally */
+    *nodes = sx_nodelist_dup(sx_hashfs_nodelist(hashfs, NL_NEXTPREV));
+    if (!*nodes)
+        return FAIL_EINTERNAL;
+
+    return OK;
+}
+
+static int blob_to_volmod(sx_blob_t *b, struct volmod_ctx *ctx) {
+    const char *oldowner = NULL, *newowner = NULL;
+
+    if(!b || !ctx)
+        return 1;
+
+    if(sx_blob_get_string(b, &ctx->volume) || sx_blob_get_string(b, &oldowner)
+       || sx_blob_get_string(b, &newowner) || sx_blob_get_int64(b, &ctx->oldsize)
+       || sx_blob_get_int64(b, &ctx->newsize)) {
+        WARN("Corrupted volume mod blob");
+        return 1;
+    }
+
+    if(oldowner && *oldowner)
+        snprintf(ctx->oldowner, SXLIMIT_MAX_USERNAME_LEN+1, "%s", oldowner);
+    else
+        ctx->oldowner[0] = '\0';
+
+    if(newowner && *newowner)
+        snprintf(ctx->newowner, SXLIMIT_MAX_USERNAME_LEN+1, "%s", newowner);
+    else
+        ctx->newowner[0] = '\0';
+
+    return 0;
+}
+
+static int volmod_to_blob(sxc_client_t *sx, int nodes, void *yctx, sx_blob_t *joblb)
+{
+    struct volmod_ctx *ctx = yctx;
+    if (!joblb) {
+        msg_set_reason("Cannot allocate job storage");
+        return -1;
+    }
+
+    if(sx_blob_add_string(joblb, ctx->volume) || sx_blob_add_string(joblb, ctx->oldowner)
+        || sx_blob_add_string(joblb, ctx->newowner) || sx_blob_add_int64(joblb, ctx->oldsize)
+        || sx_blob_add_int64(joblb, ctx->newsize)) {
+        msg_set_reason("Cannot create job storage");
+        return -1;
+    }
+    return 0;
+}
+
+static unsigned volmod_timeout(sxc_client_t *sx, int nodes)
+{
+    return 20 * nodes;
+}
+
+static sxi_query_t* volmod_proto_from_blob(sxc_client_t *sx, sx_blob_t *b, jobphase_t phase)
+{
+    struct volmod_ctx ctx;
+
+    if(blob_to_volmod(b, &ctx)) {
+        WARN("Failed to read job blob");
+        return NULL;
+    }
+
+    switch (phase) {
+        case JOBPHASE_COMMIT:
+            return sxi_volume_mod_proto(sx, ctx.volume, ctx.newowner, ctx.newsize);
+        case JOBPHASE_ABORT:
+            return sxi_volume_mod_proto(sx, ctx.volume, ctx.oldowner, ctx.oldsize);
+        case JOBPHASE_UNDO:
+            return sxi_volume_mod_proto(sx, ctx.volume, ctx.oldowner, ctx.oldsize);
+        default:
+            return NULL;
+    }
+}
+
+static rc_ty volmod_execute_blob(sx_hashfs_t *h, sx_blob_t *b, jobphase_t phase, int remote)
+{
+    struct volmod_ctx ctx;
+    rc_ty rc = OK;
+    if (!h || !b) {
+        WARN("NULL arguments");
+        return FAIL_EINTERNAL;
+    }
+
+    if(blob_to_volmod(b, &ctx)) {
+        WARN("Corrupted volume mod blob");
+        return FAIL_EINTERNAL;
+    }
+
+    if (remote && phase == JOBPHASE_REQUEST)
+        phase = JOBPHASE_COMMIT;
+
+    switch (phase) {
+        case JOBPHASE_COMMIT:
+            rc = sx_hashfs_volume_mod(h, ctx.volume, ctx.newowner, ctx.newsize);
+            if (rc != OK)
+                WARN("Failed to change volume %s: %s", ctx.volume, msg_get_reason());
+            return rc;
+        case JOBPHASE_ABORT:
+            rc = sx_hashfs_volume_mod(h, ctx.volume, ctx.oldowner, ctx.oldsize);
+            if (rc != OK)
+                WARN("Failed to change volume %s: %s", ctx.volume, msg_get_reason());
+            return rc;
+        case JOBPHASE_UNDO:
+            CRIT("volume '%s' may have been left in an inconsistent state after a failed modification attempt", ctx.volume);
+            rc = sx_hashfs_volume_mod(h, ctx.volume, ctx.oldowner, ctx.oldsize);
+            if (rc != OK)
+                WARN("Failed to change volume %s: %s", ctx.volume, msg_get_reason());
+            return rc;
+        default:
+            WARN("Impossible job phase: %d", phase);
+            return FAIL_EINTERNAL;
+    }
+}
+
+static rc_ty volmod_parse_complete(void *yctx)
+{
+    rc_ty s;
+    struct volmod_ctx *ctx = yctx;
+    const sx_hashfs_volume_t *vol = NULL;
+    if (!ctx || ctx->state != CB_VOLMOD_COMPLETE)
+        return EINVAL;
+
+    /* Check if volume exists */
+    if(sx_hashfs_volume_by_name(hashfs, volume, &vol) != OK) {
+        WARN("Volume does not exist");
+        msg_set_reason("Volume does not exist");
+        return ENOENT;
+    }
+
+    /* Preliminary checks for ownership change */
+    if(*ctx->newowner) {
+        /* Do that check only for local node */
+        if(sx_hashfs_uid_get_name(hashfs, vol->owner, ctx->oldowner, SXLIMIT_MAX_USERNAME_LEN) != OK) {
+            WARN("Could not get current volume owner");
+            msg_set_reason("Volume owner does not exist");
+            return ENOENT;
+        }
+
+        if(sx_hashfs_check_username(ctx->newowner)) {
+            msg_set_reason("Bad user name");
+            return EINVAL;
+        }
+
+        /* Check if new volume owner exists */
+        if((s = sx_hashfs_get_user_by_name(hashfs, ctx->newowner, NULL)) != OK) {
+            msg_set_reason("User not found");
+            return s;
+        }
+
+        /* Check if old owner is not the same as new one */
+        if(!has_priv(PRIV_CLUSTER) && !strncmp(ctx->oldowner, ctx->newowner, SXLIMIT_MAX_USERNAME_LEN)) {
+            WARN("New owner is the same as old owner");
+            msg_set_reason("User is already a volume owner");
+            return EINVAL;
+        }
+    }
+
+    /* Preliminary checks for size change */
+    if(ctx->newsize != -1) {
+        /* Do that check only for local node */
+        if(!has_priv(PRIV_CLUSTER) && ctx->newsize == vol->size) {
+            WARN("Invalid volume size: same as current value");
+            msg_set_reason("New volume size is the same as the current value");
+            return EINVAL;
+        }
+        ctx->oldsize = vol->size;
+
+        /* Check if new volume size is ok */
+        if((s = sx_hashfs_check_volume_settings(hashfs, volume, ctx->newsize, vol->replica_count, vol->revisions)) != OK)
+            return s; /* Message is set by sx_hashfs_check_volume_settings() */
+    }
+
+    return OK;
+}
+
+
+static int cb_volmod_string(void *ctx, const unsigned char *s, size_t l) {
+    struct volmod_ctx *c = (struct volmod_ctx *)ctx;
+    if(c->state == CB_VOLMOD_OWNER) {
+        if(l > SXLIMIT_MAX_USERNAME_LEN) {
+            WARN("Failed to parse volume: name is too long");
+            return 0;
+        }
+        memcpy(c->newowner, s, l);
+        c->newowner[l] = '\0';
+
+        c->state = CB_VOLMOD_KEY;
+        return 1;
+    }
+    return 0;
+}
+
+static int cb_volmod_number(void *ctx, const char *s, size_t l) {
+    struct volmod_ctx *c = (struct volmod_ctx *)ctx;
+    char number[21], *eon;
+    if(c->state == CB_VOLMOD_SIZE) {
+        if(c->newsize >= 0 || l<1 || l>20) {
+            WARN("Failed to parse new volume size");
+            return 0;
+        }
+
+        memcpy(number, s, l);
+        number[l] = '\0';
+        c->newsize = strtoll(number, &eon, 10);
+        if(*eon)
+            return 0;
+
+        c->state = CB_VOLMOD_KEY;
+        return 1;
+    }
+    return 0;
+}
+
+static int cb_volmod_start_map(void *ctx) {
+    struct volmod_ctx *c = (struct volmod_ctx *)ctx;
+    if(c->state == CB_VOLMOD_START)
+        c->state = CB_VOLMOD_KEY;
+    else
+        return 0;
+    return 1;
+}
+
+static int cb_volmod_map_key(void *ctx, const unsigned char *s, size_t l) {
+    struct volmod_ctx *c = (struct volmod_ctx *)ctx;
+    if(c->state == CB_VOLMOD_KEY) {
+        if(l == lenof("owner") && !strncmp("owner", (const char*)s, l)) {
+            c->state = CB_VOLMOD_OWNER;
+            return 1;
+        }
+        if(l == lenof("size") && !strncmp("size", (const char*)s, l)) {
+            c->state = CB_VOLMOD_SIZE;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static int cb_volmod_end_map(void *ctx) {
+    struct volmod_ctx *c = (struct volmod_ctx *)ctx;
+    if(c->state == CB_VOLMOD_KEY)
+        c->state = CB_VOLMOD_COMPLETE;
+    else
+        return 0;
+    return 1;
+}
+
+static const yajl_callbacks volmod_parser = {
+    cb_fail_null,
+    cb_fail_boolean,
+    NULL,
+    NULL,
+    cb_volmod_number,
+    cb_volmod_string,
+    cb_volmod_start_map,
+    cb_volmod_map_key,
+    cb_volmod_end_map,
+    NULL,
+    NULL
+};
+
+const job_2pc_t volmod_spec = {
+    &volmod_parser,
+    JOBTYPE_MODIFY_VOLUME,
+    volmod_parse_complete,
+    volmod_get_lock,
+    volmod_to_blob,
+    volmod_execute_blob,
+    volmod_proto_from_blob,
+    volmod_nodes,
+    volmod_timeout
+};
+
+void fcgi_volume_mod(void) {
+    struct volmod_ctx ctx;
+
+    /* Assign begin state */
+    ctx.state = CB_VOLMOD_START;
+    ctx.oldowner[0] = '\0';
+    ctx.newowner[0] = '\0';
+    ctx.newsize = -1;
+    ctx.oldsize = -1;
+    ctx.volume = volume;
+
+    job_2pc_handle_request(sx_hashfs_client(hashfs), &volmod_spec, &ctx);
 }

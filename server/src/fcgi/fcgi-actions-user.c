@@ -328,14 +328,14 @@ static const yajl_callbacks user_ops_parser = {
     cb_fail_end_array
 };
 
-static int user_parse_complete(void *yctx)
+static rc_ty user_parse_complete(void *yctx)
 {
     struct user_ctx *uctx = yctx;
     if (!uctx || uctx->state != CB_USER_COMPLETE)
-        return 0;
+        return EINVAL;
     if(sx_hashfs_check_username(uctx->name)) {
 	msg_set_reason("Invalid username");
-        return 0;
+        return EINVAL;
     }
 
     uctx->role = 0;
@@ -345,9 +345,9 @@ static int user_parse_complete(void *yctx)
 	uctx->role = ROLE_USER;
     else {
         msg_set_reason("Invalid user type");
-        return 0;
+        return EINVAL;
     }
-    return 1;
+    return OK;
 }
 
 static int user_to_blob(sxc_client_t *sx, int nodes, void *yctx, sx_blob_t *joblb)
@@ -555,12 +555,12 @@ static const yajl_callbacks user_newkey_ops_parser = {
     cb_fail_end_array
 };
 
-static int user_newkey_parse_complete(void *yctx)
+static rc_ty user_newkey_parse_complete(void *yctx)
 {
     struct user_newkey_ctx *uctx = yctx;
     if (!uctx || uctx->state != CB_USER_NEWKEY_COMPLETE)
-        return 0;
-    return 1;
+        return EINVAL;
+    return OK;
 }
 
 static int user_newkey_to_blob(sxc_client_t *sx, int nodes, void *yctx, sx_blob_t *joblb)

@@ -92,6 +92,41 @@ int sxc_volume_remove(sxc_cluster_t *cluster, const char *name) {
     return ret;
 }
 
+int sxc_volume_modify(sxc_cluster_t *cluster, const char *volume, const char *newowner, int64_t newsize) {
+    sxc_client_t *sx;
+    sxi_hostlist_t volhosts;
+    sxi_query_t *query = NULL;
+    int ret = -1;
+
+    if(!cluster)
+        return -1;
+    sx = sxi_cluster_get_client(cluster);
+
+    if(!volume) {
+        sxi_seterr(sx, SXE_EARG, "Failed to change volume size: invalid argument");
+        return -1;
+    }
+
+    sxc_clearerr(sx);
+    sxi_hostlist_init(&volhosts);
+    if(sxi_locate_volume(sxi_cluster_get_conns(cluster), volume, &volhosts, NULL, NULL))
+        goto sxc_volume_modify_err;
+
+    query = sxi_volume_mod_proto(sx, volume, newowner, newsize);
+    if(!query) {
+        sxi_seterr(sx, SXE_EMEM, "Failed to prepare volume chown query");
+        goto sxc_volume_modify_err;
+    }
+
+    sxi_set_operation(sx, "modify volume", sxi_cluster_get_name(cluster), volume, NULL);
+    ret = sxi_job_submit_and_poll(sxi_cluster_get_conns(cluster), &volhosts, REQ_PUT, query->path, query->content, query->content_len);
+
+sxc_volume_modify_err:
+    sxi_hostlist_empty(&volhosts);
+    sxi_query_free(query);
+    return ret;
+}
+
 int sxi_volume_cfg_store(sxc_client_t *sx, sxc_cluster_t *cluster, const char *vname, const char *filter_uuid, const unsigned char *filter_cfg, unsigned int filter_cfglen)
 {
     const char *confdir;

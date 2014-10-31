@@ -126,6 +126,15 @@ void volume_ops(void) {
     /* Only ADMIN or better allowed beyond this point */
     quit_unless_has(PRIV_ADMIN);
 
+    if(verb == VERB_PUT && arg_is("o", "mod")) {
+        if(is_reserved())
+            quit_errmsg(403, "Volume name is reserved");
+        quit_unless_has(PRIV_ADMIN);
+        /* Modify volume - ADMIN required */
+        fcgi_volume_mod();
+        return;
+    }
+
     if(verb == VERB_PUT && (arg_is("o","disable") || arg_is("o","enable"))) {
 	/* Enable / disable volume (2pc/s2s) - CLUSTER required */
 	quit_unless_has(PRIV_CLUSTER);
@@ -362,26 +371,32 @@ void file_ops(void) {
 void job_2pc_handle_request(sxc_client_t *sx, const job_2pc_t *spec, void *yctx)
 {
     if (spec->parser) {
+        rc_ty rc = OK;
         yajl_handle yh = yajl_alloc(spec->parser, NULL, yctx);
         if (!yh)
             quit_errmsg(500, "Cannot allocate json parser");
         int len;
         while((len = get_body_chunk(hashbuf, sizeof(hashbuf))) > 0)
             if(yajl_parse(yh, hashbuf, len) != yajl_status_ok) break;
-        if(len || yajl_complete_parse(yh) != yajl_status_ok || !spec->parse_complete(yctx)) {
-            yajl_free(yh);
+        if(len || yajl_complete_parse(yh) != yajl_status_ok)
+            rc = EINVAL;
+        yajl_free(yh);
+        if(rc == OK) {
+            auth_complete();
+            quit_unless_authed();
+            rc = spec->parse_complete(yctx);
+        }
+        if (rc) {
             const char *msg = msg_get_reason();
             if(!msg || !*msg)
                 msg = "Invalid request content";
-            quit_errmsg(400, msg);
+            quit_errmsg(rc2http(rc), msg);
         }
-        yajl_free(yh);
     } else {
         /* check that body is empty? */
+        auth_complete();
+        quit_unless_authed();
     }
-
-    auth_complete();
-    quit_unless_authed();
 
     sx_blob_t *joblb = sx_blob_new();
     if (!joblb)

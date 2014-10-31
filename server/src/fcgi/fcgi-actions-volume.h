@@ -39,5 +39,5 @@ void fcgi_volume_onoff(int enable);
 void fcgi_delete_volume(void);
 void fcgi_trigger_gc(void);
 void fcgi_volsizes(void);
-
+void fcgi_volume_mod(void);
 #endif

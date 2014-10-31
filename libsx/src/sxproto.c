@@ -752,3 +752,78 @@ sxi_query_t *sxi_volsizes_proto_end(sxc_client_t *sx, sxi_query_t *query) {
 
     return sxi_query_append_fmt(sx, query, 2, "}");
 }
+
+sxi_query_t *sxi_volume_mod_proto(sxc_client_t *sx, const char *volume, const char *newowner, int64_t newsize) {
+    sxi_query_t *query = NULL, *ret = NULL;
+    char *enc_vol = NULL, *enc_owner = NULL, *path = NULL;
+    unsigned int len;
+    int comma = 0;
+
+    if(!volume || (!newowner && newsize < 0)) {
+        SXDEBUG("Called with NULL argument");
+        return NULL;
+    }
+
+    enc_vol = sxi_urlencode(sx, volume, 0);
+    if(!enc_vol) {
+        SXDEBUG("Failed to encode volume name");
+        goto sxi_volume_mod_proto_err;
+    }
+    len = strlen("?o=mod") + strlen(enc_vol) + 1;
+
+    path = malloc(len);
+    if(!path) {
+        SXDEBUG("Failed to allocate query path");
+        goto sxi_volume_mod_proto_err;
+    }
+    snprintf(path, len, "%s?o=mod", enc_vol);
+    query = sxi_query_create(sx, path, REQ_PUT);
+    if(!query) {
+        SXDEBUG("Failed to allocate query");
+        goto sxi_volume_mod_proto_err;
+    }
+
+    query = sxi_query_append_fmt(sx, query, 2, "{");
+    if(!query) {
+        SXDEBUG("Failed to close query JSON");
+        goto sxi_volume_mod_proto_err;
+    }
+
+    if(newowner) {
+        enc_owner = sxi_json_quote_string(newowner);
+        if(!enc_owner) {
+            SXDEBUG("Failed to encode new volume owner name");
+            goto sxi_volume_mod_proto_err;
+        }
+
+        query = sxi_query_append_fmt(sx, query, strlen("\"owner\":\"\"") + strlen(enc_owner) + 1, "\"owner\":%s", enc_owner);
+        if(!query) {
+            SXDEBUG("Failed to append owner field to query JSON");
+            goto sxi_volume_mod_proto_err;
+        }
+        comma = 1;
+    }
+
+    if(newsize > 0) {
+        query = sxi_query_append_fmt(sx, query, strlen("\"size\":") + 21 + comma, "%s\"size\":%lld", (comma ? "," : ""), (long long)newsize);
+        if(!query) {
+            SXDEBUG("Failed to append owner field to query JSON");
+            goto sxi_volume_mod_proto_err;
+        }
+    }
+
+    query = sxi_query_append_fmt(sx, query, 2, "}");
+    if(!query) {
+        SXDEBUG("Failed to close query JSON");
+        goto sxi_volume_mod_proto_err;
+    }
+
+    ret = query;
+sxi_volume_mod_proto_err:
+    free(enc_vol);
+    free(enc_owner);
+    free(path);
+    if(!ret) /* If failed, do not return incomplete query */
+        sxi_query_free(query);
+    return ret;
+}

@@ -62,7 +62,9 @@ src_tools_vol_sxvol_SOURCES = \
 	src/tools/vol/cmd_remove.c \
 	src/tools/vol/cmd_remove.h \
 	src/tools/vol/cmd_filter.c \
-	src/tools/vol/cmd_filter.h
+	src/tools/vol/cmd_filter.h \
+	src/tools/vol/cmd_modify.c \
+	src/tools/vol/cmd_modify.h
 
 src_tools_vol_sxvol_LDADD = $(top_builddir)/../libsx/src/libsx.la
 

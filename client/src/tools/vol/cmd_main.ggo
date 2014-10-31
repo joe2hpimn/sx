@@ -9,5 +9,6 @@ text "\nAvailable commands:\n\n"
 text "  create	    Create a new volume\n"
 text "  remove	    Remove an empty volume\n"
 text "  filter	    Manage filters\n"
+text "  modify	    Modify existing volume\n"
 
 text "\nSee 'sxvol <command> --help' for more information on a specific command.\n"
