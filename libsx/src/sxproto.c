@@ -161,6 +161,32 @@ sxi_query_t *sxi_useradd_proto(sxc_client_t *sx, const char *username, const uin
     return ret;
 }
 
+sxi_query_t *sxi_usernewkey_proto(sxc_client_t *sx, const char *username, const uint8_t *key) {
+    char *qname = NULL, hexkey[AUTH_KEY_LEN*2+1], *query = NULL;
+    sxi_query_t *ret = NULL;
+    unsigned n;
+
+    do {
+        qname = sxi_urlencode(sx, username, 0);
+        if(!qname)
+            break;
+        n = sizeof(".users/") + strlen(qname);
+        query = malloc(n);
+        if (!query)
+            break;
+        snprintf(query, n, ".users/%s", qname);
+        n = sizeof("{\"userKey\":\"\"}") + /* the json body with terminator */
+            AUTH_KEY_LEN * 2 /* the hex encoded key without quotes */;
+        sxi_bin2hex(key, AUTH_KEY_LEN, hexkey);
+        ret = sxi_query_create(sx, query, REQ_PUT);
+        if (ret)
+            ret = sxi_query_append_fmt(sx, ret, n, "{\"userKey\":\"%s\"}", hexkey);
+    } while(0);
+    free(qname);
+    free(query);
+    return ret;
+}
+
 sxi_query_t *sxi_useronoff_proto(sxc_client_t *sx, const char *username, int enable) {
     sxi_query_t *ret = NULL;
     unsigned n;

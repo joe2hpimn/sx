@@ -31,6 +31,7 @@
 
 #include "blob.h"
 #include "utils.h"
+#include "log.h"
 
 struct _sx_blob_t {
     uint8_t *blob;
@@ -130,7 +131,7 @@ sx_blob_t *sx_blob_from_data(const void *d, unsigned int l) {
 
 static int getdata(sx_blob_t *s, enum blob_object *itm, const void **d, unsigned int *len) {
     unsigned int i;
-
+    DEBUG("in");
     if(s->pos == s->size)
 	return 1;
     if(s->pos > s->size || s->size - s->pos < sizeof(i)*2)
@@ -189,6 +190,7 @@ int sx_blob_get_string(sx_blob_t *s, const char **d) {
     enum blob_object o;
     unsigned int l;
     int ret = getdata(s, &o, (const void **)d, &l);
+    DEBUG("in");
 
     if(ret)
 	return ret;
@@ -197,13 +199,14 @@ int sx_blob_get_string(sx_blob_t *s, const char **d) {
 	s->pos -= sizeof(l)*2 + l;
 	return -1;
     }
+    DEBUG("ok");
     return 0;
 }
 
 int sx_blob_get_blob(sx_blob_t *s, const void **d, unsigned int *len) {
     enum blob_object o;
     int ret = getdata(s, &o, d, len);
-
+    DEBUG("in");
     if(ret)
 	return ret;
 
@@ -211,6 +214,7 @@ int sx_blob_get_blob(sx_blob_t *s, const void **d, unsigned int *len) {
 	s->pos -= sizeof(unsigned int)*2 + *len;
 	return -1;
     }
+    DEBUG("ok");
     return 0;
 }
 

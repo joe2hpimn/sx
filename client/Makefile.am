@@ -75,6 +75,7 @@ src_tools_acl_sxacl_SOURCES = \
 	src/tools/acl/cmd_userdel.c \
 	src/tools/acl/cmd_userlist.c \
 	src/tools/acl/cmd_usergetkey.c \
+	src/tools/acl/cmd_usernewkey.c \
 	src/tools/acl/cmd_main.h \
 	src/tools/acl/cmd_volperm.h \
 	src/tools/acl/cmd_volshow.h \

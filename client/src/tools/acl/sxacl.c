@@ -43,6 +43,7 @@
 #include "cmd_userdel.h"
 #include "cmd_userlist.h"
 #include "cmd_usergetkey.h"
+#include "cmd_usernewkey.h"
 #include "cmd_volperm.h"
 #include "cmd_volshow.h"
 #include "libsx/src/misc.h"
@@ -113,6 +114,54 @@ static int add_user(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_uri_t *u, cons
 	printf("Type: %s\n\n", type == role_arg_admin ? "admin" : "normal");
 	printf("Run 'sxinit sx://%s@%s' to start using the cluster as user '%s'.\n", username, u->host, username);
     }
+
+    if (authfile) {
+	FILE *f;
+	f = fopen(authfile, "w");
+	if (!f) {
+	    fprintf(stderr, "ERROR: Cannot open '%s' for writing: %s\n", authfile, strerror(errno));
+	    free(key);
+	    return 1;
+	}
+	if(fprintf(f, "%s\n", key) != strlen(key) + 1) {
+	    fprintf(stderr, "ERROR: Cannot write key to '%s': %s\n", authfile, strerror(errno));
+	    free(key);
+	    fclose(f);
+	    return 1;
+	}
+	if(fclose(f)) {
+	    fprintf(stderr, "ERROR: Cannot close file '%s': %s\n", authfile, strerror(errno));
+	    free(key);
+	    return 1;
+	}
+    }
+
+    free(key);
+    return 0;
+}
+
+static int newkey_user(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_uri_t *u, const char *username,  const char *authfile, int batch_mode, const char *oldtoken) {
+    char *key;
+
+    if(u->volume) {
+	fprintf(stderr, "ERROR: Bad URI: Please omit volume\n");
+	return 1;
+    }
+
+    key = sxc_user_newkey(cluster, username, oldtoken);
+    if(!key) {
+        fprintf(stderr, "ERROR: Can't create user %s: %s\n", username, sxc_geterrmsg(sx));
+	return 1;
+    }
+    if(batch_mode) {
+	printf("%s\n", key);
+    } else {
+	printf("Changing user key!\n");
+	printf("Name: %s\n", username);
+	printf("Key : %s\n", key);
+	printf("Run 'sxinit sx://%s@%s' to start using the cluster as user '%s'.\n", username, u->host, username);
+    }
+
 
     if (authfile) {
 	FILE *f;
@@ -402,6 +451,36 @@ int main(int argc, char **argv) {
             }
 	    ret = getkey_user(sx, cluster, uri, args.inputs[0], args.auth_file_arg);
             usergetkey_cmdline_parser_free(&args);
+        } else if (!strcmp(argv[1], "usernewkey")) {
+            struct usernewkey_args_info args;
+            if (usernewkey_cmdline_parser(argc - 1, &argv[1], &args)) {
+                ret = 1;
+                break;
+            }
+            if(args.version_given) {
+                printf("%s %s\n", MAIN_CMDLINE_PARSER_PACKAGE, SRC_VERSION);
+		break;
+	    }
+            if(args.config_dir_given && sxc_set_confdir(sx, args.config_dir_arg)) {
+                fprintf(stderr, "ERROR: Could not set configuration directory %s: %s\n", args.config_dir_arg, sxc_geterrmsg(sx));
+                ret = 1;
+                break;
+            }
+            sxc_set_debug(sx, args.debug_flag);
+            if (args.inputs_num != 2) {
+                usernewkey_cmdline_parser_print_help();
+		printf("\n");
+                fprintf(stderr, "ERROR: Wrong number of arguments\n");
+                ret = 1;
+                break;
+            }
+	    cluster = load_config(sx, args.inputs[1], &uri);
+	    if(!cluster) {
+                ret = 1;
+                break;
+            }
+	    ret = newkey_user(sx, cluster, uri, args.inputs[0], args.auth_file_arg, args.batch_mode_flag, args.force_key_arg);
+            usernewkey_cmdline_parser_free(&args);
         } else if (!strcmp(argv[1], "volperm")) {
             struct volperm_args_info args;
             if (volperm_cmdline_parser(argc - 1, &argv[1], &args)) {

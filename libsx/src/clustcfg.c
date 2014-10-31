@@ -2210,6 +2210,100 @@ char *sxc_user_add(sxc_cluster_t *cluster, const char *username, int admin, cons
     return retkey;
 }
 
+char *sxc_user_newkey(sxc_cluster_t *cluster, const char *username, const char *oldtoken)
+{
+    uint8_t buf[AUTH_UID_LEN + AUTH_KEY_LEN + 2], *uid = buf, *key = &buf[AUTH_UID_LEN];
+    char *tok, *retkey = NULL;
+    sxc_client_t *sx;
+    sxi_query_t *proto;
+    sxi_md_ctx *ch_ctx;
+    int l, qret;
+    long http_err;
+
+    if(!cluster)
+	return NULL;
+    if(!username) {
+        cluster_err(SXE_EARG, "Null args");
+        return NULL;
+    }
+    sx = sxi_cluster_get_client(cluster);
+
+    /* UID part - unsalted username hash */
+    l = strlen(username);
+    ch_ctx = sxi_md_init();
+    if (!ch_ctx)
+        return NULL;
+    if(!sxi_sha1_init(ch_ctx)) {
+	cluster_err(SXE_ECRYPT, "Cannot compute hash: Unable to initialize crypto library");
+	return NULL;
+    }
+    if(!sxi_sha1_update(ch_ctx, username, l) || !sxi_sha1_final(ch_ctx, uid, NULL)) {
+	cluster_err(SXE_ECRYPT, "Cannot compute hash: Crypto library failure");
+        sxi_md_cleanup(&ch_ctx);
+	return NULL;
+    }
+    sxi_md_cleanup(&ch_ctx);
+
+    if (oldtoken) {
+        char old[AUTHTOK_BIN_LEN];
+        unsigned l = sizeof(old);
+        if (sxi_b64_dec(sx, oldtoken, old, &l))
+            return NULL;
+        if (l != sizeof(old)) {
+            cluster_err(SXE_EARG, "Bad length for old authentication token");
+            return NULL;
+        }
+        memcpy(key, &old[AUTH_UID_LEN], AUTH_KEY_LEN);
+    } else {
+        /* KEY part - really random bytes */
+        if (sxi_rand_bytes(key, AUTH_KEY_LEN) != 1) {
+            cluster_err(SXE_ECRYPT, "Unable to produce a random key");
+            return NULL;
+        }
+    }
+
+    /* Encode token */
+    buf[sizeof(buf) - 2] = 0; /* First reserved byte */
+    buf[sizeof(buf) - 1] = 0; /* Second reserved byte */
+    tok = sxi_b64_enc(sx, buf, sizeof(buf));
+    if(!tok)
+	return NULL;
+    if(strlen(tok) != AUTHTOK_ASCII_LEN) {
+	/* Always false but it doensn't hurt to be extra careful */
+	free(tok);
+	cluster_err(SXE_ECOMM, "The generated auth token has invalid size");
+	return NULL;
+    }
+
+    if (oldtoken && strcmp(tok, oldtoken)) {
+        free(tok);
+        cluster_err(SXE_EARG, "The provided old authentication token and username don't match");
+        return NULL;
+    }
+
+    /* Query */
+    proto = sxi_usernewkey_proto(sx, username, key);
+    if(!proto) {
+	cluster_err(SXE_EMEM, "Unable to allocate space for request data");
+	free(tok);
+	return NULL;
+    }
+    sxi_set_operation(sxi_cluster_get_client(cluster), "change user key", sxi_cluster_get_name(cluster), NULL, NULL);
+    qret = sxi_job_submit_and_poll_err(sxi_cluster_get_conns(cluster), NULL, proto->verb, proto->path, proto->content, proto->content_len, &http_err);
+    if(!qret || http_err == 401) {
+	retkey = malloc(AUTHTOK_ASCII_LEN + 1);
+	if(!retkey) {
+	    cluster_err(SXE_EMEM, "Unable to allocate memory for user key");
+	} else {
+	    strncpy(retkey, tok, AUTHTOK_ASCII_LEN);
+	    retkey[AUTHTOK_ASCII_LEN] = '\0';
+        }
+    }
+    sxi_query_free(proto);
+    free(tok);
+    return retkey;
+}
+
 int sxc_user_remove(sxc_cluster_t *cluster, const char *username) {
     char *enc_name, *query;
     sxc_client_t *sx;

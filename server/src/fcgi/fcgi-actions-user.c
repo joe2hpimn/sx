@@ -486,6 +486,234 @@ void fcgi_create_user(void)
     job_2pc_handle_request(sx_hashfs_client(hashfs), &user_spec, &uctx);
 }
 
+struct user_newkey_ctx {
+    char auth[AUTH_KEY_LEN];
+    enum user_newkey_state { CB_USER_NEWKEY_START=0, CB_USER_NEWKEY_AUTH, CB_USER_NEWKEY_KEY, CB_USER_NEWKEY_COMPLETE } state;
+};
+
+static int cb_user_newkey_string(void *ctx, const unsigned char *s, size_t l) {
+    struct user_newkey_ctx *uctx = ctx;
+    switch (uctx->state) {
+	case CB_USER_NEWKEY_AUTH:
+	    {
+		char ascii[AUTH_KEY_LEN * 2 + 1];
+		if(l != AUTH_KEY_LEN * 2) {
+		    INFO("Bad key length %ld", l);
+		    return 0;
+		}
+		memcpy(ascii, s, AUTH_KEY_LEN * 2);
+		hex2bin(ascii, AUTH_KEY_LEN * 2, uctx->auth, sizeof(uctx->auth));
+		break;
+	    }
+	default:
+	    return 0;
+    }
+    uctx->state = CB_USER_NEWKEY_KEY;
+    return 1;
+}
+
+static int cb_user_newkey_map_key(void *ctx, const unsigned char *s, size_t l) {
+    struct user_newkey_ctx *c = ctx;
+    if(c->state == CB_USER_NEWKEY_KEY) {
+	if(l == lenof("userKey") && !strncmp("userKey", s, l)) {
+	    c->state = CB_USER_NEWKEY_AUTH;
+	    return 1;
+	}
+    }
+    return 0;
+}
+
+static int cb_user_newkey_start_map(void *ctx) {
+    struct user_newkey_ctx *c = ctx;
+    if(c->state == CB_USER_NEWKEY_START)
+	c->state = CB_USER_NEWKEY_KEY;
+    else
+	return 0;
+    return 1;
+}
+
+static int cb_user_newkey_end_map(void *ctx) {
+    struct user_newkey_ctx *c = ctx;
+    if(c->state == CB_USER_NEWKEY_KEY)
+	c->state = CB_USER_NEWKEY_COMPLETE;
+    else
+	return 0;
+    return 1;
+}
+
+static const yajl_callbacks user_newkey_ops_parser = {
+    cb_fail_null,
+    cb_fail_boolean,
+    NULL,
+    NULL,
+    cb_fail_number,
+    cb_user_newkey_string,
+    cb_user_newkey_start_map,
+    cb_user_newkey_map_key,
+    cb_user_newkey_end_map,
+    cb_fail_start_array,
+    cb_fail_end_array
+};
+
+static int user_newkey_parse_complete(void *yctx)
+{
+    struct user_newkey_ctx *uctx = yctx;
+    if (!uctx || uctx->state != CB_USER_NEWKEY_COMPLETE)
+        return 0;
+    return 1;
+}
+
+static int user_newkey_to_blob(sxc_client_t *sx, int nodes, void *yctx, sx_blob_t *joblb)
+{
+    struct user_newkey_ctx *uctx = yctx;
+    uint8_t requser[AUTH_UID_LEN];
+    uint8_t key[AUTH_KEY_LEN];
+    sx_uid_t requid;
+    sx_priv_t role;
+    rc_ty rc;
+
+    if (!joblb) {
+        msg_set_reason("Cannot allocate job blob");
+        return -1;
+    }
+    if(sx_hashfs_check_username(path)) {
+        msg_set_reason("Invalid username");
+        return -1;
+    }
+    rc = sx_hashfs_get_user_by_name(hashfs, path, requser);
+    if (rc) {
+        msg_set_reason("cannot retrieve user: %s", path);
+        return -1;
+    }
+    if(sx_hashfs_get_user_info(hashfs, requser, &requid, key, &role) != OK) /* no such user */ {
+        msg_set_reason("No such user");
+        return -1;
+    }
+
+    if (sx_blob_add_string(joblb, path) ||
+        sx_blob_add_blob(joblb, key, AUTH_KEY_LEN) ||
+        sx_blob_add_blob(joblb, uctx->auth, AUTH_KEY_LEN)) {
+        msg_set_reason("Cannot create job blob");
+        return -1;
+    }
+    return 0;
+}
+
+static sxi_query_t* user_newkey_proto_from_blob(sxc_client_t *sx, sx_blob_t *b, jobphase_t phase)
+{
+    const char *name;
+    const void *auth, *oldauth;
+    unsigned auth_len, oldauth_len;
+
+    if (sx_blob_get_string(b, &name) ||
+	sx_blob_get_blob(b, &oldauth, &oldauth_len) ||
+	sx_blob_get_blob(b, &auth, &auth_len) ||
+        auth_len != AUTH_KEY_LEN ||
+        oldauth_len != AUTH_KEY_LEN) {
+        WARN("Corrupt user blob");
+        return NULL;
+    }
+    switch (phase) {
+        case JOBPHASE_COMMIT:
+            return sxi_usernewkey_proto(sx, name, auth);
+        case JOBPHASE_ABORT:/* fall-through */
+            INFO("Newkey for user '%s': aborting", name);
+            return sxi_usernewkey_proto(sx, name, oldauth);
+        case JOBPHASE_UNDO:
+            INFO("Newkey for user '%s': undoing", name);
+            return sxi_usernewkey_proto(sx, name, oldauth);
+        default:
+            return NULL;
+    }
+}
+
+static rc_ty user_newkey_execute_blob(sx_hashfs_t *hashfs, sx_blob_t *b, jobphase_t phase, int remote)
+{
+    const char *name;
+    const void *auth, *oldauth;
+    unsigned auth_len, oldauth_len;
+    rc_ty rc = OK;
+
+    if (!hashfs || !b) {
+        msg_set_reason("NULL arguments");
+        return FAIL_EINTERNAL;
+    }
+    if (sx_blob_get_string(b, &name) ||
+	sx_blob_get_blob(b, &oldauth, &oldauth_len) ||
+	sx_blob_get_blob(b, &auth, &auth_len) ||
+        auth_len != AUTH_KEY_LEN) {
+        msg_set_reason("Corrupted blob");
+        return FAIL_EINTERNAL;
+    }
+
+    switch (phase) {
+        case JOBPHASE_REQUEST:
+            /* remote */
+            DEBUG("user_newkey request '%s'", name);
+            rc = sx_hashfs_user_newkey(hashfs, name, auth, AUTH_KEY_LEN);
+            if(rc == EINVAL)
+                return rc;
+            if (rc != OK) {
+                msg_set_reason("Unable to change user key");
+                rc = FAIL_EINTERNAL;
+            }
+            return rc;
+        case JOBPHASE_COMMIT:
+            DEBUG("user_newkey commit '%s'", name);
+            rc = sx_hashfs_user_newkey(hashfs, name, auth, AUTH_KEY_LEN);
+            if(rc == EINVAL)
+                return rc;
+            if (rc != OK) {
+                msg_set_reason("Unable to change user key");
+                rc = FAIL_EINTERNAL;
+            }
+            return rc;
+        case JOBPHASE_ABORT:
+            DEBUG("user_newkey abort '%s'", name);
+            rc = sx_hashfs_user_newkey(hashfs, name, oldauth, AUTH_KEY_LEN);
+            if(rc == EINVAL)
+                return rc;
+            if (rc != OK) {
+                msg_set_reason("Unable to change user key");
+                rc = FAIL_EINTERNAL;
+            }
+            return rc;
+        case JOBPHASE_UNDO:
+            DEBUG("user_newkey undo '%s'", name);
+            rc = sx_hashfs_user_newkey(hashfs, name, oldauth, AUTH_KEY_LEN);
+            if(rc == EINVAL)
+                return rc;
+            if (rc != OK) {
+                msg_set_reason("Unable to change user key");
+                rc = FAIL_EINTERNAL;
+            }
+            return rc;
+        default:
+            WARN("Impossible job phase: %d", phase);
+            return FAIL_EINTERNAL;
+    }
+}
+
+const job_2pc_t user_newkey_spec = {
+    &user_newkey_ops_parser,
+    JOBTYPE_NEWKEY_USER,
+    user_newkey_parse_complete,
+    user_get_lock,
+    user_newkey_to_blob,
+    user_newkey_execute_blob,
+    user_newkey_proto_from_blob,
+    user_nodes,
+    user_timeout
+};
+
+void fcgi_user_newkey(void)
+{
+    struct user_newkey_ctx uctx;
+    memset(&uctx, 0, sizeof(uctx));
+
+    job_2pc_handle_request(sx_hashfs_client(hashfs), &user_newkey_spec, &uctx);
+}
+
 static int print_user(sx_uid_t user_id, const char *username, const uint8_t *user, const uint8_t *key, int is_admin, void *ctx)
 {
     int *first = ctx;

@@ -606,6 +606,7 @@ struct _sx_hashfs_t {
     sqlite3_stmt *q_listacl;
     sqlite3_stmt *q_createuser;
     sqlite3_stmt *q_deleteuser;
+    sqlite3_stmt *q_user_newkey;
     sqlite3_stmt *q_onoffuser;
     sqlite3_stmt *q_grant;
     sqlite3_stmt *q_getuid;
@@ -885,6 +886,7 @@ static void close_all_dbs(sx_hashfs_t *h) {
     sqlite3_finalize(h->q_getaccess);
     sqlite3_finalize(h->q_createuser);
     sqlite3_finalize(h->q_deleteuser);
+    sqlite3_finalize(h->q_user_newkey);
     sqlite3_finalize(h->q_grant);
     sqlite3_finalize(h->q_getuid);
     sqlite3_finalize(h->q_getuidname);
@@ -1293,6 +1295,8 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
     if(qprep(h->db, &h->q_deleteuser, "DELETE FROM users WHERE uid = :uid"))
 	goto open_hashfs_fail;
     if(qprep(h->db, &h->q_onoffuser, "UPDATE users SET enabled = :enable WHERE name = :username"))
+	goto open_hashfs_fail;
+    if(qprep(h->db, &h->q_user_newkey, "UPDATE users SET key=:key WHERE name = :username AND uid <> 0"))
 	goto open_hashfs_fail;
     /* update if present otherwise insert:
      * note: the read and write has to be in same transaction otherwise
@@ -4151,6 +4155,41 @@ rc_ty sx_hashfs_create_user(sx_hashfs_t *h, const char *user, const uint8_t *uid
 	if (ret != SQLITE_DONE)
 	    break;
         INFO("User '%s' created", user);
+	rc = OK;
+    } while(0);
+    sqlite3_reset(q);
+    return rc;
+}
+
+rc_ty sx_hashfs_user_newkey(sx_hashfs_t *h, const char *user, const uint8_t *key, unsigned key_size)
+{
+    rc_ty rc = FAIL_EINTERNAL;
+    if (!h || !user || !key) {
+	NULLARG();
+	return EFAULT;
+    }
+
+    if(sx_hashfs_check_username(user)) {
+	msg_set_reason("Invalid user");
+	return EINVAL;
+    }
+
+    if(key_size != AUTH_KEY_LEN) {
+	msg_set_reason("Invalid key");
+	return EINVAL;
+    }
+
+    sqlite3_stmt *q = h->q_user_newkey;
+    sqlite3_reset(q);
+    do {
+	if (qbind_text(q, ":username", user))
+	    break;
+	if (qbind_blob(q, ":key", key, key_size))
+	    break;
+	int ret = qstep(q);
+	if (ret != SQLITE_DONE)
+	    break;
+        INFO("Key changed for user '%s' ", user);
 	rc = OK;
     } while(0);
     sqlite3_reset(q);
@@ -8002,6 +8041,7 @@ static const char *locknames[] = {
     "REBALANCE_CLEANUP", /* JOBTYPE_REBALANCE_CLEANUP */
     "USER", /* JOBTYPE_DELETE_USER */
     "VOL", /* JOBTYPE_DELETE_VOLUME */
+    "USER"
 };
 
 

@@ -52,6 +52,7 @@ struct _sxi_job_t {
     char *name;
     char *job_id;
     unsigned finished;
+    long http_err;
     enum _jobstatus_t {
 	JOBST_UNDEF,
 	JOBST_ERROR,
@@ -527,7 +528,7 @@ static unsigned sxi_job_min_delay(sxi_job_t *poll)
     return ret;
 }
 
-static int sxi_job_result(sxc_client_t *sx, sxi_job_t **yres, unsigned *successful)
+static int sxi_job_result(sxc_client_t *sx, sxi_job_t **yres, unsigned *successful, long *http_err)
 {
     int ret;
     switch ((*yres)->status) {
@@ -551,6 +552,8 @@ static int sxi_job_result(sxc_client_t *sx, sxi_job_t **yres, unsigned *successf
                 sxi_notice(sx, "Failed to complete transfer of %s: %s", (*yres)->name, (*yres)->message);
             sxi_seterr(sx, SXE_ECOMM, "Operation failed: %s", (*yres)->message);
             ret = -1;
+            if (http_err && !*http_err)
+                *http_err = (*yres)->http_err;
             break;
     }
 
@@ -562,7 +565,7 @@ static int sxi_job_result(sxc_client_t *sx, sxi_job_t **yres, unsigned *successf
 #define JOB_POLL_MORE 1
 #define JOB_POLL_MSG 2
 
-static int sxi_job_status_ev(sxi_conns_t *conns, sxi_job_t **job, unsigned *successful)
+static int sxi_job_status_ev(sxi_conns_t *conns, sxi_job_t **job, unsigned *successful, long *http_err)
 {
     sxc_client_t *sx = sxi_conns_get_client(conns);
     sxi_job_t *yres;
@@ -582,7 +585,8 @@ static int sxi_job_status_ev(sxi_conns_t *conns, sxi_job_t **job, unsigned *succ
         int res;
         if(yres->state != JR_COMPLETE) {
             SXDEBUG("Cannot query request result");
-            sxi_seterr(sx, SXE_ECOMM, "Cannot query request result (operation might or might have not succeeded)");
+            sxi_seterr(sx, SXE_ECOMM, "Cannot query request result (operation might or might have not succeeded): %s", sxi_cbdata_geterrmsg(yres->cbdata));
+            sxi_cbdata_result(yres->cbdata, NULL, NULL, &yres->http_err);
             if (yres->fails++ > 0) {
                 struct timeval now;
                 double last_successful_ms;
@@ -595,13 +599,13 @@ static int sxi_job_status_ev(sxi_conns_t *conns, sxi_job_t **job, unsigned *succ
                     if (!yres->message)
                         return -1;
                     yres->status = JOBST_ERROR;
-                    return sxi_job_result(sx, job, successful);
+                    return sxi_job_result(sx, job, successful, http_err);
                 }
             }
             return JOB_POLL_MSG;
         } else {
             gettimeofday(&yres->last_reached, NULL);
-            res = sxi_job_result(sx, job, successful);
+            res = sxi_job_result(sx, job, successful, http_err);
             if (res < 1)
                 return res;
         }
@@ -665,7 +669,7 @@ static int sxi_job_poll(sxi_conns_t *conns, sxi_jobs_t *jobs, int wait)
             if (!jobs->jobs[i])
                 continue;
             delay = sxi_job_min_delay(jobs->jobs[i]);
-            rc = sxi_job_status_ev(conns, &jobs->jobs[i], &jobs->successful);
+            rc = sxi_job_status_ev(conns, &jobs->jobs[i], &jobs->successful, &jobs->http_err);
             if (rc < 0) {
                 ret = -1;
                 continue;
@@ -735,7 +739,7 @@ static int sxi_job_poll(sxi_conns_t *conns, sxi_jobs_t *jobs, int wait)
     }
     for (i=0;i<jobs->n;i++) {
         if (jobs->jobs[i])
-            sxi_job_result(sx, &jobs->jobs[i], &jobs->successful);
+            sxi_job_result(sx, &jobs->jobs[i], &jobs->successful, &jobs->http_err);
     }
 
     return ret;
@@ -746,7 +750,7 @@ int sxi_job_wait(sxi_conns_t *conns, sxi_jobs_t *jobs)
     return sxi_job_poll(conns, jobs, 1);
 }
 
-int sxi_job_submit_and_poll(sxi_conns_t *conns, sxi_hostlist_t *hlist, enum sxi_cluster_verb verb, const char *query, void *content, size_t content_size)
+int sxi_job_submit_and_poll_err(sxi_conns_t *conns, sxi_hostlist_t *hlist, enum sxi_cluster_verb verb, const char *query, void *content, size_t content_size, long *http_err)
 {
     int rc;
     sxi_job_t *jtable[1] = {
@@ -754,10 +758,17 @@ int sxi_job_submit_and_poll(sxi_conns_t *conns, sxi_hostlist_t *hlist, enum sxi_
     };
     if (!jtable[0])
         return -1;
-    sxi_jobs_t jobs = { jtable, 1, 0, { 0, 0 } };
+    sxi_jobs_t jobs = { jtable, 1, 0, 0, { 0, 0 } };
     rc = sxi_job_wait(conns, &jobs);
+    if (http_err)
+        *http_err = jobs.http_err;
     sxi_job_free(jtable[0]);
     return rc;
+}
+
+int sxi_job_submit_and_poll(sxi_conns_t *conns, sxi_hostlist_t *hlist, enum sxi_cluster_verb verb, const char *query, void *content, size_t content_size)
+{
+    return sxi_job_submit_and_poll_err(conns, hlist, verb, query, content, content_size, NULL);
 }
 
 /* Return number of successfully finished jobs */

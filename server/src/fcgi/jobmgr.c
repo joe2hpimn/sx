@@ -699,12 +699,14 @@ static act_result_t job_twophase_execute(const job_2pc_t *spec, jobphase_t phase
 		continue;
 	    }
 	    if(rc == -1) {
+                *adjust_ttl = 0;
 		WARN("Query failed with %ld", http_status);
 		if(ret > ACT_RESULT_TEMPFAIL) /* Only raise OK to TEMP */
 		    action_set_fail(ACT_RESULT_TEMPFAIL, 503, sxi_cbdata_geterrmsg(qrylist[nnode].cbdata));
 	    } else if(http_status == 200 || http_status == 410) {
 		succeeded[nnode] = 1;
 	    } else {
+                *adjust_ttl = 0;
 		act_result_t newret;
                 if (!http_status && phase == JOBPHASE_REQUEST) {
                     /* request can be safely aborted, so abort asap when
@@ -769,6 +771,18 @@ static act_result_t deleteuser_abort(sx_hashfs_t *hashfs, job_t job_id, job_data
 
 static act_result_t deleteuser_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
    return job_twophase_execute(&userdel_spec, JOBPHASE_UNDO, hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
+}
+
+static act_result_t usernewkey_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+   return job_twophase_execute(&user_newkey_spec, JOBPHASE_COMMIT, hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
+}
+
+static act_result_t usernewkey_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+   return job_twophase_execute(&user_newkey_spec, JOBPHASE_ABORT, hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
+}
+
+static act_result_t usernewkey_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+   return job_twophase_execute(&user_newkey_spec, JOBPHASE_UNDO, hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
 }
 
 
@@ -3230,6 +3244,7 @@ static struct {
     { cleanrb_request, cleanrb_commit, force_phase_success, force_phase_success }, /* JOBTYPE_REBALANCE_CLEANUP */
     { deleteuser_request, deleteuser_commit, deleteuser_abort, deleteuser_undo }, /* JOBTYPE_DELETE_USER */
     { deletevol_request, deletevol_commit, deletevol_abort, deletevol_undo }, /* JOBTYPE_DELETE_VOLUME */
+    { force_phase_success, usernewkey_commit, usernewkey_abort, usernewkey_undo }, /* JOBTYPE_NEWKEY_USER */
 };
 
 

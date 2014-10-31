@@ -60,6 +60,7 @@ typedef enum _jobtype_t {
     JOBTYPE_REBALANCE_CLEANUP,
     JOBTYPE_DELETE_USER,
     JOBTYPE_DELETE_VOLUME,
+    JOBTYPE_NEWKEY_USER
 } jobtype_t;
 
 typedef enum {
@@ -85,6 +86,7 @@ typedef struct {
 extern const job_2pc_t acl_spec;
 extern const job_2pc_t user_spec;
 extern const job_2pc_t userdel_spec;
+extern const job_2pc_t user_newkey_spec;
 
 void job_2pc_handle_request(sxc_client_t *sx, const job_2pc_t *spec, void *yctx);
 #endif

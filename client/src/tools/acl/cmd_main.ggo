@@ -10,6 +10,7 @@ text "  useradd     Create a new user\n"
 text "  userdel     Remove an existing user (and gain ownership of its volumes)\n"
 text "  userlist    List users\n"
 text "  usergetkey  Retrieve the auth key of a user\n"
+text "  usernewkey  Change the auth key of a user\n"
 text "  volperm     Manage volume permissions\n"
 text "  volshow     Show all ACLs on a volume\n"
 

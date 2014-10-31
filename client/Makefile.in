@@ -150,7 +150,8 @@ am_src_tools_acl_sxacl_OBJECTS = src/tools/acl/sxacl.$(OBJEXT) \
 	src/tools/acl/cmd_useradd.$(OBJEXT) \
 	src/tools/acl/cmd_userdel.$(OBJEXT) \
 	src/tools/acl/cmd_userlist.$(OBJEXT) \
-	src/tools/acl/cmd_usergetkey.$(OBJEXT)
+	src/tools/acl/cmd_usergetkey.$(OBJEXT) \
+	src/tools/acl/cmd_usernewkey.$(OBJEXT)
 src_tools_acl_sxacl_OBJECTS = $(am_src_tools_acl_sxacl_OBJECTS)
 src_tools_acl_sxacl_DEPENDENCIES =  \
 	$(top_builddir)/../libsx/src/libsx.la
@@ -565,6 +566,7 @@ src_tools_acl_sxacl_SOURCES = \
 	src/tools/acl/cmd_userdel.c \
 	src/tools/acl/cmd_userlist.c \
 	src/tools/acl/cmd_usergetkey.c \
+	src/tools/acl/cmd_usernewkey.c \
 	src/tools/acl/cmd_main.h \
 	src/tools/acl/cmd_volperm.h \
 	src/tools/acl/cmd_volshow.h \
@@ -777,6 +779,8 @@ src/tools/acl/cmd_userlist.$(OBJEXT): src/tools/acl/$(am__dirstamp) \
 	src/tools/acl/$(DEPDIR)/$(am__dirstamp)
 src/tools/acl/cmd_usergetkey.$(OBJEXT): src/tools/acl/$(am__dirstamp) \
 	src/tools/acl/$(DEPDIR)/$(am__dirstamp)
+src/tools/acl/cmd_usernewkey.$(OBJEXT): src/tools/acl/$(am__dirstamp) \
+	src/tools/acl/$(DEPDIR)/$(am__dirstamp)
 
 src/tools/acl/sxacl$(EXEEXT): $(src_tools_acl_sxacl_OBJECTS) $(src_tools_acl_sxacl_DEPENDENCIES) $(EXTRA_src_tools_acl_sxacl_DEPENDENCIES) src/tools/acl/$(am__dirstamp)
 	@rm -f src/tools/acl/sxacl$(EXEEXT)
@@ -943,6 +947,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@src/tools/acl/$(DEPDIR)/cmd_userdel.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/tools/acl/$(DEPDIR)/cmd_usergetkey.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/tools/acl/$(DEPDIR)/cmd_userlist.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@src/tools/acl/$(DEPDIR)/cmd_usernewkey.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/tools/acl/$(DEPDIR)/cmd_volperm.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/tools/acl/$(DEPDIR)/cmd_volshow.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/tools/acl/$(DEPDIR)/sxacl.Po@am__quote@

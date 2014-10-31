@@ -275,6 +275,29 @@ void file_ops(void) {
 	    return;
 	}
 
+        if (!strcmp(".users", volume) && path && strlen(path) > 0) {
+            rc_ty s;
+            uint8_t requser[AUTH_UID_LEN];
+            s = sx_hashfs_get_user_by_name(hashfs, path, requser);
+            switch(s) {
+                case OK:
+                    break;
+                case ENOENT:
+                    quit_errmsg(404, "No such user");
+                case EINVAL:
+                    quit_errnum(400);
+                default:
+                    quit_errnum(500);
+            }
+            /* user is allowed to change own key,
+             * admin is allowed to change all keys */
+            if (memcmp(requser, user, sizeof(requser))) {
+                quit_unless_has(PRIV_ADMIN);
+            }
+            fcgi_user_newkey();
+            return;
+        }
+
 	if(!strcmp(volume, ".data")) {
             if (has_arg("o")) {
 		/* Hashop reserve/inuse (s2s) - CLUSTER required */

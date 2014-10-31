@@ -151,6 +151,7 @@ const char *sx_hashfs_version(sx_hashfs_t *h);
 const sx_uuid_t *sx_hashfs_uuid(sx_hashfs_t *h);
 
 rc_ty sx_hashfs_create_user(sx_hashfs_t *h, const char *user, const uint8_t *uid, unsigned uid_size, const uint8_t *key, unsigned key_size, int role);
+rc_ty sx_hashfs_user_newkey(sx_hashfs_t *h, const char *user, const uint8_t *key, unsigned key_size);
 rc_ty sx_hashfs_delete_user(sx_hashfs_t *h, const char *username, const char *new_owner);
 rc_ty sx_hashfs_get_uid(sx_hashfs_t *h, const char *user, int64_t *uid);
 rc_ty sx_hashfs_get_uid_role(sx_hashfs_t *h, const char *user, int64_t *uid, int *role);

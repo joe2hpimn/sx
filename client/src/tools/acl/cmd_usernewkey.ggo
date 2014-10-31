@@ -1,0 +1,17 @@
+package "sxacl"
+args "--unamed-opts --no-handle-version --no-handle-error --file-name=cmd_usernewkey --func-name=usernewkey_cmdline_parser --arg-struct-name=usernewkey_args_info"
+usage "sxacl usernewkey [OPTIONS] <username> sx://[profile@]cluster"
+
+section "User key change options"
+option "auth-file" a "Store authentication token in given file (instead of stdout)" string optional
+
+section "Common options"
+
+option  "config-dir"		c "Path to SX configuration directory"
+        string typestr="PATH" optional hidden
+
+option  "force-key"                - "Change user key with an old authentication token" string typestr="TOKEN" optional hidden
+
+option "batch-mode" b		"Disable additional information and only print the authentication token" flag off
+
+option  "debug"		D "Enable debug messages" flag off
