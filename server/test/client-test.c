@@ -56,6 +56,7 @@
 #define QUOTA_FILE_NAME "file_quota"
 #define QUOTA_VOL_SIZE 1
 #define QUOTA_FILE_SIZE 5 /* Must be more then QUOTA_VOL_SIZE */
+#define COPY_FILE_NAME "file_copy"
 
 int64_t bytes; /* FIXME: small change in libsx to avoid this to be global */
 
@@ -1307,6 +1308,250 @@ test_quota_err:
     return ret;
 } /* test_quota */
 
+int test_copy(sxc_client_t *sx, sxc_cluster_t *cluster, char *cluster_name,  char *filter_dir, char *filter1_name, char *filter1_cfg, char *filter2_name, char *filter2_cfg, char *local_dir_path, struct gengetopt_args_info args) {
+    int i, fd, ret = 1, tmp;
+    uint64_t seed;
+    char *volname1, *volname2 = NULL, *local_file_path = NULL, *remote_file1_path = NULL, *remote_file2_path = NULL;
+    unsigned char *block = NULL, *hash1 = NULL, *hash2 = NULL;
+    FILE *file = NULL;
+    rnd_state_t state;
+    sxc_uri_t *uri = NULL;
+    sxc_file_t *src = NULL, *dest = NULL;
+    SHA_CTX ctx;
+
+    printf("\ntest_copy: Started\n");
+    volname1 = (char*)malloc(strlen(VOLNAME) + strlen("XXXXXX") + 1);
+    if(!volname1) {
+        fprintf(stderr, "test_copy: ERROR: Cannot allocate memory for volname1.\n");
+        return ret;
+    }
+    sprintf(volname1, "%sXXXXXX", VOLNAME);
+    fd = mkstemp(volname1);
+    if(fd < 0) {
+        fprintf(stderr, "test_copy: ERROR: Cannot generate temporary directory name (1).\n");
+        goto test_copy_err;
+    }
+    if(close(fd)) {
+        fprintf(stderr, "test_copy: ERROR: Cannot close file descriptor (1): %s\n", strerror(errno));
+        if(unlink(volname1))
+            fprintf(stderr, "test_copy: ERROR: Cannot delete '%s' file: %s\n", volname1, strerror(errno));
+        goto test_copy_err;
+    }
+    if(unlink(volname1)) {
+        fprintf(stderr, "test_copy: ERROR: Cannot delete '%s' file: %s\n", volname1, strerror(errno));
+        goto test_copy_err;
+    }
+    volname2 = (char*)malloc(strlen(VOLNAME) + strlen("XXXXXX") + 1);
+    if(!volname2) {
+        fprintf(stderr, "test_copy: ERROR: Cannot allocate memory for volname2.\n");
+        goto test_copy_err;
+    }
+    sprintf(volname2, "%sXXXXXX", VOLNAME);
+    fd = mkstemp(volname2);
+    if(fd < 0) {
+        fprintf(stderr, "test_copy: ERROR: Cannot generate temporary directory name (2).\n");
+        goto test_copy_err;
+    }
+    if(close(fd)) {
+        fprintf(stderr, "test_copy: ERROR: Cannot close file descriptor (2): %s\n", strerror(errno));
+        if(unlink(volname2))
+            fprintf(stderr, "test_copy: ERROR: Cannot delete '%s' file: %s\n", volname2, strerror(errno));
+        goto test_copy_err;
+    }
+    if(unlink(volname2)) {
+        fprintf(stderr, "test_copy: ERROR: Cannot delete '%s' file: %s\n", volname2, strerror(errno));
+        goto test_copy_err;
+    }
+    local_file_path = (char*)malloc(strlen(local_dir_path) + strlen(COPY_FILE_NAME) + 1);
+    if(!local_file_path) {
+        fprintf(stderr, "test_copy: ERROR: Cannot allocate memory for local_file_path.\n");
+        goto test_copy_err;
+    }
+    sprintf(local_file_path, "%s%s", local_dir_path, COPY_FILE_NAME);
+    remote_file1_path = (char*)malloc(strlen("sx://") + strlen(args.owner_arg) + 1 + strlen(cluster_name) + 1 + strlen(volname1) + 1 + strlen(REMOTE_DIR) + 1 + strlen(COPY_FILE_NAME) + 1); /* The 1's inside are for '@' and '/' characters. */
+    if(!remote_file1_path) {
+        fprintf(stderr, "test_copy: ERROR: Cannot allocate memory for remote_file1_path.\n");
+        goto test_copy_err;
+    }
+    sprintf(remote_file1_path, "sx://%s@%s/%s/%s/%s", args.owner_arg, cluster_name, volname1, REMOTE_DIR, COPY_FILE_NAME);
+    remote_file2_path = (char*)malloc(strlen("sx://") + strlen(args.owner_arg) + 1 + strlen(cluster_name) + 1 + strlen(volname2) + 1 + strlen(REMOTE_DIR) + 1 + strlen(COPY_FILE_NAME) + 1); /* The 1's inside are for '@' and '/' characters. */
+    if(!remote_file2_path) {
+        fprintf(stderr, "test_copy: ERROR: Cannot allocate memory for remote_file2_path.\n");
+        goto test_copy_err;
+    }
+    sprintf(remote_file2_path, "sx://%s@%s/%s/%s/%s", args.owner_arg, cluster_name, volname2, REMOTE_DIR, COPY_FILE_NAME);
+    block = (unsigned char*)malloc(SX_BS_MEDIUM);
+    if(!block) {
+        fprintf(stderr, "test_copy: ERROR: Cannot allocate memory for block.\n");
+        goto test_copy_err;
+    }
+    hash1 = (unsigned char*)malloc(SHA_DIGEST_LENGTH);
+    if(!hash1) {
+        fprintf(stderr, "test_copy: ERROR: Cannot allocate memory for hash1.\n");
+        goto test_copy_err;
+    }
+    hash2 = (unsigned char*)malloc(SHA_DIGEST_LENGTH);
+    if(!hash2) {
+        fprintf(stderr, "test_copy: ERROR: Cannot allocate memory for hash2.\n");
+        goto test_copy_err;
+    }
+    printf("test_copy: Filters: %s (%s) and %s (%s).\n", filter1_name, filter1_cfg, filter2_name, filter2_cfg);
+    seed = make_seed();
+    printf("test_copy: Seed: %012lx\n", seed);
+    rnd_seed(&state,seed);
+    create_block(&state, block, SX_BS_MEDIUM);
+    if(create_volume(sx, cluster, volname1, filter_dir, filter1_name, filter1_cfg, args, 1)) {
+        fprintf(stderr, "test_copy: ERROR: Cannot create new volume.\n");
+        goto test_copy_err;
+    }
+    if(create_volume(sx, cluster, volname2, filter_dir, filter2_name, filter2_cfg, args, 1)) {
+        fprintf(stderr, "test_copy: ERROR: Cannot create new volume.\n");
+        goto test_copy_err;
+    }
+    file = fopen(local_file_path, "w");
+    if(!file) {
+        fprintf(stderr, "test_copy: ERROR: Cannot create '%s' file: %s\n", local_file_path, strerror(errno));
+        goto test_copy_err;
+    }
+    if(!SHA1_Init(&ctx)) {
+        fprintf(stderr, "test_copy: ERROR: SHA1_Init() failure.\n");
+        goto test_copy_err;
+    }
+    for(i=0; i<10; i++) {
+        if(fwrite(block, sizeof(unsigned char), SX_BS_MEDIUM, file) != SX_BS_MEDIUM) {
+            fprintf(stderr, "test_copy: ERROR: Error while writing to '%s' file.\n", local_file_path);
+            if(fclose(file))
+                fprintf(stderr, "test_copy: ERROR: Cannot close '%s' file: %s\n", local_file_path, strerror(errno));
+            goto test_copy_err;
+        }
+        if(!SHA1_Update(&ctx, block, SX_BS_MEDIUM)) {
+            fprintf(stderr, "test_copy: ERROR: SHA1_Update() failure. (%d).\n", i);
+            if(fclose(file))
+                fprintf(stderr, "test_copy: ERROR: Cannot close '%s' file: %s\n", local_file_path, strerror(errno));
+            goto test_copy_err;
+        }
+    }
+    if(fclose(file)) {
+        fprintf(stderr, "test_copy: ERROR: Cannot close '%s' file: %s\n", local_file_path, strerror(errno));
+        goto test_copy_err;
+    }
+    if(!SHA1_Final(hash1, &ctx)) {
+        fprintf(stderr, "test_copy: ERROR: SHA1_Final() failure.\n");
+        goto test_copy_err;
+    }
+    printf("test_copy: Uploading file.\n");
+    if(upload_file(sx, cluster, local_file_path, remote_file1_path)) {
+        fprintf(stderr, "test_copy: ERROR: Uploading '%s' file failed: %s\n", local_file_path, sxc_geterrmsg(sx));
+        goto test_copy_err;
+    }
+    uri = sxc_parse_uri(sx, remote_file1_path);
+    if(!uri) {
+        fprintf(stderr, "test_copy: ERROR: Bad uri '%s': %s\n", remote_file1_path, sxc_geterrmsg(sx));
+        goto test_copy_err;
+    }
+    src = sxc_file_remote(cluster, uri->volume, uri->path, NULL);
+    if(!src) {
+        fprintf(stderr, "test_copy: ERROR: Cannot open source directory.\n");
+        sxc_free_uri(uri);
+        uri = NULL;
+        goto test_copy_err;
+    }
+    sxc_free_uri(uri);
+    printf("test_copy: Copying file between volumes.\n");
+    uri = sxc_parse_uri(sx, remote_file2_path);
+    if(!uri) {
+        fprintf(stderr, "test_copy: ERROR: Bad uri '%s': %s\n", remote_file2_path, sxc_geterrmsg(sx));
+        goto test_copy_err;
+    }
+    dest = sxc_file_remote(cluster, uri->volume, uri->path, NULL);
+    if(!dest) {
+        fprintf(stderr, "test_copy: ERROR: Cannot open destination directory.\n");
+        goto test_copy_err;
+    }
+    if(sxc_copy(src, dest, 0, 0)) {
+        fprintf(stderr, "test_copy: ERROR: Cannot upload file: %s\n", sxc_geterrmsg(sx));
+        goto test_copy_err;
+    }
+    if(unlink(local_file_path)) {
+        fprintf(stderr, "test_copy: ERROR: Cannot remove '%s' file: %s\n", local_file_path, strerror(errno));
+        goto test_copy_err;
+    }
+    printf("test_copy: Downloading file.\n");
+    file = download_file(sx, cluster, local_file_path, remote_file2_path, 0);
+    if(!file) {
+        fprintf(stderr, "test_copy: ERROR: Uploading '%s' file failed: %s\n", local_file_path, sxc_geterrmsg(sx));
+        goto test_copy_err;
+    }
+    if(!SHA1_Init(&ctx)) {
+        fprintf(stderr, "test_copy: ERROR: SHA1_Init() failure.\n");
+        if(fclose(file))
+            fprintf(stderr, "test_copy: ERROR: Cannot close '%s' file: %s\n", local_file_path, strerror(errno));
+        goto test_copy_err;
+    }
+    while((tmp = fread(block, sizeof(unsigned char), SX_BS_MEDIUM, file))) {
+        if(!SHA1_Update(&ctx, block, tmp)) {
+            fprintf(stderr, "test_copy: ERROR: SHA1_Update() failure.\n");
+            if(fclose(file))
+                fprintf(stderr, "test_copy: ERROR: Cannot close '%s' file: %s\n", local_file_path, strerror(errno));
+            goto test_copy_err;
+        }
+        if(tmp < SX_BS_MEDIUM) {
+            fprintf(stderr, "test_copy: ERROR: Downloaded only a part of file.\n");
+            if(fclose(file))
+                fprintf(stderr, "test_copy: ERROR: Cannot close '%s' file: %s\n", local_file_path, strerror(errno));
+            goto test_copy_err;
+        }
+    }
+    if(fclose(file)) {
+        fprintf(stderr, "test_copy: ERROR: Cannot close '%s' file: %s\n", local_file_path, strerror(errno));
+        goto test_copy_err;
+    }
+    if(!SHA1_Final(hash2, &ctx)) {
+        fprintf(stderr, "test_copy: ERROR: SHA1_Final() failure.\n");
+        goto test_copy_err;
+    }
+    if(memcmp(hash1, hash2, SHA_DIGEST_LENGTH)) {
+        fprintf(stderr, "test_copy: ERROR: Uploaded and downloaded file differs.\n");
+        goto test_copy_err;
+    }
+    if(delete_file(sx, cluster, remote_file1_path)) {
+        fprintf(stderr, "test_copy: ERROR: Cannot remove '%s' file: %s\n", remote_file1_path, sxc_geterrmsg(sx));
+        goto test_copy_err;
+    }
+    if(delete_file(sx, cluster, remote_file2_path)) {
+        fprintf(stderr, "test_copy: ERROR: Cannot remove '%s' file: %s\n", remote_file2_path, sxc_geterrmsg(sx));
+        goto test_copy_err;
+    }
+    if(remove_volume(sx, cluster, volname1)) {
+        fprintf(stderr, "test_copy: ERROR: Cannot remove '%s' volume: %s\n", volname1, sxc_geterrmsg(sx));
+        goto test_copy_err;
+    }
+    if(remove_volume(sx, cluster, volname2)) {
+        fprintf(stderr, "test_copy: ERROR: Cannot remove '%s' volume: %s\n", volname2, sxc_geterrmsg(sx));
+        goto test_copy_err;
+    }
+    
+    printf("test_copy: Succeeded\n");
+    ret = 0;
+test_copy_err:
+    if(file && unlink(local_file_path)) {
+        fprintf(stderr, "test_copy: ERROR: Cannot remove '%s' file: %s\n", local_file_path, strerror(errno));
+        ret = 1;
+    }
+    free(block);
+    free(hash1);
+    free(hash2);
+    free(volname1);
+    free(volname2);
+    free(local_file_path);
+    free(remote_file1_path);
+    free(remote_file2_path);
+    sxc_free_uri(uri);
+    sxc_file_free(src);
+    sxc_file_free(dest);
+    return ret;
+} /* test_copy */
+
 int main(int argc, char **argv) {
     int i, fd, ret = 1;
     char *local_dir_path = NULL, *remote_dir_path = NULL, *volname = NULL, *filter_dir = NULL;
@@ -1428,6 +1673,10 @@ int main(int argc, char **argv) {
     if(volume_test(sx, cluster, volname, filter_dir, "undelete", TRASH_NAME, local_dir_path, remote_dir_path, args, 5))
         goto main_err;
     if(test_quota(sx, cluster, local_dir_path, remote_dir_path, args))
+        goto main_err;
+    if(test_copy(sx, cluster, uri->host, NULL, NULL, NULL, NULL, NULL, local_dir_path, args))
+        goto main_err;
+    if(test_copy(sx, cluster, uri->host, filter_dir, "aes256", NULL, "zcomp", "level:1", local_dir_path, args))
         goto main_err;
     /* The end of tests */
 
