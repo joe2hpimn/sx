@@ -1320,10 +1320,8 @@ static act_result_t fileflush_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t
     }
 
     s = sx_hashfs_volume_by_id(hashfs, tmp->volume_id, &volume);
-    if(s == ENOENT) {
-	free(tmp);
+    if(s == ENOENT)
 	return force_phase_success(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
-    }
     if(s != OK)
 	action_error(rc2actres(s), rc2http(s), "Failed to find file to delete");
 
@@ -1391,9 +1389,10 @@ static act_result_t fileflush_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t
 	    }
 	}
 	query_list_free(qrylist, nnodes);
-	free(proto);
+	sxi_query_free(proto);
     }
 
+    free(tmp);
     return ret;
 }
 
@@ -1426,10 +1425,8 @@ static act_result_t filedelete_request(sx_hashfs_t *hashfs, job_t job_id, job_da
     }
 
     s = sx_hashfs_volume_by_id(hashfs, tmp->volume_id, &volume);
-    if(s == ENOENT) {
-	free(tmp);
+    if(s == ENOENT)
 	return force_phase_success(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
-    }
     if(s != OK)
 	action_error(rc2actres(s), rc2http(s), "Failed to find file to delete");
 
@@ -1490,9 +1487,10 @@ static act_result_t filedelete_request(sx_hashfs_t *hashfs, job_t job_id, job_da
 	    }
 	}
         query_list_free(qrylist, nnodes);
-	free(proto);
+	sxi_query_free(proto);
     }
 
+    free(tmp);
     return ret;
 }
 

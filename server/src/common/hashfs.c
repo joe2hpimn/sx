@@ -7229,6 +7229,7 @@ rc_ty sx_hashfs_filedelete_job(sx_hashfs_t *h, sx_uid_t user_id, const sx_hashfs
     sx_nodelist_t *targets;
     unsigned int timeout;
     int64_t tmpfile_id;
+    char *lockname;
     rc_ty ret;
 
     if(!h || !vol || !name || !job_id) {
@@ -7245,7 +7246,17 @@ rc_ty sx_hashfs_filedelete_job(sx_hashfs_t *h, sx_uid_t user_id, const sx_hashfs
 	    ret = file_totmp(h, vol, name, revision, &tmpfile_id, &timeout);
 	    if(ret)
 		break;
-	    ret = sx_hashfs_job_new(h, user_id, job_id, JOBTYPE_DELETE_FILE, timeout, name, &tmpfile_id, sizeof(tmpfile_id), targets);
+	    lockname = malloc(strlen(name) + 1 + strlen(revision) + 1);
+	    if(!lockname) {
+		msg_set_reason("Internal error: not enough memory to delete the specified file");
+		ret = ENOMEM;
+		break;
+	    }
+	    sprintf(lockname, "%s:%s", name, revision);
+
+	    ret = sx_hashfs_job_new(h, user_id, job_id, JOBTYPE_DELETE_FILE, timeout, lockname, &tmpfile_id, sizeof(tmpfile_id), targets);
+	    free(lockname);
+
 	    if(ret)
 		sx_hashfs_tmp_delete(h, tmpfile_id);
 	} while(0);
@@ -7279,9 +7290,21 @@ rc_ty sx_hashfs_filedelete_job(sx_hashfs_t *h, sx_uid_t user_id, const sx_hashfs
 	if(ret)
 	    break;
 
-	ret = sx_hashfs_job_new_notrigger(h, *job_id, user_id, job_id, JOBTYPE_DELETE_FILE, timeout, name, &tmpfile_id, sizeof(tmpfile_id), targets);
-	if(ret)
+	lockname = malloc(strlen(name) + 1 + strlen(filerev->revision) + 1);
+	if(!lockname) {
+	    msg_set_reason("Internal error: not enough memory to delete the specified file");
+	    ret = ENOMEM;
 	    break;
+	}
+	sprintf(lockname, "%s:%s", name, filerev->revision);
+
+	ret = sx_hashfs_job_new_notrigger(h, *job_id, user_id, job_id, JOBTYPE_DELETE_FILE, timeout, lockname, &tmpfile_id, sizeof(tmpfile_id), targets);
+	free(lockname);
+
+	if(ret) {
+	    WARN("Ret: %s", msg_get_reason());
+	    break;
+	}
 	ret = sx_hashfs_revision_next(h);
     } while(ret == OK);
 
@@ -8068,13 +8091,11 @@ rc_ty sx_hashfs_job_new_abort(sx_hashfs_t *h) {
 	return EFAULT;
     }
     
-    if(!h->addjob_begun) {
-	msg_set_reason("Internal error: job_new_end phase error");
-	return FAIL_EINTERNAL;
-    }
+    if(!h->addjob_begun)
+	return OK;
 
     qrollback(h->eventdb);
-
+    h->addjob_begun = 0;
     return FAIL_EINTERNAL;
 }
 
