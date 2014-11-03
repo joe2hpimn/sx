@@ -283,6 +283,8 @@ int main(int argc, char **argv) {
     if (!sx)
         return EXIT_FAILURE;
 
+    INFO("Using config file %s", cmdargs.config_file_given ? cmdargs.config_file_arg : DEFAULT_FCGI_CFGFILE);
+
     if(!getrlimit(RLIMIT_NOFILE, &rlim) && (rlim.rlim_cur < MAX_FDS || rlim.rlim_max < MAX_FDS)) {
 	unsigned int l_soft = rlim.rlim_cur, l_hard = rlim.rlim_max;
 	rlim.rlim_cur = rlim.rlim_max = MAX_FDS;
