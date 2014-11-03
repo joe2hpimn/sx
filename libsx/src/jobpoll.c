@@ -549,7 +549,7 @@ static int sxi_job_result(sxc_client_t *sx, sxi_job_t **yres, unsigned *successf
         case JOBST_ERROR:
             SXDEBUG("Request failed (%s)", (*yres)->message);
             if ((*yres)->name) 
-                sxi_notice(sx, "Failed to complete transfer of %s: %s", (*yres)->name, (*yres)->message);
+                sxi_notice(sx, "Failed to complete operation for %s: %s", (*yres)->name, (*yres)->message);
             sxi_seterr(sx, SXE_ECOMM, "Operation failed: %s", (*yres)->message);
             ret = -1;
             if (http_err && !*http_err)
