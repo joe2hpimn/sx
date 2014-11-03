@@ -49,6 +49,7 @@ socket="$SXRUNDIR/sxfcgi.socket"
 socket-mode=0660
 data-dir="$SXSTOREDIR/data"
 children=2
+debug
 EOF
 
 cat >"$prefix/etc/sxserver/sxsetup.conf" <<EOF
@@ -76,7 +77,11 @@ export SX_FCGI_OPTS="--config-file=$prefix/etc/sxserver/sxfcgi.conf"
 trap cleanup EXIT INT
 
 "$prefix/bin/sxinit" --batch-mode --port=8013 --no-ssl --auth-file="$SXSTOREDIR/data/admin.key" --config-dir="$prefix/.sx" sx://localhost
-`dirname $0`/client-test --config-dir="$prefix/.sx" --filter-dir="`pwd`/../client/src/filters" sx://localhost || exit 1
+`dirname $0`/client-test --config-dir="$prefix/.sx" --filter-dir="`pwd`/../client/src/filters" sx://localhost || {
+    cat "$SXLOGFILE";
+    cat $prefix/var/log/sxserver/sxhttpd-error.log;
+    exit 1
+}
 
 perl `dirname $0`/fcgi-test.pl 127.0.0.1:8013 $SXSTOREDIR/data || {
     rc=$?
