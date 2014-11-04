@@ -522,6 +522,7 @@ static int qopen(const char *path, sxi_db_t **dbp, const char *dbtype, sx_uuid_t
     sqlite3_stmt *q = NULL;
     const char *str;
     sqlite3 *handle = NULL;
+    char qstr[128];
 
     if(sqlite3_open_v2(path, &handle, SQLITE_OPEN_READWRITE | SQLITE_OPEN_NOMUTEX, NULL)) {
 	CRIT("Failed to open database %s: %s", path, sqlite3_errmsg(handle));
@@ -534,6 +535,13 @@ static int qopen(const char *path, sxi_db_t **dbp, const char *dbtype, sx_uuid_t
 	goto qopen_fail;
     }
     if(qprep(*dbp, &q, "PRAGMA synchronous = NORMAL") || qstep_noret(q))
+	goto qopen_fail;
+    qnullify(q);
+    /* TODO: pagesize might not always be 1024,
+     * limits should be in bytes */
+    snprintf(qstr, sizeof(qstr), "PRAGMA journal_size_limit = %d",
+             db_max_restart_wal_pages * 1024);
+    if(qprep(*dbp, &q, qstr) || qstep_ret(q))
 	goto qopen_fail;
     qnullify(q);
 
