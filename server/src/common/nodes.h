@@ -31,6 +31,7 @@
 #include "default.h"
 #include "errors.h"
 #include "utils.h"
+#include "blob.h"
 
 typedef struct _sx_node_t sx_node_t;
 
@@ -43,10 +44,13 @@ const char *sx_node_addr(const sx_node_t *node);
 const char *sx_node_internal_addr(const sx_node_t *node);
 int64_t sx_node_capacity(const sx_node_t *node);
 int sx_node_cmp(const sx_node_t *a, const sx_node_t *b);
+int sx_node_cmp_addrs(const sx_node_t *a, const sx_node_t *b);
 
 typedef struct _sx_nodelist_t sx_nodelist_t;
 sx_nodelist_t *sx_nodelist_new(void);
 sx_nodelist_t *sx_nodelist_dup(const sx_nodelist_t *other);
+sx_nodelist_t *sx_nodelist_from_blob(sx_blob_t *blob);
+sx_blob_t *sx_nodelist_to_blob(const sx_nodelist_t *list);
 rc_ty sx_nodelist_add(sx_nodelist_t *list, sx_node_t *node);
 rc_ty sx_nodelist_addlist(sx_nodelist_t *list, const sx_nodelist_t *other);
 rc_ty sx_nodelist_prepend(sx_nodelist_t *list, sx_node_t *node);

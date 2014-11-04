@@ -135,6 +135,21 @@ int sx_node_cmp(const sx_node_t *a, const sx_node_t *b) {
     return memcmp(a->id.binary, b->id.binary, sizeof(a->id.binary));
 }
 
+int sx_node_cmp_addrs(const sx_node_t *a, const sx_node_t *b) {
+    int ret;
+    if(!a)
+	return -1;
+    if(!b)
+	return 1;
+    ret = strcmp(a->addr, b->addr);
+    if(!ret ||
+       !strcmp(a->addr, b->int_addr) ||
+       !strcmp(a->int_addr, b->addr) ||
+       !strcmp(a->int_addr, b->int_addr))
+	return 0;
+
+    return ret;
+}
 
 struct _sx_nodelist_t {
     sx_node_t **nodes;
@@ -176,6 +191,87 @@ sx_nodelist_t *sx_nodelist_dup(const sx_nodelist_t *other) {
     }
     return l;
 }
+
+sx_blob_t *sx_nodelist_to_blob(const sx_nodelist_t *list) {
+    unsigned int i, nnodes;
+    sx_blob_t *ret;
+
+    if(!list)
+	return NULL;
+    ret = sx_blob_new();
+    if(!ret)
+	return NULL;
+
+    nnodes = sx_nodelist_count(list);
+    if(sx_blob_add_int32(ret, nnodes)) {
+	sx_blob_free(ret);
+	return NULL;
+    }
+
+    for(i=0; i<nnodes; i++) {
+	const sx_node_t *n = sx_nodelist_get(list, i);
+	const sx_uuid_t *id;
+	const char *addr, *internal_addr;
+	int64_t capacity;
+
+	if(!n ||
+	   !(id = sx_node_uuid(n)) ||
+	   !(addr = sx_node_addr(n)) ||
+	   !(internal_addr = sx_node_internal_addr(n)) ||
+	   !(capacity = sx_node_capacity(n)) ||
+	   sx_blob_add_blob(ret, id->binary, sizeof(id->binary)) ||
+	   sx_blob_add_string(ret, addr) ||
+	   sx_blob_add_string(ret, internal_addr) ||
+	   sx_blob_add_int64(ret, capacity)) {
+	    sx_blob_free(ret);
+	    return NULL;
+	}
+    }
+
+    return ret;
+}
+
+sx_nodelist_t *sx_nodelist_from_blob(sx_blob_t *blob) {
+    unsigned int i, nnodes;
+    sx_nodelist_t *ret;
+
+    if(!blob)
+	return NULL;
+
+    ret = sx_nodelist_new();
+    if(!ret)
+	return NULL;
+
+    sx_blob_reset(blob);
+    if(sx_blob_get_int32(blob, (int32_t *)&nnodes))
+	goto blob_err;
+
+    for(i=0; i<nnodes; i++) {
+	const char *addr, *internal_addr;
+	unsigned int idlen;
+	const void *iddata;
+	sx_uuid_t id;
+	int64_t capacity;
+	
+	if(sx_blob_get_blob(blob, &iddata, &idlen) ||
+	   idlen != sizeof(id.binary) ||
+	   sx_blob_get_string(blob, &addr) ||
+	   sx_blob_get_string(blob, &internal_addr) ||
+	   sx_blob_get_int64(blob, &capacity))
+	    goto blob_err;
+	uuid_from_binary(&id, iddata);
+
+	if(sx_nodelist_add(ret, sx_node_new(&id, addr, internal_addr, capacity)))
+	    goto blob_err;
+    }
+
+    return ret;
+
+ blob_err:
+    sx_nodelist_delete(ret);
+    return NULL;
+}
+
 
 #define NODELIST_ALLOC_ITEMS 16
 rc_ty sx_nodelist_add(sx_nodelist_t *list, sx_node_t *node) {

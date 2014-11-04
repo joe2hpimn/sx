@@ -28,6 +28,7 @@
 #include "default.h"
 #include <string.h>
 #include <stdlib.h>
+#include <arpa/inet.h>
 
 #include "blob.h"
 #include "utils.h"
@@ -50,25 +51,42 @@ enum blob_object {
 #define BLOB_MIN_OBJ BLOB_INT32
 #define BLOB_MAX_OBJ BLOB_BLOB
 
+static int64_t blob_htonll(int64_t d) {
+#ifndef WORDS_BIGENDIAN
+    /* Verified to compile to "bswapq" in gcc and llvm with -O1 or better */
+    return
+	(((d    ) & 0xff) << (64-8*1)) |
+	(((d>> 8) & 0xff) << (64-8*2)) |
+	(((d>>16) & 0xff) << (64-8*3)) |
+	(((d>>24) & 0xff) << (64-8*4)) |
+	(((d>>32) & 0xff) << (64-8*5)) |
+	(((d>>40) & 0xff) << (64-8*6)) |
+	(((d>>48) & 0xff) << (64-8*7)) |
+	(((d>>56) & 0xff));
+#else
+    return d;
+#endif
+}
+
 sx_blob_t *sx_blob_new(void) {
     sx_blob_t *s = wrap_calloc(1, sizeof(*s));
     return s;
 }
 
 static int pushdata(sx_blob_t *s, enum blob_object itm, const void *d, unsigned int len) {
-    unsigned int i;
-    if(s->size - s->pos < sizeof(unsigned int) + sizeof(unsigned int) + len) {
-	unsigned int size = s->size + MAX(sizeof(int) + sizeof(unsigned int) + len, 1024);
+    uint32_t i;
+    if(s->size - s->pos < sizeof(i) + sizeof(i) + len) {
+	unsigned int size = s->size + MAX(sizeof(i) + sizeof(i) + len, 1024);
 	uint8_t *newblob;
 	if(!(newblob = wrap_realloc(s->blob, size)))
 	    return -1;
 	s->blob = newblob;
 	s->size = size;
     }
-    i = itm;
+    i = htonl(itm);
     memcpy(s->blob + s->pos, &i, sizeof(i));
     s->pos += sizeof(i);
-    i = len;
+    i = htonl(len);
     memcpy(s->blob + s->pos, &i, sizeof(i));
     s->pos += sizeof(i);
     memcpy(s->blob + s->pos, d, len);
@@ -77,10 +95,12 @@ static int pushdata(sx_blob_t *s, enum blob_object itm, const void *d, unsigned 
 }
 
 int sx_blob_add_int32(sx_blob_t *s, int32_t d) {
+    d = htonl(d);
     return pushdata(s, BLOB_INT32, &d, sizeof(d));
 }
 
 int sx_blob_add_int64(sx_blob_t *s, int64_t d) {
+    d = blob_htonll(d);
     return pushdata(s, BLOB_INT64, &d, sizeof(d));
 }
 
@@ -130,17 +150,18 @@ sx_blob_t *sx_blob_from_data(const void *d, unsigned int l) {
 }
 
 static int getdata(sx_blob_t *s, enum blob_object *itm, const void **d, unsigned int *len) {
-    unsigned int i;
+    uint32_t i;
     DEBUG("in");
     if(s->pos == s->size)
 	return 1;
     if(s->pos > s->size || s->size - s->pos < sizeof(i)*2)
 	return -1;
-    memcpy(&i, s->blob + s->pos, sizeof(i));       
-    *itm = i;
+    memcpy(&i, s->blob + s->pos, sizeof(i));
+    *itm = htonl(i);
     if(*itm < BLOB_MIN_OBJ || *itm > BLOB_MAX_OBJ)
 	return -1;
     memcpy(&i, s->blob + s->pos + sizeof(i), sizeof(i));
+    i = htonl(i);
     if(s->size - s->pos - sizeof(i)*2 < i)
 	return -1;
 
@@ -165,6 +186,7 @@ int sx_blob_get_int32(sx_blob_t *s, int32_t *d) {
     }
 
     memcpy(d, dt, sizeof(*d));
+    *d = htonl(*d);
     return 0;
 }
 
@@ -183,6 +205,7 @@ int sx_blob_get_int64(sx_blob_t *s, int64_t *d) {
     }
 
     memcpy(d, dt, sizeof(*d));
+    *d = blob_htonll(*d);
     return 0;
 }
 
