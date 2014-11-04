@@ -21,6 +21,9 @@ List users.
 .B usergetkey
 Retrieve the authentication key of a user.
 .TP
+.B usernewkey
+Change the authentication key of a user.
+.TP
 .B volperm
 Manage volume permissions.
 .TP

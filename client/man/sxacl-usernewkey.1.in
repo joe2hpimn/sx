@@ -1,0 +1,40 @@
+.TH SXACL-USERNEWKEY "1" "November 2014" "sxacl @VERSION@" "Skylable SX Manual"
+.SH NAME
+sxacl-usernewkey \- change user authentication key
+.SH SYNOPSIS
+.B sxacl usernewkey
+\fR[\fI\,OPTIONS\/\fR] \fI\,<username> sx://\/\fR[\fI\,profile@\/\fR]\fI\,cluster\/\fR
+.SH DESCRIPTION
+\fBsxacl usernewkey\fR generates a new user authentication key, which automatically replaces the old one. A normal user can change its own key and a cluster administrator can change a key of any user.
+.SH OPTIONS
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help and exit
+.TP
+\fB\-\-full\-help\fR
+Print help, including hidden options, and exit
+.TP
+\fB\-V\fR, \fB\-\-version\fR
+Print version and exit
+.TP
+\fB\-a\fR, \fB\-\-auth\-file\fR=\fI\,FILE\/\fR
+Store authentication key in a given file (instead of printing it).
+.TP
+\fB\-b\fR, \fB\-\-batch\-mode\fR
+Disable additional information and only print the authentication key.
+.TP
+\fB\-\-force\-key\fR=\fI\,KEY\/\fR
+By default, the new authentication key is automatically generated. With this option one can force the use of an old key. Only a key that was previously generated for the same username will be accepted.
+.TP
+\fB\-c\fR, \fB\-\-config\-dir\fR=\fI\,PATH\/\fR
+Path to the SX configuration directory (default: ~/.sx)
+.TP
+\fB\-D\fR, \fB\-\-debug\fR
+Enable debug messages.
+.SH "EXAMPLES"
+To change the key of user 'joe' run:
+.br
+\fB    sxacl usernewkey joe sx://admin@cluster\fP
+.br
+.SH SEE ALSO
+\fBsxacl-usergetkey\fR(1), \fBsxacl-userlist\fR(1), \fBsxacl-useradd\fR(1), \fBsxacl-userdel\fR(1), \fBsxinit\fR(1)

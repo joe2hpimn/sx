@@ -18,7 +18,7 @@ Print help, including hidden options, and exit
 Print version and exit
 .TP
 \fB\-a\fR, \fB\-\-auth\-file\fR=\fI\,FILE\/\fR
-Store authentication token in a given file (instead of printing it).
+Store authentication key in a given file (instead of printing it).
 .TP
 \fB\-c\fR, \fB\-\-config\-dir\fR=\fI\,PATH\/\fR
 Path to the SX configuration directory (default: ~/.sx)
@@ -31,4 +31,4 @@ To obtain the key of the user 'joe' run:
 \fB    sxacl usergetkey joe sx://admin@cluster\fP
 .br
 .SH SEE ALSO
-\fBsxacl-userlist\fR(1), \fBsxacl-useradd\fR(1), \fBsxacl-userdel\fR(1)
+\fBsxacl-usernewkey\fR(1), \fBsxacl-userlist\fR(1), \fBsxacl-useradd\fR(1), \fBsxacl-userdel\fR(1)

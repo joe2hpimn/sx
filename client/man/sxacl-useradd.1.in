@@ -21,10 +21,10 @@ Print version and exit
 User type. Accepted values are "admin" and "normal" (default).
 .TP
 \fB\-a\fR, \fB\-\-auth\-file\fR=\fI\,FILE\/\fR
-Store authentication token in a given file (instead of printing it).
+Store authentication key in a given file (instead of printing it).
 .TP
 \fB\-b\fR, \fB\-\-batch\-mode\fR
-Disable additional information and only print the authentication token.
+Disable additional information and only print the authentication key.
 .TP
 \fB\-\-force\-key\fR=\fI\,KEY\/\fR
 By default, the authentication key is automatically generated for the new user. With this option one can force the use of an old key (obtained with \fBsxacl\-usergetkey\fR(1)), when recreating the user on a new or another cluster. Only a key that was previously generated for the same username will be accepted.
@@ -40,4 +40,4 @@ To add the user 'joe' to the cluster run:
 \fB    sxacl useradd joe sx://admin@cluster\fP
 .br
 .SH SEE ALSO
-\fBsxacl-usergetkey\fR(1), \fBsxacl-userlist\fR(1), \fBsxacl-userdel\fR(1), \fBsxinit\fR(1)
+\fBsxacl-usernewkey\fR(1), \fBsxacl-usergetkey\fR(1), \fBsxacl-userlist\fR(1), \fBsxacl-userdel\fR(1), \fBsxinit\fR(1)

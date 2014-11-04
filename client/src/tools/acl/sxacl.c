@@ -150,18 +150,17 @@ static int newkey_user(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_uri_t *u, c
 
     key = sxc_user_newkey(cluster, username, oldtoken);
     if(!key) {
-        fprintf(stderr, "ERROR: Can't create user %s: %s\n", username, sxc_geterrmsg(sx));
+        fprintf(stderr, "ERROR: Can't change the key for %s: %s\n", username, sxc_geterrmsg(sx));
 	return 1;
     }
     if(batch_mode) {
 	printf("%s\n", key);
     } else {
-	printf("Changing user key!\n");
-	printf("Name: %s\n", username);
-	printf("Key : %s\n", key);
-	printf("Run 'sxinit sx://%s@%s' to start using the cluster as user '%s'.\n", username, u->host, username);
+	printf("Key successfully changed!\n");
+	printf("Name   : %s\n", username);
+	printf("New key: %s\n", key);
+	printf("Run 'sxinit sx://%s@%s' and provide the new key for user '%s'.\n", username, u->host, username);
     }
-
 
     if (authfile) {
 	FILE *f;
