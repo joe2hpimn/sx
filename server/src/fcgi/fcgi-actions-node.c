@@ -175,6 +175,9 @@ static const yajl_callbacks nodes_parser = {
 
 void fcgi_set_nodes(void) {
     sx_uuid_t selfid;
+    job_t job;
+    rc_ty s;
+
     if(sx_hashfs_self_uuid(hashfs, &selfid))
 	quit_errmsg(500, "Cluster not yet initialized");
 
@@ -210,41 +213,62 @@ void fcgi_set_nodes(void) {
     auth_complete();
     quit_unless_authed();
 
-    job_t job;
-    rc_ty s = sx_hashfs_hdist_change_req(hashfs, yctx.nodes, &job);
+    if(has_arg("replace"))
+	s = sx_hashfs_hdist_replace_req(hashfs, yctx.nodes, &job);
+    else
+	s = sx_hashfs_hdist_change_req(hashfs, yctx.nodes, &job);
+
     sx_nodelist_delete(yctx.nodes);
     if(s != OK)
 	quit_errmsg(rc2http(s), msg_get_reason());
     send_job_info(job);
 }
 
-/* {"newDistribution":"HEX(blob_cfg)"} */
+/* {"newDistribution":"HEX(blob_cfg)", "faultyNodes":["uuid1", "uuiid2"]} */
 /* MODHDIST: maybe add revision here */
 struct cb_updist_ctx {
-    enum cb_updist_state { CB_UPDIST_START, CB_UPDIST_KEY, CB_UPDIST_CFG, CB_UPDIST_COMPLETE } state;
+    enum cb_updist_state { CB_UPDIST_START, CB_UPDIST_KEY, CB_UPDIST_CFG, CB_UPDIST_FAULTY, CB_UPDIST_FAULTYNODE, CB_UPDIST_COMPLETE } state;
     void *cfg;
-    unsigned int cfg_len;
+    sx_nodelist_t *faulty;
+    unsigned int cfg_len, nfaulty;
 };
 
 static int cb_updist_string(void *ctx, const unsigned char *s, size_t l) {
     struct cb_updist_ctx *c = (struct cb_updist_ctx *)ctx;
 
-    if(c->state != CB_UPDIST_CFG || l&1 || c->cfg)
-	return 0;
+    if(c->state == CB_UPDIST_CFG) {
+	if(l&1 || c->cfg)
+	    return 0;
 
-    c->cfg_len = l/2;
-    c->cfg = wrap_malloc(l/2);
-    if(!c->cfg)
-	return 0;
+	c->cfg_len = l/2;
+	c->cfg = wrap_malloc(l/2);
+	if(!c->cfg)
+	    return 0;
 
-    if(hex2bin(s, l, c->cfg, l/2)) {
-	free(c->cfg);
-	c->cfg = NULL;
-	return 0;
+	if(hex2bin(s, l, c->cfg, l/2)) {
+	    free(c->cfg);
+	    c->cfg = NULL;
+	    return 0;
+	}
+
+	c->state = CB_UPDIST_KEY;
+	return 1;
     }
 
-    c->state = CB_UPDIST_KEY;
-    return 1;
+    if(c->state == CB_UPDIST_FAULTYNODE || l != UUID_STRING_SIZE) {
+	char uuidstr[UUID_STRING_SIZE+1];
+	sx_uuid_t uuid;
+
+	memcpy(uuidstr, s, UUID_STRING_SIZE);
+	uuidstr[UUID_STRING_SIZE] = '\0';
+	if(uuid_from_string(&uuid, uuidstr))
+	    return 0;
+	if(sx_nodelist_add(c->faulty, sx_node_new(&uuid, "127.0.0.1", NULL, 0)))
+	    return 0;
+	return 1;
+    }
+
+    return 0;
 }
 
 static int cb_updist_start_map(void *ctx) {
@@ -258,10 +282,12 @@ static int cb_updist_map_key(void *ctx, const unsigned char *s, size_t l) {
     if(c->state != CB_UPDIST_KEY)
 	return 0;
 
-    if(l != lenof("newDistribution") || strncmp("newDistribution", s, lenof("newDistribution")))
+    if(l == lenof("newDistribution") && !strncmp("newDistribution", s, lenof("newDistribution")))
+	c->state = CB_UPDIST_CFG;
+    else if(l == lenof("faultyNodes") && !strncmp("faultyNodes", s, lenof("faultyNodes")))
+	c->state = CB_UPDIST_FAULTY;
+    else
 	return 0;
-
-    c->state = CB_UPDIST_CFG;
     return 1;
 }
 
@@ -271,6 +297,26 @@ static int cb_updist_end_map(void *ctx) {
     if(c->state != CB_UPDIST_KEY)
 	return 0;
     c->state = CB_UPDIST_COMPLETE;
+    return 1;
+}
+
+static int cb_updist_start_array(void *ctx) {
+    struct cb_updist_ctx *c = (struct cb_updist_ctx *)ctx;
+
+    if(c->state != CB_UPDIST_FAULTY)
+	return 0;
+
+    c->state = CB_UPDIST_FAULTYNODE;
+    return 1;
+}
+
+static int cb_updist_end_array(void *ctx) {
+    struct cb_updist_ctx *c = (struct cb_updist_ctx *)ctx;
+
+    if(c->state != CB_UPDIST_FAULTYNODE)
+	return 0;
+
+    c->state = CB_UPDIST_KEY;
     return 1;
 }
 
@@ -284,26 +330,35 @@ static const yajl_callbacks updist_parser = {
     cb_updist_start_map,
     cb_updist_map_key,
     cb_updist_end_map,
-    cb_fail_start_array,
-    cb_fail_end_array
+    cb_updist_start_array,
+    cb_updist_end_array
 };
 
 
 void fcgi_new_distribution(void) {
     struct cb_updist_ctx yctx;
+    yajl_handle yh;
+    rc_ty s;
+    int len;
+
     yctx.cfg = NULL;
     yctx.state = CB_UPDIST_START;
+    yctx.faulty = sx_nodelist_new();
+    if(!yctx.faulty)
+	quit_errmsg(503, "Cannot allocate replacement node list");
 
-    yajl_handle yh = yajl_alloc(&updist_parser, NULL, &yctx);
-    if(!yh)
-	quit_errmsg(500, "Cannot allocate json parser");
+    yh = yajl_alloc(&updist_parser, NULL, &yctx);
+    if(!yh) {
+	sx_nodelist_delete(yctx.faulty);
+	quit_errmsg(503, "Cannot allocate json parser");
+    }
 
-    int len;
     while((len = get_body_chunk(hashbuf, sizeof(hashbuf))) > 0)
 	if(yajl_parse(yh, hashbuf, len) != yajl_status_ok) break;
 
     if(len || yajl_complete_parse(yh) != yajl_status_ok || yctx.state != CB_UPDIST_COMPLETE || !yctx.cfg || !yctx.cfg_len) {
 	yajl_free(yh);
+	sx_nodelist_delete(yctx.faulty);
 	free(yctx.cfg);
 	quit_errmsg(400, "Invalid request content");
     }
@@ -312,12 +367,14 @@ void fcgi_new_distribution(void) {
     auth_complete();
     quit_unless_authed();
 
-    rc_ty s = sx_hashfs_hdist_change_add(hashfs, yctx.cfg, yctx.cfg_len);
+    if(!sx_nodelist_count(yctx.faulty))
+	s = sx_hashfs_hdist_change_add(hashfs, yctx.cfg, yctx.cfg_len);
+    else
+	s = sx_hashfs_hdist_replace_add(hashfs, yctx.cfg, yctx.cfg_len, yctx.faulty);
+    free(yctx.faulty);
     free(yctx.cfg);
     if(s != OK)
 	quit_errmsg(rc2http(s), msg_get_reason());
-
-
 
     CGI_PUTS("\r\n");
 }

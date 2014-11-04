@@ -38,8 +38,8 @@
 
 void fcgi_locate_volume(const sx_hashfs_volume_t *vol) {
     const char *size = get_arg("size"), *eon;
-    sx_nodelist_t *nodes;
-    unsigned int blocksize;
+    sx_nodelist_t *allnodes, *goodnodes;
+    unsigned int blocksize, nnode, nnodes;
     int64_t fsize;
     rc_ty s;
 
@@ -56,7 +56,7 @@ void fcgi_locate_volume(const sx_hashfs_volume_t *vol) {
      * Although most of them (file creation, file deletion, etc) can be
      * safely target to PREV and NEXT volumes, listing files is only 
      * guaranteed to be accurate when performed against a PREV volnode */
-    s = sx_hashfs_volnodes(hashfs, NL_PREV, vol, fsize, &nodes, &blocksize);
+    s = sx_hashfs_volnodes(hashfs, NL_PREV, vol, fsize, &allnodes, &blocksize);
     switch(s) {
 	case OK:
 	    break;
@@ -66,12 +66,35 @@ void fcgi_locate_volume(const sx_hashfs_volume_t *vol) {
 	    quit_errmsg(500, "Cannot locate the requested volume");
     }
 
+    goodnodes = sx_nodelist_new();
+    if(!goodnodes) {
+	sx_nodelist_delete(allnodes);
+	quit_errmsg(503, "Out of memeory");
+    }
+    nnodes = sx_nodelist_count(allnodes);
+    for(nnode=0; nnode<nnodes; nnode++) {
+	const sx_node_t *node = sx_nodelist_get(allnodes, nnode);
+	if(sx_hashfs_is_node_faulty(hashfs, sx_node_uuid(node)))
+	    continue;
+	if(sx_nodelist_add(goodnodes, sx_node_dup(node)))
+	    break;
+    }
+    sx_nodelist_delete(allnodes);
+    if(nnode < nnodes) {
+	sx_nodelist_delete(goodnodes);
+	quit_errmsg(503, "Out of memeory");
+    }
+    if(!sx_nodelist_count(goodnodes)) {
+	sx_nodelist_delete(goodnodes);
+	quit_errmsg(503, "All nodes for the volume have failed");
+    }
+
     if(has_arg("volumeMeta") && sx_hashfs_volumemeta_begin(hashfs, vol))
 	quit_errmsg(500, "Cannot lookup volume metadata");
 
     CGI_PUTS("Content-type: application/json\r\n\r\n{\"nodeList\":");
-    send_nodes_randomised(nodes);
-    sx_nodelist_delete(nodes);
+    send_nodes_randomised(goodnodes);
+    sx_nodelist_delete(goodnodes);
     if(size)
 	CGI_PRINTF(",\"blockSize\":%d", blocksize);
     if(has_arg("volumeMeta")) {

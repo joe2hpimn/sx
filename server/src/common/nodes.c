@@ -192,6 +192,7 @@ sx_nodelist_t *sx_nodelist_dup(const sx_nodelist_t *other) {
     return l;
 }
 
+#define NODELIST_BLOB_MAGIC "$NODELISTBLOB$"
 sx_blob_t *sx_nodelist_to_blob(const sx_nodelist_t *list) {
     unsigned int i, nnodes;
     sx_blob_t *ret;
@@ -203,7 +204,8 @@ sx_blob_t *sx_nodelist_to_blob(const sx_nodelist_t *list) {
 	return NULL;
 
     nnodes = sx_nodelist_count(list);
-    if(sx_blob_add_int32(ret, nnodes)) {
+    if(sx_blob_add_string(ret, NODELIST_BLOB_MAGIC) ||
+       sx_blob_add_int32(ret, nnodes)) {
 	sx_blob_free(ret);
 	return NULL;
     }
@@ -234,6 +236,7 @@ sx_blob_t *sx_nodelist_to_blob(const sx_nodelist_t *list) {
 sx_nodelist_t *sx_nodelist_from_blob(sx_blob_t *blob) {
     unsigned int i, nnodes;
     sx_nodelist_t *ret;
+    const char *magic;
 
     if(!blob)
 	return NULL;
@@ -243,7 +246,9 @@ sx_nodelist_t *sx_nodelist_from_blob(sx_blob_t *blob) {
 	return NULL;
 
     sx_blob_reset(blob);
-    if(sx_blob_get_int32(blob, (int32_t *)&nnodes))
+    if(sx_blob_get_string(blob, &magic) ||
+       strcmp(magic, NODELIST_BLOB_MAGIC) ||
+       sx_blob_get_int32(blob, (int32_t *)&nnodes))
 	goto blob_err;
 
     for(i=0; i<nnodes; i++) {

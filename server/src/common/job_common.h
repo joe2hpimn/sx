@@ -62,6 +62,7 @@ typedef enum _jobtype_t {
     JOBTYPE_DELETE_VOLUME,
     JOBTYPE_NEWKEY_USER,
     JOBTYPE_MODIFY_VOLUME,
+    JOBTYPE_REPLACE,
 } jobtype_t;
 
 typedef enum {

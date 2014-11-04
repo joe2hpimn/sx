@@ -83,7 +83,9 @@ sxi_query_t *sxi_hashop_proto_decuse_hash(sxc_client_t *sx, sxi_query_t *query, 
 sxi_query_t *sxi_hashop_proto_inuse_end(sxc_client_t *sx, sxi_query_t *query);
 
 sxi_query_t *sxi_nodeinit_proto(sxc_client_t *sx, const char *cluster_name, const char *node_uuid, uint16_t http_port, int ssl_flag, const char *ssl_file);
-sxi_query_t *sxi_distribution_proto(sxc_client_t *sx, const void *cfg, unsigned int cfg_len);
+sxi_query_t *sxi_distribution_proto_begin(sxc_client_t *sx, const void *cfg, unsigned int cfg_len);
+sxi_query_t *sxi_distribution_proto_add_faulty(sxc_client_t *sx, sxi_query_t *query, const char *node_uuid);
+sxi_query_t *sxi_distribution_proto_end(sxc_client_t *sx, sxi_query_t *query);
 
 sxi_query_t *sxi_volsizes_proto_begin(sxc_client_t *sx);
 sxi_query_t *sxi_volsizes_proto_add_volume(sxc_client_t *sx, sxi_query_t *query, const char *volname, int64_t size);

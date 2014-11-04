@@ -138,7 +138,9 @@ rc_ty sx_hashfs_derive_key(sx_hashfs_t *h, unsigned char *key, int len, const ch
 /* HashFS properties */
 rc_ty sx_hashfs_modhdist(sx_hashfs_t *h, const sx_nodelist_t *list);
 rc_ty sx_hashfs_hdist_change_req(sx_hashfs_t *h, const sx_nodelist_t *newdist, job_t *job_id);
+rc_ty sx_hashfs_hdist_replace_req(sx_hashfs_t *h, const sx_nodelist_t *replacements, job_t *job_id);
 rc_ty sx_hashfs_hdist_change_add(sx_hashfs_t *h, const void *cfg, unsigned int cfg_len);
+rc_ty sx_hashfs_hdist_replace_add(sx_hashfs_t *h, const void *cfg, unsigned int cfg_len, const sx_nodelist_t *badnodes);
 rc_ty sx_hashfs_hdist_change_commit(sx_hashfs_t *h);
 rc_ty sx_hashfs_hdist_change_revoke(sx_hashfs_t *h);
 rc_ty sx_hashfs_hdist_rebalance(sx_hashfs_t *h);
@@ -220,6 +222,8 @@ int sx_hashfs_is_volume_to_push(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, c
 int64_t sx_hashfs_get_node_push_time(sx_hashfs_t *h, const sx_node_t *n);
 /* Return 1 if given node is a volnode for given volume */
 int sx_hashfs_is_node_volume_owner(sx_hashfs_t *h, sx_hashfs_nl_t which, const sx_node_t *n, const sx_hashfs_volume_t *vol);
+int sx_hashfs_is_node_faulty(sx_hashfs_t *h, const sx_uuid_t *node_uuid);
+
 /* Change volume ownership and/or size*/
 rc_ty sx_hashfs_volume_mod(sx_hashfs_t *h, const char *volume, const char *newowner, int64_t newsize);
 

@@ -45,6 +45,7 @@
 #include "sx.h"
 #include "qsort.h"
 #include "utils.h"
+#include "blob.h"
 #include "../libsx/src/vcrypto.h"
 #include "../libsx/src/clustcfg.h"
 #include "../libsx/src/cluster.h"
@@ -732,7 +733,7 @@ struct _sx_hashfs_t {
     uint16_t http_port;
 
     sxi_hdist_t *hd;
-    sx_nodelist_t *prev_dist, *next_dist, *nextprev_dist, *prevnext_dist;
+    sx_nodelist_t *prev_dist, *next_dist, *nextprev_dist, *prevnext_dist, *faulty_nodes;
     int64_t hd_rev;
     unsigned int have_hd, is_rebalancing, is_orphan;
     time_t last_dist_change;
@@ -1004,7 +1005,7 @@ void sx_hashfs_checkpoint_eventdb(sx_hashfs_t *h)
 
 static int load_config(sx_hashfs_t *h, sxc_client_t *sx) {
     const void *p;
-    int r, ret = -1;
+    int r, load_faulty = 0, ret = -1;
 
     DEBUG("Reloading cluster configuration");
 
@@ -1024,6 +1025,8 @@ static int load_config(sx_hashfs_t *h, sxc_client_t *sx) {
     h->nextprev_dist = NULL;
     sx_nodelist_delete(h->prevnext_dist);
     h->prevnext_dist = NULL;
+    sx_nodelist_delete(h->faulty_nodes);
+    h->faulty_nodes = NULL;
     h->is_rebalancing = 0;
     h->sx = sx;
     h->last_dist_change = time(NULL);
@@ -1127,6 +1130,7 @@ static int load_config(sx_hashfs_t *h, sxc_client_t *sx) {
 		CRIT("Failed to retrieve cluster distribution from database");
 		goto load_config_fail;
 	    }
+	    load_faulty = 1;
 	} else {
 	    CRIT("Failed to retrieve cluster distribution from database");
 	    goto load_config_fail;
@@ -1165,8 +1169,37 @@ static int load_config(sx_hashfs_t *h, sxc_client_t *sx) {
 	    goto load_config_fail;
 	}
 
-	sqlite3_reset(h->q_getval);
+	if(load_faulty) {
+	    sqlite3_reset(h->q_getval);
+	    if(qbind_text(h->q_getval, ":k", "faulty_nodes")) {
+		CRIT("Failed to retrieve list of faulty nodes from database");
+		goto load_config_fail;
+	    }
+	    r = qstep(h->q_getval);
+	}
+	
+	if(load_faulty && r == SQLITE_ROW) {
+	    p = sqlite3_column_blob(h->q_getval, 0);
+	    if(!p) {
+		CRIT("Failed to retrieve list of faulty nodes from database");
+		goto load_config_fail;
+	    }
+	    sx_blob_t *badnodes = sx_blob_from_data(p, sqlite3_column_bytes(h->q_getval, 0));
+	    if(!badnodes) {
+		CRIT("Failed to retrieve list of faulty nodes from database");
+		goto load_config_fail;
+	    }
+	    h->faulty_nodes = sx_nodelist_from_blob(badnodes);
+	    sx_blob_free(badnodes);
+	} else
+	    h->faulty_nodes = sx_nodelist_new();
 
+	if(!h->faulty_nodes) {
+	    CRIT("Failed to retrieve list of faulty nodes from database");
+	    goto load_config_fail;
+	}
+
+	sqlite3_reset(h->q_getval);
 	if(!h->sx_clust) {
 	    h->sx_clust = sxi_conns_new(sx);
             sxi_conns_disable_proxy(h->sx_clust);
@@ -1580,7 +1613,7 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 	goto open_hashfs_fail;
     if(qprep(h->eventdb, &h->qe_islocked, "SELECT value from hashfs WHERE key = 'lockedby'"))
 	goto open_hashfs_fail;
-    snprintf(dynqry, sizeof(dynqry), "SELECT 1 FROM jobs WHERE complete = 0 AND type NOT IN (%d, %d, %d, %d) LIMIT 1", JOBTYPE_DISTRIBUTION, JOBTYPE_JLOCK, JOBTYPE_STARTREBALANCE, JOBTYPE_FINISHREBALANCE);
+    snprintf(dynqry, sizeof(dynqry), "SELECT 1 FROM jobs WHERE complete = 0 AND type NOT IN (%d, %d, %d, %d, %d) LIMIT 1", JOBTYPE_DISTRIBUTION, JOBTYPE_JLOCK, JOBTYPE_STARTREBALANCE, JOBTYPE_FINISHREBALANCE, JOBTYPE_REPLACE);
     if(qprep(h->eventdb, &h->qe_hasjobs, dynqry))
 	goto open_hashfs_fail;
     if(qprep(h->eventdb, &h->qe_lock, "INSERT INTO hashfs (key, value) VALUES ('lockedby', :node)"))
@@ -1699,6 +1732,7 @@ void sx_hashfs_close(sx_hashfs_t *h) {
     sx_nodelist_delete(h->next_dist);
     sx_nodelist_delete(h->prevnext_dist);
     sx_nodelist_delete(h->nextprev_dist);
+    sx_nodelist_delete(h->faulty_nodes);
 
     close_all_dbs(h);
 
@@ -3657,6 +3691,10 @@ static int is_new_volnode(sx_hashfs_t *h, const sx_hashfs_volume_t *vol) {
 
 int sx_hashfs_is_or_was_my_volume(sx_hashfs_t *h, const sx_hashfs_volume_t *vol) {
     return sx_hashfs_is_node_volume_owner(h, NL_NEXTPREV, sx_hashfs_self(h), vol);
+}
+
+int sx_hashfs_is_node_faulty(sx_hashfs_t *h, const sx_uuid_t *node_uuid) {
+    return sx_nodelist_lookup(h->faulty_nodes, node_uuid) != NULL;
 }
 
 static unsigned int slashes_in(const char *s) {
@@ -8137,7 +8175,8 @@ static const char *locknames[] = {
     "USER", /* JOBTYPE_DELETE_USER */
     "VOL", /* JOBTYPE_DELETE_VOLUME */
     "USER",
-    "VOL" /* JOBTYPE_MODIFY_VOLUME */
+    "VOL", /* JOBTYPE_MODIFY_VOLUME */
+    "*", /* JOBTYPE_REPLACE */
 };
 
 
@@ -8963,6 +9002,11 @@ rc_ty sx_hashfs_hdist_change_req(sx_hashfs_t *h, const sx_nodelist_t *newdist, j
 		msg_set_reason("Node %s cannot appear more than once", sx_node_uuid_str(n));
 		return EINVAL;
 	    }
+	    if(!sx_node_cmp_addrs(n, other)) {
+		sxi_hdist_free(newmod);
+		msg_set_reason("Node %s and %s share the same address", sx_node_uuid_str(n), sx_node_uuid_str(other));
+		return EINVAL;
+	    }
 	}
 	newclustersize += sx_node_capacity(n);
 	r = sxi_hdist_addnode(newmod, sx_node_uuid(n), sx_node_addr(n), sx_node_internal_addr(n), sx_node_capacity(n), NULL);
@@ -9049,7 +9093,158 @@ rc_ty sx_hashfs_hdist_change_req(sx_hashfs_t *h, const sx_nodelist_t *newdist, j
 
     r = sx_hashfs_job_new_end(h);
     if(r)
-        INFO("Failed to commit jobadd");
+	INFO("Failed to commit jobadd");
+    else
+	sx_hashfs_job_trigger(h);
+
+    return r;
+}
+
+rc_ty sx_hashfs_hdist_replace_req(sx_hashfs_t *h, const sx_nodelist_t *replacements, job_t *job_id) {
+    unsigned int nnodes, cnodes, i, cfg_len;
+    const sx_nodelist_t *curdist, *targets;
+    sxi_hdist_t *newmod;
+    sx_blob_t *jdata;
+    const void *cfg;
+    rc_ty r;
+
+    DEBUG("IN %s", __FUNCTION__);
+    if(!h || !replacements || !job_id) {
+	NULLARG();
+	return EFAULT;
+    }
+
+    if(!h->have_hd) {
+	WARN("Called before initialization");
+	return FAIL_EINIT;
+    }
+
+    if(h->is_rebalancing) {
+	msg_set_reason("The cluster is being rebalanced");
+	return EINVAL;
+    }
+
+    curdist = sx_hashfs_nodelist(h, NL_PREV);
+    nnodes = sx_nodelist_count(replacements);
+    if(!nnodes) {
+	msg_set_reason("No node replacement requested");
+	return EINVAL;
+    }
+    cnodes = sx_nodelist_count(curdist);
+    if(nnodes >= cnodes) {
+	msg_set_reason("Too many replaced nodes");
+	return EINVAL;
+    }
+
+    for(i=0; i<nnodes; i++) {
+	const sx_node_t *newnode = sx_nodelist_get(replacements, i);
+	const sx_uuid_t *newuuid = sx_node_uuid(newnode);
+	const sx_node_t *oldnode = sx_nodelist_lookup(curdist, newuuid);
+
+	if(!oldnode) {
+	    msg_set_reason("Node %s is not a current cluster member", newuuid->string);
+	    return EINVAL;
+	}
+	if(sx_node_capacity(newnode) != sx_node_capacity(oldnode)) {
+	    msg_set_reason("Node %s can only be replaced with a new node of the same size (%lld bytes)", newuuid->string, (long long)sx_node_capacity(oldnode));
+	    return EINVAL;
+	}
+    }
+
+    if((r = sxi_hdist_get_cfg(h->hd, &cfg, &cfg_len)) != OK) {
+	msg_set_reason("Failed to duplicate current distribution (get)");
+	return r;
+    }
+
+    if(!(newmod = sxi_hdist_from_cfg(cfg, cfg_len))) {
+	msg_set_reason("Failed to duplicate current distribution (from_cfg)");
+	return EINVAL;
+    }
+
+    if((r = sxi_hdist_newbuild(newmod))) {
+	sxi_hdist_free(newmod);
+	msg_set_reason("Failed to update current distribution");
+	return r;
+    }
+
+    for(i=0; i<cnodes; i++) {
+	const sx_node_t *oldnode = sx_nodelist_get(curdist, i);
+	const sx_node_t *newnode = sx_nodelist_lookup(replacements, sx_node_uuid(oldnode));
+	if(newnode) {
+	    unsigned int j;
+	    for(j=i+1; j<cnodes; j++) {
+		const sx_node_t *other = sx_nodelist_get(curdist, j);
+		if(!sx_node_cmp_addrs(newnode, other)) {
+		    sxi_hdist_free(newmod);
+		    msg_set_reason("Node %s and %s share the same address", sx_node_uuid_str(newnode), sx_node_uuid_str(other));
+		    return EINVAL;
+		}
+	    }
+	    oldnode = newnode;
+	}
+	r = sxi_hdist_addnode(newmod, sx_node_uuid(oldnode), sx_node_addr(oldnode), sx_node_internal_addr(oldnode), sx_node_capacity(oldnode), NULL);
+	if(r) {
+	    sxi_hdist_free(newmod);
+	    msg_set_reason("Failed to update current distribution");
+	    return FAIL_EINTERNAL;
+	}
+    }
+
+    if(sxi_hdist_rebalanced(newmod)) {
+	msg_set_reason("Failed to flat the current distribution");
+	sxi_hdist_free(newmod);
+	return FAIL_EINTERNAL;
+    }
+
+    if((r = sxi_hdist_build(newmod)) != OK) {
+	sxi_hdist_free(newmod);
+	msg_set_reason("Failed to build updated distribution");
+	return r;
+    }
+
+    if((r = sxi_hdist_get_cfg(newmod, &cfg, &cfg_len)) != OK) {
+	sxi_hdist_free(newmod);
+	msg_set_reason("Failed to retrieve updated distribution");
+	return r;
+    }
+
+    jdata = sx_nodelist_to_blob(replacements);
+    if(!jdata || sx_blob_add_blob(jdata, cfg, cfg_len)) {
+	msg_set_reason("Failed to define job data");
+	sxi_hdist_free(newmod);
+	sx_blob_free(jdata);
+	return ENOMEM;
+    }
+    sx_blob_to_data(jdata, &cfg, &cfg_len);
+
+    targets = sxi_hdist_nodelist(newmod, 0);
+    r = sx_hashfs_job_new_begin(h);
+    if(r) {
+	msg_set_reason("Failed to setup job targets");
+	sxi_hdist_free(newmod);
+	sx_blob_free(jdata);
+	return r;
+    }
+
+    r = sx_hashfs_job_new_notrigger(h, JOB_NOPARENT, 0, job_id, JOBTYPE_JLOCK, sx_nodelist_count(targets) * 20, "JLOCK", NULL, 0, targets);
+    if(r) {
+	INFO("job_new (jlock) returned: %s", rc2str(r));
+	sxi_hdist_free(newmod);
+	sx_blob_free(jdata);
+	return r;
+    }
+
+    r = sx_hashfs_job_new_notrigger(h, *job_id, 0, job_id, JOBTYPE_REPLACE, sx_nodelist_count(targets) * 120, "DISTRIBUTION", cfg, cfg_len, targets);
+    if(r) {
+	INFO("job_new (replace) returned: %s", rc2str(r));
+	sxi_hdist_free(newmod);
+	sx_blob_free(jdata);
+	return r;
+    }
+
+    r = sx_hashfs_job_new_end(h);
+    if(r)
+	INFO("Failed to commit jobadd");
     else
 	sx_hashfs_job_trigger(h);
 
@@ -9073,7 +9268,7 @@ rc_ty sx_hashfs_hdist_change_add(sx_hashfs_t *h, const void *cfg, unsigned int c
     if(h->is_rebalancing) {
 	msg_set_reason("The cluster is still being rebalanced");
 	return EEXIST;
-    }	
+    }
 
     newmod = sxi_hdist_from_cfg(cfg, cfg_len);
     if(!newmod) {
@@ -9119,6 +9314,11 @@ rc_ty sx_hashfs_hdist_change_add(sx_hashfs_t *h, const void *cfg, unsigned int c
 	    const sx_node_t *other = sx_nodelist_get(nodes, j);
 	    if(!sx_node_cmp(n, other)) {
 		msg_set_reason("Node %s cannot appear more than once", sx_node_uuid_str(n));
+		ret = EINVAL;
+		goto change_add_fail;
+	    }
+	    if(!sx_node_cmp_addrs(n, other)) {
+		msg_set_reason("Node %s and %s share the same address", sx_node_uuid_str(n), sx_node_uuid_str(other));
 		ret = EINVAL;
 		goto change_add_fail;
 	    }
@@ -9199,6 +9399,205 @@ rc_ty sx_hashfs_hdist_change_add(sx_hashfs_t *h, const void *cfg, unsigned int c
     qnullify(q);
     if(ret != OK)
 	qrollback(h->db);
+    sxi_hdist_free(newmod);
+
+    return ret;
+}
+
+rc_ty sx_hashfs_hdist_replace_add(sx_hashfs_t *h, const void *cfg, unsigned int cfg_len, const sx_nodelist_t *badnodes) {
+    unsigned int nnodes, badnnodes, i;
+    sxi_hdist_t *newmod;
+    const sx_nodelist_t *oldnodes, *newnodes;
+    sx_nodelist_t *faulty = NULL;
+    sx_blob_t *faultyblb = NULL;
+    sqlite3_stmt *q = NULL;
+    rc_ty ret;
+
+    DEBUG("IN %s", __FUNCTION__);
+    if(!h || !cfg || !badnodes) {
+	NULLARG();
+	return EINVAL;
+    }
+
+    badnnodes = sx_nodelist_count(badnodes);
+    if(!badnnodes) {	
+	msg_set_reason("No node to be replaced was provided");
+	return EINVAL;
+    }
+
+    if(h->is_rebalancing) {
+	msg_set_reason("The cluster is still being rebalanced");
+	return EEXIST;
+    }
+
+    newmod = sxi_hdist_from_cfg(cfg, cfg_len);
+    if(!newmod) {
+	msg_set_reason("Failed to load the new distribution");
+	return EINVAL;
+    }
+
+    if(sxi_hdist_buildcnt(newmod) != 1 ||
+       (h->have_hd && (!sxi_hdist_same_origin(newmod, h->hd) || sxi_hdist_version(newmod) != sxi_hdist_version(h->hd) + 2))) {
+	sxi_hdist_free(newmod);
+	msg_set_reason("The new model is not a direct descendent of the current model");
+	return EINVAL;
+    }
+
+    if(qbegin(h->db)) {
+	sxi_hdist_free(newmod);
+	return FAIL_EINTERNAL;
+    }
+
+    newnodes = sxi_hdist_nodelist(newmod, 0);
+    oldnodes = sx_hashfs_nodelist(h, NL_NEXT);
+    if(!newnodes || !(nnodes = sx_nodelist_count(newnodes))) {
+	msg_set_reason("Failed to retrieve the list of the updated nodes");
+	ret = FAIL_EINTERNAL;
+	goto replace_add_fail;
+    }
+
+    if(nnodes != sx_nodelist_count(oldnodes)) {
+	msg_set_reason("Distribution has changed: different count.");
+	ret = EINVAL;
+	goto replace_add_fail;
+    }
+
+    for(i = 0; i<nnodes; i++) {
+	const sx_node_t *nn = sx_nodelist_get(newnodes, i);
+	const sx_node_t *on = sx_nodelist_lookup(oldnodes, sx_node_uuid(nn));
+	unsigned int j;
+	if(!on || sx_node_capacity(nn) != sx_node_capacity(on)) {
+	    msg_set_reason("Distribution has changed: different nodes or capacity.");
+	    ret = EINVAL;
+	    goto replace_add_fail;
+	}
+	for(j=i+1; j<nnodes; j++) {
+	    const sx_node_t *other = sx_nodelist_get(newnodes, j);
+	    if(!sx_node_cmp(nn, other)) {
+		msg_set_reason("Node %s cannot appear more than once", sx_node_uuid_str(nn));
+		ret = EINVAL;
+		goto replace_add_fail;
+	    }
+	    if(!sx_node_cmp_addrs(nn, other)) {
+		msg_set_reason("Node %s and %s share the same address", sx_node_uuid_str(nn), sx_node_uuid_str(other));
+		ret = EINVAL;
+		goto replace_add_fail;
+	    }
+	}
+    }
+
+    faulty = sx_nodelist_new();
+    if(!faulty) {
+	msg_set_reason("Out of memory creating faulty node list");
+	ret = ENOMEM;
+	goto replace_add_fail;
+    }
+    for(i = 0; i<badnnodes; i++) {
+	const sx_node_t *bn = sx_nodelist_get(badnodes, i);
+	const sx_node_t *nn = sx_nodelist_lookup(newnodes, sx_node_uuid(bn));
+	if(!nn) {
+	    msg_set_reason("Faulty node %s is not found in the distribution", sx_node_uuid_str(nn));
+	    ret = EINVAL;
+	    goto replace_add_fail;
+	}
+	if(sx_nodelist_lookup(faulty, sx_node_uuid(nn))) {
+	    msg_set_reason("Duplicated faulty node %s is not found in the distribution", sx_node_uuid_str(nn));
+	    ret = EINVAL;
+	    goto replace_add_fail;
+	}
+	if(sx_nodelist_add(faulty, sx_node_dup(nn))) {
+	    msg_set_reason("Out of memory creating faulty node list");
+	    ret = ENOMEM;
+	    goto replace_add_fail;
+	}   
+    }
+
+    if(qprep(h->db, &q, "INSERT OR REPLACE INTO hashfs (key, value) VALUES (:k , :v)")) {
+	msg_set_reason("Failed to save the updated distribution model");
+	ret = FAIL_EINTERNAL;
+	goto replace_add_fail;
+    }
+
+    if(h->have_hd) {
+	const void *cur_cfg;
+	unsigned int cur_cfg_len;
+
+	ret = sxi_hdist_get_cfg(h->hd, &cur_cfg, &cur_cfg_len);
+	if(ret) {
+	    msg_set_reason("Failed to retrieve the current distribution model");
+	    goto replace_add_fail;
+	}
+	if(qbind_text(q, ":k", "current_dist") ||
+	   qbind_blob(q, ":v", cur_cfg, cur_cfg_len) ||
+	   qstep_noret(q)) {
+	    msg_set_reason("Failed to save current distribution model");
+	    ret = FAIL_EINTERNAL;
+	    goto replace_add_fail;
+	}
+
+	sqlite3_reset(q);
+	if(qbind_text(q, ":k", "current_dist_rev") ||
+	   qbind_int64(q, ":v", sxi_hdist_version(h->hd)) ||
+	   qstep_noret(q)) {
+	    msg_set_reason("Failed to save current distribution model");
+	    ret = FAIL_EINTERNAL;
+	    goto replace_add_fail;
+	}
+	sqlite3_reset(q);
+    }
+
+    if(qbind_text(q, ":k", "dist") ||
+       qbind_blob(q, ":v", cfg, cfg_len) ||
+       qstep_noret(q)) {
+	msg_set_reason("Failed to save target distribution model");
+	ret = FAIL_EINTERNAL;
+	goto replace_add_fail;
+    }
+
+    sqlite3_reset(q);
+    if(qbind_text(q, ":k", "dist_rev") ||
+       qbind_int64(q, ":v", sxi_hdist_version(newmod)) ||
+       qstep_noret(q)) {
+	msg_set_reason("Failed to save target distribution model");
+	ret = FAIL_EINTERNAL;
+	goto replace_add_fail;
+    }
+
+    faultyblb = sx_nodelist_to_blob(faulty);
+    if(!faultyblb) {
+	msg_set_reason("Failed to manage faulty nodes");
+	ret = FAIL_EINTERNAL;
+	goto replace_add_fail;
+    }
+
+    sx_blob_to_data(faultyblb, &cfg, &cfg_len);
+    sqlite3_reset(q);
+    if(qbind_text(q, ":k", "faulty_nodes") ||
+       qbind_blob(q, ":v", cfg, cfg_len) ||
+       qstep_noret(q)) {
+	msg_set_reason("Failed to save faulty nodes");
+	ret = FAIL_EINTERNAL;
+	goto replace_add_fail;
+    }
+    
+    if(sx_hashfs_set_rbl_info(h, 1, 0, "Updating distribution model")) {
+	ret = FAIL_EINTERNAL;
+	goto replace_add_fail;
+    }
+
+    if(qcommit(h->db)) {
+	msg_set_reason("Failed to save distribution model");
+	ret = FAIL_EINTERNAL;
+    } else {
+	ret = OK;
+	DEBUG("Distribution change added from %lld to %lld", (long long)h->hd_rev, (long long)sxi_hdist_version(newmod));
+    }
+ replace_add_fail:
+    qnullify(q);
+    if(ret != OK)
+	qrollback(h->db);
+    sx_nodelist_delete(faulty);
+    sx_blob_free(faultyblb);
     sxi_hdist_free(newmod);
 
     return ret;

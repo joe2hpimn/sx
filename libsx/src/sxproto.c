@@ -603,7 +603,7 @@ sxi_query_t *sxi_nodeinit_proto(sxc_client_t *sx, const char *cluster_name, cons
     return ret;
 }
 
-sxi_query_t *sxi_distribution_proto(sxc_client_t *sx, const void *cfg, unsigned int cfg_len) {
+sxi_query_t *sxi_distribution_proto_begin(sxc_client_t *sx, const void *cfg, unsigned int cfg_len) {
     char *hexcfg = NULL;
     sxi_query_t *ret;
     unsigned int n;
@@ -617,13 +617,37 @@ sxi_query_t *sxi_distribution_proto(sxc_client_t *sx, const void *cfg, unsigned 
 
     sxi_bin2hex(cfg, cfg_len, hexcfg);
 
-    n = sizeof("{\"newDistribution\":\"\"}") + cfg_len * 2;
+    n = sizeof("{\"newDistribution\":\"\",\"faultyNodes\":[") + cfg_len * 2;
     ret = sxi_query_create(sx, ".dist", REQ_PUT);
-    if(ret)
-	ret = sxi_query_append_fmt(sx, ret, n, "{\"newDistribution\":\"%s\"}", hexcfg);
+    if(ret) {
+	ret->comma = 0;
+	ret = sxi_query_append_fmt(sx, ret, n, "{\"newDistribution\":\"%s\",\"faultyNodes\":[", hexcfg);
+    }
 
     free(hexcfg);
     return ret;
+}
+
+sxi_query_t *sxi_distribution_proto_add_faulty(sxc_client_t *sx, sxi_query_t *query, const char *node_uuid) {
+    if(!sx || !query || !node_uuid) {
+        SXDEBUG("Called with NULL argument");
+        return NULL;
+    }
+
+    if(!query->comma) {
+	query->comma = 1;
+	return sxi_query_append_fmt(sx, query, strlen(node_uuid)+2,"\"%s\"", node_uuid);
+    } else
+	return sxi_query_append_fmt(sx, query, strlen(node_uuid)+3,",\"%s\"", node_uuid);
+}
+
+sxi_query_t *sxi_distribution_proto_end(sxc_client_t *sx, sxi_query_t *query) {
+    if(!sx || !query) {
+        SXDEBUG("Called with NULL argument");
+        return NULL;
+    }
+
+    return sxi_query_append_fmt(sx, query, 3, "]}");
 }
 
 static sxi_query_t *sxi_volumeacl_loop(sxc_client_t *sx, sxi_query_t *query,
