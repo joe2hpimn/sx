@@ -273,17 +273,20 @@ int main(int argc, char **argv) {
 	cmdline_args_free(&cmdargs);
 	return EXIT_FAILURE;
     }
+    free(params);
+
     debug = (cmdargs.debug_flag || args.debug_flag) ? 1 : 0;
     foreground = (cmdargs.foreground_flag || args.foreground_flag) ? 1 : 0;
 
-    free(params);
-    cmdline_args_free(&cmdargs);
-
     sx = sx_init(NULL, NULL, NULL, foreground, argc, argv);
-    if (!sx)
+    if (!sx) {
+	cmdline_args_free(&cmdargs);
         return EXIT_FAILURE;
+    }
 
-    INFO("Using config file %s", cmdargs.config_file_given ? cmdargs.config_file_arg : DEFAULT_FCGI_CFGFILE);
+    if(!cmdargs.config_file_given)
+	INFO("Using default config file %s", DEFAULT_FCGI_CFGFILE);
+    cmdline_args_free(&cmdargs);
 
     if(!getrlimit(RLIMIT_NOFILE, &rlim) && (rlim.rlim_cur < MAX_FDS || rlim.rlim_max < MAX_FDS)) {
 	unsigned int l_soft = rlim.rlim_cur, l_hard = rlim.rlim_max;
