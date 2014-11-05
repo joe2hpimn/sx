@@ -2355,8 +2355,9 @@ static const sx_node_t *blocktarget(sx_hashfs_t *hashfs, const block_meta_t *b) 
     return ret;
 }
 
-#define RB_MAX_NODES (2 /* FIXMERB: bump me ? */)
-#define RB_MAX_BLOCKS 100
+#define RB_MAX_NODES (2 /* FIXME: bump me ? */)
+#define RB_MAX_BLOCKS (100 /* FIXME: should be a sane(!) multiple of DOWNLOAD_MAX_BLOCKS */)
+#define RB_MAX_TRIES (RB_MAX_BLOCKS * RB_MAX_NODES)
 static act_result_t blockrb_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     const sx_node_t *self = sx_hashfs_self(hashfs);
     sxc_client_t *sx = sx_hashfs_client(hashfs);
@@ -2371,7 +2372,7 @@ static act_result_t blockrb_request(sx_hashfs_t *hashfs, job_t job_id, job_data_
 	unsigned int nblocks;
 	int query_sent;
     } rbdata[RB_MAX_NODES];
-    unsigned int i, j, maxnodes = MIN(RB_MAX_NODES, sx_nodelist_count(next) - (sx_nodelist_lookup(next, sx_node_uuid(self)) != NULL));
+    unsigned int i, j, maxnodes, maxtries;
     rc_ty s;
 
     if(job_data->len || sx_nodelist_count(nodes) != 1) {
@@ -2380,7 +2381,6 @@ static act_result_t blockrb_request(sx_hashfs_t *hashfs, job_t job_id, job_data_
     }
 
     memset(rbdata, 0, sizeof(rbdata));
-
     sx_hashfs_set_rbl_info(hashfs, 1, 0, "Relocating data (FIXME: make me pretty)");
 
     s = sx_hashfs_br_begin(hashfs);
@@ -2391,7 +2391,9 @@ static act_result_t blockrb_request(sx_hashfs_t *hashfs, job_t job_id, job_data_
     } else if(s != OK)
 	action_error(rc2actres(s), rc2http(s), msg_get_reason());
 
-    while(1) {
+    maxnodes = MIN(RB_MAX_NODES, sx_nodelist_count(next) - (sx_nodelist_lookup(next, sx_node_uuid(self)) != NULL));
+    maxtries = RB_MAX_TRIES; /* Maximum *consecutive* attempts to find a pushable block */
+    while(maxtries) {
 	const sx_node_t *target;
 	block_meta_t *blockmeta;
 	char hstr[sizeof(blockmeta->hash) * 2 +1];
@@ -2429,17 +2431,20 @@ static act_result_t blockrb_request(sx_hashfs_t *hashfs, job_t job_id, job_data_
 	    /* All target slots are taken, will target again later */
 	    DEBUG("Block %s is targeted for %s(%s) to which we currently do not have a channel", hstr, sx_node_uuid_str(target), sx_node_internal_addr(target));
 	    sx_hashfs_blockmeta_free(&blockmeta);
+	    maxtries--;
 	    continue;
 	}
 	if(rbdata[i].nblocks >= RB_MAX_BLOCKS) {
 	    /* This target is already full */
 	    DEBUG("Channel to %s (%s) have all the slots full: block %s will be moved later", sx_node_uuid_str(target), sx_node_internal_addr(target), hstr);
 	    sx_hashfs_blockmeta_free(&blockmeta);
+	    maxtries--;
 	    continue;
 	}
 
 	rbdata[i].blocks[rbdata[i].nblocks] = blockmeta;
 	rbdata[i].nblocks++;
+	maxtries = RB_MAX_TRIES; /* Reset tries to the max */
 	if(rbdata[i].nblocks >= RB_MAX_BLOCKS) {
 	    /* Target has reached capacity, check if everyone is full */
 	    for(j=0; j<maxnodes; j++)
