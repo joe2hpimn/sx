@@ -364,11 +364,10 @@ rc_ty sx_hashfs_br_begin(sx_hashfs_t *h);
 /* call this until you get ITER_NO_MORE or an error */
 rc_ty sx_hashfs_br_next(sx_hashfs_t *h, block_meta_t **blockmetaptr);
 
-/* must call either delete or ignore, or you'll eventually see the hash again.
- * Note: calling ignore doesn't mean you won't see it again, it just means
- * that if all hashes are ignored iteration stops and returns ITER_NO_MORE. */
+/* must call either delete or done, or you'll eventually see the hash again. */
 rc_ty sx_hashfs_br_delete(sx_hashfs_t *h, const block_meta_t *blockmeta);
-rc_ty sx_hashfs_br_ignore(sx_hashfs_t *h, const block_meta_t *blockmeta);
+rc_ty sx_hashfs_br_use(sx_hashfs_t *h, const block_meta_t *blockmeta);
+rc_ty sx_hashfs_br_done(sx_hashfs_t *h, const block_meta_t *blockmeta);
 
 rc_ty sx_hashfs_blkrb_hold(sx_hashfs_t *h, const sx_hash_t *block, unsigned int blocksize, const sx_node_t *node);
 rc_ty sx_hashfs_blkrb_can_gc(sx_hashfs_t *h, const sx_hash_t *block, unsigned int blocksize);

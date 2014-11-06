@@ -593,12 +593,13 @@ struct rebalance_iter {
     unsigned sizeidx;
     unsigned ndbidx;
     unsigned rebalance_ver;
-    int64_t ignored;
-    int64_t deleted;
-    int64_t all;
-    unsigned restart_count;
-    unsigned iter_no_more;
+    int retry_mode;
     sqlite3_stmt *q[SIZES][HASHDBS];
+    sqlite3_stmt *q_add;
+    sqlite3_stmt *q_sel;
+    sqlite3_stmt *q_remove;
+    sqlite3_stmt *q_reset;
+    sqlite3_stmt *q_count;
 };
 
 struct _sx_hashfs_t {
@@ -822,6 +823,12 @@ static void close_all_dbs(sx_hashfs_t *h) {
     sqlite3_finalize(h->qe_hasjobs);
     sqlite3_finalize(h->qe_lock);
     sqlite3_finalize(h->qe_unlock);
+
+    sqlite3_finalize(h->rit.q_add);
+    sqlite3_finalize(h->rit.q_sel);
+    sqlite3_finalize(h->rit.q_remove);
+    sqlite3_finalize(h->rit.q_reset);
+    sqlite3_finalize(h->rit.q_count);
 
     qclose(&h->eventdb);
 
@@ -1580,6 +1587,20 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 	goto open_hashfs_fail;
     if(qprep(h->eventdb, &h->qe_unlock, "DELETE FROM hashfs WHERE key = 'lockedby'"))
 	goto open_hashfs_fail;
+    if(qprep(h->eventdb, &q, "CREATE TEMP TABLE hash_retry(hash BLOB("STRIFY(SXI_SHA1_BIN_LEN)") PRIMARY KEY NOT NULL, blocksize INTEGER NOT NULL, id INTEGER NOT NULL)") ||
+        qstep_noret(q))
+        goto open_hashfs_fail;
+    qnullify(q);
+    if(qprep(h->eventdb, &h->rit.q_add, "INSERT OR IGNORE INTO hash_retry(hash, blocksize, id) VALUES(:hash, :blocksize, :id)"))
+        goto open_hashfs_fail;
+    if(qprep(h->eventdb, &h->rit.q_sel, "SELECT id, hash, blocksize FROM hash_retry WHERE hash > :prevhash"))
+        goto open_hashfs_fail;
+    if(qprep(h->eventdb, &h->rit.q_remove, "DELETE FROM hash_retry WHERE hash=:hash"))
+        goto open_hashfs_fail;
+    if(qprep(h->eventdb, &h->rit.q_reset, "DELETE FROM hash_retry"))
+        goto open_hashfs_fail;
+    if(qprep(h->eventdb, &h->rit.q_count, "SELECT COUNT(*) FROM hash_retry"))
+        goto open_hashfs_fail;
 
     OPEN_DB("xferdb", &h->xferdb);
     if(qprep(h->xferdb, &h->qx_add, "INSERT INTO topush (block, size, node) VALUES (:b, :s, :n)"))
@@ -9640,9 +9661,8 @@ static rc_ty sx_hashfs_blocks_restart(sx_hashfs_t *h, unsigned rebalance_version
                 return FAIL_EINTERNAL;
         }
     }
-    h->rit.sizeidx = h->rit.ndbidx = h->rit.iter_no_more = 0;
-    h->rit.deleted = h->rit.ignored = h->rit.all = 0;
-    h->rit.restart_count++;
+    h->rit.sizeidx = h->rit.ndbidx = 0;
+    h->rit.retry_mode = 0;
     return OK;
 }
 
@@ -9664,6 +9684,7 @@ static rc_ty fill_block_meta(sx_hashfs_t *h, sqlite3_stmt *qmeta, block_meta_t *
     if (qbind_int64(qmeta, ":blockid", blockid))
         return FAIL_EINTERNAL;
     blockmeta->count = 0;
+    blockmeta->blockid = blockid;
     sqlite3_reset(qmeta);
     while ((ret = qstep(qmeta)) == SQLITE_ROW) {
         int64_t count = sqlite3_column_int64(qmeta, 1);
@@ -9680,6 +9701,87 @@ static rc_ty fill_block_meta(sx_hashfs_t *h, sqlite3_stmt *qmeta, block_meta_t *
     if (ret != SQLITE_DONE)
         return FAIL_EINTERNAL;
     return OK;
+}
+
+static rc_ty sx_hashfs_blockmeta_get(sx_hashfs_t *h, rc_ty ret, sqlite3_stmt *q, sqlite3_stmt *qmeta, unsigned int blocksize, block_meta_t *blockmeta)
+{
+    if (ret == SQLITE_DONE) {
+        /* reset iterator for current db, so next time it starts
+         * from the beginning */
+        sqlite3_reset(q);
+        if (qbind_blob(q, ":prevhash", "", 0)) {
+            sqlite3_reset(q);
+            sqlite3_reset(qmeta);
+            return FAIL_EINTERNAL;
+        }
+    } else if (ret == SQLITE_ROW) {
+        int64_t blockid = sqlite3_column_int64(q, 0);
+        if (sqlite3_column_bytes(q, 1) != sizeof(blockmeta->hash)) {
+            WARN("bad blob size");
+            sqlite3_reset(q);
+            sqlite3_reset(qmeta);
+            return FAIL_EINTERNAL;
+        }
+        memcpy(blockmeta, sqlite3_column_blob(q, 1), sizeof(blockmeta->hash));
+        blockmeta->blocksize = blocksize;
+        sqlite3_reset(q);
+        if (qbind_blob(q, ":prevhash", blockmeta->hash.b, sizeof(blockmeta->hash.b))) {
+            sqlite3_reset(q);
+            sqlite3_reset(qmeta);
+            return FAIL_EINTERNAL;
+        }
+        if (fill_block_meta(h, qmeta, blockmeta, blockid)) {
+            sqlite3_reset(q);
+            sqlite3_reset(qmeta);
+            WARN("failed to fill block meta");
+            return FAIL_EINTERNAL;
+        }
+        if (blockmeta->count) {
+            DEBUG("hs:%d,ndb:%d,blockmeta count=%ld", h->rit.sizeidx, h->rit.ndbidx, blockmeta->count);
+            DEBUGHASH("_next: ", &blockmeta->hash);
+            return OK;
+        }
+        DEBUGHASH("blockmeta.count=0", &blockmeta->hash);
+        /* blockmeta.count = 0 means this hash has no OLD counters
+         * so skip it
+         * */
+    } else {
+        WARN("iteration failed");
+        sqlite3_reset(q);
+        sqlite3_reset(qmeta);
+        return FAIL_EINTERNAL;
+    }
+    return ret;
+}
+
+static rc_ty sx_hashfs_blocks_retry_next(sx_hashfs_t *h, block_meta_t *blockmeta)
+{
+    sqlite3_stmt *q = h->rit.q_sel;
+    sqlite3_reset(q);
+    rc_ty ret = qstep(q);
+    int hs;
+
+    if (ret == SQLITE_DONE) {
+        sx_hashfs_blockmeta_get(h, ret, q, NULL, 0, NULL);
+        return ITER_NO_MORE;
+    }
+    if (ret == SQLITE_ROW) {
+        int bs = sqlite3_column_int(q, 2);
+        for(hs = 0; hs < SIZES; hs++)
+            if(bsz[hs] == bs)
+                break;
+        if(hs == SIZES) {
+            WARN("bad blocksize: %d", bs);
+            return FAIL_BADBLOCKSIZE;
+        }
+        const sx_hash_t* hash = sqlite3_column_blob(q, 1);
+        DEBUGHASH("retry_next", hash);
+        unsigned int ndb = gethashdb(hash);
+        ret = sx_hashfs_blockmeta_get(h, ret, q, h->qb_get_meta[hs][ndb], bs, blockmeta);
+        return ret;
+    }
+    sqlite3_reset(q);
+    return ret;
 }
 
 /* iterate over all hashes once */
@@ -9699,52 +9801,10 @@ static rc_ty sx_hashfs_blocks_next(sx_hashfs_t *h, block_meta_t *blockmeta)
                       ret == SQLITE_DONE ? "DONE" :
                       ret == SQLITE_ROW ? "ROW" :
                       "ERROR");
-                if (ret == SQLITE_DONE) {
-                    /* reset iterator for current db, so next time it starts
-                     * from the beginning */
-                    sqlite3_reset(q);
-                    if (qbind_blob(q, ":prevhash", "", 0)) {
-                        sqlite3_reset(q);
-                        sqlite3_reset(qmeta);
-                        return FAIL_EINTERNAL;
-                    }
-                } else if (ret == SQLITE_ROW) {
-                    int64_t blockid = sqlite3_column_int64(q, 0);
-                    if (sqlite3_column_bytes(q, 1) != sizeof(blockmeta->hash)) {
-                        WARN("bad blob size");
-                        sqlite3_reset(q);
-                        sqlite3_reset(qmeta);
-                        return FAIL_EINTERNAL;
-                    }
-                    memcpy(blockmeta, sqlite3_column_blob(q, 1), sizeof(blockmeta->hash));
-                    blockmeta->blocksize = bsz[h->rit.sizeidx];
-                    sqlite3_reset(q);
-                    if (qbind_blob(q, ":prevhash", blockmeta->hash.b, sizeof(blockmeta->hash.b))) {
-                        sqlite3_reset(q);
-                        sqlite3_reset(qmeta);
-                        return FAIL_EINTERNAL;
-                    }
-                    if (fill_block_meta(h, qmeta, blockmeta, blockid)) {
-                        sqlite3_reset(q);
-                        sqlite3_reset(qmeta);
-                        WARN("failed to fill block meta");
-                        return FAIL_EINTERNAL;
-                    }
-                    if (blockmeta->count) {
-                        DEBUG("hs:%d,ndb:%d,blockmeta count=%ld", h->rit.sizeidx, h->rit.ndbidx, blockmeta->count);
-                        DEBUGHASH("_next: ", &blockmeta->hash);
-                        return OK;
-                    }
-                    DEBUGHASH("blockmeta.count=0", &blockmeta->hash);
-                    /* blockmeta.count = 0 means this hash has no OLD counters
-                     * so skip it
-                     * */
-                } else {
-                    WARN("iteration failed");
-                    sqlite3_reset(q);
-                    sqlite3_reset(qmeta);
-                    return FAIL_EINTERNAL;
-                }
+                ret = sx_hashfs_blockmeta_get(h, ret, q, qmeta, bsz[h->rit.sizeidx], blockmeta);
+                sqlite3_reset(q);
+                if (ret != SQLITE_ROW && ret != SQLITE_DONE)
+                    return ret;
             } while (ret == SQLITE_ROW);
         }
         h->rit.ndbidx = 0;
@@ -9755,32 +9815,43 @@ static rc_ty sx_hashfs_blocks_next(sx_hashfs_t *h, block_meta_t *blockmeta)
 
 rc_ty sx_hashfs_br_init(sx_hashfs_t *h)
 {
+    rc_ty ret = OK;
     unsigned rebalance_version = sxi_hdist_version(h->hd);
     DEBUG("block rebalance initialized");
     h->rit.rebalance_ver = rebalance_version;
-    h->rit.restart_count = 0;
-    return OK;
+    h->rit.retry_mode = 0;
+    sqlite3_reset(h->rit.q_reset);
+    if (qstep_noret(h->rit.q_reset))
+        ret = FAIL_EINTERNAL;
+    sqlite3_reset(h->rit.q_reset);
+    return ret;
 }
 
 rc_ty sx_hashfs_br_begin(sx_hashfs_t *h)
 {
     unsigned rebalance_version = sxi_hdist_version(h->hd);
-    if (rebalance_version != h->rit.rebalance_ver)
+    if (rebalance_version != h->rit.rebalance_ver) {
+        rc_ty rc;
         sx_hashfs_br_init(h);
-    DEBUG("previous internal iteration: %lld deleted, %lld ignored, %lld total",
-          (long long)h->rit.deleted, (long long)h->rit.ignored, (long long)h->rit.all);
-    if (h->rit.deleted + h->rit.ignored > h->rit.all)
-        WARN("bad deleted/ignored counters");
-    /* iteration finished, check whether we processed all hashes */
-    if (h->rit.iter_no_more && h->rit.restart_count && h->rit.deleted + h->rit.ignored == h->rit.all) {
-        DEBUG("outer iteration done!");
-        return ITER_NO_MORE;
+        rc = sx_hashfs_blocks_restart(h, h->rit.rebalance_ver);
+        if (rc)
+            return rc;
     }
-    if (h->rit.iter_no_more || !h->rit.restart_count)
-        /* reset and iterate again */
-        return sx_hashfs_blocks_restart(h, h->rit.rebalance_ver);
-    else
-        return OK; /* continue iterating from previous position */
+    /* iteration finished, check whether we processed all hashes */
+    if (h->rit.retry_mode) {
+        int64_t n;
+        sqlite3_reset(h->rit.q_count);
+        if (qstep_ret(h->rit.q_count))
+            return FAIL_EINTERNAL;
+        n = sqlite3_column_int64(h->rit.q_count, 0);
+        sqlite3_reset(h->rit.q_count);
+        DEBUG("retry: %lld hashes", (long long)n);
+        if (!n) {
+            DEBUG("outer iteration done");
+            return ITER_NO_MORE;
+        }
+    }
+    return OK;
 }
 
 rc_ty sx_hashfs_br_next(sx_hashfs_t *h, block_meta_t **blockmetaptr)
@@ -9793,20 +9864,53 @@ rc_ty sx_hashfs_br_next(sx_hashfs_t *h, block_meta_t **blockmetaptr)
     block_meta_t *blockmeta = *blockmetaptr = wrap_calloc(1, sizeof(*blockmeta));
     if (!blockmeta)
         return ENOMEM;
-    ret = sx_hashfs_blocks_next(h, blockmeta);
+    if (h->rit.retry_mode)
+        ret = sx_hashfs_blocks_retry_next(h, blockmeta);
+    else
+        ret = sx_hashfs_blocks_next(h, blockmeta);
     if (ret == OK) {
         DEBUGHASH("br_next", &blockmeta->hash);
-        h->rit.all++;
         return OK;
     }
     sx_hashfs_blockmeta_free(blockmetaptr);
     if (ret == ITER_NO_MORE) {
-        DEBUG("internal iteration done: %lld deleted, %lld ignored, %lld total",
-              (long long)h->rit.deleted, (long long)h->rit.ignored, (long long)h->rit.all);
-        if (h->rit.deleted + h->rit.ignored > h->rit.all)
-            WARN("bad deleted/ignored counters");
-        h->rit.iter_no_more = 1;
+        h->rit.retry_mode = 1;
+        DEBUG("retry_mode enabled");
     }
+    return ret;
+}
+
+rc_ty sx_hashfs_br_use(sx_hashfs_t *h, const block_meta_t *blockmeta)
+{
+    rc_ty ret = OK;
+    if (!h || !blockmeta) {
+        NULLARG();
+        return EFAULT;
+    }
+    sqlite3_reset(h->rit.q_add);
+    if(qbind_blob(h->rit.q_add, ":hash", &blockmeta->hash, sizeof(blockmeta->hash)) ||
+       qbind_int(h->rit.q_add, ":blocksize", blockmeta->blocksize) ||
+       qbind_int(h->rit.q_add, ":id", blockmeta->blockid) ||
+       qstep_noret(h->rit.q_add))
+        ret = FAIL_EINTERNAL;
+    sqlite3_reset(h->rit.q_add);
+    DEBUGHASH("br_use", &blockmeta->hash);
+    return ret;
+}
+
+rc_ty sx_hashfs_br_done(sx_hashfs_t *h, const block_meta_t *blockmeta)
+{
+    rc_ty ret = OK;
+    if (!h || !blockmeta) {
+        NULLARG();
+        return EFAULT;
+    }
+    sqlite3_reset(h->rit.q_remove);
+    if(qbind_blob(h->rit.q_remove, ":hash", &blockmeta->hash, sizeof(blockmeta->hash)) ||
+       qstep_noret(h->rit.q_remove))
+        ret = FAIL_EINTERNAL;
+    sqlite3_reset(h->rit.q_add);
+    DEBUGHASH("br_done", &blockmeta->hash);
     return ret;
 }
 
@@ -9819,6 +9923,8 @@ rc_ty sx_hashfs_br_delete(sx_hashfs_t *h, const block_meta_t *blockmeta)
         NULLARG();
         return EFAULT;
     }
+    if ((ret = sx_hashfs_br_done(h, blockmeta)))
+        return ret;
     ndb = gethashdb(&blockmeta->hash);
     for(hs = 0; hs < SIZES; hs++)
 	if(bsz[hs] == blockmeta->blocksize)
@@ -9835,19 +9941,10 @@ rc_ty sx_hashfs_br_delete(sx_hashfs_t *h, const block_meta_t *blockmeta)
     ret = qstep_noret(q);
     sqlite3_reset(q);
     if (ret == OK) {
-        h->rit.deleted++;
         DEBUGHASH("_delete on", &blockmeta->hash);
     }
     return ret;
 }
-
-rc_ty sx_hashfs_br_ignore(sx_hashfs_t *h, const block_meta_t *blockmeta)
-{
-    DEBUGHASH("_ignore on", &blockmeta->hash);
-    h->rit.ignored++;
-    return OK;
-}
-
 
 rc_ty sx_hashfs_blkrb_hold(sx_hashfs_t *h, const sx_hash_t *block, unsigned int blocksize, const sx_node_t *node) {
     const sx_uuid_t *uuid;
@@ -9857,12 +9954,15 @@ rc_ty sx_hashfs_blkrb_hold(sx_hashfs_t *h, const sx_hash_t *block, unsigned int 
         return EFAULT;
     }
 
-    if(sx_hashfs_check_blocksize(blocksize) != OK)
+    if(sx_hashfs_check_blocksize(blocksize) != OK) {
+        WARN("bad blocksize: %d", blocksize);
 	return FAIL_BADBLOCKSIZE;
+    }
 
     uuid = sx_node_uuid(node);
     if(!uuid) {
 	msg_set_reason("Invalid node target for block to put on hold");
+        WARN("invalid target node");
 	return EINVAL;
     }
 

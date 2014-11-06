@@ -2415,10 +2415,14 @@ static act_result_t blockrb_request(sx_hashfs_t *hashfs, job_t job_id, job_data_
 	if(!sx_node_cmp(self, target)) {
 	    /* Not to be moved */
 	    DEBUG("Block %s is not to be moved", hstr);
-	    sx_hashfs_br_ignore(hashfs, blockmeta);
+            DEBUGHASH("br_ignore", &blockmeta->hash);
 	    sx_hashfs_blockmeta_free(&blockmeta);
 	    continue;
 	}
+        if ((s = sx_hashfs_br_use(hashfs, blockmeta))) {
+	    sx_hashfs_blockmeta_free(&blockmeta);
+            break;
+        }
 	for(i=0; i<maxnodes; i++) {
 	    if(!rbdata[i].node) {
 		rbdata[i].node = target;

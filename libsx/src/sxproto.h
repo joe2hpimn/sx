@@ -66,6 +66,7 @@ typedef struct {
     unsigned int blocksize;
     block_meta_entry_t *entries;
     unsigned long count;
+    int64_t blockid;
 } block_meta_t;
 
 sxi_query_t *sxi_hashop_proto_check(sxc_client_t *sx, unsigned blocksize, const char *hashes, unsigned hashes_len);
