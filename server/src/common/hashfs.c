@@ -9898,6 +9898,57 @@ rc_ty sx_hashfs_br_use(sx_hashfs_t *h, const block_meta_t *blockmeta)
     return ret;
 }
 
+static int node_is_failed(sx_hashfs_t *h, const sx_node_t *node)
+{
+    return 0; /* TODO: implement */
+}
+
+static const sx_node_t* sx_hashfs_first_nonfailed(sx_hashfs_t *h, sx_nodelist_t *nodelist)
+{
+    unsigned i;
+    for (i=0;i<sx_nodelist_count(nodelist);i++) {
+        const sx_node_t *node = sx_nodelist_get(nodelist, i);
+        if (node_is_failed(h, node))
+            continue;
+        return node;
+    }
+    return NULL;
+}
+
+rc_ty sx_hashfs_should_repair(sx_hashfs_t *h, const block_meta_t *blockmeta, const sx_node_t *target)
+{
+    const sx_node_t *self = sx_hashfs_self(h);
+    unsigned max_replica = 0, i;
+    sx_nodelist_t *hashnodes;
+    rc_ty ret = ITER_NO_MORE;
+    if (!h || !blockmeta || !self || !target) {
+        NULLARG();
+        return EFAULT;
+    }
+    for (i=0;i<blockmeta->count;i++) {
+        const block_meta_entry_t *entry = &blockmeta->entries[i];
+        if (entry->count > 0 && entry->replica > max_replica)
+            max_replica = entry->replica;
+    }
+    if (!max_replica)
+        return ITER_NO_MORE;
+    hashnodes = sx_hashfs_hashnodes(h, NL_PREV, &blockmeta->hash, max_replica);
+    if (!hashnodes) {
+        WARN("cannot determine nodes for hash");
+        return FAIL_EINTERNAL;
+    }
+    if (!sx_node_cmp(sx_hashfs_first_nonfailed(h, hashnodes), self)) {
+        /* this node would be responsible for pushing */
+        if (sx_nodelist_lookup(hashnodes, sx_node_uuid(target))) {
+            /* target used to be a replica for this hash */
+            DEBUGHASH("repairing hash", &blockmeta->hash);
+            ret = OK;
+        }
+    }
+    sx_nodelist_delete(hashnodes);
+    return ret;
+}
+
 rc_ty sx_hashfs_br_done(sx_hashfs_t *h, const block_meta_t *blockmeta)
 {
     rc_ty ret = OK;
