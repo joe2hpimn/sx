@@ -13,5 +13,6 @@ text "  usergetkey  Retrieve the auth key of a user\n"
 text "  usernewkey  Change the auth key of a user\n"
 text "  volperm     Manage volume permissions\n"
 text "  volshow     Show all ACLs on a volume\n"
+text "  whoami      Show the username associated with the current token\n"
 
 text "\nSee 'sxacl <command> --help' for more information on a specific command.\n"

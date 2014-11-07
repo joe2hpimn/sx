@@ -69,6 +69,7 @@ src_tools_vol_sxvol_LDADD = $(top_builddir)/../libsx/src/libsx.la
 src_tools_acl_sxacl_SOURCES = \
 	src/tools/acl/sxacl.c \
 	src/tools/acl/cmd_main.c \
+	src/tools/acl/cmd_whoami.c \
 	src/tools/acl/cmd_volperm.c \
 	src/tools/acl/cmd_volshow.c \
 	src/tools/acl/cmd_useradd.c \
@@ -77,6 +78,7 @@ src_tools_acl_sxacl_SOURCES = \
 	src/tools/acl/cmd_usergetkey.c \
 	src/tools/acl/cmd_usernewkey.c \
 	src/tools/acl/cmd_main.h \
+	src/tools/acl/cmd_whoami.h \
 	src/tools/acl/cmd_volperm.h \
 	src/tools/acl/cmd_volshow.h \
 	src/tools/acl/cmd_useradd.h \

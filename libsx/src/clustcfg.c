@@ -793,6 +793,163 @@ int sxc_cluster_fetchnodes(sxc_cluster_t *cluster) {
     return ret;
 }
 
+struct cb_whoami_ctx {
+    curlev_context_t *cbdata;
+    yajl_callbacks yacb;
+    struct cb_error_ctx errctx;
+    char *whoami;
+    yajl_handle yh;
+    enum whoami_state { FW_ERROR, FW_BEGIN, FW_CLUSTER, FW_WHOAMI, FW_COMPLETE } state;
+};
+#define expect_state(expst) do { if(yactx->state != (expst)) { CBDEBUG("bad state (in %d, expected %d)", yactx->state, expst); return 0; } } while(0)
+
+static int yacb_whoami_start_map(void *ctx) {
+    struct cb_whoami_ctx *yactx = (struct cb_whoami_ctx *)ctx;
+    if(!ctx)
+	return 0;
+
+    if(yactx->state == FW_BEGIN)
+	yactx->state = FW_CLUSTER;
+    else {
+	CBDEBUG("bad state (in %d, expected %d)", yactx->state, FW_BEGIN);
+	return 0;
+    }
+    return 1;
+}
+
+static int yacb_whoami_map_key(void *ctx, const unsigned char *s, size_t l) {
+    struct cb_whoami_ctx *yactx = (struct cb_whoami_ctx *)ctx;
+    if(!ctx)
+	return 0;
+
+    if (yactx->state == FW_ERROR)
+        return yacb_error_map_key(&yactx->errctx, s, l);
+    if (yactx->state == FW_CLUSTER) {
+        if (ya_check_error(yactx->cbdata, &yactx->errctx, s, l)) {
+            yactx->state = FW_ERROR;
+            return 1;
+        }
+    }
+    if(yactx->state == FW_CLUSTER) {
+	if(l == lenof("whoami") && !memcmp(s, "whoami", lenof("whoami"))) {
+	    yactx->state = FW_WHOAMI;
+	    return 1;
+	}
+	CBDEBUG("unexpected cluster key '%.*s'", (unsigned)l, s);
+	return 0;
+    }
+
+    CBDEBUG("bad state (in %d, expected %d)", yactx->state, FW_CLUSTER);
+    return 0;
+}
+
+static int yacb_whoami_string(void *ctx, const unsigned char *s, size_t l) {
+    struct cb_whoami_ctx *yactx = (struct cb_whoami_ctx *)ctx;
+    if(!ctx)
+	return 0;
+    if (yactx->state == FW_ERROR)
+        return yacb_error_string(&yactx->errctx, s, l);
+
+    expect_state(FW_WHOAMI);
+    if(l<=0)
+	return 0;
+
+    if(!(yactx->whoami = malloc(l+1))) {
+	CBDEBUG("OOM duplicating username '%.*s'", (unsigned)l, s);
+	sxi_cbdata_seterr(yactx->cbdata, SXE_EMEM, "Out of memory");
+	return 0;
+    }
+
+    memcpy(yactx->whoami, s, l);
+    yactx->whoami[l] = '\0';
+    yactx->state = FW_CLUSTER;
+    return 1;
+}
+
+static int yacb_whoami_end_map(void *ctx) {
+    struct cb_whoami_ctx *yactx = (struct cb_whoami_ctx *)ctx;
+    if(!ctx)
+	return 0;
+    if (yactx->state == FW_ERROR)
+        return yacb_error_end_map(&yactx->errctx);
+    if(yactx->state == FW_CLUSTER)
+	yactx->state = FW_COMPLETE;
+    else {
+	CBDEBUG("bad state (in %d, expected %d)", yactx->state, FW_CLUSTER);
+	return 0;
+    }
+    return 1;
+}
+
+static int whoami_setup_cb(curlev_context_t *cbdata, void *ctx, const char *host) {
+    struct cb_whoami_ctx *yactx = (struct cb_whoami_ctx *)ctx;
+
+    if(yactx->yh)
+	yajl_free(yactx->yh);
+
+    if(!(yactx->yh  = yajl_alloc(&yactx->yacb, NULL, yactx))) {
+	CBDEBUG("OOM allocating yajl context");
+	sxi_cbdata_seterr(cbdata, SXE_EMEM, "Cannot run whoami: Out of memory");
+	return 1;
+    }
+
+    yactx->state = FW_BEGIN;
+    yactx->cbdata = cbdata;
+    yactx->whoami = NULL;
+
+    return 0;
+}
+
+static int whoami_cb(curlev_context_t *cbdata, void *ctx, const void *data, size_t size) {
+    struct cb_whoami_ctx *yactx = (struct cb_whoami_ctx *)ctx;
+    if(yajl_parse(yactx->yh, data, size) != yajl_status_ok) {
+        if (yactx->state != FW_ERROR) {
+            CBDEBUG("failed to parse JSON data: %s", sxi_cbdata_geterrmsg(yactx->cbdata));
+            sxi_cbdata_seterr(yactx->cbdata, SXE_ECOMM, "communication error");
+        }
+	return 1;
+    }
+    return 0;
+}
+
+char* sxc_cluster_whoami(sxc_cluster_t *cluster) {
+    struct cb_whoami_ctx yctx;
+    yajl_callbacks *yacb = &yctx.yacb;
+    sxc_client_t *sx = cluster->sx;
+    char *ret = NULL;
+
+    ya_init(yacb);
+    yacb->yajl_start_map = yacb_whoami_start_map;
+    yacb->yajl_map_key = yacb_whoami_map_key;
+    yacb->yajl_string = yacb_whoami_string;
+    yacb->yajl_end_map = yacb_whoami_end_map;
+    yctx.yh = NULL;
+
+    sxi_set_operation(sxi_cluster_get_client(cluster), "whoami", sxi_cluster_get_name(cluster), NULL, NULL);
+    if(sxi_cluster_query(cluster->conns, NULL, REQ_GET, "?whoami", NULL, 0, whoami_setup_cb, whoami_cb, &yctx) != 200) {
+	SXDEBUG("query failed");
+	goto config_whoami_error;
+    }
+
+    if(yajl_complete_parse(yctx.yh) != yajl_status_ok || yctx.state != FW_COMPLETE) {
+        if (yctx.state != FW_ERROR) {
+            SXDEBUG("JSON parsing failed");
+            sxi_seterr(sx, SXE_ECOMM, "Cannot run whoami: Communication error");
+        }
+	goto config_whoami_error;
+    }
+    ret = yctx.whoami;
+    SXDEBUG("whoami: %s", ret);
+
+ config_whoami_error:
+    if(yctx.yh) {
+        if (!ret)
+            free(yctx.whoami);
+	yajl_free(yctx.yh);
+    }
+
+    return ret;
+}
 
 struct cb_locate_ctx {
     curlev_context_t *cbdata;

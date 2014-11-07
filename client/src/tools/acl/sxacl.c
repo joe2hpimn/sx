@@ -46,6 +46,7 @@
 #include "cmd_usernewkey.h"
 #include "cmd_volperm.h"
 #include "cmd_volshow.h"
+#include "cmd_whoami.h"
 #include "libsx/src/misc.h"
 #include "libsx/src/clustcfg.h"
 #include "version.h"
@@ -236,6 +237,24 @@ static int list_users(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_uri_t *u)
         rc = 1;
     }
     return rc;
+}
+
+static int whoami(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_uri_t *u)
+{
+    char *user = NULL;
+
+    if(u->volume) {
+	fprintf(stderr, "ERROR: Bad URI: Please omit volume.\n");
+	return 1;
+    }
+    user = sxc_cluster_whoami(cluster);
+    if (!user) {
+        fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
+        return 1;
+    }
+    printf("%s\n", user);
+    free(user);
+    return 0;
 }
 
 static int show_acls(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_uri_t *u)
@@ -541,6 +560,36 @@ int main(int argc, char **argv) {
             }
 	    ret = show_acls(sx, cluster, uri);
             volshow_cmdline_parser_free(&args);
+        } else if (!strcmp(argv[1], "whoami")) {
+            struct whoami_args_info args;
+            if (whoami_cmdline_parser(argc - 1, &argv[1], &args)) {
+                ret = 1;
+                break;
+            }
+            if(args.version_given) {
+                printf("%s %s\n", MAIN_CMDLINE_PARSER_PACKAGE, SRC_VERSION);
+		break;
+	    }
+            if(args.config_dir_given && sxc_set_confdir(sx, args.config_dir_arg)) {
+                fprintf(stderr, "ERROR: Could not set configuration directory %s: %s\n", args.config_dir_arg, sxc_geterrmsg(sx));
+                ret = 1;
+                break;
+            }
+            sxc_set_debug(sx, args.debug_flag);
+            if (args.inputs_num != 1) {
+                whoami_cmdline_parser_print_help();
+		printf("\n");
+                fprintf(stderr, "ERROR: Wrong number of arguments\n");
+                ret = 1;
+                break;
+            }
+	    cluster = load_config(sx, args.inputs[0], &uri);
+	    if(!cluster) {
+                ret = 1;
+                break;
+            }
+	    ret = whoami(sx, cluster, uri);
+            whoami_cmdline_parser_free(&args);
         } else {
             if (main_cmdline_parser(argc, argv, &main_args)) {
                 ret = 1;

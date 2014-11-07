@@ -186,6 +186,16 @@ void fcgi_handle_cluster_requests(void) {
 	send_nodes_randomised(nodes);
 	comma |= 1;
     }
+    if(has_arg("whoami")) {
+        char self[SXLIMIT_MAX_USERNAME_LEN+2];
+        if(comma) CGI_PUTC(',');
+        CGI_PUTS("\"whoami\":");
+        s = sx_hashfs_uid_get_name(hashfs, uid, self, sizeof(self));
+        if (s != OK)
+            quit_errmsg(rc2http(s), msg_get_reason());
+        json_send_qstring(self);
+        comma |= 1;
+    }
 
     /* MOAR COMMANDS HERE */
 
