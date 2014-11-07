@@ -57,6 +57,12 @@
 #define QUOTA_VOL_SIZE 1
 #define QUOTA_FILE_SIZE 5 /* Must be more then QUOTA_VOL_SIZE */
 #define COPY_FILE_NAME "file_copy"
+#define ACL_USER1 "user1" /* There will be 6 random characters suffix added. */
+#define ACL_USER2 "user2" /* There will be 6 random characters suffix added. */
+#define ACL_USER3 "user3" /* There will be 6 random characters suffix added. */
+#define ACL_VOLNAME1 "vol1" /* There will be 6 random characters suffix added. */
+#define ACL_VOLNAME2 "vol2" /* There will be 6 random characters suffix added. */
+#define ACL_FILE_NAME "file_acl"
 
 int64_t bytes; /* FIXME: small change in libsx to avoid this to be global */
 
@@ -1526,6 +1532,332 @@ test_copy_err:
     return ret;
 } /* test_copy */
 
+/* Both users without 'read' permission. *
+ * Path to already existing file. */
+int cross_copy(sxc_client_t *sx, sxc_cluster_t *cluster, char *cluster_name, char *volname1, char* volname2, char *user1, char *user2, char *local_file_path) {
+    int ret = -1;
+    char *remote_file_path;
+
+    remote_file_path = (char*)malloc(strlen("sx://") + strlen(user1) + strlen(user2) + 1 + strlen(cluster_name) + 1 + strlen(volname1) + strlen(volname2) + 2); /* The 1's inside are for '@' and '/' characters. */
+    if(!remote_file_path) {
+        fprintf(stderr, "cross_copy: ERROR: Cannot allocate memory for remote_file_path.\n");
+        return ret;
+    }
+    if(sxc_cluster_set_access(cluster, user1)) {
+        fprintf(stderr, "cross_copy: ERROR: Failed to set profile authentication: %s\n", sxc_geterrmsg(sx));
+        goto cross_copy_err;
+    }
+    sprintf(remote_file_path, "sx://%s@%s/%s/", user1, cluster_name, volname2);
+    if(upload_file(sx, cluster, local_file_path, remote_file_path)) {
+        if(sxc_geterrnum(sx) != SXE_EAUTH) {
+            fprintf(stderr, "cross_copy: ERROR: Cannot upload file: %s\n", sxc_geterrmsg(sx));
+            goto cross_copy_err;
+        }
+    } else {
+        fprintf(stderr, "cross_copy: ERROR: File upload succeeded with no permission.\n");
+        ret = 1;
+        goto cross_copy_err;
+    }
+    if(sxc_cluster_set_access(cluster, user2)) {
+        fprintf(stderr, "cross_copy: ERROR: Failed to set profile authentication: %s\n", sxc_geterrmsg(sx));
+        goto cross_copy_err;
+    }
+    sprintf(remote_file_path, "sx://%s@%s/%s/", user2, cluster_name, volname1);
+    if(upload_file(sx, cluster, local_file_path, remote_file_path)) {
+        if(sxc_geterrnum(sx) != SXE_EAUTH) {
+            fprintf(stderr, "cross_copy: ERROR: Cannot upload file: %s\n", sxc_geterrmsg(sx));
+            goto cross_copy_err;
+        }
+    } else {
+        fprintf(stderr, "cross_copy: ERROR: File upload succeeded with no permission.\n");
+        ret = 1;
+        goto cross_copy_err;
+    }
+    if(sxc_cluster_set_access(cluster, "admin")) {
+        fprintf(stderr, "cross_copy: ERROR: Failed to set profile authentication: %s\n", sxc_geterrmsg(sx));
+        goto cross_copy_err;
+    }
+
+    ret = 0;
+cross_copy_err:
+    free(remote_file_path); 
+    return ret;
+} /* cross_copy */
+
+int test_acl(const char *program_name, sxc_client_t *sx, sxc_cluster_t *cluster, char *cluster_name, char *local_dir_path, struct gengetopt_args_info args) {
+    int ret = 1;
+    char *user1, *user2 = NULL, *user3 = NULL, *key1 = NULL, *key2 = NULL, *key3 = NULL, *volname1 = NULL, *volname2 = NULL, *local_file_path = NULL, *remote_file_path = NULL;
+    FILE *file = NULL;
+
+    printf("\ntest_acl: Started\n");
+    user1 = (char*)malloc(strlen(ACL_USER1) + strlen("XXXXXX") + 1);
+    if(!user1) {
+        fprintf(stderr, "test_acl: ERROR: Cannot allocate memory for user1.\n");
+        return ret;
+    }
+    sprintf(user1, "%sXXXXXX", ACL_USER1);
+    if(randomize_name(user1))
+        goto test_acl_err;
+    key1 = sxc_user_add(cluster, user1, 0, NULL);
+    if(!key1) {
+        fprintf(stderr, "test_acl: ERROR: Cannot create '%s' user: %s\n", user1, sxc_geterrmsg(sx));
+        goto test_acl_err;
+    }
+    if(sxc_cluster_add_access(cluster, user1, key1)) {
+        fprintf(stderr, "test_acl: ERROR: Failed to add '%s' profile authentication: %s\n", user1, sxc_geterrmsg(sx));
+        goto test_acl_err;
+    }
+    user2 = (char*)malloc(strlen(ACL_USER2) + strlen("XXXXXX") + 1);
+    if(!user2) {
+        fprintf(stderr, "test_acl: ERROR: Cannot allocate memory for user2.\n");
+        goto test_acl_err;
+    }
+    sprintf(user2, "%sXXXXXX", ACL_USER2);
+    if(randomize_name(user2))
+        goto test_acl_err;
+    key2 = sxc_user_add(cluster, user2, 0, NULL);
+    if(!key2) {
+        fprintf(stderr, "test_acl: ERROR: Cannot create '%s' user: %s", user2, sxc_geterrmsg(sx));
+        goto test_acl_err;
+    }
+    if(sxc_cluster_add_access(cluster, user2, key2)) {
+        fprintf(stderr, "test_acl: ERROR: Failed to add '%s' profile authentication: %s\n", user2, sxc_geterrmsg(sx));
+        goto test_acl_err;
+    }
+    volname1 = (char*)malloc(strlen(ACL_VOLNAME1) + strlen("XXXXXX") + 1);
+    if(!volname1) {
+        fprintf(stderr, "test_acl: ERROR: Cannot allocate memory for volname1.\n");
+        goto test_acl_err;
+    }
+    sprintf(volname1, "%sXXXXXX", ACL_VOLNAME1);
+    if(randomize_name(volname1))
+        goto test_acl_err;
+    volname2 = (char*)malloc(strlen(ACL_VOLNAME2) + strlen("XXXXXX") + 1);
+    if(!volname2) {
+        fprintf(stderr, "test_acl: ERROR: Cannot allocate memory for volname2.\n");
+        goto test_acl_err;
+    }
+    sprintf(volname2, "%sXXXXXX", ACL_VOLNAME2);
+    if(randomize_name(volname2))
+        goto test_acl_err;
+    remote_file_path = (char*)malloc(strlen("sx://") + strlen(user1) + strlen(user2) + 1 + strlen(cluster_name) + 1 + strlen(volname1) + strlen(volname2) + 2); /* The 1's inside are for '@' and '/' characters. */
+    if(!remote_file_path) {
+        fprintf(stderr, "test_acl: ERROR: Cannot allocate memory for remote_file_path.\n");
+        goto test_acl_err;
+    }
+    local_file_path = (char*)malloc(strlen(local_dir_path) + strlen(ACL_FILE_NAME) + 1);
+    if(!local_file_path) {
+        fprintf(stderr, "test_acl: ERROR: Cannot allocate memory for local_file_path.\n");
+        goto test_acl_err;
+    }
+    sprintf(local_file_path, "%s%s", local_dir_path, ACL_FILE_NAME);
+    file = fopen(local_file_path, "w");
+    if(!file) {
+        fprintf(stderr, "test_acl: ERROR: Cannot create '%s' file: %s\n", local_file_path, strerror(errno));
+        goto test_acl_err;
+    }
+    if(fclose(file) == EOF) {
+        fprintf(stderr, "test_acl: ERROR: Cannot close '%s' file: %s\n", local_file_path, strerror(errno));
+        if(unlink(local_file_path))
+            fprintf(stderr, "test_acl: ERROR: Cannot delete '%s' file: %s\n", local_file_path, strerror(errno));
+        file = NULL;
+        goto test_acl_err;
+    }
+    args.owner_arg = user1;
+    if(create_volume(sx, cluster, volname1, NULL, NULL, NULL, args, 1)) {
+        fprintf(stderr, "test_acl: ERROR: Cannot create new volume.\n");
+        goto test_acl_err;
+    }
+    args.owner_arg = user2;
+    if(create_volume(sx, cluster, volname2, NULL, NULL, NULL, args, 1)) {
+        fprintf(stderr, "test_acl: ERROR: Cannot create new volume.\n");
+        goto test_acl_err;
+    }
+    switch(cross_copy(sx, cluster, cluster_name, volname1, volname2, user1, user2, local_file_path)) {
+        case -1:
+            fprintf(stderr, "test_acl: ERROR: Files uploading failure.\n");
+            goto test_acl_err;
+        case 0:
+            printf("test_acl: Users permissions enforced correctly.\n");
+            break;
+        case 1:
+            fprintf(stderr, "test_acl: ERROR: Files uploaded with no permission.\n");
+            goto test_acl_err;
+    }
+    if(sxc_cluster_set_access(cluster, user2)) {
+        fprintf(stderr, "test_acl: ERROR: Failed to set profile authentication: %s\n", sxc_geterrmsg(sx));
+        goto test_acl_err;
+    }
+    sprintf(remote_file_path, "sx://%s@%s/%s/%s", user1, cluster_name, volname2, ACL_FILE_NAME);
+    if(upload_file(sx, cluster, local_file_path, remote_file_path)) {
+        fprintf(stderr, "test_acl: ERROR: Uploading '%s' file failed: %s\n", local_file_path, sxc_geterrmsg(sx));
+        goto test_acl_err;
+    }
+    if(sxc_volume_acl(cluster, volname2, user1, "read", NULL)) {
+        fprintf(stderr, "test_acl: ERROR: Cannot add 'read' permission to %s: %s\n", user1, sxc_geterrmsg(sx));
+        goto test_acl_err;
+    }
+    if(sxc_cluster_set_access(cluster, user1)) {
+        fprintf(stderr, "test_acl: ERROR: Failed to set profile authentication: %s\n", sxc_geterrmsg(sx));
+        goto test_acl_err;
+    }
+    switch(find_file(sx, cluster, remote_file_path)) {
+        case -1:
+            fprintf(stderr, "test_acl: ERROR: Looking for '%s' file in %s failed.\n", ACL_FILE_NAME, remote_file_path);
+            goto test_acl_err;
+        case 0:
+            fprintf(stderr, "test_acl: ERROR: '%s' file not found.\n", remote_file_path);
+            goto test_acl_err;
+        case 1:
+            printf("test_acl: 'read' permission granted correctly.\n");
+            break;
+    }
+    if(delete_file(sx, cluster, remote_file_path)) {
+        if(sxc_geterrnum(sx) == SXE_EAUTH)
+            printf("test_acl: 'write' permission enforced correctly.\n");
+        else {
+            fprintf(stderr, "test_acl: ERROR: File has been deleted with no permission.\n");
+            goto test_acl_err;
+        }
+    }
+    if(sxc_volume_acl(cluster, volname1, user2, "write", NULL)) {
+        fprintf(stderr, "test_acl: ERROR: Cannot add 'write' permission to %s: %s\n", user2, sxc_geterrmsg(sx));
+        goto test_acl_err;
+    }
+    if(sxc_cluster_set_access(cluster, user2)) {
+        fprintf(stderr, "test_acl: ERROR: Failed to set profile authentication: %s\n", sxc_geterrmsg(sx));
+        goto test_acl_err;
+    }
+    if(delete_file(sx, cluster, remote_file_path)) {
+        fprintf(stderr, "test_acl: ERROR: Cannot delete '%s' file: %s\n", remote_file_path, sxc_geterrmsg(sx));
+        goto test_acl_err;
+    }
+    sprintf(remote_file_path, "sx://%s@%s/%s/%s", user2, cluster_name, volname1, ACL_FILE_NAME);
+    if(upload_file(sx, cluster, local_file_path, remote_file_path)) {
+        fprintf(stderr, "test_acl: ERROR: Uploading '%s' file failed: %s\n", local_file_path, sxc_geterrmsg(sx));
+        goto test_acl_err;
+    } else
+        printf("test_acl: 'write' permission granted correctly.\n");
+    if(find_file(sx, cluster, remote_file_path) == -1) {
+        if(sxc_geterrnum(sx) == SXE_EAUTH)
+            printf("test_acl: 'read' permission enforced correctly.\n");
+        else {
+            fprintf(stderr, "test_acl: ERROR: Looking for '%s' file in %s failed: %s\n", ACL_FILE_NAME, remote_file_path, sxc_geterrmsg(sx));
+            goto test_acl_err;
+        }
+    } else {
+        fprintf(stderr, "test_acl: ERROR: Searching for a file done with no permission.\n");
+        goto test_acl_err;
+    }
+    if(delete_file(sx, cluster, remote_file_path)) {
+        fprintf(stderr, "test_acl: ERROR: Cannot delete '%s' file: %s\n", remote_file_path, sxc_geterrmsg(sx));
+        goto test_acl_err;
+    }
+    if(sxc_volume_acl(cluster, volname2, user1, NULL, "read")) {
+        fprintf(stderr, "test_acl: ERROR: Cannot revoke 'read' permission from %s: %s\n", user2, sxc_geterrmsg(sx));
+        goto test_acl_err;
+    }
+    if(sxc_cluster_set_access(cluster, user1)) {
+        fprintf(stderr, "test_acl: ERROR: Failed to set profile authentication: %s\n", sxc_geterrmsg(sx));
+        goto test_acl_err;
+    }
+    if(sxc_volume_acl(cluster, volname1, user2, NULL, "write")) {
+        fprintf(stderr, "test_acl: ERROR: Cannot revoke 'write' permission from %s: %s\n", user2, sxc_geterrmsg(sx));
+        goto test_acl_err;
+    }
+    switch(cross_copy(sx, cluster, cluster_name, volname1, volname2, user1, user2, local_file_path)) {
+        case -1:
+            fprintf(stderr, "test_acl: ERROR: Cannot upload file.\n");
+            goto test_acl_err;
+        case 0:
+            printf("test_acl: User permissions revoked correctly.\n");
+            break;
+        case 1:
+            fprintf(stderr, "test_acl: ERROR: File uploaded with no permission.\n");
+            goto test_acl_err;
+    }
+    user3 = (char*)malloc(strlen(ACL_USER3) + strlen("XXXXXX") + 1);
+    if(!user3) {
+        fprintf(stderr, "test_acl: ERROR: Cannot allocate memory for user3.\n");
+        return ret;
+    }
+    sprintf(user3, "%sXXXXXX", ACL_USER1);
+    if(randomize_name(user3))
+        goto test_acl_err;
+    key3 = sxc_user_add(cluster, user3, 0, NULL);
+    if(!key3) {
+        fprintf(stderr, "test_acl: ERROR: Cannot create '%s' user: %s\n", user3, sxc_geterrmsg(sx));
+        goto test_acl_err;
+    }
+    if(sxc_cluster_add_access(cluster, user3, key3)) {
+        fprintf(stderr, "test_acl: ERROR: Failed to add '%s' profile authentication: %s\n", user3, sxc_geterrmsg(sx));
+        goto test_acl_err;
+    }
+    if(sxc_volume_acl(cluster, volname1, user3, "read,write", NULL)) {
+        fprintf(stderr, "test_acl: ERROR: Cannot add 'read,write' permission to %s: %s\n", user3, sxc_geterrmsg(sx));
+        goto test_acl_err;
+    }
+    if(sxc_cluster_set_access(cluster, user3)) {
+        fprintf(stderr, "test_acl: ERROR: Failed to set profile authentication: %s\n", sxc_geterrmsg(sx));
+        goto test_acl_err;
+    }
+    if(sxc_volume_acl(cluster, volname1, user2, "read", NULL)) {
+        if(sxc_geterrnum(sx) == SXE_EAUTH)
+            printf("test_acl: User permissions enforced correctly.\n");
+        else {
+            fprintf(stderr, "test_acl: ERROR: Cannot add 'read,write' permission to %s: %s\n", user3, sxc_geterrmsg(sx));
+            goto test_acl_err;
+        }
+    } else {
+        fprintf(stderr, "test_acl: ERROR: Permissions granted with no permission.\n");
+        goto test_acl_err;
+    }
+    if(sxc_cluster_set_access(cluster, "admin")) {
+        fprintf(stderr, "test_acl: ERROR: Failed to set profile authentication: %s\n", sxc_geterrmsg(sx));
+        goto test_acl_err;
+    }
+    if(sxc_user_remove(cluster, user1)) {
+        fprintf(stderr, "test_acl: ERROR: Cannot remove user '%s': %s\n", user1, sxc_geterrmsg(sx));
+        goto test_acl_err;
+    }
+    if(sxc_user_remove(cluster, user2)) {
+        fprintf(stderr, "test_acl: ERROR: Cannot remove user '%s': %s\n", user2, sxc_geterrmsg(sx));
+        goto test_acl_err;
+    }
+    if(sxc_user_remove(cluster, user3)) {
+        fprintf(stderr, "test_acl: ERROR: Cannot remove user '%s': %s\n", user3, sxc_geterrmsg(sx));
+        goto test_acl_err;
+    }
+    if(remove_volume(sx, cluster, volname1)) {
+        fprintf(stderr, "test_copy: ERROR: Cannot remove '%s' volume: %s\n", volname1, sxc_geterrmsg(sx));
+        goto test_acl_err;
+    }
+    if(remove_volume(sx, cluster, volname2)) {
+        fprintf(stderr, "test_copy: ERROR: Cannot remove '%s' volume: %s\n", volname2, sxc_geterrmsg(sx));
+        goto test_acl_err;
+    }
+    
+    printf("test_acl: Succeeded\n");
+    ret = 0;
+test_acl_err:
+    if(file && unlink(local_file_path)) {
+        fprintf(stderr, "cross_copy: ERROR: Cannot delete '%s' file: %s\n", local_file_path, strerror(errno));
+        if(!ret)
+            ret = -1;
+    }
+    free(user1);
+    free(user2);
+    free(user3);
+    free(key1);
+    free(key2);
+    free(key3);
+    free(volname1);
+    free(volname2);
+    free(local_file_path);
+    free(remote_file_path);
+    return ret;
+} /* test_acl */
+
 int main(int argc, char **argv) {
     int i, ret = 1;
     char *local_dir_path = NULL, *remote_dir_path = NULL, *volname = NULL, *filter_dir = NULL;
@@ -1640,6 +1972,8 @@ int main(int argc, char **argv) {
     if(test_copy(sx, cluster, uri->host, NULL, NULL, NULL, NULL, NULL, local_dir_path, args))
         goto main_err;
     if(test_copy(sx, cluster, uri->host, filter_dir, "aes256", NULL, "zcomp", "level:1", local_dir_path, args))
+        goto main_err;
+    if(test_acl(argv[0], sx, cluster, uri->host, local_dir_path, args))
         goto main_err;
     /* The end of tests */
 
