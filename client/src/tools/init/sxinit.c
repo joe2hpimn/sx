@@ -65,7 +65,10 @@ static int list_clusters(sxc_client_t *sx, const char *config_dir) {
 
     clusters_dir = opendir(confdir);
     if(!clusters_dir) {
-        fprintf(stderr, "ERROR: Could not open %s directory: %s\n", confdir, strerror(errno));
+	if(errno == ENOENT)
+	    fprintf(stderr, "No profiles configured\n");
+	else
+	    fprintf(stderr, "ERROR: Could not open %s directory: %s\n", confdir, strerror(errno));
         return 1;
     }
 

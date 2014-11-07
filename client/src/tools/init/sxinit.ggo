@@ -3,7 +3,7 @@ purpose "Manage local configuration of SX clusters"
 args "--unamed-opts=sx://[profile@]cluster --no-handle-version --no-handle-error"
 usage "sxinit [OPTIONS]... { sx://[profile@]cluster | --list }"
 
-option	"list"		    L "List configured clusters and aliases" optional
+option	"list"		    L "List configured profiles and aliases" optional
 
 option  "no-ssl"	    - "Disable secure communication" flag off
 
