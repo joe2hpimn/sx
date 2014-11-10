@@ -630,9 +630,11 @@ static sxi_query_t *sxi_volumeacl_loop(sxc_client_t *sx, sxi_query_t *query,
                                        const char *key, acl_cb_t cb, void *ctx)
 {
     const char *user;
-    sxi_query_append_fmt(sx, query, strlen(key)+5,"%s\"%s\":[",
+    query = sxi_query_append_fmt(sx, query, strlen(key)+5,"%s\"%s\":[",
                          query->comma ? "," : "",
                          key);
+    if (!query)
+        return NULL;
     query->comma=0;
     while ((user = cb(ctx))) {
         char *qname = sxi_json_quote_string(user);
@@ -640,9 +642,13 @@ static sxi_query_t *sxi_volumeacl_loop(sxc_client_t *sx, sxi_query_t *query,
                                      query->comma ? "," : "",
                                      qname);
         free(qname);
+        if (!query)
+            return NULL;
         query->comma = 1;
     }
-    sxi_query_append_fmt(sx, query, 1, "]");
+    query = sxi_query_append_fmt(sx, query, 1, "]");
+    if (!query)
+        return NULL;
     query->comma=1;
     return query;
 }
