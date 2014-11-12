@@ -2099,43 +2099,22 @@ action_failed:
     return ret;
 }
 
-static act_result_t distribution_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
-    sxi_hdist_t *hdist;
-    act_result_t ret = ACT_RESULT_OK;
-    sxi_hostlist_t hlist;
+static act_result_t revoke_dist_common(sx_hashfs_t *hashfs, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg) {
+    const sx_node_t *me = sx_hashfs_self(hashfs);
     sxi_conns_t *clust = sx_hashfs_conns(hashfs);
     sxc_client_t *sx = sx_hashfs_client(hashfs);
-    const sx_node_t *me = sx_hashfs_self(hashfs);
+    act_result_t ret = ACT_RESULT_OK;
     unsigned int nnode, nnodes;
+    sxi_hostlist_t hlist;
     rc_ty s;
 
-    if(!job_data) {
-	NULLARG();
-	action_set_fail(ACT_RESULT_PERMFAIL, 500, "Null job");
-	return ret;
-    }
-
-    hdist = sxi_hdist_from_cfg(job_data->ptr, job_data->len);
-    if(!hdist) {
-	WARN("Cannot load hdist config");
-	s = ENOMEM;
-	action_set_fail(rc2actres(s), rc2http(s), msg_get_reason());
-	return ret;
-    }
-
     sxi_hostlist_init(&hlist);
-
-    if(sxi_hdist_buildcnt(hdist) != 2) {
-	WARN("Invalid distribution found (builds = %d)", sxi_hdist_buildcnt(hdist));
-	action_error(ACT_RESULT_PERMFAIL, 500, "Bad distribution data");
-    }
-
     nnodes = sx_nodelist_count(nodes);
     for(nnode = 0; nnode < nnodes; nnode++) {
 	const sx_node_t *node = sx_nodelist_get(nodes, nnode);
 
 	if(sxi_hostlist_add_host(sx, &hlist, sx_node_internal_addr(node)))
-	    action_error(ACT_RESULT_TEMPFAIL, 500, "Not enough memory to perform the enable distribution request");
+	    action_error(ACT_RESULT_TEMPFAIL, 500, "Not enough memory to perform the revoke distribution request");
 
 	if(sx_node_cmp(me, node)) {
 	    int qret = sxi_cluster_query(clust, &hlist, REQ_DELETE, ".dist", NULL, 0, NULL, NULL, NULL);
@@ -2153,11 +2132,36 @@ static act_result_t distribution_abort(sx_hashfs_t *hashfs, job_t job_id, job_da
 
 action_failed:
     sxi_hostlist_empty(&hlist);
-    sxi_hdist_free(hdist);
 
     return ret;
 }
 
+static act_result_t distribution_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    act_result_t ret = ACT_RESULT_OK;
+    sxi_hdist_t *hdist = NULL;
+
+    if(!job_data) {
+	NULLARG();
+	action_error(ACT_RESULT_PERMFAIL, 500, "Null job");
+    }
+
+    hdist = sxi_hdist_from_cfg(job_data->ptr, job_data->len);
+    if(!hdist) {
+	WARN("Cannot load hdist config");
+	action_error(rc2actres(ENOMEM), rc2http(ENOMEM), msg_get_reason());
+    }
+
+    if(sxi_hdist_buildcnt(hdist) != 2) {
+	WARN("Invalid distribution found (builds = %d)", sxi_hdist_buildcnt(hdist));
+	action_error(ACT_RESULT_PERMFAIL, 500, "Bad distribution data");
+    }
+
+    ret = revoke_dist_common(hashfs, nodes, succeeded, fail_code, fail_msg);
+
+action_failed:
+    sxi_hdist_free(hdist);
+    return ret;
+}
 
 static act_result_t distribution_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     act_result_t ret;
@@ -3176,6 +3180,51 @@ action_failed:
     return ret;
 }
 
+static act_result_t replace_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    act_result_t ret = ACT_RESULT_OK;
+    sx_nodelist_t *faulty = NULL;
+    sxi_hdist_t *hdist = NULL;
+    unsigned int cfg_len;
+    sx_blob_t *b = NULL;
+    const void *cfg;
+
+    if(!job_data) {
+	NULLARG();
+	action_set_fail(ACT_RESULT_PERMFAIL, 500, "Null job");
+	return ret;
+    }
+
+    b = sx_blob_from_data(job_data->ptr, job_data->len);
+    if(!b) {
+	WARN("Cannot allocate blob for job %lld", (long long)job_id);
+	action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
+    }
+
+    faulty = sx_nodelist_from_blob(b);
+    if(!faulty || sx_blob_get_blob(b, &cfg, &cfg_len)) {
+	WARN("Cannot retrrieve %s from job data for job %lld", faulty ? "new distribution":"faulty nodes", (long long)job_id);
+	action_error(ACT_RESULT_PERMFAIL, 500, "Bad job data");
+    }
+
+    hdist = sxi_hdist_from_cfg(cfg, cfg_len);
+    if(!hdist) {
+	WARN("Cannot load hdist config");
+	action_error(rc2actres(ENOMEM), rc2http(ENOMEM), msg_get_reason());
+    }
+
+    if(sxi_hdist_buildcnt(hdist) != 1) {
+	WARN("Invalid distribution found (builds = %d)", sxi_hdist_buildcnt(hdist));
+	action_error(ACT_RESULT_PERMFAIL, 500, "Bad distribution data");
+    }
+
+    ret = revoke_dist_common(hashfs, nodes, succeeded, fail_code, fail_msg);
+    
+action_failed:
+    sx_nodelist_delete(faulty);
+    sxi_hdist_free(hdist);
+    sx_blob_free(b);
+    return ret;
+}
 
 static void check_distribution(sx_hashfs_t *h) {
     int dc;
@@ -3188,6 +3237,15 @@ static void check_distribution(sx_hashfs_t *h) {
     if(dc > 0)
         INFO("Distribution reloaded");
 }
+
+static act_result_t replace_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    act_result_t ret;
+
+    CRIT("The attempt to change the cluster distribution model (i.e. nodes) resulted in a fatal failure leaving it in an inconsistent state");
+    action_set_fail(ACT_RESULT_PERMFAIL, 500, "The attempt to change the cluster distribution model (i.e. nodes) resulted in a fatal failure leaving it in an inconsistent state");
+    return ret;
+}
+
 
 /* Update cbdata array with new context and send volsizes query to given node */
 static rc_ty finalize_query(sx_hashfs_t *h, curlev_context_t ***cbdata, unsigned int *ncbdata, const sx_node_t *n, unsigned int node_index, sxi_query_t *query) {
