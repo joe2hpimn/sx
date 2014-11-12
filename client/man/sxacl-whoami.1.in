@@ -1,0 +1,31 @@
+.TH SXACL-WHOAMI "1" "November 2014" "sxacl @VERSION@" "Skylable SX Manual"
+.SH NAME
+sxacl-whoami \- print effective username
+.SH SYNOPSIS
+.B sxacl whoami
+\fR[\fI\,OPTIONS\/\fR] \fI\,sx://\/\fR[\fI\,profile@\/\fR]\fI\,cluster\/\fR
+.SH DESCRIPTION
+\fBsxacl whoami\fR shows the username associated with the current authentication key. While a user name is not needed to configure access to a cluster, the user may need to identify itself within access control lists, which return the cluster side user names.
+.SH OPTIONS
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help and exit
+.TP
+\fB\-\-full\-help\fR
+Print help, including hidden options, and exit
+.TP
+\fB\-V\fR, \fB\-\-version\fR
+Print version and exit
+.TP
+\fB\-c\fR, \fB\-\-config\-dir\fR=\fI\,PATH\/\fR
+Path to the SX configuration directory (default: ~/.sx)
+.TP
+\fB\-D\fR, \fB\-\-debug\fR
+Enable debug messages.
+.SH "EXAMPLES"
+To show the username for the default profile for 'cluster'  run:
+.br
+\fB    sxacl whoami sx://cluster\fP
+.br
+.SH SEE ALSO
+\fBsxacl-volshow\fR(1), \fBsxacl-volperm\fR(1)

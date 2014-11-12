@@ -29,6 +29,9 @@ Manage volume permissions.
 .TP
 .B volshow
 Display volume permissions.
+.TP
+.B whoami
+Show the username associated with the current auth key.
 .SH OPTIONS
 .TP
 \fB\-h\fR, \fB\-\-help\fR
