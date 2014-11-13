@@ -1,5 +1,5 @@
 user nobody nobody;
-worker_processes 4;
+worker_processes auto;
 error_log @localstatedir@/log/sxserver/sxhttpd-error.log;
 pid @localstatedir@/run/sxserver/sxhttpd.pid;
 
