@@ -63,9 +63,11 @@ while [ $i -le $N ]; do
     echo "Initializing node $i"
     CONF_TMP=$prefix/conf.tmp
     cat >>$CONF_TMP <<EOF
+    SX_CFG_VERSION=2
     SX_CLUSTER_NAME="$CLUSTER_NAME"
     SX_DATA_DIR="$prefix/var/lib/sxserver/storage"
     SX_RUN_DIR="$prefix/var/run/sxserver"
+    SX_LIB_DIR="$prefix/var/lib/sxserver"
     SX_LOG_FILE="$prefix/var/log/sxserver/sxfcgi.log"
     SX_NODE_SIZE="1T"
     SX_NODE_IP="127.0.1.$i"
@@ -81,7 +83,7 @@ EOF
 	echo "SX_EXISTING_NODE_IP=\"127.0.1.1\"" >> $CONF_TMP
     fi
 #    export SX_USE_VALGRIND=yes
-    $prefix/sbin/sxsetup --config-file $CONF_TMP --advanced
+    $prefix/sbin/sxsetup --config-file $CONF_TMP --advanced --wait
     rm -f $CONF_TMP
 
     i=$(( i+1 ))
