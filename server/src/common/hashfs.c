@@ -9915,7 +9915,7 @@ static const sx_node_t* sx_hashfs_first_nonfailed(sx_hashfs_t *h, sx_nodelist_t 
     return NULL;
 }
 
-rc_ty sx_hashfs_should_repair(sx_hashfs_t *h, const block_meta_t *blockmeta, const sx_node_t *target)
+static rc_ty sx_hashfs_should_repair(sx_hashfs_t *h, const block_meta_t *blockmeta, const sx_node_t *target)
 {
     const sx_node_t *self = sx_hashfs_self(h);
     unsigned max_replica = 0, i;
@@ -10803,3 +10803,77 @@ sx_hashfs_volume_mod_err:
 
     return ret;
 }
+
+rc_ty sx_hashfs_br_find(sx_hashfs_t *h, const sx_block_meta_index_t *previous, unsigned rebalance_ver, const sx_node_t *target, block_meta_t **blockmetaptr)
+{
+    int ret;
+    rc_ty rc;
+    if (!h || !blockmetaptr) {
+        NULLARG();
+        return EFAULT;
+    }
+    *blockmetaptr = NULL;
+    const sx_hash_t *hash = previous ? (const sx_hash_t*)&previous->b[1] : NULL;
+    unsigned int ndb = hash ? gethashdb(hash) : 0;
+    unsigned int sizeidx = previous ? previous->b[0] : 0;
+    if (sizeidx >= SIZES) {
+        WARN("bad size: %d", sizeidx);
+        return EINVAL;
+    }
+    block_meta_t *blockmeta = *blockmetaptr = wrap_calloc(1, sizeof(*blockmeta));
+    if (!blockmeta)
+        return ENOMEM;
+    DEBUG("rebalance_ver: %d", rebalance_ver);
+    do {
+        DEBUG("ndb: %d, sizeidx: %d", ndb, sizeidx);
+        sqlite3_stmt *q = h->rit.q[sizeidx][ndb];
+        sqlite3_stmt *qmeta = h->qb_get_meta[sizeidx][ndb];
+        sqlite3_reset(q);
+        sqlite3_reset(qmeta);
+        sqlite3_clear_bindings(q);
+        sqlite3_clear_bindings(qmeta);
+        if (qbind_blob(q, ":prevhash", hash ? hash : (const void*)"", hash ? sizeof(*hash) : 0) ||
+            qbind_int(qmeta, ":current_age", rebalance_ver)) {
+            return FAIL_EINTERNAL;
+        }
+        do {
+            ret = qstep(q);
+            ret = sx_hashfs_blockmeta_get(h, ret, q, qmeta, bsz[sizeidx], blockmeta);
+            sqlite3_reset(q);
+            if (ret == OK) {
+                DEBUG("row");
+                rc = sx_hashfs_should_repair(h, blockmeta, target);
+                if (rc == OK) {
+                    /* this node is responsible for sending this data,
+                     * and the target is supposed to have it */
+                    DEBUGHASH("should_repair: true", &blockmeta->hash);
+                    blockmeta->cursor.b[0] = sizeidx;
+                    memcpy(&blockmeta->cursor.b[1], &blockmeta->hash, sizeof(blockmeta->hash));
+                    return OK;
+                }
+                if (rc != ITER_NO_MORE)
+                    break;
+            } else if (ret == SQLITE_DONE) {
+                rc = ITER_NO_MORE;
+            } else {
+                rc = FAIL_EINTERNAL;
+            }
+        } while (ret == SQLITE_ROW);
+        if (rc == ITER_NO_MORE) {
+            if (++ndb >= HASHDBS) {
+                ndb = 0;
+                if (++sizeidx >= SIZES) {
+                    sx_hashfs_blockmeta_free(blockmetaptr);
+                    DEBUG("iteration done");
+                    return ITER_NO_MORE;
+                }
+            }
+            rc = OK;
+            hash = NULL;/* reset iteration */
+        }
+    } while(rc == OK);
+    DEBUG("iteration failed: %s", rc2str(rc));
+    sx_hashfs_blockmeta_free(blockmetaptr);
+    return rc;
+}
+

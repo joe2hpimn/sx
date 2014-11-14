@@ -369,8 +369,7 @@ rc_ty sx_hashfs_br_delete(sx_hashfs_t *h, const block_meta_t *blockmeta);
 rc_ty sx_hashfs_br_use(sx_hashfs_t *h, const block_meta_t *blockmeta);
 rc_ty sx_hashfs_br_done(sx_hashfs_t *h, const block_meta_t *blockmeta);
 
-/* should the current node repair (copy the hash to) target? */
-rc_ty sx_hashfs_should_repair(sx_hashfs_t *h, const block_meta_t *blockmeta, const sx_node_t *target);
+rc_ty sx_hashfs_br_find(sx_hashfs_t *h, const sx_block_meta_index_t *previous, unsigned rebalance_ver, const sx_node_t *target, block_meta_t **blockmeta);
 
 rc_ty sx_hashfs_blkrb_hold(sx_hashfs_t *h, const sx_hash_t *block, unsigned int blocksize, const sx_node_t *node);
 rc_ty sx_hashfs_blkrb_can_gc(sx_hashfs_t *h, const sx_hash_t *block, unsigned int blocksize);

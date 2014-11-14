@@ -62,7 +62,12 @@ typedef struct {
 } sx_hash_t;
 
 typedef struct {
+    uint8_t b[1+SXI_SHA1_BIN_LEN];
+} sx_block_meta_index_t;
+
+typedef struct {
     sx_hash_t hash;
+    sx_block_meta_index_t cursor;
     unsigned int blocksize;
     block_meta_entry_t *entries;
     unsigned long count;
