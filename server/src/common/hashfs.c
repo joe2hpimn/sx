@@ -677,6 +677,8 @@ struct _sx_hashfs_t {
     sqlite3_stmt *qm_delreloc[METADBS];
     sqlite3_stmt *qm_delbyvol[METADBS];
     sqlite3_stmt *qm_sumfilesizes[METADBS];
+    sqlite3_stmt *qm_newest[METADBS];
+    sqlite3_stmt *qm_count[METADBS];
 
     sxi_db_t *datadb[SIZES][HASHDBS];
     sqlite3_stmt *qb_get[SIZES][HASHDBS];
@@ -872,6 +874,8 @@ static void close_all_dbs(sx_hashfs_t *h) {
 	sqlite3_finalize(h->qm_delreloc[i]);
 	sqlite3_finalize(h->qm_delbyvol[i]);
         sqlite3_finalize(h->qm_sumfilesizes[i]);
+        sqlite3_finalize(h->qm_newest[i]);
+        sqlite3_finalize(h->qm_count[i]);
 	qclose(&h->metadb[i]);
     }
 
@@ -1551,6 +1555,10 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 	if(qprep(h->metadb[i], &h->qm_delbyvol[i], "DELETE FROM files WHERE volume_id = :volid"))
 	    goto open_hashfs_fail;
         if(qprep(h->metadb[i], &h->qm_sumfilesizes[i], "SELECT SUM(size) FROM files WHERE volume_id = :volid"))
+            goto open_hashfs_fail;
+        if(qprep(h->metadb[i], &h->qm_newest[i], "SELECT MAX(rev) FROM files WHERE volume_id = :volid"))
+            goto open_hashfs_fail;
+        if(qprep(h->metadb[i], &h->qm_count[i], "SELECT COUNT(rev) FROM files WHERE volume_id = :volid"))
             goto open_hashfs_fail;
     }
 
@@ -3729,6 +3737,67 @@ rc_ty sx_hashfs_revision_next(sx_hashfs_t *h) {
 static inline int has_wildcard(const char *str)
 {
     return strcspn(str, "*?[") < strlen(str);
+}
+
+rc_ty sx_hashfs_list_etag(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const char *pattern, int8_t recurse, sx_hash_t *etag)
+{
+    sxi_md_ctx *hash_ctx = sxi_md_init();
+    rc_ty rc = OK;
+    unsigned i;
+    char *vol_newest;
+    int64_t total = 0;
+
+    if (!h || !volume || !pattern || !etag) {
+        NULLARG();
+        return EFAULT;
+    }
+    if (!(vol_newest = wrap_strdup("")))
+        rc = ENOMEM;
+    for (i=0;i<METADBS && !rc;i++) {
+        sqlite3_reset(h->qm_newest[i]);
+        sqlite3_reset(h->qm_count[i]);
+        if (qbind_int(h->qm_newest[i], ":volid", volume->id) ||
+            qbind_int(h->qm_count[i], ":volid", volume->id) ||
+            qstep_ret(h->qm_newest[i]) ||
+            qstep_ret(h->qm_count[i])) {
+            rc = FAIL_EINTERNAL;
+        } else {
+            /* detects newly created or updated files */
+            const char *newest = (const char*)sqlite3_column_text(h->qm_newest[i], 0);
+            /* detects deleted files */
+            total += sqlite3_column_int64(h->qm_count[i], 0);
+            if (newest) {
+                if (strcmp(newest, vol_newest) > 0) {
+                    free(vol_newest);
+                    if (!(vol_newest = wrap_strdup(newest)))
+                        rc = ENOMEM;
+                }
+            }
+        }
+        sqlite3_reset(h->qm_newest[i]);
+        sqlite3_reset(h->qm_count[i]);
+    }
+    if (!hash_ctx) {
+        WARN("failed to initialize etag hash");
+        rc = FAIL_EINTERNAL;
+    }
+    if (rc == OK) {
+        /* must be same on all volnodes */
+        DEBUG("%d: newest: %s, total: %lld", i, vol_newest, (long long)total);
+        if (!sxi_sha1_init(hash_ctx) ||
+            !sxi_sha1_update(hash_ctx, h->cluster_uuid.binary, sizeof(h->cluster_uuid.binary)) ||
+            !sxi_sha1_update(hash_ctx, pattern, strlen(pattern)+1) ||
+            !sxi_sha1_update(hash_ctx, &recurse, sizeof(recurse)) ||
+            !sxi_sha1_update(hash_ctx, vol_newest, strlen(vol_newest)+1) ||
+            !sxi_sha1_update(hash_ctx, &total, sizeof(total)) ||
+            !sxi_sha1_final(hash_ctx, etag->b, NULL)) {
+            WARN("failed to calculate etag hash");
+            rc = FAIL_EINTERNAL;
+        }
+    }
+    free(vol_newest);
+    sxi_md_cleanup(&hash_ctx);
+    return rc;
 }
 
 rc_ty sx_hashfs_list_first(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const char *pattern, const sx_hashfs_file_t **file, int recurse) {

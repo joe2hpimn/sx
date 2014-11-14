@@ -108,6 +108,8 @@ void fcgi_list_volume(const sx_hashfs_volume_t *vol) {
     unsigned int comma = 0, rplavail, len;
     sx_hash_t etag;
     rc_ty s;
+    const char *pattern;
+    int recursive;
 
     reply = malloc(8192); /* Have room for the volume info, the json closure and the string terminator */
     if(!reply)
@@ -123,6 +125,18 @@ void fcgi_list_volume(const sx_hashfs_volume_t *vol) {
     if(has_arg("sizeOnly")) {
         strcpy(cur, "}");
         CGI_PUTS(reply);
+        free(reply);
+        return;
+    }
+    pattern = get_arg("filter");
+    recursive = has_arg("recursive");
+    if(!pattern)
+	pattern = "/";
+    if (sx_hashfs_list_etag(hashfs, vol, pattern, recursive, &etag)) {
+        free(reply);
+        quit_errmsg(500, "failed to calculate etag");
+    }
+    if(is_object_fresh(&etag, 'L', NO_LAST_MODIFIED)) {
         free(reply);
         return;
     }
@@ -202,14 +216,6 @@ void fcgi_list_volume(const sx_hashfs_volume_t *vol) {
 	free(reply);
 	quit_errmsg(rc2http(s), "Failed to list files");
     }
-
-    if(!sx_hashfs_hash_buf(NULL, 0, reply, strlen(reply), &etag)) {
-	if(is_object_fresh(&etag, 'L', NO_LAST_MODIFIED)) {
-	    free(reply);
-	    return;
-	}
-    } else
-	WARN("Failed to compute ETag");
 
     CGI_PUTS(reply);
     free(reply);
