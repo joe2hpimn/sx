@@ -104,40 +104,35 @@ void fcgi_locate_volume(const sx_hashfs_volume_t *vol) {
 
 void fcgi_list_volume(const sx_hashfs_volume_t *vol) {
     const sx_hashfs_file_t *file;
-    char *reply, *cur;
-    unsigned int comma = 0, rplavail, len;
+    unsigned int comma = 0;
     sx_hash_t etag;
     rc_ty s;
     const char *pattern;
-    int recursive;
+    int recursive, size_only;
 
-    reply = malloc(8192); /* Have room for the volume info, the json closure and the string terminator */
-    if(!reply)
-        quit_errnum(503);
-
-    sprintf(reply, "Content-type: application/json\r\n\r\n{\"volumeSize\":%lld,\"replicaCount\":%u,\"volumeUsedSize\":%lld",
-        (long long)vol->size, vol->replica_count, (long long)vol->cursize);
-
-    len = strlen(reply);
-    cur = reply + len;
+    CGI_PUTS("Content-type: application/json\r\n");
 
     /* If we have sizeOnly parameter given, no listing will be performed */
-    if(has_arg("sizeOnly")) {
-        strcpy(cur, "}");
-        CGI_PUTS(reply);
-        free(reply);
-        return;
+    size_only = has_arg("sizeOnly");
+    if (!size_only) {
+        pattern = get_arg("filter");
+        recursive = has_arg("recursive");
+        if(!pattern)
+            pattern = "/";
+        if (sx_hashfs_list_etag(hashfs, vol, pattern, recursive, &etag)) {
+            quit_errmsg(500, "failed to calculate etag");
+        }
+        if(is_object_fresh(&etag, 'L', NO_LAST_MODIFIED)) {
+            return;
+        }
     }
-    pattern = get_arg("filter");
-    recursive = has_arg("recursive");
-    if(!pattern)
-	pattern = "/";
-    if (sx_hashfs_list_etag(hashfs, vol, pattern, recursive, &etag)) {
-        free(reply);
-        quit_errmsg(500, "failed to calculate etag");
-    }
-    if(is_object_fresh(&etag, 'L', NO_LAST_MODIFIED)) {
-        free(reply);
+    CGI_PUTS("\r\n");
+    CGI_PUTS("{\"volumeSize\":");
+    CGI_PUTLL(vol->size);
+    CGI_PRINTF(",\"replicaCount\":%u,\"volumeUsedSize\":", vol->replica_count);
+    CGI_PUTLL(vol->cursize);
+    if (size_only) {
+        CGI_PUTS("}");
         return;
     }
 
@@ -147,23 +142,17 @@ void fcgi_list_volume(const sx_hashfs_volume_t *vol) {
     case ITER_NO_MORE:
 	break;
     case ENOENT: {
-        free(reply);
-	quit_errmsg(404, "The list for the volume is not available here");
+	quit_itererr("The list for the volume is not available here", 404);
     }
     case EINVAL: {
-        free(reply);
-	quit_errnum(400);
+	quit_itererr("Invalid argument", 400);
     }
     default: {
-        free(reply);
-	quit_errnum(500);
+	quit_itererr("Internal error", 500);
     }
     }
 
-    sprintf(cur, ",\"fileList\":{");
-    len += strlen(",\"fileList\":{");
-    cur = reply + len;
-    rplavail = 8192 - len;
+    CGI_PUTS(",\"fileList\":{");
 
     for(; s == OK; s = sx_hashfs_list_next(hashfs)) {
 	/* Make room for the comma,
@@ -173,52 +162,31 @@ void fcgi_list_volume(const sx_hashfs_volume_t *vol) {
 	 * and the string terminator */
 
 	/* "filename":{"fileSize":123,"blockSize":4096,"createdAt":456,"fileRev":"REVISON_STRING"} */
-	if(rplavail < strlen(file->name) * 6 + 256 + REV_LEN) {
-	    char *nureply = realloc(reply, (cur - reply) + rplavail + 8192);
-	    if(!nureply) {
-		free(reply);
-		quit_errnum(503);
-	    }
-	    cur = nureply + (cur - reply);
-	    reply = nureply;
-	    rplavail += 8192;
-	}
 	if(comma) {
-	    *cur = ','; /* Bound checked above */
-	    cur++;
-	    rplavail--;
+            CGI_PUTC(',');
 	} else
 	    comma |= 1;
 
-	json_qstring(cur, rplavail, file->name);
-	len = strlen(cur);
-	cur += len;
-	rplavail -= len;
+	json_send_qstring(file->name);
 	if(file->revision[0]) {
 	    /* A File */
-	    snprintf(cur, rplavail, ":{\"fileSize\":%lld,\"blockSize\":%u,\"createdAt\":%lld,\"fileRevision\":\"%s\"}",
-		     (long long)file->file_size,
-		     file->block_size,
-		     (long long)file->created_at,
-		     file->revision);
+            CGI_PUTS(":{\"fileSize\":");
+            CGI_PUTLL(file->file_size);
+            CGI_PRINTF(",\"blockSize\":%u,\"createdAt\":", file->block_size);
+            CGI_PUTT(file->created_at);
+            CGI_PRINTF(",\"fileRevision\":\"%s\"}", file->revision);
 	} else {
 	    /* A Fakedir */
-	    snprintf(cur, rplavail, ":{}");
+            CGI_PUTS(":{}");
 	}
-	len = strlen(cur);
-	cur += len;
-	rplavail -= len;
     }
 
-    strcpy(cur, "}}"); /* Bound checked above */
+    CGI_PUTS("}");
 
     if(s != ITER_NO_MORE)  {
-	free(reply);
-	quit_errmsg(rc2http(s), "Failed to list files");
+	quit_itererr("Failed to list files", rc2http(s));
     }
-
-    CGI_PUTS(reply);
-    free(reply);
+    CGI_PUTS("}");
 }
 
 /* {"volumeSize":123, "replicaCount":2, "volumeMeta":{"metaKey":"hex(value)"}, "user":"jack", "maxRevisions":5} */

@@ -1547,6 +1547,7 @@ struct cbl_file_t {
 };
 
 struct cb_listfiles_ctx {
+    struct cb_error_ctx errctx;
     curlev_context_t *cbdata;
     yajl_callbacks yacb;
     yajl_handle yh;
@@ -1558,7 +1559,7 @@ struct cb_listfiles_ctx {
     struct cbl_file_t file;
     unsigned int replica;
     unsigned int nfiles;
-    enum list_files_state { LF_BEGIN, LF_MAIN, LF_REPLICACNT, LF_VOLUMEUSEDSIZE, LF_VOLUMESIZE, LF_FILES, LF_FILE, LF_FILECONTENT, LF_FILEATTRS, LF_FILESIZE, LF_BLOCKSIZE, LF_FILETIME, LF_FILEREV, LF_COMPLETE } state;
+    enum list_files_state { LF_ERROR, LF_BEGIN, LF_MAIN, LF_REPLICACNT, LF_VOLUMEUSEDSIZE, LF_VOLUMESIZE, LF_FILES, LF_FILE, LF_FILECONTENT, LF_FILEATTRS, LF_FILESIZE, LF_BLOCKSIZE, LF_FILETIME, LF_FILEREV, LF_COMPLETE } state;
 };
 
 
@@ -1587,7 +1588,13 @@ static int yacb_listfiles_map_key(void *ctx, const unsigned char *s, size_t l) {
     if(!ctx || !l)
 	return 0;
 
+    if(yactx->state == LF_ERROR)
+        return yacb_error_map_key(&yactx->errctx, s, l);
     if(yactx->state == LF_MAIN) {
+        if(ya_check_error(yactx->cbdata, &yactx->errctx, s, l)) {
+            yactx->state = LF_ERROR;
+            return 1;
+        }
 	if(l == lenof("volumeSize") && !memcmp(s, "volumeSize", lenof("volumeSize")))
 	    yactx->state = LF_VOLUMESIZE;
         else if(l == lenof("volumeUsedSize") && !memcmp(s, "volumeUsedSize", lenof("volumeUsedSize")))
@@ -1724,7 +1731,8 @@ static int yacb_listfiles_string(void *ctx, const unsigned char *s, size_t l) {
     struct cb_listfiles_ctx *yactx = (struct cb_listfiles_ctx *)ctx;
     if(!ctx)
 	return 0;
-
+    if(yactx->state == LF_ERROR)
+        return yacb_error_string(&yactx->errctx, s, l);
     if(yactx->state == LF_FILEREV) {
 	yactx->frev = malloc(l);
 	if(!yactx->frev) {
@@ -1745,7 +1753,8 @@ static int yacb_listfiles_end_map(void *ctx) {
     struct cb_listfiles_ctx *yactx = (struct cb_listfiles_ctx *)ctx;
     if(!ctx)
 	return 0;
-
+    if(yactx->state == LF_ERROR)
+        return yacb_error_end_map(&yactx->errctx);
     if(yactx->state == LF_FILEATTRS) {
 	if(!yactx->fname) {
 	    CBDEBUG("missing file name");
@@ -1990,8 +1999,10 @@ sxc_cluster_lf_t *sxi_conns_listfiles(sxi_conns_t *conns, const char *volume, sx
     }
 
     if(yajl_complete_parse(yctx.yh) != yajl_status_ok || yctx.state != LF_COMPLETE) {
-        SXDEBUG("JSON parsing failed");
-        sxi_seterr(sx, SXE_ECOMM, "List failed: Communication error");
+        if (yctx.state != LF_ERROR) {
+            SXDEBUG("JSON parsing failed");
+            sxi_seterr(sx, SXE_ECOMM, "List failed: Communication error");
+        }
 	if(yctx.yh)
 	    yajl_free(yctx.yh);
 	fclose(yctx.f);
