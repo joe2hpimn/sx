@@ -1089,7 +1089,7 @@ int test_undelete(sxc_client_t *sx, sxc_cluster_t *cluster, const char *local_di
         fprintf(stderr, "test_undelete: ERROR: Cannot delete '%s' file.\n", remote_file_path);
         goto test_undelete_err;
     }
-    sprintf(remote_file_path, "sx://%s@%s/%s%s/%s/%s", uri->profile, uri->host, uri->volume, TRASH_NAME, REMOTE_DIR, UNDELETE_FILE_NAME);
+    sprintf(remote_file_path, "sx://%s%s%s/%s%s/%s/%s", uri->profile ? uri->profile : "", uri->profile ? "@" : "", uri->host, uri->volume, TRASH_NAME, REMOTE_DIR, UNDELETE_FILE_NAME);
     switch(find_file(sx, cluster, remote_file_path)) {
         case -1:
             fprintf(stderr, "test_undelete: ERROR: Looking for '%s' file in %s failed.\n", UNDELETE_FILE_NAME, remote_file_path);
