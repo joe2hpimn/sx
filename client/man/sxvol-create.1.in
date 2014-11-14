@@ -3,7 +3,7 @@
 sxvol create \- create volumes on SX clusters
 .SH SYNOPSIS
 .B sxvol create
-\fR[\fI\,OPTIONS\/\fR] \fI\,-r N -o username sx://\/\fR[\fI\,profile@\/\fR]\fI\,cluster/volume\/\fR
+\fR[\fI\,OPTIONS\/\fR] \fI\,-r N -s SIZE -o username sx://\/\fR[\fI\,profile@\/\fR]\fI\,cluster/volume\/\fR
 .SH DESCRIPTION
 Create a remote volume with specific settings. Only cluster administrators can create volumes.
 .SH OPTIONS
@@ -51,4 +51,4 @@ To create an encrypted volume with replica 3 and default settings for 'admin' ru
 \fB    sxvol create -r 3 -o admin -f aes256 sx://admin@cluster/encrypted\fP
 .br
 .SH SEE ALSO
-\fBsxvol-filter\fR(1), \fBsxvol-remove\fR(1)
+\fBsxvol-filter\fR(1), \fBsxvol-modify\fR(1), \fBsxvol-remove\fR(1)

@@ -1,6 +1,6 @@
 package "sxvol"
 args "--unamed-opts --no-handle-version --no-handle-error --file-name=cmd_modify --func-name=modify_cmdline_parser --arg-struct-name=modify_args_info"
-usage "sxvol modify [OPTIONS] sx://[profile@]cluster/volume"
+usage "sxvol modify <OPTIONS> sx://[profile@]cluster/volume"
 
 text "\nVolume modification options:\n"
 

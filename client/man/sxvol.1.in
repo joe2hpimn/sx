@@ -5,15 +5,18 @@ sxvol \- manage volumes and filters
 .B sxvol
 \fI\,<command> \/\fR[\fI\,OPTIONS\/\fR]...
 .SH DESCRIPTION
-sxvol can create and delete remote volumes and display information about available filters.
+sxvol can create, modify, and delete remote volumes and display information about available filters.
 .SH COMMANDS
 The available commands are listed below. To get more information about a specific command run \fB'man sxvol COMMAND'\fR.
 .TP
 .B create
-Create a remote volume.
+Create a new volume.
+.TP
+.B modify
+Modify an existing volume.
 .TP
 .B remove
-Remove a remote volume.
+Remove an empty volume.
 .TP
 .B filter
 Display information about available filters.

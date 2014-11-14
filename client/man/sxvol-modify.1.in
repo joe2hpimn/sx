@@ -1,0 +1,42 @@
+.TH SXVOL-MODIFY "1" "November 2014" "sxvol @VERSION@" "Skylable SX Manual"
+.SH NAME
+sxvol modify \- modify existing volumes
+.SH SYNOPSIS
+.B sxvol modify
+\fR<\fI\,OPTIONS\/\fR> \fI\,sx://\/\fR[\fI\,profile@\/\fR]\fI\,cluster/volume\/\fR
+.SH DESCRIPTION
+Modify settings of an existing remote volume such as its owner or size. Only cluster administrators can modify volumes.
+.SH OPTIONS
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help and exit
+.TP
+\fB\-\-full\-help\fR
+Print help, including hidden options, and exit
+.TP
+\fB\-V\fR, \fB\-\-version\fR
+Print version and exit
+.TP
+\fB\-o\fR, \fB\-\-owner\fR=\fI\,NAME\/\fR
+Set a new owner of the volume. The old owner will be automatically removed from the volume ACL (it can be granted access again using \fBsxacl\fR(1)) and the new owner will be granted read and write access.
+.TP
+\fB\-s\fR, \fB\-\-size\fR=\fI\,SIZE\/\fR
+Set a new size of the volume. If the new size is lower than the current space usage of the volume, it will not be possible to store any new data until enough data gets removed to satisfy the limit. The size can be followed by one of the following suffixes: K(-ilobytes), M(-megabytes), G(-igabytes) and T(-erabytes) suffixes.
+.TP
+\fB\-D\fR, \fB\-\-debug\fR
+Enable debug messages
+.TP
+\fB\-c\fR, \fB\-\-config\-dir\fR=\fI\,PATH\/\fR
+Path to the SX configuration directory (default: ~/.sx)
+.SH "EXAMPLES"
+To make 'bob' the new owner of the volume previously owned by 'joe' run:
+.br
+\fB    sxvol modify -o bob sx://admin@cluster/volume\fP
+
+.br
+To change the size of the volume 'data' to 5 gigabytes run:
+.br
+\fB    sxvol modify -s 5G sx://admin@cluster/data\fP
+.br
+.SH SEE ALSO
+\fBsxvol-create\fR(1), \fBsxvol-remove\fR(1)

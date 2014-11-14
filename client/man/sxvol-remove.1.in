@@ -31,4 +31,4 @@ To remove a non-empty volume 'trash' first recursively remove all its files and 
 \fB    sxrm -r sx://admin@cluster/trash\fP
 \fB    sxvol remove sx://admin@cluster/trash\fP
 .SH SEE ALSO
-\fBsxvol-create\fR(1), \fBsxvol-filter\fR(1)
+\fBsxvol-create\fR(1), \fBsxvol-modify\fR(1), \fBsxvol-filter\fR(1)
