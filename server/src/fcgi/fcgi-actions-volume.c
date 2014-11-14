@@ -127,6 +127,8 @@ void fcgi_list_volume(const sx_hashfs_volume_t *vol) {
         }
     }
     CGI_PUTS("\r\n");
+    if (verb == VERB_HEAD)
+        return;
     CGI_PUTS("{\"volumeSize\":");
     CGI_PUTLL(vol->size);
     CGI_PRINTF(",\"replicaCount\":%u,\"volumeUsedSize\":", vol->replica_count);
