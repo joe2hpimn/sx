@@ -311,6 +311,8 @@ void uuid_generate(sx_uuid_t *u) {
 }
 
 int uuid_from_string(sx_uuid_t *u, const char *s) {
+    if(!u || !s)
+	return 1;
     if(strlen(s) != 36 ||
        hex2bin(s, 8, u->binary, 4) ||
        s[8] != '-' ||

@@ -448,31 +448,52 @@ sxi_query_t *sxi_hashop_proto_reserve(sxc_client_t *sx, unsigned blocksize, cons
     return sxi_hashop_proto_list(sx, blocksize, hashes, hashes_len, REQ_PUT, "reserve", id, op_expires_at);
 }
 
-sxi_query_t *sxi_hashop_proto_inuse_begin_bin(sxc_client_t *sx, int kind, const void *id, unsigned id_size, uint64_t op_expires_at)
+int sxi_hashop_generate_id(sxc_client_t *sx, hashop_kind_t kind,
+                           const void *global, unsigned global_size,
+                           const void *local, unsigned local_size, sx_hash_t *id)
 {
-    char idhex[SXI_SHA1_TEXT_LEN+1];
     sxi_md_ctx *hash_ctx;
     sx_hash_t hash;
 
+    if (!sx)
+        return 1;
+    if (!id) {
+        sxi_seterr(sx, SXE_EARG, "null arg");
+        return 1;
+    }
+    if (!global && !local) {
+        sxi_seterr(sx, SXE_EARG, "must be one of: local, global or both");
+        return 1;
+    }
+
     hash_ctx = sxi_md_init();
     if (!hash_ctx)
-        return NULL;
+        return 1;
     if (!sxi_sha1_init(hash_ctx))
-        return NULL;
+        return 1;
 
     if (!sxi_sha1_update(hash_ctx, &kind, sizeof(kind)) ||
-        !sxi_sha1_update(hash_ctx, id, id_size) ||
+        (global && !sxi_sha1_update(hash_ctx, global, global_size)) ||
+        (local && !sxi_sha1_update(hash_ctx, local, local_size)) ||
         !sxi_sha1_final(hash_ctx, hash.b, NULL)) {
-        sxi_md_cleanup(&hash_ctx);
-        return NULL;
+        return 1;
     }
 
     sxi_md_cleanup(&hash_ctx);
+    return 0;
+}
+
+sxi_query_t *sxi_hashop_proto_inuse_begin_bin(sxc_client_t *sx, hashop_kind_t kind, const void *id, unsigned id_size, uint64_t op_expires_at)
+{
+    char idhex[SXI_SHA1_TEXT_LEN+1];
+    sx_hash_t hash;
+    sxi_hashop_generate_id(sx, kind, id, id_size, NULL, 0, &hash);
+
     sxi_bin2hex(hash.b, sizeof(hash.b), idhex);
     return sxi_hashop_proto_inuse_begin(sx, kind, idhex, op_expires_at);
 }
 
-sxi_query_t *sxi_hashop_proto_inuse_begin(sxc_client_t *sx, int kind, const char *id, uint64_t op_expires_at)
+sxi_query_t *sxi_hashop_proto_inuse_begin(sxc_client_t *sx, hashop_kind_t kind, const char *id, uint64_t op_expires_at)
 {
     char url[128];
     sxi_query_t *ret;

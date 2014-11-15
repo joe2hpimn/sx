@@ -28,6 +28,7 @@
 #include "default.h"
 #include <string.h>
 #include <stdlib.h>
+#include <arpa/inet.h>
 #include <yajl/yajl_parse.h>
 
 #include "fcgi-utils.h"
@@ -705,4 +706,85 @@ void fcgi_push_blocks(void) {
     sx_nodelist_delete(targets);
     sx_blob_free(yctx.stash);
     CGI_PUTS("\r\n");
+}
+
+#define REPLACEMENT_BATCH_SIZE (64*1024*1024)
+
+void fcgi_send_replacement_blocks() {
+    sx_block_meta_index_t bmidx, *bmidxptr = NULL;
+    unsigned int version = 0, bytes_sent = 0;
+    sx_uuid_t target;
+    sx_blob_t *b;
+
+    if(uuid_from_string(&target, get_arg("target")))
+	quit_errmsg(400, "Parameter target is not valid");
+
+    if(has_arg("dist")) {
+	char *eon;
+	version = strtol(get_arg("dist"), &eon, 10);
+	if(*eon)
+	    version = 0;
+    }
+    if(version == 0) /* FIXME: is zero legal ? */
+	quit_errmsg(400, "Parameter dist missing or invalid");
+
+    if(has_arg("idx")) {
+	if(strlen(get_arg("idx")) != sizeof(bmidx) * 2 ||
+	   hex2bin(get_arg("idx"), sizeof(bmidx) * 2, (uint8_t *)&bmidx, sizeof(bmidx)))
+	    quit_errmsg(400, "Parameter idx is not valid");
+	bmidxptr = &bmidx;
+    }
+
+    b = sx_blob_new();
+    if(!b)
+	quit_errmsg(503, "Out of memory");
+
+    CGI_PUTS("\r\n");
+    while(bytes_sent < REPLACEMENT_BATCH_SIZE) {
+	const uint8_t *blockdata;
+	unsigned int header_len, hlenton;
+	block_meta_t *bmeta;
+	const void *header;
+	rc_ty r;
+
+	sx_blob_reset(b);
+	r = sx_hashfs_br_find(hashfs, bmidxptr, version, &target, &bmeta);
+
+	if(r == ITER_NO_MORE) {
+	    if(sx_blob_add_string(b, "$THEEND$"))
+		break;
+	} else if(r != OK) {
+	    break;
+	} else {
+	    unsigned int i;
+	    if(sx_blob_add_string(b, "$BLOCK$") ||
+	       sx_blob_add_int32(b, bmeta->blocksize) ||
+	       sx_blob_add_blob(b, &bmeta->hash, sizeof(bmeta->hash)) ||
+	       sx_blob_add_blob(b, &bmeta->cursor, sizeof(bmeta->cursor)) ||
+	       sx_blob_add_int32(b, bmeta->count))
+		break;
+	    for(i=0; i<bmeta->count; i++)
+		if(sx_blob_add_int32(b, bmeta->entries[i].replica)||
+		   sx_blob_add_int32(b, bmeta->entries[i].count))
+		    break;
+	    if(i < bmeta->count)
+		break;
+	    if(sx_hashfs_block_get(hashfs, bmeta->blocksize, &bmeta->hash, &blockdata) != OK) // FIXME: WTF ?!
+		break;
+	}
+	sx_blob_to_data(b, &header, &header_len);
+	hlenton = htonl(header_len);
+	CGI_PUTD(&hlenton, sizeof(hlenton));
+	CGI_PUTD(header, header_len);
+	bytes_sent += header_len;
+	if(r == ITER_NO_MORE)
+	    break;
+
+	CGI_PUTD(blockdata, bmeta->blocksize);
+	bytes_sent += bmeta->blocksize;
+	memcpy(&bmidx, &bmeta->cursor, sizeof(bmidx));
+	bmidxptr = &bmidx;
+	sx_hashfs_blockmeta_free(&bmeta);
+    }
+    sx_blob_free(b);
 }

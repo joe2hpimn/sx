@@ -54,7 +54,7 @@
 #define METADBS 16
 #define GCDBS 1
 /* NOTE: HASHFS_VERSION must be kept below 15 bytes */
-#define HASHFS_VERSION "SX-Storage 1.5"
+#define HASHFS_VERSION "SX-Storage 1.6"
 #define SIZES 3
 const char sizedirs[SIZES] = "sml";
 const char *sizelongnames[SIZES] = { "small", "medium", "large" };
@@ -321,6 +321,10 @@ rc_ty sx_storage_create(const char *dir, sx_uuid_t *cluster, uint8_t *key, int k
     qnullify(q);
 
     if(qprep(db, &q, "CREATE TABLE privs (volume_id INTEGER NOT NULL REFERENCES volumes(vid) ON DELETE CASCADE ON UPDATE CASCADE, user_id INTEGER NOT NULL REFERENCES users(uid) ON DELETE CASCADE, priv INTEGER NOT NULL, PRIMARY KEY (volume_id, user_id))") || qstep_noret(q))
+	goto create_hashfs_fail;
+    qnullify(q);
+
+    if(qprep(db, &q, "CREATE TABLE replace (node BLOB ("STRIFY(UUID_BINARY_SIZE)") NOT NULL PRIMARY KEY, last_block BLOB (21) NULL)") || qstep_noret(q))
 	goto create_hashfs_fail;
     qnullify(q);
 
@@ -10143,7 +10147,7 @@ static rc_ty sx_hashfs_blockmeta_get(sx_hashfs_t *h, rc_ty ret, sqlite3_stmt *q,
             return FAIL_EINTERNAL;
         }
         if (blockmeta->count) {
-            DEBUG("hs:%d,ndb:%d,blockmeta count=%ld", h->rit.sizeidx, h->rit.ndbidx, blockmeta->count);
+            DEBUG("hs:%d,ndb:%d,blockmeta count=%u", h->rit.sizeidx, h->rit.ndbidx, blockmeta->count);
             DEBUGHASH("_next: ", &blockmeta->hash);
             return OK;
         }
@@ -10301,57 +10305,6 @@ rc_ty sx_hashfs_br_use(sx_hashfs_t *h, const block_meta_t *blockmeta)
         ret = FAIL_EINTERNAL;
     sqlite3_reset(h->rit.q_add);
     DEBUGHASH("br_use", &blockmeta->hash);
-    return ret;
-}
-
-static int node_is_failed(sx_hashfs_t *h, const sx_node_t *node)
-{
-    return 0; /* TODO: implement */
-}
-
-static const sx_node_t* sx_hashfs_first_nonfailed(sx_hashfs_t *h, sx_nodelist_t *nodelist)
-{
-    unsigned i;
-    for (i=0;i<sx_nodelist_count(nodelist);i++) {
-        const sx_node_t *node = sx_nodelist_get(nodelist, i);
-        if (node_is_failed(h, node))
-            continue;
-        return node;
-    }
-    return NULL;
-}
-
-static rc_ty sx_hashfs_should_repair(sx_hashfs_t *h, const block_meta_t *blockmeta, const sx_node_t *target)
-{
-    const sx_node_t *self = sx_hashfs_self(h);
-    unsigned max_replica = 0, i;
-    sx_nodelist_t *hashnodes;
-    rc_ty ret = ITER_NO_MORE;
-    if (!h || !blockmeta || !self || !target) {
-        NULLARG();
-        return EFAULT;
-    }
-    for (i=0;i<blockmeta->count;i++) {
-        const block_meta_entry_t *entry = &blockmeta->entries[i];
-        if (entry->count > 0 && entry->replica > max_replica)
-            max_replica = entry->replica;
-    }
-    if (!max_replica)
-        return ITER_NO_MORE;
-    hashnodes = sx_hashfs_hashnodes(h, NL_PREV, &blockmeta->hash, max_replica);
-    if (!hashnodes) {
-        WARN("cannot determine nodes for hash");
-        return FAIL_EINTERNAL;
-    }
-    if (!sx_node_cmp(sx_hashfs_first_nonfailed(h, hashnodes), self)) {
-        /* this node would be responsible for pushing */
-        if (sx_nodelist_lookup(hashnodes, sx_node_uuid(target))) {
-            /* target used to be a replica for this hash */
-            DEBUGHASH("repairing hash", &blockmeta->hash);
-            ret = OK;
-        }
-    }
-    sx_nodelist_delete(hashnodes);
     return ret;
 }
 
@@ -11210,7 +11163,58 @@ sx_hashfs_volume_mod_err:
     return ret;
 }
 
-rc_ty sx_hashfs_br_find(sx_hashfs_t *h, const sx_block_meta_index_t *previous, unsigned rebalance_ver, const sx_node_t *target, block_meta_t **blockmetaptr)
+static int node_is_failed(sx_hashfs_t *h, const sx_node_t *node)
+{
+    return 0; /* TODO: implement */
+}
+
+static const sx_node_t* sx_hashfs_first_nonfailed(sx_hashfs_t *h, sx_nodelist_t *nodelist)
+{
+    unsigned i;
+    for (i=0;i<sx_nodelist_count(nodelist);i++) {
+        const sx_node_t *node = sx_nodelist_get(nodelist, i);
+        if (node_is_failed(h, node))
+            continue;
+        return node;
+    }
+    return NULL;
+}
+
+static rc_ty sx_hashfs_should_repair(sx_hashfs_t *h, const block_meta_t *blockmeta, const sx_uuid_t *target)
+{
+    const sx_node_t *self = sx_hashfs_self(h);
+    unsigned max_replica = 0, i;
+    sx_nodelist_t *hashnodes;
+    rc_ty ret = ITER_NO_MORE;
+    if (!h || !blockmeta || !self || !target) {
+        NULLARG();
+        return EFAULT;
+    }
+    for (i=0;i<blockmeta->count;i++) {
+        const block_meta_entry_t *entry = &blockmeta->entries[i];
+        if (entry->count > 0 && entry->replica > max_replica)
+            max_replica = entry->replica;
+    }
+    if (!max_replica)
+        return ITER_NO_MORE;
+    hashnodes = sx_hashfs_hashnodes(h, NL_PREV, &blockmeta->hash, max_replica);
+    if (!hashnodes) {
+        WARN("cannot determine nodes for hash");
+        return FAIL_EINTERNAL;
+    }
+    if (!sx_node_cmp(sx_hashfs_first_nonfailed(h, hashnodes), self)) {
+        /* this node would be responsible for pushing */
+        if (sx_nodelist_lookup(hashnodes, target)) {
+            /* target used to be a replica for this hash */
+            DEBUGHASH("repairing hash", &blockmeta->hash);
+            ret = OK;
+        }
+    }
+    sx_nodelist_delete(hashnodes);
+    return ret;
+}
+
+rc_ty sx_hashfs_br_find(sx_hashfs_t *h, const sx_block_meta_index_t *previous, unsigned rebalance_ver, const sx_uuid_t *target, block_meta_t **blockmetaptr)
 {
     int ret;
     rc_ty rc;
@@ -11281,5 +11285,73 @@ rc_ty sx_hashfs_br_find(sx_hashfs_t *h, const sx_block_meta_index_t *previous, u
     DEBUG("iteration failed: %s", rc2str(rc));
     sx_hashfs_blockmeta_free(blockmetaptr);
     return rc;
+}
+
+rc_ty sx_hashfs_replace_getnode(sx_hashfs_t *h, unsigned int *version, const sx_node_t **node, int *have_blkidx, uint8_t *blkidx) {
+    sqlite3_stmt *q = NULL;
+    rc_ty ret = FAIL_EINTERNAL;
+    int r;
+
+    if(!h || !version || !node || !have_blkidx || !blkidx) {
+        NULLARG();
+        return EFAULT;
+    }
+
+    if(qprep(h->db, &q, "SELECT node, last_block FROM replace LIMIT (SELECT ABS(COALESCE(RANDOM() % COUNT(*), 0)) FROM replace), 1"))
+	goto getnode_fail;
+
+    r = qstep(q);
+    if(r == SQLITE_ROW) {
+	const void *nodeid = sqlite3_column_blob(q, 0);
+	const void *last = sqlite3_column_blob(q, 1);
+	sx_uuid_t nuuid;
+
+	if(!nodeid || sqlite3_column_bytes(q, 0) != UUID_BINARY_SIZE)
+	    goto getnode_fail;
+	if(last) {
+	    if(sqlite3_column_bytes(q, 1) != 21)
+		goto getnode_fail;
+	    memcpy(blkidx, last, 21);
+	    *have_blkidx = 1;
+	} else
+	    *have_blkidx = 0;
+	uuid_from_binary(&nuuid, nodeid);
+	*version = sxi_hdist_version(h->hd);
+	*node = sx_nodelist_lookup(sx_hashfs_nodelist(h, NL_NEXT), &nuuid);
+	if(*node)
+	    ret = OK;
+    } else if (r == SQLITE_DONE)
+	ret = ITER_NO_MORE;
+
+ getnode_fail:
+    sqlite3_finalize(q);    
+    return ret;
+}
+
+rc_ty sx_hashfs_replace_setnode(sx_hashfs_t *h, const sx_uuid_t *node, const uint8_t *blkidx) {
+    sqlite3_stmt *q = NULL;
+    int ret = FAIL_EINTERNAL;
+
+    if(!h || !node) {
+        NULLARG();
+        return EFAULT;
+    }
+
+    if(blkidx) {
+	if(qprep(h->db, &q, "UPDATE replace SET last_block = :block WHERE node = :node") ||
+	   qbind_blob(q, ":block", blkidx, 21))
+	    goto setnode_fail;
+    } else {
+	if(qprep(h->db, &q, "DELETE FROM replace WHERE node = :node"))
+	    goto setnode_fail;
+    }
+	
+    if(!qbind_blob(q, ":node", node->binary, sizeof(node->binary)) &&
+       !qstep_noret(q))
+	ret = OK;
+
+ setnode_fail:
+    sqlite3_finalize(q);
+    return ret;
 }
 

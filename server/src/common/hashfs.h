@@ -373,7 +373,7 @@ rc_ty sx_hashfs_br_delete(sx_hashfs_t *h, const block_meta_t *blockmeta);
 rc_ty sx_hashfs_br_use(sx_hashfs_t *h, const block_meta_t *blockmeta);
 rc_ty sx_hashfs_br_done(sx_hashfs_t *h, const block_meta_t *blockmeta);
 
-rc_ty sx_hashfs_br_find(sx_hashfs_t *h, const sx_block_meta_index_t *previous, unsigned rebalance_ver, const sx_node_t *target, block_meta_t **blockmeta);
+rc_ty sx_hashfs_br_find(sx_hashfs_t *h, const sx_block_meta_index_t *previous, unsigned rebalance_ver, const sx_uuid_t *target, block_meta_t **blockmetaptr);
 
 rc_ty sx_hashfs_blkrb_hold(sx_hashfs_t *h, const sx_hash_t *block, unsigned int blocksize, const sx_node_t *node);
 rc_ty sx_hashfs_blkrb_can_gc(sx_hashfs_t *h, const sx_hash_t *block, unsigned int blocksize);
@@ -400,9 +400,7 @@ rc_ty sx_hashfs_hdist_set_rebalanced(sx_hashfs_t *h);
 rc_ty sx_hashfs_get_rbl_info(sx_hashfs_t *h, int *complete, const char **description);
 rc_ty sx_hashfs_set_rbl_info(sx_hashfs_t *h, int active, int complete, const char *description);
 
-enum {
-    SX_ID_TOKEN=1,
-    SX_ID_REBALANCE
-};
+rc_ty sx_hashfs_replace_getnode(sx_hashfs_t *h, unsigned int *version, const sx_node_t **node, int *have_blkidx, uint8_t *blkidx);
+rc_ty sx_hashfs_replace_setnode(sx_hashfs_t *h, const sx_uuid_t *node, const uint8_t *blkidx);
 
 #endif

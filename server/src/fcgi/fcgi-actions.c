@@ -63,6 +63,13 @@ void volume_ops(void) {
     if(verb == VERB_HEAD || verb == VERB_GET) {
 	const sx_hashfs_volume_t *vol;
 
+	if(!strcmp(volume, ".replblk")) {
+	    /* Bulk block and blockmeta xfer (s2s, replacement node repopulation) - CLUSTER required */
+	    quit_unless_has(PRIV_CLUSTER);
+	    fcgi_send_replacement_blocks();
+	    return;
+	}
+
 	if(!strcmp(volume, ".users")) {
 	    /* List users - ADMIN required */
 	    quit_unless_has(PRIV_ADMIN);
