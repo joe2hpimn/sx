@@ -36,21 +36,29 @@
 #include "utils.h"
 #include "job_common.h"
 
+static rc_ty int64_arg(const char* arg, int64_t *v, int64_t defaultv)
+{
+    const char *s = get_arg(arg);
+    char *eon;
+    *v = defaultv;
+    if (s) {
+        *v = strtoll(s, &eon, 10);
+        if (*eon || *v < 0) {
+            msg_set_reason("Invalid '%s' parameter: '%s'", arg, s);
+            return EINVAL;
+        }
+    }
+    return OK;
+}
+
 void fcgi_locate_volume(const sx_hashfs_volume_t *vol) {
-    const char *size = get_arg("size"), *eon;
     sx_nodelist_t *allnodes, *goodnodes;
     unsigned int blocksize, nnode, nnodes;
     int64_t fsize;
     rc_ty s;
 
-    if(size) {
-	fsize = strtoll(size, (char **)&eon, 10);
-	if(*eon || fsize < 0) {
-	    msg_set_reason("Invalid size parameter: '%s'", size);
-	    quit_errmsg(400, msg_get_reason());
-	}
-    } else
-	fsize = 0;
+    if (int64_arg("size", &fsize, 0))
+        quit_errmsg(400, msg_get_reason());
 
     /* The locate_volume query is shared between different ops.
      * Although most of them (file creation, file deletion, etc) can be
@@ -95,7 +103,7 @@ void fcgi_locate_volume(const sx_hashfs_volume_t *vol) {
     CGI_PUTS("Content-type: application/json\r\n\r\n{\"nodeList\":");
     send_nodes_randomised(goodnodes);
     sx_nodelist_delete(goodnodes);
-    if(size)
+    if(has_arg("size"))
 	CGI_PRINTF(",\"blockSize\":%d", blocksize);
     if(has_arg("volumeMeta")) {
 	const char *metakey;
@@ -132,6 +140,10 @@ void fcgi_list_volume(const sx_hashfs_volume_t *vol) {
     rc_ty s;
     const char *pattern;
     int recursive, size_only;
+    int64_t i, nmax;
+
+    if (int64_arg("limit", &nmax, ~0u))
+        quit_errmsg(400, msg_get_reason());
 
     CGI_PUTS("Content-type: application/json\r\n");
 
@@ -161,7 +173,7 @@ void fcgi_list_volume(const sx_hashfs_volume_t *vol) {
         return;
     }
 
-    s = sx_hashfs_list_first(hashfs, vol, get_arg("filter"), &file, has_arg("recursive"));
+    s = sx_hashfs_list_first(hashfs, vol, get_arg("filter"), &file, has_arg("recursive"), get_arg("after"));
     switch(s) {
     case OK:
     case ITER_NO_MORE:
@@ -179,7 +191,7 @@ void fcgi_list_volume(const sx_hashfs_volume_t *vol) {
 
     CGI_PUTS(",\"fileList\":{");
 
-    for(; s == OK; s = sx_hashfs_list_next(hashfs)) {
+    for(i=0; s == OK && i < nmax; i++, s = sx_hashfs_list_next(hashfs)) {
 	/* Make room for the comma,
 	 * the worst case encoded filename,
 	 * the whole file data,
@@ -207,9 +219,14 @@ void fcgi_list_volume(const sx_hashfs_volume_t *vol) {
     }
 
     CGI_PUTS("}");
+    if (i == nmax) {
+        DEBUG("listing truncated after %lld filenames", (long long)i);
+        s = ITER_NO_MORE;
+    }
 
     if(s != ITER_NO_MORE)  {
 	quit_itererr("Failed to list files", rc2http(s));
+        WARN("failed to list: %s", rc2str(s));
     }
     CGI_PUTS("}");
 }
@@ -951,7 +968,7 @@ void fcgi_delete_volume(void) {
 	    quit_errmsg(404, "This volume does not belong here");
 
 	if(!vol->cursize) {
-	    s = sx_hashfs_list_first(hashfs, vol, NULL, NULL, 1);
+	    s = sx_hashfs_list_first(hashfs, vol, NULL, NULL, 1, NULL);
 	    if(s == ITER_NO_MORE)
 		emptyvol = 1;
 	    else if(s != OK)

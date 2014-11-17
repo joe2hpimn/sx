@@ -3856,8 +3856,9 @@ rc_ty sx_hashfs_list_etag(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, cons
     return rc;
 }
 
-rc_ty sx_hashfs_list_first(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const char *pattern, const sx_hashfs_file_t **file, int recurse) {
+rc_ty sx_hashfs_list_first(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const char *pattern, const sx_hashfs_file_t **file, int recurse, const char *after) {
     int l = 0, r = 0, plen, glob = -1;
+    DEBUG("pattern: %s, recurse: %d, after: %s", pattern ? pattern : "", recurse, after ? after : "");
 
     if(!pattern)
 	pattern = "/";
@@ -3940,6 +3941,12 @@ rc_ty sx_hashfs_list_first(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, con
         h->list_file.itername[0] = '\0';
         h->list_file.itername_limit[0] = '\0';
         h->list_file.itername_limit_len = 0;
+    }
+    if (after) {
+        strncpy(h->list_file.itername, after, sizeof(h->list_file.itername));
+	h->list_file.itername[sizeof(h->list_file.itername)-1] = '\0';
+        strncpy(h->list_file.lastname, after, sizeof(h->list_file.lastname));
+        h->list_file.lastname[sizeof(h->list_file.lastname)-1] = '\0';
     }
 
     h->list_file.lastname[0] = '\0';
@@ -4869,7 +4876,7 @@ rc_ty sx_hashfs_volume_disable(sx_hashfs_t *h, const char *volume) {
 	}
     }
 
-    ret = sx_hashfs_list_first(h, vol, NULL, NULL, 1);
+    ret = sx_hashfs_list_first(h, vol, NULL, NULL, 1, NULL);
     if(ret == OK) {
 	msg_set_reason("Cannot disable non empty volume");
 	ret = ENOTEMPTY;
