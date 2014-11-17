@@ -246,8 +246,8 @@ typedef struct _sx_hashfs_file_t {
 } sx_hashfs_file_t;
 rc_ty sx_hashfs_list_first(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const char *pattern, const sx_hashfs_file_t **file, int recurse, const char *after);
 rc_ty sx_hashfs_list_next(sx_hashfs_t *h);
-rc_ty sx_hashfs_revision_first(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const char *name, const sx_hashfs_file_t **file);
-rc_ty sx_hashfs_revision_next(sx_hashfs_t *h);
+rc_ty sx_hashfs_revision_first(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const char *name, const sx_hashfs_file_t **file, int reversed);
+rc_ty sx_hashfs_revision_next(sx_hashfs_t *h, int reversed);
 rc_ty sx_hashfs_list_etag(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const char *pattern, int8_t recurse, sx_hash_t *etag);
 
 /* 0 = stop, 1 = continue */

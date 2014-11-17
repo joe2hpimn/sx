@@ -81,7 +81,7 @@ void fcgi_send_file_revisions(void) {
     if(s != OK)
 	quit_errmsg(rc2http(s), msg_get_reason());
 
-    s = sx_hashfs_revision_first(hashfs, vol, path, &file);
+    s = sx_hashfs_revision_first(hashfs, vol, path, &file, 0);
     if(s != OK)
 	quit_errmsg(rc2http(s), msg_get_reason());
 
@@ -91,7 +91,7 @@ void fcgi_send_file_revisions(void) {
 	CGI_PUTLL(file->file_size);
 	CGI_PRINTF(",\"createdAt\":%u}", file->created_at);
 	comma = 1;
-	s = sx_hashfs_revision_next(hashfs);
+	s = sx_hashfs_revision_next(hashfs, 0);
     } while(s == OK);
     if(s == ITER_NO_MORE)
 	CGI_PUTS("}}");

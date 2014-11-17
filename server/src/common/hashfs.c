@@ -662,6 +662,7 @@ struct _sx_hashfs_t {
     sqlite3_stmt *qt_countmeta;
     sqlite3_stmt *qt_gettoken;
     sqlite3_stmt *qt_tokenstats;
+    sqlite3_stmt *qt_tmpbytoken;
     sqlite3_stmt *qt_tmpdata;
     sqlite3_stmt *qt_delete;
     sqlite3_stmt *qt_flush;
@@ -671,6 +672,7 @@ struct _sx_hashfs_t {
     sqlite3_stmt *qm_ins[METADBS];
     sqlite3_stmt *qm_list[METADBS];
     sqlite3_stmt *qm_listrevs[METADBS];
+    sqlite3_stmt *qm_listrevs_rev[METADBS];
     unsigned char qm_list_done[METADBS];
     uint64_t qm_list_queries;
     sqlite3_stmt *qm_get[METADBS];
@@ -718,6 +720,7 @@ struct _sx_hashfs_t {
 
     sxi_db_t *eventdb;
     sqlite3_stmt *qe_getjob;
+    sqlite3_stmt *qe_jobbydata;
     sqlite3_stmt *qe_addjob;
     sqlite3_stmt *qe_addact;
     sqlite3_stmt *qe_countjobs;
@@ -826,6 +829,7 @@ static void close_all_dbs(sx_hashfs_t *h) {
     qclose(&h->xferdb);
 
     sqlite3_finalize(h->qe_getjob);
+    sqlite3_finalize(h->qe_jobbydata);
     sqlite3_finalize(h->qe_addjob);
     sqlite3_finalize(h->qe_addact);
     sqlite3_finalize(h->qe_countjobs);
@@ -878,6 +882,7 @@ static void close_all_dbs(sx_hashfs_t *h) {
 	sqlite3_finalize(h->qm_ins[i]);
 	sqlite3_finalize(h->qm_list[i]);
 	sqlite3_finalize(h->qm_listrevs[i]);
+        sqlite3_finalize(h->qm_listrevs_rev[i]);
 	sqlite3_finalize(h->qm_get[i]);
 	sqlite3_finalize(h->qm_getrev[i]);
 	sqlite3_finalize(h->qm_oldrevs[i]);
@@ -942,6 +947,7 @@ static void close_all_dbs(sx_hashfs_t *h) {
     sqlite3_finalize(h->qt_gettoken);
     sqlite3_finalize(h->qt_tmpdata);
     sqlite3_finalize(h->qt_tokenstats);
+    sqlite3_finalize(h->qt_tmpbytoken);
     sqlite3_finalize(h->qt_delete);
     sqlite3_finalize(h->qt_flush);
     sqlite3_finalize(h->qt_gc_tokens);
@@ -1454,6 +1460,8 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 	goto open_hashfs_fail;
     if(qprep(h->tempdb, &h->qt_tokenstats, "SELECT tid, size, volume_id, length(content) FROM tmpfiles WHERE token = :token AND flushed = 0"))
 	goto open_hashfs_fail;
+    if(qprep(h->tempdb, &h->qt_tmpbytoken, "SELECT tid FROM tmpfiles WHERE volume_id = :volume AND name = :name AND token = :token AND flushed = 1"))
+        goto open_hashfs_fail;
     if(qprep(h->tempdb, &h->qt_tmpdata, "SELECT t || ':' || token AS revision, name, size, volume_id, content, uniqidx, flushed, avail, token FROM tmpfiles WHERE tid = :id"))
 	goto open_hashfs_fail;
     if(qprep(h->tempdb, &h->qt_updateuniq, "UPDATE tmpfiles SET uniqidx = :uniq, avail = :avail WHERE tid = :id AND flushed = 1"))
@@ -1584,6 +1592,8 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 	if(qprep(h->metadb[i], &h->qm_listrevs[i], "SELECT size, rev FROM files WHERE volume_id = :volume AND name = :name AND rev > :previous ORDER BY rev ASC LIMIT 1"))
 	    goto open_hashfs_fail;
 	if(qprep(h->metadb[i], &h->qm_get[i], "SELECT fid, size, content, rev FROM files WHERE volume_id = :volume AND name = :name GROUP BY name HAVING rev = MAX(rev) LIMIT 1"))
+            goto open_hashfs_fail;
+        if(qprep(h->metadb[i], &h->qm_listrevs_rev[i], "SELECT size, rev FROM files WHERE volume_id = :volume AND name = :name AND (:previous IS NULL OR rev < :previous) ORDER BY rev DESC LIMIT 1"))
 	    goto open_hashfs_fail;
 	if(qprep(h->metadb[i], &h->qm_getrev[i], "SELECT fid, size, content, rev FROM files WHERE volume_id = :volume AND name = :name AND rev = :revision LIMIT 1"))
 	    goto open_hashfs_fail;
@@ -1622,6 +1632,8 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
     OPEN_DB("eventdb", &h->eventdb);
     if(qprep(h->eventdb, &h->qe_getjob, "SELECT complete, result, reason FROM jobs WHERE job = :id AND :owner IN (user, 0)"))
 	goto open_hashfs_fail;
+    if(qprep(h->eventdb, &h->qe_jobbydata, "SELECT job FROM jobs WHERE data = :data"))
+        goto open_hashfs_fail;
     if(qprep(h->eventdb, &h->qe_addjob, "INSERT INTO jobs (parent, type, lock, expiry_time, data, user) SELECT :parent, :type, :lock, datetime(:expiry + strftime('%s', COALESCE((SELECT expiry_time FROM jobs WHERE job = :parent), 'now')), 'unixepoch'), :data, :uid"))
 	goto open_hashfs_fail;
     if(qprep(h->eventdb, &h->qe_addact, "INSERT INTO actions (job_id, target, addr, internaladdr, capacity) VALUES (:job, :node, :addr, :int_addr, :capa)"))
@@ -3737,7 +3749,8 @@ static char *ith_slash(char *s, unsigned int i) {
     return NULL;
 }
 
-rc_ty sx_hashfs_revision_first(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const char *name, const sx_hashfs_file_t **file) {
+rc_ty sx_hashfs_revision_first(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const char *name, const sx_hashfs_file_t **file, int reversed) {
+    sqlite3_stmt *q;
     if(!volume || !file) {
 	NULLARG();
 	return EINVAL;
@@ -3757,10 +3770,11 @@ rc_ty sx_hashfs_revision_first(sx_hashfs_t *h, const sx_hashfs_volume_t *volume,
     if(h->rev_ndb < 0)
 	return FAIL_EINTERNAL;
 
-    sqlite3_reset(h->qm_listrevs[h->rev_ndb]);
+    q = (reversed ? h->qm_listrevs_rev[h->rev_ndb] : h->qm_listrevs[h->rev_ndb]);
+    sqlite3_reset(q);
 
-    if(qbind_int64(h->qm_listrevs[h->rev_ndb], ":volume", volume->id) ||
-       qbind_text(h->qm_listrevs[h->rev_ndb], ":name", name))
+    if(qbind_int64(q, ":volume", volume->id) ||
+       qbind_text(q, ":name", name))
 	return FAIL_EINTERNAL;
 
     strncpy(h->list_file.name, name, sizeof(h->list_file.name));
@@ -3768,18 +3782,21 @@ rc_ty sx_hashfs_revision_first(sx_hashfs_t *h, const sx_hashfs_volume_t *volume,
     h->list_file.revision[0] = '\0';
     *file = &h->list_file;
 
-    return sx_hashfs_revision_next(h);
+    return sx_hashfs_revision_next(h, reversed);
 }
 
 
-rc_ty sx_hashfs_revision_next(sx_hashfs_t *h) {
-    sqlite3_stmt *q = h->qm_listrevs[h->rev_ndb];
+rc_ty sx_hashfs_revision_next(sx_hashfs_t *h, int reversed) {
+    sqlite3_stmt *q = (reversed ? h->qm_listrevs_rev[h->rev_ndb] : h->qm_listrevs[h->rev_ndb]);
     const char *revision;
     int r;
 
     sqlite3_reset(q);
-    if(qbind_text(q, ":previous", h->list_file.revision))
-	return FAIL_EINTERNAL;
+    if(reversed && h->list_file.revision[0] == '\0') {
+        if(qbind_null(q, ":previous"))
+	    return FAIL_EINTERNAL;
+    } else if(qbind_text(q, ":previous", h->list_file.revision))
+        return FAIL_EINTERNAL;
 
     r = qstep(q);
     if(r == SQLITE_DONE) {
@@ -7517,13 +7534,78 @@ static rc_ty file_totmp(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, const cha
     return OK;
 }
 
+static rc_ty revision_tmpfile_id(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, const char *name, const char *revision, int64_t *tmpfile_id) {
+    rc_ty ret = FAIL_EINTERNAL;
+    int r;
+
+    if(!tmpfile_id) {
+        WARN("NULL argument");
+        return ret;
+    }
+
+    sqlite3_reset(h->qt_tmpbytoken);
+    if(qbind_int64(h->qt_tmpbytoken, ":volume", vol->id) || qbind_text(h->qt_tmpbytoken, ":name", name) ||
+       qbind_text(h->qt_tmpbytoken, ":token", &revision[REV_TIME_LEN+1]))
+        goto revision_tmpfile_id_err;
+
+    r = qstep(h->qt_tmpbytoken);
+    if(r == SQLITE_DONE) {
+        ret = ENOENT;
+    } else if(r == SQLITE_ROW) {
+        /* Get token id needed to get job id */
+        *tmpfile_id = sqlite3_column_int64(h->qt_tmpbytoken, 0);
+        ret = OK;
+    } else {
+        WARN("Failed to get tempfile for %s/%s %s", vol->name, name, revision);
+    }
+
+revision_tmpfile_id_err:
+    sqlite3_reset(h->qt_tmpbytoken);
+    return ret;
+}
+
+static rc_ty get_tmpfile_job(sx_hashfs_t *h, int64_t tempfile_id, job_t *job_id) {
+    rc_ty ret = FAIL_EINTERNAL;
+    int r;
+
+    if(!job_id) {
+        WARN("NULL argument");
+        return FAIL_EINTERNAL;
+    }
+
+    sqlite3_reset(h->qe_jobbydata);
+    if(qbind_blob(h->qe_jobbydata, ":data", &tempfile_id, sizeof(tempfile_id))) {
+        WARN("Failed to prepare query for temp file %lld", (long long)tempfile_id);
+        goto get_tmpfile_job_err;
+    }
+
+    r = qstep(h->qe_jobbydata);
+    if(r == SQLITE_DONE) {
+        ret = ENOENT;
+        WARN("Job for temp file %lld does not exist", (long long)tempfile_id);
+        goto get_tmpfile_job_err;
+    } else if(r == SQLITE_ROW) {
+        /* Set parent ID for current job */
+        *job_id = sqlite3_column_int64(h->qe_jobbydata, 0);
+    } else {
+        WARN("Failed to get job for temp file %lld", (long long)tempfile_id);
+        goto get_tmpfile_job_err;
+    }
+
+    ret = OK;
+get_tmpfile_job_err:
+    sqlite3_reset(h->qe_jobbydata);
+    return ret;
+}
+
 rc_ty sx_hashfs_filedelete_job(sx_hashfs_t *h, sx_uid_t user_id, const sx_hashfs_volume_t *vol, const char *name, const char *revision, job_t *job_id) {
     const sx_hashfs_file_t *filerev;
     sx_nodelist_t *targets;
     unsigned int timeout;
     int64_t tmpfile_id;
     char *lockname;
-    rc_ty ret;
+    rc_ty ret, s;
+    int added = 0; /* Set to 1 if already added job for a chain */
 
     if(!h || !vol || !name || !job_id) {
 	NULLARG();
@@ -7534,84 +7616,126 @@ rc_ty sx_hashfs_filedelete_job(sx_hashfs_t *h, sx_uid_t user_id, const sx_hashfs
     if(ret)
 	return ret;
 
-    if(revision) {
-	do {
-	    ret = file_totmp(h, vol, name, revision, &tmpfile_id, &timeout);
-	    if(ret)
-		break;
-	    lockname = malloc(strlen(name) + 1 + strlen(revision) + 1);
-	    if(!lockname) {
-		msg_set_reason("Internal error: not enough memory to delete the specified file");
-		ret = ENOMEM;
-		break;
-	    }
-	    sprintf(lockname, "%s:%s", name, revision);
-
-	    ret = sx_hashfs_job_new(h, user_id, job_id, JOBTYPE_DELETE_FILE, timeout, lockname, &tmpfile_id, sizeof(tmpfile_id), targets);
-	    free(lockname);
-
-	    if(ret)
-		sx_hashfs_tmp_delete(h, tmpfile_id);
-	} while(0);
-	
-	sx_nodelist_delete(targets);
-	return ret;
-    }
-
-    ret = sx_hashfs_revision_first(h, vol, name, &filerev);
-    if(ret != OK) {
-	sx_nodelist_delete(targets);
-	return ret;
-    }
-
     if(qbegin(h->tempdb)) {
-	sx_nodelist_delete(targets);
-	msg_set_reason("Internal error: failed to start database transaction");
-	return FAIL_EINTERNAL;
+        sx_nodelist_delete(targets);
+        msg_set_reason("Internal error: failed to start database transaction");
+        return FAIL_EINTERNAL;
     }
 
     ret = sx_hashfs_job_new_begin(h);
-    if(ret) {
-	sx_nodelist_delete(targets);
-	qrollback(h->tempdb);
-	return ret;
+    if(ret)
+        goto sx_hashfs_filedelete_job_err;
+
+    if(revision) {
+	do {
+            if(revision_tmpfile_id(h, vol, name, revision, &tmpfile_id) == OK) {
+                /* Found revision, set job assigned to this tempfile as parent for current operation */
+                ret = get_tmpfile_job(h, tmpfile_id, job_id);
+                if(ret != OK)
+                    WARN("Failed to get tmpfile revision job");
+                break;
+            }
+
+            /* Tempfile does not exist, create new one */
+            ret = file_totmp(h, vol, name, revision, &tmpfile_id, &timeout);
+            if(ret)
+                break;
+            lockname = malloc(strlen(name) + 1 + strlen(revision) + 1);
+            if(!lockname) {
+                msg_set_reason("Internal error: not enough memory to delete the specified file");
+                ret = ENOMEM;
+                break;
+            }
+            sprintf(lockname, "%s:%s", name, revision);
+    
+            /* Create a job for newly created tempfile */
+            ret = sx_hashfs_job_new_notrigger(h, *job_id, user_id, job_id, JOBTYPE_DELETE_FILE, timeout, lockname, &tmpfile_id, sizeof(tmpfile_id), targets);
+            free(lockname);
+
+            if(ret)
+                sx_hashfs_tmp_delete(h, tmpfile_id);
+	} while(0);
+
+	goto sx_hashfs_filedelete_job_err;
     }
 
     *job_id = JOB_NOPARENT;
-    do {
+    for(s = sx_hashfs_revision_first(h, vol, name, &filerev, 1); s == OK; s = sx_hashfs_revision_next(h, 1)) {
+        if(revision_tmpfile_id(h, vol, name, filerev->revision, &tmpfile_id) == OK) {
+            /* Found revision, set job assigned to this tempfile as parent for current operation */
+            ret = get_tmpfile_job(h, tmpfile_id, job_id);
+            if(ret) {
+                WARN("Failed to get tmpfile revision job");
+                goto sx_hashfs_filedelete_job_err;
+            }
+            break;
+        }
+    }
+
+    if(s == OK) {/* If locked revisions were found, take next revision in ascending order */
+        s = sx_hashfs_revision_next(h, 0);
+    } else if(s == ITER_NO_MORE) {/* If no locked revision was found, restart listing from the beginning */
+        s = sx_hashfs_revision_first(h, vol, name, &filerev, 0);
+    } else { /* Handle ENOENT case */
+        ret = s;
+        goto sx_hashfs_filedelete_job_err;
+    }
+
+    for(; s == OK; s = sx_hashfs_revision_next(h, 0)) {
 	ret = file_totmp(h, vol, name, filerev->revision, &tmpfile_id, &timeout);
 	if(ret)
-	    break;
+	    goto sx_hashfs_filedelete_job_err;
 
 	lockname = malloc(strlen(name) + 1 + strlen(filerev->revision) + 1);
 	if(!lockname) {
 	    msg_set_reason("Internal error: not enough memory to delete the specified file");
 	    ret = ENOMEM;
-	    break;
+	    goto sx_hashfs_filedelete_job_err;
 	}
 	sprintf(lockname, "%s:%s", name, filerev->revision);
 
 	ret = sx_hashfs_job_new_notrigger(h, *job_id, user_id, job_id, JOBTYPE_DELETE_FILE, timeout, lockname, &tmpfile_id, sizeof(tmpfile_id), targets);
 	free(lockname);
 
-	if(ret) {
-	    WARN("Ret: %s", msg_get_reason());
-	    break;
-	}
-	ret = sx_hashfs_revision_next(h);
-    } while(ret == OK);
-
-    sx_nodelist_delete(targets);
-
-    if(ret == ITER_NO_MORE) {
-	if(!qcommit(h->tempdb))
-	    return sx_hashfs_job_new_end(h);
-	ret = FAIL_EINTERNAL;
-	msg_set_reason("Internal error: failed to commit database transaction");
+        if(ret != OK) {
+            if(ret != FAIL_ETOOMANY)
+                WARN("Failed to add delete job: %s", msg_get_reason());
+            goto sx_hashfs_filedelete_job_err;
+        }
+        added = 1;
     }
 
-    qrollback(h->tempdb);
-    sx_hashfs_job_new_abort(h);
+    if(s != ITER_NO_MORE) {
+        WARN("Failed to finish revisions iteration");
+        ret = s;
+        goto sx_hashfs_filedelete_job_err;
+    }
+
+    if(!added) {
+        ret = sx_hashfs_job_new_notrigger(h, *job_id, user_id, job_id, JOBTYPE_DUMMY, 3600, NULL, NULL, 0, targets);
+        if(ret != OK) {
+            if(ret != FAIL_ETOOMANY)
+                WARN("Failed to create dummy job: %s", msg_get_reason());
+            goto sx_hashfs_filedelete_job_err;
+        }
+    }
+
+    ret = OK;
+sx_hashfs_filedelete_job_err:
+    sx_nodelist_delete(targets);
+    if(!ret) {
+        if(!qcommit(h->tempdb)) {
+            return sx_hashfs_job_new_end(h);
+        } else {
+            ret = FAIL_EINTERNAL;
+            msg_set_reason("Internal error: failed to commit database transaction");
+        }
+    }
+
+    if(ret) {
+        qrollback(h->tempdb);
+        sx_hashfs_job_new_abort(h);
+    }
     return ret;
 }
 
