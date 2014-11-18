@@ -247,6 +247,10 @@ rc_ty sx_hashfs_revision_first(sx_hashfs_t *h, const sx_hashfs_volume_t *volume,
 rc_ty sx_hashfs_revision_next(sx_hashfs_t *h);
 rc_ty sx_hashfs_list_etag(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const char *pattern, int8_t recurse, sx_hash_t *etag);
 
+/* 0 = stop, 1 = continue */
+typedef int (*sx_find_cb_t)(const sx_hashfs_volume_t *volume, const sx_hashfs_file_t *file, const sx_hash_t *contents, unsigned int nblocks, void *ctx);
+rc_ty sx_hashfs_file_find(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const char* lastpath, const char *lastrev, const char *maxrev, sx_find_cb_t cb, void *ctx);
+
 /* File get */
 rc_ty sx_hashfs_getfile_begin(sx_hashfs_t *h, const char *volume, const char *filename, const char *revision, sx_hashfs_file_t *filedata, sx_hash_t *etag);
 uint64_t sx_hashfs_getfile_count(sx_hashfs_t *h);

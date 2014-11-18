@@ -338,7 +338,7 @@ rc_ty sx_storage_create(const char *dir, sx_uuid_t *cluster, uint8_t *key, int k
 	qnullify(q); /* q is now prepared for hashfs insertions */
 
 	/* Create META tables */
-	if(qprep(db, &q, "CREATE TABLE files (fid INTEGER NOT NULL PRIMARY KEY, volume_id INTEGER NOT NULL, name TEXT ("STRIFY(SXLIMIT_MAX_FILENAME_LEN)") NOT NULL, size INTEGER NOT NULL, rev TEXT (56) NOT NULL, content BLOB NOT NULL, UNIQUE(volume_id, name, rev))") || qstep_noret(q))
+	if(qprep(db, &q, "CREATE TABLE files (fid INTEGER NOT NULL PRIMARY KEY, volume_id INTEGER NOT NULL, name TEXT ("STRIFY(SXLIMIT_MAX_FILENAME_LEN)") NOT NULL, size INTEGER NOT NULL, rev TEXT (56) NOT NULL, content BLOB NOT NULL, UNIQUE(volume_id, name, rev DESC))") || qstep_noret(q))
 	    goto create_hashfs_fail;
 	qnullify(q);
 	if(qprep(db, &q, "CREATE TABLE fmeta (file_id INTEGER NOT NULL REFERENCES files(fid) ON DELETE CASCADE ON UPDATE CASCADE, key TEXT ("STRIFY(SXLIMIT_META_MAX_KEY_LEN)") NOT NULL, value BLOB ("STRIFY(SXLIMIT_META_MAX_VALUE_LEN)") NOT NULL, PRIMARY KEY(file_id, key))") || qstep_noret(q))
@@ -685,6 +685,8 @@ struct _sx_hashfs_t {
     sqlite3_stmt *qm_sumfilesizes[METADBS];
     sqlite3_stmt *qm_newest[METADBS];
     sqlite3_stmt *qm_count[METADBS];
+    sqlite3_stmt *qm_list_rev_dec[METADBS];
+    sqlite3_stmt *qm_list_file[METADBS];
 
     sxi_db_t *datadb[SIZES][HASHDBS];
     sqlite3_stmt *qb_get[SIZES][HASHDBS];
@@ -888,6 +890,8 @@ static void close_all_dbs(sx_hashfs_t *h) {
         sqlite3_finalize(h->qm_sumfilesizes[i]);
         sqlite3_finalize(h->qm_newest[i]);
         sqlite3_finalize(h->qm_count[i]);
+        sqlite3_finalize(h->qm_list_rev_dec[i]);
+        sqlite3_finalize(h->qm_list_file[i]);
 	qclose(&h->metadb[i]);
     }
 
@@ -1603,6 +1607,10 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
         if(qprep(h->metadb[i], &h->qm_newest[i], "SELECT MAX(rev) FROM files WHERE volume_id = :volid"))
             goto open_hashfs_fail;
         if(qprep(h->metadb[i], &h->qm_count[i], "SELECT COUNT(rev) FROM files WHERE volume_id = :volid"))
+	    goto open_hashfs_fail;
+        if(qprep(h->metadb[i], &h->qm_list_rev_dec[i], "SELECT size, rev, content FROM files WHERE volume_id=:volid AND name = :name AND rev < :maxrev ORDER BY rev DESC LIMIT 1"))
+            goto open_hashfs_fail;
+        if(qprep(h->metadb[i], &h->qm_list_file[i], "SELECT size, rev, content, name FROM files WHERE volume_id=:volid AND name > :previous AND rev < :maxrev ORDER BY name ASC, rev DESC LIMIT 1"))
             goto open_hashfs_fail;
     }
 
@@ -11212,6 +11220,119 @@ static rc_ty sx_hashfs_should_repair(sx_hashfs_t *h, const block_meta_t *blockme
     }
     sx_nodelist_delete(hashnodes);
     return ret;
+}
+
+static rc_ty sx_hashfs_file_find_step(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const char *maxrev, sx_hashfs_file_t *file, sx_find_cb_t cb, void *ctx)
+{
+    unsigned int fdb;
+    int ret;
+    rc_ty rc = ITER_NO_MORE;
+    sqlite3_stmt *q;
+    if (!h || !volume || !maxrev || !file) {
+        NULLARG();
+        return EFAULT;
+    }
+    fdb = file->name[0] ? getmetadb(file->name) : 0;
+    if (file->revision[0]) {
+        q = h->qm_list_rev_dec[fdb];
+        sqlite3_reset(q);
+        if (qbind_int(q, ":volid", volume->id) ||
+            qbind_text(q, ":name", file->name) ||
+            qbind_text(q, ":maxrev", file->revision))
+            return FAIL_EINTERNAL;
+        ret = qstep(q);
+        if (ret == SQLITE_ROW) {
+            file->file_size = sqlite3_column_int64(q, 0);
+            strncpy(file->revision, (const char*)sqlite3_column_text(q, 1), sizeof(file->revision));
+            file->revision[sizeof(file->revision)-1] = '\0';
+            DEBUG("found: name=%s, revision=%s", file->name, file->revision);
+            if (cb && !cb(volume, file, sqlite3_column_blob(q, 2), sqlite3_column_bytes(q, 2) / SXI_SHA1_BIN_LEN, ctx))
+                rc = FAIL_ETOOMANY;
+            else
+                rc = OK;
+        } else if (ret == SQLITE_DONE) {
+            DEBUG("no more revisions for %s", file->name);
+            file->revision[0] = '\0';
+        } else {
+            rc = FAIL_EINTERNAL;
+        }
+        sqlite3_reset(q);
+        if (rc != ITER_NO_MORE)
+            return rc;
+    }
+
+    do {
+        q = h->qm_list_file[fdb];
+        DEBUG("previous:%s, maxrev:%s", file->name, maxrev);
+        if (qbind_int(q, ":volid", volume->id) ||
+            qbind_text(q, ":previous", file->name) ||
+            qbind_text(q, ":maxrev", maxrev))
+            return FAIL_EINTERNAL;
+        sqlite3_reset(q);
+        ret = qstep(q);
+        if (ret == SQLITE_ROW) {
+            memset(file, 0, sizeof(*file));
+            file->file_size = sqlite3_column_int64(q, 0);
+            strncpy(file->revision, (const char*)sqlite3_column_text(q, 1), sizeof(file->revision));
+            file->revision[sizeof(file->revision)-1] = '\0';
+            strncpy(file->name, (const char*)sqlite3_column_text(q, 3), sizeof(file->name));
+            file->name[sizeof(file->name)-1] = '\0';
+            DEBUG("found new: name=%s, revision=%s", file->name, file->revision);
+            if (cb && !cb(volume, file, sqlite3_column_blob(q, 2), sqlite3_column_bytes(q, 2) / SXI_SHA1_BIN_LEN, ctx))
+                rc = FAIL_ETOOMANY;
+            else
+                rc = OK;
+            rc = OK;
+        } else if (ret == SQLITE_DONE) {
+            DEBUG("no more files in fdb %d", fdb);
+            file->name[0] = '\0';
+            file->revision[0] = '\0';
+            fdb++;
+        } else {
+            rc = FAIL_EINTERNAL;
+        }
+        sqlite3_reset(q);
+        if (fdb >= METADBS)
+            return ITER_NO_MORE;
+    } while (ret == SQLITE_DONE);
+    return rc;
+}
+
+rc_ty sx_hashfs_file_find(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const char *lastpath, const char *lastrev, const char *maxrev, sx_find_cb_t cb, void *ctx)
+{
+    rc_ty rc;
+    sx_hashfs_file_t file;
+    if(!h || !volume || !maxrev) {
+        NULLARG();
+        return EFAULT;
+    }
+
+    if(check_revision(maxrev)) {
+	msg_set_reason("Invalid starting revision");
+	return EINVAL;
+    }
+
+    if(lastpath && check_file_name(lastpath)<0) {
+	msg_set_reason("Invalid starting file name");
+	return EINVAL;
+    }
+
+    if(lastrev && check_revision(lastrev)) {
+	msg_set_reason("Invalid starting revision");
+	return EINVAL;
+    }
+
+    memset(&file, 0, sizeof(file));
+    if (lastpath)
+        strncpy(file.name, lastpath, sizeof(file.name));
+    file.name[sizeof(file.name)-1] = '\0';
+    if (lastrev)
+        strncpy(file.revision, lastrev, sizeof(file.revision));
+    file.revision[sizeof(file.revision)-1] = '\0';
+    while ((rc = sx_hashfs_file_find_step(h, volume, maxrev, &file, cb, ctx)) == OK) {
+        DEBUG("name: %s, revision: %s", file.name, file.revision);
+    }
+    return rc;
 }
 
 rc_ty sx_hashfs_br_find(sx_hashfs_t *h, const sx_block_meta_index_t *previous, unsigned rebalance_ver, const sx_uuid_t *target, block_meta_t **blockmetaptr)
