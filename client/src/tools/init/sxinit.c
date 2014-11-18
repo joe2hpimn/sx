@@ -52,7 +52,7 @@ static void sighandler(int signal) {
 }
 
 /* List all clusters with profile names that are configured in configuration directory */
-static int list_clusters(sxc_client_t *sx, const char *config_dir) {
+static int list_clusters(sxc_client_t *sx) {
     const char *confdir = NULL;
     DIR *clusters_dir = NULL, *profiles_dir = NULL;
     struct dirent *cluster_dirent = NULL, *profile_dirent;
@@ -95,7 +95,7 @@ static int list_clusters(sxc_client_t *sx, const char *config_dir) {
         if(profiles_dir) {
             while((profile_dirent = readdir(profiles_dir)) != NULL) {
                 if(profile_dirent->d_name[0] != '.') {
-                    const char *alias = sxc_get_alias(sx, profile_dirent->d_name, cluster_dirent->d_name);
+                    char *aliases = NULL;
                     int left_len = strlen("sx://") + strlen(profile_dirent->d_name) + strlen(cluster_dirent->d_name) + 2;
                     /* Left is prepared separately because we want to justify ouptut */
                     char *left = malloc(left_len);
@@ -107,11 +107,17 @@ static int list_clusters(sxc_client_t *sx, const char *config_dir) {
 			snprintf(left, left_len, "sx://%s", cluster_dirent->d_name);
 		    else
 			snprintf(left, left_len, "sx://%s@%s", profile_dirent->d_name, cluster_dirent->d_name);
-                    if(alias) 
-                        printf("%-40s %s\n", left, alias);
+                    if(sxc_get_aliases(sx, profile_dirent->d_name, cluster_dirent->d_name, &aliases)) {
+                        free(left);
+                        fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx)); /* Error message should already be set */
+                        break;
+                    }
+                    if(aliases)
+                        printf("%-40s %s\n", left, aliases);
                     else
                         printf("%-40s %s\n", left, "-");
                     free(left);
+                    free(aliases);
                 }
             }
 
@@ -162,7 +168,7 @@ int main(int argc, char **argv) {
 	return 0;
     }
 
-    /* Check if sx://profile@cluster/ or --list option is given but bot both */
+    /* Check if sx://profile@cluster/ or --list option is given but not both */
     if((args.inputs_num != 1 && !args.list_given)
         || (args.inputs_num == 1 && args.list_given)) {
 	cmdline_parser_print_help();
@@ -187,7 +193,7 @@ int main(int argc, char **argv) {
 
     if(args.list_given)
     {
-        ret = list_clusters(sx, args.config_dir_arg);
+        ret = list_clusters(sx);
         goto init_err;
     }
 
@@ -349,10 +355,14 @@ int main(int argc, char **argv) {
     }
 
     if(args.alias_given) {
-        if(!u->profile || !u->profile[0]) u->profile = "default";
+        const char *profile;
+        if(!u->profile || !u->profile[0])
+            profile = "default";
+        else
+            profile = u->profile;
 
         /* Save alias into .aliases file. Alias variable was set before. */
-        if(sxc_set_alias(sx, alias, u->profile, u->host)) {
+        if(sxc_set_alias(sx, alias, profile, u->host)) {
             fprintf(stderr, "ERROR: Failed to set alias %s: %s\n", alias, sxc_geterrmsg(sx));
             goto init_err;
         }
