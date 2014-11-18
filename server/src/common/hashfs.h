@@ -316,7 +316,7 @@ typedef struct _sx_hashfs_tmpinfo_t {
     char revision[128]; /* File revision */
     int somestatechanged;
 } sx_hashfs_tmpinfo_t;
-rc_ty sx_hashfs_tmp_getmeta(sx_hashfs_t *h, const char *name, int64_t tmpfile_id, sxc_meta_t *metadata);
+rc_ty sx_hashfs_tmp_getmeta(sx_hashfs_t *h, int64_t tmpfile_id, sxc_meta_t *metadata);
 rc_ty sx_hashfs_tmp_getinfo(sx_hashfs_t *h, int64_t tmpfile_id, sx_hashfs_tmpinfo_t **tmpinfo, int recheck_presence, uint64_t op_expires_at);
 rc_ty sx_hashfs_tmp_tofile(sx_hashfs_t *h, const sx_hashfs_tmpinfo_t *missing);
 rc_ty sx_hashfs_tmp_unbump(sx_hashfs_t *h, int64_t tmpfile_id);

@@ -1160,7 +1160,7 @@ static act_result_t fileflush_request(sx_hashfs_t *hashfs, job_t job_id, job_dat
 
 		s = sx_hashfs_volume_by_id(hashfs, mis->volume_id, &volume);
 		if(s == OK)
-		    s = sx_hashfs_tmp_getmeta(hashfs, mis->name, tmpfile_id, fmeta);
+		    s = sx_hashfs_tmp_getmeta(hashfs, tmpfile_id, fmeta);
 		if(s != OK) {
 		    sxc_meta_free(fmeta);
 		    action_error(rc2actres(s), rc2http(s), msg_get_reason());

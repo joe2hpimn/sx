@@ -746,7 +746,6 @@ test_get 'checking volume ownership', admin_only(200, 'application/json'), "misc
 
 ### FILE TESTS ###
 my $blk;
-test_upload 'file upload (not exceeding volume capacity)', $writer, random_data($tinyvolumesize), "tiny$vol", 'toobig';
 
 test_upload 'file upload (small blocksize)', $writer, random_data($blocksize), $vol, '1bs';
 test_upload 'file upload (small blocksize + 500)', $writer, random_data($blocksize + 500), $vol, '1bs+1', undef, {};
@@ -785,7 +784,14 @@ random_data_r(\$blk, $blocksize);
 test_upload 'file upload (big blocksize, repeating)', $writer, ($blk x 64).random_data($blocksize).($blk x 64), "large$vol", 'rep', 2;
 test_upload 'file upload (big blocksize, previous)', $writer, $blk x 160, "large$vol", 'prev', 0;
 
-test_upload 'file upload (exceeding volume capacity)', $writer, random_data($tinyvolumesize+1), "tiny$vol", 'toobig', undef, {}, 413;
+### Check quota handling ###
+# This file should not be allowed to be uploaded because quota will be exceeded by one byte
+test_upload 'file upload: (exceeding volume capacity)', $writer, random_data($tinyvolumesize-length('toobig')+1), "tiny$vol", 'toobig', undef, {}, 413;
+# Check if quota will be enforced also for file with metadata (-meta value length: 10/2=5, +1 byte to exceed)
+test_upload 'file upload (exceeding volume capacity (meta))', $writer, random_data($tinyvolumesize-length('toobig')-length('somemeta')-4), "tiny$vol", 'toobig', undef, {'somemeta'=> "ffaabb0011"}, 413;
+# This should return 200
+test_upload 'file upload (exceeding volume capacity (meta))', $writer, random_data($tinyvolumesize-length('toobig')-length('somemeta')-5), "tiny$vol", 'toobig', undef, {'somemeta'=> "ffaabb0011"};
+
 
 test_get 'listing all files', authed_only(200, 'application/json'), $vol, undef, sub { my $json = get_json(shift) or return 0; return is_int($json->{'volumeSize'}) && $json->{'volumeSize'} == $volumesize && is_int($json->{'replicaCount'}) && $json->{'replicaCount'} == 1 && is_hash($json->{'fileList'}) && is_hash($json->{'fileList'}->{'/empty'}) && is_int($json->{'fileList'}->{'/empty'}->{'fileSize'}) && $json->{'fileList'}->{'/empty'}->{'fileSize'} == 0 && is_int($json->{'fileList'}->{'/empty'}->{'blockSize'}) && $json->{'fileList'}->{'/empty'}->{'blockSize'} == 4096 && is_int($json->{'fileList'}->{'/empty'}->{'createdAt'}) && is_string($json->{'fileList'}->{'/empty'}->{'fileRevision'}) };
 test_get 'listing files - filter exact', authed_only(200, 'application/json'), "$vol?filter=file", undef, sub { my $json = get_json(shift) or return 0; return is_hash($json->{'fileList'}) && scalar keys %{$json->{'fileList'}} == 2 && is_hash($json->{'fileList'}->{'/file'}) };

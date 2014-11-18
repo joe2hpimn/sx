@@ -1583,11 +1583,11 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 	    goto open_hashfs_fail;
 	if(qprep(h->metadb[i], &h->qm_listrevs[i], "SELECT size, rev FROM files WHERE volume_id = :volume AND name = :name AND rev > :previous ORDER BY rev ASC LIMIT 1"))
 	    goto open_hashfs_fail;
-	if(qprep(h->metadb[i], &h->qm_get[i], "SELECT fid, size, content, rev, size FROM files WHERE volume_id = :volume AND name = :name GROUP BY name HAVING rev = MAX(rev) LIMIT 1"))
+	if(qprep(h->metadb[i], &h->qm_get[i], "SELECT fid, size, content, rev FROM files WHERE volume_id = :volume AND name = :name GROUP BY name HAVING rev = MAX(rev) LIMIT 1"))
 	    goto open_hashfs_fail;
-	if(qprep(h->metadb[i], &h->qm_getrev[i], "SELECT fid, size, content, rev, size FROM files WHERE volume_id = :volume AND name = :name AND rev = :revision LIMIT 1"))
+	if(qprep(h->metadb[i], &h->qm_getrev[i], "SELECT fid, size, content, rev FROM files WHERE volume_id = :volume AND name = :name AND rev = :revision LIMIT 1"))
 	    goto open_hashfs_fail;
-	if(qprep(h->metadb[i], &h->qm_oldrevs[i], "SELECT rev, size, (SELECT COUNT(*) FROM files AS b WHERE b.volume_id = a.volume_id AND b.name = a.name) FROM files AS a WHERE a.volume_id = :volume AND a.name = :name ORDER BY rev ASC"))
+	if(qprep(h->metadb[i], &h->qm_oldrevs[i], "SELECT rev, size, (SELECT COUNT(*) FROM files AS b WHERE b.volume_id = a.volume_id AND b.name = a.name), fid FROM files AS a WHERE a.volume_id = :volume AND a.name = :name ORDER BY rev ASC"))
 	    goto open_hashfs_fail;
 	if(qprep(h->metadb[i], &h->qm_metaget[i], "SELECT key, value FROM fmeta WHERE file_id = :file"))
 	    goto open_hashfs_fail;
@@ -1607,7 +1607,7 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 	    goto open_hashfs_fail;
 	if(qprep(h->metadb[i], &h->qm_delbyvol[i], "DELETE FROM files WHERE volume_id = :volid"))
 	    goto open_hashfs_fail;
-        if(qprep(h->metadb[i], &h->qm_sumfilesizes[i], "SELECT SUM(size) FROM files WHERE volume_id = :volid"))
+        if(qprep(h->metadb[i], &h->qm_sumfilesizes[i], "SELECT SUM(x) FROM (SELECT files.size + LENGTH(files.name) + SUM(COALESCE(LENGTH(fmeta.key) + LENGTH(fmeta.value),0)) AS x FROM files LEFT JOIN fmeta ON files.fid = fmeta.file_id WHERE files.volume_id = :volid GROUP BY files.fid)"))
             goto open_hashfs_fail;
         if(qprep(h->metadb[i], &h->qm_newest[i], "SELECT MAX(rev) FROM files WHERE volume_id = :volid"))
             goto open_hashfs_fail;
@@ -5724,6 +5724,34 @@ rc_ty sx_hashfs_createfile_begin(sx_hashfs_t *h) {
     return OK;
 }
 
+static rc_ty fill_filemeta(sx_hashfs_t *h, unsigned int metadb, int64_t file_id);
+static rc_ty get_file_metasize(sx_hashfs_t *h, int64_t file_id, int64_t ndb, int64_t *size) {
+    rc_ty s;
+    int64_t metasize = 0;
+    unsigned int i;
+
+    if(!size) {
+        NULLARG();
+        return EFAULT;
+    }
+
+    if(ndb >= METADBS) {
+        msg_set_reason("Failed to compute file meta size: invalid argument");
+        return EFAULT;
+    }
+
+    if((s = fill_filemeta(h, ndb, file_id)) != OK) {
+        msg_set_reason("Failed to compute file meta size");
+        return s;
+    }
+
+    for(i=0; i<h->nmeta; i++)
+        metasize += strlen(h->meta[i].key) + h->meta[i].value_len;
+
+    *size = metasize;
+    return OK;
+}
+
 rc_ty sx_hashfs_check_file_size(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, const char *filename, int64_t size) {
     int64_t revsz = 0;
     sqlite3_stmt *q;
@@ -5769,7 +5797,17 @@ rc_ty sx_hashfs_check_file_size(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, c
 
     nrevs = sqlite3_column_int(q, 2);
     while(nrevs >= vol->revisions) {
+        int64_t metasize = 0;
+
 	revsz += sqlite3_column_int64(q, 1);
+        if(get_file_metasize(h, sqlite3_column_int64(q, 3), mdb, &metasize)) {
+            sqlite3_reset(q);
+            WARN("Failed to get file meta size");
+            msg_set_reason("Failed to check volume quota");
+            return FAIL_EINTERNAL;
+        }
+        revsz += metasize + strlen(filename);
+
 	if(revsz >= vol->cursize) {
 	    revsz = vol->cursize;
 	    break;
@@ -5781,6 +5819,7 @@ rc_ty sx_hashfs_check_file_size(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, c
 
 	r = qstep(q);
 	if(r != SQLITE_ROW) {
+            sqlite3_reset(q);
 	    msg_set_reason("Failed to check volume quota");
 	    return FAIL_EINTERNAL;
 	}
@@ -6357,7 +6396,7 @@ rc_ty sx_hashfs_putfile_gettoken(sx_hashfs_t *h, const uint8_t *user, int64_t si
 }
 
 /* WARNING: MUST BE CALLED WITHIN A TANSACTION ON META !!! */
-static rc_ty create_file(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const char *name, const char *revision, sx_hash_t *blocks, unsigned int nblocks, int64_t size, int64_t *file_id) {
+static rc_ty create_file(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const char *name, const char *revision, sx_hash_t *blocks, unsigned int nblocks, int64_t size, int64_t totalsize, int64_t *file_id) {
     unsigned int nblocks2;
     int r, mdb;
 
@@ -6467,7 +6506,7 @@ static rc_ty create_file(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const
 	*file_id = sqlite3_last_insert_rowid(sqlite3_db_handle(h->qm_ins[mdb]));
 
     /* Update volume size counter only when size is positive and this node is not becoming a volnode */
-    if(size && !is_new_volnode(h, volume) && sx_hashfs_update_volume_cursize(h, volume->id, size)) {
+    if(!is_new_volnode(h, volume) && sx_hashfs_update_volume_cursize(h, volume->id, totalsize)) {
         WARN("Failed to update volume size");
         return FAIL_EINTERNAL;
     }
@@ -6478,7 +6517,7 @@ static rc_ty create_file(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const
 rc_ty sx_hashfs_createfile_commit(sx_hashfs_t *h, const char *volume, const char *name, const char *revision, int64_t size) {
     const sx_hashfs_volume_t *vol;
     unsigned int i, nblocks;
-    int64_t file_id;
+    int64_t file_id, totalsize;
     int mdb, flen;
 #ifdef FILEHASH_OPTIMIZATION
     sx_hash_t filehash;
@@ -6526,6 +6565,7 @@ rc_ty sx_hashfs_createfile_commit(sx_hashfs_t *h, const char *volume, const char
 	return FAIL_EINTERNAL;
     }
 
+    totalsize = size + strlen(name);
     if(qbegin(h->metadb[mdb]))
 	return FAIL_EINTERNAL;
 
@@ -6538,7 +6578,12 @@ rc_ty sx_hashfs_createfile_commit(sx_hashfs_t *h, const char *volume, const char
     }
     filehash_reserve(h, &filehash);
 #endif
-    ret2 = create_file(h, vol, name, revision, h->put_blocks, nblocks, size, &file_id);
+    /* Increment file size with size of its meta values and keys */
+    for(i=0; i<h->nmeta; i++) {
+        totalsize += strlen(h->meta[i].key) + h->meta[i].value_len;
+    }
+
+    ret2 = create_file(h, vol, name, revision, h->put_blocks, nblocks, size, totalsize, &file_id);
     if(ret2) {
 	ret = ret2;
 	goto cretatefile_rollback;
@@ -7266,11 +7311,38 @@ rc_ty sx_hashfs_tmp_getinfo(sx_hashfs_t *h, int64_t tmpfile_id, sx_hashfs_tmpinf
     return ret;
 }
 
+static rc_ty get_tempfile_metasize(sx_hashfs_t *h, int64_t tid, int64_t *size) {
+    int r;
+    int64_t metasize = 0;
+
+    if(!h || !size) {
+        NULLARG();
+        return EFAULT;
+    }
+
+    sqlite3_reset(h->qt_getmeta);
+    if(qbind_int64(h->qt_getmeta, ":id", tid))
+        return FAIL_EINTERNAL;
+    while((r = qstep(h->qt_getmeta)) == SQLITE_ROW) {
+        const char *key = (const char *)sqlite3_column_text(h->qt_getmeta, 0);
+        int value_len = sqlite3_column_bytes(h->qt_getmeta, 1);
+
+        metasize += strlen(key) + value_len;
+    }
+    sqlite3_reset(h->qt_getmeta);
+    if(r != SQLITE_DONE) {
+        msg_set_reason("Failed to get temp file metadata size");
+        return FAIL_EINTERNAL;
+    }
+
+    *size = metasize;
+    return OK;
+}
 
 rc_ty sx_hashfs_tmp_tofile(sx_hashfs_t *h, const sx_hashfs_tmpinfo_t *missing) {
     rc_ty ret = FAIL_EINTERNAL, ret2;
     const sx_hashfs_volume_t *volume;
-    int64_t file_id;
+    int64_t file_id, totalsize = 0;
     int r, mdb;
 
     if(!h || !missing) {
@@ -7295,7 +7367,11 @@ rc_ty sx_hashfs_tmp_tofile(sx_hashfs_t *h, const sx_hashfs_tmpinfo_t *missing) {
     if(qbegin(h->metadb[mdb]))
 	return FAIL_EINTERNAL;
 
-    ret2 = create_file(h, volume, missing->name, missing->revision, missing->all_blocks, missing->nall, missing->file_size, &file_id);
+    if(get_tempfile_metasize(h, missing->tmpfile_id, &totalsize))
+        goto tmp2file_rollback;
+    totalsize += missing->file_size + strlen(missing->name);
+
+    ret2 = create_file(h, volume, missing->name, missing->revision, missing->all_blocks, missing->nall, missing->file_size, totalsize, &file_id);
     if(ret2) {
 	ret = ret2;
 	goto tmp2file_rollback;
@@ -7519,19 +7595,13 @@ rc_ty sx_hashfs_filedelete_job(sx_hashfs_t *h, sx_uid_t user_id, const sx_hashfs
     return ret;
 }
 
-rc_ty sx_hashfs_tmp_getmeta(sx_hashfs_t *h, const char *name, int64_t tmpfile_id, sxc_meta_t *metadata) {
+rc_ty sx_hashfs_tmp_getmeta(sx_hashfs_t *h, int64_t tmpfile_id, sxc_meta_t *metadata) {
     rc_ty ret = FAIL_EINTERNAL;
-    int r, mdb;
+    int r;
 
     if(!h || !metadata) {
 	NULLARG();
 	return EFAULT;
-    }
-
-    mdb = getmetadb(name);
-    if(mdb < 0) {
-	msg_set_reason("Failed to locate file database");
-	return FAIL_EINTERNAL;
     }
 
     sqlite3_reset(h->qt_getmeta);
@@ -7556,7 +7626,7 @@ rc_ty sx_hashfs_tmp_getmeta(sx_hashfs_t *h, const char *name, int64_t tmpfile_id
     ret = OK;
 
  tmpgetmeta_err:
-    sqlite3_reset(h->qm_metaset[mdb]);
+    sqlite3_reset(h->qt_getmeta);
 
     return ret;
 }
@@ -7624,8 +7694,16 @@ static rc_ty get_file_id(sx_hashfs_t *h, const char *volume, const char *filenam
 	       (etag && hash_buf(h->cluster_uuid.string, strlen(h->cluster_uuid.string), rev, strlen(rev), etag)))
 		res = FAIL_EINTERNAL;
 	}
-        if(size)
-            *size = sqlite3_column_int64(q, 4);
+        if(size) {
+            int64_t metasize = 0;
+            rc_ty s;
+            *size = sqlite3_column_int64(q, 1);
+            if((s = get_file_metasize(h, *file_id, ndb, &metasize)) != OK) {
+                WARN("Failed to get file meta size");
+                res = s;
+            } else
+                *size += metasize + strlen(filename);
+        }
     } else if(r == SQLITE_DONE)
 	res = ENOENT;
     else
@@ -7636,7 +7714,7 @@ static rc_ty get_file_id(sx_hashfs_t *h, const char *volume, const char *filenam
 }
 
 rc_ty sx_hashfs_file_delete(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const char *file, const char *revision) {
-    int64_t file_id, size;
+    int64_t file_id, size = 0;
     int mdb, deleted;
     rc_ty ret;
 
@@ -7678,7 +7756,7 @@ rc_ty sx_hashfs_file_delete(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, co
     deleted = sqlite3_changes(h->metadb[mdb]->handle);
 
     /* Update counters only when file deletion succeeded and this node is not becoming a volnode */
-    if(ret == OK && size && deleted && !is_new_volnode(h, volume) && sx_hashfs_update_volume_cursize(h, volume->id, -size)) {
+    if(ret == OK && deleted && !is_new_volnode(h, volume) && sx_hashfs_update_volume_cursize(h, volume->id, -size)) {
         WARN("Failed to update volume size");
         return FAIL_EINTERNAL;
     }

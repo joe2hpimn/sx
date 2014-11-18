@@ -188,6 +188,7 @@ struct cb_newfile_ctx {
     int64_t filesize; /* file size if creating, extend seq if extending */
     unsigned nhashes;
     int extending;
+    int64_t metasize; /* meta size is used to honour volume qouta */
     char metakey[SXLIMIT_META_MAX_KEY_LEN+1];
 };
 
@@ -230,6 +231,7 @@ static int cb_newfile_map_key(void *ctx, const unsigned char *s, size_t l) {
 	    return 0;
 	memcpy(c->metakey, s, l);
 	c->metakey[l] = '\0';
+        c->metasize += l;
 	c->state = CB_NEWFILE_METAVALUE;
 	return 1;
     }
@@ -284,6 +286,7 @@ static int cb_newfile_string(void *ctx, const unsigned char *s, size_t l) {
 	    return 0;
 	if(sx_hashfs_putfile_putmeta(hashfs, c->metakey, metavalue, l/2))
 	    return 0;
+        c->metasize += l/2;
 	c->state = CB_NEWFILE_METAKEY;
 	return 1;
     }
@@ -362,6 +365,7 @@ void fcgi_create_file(void) {
     struct cb_newfile_ctx yctx;
     yctx.state = CB_NEWFILE_START;
     yctx.filesize = -1;
+    yctx.metasize = 0;
     yctx.nhashes = 0;
     yctx.extending = 0;
 
@@ -409,6 +413,7 @@ static void create_or_extend_tempfile(const sx_hashfs_volume_t *vol, const char 
     struct cb_newfile_ctx yctx;
     yctx.state = CB_NEWFILE_START;
     yctx.filesize = -1;
+    yctx.metasize = 0;
     yctx.nhashes = 0;
     yctx.extending = extending;
     yajl_handle yh = yajl_alloc(&newfile_parser, NULL, &yctx);
@@ -430,7 +435,7 @@ static void create_or_extend_tempfile(const sx_hashfs_volume_t *vol, const char 
     auth_complete();
     quit_unless_authed();
 
-    if(vol && filename && !extending && (s = sx_hashfs_check_file_size(hashfs, vol, filename, yctx.filesize)) != OK) {
+    if(vol && filename && !extending && (s = sx_hashfs_check_file_size(hashfs, vol, filename, yctx.filesize + strlen(filename) + yctx.metasize)) != OK) {
         sx_hashfs_putfile_end(hashfs);
         WARN("File size is not correct: %s", msg_get_reason());
         if(s == ENOSPC)
