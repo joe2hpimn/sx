@@ -708,8 +708,6 @@ void fcgi_push_blocks(void) {
     CGI_PUTS("\r\n");
 }
 
-#define REPLACEMENT_BATCH_SIZE (64*1024*1024)
-
 void fcgi_send_replacement_blocks() {
     sx_block_meta_index_t bmidx, *bmidxptr = NULL;
     unsigned int version = 0, bytes_sent = 0;
@@ -725,7 +723,7 @@ void fcgi_send_replacement_blocks() {
 	if(*eon)
 	    version = 0;
     }
-    if(version == 0) /* FIXME: is zero legal ? */
+    if(version == 0)
 	quit_errmsg(400, "Parameter dist missing or invalid");
 
     if(has_arg("idx")) {
@@ -776,7 +774,7 @@ void fcgi_send_replacement_blocks() {
 	hlenton = htonl(header_len);
 	CGI_PUTD(&hlenton, sizeof(hlenton));
 	CGI_PUTD(header, header_len);
-	bytes_sent += header_len;
+	bytes_sent += sizeof(hlenton) + header_len;
 	if(r == ITER_NO_MORE)
 	    break;
 

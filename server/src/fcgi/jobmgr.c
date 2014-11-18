@@ -3246,6 +3246,7 @@ static act_result_t replace_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *
     return ret;
 }
 
+enum replace_state { RPL_HDRSIZE = 0, RPL_HDRDATA, RPL_DATA, RPL_END };
 
 struct rplblocks {
     sx_hashfs_t *hashfs;
@@ -3254,15 +3255,21 @@ struct rplblocks {
     char idhex[SXI_SHA1_TEXT_LEN+1];
     sx_block_meta_index_t lastgood;
     unsigned int pos, itemsz, ngood;
-    enum { RPL_HDRSIZE = 0, RPL_HDRDATA, RPL_BLOCK, RPL_END } state;
+    enum replace_state state;
 };
 
 static int rplblocks_cb(curlev_context_t *cbdata, void *ctx, const void *data, size_t size) {
     struct rplblocks *c = (struct rplblocks *)ctx;
-    uint8_t *input = (uint8_t *)input;
+    uint8_t *input = (uint8_t *)data;
     unsigned int todo;
 
     while(size) {
+	if(c->state == RPL_END) {
+	    if(size)
+		INFO("Spurious tail of %u bytes", (unsigned int)size);
+	    return 0;
+	}
+
 	if(c->state == RPL_HDRSIZE) {
 	    todo = MIN((sizeof(c->itemsz) - c->pos), size);
 	    memcpy(c->block + c->pos, input, todo);
@@ -3313,7 +3320,7 @@ static int rplblocks_cb(curlev_context_t *cbdata, void *ctx, const void *data, s
 		    WARN("Invalid block size");
 		    return 1;
 		}
-		c->state = RPL_BLOCK;
+		c->state = RPL_DATA;
 		c->pos = 0;
 	    }
 	}
@@ -3399,7 +3406,7 @@ static act_result_t replaceblocks_request(sx_hashfs_t *hashfs, job_t job_id, job
 	action_error(ACT_RESULT_PERMFAIL, 500, "Internal job data error");
     }
 
-    s = sx_hashfs_replace_getnode(hashfs, &dist, &source, &have_blkidx, (uint8_t *)&bmidx);
+    s = sx_hashfs_replace_getstartblock(hashfs, &dist, &source, &have_blkidx, (uint8_t *)&bmidx);
     if(s == OK) {
 	sxi_conns_t *clust = sx_hashfs_conns(hashfs);
 	const sx_node_t *me = sx_hashfs_self(hashfs);
@@ -3426,7 +3433,7 @@ static act_result_t replaceblocks_request(sx_hashfs_t *hashfs, job_t job_id, job
 	ctx->b = NULL;
 	ctx->pos = 0;
 	ctx->ngood = 0;
-	ctx->state =  RPL_HDRSIZE;
+	ctx->state = RPL_HDRSIZE;
 
 	if(sxi_hashop_generate_id(sx, SX_ID_REPAIR, NULL, 0, &job_id, sizeof(job_id), &idhash)) {
 	    free(ctx);
@@ -3441,10 +3448,10 @@ static act_result_t replaceblocks_request(sx_hashfs_t *hashfs, job_t job_id, job
 	    action_error(ACT_RESULT_TEMPFAIL, 503, "Bad reply from node");
 	}
 	if(ctx->state == RPL_END) {
-	    if(sx_hashfs_replace_setnode(hashfs, sx_node_uuid(source), NULL))
+	    if(sx_hashfs_replace_setlastblock(hashfs, sx_node_uuid(source), NULL))
 		WARN("Replace setnode failed");
 	} else if(ctx->ngood) {
-	    if(sx_hashfs_replace_setnode(hashfs, sx_node_uuid(source), (uint8_t *)&ctx->lastgood))
+	    if(sx_hashfs_replace_setlastblock(hashfs, sx_node_uuid(source), (uint8_t *)&ctx->lastgood))
 		WARN("Replace setnode failed");
 	}
 	free(ctx);
@@ -3455,6 +3462,290 @@ static act_result_t replaceblocks_request(sx_hashfs_t *hashfs, job_t job_id, job
 
  action_failed:
     sxi_hostlist_empty(&hlist);
+    return ret;
+}
+
+
+struct rplfiles {
+    sx_hashfs_t *hashfs;
+    sx_blob_t *b;
+    sx_hash_t hash;
+    uint8_t hdr[1024 +
+		  SXLIMIT_MAX_FILENAME_LEN +
+		  REV_LEN +
+		  ( 128 + SXLIMIT_META_MAX_KEY_LEN + SXLIMIT_META_MAX_VALUE_LEN ) * SXLIMIT_META_MAX_ITEMS];
+    char volume[SXLIMIT_MAX_VOLNAME_LEN+1],
+	file[SXLIMIT_MAX_FILENAME_LEN+1],
+	rev[REV_LEN+1];
+    unsigned int ngood, itemsz, pos, needend;
+    enum replace_state state;
+};
+
+static int rplfiles_cb(curlev_context_t *cbdata, void *ctx, const void *data, size_t size) {
+    struct rplfiles *c = (struct rplfiles *)ctx;
+    uint8_t *input = (uint8_t *)data;
+    unsigned int todo;
+    rc_ty s;
+
+    while(size) {
+	if(c->state == RPL_END) {
+	    if(size)
+		INFO("Spurious tail of %u bytes", (unsigned int)size);
+	    return 0;
+	}
+
+	if(c->state == RPL_HDRSIZE) {
+	    todo = MIN((sizeof(c->itemsz) - c->pos), size);
+	    memcpy(c->hdr + c->pos, input, todo);
+	    input += todo;
+	    size -= todo;
+	    c->pos += todo;
+	    if(c->pos == sizeof(c->itemsz)) {
+		memcpy(&todo, c->hdr, sizeof(todo));
+		c->itemsz = htonl(todo);
+		if(c->itemsz >= sizeof(c->hdr)) {
+		    WARN("Invalid header size %u", c->itemsz);
+		    return 1;
+		}
+		c->state = RPL_HDRDATA;
+		c->pos = 0;
+	    }
+	}
+
+	if(c->state == RPL_HDRDATA) {
+	    todo = MIN((c->itemsz - c->pos), size);
+	    memcpy(c->hdr + c->pos, input, todo);
+	    input += todo;
+	    size -= todo;
+	    c->pos += todo;
+	    if(c->pos == c->itemsz) {
+		const char *signature;
+		c->b = sx_blob_from_data(c->hdr, c->itemsz);
+		if(!c->b) {
+		    WARN("Cannot create blob of size %u", c->itemsz);
+		    return 1;
+		}
+		if(sx_blob_get_string(c->b, &signature)) {
+		    WARN("Cannot read create blob signature");
+		    return 1;
+		}
+		if(!strcmp(signature, "$THEEND$")) {
+		    c->state = RPL_END;
+		    if(size)
+			INFO("Spurious tail of %u bytes", (unsigned int)size);
+		    return 0;
+		}
+		if(strcmp(signature, "$FILE$")) {
+		    WARN("Invalid blob signature '%s'", signature);
+		    return 1;
+		}
+		if(sx_hashfs_createfile_begin(c->hashfs)) {
+		    WARN("Invalid createfile_begin failed");
+		    return 1;
+		}
+		c->needend = 1;
+		if(sx_blob_get_int32(c->b, &c->itemsz) ||
+		   sx_hashfs_check_blocksize(c->itemsz)) {
+		    WARN("Invalid block size");
+		    return 1;
+		}
+		c->state = RPL_DATA;
+		c->pos = 0;
+	    }
+	}
+
+	if(c->state == RPL_DATA) {
+	    if(c->itemsz) {
+		todo = MIN((sizeof(c->hash) - c->pos), size);
+		memcpy((uint8_t *)&c->hash + c->pos, input, todo);
+		input += todo;
+		size -= todo;
+		c->pos += todo;
+		if(c->pos == sizeof(c->hash)) {
+		    if(sx_hashfs_putfile_putblock(c->hashfs, &c->hash)) {
+			WARN("Failed to add block");
+			return 1;
+		    }
+		    c->pos = 0;
+		    c->itemsz--;
+		}
+	    }
+	    if(!c->itemsz) {
+		const char *file_name, *file_rev;
+		int64_t file_size;
+		if(sx_blob_get_string(c->b, &file_name) ||
+		   sx_blob_get_string(c->b, &file_rev) ||
+		   sx_blob_get_int64(c->b, &file_size)) {
+		    WARN("Bad file characteristics");
+		    return 1;
+		}
+		while(1) {
+		    const char *signature, *key;
+		    const void *val;
+		    if(sx_blob_get_string(c->b, &signature)) {
+			WARN("Bad file meta signature");
+			return 1;
+		    }
+		    if(!strcmp(signature, "$ENDMETA$"))
+			break;
+		    if(strcmp(signature, "$META$") ||
+		       sx_blob_get_string(c->b, &key) ||
+		       sx_blob_get_blob(c->b, &val, &todo)) {
+			WARN("Bad file meta");
+			return 1;
+		    }
+		    if(sx_hashfs_putfile_putmeta(c->hashfs, key, val, todo)) {
+			WARN("Failed to add file meta");
+			return 1;
+		    }
+		}
+		s = sx_hashfs_createfile_commit(c->hashfs, c->volume, file_name, file_rev, file_size);
+		c->needend = 0;
+		if(s) {
+		    WARN("Failed to create file %s:%s", file_name, file_rev);
+		    return 1;
+		}
+		c->ngood++;
+		strncpy(c->file, file_name, sizeof(c->file));
+		strncpy(c->rev, file_rev, sizeof(c->rev));
+		sx_blob_free(c->b);
+		c->b = NULL;
+		c->state = RPL_HDRSIZE; 
+	    }
+	}
+    }
+    return 0;
+}
+
+static act_result_t replacefiles_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    sxc_client_t *sx = sx_hashfs_client(hashfs);
+    act_result_t ret = ACT_RESULT_TEMPFAIL;
+    char maxrev[REV_LEN+1];
+    sxi_hostlist_t hlist;
+    struct rplfiles *ctx;
+    rc_ty s;
+
+    sxi_hostlist_init(&hlist);
+
+    if(job_data->len || sx_nodelist_count(nodes) != 1) {
+	CRIT("Bad job data");
+	action_error(ACT_RESULT_PERMFAIL, 500, "Internal job data error");
+    }
+    ctx = malloc(sizeof(*ctx));
+    if(!ctx)
+	action_error(ACT_RESULT_TEMPFAIL, 503, "Out of memory allocating request context");
+	
+    while((s = sx_hashfs_replace_getstartfile(hashfs, maxrev, ctx->volume, ctx->file, ctx->rev)) == OK) {
+	unsigned int nnode, nnodes, rndnode;
+	const sx_hashfs_volume_t *vol;
+	const sx_node_t *source;
+	sx_nodelist_t *volnodes;
+
+	s = sx_hashfs_volume_by_name(hashfs, ctx->volume, &vol);
+	if(s == ENOENT) {
+	    /* Volume is gone */
+	    s = sx_hashfs_replace_setlastfile(hashfs, ctx->volume, NULL, NULL);
+	    if(s == OK)
+		continue;
+	}
+	if(s != OK)
+	    action_error(rc2actres(s), rc2http(s), msg_get_reason());
+
+	s = sx_hashfs_volnodes(hashfs, NL_NEXT, vol, 0, &volnodes, NULL);
+	if(s != OK)
+	    action_error(rc2actres(s), rc2http(s), msg_get_reason());
+
+	nnodes = sx_nodelist_count(volnodes);
+	rndnode = rand();
+	for(nnode = 0; nnode < nnodes; nnode++) {
+	    source = sx_nodelist_get(volnodes, (nnode + rndnode) % nnodes);
+	    if(!sx_hashfs_is_node_faulty(hashfs, sx_node_uuid(source)))
+		break;
+	}
+	if(nnode == nnodes) {
+	    /* All volnodes are faulty */
+	    s = sx_hashfs_replace_setlastfile(hashfs, ctx->volume, NULL, NULL);
+	    if(s == OK) {
+		sx_nodelist_delete(volnodes);
+		continue;
+	    }
+	}
+
+	if(sxi_hostlist_add_host(sx, &hlist, sx_node_internal_addr(source))) {
+	    sx_nodelist_delete(volnodes);
+	    action_error(ACT_RESULT_TEMPFAIL, 503, "Out of memory");
+	}
+	sx_nodelist_delete(volnodes);
+	break; /* exit with s = OK and hlist set */ 
+    }
+
+    if(s == OK) {
+	char *enc_vol = NULL, *enc_file = NULL, *enc_rev = NULL, *enc_maxrev = NULL, *query = NULL;
+	sxi_conns_t *clust = sx_hashfs_conns(hashfs);
+	int qret;
+
+	enc_vol = sxi_urlencode(sx, ctx->volume, 0);
+	enc_file = sxi_urlencode(sx, ctx->file, 0);
+	enc_rev = sxi_urlencode(sx, ctx->rev, 0);
+	enc_maxrev = sxi_urlencode(sx, maxrev, 0);
+
+	if(enc_vol && enc_file && enc_rev && enc_maxrev) {
+	    query = malloc(lenof(".replfl/") +
+			   strlen(enc_vol) +
+			   lenof("/") +
+			   strlen(enc_file) +
+			   lenof("?maxrev=") +
+			   strlen(enc_maxrev) +
+			   lenof("&startrev=") +
+			   strlen(enc_rev) +
+			   1);
+
+	    if(query) {
+		if(strlen(enc_file))
+		    sprintf(".replfl/%s/%s?maxrev=%s&startrev=%s", enc_vol, enc_file, enc_maxrev, enc_rev);
+		else
+		    sprintf(".replfl/%s?maxrev=%s", enc_vol, enc_maxrev);
+	    }
+	}
+
+	free(enc_vol);
+	free(enc_file);
+	free(enc_rev);
+	free(enc_maxrev);
+
+	if(!query)
+	    action_error(ACT_RESULT_TEMPFAIL, 503, "Out of memory allocating the request URL");
+
+	ctx->hashfs = hashfs;
+	ctx->b = NULL;
+	ctx->pos = 0;
+	ctx->ngood = 0;
+	ctx->needend = 0;
+	ctx->state = RPL_HDRSIZE;
+
+	qret = sxi_cluster_query(clust, &hlist, REQ_GET, query, NULL, 0, NULL, rplfiles_cb, &ctx);
+	free(query);
+	sx_blob_free(ctx->b);
+	if(ctx->needend)
+	    sx_hashfs_putfile_end(hashfs);
+	if(qret != 200)
+	    action_error(ACT_RESULT_TEMPFAIL, 503, "Bad reply from node");
+	if(ctx->state == RPL_END) {
+	    if(sx_hashfs_replace_setlastfile(hashfs, ctx->volume, NULL, NULL))
+		WARN("Replace setlastfile failed");
+	} else if(ctx->ngood) {
+	    if(sx_hashfs_replace_setlastfile(hashfs, ctx->volume, ctx->file, ctx->rev))
+		WARN("Replace setlastfile failed");
+	}
+    } else if(s != ITER_NO_MORE)
+	action_error(rc2actres(s), rc2http(s), msg_get_reason());
+
+    succeeded[0] = 1;
+    ret = OK;
+
+ action_failed:
+    sxi_hostlist_empty(&hlist);
+    free(ctx);
     return ret;
 }
 
@@ -3721,7 +4012,8 @@ static struct {
     { force_phase_success, usernewkey_commit, usernewkey_abort, usernewkey_undo }, /* JOBTYPE_NEWKEY_USER */
     { force_phase_success, volmod_commit, volmod_abort, volmod_undo }, /* JOBTYPE_MODIFY_VOLUME */
     { replace_request, replace_commit, replace_abort, replace_undo }, /* JOBTYPE_REPLACE */
-    //    { replaceblocks_request, replaceblocks_commit, force_phase_success, force_phase_success }, /* JOBTYPE_REPLACE_BLOCKS */
+    //    { replaceblocks_request, force_phase_success, force_phase_success, force_phase_success }, /* JOBTYPE_REPLACE_BLOCKS */
+    //    { replacefiles_request, replacefiles_commit, force_phase_success, force_phase_success }, /* JOBTYPE_REPLACE_FILES */
 };
 
 

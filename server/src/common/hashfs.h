@@ -282,7 +282,7 @@ rc_ty sx_hashfs_check_file_size(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, c
 rc_ty sx_hashfs_putfile_begin(sx_hashfs_t *h, sx_uid_t user_id, const char *volume, const char *file, const sx_hashfs_volume_t **volptr);
 rc_ty sx_hashfs_putfile_extend_begin(sx_hashfs_t *h, sx_uid_t user_id, const uint8_t *user, const char *token);
 rc_ty sx_hashfs_putfile_putblock(sx_hashfs_t *h, sx_hash_t *hash);
-rc_ty sx_hashfs_putfile_putmeta(sx_hashfs_t *h, const char *key, void *value, unsigned int value_len);
+rc_ty sx_hashfs_putfile_putmeta(sx_hashfs_t *h, const char *key, const void *value, unsigned int value_len);
 rc_ty sx_hashfs_putfile_gettoken(sx_hashfs_t *h, const uint8_t *user, int64_t size_or_seq, const char **token, hash_presence_cb_t hdck_cb, void *hdck_cb_ctx);
 rc_ty sx_hashfs_putfile_getblock(sx_hashfs_t *h);
 void sx_hashfs_putfile_end(sx_hashfs_t *h);
@@ -404,7 +404,9 @@ rc_ty sx_hashfs_hdist_set_rebalanced(sx_hashfs_t *h);
 rc_ty sx_hashfs_get_rbl_info(sx_hashfs_t *h, int *complete, const char **description);
 rc_ty sx_hashfs_set_rbl_info(sx_hashfs_t *h, int active, int complete, const char *description);
 
-rc_ty sx_hashfs_replace_getnode(sx_hashfs_t *h, unsigned int *version, const sx_node_t **node, int *have_blkidx, uint8_t *blkidx);
-rc_ty sx_hashfs_replace_setnode(sx_hashfs_t *h, const sx_uuid_t *node, const uint8_t *blkidx);
+rc_ty sx_hashfs_replace_getstartblock(sx_hashfs_t *h, unsigned int *version, const sx_node_t **node, int *have_blkidx, uint8_t *blkidx);
+rc_ty sx_hashfs_replace_setlastblock(sx_hashfs_t *h, const sx_uuid_t *node, const uint8_t *blkidx);
+rc_ty sx_hashfs_replace_getstartfile(sx_hashfs_t *h, char *maxrev, char *startvol, char *startfile, char *startrev);
+rc_ty sx_hashfs_replace_setlastfile(sx_hashfs_t *h, char *lastvol, char *lastfile, char *lastrev);
 
 #endif

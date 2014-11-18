@@ -248,6 +248,10 @@ void file_ops(void) {
 	    /* Response to challenge (s2s) - CLUSTER required */
 	    quit_unless_has(PRIV_CLUSTER);
             fcgi_challenge_response();
+	} else if(!strcmp(volume, ".replfl")) {
+	    /* Bulk file xfer (s2s, replacement node repopulation) - CLUSTER required */
+	    quit_unless_has(PRIV_CLUSTER);
+	    fcgi_send_replacement_files();
 	} else {
 	    /* Get file (meta)data - READ required */
 	    quit_unless_has(PRIV_READ);

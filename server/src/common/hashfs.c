@@ -324,7 +324,10 @@ rc_ty sx_storage_create(const char *dir, sx_uuid_t *cluster, uint8_t *key, int k
 	goto create_hashfs_fail;
     qnullify(q);
 
-    if(qprep(db, &q, "CREATE TABLE replace (node BLOB ("STRIFY(UUID_BINARY_SIZE)") NOT NULL PRIMARY KEY, last_block BLOB (21) NULL)") || qstep_noret(q))
+    if(qprep(db, &q, "CREATE TABLE replaceblock (node BLOB ("STRIFY(UUID_BINARY_SIZE)") NOT NULL PRIMARY KEY, last_block BLOB (21) NULL)") || qstep_noret(q))
+	goto create_hashfs_fail;
+    qnullify(q);
+    if(qprep(db, &q, "CREATE TABLE replacefile (vol TEXT NOT NULL PRIMARY KEY, file TEXT NOT NULL, rev TEXT NOT NULL, maxrev TEXT NOT NULL)") || qstep_noret(q))
 	goto create_hashfs_fail;
     qnullify(q);
 
@@ -5961,7 +5964,7 @@ rc_ty sx_hashfs_putfile_putblock(sx_hashfs_t *h, sx_hash_t *hash) {
     return OK;
 }
 
-rc_ty sx_hashfs_putfile_putmeta(sx_hashfs_t *h, const char *key, void *value, unsigned int value_len) {
+rc_ty sx_hashfs_putfile_putmeta(sx_hashfs_t *h, const char *key, const void *value, unsigned int value_len) {
     rc_ty rc;
 
     if(!h)
@@ -11408,7 +11411,7 @@ rc_ty sx_hashfs_br_find(sx_hashfs_t *h, const sx_block_meta_index_t *previous, u
     return rc;
 }
 
-rc_ty sx_hashfs_replace_getnode(sx_hashfs_t *h, unsigned int *version, const sx_node_t **node, int *have_blkidx, uint8_t *blkidx) {
+rc_ty sx_hashfs_replace_getstartblock(sx_hashfs_t *h, unsigned int *version, const sx_node_t **node, int *have_blkidx, uint8_t *blkidx) {
     sqlite3_stmt *q = NULL;
     rc_ty ret = FAIL_EINTERNAL;
     int r;
@@ -11418,7 +11421,7 @@ rc_ty sx_hashfs_replace_getnode(sx_hashfs_t *h, unsigned int *version, const sx_
         return EFAULT;
     }
 
-    if(qprep(h->db, &q, "SELECT node, last_block FROM replace LIMIT (SELECT ABS(COALESCE(RANDOM() % COUNT(*), 0)) FROM replace), 1"))
+    if(qprep(h->db, &q, "SELECT node, last_block FROM replaceblock LIMIT (SELECT ABS(COALESCE(RANDOM() % COUNT(*), 0)) FROM replaceblock), 1"))
 	goto getnode_fail;
 
     r = qstep(q);
@@ -11449,7 +11452,7 @@ rc_ty sx_hashfs_replace_getnode(sx_hashfs_t *h, unsigned int *version, const sx_
     return ret;
 }
 
-rc_ty sx_hashfs_replace_setnode(sx_hashfs_t *h, const sx_uuid_t *node, const uint8_t *blkidx) {
+rc_ty sx_hashfs_replace_setlastblock(sx_hashfs_t *h, const sx_uuid_t *node, const uint8_t *blkidx) {
     sqlite3_stmt *q = NULL;
     int ret = FAIL_EINTERNAL;
 
@@ -11459,11 +11462,11 @@ rc_ty sx_hashfs_replace_setnode(sx_hashfs_t *h, const sx_uuid_t *node, const uin
     }
 
     if(blkidx) {
-	if(qprep(h->db, &q, "UPDATE replace SET last_block = :block WHERE node = :node") ||
+	if(qprep(h->db, &q, "UPDATE replaceblock SET last_block = :block WHERE node = :node") ||
 	   qbind_blob(q, ":block", blkidx, 21))
 	    goto setnode_fail;
     } else {
-	if(qprep(h->db, &q, "DELETE FROM replace WHERE node = :node"))
+	if(qprep(h->db, &q, "DELETE FROM replaceblock WHERE node = :node"))
 	    goto setnode_fail;
     }
 	
@@ -11473,6 +11476,63 @@ rc_ty sx_hashfs_replace_setnode(sx_hashfs_t *h, const sx_uuid_t *node, const uin
 
  setnode_fail:
     sqlite3_finalize(q);
+    return ret;
+}
+
+rc_ty sx_hashfs_replace_getstartfile(sx_hashfs_t *h, char *maxrev, char *startvol, char *startfile, char *startrev) {
+    sqlite3_stmt *q = NULL;
+    rc_ty ret = FAIL_EINTERNAL;
+    int r;
+
+    if(!h || !maxrev || !startvol || !startfile || !startrev) {
+        NULLARG();
+        return EFAULT;
+    }
+
+    if(qprep(h->db, &q, "SELECT vol, file, rev, maxrev FROM replacefile LIMIT (SELECT ABS(COALESCE(RANDOM() % COUNT(*), 0)) FROM replacefile), 1"))
+	goto getfile_fail;
+
+    r = qstep(q);
+    if(r == SQLITE_ROW) {
+	strncpy(startvol, (const char *)sqlite3_column_text(q, 0), SXLIMIT_MAX_VOLNAME_LEN);
+	strncpy(startfile, (const char *)sqlite3_column_text(q, 1), SXLIMIT_MAX_FILENAME_LEN);
+	strncpy(startrev, (const char *)sqlite3_column_text(q, 2), REV_LEN);
+	strncpy(maxrev, (const char *)sqlite3_column_text(q, 3), REV_LEN);
+    } else if (r == SQLITE_DONE)
+	ret = ITER_NO_MORE;
+
+ getfile_fail:
+    sqlite3_finalize(q);    
+    return ret;
+}
+
+rc_ty sx_hashfs_replace_setlastfile(sx_hashfs_t *h, char *lastvol, char *lastfile, char *lastrev) {
+    sqlite3_stmt *q = NULL;
+    rc_ty ret = FAIL_EINTERNAL;
+
+    if(!h || !lastvol) {
+        NULLARG();
+        return EFAULT;
+    }
+    if(!lastfile) {
+	if(qprep(h->db, &q, "DELETE FROM replacefile WHERE vol = :volume"))
+	    goto setfile_fail;
+    } else {
+	if(!lastrev) {
+	    NULLARG();
+	    return EFAULT;
+	}
+	if(qprep(h->db, &q, "UPDATE replacefile SET file = :file, rev = :rev WHERE vol = :volume") ||
+	   qbind_text(q, ":file", lastfile) ||
+	   qbind_text(q, ":rev", lastrev))
+	    goto setfile_fail;
+    }
+    if(!qbind_text(q, ":volume", lastvol) &&
+       !qstep_noret(q))
+	ret = OK;
+    
+ setfile_fail:
+    sqlite3_finalize(q);    
     return ret;
 }
 

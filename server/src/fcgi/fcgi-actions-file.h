@@ -39,4 +39,5 @@ void fcgi_flush_tempfile(void);
 
 void fcgi_delete_file(void);
 
+void fcgi_send_replacement_files(void);
 #endif

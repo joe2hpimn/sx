@@ -28,6 +28,7 @@
 #include "default.h"
 #include <string.h>
 #include <stdlib.h>
+#include <arpa/inet.h>
 #include <yajl/yajl_parse.h>
 
 #include "fcgi-actions-file.h"
@@ -375,7 +376,7 @@ void fcgi_create_file(void) {
 
     if(len || yajl_complete_parse(yh) != yajl_status_ok || yctx.state != CB_NEWFILE_COMPLETE) {
 	yajl_free(yh);
-	sx_hashfs_putfile_end(hashfs);
+	sx_hashfs_createfile_end(hashfs);
 	quit_errmsg(400, "Invalid request content");
     }
 
@@ -523,4 +524,115 @@ void fcgi_delete_file(void) {
 	    quit_errmsg(rc2http(s), msg_get_reason());
 	send_job_info(job);
     }
+}
+
+
+
+
+
+struct rplfiles {
+    sx_blob_t *b;
+    sx_hashfs_file_t lastfile;
+    unsigned int bytes_sent;
+};
+
+static void send_rplfiles_header(struct rplfiles *ctx) {
+    unsigned int header_len, hlenton;
+    const void *header;
+
+    sx_blob_to_data(ctx->b, &header, &header_len);
+    hlenton = htonl(header_len);
+    if(!ctx->bytes_sent)
+	CGI_PUTS("\r\n");
+    CGI_PUTD(&hlenton, sizeof(hlenton));
+    CGI_PUTD(header, header_len);
+    ctx->bytes_sent += sizeof(hlenton) + header_len;
+}
+
+static int rplfiles_cb(const sx_hashfs_volume_t *volume, const sx_hashfs_file_t *file, const sx_hash_t *contents, unsigned int nblocks, void *ctx) {
+    unsigned int bodylen = sizeof(*contents) * nblocks, mval_len;
+    struct rplfiles *c = (struct rplfiles *)ctx;
+    const char *mkey;
+    const void *mval;
+    rc_ty s;
+
+    if(c->bytes_sent >= REPLACEMENT_BATCH_SIZE)
+	return 0;
+    sx_blob_reset(c->b);
+    if(sx_blob_add_string(c->b, "$FILE$") ||
+       sx_blob_add_int32(c->b, nblocks) ||
+       sx_blob_add_string(c->b, file->name) ||
+       sx_blob_add_string(c->b, file->revision) ||
+       sx_blob_add_int64(c->b, file->file_size))
+	return 0;
+    if(sx_hashfs_getfilemeta_begin(hashfs, volume->name, file->name, file->revision, NULL, NULL))
+	return 0;
+    while((s = sx_hashfs_getfilemeta_next(hashfs, &mkey, &mval, &mval_len)) == OK) {
+	if(sx_blob_add_string(c->b, "$META$") ||
+	   sx_blob_add_string(c->b, mkey) ||
+	   sx_blob_add_blob(c->b, mval, mval_len))
+	    break;
+    }
+    if(s != ITER_NO_MORE)
+	return 0;
+    if(sx_blob_add_string(c->b, "$ENDMETA$"))
+	return 0;
+
+    send_rplfiles_header(c);
+    CGI_PUTD(contents, bodylen);
+    c->bytes_sent += bodylen;
+    return 1;
+}
+
+void fcgi_send_replacement_files(void) {
+    const char *startname, *startrev = NULL;
+    const sx_hashfs_volume_t *vol;
+    struct rplfiles ctx;
+    rc_ty s;
+
+    if(!has_arg("maxrev"))
+	quit_errmsg(400, "Parameter maxrev is required");
+
+    startname = strchr(path, '/');
+    if(!startname) {
+	s = sx_hashfs_volume_by_name(hashfs, path, &vol);
+    } else {
+	unsigned int vnamelen = startname - path;
+	char *vname = malloc(vnamelen + 1);
+	if(!vname) 
+	    quit_errmsg(503, "Out of memory");
+	memcpy(vname, path, vnamelen);
+	vname[vnamelen] = '\0';
+	s = sx_hashfs_volume_by_name(hashfs, vname, &vol);
+	free(vname);
+	startname++;
+	if(strlen(startname))
+	    startrev = get_arg("startrev");
+	else
+	    startname = NULL;
+    }
+    if(s != OK)
+	quit_errmsg(rc2http(s), msg_get_reason());
+
+    if(!sx_hashfs_is_or_was_my_volume(hashfs, vol))
+	quit_errnum(404);
+
+    ctx.bytes_sent = 0;
+    ctx.b = sx_blob_new();
+    if(!ctx.b)
+	quit_errmsg(503, "Out of memory");
+
+    s = sx_hashfs_file_find(hashfs, vol, startname, startrev, get_arg("maxrev"), rplfiles_cb, &ctx);
+    if(s == ITER_NO_MORE) {
+	sx_blob_reset(ctx.b);
+	if(sx_blob_add_string(ctx.b, "$THEEND$"))
+	    return;
+	send_rplfiles_header(&ctx);
+	sx_blob_free(ctx.b);
+	return;
+    }
+
+    sx_blob_free(ctx.b);
+    if(s != FAIL_ETOOMANY && !ctx.bytes_sent)
+	quit_errmsg(rc2http(s), msg_get_reason());
 }

@@ -72,6 +72,8 @@
 
 #define SERVER_NAME "sx"
 #define MAX_ARGS 256
+#define REPLACEMENT_BATCH_SIZE (64*1024*1024)
+
 extern char *volume, *path, *args[MAX_ARGS];
 extern unsigned int nargs;
 typedef enum { VERB_UNSUP, VERB_GET, VERB_HEAD, VERB_POST, VERB_PUT, VERB_DELETE, VERB_OPTIONS } verb_t;
