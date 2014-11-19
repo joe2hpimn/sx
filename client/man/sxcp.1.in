@@ -29,6 +29,9 @@ Set bandwidth usage limit in kilobytes per second. The RATE value can additional
 \fB\-q\fR, \fB\-\-no\-progress\fR
 Don't display the progress bar
 .TP
+\fB\-\-ignore\-errors\fR
+When operating on multiple files, keep processing them even when errors occur. sxcp will display an appropriate error message for each file that failed to upload or download, and the total number of failures.
+.TP
 \fB\-v\fR, \fB\-\-verbose\fR
 Print more details about the transfer
 .TP

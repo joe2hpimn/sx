@@ -49,6 +49,8 @@ struct gengetopt_args_info
   const char *bwlimit_help; /**< @brief Set bandwidth usage limit in kilobytes per second (allows K, M, G suffixes, assume K when no suffix given) help description.  */
   int no_progress_flag;	/**< @brief Don't output progress bar (default=off).  */
   const char *no_progress_help; /**< @brief Don't output progress bar help description.  */
+  int ignore_errors_flag;	/**< @brief Keep processing files even when there are errors (default=off).  */
+  const char *ignore_errors_help; /**< @brief Keep processing files even when there are errors help description.  */
   int verbose_flag;	/**< @brief Print more details about the upload (default=off).  */
   const char *verbose_help; /**< @brief Print more details about the upload help description.  */
   int debug_flag;	/**< @brief Enable debug messages (default=off).  */
@@ -76,6 +78,7 @@ struct gengetopt_args_info
   unsigned int one_file_system_given ;	/**< @brief Whether one-file-system was given.  */
   unsigned int bwlimit_given ;	/**< @brief Whether bwlimit was given.  */
   unsigned int no_progress_given ;	/**< @brief Whether no-progress was given.  */
+  unsigned int ignore_errors_given ;	/**< @brief Whether ignore-errors was given.  */
   unsigned int verbose_given ;	/**< @brief Whether verbose was given.  */
   unsigned int debug_given ;	/**< @brief Whether debug was given.  */
   unsigned int config_dir_given ;	/**< @brief Whether config-dir was given.  */

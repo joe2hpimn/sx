@@ -282,7 +282,7 @@ int upload_file(sxc_client_t *sx, sxc_cluster_t *cluster, const char *local_path
         fprintf(stderr, "upload_file: ERROR: Cannot open '%s': %s\n", remote_path, sxc_geterrmsg(sx));
         goto upload_file_err;
     }
-    if(sxc_copy(src, dest, local_path[strlen(local_path) - 1] == '/', 0)) {
+    if(sxc_copy(src, dest, local_path[strlen(local_path) - 1] == '/', 0, 0)) {
         fprintf(stderr, "upload_file: ERROR: Cannot upload file: %s\n", sxc_geterrmsg(sx));
         goto upload_file_err;
     }
@@ -340,7 +340,7 @@ FILE* download_file(sxc_client_t *sx, sxc_cluster_t *cluster, const char *local_
             goto download_file_err;
         }
     } else {
-        if(sxc_copy(src, dest, 0, 0)) {
+        if(sxc_copy(src, dest, 0, 0, 0)) {
             fprintf(stderr, "download_file: ERROR: Cannot download file: %s\n", sxc_geterrmsg(sx));
             goto download_file_err;
         }
@@ -379,7 +379,7 @@ int download_files(sxc_client_t *sx, sxc_cluster_t *cluster, const char *local_d
         fprintf(stderr, "download_files: ERROR: Cannot open '%s' file.\n", local_dir_path);
         goto download_files_err;
     }
-    if(sxc_copy(src, dest, 1, 0)) {
+    if(sxc_copy(src, dest, 1, 0, 0)) {
         fprintf(stderr, "download_files: ERROR: Cannot download files: %s\n", sxc_geterrmsg(sx));
         goto download_files_err;
     }
@@ -1202,7 +1202,7 @@ int test_quota(sxc_client_t *sx, sxc_cluster_t *cluster, const char *local_dir_p
         fprintf(stderr, "test_quota: ERROR: Cannot open '%s' directory.\n", remote_path);
         goto test_quota_err;
     }
-    switch(sxc_copy(src, dest, local_file_path[strlen(local_file_path) - 1] == '/', 0)) {
+    switch(sxc_copy(src, dest, local_file_path[strlen(local_file_path) - 1] == '/', 0, 0)) {
         case 0:
             fprintf(stderr, "test_quota: ERROR: Volume size limit not enforced.\n");
             goto test_quota_err;
@@ -1326,7 +1326,7 @@ int test_copy(sxc_client_t *sx, sxc_cluster_t *cluster, const char *cluster_name
         fprintf(stderr, "test_copy: ERROR: Cannot open '%s'.\n", remote_file2_path);
         goto test_copy_err;
     }
-    if(sxc_copy(src, dest, 0, 0)) {
+    if(sxc_copy(src, dest, 0, 0, 0)) {
         fprintf(stderr, "test_copy: ERROR: Cannot upload '%s' file: %s\n", remote_file2_path, sxc_geterrmsg(sx));
         goto test_copy_err;
     }

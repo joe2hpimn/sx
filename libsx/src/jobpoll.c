@@ -528,7 +528,7 @@ static unsigned sxi_job_min_delay(sxi_job_t *poll)
     return ret;
 }
 
-static int sxi_job_result(sxc_client_t *sx, sxi_job_t **yres, unsigned *successful, long *http_err)
+static int sxi_job_result(sxc_client_t *sx, sxi_job_t **yres, unsigned *successful, long *http_err, unsigned *error)
 {
     int ret;
     switch ((*yres)->status) {
@@ -554,6 +554,7 @@ static int sxi_job_result(sxc_client_t *sx, sxi_job_t **yres, unsigned *successf
             ret = -1;
             if (http_err && !*http_err)
                 *http_err = (*yres)->http_err;
+            (*error)++;
             break;
     }
 
@@ -565,7 +566,7 @@ static int sxi_job_result(sxc_client_t *sx, sxi_job_t **yres, unsigned *successf
 #define JOB_POLL_MORE 1
 #define JOB_POLL_MSG 2
 
-static int sxi_job_status_ev(sxi_conns_t *conns, sxi_job_t **job, unsigned *successful, long *http_err)
+static int sxi_job_status_ev(sxi_conns_t *conns, sxi_job_t **job, unsigned *successful, long *http_err, unsigned *error)
 {
     sxc_client_t *sx = sxi_conns_get_client(conns);
     sxi_job_t *yres;
@@ -599,13 +600,13 @@ static int sxi_job_status_ev(sxi_conns_t *conns, sxi_job_t **job, unsigned *succ
                     if (!yres->message)
                         return -1;
                     yres->status = JOBST_ERROR;
-                    return sxi_job_result(sx, job, successful, http_err);
+                    return sxi_job_result(sx, job, successful, http_err, error);
                 }
             }
             return JOB_POLL_MSG;
         } else {
             gettimeofday(&yres->last_reached, NULL);
-            res = sxi_job_result(sx, job, successful, http_err);
+            res = sxi_job_result(sx, job, successful, http_err, error);
             if (res < 1)
                 return res;
         }
@@ -669,11 +670,15 @@ static int sxi_job_poll(sxi_conns_t *conns, sxi_jobs_t *jobs, int wait)
             if (!jobs->jobs[i])
                 continue;
             delay = sxi_job_min_delay(jobs->jobs[i]);
-            rc = sxi_job_status_ev(conns, &jobs->jobs[i], &jobs->successful, &jobs->http_err);
+            rc = sxi_job_status_ev(conns, &jobs->jobs[i], &jobs->successful, &jobs->http_err, &jobs->error);
             if (rc < 0) {
                 ret = -1;
+                if (!jobs->ignore_errors)
+                    break;
                 continue;
             }
+            if (!jobs->ignore_errors && jobs->error)
+                break;
             if (rc >= JOB_POLL_MORE) {
                 if (rc == JOB_POLL_MSG) {
                     if (!msg_printed) {
@@ -729,6 +734,8 @@ static int sxi_job_poll(sxi_conns_t *conns, sxi_jobs_t *jobs, int wait)
                 break;
             }
         }
+        if (!jobs->ignore_errors && jobs->error)
+            break;
         if (!wait)
             break;
         gettimeofday(&tv1, NULL);
@@ -739,7 +746,7 @@ static int sxi_job_poll(sxi_conns_t *conns, sxi_jobs_t *jobs, int wait)
     }
     for (i=0;i<jobs->n;i++) {
         if (jobs->jobs[i])
-            sxi_job_result(sx, &jobs->jobs[i], &jobs->successful, &jobs->http_err);
+            sxi_job_result(sx, &jobs->jobs[i], &jobs->successful, &jobs->http_err, &jobs->error);
     }
 
     return ret;
@@ -747,7 +754,14 @@ static int sxi_job_poll(sxi_conns_t *conns, sxi_jobs_t *jobs, int wait)
 
 int sxi_job_wait(sxi_conns_t *conns, sxi_jobs_t *jobs)
 {
-    return sxi_job_poll(conns, jobs, 1);
+    int ret = sxi_job_poll(conns, jobs, 1);
+    if (jobs->ignore_errors && jobs->error > 1) {
+        sxc_client_t *sx = sxi_conns_get_client(conns);
+        sxc_clearerr(sx);
+        sxi_seterr(sx, SXE_SKIP, "Failed to process %d files", jobs->error);
+        ret = -1;
+    }
+    return ret;
 }
 
 int sxi_job_submit_and_poll_err(sxi_conns_t *conns, sxi_hostlist_t *hlist, enum sxi_cluster_verb verb, const char *query, void *content, size_t content_size, long *http_err)
@@ -758,7 +772,7 @@ int sxi_job_submit_and_poll_err(sxi_conns_t *conns, sxi_hostlist_t *hlist, enum 
     };
     if (!jtable[0])
         return -1;
-    sxi_jobs_t jobs = { jtable, 1, 0, 0, { 0, 0 } };
+    sxi_jobs_t jobs = { jtable, 1, 0, 0, { 0, 0 }, 0, 0};
     rc = sxi_job_wait(conns, &jobs);
     if (http_err)
         *http_err = jobs.http_err;

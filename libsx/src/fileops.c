@@ -2135,7 +2135,7 @@ static int local_to_remote(sxc_file_t *source, sxc_meta_t *fmeta, sxc_file_t *de
     return sxi_jobs_wait_one(dest, dest->job);
 }
 
-static int local_to_remote_iterate(sxc_file_t *source, int recursive, int depth, int onefs, sxc_file_t *dest)
+static int local_to_remote_iterate(sxc_file_t *source, int recursive, int depth, int onefs, int ignore_errors, sxc_file_t *dest)
 {
     struct dirent *entry;
     sxc_client_t *sx = source->sx;
@@ -2222,13 +2222,15 @@ static int local_to_remote_iterate(sxc_file_t *source, int recursive, int depth,
                  ends_with(dest->path, '/') ? "" : "/",
                  entry->d_name);
         if (S_ISDIR(sb.st_mode)) {
-            if ((qret = local_to_remote_iterate(src, 1, depth+1, onefs, dst))) {
+            if ((qret = local_to_remote_iterate(src, 1, depth+1, onefs, ignore_errors, dst))) {
                 SXDEBUG("failure in directory: %s", destpath);
                 if (qret == 403 || qret == 404 || qret == 413) {
                     ret = qret;
                     break;
                 }
                 ret = -1;
+                if (!ignore_errors)
+                    break;
             }
             dest->jobs = dst->jobs;
         }
@@ -2239,7 +2241,8 @@ static int local_to_remote_iterate(sxc_file_t *source, int recursive, int depth,
                 SXDEBUG("failed to begin upload on %s", path);
                 if (qret == 403 || qret == 404 || qret == 413) {
                     ret = qret;
-                    break;
+                    if (!ignore_errors)
+                        break;
                 }
                 ret = -1;
             }
@@ -2251,9 +2254,15 @@ static int local_to_remote_iterate(sxc_file_t *source, int recursive, int depth,
                     ret = -1;
                     break;
                 }
+                dest->jobs->ignore_errors = ignore_errors;
                 gettimeofday(&dest->jobs->tv, NULL);
             }
-            if (dst->job && sxi_jobs_add(sx, dest->jobs, dst->job) == -1) {
+            if (ignore_errors && !dst->job) {
+                dst->job = &JOB_NONE;
+                if (dest->jobs->error++ > 0)
+                    sxc_clearerr(sx);
+            }
+            if (sxi_jobs_add(sx, dest->jobs, dst->job) == -1) {
                 SXDEBUG("failed to job_add");
                 ret = -1;
                 break;
@@ -2274,6 +2283,8 @@ static int local_to_remote_iterate(sxc_file_t *source, int recursive, int depth,
     closedir(dir);
 
     if (!depth) {
+        if (dest->jobs && dest->jobs->error > 1)
+            sxi_seterr(sx, SXE_SKIP, "Failed to process %d files", dest->jobs->error);
         int failed = sxc_geterrnum(sx) != SXE_NOERROR;
 
         if (dest->jobs) {
@@ -4346,8 +4357,8 @@ static int mkdir_parents(sxc_client_t *sx, const char *path)
     return ret;
 }
 
-static int remote_iterate(sxc_file_t *source, int recursive, int onefs, sxc_file_t *dest);
-int sxc_copy(sxc_file_t *source, sxc_file_t *dest, int recursive, int onefs) {
+static int remote_iterate(sxc_file_t *source, int recursive, int onefs, int ignore_errors, sxc_file_t *dest);
+int sxc_copy(sxc_file_t *source, sxc_file_t *dest, int recursive, int onefs, int ignore_errors) {
     int ret;
     sxc_xfer_stat_t *xfer_stat = NULL;
     sxc_cluster_t *remote_cluster = NULL;
@@ -4373,10 +4384,10 @@ int sxc_copy(sxc_file_t *source, sxc_file_t *dest, int recursive, int onefs) {
                 sxi_setsyserr(source->sx, SXE_EMEM, "Cannot dup path");
                 ret = 1;
             } else 
-                ret = local_to_remote_iterate(source, recursive, 0, onefs, dest);
+                ret = local_to_remote_iterate(source, recursive, 0, onefs, ignore_errors, dest);
         }
     } else {
-        ret = remote_iterate(source, recursive, onefs, dest);
+        ret = remote_iterate(source, recursive, onefs, ignore_errors, dest);
     }
     source->rev = rev;
 
@@ -4588,7 +4599,7 @@ int sxc_cat(sxc_file_t *source, int dest) {
         sxi_seterr(source->sx, SXE_EARG, "Cannot write to stdin");
         rc = 1;
     } else
-        rc = sxc_copy(source, destfile, 0, 0);
+        rc = sxc_copy(source, destfile, 0, 0, 0);
     sxc_file_free(destfile);
     return rc;
 }
@@ -4979,18 +4990,22 @@ void sxc_file_list_free(sxc_file_list_t *lst)
 
 static sxi_job_t* sxi_file_list_process(sxc_file_list_t *target, sxc_file_t *pattern, sxc_cluster_t *cluster,
                                         file_list_cb_t cb, sxi_hostlist_t *hlist, const char *vol, const char *path,
-                                        void *ctx, struct filter_handle *fh)
+                                        void *ctx, struct filter_handle *fh, int ignore_errors)
 {
     sxi_job_t *job = NULL;
     do {
         job = cb(target, pattern, cluster, hlist, vol, path, ctx, fh);
+        if (ignore_errors && !job) {
+            job = &JOB_NONE;
+            target->error++;
+        }
         if (!job)
             target->total++;
     } while(0);
     return job;
 }
 
-static int sxi_file_list_foreach_wait(sxc_file_list_t *target, sxc_cluster_t *cluster)
+static int sxi_file_list_foreach_wait(sxc_file_list_t *target, sxc_cluster_t *cluster, int ignore_errors)
 {
     unsigned i;
     int ret;
@@ -5003,6 +5018,13 @@ static int sxi_file_list_foreach_wait(sxc_file_list_t *target, sxc_cluster_t *cl
     }
     free(target->jobs.jobs);
     target->jobs.jobs = NULL;
+    if (!ret && target->error) {
+        if (target->error > 1) {
+            sxc_clearerr(sx);
+            sxi_seterr(sx, SXE_SKIP, "Failed to process %d files", target->error);
+        }
+        return 1;
+    }
     return ret;
 }
 
@@ -5015,7 +5037,7 @@ static int is_single_file_match(const char *pattern, unsigned pattern_slashes, c
         (!ends_with(pattern, '/') || ends_with(filename, '/'));
 }
 
-int sxi_file_list_foreach(sxc_file_list_t *target, sxc_cluster_t *wait_cluster, multi_cb_t multi_cb, file_list_cb_t cb, int need_locate, void *ctx)
+static int sxi_file_list_foreach(sxc_file_list_t *target, sxc_cluster_t *wait_cluster, multi_cb_t multi_cb, file_list_cb_t cb, int need_locate, int ignore_errors, void *ctx)
 {
     sxc_cluster_t *cluster;
     sxi_job_t *job;
@@ -5100,7 +5122,7 @@ int sxi_file_list_foreach(sxc_file_list_t *target, sxc_cluster_t *wait_cluster, 
 	    sxc_meta_free(vmeta);
 
             if (!entry->glob) {
-                job = sxi_file_list_process(target, pattern, cluster, cb, volhosts, pattern->volume, pattern->path, ctx, fh);
+                job = sxi_file_list_process(target, pattern, cluster, cb, volhosts, pattern->volume, pattern->path, ctx, fh, ignore_errors);
                 rc = sxi_jobs_add(target->sx, &target->jobs, job);
                 break;
             }
@@ -5145,7 +5167,7 @@ int sxi_file_list_foreach(sxc_file_list_t *target, sxc_cluster_t *wait_cluster, 
                     sxi_notice(target->sx, "Omitting (file in) directory: %s", filename);
                 } else {
                     CFGDEBUG("Processing file '%s/%s'", pattern->volume, filename);
-                    job = sxi_file_list_process(target, pattern, cluster, cb, volhosts, pattern->volume, filename, ctx, fh);
+                    job = sxi_file_list_process(target, pattern, cluster, cb, volhosts, pattern->volume, filename, ctx, fh, ignore_errors);
                     rc = sxi_jobs_add(target->sx, &target->jobs, job);
                 }
                 free(filename);
@@ -5165,7 +5187,7 @@ int sxi_file_list_foreach(sxc_file_list_t *target, sxc_cluster_t *wait_cluster, 
         if (rc)
             break;
     }
-    if(sxi_file_list_foreach_wait(target, wait_cluster))
+    if(sxi_file_list_foreach_wait(target, wait_cluster, ignore_errors))
         rc = -1;
     return rc;
 }
@@ -5213,7 +5235,7 @@ int sxc_rm(sxc_file_list_t *target) {
     if (!target)
         return -1;
     sxc_clearerr(target->sx);
-    return sxi_file_list_foreach(target, target->cluster, NULL, sxi_rm_cb, 1, NULL);
+    return sxi_file_list_foreach(target, target->cluster, NULL, sxi_rm_cb, 1, 0, NULL);
 }
 
 struct remote_iter {
@@ -5305,7 +5327,7 @@ static int multi_cb(sxc_file_list_t *target, void *ctx)
     return sxc_file_require_dir(dest);
 }
 
-static int remote_iterate(sxc_file_t *source, int recursive, int onefs, sxc_file_t *dest)
+static int remote_iterate(sxc_file_t *source, int recursive, int onefs, int ignore_errors, sxc_file_t *dest)
 {
     sxc_file_list_t *lst;
     int ret;
@@ -5321,7 +5343,7 @@ static int remote_iterate(sxc_file_t *source, int recursive, int onefs, sxc_file
     if (sxc_file_list_add(lst, source, 1)) {
         ret = -1;
     } else {
-        ret = sxi_file_list_foreach(lst, dest->cluster, multi_cb, remote_copy_cb, 0, &it);
+        ret = sxi_file_list_foreach(lst, dest->cluster, multi_cb, remote_copy_cb, 0, ignore_errors, &it);
         if (!ret) {
             /* create dest dir if successful list of empty volume */
             if (!is_remote(dest) && recursive && mkdir(dest->path, 0777) == -1 && errno != EEXIST) {

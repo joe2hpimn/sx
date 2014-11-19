@@ -674,7 +674,6 @@ int main(int argc, char **argv) {
 
     if(args.config_dir_given && sxc_set_confdir(sx, args.config_dir_arg)) {
         fprintf(stderr, "ERROR: Could not set configuration directory %s: %s\n", args.config_dir_arg, sxc_geterrmsg(sx));
-        ret = 1;
         goto main_err;
     }
 
@@ -761,23 +760,37 @@ int main(int argc, char **argv) {
 	    struct stat sb;
 	    if(access(fname, R_OK)) {
 		fprintf(stderr, "ERROR: Cannot access %s: %s\n", fname, strerror(errno));
-		skipped++;
-		continue;
+		if(args.ignore_errors_flag) {
+		    skipped++;
+		    continue;
+		}
+		goto main_err;
 	    }
 	    if(stat(fname, &sb)) {
 		fprintf(stderr, "ERROR: Cannot stat %s: %s\n", fname, strerror(errno));
-		skipped++;
-		continue;
+		if(args.ignore_errors_flag) {
+		    skipped++;
+		    continue;
+		}
+		goto main_err;
 	    }
 	    if(S_ISDIR(sb.st_mode) && !args.recursive_flag) {
 		fprintf(stderr, "WARNING: Cannot copy directory %s: use -r to copy recursively\n", fname);
-		skipped++;
-		continue;
+		if(args.ignore_errors_flag) {
+		    skipped++;
+		    continue;
+		}
+		goto main_err;
 	    }
 	}
 
-        if(!(src_file = sxfile_from_arg(&cluster2, fname, !args.recursive_flag)))
-            goto main_err;
+        if(!(src_file = sxfile_from_arg(&cluster2, fname, !args.recursive_flag))) {
+	    if(args.ignore_errors_flag) {
+		skipped++;
+		continue;
+	    }
+	    goto main_err;
+	}
 
         if(cluster2 && (args.total_conns_limit_given || args.host_conns_limit_given)) {
             if(args.total_conns_limit_arg < 0 || args.host_conns_limit_arg < 0) {
@@ -802,10 +815,14 @@ int main(int argc, char **argv) {
         
         /* TODO: more than one input requires directory as target,
          * and do the filename appending if target *is* a directory */
-        if(sxc_copy(src_file, dst_file, args.recursive_flag, args.one_file_system_flag)) {
+        if(sxc_copy(src_file, dst_file, args.recursive_flag, args.one_file_system_flag, args.ignore_errors_flag)) {
             fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
 	    if((cluster1 || cluster2) && strstr(sxc_geterrmsg(sx), SXBC_TOOLS_VOL_ERR))
 		fprintf(stderr, SXBC_TOOLS_VOL_MSG, "", "", cluster1 ? sxc_cluster_get_sslname(cluster1) : sxc_cluster_get_sslname(cluster2));
+	    if(args.ignore_errors_flag) {
+		skipped++;
+		continue;
+	    }
             goto main_err;
         }
         sxc_file_free(src_file);
@@ -813,6 +830,8 @@ int main(int argc, char **argv) {
     }
 
     ret = skipped ? 1 : 0;
+    if(skipped > 1 && !args.recursive_flag)
+	fprintf(stderr, "ERROR: Failed to process %d files\n", skipped);
 
  main_err:
     bar_free();

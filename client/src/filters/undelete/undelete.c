@@ -154,7 +154,7 @@ int copy_to_trash(const sxf_handle_t *handle, void *ctx, const void *cfgdata, un
     sprintf(newpath, "%s%s", trash, path);
     copy = sxc_file_remote(sxc_file_get_cluster(source), vol, newpath, NULL);
     if(copy) {
-	ret = sxc_copy(source, copy, 0, 0);
+	ret = sxc_copy(source, copy, 0, 0, 0);
 	if(ret)
 	    ERROR("Cannot make a backup copy, file will not be deleted");
 	sxc_file_free(copy);

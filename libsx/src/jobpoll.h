@@ -29,6 +29,8 @@ typedef struct _sxi_jobs_t {
     unsigned successful;
     long http_err;
     struct timeval tv;
+    unsigned error;
+    int ignore_errors;
 } sxi_jobs_t;
 
 /* used where a sxi_job_t would be required but we're not job based */

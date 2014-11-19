@@ -43,7 +43,6 @@ const char *sxi_cluster_get_confdir(const sxc_cluster_t *cluster);
 typedef sxi_job_t* (*file_list_cb_t)(sxc_file_list_t *target, sxc_file_t *pattern, sxc_cluster_t *cfg, sxi_hostlist_t *hlist,
                                    const char *vol, const char *path, void *ctx, struct filter_handle *fh);
 typedef int (*multi_cb_t)(sxc_file_list_t *target, void *ctx);
-int sxi_file_list_foreach(sxc_file_list_t *target, sxc_cluster_t *wait_cluster, multi_cb_t multi_cb, file_list_cb_t cb, int need_locate, void *ctx);
 char *sxi_ith_slash(char *s, unsigned int i);
 unsigned sxi_count_slashes(const char *str);
 

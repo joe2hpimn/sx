@@ -255,7 +255,7 @@ const char *sxc_file_get_path(sxc_file_t *file);
 int sxc_file_set_path(sxc_file_t *file, const char *newpath);
 void sxc_file_free(sxc_file_t *sxfile);
 
-int sxc_copy(sxc_file_t *source, sxc_file_t *dest, int recursive, int onefs);
+int sxc_copy(sxc_file_t *source, sxc_file_t *dest, int recursive, int onefs, int ignore_errors);
 int sxc_copy_sxfile(sxc_file_t *source, sxc_file_t *dest);
 int sxc_cat(sxc_file_t *source, int dest);
 

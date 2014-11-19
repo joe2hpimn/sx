@@ -41,6 +41,7 @@ const char *gengetopt_args_info_full_help[] = {
   "  -x, --one-file-system        Don't cross filesystem boundaries  (default=off)",
   "  -b, --bwlimit=RATE           Set bandwidth usage limit in kilobytes per\n                                 second (allows K, M, G suffixes, assume K when\n                                 no suffix given)",
   "  -q, --no-progress            Don't output progress bar  (default=off)",
+  "      --ignore-errors          Keep processing files even when there are errors\n                                 (default=off)",
   "  -v, --verbose                Print more details about the upload\n                                 (default=off)",
   "  -D, --debug                  Enable debug messages  (default=off)",
   "  -c, --config-dir=PATH        Path to SX configuration directory",
@@ -63,11 +64,12 @@ init_help_array(void)
   gengetopt_args_info_help[6] = gengetopt_args_info_full_help[6];
   gengetopt_args_info_help[7] = gengetopt_args_info_full_help[7];
   gengetopt_args_info_help[8] = gengetopt_args_info_full_help[8];
-  gengetopt_args_info_help[9] = 0; 
+  gengetopt_args_info_help[9] = gengetopt_args_info_full_help[9];
+  gengetopt_args_info_help[10] = 0; 
   
 }
 
-const char *gengetopt_args_info_help[10];
+const char *gengetopt_args_info_help[11];
 
 typedef enum {ARG_NO
   , ARG_FLAG
@@ -98,6 +100,7 @@ void clear_given (struct gengetopt_args_info *args_info)
   args_info->one_file_system_given = 0 ;
   args_info->bwlimit_given = 0 ;
   args_info->no_progress_given = 0 ;
+  args_info->ignore_errors_given = 0 ;
   args_info->verbose_given = 0 ;
   args_info->debug_given = 0 ;
   args_info->config_dir_given = 0 ;
@@ -116,6 +119,7 @@ void clear_args (struct gengetopt_args_info *args_info)
   args_info->bwlimit_arg = NULL;
   args_info->bwlimit_orig = NULL;
   args_info->no_progress_flag = 0;
+  args_info->ignore_errors_flag = 0;
   args_info->verbose_flag = 0;
   args_info->debug_flag = 0;
   args_info->config_dir_arg = NULL;
@@ -143,13 +147,14 @@ void init_args_info(struct gengetopt_args_info *args_info)
   args_info->one_file_system_help = gengetopt_args_info_full_help[4] ;
   args_info->bwlimit_help = gengetopt_args_info_full_help[5] ;
   args_info->no_progress_help = gengetopt_args_info_full_help[6] ;
-  args_info->verbose_help = gengetopt_args_info_full_help[7] ;
-  args_info->debug_help = gengetopt_args_info_full_help[8] ;
-  args_info->config_dir_help = gengetopt_args_info_full_help[9] ;
-  args_info->filter_dir_help = gengetopt_args_info_full_help[10] ;
-  args_info->total_conns_limit_help = gengetopt_args_info_full_help[11] ;
-  args_info->host_conns_limit_help = gengetopt_args_info_full_help[12] ;
-  args_info->dot_size_help = gengetopt_args_info_full_help[13] ;
+  args_info->ignore_errors_help = gengetopt_args_info_full_help[7] ;
+  args_info->verbose_help = gengetopt_args_info_full_help[8] ;
+  args_info->debug_help = gengetopt_args_info_full_help[9] ;
+  args_info->config_dir_help = gengetopt_args_info_full_help[10] ;
+  args_info->filter_dir_help = gengetopt_args_info_full_help[11] ;
+  args_info->total_conns_limit_help = gengetopt_args_info_full_help[12] ;
+  args_info->host_conns_limit_help = gengetopt_args_info_full_help[13] ;
+  args_info->dot_size_help = gengetopt_args_info_full_help[14] ;
   
 }
 
@@ -304,6 +309,8 @@ cmdline_parser_dump(FILE *outfile, struct gengetopt_args_info *args_info)
     write_into_file(outfile, "bwlimit", args_info->bwlimit_orig, 0);
   if (args_info->no_progress_given)
     write_into_file(outfile, "no-progress", 0, 0 );
+  if (args_info->ignore_errors_given)
+    write_into_file(outfile, "ignore-errors", 0, 0 );
   if (args_info->verbose_given)
     write_into_file(outfile, "verbose", 0, 0 );
   if (args_info->debug_given)
@@ -567,6 +574,7 @@ cmdline_parser_internal (
         { "one-file-system",	0, NULL, 'x' },
         { "bwlimit",	1, NULL, 'b' },
         { "no-progress",	0, NULL, 'q' },
+        { "ignore-errors",	0, NULL, 0 },
         { "verbose",	0, NULL, 'v' },
         { "debug",	0, NULL, 'D' },
         { "config-dir",	1, NULL, 'c' },
@@ -708,8 +716,20 @@ cmdline_parser_internal (
             exit (EXIT_SUCCESS);
           }
 
+          /* Keep processing files even when there are errors.  */
+          if (strcmp (long_options[option_index].name, "ignore-errors") == 0)
+          {
+          
+          
+            if (update_arg((void *)&(args_info->ignore_errors_flag), 0, &(args_info->ignore_errors_given),
+                &(local_args_info.ignore_errors_given), optarg, 0, 0, ARG_FLAG,
+                check_ambiguity, override, 1, 0, "ignore-errors", '-',
+                additional_error))
+              goto failure;
+          
+          }
           /* Limit number of connections.  */
-          if (strcmp (long_options[option_index].name, "total-conns-limit") == 0)
+          else if (strcmp (long_options[option_index].name, "total-conns-limit") == 0)
           {
           
           
