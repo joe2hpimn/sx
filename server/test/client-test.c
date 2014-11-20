@@ -63,6 +63,7 @@
 #define ACL_VOLNAME1 "vol1" /* There will be 6 random characters suffix added. */
 #define ACL_VOLNAME2 "vol2" /* There will be 6 random characters suffix added. */
 #define ACL_FILE_NAME "file_acl"
+#define ACL_KEY_FILE_NAME "file_acl_key"
 
 int64_t bytes; /* FIXME: small change in libsx to avoid this to be global */
 
@@ -128,7 +129,7 @@ int randomize_name(char *name) {
     return 0;
 }
 
-int create_volume(sxc_client_t *sx, sxc_cluster_t *cluster, const char *volname, const char *owner, const char *filter_dir, const char *filter_name, const char *filter_cfg, struct gengetopt_args_info args, int max_revisions) {
+int create_volume(sxc_client_t *sx, sxc_cluster_t *cluster, const char *volname, const char *owner, const char *filter_dir, const char *filter_name, const char *filter_cfg, struct gengetopt_args_info args, int max_revisions, int hide_errors) {
     void *cfgdata = NULL;
     int i, fcount, filter_idx, ret = 1;
     unsigned int cfgdata_len = 0;
@@ -145,24 +146,28 @@ int create_volume(sxc_client_t *sx, sxc_cluster_t *cluster, const char *volname,
         confdir = sxi_cluster_get_confdir(cluster);
         voldir = (char*)malloc(strlen(confdir) + strlen("/volumes/") + strlen(volname) + 1);
         if(!voldir) {
-            fprintf(stderr, "create_volume: ERROR: Cannot allocate memory for voldir.\n");
+            if(!hide_errors)
+                fprintf(stderr, "create_volume: ERROR: Cannot allocate memory for voldir.\n");
             goto create_volume_err;
         }
         sprintf(voldir, "%s/volumes/%s", confdir, volname);
         /* Wipe existing local config */
         /* There is no check for '..' in the path since the path is fully based on the code, not on arguments. */
         if(!access(voldir, F_OK) && sxi_rmdirs(voldir)) {
-            fprintf(stderr, "create_volume: ERROR: Cannot wipe old volume configuration directory: %s\n", voldir);
+            if(!hide_errors)
+                fprintf(stderr, "create_volume: ERROR: Cannot wipe old volume configuration directory: %s\n", voldir);
             goto create_volume_err;
         }
         filters = sxc_filter_list(sx, &fcount);
         if(!filters) {
-            fprintf(stderr, "create_volume: ERROR: No filters available.\n");
+            if(!hide_errors)
+                fprintf(stderr, "create_volume: ERROR: No filters available.\n");
             goto create_volume_err;
         }
         meta = sxc_meta_new(sx);
         if(!meta) {
-            fprintf(stderr, "create_volume: ERROR: Cannot initiate meta.\n");
+            if(!hide_errors)
+                fprintf(stderr, "create_volume: ERROR: Cannot initiate meta.\n");
             goto create_volume_err;
         }
         for(i=0; i<fcount; i++) {
@@ -174,12 +179,14 @@ int create_volume(sxc_client_t *sx, sxc_cluster_t *cluster, const char *volname,
                 }
         }
         if(!filter) {
-            fprintf(stderr, "create_volume: ERROR: Filter not found.\n");
+            if(!hide_errors)
+                fprintf(stderr, "create_volume: ERROR: Filter not found.\n");
             goto create_volume_err;
         }
         sxi_uuid_parse(filter->uuid, uuid);
         if(sxc_meta_setval(meta, "filterActive", uuid, 16)) {
-            fprintf(stderr, "create_volume: ERROR: Metadata error.\n");
+            if(!hide_errors)
+                fprintf(stderr, "create_volume: ERROR: Metadata error.\n");
             goto create_volume_err;
         }
         snprintf(uuidcfg, sizeof(uuidcfg), "%s-cfg", filter->uuid);
@@ -188,7 +195,8 @@ int create_volume(sxc_client_t *sx, sxc_cluster_t *cluster, const char *volname,
             if(confdir) {
                 fdir = (char*)malloc(strlen(voldir) + 1 + strlen(filter->uuid) + 1); /* The 1 inside is for '/' character. */
                 if(!fdir) {
-                    fprintf(stderr, "create_volume: ERROR: Cannot allocate memory for fdir.\n");
+                    if(!hide_errors)
+                        fprintf(stderr, "create_volume: ERROR: Cannot allocate memory for fdir.\n");
                     goto create_volume_err;
                 }
                 if(access(voldir, F_OK))
@@ -196,29 +204,34 @@ int create_volume(sxc_client_t *sx, sxc_cluster_t *cluster, const char *volname,
                 sprintf(fdir, "%s/%s", voldir, filter->uuid);
                 if(access(fdir, F_OK))
                     if(mkdir(fdir, 0700) == -1) {
-                        fprintf(stderr, "create_volume: ERROR: Cannot create filter configuration directory: %s\n", fdir);
+                        if(!hide_errors)
+                            fprintf(stderr, "create_volume: ERROR: Cannot create filter configuration directory: %s\n", fdir);
                         free(fdir);
                         goto create_volume_err;
                     }
             }
             if(filter->configure(&filters[filter_idx], filter_cfg, fdir, &cfgdata, &cfgdata_len)) {
-                fprintf(stderr, "create_volume: ERROR: Cannot configure filter.\n");
+                if(!hide_errors)
+                    fprintf(stderr, "create_volume: ERROR: Cannot configure filter.\n");
                 free(fdir);
                 goto create_volume_err;
             }
             free(fdir);
             if(cfgdata && sxc_meta_setval(meta, uuidcfg, cfgdata, cfgdata_len)) {
-                fprintf(stderr, "create_volume: ERROR: Cannot store filter configuration.\n");
+                if(!hide_errors)
+                    fprintf(stderr, "create_volume: ERROR: Cannot store filter configuration.\n");
                 goto create_volume_err;
             }
         }
     }
     if(sxc_volume_add(cluster, volname, VOLSIZE, args.replica_arg, max_revisions, meta, owner)) {
-        fprintf(stderr, "create_volume: ERROR: %s\n", sxc_geterrmsg(sx));
+        if(!hide_errors)
+            fprintf(stderr, "create_volume: ERROR: %s\n", sxc_geterrmsg(sx));
         goto create_volume_err;
     }
     if(sxi_volume_cfg_store(sx, cluster, volname, filter ? filter->uuid : NULL, cfgdata, cfgdata_len)) { /* TODO: check error message */
-        fprintf(stderr, "create_volume: ERROR: Configuration problem: %s\n", sxc_geterrmsg(sx));
+        if(!hide_errors)
+            fprintf(stderr, "create_volume: ERROR: Configuration problem: %s\n", sxc_geterrmsg(sx));
         goto create_volume_err;
     }
     if(args.human_flag)
@@ -262,28 +275,32 @@ remove_volume_err:
     return ret;
 } /* remove_volume */
 
-int upload_file(sxc_client_t *sx, sxc_cluster_t *cluster, const char *local_path, const char *remote_path) {
+int upload_file(sxc_client_t *sx, sxc_cluster_t *cluster, const char *local_path, const char *remote_path, int hide_errors) {
     int ret = 1;
     sxc_uri_t *uri;
     sxc_file_t *src, *dest = NULL;
      
     uri = sxc_parse_uri(sx, remote_path);
     if(!uri) {
-        fprintf(stderr, "upload_file: ERROR: %s\n", sxc_geterrmsg(sx));
+        if(!hide_errors)
+            fprintf(stderr, "upload_file: ERROR: %s\n", sxc_geterrmsg(sx));
         return ret;
     }
     src = sxc_file_local(sx, local_path);
     if(!src) {
-        fprintf(stderr, "upload_file: ERROR: Cannot open '%s': %s\n", local_path, sxc_geterrmsg(sx));
+        if(!hide_errors)
+            fprintf(stderr, "upload_file: ERROR: Cannot open '%s': %s\n", local_path, sxc_geterrmsg(sx));
         goto upload_file_err;
     }
     dest = sxc_file_remote(cluster, uri->volume, uri->path, NULL);
     if(!dest) {
-        fprintf(stderr, "upload_file: ERROR: Cannot open '%s': %s\n", remote_path, sxc_geterrmsg(sx));
+        if(!hide_errors)
+            fprintf(stderr, "upload_file: ERROR: Cannot open '%s': %s\n", remote_path, sxc_geterrmsg(sx));
         goto upload_file_err;
     }
     if(sxc_copy(src, dest, local_path[strlen(local_path) - 1] == '/', 0, 0)) {
-        fprintf(stderr, "upload_file: ERROR: Cannot upload file: %s\n", sxc_geterrmsg(sx));
+        if(!hide_errors)
+            fprintf(stderr, "upload_file: ERROR: Cannot upload file: %s\n", sxc_geterrmsg(sx));
         goto upload_file_err;
     }
 
@@ -392,7 +409,7 @@ download_files_err:
     return ret;
 } /* download_files */
 
-int delete_files(sxc_client_t *sx, sxc_cluster_t *cluster, const char *remote_path) {
+int delete_files(sxc_client_t *sx, sxc_cluster_t *cluster, const char *remote_path, int hide_errors) {
     int ret = 1, n;
     char *file_name;
     sxc_uri_t *uri;
@@ -402,42 +419,49 @@ int delete_files(sxc_client_t *sx, sxc_cluster_t *cluster, const char *remote_pa
 
     uri = sxc_parse_uri(sx, remote_path);
     if(!uri) {
-        fprintf(stderr, "delete_files: ERROR: Bad uri %s: %s\n", remote_path, sxc_geterrmsg(sx));
+        if(!hide_errors)
+            fprintf(stderr, "delete_files: ERROR: Bad uri %s: %s\n", remote_path, sxc_geterrmsg(sx));
         return ret;
     }
     lst = sxc_file_list_new(sx, 0);
     if(!lst) {
-        fprintf(stderr, "delete_files: ERROR: Failed to create new file list.\n");
+        if(!hide_errors)
+            fprintf(stderr, "delete_files: ERROR: Failed to create new file list.\n");
         sxc_file_free(file);
         goto delete_files_err;
     }
     if(remote_path[strlen(remote_path) - 1] == '/') {
         file_list = sxc_cluster_listfiles(cluster, uri->volume, uri->path, 0, NULL, NULL, NULL, NULL, 0);
         if(!file_list) {
-            fprintf(stderr, "delete_files: ERROR: Cannot get volume files list.\n");
+            if(!hide_errors)
+                fprintf(stderr, "delete_files: ERROR: Cannot get volume files list.\n");
             goto delete_files_err;
         }
         while(1) {
             n = sxc_cluster_listfiles_next(file_list, &file_name, NULL, NULL, NULL);
             if(n <= 0) {
                 if(n) {
-                    fprintf(stderr, "delete_files: ERROR: Failed to retrieve file name for '%s' directory.\n", remote_path);
+                    if(!hide_errors)
+                        fprintf(stderr, "delete_files: ERROR: Failed to retrieve file name for '%s' directory.\n", remote_path);
                     goto delete_files_err;
                 }
                 break;
             }
             if(!file_name) {
-                fprintf(stderr, "delete_files: ERROR: NULL file name pointer received.\n");
+                if(!hide_errors)
+                    fprintf(stderr, "delete_files: ERROR: NULL file name pointer received.\n");
                 goto delete_files_err;
             }
             file = sxc_file_remote(cluster, uri->volume, file_name, NULL);
             if(!file) {
-                fprintf(stderr, "delete_files: ERROR: Cannot process file: %s\n", file_name);
+                if(!hide_errors)
+                    fprintf(stderr, "delete_files: ERROR: Cannot process file: %s\n", file_name);
                 free(file_name);
                 goto delete_files_err;
             }
             if(sxc_file_list_add(lst, file, 0)) {
-                fprintf(stderr, "delete_files: ERROR: Cannot add file list entry '%s': %s\n", file_name, sxc_geterrmsg(sx));
+                if(!hide_errors)
+                    fprintf(stderr, "delete_files: ERROR: Cannot add file list entry '%s': %s\n", file_name, sxc_geterrmsg(sx));
                 sxc_file_free(file);
                 free(file_name);
                 goto delete_files_err;
@@ -447,17 +471,20 @@ int delete_files(sxc_client_t *sx, sxc_cluster_t *cluster, const char *remote_pa
     } else {
         file = sxc_file_remote(cluster, uri->volume, uri->path, NULL);
         if(!file) {
-            fprintf(stderr, "delete_files: ERROR: Cannot open destination directory.\n");
+            if(!hide_errors)
+                fprintf(stderr, "delete_files: ERROR: Cannot open destination directory.\n");
             goto delete_files_err;
         }
         if(sxc_file_list_add(lst, file, 0)) {
-            fprintf(stderr, "delete_files: ERROR: Cannot add file list entry '%s': %s\n", remote_path, sxc_geterrmsg(sx));
+            if(!hide_errors)
+                fprintf(stderr, "delete_files: ERROR: Cannot add file list entry '%s': %s\n", remote_path, sxc_geterrmsg(sx));
             sxc_file_free(file);
             goto delete_files_err;
         }
     }
     if(sxc_rm(lst)) {
-        fprintf(stderr, "delete_files: ERROR: Failed to remove file list: %s\n", sxc_geterrmsg(sx));
+        if(!hide_errors)
+            fprintf(stderr, "delete_files: ERROR: Failed to remove file list: %s\n", sxc_geterrmsg(sx));
         goto delete_files_err;
     }
 
@@ -473,7 +500,7 @@ delete_files_err:
 /* -1 - error
  *  0 - file not found
  *  1 - file found*/
-int find_file(sxc_client_t *sx, sxc_cluster_t *cluster, const char *remote_file_path) {
+int find_file(sxc_client_t *sx, sxc_cluster_t *cluster, const char *remote_file_path, int hide_errors) {
     int ret = -1, n;
     char *file_name = NULL;
     sxc_uri_t *uri;
@@ -482,21 +509,25 @@ int find_file(sxc_client_t *sx, sxc_cluster_t *cluster, const char *remote_file_
 
     uri = sxc_parse_uri(sx, remote_file_path);
     if(!uri) {
-        fprintf(stderr, "find_file: ERROR: %s\n", sxc_geterrmsg(sx));
+        if(!hide_errors)
+            fprintf(stderr, "find_file: ERROR: %s\n", sxc_geterrmsg(sx));
         return ret;
     }
     file_list = sxc_cluster_listfiles(cluster, uri->volume, uri->path, 0, NULL, NULL, NULL, NULL, 0);
     if(!file_list) {
-        fprintf(stderr, "find_file: ERROR: Cannot get volume files list.\n");
+        if(!hide_errors)
+            fprintf(stderr, "find_file: ERROR: Cannot get volume files list.\n");
         goto find_file_err;
     }
     n = sxc_cluster_listfiles_next(file_list, &file_name, NULL, NULL, NULL);
     if(n < 0) {
-        fprintf(stderr, "find_file: ERROR: Failed to retrieve file name for '%s'.\n", remote_file_path);
+        if(!hide_errors)
+            fprintf(stderr, "find_file: ERROR: Failed to retrieve file name for '%s'.\n", remote_file_path);
         goto find_file_err;
     }
     if(n > 0 && !file_name) {
-        fprintf(stderr, "find_file: ERROR: NULL file name pointer received.\n");
+        if(!hide_errors)
+            fprintf(stderr, "find_file: ERROR: NULL file name pointer received.\n");
         goto find_file_err;
     }
 
@@ -507,7 +538,7 @@ find_file_err:
     sxc_file_list_free(lst);
     sxc_cluster_listfiles_free(file_list);
     return ret;
-} /* find file */
+} /* find_file */
 
 void create_block(rnd_state_t *state, unsigned char *block, uint64_t block_size)
 {
@@ -628,11 +659,11 @@ int test_empty_file(sxc_client_t *sx, sxc_cluster_t *cluster, const char *local_
         fprintf(stderr, "test_empty_file: ERROR: Cannot close '%s' file: %s\n", local_file_path, strerror(errno));
         goto test_empty_file_err;
     }
-    if(upload_file(sx, cluster, local_file_path, remote_dir_path)) {
+    if(upload_file(sx, cluster, local_file_path, remote_dir_path, 0)) {
         fprintf(stderr, "test_empty_file: ERROR: Cannot upload '%s' file.\n", local_file_path);
         goto test_empty_file_err;
     }
-    if(delete_files(sx, cluster, remote_file_path)) {
+    if(delete_files(sx, cluster, remote_file_path, 0)) {
         fprintf(stderr, "test_empty_file: ERROR: Cannot delete '%s' file.\n", remote_file_path);
         goto test_empty_file_err;
     }
@@ -690,7 +721,7 @@ int test_upload_and_download(sxc_client_t *sx, sxc_cluster_t *cluster, const cha
     }
     file = NULL;
     printf("test_upload_and_download: Uploading\n");
-    if(upload_file(sx, cluster, local_file_path, remote_dir_path)) {
+    if(upload_file(sx, cluster, local_file_path, remote_dir_path, 0)) {
         fprintf(stderr, "test_upload_and_download: ERROR: Cannot upload '%s' file.\n", local_file_path);
         if(unlink(local_file_path))
             fprintf(stderr, "test_upload_and_download: ERROR: Cannot delete '%s' file: %s\n", local_file_path, strerror(errno));
@@ -732,11 +763,11 @@ int test_upload_and_download(sxc_client_t *sx, sxc_cluster_t *cluster, const cha
         fprintf(stderr, "test_upload_and_download: ERROR: Uploaded and downloaded file differs.\n");
         goto test_upload_and_download_err;
     }
-    if(delete_files(sx, cluster, remote_file_path)) {
+    if(delete_files(sx, cluster, remote_file_path, 0)) {
         fprintf(stderr, "test_upload_and_download: ERROR: Cannot delete '%s' file.\n", remote_file_path);
         goto test_upload_and_download_err;
     }
-    switch(find_file(sx, cluster, remote_file_path)) {
+    switch(find_file(sx, cluster, remote_file_path, 0)) {
         case -1:
             fprintf(stderr, "test_upload_and_download: ERROR: Looking for '%s' file in %s failed.\n", UD_FILE_NAME, remote_file_path);
             goto test_upload_and_download_err;
@@ -811,7 +842,7 @@ int test_revision(sxc_client_t *sx, sxc_cluster_t *cluster, const char *local_di
             fprintf(stderr, "test_revision: ERROR: Cannot create '%s' file.\n", local_file_path);
             goto test_revision_err;
         }
-        if(upload_file(sx, cluster, local_file_path, remote_dir_path)) {
+        if(upload_file(sx, cluster, local_file_path, remote_dir_path, 0)) {
             fprintf(stderr, "test_revision: ERROR: Cannot upload '%s' file.\n", local_file_path);
             goto test_revision_err;
         }
@@ -864,11 +895,11 @@ int test_revision(sxc_client_t *sx, sxc_cluster_t *cluster, const char *local_di
             goto test_revision_err;
         }
     }
-    if(delete_files(sx, cluster, remote_file_path)) {
+    if(delete_files(sx, cluster, remote_file_path, 0)) {
         fprintf(stderr, "test_revision: ERROR: Cannot delete '%s' file.\n", remote_file_path);
         goto test_revision_err;
     }
-    switch(find_file(sx, cluster, remote_file_path)) {
+    switch(find_file(sx, cluster, remote_file_path, 0)) {
         case -1:
             fprintf(stderr, "test_revision: ERROR: Looking for '%s' file in %s failed.\n", REV_FILE_NAME, remote_file_path);
             goto test_revision_err;
@@ -1003,7 +1034,7 @@ int test_attribs(sxc_client_t *sx, sxc_cluster_t *cluster, const char *local_dir
         }
         stat(local_files_paths[i], &t_st[i]);
     }
-    if(upload_file(sx, cluster, local_dir_path, remote_dir_path)) {
+    if(upload_file(sx, cluster, local_dir_path, remote_dir_path, 0)) {
         fprintf(stderr, "test_attribs: ERROR: Cannot upload files from '%s'.\n", local_dir_path);
         goto test_attribs_err;
     }
@@ -1030,7 +1061,7 @@ int test_attribs(sxc_client_t *sx, sxc_cluster_t *cluster, const char *local_dir
             goto test_attribs_err;
         }
     }
-    if(delete_files(sx, cluster, remote_dir_path)) {
+    if(delete_files(sx, cluster, remote_dir_path, 0)) {
         fprintf(stderr, "test_attribs: ERROR: Cannot delete files from '%s'.\n", remote_dir_path);
         goto test_attribs_err;
     }
@@ -1081,16 +1112,16 @@ int test_undelete(sxc_client_t *sx, sxc_cluster_t *cluster, const char *local_di
         fprintf(stderr, "test_undelete: ERROR: Cannot close '%s' file: %s\n", local_file_path, strerror(errno));
         goto test_undelete_err;
     }
-    if(upload_file(sx, cluster, local_file_path, remote_file_path)) {
+    if(upload_file(sx, cluster, local_file_path, remote_file_path, 0)) {
         fprintf(stderr, "test_undelete: ERROR: Cannot upload '%s' file.\n", local_file_path);
         goto test_undelete_err;
     }
-    if(delete_files(sx, cluster, remote_file_path)) {
+    if(delete_files(sx, cluster, remote_file_path, 0)) {
         fprintf(stderr, "test_undelete: ERROR: Cannot delete '%s' file.\n", remote_file_path);
         goto test_undelete_err;
     }
     sprintf(remote_file_path, "sx://%s%s%s/%s%s/%s/%s", uri->profile ? uri->profile : "", uri->profile ? "@" : "", uri->host, uri->volume, TRASH_NAME, REMOTE_DIR, UNDELETE_FILE_NAME);
-    switch(find_file(sx, cluster, remote_file_path)) {
+    switch(find_file(sx, cluster, remote_file_path, 0)) {
         case -1:
             fprintf(stderr, "test_undelete: ERROR: Looking for '%s' file in %s failed.\n", UNDELETE_FILE_NAME, remote_file_path);
             goto test_undelete_err;
@@ -1100,7 +1131,7 @@ int test_undelete(sxc_client_t *sx, sxc_cluster_t *cluster, const char *local_di
         case 1: break;
     }
     remote_file_path[strlen(remote_file_path) - strlen(UNDELETE_FILE_NAME)] = 0;
-    if(delete_files(sx, cluster, remote_file_path)) {
+    if(delete_files(sx, cluster, remote_file_path, 0)) {
         fprintf(stderr, "test_undelete: ERROR: Cannot delete files from '%s'.\n", remote_file_path);
         goto test_undelete_err;
     }
@@ -1125,7 +1156,7 @@ int volume_test(sxc_client_t *sx, sxc_cluster_t *cluster, const char *volname, c
     else
         size_flag = 1;
     printf("\nVolume test - filter: %s; filter configuration: %s\n", filter_name?filter_name:"<no filter>", filter_cfg?filter_cfg:"<none>");
-    if(create_volume(sx, cluster, volname, args.owner_arg, filter_dir, filter_name, filter_cfg, args, max_revisions)) {
+    if(create_volume(sx, cluster, volname, args.owner_arg, filter_dir, filter_name, filter_cfg, args, max_revisions, 0)) {
         fprintf(stderr, "volume_test: ERROR: Cannot create new volume.\n");
         return 1;
     }
@@ -1278,11 +1309,11 @@ int test_copy(sxc_client_t *sx, sxc_cluster_t *cluster, const char *cluster_name
     }
     sprintf(remote_file2_path, "sx://%s%s%s/%s/%s/%s", profile_name ? profile_name : "", profile_name ? "@" : "", cluster_name, volname2, REMOTE_DIR, COPY_FILE_NAME);
     printf("test_copy: Filters: %s (%s) and %s (%s).\n", filter1_name, filter1_cfg, filter2_name, filter2_cfg);
-    if(create_volume(sx, cluster, volname1, args.owner_arg, filter_dir, filter1_name, filter1_cfg, args, 1)) {
+    if(create_volume(sx, cluster, volname1, args.owner_arg, filter_dir, filter1_name, filter1_cfg, args, 1, 0)) {
         fprintf(stderr, "test_copy: ERROR: Cannot create new volume.\n");
         goto test_copy_err;
     }
-    if(create_volume(sx, cluster, volname2, args.owner_arg, filter_dir, filter2_name, filter2_cfg, args, 1)) {
+    if(create_volume(sx, cluster, volname2, args.owner_arg, filter_dir, filter2_name, filter2_cfg, args, 1, 0)) {
         fprintf(stderr, "test_copy: ERROR: Cannot create new volume.\n");
         goto test_copy_err;
     }
@@ -1292,7 +1323,7 @@ int test_copy(sxc_client_t *sx, sxc_cluster_t *cluster, const char *cluster_name
         goto test_copy_err;
     }
     printf("test_copy: Uploading file.\n");
-    if(upload_file(sx, cluster, local_file_path, remote_file1_path)) {
+    if(upload_file(sx, cluster, local_file_path, remote_file1_path, 0)) {
         fprintf(stderr, "test_copy: ERROR: Cannot upload '%s' file.\n", local_file_path);
         goto test_copy_err;
     }
@@ -1368,11 +1399,11 @@ int test_copy(sxc_client_t *sx, sxc_cluster_t *cluster, const char *cluster_name
         fprintf(stderr, "test_copy: ERROR: Uploaded and downloaded file differs.\n");
         goto test_copy_err;
     }
-    if(delete_files(sx, cluster, remote_file1_path)) {
+    if(delete_files(sx, cluster, remote_file1_path, 0)) {
         fprintf(stderr, "test_copy: ERROR: Cannot delete '%s' file: %s\n", remote_file1_path, sxc_geterrmsg(sx));
         goto test_copy_err;
     }
-    if(delete_files(sx, cluster, remote_file2_path)) {
+    if(delete_files(sx, cluster, remote_file2_path, 0)) {
         fprintf(stderr, "test_copy: ERROR: Cannot delete '%s' file: %s\n", remote_file2_path, sxc_geterrmsg(sx));
         goto test_copy_err;
     }
@@ -1404,8 +1435,11 @@ test_copy_err:
 } /* test_copy */
 
 /* Both users without 'read' permission.
- * Path to already existing file. */
-int cross_copy(sxc_client_t *sx, sxc_cluster_t *cluster, const char *cluster_name, const char *volname1, const char* volname2, const char *user1, const char *user2, const char *local_file_path) {
+ * Path to already existing file. 
+ *  -1 - error
+ *   0 - permissions forced
+ *   1 - files uploaded */
+int cross_copy(sxc_client_t *sx, sxc_cluster_t *cluster, const char *cluster_name, const char *volname1, const char* volname2, const char *user1, const char *user2, const char *profile_name, const char *local_file_path) {
     int ret = -1;
     char *remote_file_path;
 
@@ -1419,9 +1453,9 @@ int cross_copy(sxc_client_t *sx, sxc_cluster_t *cluster, const char *cluster_nam
         goto cross_copy_err;
     }
     sprintf(remote_file_path, "sx://%s@%s/%s/", user1, cluster_name, volname2);
-    if(upload_file(sx, cluster, local_file_path, remote_file_path)) {
+    if(upload_file(sx, cluster, local_file_path, remote_file_path, 1)) {
         if(sxc_geterrnum(sx) != SXE_EAUTH) {
-            fprintf(stderr, "cross_copy: ERROR: Uploading '%s' file failed.\n", local_file_path);
+            fprintf(stderr, "cross_copy: ERROR: Cannot upload '%s' file.\n", local_file_path);
             goto cross_copy_err;
         }
     } else {
@@ -1434,9 +1468,9 @@ int cross_copy(sxc_client_t *sx, sxc_cluster_t *cluster, const char *cluster_nam
         goto cross_copy_err;
     }
     sprintf(remote_file_path, "sx://%s@%s/%s/", user2, cluster_name, volname1);
-    if(upload_file(sx, cluster, local_file_path, remote_file_path)) {
+    if(upload_file(sx, cluster, local_file_path, remote_file_path, 1)) {
         if(sxc_geterrnum(sx) != SXE_EAUTH) {
-            fprintf(stderr, "cross_copy: ERROR: Uploading '%s' file failed.\n", local_file_path);
+            fprintf(stderr, "cross_copy: ERROR: Cannot upload '%s' file.\n", local_file_path);
             goto cross_copy_err;
         }
     } else {
@@ -1444,8 +1478,8 @@ int cross_copy(sxc_client_t *sx, sxc_cluster_t *cluster, const char *cluster_nam
         ret = 1;
         goto cross_copy_err;
     }
-    if(sxc_cluster_set_access(cluster, NULL)) {
-        fprintf(stderr, "cross_copy: ERROR: Failed to set admin profile authentication: %s\n", sxc_geterrmsg(sx));
+    if(sxc_cluster_set_access(cluster, profile_name)) {
+        fprintf(stderr, "cross_copy: ERROR: Failed to set default profile: %s\n", sxc_geterrmsg(sx));
         goto cross_copy_err;
     }
 
@@ -1455,12 +1489,153 @@ cross_copy_err:
     return ret;
 } /* cross_copy */
 
+int check_users(sxc_cluster_t *cluster, const char **users, const int users_num) {
+    int i, ret = -1, is_admin, next = 1, num = 0;
+    char *user = NULL;
+    sxc_cluster_lu_t *lstu;
+
+    lstu = sxc_cluster_listusers(cluster);
+    if(!lstu)
+        return ret;
+    while(next > 0) {
+        next = sxc_cluster_listusers_next(lstu, &user, &is_admin);
+        switch(next) {
+            case -1:
+                if(user)
+                    free(user);
+                goto check_users_err;
+            case 0: break;
+            case 1:
+                for(i=0; i<users_num; i++)
+                    if(users[i] && !strcmp(users[i], user)) {
+                        users[i] = NULL;
+                        break;
+                    }
+                free(user);
+                user = NULL;
+                num++;
+                break;
+        }
+    }
+    if(num - 1 != users_num) /* There is always admin profile */
+        return 1;
+    for(i=0; i<users_num; i++)
+        if(users[i])
+            return 2;
+
+    ret = 0;
+check_users_err:
+    sxc_cluster_listusers_free(lstu);
+    return ret;
+} /* check_users */
+
+int check_user(sxc_cluster_t *cluster, const char *volname, const char *user, int rights) {
+    int ret = -1, next = 1, tmp_rights, read = 1, write = 2, owner = 4, admin = 8, can_read, can_write, is_owner, is_admin;
+    char *get_user = NULL;
+    sxc_cluster_la_t *lstu;
+
+    lstu = sxc_cluster_listaclusers(cluster, volname);
+    if(!lstu)
+        return ret;
+    while(next > 0) {
+        next = sxc_cluster_listaclusers_next(lstu, &get_user, &can_read, &can_write, &is_owner, &is_admin);
+        switch(next) {
+            case -1:
+                if(get_user)
+                    free(get_user);
+                goto check_user_err;
+            case 0: break;
+            case 1:
+                if(!strcmp(user, get_user)) {
+                    free(get_user);
+                    tmp_rights = 0;
+                    tmp_rights |= can_read ? read : 0;
+                    tmp_rights |= can_write ? write : 0;
+                    tmp_rights |= is_owner ? owner : 0;
+                    tmp_rights |= is_admin ? admin : 0;
+                    if(rights != tmp_rights) {
+                        ret = 1;
+                        goto check_user_err;
+                    }
+                    next = 0;
+                    break;
+                }
+                free(get_user);
+                get_user = NULL;
+                break;
+        }
+    }
+
+    ret = 0;
+check_user_err:
+    sxc_cluster_listaclusers_free(lstu);
+    return ret;
+} /* check_user */
+
+int check_admin(sxc_cluster_t *cluster) {
+    int ret = -1, is_admin, next = 1;
+    char *get_user = NULL;
+    char *user;
+    sxc_cluster_lu_t *lstu;
+
+    lstu = sxc_cluster_listusers(cluster);
+    if(!lstu)
+        return ret;
+
+    user = sxc_cluster_whoami(cluster);
+    if(!user)
+	goto check_admin_err;
+
+    while(next > 0) {
+        next = sxc_cluster_listusers_next(lstu, &get_user, &is_admin);
+        switch(next) {
+            case -1:
+                if(get_user)
+                    free(get_user);
+                goto check_admin_err;
+            case 0: break;
+            case 1:
+                if(!strcmp(user, get_user))
+                    next = 0;
+                free(get_user);
+                get_user = NULL;
+                break;
+        }
+    }
+
+    ret = is_admin;
+check_admin_err:
+    sxc_cluster_listusers_free(lstu);
+    free(user);
+    return ret;
+} /* check_users */
+
 int test_acl(const char *program_name, sxc_client_t *sx, sxc_cluster_t *cluster, const char *cluster_name, const char *profile_name, const char *local_dir_path, struct gengetopt_args_info args) {
     int ret = 1;
-    char *user1, *user2 = NULL, *user3 = NULL, *key1 = NULL, *key2 = NULL, *key3 = NULL, *volname1 = NULL, *volname2 = NULL, *local_file_path = NULL, *remote_file_path = NULL;
-    FILE *file = NULL;
+    char *user1, *user2 = NULL, *user3 = NULL, *users[3], *key1 = NULL, *key2 = NULL, *key3 = NULL, key_tmp[AUTHTOK_ASCII_LEN], *volname1 = NULL, *volname2 = NULL, *local_file_path = NULL, *remote_file_path = NULL, *key_file_path = NULL;
+    FILE *file = NULL, *file_key = NULL;
 
     printf("\ntest_acl: Started\n");
+    switch(check_admin(cluster)) {
+        case -1:
+            fprintf(stderr, "test_acl: ERROR: %s\n", sxc_geterrmsg(sx));
+            return ret;
+        case 0:
+            fprintf(stderr, "test_acl: ERROR: current user is not an admin.\n");
+            return ret;
+    }
+    switch(check_users(cluster, (const char**)users, 0)) {
+        case -1:
+            fprintf(stderr, "test_acl: ERROR: %s\n", sxc_geterrmsg(sx));
+            return ret;
+        case 0: break;
+        case 1: 
+            fprintf(stderr, "test_acl: ERROR: Wrong number of users.\n");
+            return ret;
+        case 2:
+            fprintf(stderr, "test_acl: ERROR: Different user list.\n");
+            return ret;
+    }
     user1 = (char*)malloc(strlen(ACL_USER1) + strlen("XXXXXX") + 1);
     if(!user1) {
         fprintf(stderr, "test_acl: ERROR: Cannot allocate memory for user1.\n");
@@ -1534,15 +1709,50 @@ int test_acl(const char *program_name, sxc_client_t *sx, sxc_cluster_t *cluster,
         file = NULL;
         goto test_acl_err;
     }
-    if(create_volume(sx, cluster, volname1, user1, NULL, NULL, NULL, args, 1)) {
+    if(sxc_cluster_set_access(cluster, user1)) {
+        fprintf(stderr, "test_acl: ERROR: Failed to set '%s' profile authentication: %s\n", user1, sxc_geterrmsg(sx));
+        goto test_acl_err;
+    }
+    if(create_volume(sx, cluster, volname1, user1, NULL, NULL, NULL, args, 1, 1)) {
+        if(sxc_geterrnum(sx) == SXE_EAUTH)
+            printf("test_acl: Volume creation permission enforced correctly.\n");
+        else {
+            fprintf(stderr, "test_acl: ERROR: Cannot create new volume.\n");
+            goto test_acl_err;
+        }
+    } else {
+        fprintf(stderr, "test_acl: ERROR: Volume created without permission.\n");
+        goto test_acl_err;
+    }
+    if(sxc_cluster_set_access(cluster, profile_name)) {
+        fprintf(stderr, "test_acl: ERROR: Failed to set default profile: %s\n", sxc_geterrmsg(sx));
+        goto test_acl_err;
+    }
+    if(create_volume(sx, cluster, volname1, user1, NULL, NULL, NULL, args, 1, 0)) {
         fprintf(stderr, "test_acl: ERROR: Cannot create new volume.\n");
         goto test_acl_err;
     }
-    if(create_volume(sx, cluster, volname2, user2, NULL, NULL, NULL, args, 1)) {
+    if(create_volume(sx, cluster, volname2, user2, NULL, NULL, NULL, args, 1, 0)) {
         fprintf(stderr, "test_acl: ERROR: Cannot create new volume.\n");
         goto test_acl_err;
     }
-    switch(cross_copy(sx, cluster, cluster_name, volname1, volname2, user1, user2, local_file_path)) {
+    switch(check_user(cluster, volname1, user1, 1 + 2 + 4)) { /* read + write + owner */
+        case -1:
+            fprintf(stderr, "test_acl: ERROR: %s\n", sxc_geterrmsg(sx));
+            goto test_acl_err;
+        case 1:
+            fprintf(stderr, "test_acl: ERROR: '%s' has diferent rights on '%s'.\n", user1, volname1);
+            goto test_acl_err;
+    }
+    switch(check_user(cluster, volname1, user2, 0)) { /* no rights yet */
+        case -1:
+            fprintf(stderr, "test_acl: ERROR: %s\n", sxc_geterrmsg(sx));
+            goto test_acl_err;
+        case 1:
+            fprintf(stderr, "test_acl: ERROR: '%s' has diferent rights on '%s'.\n", user2, volname1);
+            goto test_acl_err;
+    }
+    switch(cross_copy(sx, cluster, cluster_name, volname1, volname2, user1, user2, profile_name, local_file_path)) {
         case -1:
             fprintf(stderr, "test_acl: ERROR: Files uploading failure.\n");
             goto test_acl_err;
@@ -1558,7 +1768,7 @@ int test_acl(const char *program_name, sxc_client_t *sx, sxc_cluster_t *cluster,
         goto test_acl_err;
     }
     sprintf(remote_file_path, "sx://%s@%s/%s/%s", user1, cluster_name, volname2, ACL_FILE_NAME);
-    if(upload_file(sx, cluster, local_file_path, remote_file_path)) {
+    if(upload_file(sx, cluster, local_file_path, remote_file_path, 0)) { /* user1 in remote_file_path have no impact here */
         fprintf(stderr, "test_acl: ERROR: Cannot upload '%s' file.\n", local_file_path);
         goto test_acl_err;
     }
@@ -1570,7 +1780,7 @@ int test_acl(const char *program_name, sxc_client_t *sx, sxc_cluster_t *cluster,
         fprintf(stderr, "test_acl: ERROR: Failed to set '%s' profile authentication: %s\n", user1, sxc_geterrmsg(sx));
         goto test_acl_err;
     }
-    switch(find_file(sx, cluster, remote_file_path)) {
+    switch(find_file(sx, cluster, remote_file_path, 0)) {
         case -1:
             fprintf(stderr, "test_acl: ERROR: Looking for '%s' file failed.\n", remote_file_path);
             goto test_acl_err;
@@ -1581,13 +1791,24 @@ int test_acl(const char *program_name, sxc_client_t *sx, sxc_cluster_t *cluster,
             printf("test_acl: 'read' permission granted correctly.\n");
             break;
     }
-    if(delete_files(sx, cluster, remote_file_path)) {
+    switch(check_user(cluster, volname2, user1, 1)) { /* read */
+        case -1:
+            fprintf(stderr, "test_acl: ERROR: %s\n", sxc_geterrmsg(sx));
+            goto test_acl_err;
+        case 1:
+            fprintf(stderr, "test_acl: ERROR: '%s' has diferent rights on '%s'.\n", user1, volname2);
+            goto test_acl_err;
+    }
+    if(delete_files(sx, cluster, remote_file_path, 1)) {
         if(sxc_geterrnum(sx) == SXE_EAUTH)
             printf("test_acl: 'write' permission enforced correctly.\n");
         else {
-            fprintf(stderr, "test_acl: ERROR: File has been deleted without permission.\n");
+            fprintf(stderr, "test_acl: ERROR: Cannot delete '%s' file: %s\n", remote_file_path, sxc_geterrmsg(sx));
             goto test_acl_err;
         }
+    } else {
+        fprintf(stderr, "test_acl: ERROR: File has been deleted without permission.\n");
+        goto test_acl_err;
     }
     if(sxc_volume_acl(cluster, volname1, user2, "write", NULL)) {
         fprintf(stderr, "test_acl: ERROR: Cannot add 'write' permission to '%s': %s\n", user2, sxc_geterrmsg(sx));
@@ -1597,17 +1818,17 @@ int test_acl(const char *program_name, sxc_client_t *sx, sxc_cluster_t *cluster,
         fprintf(stderr, "test_acl: ERROR: Failed to set '%s' profile authentication: %s\n", user2, sxc_geterrmsg(sx));
         goto test_acl_err;
     }
-    if(delete_files(sx, cluster, remote_file_path)) {
+    if(delete_files(sx, cluster, remote_file_path, 1)) {
         fprintf(stderr, "test_acl: ERROR: Cannot delete '%s' file: %s\n", remote_file_path, sxc_geterrmsg(sx));
         goto test_acl_err;
     }
     sprintf(remote_file_path, "sx://%s@%s/%s/%s", user2, cluster_name, volname1, ACL_FILE_NAME);
-    if(upload_file(sx, cluster, local_file_path, remote_file_path)) {
+    if(upload_file(sx, cluster, local_file_path, remote_file_path, 1)) {
         fprintf(stderr, "test_acl: ERROR: Cannot upload '%s' file.\n", local_file_path);
         goto test_acl_err;
     } else
         printf("test_acl: 'write' permission granted correctly.\n");
-    if(find_file(sx, cluster, remote_file_path) == -1) {
+    if(find_file(sx, cluster, remote_file_path, 1) == -1) {
         if(sxc_geterrnum(sx) == SXE_EAUTH)
             printf("test_acl: 'read' permission enforced correctly.\n");
         else {
@@ -1618,12 +1839,12 @@ int test_acl(const char *program_name, sxc_client_t *sx, sxc_cluster_t *cluster,
         fprintf(stderr, "test_acl: ERROR: Searching for a file done without permission.\n");
         goto test_acl_err;
     }
-    if(delete_files(sx, cluster, remote_file_path)) {
+    if(delete_files(sx, cluster, remote_file_path, 1)) {
         fprintf(stderr, "test_acl: ERROR: Cannot delete '%s' file: %s\n", remote_file_path, sxc_geterrmsg(sx));
         goto test_acl_err;
     }
     if(sxc_volume_acl(cluster, volname2, user1, NULL, "read")) {
-        fprintf(stderr, "test_acl: ERROR: Cannot revoke 'read' permission from '%s': %s\n", user2, sxc_geterrmsg(sx));
+        fprintf(stderr, "test_acl: ERROR: Cannot revoke 'read' permission from '%s': %s\n", user1, sxc_geterrmsg(sx));
         goto test_acl_err;
     }
     if(sxc_cluster_set_access(cluster, user1)) {
@@ -1634,7 +1855,7 @@ int test_acl(const char *program_name, sxc_client_t *sx, sxc_cluster_t *cluster,
         fprintf(stderr, "test_acl: ERROR: Cannot revoke 'write' permission from '%s': %s\n", user2, sxc_geterrmsg(sx));
         goto test_acl_err;
     }
-    switch(cross_copy(sx, cluster, cluster_name, volname1, volname2, user1, user2, local_file_path)) {
+    switch(cross_copy(sx, cluster, cluster_name, volname1, volname2, user1, user2, profile_name, local_file_path)) {
         case -1:
             fprintf(stderr, "test_acl: ERROR: Cannot upload file.\n");
             goto test_acl_err;
@@ -1662,6 +1883,21 @@ int test_acl(const char *program_name, sxc_client_t *sx, sxc_cluster_t *cluster,
         fprintf(stderr, "test_acl: ERROR: Failed to add '%s' profile authentication: %s\n", user3, sxc_geterrmsg(sx));
         goto test_acl_err;
     }
+    users[0] = user1;
+    users[1] = user2;
+    users[2] = user3;
+    switch(check_users(cluster, (const char**)users, 3)) {
+        case -1:
+            goto test_acl_err;
+        case 0:
+            break;
+        case 1: 
+            fprintf(stderr, "test_acl: ERROR: Wrong number of users.\n");
+            goto test_acl_err;
+        case 2:
+            fprintf(stderr, "test_acl: ERROR: Different user list.\n");
+            goto test_acl_err;
+    }
     if(sxc_volume_acl(cluster, volname1, user3, "read,write", NULL)) {
         fprintf(stderr, "test_acl: ERROR: Cannot add 'read,write' permission to %s: %s\n", user3, sxc_geterrmsg(sx));
         goto test_acl_err;
@@ -1674,11 +1910,112 @@ int test_acl(const char *program_name, sxc_client_t *sx, sxc_cluster_t *cluster,
         if(sxc_geterrnum(sx) == SXE_EAUTH)
             printf("test_acl: User permissions enforced correctly.\n");
         else {
-            fprintf(stderr, "test_acl: ERROR: Cannot add 'read,write' permission to '%s': %s\n", user3, sxc_geterrmsg(sx));
+            fprintf(stderr, "test_acl: ERROR: Cannot add 'read' permission to '%s': %s\n", user3, sxc_geterrmsg(sx));
             goto test_acl_err;
         }
     } else {
         fprintf(stderr, "test_acl: ERROR: Permissions granted without permission.\n");
+        goto test_acl_err;
+    }
+    if(sxc_cluster_set_access(cluster, user1)) {
+        fprintf(stderr, "test_acl: ERROR: Failed to set '%s' profile authentication: %s\n", user1, sxc_geterrmsg(sx));
+        goto test_acl_err;
+    }
+    if(create_volume(sx, cluster, volname1, user1, NULL, NULL, NULL, args, 1, 1)) {
+        if(sxc_geterrnum(sx) == SXE_EAUTH)
+            printf("test_acl: Volume removal permission enforced correctly.\n");
+        else {
+            fprintf(stderr, "test_acl: ERROR: Cannot remove '%s' volume: %s\n", volname1, sxc_geterrmsg(sx));
+            goto test_acl_err;
+        }
+    } else {
+        fprintf(stderr, "test_acl: ERROR: Volume removed without permission.\n");
+        goto test_acl_err;
+    }
+    if(sxc_cluster_set_access(cluster, profile_name)) {
+        fprintf(stderr, "test_acl: ERROR: Failed to set default profile: %s\n", sxc_geterrmsg(sx));
+        goto test_acl_err;
+    }
+    key_file_path = (char*)malloc(strlen(local_dir_path) + 1 + strlen(ACL_KEY_FILE_NAME) + 1);
+    if(!key_file_path) {
+        fprintf(stderr, "test_acl: ERROR: Cannot allocate memory for key_file_path.\n");
+        goto test_acl_err;
+    }
+    sprintf(key_file_path, "%s/%s", local_dir_path, ACL_KEY_FILE_NAME);
+    file_key = fopen(key_file_path, "w+");
+    if(!file_key) {
+        fprintf(stderr, "test_acl: ERROR: Cannot open '%s' file: %s\n", key_file_path, strerror(errno));
+        goto test_acl_err;
+    }
+    if(sxc_user_getkey(cluster, user1, file_key)) {
+        fprintf(stderr, "test_acl: ERROR: Cannot get '%s' key: %s\n", user1, sxc_geterrmsg(sx));
+        fclose(file_key);
+        goto test_acl_err;
+    }
+    if(fflush(file_key) == EOF) {
+        fprintf(stderr, "test_acl: ERROR: Cannot flush '%s' file: %s\n", key_file_path, strerror(errno));
+        fclose(file_key);
+        goto test_acl_err;
+    }
+    rewind(file_key);
+    if(ftell(file_key) == -1) {
+        fprintf(stderr, "test_acl: ERROR: Cannot rewind '%s' file: %s\n", key_file_path, strerror(errno));
+        fclose(file_key);
+        goto test_acl_err;
+    }
+    if(fread(key_tmp, 1, AUTHTOK_ASCII_LEN, file_key) != AUTHTOK_ASCII_LEN) {
+        fprintf(stderr, "test_acl: ERROR: Cannot get '%s' key.\n", user1);
+        fclose(file_key);
+        goto test_acl_err;
+    }
+    fclose(file_key);
+    if(memcmp(key1, key_tmp, AUTHTOK_ASCII_LEN)) {
+        fprintf(stderr, "test_acl: ERROR: User keys differs.\n");
+        goto test_acl_err;
+    }
+    free(key2);
+    key2 = sxc_user_newkey(cluster, user1, NULL);
+    if(!key2) {
+        fprintf(stderr, "test_acl: ERROR: Cannot generate new key for '%s': %s\n", user1, sxc_geterrmsg(sx));
+        goto test_acl_err;
+    }
+    if(sxc_cluster_set_access(cluster, user1)) {
+        fprintf(stderr, "test_acl: ERROR: Failed to set '%s' profile authentication: %s\n", user1, sxc_geterrmsg(sx));
+        goto test_acl_err;
+    }
+    free(key3);
+    key3 = sxc_cluster_whoami(cluster);
+    if(!key3) {
+        if(sxc_geterrnum(sx) == 7) {
+            printf("test_acl: User permissions after key change enforced correctly.\n");
+        } else {
+            fprintf(stderr, "test_acl: ERROR: %s\n", sxc_geterrmsg(sx));
+            goto test_acl_err;
+        }
+    } else {
+        fprintf(stderr, "test_acl: ERROR: Name checked without permission.\n");
+        goto test_acl_err;
+    }
+    if(sxc_cluster_set_access(cluster, profile_name)) {
+        fprintf(stderr, "cross_copy: ERROR: Failed to set default profile: %s\n", sxc_geterrmsg(sx));
+        goto test_acl_err;
+    }
+    if(sxc_cluster_add_access(cluster, user1, key2)) {
+        fprintf(stderr, "test_acl: ERROR: Failed to add '%s' profile authentication: %s\n", user1, sxc_geterrmsg(sx));
+        goto test_acl_err;
+    }
+    if(sxc_cluster_set_access(cluster, user1)) {
+        fprintf(stderr, "test_acl: ERROR: Failed to set '%s' profile authentication: %s\n", user1, sxc_geterrmsg(sx));
+        goto test_acl_err;
+    }
+    free(key3);
+    key3 = sxc_cluster_whoami(cluster);
+    if(!key3) {
+        fprintf(stderr, "test_acl: ERROR: %s\n", sxc_geterrmsg(sx));
+        goto test_acl_err;
+    }
+    if(strcmp(user1, key3)) {
+        fprintf(stderr, "test_acl: ERROR: Got wrong user name.\n");
         goto test_acl_err;
     }
     if(sxc_cluster_set_access(cluster, profile_name)) {
@@ -1714,6 +2051,11 @@ test_acl_err:
         if(!ret)
             ret = -1;
     }
+    if(file_key && unlink(key_file_path)) {
+        fprintf(stderr, "test_acl: ERROR: Cannot delete '%s' file: %s\n", key_file_path, strerror(errno));
+        if(!ret)
+            ret = -1;
+    }
     free(user1);
     free(user2);
     free(user3);
@@ -1724,6 +2066,7 @@ test_acl_err:
     free(volname2);
     free(local_file_path);
     free(remote_file_path);
+    free(key_file_path);
     return ret;
 } /* test_acl */
 
