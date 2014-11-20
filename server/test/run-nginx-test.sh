@@ -49,8 +49,10 @@ socket="$SXRUNDIR/sxfcgi.socket"
 socket-mode=0660
 data-dir="$SXSTOREDIR/data"
 children=2
-debug
 EOF
+if [ "x$VERBOSE" = "x1" ]; then
+    echo debug >>"$prefix/etc/sxserver/sxfcgi.conf"
+fi
 
 cat >"$prefix/etc/sxserver/sxsetup.conf" <<EOF
 SX_NO_ROOT=1
