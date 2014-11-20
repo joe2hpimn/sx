@@ -324,7 +324,8 @@ static char *get_aliases_file_name(sxc_client_t *sx) {
 /* Free memory taken for aliases list */
 void sxi_free_aliases(alias_list_t *aliases) {
     int i = 0;
-    if(!aliases) return;
+    if(!aliases)
+        return;
     for(i = aliases->num - 1; i >= 0; i--) {
         free(aliases->entry[i].name);
         free(aliases->entry[i].cluster);
@@ -342,14 +343,11 @@ int sxi_load_aliases(sxc_client_t *sx, alias_list_t **aliases) {
     alias_list_t *list = NULL;
 
     /* Wrong params given */
-    if(!sx || !aliases) {
+    if(!sx || !aliases)
         return 1;
-    }
 
-    if(*aliases) {
-        /* Aliases list already filled */
+    if(*aliases) /* Aliases list already filled */
         return 0;
-    }
 
     aliases_file_name = get_aliases_file_name(sx);
     if(!aliases_file_name) {
@@ -421,9 +419,8 @@ static int write_aliases(sxc_client_t *sx, const alias_list_t *list) {
     FILE *f = NULL;
     int i = 0;
 
-    if(!list) {
+    if(!list)
         return 1;
-    }
 
     if(list->num > 0) {
         aliases_file_name = get_aliases_file_name(sx);
@@ -448,7 +445,11 @@ static int write_aliases(sxc_client_t *sx, const alias_list_t *list) {
         }
 
         for(i = 0; i < list->num; i++) {
-            int to_write = strlen(list->entry[i].name) + strlen(list->entry[i].cluster) + 2;
+            int to_write;
+
+            if(!list->entry[i].cluster || !list->entry[i].name)
+                continue;
+            to_write = strlen(list->entry[i].name) + strlen(list->entry[i].cluster) + 2;
             if(fprintf(f, "%s %s\n", list->entry[i].name, list->entry[i].cluster) != to_write) {
                 fclose(f);
                 unlink(aliases_file_name);
@@ -504,6 +505,8 @@ int sxc_set_alias(sxc_client_t *sx, const char *alias, const char *profile, cons
 	snprintf(cluster_uri, cluster_uri_len, "%s%s@%s", SXPROTO, profile, host);
 
     for(i = 0; i < list->num; i++) {
+        if(!list->entry[i].cluster || !list->entry[i].name)
+            continue;
         if(strcmp(list->entry[i].name, alias) == 0) {
             alias_found = i;
             break;
@@ -546,6 +549,51 @@ int sxc_set_alias(sxc_client_t *sx, const char *alias, const char *profile, cons
     return write_aliases(sx, list);
 }
 
+int sxc_del_aliases(sxc_client_t *sx, const char *profile, const char *host) {
+    alias_list_t *list;
+    unsigned int i, cluster_uri_len;
+    char *cluster_uri;
+
+    if(!sx || !profile || !host) {
+        sxi_seterr(sx, SXE_EARG, "NULL argument");
+        return 1;
+    }
+
+    list = sxi_get_alias_list(sx);
+    if(!list) {
+        sxi_seterr(sx, SXE_EMEM, "Could not get alias list");
+        return 1;
+    }
+
+    /* Prepare cluster uri */
+    cluster_uri_len = strlen(profile) + strlen(host) + strlen(SXPROTO) + 2;
+    cluster_uri = malloc(cluster_uri_len);
+    if(!cluster_uri) {
+        sxi_seterr(sx, SXE_EMEM, "Could not allocate memory");
+        return 1;
+    }
+
+    if(!strcmp(profile, "default"))
+        snprintf(cluster_uri, cluster_uri_len, "%s%s", SXPROTO, host);
+    else
+        snprintf(cluster_uri, cluster_uri_len, "%s%s@%s", SXPROTO, profile, host);
+
+    /* Iterate over all aliases matching to profile name */
+    for(i = 0; i < list->num; i++) {
+        if(!list->entry[i].cluster || !list->entry[i].name)
+            continue;
+        if(!strcmp(list->entry[i].cluster, cluster_uri)) {
+            free(list->entry[i].cluster);
+            free(list->entry[i].name);
+            list->entry[i].cluster = NULL;
+            list->entry[i].name = NULL;
+        }
+    }
+
+    free(cluster_uri);
+    return write_aliases(sx, list);
+}
+
 int sxc_get_aliases(sxc_client_t *sx, const char *profile, const char *host, char **aliases) {
     alias_list_t *list;
     char *c;
@@ -575,6 +623,8 @@ int sxc_get_aliases(sxc_client_t *sx, const char *profile, const char *host, cha
         snprintf(c, clen, "%s%s@%s", SXPROTO, profile, host);
 
     for(i = 0; i < list->num; i++) {
+        if(!list->entry[i].cluster || !list->entry[i].name)
+            continue;
         if(!strncmp(c, list->entry[i].cluster, clen)) {
             ret = sxi_realloc(sx, ret, len + strlen(list->entry[i].name) + 2);
             if(!ret) {
@@ -618,6 +668,8 @@ sxc_uri_t *sxc_parse_uri(sxc_client_t *sx, const char *uri) {
             len = tmp_volume - uri;
 
         for(i = 0; i < list->num; i++) {
+            if(!list->entry[i].cluster || !list->entry[i].name)
+                continue;
             if(strncmp(list->entry[i].name, uri, strlen(list->entry[i].name)) == 0) {
                 if(strlen(list->entry[i].name) < strlen(uri) && uri[strlen(list->entry[i].name)] != '/')
                     continue;

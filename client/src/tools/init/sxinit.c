@@ -52,7 +52,7 @@ static void sighandler(int signal) {
 }
 
 /* List all clusters with profile names that are configured in configuration directory */
-static int list_clusters(sxc_client_t *sx) {
+static int list_clusters(void) {
     const char *confdir = NULL;
     DIR *clusters_dir = NULL, *profiles_dir = NULL;
     struct dirent *cluster_dirent = NULL, *profile_dirent;
@@ -130,6 +130,92 @@ static int list_clusters(sxc_client_t *sx) {
     return 0;
 }
 
+static int del_profile(sxc_uri_t *u) {
+    int ret = -1;
+    const char *config_dir = sxc_get_confdir(sx);
+    unsigned int profdir_len, confdir_len, fname_len;
+    const char *home_dir;
+    char *fname;
+    const char *profile;
+
+    if(!u || !u->host) {
+        sxi_seterr(sx, SXE_EARG, "Cannot locate config directory: Invalid argument");
+        return ret;
+    }
+
+    confdir_len = strlen(u->host);
+    if(memchr(u->host, '/', confdir_len)) {
+        sxi_seterr(sx, SXE_EARG, "Cannot locate config directory: Invalid argument");
+        return ret;
+    }
+
+    if(!config_dir) {
+        home_dir = getenv("HOME");
+        if(!home_dir) {
+            struct passwd *pwd = getpwuid(geteuid());
+            if(pwd)
+                home_dir = pwd->pw_dir;
+        }
+        if(!home_dir) {
+            sxi_seterr(sx, SXE_EARG, "Cannot locate config directory: Cannot determine home directory");
+            return ret;
+        }
+        confdir_len += strlen(home_dir) + 2 + lenof(".sx");
+    } else
+        confdir_len += strlen(config_dir) + 1;
+
+    if(!u->profile || !u->profile[0])
+        profile = "default";
+    else
+        profile = u->profile;
+
+    profdir_len = confdir_len + strlen("/auth/");
+    fname_len = strlen(profile) + profdir_len + 1;
+    fname = malloc(fname_len);
+    if(!fname) {
+        sxi_seterr(sx, SXE_EMEM, "Cannot locate config directory: Out of memory");
+        goto rm_profile_err;
+    }
+
+    if(config_dir)
+        snprintf(fname, fname_len, "%s/%s/auth/%s", config_dir, u->host, profile);
+    else
+        snprintf(fname, fname_len, "%s/.sx/%s/auth/%s", home_dir, u->host, profile);
+
+    if(access(fname, F_OK)) {
+        sxi_seterr(sx, SXE_ECFG, "Cannot locate profile 'sx://%s@%s/'", profile, u->host);
+        goto rm_profile_err;
+    }
+
+    /* Remove profile key file */
+    if(unlink(fname)) {
+        sxi_seterr(sx, SXE_ECFG, "Cannot remove profile '%s': %s", profile, strerror(errno));
+        goto rm_profile_err;
+    }
+
+    /* Clean all aliases combined with given profile */
+    if(sxc_del_aliases(sx, profile, u->host)) {
+        SXDEBUG("Failed to delete aliases for profile '%s': %s", profile, sxc_geterrmsg(sx));
+        goto rm_profile_err;
+    }
+
+    fname[profdir_len] = '\0';
+    /* Try to remove directory with all profiles, if succeeded remove whole cluster configuration since no profile is configured then */
+    if(!rmdir(fname)) {
+        /* Remove all subdirectories */
+        fname[confdir_len] = '\0';
+        if(sxi_rmdirs(fname)) {
+            sxi_seterr(sx, SXE_ECFG, "Cannot remove cluster configuration directory: %s", fname);
+            goto rm_profile_err;
+        }
+    }
+
+    ret = 0;
+rm_profile_err:
+    free(fname);
+    return ret;
+}
+
 static int yesno(const char *prompt, int def)
 {
     char c;
@@ -193,7 +279,7 @@ int main(int argc, char **argv) {
 
     if(args.list_given)
     {
-        ret = list_clusters(sx);
+        ret = list_clusters();
         goto init_err;
     }
 
@@ -203,7 +289,6 @@ int main(int argc, char **argv) {
 	goto init_err;
     }
 
-    /* If --alias=... has been given, check if it was not used before and save it to .aliases file */
     if(args.alias_given) {
         alias = args.alias_arg;
 
@@ -216,6 +301,14 @@ int main(int argc, char **argv) {
              fprintf(stderr, "ERROR: Bad alias name: Alias name is too short\n");
              goto init_err;
         }
+    }
+
+    if(args.delete_given) {
+        ret = del_profile(u);
+        if(ret)
+            fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
+
+        goto init_err;
     }
 
     if(!args.force_reinit_flag)

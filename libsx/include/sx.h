@@ -66,6 +66,8 @@ int sxc_set_confdir(sxc_client_t *sx, const char *config_dir);
 const char *sxc_get_confdir(sxc_client_t *sx);
 #define SXC_ALIAS_PREFIX "@"
 int sxc_set_alias(sxc_client_t *sx, const char *alias, const char *profile, const char *host);
+/* Delete all aliases assigned to given cluster configuration */
+int sxc_del_aliases(sxc_client_t *sx, const char *profile, const char *host);
 int sxc_get_aliases(sxc_client_t *sx, const char *profile, const char *host, char **aliases);
 int sxc_set_tempdir(sxc_client_t *sx, const char *tempdir);
 
