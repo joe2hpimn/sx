@@ -27,6 +27,8 @@
 #include <errno.h>
 #include <termios.h>
 #include <pwd.h>
+#include <limits.h>
+#include <ctype.h>
 #if HAVE_NFTW
 #include <ftw.h>
 #else
@@ -1662,4 +1664,29 @@ int sxi_hmac_sha1_update_str(sxi_hmac_sha1_ctx *ctx, const char *str) {
     if(r)
 	r = sxi_hmac_sha1_update(ctx, (unsigned char *)"\n", 1);
     return r;
+}
+
+int64_t sxi_parse_size(const char *str) {
+    const char *suffixes = "kKmMgGtT";
+    char *ptr;
+    int64_t size;
+
+    size = strtoll(str, (char **)&ptr, 0);
+    if(size <= 0 || size == LLONG_MAX) {
+        fprintf(stderr, "ERROR: Bad size: %s\n", str);
+        return -1;
+    }
+    if(*ptr) {
+        unsigned int shl;
+        *ptr = (char) toupper(*ptr);
+        ptr = strchr(suffixes, *ptr);
+        if(!ptr) {
+            fprintf(stderr, "ERROR: Bad size: %s\n", str);
+            return -1;
+        }
+        shl = (((ptr-suffixes)/2) + 1) * 10;
+        size <<= shl;
+    }
+
+    return size;
 }

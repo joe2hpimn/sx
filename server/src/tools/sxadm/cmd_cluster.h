@@ -40,8 +40,11 @@ struct cluster_args_info
   const char *help_help; /**< @brief Print help and exit help description.  */
   const char *full_help_help; /**< @brief Print help, including hidden options, and exit help description.  */
   const char *version_help; /**< @brief Print version and exit help description.  */
-  const char *new_help; /**< @brief Creates a new SX cluster with a local node help description.  */
-  const char *mod_help; /**< @brief Modifies an existing SX cluster help description.  */
+  const char *new_help; /**< @brief Create a new SX cluster with a local node help description.  */
+  const char *mod_help; /**< @brief Modify an existing SX cluster help description.  */
+  char * resize_arg;	/**< @brief Proportionally resize an existing SX cluster.  */
+  char * resize_orig;	/**< @brief Proportionally resize an existing SX cluster original value given at command line.  */
+  const char *resize_help; /**< @brief Proportionally resize an existing SX cluster help description.  */
   const char *info_help; /**< @brief Shows status and details of a running cluster help description.  */
   const char *force_gc_help; /**< @brief Force a garbage collection cycle on all nodes help description.  */
   const char *force_expire_help; /**< @brief Force GC and expiration of reservations on all nodes help description.  */
@@ -69,6 +72,7 @@ struct cluster_args_info
   unsigned int version_given ;	/**< @brief Whether version was given.  */
   unsigned int new_given ;	/**< @brief Whether new was given.  */
   unsigned int mod_given ;	/**< @brief Whether mod was given.  */
+  unsigned int resize_given ;	/**< @brief Whether resize was given.  */
   unsigned int info_given ;	/**< @brief Whether info was given.  */
   unsigned int force_gc_given ;	/**< @brief Whether force-gc was given.  */
   unsigned int force_expire_given ;	/**< @brief Whether force-expire was given.  */

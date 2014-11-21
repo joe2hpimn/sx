@@ -44,6 +44,7 @@
 #include "../libsx/src/clustcfg.h"
 #include "../libsx/src/jobpoll.h"
 #include "../libsx/src/vcrypto.h"
+#include "../libsx/src/misc.h"
 
 #include "cmd_main.h"
 #include "cmd_node.h"
@@ -641,8 +642,79 @@ static sxc_cluster_t *cluster_load(sxc_client_t *sx, struct cluster_args_info *a
     return clust;
 }
 
+static int change_commit(sxc_client_t *sx, sxc_cluster_t *clust, sx_node_t **nodes, int nnodes, struct cluster_args_info *args) {
+    char *query = NULL;
+    unsigned int i, query_sz, query_at;
+    int ret = 1;
+
+    query = malloc(4096);
+    if(!query) {
+	CRIT("Out of memory when allocating the update query");
+	return 1;
+    }
+    query_sz = 4096;
+    strcpy(query, "{\"nodeList\":[");
+    query_at = strlen(query);
+
+    for(i=0; i<nnodes; i++) {
+	unsigned int need;
+	const char *uuid, *addr, *int_addr;
+
+	uuid = sx_node_uuid_str(nodes[i]);
+	addr = sx_node_addr(nodes[i]);
+	int_addr = sx_node_internal_addr(nodes[i]);
+	if(!strcmp(int_addr, addr))
+	    int_addr = NULL;
+	need = sizeof("{\"nodeUUID\":\"\",\"nodeAddress\":\"\",\"nodeInternalAddress\":\"\",\"nodeCapacity\":},") + 32;
+	need += strlen(uuid);
+	need += strlen(addr);
+	if(int_addr)
+	    need += strlen(int_addr);
+	if(need > query_sz - query_at) {
+	    char *newquery;
+
+	    query_sz += MAX(4096, need);
+	    newquery = realloc(query, query_sz + 4096);
+	    if(!newquery) {
+		CRIT("Out of memory when generating the update query");
+		goto change_commit_err;
+	    }
+	    query = newquery;
+	}
+	if(int_addr)
+	    sprintf(query + query_at, "{\"nodeUUID\":\"%s\",\"nodeAddress\":\"%s\",\"nodeInternalAddress\":\"%s\",\"nodeCapacity\":%lld}", uuid, addr, int_addr, (long long)sx_node_capacity(nodes[i]));
+	else
+	    sprintf(query + query_at, "{\"nodeUUID\":\"%s\",\"nodeAddress\":\"%s\",\"nodeCapacity\":%lld}", uuid, addr, (long long)sx_node_capacity(nodes[i]));
+	query_at = strlen(query);
+
+	if(i != nnodes - 1) {
+	    query[query_at++] = ',';
+	    query[query_at] = '\0';
+	}
+    }
+
+    strcat(query, "]}"); /* Always fits due to need above */
+printf("QUERY:");
+printf("%s\n", query);
+
+    if(sxi_job_submit_and_poll(sxi_cluster_get_conns(clust), NULL, REQ_PUT, ".nodes", query, strlen(query))) {
+	CRIT("The update request failed: %s", sxc_geterrmsg(sx));
+	goto change_commit_err;
+    }
+
+    if(sxc_cluster_fetchnodes(clust) ||
+       sxc_cluster_save(clust, args->config_dir_arg))
+	WARN("Cannot update local cluster configuration: %s", sxc_geterrmsg(sx));
+
+    ret = 0;
+
+ change_commit_err:
+    free(query);
+    return ret;
+}
+
 static int change_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
-    unsigned int i, j, query_sz, query_at, nnodes = args->inputs_num - 1;
+    unsigned int i, j, nnodes = args->inputs_num - 1;
     sxc_cluster_t *clust = cluster_load(sx, args);
     char *query = NULL;
     int ret = 1;
@@ -654,6 +726,7 @@ static int change_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
     nodes = (sx_node_t **) calloc(nnodes, sizeof(sx_node_t *));
     if(!nodes) {
 	CRIT("Out of memory when allocating the list of nodes");
+	sxc_cluster_free(clust);
 	return 1;
     }
 
@@ -685,63 +758,7 @@ static int change_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
 	}
     }
 
-    query = malloc(4096);
-    if(!query) {
-	CRIT("Out of memory when allocating the update query");
-	goto change_cluster_err;
-    }
-    query_sz = 4096;
-    strcpy(query, "{\"nodeList\":[");
-    query_at = strlen(query);
-
-    for(i=0; i<nnodes; i++) {
-	unsigned int need;
-	const char *uuid, *addr, *int_addr;
-
-	uuid = sx_node_uuid_str(nodes[i]);
-	addr = sx_node_addr(nodes[i]);
-	int_addr = sx_node_internal_addr(nodes[i]);
-	if(!strcmp(int_addr, addr))
-	    int_addr = NULL;
-	need = sizeof("{\"nodeUUID\":\"\",\"nodeAddress\":\"\",\"nodeInternalAddress\":\"\",\"nodeCapacity\":},") + 32;
-	need += strlen(uuid);
-	need += strlen(addr);
-	if(int_addr)
-	    need += strlen(int_addr);
-	if(need > query_sz - query_at) {
-	    char *newquery;
-
-	    query_sz += MAX(4096, need);
-	    newquery = realloc(query, query_sz + 4096);
-	    if(!newquery) {
-		CRIT("Out of memory when generating the update query");
-		goto change_cluster_err;
-	    }
-	    query = newquery;
-	}
-	if(int_addr)
-	    sprintf(query + query_at, "{\"nodeUUID\":\"%s\",\"nodeAddress\":\"%s\",\"nodeInternalAddress\":\"%s\",\"nodeCapacity\":%lld}", uuid, addr, int_addr, (long long)sx_node_capacity(nodes[i]));
-	else
-	    sprintf(query + query_at, "{\"nodeUUID\":\"%s\",\"nodeAddress\":\"%s\",\"nodeCapacity\":%lld}", uuid, addr, (long long)sx_node_capacity(nodes[i]));
-	query_at = strlen(query);
-
-	if(i != args->inputs_num-2) {
-	    query[query_at++] = ',';
-	    query[query_at] = '\0';
-	}
-    }
-
-    strcat(query, "]}"); /* Always fits due to need above */
-
-    if(sxi_job_submit_and_poll(sxi_cluster_get_conns(clust), NULL, REQ_PUT, ".nodes", query, strlen(query))) {
-	CRIT("The update request failed: %s", sxc_geterrmsg(sx));
-	goto change_cluster_err;
-    }
-
-    if(sxc_cluster_fetchnodes(clust) ||
-       sxc_cluster_save(clust, args->config_dir_arg))
-	WARN("Cannot update local cluster configuration: %s", sxc_geterrmsg(sx));
-    ret = 0;
+    ret = change_commit(sx, clust, nodes, nnodes, args);
 
  change_cluster_err:
     for(i=0; i<nnodes; i++)
@@ -855,6 +872,7 @@ static int info_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
     clst = clst_query(sxi_cluster_get_conns(clust), NULL);
     if(!clst) {
 	CRIT("Failed to query cluster status");
+	sxc_cluster_free(clust);
 	return 1;
     }
 
@@ -883,6 +901,82 @@ static int info_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
     clst_destroy(clst);
     sxc_cluster_free(clust);
     return 0;
+}
+
+static int resize_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
+    sxc_cluster_t *clust = cluster_load(sx, args);
+    clst_t *clst = NULL;
+    sx_node_t **nodes = NULL;
+    unsigned int nnodes = 0;
+    int64_t oldsize = 0, newsize;
+    const char *s = args->resize_arg;
+    int ret = 1, i;
+
+    if(!clust)
+	return 1;
+
+    if(strlen(s) < 3 || (*s != '+' && *s != '-') || (newsize = sxi_parse_size(&s[1])) <= 0) {
+	CRIT("Invalid resize argument: must be in format <+/->SIZE[MODIFIER], eg. +1T");
+	goto resize_cluster_err;
+    }
+    if(*s == '-')
+	newsize *= -1;
+
+    clst = clst_query(sxi_cluster_get_conns(clust), NULL);
+    if(!clst) {
+	CRIT("Failed to query cluster status");
+	goto resize_cluster_err;
+    }
+
+    switch(clst_ndists(clst)) {
+	case 0:
+	    printf("Node is not part of a cluster\n");
+	    break;
+	case 2:
+	    printf("The cluster is currently being rebalanced and cannot be resized\n");
+	    break;
+	case 1: {
+	    const sx_nodelist_t *nodelst = clst_nodes(clst, 0);
+	    nnodes = sx_nodelist_count(nodelst);
+
+	    nodes = (sx_node_t **) calloc(nnodes, sizeof(sx_node_t *));
+	    if(!nodes) {
+		CRIT("Out of memory when allocating the list of nodes");
+		nnodes = 0;
+		goto resize_cluster_err;
+	    }
+
+	    for(i = 0; i < nnodes; i++) {
+		const sx_node_t *n = sx_nodelist_get(nodelst, i);
+		oldsize += sx_node_capacity(n);
+	    }
+
+	    if(oldsize + newsize <= 0) {
+		CRIT("Resize value exceeds cluster size");
+		goto resize_cluster_err;
+	    }
+	    newsize += oldsize;
+
+	    for(i = 0; i < nnodes; i++) {
+		const sx_node_t *n = sx_nodelist_get(nodelst, i);
+		int64_t newcap = ((double) sx_node_capacity(n) / oldsize) * newsize;
+		nodes[i] = sx_node_new(sx_node_uuid(n), sx_node_addr(n), sx_node_internal_addr(n), newcap);
+		if(!nodes[i]) {
+		    CRIT("Out of memory when preparing new list of nodes");
+		    goto resize_cluster_err;
+		}
+	    }
+	    ret = change_commit(sx, clust, nodes, nnodes, args);
+	}
+    }
+
+resize_cluster_err:
+    for(i = 0; i < nnodes; i++)
+	sx_node_delete(nodes[i]);
+    free(nodes);
+    clst_destroy(clst);
+    sxc_cluster_free(clust);
+    return ret;
 }
 
 static int check_node(sxc_client_t *sx, const char *path, int debug) {
@@ -1033,6 +1127,8 @@ int main(int argc, char **argv) {
 	    ret = info_cluster(sx, &cluster_args);
 	else if(cluster_args.mod_given && cluster_args.inputs_num >= 2)
 	    ret = change_cluster(sx, &cluster_args);
+	else if(cluster_args.resize_given && cluster_args.inputs_num == 1)
+	    ret = resize_cluster(sx, &cluster_args);
 	else if(cluster_args.force_gc_given && cluster_args.inputs_num == 1)
 	    ret = force_gc_cluster(sx, &cluster_args, 0);
 	else if(cluster_args.force_expire_given && cluster_args.inputs_num == 1)

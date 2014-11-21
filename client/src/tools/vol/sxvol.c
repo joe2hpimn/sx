@@ -197,31 +197,6 @@ static int setup_filters(sxc_client_t *sx, const char *fdir)
     return 0;
 }
 
-static int64_t parse_size(const char *str) {
-    const char *suffixes = "kKmMgGtT";
-    char *ptr;
-    int64_t size;
-
-    size = strtoll(str, (char **)&ptr, 0);
-    if(size <= 0 || size == LLONG_MAX) {
-        fprintf(stderr, "ERROR: Bad size: %s\n", str);
-        return -1;
-    }
-    if(*ptr) {
-        unsigned int shl;
-        *ptr = (char) toupper(*ptr);
-        ptr = strchr(suffixes, *ptr);
-        if(!ptr) {
-            fprintf(stderr, "ERROR: Bad size: %s\n", str);
-            return -1;
-        }
-        shl = (((ptr-suffixes)/2) + 1) * 10;
-        size <<= shl;
-    }
-
-    return size;
-}
-
 static int volume_create(sxc_client_t *sx, const char *owner)
 {
 	sxc_cluster_t *cluster;
@@ -235,7 +210,7 @@ static int volume_create(sxc_client_t *sx, const char *owner)
 	void *cfgdata = NULL;
 	unsigned int cfgdata_len = 0;
 
-    size = parse_size(create_args.size_arg);
+    size = sxi_parse_size(create_args.size_arg);
     if(size <= 0) /* Bad size, message is printed already */
         return 1;
 
@@ -545,7 +520,7 @@ int main(int argc, char **argv) {
         }
 
         if(modify_args.size_given) {
-            size = parse_size(modify_args.size_arg);
+            size = sxi_parse_size(modify_args.size_arg);
             if(size <= 0)
                 goto modify_err;
         }
