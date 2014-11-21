@@ -218,7 +218,7 @@ static int getkey_user(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_uri_t *u, c
 
 static int list_users(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_uri_t *u)
 {
-    int rc = 0;
+    int rc = 0, lstrc = 0;
     sxc_cluster_lu_t *lst;
     char *user = NULL;
     int is_admin;
@@ -227,12 +227,12 @@ static int list_users(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_uri_t *u)
 	fprintf(stderr, "ERROR: Bad URI: Please omit volume.\n");
 	return 1;
     }
-    for (lst = sxc_cluster_listusers(cluster); lst && sxc_cluster_listusers_next(lst, &user, &is_admin);) {
+    for (lst = sxc_cluster_listusers(cluster); lst && (lstrc = sxc_cluster_listusers_next(lst, &user, &is_admin)) > 0;) {
         printf("%s (%s)\n", user, is_admin ? "admin" : "normal");
         free(user);
     }
     sxc_cluster_listusers_free(lst);
-    if (!lst) {
+    if (!lst || lstrc == -1) {
         fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
         rc = 1;
     }
