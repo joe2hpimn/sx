@@ -6399,6 +6399,7 @@ rc_ty sx_hashfs_putfile_gettoken(sx_hashfs_t *h, const uint8_t *user, int64_t si
 static rc_ty create_file(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const char *name, const char *revision, sx_hash_t *blocks, unsigned int nblocks, int64_t size, int64_t totalsize, int64_t *file_id) {
     unsigned int nblocks2;
     int r, mdb;
+    sqlite3_stmt *q;
 
     if(!h || !volume || !name || !revision || (!blocks && nblocks)) {
 	NULLARG();
@@ -6426,6 +6427,28 @@ static rc_ty create_file(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const
 	msg_set_reason("Failed to locate file database");
 	return FAIL_EINTERNAL;
     }
+
+    q = h->qm_getrev[mdb];
+    sqlite3_reset(q);
+    if(qbind_int64(q, ":volume", volume->id)
+       || qbind_text(q, ":name", name)
+       || qbind_text(q, ":revision", revision)) {
+        msg_set_reason("Failed to check revision existence");
+        sqlite3_reset(q);
+        return FAIL_EINTERNAL;
+    }
+
+    r = qstep(q);
+    if(r == SQLITE_ROW) {
+        DEBUG("File '%s (%s)' on volume '%s' is already here", name, revision, volume->name);
+        sqlite3_reset(q);
+        return EEXIST;
+    } else if(r != SQLITE_DONE) {
+        msg_set_reason("Failed to check revision existence");
+        sqlite3_reset(q);
+        return FAIL_EINTERNAL;
+    }
+    sqlite3_reset(q);
 
     /* Count current file revisions */
     sqlite3_reset(h->qm_oldrevs[mdb]);
@@ -6494,10 +6517,7 @@ static rc_ty create_file(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const
 
     r = qstep(h->qm_ins[mdb]);
     sqlite3_reset(h->qm_ins[mdb]);
-    if(r == SQLITE_CONSTRAINT) {
-	INFO("File '%s (%s)' on volume '%s' is already here", name, revision, volume->name);
-	return EEXIST;
-    } else if(r != SQLITE_DONE) {
+    if(r != SQLITE_DONE) {
 	WARN("Failed to create file '%s' on volume '%s'", name, volume->name);
 	return FAIL_EINTERNAL;
     }
