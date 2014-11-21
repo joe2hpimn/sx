@@ -2007,7 +2007,7 @@ static act_result_t distribution_request(sx_hashfs_t *hashfs, job_t job_id, job_
 
 	    /* Challenge new node */
 	    ret = challenge_and_sync(hashfs, node, fail_code, fail_msg);
-	    if(ret)
+	    if(ret != ACT_RESULT_OK)
 		goto action_failed;
 	}
 
@@ -3246,6 +3246,23 @@ static act_result_t replace_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *
     return ret;
 }
 
+
+static act_result_t replaceblocks_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    act_result_t ret = ACT_RESULT_TEMPFAIL;
+
+    if(job_data->len || sx_nodelist_count(nodes) != 1) {
+	CRIT("Bad job data");
+	action_error(ACT_RESULT_PERMFAIL, 500, "Internal job data error");
+    }
+
+    if(sx_hashfs_init_replacement(hashfs))
+	action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to initialize replacement");
+
+ action_failed:
+    return ret;
+}
+
+
 enum replace_state { RPL_HDRSIZE = 0, RPL_HDRDATA, RPL_DATA, RPL_END };
 
 struct rplblocks {
@@ -3389,7 +3406,7 @@ static int rplblocks_cb(curlev_context_t *cbdata, void *ctx, const void *data, s
 }
 
 
-static act_result_t replaceblocks_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+static act_result_t replaceblocks_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     sxc_client_t *sx = sx_hashfs_client(hashfs);
     act_result_t ret = ACT_RESULT_TEMPFAIL;
     sx_block_meta_index_t bmidx;
@@ -3462,6 +3479,14 @@ static act_result_t replaceblocks_request(sx_hashfs_t *hashfs, job_t job_id, job
 
  action_failed:
     sxi_hostlist_empty(&hlist);
+    if(ret == ACT_RESULT_PERMFAIL) {
+	/* Since there is no way we can recover at this point we
+	 * downgrade to temp failure and try to notify about the issue.
+	 * There is no timeout anyway */
+	CRIT("A critical condition has occoured (see messages above): please check the health and reachability of all cluster nodes");
+	ret = ACT_RESULT_TEMPFAIL;
+	*fail_code = 503;
+    }
     return ret;
 }
 
@@ -3746,10 +3771,21 @@ static act_result_t replacefiles_request(sx_hashfs_t *hashfs, job_t job_id, job_
  action_failed:
     sxi_hostlist_empty(&hlist);
     free(ctx);
+    if(ret == ACT_RESULT_PERMFAIL) {
+	/* Since there is no way we can recover at this point we
+	 * downgrade to temp failure and try to notify about the issue.
+	 * There is no timeout anyway */
+	CRIT("A critical condition has occoured (see messages above): please check the health and reachability of all cluster nodes");
+	ret = ACT_RESULT_TEMPFAIL;
+	*fail_code = 503;
+    }
     return ret;
 }
 
-
+static act_result_t replacefiles_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    // FIXME: TBD
+    return force_phase_success(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
+}
 
 /* Update cbdata array with new context and send volsizes query to given node */
 static rc_ty finalize_query(sx_hashfs_t *h, curlev_context_t ***cbdata, unsigned int *ncbdata, const sx_node_t *n, unsigned int node_index, sxi_query_t *query) {
@@ -4012,8 +4048,8 @@ static struct {
     { force_phase_success, usernewkey_commit, usernewkey_abort, usernewkey_undo }, /* JOBTYPE_NEWKEY_USER */
     { force_phase_success, volmod_commit, volmod_abort, volmod_undo }, /* JOBTYPE_MODIFY_VOLUME */
     { replace_request, replace_commit, replace_abort, replace_undo }, /* JOBTYPE_REPLACE */
-    //    { replaceblocks_request, force_phase_success, force_phase_success, force_phase_success }, /* JOBTYPE_REPLACE_BLOCKS */
-    //    { replacefiles_request, replacefiles_commit, force_phase_success, force_phase_success }, /* JOBTYPE_REPLACE_FILES */
+    { replaceblocks_request, replaceblocks_commit, force_phase_success, force_phase_success }, /* JOBTYPE_REPLACE_BLOCKS */
+    { replacefiles_request, replacefiles_commit, force_phase_success, force_phase_success }, /* JOBTYPE_REPLACE_FILES */
 };
 
 

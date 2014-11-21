@@ -324,10 +324,10 @@ rc_ty sx_storage_create(const char *dir, sx_uuid_t *cluster, uint8_t *key, int k
 	goto create_hashfs_fail;
     qnullify(q);
 
-    if(qprep(db, &q, "CREATE TABLE replaceblock (node BLOB ("STRIFY(UUID_BINARY_SIZE)") NOT NULL PRIMARY KEY, last_block BLOB (21) NULL)") || qstep_noret(q))
+    if(qprep(db, &q, "CREATE TABLE replaceblocks (node BLOB ("STRIFY(UUID_BINARY_SIZE)") NOT NULL PRIMARY KEY, last_block BLOB (21) NULL)") || qstep_noret(q))
 	goto create_hashfs_fail;
     qnullify(q);
-    if(qprep(db, &q, "CREATE TABLE replacefile (vol TEXT NOT NULL PRIMARY KEY, file TEXT NOT NULL, rev TEXT NOT NULL, maxrev TEXT NOT NULL)") || qstep_noret(q))
+    if(qprep(db, &q, "CREATE TABLE replacefiles (vol TEXT NOT NULL PRIMARY KEY, file TEXT NOT NULL, rev TEXT NOT NULL, maxrev TEXT NOT NULL)") || qstep_noret(q))
 	goto create_hashfs_fail;
     qnullify(q);
 
@@ -8179,11 +8179,10 @@ rc_ty sx_hashfs_job_result(sx_hashfs_t *h, job_t job, sx_uid_t uid, job_status_t
     return OK;
 }
 
-
 static const char *locknames[] = {
     "VOL", /* JOBTYPE_CREATE_VOLUME */
     "USER", /* JOBTYPE_CREATE_USER */
-    "ACL",
+    "ACL", /* JOBTYPE_VOLUME_ACL */
     NULL, /* JOBTYPE_REPLICATE_BLOCKS */
     "TOKEN", /* JOBTYPE_FLUSH_FILE */
     "DELFILE", /* JOBTYPE_DELETE_FILE */
@@ -8196,11 +8195,12 @@ static const char *locknames[] = {
     "REBALANCE_CLEANUP", /* JOBTYPE_REBALANCE_CLEANUP */
     "USER", /* JOBTYPE_DELETE_USER */
     "VOL", /* JOBTYPE_DELETE_VOLUME */
-    "USER",
+    "USER", /* JOBTYPE_NEWKEY_USER */
     "VOL", /* JOBTYPE_MODIFY_VOLUME */
     "*", /* JOBTYPE_REPLACE */
+    "REPLACE_BLOCKS", /* JOBTYPE_REPLACE_BLOCKS */
+    "REPLACE_FILES", /* JOBTYPE_REPLACE_FILES */
 };
-
 
 #define MAX_PENDING_JOBS 128
 rc_ty sx_hashfs_countjobs(sx_hashfs_t *h, sx_uid_t user_id) {
@@ -9786,6 +9786,52 @@ rc_ty sx_hashfs_hdist_set_rebalanced(sx_hashfs_t *h) {
     return ret;
 }
 
+static rc_ty create_repair_job(sx_hashfs_t *h) {
+    const sx_node_t *self = sx_hashfs_self(h);
+    sx_nodelist_t *singlenode = NULL;
+    job_t job_id;
+    rc_ty ret;
+
+    DEBUG("IN %s", __FUNCTION__);
+
+    if(sx_storage_is_bare(h))
+	return OK;
+
+    singlenode = sx_nodelist_new();
+    if(!singlenode) {
+	WARN("Cannot allocate single node nodelist");
+	return ENOMEM;
+    }
+
+    ret = sx_nodelist_add(singlenode, sx_node_dup(self));
+    if(ret) {
+	WARN("Cannot add self to nodelist");
+	goto create_repair_err;
+    }
+
+    ret = sx_hashfs_job_new_begin(h);
+    if(ret)
+	goto create_repair_err;
+
+    ret = sx_hashfs_job_new_notrigger(h, JOB_NOPARENT, 0, &job_id, JOBTYPE_REPLACE_BLOCKS, JOB_NO_EXPIRY, "BLOCKRP", NULL, 0, singlenode);
+    if(ret)
+	goto create_repair_err;
+
+    ret = sx_hashfs_job_new_notrigger(h, job_id, 0, &job_id, JOBTYPE_REPLACE_FILES, JOB_NO_EXPIRY, "FILERP", NULL, 0, singlenode);
+    if(ret)
+	goto create_repair_err;
+
+    ret = sx_hashfs_job_new_end(h);
+    if(ret)
+	goto create_repair_err;
+
+    ret = OK;
+
+ create_repair_err:
+    sx_nodelist_delete(singlenode);
+    return ret;
+}
+
 rc_ty sx_hashfs_hdist_change_commit(sx_hashfs_t *h) {
     sqlite3_stmt *q;
     rc_ty s = OK;
@@ -9797,6 +9843,8 @@ rc_ty sx_hashfs_hdist_change_commit(sx_hashfs_t *h) {
 	s = FAIL_EINTERNAL;
     } else if((s = sx_hashfs_job_unlock(h, NULL)) != OK)
 	WARN("Failed to unlock jobs after enabling new model");
+    else if((s = create_repair_job(h)) != OK)
+	WARN("Failed to create repair job");
     else
 	DEBUG("Distribution change committed");
 
@@ -11421,7 +11469,7 @@ rc_ty sx_hashfs_replace_getstartblock(sx_hashfs_t *h, unsigned int *version, con
         return EFAULT;
     }
 
-    if(qprep(h->db, &q, "SELECT node, last_block FROM replaceblock LIMIT (SELECT ABS(COALESCE(RANDOM() % COUNT(*), 0)) FROM replaceblock), 1"))
+    if(qprep(h->db, &q, "SELECT node, last_block FROM replaceblocks LIMIT (SELECT ABS(COALESCE(RANDOM() % COUNT(*), 0)) FROM replaceblocks), 1"))
 	goto getnode_fail;
 
     r = qstep(q);
@@ -11462,11 +11510,11 @@ rc_ty sx_hashfs_replace_setlastblock(sx_hashfs_t *h, const sx_uuid_t *node, cons
     }
 
     if(blkidx) {
-	if(qprep(h->db, &q, "UPDATE replaceblock SET last_block = :block WHERE node = :node") ||
+	if(qprep(h->db, &q, "UPDATE replaceblocks SET last_block = :block WHERE node = :node") ||
 	   qbind_blob(q, ":block", blkidx, 21))
 	    goto setnode_fail;
     } else {
-	if(qprep(h->db, &q, "DELETE FROM replaceblock WHERE node = :node"))
+	if(qprep(h->db, &q, "DELETE FROM replaceblocks WHERE node = :node"))
 	    goto setnode_fail;
     }
 	
@@ -11489,7 +11537,7 @@ rc_ty sx_hashfs_replace_getstartfile(sx_hashfs_t *h, char *maxrev, char *startvo
         return EFAULT;
     }
 
-    if(qprep(h->db, &q, "SELECT vol, file, rev, maxrev FROM replacefile LIMIT (SELECT ABS(COALESCE(RANDOM() % COUNT(*), 0)) FROM replacefile), 1"))
+    if(qprep(h->db, &q, "SELECT vol, file, rev, maxrev FROM replacefiles LIMIT (SELECT ABS(COALESCE(RANDOM() % COUNT(*), 0)) FROM replacefiles), 1"))
 	goto getfile_fail;
 
     r = qstep(q);
@@ -11515,14 +11563,14 @@ rc_ty sx_hashfs_replace_setlastfile(sx_hashfs_t *h, char *lastvol, char *lastfil
         return EFAULT;
     }
     if(!lastfile) {
-	if(qprep(h->db, &q, "DELETE FROM replacefile WHERE vol = :volume"))
+	if(qprep(h->db, &q, "DELETE FROM replacefiles WHERE vol = :volume"))
 	    goto setfile_fail;
     } else {
 	if(!lastrev) {
 	    NULLARG();
 	    return EFAULT;
 	}
-	if(qprep(h->db, &q, "UPDATE replacefile SET file = :file, rev = :rev WHERE vol = :volume") ||
+	if(qprep(h->db, &q, "UPDATE replacefiles SET file = :file, rev = :rev WHERE vol = :volume") ||
 	   qbind_text(q, ":file", lastfile) ||
 	   qbind_text(q, ":rev", lastrev))
 	    goto setfile_fail;
@@ -11533,6 +11581,59 @@ rc_ty sx_hashfs_replace_setlastfile(sx_hashfs_t *h, char *lastvol, char *lastfil
     
  setfile_fail:
     sqlite3_finalize(q);    
+    return ret;
+}
+
+rc_ty sx_hashfs_init_replacement(sx_hashfs_t *h) {
+    const sx_nodelist_t *nodes;
+    rc_ty ret = FAIL_EINTERNAL;
+    sqlite3_stmt *q = NULL;
+    sx_uuid_t myid;
+    unsigned int nnode, nnodes;
+
+    if(!h) {
+        NULLARG();
+        return EFAULT;
+    }
+
+    if(qprep(h->db, &q, "DELETE FROM replaceblocks") || qstep_noret(q))
+	goto init_replacement_fail;
+    qnullify(q);
+    if(qprep(h->db, &q, "DELETE FROM replacefiles") || qstep_noret(q))
+	goto init_replacement_fail;
+    qnullify(q);
+
+    if(sx_hashfs_self_uuid(h, &myid))
+	goto init_replacement_fail;
+    if(!sx_hashfs_is_node_faulty(h, &myid)) {
+	ret = OK; /* I am a good node */
+	goto init_replacement_fail;
+    }
+
+    /* Blocks */
+    nodes = sx_hashfs_nodelist(h, NL_NEXT);
+    nnodes = sx_nodelist_count(nodes);
+    if(qprep(h->db, &q, "INSERT INTO replaceblocks (node) VALUES(:uuid)"))
+	goto init_replacement_fail;
+    for(nnode = 0; nnode < nnodes; nnode++) {
+	const sx_uuid_t *nodeid = sx_node_uuid(sx_nodelist_get(nodes, nnode));
+	if(sx_hashfs_is_node_faulty(h, nodeid))
+	    continue;
+	if(qbind_blob(q, ":uuid", nodeid->binary, sizeof(nodeid->binary)) ||
+	   qstep_noret(q))
+	    goto init_replacement_fail;
+    }
+    qnullify(q);
+
+    /* Files */
+    if(qprep(h->db, &q, "INSERT INTO replacefiles (vol, maxrev) SELECT volume, strftime('%Y-%m-%d %H:%M:%f', 'now', '30 minutes') || ':ffffffffffffffffffffffffffffffff' FROM volumes") ||
+       qstep_noret(q))
+	goto init_replacement_fail;
+
+    ret = OK;
+
+ init_replacement_fail:
+    qnullify(q);
     return ret;
 }
 

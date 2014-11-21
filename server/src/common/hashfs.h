@@ -408,5 +408,6 @@ rc_ty sx_hashfs_replace_getstartblock(sx_hashfs_t *h, unsigned int *version, con
 rc_ty sx_hashfs_replace_setlastblock(sx_hashfs_t *h, const sx_uuid_t *node, const uint8_t *blkidx);
 rc_ty sx_hashfs_replace_getstartfile(sx_hashfs_t *h, char *maxrev, char *startvol, char *startfile, char *startrev);
 rc_ty sx_hashfs_replace_setlastfile(sx_hashfs_t *h, char *lastvol, char *lastfile, char *lastrev);
+rc_ty sx_hashfs_init_replacement(sx_hashfs_t *h);
 
 #endif
