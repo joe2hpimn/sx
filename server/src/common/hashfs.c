@@ -4631,17 +4631,6 @@ static rc_ty sx_hashfs_check_volume_size(sx_hashfs_t *h, int64_t size, unsigned 
         return FAIL_EINTERNAL;
     }
 
-    /*** temporary work-around for bb#813 ***/
-    if(size * (int64_t)replica > nodes_size) {
-        msg_set_reason("Invalid volume size %lld - with replica %u it must be between %lld and %lld",
-                       (long long)size, replica,
-                       (long long)SXLIMIT_MIN_VOLUME_SIZE,
-                       (long long)nodes_size / replica);
-        return EINVAL;
-    }
-    return OK;
-    /*** end ***/
-
     /* Check if cluster capacity is not reached yet (better error message) */
     if(SXLIMIT_MIN_VOLUME_SIZE > nodes_size - vols_size) {
         msg_set_reason("Invalid volume size %lld: reached cluster capacity", (long long)size);
@@ -4650,10 +4639,10 @@ static rc_ty sx_hashfs_check_volume_size(sx_hashfs_t *h, int64_t size, unsigned 
 
     /* Total volumes size is greater than cluster capacity */
     if(vols_size + size * (int64_t)replica > nodes_size) {
-        msg_set_reason("Invalid volume size %lld (replica %u): must be between %lld and %lld",
+        msg_set_reason("Invalid volume size %lld - with replica %u and current cluster usage it must be between %lld and %lld",
                        (long long)size, replica,
                        (long long)SXLIMIT_MIN_VOLUME_SIZE,
-                       (long long)(nodes_size - vols_size));
+                       (long long)(nodes_size - vols_size) / replica);
         return EINVAL;
     }
 

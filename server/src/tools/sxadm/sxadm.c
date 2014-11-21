@@ -694,8 +694,6 @@ static int change_commit(sxc_client_t *sx, sxc_cluster_t *clust, sx_node_t **nod
     }
 
     strcat(query, "]}"); /* Always fits due to need above */
-printf("QUERY:");
-printf("%s\n", query);
 
     if(sxi_job_submit_and_poll(sxi_cluster_get_conns(clust), NULL, REQ_PUT, ".nodes", query, strlen(query))) {
 	CRIT("The update request failed: %s", sxc_geterrmsg(sx));
