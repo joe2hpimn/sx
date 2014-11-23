@@ -767,6 +767,165 @@ static int change_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
     return ret;
 }
 
+static int replace_nodes(sxc_client_t *sx, struct cluster_args_info *args) {
+    unsigned int i, j, query_sz, query_at, ncnodes, nnodes = args->inputs_num - 1;
+    sxc_cluster_t *clust = cluster_load(sx, args);
+    sx_nodelist_t *rplnodes = NULL;
+    const sx_nodelist_t *curnodes;
+    char *query = NULL;
+    clst_t *clst;
+    int ret = 1;
+
+    if(!clust)
+	return 1;
+
+    clst = clst_query(sxi_cluster_get_conns(clust), NULL);
+    if(!clst) {
+	CRIT("Failed to query cluster status");
+	return 1;
+    }
+
+    if(clst_ndists(clst) != 1) {
+	CRIT("Cluster is currently rebalancing, cannot replace nodes");
+	return 1;
+    }
+
+    curnodes = clst_nodes(clst, 0);
+    if(!curnodes || !(ncnodes = sx_nodelist_count(curnodes))) {
+	CRIT("Failed to determine the current cluster members");
+	goto replace_node_err;
+    }
+
+    rplnodes = sx_nodelist_new();
+    if(!rplnodes) {
+	CRIT("Out of memory allocating list of replacement nodes");
+	goto replace_node_err;
+    }
+
+    query = malloc(4096);
+    if(!query) {
+	CRIT("Out of memory when allocating the update query");
+	goto replace_node_err;
+    }
+    query_sz = 4096;
+    strcpy(query, "{\"nodeList\":[");
+    query_at = strlen(query);
+
+    for(i=0; i<nnodes; i++) {
+	sx_node_t *n = parse_nodef(args->inputs[i]);
+	const char *addr, *int_addr;
+	const sx_uuid_t *nuuid;
+	const sx_node_t *cn;
+	unsigned int need, skipme;
+	int64_t capa;
+	if(!n)
+	    goto replace_node_err;
+
+	nuuid = sx_node_uuid(n);
+	if(sx_nodelist_lookup(rplnodes, nuuid)) {
+	    CRIT("Replacement for node '%s' was specified multiple times", nuuid->string);
+	    sx_node_delete(n);
+	    goto replace_node_err;
+	}
+	cn = sx_nodelist_lookup_index(curnodes, nuuid, &skipme);
+	if(!cn) {
+	    CRIT("Node '%s' is not a current cluster memeber", nuuid->string);
+	    sx_node_delete(n);
+	    goto replace_node_err;
+	}
+	capa = sx_node_capacity(n);
+	if(sx_node_capacity(cn) != capa) {
+	    CRIT("Replacement for '%s' should have a capacity of exactly %lld bytes", nuuid->string, (long long)capa);
+	    sx_node_delete(n);
+	    goto replace_node_err;
+	}
+	addr = sx_node_addr(n);
+	int_addr = sx_node_internal_addr(n);
+	
+	for(j = 0; j < ncnodes; j++) {
+	    if(j == skipme)
+		continue;
+	    cn = sx_nodelist_get(curnodes, j);
+	    if(!strcmp(sx_node_addr(cn), addr) || !strcmp(sx_node_internal_addr(cn), addr)) {
+		CRIT("IP address '%s' is already owned by node %s", addr, sx_node_uuid_str(cn));
+		break;
+	    }
+	    if(!strcmp(sx_node_addr(cn), int_addr) || !strcmp(sx_node_internal_addr(cn), int_addr)) {
+		CRIT("IP address '%s' is already owned by node %s", int_addr, sx_node_uuid_str(cn));
+		break;
+	    }
+	}
+	if(j < ncnodes) {
+	    sx_node_delete(n);
+	    goto replace_node_err;
+	}
+
+	for(j = 0; j < sx_nodelist_count(rplnodes); j++) {
+	    cn = sx_nodelist_get(rplnodes, j);
+	    if(!strcmp(sx_node_addr(cn), addr) || !strcmp(sx_node_internal_addr(cn), addr)) {
+		CRIT("Same IP address '%s' specified for multiple nodes", addr);
+		break;
+	    }
+	    if(!strcmp(sx_node_addr(cn), int_addr) || !strcmp(sx_node_internal_addr(cn), int_addr)) {
+		CRIT("Same IP address '%s' specified for multiple nodes", int_addr);
+		break;
+	    }
+	}
+	if(j < sx_nodelist_count(rplnodes)) {
+	    sx_node_delete(n);
+	    goto replace_node_err;
+	}
+	if(sx_nodelist_add(rplnodes, n)) {
+	    CRIT("Out of memory generating list of replacement nodes");
+	    goto replace_node_err;
+	}
+
+	if(!strcmp(int_addr, addr))
+	    int_addr = NULL;
+	need = sizeof("{\"nodeUUID\":\"\",\"nodeAddress\":\"\",\"nodeInternalAddress\":\"\",\"nodeCapacity\":},") + 32;
+	need += strlen(nuuid->string);
+	need += strlen(addr);
+	if(int_addr)
+	    need += strlen(int_addr);
+	if(need > query_sz - query_at) {
+	    char *newquery;
+
+	    query_sz += MAX(4096, need);
+	    newquery = realloc(query, query_sz + 4096);
+	    if(!newquery) {
+		CRIT("Out of memory when generating the replace nodes query");
+		goto replace_node_err;
+	    }
+	    query = newquery;
+	}
+	if(int_addr)
+	    sprintf(query + query_at, "{\"nodeUUID\":\"%s\",\"nodeAddress\":\"%s\",\"nodeInternalAddress\":\"%s\",\"nodeCapacity\":%lld}", nuuid->string, addr, int_addr, (long long)capa);
+	else
+	    sprintf(query + query_at, "{\"nodeUUID\":\"%s\",\"nodeAddress\":\"%s\",\"nodeCapacity\":%lld}", nuuid->string, addr, (long long)capa);
+	query_at = strlen(query);
+
+	if(i != args->inputs_num-2) {
+	    query[query_at++] = ',';
+	    query[query_at] = '\0';
+	}
+    }
+    strcat(query, "]}"); /* Always fits due to need above */
+
+    if(sxi_job_submit_and_poll(sxi_cluster_get_conns(clust), NULL, REQ_PUT, ".nodes?replace", query, strlen(query))) {
+	CRIT("The replace nodes request failed: %s", sxc_geterrmsg(sx));
+	goto replace_node_err;
+    }
+    
+    ret = 0;
+
+ replace_node_err:
+    free(query);
+    sx_nodelist_delete(rplnodes);
+    clst_destroy(clst);
+    sxc_cluster_free(clust);
+    return ret;
+}
+
 
 static int info_node(sxc_client_t *sx, const char *path)
 {
@@ -1127,6 +1286,8 @@ int main(int argc, char **argv) {
 	    ret = change_cluster(sx, &cluster_args);
 	else if(cluster_args.resize_given && cluster_args.inputs_num == 1)
 	    ret = resize_cluster(sx, &cluster_args);
+	else if(cluster_args.replace_faulty_given && cluster_args.inputs_num >= 2)
+	    ret = replace_nodes(sx, &cluster_args);
 	else if(cluster_args.force_gc_given && cluster_args.inputs_num == 1)
 	    ret = force_gc_cluster(sx, &cluster_args, 0);
 	else if(cluster_args.force_expire_given && cluster_args.inputs_num == 1)

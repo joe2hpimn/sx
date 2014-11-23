@@ -45,6 +45,7 @@ struct cluster_args_info
   char * resize_arg;	/**< @brief Proportionally resize an existing SX cluster.  */
   char * resize_orig;	/**< @brief Proportionally resize an existing SX cluster original value given at command line.  */
   const char *resize_help; /**< @brief Proportionally resize an existing SX cluster help description.  */
+  const char *replace_faulty_help; /**< @brief Replace faulty nodes in an existing SX cluster help description.  */
   const char *info_help; /**< @brief Shows status and details of a running cluster help description.  */
   const char *force_gc_help; /**< @brief Force a garbage collection cycle on all nodes help description.  */
   const char *force_expire_help; /**< @brief Force GC and expiration of reservations on all nodes help description.  */
@@ -73,6 +74,7 @@ struct cluster_args_info
   unsigned int new_given ;	/**< @brief Whether new was given.  */
   unsigned int mod_given ;	/**< @brief Whether mod was given.  */
   unsigned int resize_given ;	/**< @brief Whether resize was given.  */
+  unsigned int replace_faulty_given ;	/**< @brief Whether replace-faulty was given.  */
   unsigned int info_given ;	/**< @brief Whether info was given.  */
   unsigned int force_gc_given ;	/**< @brief Whether force-gc was given.  */
   unsigned int force_expire_given ;	/**< @brief Whether force-expire was given.  */

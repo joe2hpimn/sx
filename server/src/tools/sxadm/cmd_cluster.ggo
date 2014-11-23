@@ -3,19 +3,21 @@ args "--unamed-opts --no-handle-version --no-handle-error --file-name=cmd_cluste
 usage "
 sxadm cluster --new [options] NODE sx://[profile@]cluster
 sxadm cluster --mod [options] NODE [NODE ...] sx://[profile@]cluster
-sxadm cluster --resize <+/->SIZE sx://[profile@]cluster"
+sxadm cluster --resize <+/->SIZE sx://[profile@]cluster
+sxadm cluster --replace-faulty [options] NODE [NODE ...] sx://[profile@]cluster"
 
 defgroup "MODE" required
 groupoption "new" N "Create a new SX cluster with a local node" group="MODE" dependon="node-dir"
 groupoption "mod" M "Modify an existing SX cluster" group="MODE"
 groupoption "resize" R "Proportionally resize an existing SX cluster" group="MODE" string typestr="<+/->SIZE"
+groupoption "replace-faulty" F "Replace faulty nodes in an existing SX cluster" group="MODE"
 groupoption "info" I "Shows status and details of a running cluster" group="MODE"
 groupoption "force-gc" G "Force a garbage collection cycle on all nodes" group="MODE"
 groupoption "force-expire" X "Force GC and expiration of reservations on all nodes" group="MODE"
 
 section "New cluster options"
 option "node-dir" d "Path to the node directory" string typestr="PATH" dependon="new" optional
-option  "port"	- "Set the cluster destination TCP port (default 443 in secure mode or 80 in insecure mode)" int optional
+option "port" - "Set the cluster destination TCP port (default 443 in secure mode or 80 in insecure mode)" dependon="new" int optional
 option "ssl-ca-file" - "SSL CA certificate file of the SX cluster (same file as in httpd configuration)" string typestr="PATH" dependon="new" optional
 option "admin-key" k "File containing a pre-generated admin authentication token or stdin if \"-\" is given (default autogenerate token)." string typestr="PATH" dependon="new" optional hidden
 
