@@ -257,7 +257,7 @@ sx_nodelist_t *sx_nodelist_from_blob(sx_blob_t *blob) {
 	const void *iddata;
 	sx_uuid_t id;
 	int64_t capacity;
-	
+
 	if(sx_blob_get_blob(blob, &iddata, &idlen) ||
 	   idlen != sizeof(id.binary) ||
 	   sx_blob_get_string(blob, &addr) ||

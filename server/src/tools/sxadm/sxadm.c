@@ -782,12 +782,12 @@ static int replace_nodes(sxc_client_t *sx, struct cluster_args_info *args) {
     clst = clst_query(sxi_cluster_get_conns(clust), NULL);
     if(!clst) {
 	CRIT("Failed to query cluster status");
-	return 1;
+	goto replace_node_err;
     }
 
     if(clst_ndists(clst) != 1) {
 	CRIT("Cluster is currently rebalancing, cannot replace nodes");
-	return 1;
+	goto replace_node_err;
     }
 
     curnodes = clst_nodes(clst, 0);
@@ -841,7 +841,7 @@ static int replace_nodes(sxc_client_t *sx, struct cluster_args_info *args) {
 	}
 	addr = sx_node_addr(n);
 	int_addr = sx_node_internal_addr(n);
-	
+
 	for(j = 0; j < ncnodes; j++) {
 	    if(j == skipme)
 		continue;
@@ -915,7 +915,7 @@ static int replace_nodes(sxc_client_t *sx, struct cluster_args_info *args) {
 	CRIT("The replace nodes request failed: %s", sxc_geterrmsg(sx));
 	goto replace_node_err;
     }
-    
+
     ret = 0;
 
  replace_node_err:

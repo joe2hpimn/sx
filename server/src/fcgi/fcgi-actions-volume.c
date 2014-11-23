@@ -97,8 +97,10 @@ void fcgi_locate_volume(const sx_hashfs_volume_t *vol) {
 	quit_errmsg(503, "All nodes for the volume have failed");
     }
 
-    if(has_arg("volumeMeta") && sx_hashfs_volumemeta_begin(hashfs, vol))
+    if(has_arg("volumeMeta") && sx_hashfs_volumemeta_begin(hashfs, vol)) {
+	sx_nodelist_delete(goodnodes);
 	quit_errmsg(500, "Cannot lookup volume metadata");
+    }
 
     CGI_PUTS("Content-type: application/json\r\n\r\n{\"nodeList\":");
     send_nodes_randomised(goodnodes);

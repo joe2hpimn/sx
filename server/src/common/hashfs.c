@@ -327,7 +327,7 @@ rc_ty sx_storage_create(const char *dir, sx_uuid_t *cluster, uint8_t *key, int k
     if(qprep(db, &q, "CREATE TABLE replaceblocks (node BLOB ("STRIFY(UUID_BINARY_SIZE)") NOT NULL PRIMARY KEY, last_block BLOB (21) NULL)") || qstep_noret(q))
 	goto create_hashfs_fail;
     qnullify(q);
-    if(qprep(db, &q, "CREATE TABLE replacefiles (vol TEXT NOT NULL PRIMARY KEY, file TEXT NOT NULL, rev TEXT NOT NULL, maxrev TEXT NOT NULL)") || qstep_noret(q))
+    if(qprep(db, &q, "CREATE TABLE replacefiles (vol TEXT NOT NULL PRIMARY KEY, file TEXT NOT NULL DEFAULT '', rev TEXT NOT NULL DEFAULT '', maxrev TEXT NOT NULL)") || qstep_noret(q))
 	goto create_hashfs_fail;
     qnullify(q);
 
@@ -1188,7 +1188,7 @@ static int load_config(sx_hashfs_t *h, sxc_client_t *sx) {
 	    }
 	    r = qstep(h->q_getval);
 	}
-	
+
 	if(load_faulty && r == SQLITE_ROW) {
 	    p = sqlite3_column_blob(h->q_getval, 0);
 	    if(!p) {
@@ -9212,16 +9212,16 @@ rc_ty sx_hashfs_hdist_replace_req(sx_hashfs_t *h, const sx_nodelist_t *replaceme
 	}
     }
 
-    if(sxi_hdist_rebalanced(newmod)) {
-	msg_set_reason("Failed to flat the current distribution");
-	sxi_hdist_free(newmod);
-	return FAIL_EINTERNAL;
-    }
-
     if((r = sxi_hdist_build(newmod)) != OK) {
 	sxi_hdist_free(newmod);
 	msg_set_reason("Failed to build updated distribution");
 	return r;
+    }
+
+    if(sxi_hdist_rebalanced(newmod)) {
+	msg_set_reason("Failed to flat the current distribution");
+	sxi_hdist_free(newmod);
+	return FAIL_EINTERNAL;
     }
 
     if((r = sxi_hdist_get_cfg(newmod, &cfg, &cfg_len)) != OK) {
@@ -9442,7 +9442,7 @@ rc_ty sx_hashfs_hdist_replace_add(sx_hashfs_t *h, const void *cfg, unsigned int 
     }
 
     badnnodes = sx_nodelist_count(badnodes);
-    if(!badnnodes) {	
+    if(!badnnodes) {
 	msg_set_reason("No node to be replaced was provided");
 	return EINVAL;
     }
@@ -9458,8 +9458,13 @@ rc_ty sx_hashfs_hdist_replace_add(sx_hashfs_t *h, const void *cfg, unsigned int 
 	return EINVAL;
     }
 
-    if(sxi_hdist_buildcnt(newmod) != 1 ||
-       (h->have_hd && (!sxi_hdist_same_origin(newmod, h->hd) || sxi_hdist_version(newmod) != sxi_hdist_version(h->hd) + 2))) {
+    if(sxi_hdist_buildcnt(newmod) != 1) {
+	sxi_hdist_free(newmod);
+	msg_set_reason("Illegal distribution");
+	return EINVAL;
+    }
+
+    if(h->have_hd && (!sxi_hdist_same_origin(newmod, h->hd) || sxi_hdist_version(newmod) != sxi_hdist_version(h->hd) + 2)) {
 	sxi_hdist_free(newmod);
 	msg_set_reason("The new model is not a direct descendent of the current model");
 	return EINVAL;
@@ -9471,27 +9476,33 @@ rc_ty sx_hashfs_hdist_replace_add(sx_hashfs_t *h, const void *cfg, unsigned int 
     }
 
     newnodes = sxi_hdist_nodelist(newmod, 0);
-    oldnodes = sx_hashfs_nodelist(h, NL_NEXT);
     if(!newnodes || !(nnodes = sx_nodelist_count(newnodes))) {
 	msg_set_reason("Failed to retrieve the list of the updated nodes");
 	ret = FAIL_EINTERNAL;
 	goto replace_add_fail;
     }
-
-    if(nnodes != sx_nodelist_count(oldnodes)) {
-	msg_set_reason("Distribution has changed: different count.");
-	ret = EINVAL;
-	goto replace_add_fail;
-    }
+    if(h->have_hd) {
+	oldnodes = sx_hashfs_nodelist(h, NL_NEXT);
+	if(nnodes != sx_nodelist_count(oldnodes)) {
+	    msg_set_reason("Distribution has changed: different count.");
+	    ret = EINVAL;
+	    goto replace_add_fail;
+	}
+    } else
+	oldnodes = NULL;
 
     for(i = 0; i<nnodes; i++) {
 	const sx_node_t *nn = sx_nodelist_get(newnodes, i);
-	const sx_node_t *on = sx_nodelist_lookup(oldnodes, sx_node_uuid(nn));
+	const sx_node_t *on;
 	unsigned int j;
-	if(!on || sx_node_capacity(nn) != sx_node_capacity(on)) {
-	    msg_set_reason("Distribution has changed: different nodes or capacity.");
-	    ret = EINVAL;
-	    goto replace_add_fail;
+
+	if(oldnodes) {
+	    on = sx_nodelist_lookup(oldnodes, sx_node_uuid(nn));
+	    if(!on || sx_node_capacity(nn) != sx_node_capacity(on)) {
+		msg_set_reason("Distribution has changed: different nodes or capacity.");
+		ret = EINVAL;
+		goto replace_add_fail;
+	    }
 	}
 	for(j=i+1; j<nnodes; j++) {
 	    const sx_node_t *other = sx_nodelist_get(newnodes, j);
@@ -9531,7 +9542,7 @@ rc_ty sx_hashfs_hdist_replace_add(sx_hashfs_t *h, const void *cfg, unsigned int 
 	    msg_set_reason("Out of memory creating faulty node list");
 	    ret = ENOMEM;
 	    goto replace_add_fail;
-	}   
+	}
     }
 
     if(qprep(h->db, &q, "INSERT OR REPLACE INTO hashfs (key, value) VALUES (:k , :v)")) {
@@ -9601,7 +9612,7 @@ rc_ty sx_hashfs_hdist_replace_add(sx_hashfs_t *h, const void *cfg, unsigned int 
 	ret = FAIL_EINTERNAL;
 	goto replace_add_fail;
     }
-    
+
     if(sx_hashfs_set_rbl_info(h, 1, 0, "Updating distribution model")) {
 	ret = FAIL_EINTERNAL;
 	goto replace_add_fail;
@@ -9705,7 +9716,7 @@ rc_ty sx_hashfs_hdist_set_rebalanced(sx_hashfs_t *h) {
     if(!h->is_rebalancing) {
 	msg_set_reason("The cluster is already rebalanced");
 	return EINVAL;
-    }	
+    }
 
     ret = sxi_hdist_get_cfg(h->hd, &cfg, &cfg_len);
     if(ret) {
@@ -9787,23 +9798,19 @@ rc_ty sx_hashfs_hdist_set_rebalanced(sx_hashfs_t *h) {
 }
 
 static rc_ty create_repair_job(sx_hashfs_t *h) {
-    const sx_node_t *self = sx_hashfs_self(h);
     sx_nodelist_t *singlenode = NULL;
+    sx_uuid_t fakeuuid;
     job_t job_id;
     rc_ty ret;
 
     DEBUG("IN %s", __FUNCTION__);
-
-    if(sx_storage_is_bare(h))
-	return OK;
-
     singlenode = sx_nodelist_new();
     if(!singlenode) {
 	WARN("Cannot allocate single node nodelist");
 	return ENOMEM;
     }
-
-    ret = sx_nodelist_add(singlenode, sx_node_dup(self));
+    uuid_from_string(&fakeuuid, "00000000-0000-0000-0000-000000000000");
+    ret = sx_nodelist_add(singlenode, sx_node_new(&fakeuuid, "0.0.0.0", "0.0.0.0", 1));
     if(ret) {
 	WARN("Cannot add self to nodelist");
 	goto create_repair_err;
@@ -9829,6 +9836,7 @@ static rc_ty create_repair_job(sx_hashfs_t *h) {
 
  create_repair_err:
     sx_nodelist_delete(singlenode);
+    DEBUG("OUT %s with %d", __FUNCTION__, ret);
     return ret;
 }
 
@@ -11222,17 +11230,12 @@ sx_hashfs_volume_mod_err:
     return ret;
 }
 
-static int node_is_failed(sx_hashfs_t *h, const sx_node_t *node)
-{
-    return 0; /* TODO: implement */
-}
-
 static const sx_node_t* sx_hashfs_first_nonfailed(sx_hashfs_t *h, sx_nodelist_t *nodelist)
 {
     unsigned i;
     for (i=0;i<sx_nodelist_count(nodelist);i++) {
         const sx_node_t *node = sx_nodelist_get(nodelist, i);
-        if (node_is_failed(h, node))
+        if (sx_hashfs_is_node_faulty(h, sx_node_uuid(node)))
             continue;
         return node;
     }
@@ -11496,7 +11499,7 @@ rc_ty sx_hashfs_replace_getstartblock(sx_hashfs_t *h, unsigned int *version, con
 	ret = ITER_NO_MORE;
 
  getnode_fail:
-    sqlite3_finalize(q);    
+    sqlite3_finalize(q);
     return ret;
 }
 
@@ -11517,7 +11520,7 @@ rc_ty sx_hashfs_replace_setlastblock(sx_hashfs_t *h, const sx_uuid_t *node, cons
 	if(qprep(h->db, &q, "DELETE FROM replaceblocks WHERE node = :node"))
 	    goto setnode_fail;
     }
-	
+
     if(!qbind_blob(q, ":node", node->binary, sizeof(node->binary)) &&
        !qstep_noret(q))
 	ret = OK;
@@ -11543,14 +11546,19 @@ rc_ty sx_hashfs_replace_getstartfile(sx_hashfs_t *h, char *maxrev, char *startvo
     r = qstep(q);
     if(r == SQLITE_ROW) {
 	strncpy(startvol, (const char *)sqlite3_column_text(q, 0), SXLIMIT_MAX_VOLNAME_LEN);
+	startvol[SXLIMIT_MAX_VOLNAME_LEN] = '\0';
 	strncpy(startfile, (const char *)sqlite3_column_text(q, 1), SXLIMIT_MAX_FILENAME_LEN);
+	startfile[SXLIMIT_MAX_FILENAME_LEN] = '\0';
 	strncpy(startrev, (const char *)sqlite3_column_text(q, 2), REV_LEN);
+	startrev[REV_LEN]  = '\0';
 	strncpy(maxrev, (const char *)sqlite3_column_text(q, 3), REV_LEN);
+	maxrev[REV_LEN] = '\0';
+	ret = OK;
     } else if (r == SQLITE_DONE)
 	ret = ITER_NO_MORE;
 
  getfile_fail:
-    sqlite3_finalize(q);    
+    sqlite3_finalize(q);
     return ret;
 }
 
@@ -11578,13 +11586,14 @@ rc_ty sx_hashfs_replace_setlastfile(sx_hashfs_t *h, char *lastvol, char *lastfil
     if(!qbind_text(q, ":volume", lastvol) &&
        !qstep_noret(q))
 	ret = OK;
-    
+
  setfile_fail:
-    sqlite3_finalize(q);    
+    sqlite3_finalize(q);
     return ret;
 }
 
 rc_ty sx_hashfs_init_replacement(sx_hashfs_t *h) {
+    const sx_hashfs_volume_t *vol;
     const sx_nodelist_t *nodes;
     rc_ty ret = FAIL_EINTERNAL;
     sqlite3_stmt *q = NULL;
@@ -11626,10 +11635,20 @@ rc_ty sx_hashfs_init_replacement(sx_hashfs_t *h) {
     qnullify(q);
 
     /* Files */
-    if(qprep(h->db, &q, "INSERT INTO replacefiles (vol, maxrev) SELECT volume, strftime('%Y-%m-%d %H:%M:%f', 'now', '30 minutes') || ':ffffffffffffffffffffffffffffffff' FROM volumes") ||
-       qstep_noret(q))
-	goto init_replacement_fail;
+    if(qprep(h->db, &q, "INSERT INTO replacefiles (vol, maxrev) VALUES(:volume, strftime('%Y-%m-%d %H:%M:%f', 'now', '30 minutes') || ':ffffffffffffffffffffffffffffffff')"))
+       goto init_replacement_fail;
 
+    for(ret = sx_hashfs_volume_first(h, &vol, 0); ret == OK; ret = sx_hashfs_volume_next(h)) {
+	if(!sx_hashfs_is_or_was_my_volume(h, vol))
+	    continue;
+	if(qbind_text(q, ":volume", vol->name) ||
+	   qstep_noret(q)) {
+	    ret = FAIL_EINTERNAL;
+	    goto init_replacement_fail;
+	}
+    }
+    if(ret != ITER_NO_MORE)
+	goto init_replacement_fail;
     ret = OK;
 
  init_replacement_fail:

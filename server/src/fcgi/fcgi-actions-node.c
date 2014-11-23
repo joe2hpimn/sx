@@ -263,7 +263,7 @@ static int cb_updist_string(void *ctx, const unsigned char *s, size_t l) {
 	uuidstr[UUID_STRING_SIZE] = '\0';
 	if(uuid_from_string(&uuid, uuidstr))
 	    return 0;
-	if(sx_nodelist_add(c->faulty, sx_node_new(&uuid, "127.0.0.1", NULL, 0)))
+	if(sx_nodelist_add(c->faulty, sx_node_new(&uuid, "127.0.0.1", NULL, 1)))
 	    return 0;
 	return 1;
     }
@@ -371,7 +371,7 @@ void fcgi_new_distribution(void) {
 	s = sx_hashfs_hdist_change_add(hashfs, yctx.cfg, yctx.cfg_len);
     else
 	s = sx_hashfs_hdist_replace_add(hashfs, yctx.cfg, yctx.cfg_len, yctx.faulty);
-    free(yctx.faulty);
+    sx_nodelist_delete(yctx.faulty);
     free(yctx.cfg);
     if(s != OK)
 	quit_errmsg(rc2http(s), msg_get_reason());

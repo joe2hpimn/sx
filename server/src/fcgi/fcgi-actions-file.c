@@ -527,9 +527,6 @@ void fcgi_delete_file(void) {
 }
 
 
-
-
-
 struct rplfiles {
     sx_blob_t *b;
     sx_hashfs_file_t lastfile;
@@ -599,7 +596,7 @@ void fcgi_send_replacement_files(void) {
     } else {
 	unsigned int vnamelen = startname - path;
 	char *vname = malloc(vnamelen + 1);
-	if(!vname) 
+	if(!vname)
 	    quit_errmsg(503, "Out of memory");
 	memcpy(vname, path, vnamelen);
 	vname[vnamelen] = '\0';
@@ -625,9 +622,8 @@ void fcgi_send_replacement_files(void) {
     s = sx_hashfs_file_find(hashfs, vol, startname, startrev, get_arg("maxrev"), rplfiles_cb, &ctx);
     if(s == ITER_NO_MORE) {
 	sx_blob_reset(ctx.b);
-	if(sx_blob_add_string(ctx.b, "$THEEND$"))
-	    return;
-	send_rplfiles_header(&ctx);
+	if(!sx_blob_add_string(ctx.b, "$THEEND$"))
+	    send_rplfiles_header(&ctx);
 	sx_blob_free(ctx.b);
 	return;
     }
