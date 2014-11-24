@@ -191,14 +191,15 @@ int main(int argc, char **argv) {
 		    char *vname;
 		    int64_t vsize;
                     int64_t vusedsize;
-		    unsigned int vreplica;
+		    unsigned int vreplica, vrevs;
                     sxc_meta_t *vmeta = NULL;
                     int n = 0;
+                    char privs[3] = { 0, 0, 0 };
 
                     if(args.long_format_given)
-		        n = sxc_cluster_listvolumes_next(fv, &vname, &vusedsize, &vsize, &vreplica, &vmeta);
+		        n = sxc_cluster_listvolumes_next(fv, &vname, &vusedsize, &vsize, &vreplica, &vrevs, privs, &vmeta);
                     else
-                        n = sxc_cluster_listvolumes_next(fv, &vname, &vusedsize, &vsize, &vreplica, NULL);
+                        n = sxc_cluster_listvolumes_next(fv, &vname, NULL, NULL, NULL, NULL, NULL, NULL);
 
 		    if(n<=0) {
 			if(n)
@@ -213,7 +214,7 @@ int main(int argc, char **argv) {
 			const char *filter_name = NULL;
                         char *human_size = NULL, *human_used_size = NULL;
                         int64_t percent;
-			char repstr[6];
+			char repstr[6], revstr[8];
 
 			/* Initialize volume file structure */
 			if(!(volume_file = sxc_file_remote(cluster, vname, NULL, NULL))) {
@@ -237,7 +238,8 @@ int main(int argc, char **argv) {
 			}
 
 			snprintf(repstr, sizeof(repstr), "r:%u", vreplica);
-			printf("    VOL %5s %10s", repstr, filter_name);
+                        snprintf(revstr, sizeof(revstr), "revs:%u", vrevs);
+			printf("    VOL %5s %7s %5s %10s", repstr, revstr, privs, filter_name);
 
 			sxc_file_free(volume_file);
 			sxc_meta_free(vmeta);

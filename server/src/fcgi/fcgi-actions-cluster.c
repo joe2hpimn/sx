@@ -122,13 +122,23 @@ void fcgi_handle_cluster_requests(void) {
 	CGI_PUTS("\"volumeList\":{");
         int u = has_priv(PRIV_ADMIN) ? 0 : uid;/* uid = 0: list all volumes */
 	for(s = sx_hashfs_volume_first(hashfs, &vol, u); s == OK; s = sx_hashfs_volume_next(hashfs)) {
+            sx_priv_t priv = 0;
+
 	    if(comma)
 		CGI_PUTC(',');
 	    else
 		comma |= 1;
 
 	    json_send_qstring(vol->name);
-	    CGI_PRINTF(":{\"replicaCount\":%u,\"usedSize\":", vol->replica_count);
+            if((s = sx_hashfs_get_access(hashfs, uid, vol->name, &priv)) != OK) {
+                CGI_PUTS("}");
+                quit_itererr("Failed to get volume privs", s);
+            }
+            if(has_priv(PRIV_ADMIN))
+                priv = PRIV_READ | PRIV_WRITE;
+
+	    CGI_PRINTF(":{\"replicaCount\":%u,\"maxRevisions\":%u,\"privs\":\"%c%c\",\"usedSize\":", vol->replica_count, vol->revisions,
+                (priv & PRIV_READ) ? 'r' : '-', (priv & PRIV_WRITE) ? 'w' : '-');
 
 	    CGI_PUTLL(vol->cursize);
             CGI_PRINTF(",\"sizeBytes\":");
@@ -137,7 +147,7 @@ void fcgi_handle_cluster_requests(void) {
             if(has_arg("volumeMeta")) {
                 const char *metakey;
                 const void *metavalue;
-                int metasize, comma_meta = 0;
+                unsigned int metasize, comma_meta = 0;
 
                 if((s = sx_hashfs_volumemeta_begin(hashfs, vol)) != OK) {
                     CGI_PUTS("}}");

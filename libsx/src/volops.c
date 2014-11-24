@@ -535,7 +535,7 @@ int sxc_volume_acl(sxc_cluster_t *cluster, const char *url,
     return rc;
 }
 
-// {"volumeList":{"vol":{"replicaCount":1,"sizeBytes":10737418240,"volumeMeta":{"key1":"val1","key2":"val2"}},"volxxx":{"replicaCount":1,"sizeBytes":10737418240,"volumeMeta":{"key1":"val1","key2":"val2"}}}
+// {"volumeList":{"vol":{"replicaCount":1,"revisions":4,"privs":"rw","sizeBytes":10737418240,"volumeMeta":{"key1":"val1","key2":"val2"}},"volxxx":{"replicaCount":1,"revisions":2,"privs":"r-","sizeBytes":10737418240,"volumeMeta":{"key1":"val1","key2":"val2"}}}
 struct cb_listvolumes_ctx {
     curlev_context_t *cbdata;
     yajl_callbacks yacb;
@@ -547,14 +547,16 @@ struct cb_listvolumes_ctx {
 	int64_t size;
         int64_t used_size;
 	unsigned int replica_count;
+        unsigned int revisions;
 	unsigned int namelen;
+        char privs[3];
     } voldata;
 
     sxc_meta_t *meta;
     unsigned int meta_count;
     char *curkey;
     enum listvolumes_state { LV_ERROR, LV_BEGIN, LV_BASE, LV_VOLUMES, LV_NAME, LV_VALUES, LV_VALNAME,
-			     LV_REPLICA, LV_USEDSIZE, LV_SIZE, LV_META, LV_META_KEY, LV_META_VALUE, LV_DONE, LV_COMPLETE } state;
+			     LV_REPLICA, LV_REVISIONS, LV_PRIVS, LV_USEDSIZE, LV_SIZE, LV_META, LV_META_KEY, LV_META_VALUE, LV_DONE, LV_COMPLETE } state;
 };
 #define expect_state(expst) do { if(yactx->state != (expst)) { CBDEBUG("bad state (in %d, expected %d)", yactx->state, expst); return 0; } } while(0)
 
@@ -667,6 +669,16 @@ static int yacb_listvolumes_string(void *ctx, const unsigned char *s, size_t l) 
         yactx->meta_count++;
         return 1;
     }
+    if(yactx->state == LV_PRIVS) {
+        if(l != 2 || (s[0] != 'r' && s[0] != '-') || (s[1] != 'w' && s[1] != '-')) {
+            CBDEBUG("Bad privs string");
+            return 0;
+        }
+
+        memcpy(yactx->voldata.privs, s, l);
+        yactx->state = LV_VALNAME;
+        return 1;
+    }
 
     return 0;
 }
@@ -706,9 +718,11 @@ static int yacb_listvolumes_map_key(void *ctx, const unsigned char *s, size_t l)
 	}
 	memcpy(yactx->volname, s, l);
 	yactx->voldata.replica_count = 0;
+        yactx->voldata.revisions = 0;
         yactx->voldata.used_size = -1;
 	yactx->voldata.size = -1;
 	yactx->voldata.namelen = l;
+        yactx->voldata.privs[0] = '\0';
 
 	yactx->state = LV_VALUES;
 	return 1;
@@ -719,6 +733,14 @@ static int yacb_listvolumes_map_key(void *ctx, const unsigned char *s, size_t l)
 	    yactx->state = LV_REPLICA;
 	    return 1;
 	}
+        if(l == lenof("maxRevisions") && !memcmp(s, "maxRevisions", lenof("maxRevisions"))) {
+            yactx->state = LV_REVISIONS;
+            return 1;
+        }
+        if(l == lenof("privs") && !memcmp(s, "privs", lenof("privs"))) {
+            yactx->state = LV_PRIVS;
+            return 1;
+        }
         if(l == lenof("usedSize") && !memcmp(s, "usedSize", lenof("usedSize"))) {
             yactx->state = LV_USEDSIZE;
             return 1;
@@ -782,6 +804,22 @@ static int yacb_listvolumes_number(void *ctx, const char *s, size_t l) {
 	    CBDEBUG("invalid number '%.*s'", (unsigned)l, s);
 	    return 0;
 	}
+    } else if(yactx->state == LV_REVISIONS) {
+        if(yactx->voldata.revisions) {
+            CBDEBUG("Revisions limit already received: %d", yactx->voldata.revisions);
+            return 0;
+        }
+        if(l < 1 || l > 10) {
+            CBDEBUG("Invalid revisions limit '%.*s'", (unsigned)l, s);
+            return 0;
+        }
+        memcpy(numb, s, l);
+        numb[l] = '\0';
+        yactx->voldata.revisions = strtol(numb, &enumb, 10);
+        if(*enumb || yactx->voldata.revisions < 1) {
+            CBDEBUG("invalid number '%.*s'", (unsigned)l, s);
+            return 0;
+        }
     } else if(yactx->state == LV_USEDSIZE){
         if(yactx->voldata.used_size > 0) {
             CBDEBUG("Volume used size already received: %lld", (long long)yactx->voldata.used_size);
@@ -883,18 +921,13 @@ sxc_cluster_lv_t *sxc_cluster_listvolumes(sxc_cluster_t *cluster, int get_meta) 
     int qret;
 
     sxc_clearerr(sx);
-
+    memset(&yctx, 0, sizeof(yctx));
     ya_init(yacb);
     yacb->yajl_start_map = yacb_listvolumes_start_map;
     yacb->yajl_map_key = yacb_listvolumes_map_key;
     yacb->yajl_string = yacb_listvolumes_string;
     yacb->yajl_number = yacb_listvolumes_number;
     yacb->yajl_end_map = yacb_listvolumes_end_map;
-
-    yctx.yh = NULL;
-    yctx.volname = NULL;
-    yctx.meta = NULL;
-    yctx.curkey = NULL;
 
     if(!(fname = sxi_make_tempfile(sx, NULL, &yctx.f))) {
 	CFGDEBUG("failed to create temporary storage for volume list");
@@ -956,7 +989,7 @@ sxc_cluster_lv_t *sxc_cluster_listvolumes(sxc_cluster_t *cluster, int get_meta) 
     return ret;
 }
 
-int sxc_cluster_listvolumes_next(sxc_cluster_lv_t *lv, char **volume_name, int64_t *volume_used_size, int64_t *volume_size, unsigned int *replica_count, sxc_meta_t **meta) {
+int sxc_cluster_listvolumes_next(sxc_cluster_lv_t *lv, char **volume_name, int64_t *volume_used_size, int64_t *volume_size, unsigned int *replica_count, unsigned int *revisions, char privs[3], sxc_meta_t **meta) {
     struct cbl_volume_t volume;
     sxc_client_t *sx = lv->sx;
     unsigned int meta_count = 0;
@@ -1009,6 +1042,12 @@ int sxc_cluster_listvolumes_next(sxc_cluster_lv_t *lv, char **volume_name, int64
 
     if(replica_count)
 	*replica_count = volume.replica_count;
+
+    if(revisions)
+        *revisions = volume.revisions;
+
+    if(privs)
+        memcpy(privs, volume.privs, 2);
 
     if(!fread(&meta_count, sizeof(meta_count), 1, lv->f)) {
         SXDEBUG("error reading meta count from results file");
