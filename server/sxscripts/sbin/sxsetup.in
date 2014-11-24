@@ -929,7 +929,7 @@ if [ ! -f "$SX_DATA_DIR/hashfs.db" ]; then
 		"@sbindir@/sxserver" stop
 		exit 1
 	    fi
-	    if [ -n "`cat $OUT_TMP | grep "Target distribution"`" ]; then
+	    if [ -n "`cat $OUT_TMP | grep "Target configuration"`" ]; then
 		if [ $REBCNT -gt 10 ]; then
 		    echo "Failed to add the new node to the cluster, which is currently being rebalanced."
 		    echo "The rebalance process can take a long time, please try again later."
@@ -973,7 +973,7 @@ if [ ! -f "$SX_DATA_DIR/hashfs.db" ]; then
 		    sleep 1
 		    continue
 		fi
-		if [ -n "`cat $OUT_TMP | grep "Target distribution"`" ]; then
+		if [ -n "`cat $OUT_TMP | grep "Target configuration"`" ]; then
 		    sleep 1
 		    continue
 		else

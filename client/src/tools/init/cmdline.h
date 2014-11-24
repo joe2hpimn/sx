@@ -41,7 +41,7 @@ struct gengetopt_args_info
   const char *full_help_help; /**< @brief Print help, including hidden options, and exit help description.  */
   const char *version_help; /**< @brief Print version and exit help description.  */
   const char *list_help; /**< @brief List configured profiles and aliases help description.  */
-  const char *delete_help; /**< @brief Delete configured profile help description.  */
+  const char *delete_help; /**< @brief Delete a profile help description.  */
   int no_ssl_flag;	/**< @brief Disable secure communication (default=off).  */
   const char *no_ssl_help; /**< @brief Disable secure communication help description.  */
   char * auth_file_arg;	/**< @brief File containing user key (instead of stdin).  */

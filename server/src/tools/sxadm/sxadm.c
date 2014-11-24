@@ -879,10 +879,10 @@ static int info_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
 	printf("Node is not part of a cluster\n");
 	break;
     case 2:
-	printf("Target distribution: ");
+	printf("Target configuration: ");
 	print_dist(clst_nodes(clst, 1));
     case 1:
-	printf("Current distribution: ");
+	printf("Current configuration: ");
 	print_dist(clst_nodes(clst, 0));
 
 	unsigned int version;

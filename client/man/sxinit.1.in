@@ -20,6 +20,9 @@ Print version and exit
 \fB\-L\fR, \fB\-\-list\fR
 List configured clusters and aliases
 .TP
+\fB\-\-delete\fR
+Delete a profile and its associated aliases. When the last profile for a given cluster gets deleted, the entire local cluster configuration will be removed.
+.TP
 \fB\-\-no\-ssl\fR
 Disable secure communication. For security reasons, only use this option when the cluster doesn't offer SSL connections.
 .TP

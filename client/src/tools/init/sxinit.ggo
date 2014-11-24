@@ -5,7 +5,7 @@ usage "sxinit [OPTIONS]... { sx://[profile@]cluster | --list }"
 
 option	"list"		    L "List configured profiles and aliases" optional
 
-option  "delete"            - "Delete configured profile" optional
+option  "delete"            - "Delete a profile" optional
 
 option  "no-ssl"	    - "Disable secure communication" flag off
 
