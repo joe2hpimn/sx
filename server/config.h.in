@@ -18,9 +18,6 @@
 /* Define to 1 if you have the `memset' function. */
 #undef HAVE_MEMSET
 
-/* Define to 1 if you have the `posix_fallocate' function. */
-#undef HAVE_POSIX_FALLOCATE
-
 /* Define to 1 if you have the `setgroups' function. */
 #undef HAVE_SETGROUPS
 
@@ -50,9 +47,6 @@
 
 /* Define to 1 if you have the <unistd.h> header file. */
 #undef HAVE_UNISTD_H
-
-/* Define to 1 if you have the `usleep' function. */
-#undef HAVE_USLEEP
 
 /* Define to 1 if the system has the type `u_char'. */
 #undef HAVE_U_CHAR
@@ -122,6 +116,9 @@
 #ifndef _DARWIN_USE_64_BIT_INODE
 # define _DARWIN_USE_64_BIT_INODE 1
 #endif
+
+/* Keep glibc 2.20+ quiet */
+#undef _DEFAULT_SOURCE
 
 /* Number of bits in a file offset, on hosts where this is settable. */
 #undef _FILE_OFFSET_BITS
