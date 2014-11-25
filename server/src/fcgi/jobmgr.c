@@ -3349,7 +3349,7 @@ static int rplblocks_cb(curlev_context_t *cbdata, void *ctx, const void *data, s
 	    size -= todo;
 	    c->pos += todo;
 	    if(c->pos == c->itemsz) {
-		sx_block_meta_index_t bmi;
+		const sx_block_meta_index_t *bmi;
 		unsigned int maxreplica = sx_nodelist_count(sx_hashfs_nodelist(c->hashfs, NL_NEXT));
 		sx_hash_t hash;
 		const void *ptr;
@@ -3362,7 +3362,7 @@ static int rplblocks_cb(curlev_context_t *cbdata, void *ctx, const void *data, s
 
 		/* FIXME: do i hash the block and match it ? */
 
-		if(sx_blob_get_blob(c->b, &ptr, &todo) || todo != sizeof(bmi)) {
+		if(sx_blob_get_blob(c->b, (const void **)&bmi, &todo) || todo != sizeof(*bmi)) {
 		    WARN("Invalid block index");
 		    return 1;
 		}
@@ -3393,7 +3393,7 @@ static int rplblocks_cb(curlev_context_t *cbdata, void *ctx, const void *data, s
 		    WARN("Failed to mod hash");
 		    return 1;
 		}
-		memcpy(&c->lastgood, &bmi, sizeof(bmi));
+		c->lastgood = *bmi;
 		sx_blob_free(c->b);
 		c->b = NULL;
 		c->ngood++;
