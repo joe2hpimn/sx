@@ -11440,10 +11440,10 @@ rc_ty sx_hashfs_br_find(sx_hashfs_t *h, const sx_block_meta_index_t *previous, u
                     break;
             } else if (ret == SQLITE_DONE) {
                 rc = ITER_NO_MORE;
-            } else {
+            } else if (ret != SQLITE_ROW) {
                 rc = FAIL_EINTERNAL;
             }
-        } while (ret == SQLITE_ROW);
+        } while (ret == OK || ret == SQLITE_ROW);
         if (rc == ITER_NO_MORE) {
             if (++ndb >= HASHDBS) {
                 ndb = 0;
@@ -11457,7 +11457,7 @@ rc_ty sx_hashfs_br_find(sx_hashfs_t *h, const sx_block_meta_index_t *previous, u
             hash = NULL;/* reset iteration */
         }
     } while(rc == OK);
-    DEBUG("iteration failed: %s", rc2str(rc));
+    WARN("iteration failed: %s", rc2str(rc));
     sx_hashfs_blockmeta_free(blockmetaptr);
     return rc;
 }
