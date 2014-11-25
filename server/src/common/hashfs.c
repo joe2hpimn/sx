@@ -9257,10 +9257,10 @@ rc_ty sx_hashfs_hdist_replace_req(sx_hashfs_t *h, const sx_nodelist_t *replaceme
     }
 
     r = sx_hashfs_job_new_notrigger(h, *job_id, 0, job_id, JOBTYPE_REPLACE, sx_nodelist_count(targets) * 120, "DISTRIBUTION", cfg, cfg_len, targets);
+    sxi_hdist_free(newmod);
+    sx_blob_free(jdata);
     if(r) {
 	INFO("job_new (replace) returned: %s", rc2str(r));
-	sxi_hdist_free(newmod);
-	sx_blob_free(jdata);
 	return r;
     }
 

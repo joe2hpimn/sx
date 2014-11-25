@@ -365,7 +365,11 @@ void fcgi_new_distribution(void) {
     yajl_free(yh);
 
     auth_complete();
-    quit_unless_authed();
+    if(!is_authed()) {
+	free(yctx.cfg);
+	send_authreq();
+	return;
+    }
 
     if(!sx_nodelist_count(yctx.faulty))
 	s = sx_hashfs_hdist_change_add(hashfs, yctx.cfg, yctx.cfg_len);
