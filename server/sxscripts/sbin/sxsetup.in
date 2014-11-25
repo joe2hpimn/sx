@@ -912,7 +912,7 @@ if [ ! -f "$SX_DATA_DIR/hashfs.db" ]; then
 	fi
 
 	if [ "$BARE_GIVEN" = "yes" ]; then
-	    echo "Bare node created. Use 'sxadm cluster --mod' to add it to the distribution."
+	    echo "Bare node created. Use 'sxadm cluster --mod' to join it to the cluster."
 	    echo "Node specification: $NEWNODE"
 	    rm -rf $SXSETUP_TMPDIR
 	    trap - EXIT INT
@@ -941,7 +941,7 @@ if [ ! -f "$SX_DATA_DIR/hashfs.db" ]; then
 		sleep 60
 		continue
 	    fi
-	    SXDIST=`cat $OUT_TMP | grep "Current distribution" | cut -d: -f 2`
+	    SXDIST=`cat $OUT_TMP | grep "Current configuration" | cut -d: -f 2`
 	    if [ -z "$SXDIST" ]; then
 		echo "Failed to obtain the node information."
 		"@sbindir@/sxserver" stop
