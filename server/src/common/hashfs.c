@@ -324,6 +324,9 @@ rc_ty sx_storage_create(const char *dir, sx_uuid_t *cluster, uint8_t *key, int k
 	goto create_hashfs_fail;
     qnullify(q);
 
+    if(qprep(db, &q, "CREATE TABLE faultynodes (dist INTEGER NOT NULL, node BLOB ("STRIFY(UUID_BINARY_SIZE)"), restored INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (dist, node))") || qstep_noret(q))
+	goto create_hashfs_fail;
+    qnullify(q);
     if(qprep(db, &q, "CREATE TABLE replaceblocks (node BLOB ("STRIFY(UUID_BINARY_SIZE)") NOT NULL PRIMARY KEY, last_block BLOB (21) NULL)") || qstep_noret(q))
 	goto create_hashfs_fail;
     qnullify(q);
@@ -1180,34 +1183,36 @@ static int load_config(sx_hashfs_t *h, sxc_client_t *sx) {
 	    goto load_config_fail;
 	}
 
-	if(load_faulty) {
-	    sqlite3_reset(h->q_getval);
-	    if(qbind_text(h->q_getval, ":k", "faulty_nodes")) {
-		CRIT("Failed to retrieve list of faulty nodes from database");
-		goto load_config_fail;
-	    }
-	    r = qstep(h->q_getval);
-	}
-
-	if(load_faulty && r == SQLITE_ROW) {
-	    p = sqlite3_column_blob(h->q_getval, 0);
-	    if(!p) {
-		CRIT("Failed to retrieve list of faulty nodes from database");
-		goto load_config_fail;
-	    }
-	    sx_blob_t *badnodes = sx_blob_from_data(p, sqlite3_column_bytes(h->q_getval, 0));
-	    if(!badnodes) {
-		CRIT("Failed to retrieve list of faulty nodes from database");
-		goto load_config_fail;
-	    }
-	    h->faulty_nodes = sx_nodelist_from_blob(badnodes);
-	    sx_blob_free(badnodes);
-	} else
-	    h->faulty_nodes = sx_nodelist_new();
-
+	h->faulty_nodes = sx_nodelist_new();
 	if(!h->faulty_nodes) {
 	    CRIT("Failed to retrieve list of faulty nodes from database");
 	    goto load_config_fail;
+	}
+	if(load_faulty) {
+	    sqlite3_stmt *qfaulty = NULL;
+	    if(qprep(h->db, &qfaulty, "SELECT node FROM faultynodes WHERE dist = :dist") ||
+	       qbind_int64(qfaulty, ":dist", h->hd_rev)) {
+		CRIT("Failed to retrieve list of faulty nodes from database");
+		sqlite3_reset(qfaulty);
+		goto load_config_fail;
+	    }
+	    while((r = qstep(qfaulty)) == SQLITE_ROW) {
+		sx_uuid_t faultyid;
+		const sx_node_t *faultynode;
+		p = sqlite3_column_blob(qfaulty, 0);
+		if(!p || sqlite3_column_bytes(qfaulty, 0) != sizeof(faultyid.binary))
+		    break;
+		uuid_from_binary(&faultyid, p);
+		if(!(faultynode = sx_nodelist_lookup(h->next_dist, &faultyid)) ||
+		   sx_nodelist_add(h->faulty_nodes, sx_node_dup(faultynode)))
+		    break;
+	    }
+	    sqlite3_finalize(qfaulty);
+	    if(r != SQLITE_DONE) {
+		CRIT("Failed to retrieve list of faulty nodes from database");
+		sqlite3_finalize(qfaulty);
+		goto load_config_fail;
+	    }
 	}
 
 	sqlite3_reset(h->q_getval);
@@ -9431,7 +9436,6 @@ rc_ty sx_hashfs_hdist_replace_add(sx_hashfs_t *h, const void *cfg, unsigned int 
     sxi_hdist_t *newmod;
     const sx_nodelist_t *oldnodes, *newnodes;
     sx_nodelist_t *faulty = NULL;
-    sx_blob_t *faultyblb = NULL;
     sqlite3_stmt *q = NULL;
     rc_ty ret;
 
@@ -9519,21 +9523,38 @@ rc_ty sx_hashfs_hdist_replace_add(sx_hashfs_t *h, const void *cfg, unsigned int 
 	}
     }
 
+    if(qprep(h->db, &q, "DELETE FROM faultynodes WHERE dist = :distrev") ||
+       qbind_int64(q, ":distrev", sxi_hdist_version(newmod)) ||
+       qstep_noret(q)) {
+	msg_set_reason("Failed to clean up the list of faulty nodes");
+	ret = FAIL_EINTERNAL;
+	goto replace_add_fail;
+    }
+    qnullify(q);
+
     faulty = sx_nodelist_new();
     if(!faulty) {
 	msg_set_reason("Out of memory creating faulty node list");
 	ret = ENOMEM;
 	goto replace_add_fail;
     }
+    if(qprep(h->db, &q, "INSERT INTO faultynodes (dist, node) VALUES (:distrev, :nodeid)") ||
+       qbind_int64(q, ":distrev", sxi_hdist_version(newmod))) {
+	msg_set_reason("Failed to save the updated distribution model");
+	ret = FAIL_EINTERNAL;
+	goto replace_add_fail;
+    }
     for(i = 0; i<badnnodes; i++) {
 	const sx_node_t *bn = sx_nodelist_get(badnodes, i);
 	const sx_node_t *nn = sx_nodelist_lookup(newnodes, sx_node_uuid(bn));
+	const sx_uuid_t *nnuuid;
 	if(!nn) {
 	    msg_set_reason("Faulty node %s is not found in the distribution", sx_node_uuid_str(nn));
 	    ret = EINVAL;
 	    goto replace_add_fail;
 	}
-	if(sx_nodelist_lookup(faulty, sx_node_uuid(nn))) {
+	nnuuid = sx_node_uuid(nn);
+	if(sx_nodelist_lookup(faulty, nnuuid)) {
 	    msg_set_reason("Duplicated faulty node %s is not found in the distribution", sx_node_uuid_str(nn));
 	    ret = EINVAL;
 	    goto replace_add_fail;
@@ -9543,7 +9564,14 @@ rc_ty sx_hashfs_hdist_replace_add(sx_hashfs_t *h, const void *cfg, unsigned int 
 	    ret = ENOMEM;
 	    goto replace_add_fail;
 	}
+	if(qbind_blob(q, ":nodeid", nnuuid->binary, sizeof(nnuuid->binary)) ||
+	   qstep_noret(q)) {
+	    msg_set_reason("Failed to clean up the list of faulty nodes");
+	ret = FAIL_EINTERNAL;
+	goto replace_add_fail;
+	}
     }
+    qnullify(q);
 
     if(qprep(h->db, &q, "INSERT OR REPLACE INTO hashfs (key, value) VALUES (:k , :v)")) {
 	msg_set_reason("Failed to save the updated distribution model");
@@ -9596,23 +9624,6 @@ rc_ty sx_hashfs_hdist_replace_add(sx_hashfs_t *h, const void *cfg, unsigned int 
 	goto replace_add_fail;
     }
 
-    faultyblb = sx_nodelist_to_blob(faulty);
-    if(!faultyblb) {
-	msg_set_reason("Failed to manage faulty nodes");
-	ret = FAIL_EINTERNAL;
-	goto replace_add_fail;
-    }
-
-    sx_blob_to_data(faultyblb, &cfg, &cfg_len);
-    sqlite3_reset(q);
-    if(qbind_text(q, ":k", "faulty_nodes") ||
-       qbind_blob(q, ":v", cfg, cfg_len) ||
-       qstep_noret(q)) {
-	msg_set_reason("Failed to save faulty nodes");
-	ret = FAIL_EINTERNAL;
-	goto replace_add_fail;
-    }
-
     if(sx_hashfs_set_rbl_info(h, 1, 0, "Updating distribution model")) {
 	ret = FAIL_EINTERNAL;
 	goto replace_add_fail;
@@ -9630,7 +9641,6 @@ rc_ty sx_hashfs_hdist_replace_add(sx_hashfs_t *h, const void *cfg, unsigned int 
     if(ret != OK)
 	qrollback(h->db);
     sx_nodelist_delete(faulty);
-    sx_blob_free(faultyblb);
     sxi_hdist_free(newmod);
 
     return ret;
