@@ -45,6 +45,7 @@
 #include "../libsx/src/jobpoll.h"
 #include "../libsx/src/vcrypto.h"
 #include "../libsx/src/misc.h"
+#include "../libsx/src/hostlist.h"
 
 #include "cmd_main.h"
 #include "cmd_node.h"
@@ -770,6 +771,8 @@ static int change_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
 static int replace_nodes(sxc_client_t *sx, struct cluster_args_info *args) {
     unsigned int i, j, query_sz, query_at, ncnodes, nnodes = args->inputs_num - 1;
     sxc_cluster_t *clust = cluster_load(sx, args);
+    sxi_conns_t *conns;
+    sxi_hostlist_t *hlist;
     sx_nodelist_t *rplnodes = NULL;
     const sx_nodelist_t *curnodes;
     char *query = NULL;
@@ -779,7 +782,8 @@ static int replace_nodes(sxc_client_t *sx, struct cluster_args_info *args) {
     if(!clust)
 	return 1;
 
-    clst = clst_query(sxi_cluster_get_conns(clust), NULL);
+    conns = sxi_cluster_get_conns(clust);
+    clst = clst_query(conns, NULL);
     if(!clst) {
 	CRIT("Failed to query cluster status");
 	goto replace_node_err;
@@ -793,6 +797,11 @@ static int replace_nodes(sxc_client_t *sx, struct cluster_args_info *args) {
     curnodes = clst_nodes(clst, 0);
     if(!curnodes || !(ncnodes = sx_nodelist_count(curnodes))) {
 	CRIT("Failed to determine the current cluster members");
+	goto replace_node_err;
+    }
+
+    if(nnodes >= ncnodes) {
+	CRIT("Number of faulty nodes must be lower than number of cluster members");
 	goto replace_node_err;
     }
 
@@ -911,10 +920,28 @@ static int replace_nodes(sxc_client_t *sx, struct cluster_args_info *args) {
     }
     strcat(query, "]}"); /* Always fits due to need above */
 
-    if(sxi_job_submit_and_poll(sxi_cluster_get_conns(clust), NULL, REQ_PUT, ".nodes?replace", query, strlen(query))) {
+    hlist = sxi_conns_get_hostlist(conns);
+    sxi_hostlist_empty(hlist);
+    for(i = 0; i < ncnodes; i++) {
+	const sx_node_t *cn = sx_nodelist_get(curnodes, i);
+	if(!sx_nodelist_lookup(rplnodes, sx_node_uuid(cn)) && sxi_hostlist_add_host(sx, hlist, sx_node_internal_addr(cn))) {
+	    CRIT("Cannot update list of nodes: %s", sxc_geterrmsg(sx));
+	    goto replace_node_err;
+	}
+    }
+    if(!sxi_hostlist_get_count(hlist)) {
+	CRIT("Failed to update list of nodes");
+	goto replace_node_err;
+    }
+
+    if(sxi_job_submit_and_poll(conns, NULL, REQ_PUT, ".nodes?replace", query, strlen(query))) {
 	CRIT("The replace nodes request failed: %s", sxc_geterrmsg(sx));
 	goto replace_node_err;
     }
+
+    if(sxc_cluster_fetchnodes(clust) ||
+       sxc_cluster_save(clust, args->config_dir_arg))
+	WARN("Cannot update local cluster configuration: %s", sxc_geterrmsg(sx));
 
     ret = 0;
 
