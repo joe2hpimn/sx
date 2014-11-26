@@ -29,6 +29,7 @@
 #include <libgen.h>
 #include <dirent.h>
 #include <curl/curl.h>
+#include <fnmatch.h>
 
 #include "sx.h"
 #include "misc.h"
@@ -246,6 +247,89 @@ static int skip_xfer(sxc_cluster_t *cluster, int64_t bytes) {
 #define cluster_err(...) sxi_seterr(sxi_cluster_get_client(cluster), __VA_ARGS__)
 #define cluster_syserr(...) sxi_setsyserr(sxi_cluster_get_client(cluster), __VA_ARGS__)
 
+struct _sxc_exclude_t {
+    unsigned int n; /* Number of patterns */
+    char **pattern; /* Array of patterns */
+    int mode; /* Set SXC_EXCLUDE for excludes and SXC_INCLUDE for includes */
+};
+
+/* Fill sxc_exclude_t structure */
+sxc_exclude_t *sxc_exclude_init(sxc_client_t *sx, const char **patterns, unsigned int npatterns, int mode) {
+    sxc_exclude_t *ret = NULL, *e;
+    unsigned int i;
+
+    if(!patterns) {
+        sxi_seterr(sx, SXE_EARG, "NULL argument");
+        return NULL;
+    }
+
+    e = malloc(sizeof(*e));
+    if(!e) {
+        sxi_seterr(sx, SXE_EMEM, "Could not allocate memory");
+        return NULL;
+    }
+    e->n = npatterns;
+    e->mode = mode;
+
+    e->pattern = calloc(1, sizeof(char*) * npatterns);
+    if(!e->pattern) {
+        sxi_seterr(sx, SXE_EMEM, "Could not allocate memory");
+        goto sxc_exclude_init_err;
+    }
+
+    for(i = 0; i < npatterns; i++) {
+        if(!patterns[i]) {
+            sxi_seterr(sx, SXE_EARG, "Invalid argument: NULL pattern");
+            goto sxc_exclude_init_err;
+        }
+
+        if(!(e->pattern[i] = strdup(patterns[i]))) {
+            sxi_seterr(sx, SXE_EMEM, "Could not allocate memory");
+            goto sxc_exclude_init_err;
+        }
+    }
+
+    ret = e;
+sxc_exclude_init_err:
+    if(!ret)
+        sxc_exclude_delete(e);
+    return ret;
+}
+
+void sxc_exclude_delete(sxc_exclude_t *e) {
+    unsigned int i;
+
+    if(!e)
+        return;
+
+    for(i = 0; i < e->n; i++)
+        free(e->pattern[i]);
+    free(e->pattern);
+    free(e);
+}
+
+/* Return 1 if file should be excluded, 0 if not, -1 if error occured.
+ * When NULL is passed as exclude argument 0 is returned. */
+static int is_excluded(sxc_client_t *sx, const char *path, const sxc_exclude_t *exclude) {
+    unsigned int i;
+
+    if(!path) {
+        sxi_seterr(sx, SXE_EARG, "NULL argument");
+        return -1;
+    }
+
+    if(!exclude) /* If no patterns given, skip checking */
+        return 0;
+ 
+    /* Iterate over given patterns */
+    for(i = 0; i < exclude->n; i++) {
+        if(!fnmatch(exclude->pattern[i], path, 0))
+            return exclude->mode == SXC_EXCLUDE ? 1 : 0;
+    }
+
+    return exclude->mode == SXC_EXCLUDE ? 0 : 1;
+}
+
 static int is_remote(sxc_file_t *f) {
     return f->cluster != NULL;
 }
@@ -420,10 +504,17 @@ void sxc_file_free(sxc_file_t *sxfile) {
     free(sxfile);
 }
 
-static int file_to_file(sxc_client_t *sx, const char *source, const char *dest)
+static int file_to_file(sxc_client_t *sx, const char *source, const char *dest, const sxc_exclude_t *exclude)
 {
     char buf[8192];
     FILE *f, *d;
+    int r;
+
+    if((r = is_excluded(sx, source, exclude)) > 0) {
+        sxi_info(sx, "Skipping file: %s", source);
+        return 0;
+    } else if(r < 0)
+        return 1;
 
     if(!(f = fopen(source, "rb"))) {
 	SXDEBUG("failed to open source file %s", source);
@@ -465,7 +556,7 @@ static int file_to_file(sxc_client_t *sx, const char *source, const char *dest)
 }
 
 static int cat_local_file(sxc_file_t *source, int dest);
-static int local_to_local(sxc_file_t *source, sxc_file_t *dest) {
+static int local_to_local(sxc_file_t *source, sxc_file_t *dest, const sxc_exclude_t *exclude) {
     if (strcmp(dest->origpath, dest->path)) {
         /* dest is a dir, we must only mkdir exactly the given dest, not
          * subdirs */
@@ -474,7 +565,7 @@ static int local_to_local(sxc_file_t *source, sxc_file_t *dest) {
             return -1;
         }
     }
-    return file_to_file(source->sx, source->path, dest->path);
+    return file_to_file(source->sx, source->path, dest->path, exclude);
 }
 
 static int load_hosts_for_hash(sxc_client_t *sx, FILE *f, const char *hash, sxi_hostlist_t *host_list, sxi_ht *host_table) {
@@ -2118,7 +2209,7 @@ static int local_to_remote(sxc_file_t *source, sxc_meta_t *fmeta, sxc_file_t *de
     return sxi_jobs_wait_one(dest, dest->job);
 }
 
-static int local_to_remote_iterate(sxc_file_t *source, int recursive, int depth, int onefs, int ignore_errors, sxc_file_t *dest)
+static int local_to_remote_iterate(sxc_file_t *source, int recursive, int depth, int onefs, int ignore_errors, sxc_file_t *dest, const sxc_exclude_t *exclude)
 {
     struct dirent *entry;
     sxc_client_t *sx = source->sx;
@@ -2126,7 +2217,7 @@ static int local_to_remote_iterate(sxc_file_t *source, int recursive, int depth,
     unsigned n, n2;
     char *path = NULL, *destpath = NULL;
     struct stat sb;
-    int ret = 0, qret = -1;
+    int ret = 0, qret = -1, r;
     sxc_meta_t *emptymeta = sxc_meta_new(sx);
     dev_t sdev;
 
@@ -2142,6 +2233,15 @@ static int local_to_remote_iterate(sxc_file_t *source, int recursive, int depth,
     sdev = sb.st_dev;
 
     if (!recursive || !S_ISDIR(sb.st_mode)) {
+        if((r = is_excluded(sx, source->path, exclude)) > 0) {
+            sxi_info(sx, "Skipping file: %s", source->path);
+            sxc_meta_free(emptymeta);
+            return 0;
+        } else if(r < 0) {
+            sxc_meta_free(emptymeta);
+            return r;
+        }
+
 	ret = local_to_remote(source, emptymeta, dest);
 	sxc_meta_free(emptymeta);
         if (ret)
@@ -2200,7 +2300,7 @@ static int local_to_remote_iterate(sxc_file_t *source, int recursive, int depth,
                  ends_with(dest->path, '/') ? "" : "/",
                  entry->d_name);
         if (S_ISDIR(sb.st_mode)) {
-            if ((qret = local_to_remote_iterate(src, 1, depth+1, onefs, ignore_errors, dst))) {
+            if ((qret = local_to_remote_iterate(src, 1, depth+1, onefs, ignore_errors, dst, exclude))) {
                 SXDEBUG("failure in directory: %s", destpath);
                 if (qret == 403 || qret == 404 || qret == 413) {
                     ret = qret;
@@ -2213,6 +2313,14 @@ static int local_to_remote_iterate(sxc_file_t *source, int recursive, int depth,
             dest->jobs = dst->jobs;
         }
         else if (S_ISREG(sb.st_mode)) {
+            if((r = is_excluded(sx, src->path, exclude)) > 0) {
+                sxi_info(sx, "Skipping file: %s", src->path);
+                sxc_file_free(src);
+                sxc_file_free(dst);
+                src = dst = NULL;
+                continue;
+            } else if(r < 0)
+                break;
             SXDEBUG("Starting to upload %s", src->path);
             if ((qret = local_to_remote_begin(src, emptymeta, dst, 1)) != 0) {
                 sxi_notice(sx, "%s: %s", src->path, sxc_geterrmsg(sx));
@@ -3852,7 +3960,7 @@ static int remote_to_local(sxc_file_t *source, sxc_file_t *dest, int recursive) 
 	    }
 	} else {
             /* FIXME: this doesn't preserve attributes */
-	    if(file_to_file(sx, tempfilter, dest->path))
+	    if(file_to_file(sx, tempfilter, dest->path, NULL))
 		goto remote_to_local_err;
 	    unlink(tempfilter);
 	}
@@ -4335,8 +4443,8 @@ static int mkdir_parents(sxc_client_t *sx, const char *path)
     return ret;
 }
 
-static int remote_iterate(sxc_file_t *source, int recursive, int onefs, int ignore_errors, sxc_file_t *dest);
-int sxc_copy(sxc_file_t *source, sxc_file_t *dest, int recursive, int onefs, int ignore_errors) {
+static int remote_iterate(sxc_file_t *source, int recursive, int onefs, int ignore_errors, sxc_file_t *dest, const sxc_exclude_t *exclude);
+int sxc_copy(sxc_file_t *source, sxc_file_t *dest, int recursive, int onefs, int ignore_errors, const sxc_exclude_t *exclude) {
     int ret;
     sxc_xfer_stat_t *xfer_stat = NULL;
     sxc_cluster_t *remote_cluster = NULL;
@@ -4353,7 +4461,7 @@ int sxc_copy(sxc_file_t *source, sxc_file_t *dest, int recursive, int onefs, int
             } else {
                 ret = maybe_append_path(dest, source, 0);
                 if (!ret)
-                    ret = local_to_local(source, dest);
+                    ret = local_to_local(source, dest, exclude);
                 if (restore_path(dest))
                     ret = 1;
             }
@@ -4363,10 +4471,10 @@ int sxc_copy(sxc_file_t *source, sxc_file_t *dest, int recursive, int onefs, int
                 sxi_setsyserr(source->sx, SXE_EMEM, "Cannot dup path");
                 ret = 1;
             } else 
-                ret = local_to_remote_iterate(source, recursive, 0, onefs, ignore_errors, dest);
+                ret = local_to_remote_iterate(source, recursive, 0, onefs, ignore_errors, dest, exclude);
         }
     } else {
-        ret = remote_iterate(source, recursive, onefs, ignore_errors, dest);
+        ret = remote_iterate(source, recursive, onefs, ignore_errors, dest, exclude);
     }
     source->rev = rev;
 
@@ -4578,7 +4686,7 @@ int sxc_cat(sxc_file_t *source, int dest) {
         sxi_seterr(source->sx, SXE_EARG, "Cannot write to stdin");
         rc = 1;
     } else
-        rc = sxc_copy(source, destfile, 0, 0, 0);
+        rc = sxc_copy(source, destfile, 0, 0, 0, NULL);
     sxc_file_free(destfile);
     return rc;
 }
@@ -5016,7 +5124,7 @@ static int is_single_file_match(const char *pattern, unsigned pattern_slashes, c
         (!ends_with(pattern, '/') || ends_with(filename, '/'));
 }
 
-static int sxi_file_list_foreach(sxc_file_list_t *target, sxc_cluster_t *wait_cluster, multi_cb_t multi_cb, file_list_cb_t cb, int need_locate, int ignore_errors, void *ctx)
+static int sxi_file_list_foreach(sxc_file_list_t *target, sxc_cluster_t *wait_cluster, multi_cb_t multi_cb, file_list_cb_t cb, int need_locate, int ignore_errors, void *ctx, const sxc_exclude_t *exclude)
 {
     sxc_cluster_t *cluster;
     sxi_job_t *job;
@@ -5101,8 +5209,13 @@ static int sxi_file_list_foreach(sxc_file_list_t *target, sxc_cluster_t *wait_cl
 	    sxc_meta_free(vmeta);
 
             if (!entry->glob) {
-                job = sxi_file_list_process(target, pattern, cluster, cb, volhosts, pattern->volume, pattern->path, ctx, fh, ignore_errors);
-                rc = sxi_jobs_add(target->sx, &target->jobs, job);
+                if(!(rc = is_excluded(target->sx, pattern->path, exclude))) {
+                    job = sxi_file_list_process(target, pattern, cluster, cb, volhosts, pattern->volume, pattern->path, ctx, fh, ignore_errors);
+                    rc = sxi_jobs_add(target->sx, &target->jobs, job);
+                } else if(rc > 0) {
+                    rc = 0;
+                    sxi_info(target->sx, "Skipping file: %s", pattern->path);
+                }
                 break;
             }
             /* glob */
@@ -5146,8 +5259,13 @@ static int sxi_file_list_foreach(sxc_file_list_t *target, sxc_cluster_t *wait_cl
                     sxi_notice(target->sx, "Omitting (file in) directory: %s", filename);
                 } else {
                     CFGDEBUG("Processing file '%s/%s'", pattern->volume, filename);
-                    job = sxi_file_list_process(target, pattern, cluster, cb, volhosts, pattern->volume, filename, ctx, fh, ignore_errors);
-                    rc = sxi_jobs_add(target->sx, &target->jobs, job);
+                    if(!(rc = is_excluded(target->sx, filename, exclude))) {
+                        job = sxi_file_list_process(target, pattern, cluster, cb, volhosts, pattern->volume, filename, ctx, fh, ignore_errors);
+                        rc = sxi_jobs_add(target->sx, &target->jobs, job);
+                    } else if(rc > 0) {
+                        sxi_info(target->sx, "Skipping file: %s", filename);
+                        rc = 0;
+                    }
                 }
                 free(filename);
                 filename = NULL;
@@ -5214,7 +5332,7 @@ int sxc_rm(sxc_file_list_t *target) {
     if (!target)
         return -1;
     sxc_clearerr(target->sx);
-    return sxi_file_list_foreach(target, target->cluster, NULL, sxi_rm_cb, 1, 0, NULL);
+    return sxi_file_list_foreach(target, target->cluster, NULL, sxi_rm_cb, 1, 0, NULL, NULL);
 }
 
 struct remote_iter {
@@ -5306,7 +5424,7 @@ static int multi_cb(sxc_file_list_t *target, void *ctx)
     return sxc_file_require_dir(dest);
 }
 
-static int remote_iterate(sxc_file_t *source, int recursive, int onefs, int ignore_errors, sxc_file_t *dest)
+static int remote_iterate(sxc_file_t *source, int recursive, int onefs, int ignore_errors, sxc_file_t *dest, const sxc_exclude_t *exclude)
 {
     sxc_file_list_t *lst;
     int ret;
@@ -5322,7 +5440,7 @@ static int remote_iterate(sxc_file_t *source, int recursive, int onefs, int igno
     if (sxc_file_list_add(lst, source, 1)) {
         ret = -1;
     } else {
-        ret = sxi_file_list_foreach(lst, dest->cluster, multi_cb, remote_copy_cb, 0, ignore_errors, &it);
+        ret = sxi_file_list_foreach(lst, dest->cluster, multi_cb, remote_copy_cb, 0, ignore_errors, &it, exclude);
         if (!ret) {
             /* create dest dir if successful list of empty volume */
             if (!is_remote(dest) && recursive && mkdir(dest->path, 0777) == -1 && errno != EEXIST) {

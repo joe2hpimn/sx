@@ -257,7 +257,14 @@ const char *sxc_file_get_path(sxc_file_t *file);
 int sxc_file_set_path(sxc_file_t *file, const char *newpath);
 void sxc_file_free(sxc_file_t *sxfile);
 
-int sxc_copy(sxc_file_t *source, sxc_file_t *dest, int recursive, int onefs, int ignore_errors);
+#define SXC_EXCLUDE     0
+#define SXC_INCLUDE     1
+typedef struct _sxc_exclude_t sxc_exclude_t;
+/* Fill sxc_exlude_t structure */
+sxc_exclude_t *sxc_exclude_init(sxc_client_t *sx, const char **patterns, unsigned int npatterns, int mode);
+void sxc_exclude_delete(sxc_exclude_t *e);
+
+int sxc_copy(sxc_file_t *source, sxc_file_t *dest, int recursive, int onefs, int ignore_errors, const sxc_exclude_t *exclude);
 int sxc_copy_sxfile(sxc_file_t *source, sxc_file_t *dest);
 int sxc_cat(sxc_file_t *source, int dest);
 

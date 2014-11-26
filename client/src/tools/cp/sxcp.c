@@ -639,13 +639,15 @@ static int process_bandwidth_arg(const char *str) {
 }
 
 int main(int argc, char **argv) {
-    int ret = 1, i, skipped = 0;
+    int ret = 1, skipped = 0;
+    unsigned int i;
     sxc_file_t *src_file = NULL, *dst_file = NULL;
     const char *fname;
     char *filter_dir;
     sxc_logger_t log;
     sxc_cluster_t *cluster1 = NULL, *cluster2 = NULL;
     int64_t limit = 0;
+    sxc_exclude_t *exclude = NULL;
 
     if(cmdline_parser(argc, argv, &args))
 	exit(1);
@@ -752,6 +754,23 @@ int main(int argc, char **argv) {
         goto main_err;
     }
 
+    if(args.exclude_given && args.include_given) {
+        fprintf(stderr, "ERROR: Cannot use --exclude and --include at the same time\n");
+        goto main_err;
+    }
+
+    if(args.exclude_given) {
+        if(!(exclude = sxc_exclude_init(sx, (const char**)args.exclude_arg, args.exclude_given, SXC_EXCLUDE))) {
+            fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
+            goto main_err;
+        }
+    } else if(args.include_given) {
+        if(!(exclude = sxc_exclude_init(sx, (const char**)args.include_arg, args.include_given, SXC_INCLUDE))) {
+            fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
+            goto main_err;
+        }
+    }
+
     for(i = 0;i < args.inputs_num-1; i++) {
         fname = args.inputs[i];
         if(!strcmp(fname, "-")) {
@@ -815,7 +834,7 @@ int main(int argc, char **argv) {
         
         /* TODO: more than one input requires directory as target,
          * and do the filename appending if target *is* a directory */
-        if(sxc_copy(src_file, dst_file, args.recursive_flag, args.one_file_system_flag, args.ignore_errors_flag)) {
+        if(sxc_copy(src_file, dst_file, args.recursive_flag, args.one_file_system_flag, args.ignore_errors_flag, exclude)) {
             fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
 	    if((cluster1 || cluster2) && strstr(sxc_geterrmsg(sx), SXBC_TOOLS_VOL_ERR))
 		fprintf(stderr, SXBC_TOOLS_VOL_MSG, "", "", cluster1 ? sxc_cluster_get_sslname(cluster1) : sxc_cluster_get_sslname(cluster2));
@@ -835,7 +854,7 @@ int main(int argc, char **argv) {
 
  main_err:
     bar_free();
-
+    sxc_exclude_delete(exclude);
     sxc_file_free(src_file);
     sxc_file_free(dst_file);
 
