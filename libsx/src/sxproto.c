@@ -453,7 +453,6 @@ int sxi_hashop_generate_id(sxc_client_t *sx, hashop_kind_t kind,
                            const void *local, unsigned local_size, sx_hash_t *id)
 {
     sxi_md_ctx *hash_ctx;
-    sx_hash_t hash;
 
     if (!sx)
         return 1;
@@ -475,7 +474,7 @@ int sxi_hashop_generate_id(sxc_client_t *sx, hashop_kind_t kind,
     if (!sxi_sha1_update(hash_ctx, &kind, sizeof(kind)) ||
         (global && !sxi_sha1_update(hash_ctx, global, global_size)) ||
         (local && !sxi_sha1_update(hash_ctx, local, local_size)) ||
-        !sxi_sha1_final(hash_ctx, hash.b, NULL)) {
+        !sxi_sha1_final(hash_ctx, id->b, NULL)) {
         return 1;
     }
 
