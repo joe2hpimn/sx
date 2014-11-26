@@ -3759,15 +3759,18 @@ static act_result_t replacefiles_request(sx_hashfs_t *hashfs, job_t job_id, job_
 	if(ctx->state == RPL_END) {
 	    if(sx_hashfs_replace_setlastfile(hashfs, ctx->volume, NULL, NULL))
 		WARN("Replace setlastfile failed");
+	    else
+		INFO("Replacement of volume %s completed", ctx->volume);
 	} else if(ctx->ngood) {
 	    if(sx_hashfs_replace_setlastfile(hashfs, ctx->volume, ctx->file, ctx->rev))
 		WARN("Replace setlastfile failed");
 	}
-    } else if(s != ITER_NO_MORE)
+    } else if(s == ITER_NO_MORE) {
+	succeeded[0] = 1;
+	ret = ACT_RESULT_OK;
+    } else
 	action_error(rc2actres(s), rc2http(s), msg_get_reason());
 
-    succeeded[0] = 1;
-    ret = ACT_RESULT_OK;
 
  action_failed:
     sxi_hostlist_empty(&hlist);
