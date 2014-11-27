@@ -166,7 +166,7 @@ check_port() {
     fi
     printf "Checking port $PORT on $IP ... "
     nstat="`netstat $FLAGS -na 2>/dev/null | 
-    grep "tcp.*\($IP\|0.0.0.0\|::\|*\)[:.]$PORT[ \t].*LISTEN" |
+    grep \"tcp.*\($IP\|0.0.0.0\|::\|*\)[:.]$PORT[ \t].*LISTEN\" |
     sed 's/\/.*//g'`"
     if [ -n "$nstat" ]; then
 	echo
@@ -358,13 +358,13 @@ ask_questions() {
 		    SX_ADMIN_KEY=
 		    continue
 		elif [ -r "$SX_ADMIN_KEY" ]; then 
-		    if [ -z "`cat $SX_ADMIN_KEY | grep "0DPiKuNIrrVmD8IUCuw1hQxNqZ"`" ]; then
+		    if [ -z "`cat $SX_ADMIN_KEY | grep '0DPiKuNIrrVmD8IUCuw1hQxNqZ'`" ]; then
 			echo "$SX_ADMIN_KEY doesn't contain a valid admin key"
 			SX_ADMIN_KEY=
 			continue
 		    fi
 		    SX_ADMIN_KEY=`cat $SX_ADMIN_KEY`
-		elif [ -z "`echo $SX_ADMIN_KEY | grep "0DPiKuNIrrVmD8IUCuw1hQxNqZ"`" ]; then
+		elif [ -z "`echo $SX_ADMIN_KEY | grep '0DPiKuNIrrVmD8IUCuw1hQxNqZ'`" ]; then
 		    echo "'$SX_ADMIN_KEY' is not a valid admin key"
 		    SX_ADMIN_KEY=
 		    continue
@@ -466,14 +466,14 @@ EOF
 				continue
 			    fi
 			else
-			    cp "`cat "$SSLKEY_TMP"`" "$SX_SSL_KEY_FILE"
+			    cp "`cat \"$SSLKEY_TMP\"`" "$SX_SSL_KEY_FILE"
 			fi
 		    fi
 		    rm -f $SSLKEY_TMP
 
 		    GOTSRVCERT=0
 		    if [ -n "$SX_EXISTING_NODE_IP" ]; then
-			SRVCERT="`echo "HEAD / HTTP/1.0\n Host: $SX_EXISTING_NODE_IP:$SX_PORT\n\n EOT\n" | openssl s_client -connect $SX_EXISTING_NODE_IP:$SX_PORT -prexit 2>/dev/null`"
+			SRVCERT="`echo \"HEAD / HTTP/1.0\n Host: $SX_EXISTING_NODE_IP:$SX_PORT\n\n EOT\n\" | openssl s_client -connect $SX_EXISTING_NODE_IP:$SX_PORT -prexit 2>/dev/null`"
 			if [ $? = 0 ]; then
 			    echo "$SRVCERT" | openssl x509 > "$SSLCERT_TMP"
 			    if [ $? = 0 ]; then
@@ -500,7 +500,7 @@ EOF
 				    continue
 				fi
 			    else
-				cp "`cat "$SSLCERT_TMP"`" "$SX_SSL_CERT_FILE"
+				cp "`cat \"$SSLCERT_TMP\"`" "$SX_SSL_CERT_FILE"
 			    fi
 			fi
 			rm -f $SSLCERT_TMP
@@ -593,7 +593,7 @@ if [ "$CONFIG_FILE_GIVEN" = "yes" ]; then
     fi
 
     test -r "$SX_ADMIN_KEY" && SX_ADMIN_KEY=`cat $SX_ADMIN_KEY`
-    if [ -n "$SX_ADMIN_KEY" -a -z "`echo $SX_ADMIN_KEY | grep "0DPiKuNIrrVmD8IUCuw1hQxNqZ"`" ]; then
+    if [ -n "$SX_ADMIN_KEY" -a -z "`echo $SX_ADMIN_KEY | grep '0DPiKuNIrrVmD8IUCuw1hQxNqZ'`" ]; then
 	echo "ERROR: SX_ADMIN_KEY doesn't specify a valid admin key"
 	exit 1
     fi
@@ -741,7 +741,7 @@ fi
 cp "$ETCDIR/sxserver/sxhttpd.conf.default" "$ETCDIR/sxserver/sxhttpd.conf"
 
 if [ -n "$SX_EXISTING_NODE_IP" -a -n "$SXCLUSTERKEY" ]; then
-    if [ -z "`echo $SXCLUSTERKEY | grep "CLUSTER/ALLNODE/ROOT/"`" ]; then
+    if [ -z "`echo $SXCLUSTERKEY | grep 'CLUSTER/ALLNODE/ROOT/'`" ]; then
         # key file
         if [ -r "$SXCLUSTERKEY" ]; then
             # Save only if it is a file
@@ -751,7 +751,7 @@ if [ -n "$SX_EXISTING_NODE_IP" -a -n "$SXCLUSTERKEY" ]; then
             echo "Can't read key file $SXCLUSTERKEY"
             exit 1
         fi
-        if [ -z "`echo $SXCLUSTERKEY | grep "CLUSTER/ALLNODE/ROOT/"`" ]; then
+        if [ -z "`echo $SXCLUSTERKEY | grep 'CLUSTER/ALLNODE/ROOT/'`" ]; then
             echo "'$SXCLUSTERKEY' is not a valid key or key file"
             exit 1
         fi
@@ -876,7 +876,7 @@ if [ ! -f "$SX_DATA_DIR/hashfs.db" ]; then
 	fi
 	echo "SX_ADMIN_KEY=\"$SX_ADMIN_KEY\"" >> "$CONFIG"
 	CLUSTKEY=`cat $OUT_TMP | grep "Cluster authentication token: " | cut -d\  -f4`
-	if [ -z "$CLUSTKEY" -o -z "`echo $CLUSTKEY | grep "CLUSTER/ALLNODE/ROOT/"`" ]; then
+	if [ -z "$CLUSTKEY" -o -z "`echo $CLUSTKEY | grep 'CLUSTER/ALLNODE/ROOT/'`" ]; then
 	    echo "Failed to obtain the cluster key."
 	    exit 1
 	fi
@@ -929,7 +929,7 @@ if [ ! -f "$SX_DATA_DIR/hashfs.db" ]; then
 		"@sbindir@/sxserver" stop
 		exit 1
 	    fi
-	    if [ -n "`cat $OUT_TMP | grep "Target configuration"`" ]; then
+	    if [ -n "`cat $OUT_TMP | grep 'Target configuration'`" ]; then
 		if [ $REBCNT -gt 10 ]; then
 		    echo "Failed to add the new node to the cluster, which is currently being rebalanced."
 		    echo "The rebalance process can take a long time, please try again later."
@@ -953,7 +953,7 @@ if [ ! -f "$SX_DATA_DIR/hashfs.db" ]; then
 	    "@sbindir@/sxadm" cluster --mod $SXDIST "sx://admin@$SX_CLUSTER_NAME" 2>$OUT_TMP
 	    )
 	    test $? = 0 && break
-	    if [ -n "`grep "temporarily locked" $OUT_TMP`" -a $MODCNT -le 10 ]; then
+	    if [ -n "`grep 'temporarily locked' $OUT_TMP`" -a $MODCNT -le 10 ]; then
 		echo "Cluster busy... retrying in 60 seconds (attempt $MODCNT of 10)."
 		MODCNT=`expr $MODCNT + 1`
 		sleep 60
@@ -973,7 +973,7 @@ if [ ! -f "$SX_DATA_DIR/hashfs.db" ]; then
 		    sleep 1
 		    continue
 		fi
-		if [ -n "`cat $OUT_TMP | grep "Target configuration"`" ]; then
+		if [ -n "`cat $OUT_TMP | grep 'Target configuration'`" ]; then
 		    sleep 1
 		    continue
 		else
