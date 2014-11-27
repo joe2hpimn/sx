@@ -80,6 +80,7 @@ while [ $i -le $N ]; do
     SX_ADMIN_KEY="$ADMIN_KEY"
     SX_SSL_KEY_FILE=`pwd`/test/keys/cluster1.key
     SX_SSL_CERT_FILE=`pwd`/test/keys/cluster1.pem
+    SX_CHILDREN_NUM=4
 EOF
     if [ $i -gt 1 ]; then
 	echo "SX_EXISTING_NODE_IP=\"127.0.1.1\"" >> $CONF_TMP
@@ -99,6 +100,8 @@ while [ $i -le $N ]; do
 done
 rm -rf $HOME/.sx/$CLUSTER_NAME # avoid sxinit bugs
 echo "$ADMIN_KEY" | ../client/src/tools/init/sxinit --port "$SX_PORT" --batch --host-list=$list sx://localhost
+
+exit 0
 test/valgrind-tests.sh
 i=1
 while [ $i -le $N ]; do
