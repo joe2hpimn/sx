@@ -2400,8 +2400,6 @@ static int check_volume(sx_hashfs_t *h, int debug, const sx_hashfs_volume_t *vol
     }
 
     CHECK_PGRS;
-    if(sx_hashfs_check_volume_settings(h, vol->name, vol->size, vol->replica_count, vol->revisions) != OK)
-        CHECK_ERROR("Bad volume %s settings: %s", vol->name, msg_get_reason());
 
     /* If this volume is mine, sum up all stored files and check if they match vol->cursize field */
     if(sx_hashfs_is_or_was_my_volume(h, vol)) {
@@ -2540,7 +2538,6 @@ static int check_files(sx_hashfs_t *h, int debug) {
 
     for(i=0; i<METADBS; i++) {
         sqlite3_stmt *list = NULL;
-        int fail = 1;
         int rows = 0;
 
         if(qprep(h->metadb[i], &list, "SELECT fid, volume_id, name, size, content FROM files ORDER BY name ASC")) {
@@ -2565,8 +2562,10 @@ static int check_files(sx_hashfs_t *h, int debug) {
 
             if(r == SQLITE_DONE)
                 break;
-            if(r != SQLITE_ROW)
+            if(r != SQLITE_ROW) {
+                ret = -1;
                 goto check_files_itererr;
+            }
 
             CHECK_PGRS;
             row = sqlite3_column_int64(list, 0);
@@ -2578,9 +2577,9 @@ static int check_files(sx_hashfs_t *h, int debug) {
 
             size = sqlite3_column_int64(list, 3);
             hashes = sqlite3_column_blob(list, 4);
-            if(!hashes) {
-                CHECK_ERROR("Empty list of hashes for file %s", name);
-                goto check_files_itererr;
+            if(size && !hashes) {
+                CHECK_ERROR("Empty list of hashes for non-empty file %s", name);
+                continue;
             }
             listlen = sqlite3_column_bytes(list, 4);
             blocks = size_to_blocks(size, NULL, &block_size);
@@ -2607,9 +2606,10 @@ static int check_files(sx_hashfs_t *h, int debug) {
             if(debug)
                 CHECK_INFO("Checking existence of hashes for file %s: %u", name, blocks);
             r = check_file_hashes(h, debug, hashes, listlen / SXI_SHA1_BIN_LEN, block_size, vol->replica_count);
-            if(r == -1)
+            if(r == -1) {
+                ret = -1;
                 goto check_files_itererr;
-            else if(r) {
+            } else if(r) {
                 ret += r;
                 CHECK_PRINT_WARN("%d hashes were not found in database", r);
             }
@@ -2622,14 +2622,11 @@ static int check_files(sx_hashfs_t *h, int debug) {
         }
         ret += r;
 
-        fail = 0;
-
     check_files_itererr:
         sqlite3_finalize(list);
 
-        if(fail) {
+        if(ret == -1) {
             CHECK_FATAL("Verification of files in metadata database %08x aborted due to errors", i);
-            ret = -1;
             goto check_files_err;
         }
     }
