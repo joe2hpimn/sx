@@ -14,7 +14,7 @@ unset https_proxy
 
 prefix=`mktemp -d $PWD/sx-test-XXXXXXXX`
 cleanup () {
-    make -C sxscripts clean
+    (cd sxscripts && make clean)
     rm -rf $prefix
 }
 trap cleanup EXIT INT
@@ -26,8 +26,8 @@ mkdir $HOME
 mkdir -p "$prefix/bin" "$prefix/sbin" "$prefix/etc/sxserver"
 mkdir -p "$prefix/var/lib/sxserver" "$prefix/var/log/sxserver" "$prefix/var/run/sxserver"
 
-make -s -C sxscripts clean && make -s -C sxscripts prefix="$prefix" SXHTTPD="$prefix/sbin/sxhttpd" sbindir="$prefix/sbin" bindir="$prefix/bin" sysconfdir="$prefix/etc" localstatedir="$prefix/var" install
-make -s -C sxscripts clean && make -s -C sxscripts
+(cd sxscripts && make -s clean && make -s -e prefix="$prefix" SXHTTPD="$prefix/sbin/sxhttpd" sbindir="$prefix/sbin" bindir="$prefix/bin" sysconfdir="$prefix/etc" localstatedir="$prefix/var" install)
+(cd sxscripts && make -s clean && make -s)
 
 ln -s `pwd`/../client/src/tools/init/sxinit "$prefix/bin/sxinit"
 ln -s `pwd`/src/tools/sxadm/sxadm "$prefix/sbin/sxadm"
