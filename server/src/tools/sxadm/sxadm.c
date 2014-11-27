@@ -593,7 +593,7 @@ static int create_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
 
 
 
-static sxc_cluster_t *cluster_load(sxc_client_t *sx, struct cluster_args_info *args) {
+static sxc_cluster_t *cluster_load(sxc_client_t *sx, struct cluster_args_info *args, int fetch_nodes) {
     const char *uristr = args->inputs[args->inputs_num - 1];
     sxc_cluster_t *clust = NULL;
     sxc_uri_t *uri;
@@ -634,7 +634,7 @@ static sxc_cluster_t *cluster_load(sxc_client_t *sx, struct cluster_args_info *a
     /* MODHDIST: update cluster */
 
     sxc_free_uri(uri);
-    if(sxc_cluster_fetchnodes(clust)) {
+    if(fetch_nodes && sxc_cluster_fetchnodes(clust)) {
 	CRIT("%s", sxc_geterrmsg(sx));
         sxc_cluster_free(clust);
         return NULL;
@@ -714,7 +714,7 @@ static int change_commit(sxc_client_t *sx, sxc_cluster_t *clust, sx_node_t **nod
 
 static int change_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
     unsigned int i, j, nnodes = args->inputs_num - 1;
-    sxc_cluster_t *clust = cluster_load(sx, args);
+    sxc_cluster_t *clust = cluster_load(sx, args, 1);
     char *query = NULL;
     int ret = 1;
     sx_node_t **nodes;
@@ -770,22 +770,62 @@ static int change_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
 
 static int replace_nodes(sxc_client_t *sx, struct cluster_args_info *args) {
     unsigned int i, j, query_sz, query_at, ncnodes, nnodes = args->inputs_num - 1;
-    sxc_cluster_t *clust = cluster_load(sx, args);
+    sx_node_t **nodes;
+    sxc_cluster_t *clust = cluster_load(sx, args, 0);
     sxi_conns_t *conns;
     sxi_hostlist_t *hlist;
+    sxi_hostlist_t newhlist;
     sx_nodelist_t *rplnodes = NULL;
     const sx_nodelist_t *curnodes;
     char *query = NULL;
-    clst_t *clst;
+    clst_t *clst = NULL;
     int ret = 1;
 
     if(!clust)
 	return 1;
 
+    sxi_hostlist_init(&newhlist);
+    nodes = (sx_node_t **) calloc(nnodes, sizeof(sx_node_t *));
+    if(!nodes) {
+	CRIT("OOM allocating nodes");
+	return 1;
+    }
+    for(i = 0; i < nnodes; i++) {
+	nodes[i] = parse_nodef(args->inputs[i]);
+	if(!nodes[i])
+	    goto replace_node_err;
+    }
+
     conns = sxi_cluster_get_conns(clust);
+    hlist = sxi_conns_get_hostlist(conns);
+    for(i = 0; i < sxi_hostlist_get_count(hlist); i++) {
+	const char *h = sxi_hostlist_get_host(hlist, i);
+	int faulty = 0;
+	for(j = 0; j < nnodes; j++) {
+	    if(!strcmp(sx_node_addr(nodes[j]), h) || !strcmp(sx_node_internal_addr(nodes[j]), h)) {
+		faulty = 1;
+		break;
+	    }
+	}
+	if(!faulty && sxi_hostlist_add_host(sx, &newhlist, h)) {
+	    CRIT("Cannot update list of nodes: %s", sxc_geterrmsg(sx));
+	    goto replace_node_err;
+	}
+    }
+    sxi_hostlist_empty(hlist);
+    if(sxi_hostlist_add_list(sx, hlist, &newhlist)) {
+	CRIT("Cannot update list of nodes: %s", sxc_geterrmsg(sx));
+	goto replace_node_err;
+    }
+
+    if(!sxi_hostlist_get_count(hlist)) {
+	CRIT("Failed to update list of non-faulty nodes");
+	goto replace_node_err;
+    }
+
     clst = clst_query(conns, NULL);
     if(!clst) {
-	CRIT("Failed to query cluster status");
+	CRIT("Failed to query cluster status: %s", sxc_geterrmsg(sx));
 	goto replace_node_err;
     }
 
@@ -821,31 +861,26 @@ static int replace_nodes(sxc_client_t *sx, struct cluster_args_info *args) {
     query_at = strlen(query);
 
     for(i=0; i<nnodes; i++) {
-	sx_node_t *n = parse_nodef(args->inputs[i]);
+	sx_node_t *n = nodes[i];
 	const char *addr, *int_addr;
 	const sx_uuid_t *nuuid;
 	const sx_node_t *cn;
 	unsigned int need, skipme;
 	int64_t capa;
-	if(!n)
-	    goto replace_node_err;
 
 	nuuid = sx_node_uuid(n);
 	if(sx_nodelist_lookup(rplnodes, nuuid)) {
 	    CRIT("Replacement for node '%s' was specified multiple times", nuuid->string);
-	    sx_node_delete(n);
 	    goto replace_node_err;
 	}
 	cn = sx_nodelist_lookup_index(curnodes, nuuid, &skipme);
 	if(!cn) {
 	    CRIT("Node '%s' is not a current cluster memeber", nuuid->string);
-	    sx_node_delete(n);
 	    goto replace_node_err;
 	}
 	capa = sx_node_capacity(n);
 	if(sx_node_capacity(cn) != capa) {
 	    CRIT("Replacement for '%s' should have a capacity of exactly %lld bytes", nuuid->string, (long long)capa);
-	    sx_node_delete(n);
 	    goto replace_node_err;
 	}
 	addr = sx_node_addr(n);
@@ -864,10 +899,8 @@ static int replace_nodes(sxc_client_t *sx, struct cluster_args_info *args) {
 		break;
 	    }
 	}
-	if(j < ncnodes) {
-	    sx_node_delete(n);
+	if(j < ncnodes)
 	    goto replace_node_err;
-	}
 
 	for(j = 0; j < sx_nodelist_count(rplnodes); j++) {
 	    cn = sx_nodelist_get(rplnodes, j);
@@ -880,14 +913,14 @@ static int replace_nodes(sxc_client_t *sx, struct cluster_args_info *args) {
 		break;
 	    }
 	}
-	if(j < sx_nodelist_count(rplnodes)) {
-	    sx_node_delete(n);
+	if(j < sx_nodelist_count(rplnodes))
 	    goto replace_node_err;
-	}
+
 	if(sx_nodelist_add(rplnodes, n)) {
 	    CRIT("Out of memory generating list of replacement nodes");
 	    goto replace_node_err;
 	}
+	nodes[i] = NULL;
 
 	if(!strcmp(int_addr, addr))
 	    int_addr = NULL;
@@ -946,7 +979,11 @@ static int replace_nodes(sxc_client_t *sx, struct cluster_args_info *args) {
     ret = 0;
 
  replace_node_err:
+    for(i = 0; i < nnodes; i++)
+	sx_node_delete(nodes[i]);
+    free(nodes);
     free(query);
+    sxi_hostlist_empty(&newhlist);
     sx_nodelist_delete(rplnodes);
     clst_destroy(clst);
     sxc_cluster_free(clust);
@@ -1016,7 +1053,7 @@ static int info_node(sxc_client_t *sx, const char *path)
 static int force_gc_cluster(sxc_client_t *sx, struct cluster_args_info *args, int delete_reservations)
 {
     int ret;
-    sxc_cluster_t *clust = cluster_load(sx, args);
+    sxc_cluster_t *clust = cluster_load(sx, args, 1);
     if(!clust)
 	return 1;
     ret = sxc_cluster_trigger_gc(clust, delete_reservations);
@@ -1047,7 +1084,7 @@ void print_dist(const sx_nodelist_t *nodes) {
 }
 
 static int info_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
-    sxc_cluster_t *clust = cluster_load(sx, args);
+    sxc_cluster_t *clust = cluster_load(sx, args, 1);
     clst_t *clst;
 
     if(!clust)
@@ -1088,7 +1125,7 @@ static int info_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
 }
 
 static int resize_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
-    sxc_cluster_t *clust = cluster_load(sx, args);
+    sxc_cluster_t *clust = cluster_load(sx, args, 1);
     clst_t *clst = NULL;
     sx_node_t **nodes = NULL;
     unsigned int nnodes = 0;
