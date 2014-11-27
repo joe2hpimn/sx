@@ -117,6 +117,7 @@ static void free_cluster(struct sxcluster *cluster)
     sxi_hdist_free(cluster->hdist);
 }
 
+/*
 static int save_cluster(const struct sxcluster *cluster, const char *file)
 {
 	int fd;
@@ -296,6 +297,7 @@ load_err:
 	free_cluster(cluster);
     return ret;
 }
+*/
 
 static int dump_cluster(struct sxcluster *cluster, FILE *file)
 {
@@ -1066,9 +1068,6 @@ static int runcmd(struct sxcluster *cluster, int mode, char *line)
 	printf("\n");
 	if(mode == IA)
 	printf("  store		-> store data from PATH with optional replica count N\n");
-	if(mode == IA)
-	printf("  load		-> load cluster data from file\n");
-	printf("  save		-> save cluster data to file\n");
 	printf("  dump		-> dump cluster content to file in CSV format\n");
 	printf("  savecmds	-> save commands executed in this session to file\n");
 	if(mode == IA)
@@ -1252,6 +1251,7 @@ static int runcmd(struct sxcluster *cluster, int mode, char *line)
 	if(process_data(cluster, path, replica_count, IA) == -2)
 	    printf("Not enough space - please add more space/nodes and try again\n");
 
+/*
     } else if(mode == IA && !strncmp(line, "load", 4)) {
 	    struct sxcluster newcluster;
 
@@ -1265,13 +1265,13 @@ static int runcmd(struct sxcluster *cluster, int mode, char *line)
 	    memcpy(cluster, &newcluster, sizeof(newcluster));
 	    printf("Cluster data loaded from '%s'\n", &line[5]);
 	}
-
+*/
     } else if(!strncmp(line, "savecmds", 8)) {
 	if(strlen(line) < 10)
 	    printf("Usage: savecmds FILE\n");
 	else
 	    savecmds(cluster, &line[9]);
-
+/*
     } else if(!strncmp(line, "save", 4)) {
 	if(strlen(line) < 6)
 	    printf("Usage: save FILE\n");
@@ -1283,7 +1283,7 @@ static int runcmd(struct sxcluster *cluster, int mode, char *line)
 		save_cluster(cluster, &line[5]);
 	    }
 	}
-
+*/
     } else if(!strncmp(line, "dump", 4)) {
 	if(strlen(line) < 6) {
 	    printf("Usage: dump FILE/-\n");
@@ -1726,16 +1726,18 @@ int main(int argc, char **argv)
     memset(&cluster, 0, sizeof(cluster));
 
     if(args.dump_cluster_given) {
+	/*
 	if(load_cluster(&cluster, args.dump_cluster_arg))
 	    shutdown(&cluster, 1);
+	*/
 	ret = dump_cluster(&cluster, stdout);
 	shutdown(&cluster, ret ? 1 : 0);
     }
-
+/*
     if(args.load_cluster_given)
 	if(load_cluster(&cluster, args.load_cluster_arg))
 	    shutdown(&cluster, 1);
-
+*/
     if(args.node_list_given)
 	if(read_nodes(&cluster) < 0)
 	    shutdown(&cluster, 1);
@@ -1800,8 +1802,9 @@ int main(int argc, char **argv)
     if(args.blkstats_given)
 	print_blkstats(&cluster);
 
+/*
     if(args.save_cluster_given)
 	save_cluster(&cluster, args.save_cluster_arg);
-
+*/
     shutdown(&cluster, ret ? 1 : 0);
 }

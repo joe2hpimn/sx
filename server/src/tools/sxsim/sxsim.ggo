@@ -13,10 +13,6 @@ text "\nAll options below are only respected in non-interactive mode.\n"
 
 text "\nCluster settings:\n"
 
-option "load-cluster" - "Read cluster model from FILE" string typestr="FILE" optional
-
-option "save-cluster" - "Save cluster model to FILE at exit" string typestr="FILE" optional
-
 option "dump-cluster" - "Dump content of cluster stored in FILE to stdout in CSV format" string typestr="FILE" optional
 
 option "node-list" - "Read list of nodes from FILE" string typestr="FILE" optional

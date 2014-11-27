@@ -42,12 +42,6 @@ struct gengetopt_args_info
   char * execute_arg;	/**< @brief Execute commands from FILE in interactive mode.  */
   char * execute_orig;	/**< @brief Execute commands from FILE in interactive mode original value given at command line.  */
   const char *execute_help; /**< @brief Execute commands from FILE in interactive mode help description.  */
-  char * load_cluster_arg;	/**< @brief Read cluster model from FILE.  */
-  char * load_cluster_orig;	/**< @brief Read cluster model from FILE original value given at command line.  */
-  const char *load_cluster_help; /**< @brief Read cluster model from FILE help description.  */
-  char * save_cluster_arg;	/**< @brief Save cluster model to FILE at exit.  */
-  char * save_cluster_orig;	/**< @brief Save cluster model to FILE at exit original value given at command line.  */
-  const char *save_cluster_help; /**< @brief Save cluster model to FILE at exit help description.  */
   char * dump_cluster_arg;	/**< @brief Dump content of cluster stored in FILE to stdout in CSV format.  */
   char * dump_cluster_orig;	/**< @brief Dump content of cluster stored in FILE to stdout in CSV format original value given at command line.  */
   const char *dump_cluster_help; /**< @brief Dump content of cluster stored in FILE to stdout in CSV format help description.  */
@@ -97,8 +91,6 @@ struct gengetopt_args_info
   unsigned int help_given ;	/**< @brief Whether help was given.  */
   unsigned int version_given ;	/**< @brief Whether version was given.  */
   unsigned int execute_given ;	/**< @brief Whether execute was given.  */
-  unsigned int load_cluster_given ;	/**< @brief Whether load-cluster was given.  */
-  unsigned int save_cluster_given ;	/**< @brief Whether save-cluster was given.  */
   unsigned int dump_cluster_given ;	/**< @brief Whether dump-cluster was given.  */
   unsigned int node_list_given ;	/**< @brief Whether node-list was given.  */
   unsigned int hash_list_given ;	/**< @brief Whether hash-list was given.  */
