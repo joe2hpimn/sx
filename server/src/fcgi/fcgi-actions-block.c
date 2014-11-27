@@ -708,7 +708,7 @@ void fcgi_push_blocks(void) {
     CGI_PUTS("\r\n");
 }
 
-void fcgi_send_replacement_blocks() {
+void fcgi_send_replacement_blocks(void) {
     sx_block_meta_index_t bmidx, *bmidxptr = NULL;
     unsigned int version = 0, bytes_sent = 0;
     sx_uuid_t target;

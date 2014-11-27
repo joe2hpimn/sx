@@ -934,3 +934,27 @@ void fcgi_node_junlock(void) {
 
     CGI_PUTS("\r\n");
 }
+
+void fcgi_node_repaired(void) {
+    int64_t dist_rev = 0;
+    sx_uuid_t nodeid;
+    rc_ty s;
+
+    if(has_arg("dist")) {
+	char *eon;
+	dist_rev = strtoll(get_arg("dist"), &eon, 10);
+	if(*eon)
+	    dist_rev = 0;
+    }
+    if(dist_rev <= 0)
+	quit_errmsg(400, "Missing or invalid 'dist' argument");
+
+    if(uuid_from_string(&nodeid, path))
+	quit_errnum(404);
+
+    s = sx_hashfs_set_unfaulty(hashfs, &nodeid, dist_rev);
+    if(s != OK)
+	quit_errmsg(rc2http(s), msg_get_reason());
+    
+    CGI_PUTS("\r\n");
+}

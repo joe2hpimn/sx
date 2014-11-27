@@ -369,6 +369,13 @@ void file_ops(void) {
 	    return;
 	}
 
+	if(!strcmp(volume, ".faulty")) {
+	    /* A faulty node was replaced - CLUSTER required */
+	    quit_unless_has(PRIV_CLUSTER);
+	    fcgi_node_repaired();
+	    return;
+	}
+
 	if(is_reserved())
             quit_errmsg(405, "Method Not Allowed");
 

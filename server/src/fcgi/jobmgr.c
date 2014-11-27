@@ -3787,10 +3787,77 @@ static act_result_t replacefiles_request(sx_hashfs_t *hashfs, job_t job_id, job_
 }
 
 static act_result_t replacefiles_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
-    // FIXME: TBD
+    const sx_nodelist_t *allnodes = sx_hashfs_nodelist(hashfs, NL_NEXT);
+    int64_t hdistver = sx_hashfs_hdist_getversion(hashfs);
+    unsigned int i, nnodes = sx_nodelist_count(allnodes);
+    sxi_conns_t *clust = sx_hashfs_conns(hashfs);
+    const sx_node_t *me = sx_hashfs_self(hashfs);
+    const sx_uuid_t *myuuid = sx_node_uuid(me);
+    query_list_t *qrylist = NULL;
+    char query[128];
+    rc_ty s;
+    act_result_t ret = ACT_RESULT_OK;
+
     DEBUG("IN %s", __FUNCTION__);
-    INFO(">>>>>>>>>>>> THIS NODE IS NOW A PROPER REPLACEMENT  <<<<<<<<<<<<");
-    return force_phase_success(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
+    if(!sx_hashfs_is_node_faulty(hashfs, myuuid))
+	return force_phase_success(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
+
+    snprintf(query, sizeof(query), ".faulty/%s?dist=%lld", myuuid->string, (long long)hdistver); 
+    qrylist = wrap_calloc(nnodes, sizeof(*qrylist));
+    if(!qrylist) {
+	WARN("Cannot allocate result space");
+	action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
+    }
+    for(i=0; i<nnodes; i++) {
+	const sx_node_t *node = sx_nodelist_get(allnodes, i);
+	if(!sx_node_cmp(me, node))
+	    continue;
+	/* Remote nodes first */
+	qrylist[i].cbdata = sxi_cbdata_create_generic(clust, NULL, NULL);
+	if(sxi_cluster_query_ev(qrylist[i].cbdata, clust, sx_node_internal_addr(node), REQ_DELETE, query, NULL, 0, NULL, NULL)) {
+	    WARN("Failed to query node %s: %s", sx_node_uuid_str(node), sxc_geterrmsg(sx_hashfs_client(hashfs)));
+	    action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to setup cluster communication");
+	}
+	qrylist[i].query_sent = 1;
+    }
+
+
+ action_failed:
+    if(qrylist) {
+	for(i=0; i<nnodes; i++) {
+	    if(qrylist[i].query_sent) {
+                long http_status = 0;
+		int rc = sxi_cbdata_wait(qrylist[i].cbdata, sxi_conns_get_curlev(clust), &http_status);
+		if(rc != -2) {
+		    if(rc == -1) {
+			WARN("Query failed with %ld", http_status);
+			if(ret > ACT_RESULT_TEMPFAIL) /* Only raise OK to TEMP */
+			    action_set_fail(ACT_RESULT_TEMPFAIL, 503, sxi_cbdata_geterrmsg(qrylist[i].cbdata));
+		    } else if(http_status != 200 && http_status != 404) {
+			act_result_t newret = http2actres(http_status);
+			if(newret < ret) /* Severity shall only be raised */
+			    action_set_fail(newret, http_status, sxi_cbdata_geterrmsg(qrylist[i].cbdata));
+		    }
+		} else {
+		    CRIT("Failed to wait for query");
+		    action_set_fail(ACT_RESULT_PERMFAIL, 500, "Internal error in cluster communication");
+		    /* FIXME should abort here */
+		}
+	    }
+	}
+        query_list_free(qrylist, nnodes);
+    }
+
+    if(ret == ACT_RESULT_OK) {
+	/* Local node last */
+	s = sx_hashfs_set_unfaulty(hashfs, myuuid, hdistver);
+	if(s == OK || s == ENOENT) {
+	    INFO(">>>>>>>>>>>> THIS NODE IS NOW A PROPER REPLACEMENT  <<<<<<<<<<<<");
+	    succeeded[0] = 1;
+	} else
+	    action_set_fail(rc2actres(s), rc2http(s), msg_get_reason());
+    }
+    return ret;
 }
 
 /* Update cbdata array with new context and send volsizes query to given node */

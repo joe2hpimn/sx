@@ -38,5 +38,7 @@ void fcgi_node_init(void);
 void fcgi_sync_globs(void);
 void fcgi_node_jlock(void);
 void fcgi_node_junlock(void);
+void fcgi_node_repaired(void);
+void fcgi_node_repaired(void);
 
 #endif

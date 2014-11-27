@@ -8966,6 +8966,10 @@ rc_ty sx_hashfs_gc_expire_all_reservations(sx_hashfs_t *h)
     return OK;
 }
 
+int64_t sx_hashfs_hdist_getversion(sx_hashfs_t *h) {
+    return h ? h->hd_rev : 0;
+}
+
 rc_ty sx_hashfs_hdist_change_req(sx_hashfs_t *h, const sx_nodelist_t *newdist, job_t *job_id) {
     sxi_hdist_t *newmod;
     unsigned int nnodes, minnodes, i, cfg_len;
@@ -11663,6 +11667,126 @@ rc_ty sx_hashfs_init_replacement(sx_hashfs_t *h) {
 
  init_replacement_fail:
     qnullify(q);
+    return ret;
+}
+
+rc_ty sx_hashfs_set_unfaulty(sx_hashfs_t *h, const sx_uuid_t *nodeid, int64_t dist_rev) {
+    unsigned int cfg_len, nnode, nnodes;
+    const sx_nodelist_t *nodes;
+    sxi_hdist_t *newmod = NULL;
+    sqlite3_stmt *q = NULL;
+    const void *cfg;
+    int r;
+    rc_ty ret = FAIL_EINTERNAL;
+
+    if(!h || !nodeid) {
+        NULLARG();
+        return EFAULT;
+    }
+
+    if(dist_rev != h->hd_rev)
+	return ENOENT;
+
+    nodes = sx_hashfs_nodelist(h, NL_NEXT);
+    if(sx_nodelist_lookup(nodes, nodeid) ||
+       !sx_hashfs_is_node_faulty(h, nodeid))
+	return ENOENT;
+
+    if(qbegin(h->db)) {
+        msg_set_reason("Database is locked");
+        return FAIL_EINTERNAL;
+    }
+    if(qprep(h->db, &q, "UPDATE faultynodes SET restored = 1 WHERE dist = :dist AND node = :nodeid") ||
+       qbind_int64(q, ":dist", dist_rev) ||
+       qbind_blob(q, ":nodeid", nodeid->binary, sizeof(nodeid->binary)) ||
+       qstep_noret(q)) {
+	msg_set_reason("Failed to update faulty nodes list");
+	goto unfaulty_err;
+    }
+    qnullify(q);
+    if(!sqlite3_changes(h->db->handle)) {
+	ret = OK;
+	goto unfaulty_err;
+    }
+
+    if(qprep(h->db, &q, "SELECT 1 FROM faultynodes WHERE dist = :dist AND restored = 0") ||
+       qbind_int64(q, ":dist", dist_rev)) {
+	msg_set_reason("Failed to check faulty nodes list");
+	goto unfaulty_err;
+    }
+    r = qstep(q);
+    if(r == SQLITE_ROW) {
+	ret = OK;
+	goto unfaulty_err;
+    }
+    qnullify(q);
+
+    /* All faulty nodes are repaired: drop them, bump the dist */
+    if(qprep(h->db, &q, "DELETE FROM faultynodes WHERE dist = :dist") ||
+       qbind_int64(q, ":dist", dist_rev) ||
+       qstep_noret(q)) {
+	msg_set_reason("Failed to wipe faulty nodes list clean");
+	goto unfaulty_err;
+    }
+
+    if(sxi_hdist_get_cfg(h->hd, &cfg, &cfg_len)) {
+	msg_set_reason("Failed to duplicate current distribution (get)");
+	goto unfaulty_err;
+    }
+    if(!(newmod = sxi_hdist_from_cfg(cfg, cfg_len))) {
+	msg_set_reason("Failed to duplicate current distribution (from_cfg)");
+	goto unfaulty_err;
+    }
+    if(sxi_hdist_newbuild(newmod)) {
+	msg_set_reason("Failed to update node distribution");
+	goto unfaulty_err;
+    }
+
+    nnodes = sx_nodelist_count(nodes);
+    for(nnode=0; nnode<nnodes; nnode++) {
+	const sx_node_t *n = sx_nodelist_get(nodes, nnode);
+	if(sxi_hdist_addnode(newmod, sx_node_uuid(n), sx_node_addr(n), sx_node_internal_addr(n), sx_node_capacity(n), NULL)) {
+	    msg_set_reason("Failed to update node distribution");
+	    goto unfaulty_err;
+	}
+    }
+    if(sxi_hdist_build(newmod)) {
+	msg_set_reason("Failed to build updated distribution");
+	goto unfaulty_err;
+    }
+    if(sxi_hdist_rebalanced(newmod)) {
+	msg_set_reason("Failed to flat the updated distribution");
+	goto unfaulty_err;
+    }
+    if(sxi_hdist_get_cfg(newmod, &cfg, &cfg_len)) {
+	msg_set_reason("Failed to retrieve the updated distribution model");
+	goto unfaulty_err;
+    }
+    
+    if(qprep(h->db, &q, "INSERT OR REPLACE INTO hashfs (key, value) VALUES (:k , :v)") ||
+       qbind_text(q, ":k", "dist") ||
+       qbind_blob(q, ":v", cfg, cfg_len) ||
+       qstep_noret(q)) {
+	msg_set_reason("Failed to save updated distribution model");
+	goto unfaulty_err;
+    }
+    sqlite3_reset(q);
+    if(qbind_text(q, ":k", "dist_rev") ||
+       qbind_int64(q, ":v", sxi_hdist_version(newmod)) ||
+       qstep_noret(q)) {
+	msg_set_reason("Failed to save updated distribution model");
+	goto unfaulty_err;
+    }
+
+    if(!qcommit(h->db))
+	ret = OK;
+    
+ unfaulty_err:
+    sxi_hdist_free(newmod);
+    sqlite3_finalize(q);
+    if(ret != OK)
+	qrollback(h->db);
+
     return ret;
 }
 
