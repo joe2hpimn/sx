@@ -4375,6 +4375,7 @@ int sxc_copy(sxc_file_t *source, sxc_file_t *dest, int recursive, int onefs, int
                     ret = 1;
             }
         } else {
+	    free(source->origpath);
             if (!(source->origpath = strdup(source->path))) {
                 sxi_setsyserr(source->sx, SXE_EMEM, "Cannot dup path");
                 ret = 1;
