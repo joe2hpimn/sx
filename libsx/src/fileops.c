@@ -2141,8 +2141,7 @@ static int local_to_remote_iterate(sxc_file_t *source, int recursive, int depth,
     sxc_client_t *sx = source->sx;
     DIR *dir;
     unsigned n, n2;
-    char *path;
-    char *destpath;
+    char *path = NULL, *destpath = NULL;
     struct stat sb;
     int ret = 0, qret = -1;
     sxc_meta_t *emptymeta = sxc_meta_new(sx);
@@ -2168,22 +2167,6 @@ static int local_to_remote_iterate(sxc_file_t *source, int recursive, int depth,
     }
     SXDEBUG("Iterating on %s", source->path);
 
-    n = strlen(source->path) + 2 + sizeof(entry->d_name);
-    n2 = strlen(dest->path) + 2 + sizeof(entry->d_name);
-    path = malloc(n);
-    if (!path) {
-        sxi_setsyserr(sx, SXE_EMEM, "Cannot allocate pathname");
-	sxc_meta_free(emptymeta);
-        return -1;
-    }
-    destpath = malloc(n2);
-    if (!destpath) {
-        sxi_setsyserr(sx, SXE_EMEM, "Cannot allocate destpathname");
-	sxc_meta_free(emptymeta);
-        free(path);
-        return -1;
-    }
-
     dir = opendir(source->path);
     if (!dir) {
         sxi_setsyserr(sx, SXE_EREAD, "Cannot open directory '%s'", source->path);
@@ -2199,6 +2182,20 @@ static int local_to_remote_iterate(sxc_file_t *source, int recursive, int depth,
     while ((entry = readdir(dir))) {
         if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, ".."))
             continue;
+	n = strlen(source->path) + 2 + strlen(entry->d_name);
+	n2 = strlen(dest->path) + 2 + strlen(entry->d_name);
+	path = sxi_realloc(sx, path, n);
+        if (!path) {
+            ret = -1;
+            break;
+        }
+	destpath = sxi_realloc(sx, destpath, n2);
+        if (!destpath) {
+            sxi_setsyserr(sx, SXE_EMEM, "Cannot allocate destpathname");
+            ret = -1;
+            break;
+        }
+
         snprintf(path, n, "%s%s%s", source->path,
                  ends_with(source->path, '/') ? "" : "/",
                  entry->d_name);
@@ -2214,10 +2211,8 @@ static int local_to_remote_iterate(sxc_file_t *source, int recursive, int depth,
         if (!src || !dst)
             break;
         free(src->path);
-        if (!(src->path = strdup(path))) {
-            sxi_setsyserr(sx, SXE_EMEM, "Cannot dup path");
-            break;
-        }
+        src->path = path;
+        path = NULL;
         snprintf(destpath, n2, "%s%s%s", dest->path,
                  ends_with(dest->path, '/') ? "" : "/",
                  entry->d_name);
