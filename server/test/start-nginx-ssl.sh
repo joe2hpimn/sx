@@ -56,7 +56,9 @@ while [ $i -le $N ]; do
     $prefix/sbin/sx.fcgi --version
 
     # valgrind just the fcgi not the libtool wrapper script:
-    sed -i -e "s|.*/sx.fcgi|./libtool --mode=execute \0 --config-file $prefix/etc/sxserver/sxfcgi.conf|" $prefix/sbin/sxserver
+    sed -e "s|\(/sx.fcgi\)|\1 --config-file $prefix/etc/sxserver/sxfcgi.conf|" $prefix/sbin/sxserver >tmp
+    mv tmp $prefix/sbin/sxserver
+    chmod +x $prefix/sbin/sxserver
 
     ln -s `pwd`/../3rdparty/nginx/objs/nginx $prefix/sbin/sxhttpd
 
