@@ -427,9 +427,6 @@ rc_ty sx_storage_create(const char *dir, sx_uuid_t *cluster, uint8_t *key, int k
                 PRIMARY KEY(blockid, replica, age))") || qstep_noret(q))
                 goto create_hashfs_fail;
             qnullify(q);
-            if(qprep(db, &q, "CREATE INDEX u0 ON use(blockid, used) WHERE used <= 0") || qstep_noret(q))
-                goto create_hashfs_fail;
-            qnullify(q);
 
 	    /* Create freelist table */
 	    if(qprep(db, &q, "CREATE TABLE avail (blocknumber INTEGER NOT NULL PRIMARY KEY ASC)") || qstep_noret(q))
@@ -1516,7 +1513,7 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 		goto open_hashfs_fail;
 	    if(qprep(h->datadb[j][i], &h->qb_find_unused[j][i], "SELECT id, blockno, hash FROM blocks LEFT JOIN use ON use.blockid=id AND used<>0 LEFT JOIN reservations ON reservations.blockid=id WHERE id > :last AND reservations.blockid IS NULL GROUP BY id HAVING SUM(used)=0 OR COUNT(use.blockid)=0 ORDER BY id;"))
 		goto open_hashfs_fail;
-	    if(qprep(h->datadb[j][i], &h->qb_find_bad[j][i], "SELECT COUNT(blockid) FROM use WHERE used <= 0 AND used <> 0"))
+	    if(qprep(h->datadb[j][i], &h->qb_find_bad[j][i], "SELECT COUNT(blockid) FROM use GROUP BY blockid, replica HAVING SUM(used) < 0"))
 		goto open_hashfs_fail;
             /* hash moved,
              * hashes that are not moved don't have the old counters deleted,
@@ -8832,11 +8829,15 @@ rc_ty sx_hashfs_gc_run(sx_hashfs_t *h, int *terminate)
     for (j=0;j<SIZES && !ret && !*terminate; j++) {
         for (i=0;i<HASHDBS && !ret && !*terminate;i++) {
             sqlite3_reset(h->qb_find_bad[j][i]);
-            if (qstep_ret(h->qb_find_bad[j][i])) {
+            do {
+                ret = qstep(h->qb_find_bad[j][i]);
+                if (ret == SQLITE_ROW)
+                    bad += sqlite3_column_int64(h->qb_find_bad[j][i], 0);
+            } while(ret == SQLITE_ROW);
+            if (ret != SQLITE_DONE) {
                 WARN("Cannot query block counters");
                 return FAIL_EINTERNAL;
             }
-            bad += sqlite3_column_int64(h->qb_find_bad[j][i], 0);
             sqlite3_reset(h->qb_find_bad[j][i]);
         }
     }
@@ -8848,6 +8849,7 @@ rc_ty sx_hashfs_gc_run(sx_hashfs_t *h, int *terminate)
             CRIT("Refusing to run garbage collection to avoid data loss: %llu block counters are negative", (long long)bad);
         return FAIL_EINTERNAL;
     }
+    ret = 0;
 
     for (j=0;j<SIZES && !ret && !*terminate ;j++) {
         for (i=0;i<HASHDBS && !ret && !*terminate;i++) {
