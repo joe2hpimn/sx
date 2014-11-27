@@ -26,6 +26,12 @@ mkdir $HOME
 mkdir -p "$prefix/bin" "$prefix/sbin" "$prefix/etc/sxserver"
 mkdir -p "$prefix/var/lib/sxserver" "$prefix/var/log/sxserver" "$prefix/var/run/sxserver"
 
+if [ `uname` = 'SunOS' ]; then
+  # doesn't work with GNU make <4.0 but required for non-GNU make
+  FLAG=-e
+else
+  FLAG=
+fi
 (cd sxscripts && make -s clean && make -s -e prefix="$prefix" SXHTTPD="$prefix/sbin/sxhttpd" sbindir="$prefix/sbin" bindir="$prefix/bin" sysconfdir="$prefix/etc" localstatedir="$prefix/var" install)
 (cd sxscripts && make -s clean && make -s)
 
