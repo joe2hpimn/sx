@@ -21,9 +21,16 @@ AC_CONFIG_HEADERS([config.h])
 
 AC_DEFINE([_XOPEN_SOURCE], [600], [Expose C99, and POSIX.1-2001 + XSI extension])
 
+# We need some BSD extensions (setgroups, struct winsize) that might be hidden by POSIX
+AC_DEFINE([_BSD_SOURCE], [1], [BSD extensions])
 AC_DEFINE([_DEFAULT_SOURCE], [1], [Keep glibc 2.20+ quiet])
 
-AC_DEFINE([_BSD_SOURCE], [1], [OpenBSD won''t expose some POSIX.1 definitions unless this is used])
+case "$host_os" in
+    solaris*)
+        # According to AC_USE_SYSTEM_EXTENSIONS this is not safe define on all platforms
+        AC_DEFINE([__EXTENSIONS__], [1], [Solaris BSD (and other) extensions])
+        ;;
+esac
 
 AC_PROG_CC_C99
 if test "$ac_cv_prog_cc_c99" = "no"; then

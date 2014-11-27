@@ -109,7 +109,7 @@
 # endif
 #endif
 
-/* OpenBSD won''t expose some POSIX.1 definitions unless this is used */
+/* BSD extensions */
 #undef _BSD_SOURCE
 
 /* Enable large inode numbers on Mac OS X 10.5.  */
@@ -143,6 +143,9 @@
 
 /* Expose C99, and POSIX.1-2001 + XSI extension */
 #undef _XOPEN_SOURCE
+
+/* Solaris BSD (and other) extensions */
+#undef __EXTENSIONS__
 
 /* Define to the type of a signed integer type of width exactly 16 bits if
    such a type exists and the standard includes do not define it. */

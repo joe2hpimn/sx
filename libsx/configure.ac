@@ -37,9 +37,6 @@ AM_PROG_CC_C_O
 
 AC_DEFINE([_XOPEN_SOURCE], [600], [Expose C99, and POSIX.1-2001 + XSI extension])
 
-AC_DEFINE([_DEFAULT_SOURCE], [1], [Keep glibc 2.20+ quiet])
-AC_DEFINE([_BSD_SOURCE], [], [OpenBSD won''t expose some POSIX.1 definitions unless this is used])
-
 AC_PROG_CC_C99
 #if test "$ac_cv_prog_cc_c89" = "no"; then
 #    AC_MSG_ERROR([A C89 compiler is required, for example GCC.])
