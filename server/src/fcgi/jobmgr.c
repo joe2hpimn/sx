@@ -2414,7 +2414,7 @@ static act_result_t blockrb_request(sx_hashfs_t *hashfs, job_t job_id, job_data_
     }
 
     memset(rbdata, 0, sizeof(rbdata));
-    sx_hashfs_set_rbl_info(hashfs, 1, 0, "Relocating data (FIXME: make me pretty)");
+    sx_hashfs_set_progress_info(hashfs, INPRG_REBALANCE_RUNNING, "Relocating data (FIXME: make me pretty)");
 
     s = sx_hashfs_br_begin(hashfs);
     if(s == ITER_NO_MORE) {
@@ -2627,7 +2627,7 @@ static act_result_t filerb_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t
 	action_error(ACT_RESULT_PERMFAIL, 500, "Internal job data error");
     }
 
-    sx_hashfs_set_rbl_info(hashfs, 1, 0, "Relocating metadata (FIXME: make me pretty)");
+    sx_hashfs_set_progress_info(hashfs, INPRG_REBALANCE_RUNNING, "Relocating metadata (FIXME: make me pretty)");
 
     if(sx_hashfs_relocs_populate(hashfs) != OK) {
 	INFO("Failed to populate the relocation queue");
@@ -2750,7 +2750,7 @@ static act_result_t filerb_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t 
     }
 
     if(ret == ACT_RESULT_OK) {
-	if(sx_hashfs_set_rbl_info(hashfs, 1, 1, "Relocation complete (FIXME: make me pretty)") == OK) {
+	if(sx_hashfs_set_progress_info(hashfs, INPRG_REBALANCE_COMPLETE, "Relocation complete (FIXME: make me pretty)") == OK) {
 	    INFO(">>>>>>>>>>>> OBJECT RELOCATION COMPLETE <<<<<<<<<<<<");
 	    succeeded[0] = 1;
 	} else
@@ -2785,7 +2785,7 @@ static act_result_t finishrebalance_request(sx_hashfs_t *hashfs, job_t job_id, j
 	if(sx_node_cmp(me, node)) {
 	    /* Remote node */
 	    clst_t *clst;
-	    int qret;
+	    clst_state qret;
 
 	    if(sxi_hostlist_add_host(sx, &hlist, sx_node_internal_addr(node)))
 		action_error(ACT_RESULT_TEMPFAIL, 500, "Not enough memory to query rebalance status");
@@ -2793,12 +2793,12 @@ static act_result_t finishrebalance_request(sx_hashfs_t *hashfs, job_t job_id, j
 	    if(!clst)
 		action_error(ACT_RESULT_TEMPFAIL, 500, "Failed to query rebalance status");
 
-	    qret = clst_rblstate(clst, NULL);
+	    qret = clst_rebalance_state(clst, NULL);
 	    clst_destroy(clst);
 
-	    if(qret == 0)
+	    if(qret == CLSTOP_COMPLETED)
 		succeeded[i] = 1;
-	    else if(qret > 0) {
+	    else if(qret == CLSTOP_INPROGRESS) {
 		DEBUG("Relocation still running on node %s", sx_node_uuid_str(node));
 		action_error(ACT_RESULT_TEMPFAIL, 500, "Relocation still running");
 	    } else {
@@ -2809,11 +2809,10 @@ static act_result_t finishrebalance_request(sx_hashfs_t *hashfs, job_t job_id, j
 	    sxi_hostlist_empty(&hlist);
 	} else {
 	    /* Local node */
-	    int rbl_done;
-	    rc_ty s = sx_hashfs_get_rbl_info(hashfs, &rbl_done, NULL);
-	    if(s != OK)
+	    sx_inprogress_t inprg = sx_hashfs_get_progress_info(hashfs, NULL);
+	    if(inprg == INPRG_ERROR)
 		action_error(ACT_RESULT_TEMPFAIL, 500, "Unexpected rebalance state on local node");
-	    else if(rbl_done)
+	    else if(inprg == INPRG_REBALANCE_COMPLETE)
 		succeeded[i] = 1;
 	    else
 		action_error(ACT_RESULT_TEMPFAIL, 500, "Rebalance still running on local node");
@@ -2928,7 +2927,7 @@ static act_result_t cleanrb_request(sx_hashfs_t *hashfs, job_t job_id, job_data_
 	action_error(rc2actres(s), rc2http(s), msg_get_reason());
     }
 
-    sx_hashfs_set_rbl_info(hashfs, 1, 1, "Cleaning up relocated objects after successful rebalance (FIXME: make me pretty)");
+    sx_hashfs_set_progress_info(hashfs, INPRG_REBALANCE_COMPLETE, "Cleaning up relocated objects after successful rebalance (FIXME: make me pretty)");
 
     succeeded[0] = 1;
 
@@ -2955,7 +2954,7 @@ static act_result_t cleanrb_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t
     if(sx_hashfs_rb_cleanup(hashfs) != OK)
 	action_error(ACT_RESULT_TEMPFAIL, 503, "Cleanup failed");
 
-    sx_hashfs_set_rbl_info(hashfs, 0, 0, NULL);
+    sx_hashfs_set_progress_info(hashfs, INPRG_IDLE, NULL);
 
     INFO(">>>>>>>>>>>> THIS NODE IS NOW FULLY REBALANCED <<<<<<<<<<<<");
     succeeded[0] = 1;
@@ -3253,6 +3252,8 @@ static act_result_t replaceblocks_request(sx_hashfs_t *hashfs, job_t job_id, job
 	action_error(ACT_RESULT_PERMFAIL, 500, "Internal job data error");
     }
 
+    sx_hashfs_set_progress_info(hashfs, INPRG_REPLACE_RUNNING, "Building a list of objects to repair");
+
     if(sx_hashfs_init_replacement(hashfs))
 	action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to initialize replacement");
 
@@ -3423,6 +3424,8 @@ static act_result_t replaceblocks_commit(sx_hashfs_t *hashfs, job_t job_id, job_
 	CRIT("Bad job data");
 	action_error(ACT_RESULT_PERMFAIL, 500, "Internal job data error");
     }
+
+    sx_hashfs_set_progress_info(hashfs, INPRG_REPLACE_RUNNING, "Repopulating blocks");
 
     s = sx_hashfs_replace_getstartblock(hashfs, &dist, &source, &have_blkidx, (uint8_t *)&bmidx);
     if(s == OK) {
@@ -3657,6 +3660,9 @@ static act_result_t replacefiles_request(sx_hashfs_t *hashfs, job_t job_id, job_
 	CRIT("Bad job data");
 	action_error(ACT_RESULT_PERMFAIL, 500, "Internal job data error");
     }
+
+    sx_hashfs_set_progress_info(hashfs, INPRG_REPLACE_RUNNING, "Repopulating files");
+
     ctx = malloc(sizeof(*ctx));
     if(!ctx)
 	action_error(ACT_RESULT_TEMPFAIL, 503, "Out of memory allocating request context");
@@ -3799,6 +3805,9 @@ static act_result_t replacefiles_commit(sx_hashfs_t *hashfs, job_t job_id, job_d
     act_result_t ret = ACT_RESULT_OK;
 
     DEBUG("IN %s", __FUNCTION__);
+
+    sx_hashfs_set_progress_info(hashfs, INPRG_REPLACE_COMPLETE, "Repopulation complete");
+
     if(!sx_hashfs_is_node_faulty(hashfs, myuuid))
 	return force_phase_success(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
 

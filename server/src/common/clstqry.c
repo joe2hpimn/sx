@@ -41,12 +41,17 @@ struct cstatus {
     sx_uuid_t uuid, distid;
     uint64_t checksum;
     int64_t capa;
-    int nsets, have_uuid, have_distid, rbl_state;
+    int nsets, have_uuid, have_distid, op_complete;
+    enum {
+	OP_NONE,
+	OP_REBALANCE,
+	OP_REPLACE,
+    } op_type;
     unsigned int version;
-    char rbl_msg[1024];
+    char op_msg[1024];
     curlev_context_t *cbdata;
 
-    enum cstatus_state { CS_BEGIN, CS_BASEKEY, CS_CSTATUS, CS_SKEY, CS_DISTS, CS_DIST, CS_NODES, CS_NODEKEY, CS_UUID, CS_ADDR, CS_INT_ADDR, CS_CAPA, CS_DISTID, CS_DISTVER, CS_DISTCHK, CS_AUTH, CS_RBL, CS_RBLKEY, CS_RBLFLAG, CS_RBLMSG, CS_COMPLETE } state;
+    enum cstatus_state { CS_BEGIN, CS_BASEKEY, CS_CSTATUS, CS_SKEY, CS_DISTS, CS_DIST, CS_NODES, CS_NODEKEY, CS_UUID, CS_ADDR, CS_INT_ADDR, CS_CAPA, CS_DISTID, CS_DISTVER, CS_DISTCHK, CS_AUTH, CS_INPRG, CS_INPRGKEY, CS_INPRGOP, CS_INPRGDONE, CS_INPRGMSG, CS_COMPLETE } state;
 };
 
 static int cb_cstatus_start_map(void *ctx) {
@@ -58,8 +63,8 @@ static int cb_cstatus_start_map(void *ctx) {
 	c->state = CS_SKEY;
     else if(c->state == CS_NODES)
 	c->state = CS_NODEKEY;
-    else if(c->state == CS_RBL)
-	c->state = CS_RBLKEY;
+    else if(c->state == CS_INPRG)
+	c->state = CS_INPRGKEY;
     else
 	return 0;
 
@@ -85,8 +90,8 @@ static int cb_cstatus_map_key(void *ctx, const unsigned char *s, size_t l) {
 	    c->state = CS_DISTCHK;
 	else if(l == lenof("clusterAuth") && !memcmp("clusterAuth", s, lenof("clusterAuth")))
 	    c->state = CS_AUTH;
-	else if(l == lenof("rebalanceStatus") && !memcmp("rebalanceStatus", s, lenof("rebalanceStatus")))
-	    c->state = CS_RBL;
+	else if(l == lenof("opInProgress") && !memcmp("opInProgress", s, lenof("opInProgress")))
+	    c->state = CS_INPRG;
 	else
 	    return 0;
     } else if(c->state == CS_NODEKEY) {
@@ -100,11 +105,13 @@ static int cb_cstatus_map_key(void *ctx, const unsigned char *s, size_t l) {
 	    c->state = CS_CAPA;
 	else
 	    return 0;
-    } else if(c->state == CS_RBLKEY) {
-	if(l == lenof("inProgress") && !memcmp("inProgress", s, lenof("inProgress")))
-	    c->state = CS_RBLFLAG;
-	else if(l == lenof("statusInfo") && !memcmp("statusInfo", s, lenof("statusInfo")))
-	    c->state = CS_RBLMSG;
+    } else if(c->state == CS_INPRGKEY) {
+	if(l == lenof("opType") && !memcmp("opType", s, lenof("opType")))
+	    c->state = CS_INPRGOP;
+	else if(l == lenof("isComplete") && !memcmp("isComplete", s, lenof("isComplete")))
+	    c->state = CS_INPRGDONE;
+	else if(l == lenof("opInfo") && !memcmp("opInfo", s, lenof("opInfo")))
+	    c->state = CS_INPRGMSG;
 	else
 	    return 0;
     } else
@@ -132,7 +139,7 @@ static int cb_cstatus_end_map(void *ctx) {
 	c->state = CS_NODES;
     } else if(c->state == CS_SKEY)
 	c->state = CS_BASEKEY;
-    else if(c->state == CS_RBLKEY)
+    else if(c->state == CS_INPRGKEY)
 	c->state = CS_SKEY;
     else if(c->state == CS_BASEKEY)
 	c->state = CS_COMPLETE;
@@ -223,11 +230,19 @@ static int cb_cstatus_string(void *ctx, const unsigned char *s, size_t l) {
 	memcpy(c->auth, s, l);
 	c->auth[l] = '\0';
 	c->state = CS_SKEY;
-    } else if(c->state == CS_RBLMSG) {
-	unsigned int ml = MIN(l, sizeof(c->rbl_msg) - 1);
-	memcpy(c->rbl_msg, s, ml);
-	c->rbl_msg[ml] = '\0';
-	c->state = CS_RBLKEY;
+    } else if(c->state == CS_INPRGOP) {
+	if(l == lenof("rebalance") && !memcmp("rebalance", s, lenof("rebalance")))
+	    c->op_type = OP_REBALANCE;
+	else if(l == lenof("rebalance") && !memcmp("rebalance", s, lenof("rebalance")))
+	    c->op_type = OP_REPLACE;
+	else
+	    c->op_type = OP_NONE;
+	c->state = CS_INPRGKEY;
+    } else if(c->state == CS_INPRGMSG) {
+	unsigned int ml = MIN(l, sizeof(c->op_msg) - 1);
+	memcpy(c->op_msg, s, ml);
+	c->op_msg[ml] = '\0';
+	c->state = CS_INPRGKEY;
     } else
 	return 0;
 
@@ -272,11 +287,11 @@ static int cb_cstatus_number(void *ctx, const char *s, size_t l) {
 int cb_cstatus_boolean(void *ctx, int boolean) {
     struct cstatus *c = (struct cstatus *)ctx;
 
-    if(c->state != CS_RBLFLAG)
+    if(c->state != CS_INPRGDONE)
 	return 0;
 
-    c->rbl_state = boolean;
-    c->state = CS_RBLKEY;
+    c->op_complete = boolean;
+    c->state = CS_INPRGKEY;
     return 1;
 }
 
@@ -331,8 +346,9 @@ static int cstatus_setup_cb(curlev_context_t *cbdata, void *ctx, const char *hos
     yactx->version = 0;
     yactx->checksum = 0;
     yactx->capa = 0;
-    yactx->rbl_state = -1;
-    yactx->rbl_msg[0] = '\0';
+    yactx->op_type = OP_NONE;
+    yactx->op_complete = -1;
+    yactx->op_msg[0] = '\0';
     yactx->state = CS_BEGIN;
     yactx->cbdata = cbdata;
 
@@ -414,23 +430,21 @@ const char *clst_auth(clst_t *st) {
     return st ? st->auth : NULL;
 }
 
-int clst_rblstate(clst_t *st, const char **statedesc) {
-    if(!st)
-	return -2;
+clst_state clst_rebalance_state(clst_t *st, const char **desc) {
+    if(!st || st->op_type != OP_REBALANCE)
+	return CLSTOP_NOTRUNNING;
 
-    if(st->rbl_state < 0) {
-	if(statedesc)
-	    *statedesc = "Normal operations";
-	return -1; /* Not rebalancing */
-    }
-
-    if(st->rbl_state == 0) {
-	if(statedesc)
-	    *statedesc = st->rbl_msg[0] ? st->rbl_msg : "Object relocation complete";
-	return 0;
-    }
-
-    if(statedesc)
-	*statedesc = st->rbl_msg[0] ? st->rbl_msg : "Object relocation in progress";
-    return 1;
+    if(desc)
+	*desc = st->op_msg[0] ? st->op_msg : "Rebalance operation in progress";
+    return st->op_complete ? CLSTOP_COMPLETED : CLSTOP_INPROGRESS;
 }
+
+clst_state clst_replace_state(clst_t *st, const char **desc) {
+    if(!st || st->op_type != OP_REPLACE)
+	return CLSTOP_NOTRUNNING;
+
+    if(desc)
+	*desc = st->op_msg[0] ? st->op_msg : "Replace operation in progress";
+    return st->op_complete ? CLSTOP_COMPLETED : CLSTOP_INPROGRESS;
+}
+

@@ -9416,7 +9416,7 @@ rc_ty sx_hashfs_hdist_change_add(sx_hashfs_t *h, const void *cfg, unsigned int c
 	goto change_add_fail;
     }
 
-    if(sx_hashfs_set_rbl_info(h, 1, 0, "Updating distribution model")) {
+    if(sx_hashfs_set_progress_info(h, INPRG_REBALANCE_RUNNING, "Updating distribution model")) {
 	ret = FAIL_EINTERNAL;
 	goto change_add_fail;
     }
@@ -9630,7 +9630,7 @@ rc_ty sx_hashfs_hdist_replace_add(sx_hashfs_t *h, const void *cfg, unsigned int 
 	goto replace_add_fail;
     }
 
-    if(sx_hashfs_set_rbl_info(h, 1, 0, "Updating distribution model")) {
+    if(sx_hashfs_set_progress_info(h, INPRG_REPLACE_RUNNING, "Updating distribution model with faulty nodes")) {
 	ret = FAIL_EINTERNAL;
 	goto replace_add_fail;
     }
@@ -9689,7 +9689,7 @@ rc_ty sx_hashfs_hdist_change_revoke(sx_hashfs_t *h) {
 	qnullify(q);
     }
 
-    if(sx_hashfs_set_rbl_info(h, 0, 0, NULL))
+    if(sx_hashfs_set_progress_info(h, INPRG_IDLE, NULL))
 	goto change_revoke_fail;
 
     ret = sx_hashfs_job_unlock(h, NULL);
@@ -10910,13 +10910,13 @@ rc_ty sx_hashfs_rb_cleanup(sx_hashfs_t *h) {
     return r;
 }
 
-rc_ty sx_hashfs_get_rbl_info(sx_hashfs_t *h, int *complete, const char **description) {
-    rc_ty ret = FAIL_EINTERNAL;
+sx_inprogress_t sx_hashfs_get_progress_info(sx_hashfs_t *h, const char **description) {
+    sx_inprogress_t ret = INPRG_ERROR;
     int r;
 
     if(!h) {
 	NULLARG();
-	return EFAULT;
+	return INPRG_ERROR;
     }
 
     sqlite3_reset(h->q_getval);
@@ -10925,7 +10925,7 @@ rc_ty sx_hashfs_get_rbl_info(sx_hashfs_t *h, int *complete, const char **descrip
     r = qstep(h->q_getval);
     if(r != SQLITE_ROW) {
 	if(r == SQLITE_DONE)
-	    ret = ENOENT;
+	    ret = INPRG_IDLE;
 	goto getrblinfo_fail;
     }
 
@@ -10944,27 +10944,25 @@ rc_ty sx_hashfs_get_rbl_info(sx_hashfs_t *h, int *complete, const char **descrip
     if(qbind_text(h->q_getval, ":k", "rebalance_complete"))
 	goto getrblinfo_fail;
     r = qstep(h->q_getval);
-    if(r != SQLITE_ROW) {
+    if(r == SQLITE_ROW) {
+	ret = sqlite3_column_int(h->q_getval, 0);
+    } else {
 	if(description)
 	    *description = NULL;
 	if(r == SQLITE_DONE)
-	    ret = ENOENT;
+	    ret = INPRG_IDLE;
 	goto getrblinfo_fail;
     }
 
-    if(complete)
-	*complete = sqlite3_column_int(h->q_getval, 0);
-    ret = OK;
-
  getrblinfo_fail:
     sqlite3_reset(h->q_getval);
-    if(ret == FAIL_EINTERNAL)
+    if(ret == INPRG_ERROR)
 	msg_set_reason("Failed to retrieve rebalance state info from the database");
 
     return ret;
 }
 
-rc_ty sx_hashfs_set_rbl_info(sx_hashfs_t *h, int active, int complete, const char *description) {
+rc_ty sx_hashfs_set_progress_info(sx_hashfs_t *h, sx_inprogress_t state, const char *description) {
     rc_ty ret = FAIL_EINTERNAL;
     sqlite3_stmt *q = NULL;
 
@@ -10973,7 +10971,10 @@ rc_ty sx_hashfs_set_rbl_info(sx_hashfs_t *h, int active, int complete, const cha
 	return EFAULT;
     }
 
-    if(!active) {
+    if(state < INPRG_IDLE || state > INPRG_REPLACE_COMPLETE)
+	return EINVAL;
+
+    if(state == INPRG_IDLE) {
 	if(qprep(h->db, &q, "DELETE FROM hashfs WHERE key IN ('rebalance_message', 'rebalance_complete')") ||
 	   qstep_noret(q))
 	    msg_set_reason("Failed to set rebalance state info to inactive");
@@ -10989,7 +10990,7 @@ rc_ty sx_hashfs_set_rbl_info(sx_hashfs_t *h, int active, int complete, const cha
 	goto setrblinfo_fail;
     if(qbind_text(q, ":k", "rebalance_message") || qbind_text(q, ":v", description) || qstep_noret(q))
 	goto setrblinfo_fail;
-    if(qbind_text(q, ":k", "rebalance_complete") || qbind_int(q, ":v", (complete != 0)) || qstep_noret(q))
+    if(qbind_text(q, ":k", "rebalance_complete") || qbind_int(q, ":v", state) || qstep_noret(q))
 	goto setrblinfo_fail;
     ret = OK;
 
@@ -11779,6 +11780,9 @@ rc_ty sx_hashfs_set_unfaulty(sx_hashfs_t *h, const sx_uuid_t *nodeid, int64_t di
 	msg_set_reason("Failed to save updated distribution model");
 	goto unfaulty_err;
     }
+
+    if(sx_hashfs_set_progress_info(h, INPRG_IDLE, NULL))
+	goto unfaulty_err;
 
     if(!qcommit(h->db))
 	ret = OK;

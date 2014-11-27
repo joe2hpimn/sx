@@ -80,12 +80,12 @@ void fcgi_handle_cluster_requests(void) {
     CGI_PUTS("Content-type: application/json\r\n\r\n{");
 
     if(has_arg("clusterStatus")) {
-	const char *rbl_msg;
-	int rbl_done;
+	sx_inprogress_t status;
+	const char *progress_msg;
 
-	s = sx_hashfs_get_rbl_info(hashfs, &rbl_done, &rbl_msg);
-	if(s != OK && s != ENOENT)
-	    quit_errmsg(rc2http(s), msg_get_reason());
+	status = sx_hashfs_get_progress_info(hashfs, &progress_msg);
+	if(status == INPRG_ERROR)
+	    quit_errmsg(500, msg_get_reason());
 	CGI_PUTS("\"clusterStatus\":{\"distributionModels\":[");
 
 	if(!sx_storage_is_bare(hashfs)) {
@@ -105,9 +105,23 @@ void fcgi_handle_cluster_requests(void) {
 	    CGI_PRINTF("],\"distributionUUID\":\"%s\",\"distributionVersion\":%u,\"distributionChecksum\":", dist_uuid->string, version);
 	    CGI_PUTLL(checksum);
 
-	    if(s == OK) {
-		CGI_PRINTF(",\"rebalanceStatus\":{\"inProgress\":%s,\"statusInfo\":", rbl_done ? "false" : "true");
-		json_send_qstring(rbl_msg);
+	    if(status != INPRG_IDLE) {
+		const char *op, *complete;
+		if(status == INPRG_REBALANCE_RUNNING) {
+		    op = "rebalance";
+		    complete = "false";
+		} else if(status == INPRG_REBALANCE_COMPLETE) {
+		    op = "rebalance";
+		    complete = "true";
+		} else if(status == INPRG_REPLACE_RUNNING) {
+		    op = "replace";
+		    complete = "false";
+		} else /* if(status == INPRG_REPLACE_COMPLETE) */ {
+		    op = "replace";
+		    complete = "true";
+		}
+		CGI_PRINTF(",\"opInProgress\":{\"opType\":\"%s\",\"isComplete\":%s,\"opInfo\":", op, complete);
+		json_send_qstring(progress_msg);
 		CGI_PUTC('}');
 	    }
 	    CGI_PRINTF(",\"clusterAuth\":\"%s\"}", sx_hashfs_authtoken(hashfs));

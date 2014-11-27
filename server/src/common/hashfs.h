@@ -404,8 +404,16 @@ rc_ty sx_hashfs_relocs_delete(sx_hashfs_t *h, const sx_reloc_t *reloc);
 void sx_hashfs_reloc_free(const sx_reloc_t *reloc);
 rc_ty sx_hashfs_rb_cleanup(sx_hashfs_t *h);
 rc_ty sx_hashfs_hdist_set_rebalanced(sx_hashfs_t *h);
-rc_ty sx_hashfs_get_rbl_info(sx_hashfs_t *h, int *complete, const char **description);
-rc_ty sx_hashfs_set_rbl_info(sx_hashfs_t *h, int active, int complete, const char *description);
+typedef enum _sx_inprogress_t {
+    INPRG_ERROR = -1,
+    INPRG_IDLE = 0,
+    INPRG_REBALANCE_RUNNING,
+    INPRG_REBALANCE_COMPLETE,
+    INPRG_REPLACE_RUNNING,
+    INPRG_REPLACE_COMPLETE,
+} sx_inprogress_t;
+rc_ty sx_hashfs_set_progress_info(sx_hashfs_t *h, sx_inprogress_t state, const char *description);
+sx_inprogress_t sx_hashfs_get_progress_info(sx_hashfs_t *h, const char **description);
 
 rc_ty sx_hashfs_replace_getstartblock(sx_hashfs_t *h, unsigned int *version, const sx_node_t **node, int *have_blkidx, uint8_t *blkidx);
 rc_ty sx_hashfs_replace_setlastblock(sx_hashfs_t *h, const sx_uuid_t *node, const uint8_t *blkidx);
