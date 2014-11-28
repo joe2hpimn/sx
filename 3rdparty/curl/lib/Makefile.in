@@ -21,7 +21,7 @@
 #                            | (__| |_| |  _ <| |___
 #                             \___|\___/|_| \_\_____|
 #
-# Copyright (C) 1998 - 2013, Daniel Stenberg, <daniel@haxx.se>, et al.
+# Copyright (C) 1998 - 2014, Daniel Stenberg, <daniel@haxx.se>, et al.
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
@@ -141,15 +141,7 @@ CONFIG_CLEAN_FILES = libcurl.vers
 CONFIG_CLEAN_VPATH_FILES =
 LTLIBRARIES = $(noinst_LTLIBRARIES)
 libcurl_la_LIBADD =
-am__dirstamp = $(am__leading_dot)dirstamp
-am__objects_1 = vtls/libcurl_la-openssl.lo vtls/libcurl_la-gtls.lo \
-	vtls/libcurl_la-vtls.lo vtls/libcurl_la-nss.lo \
-	vtls/libcurl_la-qssl.lo vtls/libcurl_la-polarssl.lo \
-	vtls/libcurl_la-polarssl_threadlock.lo \
-	vtls/libcurl_la-axtls.lo vtls/libcurl_la-cyassl.lo \
-	vtls/libcurl_la-curl_schannel.lo \
-	vtls/libcurl_la-curl_darwinssl.lo vtls/libcurl_la-gskit.lo
-am__objects_2 = libcurl_la-file.lo libcurl_la-timeval.lo \
+am__objects_1 = libcurl_la-file.lo libcurl_la-timeval.lo \
 	libcurl_la-base64.lo libcurl_la-hostip.lo \
 	libcurl_la-progress.lo libcurl_la-formdata.lo \
 	libcurl_la-cookie.lo libcurl_la-http.lo libcurl_la-sendf.lo \
@@ -195,10 +187,19 @@ am__objects_2 = libcurl_la-file.lo libcurl_la-timeval.lo \
 	libcurl_la-bundles.lo libcurl_la-conncache.lo \
 	libcurl_la-pipeline.lo libcurl_la-dotdot.lo \
 	libcurl_la-x509asn1.lo libcurl_la-http2.lo \
-	libcurl_la-curl_sasl_sspi.lo $(am__objects_1)
-am__objects_3 =
-am__objects_4 = $(am__objects_3)
-am_libcurl_la_OBJECTS = $(am__objects_2) $(am__objects_4)
+	libcurl_la-curl_sasl_sspi.lo
+am__dirstamp = $(am__leading_dot)dirstamp
+am__objects_2 = vtls/libcurl_la-openssl.lo vtls/libcurl_la-gtls.lo \
+	vtls/libcurl_la-vtls.lo vtls/libcurl_la-nss.lo \
+	vtls/libcurl_la-polarssl.lo \
+	vtls/libcurl_la-polarssl_threadlock.lo \
+	vtls/libcurl_la-axtls.lo vtls/libcurl_la-cyassl.lo \
+	vtls/libcurl_la-curl_schannel.lo \
+	vtls/libcurl_la-curl_darwinssl.lo vtls/libcurl_la-gskit.lo
+am__objects_3 = $(am__objects_1) $(am__objects_2)
+am__objects_4 =
+am__objects_5 = $(am__objects_4) $(am__objects_4)
+am_libcurl_la_OBJECTS = $(am__objects_3) $(am__objects_5)
 libcurl_la_OBJECTS = $(am_libcurl_la_OBJECTS)
 AM_V_lt = $(am__v_lt_@AM_V@)
 am__v_lt_ = $(am__v_lt_@AM_DEFAULT_V@)
@@ -210,13 +211,6 @@ libcurl_la_LINK = $(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) \
 @BUILD_UNITTESTS_FALSE@am_libcurl_la_rpath =
 @BUILD_UNITTESTS_TRUE@am_libcurl_la_rpath =
 libcurlu_la_LIBADD =
-am__objects_5 = vtls/libcurlu_la-openssl.lo vtls/libcurlu_la-gtls.lo \
-	vtls/libcurlu_la-vtls.lo vtls/libcurlu_la-nss.lo \
-	vtls/libcurlu_la-qssl.lo vtls/libcurlu_la-polarssl.lo \
-	vtls/libcurlu_la-polarssl_threadlock.lo \
-	vtls/libcurlu_la-axtls.lo vtls/libcurlu_la-cyassl.lo \
-	vtls/libcurlu_la-curl_schannel.lo \
-	vtls/libcurlu_la-curl_darwinssl.lo vtls/libcurlu_la-gskit.lo
 am__objects_6 = libcurlu_la-file.lo libcurlu_la-timeval.lo \
 	libcurlu_la-base64.lo libcurlu_la-hostip.lo \
 	libcurlu_la-progress.lo libcurlu_la-formdata.lo \
@@ -264,9 +258,16 @@ am__objects_6 = libcurlu_la-file.lo libcurlu_la-timeval.lo \
 	libcurlu_la-hostcheck.lo libcurlu_la-bundles.lo \
 	libcurlu_la-conncache.lo libcurlu_la-pipeline.lo \
 	libcurlu_la-dotdot.lo libcurlu_la-x509asn1.lo \
-	libcurlu_la-http2.lo libcurlu_la-curl_sasl_sspi.lo \
-	$(am__objects_5)
-am_libcurlu_la_OBJECTS = $(am__objects_6) $(am__objects_4)
+	libcurlu_la-http2.lo libcurlu_la-curl_sasl_sspi.lo
+am__objects_7 = vtls/libcurlu_la-openssl.lo vtls/libcurlu_la-gtls.lo \
+	vtls/libcurlu_la-vtls.lo vtls/libcurlu_la-nss.lo \
+	vtls/libcurlu_la-polarssl.lo \
+	vtls/libcurlu_la-polarssl_threadlock.lo \
+	vtls/libcurlu_la-axtls.lo vtls/libcurlu_la-cyassl.lo \
+	vtls/libcurlu_la-curl_schannel.lo \
+	vtls/libcurlu_la-curl_darwinssl.lo vtls/libcurlu_la-gskit.lo
+am__objects_8 = $(am__objects_6) $(am__objects_7)
+am_libcurlu_la_OBJECTS = $(am__objects_8) $(am__objects_5)
 libcurlu_la_OBJECTS = $(am_libcurlu_la_OBJECTS)
 libcurlu_la_LINK = $(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) \
 	$(LIBTOOLFLAGS) --mode=link $(CCLD) $(libcurlu_la_CFLAGS) \
@@ -613,15 +614,15 @@ libcurl_la_CFLAGS = $(AM_CFLAGS) $(libcurl_la_CFLAGS_EXTRA)
 libcurlu_la_CPPFLAGS = $(AM_CPPFLAGS) -DCURL_STATICLIB -DUNITTESTS
 libcurlu_la_LDFLAGS = $(AM_LDFLAGS) -static $(LIBCURL_LIBS)
 libcurlu_la_CFLAGS = $(AM_CFLAGS)
-VSOURCES = vtls/openssl.c vtls/gtls.c vtls/vtls.c vtls/nss.c vtls/qssl.c	\
-  vtls/polarssl.c vtls/polarssl_threadlock.c vtls/axtls.c vtls/cyassl.c	\
-  vtls/curl_schannel.c vtls/curl_darwinssl.c vtls/gskit.c
+LIB_VTLS_CFILES = vtls/openssl.c vtls/gtls.c vtls/vtls.c vtls/nss.c	\
+  vtls/polarssl.c vtls/polarssl_threadlock.c vtls/axtls.c		\
+  vtls/cyassl.c vtls/curl_schannel.c vtls/curl_darwinssl.c vtls/gskit.c
 
-VHEADERS = vtls/qssl.h vtls/openssl.h vtls/vtls.h vtls/gtls.h		\
+LIB_VTLS_HFILES = vtls/openssl.h vtls/vtls.h vtls/gtls.h		\
   vtls/nssg.h vtls/polarssl.h vtls/polarssl_threadlock.h vtls/axtls.h	\
   vtls/cyassl.h vtls/curl_schannel.h vtls/curl_darwinssl.h vtls/gskit.h
 
-CSOURCES = file.c timeval.c base64.c hostip.c progress.c formdata.c	\
+LIB_CFILES = file.c timeval.c base64.c hostip.c progress.c formdata.c	\
   cookie.c http.c sendf.c ftp.c url.c dict.c if2ip.c speedcheck.c	\
   ldap.c version.c getenv.c escape.c mprintf.c telnet.c netrc.c		\
   getinfo.c transfer.c strequal.c easy.c security.c curl_fnmatch.c	\
@@ -638,9 +639,9 @@ CSOURCES = file.c timeval.c base64.c hostip.c progress.c formdata.c	\
   asyn-thread.c curl_gssapi.c curl_ntlm.c curl_ntlm_wb.c		\
   curl_ntlm_core.c curl_ntlm_msgs.c curl_sasl.c curl_multibyte.c	\
   hostcheck.c bundles.c conncache.c pipeline.c dotdot.c x509asn1.c	\
-  http2.c curl_sasl_sspi.c $(VSOURCES)
+  http2.c curl_sasl_sspi.c
 
-HHEADERS = arpa_telnet.h netrc.h file.h timeval.h hostip.h progress.h	\
+LIB_HFILES = arpa_telnet.h netrc.h file.h timeval.h hostip.h progress.h	\
   formdata.h cookie.h http.h sendf.h ftp.h url.h dict.h if2ip.h		\
   speedcheck.h urldata.h curl_ldap.h escape.h telnet.h getinfo.h	\
   strequal.h curl_sec.h memdebug.h http_chunks.h curl_fnmatch.h		\
@@ -656,8 +657,11 @@ HHEADERS = arpa_telnet.h netrc.h file.h timeval.h hostip.h progress.h	\
   curl_ntlm.h curl_gssapi.h curl_ntlm_wb.h curl_ntlm_core.h		\
   curl_ntlm_msgs.h curl_sasl.h curl_multibyte.h hostcheck.h bundles.h	\
   conncache.h curl_setup_once.h multihandle.h setup-vms.h pipeline.h	\
-  dotdot.h x509asn1.h http2.h sigpipe.h $(VHEADERS)
+  dotdot.h x509asn1.h http2.h sigpipe.h
 
+LIB_RCFILES = libcurl.rc
+CSOURCES = $(LIB_CFILES) $(LIB_VTLS_CFILES)
+HHEADERS = $(LIB_HFILES) $(LIB_VTLS_HFILES)
 
 # Makefile.inc provides the CSOURCES and HHEADERS defines
 libcurl_la_SOURCES = $(CSOURCES) $(HHEADERS)
@@ -740,8 +744,6 @@ vtls/libcurl_la-vtls.lo: vtls/$(am__dirstamp) \
 	vtls/$(DEPDIR)/$(am__dirstamp)
 vtls/libcurl_la-nss.lo: vtls/$(am__dirstamp) \
 	vtls/$(DEPDIR)/$(am__dirstamp)
-vtls/libcurl_la-qssl.lo: vtls/$(am__dirstamp) \
-	vtls/$(DEPDIR)/$(am__dirstamp)
 vtls/libcurl_la-polarssl.lo: vtls/$(am__dirstamp) \
 	vtls/$(DEPDIR)/$(am__dirstamp)
 vtls/libcurl_la-polarssl_threadlock.lo: vtls/$(am__dirstamp) \
@@ -766,8 +768,6 @@ vtls/libcurlu_la-gtls.lo: vtls/$(am__dirstamp) \
 vtls/libcurlu_la-vtls.lo: vtls/$(am__dirstamp) \
 	vtls/$(DEPDIR)/$(am__dirstamp)
 vtls/libcurlu_la-nss.lo: vtls/$(am__dirstamp) \
-	vtls/$(DEPDIR)/$(am__dirstamp)
-vtls/libcurlu_la-qssl.lo: vtls/$(am__dirstamp) \
 	vtls/$(DEPDIR)/$(am__dirstamp)
 vtls/libcurlu_la-polarssl.lo: vtls/$(am__dirstamp) \
 	vtls/$(DEPDIR)/$(am__dirstamp)
@@ -1007,7 +1007,6 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@vtls/$(DEPDIR)/libcurl_la-openssl.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@vtls/$(DEPDIR)/libcurl_la-polarssl.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@vtls/$(DEPDIR)/libcurl_la-polarssl_threadlock.Plo@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@vtls/$(DEPDIR)/libcurl_la-qssl.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@vtls/$(DEPDIR)/libcurl_la-vtls.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@vtls/$(DEPDIR)/libcurlu_la-axtls.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@vtls/$(DEPDIR)/libcurlu_la-curl_darwinssl.Plo@am__quote@
@@ -1019,7 +1018,6 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@vtls/$(DEPDIR)/libcurlu_la-openssl.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@vtls/$(DEPDIR)/libcurlu_la-polarssl.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@vtls/$(DEPDIR)/libcurlu_la-polarssl_threadlock.Plo@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@vtls/$(DEPDIR)/libcurlu_la-qssl.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@vtls/$(DEPDIR)/libcurlu_la-vtls.Plo@am__quote@
 
 .c.o:
@@ -1780,13 +1778,6 @@ vtls/libcurl_la-nss.lo: vtls/nss.c
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='vtls/nss.c' object='vtls/libcurl_la-nss.lo' libtool=yes @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libcurl_la_CPPFLAGS) $(CPPFLAGS) $(libcurl_la_CFLAGS) $(CFLAGS) -c -o vtls/libcurl_la-nss.lo `test -f 'vtls/nss.c' || echo '$(srcdir)/'`vtls/nss.c
-
-vtls/libcurl_la-qssl.lo: vtls/qssl.c
-@am__fastdepCC_TRUE@	$(AM_V_CC)$(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libcurl_la_CPPFLAGS) $(CPPFLAGS) $(libcurl_la_CFLAGS) $(CFLAGS) -MT vtls/libcurl_la-qssl.lo -MD -MP -MF vtls/$(DEPDIR)/libcurl_la-qssl.Tpo -c -o vtls/libcurl_la-qssl.lo `test -f 'vtls/qssl.c' || echo '$(srcdir)/'`vtls/qssl.c
-@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) vtls/$(DEPDIR)/libcurl_la-qssl.Tpo vtls/$(DEPDIR)/libcurl_la-qssl.Plo
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='vtls/qssl.c' object='vtls/libcurl_la-qssl.lo' libtool=yes @AMDEPBACKSLASH@
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libcurl_la_CPPFLAGS) $(CPPFLAGS) $(libcurl_la_CFLAGS) $(CFLAGS) -c -o vtls/libcurl_la-qssl.lo `test -f 'vtls/qssl.c' || echo '$(srcdir)/'`vtls/qssl.c
 
 vtls/libcurl_la-polarssl.lo: vtls/polarssl.c
 @am__fastdepCC_TRUE@	$(AM_V_CC)$(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libcurl_la_CPPFLAGS) $(CPPFLAGS) $(libcurl_la_CFLAGS) $(CFLAGS) -MT vtls/libcurl_la-polarssl.lo -MD -MP -MF vtls/$(DEPDIR)/libcurl_la-polarssl.Tpo -c -o vtls/libcurl_la-polarssl.lo `test -f 'vtls/polarssl.c' || echo '$(srcdir)/'`vtls/polarssl.c
@@ -2571,13 +2562,6 @@ vtls/libcurlu_la-nss.lo: vtls/nss.c
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='vtls/nss.c' object='vtls/libcurlu_la-nss.lo' libtool=yes @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libcurlu_la_CPPFLAGS) $(CPPFLAGS) $(libcurlu_la_CFLAGS) $(CFLAGS) -c -o vtls/libcurlu_la-nss.lo `test -f 'vtls/nss.c' || echo '$(srcdir)/'`vtls/nss.c
-
-vtls/libcurlu_la-qssl.lo: vtls/qssl.c
-@am__fastdepCC_TRUE@	$(AM_V_CC)$(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libcurlu_la_CPPFLAGS) $(CPPFLAGS) $(libcurlu_la_CFLAGS) $(CFLAGS) -MT vtls/libcurlu_la-qssl.lo -MD -MP -MF vtls/$(DEPDIR)/libcurlu_la-qssl.Tpo -c -o vtls/libcurlu_la-qssl.lo `test -f 'vtls/qssl.c' || echo '$(srcdir)/'`vtls/qssl.c
-@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) vtls/$(DEPDIR)/libcurlu_la-qssl.Tpo vtls/$(DEPDIR)/libcurlu_la-qssl.Plo
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='vtls/qssl.c' object='vtls/libcurlu_la-qssl.lo' libtool=yes @AMDEPBACKSLASH@
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libcurlu_la_CPPFLAGS) $(CPPFLAGS) $(libcurlu_la_CFLAGS) $(CFLAGS) -c -o vtls/libcurlu_la-qssl.lo `test -f 'vtls/qssl.c' || echo '$(srcdir)/'`vtls/qssl.c
 
 vtls/libcurlu_la-polarssl.lo: vtls/polarssl.c
 @am__fastdepCC_TRUE@	$(AM_V_CC)$(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libcurlu_la_CPPFLAGS) $(CPPFLAGS) $(libcurlu_la_CFLAGS) $(CFLAGS) -MT vtls/libcurlu_la-polarssl.lo -MD -MP -MF vtls/$(DEPDIR)/libcurlu_la-polarssl.Tpo -c -o vtls/libcurlu_la-polarssl.lo `test -f 'vtls/polarssl.c' || echo '$(srcdir)/'`vtls/polarssl.c

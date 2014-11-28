@@ -542,6 +542,7 @@ X_OBJS= \
 	$(DIROBJ)\curl_ntlm_wb.obj \
 	$(DIROBJ)\curl_rtmp.obj \
 	$(DIROBJ)\curl_sasl.obj \
+	$(DIROBJ)\curl_sasl_sspi.obj \
 	$(DIROBJ)\curl_schannel.obj \
 	$(DIROBJ)\curl_sspi.obj \
 	$(DIROBJ)\curl_threads.obj \
@@ -598,7 +599,6 @@ X_OBJS= \
 	$(DIROBJ)\polarssl_threadlock.obj \
 	$(DIROBJ)\pop3.obj \
 	$(DIROBJ)\progress.obj \
-	$(DIROBJ)\qssl.obj \
 	$(DIROBJ)\rawstr.obj \
 	$(DIROBJ)\rtsp.obj \
 	$(DIROBJ)\security.obj \
