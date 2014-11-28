@@ -7,6 +7,8 @@ endif
 if BUILD_CURL
 SUBDIRS += ../3rdparty/curl
 endif
+
+EXTRA_DIST=libltdl ../3rdparty/curl
 DIST_SUBDIRS=$(SUBDIRS)
 
 include_HEADERS = include/sx.h
@@ -18,8 +20,10 @@ src_libsx_la_SOURCES = \
 	include/default.h \
 	include/gnuc.h \
 	include/types.h \
+	include/version.h \
 	src/curlevents.c \
 	src/curlevents.h \
+	src/curlevents-common.h \
 	src/cluster.c \
 	src/cluster.h \
 	src/hostlist.c \

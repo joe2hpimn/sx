@@ -583,7 +583,8 @@ src_tools_acl_sxacl_SOURCES = \
 	src/tools/acl/cmd_useradd.h \
 	src/tools/acl/cmd_userdel.h \
 	src/tools/acl/cmd_userlist.h \
-	src/tools/acl/cmd_usergetkey.h
+	src/tools/acl/cmd_usergetkey.h \
+	src/tools/acl/cmd_usernewkey.h
 
 src_tools_acl_sxacl_LDADD = $(top_builddir)/../libsx/src/libsx.la
 src_tools_rm_sxrm_SOURCES = \
@@ -593,6 +594,7 @@ src_tools_rm_sxrm_SOURCES = \
 
 src_tools_rm_sxrm_LDADD = $(top_builddir)/../libsx/src/libsx.la
 src_tools_rev_sxrev_SOURCES = \
+        src/common/bcrumbs.h \
 	src/tools/rev/sxrev.c \
 	src/tools/rev/cmd_main.c \
 	src/tools/rev/cmd_main.h \

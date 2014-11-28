@@ -11,6 +11,7 @@ nobase_sysconf_DATA = sxserver/sxhttpd.conf.default sxserver/fastcgi_params sxse
 nobase_doc_DATA = logrotate.d/sxserver
 sbin_SCRIPTS = sbin/sxserver sbin/sxsetup
 CLEANFILES=$(sbin_SCRIPTS) $(nobase_doc_DATA) sxserver/sxhttpd.conf.default
+EXTRA_DIST=sbin/sxserver.in sbin/sxsetup.in logrotate.d/sxserver.in sxserver/sxhttpd.conf.default.in sxserver/fastcgi_params sxserver/errors/414.json sxserver/errors/50x.json
 sxserver/sxhttpd.conf.default: $(srcdir)/sxserver/sxhttpd.conf.default.in Makefile
 	rm -f $@ $@.tmp
 	$(edit) $(srcdir)/sxserver/sxhttpd.conf.default.in >$@.tmp

@@ -154,16 +154,17 @@ am__installdirs = "$(DESTDIR)$(libdir)" "$(DESTDIR)$(includedir)"
 LTLIBRARIES = $(lib_LTLIBRARIES)
 src_libsx_la_DEPENDENCIES =
 am__src_libsx_la_SOURCES_DIST = include/sx.h include/default.h \
-	include/gnuc.h include/types.h src/curlevents.c \
-	src/curlevents.h src/cluster.c src/cluster.h src/hostlist.c \
-	src/hostlist.h src/clustcfg.c src/clustcfg.h src/yajlwrap.c \
-	src/yajlwrap.h src/misc.c src/misc.h src/fileops.c \
-	src/fileops.h src/volops.c src/volops.h src/jobpoll.c \
-	src/jobpoll.h src/libsx.c src/libsx-int.h src/filter.c \
-	src/filter.h src/sxlog.h src/sxlog.c src/sxproto.h \
-	src/sxproto.c src/sxreport.h src/sxreport.c src/version.c \
-	src/vcrypto.h src/vcryptocurl.h src/nftw.c src/sxftw.h \
-	src/nss.c src/openssl.c src/cert.c src/cert.h
+	include/gnuc.h include/types.h include/version.h \
+	src/curlevents.c src/curlevents.h src/curlevents-common.h \
+	src/cluster.c src/cluster.h src/hostlist.c src/hostlist.h \
+	src/clustcfg.c src/clustcfg.h src/yajlwrap.c src/yajlwrap.h \
+	src/misc.c src/misc.h src/fileops.c src/fileops.h src/volops.c \
+	src/volops.h src/jobpoll.c src/jobpoll.h src/libsx.c \
+	src/libsx-int.h src/filter.c src/filter.h src/sxlog.h \
+	src/sxlog.c src/sxproto.h src/sxproto.c src/sxreport.h \
+	src/sxreport.c src/version.c src/vcrypto.h src/vcryptocurl.h \
+	src/nftw.c src/sxftw.h src/nss.c src/openssl.c src/cert.c \
+	src/cert.h
 am__dirstamp = $(am__leading_dot)dirstamp
 @BUILD_NFTW_TRUE@am__objects_1 = src/src_libsx_la-nftw.lo
 @BUILD_NSS_TRUE@am__objects_2 = src/src_libsx_la-nss.lo
@@ -459,15 +460,17 @@ top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
 ACLOCAL_AMFLAGS = -I m4
 SUBDIRS = $(am__append_1) $(am__append_2)
+EXTRA_DIST = libltdl ../3rdparty/curl
 DIST_SUBDIRS = $(SUBDIRS)
 include_HEADERS = include/sx.h
 AM_CPPFLAGS = -I $(top_srcdir)/include -I $(top_srcdir)/src $(LTDLINCL)
 lib_LTLIBRARIES = src/libsx.la
 src_libsx_la_SOURCES = include/sx.h include/default.h include/gnuc.h \
-	include/types.h src/curlevents.c src/curlevents.h \
-	src/cluster.c src/cluster.h src/hostlist.c src/hostlist.h \
-	src/clustcfg.c src/clustcfg.h src/yajlwrap.c src/yajlwrap.h \
-	src/misc.c src/misc.h src/fileops.c src/fileops.h src/volops.c \
+	include/types.h include/version.h src/curlevents.c \
+	src/curlevents.h src/curlevents-common.h src/cluster.c \
+	src/cluster.h src/hostlist.c src/hostlist.h src/clustcfg.c \
+	src/clustcfg.h src/yajlwrap.c src/yajlwrap.h src/misc.c \
+	src/misc.h src/fileops.c src/fileops.h src/volops.c \
 	src/volops.h src/jobpoll.c src/jobpoll.h src/libsx.c \
 	src/libsx-int.h src/filter.c src/filter.h src/sxlog.h \
 	src/sxlog.c src/sxproto.h src/sxproto.c src/sxreport.h \

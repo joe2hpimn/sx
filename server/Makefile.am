@@ -11,18 +11,16 @@ bin_PROGRAMS = src/tools/sxsim/sxsim test/randgen
 sbin_PROGRAMS = src/fcgi/sx.fcgi src/tools/sxreport-server/sxreport-server src/tools/sxadm/sxadm
 
 src_common_libcommon_la_SOURCES = \
-		    include/default.h\
-		    include/errors.h\
-		    include/gnuc.h\
-		    include/log.h\
-		    include/types.h\
-		    include/utils.h\
-		    include/blob.h\
-		    include/nodes.h\
-		    include/hdist.h \
-		    include/hashfs.h\
-		    include/sxdbi.h\
-		    include/isaac.h\
+		    src/common/blob.h\
+		    src/common/errors.h\
+		    src/common/hashfs.h\
+		    src/common/hdist.h\
+		    src/common/isaac.h\
+		    src/common/job_common.h\
+		    src/common/log.h\
+		    src/common/nodes.h\
+		    src/common/sxdbi.h\
+		    src/common/utils.h\
 		    src/common/clstqry.h\
 		    src/common/clstqry.c\
 		    src/common/qsort.h \
