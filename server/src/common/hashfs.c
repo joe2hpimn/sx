@@ -8300,6 +8300,7 @@ static const char *locknames[] = {
     "*", /* JOBTYPE_REPLACE */
     "REPLACE_BLOCKS", /* JOBTYPE_REPLACE_BLOCKS */
     "REPLACE_FILES", /* JOBTYPE_REPLACE_FILES */
+    NULL, /* JOBTYPE_DUMMY */
 };
 
 #define MAX_PENDING_JOBS 128
