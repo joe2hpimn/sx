@@ -7417,7 +7417,7 @@ static rc_ty file_totmp(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, const cha
 	return FAIL_EINTERNAL;
 
     *tmpfile_id = sqlite3_last_insert_rowid(sqlite3_db_handle(h->qt_new4del));
-    WARN("Turned file %s/%s::%s into tempfile id %lld", vol->name, name, revision, (long long)*tmpfile_id);
+    DEBUG("Turned file %s/%s::%s into tempfile id %lld", vol->name, name, revision, (long long)*tmpfile_id);
     return OK;
 }
 
