@@ -2230,10 +2230,10 @@ static int local_to_remote_iterate(sxc_file_t *source, int recursive, int depth,
             dest->jobs = dst->jobs;
         }
         else if (S_ISREG(sb.st_mode)) {
-            SXDEBUG("Starting to upload %s", path);
+            SXDEBUG("Starting to upload %s", src->path);
             if ((qret = local_to_remote_begin(src, emptymeta, dst, 1)) != 0) {
-                sxi_notice(sx, "%s: %s", path, sxc_geterrmsg(sx));
-                SXDEBUG("failed to begin upload on %s", path);
+                sxi_notice(sx, "%s: %s", src->path, sxc_geterrmsg(sx));
+                SXDEBUG("failed to begin upload on %s", src->path);
                 if (qret == 403 || qret == 404 || qret == 413) {
                     ret = qret;
                     if (!ignore_errors)
@@ -2263,7 +2263,7 @@ static int local_to_remote_iterate(sxc_file_t *source, int recursive, int depth,
                 break;
             }
         } else if (S_ISLNK(sb.st_mode)) {
-            sxi_notice(sx, "Skipped symlink %s", path);
+            sxi_notice(sx, "Skipped symlink %s", src->path);
         }
         sxc_file_free(src);
         sxc_file_free(dst);
