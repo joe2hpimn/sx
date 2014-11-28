@@ -929,14 +929,14 @@ if [ ! -f "$SX_DATA_DIR/hashfs.db" ]; then
 		"@sbindir@/sxserver" stop
 		exit 1
 	    fi
-	    if [ -n "`cat $OUT_TMP | grep 'Target configuration'`" ]; then
+	    if [ -n "`cat $OUT_TMP | grep 'Operations in progress'`" ]; then
 		if [ $REBCNT -gt 10 ]; then
-		    echo "Failed to add the new node to the cluster, which is currently being rebalanced."
-		    echo "The rebalance process can take a long time, please try again later."
+		    echo "Failed to add the new node to the cluster, which is currently running"
+		    echo "another operation. Please try again later."
 		    "@sbindir@/sxserver" stop
 		    exit 1
 		fi
-		echo "Cluster is busy (rebalance in progress)... retrying in 60 seconds (attempt $REBCNT of 10)."
+		echo "Cluster is busy (another operation in progress)... retrying in 60 seconds (attempt $REBCNT of 10)."
 		REBCNT=`expr $REBCNT + 1`
 		sleep 60
 		continue
@@ -973,7 +973,7 @@ if [ ! -f "$SX_DATA_DIR/hashfs.db" ]; then
 		    sleep 1
 		    continue
 		fi
-		if [ -n "`cat $OUT_TMP | grep 'Target configuration'`" ]; then
+		if [ -n "`cat $OUT_TMP | grep 'Operations in progress'`" ]; then
 		    sleep 1
 		    continue
 		else
