@@ -1086,6 +1086,8 @@ void print_dist(const sx_nodelist_t *nodes) {
 static int info_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
     sxc_cluster_t *clust = cluster_load(sx, args, 1);
     clst_t *clst;
+    const sx_nodelist_t *nodes = NULL;
+    int ret = 0;
 
     if(!clust)
 	return 1;
@@ -1103,25 +1105,64 @@ static int info_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
 	break;
     case 2:
 	printf("Target configuration: ");
-	print_dist(clst_nodes(clst, 1));
+	nodes = clst_nodes(clst, 1);
+	print_dist(nodes);
     case 1:
 	printf("Current configuration: ");
 	print_dist(clst_nodes(clst, 0));
+	if(!nodes)
+	    nodes = clst_nodes(clst, 0);
+    }
 
-	unsigned int version;
-	uint64_t checksum;
-	const sx_uuid_t *distid = clst_distuuid(clst, &version, &checksum);
-	if(distid)
-	    printf("Distribution: %s(v.%u) - checksum: %llu\n", distid->string, version, (unsigned long long)checksum);
+    if(nodes) {
+	unsigned int i, nnodes = sx_nodelist_count(nodes), header = 0;
+	sxi_hostlist_t hlist;
 
-	const char *auth = clst_auth(clst);
-	if(auth)
-	    printf("Cluster authentication token: %s\n", auth);
+	sxi_hostlist_init(&hlist);
+	for(i = 0; i < nnodes; i++) {
+	    const sx_node_t *node = sx_nodelist_get(nodes, i);
+	    const char *op = NULL;
+	    clst_t *clstnode;
+
+	    if(sxi_hostlist_add_host(sx, &hlist, sx_node_internal_addr(node))) {
+		CRIT("OOM adding to hostlist");
+		clst_destroy(clst);
+		sxc_cluster_free(clust);
+		return 1;
+	    }
+            clstnode = clst_query(sxi_cluster_get_conns(clust), &hlist);
+	    sxi_hostlist_empty(&hlist);
+	    if(!clstnode) {
+		printf("Failed to get status of node %s\n", sx_node_internal_addr(node));
+		ret = 1;
+		continue;
+	    }
+	    if(clst_rebalance_state(clstnode, &op) != CLSTOP_NOTRUNNING || clst_replace_state(clstnode, &op) != CLSTOP_NOTRUNNING) {
+		if(!header) {
+		    printf("Operations in progress:\n");
+		    header = 1;
+		}
+		printf("  * node %s: %s\n", sx_node_internal_addr(node), op);
+	    }
+	    clst_destroy(clstnode);
+	}
+
+	if(!ret) {
+	    unsigned int version;
+	    uint64_t checksum;
+	    const sx_uuid_t *distid = clst_distuuid(clst, &version, &checksum);
+	    if(distid)
+		printf("Distribution: %s(v.%u) - checksum: %llu\n", distid->string, version, (unsigned long long)checksum);
+
+	    const char *auth = clst_auth(clst);
+	    if(auth)
+		printf("Cluster authentication token: %s\n", auth);
+	}
     }
 
     clst_destroy(clst);
     sxc_cluster_free(clust);
-    return 0;
+    return ret;
 }
 
 static int resize_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
