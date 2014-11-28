@@ -5,9 +5,9 @@ SX_CPPFLAGS=-DDEFAULT_FCGI_CFGFILE=\"$(sysconfdir)/sxserver/sxfcgi.conf\"
 
 noinst_LTLIBRARIES = src/common/libcommon.la
 
-noinst_PROGRAMS = test/testfile test/hdist-test test/client-test
+noinst_PROGRAMS = test/testfile test/hdist-test test/client-test test/randgen
 
-bin_PROGRAMS = src/tools/sxsim/sxsim test/randgen
+bin_PROGRAMS = src/tools/sxsim/sxsim
 sbin_PROGRAMS = src/fcgi/sx.fcgi src/tools/sxreport-server/sxreport-server src/tools/sxadm/sxadm
 
 src_common_libcommon_la_SOURCES = \

@@ -80,8 +80,8 @@ POST_UNINSTALL = :
 build_triplet = @build@
 host_triplet = @host@
 noinst_PROGRAMS = test/testfile$(EXEEXT) test/hdist-test$(EXEEXT) \
-	test/client-test$(EXEEXT)
-bin_PROGRAMS = src/tools/sxsim/sxsim$(EXEEXT) test/randgen$(EXEEXT)
+	test/client-test$(EXEEXT) test/randgen$(EXEEXT)
+bin_PROGRAMS = src/tools/sxsim/sxsim$(EXEEXT)
 sbin_PROGRAMS = src/fcgi/sx.fcgi$(EXEEXT) \
 	src/tools/sxreport-server/sxreport-server$(EXEEXT) \
 	src/tools/sxadm/sxadm$(EXEEXT)
