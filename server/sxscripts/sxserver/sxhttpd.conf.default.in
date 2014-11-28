@@ -27,7 +27,7 @@ http {
 #            ssl on;
 #            ssl_certificate @sysconfdir@/ssl/certs/sxcert.pem;
 #            ssl_certificate_key @sysconfdir@/ssl/private/sxkey.pem;
-#            ssl_protocols SSLv3 TLSv1;
+#            ssl_protocols TLSv1 TLSv1.1 TLSv1.2;
 #          # Speed/security tradeoff: move faster ciphers first
 #            ssl_ciphers HIGH:-DH:-ECDH:-AESGCM:HIGH+ECDH:HIGH+AESGCM:HIGH+DH:!SSLv2:!aNULL:!eNULL:!3DES;
 #          # Much slower but with PFS enabled
