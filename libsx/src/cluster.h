@@ -52,6 +52,7 @@ int sxi_conns_set_hostlist(sxi_conns_t *conns, const sxi_hostlist_t *hlist);
 sxi_hostlist_t *sxi_conns_get_hostlist(sxi_conns_t *conns);
 unsigned int sxi_conns_get_timeout(sxi_conns_t *conns, const char *host);
 int sxi_conns_set_timeout(sxi_conns_t *conns, const char *host, int timeout_action);
+void sxi_conns_disable_blacklisting(sxi_conns_t *conns);
 int sxi_conns_set_port(sxi_conns_t *conns, unsigned int port);
 unsigned int sxi_conns_get_port(const sxi_conns_t *conns);
 int sxi_conns_internally_secure(sxi_conns_t *conns);

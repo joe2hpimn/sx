@@ -49,6 +49,7 @@ struct _sxi_conns_t {
     int insecure, internal_security;
     int clock_drifted;
     int vcheckwarn;
+    int no_blacklisting;
     uint16_t port;
 
     /* Transfer progress stats */
@@ -769,6 +770,8 @@ unsigned int sxi_conns_get_timeout(sxi_conns_t *conns, const char *host) {
 	ret = timeouts[INITIAL_TIMEOUT_IDX];
 	CLSTDEBUG("No timeout data for %s, using %u", host, ret);
     } else {
+	if(conns->no_blacklisting)
+	    return MAX(timeouts[t->idx], timeouts[INITIAL_TIMEOUT_IDX]);
 	if(t->blacklist_expires > time(NULL)) {
 	    CLSTDEBUG("Host %s is blacklisted", host);
 	    t->was_blacklisted = 1;
@@ -851,6 +854,11 @@ int sxi_conns_set_timeout(sxi_conns_t *conns, const char *host, int timeout_acti
     CLSTDEBUG("Timeout for host %s initialized to %u", host, timeouts[t->idx]);
 
     return 0;
+}
+
+void sxi_conns_disable_blacklisting(sxi_conns_t *conns) {
+    if(conns)
+	conns->no_blacklisting = 1;
 }
 
 int sxi_conns_root_noauth(sxi_conns_t *conns, const char *tmpcafile, int quiet)
