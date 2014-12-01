@@ -333,7 +333,12 @@ ask_questions() {
 			if curl -s -k -m 3 $HTTPS$SX_EXISTING_NODE_IP:$SX_PORT > /dev/null 2>&1; then
 			    break
 			else
-			    echo "Cannot contact node $HTTPS$SX_EXISTING_NODE_IP. Please make sure it's running and accessible from this node and try again."
+			    echo "Cannot contact node $HTTPS$SX_EXISTING_NODE_IP"
+			    if [ -f /etc/redhat-release ]; then
+				echo "Please check the firewall rules by running 'iptables -L'"
+			    fi
+			    echo "Make sure the node is running and accessible from this host, then try again."
+
 			    test -n "$HTTPS" && echo "Disable SSL in case the cluster you want to join doesn't use secure connection."
 			fi
 		    else
@@ -988,7 +993,7 @@ else
     # TODO loopback but remember what I typed
 fi
 
-"@sbindir@/sxadm" node --info --human-readable "$SX_DATA_DIR"
+"@sbindir@/sxadm" node --info --human-readable "$SX_DATA_DIR" | grep -v "HashFS Version"
 
 rm -rf $SXSETUP_TMPDIR
 trap - EXIT INT
@@ -1013,7 +1018,7 @@ else
     echo "This node: $SX_NODE_IP"
 fi
 echo "Port number: $SX_PORT"
-"@sbindir@/sxadm" node --info --human-readable "$SX_DATA_DIR"
+"@sbindir@/sxadm" node --info --human-readable "$SX_DATA_DIR" | grep -v "HashFS Version"
 echo "Storage location: $SX_DATA_DIR"
 echo "Run as user: $SX_SERVER_USER"
 echo "Sockets and pidfiles in: $SX_RUN_DIR"

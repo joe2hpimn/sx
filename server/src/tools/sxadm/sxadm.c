@@ -1000,6 +1000,7 @@ static int info_node(sxc_client_t *sx, const char *path, struct node_args_info *
     sx_hashfs_t *h;
     char *hpath = malloc(strlen(path) + 1 + sizeof("hashfs.db")), *admin;
     int64_t dsk_alloc, dsk_used;
+    char capastr[32];
 
     if(!hpath) {
 	CRIT("OOM");
@@ -1030,7 +1031,10 @@ static int info_node(sxc_client_t *sx, const char *path, struct node_args_info *
     }
     printf("Internal cluster protocol: %s\n", sx_hashfs_uses_secure_proto(h) ? "SECURE" : "INSECURE");
     sx_storage_usage(h, &dsk_alloc, &dsk_used);
-    printf("Used disk space: %lld\nActual data size: %lld\n", (long long)dsk_alloc, (long long)dsk_used);
+    fmt_capa(dsk_alloc, capastr, sizeof(capastr), args->human_readable_flag);
+    printf("Used disk space: %s\n", capastr);
+    fmt_capa(dsk_used, capastr, sizeof(capastr), args->human_readable_flag);
+    printf("Actual data size: %s\n", capastr);
 
     nodes = sx_hashfs_nodelist(h, NL_NEXT);
     if(nodes && sx_nodelist_count(nodes)) {
@@ -1039,7 +1043,6 @@ static int info_node(sxc_client_t *sx, const char *path, struct node_args_info *
 	printf("List of nodes:\n");
 	for(i=0; i<nnodes; i++) {
 	    const sx_node_t *n = sx_nodelist_get(nodes, i);
-	    char capastr[32];
 	    if(!n) {
 		printf("Error while retrieving the node list\n");
 		break;
