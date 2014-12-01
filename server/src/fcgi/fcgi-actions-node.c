@@ -950,7 +950,7 @@ void fcgi_node_repaired(void) {
 	quit_errmsg(400, "Missing or invalid 'dist' argument");
 
     if(uuid_from_string(&nodeid, path))
-	quit_errnum(404);
+	quit_errmsg(400, "Invalid repaired node UUID");
 
     s = sx_hashfs_set_unfaulty(hashfs, &nodeid, dist_rev);
     if(s != OK)

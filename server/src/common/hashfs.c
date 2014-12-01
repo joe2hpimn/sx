@@ -1196,7 +1196,7 @@ static int load_config(sx_hashfs_t *h, sxc_client_t *sx) {
 	    if(qprep(h->db, &qfaulty, "SELECT node FROM faultynodes WHERE dist = :dist") ||
 	       qbind_int64(qfaulty, ":dist", h->hd_rev)) {
 		CRIT("Failed to retrieve list of faulty nodes from database");
-		sqlite3_reset(qfaulty);
+		qnullify(qfaulty);
 		goto load_config_fail;
 	    }
 	    while((r = qstep(qfaulty)) == SQLITE_ROW) {
@@ -1210,18 +1210,16 @@ static int load_config(sx_hashfs_t *h, sxc_client_t *sx) {
 		   sx_nodelist_add(h->faulty_nodes, sx_node_dup(faultynode)))
 		    break;
 	    }
-	    sqlite3_finalize(qfaulty);
+	    qnullify(qfaulty);
 	    if(r != SQLITE_DONE) {
 		CRIT("Failed to retrieve list of faulty nodes from database");
-		sqlite3_finalize(qfaulty);
 		goto load_config_fail;
 	    }
 	}
 
 	sqlite3_reset(h->q_getval);
-	if(!h->sx_clust) {
+	if(!h->sx_clust)
 	    h->sx_clust = sxi_conns_new(sx);
-        }
 	if(!h->sx_clust ||
 	   sxi_conns_set_uuid(h->sx_clust, h->cluster_uuid.string) ||
 	   sxi_conns_set_auth(h->sx_clust, h->root_auth) ||
@@ -3532,7 +3530,7 @@ int sx_hashfs_is_orphan(sx_hashfs_t *h) {
 rc_ty sx_hashfs_modhdist(sx_hashfs_t *h, const sx_nodelist_t *list) {
     sxi_hdist_t *newmod = NULL;
     unsigned int nnodes, i, blob_size;
-    sqlite3_stmt *q;
+    sqlite3_stmt *q = NULL;
     const void *blob;
     rc_ty ret = OK;
 
@@ -9221,6 +9219,11 @@ rc_ty sx_hashfs_hdist_change_req(sx_hashfs_t *h, const sx_nodelist_t *newdist, j
 	return EINVAL;
     }
 
+    if(sx_nodelist_count(h->faulty_nodes)) {
+	msg_set_reason("The cluster contains faulty nodes which are still being replaced");
+	return EINVAL;
+    }
+
     r = get_min_reqs(h, &minnodes, &minclustersize);
     if(r) {
 	msg_set_reason("Failed to compute cluster requirements");
@@ -9381,6 +9384,11 @@ rc_ty sx_hashfs_hdist_replace_req(sx_hashfs_t *h, const sx_nodelist_t *replaceme
 	return EINVAL;
     }
 
+    if(sx_nodelist_count(h->faulty_nodes)) {
+	msg_set_reason("The cluster contains faulty nodes which are still being replaced");
+	return EINVAL;
+    }
+
     curdist = sx_hashfs_nodelist(h, NL_PREV);
     nnodes = sx_nodelist_count(replacements);
     if(!nnodes) {
@@ -9523,8 +9531,13 @@ rc_ty sx_hashfs_hdist_change_add(sx_hashfs_t *h, const void *cfg, unsigned int c
     }
 
     if(h->is_rebalancing) {
-	msg_set_reason("The cluster is still being rebalanced");
-	return EEXIST;
+	msg_set_reason("The cluster is being rebalanced");
+	return EINVAL;
+    }
+
+    if(sx_nodelist_count(h->faulty_nodes)) {
+	msg_set_reason("The cluster contains faulty nodes which are still being replaced");
+	return EINVAL;
     }
 
     newmod = sxi_hdist_from_cfg(cfg, cfg_len);
@@ -9682,8 +9695,13 @@ rc_ty sx_hashfs_hdist_replace_add(sx_hashfs_t *h, const void *cfg, unsigned int 
     }
 
     if(h->is_rebalancing) {
-	msg_set_reason("The cluster is still being rebalanced");
-	return EEXIST;
+	msg_set_reason("The cluster is being rebalanced");
+	return EINVAL;
+    }
+
+    if(sx_nodelist_count(h->faulty_nodes)) {
+	msg_set_reason("The cluster contains faulty nodes which are still being replaced");
+	return EINVAL;
     }
 
     newmod = sxi_hdist_from_cfg(cfg, cfg_len);
@@ -9853,6 +9871,7 @@ rc_ty sx_hashfs_hdist_replace_add(sx_hashfs_t *h, const void *cfg, unsigned int 
 	ret = FAIL_EINTERNAL;
 	goto replace_add_fail;
     }
+    qnullify(q);
 
     if(sx_hashfs_set_progress_info(h, INPRG_REPLACE_RUNNING, "Updating distribution model with faulty nodes")) {
 	ret = FAIL_EINTERNAL;
@@ -10081,7 +10100,7 @@ static rc_ty create_repair_job(sx_hashfs_t *h) {
 }
 
 rc_ty sx_hashfs_hdist_change_commit(sx_hashfs_t *h) {
-    sqlite3_stmt *q;
+    sqlite3_stmt *q = NULL;
     rc_ty s = OK;
 
     DEBUG("IN %s", __FUNCTION__);
@@ -11033,7 +11052,7 @@ rc_ty sx_hashfs_update_volume_cursize(sx_hashfs_t *h, int64_t volume_id, int64_t
 
     ret = OK;
     sx_hashfs_update_volume_cursize_err:
-    sqlite3_reset(h->q_setvolcursize);
+    sqlite3_reset(h->q_updatevolcursize);
     return ret;
 }
 
@@ -11210,6 +11229,7 @@ rc_ty sx_hashfs_set_progress_info(sx_hashfs_t *h, sx_inprogress_t state, const c
     if(!description)
 	description = "Status description not available";
 
+    qnullify(q);
     if(qprep(h->db, &q, "INSERT OR REPLACE INTO hashfs (key, value) VALUES (:k , :v)"))
 	goto setrblinfo_fail;
     if(qbind_text(q, ":k", "rebalance_message") || qbind_text(q, ":v", description) || qstep_noret(q))
@@ -11915,9 +11935,9 @@ rc_ty sx_hashfs_set_unfaulty(sx_hashfs_t *h, const sx_uuid_t *nodeid, int64_t di
 	return ENOENT;
 
     nodes = sx_hashfs_nodelist(h, NL_NEXT);
-    if(sx_nodelist_lookup(nodes, nodeid) ||
+    if(!sx_nodelist_lookup(nodes, nodeid) ||
        !sx_hashfs_is_node_faulty(h, nodeid))
-	return ENOENT;
+	return EINVAL;
 
     if(qbegin(h->db)) {
         msg_set_reason("Database is locked");
@@ -11930,12 +11950,12 @@ rc_ty sx_hashfs_set_unfaulty(sx_hashfs_t *h, const sx_uuid_t *nodeid, int64_t di
 	msg_set_reason("Failed to update faulty nodes list");
 	goto unfaulty_err;
     }
-    qnullify(q);
     if(!sqlite3_changes(h->db->handle)) {
 	ret = OK;
 	goto unfaulty_err;
     }
 
+    qnullify(q);
     if(qprep(h->db, &q, "SELECT 1 FROM faultynodes WHERE dist = :dist AND restored = 0") ||
        qbind_int64(q, ":dist", dist_rev)) {
 	msg_set_reason("Failed to check faulty nodes list");
@@ -11955,6 +11975,7 @@ rc_ty sx_hashfs_set_unfaulty(sx_hashfs_t *h, const sx_uuid_t *nodeid, int64_t di
 	msg_set_reason("Failed to wipe faulty nodes list clean");
 	goto unfaulty_err;
     }
+    qnullify(q);
 
     if(sxi_hdist_get_cfg(h->hd, &cfg, &cfg_len)) {
 	msg_set_reason("Failed to duplicate current distribution (get)");
@@ -11989,7 +12010,7 @@ rc_ty sx_hashfs_set_unfaulty(sx_hashfs_t *h, const sx_uuid_t *nodeid, int64_t di
 	msg_set_reason("Failed to retrieve the updated distribution model");
 	goto unfaulty_err;
     }
-    
+
     if(qprep(h->db, &q, "INSERT OR REPLACE INTO hashfs (key, value) VALUES (:k , :v)") ||
        qbind_text(q, ":k", "dist") ||
        qbind_blob(q, ":v", cfg, cfg_len) ||
@@ -12004,14 +12025,17 @@ rc_ty sx_hashfs_set_unfaulty(sx_hashfs_t *h, const sx_uuid_t *nodeid, int64_t di
 	msg_set_reason("Failed to save updated distribution model");
 	goto unfaulty_err;
     }
+    qnullify(q);
 
     if(sx_hashfs_set_progress_info(h, INPRG_IDLE, NULL))
 	goto unfaulty_err;
 
-    if(!qcommit(h->db))
-	ret = OK;
-    
+    ret = OK;
+
  unfaulty_err:
+    if(ret == OK && qcommit(h->db))
+	ret = FAIL_EINTERNAL;
+
     sxi_hdist_free(newmod);
     sqlite3_finalize(q);
     if(ret != OK)
