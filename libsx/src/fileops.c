@@ -1691,7 +1691,8 @@ static int maybe_append_path(sxc_file_t *dest, sxc_file_t *source, int recursive
         if (!src_part || !*src_part)
             src_part = base(source->path); /* it is a single file */
     }
-    while (src_part && *src_part == '/') src_part++;
+    while (src_part && (*src_part == '/' || !strncmp(src_part, "./", 2) || !strncmp(src_part, "../", 3)))
+        src_part++;
 
     unsigned n = strlen(dest->origpath) + strlen(src_part) + 2;
     path = malloc(n);
@@ -1700,14 +1701,7 @@ static int maybe_append_path(sxc_file_t *dest, sxc_file_t *source, int recursive
         return -1;
     }
 
-    if (!*dest->origpath) {
-        if ((src_part[0] == '.' && src_part[1] == '/'))
-            src_part += 2;
-        else if (src_part[0] == '.' && src_part[1] == '.' && src_part[2] == '/')
-            src_part += 3;
-    }
-
-    snprintf(path, n, "%s/%s", dest->origpath, src_part);
+    snprintf(path, n, "%s%s%s", dest->origpath, ends_with(dest->origpath, '/') ? "" : "/", src_part);
     SXDEBUG("%s -> %s", source->path, path);
     n = strlen(src_part);
     if (!strncmp(src_part, "..", 2) ||
