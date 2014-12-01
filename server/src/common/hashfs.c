@@ -1221,18 +1221,18 @@ static int load_config(sx_hashfs_t *h, sxc_client_t *sx) {
 	sqlite3_reset(h->q_getval);
 	if(!h->sx_clust) {
 	    h->sx_clust = sxi_conns_new(sx);
-            sxi_conns_disable_proxy(h->sx_clust);
-	    sxi_conns_disable_blacklisting(h->sx_clust);
         }
 	if(!h->sx_clust ||
 	   sxi_conns_set_uuid(h->sx_clust, h->cluster_uuid.string) ||
 	   sxi_conns_set_auth(h->sx_clust, h->root_auth) ||
 	   sxi_conns_set_port(h->sx_clust, h->http_port) ||
-	   sxi_conns_set_sslname(h->sx_clust, h->cluster_name)) {
+	   sxi_conns_set_sslname(h->sx_clust, h->cluster_name) ||
+	   sxi_conns_disable_proxy(h->sx_clust)) {
 	    CRIT("Failed to initialize cluster connectors");
 	    goto load_config_fail;
 	}
 	sxi_conns_set_cafile(h->sx_clust, h->ssl_ca_file);
+	sxi_conns_disable_blacklisting(h->sx_clust);
 
 	h->have_hd = 1;
 	break;
