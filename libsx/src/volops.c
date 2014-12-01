@@ -1432,7 +1432,6 @@ struct cbl_acluser_t {
     int can_read;
     int can_write;
     int is_owner;
-    int is_admin;
     unsigned int namelen;
 };
 
@@ -1507,8 +1506,6 @@ static int yacb_listaclusers_string(void *ctx, const unsigned char *s, size_t l)
             yactx->acluser.can_write = 1;
 	else if(l == lenof("owner") && !memcmp(s, "owner", lenof("owner")))
 	    yactx->acluser.is_owner = 1;
-        else if (l == lenof("admin") && !memcmp(s, "admin", lenof("admin")))
-            yactx->acluser.is_admin = 1;
 	else {
 	    CBDEBUG("unexpected attribute '%.*s' in LA_PRIVS", (unsigned)l, s);
 	    return 0;
@@ -1714,11 +1711,11 @@ sxc_cluster_la_t *sxc_cluster_listaclusers(sxc_cluster_t *cluster, const char *v
     return ret;
 }
 
-int sxc_cluster_listaclusers_next(sxc_cluster_la_t *la, char **acluser_name, int *can_read, int *can_write, int *is_owner, int *is_admin) {
+int sxc_cluster_listaclusers_next(sxc_cluster_la_t *la, char **acluser_name, int *can_read, int *can_write, int *is_owner) {
     struct cbl_acluser_t acluser;
     sxc_client_t *sx;
 
-    if (!la || !acluser_name || !can_read || !can_write || !is_owner || !is_admin)
+    if (!la || !acluser_name || !can_read || !can_write || !is_owner)
         return -1;
     sx = la->sx;
     if(!fread(&acluser, sizeof(acluser), 1, la->f)) {
@@ -1749,7 +1746,6 @@ int sxc_cluster_listaclusers_next(sxc_cluster_la_t *la, char **acluser_name, int
     *can_read = acluser.can_read;
     *can_write = acluser.can_write;
     *is_owner = acluser.is_owner;
-    *is_admin = acluser.is_admin;
 
     return 1;
 }

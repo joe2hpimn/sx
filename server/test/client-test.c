@@ -1679,7 +1679,7 @@ check_users_err:
 } /* check_users */
 
 int check_user(sxc_cluster_t *cluster, const char *volname, const char *user, int rights) {
-    int ret = -1, next = 1, tmp_rights, read = 1, write = 2, owner = 4, admin = 8, can_read, can_write, is_owner, is_admin;
+    int ret = -1, next = 1, tmp_rights, read = 1, write = 2, owner = 4, can_read, can_write, is_owner;
     char *get_user = NULL;
     sxc_cluster_la_t *lstu;
 
@@ -1687,7 +1687,7 @@ int check_user(sxc_cluster_t *cluster, const char *volname, const char *user, in
     if(!lstu)
         return ret;
     while(next > 0) {
-        next = sxc_cluster_listaclusers_next(lstu, &get_user, &can_read, &can_write, &is_owner, &is_admin);
+        next = sxc_cluster_listaclusers_next(lstu, &get_user, &can_read, &can_write, &is_owner);
         switch(next) {
             case -1:
                 if(get_user)
@@ -1701,7 +1701,6 @@ int check_user(sxc_cluster_t *cluster, const char *volname, const char *user, in
                     tmp_rights |= can_read ? read : 0;
                     tmp_rights |= can_write ? write : 0;
                     tmp_rights |= is_owner ? owner : 0;
-                    tmp_rights |= is_admin ? admin : 0;
                     if(rights != tmp_rights) {
                         ret = 1;
                         goto check_user_err;

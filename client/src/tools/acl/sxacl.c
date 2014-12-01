@@ -262,10 +262,10 @@ static int show_acls(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_uri_t *u)
     int rc = 0;
     sxc_cluster_la_t *lst;
     char *user = NULL;
-    int can_read, can_write, is_owner, is_admin;
+    int can_read, can_write, is_owner;
 
     for (lst = sxc_cluster_listaclusers(cluster, u->volume);
-         lst && sxc_cluster_listaclusers_next(lst, &user, &can_read, &can_write, &is_owner, &is_admin);) {
+         lst && sxc_cluster_listaclusers_next(lst, &user, &can_read, &can_write, &is_owner);) {
         printf("%s:", user);
         if (can_read)
             printf(" read");
@@ -273,8 +273,6 @@ static int show_acls(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_uri_t *u)
             printf(" write");
         if (is_owner)
             printf(" owner");
-        if (is_admin)
-            printf(" admin");
         printf("\n");
         free(user);
     }

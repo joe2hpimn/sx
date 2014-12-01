@@ -132,7 +132,7 @@ void sxc_cluster_listusers_free(sxc_cluster_lu_t *lu);
 
 typedef struct _sxc_cluster_la_t sxc_cluster_la_t;
 sxc_cluster_la_t *sxc_cluster_listaclusers(sxc_cluster_t *cluster, const char *volume);
-int sxc_cluster_listaclusers_next(sxc_cluster_la_t *la, char **acluser_name, int *can_read, int *can_write, int *is_owner, int *is_admin);
+int sxc_cluster_listaclusers_next(sxc_cluster_la_t *la, char **acluser_name, int *can_read, int *can_write, int *is_owner);
 void sxc_cluster_listaclusers_free(sxc_cluster_la_t *la);
 
 typedef struct _sxi_ht_t sxc_meta_t;
