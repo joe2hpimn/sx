@@ -237,9 +237,9 @@ int main(int argc, char **argv) {
 			    filter_name = "-";
 			}
 
-			snprintf(repstr, sizeof(repstr), "r:%u", vreplica);
-                        snprintf(revstr, sizeof(revstr), "revs:%u", vrevs);
-			printf("    VOL %5s %7s %5s %10s", repstr, revstr, privs, filter_name);
+			snprintf(repstr, sizeof(repstr), "rep:%u", vreplica);
+                        snprintf(revstr, sizeof(revstr), "rev:%u", vrevs);
+			printf("    VOL %6s %6s %3s %10s", repstr, revstr, privs, filter_name);
 
 			sxc_file_free(volume_file);
 			sxc_meta_free(vmeta);
@@ -250,9 +250,9 @@ int main(int argc, char **argv) {
                             human_size = process_size(vsize);
                         }
 		        if(human_used_size && human_size) {
-                            printf("      %12s %12s %3lld%% ", human_used_size, human_size, (long long)percent);
+                            printf(" %14s %14s %3lld%% ", human_used_size, human_size, (long long)percent);
 			} else {
-			    printf("      %12lld %12lld %3lld%% ", (long long)vusedsize, (long long)vsize, (long long)percent);
+			    printf(" %14lld %14lld %3lld%% ", (long long)vusedsize, (long long)vsize, (long long)percent);
 			}
                         free(human_used_size);
                         free(human_size);
