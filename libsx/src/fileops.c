@@ -698,6 +698,10 @@ static int yacb_createfile_map_key(void *ctx, const unsigned char *s, size_t l) 
 	    sxi_cbdata_seterr(yactx->cbdata, SXE_ECOMM, "Copy failed: Cannot locate block");
             return 0;
         }
+        if (yactx->current.needed_cnt >= yactx->max_part_blocks) {
+	    sxi_cbdata_seterr(yactx->cbdata, SXE_ECOMM, "Copy failed: malformed reply");
+            return 0;
+        }
         CBDEBUG("need %d off: %lld", yactx->current.needed_cnt, (long long)*off);
         yactx->current.current_need = &yactx->current.needed[yactx->current.needed_cnt++];
         yactx->current.current_need->off = *off;

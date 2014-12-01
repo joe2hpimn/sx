@@ -2548,7 +2548,7 @@ int sxi_retry_check(sxi_retry_t *retry, unsigned current_try)
     int errnum;
     enum msg_prio prio;
 
-    if (!retry || !retry->ctx)
+    if (!retry || !retry->ctx || !retry->geterrmsg || !retry->geterrnum)
         return -1;
     errmsg = retry->geterrmsg(retry->ctx);
     errnum = retry->geterrnum(retry->ctx);
