@@ -44,8 +44,8 @@ struct gengetopt_args_info
   const char *recursive_help; /**< @brief Recursively list entire directories help description.  */
   int long_format_flag;	/**< @brief Use a long listing format (default=off).  */
   const char *long_format_help; /**< @brief Use a long listing format help description.  */
-  int human_readable_flag;	/**< @brief Print human readable output (default=off).  */
-  const char *human_readable_help; /**< @brief Print human readable output help description.  */
+  int human_readable_flag;	/**< @brief Print human readable sizes (default=off).  */
+  const char *human_readable_help; /**< @brief Print human readable sizes help description.  */
   int debug_flag;	/**< @brief Enable debug messages (default=off).  */
   const char *debug_help; /**< @brief Enable debug messages help description.  */
   int verbose_flag;	/**< @brief Enable verbose errors (default=off).  */

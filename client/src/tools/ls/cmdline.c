@@ -39,7 +39,7 @@ const char *gengetopt_args_info_full_help[] = {
   "  -V, --version          Print version and exit",
   "  -r, --recursive        Recursively list entire directories  (default=off)",
   "  -l, --long-format      Use a long listing format  (default=off)",
-  "  -H, --human-readable   Print human readable output  (default=off)",
+  "  -H, --human-readable   Print human readable sizes  (default=off)",
   "  -D, --debug            Enable debug messages  (default=off)",
   "  -v, --verbose          Enable verbose errors  (default=off)",
   "      --print0           Separate file names with \\0 instead of \\n\n                           (default=off)",
@@ -575,7 +575,7 @@ cmdline_parser_internal (
             goto failure;
         
           break;
-        case 'H':	/* Print human readable output.  */
+        case 'H':	/* Print human readable sizes.  */
         
         
           if (update_arg((void *)&(args_info->human_readable_flag), 0, &(args_info->human_readable_given),

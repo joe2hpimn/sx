@@ -56,6 +56,8 @@ struct node_args_info
   char * cluster_uuid_arg;	/**< @brief The SX cluster UUID (default autogenerate UUID)..  */
   char * cluster_uuid_orig;	/**< @brief The SX cluster UUID (default autogenerate UUID). original value given at command line.  */
   const char *cluster_uuid_help; /**< @brief The SX cluster UUID (default autogenerate UUID). help description.  */
+  int human_readable_flag;	/**< @brief Print human readable sizes (default=off).  */
+  const char *human_readable_help; /**< @brief Print human readable sizes help description.  */
   int debug_flag;	/**< @brief Enable debug messages (default=off).  */
   const char *debug_help; /**< @brief Enable debug messages help description.  */
   
@@ -70,6 +72,7 @@ struct node_args_info
   unsigned int batch_mode_given ;	/**< @brief Whether batch-mode was given.  */
   unsigned int owner_given ;	/**< @brief Whether owner was given.  */
   unsigned int cluster_uuid_given ;	/**< @brief Whether cluster-uuid was given.  */
+  unsigned int human_readable_given ;	/**< @brief Whether human-readable was given.  */
   unsigned int debug_given ;	/**< @brief Whether debug was given.  */
 
   char **inputs ; /**< @brief unamed options (options without names) */

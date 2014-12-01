@@ -299,13 +299,13 @@ static sx_node_t *parse_nodef(const char *nodef) {
     return ret;
 }
 
-static void fmt_capa(uint64_t bytes, char *buf, unsigned int buflen) {
-    const char *suffix;
+static void fmt_capa(uint64_t bytes, char *buf, unsigned int buflen, int human) {
+    const char *suffix = NULL;
     double qty = bytes;
 
     if(buflen <= 0)
 	return;
-    if(qty >= 1024) {
+    if(human && qty >= 1024) {
 	qty /= 1024;
 	if(qty >= 1024) {
 	    qty /= 1024;
@@ -313,16 +313,18 @@ static void fmt_capa(uint64_t bytes, char *buf, unsigned int buflen) {
 		qty /= 1024;
 		if(qty >= 1024) {
 		    qty /= 1024;
-		    suffix = "TB";
+		    suffix = "T";
 		} else
-		    suffix = "GB";
+		    suffix = "G";
 	    } else
-		suffix = "MB";
+		suffix = "M";
 	} else
-	    suffix = "KB";
-    } else
-	suffix = "bytes";
-    snprintf(buf, buflen, "%.2f %s", qty, suffix);
+	    suffix = "K";
+    }
+    if(!suffix)
+	snprintf(buf, buflen, "%llu", (unsigned long long) bytes);
+    else
+	snprintf(buf, buflen, "%.2f%s", qty, suffix);
 }
 
 static int create_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
@@ -509,7 +511,7 @@ static int create_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
     }
 
     if(!args->batch_mode_given) {
-	char capastr[64];
+	char capastr[32];
 	printf("\nPlease review the summary of your new SX cluster below and make sure all the information reported are correct.\n  - Cluster name: %s\n  - Cluster UUID: %s\n  - Cluster is %s\n  - Cluster security is: ", sxc_cluster_get_sslname(clust), sxc_cluster_get_uuid(clust), sxc_cluster_get_dnsname(clust) ? "reachable via DNS name resolution" : "DNS-less");
 	if(args->ssl_ca_file_arg)
 	    printf("secure (SSL is enabled and certificate validation is enforced)");
@@ -518,7 +520,7 @@ static int create_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
 	printf("\n  - Cluster authentication token: %s\n  - Admin key: %s\n\nThe initial node of your new SX cluster is:\n  - Node UUID: %s\n  - Node address: %s\n", clust_token, auth.token, sx_node_uuid_str(node), sx_node_addr(node));
 	if(strcmp(sx_node_addr(node), sx_node_internal_addr(node)))
 	    printf("  - Node internal address: %s\n", sx_node_internal_addr(node));
-	fmt_capa(sx_node_capacity(node), capastr, sizeof(capastr));
+	fmt_capa(sx_node_capacity(node), capastr, sizeof(capastr), args->human_readable_flag);
 	printf("  - Node capacity: %s\n\nThe access configuration for the cluster will be saved under \"%s\" with the name \"%s\"\n\n", capastr, args->config_dir_given ? args->config_dir_arg : "~/.sx", sxc_cluster_get_sslname(clust));
 	if(!yesno("Confirm cluster creation?", 1)) {
 	    printf("Cluster creation aborted by the user\n");
@@ -991,7 +993,7 @@ static int replace_nodes(sxc_client_t *sx, struct cluster_args_info *args) {
 }
 
 
-static int info_node(sxc_client_t *sx, const char *path)
+static int info_node(sxc_client_t *sx, const char *path, struct node_args_info *args)
 {
     int ret = 0;
     const sx_nodelist_t *nodes;
@@ -1037,11 +1039,13 @@ static int info_node(sxc_client_t *sx, const char *path)
 	printf("List of nodes:\n");
 	for(i=0; i<nnodes; i++) {
 	    const sx_node_t *n = sx_nodelist_get(nodes, i);
+	    char capastr[32];
 	    if(!n) {
 		printf("Error while retrieving the node list\n");
 		break;
 	    }
-	    printf("\t %c %s %s (%s) %lld\n", (n == self) ? '*' : '-', sx_node_uuid(n)->string, sx_node_addr(n), sx_node_internal_addr(n), (long long int)sx_node_capacity(n));
+	    fmt_capa(sx_node_capacity(n), capastr, sizeof(capastr), args->human_readable_flag);
+	    printf("\t %c %s %s (%s) %s\n", (n == self) ? '*' : '-', sx_node_uuid(n)->string, sx_node_addr(n), sx_node_internal_addr(n), capastr);
 	}
     } else
 	printf("No node was set yet\n");
@@ -1360,7 +1364,7 @@ int main(int argc, char **argv) {
 	if(node_args.new_given)
 	    ret = create_node(&node_args);
 	else if(node_args.info_given)
-	    ret = info_node(sx, node_args.inputs[0]);
+	    ret = info_node(sx, node_args.inputs[0], &node_args);
         else if(node_args.check_given)
             ret = check_node(sx, node_args.inputs[0], node_args.debug_flag);
         else if(node_args.extract_given)

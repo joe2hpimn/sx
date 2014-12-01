@@ -5,7 +5,7 @@ usage "sxls [OPTIONS]... sx://[profile@]cluster[/volume[/path]]..."
 
 option  "recursive"	    r "Recursively list entire directories" flag off
 option  "long-format"	    l "Use a long listing format" flag off
-option  "human-readable"    H "Print human readable output" flag off
+option  "human-readable"    H "Print human readable sizes" flag off
 
 option  "debug"		    D "Enable debug messages" flag off
 option  "verbose"	    v "Enable verbose errors" flag off

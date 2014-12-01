@@ -16,4 +16,5 @@ option "cluster-uuid" u "The SX cluster UUID (default autogenerate UUID)." strin
 text "NOTE: all nodes of an SX cluster must be created with the same UUID and the same authentication token."
 
 section "Common options"
+option  "human-readable" H "Print human readable sizes" flag off
 option "debug"  D "Enable debug messages" flag off
