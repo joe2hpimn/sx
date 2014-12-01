@@ -6678,6 +6678,10 @@ rc_ty sx_hashfs_putfile_getblock(sx_hashfs_t *h) {
         uint64_t op_expires_at = h->hc.op_expires_at;
 	if(sxi_hashop_end(&h->hc) == -1) {
 	    WARN("hashop_end failed: %s", sxc_geterrmsg(h->sx));
+            if(sxc_geterrnum(h->sx) == SXE_ECOMM) {
+                msg_set_reason("%s", sxc_geterrmsg(h->sx));
+                return EAGAIN;
+            }
             return FAIL_EINTERNAL;
         } else
 	    DEBUG("{%s}: finished:%d, queries:%d, ok:%d, enoent:%d, cbfail:%d",
