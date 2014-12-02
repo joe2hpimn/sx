@@ -3793,10 +3793,12 @@ static act_result_t replacefiles_commit(sx_hashfs_t *hashfs, job_t job_id, job_d
 
     DEBUG("IN %s", __FUNCTION__);
 
-    sx_hashfs_set_progress_info(hashfs, INPRG_REPLACE_COMPLETE, "Repopulation complete");
-
-    if(!sx_hashfs_is_node_faulty(hashfs, myuuid))
+    if(!sx_hashfs_is_node_faulty(hashfs, myuuid)) {
+	sx_hashfs_set_progress_info(hashfs, INPRG_IDLE, NULL);
 	return force_phase_success(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
+    }
+
+    sx_hashfs_set_progress_info(hashfs, INPRG_REPLACE_COMPLETE, "Repopulation complete");
 
     snprintf(query, sizeof(query), ".faulty/%s?dist=%lld", myuuid->string, (long long)hdistver); 
     qrylist = wrap_calloc(nnodes, sizeof(*qrylist));
