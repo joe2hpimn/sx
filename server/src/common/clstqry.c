@@ -233,7 +233,7 @@ static int cb_cstatus_string(void *ctx, const unsigned char *s, size_t l) {
     } else if(c->state == CS_INPRGOP) {
 	if(l == lenof("rebalance") && !memcmp("rebalance", s, lenof("rebalance")))
 	    c->op_type = OP_REBALANCE;
-	else if(l == lenof("rebalance") && !memcmp("rebalance", s, lenof("rebalance")))
+	else if(l == lenof("replace") && !memcmp("replace", s, lenof("replace")))
 	    c->op_type = OP_REPLACE;
 	else
 	    c->op_type = OP_NONE;
