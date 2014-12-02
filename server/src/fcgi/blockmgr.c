@@ -234,7 +234,6 @@ void blockmgr_process_queue(struct blockmgr_data_t *q) {
 	    }
 	    if(sizeof(upbuffer) - (curb - upbuffer) < bs || i == hlist.nblocks - 1) {
 		/* upload chunk */
-                /* FIXME: proper token..... */
 		if(sxi_upload_block_from_buf(clust, &uploadto, token, upbuffer, bs, curb-upbuffer)) {
 		    WARN("Block transfer failed");
 		    for(j=0; j<=i; j++)
@@ -318,8 +317,6 @@ int blockmgr(sxc_client_t *sx, const char *self, const char *dir, int pipe) {
 	    INFO("Distribution reloaded");
 	}
 
-	/* FIXME: logging pruned xfers might help debugging but it's an overkill
-	 * so we just quietly delete everything */
 	qstep_noret(q.qprune);
 	blockmgr_process_queue(&q);
 	DEBUG("Done processing block queue");

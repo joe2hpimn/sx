@@ -220,7 +220,6 @@ static rc_ty volonoff_common(sx_hashfs_t *hashfs, job_t job_id, const sx_nodelis
 	    if(rc == -2) {
 		CRIT("Failed to wait for query");
 		action_set_fail(ACT_RESULT_PERMFAIL, 500, "Internal error in cluster communication");
-		/* FIXME should abort here */
 		continue;
 	    }
 	    if(rc == -1) {
@@ -309,7 +308,6 @@ static rc_ty voldelete_common(sx_hashfs_t *hashfs, job_t job_id, const sx_nodeli
 	    if(rc == -2) {
 		CRIT("Failed to wait for query");
 		action_set_fail(ACT_RESULT_PERMFAIL, 500, "Internal error in cluster communication");
-		/* FIXME should abort here */
 		continue;
 	    }
 	    if(rc == -1) {
@@ -463,7 +461,6 @@ static act_result_t createvol_request(sx_hashfs_t *hashfs, job_t job_id, job_dat
 	    if(rc == -2) {
 		CRIT("Failed to wait for query");
 		action_set_fail(ACT_RESULT_PERMFAIL, 500, "Internal error in cluster communication");
-		/* FIXME should abort here */
 		continue;
 	    }
 	    if(rc == -1) {
@@ -695,7 +692,6 @@ static act_result_t job_twophase_execute(const job_2pc_t *spec, jobphase_t phase
 	    if(rc == -2) {
 		CRIT("Failed to wait for query");
 		action_set_fail(ACT_RESULT_PERMFAIL, 500, "Internal error in cluster communication");
-		/* FIXME should abort here */
 		continue;
 	    }
 	    if(rc == -1) {
@@ -1047,7 +1043,7 @@ static act_result_t replicateblocks_commit(sx_hashfs_t *hashfs, job_t job_id, jo
 
     DEBUG("Job id %lld - current replica %u out of %u", (long long)job_id, worstcase_rpl, mis->replica_count);
 
-    if(worstcase_rpl < mis->replica_count) // FIXME: check all vs one (or min required)
+    if(worstcase_rpl < mis->replica_count)
 	action_error(ACT_RESULT_TEMPFAIL, 500, "Replica not yet completed");
 
  action_failed:
@@ -1072,7 +1068,6 @@ static act_result_t replicateblocks_commit(sx_hashfs_t *hashfs, job_t job_id, jo
 		} else {
 		    CRIT("Failed to wait for query");
 		    action_set_fail(ACT_RESULT_PERMFAIL, 500, "Internal error in cluster communication");
-		    /* FIXME should abort here */
 		}
 	    }
 	    free(sxi_cbdata_get_context(qrylist[i].cbdata));
@@ -1215,7 +1210,6 @@ static act_result_t fileflush_request(sx_hashfs_t *hashfs, job_t job_id, job_dat
 		} else {
 		    CRIT("Failed to wait for query");
 		    action_set_fail(ACT_RESULT_PERMFAIL, 500, "Internal error in cluster communication");
-		    /* FIXME should abort here */
 		}
 	    }
 	}
@@ -1387,7 +1381,6 @@ static act_result_t fileflush_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t
 	    if(rc == -2) {
 		CRIT("Failed to wait for query");
 		action_set_fail(ACT_RESULT_PERMFAIL, 500, "Internal error in cluster communication");
-		/* FIXME should abort here */
 		continue;
 	    }
 	    if(rc == -1) {
@@ -1485,7 +1478,6 @@ static act_result_t filedelete_request(sx_hashfs_t *hashfs, job_t job_id, job_da
 	    if(rc == -2) {
 		CRIT("Failed to wait for query");
 		action_set_fail(ACT_RESULT_PERMFAIL, 500, "Internal error in cluster communication");
-		/* FIXME should abort here */
 		continue;
 	    }
 	    if(rc == -1) {
@@ -2227,7 +2219,6 @@ static act_result_t startrebalance_request(sx_hashfs_t *hashfs, job_t job_id, jo
 		} else {
 		    CRIT("Failed to wait for query");
 		    action_set_fail(ACT_RESULT_PERMFAIL, 500, "Internal error in cluster communication");
-		    /* FIXME should abort here */
 		}
 	    }
 	}
@@ -2309,7 +2300,6 @@ static act_result_t jlock_common(int lock, sx_hashfs_t *hashfs, const sx_nodelis
 		} else {
 		    CRIT("Failed to wait for query");
 		    action_set_fail(ACT_RESULT_PERMFAIL, 500, "Internal error in cluster communication");
-		    /* FIXME should abort here */
 		}
 	    }
 	}
@@ -2414,7 +2404,7 @@ static act_result_t blockrb_request(sx_hashfs_t *hashfs, job_t job_id, job_data_
     }
 
     memset(rbdata, 0, sizeof(rbdata));
-    sx_hashfs_set_progress_info(hashfs, INPRG_REBALANCE_RUNNING, "Relocating data (FIXME: make me pretty)");
+    sx_hashfs_set_progress_info(hashfs, INPRG_REBALANCE_RUNNING, "Relocating data");
 
     s = sx_hashfs_br_begin(hashfs);
     if(s == ITER_NO_MORE) {
@@ -2560,7 +2550,6 @@ action_failed:
 	    } else {
 		CRIT("Failed to wait for query");
 		action_set_fail(ACT_RESULT_PERMFAIL, 500, "Internal error in cluster communication");
-		/* FIXME should abort here */
 	    }
 	}
 
@@ -2627,7 +2616,7 @@ static act_result_t filerb_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t
 	action_error(ACT_RESULT_PERMFAIL, 500, "Internal job data error");
     }
 
-    sx_hashfs_set_progress_info(hashfs, INPRG_REBALANCE_RUNNING, "Relocating metadata (FIXME: make me pretty)");
+    sx_hashfs_set_progress_info(hashfs, INPRG_REBALANCE_RUNNING, "Relocating metadata");
 
     if(sx_hashfs_relocs_populate(hashfs) != OK) {
 	INFO("Failed to populate the relocation queue");
@@ -2740,7 +2729,6 @@ static act_result_t filerb_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t 
 	    } else {
 		CRIT("Failed to wait for query");
 		action_set_fail(ACT_RESULT_PERMFAIL, 500, "Internal error in cluster communication");
-		/* FIXME should abort here */
 	    }
 	}
 
@@ -2750,7 +2738,7 @@ static act_result_t filerb_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t 
     }
 
     if(ret == ACT_RESULT_OK) {
-	if(sx_hashfs_set_progress_info(hashfs, INPRG_REBALANCE_COMPLETE, "Relocation complete (FIXME: make me pretty)") == OK) {
+	if(sx_hashfs_set_progress_info(hashfs, INPRG_REBALANCE_COMPLETE, "Relocation complete") == OK) {
 	    INFO(">>>>>>>>>>>> OBJECT RELOCATION COMPLETE <<<<<<<<<<<<");
 	    succeeded[0] = 1;
 	} else
@@ -2894,7 +2882,6 @@ static act_result_t finishrebalance_commit(sx_hashfs_t *hashfs, job_t job_id, jo
 		} else {
 		    CRIT("Failed to wait for query");
 		    action_set_fail(ACT_RESULT_PERMFAIL, 500, "Internal error in cluster communication");
-		    /* FIXME should abort here */
 		}
 	    }
 	}
@@ -2927,7 +2914,7 @@ static act_result_t cleanrb_request(sx_hashfs_t *hashfs, job_t job_id, job_data_
 	action_error(rc2actres(s), rc2http(s), msg_get_reason());
     }
 
-    sx_hashfs_set_progress_info(hashfs, INPRG_REBALANCE_COMPLETE, "Cleaning up relocated objects after successful rebalance (FIXME: make me pretty)");
+    sx_hashfs_set_progress_info(hashfs, INPRG_REBALANCE_COMPLETE, "Cleaning up relocated objects after successful rebalance");
 
     succeeded[0] = 1;
 
@@ -3760,7 +3747,7 @@ static act_result_t replacefiles_request(sx_hashfs_t *hashfs, job_t job_id, job_
 	sx_blob_free(ctx->b);
 	if(ctx->needend)
 	    sx_hashfs_putfile_end(hashfs);
-	if(qret != 200) /* FIXME check for callback failure */
+	if(qret != 200)
 	    action_error(ACT_RESULT_TEMPFAIL, 503, "Bad reply from node");
 	if(ctx->state == RPL_END) {
 	    if(sx_hashfs_replace_setlastfile(hashfs, ctx->volume, NULL, NULL))
@@ -3850,7 +3837,6 @@ static act_result_t replacefiles_commit(sx_hashfs_t *hashfs, job_t job_id, job_d
 		} else {
 		    CRIT("Failed to wait for query");
 		    action_set_fail(ACT_RESULT_PERMFAIL, 500, "Internal error in cluster communication");
-		    /* FIXME should abort here */
 		}
 	    }
 	}

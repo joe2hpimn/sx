@@ -767,7 +767,7 @@ void fcgi_send_replacement_blocks(void) {
 		    break;
 	    if(i < bmeta->count)
 		break;
-	    if(sx_hashfs_block_get(hashfs, bmeta->blocksize, &bmeta->hash, &blockdata) != OK) // FIXME: WTF ?!
+	    if(sx_hashfs_block_get(hashfs, bmeta->blocksize, &bmeta->hash, &blockdata) != OK)
 		break;
 	}
 	sx_blob_to_data(b, &header, &header_len);

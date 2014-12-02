@@ -361,7 +361,7 @@ static int cb_vol_end_map(void *ctx) {
     if(c->state == CB_VOL_KEY) {
 	c->state = CB_VOL_COMPLETE;
 	if(!c->replica)
-	    c->replica = 1; /* FIXME: document the replicaCount param on the api page, document its default value */
+	    c->replica = 1;
     } else if(c->state == CB_VOL_METAKEY)
 	c->state = CB_VOL_KEY;
     else

@@ -623,7 +623,7 @@ void handle_request(void) {
 	file_ops();
 
     if(authed == AUTH_BODYCHECKING)
-	WARN("FIXME: Security fail");
+	DEBUG("Bad request signature");
 
     sxi_hmac_sha1_cleanup(&hmac_ctx);
     sxi_md_cleanup(&body_ctx);
@@ -669,9 +669,6 @@ int volume_exists(void) {
     return (sx_hashfs_volume_by_name(hashfs, volume, &vol) == OK);
 }
 
-/* FIXME: this does not handle UTF8! we must convert utf8 to utf32 for printing
- * with \u, and we must replace invalid utf8 characters with the unicode
- * replacement char. */
 void json_send_qstring(const char *s) {
     const char *hex_digits = "0123456789abcdef", *begin = s;
     unsigned int len = 0;
