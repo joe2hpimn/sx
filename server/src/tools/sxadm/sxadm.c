@@ -1140,7 +1140,7 @@ static int info_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
             clstnode = clst_query(sxi_cluster_get_conns(clust), &hlist);
 	    sxi_hostlist_empty(&hlist);
 	    if(!clstnode) {
-		printf("Failed to get status of node %s\n", sx_node_internal_addr(node));
+		printf("Failed to get status of node %s (%s)\n", sx_node_uuid_str(node), sx_node_internal_addr(node));
 		ret = 1;
 		continue;
 	    }
@@ -1149,7 +1149,7 @@ static int info_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
 		    printf("Operations in progress:\n");
 		    header = 1;
 		}
-		printf("  * node %s: %s\n", sx_node_internal_addr(node), op);
+		printf("  * node %s (%s): %s\n", sx_node_uuid_str(node), sx_node_internal_addr(node), op);
 	    }
 	    clst_destroy(clstnode);
 	}
