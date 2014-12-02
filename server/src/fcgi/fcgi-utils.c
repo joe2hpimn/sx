@@ -165,8 +165,10 @@ static void send_error_helper(const char sep, int errnum, const char *message) {
 }
 
 void send_partial_error(const char *message, rc_ty rc) {
-    msg_set_reason("%s: %s", message, rc2str(rc));
-    send_error_helper(',', 500, rc2str(rc));
+    char *reason = *msg_get_reason() ? strdup(msg_get_reason()) : NULL;
+    msg_set_reason("%s: %s", message, reason ? reason : rc2str(rc));
+    free(reason);
+    send_error_helper(',', 500, msg_get_reason());
 }
 
 static sxi_hmac_sha1_ctx *hmac_ctx;

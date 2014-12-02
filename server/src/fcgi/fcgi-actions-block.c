@@ -157,7 +157,7 @@ void fcgi_hashop_blocks(enum sxi_hashop_kind kind) {
         hpath += SXI_SHA1_TEXT_LEN;
         if (*hpath++ != ',') {
             CGI_PUTC(']');
-            quit_itererr("bad URL format for hashop", 400);
+            quit_itererr("bad URL format for hashop", EINVAL);
         }
         n++;
         rc = sx_hashfs_hashop_perform(hashfs, blocksize, 0, kind, &reqhash, id, op_expires_at, &present);
@@ -176,7 +176,7 @@ void fcgi_hashop_blocks(enum sxi_hashop_kind kind) {
     if (rc != OK) {
         WARN("hashop: %s", rc2str(rc));
         CGI_PUTC(']');
-        quit_itererr(msg_get_reason(), rc2http(rc));
+        quit_itererr(msg_get_reason(), rc);
     }
     CGI_PUTS("]}");
     DEBUG("hashop: missing %d, n: %d", missing, n);
@@ -447,7 +447,7 @@ void fcgi_hashop_inuse(void) {
     if (rc != OK) {
         WARN("hashop: %s", rc2str(rc));
         CGI_PUTC(']');
-        quit_itererr(msg_get_reason(), rc2http(rc));
+        quit_itererr(msg_get_reason(), rc);
     }
     CGI_PUTS("]}");
     DEBUG("hashop: missing %d, n: %ld", missing, yctx.all.n);

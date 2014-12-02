@@ -118,7 +118,7 @@ int is_object_fresh(const sx_hash_t *etag, char type, unsigned int last_modified
 
 #define quit_errmsg(errnum, message) do { send_error(errnum, message); return; } while(0)
 #define quit_errnum(errnum) do { send_error(errnum, NULL); return; } while(0)
-#define quit_itererr(message, rc) do { send_partial_error(message, rc); return; } while(0)
+#define quit_itererr(message, http) do { send_partial_error(message, http); return; } while(0)
 #define quit_home() do { send_home(); return; } while(0)
 #define quit_unless_authed() do { if(!is_authed()) { send_authreq(); return; } } while(0)
 #define quit_unless_has(priv) do { if(!has_priv(priv)) { quit_errmsg(403, "Permission denied: not enough privileges"); return; } } while(0)

@@ -6679,7 +6679,7 @@ rc_ty sx_hashfs_putfile_getblock(sx_hashfs_t *h) {
 	if(sxi_hashop_end(&h->hc) == -1) {
 	    WARN("hashop_end failed: %s", sxc_geterrmsg(h->sx));
             if(sxc_geterrnum(h->sx) == SXE_ECOMM) {
-                msg_set_reason("%s", sxc_geterrmsg(h->sx));
+                msg_set_reason("Remote error: %s", sxc_geterrmsg(h->sx));
                 return EAGAIN;
             }
             return FAIL_EINTERNAL;

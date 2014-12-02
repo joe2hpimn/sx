@@ -181,13 +181,13 @@ void fcgi_list_volume(const sx_hashfs_volume_t *vol) {
     case ITER_NO_MORE:
 	break;
     case ENOENT: {
-	quit_itererr("The list for the volume is not available here", 404);
+	quit_itererr("The list for the volume is not available here", ENOENT);
     }
     case EINVAL: {
-	quit_itererr("Invalid argument", 400);
+	quit_itererr("Invalid argument", EINVAL);
     }
     default: {
-	quit_itererr("Internal error", 500);
+	quit_itererr("Internal error", FAIL_EINTERNAL);
     }
     }
 
@@ -227,7 +227,7 @@ void fcgi_list_volume(const sx_hashfs_volume_t *vol) {
     }
 
     if(s != ITER_NO_MORE)  {
-	quit_itererr("Failed to list files", rc2http(s));
+	quit_itererr("Failed to list files", s);
         WARN("failed to list: %s", rc2str(s));
     }
     CGI_PUTS("}");
