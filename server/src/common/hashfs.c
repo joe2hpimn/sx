@@ -66,10 +66,6 @@ const unsigned int bsz[SIZES] = {SX_BS_SMALL, SX_BS_MEDIUM, SX_BS_LARGE};
 #define TOKEN_EXPIRE_LEN 16
 #define TOKEN_TEXT_LEN (UUID_STRING_SIZE + 1 + TOKEN_RAND_BYTES * 2 + 1 + TOKEN_REPLICA_LEN + 1 + TOKEN_EXPIRE_LEN + 1 + AUTH_KEY_LEN * 2)
 
-/* FIXME: the following optimization is not currently used (filehash_xxx are no ops)
- * To be reviewed and reenabled or dropped for good */
-/* #define FILEHASH_OPTIMIZATION */
-
 #define WARNHASH(MSG, X) do {				\
     char _warnhash[sizeof(sx_hash_t)*2+1];		\
     bin2hex((X)->b, sizeof(*X), _warnhash, sizeof(_warnhash));	\
@@ -1354,14 +1350,6 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 	goto open_hashfs_fail;
     if(qprep(h->db, &h->q_listusers, "SELECT uid, name, user, key, role FROM users WHERE uid > :lastuid AND enabled=1 ORDER BY uid ASC LIMIT 1"))
 	goto open_hashfs_fail;
-    /* FIXME: this query is broken and should be rewritten - index usage not checked */
-    /* e.g.:
-     * $ sxacl list sx://admin@local/r2
-     * admin: read write owner
-     * acab: read write
-     * admin: read write owner
-     * adm: read write owner
-     */
     if(qprep(h->db, &h->q_listacl, "SELECT name, priv, uid, owner_id FROM privs, volumes INNER JOIN users ON user_id=uid WHERE volume_id=:volid AND vid=:volid AND volumes.enabled = 1 AND users.enabled = 1 AND (priv <> 0 OR owner_id=uid) AND user_id > :lastuid ORDER BY user_id ASC LIMIT 1"))
 	goto open_hashfs_fail;
     if(qprep(h->db, &h->q_getaccess, "SELECT privs.priv, volumes.owner_id FROM privs, volumes, users WHERE privs.volume_id = :volume AND privs.user_id = :user AND volumes.vid = :volume AND volumes.enabled = 1 AND users.uid = :user AND users.enabled = 1"))
@@ -6122,97 +6110,6 @@ static void build_uniq_hash_index(const sx_hash_t *hashes, unsigned *idxs, unsig
     *n = l+1;
 }
 
-#ifdef FILEHASH_OPTIMIZATION
-static rc_ty filehash_reserve(sx_hashfs_t *h, const sx_hash_t *filehash)
-{
-    rc_ty ret = FAIL_EINTERNAL, ret_ok = OK;
-    unsigned gdb = getgcdb(filehash);
-    sqlite3_reset(h->qg_filehash_add[gdb]);
-    sqlite3_reset(h->qg_filehash_bump_reserved[gdb]);
-    if (qbegin(h->gcdb[gdb]))
-        return FAIL_EINTERNAL;
-    do {
-        int r;
-        if (qbind_blob(h->qg_filehash_add[gdb], ":filehash", filehash, sizeof(*filehash)) ||
-            qbind_blob(h->qg_filehash_bump_reserved[gdb], ":filehash", filehash, sizeof(*filehash)))
-            break;
-        r = qstep(h->qg_filehash_add[gdb]);
-        if (r == SQLITE_CONSTRAINT) {
-            /* just bump expiration timestamp */
-            if (qstep_noret(h->qg_filehash_bump_reserved[gdb]))
-                break;
-            ret_ok = ITER_NO_MORE;/* do not bump the individual hashes */
-            /* TODO: only if used > 0? */
-        } else if (r != SQLITE_DONE) {
-            SQLERR(h->qg_filehash_add[gdb], "filehash_add failed");
-            break;
-        }
-        if (qcommit(h->gcdb[gdb]))
-            break;
-        ret = ret_ok;
-    } while(0);
-    if (ret != ret_ok) {
-        qrollback(h->gcdb[gdb]);
-    }
-    sqlite3_reset(h->qg_filehash_add[gdb]);
-    sqlite3_reset(h->qg_filehash_bump_reserved[gdb]);
-    return ret;
-}
-
-static int filehash_is_used(sx_hashfs_t *h, const sx_hash_t *filehash)
-{
-    unsigned gdb = getgcdb(filehash);
-    unsigned used;
-    sqlite3_reset(h->qg_filehash_get[gdb]);
-    if (qbind_blob(h->qg_filehash_get[gdb], ":filehash", filehash, sizeof(*filehash)) ||
-        qstep_ret(h->qg_filehash_get[gdb]))
-        return 0;
-
-    used = sqlite3_column_int(h->qg_filehash_get[gdb], 0);
-    sqlite3_reset(h->qg_filehash_get[gdb]);
-    return used > 0;
-}
-
-static rc_ty filehash_mod_used(sx_hashfs_t *h, const sx_hash_t *filehash, int operation)
-{
-    rc_ty ret = FAIL_EINTERNAL, ret_ok = OK;
-    unsigned gdb = getgcdb(filehash);
-    sqlite3_reset(h->qg_filehash_mod_used[gdb]);
-    sqlite3_reset(h->qg_filehash_get[gdb]);
-    sqlite3_reset(h->qg_filehash_delete[gdb]);
-    if (qbegin(h->gcdb[gdb]))
-        return FAIL_EINTERNAL;
-    do {
-        unsigned used;
-        if (qbind_blob(h->qg_filehash_mod_used[gdb], ":filehash", filehash, sizeof(*filehash)) ||
-            qbind_blob(h->qg_filehash_get[gdb], ":filehash", filehash, sizeof(*filehash)) ||
-            qbind_blob(h->qg_filehash_delete[gdb], ":filehash", filehash, sizeof(*filehash)) ||
-            qbind_int(h->qg_filehash_mod_used[gdb], ":operation", operation) ||
-            qstep_noret(h->qg_filehash_mod_used[gdb]) ||
-            qstep_ret(h->qg_filehash_get[gdb]))
-            break;
-        used = sqlite3_column_int(h->qg_filehash_get[gdb], 0);
-        if ((used == 1 && operation == 1) || /* used: 0 -> 1: we need to update hash counters */
-            (used == 0 && operation == -1)) /* used : 1 -> 0: we need to update hash counters */
-            ret_ok = OK;
-        else
-            ret_ok = ITER_NO_MORE;/* used is > 0, no need to modify it yet */
-        if (used == 0)
-            qstep_noret(h->qg_filehash_delete[gdb]);
-
-        if (qcommit(h->gcdb[gdb]))
-            break;
-        ret = ret_ok;
-    } while(0);
-    if (ret != ret_ok)
-        qrollback(h->gcdb[gdb]);
-    sqlite3_reset(h->qg_filehash_mod_used[gdb]);
-    sqlite3_reset(h->qg_filehash_get[gdb]);
-    sqlite3_reset(h->qg_filehash_delete[gdb]);
-    return ret;
-}
-#endif /* FILEHASH_OPTIMIZATION */
-
 static int unique_tmpid(sx_hashfs_t *h, const char *token, sx_hash_t *hash)
 {
     sx_uuid_t self;
@@ -6249,9 +6146,6 @@ rc_ty sx_hashfs_putfile_gettoken(sx_hashfs_t *h, const uint8_t *user, int64_t si
     uint64_t total_blocks;
     rc_ty ret = FAIL_EINTERNAL;
     unsigned int blocksize;
-#ifdef FILEHASH_OPTIMIZATION
-    sx_hash_t filehash;
-#endif
     int64_t expires_at;
 
     if(!h || !h->put_id)
@@ -6297,12 +6191,6 @@ rc_ty sx_hashfs_putfile_gettoken(sx_hashfs_t *h, const uint8_t *user, int64_t si
     if(h->put_putblock) {
 	if(qbind_blob(q, ":all", h->put_blocks, sizeof(h->put_blocks[0]) * h->put_putblock))
 	    goto gettoken_err;
-#ifdef FILEHASH_OPTIMIZATION
-        if (hash_buf("", 0, h->put_blocks, sizeof(h->put_blocks[0]) * h->put_putblock, &filehash)) {
-            WARN("Failed to calculate file hash");
-            goto gettoken_err;
-        }
-#endif
 	h->put_nidxs = wrap_malloc(h->put_putblock * sizeof(h->put_nidxs[0]) * 2);
 	if(!h->put_nidxs) {
 	    OOM();
@@ -6335,12 +6223,6 @@ rc_ty sx_hashfs_putfile_gettoken(sx_hashfs_t *h, const uint8_t *user, int64_t si
     } else {
 	if(qbind_blob(q, ":all", "", 0) || qbind_blob(q, ":uniq", "", 0))
 	    goto gettoken_err;
-#ifdef FILEHASH_OPTIMIZATION
-        if (hash_buf("", 0, "", 0, &filehash)) {
-            WARN("Failed to calculate file hash");
-            goto gettoken_err;
-        }
-#endif
     }
 
     if(qstep_noret(q))
@@ -6393,13 +6275,6 @@ rc_ty sx_hashfs_putfile_gettoken(sx_hashfs_t *h, const uint8_t *user, int64_t si
         goto gettoken_err;
     DEBUGHASH("file initial PUT reserveid", &h->put_reserve_id);
     sxi_hashop_begin(&h->hc, h->sx_clust, hdck_cb, HASHOP_RESERVE, 0, NULL, &h->put_reserve_id, hdck_cb_ctx, expires_at);
-#ifdef FILEHASH_OPTIMIZATION
-    if (filehash_reserve(h, &filehash) == ITER_NO_MORE) {
-        h->put_checkblock = h->put_putblock;/* no need to reserve each hash, we bumped the filehash's counter */
-        DEBUG("skipping hash reserves");
-    }
-#endif
-
     sqlite3_reset(h->qt_gettoken);
     return OK;
 
@@ -6555,19 +6430,11 @@ rc_ty sx_hashfs_createfile_commit(sx_hashfs_t *h, const char *volume, const char
     unsigned int i, nblocks;
     int64_t file_id, totalsize;
     int mdb, flen;
-#ifdef FILEHASH_OPTIMIZATION
-    sx_hash_t filehash;
-#endif
     rc_ty ret = FAIL_EINTERNAL, ret2;
 
     if(!h || !name || !revision || h->put_id != -1) {
 	NULLARG();
 	return EFAULT;
-    }
-
-    if(check_file_name(name)<0) {
-	msg_set_reason("Invalid file name");
-	return EINVAL;
     }
 
     if(check_revision(revision)) {
@@ -6577,7 +6444,7 @@ rc_ty sx_hashfs_createfile_commit(sx_hashfs_t *h, const char *volume, const char
 
     flen = check_file_name(name);
     if(flen < 0 || name[flen - 1] == '/') {
-	msg_set_reason("Bad file name");
+	msg_set_reason("Invalid file name");
 	return EINVAL;
     }
 
@@ -6605,15 +6472,6 @@ rc_ty sx_hashfs_createfile_commit(sx_hashfs_t *h, const char *volume, const char
     if(qbegin(h->metadb[mdb]))
 	return FAIL_EINTERNAL;
 
-#ifdef FILEHASH_OPTIMIZATION
-    /* direct file creation during replication: adjust filehash counters
-     * accordingly */
-    if (hash_buf("", 0, h->put_blocks, nblocks * sizeof(h->put_blocks[0]), &filehash)) {
-        WARN("Failed to calculate file hash");
-        return FAIL_EINTERNAL;
-    }
-    filehash_reserve(h, &filehash);
-#endif
     /* Increment file size with size of its meta values and keys */
     for(i=0; i<h->nmeta; i++) {
         totalsize += strlen(h->meta[i].key) + h->meta[i].value_len;
@@ -6624,9 +6482,6 @@ rc_ty sx_hashfs_createfile_commit(sx_hashfs_t *h, const char *volume, const char
 	ret = ret2;
 	goto cretatefile_rollback;
     }
-#ifdef FILEHASH_OPTIMIZATION
-    filehash_mod_used(h, &filehash, 1);
-#endif
 
     for(i=0; i<h->nmeta; i++) {
 	sqlite3_reset(h->qm_metaset[mdb]);
@@ -7100,9 +6955,6 @@ rc_ty sx_hashfs_tmp_getinfo(sx_hashfs_t *h, int64_t tmpfile_id, sx_hashfs_tmpinf
     const char *name, *revision;
     const int8_t *avl;
     int64_t file_size;
-#ifdef FILEHASH_OPTIMIZATION
-    sx_hash_t filehash;
-#endif
     int r;
     char token[TOKEN_RAND_BYTES*2 + 1];
 
@@ -7169,12 +7021,6 @@ rc_ty sx_hashfs_tmp_getinfo(sx_hashfs_t *h, int64_t tmpfile_id, sx_hashfs_tmpinf
 	ret = EFAULT;
 	goto getmissing_err;
     }
-#ifdef FILEHASH_OPTIMIZATION
-    if (hash_buf("", 0, content, contentsz, &filehash)) {
-        WARN("Cannot calculate file hash");
-        goto getmissing_err;
-    }
-#endif
 
     uniqs = sqlite3_column_blob(h->qt_tmpdata, 5);
     contentsz = sqlite3_column_bytes(h->qt_tmpdata, 5);
@@ -7185,20 +7031,6 @@ rc_ty sx_hashfs_tmp_getinfo(sx_hashfs_t *h, int64_t tmpfile_id, sx_hashfs_tmpinf
 	ret = EFAULT;
 	goto getmissing_err;
     }
-
-#ifdef FILEHASH_OPTIMIZATION
-    if (commit) {
-        if (filehash_mod_used(h, &filehash, 1) == ITER_NO_MORE) {
-            nuniqs = 0; /* do not bump/check any hash counters */
-            DEBUG("skipping moduse (commit)");
-        }
-    } else {
-        if (filehash_is_used(h, &filehash)) {
-            nuniqs = 0;
-            DEBUG("skipping moduse (request)");
-        }
-    }
-#endif
 
     avl = sqlite3_column_blob(h->qt_tmpdata, 7);
     if(avl) {
@@ -8527,7 +8359,6 @@ rc_ty sx_hashfs_job_new_notrigger(sx_hashfs_t *h, job_t parent, sx_uid_t user_id
     int r;
     rc_ty ret = FAIL_EINTERNAL, ret2;
 
-    /* FIXME: add support for delayed jobs */
     if(!h || !job_id) {
 	msg_set_reason("Internal error: NULL argument given");
         return FAIL_EINTERNAL;
@@ -8861,7 +8692,6 @@ rc_ty sx_hashfs_xfer_tonodes(sx_hashfs_t *h, sx_hash_t *block, unsigned int size
     return ret;
 }
 
-/* FIXMERB: unify with rbl_hold ? */
 rc_ty sx_hashfs_xfer_tonode(sx_hashfs_t *h, sx_hash_t *block, unsigned int size, const sx_node_t *target) {
     sx_nodelist_t *targets = sx_nodelist_new();
     rc_ty ret;
