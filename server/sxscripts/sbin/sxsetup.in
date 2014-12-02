@@ -8,6 +8,8 @@ while [ $OPTNUM -le $# ]; do
 
     if [ "$OPTION" = "--help" -o "$OPTION" = "-h" ]; then
 	HELP_GIVEN="yes"
+    elif [ "$OPTION" = "--info" -o "$OPTION" = "-i" ]; then
+	INFO_GIVEN="yes"
     elif [ "$OPTION" = "--config-file" ]; then
 	CONFIG_FILE_GIVEN="yes"
 	OPTNUM=`expr $OPTNUM + 1`
@@ -45,14 +47,14 @@ done
 if [ "$HELP_GIVEN" = "yes" ]; then
     echo "SX Setup Script"
     echo
-    echo "sxsetup is an interactive script that configures an SX node."
-    echo "The script must be run by root."
+    echo "sxsetup performs interactive or automated configuration of a node"
+    echo "and displays its existing configuration."
     echo
     echo "Usage: $0 [OPTIONS]"
     echo
     echo "-h, --help              Print help and exit"
-    echo "    --config-file FILE  Use config FILE to configure the node"
-    echo "                        automatically."
+    echo "-i, --info              Show current node configuration and exit"
+    echo "    --config-file FILE  Use config FILE to configure the node automatically"
     echo "    --advanced          Enable advanced configuration"
     echo "    --bare              Create a bare (unprogrammed) node"
     echo "    --force-reinit      Overwrite existing configuration"
@@ -71,13 +73,36 @@ CFG_VERSION=2
 ETCDIR="@sysconfdir@"
 CONFIG="$ETCDIR/sxserver/sxsetup.conf"
 
+if [ "$INFO_GIVEN" = "yes" ]; then
+    if [ ! -f "$CONFIG" ]; then
+	echo "Not configured. You have to run sxsetup in configuration mode first."
+	exit 1
+    fi
+    if [ ! -r "$CONFIG" ]; then
+	echo "No permission to read $CONFIG"
+	exit 1
+    fi
+    . $CONFIG
+    echo "--- SX INFO ---"
+    echo "SX Version: `@sbindir@/sx.fcgi --version | cut -d\  -f2`"
+    echo "Cluster name: $SX_CLUSTER_NAME"
+    echo "Cluster port: $SX_PORT"
+    @sbindir@/sxadm node --info --human-readable $SX_DATA_DIR | grep -v "HashFS Version"
+    echo "Storage location: $SX_DATA_DIR"
+    test "$SX_USE_SSL" = "yes" && echo "SSL private key: $SX_SSL_KEY_FILE"
+    echo "SX Logfile: $SX_LOG_FILE"
+    exit 0
+fi
+
 # Read previous answers, and initialize the defaults with them
 LOAD_CONFIG=${CONFIG_FILE:-"$CONFIG"}
 if [ -f "$LOAD_CONFIG" ]; then
     . "$LOAD_CONFIG"
     if [ -f "$SX_DATA_DIR/hashfs.db" ]; then 
 	if [ "$FORCE_REINIT_GIVEN" != "yes" ]; then
-	    echo "This SX is already configured, run with --force-reinit to set it up again."
+	    echo "This SX node is already configured. Run sxsetup with --info to display"
+	    echo "the current configuration or with --force-reinit to set it up again."
+	    echo "See sxsetup --help for more options."
 	    exit 1
 	fi
     fi

@@ -119,15 +119,6 @@ case "$1" in
 	echo "--- SX STATUS ---"
         test_running "sx.fcgi" "$SX_RUN_DIR/sxfcgi.pid"
         test_running "sxhttpd" "$SX_RUN_DIR/sxhttpd.pid"
-	echo
-	echo "--- SX INFO ---"
-	echo "SX Version: `@sbindir@/sx.fcgi --version | cut -d\  -f2`"
-	echo "Cluster name: $SX_CLUSTER_NAME"
-	echo "Cluster port: $SX_PORT"
-        @sbindir@/sxadm node --info --human-readable $SX_DATA_DIR | grep -v "HashFS Version"
-	echo "Storage location: $SX_DATA_DIR"
-	test "$SX_USE_SSL" = "yes" && echo "SSL private key: $SX_SSL_KEY_FILE"
-	echo "SX Logfile: $SX_LOG_FILE"
         ;;
 
     *)
