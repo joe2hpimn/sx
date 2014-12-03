@@ -87,7 +87,7 @@ static sxi_query_t *sxi_query_create(sxc_client_t *sx, const char *path, enum sx
 }
 
 /* also closes outer json object */
-static int sxi_query_add_meta(sxc_client_t *sx, sxi_query_t *query, const char *field, sxc_meta_t *metadata)
+static sxi_query_t* sxi_query_add_meta(sxc_client_t *sx, sxi_query_t *query, const char *field, sxc_meta_t *metadata)
 {
     unsigned int i, nmeta;
     const char *key;
@@ -98,33 +98,34 @@ static int sxi_query_add_meta(sxc_client_t *sx, sxi_query_t *query, const char *
 
     if (!query) {
         sxi_seterr(sx, SXE_EARG, "Null arg passed to sxi_add_meta");
-        return -1;
+        sxi_query_free(query);
+        return NULL;
     }
     if (nmeta) {
         if (!(query = sxi_query_append_fmt(sx, query, strlen(field)+5, ",\"%s\":{", field)))
-            return -1;
+            return NULL;
     }
 
     for(i=0; i<nmeta; i++) {
         char *quoted, *hex;
 	if(sxc_meta_getkeyval(metadata, i, &key, &value, &value_len))
-	    return -1;
+            break;
         if(sxi_utf8_validate(key)) {
             SXDEBUG("key is not valid utf8");
             sxi_seterr(sx, SXE_EARG, "Invalid metadata");
-            return -1;
+            break;
         }
         quoted = sxi_json_quote_string(key);
         if (!quoted)
-            return -1;
+            break;
         query = sxi_query_append_fmt(sx, query, strlen(quoted)+2, "%s:\"", quoted);
         free(quoted);
         if (!query)
-            return -1;
+            return NULL;
         hex = malloc(2 * value_len + 1);
         if (!hex) {
             sxi_setsyserr(sx, SXE_EMEM, "out of memory allocating meta value hex");
-            return -1;
+            break;
         }
         sxi_bin2hex(value, value_len, hex);
         query = sxi_query_append_fmt(sx, query, 2*value_len + 2,
@@ -132,12 +133,16 @@ static int sxi_query_add_meta(sxc_client_t *sx, sxi_query_t *query, const char *
 
         free(hex);
         if (!query)
-            return -1;
+            return NULL;
+    }
+    if (i != nmeta) {
+        sxi_query_free(query);
+        return NULL;
     }
     if (!(query = sxi_query_append_fmt(sx, query, 2, nmeta ? "}}" : "}")))
-        return -1;
+        return NULL;
     query->content_len = strlen(query->content);
-    return 0;
+    return query;
 }
 
 sxi_query_t *sxi_useradd_proto(sxc_client_t *sx, const char *username, const uint8_t *key, int admin) {
@@ -264,11 +269,7 @@ sxi_query_t *sxi_volumeadd_proto(sxc_client_t *sx, const char *volname, const ch
                                    (long long)size, qowner, replica, revisions);
     }
     free(qowner);
-    if (sxi_query_add_meta(sx, ret, "volumeMeta", metadata) == -1) {
-        sxi_query_free(ret);
-        return NULL;
-    }
-    return ret;
+    return sxi_query_add_meta(sx, ret, "volumeMeta", metadata);
 }
 
 sxi_query_t *sxi_flushfile_proto(sxc_client_t *sx, const char *token) {
@@ -361,11 +362,7 @@ sxi_query_t *sxi_fileadd_proto_end(sxc_client_t *sx, sxi_query_t *query, sxc_met
     query = sxi_query_append_fmt(sx, query, 1, "]");
     if (!query)
         return NULL;
-    if (sxi_query_add_meta(sx, query, "fileMeta", metadata) == -1) {
-        sxi_query_free(query);
-        return NULL;
-    }
-    return query;
+    return sxi_query_add_meta(sx, query, "fileMeta", metadata);
 }
 
 
@@ -518,7 +515,7 @@ static sxi_query_t *sxi_hashop_proto_inuse_hash_helper(sxc_client_t *sx, sxi_que
     if (!query)
         return NULL;
     if (query->comma)
-        sxi_query_append_fmt(sx, query, 1, ",");
+        query = sxi_query_append_fmt(sx, query, 1, ",");
     else
         query->comma = 1;
     sxi_bin2hex(blockmeta->hash.b, sizeof(blockmeta->hash.b), hexhash);

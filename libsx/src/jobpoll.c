@@ -205,7 +205,7 @@ static int jobres_cb(curlev_context_t *cbdata, const unsigned char *data, size_t
 
 void sxi_job_free(sxi_job_t *yres)
 {
-    if (!yres)
+    if (!yres || yres == &JOB_NONE)
         return;
     free(yres->resquery);
     free(yres->message);
