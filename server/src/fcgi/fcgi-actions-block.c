@@ -759,16 +759,19 @@ void fcgi_send_replacement_blocks(void) {
 	       sx_blob_add_int32(b, bmeta->blocksize) ||
 	       sx_blob_add_blob(b, &bmeta->hash, sizeof(bmeta->hash)) ||
 	       sx_blob_add_blob(b, &bmeta->cursor, sizeof(bmeta->cursor)) ||
-	       sx_blob_add_int32(b, bmeta->count))
+	       sx_blob_add_int32(b, bmeta->count)) {
+		sx_hashfs_blockmeta_free(&bmeta);
 		break;
+	    }
 	    for(i=0; i<bmeta->count; i++)
 		if(sx_blob_add_int32(b, bmeta->entries[i].replica)||
 		   sx_blob_add_int32(b, bmeta->entries[i].count))
 		    break;
-	    if(i < bmeta->count)
+	    if(i < bmeta->count ||
+	       sx_hashfs_block_get(hashfs, bmeta->blocksize, &bmeta->hash, &blockdata) != OK) {
+		sx_hashfs_blockmeta_free(&bmeta);
 		break;
-	    if(sx_hashfs_block_get(hashfs, bmeta->blocksize, &bmeta->hash, &blockdata) != OK)
-		break;
+	    }
 	}
 	sx_blob_to_data(b, &header, &header_len);
 	hlenton = htonl(header_len);

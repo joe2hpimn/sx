@@ -475,10 +475,10 @@ static act_result_t createvol_request(sx_hashfs_t *hashfs, job_t job_id, job_dat
 		    action_set_fail(newret, http_status, sxi_cbdata_geterrmsg(qrylist[nnode].cbdata));
 	    }
 	}
-	sxc_meta_free(vmeta);
         query_list_free(qrylist, nnodes);
 	sxi_query_free(proto);
     }
+    sxc_meta_free(vmeta);
     return ret;
 }
 
@@ -1354,9 +1354,13 @@ static act_result_t fileflush_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t
 	    /* Remote node */
 	    if(!proto) {
 		proto = sxi_filedel_proto(sx, volume->name, tmp->name, tmp->revision);
-		qrylist = calloc(nnodes, sizeof(*qrylist));
-		if(!proto || !qrylist) {
+		if(!proto) {
 		    WARN("Cannot allocate proto for job %lld", (long long)job_id);
+		    action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
+		}
+		qrylist = calloc(nnodes, sizeof(*qrylist));
+		if(!qrylist) {
+		    WARN("Cannot allocate querylist for job %lld", (long long)job_id);
 		    action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
 		}
 	    }
@@ -1451,9 +1455,13 @@ static act_result_t filedelete_request(sx_hashfs_t *hashfs, job_t job_id, job_da
 	    /* Remote node */
 	    if(!proto) {
 		proto = sxi_filedel_proto(sx, volume->name, tmp->name, tmp->revision);
-		qrylist = calloc(nnodes, sizeof(*qrylist));
-		if(!proto || !qrylist) {
+		if(!proto) {
 		    WARN("Cannot allocate proto for job %lld", (long long)job_id);
+		    action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
+		}
+		qrylist = calloc(nnodes, sizeof(*qrylist));
+		if(!qrylist) {
+		    WARN("Cannot allocate querylist for job %lld", (long long)job_id);
 		    action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
 		}
 	    }
@@ -1987,7 +1995,6 @@ static act_result_t distribution_request(sx_hashfs_t *hashfs, job_t job_id, job_
 
 	if(!was_in) {
 	    if(!is_in) {
-		sxi_hdist_free(hdist);
 		WARN("Node %s is not part of either the old and the new distributions", sx_node_uuid_str(node));
 		action_error(ACT_RESULT_PERMFAIL, 500, "Bad distribution data");
 	    }
@@ -2650,12 +2657,13 @@ static act_result_t filerb_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t 
     unsigned int i;
     act_result_t ret;
 
+    memset(&rbdata, 0, sizeof(rbdata));
+
     if(job_data->len || sx_nodelist_count(nodes) != 1) {
 	CRIT("Bad job data");
 	action_error(ACT_RESULT_PERMFAIL, 500, "Internal job data error");
     }
 
-    memset(&rbdata, 0, sizeof(rbdata));
     sx_hashfs_relocs_begin(hashfs);
 
     for(i = 0; i<RB_MAX_FILES; i++) {
@@ -3622,7 +3630,9 @@ static int rplfiles_cb(curlev_context_t *cbdata, void *ctx, const void *data, si
 		}
 		c->ngood++;
 		strncpy(c->file, file_name, sizeof(c->file));
+		c->file[sizeof(c->file)-1] = '\0';
 		strncpy(c->rev, file_rev, sizeof(c->rev));
+		c->rev[sizeof(c->rev)-1] = '\0';
 		sx_blob_free(c->b);
 		c->b = NULL;
 		c->state = RPL_HDRSIZE;
