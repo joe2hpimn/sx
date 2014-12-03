@@ -909,6 +909,8 @@ char *sxi_tempfile_track(sxc_client_t *sx, const char *basedir, FILE **f)
 
     if(!sx)
 	return NULL;
+    if (f)
+        *f = NULL;
 
     temptrack = sxi_get_temptrack(sx);
     for(i = 0; i < temptrack->slots; i++) {
