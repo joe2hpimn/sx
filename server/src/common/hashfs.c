@@ -575,9 +575,12 @@ static int qopen(const char *path, sxi_db_t **dbp, const char *dbtype, sx_uuid_t
 	    goto qopen_fail;
 	str = (const char *)sqlite3_column_blob(q, 0);
 	if(!str || sqlite3_column_bytes(q, 0) != sizeof(cluster->binary) || memcmp(str, cluster->binary, sizeof(cluster->binary))) {
-	    sx_uuid_t wrong;
-	    uuid_from_binary(&wrong, str);
-	    CRIT("Cluster UUID mismatch on db %s: expected %s, found %s", path, cluster->string, wrong.string);
+	    if(str) {
+		sx_uuid_t wrong;
+		uuid_from_binary(&wrong, str);
+		CRIT("Cluster UUID mismatch on db %s: expected %s, found %s", path, cluster->string, wrong.string);
+	    } else
+		CRIT("Cluster UUID mismatch on db %s: expected %s, found NULL", path, cluster->string);
 	    goto qopen_fail;
 	}
     }
@@ -2184,7 +2187,7 @@ static int analyze_db(sxi_db_t *db, int verbose)
         INFO("%s:", name);
     if (qprep(db, &qint, "PRAGMA integrity_check;") || qprep(db, &qfk, "PRAGMA foreign_key_check")) {
         ret = -1;
-        WARN("Failed to bind query");
+        WARN("Failed to prepare query");
         goto analyze_db_err;
     }
 
@@ -2210,6 +2213,7 @@ static int analyze_db(sxi_db_t *db, int verbose)
     if(r != SQLITE_DONE) {
         WARN("Failed to perform PRAGMA integrity_check");
         ret = -1;
+        goto analyze_db_err;
     }
 
     /* Check first row for "ok" string */
@@ -2259,7 +2263,7 @@ int sx_hashfs_analyze(sx_hashfs_t *h, int verbose)
         ret += r;
     for (j=0; j<SIZES; j++) {
 	for(i=0;i<HASHDBS;i++) {
-	    analyze_db(h->datadb[j][i], verbose);
+	    r = analyze_db(h->datadb[j][i], verbose);
             if(r == -1)
                 return -1;
             ret += r;
@@ -3989,7 +3993,7 @@ rc_ty sx_hashfs_list_first(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, con
 rc_ty sx_hashfs_list_next(sx_hashfs_t *h) {
     int found, list_ndb, match_failed;
     int ret = OK;
-    if(!h || !h->list_pattern || !*h->list_pattern)
+    if(!h || !*h->list_pattern)
 	return EINVAL;
 
     do {

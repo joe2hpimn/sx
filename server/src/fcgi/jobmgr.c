@@ -608,6 +608,7 @@ static act_result_t deletevol_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t
     sx_blob_t *b = NULL;
     act_result_t ret;
 
+    b = sx_blob_from_data(job_data->ptr, job_data->len);
     if(!b) {
 	WARN("Cannot allocate blob for job %lld", (long long)job_id);
 	action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
