@@ -27,6 +27,7 @@
 
 #include "hostlist.h"
 #include "libsx-int.h"
+#include "misc.h"
 
 void sxi_hostlist_init(sxi_hostlist_t *list) {
     if(list)
@@ -147,7 +148,7 @@ void sxi_hostlist_shuffle(sxi_hostlist_t *list) {
     if(!list || list->nhosts<2)
 	return;
     for(i=list->nhosts-1; i>=1; i--) {
-	unsigned int r = rand() % (i+1);
+	unsigned int r = sxi_rand() % (i+1);
 	char *t;
 
 	if(i == r)

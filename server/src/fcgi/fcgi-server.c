@@ -311,7 +311,6 @@ int main(int argc, char **argv) {
 	return EXIT_FAILURE;
     }
 
-    srand(time(NULL));
     memset(pids, 0, sizeof(pids));
 
     if(debug)

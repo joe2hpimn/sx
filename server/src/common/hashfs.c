@@ -10074,7 +10074,7 @@ rc_ty sx_hashfs_setnodedata(sx_hashfs_t *h, const char *name, const sx_uuid_t *n
 		int fd = open(ssl_ca_file, O_CREAT|O_EXCL|O_WRONLY, 0640);
 		if(fd < 0) {
 		    if(errno == EEXIST) {
-			snprintf(ssl_ca_file, cafilen, "%s/sxcert.%08x.pem", h->dir, rand());
+			snprintf(ssl_ca_file, cafilen, "%s/sxcert.%08x.pem", h->dir, sxi_rand());
 			continue;
 		    }
 		    msg_set_reason("Cannot create CA certificate file");
@@ -10686,7 +10686,7 @@ rc_ty sx_hashfs_relocs_populate(sx_hashfs_t *h) {
 
 
 void sx_hashfs_relocs_begin(sx_hashfs_t *h) {
-    h->relocdb_start = h->relocdb_cur = rand() % METADBS;
+    h->relocdb_start = h->relocdb_cur = sxi_rand() % METADBS;
     h->relocid = 0;
 }
 

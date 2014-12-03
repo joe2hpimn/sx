@@ -89,7 +89,6 @@ sxc_client_t *sxc_init(const char *client_version, const sxc_logger_t *func, sxc
     }
 
     /* FIXME THIS IS NOT THREAD SAFE */
-    srand(time(NULL));
     signal(SIGPIPE, SIG_IGN);
     if (sxi_crypto_check_ver(&l))
         return NULL;

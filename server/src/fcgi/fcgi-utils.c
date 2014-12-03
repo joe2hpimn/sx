@@ -818,7 +818,7 @@ void send_nodes_randomised(const sx_nodelist_t *nodes) {
 	    continue;
 
 	for(i=pos-1; i>=1; i--) {
-	    j = rand() % (i+1);
+	    j = sxi_rand() % (i+1);
 	    if(i == j)
 		continue;
 	    t = list[i];

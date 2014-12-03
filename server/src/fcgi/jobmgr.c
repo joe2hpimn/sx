@@ -3685,7 +3685,7 @@ static act_result_t replacefiles_request(sx_hashfs_t *hashfs, job_t job_id, job_
 	    action_error(rc2actres(s), rc2http(s), msg_get_reason());
 
 	nnodes = sx_nodelist_count(volnodes);
-	rndnode = rand();
+	rndnode = sxi_rand();
 	for(nnode = 0; nnode < nnodes; nnode++) {
 	    source = sx_nodelist_get(volnodes, (nnode + rndnode) % nnodes);
 	    if(!sx_hashfs_is_node_faulty(hashfs, sx_node_uuid(source)))
@@ -4469,9 +4469,9 @@ static void check_version(struct jobmgr_data_t *q) {
 
     if(q->next_vcheck > now)
 	return;
-    q->next_vcheck += 24 * 60 * 60 + (rand() % (60 * 60)) - 30 * 60;
+    q->next_vcheck += 24 * 60 * 60 + (sxi_rand() % (60 * 60)) - 30 * 60;
     if(q->next_vcheck <= now)
-	q->next_vcheck = now + 24 * 60 * 60 + (rand() % (60 * 60)) - 30 * 60;
+	q->next_vcheck = now + 24 * 60 * 60 + (sxi_rand() % (60 * 60)) - 30 * 60;
     if(qbind_int(q->qvbump, ":next", q->next_vcheck) ||
        qstep_noret(q->qvbump))
 	WARN("Cannot update check time");

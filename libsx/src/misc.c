@@ -1742,3 +1742,10 @@ int64_t sxi_parse_size(const char *str) {
 
     return size;
 }
+
+unsigned int sxi_rand(void)
+{
+    unsigned int r = 0;
+    sxi_rand_pseudo_bytes((unsigned char*)&r, sizeof(r));
+    return r;
+}
