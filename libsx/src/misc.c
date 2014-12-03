@@ -706,13 +706,13 @@ sxc_uri_t *sxc_parse_uri(sxc_client_t *sx, const char *uri) {
 		p = malloc(len + 1);
 		if(p) {
 		    sxi_strlcpy(p, uri, len+1);
-		    sxi_seterr(sx, SXE_EMEM, "Alias '%s' doesn't exist", p);
+		    sxi_seterr(sx, SXE_ECFG, "Alias '%s' doesn't exist", p);
 		    free(p);
 		} else {
                     sxi_seterr(sx, SXE_EMEM, "Could not allocate memory");
                 }
 	    } else {
-		sxi_seterr(sx, SXE_EMEM, "Alias '%s' doesn't exist", uri);
+		sxi_seterr(sx, SXE_ECFG, "Alias '%s' doesn't exist", uri);
 	    }
 	    return NULL;
 	}

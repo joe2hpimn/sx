@@ -216,6 +216,62 @@ rm_profile_err:
     return ret;
 }
 
+/* Check if alias exists and if so, compare its uri with given by user */
+static int check_alias(const char *alias, const sxc_uri_t *u) {
+    sxc_uri_t *tmp = NULL;
+
+    if(!alias || !u) {
+        fprintf(stderr, "ERROR: Invalid argument\n");
+        return 1;
+    }
+
+    if(strncmp(alias, SXC_ALIAS_PREFIX, lenof(SXC_ALIAS_PREFIX))) {
+        fprintf(stderr, "ERROR: Bad alias name: it must start with %s\n", SXC_ALIAS_PREFIX);
+        return 1;
+    }
+
+    if(strlen(alias) <= lenof(SXC_ALIAS_PREFIX)) {
+        fprintf(stderr, "ERROR: Bad alias name: Alias name is too short\n");
+        return 1;
+    }
+
+    if(!(tmp = sxc_parse_uri(sx, alias))) {
+        if(sxc_geterrnum(sx) != SXE_ECFG) {
+            fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
+            return 1;
+        }
+        sxc_clearerr(sx);
+        return 0;
+    }
+
+    /* Check host part of uri */
+    if(strcmp(tmp->host, u->host)) {
+        fprintf(stderr, "ERROR: Alias '%s' is already used\n", alias);
+        sxc_free_uri(tmp);
+        return 1;
+    }
+
+    if(!u->profile && !tmp->profile) { /* No profile defined, same uri */
+        sxc_free_uri(tmp);
+        return 0;
+    }
+
+    if(u->profile && tmp->profile) { /* Both uris have profile defined, compare them */
+        if(strcmp(u->profile, tmp->profile)) {
+            fprintf(stderr, "ERROR: Alias '%s' is already used\n", alias);
+            sxc_free_uri(tmp);
+            return 1;
+        }
+    } else { /* Different profiles for same host */
+        fprintf(stderr, "ERROR: Alias '%s' is already used\n", alias);
+        sxc_free_uri(tmp);
+        return 1;
+    }
+
+    sxc_free_uri(tmp);
+    return 0;
+}
+
 static int yesno(const char *prompt, int def)
 {
     char c;
@@ -291,16 +347,8 @@ int main(int argc, char **argv) {
 
     if(args.alias_given) {
         alias = args.alias_arg;
-
-        if(strncmp(alias, SXC_ALIAS_PREFIX, lenof(SXC_ALIAS_PREFIX))) {
-             fprintf(stderr, "ERROR: Bad alias name: it must start with %s\n", SXC_ALIAS_PREFIX);
-             goto init_err;
-        }
-
-        if(strlen(alias) <= lenof(SXC_ALIAS_PREFIX)) {
-             fprintf(stderr, "ERROR: Bad alias name: Alias name is too short\n");
-             goto init_err;
-        }
+        if(check_alias(alias, u))
+            goto init_err;
     }
 
     if(args.delete_given) {
