@@ -3536,16 +3536,16 @@ rc_ty sx_hashfs_modhdist(sx_hashfs_t *h, const sx_nodelist_t *list) {
     if(h->have_hd == 0) {
 	newmod = sxi_hdist_new(HDIST_SEED, 2, NULL);
     } else if(!h->is_rebalancing) {
-	if((ret = sxi_hdist_get_cfg(h->hd, &blob, &blob_size)) == OK &&
-	   (newmod = sxi_hdist_from_cfg(blob, blob_size)) != NULL) {
-	    ret = sxi_hdist_newbuild(newmod);
-	    if(ret != OK)
-		sxi_hdist_free(newmod);
+	ret = sxi_hdist_get_cfg(h->hd, &blob, &blob_size);
+	if(ret == OK) {
+	    newmod = sxi_hdist_from_cfg(blob, blob_size);
+	    if(newmod)
+		ret = sxi_hdist_newbuild(newmod);
 	}
     } else
 	ret = EEXIST;
 
-    if(ret == OK && !newmod)
+    if(ret == OK && !newmod) /* Either _new() or _from_cfg() failed above */
 	ret = ENOMEM;
 
     if(ret != OK) {
@@ -4153,6 +4153,7 @@ sx_nodelist_t *sx_hashfs_hashnodes(sx_hashfs_t *h, sx_hashfs_nl_t which, const s
     next = sxi_hdist_locate(h->hd, mh, replica_count, 0);
     if(!next) {
 	msg_set_reason("Failed to locate hash");
+	sx_nodelist_delete(prev);
 	return NULL;
     }
 
@@ -5255,7 +5256,9 @@ rc_ty sx_hashfs_getfile_begin(sx_hashfs_t *h, const char *volume, const char *fi
 	filedata->nblocks = h->get_nblocks;
 	filedata->created_at = created_at;
 	strncpy(filedata->name, filename, sizeof(filedata->name));
+	filedata->name[sizeof(filedata->name)-1] = '\0';
 	strncpy(filedata->revision, rev, sizeof(filedata->revision));
+	filedata->revision[sizeof(filedata->revision)-1] = '\0';
     }
     return OK;
 }
@@ -7306,6 +7309,7 @@ static rc_ty file_totmp(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, const cha
     }
 
     strncpy(rev, revision, sizeof(rev));
+    rev[sizeof(rev)-1] = '\0';
     if(check_revision(rev)) {
 	msg_set_reason("Invalid file revision");
 	return EINVAL;
@@ -7352,6 +7356,7 @@ static rc_ty file_totmp(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, const cha
        qbind_blob(h->qt_new4del, ":avail", avail, avail_len) ||
        qbind_int64(h->qt_new4del, ":expires", time(NULL) + *timeout)) {
 	sqlite3_reset(h->qm_getrev[ndb]);
+	free(avail);
 	return FAIL_EINTERNAL;
     }
 
@@ -10801,6 +10806,7 @@ rc_ty sx_hashfs_relocs_next(sx_hashfs_t *h, const sx_reloc_t **reloc) {
 	}
 
 	strncpy(rlc->file.name, name, sizeof(rlc->file.name));
+	rlc->file.name[sizeof(rlc->file.name)-1] = '\0';
 	strncpy(rlc->file.revision, rev, sizeof(rlc->file.revision));
 	rlc->file.revision[sizeof(rlc->file.revision)-1] = '\0';
 	rlc->file.nblocks = size_to_blocks(rlc->file.file_size, NULL, &rlc->file.block_size);
