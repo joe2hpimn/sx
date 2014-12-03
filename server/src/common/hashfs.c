@@ -1865,8 +1865,10 @@ static unsigned int gethashdb(const sx_hash_t *hash) {
 
 static int getmetadb(const char *filename) {
     sx_hash_t hash;
-    if(hash_buf(NULL, 0, filename, strlen(filename), &hash))
-	return -1;
+    if(hash_buf(NULL, 0, filename, strlen(filename), &hash)) {
+        WARN("hash_buf failed");
+	return 0;
+    }
 
     return MurmurHash64(&hash, sizeof(hash), MURMUR_SEED) & (METADBS-1);
 }
