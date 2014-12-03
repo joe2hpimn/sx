@@ -1039,7 +1039,7 @@ static int info_node(sxc_client_t *sx, const char *path, struct node_args_info *
     nodes = sx_hashfs_nodelist(h, NL_NEXT);
     if(nodes && sx_nodelist_count(nodes)) {
 	unsigned int i, nnodes = sx_nodelist_count(nodes);
-	const sx_node_t *self= sx_hashfs_self(h);
+	const sx_node_t *self = sx_hashfs_self(h);
 	printf("List of nodes:\n");
 	for(i=0; i<nnodes; i++) {
 	    const sx_node_t *n = sx_nodelist_get(nodes, i);
@@ -1048,7 +1048,7 @@ static int info_node(sxc_client_t *sx, const char *path, struct node_args_info *
 		break;
 	    }
 	    fmt_capa(sx_node_capacity(n), capastr, sizeof(capastr), args->human_readable_flag);
-	    printf("\t %c %s %s (%s) %s\n", (n == self) ? '*' : '-', sx_node_uuid(n)->string, sx_node_addr(n), sx_node_internal_addr(n), capastr);
+	    printf("\t %c %s %s (%s) %s\n", (sx_node_cmp(n, self) ? '-' : '*'), sx_node_uuid_str(n), sx_node_addr(n), sx_node_internal_addr(n), capastr);
 	}
     } else
 	printf("No node was set yet\n");
