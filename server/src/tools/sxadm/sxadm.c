@@ -1161,6 +1161,8 @@ static int info_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
 	    if(distid)
 		printf("Distribution: %s(v.%u) - checksum: %llu\n", distid->string, version, (unsigned long long)checksum);
 
+	    printf("Cluster UUID: %s\n", sxc_cluster_get_uuid(clust));
+
 	    const char *auth = clst_auth(clst);
 	    if(auth)
 		printf("Cluster authentication token: %s\n", auth);
