@@ -611,9 +611,9 @@ static sxc_cluster_t *cluster_load(sxc_client_t *sx, struct cluster_args_info *a
     if(!clust) {
 	printf("The configuration for %s could not be found.\n", uristr);
 	if(args->config_dir_given)
-	    printf("Please make sure the --config-dir points to the correct location.");
+	    printf("Please make sure the --config-dir points to the correct location.\n");
 	else
-	    printf("Please run sxinit first to generate it.");
+	    printf("Please run sxinit first to generate it.\n");
 	sxc_free_uri(uri);
 	return NULL;
     }
@@ -824,6 +824,7 @@ static int replace_nodes(sxc_client_t *sx, struct cluster_args_info *args) {
 	CRIT("Failed to update list of non-faulty nodes");
 	goto replace_node_err;
     }
+    sxi_hostlist_shuffle(hlist);
 
     clst = clst_query(conns, NULL);
     if(!clst) {
@@ -968,6 +969,7 @@ static int replace_nodes(sxc_client_t *sx, struct cluster_args_info *args) {
 	CRIT("Failed to update list of nodes");
 	goto replace_node_err;
     }
+    sxi_hostlist_shuffle(hlist);
 
     if(sxi_job_submit_and_poll(conns, NULL, REQ_PUT, ".nodes?replace", query, strlen(query))) {
 	CRIT("The replace nodes request failed: %s", sxc_geterrmsg(sx));
@@ -1123,6 +1125,10 @@ static int info_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
 
     if(nodes) {
 	unsigned int i, nnodes = sx_nodelist_count(nodes), header = 0;
+	unsigned int version;
+	uint64_t checksum;
+	const sx_uuid_t *distid = clst_distuuid(clst, &version, &checksum);
+	const char *auth = clst_auth(clst);
 	sxi_hostlist_t hlist;
 
 	sxi_hostlist_init(&hlist);
@@ -1140,7 +1146,7 @@ static int info_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
             clstnode = clst_query(sxi_cluster_get_conns(clust), &hlist);
 	    sxi_hostlist_empty(&hlist);
 	    if(!clstnode) {
-		printf("Failed to get status of node %s (%s)\n", sx_node_uuid_str(node), sx_node_internal_addr(node));
+		printf("! Failed to get status of node %s (%s)\n", sx_node_uuid_str(node), sx_node_internal_addr(node));
 		ret = 1;
 		continue;
 	    }
@@ -1154,19 +1160,11 @@ static int info_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
 	    clst_destroy(clstnode);
 	}
 
-	if(!ret) {
-	    unsigned int version;
-	    uint64_t checksum;
-	    const sx_uuid_t *distid = clst_distuuid(clst, &version, &checksum);
-	    if(distid)
-		printf("Distribution: %s(v.%u) - checksum: %llu\n", distid->string, version, (unsigned long long)checksum);
-
-	    printf("Cluster UUID: %s\n", sxc_cluster_get_uuid(clust));
-
-	    const char *auth = clst_auth(clst);
-	    if(auth)
-		printf("Cluster authentication token: %s\n", auth);
-	}
+	if(distid)
+	    printf("Distribution: %s(v.%u) - checksum: %llu\n", distid->string, version, (unsigned long long)checksum);
+	printf("Cluster UUID: %s\n", sxc_cluster_get_uuid(clust));
+	if(auth)
+	    printf("Cluster authentication token: %s\n", auth);
     }
 
     clst_destroy(clst);
