@@ -64,11 +64,6 @@ if [ "$HELP_GIVEN" = "yes" ]; then
     exit 0
 fi
 
-if [ "$BARE_GIVEN" = "yes" -a "$CONFIG_FILE_GIVEN" != "yes" ]; then
-    echo "ERROR: --bare is only supported together with --config-file"
-    exit 1
-fi
-
 CFG_VERSION=2
 ETCDIR="@sysconfdir@"
 CONFIG="$ETCDIR/sxserver/sxsetup.conf"
@@ -373,10 +368,10 @@ ask_questions() {
 	    done
 	fi
 
-	if [ -n "$SX_EXISTING_NODE_IP" ]; then
+	if [ -n "$SX_EXISTING_NODE_IP" -a -z "$BARE_GIVEN" ]; then
 	    echo
 	    echo "The admin key is required to join the existing cluster."
-	    echo "If you don't have it, run 'sxserver status' on $SX_EXISTING_NODE_IP."
+	    echo "If you don't have it, run 'sxsetup --info' on $SX_EXISTING_NODE_IP."
 	    echo "Below you can provide the key itself or path to the file containing the key."
 
 	    while true; do
@@ -397,6 +392,50 @@ ask_questions() {
 		elif [ -z "`echo $SX_ADMIN_KEY | grep '0DPiKuNIrrVmD8IUCuw1hQxNqZ'`" ]; then
 		    echo "'$SX_ADMIN_KEY' is not a valid admin key"
 		    SX_ADMIN_KEY=
+		    continue
+		fi
+		break
+	    done
+	fi
+
+	if [ -n "$SX_EXISTING_NODE_IP" -a -n "$BARE_GIVEN" ]; then
+	    echo
+	    echo "The cluster key is required to later join this node to the cluster."
+	    echo "If you don't have it, run 'sxsetup --info' on $SX_EXISTING_NODE_IP."
+	    echo "Below you can provide the key itself or path to the file containing the key."
+
+	    while true; do
+		printf "Cluster key or path to key-file [default=$SX_CLUSTER_KEY]: "
+		read NEWVAL
+		SX_CLUSTER_KEY=${NEWVAL:-$SX_CLUSTER_KEY}
+		if [ -z "$SX_CLUSTER_KEY" ]; then
+		    echo "Cluster key is required to configure the bare node"
+		    SX_CLUSTER_KEY=
+		    continue
+		elif [ -r "$SX_CLUSTER_KEY" ]; then 
+		    if [ -z "`cat $SX_CLUSTER_KEY | grep 'CLUSTER/ALLNODE/ROOT/'`" ]; then
+			echo "$SX_CLUSTER_KEY doesn't contain a valid cluster key"
+			SX_CLUSTER_KEY=
+			continue
+		    fi
+		    SX_CLUSTER_KEY=`cat $SX_CLUSTER_KEY`
+		elif [ -z "`echo $SX_CLUSTER_KEY | grep 'CLUSTER/ALLNODE/ROOT/'`" ]; then
+		    echo "'$SX_CLUSTER_KEY' is not a valid cluster key"
+		    SX_CLUSTER_KEY=
+		    continue
+		fi
+		break
+	    done
+
+	    echo
+	    echo "Please provide the UUID of the cluster. If you don't have it, run"
+	    echo "'sxsetup --info' on $SX_EXISTING_NODE_IP."
+	    while true; do
+		printf "Cluster UUID [default=$SX_CLUSTER_UUID]: "
+		read NEWVAL
+		SX_CLUSTER_UUID=${NEWVAL:-$SX_CLUSTER_UUID}
+		if [ -z "$SX_CLUSTER_UUID" ]; then
+		    echo "Cluster UUID is required to configure the bare node"
 		    continue
 		fi
 		break
@@ -826,19 +865,71 @@ fi
 
 if [ ! -f "$SX_DATA_DIR/hashfs.db" ]; then
     echo
-    echo "--- CLUSTER INITIALIZATION ---"
+    echo "--- NODE INITIALIZATION ---"
     echo
     mkdir -p "`dirname $SX_DATA_DIR`"
     test -n "$SX_ADMIN_KEY" && echo "$SX_ADMIN_KEY" > $ADMINKEY_TMP
+    test -n "$SX_CLUSTER_UUID" && UUIDFLAG="--cluster-uuid=$SX_CLUSTER_UUID"
+    test -z "$SX_NO_ROOT" && OWNERFLAG="--owner=$SX_SERVER_USER:$SX_SERVER_GROUP"
 
-    if [ -z "$SX_EXISTING_NODE_IP" ]; then
-	test -n "$SX_CLUSTER_UUID" && FORCEUUID="--cluster-uuid=$SX_CLUSTER_UUID"
-	test -z "$SX_NO_ROOT" && OWNERFLAG="--owner=$SX_SERVER_USER:$SX_SERVER_GROUP"
+    if [ "$BARE_GIVEN" = "yes" ]; then
+	if [ "$CONFIG_FILE_GIVEN" = "yes" -a "$SX_CFG_VERSION" = "2" ]; then
+	    if [ -z "$UUIDFLAG" ]; then
+		echo "SX_CLUSTER_UUID must be set with a valid cluster UUID"
+		exit 1
+	    fi
+	    if [ -z "$SX_CLUSTER_KEY" -o -z "`echo $SX_CLUSTER_KEY | grep 'CLUSTER/ALLNODE/ROOT/'`" ]; then
+		echo "SX_CLUSTER_KEY must be set with a valid cluster key"
+		exit 1
+	    fi
+	fi
+	if [ -n "$SX_CLUSTER_KEY" ]; then
+	    echo "$SX_CLUSTER_KEY" > $CLUSTKEY_TMP
+	    KEYFLAG="--cluster-key=$CLUSTKEY_TMP"
+	fi
+
+	# Create node
+        (
+        set -x
+        "@sbindir@/sxadm" node --new\
+            --batch-mode $OWNERFLAG $UUIDFLAG $KEYFLAG\
+            "$SX_DATA_DIR"
+        )
+	if [ $? -ne 0 ]; then
+	    echo "Failed to create the bare node. Please make sure that $SX_SERVER_USER:$SX_SERVER_GROUP"
+	    echo "has write access to $SX_DATA_DIR"
+	    exit 1
+	fi
+
+	# Start the new node
+	"@sbindir@/sxserver" start
+	if [ $? -ne 0 ]; then
+	    echo "Failed to start the bare node."
+	    exit 1
+	fi
+	if [ -n "$SX_NODE_INTERNAL_IP" -a "$SX_NODE_INTERNAL_IP" != "$SX_NODE_IP" ]; then
+	    NEWNODE="$SX_NODE_SIZE/$SX_NODE_IP/$SX_NODE_INTERNAL_IP"
+	else
+	    NEWNODE="$SX_NODE_SIZE/$SX_NODE_IP"
+	fi
+	echo "SX_CLUSTER_UUID=`@sbindir@/sxadm node --info $SX_DATA_DIR | grep 'Cluster UUID' | cut -d\  -f 3`" >> $CONFIG
+	echo "SX_CLUSTER_KEY=`@sbindir@/sxadm node --info $SX_DATA_DIR | grep 'Cluster authentication' | cut -d\  -f 3`" >> $CONFIG
+	echo "SX_ADMIN_KEY=`@sbindir@/sxadm node --info $SX_DATA_DIR | grep 'Admin key' | cut -d\  -f 3`" >> $CONFIG
+
+
+	echo "Bare node created. Use 'sxadm cluster --mod' to join it to the cluster"
+	echo "or perform another operation."
+	echo "Node specification: $NEWNODE"
+        rm -rf $SXSETUP_TMPDIR
+        trap - EXIT INT
+        exit 0
+
+    elif [ -z "$SX_EXISTING_NODE_IP" ]; then
         (
         set -x
         "@sbindir@/sxadm" node --new\
             --batch-mode $OWNERFLAG\
-            $FORCEUUID "$SX_DATA_DIR"
+            $UUIDFLAG "$SX_DATA_DIR"
         )
 	if [ $? -ne 0 ]; then
 	    echo "Failed to create the first node. Please make sure that $SX_SERVER_USER:$SX_SERVER_GROUP"
@@ -874,6 +965,7 @@ if [ ! -f "$SX_DATA_DIR/hashfs.db" ]; then
 	fi
 
 	echo "SX_CLUSTER_UUID=`@sbindir@/sxadm node --info $SX_DATA_DIR | grep 'Cluster UUID' | cut -d\  -f 3`" >> $CONFIG
+	echo "SX_CLUSTER_KEY=`@sbindir@/sxadm node --info $SX_DATA_DIR | grep 'Cluster authentication' | cut -d\  -f 3`" >> $CONFIG
 	echo "SX_ADMIN_KEY=`@sbindir@/sxadm node --info $SX_DATA_DIR | grep 'Admin key' | cut -d\  -f 3`" >> $CONFIG
 
 	"@sbindir@/sxserver" start
@@ -899,21 +991,23 @@ if [ ! -f "$SX_DATA_DIR/hashfs.db" ]; then
 	echo "SX_CLUSTER_UUID=\"$SXUUID\"" >> "$CONFIG"
 
 	# Get cluster key
-        "@sbindir@/sxadm" cluster --info "sx://admin@$SX_CLUSTER_NAME" > $OUT_TMP
-	if [ $? -ne 0 ]; then
-	    echo "Failed to retrieve current configuration of the cluster."
-	    exit 1
+	if [ -z "$SX_CLUSTER_KEY" ]; then
+	    "@sbindir@/sxadm" cluster --info "sx://admin@$SX_CLUSTER_NAME" > $OUT_TMP
+	    if [ $? -ne 0 ]; then
+		echo "Failed to retrieve current configuration of the cluster."
+		exit 1
+	    fi
+	    SX_CLUSTER_KEY=`cat $OUT_TMP | grep "Cluster authentication token: " | cut -d\  -f4`
+	    if [ -z "$SX_CLUSTER_KEY" -o -z "`echo $SX_CLUSTER_KEY | grep 'CLUSTER/ALLNODE/ROOT/'`" ]; then
+		echo "Failed to obtain the cluster key."
+		exit 1
+	    fi
 	fi
+	echo "$SX_CLUSTER_KEY" > $CLUSTKEY_TMP
+	echo "SX_CLUSTER_KEY=\"$SX_CLUSTER_KEY\"" >> "$CONFIG"
 	echo "SX_ADMIN_KEY=\"$SX_ADMIN_KEY\"" >> "$CONFIG"
-	CLUSTKEY=`cat $OUT_TMP | grep "Cluster authentication token: " | cut -d\  -f4`
-	if [ -z "$CLUSTKEY" -o -z "`echo $CLUSTKEY | grep 'CLUSTER/ALLNODE/ROOT/'`" ]; then
-	    echo "Failed to obtain the cluster key."
-	    exit 1
-	fi
-	echo "$CLUSTKEY" > $CLUSTKEY_TMP
 
 	# Create node
-	test -z "$SX_NO_ROOT" && OWNERFLAG="--owner=$SX_SERVER_USER:$SX_SERVER_GROUP"
         (
         set -x
         "@sbindir@/sxadm" node --new\
@@ -939,14 +1033,6 @@ if [ ! -f "$SX_DATA_DIR/hashfs.db" ]; then
 	    NEWNODE="$SX_NODE_SIZE/$SX_NODE_IP/$SX_NODE_INTERNAL_IP"
 	else
 	    NEWNODE="$SX_NODE_SIZE/$SX_NODE_IP"
-	fi
-
-	if [ "$BARE_GIVEN" = "yes" ]; then
-	    echo "Bare node created. Use 'sxadm cluster --mod' to join it to the cluster."
-	    echo "Node specification: $NEWNODE"
-	    rm -rf $SXSETUP_TMPDIR
-	    trap - EXIT INT
-	    exit 0
 	fi
 
 	# Commit new cluster config
