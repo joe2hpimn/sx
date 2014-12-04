@@ -11504,7 +11504,8 @@ rc_ty sx_hashfs_br_find(sx_hashfs_t *h, const sx_block_meta_index_t *previous, u
         sqlite3_clear_bindings(qmeta);
         if (qbind_blob(q, ":prevhash", hash ? hash : (const void*)"", hash ? sizeof(*hash) : 0) ||
             qbind_int(qmeta, ":current_age", rebalance_ver)) {
-            return FAIL_EINTERNAL;
+            rc = FAIL_EINTERNAL;
+            break;
         }
         do {
             ret = qstep(q);
