@@ -1358,7 +1358,7 @@ static void multi_part_upload_blocks(curlev_context_t *ctx, const char *url)
 
     xfer_stat = sxi_cluster_get_xfer_stat(yctx->cluster);
     if(xfer_stat) {
-        int64_t to_skip = yctx->pos - yctx->last_pos - yctx->current.needed_cnt * yctx->blocksize; 
+        int64_t to_skip = yctx->pos - yctx->last_pos - yctx->current.needed_cnt * (int64_t)yctx->blocksize;
         if(to_skip && skip_xfer(yctx->cluster, to_skip) != SXE_NOERROR) {
             SXDEBUG("Could not skip part of transfer");
             yctx->fail++;
@@ -3321,7 +3321,7 @@ static int multi_download(struct batch_hashes *bh, const char *dstname,
             sxi_ht_del(bh->hashes, hash, 40);
 
             xfer_stat = sxi_cluster_get_xfer_stat(cluster);
-            if(xfer_stat && skip_xfer(cluster, blocksize * hashdata->ocnt) != SXE_NOERROR) {
+            if(xfer_stat && skip_xfer(cluster, (int64_t)blocksize * hashdata->ocnt) != SXE_NOERROR) {
                 CFGDEBUG("Could not skip %u bytes of transfer", blocksize * hashdata->ocnt);
                 sxi_seterr(sx, SXE_ABORT, "Could not skip %u bytes of transfer", blocksize * hashdata->ocnt);
                 break;
