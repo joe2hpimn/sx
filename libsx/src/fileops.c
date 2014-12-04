@@ -146,9 +146,9 @@ int sxi_set_xfer_stat(sxc_xfer_stat_t *xfer_stat, int64_t dl, int64_t ul, double
     xfer_stat->current_xfer.sent += dl + ul;
 
     /* Increase total counters */
-    if(xfer_stat->current_xfer.direction | SXC_XFER_DIRECTION_DOWNLOAD)
+    if(xfer_stat->current_xfer.direction & SXC_XFER_DIRECTION_DOWNLOAD)
         xfer_stat->total_dl += dl;
-    if(xfer_stat->current_xfer.direction | SXC_XFER_DIRECTION_UPLOAD)
+    if(xfer_stat->current_xfer.direction & SXC_XFER_DIRECTION_UPLOAD)
         xfer_stat->total_ul += ul;
 
     gettimeofday(&now, NULL);
@@ -174,11 +174,11 @@ static int sxi_xfer_set_file(sxc_xfer_stat_t *xfer_stat, const char *file_name, 
     if(!xfer_stat)
         return 1;
 
-    if(xfer_direction | SXC_XFER_DIRECTION_DOWNLOAD) {
+    if(xfer_direction & SXC_XFER_DIRECTION_DOWNLOAD) {
         xfer_stat->total_to_dl += file_size;
         xfer_stat->total_data_dl += file_size;
     }
-    if(xfer_direction | SXC_XFER_DIRECTION_UPLOAD) {
+    if(xfer_direction & SXC_XFER_DIRECTION_UPLOAD) {
         xfer_stat->total_to_ul += file_size;
         xfer_stat->total_data_ul += file_size;
     }
@@ -220,9 +220,9 @@ static int skip_xfer(sxc_cluster_t *cluster, int64_t bytes) {
     if(xfer_stat->current_xfer.direction == SXC_XFER_DIRECTION_BOTH)
         xfer_stat->current_xfer.to_send -= bytes;
 
-    if(xfer_stat->current_xfer.direction | SXC_XFER_DIRECTION_DOWNLOAD)
+    if(xfer_stat->current_xfer.direction & SXC_XFER_DIRECTION_DOWNLOAD)
         xfer_stat->total_to_dl -= bytes;
-    if(xfer_stat->current_xfer.direction | SXC_XFER_DIRECTION_UPLOAD)
+    if(xfer_stat->current_xfer.direction & SXC_XFER_DIRECTION_UPLOAD)
         xfer_stat->total_to_ul -= bytes;
 
     gettimeofday(&now, NULL);
