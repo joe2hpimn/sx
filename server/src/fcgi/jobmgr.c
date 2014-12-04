@@ -3248,7 +3248,7 @@ static act_result_t replaceblocks_request(sx_hashfs_t *hashfs, job_t job_id, job
 	action_error(ACT_RESULT_PERMFAIL, 500, "Internal job data error");
     }
 
-    sx_hashfs_set_progress_info(hashfs, INPRG_REPLACE_RUNNING, "Building a list of objects to repair");
+    sx_hashfs_set_progress_info(hashfs, INPRG_REPLACE_RUNNING, "Building a list of objects to heal");
 
     if(sx_hashfs_init_replacement(hashfs))
 	action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to initialize replacement");
@@ -3421,7 +3421,7 @@ static act_result_t replaceblocks_commit(sx_hashfs_t *hashfs, job_t job_id, job_
 	action_error(ACT_RESULT_PERMFAIL, 500, "Internal job data error");
     }
 
-    sx_hashfs_set_progress_info(hashfs, INPRG_REPLACE_RUNNING, "Repopulating blocks");
+    sx_hashfs_set_progress_info(hashfs, INPRG_REPLACE_RUNNING, "Healing blocks");
 
     s = sx_hashfs_replace_getstartblock(hashfs, &dist, &source, &have_blkidx, (uint8_t *)&bmidx);
     if(s == OK) {
@@ -3659,7 +3659,7 @@ static act_result_t replacefiles_request(sx_hashfs_t *hashfs, job_t job_id, job_
 	action_error(ACT_RESULT_PERMFAIL, 500, "Internal job data error");
     }
 
-    sx_hashfs_set_progress_info(hashfs, INPRG_REPLACE_RUNNING, "Repopulating files");
+    sx_hashfs_set_progress_info(hashfs, INPRG_REPLACE_RUNNING, "Healing files");
 
     ctx = malloc(sizeof(*ctx));
     if(!ctx)
@@ -3809,7 +3809,7 @@ static act_result_t replacefiles_commit(sx_hashfs_t *hashfs, job_t job_id, job_d
 	return force_phase_success(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
     }
 
-    sx_hashfs_set_progress_info(hashfs, INPRG_REPLACE_COMPLETE, "Repopulation complete");
+    sx_hashfs_set_progress_info(hashfs, INPRG_REPLACE_COMPLETE, "Healing complete");
 
     snprintf(query, sizeof(query), ".faulty/%s?dist=%lld", myuuid->string, (long long)hdistver); 
     qrylist = wrap_calloc(nnodes, sizeof(*qrylist));
