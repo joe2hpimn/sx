@@ -134,7 +134,7 @@ static int del_profile(sxc_uri_t *u) {
     int ret = -1;
     const char *config_dir = sxc_get_confdir(sx);
     unsigned int profdir_len, confdir_len, fname_len;
-    const char *home_dir;
+    const char *home_dir = NULL;
     char *fname;
     const char *profile;
 
