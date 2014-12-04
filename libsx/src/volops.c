@@ -1007,6 +1007,11 @@ int sxc_cluster_listvolumes_next(sxc_cluster_lv_t *lv, char **volume_name, int64
     }
 
     if(volume_name) {
+	if(volume.namelen == (unsigned int)-1) {
+	    SXDEBUG("Invalid volume name length");
+	    sxi_seterr(sx, SXE_EREAD, "Failed to retrieve next volume: Bad data from cache file");
+	    return -1;
+	}
 	*volume_name = malloc(volume.namelen + 1);
 	if(!*volume_name) {
 	    SXDEBUG("OOM allocating result file name (%u bytes)", (unsigned)volume.namelen);
@@ -1400,6 +1405,11 @@ int sxc_cluster_listusers_next(sxc_cluster_lu_t *lu, char **user_name, int *is_a
     }
 
     if(user_name) {
+	if(user.namelen == (unsigned int)-1) {
+	    SXDEBUG("Invalid user name length");
+	    sxi_seterr(sx, SXE_EREAD, "Failed to retrieve next user: Bad data from cache file");
+	    return -1;
+	}
 	*user_name = malloc(user.namelen + 1);
 	if(!*user_name) {
 	    SXDEBUG("OOM allocating result file name (%u bytes)", (unsigned)user.namelen);
@@ -1728,6 +1738,11 @@ int sxc_cluster_listaclusers_next(sxc_cluster_la_t *la, char **acluser_name, int
     }
 
     if(acluser_name) {
+	if(acluser.namelen == (unsigned int)-1) {
+	    SXDEBUG("Invalid acluser name length");
+	    sxi_seterr(sx, SXE_EREAD, "Failed to retrieve next acluser: Bad data from cache file");
+	    return -1;
+	}
 	*acluser_name = malloc(acluser.namelen + 1);
 	if(!*acluser_name) {
 	    SXDEBUG("OOM allocating result acluser name (%u bytes)", (unsigned)acluser.namelen);

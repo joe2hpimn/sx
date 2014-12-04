@@ -2092,6 +2092,11 @@ int sxc_cluster_listfiles_prev(sxc_cluster_lf_t *lf, char **file_name, int64_t *
 	sxi_setsyserr(sx, SXE_EREAD, "Failed to retrieve next file: Read item from cache failed");
 	return -1;
     }
+    if((file.namelen | file.revlen) & 0x80000000) {
+	SXDEBUG("Invalid data length from cache file");
+	sxi_seterr(sx, SXE_EREAD, "Failed to retrieve next file: Bad data from cache file");
+	return -1;
+    }
     if((size_t) pos < sizeof(file) * 2 + file.namelen + file.revlen)
 	return 0;
 
@@ -2161,6 +2166,11 @@ int sxc_cluster_listfiles_next(sxc_cluster_lf_t *lf, char **file_name, int64_t *
 	    ret = 0;
 	goto lfnext_out;
     }
+    if((file.namelen | file.revlen) & 0x80000000) {
+	SXDEBUG("Invalid data length from cache file");
+	sxi_seterr(sx, SXE_EREAD, "Failed to retrieve next file: Bad data from cache file");
+	goto lfnext_out;
+    }
 
     if(file_name) {
 	*file_name = malloc(file.namelen + 1);
@@ -2181,7 +2191,6 @@ int sxc_cluster_listfiles_next(sxc_cluster_lf_t *lf, char **file_name, int64_t *
     if(file_revision) {
 	if(file.revlen) {
 	    fseek(lf->f, file.namelen, SEEK_CUR);
-
 	    *file_revision = malloc(file.revlen + 1);
 	    if(!*file_revision) {
 		SXDEBUG("OOM allocating result file revision (%u bytes)", (unsigned)file.revlen);
