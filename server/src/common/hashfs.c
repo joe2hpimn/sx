@@ -11439,7 +11439,6 @@ static rc_ty sx_hashfs_file_find_step(sx_hashfs_t *h, const sx_hashfs_volume_t *
                 rc = FAIL_ETOOMANY;
             else
                 rc = OK;
-            rc = OK;
         } else if (ret == SQLITE_DONE) {
             DEBUG("no more files in fdb %d", fdb);
             file->name[0] = '\0';
@@ -11449,6 +11448,8 @@ static rc_ty sx_hashfs_file_find_step(sx_hashfs_t *h, const sx_hashfs_volume_t *
             rc = FAIL_EINTERNAL;
         }
         sqlite3_reset(q);
+        if (rc != OK)
+            return rc;
         if (fdb >= METADBS)
             return ITER_NO_MORE;
     } while (ret == SQLITE_DONE);
