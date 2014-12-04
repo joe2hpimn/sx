@@ -2553,8 +2553,8 @@ static int check_meta(sx_hashfs_t *h, sxi_db_t *db, const char *table, const cha
 
     while((r = qstep(qcount)) == SQLITE_ROW) {
         int64_t id = sqlite3_column_int64(qcount, 0);
-        int64_t count = sqlite3_column_int64(qcount, 1);
-        CHECK_ERROR("Bad number of meta values for ID %lld: %lld", (long long)id, (long long)count);
+        int count = sqlite3_column_int(qcount, 1);
+        CHECK_ERROR("Bad number of meta values for ID %lld: %d", (long long)id, count);
     }
 
     if(r != SQLITE_DONE) {
@@ -2815,9 +2815,9 @@ static int check_blocks_counters(sx_hashfs_t *h, int debug, unsigned int hs, uns
     while((r = qstep(q)) == SQLITE_ROW) {
         CHECK_PGRS;
         int64_t blockid = sqlite3_column_int64(q, 0);
-        int64_t counter = sqlite3_column_int64(q, 1);
+        int counter = sqlite3_column_int(q, 1);
 
-        CHECK_ERROR("Usage counter for block with ID %lld is negative: %lld", (long long)blockid, (long long)counter);
+        CHECK_ERROR("Usage counter for block with ID %lld is negative: %d", (long long)blockid, counter);
     }
 
     if(r != SQLITE_DONE)
@@ -5529,7 +5529,7 @@ rc_ty sx_hashfs_hashop_perform(sx_hashfs_t *h, unsigned int block_size, unsigned
     return rc;
 }
 
-rc_ty sx_hashfs_hashop_mod(sx_hashfs_t *h, const sx_hash_t *hash, const char *id, unsigned int bs, unsigned replica, int64_t count, uint64_t op_expires_at)
+rc_ty sx_hashfs_hashop_mod(sx_hashfs_t *h, const sx_hash_t *hash, const char *id, unsigned int bs, unsigned replica, int count, uint64_t op_expires_at)
 {
     unsigned int hs;
     rc_ty rc;
@@ -10264,7 +10264,7 @@ static rc_ty fill_block_meta(sx_hashfs_t *h, sqlite3_stmt *qmeta, block_meta_t *
     blockmeta->blockid = blockid;
     sqlite3_reset(qmeta);
     while ((ret = qstep(qmeta)) == SQLITE_ROW) {
-        int64_t count = sqlite3_column_int64(qmeta, 1);
+        int count = sqlite3_column_int(qmeta, 1);
         if (!count)
             continue;
         blockmeta->entries = wrap_realloc_or_free(blockmeta->entries, ++blockmeta->count * sizeof(*blockmeta->entries));

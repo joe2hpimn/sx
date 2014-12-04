@@ -54,7 +54,7 @@ sxi_query_t *sxi_filedel_proto(sxc_client_t *sx, const char *volname, const char
 
 typedef struct {
     unsigned replica;
-    int64_t count;
+    int count;
 } block_meta_entry_t;
 
 typedef struct {
