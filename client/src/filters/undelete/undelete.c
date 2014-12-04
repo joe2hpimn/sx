@@ -67,7 +67,7 @@ static int undelete_configure(const sxf_handle_t *handle, const char *cfg, const
     if(!cfg)
         return 0;
 
-    parsed = calloc(strlen(cfgdir) + 2, sizeof(char));
+    parsed = calloc(strlen(cfg) + 2, sizeof(char));
     if(!parsed) {
 	ERROR("OOM");
 	return 1;
