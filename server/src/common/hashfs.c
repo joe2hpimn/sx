@@ -3494,8 +3494,8 @@ int sx_hashfs_extract(sx_hashfs_t *h, const char *destpath) {
 sx_hashfs_extract_err:
     /* Unlock all databases */
     for(i = METADBS; i >= 0; i--) {
-        if(unlocks[i])
-            qstep(unlocks[i]);
+        if(unlocks[i] && qstep_noret(unlocks[i]))
+	    WARN("Failed to unlock database");
         sqlite3_finalize(locks[i]);
         sqlite3_finalize(unlocks[i]);
     }
