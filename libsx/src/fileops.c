@@ -1410,7 +1410,8 @@ static int multi_part_compute_hash_ev(struct file_upload_ctx *yctx)
         /* extend is only valid on the node that created the file
          * (same as with flush!) */
         sxi_hostlist_empty(yctx->volhosts);
-        sxi_hostlist_add_host(sx, yctx->volhosts, yctx->host);
+        if (sxi_hostlist_add_host(sx, yctx->volhosts, yctx->host))
+            return -1;
     }
     if(!yctx->query) {
         SXDEBUG("failed to allocate query");

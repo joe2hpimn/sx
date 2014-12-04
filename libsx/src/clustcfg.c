@@ -1503,7 +1503,7 @@ int sxc_cluster_save(sxc_cluster_t *cluster, const char *config_dir) {
             cluster_err(SXE_ECOMM,"Could not retrieve ca.pem");
 	if(sxi_tempfile_istracked(cluster->sx, cluster->cafile))
 	    sxi_tempfile_unlink_untrack(cluster->sx, cluster->cafile);
-        sxc_cluster_set_cafile(cluster, clusterd);
+        ret |= sxc_cluster_set_cafile(cluster, clusterd);
     } else
         ret = 0;
 
@@ -2800,7 +2800,10 @@ int sxc_cluster_trigger_gc(sxc_cluster_t *cluster, int delete_reservations)
         const char *host = sxi_hostlist_get_host(all, i);
         sxi_hostlist_t hlist;
         sxi_hostlist_init(&hlist);
-        sxi_hostlist_add_host(sx, &hlist, host);
+        if (sxi_hostlist_add_host(sx, &hlist, host)) {
+            sxi_hostlist_empty(&hlist);
+            return 1;
+        }
         sxc_clearerr(sx);
         if (sxi_cluster_query(cluster->conns, &hlist, delete_reservations ? REQ_DELETE : REQ_PUT, ".gc", "", 0, NULL, NULL, NULL) != 200) {
             sxi_notice(sx, "Failed to trigger GC on %s: %s", host, sxc_geterrmsg(sx));

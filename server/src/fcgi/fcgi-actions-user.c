@@ -257,7 +257,11 @@ static int cb_user_string(void *ctx, const unsigned char *s, size_t l) {
 		    return 0;
 		}
 		memcpy(ascii, s, AUTH_KEY_LEN * 2);
-		hex2bin(ascii, AUTH_KEY_LEN * 2, uctx->auth, sizeof(uctx->auth));
+                ascii[AUTH_KEY_LEN*2] = '\0';
+		if (hex2bin(ascii, AUTH_KEY_LEN * 2, uctx->auth, sizeof(uctx->auth))) {
+                    INFO("bad hexadecimal string: %s", ascii);
+                    return 0;
+                }
 		uctx->has_auth = 1;
 		break;
 	    }
@@ -502,7 +506,11 @@ static int cb_user_newkey_string(void *ctx, const unsigned char *s, size_t l) {
 		    return 0;
 		}
 		memcpy(ascii, s, AUTH_KEY_LEN * 2);
-		hex2bin(ascii, AUTH_KEY_LEN * 2, uctx->auth, sizeof(uctx->auth));
+                ascii[AUTH_KEY_LEN*2] = '\0';
+		if (hex2bin(ascii, AUTH_KEY_LEN * 2, uctx->auth, sizeof(uctx->auth))) {
+                    INFO("Bad hexadecimal string: %s", ascii);
+                    return 0;
+                }
 		break;
 	    }
 	default:

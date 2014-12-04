@@ -6717,7 +6717,8 @@ void sx_hashfs_putfile_end(sx_hashfs_t *h) {
 	return;
     /* ensure no callbacks are running anymore, or they'd access
      * a wrong ctx data */
-    sxi_hashop_end(&h->hc);
+    if (sxi_hashop_end(&h->hc) == -1)
+        WARN("hashop_end failed");
     memset(&h->hc, 0, sizeof(h->hc));
 
     free(h->put_blocks);
