@@ -40,6 +40,7 @@
 
 #include "sx.h"
 #include "../../../../libsx/src/sxreport.h"
+#include "../../../../libsx/src/misc.h"
 #include "version.h"
 
 static int filter_list(sxc_client_t *sx)
@@ -71,7 +72,7 @@ static const char *get_filter_dir(sxc_client_t *sx, const char *fdir)
     const char *pt;
     if(fdir)
         return fdir;
-    pt = getenv("SX_FILTER_DIR");
+    pt = sxi_getenv("SX_FILTER_DIR");
     if(pt)
         return pt;
     return SX_FILTER_DIR;

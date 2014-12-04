@@ -17,13 +17,24 @@
  *
  */
 
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#undef HAVE_CONFIG_H /* avoid reincluding it with default.h */
+#endif
+
+#if defined(__GNUC__) && defined(HAVE_SECURE_GETENV)
+#define _GNU_SOURCE
+#endif
+
 #include "default.h"
+
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <dirent.h>
 #include <sys/stat.h>
+#include <sys/types.h>
 #include <errno.h>
 #include <termios.h>
 #include <pwd.h>
@@ -1750,4 +1761,15 @@ unsigned int sxi_rand(void)
     unsigned int r = 0;
     sxi_rand_pseudo_bytes((unsigned char*)&r, sizeof(r));
     return r;
+}
+
+char *sxi_getenv(const char *name)
+{
+#ifdef HAVE_SECURE_GETENV
+    return secure_getenv(name);
+#else
+    if(getuid() != geteuid() || getgid() != getegid())
+	return NULL;
+    return getenv(name);
+#endif
 }

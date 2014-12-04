@@ -91,6 +91,9 @@
 /* Define to 1 if you have the `readdir' function. */
 #undef HAVE_READDIR
 
+/* Define to 1 if you have the `secure_getenv' function. */
+#undef HAVE_SECURE_GETENV
+
 /* Define if you have the shl_load function. */
 #undef HAVE_SHL_LOAD
 

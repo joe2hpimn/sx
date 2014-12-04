@@ -182,7 +182,7 @@ static int setup_filters(sxc_client_t *sx, const char *fdir)
     if(fdir) {
 	filter_dir = strdup(fdir);
     } else {
-	const char *pt = getenv("SX_FILTER_DIR");
+	const char *pt = sxi_getenv("SX_FILTER_DIR");
 	if(pt)
 	    filter_dir = strdup(pt);
 	else

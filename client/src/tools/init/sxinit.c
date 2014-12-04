@@ -150,7 +150,7 @@ static int del_profile(sxc_uri_t *u) {
     }
 
     if(!config_dir) {
-        home_dir = getenv("HOME");
+        home_dir = sxi_getenv("HOME");
         if(!home_dir) {
             struct passwd *pwd = getpwuid(geteuid());
             if(pwd)

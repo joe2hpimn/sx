@@ -15824,6 +15824,19 @@ rm -rf conftest*
 fi
 
 
+# Checks for library functions.
+for ac_func in secure_getenv
+do :
+  ac_fn_c_check_func "$LINENO" "secure_getenv" "ac_cv_func_secure_getenv"
+if test "x$ac_cv_func_secure_getenv" = xyes; then :
+  cat >>confdefs.h <<_ACEOF
+#define HAVE_SECURE_GETENV 1
+_ACEOF
+
+fi
+done
+
+
 { $as_echo "$as_me:${as_lineno-$LINENO}: checking for inline" >&5
 $as_echo_n "checking for inline... " >&6; }
 if ${ac_cv_c_inline+:} false; then :

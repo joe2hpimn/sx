@@ -41,6 +41,7 @@
 #include "jobpoll.h"
 #include "curlevents.h"
 #include "vcrypto.h"
+#include "misc.h"
 
 struct _sxc_cluster_t {
     sxc_client_t *sx;
@@ -291,7 +292,7 @@ static char *get_confdir(sxc_client_t *sx, const char *config_dir, const char *c
     }
 
     if(!config_dir) {
-	home_dir = getenv("HOME");
+	home_dir = sxi_getenv("HOME");
 	if(!home_dir) {
 	    struct passwd *pwd = getpwuid(geteuid());
 	    if(pwd)
@@ -764,9 +765,9 @@ int sxc_cluster_fetchnodes(sxc_cluster_t *cluster) {
 	goto config_fetchnodes_error;
     }
 
-    if(getenv("SX_DEBUG_SINGLEHOST")) {
+    if(sxi_getenv("SX_DEBUG_SINGLEHOST")) {
 	sxi_hostlist_empty(&yctx.hlist);
-	if(sxi_hostlist_add_host(sx, &yctx.hlist, getenv("SX_DEBUG_SINGLEHOST"))) {
+	if(sxi_hostlist_add_host(sx, &yctx.hlist, sxi_getenv("SX_DEBUG_SINGLEHOST"))) {
 	    if(sxc_geterrnum(sx) == SXE_EARG) {
 		sxc_clearerr(sx);
 		sxi_seterr(sx, SXE_EARG, "Invalid value of SX_DEBUG_SINGLEHOST");
@@ -1247,13 +1248,13 @@ int sxi_volume_info(sxi_conns_t *conns, const char *volume, sxi_hostlist_t *node
     if(yctx.yh)
 	yajl_free(yctx.yh);
 
-    if(getenv("SX_DEBUG_SINGLEHOST")) {
+    if(sxi_getenv("SX_DEBUG_SINGLEHOST")) {
 	sxi_hostlist_empty(nodes);
-	sxi_hostlist_add_host(sx, nodes, getenv("SX_DEBUG_SINGLEHOST"));
+	sxi_hostlist_add_host(sx, nodes, sxi_getenv("SX_DEBUG_SINGLEHOST"));
     }
-    if(getenv("SX_DEBUG_SINGLE_VOLUMEHOST")) {
+    if(sxi_getenv("SX_DEBUG_SINGLE_VOLUMEHOST")) {
         sxi_hostlist_empty(nodes);
-        sxi_hostlist_add_host(sx, nodes, getenv("SX_DEBUG_SINGLE_VOLUMEHOST"));
+        sxi_hostlist_add_host(sx, nodes, sxi_getenv("SX_DEBUG_SINGLE_VOLUMEHOST"));
     }
     return 0;
 }

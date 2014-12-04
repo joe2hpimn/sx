@@ -779,8 +779,8 @@ static int yacb_createfile_string(void *ctx, const unsigned char *s, size_t l) {
         memcpy(ip, s, l);
         ip[l] = '\0';
         /* FIXME: leak */
-	if(getenv("SX_DEBUG_SINGLEHOST"))
-	    strncpy(ip, getenv("SX_DEBUG_SINGLEHOST"), sizeof(ip));
+	if(sxi_getenv("SX_DEBUG_SINGLEHOST"))
+	    strncpy(ip, sxi_getenv("SX_DEBUG_SINGLEHOST"), sizeof(ip));
 	if (sxi_hostlist_add_host(sx, &yactx->current.current_need->upload_hosts, ip)) {
             CBDEBUG("failed to add host to hash hostlist");
             sxi_cbdata_restore_global_error(sx, yactx->cbdata);
@@ -2434,8 +2434,8 @@ static int yacb_getfile_string(void *ctx, const unsigned char *s, size_t l) {
 	return 0;
     }
 
-    if(getenv("SX_DEBUG_SINGLEHOST")) {
-	s = (unsigned char*)getenv("SX_DEBUG_SINGLEHOST");
+    if(sxi_getenv("SX_DEBUG_SINGLEHOST")) {
+	s = (unsigned char*)sxi_getenv("SX_DEBUG_SINGLEHOST");
 	l = strlen((const char *)s);
     }
 
@@ -3872,7 +3872,7 @@ static int remote_to_local(sxc_file_t *source, sxc_file_t *dest, int recursive) 
 	}
     }
 
-    if(getenv("SX_DEBUG_DELAY")) sleep(atoi(getenv("SX_DEBUG_DELAY")));
+    if(sxi_getenv("SX_DEBUG_DELAY")) sleep(atoi(sxi_getenv("SX_DEBUG_DELAY")));
 
     ret = 0;
 

@@ -293,7 +293,7 @@ static enum head_result head_cb(curlev_context_t *ctx, long http_status, char *p
             sxi_cbdata_seterr(ctx, SXE_ECOMM,"Invalid cluster header (no uuid)");
             return HEAD_FAIL;
         }
-	if(!conns->vcheckwarn && !getenv("SX_DEBUG_NOVERSIONCHECK")) {
+	if(!conns->vcheckwarn && !sxi_getenv("SX_DEBUG_NOVERSIONCHECK")) {
 	    int badver = 0;
 	    nlen = MIN(vv-v, sizeof(nstr) - 1);
 	    memcpy(nstr, v, nlen);
@@ -350,7 +350,7 @@ static enum head_result head_cb(curlev_context_t *ctx, long http_status, char *p
 
     if(klen == lenof("SX-API-Version:") &&
        !strncasecmp(ptr, "SX-API-Version:", lenof("SX-API-Version:")) &&
-       !getenv("SX_DEBUG_NOVERSIONCHECK")) {
+       !sxi_getenv("SX_DEBUG_NOVERSIONCHECK")) {
 	nlen = MIN(vlen, sizeof(nstr) - 1);
 	memcpy(nstr, v, nlen);
 	nstr[nlen] = '\0';
@@ -781,7 +781,7 @@ unsigned int sxi_conns_get_timeout(sxi_conns_t *conns, const char *host) {
 	ret = timeouts[t->idx];
 	CLSTDEBUG("Timeout for host %s is %u", host, ret);
     }
-    if((mulstr = getenv("SX_DEBUG_TIMEOUT_MULTIPLIER"))) {
+    if((mulstr = sxi_getenv("SX_DEBUG_TIMEOUT_MULTIPLIER"))) {
 	char *eom;
 	double mul = strtod(mulstr, &eom);
 	if(!mul || *eom)

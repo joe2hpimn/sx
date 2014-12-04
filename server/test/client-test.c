@@ -39,6 +39,7 @@
 #include "sx.h"
 #include "libsx/src/clustcfg.h"
 #include "libsx/src/volops.h"
+#include "libsx/src/misc.h"
 #include "version.h"
 #include "rgen.h"
 #include "client-test-cmdline.h"
@@ -2320,7 +2321,7 @@ int main(int argc, char **argv) {
     if(args.filter_dir_given) {
         filter_dir = strdup(args.filter_dir_arg);
     } else {
-        const char *pt = getenv("SX_FILTER_DIR");
+        const char *pt = sxi_getenv("SX_FILTER_DIR");
         if(pt)
             filter_dir = strdup(pt);
     }

@@ -216,6 +216,9 @@ AC_HEADER_ASSERT
 # Checks for typedefs, structures, and compiler characteristics.
 AC_SYS_LARGEFILE
 
+# Checks for library functions.
+AC_CHECK_FUNCS([secure_getenv])
+
 AC_C_INLINE
 
 AC_TYPE_UINT8_T

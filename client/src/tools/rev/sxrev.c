@@ -257,7 +257,7 @@ int main(int argc, char **argv) {
     if(filter_dir) {
 	filter_dir = strdup(filter_dir);
     } else {
-	const char *pt = getenv("SX_FILTER_DIR");
+	const char *pt = sxi_getenv("SX_FILTER_DIR");
 	if(pt)
 	    filter_dir = strdup(pt);
 	else

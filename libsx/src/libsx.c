@@ -57,9 +57,9 @@ struct _sxc_client_t {
 static const char *guess_tempdir(void) {
     const char *ret;
 
-    ret = getenv("TMPDIR");
+    ret = sxi_getenv("TMPDIR");
     if(!ret)
-	ret = getenv("TEMP");
+	ret = sxi_getenv("TEMP");
     if(!ret)
 	ret = "/tmp";
 
@@ -115,7 +115,7 @@ sxc_client_t *sxc_init(const char *client_version, const sxc_logger_t *func, sxc
     sx->input_ctx = input_ctx;
 
     /* To set configuration directory use sxc_set_confdir(). Default value is taken from HOME directory. */
-    home_dir = getenv("HOME");
+    home_dir = sxi_getenv("HOME");
     if(!home_dir) {
         pwd = getpwuid(geteuid());
         if(pwd)
