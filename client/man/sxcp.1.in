@@ -23,6 +23,12 @@ Recursively copy files from SOURCE to DEST directory
 \fB\-x\fR, \fB\-\-one\-file\-system\fR
 Don't cross filesystem boundaries when recursing. When this option is turned on sxcp will skip all mount-point directories.
 .TP
+\fB\-\-exclude\fR=\fI\,PATTERN\/\fR
+Skip all files matching the pattern argument, which is a shell wildcard pattern. This option works both for uploads and downloads, and can be specified multiple times with different patterns.
+.TP
+\fB\-\-include\fR=\fI\,PATTERN\/\fR
+Only process files matching the pattern argument, which is a shell wildcard pattern. This option works both for uploads and downloads, and can be specified multiple times with different patterns.
+.TP
 \fB\-b\fR, \fB\-\-bwlimit\fR=\fI\,RATE\/\fR
 Set bandwidth usage limit in kilobytes per second. The RATE value can additionally be followed by K(-ilobytes), M(-egabytes), or G(-igabytes) suffixes (K is the default one).
 .TP

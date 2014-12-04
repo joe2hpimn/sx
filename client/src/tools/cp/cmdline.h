@@ -44,6 +44,16 @@ struct gengetopt_args_info
   const char *recursive_help; /**< @brief Recursively copy files from SOURCE to DEST directory help description.  */
   int one_file_system_flag;	/**< @brief Don't cross filesystem boundaries (default=off).  */
   const char *one_file_system_help; /**< @brief Don't cross filesystem boundaries help description.  */
+  char ** exclude_arg;	/**< @brief Exclude files matching PATTERN.  */
+  char ** exclude_orig;	/**< @brief Exclude files matching PATTERN original value given at command line.  */
+  unsigned int exclude_min; /**< @brief Exclude files matching PATTERN's minimum occurreces */
+  unsigned int exclude_max; /**< @brief Exclude files matching PATTERN's maximum occurreces */
+  const char *exclude_help; /**< @brief Exclude files matching PATTERN help description.  */
+  char ** include_arg;	/**< @brief Only copy files matching PATTERN.  */
+  char ** include_orig;	/**< @brief Only copy files matching PATTERN original value given at command line.  */
+  unsigned int include_min; /**< @brief Only copy files matching PATTERN's minimum occurreces */
+  unsigned int include_max; /**< @brief Only copy files matching PATTERN's maximum occurreces */
+  const char *include_help; /**< @brief Only copy files matching PATTERN help description.  */
   char * bwlimit_arg;	/**< @brief Set bandwidth usage limit in kilobytes per second (allows K, M, G suffixes, assume K when no suffix given).  */
   char * bwlimit_orig;	/**< @brief Set bandwidth usage limit in kilobytes per second (allows K, M, G suffixes, assume K when no suffix given) original value given at command line.  */
   const char *bwlimit_help; /**< @brief Set bandwidth usage limit in kilobytes per second (allows K, M, G suffixes, assume K when no suffix given) help description.  */
@@ -70,22 +80,14 @@ struct gengetopt_args_info
   char * dot_size_arg;	/**< @brief Use specified size for each dot printed with file transfer progress (short: 1KB, long: 8KB, scale: block size).  */
   char * dot_size_orig;	/**< @brief Use specified size for each dot printed with file transfer progress (short: 1KB, long: 8KB, scale: block size) original value given at command line.  */
   const char *dot_size_help; /**< @brief Use specified size for each dot printed with file transfer progress (short: 1KB, long: 8KB, scale: block size) help description.  */
-  char ** exclude_arg;	/**< @brief Exclude files matching PATTERN.  */
-  char ** exclude_orig;	/**< @brief Exclude files matching PATTERN original value given at command line.  */
-  unsigned int exclude_min; /**< @brief Exclude files matching PATTERN's minimum occurreces */
-  unsigned int exclude_max; /**< @brief Exclude files matching PATTERN's maximum occurreces */
-  const char *exclude_help; /**< @brief Exclude files matching PATTERN help description.  */
-  char ** include_arg;	/**< @brief Only copy files matching PATTERN.  */
-  char ** include_orig;	/**< @brief Only copy files matching PATTERN original value given at command line.  */
-  unsigned int include_min; /**< @brief Only copy files matching PATTERN's minimum occurreces */
-  unsigned int include_max; /**< @brief Only copy files matching PATTERN's maximum occurreces */
-  const char *include_help; /**< @brief Only copy files matching PATTERN help description.  */
   
   unsigned int help_given ;	/**< @brief Whether help was given.  */
   unsigned int full_help_given ;	/**< @brief Whether full-help was given.  */
   unsigned int version_given ;	/**< @brief Whether version was given.  */
   unsigned int recursive_given ;	/**< @brief Whether recursive was given.  */
   unsigned int one_file_system_given ;	/**< @brief Whether one-file-system was given.  */
+  unsigned int exclude_given ;	/**< @brief Whether exclude was given.  */
+  unsigned int include_given ;	/**< @brief Whether include was given.  */
   unsigned int bwlimit_given ;	/**< @brief Whether bwlimit was given.  */
   unsigned int no_progress_given ;	/**< @brief Whether no-progress was given.  */
   unsigned int ignore_errors_given ;	/**< @brief Whether ignore-errors was given.  */
@@ -96,8 +98,6 @@ struct gengetopt_args_info
   unsigned int total_conns_limit_given ;	/**< @brief Whether total-conns-limit was given.  */
   unsigned int host_conns_limit_given ;	/**< @brief Whether host-conns-limit was given.  */
   unsigned int dot_size_given ;	/**< @brief Whether dot-size was given.  */
-  unsigned int exclude_given ;	/**< @brief Whether exclude was given.  */
-  unsigned int include_given ;	/**< @brief Whether include was given.  */
 
   char **inputs ; /**< @brief unamed options (options without names) */
   unsigned inputs_num ; /**< @brief unamed options number */

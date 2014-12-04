@@ -7,6 +7,10 @@ option  "recursive"             r "Recursively copy files from SOURCE to DEST di
 
 option  "one-file-system"       x "Don't cross filesystem boundaries" flag off
 
+option  "exclude"               - "Exclude files matching PATTERN" optional string multiple typestr="PATTERN"
+
+option  "include"               - "Only copy files matching PATTERN" optional string multiple typestr="PATTERN"
+
 option  "bwlimit"		b "Set bandwidth usage limit in kilobytes per second (allows K, M, G suffixes, assume K when no suffix given)" string typestr="RATE" optional 
 
 option  "no-progress"           q "Don't output progress bar" flag off 
@@ -26,7 +30,3 @@ option  "total-conns-limit"     - "Limit number of connections" int default="5" 
 option  "host-conns-limit"      - "Limit number of connections with one host" int default="2" optional hidden
 
 option  "dot-size"		s "Use specified size for each dot printed with file transfer progress (short: 1KB, long: 8KB, scale: block size)" optional string hidden
-
-option "exclude"                - "Exclude files matching PATTERN" optional string multiple typestr="PATTERN"
-
-option "include"                - "Only copy files matching PATTERN" optional string multiple typestr="PATTERN"
