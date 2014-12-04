@@ -3143,8 +3143,8 @@ sx_hashfs_check_err:
     CHECK_FINISH;
 
     for(i = 0; i < SIZES * HASHDBS + METADBS + 4; i++) {
-        if(unlocks[i])
-            qstep(unlocks[i]);
+        if(unlocks[i] && qstep_noret(unlocks[i]))
+	    CHECK_FATAL("Failed to unlock database");
         sqlite3_finalize(locks[i]);
         sqlite3_finalize(unlocks[i]);
     }
