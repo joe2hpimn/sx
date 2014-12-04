@@ -685,7 +685,7 @@ static size_t headfn(void *ptr, size_t size, size_t nmemb, curlev_t *ev)
 
     if (!rctx->fail && rctx->reply_status >= 400)
         rctx->fail = 1;
-    if (check_ssl_cert(ev))
+    if (!ev || check_ssl_cert(ev))
         return 0;/* fail */
     if (ev->ssl_verified < 0 && !ev->is_http) {
         sxi_cbdata_seterr(ctx, SXE_ECURL, "SSL certificate not verified");
@@ -1505,7 +1505,7 @@ static int xferinfo(void *p, curl_off_t dltotal, curl_off_t dlnow,
     double ul_speed = 0;
     curl_events_t *e;
 
-    if (check_ssl_cert(ev))
+    if (!ev || check_ssl_cert(ev))
         return -1;
 
     if(!ev || !ev->ctx) /* Not an error, context could be disabled */
