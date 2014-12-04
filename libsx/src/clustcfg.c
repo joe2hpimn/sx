@@ -1435,13 +1435,13 @@ int sxc_cluster_save(sxc_cluster_t *cluster, const char *config_dir) {
     for( ; access ; access = access->next) {
 	unsigned int len = clusterd_len + lenof("/auth/") + strlen(access->profile) + 1;
 	char *writeme = malloc(len);
-	sprintf(writeme, "%s/%s", clusterd, access->profile);
 	if(!writeme) {
 	    CFGDEBUG("OOM allocating name for profile %s", access->profile);
 	    cluster_err(SXE_EMEM, "Cannot save config: Out of memory");
 	    free(clusterd);
 	    return 1;
 	}
+	sprintf(writeme, "%s/%s", clusterd, access->profile);
 
 	if(!(fname = sxi_tempfile_track(cluster->sx, clusterd, &f))) {
 	    CFGDEBUG("failed to create auth tempfile in %s", clusterd);

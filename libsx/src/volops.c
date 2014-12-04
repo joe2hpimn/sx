@@ -637,7 +637,7 @@ static int yacb_listvolumes_end_map(void *ctx) {
             }
             if(!fwrite(&value_len, sizeof(value_len), 1, yactx->f) || !fwrite(value, value_len, 1, yactx->f)) {
                 CBDEBUG("Failed to save meta value to temporary file");
-		sxi_cbdata_setsyserr(yactx->cbdata, SXE_EWRITE, "Failed to save meta key to temporary file");
+		sxi_cbdata_setsyserr(yactx->cbdata, SXE_EWRITE, "Failed to save meta value to temporary file");
                 return 0;
             }
         }

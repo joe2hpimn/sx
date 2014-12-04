@@ -4378,6 +4378,7 @@ rc_ty sx_hashfs_user_newkey(sx_hashfs_t *h, const char *user, const uint8_t *key
 
 int encode_auth(const char *user, const unsigned char *key, unsigned key_size, char *auth, unsigned auth_size)
 {
+    sx_hash_t h;
     if (!user || !key || !auth) {
 	NULLARG();
 	return -1;
@@ -4391,13 +4392,8 @@ int encode_auth(const char *user, const unsigned char *key, unsigned key_size, c
 		       auth_size, AUTHTOK_ASCII_LEN+1);
 	return -1;
     }
-    sx_hash_t h;
     if (hash_buf(NULL, 0, user, strlen(user), &h)) {
 	WARN("hashing username failed");
-	return -1;
-    }
-    if (!h.b || !key || !auth) {
-	WARN("impossible NULL args");
 	return -1;
     }
     return encode_auth_bin(h.b, key, key_size, auth, auth_size);

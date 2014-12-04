@@ -222,6 +222,10 @@ static int volume_create(sxc_client_t *sx, const char *owner)
 	goto create_err;
 
     confdir = sxi_cluster_get_confdir(cluster);
+    if(!confdir) {
+	fprintf(stderr, "ERROR: Unable to locate SX configuration directory\n");
+	goto create_err;
+    }
     voldir = malloc(strlen(confdir) + strlen(uri->volume) + 10);
     voldir_old = malloc(strlen(confdir) + strlen(uri->volume) + 14);
     if(!voldir || !voldir_old) {
@@ -288,24 +292,22 @@ static int volume_create(sxc_client_t *sx, const char *owner)
 	if(filter->configure) {
 	    char *fdir = NULL;
 
-	    if(confdir) {
-		fdir = malloc(strlen(confdir) + strlen(filter->uuid) + strlen(uri->volume) + 11);
-		if(!fdir) {
-		    fprintf(stderr, "ERROR: Out of memory\n");
+	    fdir = malloc(strlen(confdir) + strlen(filter->uuid) + strlen(uri->volume) + 11);
+	    if(!fdir) {
+		fprintf(stderr, "ERROR: Out of memory\n");
+		sxc_meta_free(vmeta);
+		goto create_err;
+	    }
+	    sprintf(fdir, "%s/volumes/%s", confdir, uri->volume);
+	    if(access(fdir, F_OK))
+		mkdir(fdir, 0700);
+	    sprintf(fdir, "%s/volumes/%s/%s", confdir, uri->volume, filter->uuid);
+	    if(access(fdir, F_OK)) {
+		if(mkdir(fdir, 0700) == -1) {
+		    fprintf(stderr, "ERROR: Can't create filter configuration directory %s\n", fdir);
 		    sxc_meta_free(vmeta);
+		    free(fdir);
 		    goto create_err;
-		}
-		sprintf(fdir, "%s/volumes/%s", confdir, uri->volume);
-		if(access(fdir, F_OK))
-		    mkdir(fdir, 0700);
-		sprintf(fdir, "%s/volumes/%s/%s", confdir, uri->volume, filter->uuid);
-		if(access(fdir, F_OK)) {
-		    if(mkdir(fdir, 0700) == -1) {
-			fprintf(stderr, "ERROR: Can't create filter configuration directory %s\n", fdir);
-			sxc_meta_free(vmeta);
-			free(fdir);
-			goto create_err;
-		    }
 		}
 	    }
 	    if(filter->configure(&filters[filter_idx], farg, fdir, &cfgdata, &cfgdata_len)) {

@@ -484,7 +484,7 @@ static int load_hosts_for_hash(sxc_client_t *sx, FILE *f, const char *hash, sxi_
     while((sz = fgetc(f))) {
 	char ho[64], *hlist;
 
-	if(sz == EOF || sz >= (int) sizeof(ho)) {
+	if(sz == EOF || sz <= 0 || sz >= (int) sizeof(ho)) {
 	    SXDEBUG("failed to read host size");
 	    sxi_seterr(sx, SXE_ETMP, "Copy failed: Premature end of cache file");
 	    return 1;
@@ -1739,11 +1739,9 @@ static int restore_path(sxc_file_t *dest)
 static int local_to_remote_begin(sxc_file_t *source, sxc_meta_t *fmeta, sxc_file_t *dest, int recursive) {
     unsigned int blocksize;
     char *fname = NULL, *tempfname = NULL;
-    sxi_ht *hosts = NULL, *hashes = NULL;
     struct stat st;
     uint8_t *buf = NULL;
     struct file_upload_ctx *yctx = NULL, *state = NULL;
-    struct hash_up_data_t *hashdata;
     int ret = 1, s = -1;
     sxi_hostlist_t shost, volhosts;
     sxc_client_t *sx = dest->sx;
@@ -2053,21 +2051,6 @@ static int local_to_remote_begin(sxc_file_t *source, sxc_meta_t *fmeta, sxc_file
 
     sxc_meta_free(vmeta);
 
-    if(hosts) {
-	char *hlist;
-	sxi_ht_enum_reset(hosts);
-	while(!sxi_ht_enum_getnext(hosts, NULL, NULL, (const void **)&hlist))
-	    free(hlist);
-	sxi_ht_free(hosts);
-    }
-    if(hashes) {
-	sxi_ht_enum_reset(hashes);
-	while(!sxi_ht_enum_getnext(hashes, NULL, NULL, (const void **)&hashdata)) {
-	    sxi_hostlist_empty(&hashdata->hosts);
-	    free(hashdata);
-	}
-	sxi_ht_free(hashes);
-    }
     if(s>=0)
 	close(s);
     free(buf);
