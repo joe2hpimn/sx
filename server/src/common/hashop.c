@@ -141,10 +141,6 @@ static int cb_presence_boolean(void *ctx, int boolean) {
         }
         q += yactx->idx * SXI_SHA1_TEXT_LEN;
         mapped_idx = yactx->idxs[yactx->idx];
-        if (mapped_idx < 0) {
-            WARN("uninitialized mapped_idx");
-            return 0;
-        }
         DEBUG("Hash index %d (%d) status: %d", mapped_idx, yactx->idx, boolean);
         if (boolean) {
             if (hashop->cb && hashop->cb(q, mapped_idx, 200, hashop->context) == -1)
