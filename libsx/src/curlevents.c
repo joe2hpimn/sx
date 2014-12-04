@@ -862,13 +862,14 @@ static void ev_queue_free(ev_queue_t *q) {
 
     /* iterate over all elements */
     for(i = 0; i < q->length; i++) {
-        struct ev_queue_node *next = n->next;
+        struct ev_queue_node *next;
 
         if(!n) {
             /* Number of elements should be exactly the same as number of not NULL pointers */
             SXDEBUG("Error freeing cURL events queue: invalid number of elements");
             break;
         }
+        next = n->next;
 
         ev_free(n->element);
         free(n);
