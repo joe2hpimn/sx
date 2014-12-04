@@ -11277,7 +11277,7 @@ rc_ty sx_hashfs_volume_mod(sx_hashfs_t *h, const char *volume, const char *newow
         return ret;
     }
 
-    if(!newowner && newsize == -1)
+    if(!*newowner && newsize == -1)
         return OK;
 
     if(qbegin(h->db)) {
