@@ -1404,26 +1404,23 @@ int sxc_cluster_listusers_next(sxc_cluster_lu_t *lu, char **user_name, int *is_a
 	return 0;
     }
 
-    if(user_name) {
-	if(user.namelen == (unsigned int)-1) {
-	    SXDEBUG("Invalid user name length");
-	    sxi_seterr(sx, SXE_EREAD, "Failed to retrieve next user: Bad data from cache file");
-	    return -1;
-	}
-	*user_name = malloc(user.namelen + 1);
-	if(!*user_name) {
-	    SXDEBUG("OOM allocating result file name (%u bytes)", (unsigned)user.namelen);
-	    sxi_seterr(sx, SXE_EMEM, "Failed to retrieve next user: Out of memory");
-	    return -1;
-	}
-	if(!fread(*user_name, user.namelen, 1, lu->f)) {
-	    SXDEBUG("error reading name from results file");
-	    sxi_setsyserr(sx, SXE_EREAD, "Failed to retrieve next user: Read item from cache failed");
-	    return -1;
-	}
-	(*user_name)[user.namelen] = '\0';
-    } else
-	fseek(lu->f, user.namelen, SEEK_CUR);
+    if(user.namelen == (unsigned int)-1) {
+        SXDEBUG("Invalid user name length");
+        sxi_seterr(sx, SXE_EREAD, "Failed to retrieve next user: Bad data from cache file");
+        return -1;
+    }
+    *user_name = malloc(user.namelen + 1);
+    if(!*user_name) {
+        SXDEBUG("OOM allocating result file name (%u bytes)", (unsigned)user.namelen);
+        sxi_seterr(sx, SXE_EMEM, "Failed to retrieve next user: Out of memory");
+        return -1;
+    }
+    if(!fread(*user_name, user.namelen, 1, lu->f)) {
+        SXDEBUG("error reading name from results file");
+        sxi_setsyserr(sx, SXE_EREAD, "Failed to retrieve next user: Read item from cache failed");
+        return -1;
+    }
+    (*user_name)[user.namelen] = '\0';
 
     *is_admin = user.is_admin;
     return 1;
@@ -1737,26 +1734,23 @@ int sxc_cluster_listaclusers_next(sxc_cluster_la_t *la, char **acluser_name, int
 	return 0;
     }
 
-    if(acluser_name) {
-	if(acluser.namelen == (unsigned int)-1) {
-	    SXDEBUG("Invalid acluser name length");
-	    sxi_seterr(sx, SXE_EREAD, "Failed to retrieve next acluser: Bad data from cache file");
-	    return -1;
-	}
-	*acluser_name = malloc(acluser.namelen + 1);
-	if(!*acluser_name) {
-	    SXDEBUG("OOM allocating result acluser name (%u bytes)", (unsigned)acluser.namelen);
-	    sxi_seterr(sx, SXE_EMEM, "Failed to retrieve next acluser: Out of memory");
-	    return -1;
-	}
-	if(!fread(*acluser_name, acluser.namelen, 1, la->f)) {
-	    SXDEBUG("error reading name from results acluser");
-	    sxi_setsyserr(sx, SXE_EREAD, "Failed to retrieve next acluser: Read item from cache failed");
-	    return -1;
-	}
-	(*acluser_name)[acluser.namelen] = '\0';
-    } else
-	fseek(la->f, acluser.namelen, SEEK_CUR);
+    if(acluser.namelen == (unsigned int)-1) {
+        SXDEBUG("Invalid acluser name length");
+        sxi_seterr(sx, SXE_EREAD, "Failed to retrieve next acluser: Bad data from cache file");
+        return -1;
+    }
+    *acluser_name = malloc(acluser.namelen + 1);
+    if(!*acluser_name) {
+        SXDEBUG("OOM allocating result acluser name (%u bytes)", (unsigned)acluser.namelen);
+        sxi_seterr(sx, SXE_EMEM, "Failed to retrieve next acluser: Out of memory");
+        return -1;
+    }
+    if(!fread(*acluser_name, acluser.namelen, 1, la->f)) {
+        SXDEBUG("error reading name from results acluser");
+        sxi_setsyserr(sx, SXE_EREAD, "Failed to retrieve next acluser: Read item from cache failed");
+        return -1;
+    }
+    (*acluser_name)[acluser.namelen] = '\0';
 
     *can_read = acluser.can_read;
     *can_write = acluser.can_write;
