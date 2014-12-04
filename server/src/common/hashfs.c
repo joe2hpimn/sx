@@ -6347,7 +6347,7 @@ static rc_ty create_file(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const
     if(r == SQLITE_ROW) {
 	int nrevs = sqlite3_column_int(h->qm_oldrevs[mdb], 2);
 	rc_ty rc = OK;
-	job_t job;
+	job_t job = JOB_NOPARENT;
 
 	/* There are some revs */
 	while(nrevs >= volume->revisions) {
