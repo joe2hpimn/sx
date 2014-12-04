@@ -386,7 +386,11 @@ int anonymize_filter(sxc_client_t *sx, const char *datadir, FILE *in, FILE *out)
             }
             if (pmatch.rm_so == -1) {
                 /* append remaining line */
-                buf_append(&buf, src, strlen(src));
+                if(buf_append(&buf, src, strlen(src) == -1)) {
+		    free(buf.data);
+		    ret = -1;
+		    break;
+		}
             }
             /* line now contains anonymized data for regex i, switch it to be
              * the source */

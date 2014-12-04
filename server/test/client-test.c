@@ -33,6 +33,7 @@
 #include <errno.h>
 #include <inttypes.h>
 #include <fcntl.h>
+#include <sys/types.h>
 #include <sys/stat.h>
 #include <openssl/sha.h>
 
@@ -116,7 +117,11 @@ static int test_callback(const sxc_xfer_stat_t *xfer_stat) {
 }
 
 int randomize_name(char *name) {
-    int fd = mkstemp(name);
+    int fd;
+    mode_t mask = umask(0);
+    umask(077); /* shut up warnings */
+    fd = mkstemp(name);
+    umask(mask);
     if(fd < 0) {
         fprintf(stderr, "randomize_name: ERROR: Cannot generate temporary name.\n");
         return 1;
@@ -196,38 +201,38 @@ int create_volume(sxc_client_t *sx, sxc_cluster_t *cluster, const char *volname,
         }
         snprintf(uuidcfg, sizeof(uuidcfg), "%s-cfg", filter->uuid);
         if(filter->configure) {
-            char *fdir = NULL;
-            if(confdir) {
-                fdir = (char*)malloc(strlen(voldir) + 1 + strlen(filter->uuid) + 1); /* The 1 inside is for '/' character. */
-                if(!fdir) {
+            char *fdir;
+	    int rc = 0;
+            fdir = (char*)malloc(strlen(voldir) + 1 + strlen(filter->uuid) + 1); /* The 1 inside is for '/' character. */
+            if(!fdir) {
+                if(!hide_errors)
+                    fprintf(stderr, "create_volume: ERROR: Cannot allocate memory for fdir.\n");
+                goto create_volume_err;
+            }
+            if(access(voldir, F_OK))
+                rc = mkdir(voldir, 0700);
+            sprintf(fdir, "%s/%s", voldir, filter->uuid);
+            if(access(fdir, F_OK)) {
+                if(rc == -1 || mkdir(fdir, 0700) == -1) {
                     if(!hide_errors)
-                        fprintf(stderr, "create_volume: ERROR: Cannot allocate memory for fdir.\n");
+                        fprintf(stderr, "create_volume: ERROR: Cannot create filter configuration directory: %s\n", fdir);
+                    free(fdir);
                     goto create_volume_err;
                 }
-                if(access(voldir, F_OK))
-                    mkdir(voldir, 0700);
-                sprintf(fdir, "%s/%s", voldir, filter->uuid);
-                if(access(fdir, F_OK))
-                    if(mkdir(fdir, 0700) == -1) {
-                        if(!hide_errors)
-                            fprintf(stderr, "create_volume: ERROR: Cannot create filter configuration directory: %s\n", fdir);
-                        free(fdir);
-                        goto create_volume_err;
-                    }
-            }
-            if(filter->configure(&filters[filter_idx], filter_cfg, fdir, &cfgdata, &cfgdata_len)) {
-                if(!hide_errors)
-                    fprintf(stderr, "create_volume: ERROR: Cannot configure filter.\n");
-                free(fdir);
-                goto create_volume_err;
-            }
-            free(fdir);
-            if(cfgdata && sxc_meta_setval(meta, uuidcfg, cfgdata, cfgdata_len)) {
-                if(!hide_errors)
-                    fprintf(stderr, "create_volume: ERROR: Cannot store filter configuration.\n");
-                goto create_volume_err;
-            }
-        }
+	    }
+	    if(filter->configure(&filters[filter_idx], filter_cfg, fdir, &cfgdata, &cfgdata_len)) {
+		if(!hide_errors)
+		    fprintf(stderr, "create_volume: ERROR: Cannot configure filter.\n");
+		free(fdir);
+		goto create_volume_err;
+	    }
+	    free(fdir);
+	    if(cfgdata && sxc_meta_setval(meta, uuidcfg, cfgdata, cfgdata_len)) {
+		if(!hide_errors)
+		    fprintf(stderr, "create_volume: ERROR: Cannot store filter configuration.\n");
+		goto create_volume_err;
+	    }
+	}
     }
     if(sxc_volume_add(cluster, volname, VOLSIZE, args->replica_arg, max_revisions, meta, owner)) {
         if(!hide_errors)
@@ -967,7 +972,7 @@ int test_cat(sxc_client_t *sx, sxc_cluster_t *cluster, const char *local_dir_pat
     }
     sprintf(cat_file_path, "%s%s", local_dir_path, CAT_FILE_NAME_OUT);
     remote_file_path = (char*)malloc(strlen(remote_dir_path) + strlen(CAT_FILE_NAME_IN) + 1);
-    if(!local_file_path) {
+    if(!remote_file_path) {
         fprintf(stderr, "test_cat: ERROR: Cannot allocate memory for remote_file_path.\n");
         goto test_cat_err;
     }
@@ -1168,7 +1173,10 @@ int test_attribs(sxc_client_t *sx, sxc_cluster_t *cluster, const char *local_dir
             fprintf(stderr, "test_attribs: ERROR: Cannot set modification time for '%s' file: %s\n", local_files_paths[i], strerror(errno));
             goto test_attribs_err;
         }
-        stat(local_files_paths[i], &t_st[i]);
+        if(stat(local_files_paths[i], &t_st[i]) == -1) {
+            fprintf(stderr, "test_attribs: ERROR: stat() failed for '%s': %s\n", local_files_paths[i], strerror(errno));
+            goto test_attribs_err;
+	}
     }
     if(upload_file(sx, cluster, local_dir_path, remote_dir_path, 0)) {
         fprintf(stderr, "test_attribs: ERROR: Cannot upload files from '%s'.\n", local_dir_path);
@@ -1187,7 +1195,10 @@ int test_attribs(sxc_client_t *sx, sxc_cluster_t *cluster, const char *local_dir
     }
     memset(files, 1, sizeof(files));
     for(i=0; i<ATTRIBS_COUNT; i++) {
-        stat(local_files_paths[i], &st);
+        if(stat(local_files_paths[i], &st) == -1) {
+            fprintf(stderr, "test_attribs: ERROR: stat() failed for '%s': %s\n", local_files_paths[i], strerror(errno));
+            goto test_attribs_err;
+	}
         if(st.st_mode != t_st[i].st_mode) {
             fprintf(stderr, "test_attribs: ERROR: File attributes differ.\n");
             goto test_attribs_err;

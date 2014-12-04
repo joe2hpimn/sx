@@ -873,6 +873,7 @@ char *sxi_make_tempfile(sxc_client_t *sx, const char *basedir, FILE **f) {
     unsigned int len;
     char *tmpname;
     int fd;
+    mode_t mask;
 
     if(!f) {
 	SXDEBUG("called with NULL arg");
@@ -892,7 +893,10 @@ char *sxi_make_tempfile(sxc_client_t *sx, const char *basedir, FILE **f) {
     }
     memcpy(tmpname, basedir, len);
     memcpy(tmpname + len, "/.sxtmpXXXXXX", sizeof("/.sxtmpXXXXXX"));
+    mask = umask(0);
+    umask(077);
     fd = mkstemp(tmpname);
+    umask(mask);
     if(fd < 0) {
 	SXDEBUG("failed to create %s", tmpname);
 	sxi_setsyserr(sx, SXE_ETMP, "Cannot create unique temporary file");

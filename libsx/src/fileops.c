@@ -1479,7 +1479,6 @@ static int multi_part_compute_hash_ev(struct file_upload_ctx *yctx)
     yacb->yajl_string = yacb_createfile_string;
     yacb->yajl_end_array = yacb_createfile_end_array;
     yacb->yajl_end_map = yacb_createfile_end_map;
-    yctx->blocksize = yctx->blocksize;
     yctx->current.yh = NULL;
 
     if (!(cbdata = sxi_cbdata_create_upload(sxi_cluster_get_conns(yctx->cluster), multi_part_upload_blocks, yctx))) {
@@ -1623,6 +1622,7 @@ static sxi_job_t* multi_upload(struct file_upload_ctx *state)
 static char *get_filter_dir(sxc_client_t *sx, const char *confdir, const char *uuid, const char *volume)
 {
     char *fdir;
+    int rc = 0;
 
     fdir = malloc(strlen(confdir) + strlen(uuid) + strlen(volume) + 11);
     if(!fdir) {
@@ -1631,10 +1631,10 @@ static char *get_filter_dir(sxc_client_t *sx, const char *confdir, const char *u
     }
     sprintf(fdir, "%s/volumes/%s", confdir, volume);
     if(access(fdir, F_OK))
-	mkdir(fdir, 0700);
+	rc = mkdir(fdir, 0700);
     sprintf(fdir, "%s/volumes/%s/%s", confdir, volume, uuid);
     if(access(fdir, F_OK)) {
-	if(mkdir(fdir, 0700) == -1) {
+	if(rc == -1 || mkdir(fdir, 0700) == -1) {
 	    sxi_seterr(sx, SXE_EFILTER, "Can't create filter directory %s", fdir);
 	    free(fdir);
 	    return NULL;
@@ -5253,7 +5253,7 @@ static sxi_job_t *remote_copy_cb(sxc_file_list_t *target, sxc_file_t *pattern, s
 int sxc_file_require_dir(sxc_file_t *file)
 {
     struct stat sb;
-    if (!file)
+    if (!file || !file->path)
         return 1;
     sxc_clearerr(file->sx);
     if (sxc_file_is_sx(file)) {
@@ -5282,7 +5282,7 @@ int sxc_file_require_dir(sxc_file_t *file)
         free(file->path);
         file->path = path;
         return 0;
-    } else if (file->path && strcmp(file->path, "/dev/stdout")) {
+    } else if (strcmp(file->path, "/dev/stdout")) {
         sxi_seterr(file->sx, SXE_EARG, "target '%s' must be an existing directory", file->path);
         return -1;
     }

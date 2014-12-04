@@ -52,6 +52,9 @@ uint64_t swapu64(uint64_t v)
 #define swapu64(x) (x)
 #endif
 
+#define ERROR(...)	{ sxc_filter_msg(handle, SX_LOG_ERR, __VA_ARGS__); }
+#define WARN(...)	{ sxc_filter_msg(handle, SX_LOG_WARNING, __VA_ARGS__); }
+
 static int attribs_process_up(const sxf_handle_t *handle, void *ctx, const char *filename, sxc_meta_t *meta, const void *cfgdata, unsigned int cfgdata_len)
 {
 	struct stat sb;
@@ -71,8 +74,10 @@ static int attribs_process_up(const sxf_handle_t *handle, void *ctx, const char 
     if(sxc_meta_setval(meta, "attribsName", filename, strlen(filename)))
 	return 1;
 
-    if(stat(filename, &sb) == -1)
+    if(stat(filename, &sb) == -1) {
+	ERROR("Failed to stat file %s", filename);
 	return 1;
+    }
 
     val32 = swapu32(sb.st_mode);
     if(sxc_meta_setval(meta, "attribsMode", &val32, sizeof(val32)))
@@ -110,7 +115,8 @@ static int attribs_process_down(const sxf_handle_t *handle, void *ctx, const cha
     sxc_meta_getval(meta, "attribsMode", &val, &len);
     if(len != sizeof(uint32_t))
 	return 1;
-    chmod(filename, (mode_t)swapu32(*(uint32_t *) val));
+    if(chmod(filename, (mode_t)swapu32(*(uint32_t *) val)))
+	WARN("Failed to chmod file %s", filename);
 
     /* root only */
     sxc_meta_getval(meta, "attribsUID", &val, &len);
@@ -125,7 +131,8 @@ static int attribs_process_down(const sxf_handle_t *handle, void *ctx, const cha
 	return 1;
     utb.actime = swapu64(*(uint64_t *) val);
     utb.modtime = swapu64(*(uint64_t *) val2);
-    utime(filename, &utb);
+    if(utime(filename, &utb))
+	WARN("Failed to set times for file %s", filename);
 
     return 0;
 }

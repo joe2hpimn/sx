@@ -503,158 +503,152 @@ static ssize_t aes256_data_process(const sxf_handle_t *handle, void *ctx, const 
     if(*action == SXF_ACTION_DATA_END)
 	actx->data_end = 1;
 
-    do {
-	if(insize - actx->data_in >= bsize - actx->inbytes) {
-	    bytes = bsize - actx->inbytes;
-	    memcpy(&actx->in[actx->inbytes], (unsigned char *) in + actx->data_in, bytes);
-	    actx->data_in += bytes;
-	    actx->inbytes += bytes;
+    if(insize - actx->data_in >= bsize - actx->inbytes) {
+	bytes = bsize - actx->inbytes;
+	memcpy(&actx->in[actx->inbytes], (unsigned char *) in + actx->data_in, bytes);
+	actx->data_in += bytes;
+	actx->inbytes += bytes;
+    } else {
+	bytes = insize - actx->data_in;
+	memcpy(&actx->in[actx->inbytes], (unsigned char *) in + actx->data_in, bytes);
+	actx->data_in += bytes;
+	actx->inbytes += bytes;
+    }
+
+    if(actx->inbytes == bsize || (actx->inbytes && (*action == SXF_ACTION_DATA_END || actx->data_end))) {
+        unsigned char mac[EVP_MAX_MD_SIZE], ivaes[IV_SIZE];
+        unsigned int maclen;
+        int final;
+	if(mode == SXF_MODE_UPLOAD) {
+            unsigned int ivlen;
+            if (hmac_init_ex(&actx->ivhash, NULL, 0, NULL, NULL) != 1) {
+                ERROR("hmac_init_ex failed(1)");
+                return -1;
+            }
+            if (hmac_update(&actx->ivhash, actx->ivmac, sizeof(actx->ivmac)) != 1 ||
+                hmac_update(&actx->ivhash, actx->in, actx->inbytes) != 1) {
+                ERROR("EVP_DigestUpdate failed");
+                return -1;
+            }
+            if (hmac_final(&actx->ivhash, mac, &ivlen) != 1) {
+                ERROR("DigestFinal_ex failed");
+                return -1;
+            }
+            if (ivlen < IV_SIZE) {
+                ERROR("Wrong digest size: %d", ivlen);
+                return -1;
+            }
+            /* calculate iv of next block using iv of previous block */
+            memcpy(actx->ivmac, mac, ivlen);
+            memcpy(ivaes, mac, IV_SIZE);
+            memcpy(actx->blk, ivaes, IV_SIZE);
+	    if(!EVP_EncryptInit_ex(&actx->ectx, NULL, NULL, NULL, ivaes)) {
+		ERROR("EVP_EncryptInit_ex failed");
+		return -1;
+	    }
+	    if(!EVP_EncryptUpdate(&actx->ectx, actx->blk + IV_SIZE, (int *) &actx->blkbytes, actx->in, actx->inbytes)) {
+		ERROR("EVP_EncryptUpdate failed");
+		return -1;
+	    }
+            actx->blkbytes += IV_SIZE;
+	    if(!EVP_EncryptFinal_ex(&actx->ectx, actx->blk + actx->blkbytes, &final)) {
+		ERROR("EVP_EncryptFinal_ex failed");
+		return -1;
+	    }
+            if (hmac_init_ex(&actx->hmac, NULL, 0, NULL, NULL) != 1) {
+                ERROR("hmac_init_ex failed");
+                return -1;
+            }
+            actx->blkbytes += final;
+            if (hmac_update(&actx->hmac, actx->blk, actx->blkbytes) != 1) {
+                ERROR("hmac_update failed");
+                return -1;
+            }
+            if (hmac_final(&actx->hmac, mac, &maclen) != 1) {
+                ERROR("hmac_final failed");
+                return -1;
+            }
+            maclen /= 2;
+            if (maclen != MAC_SIZE) {
+                ERROR("Bad MAC size: %d", maclen);
+                return -1;
+            }
+            memcpy(actx->blk + actx->blkbytes, mac, maclen);
+            actx->blkbytes += maclen;
 	} else {
-	    bytes = insize - actx->data_in;
-	    memcpy(&actx->in[actx->inbytes], (unsigned char *) in + actx->data_in, bytes);
-	    actx->data_in += bytes;
-	    actx->inbytes += bytes;
+            if (hmac_init_ex(&actx->hmac, NULL, 0, NULL, NULL) != 1) {
+                ERROR("hmac_init_ex failed");
+                return -1;
+            }
+            if (actx->inbytes < IV_SIZE + MAC_SIZE) {
+                ERROR("Incomplete data: %d bytes", actx->inbytes);
+                return -1;
+            }
+            actx->inbytes -= MAC_SIZE;
+            if (hmac_update(&actx->hmac, actx->in, actx->inbytes) != 1) {
+                ERROR("hmac_update failed");
+                return -1;
+            }
+            if (hmac_final(&actx->hmac, mac, &maclen) != 1) {
+                ERROR("hmac_final failed");
+                return -1;
+            }
+            maclen /= 2;
+            if (maclen != MAC_SIZE) {
+                ERROR("Bad HMAC size: %d bytes", maclen);
+                return -1;
+            }
+            if (hmac_compare(actx->in + actx->inbytes, mac, maclen)) {
+                ERROR("HMAC mismatch (Invalid password/key file or broken data)");
+		actx->decrypt_err = 1;
+                return -1;
+            }
+            memcpy(ivaes, actx->in, IV_SIZE);
+	    if(!EVP_DecryptInit_ex(&actx->dctx, NULL, NULL, NULL, ivaes)) {
+		ERROR("EVP_DecryptInit_ex failed");
+		return -1;
+	    }
+	    if(!EVP_DecryptUpdate(&actx->dctx, actx->blk, (int *) &actx->blkbytes, actx->in + IV_SIZE, actx->inbytes - IV_SIZE)) {
+		ERROR("EVP_DecryptUpdate failed");
+		return -1;
+	    }
+	    if(!EVP_DecryptFinal_ex(&actx->dctx, actx->blk + actx->blkbytes, &final)) {
+		ERROR("EVP_DecryptFinal_ex failed (Invalid password/key file or broken data)");
+		actx->decrypt_err = 1;
+		return -1;
+	    }
+            actx->blkbytes += final;
+	}
+	actx->inbytes = 0;
+
+	if(actx->blkbytes > outsize) {
+	    memcpy(out, actx->blk, outsize);
+	    actx->data_out_left = actx->blkbytes - outsize;
+	    *action = SXF_ACTION_REPEAT;
+	    return outsize;
+	} else {
+	    memcpy(out, actx->blk, actx->blkbytes);
 	}
 
-	if(actx->inbytes == bsize || (actx->inbytes && (*action == SXF_ACTION_DATA_END || actx->data_end))) {
-            unsigned char mac[EVP_MAX_MD_SIZE], ivaes[IV_SIZE];
-            unsigned int maclen;
-            int final;
-	    if(mode == SXF_MODE_UPLOAD) {
-                unsigned int ivlen;
-                if (hmac_init_ex(&actx->ivhash, NULL, 0, NULL, NULL) != 1) {
-                    ERROR("hmac_init_ex failed(1)");
-                    return -1;
-                }
-                if (hmac_update(&actx->ivhash, actx->ivmac, sizeof(actx->ivmac)) != 1 ||
-                    hmac_update(&actx->ivhash, actx->in, actx->inbytes) != 1) {
-                    ERROR("EVP_DigestUpdate failed");
-                    return -1;
-                }
-                if (hmac_final(&actx->ivhash, mac, &ivlen) != 1) {
-                    ERROR("DigestFinal_ex failed");
-                    return -1;
-                }
-                if (ivlen < IV_SIZE) {
-                    ERROR("Wrong digest size: %d", ivlen);
-                    return -1;
-                }
-                /* calculate iv of next block using iv of previous block */
-                memcpy(actx->ivmac, mac, ivlen);
-                memcpy(ivaes, mac, IV_SIZE);
-                memcpy(actx->blk, ivaes, IV_SIZE);
-		if(!EVP_EncryptInit_ex(&actx->ectx, NULL, NULL, NULL, ivaes)) {
-		    ERROR("EVP_EncryptInit_ex failed");
-		    return -1;
-		}
-		if(!EVP_EncryptUpdate(&actx->ectx, actx->blk + IV_SIZE, (int *) &actx->blkbytes, actx->in, actx->inbytes)) {
-		    ERROR("EVP_EncryptUpdate failed");
-		    return -1;
-		}
-                actx->blkbytes += IV_SIZE;
-		if(!EVP_EncryptFinal_ex(&actx->ectx, actx->blk + actx->blkbytes, &final)) {
-		    ERROR("EVP_EncryptFinal_ex failed");
-		    return -1;
-		}
-                if (hmac_init_ex(&actx->hmac, NULL, 0, NULL, NULL) != 1) {
-                    ERROR("hmac_init_ex failed");
-                    return -1;
-                }
-                actx->blkbytes += final;
-                if (hmac_update(&actx->hmac, actx->blk, actx->blkbytes) != 1) {
-                    ERROR("hmac_update failed");
-                    return -1;
-                }
-                if (hmac_final(&actx->hmac, mac, &maclen) != 1) {
-                    ERROR("hmac_final failed");
-                    return -1;
-                }
-                maclen /= 2;
-                if (maclen != MAC_SIZE) {
-                    ERROR("Bad MAC size: %d", maclen);
-                    return -1;
-                }
-                memcpy(actx->blk + actx->blkbytes, mac, maclen);
-                actx->blkbytes += maclen;
-	    } else {
-                if (hmac_init_ex(&actx->hmac, NULL, 0, NULL, NULL) != 1) {
-                    ERROR("hmac_init_ex failed");
-                    return -1;
-                }
-                if (actx->inbytes < IV_SIZE + MAC_SIZE) {
-                    ERROR("Incomplete data: %d bytes", actx->inbytes);
-                    return -1;
-                }
-                actx->inbytes -= MAC_SIZE;
-                if (hmac_update(&actx->hmac, actx->in, actx->inbytes) != 1) {
-                    ERROR("hmac_update failed");
-                    return -1;
-                }
-                if (hmac_final(&actx->hmac, mac, &maclen) != 1) {
-                    ERROR("hmac_final failed");
-                    return -1;
-                }
-                maclen /= 2;
-                if (maclen != MAC_SIZE) {
-                    ERROR("Bad HMAC size: %d bytes", maclen);
-                    return -1;
-                }
-                if (hmac_compare(actx->in + actx->inbytes, mac, maclen)) {
-                    ERROR("HMAC mismatch (Invalid password/key file or broken data)");
-		    actx->decrypt_err = 1;
-                    return -1;
-                }
-                memcpy(ivaes, actx->in, IV_SIZE);
-		if(!EVP_DecryptInit_ex(&actx->dctx, NULL, NULL, NULL, ivaes)) {
-		    ERROR("EVP_DecryptInit_ex failed");
-		    return -1;
-		}
-		if(!EVP_DecryptUpdate(&actx->dctx, actx->blk, (int *) &actx->blkbytes, actx->in + IV_SIZE, actx->inbytes - IV_SIZE)) {
-		    ERROR("EVP_DecryptUpdate failed");
-		    return -1;
-		}
-		if(!EVP_DecryptFinal_ex(&actx->dctx, actx->blk + actx->blkbytes, &final)) {
-		    ERROR("EVP_DecryptFinal_ex failed (Invalid password/key file or broken data)");
-		    actx->decrypt_err = 1;
-		    return -1;
-		}
-                actx->blkbytes += final;
-	    }
-	    actx->inbytes = 0;
+	final = actx->blkbytes;
+	actx->blkbytes = 0;
 
-	    if(actx->blkbytes > outsize) {
-		memcpy(out, actx->blk, outsize);
-		actx->data_out_left = actx->blkbytes - outsize;
-		*action = SXF_ACTION_REPEAT;
-		return outsize;
-	    } else {
-		memcpy(out, actx->blk, actx->blkbytes);
-	    }
-
-	    final = actx->blkbytes;
-	    actx->blkbytes = 0;
-
-	    if(actx->data_in == insize) {
-		if(!actx->data_end)
-		    *action = SXF_ACTION_NORMAL;
-		else {
-		    *action = SXF_ACTION_DATA_END;
-		}
-		actx->data_in = 0;
-	    } else {
-		*action = SXF_ACTION_REPEAT;
-	    }
-
-	    return final;
-	} else { /* need more input data */
+	if(actx->data_in == insize) {
+	    if(!actx->data_end)
+		*action = SXF_ACTION_NORMAL;
+	    else
+		*action = SXF_ACTION_DATA_END;
 	    actx->data_in = 0;
-	    *action = SXF_ACTION_NORMAL;
-	    return 0;
+	} else {
+	    *action = SXF_ACTION_REPEAT;
 	}
 
-    } while(actx->data_in != insize);
-
-    return -1;
+	return final;
+    } else { /* need more input data */
+	actx->data_in = 0;
+	*action = SXF_ACTION_NORMAL;
+	return 0;
+    }
 }
 
 static int aes256_data_finish(const sxf_handle_t *handle, void **ctx, sxf_mode_t mode)

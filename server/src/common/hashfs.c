@@ -3158,6 +3158,7 @@ static char *create_partfile(sx_hashfs_t *h, const char *destpath, const char *v
     int ret = -1;
     unsigned int len;
     char *fname = NULL;
+    mode_t mask = 0;
 
     if(!h || !destpath || !volname || !name || !fd) {
         WARN("Failed to create partfile: NULL argument");
@@ -3173,6 +3174,8 @@ static char *create_partfile(sx_hashfs_t *h, const char *destpath, const char *v
 
     snprintf(fname, len, "%s/.%s/XXXXXX", destpath, volname);
 
+    mask = umask(0);
+    umask(077);
     if((*fd = mkstemp(fname)) < 0 || ftruncate(*fd, size)) {
         WARN("Failed to create file %s", fname);
         goto create_partfile_err;
@@ -3180,6 +3183,7 @@ static char *create_partfile(sx_hashfs_t *h, const char *destpath, const char *v
 
     ret = 0;
 create_partfile_err:
+    umask(mask);
     if(ret) {
         free(fname);
         return NULL;
