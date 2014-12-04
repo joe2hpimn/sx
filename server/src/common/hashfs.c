@@ -1503,7 +1503,7 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
                 goto open_hashfs_fail;
             if(qprep(h->datadb[j][i], &h->qb_del_reserve[j][i], "DELETE FROM reservations WHERE reserveid=:reserveid AND blockid=(SELECT id FROM blocks WHERE hash=:hash)"))
                 goto open_hashfs_fail;
-            if(qprep(h->datadb[j][i], &h->qb_get_meta[j][i], "SELECT replica, used FROM use WHERE blockid=:blockid AND age < :current_age"))
+            if(qprep(h->datadb[j][i], &h->qb_get_meta[j][i], "SELECT replica, SUM(used) FROM use WHERE blockid=:blockid AND age < :current_age GROUP BY replica"))
                 goto open_hashfs_fail;
             if(qprep(h->datadb[j][i], &h->rit.q[j][i], "SELECT id, hash FROM blocks WHERE hash > :prevhash AND blockno IS NOT NULL"))
                 goto open_hashfs_fail;

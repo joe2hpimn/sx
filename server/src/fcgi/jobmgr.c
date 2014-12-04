@@ -3370,7 +3370,7 @@ static int rplblocks_cb(curlev_context_t *cbdata, void *ctx, const void *data, s
 
 		while(todo--) {
 		    unsigned int replica;
-		    unsigned int count;
+                    int32_t count;
 		    rc_ty s;
 
 		    if(sx_blob_get_int32(c->b, &replica)||
