@@ -1401,25 +1401,25 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 	goto open_hashfs_fail;
     if(qprep(h->db, &h->q_addvolprivs, "INSERT INTO privs (volume_id, user_id, priv) VALUES (:volume, :user, :priv)"))
 	goto open_hashfs_fail;
-    if(qprep(h->db, &h->q_onoffvol, "UPDATE volumes SET enabled = :enable WHERE volume = :volume"))
+    if(qprep(h->db, &h->q_onoffvol, "UPDATE volumes SET enabled = :enable WHERE volume = :volume AND volume NOT LIKE '.BAD%'"))
 	goto open_hashfs_fail;
-    if(qprep(h->db, &h->q_getvolstate, "SELECT enabled FROM volumes WHERE volume = :volume"))
+    if(qprep(h->db, &h->q_getvolstate, "SELECT enabled FROM volumes WHERE volume = :volume AND volume NOT LIKE '.BAD%'"))
 	goto open_hashfs_fail;
-    if(qprep(h->db, &h->q_delvol, "DELETE FROM volumes WHERE volume = :volume AND enabled = 0"))
+    if(qprep(h->db, &h->q_delvol, "DELETE FROM volumes WHERE volume = :volume AND enabled = 0 AND volume NOT LIKE '.BAD%'"))
 	goto open_hashfs_fail;
     if(qprep(h->db, &h->q_chownvol, "UPDATE volumes SET owner_id = :new WHERE owner_id = :old"))
 	goto open_hashfs_fail;
-    if(qprep(h->db, &h->q_chownvolbyid, "UPDATE volumes SET owner_id = :owner WHERE vid = :volid"))
+    if(qprep(h->db, &h->q_chownvolbyid, "UPDATE volumes SET owner_id = :owner WHERE vid = :volid AND enabled = 1"))
         goto open_hashfs_fail;
-    if(qprep(h->db, &h->q_resizevol, "UPDATE volumes SET maxsize = :size WHERE vid = :volid"))
+    if(qprep(h->db, &h->q_resizevol, "UPDATE volumes SET maxsize = :size WHERE vid = :volid AND enabled = 1"))
         goto open_hashfs_fail;
     if(qprep(h->db, &h->q_minreqs, "SELECT COALESCE(MAX(replica), 1), COALESCE(SUM(maxsize*replica), 0) FROM volumes"))
         goto open_hashfs_fail;
-    if(qprep(h->db, &h->q_updatevolcursize, "UPDATE volumes SET cursize = cursize + :size, changed = :now WHERE vid = :volume"))
+    if(qprep(h->db, &h->q_updatevolcursize, "UPDATE volumes SET cursize = cursize + :size, changed = :now WHERE vid = :volume AND enabled = 1"))
         goto open_hashfs_fail;
-    if(qprep(h->db, &h->q_setvolcursize, "UPDATE volumes SET cursize = :size, changed = :now WHERE vid = :volume"))
+    if(qprep(h->db, &h->q_setvolcursize, "UPDATE volumes SET cursize = :size, changed = :now WHERE vid = :volume AND enabled = 1"))
         goto open_hashfs_fail;
-    if(qprep(h->db, &h->q_getnodepushtime, "SELECT last_push FROM node_volume_updates WHERE node = :node"))
+    if(qprep(h->db, &h->q_getnodepushtime, "SELECT last_push FROM node_volume_updates WHERE node = :node AND enabled = 1"))
         goto open_hashfs_fail;
     if(qprep(h->db, &h->q_setnodepushtime, "INSERT OR REPLACE INTO node_volume_updates VALUES (:node, :now)"))
         goto open_hashfs_fail;
@@ -11692,6 +11692,15 @@ rc_ty sx_hashfs_init_replacement(sx_hashfs_t *h) {
     qnullify(q);
     if(qprep(h->db, &q, "DELETE FROM replacefiles") || qstep_noret(q))
 	goto init_replacement_fail;
+    qnullify(q);
+
+    nnodes = sx_nodelist_count(h->faulty_nodes);
+    if(nnodes) {
+	if(qprep(h->db, &q, "UPDATE volumes SET volume = '.BAD' || volume, enabled = 0, changed = 0 WHERE volume NOT LIKE '.BAD%' AND replica <= :replica") ||
+	   qbind_int(q, ":replica", nnodes) ||
+	   qstep_noret(q))
+	    goto init_replacement_fail;
+    }
     qnullify(q);
 
     if(sx_hashfs_self_uuid(h, &myid))
