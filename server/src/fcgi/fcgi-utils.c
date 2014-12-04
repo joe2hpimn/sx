@@ -150,7 +150,7 @@ static void print_html(int status, const char *title, int errnum, const char *er
 static void send_error_helper(const char sep, int errnum, const char *message) {
     sx_uuid_t node_uuid;
     CGI_PRINTF("%c\"ErrorMessage\":", sep);
-    json_send_qstring(message);
+    json_send_qstring(message ? message : "");
     if (errnum == 500 || errnum == 400) {
         if (message)
             WARN("HTTP %d: %s", errnum, message);

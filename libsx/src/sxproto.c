@@ -679,6 +679,10 @@ static sxi_query_t *sxi_volumeacl_loop(sxc_client_t *sx, sxi_query_t *query,
     query->comma=0;
     while ((user = cb(ctx))) {
         char *qname = sxi_json_quote_string(user);
+        if (!qname) {
+            sxi_query_free(query);
+            return NULL;
+        }
         query = sxi_query_append_fmt(sx, query, strlen(qname)+1,"%s%s",
                                      query->comma ? "," : "",
                                      qname);
