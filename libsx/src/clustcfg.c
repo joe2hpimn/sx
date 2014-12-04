@@ -1541,8 +1541,8 @@ int sxc_cluster_remove(sxc_cluster_t *cluster, const char *config_dir) {
 struct cbl_file_t {
     int64_t filesize;
     time_t created_at;
-    size_t namelen;
-    size_t revlen;
+    unsigned int namelen;
+    unsigned int revlen;
     unsigned int blocksize;
     unsigned int fuck_off_valgrind;
 };
@@ -1613,14 +1613,14 @@ static int yacb_listfiles_map_key(void *ctx, const unsigned char *s, size_t l) {
 
     if(yactx->state == LF_FILE) {
 	yactx->state = LF_FILECONTENT;
-	yactx->fname = malloc(l);
+	yactx->file.namelen = l;
+	yactx->fname = malloc(yactx->file.namelen);
 	if(!yactx->fname) {
 	    CBDEBUG("OOM duplicating file name '%.*s'", (unsigned)l, s);
 	    sxi_cbdata_setsyserr(yactx->cbdata, SXE_EMEM, "Out of memory");
 	    return 0;
 	}
-	memcpy(yactx->fname, s, l);
-	yactx->file.namelen = l;
+	memcpy(yactx->fname, s, yactx->file.namelen);
 	yactx->file.revlen = 0;
 	yactx->file.created_at = -1;
 	yactx->file.filesize = -1;
@@ -1735,14 +1735,16 @@ static int yacb_listfiles_string(void *ctx, const unsigned char *s, size_t l) {
     if(yactx->state == LF_ERROR)
         return yacb_error_string(&yactx->errctx, s, l);
     if(yactx->state == LF_FILEREV) {
-	yactx->frev = malloc(l);
+	if(!l)
+	    return 0;
+	yactx->file.revlen = l;
+	yactx->frev = malloc(yactx->file.revlen);
 	if(!yactx->frev) {
 	    CBDEBUG("OOM duplicating file rev '%.*s'", (unsigned)l, s);
 	    sxi_cbdata_setsyserr(yactx->cbdata, SXE_EMEM, "Out of memory");
 	    return 0;
 	}
-	memcpy(yactx->frev, s, l);
-	yactx->file.revlen = l;
+	memcpy(yactx->frev, s, yactx->file.revlen);
 	yactx->state = LF_FILEATTRS;
 	return 1;
     }
@@ -2104,7 +2106,7 @@ int sxc_cluster_listfiles_prev(sxc_cluster_lf_t *lf, char **file_name, int64_t *
 	fseek(lf->f, pos - file.namelen - file.revlen - sizeof(file), SEEK_SET);
 	*file_name = malloc(file.namelen + 1);
 	if(!*file_name) {
-	    SXDEBUG("OOM allocating result file name (%u bytes)", (unsigned)file.namelen);
+	    SXDEBUG("OOM allocating result file name (%u bytes)", file.namelen);
 	    sxi_seterr(sx, SXE_EMEM, "Failed to retrieve next file: Out of memory");
 	    return -1;
 	}
@@ -2120,7 +2122,7 @@ int sxc_cluster_listfiles_prev(sxc_cluster_lf_t *lf, char **file_name, int64_t *
 	fseek(lf->f, pos - file.revlen - sizeof(file), SEEK_SET);
 	*file_revision = malloc(file.revlen + 1);
 	if(!*file_revision) {
-	    SXDEBUG("OOM allocating result file rev (%u bytes)", (unsigned)file.revlen);
+	    SXDEBUG("OOM allocating result file rev (%u bytes)", file.revlen);
 	    sxi_seterr(sx, SXE_EMEM, "Failed to retrieve next file: Out of memory");
 	    return -1;
 	}
@@ -2175,7 +2177,7 @@ int sxc_cluster_listfiles_next(sxc_cluster_lf_t *lf, char **file_name, int64_t *
     if(file_name) {
 	*file_name = malloc(file.namelen + 1);
 	if(!*file_name) {
-	    SXDEBUG("OOM allocating result file name (%u bytes)", (unsigned)file.namelen);
+	    SXDEBUG("OOM allocating result file name (%u bytes)", file.namelen);
 	    sxi_seterr(sx, SXE_EMEM, "Failed to retrieve next file: Out of memory");
 	    goto lfnext_out;
 	}
@@ -2193,7 +2195,7 @@ int sxc_cluster_listfiles_next(sxc_cluster_lf_t *lf, char **file_name, int64_t *
 	    fseek(lf->f, file.namelen, SEEK_CUR);
 	    *file_revision = malloc(file.revlen + 1);
 	    if(!*file_revision) {
-		SXDEBUG("OOM allocating result file revision (%u bytes)", (unsigned)file.revlen);
+		SXDEBUG("OOM allocating result file revision (%u bytes)", file.revlen);
 		sxi_seterr(sx, SXE_EMEM, "Failed to retrieve next file: Out of memory");
 		goto lfnext_out;
 	    }

@@ -709,20 +709,19 @@ static int yacb_listvolumes_map_key(void *ctx, const unsigned char *s, size_t l)
 	    CBDEBUG("Inconsistent state");
 	    return 0;
 	}
-	yactx->volname = malloc(l);
+	yactx->voldata.namelen = l;
+	yactx->volname = malloc(yactx->voldata.namelen);
 	if(!yactx->volname) {
 	    CBDEBUG("OOM duplicating volume name '%.*s'", (unsigned)l, s);
 	    sxi_cbdata_seterr(yactx->cbdata, SXE_EMEM, "Out of memory");
 	    return 0;
 	}
-	memcpy(yactx->volname, s, l);
+	memcpy(yactx->volname, s, yactx->voldata.namelen);
 	yactx->voldata.replica_count = 0;
         yactx->voldata.revisions = 0;
         yactx->voldata.used_size = -1;
 	yactx->voldata.size = -1;
-	yactx->voldata.namelen = l;
         yactx->voldata.privs[0] = '\0';
-
 	yactx->state = LV_VALUES;
 	return 1;
     }
@@ -1005,15 +1004,16 @@ int sxc_cluster_listvolumes_next(sxc_cluster_lv_t *lv, char **volume_name, int64
 	return 0;
     }
 
+    if(volume.namelen & 0x80000000) {
+	SXDEBUG("Invalid volume name length");
+	sxi_seterr(sx, SXE_EREAD, "Failed to retrieve next volume: Bad data from cache file");
+	return -1;
+    }
+
     if(volume_name) {
-	if(volume.namelen == (unsigned int)-1) {
-	    SXDEBUG("Invalid volume name length");
-	    sxi_seterr(sx, SXE_EREAD, "Failed to retrieve next volume: Bad data from cache file");
-	    return -1;
-	}
 	*volume_name = malloc(volume.namelen + 1);
 	if(!*volume_name) {
-	    SXDEBUG("OOM allocating result file name (%u bytes)", (unsigned)volume.namelen);
+	    SXDEBUG("OOM allocating result file name (%u bytes)", volume.namelen);
 	    sxi_seterr(sx, SXE_EMEM, "Failed to retrieve next volume: Out of memory");
 	    return -1;
 	}
@@ -1077,6 +1077,11 @@ int sxc_cluster_listvolumes_next(sxc_cluster_lv_t *lv, char **volume_name, int64
             sxi_setsyserr(sx, SXE_EREAD, "error reading meta key length from results file");
             break;
         }
+	if(key_len & 0x80000000) {
+            SXDEBUG("invalid meta key length from results file");
+            sxi_setsyserr(sx, SXE_EREAD, "invalid meta key length from results file");
+            break;
+        }
 
 	if(meta) {
 	    key = calloc(key_len + 1, sizeof(char));
@@ -1097,6 +1102,11 @@ int sxc_cluster_listvolumes_next(sxc_cluster_lv_t *lv, char **volume_name, int64
         if(!fread(&value_len, sizeof(value_len), 1, lv->f)) {
             SXDEBUG("error reading meta key length from results file");
             sxi_setsyserr(sx, SXE_EREAD, "error reading meta key length from results file");
+            break;
+        }
+	if(value_len & 0x80000000) {
+            SXDEBUG("invalid meta value length from results file");
+            sxi_setsyserr(sx, SXE_EREAD, "invalid meta value length from results file");
             break;
         }
 
@@ -1224,16 +1234,15 @@ static int yacb_listusers_map_key(void *ctx, const unsigned char *s, size_t l) {
 	    CBDEBUG("Inconsistent state");
 	    return 0;
 	}
-	yactx->usrname = malloc(l);
+	yactx->usrdata.namelen = l;
+	yactx->usrname = malloc(yactx->usrdata.namelen);
 	if(!yactx->usrname) {
 	    CBDEBUG("OOM duplicating user name '%.*s'", (unsigned)l, s);
 	    sxi_cbdata_seterr(yactx->cbdata, SXE_EMEM, "Out of memory");
 	    return 0;
 	}
-	memcpy(yactx->usrname, s, l);
+	memcpy(yactx->usrname, s, yactx->usrdata.namelen);
 	yactx->usrdata.is_admin = 0;
-	yactx->usrdata.namelen = l;
-
 	yactx->state = LU_VALUES;
 	return 1;
     }
@@ -1402,15 +1411,15 @@ int sxc_cluster_listusers_next(sxc_cluster_lu_t *lu, char **user_name, int *is_a
 	}
 	return 0;
     }
-
-    if(user.namelen == (unsigned int)-1) {
+    if(user.namelen & 0x80000000) {
         SXDEBUG("Invalid user name length");
         sxi_seterr(sx, SXE_EREAD, "Failed to retrieve next user: Bad data from cache file");
         return -1;
     }
+
     *user_name = malloc(user.namelen + 1);
     if(!*user_name) {
-        SXDEBUG("OOM allocating result file name (%u bytes)", (unsigned)user.namelen);
+        SXDEBUG("OOM allocating result file name (%u bytes)", user.namelen);
         sxi_seterr(sx, SXE_EMEM, "Failed to retrieve next user: Out of memory");
         return -1;
     }
@@ -1486,15 +1495,15 @@ static int yacb_listaclusers_map_key(void *ctx, const unsigned char *s, size_t l
     }
     if(yactx->state == LA_ACLUSER) {
 	yactx->state = LA_PRIVS;
-	yactx->fname = malloc(l+1);
+	yactx->acluser.namelen = l;
+	yactx->fname = malloc(yactx->acluser.namelen);
 	if(!yactx->fname) {
 	    CBDEBUG("OOM duplicating acluser name '%.*s'", (unsigned)l, s);
 	    sxi_cbdata_seterr(yactx->cbdata, SXE_EMEM, "Out of memory");
 	    return 0;
 	}
-	memcpy(yactx->fname, s, l);
+	memcpy(yactx->fname, s, yactx->acluser.namelen);
         memset(&yactx->acluser, 0, sizeof(yactx->acluser));
-	yactx->acluser.namelen = l;
 	yactx->naclusers++;
 	return 1;
     }
@@ -1732,15 +1741,15 @@ int sxc_cluster_listaclusers_next(sxc_cluster_la_t *la, char **acluser_name, int
 	}
 	return 0;
     }
-
-    if(acluser.namelen == (unsigned int)-1) {
+    if(acluser.namelen & 0x80000000) {
         SXDEBUG("Invalid acluser name length");
         sxi_seterr(sx, SXE_EREAD, "Failed to retrieve next acluser: Bad data from cache file");
         return -1;
     }
+
     *acluser_name = malloc(acluser.namelen + 1);
     if(!*acluser_name) {
-        SXDEBUG("OOM allocating result acluser name (%u bytes)", (unsigned)acluser.namelen);
+        SXDEBUG("OOM allocating result acluser name (%u bytes)", acluser.namelen);
         sxi_seterr(sx, SXE_EMEM, "Failed to retrieve next acluser: Out of memory");
         return -1;
     }
