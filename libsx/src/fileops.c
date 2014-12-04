@@ -1905,6 +1905,7 @@ static int local_to_remote_begin(sxc_file_t *source, sxc_meta_t *fmeta, sxc_file
 		if(fh->f->data_prepare(fh, &fh->ctx, source->path, fdir, cfgval, cfgval_len, SXF_MODE_UPLOAD)) {
 		    sxi_seterr(sx, SXE_EFILTER, "Filter ID %s failed to initialize itself", filter_uuid);
                     free(fdir);
+		    fclose(tempfile);
 		    goto local_to_remote_err;
 		}
 	    }

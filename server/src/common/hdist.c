@@ -504,10 +504,8 @@ rc_ty sxi_hdist_addnode(sxi_hdist_t *model, const sx_uuid_t *uuid, const char *a
 	}
     }
 
-    if(sx_nodelist_add(model->sxnl[0], sxn)) {
-	sx_node_delete(sxn);
+    if(sx_nodelist_add(model->sxnl[0], sxn))
 	return ENOMEM;
-    }
 
     return rc;
 }
