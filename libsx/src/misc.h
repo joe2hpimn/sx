@@ -24,6 +24,11 @@
 #include <sys/time.h>
 #include <sys/types.h>
 
+/* dest_size: size of destination buffer (sizeof() if static, or n if malloc(n))
+ * src: NULL-terminated string
+ * */
+void sxi_strlcpy(char *dest, const char *src, size_t dest_size);
+
 void *sxi_realloc(sxc_client_t *sx, void *ptr, unsigned int newlen);
 int sxi_is_valid_authtoken(sxc_client_t *sx, const char *token);
 char *sxi_b64_enc(sxc_client_t *sx, const void *data, unsigned int data_size);

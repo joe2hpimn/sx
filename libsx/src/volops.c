@@ -454,8 +454,7 @@ static const char *acl_loop(struct user_iter *iter, const char **ptr)
         sxi_setsyserr(iter->sx, SXE_EMEM, "OOM on allocating username");
         return NULL;
     }
-    strncpy(iter->user, q, n);
-    iter->user[n] = '\0';
+    sxi_strlcpy(iter->user, q, n+1);
     return iter->user;
 }
 

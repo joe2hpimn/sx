@@ -1133,7 +1133,7 @@ static void ctx_err(curlev_context_t *ctx, CURLcode rc, const char *msg)
     if (!ctx)
         return;
     ctx->recv_ctx.rc = rc;
-    strncpy(ctx->recv_ctx.errbuf, msg, sizeof(ctx->recv_ctx.errbuf)-1);
+    sxi_strlcpy(ctx->recv_ctx.errbuf, msg, sizeof(ctx->recv_ctx.errbuf));
     sxi_cbdata_seterr(ctx, SXE_EARG, "ev_add: bad argument");
 }
 
@@ -2563,8 +2563,7 @@ int sxi_retry_check(sxi_retry_t *retry, unsigned current_try)
         retry->prio = prio;
         retry->errnum = errnum;
         /* do not malloc/strdup so that we can store OOM messages too */
-        strncpy(retry->errmsg, errmsg, sizeof(retry->errmsg)-1);
-        retry->errmsg[sizeof(retry->errmsg)-1] = 0;
+        sxi_strlcpy(retry->errmsg, errmsg, sizeof(retry->errmsg));
     }
     if (prio == MSG_PRIO_LOCAL_FATAL || prio == MSG_PRIO_AUTH) {
         return -1;/* do not retry */

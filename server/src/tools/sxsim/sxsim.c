@@ -42,6 +42,7 @@
 #include "utils.h"
 #include "linenoise.h"
 #include "../../../../libsx/src/vcrypto.h"
+#include "../../../../libsx/src/misc.h"
 
 #define MBVAL 1048576
 #define MINSIZE (10 * MBVAL)
@@ -760,7 +761,7 @@ static int addnode(struct sxcluster *cluster, const char *host, uint64_t capacit
     }
     cluster->node = node_new;
     memset(&cluster->node[cluster->node_cnt], 0, sizeof(struct sxnode));
-    strncpy(cluster->node[cluster->node_cnt].host, host, sizeof(cluster->node[cluster->node_cnt].host));
+    sxi_strlcpy(cluster->node[cluster->node_cnt].host, host, sizeof(cluster->node[cluster->node_cnt].host));
     cluster->node[cluster->node_cnt].capacity = capacity;
     cluster->capacity += capacity;
     if(!uuid)

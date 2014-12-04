@@ -705,8 +705,7 @@ sxc_uri_t *sxc_parse_uri(sxc_client_t *sx, const char *uri) {
 		len = tmp_volume - uri;
 		p = malloc(len + 1);
 		if(p) {
-		    strncpy(p, uri, len);
-                    p[len] = '\0';
+		    sxi_strlcpy(p, uri, len+1);
 		    sxi_seterr(sx, SXE_EMEM, "Alias '%s' doesn't exist", p);
 		    free(p);
 		} else {
@@ -1776,4 +1775,17 @@ char *sxi_getenv(const char *name)
 	return NULL;
     return getenv(name);
 #endif
+}
+
+void sxi_strlcpy(char *dest, const char *src, size_t dest_size)
+{
+    if (!dest)
+        return;
+    if (dest_size) {
+        size_t n = src ? strlen(src) : 0;
+        if (n >= dest_size)
+            n = dest_size - 1;
+        memcpy(dest, src, n);
+        dest[n] = '\0';
+    }
 }

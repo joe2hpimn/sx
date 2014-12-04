@@ -308,7 +308,7 @@ int msg_new_id(void)
         WARN("Out of memory allocating b64 id");
         return -1;
     }
-    strncpy(log_record.id, id, sizeof(log_record.id));
+    sxi_strlcpy(log_record.id, id, sizeof(log_record.id));
     msg_add_detail(NULL,"ID","%s", id);
     free(id);
     return 0;

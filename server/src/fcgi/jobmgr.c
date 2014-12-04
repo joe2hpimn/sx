@@ -88,8 +88,7 @@ typedef act_result_t (*job_action_t)(sx_hashfs_t *hashfs, job_t job_id, job_data
     do {						    \
 	ret = (retcode);				    \
 	*fail_code = (failcode);			    \
-	strncpy(fail_msg, (failmsg), JOB_FAIL_REASON_SIZE); \
-	fail_msg[JOB_FAIL_REASON_SIZE - 1] = '\0';	    \
+	sxi_strlcpy(fail_msg, (failmsg), JOB_FAIL_REASON_SIZE); \
         DEBUG("fail set to: %s\n", fail_msg); \
     } while(0)
 
@@ -3630,10 +3629,8 @@ static int rplfiles_cb(curlev_context_t *cbdata, void *ctx, const void *data, si
 		    return 1;
 		}
 		c->ngood++;
-		strncpy(c->file, file_name, sizeof(c->file));
-		c->file[sizeof(c->file)-1] = '\0';
-		strncpy(c->rev, file_rev, sizeof(c->rev));
-		c->rev[sizeof(c->rev)-1] = '\0';
+		sxi_strlcpy(c->file, file_name, sizeof(c->file));
+		sxi_strlcpy(c->rev, file_rev, sizeof(c->rev));
 		sx_blob_free(c->b);
 		c->b = NULL;
 		c->state = RPL_HDRSIZE;

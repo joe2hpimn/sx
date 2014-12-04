@@ -2379,8 +2379,7 @@ char *sxc_user_add(sxc_cluster_t *cluster, const char *username, int admin, cons
 	if(!retkey) {
 	    cluster_err(SXE_EMEM, "Unable to allocate memory for user key");
 	} else {
-	    strncpy(retkey, tok, AUTHTOK_ASCII_LEN);
-	    retkey[AUTHTOK_ASCII_LEN] = '\0';
+	    sxi_strlcpy(retkey, tok, AUTHTOK_ASCII_LEN+1);
         }
     }
     sxi_query_free(proto);
@@ -2473,8 +2472,7 @@ char *sxc_user_newkey(sxc_cluster_t *cluster, const char *username, const char *
 	if(!retkey) {
 	    cluster_err(SXE_EMEM, "Unable to allocate memory for user key");
 	} else {
-	    strncpy(retkey, tok, AUTHTOK_ASCII_LEN);
-	    retkey[AUTHTOK_ASCII_LEN] = '\0';
+	    sxi_strlcpy(retkey, tok, AUTHTOK_ASCII_LEN + 1);
         }
     }
     sxi_query_free(proto);

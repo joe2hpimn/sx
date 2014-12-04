@@ -3774,8 +3774,7 @@ rc_ty sx_hashfs_revision_first(sx_hashfs_t *h, const sx_hashfs_volume_t *volume,
        qbind_text(q, ":name", name))
 	return FAIL_EINTERNAL;
 
-    strncpy(h->list_file.name, name, sizeof(h->list_file.name));
-    h->list_file.name[sizeof(h->list_file.name)-1] = '\0';
+    sxi_strlcpy(h->list_file.name, name, sizeof(h->list_file.name));
     h->list_file.revision[0] = '\0';
     *file = &h->list_file;
 
@@ -3812,8 +3811,7 @@ rc_ty sx_hashfs_revision_next(sx_hashfs_t *h, int reversed) {
 	sqlite3_reset(q);
 	return FAIL_EINTERNAL;
     }
-    strncpy(h->list_file.revision, revision, sizeof(h->list_file.revision));
-    h->list_file.revision[sizeof(h->list_file.revision)-1] = '\0';
+    sxi_strlcpy(h->list_file.revision, revision, sizeof(h->list_file.revision));
     size_to_blocks(h->list_file.file_size, NULL, &h->list_file.block_size);
 
     sqlite3_reset(q);
@@ -3953,8 +3951,9 @@ rc_ty sx_hashfs_list_first(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, con
     }
 
     if(glob > 0) {
-        strncpy(h->list_file.itername, h->list_pattern, glob);
-        strncpy(h->list_file.itername_limit, h->list_pattern, glob);
+        /* [glob] set to \0 below */
+        sxi_strlcpy(h->list_file.itername, h->list_pattern, sizeof(h->list_file.itername));
+        sxi_strlcpy(h->list_file.itername_limit, h->list_pattern, sizeof(h->list_file.itername_limit));
     }
 
     h->list_pattern_slashes = slashes_in(h->list_pattern);
@@ -3974,10 +3973,8 @@ rc_ty sx_hashfs_list_first(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, con
         h->list_file.itername_limit_len = 0;
     }
     if (after) {
-        strncpy(h->list_file.itername, after, sizeof(h->list_file.itername));
-	h->list_file.itername[sizeof(h->list_file.itername)-1] = '\0';
-        strncpy(h->list_file.lastname, after, sizeof(h->list_file.lastname));
-        h->list_file.lastname[sizeof(h->list_file.lastname)-1] = '\0';
+        sxi_strlcpy(h->list_file.itername, after, sizeof(h->list_file.itername));
+        sxi_strlcpy(h->list_file.lastname, after, sizeof(h->list_file.lastname));
     }
 
     h->list_file.lastname[0] = '\0';
@@ -4041,8 +4038,7 @@ rc_ty sx_hashfs_list_next(sx_hashfs_t *h) {
 	    if(!found || strcmp(n, h->list_file.name+1) < 0) {
 		found = 1;
 		h->list_file.name[0] = '/';
-		strncpy(h->list_file.name+1, n, sizeof(h->list_file.name)-1);
-		h->list_file.name[sizeof(h->list_file.name)-1] = '\0';
+		sxi_strlcpy(h->list_file.name+1, n, sizeof(h->list_file.name)-1);
 
 		h->list_file.file_size = sqlite3_column_int64(h->qm_list[list_ndb], 1);
 		h->list_file.nblocks = size_to_blocks(h->list_file.file_size, NULL, &h->list_file.block_size);
@@ -4053,8 +4049,7 @@ rc_ty sx_hashfs_list_next(sx_hashfs_t *h) {
 		    ret = FAIL_EINTERNAL;
 		    break;
 		} else {
-		    strncpy(h->list_file.revision, revision, sizeof(h->list_file.revision));
-		    h->list_file.revision[sizeof(h->list_file.revision)-1] = '\0';
+		    sxi_strlcpy(h->list_file.revision, revision, sizeof(h->list_file.revision));
 		}
 	    }
 	    sqlite3_reset(h->qm_list[list_ndb]);
@@ -4068,8 +4063,7 @@ rc_ty sx_hashfs_list_next(sx_hashfs_t *h) {
             break;
         }
 
-	strncpy(h->list_file.itername, h->list_file.name+1, sizeof(h->list_file.itername));
-	h->list_file.itername[sizeof(h->list_file.itername)-1] = '\0';
+	sxi_strlcpy(h->list_file.itername, h->list_file.name+1, sizeof(h->list_file.itername));
 
 	char *q = ith_slash(h->list_file.name+1, h->list_pattern_slashes + 1);
 	if (q)
@@ -4110,8 +4104,7 @@ rc_ty sx_hashfs_list_next(sx_hashfs_t *h) {
     }
     if (ret)
         return ret;
-    strncpy(h->list_file.lastname, h->list_file.name, sizeof(h->list_file.lastname));
-    h->list_file.lastname[sizeof(h->list_file.lastname)-1] = '\0';
+    sxi_strlcpy(h->list_file.lastname, h->list_file.name, sizeof(h->list_file.lastname));
     return OK;
 }
 
@@ -4434,8 +4427,7 @@ int encode_auth_bin(const uint8_t *userhash, const unsigned char *key, unsigned 
     memcpy(buf, userhash, AUTH_UID_LEN);
     memcpy(buf + AUTH_UID_LEN, key, AUTH_KEY_LEN);
     char *a = sxi_b64_enc_core(buf, sizeof(buf));
-    strncpy(auth, a, auth_size);
-    auth[auth_size - 1] = 0;
+    sxi_strlcpy(auth, a, auth_size);
     free(a);
     return 0;
 }
@@ -4590,8 +4582,7 @@ rc_ty sx_hashfs_uid_get_name(sx_hashfs_t *h, uint64_t uid, char *name, unsigned 
 	}
 	if (ret != SQLITE_ROW)
 	    break;
-	strncpy(name, (const char*)sqlite3_column_text(q, 0), len);
-	name[len-1] = 0;
+	sxi_strlcpy(name, (const char*)sqlite3_column_text(q, 0), len);
 	rc = OK;
     } while(0);
     sqlite3_reset(q);
@@ -5040,8 +5031,7 @@ rc_ty sx_hashfs_volume_next(sx_hashfs_t *h) {
     if(!name)
 	goto volume_list_err;
 
-    strncpy(h->curvol.name, name, sizeof(h->curvol.name) - 1);
-    h->curvol.name[sizeof(h->curvol.name) - 1] = '\0';
+    sxi_strlcpy(h->curvol.name, name, sizeof(h->curvol.name));
     h->curvol.id = sqlite3_column_int64(h->q_nextvol, 0);
     h->curvol.replica_count = sqlite3_column_int(h->q_nextvol, 2);
     h->curvol.cursize = sqlite3_column_int64(h->q_nextvol, 3);
@@ -5089,8 +5079,7 @@ static rc_ty volume_get_common(sx_hashfs_t *h, const char *name, int64_t volid, 
     if(!name)
 	goto volume_err;
 
-    strncpy(h->curvol.name, name, sizeof(h->curvol.name) - 1);
-    h->curvol.name[sizeof(h->curvol.name) - 1] = '\0';
+    sxi_strlcpy(h->curvol.name, name, sizeof(h->curvol.name));
     h->curvol.id = sqlite3_column_int64(q, 0);
     h->curvol.replica_count = sqlite3_column_int(q, 2);
     h->curvol.cursize = sqlite3_column_int64(q, 3);
@@ -5261,10 +5250,8 @@ rc_ty sx_hashfs_getfile_begin(sx_hashfs_t *h, const char *volume, const char *fi
 	filedata->block_size = bsize;
 	filedata->nblocks = h->get_nblocks;
 	filedata->created_at = created_at;
-	strncpy(filedata->name, filename, sizeof(filedata->name));
-	filedata->name[sizeof(filedata->name)-1] = '\0';
-	strncpy(filedata->revision, rev, sizeof(filedata->revision));
-	filedata->revision[sizeof(filedata->revision)-1] = '\0';
+	sxi_strlcpy(filedata->name, filename, sizeof(filedata->name));
+	sxi_strlcpy(filedata->revision, rev, sizeof(filedata->revision));
     }
     return OK;
 }
@@ -7101,8 +7088,7 @@ rc_ty sx_hashfs_tmp_getinfo(sx_hashfs_t *h, int64_t tmpfile_id, sx_hashfs_tmpinf
     tbd->tmpfile_id = tmpfile_id;
     tbd->somestatechanged = 0;
 
-    strncpy(token, (const char*)sqlite3_column_text(h->qt_tmpdata, 8), sizeof(token)-1);
-    token[sizeof(token)-1] = '\0';
+    sxi_strlcpy(token, (const char*)sqlite3_column_text(h->qt_tmpdata, 8), sizeof(token));
     sqlite3_reset(h->qt_tmpdata); /* Do not deadlock if we need to update this very entry */
 
     if(nuniqs && recheck_presence) {
@@ -7315,8 +7301,7 @@ static rc_ty file_totmp(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, const cha
 	return EINVAL;
     }
 
-    strncpy(rev, revision, sizeof(rev));
-    rev[sizeof(rev)-1] = '\0';
+    sxi_strlcpy(rev, revision, sizeof(rev));
     if(check_revision(rev)) {
 	msg_set_reason("Invalid file revision");
 	return EINVAL;
@@ -8235,8 +8220,7 @@ rc_ty sx_hashfs_job_result(sx_hashfs_t *h, job_t job, sx_uid_t uid, job_status_t
 	    if(!reason || !*reason)
 		*message = "Unknown job failure";
 	    else {
-		strncpy(h->job_message, reason, sizeof(h->job_message));
-		h->job_message[sizeof(h->job_message)-1] = '\0';
+		sxi_strlcpy(h->job_message, reason, sizeof(h->job_message));
 		*message = h->job_message;
 	    }
 	} else {
@@ -10812,10 +10796,8 @@ rc_ty sx_hashfs_relocs_next(sx_hashfs_t *h, const sx_reloc_t **reloc) {
 	    return FAIL_EINTERNAL;
 	}
 
-	strncpy(rlc->file.name, name, sizeof(rlc->file.name));
-	rlc->file.name[sizeof(rlc->file.name)-1] = '\0';
-	strncpy(rlc->file.revision, rev, sizeof(rlc->file.revision));
-	rlc->file.revision[sizeof(rlc->file.revision)-1] = '\0';
+	sxi_strlcpy(rlc->file.name, name, sizeof(rlc->file.name));
+	sxi_strlcpy(rlc->file.revision, rev, sizeof(rlc->file.revision));
 	rlc->file.nblocks = size_to_blocks(rlc->file.file_size, NULL, &rlc->file.block_size);
 	if(content_len)
 	    memcpy(rlc->blocks, content, content_len);
@@ -11023,8 +11005,7 @@ sx_inprogress_t sx_hashfs_get_progress_info(sx_hashfs_t *h, const char **descrip
 	const char *desc = (const char *)sqlite3_column_text(h->q_getval, 0);
 	if(!desc)
 	    desc = "Status description not available";
-	strncpy(h->job_message, desc, sizeof(h->job_message));
-	h->job_message[sizeof(h->job_message)-1] = '\0';
+	sxi_strlcpy(h->job_message, desc, sizeof(h->job_message));
 	*description = h->job_message;
     }
 
@@ -11405,8 +11386,7 @@ static rc_ty sx_hashfs_file_find_step(sx_hashfs_t *h, const sx_hashfs_volume_t *
         ret = qstep(q);
         if (ret == SQLITE_ROW) {
             file->file_size = sqlite3_column_int64(q, 0);
-            strncpy(file->revision, (const char*)sqlite3_column_text(q, 1), sizeof(file->revision));
-            file->revision[sizeof(file->revision)-1] = '\0';
+            sxi_strlcpy(file->revision, (const char*)sqlite3_column_text(q, 1), sizeof(file->revision));
             DEBUG("found: name=%s, revision=%s", file->name, file->revision);
             if (cb && !cb(volume, file, sqlite3_column_blob(q, 2), sqlite3_column_bytes(q, 2) / SXI_SHA1_BIN_LEN, ctx))
                 rc = FAIL_ETOOMANY;
@@ -11435,10 +11415,8 @@ static rc_ty sx_hashfs_file_find_step(sx_hashfs_t *h, const sx_hashfs_volume_t *
         if (ret == SQLITE_ROW) {
             memset(file, 0, sizeof(*file));
             file->file_size = sqlite3_column_int64(q, 0);
-            strncpy(file->revision, (const char*)sqlite3_column_text(q, 1), sizeof(file->revision));
-            file->revision[sizeof(file->revision)-1] = '\0';
-            strncpy(file->name, (const char*)sqlite3_column_text(q, 3), sizeof(file->name));
-            file->name[sizeof(file->name)-1] = '\0';
+            sxi_strlcpy(file->revision, (const char*)sqlite3_column_text(q, 1), sizeof(file->revision));
+            sxi_strlcpy(file->name, (const char*)sqlite3_column_text(q, 3), sizeof(file->name));
             DEBUG("found new: name=%s, revision=%s", file->name, file->revision);
             if (cb && !cb(volume, file, sqlite3_column_blob(q, 2), sqlite3_column_bytes(q, 2) / SXI_SHA1_BIN_LEN, ctx))
                 rc = FAIL_ETOOMANY;
@@ -11487,11 +11465,9 @@ rc_ty sx_hashfs_file_find(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, cons
 
     memset(&file, 0, sizeof(file));
     if (lastpath)
-        strncpy(file.name, lastpath, sizeof(file.name));
-    file.name[sizeof(file.name)-1] = '\0';
+        sxi_strlcpy(file.name, lastpath, sizeof(file.name));
     if (lastrev)
-        strncpy(file.revision, lastrev, sizeof(file.revision));
-    file.revision[sizeof(file.revision)-1] = '\0';
+        sxi_strlcpy(file.revision, lastrev, sizeof(file.revision));
     while ((rc = sx_hashfs_file_find_step(h, volume, maxrev, &file, cb, ctx)) == OK) {
         DEBUG("name: %s, revision: %s", file.name, file.revision);
     }
@@ -11654,14 +11630,10 @@ rc_ty sx_hashfs_replace_getstartfile(sx_hashfs_t *h, char *maxrev, char *startvo
 
     r = qstep(q);
     if(r == SQLITE_ROW) {
-	strncpy(startvol, (const char *)sqlite3_column_text(q, 0), SXLIMIT_MAX_VOLNAME_LEN);
-	startvol[SXLIMIT_MAX_VOLNAME_LEN] = '\0';
-	strncpy(startfile, (const char *)sqlite3_column_text(q, 1), SXLIMIT_MAX_FILENAME_LEN);
-	startfile[SXLIMIT_MAX_FILENAME_LEN] = '\0';
-	strncpy(startrev, (const char *)sqlite3_column_text(q, 2), REV_LEN);
-	startrev[REV_LEN]  = '\0';
-	strncpy(maxrev, (const char *)sqlite3_column_text(q, 3), REV_LEN);
-	maxrev[REV_LEN] = '\0';
+	sxi_strlcpy(startvol, (const char *)sqlite3_column_text(q, 0), SXLIMIT_MAX_VOLNAME_LEN + 1);
+	sxi_strlcpy(startfile, (const char *)sqlite3_column_text(q, 1), SXLIMIT_MAX_FILENAME_LEN + 1);
+	sxi_strlcpy(startrev, (const char *)sqlite3_column_text(q, 2), REV_LEN + 1);
+	sxi_strlcpy(maxrev, (const char *)sqlite3_column_text(q, 3), REV_LEN + 1);
 	ret = OK;
     } else if (r == SQLITE_DONE)
 	ret = ITER_NO_MORE;

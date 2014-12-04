@@ -119,7 +119,7 @@ static void print_fs(const char *dir)
                     if (*mountpoint && strlen(mountpoint) > 1 &&
                         !strncmp(mountpoint,dir,strlen(mountpoint)) &&
                         strlen(mountpoint) > strlen(best)) {
-                        strncpy(best, line, sizeof(best));
+                        sxi_strlcpy(best, line, sizeof(best));
                     }
                 }
             }
@@ -507,7 +507,7 @@ int main(int argc, char **argv) {
             WARN("Cannot open input file '%s': %s", name, strerror(errno));
             return 1;
         }
-	strncpy(oname, name, sizeof(oname));
+	sxi_strlcpy(oname, name, sizeof(oname));
 	snprintf(name, sizeof(name), "sxreport-server-%ld-anon.log", t);
         out = fopen(name, "w");
         if (!out) {
@@ -534,7 +534,7 @@ int main(int argc, char **argv) {
         fclose(logfile_in);
 	unlink(oname);
 	if(args.output_given && !rename(name, oname))
-	    strncpy(name, oname, sizeof(name));
+	    sxi_strlcpy(name, oname, sizeof(name));
     }
     if (fcgi_args_parsed)
         cmdline_parser_free(&fcgi_args);

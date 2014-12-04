@@ -780,7 +780,7 @@ static int yacb_createfile_string(void *ctx, const unsigned char *s, size_t l) {
         ip[l] = '\0';
         /* FIXME: leak */
 	if(sxi_getenv("SX_DEBUG_SINGLEHOST"))
-	    strncpy(ip, sxi_getenv("SX_DEBUG_SINGLEHOST"), sizeof(ip));
+	    sxi_strlcpy(ip, getenv("SX_DEBUG_SINGLEHOST"), sizeof(ip));
 	if (sxi_hostlist_add_host(sx, &yactx->current.current_need->upload_hosts, ip)) {
             CBDEBUG("failed to add host to hash hostlist");
             sxi_cbdata_restore_global_error(sx, yactx->cbdata);
