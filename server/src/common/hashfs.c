@@ -11431,7 +11431,7 @@ static rc_ty sx_hashfs_file_find_step(sx_hashfs_t *h, const sx_hashfs_volume_t *
             rc = FAIL_EINTERNAL;
         }
         sqlite3_reset(q);
-        if (rc != OK)
+        if (rc != OK && rc != ITER_NO_MORE)
             return rc;
         if (fdb >= METADBS)
             return ITER_NO_MORE;
