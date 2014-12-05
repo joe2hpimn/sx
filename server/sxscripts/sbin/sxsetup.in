@@ -930,7 +930,7 @@ if [ ! -f "$SX_DATA_DIR/hashfs.db" ]; then
         (
         set -x
         "@sbindir@/sxadm" node --new\
-            --batch-mode $OWNERFLAG\
+            --batch-mode $OWNERFLAG $KEYFLAG\
             $UUIDFLAG "$SX_DATA_DIR"
         )
 	if [ $? -ne 0 ]; then
@@ -958,7 +958,6 @@ if [ ! -f "$SX_DATA_DIR/hashfs.db" ]; then
 	    --node-dir="$SX_DATA_DIR"\
 	    $ADMKEYFILE \
             $SSLCAFILE \
-	    $KEYFLAG \
 	    $NEWNODE \
 	    "sx://$SX_CLUSTER_NAME"
         )
