@@ -45,6 +45,7 @@ const char *cluster_args_info_full_help[] = {
   "  -I, --info              Shows status and details of a running cluster",
   "  -G, --force-gc          Force a garbage collection cycle on all nodes",
   "  -X, --force-expire      Force GC and expiration of reservations on all nodes",
+  "      --get-cluster-key   Obtain remote cluster key",
   "\nNew cluster options:",
   "  -d, --node-dir=PATH     Path to the node directory",
   "      --port=INT          Set the cluster destination TCP port (default 443 in\n                            secure mode or 80 in insecure mode)",
@@ -73,15 +74,15 @@ init_help_array(void)
   cluster_args_info_help[8] = cluster_args_info_full_help[8];
   cluster_args_info_help[9] = cluster_args_info_full_help[9];
   cluster_args_info_help[10] = cluster_args_info_full_help[10];
-  cluster_args_info_help[11] = cluster_args_info_full_help[11];
-  cluster_args_info_help[12] = cluster_args_info_full_help[12];
-  cluster_args_info_help[13] = cluster_args_info_full_help[13];
-  cluster_args_info_help[14] = cluster_args_info_full_help[14];
-  cluster_args_info_help[15] = cluster_args_info_full_help[16];
-  cluster_args_info_help[16] = cluster_args_info_full_help[17];
-  cluster_args_info_help[17] = cluster_args_info_full_help[18];
-  cluster_args_info_help[18] = cluster_args_info_full_help[19];
-  cluster_args_info_help[19] = cluster_args_info_full_help[21];
+  cluster_args_info_help[11] = cluster_args_info_full_help[12];
+  cluster_args_info_help[12] = cluster_args_info_full_help[13];
+  cluster_args_info_help[13] = cluster_args_info_full_help[14];
+  cluster_args_info_help[14] = cluster_args_info_full_help[15];
+  cluster_args_info_help[15] = cluster_args_info_full_help[17];
+  cluster_args_info_help[16] = cluster_args_info_full_help[18];
+  cluster_args_info_help[17] = cluster_args_info_full_help[19];
+  cluster_args_info_help[18] = cluster_args_info_full_help[20];
+  cluster_args_info_help[19] = cluster_args_info_full_help[22];
   cluster_args_info_help[20] = 0; 
   
 }
@@ -122,6 +123,7 @@ void clear_given (struct cluster_args_info *args_info)
   args_info->info_given = 0 ;
   args_info->force_gc_given = 0 ;
   args_info->force_expire_given = 0 ;
+  args_info->get_cluster_key_given = 0 ;
   args_info->node_dir_given = 0 ;
   args_info->port_given = 0 ;
   args_info->ssl_ca_file_given = 0 ;
@@ -168,14 +170,15 @@ void init_args_info(struct cluster_args_info *args_info)
   args_info->info_help = cluster_args_info_full_help[8] ;
   args_info->force_gc_help = cluster_args_info_full_help[9] ;
   args_info->force_expire_help = cluster_args_info_full_help[10] ;
-  args_info->node_dir_help = cluster_args_info_full_help[12] ;
-  args_info->port_help = cluster_args_info_full_help[13] ;
-  args_info->ssl_ca_file_help = cluster_args_info_full_help[14] ;
-  args_info->admin_key_help = cluster_args_info_full_help[15] ;
-  args_info->batch_mode_help = cluster_args_info_full_help[17] ;
-  args_info->human_readable_help = cluster_args_info_full_help[18] ;
-  args_info->debug_help = cluster_args_info_full_help[19] ;
-  args_info->config_dir_help = cluster_args_info_full_help[20] ;
+  args_info->get_cluster_key_help = cluster_args_info_full_help[11] ;
+  args_info->node_dir_help = cluster_args_info_full_help[13] ;
+  args_info->port_help = cluster_args_info_full_help[14] ;
+  args_info->ssl_ca_file_help = cluster_args_info_full_help[15] ;
+  args_info->admin_key_help = cluster_args_info_full_help[16] ;
+  args_info->batch_mode_help = cluster_args_info_full_help[18] ;
+  args_info->human_readable_help = cluster_args_info_full_help[19] ;
+  args_info->debug_help = cluster_args_info_full_help[20] ;
+  args_info->config_dir_help = cluster_args_info_full_help[21] ;
   
 }
 
@@ -337,6 +340,8 @@ cluster_cmdline_parser_dump(FILE *outfile, struct cluster_args_info *args_info)
     write_into_file(outfile, "force-gc", 0, 0 );
   if (args_info->force_expire_given)
     write_into_file(outfile, "force-expire", 0, 0 );
+  if (args_info->get_cluster_key_given)
+    write_into_file(outfile, "get-cluster-key", 0, 0 );
   if (args_info->node_dir_given)
     write_into_file(outfile, "node-dir", args_info->node_dir_orig, 0);
   if (args_info->port_given)
@@ -415,6 +420,7 @@ reset_group_MODE(struct cluster_args_info *args_info)
   args_info->info_given = 0 ;
   args_info->force_gc_given = 0 ;
   args_info->force_expire_given = 0 ;
+  args_info->get_cluster_key_given = 0 ;
 
   args_info->MODE_group_counter = 0;
 }
@@ -671,6 +677,7 @@ cluster_cmdline_parser_internal (
         { "info",	0, NULL, 'I' },
         { "force-gc",	0, NULL, 'G' },
         { "force-expire",	0, NULL, 'X' },
+        { "get-cluster-key",	0, NULL, 0 },
         { "node-dir",	1, NULL, 'd' },
         { "port",	1, NULL, 0 },
         { "ssl-ca-file",	1, NULL, 0 },
@@ -888,8 +895,25 @@ cluster_cmdline_parser_internal (
             exit (EXIT_SUCCESS);
           }
 
+          /* Obtain remote cluster key.  */
+          if (strcmp (long_options[option_index].name, "get-cluster-key") == 0)
+          {
+          
+            if (args_info->MODE_group_counter && override)
+              reset_group_MODE (args_info);
+            args_info->MODE_group_counter += 1;
+          
+            if (update_arg( 0 , 
+                 0 , &(args_info->get_cluster_key_given),
+                &(local_args_info.get_cluster_key_given), optarg, 0, 0, ARG_NO,
+                check_ambiguity, override, 0, 0,
+                "get-cluster-key", '-',
+                additional_error))
+              goto failure;
+          
+          }
           /* Set the cluster destination TCP port (default 443 in secure mode or 80 in insecure mode).  */
-          if (strcmp (long_options[option_index].name, "port") == 0)
+          else if (strcmp (long_options[option_index].name, "port") == 0)
           {
           
           

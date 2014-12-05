@@ -14,6 +14,7 @@ groupoption "replace-faulty" F "Replace faulty nodes in an existing SX cluster" 
 groupoption "info" I "Shows status and details of a running cluster" group="MODE"
 groupoption "force-gc" G "Force a garbage collection cycle on all nodes" group="MODE"
 groupoption "force-expire" X "Force GC and expiration of reservations on all nodes" group="MODE"
+groupoption "get-cluster-key" - "Obtain remote cluster key" group="MODE" hidden
 
 section "New cluster options"
 option "node-dir" d "Path to the node directory" string typestr="PATH" dependon="new" optional

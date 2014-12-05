@@ -177,7 +177,7 @@ static int create_node(struct node_args_info *args) {
 	return 1;
 
     if(!args->batch_mode_given) {
-	printf("A new node is about to be created in \"%s\"...\nIf this node shall be joined to an existing SX cluster, please make sure the following info matches:\n  - Cluster UUID: %s\n  - Cluster authentication: %s\n\n", args->inputs[0], cluster_uuid.string, auth.token);
+	printf("A new node is about to be created in \"%s\"...\nIf this node shall be joined to an existing SX cluster, please make sure the following info matches:\n  - Cluster UUID: %s\n  - Cluster key: %s\n\n", args->inputs[0], cluster_uuid.string, auth.token);
 	if(!yesno("Confirm?", 1)) {
 	    printf("Node creation aborted by the user\n");
 	    return 1;
@@ -517,7 +517,7 @@ static int create_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
 	    printf("secure (SSL is enabled and certificate validation is enforced)");
 	else
 	    printf("insecure (SSL is disabled)");
-	printf("\n  - Cluster authentication token: %s\n  - Admin key: %s\n\nThe initial node of your new SX cluster is:\n  - Node UUID: %s\n  - Node address: %s\n", clust_token, auth.token, sx_node_uuid_str(node), sx_node_addr(node));
+	printf("\n  - Cluster key: %s\n  - Admin key: %s\n\nThe initial node of your new SX cluster is:\n  - Node UUID: %s\n  - Node address: %s\n", clust_token, auth.token, sx_node_uuid_str(node), sx_node_addr(node));
 	if(strcmp(sx_node_addr(node), sx_node_internal_addr(node)))
 	    printf("  - Node internal address: %s\n", sx_node_internal_addr(node));
 	fmt_capa(sx_node_capacity(node), capastr, sizeof(capastr), args->human_readable_flag);
@@ -1025,10 +1025,10 @@ static int info_node(sxc_client_t *sx, const char *path, struct node_args_info *
 	return 1;
     printf("HashFS Version: %s\n", sx_hashfs_version(h));
     printf("Cluster UUID: %s\n", sx_hashfs_uuid(h)->string);
-    printf("Cluster authentication: %s\n", sx_hashfs_authtoken(h));
+    printf("Cluster key: %s\n", sx_hashfs_authtoken(h));
     admin = sxi_hashfs_admintoken(h);
     if(admin) {
-	printf("Admin key: %s\n", sxi_hashfs_admintoken(h));
+	printf("Admin key: %s\n", admin);
 	free(admin);
     }
     printf("Internal cluster protocol: %s\n", sx_hashfs_uses_secure_proto(h) ? "SECURE" : "INSECURE");
@@ -1092,7 +1092,7 @@ void print_dist(const sx_nodelist_t *nodes) {
 	printf("Invalid distribution\n");
 }
 
-static int info_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
+static int info_cluster(sxc_client_t *sx, struct cluster_args_info *args, int keyonly) {
     sxc_cluster_t *clust = cluster_load(sx, args, 1);
     clst_t *clst;
     const sx_nodelist_t *nodes = NULL;
@@ -1113,14 +1113,18 @@ static int info_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
 	printf("Node is not part of a cluster\n");
 	break;
     case 2:
-	printf("Target configuration: ");
 	nodes = clst_nodes(clst, 1);
-	print_dist(nodes);
+	if(!keyonly) {
+	    printf("Target configuration: ");
+	    print_dist(nodes);
+	}
     case 1:
-	printf("Current configuration: ");
-	print_dist(clst_nodes(clst, 0));
 	if(!nodes)
 	    nodes = clst_nodes(clst, 0);
+	if(!keyonly) {
+	    printf("Current configuration: ");
+	    print_dist(clst_nodes(clst, 0));
+	}
     }
 
     if(nodes) {
@@ -1130,6 +1134,16 @@ static int info_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
 	const sx_uuid_t *distid = clst_distuuid(clst, &version, &checksum);
 	const char *auth = clst_auth(clst);
 	sxi_hostlist_t hlist;
+
+	if(keyonly) {
+	    if(!auth)
+		CRIT("Failed to obtain cluster key");
+	    else
+		printf("Cluster key: %s\n", auth);
+	    clst_destroy(clst);
+	    sxc_cluster_free(clust);
+	    return 0;
+	}
 
 	sxi_hostlist_init(&hlist);
 	for(i = 0; i < nnodes; i++) {
@@ -1163,8 +1177,6 @@ static int info_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
 	if(distid)
 	    printf("Distribution: %s(v.%u) - checksum: %llu\n", distid->string, version, (unsigned long long)checksum);
 	printf("Cluster UUID: %s\n", sxc_cluster_get_uuid(clust));
-	if(auth)
-	    printf("Cluster authentication token: %s\n", auth);
     }
 
     clst_destroy(clst);
@@ -1393,7 +1405,9 @@ int main(int argc, char **argv) {
 	if(cluster_args.new_given && cluster_args.inputs_num == 2)
 	    ret = create_cluster(sx, &cluster_args);
 	else if(cluster_args.info_given && cluster_args.inputs_num == 1)
-	    ret = info_cluster(sx, &cluster_args);
+	    ret = info_cluster(sx, &cluster_args, 0);
+	else if(cluster_args.get_cluster_key_given && cluster_args.inputs_num == 1)
+	    ret = info_cluster(sx, &cluster_args, 1);
 	else if(cluster_args.mod_given && cluster_args.inputs_num >= 2)
 	    ret = change_cluster(sx, &cluster_args);
 	else if(cluster_args.resize_given && cluster_args.inputs_num == 1)
