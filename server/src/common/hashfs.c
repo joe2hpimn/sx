@@ -2335,6 +2335,13 @@ static int check_file_hashes(sx_hashfs_t *h, int debug, const sx_hash_t *hashes,
     const sx_uuid_t *self;
     sqlite3_stmt *q = NULL;
 
+    /* If cluster is rebalancing skip checking blocks existence */
+    if(sx_hashfs_is_rebalancing(h)) {
+        if(debug)
+            CHECK_INFO("Cluster is rebalancing, skipping hash existence check");
+        return ret;
+    }
+
     /* Get block size index */
     for(j = 0; j < SIZES; j++) {
         if(bsz[j] == block_size) {
@@ -2377,6 +2384,7 @@ static int check_file_hashes(sx_hashfs_t *h, int debug, const sx_hash_t *hashes,
             goto check_file_hashes_err;
         }
 
+        /* Distribution doesn't matter, we skip blocks existence during rebalance */
         hashnodes = sx_hashfs_hashnodes(h, NL_PREV, hash, replica_count);
         if(hashnodes) {
             int skip = 0;
@@ -2671,7 +2679,8 @@ static int check_files(sx_hashfs_t *h, int debug) {
             } else {
                 rc_ty rc = sx_hashfs_volume_by_id(h, volid, &vol);
                 if(rc == ENOENT) {
-                    CHECK_ERROR("Volume with ID %lld does not exist, but file %s references to it", (long long)volid, name);
+                    if(debug)
+                        CHECK_INFO("Volume with ID %lld does not exist or is disabled, but file %s references to it", (long long)volid, name);
                     continue; /* Stop checking current file now, volume reference is needed for blocks checking */
                 } else if(rc || !vol) {
                     ret = -1;
@@ -2792,40 +2801,35 @@ check_blocks_existence_err:
 
 static int check_blocks_counters(sx_hashfs_t *h, int debug, unsigned int hs, unsigned int ndb) {
     int ret = 0, r;
-    sqlite3_stmt *q = NULL, *qget = NULL;
-    sxi_db_t *db;
+    sqlite3_stmt *q = NULL;
+    int64_t counter = 0;
 
     if(hs >= SIZES || ndb >= HASHDBS) {
-        ret = -1;
-        goto check_blocks_counters_err;
+        CHECK_FATAL("Failed to check negative counters: invalid argument");
+        return -1;
     }
-
-    db = h->datadb[hs][ndb];
 
     if(debug) {
         CHECK_INFO("Checking negative counters within %lld rows in %s hash database %u / %u...",
-            (long long int)get_count(db, "use"), sizelongnames[hs], ndb+1, HASHDBS);
+            (long long int)get_count(h->datadb[hs][ndb], "use"), sizelongnames[hs], ndb+1, HASHDBS);
     }
 
-    if(qprep(db, &q, "SELECT blockid, used FROM use WHERE used < 0")) {
+    q = h->qb_find_bad[hs][ndb];
+    sqlite3_reset(q);
+    while((r = qstep(q)) == SQLITE_ROW)
+        counter += sqlite3_column_int64(q, 0);
+
+    if (counter > 0 && !sx_hashfs_is_rebalancing(h)) {
+        CHECK_ERROR("Found %lld negative counters in %s hash database %u / %u", (long long)counter, sizelongnames[hs], ndb+1, HASHDBS);
+        ret = 1;
+    }
+
+    if(r != SQLITE_DONE) {
+        CHECK_FATAL("Failed to check negative counters: database error");
         ret = -1;
-        goto check_blocks_counters_err;
     }
 
-    while((r = qstep(q)) == SQLITE_ROW) {
-        CHECK_PGRS;
-        int64_t blockid = sqlite3_column_int64(q, 0);
-        int counter = sqlite3_column_int(q, 1);
-
-        CHECK_ERROR("Usage counter for block with ID %lld is negative: %d", (long long)blockid, counter);
-    }
-
-    if(r != SQLITE_DONE)
-        ret = -1;
-
-check_blocks_counters_err:
-    sqlite3_finalize(q);
-    sqlite3_finalize(qget);
+    sqlite3_reset(q);
     return ret;
 }
 
@@ -2987,7 +2991,7 @@ static int check_users(sx_hashfs_t *h, int debug) {
             CHECK_ERROR("User %s has CLUSTER role", name);
     }
 
-    if(!admin_found)
+    if(!admin_found && h->have_hd)
         CHECK_ERROR("admin user was not found");
 
     if(r != SQLITE_DONE)
