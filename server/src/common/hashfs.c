@@ -1419,7 +1419,7 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
         goto open_hashfs_fail;
     if(qprep(h->db, &h->q_setvolcursize, "UPDATE volumes SET cursize = :size, changed = :now WHERE vid = :volume AND enabled = 1"))
         goto open_hashfs_fail;
-    if(qprep(h->db, &h->q_getnodepushtime, "SELECT last_push FROM node_volume_updates WHERE node = :node AND enabled = 1"))
+    if(qprep(h->db, &h->q_getnodepushtime, "SELECT last_push FROM node_volume_updates WHERE node = :node"))
         goto open_hashfs_fail;
     if(qprep(h->db, &h->q_setnodepushtime, "INSERT OR REPLACE INTO node_volume_updates VALUES (:node, :now)"))
         goto open_hashfs_fail;
@@ -11700,8 +11700,8 @@ rc_ty sx_hashfs_init_replacement(sx_hashfs_t *h) {
 	   qbind_int(q, ":replica", nnodes) ||
 	   qstep_noret(q))
 	    goto init_replacement_fail;
+	qnullify(q);
     }
-    qnullify(q);
 
     if(sx_hashfs_self_uuid(h, &myid))
 	goto init_replacement_fail;
