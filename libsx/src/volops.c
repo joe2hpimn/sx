@@ -1495,6 +1495,7 @@ static int yacb_listaclusers_map_key(void *ctx, const unsigned char *s, size_t l
     }
     if(yactx->state == LA_ACLUSER) {
 	yactx->state = LA_PRIVS;
+        memset(&yactx->acluser, 0, sizeof(yactx->acluser));
 	yactx->acluser.namelen = l;
 	yactx->fname = malloc(yactx->acluser.namelen);
 	if(!yactx->fname) {
@@ -1503,7 +1504,6 @@ static int yacb_listaclusers_map_key(void *ctx, const unsigned char *s, size_t l
 	    return 0;
 	}
 	memcpy(yactx->fname, s, yactx->acluser.namelen);
-        memset(&yactx->acluser, 0, sizeof(yactx->acluser));
 	yactx->naclusers++;
 	return 1;
     }
