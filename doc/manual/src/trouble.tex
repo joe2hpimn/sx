@@ -1,0 +1,33 @@
+\chapter{Troubleshooting}
+
+\section{Frequently Asked Questions}
+If you face an issue, please have a look into our FAQ database
+at \url{https://wiki.skylable.com/wiki/FAQ}. It's constantly
+updated to provide solutions and answers to frequent questions
+from our users.
+
+\section{Mailing list}
+In case you cannot find a solution to your problem, please
+subscribe to our mailing list \path{sx-users} at
+\path{http://lists.skylable.com} and post your question there.
+
+\section{Bug reporting}
+If you believe you've found a bug in \SX please enter it into
+our Bugzilla tracker at \url{https://bugzilla.skylable.com}.
+Please try to provide as much details as possible. If you
+report a problem with the client, you can generate a report about
+the system and client configuration by running:
+\begin{lstlisting}
+$ sxreport-client
+Report stored in sxreport-client-1418047578.log
+You can attach it to a bugreport at https://bugzilla.skylable.com
+\end{lstlisting}
+When reporting a problem with one of the server components, you can
+use \path{sxreport-server} instead:
+\begin{lstlisting}
+# sxreport-server --anonymize
+Anonymized report stored in sxreport-server-1418047910-anon.log
+You can attach it to a bugreport at https://bugzilla.skylable.com
+\end{lstlisting}
+It creates a report with all IP addresses, URLs, and usernames
+anonymized.

@@ -1,0 +1,96 @@
+% !TeX root = sxmanual.tex
+\colorlet{c0}{yellow!20}
+\colorlet{c1}{green!10}
+\colorlet{c2}{green!30}
+
+\begin{tikzpicture}[auto, thick, >=stealth', shorten >=1pt,
+array/.style={rectangle split,rectangle split horizontal, rectangle split parts=#1,draw, minimum height=4em,
+inner sep=1em
+}]
+\tikzstyle{sx}=[draw,circle,black,bottom color=skylableblue, node distance=6em,
+top color= white, text=black,minimum width=2em]
+
+\node[sx] (sx1) {\SX node};
+\node[sx] (sx2) [right of=sx1] {\SX node};
+\node[sx] (sx3) [right of=sx2] {\SX node};
+\node[sx] (sx4) [right of=sx3] {\SX node};
+
+\node[] (sx)  at ($(sx1)!0.5!(sx4)$) {};
+\draw[] node[draw,dashed,cloud,cloud puffs=15,cloud puff arc=120,inner ysep=1em,aspect=2,color=black,
+minimum height=11em,minimum width=25em] at (sx) {}; 
+
+
+\node[array=10] (f1) [below of=sx, node distance=15em,
+rectangle split part fill={c0,c1,c2,c1,c2,c1,c2,c1,c0,c0}] {
+	\nodepart{one}=
+	\nodepart{two}2
+	\nodepart{three}3
+	\nodepart{four}4
+	\nodepart{five}5
+	\nodepart{six}6
+	\nodepart{seven}7
+	\nodepart{eight}8
+	\nodepart{nine}=
+	\nodepart{ten}=
+};
+
+
+\draw[*-*]
+let \p1 = ($(f1.one)+(0,1em)$),
+\p2 = ($(\p1)!0.55!(sx1)$),
+\p3 = ($(sx1)+(0.5em,0)$) in
+(\p1) |- (\x3,\y2);
+
+\draw[*-]
+let \p1 = ($(f1.four)+(0,1em)$),
+\p2 = (sx) in
+(\p1) |- ($(\p1)!0.55!(\x1,\y2)$);
+
+\draw[*->]
+let \p1 = ($(f1.four)+(0,1em)$),
+\p2 = (sx) in
+($(\p1)!0.55!(\x1,\y2)+(0.3em,0)$) -| (sx1);
+
+
+\draw[*->]
+	let \p1 = ($(f1.three)+(0,1em)$),
+	\p2 = (sx) in
+	(\p1) |- ($(\p1)!0.6!(\x1,\y2)$) -| (sx2);
+	
+\draw[*-*]
+	let \p1 = ($(f1.two)+(0,1em)$),
+	\p2 = ($(\p1)!0.5!(sx3)$),
+	\p3 = ($(sx3)+(0.5em,0)$) in
+	(\p1) |- (\x3,\y2);
+	
+\draw[*->]
+	let \p1 = ($(f1.five)+(0,1em)$),
+	\p2 = (sx) in
+	(\p1) |- ($(\p1)!0.4!(\x1,\y2)$) -| (sx4);
+	
+\draw[*->]
+	let \p1 = ($(f1.six)+(0,1em)$),
+	\p2 = (sx) in
+	(\p1) |- ($(\p1)!0.45!(\x1,\y2)$) -| (sx3);
+
+\draw[*-]
+let \p1 = ($(f1.seven)+(0,1em)$),
+\p2 = (sx) in
+(\p1) |- ($(\p1)!0.4!(\x1,\y2)$);
+
+\draw[*->]
+let \p1 = ($(f1.seven)+(0,1em)$),
+\p2 = (sx) in
+($(\p1)!0.4!(\x1,\y2)+(-0.3em,0)$) -| (sx4);
+
+
+\draw[*->]
+let \p1 = ($(f1.eight)+(0,1em)$),
+\p2 = (sx) in
+(\p1) |- ($(\p1)!0.55!(\x1,\y2)$) -| (sx1);	
+	
+
+%\draw[*->] ($(file1.one)+(0.25em,0)$)  -| (sx3);
+%\draw[*->] ($(file1.four)+(0.25em,0)$)  -| (sx4);
+
+\end{tikzpicture}

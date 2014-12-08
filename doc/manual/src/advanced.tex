@@ -1,0 +1,119 @@
+\chapter{Advanced}
+This chapter describes some advanced details of the \SX design.
+
+\section{Data distribution}
+
+\begin{figure}
+	\centering
+	\input{tikz_dist.tex}
+	\caption{Data distribution}
+	\label{fig:dist}
+\end{figure}
+
+Files are divided into blocks of equal size, which depend on the file's size,
+and distributed among \SX nodes using a consistent hashing algorithm. This
+ensures that the storage among all nodes in the cluster is properly balanced,
+and that when nodes are added or removed from the cluster only a minimal amount
+of data gets moved.
+
+The cluster exposes an HTTP(S) REST API designed around deduplicated storage:
+equal blocks of data get stored only once. This has the advantage of reduced
+bandwidth usage, better resume handling, and that the data is immutable (only
+the metadata is mutable).
+
+In the example shown in \fref{fig:dist} there is a file divided into 10 blocks,
+where the first and last two blocks are equal -- only the first block of them
+is uploaded. The rest of the blocks are distributed among all nodes in the
+cluster. Inevitably some nodes will receive more than one block, in which case
+the protocol supports an efficient batched upload and download mode.
+
+In this example each block of data was stored only once, what is called
+\emph{replica 1}. If one of the nodes that stores a block of the file goes down,
+the file will be unreachable. To make the data more resistant one should
+use a replica count higher than 1, which means that the data will be
+duplicated on multiple nodes. A volume with replica 2 can survive a loss of
+at most 1 node, with replica 3 the loss of at most 2 nodes, etc. The maximum
+replica count is limited by the number of nodes. High replica counts increase
+reliability for downloads, at the cost of increased latency on uploads, and
+lower fault-tolerance on uploads (all replica nodes must be up for uploads to
+succeed).
+
+\begin{figure}
+	\centering
+	\input{tikz_replication.tex}
+	\caption{Data replication}
+	\label{fig:replication}
+\end{figure}
+
+The handling of replicas is illustrated in \fref{fig:replication} for
+a replica 3 volume. The client tries to upload the data to a given node,
+which is then responsible for replicating the data inside the cluster
+asynchronously. If the client fails to upload to a specific node it can
+retry on the next one, and so on. Each time the receiving node will
+replicate the data inside the cluster.
+
+\section{Global objects}
+\newcommand{\col}[1]{#1}
+\begin{table}
+	\centering
+	\begin{tabular}{lccccccccc}
+		\hline
+		\multirow{2}{*}{node} & \multicolumn{2}{c}{volA\_r1} & \multicolumn{2}{c}{volB\_r2} & \multicolumn{2}{c}{volC\_r3} & \multicolumn{3}{c}{users} \\
+		& \col{ACL} & \col{files} & \col{ACL} & \col{files} & \col{ACL} & \col{files} & admin & u1 & u2 \\
+		\hline
+		node1 & \cmark & \cmark & \cmark & \xmark & \cmark &  \xmark  & \cmark & \cmark & \cmark \\
+		node2 & \cmark & \xmark & \cmark &  \cmark & \cmark & \cmark & \cmark & \cmark & \cmark \\
+		node3 & \cmark & \xmark & \cmark & \cmark & \cmark & \cmark & \cmark & \cmark & \cmark \\
+		node4 & \cmark & \xmark & \cmark & \xmark & \cmark &  \cmark & \cmark & \cmark & \cmark \\ 
+		\hline
+	\end{tabular}
+	\caption{Global objects}
+	\label{tab:globals}
+\end{table}
+
+Users, volumes and privileges are stored globally - on each node in the
+cluster - and changing them requires cooperation of all nodes.
+
+\begin{description}
+\item[user] each user is issued an authentication token. All requests are
+    signed using HMAC and the authentication token.
+\item[admin users] the privileged users can perform all administrative tasks
+    such as volume and user management
+\item[volumes] used to group several files, owned by a specific user. Each
+    volume has a replica count and metadata associated with it.
+\item[volume ACL] the volume owner by default has full access to the volume.
+    The owner (and the cluster admin) can grant and revoke permissions for
+    other users. \footnote{It's impossible to revoke privileges for admin users
+    - they always have full access to all volumes.}
+\end{description}
+
+As shown in \tref{tab:globals} the volume names, privileges and users are
+stored on all nodes. However the volume's contents are stored only on a subset
+of nodes:
+\begin{description}
+	\item[volA\_r1] is a volume with replica 1: its data and filenames
+	are only stored in one place (no copies)
+	\item[volB\_r2] is a volume with replica 2: the data is always stored
+	on (at least) 2 distinct nodes, and its filenames are stored on exactly
+	2 specific distinct nodes
+	\item[volC\_r3] is a volume with replica 3: the data is always stored
+	on (at least) 3 distinct nodes, and its filenames are stored on exactly
+	3 specific distinct nodes
+	 \ldots
+\end{description}
+The cluster \emph{can} have multiple volumes with different replica counts at
+the same time. A volume can also have an arbitrary metadata attached to.
+
+
+\section{Jobs}
+Certain operations, such as finalizing a file upload (which may require
+replication of data), can take a long time. To avoid blocking other operations,
+all taks which involve more than one node create a job and the \SX clients poll
+for the job's outcome instead of blocking and waiting for it to finish. This
+allows to speed up recursive uploads for example: each file creates a new job
+and the client only waits for completion at the end of the recursive upload.
+The cluster tries its best to retry when transient errors occur internally.
+In case of a failure, it will abort or undo the operation and report the status
+to the client. The jobs are also used for conflict resolution: on conflicting
+operations, for example creating two users with same name, only one job is
+guaranteed to "win" and all the others will be aborted.

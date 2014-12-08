@@ -1,0 +1,91 @@
+\documentclass[oneside]{memoir}
+\PassOptionsToPackage{obeyspaces}{url}
+\PassOptionsToPackage{linktocpage}{hyperref}
+\usepackage{color,calc,graphicx,soul,fourier,anyfontsize,xspace,listings,hyperref,url,tikz,pifont,multirow}
+\let\fref\undefined
+\usepackage{fancyref}
+\usetikzlibrary{arrows,shapes,calc}
+\definecolor{skylableblue}{rgb}{0,.467,.757}
+\definecolor{lightblue}{rgb}{.835,.910,.965}
+\makeatletter
+\sloppy
+\newlength\dlf@normtxtw
+\setlength\dlf@normtxtw{\textwidth}
+\def\myhelvetfont{\def\sfdefault{mdput}}
+\newsavebox{\feline@chapter}
+\newcommand\feline@chapter@marker[1][4cm]{%
+  \sbox\feline@chapter{%
+    \resizebox{!}{#1}{\fboxsep=1pt%
+      \colorbox{skylableblue}{\color{white}\bfseries\sffamily\thechapter}%
+    }}%
+  \rotatebox{90}{%
+    \resizebox{%
+      \heightof{\usebox{\feline@chapter}}+\depthof{\usebox{\feline@chapter}}}%
+    {!}{\scshape\so\@chapapp}}\quad%
+  \raisebox{\depthof{\usebox{\feline@chapter}}}{\usebox{\feline@chapter}}%
+}
+\newcommand\feline@chm[1][4cm]{%
+  \sbox\feline@chapter{\feline@chapter@marker[#1]}%
+  \makebox[0pt][l]{% aka \rlap
+    \makebox[1cm][r]{\usebox\feline@chapter}%
+  }}
+\makechapterstyle{daleif1}{
+  \renewcommand\chapnamefont{\normalfont\Large\scshape\raggedleft\so}
+  \renewcommand\chaptitlefont{\normalfont\huge\bfseries\scshape\color{skylableblue}}
+  \renewcommand\chapternamenum{}
+  \renewcommand\printchaptername{}
+  \renewcommand\printchapternum{\null\hfill\feline@chm[2.5cm]\par}
+  \renewcommand\afterchapternum{\par\vskip\midchapskip}
+  \renewcommand\printchaptertitle[1]{\chaptitlefont\raggedleft ##1\par}
+}
+\setsecheadstyle{\LARGE\scshape\color{skylableblue}\raggedright}
+\setsubsecheadstyle{\large\scshape\color{skylableblue}\raggedright}
+\setsubsubsecheadstyle{\normalsize\scshape\color{skylableblue}\raggedright}
+\setbeforesecskip{-1.5ex plus -.5ex minus -.2ex}
+\setaftersecskip{1.3ex plus .2ex}
+\setbeforesubsecskip{-1.25ex plus -.5ex minus -.2ex}
+\setaftersubsecskip{1ex plus .2ex}
+\newcommand{\SX}{S\textsuperscript{X}\xspace}
+\makeatother
+\chapterstyle{daleif1}
+\setlength\afterchapskip {\onelineskip }
+\setlength\beforechapskip {\onelineskip }
+\begin{document}
+\pagestyle{empty}
+
+\begin{center}
+    \includegraphics[width=120mm]{logo.eps}\\
+    \vspace{4cm}
+    \rule{\textwidth}{1.6pt}\vspace*{-\baselineskip}\vspace*{2pt}
+    \rule{\textwidth}{0.4pt}\\[\baselineskip]
+    {\fontsize{40}{50}\bfseries\scshape \SX Manual}
+    \rule{\textwidth}{0.4pt}\vspace*{-\baselineskip}\vspace{3.2pt}
+    \rule{\textwidth}{1.6pt}\\[\baselineskip]
+\end{center}
+
+\lstset {
+    escapeinside=\^\^,
+    frame=single,
+    breaklines=true,
+    backgroundcolor=\color{black},
+    %backgroundcolor=\color{lightblue},
+    basicstyle=\scriptsize\color{white}\ttfamily
+}
+\newcommand{\marked}[1]{\color{yellow}\textbf{#1}}
+\newcommand{\markedG}[1]{\color{green}\textbf{#1}}
+\newcommand{\cmark}{\ding{51}}%
+\newcommand{\xmark}{\ding{55}}%
+
+\newpage
+\tableofcontents
+\vspace{1.0cm}
+
+\input{intro.tex}
+\input{install.tex}
+\input{deploy.tex}
+\input{manage.tex}
+\input{client.tex}
+\input{advanced.tex}
+\input{trouble.tex}
+
+\end{document}

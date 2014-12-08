@@ -1,0 +1,500 @@
+\chapter{Cluster Management}
+
+\section{Local node status and configuration}
+You can check status of a specific node by running \path{sxserver status} on
+that node:
+\begin{lstlisting}
+# sxserver status
+--- SX STATUS ---
+sx.fcgi is running (PID 14394)
+sxhttpd is running (PID 14407)
+\end{lstlisting}
+Run \path{sxsetup --info} to display the node's configuration:
+\begin{lstlisting}
+# sxsetup --info
+--- SX INFO ---
+SX Version: 1.0
+Cluster name: ^\marked{mycluster}^
+Cluster port: 443
+Cluster UUID: 01dca714-8cc9-4e26-960e-daf04892b1e2
+Cluster key: CLUSTER/ALLNODE/ROOT/USERwBdjfz3tKcnTF2ouWIkTipreYuYjAAA
+Admin key: ^\marked{0DPiKuNIrrVmD8IUCuw1hQxNqZfIkCY+oKwxi5zHSPn5y0SOi3IMawAA}^
+Internal cluster protocol: SECURE
+Used disk space: 16.75M
+Actual data size: 453.00K
+List of nodes:
+         * ec4d9d63-9fa3-4d45-838d-3e521f124ed3 ^\marked{192.168.1.101}^ (192.168.1.101) 500.00G
+Storage location: /var/lib/sxserver/storage
+SSL private key: /etc/ssl/private/sxkey.pem
+SX Logfile: /var/log/sxserver/sxfcgi.log
+\end{lstlisting}
+This gives you the information about local services and disk usage, but
+also provides the admin key, which is needed for accessing the cluster
+itself.
+
+\section{Administrator access}
+During cluster deployment a default admin account gets created
+and initialized. You should be able to access the cluster from
+any node using \path{sx://admin@mycluster} profile. In order
+to manage the cluster remotely or from another system account,
+you need to initialize access to the cluster using \path{sxinit}
+\footnote{For more information about access profiles please see
+\fref{sec:profiles}}. 
+In the example below we use the default admin account created
+during cluster setup. Since "mycluster" is not a DNS name, we need
+to point sxinit to one of the nodes of the cluster - this will
+allow it automatically discover the IP addresses of the other nodes.
+Additionally, we create an alias \path{@cluster}, which later
+can be used instead of \path{sx://admin@mycluster}.
+\begin{lstlisting}
+$ sxinit -l 192.168.1.101 -A @cluster sx://admin@mycluster
+Warning: self-signed certificate:
+
+        Subject: C=GB, ST=UK, O=SX, CN=mycluster
+	Issuer: C=GB, ST=UK, O=SX, CN=mycluster
+	SHA1 Fingerprint: 84:EF:39:80:1E:28:9C:4A:C8:80:E6:56:57:A4:CD:64:2E:23:99:7A
+
+Do you trust this SSL certificate? [y/N] ^\marked{y}^
+Trusting self-signed certificate
+Please enter the user key: ^\marked{0DPiKuNIrrVmD8IUCuw1hQxNqZfIkCY+oKwxi5zHSPn5y0SOi3IMawAA}^
+\end{lstlisting}
+
+\section{User management}
+\SX similarly to UNIX systems supports two types of users: regular and
+administrators. A new cluster has only a single 'admin' user enabled by
+default. The administrators can perform all cluster operations and access
+all data in the cluster, while the regular users can only work with volumes
+they have access to. It is recommended to only use the admin account for
+administrative purposes and perform regular operations as a normal user.
+
+\subsection{Creating a new user}
+Use \path{sxacl useradd} to add new users to the cluster:
+\begin{lstlisting}
+$ sxacl useradd jeff @cluster
+User successfully created!
+Name: jeff
+Key : FqmlTd9CWZUuPBGMdjE46DaT1/3kx+EYbahlrhcdVpy/9ePfrtWCIgAA
+Type: normal
+
+Run 'sxinit sx://jeff@mycluster' to start using the cluster as user 'jeff'.
+\end{lstlisting}
+By default a regular user account gets created. The authentication key is
+automatically generated and can be changed anytime by the cluster
+administrator or the user itself (see below).
+
+\subsection{Listing users}
+In order to list all users in the cluster run:
+\begin{lstlisting}
+$ sxacl userlist @cluster
+admin (admin)
+jeff (normal)
+\end{lstlisting}
+Only cluster administrators can list users.
+
+\subsection{Key management}
+It is possible to obtain the existing key or issue a new one for any
+user in the cluster. To retrieve the current authentication key for
+user 'jeff' run:
+\begin{lstlisting}
+$ sxacl usergetkey jeff @cluster
+5tJdVr+RSpA/IPuFeSwUeePtKdbDLWUKqoaoZLkmCcXTw5qzPg5e7AAA
+\end{lstlisting}
+A new key can be issued any time by running:
+\begin{lstlisting}
+$ sxacl usernewkey jeff @sxtest
+Key successfully changed!
+Name   : jeff
+New key: FqmlTd9CWZUuPBGMdjE46DaT1/3MSHk9TLH27dFf5Zd61lEbWEeAqgAA
+Run 'sxinit sx://jeff@sxtest' and provide the new key for user 'jeff'.
+\end{lstlisting}
+As long as the user can access the cluster, it can change its own
+key. The cluster administrator can force a key change for any user,
+what can also be used to temporarily block access to the cluster for
+a specified user.
+
+\subsection{Removing a user}
+Use \path{sxacl userdel} to permanently delete a user from the cluster:
+\begin{lstlisting}
+$ sxacl userdel jeff @cluster
+User 'jeff' successfully removed.
+\end{lstlisting}
+All volumes owned by the user will be automatically reassigned to the
+cluster administrator performing the removal.
+
+\section{Volume management} \label{sec:volumes}
+Volumes are logical partitions of the \SX storage of a specific size and accessible
+by a particular group of users. The volumes can be used in connection with client
+side filters to perform additional operations, such as compression or encryption.
+Only cluster administrators can create and remove volumes.
+
+\subsection{Creating a plain volume}
+Below we create a basic volume of size 50G owned by the user 'jeff' and fully replicated on two nodes.
+\begin{lstlisting}
+$ sxvol create -o jeff -r 2 -s 50G @cluster/vol-jeff
+Volume 'vol-jeff' (replica: 2, size: 50G, max-revisions: 1) created.
+\end{lstlisting}
+By default, a volume will only keep a single revision of each file (\path{max-revisions}
+parameter set to 1). The revisions are previous versions of the file stored when the file
+gets modified. For example, when a volume gets created with \path{max-revisions} set to
+3, and some file gets modified multiple times, then the latest 3 versions of the file will
+be preserved. All revisions are accounted for their size. See the information about
+\path{sxrev} in \fref{sec:files} on how to manage file revisions.
+
+\subsection{Creating a filtered volume}
+Filters are client side plugins, which perform operations on files or their contents, before
+and after they get transferred from the \SX cluster. When a filter gets assigned to a volume,
+all remote clients will be required to have that filter installed in order to access the volume.
+Run the following command to list the available filters:
+\begin{lstlisting}
+$ sxvol filter --list
+Name            Ver     Type        Short description
+----            ---     ----        -----------------
+undelete        1.1     generic     Backup removed files
+zcomp           1.0     compress    Zlib Compression Filter
+aes256          1.4     crypt	    Encrypt data using AES-256-CBC-HMAC-512
+attribs         1.1     generic     File Attributes
+\end{lstlisting}
+We will create an encrypted volume for user 'jeff'. To obtain more information
+about the \path{aes256} filter run:
+\begin{lstlisting}
+$ sxvol filter -i aes256
+'aes256' filter details:
+Short description: Encrypt data using AES-256-CBC-HMAC-512 mode.
+Summary: The filter automatically encrypts and decrypts all data using
+	 OpenSSL's AES-256 in CBC-HMAC-512 mode.
+Options: 
+	nogenkey (don't generate a key file when creating a volume)
+	paranoid (don't use key files at all - always ask for a password)
+	salt:HEX (force given salt, HEX must be 32 chars long)
+UUID: 35a5404d-1513-4009-904c-6ee5b0cd8634
+Type: crypt
+Version: 1.4
+\end{lstlisting}
+By default, the \path{aes256} filter asks for the password during volume
+creation. Since we're creating a volume for another user, we pass the
+\path{nogenkey} option, which delays the key creation till the first data
+transfer.
+\begin{lstlisting}
+$ sxvol create -o jeff -r 2 -s 50G -f aes256=nogenkey @cluster/vol-jeff-aes
+Volume 'vol-jeff-aes' (replica: 2, size: 50G, max-revisions: 1) created.
+\end{lstlisting}
+
+\subsection{Listing all volumes}
+To get a list of all volumes in the cluster run \path{sxls} with the cluster
+argument as an administrator. When the same command is run by a normal user,
+it will list all volumes, which the user has access to.
+\begin{lstlisting}
+$ sxls -lH @cluster
+  VOL  rep:2  rev:1  rw  -       0  50.00G  0% sx://admin@mycluster/vol-jeff
+  VOL  rep:2  rev:1  rw  aes256  0  50.00G  0% sx://admin@mycluster/vol-jeff-aes
+\end{lstlisting}
+The \path{-l (--long-format)} flag makes \path{sxls} provide more information
+about the volumes, and \path{-H} converts all sizes into a human readable form.
+The parameters right after the volume marker \path{VOL} are: number of replicas,
+maximum number of revisions, access permissions for the user performing the
+listing (in this case for the administrator), active filter, used space, size
+of the volume, and the usage percentage.
+
+\subsection{Managing volume permissions}
+Cluster administrators and volume owners can grant or revoke access
+to the volumes to other users. To list the current access control list
+for the volume \path{vol-jeff} run:
+\begin{lstlisting}
+$ sxacl volshow @cluster/vol-jeff
+admin: read write
+jeff: read write owner
+(all admin users): read write admin
+\end{lstlisting}
+To grant full access to user 'bob' run:
+\begin{lstlisting}
+$ sxacl volperm --grant=read,write bob @cluster/vol-jeff
+New volume ACL:
+admin: read write
+bob: read write
+jeff: read write owner
+(all admin users): read write admin
+\end{lstlisting}
+User 'bob' can now download, upload and remove files to the volume but cannot
+make any changes to the volume itself (this is restricted to admins
+and owners). To revoke write access from user 'bob' run:
+\begin{lstlisting}
+$ sxacl volperm --revoke=write bob @cluster/vol-jeff
+New volume ACL:
+admin: read write
+bob: read
+jeff: read write owner
+(all admin users): read write admin
+\end{lstlisting}
+Now 'bob' can only read files but cannot upload or remove anything.
+
+\subsection{Changing volume settings}
+Some of the volume settings such as its size or ownership can be
+modified at a later time. For example, the cluster administrator may
+want to extend a volume size or shrink it to forbid users from storing
+more data - when the new size is lower than the current space usage of
+the volume the existing contents will remain untouched, but in order
+to upload more data to the volume, the user will have to make enough
+space to satisfy the new limit.
+
+To resize the volume 'vol-jeff' to 100GB run:
+\begin{lstlisting}
+$ sxvol modify --size 100G @cluster/vol-jeff
+\end{lstlisting}
+
+\section{Node management}
+In \fref{sec:addnode} we described how to add new nodes to a cluster. This
+section covers other modifications to an existing cluster, such as node
+repair, resize or delete. In the examples below we will manage a cluster
+with four nodes, 500GB each, with an administrator profile configured
+as \path{@cluster2}.
+
+\subsection{Remote cluster status}
+To get information about remote cluster status run the following command:
+\begin{lstlisting}
+$ sxadm cluster --info @cluster2
+Current configuration: 536870912000/192.168.100.1/d3f8ad83-d003-4aaa-bbfb-73359af85991 536870912000/192.168.100.2/abc2ed51-b4a8-46b6-a8ac-0beb58e697d2 536870912000/192.168.100.3/a343b7f9-0bef-4f03-8c6f-526ca12d75a9 536870912000/192.168.100.4/b9b05fc7-7a4b-417d-853b-ac56ed32f5d3 
+Distribution: 872eeecb-ebf9-4368-8150-beb23cd44edf(v.7) - checksum: 18024964248989723179
+Cluster UUID: cc8ab859-619e-4806-ade6-c32ab2db1665
+\end{lstlisting}
+The first line provides the list of cluster nodes in the following format:
+\begin{lstlisting}
+SIZE/IP_ADDRESS[/INTERNAL_IP_ADDRESS]/UUID
+\end{lstlisting}
+where SIZE is in bytes and UUID is a unique identifier assigned to a node
+when joining the cluster.
+
+\subsection{Rebalance mode}
+After making any change to the cluster, it will automatically enter into
+a rebalance mode. The rebalance process makes the data properly distributed
+among the nodes according to the new cluster scheme. During the rebalance
+all data operations on volumes can be performed as usual, but no changes
+to the cluster itself are accepted. When the cluster is rebalancing, it
+reports its new configuration in the status output under
+\emph{"Target configuration"}.
+
+\subsection{Cluster resize}
+The first modification we will perform is a global cluster resize.
+\path{sxadm cluster --resize} provides an easy way to shrink or grow
+the entire cluster, with changes applied to all nodes proportionally to
+their current capacity in the cluster. In our cluster all four nodes
+have equal sizes, therefore growing the cluster by 400G, should result
+in each node being resized by 100G:
+\begin{lstlisting}
+$ sxadm cluster --resize +400G @cluster2
+$ sxadm cluster --info @cluster2
+Target configuration: 644245094400/192.168.100.1/d3f8ad83-d003-4aaa-bbfb-73359af85991 644245094400/192.168.100.2/abc2ed51-b4a8-46b6-a8ac-0beb58e697d2 644245094400/192.168.100.3/a343b7f9-0bef-4f03-8c6f-526ca12d75a9 644245094400/192.168.100.4/b9b05fc7-7a4b-417d-853b-ac56ed32f5d3 
+Current configuration: 536870912000/192.168.100.1/d3f8ad83-d003-4aaa-bbfb-73359af85991 536870912000/192.168.100.2/abc2ed51-b4a8-46b6-a8ac-0beb58e697d2 536870912000/192.168.100.3/a343b7f9-0bef-4f03-8c6f-526ca12d75a9 536870912000/192.168.100.4/b9b05fc7-7a4b-417d-853b-ac56ed32f5d3 
+Distribution: 872eeecb-ebf9-4368-8150-beb23cd44edf(v.8) - checksum: 14098478712246199608
+Cluster UUID: cc8ab859-619e-4806-ade6-c32ab2db1665
+\end{lstlisting}
+All nodes were properly resized. When the rebalance process finishes, \emph{"Target
+configuration"} will become \emph{"Current configuration"}.
+
+\subsection{Node resize}
+In order to modify a single node, we will use a generic option
+\path{cluster --mod}, which takes a new configuration of the cluster.
+First, we obtain the current configuration:
+\begin{lstlisting}
+$ sxadm cluster --info @cluster2
+Current configuration: 644245094400/192.168.100.1/d3f8ad83-d003-4aaa-bbfb-73359af85991 644245094400/192.168.100.2/abc2ed51-b4a8-46b6-a8ac-0beb58e697d2 644245094400/192.168.100.3/a343b7f9-0bef-4f03-8c6f-526ca12d75a9 644245094400/192.168.100.4/b9b05fc7-7a4b-417d-853b-ac56ed32f5d3 
+Distribution: 872eeecb-ebf9-4368-8150-beb23cd44edf(v.9) - checksum: 18024963750773516843
+Cluster UUID: cc8ab859-619e-4806-ade6-c32ab2db1665
+\end{lstlisting}
+In order to change the size of the first node (192.168.100.1) to 700GB, we
+provide a new configuration of the cluster with an updated specification of
+the first node (only the size changes) and the rest left untouched:
+\begin{lstlisting}
+$ sxadm cluster --mod ^\marked{751619276800}^/192.168.100.1/d3f8ad83-d003-4aaa-bbfb-73359af85991 644245094400/192.168.100.2/abc2ed51-b4a8-46b6-a8ac-0beb58e697d2 644245094400/192.168.100.3/a343b7f9-0bef-4f03-8c6f-526ca12d75a9 644245094400/192.168.100.4/b9b05fc7-7a4b-417d-853b-ac56ed32f5d3 @cluster2
+\end{lstlisting}
+It's very important to provide proper node UUIDs, otherwise the cluster won't
+be able to recognize the node changes. When the rebalance finishes, the new
+configuration of the cluster is:
+\begin{lstlisting}
+$ sxadm cluster --info @cluster2
+Current configuration: 751619276800/192.168.100.1/d3f8ad83-d003-4aaa-bbfb-73359af85991 644245094400/192.168.100.2/abc2ed51-b4a8-46b6-a8ac-0beb58e697d2 644245094400/192.168.100.3/a343b7f9-0bef-4f03-8c6f-526ca12d75a9 644245094400/192.168.100.4/b9b05fc7-7a4b-417d-853b-ac56ed32f5d3 
+Distribution: 872eeecb-ebf9-4368-8150-beb23cd44edf(v.11) - checksum: 18024964785860635179
+Cluster UUID: cc8ab859-619e-4806-ade6-c32ab2db1665
+\end{lstlisting}
+
+\subsection{Node removal}
+Deleting a node requires removing it from the current configuration of the
+cluster. In order to remove the last node, following the previous example,
+we provide a new cluster configuration \textbf{without} the specification
+of the node 192.168.100.4:
+\begin{lstlisting}
+$ sxadm cluster --mod 751619276800/192.168.100.1/d3f8ad83-d003-4aaa-bbfb-73359af85991 644245094400/192.168.100.2/abc2ed51-b4a8-46b6-a8ac-0beb58e697d2 644245094400/192.168.100.3/a343b7f9-0bef-4f03-8c6f-526ca12d75a9 @cluster2
+$ sxadm cluster --info @cluster2
+Target configuration: 751619276800/192.168.100.1/d3f8ad83-d003-4aaa-bbfb-73359af85991 644245094400/192.168.100.2/abc2ed51-b4a8-46b6-a8ac-0beb58e697d2 644245094400/192.168.100.3/a343b7f9-0bef-4f03-8c6f-526ca12d75a9 
+Current configuration: 751619276800/192.168.100.1/d3f8ad83-d003-4aaa-bbfb-73359af85991 644245094400/192.168.100.2/abc2ed51-b4a8-46b6-a8ac-0beb58e697d2 644245094400/192.168.100.3/a343b7f9-0bef-4f03-8c6f-526ca12d75a9 644245094400/192.168.100.4/b9b05fc7-7a4b-417d-853b-ac56ed32f5d3 
+Distribution: 872eeecb-ebf9-4368-8150-beb23cd44edf(v.12) - checksum: 16329829800547562843
+Cluster UUID: cc8ab859-619e-4806-ade6-c32ab2db1665
+\end{lstlisting}
+The rebalance process will move all the data out of the node 192.168.100.4 and
+deactivate it. When the node disappears from \emph{"Current configuration"}, it's no
+longer part of the cluster and can be disabled physically.
+
+\subsection{Creating a bare node}
+A bare node is a node, which is prepared to join a specific cluster, but is
+not a part of the cluster yet. Bare nodes can be configured in order to
+replace existing nodes or to join multiple nodes at once to the cluster,
+rather than doing that one by one. A bare node can be configured in an
+automatic way, similarly to the process described in \fref{sec:configfile}
+- the only difference is that the option \path{--bare} must be additionally
+passed to \path{sxsetup}. It can also be configured in interactive mode,
+similarly to adding a new node as described in \fref{sec:addnode}, by
+running \path{sxsetup --bare} and answering the questions.
+\begin{lstlisting}
+# sxsetup --bare
+[...]
+SX node started successfully
+Bare node created. Use 'sxadm cluster --mod' to join it to the cluster
+or perform another operation.
+Node specification: ^\marked{500G/192.168.100.5}^
+\end{lstlisting}
+When the setup is finished, it provides a node specification string, which
+can be used with cluster modification options. Please notice the bare node
+has no UUID assigned - it will get it when joining the target cluster.
+
+\subsection{Performing multiple changes at once}
+Adding new nodes with \path{sxsetup} is a serialized process - one node is
+joined to a cluster, a rebalance is triggered and then another node can be
+added. With \path{sxadm cluster --mod} multiple operations can be merged
+and performed at once, resulting in a single and shorter data rebalance
+process. In the following example, we will replace a couple of nodes in the
+cluster, by adding two larger nodes and removing two existing smaller nodes.
+First, we obtain the current cluster configuration:
+\begin{lstlisting}
+$ sxadm cluster --info @cluster2
+Current configuration: ^\marked{536870912000/192.168.100.1/d3f8ad83-d003-4aaa-bbfb-73359af85991}^ ^\marked{536870912000/192.168.100.2/abc2ed51-b4a8-46b6-a8ac-0beb58e697d2}^ ^\marked{536870912000/192.168.100.3/a343b7f9-0bef-4f03-8c6f-526ca12d75a9}^ ^\marked{536870912000/192.168.100.4/b9b05fc7-7a4b-417d-853b-ac56ed32f5d3}^
+Distribution: 872eeecb-ebf9-4368-8150-beb23cd44edf(v.7) - checksum: 18024964248989723179
+Cluster UUID: cc8ab859-619e-4806-ade6-c32ab2db1665
+\end{lstlisting}
+It tells us there are four 500GB nodes. Now we create a couple of bare nodes: 192.168.100.5
+and 192.168.100.6, both 1TB in size:
+\begin{lstlisting}
+-- on node 192.168.100.5 --
+# sxsetup --bare
+[...]
+SX node started successfully
+Bare node created. Use 'sxadm cluster --mod' to join it to the cluster
+or perform another operation.
+Node specification: ^\markedG{1T/192.168.100.5}^
+\end{lstlisting}
+\begin{lstlisting}
+-- on node 192.168.100.6 --
+# sxsetup --bare
+[...]
+SX node started successfully
+Bare node created. Use 'sxadm cluster --mod' to join it to the cluster
+or perform another operation.
+Node specification: ^\markedG{1T/192.168.100.6}^
+\end{lstlisting}
+With the following command, we will remove nodes 192.168.100.3 and
+192.168.100.4 and add a couple of larger nodes 192.168.100.5 and
+192.167.100.6. In order to do that, we provide a new cluster configuration,
+consisting of the current specifications for nodes 192.168.100.1 and
+192.168.100.2 as well as the bare nodes:
+\begin{lstlisting}
+$ sxadm cluster --mod ^\marked{536870912000/192.168.100.1/d3f8ad83-d003-4aaa-bbfb-73359af85991}^ ^\marked{536870912000/192.168.100.2/abc2ed51-b4a8-46b6-a8ac-0beb58e697d2}^ ^\markedG{1T/192.168.100.5}^ ^\markedG{1T/192.168.100.6}^ @cluster2
+\end{lstlisting}
+After issuing the command, the rebalance process is started, which moves all
+data from the nodes 192.168.100.3 and 192.168.100.4 and balances the data across
+the cluster, which now also includes the 1TB nodes:
+\begin{lstlisting}
+$ sxadm cluster --info @cluster2
+Target configuration: ^\marked{536870912000/192.168.100.1/d3f8ad83-d003-4aaa-bbfb-73359af85991}^ ^\marked{536870912000/192.168.100.2/abc2ed51-b4a8-46b6-a8ac-0beb58e697d2}^ ^\markedG{1099511627776/192.168.100.5/42ea1ec2-4127-491a-9ff9-d9fdfd7c92d0}^ ^\markedG{1099511627776/192.168.100.6/5f26e559-fca0-44aa-b2d6-eb6e8e1156b1}^
+Current configuration: 536870912000/192.168.100.1/d3f8ad83-d003-4aaa-bbfb-73359af85991 536870912000/192.168.100.2/abc2ed51-b4a8-46b6-a8ac-0beb58e697d2 536870912000/192.168.100.3/a343b7f9-0bef-4f03-8c6f-526ca12d75a9 536870912000/192.168.100.4/b9b05fc7-7a4b-417d-853b-ac56ed32f5d3
+Operations in progress:
+  * node d3f8ad83-d003-4aaa-bbfb-73359af85991 (192.168.100.1): Relocating data
+  * node abc2ed51-b4a8-46b6-a8ac-0beb58e697d2 (192.168.100.2): Relocating data
+  * node 42ea1ec2-4127-491a-9ff9-d9fdfd7c92d0 (192.168.100.5): Relocation complete
+  * node 5f26e559-fca0-44aa-b2d6-eb6e8e1156b1 (192.168.100.6): Relocation complete
+Distribution: 872eeecb-ebf9-4368-8150-beb23cd44edf(v.9) - checksum: 16116260632263325108
+Cluster UUID: cc8ab859-619e-4806-ade6-c32ab2db1665
+\end{lstlisting}
+When the rebalance finishes, the cluster consists of two 500GB nodes:
+192.168.100.1 and 192.168.100.2 and two 1TB nodes: 192.168.100.5 and
+192.168.100.6:
+\begin{lstlisting}
+$ sxadm cluster --info @cluster2
+Current configuration: 536870912000/192.168.100.1/d3f8ad83-d003-4aaa-bbfb-73359af85991 536870912000/192.168.100.2/abc2ed51-b4a8-46b6-a8ac-0beb58e697d2 1099511627776/192.168.100.5/42ea1ec2-4127-491a-9ff9-d9fdfd7c92d0 1099511627776/192.168.100.6/5f26e559-fca0-44aa-b2d6-eb6e8e1156b1
+Distribution: 872eeecb-ebf9-4368-8150-beb23cd44edf(v.10) - checksum: 4695375810298161327
+Cluster UUID: cc8ab859-619e-4806-ade6-c32ab2db1665
+\end{lstlisting}
+The nodes 192.168.100.3 and 192.168.100.4 are no longer part of the cluster
+and can be turned off.
+
+\section{Cluster healing}
+
+\subsection{Replacing broken nodes}
+It may happen one or more nodes are permanently lost due to external causes.
+When that happens, some operations will only be possible in read-only mode,
+because the requested replica level cannot be satisfied and that results in
+client errors. Skylable \SX provides an option to automatically rebuild
+a lost node and gather as much data as possible from other nodes.
+\textbf{Please never use this method against properly working nodes:} it
+assumes the node's data is lost and can only retrieve missing data for volumes
+with replica higher than 1; healthy nodes can be replaced using \path{--mod}
+option as described in the previous section. In the following example, the node
+192.168.100.4 is no longer available and we will replace it with a new node
+192.168.100.5.
+\begin{lstlisting}
+$ sxadm cluster --info @cluster2
+Current configuration: 536870912000/192.168.100.1/d3f8ad83-d003-4aaa-bbfb-73359af85991 536870912000/192.168.100.2/abc2ed51-b4a8-46b6-a8ac-0beb58e697d2 536870912000/192.168.100.3/a343b7f9-0bef-4f03-8c6f-526ca12d75a9 ^\marked{536870912000/192.168.100.4/b9b05fc7-7a4b-417d-853b-ac56ed32f5d3}^
+! Failed to get status of node b9b05fc7-7a4b-417d-853b-ac56ed32f5d3 (192.168.100.4)
+Distribution: 872eeecb-ebf9-4368-8150-beb23cd44edf(v.7) - checksum: 18024964248989723179
+Cluster UUID: cc8ab859-619e-4806-ade6-c32ab2db1665
+\end{lstlisting}
+First we need to prepare a bare node 192.168.100.5 of the exact size as the broken
+node we are replacing, that is 500GB:
+\begin{lstlisting}
+-- on node 192.168.100.5 --
+# sxsetup --bare
+[...]
+SX node started successfully
+Bare node created. Use 'sxadm cluster --mod' to join it to the cluster
+or perform another operation.
+Node specification: ^\markedG{500G/192.168.100.5}^
+\end{lstlisting}
+Now we issue the following command, which uses the specification of the broken
+node but points to the new IP address:
+\begin{lstlisting}
+$ sxadm cluster --replace-faulty
+    ^\marked{536870912000}^/^\markedG{192.168.100.5}^/^\marked{b9b05fc7-7a4b-417d-853b-ac56ed32f5d3}^ @cluster2
+\end{lstlisting}
+The broken node is immediately replaced with the new one, and the healing process
+is started:
+\begin{lstlisting}
+$ sxadm cluster --info @cluster2
+Current configuration: 536870912000/192.168.100.1/d3f8ad83-d003-4aaa-bbfb-73359af85991 536870912000/192.168.100.2/abc2ed51-b4a8-46b6-a8ac-0beb58e697d2 536870912000/192.168.100.3/a343b7f9-0bef-4f03-8c6f-526ca12d75a9 536870912000/192.168.100.5/b9b05fc7-7a4b-417d-853b-ac56ed32f5d3
+Operations in progress:
+  * node b9b05fc7-7a4b-417d-853b-ac56ed32f5d3 (192.168.100.5): Healing blocks
+Distribution: 872eeecb-ebf9-4368-8150-beb23cd44edf(v.7) - checksum: 18024964248989723179
+Cluster UUID: cc8ab859-619e-4806-ade6-c32ab2db1665
+\end{lstlisting}
+During the repair process client operations should be back to normal. The same
+steps can be used to replace a broken node without changing its IP address, in
+that case the bare node must be prepared and available with the IP address of
+the broken one. It is also possible to repair more than one node at a time by
+passing more node specifications to \path{--replace-faulty}.
+
+\subsection{Checking storage integrity}
+To check the integrity and correctness of the local storage (called
+\emph{HashFS}) run the following command on the node you want to check (run
+\path{sxsetup --info} if you don't remember the location of the storage):
+\begin{lstlisting}
+# sxadm node --check /var/lib/sxserver/storage/
+[sx_hashfs_check]: Integrity check started   
+HashFS is clean, no errors found
+\end{lstlisting}
+It performs a deep check of the storage structure and also verifies if the
+data on disk is not corrupted by calculating and comparing data checksums.
+
+\subsection{Data recovery}
+It is possible to recover local data in case a node gets damaged. Please
+perform the following command and \path{sxadm} will try to extract as
+much data as possible from the local storage:
+\begin{lstlisting}
+# sxadm node --extract=/tmp/RECOVERED /var/lib/sxserver/storage/
+Finished data extraction from node /var/lib/sxserver/storage/
+\end{lstlisting}

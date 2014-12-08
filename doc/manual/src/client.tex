@@ -1,0 +1,233 @@
+\chapter{Client operations}
+
+\section{Access profiles}
+\label{sec:profiles}
+Using \path{sxinit} one can configure access for multiple users
+and clusters. The access profiles have a format of
+\path{sx://[PROFILE_NAME@]cluster_name}, where \path{PROFILE_NAME}
+is an arbitrary name for the profile, and doesn't need to match
+the username for which the access is configured. In case of a single
+user access to a cluster, \path{PROFILE_NAME} can be omitted and
+\path{sx://cluster_name} will be the default profile for a given
+cluster.
+
+\subsection{Adding profiles}
+To add an access profile for the user 'jeff' and the local cluster
+created in previous chapters run the following command:
+\begin{lstlisting}
+$ sxinit -l 192.168.1.101 -A @jeff sx://jeff@mycluster
+Warning: self-signed certificate:
+
+        Subject: C=GB, ST=UK, O=SX, CN=mycluster
+	Issuer: C=GB, ST=UK, O=SX, CN=mycluster
+	SHA1 Fingerprint: 84:EF:39:80:1E:28:9C:4A:C8:80:E6:56:57:A4:CD:64:2E:23:99:7A
+
+Do you trust this SSL certificate? [y/N] ^\marked{y}^
+Trusting self-signed certificate
+Please enter the user key: ^\marked{FqmlTd9CWZUuPBGMdjE46DaT1/3kx+EYbahlrhcdVpy/9ePfrtWCIgAA}^
+\end{lstlisting}
+Since "mycluster" is not a DNS name, we had to point \path{sxinit} 
+to one of the nodes of the cluster. That allowed it to connect and
+discover all the other nodes. We also created the alias \path{@jeff},
+which will be used for convenience.
+
+\subsection{Listing access profiles}
+To list all configured access profiles run:
+\begin{lstlisting}
+$ sxinit --list
+sx://jeff@mycluster                       @jeff
+sx://admin@mycluster                      @cluster
+\end{lstlisting}
+
+\subsection{Deleting profiles}
+To delete a profile run the following command and provide a full URI
+or an alias name as follows:
+\begin{lstlisting}
+$ sxinit --delete @somealias
+\end{lstlisting}
+It will delete the alias \path{@somealias} and the profile associated with
+it.
+
+\section{Working with files} \label{sec:files}
+\SX provides easy to use file tools, which resemble typical UNIX commands.
+Since \SX is an object storage and not a filesystem, there are some
+fundamental differences, though. One of them is lack of "real" directories:
+each file (object) has assigned a full path that uniquely identifies it and
+the path is not a part of any tree structure. \SX does simulate a directory
+structure by matching the subpaths, for example \path{/path/file1}
+and \path{/path/file2} will be presented as contents of the directory
+\path{/path/} just like on a typical filesystem. However, the directory
+\path{/path/} is only emulated (and is not assigned to any object), and
+therefore it's perfectly legit to also have a file with a path \path{/path},
+which doesn't conflict with the other two files at all! 
+
+In the following subsections we present the command line tools and show
+how to use them to perform common tasks.
+
+\subsection{sxcp: upload and download files}
+\path{sxcp} can copy files and entire directories from and to Skylable \SX
+clusters. It can also copy data between two different SX clusters. By default,
+for each file a progress bar is displayed, which shows the transfer speed and
+the estimated time of arrival. \path{sxcp} makes use of all the advanced features \SX,
+such as deduplication and transfer resuming to minimize the bandwidth usage.
+
+Use \path{sxcp -r} to recursively upload directories to the remote volume:
+\begin{lstlisting}
+$ sxcp -r /home/jeff/VMs/ @jeff/vol-jeff/VMimages/
+Uploading /home/jeff/VMs/FreeBSD 10.0/FreeBSD 10.0.vmdk (size: 4.91GB)
+  14% [====>                                            ]  55.11MB/s ETA 44s
+\end{lstlisting}
+\path{sxcp} shows the average speed of the tranfer and how long it will take.
+The great feature of \SX is the already mentioned transfer resuming, which
+allows to continue the transfer in case it was interrupted. Below we interrupt
+the transfer of the large file and repeat the same copy again:
+\begin{lstlisting}
+$ sxcp -r /home/jeff/VMs/ @jeff/vol-jeff/VMimages/
+Uploading /home/jeff/VMs/FreeBSD 10.0/FreeBSD 10.0.vmdk (size: 4.91GB)
+  94% [=============================================>   ]  55.11MB/s ETA 5s
+^\textasciicircum^CProcess interrupted
+$ sxcp -r /home/jeff/VMs/ @jeff/vol-jeff/VMimages/
+  97% [++++++++++++++++++++++++++++++++++++++++++++++=> ]  52.17MB/s ETA 2s
+\end{lstlisting}
+The second \path{sxcp} call automatically finds out, which blocks of the file
+has already been transferred and only uploads the missing ones. The transfer
+resuming works in a similar way for file downloads.
+
+\path{sxcp} can copy files between different volumes, also on different
+clusters, and comes with other useful features, such as bandwidth limiting. See
+\path{man sxcp} for the usage details and other examples.
+
+\subsection{sxls: list volumes and files}
+With \path{sxls} one can discover, which volumes are accessible on the cluster
+and then list their contents. To get the list of volumes, which user 'jeff'
+can access run:
+\begin{lstlisting}
+$ sxls -lH @jeff
+  VOL  rep:2  rev:1  rw  -  12.83G  50.00G  25% sx://jeff@mycluster/vol-jeff
+\end{lstlisting}
+With \path{-l (--long)} and \path{-H (--human-readable)} options \path{sxls}
+displays the list of available volumes, together with additional information
+such as the replica count, maximum number of revisions per file, permissions,
+size and usage.
+
+Running \path{sxls} against the volume without any arguments returns the first
+level of files, similarly to the command \path{ls}:
+\begin{lstlisting}
+$ sxls @jeff/vol-jeff
+sx://jeff@mycluster/vol-jeff/VMimages/
+\end{lstlisting}
+To list the volume recursively, with more information about files and human
+readable sizes run:
+\begin{lstlisting}
+$ sxls -rlH @jeff/vol-jeff
+2014-11-17 14:03           31 sx://jeff@mycluster/vol-jeff/VMimages/Debian-MIPS/bridge.sh
+2014-11-17 14:03      245.88M sx://jeff@mycluster/vol-jeff/VMimages/Debian-MIPS/debian_squeeze_mips_standard.qcow2
+2014-11-17 14:03        4.10M sx://jeff@mycluster/vol-jeff/VMimages/Debian-MIPS/initrd.gz
+2014-11-17 14:03          139 sx://jeff@mycluster/vol-jeff/VMimages/Debian-MIPS/run
+2014-11-17 14:03          677 sx://jeff@mycluster/vol-jeff/VMimages/Debian-MIPS/start.sh
+2014-11-17 14:03        6.61M sx://jeff@mycluster/vol-jeff/VMimages/Debian-MIPS/vmlinux-2.6.32-5-4kc-malta
+2014-11-17 14:03        1.41G sx://jeff@mycluster/vol-jeff/VMimages/Debian-PPC/debian_squeeze_powerpc_standard.qcow2
+2014-11-17 14:04          349 sx://jeff@mycluster/vol-jeff/VMimages/Debian-PPC/start.sh
+2014-11-17 14:02        4.91G sx://jeff@mycluster/vol-jeff/VMimages/FreeBSD 10.0/FreeBSD 10.0.vmdk
+2014-11-17 14:03      693.12M sx://jeff@mycluster/vol-jeff/VMimages/FreeBSD 10.0/FreeBSD-10.0-BETA1-amd64-disc1.iso
+\end{lstlisting}
+
+\subsection{sxmv: move or rename files}
+\path{sxmv} can move files or group of files into new locations. It can be
+used to just rename individual files or move entire groups to another cluster.
+In contrast to the command \path{mv}, renaming a directory with \path{sxmv}
+requires prividing the recursive flag \path{-r}. That's because of the design
+of the object storage and lack of real directories as described at the beginning
+of this chapter. In order to rename a directory, \path{sxmv} has to rename all the
+files (objects), which share the same directory path. In the example below we rename
+the directory 'VMimages' to 'VMs' and list the new volume structure in basic mode:
+\begin{lstlisting}
+$ sxmv -r @jeff/vol-jeff/VMimages/ @jeff/vol-jeff/VMs/
+$ sxls -r @jeff/vol-jeff
+sx://jeff@mycluster/vol-jeff/VMs/Debian-MIPS/bridge.sh
+sx://jeff@mycluster/vol-jeff/VMs/Debian-MIPS/debian_squeeze_mips_standard.qcow2
+sx://jeff@mycluster/vol-jeff/VMs/Debian-MIPS/initrd.gz
+sx://jeff@mycluster/vol-jeff/VMs/Debian-MIPS/run
+sx://jeff@mycluster/vol-jeff/VMs/Debian-MIPS/start.sh
+sx://jeff@mycluster/vol-jeff/VMs/Debian-MIPS/vmlinux-2.6.32-5-4kc-malta
+sx://jeff@mycluster/vol-jeff/VMs/Debian-PPC/debian_squeeze_powerpc_standard.qcow2
+sx://jeff@mycluster/vol-jeff/VMs/Debian-PPC/start.sh
+sx://jeff@mycluster/vol-jeff/VMs/FreeBSD 10.0/FreeBSD 10.0.vmdk
+sx://jeff@mycluster/vol-jeff/VMs/FreeBSD 10.0/FreeBSD-10.0-BETA1-amd64-disc1.iso
+\end{lstlisting}
+
+\subsection{sxrm: remove files}
+The equivalent of the system command \path{rm} in \SX is \path{sxrm}. Similarly
+to other tools, it can handle individual files or entire directories in
+recursive mode. Below we first check the current space usage for the volume, then
+remove a directory with some large files (using a wildcard to match it), and check
+the usage again:
+\begin{lstlisting}
+$ sxls -l @jeff
+  VOL  rep:2  rev:1  rw  -  7.24G   50.00G  14% sx://jeff@mycluster/vol-jeff
+$ sxrm -r @jeff/vol-jeff/VMs/FreeBSD*
+Deleted 2 file(s)
+$ sxls -lH @jeff
+  VOL  rep:2  rev:1  rw  -  1.66G   50.00G  14% sx://jeff@mycluster/vol-jeff
+\end{lstlisting}
+
+\subsection{sxrev: manage file revisions}
+The \SX volumes can be configured \footnote{See \fref{sec:volumes} on how
+to create and configure volumes} to keep multiple revisions of files. For
+example, if a volume was created with an option to keep 3 revisions, every
+time a specific file gets modified the previous copy will be preserved and
+the latest 3 versions of the file will be available for download. The tools
+such as \path{sxcp} or \path{sxls} will always operate on the latest revision.
+In order to access and manage the older revisions, one has to use \path{sxrev}.
+
+In the examples below we will operate on the volume \path{vol-jeff-rev}, which
+was configured to store up to 3 revisions for each file and the example file
+\path{document.pdf} was already updated a few times. In order to list all of
+its revisions, run the following command:
+\begin{lstlisting}
+$ sxrev list @jeff/vol-jeff-rev/document.pdf
+Revisions for file @jeff/vol-jeff-rev/document.pdf (most recent first):
+1.      2014-11-18 12:05 size:128026 rev:"2014-11-18 12:05:00.938:d2bc1190a0f70f4b4925d702e0d567a7"
+2.      2014-11-18 11:54 size:105866 rev:"2014-11-18 11:54:42.362:1fc102f66cabd0e8daac8e1279b54c0a"
+3.      2014-11-18 10:23 size:93545  rev:"2014-11-18 10:23:22.188:d3b1fb1d7e4219ab4a8d1fc7c8edff0c"
+\end{lstlisting}
+The first revision on the list is the latest one, which is also visible to
+other tools. In order to restore an older revision of a file, it needs to
+be copied into a new destination. By default \path{sxrev} asks interactively,
+which revision should be copied as on the example below:
+\begin{lstlisting}
+$ sxrev copy @jeff/vol-jeff-rev/document.pdf ~/document-prev.pdf
+Revisions for file @jeff/vol-jeff-rev/document.pdf (most recent first):
+1.      2014-11-18 12:05 size:128026 rev:"2014-11-18 12:05:00.938:d2bc1190a0f70f4b4925d702e0d567a7"
+2.      2014-11-18 11:54 size:105866 rev:"2014-11-18 11:54:42.362:1fc102f66cabd0e8daac8e1279b54c0a"
+3.      2014-11-18 10:23 size:93545  rev:"2014-11-18 10:23:22.188:d3b1fb1d7e4219ab4a8d1fc7c8edff0c"
+Choose revision to copy: 2
+Copy operation completed successfully
+\end{lstlisting}
+The same operation can be performed in non-interactive mode by providing
+the revision string as an argument:
+\begin{lstlisting}
+$ sxrev copy -r "2014-11-18 11:54:42.362:1fc102f66cabd0e8daac8e1279b54c0a" @jeff/vol-jeff-rev/document.pdf ~/document-prev.pdf
+Copy operation completed successfully
+\end{lstlisting}
+The size of all revisions adds up to the volume usage, that's why one may want
+to remove specific revisions (eg. for large media files). When a file with
+multiple revisions gets deleted with \path{sxrm}, all of the revisions get
+removed automatically as well. With \path{sxrev delete} only specific revisions
+can be deleted and it works similarly to \path{sxrev copy}. In the example
+below we remove the two oldest revisions, in both interactive and
+non-interactive modes:
+\begin{lstlisting}
+$ sxrev delete @jeff/vol-jeff-rev/document.pdf
+Revisions for file @jeff/vol-jeff-rev/document.pdf (most recent first):
+1.      2014-11-18 12:05 size:128026 rev:"2014-11-18 12:05:00.938:d2bc1190a0f70f4b4925d702e0d567a7"
+2.      2014-11-18 11:54 size:105866 rev:"2014-11-18 11:54:42.362:1fc102f66cabd0e8daac8e1279b54c0a"
+3.      2014-11-18 10:23 size:93545  rev:"2014-11-18 10:23:22.188:d3b1fb1d7e4219ab4a8d1fc7c8edff0c"
+Choose revision to delete: 2
+Delete operation completed successfully
+$ sxrev delete -r "2014-11-18 10:23:22.188:d3b1fb1d7e4219ab4a8d1fc7c8edff0c" @jeff/vol-jeff-rev/document.pdf
+Delete operation completed successfully
+$ sxrev list @jeff/vol-jeff-rev/document.pdf
+Revisions for file @jeff/vol-jeff-rev/document.pdf (most recent first):
+1.      2014-11-18 12:05 size:128026 rev:"2014-11-18 12:05:00.938:d2bc1190a0f70f4b4925d702e0d567a7"
+\end{lstlisting}

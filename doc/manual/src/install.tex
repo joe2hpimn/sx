@@ -1,0 +1,73 @@
+\chapter{Installation}
+
+Skylable \SX is tested on all popular UNIX platforms, including Linux,
+FreeBSD, and Mac OS X. We try to support as many platforms as possible,
+if you have troubles installing, compiling or running our software on
+your platform please let us know.
+
+\section{Binary packages}
+The binary packages are available for all popular Linux distributions
+and this is the easiest and recommended way to install Skylable \SX.
+
+\subsection{Debian Wheezy}
+Add the following entry to \path{/etc/apt/sources.list}:
+\begin{lstlisting}
+deb http://cdn.skylable.com/debian wheezy main
+\end{lstlisting}
+then run the following commands:
+\begin{lstlisting}
+# wget https://pgp.mit.edu/pks/lookup?op=get&search=0x5377E192B7BC1D2E | sudo apt-key add -
+# apt-get install sx
+\end{lstlisting}
+
+\subsection{CentOS 5/6/7}
+Create the file \path{/etc/yum.repos.d/skylable-sx.repo} with this content:
+\begin{lstlisting}
+[skylable-sx]
+name=Skylable SX
+baseurl=http://cdn.skylable.com/centos/$releasever/$basearch
+enabled=1
+gpgcheck=0
+\end{lstlisting}
+then execute:
+\begin{lstlisting}
+# yum install skylable-sx
+\end{lstlisting}
+
+\subsection{Fedora 20}
+Create the file \path{/etc/yum.repos.d/skylable-sx.repo} with this content:
+\begin{lstlisting}
+[skylable-sx]
+name=Skylable SX
+baseurl=http://cdn.skylable.com/fedora/$releasever/$basearch
+enabled=1
+gpgcheck=0
+\end{lstlisting}
+then execute:
+\begin{lstlisting}
+# yum install skylable-sx
+\end{lstlisting}
+
+\section{Source code}
+In order to compile \SX from source, you will need the following packages to
+be installed together with their development versions:
+\begin{itemize}
+    \item OpenSSL/NSS
+    \item libcurl >= 7.34.0 (otherwise the embedded one will be used)
+    \item zlib
+\end{itemize}
+For example, on Debian run:
+\begin{lstlisting}
+# apt-get install libssl-dev libcurl4-openssl-dev libz-dev
+\end{lstlisting}
+
+\subsection{Compilation}
+The software is based on autoconf, and you can just perform the standard
+installation steps. The following commands install all the software in
+\path{/opt/sx}:
+\begin{lstlisting}
+$ ./configure && make
+# make install
+\end{lstlisting}
+The rest of the manual assumes that \SX was installed from a binary
+package, so some paths may be different.

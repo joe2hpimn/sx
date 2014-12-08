@@ -1,0 +1,552 @@
+\chapter{Cluster deployment}
+
+\section{Requirements}
+
+\SX by default operates on the port 443 or 80, which needs to be available on
+a given IP address\footnote{You can choose a custom port when running sxsetup with
+in advanced mode}. You can build just a single-node \SX cluster, however for data
+safety reasons it is recommended to create at least two nodes and use replica higher
+than 1. You can add more nodes to the cluster at any time.
+
+\section{Creating the first node}
+
+Setting up the first node initializes the cluster and makes \SX ready to
+use. The \path{sxsetup} tool presented below performs an automated
+configuration of the \SX server, which includes creating a local
+data storage, SSL certificate, and default admin account. You will only
+need to answer a few basic questions!
+
+In the example we assume the IP address of the first node is
+\textbf{192.168.1.101}, the name of the cluster is \textbf{mycluster},
+and \SX was installed from a binary package. In many some cases (eg. the
+path to \SX storage) we assume the default values, but you may want to
+customize them.
+
+\begin{lstlisting}
+# sxsetup
+--- SKYLABLE SX CONFIGURATION SCRIPT ---
+
+The script will help you to create or extend a Skylable SX data
+cluster.
+
+--- CLUSTER NAME ---
+
+Clients will access your cluster using a sx://clustername/volume/path
+URI. It is recommended to use a FQDN for clustername, but not
+required. Refer to the documentation for more info.
+Enter the cluster name (use the same across all nodes) []: ^\marked{mycluster}^
+
+--- DATA STORAGE ---
+
+Please provide the location where all incoming data will be stored.
+Path to SX storage [default=/var/lib/sxserver]: ^\marked{<confirm default>}^
+
+Please specify the maximum size of the storage for this node. You can
+use M, G and T suffixes, eg. 100T for 100 terabytes.
+Maximum size [default=1T]: ^\marked{500G}^
+
+--- NETWORKING ---
+
+Enable SSL? (use the same setting for all nodes in the cluster) (Y/n)
+^\marked{<confirm default>}^
+Enter the IP address of this node [default=192.168.1.101]: ^\marked{<confirm default>}^
+Checking port 443 on 192.168.1.101 ... OK
+
+--- CLUSTER CONFIGURATION ---
+
+Is this (192.168.1.101) the first node of a new cluster? (Y/n)
+^\marked{<confirm default>}^
+
+--- SSL CONFIGURATION ---
+
+Generating default SSL certificate and keys in
+/etc/ssl/private/sxkey.pem /etc/ssl/certs/sxcert.pem
+Generating a 2048 bit RSA private key
+................................+++
+..............................................+++
+writing new private key to '/etc/ssl/private/sxkey.pem'
+
+--- YOUR CHOICES ---
+
+Cluster: sx://mycluster
+Node: 192.168.1.101
+Use SSL: yes
+Storage: /var/lib/sxserver
+Run as user: nobody
+
+Is this correct? (Y/n) ^\marked{<confirm default>}^
+
+--- CLUSTER INITIALIZATION ---
+
++ /usr/sbin/sxadm node --new --batch-mode --owner=nobody:nogroup /var/lib/sxserver/storage
++ /usr/sbin/sxadm cluster --new --port=443 --batch-mode --node-dir=/var/lib/sxserver/storage --ssl-ca-file=/etc/ssl/certs/sxcert.pem 500G/192.168.1.101 sx://mycluster
+Starting SX.fcgi
+Starting sxhttpd
+Cluster UUID: 01dca714-8cc9-4e26-960e-daf04892b1e2
+Cluster key: CLUSTER/ALLNODE/ROOT/USERwBdjfz3tKcnTF2ouWIkTipreYuYjAAA
+Admin key: 0DPiKuNIrrVmD8IUCuw1hQxNqZfIkCY+oKwxi5zHSPn5y0SOi3IMawAA
+Internal cluster protocol: SECURE
+Used disk space: 16.75M
+Actual data size: 453.00K
+List of nodes:
+         * ec4d9d63-9fa3-4d45-838d-3e521f124ed3 192.168.1.101 (192.168.1.101) 500.00G
+
+--- CONFIGURATION SUMMARY ---
+
+SSL private key (/etc/ssl/private/sxkey.pem):
+-----BEGIN PRIVATE KEY-----
+MIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQCYNdtHyNglHZQ8
+vaO1HJWtZ/eerB2H80XyQTZpDFRS87qGUNcrRudDN09EypcueXaW1UN/3L8KKn7t
+tGhLe6quG8QuKw//UiJDDGTDEICOndtYfBh07zNR9zgaQRi9loqQB6Iqfe4K/T9F
+EONMjVji1OF5JI/3SgxEDwoQ4+1eghDuMGMElzJ4VJCojXhiEtvwo1ZruFX+Xogd
+rq4Ys6Pch7n9FowdOc2n+IRxPXKb6CqnHC1t9AKEBmbaoP+0zhM8ZFCl3WFRChvb
+JF8T9ZZ5q3nol668NILNN1f4RRe07+pb9ubfWqNABhuI5hQUnG81wKjcIzjWK4HZ
++3bMwg6PAgMBAAECggEAQ+fTGmV6OKTHm4mnXYeRJzm4+SskSaC41elOEvOTMybV
+UlMCi6YoSo6EaNZROESsKYKfiI29FRX8ZqQT24kijmaI0WgYzPmhm3QOCBB2qim2
+z/UdHB4TMUAv4ValaP+edb9SE872wiRVc8SjA2YT/66loNw09kgszLhA72QgZAbG
+xmxVwCNTRFd7dg4Wmy1OQz3YVOnlC3Qs8C8LoGoO0Mci85quhBUw9s7J12skXGbu
+ZGDtpJylgwtfc1q7nojaFkWenGCA9D1HB8zCqKPkhMh+HtA26g8VdFaHPVBzw/pz
+avv5r9gLnBETwHfM3XuIYv7h3wowE5uAKVhgvL8w0QKBgQDJs2avbYOwgcEEOf7L
+nPRqmb5XjJE329KsyIzo4YwOrZDjQXSYrBjifoBIJzUReDDB7ww5lt0Xy3MExeS4
+ngL0/oWotjd7jGU+EdABozKwW3bZuyUTSqTeQJwo+aIhjNtiyMrnpFy3vjYrJKGy
+W/9cnv1WjqxpqnQgDjE/yJt36wKBgQDBL7p7iCWjIf+LH1/caFgPchJENd4YZZrB
+bhGA/tuo6VtJcarc/Etx3DGbKhnJq13LxRRLjyHlPhw/k7oZBdaVK27I+vNfw5Lj
+c2KZCYbFnF3kbP5ryuMW0QqGbkZZ/FExzwgFyAOUuCTw9L2VmKtPgbP9ywDTJc0Z
+Jq/pdzOe7QKBgFOpxn4dvvIH4DgQlk9+2yMcgoduFw5EcC6bQVeXtrCf7elVzTdG
+q0vHjQ5gtPJ6GD9ZGIkKusqT6TGhpC2v3SoiKO7CJmFo6tXELbOALhZY2gOWTNqj
+q59EzYFxin7AHn/rKb7Lvmm4zF844plI77NLf2nX5EwwF9r0CBmc7F/hAoGAUctH
+ha4rYVqvu9PY3pU/U6rUmRTFqEa8s1FLD/bYQjgrcnkyAsa/msHELxIwQPbRi8kx
+wpwjmdAmXbTKgnW6WQY+rdGy4cUImEzuXiVubpS6HFEZl8IbTDnN3wUpvEfciN5D
+Y09AVONyoKK+8mvlfJBKCRa+jqfeotuCd7MEpDECgYAhWcDt6aXSsUOtq+jgVNtC
+oi9Cnm4FNW7Z/VVgCCRFIwHxpqqAau63/naSGxkLUlK+U0StReiLC2D4FPrqs9Jh
+scUH9hTIp3hxwznZBRFkuvUOm3h6CwQ0t3km7AffLRsGQZ9EMlvNb4T5mR/Izgxy
+smcEPJfJgX61fx7c//bU6Q==
+-----END PRIVATE KEY-----
+
+SSL certificate (/etc/ssl/certs/sxcert.pem):
+-----BEGIN CERTIFICATE-----
+MIIDpzCCAo+gAwIBAgIJAODcwxKZHi35MA0GCSqGSIb3DQEBCwUAMDsxCzAJBgNV
+BAYTAkdCMQswCQYDVQQIEwJVSzELMAkGA1UEChMCU1gxEjAQBgNVBAMTCW15Y2x1
+c3RlcjAeFw0xNDAzMjExNDU2NTdaFw0xOTAzMjAxNDU2NTdaMDsxCzAJBgNVBAYT
+AkdCMQswCQYDVQQIEwJVSzELMAkGA1UEChMCU1gxEjAQBgNVBAMTCW15Y2x1c3Rl
+cjCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBAJg120fI2CUdlDy9o7Uc
+la1n956sHYfzRfJBNmkMVFLzuoZQ1ytG50M3T0TKly55dpbVQ3/cvwoqfu20aEt7
+qq4bxC4rD/9SIkMMZMMQgI6d21h8GHTvM1H3OBpBGL2WipAHoip97gr9P0UQ40yN
+WOLU4Xkkj/dKDEQPChDj7V6CEO4wYwSXMnhUkKiNeGIS2/CjVmu4Vf5eiB2urhiz
+o9yHuf0WjB05zaf4hHE9cpvoKqccLW30AoQGZtqg/7TOEzxkUKXdYVEKG9skXxP1
+lnmreeiXrrw0gs03V/hFF7Tv6lv25t9ao0AGG4jmFBScbzXAqNwjONYrgdn7dszC
+Do8CAwEAAaOBrTCBqjAdBgNVHQ4EFgQUs7Zs8qeEtPdNQ7l3zs3f2v+MTrswawYD
+VR0jBGQwYoAUs7Zs8qeEtPdNQ7l3zs3f2v+MTruhP6Q9MDsxCzAJBgNVBAYTAkdC
+MQswCQYDVQQIEwJVSzELMAkGA1UEChMCU1gxEjAQBgNVBAMTCW15Y2x1c3RlcoIJ
+AODcwxKZHi35MA8GA1UdEwEB/wQFMAMBAf8wCwYDVR0PBAQDAgEGMA0GCSqGSIb3
+DQEBCwUAA4IBAQBGwoULuHM5svPvV7c0tdsBmxovrhCYkMg4MwtPJ8eJQckyrCP3
+fIU1VMXXeHKegaZ4q3QzIV9DDO1XB9TzifZ8yKm7a2/NlUnvgLQCGu82H/226YLE
+abqoipcJsAANo5+2qGYEmYDODmLOnToaCX5bcmbLc1tcG4uf/x88O+PGLgh/h5+9
+MUMlffyJWAE5eJN1rk9T5k0Onm5PElQLP/ZQecodHGL9Xxzgj09kLfwbRmUruGu/
+ft4Ru0oOrQDIDWxQuiBitawQKX/tyaGkpX+g38gyFwDiPINo2q/IHeckxX5EHgF3
+YGgPNaWwBnH3jfsJ/kMXcJS52q/zPOIvUCz0
+-----END CERTIFICATE-----
+
+Cluster: sx://mycluster
+This node: 192.168.1.101
+Cluster UUID: 01dca714-8cc9-4e26-960e-daf04892b1e2
+Cluster key: CLUSTER/ALLNODE/ROOT/USERwBdjfz3tKcnTF2ouWIkTipreYuYjAAA
+Admin key: 0DPiKuNIrrVmD8IUCuw1hQxNqZfIkCY+oKwxi5zHSPn5y0SOi3IMawAA
+Internal cluster protocol: SECURE
+Used disk space: 16.75M
+Actual data size: 453.00K
+List of nodes:
+         * ec4d9d63-9fa3-4d45-838d-3e521f124ed3 192.168.1.101 (192.168.1.101) 500.00G
+Storage location: /var/lib/sxserver
+Run as user: nobody
+Sockets and pidfiles in: /var/run/sxserver
+Logs in: /var/log/sxserver/sxfcgi.log
+
+--- END OF SUMMARY ---
+
+Congratulations, the new node is up and running!
+You can control it with '/usr/sbin/sxserver'
+
+You can add a new node to the cluster by running 'sxsetup' on another
+server. When prompted, enter the 'admin key', 'SSL private key' and
+'SSL certificate' printed above.
+
+You can run 'sxacl useradd joe sx://admin@mycluster' to add a new user.
+To create a new volume owned by user 'joe' run:
+'sxvol create --owner joe --replica N --size SIZE sx://admin@mycluster/VOLNAME'
+\end{lstlisting}
+When the script finishes successfully, the node is already functional.
+Please notice the admin key listed at the end of the summary: it will be
+needed for both adding more nodes and accessing the cluster. You can
+always retrieve the admin key with the following command:
+\begin{lstlisting}
+# sxsetup --info
+--- SX INFO ---
+SX Version: 1.0
+Cluster name: ^\marked{mycluster}^
+Cluster port: 443
+Cluster UUID: 01dca714-8cc9-4e26-960e-daf04892b1e2
+Cluster key: CLUSTER/ALLNODE/ROOT/USERwBdjfz3tKcnTF2ouWIkTipreYuYjAAA
+Admin key: ^\marked{0DPiKuNIrrVmD8IUCuw1hQxNqZfIkCY+oKwxi5zHSPn5y0SOi3IMawAA}^
+Internal cluster protocol: SECURE
+Used disk space: 16.75M
+Actual data size: 453.00K
+List of nodes:
+         * ec4d9d63-9fa3-4d45-838d-3e521f124ed3 ^\marked{192.168.1.101}^ (192.168.1.101) 500.00G
+Storage location: /var/lib/sxserver/storage
+SSL private key: /etc/ssl/private/sxkey.pem
+SX Logfile: /var/log/sxserver/sxfcgi.log
+\end{lstlisting}
+That's it - your SX storage is already up and running! You can now
+go to the next step and add more nodes or go to the next chapter and
+learn how to perform basic client operations.
+
+\section{Adding more nodes to the cluster} \label{sec:addnode}
+
+Follow these steps to add a new node to the cluster:
+\begin{itemize}
+    \item Run \path{sxsetup --info} on one of the nodes of the cluster
+    \item Collect the following information:
+	\begin{itemize}
+	    \item Cluster name
+	    \item Admin key
+	    \item One of the IP addresses from the list of nodes
+	    \item The content of the SSL private key file (not the path itself!)
+	\end{itemize}
+    \item Install \SX using a binary package or source code
+    \item Run \path{sxsetup} and provide the collected information.
+	  Below we assume the new node is 192.168.1.102 and its size is 250 GBs.
+\end{itemize}
+
+\begin{lstlisting}
+# sxsetup
+--- SKYLABLE SX CONFIGURATION SCRIPT ---
+
+The script will help you to create or extend a Skylable SX data
+cluster.
+
+--- CLUSTER NAME ---
+
+Clients will access your cluster using a sx://clustername/volume/path
+URI. It is recommended to use a FQDN for clustername, but not
+required. Refer to the documentation for more info.
+Enter the cluster name (use the same across all nodes) []: ^\marked{mycluster}^
+
+--- DATA STORAGE ---
+
+Please provide the location where all incoming data will be stored.
+Path to SX storage [default=/var/lib/sxserver]: ^\marked{<confirm default>}^
+
+Please specify the maximum size of the storage for this node. You can
+use M, G and T suffixes, eg. 100T for 100 terabytes.
+Maximum size [default=1T]: ^\marked{250G}^
+
+--- NETWORKING ---
+
+Enable SSL? (use the same setting for all nodes in the cluster) (Y/n)
+^\marked{<confirm default>}^
+Enter the IP address of this node [default=192.168.1.102]: ^\marked{<confirm default>}^
+Checking port 443 on 192.168.1.102 ... OK
+
+--- CLUSTER CONFIGURATION ---
+
+Is this (192.168.1.102) the first node of a new cluster? (Y/n) ^\marked{n}^
+Please provide the IP address of a working node in 'mycluster'.
+IP address: ^\marked{192.168.1.101}^
+
+The admin key is required to join the existing cluster.
+If you don't have it, run \path{sxsetup --info} on 192.168.1.101.
+Below you can provide the key itself or path to the file
+containing the key.
+Admin key or path to key-file:
+^\marked{0DPiKuNIrrVmD8IUCuw1hQxNqZfIkCY+oKwxi5zHSPn5y0SOi3IMawAA}^
+
+--- SSL CONFIGURATION ---
+
+Please paste the SSL private key below (and press CTRL+D when
+done) or provide a path to it.
+SSL private key:
+^\marked{<below paste the private key from 192.168.1.101>}^
+-----BEGIN PRIVATE KEY-----
+MIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQCYNdtHyNglHZQ8
+vaO1HJWtZ/eerB2H80XyQTZpDFRS87qGUNcrRudDN09EypcueXaW1UN/3L8KKn7t
+tGhLe6quG8QuKw//UiJDDGTDEICOndtYfBh07zNR9zgaQRi9loqQB6Iqfe4K/T9F
+EONMjVji1OF5JI/3SgxEDwoQ4+1eghDuMGMElzJ4VJCojXhiEtvwo1ZruFX+Xogd
+rq4Ys6Pch7n9FowdOc2n+IRxPXKb6CqnHC1t9AKEBmbaoP+0zhM8ZFCl3WFRChvb
+JF8T9ZZ5q3nol668NILNN1f4RRe07+pb9ubfWqNABhuI5hQUnG81wKjcIzjWK4HZ
++3bMwg6PAgMBAAECggEAQ+fTGmV6OKTHm4mnXYeRJzm4+SskSaC41elOEvOTMybV
+UlMCi6YoSo6EaNZROESsKYKfiI29FRX8ZqQT24kijmaI0WgYzPmhm3QOCBB2qim2
+z/UdHB4TMUAv4ValaP+edb9SE872wiRVc8SjA2YT/66loNw09kgszLhA72QgZAbG
+xmxVwCNTRFd7dg4Wmy1OQz3YVOnlC3Qs8C8LoGoO0Mci85quhBUw9s7J12skXGbu
+ZGDtpJylgwtfc1q7nojaFkWenGCA9D1HB8zCqKPkhMh+HtA26g8VdFaHPVBzw/pz
+avv5r9gLnBETwHfM3XuIYv7h3wowE5uAKVhgvL8w0QKBgQDJs2avbYOwgcEEOf7L
+nPRqmb5XjJE329KsyIzo4YwOrZDjQXSYrBjifoBIJzUReDDB7ww5lt0Xy3MExeS4
+ngL0/oWotjd7jGU+EdABozKwW3bZuyUTSqTeQJwo+aIhjNtiyMrnpFy3vjYrJKGy
+W/9cnv1WjqxpqnQgDjE/yJt36wKBgQDBL7p7iCWjIf+LH1/caFgPchJENd4YZZrB
+bhGA/tuo6VtJcarc/Etx3DGbKhnJq13LxRRLjyHlPhw/k7oZBdaVK27I+vNfw5Lj
+c2KZCYbFnF3kbP5ryuMW0QqGbkZZ/FExzwgFyAOUuCTw9L2VmKtPgbP9ywDTJc0Z
+Jq/pdzOe7QKBgFOpxn4dvvIH4DgQlk9+2yMcgoduFw5EcC6bQVeXtrCf7elVzTdG
+q0vHjQ5gtPJ6GD9ZGIkKusqT6TGhpC2v3SoiKO7CJmFo6tXELbOALhZY2gOWTNqj
+q59EzYFxin7AHn/rKb7Lvmm4zF844plI77NLf2nX5EwwF9r0CBmc7F/hAoGAUctH
+ha4rYVqvu9PY3pU/U6rUmRTFqEa8s1FLD/bYQjgrcnkyAsa/msHELxIwQPbRi8kx
+wpwjmdAmXbTKgnW6WQY+rdGy4cUImEzuXiVubpS6HFEZl8IbTDnN3wUpvEfciN5D
+Y09AVONyoKK+8mvlfJBKCRa+jqfeotuCd7MEpDECgYAhWcDt6aXSsUOtq+jgVNtC
+oi9Cnm4FNW7Z/VVgCCRFIwHxpqqAau63/naSGxkLUlK+U0StReiLC2D4FPrqs9Jh
+scUH9hTIp3hxwznZBRFkuvUOm3h6CwQ0t3km7AffLRsGQZ9EMlvNb4T5mR/Izgxy
+smcEPJfJgX61fx7c//bU6Q==
+-----END PRIVATE KEY-----
+^\marked{<press CTRL+D>}^
+
+Successfully obtained SSL certificate from 192.168.1.101
+
+--- YOUR CHOICES ---
+
+Cluster: sx://mycluster
+Node: 192.168.1.102
+Use SSL: yes
+Storage: /var/lib/sxserver
+Run as user: nobody
+
+Is this correct? (Y/n) ^\marked{<confirm default>}^
+
+--- CLUSTER INITIALIZATION ---
+
+Connecting to 192.168.1.101
+Server certificate:
+        Subject: C=UK; L=London; O=SX; CN=mycluster
+	Issuer: C=UK; L=London; O=SX; CN=mycluster
+	SHA1 fingerprint: 627917198424168ad0c144e721567eb4ebc90db1
+
+Do you trust this SSL certificate? [y/N] ^\marked{y}^
++ /usr/sbin/sxadm node --new --batch-mode --owner=nobody:nogroup --cluster-uuid=01dca714-8cc9-4e26-960e-daf04892b1e2 --cluster-key=/var/lib/sxserver/cluster.key /var/lib/sxserver/storage
+Starting SX.fcgi
+Starting sxhttpd
+SX node started successfully
++ /usr/sbin/sxadm cluster --mod 536870912000/192.168.1.101/ec4d9d63-9fa3-4d45-838d-3e521f124ed3 250G/192.168.1.102 sx://admin@mycluster
+Cluster UUID: 01dca714-8cc9-4e26-960e-daf04892b1e2
+Cluster key: CLUSTER/ALLNODE/ROOT/USERwBdjfz3tKcnTF2ouWIkTipreYuYjAAA
+Admin key: 0DPiKuNIrrVmD8IUCuw1hQxNqZfIkCY+oKwxi5zHSPn5y0SOi3IMawAA
+Internal cluster protocol: SECURE
+Used disk space: 16.75M
+Actual data size: 453.00K
+List of nodes:
+    - ec4d9d63-9fa3-4d45-838d-3e521f124ed3 192.168.1.101 (192.168.1.101) 500.00G
+    * 02e01f5d-80d8-4a01-b1f7-a56eecb8aef5 192.168.1.102 (192.168.1.102) 250.00G
+
+--- CONFIGURATION SUMMARY ---
+
+SSL private key (/etc/ssl/private/sxkey.pem):
+-----BEGIN PRIVATE KEY-----
+MIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQCYNdtHyNglHZQ8
+vaO1HJWtZ/eerB2H80XyQTZpDFRS87qGUNcrRudDN09EypcueXaW1UN/3L8KKn7t
+tGhLe6quG8QuKw//UiJDDGTDEICOndtYfBh07zNR9zgaQRi9loqQB6Iqfe4K/T9F
+EONMjVji1OF5JI/3SgxEDwoQ4+1eghDuMGMElzJ4VJCojXhiEtvwo1ZruFX+Xogd
+rq4Ys6Pch7n9FowdOc2n+IRxPXKb6CqnHC1t9AKEBmbaoP+0zhM8ZFCl3WFRChvb
+JF8T9ZZ5q3nol668NILNN1f4RRe07+pb9ubfWqNABhuI5hQUnG81wKjcIzjWK4HZ
++3bMwg6PAgMBAAECggEAQ+fTGmV6OKTHm4mnXYeRJzm4+SskSaC41elOEvOTMybV
+UlMCi6YoSo6EaNZROESsKYKfiI29FRX8ZqQT24kijmaI0WgYzPmhm3QOCBB2qim2
+z/UdHB4TMUAv4ValaP+edb9SE872wiRVc8SjA2YT/66loNw09kgszLhA72QgZAbG
+xmxVwCNTRFd7dg4Wmy1OQz3YVOnlC3Qs8C8LoGoO0Mci85quhBUw9s7J12skXGbu
+ZGDtpJylgwtfc1q7nojaFkWenGCA9D1HB8zCqKPkhMh+HtA26g8VdFaHPVBzw/pz
+avv5r9gLnBETwHfM3XuIYv7h3wowE5uAKVhgvL8w0QKBgQDJs2avbYOwgcEEOf7L
+nPRqmb5XjJE329KsyIzo4YwOrZDjQXSYrBjifoBIJzUReDDB7ww5lt0Xy3MExeS4
+ngL0/oWotjd7jGU+EdABozKwW3bZuyUTSqTeQJwo+aIhjNtiyMrnpFy3vjYrJKGy
+W/9cnv1WjqxpqnQgDjE/yJt36wKBgQDBL7p7iCWjIf+LH1/caFgPchJENd4YZZrB
+bhGA/tuo6VtJcarc/Etx3DGbKhnJq13LxRRLjyHlPhw/k7oZBdaVK27I+vNfw5Lj
+c2KZCYbFnF3kbP5ryuMW0QqGbkZZ/FExzwgFyAOUuCTw9L2VmKtPgbP9ywDTJc0Z
+Jq/pdzOe7QKBgFOpxn4dvvIH4DgQlk9+2yMcgoduFw5EcC6bQVeXtrCf7elVzTdG
+q0vHjQ5gtPJ6GD9ZGIkKusqT6TGhpC2v3SoiKO7CJmFo6tXELbOALhZY2gOWTNqj
+q59EzYFxin7AHn/rKb7Lvmm4zF844plI77NLf2nX5EwwF9r0CBmc7F/hAoGAUctH
+ha4rYVqvu9PY3pU/U6rUmRTFqEa8s1FLD/bYQjgrcnkyAsa/msHELxIwQPbRi8kx
+wpwjmdAmXbTKgnW6WQY+rdGy4cUImEzuXiVubpS6HFEZl8IbTDnN3wUpvEfciN5D
+Y09AVONyoKK+8mvlfJBKCRa+jqfeotuCd7MEpDECgYAhWcDt6aXSsUOtq+jgVNtC
+oi9Cnm4FNW7Z/VVgCCRFIwHxpqqAau63/naSGxkLUlK+U0StReiLC2D4FPrqs9Jh
+scUH9hTIp3hxwznZBRFkuvUOm3h6CwQ0t3km7AffLRsGQZ9EMlvNb4T5mR/Izgxy
+smcEPJfJgX61fx7c//bU6Q==
+-----END PRIVATE KEY-----
+
+
+SSL certificate (/etc/ssl/certs/sxcert.pem):
+-----BEGIN CERTIFICATE-----
+MIIDpzCCAo+gAwIBAgIJAODcwxKZHi35MA0GCSqGSIb3DQEBCwUAMDsxCzAJBgNV
+BAYTAkdCMQswCQYDVQQIEwJVSzELMAkGA1UEChMCU1gxEjAQBgNVBAMTCW15Y2x1
+c3RlcjAeFw0xNDAzMjExNDU2NTdaFw0xOTAzMjAxNDU2NTdaMDsxCzAJBgNVBAYT
+AkdCMQswCQYDVQQIEwJVSzELMAkGA1UEChMCU1gxEjAQBgNVBAMTCW15Y2x1c3Rl
+cjCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBAJg120fI2CUdlDy9o7Uc
+la1n956sHYfzRfJBNmkMVFLzuoZQ1ytG50M3T0TKly55dpbVQ3/cvwoqfu20aEt7
+qq4bxC4rD/9SIkMMZMMQgI6d21h8GHTvM1H3OBpBGL2WipAHoip97gr9P0UQ40yN
+WOLU4Xkkj/dKDEQPChDj7V6CEO4wYwSXMnhUkKiNeGIS2/CjVmu4Vf5eiB2urhiz
+o9yHuf0WjB05zaf4hHE9cpvoKqccLW30AoQGZtqg/7TOEzxkUKXdYVEKG9skXxP1
+lnmreeiXrrw0gs03V/hFF7Tv6lv25t9ao0AGG4jmFBScbzXAqNwjONYrgdn7dszC
+Do8CAwEAAaOBrTCBqjAdBgNVHQ4EFgQUs7Zs8qeEtPdNQ7l3zs3f2v+MTrswawYD
+VR0jBGQwYoAUs7Zs8qeEtPdNQ7l3zs3f2v+MTruhP6Q9MDsxCzAJBgNVBAYTAkdC
+MQswCQYDVQQIEwJVSzELMAkGA1UEChMCU1gxEjAQBgNVBAMTCW15Y2x1c3RlcoIJ
+AODcwxKZHi35MA8GA1UdEwEB/wQFMAMBAf8wCwYDVR0PBAQDAgEGMA0GCSqGSIb3
+DQEBCwUAA4IBAQBGwoULuHM5svPvV7c0tdsBmxovrhCYkMg4MwtPJ8eJQckyrCP3
+fIU1VMXXeHKegaZ4q3QzIV9DDO1XB9TzifZ8yKm7a2/NlUnvgLQCGu82H/226YLE
+abqoipcJsAANo5+2qGYEmYDODmLOnToaCX5bcmbLc1tcG4uf/x88O+PGLgh/h5+9
+MUMlffyJWAE5eJN1rk9T5k0Onm5PElQLP/ZQecodHGL9Xxzgj09kLfwbRmUruGu/
+ft4Ru0oOrQDIDWxQuiBitawQKX/tyaGkpX+g38gyFwDiPINo2q/IHeckxX5EHgF3
+YGgPNaWwBnH3jfsJ/kMXcJS52q/zPOIvUCz0
+-----END CERTIFICATE-----
+
+
+Cluster: sx://mycluster
+This node: 192.168.1.102
+Port number: 443
+Cluster UUID: 01dca714-8cc9-4e26-960e-daf04892b1e2
+Cluster key: CLUSTER/ALLNODE/ROOT/USERwBdjfz3tKcnTF2ouWIkTipreYuYjAAA
+Admin key: 0DPiKuNIrrVmD8IUCuw1hQxNqZfIkCY+oKwxi5zHSPn5y0SOi3IMawAA
+Internal cluster protocol: SECURE
+Used disk space: 16.75M
+Actual data size: 453.00K
+List of nodes:
+    - ec4d9d63-9fa3-4d45-838d-3e521f124ed3 192.168.1.101 (192.168.1.101) 500.00G
+    * 02e01f5d-80d8-4a01-b1f7-a56eecb8aef5 192.168.1.102 (192.168.1.102) 250.00G
+Storage location: /var/lib/sxserver
+Run as user: nobody
+Sockets and pidfiles in: /var/run/sxserver
+Logs in: /var/log/sxserver/sxfcgi.log
+
+--- END OF SUMMARY ---
+
+Congratulations, the new node is up and running!
+You can control it with '/usr/sbin/sxserver'
+
+You can add a new node to the cluster by running 'sxsetup' on another
+server. When prompted, enter the 'admin key', 'SSL private key' and
+'SSL certificate' printed above.
+
+You can run 'sxacl useradd joe sx://admin@mycluster' to add a new user.
+To create a new volume owned by user 'joe' run:
+'sxvol create --owner joe --replica N --size SIZE sx://admin@mycluster/VOLNAME'
+\end{lstlisting}
+The node successfully joined the cluster - at the end of the summary you can
+see the current list of nodes in the cluster. Repeat the same steps to add more
+nodes to the cluster.
+
+\section{Automatic node configuration} \label{sec:configfile}
+The process of adding new nodes can be automated with the use of
+\path{--config-file} option of \path{sxsetup}. In the following example
+we assume the cluster has been configured to use a couple of nodes as
+described in the previous section, and we will be adding a third node
+with the IP address of 192.168.1.103 and size of 250G, which has the SX
+software installed the same way as on the other nodes. We will use the
+\path{sxsetup.conf} file from the node 192.168.1.102 as a template, which
+has the following content:
+\begin{lstlisting}
+# cat /etc/sxserver/sxsetup.conf
+###########################################################################
+#                    !!! DO NOT EDIT THIS FILE !!!                        #
+#                                                                         #
+#    This file was generated during node creation with sxsetup.           #
+#    Some of the variables defined below are used by sxserver and other   #
+#    scripts, however the main purpose of this file is to provide         #
+#    a template for creating new nodes with sxsetup --config-file.        #
+#    Changing parameters such as SX_NODE_SIZE directly in this file       #
+#    will have no effect *after* the node was created.                    #
+#                                                                         #
+###########################################################################
+SX_CLUSTER_NAME="mycluster"
+SX_DATA_DIR="/var/lib/sxserver/storage"
+SX_RUN_DIR="/var/run/sxserver"
+SX_LIB_DIR="/var/lib/sxserver"
+SX_LOG_FILE="/var/log/sxserver/sxfcgi.log"
+SX_NODE_SIZE="250G"
+SX_NODE_IP="192.168.1.102"
+SX_NODE_INTERNAL_IP=""
+SX_EXISTING_NODE_IP="192.168.1.1"
+SX_SERVER_USER="nobody"
+SX_SERVER_GROUP="nogroup"
+SX_CHILDREN_NUM="32"
+SX_PORT="443"
+SX_USE_SSL="yes"
+SX_SSL_KEY_FILE="/etc/ssl/private/sxkey.pem"
+SX_SSL_CERT_FILE="/etc/ssl/certs/sxcert.pem"
+SX_SSL_KEY="-----BEGIN PRIVATE KEY-----
+MIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQCYNdtHyNglHZQ8
+vaO1HJWtZ/eerB2H80XyQTZpDFRS87qGUNcrRudDN09EypcueXaW1UN/3L8KKn7t
+tGhLe6quG8QuKw//UiJDDGTDEICOndtYfBh07zNR9zgaQRi9loqQB6Iqfe4K/T9F
+EONMjVji1OF5JI/3SgxEDwoQ4+1eghDuMGMElzJ4VJCojXhiEtvwo1ZruFX+Xogd
+rq4Ys6Pch7n9FowdOc2n+IRxPXKb6CqnHC1t9AKEBmbaoP+0zhM8ZFCl3WFRChvb
+JF8T9ZZ5q3nol668NILNN1f4RRe07+pb9ubfWqNABhuI5hQUnG81wKjcIzjWK4HZ
++3bMwg6PAgMBAAECggEAQ+fTGmV6OKTHm4mnXYeRJzm4+SskSaC41elOEvOTMybV
+UlMCi6YoSo6EaNZROESsKYKfiI29FRX8ZqQT24kijmaI0WgYzPmhm3QOCBB2qim2
+z/UdHB4TMUAv4ValaP+edb9SE872wiRVc8SjA2YT/66loNw09kgszLhA72QgZAbG
+xmxVwCNTRFd7dg4Wmy1OQz3YVOnlC3Qs8C8LoGoO0Mci85quhBUw9s7J12skXGbu
+ZGDtpJylgwtfc1q7nojaFkWenGCA9D1HB8zCqKPkhMh+HtA26g8VdFaHPVBzw/pz
+avv5r9gLnBETwHfM3XuIYv7h3wowE5uAKVhgvL8w0QKBgQDJs2avbYOwgcEEOf7L
+nPRqmb5XjJE329KsyIzo4YwOrZDjQXSYrBjifoBIJzUReDDB7ww5lt0Xy3MExeS4
+ngL0/oWotjd7jGU+EdABozKwW3bZuyUTSqTeQJwo+aIhjNtiyMrnpFy3vjYrJKGy
+W/9cnv1WjqxpqnQgDjE/yJt36wKBgQDBL7p7iCWjIf+LH1/caFgPchJENd4YZZrB
+bhGA/tuo6VtJcarc/Etx3DGbKhnJq13LxRRLjyHlPhw/k7oZBdaVK27I+vNfw5Lj
+c2KZCYbFnF3kbP5ryuMW0QqGbkZZ/FExzwgFyAOUuCTw9L2VmKtPgbP9ywDTJc0Z
+Jq/pdzOe7QKBgFOpxn4dvvIH4DgQlk9+2yMcgoduFw5EcC6bQVeXtrCf7elVzTdG
+q0vHjQ5gtPJ6GD9ZGIkKusqT6TGhpC2v3SoiKO7CJmFo6tXELbOALhZY2gOWTNqj
+q59EzYFxin7AHn/rKb7Lvmm4zF844plI77NLf2nX5EwwF9r0CBmc7F/hAoGAUctH
+ha4rYVqvu9PY3pU/U6rUmRTFqEa8s1FLD/bYQjgrcnkyAsa/msHELxIwQPbRi8kx
+wpwjmdAmXbTKgnW6WQY+rdGy4cUImEzuXiVubpS6HFEZl8IbTDnN3wUpvEfciN5D
+Y09AVONyoKK+8mvlfJBKCRa+jqfeotuCd7MEpDECgYAhWcDt6aXSsUOtq+jgVNtC
+oi9Cnm4FNW7Z/VVgCCRFIwHxpqqAau63/naSGxkLUlK+U0StReiLC2D4FPrqs9Jh
+scUH9hTIp3hxwznZBRFkuvUOm3h6CwQ0t3km7AffLRsGQZ9EMlvNb4T5mR/Izgxy
+smcEPJfJgX61fx7c//bU6Q==
+-----END PRIVATE KEY-----"
+SX_SSL_CERT="-----BEGIN CERTIFICATE-----
+MIIDpzCCAo+gAwIBAgIJAODcwxKZHi35MA0GCSqGSIb3DQEBCwUAMDsxCzAJBgNV
+BAYTAkdCMQswCQYDVQQIEwJVSzELMAkGA1UEChMCU1gxEjAQBgNVBAMTCW15Y2x1
+c3RlcjAeFw0xNDAzMjExNDU2NTdaFw0xOTAzMjAxNDU2NTdaMDsxCzAJBgNVBAYT
+AkdCMQswCQYDVQQIEwJVSzELMAkGA1UEChMCU1gxEjAQBgNVBAMTCW15Y2x1c3Rl
+cjCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBAJg120fI2CUdlDy9o7Uc
+la1n956sHYfzRfJBNmkMVFLzuoZQ1ytG50M3T0TKly55dpbVQ3/cvwoqfu20aEt7
+qq4bxC4rD/9SIkMMZMMQgI6d21h8GHTvM1H3OBpBGL2WipAHoip97gr9P0UQ40yN
+WOLU4Xkkj/dKDEQPChDj7V6CEO4wYwSXMnhUkKiNeGIS2/CjVmu4Vf5eiB2urhiz
+o9yHuf0WjB05zaf4hHE9cpvoKqccLW30AoQGZtqg/7TOEzxkUKXdYVEKG9skXxP1
+lnmreeiXrrw0gs03V/hFF7Tv6lv25t9ao0AGG4jmFBScbzXAqNwjONYrgdn7dszC
+Do8CAwEAAaOBrTCBqjAdBgNVHQ4EFgQUs7Zs8qeEtPdNQ7l3zs3f2v+MTrswawYD
+VR0jBGQwYoAUs7Zs8qeEtPdNQ7l3zs3f2v+MTruhP6Q9MDsxCzAJBgNVBAYTAkdC
+MQswCQYDVQQIEwJVSzELMAkGA1UEChMCU1gxEjAQBgNVBAMTCW15Y2x1c3RlcoIJ
+AODcwxKZHi35MA8GA1UdEwEB/wQFMAMBAf8wCwYDVR0PBAQDAgEGMA0GCSqGSIb3
+DQEBCwUAA4IBAQBGwoULuHM5svPvV7c0tdsBmxovrhCYkMg4MwtPJ8eJQckyrCP3
+fIU1VMXXeHKegaZ4q3QzIV9DDO1XB9TzifZ8yKm7a2/NlUnvgLQCGu82H/226YLE
+abqoipcJsAANo5+2qGYEmYDODmLOnToaCX5bcmbLc1tcG4uf/x88O+PGLgh/h5+9
+MUMlffyJWAE5eJN1rk9T5k0Onm5PElQLP/ZQecodHGL9Xxzgj09kLfwbRmUruGu/
+ft4Ru0oOrQDIDWxQuiBitawQKX/tyaGkpX+g38gyFwDiPINo2q/IHeckxX5EHgF3
+YGgPNaWwBnH3jfsJ/kMXcJS52q/zPOIvUCz0
+-----END CERTIFICATE-----"
+SX_CFG_VERSION="2"
+SX_CLUSTER_UUID="01dca714-8cc9-4e26-960e-daf04892b1e2"
+SX_ADMIN_KEY="0DPiKuNIrrVmD8IUCuw1hQxNqZfIkCY+oKwxi5zHSPn5y0SOi3IMawAA"
+\end{lstlisting}
+As instructed in the header, we shouldn't modify the original file. Instead,
+we will copy the file to \path{/root/sxsetup.conf} on the new node and
+update \path{SX_NODE_IP} to point to 192.168.1.3 with the other settings
+left untouched. After that we run \path{sxsetup} on the new node as follows:
+\begin{lstlisting}
+# sxsetup --config-file /root/sxsetup.conf 
+Using config file /root/sxsetup.conf
+[...]
+Cluster: sx://mycluster
+This node: 192.168.1.103
+Port number: 443
+Cluster UUID: 01dca714-8cc9-4e26-960e-daf04892b1e2
+Cluster key: CLUSTER/ALLNODE/ROOT/USERwBdjfz3tKcnTF2ouWIkTipreYuYjAAA
+Admin key: 0DPiKuNIrrVmD8IUCuw1hQxNqZfIkCY+oKwxi5zHSPn5y0SOi3IMawAA
+Internal cluster protocol: SECURE
+Used disk space: 16.75M
+Actual data size: 453.00K
+List of nodes:
+    - ec4d9d63-9fa3-4d45-838d-3e521f124ed3 192.168.1.101 (192.168.1.101) 500.00G
+    - 02e01f5d-80d8-4a01-b1f7-a56eecb8aef5 192.168.1.102 (192.168.1.102) 250.00G
+    * 912b6125-9228-4227-93ce-57f6f6e248c0 192.168.1.103 (192.168.1.103) 250.00G
+Storage location: /var/lib/sxserver
+Run as user: nobody
+Sockets and pidfiles in: /var/run/sxserver
+Logs in: /var/log/sxserver/sxfcgi.log
+
+--- END OF SUMMARY ---
+
+Congratulations, the new node is up and running!
+You can control it with '/usr/sbin/sxserver'
+[...]
+\end{lstlisting}
+The node has been automatically configured and successfully joined the cluster.

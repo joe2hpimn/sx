@@ -1,0 +1,80 @@
+\chapter{Introduction}
+Welcome to Skylable \SX, a complete private cloud framework. With Skylable \SX
+you can create flexible, reliable and secure storage solutions, which can
+be accessed from all popular platforms.
+
+\section{\SX Features}
+This software has been designed and built with usability in mind. Some
+of the great features of Skylable \SX include:
+\begin{itemize}
+    \item \textbf{Fast and lightweight protocol}\\
+    Never transfer the same data twice. The \SX protocol transfers only the
+    differences between the local copy of a file and the data already stored
+    in the cluster. Additionally, it transfers data to/from all SX nodes in
+    parallel to maximize speed.
+
+    \item \textbf{Replication}\\
+    Choose how many times you want your data to be replicated. You can set
+    different levels of replica for different data and find the perfect
+    balance between reliability and efficiency.
+
+    \item \textbf{Deduplication}\\
+    If you upload 10 copies of the same data, that data takes the same
+    space as 1 copy. If you upload 10 files, which only differ in a few bytes,
+    just the differences between the files will take up additional space and
+    the rest will be deduplicated.
+
+    \item \textbf{Encryption}\\
+    Client-side encryption with AES256, HTTPS communication, and all the
+    security best practices to keep your data is safe.
+
+    \item \textbf{Revisions and undelete}\\
+    \SX can optionally keep multiple revisions of your files and allow you to
+    go back in time to any version of your files. You can also restore a file
+    that has been accidentally deleted.
+
+    \item \textbf{S3 Support}\\
+    Need a drop-in replacement for S3? Install \SX together with LibreS3 and
+    change a single setting in your S3 clients and tools: that's all you need
+    to do to switch to Skylable.
+
+    \item \textbf{Mobile and Desktop clients}\\
+    Keep your files synchronized across all your devices with SXDrive: available
+    for Windows/MacOSX/Linux on desktop and iOS/Android on mobile.
+\end{itemize}
+
+\section{Skylable ecosystem}
+This manual covers the open-source Skylable \SX software for UNIX platforms.
+\SX is used to create data clusters and forms the base for the Skylable
+platform, which consists of multiple components as shown on \fref{fig:components}.
+\begin{figure}
+    \centering
+    \input{tikz_components.tex}
+    \caption{Skylable cloud ecosystem}
+    \label{fig:components}
+\end{figure}
+With Skylable \SX one can build a cloud consisting of many nodes, which can
+be accessed in different ways and from multiple platforms. The client
+applications include command-line tools, which are part of the Skylable \SX
+itself, as well as desktop and mobile apps.
+
+The command line tools shipped with Skylable \SX provide a typical UNIX
+experience and together with external tools and scripts can be used to
+automate various processes, such as backups.
+
+\textbf{\SX Drive for Linux, Windows and OS X} keeps remote data synchronized with
+a local directory. The synchronization works both ways, and the latest data
+is always available on the local machine and in the cloud.
+
+\textbf{\SX Drive for Android and iOS} provides an instant access to the cloud from
+mobile devices. One can upload or download any documents or photos and keep
+favourite files automatically updated.
+
+\textbf{\SX Web} provides a web interface to the cloud. Users can access all their
+data right from web browsers. \SX Web additionally provides an easy way to
+share files with other people.
+
+Finally, with \textbf{LibreS3}, the Skylable cloud becomes available to clients
+compatible with the S3 protocol. LibreS3 implements a large subset of the
+S3 API and translates it to the \SX protocol. It makes possible to use
+existing solutions such as s3cmd or DragonDisk with Skylable \SX.

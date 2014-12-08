@@ -1,0 +1,63 @@
+% !TeX root = sxmanual.tex
+\begin{tikzpicture}[auto, thick, >=stealth', shorten >=1pt]
+
+\colorlet{s3client}{skylableblue!10}
+\colorlet{sxapp}{skylableblue!20}
+\colorlet{sxclient}{skylableblue!70}
+
+\tikzstyle{sx}=[draw,circle,black,bottom color=skylableblue, node distance=6em,
+top color= white, text=black,minimum width=2em]
+\tikzstyle{libres3}=[draw,circle,black,bottom color=skylableblue, node distance=7em,
+top color= white, text=black,minimum width=2em]
+\tikzstyle{s3}=[draw,circle,black,bottom color=s3client, node distance=6em,
+top color= white, text=black,minimum width=2em]
+\tikzstyle{sxapp}=[draw,circle,black,bottom color=sxapp, node distance=8em, top color= white, text=black,minimum width=2em, align=center]
+\tikzstyle{sxclient}=[draw,circle,black,bottom color=sxclient, node distance=8em, top color= white, text=black,minimum width=2em, align=center]
+
+
+\node[sx] (sx1) {\SX node};
+\node[sx] (sx2) [below left of=sx1] {\SX node};
+\node[sx] (sx3) [below right of=sx2] {\SX node};
+\node[sx] (sx4) [below right of=sx1] {\SX node};
+
+\node[libres3] (libres3) [left of=sx2] {LibreS3};
+
+\node[sxapp] (sxdrive1) [above right of=sx4] {\SX Drive\\ Android};
+\node[sxapp] (sxdrive2) [right of=sx4] {\SX Drive\\ iOS};
+\node[sxapp] (sxdrive3) [below right of=sx4] {\SX Drive\\ PC};
+
+\node[sxclient] (sxtools) [below of=sx3] {sxcp, sxls\\ \ldots};
+\node[sxclient] (sxadm) [below left of=sx3] {sxadm};
+
+\node[sxapp] (sxweb) [right of=sxtools] {\SX Web};
+
+
+\node[s3,text width=3em,align=center] (s3c3) [above of=libres3] {S3 client};
+
+\node[dashed,cloud,cloud puffs=10,cloud puff arc=120, inner ysep=1em,aspect=2,color=black,
+minimum height=15em, minimum width=15em] (sx)  at ($(sx2)!0.5!(sx4)$) {};
+
+\path[every node/.style={font=\sffamily\small}]
+(sx1) edge node {} (sx4)
+(sx1) edge node {} (sx2)
+(sx1) edge node {} (sx3)
+(sx2) edge node {} (sx3)
+(sx2) edge node {} (sx4)
+(sx3) edge node {} (sx4)
+
+(libres3) edge [<->] node {\SX} (sx.west)
+
+(s3c3) edge [<->] node {S3} (libres3)
+
+(sxdrive1) edge [<->] (sx.45)
+(sxdrive2) edge [<->] (sx.east)
+(sxdrive3) edge [<->] (sx.315)
+(sxtools) edge [<->] (sx.270)
+(sxadm) edge [<->] (sx.225)
+(sxweb) edge [<->] (sx.300)
+
+;   
+
+\draw[] node[draw,dashed,cloud,cloud puffs=10,cloud puff arc=120,inner ysep=1em,aspect=2,color=black,
+minimum height=15em,minimum width=15em] at (sx) {}; 
+\end{tikzpicture}
