@@ -14,8 +14,8 @@ Basic Installation
 
    Briefly, the shell command `./configure && make && make install'
 should configure, build, and install this package.  The following
-more-detailed instructions are generic; see the `README' and
-`doc/quickstart/quickstart.pdf' files for instructions specific to
+more-detailed instructions are generic; see the `README', 'QUICKSTART'
+and `doc/manual/manual.pdf' files for instructions specific to
 this package.  Some packages provide this `INSTALL' file but do not
 implement all of the features documented below.  The lack of an optional
 feature in a given package is not necessarily a bug. More recommendations
