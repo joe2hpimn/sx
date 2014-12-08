@@ -1,1 +1,78 @@
-FILL ME
+Skylable SX Quickstart
+----------------------
+
+This is a quick start guide for Skylable SX, which covers a basic
+cluster setup with one node. For more information please see the
+complete user manual available under doc/manual/manual.pdf and online
+at http://www.skylable.com/products/sx/manual
+
+1. Install SX
+-------------
+
+Install SX using binary packages available at
+http://www.skylable.com/download/ or compile from source code
+by running:
+
+$ ./configure && make
+# make install
+
+2. Setup the first node
+-----------------------
+
+Run 'sxsetup' and provide a cluster name ("NAME"), an IP address and size
+of the first node. When sxsetup finishes, you should see the following
+information: "Congratulations, the new node is up and running!", now
+you can move on to the next step - your cluster is already functional.
+
+3. Create a regular user account
+--------------------------------
+
+sxsetup configures the default admin profile admin@NAME, which can be
+used to perform administrative ops. We will use it to create a regular
+user account 'jeff':
+
+# sxacl useradd jeff sx://admin@NAME
+User successfully created!
+Name: jeff
+Key : FqmlTd9CWZUuPBGMdjE46DaT1/3kx+EYbahlrhcdVpy/9ePfrtWCIgAA
+Type: normal
+
+Now we initialize access for user jeff - you can do this from
+a remote box, as long as the SX tools are installed and it can
+reach the cluster. If NAME is not a domain name, we need to point
+sxinit to the node by its IP address:
+
+$ sxinit --host-list IP --alias @jeff sx://jeff@NAME
+[verify and accept the SSL certificate]
+Please enter the user key: FqmlTd9CWZUuPBGMdjE46DaT1/3kx+EYbahlrhcdVpy/9ePfrtWCIgAA
+
+You can now access the cluster with the alias @jeff or the full
+profile name sx://jeff@NAME
+
+3. Create a volume for user 'jeff'
+----------------------------------
+
+Run the following command as admin to create a 50GB volume for user jeff:
+
+# sxvol create -o jeff -r 1 -s 50G sx://admin@NAME/somevolume
+
+4. Upload data
+--------------
+
+To recursively upload a directory run:
+
+$ sxcp -r /path/to/dir/ @jeff/somevolume/
+
+To list all files in the volume run:
+
+$ sxls -r @jeff/somevolume/
+
+See 'man sxcp' and 'man sxls' for usage details.
+
+5. Check the real manual
+------------------------
+
+To get most out of SX please see the complete user manual at
+at http://www.skylable.com/products/sx/manual
+
+Good luck!
