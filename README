@@ -1,14 +1,15 @@
 Welcome to Skylable SX!
 -----------------------
 
-This is a beta release of Skylable SX. We have put a lot of efforts to make
-your experience as good as possible. As it usually is, a beta release comes
-with some limitations but it has been reliably running on our internal
-production cluster for the past few months without any major issues.
+Skylable SX is a distributed object-storage software for data clusters.
+It is written in C, distributed under the GPL licence and built with
+the goal of being fast, secure, cost-effective and reliable.
 
-To get started please see doc/quickstart/quickstart.pdf
+To get started please see QUICKSTART and doc/manual/manual.pdf.
+The latest version of the user manual is also available online at
+http://www.skylable.com/products/sx/manual
 
-The binary packages are available at: http://cdn.skylable.com/packages/
+Please see the FAQ at https://wiki.skylable.com/wiki/FAQ
 
 If you find any bugs, please report them to our bugzilla:
 https://bugzilla.skylable.com/

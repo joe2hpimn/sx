@@ -1,3 +1,25 @@
+1.0
+---
+
+This is the first stable release of Skylable SX. The changes
+from 0.9 include:
+
+  * New user manual covering all important cluster and
+    client operations (see doc/manual/manual.pdf or 
+    http://www.skylable.com/products/sx/manual)
+  * Support for replacing and rebuilding of broken nodes (see
+    the manual for instructions on cluster healing)
+  * New tool 'sxmv' for moving and renaming files (see 'man sxmv')
+  * 'sxcp --ignore-errors' (ignore errors during recursive operations
+    and report them at the end)
+  * 'sxcp --exclude/--include' (skip or process files matching specific
+    patterns)
+  * 'sxvol modify' (change configuration of existing volumes)
+  * 'sxadm --resize' (proportionally grow or shrink the entire cluster)
+  * 'sxadm node --check' improvements (better detect local problems,
+    eg. with faulty hard drives)
+  * 'sxadm node --extract' (recover local storage in emergency situations)
+
 0.9 (Final Beta)
 ----------------
 
