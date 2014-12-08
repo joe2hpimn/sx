@@ -700,10 +700,8 @@ if [ "$CONFIG_FILE_GIVEN" = "yes" ]; then
 		echo "ERROR: Please provide SX_SSL_CERT_FILE or SX_SSL_CERT in the config file."
 		exit 1
 	    fi
-	    echo $SX_SSL_CERT | sed -e 's/\s\+/\
-/g' | sed -e ':a;N;$!ba;s/BEGIN\
-/BEGIN /g' | sed -e ':a;N;$!ba;s/END\
-/END /g' > "$SX_SSL_CERT_FILE"
+	    echo $SX_SSL_CERT | sed -e 's/[ 	][ 	]*/\
+/g' | sed -e ':a' -e 'N' -e '$!ba' -e 's/BEGIN\n/BEGIN /g' | sed -e ':a' -e 'N' -e '$!ba' -e 's/END\n/END /g' > "$SX_SSL_CERT_FILE"
 	    test -z "$SX_NO_ROOT" && chown "$SX_SERVER_USER":"$SX_SERVER_GROUP" "$SX_SSL_CERT_FILE" 2>/dev/null
 	    chmod 600 "$SX_SSL_CERT_FILE" 2>/dev/null
 	fi
@@ -713,11 +711,8 @@ if [ "$CONFIG_FILE_GIVEN" = "yes" ]; then
 		echo "ERROR: Please provide SX_SSL_KEY_FILE or SX_SSL_KEY in the config file."
 		exit 1
 	    fi
-	    echo $SX_SSL_KEY | sed -e 's/\s\+/\
-/g' | sed -e ':a;N;$!ba;s/BEGIN\
-/BEGIN /g' | sed -e ':a;N;$!ba;s/END\
-/END /g' | sed -e ':a;N;$!ba;s/PRIVATE\
-/PRIVATE /g' > "$SX_SSL_KEY_FILE"
+	    echo $SX_SSL_KEY | sed -e 's/[ 	][ 	]*/\
+/g' | sed -e ':a' -e 'N' -e '$!ba' -e 's/BEGIN\n/BEGIN /g' | sed -e ':a' -e 'N' -e '$!ba' -e 's/END\n/END /g' | sed -e ':a' -e 'N' -e '$!ba' -e 's/PRIVATE\n/PRIVATE /g' > "$SX_SSL_KEY_FILE"
 	    test -z "$SX_NO_ROOT" && chown "$SX_SERVER_USER":"$SX_SERVER_GROUP" "$SX_SSL_KEY_FILE" 2>/dev/null
 	    chmod 600 "$SX_SSL_KEY_FILE" 2>/dev/null
 	fi
