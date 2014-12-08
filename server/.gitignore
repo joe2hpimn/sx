@@ -23,3 +23,8 @@
 /test/testfile
 /test/fastcgi_params
 /test/hdist-test
+/test/client-test
+/sxscripts/logrotate.d/sxserver
+/sxscripts/sbin/sxserver
+/sxscripts/sbin/sxsetup
+/sxscripts/sxserver/sxhttpd.conf.default
