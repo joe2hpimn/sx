@@ -23,3 +23,6 @@ DIST_SUBDIRS = $(SUBDIRS)
 
 clean-local:
 	rm -f test-suite.log
+
+doc_DATA=README NEWS QUICKSTART
+pdf_DATA=doc/manual/manual.pdf
