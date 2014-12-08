@@ -878,7 +878,7 @@ static int replace_nodes(sxc_client_t *sx, struct cluster_args_info *args) {
 	}
 	cn = sx_nodelist_lookup_index(curnodes, nuuid, &skipme);
 	if(!cn) {
-	    CRIT("Node '%s' is not a current cluster memeber", nuuid->string);
+	    CRIT("Node '%s' is not a current cluster member", nuuid->string);
 	    goto replace_node_err;
 	}
 	capa = sx_node_capacity(n);

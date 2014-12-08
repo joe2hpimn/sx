@@ -19,6 +19,7 @@ from 0.9 include:
   * 'sxadm node --check' improvements (better detect local problems,
     eg. with faulty hard drives)
   * 'sxadm node --extract' (recover local storage in emergency situations)
+  * Many improvements and bugfixes
 
 0.9 (Final Beta)
 ----------------
