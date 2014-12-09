@@ -301,9 +301,9 @@ static enum head_result head_cb(curlev_context_t *ctx, long http_status, char *p
 	    num = strtol(nstr, &eon, 10);
 	    if(eon == nstr || *eon != '.' || num > SRC_MAJOR_VERSION)
 		badver = 1;
-	    else {
+	    else if(num == SRC_MAJOR_VERSION) {
 		num = strtol(eon+1, &eon, 10);
-		if(*eon != '.' || num > SRC_MINOR_VERSION + 1)
+		if((*eon != '\0' && *eon != '.' && *eon != '-') || num > SRC_MINOR_VERSION + 1)
 		    badver = 1;
 	    }
 	    if(badver) {
