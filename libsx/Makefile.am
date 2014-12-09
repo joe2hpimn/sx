@@ -88,9 +88,11 @@ include/extraversion.h: include/extraversion.h.tmp
 
 #if exported via git archvie the COMMITVER is a commit hash otherwise it is a meaningless 'ormat:%h'
 include/extraversion.h.tmp:
-	$(AM_V_GEN) LANG=C \
-	    VER="$$(cd $(top_srcdir) && git describe --always --dirty=+ 2>/dev/null)" &&\
-	    echo "#define SRC_EXTRA_VERSION \".$$VER\"" >$@ ||\
+	$(AM_V_GEN) \
+	    (LANG=C git -C $(top_srcdir) describe --exact-match >/dev/null 2>&1 &&\
+	    echo "#define SRC_EXTRA_VERSION \"\"" >$@) ||\
+	    (VER="$$(cd $(top_srcdir) && LANG=C git describe --always --dirty=+ 2>/dev/null)" &&\
+	    echo "#define SRC_EXTRA_VERSION \".$$VER\"" >$@) ||\
 	    (COMMITVER=$Format:%h$ && test "$$COMMITVER" != "ormat:%h" && \
 	    echo "#define SRC_EXTRA_VERSION \".$$COMMITVER\"" >$@) ||\
 	    echo "#define SRC_EXTRA_VERSION \"\"" >$@
