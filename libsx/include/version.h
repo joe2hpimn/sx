@@ -18,11 +18,11 @@
  */
 
 #include "default.h"
-#include "extraversion.h"
 
 #define SRC_MAJOR_VERSION 0
 #define SRC_MINOR_VERSION 9
 #define SRC_API_VERSION 1
+#define SRC_DEFAULT_VERSION STRIFY(SRC_MAJOR_VERSION)"."STRIFY(SRC_MINOR_VERSION)
 
-#define SRC_VERSION STRIFY(SRC_MAJOR_VERSION)"."STRIFY(SRC_MINOR_VERSION)SRC_EXTRA_VERSION
+#include "extraversion.h"
 

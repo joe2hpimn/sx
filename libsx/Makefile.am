@@ -89,13 +89,13 @@ include/extraversion.h: include/extraversion.h.tmp
 #if exported via git archvie the COMMITVER is a commit hash otherwise it is a meaningless 'ormat:%h'
 include/extraversion.h.tmp:
 	$(AM_V_GEN) \
-	    (LANG=C git -C $(top_srcdir) describe --exact-match >/dev/null 2>&1 &&\
-	    echo "#define SRC_EXTRA_VERSION \"\"" >$@) ||\
-	    (VER="$$(cd $(top_srcdir) && LANG=C git describe --always --dirty=+ 2>/dev/null)" &&\
-	    echo "#define SRC_EXTRA_VERSION \".$$VER\"" >$@) ||\
+	    (VER="$$(LANG=C git -C $(top_srcdir) describe --exact-match 2>/dev/null)" &&\
+	    echo "#define SRC_VERSION \"$$VER\"" >$@) ||\
+	    (VER="$$(LANG=C git -C $(top_srcdir) describe --always --dirty=+ 2>/dev/null)" &&\
+	    echo "#define SRC_VERSION \"$$VER\"" >$@) ||\
 	    (COMMITVER=$Format:%h$ && test "$$COMMITVER" != "ormat:%h" && \
-	    echo "#define SRC_EXTRA_VERSION \".$$COMMITVER\"" >$@) ||\
-	    echo "#define SRC_EXTRA_VERSION \"\"" >$@
+	    echo "#define SRC_VERSION SRC_DEFAULT_VERSION\".$$COMMITVER\"" >$@) ||\
+	    echo "#define SRC_VERSION SRC_DEFAULT_VERSION" >$@
 
 .PHONY: include/extraversion.h.tmp
 CLEANFILES = include/extraversion.h include/extraversion.h.tmp
