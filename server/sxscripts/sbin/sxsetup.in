@@ -941,7 +941,10 @@ if [ ! -f "$SX_DATA_DIR/hashfs.db" ]; then
 	    NEWNODE="$SX_NODE_SIZE/$SX_NODE_IP"
 	fi
 
-	if [ -n "$SX_ADMIN_KEY" -a "$FORCE_REINIT_GIVEN" != "yes" ]; then
+	if [ "$FORCE_REINIT_GIVEN" = "yes" -a "$CONFIG_FILE_GIVEN" != "yes" ]; then
+	    SX_ADMIN_KEY=
+	fi
+	if [ -n "$SX_ADMIN_KEY" ]; then
 	    echo $SX_ADMIN_KEY > $ADMINKEY_TMP
 	    ADMKEYFILE="--admin-key $ADMINKEY_TMP"
 	fi

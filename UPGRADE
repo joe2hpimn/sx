@@ -17,11 +17,11 @@ if you installed it differently, you will need to change the example paths.
 
 $ wget -O sxdump.py "http://gitweb.skylable.com/gitweb/?p=experimental.git;a=blob_plain;f=sxdump/sxdump.py;hb=refs/heads/master" && chmod a+rx sxdump.py
 
-You can edit it and change the BACKUPDIR (it needs to provide enough space
-to fit the cluster's data).
+It should download the sxdump.py script. You can edit it and change the
+BACKUPDIR (it needs to provide enough space to fit the cluster's data).
 
-Now run 'sxdump sx://[admin@]cluster' and it should create two scripts: old.sh
-and new.sh
+Now run './sxdump.py sx://[admin@]cluster' and it should create two scripts:
+old.sh and new.sh
 
 2. Run 'old.sh' and make sure there were no errors when backing up the data.
 IMPORTANT: Encrypted volumes will not be backed up, they have to be handled
