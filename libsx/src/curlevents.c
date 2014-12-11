@@ -764,18 +764,28 @@ typedef struct {
 #define MAX_EVENTS                              64
 #define MAX_ACTIVE_CONNECTIONS                  5
 #define MAX_ACTIVE_PER_HOST                     2
+#define HOST_STATS_WINDOW_SIZE                  256
+#define MIN_XFER_THRESHOLD                      4096.0
+#define MIN_EVENTS_THRESHOLD                    4
 
 /* Hold information about active connections for each host */
 struct host_info {
-    char *host;
-    unsigned int active;
+    char *host; /* Host address */
+    unsigned int active; /* Number of active connections to host */
+    double dl_speed[HOST_STATS_WINDOW_SIZE];
+    unsigned int dl_index; /* Current position in dl_speed window */
+    unsigned int dl_counter; /* Number of dl measures (max is HOST_STATS_WINDOW_SIZE) */
+    double ul_speed[HOST_STATS_WINDOW_SIZE];
+    unsigned int ul_index; /* Current position in ul_speed window */
+    unsigned int ul_counter; /* Number of ul measures (max is HOST_STATS_WINDOW_SIZE) */
 };
 
-static struct host_info *host_active_info_new(const char *host) {
+static struct host_info *host_info_new(const char *host) {
     struct host_info *info = malloc(sizeof(struct host_info));
-    if(!info) {
+    unsigned int i;
+
+    if(!info)
         return NULL;
-    }
 
     info->host = strdup(host);
     if(!info->host) {
@@ -783,11 +793,19 @@ static struct host_info *host_active_info_new(const char *host) {
         return NULL;
     }
 
+    for(i = 0; i < HOST_STATS_WINDOW_SIZE; i++) {
+        info->ul_speed[i] = 0.0;
+        info->dl_speed[i] = 0.0;
+    }
+    info->ul_index = 0;
+    info->ul_counter = 0;
+    info->dl_index = 0;
+    info->dl_counter = 0;
     info->active = 0;
     return info;
 }
 
-static void host_active_info_free(struct host_info* info) {
+static void host_info_free(struct host_info* info) {
     if(info) {
         free(info->host);
     }
@@ -828,6 +846,121 @@ struct ev_queue {
 };
 
 typedef struct ev_queue ev_queue_t;
+
+static struct host_info *connection_pool_get_host_info(const connection_pool_t *pool, const char *host) {
+    struct host_info *ret = NULL;
+
+    if(!pool || !host)
+        return NULL;
+
+    /* Get active host information reference */
+    if(sxi_ht_get(pool->hosts, host, strlen(host), (void**)&ret)) {
+        sxi_seterr(pool->sx, SXE_EARG, "Host %s is not stored in active hosts hashtable", host);
+        return NULL;
+    }
+
+    if(!ret) {
+        sxi_seterr(pool->sx, SXE_EARG, "NULL active host information reference");
+        return NULL;
+    }
+    return ret;
+}
+
+/* Update connection information for host */
+static int update_active_host(connection_pool_t *pool, const curlev_t *ev) {
+    double dl_speed = 0, ul_speed = 0;
+    double dl_size = 0, ul_size = 0;
+    struct host_info *hi;
+
+    if(!ev)
+        return 1;
+
+    if(!pool) {
+        sxi_cbdata_seterr(ev->ctx, SXE_EARG, "NULL argument");
+        return 1;
+    }
+
+    /* Get download speed from curl handle */
+    if(curl_easy_getinfo(ev->curl, CURLINFO_SPEED_DOWNLOAD, &dl_speed)) {
+        sxi_cbdata_seterr(ev->ctx, SXE_ECURL, "Failed to get download speed");
+        return 1;
+    }
+
+    /* Get download size from curl handle */
+    if(curl_easy_getinfo(ev->curl, CURLINFO_SIZE_DOWNLOAD, &dl_size)) {
+        sxi_cbdata_seterr(ev->ctx, SXE_ECURL, "Failed to get download size");
+        return 1;
+    }
+
+    /* Get upload speed from curl handle */
+    if(curl_easy_getinfo(ev->curl, CURLINFO_SPEED_UPLOAD, &ul_speed)) {
+        sxi_cbdata_seterr(ev->ctx, SXE_ECURL, "Failed to get upload speed");
+        return 1;
+    }
+
+    /* Get upload size from curl handle */
+    if(curl_easy_getinfo(ev->curl, CURLINFO_SIZE_UPLOAD, &ul_size)) {
+        sxi_cbdata_seterr(ev->ctx, SXE_ECURL, "Failed to get upload size");
+        return 1;
+    }
+
+    /* Get active host information reference */
+    if(sxi_ht_get(pool->hosts, ev->host, strlen(ev->host), (void**)&hi)) {
+        sxi_cbdata_seterr(ev->ctx, SXE_EARG, "Host %s is not stored in active hosts hashtable", ev->host);
+        return 1;
+    }
+
+    if(!hi) {
+        sxi_cbdata_seterr(ev->ctx, SXE_EARG, "NULL active host information reference");
+        return 1;
+    }
+
+    /* Insert current upload measures into window if needed */
+    if(ul_size > MIN_XFER_THRESHOLD) {
+        hi->ul_speed[hi->ul_index] = ul_speed;
+        hi->ul_index = (hi->ul_index + 1) & (HOST_STATS_WINDOW_SIZE-1);
+        if(hi->ul_counter < HOST_STATS_WINDOW_SIZE)
+            hi->ul_counter++;
+    }
+
+    /* Insert current download measures into window if needed */
+    if(dl_size > MIN_XFER_THRESHOLD) {
+        hi->dl_speed[hi->dl_index] = dl_speed;
+        hi->dl_index = (hi->dl_index + 1) & (HOST_STATS_WINDOW_SIZE-1);
+        if(hi->dl_counter < HOST_STATS_WINDOW_SIZE)
+            hi->dl_counter++;
+    }
+
+    /* Decrease number of active connections for given host */
+    hi->active--;
+    return 0;
+}
+
+static int get_host_info_speed(const struct host_info *hi, double *ul, double *dl) {
+    double dl_speed = 0.0, ul_speed = 0.0;
+    unsigned int i;
+
+    if(!hi)
+        return 1;
+
+    if(hi->ul_counter >= MIN_EVENTS_THRESHOLD) {
+        for(i = 0; i < hi->ul_counter; i++)
+            ul_speed += hi->ul_speed[i];
+    }
+    if(hi->dl_counter >= MIN_EVENTS_THRESHOLD) {
+        for(i = 0; i < hi->dl_counter; i++)
+            dl_speed += hi->dl_speed[i];
+    }
+
+    ul_speed = hi->ul_counter >= MIN_EVENTS_THRESHOLD ? ul_speed / (double)hi->ul_counter : 0.0;
+    dl_speed = hi->dl_counter >= MIN_EVENTS_THRESHOLD ? dl_speed / (double)hi->dl_counter : 0.0;
+
+    if(ul)
+        *ul = ul_speed;
+    if(dl)
+        *dl = dl_speed;
+    return 0;
+}
 
 static ev_queue_t *ev_queue_new(connection_pool_t *pool, rm_check checker) {
     ev_queue_t *q = NULL;
@@ -1042,9 +1175,8 @@ static void connection_pool_free(connection_pool_t *pool) {
     ev_queue_free(pool->queue);
 
     sxi_ht_enum_reset(pool->hosts);
-    while(!sxi_ht_enum_getnext(pool->hosts, NULL, NULL, (const void **)&info)) {
-        host_active_info_free(info);
-    }
+    while(!sxi_ht_enum_getnext(pool->hosts, NULL, NULL, (const void **)&info))
+        host_info_free(info);
     sxi_ht_free(pool->hosts);
     free(pool->active);
     free(pool);
@@ -1071,6 +1203,204 @@ struct curl_events {
     /* Used for bandwidth throttling */
     bandwidth_t bandwidth;
 };
+
+/* Classify hosts by connection speed */
+static double *classify_hosts(sxi_conns_t *conns, const sxi_hostlist_t *hosts, float distribution, sxc_xfer_direction_t direction) {
+    unsigned int i;
+    double speed_sum = 0.0, dnhosts, speed_counter = 0.0;
+    double *speed_ratings;
+    curl_events_t *e = sxi_conns_get_curlev(conns);
+    struct host_info *hi = NULL;
+
+    if(!hosts)
+        return NULL;
+
+    if(!e) {
+        sxi_seterr(sxi_conns_get_client(conns), SXE_EARG, "NULL argument");
+        return NULL;
+    }
+
+    dnhosts = (double)hosts->nhosts;
+    speed_ratings = malloc(sizeof(double) * hosts->nhosts);
+    if(!speed_ratings) {
+        sxi_seterr(sxi_conns_get_client(conns), SXE_EMEM, "Failed to allocate ratings array");
+        return NULL;
+    }
+
+    /* Trivial list needs trivial assignment */
+    if(hosts->nhosts<2) {
+        if(hosts->nhosts)
+            speed_ratings[0] = 1.0;
+        return speed_ratings;
+    }
+
+    for(i = 0; i < hosts->nhosts; i++) {
+        if(sxi_ht_get(e->conn_pool->hosts, hosts->hosts[i], strlen(hosts->hosts[i]), (void**)&hi) || !hi) {
+            speed_ratings[i] = 0.0;
+        } else {
+            if(get_host_info_speed(hi, direction == SXC_XFER_DIRECTION_UPLOAD ? &speed_ratings[i] : NULL, direction == SXC_XFER_DIRECTION_UPLOAD ? NULL : &speed_ratings[i])) {
+                sxi_seterr(sxi_conns_get_client(conns), SXE_EARG, "Failed to get average speed for host %s", hi->host);
+                free(speed_ratings);
+                return NULL;
+            }
+            if(speed_ratings[i] > 0.0) {
+                /* Square speed to get higher variance */
+                speed_ratings[i] *= speed_ratings[i];
+                speed_sum += speed_ratings[i];
+                speed_counter++;
+            }
+        }
+    }
+
+    /* Normalize ratings */
+    for(i = 0; i < hosts->nhosts; i++) {
+        if(speed_ratings[i] > 0.0)
+            speed_ratings[i] = ((speed_ratings[i] / speed_sum) * speed_counter) / dnhosts;
+        else
+            speed_ratings[i] = 1.0 / dnhosts;
+    }
+
+    return speed_ratings;
+}
+
+const char *sxi_hostlist_get_optimal_host(sxi_conns_t * conns, const sxi_hostlist_t *list, sxc_xfer_direction_t direction) {
+    unsigned int i;
+    double *ratings;
+    unsigned int r = sxi_rand();
+    float rd = (float)r / UINT_MAX;
+    sxc_client_t *sx = sxi_conns_get_client(conns);
+    float distribution = sxi_get_node_preference(sx);
+
+    if(!conns || !list || !list->nhosts)
+        return NULL;
+
+    if(distribution < 0.0 || distribution > 1.0) {
+        sxi_seterr(sx, SXE_EARG, "Invalid argument: %.2f", distribution);
+        return NULL;
+    }
+    if(distribution < 1.0 && rd > distribution)
+        return list->hosts[0];
+
+    ratings = classify_hosts(conns, list, distribution, direction);
+    if(!ratings)
+        return NULL;
+
+    if(distribution < 1.0) {
+        r = sxi_rand();
+        rd = (float)r / UINT_MAX;
+        double sum = 0.0;
+
+        for(i = 0; i < list->nhosts; i++) {
+            sum += ratings[i];
+            if(rd < sum) {
+                free(ratings);
+                return list->hosts[i];
+            }
+        }
+    } else {
+        unsigned int max = 0;
+
+        /* Choose the fastest node */
+        for(i = 1; i < list->nhosts; i++) {
+            if(ratings[i] > ratings[max])
+                max = i;
+        }
+
+        free(ratings);
+        return list->hosts[max];
+    }
+
+    free(ratings);
+    if(list->nhosts)
+        return list->hosts[list->nhosts-1];
+    return NULL;
+}
+
+int sxi_set_host_speed_stats(sxi_conns_t *conns, const char *host, double ul, double dl) {
+    struct host_info *hi;
+    connection_pool_t *pool;
+    curl_events_t *e;
+    sxc_client_t *sx = sxi_conns_get_client(conns);
+    unsigned int i;
+
+    if(!conns)
+        return 1;
+    if(!host) {
+        sxi_seterr(sx, SXE_EARG, "NULL argument");
+        return 1;
+    }
+
+    e = sxi_conns_get_curlev(conns);
+    if(!e || !e->conn_pool) {
+        sxi_seterr(sx, SXE_EARG, "Invalid argument");
+        return 1;
+    }
+    pool = e->conn_pool;
+
+    hi = connection_pool_get_host_info(pool, host);
+
+    /* Get active host information reference */
+    if(sxi_ht_get(pool->hosts, host, strlen(host), (void**)&hi)) {
+        /* Host could not be found, add given host */
+        hi = host_info_new(host);
+        if(!hi) {
+            SXDEBUG("OOM Could not allocate memory for host");
+            return 1;
+        }
+        if(sxi_ht_add(pool->hosts, host, strlen(host), (void*)hi)) {
+            SXDEBUG("OOM Could not allocate memory for host");
+            host_info_free(hi);
+            return 1;
+        }
+    }
+
+    if(!hi) {
+        sxi_seterr(sx, SXE_EARG, "NULL active host information reference");
+        return 1;
+    }
+
+    /* Fill the table at minimum threshold to make speed to be taken into account for speed averages */
+    for(i = 0; i < MIN_EVENTS_THRESHOLD; i++) {
+        hi->dl_speed[i] = dl;
+        hi->ul_speed[i] = ul;
+    }
+    hi->ul_counter = i;
+    hi->ul_index = i;
+    hi->dl_counter = i;
+    hi->dl_index = i;
+
+    return 0;
+}
+
+int sxi_get_host_speed_stats(sxi_conns_t *conns, const char *host, double *ul, double *dl) {
+    struct host_info *hi;
+    curl_events_t *e;
+    sxc_client_t *sx = sxi_conns_get_client(conns);
+
+    if(!conns)
+        return 1;
+    if(!host) {
+        sxi_seterr(sx, SXE_EARG, "NULL argument");
+        return 1;
+    }
+
+    e = sxi_conns_get_curlev(conns);
+    if(!e || !e->conn_pool) {
+        sxi_seterr(sx, SXE_EARG, "Invalid argument");
+        return 1;
+    }
+
+    hi = connection_pool_get_host_info(e->conn_pool, host);
+    if(!hi) /* Error should already be set */
+        return 1;
+
+    if(get_host_info_speed(hi, ul, dl)) {
+        sxi_seterr(sxi_conns_get_client(conns), SXE_EARG, "Failed to get host %s speed", host);
+        return 1;
+    }
+
+    return 0;
+}
 
 /* Nullify context for each curlev_t element from active and inactive cURL events */
 void sxi_curlev_nullify_upload_context(sxi_conns_t *conns, void *ctx) {
@@ -2011,15 +2341,14 @@ static int enqueue_request(curl_events_t *e, curlev_t *ev, int re)
     /* Get information about active connections for each host */
     if(sxi_ht_get(e->conn_pool->hosts, (void*)ev->host, strlen(ev->host), (void**)&host) || !host) {
         /* Host could not be found, add given host */
-        host = host_active_info_new(ev->host);
+        host = host_info_new(ev->host);
         if(!host) {
             SXDEBUG("OOM Could not allocate memory for host");
             return -1;
         }
         if(sxi_ht_add(e->conn_pool->hosts, (void*)ev->host, strlen(ev->host), (void*)host)) {
             SXDEBUG("Could not add host to hashtable");
-            free(host->host);
-            free(host);
+            host_info_free(host);
             return -1;
         }
     }
@@ -2360,8 +2689,8 @@ int sxi_curlev_poll_immediate(curl_events_t *e)
                 char *urldup;
                 curlev_t *ev = (curlev_t*)priv;
                 struct recv_context *rctx = &ev->ctx->recv_ctx;
-                struct host_info *host = NULL;
                 int xfer_err = SXE_NOERROR;
+                curlev_context_t *ctx;
 
                 curl_easy_getinfo(msg->easy_handle, CURLINFO_RESPONSE_CODE, &rctx->reply_status);
                 rctx->errbuf[sizeof(rctx->errbuf)-1] = 0;
@@ -2373,6 +2702,14 @@ int sxi_curlev_poll_immediate(curl_events_t *e)
 
                 /* get url, it will get freed by curl_easy_cleanup */
                 curl_easy_getinfo(msg->easy_handle, CURLINFO_EFFECTIVE_URL, &url);
+
+                /* Update information about connection with given host */
+                if(update_active_host(e->conn_pool, ev)) {
+                    EVDEBUG(ev, "Failed to update host %s speed: %s", ev->host, sxi_cbdata_geterrmsg(ev->ctx));
+                    e->depth--;
+                    return -1;
+                }
+
                 /* finish might add more queries, let it know
                  * there is room */
                 rc = curl_multi_remove_handle(e->multi, ev->curl);
@@ -2382,7 +2719,7 @@ int sxi_curlev_poll_immediate(curl_events_t *e)
                 }
                 EVDEBUG(ev, "::remove_handle %p", ev->curl);
                 e->used--;
-                curlev_context_t *ctx = ev->ctx;
+                ctx = ev->ctx;
                 ev->ctx = NULL;
 
                 /* 
@@ -2439,17 +2776,9 @@ int sxi_curlev_poll_immediate(curl_events_t *e)
                     return -1;
                 }
 
-                /* Look for host */
-                if(sxi_ht_get(e->conn_pool->hosts, (void*)ev->host, strlen(ev->host), (void **)&host) || !host) {
-                    EVDEBUG(ev, "Could not get host from hosts hash table");
-                    return -1;
-                }
-
-                /* Update per-host active connections counter */
-                host->active--;
                 /* Update global active connections counter */
                 e->conn_pool->active_count--;
- 
+
                 urldup = strdup(url);
                 queue_next_inactive(e);
                 sxi_cbdata_finish(e, &ctx, urldup, ev->error);

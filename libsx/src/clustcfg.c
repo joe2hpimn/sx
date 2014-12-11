@@ -423,13 +423,53 @@ sxc_cluster_t *sxc_cluster_load(sxc_client_t *sx, const char *config_dir, const 
 	    break;
 	}
 	while((dent = readdir(d))) {
+            double ul_speed = 0.0, dl_speed = 0.0;
+            FILE *nodef;
+            char *node_fname;
+            unsigned int node_fname_len;
+
 	    if(dent->d_name[0] == '.' && (dent->d_name[1] == '\0' || (dent->d_name[1] == '.' && dent->d_name[2] == '\0')))
 		continue;
-	    if(sxc_cluster_add_host(cluster, dent->d_name)) {
-		SXDEBUG("failed to add node %s", dent->d_name);
-		err = 1;
-		break;
-	    }
+            if(sxc_cluster_add_host(cluster, dent->d_name)) {
+                SXDEBUG("failed to add node %s", dent->d_name);
+                err = 1;
+                break;
+            }
+            node_fname_len = confdir_len + strlen("/nodes") + strlen(dent->d_name) + 2;
+            node_fname = malloc(node_fname_len);
+            if(!node_fname) {
+                SXDEBUG("OOM allocating node file path");
+                sxi_seterr(sx, SXE_EMEM, "Cannot load cluster config: Out of memory");
+                err = 1;
+                break;
+            }
+            snprintf(node_fname, node_fname_len, "%s/%s", fname, dent->d_name);
+            if(!(nodef = fopen(node_fname, "r"))) {
+                SXDEBUG("Failed to open node file %s for reading", node_fname);
+                sxi_setsyserr(sx, SXE_ECFG, "Cannot load cluster config: Cannot open node file %s", dent->d_name);
+                err = 1;
+                free(node_fname);
+                break;
+            }
+            if(fscanf(nodef, "UploadSpeed=%lf\nDownloadSpeed=%lf\n", &ul_speed, &dl_speed) != 2)
+                SXDEBUG("Nodes speeds are not present, use 0.0");
+            else {
+                if(sxi_set_host_speed_stats(cluster->conns, dent->d_name, ul_speed, dl_speed)) {
+                    SXDEBUG("Failed to set host %s speed", dent->d_name);
+                    err = 1;
+                    if(fclose(nodef))
+                        SXDEBUG("Failed to close node file %s", node_fname);
+                    free(node_fname);
+                    break;
+                }
+            }
+            if(fclose(nodef)) {
+                SXDEBUG("Failed to close node file %s", node_fname);
+                err = 1;
+                free(node_fname);
+                break;
+            }
+            free(node_fname);
 	}
 	closedir(d);
 	if(err)
@@ -1376,6 +1416,7 @@ int sxc_cluster_save(sxc_cluster_t *cluster, const char *config_dir) {
 	const char *host = sxi_hostlist_get_host(hlist, i);
 	unsigned int len = clusterd_len + lenof("/nodes/") + strlen(host) + 1;
 	char *touchme = malloc(len);
+        double ul_speed = 0.0, dl_speed = 0.0;
 
 	if(!touchme) {
 	    CFGDEBUG("OOM allocating host file for %s", host);
@@ -1385,13 +1426,28 @@ int sxc_cluster_save(sxc_cluster_t *cluster, const char *config_dir) {
 	}
 	sprintf(touchme, "%s/%s", clusterd, host);
 	f = fopen(touchme, "w");
-	if(!f || fclose(f)) {
-	    CFGDEBUG("failed to touch host file %s", touchme);
+	if(!f) {
+	    CFGDEBUG("failed to open host file %s", touchme);
 	    cluster_syserr(SXE_EWRITE, "Cannot save config: Failed to touch file %s", touchme);
 	    free(clusterd);
 	    free(touchme);
 	    return 1;
 	}
+
+        if(sxi_get_host_speed_stats(cluster->conns, host, &ul_speed, &dl_speed)) {
+            CFGDEBUG("Failed to get host %s speed: %s", host, sxc_geterrmsg(cluster->sx));
+            ul_speed = 0.0;
+            dl_speed = 0.0;
+        }
+
+        fprintf(f, "UploadSpeed=%.2lf\nDownloadSpeed=%.2lf\n", ul_speed, dl_speed);
+        if(fclose(f)) {
+            CFGDEBUG("Failed to close host file %s", touchme);
+            cluster_syserr(SXE_EWRITE, "Cannot save config: Failed to close host file %s", touchme);
+            free(clusterd);
+            free(touchme);
+            return 1;
+        }
 	free(touchme);
     }
 

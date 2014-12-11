@@ -1241,7 +1241,10 @@ static int batch_hashes_to_hosts(curlev_context_t *cbdata, struct file_upload_ct
         struct need_hash *need = &needed[i];
         const char *host = NULL;
         need->replica += next_replica;
-        host = sxi_hostlist_get_host(&need->upload_hosts, need->replica);
+        if(sxi_get_node_preference(sx) > 0.0)
+            host = sxi_hostlist_get_optimal_host(sxi_cbdata_get_conns(cbdata), &need->upload_hosts, SXC_XFER_DIRECTION_UPLOAD);
+        else
+            host = sxi_hostlist_get_host(&need->upload_hosts, need->replica);
         if (!host) {
             sxi_cbdata_seterr(cbdata, SXE_ECOMM, "All replicas have failed");
             SXDEBUG("All replicas have failed");
@@ -3407,7 +3410,15 @@ static int multi_download(struct batch_hashes *bh, const char *dstname,
             CFGDEBUG("No hosts available for hash %.*s!", 40, hash);
             break;
         }
-        host = sxi_hostlist_get_host(&hashdata->hosts, 0);
+
+        if(sxi_get_node_preference(sx) > 0.0) {
+            /* Get optimal node for hash, learn from previous connection statistics */
+            host = sxi_hostlist_get_optimal_host(conns, &hashdata->hosts, SXC_XFER_DIRECTION_DOWNLOAD);
+        } else {
+            /* Default way to get a host for hash is to get first node proposed by server */
+            host = sxi_hostlist_get_host(&hashdata->hosts, 0);
+        }
+
         if (!host) {
             CFGDEBUG("Ran out of hosts for hash: (last HTTP code %ld)", hashdata->state);
             /* TODO: set err and break */

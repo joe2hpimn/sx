@@ -771,6 +771,20 @@ int main(int argc, char **argv) {
         }
     }
 
+    if(args.node_preference_given) {
+        char *enumb;
+        float preference = strtof(args.node_preference_arg, &enumb);
+        if(*enumb || preference < 0.0 || preference > 1.0) {
+            fprintf(stderr, "ERROR: Invalid argument: must be from 0.0 to 1.0\n");
+            goto main_err;
+        }
+
+        if(sxc_set_node_preference(sx, preference)) {
+            fprintf(stderr, "ERROR: Failed to set node preference\n");
+            goto main_err;
+        }
+    }
+
     for(i = 0;i < args.inputs_num-1; i++) {
         fname = args.inputs[i];
         if(!strcmp(fname, "-")) {
@@ -846,6 +860,18 @@ int main(int argc, char **argv) {
         }
         sxc_file_free(src_file);
         src_file = NULL;
+    }
+
+    /* If --node-preference is given, save cluster configuration in order to store nodes speeds */
+    if(args.node_preference_given) {
+        if(cluster1 && sxc_cluster_save(cluster1, sxc_get_confdir(sx))) {
+            fprintf(stderr, "ERROR: Failed to save cluster configuration: %s\n", sxc_geterrmsg(sx));
+            goto main_err;
+        }
+        if(cluster2 && sxc_cluster_save(cluster2, sxc_get_confdir(sx))) {
+            fprintf(stderr, "ERROR: Failed to save cluster configuration: %s\n", sxc_geterrmsg(sx));
+            goto main_err;
+        }
     }
 
     ret = skipped ? 1 : 0;

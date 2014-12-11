@@ -52,6 +52,7 @@ struct _sxc_client_t {
     char *op_path;
     char *confdir;
     alias_list_t *alias;
+    float node_preference;
 };
 
 static const char *guess_tempdir(void) {
@@ -113,6 +114,7 @@ sxc_client_t *sxc_init(const char *client_version, const sxc_logger_t *func, sxc
     sx->log.func = func;
     sx->input_cb = input_cb;
     sx->input_ctx = input_ctx;
+    sx->node_preference = 0.0;
 
     /* To set configuration directory use sxc_set_confdir(). Default value is taken from HOME directory. */
     home_dir = sxi_getenv("HOME");
@@ -472,4 +474,15 @@ char* sxc_escstr(char *str) {
             str[i] = '?';
     }
     return str;
+}
+
+int sxc_set_node_preference(sxc_client_t *sx, float preference) {
+    if(!sx)
+        return 1;
+    sx->node_preference = preference;
+    return 0;
+}
+
+float sxi_get_node_preference(sxc_client_t *sx) {
+    return sx ? sx->node_preference : 0.0;
 }

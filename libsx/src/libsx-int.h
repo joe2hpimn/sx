@@ -75,5 +75,6 @@ struct filter_ctx *sxi_get_fctx(sxc_client_t *sx);
 struct tempfile_track *sxi_get_temptrack(sxc_client_t *sx);
 const char *sxi_get_useragent(void);
 int sxi_get_input(sxc_client_t *sx, sxc_input_t type, const char *prompt, const char *def, char *in, unsigned int insize);
+float sxi_get_node_preference(sxc_client_t *sx);
 
 #endif

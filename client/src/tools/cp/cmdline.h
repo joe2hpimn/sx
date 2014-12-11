@@ -80,6 +80,9 @@ struct gengetopt_args_info
   char * dot_size_arg;	/**< @brief Use specified size for each dot printed with file transfer progress (short: 1KB, long: 8KB, scale: block size).  */
   char * dot_size_orig;	/**< @brief Use specified size for each dot printed with file transfer progress (short: 1KB, long: 8KB, scale: block size) original value given at command line.  */
   const char *dot_size_help; /**< @brief Use specified size for each dot printed with file transfer progress (short: 1KB, long: 8KB, scale: block size) help description.  */
+  char * node_preference_arg;	/**< @brief Set node preference level for data transfers (accepts values between 0.0 and 1.0).  */
+  char * node_preference_orig;	/**< @brief Set node preference level for data transfers (accepts values between 0.0 and 1.0) original value given at command line.  */
+  const char *node_preference_help; /**< @brief Set node preference level for data transfers (accepts values between 0.0 and 1.0) help description.  */
   
   unsigned int help_given ;	/**< @brief Whether help was given.  */
   unsigned int full_help_given ;	/**< @brief Whether full-help was given.  */
@@ -98,6 +101,7 @@ struct gengetopt_args_info
   unsigned int total_conns_limit_given ;	/**< @brief Whether total-conns-limit was given.  */
   unsigned int host_conns_limit_given ;	/**< @brief Whether host-conns-limit was given.  */
   unsigned int dot_size_given ;	/**< @brief Whether dot-size was given.  */
+  unsigned int node_preference_given ;	/**< @brief Whether node-preference was given.  */
 
   char **inputs ; /**< @brief unamed options (options without names) */
   unsigned inputs_num ; /**< @brief unamed options number */

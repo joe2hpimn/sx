@@ -573,6 +573,8 @@ int sxc_filter_get_input(const sxf_handle_t *h, sxc_input_t type, const char *pr
 /* Escape string */
 char *sxc_escstr(char *str);
 
+int sxc_set_node_preference(sxc_client_t *sx, float preference);
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

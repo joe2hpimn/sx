@@ -192,4 +192,8 @@ int sxi_curlev_set_conns_limit(curl_events_t *e, unsigned int max_active, unsign
 /* Nullify context for each curlev_t element from active and inactive cURL events */
 void sxi_curlev_nullify_upload_context(sxi_conns_t *conns, void *context);
 
+/* Get optimal node according to node preference set via sxc_set_node_preference() */
+const char *sxi_hostlist_get_optimal_host(sxi_conns_t * conns, const sxi_hostlist_t *list, sxc_xfer_direction_t direction);
+int sxi_get_host_speed_stats(sxi_conns_t *conns, const char *host, double *ul, double *dl);
+int sxi_set_host_speed_stats(sxi_conns_t *conns, const char *host, double ul, double dl);
 #endif
