@@ -6417,7 +6417,7 @@ static rc_ty create_file(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const
 	*file_id = sqlite3_last_insert_rowid(sqlite3_db_handle(h->qm_ins[mdb]));
 
     /* Update volume size counter only when size is positive and this node is not becoming a volnode */
-    if(!is_new_volnode(h, volume) && sx_hashfs_update_volume_cursize(h, volume->id, totalsize)) {
+    if(sx_hashfs_update_volume_cursize(h, volume->id, totalsize)) {
         WARN("Failed to update volume size");
         return FAIL_EINTERNAL;
     }
@@ -7736,7 +7736,7 @@ rc_ty sx_hashfs_file_delete(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, co
     deleted = sqlite3_changes(h->metadb[mdb]->handle);
 
     /* Update counters only when file deletion succeeded and this node is not becoming a volnode */
-    if(ret == OK && deleted && !is_new_volnode(h, volume) && sx_hashfs_update_volume_cursize(h, volume->id, -size)) {
+    if(ret == OK && deleted && sx_hashfs_update_volume_cursize(h, volume->id, -size)) {
         WARN("Failed to update volume size");
         return FAIL_EINTERNAL;
     }
