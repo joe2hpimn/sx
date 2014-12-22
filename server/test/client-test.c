@@ -1490,7 +1490,7 @@ int volume_test(const char *progname, sxc_client_t *sx, sxc_cluster_t *cluster, 
     sprintf(volname, "%s_%s_XXXXXX", VOLNAME, filter_name ? filter_name : "NonFilter");
     if(randomize_name(volname))
         goto volume_test_err;
-    remote_dir_path = (char*)malloc(strlen("sx://") + (uri->profile ? strlen(uri->profile) : -1) + 1 + strlen(uri->host) + 1 + strlen(volname) + 1 + strlen(REMOTE_DIR) + 1 + 1); /* The 1's inside are for '@' and '/' characters. */
+    remote_dir_path = (char*)malloc(strlen("sx://") + (uri->profile ? strlen(uri->profile) + 1 : 0) + strlen(uri->host) + 1 + strlen(volname) + 1 + strlen(REMOTE_DIR) + 1 + 1); /* The 1's inside are for '@' and '/' characters. */
     if(!remote_dir_path) {
         fprintf(stderr, "volume_test: ERROR: Cannot allocate memory for remote_dir_path.\n");
         goto volume_test_err;
@@ -1693,13 +1693,13 @@ int test_copy(sxc_client_t *sx, sxc_cluster_t *cluster, const char *local_dir_pa
         goto test_copy_err;
     }
     sprintf(local_file_path, "%s%s", local_dir_path, COPY_FILE_NAME);
-    remote_file1_path = (char*)malloc(strlen("sx://") + (profile_name ? strlen(profile_name) : -1) + 1 + strlen(cluster_name) + 1 + strlen(volname1) + 1 + strlen(REMOTE_DIR) + 1 + strlen(COPY_FILE_NAME) + 1); /* The 1's inside are for '@' and '/' characters. */
+    remote_file1_path = (char*)malloc(strlen("sx://") + (profile_name ? strlen(profile_name) + 1 : 0) + strlen(cluster_name) + 1 + strlen(volname1) + 1 + strlen(REMOTE_DIR) + 1 + strlen(COPY_FILE_NAME) + 1); /* The 1's inside are for '@' and '/' characters. */
     if(!remote_file1_path) {
         fprintf(stderr, "test_copy: ERROR: Cannot allocate memory for remote_file1_path.\n");
         goto test_copy_err;
     }
     sprintf(remote_file1_path, "sx://%s%s%s/%s/%s/%s", profile_name ? profile_name : "", profile_name ? "@" : "", cluster_name, volname1, REMOTE_DIR, COPY_FILE_NAME);
-    remote_file2_path = (char*)malloc(strlen("sx://") + (profile_name ? strlen(profile_name) : -1) + 1 + strlen(cluster_name) + 1 + strlen(volname2) + 1 + strlen(REMOTE_DIR) + 1 + strlen(COPY_FILE_NAME) + 1); /* The 1's inside are for '@' and '/' characters. */
+    remote_file2_path = (char*)malloc(strlen("sx://") + (profile_name ? strlen(profile_name) + 1 : 0) + strlen(cluster_name) + 1 + strlen(volname2) + 1 + strlen(REMOTE_DIR) + 1 + strlen(COPY_FILE_NAME) + 1); /* The 1's inside are for '@' and '/' characters. */
     if(!remote_file2_path) {
         fprintf(stderr, "test_copy: ERROR: Cannot allocate memory for remote_file2_path.\n");
         goto test_copy_err;
