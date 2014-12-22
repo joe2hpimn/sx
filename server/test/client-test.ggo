@@ -8,6 +8,8 @@ option "owner" o "Set 'USER' as the volume owner" string default="admin" typestr
 option "human" h "Print sizes in human readable format" flag off
 option "debug" D "Enable debug messages" flag off
 option "all" a "Run all possible tests" flag off
+option "list-tests" l "List available tests" flag off
+option "run-test" t "Only run a specific test" string typestr="TESTNAME" optional
 
 option "config-dir" c "Path to SX configuration directory" string typestr="PATH" optional hidden
 option "filter-dir" f "Path to SX filter directory" string typestr="PATH" optional hidden
