@@ -7,6 +7,14 @@
 LC_ALL=C
 export LC_ALL
 
+# Skylable: support out-of-tree builds
+basedir=`dirname $0`
+test -z $basedir && basedir="."
+for dir in auto src; do
+    test -d $dir  || ln -s $basedir/$dir $dir
+done
+unset basedir
+
 . auto/options
 . auto/init
 . auto/sources

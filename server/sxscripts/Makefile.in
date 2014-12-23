@@ -581,20 +581,24 @@ uninstall-am: uninstall-nobase_docDATA uninstall-nobase_sysconfDATA \
 	uninstall-nobase_sysconfDATA uninstall-sbinSCRIPTS
 
 sxserver/sxhttpd.conf.default: $(srcdir)/sxserver/sxhttpd.conf.default.in Makefile
-	rm -f $@ $@.tmp
-	$(edit) $(srcdir)/sxserver/sxhttpd.conf.default.in >$@.tmp
+	@mkdir -p sxserver &&\
+	rm -f $@ $@.tmp &&\
+	$(edit) $(srcdir)/sxserver/sxhttpd.conf.default.in >$@.tmp &&\
 	mv $@.tmp $@
 sbin/sxserver: $(srcdir)/sbin/sxserver.in Makefile
-	rm -f $@ $@.tmp
-	$(edit) $(srcdir)/sbin/sxserver.in >$@.tmp
+	@mkdir -p sbin &&\
+	rm -f $@ $@.tmp &&\
+	$(edit) $(srcdir)/sbin/sxserver.in >$@.tmp &&\
 	mv $@.tmp $@
 sbin/sxsetup: $(srcdir)/sbin/sxsetup.in Makefile
-	rm -f $@ $@.tmp
-	$(edit) $(srcdir)/sbin/sxsetup.in >$@.tmp
+	@mkdir -p sbin &&\
+	rm -f $@ $@.tmp &&\
+	$(edit) $(srcdir)/sbin/sxsetup.in >$@.tmp &&\
 	mv $@.tmp $@
 logrotate.d/sxserver: $(srcdir)/logrotate.d/sxserver.in Makefile
-	rm -f $@ $@.tmp
-	$(edit) $(srcdir)/logrotate.d/sxserver.in >$@.tmp
+	@mkdir -p logrotate.d &&\
+	rm -f $@ $@.tmp &&\
+	$(edit) $(srcdir)/logrotate.d/sxserver.in >$@.tmp &&\
 	mv $@.tmp $@
 install-data-local:
 	$(MKDIR_P) $(DESTDIR)/$(localstatedir)/lib/sxserver $(DESTDIR)/$(localstatedir)/log/sxserver $(DESTDIR)/$(localstatedir)/run/sxserver

@@ -564,7 +564,8 @@ ACLOCAL = @ACLOCAL@
 AMTAR = @AMTAR@
 AM_CFLAGS = @AM_CFLAGS@
 AM_CPPFLAGS = @AM_CPPFLAGS@ -I $(top_srcdir)/../libsx/include -I \
-	$(top_srcdir)/src/common -I $(top_srcdir)/../
+	../libsx/include -I $(top_srcdir)/src/common -I \
+	$(top_srcdir)/../
 AM_DEFAULT_VERBOSITY = @AM_DEFAULT_VERBOSITY@
 AM_LDFLAGS = @AM_LDFLAGS@
 AR = @AR@

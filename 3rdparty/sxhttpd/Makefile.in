@@ -77,8 +77,10 @@ PRE_UNINSTALL = :
 POST_UNINSTALL = :
 subdir = .
 DIST_COMMON = $(srcdir)/Makefile.in $(srcdir)/Makefile.am \
-	$(top_srcdir)/configure $(am__configure_deps) install-sh \
-	missing
+	$(top_srcdir)/configure $(am__configure_deps) \
+	build-aux/install-sh build-aux/missing \
+	$(top_srcdir)/build-aux/install-sh \
+	$(top_srcdir)/build-aux/missing
 ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
 am__aclocal_m4_deps = $(top_srcdir)/configure.ac
 am__configure_deps = $(am__aclocal_m4_deps) $(CONFIGURE_DEPENDENCIES) \
@@ -527,34 +529,31 @@ uninstall-am: uninstall-local
 	uninstall-am uninstall-local
 
 all:
-	@olddir=`pwd`; \
-	cd $(top_srcdir)/../nginx; \
+	@cd build-nginx; \
 	$(MAKE) $(AM_MAKEFLAGS); \
 	test "x$$?" != "x0" && exit 1; \
-	cd $(olddir)
+	cd ..
 
 install-exec-local:
-	@olddir=`pwd`; \
-	cd $(top_srcdir)/../nginx; \
+	@cd build-nginx; \
 	$(MAKE) $(AM_MAKEFLAGS) install; \
 	test "x$$?" != "x0" && exit 1; \
-	cd $(olddir)
+	cd ..
 
 clean-local:
-	@olddir=`pwd`; \
-	cd $(top_srcdir)/../nginx; \
+	@cd build-nginx; \
 	test ! -f Makefile && exit 0; \
 	$(MAKE) $(AM_MAKEFLAGS) clean; \
 	test "x$$?" != "x0" && exit 1; \
-	cd $(olddir)
+	cd ..
 
 distclean-local:
-	@olddir=`pwd`; \
-	cd $(top_srcdir)/../nginx; \
+	@cd build-nginx; \
 	test ! -f Makefile && exit 0; \
 	$(MAKE) $(AM_MAKEFLAGS) distclean; \
 	test "x$$?" != "x0" && exit 1; \
-	cd $(olddir)
+	cd ..; \
+	rm -rf build-nginx
 
 uninstall-local:
 	@rm -f $(sbindir)/sxhttpd

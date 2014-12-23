@@ -845,7 +845,7 @@ OPENSSL_CFLAGS
 OPENSSL_LIBS
 NSS_CFLAGS
 NSS_LIBS'
-ac_subdirs_all='../3rdparty/curl'
+ac_subdirs_all='curl-src'
 
 # Initialize some variables set by options.
 ac_init_help=
@@ -14146,7 +14146,7 @@ fi
 LIBS=$ac_save_LIBS
 if test "$has_sys_yajl" = "no"; then
     YAJL_LIBS="../3rdparty/yajl_build/build/libyajl.la -lm"
-    YAJL_CPPFLAGS="-I ../3rdparty/yajl_build/build"
+    YAJL_CPPFLAGS="-I $srcdir/../3rdparty/yajl_build/build -I ../3rdparty/yajl_build/build"
 fi
 
 
@@ -15557,11 +15557,11 @@ else
 fi
 
     ac_configure_args="$ac_configure_args --with-zlib $with_idn --with-pic --disable-shared --without-libssh2 --without-librtmp --without-nghttp2 --disable-ftp --disable-file --disable-ldap --disable-ldaps --disable-rtsp --disable-dict --disable-telnet --disable-tftp --disable-pop3 --disable-imap --disable-smtp --disable-gopher"
-    LIBCURL="../3rdparty/curl/lib/libcurl.la $link_idn -lz"
-    LIBCURL_CPPFLAGS="-I../3rdparty/curl/include"
+    LIBCURL="curl-src/lib/libcurl.la $link_idn -lz"
+    LIBCURL_CPPFLAGS="-I $srcdir/curl-src/include -I curl-src/include/curl"
 
 
-subdirs="$subdirs ../3rdparty/curl"
+subdirs="$subdirs curl-src"
 
 fi
 

@@ -54,7 +54,7 @@ AC_CHECK_LIB([yajl], [yajl_complete_parse], [YAJL_LIBS=-lyajl; has_sys_yajl="yes
 LIBS=$ac_save_LIBS
 if test "$has_sys_yajl" = "no"; then
     YAJL_LIBS="../3rdparty/yajl_build/build/libyajl.la -lm"
-    YAJL_CPPFLAGS="-I ../3rdparty/yajl_build/build"
+    YAJL_CPPFLAGS="-I $srcdir/../3rdparty/yajl_build/build -I ../3rdparty/yajl_build/build"
 fi
 AC_SUBST([YAJL_CPPFLAGS])
 AC_SUBST([YAJL_LIBS])
@@ -191,9 +191,9 @@ AM_CONDITIONAL([BUILD_NSS],[test "x$with_nss" != "xno"])
 if test "x$build_curl" = "xyes"; then
     AC_CHECK_LIB([idn],[idn_free],[config_idn='--with-idn';link_idn='-lidn'],[config_idn='';link_idn=''])
     ac_configure_args="$ac_configure_args --with-zlib $with_idn --with-pic --disable-shared --without-libssh2 --without-librtmp --without-nghttp2 --disable-ftp --disable-file --disable-ldap --disable-ldaps --disable-rtsp --disable-dict --disable-telnet --disable-tftp --disable-pop3 --disable-imap --disable-smtp --disable-gopher"
-    LIBCURL="../3rdparty/curl/lib/libcurl.la $link_idn -lz"
-    LIBCURL_CPPFLAGS="-I../3rdparty/curl/include"
-    AC_CONFIG_SUBDIRS([../3rdparty/curl])
+    LIBCURL="curl-src/lib/libcurl.la $link_idn -lz"
+    LIBCURL_CPPFLAGS="-I $srcdir/curl-src/include -I curl-src/include/curl"
+    AC_CONFIG_SUBDIRS([curl-src])
 fi
 
 if test "$with_system_libs" = "yes"; then

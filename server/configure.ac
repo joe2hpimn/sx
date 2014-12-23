@@ -102,7 +102,7 @@ AC_CHECK_LIB([yajl], [yajl_complete_parse], [YAJL_LIBS=-lyajl; has_sys_yajl="yes
 LIBS=$ac_save_LIBS
 if test "$has_sys_yajl" = "no"; then
     YAJL_LIBS="../3rdparty/yajl_build/build/libyajl.la"
-    YAJL_CPPFLAGS="-I ../3rdparty/yajl_build/build"
+    YAJL_CPPFLAGS="-I $srcdir/../3rdparty/yajl_build/build -I ../3rdparty/yajl_build/build"
 fi
 AC_SUBST([YAJL_CPPFLAGS])
 AC_SUBST([YAJL_LIBS])
@@ -127,7 +127,7 @@ else
 fi
 AC_MSG_CHECKING([for working resolver in lib$checkingin])
 AC_LINK_IFELSE([AC_LANG_PROGRAM([
-#include "../libsx/include/default.h"
+#include "$srcdir/../libsx/include/default.h"
 #include <sys/types.h>
 #include <netinet/in.h>
 #include <arpa/nameser.h>
@@ -176,7 +176,7 @@ if test "x$with_system_sqlite3" == "xyes"; then
                          AC_MSG_ERROR([System SQLite3 version not found or too old])
                        ])
 else
-    SQLITE3_CFLAGS="-I../3rdparty/libsqlite3/"
+    SQLITE3_CFLAGS="-I $srcdir/../3rdparty/libsqlite3/"
     SQLITE3_LIBS="../3rdparty/libsqlite3/libsqlite3.la"
 fi
 

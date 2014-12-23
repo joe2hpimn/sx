@@ -13318,7 +13318,7 @@ fi
 LIBS=$ac_save_LIBS
 if test "$has_sys_yajl" = "no"; then
     YAJL_LIBS="../3rdparty/yajl_build/build/libyajl.la"
-    YAJL_CPPFLAGS="-I ../3rdparty/yajl_build/build"
+    YAJL_CPPFLAGS="-I $srcdir/../3rdparty/yajl_build/build -I ../3rdparty/yajl_build/build"
 fi
 
 
@@ -13423,7 +13423,7 @@ $as_echo_n "checking for working resolver in lib$checkingin... " >&6; }
 cat confdefs.h - <<_ACEOF >conftest.$ac_ext
 /* end confdefs.h.  */
 
-#include "../libsx/include/default.h"
+#include "$srcdir/../libsx/include/default.h"
 #include <sys/types.h>
 #include <netinet/in.h>
 #include <arpa/nameser.h>
@@ -13458,7 +13458,7 @@ $as_echo_n "checking for working resolver in lib$checkingin... " >&6; }
 cat confdefs.h - <<_ACEOF >conftest.$ac_ext
 /* end confdefs.h.  */
 
-#include "../libsx/include/default.h"
+#include "$srcdir/../libsx/include/default.h"
 #include <sys/types.h>
 #include <netinet/in.h>
 #include <arpa/nameser.h>
@@ -13493,7 +13493,7 @@ $as_echo_n "checking for working resolver in lib$checkingin... " >&6; }
 cat confdefs.h - <<_ACEOF >conftest.$ac_ext
 /* end confdefs.h.  */
 
-#include "../libsx/include/default.h"
+#include "$srcdir/../libsx/include/default.h"
 #include <sys/types.h>
 #include <netinet/in.h>
 #include <arpa/nameser.h>
@@ -14240,7 +14240,7 @@ $as_echo "yes" >&6; }
 
 fi
 else
-    SQLITE3_CFLAGS="-I../3rdparty/libsqlite3/"
+    SQLITE3_CFLAGS="-I $srcdir/../3rdparty/libsqlite3/"
     SQLITE3_LIBS="../3rdparty/libsqlite3/libsqlite3.la"
 fi
 

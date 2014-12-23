@@ -23,3 +23,4 @@ TAGS
 3rdparty/curl/lib/curl_config.h
 3rdparty/curl/lib/libcurl.vers
 3rdparty/curl/libcurl.pc
+3rdparty/sxhttpd/build-nginx

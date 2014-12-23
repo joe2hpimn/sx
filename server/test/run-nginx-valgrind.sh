@@ -35,7 +35,7 @@ set -e
 exec `pwd`/libtool --mode=execute valgrind $VALGRIND_OPTS `pwd`/src/fcgi/sx.fcgi $*
 EOF
 chmod +x $prefix/sbin/sx.fcgi
-ln -s `pwd`/../3rdparty/nginx/objs/nginx $prefix/sbin/sxhttpd
+ln -s `pwd`/../3rdparty/sxhttpd/build-nginx/objs/nginx $prefix/sbin/sxhttpd
 cp $prefix/etc/sxserver/sxhttpd.conf.default $prefix/etc/sxserver/sxhttpd.conf
 mkdir -p $prefix/tmp/sx
 

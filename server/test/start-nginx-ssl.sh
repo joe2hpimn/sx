@@ -60,7 +60,7 @@ while [ $i -le $N ]; do
     mv tmp $prefix/sbin/sxserver
     chmod +x $prefix/sbin/sxserver
 
-    ln -s `pwd`/../3rdparty/nginx/objs/nginx $prefix/sbin/sxhttpd
+    ln -s `pwd`/../3rdparty/sxhttpd/build-nginx/objs/nginx $prefix/sbin/sxhttpd
 
     echo "Initializing node $i"
     CONF_TMP=$prefix/conf.tmp

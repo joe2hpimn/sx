@@ -53,7 +53,7 @@ while [ $i -le $N ]; do
     $prefix/sbin/sxadm --version
     $prefix/sbin/sx.fcgi --version
 
-    ln -s `pwd`/../3rdparty/nginx/objs/nginx $prefix/sbin/sxhttpd
+    ln -s `pwd`/../3rdparty/sxhttpd/build-nginx/objs/nginx $prefix/sbin/sxhttpd
     sed -e "s|\(/sx.fcgi\)|\1 --config-file $prefix/etc/sxserver/sxfcgi.conf|" $prefix/sbin/sxserver >tmp
     mv tmp $prefix/sbin/sxserver
     chmod +x $prefix/sbin/sxserver

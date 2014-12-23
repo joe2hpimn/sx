@@ -126,7 +126,7 @@ am__uninstall_files_from_dir = { \
 am__installdirs = "$(DESTDIR)$(pkglibdir)"
 LTLIBRARIES = $(pkglib_LTLIBRARIES)
 @BUILD_AES256_TRUE@libsxf_aes256_la_DEPENDENCIES =  \
-@BUILD_AES256_TRUE@	$(top_srcdir)/../libsx/src/libsx.la
+@BUILD_AES256_TRUE@	../../../../libsx/src/libsx.la
 am__libsxf_aes256_la_SOURCES_DIST = aes256.c crypt_blowfish.c \
 	crypt_blowfish.h
 @BUILD_AES256_TRUE@am_libsxf_aes256_la_OBJECTS = aes256.lo \
@@ -327,7 +327,7 @@ top_srcdir = @top_srcdir@
 @BUILD_AES256_TRUE@pkglib_LTLIBRARIES = libsxf_aes256.la
 @BUILD_AES256_TRUE@libsxf_aes256_la_SOURCES = aes256.c crypt_blowfish.c crypt_blowfish.h
 @BUILD_AES256_TRUE@libsxf_aes256_la_LDFLAGS = -module -release 13
-@BUILD_AES256_TRUE@libsxf_aes256_la_LIBADD = @AES256_LIBS@ $(top_srcdir)/../libsx/src/libsx.la
+@BUILD_AES256_TRUE@libsxf_aes256_la_LIBADD = @AES256_LIBS@ ../../../../libsx/src/libsx.la
 all: all-am
 
 .SUFFIXES:

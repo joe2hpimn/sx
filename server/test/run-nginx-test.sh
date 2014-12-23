@@ -38,8 +38,9 @@ fi
 ln -s `pwd`/../client/src/tools/init/sxinit "$prefix/bin/sxinit"
 ln -s `pwd`/src/tools/sxadm/sxadm "$prefix/sbin/sxadm"
 ln -s `pwd`/src/fcgi/sx.fcgi "$prefix/sbin/sx.fcgi"
+ln -s `pwd`/test/client-test "$prefix/bin/client-test"
 
-built_nginx=`pwd`/../3rdparty/nginx/objs/nginx
+built_nginx=`pwd`/../3rdparty/sxhttpd/build-nginx/objs/nginx
 rm -f "$prefix/sbin/sxhttpd"
 test -x "$built_nginx" && ln -s "$built_nginx" "$prefix/sbin/sxhttpd"
 
@@ -85,7 +86,7 @@ export SX_FCGI_OPTS="--config-file=$prefix/etc/sxserver/sxfcgi.conf"
 trap cleanup EXIT INT
 
 "$prefix/bin/sxinit" --batch-mode --port=8013 --no-ssl --auth-file="$SXSTOREDIR/data/admin.key" --config-dir="$prefix/.sx" sx://localhost
-`dirname $0`/client-test --config-dir="$prefix/.sx" --filter-dir="`pwd`/../client/src/filters" sx://localhost || {
+"$prefix/bin/client-test" --config-dir="$prefix/.sx" --filter-dir="`pwd`/../client/src/filters" sx://localhost || {
     cat "$SXLOGFILE";
     cat $prefix/var/log/sxserver/sxhttpd-error.log;
     exit 1

@@ -7,15 +7,15 @@ if BUILD_LTDL
 SUBDIRS += libltdl
 endif
 if BUILD_CURL
-SUBDIRS += ../3rdparty/curl
+SUBDIRS += curl-src
 endif
 
-EXTRA_DIST=libltdl ../3rdparty/curl
+EXTRA_DIST=libltdl curl-src
 DIST_SUBDIRS=$(SUBDIRS)
 
 include_HEADERS = include/sx.h
 
-AM_CPPFLAGS = -I $(top_srcdir)/include -I $(top_srcdir)/src $(LTDLINCL)
+AM_CPPFLAGS = -I $(top_srcdir)/include -I $(top_srcdir)/src -I include $(LTDLINCL)
 lib_LTLIBRARIES = src/libsx.la
 src_libsx_la_SOURCES = \
 	include/sx.h \
@@ -91,6 +91,7 @@ include/extraversion.h: include/extraversion.h.tmp
 #if exported via git archvie the COMMITVER is a commit hash otherwise it is a meaningless 'ormat:%h'
 include/extraversion.h.tmp:
 	$(AM_V_GEN) \
+	    mkdir -p include &&\
 	    (VER="$$(LANG=C git -C $(top_srcdir) describe --exact-match 2>/dev/null)" &&\
 	    echo "#define SRC_VERSION \"$$VER\"" >$@) ||\
 	    (VER="$$(LANG=C git -C $(top_srcdir) describe --always --dirty=+ 2>/dev/null)" &&\
