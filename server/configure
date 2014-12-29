@@ -14341,7 +14341,7 @@ $as_echo "no" >&6; }
 fi
 
   if test "x$ac_pt_SXHTTPD" = x; then
-    SXHTTPD="as_fn_error $? "nginx is required when --disable-sxhttpd is used" "$LINENO" 5"
+    SXHTTPD="false"
   else
     case $cross_compiling:$ac_tool_warned in
 yes:)
@@ -14355,6 +14355,9 @@ else
   SXHTTPD="$ac_cv_path_SXHTTPD"
 fi
 
+    if test "$SXHTTPD" = "false"; then
+        as_fn_error $? "nginx is required when --disable-sxhttpd is used" "$LINENO" 5
+    fi
 else
     SXHTTPD="$sbindir/sxhttpd"
 fi

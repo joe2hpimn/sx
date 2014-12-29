@@ -32,7 +32,7 @@ if [ `uname` = 'SunOS' ]; then
 else
   FLAG=
 fi
-(cd sxscripts && make -s clean && make -s $FLAG prefix="$prefix" SXHTTPD="$prefix/sbin/sxhttpd" sbindir="$prefix/sbin" bindir="$prefix/bin" sysconfdir="$prefix/etc" localstatedir="$prefix/var" install)
+(cd sxscripts && make -s clean && make -s $FLAG prefix="$prefix" sbindir="$prefix/sbin" bindir="$prefix/bin" sysconfdir="$prefix/etc" localstatedir="$prefix/var" install)
 (cd sxscripts && make -s clean && make -s)
 
 ln -s `pwd`/../client/src/tools/init/sxinit "$prefix/bin/sxinit"

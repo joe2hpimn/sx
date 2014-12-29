@@ -187,9 +187,11 @@ build_sxhttpd=$enableval, build_sxhttpd="yes")
 
 
 if test "x$build_sxhttpd" = "xno"; then
-    AC_PATH_TOOL(SXHTTPD,nginx,
-                 [AC_MSG_ERROR([nginx is required when --disable-sxhttpd is used])],
+    AC_PATH_TOOL(SXHTTPD,nginx, [false],
                  [/usr/sbin:/usr/local/sbin:$PATH])
+    if test "$SXHTTPD" = "false"; then
+        AC_MSG_ERROR([nginx is required when --disable-sxhttpd is used])
+    fi
 else
     SXHTTPD="$sbindir/sxhttpd"
 fi
