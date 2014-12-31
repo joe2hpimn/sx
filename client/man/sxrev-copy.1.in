@@ -1,6 +1,6 @@
 .TH SXREV-COPY "1" "September 2014" "sxrev @VERSION@" "Skylable SX Manual"
 .SH NAME
-sxrev copy \- copy a specific revision of a file
+sxrev-copy \- copy a specific revision of a file
 .SH SYNOPSIS
 .B sxrev copy
 [\fI\,OPTIONS\/\fR] \fI\,sx://\/\fR[\fI\,profile@\/\fR]\fI\,cluster/volume/path DEST\/\fR

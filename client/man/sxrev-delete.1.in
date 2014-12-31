@@ -1,6 +1,6 @@
 .TH SXREV-DELETE "1" "September 2014" "sxrev @VERSION@" "Skylable SX Manual"
 .SH NAME
-sxrev delete \- delete a revision
+sxrev-delete \- delete a revision
 .SH SYNOPSIS
 .B sxrev delete
 [\fI\,OPTIONS\/\fR] \fI sx://\/\fR[\fI\,profile@\/\fR]\fI\,cluster/volume/path\/\fR

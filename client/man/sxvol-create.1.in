@@ -1,6 +1,6 @@
 .TH SXVOL-CREATE "1" "September 2014" "sxvol @VERSION@" "Skylable SX Manual"
 .SH NAME
-sxvol create \- create volumes on SX clusters
+sxvol-create \- create volumes on SX clusters
 .SH SYNOPSIS
 .B sxvol create
 \fR[\fI\,OPTIONS\/\fR] \fI\,-r N -s SIZE -o username sx://\/\fR[\fI\,profile@\/\fR]\fI\,cluster/volume\/\fR

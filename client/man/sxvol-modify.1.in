@@ -1,6 +1,6 @@
 .TH SXVOL-MODIFY "1" "November 2014" "sxvol @VERSION@" "Skylable SX Manual"
 .SH NAME
-sxvol modify \- modify existing volumes
+sxvol-modify \- modify existing volumes
 .SH SYNOPSIS
 .B sxvol modify
 \fR<\fI\,OPTIONS\/\fR> \fI\,sx://\/\fR[\fI\,profile@\/\fR]\fI\,cluster/volume\/\fR

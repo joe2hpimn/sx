@@ -1,6 +1,6 @@
 .TH SXVOL-REMOVE "1" "September 2014" "sxvol @VERSION@" "Skylable SX Manual"
 .SH NAME
-sxvol remove \- remove volumes from SX clusters
+sxvol-remove \- remove volumes from SX clusters
 .SH SYNOPSIS
 .B sxvol remove
 [\fI\,OPTIONS\/\fR] \fI\,sx://\/\fR[\fI\,profile@\/\fR]\fI\,cluster/volume\/\fR

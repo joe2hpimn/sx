@@ -1,6 +1,6 @@
 .TH SXVOL-FILTER "1" "September 2014" "sxvol @VERSION@" "Skylable SX Manual"
 .SH NAME
-sxvol filter \- display information about filters
+sxvol-filter \- display information about filters
 .SH SYNOPSIS
 .B sxvol
 \fI\,filter <OPTIONS>\/\fR...

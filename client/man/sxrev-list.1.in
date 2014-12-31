@@ -1,6 +1,6 @@
 .TH SXREV-LIST "1" "September 2014" "sxrev @VERSION@" "Skylable SX Manual"
 .SH NAME
-sxrev list \- list revisions
+sxrev-list \- list revisions
 .SH SYNOPSIS
 .B sxrev list
 \fIsx://\/\fR[\fI\,profile@\/\fR]\fI\,cluster/volume/path\/\fR
