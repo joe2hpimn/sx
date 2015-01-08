@@ -56,6 +56,9 @@ Limit the total number of connections used in a session. The default limit is 5 
 \fB\-\-host\-conns\-limit\fR=\fI\,INT\/\fR
 Limit the number of connections to a single host. The default is 2 and means that sxcp will not use more than 2 connections to a single node of an SX cluster. The value for this limit may not exceed the limit for the total number of connections.
 .TP
+\fB\-\-node\-preference\fR=\fI\,LEVEL\/\fR
+Set node preference level for data transfers. The argument should be a float number with a value between 0.0 and 1.0. The higher the value, the faster (from sxcp perspective) nodes will be used. For example, with the level of 1.0 sxcp will only transfer data from/to the fastest nodes, and with 0.5 it will use the fastest nodes for ~50% of transfer's time. The default is 0.0, which makes sxcp use nodes in the order returned by remote server.
+.TP
 \fB\-s\fR, \fB\-\-dot\-size\fR=\fI\,STRING\/\fR
 When the output of sxcp is redirected to a file, sxcp switches to a dot format. With this option you can control the size represented by each of the dots. The allowed values are: "short" (1 dot = 1KB), "long" (1 dot = 8KB) and "scale" (1 dot = 1 SX block size, which depends on the file size).
 .SH "EXAMPLES"
