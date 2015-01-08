@@ -145,7 +145,7 @@ static sxi_query_t* sxi_query_add_meta(sxc_client_t *sx, sxi_query_t *query, con
     return query;
 }
 
-sxi_query_t *sxi_useradd_proto(sxc_client_t *sx, const char *username, const uint8_t *key, int admin) {
+sxi_query_t *sxi_useradd_proto(sxc_client_t *sx, const char *username, const uint8_t *uid, const uint8_t *key, int admin) {
     char *qname, hexkey[AUTH_KEY_LEN*2+1];
     sxi_query_t *ret;
     unsigned n;
@@ -154,15 +154,58 @@ sxi_query_t *sxi_useradd_proto(sxc_client_t *sx, const char *username, const uin
     if(!qname)
 	return NULL;
 
-    n = sizeof("{\"userName\":,\"userType\":\"normal\",\"userKey\":\"\"}") + /* the json body with terminator */
+    n = sizeof("{\"userName\":,\"userType\":\"normal\",\"userKey\":\"\"") + /* the json body without terminator */
 	strlen(qname) + /* the json encoded username with quotes */
-	AUTH_KEY_LEN * 2 /* the hex encoded key without quotes */;
+	AUTH_KEY_LEN * 2/* the hex encoded key without quotes */;
     sxi_bin2hex(key, AUTH_KEY_LEN, hexkey);
     ret = sxi_query_create(sx, ".users", REQ_PUT);
     if (ret)
-        ret = sxi_query_append_fmt(sx, ret, n, "{\"userName\":%s,\"userType\":\"%s\",\"userKey\":\"%s\"}", qname, admin ? "admin" : "normal", hexkey);
-
+        ret = sxi_query_append_fmt(sx, ret, n, "{\"userName\":%s,\"userType\":\"%s\",\"userKey\":\"%s\"", qname, admin ? "admin" : "normal", hexkey);
+    if(ret && uid) { /* If UID has been added, then append its hex representation also */
+        char hexuid[AUTH_UID_LEN*2+1];
+        sxi_bin2hex(uid, AUTH_UID_LEN, hexuid);
+        ret = sxi_query_append_fmt(sx, ret, AUTH_UID_LEN * 2 + strlen(",\"userID\":\"\""), ",\"userID\":\"%s\"", hexuid);
+    }
+    if(ret)
+        ret = sxi_query_append_fmt(sx, ret, 1, "}");
     free(qname);
+    return ret;
+}
+
+/* username - new user name, the clone name
+ * exsitingname - the cloned user name
+ * There is also no need to send admin flag like for useradd proto, clone has the same role as existing user */
+sxi_query_t *sxi_userclone_proto(sxc_client_t *sx, const char *existingname, const char *username, const uint8_t *uid, const uint8_t *key) {
+    char *ename, *uname, hexkey[AUTH_KEY_LEN*2+1];
+    sxi_query_t *ret;
+    unsigned n;
+
+    ename = sxi_json_quote_string(existingname);
+    if(!ename)
+        return NULL;
+    uname = sxi_json_quote_string(username);
+    if(!uname) {
+        free(ename);
+        return NULL;
+    }
+
+    n = sizeof("{\"userName\":,\"existingName\":,\"userKey\":\"\"") + /* the json body with terminator */
+        strlen(ename) + /* the json encoded exsitingname with quotes */
+        strlen(uname) + /* the json encoded username with quotes */
+        AUTH_KEY_LEN * 2/* the hex encoded key without quotes */;
+    sxi_bin2hex(key, AUTH_KEY_LEN, hexkey);
+    ret = sxi_query_create(sx, ".users", REQ_PUT);
+    if (ret)
+        ret = sxi_query_append_fmt(sx, ret, n, "{\"userName\":%s,\"existingName\":%s,\"userKey\":\"%s\"", uname, ename, hexkey);
+    if(ret && uid) {
+        char hexuid[AUTH_UID_LEN*2+1];
+        sxi_bin2hex(uid, AUTH_UID_LEN, hexuid);
+        ret = sxi_query_append_fmt(sx, ret, strlen(",\"userID\":\"\"") + AUTH_UID_LEN * 2, ",\"userID\":\"%s\"", hexuid);
+    }
+    if(ret)
+        ret = sxi_query_append_fmt(sx, ret, 1, "}");
+    free(ename);
+    free(uname);
     return ret;
 }
 
@@ -192,7 +235,7 @@ sxi_query_t *sxi_usernewkey_proto(sxc_client_t *sx, const char *username, const 
     return ret;
 }
 
-sxi_query_t *sxi_useronoff_proto(sxc_client_t *sx, const char *username, int enable) {
+sxi_query_t *sxi_useronoff_proto(sxc_client_t *sx, const char *username, int enable, int all_clones) {
     sxi_query_t *ret = NULL;
     unsigned n;
     char *path = NULL;
@@ -205,12 +248,14 @@ sxi_query_t *sxi_useronoff_proto(sxc_client_t *sx, const char *username, int ena
             break;
         }
         n = lenof(".users/?o=disable") + strlen(path) + 1;
+        if(all_clones)
+            n += strlen("&all");
         query = malloc(n);
         if(!query) {
             sxi_setsyserr(sx, SXE_EMEM, "out of memory allocating user query");
             break;
         }
-        snprintf(query, n, ".users/%s?o=%s", path, enable ? "enable" : "disable");
+        snprintf(query, n, ".users/%s?o=%s%s", path, enable ? "enable" : "disable", all_clones ? "&all" : "");
         ret = sxi_query_create(sx, query, REQ_PUT);
     } while(0);
     free(path);
@@ -218,7 +263,7 @@ sxi_query_t *sxi_useronoff_proto(sxc_client_t *sx, const char *username, int ena
     return ret;
 }
 
-sxi_query_t *sxi_userdel_proto(sxc_client_t *sx, const char *username, const char *newowner) {
+sxi_query_t *sxi_userdel_proto(sxc_client_t *sx, const char *username, const char *newowner, int all_clones) {
     sxi_query_t *ret = NULL;
     unsigned n;
     char *oldusr = sxi_urlencode(sx, username, 0);
@@ -231,12 +276,14 @@ sxi_query_t *sxi_userdel_proto(sxc_client_t *sx, const char *username, const cha
             break;
         }
         n = lenof(".users/?chgto=") + strlen(oldusr) + strlen(newusr) + 1;
+        if(all_clones)
+            n += strlen("&all");
         query = malloc(n);
         if(!query) {
             sxi_setsyserr(sx, SXE_EMEM, "out of memory allocating user query");
             break;
         }
-        snprintf(query, n, ".users/%s?chgto=%s", oldusr, newusr);
+        snprintf(query, n, ".users/%s?chgto=%s%s", oldusr, newusr, (all_clones ? "&all" : ""));
         ret = sxi_query_create(sx, query, REQ_DELETE);
     } while(0);
     free(oldusr);

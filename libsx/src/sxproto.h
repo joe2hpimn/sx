@@ -41,9 +41,10 @@ enum sxi_hashop_kind {
     HASHOP_DELETE
 };
 
-sxi_query_t *sxi_useradd_proto(sxc_client_t *sx, const char *username, const uint8_t *key, int admin);
-sxi_query_t *sxi_useronoff_proto(sxc_client_t *sx, const char *username, int enable);
-sxi_query_t *sxi_userdel_proto(sxc_client_t *sx, const char *username, const char *newowner);
+sxi_query_t *sxi_useradd_proto(sxc_client_t *sx, const char *username, const uint8_t *uid, const uint8_t *key, int admin);
+sxi_query_t *sxi_userclone_proto(sxc_client_t *sx, const char *existingname, const char *username, const uint8_t *uid, const uint8_t *key);
+sxi_query_t *sxi_useronoff_proto(sxc_client_t *sx, const char *username, int enable, int all_clones);
+sxi_query_t *sxi_userdel_proto(sxc_client_t *sx, const char *username, const char *newowner, int all_clones);
 sxi_query_t *sxi_usernewkey_proto(sxc_client_t *sx, const char *username, const uint8_t *key);
 sxi_query_t *sxi_volumeadd_proto(sxc_client_t *sx, const char *volname, const char *owner, int64_t size, unsigned int replica, unsigned int revisions, sxc_meta_t *metadata);
 sxi_query_t *sxi_flushfile_proto(sxc_client_t *sx, const char *token);

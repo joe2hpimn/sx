@@ -134,7 +134,7 @@ void fcgi_handle_cluster_requests(void) {
 	const sx_hashfs_volume_t *vol;
 
 	CGI_PUTS("\"volumeList\":{");
-        int u = has_priv(PRIV_ADMIN) ? 0 : uid;/* uid = 0: list all volumes */
+        uint8_t *u = has_priv(PRIV_ADMIN) ? NULL : user;/* user = NULL: list all volumes */
 	for(s = sx_hashfs_volume_first(hashfs, &vol, u); s == OK; s = sx_hashfs_volume_next(hashfs)) {
             sx_priv_t priv = 0;
 
@@ -144,7 +144,7 @@ void fcgi_handle_cluster_requests(void) {
 		comma |= 1;
 
 	    json_send_qstring(vol->name);
-            if((s = sx_hashfs_get_access(hashfs, uid, vol->name, &priv)) != OK) {
+            if((s = sx_hashfs_get_access(hashfs, user, vol->name, &priv)) != OK) {
                 CGI_PUTS("}");
                 quit_itererr("Failed to get volume privs", s);
             }

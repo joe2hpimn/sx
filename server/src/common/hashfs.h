@@ -154,20 +154,30 @@ const char *sx_hashfs_self_unique(sx_hashfs_t *h);
 const char *sx_hashfs_version(sx_hashfs_t *h);
 const sx_uuid_t *sx_hashfs_uuid(sx_hashfs_t *h);
 
+typedef struct _sx_hashfs_user_t {
+    char name[SXLIMIT_MAX_USERNAME_LEN+1];
+    sx_uid_t id;
+    uint8_t uid[AUTH_UID_LEN];
+    uint8_t key[AUTH_KEY_LEN];
+    int role;
+} sx_hashfs_user_t;
+
 rc_ty sx_hashfs_create_user(sx_hashfs_t *h, const char *user, const uint8_t *uid, unsigned uid_size, const uint8_t *key, unsigned key_size, int role);
 rc_ty sx_hashfs_user_newkey(sx_hashfs_t *h, const char *user, const uint8_t *key, unsigned key_size);
-rc_ty sx_hashfs_delete_user(sx_hashfs_t *h, const char *username, const char *new_owner);
+rc_ty sx_hashfs_delete_user(sx_hashfs_t *h, const char *username, const char *new_owner, int all_clones);
 rc_ty sx_hashfs_get_uid(sx_hashfs_t *h, const char *user, int64_t *uid);
 rc_ty sx_hashfs_get_uid_role(sx_hashfs_t *h, const char *user, int64_t *uid, int *role);
-rc_ty sx_hashfs_get_user_by_uid(sx_hashfs_t *h, sx_uid_t uid, uint8_t *user);
-rc_ty sx_hashfs_get_user_by_name(sx_hashfs_t *h, const char *name, uint8_t *user);
+rc_ty sx_hashfs_get_user_by_uid(sx_hashfs_t *h, sx_uid_t uid, uint8_t *user, int inactivetoo);
+rc_ty sx_hashfs_get_user_by_name(sx_hashfs_t *h, const char *name, uint8_t *user, int inactivetoo);
 const char *sx_hashfs_authtoken(sx_hashfs_t *h);
 char *sxi_hashfs_admintoken(sx_hashfs_t *h);
 rc_ty sx_hashfs_uid_get_name(sx_hashfs_t *h, uint64_t uid, char *name, unsigned len);
-rc_ty sx_hashfs_user_onoff(sx_hashfs_t *h, const char *user, int enable);
+rc_ty sx_hashfs_user_onoff(sx_hashfs_t *h, const char *user, int enable, int all_clones);
+/* Generate unique user ID for new user */
+rc_ty sx_hashfs_generate_uid(sx_hashfs_t *h, uint8_t *uid);
 
 typedef int (*user_list_cb_t)(sx_uid_t user_id, const char *username, const uint8_t *user, const uint8_t *key, int is_admin, void *ctx);
-rc_ty sx_hashfs_list_users(sx_hashfs_t *h, user_list_cb_t cb, void *ctx);
+rc_ty sx_hashfs_list_users(sx_hashfs_t *h, const uint8_t *list_clones, user_list_cb_t cb, void *ctx);
 
 #define CLUSTER_USER (const uint8_t*)"\x08\xb5\x12\x4c\x44\x7f\x00\xb2\xcd\x38\x31\x3f\x44\xe3\x93\xfd\x44\x84\x47"
 #define ADMIN_USER (const uint8_t*)"\xd0\x33\xe2\x2a\xe3\x48\xae\xb5\x66\x0f\xc2\x14\x0a\xec\x35\x85\x0c\x4d\xa9\x97"
@@ -199,7 +209,11 @@ typedef struct _sx_hashfs_volume_t {
     /* UNIX timestamp of last change time */
     int64_t changed;
 } sx_hashfs_volume_t;
-rc_ty sx_hashfs_volume_first(sx_hashfs_t *h, const sx_hashfs_volume_t **volume, int64_t uid);
+
+rc_ty sx_hashfs_list_clones_first(sx_hashfs_t *h, sx_uid_t id, const sx_hashfs_user_t **user, int inactivetoo);
+rc_ty sx_hashfs_list_clones_next(sx_hashfs_t *h);
+
+rc_ty sx_hashfs_volume_first(sx_hashfs_t *h, const sx_hashfs_volume_t **volume, const uint8_t *uid);
 rc_ty sx_hashfs_volume_next(sx_hashfs_t *h);
 rc_ty sx_hashfs_volume_by_name(sx_hashfs_t *h, const char *name, const sx_hashfs_volume_t **volume);
 rc_ty sx_hashfs_volume_by_id(sx_hashfs_t *h, int64_t id, const sx_hashfs_volume_t **volume);
@@ -336,7 +350,7 @@ typedef enum {
   PRIV_ADMIN = 8,
   PRIV_CLUSTER = 16} sx_priv_t;
 rc_ty sx_hashfs_get_user_info(sx_hashfs_t *h, const uint8_t *user, sx_uid_t *uid, uint8_t *key, sx_priv_t *basepriv);
-rc_ty sx_hashfs_get_access(sx_hashfs_t *h, sx_uid_t uid, const char *volume, sx_priv_t *access);
+rc_ty sx_hashfs_get_access(sx_hashfs_t *h, const uint8_t *user, const char *volume, sx_priv_t *access);
 
 /* Jobs */
 #define JOB_NO_EXPIRY (60 * 365 * 24 * 60 * 60)

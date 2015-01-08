@@ -559,19 +559,19 @@ static int acl_to_blob(sxc_client_t *sx, int nodes, void *yctx, sx_blob_t *blob)
         sx_blob_add_int32(blob, actx->n))
         return -1;
     for (i=0;i<actx->n;i++) {
-        int64_t uid;
+        uint8_t user_uid[AUTH_UID_LEN];
         rc_ty rc;
         int undo_priv, new_priv;
         sx_priv_t old_priv;/* TODO: get_access should return int not sx_priv_t, as its a bitmask not an enum */
 
         int priv  = actx->ops[i].priv;
         const char *name = actx->ops[i].name;
-        rc = sx_hashfs_get_uid(hashfs, name, &uid);
+        rc = sx_hashfs_get_user_by_name(hashfs, name, user_uid, 0);
         if (rc) {
             msg_set_reason("Cannot retrieve user id for '%s'", name);
             return -1;
         }
-        rc = sx_hashfs_get_access(hashfs, uid, volume, &old_priv);
+        rc = sx_hashfs_get_access(hashfs, user_uid, volume, &old_priv);
         if (rc) {
             msg_set_reason("Cannot retrieve acl for volume '%s' and user '%s'", volume, name);
             return -1;
@@ -1344,7 +1344,7 @@ static rc_ty volmod_parse_complete(void *yctx)
         }
 
         /* Check if new volume owner exists */
-        if((s = sx_hashfs_get_user_by_name(hashfs, ctx->newowner, NULL)) != OK) {
+        if((s = sx_hashfs_get_user_by_name(hashfs, ctx->newowner, NULL, 0)) != OK) {
             msg_set_reason("User not found");
             return s;
         }

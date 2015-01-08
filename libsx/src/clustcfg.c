@@ -2365,14 +2365,73 @@ const char *sxi_cluster_get_confdir(const sxc_cluster_t *cluster) {
     return cluster ? cluster->config_dir : NULL;
 }
 
-char *sxc_user_add(sxc_cluster_t *cluster, const char *username, int admin, const char *oldtoken)
-{
+static int get_user_info_wrap(sxc_cluster_t *cluster, const char *username, uint8_t *uid, int *role) {
+    FILE *authfile = NULL;
+    sxc_client_t *sx = sxi_cluster_get_client(cluster);
+    char *authfile_name;
+    int r = 0;
+    char token[AUTHTOK_ASCII_LEN+1];
+    uint8_t buf[AUTHTOK_BIN_LEN];
+    unsigned int buffsize = AUTHTOK_ASCII_LEN;
+
+    if(!uid) {
+        cluster_err(SXE_EARG, "NULL argument");
+        return 1;
+    }
+
+    authfile_name = sxi_tempfile_track(sx, NULL, &authfile);
+    if(!authfile || !authfile_name) {
+        SXDEBUG("Failed to create a tempfile");
+        if(authfile)
+            fclose(authfile);
+	if(authfile_name)
+            sxi_tempfile_unlink_untrack(sx, authfile_name);
+        return 1;
+    }
+
+    /* Get existing user ID */
+    if(sxc_user_getinfo(cluster, username, authfile, &r)) {
+        SXDEBUG("Failed to get a user %s key", username);
+        fclose(authfile);
+        sxi_tempfile_unlink_untrack(sx, authfile_name);
+        return 1;
+    }
+
+    if(role)
+        *role = r;
+
+    fclose(authfile);
+    if(!(authfile = fopen(authfile_name, "r"))) {
+        cluster_err(SXE_ECFG, "Failed to reopen credentials file");
+        sxi_tempfile_unlink_untrack(sx, authfile_name);
+        return 1;
+    }
+    if(fread(token, AUTHTOK_ASCII_LEN, 1, authfile) != 1) {
+        cluster_err(SXE_ECOMM, "Failed to read an existing user common ID from tempfile");
+        fclose(authfile);
+        sxi_tempfile_unlink_untrack(sx, authfile_name);
+        return 1;
+    }
+    token[AUTHTOK_ASCII_LEN] = 0;
+    fclose(authfile);
+    sxi_tempfile_unlink_untrack(sx, authfile_name);
+
+    if(sxi_b64_dec(sx, token, buf, &buffsize)) {
+        SXDEBUG("Failed to decode base64 encoded token");
+        return 1;
+    }
+    memcpy(uid, buf, AUTH_UID_LEN);
+
+    return 0;
+}
+
+static char *user_add(sxc_cluster_t *cluster, const char *username, int admin, const char *oldtoken, const char *existing, int *clone_role) {
     uint8_t buf[AUTH_UID_LEN + AUTH_KEY_LEN + 2], *uid = buf, *key = &buf[AUTH_UID_LEN];
-    char *tok, *retkey = NULL;
+    char *tok = NULL, *retkey = NULL;
     sxc_client_t *sx;
-    sxi_query_t *proto;
-    sxi_md_ctx *ch_ctx;
-    int l, qret;
+    sxi_query_t *proto = NULL;
+    unsigned int l;
+    int qret, role = 0;
 
     if(!cluster)
 	return NULL;
@@ -2381,33 +2440,18 @@ char *sxc_user_add(sxc_cluster_t *cluster, const char *username, int admin, cons
         return NULL;
     }
     sx = sxi_cluster_get_client(cluster);
-
-    /* UID part - unsalted username hash */
-    l = strlen(username);
-    ch_ctx = sxi_md_init();
-    if (!ch_ctx)
-        return NULL;
-    if(!sxi_sha1_init(ch_ctx)) {
-	cluster_err(SXE_ECRYPT, "Cannot compute hash: Unable to initialize crypto library");
-	return NULL;
-    }
-    if(!sxi_sha1_update(ch_ctx, username, l) || !sxi_sha1_final(ch_ctx, uid, NULL)) {
-	cluster_err(SXE_ECRYPT, "Cannot compute hash: Crypto library failure");
-        sxi_md_cleanup(&ch_ctx);
-	return NULL;
-    }
-    sxi_md_cleanup(&ch_ctx);
+    memset(buf, 0, sizeof(buf));
 
     if (oldtoken) {
         char old[AUTHTOK_BIN_LEN];
-        unsigned l = sizeof(old);
+        l = sizeof(old);
         if (sxi_b64_dec(sx, oldtoken, old, &l))
             return NULL;
         if (l != sizeof(old)) {
             cluster_err(SXE_EARG, "Bad length for old authentication token");
             return NULL;
         }
-        memcpy(key, &old[AUTH_UID_LEN], AUTH_KEY_LEN);
+        memcpy(buf, old, AUTHTOK_BIN_LEN);
     } else {
         /* KEY part - really random bytes */
         if (sxi_rand_bytes(key, AUTH_KEY_LEN) != 1) {
@@ -2416,45 +2460,90 @@ char *sxc_user_add(sxc_cluster_t *cluster, const char *username, int admin, cons
         }
     }
 
+    /* Query */
+    if(existing)
+        proto = sxi_userclone_proto(sx, existing, username, oldtoken ? uid : NULL, key);
+    else
+        proto = sxi_useradd_proto(sx, username, NULL, key, admin);
+    if(!proto) {
+	cluster_err(SXE_EMEM, "Unable to allocate space for request data");
+	return NULL;
+    }
+    sxi_set_operation(sxi_cluster_get_client(cluster), "create user", sxi_cluster_get_name(cluster), NULL, NULL);
+    qret = sxi_job_submit_and_poll(sxi_cluster_get_conns(cluster), NULL, proto->verb, proto->path, proto->content, proto->content_len);
+    if(qret) {
+        SXDEBUG("Failed to send useradd query");
+        sxi_query_free(proto);
+        return NULL;
+    }
+    sxi_query_free(proto);
+
+    if(existing) {
+        if(get_user_info_wrap(cluster, username, uid, &role)) { /* Read existing user ID, which is stored along with his key */
+            SXDEBUG("Failed to get existing user common ID");
+            return NULL;
+        }
+    } else {
+        sxi_md_ctx *ch_ctx;
+
+        /* UID part - unsalted username hash */
+        l = strlen(username);
+        ch_ctx = sxi_md_init();
+        if (!ch_ctx) {
+            cluster_err(SXE_ECRYPT, "Cannot compute hash: Unable to initialize crypto library");
+            return NULL;
+        }
+        if(!sxi_sha1_init(ch_ctx)) {
+            cluster_err(SXE_ECRYPT, "Cannot compute hash: Unable to initialize crypto library");
+            return NULL;
+        }
+        if(!sxi_sha1_update(ch_ctx, username, l) || !sxi_sha1_final(ch_ctx, uid, NULL)) {
+            cluster_err(SXE_ECRYPT, "Cannot compute hash: Crypto library failure");
+            sxi_md_cleanup(&ch_ctx);
+            return NULL;
+        }
+        sxi_md_cleanup(&ch_ctx);
+    }
+
+    /* Get existing user role */          
+    if(clone_role)
+        *clone_role = role;
+
     /* Encode token */
     buf[sizeof(buf) - 2] = 0; /* First reserved byte */
     buf[sizeof(buf) - 1] = 0; /* Second reserved byte */
     tok = sxi_b64_enc(sx, buf, sizeof(buf));
     if(!tok)
-	return NULL;
+        return NULL;
     if(strlen(tok) != AUTHTOK_ASCII_LEN) {
-	/* Always false but it doensn't hurt to be extra careful */
-	free(tok);
-	cluster_err(SXE_ECOMM, "The generated auth token has invalid size");
-	return NULL;
-    }
-
-    if (oldtoken && strcmp(tok, oldtoken)) {
+        /* Always false but it doensn't hurt to be extra careful */
+        cluster_err(SXE_ECOMM, "The generated auth token has invalid size");
         free(tok);
-        cluster_err(SXE_EARG, "The provided old authentication token and username don't match");
         return NULL;
     }
 
-    /* Query */
-    proto = sxi_useradd_proto(sx, username, key, admin);
-    if(!proto) {
-	cluster_err(SXE_EMEM, "Unable to allocate space for request data");
-	free(tok);
-	return NULL;
+    if (oldtoken && strcmp(tok, oldtoken)) {
+        cluster_err(SXE_EARG, "The provided old authentication token and username don't match");
+        free(tok);
+        return NULL;
     }
-    sxi_set_operation(sxi_cluster_get_client(cluster), "create user", sxi_cluster_get_name(cluster), NULL, NULL);
-    qret = sxi_job_submit_and_poll(sxi_cluster_get_conns(cluster), NULL, proto->verb, proto->path, proto->content, proto->content_len);
-    if(!qret) {
-	retkey = malloc(AUTHTOK_ASCII_LEN + 1);
-	if(!retkey) {
-	    cluster_err(SXE_EMEM, "Unable to allocate memory for user key");
-	} else {
-	    sxi_strlcpy(retkey, tok, AUTHTOK_ASCII_LEN+1);
-        }
-    }
-    sxi_query_free(proto);
+
+    retkey = malloc(AUTHTOK_ASCII_LEN + 1);
+    if(!retkey)
+        cluster_err(SXE_EMEM, "Unable to allocate memory for user key");
+    else
+        sxi_strlcpy(retkey, tok, AUTHTOK_ASCII_LEN+1);
+
     free(tok);
     return retkey;
+}
+
+char *sxc_user_add(sxc_cluster_t *cluster, const char *username, int admin, const char *oldtoken) {
+    return user_add(cluster, username, admin, oldtoken, NULL, NULL);
+}
+
+char *sxc_user_clone(sxc_cluster_t *cluster, const char *username, const char *clonename, const char *oldtoken, int *role) {
+    return user_add(cluster, clonename, 0, oldtoken, username, role);
 }
 
 char *sxc_user_newkey(sxc_cluster_t *cluster, const char *username, const char *oldtoken)
@@ -2463,8 +2552,7 @@ char *sxc_user_newkey(sxc_cluster_t *cluster, const char *username, const char *
     char *tok, *retkey = NULL;
     sxc_client_t *sx;
     sxi_query_t *proto;
-    sxi_md_ctx *ch_ctx;
-    int l, qret;
+    int qret;
     long http_err;
 
     if(!cluster)
@@ -2475,21 +2563,10 @@ char *sxc_user_newkey(sxc_cluster_t *cluster, const char *username, const char *
     }
     sx = sxi_cluster_get_client(cluster);
 
-    /* UID part - unsalted username hash */
-    l = strlen(username);
-    ch_ctx = sxi_md_init();
-    if (!ch_ctx)
+    if(get_user_info_wrap(cluster, username, uid, NULL)) { /* Read existing user ID, which is stored along with his key */
+        SXDEBUG("Failed to get existing user common ID");
         return NULL;
-    if(!sxi_sha1_init(ch_ctx)) {
-	cluster_err(SXE_ECRYPT, "Cannot compute hash: Unable to initialize crypto library");
-	return NULL;
     }
-    if(!sxi_sha1_update(ch_ctx, username, l) || !sxi_sha1_final(ch_ctx, uid, NULL)) {
-	cluster_err(SXE_ECRYPT, "Cannot compute hash: Crypto library failure");
-        sxi_md_cleanup(&ch_ctx);
-	return NULL;
-    }
-    sxi_md_cleanup(&ch_ctx);
 
     if (oldtoken) {
         char old[AUTHTOK_BIN_LEN];
@@ -2550,10 +2627,11 @@ char *sxc_user_newkey(sxc_cluster_t *cluster, const char *username, const char *
     return retkey;
 }
 
-int sxc_user_remove(sxc_cluster_t *cluster, const char *username) {
+int sxc_user_remove(sxc_cluster_t *cluster, const char *username, int remove_clones) {
     char *enc_name, *query;
     sxc_client_t *sx;
     int ret;
+    unsigned int len;
 
     if(!cluster)
 	return 1;
@@ -2569,13 +2647,16 @@ int sxc_user_remove(sxc_cluster_t *cluster, const char *username) {
 	return 1;
     }
 
-    query = malloc(lenof(".users/") + strlen(enc_name) + 1);
+    len = lenof(".users/") + strlen(enc_name) + 1;
+    if(remove_clones)
+        len += strlen("?all");
+    query = malloc(len);
     if(!query) {
 	free(enc_name);
 	cluster_err(SXE_EMEM, "Unable to allocate space for request data");
 	return 1;
     }
-    sprintf(query, ".users/%s", enc_name);
+    sprintf(query, ".users/%s%s", enc_name, (remove_clones ? "?all" : ""));
     free(enc_name);
 
     sxi_set_operation(sx, "remove user", sxi_cluster_get_name(cluster), NULL, NULL);
@@ -2585,19 +2666,20 @@ int sxc_user_remove(sxc_cluster_t *cluster, const char *username) {
     return ret;
 }
 
-struct cb_userkey_ctx {
-    enum userkey_state { USERKEY_ERROR, USERKEY_BEGIN, USERKEY_MAP, USERKEY_KEY, USERKEY_COMPLETE } state;
+struct cb_userinfo_ctx {
+    enum userkey_state { USERINFO_ERROR, USERINFO_BEGIN, USERINFO_MAP, USERINFO_KEY, USERINFO_ID, USERINFO_ROLE, USERINFO_COMPLETE } state;
     struct cb_error_ctx errctx;
     yajl_callbacks yacb;
     curlev_context_t *cbdata;
     yajl_handle yh;
-    const char *username;
+    uint8_t token[AUTHTOK_BIN_LEN];
     FILE *f;
+    char role[7];
 };
 
-static int userkey_setup_cb(curlev_context_t *cbdata, void *ctx, const char *host)
+static int userinfo_setup_cb(curlev_context_t *cbdata, void *ctx, const char *host)
 {
-    struct cb_userkey_ctx *yactx = ctx;
+    struct cb_userinfo_ctx *yactx = ctx;
     if (yactx->yh)
         yajl_free(yactx->yh);
 
@@ -2608,14 +2690,14 @@ static int userkey_setup_cb(curlev_context_t *cbdata, void *ctx, const char *hos
         return 1;
     }
 
-    yactx->state = USERKEY_BEGIN;
+    yactx->state = USERINFO_BEGIN;
     return 0;
 }
 
-static int userkey_cb(curlev_context_t *cbdata, void *ctx, const void *data, size_t size) {
-    struct cb_userkey_ctx *yactx = ctx;
+static int userinfo_cb(curlev_context_t *cbdata, void *ctx, const void *data, size_t size) {
+    struct cb_userinfo_ctx *yactx = ctx;
     if (yajl_parse(yactx->yh, data, size) != yajl_status_ok) {
-        if (yactx->state != USERKEY_ERROR) {
+        if (yactx->state != USERINFO_ERROR) {
             CBDEBUG("failed to parse JSON data: %s", sxi_cbdata_geterrmsg(yactx->cbdata));
             sxi_cbdata_seterr(yactx->cbdata, SXE_ECOMM, "communication error");
         }
@@ -2624,101 +2706,105 @@ static int userkey_cb(curlev_context_t *cbdata, void *ctx, const void *data, siz
     return 0;
 }
 
-static int yacb_userkey_start_map(void *ctx) {
-    struct cb_userkey_ctx *yactx = ctx;
+static int yacb_userinfo_start_map(void *ctx) {
+    struct cb_userinfo_ctx *yactx = ctx;
     if(!ctx)
 	return 0;
 
-    if(yactx->state == USERKEY_BEGIN) {
-	yactx->state = USERKEY_MAP;
+    if(yactx->state == USERINFO_BEGIN) {
+	yactx->state = USERINFO_MAP;
     } else {
-	CBDEBUG("bad state (in %d, expected %d)", yactx->state, USERKEY_BEGIN);
+	CBDEBUG("bad state (in %d, expected %d)", yactx->state, USERINFO_BEGIN);
 	return 0;
     }
     return 1;
 }
 
-static int yacb_userkey_map_key(void *ctx, const unsigned char *s, size_t l) {
-    struct cb_userkey_ctx *yactx = ctx;
+static int yacb_userinfo_map_key(void *ctx, const unsigned char *s, size_t l) {
+    struct cb_userinfo_ctx *yactx = ctx;
     if(!ctx)
 	return 0;
 
-    if (yactx->state == USERKEY_ERROR)
+    if (yactx->state == USERINFO_ERROR)
         return yacb_error_map_key(&yactx->errctx, s, l);
-    if (yactx->state == USERKEY_MAP) {
+    if (yactx->state == USERINFO_MAP) {
         if (ya_check_error(yactx->cbdata, &yactx->errctx, s, l)) {
-            yactx->state = USERKEY_ERROR;
+            yactx->state = USERINFO_ERROR;
             return 1;
         }
     }
-    if(yactx->state == USERKEY_MAP) {
+    if(yactx->state == USERINFO_MAP) {
 	if(l == lenof("userKey") && !memcmp(s, "userKey", lenof("userKey"))) {
-	    yactx->state = USERKEY_KEY;
+	    yactx->state = USERINFO_KEY;
 	    return 1;
 	}
+        if(l == lenof("userID") && !memcmp(s, "userID", lenof("userID"))) {
+            yactx->state = USERINFO_ID;
+            return 1;
+        }
+        if(l == lenof("userType") && !memcmp(s, "userType", lenof("userType"))) {
+            yactx->state = USERINFO_ROLE;
+            return 1;
+        }
 	return 1;
     }
 
-    CBDEBUG("bad state (in %d, expected %d)", yactx->state, USERKEY_KEY);
+    CBDEBUG("bad state (in %d, expected %d)", yactx->state, USERINFO_KEY);
     return 0;
 }
 
-static int yacb_userkey_string(void *ctx, const unsigned char *s, size_t l) {
-    struct cb_userkey_ctx *yactx = ctx;
+static int yacb_userinfo_string(void *ctx, const unsigned char *s, size_t l) {
+    struct cb_userinfo_ctx *yactx = ctx;
     if(!ctx)
 	return 0;
-    if (yactx->state == USERKEY_ERROR)
+    if (yactx->state == USERINFO_ERROR)
         return yacb_error_string(&yactx->errctx, s, l);
 
     if(l<=0)
 	return 0;
-    if (yactx->state == USERKEY_MAP)
+    if (yactx->state == USERINFO_MAP)
         return 1;
-    if (yactx->state == USERKEY_KEY) {
-        unsigned char token[AUTHTOK_BIN_LEN];
-        sxi_md_ctx *ch_ctx;
-        sxc_client_t *sx = sxi_conns_get_client(sxi_cbdata_get_conns(yactx->cbdata));
-
-        memset(token, 0, sizeof(token));
-	if(sxi_hex2bin((const char *)s, l, token + AUTH_UID_LEN, AUTH_KEY_LEN)) {
+    if (yactx->state == USERINFO_KEY) {
+	if(sxi_hex2bin((const char *)s, l, yactx->token + AUTH_UID_LEN, AUTH_KEY_LEN)) {
             sxi_cbdata_seterr(yactx->cbdata, SXE_ECOMM, "Failed to convert user key from hex");
             return 0;
         }
-
-        ch_ctx = sxi_md_init();
-        if(!sxi_sha1_init(ch_ctx)) {
-            sxi_cbdata_seterr(yactx->cbdata, SXE_ECRYPT, "Cannot compute hash: Unable to initialize crypto library");
-            sxi_md_cleanup(&ch_ctx);
-            return 1;
+        yactx->state = USERINFO_MAP;
+        return 1;
+    } else if(yactx->state == USERINFO_ID) {
+        if(sxi_hex2bin((const char *)s, l, yactx->token, AUTH_UID_LEN)) {
+            sxi_cbdata_seterr(yactx->cbdata, SXE_ECOMM, "Failed to convert user key from hex");
+            return 0;
         }
-        if(!sxi_sha1_update(ch_ctx, yactx->username, strlen(yactx->username)) ||
-           !sxi_sha1_final(ch_ctx, token, NULL)) {
-            sxi_cbdata_seterr(yactx->cbdata, SXE_ECRYPT, "Cannot compute hash: Crypto library failure");
-            sxi_md_cleanup(&ch_ctx);
-            return 1;
+        yactx->state = USERINFO_MAP;
+        return 1;
+    } else if(yactx->state == USERINFO_ROLE) {
+        if(l != 6 && l != 5) {
+            CBDEBUG("Invalid role: bad role string length");
+            return 0;
         }
-        sxi_md_cleanup(&ch_ctx);
-        char *tok = sxi_b64_enc(sx, token, sizeof(token));
 
-        /* FIXME: Do not store errors in global buffer (bb#751) */
-        sxi_cbdata_restore_global_error(sx, yactx->cbdata);
+        if(strncmp("admin", (const char*)s, l) && strncmp("normal", (const char*)s, l)) {
+            CBDEBUG("Invalid role: should be admin or normal");
+            return 0;
+        }
 
-        fprintf(yactx->f, "%s\n", tok);
-        free(tok);
-        yactx->state = USERKEY_MAP;
+        memcpy(yactx->role, s, l);
+        yactx->role[l] = '\0';
+        yactx->state = USERINFO_MAP;
         return 1;
     }
     return 0;
 }
 
-static int yacb_userkey_end_map(void *ctx) {
-    struct cb_userkey_ctx *yactx = ctx;
+static int yacb_userinfo_end_map(void *ctx) {
+    struct cb_userinfo_ctx *yactx = ctx;
     if(!ctx)
 	return 0;
-    if (yactx->state == USERKEY_ERROR)
+    if (yactx->state == USERINFO_ERROR)
         return yacb_error_end_map(&yactx->errctx);
-    if(yactx->state == USERKEY_MAP)
-	yactx->state = USERKEY_COMPLETE;
+    if(yactx->state == USERINFO_MAP)
+	yactx->state = USERINFO_COMPLETE;
     else {
 	CBDEBUG("bad state (in %d, expected %d)", yactx->state, FN_CLUSTER);
 	return 0;
@@ -2726,31 +2812,31 @@ static int yacb_userkey_end_map(void *ctx) {
     return 1;
 }
 
-int sxc_user_getkey(sxc_cluster_t *cluster, const char *username, FILE *storeauth)
+int sxc_user_getinfo(sxc_cluster_t *cluster, const char *username, FILE *storeauth, int *is_admin)
 {
     sxc_client_t *sx;
-    struct cb_userkey_ctx yctx;
+    struct cb_userinfo_ctx yctx;
     yajl_callbacks *yacb;
     int ret = 1;
     unsigned n;
     char *url = NULL;
+    char *tok = NULL;
 
     if(!cluster)
 	return 1;
-    if(!username || !storeauth) {
+    if(!username || (!storeauth && !is_admin)) {
         cluster_err(SXE_EARG, "Null args");
         return 1;
     }
     memset(&yctx, 0, sizeof(yctx));
     yacb = &yctx.yacb;
     ya_init(yacb);
-    yacb->yajl_start_map = yacb_userkey_start_map;
-    yacb->yajl_map_key = yacb_userkey_map_key;
-    yacb->yajl_string = yacb_userkey_string;
-    yacb->yajl_end_map = yacb_userkey_end_map;
+    yacb->yajl_start_map = yacb_userinfo_start_map;
+    yacb->yajl_map_key = yacb_userinfo_map_key;
+    yacb->yajl_string = yacb_userinfo_string;
+    yacb->yajl_end_map = yacb_userinfo_end_map;
     yctx.yh = NULL;
     yctx.f = storeauth;
-    yctx.username = username;
 
     sx = sxi_cluster_get_client(cluster);
 
@@ -2759,24 +2845,33 @@ int sxc_user_getkey(sxc_cluster_t *cluster, const char *username, FILE *storeaut
     url = malloc(n);
     if (!url) {
 	sxi_seterr(sx, SXE_EMEM, "Out of memory");
-        goto done;
+        goto sxc_user_getinfo_err;
     }
     snprintf(url, n, ".users/%s", username);
 
     sxi_set_operation(sxi_cluster_get_client(cluster), "get user's key", sxi_cluster_get_name(cluster), NULL, NULL);
     if (sxi_cluster_query(sxi_cluster_get_conns(cluster), NULL, REQ_GET, url, NULL, 0,
-                          userkey_setup_cb, userkey_cb, &yctx) != 200)
-        goto done;
-    if(yajl_complete_parse(yctx.yh) != yajl_status_ok || yctx.state != USERKEY_COMPLETE) {
-        if (yctx.state != USERKEY_ERROR) {
+                          userinfo_setup_cb, userinfo_cb, &yctx) != 200)
+        goto sxc_user_getinfo_err;
+    if(yajl_complete_parse(yctx.yh) != yajl_status_ok || yctx.state != USERINFO_COMPLETE) {
+        if (yctx.state != USERINFO_ERROR) {
             SXDEBUG("JSON parsing failed");
             sxi_seterr(sx, SXE_ECOMM, "Cannot get user key: Communication error");
         }
-        goto done;
+        goto sxc_user_getinfo_err;
     }
     ret = 0;
 
-done:
+    tok = sxi_b64_enc(sx, yctx.token, sizeof(yctx.token));
+    if(!tok)
+        goto sxc_user_getinfo_err;
+
+    if(storeauth)
+        fprintf(storeauth, "%s\n", tok);
+    if(is_admin)
+        *is_admin = (!strncmp("admin", yctx.role, sizeof(yctx.role)-1) ? 1 : 0);
+sxc_user_getinfo_err:
+    free(tok);
     free(url);
     if(yctx.yh)
 	yajl_free(yctx.yh);

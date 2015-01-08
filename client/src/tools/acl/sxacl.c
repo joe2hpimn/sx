@@ -47,6 +47,7 @@
 #include "cmd_volperm.h"
 #include "cmd_volshow.h"
 #include "cmd_whoami.h"
+#include "cmd_userclone.h"
 #include "libsx/src/misc.h"
 #include "libsx/src/clustcfg.h"
 #include "version.h"
@@ -92,15 +93,20 @@ sxc_cluster_t *load_config(sxc_client_t *sx, const char *uri, sxc_uri_t **sxuri)
     return cluster;
 }
 
-static int add_user(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_uri_t *u, const char *username,  enum enum_role type, const char *authfile, int batch_mode, const char *oldtoken) {
+static int add_user(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_uri_t *u, const char *username,  enum enum_role type, const char *authfile, int batch_mode, const char *oldtoken, const char *existing) {
     char *key;
+    int created_role = (type == role_arg_admin ? 1 : 0);
 
     if(u->volume) {
 	fprintf(stderr, "ERROR: Bad URI: Please omit volume\n");
 	return 1;
     }
 
-    key = sxc_user_add(cluster, username, type == role_arg_admin, oldtoken);
+    if(existing) /* Cloning user */
+        key = sxc_user_clone(cluster, existing, username, oldtoken, &created_role);
+    else /* Creating new user */
+        key = sxc_user_add(cluster, username, type == role_arg_admin, oldtoken);
+
     if(!key) {
         fprintf(stderr, "ERROR: Can't create user %s: %s\n", username, sxc_geterrmsg(sx));
 	return 1;
@@ -112,8 +118,10 @@ static int add_user(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_uri_t *u, cons
 	printf("User successfully created!\n");
 	printf("Name: %s\n", username);
 	printf("Key : %s\n", key);
-	printf("Type: %s\n\n", type == role_arg_admin ? "admin" : "normal");
-	printf("Run 'sxinit sx://%s@%s' to start using the cluster as user '%s'.\n", username, u->host, username);
+        printf("Type: %s", created_role ? "admin" : "normal");
+	if(existing)
+	    printf(" (clone of user '%s')", existing);
+	printf("\n\nRun 'sxinit sx://%s@%s' to start using the cluster as user '%s'.\n", username, u->host, username);
     }
 
     if (authfile) {
@@ -205,7 +213,7 @@ static int getkey_user(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_uri_t *u, c
             return 1;
         }
     }
-    rc = sxc_user_getkey(cluster, username, f);
+    rc = sxc_user_getinfo(cluster, username, f, NULL);
     if (authfile && fclose(f)) {
         fprintf(stderr, "ERROR: Can't close file %s: %s\n", authfile, strerror(errno));
 	return 1;
@@ -216,7 +224,7 @@ static int getkey_user(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_uri_t *u, c
     return rc;
 }
 
-static int list_users(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_uri_t *u)
+static int list_users(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_uri_t *u, const char *list_clones)
 {
     int rc = 0, lstrc = 0;
     sxc_cluster_lu_t *lst;
@@ -227,7 +235,7 @@ static int list_users(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_uri_t *u)
 	fprintf(stderr, "ERROR: Bad URI: Please omit volume.\n");
 	return 1;
     }
-    for (lst = sxc_cluster_listusers(cluster); lst && (lstrc = sxc_cluster_listusers_next(lst, &user, &is_admin)) > 0;) {
+    for (lst = (list_clones ? sxc_cluster_listclones(cluster, list_clones) : sxc_cluster_listusers(cluster)); lst && (lstrc = sxc_cluster_listusers_next(lst, &user, &is_admin)) > 0;) {
         printf("%s (%s)\n", user, is_admin ? "admin" : "normal");
         free(user);
     }
@@ -368,8 +376,39 @@ int main(int argc, char **argv) {
                 ret = 1;
                 break;
             }
-	    ret = add_user(sx, cluster, uri, args.inputs[0], args.role_arg, args.auth_file_arg, args.batch_mode_flag, args.force_key_arg);
+	    ret = add_user(sx, cluster, uri, args.inputs[0], args.role_arg, args.auth_file_arg, args.batch_mode_flag, args.force_key_arg, NULL);
             useradd_cmdline_parser_free(&args);
+
+        } else if(!strcmp(argv[1], "userclone")) {
+            struct userclone_args_info args;
+            if (userclone_cmdline_parser(argc - 1, &argv[1], &args)) {
+                ret = 1;
+                break;
+            }
+            if(args.version_given) {
+                printf("%s %s\n", MAIN_CMDLINE_PARSER_PACKAGE, SRC_VERSION);
+                break;
+            }
+            if(args.config_dir_given && sxc_set_confdir(sx, args.config_dir_arg)) {
+                fprintf(stderr, "ERROR: Could not set configuration directory %s: %s\n", args.config_dir_arg, sxc_geterrmsg(sx));
+                ret = 1;
+                break;
+            }
+            sxc_set_debug(sx, args.debug_flag);
+            if (args.inputs_num != 3) {
+                userclone_cmdline_parser_print_help();
+                printf("\n");
+                fprintf(stderr, "ERROR: Wrong number of arguments\n");
+                ret = 1;
+                break;
+            }
+            cluster = load_config(sx, args.inputs[2], &uri);
+            if(!cluster) {
+                ret = 1;
+                break;
+            }
+            ret = add_user(sx, cluster, uri, args.inputs[1], role__NULL, args.auth_file_arg, args.batch_mode_flag, args.force_key_arg, args.inputs[0]);
+            userclone_cmdline_parser_free(&args);
 
 	} else if(!strcmp(argv[1], "userdel")) {
             struct userdel_args_info args;
@@ -399,11 +438,11 @@ int main(int argc, char **argv) {
                 ret = 1;
                 break;
             }
-	    if(sxc_user_remove(cluster, args.inputs[0])) {
+	    if(sxc_user_remove(cluster, args.inputs[0], args.all_given)) {
 		fprintf(stderr, "ERROR: Can't remove user %s: %s\n", args.inputs[0], sxc_geterrmsg(sx));
 		ret = 1;
 	    } else {
-		printf("User '%s' successfully removed.\n", args.inputs[0]);
+		printf("User '%s'%s successfully removed.\n", args.inputs[0], args.all_given ? " and its clones" : "");
 	    }
             userdel_cmdline_parser_free(&args);
 
@@ -435,7 +474,7 @@ int main(int argc, char **argv) {
                 ret = 1;
                 break;
             }
-	    ret = list_users(sx, cluster, uri);
+	    ret = list_users(sx, cluster, uri, args.clones_arg);
             userlist_cmdline_parser_free(&args);
         } else if (!strcmp(argv[1], "usergetkey")) {
             struct usergetkey_args_info args;

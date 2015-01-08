@@ -35,6 +35,7 @@
 #define UPLOAD_CHUNK_SIZE (4*SX_BS_LARGE)
 #define DOWNLOAD_MAX_BLOCKS 30
 
+#define AUTH_CID_LEN 18 /* Less than AUTH_UID_LEN, its a prefix that can be shared between users */
 #define AUTH_UID_LEN 20
 #define AUTH_KEY_LEN 20
 #define AUTHTOK_ASCII_LEN 56

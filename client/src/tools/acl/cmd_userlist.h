@@ -43,6 +43,9 @@ struct userlist_args_info
   char * config_dir_arg;	/**< @brief Path to SX configuration directory.  */
   char * config_dir_orig;	/**< @brief Path to SX configuration directory original value given at command line.  */
   const char *config_dir_help; /**< @brief Path to SX configuration directory help description.  */
+  char * clones_arg;	/**< @brief List all clones of a given user.  */
+  char * clones_orig;	/**< @brief List all clones of a given user original value given at command line.  */
+  const char *clones_help; /**< @brief List all clones of a given user help description.  */
   int debug_flag;	/**< @brief Enable debug messages (default=off).  */
   const char *debug_help; /**< @brief Enable debug messages help description.  */
   
@@ -50,6 +53,7 @@ struct userlist_args_info
   unsigned int full_help_given ;	/**< @brief Whether full-help was given.  */
   unsigned int version_given ;	/**< @brief Whether version was given.  */
   unsigned int config_dir_given ;	/**< @brief Whether config-dir was given.  */
+  unsigned int clones_given ;	/**< @brief Whether clones was given.  */
   unsigned int debug_given ;	/**< @brief Whether debug was given.  */
 
   char **inputs ; /**< @brief unamed options (options without names) */

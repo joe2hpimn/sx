@@ -2375,7 +2375,7 @@ int test_acl(sxc_client_t *sx, sxc_cluster_t *cluster, const char *local_dir_pat
         fprintf(stderr, "test_acl: ERROR: Cannot open '%s' file: %s\n", local_file_path, strerror(errno));
         goto test_acl_err;
     }
-    if(sxc_user_getkey(cluster, user1, file)) {
+    if(sxc_user_getinfo(cluster, user1, file, NULL)) {
         fprintf(stderr, "test_acl: ERROR: Cannot get '%s' key: %s\n", user1, sxc_geterrmsg(sx));
         if(fclose(file) == EOF)
             fprintf(stderr, "test_acl: ERROR: Cannot close '%s' file: %s\n", local_file_path, strerror(errno));
@@ -2457,15 +2457,15 @@ int test_acl(sxc_client_t *sx, sxc_cluster_t *cluster, const char *local_dir_pat
         fprintf(stderr, "test_acl: ERROR: Failed to set default profile: %s\n", sxc_geterrmsg(sx));
         goto test_acl_err;
     }
-    if(sxc_user_remove(cluster, user1)) {
+    if(sxc_user_remove(cluster, user1, 0)) {
         fprintf(stderr, "test_acl: ERROR: Cannot remove '%s' user: %s\n", user1, sxc_geterrmsg(sx));
         goto test_acl_err;
     }
-    if(sxc_user_remove(cluster, user2)) {
+    if(sxc_user_remove(cluster, user2, 0)) {
         fprintf(stderr, "test_acl: ERROR: Cannot remove '%s' user: %s\n", user2, sxc_geterrmsg(sx));
         goto test_acl_err;
     }
-    if(sxc_user_remove(cluster, user3)) {
+    if(sxc_user_remove(cluster, user3, 0)) {
         fprintf(stderr, "test_acl: ERROR: Cannot remove '%s' user: %s\n", user3, sxc_geterrmsg(sx));
         goto test_acl_err;
     }

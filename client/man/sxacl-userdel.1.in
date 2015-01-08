@@ -5,7 +5,7 @@ sxacl-userdel \- remove an existing user
 .B sxacl userdel
 \fR[\fI\,OPTIONS\/\fR] \fI\,<username> sx://\/\fR[\fI\,profile@\/\fR]\fI\,cluster\/\fR
 .SH DESCRIPTION
-\fBsxacl userdel\fR removes an existing user from a Skylable SX cluster. All volumes owned by the user will be reassigned to the cluster administrator performing the removal.
+\fBsxacl userdel\fR removes an existing user from a Skylable SX cluster. By default, it doesn't remove user clones. When all instances of a given user get removed, all volumes owned by that user will be reassigned to the cluster administrator performing the removal.
 .SH OPTIONS
 .TP
 \fB\-h\fR, \fB\-\-help\fR
@@ -16,6 +16,9 @@ Print help, including hidden options, and exit
 .TP
 \fB\-V\fR, \fB\-\-version\fR
 Print version and exit
+.TP
+\fB\-a\fR, \fB\-\-all\fR
+With this option also all other instances (clones) of a user will be removed.
 .TP
 \fB\-c\fR, \fB\-\-config\-dir\fR=\fI\,PATH\/\fR
 Path to the SX configuration directory (default: ~/.sx)

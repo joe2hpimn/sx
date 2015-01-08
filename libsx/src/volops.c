@@ -1323,13 +1323,15 @@ struct _sxc_cluster_lu_t {
     char *fname;
 };
 
-sxc_cluster_lu_t *sxc_cluster_listusers(sxc_cluster_t *cluster) {
+sxc_cluster_lu_t *cluster_listusers(sxc_cluster_t *cluster, const char *list_clones) {
     sxc_client_t *sx = sxi_cluster_get_client(cluster);
     struct cb_listusers_ctx yctx;
     yajl_callbacks *yacb = &yctx.yacb;
     sxc_cluster_lu_t *ret;
     char *fname;
     int qret;
+    unsigned int len;
+    char *query;
 
     sxc_clearerr(sx);
 
@@ -1344,49 +1346,63 @@ sxc_cluster_lu_t *sxc_cluster_listusers(sxc_cluster_t *cluster) {
     yctx.usrname = NULL;
 
     if(!(fname = sxi_make_tempfile(sx, NULL, &yctx.f))) {
-	CFGDEBUG("failed to create temporary storage for user list");
-	return NULL;
+        CFGDEBUG("failed to create temporary storage for user list");
+        return NULL;
     }
 
-    sxi_set_operation(sx, "list users", sxi_cluster_get_name(cluster), NULL, NULL);
-    qret = sxi_cluster_query(sxi_cluster_get_conns(cluster), NULL, REQ_GET, ".users", NULL, 0, listusers_setup_cb, listusers_cb, &yctx);
-    if(qret != 200) {
-	CFGDEBUG("query returned %d", qret);
-	free(yctx.usrname);
-	if(yctx.yh)
-	    yajl_free(yctx.yh);
-	fclose(yctx.f);
-	unlink(fname);
-	free(fname);
-	return NULL;
+    len = strlen(".users") + 1;
+    if(list_clones)
+        len += strlen("?clones=") + strlen(list_clones);
+    query = malloc(len);
+    if(!query) {
+        CFGDEBUG("Failed to allocate memory for query");
+        fclose(yctx.f);
+        unlink(fname);
+        free(fname);
+        return NULL;
     }
+    snprintf(query, len, ".users%s%s", (list_clones ? "?clones=" : ""), (list_clones ? list_clones : ""));
+    sxi_set_operation(sx, "list users", sxi_cluster_get_name(cluster), NULL, NULL);
+    qret = sxi_cluster_query(sxi_cluster_get_conns(cluster), NULL, REQ_GET, query, NULL, 0, listusers_setup_cb, listusers_cb, &yctx);
+    if(qret != 200) {
+        CFGDEBUG("query returned %d", qret);
+        free(yctx.usrname);
+        if(yctx.yh)
+            yajl_free(yctx.yh);
+        fclose(yctx.f);
+        unlink(fname);
+        free(fname);
+        free(query);
+        return NULL;
+    }
+    free(query);
 
     if(yajl_complete_parse(yctx.yh) != yajl_status_ok || yctx.state != LU_COMPLETE) {
         if (yctx.state != LU_ERROR) {
             CFGDEBUG("JSON parsing failed: %d", yctx.state);
             cluster_err(SXE_ECOMM, "List users failed: Communication error");
         }
-	free(yctx.usrname);
-	if(yctx.yh)
-	    yajl_free(yctx.yh);
-	fclose(yctx.f);
-	unlink(fname);
-	free(fname);
-	return NULL;
+        free(yctx.usrname);
+        if(yctx.yh)
+            yajl_free(yctx.yh);
+        fclose(yctx.f);
+        unlink(fname);
+        free(fname);
+        return NULL;
     }
 
     free(yctx.usrname);
     if(yctx.yh)
-	yajl_free(yctx.yh);
+        yajl_free(yctx.yh);
 
     ret = malloc(sizeof(*ret));
     if(!ret) {
-	CFGDEBUG("OOM allocating results");
-	cluster_err(SXE_EMEM, "Volume list failed: Out of memory");
-	fclose(yctx.f);
-	unlink(fname);
-	free(fname);
-	return NULL;
+        CFGDEBUG("OOM allocating results");
+        cluster_err(SXE_EMEM, "Volume list failed: Out of memory");
+        fclose(yctx.f);
+        unlink(fname);
+        free(fname);
+        return NULL;
     }
 
     rewind(yctx.f);
@@ -1394,6 +1410,14 @@ sxc_cluster_lu_t *sxc_cluster_listusers(sxc_cluster_t *cluster) {
     ret->f = yctx.f;
     ret->fname = fname;
     return ret;
+}
+
+sxc_cluster_lu_t *sxc_cluster_listclones(sxc_cluster_t *cluster, const char *username) {
+    return cluster_listusers(cluster, username);
+}
+
+sxc_cluster_lu_t *sxc_cluster_listusers(sxc_cluster_t *cluster) {
+    return sxc_cluster_listclones(cluster, NULL);
 }
 
 int sxc_cluster_listusers_next(sxc_cluster_lu_t *lu, char **user_name, int *is_admin) {

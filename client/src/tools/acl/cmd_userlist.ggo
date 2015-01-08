@@ -7,4 +7,6 @@ section "Common options"
 option  "config-dir"		c "Path to SX configuration directory"
         string typestr="PATH" optional hidden
 
+option  "clones"                - "List all clones of a given user" string typestr="NAME" optional
+
 option  "debug"		D "Enable debug messages" flag off

@@ -36,10 +36,10 @@
 #include "../../../libsx/src/sxproto.h"
 #include "../../../libsx/src/vcrypto.h"
 
-void fcgi_user_onoff(int enable) {
+void fcgi_user_onoff(int enable, int all_clones) {
     rc_ty s;
 
-    s = sx_hashfs_user_onoff(hashfs, path, enable);
+    s = sx_hashfs_user_onoff(hashfs, path, enable, all_clones);
 
     if(s != OK)
 	quit_errnum(400);
@@ -67,6 +67,7 @@ static rc_ty user_nodes(sxc_client_t *sx, sx_blob_t *blob, sx_nodelist_t **nodes
 struct userdel_ctx {
     const char *name;
     const char *newowner;
+    int remove_all; /* Set to 1 if we want to remove all clones of the user */
 };
 
 static int userdel_to_blob(sxc_client_t *sx, int nodes, void *yctx, sx_blob_t *joblb)
@@ -78,10 +79,12 @@ static int userdel_to_blob(sxc_client_t *sx, int nodes, void *yctx, sx_blob_t *j
     }
 
     if (sx_blob_add_string(joblb, uctx->name) ||
-        sx_blob_add_string(joblb, uctx->newowner)) {
+        sx_blob_add_string(joblb, uctx->newowner) ||
+        sx_blob_add_int32(joblb, uctx->remove_all)) {
         msg_set_reason("Cannot create job blob");
         return -1;
     }
+
     return 0;
 }
 
@@ -94,23 +97,27 @@ static sxi_query_t* userdel_proto_from_blob(sxc_client_t *sx, sx_blob_t *b, jobp
 {
     const char *name;
     const char *newowner;
+    int remove_all;
 
     if (sx_blob_get_string(b, &name) ||
-	sx_blob_get_string(b, &newowner)) {
+        sx_blob_get_string(b, &newowner) ||
+        sx_blob_get_int32(b, &remove_all)) {
         WARN("Corrupt userdel blob");
         return NULL;
     }
+    INFO("Got BLOB, making proto: %d", remove_all);
+
     switch (phase) {
         case JOBPHASE_REQUEST:
-            return sxi_useronoff_proto(sx, name, 0);
+            return sxi_useronoff_proto(sx, name, 0, remove_all);
         case JOBPHASE_COMMIT:
-            return sxi_userdel_proto(sx, name, newowner);
+            return sxi_userdel_proto(sx, name, newowner, remove_all);
         case JOBPHASE_ABORT:
             INFO("Delete user '%s': aborting", name);
-            return sxi_useronoff_proto(sx, name, 1);
+            return sxi_useronoff_proto(sx, name, 1, remove_all);
         case JOBPHASE_UNDO:
             INFO("Delete user '%s': undoing", name);
-            return sxi_useronoff_proto(sx, name, 0);
+            return sxi_useronoff_proto(sx, name, 0, remove_all);
         default:
             return NULL;
     }
@@ -120,6 +127,7 @@ static rc_ty userdel_execute_blob(sx_hashfs_t *hashfs, sx_blob_t *b, jobphase_t 
 {
     const char *name;
     const char *newowner;
+    int remove_all;
     rc_ty rc = OK;
 
     if (!hashfs || !b) {
@@ -127,7 +135,8 @@ static rc_ty userdel_execute_blob(sx_hashfs_t *hashfs, sx_blob_t *b, jobphase_t 
         return FAIL_EINTERNAL;
     }
     if (sx_blob_get_string(b, &name) ||
-        sx_blob_get_string(b, &newowner)) {
+        sx_blob_get_string(b, &newowner) ||
+        sx_blob_get_int32(b, &remove_all)) {
         msg_set_reason("Corrupted blob");
         return FAIL_EINTERNAL;
     }
@@ -138,10 +147,10 @@ static rc_ty userdel_execute_blob(sx_hashfs_t *hashfs, sx_blob_t *b, jobphase_t 
     switch (phase) {
         case JOBPHASE_REQUEST:
             DEBUG("userdel request '%s'", name);
-	    return sx_hashfs_user_onoff(hashfs, name, 0);
+	    return sx_hashfs_user_onoff(hashfs, name, 0, remove_all);
         case JOBPHASE_COMMIT:
             DEBUG("userdel commit '%s'", name);
-            rc = sx_hashfs_delete_user(hashfs, name, newowner);
+            rc = sx_hashfs_delete_user(hashfs, name, newowner, remove_all);
             if (rc == ENOENT)
                 rc = OK;
             if (rc != OK)
@@ -150,7 +159,7 @@ static rc_ty userdel_execute_blob(sx_hashfs_t *hashfs, sx_blob_t *b, jobphase_t 
         case JOBPHASE_ABORT:
             INFO("Delete user '%s': aborted", name);
             DEBUG("userdel abort '%s'", name);
-	    return sx_hashfs_user_onoff(hashfs, name, 1);
+	    return sx_hashfs_user_onoff(hashfs, name, 1, remove_all);
         case JOBPHASE_UNDO:
             CRIT("User '%s' may have been left in an inconsistent state after a failed removal attempt", name);
             msg_set_reason("User may have been left in an inconsistent state after a failed removal attempt");
@@ -176,47 +185,59 @@ const job_2pc_t userdel_spec = {
 void fcgi_delete_user() {
     struct userdel_ctx uctx;
     char new_owner[SXLIMIT_MAX_USERNAME_LEN+2];
+    rc_ty s;
+
+    uctx.name = path;
+    if(has_arg("all"))
+        uctx.remove_all = 1;
+    else
+        uctx.remove_all = 0;
+
     uctx.name = path;
     if (has_priv(PRIV_CLUSTER))
         uctx.newowner = get_arg("chgto");
     else {
         uint8_t deluser[AUTH_UID_LEN];
-        rc_ty s;
 
-        s = sx_hashfs_get_user_by_name(hashfs, path, deluser);
+        s = sx_hashfs_get_user_by_name(hashfs, path, deluser, 0);
         if(s != OK)
             quit_errmsg(rc2http(s), msg_get_reason());
+
+        /* Need to check if removed user doesn't have the same CID as me */
+        if((uctx.remove_all && !memcmp(user, deluser, AUTH_CID_LEN)) || !memcmp(user, deluser, AUTH_UID_LEN))
+            quit_errmsg(400, "You may not delete yourself");
 
         s = sx_hashfs_uid_get_name(hashfs, uid, new_owner, sizeof(new_owner));
         if(s != OK)
             quit_errmsg(rc2http(s), msg_get_reason());
         if(sx_hashfs_check_username(new_owner))
             quit_errmsg(500, "Internal error (requesting user has an invalid name)");
-
-        if(!memcmp(user, deluser, sizeof(user)))
-            quit_errmsg(400, "You may not delete yourself");
         uctx.newowner = new_owner;
     }
     job_2pc_handle_request(sx_hashfs_client(hashfs), &userdel_spec, &uctx);
 }
 
 void fcgi_send_user(void) {
-    uint8_t user[SXI_SHA1_BIN_LEN];
+    uint8_t user_uid[SXI_SHA1_BIN_LEN];
     sx_uid_t requid;
     uint8_t key[AUTH_KEY_LEN];
     sx_priv_t role;
     sxi_query_t *q;
+    rc_ty rc;
 
-    if (sxi_sha1_calc(NULL, 0, path, strlen(path), user))
-	quit_errmsg(500, "Cannot compute hash: unable to initialize crypto library");
-
-    if(sx_hashfs_get_user_info(hashfs, user, &requid, key, &role) != OK) /* no such user */ {
-        quit_errmsg(404, "No such user");
+    if ((rc = sx_hashfs_get_user_by_name(hashfs, path, user_uid, 0)) != OK) {
+        if(rc == ENOENT)
+            quit_errmsg(404, "No such user");
+        else
+            quit_errmsg(rc2http(rc), rc2str(rc));
     }
+
+    if(sx_hashfs_get_user_info(hashfs, user_uid, &requid, key, &role) != OK) /* no such user */
+        quit_errmsg(404, "No such user");
     if (!requid)
         quit_errmsg(403, "Cluster key is not allowed to be retrieved");
 
-    q = sxi_useradd_proto(sx_hashfs_client(hashfs), path, key, role == PRIV_ADMIN);
+    q = sxi_useradd_proto(sx_hashfs_client(hashfs), path, user_uid, key, role == PRIV_ADMIN);
     if (!q) {
         msg_set_reason("Cannot retrieve user data for '%s': %s", path, sxc_geterrmsg(sx_hashfs_client(hashfs)));
 	quit_errmsg(500, msg_get_reason());
@@ -227,14 +248,17 @@ void fcgi_send_user(void) {
 }
 
 struct user_ctx {
-    char name[SXLIMIT_MAX_USERNAME_LEN + 1];
-    char auth[AUTH_KEY_LEN];
+    char name[SXLIMIT_MAX_USERNAME_LEN + 1], existing[SXLIMIT_MAX_USERNAME_LEN + 1];
+    uint8_t token[AUTHTOK_BIN_LEN];
     char type[7];
-    int has_auth;
+    int has_key;
+    int has_uid;
     int has_user;
     int has_type;
     int role;
-    enum user_state { CB_USER_START=0, CB_USER_KEY, CB_USER_NAME, CB_USER_AUTH, CB_USER_TYPE, CB_USER_COMPLETE } state;
+    int is_clone; /* Set to 1 if existing is filled with existing user name */
+    enum user_state { CB_USER_START=0, CB_USER_KEY, CB_USER_NAME, CB_USER_ENAME /* Existing user name */, CB_USER_AUTH,
+        CB_USER_ID, CB_USER_TYPE, CB_USER_COMPLETE } state;
 };
 
 static int cb_user_string(void *ctx, const unsigned char *s, size_t l) {
@@ -249,6 +273,19 @@ static int cb_user_string(void *ctx, const unsigned char *s, size_t l) {
 	    uctx->name[l] = 0;
 	    uctx->has_user = 1;
 	    break;
+        case CB_USER_ENAME:
+            {
+                if(l >= sizeof(uctx->existing)) {
+                    msg_set_reason("username too long");
+                    return 0;
+                }
+
+                memcpy(uctx->existing, s, l);
+                uctx->existing[l] = 0;
+                
+                uctx->is_clone = 1;
+                break;
+            }
 	case CB_USER_AUTH:
 	    {
 		char ascii[AUTH_KEY_LEN * 2 + 1];
@@ -258,13 +295,30 @@ static int cb_user_string(void *ctx, const unsigned char *s, size_t l) {
 		}
 		memcpy(ascii, s, AUTH_KEY_LEN * 2);
                 ascii[AUTH_KEY_LEN*2] = '\0';
-		if (hex2bin(ascii, AUTH_KEY_LEN * 2, uctx->auth, sizeof(uctx->auth))) {
+		if (hex2bin(ascii, AUTH_KEY_LEN * 2, uctx->token + AUTH_UID_LEN, AUTH_KEY_LEN)) {
                     INFO("bad hexadecimal string: %s", ascii);
                     return 0;
                 }
-		uctx->has_auth = 1;
+		uctx->has_key = 1;
 		break;
 	    }
+        case CB_USER_ID:
+            {
+                char ascii[AUTH_UID_LEN * 2 + 1];
+
+                if(l != AUTH_UID_LEN * 2) {
+                    INFO("Bad uid length %ld", l);
+                    return 0;
+                }
+                memcpy(ascii, s, AUTH_UID_LEN * 2);
+                ascii[AUTH_UID_LEN*2] = '\0';
+                if (hex2bin(ascii, AUTH_UID_LEN * 2, uctx->token, AUTH_UID_LEN)) {
+                    INFO("bad hexadecimal string: %s", ascii);
+                    return 0;
+                }
+                uctx->has_uid = 1;
+                break;
+            }
 	case CB_USER_TYPE:
 	    if(l >= sizeof(uctx->type)) {
 		INFO("type too long");
@@ -288,10 +342,18 @@ static int cb_user_map_key(void *ctx, const unsigned char *s, size_t l) {
 	    c->state = CB_USER_NAME;
 	    return 1;
 	}
+        if(l == lenof("existingName") && !strncmp("existingName", s, l)) {
+            c->state = CB_USER_ENAME;
+            return 1;
+        }
 	if(l == lenof("userType") && !strncmp("userType", s, l)) {
 	    c->state = CB_USER_TYPE;
 	    return 1;
 	}
+        if(l == lenof("userID") && !strncmp("userID", s, l)) {
+            c->state = CB_USER_ID;
+            return 1;
+        }
 	if(l == lenof("userKey") && !strncmp("userKey", s, l)) {
 	    c->state = CB_USER_AUTH;
 	    return 1;
@@ -335,6 +397,7 @@ static const yajl_callbacks user_ops_parser = {
 static rc_ty user_parse_complete(void *yctx)
 {
     struct user_ctx *uctx = yctx;
+    rc_ty s;
     if (!uctx || uctx->state != CB_USER_COMPLETE)
         return EINVAL;
     if(sx_hashfs_check_username(uctx->name)) {
@@ -342,14 +405,50 @@ static rc_ty user_parse_complete(void *yctx)
         return EINVAL;
     }
 
-    uctx->role = 0;
-    if (!strcmp(uctx->type, "admin"))
-	uctx->role = ROLE_ADMIN;
-    else if (!strcmp(uctx->type, "normal"))
-	uctx->role = ROLE_USER;
-    else {
-        msg_set_reason("Invalid user type");
-        return EINVAL;
+    if(!uctx->has_uid) {
+        /* Check if priv is not cluster */
+        if(has_priv(PRIV_CLUSTER)) {
+            WARN("When user creation is done with PRIV_CLUSTER, then it must contain user ID");
+            return FAIL_EINTERNAL;
+        }
+
+        if(uctx->is_clone) {
+            /* Check if given user exists and take his role */
+            if((s = sx_hashfs_get_uid_role(hashfs, uctx->existing, NULL, &uctx->role)) != OK) {
+                WARN("Failed to get existing user role");
+                return s;
+            }
+
+            if((s = sx_hashfs_get_user_by_name(hashfs, uctx->existing, uctx->token, 0)) != OK) {
+                WARN("Failed to get existing user ID");
+                return s;
+            }
+
+            /* Generate unique user ID for new user or a clone */
+            if((s = sx_hashfs_generate_uid(hashfs, uctx->token)) != OK) {
+                msg_set_reason("Cloned user does not exist");
+                WARN("Failed to get existing user ID");
+                return s;
+            }
+        } else {
+            /* By default user ID is an unsalted hash from the username stirng */
+            if(sx_hashfs_hash_buf(NULL, 0, uctx->name, strlen(uctx->name), (sx_hash_t*)uctx->token)) {
+                WARN("Failed to compute user name hash");
+                return FAIL_EINTERNAL;
+            }
+        }
+    }
+
+    if(!uctx->is_clone) {
+        uctx->role = 0;
+        if (!strcmp(uctx->type, "admin"))
+            uctx->role = ROLE_ADMIN;
+        else if (!strcmp(uctx->type, "normal"))
+            uctx->role = ROLE_USER;
+        else {
+            msg_set_reason("Invalid user type");
+            return EINVAL;
+        }
     }
     return OK;
 }
@@ -363,7 +462,7 @@ static int user_to_blob(sxc_client_t *sx, int nodes, void *yctx, sx_blob_t *jobl
     }
 
     if (sx_blob_add_string(joblb, uctx->name) ||
-        sx_blob_add_blob(joblb, uctx->auth, AUTH_KEY_LEN) ||
+        sx_blob_add_blob(joblb, uctx->token, AUTHTOK_BIN_LEN) ||
         sx_blob_add_int32(joblb, uctx->role)) {
         msg_set_reason("Cannot create job blob");
         return -1;
@@ -382,27 +481,28 @@ static unsigned user_timeout(sxc_client_t *sx, int nodes)
 static sxi_query_t* user_proto_from_blob(sxc_client_t *sx, sx_blob_t *b, jobphase_t phase)
 {
     const char *name;
-    unsigned role;
-    const void *auth;
+    int role;
+    const uint8_t *token;
     unsigned auth_len;
 
     if (sx_blob_get_string(b, &name) ||
-	sx_blob_get_blob(b, &auth, &auth_len) ||
+	sx_blob_get_blob(b, (const void**)&token, &auth_len) ||
+        auth_len != AUTHTOK_BIN_LEN ||
 	sx_blob_get_int32(b, &role)) {
         WARN("Corrupt user blob");
         return NULL;
     }
     switch (phase) {
         case JOBPHASE_REQUEST:
-            return sxi_useradd_proto(sx, name, auth, (role == ROLE_ADMIN));
+            return sxi_useradd_proto(sx, name, token, &token[AUTH_UID_LEN], (role == ROLE_ADMIN));
         case JOBPHASE_COMMIT:
-            return sxi_useronoff_proto(sx, name, 1);
+            return sxi_useronoff_proto(sx, name, 1, 0);
         case JOBPHASE_ABORT:/* fall-through */
             INFO("Create user '%s': aborting", name);
-            return sxi_userdel_proto(sx, name, "admin");
+            return sxi_userdel_proto(sx, name, "admin", 0);
         case JOBPHASE_UNDO:
             INFO("Create user '%s': undoing", name);
-            return sxi_userdel_proto(sx, name, "admin");
+            return sxi_userdel_proto(sx, name, "admin", 0);
         default:
             return NULL;
     }
@@ -411,7 +511,7 @@ static sxi_query_t* user_proto_from_blob(sxc_client_t *sx, sx_blob_t *b, jobphas
 static rc_ty user_execute_blob(sx_hashfs_t *hashfs, sx_blob_t *b, jobphase_t phase, int remote)
 {
     const char *name;
-    const void *auth;
+    const uint8_t *token;
     unsigned auth_len;
     int role;
     rc_ty rc = OK, rc2 = OK;
@@ -421,8 +521,8 @@ static rc_ty user_execute_blob(sx_hashfs_t *hashfs, sx_blob_t *b, jobphase_t pha
         return FAIL_EINTERNAL;
     }
     if (sx_blob_get_string(b, &name) ||
-	sx_blob_get_blob(b, &auth, &auth_len) ||
-        auth_len != AUTH_KEY_LEN ||
+	sx_blob_get_blob(b, (const void**)&token, &auth_len) ||
+        auth_len != AUTHTOK_BIN_LEN ||
 	sx_blob_get_int32(b, &role)) {
         msg_set_reason("Corrupted blob");
         return FAIL_EINTERNAL;
@@ -431,7 +531,7 @@ static rc_ty user_execute_blob(sx_hashfs_t *hashfs, sx_blob_t *b, jobphase_t pha
     switch (phase) {
         case JOBPHASE_REQUEST:
             DEBUG("useradd request '%s'", name);
-            rc = sx_hashfs_create_user(hashfs, name, NULL, 0, auth, AUTH_KEY_LEN, role);
+            rc = sx_hashfs_create_user(hashfs, name, token, AUTH_UID_LEN, token + AUTH_UID_LEN, AUTH_KEY_LEN, role);
             if(rc == EINVAL)
                 return rc;
             if (rc == EEXIST) {
@@ -445,7 +545,7 @@ static rc_ty user_execute_blob(sx_hashfs_t *hashfs, sx_blob_t *b, jobphase_t pha
             return rc;
         case JOBPHASE_COMMIT:
             DEBUG("useradd commit '%s'", name);
-	    rc = sx_hashfs_user_onoff(hashfs, name, 1);
+	    rc = sx_hashfs_user_onoff(hashfs, name, 1, 0);
             if (rc)
 		WARN("Failed to enable user '%s'", name);
             return rc;
@@ -453,14 +553,14 @@ static rc_ty user_execute_blob(sx_hashfs_t *hashfs, sx_blob_t *b, jobphase_t pha
             DEBUG("useradd abort '%s'", name);
             INFO("Create user '%s': aborted", name);
             /* try hard to deactivate / delete */
-	    rc = sx_hashfs_user_onoff(hashfs, name, 0);
-            rc2 = sx_hashfs_delete_user(hashfs, name, "admin");
+	    rc = sx_hashfs_user_onoff(hashfs, name, 0, 0);
+            rc2 = sx_hashfs_delete_user(hashfs, name, "admin", 0);
             return rc2 == OK ? rc : rc2;
         case JOBPHASE_UNDO:
             DEBUG("useradd undo '%s'", name);
             /* try hard to deactivate / delete */
-	    rc = sx_hashfs_user_onoff(hashfs, name, 0);
-            rc2 = sx_hashfs_delete_user(hashfs, name, "admin");
+	    rc = sx_hashfs_user_onoff(hashfs, name, 0, 0);
+            rc2 = sx_hashfs_delete_user(hashfs, name, "admin", 0);
             CRIT("User '%s' may have been left in an inconsistent state after a failed removal attempt", name);
             msg_set_reason("User may have been left in an inconsistent state after a failed removal attempt");
             return FAIL_EINTERNAL;
@@ -491,7 +591,7 @@ void fcgi_create_user(void)
 }
 
 struct user_newkey_ctx {
-    char auth[AUTH_KEY_LEN];
+    uint8_t auth[AUTH_KEY_LEN];
     enum user_newkey_state { CB_USER_NEWKEY_START=0, CB_USER_NEWKEY_AUTH, CB_USER_NEWKEY_KEY, CB_USER_NEWKEY_COMPLETE } state;
 };
 
@@ -588,7 +688,7 @@ static int user_newkey_to_blob(sxc_client_t *sx, int nodes, void *yctx, sx_blob_
         msg_set_reason("Invalid username");
         return -1;
     }
-    rc = sx_hashfs_get_user_by_name(hashfs, path, requser);
+    rc = sx_hashfs_get_user_by_name(hashfs, path, requser, 0);
     if (rc) {
         msg_set_reason("cannot retrieve user: %s", path);
         return -1;
@@ -730,16 +830,28 @@ static int print_user(sx_uid_t user_id, const char *username, const uint8_t *use
     json_send_qstring(username);
     CGI_PRINTF(":{\"admin\":%s}", is_admin ? "true" : "false");
     *first = 0;
+
     return 0;
 }
 
 void fcgi_list_users(void) {
     int first = 1;
-    CGI_PUTS("Content-type: application/json\r\n\r\n{");
-    rc_ty rc = sx_hashfs_list_users(hashfs, print_user, &first);
-    CGI_PUTS("}");
-    if (rc != OK) {
-	quit_itererr("Failed to list users", rc);
+    const char *clones = NULL;
+    uint8_t clones_cid[AUTH_UID_LEN];
+    rc_ty rc;
+    if(has_arg("clones"))
+        clones = get_arg("clones");
+
+    if(clones && (rc = sx_hashfs_get_user_by_name(hashfs, clones, clones_cid, 0)) != OK) {
+        if(rc == ENOENT)
+            quit_errmsg(404, "No such user");
+        else
+            quit_errmsg(rc2http(rc), rc2str(rc));
     }
+    CGI_PUTS("Content-type: application/json\r\n\r\n{");
+    rc = sx_hashfs_list_users(hashfs, clones ? clones_cid : NULL, print_user, &first);
+    CGI_PUTS("}");
+    if (rc != OK)
+        quit_itererr("Failed to list users", rc);
 }
 

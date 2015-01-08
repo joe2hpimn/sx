@@ -291,14 +291,14 @@ void file_ops(void) {
 	if(!strcmp(volume, ".users") && (arg_is("o","disable") || arg_is("o","enable"))) {
 	    /* Enable/disable users (2pc/s2s) - CLUSTER required */
 	    quit_unless_has(PRIV_CLUSTER);
-	    fcgi_user_onoff(arg_is("o","enable"));
+	    fcgi_user_onoff(arg_is("o","enable"), has_arg("all"));
 	    return;
 	}
 
         if (!strcmp(".users", volume) && path && strlen(path) > 0) {
             rc_ty s;
             uint8_t requser[AUTH_UID_LEN];
-            s = sx_hashfs_get_user_by_name(hashfs, path, requser);
+            s = sx_hashfs_get_user_by_name(hashfs, path, requser, 0);
             switch(s) {
                 case OK:
                     break;

@@ -1648,16 +1648,17 @@ static int sync_flush(struct sync_ctx *ctx) {
 static int syncusers_cb(sx_uid_t user_id, const char *username, const uint8_t *user, const uint8_t *key, int is_admin, void *ctx) {
     struct sync_ctx *sy = (struct sync_ctx *)ctx;
     unsigned int left = sizeof(sy->buffer) - sy->at;
-    char *enc_name, hexkey[AUTH_KEY_LEN*2+1];
+    char *enc_name, hexkey[AUTH_KEY_LEN*2+1], hexuser[AUTH_UID_LEN*2+1];
 
     /* Check if we fit:
        - the preliminary '{"users":' part - 10 bytes
        - a fully encoded username - 2 + length(username) * 6 bytes
        - the key - 40 bytes
-       - the json skeleton ':{"key":"","admin":true} - 25 bytes
+       - the user ID - 40 bytes
+       - the json skeleton ':{"user":"","key":"","admin":true} - 36 bytes
        - the trailing '}}\0' - 3 bytes
     */
-    if(left < strlen(username) * 6 + 128) {
+    if(left < strlen(username) * 6 + 180) {
 	if(sync_flush(sy))
 	    return -1;
     }
@@ -1677,7 +1678,8 @@ static int syncusers_cb(sx_uid_t user_id, const char *username, const uint8_t *u
 	return -1;
     }
     bin2hex(key, AUTH_KEY_LEN, hexkey, sizeof(hexkey));
-    sprintf(&sy->buffer[sy->at], "%s:{\"key\":\"%s\",\"admin\":%s}", enc_name, hexkey, is_admin ? "true" : "false");
+    bin2hex(user, AUTH_UID_LEN, hexuser, sizeof(hexuser));
+    sprintf(&sy->buffer[sy->at], "%s:{\"user\":\"%s\",\"key\":\"%s\",\"admin\":%s}", enc_name, hexuser, hexkey, is_admin ? "true" : "false");
     free(enc_name);
 
     sy->what = SYNCING_USERS;
@@ -1709,7 +1711,7 @@ static int syncperms_cb(const char *username, int priv, int is_owner, void *ctx)
 	    return -1;
     }
 
-    if(sx_hashfs_get_user_by_name(sy->hashfs, username, user)) {
+    if(sx_hashfs_get_user_by_name(sy->hashfs, username, user, 0)) {
 	WARN("Failed to lookup user %s", username);
 	return -1;
     }
@@ -1746,7 +1748,7 @@ static int sync_global_objects(sx_hashfs_t *hashfs, const sxi_hostlist_t *hlist)
     ctx.hashfs = hashfs;
     ctx.hlist = hlist;
 
-    if(sx_hashfs_list_users(hashfs, syncusers_cb, &ctx))
+    if(sx_hashfs_list_users(hashfs, NULL, syncusers_cb, &ctx))
 	return -1;
 
     /* Force flush after all users */
@@ -1769,7 +1771,7 @@ static int sync_global_objects(sx_hashfs_t *hashfs, const sxi_hostlist_t *hlist)
 	   - the trailing '}}\0' - 3 bytes
 	*/
 
-	if(sx_hashfs_get_user_by_uid(hashfs, vol->owner, user)) {
+	if(sx_hashfs_get_user_by_uid(hashfs, vol->owner, user, 0)) {
 	    WARN("Cannot find user %lld (owner of %s)", (long long)vol->owner, vol->name);
 	    return -1;
 	}

@@ -7,4 +7,5 @@ section "Common options"
 option  "config-dir"        c "Path to SX configuration directory"
         string typestr="PATH" optional hidden
 
+option  "all"               a "Also remove all clones of <username>" flag off
 option  "debug"             D "Enable debug messages" flag off

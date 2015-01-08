@@ -7,6 +7,7 @@ purpose "Manage SX users and their permissions"
 text "\nAvailable commands:\n\n"
 
 text "  useradd     Create a new user\n"
+text "  userclone   Clone an existing user\n"
 text "  userdel     Remove an existing user (and gain ownership of its volumes)\n"
 text "  userlist    List users\n"
 text "  usergetkey  Retrieve the auth key of a user\n"

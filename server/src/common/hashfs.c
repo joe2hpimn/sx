@@ -619,11 +619,13 @@ struct _sx_hashfs_t {
     sqlite3_stmt *q_getuserbyid;
     sqlite3_stmt *q_getuserbyname;
     sqlite3_stmt *q_listusers;
+    sqlite3_stmt *q_listusersbycid;
     sqlite3_stmt *q_listacl;
     sqlite3_stmt *q_createuser;
     sqlite3_stmt *q_deleteuser;
     sqlite3_stmt *q_user_newkey;
     sqlite3_stmt *q_onoffuser;
+    sqlite3_stmt *q_onoffuserclones;
     sqlite3_stmt *q_grant;
     sqlite3_stmt *q_getuid;
     sqlite3_stmt *q_getuidname;
@@ -636,6 +638,7 @@ struct _sx_hashfs_t {
     sqlite3_stmt *q_addvol;
     sqlite3_stmt *q_addvolmeta;
     sqlite3_stmt *q_addvolprivs;
+    sqlite3_stmt *q_chprivs;
     sqlite3_stmt *q_dropvolprivs;
     sqlite3_stmt *q_onoffvol;
     sqlite3_stmt *q_getvolstate;
@@ -648,6 +651,8 @@ struct _sx_hashfs_t {
     sqlite3_stmt *q_setvolcursize;
     sqlite3_stmt *q_getnodepushtime;
     sqlite3_stmt *q_setnodepushtime;
+    sqlite3_stmt *q_userisowner;
+    sqlite3_stmt *q_getprivholder;
 
     sxi_db_t *tempdb;
     sqlite3_stmt *qt_new;
@@ -750,7 +755,10 @@ struct _sx_hashfs_t {
     time_t last_dist_change;
 
     sx_hashfs_volume_t curvol;
-    sx_uid_t curvoluid;
+    const uint8_t *curvoluser;
+
+    sx_hashfs_user_t curclone;
+    int listinactiveclones;
 
     sx_hashfs_file_t list_file;
     int list_recurse;
@@ -906,6 +914,7 @@ static void close_all_dbs(sx_hashfs_t *h) {
     sqlite3_finalize(h->q_addvolmeta);
     sqlite3_finalize(h->q_addvolprivs);
     sqlite3_finalize(h->q_dropvolprivs);
+    sqlite3_finalize(h->q_chprivs);
     sqlite3_finalize(h->q_onoffvol);
     sqlite3_finalize(h->q_getvolstate);
     sqlite3_finalize(h->q_delvol);
@@ -918,11 +927,13 @@ static void close_all_dbs(sx_hashfs_t *h) {
     sqlite3_finalize(h->q_getnodepushtime);
     sqlite3_finalize(h->q_setnodepushtime);
     sqlite3_finalize(h->q_onoffuser);
+    sqlite3_finalize(h->q_onoffuserclones);
     sqlite3_finalize(h->q_gethdrev);
     sqlite3_finalize(h->q_getuser);
     sqlite3_finalize(h->q_getuserbyid);
     sqlite3_finalize(h->q_getuserbyname);
     sqlite3_finalize(h->q_listusers);
+    sqlite3_finalize(h->q_listusersbycid);
     sqlite3_finalize(h->q_listacl);
     sqlite3_finalize(h->q_getaccess);
     sqlite3_finalize(h->q_createuser);
@@ -933,6 +944,8 @@ static void close_all_dbs(sx_hashfs_t *h) {
     sqlite3_finalize(h->q_getuidname);
     sqlite3_finalize(h->q_revoke);
     sqlite3_finalize(h->q_nextvol);
+    sqlite3_finalize(h->q_userisowner);
+    sqlite3_finalize(h->q_getprivholder);
 
     sqlite3_finalize(h->qt_new);
     sqlite3_finalize(h->qt_new4del);
@@ -1347,15 +1360,17 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 	goto open_hashfs_fail;
     if(qprep(h->db, &h->q_getuser, "SELECT uid, key, role FROM users WHERE user = :user AND enabled=1"))
 	goto open_hashfs_fail;
-    if(qprep(h->db, &h->q_getuserbyid, "SELECT user FROM users WHERE uid = :uid AND enabled=1"))
+    if(qprep(h->db, &h->q_getuserbyid, "SELECT user FROM users WHERE uid = :uid AND (:inactivetoo OR enabled=1)"))
 	goto open_hashfs_fail;
-    if(qprep(h->db, &h->q_getuserbyname, "SELECT user FROM users WHERE name = :name AND enabled=1"))
+    if(qprep(h->db, &h->q_getuserbyname, "SELECT user FROM users WHERE name = :name AND (:inactivetoo OR enabled=1)"))
 	goto open_hashfs_fail;
     if(qprep(h->db, &h->q_listusers, "SELECT uid, name, user, key, role FROM users WHERE uid > :lastuid AND enabled=1 ORDER BY uid ASC LIMIT 1"))
 	goto open_hashfs_fail;
+    if(qprep(h->db, &h->q_listusersbycid, "SELECT uid, name, user, key, role FROM users WHERE uid > :lastuid AND (:inactivetoo OR enabled=1) AND SUBSTR(user, 0, "STRIFY(AUTH_CID_LEN)") = SUBSTR(:common_id, 0, "STRIFY(AUTH_CID_LEN)") ORDER BY uid ASC LIMIT 1"))
+        goto open_hashfs_fail;
     if(qprep(h->db, &h->q_listacl, "SELECT name, priv, uid, owner_id FROM privs, volumes INNER JOIN users ON user_id=uid WHERE volume_id=:volid AND vid=:volid AND volumes.enabled = 1 AND users.enabled = 1 AND (priv <> 0 OR owner_id=uid) AND user_id > :lastuid ORDER BY user_id ASC LIMIT 1"))
 	goto open_hashfs_fail;
-    if(qprep(h->db, &h->q_getaccess, "SELECT privs.priv, volumes.owner_id FROM privs, volumes, users WHERE privs.volume_id = :volume AND privs.user_id = :user AND volumes.vid = :volume AND volumes.enabled = 1 AND users.uid = :user AND users.enabled = 1"))
+    if(qprep(h->db, &h->q_getaccess, "SELECT privs.priv, volumes.owner_id FROM privs, volumes WHERE privs.volume_id = :volume AND privs.user_id IN (SELECT uid FROM users WHERE SUBSTR(user,0,"STRIFY(AUTH_CID_LEN)")=SUBSTR(:user,0,"STRIFY(AUTH_CID_LEN)") AND enabled=1) AND volumes.vid = :volume AND volumes.enabled = 1"))
 	goto open_hashfs_fail;
     if(qprep(h->db, &h->q_createuser, "INSERT INTO users(user, name, key, role) VALUES(:userhash,:name,:key,:role)"))
 	goto open_hashfs_fail;
@@ -1363,6 +1378,8 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 	goto open_hashfs_fail;
     if(qprep(h->db, &h->q_onoffuser, "UPDATE users SET enabled = :enable WHERE name = :username"))
 	goto open_hashfs_fail;
+    if(qprep(h->db, &h->q_onoffuserclones, "UPDATE users SET enabled = :enable WHERE SUBSTR(user,0,"STRIFY(AUTH_CID_LEN)") = SUBSTR(:user,0,"STRIFY(AUTH_CID_LEN)") AND uid <> 0"))
+        goto open_hashfs_fail;
     if(qprep(h->db, &h->q_user_newkey, "UPDATE users SET key=:key WHERE name = :username AND uid <> 0"))
 	goto open_hashfs_fail;
     /* update if present otherwise insert:
@@ -1387,7 +1404,7 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
         goto open_hashfs_fail;
     /* To keep the next query simple we do not check if the user is enabled
      * This is preliminary enforced in auth_begin */
-    if(qprep(h->db, &h->q_nextvol, "SELECT volumes.vid, volumes.volume, volumes.replica, volumes.cursize, volumes.maxsize, volumes.owner_id, volumes.revs, volumes.changed FROM volumes LEFT JOIN privs ON privs.volume_id = volumes.vid WHERE volumes.volume > :previous AND volumes.enabled = 1 AND (:user = 0 OR (privs.priv > 0 AND privs.user_id=:user)) ORDER BY volumes.volume ASC LIMIT 1"))
+    if(qprep(h->db, &h->q_nextvol, "SELECT volumes.vid, volumes.volume, volumes.replica, volumes.cursize, volumes.maxsize, volumes.owner_id, volumes.revs, volumes.changed FROM volumes LEFT JOIN privs ON privs.volume_id = volumes.vid WHERE volumes.volume > :previous AND volumes.enabled = 1 AND (:user IS NULL OR (privs.priv > 0 AND privs.user_id IN (SELECT uid FROM users WHERE SUBSTR(user,0,"STRIFY(AUTH_CID_LEN)")=SUBSTR(:user,0,"STRIFY(AUTH_CID_LEN)")))) ORDER BY volumes.volume ASC LIMIT 1"))
 	goto open_hashfs_fail;
     if(qprep(h->db, &h->q_volbyname, "SELECT vid, volume, replica, cursize, maxsize, owner_id, revs, changed FROM volumes WHERE volume = :name AND enabled = 1"))
 	goto open_hashfs_fail;
@@ -1401,6 +1418,8 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 	goto open_hashfs_fail;
     if(qprep(h->db, &h->q_addvolprivs, "INSERT INTO privs (volume_id, user_id, priv) VALUES (:volume, :user, :priv)"))
 	goto open_hashfs_fail;
+    if(qprep(h->db, &h->q_chprivs, "UPDATE privs SET user_id = :new WHERE user_id IN (SELECT uid FROM users WHERE SUBSTR(user,0,"STRIFY(AUTH_CID_LEN)")=SUBSTR(:user,0,"STRIFY(AUTH_CID_LEN)"))"))
+        goto open_hashfs_fail;
     if(qprep(h->db, &h->q_onoffvol, "UPDATE volumes SET enabled = :enable WHERE volume = :volume AND volume NOT LIKE '.BAD%'"))
 	goto open_hashfs_fail;
     if(qprep(h->db, &h->q_getvolstate, "SELECT enabled FROM volumes WHERE volume = :volume AND volume NOT LIKE '.BAD%'"))
@@ -1422,6 +1441,10 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
     if(qprep(h->db, &h->q_getnodepushtime, "SELECT last_push FROM node_volume_updates WHERE node = :node"))
         goto open_hashfs_fail;
     if(qprep(h->db, &h->q_setnodepushtime, "INSERT OR REPLACE INTO node_volume_updates VALUES (:node, :now)"))
+        goto open_hashfs_fail;
+    if(qprep(h->db, &h->q_userisowner, "SELECT 1 FROM users u1 JOIN users u2 ON SUBSTR(u1.user, 0, "STRIFY(AUTH_CID_LEN)") = SUBSTR(u2.user, 0, "STRIFY(AUTH_CID_LEN)") WHERE u1.uid = :owner_id AND u2.uid = :uid AND u1.enabled = 1 AND u2.enabled = 1"))
+        goto open_hashfs_fail;
+    if(qprep(h->db, &h->q_getprivholder, "SELECT uid FROM users JOIN privs ON user_id = uid WHERE SUBSTR(user, 0, "STRIFY(AUTH_CID_LEN)") = SUBSTR(:user, 0, "STRIFY(AUTH_CID_LEN)") AND enabled = 1"))
         goto open_hashfs_fail;
 
     OPEN_DB("tempdb", &h->tempdb);
@@ -1779,6 +1802,7 @@ rc_ty sx_storage_activate(sx_hashfs_t *h, const char *name, const sx_uuid_t *nod
     sqlite3_stmt *q = NULL;
     const sx_node_t *self;
     unsigned int nodeidx;
+    sx_hash_t hash;
 
     if(!h || !name || !node_uuid || !admin_key) {
 	NULLARG();
@@ -1801,12 +1825,18 @@ rc_ty sx_storage_activate(sx_hashfs_t *h, const char *name, const sx_uuid_t *nod
     if(qprep(h->db, &q, "INSERT OR REPLACE INTO hashfs (key, value) VALUES (:k , :v)"))
 	goto storage_activate_fail;
 
+    admin_uid = hash.b;
+    if(sx_hashfs_hash_buf(NULL, 0, "admin", 5, &hash)) {
+        CRIT("Failed to initialize admin user ID hash");
+        goto storage_activate_fail;
+    }
+
     r = sx_hashfs_create_user(h, "admin", admin_uid, uid_size, admin_key, key_size, ROLE_ADMIN);
     if(r != OK) {
 	ret = r;
 	goto storage_activate_fail;
     }
-    r = sx_hashfs_user_onoff(h, "admin", 1);
+    r = sx_hashfs_user_onoff(h, "admin", 1, 0);
     if(r != OK) {
 	ret = r;
 	goto storage_activate_fail;
@@ -3052,7 +3082,7 @@ static int check_jobs(sx_hashfs_t *h, int debug) {
         int64_t job = sqlite3_column_int64(q, 0);
         int64_t userid = sqlite3_column_int64(q, 2);
         uint8_t useruid[AUTH_UID_LEN];
-        if(sx_hashfs_get_user_by_uid(h, (sx_uid_t)userid, useruid) != OK)
+        if(sx_hashfs_get_user_by_uid(h, (sx_uid_t)userid, useruid, 0) != OK)
             CHECK_ERROR("User with ID %lld is job %lld owner but does not exist or is disabled", (long long)userid, (long long)job);
 
         if(sqlite3_column_type(q, 1) == SQLITE_NULL) {
@@ -4286,7 +4316,7 @@ rc_ty sx_hashfs_derive_key(sx_hashfs_t *h, unsigned char *key, int len, const ch
 rc_ty sx_hashfs_create_user(sx_hashfs_t *h, const char *user, const uint8_t *uid, unsigned uid_size, const uint8_t *key, unsigned key_size, int role)
 {
     rc_ty rc = FAIL_EINTERNAL;
-    if (!h || !user || !key) {
+    if (!h || !user || !uid || !key) {
 	NULLARG();
 	return EFAULT;
     }
@@ -4301,11 +4331,6 @@ rc_ty sx_hashfs_create_user(sx_hashfs_t *h, const char *user, const uint8_t *uid
 	return EINVAL;
     }
 
-    if(uid && uid_size != AUTH_UID_LEN) {
-	msg_set_reason("Invalid uid");
-	return EINVAL;
-    }
-
     if(role != ROLE_ADMIN && role != ROLE_USER) {
 	msg_set_reason("Invalid role");
 	return EINVAL;
@@ -4314,12 +4339,6 @@ rc_ty sx_hashfs_create_user(sx_hashfs_t *h, const char *user, const uint8_t *uid
     sqlite3_stmt *q = h->q_createuser;
     sqlite3_reset(q);
     do {
-	sx_hash_t uh;
-	if(!uid) {
-	    if (hash_buf(NULL, 0, user, strlen(user), &uh))
-		break;
-	    uid = uh.b;
-	}
 	if(qbind_blob(q, ":userhash", uid, AUTH_UID_LEN))
 	    break;
 	if (qbind_text(q, ":name", user))
@@ -4436,31 +4455,48 @@ int encode_auth_bin(const uint8_t *userhash, const unsigned char *key, unsigned 
     return 0;
 }
 
-rc_ty sx_hashfs_list_users(sx_hashfs_t *h, user_list_cb_t cb, void *ctx) {
+rc_ty sx_hashfs_list_users(sx_hashfs_t *h, const uint8_t *list_clones, user_list_cb_t cb, void *ctx) {
     rc_ty rc = FAIL_EINTERNAL;
-    int ret;
     uint64_t lastuid = 0;
+    sqlite3_stmt *q;
 
     if (!h || !cb) {
 	NULLARG();
 	return EFAULT;
     }
 
-    sqlite3_stmt *q = h->q_listusers;
+    if(!list_clones)
+        q = h->q_listusers;
+    else
+        q = h->q_listusersbycid;
     while(1) {
+        int ret;
+        sx_uid_t uid;
+        const char *name;
+        const uint8_t *user;
+        const uint8_t *key;
+        int is_admin = 0;
+
         sqlite3_reset(q);
-        if(qbind_int64(q, ":lastuid", lastuid))
+        if(qbind_int64(q, ":lastuid", lastuid)) {
+            WARN("Failed to bind uid to users listing query");
             break;
+        }
+
+        if(list_clones && (qbind_blob(q, ":common_id", list_clones, AUTH_CID_LEN) || qbind_int(q, ":inactivetoo", 0))) {
+            WARN("Failed to bind common id to q_listusersbycid query");
+            break;
+        }
         ret = qstep(q);
 	if(ret == SQLITE_DONE)
 	    rc = OK;
 	if(ret != SQLITE_ROW)
             break;
-	sx_uid_t uid = sqlite3_column_int64(q, 0);
-	const char *name = (const char *)sqlite3_column_text(q, 1);
-	const uint8_t *user = sqlite3_column_blob(q, 2);
-	const uint8_t *key = sqlite3_column_blob(q, 3);
-	int is_admin = sqlite3_column_int64(q, 4) == ROLE_ADMIN;
+	uid = sqlite3_column_int64(q, 0);
+	name = (const char *)sqlite3_column_text(q, 1);
+	user = sqlite3_column_blob(q, 2);
+	key = sqlite3_column_blob(q, 3);
+	is_admin = sqlite3_column_int64(q, 4) == ROLE_ADMIN;
         lastuid = uid;
 
 	if(sqlite3_column_bytes(q, 2) != SXI_SHA1_BIN_LEN || sqlite3_column_bytes(q, 3) != AUTH_KEY_LEN) {
@@ -4477,10 +4513,118 @@ rc_ty sx_hashfs_list_users(sx_hashfs_t *h, user_list_cb_t cb, void *ctx) {
     return rc;
 }
 
+/* Check if user with given uid is a volume owner */
+static int uid_is_volume_owner(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, sx_uid_t id) {
+    sqlite3_stmt *q = h->q_userisowner;
+    int r, ret = -1;
+
+    if(!vol || !id) {
+        WARN("NULL argument");
+        return EINVAL;
+    }
+    sqlite3_reset(q);
+
+    if(qbind_int64(q, ":owner_id", vol->owner) || qbind_int64(q, ":uid", id)) {
+        WARN("Failed to bind IDs to volume ownership check query");
+        goto uid_is_volume_owner_err;
+    }
+
+    r = qstep(q);
+    if(r == SQLITE_DONE)
+        ret = 0;
+    else if(r == SQLITE_ROW)
+        ret = 1;
+    else
+        WARN("Failed to check volume %s ownership for ID %lld", vol->name, (long long)id);
+
+uid_is_volume_owner_err:
+    sqlite3_reset(q);
+    return ret;
+}
+
+rc_ty sx_hashfs_list_clones_first(sx_hashfs_t *h, sx_uid_t id, const sx_hashfs_user_t **user, int inactivetoo) {
+    rc_ty s;
+
+    if(!user) {
+        NULLARG();
+        return EINVAL;
+    }
+
+    memset(&h->curclone, 0, sizeof(h->curclone));
+    h->listinactiveclones = inactivetoo;
+
+    /* Get user UID */
+    if((s = sx_hashfs_get_user_by_uid(h, id, h->curclone.uid, inactivetoo)) != OK) {
+        WARN("Failed to get user by UID: %d", s);
+        if(s == ENOENT)
+            return ITER_NO_MORE;
+        else
+            return s;
+    }
+
+    *user = &h->curclone;
+    return sx_hashfs_list_clones_next(h);
+}
+
+rc_ty sx_hashfs_list_clones_next(sx_hashfs_t *h) {
+    rc_ty ret = FAIL_EINTERNAL;
+    sqlite3_stmt *q = h->q_listusersbycid;
+    int r;
+    const char *name;
+    const uint8_t *uid, *key;
+    sx_hashfs_user_t *u = &h->curclone;
+
+    sqlite3_reset(q);
+    if(qbind_int64(q, ":lastuid", h->curclone.id) || qbind_blob(q, ":common_id", h->curclone.uid, AUTH_CID_LEN) ||
+       qbind_int(q, ":inactivetoo", h->listinactiveclones)) {
+        WARN("Failed to bind user IDs");
+        goto sx_hashfs_list_volume_owners_next_err;
+    }
+
+    r = qstep(q);
+    if(r == SQLITE_DONE) {
+        ret = ITER_NO_MORE;
+        goto sx_hashfs_list_volume_owners_next_err;
+    } else if(r != SQLITE_ROW) {
+        WARN("Failed to iterate user clones");
+        goto sx_hashfs_list_volume_owners_next_err;
+    }
+
+    u->id = sqlite3_column_int64(q, 0);
+    name = (const char *)sqlite3_column_text(q, 1);
+    if(!name || sx_hashfs_check_username(name)) {
+        WARN("Invalid user name");
+        goto sx_hashfs_list_volume_owners_next_err;
+    }
+    sxi_strlcpy(u->name, name, sizeof(u->name));
+
+    uid = sqlite3_column_blob(q, 2);
+    if(!uid || sqlite3_column_bytes(q, 2) != AUTH_UID_LEN) {
+        WARN("Invalid user ID");
+        goto sx_hashfs_list_volume_owners_next_err;
+    }
+    memcpy(u->uid, uid, AUTH_UID_LEN);
+
+    key = sqlite3_column_blob(q, 3);
+    if(!uid || sqlite3_column_bytes(q, 3) != AUTH_KEY_LEN) {
+        WARN("Invalid user key");
+        goto sx_hashfs_list_volume_owners_next_err;
+    }
+    memcpy(u->key, key, AUTH_KEY_LEN);
+
+    u->role = sqlite3_column_int(q, 4);
+
+    ret = OK;
+sx_hashfs_list_volume_owners_next_err:
+    sqlite3_reset(q);
+    return ret;
+}
+
 rc_ty sx_hashfs_list_acl(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, sx_uid_t uid, int uid_priv, acl_list_cb_t cb, void *ctx)
 {
     char user[SXLIMIT_MAX_USERNAME_LEN+1];
     int64_t lastuid = 0;
+    int is_owner;
     sx_priv_t priv = PRIV_NONE;
     rc_ty rc = FAIL_EINTERNAL;
     if (!h || !cb || !ctx)
@@ -4493,7 +4637,10 @@ rc_ty sx_hashfs_list_acl(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, sx_uid_t
             return rc;
 
         rc = FAIL_EINTERNAL;
-        if (cb(user, priv, uid == vol->owner, ctx))
+        is_owner = uid_is_volume_owner(h, vol, uid);
+        if(is_owner < 0)
+            return FAIL_EINTERNAL;
+        if (cb(user, priv, is_owner, ctx))
             return rc;
     }
 
@@ -4509,6 +4656,8 @@ rc_ty sx_hashfs_list_acl(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, sx_uid_t
 	if (qbind_int64(q, ":volid", vol->id))
             break;
         while (1) {
+            rc_ty s;
+            const sx_hashfs_user_t *u = NULL;
             sqlite3_reset(q);
             if (qbind_int64(q, ":lastuid", lastuid))
                 break;
@@ -4517,11 +4666,22 @@ rc_ty sx_hashfs_list_acl(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, sx_uid_t
                break;
             int64_t list_uid = sqlite3_column_int64(q, 2);
             lastuid = list_uid;
-            if (list_uid == uid)
-                continue;/* we've already printed permissions for self */
 	    int perm = sqlite3_column_int64(q, 1);
-	    if (cb((const char*)sqlite3_column_text(q, 0), perm, list_uid == vol->owner, ctx))
-		break;
+            is_owner = uid_is_volume_owner(h, vol, list_uid);
+            if(is_owner < 0)
+                return FAIL_EINTERNAL;
+            for(s = sx_hashfs_list_clones_first(h, list_uid, &u, 0); s == OK; s = sx_hashfs_list_clones_next(h)) {
+                if (u->id == uid)
+                    continue;/* we've already printed permissions for self */
+                if (cb(u->name, perm, is_owner, ctx))
+                    break;
+            }
+
+            if(s != ITER_NO_MORE) {
+                WARN("Failed to iterate over all %lld clones", (long long)list_uid);
+                ret = s;
+                break;
+            }
 	}
 	if (ret != SQLITE_DONE)
 	    break;
@@ -4594,9 +4754,11 @@ rc_ty sx_hashfs_uid_get_name(sx_hashfs_t *h, uint64_t uid, char *name, unsigned 
 }
 
 
-rc_ty sx_hashfs_delete_user(sx_hashfs_t *h, const char *username, const char *new_owner) {
+rc_ty sx_hashfs_delete_user(sx_hashfs_t *h, const char *username, const char *new_owner, int all_clones) {
     rc_ty rc, ret = FAIL_EINTERNAL;
     sx_uid_t old, new;
+    int has_clone = 0;
+    const sx_hashfs_user_t *u = NULL;
 
     if(qbegin(h->db))
 	return FAIL_EINTERNAL;
@@ -4614,23 +4776,79 @@ rc_ty sx_hashfs_delete_user(sx_hashfs_t *h, const char *username, const char *ne
 	goto delete_user_err;
     }
 
+    rc = sx_hashfs_list_clones_first(h, old, &u, 1);
+    if(rc != OK || !u) {
+        WARN("Failed to list clones of %s: %d", username, rc);
+        ret = rc;
+        goto delete_user_err;
+    }
+
+    if(u->id != old) { /* If returned user ID is differend, then clone exists */
+        has_clone = 1;
+    } else if((rc = sx_hashfs_list_clones_next(h)) != ITER_NO_MORE) { /* If got user with same id, then need to check against next one */
+        if(rc != OK || !u) { /* Check for errors again */
+            WARN("Failed to list clones of %s", username);
+            ret = rc;
+            goto delete_user_err;
+        }
+        has_clone = 1; /* Clone exists, got him in second try */
+    }
+
+    if(!all_clones && has_clone) {
+        /* When a clone exists new volume owner will become one of deleted user clones */
+        new = u->id;
+    }
+
+    sqlite3_reset(h->q_chownvol);
+    sqlite3_reset(h->q_deleteuser);
+    sqlite3_reset(h->q_chprivs);
+
+    /* First, change volume ownership to a new owner */
     if(qbind_int64(h->q_chownvol, ":new", new) || 
        qbind_int64(h->q_chownvol, ":old", old) ||
        qstep_noret(h->q_chownvol))
-	goto delete_user_err;
+        goto delete_user_err;
 
-    if(qbind_int64(h->q_deleteuser, ":uid", old) ||
-       qstep_noret(h->q_deleteuser))
-	goto delete_user_err;
+    if(all_clones) {
+        /* When deleting all users, drop them all in a loop */
+        for(rc = sx_hashfs_list_clones_first(h, old, &u, 1); rc == OK; rc = sx_hashfs_list_clones_next(h)) {
+            if(qbind_int64(h->q_deleteuser, ":uid", u->id) ||
+               qstep_noret(h->q_deleteuser)) {
+                WARN("Failed to drop user %s [%lld]", u->name, (long long)u->id);
+                goto delete_user_err;
+            }
+
+            INFO("User %s deleted", u->name);
+        }
+    } else {
+        if(has_clone) {
+            /* In this case we have to grant privileges to given user clone in order to allow all clones still access their vols */
+            if(qbind_int64(h->q_chprivs, ":new", new) || qbind_blob(h->q_chprivs, ":user", u->uid, AUTH_UID_LEN) || qstep_noret(h->q_chprivs)) {
+                WARN("Failed to prepare and evaluate privs change query");
+                goto delete_user_err;
+            }
+        }
+        /* Drop that one particular user */
+        if(qbind_int64(h->q_deleteuser, ":uid", old) ||
+           qstep_noret(h->q_deleteuser)) {
+            WARN("Failed to drop user %s [%lld]", u->name, (long long)u->id);
+	    goto delete_user_err;
+        }
+    }
 
     if(qcommit(h->db))
 	goto delete_user_err;
 
     ret = OK;
-    INFO("User %s removed (and replaced by %s)", username, new_owner);
+    if(all_clones || !has_clone)
+        INFO("User %s removed (and replaced by %s)", username, new_owner);
+    else
+        INFO("User %s removed", username);
 
  delete_user_err:
-    sqlite3_reset(h->q_getuser);
+    sqlite3_reset(h->q_chownvol);
+    sqlite3_reset(h->q_deleteuser);
+    sqlite3_reset(h->q_chprivs);
 
     if(ret != OK)
 	qrollback(h->db);
@@ -4984,27 +5202,41 @@ rc_ty sx_hashfs_volume_delete(sx_hashfs_t *h, const char *volume, int force) {
     return ret;
 }
 
-rc_ty sx_hashfs_user_onoff(sx_hashfs_t *h, const char *user, int enable) {
-    int ret = OK;
-
-    if(qbind_text(h->q_onoffuser, ":username", user) ||
-       qbind_int(h->q_onoffuser, ":enable", enable) ||
-       qstep_noret(h->q_onoffuser))
-	ret = FAIL_EINTERNAL;
-    if (ret == OK)
+rc_ty sx_hashfs_user_onoff(sx_hashfs_t *h, const char *user, int enable, int all_clones) {
+    if(!all_clones) {
+        if(qbind_text(h->q_onoffuser, ":username", user) ||
+           qbind_int(h->q_onoffuser, ":enable", enable) ||
+           qstep_noret(h->q_onoffuser))
+            return FAIL_EINTERNAL;
         INFO("User '%s' %s", user, enable ? "enabled" : "disabled");
+    } else {
+        uint8_t user_uid[AUTH_UID_LEN];
+        rc_ty s;
 
-    return ret;
+        if((s = sx_hashfs_get_user_by_name(h, user, user_uid, 1)) != OK) {
+            WARN("Failed to get user by name in order to disable/enable all its clones");
+            return s;
+        }
+        if(qbind_blob(h->q_onoffuserclones, ":user", user_uid, AUTH_UID_LEN) ||
+           qbind_int(h->q_onoffuserclones, ":enable", enable) ||
+           qstep_noret(h->q_onoffuserclones)) {
+            WARN("Failed to disable all %s clones", user);
+            return FAIL_EINTERNAL;
+        }
+
+        INFO("User '%s' and all his clones were %s", user, enable ? "enabled" : "disabled");
+    }
+    return OK;
 }
 
-rc_ty sx_hashfs_volume_first(sx_hashfs_t *h, const sx_hashfs_volume_t **volume, int64_t uid) {
+rc_ty sx_hashfs_volume_first(sx_hashfs_t *h, const sx_hashfs_volume_t **volume, const uint8_t *uid) {
     if(!h || !volume) {
 	WARN("Called with invalid arguments");
 	return EINVAL;
     }
 
     h->curvol.name[0] = '\0';
-    h->curvoluid = uid;
+    h->curvoluser = uid;
     *volume = &h->curvol;
     return sx_hashfs_volume_next(h);
 }
@@ -5022,8 +5254,13 @@ rc_ty sx_hashfs_volume_next(sx_hashfs_t *h) {
     sqlite3_reset(h->q_nextvol);
     if(qbind_text(h->q_nextvol, ":previous", h->curvol.name))
 	goto volume_list_err;
-    if(qbind_int64(h->q_nextvol, ":user", h->curvoluid))
-	goto volume_list_err;
+    if(h->curvoluser) {
+        if(qbind_blob(h->q_nextvol, ":user", h->curvoluser, AUTH_UID_LEN))
+            goto volume_list_err;
+    } else {
+        if(qbind_null(h->q_nextvol, ":user"))
+            goto volume_list_err;
+    }
 
     r = qstep(h->q_nextvol);
     if(r == SQLITE_DONE)
@@ -5099,6 +5336,44 @@ static rc_ty volume_get_common(sx_hashfs_t *h, const char *name, int64_t volid, 
     return res;
 }
 
+static rc_ty get_priv_holder(sx_hashfs_t *h, uint64_t uid, const char *volume, int64_t *holder) {
+    uint8_t user[AUTH_UID_LEN];
+    rc_ty s;
+    int r;
+
+    if(!volume || !holder) {
+        NULLARG();
+        return EINVAL;
+    }
+
+    if((s = sx_hashfs_get_user_by_uid(h, uid, user, 1)) != OK) {
+        WARN("Failed to get priv holder: %s", rc2str(s));
+        return s;
+    }
+
+    sqlite3_reset(h->q_getprivholder);
+    if(qbind_blob(h->q_getprivholder, ":user", user, AUTH_UID_LEN)) {
+        WARN("Failed to prepare query");
+        sqlite3_reset(h->q_getprivholder);
+        return FAIL_EINTERNAL;
+    }
+
+    r = qstep(h->q_getprivholder);
+    if(r == SQLITE_DONE) {
+        *holder = -1;
+        s = ENOENT;
+    } else if(r == SQLITE_ROW) {
+        *holder = sqlite3_column_int64(h->q_getprivholder, 0);
+        s = OK;
+    } else {
+        WARN("Failed to get existing priv holder");
+        *holder = -1;
+        s = FAIL_EINTERNAL;
+    }
+    sqlite3_reset(h->q_getprivholder);
+    return s;
+}
+
 rc_ty sx_hashfs_grant(sx_hashfs_t *h, uint64_t uid, const char *volume, int priv)
 {
     if (!h || !volume)
@@ -5109,12 +5384,23 @@ rc_ty sx_hashfs_grant(sx_hashfs_t *h, uint64_t uid, const char *volume, int priv
     sqlite3_reset(q);
     const sx_hashfs_volume_t *vol = NULL;
     do {
+        int64_t privholder = -1;
+
 	rc = volume_get_common(h, volume, -1, &vol);
 	if (rc) {
 	    WARN("Cannot retrieve volume id for '%s': %s", volume, rc2str(rc));
 	    break;
 	}
-	if (qbind_int64(q,":uid", uid))
+
+        rc = get_priv_holder(h, uid, volume, &privholder);
+        if(rc != OK && rc != ENOENT) {
+            WARN("Failed to get priv holder");
+            break;
+        }
+        if(rc == ENOENT)
+            privholder = uid;
+        rc = OK;
+	if (qbind_int64(q,":uid", privholder))
 	    break;
 	if (qbind_int64(q,":volid", vol->id))
 	    break;
@@ -5137,12 +5423,21 @@ rc_ty sx_hashfs_revoke(sx_hashfs_t *h, uint64_t uid, const char *volume, int pri
     sqlite3_reset(q);
     const sx_hashfs_volume_t *vol = NULL;
     do {
+        int64_t privholder;
+
 	rc = volume_get_common(h, volume, -1, &vol);
 	if (rc) {
 	    WARN("Cannot retrieve volume id for '%s': %s", volume, rc2str(rc));
 	    break;
 	}
-	if (qbind_int64(q,":uid", uid))
+        rc = get_priv_holder(h, uid, volume, &privholder);
+        if(rc != OK && rc != ENOENT) {
+            WARN("Failed to get priv holder");
+            break;
+        }
+        if(rc == ENOENT)
+            privholder = uid;
+	if (qbind_int64(q,":uid", privholder))
 	    break;
 	if (qbind_int64(q,":volid", vol->id))
 	    break;
@@ -8083,7 +8378,7 @@ get_user_info_err:
     return ret;
 }
 
-static rc_ty get_user_common(sx_hashfs_t *h, sx_uid_t uid, const char *name, uint8_t *user) {
+static rc_ty get_user_common(sx_hashfs_t *h, sx_uid_t uid, const char *name, uint8_t *user, int inactivetoo) {
     rc_ty ret = FAIL_EINTERNAL;
     sqlite3_stmt *q;
     int r;
@@ -8096,7 +8391,7 @@ static rc_ty get_user_common(sx_hashfs_t *h, sx_uid_t uid, const char *name, uin
     if(!name) {
 	q = h->q_getuserbyid;
 	sqlite3_reset(q);
-	if(qbind_int64(q, ":uid", uid)) 
+	if(qbind_int64(q, ":uid", uid) || qbind_int(q, ":inactivetoo", inactivetoo))
 	    goto get_user_common_fail;
     } else {
 	if(sx_hashfs_check_username(name)) {
@@ -8105,7 +8400,7 @@ static rc_ty get_user_common(sx_hashfs_t *h, sx_uid_t uid, const char *name, uin
 	}
 	q = h->q_getuserbyname;
 	sqlite3_reset(q);
-	if(qbind_text(q, ":name", name)) 
+	if(qbind_text(q, ":name", name) || qbind_int(q, ":inactivetoo", inactivetoo))
 	    goto get_user_common_fail;
     }
 
@@ -8126,20 +8421,52 @@ static rc_ty get_user_common(sx_hashfs_t *h, sx_uid_t uid, const char *name, uin
 }
 
 
-rc_ty sx_hashfs_get_user_by_uid(sx_hashfs_t *h, sx_uid_t uid, uint8_t *user) {
-    return get_user_common(h, uid, NULL, user);
+rc_ty sx_hashfs_get_user_by_uid(sx_hashfs_t *h, sx_uid_t uid, uint8_t *user, int inactivetoo) {
+    return get_user_common(h, uid, NULL, user, inactivetoo);
 }
 
-rc_ty sx_hashfs_get_user_by_name(sx_hashfs_t *h, const char *name, uint8_t *user) {
-    return get_user_common(h, -1, name, user);
+rc_ty sx_hashfs_get_user_by_name(sx_hashfs_t *h, const char *name, uint8_t *user, int inactivetoo) {
+    return get_user_common(h, -1, name, user, inactivetoo);
 }
 
-rc_ty sx_hashfs_get_access(sx_hashfs_t *h, sx_uid_t uid, const char *volume, sx_priv_t *access) {
+#define MAX_UID_GEN_TRIES     100
+/* TODO: Find a better way to generate unique UIDs */
+rc_ty sx_hashfs_generate_uid(sx_hashfs_t *h, uint8_t *uid) {
+    unsigned int i = 0;
+
+    if(!uid) {
+        NULLARG();
+        return FAIL_EINTERNAL;
+    }
+
+    if(qbegin(h->db)) {
+        WARN("Failed to lock database");
+        return FAIL_LOCKED;
+    }
+
+    sxi_rand_pseudo_bytes(uid + AUTH_CID_LEN, AUTH_UID_LEN - AUTH_CID_LEN);
+    while(sx_hashfs_get_user_info(h, uid, NULL, NULL, NULL) != ENOENT && i < MAX_UID_GEN_TRIES) {
+        i++;
+        sxi_rand_pseudo_bytes(uid + AUTH_CID_LEN, AUTH_UID_LEN - AUTH_CID_LEN);
+    }
+
+    if(i == MAX_UID_GEN_TRIES) {
+        WARN("Failed to generate user ID: reached iteration limit");
+        return EEXIST;
+    }
+
+    qrollback(h->db);
+    return OK;
+}
+
+rc_ty sx_hashfs_get_access(sx_hashfs_t *h, const uint8_t *user, const char *volume, sx_priv_t *access) {
     const sx_hashfs_volume_t *vol;
-    rc_ty ret;
+    rc_ty ret, rc;
     int r;
+    int64_t owner_id;
+    uint8_t owner_uid[AUTH_UID_LEN];
 
-    if(!h || !volume || !access)
+    if(!h || !user || !volume || !access)
 	return EINVAL;
 
     ret = sx_hashfs_volume_by_name(h, volume, &vol);
@@ -8148,7 +8475,7 @@ rc_ty sx_hashfs_get_access(sx_hashfs_t *h, sx_uid_t uid, const char *volume, sx_
 
     sqlite3_reset(h->q_getaccess);
     if(qbind_int64(h->q_getaccess, ":volume", vol->id) ||
-       qbind_int64(h->q_getaccess, ":user", uid))
+       qbind_blob(h->q_getaccess, ":user", user, AUTH_UID_LEN))
 	return FAIL_EINTERNAL;
 
     r = qstep(h->q_getaccess);
@@ -8163,10 +8490,22 @@ rc_ty sx_hashfs_get_access(sx_hashfs_t *h, sx_uid_t uid, const char *volume, sx_
     if(!(r & ~(PRIV_READ | PRIV_WRITE))) {
 	ret = OK;
 	*access = r;
-    } else
-	WARN("Found invalid priv for user %lld on volume %lld: %d", (long long int)uid, (long long int)vol->id, r);
-    if (sqlite3_column_int(h->q_getaccess, 1) == uid)
-	*access |= PRIV_ACL;
+    } else {
+        char hex[AUTH_UID_LEN*2+1];
+
+        bin2hex(user, AUTH_UID_LEN, hex, AUTH_UID_LEN*2+1);
+	WARN("Found invalid priv for user %s on volume %lld: %d", hex, (long long int)vol->id, r);
+    }
+
+    owner_id = sqlite3_column_int64(h->q_getaccess, 1);
+    if((rc = sx_hashfs_get_user_by_uid(h, owner_id, owner_uid, 0)) != OK) {
+        WARN("Failed to get volume %s owner by ID", volume);
+        return rc;
+    }
+
+    /* Compare common ID part of UIDs */
+    if(!memcmp(owner_uid, user, AUTH_CID_LEN))
+        *access |= PRIV_ACL;
 
     sqlite3_reset(h->q_getaccess);
     return ret;

@@ -12,6 +12,9 @@ The available commands are listed below. To get more information about a specifi
 .B useradd
 Create a new user.
 .TP
+.B userclone
+Clone an existing user.
+.TP
 .B userdel
 Remove an existing user.
 .TP

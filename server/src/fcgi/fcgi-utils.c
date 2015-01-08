@@ -633,7 +633,7 @@ int get_priv(int volume_priv) {
     sx_priv_t mypriv;
     if(role < PRIV_ADMIN && volume_priv) {
 	/* Volume specific check, requires lookup */
-	if(sx_hashfs_get_access(hashfs, uid, volume, &mypriv) != OK) {
+	if(sx_hashfs_get_access(hashfs, user, volume, &mypriv) != OK) {
 	    WARN("Unable to lookup volume access for uid %llu", (long long int )uid);
 	    return 0;
 	}

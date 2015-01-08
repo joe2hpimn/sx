@@ -1,0 +1,17 @@
+package "sxacl"
+args "--unamed-opts --no-handle-version --no-handle-error --file-name=cmd_userclone --func-name=userclone_cmdline_parser --arg-struct-name=userclone_args_info"
+usage "sxacl userclone [OPTIONS] <username> <clonename> sx://[profile@]cluster"
+
+section "User cloning options"
+option "auth-file" a "Store authentication token in given file (instead of stdout)" string optional
+
+section "Common options"
+
+option  "config-dir"		c "Path to SX configuration directory"
+        string typestr="PATH" optional hidden
+
+option  "force-key"                - "Clone user with an old authentication token" string typestr="TOKEN" optional hidden
+
+option "batch-mode" b		"Disable additional information and only print the authentication token" flag off
+
+option  "debug"		D "Enable debug messages" flag off

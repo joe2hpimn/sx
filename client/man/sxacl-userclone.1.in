@@ -1,0 +1,40 @@
+.TH SXACL-USERADD "1" "January 2015" "sxacl @VERSION@" "Skylable SX Manual"
+.SH NAME
+sxacl-userclone \- clone an existing user
+.SH SYNOPSIS
+.B sxacl userclone
+\fR[\fI\,OPTIONS\/\fR] \fI\,<username> <clonename> sx://\/\fR[\fI\,profile@\/\fR]\fI\,cluster\/\fR
+.SH DESCRIPTION
+\fBsxacl userclone\fR creates a clone of an existing user, which has the same type and privileges but a different authentication key. The clones can be used to access the same account from different devices to eliminate the need of changing the keys on all of them, in case one gets lost or compromised.
+.SH OPTIONS
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help and exit
+.TP
+\fB\-\-full\-help\fR
+Print help, including hidden options, and exit
+.TP
+\fB\-V\fR, \fB\-\-version\fR
+Print version and exit
+.TP
+\fB\-a\fR, \fB\-\-auth\-file\fR=\fI\,FILE\/\fR
+Store authentication key in a given file (instead of printing it).
+.TP
+\fB\-b\fR, \fB\-\-batch\-mode\fR
+Disable additional information and only print the authentication key.
+.TP
+\fB\-\-force\-key\fR=\fI\,KEY\/\fR
+By default, the authentication key is automatically generated for the clone. With this option one can force the use of an old key (obtained with \fBsxacl\-usergetkey\fR(1)), when recreating the clone on a new or another cluster. Only a key that was previously generated for the same clonename will be accepted.
+.TP
+\fB\-c\fR, \fB\-\-config\-dir\fR=\fI\,PATH\/\fR
+Path to the SX configuration directory (default: ~/.sx)
+.TP
+\fB\-D\fR, \fB\-\-debug\fR
+Enable debug messages.
+.SH "EXAMPLES"
+To create a clone of the user 'joe' run:
+.br
+\fB    sxacl userclone joe joe.mobile sx://admin@cluster\fP
+.br
+.SH SEE ALSO
+\fBsxacl-usernewkey\fR(1), \fBsxacl-usergetkey\fR(1), \fBsxacl-userlist\fR(1), \fBsxacl-userdel\fR(1), \fBsxinit\fR(1)

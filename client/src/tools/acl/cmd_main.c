@@ -36,7 +36,7 @@ const char *main_args_info_description = "";
 const char *main_args_info_help[] = {
   "  -h, --help     Print help and exit",
   "  -V, --version  Print version and exit",
-  "\nAvailable commands:\n\n  useradd     Create a new user\n  userdel     Remove an existing user (and gain ownership of its volumes)\n  userlist    List users\n  usergetkey  Retrieve the auth key of a user\n  usernewkey  Change the auth key of a user\n  volperm     Manage volume permissions\n  volshow     Show all ACLs on a volume\n  whoami      Show the username associated with the current auth key\n\nSee 'sxacl <command> --help' for more information on a specific command.\n",
+  "\nAvailable commands:\n\n  useradd     Create a new user\n  userclone   Clone an existing user\n  userdel     Remove an existing user (and gain ownership of its volumes)\n  userlist    List users\n  usergetkey  Retrieve the auth key of a user\n  usernewkey  Change the auth key of a user\n  volperm     Manage volume permissions\n  volshow     Show all ACLs on a volume\n  whoami      Show the username associated with the current auth key\n\nSee 'sxacl <command> --help' for more information on a specific command.\n",
     0
 };
 

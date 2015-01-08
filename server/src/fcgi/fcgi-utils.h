@@ -80,7 +80,7 @@ typedef enum { VERB_UNSUP, VERB_GET, VERB_HEAD, VERB_POST, VERB_PUT, VERB_DELETE
 extern verb_t verb;
 extern uint8_t hashbuf[UPLOAD_CHUNK_SIZE];
 extern uint8_t user[AUTH_UID_LEN];
-extern sx_uid_t uid;
+extern sx_uid_t uid, common_id;
 
 void send_server_info(void);
 void handle_request(void);

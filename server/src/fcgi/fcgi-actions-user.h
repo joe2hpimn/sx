@@ -28,7 +28,7 @@
 #ifndef FCGI_ACTIONS_USER_H
 #define FCGI_ACTIONS_USER_H
 
-void fcgi_user_onoff(int enable);
+void fcgi_user_onoff(int enable, int all_clones);
 void fcgi_delete_user();
 void fcgi_send_user(void);
 void fcgi_create_user(void);
