@@ -62,7 +62,7 @@ void fcgi_handle_cluster_requests(void) {
 
     /* Allow caching of rarely changing hdist-based items but force
      * revalidation so we authenticate and authorize the request again */
-    if(has_arg("clusterStatus") + has_arg("nodeList") == nargs) {
+    if(has_arg("clusterStatus") + has_arg("nodeList") + has_arg("nodeMaps") == nargs) {
 	time_t lastmod = sx_hashfs_disttime(hashfs);
 	const char *ifmod;
 	CGI_PUTS("Last-Modified: ");
@@ -208,6 +208,36 @@ void fcgi_handle_cluster_requests(void) {
             quit_itererr("Failed to list nodes", EFAULT);
         }
 	send_nodes_randomised(nodes);
+	comma |= 1;
+    }
+    if(has_arg("nodeMaps")) {
+	const sx_nodelist_t *nodes = sx_hashfs_nodelist(hashfs, NL_NEXTPREV);
+	unsigned int nnode, nnodes = sx_nodelist_count(nodes);
+
+	if(comma) CGI_PUTC(',');
+	CGI_PUTS("\"nodeMaps\":{");
+
+	/* We only have a single map for now */
+	for(nnode=0; nnode<nnodes; nnode++) {
+	    const sx_node_t *node = sx_nodelist_get(nodes, nnode);
+	    if(strcmp(sx_node_addr(node), sx_node_internal_addr(node)))
+		break;
+	}
+	if(nnode < nnodes) {
+	    CGI_PUTS("\"InternalNetwork\":{");
+	    nnode=0;
+	    while(nnode<nnodes) {
+		const sx_node_t *node = sx_nodelist_get(nodes, nnode);
+		json_send_qstring(sx_node_addr(node));
+		CGI_PUTC(':');
+		json_send_qstring(sx_node_internal_addr(node));
+		nnode++;
+		if(nnode != nnodes)
+		    CGI_PUTC(',');
+	    }
+	    CGI_PUTC('}'); /* "InternalNetwork" ends */
+	}
+	CGI_PUTC('}'); /* "nodeMaps" ends */
 	comma |= 1;
     }
     if(has_arg("whoami")) {
