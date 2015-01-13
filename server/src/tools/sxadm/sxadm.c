@@ -599,7 +599,6 @@ static sxc_cluster_t *cluster_load(sxc_client_t *sx, struct cluster_args_info *a
     const char *uristr = args->inputs[args->inputs_num - 1];
     sxc_cluster_t *clust = NULL;
     sxc_uri_t *uri;
-    int r;
 
     uri = sxc_parse_uri(sx, uristr);
     if(!uri) {
@@ -618,16 +617,10 @@ static sxc_cluster_t *cluster_load(sxc_client_t *sx, struct cluster_args_info *a
 	return NULL;
     }
 
-    if(uri->profile) /* Use the given profile */
-	r = sxc_cluster_set_access(clust, uri->profile);
-    else if((r = sxc_cluster_set_access(clust, "admin"))) /* or "admin" as default */
-	r = sxc_cluster_set_access(clust, NULL); /* or fall back to default, just in case */
-    if(r) {
+    if(sxc_cluster_set_access(clust, uri->profile)) {
 	printf("The selected SX profile could not be loaded.\n");
 	if(uri->profile)
 	    printf("Do you have a typo in \"%s\" ?\n", uri->profile);
-	else
-	    printf("If you intended to select a non admin profile, please use the sx://profile@%s syntax\n", uri->host);
 	sxc_cluster_free(clust);
 	sxc_free_uri(uri);
 	return NULL;
