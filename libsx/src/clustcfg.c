@@ -772,6 +772,18 @@ int sxc_cluster_fetchnodes(sxc_cluster_t *cluster) {
     yctx.yh = NULL;
 
     orighlist = sxi_conns_get_hostlist(cluster->conns);
+
+    if(sxi_getenv("SX_DEBUG_SINGLEHOST")) {
+	sxi_hostlist_empty(orighlist);
+	if(sxi_hostlist_add_host(sx, orighlist, sxi_getenv("SX_DEBUG_SINGLEHOST"))) {
+	    if(sxc_geterrnum(sx) == SXE_EARG) {
+		sxc_clearerr(sx);
+		sxi_seterr(sx, SXE_EARG, "Invalid value of SX_DEBUG_SINGLEHOST");
+	    }
+	    return 1;
+	}
+    }
+
     if(!sxi_hostlist_get_count(orighlist)) {
         cluster_err(SXE_ECOMM, "Cannot update list of nodes: No node found%s in local cache", sxc_cluster_get_dnsname(cluster) ? " via dns resolution nor" : "");
 	goto config_fetchnodes_error;
