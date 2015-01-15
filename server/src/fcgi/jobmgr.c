@@ -1418,16 +1418,32 @@ static act_result_t filedelete_request(sx_hashfs_t *hashfs, job_t job_id, job_da
     query_list_t *qrylist = NULL;
     unsigned int nnode, nnodes;
     sxi_query_t *proto = NULL;
-    int64_t tmpfile_id;
+    int64_t tmpfile_id = 0;
+    char revision[REV_LEN+1];
     rc_ty s;
 
-    if(job_data->len != sizeof(tmpfile_id)) {
+    /*
+     * Compatibility notice:
+     * Getting tempfile for delete job using tmpfile_id as token is a legacy method, but should be supported
+     * to properly handle existing jobs. Code dealing with tmpfile_id can be dropped in next release.
+     */
+
+    if(job_data->len != REV_LEN && job_data->len != sizeof(tmpfile_id)) {
 	CRIT("Bad job data");
 	action_error(ACT_RESULT_PERMFAIL, 500, "Internal job data error");
     }
-    memcpy(&tmpfile_id, job_data->ptr, sizeof(tmpfile_id));
 
-    s = sx_hashfs_tmp_getinfo(hashfs, tmpfile_id, &tmp, 0, 0);
+    if(job_data->len == REV_LEN) {
+        memcpy(revision, job_data->ptr, REV_LEN);
+        revision[REV_LEN] = 0;
+        s = sx_hashfs_tmp_getinfo_by_revision(hashfs, revision, &tmp);
+    } else { /* job_data->len == sizeof(tmpfile_id) */
+        memcpy(&tmpfile_id, job_data->ptr, sizeof(tmpfile_id));
+        DEBUG("Invoking legacy file delete job type: %lld", (long long)tmpfile_id);
+        s = sx_hashfs_tmp_getinfo(hashfs, tmpfile_id, &tmp, 0, 0);
+        DEBUG("Got file delete tmpfile: %s", tmp->name);
+    }
+
     if(s != OK)
 	action_error(rc2actres(s), rc2http(s), "Failed to find file to delete");
     if(s == ENOENT) {
@@ -1513,10 +1529,16 @@ static act_result_t filedelete_commit(sx_hashfs_t *hashfs, job_t job_id, job_dat
     const sx_node_t *me = sx_hashfs_self(hashfs);
     act_result_t ret = ACT_RESULT_OK;
     unsigned int nnode, nnodes;
-    int64_t tmpfile_id;
+    int64_t tmpfile_id = 0;
     rc_ty s;
 
-    if(job_data->len != sizeof(tmpfile_id)) {
+    /*
+     * Compatibility notice:
+     * Getting tempfile for delete job using tmpfile_id as token is a legacy method, but should be supported
+     * to properly handle existing jobs. Code dealing with tmpfile_id can be dropped in next release.
+     */
+
+    if(job_data->len != REV_LEN && job_data->len != sizeof(tmpfile_id)) {
 	CRIT("Bad job data");
 	action_error(ACT_RESULT_PERMFAIL, 500, "Internal job data error");
     }
@@ -1524,8 +1546,16 @@ static act_result_t filedelete_commit(sx_hashfs_t *hashfs, job_t job_id, job_dat
     nnodes = sx_nodelist_count(nodes);
     for(nnode = 0; nnode<nnodes; nnode++) {
 	if(!sx_node_cmp(me, sx_nodelist_get(nodes, nnode))) {
-	    memcpy(&tmpfile_id, job_data->ptr, sizeof(tmpfile_id));
-	    s = sx_hashfs_tmp_unbump(hashfs, tmpfile_id);
+            if(job_data->len == REV_LEN) {
+                char revision[REV_LEN+1];
+                memcpy(revision, job_data->ptr, REV_LEN);
+                revision[REV_LEN] = '\0';
+                s = sx_hashfs_tmp_unbump_by_revision(hashfs, revision, &tmpfile_id);
+            } else { /* job_data->len == sizeof(tmpfile_id) */
+                memcpy(&tmpfile_id, job_data->ptr, sizeof(tmpfile_id));
+                DEBUG("Invoking legacy file delete job type: %lld", (long long)tmpfile_id);
+                s = sx_hashfs_tmp_unbump(hashfs, tmpfile_id);
+            }
 	    if(s == OK)
 		action_error(ACT_RESULT_TEMPFAIL, 500, "Unbump not yet completed");
 	    if(s != ITER_NO_MORE)
@@ -1544,21 +1574,39 @@ static act_result_t filedelete_commit(sx_hashfs_t *hashfs, job_t job_id, job_dat
 static act_result_t filedelete_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     act_result_t ret = ACT_RESULT_OK;
     unsigned int nnode, nnodes;
-    sx_hashfs_tmpinfo_t *tmp;
-    int64_t tmpfile_id;
+    sx_hashfs_tmpinfo_t *tmp = NULL;
+    int64_t tmpfile_id = 0;
+    char revision[REV_LEN+1];
+    rc_ty s;
 
-    if(job_data->len != sizeof(tmpfile_id)) {
-	CRIT("Bad job data");
-	action_error(ACT_RESULT_PERMFAIL, 500, "Internal job data error");
+    /*
+     * Compatibility notice:
+     * Getting tempfile for delete job using tmpfile_id as token is a legacy method, but should be supported
+     * to properly handle existing jobs. Code dealing with tmpfile_id can be dropped in next release.
+     */
+
+    if(job_data->len != REV_LEN && job_data->len != sizeof(tmpfile_id)) {
+        CRIT("Bad job data");
+        action_error(ACT_RESULT_PERMFAIL, 500, "Internal job data error");
     }
-    memcpy(&tmpfile_id, job_data->ptr, sizeof(tmpfile_id));
 
-    if(sx_hashfs_tmp_getinfo(hashfs, tmpfile_id, &tmp, 0, 0) == OK) {
+    if(job_data->len == REV_LEN) {
+        memcpy(revision, job_data->ptr, REV_LEN);
+        revision[REV_LEN] = 0;
+        s = sx_hashfs_tmp_getinfo_by_revision(hashfs, revision, &tmp);
+    } else { /* job_data->len == sizeof(tmpfile_id) */
+        memcpy(&tmpfile_id, job_data->ptr, sizeof(tmpfile_id));
+        DEBUG("Invoking legacy file delete job type: %lld", (long long)tmpfile_id);
+        s = sx_hashfs_tmp_getinfo(hashfs, tmpfile_id, &tmp, 0, 0);
+        DEBUG("Got file delete tmpfile: %s", tmp->name);
+    }
+
+    if(s == OK) {
 	CRIT("File %s (rev %s) on volume %lld was left in an inconsitent state after a failed deletion attempt", tmp->name, tmp->revision, (long long)tmp->volume_id);
-	free(tmp);
-	sx_hashfs_tmp_delete(hashfs, tmpfile_id);
+        sx_hashfs_tmp_delete(hashfs, tmp->tmpfile_id);
+        free(tmp);
     } else
-	CRIT("Failed to delete tmpfile %lld", (long long)tmpfile_id);
+        CRIT("Failed to delete tmpfile");
 
     nnodes = sx_nodelist_count(nodes);
     for(nnode = 0; nnode<nnodes; nnode++)
@@ -1571,21 +1619,39 @@ static act_result_t filedelete_abort(sx_hashfs_t *hashfs, job_t job_id, job_data
 static act_result_t filedelete_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     act_result_t ret = ACT_RESULT_OK;
     unsigned int nnode, nnodes;
-    sx_hashfs_tmpinfo_t *tmp;
-    int64_t tmpfile_id;
+    sx_hashfs_tmpinfo_t *tmp = NULL;
+    int64_t tmpfile_id = 0;
+    char revision[REV_LEN+1];
+    rc_ty s;
 
-    if(job_data->len != sizeof(tmpfile_id)) {
-	CRIT("Bad job data");
-	action_error(ACT_RESULT_PERMFAIL, 500, "Internal job data error");
+    /*
+     * Compatibility notice:
+     * Getting tempfile for delete job using tmpfile_id as token is a legacy method, but should be supported
+     * to properly handle existing jobs. Code dealing with tmpfile_id can be dropped in next release.
+     */
+
+    if(job_data->len != REV_LEN && job_data->len != sizeof(tmpfile_id)) {
+        CRIT("Bad job data");
+        action_error(ACT_RESULT_PERMFAIL, 500, "Internal job data error");
     }
-    memcpy(&tmpfile_id, job_data->ptr, sizeof(tmpfile_id));
 
-    if(sx_hashfs_tmp_getinfo(hashfs, tmpfile_id, &tmp, 0, 0) == OK) {
+    if(job_data->len == REV_LEN) {
+        memcpy(revision, job_data->ptr, REV_LEN);
+        revision[REV_LEN] = 0;
+        s = sx_hashfs_tmp_getinfo_by_revision(hashfs, revision, &tmp);
+    } else { /* job_data->len == sizeof(tmpfile_id) */
+        memcpy(&tmpfile_id, job_data->ptr, sizeof(tmpfile_id));
+        DEBUG("Invoking legacy file delete job type: %lld", (long long)tmpfile_id);
+        s = sx_hashfs_tmp_getinfo(hashfs, tmpfile_id, &tmp, 0, 0);
+        DEBUG("Got file delete tmpfile: %s", tmp->name);
+    }
+
+    if(s == OK) {
 	WARN("Some blocks of file %s (rev %s) on volume %lld may have incorrect counts after a failed deletion attempt", tmp->name, tmp->revision, (long long)tmp->volume_id);
-	free(tmp);
-	sx_hashfs_tmp_delete(hashfs, tmpfile_id);
+        sx_hashfs_tmp_delete(hashfs, tmp->tmpfile_id);
+        free(tmp);
     } else
-	CRIT("Some blocks of tmpfile %lld may have incorrect counts after a failed deletion attempt", (long long)tmpfile_id);
+        CRIT("Some blocks of tmpfile may have incorrect counts after a failed deletion attempt");
 
     nnodes = sx_nodelist_count(nodes);
     for(nnode = 0; nnode<nnodes; nnode++)
