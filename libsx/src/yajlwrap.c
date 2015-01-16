@@ -24,50 +24,39 @@
 #include "types.h"
 #include "libsx-int.h"
 
-#define YACDEBUG(x) do{ sxc_client_t *sx = *((sxc_client_t **)ctx); if(sx) SXDEBUG("JSON parsing failed: "x); } while(0)
-
 static int yacb_fail_null(void *ctx) {
-    YACDEBUG("unexpected NULL");
     return 0;
 }
 
 static int yacb_fail_boolean(void *ctx, int boolean) {
-    YACDEBUG("unexpected BOOL");
     return 0;
 }
 
 static int yacb_fail_number(void *ctx, const char *s, size_t l) {
-    YACDEBUG("unexpected NUMBER");
     return 0;
 }
 
 static int yacb_fail_string(void *ctx, const unsigned char *s, size_t l) {
-    YACDEBUG("unexpected STRING");
     return 0;
 }
 
 static int yacb_fail_start_map(void *ctx) {
-    YACDEBUG("unexpected START MAP");
     return 0;
 }
 
 static int yacb_fail_map_key(void *ctx, const unsigned char *s, size_t l) {
-    YACDEBUG("unexpected KEY");
     return 0;
 }
 
 static int yacb_fail_end_map(void *ctx) {
-    YACDEBUG("unexpected END MAP");
     return 0;
 }
 
 static int yacb_fail_start_array(void *ctx) {
-    YACDEBUG("unexpected START ARRAY");
     return 0;
 }
 
 static int yacb_fail_end_array(void *ctx) {
-    YACDEBUG("unexpected END ARRAY");
     return 0;
 }
 
