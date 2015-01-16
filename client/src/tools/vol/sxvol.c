@@ -531,7 +531,13 @@ int main(int argc, char **argv) {
         if(ret) {
             fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
             goto modify_err;
-        }
+        } else {
+	    if(modify_args.owner_given)
+		printf("Volume owner changed to '%s'\n", modify_args.owner_arg);
+	    if(modify_args.size_given)
+		printf("Volume size changed to %s\n", modify_args.size_arg);
+	}
+
     modify_err:
         sxc_free_uri(uri);
         sxc_cluster_free(cluster);

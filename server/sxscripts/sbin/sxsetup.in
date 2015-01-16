@@ -8,6 +8,8 @@ while [ $OPTNUM -le $# ]; do
 
     if [ "$OPTION" = "--help" -o "$OPTION" = "-h" ]; then
 	HELP_GIVEN="yes"
+    elif [ "$OPTION" = "--version" -o "$OPTION" = "-V" ]; then
+	VERSION_GIVEN="yes"
     elif [ "$OPTION" = "--info" -o "$OPTION" = "-i" ]; then
 	INFO_GIVEN="yes"
     elif [ "$OPTION" = "--config-file" ]; then
@@ -53,6 +55,7 @@ if [ "$HELP_GIVEN" = "yes" ]; then
     echo "Usage: $0 [OPTIONS]"
     echo
     echo "-h, --help              Print help and exit"
+    echo "-V, --version           Print version and exit"
     echo "-i, --info              Show current node configuration and exit"
     echo "    --config-file FILE  Use config FILE to configure the node automatically"
     echo "    --advanced          Enable advanced configuration"
@@ -61,6 +64,11 @@ if [ "$HELP_GIVEN" = "yes" ]; then
     echo "    --wait              Wait till rebalance finishes after joining the cluster"
     echo "    --debug             Turn on debug mode for the created node"
     echo
+    exit 0
+fi
+
+if [ "$VERSION_GIVEN" = "yes" ]; then
+    echo "sxsetup @VERSION@"
     exit 0
 fi
 
