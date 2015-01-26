@@ -35,6 +35,10 @@
 #include <grp.h>
 #include <time.h>
 #include "vcrypto.h"
+#include <sys/statvfs.h>
+#if defined(HAVE_SYS_SYSCTL_H) || defined(__APPLE__)
+#include <sys/sysctl.h>
+#endif
 
 static void print_confstr(sxc_client_t *sx, const char *msg, int name)
 {
@@ -332,4 +336,114 @@ int sxi_list(sxc_client_t *sx, const char *dir, const char *entry, int depth)
     } while(0);
     free(path);
     return ret;
+}
+
+int sxi_report_os(sxc_client_t *sx, char *name, size_t name_len, char *arch, size_t arch_len, char *release, size_t rel_len, char *version, size_t ver_len) {
+    struct utsname uts;
+
+    if(!sx)
+        return 1;
+
+    if (uname(&uts) == -1) {
+        sxi_seterr(sx, SXE_ECFG, "Failed to get system information");
+        return 1;
+    }
+
+    if(name)
+        snprintf(name, name_len, "%s", uts.sysname);
+    if(arch)
+        snprintf(arch, arch_len, "%s", uts.machine);
+    if(arch)
+        snprintf(release, rel_len, "%s", uts.release);
+    if(arch)
+        snprintf(version, ver_len, "%s", uts.version);
+    return 0;
+}
+
+int sxi_report_fs(sxc_client_t *sx, const char *path, int64_t *block_size, int64_t *total_blocks, int64_t *available_blocks) {
+    struct statvfs fs_stat;
+
+    if(!sx)
+        return 1;
+
+    if(!path) {
+        sxi_seterr(sx, SXE_EARG, "NULL argument");
+        return 1;
+    }
+
+    if(statvfs(path, &fs_stat)) {
+        sxi_seterr(sx, SXE_ECFG, "Failed to get filesystem information");
+        return 1;
+    }
+
+    *block_size = fs_stat.f_frsize;
+    *total_blocks = fs_stat.f_blocks;
+    *available_blocks = fs_stat.f_bavail;
+    return 0;
+}
+
+int sxi_report_cpu(sxc_client_t *sx, int *ncpus, char *endianness, size_t endianness_len) {
+    int cores;
+    int num = 1;
+#if defined(CTL_HW) && defined(HW_NCPU)
+    int mib[2] = { CTL_HW, HW_NCPU };
+    size_t len = sizeof(cores);
+#endif
+
+    if(!sx)
+        return 1;
+
+#if defined(_SC_NPROCESSORS_CONF)
+    cores = sysconf(_SC_NPROCESSORS_CONF);
+    if(cores < 0) {
+        sxi_seterr(sx, SXE_ECFG, "Failed to get number of processors");
+        return 1;
+    }
+#elif defined(CTL_HW) && defined(HW_NCPU)
+    if(sysctl(mib, 2, &cores, &len, NULL, 0) < 0) {
+        sxi_seterr(sx, SXE_ECFG, "Failed to get number of cores");
+        return 1;
+    }
+#endif
+
+    if(ncpus)
+        *ncpus = cores;
+    if(endianness)
+        snprintf(endianness, endianness_len, "%s", *((uint8_t*)&num) == 1 ? "little-endian" : "big-endian");
+    return 0;
+}
+
+int sxi_report_mem(sxc_client_t *sx, int64_t *total_mem) {
+    int64_t total = 0, page_size = 0;
+#if defined(CTL_HW) && defined(HW_MEMSIZE)
+    int mib[2] = { CTL_HW, HW_MEMSIZE };
+    size_t len = sizeof(total);
+#endif
+
+    if(!sx)
+        return 1;
+
+#if defined(_SC_PAGESIZE) && defined(_SC_PHYS_PAGES)
+    page_size = sysconf(_SC_PAGESIZE);
+    if(page_size < 0) {
+        sxi_seterr(sx, SXE_ECFG, "Failed to get system memory page size");
+        return 1;
+    }
+
+    total = sysconf(_SC_PHYS_PAGES);
+    if(total < 0) {
+        sxi_seterr(sx, SXE_ECFG, "Failed to get system memory total pages number");
+        return 1;
+    } 
+    total *= page_size;
+#elif defined(CTL_HW) && defined(HW_MEMSIZE)
+    if(sysctl(mib, 2, &total, &len, NULL, 0) < 0) {
+        sxi_seterr(sx, SXE_ECFG, "Failed to get page size");
+        return 1;
+    }
+#endif
+
+    if(total_mem)
+        *total_mem = total;
+    return 0;
 }

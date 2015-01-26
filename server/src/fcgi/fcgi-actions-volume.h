@@ -40,4 +40,6 @@ void fcgi_delete_volume(void);
 void fcgi_trigger_gc(void);
 void fcgi_volsizes(void);
 void fcgi_volume_mod(void);
+void fcgi_node_status(void);
+
 #endif

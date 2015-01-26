@@ -4,7 +4,8 @@ usage "
 sxadm cluster --new [options] NODE sx://[profile@]cluster
 sxadm cluster --mod [options] NODE [NODE ...] sx://[profile@]cluster
 sxadm cluster --resize <+/->SIZE sx://[profile@]cluster
-sxadm cluster --replace-faulty [options] NODE [NODE ...] sx://[profile@]cluster"
+sxadm cluster --replace-faulty [options] NODE [NODE ...] sx://[profile@]cluster
+sxadm cluster --status sx://[profile@]cluster"
 
 defgroup "MODE" required
 groupoption "new" N "Create a new SX cluster with a local node" group="MODE" dependon="node-dir"
@@ -15,6 +16,7 @@ groupoption "info" I "Shows status and details of a running cluster" group="MODE
 groupoption "force-gc" G "Force a garbage collection cycle on all nodes" group="MODE"
 groupoption "force-expire" X "Force GC and expiration of reservations on all nodes" group="MODE"
 groupoption "get-cluster-key" - "Obtain remote cluster key" group="MODE" hidden
+groupoption "status" s "Show current status of cluster nodes" group="MODE"
 
 section "New cluster options"
 option "node-dir" d "Path to the node directory" string typestr="PATH" dependon="new" optional

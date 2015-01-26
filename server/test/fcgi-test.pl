@@ -1094,8 +1094,14 @@ test_get "listing clones of $ru", admin_only(200, 'application/json'), ".users?c
 test_delete_job "$rc deletion with all its clones", admin_only(200), ".users/$rc?all";
 test_get "checking if $ru was also deleted", admin_only(404), ".users/$ru";
 
-# # Check listing users by ID ($ru was removed, this should not return any user)
+# Check listing users by ID ($ru was removed, this should not return any user)
 test_get "listing clones of $ru", admin_only(404), ".users?clones=$ru";
+
+# Check if .status query returns node status
+test_get "node status", admin_only(200, 'application/json'), ".status", undef, sub { my $json = get_json(shift); return 0 unless is_string($json->{'osType'}) && is_string($json->{'osArch'}) && is_string($json->{'osRelease'})
+    && is_string($json->{'osVersion'}) && is_string($json->{'osEndianness'}) && is_string($json->{'libsxVersion'}) && is_string($json->{'hashFSVersion'}) && is_string($json->{'localTime'}) && is_string($json->{'utcTime'})
+    && is_string($json->{'address'}) && is_string($json->{'internalAddress'}) && is_string($json->{'UUID'}) && is_string($json->{'nodeDir'}) && is_int($json->{'storageAllocated'}) && is_int($json->{'storageUsed'}) && is_int($json->{'fsBlockSize'})
+    && is_int($json->{'fsTotalBlocks'}) && is_int($json->{'fsAvailBlocks'}) && is_int($json->{'memTotal'}); };
 
 print "\nTests performed: ".($okies+$fails)." - $fails failed, $okies succeeded\n";
 exit ($fails > 0);

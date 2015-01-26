@@ -51,4 +51,7 @@ sxc_xfer_stat_t* sxi_xfer_new(sxc_client_t *sx, sxc_xfer_callback xfer_callback,
 /* Get transfer stats from cluster */
 sxc_xfer_stat_t *sxi_cluster_get_xfer_stat(sxc_cluster_t* cluster);
 
+typedef void (*node_status_cb_t)(sxc_client_t *sx, const sxi_node_status_t *status, void *ctx);
+int sxi_cluster_status(sxc_cluster_t *cluster, const node_status_cb_t status_cb, void *ctx);
+
 #endif

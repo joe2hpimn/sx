@@ -49,6 +49,7 @@
 #include "../libsx/src/vcrypto.h"
 #include "../libsx/src/clustcfg.h"
 #include "../libsx/src/cluster.h"
+#include "../libsx/src/sxreport.h"
 
 #define HASHDBS 16
 #define METADBS 16
@@ -12341,5 +12342,69 @@ rc_ty sx_hashfs_set_unfaulty(sx_hashfs_t *h, const sx_uuid_t *nodeid, int64_t di
 	qrollback(h->db);
 
     return ret;
+}
+
+rc_ty sx_hashfs_node_status(sx_hashfs_t *h, sxi_node_status_t *status) {
+    const sx_node_t *n;
+    time_t t = time(NULL);
+    struct tm *tm;
+
+    if(!status) {
+        NULLARG();
+        return EINVAL;
+    }
+    memset(status, 0, sizeof(*status));
+
+    /* System information */
+    if(sxi_report_os(h->sx, status->os_name, sizeof(status->os_name), status->os_arch, sizeof(status->os_arch),
+        status->os_release, sizeof(status->os_release), status->os_version, sizeof(status->os_version))) {
+        WARN("Failed to get OS information: %s", sxc_geterrmsg(h->sx));
+        return FAIL_EINTERNAL;
+    }
+
+    /* Processor information */
+    if(sxi_report_cpu(h->sx, &status->cores, status->endianness, sizeof(status->endianness))) {
+        WARN("Failed to get CPU information: %s", sxc_geterrmsg(h->sx));
+        return FAIL_EINTERNAL;
+    }
+
+    /* Filesystem information */
+    if(sxi_report_fs(h->sx, h->dir, &status->block_size, &status->total_blocks, &status->avail_blocks)) {
+        WARN("Failed to get hashFS node directory filesystem information: %s", sxc_geterrmsg(h->sx));
+        return FAIL_EINTERNAL;
+    }
+
+    /* Get available memory */
+    if(sxi_report_mem(h->sx, &status->mem_total)) {
+        WARN("Failed to get memory information: %s", sxc_geterrmsg(h->sx));
+        return FAIL_EINTERNAL;
+    }
+
+    tm = gmtime(&t);
+    if (tm && strftime(status->utctime, sizeof(status->utctime), "%Y-%m-%d %H:%M:%S UTC", tm) <= 0) {
+        WARN("Failed to get UTC time");
+        return FAIL_EINTERNAL;
+    }
+    tm = localtime(&t);
+    if (tm && strftime(status->localtime, sizeof(status->localtime), "%Y-%m-%d %H:%M:%S %Z", tm) <= 0) {
+        WARN("Failed to get local time");
+        return FAIL_EINTERNAL;
+    }
+
+    /* Storage information */
+    snprintf(status->storage_dir, sizeof(status->storage_dir), "%s", h->dir);
+    sx_storage_usage(h, &status->storage_allocated, &status->storage_commited);
+    snprintf(status->hashfs_version, sizeof(status->hashfs_version), "%s", sx_hashfs_version(h));
+    n = sx_hashfs_self(h);
+    status->is_bare = n ? 0 : 1; /* Node is bare when n == NULL */
+    if(n) {
+        snprintf(status->internal_addr, sizeof(status->internal_addr), "%s", sx_node_internal_addr(n));
+        snprintf(status->addr, sizeof(status->addr), "%s", sx_node_addr(n));
+        snprintf(status->uuid, sizeof(status->uuid), "%s", sx_node_uuid_str(n));
+    }
+
+    snprintf(status->libsx_version, sizeof(status->libsx_version), "%s", sxc_get_version());
+    snprintf(status->hashfs_version, sizeof(status->hashfs_version), "%s", HASHFS_VERSION);
+    return OK;
 }
 

@@ -210,7 +210,7 @@ AC_SUBST(VCRYPTO_LIBS)
 AC_SUBST(VCRYPTO_CFLAGS)
 
 # Checks for header files.
-AC_CHECK_HEADERS([stddef.h stdint.h stdlib.h string.h sys/types.h])
+AC_CHECK_HEADERS([stddef.h stdint.h stdlib.h string.h sys/types.h sys/sysctl.h])
 AC_HEADER_ASSERT
 
 # Checks for typedefs, structures, and compiler characteristics.

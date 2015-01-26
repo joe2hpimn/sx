@@ -3037,3 +3037,360 @@ int sxc_cluster_set_conns_limit(sxc_cluster_t *cluster, unsigned int max_active,
 
     return sxi_conns_set_connections_limit(cluster->conns, max_active, max_active_per_host);
 }
+
+struct node_status_ctx {
+    sxi_node_status_t status;
+    yajl_handle yh;
+    yajl_callbacks yacb;
+    curlev_context_t *cbdata;
+    struct cb_error_ctx errctx;
+    enum node_status_state { NS_ERROR, NS_BEGIN, NS_KEY, NS_OSTYPE, NS_ARCH, NS_RELEASE, NS_VERSION, NS_CORES, NS_ENDIANNESS,
+        NS_LOCALTIME, NS_UTCTIME, NS_ADDR, NS_INTERNAL_ADDR, NS_UUID, NS_STORAGE_VERSION, NS_LIBSX_VERSION, NS_STORAGE_DIR,
+        NS_STORAGE_ALLOC, NS_STORAGE_USED, NS_FS_BLOCK_SIZE, NS_FS_TOTAL_BLOCKS, NS_FS_AVAIL_BLOCKS,
+        NS_MEM_TOTAL, NS_COMPLETE } state;
+};
+
+static int yacb_node_status_start_map(void *ctx) {
+    struct node_status_ctx *yactx = (struct node_status_ctx *)ctx;
+
+    if(!ctx)
+        return 0;
+    if(yactx->state == NS_BEGIN)
+        yactx->state = NS_KEY;
+    else
+        CBDEBUG("bad state (in %d, expected %d)", yactx->state, NS_BEGIN);
+    return 1;
+}
+
+static int yacb_node_status_end_map(void *ctx) {
+    struct node_status_ctx *yactx = (struct node_status_ctx *)ctx;
+
+    if(!ctx)
+        return 0;
+    if (yactx->state == NS_ERROR)
+        return yacb_error_end_map(&yactx->errctx);
+    if(yactx->state == NS_KEY)
+        yactx->state = NS_COMPLETE;
+    else
+        CBDEBUG("bad state (in %d, expected %d)", yactx->state, NS_KEY);
+    return 1;
+}
+
+static int yacb_node_status_string(void *ctx, const unsigned char *s, size_t l) {
+    struct node_status_ctx *yactx = (struct node_status_ctx *)ctx;
+
+    if (yactx->state == NS_ERROR)
+        return yacb_error_string(&yactx->errctx, s, l);
+    else if(yactx->state == NS_OSTYPE) {
+        if(l >= sizeof(yactx->status.os_name)) {
+            CBDEBUG("ostype string too long");
+            return 0;
+        }
+        memcpy(yactx->status.os_name, s, l);
+        yactx->status.os_name[sizeof(yactx->status.os_name)-1] = '\0';
+    } else if(yactx->state == NS_ARCH) {
+        if(l >= sizeof(yactx->status.os_arch)) {
+            CBDEBUG("arch string too long");
+            return 0;
+        }
+        memcpy(yactx->status.os_arch, s, l);
+        yactx->status.os_arch[sizeof(yactx->status.os_arch)-1] = '\0';
+    } else if(yactx->state == NS_RELEASE) {
+        if(l >= sizeof(yactx->status.os_release)) {
+            CBDEBUG("release string too long");
+            return 0;
+        }
+        memcpy(yactx->status.os_release, s, l);
+        yactx->status.os_release[sizeof(yactx->status.os_release)-1] = '\0';
+    } else if(yactx->state == NS_VERSION) {
+        if(l >= sizeof(yactx->status.os_version)) {
+            CBDEBUG("version string too long");
+            return 0;
+        }
+        memcpy(yactx->status.os_version, s, l);
+        yactx->status.os_version[sizeof(yactx->status.os_version)-1] = '\0';
+    } else if(yactx->state == NS_LOCALTIME) {
+        if(l >= sizeof(yactx->status.localtime)) {
+            CBDEBUG("localtime string too long");
+            return 0;
+        }
+        memcpy(yactx->status.localtime, s, l);
+        yactx->status.localtime[sizeof(yactx->status.localtime)-1] = '\0';
+    } else if(yactx->state == NS_UTCTIME) {
+        if(l >= sizeof(yactx->status.utctime)) {
+            CBDEBUG("utctime string too long");
+            return 0;
+        }
+        memcpy(yactx->status.utctime, s, l);
+        yactx->status.utctime[sizeof(yactx->status.utctime)-1] = '\0';
+    } else if(yactx->state == NS_ADDR) {
+        if(l >= sizeof(yactx->status.addr)) {
+            CBDEBUG("address string too long");
+            return 0;
+        }
+        memcpy(yactx->status.addr, s, l);
+        yactx->status.addr[sizeof(yactx->status.addr)-1] = '\0';
+    } else if(yactx->state == NS_ENDIANNESS) {
+        if(l >= sizeof(yactx->status.endianness)) {
+            CBDEBUG("endianness string too long");
+            return 0;
+        }
+        memcpy(yactx->status.endianness, s, l);
+        yactx->status.endianness[sizeof(yactx->status.endianness)-1] = '\0';
+    } else if(yactx->state == NS_INTERNAL_ADDR) {
+        if(l >= sizeof(yactx->status.internal_addr)) {
+            CBDEBUG("internal address string too long");
+            return 0;
+        }
+        memcpy(yactx->status.internal_addr, s, l);
+        yactx->status.internal_addr[sizeof(yactx->status.internal_addr)-1] = '\0';
+    } else if(yactx->state == NS_UUID) {
+        if(l >= sizeof(yactx->status.uuid)) {
+            CBDEBUG("uuid string too long");
+            return 0;
+        }
+        memcpy(yactx->status.uuid, s, l);
+        yactx->status.uuid[sizeof(yactx->status.uuid)-1] = '\0';
+    } else if(yactx->state == NS_STORAGE_DIR) {
+        if(l >= sizeof(yactx->status.storage_dir)) {
+            CBDEBUG("storage dir string too long");
+            return 0;
+        }
+        memcpy(yactx->status.storage_dir, s, l);
+        yactx->status.storage_dir[sizeof(yactx->status.storage_dir)-1] = '\0';
+    } else if(yactx->state == NS_STORAGE_VERSION) {
+        if(l >= sizeof(yactx->status.hashfs_version)) {
+            CBDEBUG("hashfs version string too long");
+            return 0;
+        }
+        memcpy(yactx->status.hashfs_version, s, l);
+        yactx->status.hashfs_version[sizeof(yactx->status.hashfs_version)-1] = '\0';
+    } else if(yactx->state == NS_LIBSX_VERSION) {
+        if(l >= sizeof(yactx->status.libsx_version)) {
+            CBDEBUG("hashfs version string too long");
+            return 0;
+        }
+        memcpy(yactx->status.libsx_version, s, l);
+        yactx->status.libsx_version[sizeof(yactx->status.libsx_version)-1] = '\0';
+    } else if(yactx->state != NS_KEY) {
+        CBDEBUG("bad state (in %d, expected %d, %d, %d, %d, %d, %d, %d, %d, %d or %d)", yactx->state, NS_OSTYPE, NS_ARCH,
+            NS_RELEASE, NS_VERSION, NS_ADDR, NS_INTERNAL_ADDR, NS_UUID, NS_STORAGE_DIR, NS_STORAGE_VERSION, NS_LIBSX_VERSION);
+    }
+
+    yactx->state = NS_KEY;
+    return 1;
+}
+
+static int yacb_node_status_map_key(void *ctx, const unsigned char *s, size_t l) {
+    struct node_status_ctx *yactx = (struct node_status_ctx *)ctx;
+
+    if(!ctx)
+        return 0;
+    if (yactx->state == NS_ERROR)
+        return yacb_error_map_key(&yactx->errctx, s, l);
+    else if(yactx->state == NS_KEY) {
+        if(l == lenof("osType") && !memcmp(s, "osType", lenof("osType")))
+            yactx->state = NS_OSTYPE;
+        else if(l == lenof("osArch") && !memcmp(s, "osArch", lenof("osArch")))
+            yactx->state = NS_ARCH;
+        else if(l == lenof("osRelease") && !memcmp(s, "osRelease", lenof("osRelease")))
+            yactx->state = NS_RELEASE;
+        else if(l == lenof("osVersion") && !memcmp(s, "osVersion", lenof("osVersion")))
+            yactx->state = NS_VERSION;
+        else if(l == lenof("localTime") && !memcmp(s, "localTime", lenof("localTime")))
+            yactx->state = NS_LOCALTIME;
+        else if(l == lenof("utcTime") && !memcmp(s, "utcTime", lenof("utcTime")))
+            yactx->state = NS_UTCTIME;
+        else if(l == lenof("cores") && !memcmp(s, "cores", lenof("cores")))
+            yactx->state = NS_CORES;
+        else if(l == lenof("osEndianness") && !memcmp(s, "osEndianness", lenof("osEndianness")))
+            yactx->state = NS_ENDIANNESS;
+        else if(l == lenof("address") && !memcmp(s, "address", lenof("address")))
+            yactx->state = NS_ADDR;
+        else if(l == lenof("internalAddress") && !memcmp(s, "internalAddress", lenof("internalAddress")))
+            yactx->state = NS_INTERNAL_ADDR;
+        else if(l == lenof("UUID") && !memcmp(s, "UUID", lenof("UUID")))
+            yactx->state = NS_UUID;
+        else if(l == lenof("hashFSVersion") && !memcmp(s, "hashFSVersion", lenof("hashFSVersion")))
+            yactx->state = NS_STORAGE_VERSION;
+        else if(l == lenof("libsxVersion") && !memcmp(s, "libsxVersion", lenof("libsxVersion")))
+            yactx->state = NS_LIBSX_VERSION;
+        else if(l == lenof("nodeDir") && !memcmp(s, "nodeDir", lenof("nodeDir")))
+            yactx->state = NS_STORAGE_DIR;
+        else if(l == lenof("storageAllocated") && !memcmp(s, "storageAllocated", lenof("storageAllocated")))
+            yactx->state = NS_STORAGE_ALLOC;
+        else if(l == lenof("storageUsed") && !memcmp(s, "storageUsed", lenof("storageUsed")))
+            yactx->state = NS_STORAGE_USED;
+        else if(l == lenof("fsBlockSize") && !memcmp(s, "fsBlockSize", lenof("fsBlockSize")))
+            yactx->state = NS_FS_BLOCK_SIZE;
+        else if(l == lenof("fsTotalBlocks") && !memcmp(s, "fsTotalBlocks", lenof("fsTotalBlocks")))
+            yactx->state = NS_FS_TOTAL_BLOCKS;
+        else if(l == lenof("fsAvailBlocks") && !memcmp(s, "fsAvailBlocks", lenof("fsAvailBlocks")))
+            yactx->state = NS_FS_AVAIL_BLOCKS;
+        else if(l == lenof("memTotal") && !memcmp(s, "memTotal", lenof("memTotal")))
+            yactx->state = NS_MEM_TOTAL;
+        else
+            CBDEBUG("unexpected key '%.*s'", (unsigned)l, s);
+        return 1;
+    }
+
+    CBDEBUG("bad state (in %d, expected %d)", yactx->state, NS_KEY);
+    return 1;
+}
+
+static int yacb_node_status_number(void *ctx, const char *s, size_t l) {
+    struct node_status_ctx *yactx = (struct node_status_ctx *)ctx;
+    char numb[24], *enumb;
+    long long number;
+
+    if(!ctx)
+        return 0;
+
+    if(l < 1 || l > 20) {
+        CBDEBUG("Invalid number '%.*s'", (unsigned)l, s);
+        return 0;
+    }
+    memcpy(numb, s, l);
+    numb[l] = '\0';
+    number = strtoll(numb, &enumb, 10);
+    if(*enumb) {
+        CBDEBUG("invalid number '%.*s'", (unsigned)l, s);
+        return 0;
+    }
+
+    switch(yactx->state) {
+        case NS_CORES:
+            yactx->status.cores = number;
+            break;
+        case NS_STORAGE_ALLOC:
+            yactx->status.storage_allocated = number;
+            break;
+        case NS_STORAGE_USED:
+            yactx->status.storage_commited = number;
+            break;
+        case NS_FS_BLOCK_SIZE:
+            yactx->status.block_size = number;
+            break;
+        case NS_FS_TOTAL_BLOCKS:
+            yactx->status.total_blocks = number;
+            break;
+        case NS_FS_AVAIL_BLOCKS:
+            yactx->status.avail_blocks = number;
+            break;
+        case NS_MEM_TOTAL:
+            yactx->status.mem_total = number;
+            break;
+        default:
+            CBDEBUG("bad state (in %d, expected %d, %d, %d, %d, %d, %d or %d)", yactx->state, NS_CORES,
+                NS_STORAGE_ALLOC, NS_STORAGE_USED, NS_FS_BLOCK_SIZE, NS_FS_TOTAL_BLOCKS, NS_FS_AVAIL_BLOCKS,
+                NS_MEM_TOTAL);
+    }
+
+    yactx->state = NS_KEY;
+    return 1;
+}
+
+static int node_status_cb(curlev_context_t *cbdata, void *ctx, const void *data, size_t size) {
+    struct node_status_ctx *yactx = (struct node_status_ctx *)ctx;
+    if(yajl_parse(yactx->yh, data, size) != yajl_status_ok) {
+        if (yactx->state != NS_ERROR) {
+            CBDEBUG("failed to parse JSON data: %s", sxi_cbdata_geterrmsg(yactx->cbdata));
+            sxi_cbdata_seterr(yactx->cbdata, SXE_ECOMM, "communication error");
+        }
+        return 1;
+    }
+    return 0;
+}
+
+static int node_status_setup_cb(curlev_context_t *cbdata, void *ctx, const char *host) {
+    struct node_status_ctx *yactx = (struct node_status_ctx *)ctx;
+
+    if(yactx->yh)
+        yajl_free(yactx->yh);
+
+    yactx->cbdata = cbdata;
+    if(!(yactx->yh  = yajl_alloc(&yactx->yacb, NULL, yactx))) {
+        CBDEBUG("failed to allocate yajl structure");
+        sxi_cbdata_seterr(cbdata, SXE_EMEM, "Getting node status failed: Out of memory");
+        return 1;
+    }
+    return 0;
+}
+
+int sxi_cluster_status(sxc_cluster_t *cluster, const node_status_cb_t status_cb, void *ctx) {
+    sxi_conns_t *conns = sxi_cluster_get_conns(cluster);
+    sxc_client_t *sx = sxi_cluster_get_client(cluster);
+    int ret = 1;
+    sxi_hostlist_t *hosts;
+    sxi_hostlist_t hlist;
+    unsigned int i;
+    unsigned int nnodes;
+
+    if(!cluster)
+        return 1;
+
+    if(!status_cb) {
+        sxi_seterr(sx, SXE_EARG, "NULL argument");
+        return 1;
+    }
+
+    hosts = sxi_conns_get_hostlist(conns);
+    if(!hosts) {
+        sxi_seterr(sx, SXE_ECOMM, "Failed to get cluster host list");
+        return 1;
+    }
+
+    nnodes = sxi_hostlist_get_count(hosts);
+    sxi_hostlist_init(&hlist);
+
+    for(i = 0; i < nnodes; i++) {
+        int qret;
+        const char *node = sxi_hostlist_get_host(hosts, i);
+        struct node_status_ctx *yctx = NULL;
+        yajl_callbacks *yacb;
+
+        if(sxi_hostlist_add_host(sx, &hlist, node)) {
+            SXDEBUG("Failed to get status of node %s: %s", node, sxc_geterrmsg(sx));
+            goto sxc_cluster_status_err;
+        }
+
+        if(!(yctx = calloc(1, sizeof(*yctx)))) {
+            SXDEBUG("Failed to allocate yajl handle");
+            goto sxc_cluster_status_err;
+        }
+
+        yacb = &yctx->yacb;
+        ya_init(yacb);
+        yacb->yajl_start_map = yacb_node_status_start_map;
+        yacb->yajl_map_key = yacb_node_status_map_key;
+        yacb->yajl_string = yacb_node_status_string;
+        yacb->yajl_number = yacb_node_status_number;
+        yacb->yajl_end_map = yacb_node_status_end_map;
+        yctx->state = NS_BEGIN;
+
+        qret = sxi_cluster_query(conns, &hlist, REQ_GET, ".status", NULL, 0, node_status_setup_cb, node_status_cb, yctx);
+        sxi_hostlist_empty(&hlist);
+        if(qret != 200) {
+            SXDEBUG("Failed to get status of node %s: %s", node, sxc_geterrmsg(sx));
+            yajl_free(yctx->yh);
+            free(yctx);
+            goto sxc_cluster_status_err;
+        }
+
+        if(yajl_complete_parse(yctx->yh) != yajl_status_ok || yctx->state != NS_COMPLETE) {
+            SXDEBUG("Failed to complete parsing of node %s status", node);
+            yajl_free(yctx->yh);
+            free(yctx);
+            goto sxc_cluster_status_err;
+        }
+
+        status_cb(sx, &yctx->status, ctx);
+        yajl_free(yctx->yh);
+        free(yctx);
+    }
+
+    ret = 0;
+sxc_cluster_status_err:
+    sxi_hostlist_empty(&hlist);
+    return ret;
+}

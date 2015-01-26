@@ -429,4 +429,6 @@ rc_ty sx_hashfs_replace_getstartfile(sx_hashfs_t *h, char *maxrev, char *startvo
 rc_ty sx_hashfs_replace_setlastfile(sx_hashfs_t *h, char *lastvol, char *lastfile, char *lastrev);
 rc_ty sx_hashfs_init_replacement(sx_hashfs_t *h);
 
+rc_ty sx_hashfs_node_status(sx_hashfs_t *h, sxi_node_status_t *status);
+
 #endif

@@ -77,6 +77,12 @@ void volume_ops(void) {
 	    return;
 	}
 
+        if(!strcmp(volume, ".status")) { /* Get node status */
+            quit_unless_has(PRIV_ADMIN);
+            fcgi_node_status();
+            return;
+        }
+
 	if(is_reserved())
 	    quit_errmsg(403, "Volume name is reserved");
 
