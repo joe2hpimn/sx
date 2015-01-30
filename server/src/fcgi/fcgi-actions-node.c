@@ -613,7 +613,7 @@ void fcgi_node_init(void) {
 /*
     {
         "users":{
-            "admin":{"key":"xxxxx","admin":true},
+            "admin":{"key":"xxxxx","admin":true}
             "luser":{"key":"yyyyy","admin":false}
         }
     }
@@ -633,10 +633,11 @@ void fcgi_node_init(void) {
 */
 
 struct cb_sync_ctx {
-    enum cb_sync_state { CB_SYNC_START, CB_SYNC_MAIN, CB_SYNC_USERS, CB_SYNC_VOLUMES, CB_SYNC_PERMS, CB_SYNC_INUSERS, CB_SYNC_INVOLUMES, CB_SYNC_INPERMS, CB_SYNC_USR, CB_SYNC_VOL, CB_SYNC_PRM, CB_SYNC_USRID, CB_SYNC_VOLKEY, CB_SYNC_PRMKEY, CB_SYNC_USRAUTH, CB_SYNC_USRKEY, CB_SYNC_USRROLE, CB_SYNC_VOLOWNR, CB_SYNC_VOLREP, CB_SYNC_VOLREVS, CB_SYNC_VOLSIZ, CB_SYNC_VOLMETA, CB_SYNC_VOLMETAKEY, CB_SYNC_VOLMETAVAL, CB_SYNC_PRMVAL, CB_SYNC_OUTRO, CB_SYNC_COMPLETE } state;
+    enum cb_sync_state { CB_SYNC_START, CB_SYNC_MAIN, CB_SYNC_USERS, CB_SYNC_VOLUMES, CB_SYNC_PERMS, CB_SYNC_INUSERS, CB_SYNC_INVOLUMES, CB_SYNC_INPERMS, CB_SYNC_USR, CB_SYNC_VOL, CB_SYNC_PRM, CB_SYNC_USRDESC, CB_SYNC_USRID, CB_SYNC_VOLKEY, CB_SYNC_PRMKEY, CB_SYNC_USRAUTH, CB_SYNC_USRKEY, CB_SYNC_USRROLE, CB_SYNC_VOLOWNR, CB_SYNC_VOLREP, CB_SYNC_VOLREVS, CB_SYNC_VOLSIZ, CB_SYNC_VOLMETA, CB_SYNC_VOLMETAKEY, CB_SYNC_VOLMETAVAL, CB_SYNC_PRMVAL, CB_SYNC_OUTRO, CB_SYNC_COMPLETE } state;
     int64_t size;
     char name[MAX(SXLIMIT_MAX_VOLNAME_LEN, SXLIMIT_MAX_USERNAME_LEN) + 1];
     char mkey[SXLIMIT_META_MAX_KEY_LEN+1];
+    char desc[SXLIMIT_META_MAX_VALUE_LEN+1];
     uint8_t key[AUTH_KEY_LEN];
     uint8_t user[AUTH_UID_LEN];
     sx_uid_t uid;
@@ -661,13 +662,19 @@ static int cb_sync_string(void *ctx, const unsigned char *s, size_t l) {
             return 0;
         c->have_user = 1;
         c->state = CB_SYNC_USRKEY;
+    } else if(c->state == CB_SYNC_USRDESC) {
+        if (l >= sizeof(c->desc))
+            return 0;
+        memcpy(c->desc, s, l);
+        c->desc[l] = 0;
+        c->state = CB_SYNC_USRKEY;
     } else if(c->state == CB_SYNC_VOLOWNR) {
 	uint8_t usr[AUTH_UID_LEN];
 	if(l != AUTH_UID_LEN * 2)
 	    return 0;
 	if(hex2bin(s, l, usr, sizeof(usr)))
 	    return 0;
-	if(sx_hashfs_get_user_info(hashfs, usr, &c->uid, NULL, NULL))
+	if(sx_hashfs_get_user_info(hashfs, usr, &c->uid, NULL, NULL, NULL))
 	    return 0;
 	c->state = CB_SYNC_VOLKEY;
     } else if(c->state == CB_SYNC_PRMVAL) {
@@ -809,6 +816,8 @@ static int cb_sync_map_key(void *ctx, const unsigned char *s, size_t l) {
             c->state = CB_SYNC_USRID;
 	else if(l == lenof("admin") && !strncmp("admin", s, lenof("admin")))
 	    c->state = CB_SYNC_USRROLE;
+        else if(l == lenof("desc") && !strncmp("desc", s, lenof("desc")))
+            c->state = CB_SYNC_USRDESC;
 	else
 	    return 0;
     } else if(c->state == CB_SYNC_VOLKEY) {
@@ -830,7 +839,7 @@ static int cb_sync_map_key(void *ctx, const unsigned char *s, size_t l) {
 	    return 0;
 	if(hex2bin(s, l, usr, sizeof(usr)))
 	    return 0;
-	if(sx_hashfs_get_user_info(hashfs, usr, &c->uid, NULL, NULL))
+	if(sx_hashfs_get_user_info(hashfs, usr, &c->uid, NULL, NULL, NULL))
 	    return 0;
 	c->state = CB_SYNC_PRMVAL;
     } else if(c->state == CB_SYNC_VOLMETAKEY) {
@@ -851,7 +860,7 @@ static int cb_sync_end_map(void *ctx) {
     if(c->state == CB_SYNC_USRKEY) {
 	if(!c->have_key || c->admin < 0 || !c->have_user)
 	    return 0;
-	if(sx_hashfs_create_user(hashfs, c->name, c->user, sizeof(c->user), c->key, sizeof(c->key), c->admin != 0))
+	if(sx_hashfs_create_user(hashfs, c->name, c->user, sizeof(c->user), c->key, sizeof(c->key), c->admin != 0, c->desc))
 	    return 0;
 	if(sx_hashfs_user_onoff(hashfs, c->name, 1, 0))
 	    return 0;

@@ -1645,10 +1645,10 @@ static int sync_flush(struct sync_ctx *ctx) {
     return 0;
 }
 
-static int syncusers_cb(sx_uid_t user_id, const char *username, const uint8_t *user, const uint8_t *key, int is_admin, void *ctx) {
+static int syncusers_cb(sx_uid_t user_id, const char *username, const uint8_t *user, const uint8_t *key, int is_admin, const char *desc, void *ctx) {
     struct sync_ctx *sy = (struct sync_ctx *)ctx;
     unsigned int left = sizeof(sy->buffer) - sy->at;
-    char *enc_name, hexkey[AUTH_KEY_LEN*2+1], hexuser[AUTH_UID_LEN*2+1];
+    char *enc_name, *enc_desc, hexkey[AUTH_KEY_LEN*2+1], hexuser[AUTH_UID_LEN*2+1];
 
     /* Check if we fit:
        - the preliminary '{"users":' part - 10 bytes
@@ -1677,10 +1677,17 @@ static int syncusers_cb(sx_uid_t user_id, const char *username, const uint8_t *u
 	WARN("Cannot quote username %s", username);
 	return -1;
     }
+    enc_desc = sxi_json_quote_string(desc ? desc : "");
+    if (!enc_desc) {
+	WARN("Cannot quote desc %s", desc);
+        free(enc_name);
+	return -1;
+    }
     bin2hex(key, AUTH_KEY_LEN, hexkey, sizeof(hexkey));
     bin2hex(user, AUTH_UID_LEN, hexuser, sizeof(hexuser));
-    sprintf(&sy->buffer[sy->at], "%s:{\"user\":\"%s\",\"key\":\"%s\",\"admin\":%s}", enc_name, hexuser, hexkey, is_admin ? "true" : "false");
+    sprintf(&sy->buffer[sy->at], "%s:{\"user\":\"%s\",\"key\":\"%s\",\"admin\":%s,\"desc\":%s}", enc_name, hexuser, hexkey, is_admin ? "true" : "false", enc_desc);
     free(enc_name);
+    free(enc_desc);
 
     sy->what = SYNCING_USERS;
     sy->at = strlen(sy->buffer);
@@ -1748,7 +1755,7 @@ static int sync_global_objects(sx_hashfs_t *hashfs, const sxi_hostlist_t *hlist)
     ctx.hashfs = hashfs;
     ctx.hlist = hlist;
 
-    if(sx_hashfs_list_users(hashfs, NULL, syncusers_cb, &ctx))
+    if(sx_hashfs_list_users(hashfs, NULL, syncusers_cb, 1, &ctx))
 	return -1;
 
     /* Force flush after all users */

@@ -1164,12 +1164,14 @@ struct cb_listusers_ctx {
     struct cb_error_ctx errctx;
     FILE *f;
     char *usrname;
+    char *desc;
     struct cbl_user_t {
         int is_admin;
 	unsigned int namelen;
+        unsigned int desclen;
     } usrdata;
 
-    enum listusers_state { LU_ERROR, LU_BEGIN, LU_NAME, LU_VALUES, LU_VALNAME, LU_ISADMIN, LU_DONE, LU_COMPLETE } state;
+    enum listusers_state { LU_ERROR, LU_BEGIN, LU_NAME, LU_VALUES, LU_VALNAME, LU_ISADMIN, LU_DESC, LU_DONE, LU_COMPLETE } state;
 };
 
 static int yacb_listusers_start_map(void *ctx) {
@@ -1200,14 +1202,19 @@ static int yacb_listusers_end_map(void *ctx) {
     else if(yactx->state == LU_NAME)
 	yactx->state = LU_COMPLETE;
     else if(yactx->state == LU_VALNAME) {
-	if(!fwrite(&yactx->usrdata, sizeof(yactx->usrdata), 1, yactx->f) || !fwrite(yactx->usrname, yactx->usrdata.namelen, 1, yactx->f)) {
-	    CBDEBUG("failed to save file attributes to temporary file");
+	if(!fwrite(&yactx->usrdata, sizeof(yactx->usrdata), 1, yactx->f) ||
+           !fwrite(yactx->usrname, yactx->usrdata.namelen, 1, yactx->f) ||
+           (yactx->usrdata.desclen && !fwrite(yactx->desc, yactx->usrdata.desclen, 1, yactx->f))) {
+	    CBDEBUG("Failed to save user attributes to temporary file");
 	    sxi_cbdata_setsyserr(yactx->cbdata, SXE_EWRITE, "Failed to write to temporary file");
 	    return 0;
 	}
 	free(yactx->usrname);
 	yactx->usrname = NULL;
 	yactx->usrdata.namelen = 0;
+        free(yactx->desc);
+        yactx->desc = NULL;
+        yactx->usrdata.desclen = 0;
 	yactx->state = LU_NAME;
     } else {
 	CBDEBUG("bad state (in %d, expected %d, %d or %d)", yactx->state, LU_DONE, LU_NAME, LU_VALNAME);
@@ -1252,6 +1259,10 @@ static int yacb_listusers_map_key(void *ctx, const unsigned char *s, size_t l) {
 	    yactx->state = LU_ISADMIN;
 	    return 1;
 	}
+        if(l == lenof("userDesc") && !memcmp(s, "userDesc", lenof("userDesc"))) {
+            yactx->state = LU_DESC;
+            return 1;
+        }
 	CBDEBUG("unexpected usrdata key '%.*s'", (unsigned)l, s);
 	return 0;
     }
@@ -1280,6 +1291,18 @@ static int yacb_listusers_string(void *ctx, const unsigned char *s, size_t l) {
     struct cb_listusers_ctx *yactx = (struct cb_listusers_ctx *)ctx;
     if (yactx->state == LU_ERROR)
         return yacb_error_string(&yactx->errctx, s, l);
+    if (yactx->state == LU_DESC) {
+        yactx->usrdata.desclen = l;
+        yactx->desc = malloc(yactx->usrdata.desclen);
+        if (!yactx->desc) {
+            CBDEBUG("OOM duplicating user desc '%.*s'", (unsigned)l, s);
+            sxi_cbdata_seterr(yactx->cbdata, SXE_EMEM, "Out of memory");
+            return 0;
+        }
+        memcpy(yactx->desc, s, yactx->usrdata.desclen);
+        yactx->state = LU_VALNAME;
+        return 1;
+    }
     return 0;
 }
 
@@ -1336,6 +1359,7 @@ sxc_cluster_lu_t *cluster_listusers(sxc_cluster_t *cluster, const char *list_clo
     sxc_clearerr(sx);
 
     ya_init(yacb);
+    memset(&yctx, 0, sizeof(yctx));
     yacb->yajl_start_map = yacb_listusers_start_map;
     yacb->yajl_map_key = yacb_listusers_map_key;
     yacb->yajl_boolean = yacb_listusers_bool;
@@ -1344,15 +1368,16 @@ sxc_cluster_lu_t *cluster_listusers(sxc_cluster_t *cluster, const char *list_clo
 
     yctx.yh = NULL;
     yctx.usrname = NULL;
+    yctx.desc = NULL;
 
     if(!(fname = sxi_make_tempfile(sx, NULL, &yctx.f))) {
         CFGDEBUG("failed to create temporary storage for user list");
         return NULL;
     }
 
-    len = strlen(".users") + 1;
+    len = strlen(".users?desc") + 1;
     if(list_clones)
-        len += strlen("?clones=") + strlen(list_clones);
+        len += strlen("&clones=") + strlen(list_clones);
     query = malloc(len);
     if(!query) {
         CFGDEBUG("Failed to allocate memory for query");
@@ -1361,7 +1386,7 @@ sxc_cluster_lu_t *cluster_listusers(sxc_cluster_t *cluster, const char *list_clo
         free(fname);
         return NULL;
     }
-    snprintf(query, len, ".users%s%s", (list_clones ? "?clones=" : ""), (list_clones ? list_clones : ""));
+    snprintf(query, len, ".users?desc%s%s", (list_clones ? "&clones=" : ""), (list_clones ? list_clones : ""));
     sxi_set_operation(sx, "list users", sxi_cluster_get_name(cluster), NULL, NULL);
     qret = sxi_cluster_query(sxi_cluster_get_conns(cluster), NULL, REQ_GET, query, NULL, 0, listusers_setup_cb, listusers_cb, &yctx);
     if(qret != 200) {
@@ -1420,11 +1445,12 @@ sxc_cluster_lu_t *sxc_cluster_listusers(sxc_cluster_t *cluster) {
     return sxc_cluster_listclones(cluster, NULL);
 }
 
-int sxc_cluster_listusers_next(sxc_cluster_lu_t *lu, char **user_name, int *is_admin) {
+int sxc_cluster_listusers_next(sxc_cluster_lu_t *lu, char **user_name, int *is_admin, char **desc) {
     struct cbl_user_t user;
     sxc_client_t *sx;
-    if (!lu || !user_name || !is_admin)
+    if (!lu || !user_name || !is_admin || !desc)
         return -1;
+    *desc = NULL;
     sx = lu->sx;
 
     if(!fread(&user, sizeof(user), 1, lu->f)) {
@@ -1435,7 +1461,7 @@ int sxc_cluster_listusers_next(sxc_cluster_lu_t *lu, char **user_name, int *is_a
 	}
 	return 0;
     }
-    if(user.namelen & 0x80000000) {
+    if(user.namelen & 0x80000000 || user.desclen & 0x80000000) {
         SXDEBUG("Invalid user name length");
         sxi_seterr(sx, SXE_EREAD, "Failed to retrieve next user: Bad data from cache file");
         return -1;
@@ -1454,7 +1480,21 @@ int sxc_cluster_listusers_next(sxc_cluster_lu_t *lu, char **user_name, int *is_a
     }
     (*user_name)[user.namelen] = '\0';
 
+    *desc = malloc(user.desclen + 1);
+    if(!*desc) {
+        SXDEBUG("OOM allocating result file name (%u bytes)", user.desclen);
+        sxi_seterr(sx, SXE_EMEM, "Failed to retrieve next user: Out of memory");
+        return -1;
+    }
+    if(user.desclen && !fread(*desc, user.desclen, 1, lu->f)) {
+        SXDEBUG("error reading name from results file");
+        sxi_setsyserr(sx, SXE_EREAD, "Failed to retrieve next user: Read item from cache failed");
+        return -1;
+    }
+    (*desc)[user.desclen] = '\0';
+
     *is_admin = user.is_admin;
+
     return 1;
 }
 

@@ -4,6 +4,7 @@ usage "sxacl userclone [OPTIONS] <username> <clonename> sx://[profile@]cluster"
 
 section "User cloning options"
 option "auth-file" a "Store authentication token in given file (instead of stdout)" string optional
+option "description" d "Set the description of this clone" string optional default=""
 
 section "Common options"
 

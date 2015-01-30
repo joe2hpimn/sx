@@ -34,17 +34,18 @@ const char *useradd_args_info_versiontext = "";
 const char *useradd_args_info_description = "";
 
 const char *useradd_args_info_full_help[] = {
-  "  -h, --help              Print help and exit",
-  "      --full-help         Print help, including hidden options, and exit",
-  "  -V, --version           Print version and exit",
+  "  -h, --help                Print help and exit",
+  "      --full-help           Print help, including hidden options, and exit",
+  "  -V, --version             Print version and exit",
   "\nUser creation options:",
-  "  -t, --role=ENUM         User type  (possible values=\"admin\", \"normal\"\n                            default=`normal')",
-  "  -a, --auth-file=STRING  Store authentication token in given file (instead of\n                            stdout)",
+  "  -t, --role=ENUM           User type  (possible values=\"admin\", \"normal\"\n                              default=`normal')",
+  "  -a, --auth-file=STRING    Store authentication token in given file (instead\n                              of stdout)",
+  "  -d, --description=STRING  Set the description of this user  (default=`')",
   "\nCommon options:",
-  "  -c, --config-dir=PATH   Path to SX configuration directory",
-  "      --force-key=TOKEN   Create user with an old authentication token",
-  "  -b, --batch-mode        Disable additional information and only print the\n                            authentication token  (default=off)",
-  "  -D, --debug             Enable debug messages  (default=off)",
+  "  -c, --config-dir=PATH     Path to SX configuration directory",
+  "      --force-key=TOKEN     Create user with an old authentication token",
+  "  -b, --batch-mode          Disable additional information and only print the\n                              authentication token  (default=off)",
+  "  -D, --debug               Enable debug messages  (default=off)",
     0
 };
 
@@ -58,13 +59,14 @@ init_help_array(void)
   useradd_args_info_help[4] = useradd_args_info_full_help[4];
   useradd_args_info_help[5] = useradd_args_info_full_help[5];
   useradd_args_info_help[6] = useradd_args_info_full_help[6];
-  useradd_args_info_help[7] = useradd_args_info_full_help[9];
+  useradd_args_info_help[7] = useradd_args_info_full_help[7];
   useradd_args_info_help[8] = useradd_args_info_full_help[10];
-  useradd_args_info_help[9] = 0; 
+  useradd_args_info_help[9] = useradd_args_info_full_help[11];
+  useradd_args_info_help[10] = 0; 
   
 }
 
-const char *useradd_args_info_help[10];
+const char *useradd_args_info_help[11];
 
 typedef enum {ARG_NO
   , ARG_FLAG
@@ -95,6 +97,7 @@ void clear_given (struct useradd_args_info *args_info)
   args_info->version_given = 0 ;
   args_info->role_given = 0 ;
   args_info->auth_file_given = 0 ;
+  args_info->description_given = 0 ;
   args_info->config_dir_given = 0 ;
   args_info->force_key_given = 0 ;
   args_info->batch_mode_given = 0 ;
@@ -109,6 +112,8 @@ void clear_args (struct useradd_args_info *args_info)
   args_info->role_orig = NULL;
   args_info->auth_file_arg = NULL;
   args_info->auth_file_orig = NULL;
+  args_info->description_arg = gengetopt_strdup ("");
+  args_info->description_orig = NULL;
   args_info->config_dir_arg = NULL;
   args_info->config_dir_orig = NULL;
   args_info->force_key_arg = NULL;
@@ -128,10 +133,11 @@ void init_args_info(struct useradd_args_info *args_info)
   args_info->version_help = useradd_args_info_full_help[2] ;
   args_info->role_help = useradd_args_info_full_help[4] ;
   args_info->auth_file_help = useradd_args_info_full_help[5] ;
-  args_info->config_dir_help = useradd_args_info_full_help[7] ;
-  args_info->force_key_help = useradd_args_info_full_help[8] ;
-  args_info->batch_mode_help = useradd_args_info_full_help[9] ;
-  args_info->debug_help = useradd_args_info_full_help[10] ;
+  args_info->description_help = useradd_args_info_full_help[6] ;
+  args_info->config_dir_help = useradd_args_info_full_help[8] ;
+  args_info->force_key_help = useradd_args_info_full_help[9] ;
+  args_info->batch_mode_help = useradd_args_info_full_help[10] ;
+  args_info->debug_help = useradd_args_info_full_help[11] ;
   
 }
 
@@ -230,6 +236,8 @@ useradd_cmdline_parser_release (struct useradd_args_info *args_info)
   free_string_field (&(args_info->role_orig));
   free_string_field (&(args_info->auth_file_arg));
   free_string_field (&(args_info->auth_file_orig));
+  free_string_field (&(args_info->description_arg));
+  free_string_field (&(args_info->description_orig));
   free_string_field (&(args_info->config_dir_arg));
   free_string_field (&(args_info->config_dir_orig));
   free_string_field (&(args_info->force_key_arg));
@@ -320,6 +328,8 @@ useradd_cmdline_parser_dump(FILE *outfile, struct useradd_args_info *args_info)
     write_into_file(outfile, "role", args_info->role_orig, useradd_cmdline_parser_role_values);
   if (args_info->auth_file_given)
     write_into_file(outfile, "auth-file", args_info->auth_file_orig, 0);
+  if (args_info->description_given)
+    write_into_file(outfile, "description", args_info->description_orig, 0);
   if (args_info->config_dir_given)
     write_into_file(outfile, "config-dir", args_info->config_dir_orig, 0);
   if (args_info->force_key_given)
@@ -575,6 +585,7 @@ useradd_cmdline_parser_internal (
         { "version",	0, NULL, 'V' },
         { "role",	1, NULL, 't' },
         { "auth-file",	1, NULL, 'a' },
+        { "description",	1, NULL, 'd' },
         { "config-dir",	1, NULL, 'c' },
         { "force-key",	1, NULL, 0 },
         { "batch-mode",	0, NULL, 'b' },
@@ -582,7 +593,7 @@ useradd_cmdline_parser_internal (
         { 0,  0, 0, 0 }
       };
 
-      c = getopt_long (argc, argv, "hVt:a:c:bD", long_options, &option_index);
+      c = getopt_long (argc, argv, "hVt:a:d:c:bD", long_options, &option_index);
 
       if (c == -1) break;	/* Exit from `while (1)' loop.  */
 
@@ -627,6 +638,18 @@ useradd_cmdline_parser_internal (
               &(local_args_info.auth_file_given), optarg, 0, 0, ARG_STRING,
               check_ambiguity, override, 0, 0,
               "auth-file", 'a',
+              additional_error))
+            goto failure;
+        
+          break;
+        case 'd':	/* Set the description of this user.  */
+        
+        
+          if (update_arg( (void *)&(args_info->description_arg), 
+               &(args_info->description_orig), &(args_info->description_given),
+              &(local_args_info.description_given), optarg, 0, "", ARG_STRING,
+              check_ambiguity, override, 0, 0,
+              "description", 'd',
               additional_error))
             goto failure;
         

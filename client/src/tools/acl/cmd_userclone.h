@@ -43,6 +43,9 @@ struct userclone_args_info
   char * auth_file_arg;	/**< @brief Store authentication token in given file (instead of stdout).  */
   char * auth_file_orig;	/**< @brief Store authentication token in given file (instead of stdout) original value given at command line.  */
   const char *auth_file_help; /**< @brief Store authentication token in given file (instead of stdout) help description.  */
+  char * description_arg;	/**< @brief Set the description of this clone (default='').  */
+  char * description_orig;	/**< @brief Set the description of this clone original value given at command line.  */
+  const char *description_help; /**< @brief Set the description of this clone help description.  */
   char * config_dir_arg;	/**< @brief Path to SX configuration directory.  */
   char * config_dir_orig;	/**< @brief Path to SX configuration directory original value given at command line.  */
   const char *config_dir_help; /**< @brief Path to SX configuration directory help description.  */
@@ -58,6 +61,7 @@ struct userclone_args_info
   unsigned int full_help_given ;	/**< @brief Whether full-help was given.  */
   unsigned int version_given ;	/**< @brief Whether version was given.  */
   unsigned int auth_file_given ;	/**< @brief Whether auth-file was given.  */
+  unsigned int description_given ;	/**< @brief Whether description was given.  */
   unsigned int config_dir_given ;	/**< @brief Whether config-dir was given.  */
   unsigned int force_key_given ;	/**< @brief Whether force-key was given.  */
   unsigned int batch_mode_given ;	/**< @brief Whether batch-mode was given.  */

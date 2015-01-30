@@ -545,7 +545,7 @@ void handle_request(void) {
     memcpy(user, buf, sizeof(user));
     memcpy(rhmac, buf+20, sizeof(rhmac));
 
-    if(sx_hashfs_get_user_info(hashfs, user, &uid, key, &role) != OK) /* no such user */ {
+    if(sx_hashfs_get_user_info(hashfs, user, &uid, key, &role, NULL) != OK) /* no such user */ {
 	DEBUG("No such user: %s", param+4);
 	send_authreq();
 	return;

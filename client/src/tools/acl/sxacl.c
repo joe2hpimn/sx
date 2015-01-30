@@ -93,7 +93,7 @@ sxc_cluster_t *load_config(sxc_client_t *sx, const char *uri, sxc_uri_t **sxuri)
     return cluster;
 }
 
-static int add_user(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_uri_t *u, const char *username,  enum enum_role type, const char *authfile, int batch_mode, const char *oldtoken, const char *existing) {
+static int add_user(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_uri_t *u, const char *username,  enum enum_role type, const char *authfile, int batch_mode, const char *oldtoken, const char *existing, const char *desc) {
     char *key;
     int created_role = (type == role_arg_admin ? 1 : 0);
 
@@ -103,9 +103,9 @@ static int add_user(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_uri_t *u, cons
     }
 
     if(existing) /* Cloning user */
-        key = sxc_user_clone(cluster, existing, username, oldtoken, &created_role);
+        key = sxc_user_clone(cluster, existing, username, oldtoken, &created_role, desc);
     else /* Creating new user */
-        key = sxc_user_add(cluster, username, type == role_arg_admin, oldtoken);
+        key = sxc_user_add(cluster, username, type == role_arg_admin, oldtoken, desc);
 
     if(!key) {
         fprintf(stderr, "ERROR: Can't create user %s: %s\n", username, sxc_geterrmsg(sx));
@@ -120,7 +120,7 @@ static int add_user(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_uri_t *u, cons
 	printf("Key : %s\n", key);
         printf("Type: %s", created_role ? "admin" : "normal");
 	if(existing)
-	    printf(" (clone of user '%s')", existing);
+            printf("\nDescription: %s (clone of user '%s')", desc, existing);
 	printf("\n\nRun 'sxinit sx://%s@%s' to start using the cluster as user '%s'.\n", username, u->host, username);
     }
 
@@ -224,20 +224,25 @@ static int getkey_user(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_uri_t *u, c
     return rc;
 }
 
-static int list_users(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_uri_t *u, const char *list_clones)
+static int list_users(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_uri_t *u, const char *list_clones, int verbose)
 {
     int rc = 0, lstrc = 0;
     sxc_cluster_lu_t *lst;
-    char *user = NULL;
+    char *user = NULL, *desc = NULL;
     int is_admin;
 
     if(u->volume) {
 	fprintf(stderr, "ERROR: Bad URI: Please omit volume.\n");
 	return 1;
     }
-    for (lst = (list_clones ? sxc_cluster_listclones(cluster, list_clones) : sxc_cluster_listusers(cluster)); lst && (lstrc = sxc_cluster_listusers_next(lst, &user, &is_admin)) > 0;) {
-        printf("%s (%s)\n", user, is_admin ? "admin" : "normal");
+    for (lst = (list_clones ? sxc_cluster_listclones(cluster, list_clones) : sxc_cluster_listusers(cluster)); lst && (lstrc = sxc_cluster_listusers_next(lst, &user, &is_admin, &desc)) > 0;) {
+        const char *is_adm = is_admin ? "admin" : "normal";
+        if (verbose)
+            printf("%-24s (%6s) - %s\n", user, is_adm, desc);
+        else
+            printf("%s (%s)\n", user, is_adm);
         free(user);
+        free(desc);
     }
     sxc_cluster_listusers_free(lst);
     if (!lst || lstrc == -1) {
@@ -376,7 +381,7 @@ int main(int argc, char **argv) {
                 ret = 1;
                 break;
             }
-	    ret = add_user(sx, cluster, uri, args.inputs[0], args.role_arg, args.auth_file_arg, args.batch_mode_flag, args.force_key_arg, NULL);
+	    ret = add_user(sx, cluster, uri, args.inputs[0], args.role_arg, args.auth_file_arg, args.batch_mode_flag, args.force_key_arg, NULL, NULL);
             useradd_cmdline_parser_free(&args);
 
         } else if(!strcmp(argv[1], "userclone")) {
@@ -407,7 +412,7 @@ int main(int argc, char **argv) {
                 ret = 1;
                 break;
             }
-            ret = add_user(sx, cluster, uri, args.inputs[1], role__NULL, args.auth_file_arg, args.batch_mode_flag, args.force_key_arg, args.inputs[0]);
+            ret = add_user(sx, cluster, uri, args.inputs[1], role__NULL, args.auth_file_arg, args.batch_mode_flag, args.force_key_arg, args.inputs[0], args.description_arg);
             userclone_cmdline_parser_free(&args);
 
 	} else if(!strcmp(argv[1], "userdel")) {
@@ -474,7 +479,7 @@ int main(int argc, char **argv) {
                 ret = 1;
                 break;
             }
-	    ret = list_users(sx, cluster, uri, args.clones_arg);
+	    ret = list_users(sx, cluster, uri, args.clones_arg, !!args.clones_arg || args.verbose_given);
             userlist_cmdline_parser_free(&args);
         } else if (!strcmp(argv[1], "usergetkey")) {
             struct usergetkey_args_info args;

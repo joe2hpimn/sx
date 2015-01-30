@@ -632,6 +632,7 @@ struct _sx_hashfs_t {
     sqlite3_stmt *q_listusersbycid;
     sqlite3_stmt *q_listacl;
     sqlite3_stmt *q_createuser;
+    sqlite3_stmt *q_createuser_meta;
     sqlite3_stmt *q_deleteuser;
     sqlite3_stmt *q_user_newkey;
     sqlite3_stmt *q_onoffuser;
@@ -954,6 +955,7 @@ static void close_all_dbs(sx_hashfs_t *h) {
     sqlite3_finalize(h->q_listacl);
     sqlite3_finalize(h->q_getaccess);
     sqlite3_finalize(h->q_createuser);
+    sqlite3_finalize(h->q_createuser_meta);
     sqlite3_finalize(h->q_deleteuser);
     sqlite3_finalize(h->q_user_newkey);
     sqlite3_finalize(h->q_grant);
@@ -1330,6 +1332,9 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
     if(qprep(h->db, &q, "PRAGMA foreign_keys = ON") || qstep_noret(q))
 	goto open_hashfs_fail;
     qnullify(q);
+    if(qprep(h->db, &q, "CREATE TABLE IF NOT EXISTS usermeta (userid INTEGER PRIMARY KEY NOT NULL REFERENCES users(uid) ON DELETE CASCADE ON UPDATE CASCADE, desc TEXT("STRIFY(SXLIMIT_META_MAX_VALUE_LEN)"))") || qstep_noret(q))
+	goto open_hashfs_fail;
+    qnullify(q);
     if(qprep(h->db, &h->q_getval, "SELECT value FROM hashfs WHERE key = :k"))
 	goto open_hashfs_fail;
     if(qbind_text(h->q_getval, ":k", "cluster") || qstep_ret(h->q_getval))
@@ -1373,21 +1378,23 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 
     if(qprep(h->db, &h->q_gethdrev, "SELECT MIN(value) FROM hashfs WHERE key IN ('current_dist_rev','dist_rev')"))
 	goto open_hashfs_fail;
-    if(qprep(h->db, &h->q_getuser, "SELECT uid, key, role FROM users WHERE user = :user AND enabled=1"))
+    if(qprep(h->db, &h->q_getuser, "SELECT uid, key, role, desc FROM users LEFT JOIN usermeta ON users.uid=usermeta.userid WHERE user = :user AND enabled=1"))
 	goto open_hashfs_fail;
     if(qprep(h->db, &h->q_getuserbyid, "SELECT user FROM users WHERE uid = :uid AND (:inactivetoo OR enabled=1)"))
 	goto open_hashfs_fail;
     if(qprep(h->db, &h->q_getuserbyname, "SELECT user FROM users WHERE name = :name AND (:inactivetoo OR enabled=1)"))
 	goto open_hashfs_fail;
-    if(qprep(h->db, &h->q_listusers, "SELECT uid, name, user, key, role FROM users WHERE uid > :lastuid AND enabled=1 ORDER BY uid ASC LIMIT 1"))
+    if(qprep(h->db, &h->q_listusers, "SELECT uid, name, user, key, role, desc FROM users LEFT JOIN usermeta ON users.uid=usermeta.userid WHERE uid > :lastuid AND enabled=1 ORDER BY uid ASC LIMIT 1"))
 	goto open_hashfs_fail;
-    if(qprep(h->db, &h->q_listusersbycid, "SELECT uid, name, user, key, role FROM users WHERE uid > :lastuid AND (:inactivetoo OR enabled=1) AND SUBSTR(user, 0, "STRIFY(AUTH_CID_LEN)") = SUBSTR(:common_id, 0, "STRIFY(AUTH_CID_LEN)") ORDER BY uid ASC LIMIT 1"))
+    if(qprep(h->db, &h->q_listusersbycid, "SELECT uid, name, user, key, role, desc FROM users LEFT JOIN usermeta ON users.uid=usermeta.userid WHERE uid > :lastuid AND (:inactivetoo OR enabled=1) AND SUBSTR(user, 0, "STRIFY(AUTH_CID_LEN)") = SUBSTR(:common_id, 0, "STRIFY(AUTH_CID_LEN)") ORDER BY uid ASC LIMIT 1"))
         goto open_hashfs_fail;
     if(qprep(h->db, &h->q_listacl, "SELECT name, priv, uid, owner_id FROM privs, volumes INNER JOIN users ON user_id=uid WHERE volume_id=:volid AND vid=:volid AND volumes.enabled = 1 AND users.enabled = 1 AND (priv <> 0 OR owner_id=uid) AND user_id > :lastuid ORDER BY user_id ASC LIMIT 1"))
 	goto open_hashfs_fail;
     if(qprep(h->db, &h->q_getaccess, "SELECT privs.priv, volumes.owner_id FROM privs, volumes WHERE privs.volume_id = :volume AND privs.user_id IN (SELECT uid FROM users WHERE SUBSTR(user,0,"STRIFY(AUTH_CID_LEN)")=SUBSTR(:user,0,"STRIFY(AUTH_CID_LEN)") AND enabled=1) AND volumes.vid = :volume AND volumes.enabled = 1"))
 	goto open_hashfs_fail;
     if(qprep(h->db, &h->q_createuser, "INSERT INTO users(user, name, key, role) VALUES(:userhash,:name,:key,:role)"))
+	goto open_hashfs_fail;
+    if(qprep(h->db, &h->q_createuser_meta, "INSERT INTO usermeta(userid, desc) SELECT uid, :desc FROM users WHERE user=:userhash"))
 	goto open_hashfs_fail;
     if(qprep(h->db, &h->q_deleteuser, "DELETE FROM users WHERE uid = :uid"))
 	goto open_hashfs_fail;
@@ -1850,7 +1857,7 @@ rc_ty sx_storage_activate(sx_hashfs_t *h, const char *name, const sx_uuid_t *nod
         goto storage_activate_fail;
     }
 
-    r = sx_hashfs_create_user(h, "admin", admin_uid, uid_size, admin_key, key_size, ROLE_ADMIN);
+    r = sx_hashfs_create_user(h, "admin", admin_uid, uid_size, admin_key, key_size, ROLE_ADMIN, "");
     if(r != OK) {
 	ret = r;
 	goto storage_activate_fail;
@@ -4419,7 +4426,7 @@ char *sxi_hashfs_admintoken(sx_hashfs_t *h) {
 	return NULL;
     }
 
-    if(sx_hashfs_get_user_info(h, ADMIN_USER, NULL, key, NULL))
+    if(sx_hashfs_get_user_info(h, ADMIN_USER, NULL, key, NULL, NULL))
 	return NULL;
 
     if(encode_auth_bin(ADMIN_USER, (const unsigned char *) key, AUTH_KEY_LEN, auth, sizeof(auth))) {
@@ -4440,7 +4447,7 @@ rc_ty sx_hashfs_derive_key(sx_hashfs_t *h, unsigned char *key, int len, const ch
     return OK;
 }
 
-rc_ty sx_hashfs_create_user(sx_hashfs_t *h, const char *user, const uint8_t *uid, unsigned uid_size, const uint8_t *key, unsigned key_size, int role)
+rc_ty sx_hashfs_create_user(sx_hashfs_t *h, const char *user, const uint8_t *uid, unsigned uid_size, const uint8_t *key, unsigned key_size, int role, const char *desc)
 {
     rc_ty rc = FAIL_EINTERNAL;
     if (!h || !user || !uid || !key) {
@@ -4485,6 +4492,17 @@ rc_ty sx_hashfs_create_user(sx_hashfs_t *h, const char *user, const uint8_t *uid
 	rc = OK;
     } while(0);
     sqlite3_reset(q);
+    INFO("desc: %s", desc);
+    if (desc && *desc) {
+        sqlite3_stmt *q = h->q_createuser_meta;
+        if (qbind_blob(q, ":userhash", uid, AUTH_UID_LEN) ||
+            qbind_text(q, ":desc", desc) ||
+            qstep_noret(q)) {
+            WARN("failed to set user desc");
+            rc = FAIL_EINTERNAL;
+        }
+        sqlite3_reset(q);
+    }
     return rc;
 }
 
@@ -4582,7 +4600,7 @@ int encode_auth_bin(const uint8_t *userhash, const unsigned char *key, unsigned 
     return 0;
 }
 
-rc_ty sx_hashfs_list_users(sx_hashfs_t *h, const uint8_t *list_clones, user_list_cb_t cb, void *ctx) {
+rc_ty sx_hashfs_list_users(sx_hashfs_t *h, const uint8_t *list_clones, user_list_cb_t cb, int desc, void *ctx) {
     rc_ty rc = FAIL_EINTERNAL;
     uint64_t lastuid = 0;
     sqlite3_stmt *q;
@@ -4630,8 +4648,7 @@ rc_ty sx_hashfs_list_users(sx_hashfs_t *h, const uint8_t *list_clones, user_list
 	    WARN("User %s (%lld) is invalid", name, (long long)uid);
 	    continue;
 	}
-
-	if(cb(uid, name, user, key, is_admin, ctx)) {
+	if(cb(uid, name, user, key, is_admin, desc ? (const char*)sqlite3_column_text(q, 5) : NULL, ctx)) {
 	    rc = EINTR;
 	    break;
 	}
@@ -8451,7 +8468,7 @@ rc_ty sx_hashfs_volumemeta_next(sx_hashfs_t *h, const char **key, const void **v
     return sx_hashfs_getfilemeta_next(h, key, value, value_len);
 }
 
-rc_ty sx_hashfs_get_user_info(sx_hashfs_t *h, const uint8_t *user, sx_uid_t *uid, uint8_t *key, sx_priv_t *basepriv) {
+rc_ty sx_hashfs_get_user_info(sx_hashfs_t *h, const uint8_t *user, sx_uid_t *uid, uint8_t *key, sx_priv_t *basepriv, char **desc) {
     const uint8_t *kcol;
     rc_ty ret = FAIL_EINTERNAL;
     sx_priv_t userpriv;
@@ -8459,6 +8476,8 @@ rc_ty sx_hashfs_get_user_info(sx_hashfs_t *h, const uint8_t *user, sx_uid_t *uid
 
     if(!h || !user)
 	return EINVAL;
+    if (desc)
+        *desc = NULL;
 
     sqlite3_reset(h->q_getuser);
     if(qbind_blob(h->q_getuser, ":user", user, AUTH_UID_LEN))
@@ -8498,6 +8517,14 @@ rc_ty sx_hashfs_get_user_info(sx_hashfs_t *h, const uint8_t *user, sx_uid_t *uid
 	memcpy(key, kcol, AUTH_KEY_LEN);
     if(uid)
 	*uid = sqlite3_column_int64(h->q_getuser, 0);
+    if (desc) {
+        const char *udesc = (const char*)sqlite3_column_text(h->q_getuser, 3);
+        *desc = wrap_strdup(udesc ? udesc : "");
+        if (!*desc) {
+            ret = ENOMEM;
+            goto get_user_info_err;
+        }
+    }
     ret = OK;
 
 get_user_info_err:
@@ -8572,7 +8599,7 @@ rc_ty sx_hashfs_generate_uid(sx_hashfs_t *h, uint8_t *uid) {
     }
 
     sxi_rand_pseudo_bytes(uid + AUTH_CID_LEN, AUTH_UID_LEN - AUTH_CID_LEN);
-    while(sx_hashfs_get_user_info(h, uid, NULL, NULL, NULL) != ENOENT && i < MAX_UID_GEN_TRIES) {
+    while(sx_hashfs_get_user_info(h, uid, NULL, NULL, NULL, NULL) != ENOENT && i < MAX_UID_GEN_TRIES) {
         i++;
         sxi_rand_pseudo_bytes(uid + AUTH_CID_LEN, AUTH_UID_LEN - AUTH_CID_LEN);
     }

@@ -145,22 +145,32 @@ static sxi_query_t* sxi_query_add_meta(sxc_client_t *sx, sxi_query_t *query, con
     return query;
 }
 
-sxi_query_t *sxi_useradd_proto(sxc_client_t *sx, const char *username, const uint8_t *uid, const uint8_t *key, int admin) {
-    char *qname, hexkey[AUTH_KEY_LEN*2+1];
+sxi_query_t *sxi_useradd_proto(sxc_client_t *sx, const char *username, const uint8_t *uid, const uint8_t *key, int admin, const char *desc) {
+    char *qname, *dname = NULL, hexkey[AUTH_KEY_LEN*2+1];
     sxi_query_t *ret;
     unsigned n;
 
     qname = sxi_json_quote_string(username);
     if(!qname)
 	return NULL;
+    if (desc) {
+        dname = sxi_json_quote_string(desc);
+        if (!dname) {
+            free(qname);
+            return NULL;
+        }
+    }
 
-    n = sizeof("{\"userName\":,\"userType\":\"normal\",\"userKey\":\"\"") + /* the json body without terminator */
+    n = sizeof("{\"userName\":,\"userType\":\"normal\",\"userKey\":\"\",\"userDesc\":") + /* the json body without terminator */
 	strlen(qname) + /* the json encoded username with quotes */
 	AUTH_KEY_LEN * 2/* the hex encoded key without quotes */;
     sxi_bin2hex(key, AUTH_KEY_LEN, hexkey);
     ret = sxi_query_create(sx, ".users", REQ_PUT);
     if (ret)
-        ret = sxi_query_append_fmt(sx, ret, n, "{\"userName\":%s,\"userType\":\"%s\",\"userKey\":\"%s\"", qname, admin ? "admin" : "normal", hexkey);
+        ret = sxi_query_append_fmt(sx, ret, n, "{\"userName\":%s,\"userType\":\"%s\",\"userKey\":\"%s\"",
+                                   qname, admin ? "admin" : "normal", hexkey);
+    if (dname)
+        ret = sxi_query_append_fmt(sx, ret, sizeof(",\"userDesc\":") + strlen(dname), ",\"userDesc\":%s", dname);
     if(ret && uid) { /* If UID has been added, then append its hex representation also */
         char hexuid[AUTH_UID_LEN*2+1];
         sxi_bin2hex(uid, AUTH_UID_LEN, hexuid);
@@ -169,14 +179,16 @@ sxi_query_t *sxi_useradd_proto(sxc_client_t *sx, const char *username, const uin
     if(ret)
         ret = sxi_query_append_fmt(sx, ret, 1, "}");
     free(qname);
+    free(dname);
     return ret;
 }
 
 /* username - new user name, the clone name
  * exsitingname - the cloned user name
+ * desc - human readable decription of the user
  * There is also no need to send admin flag like for useradd proto, clone has the same role as existing user */
-sxi_query_t *sxi_userclone_proto(sxc_client_t *sx, const char *existingname, const char *username, const uint8_t *uid, const uint8_t *key) {
-    char *ename, *uname, hexkey[AUTH_KEY_LEN*2+1];
+sxi_query_t *sxi_userclone_proto(sxc_client_t *sx, const char *existingname, const char *username, const uint8_t *uid, const uint8_t *key, const char *desc) {
+    char *ename, *uname, *dname, hexkey[AUTH_KEY_LEN*2+1];
     sxi_query_t *ret;
     unsigned n;
 
@@ -188,15 +200,23 @@ sxi_query_t *sxi_userclone_proto(sxc_client_t *sx, const char *existingname, con
         free(ename);
         return NULL;
     }
+    dname = sxi_json_quote_string(desc);
+    if (!dname) {
+        free(ename);
+        free(uname);
+        return NULL;
+    }
 
-    n = sizeof("{\"userName\":,\"existingName\":,\"userKey\":\"\"") + /* the json body with terminator */
+    n = sizeof("{\"userName\":,\"existingName\":,\"userKey\":\"\",\"userDesc\":") + /* the json body with terminator */
         strlen(ename) + /* the json encoded exsitingname with quotes */
         strlen(uname) + /* the json encoded username with quotes */
+        strlen(dname) +
         AUTH_KEY_LEN * 2/* the hex encoded key without quotes */;
     sxi_bin2hex(key, AUTH_KEY_LEN, hexkey);
     ret = sxi_query_create(sx, ".users", REQ_PUT);
     if (ret)
-        ret = sxi_query_append_fmt(sx, ret, n, "{\"userName\":%s,\"existingName\":%s,\"userKey\":\"%s\"", uname, ename, hexkey);
+        ret = sxi_query_append_fmt(sx, ret, n, "{\"userName\":%s,\"existingName\":%s,\"userKey\":\"%s\",\"userDesc\":%s",
+                                   uname, ename, hexkey, dname);
     if(ret && uid) {
         char hexuid[AUTH_UID_LEN*2+1];
         sxi_bin2hex(uid, AUTH_UID_LEN, hexuid);
@@ -206,6 +226,7 @@ sxi_query_t *sxi_userclone_proto(sxc_client_t *sx, const char *existingname, con
         ret = sxi_query_append_fmt(sx, ret, 1, "}");
     free(ename);
     free(uname);
+    free(dname);
     return ret;
 }
 

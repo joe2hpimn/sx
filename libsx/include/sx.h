@@ -128,7 +128,7 @@ int sxc_cluster_trigger_gc(sxc_cluster_t *cluster, int delete_reservations);
 typedef struct _sxc_cluster_lu_t sxc_cluster_lu_t;
 sxc_cluster_lu_t *sxc_cluster_listusers(sxc_cluster_t *cluster);
 sxc_cluster_lu_t *sxc_cluster_listclones(sxc_cluster_t *cluster, const char *username);
-int sxc_cluster_listusers_next(sxc_cluster_lu_t *lu, char **user_name, int *is_admin);
+int sxc_cluster_listusers_next(sxc_cluster_lu_t *lu, char **user_name, int *is_admin, char **desc);
 void sxc_cluster_listusers_free(sxc_cluster_lu_t *lu);
 
 typedef struct _sxc_cluster_la_t sxc_cluster_la_t;
@@ -294,15 +294,16 @@ int sxc_meta_setval_fromhex(sxc_meta_t *meta, const char *key, const char *value
 void sxc_meta_delval(sxc_meta_t *meta, const char *key);
 void sxc_meta_empty(sxc_meta_t *meta);
 
-char *sxc_user_add(sxc_cluster_t *cluster, const char *username, int admin, const char *oldtoken);
+char *sxc_user_add(sxc_cluster_t *cluster, const char *username, int admin, const char *oldtoken, const char *desc);
 /*
  * Clone existing user
  * username: existing user name
  * clonename: clone name
  * oldtoken: old authorisation token that will assigned to newly created clone
  * role: will receive cloned user role (same as existing users' role)
+ * desc: human readable description of the user
  */
-char *sxc_user_clone(sxc_cluster_t *cluster, const char *username, const char *clonename, const char *oldtoken, int *role);
+char *sxc_user_clone(sxc_cluster_t *cluster, const char *username, const char *clonename, const char *oldtoken, int *role, const char *desc);
 int sxc_user_remove(sxc_cluster_t *cluster, const char *username, int remove_clones);
 int sxc_user_getinfo(sxc_cluster_t *cluster, const char *username, FILE *storeauth, int *is_admin);
 char *sxc_user_newkey(sxc_cluster_t *cluster, const char *username, const char *oldtoken);

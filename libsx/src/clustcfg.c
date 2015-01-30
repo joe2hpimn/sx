@@ -2425,7 +2425,7 @@ static int get_user_info_wrap(sxc_cluster_t *cluster, const char *username, uint
     return 0;
 }
 
-static char *user_add(sxc_cluster_t *cluster, const char *username, int admin, const char *oldtoken, const char *existing, int *clone_role) {
+static char *user_add(sxc_cluster_t *cluster, const char *username, int admin, const char *oldtoken, const char *existing, int *clone_role, const char *desc) {
     uint8_t buf[AUTH_UID_LEN + AUTH_KEY_LEN + 2], *uid = buf, *key = &buf[AUTH_UID_LEN];
     char *tok = NULL, *retkey = NULL;
     sxc_client_t *sx;
@@ -2462,9 +2462,9 @@ static char *user_add(sxc_cluster_t *cluster, const char *username, int admin, c
 
     /* Query */
     if(existing)
-        proto = sxi_userclone_proto(sx, existing, username, oldtoken ? uid : NULL, key);
+        proto = sxi_userclone_proto(sx, existing, username, oldtoken ? uid : NULL, key, desc);
     else
-        proto = sxi_useradd_proto(sx, username, NULL, key, admin);
+        proto = sxi_useradd_proto(sx, username, NULL, key, admin, desc);
     if(!proto) {
 	cluster_err(SXE_EMEM, "Unable to allocate space for request data");
 	return NULL;
@@ -2538,12 +2538,12 @@ static char *user_add(sxc_cluster_t *cluster, const char *username, int admin, c
     return retkey;
 }
 
-char *sxc_user_add(sxc_cluster_t *cluster, const char *username, int admin, const char *oldtoken) {
-    return user_add(cluster, username, admin, oldtoken, NULL, NULL);
+char *sxc_user_add(sxc_cluster_t *cluster, const char *username, int admin, const char *oldtoken, const char *desc) {
+    return user_add(cluster, username, admin, oldtoken, NULL, NULL, desc);
 }
 
-char *sxc_user_clone(sxc_cluster_t *cluster, const char *username, const char *clonename, const char *oldtoken, int *role) {
-    return user_add(cluster, clonename, 0, oldtoken, username, role);
+char *sxc_user_clone(sxc_cluster_t *cluster, const char *username, const char *clonename, const char *oldtoken, int *role, const char *desc) {
+    return user_add(cluster, clonename, 0, oldtoken, username, role, desc);
 }
 
 char *sxc_user_newkey(sxc_cluster_t *cluster, const char *username, const char *oldtoken)
