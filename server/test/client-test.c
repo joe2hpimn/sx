@@ -1140,7 +1140,7 @@ test_cat_err:
 
 int test_errors(sxc_client_t *sx, sxc_cluster_t *cluster, const char *local_dir_path, const char *remote_dir_path, const char *profile_name, const char *cluster_name, const char *filter_dir, const char *filter1_name, const char *filter1_cfg, const char *filter2_name, const char *filter2_cfg, uint64_t block_size, uint64_t block_count, const struct gengetopt_args_info *args, const int max_revisions, const int check_data_size) {
     int ret = 1;
-    char *local_file_path, *remote_file_path = NULL, *wrong_name = NULL, revision[56]="2014-13-32 25:61:69.460:ac6ed3c7a371107a763da500c165c37c"; /* Revision is made of impossible date + md5sum of /dev/urandom */
+    char *local_file_path, *remote_file_path = NULL, *wrong_name = NULL, revision[]="2014-13-32 25:61:69.460:ac6ed3c7a371107a763da500c165c37c"; /* Revision is made of impossible date + md5sum of /dev/urandom */
     FILE *file = NULL;
     sxc_uri_t *uri = NULL;
     sxc_file_t *src = NULL, *dest = NULL;
