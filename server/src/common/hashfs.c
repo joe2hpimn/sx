@@ -527,7 +527,7 @@ static int qopen(const char *path, sxi_db_t **dbp, const char *dbtype, sx_uuid_t
     sqlite3_stmt *q = NULL;
     const char *str;
     sqlite3 *handle = NULL;
-    char qstr[128];
+    char qstr[1024];
 
     if(sqlite3_open_v2(path, &handle, SQLITE_OPEN_READWRITE | SQLITE_OPEN_NOMUTEX, NULL)) {
 	CRIT("Failed to open database %s: %s", path, sqlite3_errmsg(handle));
