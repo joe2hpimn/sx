@@ -1627,7 +1627,7 @@ int test_quota(sxc_client_t *sx, sxc_cluster_t *cluster, const char *local_dir_p
             fprintf(stderr, "test_quota: ERROR: Cannot upload '%s' file: %s\n", local_file_path, sxc_geterrmsg(sx));
             goto test_quota_err;
     }
-    if(sxc_volume_modify(cluster, volname, NULL, 2 * QUOTA_FILE_SIZE * SX_BS_LARGE)) {
+    if(sxc_volume_modify(cluster, volname, NULL, 2 * QUOTA_FILE_SIZE * SX_BS_LARGE, -1)) {
         fprintf(stderr, "test_quota: ERROR: Cannot change volume size: %s\n", sxc_geterrmsg(sx));
         goto test_quota_err;
     }
@@ -2327,7 +2327,7 @@ int test_acl(sxc_client_t *sx, sxc_cluster_t *cluster, const char *local_dir_pat
         fprintf(stderr, "test_acl: ERROR: Cannot revoke 'read,write' permission from '%s': %s\n", user3, sxc_geterrmsg(sx));
         goto test_acl_err;
     }
-    if(sxc_volume_modify(cluster, volname1, user3, 0)) {
+    if(sxc_volume_modify(cluster, volname1, user3, 0, -1)) {
         fprintf(stderr, "test_quota: ERROR: Cannot change volume owner: %s\n", sxc_geterrmsg(sx));
         goto test_acl_err;
     }

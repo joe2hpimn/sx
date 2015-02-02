@@ -1006,6 +1006,31 @@ test_get 'listing all \'tree/*/\' files', authed_only(200, 'application/json'), 
 
 
 
+### Check volume modification request ###
+test_delete_job "Wiping tiny$vol contents", {'badauth'=>[401],$reader=>[403],$writer=>[200]}, "tiny$vol/toobig";
+test_upload 'file upload (add first revision)', $writer, random_data($tinyvolumesize/2-length('toobig')), "tiny$vol", 'toobig';
+test_upload 'file upload (overwrite existing revision)', $writer, random_data($tinyvolumesize/2-length('toobig')), "tiny$vol", 'toobig';
+test_get 'file revisions (should be 1)', authed_only(200, 'application/json'), "tiny$vol/toobig?fileRevisions", undef, sub { my $json = get_json(shift); return 0 unless is_hash($json->{'fileRevisions'}) && scalar keys %{$json->{'fileRevisions'}} == 1; };
+test_put_job "Increasing max revisions for tiny$vol", admin_only(200), "tiny$vol?o=mod", "{\"maxRevisions\":2}";
+test_get "tiny$vol max revisions limit modification", {'badauth'=>[401],$reader=>[200,'application/json'],$writer=>[200,'application/json'],'admin'=>[200,'application/json']}, "?volumeList", undef, sub { my $json = get_json(shift); return 0 unless is_hash($json->{'volumeList'}) && is_hash($json->{'volumeList'}->{"tiny$vol"}) && is_int($json->{'volumeList'}->{"tiny$vol"}->{'maxRevisions'}) && $json->{'volumeList'}->{"tiny$vol"}->{'maxRevisions'} == 2; };
+test_put_job "Increasing max revisions for tiny$vol (too high)", admin_only(400), "tiny$vol?o=mod", "{\"maxRevisions\":100}"; # Revisions limit is too high
+test_put_job "Increasing max revisions for $vol", admin_only(400), "$vol?o=mod", "{\"maxRevisions\":5"; # Will exceed cluster capacity
+test_upload 'file upload (add new revision)', $writer, random_data($tinyvolumesize/2-length('toobig')), "tiny$vol", 'toobig';
+test_get 'file revisions (should be 2)', authed_only(200, 'application/json'), "tiny$vol/toobig?fileRevisions", undef, sub { my $json = get_json(shift); return 0 unless is_hash($json->{'fileRevisions'}) && scalar keys %{$json->{'fileRevisions'}} == 2; };
+test_put_job "Decreasing max revisions for tiny$vol", admin_only(200), "tiny$vol?o=mod", "{\"maxRevisions\":1}"; # New revisions limit is lower than current one
+test_upload 'file upload (overwrite existing revision)', $writer, random_data($tinyvolumesize/2-length('toobig')), "tiny$vol", 'toobig'; # This will allow server to finish delete jobs
+test_get 'file revisions (should be 1)', authed_only(200, 'application/json'), "tiny$vol/toobig?fileRevisions", undef, sub { my $json = get_json(shift); return 0 unless is_hash($json->{'fileRevisions'}) && scalar keys %{$json->{'fileRevisions'}} == 1; };
+$tinyvolumesize = $tinyvolumesize + 2;
+test_put_job "Increasing tiny$vol volume size", admin_only(200), "tiny$vol?o=mod", "{\"size\":$tinyvolumesize}"; # Without this change call below should return 413
+test_upload 'bigger file upload (overwrite existing revision)', $writer, random_data($tinyvolumesize/2-length('toobig')+1), "tiny$vol", 'toobig';
+test_put_job "tiny$vol ownership change (invalid owner)", admin_only(404), "tiny$vol?o=mod", "{\"owner\":\"somebadusername\"}";
+test_put_job "tiny$vol ownership change ($reader)", admin_only(200), "tiny$vol?o=mod", "{\"owner\":\"$reader\"}";
+test_get 'volume ownership', {$reader=>[200,'application/json']}, "tiny$vol?o=acl", undef, sub { my $json = get_json(shift); my %is_priv = map { $_, 1 } @{$json->{$reader}}; return is_array($json->{$reader}) && $is_priv{'owner'}; };
+test_put_job "tiny$vol ownership change (admin)", admin_only(200), "tiny$vol?o=mod", "{\"owner\":\"admin\"}";
+test_get 'volume ownership', {'admin'=>[200,'application/json']}, "tiny$vol?o=acl", undef, sub { my $json = get_json(shift); my %is_priv = map { $_, 1 } @{$json->{'admin'}}; return is_array($json->{'admin'}) && $is_priv{'owner'}; };
+
+
+
 
 test_get 'listing all volumes', {'badauth'=>[401],$reader=>[200,'application/json'],$writer=>[200,'application/json'],'admin'=>[200,'application/json']}, '?volumeList', undef,
     sub {

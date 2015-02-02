@@ -491,6 +491,7 @@ int main(int argc, char **argv) {
         sxc_cluster_t *cluster;
         sxc_uri_t *uri;
         int64_t size = -1;
+        int revs = -1;
 
         ret = 1;
         if(modify_cmdline_parser(argc - 1, &argv[1], &modify_args)) {
@@ -513,6 +514,14 @@ int main(int argc, char **argv) {
             modify_cmdline_parser_free(&modify_args);
             goto main_err;
         }
+
+        if(!modify_args.owner_given && !modify_args.size_given && !modify_args.max_revisions_given) {
+            modify_cmdline_parser_print_help();
+            printf("\n");
+            fprintf(stderr, "ERROR: Invalid arguments\n");
+            modify_cmdline_parser_free(&modify_args);
+            goto main_err;
+        }
         sxc_set_debug(sx, modify_args.debug_flag);
 
         cluster = getcluster_common(sx, modify_args.inputs[0], modify_args.config_dir_arg, &uri);
@@ -527,7 +536,15 @@ int main(int argc, char **argv) {
                 goto modify_err;
         }
 
-        ret = sxc_volume_modify(cluster, uri->volume, modify_args.owner_arg, size);
+        if(modify_args.max_revisions_given) {
+            if(modify_args.max_revisions_arg <= 0) {
+                fprintf(stderr, "ERROR: Bad revisions limit: %d\n", modify_args.max_revisions_arg);
+                goto modify_err;
+            }
+            revs = modify_args.max_revisions_arg;
+        }
+
+        ret = sxc_volume_modify(cluster, uri->volume, modify_args.owner_arg, size, revs);
         if(ret) {
             fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
             goto modify_err;
@@ -536,6 +553,8 @@ int main(int argc, char **argv) {
 		printf("Volume owner changed to '%s'\n", modify_args.owner_arg);
 	    if(modify_args.size_given)
 		printf("Volume size changed to %s\n", modify_args.size_arg);
+            if(modify_args.max_revisions_given)
+                printf("Volume revisions limit changed to %d\n", modify_args.max_revisions_arg);
 	}
 
     modify_err:

@@ -657,6 +657,7 @@ struct _sx_hashfs_t {
     sqlite3_stmt *q_chownvol;
     sqlite3_stmt *q_chownvolbyid;
     sqlite3_stmt *q_resizevol;
+    sqlite3_stmt *q_changerevs;
     sqlite3_stmt *q_minreqs;
     sqlite3_stmt *q_updatevolcursize;
     sqlite3_stmt *q_setvolcursize;
@@ -939,6 +940,7 @@ static void close_all_dbs(sx_hashfs_t *h) {
     sqlite3_finalize(h->q_chownvol);
     sqlite3_finalize(h->q_chownvolbyid);
     sqlite3_finalize(h->q_resizevol);
+    sqlite3_finalize(h->q_changerevs);
     sqlite3_finalize(h->q_minreqs);
     sqlite3_finalize(h->q_updatevolcursize);
     sqlite3_finalize(h->q_setvolcursize);
@@ -1453,6 +1455,8 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
     if(qprep(h->db, &h->q_chownvolbyid, "UPDATE volumes SET owner_id = :owner WHERE vid = :volid AND enabled = 1"))
         goto open_hashfs_fail;
     if(qprep(h->db, &h->q_resizevol, "UPDATE volumes SET maxsize = :size WHERE vid = :volid AND enabled = 1"))
+        goto open_hashfs_fail;
+    if(qprep(h->db, &h->q_changerevs, "UPDATE volumes SET revs = :revs WHERE vid = :volid AND enabled = 1"))
         goto open_hashfs_fail;
     if(qprep(h->db, &h->q_minreqs, "SELECT COALESCE(MAX(replica), 1), COALESCE(SUM(maxsize*replica), 0) FROM volumes"))
         goto open_hashfs_fail;
@@ -3869,11 +3873,6 @@ rc_ty sx_hashfs_revision_next(sx_hashfs_t *h, int reversed) {
     return OK;
 }
 
-static inline int has_wildcard(const char *str)
-{
-    return strcspn(str, "*?[") < strlen(str);
-}
-
 rc_ty sx_hashfs_list_etag(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const char *pattern, int8_t recurse, sx_hash_t *etag)
 {
     sxi_md_ctx *hash_ctx = sxi_md_init();
@@ -3973,7 +3972,7 @@ static int pcmp(sx_hashfs_t *h, const char *p1, const char *p2, unsigned int max
         if(!s1 || !s2 || s1 - p1 != s2 - p2)
             r = strncmp(p1, p2, maxlen);
         else
-            r = strncmp(p1, p2, s1 - p1 < maxlen ? s1 - p1 : maxlen); /* Slash in the same place*/
+            r = strncmp(p1, p2, MIN(s1 - p1, maxlen)); /* Slash in the same place*/
     } else
         r = strncmp(p1, p2, maxlen);
 
@@ -3991,7 +3990,7 @@ static rc_ty lookup_file_name(sx_hashfs_t *h, int db_idx, int update_cache) {
     if(!h->list_recurse && (q = ith_slash(e->name, h->list_pattern_slashes + 1))) {
         /* We are not searching recursively and next slash was found in pervious name,
          * we can skip all files that are prefixed by that dir. To achieve that we can simply move
-         * starting name to next one, but we will have to also be carefull and use >= for name mathing
+         * starting name to the next one, but we will have to also be careful and use >= for name matching
          */
         e->name[q - e->name]++;
         e->name[q - e->name + 1] = '\0';
@@ -4079,7 +4078,7 @@ static int parse_pattern(sx_hashfs_t *h, const char *pattern) {
     if (!*pattern)
         pattern = "/";
 
-    /* Pattern length is at leas 1, so this call is OK */
+    /* Pattern length is at least 1, so this call is OK */
     plen = check_file_name(pattern);
     if(plen < 0) {
         WARN("Could not get pattern length");
@@ -4163,7 +4162,7 @@ rc_ty sx_hashfs_list_first(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, con
         return EINVAL;
     }
 
-    /* If 'after' parameter is bigger than pattern prefix, then ther is no need to query database */
+    /* If 'after' parameter is bigger than pattern prefix, then there is no need to query database */
     if(after && strncmp(h->list_pattern, after, h->list_limit_len) < 0)
         return ITER_NO_MORE;
 
@@ -4204,7 +4203,7 @@ rc_ty sx_hashfs_list_next(sx_hashfs_t *h) {
     int i, min_idx = -1;
     const char *q = NULL;
 
-    if(!h || !h->list_pattern || !*h->list_pattern)
+    if(!h || !*h->list_pattern)
         return EINVAL;
 
     for(i=0; i < METADBS; i++) {
@@ -4234,7 +4233,7 @@ rc_ty sx_hashfs_list_next(sx_hashfs_t *h) {
     }
 
     if(min_idx < 0) {
-        INFO("Queried %lld times", (long long)h->qm_list_queries);
+        DEBUG("Queried %lld times", (long long)h->qm_list_queries);
         return ITER_NO_MORE;
     }
 
@@ -6738,6 +6737,93 @@ rc_ty sx_hashfs_putfile_gettoken(sx_hashfs_t *h, const uint8_t *user, int64_t si
     return ret;
 }
 
+static rc_ty delete_old_revs_common(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const char *name, const char *revision, int make_place, unsigned int *deletes_scheduled) {
+    int r;
+    int mdb;
+    unsigned int scheduled = 0;
+
+    if(!volume || !name) {
+        NULLARG();
+        return EINVAL;
+    }
+
+    mdb = getmetadb(name);
+    if(mdb < 0 || mdb >= METADBS) {
+        WARN("Failed to get meta db index");
+        return FAIL_EINTERNAL;
+    }
+
+    /* Count old file revisions */
+    sqlite3_reset(h->qm_oldrevs[mdb]);
+    if(qbind_int64(h->qm_oldrevs[mdb], ":volume", volume->id) ||
+       qbind_text(h->qm_oldrevs[mdb], ":name", name))
+        return FAIL_EINTERNAL;
+
+    r = qstep(h->qm_oldrevs[mdb]);
+    if(r == SQLITE_ROW) {
+        unsigned int nrevs = sqlite3_column_int(h->qm_oldrevs[mdb], 2);
+        rc_ty rc = OK;
+        job_t job = JOB_NOPARENT;
+
+        /* There are some revs */
+        while(nrevs >= volume->revisions + (make_place ? 0 : 1)) {
+            const char *tooold_rev = (const char *)sqlite3_column_text(h->qm_oldrevs[mdb], 0);
+
+            if(!tooold_rev) {
+                WARN("NULL old revision");
+                msg_set_reason("Invalid old revision");
+                break;
+            }
+
+            if(revision) { /* If revision is given, then check if it is not outdated */
+                if(strcmp(revision, (const char *)sqlite3_column_text(h->qm_oldrevs[mdb], 0)) < 0) {
+                    msg_set_reason("Newer copies of this file already exist");
+                    rc = EINVAL;
+                    break;
+                }
+            }
+
+            rc = sx_hashfs_filedelete_job(h, 0, volume, name, tooold_rev, &job);
+            if(rc == EEXIST)
+                rc = OK;
+            else if(rc) {
+                msg_set_reason("Failed to mark older file revision '%s' for deletion", tooold_rev);
+                break;
+            }
+
+            scheduled++;
+            nrevs--;
+            if(!nrevs)
+                break;
+
+            r = qstep(h->qm_oldrevs[mdb]);
+            if(r != SQLITE_ROW) {
+                msg_set_reason("There was a problem enumerating current revisions of the file");
+                rc = FAIL_EINTERNAL;
+                break;
+            }
+        }
+
+        sqlite3_reset(h->qm_oldrevs[mdb]);
+        if(rc)
+            return rc;
+        /* Yay we have a slot now */
+    } else {
+        sqlite3_reset(h->qm_oldrevs[mdb]);
+        if(r != SQLITE_DONE) /* Something didn't quite work */
+            return FAIL_EINTERNAL;
+        /* There are no existing revs */
+    }
+
+    if(deletes_scheduled)
+        *deletes_scheduled = scheduled;
+    return OK;
+}
+
+rc_ty sx_hashfs_delete_old_revs(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const char *name, unsigned int *deletes_scheduled) {
+    return delete_old_revs_common(h, volume, name, NULL, 0, deletes_scheduled);
+}
+
 /* WARNING: MUST BE CALLED WITHIN A TANSACTION ON META !!! */
 static rc_ty create_file(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const char *name, const char *revision, sx_hash_t *blocks, unsigned int nblocks, int64_t size, int64_t totalsize, int64_t *file_id) {
     unsigned int nblocks2;
@@ -6793,58 +6879,10 @@ static rc_ty create_file(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const
     }
     sqlite3_reset(q);
 
-    /* Count current file revisions */
-    sqlite3_reset(h->qm_oldrevs[mdb]);
-    if(qbind_int64(h->qm_oldrevs[mdb], ":volume", volume->id) ||
-       qbind_text(h->qm_oldrevs[mdb], ":name", name))
-	return FAIL_EINTERNAL;
-
-    r = qstep(h->qm_oldrevs[mdb]);
-    if(r == SQLITE_ROW) {
-	int nrevs = sqlite3_column_int(h->qm_oldrevs[mdb], 2);
-	rc_ty rc = OK;
-	job_t job = JOB_NOPARENT;
-
-	/* There are some revs */
-	while(nrevs >= volume->revisions) {
-	    const char *tooold_rev = (const char *)sqlite3_column_text(h->qm_oldrevs[mdb], 0);
-	    
-	    if(strcmp(revision, (const char *)sqlite3_column_text(h->qm_oldrevs[mdb], 0)) < 0) {
-		msg_set_reason("Newer copies of this file already exist");
-		rc = EINVAL;
-		break;
-	    }
-
-	    rc = sx_hashfs_filedelete_job(h, 0, volume, name, tooold_rev, &job);
-	    if(rc == EEXIST)
-		rc = OK;
-	    else if(rc) {
-		msg_set_reason("Failed to mark older older file revision '%s' for deletion", tooold_rev);
-		break;
-	    }
-
-	    nrevs--;
-	    if(!nrevs)
-		break;
-
-	    r = qstep(h->qm_oldrevs[mdb]);
-	    if(r != SQLITE_ROW) {
-		msg_set_reason("There was a problem enumerating current revisions of the file");
-		rc = FAIL_EINTERNAL;
-		break;
-	    }
-	}	
-
-        sqlite3_reset(h->qm_oldrevs[mdb]);
-	if(rc)
-	    return rc;
-        /* Yay we have a slot now */
-    } else {
-	sqlite3_reset(h->qm_oldrevs[mdb]);
-	if(r != SQLITE_DONE) /* Something didn't quite work */
-	    return FAIL_EINTERNAL;
-
-	/* There are no existing revs */
+    /* Drop old exisiting revisions of the file */
+    if(delete_old_revs_common(h, volume, name, revision, 1, NULL) != OK) {
+        WARN("Failed to remove old revisions");
+        return FAIL_EINTERNAL;
     }
 
     sqlite3_reset(h->qm_ins[mdb]);
@@ -7758,7 +7796,6 @@ rc_ty sx_hashfs_tmp_tofile(sx_hashfs_t *h, const sx_hashfs_tmpinfo_t *missing) {
 
     return ret;
 }
-
 
 static rc_ty file_totmp(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, const char *name, const char *revision, int64_t *tmpfile_id, unsigned int *timeout) {
     unsigned int nblocks, bsize, content_len, avail_len;
@@ -8782,6 +8819,7 @@ static const char *locknames[] = {
     "REPLACE_BLOCKS", /* JOBTYPE_REPLACE_BLOCKS */
     "REPLACE_FILES", /* JOBTYPE_REPLACE_FILES */
     NULL, /* JOBTYPE_DUMMY */
+    NULL, /* JOBTYPE_REVSCLEAN */
 };
 
 #define MAX_PENDING_JOBS 128
@@ -11758,6 +11796,7 @@ static rc_ty volume_chown(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, int64_t
         goto volume_chown_err;
     }
 
+    INFO("Volume %s owner ID changed to %lld", vol->name, (long long)newid);
     ret = OK;
 volume_chown_err:
     sqlite3_reset(h->q_chownvolbyid);
@@ -11782,13 +11821,37 @@ static rc_ty volume_resize(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, int64_
         goto volume_resize_err;
     }
 
+    INFO("Volume %s size changed to %lld", vol->name, (long long)newsize);
     ret = OK;
 volume_resize_err:
     sqlite3_reset(h->q_resizevol);
     return ret;
 }
 
-rc_ty sx_hashfs_volume_mod(sx_hashfs_t *h, const char *volume, const char *newowner, int64_t newsize) {
+static rc_ty volume_change_revs(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, unsigned int max_revs) {
+    rc_ty ret = FAIL_EINTERNAL;
+
+    if(!vol) {
+        NULLARG();
+        return EINVAL;
+    }
+
+    sqlite3_reset(h->q_changerevs);
+    if(qbind_int(h->q_changerevs, ":revs", max_revs)
+       || qbind_int64(h->q_changerevs, ":volid", vol->id)
+       || qstep_noret(h->q_changerevs)) {
+        msg_set_reason("Could not update volume revisions limit");
+        goto volume_change_revs_err;
+    }
+
+    INFO("Volume %s revisions limit changed to %d", vol->name, max_revs);
+    ret = OK;
+volume_change_revs_err:
+    sqlite3_reset(h->q_changerevs);
+    return ret;
+}
+
+rc_ty sx_hashfs_volume_mod(sx_hashfs_t *h, const char *volume, const char *newowner, int64_t newsize, int max_revs) {
     rc_ty ret = FAIL_EINTERNAL, s;
     const sx_hashfs_volume_t *vol = NULL;
     sx_uid_t newid;
@@ -11798,8 +11861,8 @@ rc_ty sx_hashfs_volume_mod(sx_hashfs_t *h, const char *volume, const char *newow
         return ret;
     }
 
-    if(!*newowner && newsize == -1)
-        return OK;
+    if(!*newowner && newsize == -1 && max_revs == -1)
+        return OK; /* Nothing to do */
 
     if(qbegin(h->db)) {
         msg_set_reason("Database is locked");
@@ -11836,6 +11899,15 @@ rc_ty sx_hashfs_volume_mod(sx_hashfs_t *h, const char *volume, const char *newow
         /* Perform resize operation */
         if((s = volume_resize(h, vol, newsize)) != OK) {
             msg_set_reason("Failed to resize volume: %s", msg_get_reason());
+            ret = s;
+            goto sx_hashfs_volume_mod_err;
+        }
+    }
+
+    if(max_revs != -1 && (unsigned int)max_revs <= SXLIMIT_MAX_REVISIONS && (unsigned int)max_revs >= SXLIMIT_MIN_REVISIONS) {
+        /* Revisions correctness has been checked, modify volume now */
+        if((s = volume_change_revs(h, vol, max_revs)) != OK) {
+            msg_set_reason("Failed to change volume revisions limit: %s", msg_get_reason());
             ret = s;
             goto sx_hashfs_volume_mod_err;
         }

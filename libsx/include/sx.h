@@ -312,7 +312,7 @@ char *sxc_cluster_whoami(sxc_cluster_t *cluster);
 
 int sxc_volume_add(sxc_cluster_t *cluster, const char *name, int64_t size, unsigned int replica, unsigned int revisions, sxc_meta_t *metadata, const char *owner);
 int sxc_volume_remove(sxc_cluster_t *cluster, const char *name);
-int sxc_volume_modify(sxc_cluster_t *cluster, const char *volume, const char *newowner, int64_t newsize);
+int sxc_volume_modify(sxc_cluster_t *cluster, const char *volume, const char *newowner, int64_t newsize, int max_revs);
 int sxc_volume_acl(sxc_cluster_t *cluster, const char *url,
                   const char *user, const char *grant, const char *revoke);
 

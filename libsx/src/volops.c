@@ -92,7 +92,7 @@ int sxc_volume_remove(sxc_cluster_t *cluster, const char *name) {
     return ret;
 }
 
-int sxc_volume_modify(sxc_cluster_t *cluster, const char *volume, const char *newowner, int64_t newsize) {
+int sxc_volume_modify(sxc_cluster_t *cluster, const char *volume, const char *newowner, int64_t newsize, int max_revs) {
     sxc_client_t *sx;
     sxi_hostlist_t volhosts;
     sxi_query_t *query = NULL;
@@ -112,7 +112,7 @@ int sxc_volume_modify(sxc_cluster_t *cluster, const char *volume, const char *ne
     if(sxi_locate_volume(sxi_cluster_get_conns(cluster), volume, &volhosts, NULL, NULL))
         goto sxc_volume_modify_err;
 
-    query = sxi_volume_mod_proto(sx, volume, newowner, newsize);
+    query = sxi_volume_mod_proto(sx, volume, newowner, newsize, max_revs);
     if(!query) {
         sxi_seterr(sx, SXE_EMEM, "Failed to prepare volume chown query");
         goto sxc_volume_modify_err;

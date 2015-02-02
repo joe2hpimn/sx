@@ -1185,14 +1185,16 @@ void fcgi_volsizes(void) {
     yajl_free(yh);
 }
 
-/* {"owner":"alice","size":1000000000} */
+/* {"owner":"alice","size":1000000000,"maxRevisions":10} */
 struct volmod_ctx {
-    enum cb_volmod_state { CB_VOLMOD_START, CB_VOLMOD_KEY, CB_VOLMOD_OWNER, CB_VOLMOD_SIZE, CB_VOLMOD_COMPLETE } state;
+    enum cb_volmod_state { CB_VOLMOD_START, CB_VOLMOD_KEY, CB_VOLMOD_OWNER, CB_VOLMOD_SIZE, CB_VOLMOD_REVS, CB_VOLMOD_COMPLETE } state;
     const char *volume;
     char oldowner[SXLIMIT_MAX_FILENAME_LEN+1];
     char newowner[SXLIMIT_MAX_FILENAME_LEN+1];
     int64_t oldsize;
     int64_t newsize;
+    int oldrevs;
+    int newrevs;
 };
 
 static const char *volmod_get_lock(sx_blob_t *b)
@@ -1221,7 +1223,8 @@ static int blob_to_volmod(sx_blob_t *b, struct volmod_ctx *ctx) {
 
     if(sx_blob_get_string(b, &ctx->volume) || sx_blob_get_string(b, &oldowner)
        || sx_blob_get_string(b, &newowner) || sx_blob_get_int64(b, &ctx->oldsize)
-       || sx_blob_get_int64(b, &ctx->newsize)) {
+       || sx_blob_get_int64(b, &ctx->newsize) || sx_blob_get_int32(b, &ctx->oldrevs)
+       || sx_blob_get_int32(b, &ctx->newrevs)) {
         WARN("Corrupted volume mod blob");
         return 1;
     }
@@ -1249,7 +1252,8 @@ static int volmod_to_blob(sxc_client_t *sx, int nodes, void *yctx, sx_blob_t *jo
 
     if(sx_blob_add_string(joblb, ctx->volume) || sx_blob_add_string(joblb, ctx->oldowner)
         || sx_blob_add_string(joblb, ctx->newowner) || sx_blob_add_int64(joblb, ctx->oldsize)
-        || sx_blob_add_int64(joblb, ctx->newsize)) {
+        || sx_blob_add_int64(joblb, ctx->newsize) || sx_blob_add_int32(joblb, ctx->oldrevs)
+        || sx_blob_add_int32(joblb, ctx->newrevs)) {
         msg_set_reason("Cannot create job storage");
         return -1;
     }
@@ -1272,14 +1276,75 @@ static sxi_query_t* volmod_proto_from_blob(sxc_client_t *sx, sx_blob_t *b, jobph
 
     switch (phase) {
         case JOBPHASE_COMMIT:
-            return sxi_volume_mod_proto(sx, ctx.volume, ctx.newowner, ctx.newsize);
+            return sxi_volume_mod_proto(sx, ctx.volume, ctx.newowner, ctx.newsize, ctx.newrevs);
         case JOBPHASE_ABORT:
-            return sxi_volume_mod_proto(sx, ctx.volume, ctx.oldowner, ctx.oldsize);
+            return sxi_volume_mod_proto(sx, ctx.volume, ctx.oldowner, ctx.oldsize, ctx.oldrevs);
         case JOBPHASE_UNDO:
-            return sxi_volume_mod_proto(sx, ctx.volume, ctx.oldowner, ctx.oldsize);
+            return sxi_volume_mod_proto(sx, ctx.volume, ctx.oldowner, ctx.oldsize, ctx.oldrevs);
         default:
             return NULL;
     }
+}
+
+static rc_ty volmod_create_revsclean_job(sx_hashfs_t *h, const char *v) {
+    const sx_hashfs_volume_t *vol = NULL;
+    rc_ty s;
+    job_t job;
+    sx_nodelist_t *curnode_list = NULL;
+    sx_blob_t *joblb;
+    const void *job_data;
+    unsigned int job_datalen;
+    int job_timeout = 20;
+    const sx_node_t *me;
+
+    if((s = sx_hashfs_volume_by_name(h, v, &vol)) != OK) {
+        WARN("Failed to get volume %s reference", v);
+        return s;
+    }
+
+    me = sx_hashfs_self(h);
+    if(!me) {
+        WARN("Failed to get self node reference");
+        return FAIL_EINTERNAL;
+    }
+
+    /* Schedule to PREVNEXT. On old volnodes all files will eventually be dropped,
+     * but we should avoid listing old revs and it is done on PREV */
+    if(!sx_hashfs_is_node_volume_owner(h, NL_PREVNEXT, me, vol)) {
+        /* Do not schedule this job if local node is not a volnode */
+        DEBUG("Skipped scheduling revsclean job: not a volnode");
+        return OK;
+    }
+
+    curnode_list = sx_nodelist_new();
+    if(!curnode_list) {
+        WARN("Failed to allocate nodeslist");
+        return FAIL_EINTERNAL;
+    }
+    if(sx_nodelist_add(curnode_list, sx_node_dup(me))) {
+        WARN("Failed to add myself to nodelist");
+        sx_nodelist_delete(curnode_list);
+        return FAIL_EINTERNAL;
+    }
+
+    if(!(joblb = sx_blob_new())) {
+        WARN("Cannot allocate job blob");
+        sx_nodelist_delete(curnode_list);
+        return FAIL_EINTERNAL;
+    }
+
+    if(sx_blob_add_string(joblb, vol->name) || sx_blob_add_string(joblb, "")) {
+        sx_blob_free(joblb);
+        sx_nodelist_delete(curnode_list);
+        WARN("Cannot create job blob");
+        return FAIL_EINTERNAL;
+    }
+
+    sx_blob_to_data(joblb, &job_data, &job_datalen);
+    s = sx_hashfs_job_new(h, 0, &job, JOBTYPE_REVSCLEAN, job_timeout, vol->name, job_data, job_datalen, curnode_list);
+    sx_blob_free(joblb);
+    sx_nodelist_delete(curnode_list);
+    return s;
 }
 
 static rc_ty volmod_execute_blob(sx_hashfs_t *h, sx_blob_t *b, jobphase_t phase, int remote)
@@ -1301,18 +1366,25 @@ static rc_ty volmod_execute_blob(sx_hashfs_t *h, sx_blob_t *b, jobphase_t phase,
 
     switch (phase) {
         case JOBPHASE_COMMIT:
-            rc = sx_hashfs_volume_mod(h, ctx.volume, ctx.newowner, ctx.newsize);
+            rc = sx_hashfs_volume_mod(h, ctx.volume, ctx.newowner, ctx.newsize, ctx.newrevs);
             if (rc != OK)
                 WARN("Failed to change volume %s: %s", ctx.volume, msg_get_reason());
+            if(rc == OK && ctx.newrevs < ctx.oldrevs) {
+                rc = volmod_create_revsclean_job(h, ctx.volume);
+                if(rc != OK)
+                    WARN("Failed to create revsclean job");
+                /* Do not fail here, its background job */
+                return OK;
+            }
             return rc;
         case JOBPHASE_ABORT:
-            rc = sx_hashfs_volume_mod(h, ctx.volume, ctx.oldowner, ctx.oldsize);
+            rc = sx_hashfs_volume_mod(h, ctx.volume, ctx.oldowner, ctx.oldsize, ctx.oldrevs);
             if (rc != OK)
                 WARN("Failed to change volume %s: %s", ctx.volume, msg_get_reason());
             return rc;
         case JOBPHASE_UNDO:
             CRIT("volume '%s' may have been left in an inconsistent state after a failed modification attempt", ctx.volume);
-            rc = sx_hashfs_volume_mod(h, ctx.volume, ctx.oldowner, ctx.oldsize);
+            rc = sx_hashfs_volume_mod(h, ctx.volume, ctx.oldowner, ctx.oldsize, ctx.oldrevs);
             if (rc != OK)
                 WARN("Failed to change volume %s: %s", ctx.volume, msg_get_reason());
             return rc;
@@ -1374,9 +1446,21 @@ static rc_ty volmod_parse_complete(void *yctx)
             return EINVAL;
         }
         ctx->oldsize = vol->size;
+    }
 
-        /* Check if new volume size is ok */
-        if((s = sx_hashfs_check_volume_settings(hashfs, volume, ctx->newsize, vol->replica_count, vol->revisions)) != OK)
+    if(ctx->newrevs != -1) {
+        /* Check if revisions number is higher than current limit */
+        if(!has_priv(PRIV_CLUSTER) && (unsigned int)ctx->newrevs == vol->revisions) {
+            msg_set_reason("New revisions limit is the same as current value");
+            return EINVAL;
+        }
+        ctx->oldrevs = vol->revisions;
+    }
+
+    if(ctx->newrevs != -1 || ctx->newsize != -1) {
+        /* Check if new volume configuration is ok */
+        if((s = sx_hashfs_check_volume_settings(hashfs, volume, ctx->newsize != -1 ? ctx->newsize : vol->size, vol->replica_count,
+           ctx->newrevs != -1 ? ctx->newrevs : vol->revisions)) != OK)
             return s; /* Message is set by sx_hashfs_check_volume_settings() */
     }
 
@@ -1403,18 +1487,34 @@ static int cb_volmod_string(void *ctx, const unsigned char *s, size_t l) {
 static int cb_volmod_number(void *ctx, const char *s, size_t l) {
     struct volmod_ctx *c = (struct volmod_ctx *)ctx;
     char number[21], *eon;
+    int64_t n;
+    if(l<1 || l>20) {
+        WARN("Failed to parse number: invalid length: %ld", l);
+        return 0;
+    }
+
+    memcpy(number, s, l);
+    number[l] = '\0';
+    n = strtoll(number, &eon, 10);
+    if(*eon) {
+        WARN("Failed to parse number");
+        return 0;
+    }
+
     if(c->state == CB_VOLMOD_SIZE) {
-        if(c->newsize >= 0 || l<1 || l>20) {
-            WARN("Failed to parse new volume size");
+        if(c->newsize >= 0) {
+            WARN("Failed to parse new volume size: already assigned");
             return 0;
         }
-
-        memcpy(number, s, l);
-        number[l] = '\0';
-        c->newsize = strtoll(number, &eon, 10);
-        if(*eon)
+        c->newsize = n;
+        c->state = CB_VOLMOD_KEY;
+        return 1;
+    } else if(c->state == CB_VOLMOD_REVS) {
+        if(c->newrevs >= 0) {
+            WARN("Failed to parse new volume revisions limit: already assigned");
             return 0;
-
+        }
+        c->newrevs = n;
         c->state = CB_VOLMOD_KEY;
         return 1;
     }
@@ -1439,6 +1539,10 @@ static int cb_volmod_map_key(void *ctx, const unsigned char *s, size_t l) {
         }
         if(l == lenof("size") && !strncmp("size", (const char*)s, l)) {
             c->state = CB_VOLMOD_SIZE;
+            return 1;
+        }
+        if(l == lenof("maxRevisions") && !strncmp("maxRevisions", (const char*)s, l)) {
+            c->state = CB_VOLMOD_REVS;
             return 1;
         }
     }
@@ -1489,6 +1593,8 @@ void fcgi_volume_mod(void) {
     ctx.newowner[0] = '\0';
     ctx.newsize = -1;
     ctx.oldsize = -1;
+    ctx.newrevs = -1;
+    ctx.oldrevs = -1;
     ctx.volume = volume;
 
     job_2pc_handle_request(sx_hashfs_client(hashfs), &volmod_spec, &ctx);

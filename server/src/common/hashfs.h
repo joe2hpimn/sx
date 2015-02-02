@@ -244,7 +244,7 @@ int sx_hashfs_is_node_faulty(sx_hashfs_t *h, const sx_uuid_t *node_uuid);
 rc_ty sx_hashfs_set_unfaulty(sx_hashfs_t *h, const sx_uuid_t *nodeid, int64_t dist_rev);
 
 /* Change volume ownership and/or size*/
-rc_ty sx_hashfs_volume_mod(sx_hashfs_t *h, const char *volume, const char *newowner, int64_t newsize);
+rc_ty sx_hashfs_volume_mod(sx_hashfs_t *h, const char *volume, const char *newowner, int64_t newsize, int max_revs);
 
 /* File list */
 typedef struct _sx_hashfs_file_t {
@@ -288,6 +288,9 @@ rc_ty sx_hashfs_gc_expire_all_reservations(sx_hashfs_t *h);
 
 /* Update volume sizes on remote non-volnodes */
 rc_ty sx_hashfs_push_volume_sizes(sx_hashfs_t *h);
+
+/* Delete all outdated revisions of files sotred in volume */
+rc_ty sx_hashfs_delete_old_revs(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const char *name, unsigned int *deletes_scheduled);
 
 /* File put */
 

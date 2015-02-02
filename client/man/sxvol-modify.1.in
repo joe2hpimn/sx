@@ -23,6 +23,9 @@ Set a new owner of the volume. The old owner will be automatically removed from 
 \fB\-s\fR, \fB\-\-size\fR=\fI\,SIZE\/\fR
 Set a new size of the volume. If the new size is lower than the current space usage of the volume, it will not be possible to store any new data until enough data gets removed to satisfy the limit. The size can be followed by one of the following suffixes: K(-ilobytes), M(-megabytes), G(-igabytes) and T(-erabytes) suffixes.
 .TP
+\fB\-\-max\-revisions\fR=\fI\,NUMBER\/\fR
+Set a new limit for the number of file revisions kept int the volume. If the new limit is lower than a previous one, the oldest file revisions, which exceed it will be deleted. See \fBsxrev\fR(1) for more information about revisions.
+.TP
 \fB\-D\fR, \fB\-\-debug\fR
 Enable debug messages
 .TP

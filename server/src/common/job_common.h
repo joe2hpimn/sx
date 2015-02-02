@@ -66,6 +66,7 @@ typedef enum _jobtype_t {
     JOBTYPE_REPLACE_BLOCKS,
     JOBTYPE_REPLACE_FILES,
     JOBTYPE_DUMMY,
+    JOBTYPE_REVSCLEAN,
 } jobtype_t;
 
 typedef enum {

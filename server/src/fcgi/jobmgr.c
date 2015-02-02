@@ -3958,6 +3958,128 @@ static act_result_t dummy_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *jo
     return force_phase_success(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
 }
 
+#define REVSCLEAN_ITER_LIMIT     64
+
+static act_result_t revsclean_vol_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    const sx_hashfs_volume_t *vol = NULL;
+    const sx_hashfs_file_t *file = NULL;
+    const char *volume = NULL, *file_threshold = NULL;
+    rc_ty s, t;
+    unsigned int scheduled = 0;
+    sx_blob_t *b;
+    act_result_t ret = ACT_RESULT_OK;
+    unsigned int nnodes;
+    const sx_node_t *me;
+    unsigned int my_index = 0;
+
+    b = sx_blob_from_data(job_data->ptr, job_data->len);
+    if(!b) {
+        WARN("Cannot allocate blob for job %lld", (long long)job_id);
+        action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
+    }
+
+    if(sx_blob_get_string(b, &volume) ||
+       sx_blob_get_string(b, &file_threshold)) {
+        WARN("Cannot get job data from blob for job %lld", (long long)job_id);
+        action_error(ACT_RESULT_PERMFAIL, 500, "Internal error: data corruption detected");
+    }
+
+    if((s = sx_hashfs_volume_by_name(hashfs, volume, &vol)) != OK) {
+        WARN("Failed to get volume %s reference: %s", volume, msg_get_reason());
+        action_error(ACT_RESULT_PERMFAIL, 500, "Internal error: Invalid volume");
+    }
+
+    /* All volnodes that received this commit request should iterate over files and schedule delete jobs for the outdate revs */
+    for(s = sx_hashfs_list_first(hashfs, vol, NULL, &file, 1, file_threshold); s == OK; s = sx_hashfs_list_next(hashfs)) {
+        unsigned int scheduled_per_file = 0;
+
+        if((t = sx_hashfs_delete_old_revs(hashfs, vol, file->name+1, &scheduled_per_file)) != OK) {
+            WARN("Failed to schedule deletes for file %s", file->name);
+            /* This will not break the job itself and let it retry deleting old revisions */
+            action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to schedule outdated revisions deletion");
+        }
+
+        scheduled += scheduled_per_file;
+        if(scheduled >= REVSCLEAN_ITER_LIMIT) {
+            DEBUG("Reached revisions cleaning limit: %u", scheduled);
+            break;
+        }
+    }
+
+    if(s != ITER_NO_MORE && s != OK) {
+        WARN("Iteration failed: %s", msg_get_reason());
+        action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to iterate over files");
+    }
+
+    /* Job is scheduled only on local node */
+    nnodes = sx_nodelist_count(nodes);
+    if(nnodes != 1) {
+        WARN("Revsclean job scheduled to more than one (local) node, or nodes list is empty");
+        action_error(ACT_RESULT_PERMFAIL, 500, "Revsclean job scheduled to more than one (local) node");
+    }
+
+    me = sx_hashfs_self(hashfs);
+    if(!me) {
+        WARN("Failed to get self node reference");
+        action_error(ACT_RESULT_PERMFAIL, 500, "Failed to get node reference");
+    }
+
+    if(s == ITER_NO_MORE) {
+        succeeded[my_index] = 1;
+    } else { /* s == OK */
+        sx_blob_t *new_blob;
+        job_t job;
+        const void *new_job_data;
+        unsigned int job_datalen;
+        sx_nodelist_t *curnode_list;
+        int job_timeout = 20;
+
+        if(!(new_blob = sx_blob_new()))
+            action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
+
+        /* Insert volume name and last cleaned up file name */
+        if(sx_blob_add_string(new_blob, volume) || sx_blob_add_string(new_blob, file->name)) {
+            sx_blob_free(new_blob);
+            action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
+        }
+
+        sx_blob_to_data(new_blob, &new_job_data, &job_datalen);
+        curnode_list = sx_nodelist_new();
+        if(!curnode_list) {
+            WARN("Failed to allocate nodeslist");
+            sx_blob_free(new_blob);
+            action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
+        }
+        if(sx_nodelist_add(curnode_list, sx_node_dup(me))) {
+            WARN("Failed to add myself to nodelist");
+            sx_blob_free(new_blob);
+            sx_nodelist_delete(curnode_list);
+            action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
+        }
+        s = sx_hashfs_job_new(hashfs, 0, &job, JOBTYPE_REVSCLEAN, job_timeout, volume, new_job_data, job_datalen, curnode_list);
+        sx_blob_free(new_blob);
+        sx_nodelist_delete(curnode_list);
+        if(s != OK)
+            action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to create next job");
+        succeeded[my_index] = 1;
+    }
+
+action_failed:
+    sx_blob_free(b);
+    return ret;
+}
+
+/* At least some warnings should be printed when revsclean job fails */
+static act_result_t revsclean_vol_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    WARN("Failed to finish backgroud revsclean job");
+    return force_phase_success(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
+}
+
+static act_result_t revsclean_vol_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    WARN("Failed to finish backgroud revsclean job");
+    return force_phase_success(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
+}
+
 
 /* Update cbdata array with new context and send volsizes query to given node */
 static rc_ty finalize_query(sx_hashfs_t *h, curlev_context_t ***cbdata, unsigned int *ncbdata, const sx_node_t *n, unsigned int node_index, sxi_query_t *query) {
@@ -4223,6 +4345,7 @@ static struct {
     { replaceblocks_request, replaceblocks_commit, force_phase_success, force_phase_success }, /* JOBTYPE_REPLACE_BLOCKS */
     { replacefiles_request, replacefiles_commit, force_phase_success, force_phase_success }, /* JOBTYPE_REPLACE_FILES */
     { dummy_request, dummy_commit, dummy_abort, dummy_undo }, /* JOBTYPE_DUMMY */
+    { force_phase_success, revsclean_vol_commit, revsclean_vol_abort, revsclean_vol_undo }, /* JOBTYPE_REVSCLEAN */
 };
 
 

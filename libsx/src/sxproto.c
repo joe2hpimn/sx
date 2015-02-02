@@ -866,14 +866,14 @@ sxi_query_t *sxi_volsizes_proto_end(sxc_client_t *sx, sxi_query_t *query) {
     return sxi_query_append_fmt(sx, query, 2, "}");
 }
 
-sxi_query_t *sxi_volume_mod_proto(sxc_client_t *sx, const char *volume, const char *newowner, int64_t newsize) {
+sxi_query_t *sxi_volume_mod_proto(sxc_client_t *sx, const char *volume, const char *newowner, int64_t newsize, int max_revs) {
     sxi_query_t *query = NULL, *ret = NULL;
     char *enc_vol = NULL, *enc_owner = NULL, *path = NULL;
     unsigned int len;
     int comma = 0;
 
-    if(!volume || (!newowner && newsize < 0)) {
-        SXDEBUG("Called with NULL argument");
+    if(!volume || (!newowner && newsize < 0 && max_revs < 0)) {
+        SXDEBUG("Invalid argument");
         return NULL;
     }
 
@@ -920,7 +920,16 @@ sxi_query_t *sxi_volume_mod_proto(sxc_client_t *sx, const char *volume, const ch
     if(newsize > 0) {
         query = sxi_query_append_fmt(sx, query, strlen("\"size\":") + 21 + comma, "%s\"size\":%lld", (comma ? "," : ""), (long long)newsize);
         if(!query) {
-            SXDEBUG("Failed to append owner field to query JSON");
+            SXDEBUG("Failed to append size field to query JSON");
+            goto sxi_volume_mod_proto_err;
+        }
+        comma = 1;
+    }
+
+    if(max_revs > 0) {
+        query = sxi_query_append_fmt(sx, query, strlen("\"maxRevisions\":") + 21 + comma, "%s\"maxRevisions\":%d", (comma ? "," : ""), max_revs);
+        if(!query) {
+            SXDEBUG("Failed to append revs field to query JSON");
             goto sxi_volume_mod_proto_err;
         }
     }
