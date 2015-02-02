@@ -356,7 +356,7 @@ int main(int argc, char **argv) {
     if(!file)
 	goto err;
 
-    if(op == OPCOPY && !sxc_copy_sxfile(file, destfile))
+    if(op == OPCOPY && !sxc_copy_sxfile(file, destfile, 0))
 	ret = 0;
 
     if(op == OPDELETE && !sxc_remove_sxfile(file))

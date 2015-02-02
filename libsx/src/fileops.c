@@ -504,6 +504,27 @@ void sxc_file_free(sxc_file_t *sxfile) {
     free(sxfile);
 }
 
+static int sxi_same_local_file(sxc_client_t *sx, const char *source, const char *dest, int srcfd, int dstfd)
+{
+    struct stat sb1, sb2;
+    /* make sure they are different files even in the presence of links */
+    if (fstat(srcfd, &sb1)) {
+	sxi_setsyserr(sx, SXE_EARG, "Copy failed: cannot stat source file");
+        return 1;
+    }
+    if (fstat(dstfd, &sb1)) {
+	sxi_setsyserr(sx, SXE_EARG, "Copy failed: cannot stat dest file");
+        return 1;
+    }
+    if (sb1.st_dev == sb2.st_dev &&
+        sb1.st_ino == sb2.st_ino &&
+        sb1.st_mode == sb2.st_mode) {
+	sxi_seterr(sx, SXE_EARG, "'%s' and '%s' are the same file", source, dest);
+        return 1;
+    }
+    return 0;
+}
+
 static int file_to_file(sxc_client_t *sx, const char *source, const char *dest, const sxc_exclude_t *exclude)
 {
     char buf[8192];
@@ -528,6 +549,12 @@ static int file_to_file(sxc_client_t *sx, const char *source, const char *dest, 
 	fclose(f);
 	return 1;
     }
+    if (sxi_same_local_file(sx, source, dest, fileno(f), fileno(d))) {
+	fclose(f);
+	fclose(d);
+        return 1;
+    }
+
     while(1) {
 	size_t l = fread(buf, 1, sizeof(buf), f);
 	if(!l)
@@ -4294,7 +4321,7 @@ remote_to_remote_fast_err:
     return job;
 }
 
-static sxi_job_t* remote_to_remote(sxc_file_t *source, sxc_file_t *dest) {
+static sxi_job_t* remote_to_remote(sxc_file_t *source, sxc_file_t *dest, int fail_same_file) {
     const char *suuid=sxc_cluster_get_uuid(source->cluster), *duuid=sxc_cluster_get_uuid(dest->cluster);
     sxc_client_t *sx = source->sx;
     sxc_file_t *cache;
@@ -4307,6 +4334,30 @@ static sxi_job_t* remote_to_remote(sxc_file_t *source, sxc_file_t *dest) {
     if(!suuid || !duuid) {
 	SXDEBUG("internal error / invalid config");
 	return NULL;
+    }
+    if(fail_same_file &&
+       !strcmp(suuid, duuid) && !strcmp(source->volume, dest->volume) &&
+       !strcmp(source->rev ? source->rev : "", dest->rev ? dest->rev : "")) {
+        const char *src = source->path;
+        const char *dst = dest->path;
+        do {
+            /* ignore leading slashes */
+            while (*src == '/') src++;
+            while (*dst == '/') dst++;
+            /* equal path component until next slash */
+            while (*src && *dst && *src != '/' && *src++ == *dst++) {}
+            /* ignore duplicate slashes, but a/b is not equal to ab */
+            if (*src == '/' && *dst == '/') {
+                while (*src == '/') src++;
+                while (*dst == '/') dst++;
+            }
+        } while (*src && *dst && *src == *dst);
+        if (!*src && !*dst) {
+            sxi_seterr(sx, SXE_SKIP, "'%s/%s' and '%s/%s' are the same remote file",
+                    source->volume, source->path,
+                    dest->volume, dest->path);
+            return NULL;
+        }
     }
 
     if(strcmp(source->volume, dest->volume)) {
@@ -4389,7 +4440,7 @@ remote_to_remote_err:
 }
 
 static int mkdir_parents(sxc_client_t *sx, const char *path);
-static sxi_job_t* remote_copy_ev(sxc_file_t *pattern, sxc_file_t *source, sxc_file_t *dest, int recursive, unsigned int *errors)
+static sxi_job_t* remote_copy_ev(sxc_file_t *pattern, sxc_file_t *source, sxc_file_t *dest, int recursive, unsigned int *errors, int fail_same_file)
 {
     sxi_job_t *job;
     free(source->origpath);
@@ -4428,7 +4479,7 @@ static sxi_job_t* remote_copy_ev(sxc_file_t *pattern, sxc_file_t *source, sxc_fi
         }
         job = &JOB_NONE;
     } else
-       job = remote_to_remote(source, dest);
+       job = remote_to_remote(source, dest, fail_same_file);
     if (restore_path(dest)) {
         sxi_job_free(job);
         return NULL;
@@ -4454,8 +4505,8 @@ static int mkdir_parents(sxc_client_t *sx, const char *path)
     return ret;
 }
 
-static int remote_iterate(sxc_file_t *source, int recursive, int onefs, int ignore_errors, sxc_file_t *dest, const sxc_exclude_t *exclude);
-int sxc_copy(sxc_file_t *source, sxc_file_t *dest, int recursive, int onefs, int ignore_errors, const sxc_exclude_t *exclude) {
+static int remote_iterate(sxc_file_t *source, int recursive, int onefs, int ignore_errors, sxc_file_t *dest, const sxc_exclude_t *exclude, int fail_same_file);
+int sxc_copy(sxc_file_t *source, sxc_file_t *dest, int recursive, int onefs, int ignore_errors, const sxc_exclude_t *exclude, int fail_same_file) {
     int ret;
     sxc_xfer_stat_t *xfer_stat = NULL;
     sxc_cluster_t *remote_cluster = NULL;
@@ -4485,7 +4536,7 @@ int sxc_copy(sxc_file_t *source, sxc_file_t *dest, int recursive, int onefs, int
                 ret = local_to_remote_iterate(source, recursive, 0, onefs, ignore_errors, dest, exclude);
         }
     } else {
-        ret = remote_iterate(source, recursive, onefs, ignore_errors, dest, exclude);
+        ret = remote_iterate(source, recursive, onefs, ignore_errors, dest, exclude, fail_same_file);
     }
     source->rev = rev;
 
@@ -4661,6 +4712,8 @@ static int cat_local_file(sxc_file_t *source, int dest) {
 	sxi_setsyserr(sx, SXE_EREAD, "Failed to open %s", source->path);
 	return 1;
     }
+    if (sxi_same_local_file(sx, source->path, "-", src, dest))
+        return 1;
 
     while(1) {
 	ssize_t got = read(src, buf, sizeof(buf));
@@ -4697,7 +4750,7 @@ int sxc_cat(sxc_file_t *source, int dest) {
         sxi_seterr(source->sx, SXE_EARG, "Cannot write to stdin");
         rc = 1;
     } else
-        rc = sxc_copy(source, destfile, 0, 0, 0, NULL);
+        rc = sxc_copy(source, destfile, 0, 0, 0, NULL, 1);
     sxc_file_free(destfile);
     return rc;
 }
@@ -5350,6 +5403,7 @@ struct remote_iter {
     sxc_file_t *dest;
     int recursive;
     unsigned int errors;
+    int fail_same_file;
 };
 
 static int different_file(const char *path1, const char *path2)
@@ -5372,7 +5426,7 @@ static sxi_job_t *remote_copy_cb(sxc_file_list_t *target, sxc_file_t *pattern, s
 
     /* we could support parallelization for remote_to_remote and
      * remote_to_remote_fast if they would just return a job ... */
-    ret = remote_copy_ev(pattern, source, it->dest, it->recursive && different_file(source->path, pattern->path), &it->errors);
+    ret = remote_copy_ev(pattern, source, it->dest, it->recursive && different_file(source->path, pattern->path), &it->errors, it->fail_same_file);
 
     sxc_file_free(source);
 
@@ -5435,7 +5489,7 @@ static int multi_cb(sxc_file_list_t *target, void *ctx)
     return sxc_file_require_dir(dest);
 }
 
-static int remote_iterate(sxc_file_t *source, int recursive, int onefs, int ignore_errors, sxc_file_t *dest, const sxc_exclude_t *exclude)
+static int remote_iterate(sxc_file_t *source, int recursive, int onefs, int ignore_errors, sxc_file_t *dest, const sxc_exclude_t *exclude, int fail_same_file)
 {
     sxc_file_list_t *lst;
     int ret;
@@ -5444,6 +5498,7 @@ static int remote_iterate(sxc_file_t *source, int recursive, int onefs, int igno
     it.dest = dest;
     it.recursive = recursive;
     it.errors = 0;
+    it.fail_same_file = fail_same_file;
 
     lst = sxc_file_list_new(source->sx, recursive);
     if (!lst)
@@ -5805,7 +5860,7 @@ int sxc_remove_sxfile(sxc_file_t *file) {
     return ret;
 }
 
-int sxc_copy_sxfile(sxc_file_t *source, sxc_file_t *dest) {
+int sxc_copy_sxfile(sxc_file_t *source, sxc_file_t *dest, int fail_same_file) {
     sxc_client_t *sx = dest->sx;
 
     if(!is_remote(source)) {
@@ -5814,7 +5869,7 @@ int sxc_copy_sxfile(sxc_file_t *source, sxc_file_t *dest) {
     }
 
     if(is_remote(dest)) {
-	sxi_job_t *job =  remote_to_remote(source, dest);
+	sxi_job_t *job =  remote_to_remote(source, dest, fail_same_file);
 	return sxi_jobs_wait_one(dest, job);
     } else
 	return remote_to_local(source, dest, 0);

@@ -198,7 +198,7 @@ int main(int argc, char **argv) {
 
         /* TODO: more than one input requires directory as target,
          * and do the filename appending if target *is* a directory */
-        if(sxc_copy(src_file, dst_file, args.recursive_flag, 0, 0, NULL)) {
+        if(sxc_copy(src_file, dst_file, args.recursive_flag, 0, 0, NULL, 1)) {
             fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
 	    if((cluster1 || cluster2) && strstr(sxc_geterrmsg(sx), SXBC_TOOLS_VOL_ERR))
 		fprintf(stderr, SXBC_TOOLS_VOL_MSG, "", "", cluster1 ? sxc_cluster_get_sslname(cluster1) : sxc_cluster_get_sslname(cluster2));

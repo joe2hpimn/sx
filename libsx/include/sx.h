@@ -265,8 +265,8 @@ typedef struct _sxc_exclude_t sxc_exclude_t;
 sxc_exclude_t *sxc_exclude_init(sxc_client_t *sx, const char **patterns, unsigned int npatterns, int mode);
 void sxc_exclude_delete(sxc_exclude_t *e);
 
-int sxc_copy(sxc_file_t *source, sxc_file_t *dest, int recursive, int onefs, int ignore_errors, const sxc_exclude_t *exclude);
-int sxc_copy_sxfile(sxc_file_t *source, sxc_file_t *dest);
+int sxc_copy(sxc_file_t *source, sxc_file_t *dest, int recursive, int onefs, int ignore_errors, const sxc_exclude_t *exclude, int fail_same_file);
+int sxc_copy_sxfile(sxc_file_t *source, sxc_file_t *dest, int fail_same_file);
 int sxc_cat(sxc_file_t *source, int dest);
 
 typedef struct _sxc_file_list_t sxc_file_list_t;
