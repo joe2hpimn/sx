@@ -512,7 +512,7 @@ static int sxi_same_local_file(sxc_client_t *sx, const char *source, const char 
 	sxi_setsyserr(sx, SXE_EARG, "Copy failed: cannot stat source file");
         return 1;
     }
-    if (fstat(dstfd, &sb1)) {
+    if (fstat(dstfd, &sb2)) {
 	sxi_setsyserr(sx, SXE_EARG, "Copy failed: cannot stat dest file");
         return 1;
     }
