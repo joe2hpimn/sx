@@ -165,8 +165,11 @@ static void print_hashfs(sxc_client_t *sx, const char *path)
 	return;
     }
     const sx_node_t *self= sx_hashfs_self(h);
-    INFO("Current node space usage: %lld (%.2f%%)", size,
-           100.0 * size / sx_node_capacity(self));
+    if (self)
+        INFO("Current node space usage: %lld (%.2f%%)", size,
+               100.0 * size / sx_node_capacity(self));
+    else
+        INFO("This is a bare node");
 
     INFO("HashFS Version: %s", sx_hashfs_version(h));
 
