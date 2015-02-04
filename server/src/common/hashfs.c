@@ -9641,7 +9641,6 @@ rc_ty sx_hashfs_hdist_change_req(sx_hashfs_t *h, const sx_nodelist_t *newdist, j
     if(r) {
 	sx_nodelist_delete(targets);
 	sxi_hdist_free(newmod);
-	msg_set_reason("Failed to setup job targets");
 	return r;
     }
 
