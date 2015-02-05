@@ -23,6 +23,7 @@ http {
        client_max_body_size 150M;
        client_body_temp_path @localstatedir@/lib/sxserver/sxhttpd;
        fastcgi_temp_path @localstatedir@/lib/sxserver/sxhttpd;
+       uwsgi_temp_path @localstatedir@/lib/sxserver/sxhttpd;
        server {
 #            ssl on;
 #            ssl_certificate @sysconfdir@/ssl/certs/sxcert.pem;
