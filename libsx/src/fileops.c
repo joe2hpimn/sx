@@ -4712,8 +4712,10 @@ static int cat_local_file(sxc_file_t *source, int dest) {
 	sxi_setsyserr(sx, SXE_EREAD, "Failed to open %s", source->path);
 	return 1;
     }
-    if (sxi_same_local_file(sx, source->path, "-", src, dest))
+    if (sxi_same_local_file(sx, source->path, "-", src, dest)) {
+	close(src);
         return 1;
+    }
 
     while(1) {
 	ssize_t got = read(src, buf, sizeof(buf));
