@@ -1890,8 +1890,11 @@ rc_ty sx_storage_activate(sx_hashfs_t *h, const char *name, const sx_uuid_t *nod
 
     ret = OK;
  storage_activate_fail:
-    if(ret != OK)
+    if(ret != OK) {
 	qrollback(h->db);
+	sxc_clearerr(h->sx);
+	sxi_seterr(h->sx, SXE_EARG, "%s", msg_get_reason());
+    }
 
     sqlite3_finalize(q);
     return ret;
@@ -3626,6 +3629,11 @@ rc_ty sx_hashfs_modhdist(sx_hashfs_t *h, const sx_nodelist_t *list) {
 
     for(i=0; i<nnodes; i++) {
 	const sx_node_t *n = sx_nodelist_get(list, i);
+	if(sx_node_capacity(n) < SXLIMIT_MIN_NODE_SIZE) {
+	    sxi_hdist_free(newmod);
+	    msg_set_reason("Invalid capacity: Node %s cannot be smaller than %u bytes", sx_node_uuid_str(n), SXLIMIT_MIN_NODE_SIZE);
+	    return EINVAL;
+	}
 	ret = sxi_hdist_addnode(newmod, sx_node_uuid(n), sx_node_addr(n), sx_node_internal_addr(n), sx_node_capacity(n), NULL);
 	if(ret == OK)
 	    continue;
@@ -9582,6 +9590,11 @@ rc_ty sx_hashfs_hdist_change_req(sx_hashfs_t *h, const sx_nodelist_t *newdist, j
     for(i=0; i<nnodes; i++) {
 	const sx_node_t *n = sx_nodelist_get(newdist, i);
 	unsigned int j;
+	if(sx_node_capacity(n) < SXLIMIT_MIN_NODE_SIZE) {
+	    sxi_hdist_free(newmod);
+	    msg_set_reason("Invalid capacity: Node %s cannot be smaller than %u bytes", sx_node_uuid_str(n), SXLIMIT_MIN_NODE_SIZE);
+	    return EINVAL;
+	}
 	for(j=i+1; j<nnodes; j++) {
 	    const sx_node_t *other = sx_nodelist_get(newdist, j);
 	    if(!sx_node_cmp(n, other)) {
@@ -9906,6 +9919,11 @@ rc_ty sx_hashfs_hdist_change_add(sx_hashfs_t *h, const void *cfg, unsigned int c
     for(i = 0; i<nnodes; i++) {
 	const sx_node_t *n = sx_nodelist_get(nodes, i);
 	unsigned int j;
+	if(sx_node_capacity(n) < SXLIMIT_MIN_NODE_SIZE) {
+	    msg_set_reason("Invalid capacity: Node %s cannot be smaller than %u bytes", sx_node_uuid_str(n), SXLIMIT_MIN_NODE_SIZE);
+	    ret = EINVAL;
+	    goto change_add_fail;
+	}
 	for(j=i+1; j<nnodes; j++) {
 	    const sx_node_t *other = sx_nodelist_get(nodes, j);
 	    if(!sx_node_cmp(n, other)) {

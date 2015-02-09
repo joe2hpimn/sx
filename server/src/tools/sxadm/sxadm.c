@@ -574,7 +574,7 @@ static int create_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
 
     rc_ty rs = sx_storage_activate(stor, sxc_cluster_get_sslname(clust), sx_node_uuid(node), auth.uid, AUTH_UID_LEN, auth.key, AUTH_KEY_LEN, http_port, copy_cafile ? "ca.pem" : NULL, single_node);
     if(rs != OK) {
-	CRIT("Failed to activate node");
+	CRIT("Failed to activate node: %s", sx_hashfs_geterrmsg(stor));
 	goto create_cluster_err;
     }
     if(!args->batch_mode_given)
