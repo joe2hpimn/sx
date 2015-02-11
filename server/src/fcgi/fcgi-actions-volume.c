@@ -576,12 +576,16 @@ static int acl_to_blob(sxc_client_t *sx, int nodes, void *yctx, sx_blob_t *blob)
             msg_set_reason("Cannot retrieve acl for volume '%s' and user '%s'", volume, name);
             return -1;
         }
-        if (priv > 0)
+        if (priv >= 0)
             new_priv = old_priv | priv;
         else
-            new_priv = old_priv & (~priv);
-        /* undo_priv should be -priv, or 0 */
-        undo_priv = old_priv - new_priv;
+            new_priv = old_priv & priv;
+        int undo_revoke = new_priv & ~old_priv;
+        int undo_grant = old_priv & ~new_priv;
+        if (undo_grant > 0)
+            undo_priv = undo_grant;
+        else
+            undo_priv = ~undo_revoke;
         if (sx_blob_add_string(blob, name) ||
             sx_blob_add_int32(blob, priv) ||
             sx_blob_add_int32(blob, undo_priv))
@@ -628,7 +632,7 @@ static rc_ty acl_execute_blob(sx_hashfs_t *hashfs, sx_blob_t *b, jobphase_t phas
                 rc = EINVAL;
                 break;
             }
-            if (priv > 0) {
+            if (priv >= 0) {
                 rc = sx_hashfs_grant(hashfs, uid, volume, priv);
                 if (rc != OK)
                     msg_set_reason("Cannot grant privileges: %s", rc2str(rc));
@@ -648,6 +652,7 @@ struct blob_iter {
     sx_blob_t *b;
     int i;
     int n;
+    int phase;
 };
 
 static const char *blob_iter_cb(void *ctx, int priv_state, int priv_mask)
@@ -665,6 +670,8 @@ static const char *blob_iter_cb(void *ctx, int priv_state, int priv_mask)
             iter->i = 0;
             return NULL;
         }
+        if (iter->phase != JOBPHASE_REQUEST && iter->phase != JOBPHASE_COMMIT)
+            priv = undo_priv;
         DEBUG("blob_iter on %s: %d,%d; %d,%d", name, priv,undo_priv, priv_state,priv_mask);
         if (priv_state > 0) {
             if (priv > 0 && priv & priv_mask)
@@ -712,6 +719,7 @@ static sxi_query_t* acl_proto_from_blob(sxc_client_t *sx, sx_blob_t *b, jobphase
     }
     sx_blob_savepos(b);
     iter.b = b;
+    iter.phase = phase;
     return sxi_volumeacl_proto(sx, volume,
                                grant_read_cb, grant_write_cb,
                                revoke_read_cb, revoke_write_cb,
