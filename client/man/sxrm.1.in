@@ -20,6 +20,9 @@ Print version and exit
 \fB\-r\fR, \fB\-\-recursive\fR
 Recursively remove entire directories
 .TP
+\fB\-\-ignore\-errors\fR
+When deleting multiple files, keep processing them even when errors occur. Without this option, sxrm stops at the first error.
+.TP
 \fB\-c\fR, \fB\-\-config\-dir\fR=\fI\,PATH\/\fR
 Path to the SX configuration directory (default: ~/.sx)
 .TP

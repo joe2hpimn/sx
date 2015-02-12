@@ -46,6 +46,8 @@ struct gengetopt_args_info
   const char *debug_help; /**< @brief Enable debug messages help description.  */
   int verbose_flag;	/**< @brief Enable verbose errors (default=off).  */
   const char *verbose_help; /**< @brief Enable verbose errors help description.  */
+  int ignore_errors_flag;	/**< @brief Keep deleting files even when there are errors (default=off).  */
+  const char *ignore_errors_help; /**< @brief Keep deleting files even when there are errors help description.  */
   char * config_dir_arg;	/**< @brief Path to SX configuration directory.  */
   char * config_dir_orig;	/**< @brief Path to SX configuration directory original value given at command line.  */
   const char *config_dir_help; /**< @brief Path to SX configuration directory help description.  */
@@ -59,6 +61,7 @@ struct gengetopt_args_info
   unsigned int recursive_given ;	/**< @brief Whether recursive was given.  */
   unsigned int debug_given ;	/**< @brief Whether debug was given.  */
   unsigned int verbose_given ;	/**< @brief Whether verbose was given.  */
+  unsigned int ignore_errors_given ;	/**< @brief Whether ignore-errors was given.  */
   unsigned int config_dir_given ;	/**< @brief Whether config-dir was given.  */
   unsigned int filter_dir_given ;	/**< @brief Whether filter-dir was given.  */
 

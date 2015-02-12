@@ -278,7 +278,7 @@ void sxc_file_list_free(sxc_file_list_t *sx);/* frees contained sx_file_t too */
 unsigned sxc_file_list_get_total(const sxc_file_list_t *lst);
 unsigned sxc_file_list_get_successful(const sxc_file_list_t *lst);
 
-int sxc_rm(sxc_file_list_t *target);
+int sxc_rm(sxc_file_list_t *target, int ignore_errors);
 int sxc_remove_sxfile(sxc_file_t *file);
 
 

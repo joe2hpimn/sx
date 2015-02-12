@@ -5419,11 +5419,11 @@ static sxi_job_t* sxi_rm_cb(sxc_file_list_t *target, sxc_file_t *pattern, sxc_cl
     return job;
 }
 
-int sxc_rm(sxc_file_list_t *target) {
+int sxc_rm(sxc_file_list_t *target, int ignore_errors) {
     if (!target)
         return -1;
     sxc_clearerr(target->sx);
-    return sxi_file_list_foreach(target, target->cluster, NULL, sxi_rm_cb, 1, 0, NULL, NULL);
+    return sxi_file_list_foreach(target, target->cluster, NULL, sxi_rm_cb, 1, ignore_errors, NULL, NULL);
 }
 
 struct remote_iter {

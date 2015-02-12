@@ -137,7 +137,7 @@ int main(int argc, char **argv) {
             sxc_file_free(target);
         }
     }
-    if (sxc_rm(lst)) {
+    if (sxc_rm(lst, args.ignore_errors_flag)) {
         fprintf(stderr, "ERROR: Failed to remove file(s): %s\n", sxc_geterrmsg(sx));
 	if(cluster && strstr(sxc_geterrmsg(sx), SXBC_TOOLS_VOL_ERR))
 	    fprintf(stderr, SXBC_TOOLS_VOL_MSG, "", "", sxc_cluster_get_sslname(cluster));

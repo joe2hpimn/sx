@@ -8,6 +8,8 @@ option  "recursive"	r "Recursively remove entire directories" flag off
 option  "debug"		D "Enable debug messages" flag off
 option  "verbose"       v "Enable verbose errors" flag off
 
+option  "ignore-errors"         - "Keep deleting files even when there are errors" flag off
+
 option  "config-dir"	c "Path to SX configuration directory" string typestr="PATH" optional hidden
 
 option  "filter-dir"	f "Path to SX filter directory" string typestr="PATH" optional hidden
