@@ -5402,6 +5402,7 @@ static sxi_job_t* sxi_rm_cb(sxc_file_list_t *target, sxc_file_t *pattern, sxc_cl
     query = sxi_filedel_proto(target->sx, vol, path, NULL);
     if (!query)
         return NULL;
+    sxi_hostlist_shuffle(hlist);
     sxi_set_operation(target->sx, "remove files", sxi_cluster_get_name(cluster), query->path, NULL);
     job = sxi_job_submit(sxi_cluster_get_conns(cluster), hlist, query->verb, query->path, path, NULL, 0, &http_code, &target->jobs);
     if(job && fh && fh->f->file_notify)
