@@ -35,6 +35,10 @@ struct generic_ctx;
 #define XFER_TIME_WINDOW_WIDTH          (256.0 * XFER_PROGRESS_INTERVAL)
 #define XFER_PROGRESS_ETA_DELAY         2.0 /* after 2 seconds we will compute speed and eta */
 
+/* Timeouts for block transfers */
+#define BLOCK_XFER_HARD_TIMEOUT         3600 /* 1 hour */
+#define BLOCK_XFER_SOFT_TIMEOUT         1200  /* 20 minutes */
+
 /* Set information about current transfer download value */
 int sxi_file_download_set_xfer_stat(struct file_download_ctx* ctx, int64_t downloaded, int64_t to_download);
 /* Get numner of bytes to be downloaded */

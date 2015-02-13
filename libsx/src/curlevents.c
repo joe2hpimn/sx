@@ -95,6 +95,8 @@ struct curlev_context {
     } u;
     void *context;
 
+    unsigned int hard_timeout; /* Timeout used for requests sent to cluster: total time a single request is allowed to exist */
+    unsigned int soft_timeout; /* Timeout for stalled requests: maximum time between successful data parts being transferred */
 };
 
 static struct curlev_context *sxi_cbdata_create(sxi_conns_t *conns, finish_cb_t cb)
@@ -554,7 +556,12 @@ static void sxi_cbdata_finish(curl_events_t *e, curlev_context_t **ctxptr, const
                            strerr);
             else {
                 SXDEBUG("%s: %s", url ? url : "", msg);
-                sxi_cbdata_seterr(ctx, SXE_ECURL, "Failed to %s: %s", ctx->op ? ctx->op : "query cluster", msg);
+                if(rctx->rc != CURLE_ABORTED_BY_CALLBACK || !ctx->soft_timeout) {
+                    if(ctx->hard_timeout && rctx->rc == CURLE_OPERATION_TIMEDOUT)
+                        sxi_cbdata_seterr(ctx, SXE_ECURL, "Failed to %s: Request timeout", ctx->op ? ctx->op : "query cluster");
+                    else
+                        sxi_cbdata_seterr(ctx, SXE_ECURL, "Failed to %s: %s", ctx->op ? ctx->op : "query cluster", msg);
+                }
             }
         }
     } else if (rctx->reply_status > 0 && rctx->reason && rctx->reasonsz > 0) {
@@ -625,6 +632,9 @@ struct curlev {
     int is_http;
     int verify_peer;
     uint16_t port;
+
+    struct timeval last_progress_time; /* Start or last xfer progress timestamp on this multi handle */
+    int64_t total_xfer; /* Total number of bytes transferred so far */
 };
 
 static void ev_free(curlev_t *ev)
@@ -1848,6 +1858,24 @@ static int xferinfo(void *p, curl_off_t dltotal, curl_off_t dlnow,
     if(sxc_geterrnum(sx) == SXE_ABORT)
         return 1;
 
+    if(ulnow + dlnow != ev->total_xfer) {
+        /* Total number of bytes transferred has changed, update timing */
+        gettimeofday(&ev->last_progress_time, NULL);
+        ev->total_xfer = ulnow + dlnow;
+    } else if(ev->ctx->soft_timeout) {
+        struct timeval now;
+        double diff;
+
+        gettimeofday(&now, NULL);
+        diff = sxi_timediff(&now, &ev->last_progress_time);
+
+        /* Check if xfer is not stalled for too long */
+        if(diff > ev->ctx->soft_timeout) {
+            sxi_cbdata_seterr(ev->ctx, SXE_ETIME, "Failed to %s: Request timeout", ev->ctx->op ? ev->ctx->op : "query cluster");
+            return 1;
+        }
+    }
+
     switch(ev->ctx->tag) {
         case CTX_DOWNLOAD: {
             if(!e || (e->bandwidth.global_limit && curl_easy_getinfo(ev->curl, CURLINFO_SPEED_DOWNLOAD, &dl_speed) != CURLE_OK)) {
@@ -2134,6 +2162,12 @@ static int curlev_apply(curl_events_t *e, curlev_t *ev, curlev_t *src)
             }
         }
 
+        /* If set, apply hard limit for request */
+        if(ev->ctx && ev->ctx->hard_timeout) {
+            rc = curl_easy_setopt(ev->curl, CURLOPT_TIMEOUT, ev->ctx->hard_timeout);
+            if (curl_check(ev, rc, "set request timeout"))
+                break;
+        }
         ret = 0;
     } while(0);
     free(src->url);
@@ -2372,7 +2406,9 @@ static int enqueue_request(curl_events_t *e, curlev_t *ev, int re)
                 ev = o;
 
                 /* Update per-host active connections counters */
-                host->active++;                
+                host->active++;
+                /* Reset last successful xfer update */
+                gettimeofday(&ev->last_progress_time, NULL);
                 break;
             }
         }
@@ -3201,5 +3237,17 @@ int sxi_curlev_disable_proxy(curl_events_t *ev)
     if (!ev)
         return -1;
     ev->disable_proxy = 1;
+    return 0;
+}
+
+int sxi_cbdata_set_timeouts(curlev_context_t *e, unsigned int hard_timeout, unsigned int soft_timeout) {
+    if(!e)
+        return 1;
+    if(hard_timeout && soft_timeout && soft_timeout > hard_timeout) {
+        sxi_cbdata_seterr(e, SXE_EARG, "Invalid argument: hard timeout cannot be lower than soft timeout");
+        return 1;
+    }
+    e->hard_timeout = hard_timeout;
+    e->soft_timeout = soft_timeout;
     return 0;
 }

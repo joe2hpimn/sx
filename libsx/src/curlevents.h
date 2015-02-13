@@ -162,6 +162,13 @@ void sxi_cbdata_setclusterr(curlev_context_t *ctx, const char *nodeid, const cha
 void sxi_cbdata_set_operation(curlev_context_t *ctx, const char *op, const char *host, const char *vol, const char *path);
 void sxi_cbdata_clear_operation(curlev_context_t *ctx);
 
+/*
+ * Set timeouts (in seconds) which will be used for all requests sent with given curl_events_t reference as context.
+ * Soft timing is reset each time request succeeds to transfer any part of data. After hard_timeout request is going to fail.
+ * 0 means that no timeout will be considered. If both timouts are set, hard timeout cannot be lower than soft timeout.
+ */
+int sxi_cbdata_set_timeouts(curlev_context_t *e, unsigned int hard_timeout, unsigned int soft_timeout);
+
 struct sxi_retry;
 typedef struct sxi_retry sxi_retry_t;
 sxi_retry_t* sxi_retry_init(void *ctx, retry_ctx_type_t ctx_type);

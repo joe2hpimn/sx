@@ -1204,6 +1204,12 @@ static int send_up_batch(struct file_upload_ctx *yctx, const char *host, struct 
     u->in_use = 1;
     yctx->uploaded += u->buf_used;
     sxi_cbdata_set_operation(cbdata, "upload file contents", NULL, NULL, NULL);
+    if(sxi_cbdata_set_timeouts(cbdata, BLOCK_XFER_HARD_TIMEOUT, BLOCK_XFER_SOFT_TIMEOUT)) {
+        SXDEBUG("Failed to set timeouts");
+        free(url);
+        sxi_cbdata_unref(&cbdata);
+        return -1;
+    }
     if (sxi_cluster_query_ev(cbdata,
                              sxi_cluster_get_conns(yctx->cluster),
                              host, REQ_PUT, url,
@@ -3247,6 +3253,13 @@ static curlev_context_t *create_download(sxc_cluster_t *cluster, unsigned int bl
         return NULL;
     }
 
+    if(sxi_cbdata_set_timeouts(ret, BLOCK_XFER_HARD_TIMEOUT, BLOCK_XFER_SOFT_TIMEOUT)) {
+        SXDEBUG("Failed to set timeouts");
+        sxi_cbdata_unref(&ret);
+        dctx_free(dctx);
+        return NULL;
+    }
+
     dctx->buf = malloc(blocksize);
     if (!dctx->buf) {
         sxi_seterr(sx, SXE_EMEM, "Cannot allocate buffer");
@@ -3826,9 +3839,10 @@ static int remote_to_local(sxc_file_t *source, sxc_file_t *dest, int recursive) 
 
         fail = multi_download(&bh, dstname, blocksize, source->cluster, d, filesize - shiftoff);
 
-        SXDEBUG("multi_download failed, trying single download");
-        if(fail)
+        if(fail) {
+            SXDEBUG("multi_download failed, trying single download");
             fail = single_download(&bh, dstname, blocksize, source->cluster, d, filesize - shiftoff);
+        }
 
         /* Update information about transfers, but not when aborting */
         if(xfer_stat && sxc_geterrnum(sx) != SXE_ABORT) {
@@ -4185,6 +4199,10 @@ static sxi_job_t* remote_to_remote_fast(sxc_file_t *source, sxc_meta_t *fmeta, s
     cbdata = sxi_cbdata_create_upload(sxi_cluster_get_conns(dest->cluster), NULL, &yctx);
     if (!cbdata)
         goto remote_to_remote_fast_err;
+    if(sxi_cbdata_set_timeouts(cbdata, BLOCK_XFER_HARD_TIMEOUT, BLOCK_XFER_SOFT_TIMEOUT)) {
+        SXDEBUG("Failed to set timeouts");
+        goto remote_to_remote_fast_err;
+    }
     if(sxi_cluster_query_ev_retry(cbdata, sxi_cluster_get_conns(dest->cluster), &volhosts, query->verb, query->path, query->content, query->content_len, createfile_setup_cb, createfile_cb, NULL)) {
 	SXDEBUG("file create query failed");
 	goto remote_to_remote_fast_err;
