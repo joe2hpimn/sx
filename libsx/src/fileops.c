@@ -1341,6 +1341,11 @@ static void upload_blocks_to_hosts(curlev_context_t *cbdata, struct file_upload_
         uctx->in_use = 0;
     SXDEBUG("upload_blocks_to_hosts");
     if (status != 200) {
+        if(status == 0) { /* Query has not been sent yet, do not batch again to avoid infinite recursion loop */
+            SXDEBUG("Failed to send .data query: %s", sxc_geterrmsg(sx));
+            yctx->fail++;
+            return;
+        }
         SXDEBUG("query failed: %d", status);
         if (uctx) {
             unsigned n = uctx->n;
@@ -1350,6 +1355,7 @@ static void upload_blocks_to_hosts(curlev_context_t *cbdata, struct file_upload_
             if (batch_hashes_to_hosts(cbdata, yctx, uctx->needed, uctx->last_successful, n, 1)) {
                 SXDEBUG("fail incremented");
                 yctx->fail++;
+                return;
             }
         }
         else {

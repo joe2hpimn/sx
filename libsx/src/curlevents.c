@@ -2513,8 +2513,10 @@ static int ev_add(curl_events_t *e,
                 break;
             }
         }
-        if (e->used >= MAX_EVENTS)
+        if (e->used >= MAX_EVENTS) {
+            sxi_cbdata_seterr(ctx, SXE_EARG, "Events queue is overloaded");
             break;
+        }
         ev = calloc(1, sizeof(*ev));
         if (!ev) {
             ctx_err(ctx, CURLE_OUT_OF_MEMORY, "failed to allocate event");
@@ -2554,6 +2556,7 @@ static int ev_add(curl_events_t *e,
         if (enqueue_request(e, ev, 0) == -1) {
             /* TODO: remove all reuse[] handles if this fails */
             EVENTSDEBUG(e, "enqueue_request failed");
+            sxi_cbdata_seterr(ctx, SXE_EARG, "Failed to queue request");
             ev = NULL;
             break;
         }
