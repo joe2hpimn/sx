@@ -90,7 +90,7 @@ AC_CHECK_LIB([fcgi], [FCGX_Accept], [FCGI_LIBS=-lfcgi; has_sys_fcgi="yes"],
 LIBS=$ac_save_LIBS
 if test "$has_sys_fcgi" = "no"; then
     FCGI_LIBS=../3rdparty/fcgi/libfcgi/libfcgi.la
-    FCGI_CPPFLAGS="-I ../3rdparty/fcgi/include"
+    FCGI_CPPFLAGS="-I $srcdir/../3rdparty/fcgi/include -I ../3rdparty/fcgi/include"
 fi
 AC_SUBST([FCGI_LIBS])
 AC_SUBST([FCGI_CPPFLAGS])
