@@ -3159,20 +3159,12 @@ lock_db_err:
 #define RUN_CHECK(func) do { r = func(h, debug); if(r == -1) { ret = -1; goto sx_hashfs_check_err; } ret += r; } while(0)
 
 int sx_hashfs_check(sx_hashfs_t *h, int debug) {
-    int ret = -1, r, i, j;
+    int ret = -1, r = 0, i, j;
     sqlite3_stmt *locks[METADBS + SIZES * HASHDBS + 4], *unlocks[METADBS + SIZES * HASHDBS + 4];
 
     memset(locks, 0, sizeof(locks));
     memset(unlocks, 0, sizeof(unlocks));
 
-    r = 0;
-    if(lock_db(h->db, locks, unlocks) || lock_db(h->tempdb, locks + 1, unlocks + 1)
-       || lock_db(h->xferdb, locks + 2, unlocks + 2) || lock_db(h->eventdb, locks + 3, unlocks + 3)) {
-        CHECK_FATAL("Failed to lock database");
-        goto sx_hashfs_check_err;
-    }
-
-    r = 4;
     for(i = 0; i < METADBS; i++, r++) {
         if(lock_db(h->metadb[i], locks + r, unlocks + r)) {
             CHECK_FATAL("Failed to lock database meta database");
@@ -3181,11 +3173,18 @@ int sx_hashfs_check(sx_hashfs_t *h, int debug) {
     }
 
     for(i = 0; i < SIZES; i++) {
-        for(j = 0; j < HASHDBS; j++, r++)
-        if(lock_db(h->datadb[i][j], locks + r, unlocks + r)) {
-            CHECK_FATAL("Failed to lock database hash database");
-            goto sx_hashfs_check_err;
+        for(j = 0; j < HASHDBS; j++, r++) {
+            if(lock_db(h->datadb[i][j], locks + r, unlocks + r)) {
+                CHECK_FATAL("Failed to lock database hash database");
+                goto sx_hashfs_check_err;
+            }
         }
+    }
+
+    if(lock_db(h->db, locks + r, unlocks + r) || lock_db(h->tempdb, locks + r + 1, unlocks + r + 1)
+       || lock_db(h->xferdb, locks + r + 2, unlocks + r + 2) || lock_db(h->eventdb, locks + r + 3, unlocks + r + 3)) {
+        CHECK_FATAL("Failed to lock database");
+        goto sx_hashfs_check_err;
     }
 
     ret = 0;
