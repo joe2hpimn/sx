@@ -737,7 +737,7 @@ struct _sx_hashfs_t {
 
     sxi_db_t *eventdb;
     sqlite3_stmt *qe_getjob;
-    sqlite3_stmt *qe_jobbydata;
+    sqlite3_stmt *qe_getfiledeljob;
     sqlite3_stmt *qe_addjob;
     sqlite3_stmt *qe_addact;
     sqlite3_stmt *qe_countjobs;
@@ -854,7 +854,7 @@ static void close_all_dbs(sx_hashfs_t *h) {
     qclose(&h->xferdb);
 
     sqlite3_finalize(h->qe_getjob);
-    sqlite3_finalize(h->qe_jobbydata);
+    sqlite3_finalize(h->qe_getfiledeljob);
     sqlite3_finalize(h->qe_addjob);
     sqlite3_finalize(h->qe_addact);
     sqlite3_finalize(h->qe_countjobs);
@@ -1287,7 +1287,7 @@ static int load_config(sx_hashfs_t *h, sxc_client_t *sx) {
 sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
     unsigned int dirlen, pathlen, i, j;
     sqlite3_stmt *q = NULL;
-    char *path, dbitem[64], dynqry[128];
+    char *path, dbitem[64], qrybuff[128];
     const char *str;
     sx_hashfs_t *h;
 
@@ -1499,7 +1499,7 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 	goto open_hashfs_fail;
     if(qprep(h->tempdb, &h->qt_tokenstats, "SELECT tid, size, volume_id, length(content) FROM tmpfiles WHERE token = :token AND flushed = 0"))
 	goto open_hashfs_fail;
-    if(qprep(h->tempdb, &h->qt_tmpbyrev, "SELECT tid, name, size, volume_id, content, uniqidx, flushed, avail, token FROM tmpfiles WHERE t || ':' || token = :revision AND flushed = 1"))
+    if(qprep(h->tempdb, &h->qt_tmpbyrev, "SELECT tid, name, size, volume_id, content, uniqidx, flushed, avail, token FROM tmpfiles WHERE t = :rev_time AND token = :rev_token AND flushed = 1"))
         goto open_hashfs_fail;
     if(qprep(h->tempdb, &h->qt_tmpdata, "SELECT t || ':' || token AS revision, name, size, volume_id, content, uniqidx, flushed, avail, token FROM tmpfiles WHERE tid = :id"))
 	goto open_hashfs_fail;
@@ -1673,9 +1673,14 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
     }
 
     OPEN_DB("eventdb", &h->eventdb);
+    snprintf(qrybuff, sizeof(qrybuff), "CREATE UNIQUE INDEX IF NOT EXISTS jobs_data ON jobs(data) WHERE type = %d", JOBTYPE_DELETE_FILE);
+    if(qprep(h->eventdb, &q, qrybuff) || qstep_noret(q))
+        WARN("Failed to create jobs_data index");
+    qnullify(q);
     if(qprep(h->eventdb, &h->qe_getjob, "SELECT complete, result, reason FROM jobs WHERE job = :id AND :owner IN (user, 0)"))
 	goto open_hashfs_fail;
-    if(qprep(h->eventdb, &h->qe_jobbydata, "SELECT job FROM jobs WHERE data = :data AND type = :type"))
+    snprintf(qrybuff, sizeof(qrybuff), "SELECT job FROM jobs WHERE type = %d AND data = :data", JOBTYPE_DELETE_FILE);
+    if(qprep(h->eventdb, &h->qe_getfiledeljob, qrybuff))
         goto open_hashfs_fail;
     if(qprep(h->eventdb, &h->qe_addjob, "INSERT INTO jobs (parent, type, lock, expiry_time, data, user) SELECT :parent, :type, :lock, datetime(:expiry + strftime('%s', COALESCE((SELECT expiry_time FROM jobs WHERE job = :parent), 'now')), 'unixepoch'), :data, :uid"))
 	goto open_hashfs_fail;
@@ -1685,8 +1690,8 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 	goto open_hashfs_fail;
     if(qprep(h->eventdb, &h->qe_islocked, "SELECT value from hashfs WHERE key = 'lockedby'"))
 	goto open_hashfs_fail;
-    snprintf(dynqry, sizeof(dynqry), "SELECT 1 FROM jobs WHERE complete = 0 AND type NOT IN (%d, %d, %d, %d, %d) LIMIT 1", JOBTYPE_DISTRIBUTION, JOBTYPE_JLOCK, JOBTYPE_STARTREBALANCE, JOBTYPE_FINISHREBALANCE, JOBTYPE_REPLACE);
-    if(qprep(h->eventdb, &h->qe_hasjobs, dynqry))
+    snprintf(qrybuff, sizeof(qrybuff), "SELECT 1 FROM jobs WHERE complete = 0 AND type NOT IN (%d, %d, %d, %d, %d) LIMIT 1", JOBTYPE_DISTRIBUTION, JOBTYPE_JLOCK, JOBTYPE_STARTREBALANCE, JOBTYPE_FINISHREBALANCE, JOBTYPE_REPLACE);
+    if(qprep(h->eventdb, &h->qe_hasjobs, qrybuff))
 	goto open_hashfs_fail;
     if(qprep(h->eventdb, &h->qe_lock, "INSERT INTO hashfs (key, value) VALUES ('lockedby', :node)"))
 	goto open_hashfs_fail;
@@ -7451,6 +7456,7 @@ static rc_ty tmp_getinfo_common(sx_hashfs_t *h, const char *rev, int64_t tmpfile
     int64_t file_size;
     int r;
     char token[TOKEN_RAND_BYTES*2 + 1];
+    char rev_time[REV_TIME_LEN+1];
     sqlite3_stmt *q;
 
     if(!h || !tmpinfo) {
@@ -7461,9 +7467,11 @@ static rc_ty tmp_getinfo_common(sx_hashfs_t *h, const char *rev, int64_t tmpfile
 
     /* Get tmp data */
     if(rev) {
+        memcpy(rev_time, rev, REV_TIME_LEN);
+        rev_time[REV_TIME_LEN] = '\0';
         q = h->qt_tmpbyrev;
         sqlite3_reset(q);
-        if(qbind_text(q, ":revision", rev))
+        if(qbind_text(q, ":rev_time", rev_time) || qbind_text(q, ":rev_token", rev + REV_TIME_LEN + 1))
             goto getmissing_err;
     } else {
         q = h->qt_tmpdata;
@@ -7888,20 +7896,19 @@ static rc_ty get_existing_delete_job(sx_hashfs_t *h, const char *revision, job_t
         return FAIL_EINTERNAL;
     }
 
-    sqlite3_reset(h->qe_jobbydata);
-    if(qbind_blob(h->qe_jobbydata, ":data", revision, strlen(revision)) ||
-       qbind_int(h->qe_jobbydata, ":type", JOBTYPE_DELETE_FILE)) {
+    sqlite3_reset(h->qe_getfiledeljob);
+    if(qbind_blob(h->qe_getfiledeljob, ":data", revision, strlen(revision))) {
         WARN("Failed to prepare query with revision %s", revision);
         goto get_existing_delete_job_err;
     }
 
-    r = qstep(h->qe_jobbydata);
+    r = qstep(h->qe_getfiledeljob);
     if(r == SQLITE_DONE) {
         ret = ENOENT;
         goto get_existing_delete_job_err;
     } else if(r == SQLITE_ROW) {
         /* Set parent ID for current job */
-        *job_id = sqlite3_column_int64(h->qe_jobbydata, 0);
+        *job_id = sqlite3_column_int64(h->qe_getfiledeljob, 0);
         ret = OK;
     } else {
         WARN("Failed to get job for revision %s", revision);
@@ -7909,7 +7916,7 @@ static rc_ty get_existing_delete_job(sx_hashfs_t *h, const char *revision, job_t
     }
 
 get_existing_delete_job_err:
-    sqlite3_reset(h->qe_jobbydata);
+    sqlite3_reset(h->qe_getfiledeljob);
     return ret;
 }
 
