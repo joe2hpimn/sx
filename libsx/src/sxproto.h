@@ -54,13 +54,14 @@ sxi_query_t *sxi_fileadd_proto_end(sxc_client_t *sx, sxi_query_t *query, sxc_met
 sxi_query_t *sxi_filedel_proto(sxc_client_t *sx, const char *volname, const char *path, const char *revision);
 
 typedef struct {
-    unsigned replica;
-    int count;
-} block_meta_entry_t;
-
-typedef struct {
     uint8_t b[SXI_SHA1_BIN_LEN];
 } sx_hash_t;
+
+typedef struct {
+    sx_hash_t token_id;
+    unsigned replica;
+    int op;
+} block_meta_entry_t;
 
 typedef struct {
     uint8_t b[1+SXI_SHA1_BIN_LEN];
@@ -72,7 +73,6 @@ typedef struct {
     unsigned int blocksize;
     block_meta_entry_t *entries;
     unsigned int count;
-    int64_t blockid;
 } block_meta_t;
 
 typedef enum {

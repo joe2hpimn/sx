@@ -589,11 +589,12 @@ static sxi_query_t *sxi_hashop_proto_inuse_hash_helper(sxc_client_t *sx, sxi_que
     sxi_bin2hex(blockmeta->hash.b, sizeof(blockmeta->hash.b), hexhash);
     query = sxi_query_append_fmt(sx, query, sizeof(hexhash) + 8 + 7, "\"%s\":{\"b\":%u", hexhash, blockmeta->blocksize);
     for (i=0;i<blockmeta->count;i++) {
-        int count = blockmeta->entries[i].count;
+        int op = blockmeta->entries[i].op;
+        /* TODO: support different tokenids */
         query = sxi_query_append_fmt(sx, query, 1, ",");
         if (invert)
-            count = -count;
-        query = sxi_query_append_fmt(sx, query, 32, "\"%u\":%d", blockmeta->entries[i].replica, count);
+            op = -op;
+        query = sxi_query_append_fmt(sx, query, 32, "\"%u\":%d", blockmeta->entries[i].replica, op);
     }
     return sxi_query_append_fmt(sx, query, 1, "}");
 }

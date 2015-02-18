@@ -182,7 +182,8 @@ void fcgi_hashop_blocks(enum sxi_hashop_kind kind) {
     DEBUG("hashop: missing %d, n: %d", missing, n);
 }
 
-static int meta_add(block_meta_t *meta, unsigned replica, int64_t count)
+/* TODO: support sending different tokenids */
+static int meta_add(block_meta_t *meta, unsigned replica, int64_t op)
 {
     block_meta_entry_t *e;
     if (!meta)
@@ -192,7 +193,7 @@ static int meta_add(block_meta_t *meta, unsigned replica, int64_t count)
         return -1;
     e = &meta->entries[meta->count - 1];
     e->replica = replica;
-    e->count = count;
+    e->op = op;
     return 0;
 }
 
@@ -423,7 +424,7 @@ void fcgi_hashop_inuse(void) {
         rc = FAIL_EINTERNAL;
         for (j=0;j<m->count;j++) {
             const block_meta_entry_t *e = &m->entries[j];
-            rc = sx_hashfs_hashop_mod(hashfs, &m->hash, id, m->blocksize, e->replica, e->count, op_expires_at);
+            rc = sx_hashfs_hashop_mod(hashfs, &m->hash, id, m->blocksize, e->replica, e->op, op_expires_at);
             if (rc && rc != ENOENT)
                 break;
         }
@@ -763,9 +764,10 @@ void fcgi_send_replacement_blocks(void) {
 		sx_hashfs_blockmeta_free(&bmeta);
 		break;
 	    }
+            /* TODO: token id */
 	    for(i=0; i<bmeta->count; i++)
 		if(sx_blob_add_int32(b, bmeta->entries[i].replica)||
-		   sx_blob_add_int32(b, bmeta->entries[i].count))
+		   sx_blob_add_int32(b, bmeta->entries[i].op))
 		    break;
 	    if(i < bmeta->count ||
 	       sx_hashfs_block_get(hashfs, bmeta->blocksize, &bmeta->hash, &blockdata) != OK) {

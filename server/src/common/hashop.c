@@ -377,7 +377,7 @@ static int sxi_hashop_batch(sxi_hashop_t *hashop)
                     break;
                 }
                 entry.replica = hashop->replica;
-                entry.count = hashop->kind == HASHOP_INUSE ? 1 : -1;
+                entry.op = hashop->kind == HASHOP_INUSE ? 1 : -1;
                 meta.entries = &entry;
                 meta.count = 1;
                 meta.blocksize = hashop->current_blocksize;
