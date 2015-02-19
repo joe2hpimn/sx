@@ -362,6 +362,17 @@ int main(int argc, char **argv) {
     if(!args.force_reinit_flag)
 	cluster = sxc_cluster_load(sx, args.config_dir_arg, u->host);
 
+    if(args.info_given) {
+        if(!cluster) {
+            fprintf(stderr, "ERROR: Failed to load cluster: %s\n", sxc_geterrmsg(sx));
+            goto init_err;
+        }
+
+        /* Print cluster information and exit */
+        ret = sxc_cluster_info(cluster, u);
+        goto init_err;
+    }
+
     if(!cluster) /* Either force-reinit or load failed */
 	cluster = sxc_cluster_new(sx);
 

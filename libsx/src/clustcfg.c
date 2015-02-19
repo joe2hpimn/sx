@@ -584,6 +584,58 @@ sxc_cluster_t *sxc_cluster_load(sxc_client_t *sx, const char *config_dir, const 
     return NULL;
 }
 
+/* Print basic cluster information */
+int sxc_cluster_info(sxc_cluster_t *cluster, const sxc_uri_t *uri) {
+    sxc_client_t *sx;
+    const char *dnsname;
+    int port, secure;
+    sxi_hostlist_t *hlist;
+
+    if(!cluster)
+        return 1;
+    sx = sxi_cluster_get_client(cluster);
+    if(!uri) {
+        sxi_seterr(sx, SXE_EARG, "NULL argument");
+        return 1;
+    }
+
+    dnsname = sxc_cluster_get_dnsname(cluster);
+    port = sxc_cluster_get_httpport(cluster);
+    secure = sxi_conns_is_secure(sxi_cluster_get_conns(cluster));
+    if(!port) {
+        /* Handle default ports */
+        if(secure)
+           port = 443;
+        else
+           port = 80;
+    }
+
+    printf("Cluster name: %s\n", sxc_cluster_get_sslname(cluster));
+    if(dnsname && uri->host && strcmp(dnsname, uri->host))
+        printf("Cluster DNS name: %s\n", dnsname ? dnsname : "N/A");
+    printf("Cluster UUID: %s\n", sxc_cluster_get_uuid(cluster));
+
+    hlist = sxi_conns_get_hostlist(sxi_cluster_get_conns(cluster));
+    if(hlist) {
+        unsigned int i;
+
+        printf("Nodes: ");
+        for(i = 0; i < sxi_hostlist_get_count(hlist); i++)
+            printf("%s%s", i ? ", " : "", sxi_hostlist_get_host(hlist, i));
+        printf("\n");
+    }
+
+    printf("Port: %d\n", port);
+    printf("Use SSL: %s\n", secure ? "yes" : "no");
+    if(secure && cluster->cafile)
+        printf("CA file: %s\n", cluster->cafile);
+
+    printf("Current profile: %s\n", uri->profile ? uri->profile : "default");
+    printf("Configuration directory: %s\n", cluster->config_dir);
+    printf("libsx version: %s\n", sxc_get_version());
+    return 0;
+}
+
 int64_t sxc_cluster_get_bandwidth_limit(sxc_client_t *sx, const sxc_cluster_t *cluster) {
     if(!cluster || !sx) {
         SXDEBUG("Could not get bandwidth limit: NULL argument.");

@@ -41,6 +41,7 @@ struct gengetopt_args_info
   const char *full_help_help; /**< @brief Print help, including hidden options, and exit help description.  */
   const char *version_help; /**< @brief Print version and exit help description.  */
   const char *list_help; /**< @brief List configured profiles and aliases help description.  */
+  const char *info_help; /**< @brief Show information about a configured cluster help description.  */
   const char *delete_help; /**< @brief Delete a profile help description.  */
   int no_ssl_flag;	/**< @brief Disable secure communication (default=off).  */
   const char *no_ssl_help; /**< @brief Disable secure communication help description.  */
@@ -70,6 +71,7 @@ struct gengetopt_args_info
   unsigned int full_help_given ;	/**< @brief Whether full-help was given.  */
   unsigned int version_given ;	/**< @brief Whether version was given.  */
   unsigned int list_given ;	/**< @brief Whether list was given.  */
+  unsigned int info_given ;	/**< @brief Whether info was given.  */
   unsigned int delete_given ;	/**< @brief Whether delete was given.  */
   unsigned int no_ssl_given ;	/**< @brief Whether no-ssl was given.  */
   unsigned int auth_file_given ;	/**< @brief Whether auth-file was given.  */

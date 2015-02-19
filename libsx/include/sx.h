@@ -342,6 +342,8 @@ typedef struct _sxc_uri_t {
 
 sxc_uri_t *sxc_parse_uri(sxc_client_t *sx, const char *uri);
 void sxc_free_uri(sxc_uri_t *uri);
+/* Print basic cluster information */
+int sxc_cluster_info(sxc_cluster_t *cluster, const sxc_uri_t *uri);
 
 int sxc_fgetline(sxc_client_t *sx, FILE *f, char **ret);
 

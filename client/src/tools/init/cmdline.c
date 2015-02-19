@@ -38,6 +38,7 @@ const char *gengetopt_args_info_full_help[] = {
   "      --full-help               Print help, including hidden options, and exit",
   "  -V, --version                 Print version and exit",
   "  -L, --list                    List configured profiles and aliases",
+  "  -I, --info                    Show information about a configured cluster",
   "      --delete                  Delete a profile",
   "      --no-ssl                  Disable secure communication  (default=off)",
   "  -a, --auth-file=STRING        File containing user key (instead of stdin)",
@@ -67,11 +68,12 @@ init_help_array(void)
   gengetopt_args_info_help[10] = gengetopt_args_info_full_help[10];
   gengetopt_args_info_help[11] = gengetopt_args_info_full_help[11];
   gengetopt_args_info_help[12] = gengetopt_args_info_full_help[12];
-  gengetopt_args_info_help[13] = 0; 
+  gengetopt_args_info_help[13] = gengetopt_args_info_full_help[13];
+  gengetopt_args_info_help[14] = 0; 
   
 }
 
-const char *gengetopt_args_info_help[14];
+const char *gengetopt_args_info_help[15];
 
 typedef enum {ARG_NO
   , ARG_FLAG
@@ -99,6 +101,7 @@ void clear_given (struct gengetopt_args_info *args_info)
   args_info->full_help_given = 0 ;
   args_info->version_given = 0 ;
   args_info->list_given = 0 ;
+  args_info->info_given = 0 ;
   args_info->delete_given = 0 ;
   args_info->no_ssl_given = 0 ;
   args_info->auth_file_given = 0 ;
@@ -140,16 +143,17 @@ void init_args_info(struct gengetopt_args_info *args_info)
   args_info->full_help_help = gengetopt_args_info_full_help[1] ;
   args_info->version_help = gengetopt_args_info_full_help[2] ;
   args_info->list_help = gengetopt_args_info_full_help[3] ;
-  args_info->delete_help = gengetopt_args_info_full_help[4] ;
-  args_info->no_ssl_help = gengetopt_args_info_full_help[5] ;
-  args_info->auth_file_help = gengetopt_args_info_full_help[6] ;
-  args_info->port_help = gengetopt_args_info_full_help[7] ;
-  args_info->host_list_help = gengetopt_args_info_full_help[8] ;
-  args_info->alias_help = gengetopt_args_info_full_help[9] ;
-  args_info->batch_mode_help = gengetopt_args_info_full_help[10] ;
-  args_info->force_reinit_help = gengetopt_args_info_full_help[11] ;
-  args_info->debug_help = gengetopt_args_info_full_help[12] ;
-  args_info->config_dir_help = gengetopt_args_info_full_help[13] ;
+  args_info->info_help = gengetopt_args_info_full_help[4] ;
+  args_info->delete_help = gengetopt_args_info_full_help[5] ;
+  args_info->no_ssl_help = gengetopt_args_info_full_help[6] ;
+  args_info->auth_file_help = gengetopt_args_info_full_help[7] ;
+  args_info->port_help = gengetopt_args_info_full_help[8] ;
+  args_info->host_list_help = gengetopt_args_info_full_help[9] ;
+  args_info->alias_help = gengetopt_args_info_full_help[10] ;
+  args_info->batch_mode_help = gengetopt_args_info_full_help[11] ;
+  args_info->force_reinit_help = gengetopt_args_info_full_help[12] ;
+  args_info->debug_help = gengetopt_args_info_full_help[13] ;
+  args_info->config_dir_help = gengetopt_args_info_full_help[14] ;
   
 }
 
@@ -297,6 +301,8 @@ cmdline_parser_dump(FILE *outfile, struct gengetopt_args_info *args_info)
     write_into_file(outfile, "version", 0, 0 );
   if (args_info->list_given)
     write_into_file(outfile, "list", 0, 0 );
+  if (args_info->info_given)
+    write_into_file(outfile, "info", 0, 0 );
   if (args_info->delete_given)
     write_into_file(outfile, "delete", 0, 0 );
   if (args_info->no_ssl_given)
@@ -563,6 +569,7 @@ cmdline_parser_internal (
         { "full-help",	0, NULL, 0 },
         { "version",	0, NULL, 'V' },
         { "list",	0, NULL, 'L' },
+        { "info",	0, NULL, 'I' },
         { "delete",	0, NULL, 0 },
         { "no-ssl",	0, NULL, 0 },
         { "auth-file",	1, NULL, 'a' },
@@ -576,7 +583,7 @@ cmdline_parser_internal (
         { 0,  0, 0, 0 }
       };
 
-      c = getopt_long (argc, argv, "hVLa:l:A:bDc:", long_options, &option_index);
+      c = getopt_long (argc, argv, "hVLIa:l:A:bDc:", long_options, &option_index);
 
       if (c == -1) break;	/* Exit from `while (1)' loop.  */
 
@@ -609,6 +616,18 @@ cmdline_parser_internal (
               &(local_args_info.list_given), optarg, 0, 0, ARG_NO,
               check_ambiguity, override, 0, 0,
               "list", 'L',
+              additional_error))
+            goto failure;
+        
+          break;
+        case 'I':	/* Show information about a configured cluster.  */
+        
+        
+          if (update_arg( 0 , 
+               0 , &(args_info->info_given),
+              &(local_args_info.info_given), optarg, 0, 0, ARG_NO,
+              check_ambiguity, override, 0, 0,
+              "info", 'I',
               additional_error))
             goto failure;
         
