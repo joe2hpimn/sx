@@ -612,7 +612,7 @@ int sxc_cluster_info(sxc_cluster_t *cluster, const sxc_uri_t *uri) {
 
     printf("Cluster name: %s\n", sxc_cluster_get_sslname(cluster));
     if(dnsname && uri->host && strcmp(dnsname, uri->host))
-        printf("Cluster DNS name: %s\n", dnsname ? dnsname : "N/A");
+        printf("Cluster DNS name: %s\n", dnsname);
     printf("Cluster UUID: %s\n", sxc_cluster_get_uuid(cluster));
 
     hlist = sxi_conns_get_hostlist(sxi_cluster_get_conns(cluster));

@@ -96,5 +96,8 @@ int sxi_load_aliases(sxc_client_t *sx, alias_list_t **list);
 /* Free memory taken for aliases list */
 void sxi_free_aliases(alias_list_t *aliases);
 
+/* Compute CRC32 checksum */
+uint32_t sxi_crc32(uint32_t crc, const void *buf, size_t size);
+
 #endif
 

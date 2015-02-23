@@ -649,8 +649,14 @@ static int load_hosts_for_hash(sxc_client_t *sx, FILE *f, const char *hash, sxi_
  * UPLOAD_THRESHOLD should be multiple of UPLOAD_CHUNK_SIZE */
 #define UPLOAD_PART_THRESHOLD (132 * 1024 * 1024)
 
+struct crc_offset {
+    off_t offset;
+    uint32_t crc;
+    uint32_t ref_crc;
+};
+
 struct need_hash {
-    off_t off;
+    struct crc_offset off;
     sxi_hostlist_t upload_hosts;
     unsigned replica;
 };
@@ -662,7 +668,7 @@ struct part_upload_ctx {
     yajl_handle yh;
     struct cb_error_ctx errctx;
     enum createfile_state { CF_ERROR, CF_BEGIN, CF_MAIN, CF_BS, CF_TOK, CF_DATA, CF_HASH, CF_HOSTS, CF_HOST, CF_COMPLETE } state;
-    off_t *offsets;
+    struct crc_offset *offsets;
     struct need_hash *needed;
     struct need_hash *current_need;
     sxi_ht *hashes;
@@ -679,10 +685,12 @@ struct file_upload_ctx {
     sxc_cluster_t *cluster;
     int64_t uploaded;
     char *name;
+    time_t mtime;
     off_t pos;
     off_t end;
     off_t size;
     off_t last_pos;
+    uint32_t ref_crc;
     int fd;
     int qret;
     unsigned blocksize;
@@ -801,7 +809,7 @@ static int yacb_createfile_map_key(void *ctx, const unsigned char *s, size_t l) 
     }
 
     if(yactx->current.state == CF_HASH) {
-        off_t *off;
+        struct crc_offset *off;
 	if(l != SXI_SHA1_TEXT_LEN) {
 	    CBDEBUG("unexpected hash length %u", (unsigned)l);
 	    return 0;
@@ -820,7 +828,7 @@ static int yacb_createfile_map_key(void *ctx, const unsigned char *s, size_t l) 
 	    sxi_cbdata_seterr(yactx->cbdata, SXE_ECOMM, "Copy failed: malformed reply");
             return 0;
         }
-        CBDEBUG("need %d off: %lld", yactx->current.needed_cnt, (long long)*off);
+        CBDEBUG("need %d off: %lld", yactx->current.needed_cnt, (long long)off->offset);
         yactx->current.current_need = &yactx->current.needed[yactx->current.needed_cnt++];
         yactx->current.current_need->off = *off;
         yactx->current.current_need->replica = 0;
@@ -1230,6 +1238,9 @@ static int send_up_batch(struct file_upload_ctx *yctx, const char *host, struct 
 static void file_finish(struct file_upload_ctx *yctx)
 {
     sxc_client_t *sx = sxi_cluster_get_client(yctx->cluster);
+    off_t size;
+    struct stat s;
+
     SXDEBUG("finished file");
     gettimeofday(&yctx->t2, NULL);
     if (!yctx->current.token) {
@@ -1237,6 +1248,15 @@ static void file_finish(struct file_upload_ctx *yctx)
         yctx->fail++;
         return;
     }
+    if(fstat(yctx->fd, &s)) {
+        SXDEBUG("fail incremented: cannot stat file");
+        yctx->fail++;
+        return;
+    }
+    size = lseek(yctx->fd, 0L, SEEK_END);
+    if(size != yctx->size || s.st_mtime != yctx->mtime)
+        sxi_notice(sx, "WARNING: Source file has changed during upload");
+
     /*  TODO: multiplex flush_file */
     yctx->job = flush_file_ev(yctx->cluster, yctx->host, yctx->current.token, yctx->name, yctx->dest->jobs);
     if (!yctx->job) {
@@ -1372,24 +1392,36 @@ static void upload_blocks_to_hosts(curlev_context_t *cbdata, struct file_upload_
             /* Reset currently uploaded size */
             u->ul = 0;
             for (;u->i < u->n;) {
+                uint32_t crc;
                 struct need_hash *need = &u->needed[u->i++];
-                SXDEBUG("adding data %d from pos %lld", u->i, (long long)need->off);
-                ssize_t n = pread_hard(yctx->fd, u->buf + u->buf_used, yctx->blocksize, need->off);
+                SXDEBUG("adding data %d from pos %lld", u->i, (long long)need->off.offset);
+                ssize_t n = pread_hard(yctx->fd, u->buf + u->buf_used, yctx->blocksize, need->off.offset);
                 if (n < 0) {
                     SXDEBUG("fail incremented: error reading buffer");
+                    sxi_seterr(sx, SXE_EREAD, "Copy failed: Unable to read source file");
                     yctx->fail++;
                     return;
                 }
                 if (!n) {
                     SXDEBUG("fail incremented: early EOF?");
+                    sxi_seterr(sx, SXE_EREAD, "Copy failed: Source file changed while being read");
                     yctx->fail++;
                     return;
                 }
+
                 u->buf_used += n;
                 if (n < yctx->blocksize) {
                     unsigned remaining = yctx->blocksize - n;
                     memset(u->buf + u->buf_used, 0, remaining);
                     u->buf_used += remaining;
+                }
+                /* Check crc32 checksum for this block and bail out if its incorrect */
+                crc = sxi_crc32(need->off.ref_crc, u->buf + u->buf_used - yctx->blocksize, yctx->blocksize);
+                if(crc != need->off.crc) {
+                    SXDEBUG("fail incremented: CRC32 mismatch");
+                    sxi_seterr(sx, SXE_EREAD, "Copy failed: Source file changed while being read");
+                    yctx->fail++;
+                    return;
                 }
                 SXDEBUG("u: i:%d,n:%d", u->i, u->n);
                 if (u->buf_used == sizeof(u->buf)) {
@@ -1454,7 +1486,7 @@ static int cmp_hash(const void *a, const void *b)
 {
     const struct need_hash *h1 = a;
     const struct need_hash *h2 = b;
-    off_t diff = h1->off - h2->off;
+    off_t diff = h1->off.offset - h2->off.offset;
     if (!diff)
         return 0;
     return diff < 0 ? -1 : 1;
@@ -1537,6 +1569,7 @@ static int multi_part_compute_hash_ev(struct file_upload_ctx *yctx)
     if(yctx->pos == 0) {
 	fmeta = yctx->fmeta;
 	yctx->query = sxi_fileadd_proto_begin(sx, yctx->dest->volume, yctx->dest->path, NULL, yctx->pos, yctx->blocksize, yctx->size);
+        yctx->ref_crc = 0xffffffff;
     } else {
 	fmeta = NULL;
 	yctx->query = sxi_fileadd_proto_begin(sx, ".upload", yctx->cur_token, NULL, yctx->pos, yctx->blocksize, yctx->size);
@@ -1589,8 +1622,12 @@ static int multi_part_compute_hash_ev(struct file_upload_ctx *yctx)
 
             off_t pos = yctx->pos - n + i;
             block = (pos - start) / yctx->blocksize;
-            yctx->current.offsets[block] = pos;
-            SXDEBUG("%p, hash %s: block %ld, %lld", (const void*)yctx, hexhash, (long)block, (long long)yctx->current.offsets[block]);
+            yctx->current.offsets[block].offset = pos;
+            /* Calculate crc32 for each block and store it for comparison later */
+            yctx->current.offsets[block].crc = sxi_crc32(yctx->ref_crc, yctx->buf + i, yctx->blocksize);
+            yctx->current.offsets[block].ref_crc = yctx->ref_crc;
+            yctx->ref_crc = yctx->current.offsets[block].crc; /* Save reference crc for next block */
+            SXDEBUG("%p, hash %s: block %ld, %lld, crc32: %lu", (const void*)yctx, hexhash, (long)block, (long long)yctx->current.offsets[block].offset, (unsigned long)yctx->current.offsets[block].crc);
             if(sxi_ht_add(yctx->current.hashes, hexhash, SXI_SHA1_TEXT_LEN, &yctx->current.offsets[block])) {
                 SXDEBUG("failed to add hash offset");
                 return -1;
@@ -2130,6 +2167,7 @@ static int local_to_remote_begin(sxc_file_t *source, sxc_meta_t *fmeta, sxc_file
     state->fmeta = fmeta;
     state->dest = dest;
     state->size = st.st_size;
+    state->mtime = st.st_mtime;
 
     xfer_stat = sxi_cluster_get_xfer_stat(dest->cluster);
     if(xfer_stat) {
@@ -4262,9 +4300,9 @@ static sxi_job_t* remote_to_remote_fast(sxc_file_t *source, sxc_meta_t *fmeta, s
         struct need_hash *need = &yctx.current.needed[i];
         int sz;
 
-        fseek(hf, need->off - 40, SEEK_SET);
+        fseek(hf, need->off.offset - 40, SEEK_SET);
         if(!fread(ha, 40, 1, hf)) {
-            SXDEBUG("Could not read hash at offset %ld", need->off - 40);
+            SXDEBUG("Could not read hash at offset %ld", need->off.offset - 40);
             goto remote_to_remote_fast_err;
         }
 
