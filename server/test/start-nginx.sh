@@ -86,7 +86,7 @@ EOF
     ../client/src/tools/vol/sxvol create sx://localhost/vol$i -r $i -o admin -s 100M
     if [ $i -eq 1 ]; then
         echo "$ADMIN_KEY" | ../client/src/tools/init/sxinit --port "$SX_PORT"  --host-list=127.0.1.1 sx://localhost --no-ssl
-        test/randgen 4096 4096 >mvtest
+        test/randgen 40960 40960 >mvtest
         ../client/src/tools/cp/sxcp mvtest sx://localhost/vol1/
     fi
 

@@ -36,7 +36,7 @@
 #include "utils.h"
 #include <yajl/yajl_parse.h>
 
-void sxi_hashop_begin(sxi_hashop_t *hashop, sxi_conns_t *conns, hash_presence_cb_t cb, enum sxi_hashop_kind kind, unsigned replica, const sx_hash_t *reservehash, const sx_hash_t *idhash, void *context, uint64_t op_expires_at)
+void sxi_hashop_begin(sxi_hashop_t *hashop, sxi_conns_t *conns, hash_presence_cb_t cb, enum sxi_hashop_kind kind, unsigned replica, const sx_hash_t *reservehash, const sx_hash_t *revisionhash, void *context, uint64_t op_expires_at)
 {
     memset(hashop, 0, sizeof(*hashop));
     hashop->conns = conns;
@@ -45,18 +45,15 @@ void sxi_hashop_begin(sxi_hashop_t *hashop, sxi_conns_t *conns, hash_presence_cb
     hashop->kind = kind;
     hashop->replica = replica;
     hashop->op_expires_at = op_expires_at;
-    if (reservehash && bin2hex(reservehash->b, sizeof(reservehash->b), hashop->id, sizeof(hashop->id)/2 + 1))
-        WARN("bin2hex failed");
-    if (idhash) {
-        if (bin2hex(idhash->b, sizeof(idhash->b), hashop->id + sizeof(hashop->id)/2, sizeof(hashop->id)/2 + 1))
-            WARN("bin2hex failed");
-        if (!reservehash)
-            memcpy(hashop->id, hashop->id + sizeof(hashop->id)/2, sizeof(hashop->id)/2);
+    if (!reservehash || !revisionhash) {
+        if (kind != HASHOP_CHECK)
+            WARN("empty id");
+        memset(&hashop->reserve_id, 0, sizeof(hashop->reserve_id));
+        memset(&hashop->revision_id, 0, sizeof(hashop->revision_id));
+    } else {
+        memcpy(&hashop->reserve_id, reservehash, sizeof(hashop->reserve_id));
+        memcpy(&hashop->revision_id, revisionhash, sizeof(hashop->revision_id));
     }
-    if (!idhash && !reservehash && kind != HASHOP_CHECK)
-        WARN("empty id");
-    hashop->id[sizeof(hashop->id)-1] = '\0';
-    DEBUG("id: %s", hashop->id);
     sxc_clearerr(sxi_conns_get_client(conns));
 }
 
@@ -362,12 +359,11 @@ static int sxi_hashop_batch(sxi_hashop_t *hashop)
             query = sxi_hashop_proto_check(sxi_conns_get_client(hashop->conns), blocksize, hashop->hashes, hashop->hashes_pos);
             break;
         case HASHOP_RESERVE:
-            query = sxi_hashop_proto_reserve(sxi_conns_get_client(hashop->conns), blocksize, hashop->hashes, hashop->hashes_pos, hashop->id, hashop->op_expires_at);
+            query = sxi_hashop_proto_reserve(sxi_conns_get_client(hashop->conns), blocksize, hashop->hashes, hashop->hashes_pos, &hashop->reserve_id, &hashop->revision_id, hashop->op_expires_at);
             break;
         case HASHOP_DELETE:/* fall-through */
         case HASHOP_INUSE:
-            DEBUG("inuse id: %s", hashop->id);
-            query = sxi_hashop_proto_inuse_begin(sxi_conns_get_client(hashop->conns), SX_ID_TOKEN, hashop->id, hashop->op_expires_at);
+            query = sxi_hashop_proto_inuse_begin(sxi_conns_get_client(hashop->conns), &hashop->reserve_id);
             for (i=0;i < n;i++) {
                 block_meta_entry_t entry;
                 block_meta_t meta;
@@ -376,6 +372,7 @@ static int sxi_hashop_batch(sxi_hashop_t *hashop)
                     query = NULL;
                     break;
                 }
+                memcpy(&entry.revision_id, &hashop->revision_id, sizeof(entry.revision_id));
                 entry.replica = hashop->replica;
                 entry.op = hashop->kind == HASHOP_INUSE ? 1 : -1;
                 meta.entries = &entry;

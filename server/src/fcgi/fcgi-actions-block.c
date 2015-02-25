@@ -119,7 +119,7 @@ void fcgi_hashop_blocks(enum sxi_hashop_kind kind) {
     sx_hash_t reqhash;
     rc_ty rc = OK;
     unsigned missing = 0;
-    const char *id, *expires;
+    const char *reserve_id, *revision_id, *expires;
     char *end = NULL;
     int comma = 0;
     unsigned idx = 0;
@@ -128,10 +128,11 @@ void fcgi_hashop_blocks(enum sxi_hashop_kind kind) {
     auth_complete();
     quit_unless_authed();
 
-    id = get_arg("id");
+    reserve_id = get_arg("reserve_id");
+    revision_id = get_arg("revision_id");
     expires = get_arg("op_expires_at");
     if (kind != HASHOP_CHECK) {
-        if (!id || !expires)
+        if (!reserve_id || !revision_id || !expires)
             quit_errmsg(400, "Missing id/expires");
         op_expires_at = strtoll(expires, &end, 10);
         if (!end || *end)
@@ -148,6 +149,7 @@ void fcgi_hashop_blocks(enum sxi_hashop_kind kind) {
 	hpath++;
     CGI_PUTS("Content-type: application/json\r\n\r\n{\"presence\":[");
     while (*hpath) {
+        sx_hash_t reserve_hash, revision_hash;
 	int present;
         if(hex2bin(hpath, SXI_SHA1_TEXT_LEN, reqhash.b, SXI_SHA1_BIN_LEN)) {
             msg_set_reason("Invalid hash %*.s", SXI_SHA1_TEXT_LEN, hpath);
@@ -160,7 +162,24 @@ void fcgi_hashop_blocks(enum sxi_hashop_kind kind) {
             quit_itererr("bad URL format for hashop", EINVAL);
         }
         n++;
-        rc = sx_hashfs_hashop_perform(hashfs, blocksize, 0, kind, &reqhash, id, op_expires_at, &present);
+        switch (kind) {
+            case HASHOP_RESERVE:
+                if (hex2bin(reserve_id, strlen(reserve_id), reserve_hash.b, sizeof(reserve_hash.b)) ||
+                    hex2bin(revision_id, strlen(revision_id), revision_hash.b, sizeof(revision_hash.b))) {
+                    msg_set_reason("Invalid hash(es): %s, %s", reserve_id, revision_id);
+                    rc = EINVAL;
+                    break;
+                }
+                rc = sx_hashfs_hashop_perform(hashfs, blocksize, 0, HASHOP_RESERVE, &reqhash, &reserve_hash, &revision_hash, op_expires_at, &present);
+                break;
+            case HASHOP_CHECK:
+                rc = sx_hashfs_hashop_perform(hashfs, blocksize, 0, HASHOP_CHECK, &reqhash, NULL, NULL, 0, &present);
+                break;
+            default:
+                WARN("unexpected kind: %d", kind);
+                rc = EINVAL;
+                break;
+        }
         if (comma)
             CGI_PUTC(',');
         /* the presence callback wants an index not the actual hash...
@@ -182,16 +201,16 @@ void fcgi_hashop_blocks(enum sxi_hashop_kind kind) {
     DEBUG("hashop: missing %d, n: %d", missing, n);
 }
 
-/* TODO: support sending different tokenids */
-static int meta_add(block_meta_t *meta, unsigned replica, int64_t op)
+static int meta_add(block_meta_t *meta, unsigned replica, int64_t op, const sx_hash_t *revision_id)
 {
     block_meta_entry_t *e;
-    if (!meta)
+    if (!meta || !revision_id)
         return -1;
     meta->entries = wrap_realloc_or_free(meta->entries, ++meta->count * sizeof(*meta->entries));
     if (!meta->entries)
         return -1;
     e = &meta->entries[meta->count - 1];
+    memcpy(&e->revision_id, revision_id, sizeof(e->revision_id));
     e->replica = replica;
     e->op = op;
     return 0;
@@ -212,11 +231,14 @@ struct inuse_ctx {
     rc_ty error;
     block_meta_t meta;
     blocks_t all;
+    sx_hash_t revision_id;
     unsigned replica;
     unsigned blocksize;
-    enum inuse_state { CB_IU_START, CB_IU_MAP, CB_IU_HASH, CB_IU_VALUES, CB_IU_BLOCKSIZE, CB_IU_REPLICA, CB_IU_COMPLETE  } state;
+    int op;
+    enum inuse_state { CB_IU_START, CB_IU_MAP_HASHES, CB_IU_HASH, CB_IU_MAP_BLOCKSIZE, CB_IU_BLOCKSIZE_VAL, CB_IU_ARRAY, CB_IU_MAP_REVISION, CB_IU_REPLICA, CB_IU_COMPLETE  } state;
 };
 
+/* TODO: parse json replica */
 static int cb_inuse_number(void *ctx, const char *s, size_t l)
 {
     char numb[24], *enumb;
@@ -228,7 +250,7 @@ static int cb_inuse_number(void *ctx, const char *s, size_t l)
 	DEBUG("number too long (%u bytes)", (unsigned)l);
 	return 0;
     }
-    if (yactx->state != CB_IU_REPLICA && yactx->state != CB_IU_BLOCKSIZE) {
+    if (yactx->state != CB_IU_REPLICA) {
         DEBUG("bad number state %d", yactx->state);
         return 0;
     }
@@ -240,25 +262,15 @@ static int cb_inuse_number(void *ctx, const char *s, size_t l)
 	return 0;
     }
 
-    if (yactx->state == CB_IU_BLOCKSIZE) {
-        DEBUG("blocksize: %lld", (long long)nnumb);
-        yactx->meta.blocksize = nnumb;
-        yactx->replica = 0;
-        yactx->state = CB_IU_VALUES;
-        return 1;
-    }
+    DEBUG("replica: %lld", (long long)nnumb);
+    yactx->replica = nnumb;
 
-    if (!yactx->replica) {
-        DEBUG("zero replica");
-        return 0;
-    }
-
-    if (meta_add(&yactx->meta, yactx->replica, nnumb)) {
+    if (meta_add(&yactx->meta, yactx->replica, yactx->op, &yactx->revision_id)) {
         DEBUG("meta_add failed");
         return 0;
     }
     yactx->replica = 0;
-    yactx->state = CB_IU_VALUES;
+    yactx->state = CB_IU_MAP_REVISION;
     return 1;
 }
 
@@ -270,13 +282,16 @@ static int cb_inuse_start_map(void *ctx) {
     }
     switch (yactx->state) {
         case CB_IU_START:
-            yactx->state = CB_IU_MAP;
+            yactx->state = CB_IU_MAP_HASHES;
             break;
         case CB_IU_HASH:
-            yactx->state = CB_IU_VALUES;
+            yactx->state = CB_IU_MAP_BLOCKSIZE;
+            break;
+        case CB_IU_ARRAY:
+            yactx->state = CB_IU_MAP_REVISION;
             break;
         default:
-            DEBUG("bad map state: %d", yactx->state);
+            DEBUG("bad startmap state: %d", yactx->state);
             return 0;
     }
     DEBUG("start_map OK");
@@ -288,21 +303,61 @@ static int cb_inuse_end_map(void *ctx) {
     if (!yactx)
         return 0;
     switch (yactx->state) {
-        case CB_IU_MAP:
+        case CB_IU_MAP_HASHES:
             yactx->state = CB_IU_COMPLETE;
             break;
-        case CB_IU_VALUES:
+        case CB_IU_MAP_BLOCKSIZE:
             if (all_add(&yactx->all, &yactx->meta)) {
                 free(yactx->meta.entries);
                 return 0;
             }
             memset(&yactx->meta, 0, sizeof(yactx->meta));
-            yactx->state = CB_IU_MAP;
+            yactx->state = CB_IU_MAP_HASHES;
+            break;
+        case CB_IU_MAP_REVISION:
+            yactx->state = CB_IU_ARRAY;
             break;
         default:
-            DEBUG("bad map state: %d", yactx->state);
+            DEBUG("bad endmap state: %d", yactx->state);
             return 0;
     }
+    DEBUG("end_map OK");
+    return 1;
+}
+
+static int cb_inuse_start_array(void *ctx) {
+    struct inuse_ctx *yactx = (struct inuse_ctx*)ctx;
+    if (!yactx) {
+        DEBUG("null yactx");
+        return 0;
+    }
+    switch (yactx->state) {
+        case CB_IU_BLOCKSIZE_VAL:
+            yactx->state = CB_IU_ARRAY;
+            break;
+        default:
+            DEBUG("bad array state: %d", yactx->state);
+            return 0;
+    }
+    DEBUG("start_array OK");
+    return 1;
+}
+
+static int cb_inuse_end_array(void *ctx) {
+    struct inuse_ctx *yactx = (struct inuse_ctx*)ctx;
+    if (!yactx) {
+        DEBUG("null yactx");
+        return 0;
+    }
+    switch (yactx->state) {
+        case CB_IU_ARRAY:
+            yactx->state = CB_IU_MAP_BLOCKSIZE;
+            break;
+        default:
+            DEBUG("bad array state: %d", yactx->state);
+            return 0;
+    }
+    DEBUG("end_array OK");
     return 1;
 }
 
@@ -313,26 +368,35 @@ static int cb_inuse_map_key(void *ctx, const unsigned char *s, size_t l) {
     if (!yactx)
         return 0;
     switch (yactx->state) {
-        case CB_IU_MAP:
+        case CB_IU_MAP_HASHES:
             yactx->state = CB_IU_HASH;
             memset(&yactx->meta, 0, sizeof(yactx->meta));
             if(hex2bin(s, l, (uint8_t *)&yactx->meta.hash, sizeof(yactx->meta.hash)))
                 return 0;
             break;
-        case CB_IU_VALUES:
-            if (!strncmp("b", s , l)) {
-                yactx->state = CB_IU_BLOCKSIZE;
-            } else {
-                yactx->state = CB_IU_REPLICA;
-                memcpy(numb, s, l);
-                numb[l] = '\0';
-                nnumb = strtoll(numb, &enumb, 10);
-                if(*enumb) {
-                    DEBUG("failed to parse number %.*s", (int)l, s);
-                    return 0;
-                }
-                yactx->replica = nnumb;
+        case CB_IU_MAP_BLOCKSIZE:
+            if(l > 20) {
+        	DEBUG("number too long (%u bytes)", (unsigned)l);
+        	return 0;
             }
+            memcpy(numb, s, l);
+            numb[l] = '\0';
+            nnumb = strtoll(numb, &enumb, 10);
+            DEBUG("blocksize: %lld", (long long)nnumb);
+            yactx->meta.blocksize = nnumb;
+            yactx->state = CB_IU_BLOCKSIZE_VAL;
+            return 1;
+        case CB_IU_MAP_REVISION:
+            if(!l)
+                return 0;
+            yactx->op = s[0] == '+' ? 1 : s[0] == '-' ? -1 : 0;
+            if (!yactx->op) {
+                WARN("bad revision id: %.*s", (int)l, s);
+                return 0;
+            }
+	    if(hex2bin(s+1, l-1, yactx->revision_id.b, sizeof(yactx->revision_id.b)))
+                return 0;
+            yactx->state = CB_IU_REPLICA;
             break;
         default:
             DEBUG("bad map key state: %d", yactx->state);
@@ -360,30 +424,28 @@ static const yajl_callbacks inuse_parser = {
     cb_inuse_start_map,
     cb_inuse_map_key,
     cb_inuse_end_map,
-    cb_fail_start_array,
-    cb_fail_end_array
+    cb_inuse_start_array,
+    cb_inuse_end_array
 };
 
 void fcgi_hashop_inuse(void) {
     unsigned i, j;
     rc_ty rc = FAIL_EINTERNAL;
     unsigned missing = 0;
-    const char *id, *expires;
+    const char *reserve_id;
     int comma = 0;
     unsigned idx = 0;
-    int64_t op_expires_at;
-    char *end;
+    sx_hash_t reserve_hash;
 
     struct inuse_ctx yctx;
     memset(&yctx, 0, sizeof(yctx));
 
-    id = get_arg("id");
-    expires = get_arg("op_expires_at");
-    if (!id || !expires)
-        quit_errmsg(400, "Missing id/expires");
-    op_expires_at = strtoll(expires, &end, 10);
-    if (!end || *end)
-        quit_errmsg(400, "Invalid number for op_expires_at");
+    reserve_id = get_arg("reserve_id");
+    if (reserve_id &&
+        hex2bin(reserve_id, strlen(reserve_id), reserve_hash.b, sizeof(reserve_hash.b))) {
+        msg_set_reason("bad reserve id: %s", reserve_id);
+        quit_errmsg(400, "Bad reserve id");
+    }
 
     yajl_handle yh = yajl_alloc(&inuse_parser, NULL, &yctx);
     if (!yh) {
@@ -424,7 +486,7 @@ void fcgi_hashop_inuse(void) {
         rc = FAIL_EINTERNAL;
         for (j=0;j<m->count;j++) {
             const block_meta_entry_t *e = &m->entries[j];
-            rc = sx_hashfs_hashop_mod(hashfs, &m->hash, id, m->blocksize, e->replica, e->op, op_expires_at);
+            rc = sx_hashfs_hashop_mod(hashfs, &m->hash, reserve_id ? &reserve_hash : NULL, &e->revision_id, m->blocksize, e->replica, e->op, 0);
             if (rc && rc != ENOENT)
                 break;
         }
@@ -766,7 +828,8 @@ void fcgi_send_replacement_blocks(void) {
 	    }
             /* TODO: token id */
 	    for(i=0; i<bmeta->count; i++)
-		if(sx_blob_add_int32(b, bmeta->entries[i].replica)||
+		if(sx_blob_add_blob(b, bmeta->entries[i].revision_id.b, sizeof(bmeta->entries[i].revision_id.b)) ||
+                   sx_blob_add_int32(b, bmeta->entries[i].replica) ||
 		   sx_blob_add_int32(b, bmeta->entries[i].op))
 		    break;
 	    if(i < bmeta->count ||

@@ -387,42 +387,42 @@ rc_ty sx_storage_create(const char *dir, sx_uuid_t *cluster, uint8_t *key, int k
             /* op:
              * +1: inuse, or reserved
              * -1: delete */
-            if(qprep(db, &q, "CREATE TABLE token_ops(\
-                tokens_id BLOB("STRIFY(SXI_SHA1_BIN_LEN)") NOT NULL,\
+            if(qprep(db, &q, "CREATE TABLE revision_ops(\
+                revision_id BLOB("STRIFY(SXI_SHA1_BIN_LEN)") NOT NULL,\
                 op INTEGER NOT NULL,\
                 age INTEGER NOT NULL,\
-                PRIMARY KEY(tokens_id, op))") || qstep_noret(q))
+                PRIMARY KEY(revision_id, op))") || qstep_noret(q))
                 goto create_hashfs_fail;
             qnullify(q);
-            if(qprep(db, &q, "CREATE INDEX tokens_op ON token_ops(op, tokens_id, age)") || qstep_noret(q))
+            if(qprep(db, &q, "CREATE INDEX idx_op_revision ON revision_ops(op, revision_id, age)") || qstep_noret(q))
                 goto create_hashfs_fail;
             qnullify(q);
 
             if(qprep(db, &q, "CREATE TABLE reservations (\
-                reservations_id BLOB NOT NULL,\
-                tokens_id BLOB NOT NULL,\
+                reservations_id BLOB("STRIFY(SXI_SHA1_BIN_LEN)") NOT NULL,\
+                revision_id BLOB("STRIFY(SXI_SHA1_BIN_LEN)") NOT NULL,\
                 ttl INTEGER NOT NULL,\
-                PRIMARY KEY(reservations_id, tokens_id))") || qstep_noret(q))
+                PRIMARY KEY(reservations_id, revision_id))") || qstep_noret(q))
                 goto create_hashfs_fail;
             qnullify(q);
-            if(qprep(db, &q, "CREATE INDEX idx_res ON reservations(reservations_id)") || qstep_noret(q))
+            if(qprep(db, &q, "CREATE INDEX idx_res ON reservations(revision_id, reservations_id)") || qstep_noret(q))
                 goto create_hashfs_fail;
             qnullify(q);
-            if(qprep(db, &q, "CREATE INDEX idx_res_ttl ON reservations(ttl, tokens_id)") || qstep_noret(q))
+            if(qprep(db, &q, "CREATE INDEX idx_res_ttl ON reservations(ttl, revision_id)") || qstep_noret(q))
                 goto create_hashfs_fail;
             qnullify(q);
 
             /* age = rebalance/hdist version
              * */
-            if(qprep(db, &q, "CREATE TABLE token_blocks (\
-                tokens_id BLOB NOT NULL,\
-                blocks_hash BLOB NOT NULL,\
+            if(qprep(db, &q, "CREATE TABLE revision_blocks (\
+                revision_id BLOB("STRIFY(SXI_SHA1_BIN_LEN)") NOT NULL,\
+                blocks_hash BLOB("STRIFY(SXI_SHA1_BIN_LEN)") NOT NULL,\
                 age INTEGER NOT NULL,\
                 replica INTEGER NOT NULL,\
-                PRIMARY KEY(tokens_id, blocks_hash, age))") || qstep_noret(q))
+                PRIMARY KEY(revision_id, blocks_hash, age))") || qstep_noret(q))
                 goto create_hashfs_fail;
             qnullify(q);
-            if (qprep(db, &q, "CREATE INDEX revmap ON token_blocks(blocks_hash, tokens_id)") || qstep_noret(q))
+            if (qprep(db, &q, "CREATE INDEX idx_revmap ON revision_blocks(blocks_hash, revision_id)") || qstep_noret(q))
                 goto create_hashfs_fail;
             qnullify(q);
 
@@ -685,7 +685,7 @@ struct _sx_hashfs_t {
     sqlite3_stmt *qt_tmpdata;
     sqlite3_stmt *qt_delete;
     sqlite3_stmt *qt_flush;
-    sqlite3_stmt *qt_gc_tokens;
+    sqlite3_stmt *qt_gc_revisions;
 
     sxi_db_t *metadb[METADBS];
     sqlite3_stmt *qm_ins[METADBS];
@@ -727,13 +727,13 @@ struct _sx_hashfs_t {
     sqlite3_stmt *qb_reserve[SIZES][HASHDBS];
     sqlite3_stmt *qb_get_meta[SIZES][HASHDBS];
     sqlite3_stmt *qb_del_reserve[SIZES][HASHDBS];
-    sqlite3_stmt *qb_find_unused_token[SIZES][HASHDBS];
+    sqlite3_stmt *qb_find_unused_revision[SIZES][HASHDBS];
     sqlite3_stmt *qb_find_unused_block[SIZES][HASHDBS];
     sqlite3_stmt *qb_deleteold[SIZES][HASHDBS];
     sqlite3_stmt *qb_find_expired_reservation[SIZES][HASHDBS];
     sqlite3_stmt *qb_find_expired_reservation2[SIZES][HASHDBS];
-    sqlite3_stmt *qb_gc_token_blocks[SIZES][HASHDBS];
-    sqlite3_stmt *qb_gc_token[SIZES][HASHDBS];
+    sqlite3_stmt *qb_gc_revision_blocks[SIZES][HASHDBS];
+    sqlite3_stmt *qb_gc_revision[SIZES][HASHDBS];
     sqlite3_stmt *qb_gc_reserve[SIZES][HASHDBS];
 
     sxi_db_t *eventdb;
@@ -889,14 +889,14 @@ static void close_all_dbs(sx_hashfs_t *h) {
             sqlite3_finalize(h->qb_reserve[j][i]);
             sqlite3_finalize(h->qb_get_meta[j][i]);
             sqlite3_finalize(h->qb_del_reserve[j][i]);
-            sqlite3_finalize(h->qb_find_unused_token[j][i]);
+            sqlite3_finalize(h->qb_find_unused_revision[j][i]);
             sqlite3_finalize(h->qb_find_unused_block[j][i]);
             sqlite3_finalize(h->qb_deleteold[j][i]);
             sqlite3_finalize(h->rit.q[j][i]);
             sqlite3_finalize(h->qb_find_expired_reservation[j][i]);
             sqlite3_finalize(h->qb_find_expired_reservation2[j][i]);
-            sqlite3_finalize(h->qb_gc_token_blocks[j][i]);
-            sqlite3_finalize(h->qb_gc_token[j][i]);
+            sqlite3_finalize(h->qb_gc_revision_blocks[j][i]);
+            sqlite3_finalize(h->qb_gc_revision[j][i]);
             sqlite3_finalize(h->qb_gc_reserve[j][i]);
 	    qclose(&h->datadb[j][i]);
 
@@ -984,7 +984,7 @@ static void close_all_dbs(sx_hashfs_t *h) {
     sqlite3_finalize(h->qt_tmpbyrev);
     sqlite3_finalize(h->qt_delete);
     sqlite3_finalize(h->qt_flush);
-    sqlite3_finalize(h->qt_gc_tokens);
+    sqlite3_finalize(h->qt_gc_revisions);
 
     sqlite3_finalize(h->q_volbyname);
     sqlite3_finalize(h->q_volbyid);
@@ -1516,7 +1516,7 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 	goto open_hashfs_fail;
     if(qprep(h->tempdb, &h->qt_delete, "DELETE FROM tmpfiles WHERE tid = :id"))
 	goto open_hashfs_fail;
-    if(qprep(h->tempdb, &h->qt_gc_tokens, "DELETE FROM tmpfiles WHERE ttl < :now AND ttl > 0"))
+    if(qprep(h->tempdb, &h->qt_gc_revisions, "DELETE FROM tmpfiles WHERE ttl < :now AND ttl > 0"))
 	goto open_hashfs_fail;
 
     if(!(h->blockbuf = wrap_malloc(bsz[SIZES-1])))
@@ -1544,38 +1544,38 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 		goto open_hashfs_fail;
 	    if(qprep(h->datadb[j][i], &h->qb_bumpalloc[j][i], "UPDATE hashfs SET value = value + 1 WHERE key = 'next_blockno'"))
 		goto open_hashfs_fail;
-            if(qprep(h->datadb[j][i], &h->qb_addtoken[j][i], "INSERT OR IGNORE INTO token_ops(tokens_id, op, age) VALUES(:tokens_id, :op, :age)"))
+            if(qprep(h->datadb[j][i], &h->qb_addtoken[j][i], "INSERT OR IGNORE INTO revision_ops(revision_id, op, age) VALUES(:revision_id, :op, :age)"))
                 goto open_hashfs_fail;
-            if(qprep(h->datadb[j][i], &h->qb_moduse[j][i], "INSERT OR IGNORE INTO token_blocks(tokens_id, blocks_hash, age, replica) VALUES(:tokens_id, :hash, :age, :replica)"))
+            if(qprep(h->datadb[j][i], &h->qb_moduse[j][i], "INSERT OR REPLACE INTO revision_blocks(revision_id, blocks_hash, age, replica) VALUES(:revision_id, :hash, :age, :replica)"))
                 goto open_hashfs_fail;
-            if(qprep(h->datadb[j][i], &h->qb_reserve[j][i], "INSERT OR IGNORE INTO reservations(reservations_id, tokens_id, ttl) VALUES(:reserveid, :tokens_id, :ttl)"))
+            if(qprep(h->datadb[j][i], &h->qb_reserve[j][i], "INSERT OR IGNORE INTO reservations(reservations_id, revision_id, ttl) VALUES(:reserve_id, :revision_id, :ttl)"))
                 goto open_hashfs_fail;
-            if(qprep(h->datadb[j][i], &h->qb_get_meta[j][i], "SELECT replica, op, tokens_id FROM token_blocks NATURAL INNER JOIN token_ops NATURAL LEFT JOIN reservations WHERE blocks_hash=:hash AND age < :current_age AND reservations_id IS NULL"))
+            if(qprep(h->datadb[j][i], &h->qb_get_meta[j][i], "SELECT replica, op, revision_id FROM revision_blocks NATURAL INNER JOIN revision_ops NATURAL LEFT JOIN reservations WHERE blocks_hash=:hash AND age < :current_age AND reservations_id IS NULL"))
                 goto open_hashfs_fail;
-            if(qprep(h->datadb[j][i], &h->rit.q[j][i], "SELECT id, hash FROM blocks WHERE hash > :prevhash AND blockno IS NOT NULL"))
+            if(qprep(h->datadb[j][i], &h->rit.q[j][i], "SELECT hash FROM blocks WHERE hash > :prevhash AND blockno IS NOT NULL"))
                 goto open_hashfs_fail;
-	    if(qprep(h->datadb[j][i], &h->qb_del_reserve[j][i], "DELETE FROM reservations WHERE reservations_id=:reserveid"))
+	    if(qprep(h->datadb[j][i], &h->qb_del_reserve[j][i], "DELETE FROM reservations WHERE reservations_id=:reserve_id"))
 		goto open_hashfs_fail;
-	    if(qprep(h->datadb[j][i], &h->qb_find_unused_token[j][i], "SELECT tokens_id FROM token_ops WHERE tokens_id IN (SELECT tokens_id FROM token_ops WHERE op <= 0 AND age <= :age AND tokens_id > :last_tokens_id) GROUP BY tokens_id HAVING SUM(op)=0 ORDER BY tokens_id LIMIT 1"))
+	    if(qprep(h->datadb[j][i], &h->qb_find_unused_revision[j][i], "SELECT revision_id FROM revision_ops WHERE revision_id IN (SELECT revision_id FROM revision_ops WHERE op <= 0 AND age <= :age AND revision_id > :last_revision_id) GROUP BY revision_id HAVING SUM(op)=0 ORDER BY revision_id LIMIT 1"))
 		goto open_hashfs_fail;
-	    if(qprep(h->datadb[j][i], &h->qb_find_unused_block[j][i], "SELECT id, blockno, hash FROM blocks LEFT JOIN token_blocks ON blocks.hash=blocks_hash WHERE id  > :last AND tokens_id IS NULL ORDER BY id"))
+	    if(qprep(h->datadb[j][i], &h->qb_find_unused_block[j][i], "SELECT id, blockno, hash FROM blocks LEFT JOIN revision_blocks ON blocks.hash=blocks_hash WHERE id  > :last AND revision_id IS NULL ORDER BY id"))
 		goto open_hashfs_fail;
             /* hash moved,
              * hashes that are not moved don't have the old counters deleted,
              * and must be taken into account when GCing!
              * this is to avoid updating the entire table during rebalance
              * */
-            if(qprep(h->datadb[j][i], &h->qb_deleteold[j][i], "DELETE FROM token_blocks WHERE blocks_hash=:hash AND age < :current_age"))
+            if(qprep(h->datadb[j][i], &h->qb_deleteold[j][i], "DELETE FROM revision_blocks WHERE blocks_hash=:hash AND age < :current_age"))
                 goto open_hashfs_fail;
-            if(qprep(h->datadb[j][i], &h->qb_find_expired_reservation[j][i], "SELECT reservations_id, tokens_id FROM reservations NATURAL INNER JOIN token_blocks INNER JOIN blocks ON blocks.hash = blocks_hash WHERE reservations_id > :lastreserveid GROUP BY reservations_id HAVING created_at < :expires ORDER BY reservations_id LIMIT 1"))
+            if(qprep(h->datadb[j][i], &h->qb_find_expired_reservation[j][i], "SELECT reservations_id, revision_id FROM reservations NATURAL INNER JOIN revision_blocks INNER JOIN blocks ON blocks.hash = blocks_hash WHERE reservations_id > :lastreserve_id GROUP BY reservations_id HAVING created_at < :expires ORDER BY reservations_id LIMIT 1"))
                goto open_hashfs_fail;
-            if(qprep(h->datadb[j][i], &h->qb_find_expired_reservation2[j][i], "SELECT tokens_id from reservations WHERE ttl < :now LIMIT 1"))
+            if(qprep(h->datadb[j][i], &h->qb_find_expired_reservation2[j][i], "SELECT revision_id from reservations WHERE ttl < :now LIMIT 1"))
                goto open_hashfs_fail;
-            if(qprep(h->datadb[j][i], &h->qb_gc_token_blocks[j][i], "DELETE FROM token_blocks WHERE tokens_id=:tokens_id"))
+            if(qprep(h->datadb[j][i], &h->qb_gc_revision_blocks[j][i], "DELETE FROM revision_blocks WHERE revision_id=:revision_id"))
                 goto open_hashfs_fail;
-            if(qprep(h->datadb[j][i], &h->qb_gc_token[j][i], "DELETE FROM token_ops WHERE tokens_id=:tokens_id"))
+            if(qprep(h->datadb[j][i], &h->qb_gc_revision[j][i], "DELETE FROM revision_ops WHERE revision_id=:revision_id"))
                 goto open_hashfs_fail;
-            if(qprep(h->datadb[j][i], &h->qb_gc_reserve[j][i], "DELETE FROM reservations WHERE tokens_id=:tokens_id"))
+            if(qprep(h->datadb[j][i], &h->qb_gc_reserve[j][i], "DELETE FROM reservations WHERE revision_id=:revision_id"))
                 goto open_hashfs_fail;
 
 	    sprintf(dbitem, "datafile_%c_%08x", sizedirs[j], i);
@@ -5787,11 +5787,10 @@ static rc_ty sx_hashfs_hashop_ishash(sx_hashfs_t *h, unsigned hs, const sx_hash_
     return ret;
 }
 
-static rc_ty sx_hashfs_hashop_moduse(sx_hashfs_t *h, const char *id, unsigned int hs, const sx_hash_t *hash, unsigned replica, int64_t op, uint64_t op_expires_at)
+static rc_ty sx_hashfs_hashop_moduse(sx_hashfs_t *h, const sx_hash_t *reserve_id, const sx_hash_t *revision_id, unsigned int hs, const sx_hash_t *hash, unsigned replica, int64_t op, uint64_t op_expires_at)
 {
     unsigned ndb;
-    unsigned int age, n;
-    sx_hash_t reserveid, tokenid;
+    unsigned int age;
     rc_ty ret = FAIL_EINTERNAL;
     /* FIXME: maybe enable this
     if(!is_hash_local(h, hash, replica_count))
@@ -5811,8 +5810,8 @@ static rc_ty sx_hashfs_hashop_moduse(sx_hashfs_t *h, const char *id, unsigned in
         }
     }
 
-    if (!id) {
-        msg_set_reason("missing id");
+    if (!revision_id) {
+        msg_set_reason("missing revision id");
         return EINVAL;
     }
     ndb = gethashdb(hash);
@@ -5820,61 +5819,49 @@ static rc_ty sx_hashfs_hashop_moduse(sx_hashfs_t *h, const char *id, unsigned in
     sqlite3_reset(h->qb_addtoken[hs][ndb]);
     sqlite3_reset(h->qb_reserve[hs][ndb]);
     sqlite3_reset(h->qb_moduse[hs][ndb]);
-    n = strlen(id);
-    if (n != SXI_SHA1_TEXT_LEN && n != SXI_SHA1_TEXT_LEN * 2) {
-        WARN("wrong id length: %d", n);
-        return EINVAL;
-    }
-    /* groupid = either the fileid, or a token.
-     * When there is no activity on the groupid, the reservations on all hashes
-     * from that groupid are dropped */
-    if (hex2bin(id, SXI_SHA1_TEXT_LEN, reserveid.b, sizeof(reserveid.b))) {
-        WARN("Cannot decode hash id: %s", id);
-        return FAIL_EINTERNAL;
-    }
-    if (n == SXI_SHA1_TEXT_LEN*2) {
-        if (hex2bin(id + SXI_SHA1_TEXT_LEN, SXI_SHA1_TEXT_LEN, tokenid.b, sizeof(tokenid.b))) {
-            WARN("Cannot decode hash id: %s", id);
-            return FAIL_EINTERNAL;
-        }
-    } else {
-        memcpy(tokenid.b, reserveid.b, sizeof(tokenid.b));
-    }
-    DEBUG("moduse %lld, groupid: %s", (long long)op, id);
-    DEBUGHASH("reserveid", &reserveid);
-    DEBUGHASH("tokenid", &tokenid);
+    DEBUG("moduse %lld", (long long)op);
+    DEBUGHASH("reserve_id", reserve_id);
+    DEBUGHASH("revision_id", revision_id);
     if (qbegin(h->datadb[hs][ndb]))
         return FAIL_EINTERNAL;
     do {
+        if (op) { /* +N or -N */
+            if (reserve_id) {
+                if (qbind_blob(h->qb_del_reserve[hs][ndb], ":reserve_id", reserve_id, sizeof(*reserve_id)) ||
+                    qstep_noret(h->qb_del_reserve[hs][ndb]))
+                   break;
+            }
+        } else {
+            /* reserve */
+            if (!reserve_id) {
+                WARN("reserve without id!");
+                break;
+            }
+            if (qbind_blob(h->qb_reserve[hs][ndb], ":revision_id", revision_id, sizeof(*revision_id)) ||
+                qbind_blob(h->qb_reserve[hs][ndb], ":reserve_id", reserve_id, sizeof(*reserve_id)) ||
+                qbind_int64(h->qb_reserve[hs][ndb], ":ttl", op_expires_at) ||
+                qstep_noret(h->qb_reserve[hs][ndb]))
+                break;
+            sqlite3_reset(h->qb_reserve[hs][ndb]);
+            op = 1;
+        }
+
         age = sxi_hdist_version(h->hd);
-        if (qbind_blob(h->qb_addtoken[hs][ndb], ":tokens_id", &tokenid, sizeof(tokenid)) ||
+        if (qbind_blob(h->qb_addtoken[hs][ndb], ":revision_id", revision_id, sizeof(*revision_id)) ||
             qbind_int(h->qb_addtoken[hs][ndb], ":op", op) ||
             qbind_int(h->qb_addtoken[hs][ndb], ":age", age) ||
             qstep_noret(h->qb_addtoken[hs][ndb]))
             break;
         sqlite3_reset(h->qb_addtoken[hs][ndb]);
-        if (op) { /* +N or -N */
-            if (qbind_blob(h->qb_del_reserve[hs][ndb], ":reserveid", &reserveid, sizeof(reserveid)) ||
-                qstep_noret(h->qb_del_reserve[hs][ndb]))
-                break;
-            if (qbind_blob(h->qb_moduse[hs][ndb], ":hash", hash, sizeof(*hash)) ||
-                qbind_int(h->qb_moduse[hs][ndb], ":replica", replica) ||
-                qbind_int(h->qb_moduse[hs][ndb], ":age", age) ||
-                qbind_blob(h->qb_moduse[hs][ndb], ":tokens_id", &tokenid, sizeof(tokenid)) ||
-                qstep_noret(h->qb_moduse[hs][ndb]))
-                break;
-            DEBUGHASH("moduse on", hash);
-            DEBUG("op: %ld, replica: %d, age: %d", op, replica, age);
-            sqlite3_reset(h->qb_moduse[hs][ndb]);
-        } else {
-            /* reserve */
-            if (qbind_blob(h->qb_reserve[hs][ndb], ":tokens_id", &tokenid, sizeof(tokenid)) ||
-                qbind_blob(h->qb_reserve[hs][ndb], ":reserveid", &reserveid, sizeof(reserveid)) ||
-                qbind_int64(h->qb_reserve[hs][ndb], ":ttl", op_expires_at) ||
-                qstep_noret(h->qb_reserve[hs][ndb]))
-                break;
-            sqlite3_reset(h->qb_reserve[hs][ndb]);
-        }
+        if (qbind_blob(h->qb_moduse[hs][ndb], ":hash", hash, sizeof(*hash)) ||
+            qbind_int(h->qb_moduse[hs][ndb], ":replica", replica) ||
+            qbind_int(h->qb_moduse[hs][ndb], ":age", age) ||
+            qbind_blob(h->qb_moduse[hs][ndb], ":revision_id", revision_id, sizeof(*revision_id)) ||
+            qstep_noret(h->qb_moduse[hs][ndb]))
+            break;
+        DEBUGHASH("moduse on", hash);
+        DEBUG("op: %ld, replica: %d, age: %d", op, replica, age);
+        sqlite3_reset(h->qb_moduse[hs][ndb]);
         if (qcommit(h->datadb[hs][ndb]))
             break;
         ret = OK;
@@ -5884,7 +5871,7 @@ static rc_ty sx_hashfs_hashop_moduse(sx_hashfs_t *h, const char *id, unsigned in
     return ret;
 }
 
-rc_ty sx_hashfs_hashop_perform(sx_hashfs_t *h, unsigned int block_size, unsigned replica_count, enum sxi_hashop_kind kind, const sx_hash_t *hash, const char *id, uint64_t op_expires_at, int *present)
+rc_ty sx_hashfs_hashop_perform(sx_hashfs_t *h, unsigned int block_size, unsigned replica_count, enum sxi_hashop_kind kind, const sx_hash_t *hash, const sx_hash_t *reserve_id, const sx_hash_t *revision_id, uint64_t op_expires_at, int *present)
 {
     unsigned int hs;
     rc_ty rc;
@@ -5892,11 +5879,13 @@ rc_ty sx_hashfs_hashop_perform(sx_hashfs_t *h, unsigned int block_size, unsigned
     if (UNLIKELY(sxi_log_is_debug(&logger))) {
         char debughash[sizeof(sx_hash_t)*2+1];		\
         bin2hex(hash->b, sizeof(*hash), debughash, sizeof(debughash));	\
-        DEBUG("processing %s, #%s# (id: %s)",
+        DEBUG("processing %s, #%s#",
               kind == HASHOP_RESERVE ? "reserve" :
               kind == HASHOP_INUSE ? "inuse" :
               kind == HASHOP_DELETE ? "decuse" : "??",
-              debughash, id ? id : "");
+              debughash);
+        DEBUGHASH("reserve_id: ", reserve_id);
+        DEBUGHASH("revision_id: ", revision_id);
     }
 
     for(hs = 0; hs < SIZES; hs++)
@@ -5911,15 +5900,15 @@ rc_ty sx_hashfs_hashop_perform(sx_hashfs_t *h, unsigned int block_size, unsigned
             break;
         case HASHOP_RESERVE:
             /* we must always reserve, even if ENOENT */
-            rc = sx_hashfs_hashop_moduse(h, id, hs, hash, 0, 0, op_expires_at);
+            rc = sx_hashfs_hashop_moduse(h, reserve_id, revision_id, hs, hash, 0, 0, op_expires_at);
             if (rc == OK)
                 rc = sx_hashfs_hashop_ishash(h, hs, hash);
             break;
         case HASHOP_INUSE:
-            rc = sx_hashfs_hashop_mod(h, hash, id, block_size, replica_count, 1, op_expires_at);
+            rc = sx_hashfs_hashop_mod(h, hash, reserve_id, revision_id, block_size, replica_count, 1, op_expires_at);
             break;
         case HASHOP_DELETE:
-            rc = sx_hashfs_hashop_mod(h, hash, id, block_size, replica_count, -1, op_expires_at);
+            rc = sx_hashfs_hashop_mod(h, hash, reserve_id, revision_id, block_size, replica_count, -1, op_expires_at);
             break;
 
         default:
@@ -5934,7 +5923,7 @@ rc_ty sx_hashfs_hashop_perform(sx_hashfs_t *h, unsigned int block_size, unsigned
     return rc;
 }
 
-rc_ty sx_hashfs_hashop_mod(sx_hashfs_t *h, const sx_hash_t *hash, const char *id, unsigned int bs, unsigned replica, int count, uint64_t op_expires_at)
+rc_ty sx_hashfs_hashop_mod(sx_hashfs_t *h, const sx_hash_t *hash, const sx_hash_t *reserve_id, const sx_hash_t *revision_id, unsigned int bs, unsigned replica, int count, uint64_t op_expires_at)
 {
     unsigned int hs;
     rc_ty rc;
@@ -5945,7 +5934,7 @@ rc_ty sx_hashfs_hashop_mod(sx_hashfs_t *h, const sx_hash_t *hash, const char *id
 	WARN("bad blocksize: %d", bs);
 	return FAIL_BADBLOCKSIZE;
     }
-    rc = sx_hashfs_hashop_moduse(h, id, hs, hash, replica, count, op_expires_at);
+    rc = sx_hashfs_hashop_moduse(h, reserve_id, revision_id, hs, hash, replica, count, op_expires_at);
     if (rc == OK)
         rc = sx_hashfs_hashop_ishash(h, hs, hash);
     return rc;
@@ -6687,7 +6676,7 @@ rc_ty sx_hashfs_putfile_gettoken(sx_hashfs_t *h, const uint8_t *user, int64_t si
         sx_hashfs_volume_by_id(h, volid, &vol) ||
         unique_fileid(h->sx, vol, name, revision, &revision_id))
         goto gettoken_err;
-    DEBUGHASH("file initial PUT reserveid", &h->put_reserve_id);
+    DEBUGHASH("file initial PUT reserve_id", &h->put_reserve_id);
     sxi_hashop_begin(&h->hc, h->sx_clust, hdck_cb, HASHOP_RESERVE, 0, &h->put_reserve_id, &revision_id, hdck_cb_ctx, expires_at);
     sqlite3_reset(h->qt_gettoken);
     return OK;
@@ -7021,7 +7010,7 @@ static rc_ty are_blocks_available(sx_hashfs_t *h, sx_hash_t *hashes,
 	*current = check_item+1;
         if (sxi_hashop_batch_flush(hdck))
             WARN("Failed to query hash: %s", sxc_geterrmsg(h->sx));
-        rc = sx_hashfs_hashop_perform(h, bsz[hash_size], replica_count, hdck->kind, hash, hdck->id, hdck->op_expires_at, NULL);
+        rc = sx_hashfs_hashop_perform(h, bsz[hash_size], replica_count, hdck->kind, hash, &hdck->reserve_id, &hdck->revision_id, hdck->op_expires_at, NULL);
         if(rc != OK) {
             WARN("hashop_perform/finish failed: %s", rc2str(rc));
             return rc;
@@ -7100,7 +7089,7 @@ rc_ty reserve_replicas(sx_hashfs_t *h, uint64_t op_expires_at)
         unsigned int cur_item = 0;
         sort_by_node_then_hash(all_hashes, uniq_hash_indexes, node_indexes, uniq_count, i, h->put_replica);
         memset(hashop, 0, sizeof(*hashop));
-        DEBUGHASH("reserve_replicas reserveid", &h->put_reserve_id);
+        DEBUGHASH("reserve_replicas reserve_id", &h->put_reserve_id);
         sxi_hashop_begin(hashop, h->sx_clust, NULL,
                          HASHOP_RESERVE, 0, NULL, &h->put_reserve_id, NULL, op_expires_at);
         while((ret = are_blocks_available(h, all_hashes, hashop,
@@ -7549,7 +7538,7 @@ static rc_ty tmp_getinfo_common(sx_hashfs_t *h, const char *rev, int64_t tmpfile
 
 	/* For each replica set populate tbd->avlblty via hash_presence callback */
 	for(i=1; i<=tbd->replica_count; i++) {
-            sx_hash_t revision_id, reserveid;
+            sx_hash_t revision_id, reserve_id;
 	    unsigned int cur_item = 0;
             const sx_hashfs_volume_t *vol;
 	    sort_by_node_then_hash(tbd->all_blocks, tbd->uniq_ids, tbd->nidxs, tbd->nuniq, i, tbd->replica_count);
@@ -7560,13 +7549,13 @@ static rc_ty tmp_getinfo_common(sx_hashfs_t *h, const char *rev, int64_t tmpfile
             /* tmpid must match the ID used in delete */
             if (unique_fileid(h->sx, vol, tbd->name, tbd->revision, &revision_id))
                 goto getmissing_err;
-            /* reserveid must match the id used in reserve */
-            if (reserve_fileid(h, tbd->volume_id, tbd->name, &reserveid))
+            /* reserve_id must match the id used in reserve */
+            if (reserve_fileid(h, tbd->volume_id, tbd->name, &reserve_id))
                 goto getmissing_err;
-            DEBUGHASH("tmp_get_info reserveid", &reserveid);
+            DEBUGHASH("tmp_get_info reserve_id", &reserve_id);
             DEBUGHASH("tmp_get_info revision_id", &revision_id);
             sxi_hashop_begin(&h->hc, h->sx_clust, tmp_getmissing_cb,
-                             HASHOP_INUSE, tbd->replica_count, &reserveid, &revision_id, tbd, op_expires_at);
+                             HASHOP_INUSE, tbd->replica_count, &reserve_id, &revision_id, tbd, op_expires_at);
 	    tbd->current_replica = i;
             DEBUG("begin queries for replica #%d", i);
 	    while((ret2 = are_blocks_available(h,
@@ -8284,7 +8273,6 @@ static int tmp_unbump_cb(const char *hexhash, unsigned int idx, int code, void *
 
 static rc_ty tmp_unbump_common(sx_hashfs_t *h, const char *rev, int64_t tmpfile_id, sx_hashfs_tmpinfo_t **t) {
     unsigned int nnode, nnodes, nblock, replica;
-    char fileidhex[SXI_SHA1_TEXT_LEN+1];
     const sx_hashfs_volume_t *vol;
     sx_hashfs_tmpinfo_t *tmp;
     uint64_t op_expires_at;
@@ -8328,7 +8316,6 @@ static rc_ty tmp_unbump_common(sx_hashfs_t *h, const char *rev, int64_t tmpfile_
 	free(tmp);
 	return FAIL_EINTERNAL;
     }
-    bin2hex(&revision_id, sizeof(revision_id), fileidhex, sizeof(fileidhex));
 
     op_expires_at = time(NULL) + JOB_FILE_MAX_TIME;
     sxi_hashop_begin(&h->hc, h->sx_clust, tmp_unbump_cb, HASHOP_DELETE, vol->replica_count, &reserve_id, &revision_id, tmp, op_expires_at);
@@ -8352,7 +8339,7 @@ static rc_ty tmp_unbump_common(sx_hashfs_t *h, const char *rev, int64_t tmpfile_
 		    continue;
 
 		if(local) {
-		    s = sx_hashfs_hashop_perform(h, tmp->block_size, tmp->replica_count, HASHOP_DELETE, &tmp->all_blocks[nblock], fileidhex, op_expires_at, NULL);
+		    s = sx_hashfs_hashop_perform(h, tmp->block_size, tmp->replica_count, HASHOP_DELETE, &tmp->all_blocks[nblock], &reserve_id, &revision_id, op_expires_at, NULL);
 		    if(s == OK) {
 			char hexhash[sizeof(sx_hash_t) * 2 + 1];
 			bin2hex(&tmp->all_blocks[nblock], sizeof(tmp->all_blocks[0]), hexhash, sizeof(hexhash));
@@ -9323,8 +9310,8 @@ static rc_ty foreach_hdb_blob(sx_hashfs_t *h, int *terminate,
         for (i=0;i<HASHDBS && !*terminate;i++) {
             int ret;
             sqlite3_stmt *q = loop[j][i];
-            sqlite3_stmt *q_gc1 = h->qb_gc_token_blocks[j][i];
-            sqlite3_stmt *q_gc2 = h->qb_gc_token[j][i];
+            sqlite3_stmt *q_gc1 = h->qb_gc_revision_blocks[j][i];
+            sqlite3_stmt *q_gc2 = h->qb_gc_revision[j][i];
             sqlite3_stmt *q_gc3 = h->qb_gc_reserve[j][i];
             if (loopvar && qbind_blob(q, loopvar, "", 0))
                 return FAIL_EINTERNAL;
@@ -9341,9 +9328,9 @@ static rc_ty foreach_hdb_blob(sx_hashfs_t *h, int *terminate,
                         sqlite3_reset(q_gc2);
                         if (!hash_of_blob_result(&last, q, 0) &&
                             !hash_of_blob_result(&var, q, col) &&
-                            !qbind_blob(q_gc1, ":tokens_id", var.b, sizeof(var.b)) &&
-                            !qbind_blob(q_gc2, ":tokens_id", var.b, sizeof(var.b)) &&
-                            !qbind_blob(q_gc3, ":tokens_id", var.b, sizeof(var.b)) &&
+                            !qbind_blob(q_gc1, ":revision_id", var.b, sizeof(var.b)) &&
+                            !qbind_blob(q_gc2, ":revision_id", var.b, sizeof(var.b)) &&
+                            !qbind_blob(q_gc3, ":revision_id", var.b, sizeof(var.b)) &&
                             !qstep_noret(q_gc1)) {
                             k += sqlite3_changes(h->datadb[j][i]->handle);
                             if (!qstep_noret(q_gc2)) {
@@ -9402,21 +9389,21 @@ rc_ty sx_hashfs_gc_periodic(sx_hashfs_t *h, int *terminate, int grace_period)
     uint64_t real_now = time(NULL), now;
     uint64_t gc_noactivity = 0, gc_ttl = 0, expires = real_now - grace_period;
     rc_ty ret = OK;
-    sqlite3_reset(h->qt_gc_tokens);
+    sqlite3_reset(h->qt_gc_revisions);
     if (grace_period < 0) {
         now = 1ll << 62;
         DEBUG("now set to: %lld", (long long)now);
     } else
         now = real_now;
-    if (qbind_int64(h->qt_gc_tokens, ":now", now) ||
-        qstep_noret(h->qt_gc_tokens))
+    if (qbind_int64(h->qt_gc_revisions, ":now", now) ||
+        qstep_noret(h->qt_gc_revisions))
         return FAIL_EINTERNAL;
     INFO("Deleted %d tokens", sqlite3_changes(h->tempdb->handle));
     DEBUG("find_expired, expires: %lld", (long long)expires);
     if (bindall(h->qb_find_expired_reservation, ":expires", expires) ||
         bindall(h->qb_find_expired_reservation2, ":now", now) ||
         foreach_hdb_blob(h, terminate,
-                         h->qb_find_expired_reservation, ":lastreserveid",
+                         h->qb_find_expired_reservation, ":lastreserve_id",
                          1, &gc_noactivity) ||
         foreach_hdb_blob(h, terminate,
                          h->qb_find_expired_reservation2, NULL, 0, &gc_ttl))
@@ -9433,9 +9420,9 @@ rc_ty sx_hashfs_gc_run(sx_hashfs_t *h, int *terminate)
     ret = 0;
 
     int age = sxi_hdist_version(h->hd);
-    if (bindall(h->qb_find_unused_token, ":age", age) ||
+    if (bindall(h->qb_find_unused_revision, ":age", age) ||
         foreach_hdb_blob(h, terminate,
-                         h->qb_find_unused_token, ":last_tokens_id",
+                         h->qb_find_unused_revision, ":last_revision_id",
                          0, &gc_unused_tokens))
         ret = -1;
     for (j=0;j<SIZES && !ret && !*terminate ;j++) {
@@ -9534,9 +9521,9 @@ rc_ty sx_hashfs_gc_info(sx_hashfs_t *h, int *terminate)
     struct timeval tv0, tv1;
     gettimeofday(&tv0, NULL);
     if (print_datadb_count(h, "blocks", terminate) ||
-        print_datadb_count(h, "token_ops", terminate) ||
+        print_datadb_count(h, "revision_ops", terminate) ||
         print_datadb_count(h, "reservations", terminate) ||
-        print_datadb_count(h, "token_blocks", terminate) ||
+        print_datadb_count(h, "revision_blocks", terminate) ||
         print_datadb_count(h, "avail", terminate))
         ret = FAIL_EINTERNAL;
     gettimeofday(&tv1, NULL);
@@ -10804,12 +10791,13 @@ static rc_ty fill_block_meta(sx_hashfs_t *h, sqlite3_stmt *qmeta, block_meta_t *
             return ENOMEM;
         block_meta_entry_t *e = &blockmeta->entries[blockmeta->count - 1];
         int len = sqlite3_column_bytes(qmeta, 2);
-        if (len != sizeof(e->token_id.b)) {
-            WARN("bad token size: %d", len);
+        if (len != sizeof(e->revision_id.b)) {
+            WARN("bad revision size: %d", len);
             return FAIL_EINTERNAL;
         }
-        memcpy(&e->token_id.b, sqlite3_column_blob(qmeta, 2), len);
+        memcpy(&e->revision_id.b, sqlite3_column_blob(qmeta, 2), len);
         e->replica = sqlite3_column_int(qmeta, 0);
+        DEBUG("set replica to %d", e->replica);
         e->op = op;
     }
     sqlite3_reset(qmeta);
@@ -10830,13 +10818,13 @@ static rc_ty sx_hashfs_blockmeta_get(sx_hashfs_t *h, rc_ty ret, sqlite3_stmt *q,
             return FAIL_EINTERNAL;
         }
     } else if (ret == SQLITE_ROW) {
-        if (sqlite3_column_bytes(q, 1) != sizeof(blockmeta->hash)) {
-            WARN("bad blob size");
+        if (sqlite3_column_bytes(q, 0) != sizeof(blockmeta->hash)) {
+            WARN("bad blob size for query: %s", sqlite3_sql(q));
             sqlite3_reset(q);
             sqlite3_reset(qmeta);
             return FAIL_EINTERNAL;
         }
-        memcpy(blockmeta, sqlite3_column_blob(q, 1), sizeof(blockmeta->hash));
+        memcpy(blockmeta, sqlite3_column_blob(q, 0), sizeof(blockmeta->hash));
         blockmeta->blocksize = blocksize;
         sqlite3_reset(q);
         if (qbind_blob(q, ":prevhash", blockmeta->hash.b, sizeof(blockmeta->hash.b))) {

@@ -2585,7 +2585,7 @@ static act_result_t blockrb_request(sx_hashfs_t *hashfs, job_t job_id, job_data_
 		break;
 
             /* FIXME: proper expiration time */
-	    rbdata[i].proto = sxi_hashop_proto_inuse_begin_bin(sx, SX_ID_REBALANCE, &dist_version, sizeof(dist_version), time(NULL) + 604800);
+	    rbdata[i].proto = sxi_hashop_proto_inuse_begin(sx, NULL);
 	    for(j=0; j<rbdata[i].nblocks; j++)
 		rbdata[i].proto = sxi_hashop_proto_inuse_hash(sx, rbdata[i].proto, rbdata[i].blocks[j]);
 	    rbdata[i].proto = sxi_hashop_proto_inuse_end(sx, rbdata[i].proto);
@@ -3347,7 +3347,6 @@ struct rplblocks {
     sx_hashfs_t *hashfs;
     sx_blob_t *b;
     uint8_t block[SX_BS_LARGE];
-    char idhex[SXI_SHA1_TEXT_LEN+1];
     sx_block_meta_index_t lastgood;
     unsigned int pos, itemsz, ngood;
     enum replace_state state;
@@ -3450,17 +3449,22 @@ static int rplblocks_cb(curlev_context_t *cbdata, void *ctx, const void *data, s
 		}
 
 		while(todo--) {
+                    sx_hash_t revision_id;
 		    unsigned int replica;
-                    int32_t count;
+                    int32_t op;
 		    rc_ty s;
+		    const void *ptr;
 
-		    if(sx_blob_get_int32(c->b, &replica)||
-		       sx_blob_get_int32(c->b, &count)) {
+		    if(sx_blob_get_blob(c->b, &ptr, &todo) ||
+                       todo != sizeof(revision_id.b) ||
+                       sx_blob_get_int32(c->b, &replica) ||
+		       sx_blob_get_int32(c->b, &op)) {
 			WARN("Invalid block size");
 			return 1;
 		    }
+                    memcpy(&revision_id.b, ptr, sizeof(revision_id.b));
 
-		    s = sx_hashfs_hashop_mod(c->hashfs, &hash, c->idhex, c->itemsz, replica, count, JOB_NO_EXPIRY);
+		    s = sx_hashfs_hashop_mod(c->hashfs, &hash, NULL, &revision_id, c->itemsz, replica, op, 0);
 		    if(s != OK && s != ENOENT) {
 			WARN("Failed to mod hash");
 			return 1;
@@ -3510,7 +3514,6 @@ static act_result_t replaceblocks_commit(sx_hashfs_t *hashfs, job_t job_id, job_
 	const sx_node_t *me = sx_hashfs_self(hashfs);
 	struct rplblocks *ctx = malloc(sizeof(*ctx));
 	char query[256];
-	sx_hash_t idhash;
 	int qret;
 
 	if(!ctx)
@@ -3532,12 +3535,6 @@ static act_result_t replaceblocks_commit(sx_hashfs_t *hashfs, job_t job_id, job_
 	ctx->pos = 0;
 	ctx->ngood = 0;
 	ctx->state = RPL_HDRSIZE;
-
-	if(sxi_hashop_generate_id(sx, SX_ID_REPAIR, NULL, 0, &job_id, sizeof(job_id), &idhash)) {
-	    free(ctx);
-	    action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to generate unique id");
-	}
-	sxi_bin2hex(idhash.b, sizeof(idhash.b), ctx->idhex);
 
 	qret = sxi_cluster_query(clust, &hlist, REQ_GET, query, NULL, 0, NULL, rplblocks_cb, ctx);
 	sx_blob_free(ctx->b);
