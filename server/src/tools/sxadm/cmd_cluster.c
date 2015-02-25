@@ -27,36 +27,40 @@
 
 const char *cluster_args_info_purpose = "";
 
-const char *cluster_args_info_usage = "Usage: \nsxadm cluster --new [options] NODE sx://[profile@]cluster\nsxadm cluster --mod [options] NODE [NODE ...] sx://[profile@]cluster\nsxadm cluster --resize <+/->SIZE sx://[profile@]cluster\nsxadm cluster --replace-faulty [options] NODE [NODE ...] sx://[profile@]cluster\nsxadm cluster --status sx://[profile@]cluster";
+const char *cluster_args_info_usage = "Usage: \nsxadm cluster --new [options] NODE sx://[profile@]cluster\nsxadm cluster --mod [options] NODE [NODE ...] sx://[profile@]cluster\nsxadm cluster --dist-lock sx://[profile@]cluster\nsxadm cluster --dist-unlock sx://[profile@]cluster\nsxadm cluster --resize <+/->SIZE sx://[profile@]cluster\nsxadm cluster --replace-faulty [options] NODE [NODE ...] sx://[profile@]cluster\nsxadm cluster --status sx://[profile@]cluster";
 
 const char *cluster_args_info_versiontext = "";
 
 const char *cluster_args_info_description = "";
 
 const char *cluster_args_info_full_help[] = {
-  "  -h, --help              Print help and exit",
-  "      --full-help         Print help, including hidden options, and exit",
-  "  -V, --version           Print version and exit",
+  "  -h, --help                 Print help and exit",
+  "      --full-help            Print help, including hidden options, and exit",
+  "  -V, --version              Print version and exit",
   "\n Group: MODE",
-  "  -N, --new               Create a new SX cluster with a local node",
-  "  -M, --mod               Modify an existing SX cluster",
-  "  -R, --resize=<+/->SIZE  Proportionally resize an existing SX cluster",
-  "  -F, --replace-faulty    Replace faulty nodes in an existing SX cluster",
-  "  -I, --info              Shows status and details of a running cluster",
-  "  -G, --force-gc          Force a garbage collection cycle on all nodes",
-  "  -X, --force-expire      Force GC and expiration of reservations on all nodes",
-  "      --get-cluster-key   Obtain remote cluster key",
-  "  -s, --status            Show current status of cluster nodes",
+  "  -N, --new                  Create a new SX cluster with a local node",
+  "  -M, --mod                  Modify an existing SX cluster",
+  "  -L, --lock                 Lock an SX cluster for changes",
+  "  -U, --unlock               Unlock an SX cluster",
+  "  -R, --resize=<+/->SIZE     Proportionally resize an existing SX cluster",
+  "  -F, --replace-faulty       Replace faulty nodes in an existing SX cluster",
+  "  -I, --info                 Shows status and details of a running cluster",
+  "  -G, --force-gc             Force a garbage collection cycle on all nodes",
+  "  -X, --force-expire         Force GC and expiration of reservations on all\n                               nodes",
+  "      --get-cluster-key      Obtain remote cluster key",
+  "  -s, --status               Show current status of cluster nodes",
   "\nNew cluster options:",
-  "  -d, --node-dir=PATH     Path to the node directory",
-  "      --port=INT          Set the cluster destination TCP port (default 443 in\n                            secure mode or 80 in insecure mode)",
-  "      --ssl-ca-file=PATH  SSL CA certificate file of the SX cluster (same file\n                            as in httpd configuration)",
-  "  -k, --admin-key=PATH    File containing a pre-generated admin authentication\n                            token or stdin if \"-\" is given (default\n                            autogenerate token).",
+  "  -d, --node-dir=PATH        Path to the node directory",
+  "      --port=INT             Set the cluster destination TCP port (default 443\n                               in secure mode or 80 in insecure mode)",
+  "      --ssl-ca-file=PATH     SSL CA certificate file of the SX cluster (same\n                               file as in httpd configuration)",
+  "  -k, --admin-key=PATH       File containing a pre-generated admin\n                               authentication token or stdin if \"-\" is given\n                               (default autogenerate token).",
   "\nCommon options:",
-  "  -b, --batch-mode        Turn off interactive confirmations and assume yes for\n                            all questions",
-  "  -H, --human-readable    Print human readable sizes  (default=off)",
-  "  -D, --debug             Enable debug messages  (default=off)",
-  "  -c, --config-dir=PATH   Path to SX configuration directory",
+  "  -b, --batch-mode           Turn off interactive confirmations and assume yes\n                               for all questions",
+  "  -H, --human-readable       Print human readable sizes  (default=off)",
+  "  -D, --debug                Enable debug messages  (default=off)",
+  "  -c, --config-dir=PATH      Path to SX configuration directory",
+  "\nCluster locking options:",
+  "      --master-node=ADDRESS  IP address of a node used to aqcuire cluster\n                               changes lock",
   "\nNODE definition is a string in the form\n<capacity>/<address>/[internal_address]/[node_uuid]\nExamples:\n\"100G/192.0.2.1\": 100 GiB node listening on address 192.0.2.1 with\nautomatically assigned uuid\n\"2T/192.0.2.2/198.51.100.1\": 2 TiB cluster using address 192.0.2.2 for public\naccess and address 198.51.100.1 for internal communication\n\"123gb/203.0.113.1//e4d2c9ea-b2b1-43c4-851d-39e86a7a377c\": 123 GiB cluster on\naddress 203.0.113.1 and uuid as specified",
     0
 };
@@ -75,21 +79,24 @@ init_help_array(void)
   cluster_args_info_help[8] = cluster_args_info_full_help[8];
   cluster_args_info_help[9] = cluster_args_info_full_help[9];
   cluster_args_info_help[10] = cluster_args_info_full_help[10];
-  cluster_args_info_help[11] = cluster_args_info_full_help[12];
-  cluster_args_info_help[12] = cluster_args_info_full_help[13];
+  cluster_args_info_help[11] = cluster_args_info_full_help[11];
+  cluster_args_info_help[12] = cluster_args_info_full_help[12];
   cluster_args_info_help[13] = cluster_args_info_full_help[14];
   cluster_args_info_help[14] = cluster_args_info_full_help[15];
   cluster_args_info_help[15] = cluster_args_info_full_help[16];
-  cluster_args_info_help[16] = cluster_args_info_full_help[18];
-  cluster_args_info_help[17] = cluster_args_info_full_help[19];
+  cluster_args_info_help[16] = cluster_args_info_full_help[17];
+  cluster_args_info_help[17] = cluster_args_info_full_help[18];
   cluster_args_info_help[18] = cluster_args_info_full_help[20];
   cluster_args_info_help[19] = cluster_args_info_full_help[21];
-  cluster_args_info_help[20] = cluster_args_info_full_help[23];
-  cluster_args_info_help[21] = 0; 
+  cluster_args_info_help[20] = cluster_args_info_full_help[22];
+  cluster_args_info_help[21] = cluster_args_info_full_help[23];
+  cluster_args_info_help[22] = cluster_args_info_full_help[25];
+  cluster_args_info_help[23] = cluster_args_info_full_help[27];
+  cluster_args_info_help[24] = 0; 
   
 }
 
-const char *cluster_args_info_help[22];
+const char *cluster_args_info_help[25];
 
 typedef enum {ARG_NO
   , ARG_FLAG
@@ -120,6 +127,8 @@ void clear_given (struct cluster_args_info *args_info)
   args_info->version_given = 0 ;
   args_info->new_given = 0 ;
   args_info->mod_given = 0 ;
+  args_info->lock_given = 0 ;
+  args_info->unlock_given = 0 ;
   args_info->resize_given = 0 ;
   args_info->replace_faulty_given = 0 ;
   args_info->info_given = 0 ;
@@ -135,6 +144,7 @@ void clear_given (struct cluster_args_info *args_info)
   args_info->human_readable_given = 0 ;
   args_info->debug_given = 0 ;
   args_info->config_dir_given = 0 ;
+  args_info->master_node_given = 0 ;
   args_info->MODE_group_counter = 0 ;
 }
 
@@ -155,6 +165,8 @@ void clear_args (struct cluster_args_info *args_info)
   args_info->debug_flag = 0;
   args_info->config_dir_arg = NULL;
   args_info->config_dir_orig = NULL;
+  args_info->master_node_arg = NULL;
+  args_info->master_node_orig = NULL;
   
 }
 
@@ -168,21 +180,24 @@ void init_args_info(struct cluster_args_info *args_info)
   args_info->version_help = cluster_args_info_full_help[2] ;
   args_info->new_help = cluster_args_info_full_help[4] ;
   args_info->mod_help = cluster_args_info_full_help[5] ;
-  args_info->resize_help = cluster_args_info_full_help[6] ;
-  args_info->replace_faulty_help = cluster_args_info_full_help[7] ;
-  args_info->info_help = cluster_args_info_full_help[8] ;
-  args_info->force_gc_help = cluster_args_info_full_help[9] ;
-  args_info->force_expire_help = cluster_args_info_full_help[10] ;
-  args_info->get_cluster_key_help = cluster_args_info_full_help[11] ;
-  args_info->status_help = cluster_args_info_full_help[12] ;
-  args_info->node_dir_help = cluster_args_info_full_help[14] ;
-  args_info->port_help = cluster_args_info_full_help[15] ;
-  args_info->ssl_ca_file_help = cluster_args_info_full_help[16] ;
-  args_info->admin_key_help = cluster_args_info_full_help[17] ;
-  args_info->batch_mode_help = cluster_args_info_full_help[19] ;
-  args_info->human_readable_help = cluster_args_info_full_help[20] ;
-  args_info->debug_help = cluster_args_info_full_help[21] ;
-  args_info->config_dir_help = cluster_args_info_full_help[22] ;
+  args_info->lock_help = cluster_args_info_full_help[6] ;
+  args_info->unlock_help = cluster_args_info_full_help[7] ;
+  args_info->resize_help = cluster_args_info_full_help[8] ;
+  args_info->replace_faulty_help = cluster_args_info_full_help[9] ;
+  args_info->info_help = cluster_args_info_full_help[10] ;
+  args_info->force_gc_help = cluster_args_info_full_help[11] ;
+  args_info->force_expire_help = cluster_args_info_full_help[12] ;
+  args_info->get_cluster_key_help = cluster_args_info_full_help[13] ;
+  args_info->status_help = cluster_args_info_full_help[14] ;
+  args_info->node_dir_help = cluster_args_info_full_help[16] ;
+  args_info->port_help = cluster_args_info_full_help[17] ;
+  args_info->ssl_ca_file_help = cluster_args_info_full_help[18] ;
+  args_info->admin_key_help = cluster_args_info_full_help[19] ;
+  args_info->batch_mode_help = cluster_args_info_full_help[21] ;
+  args_info->human_readable_help = cluster_args_info_full_help[22] ;
+  args_info->debug_help = cluster_args_info_full_help[23] ;
+  args_info->config_dir_help = cluster_args_info_full_help[24] ;
+  args_info->master_node_help = cluster_args_info_full_help[26] ;
   
 }
 
@@ -289,6 +304,8 @@ cluster_cmdline_parser_release (struct cluster_args_info *args_info)
   free_string_field (&(args_info->admin_key_orig));
   free_string_field (&(args_info->config_dir_arg));
   free_string_field (&(args_info->config_dir_orig));
+  free_string_field (&(args_info->master_node_arg));
+  free_string_field (&(args_info->master_node_orig));
   
   
   for (i = 0; i < args_info->inputs_num; ++i)
@@ -334,6 +351,10 @@ cluster_cmdline_parser_dump(FILE *outfile, struct cluster_args_info *args_info)
     write_into_file(outfile, "new", 0, 0 );
   if (args_info->mod_given)
     write_into_file(outfile, "mod", 0, 0 );
+  if (args_info->lock_given)
+    write_into_file(outfile, "lock", 0, 0 );
+  if (args_info->unlock_given)
+    write_into_file(outfile, "unlock", 0, 0 );
   if (args_info->resize_given)
     write_into_file(outfile, "resize", args_info->resize_orig, 0);
   if (args_info->replace_faulty_given)
@@ -364,6 +385,8 @@ cluster_cmdline_parser_dump(FILE *outfile, struct cluster_args_info *args_info)
     write_into_file(outfile, "debug", 0, 0 );
   if (args_info->config_dir_given)
     write_into_file(outfile, "config-dir", args_info->config_dir_orig, 0);
+  if (args_info->master_node_given)
+    write_into_file(outfile, "master-node", args_info->master_node_orig, 0);
   
 
   i = EXIT_SUCCESS;
@@ -419,6 +442,8 @@ reset_group_MODE(struct cluster_args_info *args_info)
   
   args_info->new_given = 0 ;
   args_info->mod_given = 0 ;
+  args_info->lock_given = 0 ;
+  args_info->unlock_given = 0 ;
   args_info->resize_given = 0 ;
   free_string_field (&(args_info->resize_arg));
   free_string_field (&(args_info->resize_orig));
@@ -514,6 +539,11 @@ cluster_cmdline_parser_required2 (struct cluster_args_info *args_info, const cha
   if (args_info->admin_key_given && ! args_info->new_given)
     {
       fprintf (stderr, "%s: '--admin-key' ('-k') option depends on option 'new'%s\n", prog_name, (additional_error ? additional_error : ""));
+      error_occurred = 1;
+    }
+  if (args_info->master_node_given && ! args_info->lock_given)
+    {
+      fprintf (stderr, "%s: '--master-node' option depends on option 'lock'%s\n", prog_name, (additional_error ? additional_error : ""));
       error_occurred = 1;
     }
 
@@ -679,6 +709,8 @@ cluster_cmdline_parser_internal (
         { "version",	0, NULL, 'V' },
         { "new",	0, NULL, 'N' },
         { "mod",	0, NULL, 'M' },
+        { "lock",	0, NULL, 'L' },
+        { "unlock",	0, NULL, 'U' },
         { "resize",	1, NULL, 'R' },
         { "replace-faulty",	0, NULL, 'F' },
         { "info",	0, NULL, 'I' },
@@ -694,10 +726,11 @@ cluster_cmdline_parser_internal (
         { "human-readable",	0, NULL, 'H' },
         { "debug",	0, NULL, 'D' },
         { "config-dir",	1, NULL, 'c' },
+        { "master-node",	1, NULL, 0 },
         { 0,  0, 0, 0 }
       };
 
-      c = getopt_long (argc, argv, "hVNMR:FIGXsd:k:bHDc:", long_options, &option_index);
+      c = getopt_long (argc, argv, "hVNMLUR:FIGXsd:k:bHDc:", long_options, &option_index);
 
       if (c == -1) break;	/* Exit from `while (1)' loop.  */
 
@@ -748,6 +781,36 @@ cluster_cmdline_parser_internal (
               &(local_args_info.mod_given), optarg, 0, 0, ARG_NO,
               check_ambiguity, override, 0, 0,
               "mod", 'M',
+              additional_error))
+            goto failure;
+        
+          break;
+        case 'L':	/* Lock an SX cluster for changes.  */
+        
+          if (args_info->MODE_group_counter && override)
+            reset_group_MODE (args_info);
+          args_info->MODE_group_counter += 1;
+        
+          if (update_arg( 0 , 
+               0 , &(args_info->lock_given),
+              &(local_args_info.lock_given), optarg, 0, 0, ARG_NO,
+              check_ambiguity, override, 0, 0,
+              "lock", 'L',
+              additional_error))
+            goto failure;
+        
+          break;
+        case 'U':	/* Unlock an SX cluster.  */
+        
+          if (args_info->MODE_group_counter && override)
+            reset_group_MODE (args_info);
+          args_info->MODE_group_counter += 1;
+        
+          if (update_arg( 0 , 
+               0 , &(args_info->unlock_given),
+              &(local_args_info.unlock_given), optarg, 0, 0, ARG_NO,
+              check_ambiguity, override, 0, 0,
+              "unlock", 'U',
               additional_error))
             goto failure;
         
@@ -959,6 +1022,20 @@ cluster_cmdline_parser_internal (
                 &(local_args_info.ssl_ca_file_given), optarg, 0, 0, ARG_STRING,
                 check_ambiguity, override, 0, 0,
                 "ssl-ca-file", '-',
+                additional_error))
+              goto failure;
+          
+          }
+          /* IP address of a node used to aqcuire cluster changes lock.  */
+          else if (strcmp (long_options[option_index].name, "master-node") == 0)
+          {
+          
+          
+            if (update_arg( (void *)&(args_info->master_node_arg), 
+                 &(args_info->master_node_orig), &(args_info->master_node_given),
+                &(local_args_info.master_node_given), optarg, 0, 0, ARG_STRING,
+                check_ambiguity, override, 0, 0,
+                "master-node", '-',
                 additional_error))
               goto failure;
           

@@ -1417,6 +1417,36 @@ static int cluster_status(sxc_client_t *sx, struct cluster_args_info *args) {
     return ret;
 }
 
+static int cluster_dist_lock(sxc_client_t *sx, struct cluster_args_info *args) {
+    sxc_cluster_t *cluster = cluster_load(sx, args, 1);
+    int ret;
+
+    if(!cluster)
+        return 1;
+    ret = sxi_cluster_distribution_lock(cluster, args->master_node_given ? args->master_node_arg : NULL);
+    sxc_cluster_free(cluster);
+    if(ret)
+        fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
+    else
+        printf("Successfully locked cluster for changes\n");
+    return ret;
+}
+
+static int cluster_dist_unlock(sxc_client_t *sx, struct cluster_args_info *args) {
+    sxc_cluster_t *cluster = cluster_load(sx, args, 1);
+    int ret;
+
+    if(!cluster)
+        return 1;
+    ret = sxi_cluster_distribution_unlock(cluster, args->master_node_given ? args->master_node_arg : NULL);
+    sxc_cluster_free(cluster);
+    if(ret)
+        fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
+    else
+        printf("Successfully unlocked cluster\n");
+    return ret;
+}
+
 int main(int argc, char **argv) {
     struct main_args_info main_args;
     struct node_args_info node_args;
@@ -1492,6 +1522,10 @@ int main(int argc, char **argv) {
 	    ret = info_cluster(sx, &cluster_args, 1);
 	else if(cluster_args.mod_given && cluster_args.inputs_num >= 2)
 	    ret = change_cluster(sx, &cluster_args);
+        else if(cluster_args.lock_given && cluster_args.inputs_num == 1)
+            ret = cluster_dist_lock(sx, &cluster_args);
+        else if(cluster_args.unlock_given && cluster_args.inputs_num == 1)
+            ret = cluster_dist_unlock(sx, &cluster_args);
 	else if(cluster_args.resize_given && cluster_args.inputs_num == 1)
 	    ret = resize_cluster(sx, &cluster_args);
 	else if(cluster_args.replace_faulty_given && cluster_args.inputs_num >= 2)

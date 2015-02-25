@@ -180,6 +180,9 @@ void volume_ops(void) {
         } else if (!strcmp(volume, ".gc")) {
 	    quit_unless_has(PRIV_ADMIN);
             fcgi_trigger_gc();
+        } else if(!strcmp(".distlock", volume)) {
+            /* Set sxadm operation lock - ADMIN required */
+            fcgi_distlock();
 	} else if(!strcmp(".nodes", volume)) {
 	    /* Update distribution (sxadm entry) - ADMIN required */
 	    fcgi_set_nodes();

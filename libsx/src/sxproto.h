@@ -104,6 +104,9 @@ sxi_query_t *sxi_volsizes_proto_end(sxc_client_t *sx, sxi_query_t *query);
 
 sxi_query_t *sxi_volume_mod_proto(sxc_client_t *sx, const char *volume, const char *newowner, int64_t newsize, int max_revs);
 
+/* Distribution lock proto: set lock=1 to acquire lock, 0 to release it */
+sxi_query_t *sxi_distlock_proto(sxc_client_t *sx, int lock, const char *lockid);
+
 typedef const char* (*acl_cb_t)(void *ctx);
 sxi_query_t *sxi_volumeacl_proto(sxc_client_t *sx, const char *volname,
                                  acl_cb_t grant_read, acl_cb_t grant_write,

@@ -1128,5 +1128,11 @@ test_get "node status", admin_only(200, 'application/json'), ".status", undef, s
     && is_string($json->{'address'}) && is_string($json->{'internalAddress'}) && is_string($json->{'UUID'}) && is_string($json->{'nodeDir'}) && is_int($json->{'storageAllocated'}) && is_int($json->{'storageUsed'}) && is_int($json->{'fsBlockSize'})
     && is_int($json->{'fsTotalBlocks'}) && is_int($json->{'fsAvailBlocks'}) && is_int($json->{'memTotal'}); };
 
+
+# Check .lock query correctness
+test_put_job "distribution lock acquisition", admin_only(200), ".distlock", "{\"op\":\"lock\"}";
+test_put_job "distribution lock acquisition (should fail)", admin_only(409), ".distlock", "{\"op\":\"lock\"}";
+test_put_job "distribution lock release", admin_only(200), ".distlock", "{\"op\":\"unlock\"}";
+
 print "\nTests performed: ".($okies+$fails)." - $fails failed, $okies succeeded\n";
 exit ($fails > 0);

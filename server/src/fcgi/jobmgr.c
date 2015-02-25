@@ -781,7 +781,6 @@ static act_result_t usernewkey_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_
    return job_twophase_execute(&user_newkey_spec, JOBPHASE_UNDO, hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
 }
 
-
 static int req_append(char **req, unsigned int *req_len, const char *append_me) {
     unsigned int current_len, append_len;
 
@@ -4318,6 +4317,106 @@ static rc_ty volmod_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_dat
     return job_twophase_execute(&volmod_spec, JOBPHASE_ABORT, hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
 }
 
+static act_result_t distlock_common(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, jobphase_t phase, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    unsigned int nnode, nnodes;
+    sx_blob_t *b = NULL;
+    act_result_t ret = ACT_RESULT_OK;
+    sxi_query_t *proto = NULL;
+    sxc_client_t *sx = sx_hashfs_client(hashfs);
+    sxi_conns_t *clust = sx_hashfs_conns(hashfs);
+    const sx_node_t *me = sx_hashfs_self(hashfs);
+    query_list_t *qrylist = NULL;
+    const char *lockid = NULL;
+    int32_t op = 0;
+
+    b = sx_blob_from_data(job_data->ptr, job_data->len);
+    if(!b) {
+        WARN("Cannot allocate blob for job %lld", (long long)job_id);
+        action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
+    }
+
+    if(sx_blob_get_string(b, &lockid) || sx_blob_get_int32(b, &op)) {
+        WARN("Cannot get data from blob for job %lld", (long long)job_id);
+        action_error(ACT_RESULT_PERMFAIL, 500, "Internal error: data corruption detected");
+    }
+
+    if(!lockid) {
+        WARN("Cannot get data from blob for job %lld", (long long)job_id);
+        action_error(ACT_RESULT_PERMFAIL, 500, "Internal error: data corruption detected");
+    }
+
+    if(phase == JOBPHASE_ABORT)
+        op = !op; /* Revert operation in case of abort */
+
+    nnodes = sx_nodelist_count(nodes);
+    for(nnode = 0; nnode<nnodes; nnode++) {
+        const sx_node_t *node = sx_nodelist_get(nodes, nnode);
+
+        if(sx_node_cmp(me, node)) { /* Do not apply locally, its already been done */
+            if(!proto) {
+                proto = sxi_distlock_proto(sx, op, lockid);
+                if(!proto) {
+                    WARN("Cannot allocate proto for job %lld", (long long)job_id);
+                    action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
+                }
+
+                qrylist = wrap_calloc(nnodes, sizeof(*qrylist));
+                if(!qrylist) {
+                    WARN("Cannot allocate result space");
+                    action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
+                }
+            }
+
+            qrylist[nnode].cbdata = sxi_cbdata_create_generic(clust, NULL, NULL);
+            if(sxi_cluster_query_ev(qrylist[nnode].cbdata, clust, sx_node_internal_addr(node), proto->verb, proto->path, proto->content, proto->content_len, NULL, NULL)) {
+                WARN("Failed to query node %s: %s", sx_node_uuid_str(node), sxc_geterrmsg(sx));
+                action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to setup cluster communication");
+            }
+            qrylist[nnode].query_sent = 1;
+        } else
+            succeeded[nnode] = 1; /* Locally mark as succeeded */
+    }
+
+ action_failed:
+    sx_blob_free(b);
+    if(proto) {
+        for(nnode=0; qrylist && nnode<nnodes; nnode++) {
+            int rc;
+            long http_status = 0;
+            if(!qrylist[nnode].query_sent)
+                continue;
+            rc = sxi_cbdata_wait(qrylist[nnode].cbdata, sxi_conns_get_curlev(clust), &http_status);
+            if(rc == -2) {
+                CRIT("Failed to wait for query");
+                action_set_fail(ACT_RESULT_PERMFAIL, 500, "Internal error in cluster communication");
+                continue;
+            }
+            if(rc == -1) {
+                WARN("Query failed with %ld", http_status);
+                if(ret > ACT_RESULT_TEMPFAIL) /* Only raise OK to TEMP */
+                    action_set_fail(ACT_RESULT_TEMPFAIL, 503, sxi_cbdata_geterrmsg(qrylist[nnode].cbdata));
+            } else if(http_status == 200) {
+                succeeded[nnode] = 1;
+            } else {
+                act_result_t newret = http2actres(http_status);
+                if(newret < ret) /* Severity shall only be raised */
+                    action_set_fail(newret, http_status, sxi_cbdata_geterrmsg(qrylist[nnode].cbdata));
+            }
+        }
+        query_list_free(qrylist, nnodes);
+        sxi_query_free(proto);
+    }
+    return ret;
+}
+
+static act_result_t distlock_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+   return distlock_common(hashfs, job_id, job_data, nodes, JOBPHASE_REQUEST, succeeded, fail_code, fail_msg, adjust_ttl);
+}
+
+static act_result_t distlock_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+   return distlock_common(hashfs, job_id, job_data, nodes, JOBPHASE_ABORT, succeeded, fail_code, fail_msg, adjust_ttl);
+}
+
 static struct {
     job_action_t fn_request;
     job_action_t fn_commit;
@@ -4346,6 +4445,7 @@ static struct {
     { replacefiles_request, replacefiles_commit, force_phase_success, force_phase_success }, /* JOBTYPE_REPLACE_FILES */
     { dummy_request, dummy_commit, dummy_abort, dummy_undo }, /* JOBTYPE_DUMMY */
     { force_phase_success, revsclean_vol_commit, revsclean_vol_abort, revsclean_vol_undo }, /* JOBTYPE_REVSCLEAN */
+    { distlock_request, force_phase_success, distlock_abort, force_phase_success }, /* JOBTYPE_DISTLOCK */
 };
 
 

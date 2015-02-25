@@ -3,6 +3,8 @@ args "--unamed-opts --no-handle-version --no-handle-error --file-name=cmd_cluste
 usage "
 sxadm cluster --new [options] NODE sx://[profile@]cluster
 sxadm cluster --mod [options] NODE [NODE ...] sx://[profile@]cluster
+sxadm cluster --dist-lock sx://[profile@]cluster
+sxadm cluster --dist-unlock sx://[profile@]cluster
 sxadm cluster --resize <+/->SIZE sx://[profile@]cluster
 sxadm cluster --replace-faulty [options] NODE [NODE ...] sx://[profile@]cluster
 sxadm cluster --status sx://[profile@]cluster"
@@ -10,6 +12,8 @@ sxadm cluster --status sx://[profile@]cluster"
 defgroup "MODE" required
 groupoption "new" N "Create a new SX cluster with a local node" group="MODE" dependon="node-dir"
 groupoption "mod" M "Modify an existing SX cluster" group="MODE"
+groupoption "lock" L "Lock an SX cluster for changes" group="MODE"
+groupoption "unlock" U "Unlock an SX cluster" group="MODE"
 groupoption "resize" R "Proportionally resize an existing SX cluster" group="MODE" string typestr="<+/->SIZE"
 groupoption "replace-faulty" F "Replace faulty nodes in an existing SX cluster" group="MODE"
 groupoption "info" I "Shows status and details of a running cluster" group="MODE"
@@ -29,6 +33,9 @@ option "batch-mode" b "Turn off interactive confirmations and assume yes for all
 option "human-readable" H "Print human readable sizes" flag off
 option "debug"      D "Enable debug messages" flag off
 option "config-dir" c "Path to SX configuration directory" string typestr="PATH" optional hidden
+
+section "Cluster locking options"
+option "master-node" - "IP address of a node used to aqcuire cluster changes lock" dependon="lock" optional hidden string typestr="ADDRESS"
 
 text "
 NODE definition is a string in the form <capacity>/<address>/[internal_address]/[node_uuid]

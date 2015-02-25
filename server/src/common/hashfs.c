@@ -624,6 +624,8 @@ struct _sx_hashfs_t {
 
     sxi_db_t *db;
     sqlite3_stmt *q_getval;
+    sqlite3_stmt *q_setval;
+    sqlite3_stmt *q_delval;
     sqlite3_stmt *q_gethdrev;
     sqlite3_stmt *q_getuser;
     sqlite3_stmt *q_getuserbyid;
@@ -988,6 +990,8 @@ static void close_all_dbs(sx_hashfs_t *h) {
     sqlite3_finalize(h->q_volbyname);
     sqlite3_finalize(h->q_volbyid);
     sqlite3_finalize(h->q_metaget);
+    sqlite3_finalize(h->q_delval);
+    sqlite3_finalize(h->q_setval);
     sqlite3_finalize(h->q_getval);
     qclose(&h->tempdb);
     qclose(&h->db);
@@ -1339,6 +1343,10 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
     qnullify(q);
     if(qprep(h->db, &h->q_getval, "SELECT value FROM hashfs WHERE key = :k"))
 	goto open_hashfs_fail;
+    if(qprep(h->db, &h->q_setval, "INSERT INTO hashfs (key,value) VALUES (:k, :v)"))
+        goto open_hashfs_fail;
+    if(qprep(h->db, &h->q_delval, "DELETE FROM hashfs WHERE key = :k"))
+        goto open_hashfs_fail;
     if(qbind_text(h->q_getval, ":k", "cluster") || qstep_ret(h->q_getval))
 	goto open_hashfs_fail;
     str = (const char *)sqlite3_column_blob(h->q_getval, 0);
@@ -8826,6 +8834,7 @@ static const char *locknames[] = {
     "REPLACE_FILES", /* JOBTYPE_REPLACE_FILES */
     NULL, /* JOBTYPE_DUMMY */
     NULL, /* JOBTYPE_REVSCLEAN */
+    "DISTLOCK", /* JOBTYPE_DISTLOCK */
 };
 
 #define MAX_PENDING_JOBS 128
@@ -12551,3 +12560,96 @@ rc_ty sx_hashfs_node_status(sx_hashfs_t *h, sxi_node_status_t *status) {
     return OK;
 }
 
+rc_ty sx_hashfs_distlock_get(sx_hashfs_t *h, char *lockid, unsigned int lockid_len) {
+    int r;
+    rc_ty ret = FAIL_EINTERNAL;
+
+    sqlite3_reset(h->q_getval);
+
+    if(qbind_text(h->q_getval, ":k", "distlock")) {
+        WARN("Failed to prepare getval query");
+        goto sx_hashfs_distlock_get_err;
+    }
+
+    r = qstep(h->q_getval);
+    if(r == SQLITE_DONE) {
+        if(lockid && lockid_len)
+            lockid[0] = '\0';
+        ret = ENOENT;
+    } else if(r == SQLITE_ROW) {
+        if(lockid && lockid_len) {
+            const char *lockid_str = (const char *)sqlite3_column_text(h->q_getval, 0);
+
+            if(!lockid_str) {
+                WARN("Failed to get distribution lock");
+                goto sx_hashfs_distlock_get_err;
+            }
+            sxi_strlcpy(lockid, lockid_str, lockid_len);
+        }
+        ret = OK;
+    } else {
+        WARN("Failed to check distribution lock");
+        goto sx_hashfs_distlock_get_err;
+    }
+
+sx_hashfs_distlock_get_err:
+    sqlite3_reset(h->q_getval);
+    return ret;
+}
+
+rc_ty sx_hashfs_distlock_acquire(sx_hashfs_t *h, const char *lockid) {
+    rc_ty ret = FAIL_EINTERNAL, s;
+    char existing_lock[AUTH_UID_LEN*2+32];
+
+    if(!lockid) {
+        WARN("NULL lockid argument");
+        return EINVAL;
+    }
+
+    if(qbegin(h->db)) {
+        WARN("Failed to lock database");
+        return FAIL_LOCKED;
+    }
+
+    s = sx_hashfs_distlock_get(h, existing_lock, sizeof(existing_lock));
+    if(s == OK) {
+        ret = EEXIST;
+        DEBUG("Lock operation requested but there is currently a lock stored: %s", existing_lock);
+        goto sx_hashfs_distlock_acquire_err;
+    } else if(s != ENOENT) {
+        WARN("Failed to check distlock existence");
+        ret = s;
+        goto sx_hashfs_distlock_acquire_err;
+    }
+
+    sqlite3_reset(h->q_setval);
+    if(qbind_text(h->q_setval, ":k", "distlock") ||
+       qbind_text(h->q_setval, ":v", lockid) ||
+       qstep_noret(h->q_setval)) {
+        WARN("Failed to acquire lock");
+        goto sx_hashfs_distlock_acquire_err;
+    }
+
+    if(qcommit(h->db)) {
+        WARN("Failed to commit distlock acquisition");
+        goto sx_hashfs_distlock_acquire_err;
+    }
+
+    ret = OK;
+sx_hashfs_distlock_acquire_err:
+    if(ret != OK)
+        qrollback(h->db);
+    sqlite3_reset(h->q_setval);
+    return ret;
+}
+
+/* Release distribution lock */
+rc_ty sx_hashfs_distlock_release(sx_hashfs_t *h) {
+    sqlite3_reset(h->q_delval);
+    if(qbind_text(h->q_delval, ":k", "distlock") || qstep_noret(h->q_delval)) {
+        WARN("Failed to unlock distribution");
+        return FAIL_EINTERNAL;
+    }
+
+    return OK;
+}

@@ -949,3 +949,39 @@ sxi_volume_mod_proto_err:
         sxi_query_free(query);
     return ret;
 }
+
+sxi_query_t *sxi_distlock_proto(sxc_client_t *sx, int lock, const char *lockid) {
+    sxi_query_t *query = NULL;
+
+    query = sxi_query_create(sx, ".distlock", REQ_PUT);
+    if(!query) {
+        SXDEBUG("Failed to create query");
+        sxi_seterr(sx, SXE_EMEM, "Failed to create .distlock query");
+        return NULL;
+    }
+
+    query = sxi_query_append_fmt(sx, query, strlen("{\"op\":\"unlock\""), "{\"op\":\"%s\"", lock ? "lock" : "unlock");
+    if(!query) {
+        SXDEBUG("Failed to append JSON content");
+        sxi_seterr(sx, SXE_EMEM, "Failed to create .distlock query");
+        return NULL;
+    }
+
+    if(lockid) {
+        query = sxi_query_append_fmt(sx, query, strlen(",\"lockID\":\"\"") + strlen(lockid), ",\"lockID\":\"%s\"", lockid);
+        if(!query) {
+            SXDEBUG("Failed to append JSON content");
+            sxi_seterr(sx, SXE_EMEM, "Failed to create .distlock query");
+            return NULL;
+        }
+    }
+
+    query = sxi_query_append_fmt(sx, query, 1, "}");
+    if(!query) {
+        SXDEBUG("Failed to append JSON content");
+        sxi_seterr(sx, SXE_EMEM, "Failed to create .distlock query");
+        return NULL;
+    }
+
+    return query;
+}

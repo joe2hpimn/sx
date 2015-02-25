@@ -3446,3 +3446,81 @@ sxc_cluster_status_err:
     sxi_hostlist_empty(&hlist);
     return ret;
 }
+
+static int distribution_lock_common(sxc_cluster_t *cluster, int op, const char *master) {
+    sxi_query_t *query;
+    sxc_client_t *sx = sxi_cluster_get_client(cluster);
+    sxi_conns_t *conns = sxi_cluster_get_conns(cluster);
+    sxi_hostlist_t *hosts, new_hosts;
+    const char *min_host = NULL;
+    unsigned int i;
+
+    if(!cluster) {
+        sxi_seterr(sx, SXE_EARG, "Invalid argument");
+        return 1;
+    }
+    
+    sx = sxi_cluster_get_client(cluster);
+    conns = sxi_cluster_get_conns(cluster);
+
+    if(!sx || !conns) {
+        sxi_seterr(sx, SXE_EARG, "Invalid argument");
+        return 1;
+    }
+
+    query = sxi_distlock_proto(sx, op, NULL);
+    if(!query) {
+        SXDEBUG("Failed to create distlock query");
+        return 1;
+    }
+
+    hosts = sxi_conns_get_hostlist(conns);
+    if(!hosts) {
+        sxi_seterr(sx, SXE_ECOMM, "Failed to get cluster host list");
+        sxi_query_free(query);
+        return 1;
+    }
+
+    for(i = 0; i < sxi_hostlist_get_count(hosts); i++) {
+        const char *host = sxi_hostlist_get_host(hosts, i);
+        if(master) {
+            if(!strcmp(master, host)) {
+                min_host = host;
+                break;
+            }
+        } else if(!min_host || strcmp(host, min_host) < 0)
+            min_host = host;
+    }
+
+    if(!min_host) {
+        sxi_seterr(sx, SXE_EARG, "Cannot determine master node");
+        sxi_query_free(query);
+        return 1;
+    }
+
+    sxi_hostlist_init(&new_hosts);
+    if(sxi_hostlist_add_host(sx, &new_hosts, min_host)) {
+        sxi_query_free(query);
+        sxi_hostlist_empty(&new_hosts);
+        return 1;
+    }
+
+    sxi_set_operation(sx, "lock cluster", NULL, NULL, NULL);
+    if(sxi_job_submit_and_poll(conns, &new_hosts, query->verb, query->path, query->content, query->content_len)) {
+        sxi_query_free(query);
+        sxi_hostlist_empty(&new_hosts);
+        return 1;
+    }
+
+    sxi_query_free(query);
+    sxi_hostlist_empty(&new_hosts);
+    return 0;
+}
+    
+int sxi_cluster_distribution_lock(sxc_cluster_t *cluster, const char *master) {
+    return distribution_lock_common(cluster, 1, master);
+}
+
+int sxi_cluster_distribution_unlock(sxc_cluster_t *cluster, const char *master) {
+    return distribution_lock_common(cluster, 0, master);
+}

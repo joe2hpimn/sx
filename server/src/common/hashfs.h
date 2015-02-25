@@ -438,4 +438,9 @@ rc_ty sx_hashfs_init_replacement(sx_hashfs_t *h);
 
 rc_ty sx_hashfs_node_status(sx_hashfs_t *h, sxi_node_status_t *status);
 
+/* Distribution lock handling */
+rc_ty sx_hashfs_distlock_acquire(sx_hashfs_t *h, const char *lockid);
+rc_ty sx_hashfs_distlock_release(sx_hashfs_t *h);
+rc_ty sx_hashfs_distlock_get(sx_hashfs_t *h, char *lockid, unsigned int lockid_len);
+
 #endif
