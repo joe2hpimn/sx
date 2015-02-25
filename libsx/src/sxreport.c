@@ -35,7 +35,11 @@
 #include <grp.h>
 #include <time.h>
 #include "vcrypto.h"
+
+#ifdef HAVE_SYS_STATVFS_H
 #include <sys/statvfs.h>
+#endif
+
 #if defined(HAVE_SYS_SYSCTL_H) || defined(__APPLE__)
 #include <sys/sysctl.h>
 #endif
@@ -361,6 +365,13 @@ int sxi_report_os(sxc_client_t *sx, char *name, size_t name_len, char *arch, siz
 }
 
 int sxi_report_fs(sxc_client_t *sx, const char *path, int64_t *block_size, int64_t *total_blocks, int64_t *available_blocks) {
+#ifndef HAVE_SYS_STATVFS_H
+    if(!sx)
+        return 1;
+
+    sxi_seterr(sx, SXE_ECFG, "Filesystem information not available for this system");
+    return 1;
+#else
     struct statvfs fs_stat;
 
     if(!sx)
@@ -380,6 +391,7 @@ int sxi_report_fs(sxc_client_t *sx, const char *path, int64_t *block_size, int64
     *total_blocks = fs_stat.f_blocks;
     *available_blocks = fs_stat.f_bavail;
     return 0;
+#endif
 }
 
 int sxi_report_cpu(sxc_client_t *sx, int *ncpus, char *endianness, size_t endianness_len) {
