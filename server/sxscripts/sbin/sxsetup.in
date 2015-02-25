@@ -121,7 +121,7 @@ test `id -u` -ne 0 && SX_NO_ROOT="yes"
 # Set defaults if there are no previous answers
 SX_DATA_DIR=${SX_DATA_DIR:-"@localstatedir@/lib/sxserver/storage"}
 if [ -z "$SX_NODE_IP" ]; then
-    SX_NODE_IP=`/sbin/ifconfig eth0 2>/dev/null|grep 'inet addr'|cut -d ':' -f 2|cut -d ' ' -f 1`
+    SX_NODE_IP=`ip route get 8.8.8.8 2>/dev/null | awk 'NR==1 {print $NF}' | grep "[0-9]\+\.[0-9]\+\.[0-9]\+\.[0-9]\+"`
     if [ -z "$SX_NODE_IP" ]; then
         SX_NODE_IP="127.0.0.1"
     fi
@@ -844,7 +844,7 @@ if [ -z "$NOSSL_FLAG" ] ; then
 fi
 
 if [ -n "$SX_NODE_INTERNAL_IP" -a "$SX_NODE_IP" != "$SX_NODE_INTERNAL_IP" ]; then
-    if [ -n "`/sbin/ifconfig 2>/dev/null | grep $SX_NODE_IP`" ]; then
+    if [ -n "`ip addr show 2>/dev/null | grep $SX_NODE_IP`" -o -n "`/sbin/ifconfig 2>/dev/null | grep $SX_NODE_IP`" ]; then
 	# bind to both public and internal IPs
 	sed -e "s/listen 80/listen $SX_NODE_IP:$SX_PORT default_server;\n\
 	     listen $SX_NODE_INTERNAL_IP:$SX_PORT/"\
