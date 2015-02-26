@@ -7,7 +7,7 @@ sxacl \- manage users and permissions
 .SH DESCRIPTION
 sxacl manages users and permissions for SX clusters and volumes.
 .SH COMMANDS
-The available commands are listed below. To get more information about a specific command run \fB'man sxacl COMMAND'\fR.
+The available commands are listed below. To get more information about a specific command run \fB'man sxacl-COMMAND'\fR.
 .TP
 .B useradd
 Create a new user.

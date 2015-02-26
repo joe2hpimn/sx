@@ -7,7 +7,7 @@ sxrev \- manage file revisions
 .SH DESCRIPTION
 The volumes in Skylable SX clusters can keep multiple revisions of files. For example, if a volume was created with an option to keep 5 revisions, every time a specific file gets modified the previous copy will be preserved and the latest 5 versions of the file will be available for download. The tools such as sxcp or sxls will always operate on the latest revision. sxrev can be used to list and manage all revisions of a particular file.
 .SH COMMANDS
-The available commands are listed below. To get more information about a specific command run \fB'man sxrev COMMAND'\fR.
+The available commands are listed below. To get more information about a specific command run \fB'man sxrev-COMMAND'\fR.
 .TP
 .B list
 List available revisions of a file.
