@@ -45,14 +45,27 @@ void sxi_hashop_begin(sxi_hashop_t *hashop, sxi_conns_t *conns, hash_presence_cb
     hashop->kind = kind;
     hashop->replica = replica;
     hashop->op_expires_at = op_expires_at;
-    if (!reservehash || !revisionhash) {
-        if (kind != HASHOP_CHECK)
-            WARN("empty id");
+    if (!reservehash) {
         memset(&hashop->reserve_id, 0, sizeof(hashop->reserve_id));
-        memset(&hashop->revision_id, 0, sizeof(hashop->revision_id));
+        hashop->has_reserve_id = 0;
     } else {
         memcpy(&hashop->reserve_id, reservehash, sizeof(hashop->reserve_id));
+        hashop->has_reserve_id = 1;
+    }
+    if (!revisionhash) {
+        memset(&hashop->revision_id, 0, sizeof(hashop->revision_id));
+        hashop->has_revision_id = 0;
+    } else {
         memcpy(&hashop->revision_id, revisionhash, sizeof(hashop->revision_id));
+        hashop->has_revision_id = 1;
+    }
+    if (kind == HASHOP_RESERVE) {
+        if (!hashop->has_reserve_id)
+            WARN("reserve_id is required for HASHOP_RESERVE");
+        if (!hashop->has_revision_id)
+            WARN("revision_id is required for HASHOP_RESERVE");
+    } else if ((kind == HASHOP_INUSE || kind == HASHOP_DELETE) && !hashop->has_revision_id) {
+        WARN("revision_id is required for HASHOP_INUSE/DELETE");
     }
     sxc_clearerr(sxi_conns_get_client(conns));
 }
@@ -363,7 +376,7 @@ static int sxi_hashop_batch(sxi_hashop_t *hashop)
             break;
         case HASHOP_DELETE:/* fall-through */
         case HASHOP_INUSE:
-            query = sxi_hashop_proto_inuse_begin(sxi_conns_get_client(hashop->conns), &hashop->reserve_id);
+            query = sxi_hashop_proto_inuse_begin(sxi_conns_get_client(hashop->conns), hashop->has_reserve_id ? &hashop->reserve_id : NULL);
             for (i=0;i < n;i++) {
                 block_meta_entry_t entry;
                 block_meta_t meta;

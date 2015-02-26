@@ -809,6 +809,7 @@ struct _sx_hashfs_t {
     unsigned int put_success;
     sx_hash_t *put_blocks;
     sx_hash_t put_reserve_id;
+    sx_hash_t put_revision_id;
     unsigned int *put_nidxs;
     unsigned int *put_hashnos;
     unsigned int put_nblocks;
@@ -6671,13 +6672,12 @@ rc_ty sx_hashfs_putfile_gettoken(sx_hashfs_t *h, const uint8_t *user, int64_t si
     const char *name = (const char*)sqlite3_column_text(h->qt_gettoken, 3);
     const char *revision = (const char*)sqlite3_column_text(h->qt_gettoken, 4);
     const sx_hashfs_volume_t *vol;
-    sx_hash_t revision_id;
     if (reserve_fileid(h, volid, name, &h->put_reserve_id) ||
         sx_hashfs_volume_by_id(h, volid, &vol) ||
-        unique_fileid(h->sx, vol, name, revision, &revision_id))
+        unique_fileid(h->sx, vol, name, revision, &h->put_revision_id))
         goto gettoken_err;
     DEBUGHASH("file initial PUT reserve_id", &h->put_reserve_id);
-    sxi_hashop_begin(&h->hc, h->sx_clust, hdck_cb, HASHOP_RESERVE, 0, &h->put_reserve_id, &revision_id, hdck_cb_ctx, expires_at);
+    sxi_hashop_begin(&h->hc, h->sx_clust, hdck_cb, HASHOP_RESERVE, 0, &h->put_reserve_id, &h->put_revision_id, hdck_cb_ctx, expires_at);
     sqlite3_reset(h->qt_gettoken);
     return OK;
 
@@ -7091,7 +7091,7 @@ rc_ty reserve_replicas(sx_hashfs_t *h, uint64_t op_expires_at)
         memset(hashop, 0, sizeof(*hashop));
         DEBUGHASH("reserve_replicas reserve_id", &h->put_reserve_id);
         sxi_hashop_begin(hashop, h->sx_clust, NULL,
-                         HASHOP_RESERVE, 0, NULL, &h->put_reserve_id, NULL, op_expires_at);
+                         HASHOP_RESERVE, 0, &h->put_reserve_id, &h->put_revision_id, NULL, op_expires_at);
         while((ret = are_blocks_available(h, all_hashes, hashop,
                                           uniq_hash_indexes, node_indexes,
                                           &cur_item, uniq_count, hash_size,
