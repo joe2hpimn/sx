@@ -9292,7 +9292,7 @@ static rc_ty hash_of_blob_result(sx_hash_t *hash, sqlite3_stmt *stmt, int col)
         WARN("Bad blob result length: %d", len);
         return FAIL_EINTERNAL;
     }
-    memcpy(hash->b, sqlite3_column_blob(stmt, 0), sizeof(hash->b));
+    memcpy(hash->b, sqlite3_column_blob(stmt, col), sizeof(hash->b));
     return OK;
 }
 
@@ -9310,6 +9310,7 @@ static rc_ty foreach_hdb_blob(sx_hashfs_t *h, int *terminate,
         for (i=0;i<HASHDBS && !*terminate;i++) {
             int ret;
             sqlite3_stmt *q = loop[j][i];
+            DEBUG("Running %s", sqlite3_sql(q));
             sqlite3_stmt *q_gc1 = h->qb_gc_revision_blocks[j][i];
             sqlite3_stmt *q_gc2 = h->qb_gc_revision[j][i];
             sqlite3_stmt *q_gc3 = h->qb_gc_reserve[j][i];
@@ -9345,6 +9346,8 @@ static rc_ty foreach_hdb_blob(sx_hashfs_t *h, int *terminate,
                         } else {
                             ret = -1;
                         }
+                        DEBUGHASH("Got revision_id", &var);
+                        DEBUGHASH("Got loop id", &last);
                         sqlite3_reset(q);
                         if(loopvar && qbind_blob(q, loopvar, last.b, sizeof(last.b))) {
                             ret = -1;
