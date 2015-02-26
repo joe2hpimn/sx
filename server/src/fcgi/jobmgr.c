@@ -3454,12 +3454,13 @@ static int rplblocks_cb(curlev_context_t *cbdata, void *ctx, const void *data, s
                     int32_t op;
 		    rc_ty s;
 		    const void *ptr;
+                    unsigned int blob_size;
 
-		    if(sx_blob_get_blob(c->b, &ptr, &todo) ||
-                       todo != sizeof(revision_id.b) ||
+		    if(sx_blob_get_blob(c->b, &ptr, &blob_size) ||
+                       blob_size != sizeof(revision_id.b) ||
                        sx_blob_get_int32(c->b, &replica) ||
 		       sx_blob_get_int32(c->b, &op)) {
-			WARN("Invalid block size");
+			WARN("Invalid block size: %d", blob_size);
 			return 1;
 		    }
                     memcpy(&revision_id.b, ptr, sizeof(revision_id.b));
