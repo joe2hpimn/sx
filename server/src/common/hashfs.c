@@ -385,7 +385,8 @@ rc_ty sx_storage_create(const char *dir, sx_uuid_t *cluster, uint8_t *key, int k
             qnullify(q);*/
 
             /* op:
-             * +1: inuse, or reserved
+             * +1: inuse
+             *  0: reserved
              * -1: delete */
             if(qprep(db, &q, "CREATE TABLE revision_ops(\
                 revision_id BLOB("STRIFY(SXI_SHA1_BIN_LEN)") NOT NULL,\
@@ -1557,7 +1558,7 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
                 goto open_hashfs_fail;
 	    if(qprep(h->datadb[j][i], &h->qb_del_reserve[j][i], "DELETE FROM reservations WHERE reservations_id=:reserve_id"))
 		goto open_hashfs_fail;
-	    if(qprep(h->datadb[j][i], &h->qb_find_unused_revision[j][i], "SELECT revision_id FROM revision_ops WHERE revision_id IN (SELECT revision_id FROM revision_ops WHERE op <= 0 AND age <= :age AND revision_id > :last_revision_id) GROUP BY revision_id HAVING SUM(op)=0 ORDER BY revision_id LIMIT 1"))
+	    if(qprep(h->datadb[j][i], &h->qb_find_unused_revision[j][i], "SELECT revision_id FROM revision_ops WHERE revision_id IN (SELECT revision_id FROM revision_ops NATURAL LEFT JOIN reservations WHERE op <= 0 AND age <= :age AND revision_id > :last_revision_id AND reservations_id IS NULL) GROUP BY revision_id HAVING SUM(op)=0 ORDER BY revision_id LIMIT 1"))
 		goto open_hashfs_fail;
 	    if(qprep(h->datadb[j][i], &h->qb_find_unused_block[j][i], "SELECT id, blockno, hash FROM blocks LEFT JOIN revision_blocks ON blocks.hash=blocks_hash WHERE id  > :last AND revision_id IS NULL ORDER BY id"))
 		goto open_hashfs_fail;
@@ -5844,7 +5845,6 @@ static rc_ty sx_hashfs_hashop_moduse(sx_hashfs_t *h, const sx_hash_t *reserve_id
                 qstep_noret(h->qb_reserve[hs][ndb]))
                 break;
             sqlite3_reset(h->qb_reserve[hs][ndb]);
-            op = 1;
         }
 
         age = sxi_hdist_version(h->hd);

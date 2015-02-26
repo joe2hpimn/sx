@@ -50,7 +50,7 @@ EXPLAIN QUERY PLAN SELECT id, hash FROM  blocks WHERE hash > :prevhash AND block
 SELECT "del_reserve";
 EXPLAIN QUERY PLAN DELETE FROM reservations WHERE reservations_id=:reserveid;
 SELECT "find_unused_token:";
-EXPLAIN QUERY PLAN SELECT revision_id FROM revision_ops WHERE revision_id IN (SELECT revision_id FROM revision_ops WHERE op <= 0 AND age <= :age AND revision_id > :last_revision_id) GROUP BY revision_id HAVING SUM(op)=0 ORDER BY revision_id LIMIT 1;
+EXPLAIN QUERY PLAN SELECT revision_id FROM revision_ops WHERE revision_id IN (SELECT revision_id FROM revision_ops NATURAL LEFT JOIN reservations WHERE op <= 0 AND age <= :age AND revision_id > :last_revision_id AND reservations_id IS NULL) GROUP BY revision_id HAVING SUM(op)=0 ORDER BY revision_id LIMIT 1;
 SELECT "find_unused_block:";
 EXPLAIN QUERY PLAN SELECT id, blockno, hash FROM blocks LEFT JOIN revision_blocks ON blocks.hash=blocks_hash WHERE id > :last AND revision_id IS NULL ORDER BY id;
 SELECT "delete_old:";
