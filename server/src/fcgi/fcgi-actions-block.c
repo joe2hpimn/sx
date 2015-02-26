@@ -182,14 +182,14 @@ void fcgi_hashop_blocks(enum sxi_hashop_kind kind) {
         }
         if (comma)
             CGI_PUTC(',');
+        if (rc != OK)
+                break;
         /* the presence callback wants an index not the actual hash...
          * */
         CGI_PUTS(present ? "true" : "false");
         DEBUGHASH("Status sent for ", &reqhash);
 	DEBUG("Hash index %d, present: %d", idx, present);
         comma = 1;
-        if (rc != OK)
-                break;
         idx++;
     }
     if (rc != OK) {
