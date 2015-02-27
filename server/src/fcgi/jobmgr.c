@@ -4423,6 +4423,18 @@ static act_result_t distlock_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_t
    return distlock_common(hashfs, job_id, job_data, nodes, JOBPHASE_ABORT, succeeded, fail_code, fail_msg, adjust_ttl);
 }
 
+static rc_ty revision_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    return job_twophase_execute(&revision_spec, JOBPHASE_COMMIT, hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
+}
+
+static rc_ty revision_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    return job_twophase_execute(&revision_spec, JOBPHASE_UNDO, hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
+}
+
+static rc_ty revision_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    return job_twophase_execute(&revision_spec, JOBPHASE_ABORT, hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
+}
+
 static struct {
     job_action_t fn_request;
     job_action_t fn_commit;
@@ -4449,6 +4461,7 @@ static struct {
     { replace_request, replace_commit, replace_abort, replace_undo }, /* JOBTYPE_REPLACE */
     { replaceblocks_request, replaceblocks_commit, force_phase_success, force_phase_success }, /* JOBTYPE_REPLACE_BLOCKS */
     { replacefiles_request, replacefiles_commit, force_phase_success, force_phase_success }, /* JOBTYPE_REPLACE_FILES */
+    { force_phase_success, revision_commit, revision_abort, revision_undo }, /* JOBTYPE_BLOCKS_REVISION */
     { dummy_request, dummy_commit, dummy_abort, dummy_undo }, /* JOBTYPE_DUMMY */
     { force_phase_success, revsclean_vol_commit, revsclean_vol_abort, revsclean_vol_undo }, /* JOBTYPE_REVSCLEAN */
     { distlock_request, force_phase_success, distlock_abort, force_phase_success }, /* JOBTYPE_DISTLOCK */

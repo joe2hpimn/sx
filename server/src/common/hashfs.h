@@ -281,6 +281,7 @@ rc_ty sx_hashfs_block_put(sx_hashfs_t *h, const uint8_t *data, unsigned int bs, 
 /* hash batch ops for GC */
 rc_ty sx_hashfs_hashop_perform(sx_hashfs_t *h, unsigned int block_size, unsigned replica_count, enum sxi_hashop_kind kind, const sx_hash_t *hash, const sx_hash_t *reserve_id, const sx_hash_t *revision_id, uint64_t op_expires_at, int *present);
 rc_ty sx_hashfs_hashop_mod(sx_hashfs_t *h, const sx_hash_t *hash, const sx_hash_t *reserve_id, const sx_hash_t *revision_id, unsigned int blocksize, unsigned replica, int count, uint64_t op_expires_at);
+rc_ty sx_hashfs_revision_op(sx_hashfs_t *h, unsigned blocksize, const sx_hash_t *revision_id, int op);
 rc_ty sx_hashfs_gc_periodic(sx_hashfs_t *h, int *terminate, int grace_period);
 rc_ty sx_hashfs_gc_run(sx_hashfs_t *h, int *terminate);
 rc_ty sx_hashfs_gc_info(sx_hashfs_t *h, int *terminate);
@@ -448,5 +449,12 @@ rc_ty sx_hashfs_cluster_set_mode(sx_hashfs_t *h, int mode);
 rc_ty sx_hashfs_cluster_get_mode(sx_hashfs_t *h, int *mode);
 
 int sx_hashfs_is_readonly(sx_hashfs_t *h);
+
+typedef struct {
+    const char *lock;
+    sx_hash_t revision_id;
+    int32_t blocksize;
+    int op;
+} revision_op_t;
 
 #endif

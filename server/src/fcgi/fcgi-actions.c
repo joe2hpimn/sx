@@ -336,6 +336,8 @@ void file_ops(void) {
                 quit_unless_has(PRIV_CLUSTER);
                 if (arg_is("o","reserve"))
                     fcgi_hashop_blocks(HASHOP_RESERVE);
+                else if (arg_is("o", "revmod"))
+                    fcgi_revision_op();
                 else
                     quit_errmsg(400,"Invalid operation requested on hash batch");
                 return;
@@ -351,7 +353,6 @@ void file_ops(void) {
 	    fcgi_push_blocks();
 	    return;
 	}
-
 	if(has_priv(PRIV_CLUSTER)) {
 	    /* New file propagation (s2s) - CLUSTER required */
 	    fcgi_create_file();
@@ -385,6 +386,17 @@ void file_ops(void) {
 	    fcgi_node_repaired();
 	    return;
 	}
+
+	if(!strcmp(volume, ".data")) {
+            if (has_arg("o")) {
+		/* Hashop reserve/inuse (s2s) - CLUSTER required */
+                quit_unless_has(PRIV_CLUSTER);
+                if (arg_is("o", "revmod")) {
+                    fcgi_revision_op();
+                    return;
+                }
+            }
+        }
 
 	if(is_reserved())
             quit_errmsg(405, "Method Not Allowed");

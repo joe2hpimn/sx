@@ -593,6 +593,29 @@ sxi_query_t *sxi_hashop_proto_inuse_end(sxc_client_t *sx, sxi_query_t *query)
     return ret;
 }
 
+sxi_query_t *sxi_hashop_proto_revision(sxc_client_t *sx, unsigned blocksize, const sx_hash_t *revision_id, int op)
+{
+    char url[sizeof(".data/1048576/?o=revmod&revision_id=") + SXI_SHA1_TEXT_LEN + 1];
+    char idhex[SXI_SHA1_TEXT_LEN + 1];
+
+    if (!revision_id) {
+        sxi_seterr(sx, SXE_EARG, "Null revisionid");
+        return NULL;
+    }
+
+    sxi_bin2hex(revision_id->b, sizeof(revision_id->b), idhex);
+    snprintf(url, sizeof(url), ".data/%u/?o=revmod&revision_id=%s", blocksize, idhex);
+    switch (op) {
+        case 1:
+            return sxi_query_create(sx, url, REQ_PUT);
+        case -1:
+            return sxi_query_create(sx, url, REQ_DELETE);
+        default:
+            sxi_seterr(sx, SXE_EARG, "Bad revision op: %d", op);
+            return NULL;
+    }
+}
+
 sxi_query_t *sxi_nodeinit_proto(sxc_client_t *sx, const char *cluster_name, const char *node_uuid, uint16_t http_port, int ssl_flag, const char *ssl_file) {
     char *ca_data = NULL, *name = NULL, *node = NULL;
     sxi_query_t *ret;

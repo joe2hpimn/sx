@@ -35,6 +35,7 @@
 #include "utils.h"
 #include "blob.h"
 #include "fcgi-actions-block.h"
+#include "job_common.h"
 
 void fcgi_send_blocks(void) {
     unsigned int blocksize;
@@ -853,4 +854,39 @@ void fcgi_send_replacement_blocks(void) {
 	sx_hashfs_blockmeta_free(&bmeta);
     }
     sx_blob_free(b);
+}
+
+void fcgi_revision_op(void) {
+    revision_op_t op;
+    const char *revision_id_hex;
+    char *hpath;
+
+    revision_id_hex = get_arg("revision_id");
+    if (!revision_id_hex || strlen(revision_id_hex) != SXI_SHA1_TEXT_LEN ||
+        hex2bin(revision_id_hex, SXI_SHA1_TEXT_LEN, op.revision_id.b, sizeof(op.revision_id.b)))
+    {
+        msg_set_reason("Cannot parse revision in request");
+        quit_errmsg(400, msg_get_reason());
+    }
+    op.blocksize = strtol(path, &hpath, 10);
+    if (*hpath != '\0') {
+        msg_set_reason("Path must consist of just the blocksize and /: %s", path);
+        quit_errmsg(404, msg_get_reason());
+    }
+    if(sx_hashfs_check_blocksize(op.blocksize)) {
+	msg_set_reason("The requested block size does not exist");
+        quit_errmsg(400, msg_get_reason());
+    }
+    switch (verb) {
+        case VERB_PUT:
+            op.op = 1;
+            break;
+        case VERB_DELETE:
+            op.op = -1;
+            break;
+        default:
+            quit_errmsg(405,"Bad verb");
+    }
+    op.lock = revision_id_hex;
+    job_2pc_handle_request(sx_hashfs_client(hashfs), &revision_spec, &op);
 }
