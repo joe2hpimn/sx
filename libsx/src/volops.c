@@ -548,13 +548,14 @@ struct cb_listvolumes_ctx {
 	unsigned int replica_count;
         unsigned int revisions;
 	unsigned int namelen;
+        unsigned int owner_len;
         char privs[3];
     } voldata;
-
+    char *owner;
     sxc_meta_t *meta;
     unsigned int meta_count;
     char *curkey;
-    enum listvolumes_state { LV_ERROR, LV_BEGIN, LV_BASE, LV_VOLUMES, LV_NAME, LV_VALUES, LV_VALNAME,
+    enum listvolumes_state { LV_ERROR, LV_BEGIN, LV_BASE, LV_VOLUMES, LV_NAME, LV_VALUES, LV_VALNAME, LV_OWNER,
 			     LV_REPLICA, LV_REVISIONS, LV_PRIVS, LV_USEDSIZE, LV_SIZE, LV_META, LV_META_KEY, LV_META_VALUE, LV_DONE, LV_COMPLETE } state;
 };
 #define expect_state(expst) do { if(yactx->state != (expst)) { CBDEBUG("bad state (in %d, expected %d)", yactx->state, expst); return 0; } } while(0)
@@ -602,9 +603,19 @@ static int yacb_listvolumes_end_map(void *ctx) {
 	    sxi_cbdata_setsyserr(yactx->cbdata, SXE_EWRITE, "Failed to write to temporary file");
 	    return 0;
 	}
+
+        if(yactx->owner && !fwrite(yactx->owner, yactx->voldata.owner_len, 1, yactx->f)) {
+            CBDEBUG("failed to save volume owner to temporary file");
+            sxi_cbdata_setsyserr(yactx->cbdata, SXE_EWRITE, "Failed to write to temporary file");
+            return 0;
+        }
+
 	free(yactx->volname);
 	yactx->volname = NULL;
 	yactx->voldata.namelen = 0;
+        free(yactx->owner);
+        yactx->owner = NULL;
+        yactx->voldata.owner_len = 0;
 	yactx->state = LV_NAME;
 
         /* Handle meta */
@@ -678,6 +689,22 @@ static int yacb_listvolumes_string(void *ctx, const unsigned char *s, size_t l) 
         yactx->state = LV_VALNAME;
         return 1;
     }
+    if(yactx->state == LV_OWNER) {
+        if(yactx->owner || yactx->voldata.owner_len) {
+            CBDEBUG("Inconsistent state");
+            return 0;
+        }
+        yactx->voldata.owner_len = l;
+        yactx->owner = malloc(yactx->voldata.owner_len);
+        if(!yactx->owner) {
+            CBDEBUG("OOM duplicating user name '%.*s'", (unsigned)l, s);
+            sxi_cbdata_seterr(yactx->cbdata, SXE_EMEM, "Out of memory");
+            return 0;
+        }
+        memcpy(yactx->owner, s, yactx->voldata.owner_len);
+        yactx->state = LV_VALNAME;
+        return 1;
+    }
 
     return 0;
 }
@@ -727,6 +754,10 @@ static int yacb_listvolumes_map_key(void *ctx, const unsigned char *s, size_t l)
     }
 
     if(yactx->state == LV_VALNAME) {
+        if(l == lenof("owner") && !memcmp(s, "owner", lenof("owner"))) {
+            yactx->state = LV_OWNER;
+            return 1;
+        }
 	if(l == lenof("replicaCount") && !memcmp(s, "replicaCount", lenof("replicaCount"))) {
 	    yactx->state = LV_REPLICA;
 	    return 1;
@@ -878,6 +909,9 @@ static int listvolumes_setup_cb(curlev_context_t *cbdata, void *ctx, const char 
 
     free(yactx->volname);
     yactx->volname = NULL;
+    free(yactx->owner);
+    yactx->owner = NULL;
+    yactx->voldata.owner_len = 0;
     rewind(yactx->f);
     yactx->state = LV_BEGIN;
 
@@ -987,7 +1021,7 @@ sxc_cluster_lv_t *sxc_cluster_listvolumes(sxc_cluster_t *cluster, int get_meta) 
     return ret;
 }
 
-int sxc_cluster_listvolumes_next(sxc_cluster_lv_t *lv, char **volume_name, int64_t *volume_used_size, int64_t *volume_size, unsigned int *replica_count, unsigned int *revisions, char privs[3], sxc_meta_t **meta) {
+int sxc_cluster_listvolumes_next(sxc_cluster_lv_t *lv, char **volume_name, char **volume_owner, int64_t *volume_used_size, int64_t *volume_size, unsigned int *replica_count, unsigned int *revisions, char privs[3], sxc_meta_t **meta) {
     struct cbl_volume_t volume;
     sxc_client_t *sx = lv->sx;
     unsigned int meta_count = 0;
@@ -1037,6 +1071,26 @@ int sxc_cluster_listvolumes_next(sxc_cluster_lv_t *lv, char **volume_name, int64
         }
     } else
 	fseek(lv->f, volume.namelen, SEEK_CUR);
+
+    if(volume_owner && volume.owner_len) {
+        *volume_owner = malloc(volume.owner_len + 1);
+        if(!*volume_owner) {
+            SXDEBUG("OOM allocating volume owner name (%u bytes)", volume.owner_len);
+            sxi_seterr(sx, SXE_EMEM, "Failed to retrieve next volume: Out of memory");
+            return -1;
+        }
+        if(!fread(*volume_owner, volume.owner_len, 1, lv->f)) {
+            SXDEBUG("error reading volume owner name from results file");
+            sxi_setsyserr(sx, SXE_EREAD, "Failed to retrieve next volume: Read item from cache failed");
+            return -1;
+        }
+        (*volume_owner)[volume.owner_len] = '\0';
+    } else
+        fseek(lv->f, volume.owner_len, SEEK_CUR);
+
+    /* For compatibility reasons owner can be not assigned therefore return NULL here */
+    if(volume_owner && !volume.owner_len)
+        *volume_owner = NULL;
 
     if(volume_used_size)
         *volume_used_size = volume.used_size;
@@ -1147,6 +1201,11 @@ int sxc_cluster_listvolumes_next(sxc_cluster_lv_t *lv, char **volume_name, int64
     }
 
     return 1;
+}
+
+void sxc_cluster_listvolumes_reset(sxc_cluster_lv_t *lv) {
+    if(lv)
+        rewind(lv->f);
 }
 
 void sxc_cluster_listvolumes_free(sxc_cluster_lv_t *lv) {

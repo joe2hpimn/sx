@@ -132,6 +132,7 @@ void fcgi_handle_cluster_requests(void) {
 
     if(has_arg("volumeList")) {
 	const sx_hashfs_volume_t *vol;
+        char owner[SXLIMIT_MAX_USERNAME_LEN+1];
 
 	CGI_PUTS("\"volumeList\":{");
         uint8_t *u = has_priv(PRIV_ADMIN) ? NULL : user;/* user = NULL: list all volumes */
@@ -148,11 +149,17 @@ void fcgi_handle_cluster_requests(void) {
                 CGI_PUTS("}");
                 quit_itererr("Failed to get volume privs", s);
             }
+
+            if((s = sx_hashfs_uid_get_name(hashfs, vol->owner, owner, sizeof(owner))) != OK) {
+                CGI_PUTS("}");
+                quit_itererr("Failed to get volume owner name", s);
+            }
+
             if(has_priv(PRIV_ADMIN))
                 priv = PRIV_READ | PRIV_WRITE;
 
-	    CGI_PRINTF(":{\"replicaCount\":%u,\"maxRevisions\":%u,\"privs\":\"%c%c\",\"usedSize\":", vol->replica_count, vol->revisions,
-                (priv & PRIV_READ) ? 'r' : '-', (priv & PRIV_WRITE) ? 'w' : '-');
+	    CGI_PRINTF(":{\"owner\":\"%s\",\"replicaCount\":%u,\"maxRevisions\":%u,\"privs\":\"%c%c\",\"usedSize\":", owner,
+                vol->replica_count, vol->revisions, (priv & PRIV_READ) ? 'r' : '-', (priv & PRIV_WRITE) ? 'w' : '-');
 
 	    CGI_PUTLL(vol->cursize);
             CGI_PRINTF(",\"sizeBytes\":");

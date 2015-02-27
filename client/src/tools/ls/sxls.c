@@ -187,8 +187,33 @@ int main(int argc, char **argv) {
 	if(!u->volume) {
 	    sxc_cluster_lv_t *fv = sxc_cluster_listvolumes(cluster, args.long_format_given);
 	    if(fv) {
-		while(1) {
+                unsigned int max_owner_len = 0;
+                while(1) {
+                    char *owner;
+                    int n = sxc_cluster_listvolumes_next(fv, NULL, &owner, NULL, NULL, NULL, NULL, NULL, NULL);
+                    unsigned int len;
+                    if(n<=0) {
+                        if(n) {
+                            fprintf(stderr, "ERROR: Failed to retrieve file name for %s\n", args.inputs[i]);
+                            ret = 1;
+                        }
+                        break;
+                    }
+
+                    if(owner)
+                        len = strlen(owner);
+                    else
+                        len = 3; /* string len of "N/A" */
+                    if(len > max_owner_len)
+                        max_owner_len = len;
+                    free(owner);
+                }
+
+                if(!ret)
+                    sxc_cluster_listvolumes_reset(fv);
+		while(!ret) {
 		    char *vname;
+                    char *owner;
 		    int64_t vsize;
                     int64_t vusedsize;
 		    unsigned int vreplica, vrevs;
@@ -197,9 +222,9 @@ int main(int argc, char **argv) {
                     char privs[3] = { 0, 0, 0 };
 
                     if(args.long_format_given)
-		        n = sxc_cluster_listvolumes_next(fv, &vname, &vusedsize, &vsize, &vreplica, &vrevs, privs, &vmeta);
+		        n = sxc_cluster_listvolumes_next(fv, &vname, &owner, &vusedsize, &vsize, &vreplica, &vrevs, privs, &vmeta);
                     else
-                        n = sxc_cluster_listvolumes_next(fv, &vname, NULL, NULL, NULL, NULL, NULL, NULL);
+                        n = sxc_cluster_listvolumes_next(fv, &vname, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
 
 		    if(n<=0) {
 			if(n)
@@ -250,13 +275,19 @@ int main(int argc, char **argv) {
                             human_size = process_size(vsize);
                         }
 		        if(human_used_size && human_size) {
-                            printf(" %14s %14s %3lld%% ", human_used_size, human_size, (long long)percent);
+                            if(owner)
+                                printf(" %14s %14s %3lld%% %-*s ", human_used_size, human_size, (long long)percent, max_owner_len, owner);
+                            else
+                                printf(" %14s %14s %3lld%% %-*s ", human_used_size, human_size, (long long)percent, max_owner_len, "N/A");
 			} else {
-			    printf(" %14lld %14lld %3lld%% ", (long long)vusedsize, (long long)vsize, (long long)percent);
+                            if(owner)
+                                printf(" %14lld %14lld %3lld%% %-*s ", (long long)vusedsize, (long long)vsize, (long long)percent, max_owner_len, owner);
+                            else
+                                printf(" %14lld %14lld %3lld%% %-*s ", (long long)vusedsize, (long long)vsize, (long long)percent, max_owner_len, "N/A");
 			}
                         free(human_used_size);
                         free(human_size);
-
+                        free(owner);
 		    }
 
 		    if(u->profile) {
