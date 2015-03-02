@@ -1088,7 +1088,7 @@ void print_dist(const sx_nodelist_t *nodes) {
 static int info_cluster(sxc_client_t *sx, struct cluster_args_info *args, int keyonly) {
     sxc_cluster_t *clust = cluster_load(sx, args, 1);
     clst_t *clst;
-    const sx_nodelist_t *nodes = NULL;
+    const sx_nodelist_t *nodes = NULL, *nodes_prev = NULL;
     int ret = 0;
 
     if(!clust)
@@ -1112,8 +1112,9 @@ static int info_cluster(sxc_client_t *sx, struct cluster_args_info *args, int ke
 	    print_dist(nodes);
 	}
     case 1:
+	nodes_prev = clst_nodes(clst, 0);
 	if(!nodes)
-	    nodes = clst_nodes(clst, 0);
+	    nodes = nodes_prev;
 	if(!keyonly) {
 	    printf("Current configuration: ");
 	    print_dist(clst_nodes(clst, 0));
@@ -1136,6 +1137,20 @@ static int info_cluster(sxc_client_t *sx, struct cluster_args_info *args, int ke
 	    clst_destroy(clst);
 	    sxc_cluster_free(clust);
 	    return 0;
+	}
+
+	if(nodes != nodes_prev) {
+	    unsigned int nnodes_prev = sx_nodelist_count(nodes_prev);
+	    for(i = 0; i < nnodes_prev; i++) {
+		const sx_node_t *node = sx_nodelist_get(nodes_prev, i);
+		if(!sx_nodelist_lookup(nodes, sx_node_uuid(node))) {
+		    if(!header) {
+			printf("Operations in progress:\n");
+			header = 1;
+		    }
+		    printf("  * node %s (%s): Node being removed from the cluster\n", sx_node_uuid_str(node), sx_node_internal_addr(node));
+		}
+	    }
 	}
 
 	sxi_hostlist_init(&hlist);
