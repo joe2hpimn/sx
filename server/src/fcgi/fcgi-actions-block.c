@@ -857,7 +857,7 @@ void fcgi_send_replacement_blocks(void) {
 }
 
 void fcgi_revision_op(void) {
-    revision_op_t op;
+    sx_revision_op_t op;
     const char *revision_id_hex;
     char *hpath;
 

@@ -335,8 +335,6 @@ rc_ty sx_hashfs_tmp_getmeta(sx_hashfs_t *h, int64_t tmpfile_id, sxc_meta_t *meta
 rc_ty sx_hashfs_tmp_getinfo(sx_hashfs_t *h, int64_t tmpfile_id, sx_hashfs_tmpinfo_t **tmpinfo, int recheck_presence);
 rc_ty sx_hashfs_tmp_getinfo_by_revision(sx_hashfs_t *h, const char *revision, sx_hashfs_tmpinfo_t **tmpinfo);
 rc_ty sx_hashfs_tmp_tofile(sx_hashfs_t *h, const sx_hashfs_tmpinfo_t *missing);
-rc_ty sx_hashfs_tmp_unbump(sx_hashfs_t *h, int64_t tmpfile_id);
-rc_ty sx_hashfs_tmp_unbump_by_revision(sx_hashfs_t *h, const char *rev, int64_t *tmpfile_id);
 rc_ty sx_hashfs_tmp_delete(sx_hashfs_t *h, int64_t tmpfile_id);
 
 /* File delete */
@@ -451,10 +449,13 @@ rc_ty sx_hashfs_cluster_get_mode(sx_hashfs_t *h, int *mode);
 int sx_hashfs_is_readonly(sx_hashfs_t *h);
 
 typedef struct {
-    const char *lock;
+    int64_t tmpfile_id;
     sx_hash_t revision_id;
     int32_t blocksize;
+    const char *lock;
     int op;
-} revision_op_t;
+} sx_revision_op_t;
+int sx_revision_op_of_blob(sx_blob_t *b, sx_revision_op_t *op);
+int sx_unique_fileid(sxc_client_t *sx, const sx_hashfs_volume_t *volume, const char *name, const char *revision, sx_hash_t *fileid);
 
 #endif

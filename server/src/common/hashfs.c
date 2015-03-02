@@ -1506,7 +1506,7 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 	goto open_hashfs_fail;
     if(qprep(h->tempdb, &h->qt_gettoken, "SELECT token, ttl, volume_id, name, t || ':' || token AS revision FROM tmpfiles WHERE tid = :id AND flushed = 0"))
 	goto open_hashfs_fail;
-    if(qprep(h->tempdb, &h->qt_tokenstats, "SELECT tid, size, volume_id, length(content) FROM tmpfiles WHERE token = :token AND flushed = 0"))
+    if(qprep(h->tempdb, &h->qt_tokenstats, "SELECT tid, size, volume_id, length(content), t || ':' || token AS revision, name FROM tmpfiles WHERE token = :token AND flushed = 0"))
 	goto open_hashfs_fail;
     if(qprep(h->tempdb, &h->qt_tmpbyrev, "SELECT tid, name, size, volume_id, content, uniqidx, flushed, avail, token FROM tmpfiles WHERE t = :rev_time AND token = :rev_token AND flushed = 1"))
         goto open_hashfs_fail;
@@ -6550,7 +6550,7 @@ static int reserve_fileid(sx_hashfs_t *h, int64_t volume_id, const char *name, s
     return ret;
 }
 
-static int unique_fileid(sxc_client_t *sx, const sx_hashfs_volume_t *volume, const char *name, const char *revision, sx_hash_t *fileid)
+int sx_unique_fileid(sxc_client_t *sx, const sx_hashfs_volume_t *volume, const char *name, const char *revision, sx_hash_t *fileid)
 {
     int ret = 0;
     if (!name || !revision || !fileid) {
@@ -6714,7 +6714,7 @@ rc_ty sx_hashfs_putfile_gettoken(sx_hashfs_t *h, const uint8_t *user, int64_t si
     const sx_hashfs_volume_t *vol;
     if (reserve_fileid(h, volid, name, &h->put_reserve_id) ||
         sx_hashfs_volume_by_id(h, volid, &vol) ||
-        unique_fileid(h->sx, vol, name, revision, &h->put_revision_id))
+        sx_unique_fileid(h->sx, vol, name, revision, &h->put_revision_id))
         goto gettoken_err;
     DEBUGHASH("file initial PUT reserve_id", &h->put_reserve_id);
     sxi_hashop_begin(&h->hc, h->sx_clust, hdck_cb, HASHOP_RESERVE, 0, &h->put_reserve_id, &h->put_revision_id, hdck_cb_ctx, expires_at);
@@ -7223,10 +7223,10 @@ unsigned int sx_hashfs_job_file_timeout(sx_hashfs_t *h, unsigned int ndests, uin
 }
 
 rc_ty sx_hashfs_putfile_commitjob(sx_hashfs_t *h, const uint8_t *user, sx_uid_t user_id, const char *token, job_t *job_id) {
-    unsigned int expected_blocks, actual_blocks, ndests;
+    unsigned int expected_blocks, actual_blocks, ndests, blocksize;
     int64_t tmpfile_id, expected_size, volid;
     rc_ty ret = FAIL_EINTERNAL, ret2;
-    sx_nodelist_t *singlenode = NULL, *volnodes = NULL;
+    sx_nodelist_t *singlenode = NULL, *volnodes = NULL, *revisionnodes = NULL;
     const sx_hashfs_volume_t *vol;
     const sx_uuid_t *self_uuid;
     const sx_node_t *self;
@@ -7285,6 +7285,12 @@ rc_ty sx_hashfs_putfile_commitjob(sx_hashfs_t *h, const uint8_t *user, sx_uid_t 
 	ret = ret2;
 	goto putfile_commitjob_err;
     }
+
+    if (revision_spec.nodes(h, NULL, &revisionnodes)) {
+        WARN("cannot allocate nodes");
+        ret = FAIL_EINTERNAL;
+        goto putfile_commitjob_err;
+    }
     /* Flushed tempfiles are propagated to all volnodes (both PREV and NEXT),
      * in no particular order (NL_PREVNEXT would be fine as well) */
     ret2 = sx_hashfs_volnodes(h, NL_NEXTPREV, vol, 0, &volnodes, NULL);
@@ -7299,7 +7305,7 @@ rc_ty sx_hashfs_putfile_commitjob(sx_hashfs_t *h, const uint8_t *user, sx_uid_t 
 	goto putfile_commitjob_err;
     }
     actual_blocks /= sizeof(sx_hash_t);
-    expected_blocks = size_to_blocks(expected_size, NULL, NULL);
+    expected_blocks = size_to_blocks(expected_size, NULL, &blocksize);
     if(actual_blocks != expected_blocks) {
 	/* File was not extended enough to match its size */
 	msg_set_reason("Token not extended to its final size");
@@ -7329,9 +7335,18 @@ rc_ty sx_hashfs_putfile_commitjob(sx_hashfs_t *h, const uint8_t *user, sx_uid_t 
 	goto putfile_commitjob_err;
     }
 
-    ret2 = sx_hashfs_job_new_notrigger(h, *job_id, user_id, job_id, JOBTYPE_FLUSH_FILE, 60*ndests, token, &tmpfile_id, sizeof(tmpfile_id), volnodes);
+    /* when flush fails we need to undo the parent job which was targeted to
+     * all (revision) nodes, so we need to target the flush jub to all nodes.
+     * In the request/commit we'll skip the non-volnode nodes */
+    ret2 = sx_hashfs_job_new_notrigger(h, *job_id, user_id, job_id, JOBTYPE_FLUSH_FILE_REMOTE, 60*ndests, token, &tmpfile_id, sizeof(tmpfile_id), revisionnodes);
     if(ret2) {
-        INFO("job_new (flush) returned: %s", rc2str(ret2));
+        INFO("job_new (flush remote) returned: %s", rc2str(ret2));
+	ret = ret2;
+	goto putfile_commitjob_err;
+    }
+    ret2 = sx_hashfs_job_new_notrigger(h, *job_id, user_id, job_id, JOBTYPE_FLUSH_FILE_LOCAL, 60, token, &tmpfile_id, sizeof(tmpfile_id), revisionnodes);
+    if(ret2) {
+        INFO("job_new (flush local) returned: %s", rc2str(ret2));
 	ret = ret2;
 	goto putfile_commitjob_err;
     }
@@ -7355,6 +7370,7 @@ rc_ty sx_hashfs_putfile_commitjob(sx_hashfs_t *h, const uint8_t *user, sx_uid_t 
 
     sqlite3_reset(h->qt_tokenstats);
 
+    sx_nodelist_delete(revisionnodes);
     sx_nodelist_delete(volnodes);
     sx_nodelist_delete(singlenode);
 
@@ -7587,7 +7603,7 @@ static rc_ty tmp_getinfo_common(sx_hashfs_t *h, const char *rev, int64_t tmpfile
                 goto getmissing_err;
             }
             /* tmpid must match the ID used in delete */
-            if (unique_fileid(h->sx, vol, tbd->name, tbd->revision, &revision_id))
+            if (sx_unique_fileid(h->sx, vol, tbd->name, tbd->revision, &revision_id))
                 goto getmissing_err;
             /* reserve_id must match the id used in reserve */
             if (reserve_fileid(h, tbd->volume_id, tbd->name, &reserve_id))
@@ -7967,7 +7983,7 @@ rc_ty sx_hashfs_job_new_2pc(sx_hashfs_t *hashfs, const job_2pc_t *spec, void *yc
 
 static int revision_to_blob(sxc_client_t *sx, int nodes, void *yctx, sx_blob_t *blob)
 {
-    revision_op_t *op = yctx;
+    sx_revision_op_t *op = yctx;
 
     if (!blob) {
         msg_set_reason("cannot allocate job storage");
@@ -7978,7 +7994,8 @@ static int revision_to_blob(sxc_client_t *sx, int nodes, void *yctx, sx_blob_t *
         return -1;
     }
 
-    if (sx_blob_add_string(blob, op->lock) ||
+    if (sx_blob_add_string(blob, op->lock ? op->lock : "") ||
+        sx_blob_add_int64(blob, op->tmpfile_id) ||
         sx_blob_add_int32(blob, op->blocksize) ||
         sx_blob_add_blob(blob, op->revision_id.b, sizeof(op->revision_id.b)) ||
         sx_blob_add_int32(blob, op->op)) {
@@ -7988,7 +8005,7 @@ static int revision_to_blob(sxc_client_t *sx, int nodes, void *yctx, sx_blob_t *
     return 0;
 }
 
-static int revision_op_of_blob(sx_blob_t *b, revision_op_t *op)
+int sx_revision_op_of_blob(sx_blob_t *b, sx_revision_op_t *op)
 {
     const char *lock;
     const void *ptr;
@@ -7998,6 +8015,7 @@ static int revision_op_of_blob(sx_blob_t *b, revision_op_t *op)
         return -1;
     }
     if (sx_blob_get_string(b, &lock) ||
+        sx_blob_get_int64(b, &op->tmpfile_id) ||
         sx_blob_get_int32(b, &op->blocksize) ||
         sx_blob_get_blob(b, &ptr, &len) || len != sizeof(op->revision_id.b) ||
         sx_blob_get_int32(b, &op->op)) {
@@ -8005,18 +8023,19 @@ static int revision_op_of_blob(sx_blob_t *b, revision_op_t *op)
         return -1;
     }
     memcpy(op->revision_id.b, ptr, sizeof(op->revision_id.b));
+    op->lock = NULL;
     return 0;
 }
 
 static rc_ty revision_execute_blob(sx_hashfs_t *hashfs, sx_blob_t *b, jobphase_t phase, int remote)
 {
-    revision_op_t op;
+    sx_revision_op_t op;
     rc_ty rc;
 
     DEBUG("executing");
     if (remote && phase == JOBPHASE_REQUEST)
         phase = JOBPHASE_COMMIT;
-    if (revision_op_of_blob(b, &op))
+    if (sx_revision_op_of_blob(b, &op))
         return FAIL_EINTERNAL;
     switch (phase) {
         case JOBPHASE_COMMIT:
@@ -8038,8 +8057,8 @@ static rc_ty revision_execute_blob(sx_hashfs_t *hashfs, sx_blob_t *b, jobphase_t
 
 static sxi_query_t* revision_proto_from_blob(sxc_client_t *sx, sx_blob_t *b, jobphase_t phase)
 {
-    revision_op_t op;
-    if (revision_op_of_blob(b, &op))
+    sx_revision_op_t op;
+    if (sx_revision_op_of_blob(b, &op))
         return NULL;
 
     return sxi_hashop_proto_revision(sx, op.blocksize, &op.revision_id, op.op);
@@ -8131,14 +8150,16 @@ rc_ty sx_hashfs_filedelete_job(sx_hashfs_t *h, sx_uid_t user_id, const sx_hashfs
             /* Create a job for newly created tempfile */
             ret = sx_hashfs_job_new_notrigger(h, *job_id, user_id, job_id, JOBTYPE_DELETE_FILE, timeout, lockname, revision, strlen(revision), targets);
             if (ret == OK) {
-                revision_op_t revision_op;
-                ret = unique_fileid(h->sx, vol, name, revision, &revision_op.revision_id);
+                sx_revision_op_t revision_op;
+                ret = sx_unique_fileid(h->sx, vol, name, revision, &revision_op.revision_id);
                 if (ret == OK) {
+                    revision_op.tmpfile_id = tmpfile_id;
                     revision_op.lock = lockname;
                     revision_op.op = -1;
                     revision_op.blocksize = blocksize;
                     /* job to unbump revision for blocks */
                     ret = sx_hashfs_job_new_2pc(h, &revision_spec, &revision_op, user_id, job_id, 0);
+                    DEBUG("ret3: %d", ret);
                 }
             }
             free(lockname);
@@ -8191,14 +8212,16 @@ rc_ty sx_hashfs_filedelete_job(sx_hashfs_t *h, sx_uid_t user_id, const sx_hashfs
 
 	ret = sx_hashfs_job_new_notrigger(h, *job_id, user_id, job_id, JOBTYPE_DELETE_FILE, timeout, lockname, filerev->revision, REV_LEN, targets);
         if (ret == OK) {
-            revision_op_t revision_op;
-            ret = unique_fileid(h->sx, vol, name, filerev->revision, &revision_op.revision_id);
+            sx_revision_op_t revision_op;
+            ret = sx_unique_fileid(h->sx, vol, name, filerev->revision, &revision_op.revision_id);
             if (ret == OK) {
+                revision_op.tmpfile_id = tmpfile_id;
                 revision_op.lock = lockname;
                 revision_op.op = -1;
                 revision_op.blocksize = blocksize;
                 /* job to unbump revision for blocks */
                 ret = sx_hashfs_job_new_2pc(h, &revision_spec, &revision_op, user_id, job_id, 0);
+                DEBUG("ret5: %d", ret);
             }
         }
 	free(lockname);
@@ -8207,6 +8230,7 @@ rc_ty sx_hashfs_filedelete_job(sx_hashfs_t *h, sx_uid_t user_id, const sx_hashfs
             sx_hashfs_tmp_delete(h, tmpfile_id);
             if(ret != FAIL_ETOOMANY)
                 WARN("Failed to add delete job: %s", msg_get_reason());
+            DEBUG("jumping, ret: %d", ret);
             goto sx_hashfs_filedelete_job_err;
         }
         added = 1;
@@ -8229,6 +8253,7 @@ rc_ty sx_hashfs_filedelete_job(sx_hashfs_t *h, sx_uid_t user_id, const sx_hashfs
 
     ret = OK;
 sx_hashfs_filedelete_job_err:
+    DEBUG("end ret:%d", ret);
     sx_nodelist_delete(targets);
     if(!ret) {
         if(!qcommit(h->tempdb)) {
@@ -8413,187 +8438,6 @@ rc_ty sx_hashfs_file_delete(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, co
     }
 
     return OK;
-}
-
-static int tmp_unbump_cb(const char *hexhash, unsigned int idx, int code, void *context) {
-    sx_hashfs_tmpinfo_t *tmp = (sx_hashfs_tmpinfo_t *)context;
-    char idxhash[SXI_SHA1_TEXT_LEN + 1];
-    unsigned int nblock, replica;
-
-
-    if(!hexhash || !tmp) {
-	WARN("Called with NULL values");
-	return -1;
-    }
-
-    if(code != 200 && code != 404)
-	return 0;
-
-    if(!tmp->replica_count) {
-	WARN("Called with null replica count");
-	return -1;
-    }
-
-    nblock = idx / tmp->replica_count;
-    replica = idx % tmp->replica_count;
-
-    if(nblock >= tmp->nall) {
-	WARN("Block out of range (%u / %u)", nblock, tmp->nall);
-	return -1;
-    }
-
-    bin2hex(&tmp->all_blocks[nblock], sizeof(tmp->all_blocks[0]), idxhash, sizeof(idxhash));
-    if(memcmp(idxhash, hexhash, SXI_SHA1_TEXT_LEN)) {
-	WARN("Hash mismatch: called for %.*s but index %d points to %s", SXI_SHA1_TEXT_LEN, hexhash, idx, idxhash);
-	return -1;
-    }
-
-    if(tmp->avlblty[idx] != 0) {
-	tmp->avlblty[idx] = 0;
-	tmp->somestatechanged = 1;
-        DEBUG("Block %s (replica %u) unbumped", idxhash, replica);
-    } else
-	DEBUG("Called for block %s (replica %u) which was not bumped", idxhash, replica);
-
-    return 0;
-}
-
-static rc_ty tmp_unbump_common(sx_hashfs_t *h, const char *rev, int64_t tmpfile_id, sx_hashfs_tmpinfo_t **t) {
-    unsigned int nnode, nnodes, nblock, replica;
-    const sx_hashfs_volume_t *vol;
-    sx_hashfs_tmpinfo_t *tmp;
-    uint64_t op_expires_at;
-    const sx_node_t *self;
-    rc_ty s, ret = OK;
-
-    if(!t) {
-        WARN("NULL argument");
-        return EFAULT;
-    }
-
-    if(rev)
-        s = sx_hashfs_tmp_getinfo_by_revision(h, rev, &tmp);
-    else
-        s = sx_hashfs_tmp_getinfo(h, tmpfile_id, &tmp, 0);
-    if(s != OK)
-	return s;
-
-    s = sx_hashfs_volume_by_id(h, tmp->volume_id, &vol);
-    if(s) {
-	free(tmp);
-	return s;
-    }
-    if(!tmp->nall) {
-	free(tmp);
-	return ITER_NO_MORE;
-    }
-
-    for(nblock=0; nblock<tmp->nall; nblock++) {
-	/* MODHDIST: pick from _next, bidx=0 */
-	if(hash_nidx_tobuf(h, &tmp->all_blocks[nblock], vol->replica_count, &tmp->nidxs[nblock*vol->replica_count])) {
-	    WARN("hash_nidx_tobuf failed");
-	    free(tmp);
-	    return FAIL_EINTERNAL;
-	}
-    }
-
-    sx_hash_t reserve_id, revision_id;
-    if (reserve_fileid(h, vol->id, tmp->name, &reserve_id) ||
-        unique_fileid(h->sx, vol, tmp->name, tmp->revision, &revision_id)) {
-	free(tmp);
-	return FAIL_EINTERNAL;
-    }
-
-    op_expires_at = time(NULL) + JOB_FILE_MAX_TIME;
-    sxi_hashop_begin(&h->hc, h->sx_clust, tmp_unbump_cb, HASHOP_DELETE, vol->replica_count, &reserve_id, &revision_id, tmp, op_expires_at);
-
-    self = sx_hashfs_self(h);
-    nnodes = sx_nodelist_count(tmp->allnodes);
-    for(nnode = 0; nnode < nnodes; nnode++) {
-	const sx_node_t *node = sx_nodelist_get(tmp->allnodes, nnode);
-	int local = !sx_node_cmp(node, self);
-
-	DEBUG("Processing node %u / %u", nnode, nnodes);
-	for(nblock = 0; nblock < tmp->nall; nblock++) {
-	    DEBUG("Processing block %u / %u", nblock, tmp->nall);
-	    for(replica = 0; replica < tmp->replica_count; replica++) {
-		unsigned int idx = nblock * tmp->replica_count + replica;
-		unsigned int ntarget = tmp->nidxs[idx];
-		int avail = tmp->avlblty[idx];
-
-		DEBUG("Processing replica %u / %u: target %u, avail %d", replica, tmp->replica_count, ntarget, avail);
-		if(ntarget != nnode || !avail)
-		    continue;
-
-		if(local) {
-		    s = sx_hashfs_hashop_perform(h, tmp->block_size, tmp->replica_count, HASHOP_DELETE, &tmp->all_blocks[nblock], &reserve_id, &revision_id, op_expires_at, NULL);
-		    if(s == OK) {
-			char hexhash[sizeof(sx_hash_t) * 2 + 1];
-			bin2hex(&tmp->all_blocks[nblock], sizeof(tmp->all_blocks[0]), hexhash, sizeof(hexhash));
-			tmp_unbump_cb(hexhash, idx, 200, tmp);
-		    } else {
-			WARN("hashop_perform failed: %s", rc2str(s));
-			ret = s;
-		    }
-		} else {
-		    s = sxi_hashop_batch_add(&h->hc, sx_node_internal_addr(node), idx, tmp->all_blocks[nblock].b, tmp->block_size);
-		    if(s) {
-			ret = s;
-			WARN("hashop_batch_add failed: %s", rc2str(s));
-		    }
-		}
-	    }
-	}
-    }
-
-    if(sxi_hashop_end(&h->hc) == -1) {
-	WARN("hashop_end failed: %s", sxc_geterrmsg(h->sx));
-	ret = FAIL_EINTERNAL;
-    }
-
-    if(tmp->somestatechanged) {
-	sqlite3_reset(h->qt_updateuniq);
-	if(!qbind_int64(h->qt_updateuniq, ":id", tmpfile_id) &&
-	   !qbind_blob(h->qt_updateuniq, ":uniq", "", 0) &&
-	   !qbind_blob(h->qt_updateuniq, ":avail", tmp->avlblty, tmp->nall * vol->replica_count))
-	    qstep_noret(h->qt_updateuniq);
-	sqlite3_reset(h->qt_updateuniq);
-    }
-
-
-    if(ret == OK) {
-	unsigned int idx = tmp->nall * tmp->replica_count;
-	ret = ITER_NO_MORE;
-	while(idx--) {
-	    if(tmp->avlblty[idx] != 0) {
-		ret = OK;
-		break;
-	    }
-	}
-    }
-
-    if(t)
-        *t = tmp;
-
-    return ret;
-}
-
-rc_ty sx_hashfs_tmp_unbump_by_revision(sx_hashfs_t *h, const char *rev, int64_t *tmpfile_id) {
-    sx_hashfs_tmpinfo_t *tmp = NULL;
-    rc_ty s;
-    s = tmp_unbump_common(h, rev, -1, &tmp);
-    if(s == OK && tmpfile_id)
-        *tmpfile_id = tmp->tmpfile_id;
-    free(tmp);
-    return s;
-}
-
-rc_ty sx_hashfs_tmp_unbump(sx_hashfs_t *h, int64_t tmpfile_id) {
-    sx_hashfs_tmpinfo_t *tmp = NULL;
-    rc_ty s;
-    s = tmp_unbump_common(h, NULL, tmpfile_id, &tmp);
-    free(tmp);
-    return s;
 }
 
 static rc_ty fill_filemeta(sx_hashfs_t *h, unsigned int metadb, int64_t file_id) {
@@ -8993,7 +8837,7 @@ static const char *locknames[] = {
     "USER", /* JOBTYPE_CREATE_USER */
     "ACL", /* JOBTYPE_VOLUME_ACL */
     NULL, /* JOBTYPE_REPLICATE_BLOCKS */
-    "TOKEN", /* JOBTYPE_FLUSH_FILE */
+    "TOKEN", /* JOBTYPE_FLUSH_FILE_REMOTE */
     "DELFILE", /* JOBTYPE_DELETE_FILE */
     "*", /* JOBTYPE_DISTRIBUTION */
     "STARTREBALANCE", /* JOBTYPE_STARTREBALANCE */
@@ -9195,7 +9039,7 @@ rc_ty sx_hashfs_job_new_notrigger(sx_hashfs_t *h, job_t parent, sx_uid_t user_id
 
     r = qstep(h->qe_addjob);
     if(r == SQLITE_CONSTRAINT) {
-	msg_set_reason("Resource is temporarily locked");
+	msg_set_reason("Resource is temporarily locked%s%s", lockstr ? ": " : "", lockstr ? lockstr : "");
 	ret = FAIL_LOCKED;
 	goto addjob_error;
     }
