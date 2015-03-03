@@ -1044,30 +1044,44 @@ if [ ! -f "$SX_DATA_DIR/hashfs.db" ]; then
 	fi
 
 	# Commit new cluster config
-	REBCNT=1
+	LOCKCNT=1
 	MODCNT=1
 	while true; do
-	    "@sbindir@/sxadm" cluster --info "sx://admin@$SX_CLUSTER_NAME" > $OUT_TMP
-	    if [ $? -ne 0 ]; then
-		echo "Failed to retrieve current configuration of the cluster."
-		"@sbindir@/sxserver" stop
-		exit 1
-	    fi
-	    if [ -n "`cat $OUT_TMP | grep 'Operations in progress'`" ]; then
-		if [ $REBCNT -gt 10 ]; then
-		    echo "Failed to add the new node to the cluster, which is currently running"
-		    echo "another operation. Please try again later."
-		    "@sbindir@/sxserver" stop
-		    exit 1
-		fi
-		echo "Cluster is busy (another operation in progress)... retrying in 60 seconds (attempt $REBCNT of 10)."
-		REBCNT=`expr $REBCNT + 1`
+	    if [ -n "`@sbindir@/sxadm cluster --info sx://admin@$SX_CLUSTER_NAME 2>&1 | grep 'Operations in progress'`" ]; then
+		echo "Cluster is busy (another operation in progress)... retrying in 60 seconds (attempt $LOCKCNT of 10)."
+		LOCKCNT=`expr $LOCKCNT + 1`
 		sleep 60
 		continue
 	    fi
+	    "@sbindir@/sxadm" cluster --lock "sx://admin@$SX_CLUSTER_NAME" > $OUT_TMP 2>&1
+	    if [ $? -ne 0 ]; then
+		if [ -n "`grep 'Cluster is already locked' $OUT_TMP`" -a $LOCKCNT -le 10 ]; then
+		    echo "Cluster is busy (already locked for changes by another process)... retrying in 60 seconds (attempt $LOCKCNT of 10)."
+		    LOCKCNT=`expr $LOCKCNT + 1`
+		    sleep 60
+		    continue
+		fi
+		echo "Failed to add the new node to the cluster, which could not be properly"
+		echo "locked. The error message from 'sxadm cluster --lock' was:"
+		cat $OUT_TMP
+		echo
+		echo "Please check the error and try again later."
+		"@sbindir@/sxserver" stop
+		exit 1
+	    fi
+
+	    "@sbindir@/sxadm" cluster --info "sx://admin@$SX_CLUSTER_NAME" > $OUT_TMP
+	    if [ $? -ne 0 ]; then
+		echo "Failed to retrieve current configuration of the cluster."
+		"@sbindir@/sxadm" cluster --unlock "sx://admin@$SX_CLUSTER_NAME"
+		"@sbindir@/sxserver" stop
+		exit 1
+	    fi
+
 	    SXDIST=`cat $OUT_TMP | grep "Current configuration" | cut -d: -f 2`
 	    if [ -z "$SXDIST" ]; then
 		echo "Failed to obtain the node information."
+		"@sbindir@/sxadm" cluster --unlock "sx://admin@$SX_CLUSTER_NAME"
 		"@sbindir@/sxserver" stop
 		exit 1
 	    fi
@@ -1076,7 +1090,12 @@ if [ ! -f "$SX_DATA_DIR/hashfs.db" ]; then
 	    set -x
 	    "@sbindir@/sxadm" cluster --mod $SXDIST "sx://admin@$SX_CLUSTER_NAME" 2>$OUT_TMP
 	    )
-	    test $? = 0 && break
+	    if [ $? = 0 ]; then
+		"@sbindir@/sxadm" cluster --unlock "sx://admin@$SX_CLUSTER_NAME"
+		break
+	    fi
+	    "@sbindir@/sxadm" cluster --unlock "sx://admin@$SX_CLUSTER_NAME"
+
 	    if [ -n "`grep -E 'temporarily locked|complex operation|Failed to setup job targets' $OUT_TMP`" -a $MODCNT -le 10 ]; then
 		echo "Cluster busy... retrying in 60 seconds (attempt $MODCNT of 10)."
 		MODCNT=`expr $MODCNT + 1`
