@@ -3505,7 +3505,7 @@ static int distribution_lock_common(sxc_cluster_t *cluster, int op, const char *
         return 1;
     }
 
-    sxi_set_operation(sx, "lock cluster", NULL, NULL, NULL);
+    sxi_set_operation(sx, op ? "lock cluster" : "unlock cluster", NULL, NULL, NULL);
     if(sxi_job_submit_and_poll(conns, &new_hosts, query->verb, query->path, query->content, query->content_len)) {
         sxi_query_free(query);
         sxi_hostlist_empty(&new_hosts);

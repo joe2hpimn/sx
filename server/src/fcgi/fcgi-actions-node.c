@@ -333,7 +333,7 @@ void fcgi_distlock(void) {
     }
 
     /* If cluster is rebalancing, then lock shouldn't be acquired */
-    if(sx_hashfs_is_rebalancing(hashfs))
+    if(dctx.op && sx_hashfs_is_rebalancing(hashfs))
         quit_errmsg(409, "Cluster is rebalancing");
 
     if(!has_priv(PRIV_CLUSTER)) {
