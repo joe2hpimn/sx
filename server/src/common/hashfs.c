@@ -55,8 +55,10 @@
 #define HASHDBS 16
 #define METADBS 16
 #define GCDBS 1
-/* NOTE: HASHFS_VERSION must be kept below 15 bytes */
-#define HASHFS_VERSION "SX-Storage 1.7"
+/* NOTE: HASHFS_VERSION must be exactly 14 bytes */
+#define HASHFS_VERSION_1_0 "SX-Storage 1.6"
+#define HASHFS_VERSION_1_1 "SX-Storage 1.7"
+#define HASHFS_VERSION HASHFS_VERSION_1_1
 #define SIZES 3
 const char sizedirs[SIZES] = "sml";
 const char *sizelongnames[SIZES] = { "small", "medium", "large" };
@@ -155,7 +157,7 @@ do { \
     /* Fill in the basic settings */ \
     if(qprep(db, &q, "INSERT INTO hashfs (key, value) VALUES (:k, :v)")) \
 	goto create_hashfs_fail; \
-    if(qbind_text(q, ":k", "version") || qbind_text(q, ":v", HASHFS_VERSION) || qstep_noret(q)) \
+    if(qbind_text(q, ":k", "version") || qbind_text(q, ":v", HASHFS_VERSION_1_0) || qstep_noret(q)) \
 	goto create_hashfs_fail; \
     sqlite3_reset(q); \
     if(qbind_text(q, ":k", "dbtype") || qbind_text(q, ":v", DBTYPE) || qstep_noret(q)) \
@@ -166,46 +168,10 @@ do { \
     sqlite3_reset(q); \
     DEBUG("creating %s", path);\
 } while(0)
-
-/* TODO: share more code */
-#define CREATE_DB2(DBTYPE) \
-do { \
-    sqlite3 *handle = NULL;\
-    /* Create the dbatabase */ \
-    if(sqlite3_open_v2(path, &handle, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, NULL)) { \
-	CRIT("Failed to create %s database: %s", DBTYPE, sqlite3_errmsg(handle)); \
-	goto create_hashfs_fail; \
-    } \
-    if (!(db = qnew(handle))) \
-        goto create_hashfs_fail; \
-    if(qprep(db, &q, "PRAGMA synchronous=NORMAL") || qstep_noret(q)) \
-	goto create_hashfs_fail; \
-    qnullify(q); \
-    if(qprep(db, &q, "PRAGMA journal_mode = WAL") || qstep_ret(q)) \
-	goto create_hashfs_fail; \
-    qnullify(q); \
-    /* Set create the hashfs table which is a generic k/v store for config items */ \
-    if(qprep(db, &q, "CREATE TABLE hashfs (key TEXT NOT NULL PRIMARY KEY, value TEXT NOT NULL)") || qstep_noret(q)) \
-	goto create_hashfs_fail; \
-    qnullify(q); \
-    /* Fill in the basic settings */ \
-    if(qprep(db, &q, "INSERT INTO hashfs (key, value) VALUES (:k, :v)")) \
-	goto create_hashfs_fail; \
-    if(qbind_text(q, ":k", "version") || qbind_text(q, ":v", HASHFS_VERSION) || qstep_noret(q)) \
-	goto create_hashfs_fail; \
-    sqlite3_reset(q); \
-    if(qbind_text(q, ":k", "dbtype") || qbind_text(q, ":v", DBTYPE) || qstep_noret(q)) \
-	goto create_hashfs_fail; \
-    sqlite3_reset(q); \
-    if(qbind_text(q, ":k", "cluster") || qbind_blob(q, ":v", cluster->binary, sizeof(cluster->binary)) || qstep_noret(q)) \
-	goto create_hashfs_fail; \
-    sqlite3_reset(q); \
-    DEBUG("creating %s", path);\
-} while(0)
-
 
 static int qlog_set = 0;
-rc_ty sx_storage_create(const char *dir, sx_uuid_t *cluster, uint8_t *key, int key_size) {
+
+static rc_ty sx_storage_create_1_0(const char *dir, sx_uuid_t *cluster, uint8_t *key, int key_size) {
     unsigned int dirlen, i, j;
     sxi_db_t *db = NULL;
     sqlite3_stmt *q = NULL;
@@ -384,49 +350,6 @@ rc_ty sx_storage_create(const char *dir, sx_uuid_t *cluster, uint8_t *key, int k
                 goto create_hashfs_fail;
             qnullify(q);*/
 
-            /* op:
-             * +1: inuse
-             *  0: reserved
-             * -1: delete */
-            if(qprep(db, &q, "CREATE TABLE revision_ops(\
-                revision_id BLOB("STRIFY(SXI_SHA1_BIN_LEN)") NOT NULL,\
-                op INTEGER NOT NULL,\
-                age INTEGER NOT NULL,\
-                PRIMARY KEY(revision_id, op))") || qstep_noret(q))
-                goto create_hashfs_fail;
-            qnullify(q);
-            if(qprep(db, &q, "CREATE INDEX idx_op_revision ON revision_ops(op, revision_id, age)") || qstep_noret(q))
-                goto create_hashfs_fail;
-            qnullify(q);
-
-            if(qprep(db, &q, "CREATE TABLE reservations (\
-                reservations_id BLOB("STRIFY(SXI_SHA1_BIN_LEN)") NOT NULL,\
-                revision_id BLOB("STRIFY(SXI_SHA1_BIN_LEN)") NOT NULL,\
-                ttl INTEGER NOT NULL,\
-                PRIMARY KEY(reservations_id, revision_id))") || qstep_noret(q))
-                goto create_hashfs_fail;
-            qnullify(q);
-            if(qprep(db, &q, "CREATE INDEX idx_res ON reservations(revision_id, reservations_id)") || qstep_noret(q))
-                goto create_hashfs_fail;
-            qnullify(q);
-            if(qprep(db, &q, "CREATE INDEX idx_res_ttl ON reservations(ttl, revision_id)") || qstep_noret(q))
-                goto create_hashfs_fail;
-            qnullify(q);
-
-            /* age = rebalance/hdist version
-             * */
-            if(qprep(db, &q, "CREATE TABLE revision_blocks (\
-                revision_id BLOB("STRIFY(SXI_SHA1_BIN_LEN)") NOT NULL,\
-                blocks_hash BLOB("STRIFY(SXI_SHA1_BIN_LEN)") NOT NULL,\
-                age INTEGER NOT NULL,\
-                replica INTEGER NOT NULL,\
-                PRIMARY KEY(revision_id, blocks_hash, age))") || qstep_noret(q))
-                goto create_hashfs_fail;
-            qnullify(q);
-            if (qprep(db, &q, "CREATE INDEX idx_revmap ON revision_blocks(blocks_hash, revision_id)") || qstep_noret(q))
-                goto create_hashfs_fail;
-            qnullify(q);
-
 	    /* Create freelist table */
 	    if(qprep(db, &q, "CREATE TABLE avail (blocknumber INTEGER NOT NULL PRIMARY KEY ASC)") || qstep_noret(q))
 		goto create_hashfs_fail;
@@ -442,7 +365,7 @@ rc_ty sx_storage_create(const char *dir, sx_uuid_t *cluster, uint8_t *key, int k
 		goto create_hashfs_fail;
 	    }
 	    memset(path, 0, bsz[j]);
-	    sprintf(path, "%-16sdatafile_%c_%08x             %08x", HASHFS_VERSION, sizedirs[j], i, bsz[j]);
+	    sprintf(path, "%-16sdatafile_%c_%08x             %08x", HASHFS_VERSION_1_0, sizedirs[j], i, bsz[j]);
 	    memcpy(path+64, cluster->binary, sizeof(cluster->binary));
 	    if(write_block(fd, path, 0, bsz[j])) {
 		close(fd);
@@ -510,7 +433,8 @@ rc_ty sx_storage_create(const char *dir, sx_uuid_t *cluster, uint8_t *key, int k
     qnullify(q);
     qclose(&db);
 
-    sync();
+    /* do not modify the schema above (except for dropping tables),
+     * put all modifications in the sx_storage_upgrade function! */
     ret = OK;
 
 create_hashfs_fail:
@@ -525,7 +449,16 @@ create_hashfs_fail:
     return ret;
 }
 
-static int qopen(const char *path, sxi_db_t **dbp, const char *dbtype, sx_uuid_t *cluster) {
+rc_ty sx_storage_create(const char *dir, sx_uuid_t *cluster, uint8_t *key, int key_size) {
+    rc_ty ret = sx_storage_create_1_0(dir, cluster, key, key_size);
+    if (ret == OK)
+        ret = sx_storage_upgrade(dir);
+    if (ret == OK)
+        sync();
+    return ret;
+}
+
+static int qopen(const char *path, sxi_db_t **dbp, const char *dbtype, sx_uuid_t *cluster, const char *version) {
     sqlite3_stmt *q = NULL;
     const char *str;
     sqlite3 *handle = NULL;
@@ -558,7 +491,7 @@ static int qopen(const char *path, sxi_db_t **dbp, const char *dbtype, sx_uuid_t
     if(qbind_text(q, ":k", "version") || qstep_ret(q))
 	goto qopen_fail;
     str = (const char *)sqlite3_column_text(q, 0);
-    if(!str || strcmp(str, HASHFS_VERSION)) {
+    if(version && (!str || strcmp(str, version))) {
 	CRIT("Version mismatch on db %s: expected %s, found %s", path, HASHFS_VERSION, str ? str : "none");
 	goto qopen_fail;
     }
@@ -1000,7 +933,7 @@ static void close_all_dbs(sx_hashfs_t *h) {
 
 /* TODO: shouldn't use hidden variables */
 #define OPEN_DB(DBNAME, DBHANDLE) \
-do { \
+do {\
     sqlite3_reset(h->q_getval); \
     if(qbind_text(h->q_getval, ":k", DBNAME) || qstep_ret(h->q_getval)) {\
 	WARN("Couldn't find DB '%s'", DBNAME);				\
@@ -1019,7 +952,7 @@ do { \
 	memcpy(path + dirlen, str, subpathlen); \
 	str = path; \
     } \
-    if(qopen(str, DBHANDLE, DBNAME, &h->cluster_uuid)) \
+    if(qopen(str, DBHANDLE, DBNAME, &h->cluster_uuid, HASHFS_VERSION)) \
 	goto open_hashfs_fail; \
 } while(0)
 
@@ -1334,12 +1267,9 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
     sxi_rand_cleanup();
 
     sprintf(path, "%s/hashfs.db", dir);
-    if(qopen(path, &h->db, "hashfs", NULL))
+    if(qopen(path, &h->db, "hashfs", NULL, HASHFS_VERSION))
 	goto open_hashfs_fail;
     if(qprep(h->db, &q, "PRAGMA foreign_keys = ON") || qstep_noret(q))
-	goto open_hashfs_fail;
-    qnullify(q);
-    if(qprep(h->db, &q, "CREATE TABLE IF NOT EXISTS usermeta (userid INTEGER PRIMARY KEY NOT NULL REFERENCES users(uid) ON DELETE CASCADE ON UPDATE CASCADE, desc TEXT("STRIFY(SXLIMIT_META_MAX_VALUE_LEN)"))") || qstep_noret(q))
 	goto open_hashfs_fail;
     qnullify(q);
     if(qprep(h->db, &h->q_getval, "SELECT value FROM hashfs WHERE key = :k"))
@@ -1610,7 +1540,7 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 	       memcmp(h->blockbuf + 16, dbitem, strlen(dbitem)) ||
 	       memcmp(h->blockbuf + 48, hexsz, strlen(hexsz)) ||
 	       memcmp(h->blockbuf + 64, h->cluster_uuid.binary, sizeof(h->cluster_uuid.binary))) {
-		CRIT("Bad header in datafile %s", str);
+		CRIT("Bad header in datafile %s (version %.*s)", str, (int)strlen(HASHFS_VERSION), h->blockbuf);
 		goto open_hashfs_fail;
 	    }
 	}
@@ -1671,10 +1601,6 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
     }
 
     OPEN_DB("eventdb", &h->eventdb);
-    snprintf(qrybuff, sizeof(qrybuff), "CREATE UNIQUE INDEX IF NOT EXISTS jobs_data ON jobs(data) WHERE type = %d", JOBTYPE_DELETE_FILE);
-    if(qprep(h->eventdb, &q, qrybuff) || qstep_noret(q))
-        WARN("Failed to create jobs_data index");
-    qnullify(q);
     if(qprep(h->eventdb, &h->qe_getjob, "SELECT complete, result, reason FROM jobs WHERE job = :id AND :owner IN (user, 0)"))
 	goto open_hashfs_fail;
     snprintf(qrybuff, sizeof(qrybuff), "SELECT job FROM jobs WHERE type = %d AND data = :data", JOBTYPE_DELETE_FILE);
@@ -3176,6 +3102,275 @@ sx_hashfs_check_err:
         sqlite3_finalize(unlocks[i]);
     }
 
+    return ret;
+}
+
+typedef rc_ty (*sx_db_upgrade_fn)(sxi_db_t *db);
+typedef struct {
+    const char *from;
+    const char *to;
+    sx_db_upgrade_fn upgrade_hashfsdb;
+    sx_db_upgrade_fn upgrade_metadb;
+    sx_db_upgrade_fn upgrade_datadb;
+    sx_db_upgrade_fn upgrade_tempdb;
+    sx_db_upgrade_fn upgrade_eventsdb;
+    sx_db_upgrade_fn upgrade_xfersdb;
+} sx_upgrade_t;
+
+static rc_ty upgrade_db(const char *path, const char *dbitem, const char *from_version, const char *to_version, sx_db_upgrade_fn fn)
+{
+    sqlite3_stmt *q = NULL, *qlock = NULL, *qunlock = NULL;
+    sxi_db_t *db = NULL;
+    rc_ty ret = FAIL_EINTERNAL;
+
+    if (qopen(path, &db, dbitem, NULL, NULL) || lock_db(db, &qlock, &qunlock))
+        return FAIL_EINTERNAL;
+    do {
+        if(qprep(db, &q, "SELECT value FROM hashfs WHERE key = :k") ||
+           qbind_text(q, ":k", "version") || qstep_ret(q))
+            break;
+        const unsigned char *str = sqlite3_column_text(q, 0);
+        if (!str) {
+            CRIT("Unable to determine database version at %s", path);
+            break;
+        }
+        if (strcmp((const char*)str, from_version)) {
+            qstep_noret(qunlock);
+            ret = OK;
+            break;
+        }
+        /* old version matches, update it */
+        qnullify(q);
+        DEBUG("Upgrading DB %s: %s -> %s", path, from_version, to_version);
+
+        if (fn && fn(db)) {
+            WARN("Upgrade callback failed for %s (%s -> %s)", path, from_version, to_version);
+            break;
+        }
+
+        if(qprep(db, &q, "UPDATE hashfs SET value=:v WHERE key=:k") ||
+           qbind_text(q, ":k", "version") ||
+           qbind_text(q, ":v", to_version) ||
+           qstep_noret(q))
+            break;
+
+        if (qcommit(db))
+            break;
+        INFO("Successfully upgraded DB %s from %s to %s", path, from_version, to_version);
+        ret = OK;
+    } while(0);
+    if (ret) {
+        WARN("Failed to upgrade %s", path);
+        qstep_noret(qunlock);
+    }
+    qnullify(qlock);
+    qnullify(qunlock);
+    qnullify(q);
+    qclose(&db);
+    return ret;
+}
+
+static rc_ty hashfs_1_0_to_1_1(sxi_db_t *db)
+{
+    rc_ty ret = FAIL_EINTERNAL;
+    sqlite3_stmt *q = NULL;
+    do {
+        if(qprep(db, &q, "CREATE TABLE IF NOT EXISTS usermeta (userid INTEGER PRIMARY KEY NOT NULL REFERENCES users(uid) ON DELETE CASCADE ON UPDATE CASCADE, desc TEXT("STRIFY(SXLIMIT_META_MAX_VALUE_LEN)"))") || qstep_noret(q))
+            break;
+        ret = OK;
+    } while(0);
+    qnullify(q);
+    return ret;
+}
+
+static rc_ty datadb_1_0_to_1_1(sxi_db_t *db)
+{
+    /* TODO: disable GC until upgrade job is run */
+    rc_ty ret = FAIL_EINTERNAL;
+    sqlite3_stmt *q = NULL;
+    do {
+        if(qprep(db, &q, "DELETE FROM blocks WHERE blockno IS NULL OR created_at IS NULL") || qstep_noret(q))
+            break;
+        qnullify(q);
+        if(qprep(db, &q, "DROP TABLE IF EXISTS operations") || qstep_noret(q))
+            break;
+        qnullify(q);
+        if(qprep(db, &q, "DROP TABLE IF EXISTS use") || qstep_noret(q))
+            break;
+        qnullify(q);
+        if(qprep(db, &q, "DROP TABLE IF EXISTS reservations") || qstep_noret(q))
+            break;
+        qnullify(q);
+        if(qprep(db, &q, "CREATE TABLE IF NOT EXISTS reservations (\
+            reservations_id BLOB("STRIFY(SXI_SHA1_BIN_LEN)") NOT NULL,\
+                    revision_id BLOB("STRIFY(SXI_SHA1_BIN_LEN)") NOT NULL,\
+                    ttl INTEGER NOT NULL,\
+                    PRIMARY KEY(reservations_id, revision_id))") || qstep_noret(q))
+            break;
+        qnullify(q);
+        if(qprep(db, &q, "CREATE INDEX IF NOT EXISTS idx_res ON reservations(revision_id, reservations_id)") || qstep_noret(q))
+            break;
+        qnullify(q);
+        if(qprep(db, &q, "CREATE INDEX IF NOT EXISTS idx_res_ttl ON reservations(ttl, revision_id)") || qstep_noret(q))
+            break;
+        qnullify(q);
+        /* age = rebalance/hdist version
+         * */
+        if(qprep(db, &q, "CREATE TABLE IF NOT EXISTS revision_blocks (\
+            revision_id BLOB("STRIFY(SXI_SHA1_BIN_LEN)") NOT NULL,\
+                    blocks_hash BLOB("STRIFY(SXI_SHA1_BIN_LEN)") NOT NULL,\
+                    age INTEGER NOT NULL,\
+                    replica INTEGER NOT NULL,\
+                    PRIMARY KEY(revision_id, blocks_hash, age))") || qstep_noret(q))
+            break;
+        qnullify(q);
+        if(qprep(db, &q, "CREATE INDEX IF NOT EXISTS idx_revmap ON revision_blocks(blocks_hash, revision_id)") || qstep_noret(q))
+            break;
+        qnullify(q);
+
+        /* op:
+         * +1: inuse
+         *  0: reserved
+         * -1: delete */
+        if(qprep(db, &q, "CREATE TABLE IF NOT EXISTS revision_ops(\
+            revision_id BLOB("STRIFY(SXI_SHA1_BIN_LEN)") NOT NULL,\
+                    op INTEGER NOT NULL,\
+                    age INTEGER NOT NULL,\
+                    PRIMARY KEY(revision_id, op))") || qstep_noret(q))
+            break;
+        qnullify(q);
+        if(qprep(db, &q, "CREATE INDEX IF NOT EXISTS idx_op_revision ON revision_ops(op, revision_id, age)") || qstep_noret(q))
+            break;
+        qnullify(q);
+
+        /* TODO: how to add NOT NULL constraint to 1.0 blocks schema without
+         * reimporting table? */
+        ret = OK;
+    } while(0);
+    qnullify(q);
+    return ret;
+}
+
+static rc_ty eventsdb_1_0_to_1_1(sxi_db_t *db)
+{
+    char qrybuff[128];
+    rc_ty ret = FAIL_EINTERNAL;
+    sqlite3_stmt *q = NULL;
+    do {
+        snprintf(qrybuff, sizeof(qrybuff), "CREATE UNIQUE INDEX IF NOT EXISTS jobs_data ON jobs(data) WHERE type = %d", JOBTYPE_DELETE_FILE);
+        if (qprep(db, &q, qrybuff) || qstep_noret(q))
+            break;
+        /* TODO: upgrade jobs */
+        ret = OK;
+    } while(0);
+    qnullify(q);
+    return ret;
+}
+
+static const sx_upgrade_t upgrade_sequence[] = {
+    {
+        HASHFS_VERSION_1_0,
+        HASHFS_VERSION_1_1,
+        .upgrade_hashfsdb = hashfs_1_0_to_1_1,
+        .upgrade_metadb = NULL,
+        .upgrade_datadb = datadb_1_0_to_1_1,
+        .upgrade_tempdb = NULL,
+        .upgrade_eventsdb = eventsdb_1_0_to_1_1,
+        .upgrade_xfersdb = NULL
+    }
+};
+
+static rc_ty upgrade_bin(const char *path, const char *from, const char *to, unsigned j, unsigned i)
+{
+    rc_ty ret = FAIL_EINTERNAL;
+    char old_header[128];
+    uint8_t *blockbuf = NULL;
+
+    int fd = open(path, O_RDWR);
+    if (fd < 0) {
+        perror("open");
+        return ret;
+    }
+    do {
+        blockbuf = wrap_malloc(bsz[j]);
+        if (!blockbuf)
+            break;
+        snprintf(old_header, sizeof(old_header), "%-16sdatafile_%c_%08x             %08x", from, sizedirs[j], i, bsz[j]);
+        if(read_block(fd, blockbuf, 0, bsz[j]))
+            break;
+        if(!memcmp(blockbuf, old_header, strlen(old_header))) {
+            /* old version matches, update it */
+            snprintf((char*)blockbuf, bsz[j], "%-16sdatafile_%c_%08x             %08x", to, sizedirs[j], i, bsz[j]);
+            if(write_block(fd, blockbuf, 0, bsz[j]))
+                break;
+        }
+        ret = OK;
+    } while(0);
+    if (close(fd) < 0) {
+        perror("close");
+        return FAIL_EINTERNAL;
+    }
+    free(blockbuf);
+
+    return ret;
+}
+
+rc_ty sx_storage_upgrade(const char *dir) {
+    char *path;
+    char dbitem[64];
+    unsigned i,j,pathlen;
+    rc_ty ret = FAIL_EINTERNAL;
+    pathlen = strlen(dir) + 1024;
+
+    if(!(path = wrap_malloc(pathlen)))
+        return FAIL_EINTERNAL;
+    if (!qlog_set) {
+        sqlite3_config(SQLITE_CONFIG_LOG, qlog, NULL);
+        qlog_set = 1;
+    }
+
+    for(i=0;i<sizeof(upgrade_sequence)/sizeof(upgrade_sequence[0]);i++) {
+        sx_upgrade_t desc = upgrade_sequence[i];
+
+        snprintf(path, pathlen, "%s/hashfs.db", dir);
+        if (upgrade_db(path, "hashfs", desc.from, desc.to, desc.upgrade_hashfsdb))
+            goto upgrade_fail;
+
+        for(i=0; i<METADBS; i++) {
+            snprintf(path, pathlen, "%s/f%08x.db", dir, i);
+            snprintf(dbitem, sizeof(dbitem), "metadb_%08x", i);
+            if (upgrade_db(path, dbitem, desc.from, desc.to, desc.upgrade_metadb))
+                goto upgrade_fail;
+        }
+
+        for(j=0; j<SIZES; j++) {
+            for(i=0; i<HASHDBS; i++) {
+                snprintf(path, pathlen, "%s/h%c%08x.db", dir, sizedirs[j], i);
+                snprintf(dbitem, sizeof(dbitem), "hashdb_%c_%08x", sizedirs[j], i);
+                if (upgrade_db(path, dbitem, desc.from, desc.to, desc.upgrade_datadb))
+                    goto upgrade_fail;
+                snprintf(path, pathlen, "%s/h%c%08x.bin", dir, sizedirs[j], i);
+                if (upgrade_bin(path, desc.from, desc.to, j, i))
+                    goto upgrade_fail;
+            }
+        }
+
+        snprintf(path, pathlen, "%s/temp.db", dir);
+        if(upgrade_db(path, "tempdb", desc.from, desc.to, desc.upgrade_tempdb))
+            goto upgrade_fail;
+
+        snprintf(path, pathlen, "%s/events.db", dir);
+        if(upgrade_db(path, "eventdb", desc.from, desc.to, desc.upgrade_eventsdb))
+            goto upgrade_fail;
+
+        snprintf(path, pathlen, "%s/xfers.db", dir);
+        if(upgrade_db(path, "xferdb", desc.from, desc.to, desc.upgrade_xfersdb))
+            goto upgrade_fail;
+    }
+    ret = OK;
+
+upgrade_fail:
+    free(path);
     return ret;
 }
 
