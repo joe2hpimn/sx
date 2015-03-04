@@ -9262,6 +9262,8 @@ rc_ty sx_hashfs_xfer_tonodes(sx_hashfs_t *h, sx_hash_t *block, unsigned int size
     ret = (i == nnodes) ? OK : FAIL_EINTERNAL;
     DEBUG("xfer_to_nodes job added: %s", ret == OK ? "OK" : "Error");
 
+    /* Trigger block manager to perform pushes */
+    sx_hashfs_xfer_trigger(h);
  xfer_err:
     sqlite3_reset(h->qx_add);
 

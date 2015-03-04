@@ -701,6 +701,33 @@ static int sxi_job_poll(sxi_conns_t *conns, sxi_jobs_t *jobs, int wait)
             if (jobs->jobs[i]) {
                 if (!sxi_cbdata_is_finished(jobs->jobs[i]->cbdata))
                     alive++;
+            }
+        }
+
+        /* If there are still alive jobs, poll before checking their status */
+        if (alive) {
+            while (finished != alive && rc != -1) {
+                rc = sxi_curlev_poll(sxi_conns_get_curlev(conns));
+                if (finished > alive) {
+                    sxi_notice(sx, "counters out of sync in job_wait: %d > %d", finished, alive);
+                    break;
+                }
+            }
+            if (rc) {
+                ret = rc;
+                break;
+            }
+        }
+        if (!jobs->ignore_errors && jobs->error)
+            break;
+
+        /* Check jobs statuses */
+        for (i=0;i<jobs->n;i++) {
+            if (jobs->jobs[i]) {
+                if (!sxi_cbdata_is_finished(jobs->jobs[i]->cbdata)) {
+                    SXDEBUG("Job %s status query is not finished, but polling is", jobs->jobs[i]->job_id);
+                    break;
+                }
                 switch (jobs->jobs[i]->status) {
                     case JOBST_UNDEF:/* fall-through */
                     case JOBST_PENDING:
@@ -721,21 +748,6 @@ static int sxi_job_poll(sxi_conns_t *conns, sxi_jobs_t *jobs, int wait)
             memcpy(&t0, &t, sizeof(t));
         }
         SXDEBUG("Pending %d jobs, %d errors, %d queries", pending, errors, alive);
-        if (alive) {
-            while (finished != alive && rc != -1) {
-                rc = sxi_curlev_poll(sxi_conns_get_curlev(conns));
-                if (finished > alive) {
-                    sxi_notice(sx, "counters out of sync in job_wait: %d > %d", finished, alive);
-                    break;
-                }
-            }
-            if (rc) {
-                ret = rc;
-                break;
-            }
-        }
-        if (!jobs->ignore_errors && jobs->error)
-            break;
         if (!wait)
             break;
         gettimeofday(&tv1, NULL);

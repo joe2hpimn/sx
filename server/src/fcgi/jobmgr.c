@@ -4719,7 +4719,7 @@ static void jobmgr_run_job(struct jobmgr_data_t *q) {
 	    if(qbind_int64(q->qdly, ":job", q->job_id) ||
 	       qbind_text(q->qdly, ":reason", q->fail_reason[0] ? q->fail_reason : "Unknown delay reason") ||
 	       qbind_text(q->qdly, ":delay",
-                          q->job_type == JOBTYPE_FLUSH_FILE ?
+                          (q->job_type == JOBTYPE_FLUSH_FILE || q->job_type == JOBTYPE_REPLICATE_BLOCKS) ?
                           STRIFY(JOBMGR_DELAY_MIN) " seconds" : STRIFY(JOBMGR_DELAY_MAX) " seconds") ||
 	       qstep_noret(q->qdly))
 		CRIT("Cannot reschedule job %lld (you are gonna see this again!)", (long long)q->job_id);
