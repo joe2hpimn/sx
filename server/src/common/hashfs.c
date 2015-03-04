@@ -3158,6 +3158,10 @@ static rc_ty upgrade_db(const char *path, const char *dbitem, const char *from_v
            qbind_text(q, ":v", to_version) ||
            qstep_noret(q))
             break;
+        if(analyze_db(db, 0)) {
+            CRIT("Integrity check failed for %s after upgrade (%s -> %s)", path, from_version, to_version);
+            break;
+        }
 
         if (qcommit(db))
             break;
