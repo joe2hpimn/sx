@@ -3142,9 +3142,14 @@ static rc_ty upgrade_db(const char *path, const char *dbitem, const char *from_v
         /* old version matches, update it */
         qnullify(q);
         DEBUG("Upgrading DB %s: %s -> %s", path, from_version, to_version);
+        /* do an integrity check before upgrading */
+        if(analyze_db(db, 0)) {
+            CRIT("Integrity check failed for %s (%s -> %s)", path, from_version, to_version);
+            break;
+        }
 
         if (fn && fn(db)) {
-            WARN("Upgrade callback failed for %s (%s -> %s)", path, from_version, to_version);
+            CRIT("Upgrade callback failed for %s (%s -> %s)", path, from_version, to_version);
             break;
         }
 
