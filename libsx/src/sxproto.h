@@ -113,6 +113,8 @@ sxi_query_t *sxi_volumeacl_proto(sxc_client_t *sx, const char *volname,
                                  acl_cb_t revoke_read, acl_cb_t revoke_write,
                                  void *ctx);
 
+sxi_query_t *sxi_cluster_mode_proto(sxc_client_t *sx, int readonly);
+
 void sxi_query_free(sxi_query_t *query);
 
 #endif

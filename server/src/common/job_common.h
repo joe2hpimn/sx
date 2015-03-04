@@ -68,6 +68,7 @@ typedef enum _jobtype_t {
     JOBTYPE_DUMMY,
     JOBTYPE_REVSCLEAN,
     JOBTYPE_DISTLOCK,
+    JOBTYPE_CLUSTER_MODE,
 } jobtype_t;
 
 typedef enum {
@@ -95,6 +96,7 @@ extern const job_2pc_t user_spec;
 extern const job_2pc_t userdel_spec;
 extern const job_2pc_t user_newkey_spec;
 extern const job_2pc_t volmod_spec;
+extern const job_2pc_t cluster_mode_spec;
 
 void job_2pc_handle_request(sxc_client_t *sx, const job_2pc_t *spec, void *yctx);
 #endif

@@ -42,6 +42,7 @@ struct cstatus {
     uint64_t checksum;
     int64_t capa;
     int nsets, have_uuid, have_distid, op_complete;
+    int readonly;
     enum {
 	OP_NONE,
 	OP_REBALANCE,
@@ -51,7 +52,7 @@ struct cstatus {
     char op_msg[1024];
     curlev_context_t *cbdata;
 
-    enum cstatus_state { CS_BEGIN, CS_BASEKEY, CS_CSTATUS, CS_SKEY, CS_DISTS, CS_DIST, CS_NODES, CS_NODEKEY, CS_UUID, CS_ADDR, CS_INT_ADDR, CS_CAPA, CS_DISTID, CS_DISTVER, CS_DISTCHK, CS_AUTH, CS_INPRG, CS_INPRGKEY, CS_INPRGOP, CS_INPRGDONE, CS_INPRGMSG, CS_COMPLETE } state;
+    enum cstatus_state { CS_BEGIN, CS_BASEKEY, CS_CSTATUS, CS_SKEY, CS_DISTS, CS_DIST, CS_NODES, CS_NODEKEY, CS_UUID, CS_ADDR, CS_INT_ADDR, CS_CAPA, CS_DISTID, CS_DISTVER, CS_DISTCHK, CS_AUTH, CS_INPRG, CS_INPRGKEY, CS_INPRGOP, CS_INPRGDONE, CS_INPRGMSG, CS_COMPLETE, CS_MODE } state;
 };
 
 static int cb_cstatus_start_map(void *ctx) {
@@ -92,6 +93,8 @@ static int cb_cstatus_map_key(void *ctx, const unsigned char *s, size_t l) {
 	    c->state = CS_AUTH;
 	else if(l == lenof("opInProgress") && !memcmp("opInProgress", s, lenof("opInProgress")))
 	    c->state = CS_INPRG;
+        else if(l == lenof("operatingMode") && !memcmp("operatingMode", s, lenof("operatingMode")))
+            c->state = CS_MODE;
 	else
 	    return 0;
     } else if(c->state == CS_NODEKEY) {
@@ -230,6 +233,12 @@ static int cb_cstatus_string(void *ctx, const unsigned char *s, size_t l) {
 	memcpy(c->auth, s, l);
 	c->auth[l] = '\0';
 	c->state = CS_SKEY;
+    } else if(c->state == CS_MODE) {
+        if(c->readonly)
+            return 0;
+        if(!memcmp("read-only", s, lenof("read-only")))
+            c->readonly = 1;
+        c->state = CS_SKEY;
     } else if(c->state == CS_INPRGOP) {
 	if(l == lenof("rebalance") && !memcmp("rebalance", s, lenof("rebalance")))
 	    c->op_type = OP_REBALANCE;
@@ -351,6 +360,7 @@ static int cstatus_setup_cb(curlev_context_t *cbdata, void *ctx, const char *hos
     yactx->op_msg[0] = '\0';
     yactx->state = CS_BEGIN;
     yactx->cbdata = cbdata;
+    yactx->readonly = 0;
 
     return 0;
 }
@@ -385,7 +395,7 @@ clst_t *clst_query(sxi_conns_t *conns, sxi_hostlist_t *hlist) {
     if(!(yctx = calloc(1, sizeof(*yctx))))
 	return NULL;
 
-    if(sxi_cluster_query(conns, hlist, REQ_GET, "?clusterStatus", NULL, 0, cstatus_setup_cb, cstatus_cb, yctx) != 200) {
+    if(sxi_cluster_query(conns, hlist, REQ_GET, "?clusterStatus&operatingMode", NULL, 0, cstatus_setup_cb, cstatus_cb, yctx) != 200) {
 	clst_destroy(yctx);
 	return NULL;
     }
@@ -448,3 +458,6 @@ clst_state clst_replace_state(clst_t *st, const char **desc) {
     return st->op_complete ? CLSTOP_COMPLETED : CLSTOP_INPROGRESS;
 }
 
+int clst_readonly(clst_t *st) {
+    return st ? st->readonly : 0;
+}

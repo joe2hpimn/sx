@@ -55,5 +55,6 @@ typedef void (*node_status_cb_t)(sxc_client_t *sx, const sxi_node_status_t *stat
 int sxi_cluster_status(sxc_cluster_t *cluster, const node_status_cb_t status_cb, void *ctx);
 int sxi_cluster_distribution_lock(sxc_cluster_t *cluster, const char *master);
 int sxi_cluster_distribution_unlock(sxc_cluster_t *cluster, const char *master);
+int sxi_cluster_set_mode(sxc_cluster_t *cluster, int readonly);
 
 #endif

@@ -1121,6 +1121,7 @@ static int info_cluster(sxc_client_t *sx, struct cluster_args_info *args, int ke
 	}
     }
 
+    printf("Operating mode: %s\n", clst_readonly(clst) ? "read-only" : "read-write");
     if(nodes) {
 	unsigned int i, nnodes = sx_nodelist_count(nodes), header = 0;
 	unsigned int version;
@@ -1447,6 +1448,35 @@ static int cluster_dist_unlock(sxc_client_t *sx, struct cluster_args_info *args)
     return ret;
 }
 
+static int cluster_set_mode(sxc_client_t *sx, struct cluster_args_info *args) {
+    sxc_cluster_t *cluster;
+    int ret;
+    int readonly = 0;
+
+    if(!args || !args->set_mode_arg) {
+        fprintf(stderr, "ERROR: Invalid argument\n");
+        return 1;
+    }
+
+    if(!strcmp(args->set_mode_arg, "ro"))
+        readonly = 1;
+    else if(strcmp(args->set_mode_arg, "rw")) {
+        fprintf(stderr, "ERROR: Invalid argument\n");
+        return 1;
+    }
+
+    cluster = cluster_load(sx, args, 1);
+    if(!cluster)
+        return 1;
+    ret = sxi_cluster_set_mode(cluster, readonly);
+    sxc_cluster_free(cluster);
+    if(ret)
+        fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
+    else
+        printf("Successfully switched cluster to %s mode\n", readonly ? "read-only" : "read-write");
+    return ret;
+}
+
 int main(int argc, char **argv) {
     struct main_args_info main_args;
     struct node_args_info node_args;
@@ -1536,6 +1566,8 @@ int main(int argc, char **argv) {
 	    ret = force_gc_cluster(sx, &cluster_args, 1);
         else if(cluster_args.status_given && cluster_args.inputs_num == 1)
             ret = cluster_status(sx, &cluster_args);
+        else if(cluster_args.set_mode_given && cluster_args.inputs_num == 1)
+            ret = cluster_set_mode(sx, &cluster_args);
 	else
 	    cluster_cmdline_parser_print_help();
     cluster_out:

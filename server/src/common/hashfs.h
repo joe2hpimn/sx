@@ -443,4 +443,9 @@ rc_ty sx_hashfs_distlock_acquire(sx_hashfs_t *h, const char *lockid);
 rc_ty sx_hashfs_distlock_release(sx_hashfs_t *h);
 rc_ty sx_hashfs_distlock_get(sx_hashfs_t *h, char *lockid, unsigned int lockid_len);
 
+rc_ty sx_hashfs_cluster_set_mode(sx_hashfs_t *h, int mode);
+rc_ty sx_hashfs_cluster_get_mode(sx_hashfs_t *h, int *mode);
+
+int sx_hashfs_is_readonly(sx_hashfs_t *h);
+
 #endif

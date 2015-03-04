@@ -1629,3 +1629,204 @@ void fcgi_node_status(void) {
     CGI_PUTLL(status.mem_total);
     CGI_PUTC('}');
 }
+
+struct cluster_mode_ctx {
+    int mode; /* 1: readonly, 0: read-write (default) */
+    enum user_state { CB_CM_START=0, CB_CM_KEY, CB_CM_MODE, CB_CM_COMPLETE } state;
+};
+
+static int cb_cluster_mode_string(void *ctx, const unsigned char *s, size_t l) {
+    struct cluster_mode_ctx *c = ctx;
+    if(c->state == CB_CM_MODE) {
+        if(l != lenof("ro")) {
+            msg_set_reason("Invalid cluster mode length");
+            return 0;
+        }
+        if(!strncmp((const char*)s, "ro", 2))
+            c->mode = 1;
+        else if(!strncmp((const char*)s, "rw", 2))
+            c->mode = 0;
+        else {
+            msg_set_reason("Invalid cluster mode");
+            return 1;
+        }
+        c->state = CB_CM_KEY;
+        return 1;
+    }
+    DEBUG("Invalid state %d: expected %d", c->state, CB_CM_MODE);
+    return 0;
+}
+
+static int cb_cluster_mode_map_key(void *ctx, const unsigned char *s, size_t l) {
+    struct cluster_mode_ctx *c = ctx;
+    if(c->state == CB_CM_KEY) {
+        if(l == lenof("mode") && !strncmp("mode", (const char*)s, l)) {
+            c->state = CB_CM_MODE;
+            return 1;
+        }
+        DEBUG("Unknown key: %.*s", (int)l, s);
+    }
+    return 0;
+}
+
+static int cb_cluster_mode_start_map(void *ctx) {
+    struct cluster_mode_ctx *c = ctx;
+    if(c->state == CB_CM_START)
+        c->state = CB_CM_KEY;
+    else
+        return 0;
+    return 1;
+}
+
+static int cb_cluster_mode_end_map(void *ctx) {
+    struct cluster_mode_ctx *c = ctx;
+    if(c->state == CB_CM_KEY)
+        c->state = CB_CM_COMPLETE;
+    else
+        return 0;
+    return 1;
+}
+
+static const yajl_callbacks user_ops_parser = {
+    cb_fail_null,
+    cb_fail_boolean,
+    NULL,
+    NULL,
+    cb_fail_number,
+    cb_cluster_mode_string,
+    cb_cluster_mode_start_map,
+    cb_cluster_mode_map_key,
+    cb_cluster_mode_end_map,
+    cb_fail_start_array,
+    cb_fail_end_array
+};
+
+static rc_ty cluster_mode_parse_complete(void *yctx)
+{
+    struct cluster_mode_ctx *c = yctx;
+    if(!c || c->state != CB_CM_COMPLETE)
+        return EINVAL;
+    if(c->mode != 0 && c->mode != 1) {
+        msg_set_reason("Invalid cluster mode");
+        return EINVAL;
+    }
+    return OK;
+}
+
+static int cluster_mode_to_blob(sxc_client_t *sx, int nodes, void *yctx, sx_blob_t *joblb)
+{
+    struct cluster_mode_ctx *c = yctx;
+    if(!joblb) {
+        msg_set_reason("Cannot allocate job blob");
+        return -1;
+    }
+
+    if(sx_blob_add_int32(joblb, c->mode)) {
+        msg_set_reason("Cannot create job blob");
+        return -1;
+    }
+    return 0;
+}
+
+static unsigned cluster_mode_timeout(sxc_client_t *sx, int nodes)
+{
+    return nodes > 1 ? 50 * (nodes - 1) : 20;
+}
+
+static sxi_query_t* cluster_mode_proto_from_blob(sxc_client_t *sx, sx_blob_t *b, jobphase_t phase)
+{
+    int32_t mode = 0;
+
+    if(sx_blob_get_int32(b, &mode)) {
+        WARN("Corrupt user blob");
+        return NULL;
+    }
+
+    switch(phase) {
+        case JOBPHASE_REQUEST:
+            return sxi_cluster_mode_proto(sx, mode);
+        case JOBPHASE_ABORT:/* fall-through */
+            INFO("Aborting cluster mode switch operation: '%s'", mode ? "read-only" : "read-write");
+            return sxi_cluster_mode_proto(sx, !mode);
+        default:
+            WARN("Invalid job phase");
+            return NULL;
+    }
+}
+
+static rc_ty cluster_mode_execute_blob(sx_hashfs_t *h, sx_blob_t *b, jobphase_t phase, int remote)
+{
+    rc_ty rc = FAIL_EINTERNAL;
+    int32_t mode = 0;
+    int cluster_readonly = 0;
+
+    if(!h || !b) {
+        msg_set_reason("NULL arguments");
+        return FAIL_EINTERNAL;
+    }
+    if(sx_blob_get_int32(b, &mode)) {
+        msg_set_reason("Corrupted blob");
+        return FAIL_EINTERNAL;
+    }
+
+    if(sx_hashfs_cluster_get_mode(h, &cluster_readonly)) {
+        WARN("Failed to get cluster oparting mode");
+        msg_set_reason("Failed to check cluster operating mode");
+        return FAIL_EINTERNAL;
+    }
+
+    if(!remote && phase == JOBPHASE_REQUEST && cluster_readonly == mode) {
+        msg_set_reason("Cluster is already in '%s' mode", cluster_readonly ? "read-only" : "read-write");
+        return EINVAL;
+    }
+
+    switch(phase) {
+        case JOBPHASE_REQUEST:
+            DEBUG("Cluster mode switch request: '%s'", mode ? "read-only" : "read-write");
+            rc = sx_hashfs_cluster_set_mode(h, mode);
+            msg_set_reason("Unable to switch cluster to '%s' mode", mode ? "read-only" : "read-write");
+            return rc;
+        case JOBPHASE_ABORT:
+            DEBUG("Cluster mode switch abort: '%s'", mode ? "read-only" : "read-write");
+            rc = sx_hashfs_cluster_set_mode(h, !mode);
+            msg_set_reason("Unable to switch cluster to '%s' mode", mode ? "read-write" : "read-only");
+            return rc;
+        default:
+            WARN("Invalid job phase: %d", phase);
+            return FAIL_EINTERNAL;
+    }
+}
+
+static const char *cluster_mode_get_lock(sx_blob_t *b)
+{
+    return "CLUSTER_MODE";
+}
+
+static rc_ty cluster_mode_nodes(sxc_client_t *sx, sx_blob_t *blob, sx_nodelist_t **nodes)
+{
+    if(!nodes)
+        return FAIL_EINTERNAL;
+    /* Spawn cluster mode job to all nodes */
+    *nodes = sx_nodelist_dup(sx_hashfs_nodelist(hashfs, NL_NEXTPREV));
+    if(!*nodes)
+        return FAIL_EINTERNAL;
+    return OK;
+}
+
+const job_2pc_t cluster_mode_spec = {
+    &user_ops_parser,
+    JOBTYPE_CLUSTER_MODE,
+    cluster_mode_parse_complete,
+    cluster_mode_get_lock,
+    cluster_mode_to_blob,
+    cluster_mode_execute_blob,
+    cluster_mode_proto_from_blob,
+    cluster_mode_nodes,
+    cluster_mode_timeout
+};
+
+void fcgi_cluster_mode(void) {
+    struct cluster_mode_ctx c = { -1, CB_CM_START };
+
+    job_2pc_handle_request(sx_hashfs_client(hashfs), &cluster_mode_spec, &c);
+}

@@ -436,11 +436,9 @@ sub test_upload {
 	$req->content_type('application/json');
 	$req->content(encode_json $content);
 	$repl = do_query $req, $auth;
-#	print $req->as_string."\n";
-#	print $repl->decoded_content."\n";
         if($i == 0 && defined $expectrc) {
             if($expectrc != $repl->code) {
-                fail 'Unexpected return code: got '.$repl->code;
+                fail "Unexpected return code: got: ".$repl->code.", expected: $expectrc";
                 return;
             }
             if($expectrc != 200) {
@@ -1133,6 +1131,15 @@ test_get "node status", admin_only(200, 'application/json'), ".status", undef, s
 test_put_job "distribution lock acquisition", admin_only(200), ".distlock", "{\"op\":\"lock\"}";
 test_put_job "distribution lock acquisition (should fail)", admin_only(409), ".distlock", "{\"op\":\"lock\"}";
 test_put_job "distribution lock release", admin_only(200), ".distlock", "{\"op\":\"unlock\"}";
+
+
+# Check switching cluster read-only/read-write modes
+test_put_job "switching cluster to read-only mode", {'admin'=>[200]}, ".mode", "{\"mode\":\"ro\"}";
+test_upload 'file upload to read-only cluster', $writer, '', "large$vol", 'empty', undef, {}, 503;
+test_get 'listing all files (GET should work)', authed_only(200), $vol;
+test_put_job "switching cluster back to read-write mode", , {'admin'=>[200]}, ".mode", "{\"mode\":\"rw\"}";
+# PUT should work again
+test_upload 'file upload to read-only cluster', $writer, '', "large$vol", 'empty';
 
 print "\nTests performed: ".($okies+$fails)." - $fails failed, $okies succeeded\n";
 exit ($fails > 0);

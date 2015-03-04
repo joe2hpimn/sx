@@ -364,6 +364,12 @@ void handle_request(void) {
     const char *param, *p_method, *p_uri;
     char *argp;
     unsigned int plen;
+    int cluster_readonly = 0;
+
+    if(sx_hashfs_cluster_get_mode(hashfs, &cluster_readonly)) {
+        CRIT("Failed to get cluster operating mode");
+        quit_errmsg(500, "Internal error: failed to check cluster operating mode");
+    }
 
     if(sx_hashfs_distcheck(hashfs) < 0) {
 	CRIT("Failed to reload distribution");
@@ -551,6 +557,8 @@ void handle_request(void) {
 	return;
     }
     DEBUG("Request from uid %lld", (long long)uid);
+    if(cluster_readonly && (verb == VERB_PUT || verb == VERB_DELETE) && !has_priv(PRIV_CLUSTER) && !has_priv(PRIV_ADMIN))
+        quit_errmsg(503, "Cluster is in read-only mode");
 
     if(!sxi_hmac_sha1_init_ex(hmac_ctx, key, sizeof(key))) {
 	WARN("hmac_init failed");

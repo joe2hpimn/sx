@@ -985,3 +985,20 @@ sxi_query_t *sxi_distlock_proto(sxc_client_t *sx, int lock, const char *lockid) 
 
     return query;
 }
+
+sxi_query_t *sxi_cluster_mode_proto(sxc_client_t *sx, int readonly) {
+    sxi_query_t *query;
+
+    query = sxi_query_create(sx, ".mode", REQ_PUT);
+    if(!query) {
+        sxi_seterr(sx, SXE_EMEM, "Failed to allocate query");
+        return NULL;
+    }
+
+    query = sxi_query_append_fmt(sx, query, strlen("{\"mode\":\"ro\"}"), "{\"mode\":\"%s\"}", readonly ? "ro" : "rw");
+    if(!query) {
+        sxi_seterr(sx, SXE_EMEM, "Failed to allocate query");
+        return NULL;
+    }
+    return query;
+}

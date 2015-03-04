@@ -124,7 +124,10 @@ void fcgi_handle_cluster_requests(void) {
 		json_send_qstring(progress_msg);
 		CGI_PUTC('}');
 	    }
-	    CGI_PRINTF(",\"clusterAuth\":\"%s\"}", sx_hashfs_authtoken(hashfs));
+	    CGI_PRINTF(",\"clusterAuth\":\"%s\"", sx_hashfs_authtoken(hashfs));
+            if(has_arg("operatingMode"))
+                CGI_PRINTF(",\"operatingMode\":\"%s\"", sx_hashfs_is_readonly(hashfs) ? "read-only" : "read-write");
+            CGI_PUTC('}');
 	} else
 	    CGI_PUTS("]}");
 	comma |= 1;

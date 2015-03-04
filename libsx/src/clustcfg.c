@@ -3524,3 +3524,45 @@ int sxi_cluster_distribution_lock(sxc_cluster_t *cluster, const char *master) {
 int sxi_cluster_distribution_unlock(sxc_cluster_t *cluster, const char *master) {
     return distribution_lock_common(cluster, 0, master);
 }
+
+int sxi_cluster_set_mode(sxc_cluster_t *cluster, int readonly) {
+    sxi_query_t *query;
+    sxc_client_t *sx = sxi_cluster_get_client(cluster);
+    sxi_conns_t *conns = sxi_cluster_get_conns(cluster);
+    sxi_hostlist_t *hosts;
+
+    if(!cluster) {
+        sxi_seterr(sx, SXE_EARG, "Invalid argument");
+        return 1;
+    }
+
+    sx = sxi_cluster_get_client(cluster);
+    conns = sxi_cluster_get_conns(cluster);
+
+    if(!sx || !conns) {
+        sxi_seterr(sx, SXE_EARG, "Invalid argument");
+        return 1;
+    }
+
+    query = sxi_cluster_mode_proto(sx, readonly);
+    if(!query) {
+        SXDEBUG("Failed to create distlock query");
+        return 1;
+    }
+
+    hosts = sxi_conns_get_hostlist(conns);
+    if(!hosts) {
+        sxi_seterr(sx, SXE_ECOMM, "Failed to get cluster host list");
+        sxi_query_free(query);
+        return 1;
+    }
+
+    sxi_set_operation(sx, readonly ? "switch cluster to read-only mode" : "switch cluster to read-write mode", NULL, NULL, NULL);
+    if(sxi_job_submit_and_poll(conns, hosts, query->verb, query->path, query->content, query->content_len)) {
+        sxi_query_free(query);
+        return 1;
+    }
+
+    sxi_query_free(query);
+    return 0;
+}

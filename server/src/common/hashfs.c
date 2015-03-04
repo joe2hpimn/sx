@@ -842,6 +842,8 @@ struct _sx_hashfs_t {
     int gcver;
     int gc_wal_pages;
     struct rebalance_iter rit;
+
+    int readonly;
 };
 
 static void close_all_dbs(sx_hashfs_t *h) {
@@ -1343,7 +1345,7 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
     qnullify(q);
     if(qprep(h->db, &h->q_getval, "SELECT value FROM hashfs WHERE key = :k"))
 	goto open_hashfs_fail;
-    if(qprep(h->db, &h->q_setval, "INSERT INTO hashfs (key,value) VALUES (:k, :v)"))
+    if(qprep(h->db, &h->q_setval, "INSERT OR REPLACE INTO hashfs (key,value) VALUES (:k, :v)"))
         goto open_hashfs_fail;
     if(qprep(h->db, &h->q_delval, "DELETE FROM hashfs WHERE key = :k"))
         goto open_hashfs_fail;
@@ -8847,6 +8849,7 @@ static const char *locknames[] = {
     NULL, /* JOBTYPE_DUMMY */
     NULL, /* JOBTYPE_REVSCLEAN */
     "DISTLOCK", /* JOBTYPE_DISTLOCK */
+    "CLUSTER_MODE", /* JOBTYPE_CLUSTER_MODE */
 };
 
 #define MAX_PENDING_JOBS 128
@@ -12666,4 +12669,75 @@ rc_ty sx_hashfs_distlock_release(sx_hashfs_t *h) {
     }
 
     return OK;
+}
+
+rc_ty sx_hashfs_cluster_set_mode(sx_hashfs_t *h, int readonly) {
+    sqlite3_reset(h->q_setval);
+    if(readonly != 0 && readonly != 1) {
+        msg_set_reason("Invalid argument");
+        return EINVAL;
+    }
+
+    if(qbind_text(h->q_setval, ":k", "mode") || qbind_text(h->q_setval, ":v", readonly ? "ro" : "rw") || qstep_noret(h->q_setval)) {
+        WARN("Failed to set cluster operating mode");
+        return FAIL_EINTERNAL;
+    }
+
+    INFO("Cluster has been switched to '%s' mode", readonly ? "read-only" : "read-write");
+    return OK;
+}
+
+rc_ty sx_hashfs_cluster_get_mode(sx_hashfs_t *h, int *mode) {
+    const char *mode_str;
+    int r;
+    rc_ty ret = FAIL_EINTERNAL;
+
+    if(!h || !mode) {
+        NULLARG();
+        return EINVAL;
+    }
+
+    sqlite3_reset(h->q_getval);
+    if(qbind_text(h->q_getval, ":k", "mode")) {
+        WARN("Failed to get cluster operating mode");
+        return FAIL_EINTERNAL;
+    }
+
+    r = qstep(h->q_getval);
+    if(r == SQLITE_DONE) {
+        *mode = 0; /* Default fallback, when not set cluster is in read-write mode */
+        ret = OK;
+        goto sx_hashfs_cluster_get_mode_err;
+    } else if(r != SQLITE_ROW) {
+        WARN("Failed to get cluster operating mode");
+        goto sx_hashfs_cluster_get_mode_err;
+    }
+
+    mode_str = (const char *)sqlite3_column_text(h->q_getval, 0);
+    if(!mode_str) {
+        WARN("Failed to get cluster operating mode");
+        goto sx_hashfs_cluster_get_mode_err;
+    }
+
+    if(!strncmp(mode_str, "ro", 2))
+        *mode = 1;
+    else if(!strncmp(mode_str, "rw", 2))
+        *mode = 0;
+    else {
+        WARN("Failed to get cluster operating mode: invalid mode");
+        goto sx_hashfs_cluster_get_mode_err;
+    }
+
+    ret = OK;
+sx_hashfs_cluster_get_mode_err:
+    if(ret == OK)
+        h->readonly = *mode;
+    else
+        h->readonly = 0;
+    sqlite3_reset(h->q_getval);
+    return ret;
+}
+
+int sx_hashfs_is_readonly(sx_hashfs_t *h) {
+    return h ? h->readonly : 0;
 }

@@ -53,6 +53,9 @@ struct cluster_args_info
   const char *force_expire_help; /**< @brief Force GC and expiration of reservations on all nodes help description.  */
   const char *get_cluster_key_help; /**< @brief Obtain remote cluster key help description.  */
   const char *status_help; /**< @brief Show current status of cluster nodes help description.  */
+  char * set_mode_arg;	/**< @brief Set cluster operating mode ('ro' or 'rw' for read-only or write-only respectively).  */
+  char * set_mode_orig;	/**< @brief Set cluster operating mode ('ro' or 'rw' for read-only or write-only respectively) original value given at command line.  */
+  const char *set_mode_help; /**< @brief Set cluster operating mode ('ro' or 'rw' for read-only or write-only respectively) help description.  */
   char * node_dir_arg;	/**< @brief Path to the node directory.  */
   char * node_dir_orig;	/**< @brief Path to the node directory original value given at command line.  */
   const char *node_dir_help; /**< @brief Path to the node directory help description.  */
@@ -91,6 +94,7 @@ struct cluster_args_info
   unsigned int force_expire_given ;	/**< @brief Whether force-expire was given.  */
   unsigned int get_cluster_key_given ;	/**< @brief Whether get-cluster-key was given.  */
   unsigned int status_given ;	/**< @brief Whether status was given.  */
+  unsigned int set_mode_given ;	/**< @brief Whether set-mode was given.  */
   unsigned int node_dir_given ;	/**< @brief Whether node-dir was given.  */
   unsigned int port_given ;	/**< @brief Whether port was given.  */
   unsigned int ssl_ca_file_given ;	/**< @brief Whether ssl-ca-file was given.  */

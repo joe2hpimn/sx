@@ -781,6 +781,14 @@ static act_result_t usernewkey_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_
    return job_twophase_execute(&user_newkey_spec, JOBPHASE_UNDO, hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
 }
 
+static act_result_t cluster_mode_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+   return job_twophase_execute(&cluster_mode_spec, JOBPHASE_REQUEST, hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
+}
+
+static act_result_t cluster_mode_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+   return job_twophase_execute(&cluster_mode_spec, JOBPHASE_ABORT, hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
+}
+
 static int req_append(char **req, unsigned int *req_len, const char *append_me) {
     unsigned int current_len, append_len;
 
@@ -4446,6 +4454,7 @@ static struct {
     { dummy_request, dummy_commit, dummy_abort, dummy_undo }, /* JOBTYPE_DUMMY */
     { force_phase_success, revsclean_vol_commit, revsclean_vol_abort, revsclean_vol_undo }, /* JOBTYPE_REVSCLEAN */
     { distlock_request, force_phase_success, distlock_abort, force_phase_success }, /* JOBTYPE_DISTLOCK */
+    { cluster_mode_request, force_phase_success, cluster_mode_abort, force_phase_success }, /* JOBTYPE_CLUSTER_MODE */
 };
 
 
