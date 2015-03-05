@@ -5553,6 +5553,7 @@ rc_ty sx_hashfs_grant(sx_hashfs_t *h, uint64_t uid, const char *volume, int priv
     const sx_hashfs_volume_t *vol = NULL;
     do {
         int64_t privholder = -1;
+        char name[SXLIMIT_MAX_USERNAME_LEN+1];
 
 	rc = volume_get_common(h, volume, -1, &vol);
 	if (rc) {
@@ -5576,7 +5577,12 @@ rc_ty sx_hashfs_grant(sx_hashfs_t *h, uint64_t uid, const char *volume, int priv
 	    break;
 	if (qstep_noret(q))
 	    break;
-	INFO("%s: granted priv %d to %ld on %s", h->dir, priv, (long)uid, volume);
+
+        if(sx_hashfs_uid_get_name(h, uid, name, SXLIMIT_MAX_USERNAME_LEN+1)) {
+            WARN("Failed to get user %lld name", (long long)uid);
+            INFO("Granted '%s' permission to %lld on volume %s", (priv & PRIV_READ ? "read" : "write"), (long long)uid, volume);
+        } else
+            INFO("Granted '%s' permission to '%s' on volume %s", (priv & PRIV_READ ? "read" : "write"), name, volume);
     } while(0);
     sqlite3_reset(q);
     return rc;
@@ -5592,6 +5598,7 @@ rc_ty sx_hashfs_revoke(sx_hashfs_t *h, uint64_t uid, const char *volume, int pri
     const sx_hashfs_volume_t *vol = NULL;
     do {
         int64_t privholder;
+        char name[SXLIMIT_MAX_USERNAME_LEN+1];
 
 	rc = volume_get_common(h, volume, -1, &vol);
 	if (rc) {
@@ -5613,7 +5620,12 @@ rc_ty sx_hashfs_revoke(sx_hashfs_t *h, uint64_t uid, const char *volume, int pri
 	    break;
 	if (qstep_noret(q))
 	    break;
-	INFO("%s: revoked privmask %d to %ld on %s", h->dir, privmask, (long)uid, volume);
+
+        if(sx_hashfs_uid_get_name(h, uid, name, SXLIMIT_MAX_USERNAME_LEN+1)) {
+            WARN("Failed to get user %lld name", (long long)uid);
+            INFO("Revoked '%s' permission from %lld on volume %s", (~privmask & PRIV_READ ? "read" : "write"), (long long)uid, volume);
+        } else
+	    INFO("Revoked '%s' permission from '%s' on volume %s", (~privmask & PRIV_READ ? "read" : "write"), name, volume);
     } while(0);
     sqlite3_reset(q);
     return rc;
@@ -11813,7 +11825,6 @@ static rc_ty volume_chown(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, int64_t
         goto volume_chown_err;
     }
 
-    INFO("Volume %s owner ID changed to %lld", vol->name, (long long)newid);
     ret = OK;
 volume_chown_err:
     sqlite3_reset(h->q_chownvolbyid);
@@ -11903,6 +11914,7 @@ rc_ty sx_hashfs_volume_mod(sx_hashfs_t *h, const char *volume, const char *newow
             msg_set_reason("Failed to change volume owner: %s", msg_get_reason());
             goto sx_hashfs_volume_mod_err;
         }
+        INFO("Volume %s owner changed to %s", vol->name, newowner);
     }
 
     if(newsize != -1 && newsize != vol->size) {
