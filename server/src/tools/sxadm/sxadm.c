@@ -987,6 +987,115 @@ static int replace_nodes(sxc_client_t *sx, struct cluster_args_info *args) {
     return ret;
 }
 
+static int setfaulty_nodes(sxc_client_t *sx, struct cluster_args_info *args) {
+    unsigned int i, j, query_at, nnodes = args->inputs_num - 1;
+    sx_node_t **nodes;
+    sxc_cluster_t *clust = cluster_load(sx, args, 0);
+    sxi_conns_t *conns;
+    sxi_hostlist_t *hlist;
+    sxi_hostlist_t usblhlist;
+    char *query = NULL;
+    clst_t *clst = NULL;
+    int ret = 1;
+
+    if(!clust)
+	return 1;
+
+    sxi_hostlist_init(&usblhlist);
+    nodes = (sx_node_t **) calloc(nnodes, sizeof(sx_node_t *));
+    if(!nodes) {
+	CRIT("OOM allocating nodes");
+	return 1;
+    }
+    for(i = 0; i < nnodes; i++) {
+	nodes[i] = parse_nodef(args->inputs[i]);
+	if(!nodes[i])
+	    goto setfaulty_err;
+	for(j = 0; j < i; j++) {
+	    if(!sx_node_cmp(nodes[i], nodes[j])) {
+		CRIT("Node '%s' was specified multiple times", sx_node_uuid_str(nodes[i]));
+		goto setfaulty_err;
+	    }
+	}
+    }
+
+    conns = sxi_cluster_get_conns(clust);
+    hlist = sxi_conns_get_hostlist(conns);
+    // ACAB: discuss the setfaulty syntax
+    /* We don't really care about addresses for the sake of setfaulty,
+     * we just remove the addresses we don't want to connect to */
+    for(i = 0; i < sxi_hostlist_get_count(hlist); i++) {
+	const char *h = sxi_hostlist_get_host(hlist, i);
+	int faulty = 0;
+	for(j = 0; j < nnodes; j++) {
+	    if(!strcmp(sx_node_addr(nodes[j]), h) || !strcmp(sx_node_internal_addr(nodes[j]), h)) {
+		faulty = 1;
+		break;
+	    }
+	}
+	if(!faulty && sxi_hostlist_add_host(sx, &usblhlist, h)) {
+	    CRIT("Cannot update list of nodes: %s", sxc_geterrmsg(sx));
+	    goto setfaulty_err;
+	}
+    }
+    sxi_hostlist_empty(hlist);
+    if(sxi_hostlist_add_list(sx, hlist, &usblhlist)) {
+	CRIT("Cannot update list of nodes: %s", sxc_geterrmsg(sx));
+	goto setfaulty_err;
+    }
+
+    if(!sxi_hostlist_get_count(hlist)) {
+	CRIT("Failed to update list of usable nodes");
+	goto setfaulty_err;
+    }
+    sxi_hostlist_shuffle(hlist);
+
+    clst = clst_query(conns, NULL);
+    if(!clst) {
+	CRIT("Failed to query cluster status: %s", sxc_geterrmsg(sx));
+	goto setfaulty_err;
+    }
+
+    if(clst_ndists(clst) != 1) {
+	CRIT("Cluster is currently rebalancing, cannot update node status");
+	goto setfaulty_err;
+    }
+
+    query = malloc((UUID_STRING_SIZE+3) * nnodes + sizeof("{\"faultyNodes\":[]}"));
+    if(!query) {
+	CRIT("Out of memory when allocating the update query");
+	goto setfaulty_err;
+    }
+    query_at = lenof("{\"faultyNodes\":[");
+    strcpy(query, "{\"faultyNodes\":[");
+
+    for(i=0; i<nnodes; i++) {
+	sprintf(query + query_at, "\"%s\"%s", sx_node_uuid_str(nodes[i]), i != nnodes-1 ? "," : "]}");
+	query_at += strlen(query + query_at);
+    }
+
+    if(sxi_job_submit_and_poll(conns, NULL, REQ_PUT, ".nodes?setfaulty", query, strlen(query))) {
+	CRIT("Failed to update node health: %s", sxc_geterrmsg(sx));
+	goto setfaulty_err;
+    }
+
+    if(sxc_cluster_fetchnodes(clust) ||
+       sxc_cluster_save(clust, args->config_dir_arg))
+	WARN("Cannot update local cluster configuration: %s", sxc_geterrmsg(sx));
+
+    ret = 0;
+
+ setfaulty_err:
+    for(i = 0; i < nnodes; i++)
+	sx_node_delete(nodes[i]);
+    free(nodes);
+    free(query);
+    sxi_hostlist_empty(&usblhlist);
+    clst_destroy(clst);
+    sxc_cluster_free(clust);
+    return ret;
+}
+
 
 static int info_node(sxc_client_t *sx, const char *path, struct node_args_info *args)
 {
@@ -1031,7 +1140,7 @@ static int info_node(sxc_client_t *sx, const char *path, struct node_args_info *
     fmt_capa(dsk_used, capastr, sizeof(capastr), args->human_readable_flag);
     printf("Actual data size: %s\n", capastr);
 
-    nodes = sx_hashfs_nodelist(h, NL_NEXT);
+    nodes = sx_hashfs_all_nodes(h, NL_NEXT);
     if(nodes && sx_nodelist_count(nodes)) {
 	unsigned int i, nnodes = sx_nodelist_count(nodes);
 	const sx_node_t *self = sx_hashfs_self(h);
@@ -1589,6 +1698,8 @@ int main(int argc, char **argv) {
 	    ret = resize_cluster(sx, &cluster_args);
 	else if(cluster_args.replace_faulty_given && cluster_args.inputs_num >= 2)
 	    ret = replace_nodes(sx, &cluster_args);
+	else if(cluster_args.set_faulty_given && cluster_args.inputs_num >= 2)
+	    ret = setfaulty_nodes(sx, &cluster_args);
 	else if(cluster_args.force_gc_given && cluster_args.inputs_num == 1)
 	    ret = force_gc_cluster(sx, &cluster_args, 0);
 	else if(cluster_args.force_expire_given && cluster_args.inputs_num == 1)

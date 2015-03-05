@@ -188,7 +188,10 @@ void volume_ops(void) {
             fcgi_distlock();
 	} else if(!strcmp(".nodes", volume)) {
 	    /* Update distribution (sxadm entry) - ADMIN required */
-	    fcgi_set_nodes();
+	    if(has_arg("setfaulty"))
+		fcgi_mark_faultynodes();
+	    else
+		fcgi_set_nodes();
 	} else if (!strcmp(".users", volume)) {
 	    /* Create new user - ADMIN required */
 	    fcgi_create_user();

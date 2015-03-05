@@ -224,6 +224,197 @@ void fcgi_set_nodes(void) {
     send_job_info(job);
 }
 
+/* {"faultyNodes":["UUID1", "UUID2", ...]} */
+struct cb_ign_ctx {
+    enum cb_ign_state { CB_IGN_START, CB_IGN_ROOT, CB_IGN_ARRAY, CB_IGN_NODE, CB_IGN_COMPLETE } state;
+    sx_nodelist_t *nodes;
+};
+
+static int cb_ign_start_map(void *ctx) {
+    struct cb_ign_ctx *c = (struct cb_ign_ctx *)ctx;
+    if(c->state != CB_IGN_START)
+	return 0;
+    c->state = CB_IGN_ROOT;
+    return 1;
+}
+
+static int cb_ign_map_key(void *ctx, const unsigned char *s, size_t l) {
+    struct cb_ign_ctx *c = (struct cb_ign_ctx *)ctx;
+    if(c->state == CB_IGN_ROOT && l == lenof("faultyNodes") && !strncmp("faultyNodes", s, lenof("faultyNodes"))) {
+	c->state = CB_IGN_ARRAY;
+	return 1;
+    }
+    return 0;
+}
+
+static int cb_ign_end_map(void *ctx) {
+    struct cb_ign_ctx *c = (struct cb_ign_ctx *)ctx;
+    if(c->state == CB_IGN_ROOT) {
+	c->state = CB_IGN_COMPLETE;
+	return 1;
+    }
+    return 0;
+}
+
+static int cb_ign_start_array(void *ctx) {
+    struct cb_ign_ctx *c = (struct cb_ign_ctx *)ctx;
+    if(c->state != CB_IGN_ARRAY)
+	return 0;
+    c->state = CB_IGN_NODE;
+    return 1;
+}
+
+static int cb_ign_end_array(void *ctx) {
+    struct cb_ign_ctx *c = (struct cb_ign_ctx *)ctx;
+    if(c->state != CB_IGN_NODE)
+	return 0;
+    c->state = CB_NODES_ROOT;
+    return 1;
+}
+
+static int cb_ign_string(void *ctx, const unsigned char *s, size_t l) {
+    struct cb_ign_ctx *c = (struct cb_ign_ctx *)ctx;
+    if(c->state == CB_IGN_NODE) {
+	sx_node_t *node;
+	sx_uuid_t uuid;
+	char ustr[sizeof(uuid.string)];
+	if(l != UUID_STRING_SIZE)
+	    return 0;
+	memcpy(ustr, s, l);
+	ustr[UUID_STRING_SIZE] = '\0';
+	if(uuid_from_string(&uuid, ustr))
+	    return 0;
+	node = sx_node_new(&uuid, "127.0.0.1", "127.0.0.1", 1);
+	if(!node || sx_nodelist_add(c->nodes, node))
+	    return 0;
+    } else
+	return 0;
+    return 1;
+}
+
+static const yajl_callbacks ign_parser = {
+    cb_fail_null,
+    cb_fail_boolean,
+    NULL,
+    NULL,
+    cb_fail_number,
+    cb_ign_string,
+    cb_ign_start_map,
+    cb_ign_map_key,
+    cb_ign_end_map,
+    cb_ign_start_array,
+    cb_ign_end_array
+};
+
+
+void fcgi_mark_faultynodes(void) {
+    struct cb_ign_ctx yctx;
+    yajl_handle yh;
+    int len;
+    rc_ty s;
+
+    yctx.state = CB_IGN_START;
+    yctx.nodes = sx_nodelist_new();
+    if(!yctx.nodes)
+	quit_errmsg(503, "Cannot allocate nodelist");
+
+    yh = yajl_alloc(&ign_parser, NULL, &yctx);
+    if(!yh) {
+	sx_nodelist_delete(yctx.nodes);
+	quit_errmsg(503, "Cannot allocate json parser");
+    }
+
+    while((len = get_body_chunk(hashbuf, sizeof(hashbuf))) > 0)
+	if(yajl_parse(yh, hashbuf, len) != yajl_status_ok) break;
+
+    if(len || yajl_complete_parse(yh) != yajl_status_ok || yctx.state != CB_IGN_COMPLETE) {
+	yajl_free(yh);
+	sx_nodelist_delete(yctx.nodes);
+	quit_errmsg(400, "Invalid request content");
+    }
+    yajl_free(yh);
+
+    auth_complete();
+    quit_unless_authed();
+
+    if(!sx_nodelist_count(yctx.nodes))
+	quit_errmsg(400, "Invalid request content");
+
+    if(has_priv(PRIV_CLUSTER)) {
+	/* S2S request */
+	s = sx_hashfs_setignored(hashfs, yctx.nodes);
+	sx_nodelist_delete(yctx.nodes);
+	if(s != OK)
+	    quit_errmsg(rc2http(s), msg_get_reason());
+	CGI_PUTS("\r\n");
+	return;
+    } else {
+	/* Admin request here */
+	const sx_nodelist_t *nodes;
+	sx_nodelist_t *targets;
+	unsigned int nnode;
+	sx_blob_t *joblb;
+	const void *job_data;
+	unsigned int job_datalen;
+	job_t job;
+
+	nodes = sx_hashfs_all_nodes(hashfs, NL_NEXT);
+	if(!nodes) {
+	    sx_nodelist_delete(yctx.nodes);
+	    quit_errmsg(503, "Failed to retrieve cluster members");
+	}
+
+	for(nnode = 0; nnode < sx_nodelist_count(yctx.nodes); nnode++) {
+	    char reason[128];
+	    const sx_node_t *curn = sx_nodelist_get(yctx.nodes, nnode);
+	    if(sx_nodelist_lookup(nodes, sx_node_uuid(curn)))
+		continue;
+	    snprintf(reason, sizeof(reason), "Node %s is not an active cluster member", sx_node_uuid_str(curn));
+	    sx_nodelist_delete(yctx.nodes);
+	    quit_errmsg(400, reason);
+	}
+
+	nodes = sx_hashfs_effective_nodes(hashfs, NL_NEXT);
+	if(!nodes) {
+	    sx_nodelist_delete(yctx.nodes);
+	    quit_errmsg(503, "Failed to retrieve cluster members");
+	}
+	targets = sx_nodelist_new();
+	if(!targets) {
+	    sx_nodelist_delete(yctx.nodes);
+	    quit_errmsg(503, "Failed to allocate target list");
+	}
+	for(nnode = 0; nnode < sx_nodelist_count(nodes); nnode++) {
+	    const sx_node_t *curn = sx_nodelist_get(nodes, nnode);
+	    if(sx_nodelist_lookup(yctx.nodes, sx_node_uuid(curn)))
+		continue;
+	    if(sx_nodelist_add(targets, sx_node_dup(curn))) {
+		sx_nodelist_delete(yctx.nodes);
+		sx_nodelist_delete(targets);
+		quit_errmsg(503, "Failed to allocate target list");
+	    }
+	}
+
+	joblb = sx_nodelist_to_blob(yctx.nodes);
+	sx_nodelist_delete(yctx.nodes);
+	if(!joblb) {
+	    sx_nodelist_delete(targets);
+	    quit_errmsg(503, "Failed to allocate job data");
+	}
+
+	sx_blob_to_data(joblb, &job_data, &job_datalen);
+	s = sx_hashfs_job_new(hashfs, uid, &job, JOBTYPE_IGNODES, 20 * sx_nodelist_count(targets), "IGNODES", job_data, job_datalen, targets);
+	sx_nodelist_delete(targets);
+	sx_blob_free(joblb);
+	if(s != OK)
+	    quit_errmsg(rc2http(s), msg_get_reason());
+
+	send_job_info(job);
+	return;
+    }
+}
+
+
 struct distlock_ctx {
     char lockid[AUTH_UID_LEN*2+32]; /* Handle user hash and time string */
     int op;
@@ -385,7 +576,7 @@ void fcgi_distlock(void) {
         rc_ty res;
         const sx_nodelist_t *allnodes;
 
-        allnodes = sx_hashfs_nodelist(hashfs, NL_NEXTPREV);
+        allnodes = sx_hashfs_effective_nodes(hashfs, NL_NEXTPREV);
         if(!allnodes)
             quit_errmsg(500, "Cannot get node list");
 

@@ -396,7 +396,7 @@ static void print_cluster(sxc_client_t *sx)
 
     const sx_node_t *self= sx_hashfs_self(h);
 
-    nodes = sx_hashfs_nodelist(h, NL_NEXT);
+    nodes = sx_hashfs_all_nodes(h, NL_NEXT);
     if(nodes && sx_nodelist_count(nodes)) {
 	unsigned int i, nnodes = sx_nodelist_count(nodes);
 	INFO("List of nodes:");

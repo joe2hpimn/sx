@@ -530,7 +530,7 @@ void fcgi_save_blocks(void) {
 
     if(has_priv(PRIV_CLUSTER)) {  /* FIXME: use a cluster token to avoid arbitrary replays to over-replica nodes */
 	/* MODHDIST: WTF?! */
-	replica_count = sx_nodelist_count(sx_hashfs_nodelist(hashfs, NL_NEXT));
+	replica_count = sx_nodelist_count(sx_hashfs_all_nodes(hashfs, NL_NEXT));
     } else {
         if(sx_hashfs_token_get(hashfs, user, token, &replica_count, NULL))
             quit_errmsg(400, "Invalid token");
@@ -552,6 +552,8 @@ void fcgi_save_blocks(void) {
     const uint8_t *end = hashbuf + len;
     for(const uint8_t *src = hashbuf;src < end; src += blocksize) {
         rc_ty rc;
+	/* Maximum replica used here;
+	 * block_put internally skips ignored nodes and only propagates to effective nodes */
         if ((rc = sx_hashfs_block_put(hashfs, src, blocksize, replica_count, !has_priv(PRIV_CLUSTER)))) {
             WARN("Cannot store block: %s", rc2str(rc));
 	    quit_errmsg(500, "Cannot store block");
@@ -712,7 +714,7 @@ void fcgi_push_blocks(void) {
 
     sx_hash_t block;
     /* MODHDIST: propagate to _next set */
-    const sx_nodelist_t *nodes = sx_hashfs_nodelist(hashfs, NL_NEXT);
+    const sx_nodelist_t *nodes = sx_hashfs_all_nodes(hashfs, NL_NEXT);
     sx_nodelist_t *targets = sx_nodelist_new();
     if(!nodes || !targets) {
 	sx_nodelist_delete(targets);

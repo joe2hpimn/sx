@@ -114,7 +114,7 @@ int sx_hashfs_check(sx_hashfs_t *h, int debug);
 int sx_hashfs_extract(sx_hashfs_t *h, const char *destpath);
 void sx_hashfs_stats(sx_hashfs_t *h);
 int sx_hashfs_analyze(sx_hashfs_t *h, int verbose);
-sx_nodelist_t *sx_hashfs_hashnodes(sx_hashfs_t *h, sx_hashfs_nl_t which, const sx_hash_t *hash, unsigned int replica_count);
+sx_nodelist_t *sx_hashfs_all_hashnodes(sx_hashfs_t *h, sx_hashfs_nl_t which, const sx_hash_t *hash, unsigned int replica_count);
 sx_nodelist_t *sx_hashfs_putfile_hashnodes(sx_hashfs_t *h, const sx_hash_t *hash);
 rc_ty sx_hashfs_check_blocksize(unsigned int bs);
 int sx_hashfs_distcheck(sx_hashfs_t *h);
@@ -144,13 +144,15 @@ rc_ty sx_hashfs_hdist_change_req(sx_hashfs_t *h, const sx_nodelist_t *newdist, j
 rc_ty sx_hashfs_hdist_replace_req(sx_hashfs_t *h, const sx_nodelist_t *replacements, job_t *job_id);
 rc_ty sx_hashfs_hdist_change_add(sx_hashfs_t *h, const void *cfg, unsigned int cfg_len);
 rc_ty sx_hashfs_hdist_replace_add(sx_hashfs_t *h, const void *cfg, unsigned int cfg_len, const sx_nodelist_t *badnodes);
+rc_ty sx_hashfs_setignored(sx_hashfs_t *h, const sx_nodelist_t *ignodes);
 rc_ty sx_hashfs_hdist_change_commit(sx_hashfs_t *h);
 rc_ty sx_hashfs_hdist_change_revoke(sx_hashfs_t *h);
 rc_ty sx_hashfs_hdist_rebalance(sx_hashfs_t *h);
 rc_ty sx_hashfs_hdist_endrebalance(sx_hashfs_t *h);
 int64_t sx_hashfs_hdist_getversion(sx_hashfs_t *h);
 
-const sx_nodelist_t *sx_hashfs_nodelist(sx_hashfs_t *h, sx_hashfs_nl_t which);
+const sx_nodelist_t *sx_hashfs_all_nodes(sx_hashfs_t *h, sx_hashfs_nl_t which);
+const sx_nodelist_t *sx_hashfs_effective_nodes(sx_hashfs_t *h, sx_hashfs_nl_t which);
 const sx_node_t *sx_hashfs_self(sx_hashfs_t *h);
 rc_ty sx_hashfs_self_uuid(sx_hashfs_t *h, sx_uuid_t *uuid);
 const char *sx_hashfs_self_unique(sx_hashfs_t *h);
@@ -205,7 +207,8 @@ typedef struct _sx_hashfs_volume_t {
     int64_t id;
     int64_t size;
     int64_t cursize;
-    unsigned int replica_count;
+    unsigned int max_replica;
+    unsigned int effective_replica;
     unsigned int revisions;
     char name[SXLIMIT_MAX_VOLNAME_LEN + 1];
     sx_uid_t owner;
@@ -222,7 +225,8 @@ rc_ty sx_hashfs_volume_by_name(sx_hashfs_t *h, const char *name, const sx_hashfs
 rc_ty sx_hashfs_volume_by_id(sx_hashfs_t *h, int64_t id, const sx_hashfs_volume_t **volume);
 rc_ty sx_hashfs_volumemeta_begin(sx_hashfs_t *h, const sx_hashfs_volume_t *volume);
 rc_ty sx_hashfs_volumemeta_next(sx_hashfs_t *h, const char **key, const void **value, unsigned int *value_len);
-rc_ty sx_hashfs_volnodes(sx_hashfs_t *h, sx_hashfs_nl_t which, const sx_hashfs_volume_t *volume, int64_t size, sx_nodelist_t **nodes, unsigned int *block_size);
+rc_ty sx_hashfs_all_volnodes(sx_hashfs_t *h, sx_hashfs_nl_t which, const sx_hashfs_volume_t *volume, int64_t size, sx_nodelist_t **nodes, unsigned int *block_size);
+rc_ty sx_hashfs_effective_volnodes(sx_hashfs_t *h, sx_hashfs_nl_t which, const sx_hashfs_volume_t *volume, int64_t size, sx_nodelist_t **nodes, unsigned int *block_size);
 int sx_hashfs_is_or_was_my_volume(sx_hashfs_t *h, const sx_hashfs_volume_t *vol);
 typedef int (*acl_list_cb_t)(const char *username, int priv, int is_owner, void *ctx);
 rc_ty sx_hashfs_list_acl(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, sx_uid_t uid, int uid_priv, acl_list_cb_t cb, void *ctx);

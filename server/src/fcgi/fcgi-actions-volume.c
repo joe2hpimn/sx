@@ -65,7 +65,7 @@ void fcgi_locate_volume(const sx_hashfs_volume_t *vol) {
      * Although most of them (file creation, file deletion, etc) can be
      * safely target to PREV and NEXT volumes, listing files is only 
      * guaranteed to be accurate when performed against a PREV volnode */
-    s = sx_hashfs_volnodes(hashfs, NL_PREV, vol, fsize, &allnodes, &blocksize);
+    s = sx_hashfs_effective_volnodes(hashfs, NL_PREV, vol, fsize, &allnodes, &blocksize);
     switch(s) {
 	case OK:
 	    break;
@@ -169,7 +169,7 @@ void fcgi_list_volume(const sx_hashfs_volume_t *vol) {
         return;
     CGI_PUTS("{\"volumeSize\":");
     CGI_PUTLL(vol->size);
-    CGI_PRINTF(",\"replicaCount\":%u,\"volumeUsedSize\":", vol->replica_count);
+    CGI_PRINTF(",\"replicaCount\":%u,\"volumeUsedSize\":", vol->max_replica);
     CGI_PUTLL(vol->cursize);
     if (size_only) {
         CGI_PUTS("}");
@@ -737,7 +737,7 @@ static rc_ty acl_nodes(sx_hashfs_t *hashfs, sx_blob_t *blob, sx_nodelist_t **nod
 {
     if (!nodes)
         return FAIL_EINTERNAL;
-    *nodes = sx_nodelist_dup(sx_hashfs_nodelist(hashfs, NL_NEXTPREV));
+    *nodes = sx_nodelist_dup(sx_hashfs_effective_nodes(hashfs, NL_NEXTPREV));
     if (!*nodes)
         return FAIL_EINTERNAL;
     return OK;
@@ -888,7 +888,7 @@ void fcgi_create_volume(void) {
 	sx_blob_t *joblb;
 	const void *job_data;
 	unsigned int job_datalen;
-	const sx_nodelist_t *allnodes = sx_hashfs_nodelist(hashfs, NL_NEXTPREV);
+	const sx_nodelist_t *allnodes = sx_hashfs_effective_nodes(hashfs, NL_NEXTPREV);
 	int extra_job_timeout = 50 * (sx_nodelist_count(allnodes)-1);
 	job_t job;
 	rc_ty res;
@@ -989,7 +989,7 @@ void fcgi_delete_volume(void) {
 	if(!emptyvol)
 	    quit_errmsg(409, "Cannot delete non-empty volume");
 
-	allnodes = sx_hashfs_nodelist(hashfs, NL_NEXTPREV);
+	allnodes = sx_hashfs_effective_nodes(hashfs, NL_NEXTPREV);
 	timeout = 5 * 60 * sx_nodelist_count(allnodes);
 	joblb = sx_blob_new();
 	if(!joblb)
@@ -1209,7 +1209,7 @@ static rc_ty volmod_nodes(sx_hashfs_t *hashfs, sx_blob_t *blob, sx_nodelist_t **
     if (!nodes)
         return FAIL_EINTERNAL;
     /* All nodes have to receive modification request since owners and sizes are set globally */
-    *nodes = sx_nodelist_dup(sx_hashfs_nodelist(hashfs, NL_NEXTPREV));
+    *nodes = sx_nodelist_dup(sx_hashfs_effective_nodes(hashfs, NL_NEXTPREV));
     if (!*nodes)
         return FAIL_EINTERNAL;
 
@@ -1460,8 +1460,7 @@ static rc_ty volmod_parse_complete(void *yctx)
 
     if(ctx->newrevs != -1 || ctx->newsize != -1) {
         /* Check if new volume configuration is ok */
-        if((s = sx_hashfs_check_volume_settings(hashfs, volume, ctx->newsize != -1 ? ctx->newsize : vol->size, vol->replica_count,
-           ctx->newrevs != -1 ? ctx->newrevs : vol->revisions)) != OK)
+        if((s = sx_hashfs_check_volume_settings(hashfs, volume, ctx->newsize != -1 ? ctx->newsize : vol->size, vol->max_replica, ctx->newrevs != -1 ? ctx->newrevs : vol->revisions)) != OK)
             return s; /* Message is set by sx_hashfs_check_volume_settings() */
     }
 
@@ -1808,7 +1807,7 @@ static rc_ty cluster_mode_nodes(sx_hashfs_t *hashfs, sx_blob_t *blob, sx_nodelis
     if(!nodes)
         return FAIL_EINTERNAL;
     /* Spawn cluster mode job to all nodes */
-    *nodes = sx_nodelist_dup(sx_hashfs_nodelist(hashfs, NL_NEXTPREV));
+    *nodes = sx_nodelist_dup(sx_hashfs_effective_nodes(hashfs, NL_NEXTPREV));
     if(!*nodes)
         return FAIL_EINTERNAL;
     return OK;
@@ -1851,7 +1850,7 @@ static rc_ty upgrade_nodes(sx_hashfs_t *hashfs, sx_blob_t *blob, sx_nodelist_t *
 {
     if (!nodes)
         return FAIL_EINTERNAL;
-    *nodes = sx_nodelist_dup(sx_hashfs_nodelist(hashfs, NL_NEXTPREV));
+    *nodes = sx_nodelist_dup(sx_hashfs_effective_nodes(hashfs, NL_NEXTPREV));
     if (!*nodes)
         return FAIL_EINTERNAL;
     return OK;
@@ -1935,7 +1934,7 @@ static int list_rev_cb(const sx_hashfs_volume_t *vol, const sx_uuid_t *target, c
             break;
         for (i=0;i<nblocks;i++) {
             const sx_hash_t *hash = &contents[i];
-            sx_nodelist_t *nl = sx_hashfs_hashnodes(hashfs, NL_NEXT, hash, vol->replica_count);
+            sx_nodelist_t *nl = sx_hashfs_all_hashnodes(hashfs, NL_NEXT, hash, vol->max_replica);
             if (!nl)
                 break;
             if (sx_nodelist_lookup(nl, target))
