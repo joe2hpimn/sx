@@ -426,6 +426,9 @@ typedef enum _sx_inprogress_t {
     INPRG_REBALANCE_COMPLETE,
     INPRG_REPLACE_RUNNING,
     INPRG_REPLACE_COMPLETE,
+    INPRG_UPGRADE,
+
+    INPRG_LAST
 } sx_inprogress_t;
 rc_ty sx_hashfs_set_progress_info(sx_hashfs_t *h, sx_inprogress_t state, const char *description);
 sx_inprogress_t sx_hashfs_get_progress_info(sx_hashfs_t *h, const char **description);
@@ -458,5 +461,7 @@ typedef struct {
 } sx_revision_op_t;
 int sx_revision_op_of_blob(sx_blob_t *b, sx_revision_op_t *op);
 int sx_unique_fileid(sxc_client_t *sx, const sx_hashfs_volume_t *volume, const char *name, const char *revision, sx_hash_t *fileid);
+rc_ty sx_hashfs_upgrade_1_0_prepare(sx_hashfs_t *h);
+rc_ty sx_hashfs_upgrade_1_0_local(sx_hashfs_t *h);
 
 #endif

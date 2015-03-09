@@ -198,6 +198,8 @@ void volume_ops(void) {
         } else if(!strcmp(volume, ".mode")) {
             /* Switch cluster readonly node(sxadm entry) - ADMIN required */
             fcgi_cluster_mode();
+        } else if(!strcmp(volume, ".upgrade")) {
+            fcgi_cluster_upgrade();
         } else {
 	    /* Create new volume - ADMIN required */
 	    if(is_reserved())

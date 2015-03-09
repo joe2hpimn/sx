@@ -78,7 +78,7 @@ const unsigned int bsz[SIZES] = {SX_BS_SMALL, SX_BS_MEDIUM, SX_BS_LARGE};
 
 #define DEBUGHASH(MSG, X) do {				\
     char _debughash[sizeof(sx_hash_t)*2+1];		\
-    if (UNLIKELY(sxi_log_is_debug(&logger))) {          \
+    if (UNLIKELY(sxi_log_is_debug(&logger)) && (X)) {          \
 	bin2hex((X)->b, sizeof(*X), _debughash, sizeof(_debughash));	\
 	DEBUG("%s: #%s#", MSG, _debughash);				\
     }\
@@ -646,6 +646,8 @@ struct _sx_hashfs_t {
     sqlite3_stmt *qm_count[METADBS];
     sqlite3_stmt *qm_list_rev_dec[METADBS];
     sqlite3_stmt *qm_list_file[METADBS];
+    sqlite3_stmt *qm_add_heal[METADBS];
+    sqlite3_stmt *qm_del_heal[METADBS];
 
     sxi_db_t *datadb[SIZES][HASHDBS];
     sqlite3_stmt *qb_nextavail[SIZES][HASHDBS];
@@ -862,6 +864,8 @@ static void close_all_dbs(sx_hashfs_t *h) {
         sqlite3_finalize(h->qm_count[i]);
         sqlite3_finalize(h->qm_list_rev_dec[i]);
         sqlite3_finalize(h->qm_list_file[i]);
+        sqlite3_finalize(h->qm_del_heal[i]);
+        sqlite3_finalize(h->qm_add_heal[i]);
 	qclose(&h->metadb[i]);
     }
 
@@ -1597,6 +1601,10 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
         if(qprep(h->metadb[i], &h->qm_list_rev_dec[i], "SELECT size, rev, content FROM files WHERE volume_id=:volid AND name = :name AND rev < :maxrev ORDER BY rev DESC LIMIT 1"))
             goto open_hashfs_fail;
         if(qprep(h->metadb[i], &h->qm_list_file[i], "SELECT size, rev, content, name FROM files WHERE volume_id=:volid AND name > :previous AND rev < :maxrev ORDER BY name ASC, rev DESC LIMIT 1"))
+            goto open_hashfs_fail;
+        if(qprep(h->metadb[i], &h->qm_del_heal[i], "DELETE FROM heal WHERE revision_id=:revision_id"))
+            goto open_hashfs_fail;
+        if(qprep(h->metadb[i], &h->qm_add_heal[i], "INSERT OR IGNORE INTO heal(revision_id, remote_volume, blocks, blocksize, replica_count) VALUES(:revision_id, :remote_volid, :blocks, :blocksize, :replica_count)"))
             goto open_hashfs_fail;
     }
 
@@ -3192,6 +3200,34 @@ static rc_ty hashfs_1_0_to_1_1(sxi_db_t *db)
     return ret;
 }
 
+static rc_ty metadb_1_0_to_1_1(sxi_db_t *db)
+{
+    rc_ty ret = FAIL_EINTERNAL;
+    sqlite3_stmt *q = NULL;
+    do {
+        if(qprep(db, &q, "ALTER TABLE files ADD COLUMN revision_id BLOB("STRIFY(SXI_SHA1_BIN_LEN)")") || qstep_noret(q))
+            break;
+        qnullify(q);
+        /* TODO: for new files insert correct one already */
+        if(qprep(db, &q, "CREATE UNIQUE INDEX file_rev_id ON files(revision_id)") || qstep_noret(q))
+            break;
+        qnullify(q);
+        if(qprep(db, &q, "CREATE TABLE IF NOT EXISTS heal(\
+            revision_id BLOB("STRIFY(SXI_SHA1_BIN_LEN)") PRIMARY KEY NOT NULL,\
+            remote_volume INT,\
+            blocks INT,\
+            blocksize INT,\
+            replica_count INT)") || qstep_noret(q))
+            break;
+        qnullify(q);
+        if(qprep(db, &q, "CREATE INDEX IF NOT EXISTS heal_vol ON heal(blocks, remote_volume)") || qstep_noret(q))
+            break;
+        ret = OK;
+    } while(0);
+    qnullify(q);
+    return ret;
+}
+
 static rc_ty datadb_1_0_to_1_1(sxi_db_t *db)
 {
     /* TODO: disable GC until upgrade job is run */
@@ -3251,7 +3287,6 @@ static rc_ty datadb_1_0_to_1_1(sxi_db_t *db)
         if(qprep(db, &q, "CREATE INDEX IF NOT EXISTS idx_op_revision ON revision_ops(op, revision_id, age)") || qstep_noret(q))
             break;
         qnullify(q);
-
         /* TODO: how to add NOT NULL constraint to 1.0 blocks schema without
          * reimporting table? */
         ret = OK;
@@ -3281,7 +3316,7 @@ static const sx_upgrade_t upgrade_sequence[] = {
         HASHFS_VERSION_1_0,
         HASHFS_VERSION_1_1,
         .upgrade_hashfsdb = hashfs_1_0_to_1_1,
-        .upgrade_metadb = NULL,
+        .upgrade_metadb = metadb_1_0_to_1_1,
         .upgrade_datadb = datadb_1_0_to_1_1,
         .upgrade_tempdb = NULL,
         .upgrade_eventsdb = eventsdb_1_0_to_1_1,
@@ -3381,6 +3416,198 @@ rc_ty sx_storage_upgrade(const char *dir) {
 upgrade_fail:
     free(path);
     return ret;
+}
+
+rc_ty sx_hashfs_upgrade_1_0_prepare(sx_hashfs_t *h)
+{
+    sxi_db_t *db = NULL;
+    sqlite3_stmt *q = NULL;
+    rc_ty rc = FAIL_EINTERNAL;
+    unsigned i;
+    int64_t heal_required =  0;
+    int64_t heal_done = 0;
+    int64_t total = 0;
+
+    sx_hashfs_set_progress_info(h, INPRG_UPGRADE, "Upgrade: preparing");
+    for(i=0;i<METADBS;i++) {
+        db = h->metadb[i];
+        if(qprep(db, &q, "SELECT COUNT(*) FROM files WHERE revision_id IS NULL") ||
+           qstep_ret(q))
+            break;
+        heal_required += sqlite3_column_int64(q, 0);
+        qnullify(q);
+        if(qprep(db, &q, "SELECT COUNT(*) FROM files") ||
+           qstep_ret(q))
+            break;
+        total += sqlite3_column_int64(q, 0);
+        qnullify(q);
+    }
+    qnullify(q);
+    if (i < METADBS)
+        return FAIL_EINTERNAL;
+
+    for(i=0;i<METADBS;i++) {
+        sqlite3_stmt *qsel = NULL, *qupd = NULL;
+        int ret;
+        db = h->metadb[i];
+        rc = FAIL_EINTERNAL;
+        if(qprep(db, &qsel, "SELECT fid, volume_id, name, rev, size FROM files WHERE revision_id IS NULL") ||
+           qprep(db, &qupd, "UPDATE files SET revision_id=:revision_id WHERE fid=:fid")) {
+            qnullify(qsel);
+            qnullify(qupd);
+            break;
+        }
+        do {
+            unsigned int k = 0;
+            rc = FAIL_EINTERNAL;
+            if (qbegin(db))
+                break;
+            sqlite3_reset(qsel);
+            while ((ret = qstep(qsel)) == SQLITE_ROW && (k++ < gc_max_batch)) {
+                sx_hash_t revision_id;
+                const sx_hashfs_volume_t *volume;
+                unsigned int bsize;
+
+                int64_t fid = sqlite3_column_int64(qsel, 0);
+                int64_t volid = sqlite3_column_int64(qsel, 1);
+                const unsigned char *name = sqlite3_column_text(qsel, 2);
+                const unsigned char *rev = sqlite3_column_text(qsel, 3);
+                int64_t size = sqlite3_column_int64(qsel, 4);
+                unsigned blocks = size_to_blocks(size, NULL, &bsize);
+                ret = -1;
+                if ((rc = sx_hashfs_volume_by_id(h, volid, &volume)))
+                    break;
+                if (sx_unique_fileid(sx_hashfs_client(h), volume, (const char*)name, (const char*)rev, &revision_id))
+                    break;
+                sqlite3_reset(qupd);
+                sqlite3_reset(h->qm_add_heal[i]);
+                DEBUGHASH("preparing for upgrade", &revision_id);
+                if (qbind_blob(h->qm_add_heal[i], ":revision_id", revision_id.b, sizeof(revision_id.b)) ||
+                    qbind_null(h->qm_add_heal[i], ":remote_volid") ||
+                    qbind_int(h->qm_add_heal[i], ":blocks", blocks) ||
+                    qbind_int(h->qm_add_heal[i], ":blocksize", bsize) ||
+                    qbind_int(h->qm_add_heal[i], ":replica_count", volume->replica_count) ||
+                    qstep_noret(h->qm_add_heal[i]) ||
+                    sx_hashfs_revision_op(h, bsize, &revision_id, 1) ||
+                    qbind_int64(qupd, ":fid", fid) ||
+                    qbind_blob(qupd, ":revision_id", revision_id.b, sizeof(revision_id.b)) ||
+                    qstep_noret(qupd))
+                    break;
+            }
+            sqlite3_reset(qsel);
+            sqlite3_reset(qupd);
+            sqlite3_reset(h->qm_add_heal[i]);
+            if (ret != SQLITE_ROW && ret != SQLITE_DONE)
+                break;
+            if (qcommit(db))
+                break;
+            if (k) {
+                char msg[128];
+                heal_done += k-1;
+                snprintf(msg, sizeof(msg), "Upgrade - preparing local files: %lld/%lld remaining",
+                        (long long)heal_required - heal_done, (long long)total);
+                sx_hashfs_set_progress_info(h, INPRG_UPGRADE, msg);
+            }
+            rc = OK;
+        } while(ret == SQLITE_ROW);
+        qnullify(qsel);
+        qnullify(qupd);
+        if (rc)
+            qrollback(db);
+    }
+    sx_hashfs_set_progress_info(h, INPRG_UPGRADE, "Upgrade - local files prepared");
+
+    return rc;
+}
+
+static rc_ty sx_hashfs_hashop_moduse(sx_hashfs_t *h, const sx_hash_t *reserve_id, const sx_hash_t *revision_id, unsigned int hs, const sx_hash_t *hash, unsigned replica, int64_t op, uint64_t op_expires_at);
+static rc_ty hash_of_blob_result(sx_hash_t *hash, sqlite3_stmt *stmt, int col);
+rc_ty sx_hashfs_upgrade_1_0_local(sx_hashfs_t *h)
+{
+    sqlite3_stmt *q = NULL;
+    rc_ty rc = FAIL_EINTERNAL;
+    sxi_db_t *db = NULL;
+    unsigned i;
+    int64_t heal_required = 0;
+    char msg[128];
+
+    sx_hashfs_set_progress_info(h, INPRG_UPGRADE, "Upgrade - local file blocks");
+    for(i=0;i<METADBS;i++) {
+        db = h->metadb[i];
+        if(qprep(db, &q, "SELECT SUM(blocks) FROM heal WHERE remote_volume IS NULL") ||
+           qstep_ret(q))
+            break;
+        heal_required += sqlite3_column_int64(q, 0);
+        db = h->metadb[i];
+        qnullify(q);
+    }
+    qnullify(q);
+    for(i=0;i<METADBS;i++) {
+        sqlite3_stmt *qsel = NULL;
+        int ret;
+        db = h->metadb[i];
+        if(qprep(db, &qsel, "SELECT heal.revision_id, blocks, blocksize, content, replica_count, name, rev FROM heal INNER JOIN files ON heal.revision_id=files.revision_id WHERE remote_volume IS NULL"))
+            break;
+        do {
+            int64_t heal_done = 0;
+            unsigned k=0;
+            rc = FAIL_EINTERNAL;
+            snprintf(msg, sizeof(msg), "Upgrade - local file blocks: %lld remaining", (long long)heal_required);
+            sx_hashfs_set_progress_info(h, INPRG_UPGRADE, msg);
+            if (qbegin(db))
+                break;
+            sqlite3_reset(qsel);
+            while ((ret = qstep(qsel)) == SQLITE_ROW && (k++ < gc_max_batch)) {
+                unsigned int hs;
+                sx_hash_t revision_id;
+                int64_t blocks = sqlite3_column_int64(qsel, 1);
+                unsigned blocksize = sqlite3_column_int64(qsel, 2);
+                const sx_hash_t *content = sqlite3_column_blob(qsel, 3);
+                unsigned int replica = sqlite3_column_int64(qsel, 4);
+                ret = -1;
+                int64_t j;
+
+                if (hash_of_blob_result(&revision_id, qsel, 0))
+                    break;
+                if (sqlite3_column_bytes(qsel, 3) != blocks*sizeof(*content)) {
+                    CRIT("corrupt file blob: %s (%s)", sqlite3_column_text(qsel,5), sqlite3_column_text(qsel, 6));
+                    continue;
+                }
+                for(hs = 0; hs < SIZES; hs++)
+            	    if(bsz[hs] == blocksize)
+        	        break;
+                if (hs == SIZES) {
+                    CRIT("corrupt file blocksize: %d", blocksize);
+                    continue;
+                }
+                for (j=0;j<blocks;j++) {
+                    const sx_hash_t *hash = &content[j];
+                    if (sx_hashfs_hashop_moduse(h, NULL, &revision_id, hs, hash, replica, 1, 0))
+                        break;
+                }
+                if (j != blocks)
+                    break;
+                DEBUG("rebuilt revmap for %lld blocks", (long long)blocks);
+                if (qbind_blob(h->qm_del_heal[i],":revision_id", revision_id.b, sizeof(revision_id.b)) ||
+                    qstep_noret(h->qm_del_heal[i]))
+                    break;
+                heal_done += blocks;
+            }
+            sqlite3_reset(qsel);
+            if (ret != SQLITE_ROW && ret != SQLITE_DONE)
+                break;
+            if (qcommit(db))
+                break;
+            rc = OK;
+            heal_required -= heal_done;
+        } while(ret == SQLITE_ROW);
+        qnullify(qsel);
+        if (rc)
+            qrollback(db);
+    }
+    if (rc == OK)
+        sx_hashfs_set_progress_info(h, INPRG_UPGRADE, "Upgrade - local file blocks done");
+    return rc;
 }
 
 /* Create temporary file inside given path.
@@ -11815,7 +12042,7 @@ rc_ty sx_hashfs_set_progress_info(sx_hashfs_t *h, sx_inprogress_t state, const c
 	return EFAULT;
     }
 
-    if(state < INPRG_IDLE || state > INPRG_REPLACE_COMPLETE)
+    if(state < INPRG_IDLE || state >= INPRG_LAST)
 	return EINVAL;
 
     if(state == INPRG_IDLE) {

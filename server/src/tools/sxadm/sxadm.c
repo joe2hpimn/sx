@@ -1477,6 +1477,33 @@ static int cluster_set_mode(sxc_client_t *sx, struct cluster_args_info *args) {
     return ret;
 }
 
+static int cluster_upgrade(sxc_client_t *sx, struct cluster_args_info *args) {
+    sxc_cluster_t *cluster;
+    int ret;
+
+    if(!args) {
+        fprintf(stderr, "ERROR: Invalid argument\n");
+        return 1;
+    }
+
+    cluster = cluster_load(sx, args, 1);
+    if(!cluster)
+        return 1;
+    sxi_query_t *q = sxi_cluster_upgrade_proto(sx);
+    if (q)
+        ret = sxi_job_submit_and_poll(sxi_cluster_get_conns(cluster), NULL, q->verb, q->path, q->content, q->content_len);
+    else
+        ret = -1;
+    sxi_query_free(q);
+
+    sxc_cluster_free(cluster);
+    if(ret)
+        fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
+    else
+        printf("Upgrade job started, use 'sxadm cluster --info %s' to monitor progress\n", args->inputs[0]);
+    return ret;
+}
+
 int main(int argc, char **argv) {
     struct main_args_info main_args;
     struct node_args_info node_args;
@@ -1570,6 +1597,8 @@ int main(int argc, char **argv) {
             ret = cluster_status(sx, &cluster_args);
         else if(cluster_args.set_mode_given && cluster_args.inputs_num == 1)
             ret = cluster_set_mode(sx, &cluster_args);
+        else if(cluster_args.upgrade_given && cluster_args.inputs_num == 1)
+            ret = cluster_upgrade(sx, &cluster_args);
 	else
 	    cluster_cmdline_parser_print_help();
     cluster_out:

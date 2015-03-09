@@ -1002,3 +1002,7 @@ sxi_query_t *sxi_cluster_mode_proto(sxc_client_t *sx, int readonly) {
     }
     return query;
 }
+
+sxi_query_t *sxi_cluster_upgrade_proto(sxc_client_t *sx) {
+    return sxi_query_create(sx, ".upgrade", REQ_PUT);
+}

@@ -4453,6 +4453,10 @@ static rc_ty revision_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_d
     return job_twophase_execute(&revision_spec, JOBPHASE_ABORT, hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
 }
 
+static act_result_t upgrade_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    return job_twophase_execute(&upgrade_spec, JOBPHASE_REQUEST, hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
+}
+
 /* TODO: upgrade from 1.0-style flush and delete jobs */
 static struct {
     job_action_t fn_request;
@@ -4487,7 +4491,7 @@ static struct {
     { force_phase_success, force_phase_success, force_phase_success, force_phase_success }, /* JOBTYPE_IGNODES */
     { force_phase_success, revision_commit, revision_abort, revision_undo }, /* JOBTYPE_BLOCKS_REVISION */
     { force_phase_success, fileflush_local, fileflush_remote_undo, force_phase_success }, /* JOBTYPE_FLUSH_FILE_LOCAL  - 1 node */
-    { force_phase_success, force_phase_success, force_phase_success, force_phase_success }, /* JOBTYPE_UPGRADE_1_0_TO_1_1 */
+    { upgrade_request, force_phase_success, force_phase_success, force_phase_success }, /* JOBTYPE_UPGRADE_1_0_TO_1_1 */
 };
 
 

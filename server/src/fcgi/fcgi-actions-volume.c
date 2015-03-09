@@ -1830,3 +1830,74 @@ void fcgi_cluster_mode(void) {
 
     job_2pc_handle_request(sx_hashfs_client(hashfs), &cluster_mode_spec, &c);
 }
+
+static const char *upgrade_get_lock(sx_blob_t *b)
+{
+    return "UPGRADE";
+}
+
+static int upgrade_to_blob(sxc_client_t *sx, int nodes, void *yctx, sx_blob_t *blob)
+{
+    int64_t *ver = (int64_t*)yctx;
+    if (!ver) {
+        NULLARG();
+        return 1;
+    }
+    return sx_blob_add_int64(blob, *ver);
+}
+
+static rc_ty upgrade_nodes(sx_hashfs_t *hashfs, sx_blob_t *blob, sx_nodelist_t **nodes)
+{
+    if (!nodes)
+        return FAIL_EINTERNAL;
+    *nodes = sx_nodelist_dup(sx_hashfs_nodelist(hashfs, NL_NEXTPREV));
+    if (!*nodes)
+        return FAIL_EINTERNAL;
+    return OK;
+}
+
+static sxi_query_t* upgrade_proto_from_blob(sxc_client_t *sx, sx_blob_t *b, jobphase_t phase)
+{
+    switch (phase) {
+        case JOBPHASE_REQUEST:
+            return sxi_cluster_upgrade_proto(sx);
+        default:
+            return NULL;
+    }
+}
+
+static unsigned upgrade_timeout(sxc_client_t *sx, int nodes)
+{
+    return JOB_NO_EXPIRY;
+}
+
+static rc_ty upgrade_execute_blob(sx_hashfs_t *hashfs, sx_blob_t *b, jobphase_t phase, int remote)
+{
+    switch (phase) {
+        case JOBPHASE_REQUEST:
+            INFO("Preparing to upgrade node");
+            if (sx_hashfs_upgrade_1_0_prepare(hashfs) ||
+                sx_hashfs_upgrade_1_0_local(hashfs))
+                return EAGAIN;
+            return OK;
+        default:
+            return OK;
+    }
+}
+
+const job_2pc_t upgrade_spec = {
+    NULL,
+    JOBTYPE_UPGRADE_1_0_TO_1_1,
+    NULL,
+    upgrade_get_lock,
+    upgrade_to_blob,
+    upgrade_execute_blob,
+    upgrade_proto_from_blob,
+    upgrade_nodes,
+    upgrade_timeout
+};
+
+void fcgi_cluster_upgrade(void) {
+   int64_t ver = sx_hashfs_hdist_getversion(hashfs);
+   job_2pc_handle_request(sx_hashfs_client(hashfs), &upgrade_spec, &ver);
+}
