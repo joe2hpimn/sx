@@ -69,6 +69,9 @@ typedef enum _jobtype_t {
     JOBTYPE_REVSCLEAN,
     JOBTYPE_DISTLOCK,
     JOBTYPE_CLUSTER_MODE,
+    JOBTYPE_BLOCKS_REVISION,
+    JOBTYPE_FLUSH_FILE_LOCAL,
+    JOBTYPE_UPGRADE_1_0_TO_1_1,
 } jobtype_t;
 
 typedef enum {
