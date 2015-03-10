@@ -4455,6 +4455,7 @@ static struct {
     { force_phase_success, revsclean_vol_commit, revsclean_vol_abort, revsclean_vol_undo }, /* JOBTYPE_REVSCLEAN */
     { distlock_request, force_phase_success, distlock_abort, force_phase_success }, /* JOBTYPE_DISTLOCK */
     { cluster_mode_request, force_phase_success, cluster_mode_abort, force_phase_success }, /* JOBTYPE_CLUSTER_MODE */
+    { force_phase_success, force_phase_success, force_phase_success, force_phase_success }, /* JOBTYPE_IGNODES */
     { force_phase_success, force_phase_success, force_phase_success, force_phase_success }, /* JOBTYPE_BLOCKS_REVISION */
     { force_phase_success, force_phase_success, force_phase_success, force_phase_success }, /* JOBTYPE_FLUSH_FILE_LOCAL  - 1 node */
     { force_phase_success, force_phase_success, force_phase_success, force_phase_success }, /* JOBTYPE_UPGRADE_1_0_TO_1_1 */
