@@ -3177,6 +3177,7 @@ lock_db_err:
 int sx_hashfs_check(sx_hashfs_t *h, int debug) {
     int ret = -1, r = 0, i, j;
     sqlite3_stmt *locks[METADBS + SIZES * HASHDBS + 4], *unlocks[METADBS + SIZES * HASHDBS + 4];
+    int readonly = 0;
 
     memset(locks, 0, sizeof(locks));
     memset(unlocks, 0, sizeof(unlocks));
@@ -3200,6 +3201,11 @@ int sx_hashfs_check(sx_hashfs_t *h, int debug) {
     if(lock_db(h->db, locks + r, unlocks + r) || lock_db(h->tempdb, locks + r + 1, unlocks + r + 1)
        || lock_db(h->xferdb, locks + r + 2, unlocks + r + 2) || lock_db(h->eventdb, locks + r + 3, unlocks + r + 3)) {
         CHECK_FATAL("Failed to lock database");
+        goto sx_hashfs_check_err;
+    }
+
+    if(sx_hashfs_cluster_get_mode(h, &readonly) || !readonly) {
+        CHECK_FATAL("Cluster needs to be in a read-only mode in order to perform sanity checks");
         goto sx_hashfs_check_err;
     }
 
