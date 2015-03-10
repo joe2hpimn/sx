@@ -732,7 +732,7 @@ const char *acl_get_lock(sx_blob_t *b)
     return !sx_blob_get_string(b, &name) ? name : NULL;
 }
 
-static rc_ty acl_nodes(sxc_client_t *sx, sx_blob_t *blob, sx_nodelist_t **nodes)
+static rc_ty acl_nodes(sx_hashfs_t *hashfs, sx_blob_t *blob, sx_nodelist_t **nodes)
 {
     if (!nodes)
         return FAIL_EINTERNAL;
@@ -1203,7 +1203,7 @@ static const char *volmod_get_lock(sx_blob_t *b)
     return !sx_blob_get_string(b, &vol) ? vol : NULL;
 }
 
-static rc_ty volmod_nodes(sxc_client_t *sx, sx_blob_t *blob, sx_nodelist_t **nodes)
+static rc_ty volmod_nodes(sx_hashfs_t *hashfs, sx_blob_t *blob, sx_nodelist_t **nodes)
 {
     if (!nodes)
         return FAIL_EINTERNAL;
@@ -1802,7 +1802,7 @@ static const char *cluster_mode_get_lock(sx_blob_t *b)
     return "CLUSTER_MODE";
 }
 
-static rc_ty cluster_mode_nodes(sxc_client_t *sx, sx_blob_t *blob, sx_nodelist_t **nodes)
+static rc_ty cluster_mode_nodes(sx_hashfs_t *hashfs, sx_blob_t *blob, sx_nodelist_t **nodes)
 {
     if(!nodes)
         return FAIL_EINTERNAL;

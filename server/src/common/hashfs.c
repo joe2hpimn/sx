@@ -50,6 +50,7 @@
 #include "../libsx/src/clustcfg.h"
 #include "../libsx/src/cluster.h"
 #include "../libsx/src/sxreport.h"
+#include "job_common.h"
 
 #define HASHDBS 16
 #define METADBS 16
@@ -7940,6 +7941,71 @@ static rc_ty get_existing_delete_job(sx_hashfs_t *h, const char *revision, job_t
 get_existing_delete_job_err:
     sqlite3_reset(h->qe_getfiledeljob);
     return ret;
+}
+
+rc_ty sx_hashfs_job_new_2pc(sx_hashfs_t *hashfs, const job_2pc_t *spec, void *yctx, sx_uid_t uid, job_t *job, int execute)
+{
+    sxc_client_t *sx = sx_hashfs_client(hashfs);
+    sx_nodelist_t *nodes = NULL;
+    rc_ty rc = FAIL_EINTERNAL;
+    sx_blob_t *joblb = NULL;
+
+    do {
+        joblb = sx_blob_new();
+        if (!joblb) {
+            msg_set_reason("Cannot allocate job blob");
+            break;
+        }
+
+        if (spec->nodes(hashfs, joblb, &nodes))
+            break;
+
+        if (spec->to_blob(sx, sx_nodelist_count(nodes), yctx, joblb)) {
+            const char *msg = msg_get_reason();
+            if(!msg || !*msg)
+                msg_set_reason("Cannot create job blob");
+            break;
+        }
+
+        if(execute) {
+            sx_blob_reset(joblb);
+            rc = spec->execute_blob(hashfs, joblb, JOBPHASE_REQUEST, 1);
+            if (rc != OK) {
+                const char *msg = msg_get_reason();
+                if (!msg)
+                    msg_set_reason("%s", rc2str(rc));
+                WARN("Failed to execute job(%d): %s", rc2http(rc), msg);
+                break;
+            }
+        } else {
+            const void *job_data;
+            unsigned int job_datalen;
+            unsigned int job_timeout;
+
+            /* create job, must not reset yet */
+            sx_blob_to_data(joblb, &job_data, &job_datalen);
+            /* must reset now */
+            sx_blob_reset(joblb);
+            if (!spec->get_lock) {
+                NULLARG();
+                rc = EFAULT;
+                break;
+            }
+            const char *lock = spec->get_lock(joblb);
+            sx_blob_reset(joblb);
+            job_timeout = spec->timeout(sx, sx_nodelist_count(nodes));
+            if (*job == JOB_NOPARENT)
+                rc = sx_hashfs_job_new(hashfs, uid, job, spec->job_type, job_timeout, lock, job_data, job_datalen, nodes);
+            else {
+                job_t parent = *job;
+                rc = sx_hashfs_job_new_notrigger(hashfs, parent, uid, job, spec->job_type, job_timeout, lock, job_data, job_datalen, nodes);
+                DEBUG("job %ld created, parent: %ld", *job, parent);
+            }
+        }
+    } while(0);
+    sx_blob_free(joblb);
+    sx_nodelist_delete(nodes);
+    return rc;
 }
 
 rc_ty sx_hashfs_filedelete_job(sx_hashfs_t *h, sx_uid_t user_id, const sx_hashfs_volume_t *vol, const char *name, const char *revision, job_t *job_id) {

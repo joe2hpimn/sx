@@ -87,7 +87,7 @@ typedef struct {
     int (*to_blob)(sxc_client_t *sx, int nodes, void *ctx, sx_blob_t *blob);
     rc_ty (*execute_blob)(struct _sx_hashfs_t *hashfs, sx_blob_t *blob, jobphase_t phase, int remote);
     sxi_query_t* (*proto_from_blob)(sxc_client_t *sx, sx_blob_t *blob, jobphase_t phase);
-    int (*nodes)(sxc_client_t *sx, sx_blob_t *blob, sx_nodelist_t **nodes);
+    int (*nodes)(struct _sx_hashfs_t *hashfs, sx_blob_t *blob, sx_nodelist_t **nodes);
     unsigned (*timeout)(sxc_client_t *sx, int nodes);
 } job_2pc_t;
 

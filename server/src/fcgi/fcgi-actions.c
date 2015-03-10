@@ -333,13 +333,11 @@ void file_ops(void) {
 	if(!strcmp(volume, ".data")) {
             if (has_arg("o")) {
 		/* Hashop reserve/inuse (s2s) - CLUSTER required */
-                enum sxi_hashop_kind kind;
                 quit_unless_has(PRIV_CLUSTER);
                 if (arg_is("o","reserve"))
-                    kind = HASHOP_RESERVE;
+                    fcgi_hashop_blocks(HASHOP_RESERVE);
                 else
                     quit_errmsg(400,"Invalid operation requested on hash batch");
-                fcgi_hashop_blocks(kind);
                 return;
             }
 	    /* Phase 2 (blocks upload) - valid token required */
@@ -428,55 +426,16 @@ void job_2pc_handle_request(sxc_client_t *sx, const job_2pc_t *spec, void *yctx)
         quit_unless_authed();
     }
 
-    sx_blob_t *joblb = sx_blob_new();
-    if (!joblb)
-        quit_errmsg(500, "Cannot allocate job blob");
-
-    sx_nodelist_t *nodes = NULL;
-    if (spec->nodes(sx, joblb, &nodes))
-        quit_errmsg(500, msg_get_reason());
-
-    if (spec->to_blob(sx, sx_nodelist_count(nodes), yctx, joblb)) {
-        const char *msg = msg_get_reason();
-        sx_blob_free(joblb);
-        if(!msg || !*msg)
-            msg = "Cannot create job blob";
-        sx_nodelist_delete(nodes);
-        quit_errmsg(500, msg);
-    }
-    if(has_priv(PRIV_CLUSTER)) {
-        sx_nodelist_delete(nodes);
-        sx_blob_reset(joblb);
-        rc_ty rc = spec->execute_blob(hashfs, joblb, JOBPHASE_REQUEST, 1);
-        sx_blob_free(joblb);
-        if (rc != OK) {
-            const char *msg = msg_get_reason();
-            if (!msg)
-                msg = rc2str(rc);
-            WARN("Failed to execute job(%d): %s", rc2http(rc), msg);
-            quit_errmsg(rc2http(rc), msg);
-        }
-	CGI_PUTS("\r\n");
+    job_t job = JOB_NOPARENT;
+    rc_ty rc = sx_hashfs_job_new_2pc(hashfs, spec, yctx, uid, &job, has_priv(PRIV_CLUSTER));
+    if (rc == OK) {
+        if (has_priv(PRIV_CLUSTER))
+            CGI_PUTS("\r\n");
+        else
+            send_job_info(job);
     } else {
-	const void *job_data;
-	unsigned int job_datalen;
-	job_t job;
-        int res;
-	unsigned int job_timeout;
-
-        /* create job, must not reset yet */
-        sx_blob_to_data(joblb, &job_data, &job_datalen);
-        /* must reset now */
-        sx_blob_reset(joblb);
-        const char *lock = spec->get_lock(joblb);
-        sx_blob_reset(joblb);
-	job_timeout = spec->timeout(sx, sx_nodelist_count(nodes));
-        res = sx_hashfs_job_new(hashfs, uid, &job, spec->job_type, job_timeout, lock, job_data, job_datalen, nodes);
-        sx_blob_free(joblb);
-        sx_nodelist_delete(nodes);
-        if (res != OK)
-            quit_errmsg(rc2http(res), msg_get_reason());
-        send_job_info(job);
+        WARN("failed: %s", rc2str(rc));
+        quit_errmsg(rc2http(rc), msg_get_reason());
     }
 }
 

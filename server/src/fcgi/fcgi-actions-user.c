@@ -54,7 +54,7 @@ static const char *user_get_lock(sx_blob_t *b)
     return !sx_blob_get_string(b, &name) ? name : NULL;
 }
 
-static rc_ty user_nodes(sxc_client_t *sx, sx_blob_t *blob, sx_nodelist_t **nodes)
+static rc_ty user_nodes(sx_hashfs_t *hashfs, sx_blob_t *blob, sx_nodelist_t **nodes)
 {
     if (!nodes)
         return FAIL_EINTERNAL;
