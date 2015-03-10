@@ -6517,6 +6517,10 @@ static int reserve_fileid(sx_hashfs_t *h, int64_t volume_id, const char *name, s
 static int unique_fileid(sxc_client_t *sx, const sx_hashfs_volume_t *volume, const char *name, const char *revision, sx_hash_t *fileid)
 {
     int ret = 0;
+    if (!name || !revision || !fileid) {
+        NULLARG();
+        return 1;
+    }
     sxi_md_ctx *hash_ctx = sxi_md_init();
     if (!hash_ctx)
         return 1;
@@ -7372,7 +7376,7 @@ static int tmp_getmissing_cb(const char *hexhash, unsigned int index, int code, 
     return 0;
 }
 
-static rc_ty tmp_getinfo_common(sx_hashfs_t *h, const char *rev, int64_t tmpfile_id, sx_hashfs_tmpinfo_t **tmpinfo, int recheck_presence, uint64_t op_expires_at) {
+static rc_ty tmp_getinfo_common(sx_hashfs_t *h, const char *rev, int64_t tmpfile_id, sx_hashfs_tmpinfo_t **tmpinfo, int recheck_presence) {
     unsigned int contentsz, nblocks, bs, nuniqs, i, hash_size, navl;
     const unsigned int *uniqs;
     const sx_hashfs_volume_t *volume;
@@ -7555,7 +7559,7 @@ static rc_ty tmp_getinfo_common(sx_hashfs_t *h, const char *rev, int64_t tmpfile
             DEBUGHASH("tmp_get_info reserve_id", &reserve_id);
             DEBUGHASH("tmp_get_info revision_id", &revision_id);
             sxi_hashop_begin(&h->hc, h->sx_clust, tmp_getmissing_cb,
-                             HASHOP_INUSE, tbd->replica_count, &reserve_id, &revision_id, tbd, op_expires_at);
+                             HASHOP_INUSE, tbd->replica_count, &reserve_id, &revision_id, tbd, 0);
 	    tbd->current_replica = i;
             DEBUG("begin queries for replica #%d", i);
 	    while((ret2 = are_blocks_available(h,
@@ -7656,11 +7660,11 @@ static rc_ty get_tempfile_metasize(sx_hashfs_t *h, int64_t tid, int64_t *size) {
 }
 
 rc_ty sx_hashfs_tmp_getinfo_by_revision(sx_hashfs_t *h, const char *revision, sx_hashfs_tmpinfo_t **tmpinfo) {
-    return tmp_getinfo_common(h, revision, -1, tmpinfo, 0, 0);
+    return tmp_getinfo_common(h, revision, -1, tmpinfo, 0);
 }
 
-rc_ty sx_hashfs_tmp_getinfo(sx_hashfs_t *h, int64_t tmpfile_id, sx_hashfs_tmpinfo_t **tmpinfo, int recheck_presence, uint64_t op_expires_at) {
-    return tmp_getinfo_common(h, NULL, tmpfile_id, tmpinfo, recheck_presence, op_expires_at);
+rc_ty sx_hashfs_tmp_getinfo(sx_hashfs_t *h, int64_t tmpfile_id, sx_hashfs_tmpinfo_t **tmpinfo, int recheck_presence) {
+    return tmp_getinfo_common(h, NULL, tmpfile_id, tmpinfo, recheck_presence);
 }
 
 rc_ty sx_hashfs_tmp_tofile(sx_hashfs_t *h, const sx_hashfs_tmpinfo_t *missing) {
@@ -7738,7 +7742,7 @@ rc_ty sx_hashfs_tmp_tofile(sx_hashfs_t *h, const sx_hashfs_tmpinfo_t *missing) {
     return ret;
 }
 
-static rc_ty file_totmp(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, const char *name, const char *revision, int64_t *tmpfile_id, unsigned int *timeout) {
+static rc_ty file_totmp(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, const char *name, const char *revision, int64_t *tmpfile_id, unsigned int *timeout, unsigned int *blocksize) {
     unsigned int nblocks, bsize, content_len, avail_len;
     char rev[REV_LEN + 1];
     const void *content;
@@ -7791,6 +7795,8 @@ static rc_ty file_totmp(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, const cha
 	return ENOMEM;
     }
     memset(avail, 1, avail_len);
+    if (blocksize)
+        *blocksize = bsize;
 
     *timeout = sx_hashfs_job_file_timeout(h, vol->replica_count, size);
 
@@ -7948,10 +7954,11 @@ rc_ty sx_hashfs_filedelete_job(sx_hashfs_t *h, sx_uid_t user_id, const sx_hashfs
         goto sx_hashfs_filedelete_job_err;
 
     if(revision) {
+        unsigned int blocksize;
         /* Check if delete job for this revision exist and if not, create new one */
         if((ret = get_existing_delete_job(h, revision, job_id)) == ENOENT) {
             /* Tempfile does not exist, create new one */
-            ret = file_totmp(h, vol, name, revision, &tmpfile_id, &timeout);
+            ret = file_totmp(h, vol, name, revision, &tmpfile_id, &timeout, &blocksize);
             if(ret) {
                 WARN("Failed to create tempfile: sx://%s/%s %s", vol->name, name, revision);
                 goto sx_hashfs_filedelete_job_err;
@@ -7999,7 +8006,8 @@ rc_ty sx_hashfs_filedelete_job(sx_hashfs_t *h, sx_uid_t user_id, const sx_hashfs
     }
 
     for(; s == OK; s = sx_hashfs_revision_next(h, 0)) {
-	ret = file_totmp(h, vol, name, filerev->revision, &tmpfile_id, &timeout);
+        unsigned int blocksize;
+	ret = file_totmp(h, vol, name, filerev->revision, &tmpfile_id, &timeout, &blocksize);
 	if(ret) {
             WARN("Failed to create tempfile: sx://%s/%s %s", vol->name, name, filerev->revision);
 	    goto sx_hashfs_filedelete_job_err;
@@ -8287,7 +8295,7 @@ static rc_ty tmp_unbump_common(sx_hashfs_t *h, const char *rev, int64_t tmpfile_
     if(rev)
         s = sx_hashfs_tmp_getinfo_by_revision(h, rev, &tmp);
     else
-        s = sx_hashfs_tmp_getinfo(h, tmpfile_id, &tmp, 0, 0);
+        s = sx_hashfs_tmp_getinfo(h, tmpfile_id, &tmp, 0);
     if(s != OK)
 	return s;
 

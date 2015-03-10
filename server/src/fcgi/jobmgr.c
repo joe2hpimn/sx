@@ -828,7 +828,7 @@ static act_result_t replicateblocks_commit(sx_hashfs_t *hashfs, job_t job_id, jo
 
     memcpy(&tmpfile_id, job_data->ptr, sizeof(tmpfile_id));
     DEBUG("replocateblocks_request for file %lld", (long long)tmpfile_id);
-    s = sx_hashfs_tmp_getinfo(hashfs, tmpfile_id, &mis, 1, job_data->op_expires_at);
+    s = sx_hashfs_tmp_getinfo(hashfs, tmpfile_id, &mis, 1);
     if(s == EFAULT || s == EINVAL) {
 	CRIT("Error getting tmpinfo: %s", msg_get_reason());
 	action_error(ACT_RESULT_PERMFAIL, 500, msg_get_reason());
@@ -1132,7 +1132,7 @@ static act_result_t fileflush_request(sx_hashfs_t *hashfs, job_t job_id, job_dat
 
     memcpy(&tmpfile_id, job_data->ptr, sizeof(tmpfile_id));
     DEBUG("fileflush_request for file %lld", (long long)tmpfile_id);
-    s = sx_hashfs_tmp_getinfo(hashfs, tmpfile_id, &mis, 0, job_data->op_expires_at);
+    s = sx_hashfs_tmp_getinfo(hashfs, tmpfile_id, &mis, 0);
     if(s == EFAULT || s == EINVAL) {
 	CRIT("Error getting tmpinfo: %s", msg_get_reason());
 	action_error(ACT_RESULT_PERMFAIL, 500, msg_get_reason());
@@ -1243,7 +1243,7 @@ static act_result_t fileflush_commit(sx_hashfs_t *hashfs, job_t job_id, job_data
     memcpy(&tmpfile_id, job_data->ptr, sizeof(tmpfile_id));
 
     DEBUG("fileflush_commit for file %lld", (long long)tmpfile_id);
-    s = sx_hashfs_tmp_getinfo(hashfs, tmpfile_id, &mis, 0, job_data->op_expires_at);
+    s = sx_hashfs_tmp_getinfo(hashfs, tmpfile_id, &mis, 0);
     if(s == EFAULT || s == EINVAL) {
 	CRIT("Error getting tmpinfo: %s", msg_get_reason());
 	action_error(ACT_RESULT_PERMFAIL, 500, msg_get_reason());
@@ -1326,7 +1326,7 @@ static act_result_t fileflush_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t
     }
     memcpy(&tmpfile_id, job_data->ptr, sizeof(tmpfile_id));
 
-    s = sx_hashfs_tmp_getinfo(hashfs, tmpfile_id, &tmp, 0, 0);
+    s = sx_hashfs_tmp_getinfo(hashfs, tmpfile_id, &tmp, 0);
     if(s == ENOENT)
 	return force_phase_success(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
     if(s != OK) {
@@ -1447,7 +1447,7 @@ static act_result_t filedelete_request(sx_hashfs_t *hashfs, job_t job_id, job_da
     } else { /* job_data->len == sizeof(tmpfile_id) */
         memcpy(&tmpfile_id, job_data->ptr, sizeof(tmpfile_id));
         DEBUG("Invoking legacy file delete job type: %lld", (long long)tmpfile_id);
-        s = sx_hashfs_tmp_getinfo(hashfs, tmpfile_id, &tmp, 0, 0);
+        s = sx_hashfs_tmp_getinfo(hashfs, tmpfile_id, &tmp, 0);
         DEBUG("Got file delete tmpfile: %s", tmp->name);
     }
 
@@ -1604,7 +1604,7 @@ static act_result_t filedelete_abort(sx_hashfs_t *hashfs, job_t job_id, job_data
     } else { /* job_data->len == sizeof(tmpfile_id) */
         memcpy(&tmpfile_id, job_data->ptr, sizeof(tmpfile_id));
         DEBUG("Invoking legacy file delete job type: %lld", (long long)tmpfile_id);
-        s = sx_hashfs_tmp_getinfo(hashfs, tmpfile_id, &tmp, 0, 0);
+        s = sx_hashfs_tmp_getinfo(hashfs, tmpfile_id, &tmp, 0);
         DEBUG("Got file delete tmpfile: %s", tmp->name);
     }
 
@@ -1649,7 +1649,7 @@ static act_result_t filedelete_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_
     } else { /* job_data->len == sizeof(tmpfile_id) */
         memcpy(&tmpfile_id, job_data->ptr, sizeof(tmpfile_id));
         DEBUG("Invoking legacy file delete job type: %lld", (long long)tmpfile_id);
-        s = sx_hashfs_tmp_getinfo(hashfs, tmpfile_id, &tmp, 0, 0);
+        s = sx_hashfs_tmp_getinfo(hashfs, tmpfile_id, &tmp, 0);
         DEBUG("Got file delete tmpfile: %s", tmp->name);
     }
 
