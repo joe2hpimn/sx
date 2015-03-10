@@ -697,16 +697,16 @@ static int sxi_job_poll(sxi_conns_t *conns, sxi_jobs_t *jobs, int wait)
          * early in some situations, so count the number of still alive queries in
          * a separate loop */
         finished = alive = pending = errors = 0;
+        rc = 0;
         for (i=0;i<jobs->n;i++) {
             if (jobs->jobs[i]) {
                 if (!sxi_cbdata_is_finished(jobs->jobs[i]->cbdata))
                     alive++;
             }
         }
-
         /* If there are still alive jobs, poll before checking their status */
         if (alive) {
-            while (finished != alive && rc != -1) {
+            while (finished != alive && !rc) {
                 rc = sxi_curlev_poll(sxi_conns_get_curlev(conns));
                 if (finished > alive) {
                     sxi_notice(sx, "counters out of sync in job_wait: %d > %d", finished, alive);
@@ -756,11 +756,13 @@ static int sxi_job_poll(sxi_conns_t *conns, sxi_jobs_t *jobs, int wait)
         SXDEBUG("Sleeping %ld ms...", delay);
         usleep(delay * 1000);
     }
+    rc = 0;
     for (i=0;i<jobs->n;i++) {
         if (jobs->jobs[i])
-            sxi_job_result(sx, &jobs->jobs[i], &jobs->successful, &jobs->http_err, &jobs->error);
+            rc = sxi_job_result(sx, &jobs->jobs[i], &jobs->successful, &jobs->http_err, &jobs->error);
+        if(rc)
+            ret = rc;
     }
-
     return ret;
 }
 
