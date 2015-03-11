@@ -9419,7 +9419,7 @@ rc_ty sx_hashfs_job_new_notrigger(sx_hashfs_t *h, job_t parent, sx_uid_t user_id
     if(!data)
 	data = "";
 
-    if (type < 0 || type >= sizeof(locknames) / sizeof(locknames[0])) {
+    if ((unsigned)type >= sizeof(locknames) / sizeof(locknames[0])) {
 	msg_set_reason("Internal error: bad action type");
 	goto addjob_error;
     }
@@ -9646,25 +9646,28 @@ rc_ty sx_hashfs_job_unlock(sx_hashfs_t *h, const char *owner) {
     return ret;
 }
 
+static void ignore(int v)
+{
+    if (v < 0)
+        PWARN("ignoring write failure");
+}
+
 void sx_hashfs_job_trigger(sx_hashfs_t *h) {
     if(h && h->job_trigger >= 0) {
-	int w = write(h->job_trigger, ".", 1);
-	w = w;
+        ignore(write(h->job_trigger, ".", 1));
     }
 }
 
 void sx_hashfs_xfer_trigger(sx_hashfs_t *h) {
     if(h && h->xfer_trigger >= 0) {
-	int w = write(h->xfer_trigger, ".", 1);
-	w = w;
+        ignore(write(h->xfer_trigger, ".", 1));
     }
 }
 
 void sx_hashfs_gc_trigger(sx_hashfs_t *h) {
     if(h && h->gc_trigger >= 0) {
         INFO("triggered GC");
-	int w = write(h->gc_trigger, ".", 1);
-	w = w;
+        ignore(write(h->gc_trigger, ".", 1));
     }
 }
 
@@ -10000,9 +10003,8 @@ rc_ty sx_hashfs_gc_expire_all_reservations(sx_hashfs_t *h)
 {
     if(h && h->gc_trigger >= 0 && h->gc_expire_trigger >= 0) {
         INFO("triggered force expire");
-        int w = write(h->gc_expire_trigger, ".", 1);
-	w = write(h->gc_trigger, ".", 1);
-	w = w;
+        ignore(write(h->gc_expire_trigger, ".", 1));
+        ignore(write(h->gc_trigger, ".", 1));
     }
     return OK;
 }
@@ -11342,7 +11344,8 @@ static rc_ty sx_hashfs_blocks_retry_next(sx_hashfs_t *h, block_meta_t *blockmeta
             return FAIL_BADBLOCKSIZE;
         }
         const sx_hash_t* hash = sqlite3_column_blob(q, 0);
-        DEBUGHASH("retry_next", hash);
+        if (hash)
+            DEBUGHASH("retry_next", hash);
         unsigned int ndb = gethashdb(hash);
         ret = sx_hashfs_blockmeta_get(h, ret, q, h->qb_get_meta[hs][ndb], bs, blockmeta);
         return ret;

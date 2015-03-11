@@ -461,3 +461,4 @@ clst_state clst_replace_state(clst_t *st, const char **desc) {
 int clst_readonly(clst_t *st) {
     return st ? st->readonly : 0;
 }
+
