@@ -124,7 +124,7 @@ static void fcgilog_log(void *ctx, const char *argv0, int prio, const char *msg)
 }
 
 static sxc_logger_t fcgilog = {
-    NULL, NULL, fcgilog_log
+    NULL, NULL, fcgilog_log, NULL
 };
 
 void OS_LibShutdown(void);

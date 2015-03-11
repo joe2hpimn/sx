@@ -32,6 +32,7 @@
 #include <sys/types.h>
 
 #include "sx.h"
+#define ZLIB_CONST
 #include "zlib.h"
 
 #define ERROR(...)	sxc_filter_msg(handle, SX_LOG_ERR, __VA_ARGS__)

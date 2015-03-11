@@ -486,3 +486,4 @@ int sxc_set_node_preference(sxc_client_t *sx, float preference) {
 float sxi_get_node_preference(sxc_client_t *sx) {
     return sx ? sx->node_preference : 0.0;
 }
+
