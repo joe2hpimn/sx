@@ -78,7 +78,7 @@ const unsigned int bsz[SIZES] = {SX_BS_SMALL, SX_BS_MEDIUM, SX_BS_LARGE};
 
 #define DEBUGHASH(MSG, X) do {				\
     char _debughash[sizeof(sx_hash_t)*2+1];		\
-    if (UNLIKELY(sxi_log_is_debug(&logger)) && (X)) {          \
+    if (UNLIKELY(sxi_log_is_debug(&logger))) {          \
 	bin2hex((X)->b, sizeof(*X), _debughash, sizeof(_debughash));	\
 	DEBUG("%s: #%s#", MSG, _debughash);				\
     }\
@@ -6234,7 +6234,8 @@ rc_ty sx_hashfs_revision_op(sx_hashfs_t *h, unsigned blocksize, const sx_hash_t 
         return EINVAL;
     }
     age = sxi_hdist_version(h->hd);
-    DEBUGHASH("revision_op on", revision_id);
+    if (revision_id)
+        DEBUGHASH("revision_op on", revision_id);
     for (ndb=0;ndb<HASHDBS;ndb++) {
         sqlite3_stmt *q = h->qb_addtoken[hs][ndb];
         if (qbegin(h->datadb[hs][ndb]))
@@ -6289,8 +6290,10 @@ static rc_ty sx_hashfs_hashop_moduse(sx_hashfs_t *h, const sx_hash_t *reserve_id
     sqlite3_reset(h->qb_reserve[hs][ndb]);
     sqlite3_reset(h->qb_moduse[hs][ndb]);
     DEBUG("moduse %lld", (long long)op);
-    DEBUGHASH("reserve_id", reserve_id);
-    DEBUGHASH("revision_id", revision_id);
+    if (reserve_id)
+        DEBUGHASH("reserve_id", reserve_id);
+    if (revision_id)
+        DEBUGHASH("revision_id", revision_id);
     if (qbegin(h->datadb[hs][ndb]))
         return FAIL_EINTERNAL;
     do {
@@ -6327,7 +6330,8 @@ static rc_ty sx_hashfs_hashop_moduse(sx_hashfs_t *h, const sx_hash_t *reserve_id
             qbind_blob(h->qb_moduse[hs][ndb], ":revision_id", revision_id, sizeof(*revision_id)) ||
             qstep_noret(h->qb_moduse[hs][ndb]))
             break;
-        DEBUGHASH("moduse on", hash);
+        if (hash)
+            DEBUGHASH("moduse on", hash);
         DEBUG("op: %ld, replica: %d, age: %d", op, replica, age);
         sqlite3_reset(h->qb_moduse[hs][ndb]);
         if (qcommit(h->datadb[hs][ndb]))
@@ -6352,8 +6356,10 @@ rc_ty sx_hashfs_hashop_perform(sx_hashfs_t *h, unsigned int block_size, unsigned
               kind == HASHOP_INUSE ? "inuse" :
               kind == HASHOP_DELETE ? "decuse" : "??",
               debughash);
-        DEBUGHASH("reserve_id: ", reserve_id);
-        DEBUGHASH("revision_id: ", revision_id);
+        if (reserve_id)
+            DEBUGHASH("reserve_id: ", reserve_id);
+        if (revision_id)
+            DEBUGHASH("revision_id: ", revision_id);
     }
 
     for(hs = 0; hs < SIZES; hs++)
