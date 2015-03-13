@@ -192,10 +192,13 @@ if test "x$build_sxhttpd" = "xno"; then
     if test "$SXHTTPD" = "false"; then
         AC_MSG_ERROR([nginx is required when --disable-sxhttpd is used])
     fi
+    GZIP="off"
 else
     SXHTTPD="$sbindir/sxhttpd"
+    GZIP="on"
 fi
 
+AC_SUBST(GZIP)
 AC_SUBST(SXHTTPD)
 
 AC_CONFIG_FILES([Makefile sxscripts/Makefile])
