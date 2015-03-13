@@ -13,3 +13,4 @@ option  "verbose"	    v "Enable verbose errors" flag off
 option  "print0"	    - "Separate file names with \\0 instead of \\n" flag off hidden
 option  "config-dir"	    c "Path to SX configuration directory" string typestr="PATH" optional hidden
 option  "filter-dir"	    - "Path to SX filter directory" string typestr="PATH" optional hidden
+option  "etag"              - "Retrieve only modified volume listing" string typestr="ETAGFILE" optional hidden

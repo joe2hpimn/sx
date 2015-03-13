@@ -361,6 +361,11 @@ static enum head_result head_cb(curlev_context_t *ctx, long http_status, char *p
 	}
     }
 
+    if(klen == lenof("ETag:") &&
+       !strncasecmp(ptr, "ETag:", lenof("ETag:"))) {
+        sxi_cbdata_set_etag(ctx, v, vlen);
+    }
+
     if(http_status == 401) {
 	if(klen == lenof("date:") && !strncasecmp(ptr, "date:", lenof("date:"))) {
 	    char datestr[32];
@@ -659,7 +664,7 @@ int sxi_cluster_query_track(sxi_conns_t *conns, const sxi_hostlist_t *hlist, enu
 	}
 
 	/* Break out on success or if the failure is non retriable */
-	if((status == 200) ||
+	if((status == 200) || (status == 304) ||
 	   (status / 100 == 4 && status != 404 && status != 408 && status != 410 && status != 429))
 	    break;
     }

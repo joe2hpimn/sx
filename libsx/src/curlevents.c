@@ -41,8 +41,11 @@
 #define ERRBUF_SIZE 512
 enum ctx_tag { CTX_UPLOAD, CTX_UPLOAD_HOST, CTX_DOWNLOAD, CTX_JOB, CTX_HASHOP, CTX_GENERIC };
 
+#define MAX_ETAG_SIZE 128
+
 struct recv_context {
     char errbuf[ERRBUF_SIZE+1];
+    char etag[MAX_ETAG_SIZE];
     int rc;
     int fail;
     int finished;
@@ -418,6 +421,28 @@ void sxi_cbdata_seterr(curlev_context_t *ctx, enum sxc_error_t err, const char *
     vsnprintf(ctx->errbuf, sizeof(ctx->errbuf) - 1, fmt, ap);
     va_end(ap);
     ctx->errbuf[sizeof(ctx->errbuf)-1] = '\0';
+}
+
+void sxi_cbdata_set_etag(curlev_context_t *cbdata, const char* etag, unsigned etag_len)
+{
+    if (cbdata) {
+        struct recv_context *rctx = &cbdata->recv_ctx;
+        if (etag_len < sizeof(rctx->etag)) {
+            memcpy(rctx->etag, etag, etag_len);
+            rctx->etag[etag_len] = '\0';
+        }
+    }
+}
+
+char* sxi_cbdata_get_etag(curlev_context_t *ctx)
+{
+    char *etag = NULL;
+    if (ctx) {
+        etag = strdup(ctx->recv_ctx.etag);
+        if (!etag)
+            sxi_cbdata_setsyserr(ctx, SXE_EMEM, "failed to duplicate etag");
+    }
+    return etag;
 }
 
 void sxi_cbdata_setsyserr(curlev_context_t *ctx, enum sxc_error_t err, const char *fmt, ...) {
@@ -2231,6 +2256,7 @@ static int compute_headers_url(curl_events_t *e, curlev_t *ev, curlev_t *src)
         {"Expect", NULL},
         {"Date", datebuf },
         {"Authorization", auth },
+        {"If-None-Match", ev->ctx->recv_ctx.etag},
         { content_type_field, content_type_value }
     };
 

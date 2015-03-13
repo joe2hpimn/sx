@@ -58,6 +58,9 @@ struct gengetopt_args_info
   char * filter_dir_arg;	/**< @brief Path to SX filter directory.  */
   char * filter_dir_orig;	/**< @brief Path to SX filter directory original value given at command line.  */
   const char *filter_dir_help; /**< @brief Path to SX filter directory help description.  */
+  char * etag_arg;	/**< @brief Retrieve only modified volume listing.  */
+  char * etag_orig;	/**< @brief Retrieve only modified volume listing original value given at command line.  */
+  const char *etag_help; /**< @brief Retrieve only modified volume listing help description.  */
   
   unsigned int help_given ;	/**< @brief Whether help was given.  */
   unsigned int full_help_given ;	/**< @brief Whether full-help was given.  */
@@ -70,6 +73,7 @@ struct gengetopt_args_info
   unsigned int print0_given ;	/**< @brief Whether print0 was given.  */
   unsigned int config_dir_given ;	/**< @brief Whether config-dir was given.  */
   unsigned int filter_dir_given ;	/**< @brief Whether filter-dir was given.  */
+  unsigned int etag_given ;	/**< @brief Whether etag was given.  */
 
   char **inputs ; /**< @brief unamed options (options without names) */
   unsigned inputs_num ; /**< @brief unamed options number */

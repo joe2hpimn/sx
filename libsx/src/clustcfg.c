@@ -778,6 +778,7 @@ static int yacb_fetchnodes_end_map(void *ctx) {
 static int fetchnodes_setup_cb(curlev_context_t *cbdata, void *ctx, const char *host) {
     struct cb_fetchnodes_ctx *yactx = (struct cb_fetchnodes_ctx *)ctx;
 
+    yactx->cbdata = cbdata; /* must set before using CBDEBUG */
     if(yactx->yh)
 	yajl_free(yactx->yh);
 
@@ -788,7 +789,6 @@ static int fetchnodes_setup_cb(curlev_context_t *cbdata, void *ctx, const char *
     }
 
     yactx->state = FN_BEGIN;
-    yactx->cbdata = cbdata;
     sxi_hostlist_empty(&yactx->hlist);
 
     return 0;
@@ -1680,6 +1680,8 @@ struct cb_listfiles_ctx {
     struct cbl_file_t file;
     unsigned int replica;
     unsigned int nfiles;
+    const char *etag_in;
+    char *etag_out;
     enum list_files_state { LF_ERROR, LF_BEGIN, LF_MAIN, LF_REPLICACNT, LF_VOLUMEUSEDSIZE, LF_VOLUMESIZE, LF_FILES, LF_FILE, LF_FILECONTENT, LF_FILEATTRS, LF_FILESIZE, LF_BLOCKSIZE, LF_FILETIME, LF_FILEREV, LF_COMPLETE } state;
 };
 
@@ -1941,10 +1943,11 @@ static int yacb_listfiles_end_map(void *ctx) {
 static int listfiles_setup_cb(curlev_context_t *cbdata, void *ctx, const char *host) {
     struct cb_listfiles_ctx *yactx = (struct cb_listfiles_ctx *)ctx;
 
+    sxi_cbdata_set_etag(cbdata, yactx->etag_in, yactx->etag_in ? strlen(yactx->etag_in) : 0);
     if(yactx->yh)
 	yajl_free(yactx->yh);
-
     yactx->cbdata = cbdata;
+    CBDEBUG("ETag: %s", yactx->etag_in ? yactx->etag_in : "");
     if(!(yactx->yh  = yajl_alloc(&yactx->yacb, NULL, yactx))) {
 	CBDEBUG("failed to allocate yajl structure");
 	sxi_cbdata_seterr(cbdata, SXE_EMEM, "List failed: Out of memory");
@@ -1977,6 +1980,7 @@ static int listfiles_cb(curlev_context_t *cbdata, void *ctx, const void *data, s
 	sxi_cbdata_seterr(yactx->cbdata, SXE_ECOMM, "communication error");
 	return 1;
     }
+    yactx->etag_out = sxi_cbdata_get_etag(cbdata);
 
     return 0;
 }
@@ -2020,7 +2024,7 @@ char *sxi_ith_slash(char *s, unsigned int i) {
     return NULL;
 }
 
-sxc_cluster_lf_t *sxi_conns_listfiles(sxi_conns_t *conns, const char *volume, sxi_hostlist_t *volhosts, const char *glob_pattern, int recursive, int64_t *volume_used_size, int64_t *volume_size, unsigned int *replica_count, unsigned int *nfiles, int reverse, int sizeOnly) {
+static sxc_cluster_lf_t *sxi_conns_listfiles(sxi_conns_t *conns, const char *volume, sxi_hostlist_t *volhosts, const char *glob_pattern, int recursive, int64_t *volume_used_size, int64_t *volume_size, unsigned int *replica_count, unsigned int *nfiles, int reverse, int sizeOnly, const char *etag_in, char **etag_out) {
     char *enc_vol, *enc_glob = NULL, *url, *fname;
     struct cb_listfiles_ctx yctx;
     yajl_callbacks *yacb = &yctx.yacb;
@@ -2032,6 +2036,8 @@ sxc_cluster_lf_t *sxi_conns_listfiles(sxi_conns_t *conns, const char *volume, sx
     int qm = 1; /* state if we want to add quotation mark or ampersand */
 
     sxc_clearerr(sx);
+    yctx.etag_in = etag_in;
+    if (etag_out) *etag_out = NULL;
 
     if(!volume || !volhosts) {
         SXDEBUG("NULL argument");
@@ -2105,6 +2111,7 @@ sxc_cluster_lf_t *sxi_conns_listfiles(sxi_conns_t *conns, const char *volume, sx
     yctx.yh = NULL;
     yctx.fname = NULL;
     yctx.frev = NULL;
+    yctx.etag_out = NULL;
 
     sxi_set_operation(sx, "list volume files", sxi_conns_get_sslname(conns), volume, NULL);
     qret = sxi_cluster_query(conns, volhosts, REQ_GET, url, NULL, 0, listfiles_setup_cb, listfiles_cb, &yctx);
@@ -2115,9 +2122,12 @@ sxc_cluster_lf_t *sxi_conns_listfiles(sxi_conns_t *conns, const char *volume, sx
         SXDEBUG("query returned %d", qret);
 	if(yctx.yh)
 	    yajl_free(yctx.yh);
+        free(yctx.etag_out);
 	fclose(yctx.f);
 	unlink(fname);
 	free(fname);
+        if (qret == 304)
+            sxi_seterr(sxi_conns_get_client(conns), SXE_SKIP, "Not modified");
 	return NULL;
     }
 
@@ -2128,6 +2138,7 @@ sxc_cluster_lf_t *sxi_conns_listfiles(sxi_conns_t *conns, const char *volume, sx
         }
 	if(yctx.yh)
 	    yajl_free(yctx.yh);
+        free(yctx.etag_out);
 	fclose(yctx.f);
 	unlink(fname);
 	free(fname);
@@ -2141,6 +2152,7 @@ sxc_cluster_lf_t *sxi_conns_listfiles(sxi_conns_t *conns, const char *volume, sx
        ftruncate(fileno(yctx.f), ftell(yctx.f)) ||
        fseek(yctx.f, 0, reverse ? SEEK_END : SEEK_SET)) {
         sxi_seterr(sx, SXE_EWRITE, "List failed: Failed to write temporary data");
+        free(yctx.etag_out);
 	fclose(yctx.f);
 	unlink(fname);
 	free(fname);
@@ -2151,6 +2163,7 @@ sxc_cluster_lf_t *sxi_conns_listfiles(sxi_conns_t *conns, const char *volume, sx
     if(!ret) {
         SXDEBUG("OOM allocating results");
         sxi_seterr(sx, SXE_EMEM, "List failed: Out of memory");
+        free(yctx.etag_out);
 	fclose(yctx.f);
 	unlink(fname);
 	free(fname);
@@ -2175,12 +2188,20 @@ sxc_cluster_lf_t *sxi_conns_listfiles(sxi_conns_t *conns, const char *volume, sx
     ret->want_relative = glob_pattern && *glob_pattern && glob_pattern[strlen(glob_pattern)-1] == '/';
     ret->pattern_slashes = sxi_count_slashes(glob_pattern);
     ret->reverse = reverse;
+    if (etag_out && yctx.etag_out && *yctx.etag_out)
+        *etag_out = yctx.etag_out;
     return ret;
 }
 
-sxc_cluster_lf_t *sxc_cluster_listfiles(sxc_cluster_t *cluster, const char *volume, const char *glob_pattern, int recursive, int64_t *volume_used_size, int64_t *volume_size, unsigned int *replica_count, unsigned int *nfiles, int reverse) {
+
+sxc_cluster_lf_t *sxc_cluster_listfiles_etag(sxc_cluster_t *cluster, const char *volume, const char *glob_pattern, int recursive, int64_t *volume_used_size, int64_t *volume_size, unsigned int *replica_count, unsigned int *nfiles, int reverse, const char *etag_file) {
     sxi_hostlist_t volhosts;
     sxc_cluster_lf_t *ret;
+    const char *confdir = sxi_cluster_get_confdir(cluster);
+    char *path = NULL;
+    char etag[1024];
+    char *etag_out = NULL;
+    sxc_client_t *sx = sxi_cluster_get_client(cluster);
 
     sxi_hostlist_init(&volhosts);
     if(sxi_locate_volume(sxi_cluster_get_conns(cluster), volume, &volhosts, NULL, NULL)) {
@@ -2189,9 +2210,58 @@ sxc_cluster_lf_t *sxc_cluster_listfiles(sxc_cluster_t *cluster, const char *volu
         return NULL;
     }
 
-    ret = sxi_conns_listfiles(sxi_cluster_get_conns(cluster), volume, &volhosts, glob_pattern, recursive, volume_used_size, volume_size, replica_count, nfiles, reverse, 0);
+    etag[0] = '\0';
+    if (etag_file && strchr(etag_file, '/')) {
+        sxi_seterr(sx, SXE_EARG, "etag file cannot contain /");
+        return NULL;
+    }
+    if (etag_file && confdir) {
+        unsigned n = strlen(confdir) + strlen(volume) + strlen(etag_file) + sizeof("/volumes//etag/");
+        path = malloc(n);
+        if (!path) {
+            cluster_err(SXE_EMEM, "Cannot allocate etag path");
+            return NULL;
+        }
+        snprintf(path, n, "%s/volumes/%s", confdir, volume);
+        if(access(path, F_OK) && mkdir(path, 0700))
+                sxi_notice(sx, "Failed to mkdir %s", path);
+        snprintf(path, n, "%s/volumes/%s/etag", confdir, volume);
+        if(access(path, F_OK) && mkdir(path, 0700))
+                sxi_notice(sx, "Failed to mkdir %s", path);
+        snprintf(path, n, "%s/volumes/%s/etag/%s", confdir, volume, etag_file);
+        SXDEBUG("Trying to load ETag from %s", path);
+        FILE *f = fopen(path, "r");
+        if (f) {
+            if (!fgets(etag, sizeof(etag), f)) {
+                etag[0] = '\0';
+                sxi_notice(sx, "Failed to read old etag from %s", path);
+            }
+            fclose(f);
+        }
+    }
+    if (*etag)
+        SXDEBUG("ETag in: %s", etag);
+
+    ret = sxi_conns_listfiles(sxi_cluster_get_conns(cluster), volume, &volhosts, glob_pattern, recursive, volume_used_size, volume_size, replica_count, nfiles, reverse, 0, *etag ? etag : NULL, &etag_out);
     sxi_hostlist_empty(&volhosts);
+    SXDEBUG("ETag out: %s", etag_out ? etag_out : "");
+
+    if (etag_out && confdir && path) {
+        FILE *f = fopen(path, "w");
+        if (f) {
+            if (fwrite(etag_out, strlen(etag_out), 1, f) != 1)
+                sxi_notice(sx, "Failed to write etag to %s", path);
+            if (fclose(f))
+                sxi_notice(sx, "Failed to close etag file %s", path);
+        }
+    }
+    free(etag_out);
+    free(path);
     return ret;
+}
+
+sxc_cluster_lf_t *sxc_cluster_listfiles(sxc_cluster_t *cluster, const char *volume, const char *glob_pattern, int recursive, int64_t *volume_used_size, int64_t *volume_size, unsigned int *replica_count, unsigned int *nfiles, int reverse) {
+    return sxc_cluster_listfiles_etag(cluster, volume, glob_pattern, recursive, volume_used_size, volume_size, replica_count, nfiles, reverse, NULL);
 }
 
 int sxc_cluster_listfiles_prev(sxc_cluster_lf_t *lf, char **file_name, int64_t *file_size, time_t *file_created_at, char **file_revision) {

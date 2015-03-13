@@ -309,7 +309,7 @@ int main(int argc, char **argv) {
                 ret = 1;
             }
 	} else {
-	    sxc_cluster_lf_t *fl = sxc_cluster_listfiles(cluster, u->volume, u->path, args.recursive_flag, NULL, NULL, NULL, NULL, 0);
+	    sxc_cluster_lf_t *fl = sxc_cluster_listfiles_etag(cluster, u->volume, u->path, args.recursive_flag, NULL, NULL, NULL, NULL, 0, args.etag_arg);
 	    if(fl) {
 		while(1) {
 		    char *fname;
@@ -358,11 +358,14 @@ int main(int argc, char **argv) {
 		}
 		sxc_cluster_listfiles_free(fl);
 	    } else {
-		fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
+                if(sxc_geterrnum(sx) == SXE_SKIP)
+                    fprintf(stderr,"[ %s ]\n", sxc_geterrmsg(sx));
+                else
+                    fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
 		if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_VOL_ERR))
 		    fprintf(stderr, SXBC_TOOLS_VOL_MSG, u->profile ? u->profile : "", u->profile ? "@" : "", u->host);
-    
-                ret = 1;
+
+                ret = sxc_geterrnum(sx) == SXE_SKIP ? 2 : 1;
             }
 	}
 	sxc_cluster_free(cluster);

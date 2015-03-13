@@ -139,6 +139,9 @@ int sxi_cbdata_result_fail(curlev_context_t* ctx);
 sxi_conns_t *sxi_cbdata_get_conns(curlev_context_t *ctx);
 void sxi_cbdata_set_result(curlev_context_t *ctx, int status);
 
+void sxi_cbdata_set_etag(curlev_context_t *ctx, const char* etag, unsigned etag_len);
+char *sxi_cbdata_get_etag(curlev_context_t *ctx);
+
 /* Store error message and code into curlev context */
 void sxi_cbdata_seterr(curlev_context_t *ctx, enum sxc_error_t err, const char *fmt, ...);
 void sxi_cbdata_setsyserr(curlev_context_t *ctx, enum sxc_error_t err, const char *fmt, ...);
