@@ -52,8 +52,12 @@ typedef enum {
 } sxc_input_t;
 typedef int (*sxc_input_cb)(sxc_client_t *sx, sxc_input_t type, const char *prompt, const char *def, char *in, unsigned int insize, void *ctx);
 
+int sxc_lib_init(const char *client_version);
+sxc_client_t *sxc_client_init(const sxc_logger_t *func, sxc_input_cb input_cb, void *input_ctx);
 sxc_client_t *sxc_init(const char *client_version, const sxc_logger_t *func, sxc_input_cb input_cb, void *input_ctx);
 const char *sxc_get_version(void);
+void sxc_client_shutdown(sxc_client_t *sx, int signal);
+void sxc_lib_shutdown(int signal);
 void sxc_shutdown(sxc_client_t *sx, int signal);
 void sxc_set_debug(sxc_client_t *sx, int enabled);
 void sxc_set_verbose(sxc_client_t *sx, int enabled);

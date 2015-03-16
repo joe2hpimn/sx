@@ -55,6 +55,8 @@ struct _sxc_client_t {
     float node_preference;
 };
 
+int sxi_dlinit_error = 0;
+
 static const char *guess_tempdir(void) {
     const char *ret;
 
@@ -67,14 +69,60 @@ static const char *guess_tempdir(void) {
     return ret;
 }
 
-sxc_client_t *sxc_init(const char *client_version, const sxc_logger_t *func, sxc_input_cb input_cb, void *input_ctx)
+int sxc_lib_init(const char *client_version)
 {
-    sxc_client_t *sx;
     struct sxi_logger l;
+    sxc_logger_t log;
+
+    memset(&l, 0, sizeof(l));
+    l.max_level = SX_LOG_DEBUG;
+    l.func = (*sxc_default_logger)(&log, "libsx init");
+
+    const char *this_version = sxc_get_version();
+    if (!client_version || strcmp(client_version, this_version)) {
+        sxi_log_msg(&l, "sxc_init", SX_LOG_CRIT, "Version mismatch: Our version '%s' - library version '%s'",
+                    client_version, this_version);
+        return -1;
+    }
+
+    /* FIXME THIS IS NOT THREAD SAFE */
+    signal(SIGPIPE, SIG_IGN);
+    if (sxi_crypto_check_ver(&l))
+        return -1;
+
+    CURLcode rc = curl_global_init(CURL_GLOBAL_ALL);
+    if (rc) {
+        sxi_log_msg(&l, "sxc_init", SX_LOG_CRIT, "Failed to initialize libcurl: %s",
+                    curl_easy_strerror(rc));
+	sxc_lib_shutdown(0);
+        return -1;
+    }
+
+    if((sxi_dlinit_error = lt_dlinit())) {
+        const char *err = lt_dlerror();
+        sxi_log_syserr(&l, "sxc_init", SX_LOG_CRIT, "Failed to initialize libltdl: %s",
+                       err ? err : "");
+    }
+
+    return 0;
+}
+
+void sxc_lib_shutdown(int signal) {
+    if(!signal) {
+	if(!sxi_dlinit_error)
+	    lt_dlexit();
+	curl_global_cleanup();
+        sxi_vcrypto_cleanup();
+    }
+}
+
+sxc_client_t *sxc_client_init(const sxc_logger_t *func, sxc_input_cb input_cb, void *input_ctx)
+{
+    struct sxi_logger l;
+    sxc_client_t *sx;
     unsigned int config_len;
     const char *home_dir;
     struct passwd *pwd;
-
 
     if (!func)
         return NULL;
@@ -82,34 +130,12 @@ sxc_client_t *sxc_init(const char *client_version, const sxc_logger_t *func, sxc
     l.max_level = SX_LOG_DEBUG;
     l.func = func;
 
-    const char *this_version = sxc_get_version();
-    if (!client_version || strcmp(client_version, this_version)) {
-        sxi_log_msg(&l, "sxc_init", SX_LOG_CRIT, "Version mismatch: Our version '%s' - library version '%s'",
-                    client_version, this_version);
-        return NULL;
-    }
-
-    /* FIXME THIS IS NOT THREAD SAFE */
-    signal(SIGPIPE, SIG_IGN);
-    if (sxi_crypto_check_ver(&l))
-        return NULL;
-    CURLcode rc = curl_global_init(CURL_GLOBAL_ALL);
-    if (rc) {
-        sxi_log_msg(&l, "sxc_init", SX_LOG_CRIT, "Failed to initialize libcurl: %s",
-                    curl_easy_strerror(rc));
-        return NULL;
-    }
     sx = calloc(1, sizeof(struct _sxc_client_t));
     if (!sx) {
         sxi_log_syserr(&l, "sxc_init", SX_LOG_CRIT, "Failed to allocate sx structure");
         return NULL;
     }
-    if(lt_dlinit()) {
-        const char *err = lt_dlerror();
-	sx->fctx.filter_cnt = -1;
-        sxi_log_syserr(&l, "sxc_init", SX_LOG_CRIT, "Failed to initialize libltdl: %s",
-                       err ? err : "");
-    }
+    sx->fctx.filter_cnt = sxi_dlinit_error ? -1 : 0;
     sx->log.max_level = SX_LOG_NOTICE;
     sx->log.func = func;
     sx->input_cb = input_cb;
@@ -142,7 +168,14 @@ sxc_client_t *sxc_init(const char *client_version, const sxc_logger_t *func, sxc
     return sx;
 }
 
-void sxc_shutdown(sxc_client_t *sx, int signal) {
+sxc_client_t *sxc_init(const char *client_version, const sxc_logger_t *func, sxc_input_cb input_cb, void *input_ctx)
+{
+    if(sxc_lib_init(client_version))
+	return NULL;
+    return sxc_client_init(func, input_cb, input_ctx);
+}
+
+void sxc_client_shutdown(sxc_client_t *sx, int signal) {
     int i;
     if(!sx)
 	return;
@@ -173,10 +206,13 @@ void sxc_shutdown(sxc_client_t *sx, int signal) {
 	sxi_filter_unloadall(sx);
 	free(sx->tempdir);
 	free(sx);
-	lt_dlexit();
-	curl_global_cleanup();
-        sxi_vcrypto_cleanup();
     }
+}
+
+void sxc_shutdown(sxc_client_t *sx, int signal)
+{
+    sxc_client_shutdown(sx, signal);
+    sxc_lib_shutdown(signal);
 }
 
 void sxc_set_verbose(sxc_client_t *sx, int enabled) {
