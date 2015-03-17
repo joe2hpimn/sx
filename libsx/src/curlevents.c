@@ -107,6 +107,8 @@ static struct curlev_context *sxi_cbdata_create(sxi_conns_t *conns, finish_cb_t 
     struct curlev_context *ret;
     sxc_client_t *sx;
     const char *op = NULL, *op_host = NULL, *op_vol = NULL, *op_path = NULL;
+    unsigned int hard_timeout = 0, soft_timeout = 0;
+
     if (!conns)
         return NULL;
     sx = sxi_conns_get_client(conns);
@@ -115,6 +117,12 @@ static struct curlev_context *sxi_cbdata_create(sxi_conns_t *conns, finish_cb_t 
     ret = calloc(1, sizeof(*ret));
     if (!ret) {
         sxi_setsyserr(sx, SXE_EMEM, "OOM allocating cbdata");
+        return NULL;
+    }
+    if(sxi_conns_get_timeouts(conns, &hard_timeout, &soft_timeout) ||
+       sxi_cbdata_set_timeouts(ret, hard_timeout, soft_timeout)) {
+        sxi_seterr(sx, SXE_EARG, "Failed to set connection timeouts");
+        free(ret);
         return NULL;
     }
     ret->conns = conns;

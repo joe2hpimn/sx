@@ -26,6 +26,8 @@
 #include "misc.h"
 #include "sxproto.h"
 #define UUID_LEN 36
+#define SXI_CONNS_HARD_TIMEOUT  1800    /* 30 minutes */
+#define SXI_CONNS_SOFT_TIMEOUT  600     /* 10 minutes */
 
 struct _sxi_jobs_t;
 typedef struct sxi_hashop sxi_hashop_t;
@@ -137,5 +139,8 @@ typedef struct _node_status_t {
     char libsx_version[40]; /* Libsx version */
     char hashfs_version[16]; /* HashFS version */
 } sxi_node_status_t;
+
+int sxi_conns_set_timeouts(sxi_conns_t *conns, unsigned int hard_timeout, unsigned int soft_timeout);
+int sxi_conns_get_timeouts(sxi_conns_t *conns, unsigned int *hard_timeout, unsigned int *soft_timeout);
 
 #endif

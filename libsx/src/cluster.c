@@ -54,6 +54,10 @@ struct _sxi_conns_t {
 
     /* Transfer progress stats */
     sxc_xfer_stat_t *xfer_stat;
+
+    /* Connection timeouts */
+    unsigned int hard_timeout; /* Timeout used for requests sent to cluster: total time a single request is allowed to exist */
+    unsigned int soft_timeout; /* Timeout for stalled requests: maximum time between successful data parts being transferred */
 };
 
 sxi_conns_t *sxi_conns_new(sxc_client_t *sx) {
@@ -989,4 +993,26 @@ int sxi_conns_internally_secure(sxi_conns_t *conns) {
     if(!conns)
 	return -1;
     return conns->internal_security != 0;
+}
+
+int sxi_conns_set_timeouts(sxi_conns_t *conns, unsigned int hard_timeout, unsigned int soft_timeout) {
+    if(!conns)
+        return -1;
+    if(hard_timeout && soft_timeout && soft_timeout > hard_timeout) {
+        sxi_seterr(sxi_conns_get_client(conns), SXE_EARG, "Invalid argument: hard timeout cannot be lower than soft timeout");
+        return 1;
+    }
+    conns->hard_timeout = hard_timeout;
+    conns->soft_timeout = soft_timeout;
+    return 0;
+}
+
+int sxi_conns_get_timeouts(sxi_conns_t *conns, unsigned int *hard_timeout, unsigned int *soft_timeout) {
+    if(!conns)
+        return -1;
+    if(hard_timeout)
+        *hard_timeout = conns->hard_timeout;
+    if(soft_timeout)
+        *soft_timeout = conns->soft_timeout;
+    return 0;
 }
