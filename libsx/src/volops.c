@@ -1072,6 +1072,12 @@ int sxc_cluster_listvolumes_next(sxc_cluster_lv_t *lv, char **volume_name, char 
     } else
 	fseek(lv->f, volume.namelen, SEEK_CUR);
 
+    if(volume.owner_len & 0x80000000) {
+        SXDEBUG("Invalid volume owner name length");
+        sxi_seterr(sx, SXE_EREAD, "Failed to retrieve next volume: Bad data from cache file");
+        return -1;
+    }
+
     if(volume_owner && volume.owner_len) {
         *volume_owner = malloc(volume.owner_len + 1);
         if(!*volume_owner) {
