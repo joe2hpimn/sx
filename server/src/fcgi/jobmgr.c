@@ -4683,6 +4683,7 @@ static int set_job_failed(struct jobmgr_data_t *q, int result, const char *reaso
 
  setfailed_error:
     CRIT("Cannot mark job %lld (and children) as failed", (long long)q->job_id);
+    qrollback(q->eventdb);
     return -1;
 }
 
