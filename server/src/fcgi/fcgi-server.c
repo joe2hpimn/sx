@@ -740,7 +740,7 @@ int main(int argc, char **argv) {
     } else if(!pids[GCMGR]) {
         int ret;
         sx_done(&sx);
-        sx = sx_init(NULL, "garbage collector", args.logfile_arg, foreground, argc, argv);
+        sx = sx_init(NULL, "heal & garbage collector", args.logfile_arg, foreground, argc, argv);
         if (sx) {
             if(debug)
                 log_setminlevel(sx,SX_LOG_DEBUG);

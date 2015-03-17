@@ -29,6 +29,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <yajl/yajl_parse.h>
+#include <arpa/inet.h>
 #include "fcgi-utils.h"
 #include "fcgi-actions-volume.h"
 #include "../libsx/src/misc.h"
@@ -1900,4 +1901,70 @@ const job_2pc_t upgrade_spec = {
 void fcgi_cluster_upgrade(void) {
    int64_t ver = sx_hashfs_hdist_getversion(hashfs);
    job_2pc_handle_request(sx_hashfs_client(hashfs), &upgrade_spec, &ver);
+}
+
+static void blob_send(const sx_blob_t *b)
+{
+    const void *data;
+    uint32_t len;
+    sx_blob_to_data(b, &data, &len);
+    len = htonl(len);
+    CGI_PUTD(&len, sizeof(len));
+    CGI_PUTD(data, len);
+}
+
+static void blob_send_eof(void)
+{
+    sx_blob_t *b = sx_blob_new();
+    if (!b)
+        quit_errmsg(500, "OOM");
+    sx_blob_add_string(b, "EOF$");
+    blob_send(b);
+    sx_blob_free(b);
+}
+
+static int list_rev_cb(const sx_hashfs_volume_t *vol, const sx_uuid_t *target, const sx_hash_t *revision_id, const sx_hash_t *contents, int64_t nblocks)
+{
+    int64_t i=-1;
+    sx_blob_t *b = sx_blob_new();
+    if (!b)
+        return -1;
+    do {
+        if (sx_blob_add_string(b, "[REV]") ||
+            sx_blob_add_blob(b, revision_id->b, sizeof(revision_id->b)))
+            break;
+        for (i=0;i<nblocks;i++) {
+            const sx_hash_t *hash = &contents[i];
+            sx_nodelist_t *nl = sx_hashfs_hashnodes(hashfs, NL_NEXT, hash, vol->replica_count);
+            if (!nl)
+                break;
+            if (sx_nodelist_lookup(nl, target))
+                sx_blob_add_blob(b, hash->b, sizeof(hash->b));
+            sx_nodelist_delete(nl);
+        }
+        if (sx_blob_add_string(b, "$")) {
+            i = -1;
+            break;
+        }
+        blob_send(b);
+    } while(0);
+    sx_blob_free(b);
+    return i == nblocks ? 0 : -1;
+}
+
+void fcgi_list_revision_blocks(const sx_hashfs_volume_t *vol) {
+    int max_age = arg_num("max-age");
+    const char *min_rev  = get_arg("min-rev");
+    const char *node_uuid = get_arg("for-node-uuid");
+    int metadb = arg_num("metadb");
+    sx_hash_t min_revision;
+    sx_uuid_t uuid;
+    if (max_age < 0 || !min_rev || !node_uuid || uuid_from_string(&uuid, node_uuid) ||
+        hex2bin(min_rev, strlen(min_rev), min_revision.b, sizeof(min_revision.b)))
+        quit_errmsg(400, "Required arguments missing or invalid");
+    rc_ty rc;
+    CGI_PUTS("\r\n");
+    if ((rc = sx_hashfs_list_revision_blocks(hashfs, vol, &uuid, &min_revision, max_age, metadb, list_rev_cb)))
+        quit_errmsg(rc2http(rc), msg_get_reason());
+    blob_send_eof();
 }

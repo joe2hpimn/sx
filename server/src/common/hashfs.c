@@ -648,6 +648,10 @@ struct _sx_hashfs_t {
     sqlite3_stmt *qm_list_file[METADBS];
     sqlite3_stmt *qm_add_heal[METADBS];
     sqlite3_stmt *qm_del_heal[METADBS];
+    sqlite3_stmt *qm_get_rb[METADBS];
+    sqlite3_stmt *qm_add_heal_volume[METADBS];
+    sqlite3_stmt *qm_sel_heal_volume[METADBS];
+    sqlite3_stmt *qm_upd_heal_volume[METADBS];
 
     sxi_db_t *datadb[SIZES][HASHDBS];
     sqlite3_stmt *qb_nextavail[SIZES][HASHDBS];
@@ -866,6 +870,10 @@ static void close_all_dbs(sx_hashfs_t *h) {
         sqlite3_finalize(h->qm_list_file[i]);
         sqlite3_finalize(h->qm_del_heal[i]);
         sqlite3_finalize(h->qm_add_heal[i]);
+        sqlite3_finalize(h->qm_get_rb[i]);
+        sqlite3_finalize(h->qm_add_heal_volume[i]);
+        sqlite3_finalize(h->qm_sel_heal_volume[i]);
+        sqlite3_finalize(h->qm_upd_heal_volume[i]);
 	qclose(&h->metadb[i]);
     }
 
@@ -1558,7 +1566,7 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 	qnullify(q);
         if(sqlite3_create_function(h->metadb[i]->handle, "pmatch", 4, SQLITE_UTF8 | SQLITE_DETERMINISTIC, NULL, pmatch, NULL, NULL))
             goto open_hashfs_fail;
-	if(qprep(h->metadb[i], &h->qm_ins[i], "INSERT INTO files (volume_id, name, size, content, rev) VALUES (:volume, :name, :size, :hashes, :revision)"))
+	if(qprep(h->metadb[i], &h->qm_ins[i], "INSERT INTO files (volume_id, name, size, content, rev, age) VALUES (:volume, :name, :size, :hashes, :revision, :age)"))
 	    goto open_hashfs_fail;
         if(qprep(h->metadb[i], &h->qm_list[i], "SELECT name, size, rev FROM files WHERE volume_id = :volume AND name > :previous AND (:limit is NULL OR name < :limit) AND pmatch(name, :pattern, :pattern_slashes, :slash_ending) > 0 GROUP BY name HAVING rev = MAX(rev) ORDER BY name ASC LIMIT 1"))
             goto open_hashfs_fail;
@@ -1605,6 +1613,14 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
         if(qprep(h->metadb[i], &h->qm_del_heal[i], "DELETE FROM heal WHERE revision_id=:revision_id"))
             goto open_hashfs_fail;
         if(qprep(h->metadb[i], &h->qm_add_heal[i], "INSERT OR IGNORE INTO heal(revision_id, remote_volume, blocks, blocksize, replica_count) VALUES(:revision_id, :remote_volid, :blocks, :blocksize, :replica_count)"))
+            goto open_hashfs_fail;
+        if(qprep(h->metadb[i], &h->qm_get_rb[i], "SELECT size, revision_id, content FROM files WHERE volume_id=:volume_id AND age < :age_limit AND revision_id > :min_revision_id ORDER BY revision_id"))
+            goto open_hashfs_fail;
+        if(qprep(h->metadb[i], &h->qm_add_heal_volume[i], "INSERT OR REPLACE INTO heal_volume(name, max_age, min_revision) VALUES(:name,:max_age,:min_revision_id)"))
+            goto open_hashfs_fail;
+        if(qprep(h->metadb[i], &h->qm_sel_heal_volume[i], "SELECT name, max_age, min_revision FROM heal_volume WHERE name > :prev LIMIT 1"))
+            goto open_hashfs_fail;
+        if(qprep(h->metadb[i], &h->qm_upd_heal_volume[i], "UPDATE heal_volume SET min_revision=:min_revision_id WHERE name=:name"))
             goto open_hashfs_fail;
     }
 
@@ -3205,7 +3221,11 @@ static rc_ty metadb_1_0_to_1_1(sxi_db_t *db)
     rc_ty ret = FAIL_EINTERNAL;
     sqlite3_stmt *q = NULL;
     do {
+        /* add column age ... */
         if(qprep(db, &q, "ALTER TABLE files ADD COLUMN revision_id BLOB("STRIFY(SXI_SHA1_BIN_LEN)")") || qstep_noret(q))
+            break;
+        qnullify(q);
+        if(qprep(db,&q,"ALTER TABLE files ADD COLUMN age INTEGER NOT NULL DEFAULT 0") || qstep_noret(q))
             break;
         qnullify(q);
         /* TODO: for new files insert correct one already */
@@ -3222,6 +3242,13 @@ static rc_ty metadb_1_0_to_1_1(sxi_db_t *db)
         qnullify(q);
         if(qprep(db, &q, "CREATE INDEX IF NOT EXISTS heal_vol ON heal(blocks, remote_volume)") || qstep_noret(q))
             break;
+        qnullify(q);
+        if(qprep(db, &q, "CREATE TABLE IF NOT EXISTS heal_volume(\
+            name TEXT NOT NULL,\
+            max_age INTEGER NOT NULL,\
+            min_revision BLOB NOT NULL)") || qstep_noret(q))
+            break;
+        qnullify(q);
         ret = OK;
     } while(0);
     qnullify(q);
@@ -3605,8 +3632,38 @@ rc_ty sx_hashfs_upgrade_1_0_local(sx_hashfs_t *h)
         if (rc)
             qrollback(db);
     }
-    if (rc == OK)
+    if (rc == OK) {
         sx_hashfs_set_progress_info(h, INPRG_UPGRADE, "Upgrade - local file blocks done");
+        const sx_hashfs_volume_t *volume;
+        int max_age = sxi_hdist_version(h->hd);
+        unsigned n = 0;
+        for(rc = sx_hashfs_volume_first(h, &volume, 0);rc == OK;rc = sx_hashfs_volume_next(h)) {
+            if (sx_hashfs_is_or_was_my_volume(h, volume))
+                continue;/* we've already imported this data from the local volnode */
+            for(i=0;i<METADBS;i++) {
+                sqlite3_stmt *q = h->qm_add_heal_volume[i];
+                sqlite3_reset(q);
+                if(qbind_text(q,":name", volume->name) ||
+                   qbind_int(q,":max_age", max_age) ||
+                   qbind_blob(q,":min_revision_id","",0) ||
+                   qstep_noret(q)) {
+                    rc = FAIL_EINTERNAL;
+                    break;
+                }
+            }
+            if (i != METADBS) {
+                rc = FAIL_EINTERNAL;
+                break;
+            }
+            n++;
+        }
+        if (rc == ITER_NO_MORE) {
+            snprintf(msg, sizeof(msg), "Upgrade - %d remote volume names listed", n);
+            sx_hashfs_set_progress_info(h, INPRG_UPGRADE, msg);
+            rc = OK;
+        }
+    }
+    INFO("Local upgrade result: %s", rc2str(rc));
     return rc;
 }
 
@@ -7319,6 +7376,7 @@ static rc_ty create_file(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const
        qbind_text(h->qm_ins[mdb], ":name", name) ||
        qbind_text(h->qm_ins[mdb], ":revision", revision) ||
        qbind_int64(h->qm_ins[mdb], ":size", size) ||
+       qbind_int64(h->qm_ins[mdb], ":age", sxi_hdist_version(h->hd)) ||
        qbind_blob(h->qm_ins[mdb], ":hashes", nblocks ? (const void *)blocks : "", nblocks * sizeof(blocks[0]))) {
 	WARN("Failed to create file '%s' on volume '%s'", name, volume->name);
 	sqlite3_reset(h->qm_ins[mdb]);
@@ -13144,4 +13202,94 @@ sx_hashfs_cluster_get_mode_err:
 
 int sx_hashfs_is_readonly(sx_hashfs_t *h) {
     return h ? h->readonly : 0;
+}
+
+rc_ty sx_hashfs_list_revision_blocks(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, const sx_uuid_t *target, sx_hash_t *min_revision_id, unsigned age_limit, unsigned i, lrb_cb_t cb) {
+    rc_ty rc = FAIL_EINTERNAL;
+    if (!vol || !target || !min_revision_id || !cb) {
+        NULLARG();
+        return rc;
+    }
+    if (i >= METADBS) {
+        msg_set_reason("Invalid metadb");
+        return rc;
+    }
+    do {
+        sqlite3_stmt *q = h->qm_get_rb[i];
+        sqlite3_reset(q);
+        int ret, k=0;
+        if (qbind_int64(q, ":volume_id", vol->id) ||
+            qbind_int(q, ":age_limit", age_limit) ||
+            qbind_blob(q, ":min_revision_id", min_revision_id->b, sizeof(min_revision_id->b)))
+            break;
+        while ((ret = qstep(q)) == SQLITE_ROW && (k++ < gc_max_batch)) {
+            sx_hash_t revision_id;
+            int64_t size = sqlite3_column_int64(q, 0);
+            hash_of_blob_result(&revision_id, q, 1);
+            const sx_hash_t *contents = sqlite3_column_blob(q, 2);
+            unsigned int block_size;
+            int64_t nblocks = size_to_blocks(size, NULL, &block_size);
+            if (nblocks * sizeof(*contents) != sqlite3_column_bytes(q, 2)) {
+                msg_set_reason("corrupt file blob: %ld * %lu != %d", nblocks, sizeof(*contents), sqlite3_column_bytes(q, 2));
+                ret = -1;
+                break;
+            }
+            if (cb(vol, target, &revision_id, contents, nblocks)) {
+                msg_set_reason("block revision list callback failed");
+                ret = -1;
+                break;
+            }
+            memcpy(min_revision_id->b, revision_id.b, sizeof(revision_id.b));
+        }
+        sqlite3_reset(q);
+        if (ret != SQLITE_ROW && ret != SQLITE_DONE)
+            break;
+        rc = OK;
+    } while(0);
+    return rc;
+}
+
+rc_ty sx_hashfs_remote_heal(sx_hashfs_t *h, heal_cb_t cb)
+{
+    rc_ty rc = FAIL_EINTERNAL;
+    unsigned i;
+    for (i=0;i<METADBS;i++) {
+        char prev[SXLIMIT_MAX_VOLNAME_LEN+1];
+        int ret;
+        prev[0] = 0;
+        sqlite3_stmt *qsel = h->qm_sel_heal_volume[i];
+        sqlite3_stmt *qupd = h->qm_upd_heal_volume[i];
+        do {
+            sqlite3_reset(qsel);
+            sqlite3_reset(qupd);
+            if(qbind_text(qsel, ":name", prev))
+                break;
+            ret = qstep(qsel);
+            if (ret == SQLITE_ROW) {
+                const sx_hashfs_volume_t *volume;
+                const unsigned char *name = sqlite3_column_text(qsel, 0);
+                int max_age = sqlite3_column_int(qsel, 1);
+                sx_hash_t min_revision_id;
+                strncpy(prev, (const char*)name, sizeof(prev));
+                prev[sizeof(prev)-1] = '\0';
+                if (hash_of_blob_result(&min_revision_id, qsel, 2) ||
+                    sx_hashfs_volume_by_name(h, (const char*)name, &volume))
+                    break;
+                sqlite3_reset(qsel);
+                /* TODO: transaction? */
+                if (cb(h, volume, &min_revision_id, max_age) ||
+                    qbind_blob(qupd,":min_revision_id",min_revision_id.b,sizeof(min_revision_id.b)) ||
+                    qbind_text(qupd,":name",prev) ||
+                    qstep_noret(qupd))
+                    break;
+            }
+        } while(ret == SQLITE_ROW);
+        sqlite3_reset(qsel);
+        sqlite3_reset(qupd);
+        if (ret != SQLITE_DONE)
+            break;
+    }
+    if (i == METADBS)
+        return OK;
+    return rc;
 }

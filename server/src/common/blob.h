@@ -37,7 +37,7 @@ int sx_blob_add_int64(sx_blob_t *s, int64_t d);
 int sx_blob_add_string(sx_blob_t *s, const char *d);
 int sx_blob_add_blob(sx_blob_t *s, const void *d, unsigned int len);
 int sx_blob_cat(sx_blob_t *dest, sx_blob_t *src);
-void sx_blob_to_data(sx_blob_t *s, const void **d, unsigned int *len);
+void sx_blob_to_data(const sx_blob_t *s, const void **d, unsigned int *len);
 sx_blob_t *sx_blob_from_data(const void *d, unsigned int l);
 int sx_blob_get_int32(sx_blob_t *s, int32_t *d);
 int sx_blob_get_int64(sx_blob_t *s, int64_t *d);

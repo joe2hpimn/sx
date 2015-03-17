@@ -464,4 +464,8 @@ int sx_unique_fileid(sxc_client_t *sx, const sx_hashfs_volume_t *volume, const c
 rc_ty sx_hashfs_upgrade_1_0_prepare(sx_hashfs_t *h);
 rc_ty sx_hashfs_upgrade_1_0_local(sx_hashfs_t *h);
 
+typedef int (*lrb_cb_t)(const sx_hashfs_volume_t *vol, const sx_uuid_t *target, const sx_hash_t *revision_id, const sx_hash_t *contents, int64_t nblocks);
+rc_ty sx_hashfs_list_revision_blocks(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, const sx_uuid_t *target, sx_hash_t *min_revision_id, unsigned age_limit, unsigned metadb, lrb_cb_t cb);
+typedef int (*heal_cb_t)(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, sx_hash_t *min_revision_id, int max_age);
+rc_ty sx_hashfs_remote_heal(sx_hashfs_t *h, heal_cb_t cb);
 #endif

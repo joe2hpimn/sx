@@ -120,6 +120,9 @@ void volume_ops(void) {
 	if(!has_arg("o") || arg_is("o", "list")) {
 	    /* List volume content - READ required */
 	    fcgi_list_volume(vol);
+        } else if(arg_is("o","revision_blocks")) {
+            quit_unless_has(PRIV_CLUSTER);
+            fcgi_list_revision_blocks(vol);
 	} else
 	    quit_errnum(404);
 
