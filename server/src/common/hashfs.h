@@ -49,6 +49,7 @@
 #define JOB_FILE_MAX_TIME (24*60*60 /* 1 day */)
 #define JOBMGR_DELAY_MIN 1
 #define JOBMGR_DELAY_MAX 2
+#define JOBMGR_UNDO_TIMEOUT 300 /* 300 seconds per node */
 #define TOPUSH_EXPIRE 900
 #define BLOCKMGR_RESCHEDULE 24
 #define GC_GRACE_PERIOD JOB_FILE_MAX_TIME

@@ -4545,7 +4545,10 @@ static act_result_t jobmgr_execute_actions_batch(int *http_status, struct jobmgr
 	} else { /* act_phase == JOB_PHASE_DONE */
 	    act_res = actions[q->job_type].fn_undo(q->hashfs, q->job_id, q->job_data, q->targets, act_succeeded, http_status, q->fail_reason, &q->adjust_ttl);
 	}
-	if(act_res == ACT_RESULT_PERMFAIL) {
+        if(act_res == ACT_RESULT_TEMPFAIL && q->job_expired) {
+            CRIT("Some undo action expired for job %lld.", (long long)q->job_id);
+            act_res = ACT_RESULT_OK;
+        } else if(act_res == ACT_RESULT_PERMFAIL) {
 	    CRIT("Some undo action permanently failed for job %lld.", (long long)q->job_id);
 	    act_res = ACT_RESULT_OK;
 	}
@@ -4683,6 +4686,74 @@ static int set_job_failed(struct jobmgr_data_t *q, int result, const char *reaso
     return -1;
 }
 
+static rc_ty adjust_job_ttl(struct jobmgr_data_t *q) {
+    if(!q)
+        return EINVAL;
+    if(q->adjust_ttl) {
+        char lifeadj[24];
+
+        sqlite3_reset(q->qlfe);
+        snprintf(lifeadj, sizeof(lifeadj), "%d seconds", q->adjust_ttl);
+        if(qbind_int64(q->qlfe, ":job", q->job_id) ||
+           qbind_text(q->qlfe, ":ttldiff", lifeadj) ||
+           qstep_noret(q->qlfe)) {
+            return FAIL_EINTERNAL;
+        } else
+            DEBUG("Lifetime of job %lld adjusted by %s", (long long)q->job_id, lifeadj);
+    }
+    return OK;
+}
+
+static rc_ty get_failed_job_expiration_ttl(struct jobmgr_data_t *q) {
+    sx_hashfs_tmpinfo_t *tmpinfo = NULL;
+
+    if(!q)
+        return EINVAL;
+
+    /* Handle blocks replication and file delete jobs using sx_hashfs_job_file_timeout() */
+    if(q->job_type == JOBTYPE_REPLICATE_BLOCKS) {
+        int64_t tmpfile_id;
+        rc_ty s;
+
+        if(!q->job_data || !q->job_data->ptr || q->job_data->len != sizeof(tmpfile_id))
+            return FAIL_EINTERNAL;
+
+        memcpy(&tmpfile_id, q->job_data->ptr, q->job_data->len);
+
+        /* JOBTYPE_REPLICATE_BLOCKS contains tempfile ID as job data. Use it to get tempfile entry. */
+        if((s = sx_hashfs_tmp_getinfo(q->hashfs, tmpfile_id, &tmpinfo, 0, 0)) != OK)
+            return s;
+    } else if(q->job_type == JOBTYPE_DELETE_FILE) {
+        rc_ty s;
+        char rev[REV_LEN+1];
+
+        if(!q->job_data || !q->job_data->ptr || q->job_data->len != REV_LEN)
+            return FAIL_EINTERNAL;
+
+        /* Need to nul terminate string */
+        memcpy(rev, q->job_data->ptr, REV_LEN);
+        rev[REV_LEN] = '\0';
+        /* JOBTYPE_DELETE_FILE contains revision as job data. Use it to get tempfile entry. */
+        if((s = sx_hashfs_tmp_getinfo_by_revision(q->hashfs, rev, &tmpinfo)) != OK)
+            return s;
+    }
+
+    if(q->job_type == JOBTYPE_REPLICATE_BLOCKS || q->job_type == JOBTYPE_DELETE_FILE) {
+        if(!tmpinfo) /* This one should already be set */
+            return FAIL_EINTERNAL;
+
+        q->adjust_ttl = sx_hashfs_job_file_timeout(q->hashfs, sx_nodelist_count(q->targets), tmpinfo->file_size);
+        return OK;
+    }
+
+    /* Default timeout, common for all jobs besides the two above */
+    q->adjust_ttl = JOBMGR_UNDO_TIMEOUT * sx_nodelist_count(q->targets);
+    if(!q->adjust_ttl) /* in case sx_nodelist_count() returns 0 */
+        q->adjust_ttl = JOBMGR_UNDO_TIMEOUT;
+
+    return OK;
+}
+
 static void jobmgr_run_job(struct jobmgr_data_t *q) {
     int r;
 
@@ -4694,8 +4765,17 @@ static void jobmgr_run_job(struct jobmgr_data_t *q) {
 	 * Of limited use but maybe nice to have */
 	if(set_job_failed(q, 500, "Cluster timeout"))
 	    return;
-	DEBUG("Job %lld is now expired", (long long)q->job_id);
 	q->job_failed = 1;
+        /* Bump expiration time for abort/undo actions */
+        if(get_failed_job_expiration_ttl(q) != OK) {
+            WARN("Failed to determine expiration time for failed job %lld", (long long)q->job_id);
+            q->adjust_ttl = JOBMGR_UNDO_TIMEOUT;
+        }
+        DEBUG("Job %lld is now expired, bumping expiration time with %d seconds", (long long)q->job_id, q->adjust_ttl);
+        q->job_expired = 0;
+
+        if(adjust_job_ttl(q) != OK)
+            WARN("Cannot adjust lifetime of expired job %lld", (long long)q->job_id);
     }
 
     while(!terminate) {
@@ -4716,16 +4796,8 @@ static void jobmgr_run_job(struct jobmgr_data_t *q) {
 	q->adjust_ttl = 0;
 	act_res = jobmgr_execute_actions_batch(&http_status, q);
 
-	if(q->adjust_ttl) {
-	    char lifeadj[24];
-	    snprintf(lifeadj, sizeof(lifeadj), "%d seconds", q->adjust_ttl);
-	    if(qbind_int64(q->qlfe, ":job", q->job_id) ||
-	       qbind_text(q->qlfe, ":ttldiff", lifeadj) ||
-	       qstep_noret(q->qlfe))
-		WARN("Cannot adjust lifetime of job %lld", (long long)q->job_id);
-	    else
-		DEBUG("Lifetime of job %lld adjusted by %s", (long long)q->job_id, lifeadj);
-	}
+        if(adjust_job_ttl(q) != OK)
+            WARN("Cannot adjust lifetime of job %lld", (long long)q->job_id);
 
 	/* Temporary failure: mark job as to-be-retried and stop processing it for now */
 	if(act_res == ACT_RESULT_TEMPFAIL) {
