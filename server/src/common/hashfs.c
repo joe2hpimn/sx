@@ -631,6 +631,7 @@ struct _sx_hashfs_t {
     uint64_t qm_list_queries;
     sqlite3_stmt *qm_get[METADBS];
     sqlite3_stmt *qm_getrev[METADBS];
+    sqlite3_stmt *qm_findrev[METADBS];
     sqlite3_stmt *qm_oldrevs[METADBS];
     sqlite3_stmt *qm_metaget[METADBS];
     sqlite3_stmt *qm_metaset[METADBS];
@@ -853,6 +854,7 @@ static void close_all_dbs(sx_hashfs_t *h) {
         sqlite3_finalize(h->qm_listrevs_rev[i]);
 	sqlite3_finalize(h->qm_get[i]);
 	sqlite3_finalize(h->qm_getrev[i]);
+	sqlite3_finalize(h->qm_findrev[i]);
 	sqlite3_finalize(h->qm_oldrevs[i]);
 	sqlite3_finalize(h->qm_metaget[i]);
 	sqlite3_finalize(h->qm_metaset[i]);
@@ -1579,6 +1581,8 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
         if(qprep(h->metadb[i], &h->qm_listrevs_rev[i], "SELECT size, rev FROM files WHERE volume_id = :volume AND name = :name AND (:previous IS NULL OR rev < :previous) ORDER BY rev DESC LIMIT 1"))
 	    goto open_hashfs_fail;
 	if(qprep(h->metadb[i], &h->qm_getrev[i], "SELECT fid, size, content, rev FROM files WHERE volume_id = :volume AND name = :name AND rev = :revision LIMIT 1"))
+	    goto open_hashfs_fail;
+	if(qprep(h->metadb[i], &h->qm_findrev[i], "SELECT volume_id, name, size FROM files WHERE rev = :revision LIMIT 1"))
 	    goto open_hashfs_fail;
 	if(qprep(h->metadb[i], &h->qm_oldrevs[i], "SELECT rev, size, (SELECT COUNT(*) FROM files AS b WHERE b.volume_id = a.volume_id AND b.name = a.name), fid FROM files AS a WHERE a.volume_id = :volume AND a.name = :name ORDER BY rev ASC"))
 	    goto open_hashfs_fail;
@@ -6161,6 +6165,7 @@ rc_ty sx_hashfs_getfile_begin(sx_hashfs_t *h, const char *volume, const char *fi
     h->get_replica = vol->replica_count;
 
     if(filedata) {
+        filedata->volume_id = vol->id;
 	filedata->file_size = size;
 	filedata->block_size = bsize;
 	filedata->nblocks = h->get_nblocks;
@@ -8206,8 +8211,46 @@ static rc_ty get_tempfile_metasize(sx_hashfs_t *h, int64_t tid, int64_t *size) {
     return OK;
 }
 
-rc_ty sx_hashfs_tmp_getinfo_by_revision(sx_hashfs_t *h, const char *revision, sx_hashfs_tmpinfo_t **tmpinfo) {
-    return tmp_getinfo_common(h, revision, -1, tmpinfo, 0);
+rc_ty sx_hashfs_getinfo_by_revision(sx_hashfs_t *h, const char *revision, sx_hashfs_file_t *filerev)
+{
+    unsigned ndb;
+    if(!h || !revision || !filerev) {
+	NULLARG();
+	return EFAULT;
+    }
+
+    DEBUG("looking up revision %s", revision);
+    if(check_revision(revision)) {
+	msg_set_reason("Invalid file revision");
+	return EINVAL;
+    }
+
+    for(ndb=0;ndb<METADBS;ndb++) {
+        sqlite3_stmt *q = h->qm_findrev[ndb];
+        if(qbind_text(q, ":revision", revision))
+            return FAIL_EINTERNAL;
+
+        sqlite3_reset(q);
+        int r = qstep(q);
+        if(r == SQLITE_DONE) {
+            sqlite3_reset(q);
+            continue;
+        }
+        if(r != SQLITE_ROW)
+            return FAIL_EINTERNAL;
+
+        filerev->volume_id = sqlite3_column_int64(q, 0);
+        const unsigned char *name = sqlite3_column_text(q, 1);
+        filerev->file_size = sqlite3_column_int64(q, 2);
+        size_to_blocks(filerev->file_size, NULL, &filerev->block_size);
+        strncpy(filerev->name, (const char*)name, sizeof(filerev->name));
+        filerev->name[sizeof(filerev->name)-1] = '\0';
+        strncpy(filerev->revision, revision, sizeof(filerev->revision));
+        filerev->revision[sizeof(filerev->revision)-1] = '\0';
+        sqlite3_reset(q);
+        return OK;
+    }
+    return ENOENT;
 }
 
 rc_ty sx_hashfs_tmp_getinfo(sx_hashfs_t *h, int64_t tmpfile_id, sx_hashfs_tmpinfo_t **tmpinfo, int recheck_presence) {
@@ -8287,91 +8330,6 @@ rc_ty sx_hashfs_tmp_tofile(sx_hashfs_t *h, const sx_hashfs_tmpinfo_t *missing) {
     sqlite3_reset(h->qt_getmeta);
 
     return ret;
-}
-
-static rc_ty file_totmp(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, const char *name, const char *revision, int64_t *tmpfile_id, unsigned int *timeout, unsigned int *blocksize) {
-    unsigned int nblocks, bsize, content_len, avail_len;
-    char rev[REV_LEN + 1];
-    const void *content;
-    int8_t *avail;
-    int64_t size;
-    int r, ndb;
-
-    if(!h || !vol || !name || !revision || !tmpfile_id || !timeout) {
-	NULLARG();
-	return EFAULT;
-    }
-
-    if(check_file_name(name)<0) {
-	msg_set_reason("Invalid file name");
-	return EINVAL;
-    }
-
-    sxi_strlcpy(rev, revision, sizeof(rev));
-    if(check_revision(rev)) {
-	msg_set_reason("Invalid file revision");
-	return EINVAL;
-    }
-    rev[REV_TIME_LEN] = '\0';
-
-    ndb = getmetadb(name);
-    if(ndb < 0) {
-	msg_set_reason("Failed to locate file database");
-	return FAIL_EINTERNAL;
-    }
-
-    if(qbind_int64(h->qm_getrev[ndb], ":volume", vol->id) ||
-       qbind_text(h->qm_getrev[ndb], ":name", name) ||
-       qbind_text(h->qm_getrev[ndb], ":revision", revision))
-	return FAIL_EINTERNAL;
-
-    r = qstep(h->qm_getrev[ndb]);
-    if(r == SQLITE_DONE)
-	return ENOENT;
-    if(r != SQLITE_ROW)
-	return FAIL_EINTERNAL;
-
-    size = sqlite3_column_int64(h->qm_getrev[ndb], 1);
-    nblocks = size_to_blocks(size, NULL, &bsize);
-    content = sqlite3_column_blob(h->qm_getrev[ndb], 2);
-    content_len = sqlite3_column_bytes(h->qm_getrev[ndb], 2);
-    avail_len = nblocks * vol->replica_count;
-    avail = malloc(avail_len);
-    if(!avail) {
-	sqlite3_reset(h->qm_getrev[ndb]);
-	return ENOMEM;
-    }
-    memset(avail, 1, avail_len);
-    if (blocksize)
-        *blocksize = bsize;
-
-    *timeout = sx_hashfs_job_file_timeout(h, vol->replica_count, size);
-
-    if(qbind_int64(h->qt_new4del, ":volume", vol->id) ||
-       qbind_text(h->qt_new4del, ":name", name) ||
-       qbind_int64(h->qt_new4del, ":size", size) ||
-       qbind_text(h->qt_new4del, ":token", &rev[REV_TIME_LEN+1]) ||
-       qbind_text(h->qt_new4del, ":time", rev) ||
-       qbind_blob(h->qt_new4del, ":content", content, content_len) ||
-       qbind_blob(h->qt_new4del, ":avail", avail, avail_len) ||
-       qbind_int64(h->qt_new4del, ":expires", time(NULL) + *timeout)) {
-	sqlite3_reset(h->qm_getrev[ndb]);
-	free(avail);
-	return FAIL_EINTERNAL;
-    }
-
-    r = qstep(h->qt_new4del);
-    sqlite3_reset(h->qm_getrev[ndb]);
-    free(avail);
-
-    if(r == SQLITE_CONSTRAINT)
-	return EEXIST;
-    if(r != SQLITE_DONE)
-	return FAIL_EINTERNAL;
-
-    *tmpfile_id = sqlite3_last_insert_rowid(sqlite3_db_handle(h->qt_new4del));
-    DEBUG("Turned file %s/%s::%s into tempfile id %lld", vol->name, name, revision, (long long)*tmpfile_id);
-    return OK;
 }
 
 static rc_ty get_existing_delete_job(sx_hashfs_t *h, const char *revision, job_t *job_id) {
@@ -8490,7 +8448,6 @@ static int revision_to_blob(sxc_client_t *sx, int nodes, void *yctx, sx_blob_t *
     }
 
     if (sx_blob_add_string(blob, op->lock ? op->lock : "") ||
-        sx_blob_add_int64(blob, op->tmpfile_id) ||
         sx_blob_add_int32(blob, op->blocksize) ||
         sx_blob_add_blob(blob, op->revision_id.b, sizeof(op->revision_id.b)) ||
         sx_blob_add_int32(blob, op->op)) {
@@ -8510,7 +8467,6 @@ int sx_revision_op_of_blob(sx_blob_t *b, sx_revision_op_t *op)
         return -1;
     }
     if (sx_blob_get_string(b, &lock) ||
-        sx_blob_get_int64(b, &op->tmpfile_id) ||
         sx_blob_get_int32(b, &op->blocksize) ||
         sx_blob_get_blob(b, &ptr, &len) || len != sizeof(op->revision_id.b) ||
         sx_blob_get_int32(b, &op->op)) {
@@ -8556,6 +8512,8 @@ static sxi_query_t* revision_proto_from_blob(sxc_client_t *sx, sx_blob_t *b, job
     if (sx_revision_op_of_blob(b, &op))
         return NULL;
 
+    if (phase == JOBPHASE_ABORT || phase == JOBPHASE_UNDO)
+        op.op = -op.op;
     return sxi_hashop_proto_revision(sx, op.blocksize, &op.revision_id, op.op);
 }
 
@@ -8600,7 +8558,6 @@ rc_ty sx_hashfs_filedelete_job(sx_hashfs_t *h, sx_uid_t user_id, const sx_hashfs
     const sx_hashfs_file_t *filerev;
     sx_nodelist_t *targets;
     unsigned int timeout;
-    int64_t tmpfile_id;
     char *lockname;
     rc_ty ret, s;
     int added = 0; /* Set to 1 if already added job for a chain */
@@ -8625,15 +8582,11 @@ rc_ty sx_hashfs_filedelete_job(sx_hashfs_t *h, sx_uid_t user_id, const sx_hashfs
         goto sx_hashfs_filedelete_job_err;
 
     if(revision) {
-        unsigned int blocksize;
+        sx_hashfs_file_t filerev;
+        if (sx_hashfs_getinfo_by_revision(h, revision, &filerev))
+            goto sx_hashfs_filedelete_job_err;
         /* Check if delete job for this revision exist and if not, create new one */
         if((ret = get_existing_delete_job(h, revision, job_id)) == ENOENT) {
-            /* Tempfile does not exist, create new one */
-            ret = file_totmp(h, vol, name, revision, &tmpfile_id, &timeout, &blocksize);
-            if(ret) {
-                WARN("Failed to create tempfile: sx://%s/%s %s", vol->name, name, revision);
-                goto sx_hashfs_filedelete_job_err;
-            }
             lockname = malloc(strlen(name) + 1 + strlen(revision) + 1);
             if(!lockname) {
                 msg_set_reason("Internal error: not enough memory to delete the specified file");
@@ -8642,24 +8595,22 @@ rc_ty sx_hashfs_filedelete_job(sx_hashfs_t *h, sx_uid_t user_id, const sx_hashfs
             }
             sprintf(lockname, "%s:%s", name, revision);
 
+            timeout = sx_hashfs_job_file_timeout(h, vol->replica_count, filerev.file_size);
             /* Create a job for newly created tempfile */
             ret = sx_hashfs_job_new_notrigger(h, *job_id, user_id, job_id, JOBTYPE_DELETE_FILE, timeout, lockname, revision, strlen(revision), targets);
             if (ret == OK) {
                 sx_revision_op_t revision_op;
                 ret = sx_unique_fileid(h->sx, vol, name, revision, &revision_op.revision_id);
                 if (ret == OK) {
-                    revision_op.tmpfile_id = tmpfile_id;
                     revision_op.lock = lockname;
                     revision_op.op = -1;
-                    revision_op.blocksize = blocksize;
+                    revision_op.blocksize = filerev.block_size;
                     /* job to unbump revision for blocks */
                     ret = sx_hashfs_job_new_2pc(h, &revision_spec, &revision_op, user_id, job_id, 0);
                     DEBUG("ret3: %d", ret);
                 }
             }
             free(lockname);
-            if(ret)
-                sx_hashfs_tmp_delete(h, tmpfile_id);
         } else if(ret != OK) {
             WARN("Failed to get job for revision %s", revision);
             goto sx_hashfs_filedelete_job_err;
@@ -8690,13 +8641,6 @@ rc_ty sx_hashfs_filedelete_job(sx_hashfs_t *h, sx_uid_t user_id, const sx_hashfs
     }
 
     for(; s == OK; s = sx_hashfs_revision_next(h, 0)) {
-        unsigned int blocksize;
-	ret = file_totmp(h, vol, name, filerev->revision, &tmpfile_id, &timeout, &blocksize);
-	if(ret) {
-            WARN("Failed to create tempfile: sx://%s/%s %s", vol->name, name, filerev->revision);
-	    goto sx_hashfs_filedelete_job_err;
-        }
-
 	lockname = malloc(strlen(name) + 1 + strlen(filerev->revision) + 1);
 	if(!lockname) {
 	    msg_set_reason("Internal error: not enough memory to delete the specified file");
@@ -8705,15 +8649,15 @@ rc_ty sx_hashfs_filedelete_job(sx_hashfs_t *h, sx_uid_t user_id, const sx_hashfs
 	}
 	sprintf(lockname, "%s:%s", name, filerev->revision);
 
+        timeout = sx_hashfs_job_file_timeout(h, vol->replica_count, filerev->file_size);
 	ret = sx_hashfs_job_new_notrigger(h, *job_id, user_id, job_id, JOBTYPE_DELETE_FILE, timeout, lockname, filerev->revision, REV_LEN, targets);
         if (ret == OK) {
             sx_revision_op_t revision_op;
             ret = sx_unique_fileid(h->sx, vol, name, filerev->revision, &revision_op.revision_id);
             if (ret == OK) {
-                revision_op.tmpfile_id = tmpfile_id;
                 revision_op.lock = lockname;
                 revision_op.op = -1;
-                revision_op.blocksize = blocksize;
+                revision_op.blocksize = filerev->block_size;
                 /* job to unbump revision for blocks */
                 ret = sx_hashfs_job_new_2pc(h, &revision_spec, &revision_op, user_id, job_id, 0);
                 DEBUG("ret5: %d", ret);
@@ -8722,7 +8666,6 @@ rc_ty sx_hashfs_filedelete_job(sx_hashfs_t *h, sx_uid_t user_id, const sx_hashfs
 	free(lockname);
 
         if(ret != OK) {
-            sx_hashfs_tmp_delete(h, tmpfile_id);
             if(ret != FAIL_ETOOMANY)
                 WARN("Failed to add delete job: %s", msg_get_reason());
             DEBUG("jumping, ret: %d", ret);
@@ -8913,6 +8856,7 @@ rc_ty sx_hashfs_file_delete(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, co
 	msg_set_reason("Invalid file revision");
 	return EINVAL;
     }
+    DEBUG("Deleting file %s, revision %s", file, revision);
 
     ret = get_file_id(h, volume->name, file, revision, &file_id, &mdb, NULL, NULL, &size);
     if(ret)

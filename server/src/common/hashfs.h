@@ -249,6 +249,7 @@ rc_ty sx_hashfs_volume_mod(sx_hashfs_t *h, const char *volume, const char *newow
 
 /* File list */
 typedef struct _sx_hashfs_file_t {
+    int64_t volume_id;
     int64_t file_size;
     unsigned int block_size;
     unsigned int nblocks;
@@ -334,7 +335,8 @@ typedef struct _sx_hashfs_tmpinfo_t {
 } sx_hashfs_tmpinfo_t;
 rc_ty sx_hashfs_tmp_getmeta(sx_hashfs_t *h, int64_t tmpfile_id, sxc_meta_t *metadata);
 rc_ty sx_hashfs_tmp_getinfo(sx_hashfs_t *h, int64_t tmpfile_id, sx_hashfs_tmpinfo_t **tmpinfo, int recheck_presence);
-rc_ty sx_hashfs_tmp_getinfo_by_revision(sx_hashfs_t *h, const char *revision, sx_hashfs_tmpinfo_t **tmpinfo);
+
+rc_ty sx_hashfs_getinfo_by_revision(sx_hashfs_t *h, const char *revision, sx_hashfs_file_t *filerev);
 rc_ty sx_hashfs_tmp_tofile(sx_hashfs_t *h, const sx_hashfs_tmpinfo_t *missing);
 rc_ty sx_hashfs_tmp_delete(sx_hashfs_t *h, int64_t tmpfile_id);
 
@@ -453,7 +455,6 @@ rc_ty sx_hashfs_cluster_get_mode(sx_hashfs_t *h, int *mode);
 int sx_hashfs_is_readonly(sx_hashfs_t *h);
 
 typedef struct {
-    int64_t tmpfile_id;
     sx_hash_t revision_id;
     int32_t blocksize;
     const char *lock;

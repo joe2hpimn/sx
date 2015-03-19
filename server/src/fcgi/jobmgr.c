@@ -811,32 +811,55 @@ static int req_append(char **req, unsigned int *req_len, const char *append_me) 
     return 0;
 }
 
-static rc_ty revision_job_from_tmpfileid(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl, jobphase_t phase) {
+static rc_ty filerev_from_tmpfileid_or_rev(sx_hashfs_t *hashfs, job_data_t *job_data, sx_hashfs_file_t *filerev)
+{
+    rc_ty s;
+    int64_t tmpfile_id;
+
+    /*
+     * Compatibility notice:
+     * Getting tempfile for delete job using tmpfile_id as token is a legacy method, but should be supported
+     * to properly handle existing jobs. Code dealing with tmpfile_id can be dropped in next release.
+     */
+    if(job_data->len == sizeof(tmpfile_id)) {
+        sx_hashfs_tmpinfo_t *tmpinfo;
+        memcpy(&tmpfile_id, job_data->ptr, sizeof(tmpfile_id));
+        s = sx_hashfs_tmp_getinfo(hashfs, tmpfile_id, &tmpinfo, 0);
+        filerev->volume_id = tmpinfo->volume_id;
+        filerev->block_size = tmpinfo->block_size;
+        memcpy(filerev->name, tmpinfo->name, sizeof(filerev->name));
+        free(tmpinfo);
+    } else if (job_data->len == REV_LEN) {
+        char revision[REV_LEN+1];
+        memcpy(revision, job_data->ptr, REV_LEN);
+        revision[REV_LEN] = 0;
+        s = sx_hashfs_getinfo_by_revision(hashfs, revision, filerev);
+    } else {
+	CRIT("Bad job data");
+        return FAIL_EINTERNAL;
+    }
+    return s;
+}
+
+static rc_ty revision_job_from_tmpfileid_or_rev(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl, int op, jobphase_t phase) {
     sx_revision_op_t revision_op;
     const sx_hashfs_volume_t *volume;
     act_result_t ret = ACT_RESULT_OK;
-    sx_hashfs_tmpinfo_t *tmpinfo;
     rc_ty s;
     sx_blob_t *blob = NULL;
-    int64_t tmpfile_id;
     job_data_t new_job_data;
-
-    if(job_data->len != sizeof(tmpfile_id)) {
-	CRIT("Bad job data");
-	action_error(ACT_RESULT_PERMFAIL, 500, "Internal job data error");
-    }
-    memcpy(&tmpfile_id, job_data->ptr, sizeof(tmpfile_id));
-    s = sx_hashfs_tmp_getinfo(hashfs, tmpfile_id, &tmpinfo, 0);
+    char revision[REV_LEN+1];
+    sx_hashfs_file_t filerev;
+    s = filerev_from_tmpfileid_or_rev(hashfs, job_data, &filerev);
     if (s)
-        action_error(rc2actres(s), rc2http(s), "Failed to retrieve tmpfile info");
-    s = sx_hashfs_volume_by_id(hashfs, tmpinfo->volume_id, &volume);
+        action_error(rc2actres(s), rc2http(s), "Failed to retrieve file revision info");
+    s = sx_hashfs_volume_by_id(hashfs, filerev.volume_id, &volume);
     if (s)
         action_error(rc2actres(s), rc2http(s), "Failed to retrieve volume info");
-    revision_op.tmpfile_id = tmpfile_id;
     revision_op.lock = NULL;
-    revision_op.blocksize = tmpinfo->block_size;
-    revision_op.op = 1;
-    s = sx_unique_fileid(sx_hashfs_client(hashfs), volume, tmpinfo->name, tmpinfo->revision, &revision_op.revision_id);
+    revision_op.blocksize = filerev.block_size;
+    revision_op.op = op;
+    s = sx_unique_fileid(sx_hashfs_client(hashfs), volume, filerev.name, revision, &revision_op.revision_id);
     if(s)
         action_error(rc2actres(s), rc2http(s), "Failed to compute revision id");
     blob = sx_blob_new();
@@ -858,7 +881,7 @@ action_failed:
 
 static rc_ty replicateblocks_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     /* bump block revision */
-    return revision_job_from_tmpfileid(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl, JOBPHASE_COMMIT);
+    return revision_job_from_tmpfileid_or_rev(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl, 1, JOBPHASE_COMMIT);
 }
 
 static act_result_t replicateblocks_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
@@ -1315,7 +1338,7 @@ static act_result_t fileflush_local(sx_hashfs_t *hashfs, job_t job_id, job_data_
 
 static act_result_t replicateblocks_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     /* undo the revision bump from the commit in replicateblocks_request */
-    return revision_job_from_tmpfileid(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl, JOBPHASE_UNDO);
+    return revision_job_from_tmpfileid_or_rev(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl, 1, JOBPHASE_UNDO);
 }
 
 static act_result_t fileflush_remote_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
@@ -1326,25 +1349,18 @@ static act_result_t fileflush_remote_undo(sx_hashfs_t *hashfs, job_t job_id, job
     act_result_t ret = ACT_RESULT_OK;
     sx_hashfs_tmpinfo_t *tmp = NULL;
     query_list_t *qrylist = NULL;
-    sx_revision_op_t revision_op;
     unsigned int nnode, nnodes;
     sxi_query_t *proto = NULL;
     int64_t tmpfile_id;
-    sx_blob_t *b = NULL;
     rc_ty s;
 
     nnodes = sx_nodelist_count(nodes);
-    b = sx_blob_from_data(job_data->ptr, job_data->len);
-    if (!b) {
-	WARN("Cannot allocate blob for job %lld", (long long)job_id);
-	action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
+    if(job_data->len != sizeof(tmpfile_id)) {
+       CRIT("Bad job data");
+       action_error(ACT_RESULT_PERMFAIL, 500, "Internal job data error");
     }
-    if (sx_revision_op_of_blob(b, &revision_op)) {
-	WARN("Corrupt blob for job %lld", (long long)job_id);
-	action_error(ACT_RESULT_TEMPFAIL, 503, "Corrupt job blob");
-    }
-    tmpfile_id = revision_op.tmpfile_id;
-
+    memcpy(&tmpfile_id, job_data->ptr, sizeof(tmpfile_id));
+    DEBUG("fileflush_remote for file %lld", (long long)tmpfile_id);
 
     s = sx_hashfs_tmp_getinfo(hashfs, tmpfile_id, &tmp, 0);
     if(s == ENOENT)
@@ -1424,7 +1440,6 @@ static act_result_t fileflush_remote_undo(sx_hashfs_t *hashfs, job_t job_id, job
     }
 
     free(tmp);
-    sx_blob_free(b);
     return ret;
 }
 
@@ -1434,44 +1449,21 @@ static act_result_t filedelete_request(sx_hashfs_t *hashfs, job_t job_id, job_da
     const sx_node_t *me = sx_hashfs_self(hashfs);
     const sx_hashfs_volume_t *volume;
     act_result_t ret = ACT_RESULT_OK;
-    sx_hashfs_tmpinfo_t *tmp = NULL;
     query_list_t *qrylist = NULL;
     unsigned int nnode, nnodes;
     sxi_query_t *proto = NULL;
-    int64_t tmpfile_id = 0;
-    char revision[REV_LEN+1];
+    sx_hashfs_file_t filerev;
     rc_ty s;
 
-    /*
-     * Compatibility notice:
-     * Getting tempfile for delete job using tmpfile_id as token is a legacy method, but should be supported
-     * to properly handle existing jobs. Code dealing with tmpfile_id can be dropped in next release.
-     */
-
-    if(job_data->len != REV_LEN && job_data->len != sizeof(tmpfile_id)) {
-	CRIT("Bad job data");
-	action_error(ACT_RESULT_PERMFAIL, 500, "Internal job data error");
-    }
-
-    if(job_data->len == REV_LEN) {
-        memcpy(revision, job_data->ptr, REV_LEN);
-        revision[REV_LEN] = 0;
-        s = sx_hashfs_tmp_getinfo_by_revision(hashfs, revision, &tmp);
-    } else { /* job_data->len == sizeof(tmpfile_id) */
-        memcpy(&tmpfile_id, job_data->ptr, sizeof(tmpfile_id));
-        DEBUG("Invoking legacy file delete job type: %lld", (long long)tmpfile_id);
-        s = sx_hashfs_tmp_getinfo(hashfs, tmpfile_id, &tmp, 0);
-        DEBUG("Got file delete tmpfile: %s", tmp->name);
-    }
-
-    if(s != OK)
-	action_error(rc2actres(s), rc2http(s), "Failed to find file to delete");
+    s = filerev_from_tmpfileid_or_rev(hashfs, job_data, &filerev);
     if(s == ENOENT) {
 	WARN("Cannot get revision data from blob for job %lld", (long long)job_id);
 	return force_phase_success(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
     }
+    if (s)
+	action_error(rc2actres(s), rc2http(s), "Failed to find file to delete");
 
-    s = sx_hashfs_volume_by_id(hashfs, tmp->volume_id, &volume);
+    s = sx_hashfs_volume_by_id(hashfs, filerev.volume_id, &volume);
     if(s == ENOENT)
 	return force_phase_success(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
     if(s != OK)
@@ -1481,16 +1473,12 @@ static act_result_t filedelete_request(sx_hashfs_t *hashfs, job_t job_id, job_da
     for(nnode = 0; nnode<nnodes; nnode++) {
 	const sx_node_t *node = sx_nodelist_get(nodes, nnode);
 	if(!sx_node_cmp(me, node)) {
-	    /* Local node */
-	    s = sx_hashfs_file_delete(hashfs, volume, tmp->name, tmp->revision);
-	    if(s == OK || s == ENOENT)
-		succeeded[nnode] += 1;
-	    else
-		action_error(rc2actres(s), rc2http(s), msg_get_reason());
+            /* Local node: handled in commit */
+	    succeeded[nnode] += 1;
 	} else {
 	    /* Remote node */
 	    if(!proto) {
-		proto = sxi_filedel_proto(sx, volume->name, tmp->name, tmp->revision);
+		proto = sxi_filedel_proto(sx, volume->name, filerev.name, filerev.revision);
 		if(!proto) {
 		    WARN("Cannot allocate proto for job %lld", (long long)job_id);
 		    action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
@@ -1502,6 +1490,7 @@ static act_result_t filedelete_request(sx_hashfs_t *hashfs, job_t job_id, job_da
 		}
 	    }
             qrylist[nnode].cbdata = sxi_cbdata_create_generic(clust, NULL, NULL);
+            DEBUG("Sending file delete query");
 	    if(sxi_cluster_query_ev(qrylist[nnode].cbdata, clust, sx_node_internal_addr(node), proto->verb, proto->path, proto->content, proto->content_len, NULL, NULL)) {
 		WARN("Failed to query node %s: %s", sx_node_uuid_str(node), sxc_geterrmsg(sx));
 		action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to setup cluster communication");
@@ -1509,7 +1498,6 @@ static act_result_t filedelete_request(sx_hashfs_t *hashfs, job_t job_id, job_da
 	    qrylist[nnode].query_sent = 1;
 	}
     }
-
 
  action_failed:
     if(proto) {
@@ -1540,7 +1528,6 @@ static act_result_t filedelete_request(sx_hashfs_t *hashfs, job_t job_id, job_da
 	sxi_query_free(proto);
     }
 
-    free(tmp);
     return ret;
 }
 
@@ -1549,7 +1536,7 @@ static act_result_t filedelete_commit(sx_hashfs_t *hashfs, job_t job_id, job_dat
     const sx_node_t *me = sx_hashfs_self(hashfs);
     act_result_t ret = ACT_RESULT_OK;
     unsigned int nnode, nnodes;
-    int64_t tmpfile_id = 0;
+    int64_t tmpfile_id;
     rc_ty s;
 
     /*
@@ -1558,134 +1545,42 @@ static act_result_t filedelete_commit(sx_hashfs_t *hashfs, job_t job_id, job_dat
      * to properly handle existing jobs. Code dealing with tmpfile_id can be dropped in next release.
      */
 
-    if(job_data->len != REV_LEN && job_data->len != sizeof(tmpfile_id)) {
-	CRIT("Bad job data");
-	action_error(ACT_RESULT_PERMFAIL, 500, "Internal job data error");
-    }
-
     nnodes = sx_nodelist_count(nodes);
     for(nnode = 0; nnode<nnodes; nnode++) {
 	if(!sx_node_cmp(me, sx_nodelist_get(nodes, nnode))) {
-            if(job_data->len == REV_LEN) {
-                sx_hashfs_tmpinfo_t *tmpinfo = NULL;
-                char revision[REV_LEN+1];
-                memcpy(revision, job_data->ptr, REV_LEN);
-                revision[REV_LEN] = '\0';
-                s = sx_hashfs_tmp_getinfo_by_revision(hashfs, revision, &tmpinfo);
-                if (s == ENOENT) {
-                    tmpinfo->tmpfile_id = -1;
-                    s = OK;
-                }
-                if (s != OK) {
-                    free(tmpinfo);
-                    action_error(rc2actres(s), rc2http(s), "Failed to retrieve file revision");
-                }
-                tmpfile_id = tmpinfo->tmpfile_id;
-            } else { /* job_data->len == sizeof(tmpfile_id) */
-                memcpy(&tmpfile_id, job_data->ptr, sizeof(tmpfile_id));
-                DEBUG("Invoking legacy file delete job type: %lld", (long long)tmpfile_id);
-            }
+            sx_hashfs_file_t filerev;
+            const sx_hashfs_volume_t *volume;
 
-	    if(sx_hashfs_tmp_delete(hashfs, tmpfile_id))
-		INFO("Failed to delete tempfile %lld", (long long)tmpfile_id); /* Not a big deal */
+            s = filerev_from_tmpfileid_or_rev(hashfs, job_data, &filerev);
+            if (s)
+                action_error(rc2actres(s), rc2http(s), "Failed to retrieve fileid");
+            s = sx_hashfs_volume_by_id(hashfs, filerev.volume_id, &volume);
+            if (s)
+                action_error(rc2actres(s), rc2http(s), "Failed to retrieve volume id");
+    	    s = sx_hashfs_file_delete(hashfs, volume, filerev.name, filerev.revision);
+            if (s)
+                action_error(rc2actres(s), rc2http(s), "Failed to delete file");
 	}
 	succeeded[nnode] = 1;
     }
 
  action_failed:
+    if (job_data->len == sizeof(tmpfile_id)) {
+        memcpy(&tmpfile_id, job_data->ptr, sizeof(tmpfile_id));
+        DEBUG("Invoking legacy file delete job type: %lld", (long long)tmpfile_id);
+        if(sx_hashfs_tmp_delete(hashfs, tmpfile_id))
+            INFO("Failed to delete tempfile %lld", (long long)tmpfile_id); /* Not a big deal */
+    }
     return ret;
 }
 
 static act_result_t filedelete_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
-    act_result_t ret = ACT_RESULT_OK;
-    unsigned int nnode, nnodes;
-    sx_hashfs_tmpinfo_t *tmp = NULL;
-    int64_t tmpfile_id = 0;
-    char revision[REV_LEN+1];
-    rc_ty s;
-
-    /*
-     * Compatibility notice:
-     * Getting tempfile for delete job using tmpfile_id as token is a legacy method, but should be supported
-     * to properly handle existing jobs. Code dealing with tmpfile_id can be dropped in next release.
-     */
-
-    if(job_data->len != REV_LEN && job_data->len != sizeof(tmpfile_id)) {
-        CRIT("Bad job data");
-        action_error(ACT_RESULT_PERMFAIL, 500, "Internal job data error");
-    }
-
-    if(job_data->len == REV_LEN) {
-        memcpy(revision, job_data->ptr, REV_LEN);
-        revision[REV_LEN] = 0;
-        s = sx_hashfs_tmp_getinfo_by_revision(hashfs, revision, &tmp);
-    } else { /* job_data->len == sizeof(tmpfile_id) */
-        memcpy(&tmpfile_id, job_data->ptr, sizeof(tmpfile_id));
-        DEBUG("Invoking legacy file delete job type: %lld", (long long)tmpfile_id);
-        s = sx_hashfs_tmp_getinfo(hashfs, tmpfile_id, &tmp, 0);
-        DEBUG("Got file delete tmpfile: %s", tmp->name);
-    }
-
-    if(s == OK) {
-	CRIT("File %s (rev %s) on volume %lld was left in an inconsitent state after a failed deletion attempt", tmp->name, tmp->revision, (long long)tmp->volume_id);
-        sx_hashfs_tmp_delete(hashfs, tmp->tmpfile_id);
-        free(tmp);
-    } else
-        CRIT("Failed to delete tmpfile");
-
-    nnodes = sx_nodelist_count(nodes);
-    for(nnode = 0; nnode<nnodes; nnode++)
-	succeeded[nnode] = 1;
-
- action_failed:
-    return ret;
+    return revision_job_from_tmpfileid_or_rev(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl, -1, JOBPHASE_ABORT);
 }
 
 static act_result_t filedelete_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
-    act_result_t ret = ACT_RESULT_OK;
-    unsigned int nnode, nnodes;
-    sx_hashfs_tmpinfo_t *tmp = NULL;
-    int64_t tmpfile_id = 0;
-    char revision[REV_LEN+1];
-    rc_ty s;
-
-    /*
-     * Compatibility notice:
-     * Getting tempfile for delete job using tmpfile_id as token is a legacy method, but should be supported
-     * to properly handle existing jobs. Code dealing with tmpfile_id can be dropped in next release.
-     */
-
-    if(job_data->len != REV_LEN && job_data->len != sizeof(tmpfile_id)) {
-        CRIT("Bad job data");
-        action_error(ACT_RESULT_PERMFAIL, 500, "Internal job data error");
-    }
-
-    if(job_data->len == REV_LEN) {
-        memcpy(revision, job_data->ptr, REV_LEN);
-        revision[REV_LEN] = 0;
-        s = sx_hashfs_tmp_getinfo_by_revision(hashfs, revision, &tmp);
-    } else { /* job_data->len == sizeof(tmpfile_id) */
-        memcpy(&tmpfile_id, job_data->ptr, sizeof(tmpfile_id));
-        DEBUG("Invoking legacy file delete job type: %lld", (long long)tmpfile_id);
-        s = sx_hashfs_tmp_getinfo(hashfs, tmpfile_id, &tmp, 0);
-        DEBUG("Got file delete tmpfile: %s", tmp->name);
-    }
-
-    if(s == OK) {
-	WARN("Some blocks of file %s (rev %s) on volume %lld may have incorrect counts after a failed deletion attempt", tmp->name, tmp->revision, (long long)tmp->volume_id);
-        sx_hashfs_tmp_delete(hashfs, tmp->tmpfile_id);
-        free(tmp);
-    } else
-        CRIT("Some blocks of tmpfile may have incorrect counts after a failed deletion attempt");
-
-    nnodes = sx_nodelist_count(nodes);
-    for(nnode = 0; nnode<nnodes; nnode++)
-	succeeded[nnode] = 1;
-
- action_failed:
-    return ret;
+    return revision_job_from_tmpfileid_or_rev(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl, -1, JOBPHASE_UNDO);
 }
-
 
 struct cb_challenge_ctx {
     sx_hash_challenge_t chlrsp;
