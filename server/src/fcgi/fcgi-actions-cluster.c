@@ -260,6 +260,11 @@ void fcgi_handle_cluster_requests(void) {
         json_send_qstring(self);
         comma |= 1;
     }
+    if(has_arg("role")) {
+        if(comma) CGI_PUTC(',');
+        CGI_PRINTF("\"role\":\"%s\"", has_priv(PRIV_ADMIN) ? "admin" : "normal");
+        comma |= 1;
+    }
 
     /* MOAR COMMANDS HERE */
 

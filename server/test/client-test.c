@@ -1980,17 +1980,18 @@ check_user_err:
 int check_admin(sxc_cluster_t *cluster) {
     int ret = -1, is_admin, next = 1;
     char *get_user = NULL;
-    char *user, *desc;
+    char *user = NULL, *desc, *role = NULL;
     sxc_cluster_lu_t *lstu;
 
     lstu = sxc_cluster_listusers(cluster);
     if(!lstu)
         return ret;
 
-    user = sxc_cluster_whoami(cluster);
-    if(!user)
+    if(sxc_cluster_whoami(cluster, &user, &role))
 	goto check_admin_err;
 
+    if(!role || strcmp(role, "admin"))
+        goto check_admin_err;
     while(next > 0) {
         next = sxc_cluster_listusers_next(lstu, &get_user, &is_admin, &desc);
         free(desc);
@@ -2013,6 +2014,7 @@ int check_admin(sxc_cluster_t *cluster) {
 check_admin_err:
     sxc_cluster_listusers_free(lstu);
     free(user);
+    free(role);
     return ret;
 } /* check_admin */
 
@@ -2421,8 +2423,7 @@ int test_acl(sxc_client_t *sx, sxc_cluster_t *cluster, const char *local_dir_pat
         goto test_acl_err;
     }
     free(key3);
-    key3 = sxc_cluster_whoami(cluster);
-    if(!key3) {
+    if(sxc_cluster_whoami(cluster, &key3, NULL)) {
         if(sxc_geterrnum(sx) == 7) {
             printf("test_acl: User permissions after key change enforced correctly.\n");
         } else {
@@ -2446,8 +2447,7 @@ int test_acl(sxc_client_t *sx, sxc_cluster_t *cluster, const char *local_dir_pat
         goto test_acl_err;
     }
     free(key3);
-    key3 = sxc_cluster_whoami(cluster);
-    if(!key3) {
+    if(sxc_cluster_whoami(cluster, &key3, NULL)) {
         fprintf(stderr, "test_acl: ERROR: %s\n", sxc_geterrmsg(sx));
         goto test_acl_err;
     }

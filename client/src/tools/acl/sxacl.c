@@ -252,21 +252,26 @@ static int list_users(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_uri_t *u, co
     return rc;
 }
 
-static int whoami(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_uri_t *u)
+static int whoami(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_uri_t *u, int print_role)
 {
     char *user = NULL;
+    char *role = NULL;
 
     if(u->volume) {
 	fprintf(stderr, "ERROR: Bad URI: Please omit volume.\n");
 	return 1;
     }
-    user = sxc_cluster_whoami(cluster);
-    if (!user) {
+
+    if (sxc_cluster_whoami(cluster, &user, print_role ? &role : NULL)) {
         fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
         return 1;
     }
-    printf("%s\n", user);
+    if(print_role)
+        printf("%s (%s)\n", user, role);
+    else
+        printf("%s\n", user);
     free(user);
+    free(role);
     return 0;
 }
 
@@ -630,7 +635,7 @@ int main(int argc, char **argv) {
                 ret = 1;
                 break;
             }
-	    ret = whoami(sx, cluster, uri);
+	    ret = whoami(sx, cluster, uri, args.role_given);
             whoami_cmdline_parser_free(&args);
         } else {
             if (main_cmdline_parser(argc, argv, &main_args)) {

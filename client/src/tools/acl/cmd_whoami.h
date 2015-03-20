@@ -43,6 +43,8 @@ struct whoami_args_info
   char * config_dir_arg;	/**< @brief Path to SX configuration directory.  */
   char * config_dir_orig;	/**< @brief Path to SX configuration directory original value given at command line.  */
   const char *config_dir_help; /**< @brief Path to SX configuration directory help description.  */
+  int role_flag;	/**< @brief Also print user's role (default=off).  */
+  const char *role_help; /**< @brief Also print user's role help description.  */
   int debug_flag;	/**< @brief Enable debug messages (default=off).  */
   const char *debug_help; /**< @brief Enable debug messages help description.  */
   
@@ -50,6 +52,7 @@ struct whoami_args_info
   unsigned int full_help_given ;	/**< @brief Whether full-help was given.  */
   unsigned int version_given ;	/**< @brief Whether version was given.  */
   unsigned int config_dir_given ;	/**< @brief Whether config-dir was given.  */
+  unsigned int role_given ;	/**< @brief Whether role was given.  */
   unsigned int debug_given ;	/**< @brief Whether debug was given.  */
 
   char **inputs ; /**< @brief unamed options (options without names) */

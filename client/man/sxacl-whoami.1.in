@@ -17,6 +17,9 @@ Print help, including hidden options, and exit
 \fB\-V\fR, \fB\-\-version\fR
 Print version and exit
 .TP
+\fB\-r\fR, \fB\-\-role\fR
+When this option is given, a user's role will be printed together with the name.
+.TP
 \fB\-c\fR, \fB\-\-config\-dir\fR=\fI\,PATH\/\fR
 Path to the SX configuration directory (default: ~/.sx)
 .TP

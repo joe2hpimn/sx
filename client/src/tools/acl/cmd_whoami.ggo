@@ -6,5 +6,6 @@ section "Common options"
 
 option  "config-dir"		c "Path to SX configuration directory"
         string typestr="PATH" optional hidden
+option  "role"                  r "Also print user's role" flag off
 
 option  "debug"		D "Enable debug messages" flag off

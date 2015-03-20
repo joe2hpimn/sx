@@ -903,8 +903,9 @@ struct cb_whoami_ctx {
     yajl_callbacks yacb;
     struct cb_error_ctx errctx;
     char *whoami;
+    char *role;
     yajl_handle yh;
-    enum whoami_state { FW_ERROR, FW_BEGIN, FW_CLUSTER, FW_WHOAMI, FW_COMPLETE } state;
+    enum whoami_state { FW_ERROR, FW_BEGIN, FW_CLUSTER, FW_WHOAMI, FW_ROLE, FW_COMPLETE } state;
 };
 #define expect_state(expst) do { if(yactx->state != (expst)) { CBDEBUG("bad state (in %d, expected %d)", yactx->state, expst); return 0; } } while(0)
 
@@ -940,6 +941,10 @@ static int yacb_whoami_map_key(void *ctx, const unsigned char *s, size_t l) {
 	    yactx->state = FW_WHOAMI;
 	    return 1;
 	}
+        if(l == lenof("role") && !memcmp(s, "role", lenof("role"))) {
+            yactx->state = FW_ROLE;
+            return 1;
+        }
 	CBDEBUG("unexpected cluster key '%.*s'", (unsigned)l, s);
 	return 0;
     }
@@ -955,19 +960,33 @@ static int yacb_whoami_string(void *ctx, const unsigned char *s, size_t l) {
     if (yactx->state == FW_ERROR)
         return yacb_error_string(&yactx->errctx, s, l);
 
-    expect_state(FW_WHOAMI);
-    if(l<=0)
-	return 0;
+    if(yactx->state == FW_WHOAMI) {
+        if(l<=0)
+            return 0;
 
-    if(!(yactx->whoami = malloc(l+1))) {
-	CBDEBUG("OOM duplicating username '%.*s'", (unsigned)l, s);
-	sxi_cbdata_seterr(yactx->cbdata, SXE_EMEM, "Out of memory");
-	return 0;
+        if(!(yactx->whoami = malloc(l+1))) {
+            CBDEBUG("OOM duplicating username '%.*s'", (unsigned)l, s);
+            sxi_cbdata_seterr(yactx->cbdata, SXE_EMEM, "Out of memory");
+            return 0;
+        }
+
+        memcpy(yactx->whoami, s, l);
+        yactx->whoami[l] = '\0';
+        yactx->state = FW_CLUSTER;
+    } else if(yactx->state == FW_ROLE) {
+        if(l<=0)
+            return 0;
+
+        if(!(yactx->role = malloc(l+1))) {
+            CBDEBUG("OOM duplicating user role '%.*s'", (unsigned)l, s);
+            sxi_cbdata_seterr(yactx->cbdata, SXE_EMEM, "Out of memory");
+            return 0;
+        }
+
+        memcpy(yactx->role, s, l);
+        yactx->role[l] = '\0';
+        yactx->state = FW_CLUSTER;
     }
-
-    memcpy(yactx->whoami, s, l);
-    yactx->whoami[l] = '\0';
-    yactx->state = FW_CLUSTER;
     return 1;
 }
 
@@ -1001,6 +1020,7 @@ static int whoami_setup_cb(curlev_context_t *cbdata, void *ctx, const char *host
     yactx->state = FW_BEGIN;
     yactx->cbdata = cbdata;
     yactx->whoami = NULL;
+    yactx->role = NULL;
 
     return 0;
 }
@@ -1017,11 +1037,16 @@ static int whoami_cb(curlev_context_t *cbdata, void *ctx, const void *data, size
     return 0;
 }
 
-char* sxc_cluster_whoami(sxc_cluster_t *cluster) {
+int sxc_cluster_whoami(sxc_cluster_t *cluster, char **user, char **role) {
     struct cb_whoami_ctx yctx;
     yajl_callbacks *yacb = &yctx.yacb;
     sxc_client_t *sx = cluster->sx;
-    char *ret = NULL;
+    int ret = -1;
+
+    if(!user) {
+        sxi_seterr(sx, SXE_EARG, "NULL argument");
+        return ret;
+    }
 
     ya_init(yacb);
     yacb->yajl_start_map = yacb_whoami_start_map;
@@ -1031,7 +1056,7 @@ char* sxc_cluster_whoami(sxc_cluster_t *cluster) {
     yctx.yh = NULL;
 
     sxi_set_operation(sxi_cluster_get_client(cluster), "whoami", sxi_cluster_get_name(cluster), NULL, NULL);
-    if(sxi_cluster_query(cluster->conns, NULL, REQ_GET, "?whoami", NULL, 0, whoami_setup_cb, whoami_cb, &yctx) != 200) {
+    if(sxi_cluster_query(cluster->conns, NULL, REQ_GET, role ? "?whoami&role" : "?whoami", NULL, 0, whoami_setup_cb, whoami_cb, &yctx) != 200) {
 	SXDEBUG("query failed");
 	goto config_whoami_error;
     }
@@ -1043,14 +1068,35 @@ char* sxc_cluster_whoami(sxc_cluster_t *cluster) {
         }
 	goto config_whoami_error;
     }
-    ret = yctx.whoami;
-    SXDEBUG("whoami: %s", ret);
 
+    if(!*yctx.whoami) {
+        sxi_seterr(sx, SXE_ECOMM, "Failed to get user name");
+        goto config_whoami_error;
+    }
+
+    if(role && (!yctx.role || !*yctx.role)) {
+        sxi_seterr(sx, SXE_ECOMM, "Failed to get user role");
+        goto config_whoami_error;
+    }
+
+    if(role)
+        SXDEBUG("whoami: %s (%s)", yctx.whoami, yctx.role);
+    else
+        SXDEBUG("whoami: %s", yctx.whoami);
+
+    *user = yctx.whoami;
+    if(role)
+        *role = yctx.role;
+    ret = 0;
  config_whoami_error:
-    if(yctx.yh) {
-        if (!ret)
-            free(yctx.whoami);
+    if(yctx.yh)
 	yajl_free(yctx.yh);
+    if (ret) {
+        free(yctx.whoami);
+        free(yctx.role);
+        *user = NULL;
+        if(role)
+            *role = NULL;
     }
 
     return ret;
