@@ -447,6 +447,8 @@ rc_ty sx_hashfs_job_new_2pc(sx_hashfs_t *h, const job_2pc_t *spec, void *yctx, s
 
 rc_ty sx_hashfs_cluster_set_mode(sx_hashfs_t *h, int mode);
 rc_ty sx_hashfs_cluster_get_mode(sx_hashfs_t *h, int *mode);
+rc_ty sx_hashfs_cluster_set_name(sx_hashfs_t *h, const char *name);
+rc_ty sx_hashfs_cluster_get_name(sx_hashfs_t *h, const char **name);
 
 int sx_hashfs_is_readonly(sx_hashfs_t *h);
 

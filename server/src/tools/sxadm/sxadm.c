@@ -1052,6 +1052,67 @@ static int info_node(sxc_client_t *sx, const char *path, struct node_args_info *
     return ret;
 }
 
+/* sxadm node --rename-cluster <STORAGE_PATH> */
+static int rename_cluster(sxc_client_t *sx, const char *path, const char *name)
+{
+    int ret = 1;
+    sx_hashfs_t *h = NULL;
+    char *hpath;
+    const char *old_name;
+
+    if(!path || !name) {
+        fprintf(stderr, "Invalid argument\n");
+        return 1;
+    }
+
+    hpath = malloc(strlen(path) + 1 + sizeof("hashfs.db"));
+    if(!hpath) {
+        fprintf(stderr, "Failed to prepare storage database path\n");
+        return 1;
+    }
+    sprintf(hpath, "%s/hashfs.db", path);
+    if(access(hpath, R_OK)) {
+        if(errno == EACCES)
+            fprintf(stderr, "ERROR: Can't access %s\n", path);
+        else if(errno == ENOENT)
+            fprintf(stderr, "ERROR: No valid SX storage found at %s\n", path);
+        else
+            fprintf(stderr, "ERROR: Can't open SX storage at %s\n", path);
+        goto rename_cluster_err;
+    }
+
+    h = sx_hashfs_open(path, sx);
+    if(!h)
+        goto rename_cluster_err;
+
+    if(sx_hashfs_cluster_get_name(h, &old_name)) {
+        fprintf(stderr, "ERROR: Failed to get old cluster name\n");
+        goto rename_cluster_err;
+    }
+
+    if(!strcmp(name, old_name)) {
+        fprintf(stderr, "ERROR: New cluster name is the same as the old one\n");
+        goto rename_cluster_err;
+    }
+
+    if(!strlen(name)) {
+        fprintf(stderr, "ERROR: Cluster name is too short\n");
+        goto rename_cluster_err;
+    }
+
+    if(sx_hashfs_cluster_set_name(h, name)) {
+        fprintf(stderr, "ERROR: Failed to set cluster name\n");
+        goto rename_cluster_err;
+    }
+
+    printf("New cluster name is '%s'\n", name);
+    ret = 0;
+rename_cluster_err:
+    free(hpath);
+    sx_hashfs_close(h);
+    return ret;
+}
+
 static int force_gc_cluster(sxc_client_t *sx, struct cluster_args_info *args, int delete_reservations)
 {
     int ret;
@@ -1067,7 +1128,7 @@ static int force_gc_cluster(sxc_client_t *sx, struct cluster_args_info *args, in
     return ret;
 }
 
-void print_dist(const sx_nodelist_t *nodes) {
+static void print_dist(const sx_nodelist_t *nodes) {
     if(nodes) {
 	unsigned int i, nnodes = sx_nodelist_count(nodes);
 	for(i = 0; i < nnodes; i++) {
@@ -1526,6 +1587,8 @@ int main(int argc, char **argv) {
             ret = check_node(sx, node_args.inputs[0], node_args.debug_flag);
         else if(node_args.extract_given)
             ret = extract_node(sx, node_args.inputs[0], node_args.extract_arg);
+        else if(node_args.rename_cluster_given)
+            ret = rename_cluster(sx, node_args.inputs[0], node_args.rename_cluster_arg);
     node_out:
 	node_cmdline_parser_free(&node_args);
         sx_done(&sx);

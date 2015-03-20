@@ -1632,7 +1632,7 @@ void fcgi_node_status(void) {
 
 struct cluster_mode_ctx {
     int mode; /* 1: readonly, 0: read-write (default) */
-    enum user_state { CB_CM_START=0, CB_CM_KEY, CB_CM_MODE, CB_CM_COMPLETE } state;
+    enum cluster_mode_state { CB_CM_START=0, CB_CM_KEY, CB_CM_MODE, CB_CM_COMPLETE } state;
 };
 
 static int cb_cluster_mode_string(void *ctx, const unsigned char *s, size_t l) {
@@ -1687,7 +1687,7 @@ static int cb_cluster_mode_end_map(void *ctx) {
     return 1;
 }
 
-static const yajl_callbacks user_ops_parser = {
+static const yajl_callbacks cluster_mode_ops_parser = {
     cb_fail_null,
     cb_fail_boolean,
     NULL,
@@ -1784,12 +1784,14 @@ static rc_ty cluster_mode_execute_blob(sx_hashfs_t *h, sx_blob_t *b, jobphase_t 
         case JOBPHASE_REQUEST:
             DEBUG("Cluster mode switch request: '%s'", mode ? "read-only" : "read-write");
             rc = sx_hashfs_cluster_set_mode(h, mode);
-            msg_set_reason("Unable to switch cluster to '%s' mode", mode ? "read-only" : "read-write");
+            if(rc != OK)
+                msg_set_reason("Unable to switch cluster to '%s' mode", mode ? "read-only" : "read-write");
             return rc;
         case JOBPHASE_ABORT:
             DEBUG("Cluster mode switch abort: '%s'", mode ? "read-only" : "read-write");
             rc = sx_hashfs_cluster_set_mode(h, !mode);
-            msg_set_reason("Unable to switch cluster to '%s' mode", mode ? "read-write" : "read-only");
+            if(rc != OK)
+                msg_set_reason("Unable to switch cluster to '%s' mode", mode ? "read-write" : "read-only");
             return rc;
         default:
             WARN("Invalid job phase: %d", phase);
@@ -1802,7 +1804,7 @@ static const char *cluster_mode_get_lock(sx_blob_t *b)
     return "CLUSTER_MODE";
 }
 
-static rc_ty cluster_mode_nodes(sx_hashfs_t *hashfs, sx_blob_t *blob, sx_nodelist_t **nodes)
+static rc_ty cluster_mode_nodes(sx_hashfs_t *h, sx_blob_t *blob, sx_nodelist_t **nodes)
 {
     if(!nodes)
         return FAIL_EINTERNAL;
@@ -1814,7 +1816,7 @@ static rc_ty cluster_mode_nodes(sx_hashfs_t *hashfs, sx_blob_t *blob, sx_nodelis
 }
 
 const job_2pc_t cluster_mode_spec = {
-    &user_ops_parser,
+    &cluster_mode_ops_parser,
     JOBTYPE_CLUSTER_MODE,
     cluster_mode_parse_complete,
     cluster_mode_get_lock,

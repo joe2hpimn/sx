@@ -12751,6 +12751,59 @@ rc_ty sx_hashfs_distlock_release(sx_hashfs_t *h) {
     return OK;
 }
 
+rc_ty sx_hashfs_cluster_set_name(sx_hashfs_t *h, const char *name) {
+    if(!h || !name) {
+        msg_set_reason("Invalid argument");
+        return EINVAL;
+    }
+
+    sqlite3_reset(h->q_setval);
+    if(qbind_text(h->q_setval, ":k", "cluster_name") || qbind_text(h->q_setval, ":v", name) || qstep_noret(h->q_setval)) {
+        msg_set_reason("Failed to set cluster name");
+        return FAIL_EINTERNAL;
+    }
+
+    free(h->cluster_name);
+    h->cluster_name = wrap_strdup(name);
+    if (!h->cluster_name) {
+        msg_set_reason("Failed to get cluster name: Out of memory");
+        return FAIL_EINTERNAL;
+    }
+
+    return OK;
+}
+
+rc_ty sx_hashfs_cluster_get_name(sx_hashfs_t *h, const char **name) {
+    const char *n;
+
+    if(!h || !name) {
+        msg_set_reason("Invalid argument");
+        return EINVAL;
+    }
+
+    sqlite3_reset(h->q_getval);
+    if(qbind_text(h->q_getval, ":k", "cluster_name") || qstep_ret(h->q_getval)) {
+        msg_set_reason("Failed to get cluster name");
+        return FAIL_EINTERNAL;
+    }
+
+    n = (const char*)sqlite3_column_text(h->q_getval, 0);
+    if(!n) {
+        msg_set_reason("Failed go get cluster name");
+        return FAIL_EINTERNAL;
+    }
+
+    free(h->cluster_name);
+    h->cluster_name = wrap_strdup((const char*)sqlite3_column_text(h->q_getval, 0));
+    if (!h->cluster_name) {
+        msg_set_reason("Failed to get cluster name: Out of memory");
+        return FAIL_EINTERNAL;
+    }
+
+    *name = h->cluster_name;
+    return OK;
+}
+
 rc_ty sx_hashfs_cluster_set_mode(sx_hashfs_t *h, int readonly) {
     sqlite3_reset(h->q_setval);
     if(readonly != 0 && readonly != 1) {
