@@ -1671,31 +1671,70 @@ static int cluster_set_mode(sxc_client_t *sx, struct cluster_args_info *args) {
     return ret;
 }
 
-static int cluster_upgrade(sxc_client_t *sx, struct cluster_args_info *args) {
-    sxc_cluster_t *cluster;
-    int ret;
-
-    if(!args) {
-        fprintf(stderr, "ERROR: Invalid argument\n");
+static int upgrade_node(sxc_client_t *sx, const char *path)
+{
+    unsigned hpath_len = strlen(path) + 1 + sizeof("hashfs.db");
+    char *hpath = wrap_malloc(hpath_len);
+    if (!hpath)
+        return 1;
+    snprintf(hpath, hpath_len, "%s/hashfs.db", path);
+    if (access(hpath, R_OK)) {
+	if(errno == EACCES)
+	    fprintf(stderr, "ERROR: Can't access %s\n", path);
+	else if(errno == ENOENT)
+	    fprintf(stderr, "ERROR: No valid SX storage found at %s\n", path);
+	else
+	    fprintf(stderr, "ERROR: Can't open SX storage at %s\n", path);
+	free(hpath);
+	return 1;
+    }
+    free(hpath);
+    log_setminlevel(sx, SX_LOG_INFO);
+    rc_ty rc = sx_storage_upgrade(path);
+    if (rc) {
+        fprintf(stderr, "ERROR: Failed to upgrade storage at path %s: %s\n", path, rc2str(rc));
         return 1;
     }
-
-    cluster = cluster_load(sx, args, 1);
-    if(!cluster)
+    sx_hashfs_t *h = sx_hashfs_open(path, sx);
+    if (!h)
         return 1;
-    sxi_query_t *q = sxi_cluster_upgrade_proto(sx);
-    if (q)
-        ret = sxi_job_submit_and_poll(sxi_cluster_get_conns(cluster), NULL, q->verb, q->path, q->content, q->content_len);
-    else
-        ret = -1;
-    sxi_query_free(q);
+    job_t job_id = -1;
+    sx_nodelist_t *local = sx_nodelist_new();
+    if (local &&
+        !sx_nodelist_add(local, sx_node_dup(sx_hashfs_self(h)))) {
+        rc = sx_hashfs_job_new(h, 0, &job_id, JOBTYPE_UPGRADE_1_0_TO_1_1, JOB_NO_EXPIRY, "UPGRADE", &job_id, sizeof(job_id), local);
+        if (rc)
+            fprintf(stderr, "ERROR: Failed to insert upgrade job: %s (%s)\n", rc2str(rc), msg_get_reason());
+    } else {
+        fprintf(stderr, "Failed to allocate nodelist\n");
+    }
+    sx_nodelist_delete(local);
+    sx_hashfs_close(h);
+    if (job_id == -1)
+        return -1;
+    INFO("Storage is up to date");
+    return 0;
+}
 
-    sxc_cluster_free(cluster);
-    if(ret)
-        fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
-    else
-        printf("Upgrade job started, use 'sxadm cluster --info %s' to monitor progress\n", args->inputs[0]);
-    return ret;
+static int upgrade_job_node(sxc_client_t *sx, const char *path)
+{
+    log_setminlevel(sx, SX_LOG_INFO);
+    sx_hashfs_t *hashfs = sx_hashfs_open(path, sx);
+    if (!hashfs)
+        return 1;
+    rc_ty s;
+    do {
+        if ((s = sx_hashfs_upgrade_1_0_prepare(hashfs))) {
+            WARN("Failed to prepare upgrade job: %s", rc2str(s));
+            break;
+        }
+        if ((s = sx_hashfs_upgrade_1_0_local(hashfs))) {
+            WARN("Failed to run upgrade job: %s", rc2str(s));
+            break;
+        }
+    } while(0);
+    sx_hashfs_close(hashfs);
+    return s == OK ? 0 : 1;
 }
 
 int main(int argc, char **argv) {
@@ -1751,6 +1790,12 @@ int main(int argc, char **argv) {
             ret = extract_node(sx, node_args.inputs[0], node_args.extract_arg);
         else if(node_args.rename_cluster_given)
             ret = rename_cluster(sx, node_args.inputs[0], node_args.rename_cluster_arg);
+        /* FIXME: Temporarily disabled, should be enabled only on gcparial branch
+        else if(node_args.upgrade_given)
+            ret = upgrade_node(sx, node_args.inputs[0]);
+        else if(node_args.upgrade_job_given)
+            ret = upgrade_job_node(sx, node_args.inputs[0]);
+        */
     node_out:
 	node_cmdline_parser_free(&node_args);
         sx_done(&sx);
@@ -1795,8 +1840,6 @@ int main(int argc, char **argv) {
             ret = cluster_status(sx, &cluster_args);
         else if(cluster_args.set_mode_given && cluster_args.inputs_num == 1)
             ret = cluster_set_mode(sx, &cluster_args);
-        else if(cluster_args.upgrade_given && cluster_args.inputs_num == 1)
-            ret = cluster_upgrade(sx, &cluster_args);
 	else
 	    cluster_cmdline_parser_print_help();
     cluster_out:

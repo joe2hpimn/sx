@@ -521,6 +521,7 @@ int main(int argc, char **argv) {
     if(s<0) {
 	CRIT("Failed to open socket '%s'", args.socket_arg);
         cmdline_parser_free(&args);
+        free(pidfile);
         sx_done(&sx);
 	return EXIT_FAILURE;
     }
@@ -533,6 +534,7 @@ int main(int argc, char **argv) {
 	if(getsockname(s, (struct sockaddr *)&sa, &salen)) {
 	    PCRIT("failed to determine socket domain");
             cmdline_parser_free(&args);
+            free(pidfile);
             sx_done(&sx);
 	    return EXIT_FAILURE;
 	}
@@ -540,12 +542,14 @@ int main(int argc, char **argv) {
 	    if(salen > sizeof(sa)) {
 		CRIT("Cannot locate socket: path too long");
                 cmdline_parser_free(&args);
+                free(pidfile);
                 sx_done(&sx);
 		return EXIT_FAILURE;
 	    }
 	    if(chmod(sa.sun_path, sockmode)) {
 		PCRIT("Cannot set permissions on socket %s", sa.sun_path);
                 cmdline_parser_free(&args);
+                free(pidfile);
                 sx_done(&sx);
 		return EXIT_FAILURE;
 	    }
@@ -557,6 +561,7 @@ int main(int argc, char **argv) {
 	if(dup2(s, FCGI_LISTENSOCK_FILENO)<0) {
 	    PCRIT("Failed to rename socket descriptor %d to %d", s, FCGI_LISTENSOCK_FILENO);
             cmdline_parser_free(&args);
+            free(pidfile);
             sx_done(&sx);
 	    return EXIT_FAILURE;
 	}
@@ -575,6 +580,7 @@ int main(int argc, char **argv) {
 	CRIT("Failed to initialize the storage interface");
 	fprintf(stderr, "Failed to initialize the storage interface - check the logfile %s\n", args.logfile_arg);
         cmdline_parser_free(&args);
+        free(pidfile);
         sx_done(&sx);
 	return EXIT_FAILURE;
     }

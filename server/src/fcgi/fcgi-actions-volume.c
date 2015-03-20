@@ -1833,84 +1833,13 @@ void fcgi_cluster_mode(void) {
     job_2pc_handle_request(sx_hashfs_client(hashfs), &cluster_mode_spec, &c);
 }
 
-static const char *upgrade_get_lock(sx_blob_t *b)
-{
-    return "UPGRADE";
-}
-
-static int upgrade_to_blob(sxc_client_t *sx, int nodes, void *yctx, sx_blob_t *blob)
-{
-    int64_t *ver = (int64_t*)yctx;
-    if (!ver) {
-        NULLARG();
-        return 1;
-    }
-    return sx_blob_add_int64(blob, *ver);
-}
-
-static rc_ty upgrade_nodes(sx_hashfs_t *hashfs, sx_blob_t *blob, sx_nodelist_t **nodes)
-{
-    if (!nodes)
-        return FAIL_EINTERNAL;
-    *nodes = sx_nodelist_dup(sx_hashfs_effective_nodes(hashfs, NL_NEXTPREV));
-    if (!*nodes)
-        return FAIL_EINTERNAL;
-    return OK;
-}
-
-static sxi_query_t* upgrade_proto_from_blob(sxc_client_t *sx, sx_blob_t *b, jobphase_t phase)
-{
-    switch (phase) {
-        case JOBPHASE_REQUEST:
-            return sxi_cluster_upgrade_proto(sx);
-        default:
-            return NULL;
-    }
-}
-
-static unsigned upgrade_timeout(sxc_client_t *sx, int nodes)
-{
-    return JOB_NO_EXPIRY;
-}
-
-static rc_ty upgrade_execute_blob(sx_hashfs_t *hashfs, sx_blob_t *b, jobphase_t phase, int remote)
-{
-    switch (phase) {
-        case JOBPHASE_REQUEST:
-            INFO("Preparing to upgrade node");
-            if (sx_hashfs_upgrade_1_0_prepare(hashfs) ||
-                sx_hashfs_upgrade_1_0_local(hashfs))
-                return EAGAIN;
-            return OK;
-        default:
-            return OK;
-    }
-}
-
-const job_2pc_t upgrade_spec = {
-    NULL,
-    JOBTYPE_UPGRADE_1_0_TO_1_1,
-    NULL,
-    upgrade_get_lock,
-    upgrade_to_blob,
-    upgrade_execute_blob,
-    upgrade_proto_from_blob,
-    upgrade_nodes,
-    upgrade_timeout
-};
-
-void fcgi_cluster_upgrade(void) {
-   int64_t ver = sx_hashfs_hdist_getversion(hashfs);
-   job_2pc_handle_request(sx_hashfs_client(hashfs), &upgrade_spec, &ver);
-}
-
 static void blob_send(const sx_blob_t *b)
 {
     const void *data;
-    uint32_t len;
+    uint32_t len, len_net;
     sx_blob_to_data(b, &data, &len);
-    len = htonl(len);
-    CGI_PUTD(&len, sizeof(len));
+    len_net = htonl(len);
+    CGI_PUTD(&len_net, sizeof(len_net));
     CGI_PUTD(data, len);
 }
 
@@ -1919,31 +1848,37 @@ static void blob_send_eof(void)
     sx_blob_t *b = sx_blob_new();
     if (!b)
         quit_errmsg(500, "OOM");
-    sx_blob_add_string(b, "EOF$");
+    if (sx_blob_add_string(b, "EOF$")) {
+        sx_blob_free(b);
+        quit_errmsg(500, "blob_add failed");
+    }
     blob_send(b);
     sx_blob_free(b);
 }
 
-static int list_rev_cb(const sx_hashfs_volume_t *vol, const sx_uuid_t *target, const sx_hash_t *revision_id, const sx_hash_t *contents, int64_t nblocks)
+static int list_rev_cb(const sx_hashfs_volume_t *vol, const sx_uuid_t *target, const sx_hash_t *revision_id, const sx_hash_t *contents, int64_t nblocks, unsigned block_size)
 {
     int64_t i=-1;
     sx_blob_t *b = sx_blob_new();
     if (!b)
         return -1;
+    DEBUG("IN");
     do {
         if (sx_blob_add_string(b, "[REV]") ||
-            sx_blob_add_blob(b, revision_id->b, sizeof(revision_id->b)))
+            sx_blob_add_blob(b, revision_id->b, sizeof(revision_id->b)) ||
+            sx_blob_add_int32(b, block_size))
             break;
         for (i=0;i<nblocks;i++) {
             const sx_hash_t *hash = &contents[i];
             sx_nodelist_t *nl = sx_hashfs_all_hashnodes(hashfs, NL_NEXT, hash, vol->max_replica);
             if (!nl)
                 break;
-            if (sx_nodelist_lookup(nl, target))
-                sx_blob_add_blob(b, hash->b, sizeof(hash->b));
+            const sx_node_t *found = sx_nodelist_lookup(nl, target);
             sx_nodelist_delete(nl);
+            if (found && sx_blob_add_blob(b, hash->b, sizeof(hash->b)))
+                break;
         }
-        if (sx_blob_add_string(b, "$")) {
+        if (sx_blob_add_blob(b, "", 0)) {
             i = -1;
             break;
         }
@@ -1953,19 +1888,40 @@ static int list_rev_cb(const sx_hashfs_volume_t *vol, const sx_uuid_t *target, c
     return i == nblocks ? 0 : -1;
 }
 
+static int list_count_cb(int64_t count)
+{
+    sx_blob_t *b = sx_blob_new();
+    if (!b)
+        return -1;
+    DEBUG("IN");
+    do {
+        if (sx_blob_add_string(b,"[COUNT]") ||
+            sx_blob_add_int64(b, count))
+            break;
+        blob_send(b);
+    } while(0);
+    sx_blob_free(b);
+    return 0;
+}
+
 void fcgi_list_revision_blocks(const sx_hashfs_volume_t *vol) {
-    int max_age = arg_num("max-age");
+    int max_age = get_arg_uint("max-age");
     const char *min_rev  = get_arg("min-rev");
     const char *node_uuid = get_arg("for-node-uuid");
-    int metadb = arg_num("metadb");
+    int metadb = get_arg_uint("metadb");
     sx_hash_t min_revision;
     sx_uuid_t uuid;
-    if (max_age < 0 || !min_rev || !node_uuid || uuid_from_string(&uuid, node_uuid) ||
+    if (max_age < 0)
+        quit_errmsg(400, "Invalid max-age: cannot be negative");
+    if (!node_uuid || uuid_from_string(&uuid, node_uuid))
+        quit_errmsg(400, "target node uuid missing or invalid");
+    if (min_rev && *min_rev &&
         hex2bin(min_rev, strlen(min_rev), min_revision.b, sizeof(min_revision.b)))
-        quit_errmsg(400, "Required arguments missing or invalid");
+        quit_errmsg(400, "failed to convert revision from hex");
     rc_ty rc;
     CGI_PUTS("\r\n");
-    if ((rc = sx_hashfs_list_revision_blocks(hashfs, vol, &uuid, &min_revision, max_age, metadb, list_rev_cb)))
+    DEBUG("max-age: %d", max_age);
+    if ((rc = sx_hashfs_list_revision_blocks(hashfs, vol, &uuid, (min_rev && *min_rev) ? &min_revision : NULL, max_age, metadb, list_rev_cb, list_count_cb)))
         quit_errmsg(rc2http(rc), msg_get_reason());
     blob_send_eof();
 }

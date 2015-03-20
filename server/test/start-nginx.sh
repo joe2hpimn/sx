@@ -82,20 +82,17 @@ EOF
     fi
     $prefix/sbin/sxsetup --config-file $CONF_TMP --debug --advanced --wait
     rm -f $CONF_TMP
-        echo "$ADMIN_KEY" | ../client/src/tools/init/sxinit --port "$SX_PORT"  --host-list=127.0.1.1 sx://localhost --no-ssl
-#    ../client/src/tools/vol/sxvol create sx://localhost/vol$i -r $i -o admin -s 100M
+        echo "$ADMIN_KEY" | ../client/src/tools/init/sxinit --port "$SX_PORT" --host-list=127.0.1.1 sx://admin@localhost --no-ssl --key
+    ../client/src/tools/vol/sxvol create sx://admin@localhost/vol$i -r $i -o admin -s 100M
     if [ $i -eq 1 ]; then
-        echo "$ADMIN_KEY" | ../client/src/tools/init/sxinit --port "$SX_PORT"  --host-list=127.0.1.1 sx://localhost --no-ssl
-#        test/randgen 40960 40960 >mvtest
-#        ../client/src/tools/cp/sxcp mvtest sx://localhost/vol1/
+        echo "$ADMIN_KEY" | ../client/src/tools/init/sxinit --port "$SX_PORT" --host-list=127.0.1.1 sx://admin@localhost --no-ssl --key
+        test/randgen 40960 40960 >mvtest
+        ../client/src/tools/cp/sxcp mvtest sx://admin@localhost/vol1/
     fi
-#    truncate --size=8192 mvtest
-#    ../client/src/tools/cp/sxcp mvtest sx://localhost/vol$i/mvtest2
 
     i=$(( i+1 ))
 done
-exit 0
-rm -f mvtestx && ../client/src/tools/cp/sxcp sx://localhost/vol1/mvtest mvtestx
+rm -f mvtestx && ../client/src/tools/cp/sxcp sx://admin@localhost/vol1/mvtest mvtestx
 
 list=127.0.1.1
 i=2
@@ -104,25 +101,25 @@ while [ $i -le $N ]; do
     i=$((i+1))
 done
 rm -rf $HOME/.sx/$CLUSTER_NAME # avoid sxinit bugs
-echo "$ADMIN_KEY" | ../client/src/tools/init/sxinit --port "$SX_PORT" --host-list=$list sx://localhost --no-ssl
+echo "$ADMIN_KEY" | ../client/src/tools/init/sxinit --port "$SX_PORT" --host-list=$list --key sx://admin@localhost --no-ssl
 #sudo -u $SUDO_USER ../client/src/tools/init/sxinit --no-ssl sx://`hostname` <$STOREDIR/admin.key
-../client/src/tools/vol/sxvol create sx://localhost/volr2 -r 2 -o admin -s 100M
-../client/src/tools/acl/sxacl useradd user1 sx://localhost
-../client/src/tools/acl/sxacl useradd user2 sx://localhost
-../client/src/tools/acl/sxacl volperm --grant=write user1,user2 sx://localhost/volr2
-../client/src/tools/acl/sxacl volperm --grant=read user1 sx://localhost/volr2
+../client/src/tools/vol/sxvol create sx://admin@localhost/volr2 -r 2 -o admin -s 100M
+../client/src/tools/acl/sxacl useradd user1 sx://admin@localhost
+../client/src/tools/acl/sxacl useradd user2 sx://admin@localhost
+../client/src/tools/acl/sxacl volperm --grant=write user1,user2 sx://admin@localhost/volr2
+../client/src/tools/acl/sxacl volperm --grant=read user1 sx://admin@localhost/volr2
 
 MESSAGE="OK"
 exit 0
 
-SX_DEBUG_SINGLE_VOLUMEHOST=127.0.1.1 ../client/src/tools/acl/sxacl volshow sx://localhost/volr2
+SX_DEBUG_SINGLE_VOLUMEHOST=127.0.1.1 ../client/src/tools/acl/sxacl volshow sx://admin@localhost/volr2
 echo
-SX_DEBUG_SINGLE_VOLUMEHOST=127.0.1.2 ../client/src/tools/acl/sxacl volshow sx://localhost/volr2
+SX_DEBUG_SINGLE_VOLUMEHOST=127.0.1.2 ../client/src/tools/acl/sxacl volshow sx://admin@localhost/volr2
 echo
-../client/src/tools/acl/sxacl volperm --revoke=write user2 sx://localhost/volr2
-SX_DEBUG_SINGLE_VOLUMEHOST=127.0.1.1 ../client/src/tools/acl/sxacl volshow sx://localhost/volr2
+../client/src/tools/acl/sxacl volperm --revoke=write user2 sx://admin@localhost/volr2
+SX_DEBUG_SINGLE_VOLUMEHOST=127.0.1.1 ../client/src/tools/acl/sxacl volshow sx://admin@localhost/volr2
 echo
-SX_DEBUG_SINGLE_VOLUMEHOST=127.0.1.2 ../client/src/tools/acl/sxacl volshow sx://localhost/volr2
+SX_DEBUG_SINGLE_VOLUMEHOST=127.0.1.2 ../client/src/tools/acl/sxacl volshow sx://admin@localhost/volr2
 echo
 test/uldl.sh
 exit 1
@@ -132,8 +129,8 @@ test/check_permissions.sh $list
 mkdir -p $ROOT/filters
 chown $SUDO_USER $ROOT/filters
 export SX_FILTER_DIR=$ROOT/filters
-../client/src/tools/init/sxinit --host-list=$list sx://localhost --no-ssl <$STOREDIR/admin.key
+../client/src/tools/init/sxinit --host-list=$list sx://admin@localhost --no-ssl <$STOREDIR/admin.key
 test/sx-errors.sh localhost $STOREDIR/admin.key
-../client/src/tools/init/sxinit --host-list=$list sx://localhost --no-ssl <$STOREDIR/admin.key
+../client/src/tools/init/sxinit --host-list=$list sx://admin@localhost --no-ssl <$STOREDIR/admin.key
 MESSAGE="ALL TESTS OK"
 echo

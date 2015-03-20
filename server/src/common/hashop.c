@@ -75,7 +75,7 @@ struct hashop_ctx {
     char *hexhashes;
     sxi_query_t *query;
     enum { MISS_ERROR, MISS_BEGIN, MISS_MAP, MISS_PRESENCE, MISS_ARRAY, MISS_COMPLETE } state;
-    unsigned idx;
+  unsigned idx;
     int idxs[DOWNLOAD_MAX_BLOCKS];
     sxi_hashop_t *hashop;
     curlev_context_t *cbdata;

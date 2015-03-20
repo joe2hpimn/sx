@@ -704,8 +704,10 @@ int sxi_cluster_query_ev_retry(curlev_context_t *cbdata,
     if (!cbdata || !conns)
         return -1;
     if(sxi_set_retry_cb(cbdata, hlist, sxi_cluster_query_ev,
-                     verb, query, content, content_size, setup_callback, jobs))
+                     verb, query, content, content_size, setup_callback, jobs)) {
+        sxi_seterr(sxi_conns_get_client(conns), SXE_EARG, "Cannot set retry callback");
         return -1;
+    }
     return sxi_cluster_query_ev(cbdata, conns, sxi_hostlist_get_host(hlist, 0), verb, query, content, content_size,
                                 setup_callback, callback);
 }

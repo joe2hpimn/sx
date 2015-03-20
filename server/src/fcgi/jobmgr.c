@@ -4496,7 +4496,14 @@ static rc_ty revision_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_d
 }
 
 static act_result_t upgrade_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
-    return job_twophase_execute(&upgrade_spec, JOBPHASE_REQUEST, hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
+    act_result_t ret = ACT_RESULT_OK;
+    INFO("Preparing to upgrade node");
+    if (sx_hashfs_upgrade_1_0_prepare(hashfs) ||
+        sx_hashfs_upgrade_1_0_local(hashfs))
+        action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to upgrade local node");
+    ret = force_phase_success(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
+ action_failed:
+    return ret;
 }
 
 /* TODO: upgrade from 1.0-style flush and delete jobs */

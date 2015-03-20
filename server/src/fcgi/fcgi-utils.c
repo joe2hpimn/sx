@@ -346,6 +346,17 @@ const char *get_arg(const char *arg) {
     return ret;
 }
 
+int get_arg_uint(const char *arg) {
+    const char *str = get_arg(arg);
+    if (!str)
+        return -1;
+    char *eon;
+    int n = strtol(str, &eon, 10);
+    if (*eon || n < 0)
+        return -1;
+    return n;
+}
+
 int arg_is(const char *arg, const char *ref) {
     const char *val = get_arg(arg);
     if(!val) return 0;

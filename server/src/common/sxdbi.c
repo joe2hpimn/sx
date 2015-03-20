@@ -43,7 +43,6 @@ static void qclose_db(sqlite3 **dbp)
     sqlite3 *db;
     int r;
     if (!dbp) {
-        DEBUG("Null DBp");
         return;
     }
     db = *dbp;
@@ -66,8 +65,9 @@ static int qwal_hook(void *ctx, sqlite3 *handle, const char *name, int pages)
     sxi_db_t *db = ctx;
     if (db)
         db->wal_pages = pages;
-    if (pages >= db_max_passive_wal_pages)
+    if (pages >= db_max_passive_wal_pages) {
         qcheckpoint(db);
+    }
     return SQLITE_OK;
 }
 
