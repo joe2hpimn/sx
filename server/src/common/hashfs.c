@@ -71,7 +71,7 @@ const unsigned int bsz[SIZES] = {SX_BS_SMALL, SX_BS_MEDIUM, SX_BS_LARGE};
 #define WARNHASH(MSG, X) do {				\
     char _warnhash[sizeof(sx_hash_t)*2+1];		\
     bin2hex((X)->b, sizeof(*X), _warnhash, sizeof(_warnhash));	\
-    WARN("(%s): %s #%s#", __FUNCTION__, MSG, _warnhash); \
+    WARN("(%s): %s #%s#", __func__, MSG, _warnhash); \
     } while(0)
 
 #define DEBUGHASH(MSG, X) do {				\
@@ -2427,12 +2427,12 @@ static void check_print_pgrs(void) {
 
 #define CHECK_LOG_INTERNAL(lvl, msg, ...) do { \
                                             if((lvl) == SX_LOG_WARNING) { \
-                                                fprintf(stderr, "%s[%s]: ", (check_warn_printed || check_info_printed) ? "\b \n" : "\b", __FUNCTION__); \
+                                                fprintf(stderr, "%s[%s]: ", (check_warn_printed || check_info_printed) ? "\b \n" : "\b", __func__); \
                                                 fprintf(stderr, msg"%s", __VA_ARGS__); \
                                                 check_warn_printed = 1; \
                                             } else { \
                                                 fprintf(stderr, "\b%s", check_info_printed ? " " : ""); \
-                                                fprintf(stdout, "%s[%s]: "msg"%s", check_info_printed ? "\n" : "", __FUNCTION__, __VA_ARGS__); \
+                                                fprintf(stdout, "%s[%s]: "msg"%s", check_info_printed ? "\n" : "", __func__, __VA_ARGS__); \
                                                 fflush(stdout); \
                                                 check_info_printed = 1; \
                                             } \
@@ -9006,7 +9006,7 @@ rc_ty sx_hashfs_countjobs(sx_hashfs_t *h, sx_uid_t user_id) {
 rc_ty sx_hashfs_job_new_begin(sx_hashfs_t *h) {
     int r;
 
-    DEBUG("IN %s", __FUNCTION__);
+    DEBUG("IN %s", __func__);
     if(!h) {
 	NULLARG();
 	return EFAULT;
@@ -9762,7 +9762,7 @@ rc_ty sx_hashfs_hdist_change_req(sx_hashfs_t *h, const sx_nodelist_t *newdist, j
     const void *cfg;
     rc_ty r;
 
-    DEBUG("IN %s", __FUNCTION__);
+    DEBUG("IN %s", __func__);
     if(!h || !newdist || !job_id) {
 	NULLARG();
 	return EFAULT;
@@ -9931,7 +9931,7 @@ rc_ty sx_hashfs_hdist_replace_req(sx_hashfs_t *h, const sx_nodelist_t *replaceme
     const void *cfg;
     rc_ty r;
 
-    DEBUG("IN %s", __FUNCTION__);
+    DEBUG("IN %s", __func__);
     if(!h || !replacements || !job_id) {
 	NULLARG();
 	return EFAULT;
@@ -10087,7 +10087,7 @@ rc_ty sx_hashfs_hdist_change_add(sx_hashfs_t *h, const void *cfg, unsigned int c
     sqlite3_stmt *q = NULL;
     rc_ty ret;
 
-    DEBUG("IN %s", __FUNCTION__);
+    DEBUG("IN %s", __func__);
     if(!h || !cfg) {
 	NULLARG();
 	return EINVAL;
@@ -10250,7 +10250,7 @@ rc_ty sx_hashfs_hdist_replace_add(sx_hashfs_t *h, const void *cfg, unsigned int 
     sqlite3_stmt *q = NULL;
     rc_ty ret;
 
-    DEBUG("IN %s", __FUNCTION__);
+    DEBUG("IN %s", __func__);
     if(!h || !cfg || !badnodes) {
 	NULLARG();
 	return EINVAL;
@@ -10630,7 +10630,7 @@ static rc_ty create_repair_job(sx_hashfs_t *h) {
     job_t job_id;
     rc_ty ret;
 
-    DEBUG("IN %s", __FUNCTION__);
+    DEBUG("IN %s", __func__);
     singlenode = sx_nodelist_new();
     if(!singlenode) {
 	WARN("Cannot allocate single node nodelist");
@@ -10663,7 +10663,7 @@ static rc_ty create_repair_job(sx_hashfs_t *h) {
 
  create_repair_err:
     sx_nodelist_delete(singlenode);
-    DEBUG("OUT %s with %d", __FUNCTION__, ret);
+    DEBUG("OUT %s with %d", __func__, ret);
     return ret;
 }
 
@@ -10671,7 +10671,7 @@ rc_ty sx_hashfs_hdist_change_commit(sx_hashfs_t *h) {
     sqlite3_stmt *q = NULL;
     rc_ty s = OK;
 
-    DEBUG("IN %s", __FUNCTION__);
+    DEBUG("IN %s", __func__);
     if(qprep(h->db, &q, "DELETE FROM hashfs WHERE key IN ('current_dist', 'current_dist_rev')") ||
        qstep_noret(q)) {
 	msg_set_reason("Failed to enable new distribution model");
@@ -10693,7 +10693,7 @@ rc_ty sx_hashfs_hdist_rebalance(sx_hashfs_t *h) {
     const sx_node_t *self = sx_hashfs_self(h);
     rc_ty ret;
 
-    DEBUG("IN %s", __FUNCTION__);
+    DEBUG("IN %s", __func__);
 
     sqlite3_reset(h->qx_wipehold);
     if(qstep_noret(h->qx_wipehold)) {
@@ -11906,7 +11906,7 @@ rc_ty sx_hashfs_hdist_endrebalance(sx_hashfs_t *h) {
     const sx_node_t *self = sx_hashfs_self(h);
     rc_ty ret;
 
-    DEBUG("IN %s", __FUNCTION__);
+    DEBUG("IN %s", __func__);
 
     singlenode = sx_nodelist_new();
     if(!singlenode) {

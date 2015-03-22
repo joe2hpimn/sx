@@ -3116,7 +3116,7 @@ static act_result_t replace_request(sx_hashfs_t *hashfs, job_t job_id, job_data_
     int qret;
     rc_ty s;
 
-    DEBUG("IN %s", __FUNCTION__);
+    DEBUG("IN %s", __func__);
     if(!job_data) {
 	NULLARG();
 	action_set_fail(ACT_RESULT_PERMFAIL, 500, "Null job");
@@ -3213,7 +3213,7 @@ static act_result_t replace_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t
     sx_blob_t *b = NULL;
     const void *cfg;
 
-    DEBUG("IN %s", __FUNCTION__);
+    DEBUG("IN %s", __func__);
     if(!job_data) {
 	NULLARG();
 	action_set_fail(ACT_RESULT_PERMFAIL, 500, "Null job");
@@ -3260,7 +3260,7 @@ static act_result_t replace_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_t 
     sx_blob_t *b = NULL;
     const void *cfg;
 
-    DEBUG("IN %s", __FUNCTION__);
+    DEBUG("IN %s", __func__);
     if(!job_data) {
 	NULLARG();
 	action_set_fail(ACT_RESULT_PERMFAIL, 500, "Null job");
@@ -3323,7 +3323,7 @@ static act_result_t replace_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *
 static act_result_t replaceblocks_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     act_result_t ret = ACT_RESULT_OK;
 
-    DEBUG("IN %s", __FUNCTION__);
+    DEBUG("IN %s", __func__);
     if(job_data->len || sx_nodelist_count(nodes) != 1) {
 	CRIT("Bad job data");
 	action_error(ACT_RESULT_PERMFAIL, 500, "Internal job data error");
@@ -3494,7 +3494,7 @@ static act_result_t replaceblocks_commit(sx_hashfs_t *hashfs, job_t job_id, job_
     int have_blkidx;
     rc_ty s;
 
-    DEBUG("IN %s", __FUNCTION__);
+    DEBUG("IN %s", __func__);
     sxi_hostlist_init(&hlist);
 
     if(job_data->len || sx_nodelist_count(nodes) != 1) {
@@ -3730,7 +3730,7 @@ static act_result_t replacefiles_request(sx_hashfs_t *hashfs, job_t job_id, job_
     struct rplfiles *ctx = NULL;
     rc_ty s;
 
-    DEBUG("IN %s", __FUNCTION__);
+    DEBUG("IN %s", __func__);
     sxi_hostlist_init(&hlist);
 
     if(job_data->len || sx_nodelist_count(nodes) != 1) {
@@ -3881,7 +3881,7 @@ static act_result_t replacefiles_commit(sx_hashfs_t *hashfs, job_t job_id, job_d
     rc_ty s;
     act_result_t ret = ACT_RESULT_OK;
 
-    DEBUG("IN %s", __FUNCTION__);
+    DEBUG("IN %s", __func__);
 
     if(!sx_hashfs_is_node_faulty(hashfs, myuuid)) {
 	sx_hashfs_set_progress_info(hashfs, INPRG_IDLE, NULL);
@@ -3949,19 +3949,19 @@ static act_result_t replacefiles_commit(sx_hashfs_t *hashfs, job_t job_id, job_d
 
 
 static act_result_t dummy_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
-    DEBUG("IN %s", __FUNCTION__);
+    DEBUG("IN %s", __func__);
     return force_phase_success(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
 }
 static act_result_t dummy_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
-    DEBUG("IN %s", __FUNCTION__);
+    DEBUG("IN %s", __func__);
     return force_phase_success(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
 }
 static act_result_t dummy_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
-    DEBUG("IN %s", __FUNCTION__);
+    DEBUG("IN %s", __func__);
     return force_phase_success(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
 }
 static act_result_t dummy_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
-    DEBUG("IN %s", __FUNCTION__);
+    DEBUG("IN %s", __func__);
     return force_phase_success(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
 }
 

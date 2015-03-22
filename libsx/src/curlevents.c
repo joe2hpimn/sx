@@ -1513,13 +1513,13 @@ static void ctx_err(curlev_context_t *ctx, CURLcode rc, const char *msg)
 #define EVENTSDEBUG(e, ...) do {\
     if (e && e->conns) {\
         sxc_client_t *_sx = sxi_conns_get_client(e->conns); \
-	sxi_debug(_sx, __FUNCTION__, __VA_ARGS__);\
+	sxi_debug(_sx, __func__, __VA_ARGS__);\
     }} while (0)
 
 #define EVDEBUG(ev, ...) do {\
     if (ev && ev->ctx && ev->ctx->conns) {\
         sxc_client_t *_sx = sxi_conns_get_client(ev->ctx->conns); \
-	sxi_debug(_sx, __FUNCTION__, __VA_ARGS__);\
+	sxi_debug(_sx, __func__, __VA_ARGS__);\
     }} while (0)
 
 int sxi_curlev_set_bandwidth_limit(curl_events_t *e, int64_t global_bandwidth_limit, unsigned int running) {

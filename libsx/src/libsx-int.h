@@ -39,10 +39,10 @@ int sxi_is_debug_enabled(sxc_client_t *sx);
 
 const char *sxi_get_tempdir(sxc_client_t *sx);
 
-#define SXDEBUG(...) sxi_debug(sx, __FUNCTION__, __VA_ARGS__)
-#define CFGDEBUG(...) do{ sxc_client_t *_sx; if(cluster && (_sx = sxi_cluster_get_client(cluster))) sxi_debug(_sx, __FUNCTION__, __VA_ARGS__); } while(0)
-#define CBDEBUG(...) do{ sxc_client_t *_sx = sxi_conns_get_client(sxi_cbdata_get_conns(yactx->cbdata)); sxi_debug(_sx, __FUNCTION__, __VA_ARGS__); } while(0)
-#define CBDATADEBUG(...) do{ sxc_client_t *_sx = sxi_conns_get_client(sxi_cbdata_get_conns(cbdata)); sxi_debug(_sx, __FUNCTION__, __VA_ARGS__); } while(0)
+#define SXDEBUG(...) sxi_debug(sx, __func__, __VA_ARGS__)
+#define CFGDEBUG(...) do{ sxc_client_t *_sx; if(cluster && (_sx = sxi_cluster_get_client(cluster))) sxi_debug(_sx, __func__, __VA_ARGS__); } while(0)
+#define CBDEBUG(...) do{ sxc_client_t *_sx = sxi_conns_get_client(sxi_cbdata_get_conns(yactx->cbdata)); sxi_debug(_sx, __func__, __VA_ARGS__); } while(0)
+#define CBDATADEBUG(...) do{ sxc_client_t *_sx = sxi_conns_get_client(sxi_cbdata_get_conns(cbdata)); sxi_debug(_sx, __func__, __VA_ARGS__); } while(0)
 
 struct filter_cfg {
     char *volname;

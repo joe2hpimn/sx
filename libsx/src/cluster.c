@@ -33,7 +33,7 @@
 #include "vcrypto.h"
 #include "version.h"
 
-#define CLSTDEBUG(...) do{ sxc_client_t *_sx; if(conns && (_sx = conns->sx)) sxi_debug(_sx, __FUNCTION__, __VA_ARGS__); } while(0)
+#define CLSTDEBUG(...) do{ sxc_client_t *_sx; if(conns && (_sx = conns->sx)) sxi_debug(_sx, __func__, __VA_ARGS__); } while(0)
 #define conns_err(...) do { if(conns) sxi_seterr(conns->sx, __VA_ARGS__); } while(0)
 
 struct _sxi_conns_t {

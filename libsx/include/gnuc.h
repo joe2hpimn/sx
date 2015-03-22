@@ -60,7 +60,7 @@
 
 #ifdef __GNUC__
 #define PRETTYFUNC __PRETTY_FUNCTION__
-#define FUNC __FUNCTION__
+#define FUNC __func__
 #else
 #define PRETTYFUNC ""
 #define FUNC ""
