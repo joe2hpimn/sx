@@ -1,11 +1,11 @@
 .TH SXACL-USERNEWKEY "1" "November 2014" "sxacl @VERSION@" "Skylable SX Manual"
 .SH NAME
-sxacl-usernewkey \- change user authentication key
+sxacl-usernewkey \- change (password based) user authentication key
 .SH SYNOPSIS
 .B sxacl usernewkey
 \fR[\fI\,OPTIONS\/\fR] \fI\,<username> sx://\/\fR[\fI\,profile@\/\fR]\fI\,cluster\/\fR
 .SH DESCRIPTION
-\fBsxacl usernewkey\fR generates a new user authentication key, which automatically replaces the old one. A normal user can change its own key and a cluster administrator can change a key of any user.
+\fBsxacl usernewkey\fR generates a new user authentication key based on a password or a random data, which automatically replaces the old one. A normal user can change its own key and a cluster administrator can change a key of any user.
 .SH OPTIONS
 .TP
 \fB\-h\fR, \fB\-\-help\fR
@@ -20,8 +20,11 @@ Print version and exit
 \fB\-a\fR, \fB\-\-auth\-file\fR=\fI\,FILE\/\fR
 Store authentication key in a given file (instead of printing it).
 .TP
+\fB\-g\fR, \fB\-\-generate\-key\fR
+Automatically generate a new key based on a random data instead of a password.
+.TP
 \fB\-b\fR, \fB\-\-batch\-mode\fR
-Disable additional information and only print the authentication key.
+Disable additional information and only print the automatically generated authentication key. 
 .TP
 \fB\-\-force\-key\fR=\fI\,KEY\/\fR
 By default, the new authentication key is automatically generated. With this option one can force the use of an old key. Only a key that was previously generated for the same username will be accepted.

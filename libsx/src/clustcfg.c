@@ -42,6 +42,7 @@
 #include "curlevents.h"
 #include "vcrypto.h"
 #include "misc.h"
+#include <sys/mman.h>
 
 struct _sxc_cluster_t {
     sxc_client_t *sx;
@@ -2593,7 +2594,166 @@ static int get_user_info_wrap(sxc_cluster_t *cluster, const char *username, uint
     return 0;
 }
 
-static char *user_add(sxc_cluster_t *cluster, const char *username, int admin, const char *oldtoken, const char *existing, int *clone_role, const char *desc) {
+static int pass2key(sxc_cluster_t *cluster, const char *user, unsigned char *key, int repeat)
+{
+    char pass1[1024], pass2[1024], prompt[64];
+    char salt[AUTH_UID_LEN];
+    char keybuf[61];
+    sxc_client_t *sx = sxi_cluster_get_client(cluster);
+    const char *uuid;
+    if(!cluster)
+        return -1;
+    if(!user || !key) {
+        sxi_seterr(sx, SXE_EARG, "NULL argument");
+        return -1;
+    }
+
+    uuid = sxc_cluster_get_uuid(cluster);
+    if(!uuid) {
+        sxi_seterr(sx, SXE_EARG, "No cluster uuid is set");
+        return 1;
+    }
+
+    if(sxi_sha1_calc(uuid, strlen(uuid), user, strlen(user), (unsigned char*)salt)) {
+        sxi_seterr(sx, SXE_ECRYPT, "Failed to compute hash of user name");
+        return 1;
+    }
+
+    snprintf(prompt, sizeof(prompt), "Enter password: ");
+    mlock(pass1, sizeof(pass1));
+    if(sxi_get_input(sx, SXC_INPUT_SENSITIVE, prompt, NULL, pass1, sizeof(pass1))) {
+        munlock(pass1, sizeof(pass1));
+        sxi_seterr(sx, SXE_EARG, "Can't obtain password");
+        return -1;
+    }
+
+    if(strlen(pass1) < 8) {
+        memset(pass1, 0, sizeof(pass1));
+        munlock(pass1, sizeof(pass1));
+        sxi_seterr(sx, SXE_EARG, "Password must be at least 8 characters long");
+        return 1;
+    }
+
+    if(repeat) {
+        mlock(pass2, sizeof(pass2));
+        if(sxi_get_input(sx, SXC_INPUT_SENSITIVE, "Re-enter password: ", NULL, pass2, sizeof(pass2))) {
+            memset(pass1, 0, sizeof(pass1));
+            munlock(pass1, sizeof(pass1));
+            munlock(pass2, sizeof(pass2));
+            sxi_seterr(sx, SXE_EARG, "Can't obtain password");
+            return -1;
+        }
+        if(strcmp(pass1, pass2)) {
+            memset(pass1, 0, sizeof(pass1));
+            munlock(pass1, sizeof(pass1));
+            memset(pass2, 0, sizeof(pass2));
+            munlock(pass2, sizeof(pass2));
+            sxi_seterr(sx, SXE_EARG, "Passwords don't match");
+            return 1;
+        }
+        memset(pass2, 0, sizeof(pass2));
+        munlock(pass2, sizeof(pass2));
+    }
+
+    if(sxi_derive_key(pass1, salt, AUTH_UID_LEN, keybuf, sizeof(keybuf))) {
+        sxi_seterr(sx, SXE_ECRYPT, "Failed to derive key");
+        return 1;
+    }
+
+    if(sxi_sha1_calc(uuid, strlen(uuid), keybuf, strlen(keybuf), key)) {
+        sxi_seterr(sx, SXE_ECRYPT, "Failed to compute hash of derived key");
+        return 1;
+    }
+
+    memset(pass1, 0, sizeof(pass1));
+    munlock(pass1, sizeof(pass1));
+    return 0;
+}
+
+static int username_hash(sxc_client_t *sx, const char *user, unsigned char *uid) {
+    unsigned int len;
+    sxi_md_ctx *ch_ctx;
+
+    if(!sx)
+        return 1;
+    if(!user) {
+        sxi_seterr(sx, SXE_EARG, "NULL argument");
+        return 1;
+    }
+    len = strlen(user);
+    ch_ctx = sxi_md_init();
+    if (!ch_ctx) {
+        sxi_seterr(sx, SXE_ECRYPT, "Cannot compute hash: Unable to initialize crypto library");
+        return 1;
+    }
+    if(!sxi_sha1_init(ch_ctx)) {
+        sxi_seterr(sx, SXE_ECRYPT, "Cannot compute hash: Unable to initialize crypto library");
+        return 1;
+    }
+    if(!sxi_sha1_update(ch_ctx, user, len) || !sxi_sha1_final(ch_ctx, uid, NULL)) {
+        sxi_seterr(sx, SXE_ECRYPT, "Cannot compute hash: Crypto library failure");
+        sxi_md_cleanup(&ch_ctx);
+        return 1;
+    }
+    sxi_md_cleanup(&ch_ctx);
+    return 0;
+}
+
+int sxc_pass2token(sxc_cluster_t *cluster, char *tok_buf, unsigned int tok_size) {
+    uint8_t buf[AUTH_UID_LEN + AUTH_KEY_LEN + 2], *uid = buf, *key = &buf[AUTH_UID_LEN];
+    char *token;
+    char user[1024], prompt[64];
+    sxc_client_t *sx;
+
+    if(!cluster)
+        return 1;
+    sx = sxi_cluster_get_client(cluster);
+    if(!tok_buf || tok_size != AUTHTOK_ASCII_LEN + 1) {
+        sxi_seterr(sx, SXE_EARG, "Invalid argument");
+        return 1;
+    }
+
+    memset(buf, 0, sizeof(buf));
+    snprintf(prompt, sizeof(prompt), "User name: ");
+    if(sxi_get_input(sx, SXC_INPUT_PLAIN, prompt, NULL, user, sizeof(user))) {
+        sxi_seterr(sx, SXE_EARG, "Can't obtain user name");
+        return 1;
+    }
+    if(!*user || !strlen(user)) {
+        sxi_seterr(sx, SXE_EARG, "Can't obtain user name");
+        return 1;
+    }
+
+    /* UID part - unsalted username hash */
+    if(username_hash(sx, user, uid)) {
+        SXDEBUG("Failed to compute unsalted hash of user name");
+        return 1;
+    }
+
+    /* Prompt user for password */
+    if(pass2key(cluster, user, key, 0)) {
+        SXDEBUG("Failed to prompt user password");
+        return 1;
+    }
+
+    buf[sizeof(buf) - 2] = 0; /* First reserved byte */
+    buf[sizeof(buf) - 1] = 0; /* Second reserved byte */
+    token = sxi_b64_enc(sx, buf, sizeof(buf));
+    if(!token)
+        return 1;
+    if(strlen(token) != AUTHTOK_ASCII_LEN) {
+        /* Always false but it doesn't hurt to be extra careful */
+        sxi_seterr(sx, SXE_ECOMM, "The generated auth token has invalid size");
+        free(token);
+        return 1;
+    }
+
+    memcpy(tok_buf, token, tok_size);
+    free(token);
+    return 0;
+}
+
+static char *user_add(sxc_cluster_t *cluster, const char *username, int admin, const char *oldtoken, const char *existing, int *clone_role, const char *desc, int generate_key) {
     uint8_t buf[AUTH_UID_LEN + AUTH_KEY_LEN + 2], *uid = buf, *key = &buf[AUTH_UID_LEN];
     char *tok = NULL, *retkey = NULL;
     sxc_client_t *sx;
@@ -2607,10 +2767,20 @@ static char *user_add(sxc_cluster_t *cluster, const char *username, int admin, c
         cluster_err(SXE_EARG, "Null args");
         return NULL;
     }
+    if(!generate_key && !oldtoken && existing) {
+        cluster_err(SXE_EARG, "Invalid argument: Cannot use password for user clones");
+        return NULL;
+    }
+    if(generate_key && oldtoken) {
+        cluster_err(SXE_EARG, "Invalid argument: Cannot generate random key and use old token together");
+        return NULL;
+    }
     sx = sxi_cluster_get_client(cluster);
     memset(buf, 0, sizeof(buf));
 
+    /* Key part */
     if (oldtoken) {
+        /* Use key from an existing authentication token */
         char old[AUTHTOK_BIN_LEN];
         l = sizeof(old);
         if (sxi_b64_dec(sx, oldtoken, old, &l))
@@ -2620,10 +2790,16 @@ static char *user_add(sxc_cluster_t *cluster, const char *username, int admin, c
             return NULL;
         }
         memcpy(buf, old, AUTHTOK_BIN_LEN);
-    } else {
-        /* KEY part - really random bytes */
+    } else if(generate_key) {
+        /* Generate random key */
         if (sxi_rand_bytes(key, AUTH_KEY_LEN) != 1) {
             cluster_err(SXE_ECRYPT, "Unable to produce a random key");
+            return NULL;
+        }
+    } else {
+        /* Prompt user for password */
+        if(pass2key(cluster, username, key, 1)) {
+            SXDEBUG("Failed to prompt user password");
             return NULL;
         }
     }
@@ -2652,25 +2828,11 @@ static char *user_add(sxc_cluster_t *cluster, const char *username, int admin, c
             return NULL;
         }
     } else {
-        sxi_md_ctx *ch_ctx;
-
         /* UID part - unsalted username hash */
-        l = strlen(username);
-        ch_ctx = sxi_md_init();
-        if (!ch_ctx) {
-            cluster_err(SXE_ECRYPT, "Cannot compute hash: Unable to initialize crypto library");
+        if(username_hash(sx, username, uid)) {
+            SXDEBUG("Failed to compute unsalted hash of user name");
             return NULL;
         }
-        if(!sxi_sha1_init(ch_ctx)) {
-            cluster_err(SXE_ECRYPT, "Cannot compute hash: Unable to initialize crypto library");
-            return NULL;
-        }
-        if(!sxi_sha1_update(ch_ctx, username, l) || !sxi_sha1_final(ch_ctx, uid, NULL)) {
-            cluster_err(SXE_ECRYPT, "Cannot compute hash: Crypto library failure");
-            sxi_md_cleanup(&ch_ctx);
-            return NULL;
-        }
-        sxi_md_cleanup(&ch_ctx);
     }
 
     /* Get existing user role */          
@@ -2706,18 +2868,21 @@ static char *user_add(sxc_cluster_t *cluster, const char *username, int admin, c
     return retkey;
 }
 
-char *sxc_user_add(sxc_cluster_t *cluster, const char *username, int admin, const char *oldtoken, const char *desc) {
-    return user_add(cluster, username, admin, oldtoken, NULL, NULL, desc);
+char *sxc_user_add(sxc_cluster_t *cluster, const char *username, int admin, const char *oldtoken, const char *desc, int generate_key) {
+    return user_add(cluster, username, admin, oldtoken, NULL, NULL, desc, generate_key);
 }
 
 char *sxc_user_clone(sxc_cluster_t *cluster, const char *username, const char *clonename, const char *oldtoken, int *role, const char *desc) {
-    return user_add(cluster, clonename, 0, oldtoken, username, role, desc);
+    return user_add(cluster, clonename, 0, oldtoken, username, role, desc, oldtoken ? 0 : 1);
 }
 
-char *sxc_user_newkey(sxc_cluster_t *cluster, const char *username, const char *oldtoken)
+char *sxc_user_newkey(sxc_cluster_t *cluster, const char *username, const char *oldtoken, int generate_key)
 {
     uint8_t buf[AUTH_UID_LEN + AUTH_KEY_LEN + 2], *uid = buf, *key = &buf[AUTH_UID_LEN];
     char *tok, *retkey = NULL;
+    const char *curtoken;
+    char curtoken_bin[AUTHTOK_BIN_LEN];
+    unsigned int curtoken_bin_len = AUTHTOK_BIN_LEN;
     sxc_client_t *sx;
     sxi_query_t *proto;
     int qret;
@@ -2729,14 +2894,51 @@ char *sxc_user_newkey(sxc_cluster_t *cluster, const char *username, const char *
         cluster_err(SXE_EARG, "Null args");
         return NULL;
     }
+    if(generate_key && oldtoken) {
+        cluster_err(SXE_EARG, "Invalid argument: Cannot generate random key and use old token together");
+        return NULL;
+    }
     sx = sxi_cluster_get_client(cluster);
 
-    if(get_user_info_wrap(cluster, username, uid, NULL)) { /* Read existing user ID, which is stored along with his key */
-        SXDEBUG("Failed to get existing user common ID");
+    curtoken = sxi_conns_get_auth(sxi_cluster_get_conns(cluster));
+    if(!curtoken) {
+        SXDEBUG("Failed to load current authentication token");
         return NULL;
     }
 
+    if(sxi_b64_dec(sx, curtoken, curtoken_bin, &curtoken_bin_len)) {
+        SXDEBUG("Failed to decode current authentication token");
+        return NULL;
+    }
+
+    if(username_hash(sx, username, uid)) {
+        SXDEBUG("Failed to compute hash of a user name");
+        return NULL;
+    }
+
+    /* Only fetch uid if user is not changing his own key. If he's not allowed to do so, it will be rejected from get_user_info_wrap() */
+    if(memcmp(curtoken_bin, uid, AUTH_UID_LEN)) {
+        uint8_t tmpuid[AUTH_UID_LEN];
+
+        memcpy(tmpuid, uid, sizeof(tmpuid));
+        if(get_user_info_wrap(cluster, username, uid, NULL)) { /* Read existing user ID, which is stored along with his key */
+            SXDEBUG("Failed to get existing user UID");
+            if(sxc_geterrnum(sx) == SXE_EAUTH) { /* If not authorsized, warn that only admin can change clone's key */
+               sxc_clearerr(sx);
+               sxi_seterr(sx, SXE_EARG, "Only admin can change clone's key");
+            }
+            return NULL;
+        }
+
+        if(memcmp(tmpuid, uid, AUTH_UID_LEN) && !oldtoken && !generate_key) {
+            sxi_seterr(sx, SXE_EARG, "Cannot use user name and password for clones");
+            return NULL;
+        }
+    }
+
+    /* Key part */
     if (oldtoken) {
+        /* Use key from an existing authentication token */
         char old[AUTHTOK_BIN_LEN];
         unsigned l = sizeof(old);
         if (sxi_b64_dec(sx, oldtoken, old, &l))
@@ -2746,10 +2948,16 @@ char *sxc_user_newkey(sxc_cluster_t *cluster, const char *username, const char *
             return NULL;
         }
         memcpy(key, &old[AUTH_UID_LEN], AUTH_KEY_LEN);
-    } else {
-        /* KEY part - really random bytes */
+    } else if(generate_key) {
+        /* Generate random key */
         if (sxi_rand_bytes(key, AUTH_KEY_LEN) != 1) {
             cluster_err(SXE_ECRYPT, "Unable to produce a random key");
+            return NULL;
+        }
+    } else {
+        /* Prompt user for a password */
+        if(pass2key(cluster, username, key, 1)) {
+            SXDEBUG("Failed to prompt user password");
             return NULL;
         }
     }

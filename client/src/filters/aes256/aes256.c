@@ -43,7 +43,6 @@
 
 #include "libsx/src/misc.h"
 #include "sx.h"
-#include "crypt_blowfish.h"
 
 /* logger prefixes with aes256: already */
 #define NOTICE(...)	{ sxc_filter_msg(handle, SX_LOG_NOTICE, __VA_ARGS__); }
@@ -89,19 +88,12 @@ static int aes256_init(const sxf_handle_t *handle, void **ctx)
 
 static int derive_key(const sxf_handle_t *handle, const char *pass, const unsigned char *salt, unsigned salt_size, unsigned char *out, unsigned out_size)
 {
-    char keybuf[61], settingbuf[30];
-    const char *genkey, *setting;
+    char keybuf[61];
     EVP_MD_CTX ctx;
     int ret;
 
-    setting = _crypt_gensalt_blowfish_rn("$2b$", BCRYPT_ITERATIONS_LOG2, (const char*)salt, salt_size, settingbuf, sizeof(settingbuf));
-    if (!setting) {
-        ERROR("crypt_gensalt_blowfish_rn failed");
-        return -1;
-    }
-    genkey = _crypt_blowfish_rn(pass, setting, keybuf, sizeof(keybuf));
-    if (!genkey) {
-        ERROR("crypt_blowfish_rn failed");
+    if(sxi_derive_key(pass, (const char*)salt, salt_size, keybuf, sizeof(keybuf))) {
+        ERROR("Failed to derive key");
         return -1;
     }
     /* crypt returns a string containing the setting, the salt and the hashed
@@ -115,7 +107,7 @@ static int derive_key(const sxf_handle_t *handle, const char *pass, const unsign
             ERROR("EVP_DigestInit_ex failed");
             break;
         }
-        if (EVP_DigestUpdate(&ctx, genkey, strlen(genkey)) != 1) {
+        if (EVP_DigestUpdate(&ctx, keybuf, strlen(keybuf)) != 1) {
             ERROR("EVP_DigestUpdate failed");
             break;
         }

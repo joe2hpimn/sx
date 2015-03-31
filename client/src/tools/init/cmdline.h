@@ -61,6 +61,8 @@ struct gengetopt_args_info
   const char *batch_mode_help; /**< @brief Turn off interactive confirmations and assume yes for all questions help description.  */
   int force_reinit_flag;	/**< @brief Remove old cluster configuration and init from scratch (default=off).  */
   const char *force_reinit_help; /**< @brief Remove old cluster configuration and init from scratch help description.  */
+  int key_flag;	/**< @brief Ask for a key instead of a password (default=off).  */
+  const char *key_help; /**< @brief Ask for a key instead of a password help description.  */
   int debug_flag;	/**< @brief Enable debug messages (default=off).  */
   const char *debug_help; /**< @brief Enable debug messages help description.  */
   char * config_dir_arg;	/**< @brief Path to SX configuration directory.  */
@@ -80,6 +82,7 @@ struct gengetopt_args_info
   unsigned int alias_given ;	/**< @brief Whether alias was given.  */
   unsigned int batch_mode_given ;	/**< @brief Whether batch-mode was given.  */
   unsigned int force_reinit_given ;	/**< @brief Whether force-reinit was given.  */
+  unsigned int key_given ;	/**< @brief Whether key was given.  */
   unsigned int debug_given ;	/**< @brief Whether debug was given.  */
   unsigned int config_dir_given ;	/**< @brief Whether config-dir was given.  */
 

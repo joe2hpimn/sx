@@ -54,7 +54,9 @@ src_libsx_la_SOURCES = \
 	src/sxreport.c \
 	src/version.c \
 	src/vcrypto.h \
-	src/vcryptocurl.h
+	src/vcryptocurl.h \
+	src/crypt_blowfish.c \
+	src/crypt_blowfish.h
 if BUILD_NFTW
 src_libsx_la_SOURCES += \
 	src/nftw.c \

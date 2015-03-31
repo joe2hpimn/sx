@@ -2052,7 +2052,7 @@ int test_acl(sxc_client_t *sx, sxc_cluster_t *cluster, const char *local_dir_pat
     sprintf(user1, "%sXXXXXX", ACL_USER1);
     if(randomize_name(user1))
         goto test_acl_err;
-    key1 = sxc_user_add(cluster, user1, 0, NULL, NULL);
+    key1 = sxc_user_add(cluster, user1, 0, NULL, NULL, 0);
     if(!key1) {
         fprintf(stderr, "test_acl: ERROR: Cannot create '%s' user: %s\n", user1, sxc_geterrmsg(sx));
         goto test_acl_err;
@@ -2069,7 +2069,7 @@ int test_acl(sxc_client_t *sx, sxc_cluster_t *cluster, const char *local_dir_pat
     sprintf(user2, "%sXXXXXX", ACL_USER2);
     if(randomize_name(user2))
         goto test_acl_err;
-    key2 = sxc_user_add(cluster, user2, 0, NULL, NULL);
+    key2 = sxc_user_add(cluster, user2, 0, NULL, NULL, 0);
     if(!key2) {
         fprintf(stderr, "test_acl: ERROR: Cannot create '%s' user: %s", user2, sxc_geterrmsg(sx));
         goto test_acl_err;
@@ -2279,7 +2279,7 @@ int test_acl(sxc_client_t *sx, sxc_cluster_t *cluster, const char *local_dir_pat
     sprintf(user3, "%sXXXXXX", ACL_USER1);
     if(randomize_name(user3))
         goto test_acl_err;
-    key3 = sxc_user_add(cluster, user3, 0, NULL, NULL);
+    key3 = sxc_user_add(cluster, user3, 0, NULL, NULL, 0);
     if(!key3) {
         fprintf(stderr, "test_acl: ERROR: Cannot create '%s' user: %s\n", user3, sxc_geterrmsg(sx));
         goto test_acl_err;
@@ -2413,7 +2413,7 @@ int test_acl(sxc_client_t *sx, sxc_cluster_t *cluster, const char *local_dir_pat
         goto test_acl_err;
     }
     free(key2);
-    key2 = sxc_user_newkey(cluster, user1, NULL);
+    key2 = sxc_user_newkey(cluster, user1, NULL, 1);
     if(!key2) {
         fprintf(stderr, "test_acl: ERROR: Cannot generate new key for '%s': %s\n", user1, sxc_geterrmsg(sx));
         goto test_acl_err;

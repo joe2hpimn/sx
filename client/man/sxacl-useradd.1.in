@@ -23,8 +23,11 @@ User type. Accepted values are "admin" and "normal" (default).
 \fB\-a\fR, \fB\-\-auth\-file\fR=\fI\,FILE\/\fR
 Store authentication key in a given file (instead of printing it).
 .TP
+\fB\-g\fR, \fB\-\-generate\-key\fR
+Automatically generate a new key based on a random data instead of a password.
+.TP
 \fB\-b\fR, \fB\-\-batch\-mode\fR
-Disable additional information and only print the authentication key.
+Disable additional information and only print the automatically generated authentication key. 
 .TP
 \fB\-\-force\-key\fR=\fI\,KEY\/\fR
 By default, the authentication key is automatically generated for the new user. With this option one can force the use of an old key (obtained with \fBsxacl\-usergetkey\fR(1)), when recreating the user on a new or another cluster. Only a key that was previously generated for the same username will be accepted.

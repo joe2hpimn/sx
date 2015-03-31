@@ -57,8 +57,10 @@ struct useradd_args_info
   char * force_key_arg;	/**< @brief Create user with an old authentication token.  */
   char * force_key_orig;	/**< @brief Create user with an old authentication token original value given at command line.  */
   const char *force_key_help; /**< @brief Create user with an old authentication token help description.  */
-  int batch_mode_flag;	/**< @brief Disable additional information and only print the authentication token (default=off).  */
-  const char *batch_mode_help; /**< @brief Disable additional information and only print the authentication token help description.  */
+  int generate_key_flag;	/**< @brief Generate a random key (default=off).  */
+  const char *generate_key_help; /**< @brief Generate a random key help description.  */
+  int batch_mode_flag;	/**< @brief Disable additional information and only print the automatically generated key (default=off).  */
+  const char *batch_mode_help; /**< @brief Disable additional information and only print the automatically generated key help description.  */
   int debug_flag;	/**< @brief Enable debug messages (default=off).  */
   const char *debug_help; /**< @brief Enable debug messages help description.  */
   
@@ -70,6 +72,7 @@ struct useradd_args_info
   unsigned int description_given ;	/**< @brief Whether description was given.  */
   unsigned int config_dir_given ;	/**< @brief Whether config-dir was given.  */
   unsigned int force_key_given ;	/**< @brief Whether force-key was given.  */
+  unsigned int generate_key_given ;	/**< @brief Whether generate-key was given.  */
   unsigned int batch_mode_given ;	/**< @brief Whether batch-mode was given.  */
   unsigned int debug_given ;	/**< @brief Whether debug was given.  */
 

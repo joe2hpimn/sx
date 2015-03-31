@@ -12,6 +12,8 @@ option  "config-dir"		c "Path to SX configuration directory"
 
 option  "force-key"                - "Change user key with an old authentication token" string typestr="TOKEN" optional hidden
 
-option "batch-mode" b		"Disable additional information and only print the authentication token" flag off
+option  "generate-key"      g "Generate a random key" flag off
+
+option "batch-mode" b		"Disable additional information and only print the automatically generated key" flag off
 
 option  "debug"		D "Enable debug messages" flag off

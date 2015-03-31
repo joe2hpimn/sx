@@ -47,6 +47,7 @@ const char *gengetopt_args_info_full_help[] = {
   "  -A, --alias=STRING            Alias that will be used instead of full\n                                  sx://[profile@]cluster/",
   "  -b, --batch-mode              Turn off interactive confirmations and assume\n                                  yes for all questions  (default=off)",
   "      --force-reinit            Remove old cluster configuration and init from\n                                  scratch  (default=off)",
+  "  -k, --key                     Ask for a key instead of a password\n                                  (default=off)",
   "  -D, --debug                   Enable debug messages  (default=off)",
   "  -c, --config-dir=PATH         Path to SX configuration directory",
     0
@@ -69,11 +70,12 @@ init_help_array(void)
   gengetopt_args_info_help[11] = gengetopt_args_info_full_help[11];
   gengetopt_args_info_help[12] = gengetopt_args_info_full_help[12];
   gengetopt_args_info_help[13] = gengetopt_args_info_full_help[13];
-  gengetopt_args_info_help[14] = 0; 
+  gengetopt_args_info_help[14] = gengetopt_args_info_full_help[14];
+  gengetopt_args_info_help[15] = 0; 
   
 }
 
-const char *gengetopt_args_info_help[15];
+const char *gengetopt_args_info_help[16];
 
 typedef enum {ARG_NO
   , ARG_FLAG
@@ -110,6 +112,7 @@ void clear_given (struct gengetopt_args_info *args_info)
   args_info->alias_given = 0 ;
   args_info->batch_mode_given = 0 ;
   args_info->force_reinit_given = 0 ;
+  args_info->key_given = 0 ;
   args_info->debug_given = 0 ;
   args_info->config_dir_given = 0 ;
 }
@@ -128,6 +131,7 @@ void clear_args (struct gengetopt_args_info *args_info)
   args_info->alias_orig = NULL;
   args_info->batch_mode_flag = 0;
   args_info->force_reinit_flag = 0;
+  args_info->key_flag = 0;
   args_info->debug_flag = 0;
   args_info->config_dir_arg = NULL;
   args_info->config_dir_orig = NULL;
@@ -152,8 +156,9 @@ void init_args_info(struct gengetopt_args_info *args_info)
   args_info->alias_help = gengetopt_args_info_full_help[10] ;
   args_info->batch_mode_help = gengetopt_args_info_full_help[11] ;
   args_info->force_reinit_help = gengetopt_args_info_full_help[12] ;
-  args_info->debug_help = gengetopt_args_info_full_help[13] ;
-  args_info->config_dir_help = gengetopt_args_info_full_help[14] ;
+  args_info->key_help = gengetopt_args_info_full_help[13] ;
+  args_info->debug_help = gengetopt_args_info_full_help[14] ;
+  args_info->config_dir_help = gengetopt_args_info_full_help[15] ;
   
 }
 
@@ -319,6 +324,8 @@ cmdline_parser_dump(FILE *outfile, struct gengetopt_args_info *args_info)
     write_into_file(outfile, "batch-mode", 0, 0 );
   if (args_info->force_reinit_given)
     write_into_file(outfile, "force-reinit", 0, 0 );
+  if (args_info->key_given)
+    write_into_file(outfile, "key", 0, 0 );
   if (args_info->debug_given)
     write_into_file(outfile, "debug", 0, 0 );
   if (args_info->config_dir_given)
@@ -578,12 +585,13 @@ cmdline_parser_internal (
         { "alias",	1, NULL, 'A' },
         { "batch-mode",	0, NULL, 'b' },
         { "force-reinit",	0, NULL, 0 },
+        { "key",	0, NULL, 'k' },
         { "debug",	0, NULL, 'D' },
         { "config-dir",	1, NULL, 'c' },
         { 0,  0, 0, 0 }
       };
 
-      c = getopt_long (argc, argv, "hVLIa:l:A:bDc:", long_options, &option_index);
+      c = getopt_long (argc, argv, "hVLIa:l:A:bkDc:", long_options, &option_index);
 
       if (c == -1) break;	/* Exit from `while (1)' loop.  */
 
@@ -674,6 +682,16 @@ cmdline_parser_internal (
           if (update_arg((void *)&(args_info->batch_mode_flag), 0, &(args_info->batch_mode_given),
               &(local_args_info.batch_mode_given), optarg, 0, 0, ARG_FLAG,
               check_ambiguity, override, 1, 0, "batch-mode", 'b',
+              additional_error))
+            goto failure;
+        
+          break;
+        case 'k':	/* Ask for a key instead of a password.  */
+        
+        
+          if (update_arg((void *)&(args_info->key_flag), 0, &(args_info->key_given),
+              &(local_args_info.key_given), optarg, 0, 0, ARG_FLAG,
+              check_ambiguity, override, 1, 0, "key", 'k',
               additional_error))
             goto failure;
         

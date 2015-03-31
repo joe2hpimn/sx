@@ -23,6 +23,8 @@ option  "batch-mode"	    b "Turn off interactive confirmations and assume yes fo
 
 option  "force-reinit"	    - "Remove old cluster configuration and init from scratch" flag off
 
+option  "key"               k "Ask for a key instead of a password" flag off
+
 option  "debug"		    D "Enable debug messages" flag off
 
 option  "config-dir"	    c "Path to SX configuration directory" string typestr="PATH" optional hidden

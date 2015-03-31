@@ -47,6 +47,9 @@ Turn off interactive confirmations and assume yes for all questions. This option
 \fB\-\-force\-reinit\fR
 Remove old cluster configuration and init from scratch. This option should be used when the remote cluster has been recreated and its identifier has changed (making sxinit report an error).
 .TP
+\fB\-k\fR, \fB\-\-key\fR
+Ask for an authentication key (used with SX 1.0 and older) instead of a password.
+.TP
 \fB\-D\fR, \fB\-\-debug\fR
 Enable debug messages  (default=off)
 .TP

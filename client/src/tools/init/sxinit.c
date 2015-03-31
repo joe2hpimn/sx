@@ -33,6 +33,7 @@
 #include <dirent.h>
 #include <unistd.h>
 #include <errno.h>
+#include <termios.h>
 
 #include "sx.h"
 #include "cmdline.h"
@@ -45,8 +46,14 @@
 static sxc_client_t *sx = NULL;
 
 static void sighandler(int signal) {
+    struct termios tcur;
     if(sx)
 	sxc_shutdown(sx, signal);
+    /* work around for ctrl+c during sxc_pass2token() */
+    tcgetattr(0, &tcur);
+    tcur.c_lflag |= ECHO;
+    tcsetattr(0, TCSANOW, &tcur);
+
     fprintf(stderr, "Process interrupted\n");
     exit(1);
 }
@@ -292,6 +299,21 @@ static int yesno(const char *prompt, int def)
     return 0;
 }
 
+/* Fetch basic cluster information like security flag or UUID by doing a not authorised query with fake key */
+static int fetch_cluster_noauth_info(sxc_cluster_t *cluster, const sxc_uri_t *u) {
+    char tok_buf[AUTHTOK_ASCII_LEN+1];
+    sxi_strlcpy(tok_buf, "wFPs+e1B3wMRud8TzGw7YHjS08LWGuoIdfALMZTPLMVFKYM41rVlDwAA", sizeof(tok_buf));
+    if(sxc_cluster_add_access(cluster, u->profile, tok_buf) || sxc_cluster_set_access(cluster, u->profile)) {
+        fprintf(stderr, "ERROR: Failed to set profile authentication: %s\n", sxc_geterrmsg(sx));
+        return 1;
+    }
+    if(sxc_cluster_fetchnodes(cluster) && sxc_geterrnum(sx) != SXE_EAUTH) {
+        fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
+        return 1;
+    }
+    return 0;
+}
+
 int main(int argc, char **argv) {
     char tok_buf[AUTHTOK_ASCII_LEN+1], *token;
     struct gengetopt_args_info args;
@@ -430,15 +452,8 @@ int main(int argc, char **argv) {
 
 	if(!args.batch_mode_flag) {
 	    /* do a bogus query with a fake key to get the remote security flag */
-	    sxi_strlcpy(tok_buf, "wFPs+e1B3wMRud8TzGw7YHjS08LWGuoIdfALMZTPLMVFKYM41rVlDwAA", sizeof(tok_buf));
-	    if(sxc_cluster_add_access(cluster, u->profile, tok_buf) || sxc_cluster_set_access(cluster, u->profile)) {
-		fprintf(stderr, "ERROR: Failed to set profile authentication: %s\n", sxc_geterrmsg(sx));
-		goto init_err;
-	    }
-	    if(sxc_cluster_fetchnodes(cluster) && sxc_geterrnum(sx) != SXE_EAUTH) {
-		fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
-		goto init_err;
-	    }
+            if(fetch_cluster_noauth_info(cluster, u))
+                goto init_err; /* Error message has already been printed */
 
 	    if(sxi_conns_internally_secure(sxi_cluster_get_conns(cluster)) == 1) {
 		printf("*** WARNING ***: The cluster reports secure internal communication, however you're attempting to connect with the SSL disabled.\n");
@@ -464,9 +479,26 @@ int main(int argc, char **argv) {
 	}
 	token = fgets(tok_buf, sizeof(tok_buf), f);
 	fclose(f);
-    } else {
-	printf("Please enter the user key: ");
-	token = fgets(tok_buf, sizeof(tok_buf), stdin);
+    } else if(args.key_given) {
+        printf("Please enter the user key: ");
+        token = fgets(tok_buf, sizeof(tok_buf), stdin);
+    } else { /* No key nor auth file given, prompt for password */
+        if(!sxc_cluster_get_uuid(cluster)) {
+            /* Send a bogus query in order to obtain cluster UUID */
+            if(fetch_cluster_noauth_info(cluster, u))
+                goto init_err; /* Error message has already been printed */
+
+            if(!sxc_cluster_get_uuid(cluster)) {
+                fprintf(stderr, "ERROR: Failed to obtain cluster UUID\n");
+                goto init_err;
+            }
+        }
+
+        if(sxc_pass2token(cluster, tok_buf, sizeof(tok_buf))) {
+            fprintf(stderr, "ERROR: Failed to get authentication token: %s\n", sxc_geterrmsg(sx));
+            goto init_err;
+        }
+        token = tok_buf;
     }
 
     if(!token) {
