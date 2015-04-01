@@ -39,10 +39,10 @@ any node using \path{sx://admin@mycluster} profile. In order
 to manage the cluster remotely or from another system account,
 you need to initialize access to the cluster using \path{sxinit}
 \footnote{For more information about access profiles please see
-\fref{sec:profiles}}. 
+\fref{sec:profiles}.}. 
 In the example below we use the default admin account created
-during cluster setup. Since "mycluster" is not a DNS name, we need
-to point sxinit to one of the nodes of the cluster - this will
+during cluster setup. Since ``mycluster'' is not a DNS name, we need
+to point \path{sxinit} to one of the nodes of the cluster --- this will
 allow it automatically discover the IP addresses of the other nodes.
 Additionally, we create an alias \path{@cluster}, which later
 can be used instead of \path{sx://admin@mycluster}.
@@ -61,7 +61,7 @@ Please enter the user key: ^\marked{0DPiKuNIrrVmD8IUCuw1hQxNqZfIkCY+oKwxi5zHSPn5
 
 \section{User management}
 \SX similarly to UNIX systems supports two types of users: regular and
-administrators. A new cluster has only a single 'admin' user enabled by
+administrators. A new cluster has only a single `admin' user enabled by
 default. The administrators can perform all cluster operations and access
 all data in the cluster, while the regular users can only work with volumes
 they have access to. It is recommended to only use the admin account for
@@ -94,7 +94,7 @@ Only cluster administrators can list users.
 \subsection{Key management}
 It is possible to obtain the existing key or issue a new one for any
 user in the cluster. To retrieve the current authentication key for
-user 'jeff' run:
+user `jeff' run:
 \begin{lstlisting}
 $ sxacl usergetkey jeff @cluster
 5tJdVr+RSpA/IPuFeSwUeePtKdbDLWUKqoaoZLkmCcXTw5qzPg5e7AAA
@@ -128,7 +128,7 @@ side filters to perform additional operations, such as compression or encryption
 Only cluster administrators can create and remove volumes.
 
 \subsection{Creating a plain volume}
-Below we create a basic volume of size 50G owned by the user 'jeff' and fully replicated on two nodes.
+Below we create a basic volume of size 50GB owned by the user `jeff' and fully replicated on two nodes.
 \begin{lstlisting}
 $ sxvol create -o jeff -r 2 -s 50G @cluster/vol-jeff
 Volume 'vol-jeff' (replica: 2, size: 50G, max-revisions: 1) created.
@@ -154,7 +154,7 @@ zcomp           1.0     compress    Zlib Compression Filter
 aes256          1.4     crypt	    Encrypt data using AES-256-CBC-HMAC-512
 attribs         1.1     generic     File Attributes
 \end{lstlisting}
-We will create an encrypted volume for user 'jeff'. To obtain more information
+We will create an encrypted volume for user `jeff'. To obtain more information
 about the \path{aes256} filter run:
 \begin{lstlisting}
 $ sxvol filter -i aes256
@@ -205,7 +205,7 @@ admin: read write
 jeff: read write owner
 (all admin users): read write admin
 \end{lstlisting}
-To grant full access to user 'bob' run:
+To grant full access to user `bob' run:
 \begin{lstlisting}
 $ sxacl volperm --grant=read,write bob @cluster/vol-jeff
 New volume ACL:
@@ -214,9 +214,9 @@ bob: read write
 jeff: read write owner
 (all admin users): read write admin
 \end{lstlisting}
-User 'bob' can now download, upload and remove files to the volume but cannot
+User `bob' can now download, upload and remove files to the volume but cannot
 make any changes to the volume itself (this is restricted to admins
-and owners). To revoke write access from user 'bob' run:
+and owners). To revoke write access from user `bob' run:
 \begin{lstlisting}
 $ sxacl volperm --revoke=write bob @cluster/vol-jeff
 New volume ACL:
@@ -225,18 +225,18 @@ bob: read
 jeff: read write owner
 (all admin users): read write admin
 \end{lstlisting}
-Now 'bob' can only read files but cannot upload or remove anything.
+Now `bob' can only read files but cannot upload or remove anything.
 
 \subsection{Changing volume settings}
 Some of the volume settings such as its size or ownership can be
 modified at a later time. For example, the cluster administrator may
 want to extend a volume size or shrink it to forbid users from storing
-more data - when the new size is lower than the current space usage of
-the volume the existing contents will remain untouched, but in order
+more data --- when the new size is lower than the current space usage of
+the volume the existing contents will remain untouched --- but in order
 to upload more data to the volume, the user will have to make enough
 space to satisfy the new limit.
 
-To resize the volume 'vol-jeff' to 100GB run:
+To resize the volume `vol-jeff' to 100GB run:
 \begin{lstlisting}
 $ sxvol modify --size 100G @cluster/vol-jeff
 \end{lstlisting}
@@ -260,7 +260,7 @@ The first line provides the list of cluster nodes in the following format:
 \begin{lstlisting}
 SIZE/IP_ADDRESS[/INTERNAL_IP_ADDRESS]/UUID
 \end{lstlisting}
-where SIZE is in bytes and UUID is a unique identifier assigned to a node
+where \path{SIZE} is in bytes and \path{UUID} is a unique identifier assigned to a node
 when joining the cluster.
 
 \subsection{Rebalance mode}
@@ -270,15 +270,15 @@ among the nodes according to the new cluster scheme. During the rebalance
 all data operations on volumes can be performed as usual, but no changes
 to the cluster itself are accepted. When the cluster is rebalancing, it
 reports its new configuration in the status output under
-\emph{"Target configuration"}.
+\emph{``Target configuration''}.
 
 \subsection{Cluster resize}
 The first modification we will perform is a global cluster resize.
 \path{sxadm cluster --resize} provides an easy way to shrink or grow
 the entire cluster, with changes applied to all nodes proportionally to
 their current capacity in the cluster. In our cluster all four nodes
-have equal sizes, therefore growing the cluster by 400G, should result
-in each node being resized by 100G:
+have equal sizes, therefore growing the cluster by 400GB, should result
+in each node being resized by 100GB:
 \begin{lstlisting}
 $ sxadm cluster --resize +400G @cluster2
 $ sxadm cluster --info @cluster2
@@ -287,8 +287,8 @@ Current configuration: 536870912000/192.168.100.1/d3f8ad83-d003-4aaa-bbfb-73359a
 Distribution: 872eeecb-ebf9-4368-8150-beb23cd44edf(v.8) - checksum: 14098478712246199608
 Cluster UUID: cc8ab859-619e-4806-ade6-c32ab2db1665
 \end{lstlisting}
-All nodes were properly resized. When the rebalance process finishes, \emph{"Target
-configuration"} will become \emph{"Current configuration"}.
+All nodes were properly resized. When the rebalance process finishes, \emph{``Target
+configuration''} will become \emph{``Current configuration''}.
 
 \subsection{Node resize}
 In order to modify a single node, we will use a generic option
@@ -330,7 +330,7 @@ Distribution: 872eeecb-ebf9-4368-8150-beb23cd44edf(v.12) - checksum: 16329829800
 Cluster UUID: cc8ab859-619e-4806-ade6-c32ab2db1665
 \end{lstlisting}
 The rebalance process will move all the data out of the node 192.168.100.4 and
-deactivate it. When the node disappears from \emph{"Current configuration"}, it's no
+deactivate it. When the node disappears from \emph{``Current configuration''}, it's no
 longer part of the cluster and can be disabled physically.
 
 \subsection{Creating a bare node}
@@ -339,7 +339,7 @@ not a part of the cluster yet. Bare nodes can be configured in order to
 replace existing nodes or to join multiple nodes at once to the cluster,
 rather than doing that one by one. A bare node can be configured in an
 automatic way, similarly to the process described in \fref{sec:configfile}
-- the only difference is that the option \path{--bare} must be additionally
+--- the only difference is that the option \path{--bare} must be additionally
 passed to \path{sxsetup}. It can also be configured in interactive mode,
 similarly to adding a new node as described in \fref{sec:addnode}, by
 running \path{sxsetup --bare} and answering the questions.
@@ -353,11 +353,11 @@ Node specification: ^\marked{500G/192.168.100.5}^
 \end{lstlisting}
 When the setup is finished, it provides a node specification string, which
 can be used with cluster modification options. Please notice the bare node
-has no UUID assigned - it will get it when joining the target cluster.
+has no UUID assigned --- it will get it when joining the target cluster.
 
 \subsection{Performing multiple changes at once}
-Adding new nodes with \path{sxsetup} is a serialized process - one node is
-joined to a cluster, a rebalance is triggered and then another node can be
+Adding new nodes with \path{sxsetup} is a serialized process --- one node is
+joined to a cluster --- a rebalance is triggered and then another node can be
 added. With \path{sxadm cluster --mod} multiple operations can be merged
 and performed at once, resulting in a single and shorter data rebalance
 process. In the following example, we will replace a couple of nodes in the
@@ -480,7 +480,7 @@ passing more node specifications to \path{--replace-faulty}.
 
 \subsection{Checking storage integrity}
 To check the integrity and correctness of the local storage (called
-\emph{HashFS}) run the following command on the node you want to check (run
+\textsl{HashFS}) run the following command on the node you want to check (run
 \path{sxsetup --info} if you don't remember the location of the storage):
 \begin{lstlisting}
 # sxadm node --check /var/lib/sxserver/storage/

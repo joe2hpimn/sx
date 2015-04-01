@@ -3,7 +3,7 @@ Welcome to Skylable \SX, a complete private cloud framework. With Skylable \SX
 you can create flexible, reliable and secure storage solutions, which can
 be accessed from all popular platforms.
 
-\section{\SX Features}
+\section{\ifpdf\texorpdfstring{\SX Features}{SX Features}\else{\SX Features}\fi}
 This software has been designed and built with usability in mind. Some
 of the great features of Skylable \SX include:
 \begin{itemize}
@@ -46,13 +46,15 @@ of the great features of Skylable \SX include:
 \section{Skylable ecosystem}
 This manual covers the open-source Skylable \SX software for UNIX platforms.
 \SX is used to create data clusters and forms the base for the Skylable
-platform, which consists of multiple components as shown on \fref{fig:components}.
+platform, which consists of multiple components as shown on \ifpdf\fref{fig:components}\else\ref{fig:components}.\fi
+\ifpdf
 \begin{figure}
     \centering
     \input{tikz_components.tex}
     \caption{Skylable cloud ecosystem}
     \label{fig:components}
 \end{figure}
+\fi
 With Skylable \SX one can build a cloud consisting of many nodes, which can
 be accessed in different ways and from multiple platforms. The client
 applications include command-line tools, which are part of the Skylable \SX

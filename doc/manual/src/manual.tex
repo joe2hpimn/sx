@@ -1,10 +1,18 @@
-\documentclass[oneside]{memoir}
-\PassOptionsToPackage{obeyspaces}{url}
-\PassOptionsToPackage{linktocpage}{hyperref}
-\usepackage{color,calc,graphicx,soul,fourier,anyfontsize,xspace,listings,hyperref,url,tikz,pifont,multirow}
+\ifcsname HCode\endcsname%
+\documentclass{report}
+\def\pgfsysdriver{pgfsys-tex4ht.def}
+\else
+\documentclass[oneside,a4paper]{memoir}
+\fi
+\PassOptionsToPackage{obeyspaces,hyphens}{url}
+\usepackage{color,calc,graphicx,soul,fourier,anyfontsize,xspace,listings,url,tikz,pifont,multirow}
+\usepackage{microtype}
+\usepackage{ifpdf}
 \let\fref\undefined
 \usepackage{fancyref}
 \usetikzlibrary{arrows,shapes,calc}
+\ifpdf
+\usepackage[linktocpage,hyperfootnotes=false]{hyperref}
 \definecolor{skylableblue}{rgb}{0,.467,.757}
 \definecolor{lightblue}{rgb}{.835,.910,.965}
 \makeatletter
@@ -45,16 +53,18 @@
 \setaftersecskip{1.3ex plus .2ex}
 \setbeforesubsecskip{-1.25ex plus -.5ex minus -.2ex}
 \setaftersubsecskip{1ex plus .2ex}
-\newcommand{\SX}{S\textsuperscript{X}\xspace}
 \makeatother
 \chapterstyle{daleif1}
 \setlength\afterchapskip {\onelineskip }
 \setlength\beforechapskip {\onelineskip }
+\fi
+\newcommand{\SX}{S\textsuperscript{X}\xspace}
 \begin{document}
 \pagestyle{empty}
 
+\ifpdf
 \begin{center}
-    \includegraphics[width=120mm]{logo.eps}\\
+    \includegraphics[width=120mm]{logo}\\
     \vspace{4cm}
     \rule{\textwidth}{1.6pt}\vspace*{-\baselineskip}\vspace*{2pt}
     \rule{\textwidth}{0.4pt}\\[\baselineskip]
@@ -62,7 +72,7 @@
     \rule{\textwidth}{0.4pt}\vspace*{-\baselineskip}\vspace{3.2pt}
     \rule{\textwidth}{1.6pt}\\[\baselineskip]
 \end{center}
-
+\fi
 \lstset {
     escapeinside=\^\^,
     frame=single,

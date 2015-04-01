@@ -3,8 +3,8 @@
 \section{Requirements}
 
 \SX by default operates on the port 443 or 80, which needs to be available on
-a given IP address\footnote{You can choose a custom port when running sxsetup with
-in advanced mode}. You can build just a single-node \SX cluster, however for data
+a given IP address\footnote{You can choose a custom port when running \path{sxsetup} with
+in advanced mode.}. You can build just a single-node \SX cluster, however for data
 safety reasons it is recommended to create at least two nodes and use replica higher
 than 1. You can add more nodes to the cluster at any time.
 
@@ -197,7 +197,7 @@ Storage location: /var/lib/sxserver/storage
 SSL private key: /etc/ssl/private/sxkey.pem
 SX Logfile: /var/log/sxserver/sxfcgi.log
 \end{lstlisting}
-That's it - your SX storage is already up and running! You can now
+That's it --- your SX storage is already up and running! You can now
 go to the next step and add more nodes or go to the next chapter and
 learn how to perform basic client operations.
 
@@ -215,7 +215,7 @@ Follow these steps to add a new node to the cluster:
 	\end{itemize}
     \item Install \SX using a binary package or source code
     \item Run \path{sxsetup} and provide the collected information.
-	  Below we assume the new node is 192.168.1.102 and its size is 250 GBs.
+	  Below we assume the new node is 192.168.1.102 and its size is 250 GB.
 \end{itemize}
 
 \begin{lstlisting}
@@ -421,7 +421,7 @@ You can run 'sxacl useradd joe sx://admin@mycluster' to add a new user.
 To create a new volume owned by user 'joe' run:
 'sxvol create --owner joe --replica N --size SIZE sx://admin@mycluster/VOLNAME'
 \end{lstlisting}
-The node successfully joined the cluster - at the end of the summary you can
+The node successfully joined the cluster --- at the end of the summary you can
 see the current list of nodes in the cluster. Repeat the same steps to add more
 nodes to the cluster.
 
@@ -430,7 +430,7 @@ The process of adding new nodes can be automated with the use of
 \path{--config-file} option of \path{sxsetup}. In the following example
 we assume the cluster has been configured to use a couple of nodes as
 described in the previous section, and we will be adding a third node
-with the IP address of 192.168.1.103 and size of 250G, which has the SX
+with the IP address of 192.168.1.103 and size of 250GB, which has the \SX
 software installed the same way as on the other nodes. We will use the
 \path{sxsetup.conf} file from the node 192.168.1.102 as a template, which
 has the following content:

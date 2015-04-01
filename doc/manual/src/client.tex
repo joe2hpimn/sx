@@ -12,7 +12,7 @@ user access to a cluster, \path{PROFILE_NAME} can be omitted and
 cluster.
 
 \subsection{Adding profiles}
-To add an access profile for the user 'jeff' and the local cluster
+To add an access profile for the user `jeff' and the local cluster
 created in previous chapters run the following command:
 \begin{lstlisting}
 $ sxinit -l 192.168.1.101 -A @jeff sx://jeff@mycluster
@@ -26,7 +26,7 @@ Do you trust this SSL certificate? [y/N] ^\marked{y}^
 Trusting self-signed certificate
 Please enter the user key: ^\marked{FqmlTd9CWZUuPBGMdjE46DaT1/3kx+EYbahlrhcdVpy/9ePfrtWCIgAA}^
 \end{lstlisting}
-Since "mycluster" is not a DNS name, we had to point \path{sxinit} 
+Since ``mycluster'' is not a DNS name, we had to point \path{sxinit} 
 to one of the nodes of the cluster. That allowed it to connect and
 discover all the other nodes. We also created the alias \path{@jeff},
 which will be used for convenience.
@@ -51,7 +51,7 @@ it.
 \section{Working with files} \label{sec:files}
 \SX provides easy to use file tools, which resemble typical UNIX commands.
 Since \SX is an object storage and not a filesystem, there are some
-fundamental differences, though. One of them is lack of "real" directories:
+fundamental differences, though. One of them is lack of ``real'' directories:
 each file (object) has assigned a full path that uniquely identifies it and
 the path is not a part of any tree structure. \SX does simulate a directory
 structure by matching the subpaths, for example \path{/path/file1}
@@ -140,7 +140,7 @@ requires prividing the recursive flag \path{-r}. That's because of the design
 of the object storage and lack of real directories as described at the beginning
 of this chapter. In order to rename a directory, \path{sxmv} has to rename all the
 files (objects), which share the same directory path. In the example below we rename
-the directory 'VMimages' to 'VMs' and list the new volume structure in basic mode:
+the directory `VMimages' to `VMs' and list the new volume structure in basic mode:
 \begin{lstlisting}
 $ sxmv -r @jeff/vol-jeff/VMimages/ @jeff/vol-jeff/VMs/
 $ sxls -r @jeff/vol-jeff
@@ -172,8 +172,8 @@ $ sxls -lH @jeff
 \end{lstlisting}
 
 \subsection{sxrev: manage file revisions}
-The \SX volumes can be configured \footnote{See \fref{sec:volumes} on how
-to create and configure volumes} to keep multiple revisions of files. For
+The \SX volumes can be configured\footnote{See \fref{sec:volumes} on how
+to create and configure volumes.} to keep multiple revisions of files. For
 example, if a volume was created with an option to keep 3 revisions, every
 time a specific file gets modified the previous copy will be preserved and
 the latest 3 versions of the file will be available for download. The tools

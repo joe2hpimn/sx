@@ -3,12 +3,14 @@ This chapter describes some advanced details of the \SX design.
 
 \section{Data distribution}
 
+\ifpdf
 \begin{figure}
 	\centering
 	\input{tikz_dist.tex}
 	\caption{Data distribution}
 	\label{fig:dist}
 \end{figure}
+\fi
 
 Files are divided into blocks of equal size, which depend on the file's size,
 and distributed among \SX nodes using a consistent hashing algorithm. This
@@ -21,11 +23,12 @@ equal blocks of data get stored only once. This has the advantage of reduced
 bandwidth usage, better resume handling, and that the data is immutable (only
 the metadata is mutable).
 
-In the example shown in \fref{fig:dist} there is a file divided into 10 blocks,
-where the first and last two blocks are equal -- only the first block of them
-is uploaded. The rest of the blocks are distributed among all nodes in the
-cluster. Inevitably some nodes will receive more than one block, in which case
-the protocol supports an efficient batched upload and download mode.
+In the example shown in \ifpdf\fref{fig:dist}\else\ref{fig:dist}\fi there is a 
+file divided into 10 blocks, where the first and last two blocks are
+equal --- only the first block of them is uploaded. The rest of the
+blocks are distributed among all nodes in the cluster. Inevitably some
+nodes will receive more than one block, in which case the protocol
+supports an efficient batched upload and download mode.
 
 In this example each block of data was stored only once, what is called
 \emph{replica 1}. If one of the nodes that stores a block of the file goes down,
@@ -38,12 +41,14 @@ reliability for downloads, at the cost of increased latency on uploads, and
 lower fault-tolerance on uploads (all replica nodes must be up for uploads to
 succeed).
 
+\ifpdf
 \begin{figure}
 	\centering
 	\input{tikz_replication.tex}
 	\caption{Data replication}
 	\label{fig:replication}
 \end{figure}
+\fi
 
 The handling of replicas is illustrated in \fref{fig:replication} for
 a replica 3 volume. The client tries to upload the data to a given node,
@@ -71,8 +76,8 @@ replicate the data inside the cluster.
 	\label{tab:globals}
 \end{table}
 
-Users, volumes and privileges are stored globally - on each node in the
-cluster - and changing them requires cooperation of all nodes.
+Users, volumes and privileges are stored globally --- on each node in the
+cluster --- and changing them requires cooperation of all nodes.
 
 \begin{description}
 \item[user] each user is issued an authentication token. All requests are
@@ -83,12 +88,13 @@ cluster - and changing them requires cooperation of all nodes.
     volume has a replica count and metadata associated with it.
 \item[volume ACL] the volume owner by default has full access to the volume.
     The owner (and the cluster admin) can grant and revoke permissions for
-    other users. \footnote{It's impossible to revoke privileges for admin users
-    - they always have full access to all volumes.}
+    other users\footnote{It's impossible to revoke privileges for admin users,
+    they always have full access to all volumes.}.
 \end{description}
 
-As shown in \tref{tab:globals} the volume names, privileges and users are
-stored on all nodes. However the volume's contents are stored only on a subset
+As shown in \ifpdf\tref{tab:globals}\else\ref{tab:globals}\fi the volume
+names, privileges and users are stored on all nodes. However the volume's
+contents are stored only on a subset
 of nodes:
 \begin{description}
 	\item[volA\_r1] is a volume with replica 1: its data and filenames
@@ -99,7 +105,7 @@ of nodes:
 	\item[volC\_r3] is a volume with replica 3: the data is always stored
 	on (at least) 3 distinct nodes, and its filenames are stored on exactly
 	3 specific distinct nodes
-	 \ldots
+	\item and so on\ldots
 \end{description}
 The cluster \emph{can} have multiple volumes with different replica counts at
 the same time. A volume can also have an arbitrary metadata attached to.
@@ -116,4 +122,4 @@ The cluster tries its best to retry when transient errors occur internally.
 In case of a failure, it will abort or undo the operation and report the status
 to the client. The jobs are also used for conflict resolution: on conflicting
 operations, for example creating two users with same name, only one job is
-guaranteed to "win" and all the others will be aborted.
+guaranteed to ``win'' and all the others will be aborted.
