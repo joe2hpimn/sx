@@ -845,6 +845,7 @@ struct _sx_hashfs_t {
     struct rebalance_iter rit;
 
     int readonly;
+    int lockfd;
 };
 
 static void close_all_dbs(sx_hashfs_t *h) {
@@ -1298,6 +1299,7 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
     char *path, dbitem[64], qrybuff[128];
     const char *str;
     sx_hashfs_t *h;
+    struct flock fl;
 
     if(!dir || !(dirlen = strlen(dir))) {
 	CRIT("Bad path");
@@ -1309,6 +1311,7 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
     if(!(h = wrap_calloc(1, sizeof(*h))))
 	return NULL;
     memset(h->datafd, -1, sizeof(h->datafd));
+    h->lockfd = -1;
     h->sx = NULL;
     h->job_trigger = h->xfer_trigger = h->gc_trigger = h->gc_expire_trigger = -1;
     /* TODO: read from hashfs kv store */
@@ -1321,6 +1324,25 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
     h->dir = strdup(dir);
     if (!h->dir)
         goto open_hashfs_fail;
+
+    sprintf(path, "%s/hashfs.lock", dir);
+    h->lockfd = open(path, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
+    if(h->lockfd < 0) {
+        WARN("Failed to open %s lockfile: %s", path, strerror(errno));
+        goto open_hashfs_fail;
+    }
+
+    fl.l_start = 0;
+    fl.l_len = 0;
+    fl.l_type = F_RDLCK;
+    fl.l_whence = SEEK_SET;
+    if(fcntl(h->lockfd, F_SETLK, &fl) == -1) {
+        if(errno == EACCES || errno == EAGAIN)
+            INFO("Failed lock HashFS: Storage is locked for maintenance");
+        else
+            WARN("Failed to acquire read lock: %s", strerror(errno));
+        goto open_hashfs_fail;
+    }
 
     if (!qlog_set) {
 	sqlite3_config(SQLITE_CONFIG_LOG, qlog, NULL);
@@ -1752,6 +1774,8 @@ open_hashfs_fail:
     close_all_dbs(h);
     sqlite3_shutdown();
     free(h->blockbuf);
+    if(h->lockfd >= 0)
+        close(h->lockfd);
     free(h);
     return NULL;
 }
@@ -1837,6 +1861,9 @@ void sx_hashfs_close(sx_hashfs_t *h) {
     free(h->ssl_ca_file);
     free(h->cluster_name);
     free(h->dir);
+
+    if(h->lockfd >= 0)
+        close(h->lockfd);
     free(h);
 }
 
@@ -3174,11 +3201,16 @@ lock_db_err:
 }
 
 #define RUN_CHECK(func) do { r = func(h, debug); if(r == -1) { ret = -1; goto sx_hashfs_check_err; } ret += r; } while(0)
-
 int sx_hashfs_check(sx_hashfs_t *h, int debug) {
     int ret = -1, r = 0, i, j;
     sqlite3_stmt *locks[METADBS + SIZES * HASHDBS + 4], *unlocks[METADBS + SIZES * HASHDBS + 4];
-    int readonly = 0;
+    int readonly = 0, hashfs_locked = 0;
+    struct flock fl;
+
+    fl.l_start = 0;
+    fl.l_len = 0;
+    fl.l_type = F_WRLCK;
+    fl.l_whence = SEEK_SET;
 
     memset(locks, 0, sizeof(locks));
     memset(unlocks, 0, sizeof(unlocks));
@@ -3205,10 +3237,22 @@ int sx_hashfs_check(sx_hashfs_t *h, int debug) {
         goto sx_hashfs_check_err;
     }
 
-    if(sx_hashfs_cluster_get_mode(h, &readonly) || !readonly) {
-        CHECK_FATAL("Cluster needs to be in a read-only mode in order to perform sanity checks");
+    if(sx_hashfs_cluster_get_mode(h, &readonly)) {
+        CHECK_FATAL("Failed to check cluster operating mode");
         goto sx_hashfs_check_err;
     }
+
+    if(!readonly) {
+        if(fcntl(h->lockfd, F_SETLK, &fl) == -1) {
+            if(errno == EAGAIN || errno == EACCES)
+                CHECK_FATAL("Cluster needs to be in read-only mode or this node should be stopped in order to perform storage check");
+            else
+                CHECK_FATAL("Failed to lock HashFS storage: %s", strerror(errno));
+            goto sx_hashfs_check_err;
+        }
+        hashfs_locked = 1;
+    }
+    /* Cluster is in read-only mode or node is stopped, we can perform HashFS check */
 
     ret = 0;
     CHECK_START;
@@ -3236,6 +3280,12 @@ sx_hashfs_check_err:
 	    CHECK_FATAL("Failed to unlock database");
         sqlite3_finalize(locks[i]);
         sqlite3_finalize(unlocks[i]);
+    }
+
+    if(hashfs_locked) {
+        fl.l_type = F_RDLCK; /* Downgrade to read lock */
+        if(fcntl(h->lockfd, F_SETLK, &fl) == -1)
+            CHECK_FATAL("Failed to release HashFS lock: %s", strerror(errno));
     }
 
     return ret;
