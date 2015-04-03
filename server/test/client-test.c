@@ -2379,7 +2379,7 @@ int test_acl(sxc_client_t *sx, sxc_cluster_t *cluster, const char *local_dir_pat
         fprintf(stderr, "test_acl: ERROR: Cannot open '%s' file: %s\n", local_file_path, strerror(errno));
         goto test_acl_err;
     }
-    if(sxc_user_getinfo(cluster, user1, file, NULL)) {
+    if(sxc_user_getinfo(cluster, user1, file, NULL, 0)) {
         fprintf(stderr, "test_acl: ERROR: Cannot get '%s' key: %s\n", user1, sxc_geterrmsg(sx));
         if(fclose(file) == EOF)
             fprintf(stderr, "test_acl: ERROR: Cannot close '%s' file: %s\n", local_file_path, strerror(errno));

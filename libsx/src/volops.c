@@ -697,7 +697,7 @@ static int yacb_listvolumes_string(void *ctx, const unsigned char *s, size_t l) 
         yactx->voldata.owner_len = l;
         yactx->owner = malloc(yactx->voldata.owner_len);
         if(!yactx->owner) {
-            CBDEBUG("OOM duplicating user name '%.*s'", (unsigned)l, s);
+            CBDEBUG("OOM duplicating username '%.*s'", (unsigned)l, s);
             sxi_cbdata_seterr(yactx->cbdata, SXE_EMEM, "Out of memory");
             return 0;
         }
@@ -1309,7 +1309,7 @@ static int yacb_listusers_map_key(void *ctx, const unsigned char *s, size_t l) {
 	yactx->usrdata.namelen = l;
 	yactx->usrname = malloc(yactx->usrdata.namelen);
 	if(!yactx->usrname) {
-	    CBDEBUG("OOM duplicating user name '%.*s'", (unsigned)l, s);
+	    CBDEBUG("OOM duplicating username '%.*s'", (unsigned)l, s);
 	    sxi_cbdata_seterr(yactx->cbdata, SXE_EMEM, "Out of memory");
 	    return 0;
 	}
@@ -1527,7 +1527,7 @@ int sxc_cluster_listusers_next(sxc_cluster_lu_t *lu, char **user_name, int *is_a
 	return 0;
     }
     if(user.namelen & 0x80000000 || user.desclen & 0x80000000) {
-        SXDEBUG("Invalid user name length");
+        SXDEBUG("Invalid username length");
         sxi_seterr(sx, SXE_EREAD, "Failed to retrieve next user: Bad data from cache file");
         return -1;
     }

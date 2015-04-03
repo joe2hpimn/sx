@@ -20,6 +20,9 @@ Print version and exit
 \fB\-a\fR, \fB\-\-auth\-file\fR=\fI\,FILE\/\fR
 Store authentication key in a given file (instead of printing it).
 .TP
+\fB\-C\fR, \fB\-\-config\-link\fR
+When this option is enabled, sxacl will return a configuration link instead of an authentication key. The configuration link includes the key and can be used by other applications to automatically configure access to the SX server.
+.TP
 \fB\-c\fR, \fB\-\-config\-dir\fR=\fI\,PATH\/\fR
 Path to the SX configuration directory (default: ~/.sx)
 .TP

@@ -50,6 +50,7 @@ const char *sxi_conns_get_auth(const sxi_conns_t *conns);
 time_t sxi_conns_get_timediff(const sxi_conns_t *conns);
 void sxi_conns_set_timediff(sxi_conns_t *conns, time_t timediff);
 void sxi_conns_set_cafile(sxi_conns_t *conns, const char *cafile);
+const char *sxi_conns_get_cafile(sxi_conns_t *conns);
 int sxi_conns_set_hostlist(sxi_conns_t *conns, const sxi_hostlist_t *hlist);
 sxi_hostlist_t *sxi_conns_get_hostlist(sxi_conns_t *conns);
 unsigned int sxi_conns_get_timeout(sxi_conns_t *conns, const char *host);

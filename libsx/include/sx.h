@@ -161,6 +161,9 @@ void sxc_cluster_listvolumes_reset(sxc_cluster_lv_t *lv);
  */
 int sxc_cluster_set_conns_limit(sxc_cluster_t *cluster, unsigned int max_active, unsigned int max_active_per_host);
 
+/* Return configuration link that can be passed to cluster users */
+char *sxc_cluster_configuration_link(sxc_cluster_t *cluster, const char *username, const char *token);
+
 /* Transfer direction */
 typedef enum { SXC_XFER_DIRECTION_DOWNLOAD = 1, SXC_XFER_DIRECTION_UPLOAD = 2, SXC_XFER_DIRECTION_BOTH = 3 } sxc_xfer_direction_t;
 
@@ -300,8 +303,9 @@ int sxc_meta_setval_fromhex(sxc_meta_t *meta, const char *key, const char *value
 void sxc_meta_delval(sxc_meta_t *meta, const char *key);
 void sxc_meta_empty(sxc_meta_t *meta);
 
-/* Return authentication token based on user name and password */
-int sxc_pass2token(sxc_cluster_t *cluster, char *tok_buf, unsigned int tok_size);
+/* Return authentication token based on user name and password.
+ * If username argument is NULL, user will be prompted for a user name, otherwise only password will be required. */
+int sxc_pass2token(sxc_cluster_t *cluster, const char *username, char *tok_buf, unsigned int tok_size);
 
 char *sxc_user_add(sxc_cluster_t *cluster, const char *username, int admin, const char *oldtoken, const char *desc, int generate_key);
 /*
@@ -314,7 +318,7 @@ char *sxc_user_add(sxc_cluster_t *cluster, const char *username, int admin, cons
  */
 char *sxc_user_clone(sxc_cluster_t *cluster, const char *username, const char *clonename, const char *oldtoken, int *role, const char *desc);
 int sxc_user_remove(sxc_cluster_t *cluster, const char *username, int remove_clones);
-int sxc_user_getinfo(sxc_cluster_t *cluster, const char *username, FILE *storeauth, int *is_admin);
+int sxc_user_getinfo(sxc_cluster_t *cluster, const char *username, FILE *storeauth, int *is_admin, int get_config_link);
 char *sxc_user_newkey(sxc_cluster_t *cluster, const char *username, const char *oldtoken, int generate_key);
 
 int sxc_cluster_whoami(sxc_cluster_t *cluster, char **user, char **role);

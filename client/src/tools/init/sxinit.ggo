@@ -1,7 +1,9 @@
 package "sxinit"
 purpose "Manage local configuration of SX clusters"
 args "--unamed-opts=sx://[profile@]cluster --no-handle-version --no-handle-error"
-usage "sxinit [OPTIONS]... { sx://[profile@]cluster | --list }"
+usage "sxinit [OPTIONS]... { sx://[profile@]cluster | --list | --config-link }"
+
+option  "config-link"       C "Use a configuration link for an automated setup" string optional typestr="URI"
 
 option	"list"		    L "List configured profiles and aliases" optional
 

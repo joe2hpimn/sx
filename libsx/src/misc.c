@@ -767,12 +767,10 @@ sxc_uri_t *sxc_parse_uri(sxc_client_t *sx, const char *uri) {
     if(!u->volume)
 	u->path = NULL;
 
-    u->host = memchr(p, '@', len);
+    u->host = strrchr(p, '@');
     if(u->host) {
-	do {
-	    *u->host = '\0';
-	    u->host++;
-	} while (*u->host == '@');
+        *u->host = '\0';
+        u->host++;
 	if(!*u->host)
 	    u->host = u->profile = NULL;
 	else

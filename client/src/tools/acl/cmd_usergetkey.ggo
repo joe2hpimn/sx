@@ -3,9 +3,11 @@ args "--unamed-opts --no-handle-version --no-handle-error --file-name=cmd_userge
 usage "sxacl usergetkey [OPTIONS] <username> sx://[profile@]cluster"
 
 section "User key retrieval options"
-option "auth-file" a "Store authentication token in given file (instead of stdout)" string optional
+option "auth-file" a "Store authentication key in given file (instead of stdout)" string optional
 
 section "Common options"
+
+option  "config-link"           C "Return configuration link instead of authentication key" flag off
 
 option  "config-dir"		c "Path to SX configuration directory"
         string typestr="PATH" optional hidden

@@ -60,6 +60,7 @@ typedef struct {
 curl_events_t *sxi_curlev_init(sxi_conns_t *conns);
 void sxi_curlev_set_cafile(curl_events_t *ev, const char *cafile);
 int sxi_curlev_has_cafile(curl_events_t *ev);
+const char* sxi_curlev_get_cafile(curl_events_t *ev);
 int sxi_curlev_set_save_rootCA(curl_events_t *ev, const char *filename, int quiet);
 int sxi_curlev_is_saved(curl_events_t *ev);
 void sxi_curlev_set_verbose(curl_events_t *ev, int is_verbose);

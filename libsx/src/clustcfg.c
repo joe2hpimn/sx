@@ -1071,7 +1071,7 @@ int sxc_cluster_whoami(sxc_cluster_t *cluster, char **user, char **role) {
     }
 
     if(!*yctx.whoami) {
-        sxi_seterr(sx, SXE_ECOMM, "Failed to get user name");
+        sxi_seterr(sx, SXE_ECOMM, "Failed to get username");
         goto config_whoami_error;
     }
 
@@ -2559,7 +2559,7 @@ static int get_user_info_wrap(sxc_cluster_t *cluster, const char *username, uint
     }
 
     /* Get existing user ID */
-    if(sxc_user_getinfo(cluster, username, authfile, &r)) {
+    if(sxc_user_getinfo(cluster, username, authfile, &r, 0)) {
         SXDEBUG("Failed to get a user %s key", username);
         fclose(authfile);
         sxi_tempfile_unlink_untrack(sx, authfile_name);
@@ -2615,7 +2615,7 @@ static int pass2key(sxc_cluster_t *cluster, const char *user, unsigned char *key
     }
 
     if(sxi_sha1_calc(uuid, strlen(uuid), user, strlen(user), (unsigned char*)salt)) {
-        sxi_seterr(sx, SXE_ECRYPT, "Failed to compute hash of user name");
+        sxi_seterr(sx, SXE_ECRYPT, "Failed to compute hash of username");
         return 1;
     }
 
@@ -2699,7 +2699,7 @@ static int username_hash(sxc_client_t *sx, const char *user, unsigned char *uid)
     return 0;
 }
 
-int sxc_pass2token(sxc_cluster_t *cluster, char *tok_buf, unsigned int tok_size) {
+int sxc_pass2token(sxc_cluster_t *cluster, const char *username, char *tok_buf, unsigned int tok_size) {
     uint8_t buf[AUTH_UID_LEN + AUTH_KEY_LEN + 2], *uid = buf, *key = &buf[AUTH_UID_LEN];
     char *token;
     char user[1024], prompt[64];
@@ -2714,19 +2714,27 @@ int sxc_pass2token(sxc_cluster_t *cluster, char *tok_buf, unsigned int tok_size)
     }
 
     memset(buf, 0, sizeof(buf));
-    snprintf(prompt, sizeof(prompt), "User name: ");
-    if(sxi_get_input(sx, SXC_INPUT_PLAIN, prompt, NULL, user, sizeof(user))) {
-        sxi_seterr(sx, SXE_EARG, "Can't obtain user name");
-        return 1;
+    if(!username) {
+        snprintf(prompt, sizeof(prompt), "Username: ");
+        if(sxi_get_input(sx, SXC_INPUT_PLAIN, prompt, NULL, user, sizeof(user))) {
+            sxi_seterr(sx, SXE_EARG, "Can't obtain username");
+            return 1;
+        }
+    } else {
+        if(strlen(username) >= sizeof(user)) {
+            sxi_seterr(sx, SXE_EARG, "Username too long");
+            return 1;
+        }
+        sxi_strlcpy(user, username, sizeof(user));
     }
-    if(!*user || !strlen(user)) {
-        sxi_seterr(sx, SXE_EARG, "Can't obtain user name");
+    if(!*user) {
+        sxi_seterr(sx, SXE_EARG, "Can't obtain username");
         return 1;
     }
 
     /* UID part - unsalted username hash */
     if(username_hash(sx, user, uid)) {
-        SXDEBUG("Failed to compute unsalted hash of user name");
+        SXDEBUG("Failed to compute unsalted hash of username");
         return 1;
     }
 
@@ -2830,7 +2838,7 @@ static char *user_add(sxc_cluster_t *cluster, const char *username, int admin, c
     } else {
         /* UID part - unsalted username hash */
         if(username_hash(sx, username, uid)) {
-            SXDEBUG("Failed to compute unsalted hash of user name");
+            SXDEBUG("Failed to compute unsalted hash of username");
             return NULL;
         }
     }
@@ -2912,7 +2920,7 @@ char *sxc_user_newkey(sxc_cluster_t *cluster, const char *username, const char *
     }
 
     if(username_hash(sx, username, uid)) {
-        SXDEBUG("Failed to compute hash of a user name");
+        SXDEBUG("Failed to compute hash of a username");
         return NULL;
     }
 
@@ -2931,7 +2939,7 @@ char *sxc_user_newkey(sxc_cluster_t *cluster, const char *username, const char *
         }
 
         if(memcmp(tmpuid, uid, AUTH_UID_LEN) && !oldtoken && !generate_key) {
-            sxi_seterr(sx, SXE_EARG, "Cannot use user name and password for clones");
+            sxi_seterr(sx, SXE_EARG, "Cannot use username and password for clones");
             return NULL;
         }
     }
@@ -3188,7 +3196,7 @@ static int yacb_userinfo_end_map(void *ctx) {
     return 1;
 }
 
-int sxc_user_getinfo(sxc_cluster_t *cluster, const char *username, FILE *storeauth, int *is_admin)
+int sxc_user_getinfo(sxc_cluster_t *cluster, const char *username, FILE *storeauth, int *is_admin, int get_config_link)
 {
     sxc_client_t *sx;
     struct cb_userinfo_ctx yctx;
@@ -3197,6 +3205,7 @@ int sxc_user_getinfo(sxc_cluster_t *cluster, const char *username, FILE *storeau
     unsigned n;
     char *url = NULL;
     char *tok = NULL;
+    char *link = NULL;
 
     if(!cluster)
 	return 1;
@@ -3242,12 +3251,19 @@ int sxc_user_getinfo(sxc_cluster_t *cluster, const char *username, FILE *storeau
     if(!tok)
         goto sxc_user_getinfo_err;
 
+    if(get_config_link) {
+        link = sxc_cluster_configuration_link(cluster, username, tok);
+        if(!link)
+            goto sxc_user_getinfo_err;
+    }
+
     if(storeauth)
-        fprintf(storeauth, "%s\n", tok);
+        fprintf(storeauth, "%s\n", get_config_link ? link : tok);
     if(is_admin)
         *is_admin = (!strncmp("admin", yctx.role, sizeof(yctx.role)-1) ? 1 : 0);
 sxc_user_getinfo_err:
     free(tok);
+    free(link);
     free(url);
     if(yctx.yh)
 	yajl_free(yctx.yh);
@@ -3889,4 +3905,90 @@ int sxi_cluster_set_mode(sxc_cluster_t *cluster, int readonly) {
 
     sxi_query_free(query);
     return 0;
+}
+
+char *sxc_cluster_configuration_link(sxc_cluster_t *cluster, const char *username, const char *token) {
+    unsigned int len;
+    char *ret = NULL;
+    const char *cluster_name;
+    sxc_client_t *sx = sxi_cluster_get_client(cluster);
+    sxi_conns_t *conns = sxi_cluster_get_conns(cluster);
+    const char *host;
+    int port, ssl, is_dns = 1;
+    uint8_t certhash[SXI_SHA1_BIN_LEN];
+    char fingerprint[SXI_SHA1_TEXT_LEN+1];
+    unsigned int certhash_len = 0;
+    unsigned int offset;
+
+    if(!cluster)
+        return NULL;
+    if(!username || !token) {
+        sxi_seterr(sx, SXE_EARG, "NULL argument: %s", !username ? "username" : "token");
+        return ret;
+    }
+    cluster_name = sxc_cluster_get_sslname(cluster);
+    if(!cluster_name) {
+        sxi_seterr(sx, SXE_EARG, "Cannot get cluster name");
+        return NULL;
+    }
+
+    host = sxi_conns_get_dnsname(conns);
+    if(!host) {
+        sxi_hostlist_t *hosts;
+
+        hosts = sxi_conns_get_hostlist(conns);
+        if(!hosts || !sxi_hostlist_get_count(hosts)) {
+            sxi_seterr(sx, SXE_ECFG, "Invalid host list");
+            return NULL;
+        }
+
+        host = sxi_hostlist_get_host(hosts, 0);
+        if(!host) {
+            sxi_seterr(sx, SXE_ECFG, "Invalid host list");
+            return NULL;
+        }
+        is_dns = 0;
+    }
+
+    ssl = sxi_conns_is_secure(conns);
+    port = sxc_cluster_get_httpport(cluster);
+    if(!port)
+        port = (ssl ? 443 : 80);
+
+    if(ssl) {
+        const char *cafile = sxi_conns_get_cafile(conns);
+        if(!cafile) {
+            sxi_seterr(sx, SXE_EMEM, "Failed to get ca file name");
+            return NULL;
+        }
+
+        if(sxi_vcrypt_get_cert_fingerprint(sx, cafile, certhash, &certhash_len) || certhash_len != SXI_SHA1_BIN_LEN) {
+            sxi_seterr(sx, SXE_EMEM, "Failed to get certificate fingerprint");
+            return NULL;
+        }
+
+        sxi_bin2hex(certhash, certhash_len, fingerprint);
+        fingerprint[SXI_SHA1_TEXT_LEN] = '\0';
+    }
+
+    len = lenof("sx://@/?token=&port=&ssl=y") + strlen(username) + strlen(cluster_name) + strlen(token) + 11 + 1;
+    if(ssl)
+        len += lenof("&certhash=") + strlen(fingerprint);
+    if(!is_dns)
+        len += lenof("&ip=") + strlen(host);
+    ret = malloc(len);
+    if(!ret) {
+        sxi_seterr(sx, SXE_EMEM, "Failed to allocate memory for link");
+        return ret;
+    }
+    snprintf(ret, len, "sx://%s@%s/?token=%s&port=%d&ssl=%c", username, cluster_name, token, port, ssl ? 'y' : 'n');
+    if(ssl) {
+        offset = strlen(ret);
+        snprintf(ret + offset, len - offset, "&certhash=%s", fingerprint);
+    }
+    if(!is_dns) {
+        offset = strlen(ret);
+        snprintf(ret + offset, len - offset, "&ip=%s", host);
+    }
+    return ret;
 }

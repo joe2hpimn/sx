@@ -1706,6 +1706,11 @@ int sxi_curlev_has_cafile(curl_events_t *ev)
     return ev && ev->cafile && *ev->cafile;
 }
 
+const char* sxi_curlev_get_cafile(curl_events_t *ev)
+{
+    return ev && ev->cafile && *ev->cafile ? ev->cafile : NULL;
+}
+
 int sxi_curlev_set_save_rootCA(curl_events_t *ev, const char *filename, int quiet)
 {
     if (!ev)

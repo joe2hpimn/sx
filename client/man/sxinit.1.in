@@ -17,6 +17,9 @@ Print help, including hidden options, and exit
 \fB\-V\fR, \fB\-\-version\fR
 Print version and exit
 .TP
+\fB\-C\fR, \fB\-\-config\-link\fR=\fI\,URI\/\fR
+Use a configuration link to perform an automated setup. The configuration link can be provided by a cluster administrator or obtained with \fBsxacl-usergetkey\fR(1).
+.TP
 \fB\-L\fR, \fB\-\-list\fR
 List configured clusters and aliases
 .TP

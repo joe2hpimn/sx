@@ -291,25 +291,49 @@ int sxi_vcrypt_print_cipherlist(sxc_client_t *sx, const char *list)
   ptr->ulValueLen = (_len);                                 \
 } while(0)
 
-int sxi_vcrypt_print_cert_info(sxc_client_t *sx, const char *file, int batch_mode)
-{
-    int rc= 0;
-    SECMODModule *mod = SECMOD_LoadUserModule("library=libnsspem.so name=PEM", NULL, PR_FALSE);
-    if (!mod || !mod->loaded) {
-        if (mod)
-            SECMOD_DestroyModule(mod);
-        sxi_setsyserr(sx, SXE_ECFG, "Failed to load NSS PEM library");
-        return -1;
-    }
+struct PK11_ctx {
+    PK11SlotInfo *slot;
+    PK11GenericObject *obj;
+    CERTCertList *list;
+};
 
-    sxi_crypto_check_ver(NULL);
+static void free_PK11_ctx(struct PK11_ctx *ctx) {
+    if(!ctx)
+        return;
+    if(ctx->list)
+        CERT_DestroyCertList(ctx->list);
+    if(ctx->obj)
+        PK11_DestroyGenericObject(ctx->obj);
+    if(ctx->slot)
+        PK11_FreeSlot(ctx->slot);
+}
+
+static CERTCertificate *load_cert_file(sxc_client_t *sx, const char *file, struct PK11_ctx *ctx) {
     const char *slot_name = "PEM Token #0";
     CK_OBJECT_CLASS obj_class;
     CK_ATTRIBUTE attrs[/* max count of attributes */ 4];
     unsigned attr_cnt = 0;
     CK_BBOOL cktrue = CK_TRUE;
-    PK11SlotInfo *slot = PK11_FindSlotByName(slot_name);
-    if (slot) {
+    SECMODModule *mod;
+    CERTCertificate *cert = NULL;
+
+    if(!file || !ctx) {
+        sxi_seterr(sx, SXE_EARG, "NULL argument");
+        return NULL;
+    }
+    memset(ctx, 0, sizeof(*ctx));
+
+    mod = SECMOD_LoadUserModule("library=libnsspem.so name=PEM", NULL, PR_FALSE);
+    if (!mod || !mod->loaded) {
+        if (mod)
+            SECMOD_DestroyModule(mod);
+        sxi_setsyserr(sx, SXE_ECFG, "Failed to load NSS PEM library");
+        return NULL;
+    }
+
+    sxi_crypto_check_ver(NULL);
+    ctx->slot = PK11_FindSlotByName(slot_name);
+    if (ctx->slot) {
         obj_class = CKO_CERTIFICATE;
         PK11_SETATTRS(attrs, attr_cnt, CKA_CLASS, &obj_class, sizeof(obj_class));
         PK11_SETATTRS(attrs, attr_cnt, CKA_TOKEN, &cktrue, sizeof(CK_BBOOL));
@@ -321,44 +345,82 @@ int sxi_vcrypt_print_cert_info(sxc_client_t *sx, const char *file, int batch_mod
             PK11_SETATTRS(attrs, attr_cnt, CKA_TRUST, pval, sizeof(*pval));
         }
 
-        PK11GenericObject *obj = PK11_CreateGenericObject(slot, attrs, attr_cnt, PR_FALSE);
-        if (!obj) {
+        ctx->obj = PK11_CreateGenericObject(ctx->slot, attrs, attr_cnt, PR_FALSE);
+        if (!ctx->obj) {
             sxi_seterr(sx, SXE_ECFG, "Cannot load certificate from '%s': %s, %s",
                        file, PR_ErrorToString(PR_GetError(), PR_LANGUAGE_I_DEFAULT),
                        PR_ErrorToName(PR_GetError()));
-            return -1;
+            return NULL;
         }
-        CERTCertList *list = PK11_ListCertsInSlot(slot);
-        if (list) {
-            CERTCertListNode *node = CERT_LIST_HEAD(list);
-            CERTCertificate *cert = node ? node->cert : NULL;
-            if (cert && !batch_mode) {
-                char *subject = CERT_NameToAscii(&cert->subject);
-                char *issuer = CERT_NameToAscii(&cert->issuer);
-                char *common_name = CERT_GetCommonName(&cert->subject);
-                struct sxi_fmt fmt;
-                char hash[SXI_SHA1_TEXT_LEN+1];
-                sxi_fmt_start(&fmt);
-                sxi_fmt_msg(&fmt, "\tSubject: %s\n", subject);
-                sxi_fmt_msg(&fmt, "\tIssuer: %s\n", issuer);
-                if (!sxi_conns_hashcalc_core(sx, NULL, 0,
-                                             cert->derCert.data,
-                                             cert->derCert.len, hash)) {
-                    sxi_fmt_msg(&fmt, "\tSHA1 Fingerprint: %s\n", hash);
-                }
-                sxi_info(sx, "%s", fmt.buf);
-                PR_Free(subject);
-                PR_Free(issuer);
-                PR_Free(common_name);
-            }
-            if (cert)
-                CERT_DestroyCertificate(cert);
+        ctx->list = PK11_ListCertsInSlot(ctx->slot);
+        if (ctx->list) {
+            CERTCertListNode *node = CERT_LIST_HEAD(ctx->list);
+            cert = node ? node->cert : NULL;
         }
-        PK11_FreeSlot(slot);
     } else {
         sxi_seterr(sx, SXE_ECFG, "Failed to initialize NSS PEM token");
-        rc = -1;
+        return NULL;
     }
 
-    return rc;
+    return cert;
+}
+
+int sxi_vcrypt_get_cert_fingerprint(sxc_client_t *sx, const char *file, uint8_t *hash, unsigned int *len) {
+    struct PK11_ctx ctx;
+    CERTCertificate *cert = load_cert_file(sx, file, &ctx);
+
+    if(!cert) {
+        free_PK11_ctx(&ctx);
+        return -1;
+    }
+
+    if(sxi_sha1_calc(NULL, 0, cert->derCert.data, cert->derCert.len, hash)) {
+        sxi_seterr(sx, SXE_ECRYPT, "Failed to compute ca fingerprint");
+        CERT_DestroyCertificate(cert);
+        free_PK11_ctx(&ctx);
+        return -1;
+    }
+
+    if(len)
+        *len = SXI_SHA1_BIN_LEN;
+
+    CERT_DestroyCertificate(cert);
+    free_PK11_ctx(&ctx);
+    return 0;
+}
+
+int sxi_vcrypt_print_cert_info(sxc_client_t *sx, const char *file, int batch_mode)
+{
+    struct PK11_ctx ctx;
+    CERTCertificate *cert = load_cert_file(sx, file, &ctx);
+
+    if(!cert) {
+        free_PK11_ctx(&ctx);
+        return -1;
+    }
+
+    if (cert && !batch_mode) {
+        char *subject = CERT_NameToAscii(&cert->subject);
+        char *issuer = CERT_NameToAscii(&cert->issuer);
+        char *common_name = CERT_GetCommonName(&cert->subject);
+        struct sxi_fmt fmt;
+        char hash[SXI_SHA1_TEXT_LEN+1];
+
+        sxi_fmt_start(&fmt);
+        sxi_fmt_msg(&fmt, "\tSubject: %s\n", subject);
+        sxi_fmt_msg(&fmt, "\tIssuer: %s\n", issuer);
+        if (!sxi_conns_hashcalc_core(sx, NULL, 0,
+                                     cert->derCert.data,
+                                     cert->derCert.len, hash)) {
+            sxi_fmt_msg(&fmt, "\tSHA1 Fingerprint: %s\n", hash);
+        }
+        sxi_info(sx, "%s", fmt.buf);
+        PR_Free(subject);
+        PR_Free(issuer);
+        PR_Free(common_name);
+    }
+
+    CERT_DestroyCertificate(cert);
+    free_PK11_ctx(&ctx);
+    return 0;
 }

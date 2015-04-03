@@ -52,6 +52,9 @@ void sxi_vcrypto_cleanup(void);
 
 int sxi_vcrypt_print_cert_info(sxc_client_t *sx, const char *file, int batch_mode);
 
+/* Load certificate fingerprint */
+int sxi_vcrypt_get_cert_fingerprint(sxc_client_t *sx, const char *file, uint8_t *hash, unsigned int *len);
+
 int sxi_vcrypt_print_cipherlist(sxc_client_t *sx, const char *cipherlist);
 
 int sxi_vcrypto_errmsg(sxc_client_t *sx);

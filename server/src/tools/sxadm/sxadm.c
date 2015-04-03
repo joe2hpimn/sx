@@ -333,7 +333,7 @@ static int create_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
     sxc_cluster_t *clust = NULL;
     sx_nodelist_t *single_node = NULL;
     struct addrinfo *nodeai = NULL, *uriai = NULL, hint;
-    const char *profile, *clust_token;
+    const char *clust_token;
     const sx_uuid_t *clust_uuid;
     struct token_pair_t auth;
     char *copy_cafile = NULL;
@@ -361,7 +361,6 @@ static int create_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
 	CRIT("Invalid SX URI %s", args->inputs[1]);
 	goto create_cluster_err;
     }
-    profile = uri->profile ? uri->profile : "admin";
 
     memset(&hint, 0, sizeof(hint));
     hint.ai_family = AF_UNSPEC;
@@ -499,8 +498,8 @@ static int create_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
     if(read_or_gen_key(args->admin_key_arg, ROLE_ADMIN, &auth))
 	goto create_cluster_err;
 
-    if(sxc_cluster_add_access(clust, profile, auth.token) ||
-       sxc_cluster_set_access(clust, profile)) {
+    if(sxc_cluster_add_access(clust, uri->profile, auth.token) ||
+       sxc_cluster_set_access(clust, uri->profile)) {
 	CRIT("Failed to set profile authentication");
 	goto create_cluster_err;
     }
@@ -1182,7 +1181,8 @@ static int info_cluster(sxc_client_t *sx, struct cluster_args_info *args, int ke
 	}
     }
 
-    printf("Operating mode: %s\n", clst_readonly(clst) ? "read-only" : "read-write");
+    if(!keyonly)
+        printf("Operating mode: %s\n", clst_readonly(clst) ? "read-only" : "read-write");
     if(nodes) {
 	unsigned int i, nnodes = sx_nodelist_count(nodes), header = 0;
 	unsigned int version;

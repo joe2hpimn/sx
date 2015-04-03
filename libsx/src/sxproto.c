@@ -183,8 +183,8 @@ sxi_query_t *sxi_useradd_proto(sxc_client_t *sx, const char *username, const uin
     return ret;
 }
 
-/* username - new user name, the clone name
- * exsitingname - the cloned user name
+/* username - new username, the clone name
+ * exsitingname - the cloned username
  * desc - human readable decription of the user
  * There is also no need to send admin flag like for useradd proto, clone has the same role as existing user */
 sxi_query_t *sxi_userclone_proto(sxc_client_t *sx, const char *existingname, const char *username, const uint8_t *uid, const uint8_t *key, const char *desc) {

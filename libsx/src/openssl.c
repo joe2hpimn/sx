@@ -271,7 +271,7 @@ static int sxi_fmt_X509_name(struct sxi_fmt* fmt, X509_NAME *name)
     return 0;
 }
 
-static int sxi_print_certificate_info(sxc_client_t *sx, X509 *x)
+static int print_certificate_info(sxc_client_t *sx, X509 *x)
 {
     struct sxi_fmt fmt;
     unsigned int i, n;
@@ -314,32 +314,57 @@ static int sxi_print_certificate_info(sxc_client_t *sx, X509 *x)
     return 0;
 }
 
-int sxi_vcrypt_print_cert_info(sxc_client_t *sx, const char *file, int batch_mode)
+static X509 *load_cert_file(sxc_client_t *sx, const char *file)
 {
-    int rc = 0;
     X509 *x;
     FILE *f = fopen(file, "r");
     if (!f) {
         sxi_seterr(sx, SXE_ECFG, "Cannot open CA file '%s'", file);
-        return -1;
+        return NULL;
     }
 
     x = PEM_read_X509(f, NULL, NULL, NULL);
-    if (x) {
-        if (!batch_mode) {
-            sxi_info(sx, "\tSSL certificate:");
-            if (sxi_print_certificate_info(sx, x)) {
-                sxi_seterr(sx, SXE_ECFG, "Cannot print certificate info");
-                rc = -1;
-            }
-        }
-    } else {
+    if (!x) {
         sxi_seterr(sx, SXE_ECFG, "Cannot read PEM file");
-        rc = -1;
+        fclose(f);
+        return NULL;
     }
     fclose(f);
-    X509_free(x);
+    return x;
+}
 
+int sxi_vcrypt_get_cert_fingerprint(sxc_client_t *sx, const char *file, uint8_t *hash, unsigned int *len) {
+    int rc = 0;
+    if(!file || !hash || !len) {
+        sxi_seterr(sx, SXE_EARG, "NULL argument");
+        return -1;
+    }
+    X509 *x = load_cert_file(sx, file);
+    if(!x)
+        return -1;
+
+    if (!X509_digest(x, EVP_sha1(), hash, len)) {
+        sxi_seterr(sx, SXE_EMEM, "Cannot compute certificate fingerprint");
+        return -1;
+    }
+    X509_free(x);
+    return rc;
+}
+
+int sxi_vcrypt_print_cert_info(sxc_client_t *sx, const char *file, int batch_mode)
+{
+    int rc = 0;
+    X509 *x = load_cert_file(sx, file);
+    if(!x)
+        return -1;
+    if (!batch_mode) {
+        sxi_info(sx, "\tSSL certificate:");
+        if (print_certificate_info(sx, x)) {
+            sxi_seterr(sx, SXE_ECFG, "Cannot print certificate info");
+            rc = -1;
+        }
+    }
+    X509_free(x);
     return rc;
 }
 

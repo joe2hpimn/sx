@@ -124,13 +124,23 @@ static int add_user(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_uri_t *u, cons
     if(batch_mode) {
 	printf("%s\n", key);
     } else {
+        char *conflink;
+
+        conflink = sxc_cluster_configuration_link(cluster, username, key);
+        if(!conflink) {
+            fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
+            free(key);
+            return 1;
+        }
 	printf("User successfully created!\n");
 	printf("Name: %s\n", username);
 	printf("Key : %s\n", key);
-        printf("Type: %s", created_role ? "admin" : "normal");
+        printf("Type: %s\n", created_role ? "admin" : "normal");
+        printf("Configuration link: %s", conflink);
 	if(existing)
             printf("\nDescription: %s (clone of user '%s')", desc, existing);
-	printf("\n\nRun 'sxinit sx://%s@%s' to start using the cluster as user '%s'.\n", username, u->host, username);
+	printf("\n\nRun 'sxinit sx://%s@%s' or 'sxinit --config-link <link>' to start using the cluster as user '%s'.\n", username, u->host, username);
+        free(conflink);
     }
 
     if (authfile) {
@@ -176,10 +186,20 @@ static int newkey_user(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_uri_t *u, c
     if(batch_mode) {
 	printf("%s\n", key);
     } else {
+        char *conflink;
+
+        conflink = sxc_cluster_configuration_link(cluster, username, key);
+        if(!conflink) {
+            fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
+            free(key);
+            return 1;
+        }
 	printf("Key successfully changed!\n");
 	printf("Name   : %s\n", username);
 	printf("New key: %s\n", key);
-	printf("Run 'sxinit sx://%s@%s' and provide the new key for user '%s'.\n", username, u->host, username);
+        printf("Configuration link: %s\n", conflink);
+	printf("\nRun 'sxinit sx://%s@%s' and provide the new key or run 'sxinit --config-link <link>' to reconfigure automatically with the new key for user '%s'.\n", username, u->host, username);
+        free(conflink);
     }
 
     if (authfile) {
@@ -207,7 +227,7 @@ static int newkey_user(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_uri_t *u, c
     return 0;
 }
 
-static int getkey_user(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_uri_t *u, const char *username, const char *authfile)
+static int getkey_user(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_uri_t *u, const char *username, const char *authfile, int get_config_link)
 {
     int rc = 0;
     FILE *f = stdout;
@@ -224,7 +244,7 @@ static int getkey_user(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_uri_t *u, c
             return 1;
         }
     }
-    rc = sxc_user_getinfo(cluster, username, f, NULL);
+    rc = sxc_user_getinfo(cluster, username, f, NULL, get_config_link);
     if (authfile && fclose(f)) {
         fprintf(stderr, "ERROR: Can't close file %s: %s\n", authfile, strerror(errno));
 	return 1;
@@ -525,7 +545,7 @@ int main(int argc, char **argv) {
                 ret = 1;
                 break;
             }
-	    ret = getkey_user(sx, cluster, uri, args.inputs[0], args.auth_file_arg);
+	    ret = getkey_user(sx, cluster, uri, args.inputs[0], args.auth_file_arg, args.config_link_given);
             usergetkey_cmdline_parser_free(&args);
         } else if (!strcmp(argv[1], "usernewkey")) {
             struct usernewkey_args_info args;

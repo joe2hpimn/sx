@@ -167,6 +167,10 @@ void sxi_conns_set_cafile(sxi_conns_t *conns, const char *cafile) {
     }
 }
 
+const char *sxi_conns_get_cafile(sxi_conns_t *conns) {
+    return sxi_curlev_get_cafile(conns->curlev);
+}
+
 int sxi_conns_is_secure(sxi_conns_t *conns) {
     return conns && !conns->insecure;
 }
