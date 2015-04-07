@@ -2027,7 +2027,8 @@ static int listfiles_cb(curlev_context_t *cbdata, void *ctx, const void *data, s
 	sxi_cbdata_seterr(yactx->cbdata, SXE_ECOMM, "communication error");
 	return 1;
     }
-    yactx->etag_out = sxi_cbdata_get_etag(cbdata);
+    if (!yactx->etag_out)
+        yactx->etag_out = sxi_cbdata_get_etag(cbdata);
 
     return 0;
 }
