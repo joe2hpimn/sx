@@ -811,7 +811,7 @@ static int req_append(char **req, unsigned int *req_len, const char *append_me) 
     return 0;
 }
 
-static rc_ty filerev_from_jobdata(sx_hashfs_t *hashfs, job_data_t *job_data, sx_hashfs_file_t *filerev)
+static rc_ty filerev_from_jobdata_rev(sx_hashfs_t *hashfs, job_data_t *job_data, sx_hashfs_file_t *filerev)
 {
     char revision[REV_LEN+1];
 
@@ -824,7 +824,30 @@ static rc_ty filerev_from_jobdata(sx_hashfs_t *hashfs, job_data_t *job_data, sx_
     return sx_hashfs_getinfo_by_revision(hashfs, revision, filerev);
 }
 
-static rc_ty revision_job_from_tmpfileid_or_rev(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl, int op, jobphase_t phase) {
+static rc_ty filerev_from_jobdata_tmpfileid(sx_hashfs_t *hashfs, job_data_t *job_data, sx_hashfs_file_t *filerev)
+{
+    int64_t tmpfile_id;
+    rc_ty s;
+
+    if(job_data->len != sizeof(tmpfile_id)) {
+        CRIT("Bad job data");
+        return FAIL_EINTERNAL;
+    }
+    sx_hashfs_tmpinfo_t *tmpinfo;
+    memcpy(&tmpfile_id, job_data->ptr, sizeof(tmpfile_id));
+    s = sx_hashfs_tmp_getinfo(hashfs, tmpfile_id, &tmpinfo, 0);
+    if (s) {
+        WARN("Failed to lookup tmpfileid: %s", rc2str(s));
+        return s;
+    }
+    filerev->volume_id = tmpinfo->volume_id;
+    filerev->block_size = tmpinfo->block_size;
+    memcpy(filerev->name, tmpinfo->name, sizeof(filerev->name));
+    free(tmpinfo);
+    return OK;
+}
+
+static act_result_t revision_job_from(sx_hashfs_t *hashfs, job_t job_id, const sx_hashfs_file_t *filerev, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl, int op, jobphase_t phase) {
     sx_revision_op_t revision_op;
     const sx_hashfs_volume_t *volume;
     act_result_t ret = ACT_RESULT_OK;
@@ -832,17 +855,13 @@ static rc_ty revision_job_from_tmpfileid_or_rev(sx_hashfs_t *hashfs, job_t job_i
     sx_blob_t *blob = NULL;
     job_data_t new_job_data;
     char revision[REV_LEN+1];
-    sx_hashfs_file_t filerev;
-    s = filerev_from_jobdata(hashfs, job_data, &filerev);
-    if (s)
-        action_error(rc2actres(s), rc2http(s), "Failed to retrieve file revision info");
-    s = sx_hashfs_volume_by_id(hashfs, filerev.volume_id, &volume);
+    s = sx_hashfs_volume_by_id(hashfs, filerev->volume_id, &volume);
     if (s)
         action_error(rc2actres(s), rc2http(s), "Failed to retrieve volume info");
     revision_op.lock = NULL;
-    revision_op.blocksize = filerev.block_size;
+    revision_op.blocksize = filerev->block_size;
     revision_op.op = op;
-    s = sx_unique_fileid(sx_hashfs_client(hashfs), volume, filerev.name, revision, &revision_op.revision_id);
+    s = sx_unique_fileid(sx_hashfs_client(hashfs), volume, filerev->name, revision, &revision_op.revision_id);
     if(s)
         action_error(rc2actres(s), rc2http(s), "Failed to compute revision id");
     blob = sx_blob_new();
@@ -862,9 +881,33 @@ action_failed:
     return ret;
 }
 
-static rc_ty replicateblocks_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+static act_result_t revision_job_from_tmpfileid(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl, int op, jobphase_t phase) {
+    sx_hashfs_file_t filerev;
+    act_result_t ret = ACT_RESULT_OK;
+    rc_ty s = filerev_from_jobdata_tmpfileid(hashfs, job_data, &filerev);
+    if (s)
+        action_error(rc2actres(s), rc2http(s), "Failed to lookup file by tmpfile id");
+    ret = revision_job_from(hashfs, job_id, &filerev, nodes, succeeded, fail_code, fail_msg, adjust_ttl, op, phase);
+action_failed:
+    return ret;
+}
+
+static act_result_t revision_job_from_rev(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl, int op, jobphase_t phase)
+{
+    sx_hashfs_file_t filerev;
+    act_result_t ret = ACT_RESULT_OK;
+    rc_ty s = filerev_from_jobdata_rev(hashfs, job_data, &filerev);
+    if (s)
+        action_error(rc2actres(s), rc2http(s), "Failed to lookup file by revision");
+    ret = revision_job_from(hashfs, job_id, &filerev, nodes, succeeded, fail_code, fail_msg, adjust_ttl, op, phase);
+action_failed:
+    return ret;
+}
+
+
+static act_result_t replicateblocks_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     /* bump block revision */
-    return revision_job_from_tmpfileid_or_rev(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl, 1, JOBPHASE_COMMIT);
+    return revision_job_from_tmpfileid(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl, 1, JOBPHASE_COMMIT);
 }
 
 static act_result_t replicateblocks_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
@@ -1321,7 +1364,7 @@ static act_result_t fileflush_local(sx_hashfs_t *hashfs, job_t job_id, job_data_
 
 static act_result_t replicateblocks_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     /* undo the revision bump from the commit in replicateblocks_request */
-    return revision_job_from_tmpfileid_or_rev(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl, 1, JOBPHASE_UNDO);
+    return revision_job_from_tmpfileid(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl, 1, JOBPHASE_UNDO);
 }
 
 static act_result_t fileflush_remote_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
@@ -1438,7 +1481,7 @@ static act_result_t filedelete_request(sx_hashfs_t *hashfs, job_t job_id, job_da
     sx_hashfs_file_t filerev;
     rc_ty s;
 
-    s = filerev_from_jobdata(hashfs, job_data, &filerev);
+    s = filerev_from_jobdata_rev(hashfs, job_data, &filerev);
     if(s == ENOENT) {
 	WARN("Cannot get revision data from blob for job %lld", (long long)job_id);
 	return force_phase_success(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
@@ -1534,7 +1577,7 @@ static act_result_t filedelete_commit(sx_hashfs_t *hashfs, job_t job_id, job_dat
             sx_hashfs_file_t filerev;
             const sx_hashfs_volume_t *volume;
 
-            s = filerev_from_jobdata(hashfs, job_data, &filerev);
+            s = filerev_from_jobdata_rev(hashfs, job_data, &filerev);
             if (s)
                 action_error(rc2actres(s), rc2http(s), "Failed to retrieve fileid");
             s = sx_hashfs_volume_by_id(hashfs, filerev.volume_id, &volume);
@@ -1558,11 +1601,11 @@ static act_result_t filedelete_commit(sx_hashfs_t *hashfs, job_t job_id, job_dat
 }
 
 static act_result_t filedelete_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
-    return revision_job_from_tmpfileid_or_rev(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl, -1, JOBPHASE_ABORT);
+    return revision_job_from_rev(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl, -1, JOBPHASE_ABORT);
 }
 
 static act_result_t filedelete_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
-    return revision_job_from_tmpfileid_or_rev(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl, -1, JOBPHASE_UNDO);
+    return revision_job_from_rev(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl, -1, JOBPHASE_UNDO);
 }
 
 struct cb_challenge_ctx {
