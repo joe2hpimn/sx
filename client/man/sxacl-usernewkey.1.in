@@ -17,6 +17,9 @@ Print help, including hidden options, and exit
 \fB\-V\fR, \fB\-\-version\fR
 Print version and exit
 .TP
+\fB\-p\fR, \fB\-\-pass\-file\fR=\fI\,PATH\/\fR
+By default sxacl works in interactive mode and asks for the user password on standard input. With this option it will read the password from the provided file.
+.TP
 \fB\-a\fR, \fB\-\-auth\-file\fR=\fI\,FILE\/\fR
 Store authentication key in a given file (instead of printing it).
 .TP

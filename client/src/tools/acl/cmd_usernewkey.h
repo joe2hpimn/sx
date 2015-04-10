@@ -40,6 +40,9 @@ struct usernewkey_args_info
   const char *help_help; /**< @brief Print help and exit help description.  */
   const char *full_help_help; /**< @brief Print help, including hidden options, and exit help description.  */
   const char *version_help; /**< @brief Print version and exit help description.  */
+  char * pass_file_arg;	/**< @brief File containing user password (instead of stdin).  */
+  char * pass_file_orig;	/**< @brief File containing user password (instead of stdin) original value given at command line.  */
+  const char *pass_file_help; /**< @brief File containing user password (instead of stdin) help description.  */
   char * auth_file_arg;	/**< @brief Store authentication token in given file (instead of stdout).  */
   char * auth_file_orig;	/**< @brief Store authentication token in given file (instead of stdout) original value given at command line.  */
   const char *auth_file_help; /**< @brief Store authentication token in given file (instead of stdout) help description.  */
@@ -59,6 +62,7 @@ struct usernewkey_args_info
   unsigned int help_given ;	/**< @brief Whether help was given.  */
   unsigned int full_help_given ;	/**< @brief Whether full-help was given.  */
   unsigned int version_given ;	/**< @brief Whether version was given.  */
+  unsigned int pass_file_given ;	/**< @brief Whether pass-file was given.  */
   unsigned int auth_file_given ;	/**< @brief Whether auth-file was given.  */
   unsigned int config_dir_given ;	/**< @brief Whether config-dir was given.  */
   unsigned int force_key_given ;	/**< @brief Whether force-key was given.  */

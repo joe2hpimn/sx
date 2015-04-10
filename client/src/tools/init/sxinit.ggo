@@ -13,7 +13,7 @@ option  "delete"            - "Delete a profile" optional
 
 option  "no-ssl"	    - "Disable secure communication" flag off
 
-option  "auth-file"	    a "File containing user key (instead of stdin)" string optional
+option  "pass-file"         p "File containing user password (instead of stdin)" string optional
 
 option  "port"		    - "Set the cluster destination TCP port (default 443 in secure mode and 80 in insecure mode)" int optional
 
@@ -26,6 +26,8 @@ option  "batch-mode"	    b "Turn off interactive confirmations and assume yes fo
 option  "force-reinit"	    - "Remove old cluster configuration and init from scratch" flag off
 
 option  "key"               k "Ask for a key instead of a password" flag off
+
+option  "auth-file"	    a "File containing user key (instead of stdin)" string optional
 
 option  "debug"		    D "Enable debug messages" flag off
 

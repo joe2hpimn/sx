@@ -37,6 +37,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <termios.h>
+#include <sys/mman.h>
 
 #include "sx.h"
 #include "cmd_main.h"
@@ -100,21 +101,80 @@ sxc_cluster_t *load_config(sxc_client_t *sx, const char *uri, sxc_uri_t **sxuri)
     return cluster;
 }
 
-static int add_user(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_uri_t *u, const char *username,  enum enum_role type, const char *authfile, int batch_mode, const char *oldtoken, const char *existing, const char *desc, int generate_key) {
+static int read_pass_file(const char *pass_file, char *pass, unsigned int pass_len) {
+    FILE *f;
+    unsigned int len;
+    char *p;
+
+    if(!pass_file || !pass) {
+        fprintf(stderr, "ERROR: NULL argument\n");
+        return 1;
+    }
+
+    if(pass_len <= 8) {
+        fprintf(stderr, "ERROR: Invalid argument: Password buffer too short\n");
+        return 1;
+    }
+
+    f = fopen(pass_file, "r");
+    if(!f) {
+        fprintf(stderr, "ERROR: Failed to open pass file %s\n", pass_file);
+        return 1;
+    }
+
+    p = fgets(pass, pass_len, f);
+    fclose(f);
+
+    if(!p) {
+        fprintf(stderr, "ERROR: Failed to read pass file %s\n", pass_file);
+        memset(pass, 0, pass_len);
+        return 1;
+    }
+
+    len = strlen(p);
+    if(len && p[len-1] == '\n')
+        p[len-1] = '\0';
+    return 0;
+}
+
+static int add_user(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_uri_t *u, const char *username, const char* pass_file, enum enum_role type, const char *authfile, int batch_mode, const char *oldtoken, const char *existing, const char *desc, int generate_key) {
     char *key;
     int created_role = (type == role_arg_admin ? 1 : 0);
+    char pass[1024];
 
     if(u->volume) {
 	fprintf(stderr, "ERROR: Bad URI: Please omit volume\n");
 	return 1;
     }
 
-    if(batch_mode && !oldtoken)
+    if(pass_file) {
+        if(oldtoken) {
+            fprintf(stderr, "ERROR: Can't use pass file and old key\n");
+            return 1;
+        } else if(existing) {
+            fprintf(stderr, "ERROR: Can't use pass file to clone users\n");
+            return 1;
+        }
+
+        mlock(pass, sizeof(pass));
+        if(read_pass_file(pass_file, pass, sizeof(pass))) {
+            fprintf(stderr, "ERROR: Can't use pass file to clone users\n");
+            munlock(pass, sizeof(pass));
+            return 1;
+        }
+    }
+
+    if(batch_mode && !oldtoken && !pass_file)
         generate_key = 1;
     if(existing) /* Cloning user */
         key = sxc_user_clone(cluster, existing, username, oldtoken, &created_role, desc);
     else /* Creating new user */
-        key = sxc_user_add(cluster, username, type == role_arg_admin, oldtoken, desc, generate_key);
+        key = sxc_user_add(cluster, username, pass_file ? pass : NULL, type == role_arg_admin, oldtoken, desc, generate_key);
+
+    if(pass_file) {
+        memset(pass, 0, sizeof(pass));
+        munlock(pass, sizeof(pass));
+    }
 
     if(!key) {
         fprintf(stderr, "ERROR: Can't create user %s: %s\n", username, sxc_geterrmsg(sx));
@@ -168,17 +228,36 @@ static int add_user(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_uri_t *u, cons
     return 0;
 }
 
-static int newkey_user(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_uri_t *u, const char *username,  const char *authfile, int batch_mode, const char *oldtoken, int generate_key) {
+static int newkey_user(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_uri_t *u, const char *username, const char* pass_file, const char *authfile, int batch_mode, const char *oldtoken, int generate_key) {
     char *key;
+    char pass[1024];
 
     if(u->volume) {
 	fprintf(stderr, "ERROR: Bad URI: Please omit volume\n");
 	return 1;
     }
 
-    if(batch_mode && !oldtoken)
+    if(pass_file) {
+        if(oldtoken) {
+            fprintf(stderr, "ERROR: Can't use pass file and old key\n");
+            return 1;
+        }
+
+        mlock(pass, sizeof(pass));
+        if(read_pass_file(pass_file, pass, sizeof(pass))) {
+            fprintf(stderr, "ERROR: Can't use pass file to clone users\n");
+            munlock(pass, sizeof(pass));
+            return 1;
+        }
+    }
+
+    if(batch_mode && !oldtoken && !pass_file)
         generate_key = 1;
-    key = sxc_user_newkey(cluster, username, oldtoken, generate_key);
+    key = sxc_user_newkey(cluster, username, pass_file ? pass : NULL, oldtoken, generate_key);
+    if(pass_file) {
+        memset(pass, 0, sizeof(pass));
+        munlock(pass, sizeof(pass));
+    }
     if(!key) {
         fprintf(stderr, "ERROR: Can't change the key for %s: %s\n", username, sxc_geterrmsg(sx));
 	return 1;
@@ -417,7 +496,7 @@ int main(int argc, char **argv) {
                 ret = 1;
                 break;
             }
-	    ret = add_user(sx, cluster, uri, args.inputs[0], args.role_arg, args.auth_file_arg, args.batch_mode_flag, args.force_key_arg, NULL, NULL, args.generate_key_given);
+	    ret = add_user(sx, cluster, uri, args.inputs[0], args.pass_file_arg, args.role_arg, args.auth_file_arg, args.batch_mode_flag, args.force_key_arg, NULL, NULL, args.generate_key_given);
             useradd_cmdline_parser_free(&args);
 
         } else if(!strcmp(argv[1], "userclone")) {
@@ -448,7 +527,7 @@ int main(int argc, char **argv) {
                 ret = 1;
                 break;
             }
-            ret = add_user(sx, cluster, uri, args.inputs[1], role__NULL, args.auth_file_arg, args.batch_mode_flag, args.force_key_arg, args.inputs[0], args.description_arg, 0);
+            ret = add_user(sx, cluster, uri, args.inputs[1], NULL, 0, args.auth_file_arg, args.batch_mode_flag, args.force_key_arg, args.inputs[0], args.description_arg, 0);
             userclone_cmdline_parser_free(&args);
 
 	} else if(!strcmp(argv[1], "userdel")) {
@@ -575,7 +654,7 @@ int main(int argc, char **argv) {
                 ret = 1;
                 break;
             }
-	    ret = newkey_user(sx, cluster, uri, args.inputs[0], args.auth_file_arg, args.batch_mode_flag, args.force_key_arg, args.generate_key_given);
+	    ret = newkey_user(sx, cluster, uri, args.inputs[0], args.pass_file_arg, args.auth_file_arg, args.batch_mode_flag, args.force_key_arg, args.generate_key_given);
             usernewkey_cmdline_parser_free(&args);
         } else if (!strcmp(argv[1], "volperm")) {
             struct volperm_args_info args;

@@ -5,6 +5,7 @@ usage "sxacl useradd [OPTIONS] <username> sx://[profile@]cluster"
 section "User creation options"
 option "role" t "User type" values="admin","normal" enum default="normal" optional
 option "auth-file" a "Store authentication token in given file (instead of stdout)" string optional
+option "pass-file" p "File containing user password (instead of stdin)" string optional
 option "description" d "Set the description of this user" string optional default=""
 
 section "Common options"

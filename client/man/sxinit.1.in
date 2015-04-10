@@ -32,8 +32,8 @@ Delete a profile and its associated aliases. When the last profile for a given c
 \fB\-\-no\-ssl\fR
 Disable secure communication. For security reasons, only use this option when the cluster doesn't offer SSL connections.
 .TP
-\fB\-a\fR, \fB\-\-auth\-file\fR=\fI\,PATH\/\fR
-By default sxinit works in interactive mode and asks for the user key. With this option it will read it from the provided file.
+\fB\-p\fR, \fB\-\-pass\-file\fR=\fI\,PATH\/\fR
+By default sxinit works in interactive mode and asks for the user password on standard input. With this option it will read the password from the provided file.
 .TP
 \fB\-\-port\fR=\fI\,NUMBER\/\fR
 Set the cluster TCP port. By default, sxinit will use the port 443 (https) or 80 (http), when it's called with \-\-no\-ssl. The SX clusters can operate on custom ports and this option instructs sxinit to use a specific one.
@@ -52,6 +52,9 @@ Remove old cluster configuration and init from scratch. This option should be us
 .TP
 \fB\-k\fR, \fB\-\-key\fR
 Ask for an authentication key (used with SX 1.0 and older) instead of a password.
+.TP
+\fB\-a\fR, \fB\-\-auth\-file\fR=\fI\,PATH\/\fR
+By default sxinit works in interactive mode and when \fB\-\-key\fR is used it asks for the user key on standard input. With this option it will read it from the provided file.
 .TP
 \fB\-D\fR, \fB\-\-debug\fR
 Enable debug messages  (default=off)

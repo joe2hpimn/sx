@@ -38,6 +38,7 @@ const char *usernewkey_args_info_full_help[] = {
   "      --full-help         Print help, including hidden options, and exit",
   "  -V, --version           Print version and exit",
   "\nUser key change options:",
+  "  -p, --pass-file=STRING  File containing user password (instead of stdin)",
   "  -a, --auth-file=STRING  Store authentication token in given file (instead of\n                            stdout)",
   "\nCommon options:",
   "  -c, --config-dir=PATH   Path to SX configuration directory",
@@ -57,14 +58,15 @@ init_help_array(void)
   usernewkey_args_info_help[3] = usernewkey_args_info_full_help[3];
   usernewkey_args_info_help[4] = usernewkey_args_info_full_help[4];
   usernewkey_args_info_help[5] = usernewkey_args_info_full_help[5];
-  usernewkey_args_info_help[6] = usernewkey_args_info_full_help[8];
+  usernewkey_args_info_help[6] = usernewkey_args_info_full_help[6];
   usernewkey_args_info_help[7] = usernewkey_args_info_full_help[9];
   usernewkey_args_info_help[8] = usernewkey_args_info_full_help[10];
-  usernewkey_args_info_help[9] = 0; 
+  usernewkey_args_info_help[9] = usernewkey_args_info_full_help[11];
+  usernewkey_args_info_help[10] = 0; 
   
 }
 
-const char *usernewkey_args_info_help[10];
+const char *usernewkey_args_info_help[11];
 
 typedef enum {ARG_NO
   , ARG_FLAG
@@ -90,6 +92,7 @@ void clear_given (struct usernewkey_args_info *args_info)
   args_info->help_given = 0 ;
   args_info->full_help_given = 0 ;
   args_info->version_given = 0 ;
+  args_info->pass_file_given = 0 ;
   args_info->auth_file_given = 0 ;
   args_info->config_dir_given = 0 ;
   args_info->force_key_given = 0 ;
@@ -102,6 +105,8 @@ static
 void clear_args (struct usernewkey_args_info *args_info)
 {
   FIX_UNUSED (args_info);
+  args_info->pass_file_arg = NULL;
+  args_info->pass_file_orig = NULL;
   args_info->auth_file_arg = NULL;
   args_info->auth_file_orig = NULL;
   args_info->config_dir_arg = NULL;
@@ -122,12 +127,13 @@ void init_args_info(struct usernewkey_args_info *args_info)
   args_info->help_help = usernewkey_args_info_full_help[0] ;
   args_info->full_help_help = usernewkey_args_info_full_help[1] ;
   args_info->version_help = usernewkey_args_info_full_help[2] ;
-  args_info->auth_file_help = usernewkey_args_info_full_help[4] ;
-  args_info->config_dir_help = usernewkey_args_info_full_help[6] ;
-  args_info->force_key_help = usernewkey_args_info_full_help[7] ;
-  args_info->generate_key_help = usernewkey_args_info_full_help[8] ;
-  args_info->batch_mode_help = usernewkey_args_info_full_help[9] ;
-  args_info->debug_help = usernewkey_args_info_full_help[10] ;
+  args_info->pass_file_help = usernewkey_args_info_full_help[4] ;
+  args_info->auth_file_help = usernewkey_args_info_full_help[5] ;
+  args_info->config_dir_help = usernewkey_args_info_full_help[7] ;
+  args_info->force_key_help = usernewkey_args_info_full_help[8] ;
+  args_info->generate_key_help = usernewkey_args_info_full_help[9] ;
+  args_info->batch_mode_help = usernewkey_args_info_full_help[10] ;
+  args_info->debug_help = usernewkey_args_info_full_help[11] ;
   
 }
 
@@ -223,6 +229,8 @@ static void
 usernewkey_cmdline_parser_release (struct usernewkey_args_info *args_info)
 {
   unsigned int i;
+  free_string_field (&(args_info->pass_file_arg));
+  free_string_field (&(args_info->pass_file_orig));
   free_string_field (&(args_info->auth_file_arg));
   free_string_field (&(args_info->auth_file_orig));
   free_string_field (&(args_info->config_dir_arg));
@@ -270,6 +278,8 @@ usernewkey_cmdline_parser_dump(FILE *outfile, struct usernewkey_args_info *args_
     write_into_file(outfile, "full-help", 0, 0 );
   if (args_info->version_given)
     write_into_file(outfile, "version", 0, 0 );
+  if (args_info->pass_file_given)
+    write_into_file(outfile, "pass-file", args_info->pass_file_orig, 0);
   if (args_info->auth_file_given)
     write_into_file(outfile, "auth-file", args_info->auth_file_orig, 0);
   if (args_info->config_dir_given)
@@ -513,6 +523,7 @@ usernewkey_cmdline_parser_internal (
         { "help",	0, NULL, 'h' },
         { "full-help",	0, NULL, 0 },
         { "version",	0, NULL, 'V' },
+        { "pass-file",	1, NULL, 'p' },
         { "auth-file",	1, NULL, 'a' },
         { "config-dir",	1, NULL, 'c' },
         { "force-key",	1, NULL, 0 },
@@ -522,7 +533,7 @@ usernewkey_cmdline_parser_internal (
         { 0,  0, 0, 0 }
       };
 
-      c = getopt_long (argc, argv, "hVa:c:gbD", long_options, &option_index);
+      c = getopt_long (argc, argv, "hVp:a:c:gbD", long_options, &option_index);
 
       if (c == -1) break;	/* Exit from `while (1)' loop.  */
 
@@ -545,6 +556,18 @@ usernewkey_cmdline_parser_internal (
             goto failure;
           usernewkey_cmdline_parser_free (&local_args_info);
           return 0;
+        
+          break;
+        case 'p':	/* File containing user password (instead of stdin).  */
+        
+        
+          if (update_arg( (void *)&(args_info->pass_file_arg), 
+               &(args_info->pass_file_orig), &(args_info->pass_file_given),
+              &(local_args_info.pass_file_given), optarg, 0, 0, ARG_STRING,
+              check_ambiguity, override, 0, 0,
+              "pass-file", 'p',
+              additional_error))
+            goto failure;
         
           break;
         case 'a':	/* Store authentication token in given file (instead of stdout).  */

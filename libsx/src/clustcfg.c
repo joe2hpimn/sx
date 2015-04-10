@@ -591,12 +591,20 @@ int sxc_cluster_info(sxc_cluster_t *cluster, const sxc_uri_t *uri) {
     const char *dnsname;
     int port, secure;
     sxi_hostlist_t *hlist;
+    struct sxi_access *access;
+    char *config_link;
 
     if(!cluster)
         return 1;
     sx = sxi_cluster_get_client(cluster);
     if(!uri) {
         sxi_seterr(sx, SXE_EARG, "NULL argument");
+        return 1;
+    }
+
+    access = sxc_cluster_get_access(cluster, uri->profile);
+    if(!access || !access->auth) {
+        sxi_seterr(sx, SXE_ECFG, "Failed to get user access");
         return 1;
     }
 
@@ -634,6 +642,15 @@ int sxc_cluster_info(sxc_cluster_t *cluster, const sxc_uri_t *uri) {
     printf("Current profile: %s\n", uri->profile ? uri->profile : "default");
     printf("Configuration directory: %s\n", cluster->config_dir);
     printf("libsx version: %s\n", sxc_get_version());
+
+    config_link = sxc_cluster_configuration_link(cluster, uri->profile, access->auth);
+    if(!config_link) {
+        sxi_seterr(sx, SXE_EMEM, "Failed to generate configuration link");
+        return 1;
+    }
+    printf("Configuration link: %s\n", config_link);
+
+    free(config_link);
     return 0;
 }
 
@@ -2595,9 +2612,57 @@ static int get_user_info_wrap(sxc_cluster_t *cluster, const char *username, uint
     return 0;
 }
 
-static int pass2key(sxc_cluster_t *cluster, const char *user, unsigned char *key, int repeat)
+/* Remember to mlock(buff, buff_len), buffer length must be greater than 8 characters */
+static int pass_prompt(sxc_cluster_t *cluster, char *buff, unsigned int buff_len, int repeat) {
+    sxc_client_t *sx;
+    char pass2[1024];
+
+    if(!cluster)
+        return 1;
+    sx = sxi_cluster_get_client(cluster);
+    if(!buff || buff_len <= 8 || (repeat && buff_len > sizeof(pass2))) {
+        sxi_seterr(sx, SXE_EARG, "Invalid argument");
+        return 1;
+    }
+
+    if(sxi_get_input(sx, SXC_INPUT_SENSITIVE, "Enter password: ", NULL, buff, buff_len)) {
+        memset(buff, 0, buff_len);
+        sxi_seterr(sx, SXE_EARG, "Can't obtain password");
+        return 1;
+    }
+
+    if(strlen(buff) < 8) {
+        memset(buff, 0, buff_len);
+        sxi_seterr(sx, SXE_EARG, "Password must be at least 8 characters long");
+        return 1;
+    }
+
+    if(repeat) {
+        mlock(pass2, sizeof(pass2));
+        if(sxi_get_input(sx, SXC_INPUT_SENSITIVE, "Re-enter password: ", NULL, pass2, sizeof(pass2))) {
+            memset(buff, 0, buff_len);
+            memset(pass2, 0, sizeof(pass2));
+            munlock(pass2, sizeof(pass2));
+            sxi_seterr(sx, SXE_EARG, "Can't obtain password");
+            return 1;
+        }
+        if(strcmp(buff, pass2)) {
+            memset(buff, 0, buff_len);
+            memset(pass2, 0, sizeof(pass2));
+            munlock(pass2, sizeof(pass2));
+            sxi_seterr(sx, SXE_EARG, "Passwords don't match");
+            return 1;
+        }
+        memset(pass2, 0, sizeof(pass2));
+        munlock(pass2, sizeof(pass2));
+    }
+
+    return 0;
+}
+
+static int pass2key(sxc_cluster_t *cluster, const char *user, const char *pass, unsigned char *key, int repeat)
 {
-    char pass1[1024], pass2[1024], prompt[64];
+    char password[1024];
     char salt[AUTH_UID_LEN];
     char keybuf[61];
     sxc_client_t *sx = sxi_cluster_get_client(cluster);
@@ -2609,9 +2674,14 @@ static int pass2key(sxc_cluster_t *cluster, const char *user, unsigned char *key
         return -1;
     }
 
+    if(pass && strlen(pass) >= sizeof(password)) {
+        sxi_seterr(sx, SXE_EARG, "Invalid argument: Password is too long");
+        return -1;
+    }
+
     uuid = sxc_cluster_get_uuid(cluster);
     if(!uuid) {
-        sxi_seterr(sx, SXE_EARG, "No cluster uuid is set");
+        sxi_seterr(sx, SXE_EARG, "Cluster uuid is not set");
         return 1;
     }
 
@@ -2620,54 +2690,36 @@ static int pass2key(sxc_cluster_t *cluster, const char *user, unsigned char *key
         return 1;
     }
 
-    snprintf(prompt, sizeof(prompt), "Enter password: ");
-    mlock(pass1, sizeof(pass1));
-    if(sxi_get_input(sx, SXC_INPUT_SENSITIVE, prompt, NULL, pass1, sizeof(pass1))) {
-        munlock(pass1, sizeof(pass1));
-        sxi_seterr(sx, SXE_EARG, "Can't obtain password");
-        return -1;
-    }
-
-    if(strlen(pass1) < 8) {
-        memset(pass1, 0, sizeof(pass1));
-        munlock(pass1, sizeof(pass1));
-        sxi_seterr(sx, SXE_EARG, "Password must be at least 8 characters long");
-        return 1;
-    }
-
-    if(repeat) {
-        mlock(pass2, sizeof(pass2));
-        if(sxi_get_input(sx, SXC_INPUT_SENSITIVE, "Re-enter password: ", NULL, pass2, sizeof(pass2))) {
-            memset(pass1, 0, sizeof(pass1));
-            munlock(pass1, sizeof(pass1));
-            munlock(pass2, sizeof(pass2));
-            sxi_seterr(sx, SXE_EARG, "Can't obtain password");
-            return -1;
-        }
-        if(strcmp(pass1, pass2)) {
-            memset(pass1, 0, sizeof(pass1));
-            munlock(pass1, sizeof(pass1));
-            memset(pass2, 0, sizeof(pass2));
-            munlock(pass2, sizeof(pass2));
-            sxi_seterr(sx, SXE_EARG, "Passwords don't match");
+    mlock(password, sizeof(password));
+    if(!pass) { /* Password not supplied, prompt user for it */
+        if(pass_prompt(cluster, password, sizeof(password), repeat)) {
+            munlock(password, sizeof(password));
             return 1;
         }
-        memset(pass2, 0, sizeof(pass2));
-        munlock(pass2, sizeof(pass2));
-    }
+    } else {/* Password supplied, copy it to local array */
+        if(strlen(pass) < 8) {
+            sxi_seterr(sx, SXE_EARG, "Password must be at least 8 characters long");
+            munlock(password, sizeof(password));
+            return 1;
+        }
+        sxi_strlcpy(password, pass, sizeof(password));
+    } 
 
-    if(sxi_derive_key(pass1, salt, AUTH_UID_LEN, keybuf, sizeof(keybuf))) {
+    if(sxi_derive_key(password, salt, AUTH_UID_LEN, keybuf, sizeof(keybuf))) {
         sxi_seterr(sx, SXE_ECRYPT, "Failed to derive key");
+        memset(password, 0, sizeof(password));
+        munlock(password, sizeof(password));
         return 1;
     }
+
+    memset(password, 0, sizeof(password));
+    munlock(password, sizeof(password));
 
     if(sxi_sha1_calc(uuid, strlen(uuid), keybuf, strlen(keybuf), key)) {
         sxi_seterr(sx, SXE_ECRYPT, "Failed to compute hash of derived key");
         return 1;
     }
 
-    memset(pass1, 0, sizeof(pass1));
-    munlock(pass1, sizeof(pass1));
     return 0;
 }
 
@@ -2700,7 +2752,7 @@ static int username_hash(sxc_client_t *sx, const char *user, unsigned char *uid)
     return 0;
 }
 
-int sxc_pass2token(sxc_cluster_t *cluster, const char *username, char *tok_buf, unsigned int tok_size) {
+int sxc_pass2token(sxc_cluster_t *cluster, const char *username, const char *password, char *tok_buf, unsigned int tok_size) {
     uint8_t buf[AUTH_UID_LEN + AUTH_KEY_LEN + 2], *uid = buf, *key = &buf[AUTH_UID_LEN];
     char *token;
     char user[1024], prompt[64];
@@ -2709,7 +2761,7 @@ int sxc_pass2token(sxc_cluster_t *cluster, const char *username, char *tok_buf, 
     if(!cluster)
         return 1;
     sx = sxi_cluster_get_client(cluster);
-    if(!tok_buf || tok_size != AUTHTOK_ASCII_LEN + 1) {
+    if(!tok_buf || tok_size < AUTHTOK_ASCII_LEN + 1) {
         sxi_seterr(sx, SXE_EARG, "Invalid argument");
         return 1;
     }
@@ -2740,7 +2792,7 @@ int sxc_pass2token(sxc_cluster_t *cluster, const char *username, char *tok_buf, 
     }
 
     /* Prompt user for password */
-    if(pass2key(cluster, user, key, 0)) {
+    if(pass2key(cluster, user, password, key, 0)) {
         SXDEBUG("Failed to prompt user password");
         return 1;
     }
@@ -2762,7 +2814,7 @@ int sxc_pass2token(sxc_cluster_t *cluster, const char *username, char *tok_buf, 
     return 0;
 }
 
-static char *user_add(sxc_cluster_t *cluster, const char *username, int admin, const char *oldtoken, const char *existing, int *clone_role, const char *desc, int generate_key) {
+static char *user_add(sxc_cluster_t *cluster, const char *username, const char *pass, int admin, const char *oldtoken, const char *existing, int *clone_role, const char *desc, int generate_key) {
     uint8_t buf[AUTH_UID_LEN + AUTH_KEY_LEN + 2], *uid = buf, *key = &buf[AUTH_UID_LEN];
     char *tok = NULL, *retkey = NULL;
     sxc_client_t *sx;
@@ -2780,8 +2832,8 @@ static char *user_add(sxc_cluster_t *cluster, const char *username, int admin, c
         cluster_err(SXE_EARG, "Invalid argument: Cannot use password for user clones");
         return NULL;
     }
-    if(generate_key && oldtoken) {
-        cluster_err(SXE_EARG, "Invalid argument: Cannot generate random key and use old token together");
+    if(generate_key && (oldtoken || pass)) {
+        cluster_err(SXE_EARG, "Invalid argument: Cannot generate random key and use old token or password together");
         return NULL;
     }
     sx = sxi_cluster_get_client(cluster);
@@ -2807,7 +2859,7 @@ static char *user_add(sxc_cluster_t *cluster, const char *username, int admin, c
         }
     } else {
         /* Prompt user for password */
-        if(pass2key(cluster, username, key, 1)) {
+        if(pass2key(cluster, username, pass, key, 1)) {
             SXDEBUG("Failed to prompt user password");
             return NULL;
         }
@@ -2877,15 +2929,15 @@ static char *user_add(sxc_cluster_t *cluster, const char *username, int admin, c
     return retkey;
 }
 
-char *sxc_user_add(sxc_cluster_t *cluster, const char *username, int admin, const char *oldtoken, const char *desc, int generate_key) {
-    return user_add(cluster, username, admin, oldtoken, NULL, NULL, desc, generate_key);
+char *sxc_user_add(sxc_cluster_t *cluster, const char *username, const char *pass, int admin, const char *oldtoken, const char *desc, int generate_key) {
+    return user_add(cluster, username, pass, admin, oldtoken, NULL, NULL, desc, generate_key);
 }
 
 char *sxc_user_clone(sxc_cluster_t *cluster, const char *username, const char *clonename, const char *oldtoken, int *role, const char *desc) {
-    return user_add(cluster, clonename, 0, oldtoken, username, role, desc, oldtoken ? 0 : 1);
+    return user_add(cluster, clonename, NULL, 0, oldtoken, username, role, desc, oldtoken ? 0 : 1);
 }
 
-char *sxc_user_newkey(sxc_cluster_t *cluster, const char *username, const char *oldtoken, int generate_key)
+char *sxc_user_newkey(sxc_cluster_t *cluster, const char *username, const char *pass, const char *oldtoken, int generate_key)
 {
     uint8_t buf[AUTH_UID_LEN + AUTH_KEY_LEN + 2], *uid = buf, *key = &buf[AUTH_UID_LEN];
     char *tok, *retkey = NULL;
@@ -2903,8 +2955,8 @@ char *sxc_user_newkey(sxc_cluster_t *cluster, const char *username, const char *
         cluster_err(SXE_EARG, "Null args");
         return NULL;
     }
-    if(generate_key && oldtoken) {
-        cluster_err(SXE_EARG, "Invalid argument: Cannot generate random key and use old token together");
+    if(generate_key && (oldtoken || pass)) {
+        cluster_err(SXE_EARG, "Invalid argument: Cannot generate random key and use old token or password together");
         return NULL;
     }
     sx = sxi_cluster_get_client(cluster);
@@ -2965,7 +3017,7 @@ char *sxc_user_newkey(sxc_cluster_t *cluster, const char *username, const char *
         }
     } else {
         /* Prompt user for a password */
-        if(pass2key(cluster, username, key, 1)) {
+        if(pass2key(cluster, username, pass, key, 1)) {
             SXDEBUG("Failed to prompt user password");
             return NULL;
         }
@@ -3923,7 +3975,7 @@ char *sxc_cluster_configuration_link(sxc_cluster_t *cluster, const char *usernam
 
     if(!cluster)
         return NULL;
-    if(!username || !token) {
+    if(!token) {
         sxi_seterr(sx, SXE_EARG, "NULL argument: %s", !username ? "username" : "token");
         return ret;
     }
@@ -3972,7 +4024,9 @@ char *sxc_cluster_configuration_link(sxc_cluster_t *cluster, const char *usernam
         fingerprint[SXI_SHA1_TEXT_LEN] = '\0';
     }
 
-    len = lenof("sx://@/?token=&port=&ssl=y") + strlen(username) + strlen(cluster_name) + strlen(token) + 11 + 1;
+    len = lenof("sx:///?token=&port=&ssl=y") + strlen(cluster_name) + strlen(token) + 11 + 1;
+    if(username)
+        len += strlen(username) + 1; /* username@ */
     if(ssl)
         len += lenof("&certhash=") + strlen(fingerprint);
     if(!is_dns)
@@ -3982,7 +4036,7 @@ char *sxc_cluster_configuration_link(sxc_cluster_t *cluster, const char *usernam
         sxi_seterr(sx, SXE_EMEM, "Failed to allocate memory for link");
         return ret;
     }
-    snprintf(ret, len, "sx://%s@%s/?token=%s&port=%d&ssl=%c", username, cluster_name, token, port, ssl ? 'y' : 'n');
+    snprintf(ret, len, "sx://%s%s%s/?token=%s&port=%d&ssl=%c", username ? username : "", username ? "@" : "", cluster_name, token, port, ssl ? 'y' : 'n');
     if(ssl) {
         offset = strlen(ret);
         snprintf(ret + offset, len - offset, "&certhash=%s", fingerprint);

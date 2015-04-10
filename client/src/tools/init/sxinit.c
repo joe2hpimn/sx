@@ -34,6 +34,7 @@
 #include <unistd.h>
 #include <errno.h>
 #include <termios.h>
+#include <sys/mman.h>
 
 #include "sx.h"
 #include "cmdline.h"
@@ -466,7 +467,8 @@ int main(int argc, char **argv) {
 
     /* Check if sx://profile@cluster/ or --list, or --config-link option is given but not together */
     if((args.inputs_num != 1 && !args.list_given && !args.config_link_given)
-        || (args.inputs_num != 0 && args.list_given)
+        || (args.inputs_num != 0 && (args.list_given || args.config_link_given)) /* --list and --config-link does not take inputs */
+        || (args.pass_file_given && (args.config_link_given || args.auth_file_given)) /* --pass-file cannot be used with --config-link or --auth-file */
         || (args.config_link_given && (args.list_given || args.delete_given || args.info_given || args.auth_file_given))) {
 	cmdline_parser_print_help();
 	printf("\n");
@@ -647,6 +649,8 @@ int main(int argc, char **argv) {
             printf("Please enter the user key: ");
             c.token = fgets(tok_buf, sizeof(tok_buf), stdin);
         } else { /* No key nor auth file given, prompt for password */
+            char pass[1024], *p = NULL;
+
             if(!sxc_cluster_get_uuid(cluster)) {
                 /* Send a bogus query in order to obtain cluster UUID */
                 if(fetch_cluster_noauth_info(cluster, c.uri))
@@ -658,10 +662,40 @@ int main(int argc, char **argv) {
                 }
             }
 
-            if(sxc_pass2token(cluster, c.uri->profile, tok_buf, sizeof(tok_buf))) {
+            mlock(pass, sizeof(pass));
+            if(args.pass_file_given && strcmp(args.pass_file_arg, "-")) {
+                FILE *f = fopen(args.pass_file_arg, "r");
+                unsigned int len;
+
+                if(!f) {
+                    fprintf(stderr, "ERROR: Failed to open pass file %s\n", args.pass_file_arg);
+                    munlock(pass, sizeof(pass));
+                    goto init_err;
+                }
+                p = fgets(pass, sizeof(pass), f);
+                fclose(f);
+
+                if(!p) {
+                    fprintf(stderr, "ERROR: Failed to read pass file %s\n", args.pass_file_arg);
+                    memset(pass, 0, sizeof(pass));
+                    munlock(pass, sizeof(pass));
+                    goto init_err;
+                }
+
+                len = strlen(p);
+                if(len && p[len-1] == '\n')
+                    p[len-1] = '\0';
+            }
+
+            /* If p is NULL, user will be prompted for a password, otherwise pass buffer will be used */
+            if(sxc_pass2token(cluster, c.uri->profile, p, tok_buf, sizeof(tok_buf))) {
                 fprintf(stderr, "ERROR: Failed to get authentication token: %s\n", sxc_geterrmsg(sx));
+                memset(pass, 0, sizeof(pass));
+                munlock(pass, sizeof(pass));
                 goto init_err;
             }
+            memset(pass, 0, sizeof(pass));
+            munlock(pass, sizeof(pass));
             c.token = tok_buf;
         }
 

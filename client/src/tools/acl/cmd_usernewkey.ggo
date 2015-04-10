@@ -3,6 +3,7 @@ args "--unamed-opts --no-handle-version --no-handle-error --file-name=cmd_userne
 usage "sxacl usernewkey [OPTIONS] <username> sx://[profile@]cluster"
 
 section "User key change options"
+option "pass-file" p "File containing user password (instead of stdin)" string optional
 option "auth-file" a "Store authentication token in given file (instead of stdout)" string optional
 
 section "Common options"
