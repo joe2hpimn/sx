@@ -3984,7 +3984,8 @@ static act_result_t ignodes_request(sx_hashfs_t *hashfs, job_t job_id, job_data_
 	}
 	free(query);
     }
-    query_list_free(qrylist, nnodes);
+    if (qrylist)
+        query_list_free(qrylist, nnodes);
 
     return ret;
 }

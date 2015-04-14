@@ -268,7 +268,7 @@ static int cb_ign_end_array(void *ctx) {
     struct cb_ign_ctx *c = (struct cb_ign_ctx *)ctx;
     if(c->state != CB_IGN_NODE)
 	return 0;
-    c->state = CB_NODES_ROOT;
+    c->state = CB_IGN_ROOT;
     return 1;
 }
 
