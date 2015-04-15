@@ -288,9 +288,6 @@ static rc_ty sx_storage_create_1_0(const char *dir, sx_uuid_t *cluster, uint8_t 
 	goto create_hashfs_fail;
     qnullify(q);
 
-    if(qprep(db, &q, "CREATE TABLE ignorednodes (dist INTEGER NOT NULL, node BLOB ("STRIFY(UUID_BINARY_SIZE)") NOT NULL, PRIMARY KEY (dist, node))") || qstep_noret(q))
-	goto create_hashfs_fail;
-    qnullify(q);
     if(qprep(db, &q, "CREATE TABLE faultynodes (dist INTEGER NOT NULL, node BLOB ("STRIFY(UUID_BINARY_SIZE)"), restored INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (dist, node))") || qstep_noret(q))
 	goto create_hashfs_fail;
     qnullify(q);
@@ -3302,6 +3299,12 @@ static rc_ty hashfs_1_0_to_1_1(sxi_db_t *db)
     do {
         if(qprep(db, &q, "CREATE TABLE IF NOT EXISTS usermeta (userid INTEGER PRIMARY KEY NOT NULL REFERENCES users(uid) ON DELETE CASCADE ON UPDATE CASCADE, desc TEXT("STRIFY(SXLIMIT_META_MAX_VALUE_LEN)"))") || qstep_noret(q))
             break;
+	qnullify(q);
+
+	if(qprep(db, &q, "CREATE TABLE ignorednodes (dist INTEGER NOT NULL, node BLOB ("STRIFY(UUID_BINARY_SIZE)") NOT NULL, PRIMARY KEY (dist, node))") || qstep_noret(q))
+	    break;
+	qnullify(q);
+
         ret = OK;
     } while(0);
     qnullify(q);
@@ -6070,7 +6073,6 @@ rc_ty sx_hashfs_volume_next(sx_hashfs_t *h) {
 
     if(sx_nodelist_count(h->ignored_nodes) >= h->curvol.max_replica) {
 	sqlite3_reset(h->q_nextvol);
-	// ACAB: is it ok to just ignore this volume? For every caller of volume_next?
 	return sx_hashfs_volume_next(h);
     }
     h->curvol.effective_replica = h->curvol.max_replica - sx_nodelist_count(h->ignored_nodes);
@@ -6124,7 +6126,7 @@ static rc_ty volume_get_common(sx_hashfs_t *h, const char *name, int64_t volid, 
     h->curvol.changed = sqlite3_column_int64(q, 7);
 
     if(sx_nodelist_count(h->ignored_nodes) >= h->curvol.max_replica) {
-	res = ENOENT; // ACAB: use a special error code instead?
+	res = ENOENT;
 	goto volume_err;
     }
     h->curvol.effective_replica = h->curvol.max_replica - sx_nodelist_count(h->ignored_nodes);
@@ -8309,7 +8311,6 @@ rc_ty sx_hashfs_tmp_getinfo(sx_hashfs_t *h, int64_t tmpfile_id, sx_hashfs_tmpinf
                 goto getmissing_err;
             DEBUGHASH("tmp_get_info reserve_id", &reserve_id);
             DEBUGHASH("tmp_get_info revision_id", &revision_id);
-	    // ACAB: edwin suggests the following could be optimized to use HASHOP_CHECK
             sxi_hashop_begin(&h->hc, h->sx_clust, tmp_getmissing_cb,
                              HASHOP_INUSE, tbd->replica_count, &reserve_id, &revision_id, tbd, 0);
 	    tbd->current_replica = i;
@@ -10247,6 +10248,11 @@ rc_ty sx_hashfs_hdist_change_req(sx_hashfs_t *h, const sx_nodelist_t *newdist, j
 	return EINVAL;
     }
 
+    if(sx_nodelist_count(h->ignored_nodes)) {
+	msg_set_reason("The cluster is degraded, please replace all faulty nodes and try again");
+	return EINVAL;
+    }
+
     r = get_min_reqs(h, &minnodes, &minclustersize);
     if(r) {
 	msg_set_reason("Failed to compute cluster requirements");
@@ -10413,6 +10419,15 @@ rc_ty sx_hashfs_hdist_replace_req(sx_hashfs_t *h, const sx_nodelist_t *replaceme
 
     if(sx_nodelist_count(h->faulty_nodes)) {
 	msg_set_reason("The cluster contains faulty nodes which are still being replaced");
+	return EINVAL;
+    }
+
+    for(i = 0; i<sx_nodelist_count(h->ignored_nodes); i++) {
+	const sx_node_t *ignode = sx_nodelist_get(h->ignored_nodes, i);
+	const sx_uuid_t *ignuuid = sx_node_uuid(ignode);
+	if(sx_nodelist_lookup(replacements, ignuuid))
+	    continue;
+	msg_set_reason("Faulty node %s must be replaced too", ignuuid->string);
 	return EINVAL;
     }
 
@@ -10944,18 +10959,41 @@ rc_ty sx_hashfs_hdist_change_revoke(sx_hashfs_t *h) {
 	return FAIL_EINTERNAL;
 
     if(h->have_hd) {
-	/* Revert to previous distribution */
-	if(qprep(h->db, &q, "DELETE FROM hashfs WHERE key IN ('dist_rev', 'dist')") || qstep_noret(q))
+	/* Revert to previous distribution (if any exists) */
+	int rcount;
+	if(qprep(h->db, &q, "SELECT COUNT(*) FROM hashfs WHERE key IN ('current_dist_rev', 'current_dist')") || qstep_ret(q))
 	    goto change_revoke_fail;
+	rcount = sqlite3_column_int(q, 0);
 	qnullify(q);
+	if(rcount == 2) {
+	    if(qprep(h->db, &q, "DELETE FROM hashfs WHERE key IN ('dist_rev', 'dist')") || qstep_noret(q))
+		goto change_revoke_fail;
+	    qnullify(q);
 
-	if(qprep(h->db, &q, "UPDATE hashfs SET key = 'dist' WHERE key = 'current_dist'") || qstep_noret(q))
-	    goto change_revoke_fail;
-	qnullify(q);
+	    if(qprep(h->db, &q, "UPDATE hashfs SET key = 'dist' WHERE key = 'current_dist'") || qstep_noret(q))
+		goto change_revoke_fail;
+	    qnullify(q);
 
-	if(qprep(h->db, &q, "UPDATE hashfs SET key = 'dist_rev' WHERE key = 'current_dist_rev'") || qstep_noret(q))
-	    goto change_revoke_fail;
-	qnullify(q);
+	    if(qprep(h->db, &q, "UPDATE hashfs SET key = 'dist_rev' WHERE key = 'current_dist_rev'") || qstep_noret(q))
+		goto change_revoke_fail;
+	    qnullify(q);
+	} else if(rcount != 0) {
+	    WARN("Found severe inconsistentencies in the distribution, attempting to recover");
+	    /* Should really never land in here */
+	    if(qprep(h->db, &q, "DELETE FROM hashfs WHERE key = 'dist_rev' AND EXISTS (SELECT 1 FROM hashfs WHERE key = 'current_dist_rev')") || qstep_noret(q))
+		goto change_revoke_fail;
+	    qnullify(q);
+	    if(qprep(h->db, &q, "UPDATE hashfs SET key = 'dist_rev' WHERE key = 'current_dist_rev'") || qstep_noret(q))
+		goto change_revoke_fail;
+	    qnullify(q);
+
+	    if(qprep(h->db, &q, "DELETE FROM hashfs WHERE key = 'dist' AND EXISTS (SELECT 1 FROM hashfs WHERE key = 'current_dist')") || qstep_noret(q))
+		goto change_revoke_fail;
+	    qnullify(q);
+	    if(qprep(h->db, &q, "UPDATE hashfs SET key = 'dist' WHERE key = 'current_dist'") || qstep_noret(q))
+		goto change_revoke_fail;
+	    qnullify(q);
+	}
     } else {
 	/* Revirgin the node */
 	if(qprep(h->db, &q, "DELETE FROM hashfs WHERE key IN ('current_dist_rev', 'current_dist', 'dist_rev', 'dist', 'cluster_name')") || qstep_noret(q))

@@ -322,7 +322,6 @@ typedef struct _sx_hashfs_tmpinfo_t {
     int64_t volume_id;
     int64_t file_size;
     int64_t tmpfile_id;
-    int64_t expires_at;
     const sx_nodelist_t *allnodes; /* The ordered list of nodes to which the nidx's refer to */
     sx_hash_t *all_blocks; /* All unsorted blocks - nblocks items */
     unsigned int *uniq_ids; /* Unique block index (from all_blocks) - nuniq items */

@@ -93,7 +93,9 @@ int gc(sxc_client_t *sx, const char *self, const char *dir, int pipe, int pipe_e
 	gettimeofday(&tv1, NULL);
 	sx_hashfs_distcheck(hashfs);
         /* TODO: phase dependency (only after local upgrade completed) */
-        rc = sx_hashfs_remote_heal(hashfs, heal_cb);
+        /* FIXME: Temporarily disabled, should be enabled only on gcparial branch */
+        /*rc = sx_hashfs_remote_heal(hashfs, heal_cb);*/
+
         /* TODO: restrict GC until upgrade finishes locally */
         rc = sx_hashfs_gc_periodic(hashfs, &terminate, force_expire ? -1 : GC_GRACE_PERIOD);
         sx_hashfs_checkpoint_gc(hashfs);

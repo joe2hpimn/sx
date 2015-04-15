@@ -1483,7 +1483,7 @@ static act_result_t filedelete_request(sx_hashfs_t *hashfs, job_t job_id, job_da
 
     s = filerev_from_jobdata_rev(hashfs, job_data, &filerev);
     if(s == ENOENT) {
-	WARN("Cannot get revision data from blob for job %lld", (long long)job_id);
+	DEBUG("Cannot get revision data from blob for job %lld", (long long)job_id);
 	return force_phase_success(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
     }
     if (s)
@@ -1578,6 +1578,10 @@ static act_result_t filedelete_commit(sx_hashfs_t *hashfs, job_t job_id, job_dat
             const sx_hashfs_volume_t *volume;
 
             s = filerev_from_jobdata_rev(hashfs, job_data, &filerev);
+            if(s == ENOENT) {
+                DEBUG("Cannot get revision data from blob for job %lld", (long long)job_id);
+                return force_phase_success(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
+            }
             if (s)
                 action_error(rc2actres(s), rc2http(s), "Failed to retrieve fileid");
             s = sx_hashfs_volume_by_id(hashfs, filerev.volume_id, &volume);
