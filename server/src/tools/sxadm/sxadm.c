@@ -1021,8 +1021,7 @@ static int setfaulty_nodes(sxc_client_t *sx, struct cluster_args_info *args) {
 
     conns = sxi_cluster_get_conns(clust);
     hlist = sxi_conns_get_hostlist(conns);
-    // ACAB: discuss the setfaulty syntax
-    /* We don't really care about addresses for the sake of setfaulty,
+    /* We don't really care about addresses at this point,
      * we just remove the addresses we don't want to connect to */
     for(i = 0; i < sxi_hostlist_get_count(hlist); i++) {
 	const char *h = sxi_hostlist_get_host(hlist, i);
@@ -1058,6 +1057,16 @@ static int setfaulty_nodes(sxc_client_t *sx, struct cluster_args_info *args) {
 
     if(clst_ndists(clst) != 1) {
 	CRIT("Cluster is currently rebalancing, cannot update node status");
+	goto setfaulty_err;
+    }
+
+    for(i = 0; i < nnodes; i++) {
+	const sx_uuid_t *nid = sx_node_uuid(nodes[i]);
+	const sx_node_t *refnode = sx_nodelist_lookup(clst_nodes(clst, 0), nid);
+	if(refnode && !sx_node_cmp_addrs(nodes[i], refnode))
+	    continue;
+	CRIT("Node %lld/%s/%s/%s doesn't match any node in the cluster definition",
+	     (long long)sx_node_capacity(nodes[i]), sx_node_addr(nodes[i]), sx_node_internal_addr(nodes[i]), nid->string);
 	goto setfaulty_err;
     }
 
@@ -1197,7 +1206,7 @@ void print_dist(const sx_nodelist_t *nodes) {
 static int info_cluster(sxc_client_t *sx, struct cluster_args_info *args, int keyonly) {
     sxc_cluster_t *clust = cluster_load(sx, args, 1);
     clst_t *clst;
-    const sx_nodelist_t *nodes = NULL, *nodes_prev = NULL;
+    const sx_nodelist_t *nodes = NULL, *nodes_prev = NULL, *faulty_nodes = NULL;
     int ret = 0;
 
     if(!clust)
@@ -1230,6 +1239,12 @@ static int info_cluster(sxc_client_t *sx, struct cluster_args_info *args, int ke
 	}
     }
 
+    faulty_nodes = clst_faulty_nodes(clst);
+    if(!keyonly && sx_nodelist_count(faulty_nodes)) {
+	printf("Faulty nodes: ");
+	print_dist(faulty_nodes);
+    }
+
     printf("Operating mode: %s\n", clst_readonly(clst) ? "read-only" : "read-write");
     if(nodes) {
 	unsigned int i, nnodes = sx_nodelist_count(nodes), header = 0;
@@ -1255,7 +1270,7 @@ static int info_cluster(sxc_client_t *sx, struct cluster_args_info *args, int ke
 		const sx_node_t *node = sx_nodelist_get(nodes_prev, i);
 		if(!sx_nodelist_lookup(nodes, sx_node_uuid(node))) {
 		    if(!header) {
-			printf("Operations in progress:\n");
+			printf("State of operations:\n");
 			header = 1;
 		    }
 		    printf("  * node %s (%s): Node being removed from the cluster\n", sx_node_uuid_str(node), sx_node_internal_addr(node));
@@ -1268,6 +1283,15 @@ static int info_cluster(sxc_client_t *sx, struct cluster_args_info *args, int ke
 	    const sx_node_t *node = sx_nodelist_get(nodes, i);
 	    const char *op = NULL;
 	    clst_t *clstnode;
+
+	    if(sx_nodelist_lookup(faulty_nodes, sx_node_uuid(node))) {
+		if(!header) {
+		    printf("State of operations:\n");
+		    header = 1;
+		}
+		printf("  * node %s (%s): %s\n", sx_node_uuid_str(node), sx_node_internal_addr(node), "Faulty (this node is currently being ignored)");
+		continue;
+	    }
 
 	    if(sxi_hostlist_add_host(sx, &hlist, sx_node_internal_addr(node))) {
 		CRIT("OOM adding to hostlist");
@@ -1284,7 +1308,7 @@ static int info_cluster(sxc_client_t *sx, struct cluster_args_info *args, int ke
 	    }
 	    if(clst_rebalance_state(clstnode, &op) != CLSTOP_NOTRUNNING || clst_replace_state(clstnode, &op) != CLSTOP_NOTRUNNING) {
 		if(!header) {
-		    printf("Operations in progress:\n");
+		    printf("State of operations:\n");
 		    header = 1;
 		}
 		printf("  * node %s (%s): %s\n", sx_node_uuid_str(node), sx_node_internal_addr(node), op);

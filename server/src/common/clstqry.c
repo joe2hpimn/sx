@@ -35,13 +35,14 @@
 struct cstatus {
     sx_nodelist_t *one;
     sx_nodelist_t *two;
+    sx_nodelist_t *ign;
     yajl_handle yh;
     char *addr, *auth;
     char *int_addr;
     sx_uuid_t uuid, distid;
     uint64_t checksum;
     int64_t capa;
-    int nsets, have_uuid, have_distid, op_complete;
+    int nsets, have_uuid, have_distid, is_ignd, op_complete;
     int readonly;
     enum {
 	OP_NONE,
@@ -52,7 +53,7 @@ struct cstatus {
     char op_msg[1024];
     curlev_context_t *cbdata;
 
-    enum cstatus_state { CS_BEGIN, CS_BASEKEY, CS_CSTATUS, CS_SKEY, CS_DISTS, CS_DIST, CS_NODES, CS_NODEKEY, CS_UUID, CS_ADDR, CS_INT_ADDR, CS_CAPA, CS_DISTID, CS_DISTVER, CS_DISTCHK, CS_AUTH, CS_INPRG, CS_INPRGKEY, CS_INPRGOP, CS_INPRGDONE, CS_INPRGMSG, CS_COMPLETE, CS_MODE } state;
+    enum cstatus_state { CS_BEGIN, CS_BASEKEY, CS_CSTATUS, CS_SKEY, CS_DISTS, CS_DIST, CS_NODES, CS_NODEKEY, CS_UUID, CS_ADDR, CS_INT_ADDR, CS_CAPA, CS_NODEFLAGS, CS_DISTID, CS_DISTVER, CS_DISTCHK, CS_AUTH, CS_INPRG, CS_INPRGKEY, CS_INPRGOP, CS_INPRGDONE, CS_INPRGMSG, CS_COMPLETE, CS_MODE } state;
 };
 
 static int cb_cstatus_start_map(void *ctx) {
@@ -106,6 +107,8 @@ static int cb_cstatus_map_key(void *ctx, const unsigned char *s, size_t l) {
 	    c->state = CS_INT_ADDR;
 	else if(l == lenof("nodeCapacity") && !memcmp("nodeCapacity", s, lenof("nodeCapacity")))
 	    c->state = CS_CAPA;
+	else if(l == lenof("nodeFlags") && !memcmp("nodeFlags", s, lenof("nodeFlags")))
+	    c->state = CS_NODEFLAGS;
 	else
 	    return 0;
     } else if(c->state == CS_INPRGKEY) {
@@ -133,12 +136,15 @@ static int cb_cstatus_end_map(void *ctx) {
 	node = sx_node_new(&c->uuid, c->addr, c->int_addr, c->capa);
 	if(sx_nodelist_add(c->nsets ? c->two : c->one, node))
 	    return 0;
+	if(c->is_ignd && !sx_nodelist_lookup(c->ign, sx_node_uuid(node)) && sx_nodelist_add(c->ign, sx_node_dup(node)))
+	    return 0;
 	free(c->addr);
 	free(c->int_addr);
 	c->addr = NULL;
 	c->int_addr = NULL;
 	c->capa = 0;
 	c->have_uuid = 0;
+	c->is_ignd = 0;
 	c->state = CS_NODES;
     } else if(c->state == CS_SKEY)
 	c->state = CS_BASEKEY;
@@ -224,6 +230,9 @@ static int cb_cstatus_string(void *ctx, const unsigned char *s, size_t l) {
 	memcpy(c->int_addr, s, l);
 	c->int_addr[l] = '\0';
 	c->state = CS_NODEKEY;
+    } else if(c->state == CS_NODEFLAGS) {
+	c->is_ignd = memchr(s, 'i', l) != NULL;
+	c->state = CS_NODEKEY;
     } else if(c->state == CS_AUTH) {
 	if(c->auth)
 	    return 0;
@@ -252,6 +261,9 @@ static int cb_cstatus_string(void *ctx, const unsigned char *s, size_t l) {
 	memcpy(c->op_msg, s, ml);
 	c->op_msg[ml] = '\0';
 	c->state = CS_INPRGKEY;
+    } else if(c->state == CS_NODEFLAGS) {
+	c->is_ignd = memchr(s, 'i', l) != NULL;
+	c->state = CS_NODEKEY;
     } else
 	return 0;
 
@@ -343,6 +355,13 @@ static int cstatus_setup_cb(curlev_context_t *cbdata, void *ctx, const char *hos
 	return 1;
     }
 
+    if(yactx->ign)
+	sx_nodelist_empty(yactx->ign);
+    else if(!(yactx->ign = sx_nodelist_new())) {
+	CRIT("Cannot get cluster status: out of memory");
+	return 1;
+    }
+
     free(yactx->auth);
     free(yactx->addr);
     free(yactx->int_addr);
@@ -350,6 +369,7 @@ static int cstatus_setup_cb(curlev_context_t *cbdata, void *ctx, const char *hos
     yactx->addr = NULL;
     yactx->int_addr = NULL;
     yactx->have_uuid = 0;
+    yactx->is_ignd = 0;
     yactx->have_distid = 0;
     yactx->nsets = 0;
     yactx->version = 0;
@@ -378,6 +398,7 @@ void clst_destroy(clst_t *st) {
 	return;
     sx_nodelist_delete(st->one);
     sx_nodelist_delete(st->two);
+    sx_nodelist_delete(st->ign);
     free(st->auth);
     free(st->addr);
     free(st->int_addr);
@@ -423,6 +444,10 @@ const sx_nodelist_t *clst_nodes(clst_t *st, unsigned int dist) {
 	return NULL;
 
     return dist ? st->two : st->one;
+}
+
+const sx_nodelist_t *clst_faulty_nodes(clst_t *st) {
+    return st->ign;
 }
 
 const sx_uuid_t *clst_distuuid(clst_t *st, unsigned int *version, uint64_t *checksum) {

@@ -246,6 +246,7 @@ int64_t sx_hashfs_get_node_push_time(sx_hashfs_t *h, const sx_node_t *n);
 /* Return 1 if given node is a volnode for given volume */
 int sx_hashfs_is_node_volume_owner(sx_hashfs_t *h, sx_hashfs_nl_t which, const sx_node_t *n, const sx_hashfs_volume_t *vol);
 int sx_hashfs_is_node_faulty(sx_hashfs_t *h, const sx_uuid_t *node_uuid);
+int sx_hashfs_is_node_ignored(sx_hashfs_t *h, const sx_uuid_t *node_uuid);
 rc_ty sx_hashfs_set_unfaulty(sx_hashfs_t *h, const sx_uuid_t *nodeid, int64_t dist_rev);
 
 /* Change volume ownership and/or size*/

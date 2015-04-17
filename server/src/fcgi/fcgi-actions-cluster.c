@@ -37,17 +37,19 @@ static void send_distribution(const sx_nodelist_t *nodes) {
     CGI_PUTC('[');
     for(i = 0; i < n; i++) {
 	const sx_node_t *node = sx_nodelist_get(nodes, i);
-	const char *uuid = sx_node_uuid_str(node);
+	const sx_uuid_t *uuid = sx_node_uuid(node);
 	const char *addr = sx_node_addr(node);
 	const char *int_addr = sx_node_internal_addr(node);
 
 	if(i)
 	    CGI_PUTC(',');
-	CGI_PRINTF("{\"nodeUUID\":\"%s\",\"nodeAddress\":\"%s\",", uuid, addr);
+	CGI_PRINTF("{\"nodeUUID\":\"%s\",\"nodeAddress\":\"%s\",", uuid->string, addr);
 	if(strcmp(addr, int_addr))
 	    CGI_PRINTF("\"nodeInternalAddress\":\"%s\",", int_addr);
 	CGI_PUTS("\"nodeCapacity\":");
 	CGI_PUTLL(sx_node_capacity(node));
+	if(sx_hashfs_is_node_ignored(hashfs, uuid))
+	    CGI_PUTS(",\"nodeFlags\":\"i\"");
 	CGI_PUTC('}');
     }
     CGI_PUTC(']');
@@ -207,7 +209,7 @@ void fcgi_handle_cluster_requests(void) {
         }
 	comma |= 1;
     }
-    if(has_arg("nodeList")) { // ACAB: design a way to let sxadm know the cluster is degraded and which nodes are affected
+    if(has_arg("nodeList")) {
 	const sx_nodelist_t *nodes = sx_hashfs_effective_nodes(hashfs, NL_NEXTPREV);
 
 	if(comma) CGI_PUTC(',');

@@ -4384,6 +4384,10 @@ int sx_hashfs_is_node_faulty(sx_hashfs_t *h, const sx_uuid_t *node_uuid) {
     return sx_nodelist_lookup(h->faulty_nodes, node_uuid) != NULL;
 }
 
+int sx_hashfs_is_node_ignored(sx_hashfs_t *h, const sx_uuid_t *node_uuid) {
+    return sx_nodelist_lookup(h->ignored_nodes, node_uuid) != NULL;
+}
+
 rc_ty sx_hashfs_revision_first(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const char *name, const sx_hashfs_file_t **file, int reversed) {
     sqlite3_stmt *q;
     if(!volume || !file) {
