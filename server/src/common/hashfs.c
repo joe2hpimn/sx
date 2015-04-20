@@ -1983,29 +1983,41 @@ static int getmetadb(const char *filename) {
     return MurmurHash64(&hash, sizeof(hash), MURMUR_SEED) & (METADBS-1);
 }
 
-/* Returns 0 if the volume name is valid,
- * sets reason otherwise */
-rc_ty sx_hashfs_check_volume_name(const char *name) {
+static rc_ty check_path_element(const char *name, unsigned name_min, unsigned name_max, const char *what)
+{
     unsigned int namelen;
     if (!name) {
 	NULLARG();
 	return EFAULT;
     }
     if(*name=='.') {
-	msg_set_reason("Invalid volume name '%s': must not start with a '.'", name);
+	msg_set_reason("Invalid %s name '%s': must not start with a '.'", what, name);
 	return EINVAL;
     }
     namelen = strlen(name);
-    if(namelen < SXLIMIT_MIN_VOLNAME_LEN || namelen > SXLIMIT_MAX_VOLNAME_LEN) {
-	msg_set_reason("Invalid volume name '%s': must be between %d and %d bytes",
-		       name, SXLIMIT_MIN_VOLNAME_LEN, SXLIMIT_MAX_VOLNAME_LEN);
+    if(namelen < name_min || namelen > name_max) {
+	msg_set_reason("Invalid %s name '%s': must be between %d and %d bytes",
+                       what, name, name_min, name_max);
 	return EINVAL;
     }
     if(utf8_validate_len(name) < 0) {
-	msg_set_reason("Invalid volume name '%s': must be valid UTF8", name);
+	msg_set_reason("Invalid %s name '%s': must be valid UTF8", what, name);
 	return EINVAL;
     }
-    return 0;
+    unsigned i;
+    for (i=0;i<namelen;i++) {
+        if ((unsigned)name[i] < ' ' || name[i] == '/' || name[i] == '\\') {
+            msg_set_reason("Invalid %s name '%s': contains forbidden characters (\\n/\\)", what, name);
+            return EINVAL;
+        }
+    }
+    return OK;
+}
+
+/* Returns 0 if the volume name is valid,
+ * sets reason otherwise */
+rc_ty sx_hashfs_check_volume_name(const char *name) {
+    return check_path_element(name, SXLIMIT_MIN_VOLNAME_LEN, SXLIMIT_MAX_VOLNAME_LEN, "volume");
 }
 
 static int check_file_name(const char *name) {
@@ -2066,15 +2078,7 @@ rc_ty sx_hashfs_check_meta(const char *key, const void *value, unsigned int valu
 }
 
 int sx_hashfs_check_username(const char *name) {
-    unsigned int namelen;
-    if(!name)
-	return -1;
-    namelen = strlen(name);
-    if(namelen < SXLIMIT_MIN_USERNAME_LEN || namelen > SXLIMIT_MAX_USERNAME_LEN)
-	return -1;
-    if(utf8_validate_len(name) < 0)
-	return 1;
-    return 0;
+    return check_path_element(name, SXLIMIT_MIN_USERNAME_LEN, SXLIMIT_MAX_USERNAME_LEN, "username");
 }
 
 
