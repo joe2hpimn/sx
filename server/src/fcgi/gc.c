@@ -46,6 +46,10 @@ static void sighandler(int signum) {
     terminate = 1;
 }
 
+static int heal_cb(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, sx_hash_t *min_revision_id, int max_age)
+{
+    return -1;
+}
 
 int gc(sxc_client_t *sx, const char *self, const char *dir, int pipe, int pipe_expire) {
     struct sigaction act;
@@ -88,6 +92,11 @@ int gc(sxc_client_t *sx, const char *self, const char *dir, int pipe, int pipe_e
 
 	gettimeofday(&tv1, NULL);
 	sx_hashfs_distcheck(hashfs);
+        /* TODO: phase dependency (only after local upgrade completed) */
+        /* FIXME: Temporarily disabled, should be enabled only on gcparial branch */
+        /*rc = sx_hashfs_remote_heal(hashfs, heal_cb);*/
+
+        /* TODO: restrict GC until upgrade finishes locally */
         rc = sx_hashfs_gc_periodic(hashfs, &terminate, force_expire ? -1 : GC_GRACE_PERIOD);
         sx_hashfs_checkpoint_gc(hashfs);
         sx_hashfs_checkpoint_passive(hashfs);

@@ -42,5 +42,7 @@ void fcgi_volsizes(void);
 void fcgi_volume_mod(void);
 void fcgi_node_status(void);
 void fcgi_cluster_mode(void);
+void fcgi_cluster_upgrade(void);
+void fcgi_list_revision_blocks(const sx_hashfs_volume_t *vol);
 
 #endif

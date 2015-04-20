@@ -79,7 +79,7 @@ typedef enum _act_result_t {
 typedef struct _job_data_t {
     void *ptr;
     unsigned int len;
-    uint64_t op_expires_at;
+    uint64_t op_expires_at; /* TODO: drop? */
 } job_data_t;
 
 typedef act_result_t (*job_action_t)(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *node, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl);
@@ -811,6 +811,105 @@ static int req_append(char **req, unsigned int *req_len, const char *append_me) 
     return 0;
 }
 
+static rc_ty filerev_from_jobdata_rev(sx_hashfs_t *hashfs, job_data_t *job_data, sx_hashfs_file_t *filerev)
+{
+    char revision[REV_LEN+1];
+
+    if(job_data->len != REV_LEN) {
+	CRIT("Bad job data");
+        return FAIL_EINTERNAL;
+    }
+    memcpy(revision, job_data->ptr, REV_LEN);
+    revision[REV_LEN] = 0;
+    return sx_hashfs_getinfo_by_revision(hashfs, revision, filerev);
+}
+
+static rc_ty filerev_from_jobdata_tmpfileid(sx_hashfs_t *hashfs, job_data_t *job_data, sx_hashfs_file_t *filerev)
+{
+    int64_t tmpfile_id;
+    rc_ty s;
+
+    if(job_data->len != sizeof(tmpfile_id)) {
+        CRIT("Bad job data");
+        return FAIL_EINTERNAL;
+    }
+    sx_hashfs_tmpinfo_t *tmpinfo;
+    memcpy(&tmpfile_id, job_data->ptr, sizeof(tmpfile_id));
+    s = sx_hashfs_tmp_getinfo(hashfs, tmpfile_id, &tmpinfo, 0);
+    if (s) {
+        WARN("Failed to lookup tmpfileid: %s", rc2str(s));
+        return s;
+    }
+    filerev->volume_id = tmpinfo->volume_id;
+    filerev->block_size = tmpinfo->block_size;
+    memcpy(filerev->name, tmpinfo->name, sizeof(filerev->name));
+    free(tmpinfo);
+    return OK;
+}
+
+static act_result_t revision_job_from(sx_hashfs_t *hashfs, job_t job_id, const sx_hashfs_file_t *filerev, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl, int op, jobphase_t phase) {
+    sx_revision_op_t revision_op;
+    const sx_hashfs_volume_t *volume;
+    act_result_t ret = ACT_RESULT_OK;
+    rc_ty s;
+    sx_blob_t *blob = NULL;
+    job_data_t new_job_data;
+    char revision[REV_LEN+1];
+    s = sx_hashfs_volume_by_id(hashfs, filerev->volume_id, &volume);
+    if (s)
+        action_error(rc2actres(s), rc2http(s), "Failed to retrieve volume info");
+    revision_op.lock = NULL;
+    revision_op.blocksize = filerev->block_size;
+    revision_op.op = op;
+    s = sx_unique_fileid(sx_hashfs_client(hashfs), volume, filerev->name, revision, &revision_op.revision_id);
+    if(s)
+        action_error(rc2actres(s), rc2http(s), "Failed to compute revision id");
+    blob = sx_blob_new();
+    if (!blob)
+        action_error(ACT_RESULT_TEMPFAIL, 500, "Cannot allocate blob");
+    if (revision_spec.to_blob(sx_hashfs_client(hashfs), sx_nodelist_count(nodes), &revision_op, blob)) {
+        const char *msg = msg_get_reason();
+        if(!msg || !*msg)
+            msg_set_reason("Cannot create job blob");
+        action_error(ACT_RESULT_PERMFAIL, 500, msg_get_reason());
+    }
+    sx_blob_to_data(blob, (const void**)&new_job_data.ptr, &new_job_data.len);
+    new_job_data.op_expires_at = 0;
+    ret = job_twophase_execute(&revision_spec, phase, hashfs, job_id, &new_job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
+action_failed:
+    sx_blob_free(blob);
+    return ret;
+}
+
+static act_result_t revision_job_from_tmpfileid(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl, int op, jobphase_t phase) {
+    sx_hashfs_file_t filerev;
+    act_result_t ret = ACT_RESULT_OK;
+    rc_ty s = filerev_from_jobdata_tmpfileid(hashfs, job_data, &filerev);
+    if (s)
+        action_error(rc2actres(s), rc2http(s), "Failed to lookup file by tmpfile id");
+    ret = revision_job_from(hashfs, job_id, &filerev, nodes, succeeded, fail_code, fail_msg, adjust_ttl, op, phase);
+action_failed:
+    return ret;
+}
+
+static act_result_t revision_job_from_rev(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl, int op, jobphase_t phase)
+{
+    sx_hashfs_file_t filerev;
+    act_result_t ret = ACT_RESULT_OK;
+    rc_ty s = filerev_from_jobdata_rev(hashfs, job_data, &filerev);
+    if (s)
+        action_error(rc2actres(s), rc2http(s), "Failed to lookup file by revision");
+    ret = revision_job_from(hashfs, job_id, &filerev, nodes, succeeded, fail_code, fail_msg, adjust_ttl, op, phase);
+action_failed:
+    return ret;
+}
+
+
+static act_result_t replicateblocks_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    /* bump block revision */
+    return revision_job_from_tmpfileid(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl, 1, JOBPHASE_COMMIT);
+}
+
 static act_result_t replicateblocks_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     sxi_conns_t *clust = sx_hashfs_conns(hashfs);
     const sx_node_t *me = sx_hashfs_self(hashfs);
@@ -821,14 +920,14 @@ static act_result_t replicateblocks_commit(sx_hashfs_t *hashfs, job_t job_id, jo
     int64_t tmpfile_id;
     rc_ty s;
 
-    if(job_data->len != sizeof(tmpfile_id) || sx_nodelist_count(nodes) != 1) {
+    if(job_data->len != sizeof(tmpfile_id)) {
 	CRIT("Bad job data");
 	action_error(ACT_RESULT_PERMFAIL, 500, "Internal job data error");
     }
 
     memcpy(&tmpfile_id, job_data->ptr, sizeof(tmpfile_id));
     DEBUG("replocateblocks_request for file %lld", (long long)tmpfile_id);
-    s = sx_hashfs_tmp_getinfo(hashfs, tmpfile_id, &mis, 1, job_data->op_expires_at);
+    s = sx_hashfs_tmp_getinfo(hashfs, tmpfile_id, &mis, 1);
     if(s == EFAULT || s == EINVAL) {
 	CRIT("Error getting tmpinfo: %s", msg_get_reason());
 	action_error(ACT_RESULT_PERMFAIL, 500, msg_get_reason());
@@ -1084,36 +1183,17 @@ static act_result_t replicateblocks_commit(sx_hashfs_t *hashfs, job_t job_id, jo
 
     free(mis);
 
-    if(ret == ACT_RESULT_OK)
-	succeeded[0] = 1;
-
-    return ret;
-}
-
-
-static act_result_t replicateblocks_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
-    act_result_t ret = ACT_RESULT_OK;
-    int64_t tmpfile_id;
-    rc_ty s;
-
-    if(job_data->len != sizeof(tmpfile_id) || sx_nodelist_count(nodes) != 1) {
-	CRIT("Bad job data");
-	action_error(ACT_RESULT_PERMFAIL, 500, "Internal job data error");
+    if(ret == ACT_RESULT_OK) {
+        unsigned i;
+        for (i=0;i<sx_nodelist_count(nodes);i++) {
+    	    succeeded[i] = 1;
+        }
     }
 
-    memcpy(&tmpfile_id, job_data->ptr, sizeof(tmpfile_id));
-    s = sx_hashfs_tmp_unbump(hashfs, tmpfile_id);
-    if(s == OK)
-	action_error(ACT_RESULT_TEMPFAIL, 500, "Unbump not yet completed");
-    if(s != ITER_NO_MORE)
-	action_error(rc2actres(s), rc2http(s), "Unbump failed");
-
- action_failed:
     return ret;
 }
 
-
-static act_result_t fileflush_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+static act_result_t fileflush_remote(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     sxi_conns_t *clust = sx_hashfs_conns(hashfs);
     sxc_client_t *sx = sx_hashfs_client(hashfs);
     const sx_node_t *me = sx_hashfs_self(hashfs);
@@ -1123,16 +1203,16 @@ static act_result_t fileflush_request(sx_hashfs_t *hashfs, job_t job_id, job_dat
     query_list_t *qrylist = NULL;
     sxi_query_t *proto = NULL;
     int64_t tmpfile_id;
+    const sx_hashfs_volume_t *volume;
     rc_ty s;
 
     if(job_data->len != sizeof(tmpfile_id)) {
-	CRIT("Bad job data");
-	action_error(ACT_RESULT_PERMFAIL, 500, "Internal job data error");
+       CRIT("Bad job data");
+       action_error(ACT_RESULT_PERMFAIL, 500, "Internal job data error");
     }
-
     memcpy(&tmpfile_id, job_data->ptr, sizeof(tmpfile_id));
-    DEBUG("fileflush_request for file %lld", (long long)tmpfile_id);
-    s = sx_hashfs_tmp_getinfo(hashfs, tmpfile_id, &mis, 0, job_data->op_expires_at);
+    DEBUG("fileflush_remote for file %lld", (long long)tmpfile_id);
+    s = sx_hashfs_tmp_getinfo(hashfs, tmpfile_id, &mis, 0);
     if(s == EFAULT || s == EINVAL) {
 	CRIT("Error getting tmpinfo: %s", msg_get_reason());
 	action_error(ACT_RESULT_PERMFAIL, 500, msg_get_reason());
@@ -1147,11 +1227,18 @@ static act_result_t fileflush_request(sx_hashfs_t *hashfs, job_t job_id, job_dat
     if(s != OK)
 	action_error(rc2actres(s), rc2http(s), "Failed to check missing blocks");
 
+    s = sx_hashfs_volume_by_id(hashfs, mis->volume_id, &volume);
+    if(s != OK)
+	action_error(rc2actres(s), rc2http(s), "Failed to lookup volume");
     nnodes = sx_nodelist_count(nodes);
     for(i=0; i<nnodes; i++) {
 	const sx_node_t *node = sx_nodelist_get(nodes, i);
+        if (!sx_hashfs_is_node_volume_owner(hashfs, NL_NEXTPREV, node, volume)) {
+	    succeeded[i] = 1; /* not a volnode, only used by undo/abort */
+            continue;
+        }
 	if(sx_node_cmp(me, node)) {
-	    /* Remote only - local tmpfile will be handled in fileflush_commit */
+	    /* Remote only - local tmpfile will be handled in fileflush_local */
 	    if(!proto) {
 		const sx_hashfs_volume_t *volume;
 		unsigned int blockno;
@@ -1194,7 +1281,7 @@ static act_result_t fileflush_request(sx_hashfs_t *hashfs, job_t job_id, job_dat
 	    }
 	    qrylist[i].query_sent = 1;
 	} else
-	    succeeded[i] = 1; /* Local node is handled in _commit  */
+	    succeeded[i] = 1; /* Local node is handled in _local  */
     }
 
  action_failed:
@@ -1228,7 +1315,7 @@ static act_result_t fileflush_request(sx_hashfs_t *hashfs, job_t job_id, job_dat
     return ret;
 }
 
-static act_result_t fileflush_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+static act_result_t fileflush_local(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     act_result_t ret = ACT_RESULT_OK;
     sx_hashfs_tmpinfo_t *mis = NULL;
     const sx_node_t *me, *node;
@@ -1237,13 +1324,13 @@ static act_result_t fileflush_commit(sx_hashfs_t *hashfs, job_t job_id, job_data
     rc_ty s;
 
     if(job_data->len != sizeof(tmpfile_id)) {
-	CRIT("Bad job data");
-	action_error(ACT_RESULT_PERMFAIL, 500, "Internal job data error");
+       CRIT("Bad job data");
+       action_error(ACT_RESULT_PERMFAIL, 500, "Internal job data error");
     }
     memcpy(&tmpfile_id, job_data->ptr, sizeof(tmpfile_id));
 
-    DEBUG("fileflush_commit for file %lld", (long long)tmpfile_id);
-    s = sx_hashfs_tmp_getinfo(hashfs, tmpfile_id, &mis, 0, job_data->op_expires_at);
+    DEBUG("fileflush_local for file %lld", (long long)tmpfile_id);
+    s = sx_hashfs_tmp_getinfo(hashfs, tmpfile_id, &mis, 0);
     if(s == EFAULT || s == EINVAL) {
 	CRIT("Error getting tmpinfo: %s", msg_get_reason());
 	action_error(ACT_RESULT_PERMFAIL, 500, msg_get_reason());
@@ -1260,7 +1347,7 @@ static act_result_t fileflush_commit(sx_hashfs_t *hashfs, job_t job_id, job_data
     for(i=0; i<nnodes; i++) {
 	node = sx_nodelist_get(nodes, i);
 	if(!sx_node_cmp(me, node)) {
-	    /* Local only - remote file created in fileflush_request */
+	    /* Local only - remote file created in fileflush_remote */
 	    s = sx_hashfs_tmp_tofile(hashfs, mis);
 	    if(s != OK) {
 		CRIT("Error creating file: %s", msg_get_reason());
@@ -1275,39 +1362,12 @@ static act_result_t fileflush_commit(sx_hashfs_t *hashfs, job_t job_id, job_data
     return ret;
 }
 
-
-static act_result_t fileflush_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
-    const sx_node_t *me = sx_hashfs_self(hashfs);
-    unsigned int nnode, nnodes;
-    act_result_t ret = ACT_RESULT_OK;
-    int64_t tmpfile_id;
-    rc_ty s;
-
-    if(job_data->len != sizeof(tmpfile_id)) {
-	CRIT("Bad job data");
-	action_error(ACT_RESULT_PERMFAIL, 500, "Internal job data error");
-    }
-
-    nnodes = sx_nodelist_count(nodes);
-    for(nnode = 0; nnode<nnodes; nnode++) {
-	if(!sx_node_cmp(me, sx_nodelist_get(nodes, nnode))) {
-	    memcpy(&tmpfile_id, job_data->ptr, sizeof(tmpfile_id));
-	    s = sx_hashfs_tmp_unbump(hashfs, tmpfile_id);
-	    if(s == OK)
-		action_error(ACT_RESULT_TEMPFAIL, 500, "Unbump not yet completed");
-	    if(s != ITER_NO_MORE)
-		action_error(rc2actres(s), rc2http(s), "Unbump failed");
-	}
-
-	succeeded[nnode] = 1;
-    }
-
- action_failed:
-    return ret;
+static act_result_t replicateblocks_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    /* undo the revision bump from the commit in replicateblocks_request */
+    return revision_job_from_tmpfileid(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl, 1, JOBPHASE_UNDO);
 }
 
-
-static act_result_t fileflush_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+static act_result_t fileflush_remote_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     sxi_conns_t *clust = sx_hashfs_conns(hashfs);
     sxc_client_t *sx = sx_hashfs_client(hashfs);
     const sx_node_t *me = sx_hashfs_self(hashfs);
@@ -1320,13 +1380,15 @@ static act_result_t fileflush_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t
     int64_t tmpfile_id;
     rc_ty s;
 
+    nnodes = sx_nodelist_count(nodes);
     if(job_data->len != sizeof(tmpfile_id)) {
-	CRIT("Bad job data");
-	action_error(ACT_RESULT_PERMFAIL, 500, "Internal job data error");
+       CRIT("Bad job data");
+       action_error(ACT_RESULT_PERMFAIL, 500, "Internal job data error");
     }
     memcpy(&tmpfile_id, job_data->ptr, sizeof(tmpfile_id));
+    DEBUG("fileflush_remote for file %lld", (long long)tmpfile_id);
 
-    s = sx_hashfs_tmp_getinfo(hashfs, tmpfile_id, &tmp, 0, 0);
+    s = sx_hashfs_tmp_getinfo(hashfs, tmpfile_id, &tmp, 0);
     if(s == ENOENT)
 	return force_phase_success(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
     if(s != OK) {
@@ -1340,23 +1402,12 @@ static act_result_t fileflush_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t
     if(s != OK)
 	action_error(rc2actres(s), rc2http(s), "Failed to find file to delete");
 
-    nnodes = sx_nodelist_count(nodes);
+    ret = replicateblocks_abort(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
     for(nnode = 0; nnode<nnodes; nnode++) {
 	const sx_node_t *node = sx_nodelist_get(nodes, nnode);
 	if(!sx_node_cmp(me, node)) {
-	    /* Local node */
-	    s = sx_hashfs_file_delete(hashfs, volume, tmp->name, tmp->revision);
-	    if(s == OK || s == ENOENT) {
-		sx_nodelist_t *justme = sx_nodelist_new();
-		if(!justme ||
-		   sx_nodelist_add(justme, sx_node_dup(me)) ||
-		   fileflush_abort(hashfs, job_id, job_data, justme, &succeeded[nnode], fail_code, fail_msg, adjust_ttl) != ACT_RESULT_OK)
-		    WARN("Failed to umbump blocks for file %s (rev %s) on volume %s", tmp->name, tmp->revision, volume->name);
-		else
-		    succeeded[nnode] = 1;
-		sx_nodelist_delete(justme);
-	    } else
-		action_error(rc2actres(s), rc2http(s), msg_get_reason());
+	    /* Local node - only parent undo needed */
+            succeeded[nnode]++;
 	} else {
 	    /* Remote node */
 	    if(!proto) {
@@ -1380,7 +1431,6 @@ static act_result_t fileflush_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t
 	}
     }
 
-
  action_failed:
     if(proto) {
 	for(nnode=0; qrylist && nnode<nnodes; nnode++) {
@@ -1399,7 +1449,7 @@ static act_result_t fileflush_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t
 		if(ret > ACT_RESULT_TEMPFAIL) /* Only raise OK to TEMP */
 		    action_set_fail(ACT_RESULT_TEMPFAIL, 503, sxi_cbdata_geterrmsg(qrylist[nnode].cbdata));
 	    } else if(http_status == 200 || http_status == 404) {
-		succeeded[nnode] = 1;
+		succeeded[nnode]++;
 	    } else {
 		act_result_t newret = http2actres(http_status);
 		if(newret < ret) /* Severity shall only be raised */
@@ -1409,11 +1459,15 @@ static act_result_t fileflush_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t
 	query_list_free(qrylist, nnodes);
 	sxi_query_free(proto);
     }
+    for(nnode=0; nnode<nnodes; nnode++) {
+        /* both 'parent undo' and 'child undo' must succeeded on a node for it
+         * to be successful, if one fails both are attempted again */
+        succeeded[nnode] = (succeeded[nnode] == 2);
+    }
 
     free(tmp);
     return ret;
 }
-
 
 static act_result_t filedelete_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     sxi_conns_t *clust = sx_hashfs_conns(hashfs);
@@ -1421,44 +1475,21 @@ static act_result_t filedelete_request(sx_hashfs_t *hashfs, job_t job_id, job_da
     const sx_node_t *me = sx_hashfs_self(hashfs);
     const sx_hashfs_volume_t *volume;
     act_result_t ret = ACT_RESULT_OK;
-    sx_hashfs_tmpinfo_t *tmp = NULL;
     query_list_t *qrylist = NULL;
     unsigned int nnode, nnodes;
     sxi_query_t *proto = NULL;
-    int64_t tmpfile_id = 0;
-    char revision[REV_LEN+1];
+    sx_hashfs_file_t filerev;
     rc_ty s;
 
-    /*
-     * Compatibility notice:
-     * Getting tempfile for delete job using tmpfile_id as token is a legacy method, but should be supported
-     * to properly handle existing jobs. Code dealing with tmpfile_id can be dropped in next release.
-     */
-
-    if(job_data->len != REV_LEN && job_data->len != sizeof(tmpfile_id)) {
-	CRIT("Bad job data");
-	action_error(ACT_RESULT_PERMFAIL, 500, "Internal job data error");
-    }
-
-    if(job_data->len == REV_LEN) {
-        memcpy(revision, job_data->ptr, REV_LEN);
-        revision[REV_LEN] = 0;
-        s = sx_hashfs_tmp_getinfo_by_revision(hashfs, revision, &tmp);
-    } else { /* job_data->len == sizeof(tmpfile_id) */
-        memcpy(&tmpfile_id, job_data->ptr, sizeof(tmpfile_id));
-        DEBUG("Invoking legacy file delete job type: %lld", (long long)tmpfile_id);
-        s = sx_hashfs_tmp_getinfo(hashfs, tmpfile_id, &tmp, 0, 0);
-        DEBUG("Got file delete tmpfile: %s", tmp->name);
-    }
-
-    if(s != OK)
-	action_error(rc2actres(s), rc2http(s), "Failed to find file to delete");
+    s = filerev_from_jobdata_rev(hashfs, job_data, &filerev);
     if(s == ENOENT) {
-	WARN("Cannot get revision data from blob for job %lld", (long long)job_id);
+	DEBUG("Cannot get revision data from blob for job %lld", (long long)job_id);
 	return force_phase_success(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
     }
+    if (s)
+	action_error(rc2actres(s), rc2http(s), "Failed to find file to delete");
 
-    s = sx_hashfs_volume_by_id(hashfs, tmp->volume_id, &volume);
+    s = sx_hashfs_volume_by_id(hashfs, filerev.volume_id, &volume);
     if(s == ENOENT)
 	return force_phase_success(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
     if(s != OK)
@@ -1468,16 +1499,12 @@ static act_result_t filedelete_request(sx_hashfs_t *hashfs, job_t job_id, job_da
     for(nnode = 0; nnode<nnodes; nnode++) {
 	const sx_node_t *node = sx_nodelist_get(nodes, nnode);
 	if(!sx_node_cmp(me, node)) {
-	    /* Local node */
-	    s = sx_hashfs_file_delete(hashfs, volume, tmp->name, tmp->revision);
-	    if(s == OK || s == ENOENT)
-		succeeded[nnode] += 1;
-	    else
-		action_error(rc2actres(s), rc2http(s), msg_get_reason());
+            /* Local node: handled in commit */
+	    succeeded[nnode] += 1;
 	} else {
 	    /* Remote node */
 	    if(!proto) {
-		proto = sxi_filedel_proto(sx, volume->name, tmp->name, tmp->revision);
+		proto = sxi_filedel_proto(sx, volume->name, filerev.name, filerev.revision);
 		if(!proto) {
 		    WARN("Cannot allocate proto for job %lld", (long long)job_id);
 		    action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
@@ -1489,6 +1516,7 @@ static act_result_t filedelete_request(sx_hashfs_t *hashfs, job_t job_id, job_da
 		}
 	    }
             qrylist[nnode].cbdata = sxi_cbdata_create_generic(clust, NULL, NULL);
+            DEBUG("Sending file delete query");
 	    if(sxi_cluster_query_ev(qrylist[nnode].cbdata, clust, sx_node_internal_addr(node), proto->verb, proto->path, proto->content, proto->content_len, NULL, NULL)) {
 		WARN("Failed to query node %s: %s", sx_node_uuid_str(node), sxc_geterrmsg(sx));
 		action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to setup cluster communication");
@@ -1496,7 +1524,6 @@ static act_result_t filedelete_request(sx_hashfs_t *hashfs, job_t job_id, job_da
 	    qrylist[nnode].query_sent = 1;
 	}
     }
-
 
  action_failed:
     if(proto) {
@@ -1527,7 +1554,6 @@ static act_result_t filedelete_request(sx_hashfs_t *hashfs, job_t job_id, job_da
 	sxi_query_free(proto);
     }
 
-    free(tmp);
     return ret;
 }
 
@@ -1536,7 +1562,7 @@ static act_result_t filedelete_commit(sx_hashfs_t *hashfs, job_t job_id, job_dat
     const sx_node_t *me = sx_hashfs_self(hashfs);
     act_result_t ret = ACT_RESULT_OK;
     unsigned int nnode, nnodes;
-    int64_t tmpfile_id = 0;
+    int64_t tmpfile_id;
     rc_ty s;
 
     /*
@@ -1545,129 +1571,46 @@ static act_result_t filedelete_commit(sx_hashfs_t *hashfs, job_t job_id, job_dat
      * to properly handle existing jobs. Code dealing with tmpfile_id can be dropped in next release.
      */
 
-    if(job_data->len != REV_LEN && job_data->len != sizeof(tmpfile_id)) {
-	CRIT("Bad job data");
-	action_error(ACT_RESULT_PERMFAIL, 500, "Internal job data error");
-    }
-
     nnodes = sx_nodelist_count(nodes);
     for(nnode = 0; nnode<nnodes; nnode++) {
 	if(!sx_node_cmp(me, sx_nodelist_get(nodes, nnode))) {
-            if(job_data->len == REV_LEN) {
-                char revision[REV_LEN+1];
-                memcpy(revision, job_data->ptr, REV_LEN);
-                revision[REV_LEN] = '\0';
-                s = sx_hashfs_tmp_unbump_by_revision(hashfs, revision, &tmpfile_id);
-            } else { /* job_data->len == sizeof(tmpfile_id) */
-                memcpy(&tmpfile_id, job_data->ptr, sizeof(tmpfile_id));
-                DEBUG("Invoking legacy file delete job type: %lld", (long long)tmpfile_id);
-                s = sx_hashfs_tmp_unbump(hashfs, tmpfile_id);
-            }
-	    if(s == OK)
-		action_error(ACT_RESULT_TEMPFAIL, 500, "Unbump not yet completed");
-	    if(s != ITER_NO_MORE)
-		action_error(rc2actres(s), rc2http(s), "Unbump failed");
+            sx_hashfs_file_t filerev;
+            const sx_hashfs_volume_t *volume;
 
-	    if(sx_hashfs_tmp_delete(hashfs, tmpfile_id))
-		INFO("Failed to delete tempfile %lld", (long long)tmpfile_id); /* Not a big deal */
+            s = filerev_from_jobdata_rev(hashfs, job_data, &filerev);
+            if(s == ENOENT) {
+                DEBUG("Cannot get revision data from blob for job %lld", (long long)job_id);
+                return force_phase_success(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
+            }
+            if (s)
+                action_error(rc2actres(s), rc2http(s), "Failed to retrieve fileid");
+            s = sx_hashfs_volume_by_id(hashfs, filerev.volume_id, &volume);
+            if (s)
+                action_error(rc2actres(s), rc2http(s), "Failed to retrieve volume id");
+    	    s = sx_hashfs_file_delete(hashfs, volume, filerev.name, filerev.revision);
+            if (s)
+                action_error(rc2actres(s), rc2http(s), "Failed to delete file");
 	}
 	succeeded[nnode] = 1;
     }
 
  action_failed:
+    if (job_data->len == sizeof(tmpfile_id)) {
+        memcpy(&tmpfile_id, job_data->ptr, sizeof(tmpfile_id));
+        DEBUG("Invoking legacy file delete job type: %lld", (long long)tmpfile_id);
+        if(sx_hashfs_tmp_delete(hashfs, tmpfile_id))
+            INFO("Failed to delete tempfile %lld", (long long)tmpfile_id); /* Not a big deal */
+    }
     return ret;
 }
 
 static act_result_t filedelete_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
-    act_result_t ret = ACT_RESULT_OK;
-    unsigned int nnode, nnodes;
-    sx_hashfs_tmpinfo_t *tmp = NULL;
-    int64_t tmpfile_id = 0;
-    char revision[REV_LEN+1];
-    rc_ty s;
-
-    /*
-     * Compatibility notice:
-     * Getting tempfile for delete job using tmpfile_id as token is a legacy method, but should be supported
-     * to properly handle existing jobs. Code dealing with tmpfile_id can be dropped in next release.
-     */
-
-    if(job_data->len != REV_LEN && job_data->len != sizeof(tmpfile_id)) {
-        CRIT("Bad job data");
-        action_error(ACT_RESULT_PERMFAIL, 500, "Internal job data error");
-    }
-
-    if(job_data->len == REV_LEN) {
-        memcpy(revision, job_data->ptr, REV_LEN);
-        revision[REV_LEN] = 0;
-        s = sx_hashfs_tmp_getinfo_by_revision(hashfs, revision, &tmp);
-    } else { /* job_data->len == sizeof(tmpfile_id) */
-        memcpy(&tmpfile_id, job_data->ptr, sizeof(tmpfile_id));
-        DEBUG("Invoking legacy file delete job type: %lld", (long long)tmpfile_id);
-        s = sx_hashfs_tmp_getinfo(hashfs, tmpfile_id, &tmp, 0, 0);
-        DEBUG("Got file delete tmpfile: %s", tmp->name);
-    }
-
-    if(s == OK) {
-	CRIT("File %s (rev %s) on volume %lld was left in an inconsitent state after a failed deletion attempt", tmp->name, tmp->revision, (long long)tmp->volume_id);
-        sx_hashfs_tmp_delete(hashfs, tmp->tmpfile_id);
-        free(tmp);
-    } else
-        CRIT("Failed to delete tmpfile");
-
-    nnodes = sx_nodelist_count(nodes);
-    for(nnode = 0; nnode<nnodes; nnode++)
-	succeeded[nnode] = 1;
-
- action_failed:
-    return ret;
+    return revision_job_from_rev(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl, -1, JOBPHASE_ABORT);
 }
 
 static act_result_t filedelete_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
-    act_result_t ret = ACT_RESULT_OK;
-    unsigned int nnode, nnodes;
-    sx_hashfs_tmpinfo_t *tmp = NULL;
-    int64_t tmpfile_id = 0;
-    char revision[REV_LEN+1];
-    rc_ty s;
-
-    /*
-     * Compatibility notice:
-     * Getting tempfile for delete job using tmpfile_id as token is a legacy method, but should be supported
-     * to properly handle existing jobs. Code dealing with tmpfile_id can be dropped in next release.
-     */
-
-    if(job_data->len != REV_LEN && job_data->len != sizeof(tmpfile_id)) {
-        CRIT("Bad job data");
-        action_error(ACT_RESULT_PERMFAIL, 500, "Internal job data error");
-    }
-
-    if(job_data->len == REV_LEN) {
-        memcpy(revision, job_data->ptr, REV_LEN);
-        revision[REV_LEN] = 0;
-        s = sx_hashfs_tmp_getinfo_by_revision(hashfs, revision, &tmp);
-    } else { /* job_data->len == sizeof(tmpfile_id) */
-        memcpy(&tmpfile_id, job_data->ptr, sizeof(tmpfile_id));
-        DEBUG("Invoking legacy file delete job type: %lld", (long long)tmpfile_id);
-        s = sx_hashfs_tmp_getinfo(hashfs, tmpfile_id, &tmp, 0, 0);
-        DEBUG("Got file delete tmpfile: %s", tmp->name);
-    }
-
-    if(s == OK) {
-	WARN("Some blocks of file %s (rev %s) on volume %lld may have incorrect counts after a failed deletion attempt", tmp->name, tmp->revision, (long long)tmp->volume_id);
-        sx_hashfs_tmp_delete(hashfs, tmp->tmpfile_id);
-        free(tmp);
-    } else
-        CRIT("Some blocks of tmpfile may have incorrect counts after a failed deletion attempt");
-
-    nnodes = sx_nodelist_count(nodes);
-    for(nnode = 0; nnode<nnodes; nnode++)
-	succeeded[nnode] = 1;
-
- action_failed:
-    return ret;
+    return revision_job_from_rev(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl, -1, JOBPHASE_UNDO);
 }
-
 
 struct cb_challenge_ctx {
     sx_hash_challenge_t chlrsp;
@@ -1906,7 +1849,7 @@ static int sync_global_objects(sx_hashfs_t *hashfs, const sxi_hostlist_t *hlist)
 	    s = ENOMEM;
 	    break;
 	}
-	sprintf(&ctx.buffer[ctx.at], "%s:{\"owner\":\"%s\",\"size\":%lld,\"replica\":%u,\"revs\":%u", enc_name, userhex, (long long)vol->size, vol->replica_count, vol->revisions);
+	sprintf(&ctx.buffer[ctx.at], "%s:{\"owner\":\"%s\",\"size\":%lld,\"replica\":%u,\"revs\":%u", enc_name, userhex, (long long)vol->size, vol->max_replica, vol->revisions);
 	free(enc_name);
 	if(ctx.nmeta) {
 	    unsigned int i;
@@ -2416,8 +2359,8 @@ static const sx_node_t *blocktarget(sx_hashfs_t *hashfs, const block_meta_t *b) 
     const sx_node_t *ret = NULL;
     unsigned int i, or, nr;
 
-    odst = sx_hashfs_nodelist(hashfs, NL_PREV);
-    ndst = sx_hashfs_nodelist(hashfs, NL_NEXT);
+    odst = sx_hashfs_all_nodes(hashfs, NL_PREV);
+    ndst = sx_hashfs_all_nodes(hashfs, NL_NEXT);
     if(!odst || !ndst)
 	return NULL;
 
@@ -2426,13 +2369,13 @@ static const sx_node_t *blocktarget(sx_hashfs_t *hashfs, const block_meta_t *b) 
     if(!or || !nr)
 	return NULL;
 
-    oldnodes = sx_hashfs_hashnodes(hashfs, NL_PREV, &b->hash, or);
+    oldnodes = sx_hashfs_all_hashnodes(hashfs, NL_PREV, &b->hash, or);
     if(!oldnodes) {
 	WARN("No old node set");
 	return NULL;
     }
 
-    newnodes = sx_hashfs_hashnodes(hashfs, NL_NEXT, &b->hash, nr);
+    newnodes = sx_hashfs_all_hashnodes(hashfs, NL_NEXT, &b->hash, nr);
     if(!newnodes) {
 	WARN("No new node set");
 	sx_nodelist_delete(oldnodes);
@@ -2474,7 +2417,7 @@ static act_result_t blockrb_request(sx_hashfs_t *hashfs, job_t job_id, job_data_
     const sx_node_t *self = sx_hashfs_self(hashfs);
     sxc_client_t *sx = sx_hashfs_client(hashfs);
     sxi_conns_t *clust = sx_hashfs_conns(hashfs);
-    const sx_nodelist_t *next = sx_hashfs_nodelist(hashfs, NL_NEXT);
+    const sx_nodelist_t *next = sx_hashfs_all_nodes(hashfs, NL_NEXT);
     act_result_t ret = ACT_RESULT_OK;
     struct {
 	curlev_context_t *cbdata;
@@ -2585,7 +2528,7 @@ static act_result_t blockrb_request(sx_hashfs_t *hashfs, job_t job_id, job_data_
 		break;
 
             /* FIXME: proper expiration time */
-	    rbdata[i].proto = sxi_hashop_proto_inuse_begin_bin(sx, SX_ID_REBALANCE, &dist_version, sizeof(dist_version), time(NULL) + 604800);
+	    rbdata[i].proto = sxi_hashop_proto_inuse_begin(sx, NULL);
 	    for(j=0; j<rbdata[i].nblocks; j++)
 		rbdata[i].proto = sxi_hashop_proto_inuse_hash(sx, rbdata[i].proto, rbdata[i].blocks[j]);
 	    rbdata[i].proto = sxi_hashop_proto_inuse_end(sx, rbdata[i].proto);
@@ -3347,7 +3290,6 @@ struct rplblocks {
     sx_hashfs_t *hashfs;
     sx_blob_t *b;
     uint8_t block[SX_BS_LARGE];
-    char idhex[SXI_SHA1_TEXT_LEN+1];
     sx_block_meta_index_t lastgood;
     unsigned int pos, itemsz, ngood;
     enum replace_state state;
@@ -3428,7 +3370,7 @@ static int rplblocks_cb(curlev_context_t *cbdata, void *ctx, const void *data, s
 	    c->pos += todo;
 	    if(c->pos == c->itemsz) {
 		const sx_block_meta_index_t *bmi;
-		unsigned int maxreplica = sx_nodelist_count(sx_hashfs_nodelist(c->hashfs, NL_NEXT));
+		unsigned int maxreplica = sx_nodelist_count(sx_hashfs_all_nodes(c->hashfs, NL_NEXT));
 		sx_hash_t hash;
 		const void *ptr;
 
@@ -3450,17 +3392,23 @@ static int rplblocks_cb(curlev_context_t *cbdata, void *ctx, const void *data, s
 		}
 
 		while(todo--) {
+                    sx_hash_t revision_id;
 		    unsigned int replica;
-                    int32_t count;
+                    int32_t op;
 		    rc_ty s;
+		    const void *ptr;
+                    unsigned int blob_size;
 
-		    if(sx_blob_get_int32(c->b, &replica)||
-		       sx_blob_get_int32(c->b, &count)) {
-			WARN("Invalid block size");
+		    if(sx_blob_get_blob(c->b, &ptr, &blob_size) ||
+                       blob_size != sizeof(revision_id.b) ||
+                       sx_blob_get_int32(c->b, &replica) ||
+		       sx_blob_get_int32(c->b, &op)) {
+			WARN("Invalid block size: %d", blob_size);
 			return 1;
 		    }
+                    memcpy(&revision_id.b, ptr, sizeof(revision_id.b));
 
-		    s = sx_hashfs_hashop_mod(c->hashfs, &hash, c->idhex, c->itemsz, replica, count, JOB_NO_EXPIRY);
+		    s = sx_hashfs_hashop_mod(c->hashfs, &hash, NULL, &revision_id, c->itemsz, replica, op, 0);
 		    if(s != OK && s != ENOENT) {
 			WARN("Failed to mod hash");
 			return 1;
@@ -3510,7 +3458,6 @@ static act_result_t replaceblocks_commit(sx_hashfs_t *hashfs, job_t job_id, job_
 	const sx_node_t *me = sx_hashfs_self(hashfs);
 	struct rplblocks *ctx = malloc(sizeof(*ctx));
 	char query[256];
-	sx_hash_t idhash;
 	int qret;
 
 	if(!ctx)
@@ -3532,12 +3479,6 @@ static act_result_t replaceblocks_commit(sx_hashfs_t *hashfs, job_t job_id, job_
 	ctx->pos = 0;
 	ctx->ngood = 0;
 	ctx->state = RPL_HDRSIZE;
-
-	if(sxi_hashop_generate_id(sx, SX_ID_REPAIR, NULL, 0, &job_id, sizeof(job_id), &idhash)) {
-	    free(ctx);
-	    action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to generate unique id");
-	}
-	sxi_bin2hex(idhash.b, sizeof(idhash.b), ctx->idhex);
 
 	qret = sxi_cluster_query(clust, &hlist, REQ_GET, query, NULL, 0, NULL, rplblocks_cb, ctx);
 	sx_blob_free(ctx->b);
@@ -3760,7 +3701,7 @@ static act_result_t replacefiles_request(sx_hashfs_t *hashfs, job_t job_id, job_
 	if(s != OK)
 	    action_error(rc2actres(s), rc2http(s), msg_get_reason());
 
-	s = sx_hashfs_volnodes(hashfs, NL_NEXT, vol, 0, &volnodes, NULL);
+	s = sx_hashfs_all_volnodes(hashfs, NL_NEXT, vol, 0, &volnodes, NULL);
 	if(s != OK)
 	    action_error(rc2actres(s), rc2http(s), msg_get_reason());
 
@@ -3870,7 +3811,7 @@ static act_result_t replacefiles_request(sx_hashfs_t *hashfs, job_t job_id, job_
 }
 
 static act_result_t replacefiles_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
-    const sx_nodelist_t *allnodes = sx_hashfs_nodelist(hashfs, NL_NEXT);
+    const sx_nodelist_t *allnodes = sx_hashfs_all_nodes(hashfs, NL_NEXT);
     int64_t hdistver = sx_hashfs_hdist_getversion(hashfs);
     unsigned int i, nnodes = sx_nodelist_count(allnodes);
     sxi_conns_t *clust = sx_hashfs_conns(hashfs);
@@ -3947,6 +3888,123 @@ static act_result_t replacefiles_commit(sx_hashfs_t *hashfs, job_t job_id, job_d
     return ret;
 }
 
+static act_result_t ignodes_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    sx_nodelist_t *ignodes = NULL;
+    act_result_t ret = ACT_RESULT_OK;
+    unsigned int nnode, nnodes;
+    sxi_conns_t *clust = sx_hashfs_conns(hashfs);
+    const sx_node_t *me = sx_hashfs_self(hashfs);
+    query_list_t *qrylist = NULL;
+    char *query = NULL;
+    sx_blob_t *b = NULL;
+    rc_ty s;
+
+    DEBUG("IN %s", __FUNCTION__);
+    if(!job_data) {
+	NULLARG();
+	action_error(ACT_RESULT_PERMFAIL, 500, "Null job");
+    }
+
+    b = sx_blob_from_data(job_data->ptr, job_data->len);
+    if(!b) {
+	WARN("Cannot allocate blob for job %lld", (long long)job_id);
+	action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
+    }
+
+    ignodes = sx_nodelist_from_blob(b);
+    if(!ignodes) {
+	WARN("Cannot retrrieve list of nodes from job data for job %lld", (long long)job_id);
+	action_error(ACT_RESULT_PERMFAIL, 500, "Bad job data");
+    }
+
+    nnodes = sx_nodelist_count(nodes);
+    qrylist = wrap_calloc(nnodes, sizeof(*qrylist));
+    if(!qrylist) {
+	WARN("Cannot allocate result space");
+	action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
+    }
+
+    for(nnode = 0; nnode < nnodes; nnode++) {
+	const sx_node_t *node = sx_nodelist_get(nodes, nnode);
+	if(!sx_node_cmp(me, node)) {
+	    /* Local node */
+	    if((s = sx_hashfs_setignored(hashfs, ignodes))) {
+		WARN("Failed to mark faulty nodes for job %lld: %s", (long long)job_id, msg_get_reason());
+		action_error(ACT_RESULT_PERMFAIL, rc2http(s), "Failed to enable volume");
+	    }
+	    succeeded[nnode] = 1;
+	} else {
+	    /* Remote node */
+	    if(!query) {
+		unsigned int i, nign = sx_nodelist_count(ignodes);
+		char *eoq;
+		query = malloc((UUID_STRING_SIZE+3) * nign + sizeof("{\"faultyNodes\":[]}"));
+		if(!query)
+		    action_error(ACT_RESULT_TEMPFAIL, 503, "Out of memory allocating the request");
+		sprintf(query, "{\"faultyNodes\":[");
+		eoq = query + lenof("{\"faultyNodes\":[");
+		for(i=0; i<nign; i++) {
+		    const sx_node_t *ignode = sx_nodelist_get(ignodes, i);
+		    snprintf(eoq, UUID_STRING_SIZE+3+3, "\"%s\"%s", sx_node_uuid_str(ignode), i != nign-1 ? "," : "]}");
+		    eoq += strlen(eoq);
+		}
+	    }
+	    qrylist[nnode].cbdata = sxi_cbdata_create_generic(clust, NULL, NULL);
+	    if(sxi_cluster_query_ev(qrylist[nnode].cbdata, clust, sx_node_internal_addr(node), REQ_PUT, ".nodes?setfaulty", query, strlen(query), NULL, NULL)) {
+		WARN("Failed to query node %s: %s", sx_node_uuid_str(node), sxc_geterrmsg(sx_hashfs_client(hashfs)));
+		action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to setup cluster communication");
+	    }
+	    qrylist[nnode].query_sent = 1;
+	}
+    }
+
+
+ action_failed:
+    sx_nodelist_delete(ignodes);
+    sx_blob_free(b);
+    if(query) {
+	for(nnode=0; qrylist && nnode<nnodes; nnode++) {
+	    int rc;
+            long http_status = 0;
+	    if(!qrylist[nnode].query_sent)
+		continue;
+            rc = sxi_cbdata_wait(qrylist[nnode].cbdata, sxi_conns_get_curlev(clust), &http_status);
+	    if(rc == -2) {
+		CRIT("Failed to wait for query");
+		action_set_fail(ACT_RESULT_PERMFAIL, 500, "Internal error in cluster communication");
+		continue;
+	    }
+	    if(rc == -1) {
+		WARN("Query failed with %ld", http_status);
+		if(ret > ACT_RESULT_TEMPFAIL) /* Only raise OK to TEMP */
+		    action_set_fail(ACT_RESULT_TEMPFAIL, 503, sxi_cbdata_geterrmsg(qrylist[nnode].cbdata));
+	    } else if(http_status == 200) {
+		succeeded[nnode] = 1;
+	    } else {
+		act_result_t newret = http2actres(http_status);
+		if(newret < ret) /* Severity shall only be raised */
+		    action_set_fail(newret, http_status, sxi_cbdata_geterrmsg(qrylist[nnode].cbdata));
+	    }
+	}
+	free(query);
+    }
+    if (qrylist)
+        query_list_free(qrylist, nnodes);
+
+    return ret;
+}
+
+static act_result_t ignodes_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    act_result_t ret = ACT_RESULT_OK;
+    DEBUG("IN %s", __FUNCTION__);
+    if(!job_data) {
+	NULLARG();
+	action_set_fail(ACT_RESULT_PERMFAIL, 500, "Null job");
+	return ret;
+    }
+
+    return commit_dist_common(hashfs, nodes, succeeded, fail_code, fail_msg);
+}
 
 static act_result_t dummy_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     DEBUG("IN %s", __FUNCTION__);
@@ -4161,7 +4219,7 @@ static rc_ty checkpoint_volume_sizes(sx_hashfs_t *h) {
         return OK;
     memcpy(sx_hashfs_volsizes_timestamp(h), &now, sizeof(now));
 
-    nodes = sx_hashfs_nodelist(h, NL_PREVNEXT);
+    nodes = sx_hashfs_effective_nodes(h, NL_PREVNEXT);
     if(!nodes) {
         WARN("Failed to get node list");
         goto checkpoint_volume_sizes_err;
@@ -4425,6 +4483,23 @@ static act_result_t distlock_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_t
    return distlock_common(hashfs, job_id, job_data, nodes, JOBPHASE_ABORT, succeeded, fail_code, fail_msg, adjust_ttl);
 }
 
+static rc_ty revision_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    return job_twophase_execute(&revision_spec, JOBPHASE_COMMIT, hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
+}
+
+static rc_ty revision_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    return job_twophase_execute(&revision_spec, JOBPHASE_UNDO, hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
+}
+
+static rc_ty revision_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    return job_twophase_execute(&revision_spec, JOBPHASE_ABORT, hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
+}
+
+static act_result_t upgrade_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    return job_twophase_execute(&upgrade_spec, JOBPHASE_REQUEST, hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
+}
+
+/* TODO: upgrade from 1.0-style flush and delete jobs */
 static struct {
     job_action_t fn_request;
     job_action_t fn_commit;
@@ -4434,8 +4509,8 @@ static struct {
     { createvol_request, createvol_commit, createvol_abort_and_undo, createvol_abort_and_undo }, /* JOBTYPE_CREATE_VOLUME */
     { createuser_request, createuser_commit, createuser_abort, createuser_undo }, /* JOBTYPE_CREATE_USER */
     { acl_request, acl_commit, acl_abort, acl_undo }, /* JOBTYPE_VOLUME_ACL */
-    { force_phase_success, replicateblocks_commit, replicateblocks_abort, replicateblocks_abort }, /* JOBTYPE_REPLICATE_BLOCKS */
-    { fileflush_request, fileflush_commit, fileflush_abort, fileflush_undo }, /* JOBTYPE_FLUSH_FILE */
+    { replicateblocks_request, replicateblocks_commit, replicateblocks_abort, replicateblocks_abort }, /* JOBTYPE_REPLICATE_BLOCKS */
+    { force_phase_success, fileflush_remote, replicateblocks_abort, fileflush_remote_undo }, /* JOBTYPE_FLUSH_FILE_REMOTE */
     { filedelete_request, filedelete_commit, filedelete_abort, filedelete_undo }, /* JOBTYPE_DELETE_FILE */
     { distribution_request, distribution_commit, distribution_abort, distribution_undo }, /* JOBTYPE_DISTRIBUTION */
     { startrebalance_request, force_phase_success, force_phase_success, force_phase_success }, /* JOBTYPE_STARTREBALANCE */
@@ -4455,10 +4530,10 @@ static struct {
     { force_phase_success, revsclean_vol_commit, revsclean_vol_abort, revsclean_vol_undo }, /* JOBTYPE_REVSCLEAN */
     { distlock_request, force_phase_success, distlock_abort, force_phase_success }, /* JOBTYPE_DISTLOCK */
     { cluster_mode_request, force_phase_success, cluster_mode_abort, force_phase_success }, /* JOBTYPE_CLUSTER_MODE */
-    { force_phase_success, force_phase_success, force_phase_success, force_phase_success }, /* JOBTYPE_IGNODES */
-    { force_phase_success, force_phase_success, force_phase_success, force_phase_success }, /* JOBTYPE_BLOCKS_REVISION */
-    { force_phase_success, force_phase_success, force_phase_success, force_phase_success }, /* JOBTYPE_FLUSH_FILE_LOCAL  - 1 node */
-    { force_phase_success, force_phase_success, force_phase_success, force_phase_success }, /* JOBTYPE_UPGRADE_1_0_TO_1_1 */
+    { ignodes_request, ignodes_commit, force_phase_success, force_phase_success }, /* JOBTYPE_IGNODES */
+    { force_phase_success, revision_commit, revision_abort, revision_undo }, /* JOBTYPE_BLOCKS_REVISION */
+    { force_phase_success, fileflush_local, fileflush_remote_undo, force_phase_success }, /* JOBTYPE_FLUSH_FILE_LOCAL  - 1 node */
+    { upgrade_request, force_phase_success, force_phase_success, force_phase_success }, /* JOBTYPE_UPGRADE_1_0_TO_1_1 */
 };
 
 
@@ -4706,13 +4781,13 @@ static rc_ty adjust_job_ttl(struct jobmgr_data_t *q) {
 }
 
 static rc_ty get_failed_job_expiration_ttl(struct jobmgr_data_t *q) {
-    sx_hashfs_tmpinfo_t *tmpinfo = NULL;
-
+    int64_t fsize;
     if(!q)
         return EINVAL;
 
     /* Handle blocks replication and file delete jobs using sx_hashfs_job_file_timeout() */
     if(q->job_type == JOBTYPE_REPLICATE_BLOCKS) {
+	sx_hashfs_tmpinfo_t *tmpinfo;
         int64_t tmpfile_id;
         rc_ty s;
 
@@ -4722,9 +4797,11 @@ static rc_ty get_failed_job_expiration_ttl(struct jobmgr_data_t *q) {
         memcpy(&tmpfile_id, q->job_data->ptr, q->job_data->len);
 
         /* JOBTYPE_REPLICATE_BLOCKS contains tempfile ID as job data. Use it to get tempfile entry. */
-        if((s = sx_hashfs_tmp_getinfo(q->hashfs, tmpfile_id, &tmpinfo, 0, 0)) != OK)
+        if((s = sx_hashfs_tmp_getinfo(q->hashfs, tmpfile_id, &tmpinfo, 0)) != OK)
             return s;
+	fsize = tmpinfo->file_size;
     } else if(q->job_type == JOBTYPE_DELETE_FILE) {
+	sx_hashfs_file_t revinfo;
         rc_ty s;
         char rev[REV_LEN+1];
 
@@ -4735,15 +4812,13 @@ static rc_ty get_failed_job_expiration_ttl(struct jobmgr_data_t *q) {
         memcpy(rev, q->job_data->ptr, REV_LEN);
         rev[REV_LEN] = '\0';
         /* JOBTYPE_DELETE_FILE contains revision as job data. Use it to get tempfile entry. */
-        if((s = sx_hashfs_tmp_getinfo_by_revision(q->hashfs, rev, &tmpinfo)) != OK)
+        if((s = sx_hashfs_getinfo_by_revision(q->hashfs, rev, &revinfo)) != OK)
             return s;
+	fsize = revinfo.file_size;
     }
 
     if(q->job_type == JOBTYPE_REPLICATE_BLOCKS || q->job_type == JOBTYPE_DELETE_FILE) {
-        if(!tmpinfo) /* This one should already be set */
-            return FAIL_EINTERNAL;
-
-        q->adjust_ttl = sx_hashfs_job_file_timeout(q->hashfs, sx_nodelist_count(q->targets), tmpinfo->file_size);
+        q->adjust_ttl = sx_hashfs_job_file_timeout(q->hashfs, sx_nodelist_count(q->targets), fsize);
         return OK;
     }
 
@@ -4805,7 +4880,9 @@ static void jobmgr_run_job(struct jobmgr_data_t *q) {
 	    if(qbind_int64(q->qdly, ":job", q->job_id) ||
 	       qbind_text(q->qdly, ":reason", q->fail_reason[0] ? q->fail_reason : "Unknown delay reason") ||
 	       qbind_text(q->qdly, ":delay",
-                          (q->job_type == JOBTYPE_FLUSH_FILE || q->job_type == JOBTYPE_REPLICATE_BLOCKS) ?
+                          (q->job_type == JOBTYPE_FLUSH_FILE_REMOTE ||
+                           q->job_type == JOBTYPE_FLUSH_FILE_LOCAL ||
+                           q->job_type == JOBTYPE_REPLICATE_BLOCKS) ?
                           STRIFY(JOBMGR_DELAY_MIN) " seconds" : STRIFY(JOBMGR_DELAY_MAX) " seconds") ||
 	       qstep_noret(q->qdly))
 		CRIT("Cannot reschedule job %lld (you are gonna see this again!)", (long long)q->job_id);

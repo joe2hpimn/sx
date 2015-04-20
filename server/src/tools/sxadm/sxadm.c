@@ -986,6 +986,124 @@ static int replace_nodes(sxc_client_t *sx, struct cluster_args_info *args) {
     return ret;
 }
 
+static int setfaulty_nodes(sxc_client_t *sx, struct cluster_args_info *args) {
+    unsigned int i, j, query_at, nnodes = args->inputs_num - 1;
+    sx_node_t **nodes;
+    sxc_cluster_t *clust = cluster_load(sx, args, 0);
+    sxi_conns_t *conns;
+    sxi_hostlist_t *hlist;
+    sxi_hostlist_t usblhlist;
+    char *query = NULL;
+    clst_t *clst = NULL;
+    int ret = 1;
+
+    if(!clust)
+	return 1;
+
+    sxi_hostlist_init(&usblhlist);
+    nodes = (sx_node_t **) calloc(nnodes, sizeof(sx_node_t *));
+    if(!nodes) {
+	CRIT("OOM allocating nodes");
+	return 1;
+    }
+    for(i = 0; i < nnodes; i++) {
+	nodes[i] = parse_nodef(args->inputs[i]);
+	if(!nodes[i])
+	    goto setfaulty_err;
+	for(j = 0; j < i; j++) {
+	    if(!sx_node_cmp(nodes[i], nodes[j])) {
+		CRIT("Node '%s' was specified multiple times", sx_node_uuid_str(nodes[i]));
+		goto setfaulty_err;
+	    }
+	}
+    }
+
+    conns = sxi_cluster_get_conns(clust);
+    hlist = sxi_conns_get_hostlist(conns);
+    /* We don't really care about addresses at this point,
+     * we just remove the addresses we don't want to connect to */
+    for(i = 0; i < sxi_hostlist_get_count(hlist); i++) {
+	const char *h = sxi_hostlist_get_host(hlist, i);
+	int faulty = 0;
+	for(j = 0; j < nnodes; j++) {
+	    if(!strcmp(sx_node_addr(nodes[j]), h) || !strcmp(sx_node_internal_addr(nodes[j]), h)) {
+		faulty = 1;
+		break;
+	    }
+	}
+	if(!faulty && sxi_hostlist_add_host(sx, &usblhlist, h)) {
+	    CRIT("Cannot update list of nodes: %s", sxc_geterrmsg(sx));
+	    goto setfaulty_err;
+	}
+    }
+    sxi_hostlist_empty(hlist);
+    if(sxi_hostlist_add_list(sx, hlist, &usblhlist)) {
+	CRIT("Cannot update list of nodes: %s", sxc_geterrmsg(sx));
+	goto setfaulty_err;
+    }
+
+    if(!sxi_hostlist_get_count(hlist)) {
+	CRIT("Failed to update list of usable nodes");
+	goto setfaulty_err;
+    }
+    sxi_hostlist_shuffle(hlist);
+
+    clst = clst_query(conns, NULL);
+    if(!clst) {
+	CRIT("Failed to query cluster status: %s", sxc_geterrmsg(sx));
+	goto setfaulty_err;
+    }
+
+    if(clst_ndists(clst) != 1) {
+	CRIT("Cluster is currently rebalancing, cannot update node status");
+	goto setfaulty_err;
+    }
+
+    for(i = 0; i < nnodes; i++) {
+	const sx_uuid_t *nid = sx_node_uuid(nodes[i]);
+	const sx_node_t *refnode = sx_nodelist_lookup(clst_nodes(clst, 0), nid);
+	if(refnode && !sx_node_cmp_addrs(nodes[i], refnode))
+	    continue;
+	CRIT("Node %lld/%s/%s/%s doesn't match any node in the cluster definition",
+	     (long long)sx_node_capacity(nodes[i]), sx_node_addr(nodes[i]), sx_node_internal_addr(nodes[i]), nid->string);
+	goto setfaulty_err;
+    }
+
+    query = malloc((UUID_STRING_SIZE+3) * nnodes + sizeof("{\"faultyNodes\":[]}"));
+    if(!query) {
+	CRIT("Out of memory when allocating the update query");
+	goto setfaulty_err;
+    }
+    query_at = lenof("{\"faultyNodes\":[");
+    strcpy(query, "{\"faultyNodes\":[");
+
+    for(i=0; i<nnodes; i++) {
+	sprintf(query + query_at, "\"%s\"%s", sx_node_uuid_str(nodes[i]), i != nnodes-1 ? "," : "]}");
+	query_at += strlen(query + query_at);
+    }
+
+    if(sxi_job_submit_and_poll(conns, NULL, REQ_PUT, ".nodes?setfaulty", query, strlen(query))) {
+	CRIT("Failed to update node health: %s", sxc_geterrmsg(sx));
+	goto setfaulty_err;
+    }
+
+    if(sxc_cluster_fetchnodes(clust) ||
+       sxc_cluster_save(clust, args->config_dir_arg))
+	WARN("Cannot update local cluster configuration: %s", sxc_geterrmsg(sx));
+
+    ret = 0;
+
+ setfaulty_err:
+    for(i = 0; i < nnodes; i++)
+	sx_node_delete(nodes[i]);
+    free(nodes);
+    free(query);
+    sxi_hostlist_empty(&usblhlist);
+    clst_destroy(clst);
+    sxc_cluster_free(clust);
+    return ret;
+}
+
 
 static int info_node(sxc_client_t *sx, const char *path, struct node_args_info *args)
 {
@@ -1030,7 +1148,7 @@ static int info_node(sxc_client_t *sx, const char *path, struct node_args_info *
     fmt_capa(dsk_used, capastr, sizeof(capastr), args->human_readable_flag);
     printf("Actual data size: %s\n", capastr);
 
-    nodes = sx_hashfs_nodelist(h, NL_NEXT);
+    nodes = sx_hashfs_all_nodes(h, NL_NEXT);
     if(nodes && sx_nodelist_count(nodes)) {
 	unsigned int i, nnodes = sx_nodelist_count(nodes);
 	const sx_node_t *self = sx_hashfs_self(h);
@@ -1148,7 +1266,7 @@ static void print_dist(const sx_nodelist_t *nodes) {
 static int info_cluster(sxc_client_t *sx, struct cluster_args_info *args, int keyonly) {
     sxc_cluster_t *clust = cluster_load(sx, args, 1);
     clst_t *clst;
-    const sx_nodelist_t *nodes = NULL, *nodes_prev = NULL;
+    const sx_nodelist_t *nodes = NULL, *nodes_prev = NULL, *faulty_nodes = NULL;
     int ret = 0;
 
     if(!clust)
@@ -1181,6 +1299,12 @@ static int info_cluster(sxc_client_t *sx, struct cluster_args_info *args, int ke
 	}
     }
 
+    faulty_nodes = clst_faulty_nodes(clst);
+    if(!keyonly && sx_nodelist_count(faulty_nodes)) {
+	printf("Faulty nodes: ");
+	print_dist(faulty_nodes);
+    }
+    
     if(!keyonly)
         printf("Operating mode: %s\n", clst_readonly(clst) ? "read-only" : "read-write");
     if(nodes) {
@@ -1207,7 +1331,7 @@ static int info_cluster(sxc_client_t *sx, struct cluster_args_info *args, int ke
 		const sx_node_t *node = sx_nodelist_get(nodes_prev, i);
 		if(!sx_nodelist_lookup(nodes, sx_node_uuid(node))) {
 		    if(!header) {
-			printf("Operations in progress:\n");
+			printf("State of operations:\n");
 			header = 1;
 		    }
 		    printf("  * node %s (%s): Node being removed from the cluster\n", sx_node_uuid_str(node), sx_node_internal_addr(node));
@@ -1220,6 +1344,15 @@ static int info_cluster(sxc_client_t *sx, struct cluster_args_info *args, int ke
 	    const sx_node_t *node = sx_nodelist_get(nodes, i);
 	    const char *op = NULL;
 	    clst_t *clstnode;
+
+	    if(sx_nodelist_lookup(faulty_nodes, sx_node_uuid(node))) {
+		if(!header) {
+		    printf("State of operations:\n");
+		    header = 1;
+		}
+		printf("  * node %s (%s): %s\n", sx_node_uuid_str(node), sx_node_internal_addr(node), "Faulty (this node is currently being ignored)");
+		continue;
+	    }
 
 	    if(sxi_hostlist_add_host(sx, &hlist, sx_node_internal_addr(node))) {
 		CRIT("OOM adding to hostlist");
@@ -1236,7 +1369,7 @@ static int info_cluster(sxc_client_t *sx, struct cluster_args_info *args, int ke
 	    }
 	    if(clst_rebalance_state(clstnode, &op) != CLSTOP_NOTRUNNING || clst_replace_state(clstnode, &op) != CLSTOP_NOTRUNNING) {
 		if(!header) {
-		    printf("Operations in progress:\n");
+		    printf("State of operations:\n");
 		    header = 1;
 		}
 		printf("  * node %s (%s): %s\n", sx_node_uuid_str(node), sx_node_internal_addr(node), op);
@@ -1538,6 +1671,33 @@ static int cluster_set_mode(sxc_client_t *sx, struct cluster_args_info *args) {
     return ret;
 }
 
+static int cluster_upgrade(sxc_client_t *sx, struct cluster_args_info *args) {
+    sxc_cluster_t *cluster;
+    int ret;
+
+    if(!args) {
+        fprintf(stderr, "ERROR: Invalid argument\n");
+        return 1;
+    }
+
+    cluster = cluster_load(sx, args, 1);
+    if(!cluster)
+        return 1;
+    sxi_query_t *q = sxi_cluster_upgrade_proto(sx);
+    if (q)
+        ret = sxi_job_submit_and_poll(sxi_cluster_get_conns(cluster), NULL, q->verb, q->path, q->content, q->content_len);
+    else
+        ret = -1;
+    sxi_query_free(q);
+
+    sxc_cluster_free(cluster);
+    if(ret)
+        fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
+    else
+        printf("Upgrade job started, use 'sxadm cluster --info %s' to monitor progress\n", args->inputs[0]);
+    return ret;
+}
+
 int main(int argc, char **argv) {
     struct main_args_info main_args;
     struct node_args_info node_args;
@@ -1567,6 +1727,8 @@ int main(int argc, char **argv) {
 	    return 1;
         }
 	sxc_set_debug(sx, node_args.debug_flag);
+        if (node_args.debug_flag)
+            log_setminlevel(sx, SX_LOG_DEBUG);
 	if(node_args.version_given) {
 	    printf("%s %s\n", MAIN_CMDLINE_PARSER_PACKAGE, src_version());
 	    ret = 0;
@@ -1623,6 +1785,8 @@ int main(int argc, char **argv) {
 	    ret = resize_cluster(sx, &cluster_args);
 	else if(cluster_args.replace_faulty_given && cluster_args.inputs_num >= 2)
 	    ret = replace_nodes(sx, &cluster_args);
+	else if(cluster_args.set_faulty_given && cluster_args.inputs_num >= 2)
+	    ret = setfaulty_nodes(sx, &cluster_args);
 	else if(cluster_args.force_gc_given && cluster_args.inputs_num == 1)
 	    ret = force_gc_cluster(sx, &cluster_args, 0);
 	else if(cluster_args.force_expire_given && cluster_args.inputs_num == 1)
@@ -1631,6 +1795,8 @@ int main(int argc, char **argv) {
             ret = cluster_status(sx, &cluster_args);
         else if(cluster_args.set_mode_given && cluster_args.inputs_num == 1)
             ret = cluster_set_mode(sx, &cluster_args);
+        else if(cluster_args.upgrade_given && cluster_args.inputs_num == 1)
+            ret = cluster_upgrade(sx, &cluster_args);
 	else
 	    cluster_cmdline_parser_print_help();
     cluster_out:

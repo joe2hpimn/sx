@@ -83,15 +83,18 @@ EOF
     $prefix/sbin/sxsetup --config-file $CONF_TMP --debug --advanced --wait
     rm -f $CONF_TMP
         echo "$ADMIN_KEY" | ../client/src/tools/init/sxinit --port "$SX_PORT"  --host-list=127.0.1.1 sx://localhost --no-ssl
-    ../client/src/tools/vol/sxvol create sx://localhost/vol$i -r $i -o admin -s 100M
+#    ../client/src/tools/vol/sxvol create sx://localhost/vol$i -r $i -o admin -s 100M
     if [ $i -eq 1 ]; then
         echo "$ADMIN_KEY" | ../client/src/tools/init/sxinit --port "$SX_PORT"  --host-list=127.0.1.1 sx://localhost --no-ssl
-        test/randgen 40960 40960 >mvtest
-        ../client/src/tools/cp/sxcp mvtest sx://localhost/vol1/
+#        test/randgen 40960 40960 >mvtest
+#        ../client/src/tools/cp/sxcp mvtest sx://localhost/vol1/
     fi
+#    truncate --size=8192 mvtest
+#    ../client/src/tools/cp/sxcp mvtest sx://localhost/vol$i/mvtest2
 
     i=$(( i+1 ))
 done
+exit 0
 rm -f mvtestx && ../client/src/tools/cp/sxcp sx://localhost/vol1/mvtest mvtestx
 
 list=127.0.1.1

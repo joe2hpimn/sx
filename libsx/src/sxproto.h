@@ -54,13 +54,14 @@ sxi_query_t *sxi_fileadd_proto_end(sxc_client_t *sx, sxi_query_t *query, sxc_met
 sxi_query_t *sxi_filedel_proto(sxc_client_t *sx, const char *volname, const char *path, const char *revision);
 
 typedef struct {
-    unsigned replica;
-    int count;
-} block_meta_entry_t;
-
-typedef struct {
     uint8_t b[SXI_SHA1_BIN_LEN];
 } sx_hash_t;
+
+typedef struct {
+    sx_hash_t revision_id;
+    unsigned replica;
+    int op;
+} block_meta_entry_t;
 
 typedef struct {
     uint8_t b[1+SXI_SHA1_BIN_LEN];
@@ -72,26 +73,15 @@ typedef struct {
     unsigned int blocksize;
     block_meta_entry_t *entries;
     unsigned int count;
-    int64_t blockid;
 } block_meta_t;
 
-typedef enum {
-    SX_ID_TOKEN=1,
-    SX_ID_REBALANCE,
-    SX_ID_REPAIR
-} hashop_kind_t;
-
-int sxi_hashop_generate_id(sxc_client_t *sx, hashop_kind_t kind,
-                           const void *global, unsigned global_size,
-                           const void *local, unsigned local_size, sx_hash_t *id);
-
 sxi_query_t *sxi_hashop_proto_check(sxc_client_t *sx, unsigned blocksize, const char *hashes, unsigned hashes_len);
-sxi_query_t *sxi_hashop_proto_reserve(sxc_client_t *sx, unsigned blocksize, const char *hashes, unsigned hashes_len, const char *id, uint64_t op_expires_at);
-sxi_query_t *sxi_hashop_proto_inuse_begin(sxc_client_t *sx, hashop_kind_t kind, const char *id, uint64_t op_expires_at);
-sxi_query_t *sxi_hashop_proto_inuse_begin_bin(sxc_client_t *sx, hashop_kind_t kind, const void *id, unsigned int id_size, uint64_t op_expires_at);
+sxi_query_t *sxi_hashop_proto_reserve(sxc_client_t *sx, unsigned blocksize, const char *hashes, unsigned hashes_len, const sx_hash_t *reserve_id, const sx_hash_t *revision_id, uint64_t op_expires_at);
+sxi_query_t *sxi_hashop_proto_inuse_begin(sxc_client_t *sx, const sx_hash_t *reserve_id);
 sxi_query_t *sxi_hashop_proto_inuse_hash(sxc_client_t *sx, sxi_query_t *query, const block_meta_t *blockmeta);
 sxi_query_t *sxi_hashop_proto_decuse_hash(sxc_client_t *sx, sxi_query_t *query, const block_meta_t *blockmeta);
 sxi_query_t *sxi_hashop_proto_inuse_end(sxc_client_t *sx, sxi_query_t *query);
+sxi_query_t *sxi_hashop_proto_revision(sxc_client_t *sx, unsigned blocksize, const sx_hash_t *revision_id, int op);
 
 sxi_query_t *sxi_nodeinit_proto(sxc_client_t *sx, const char *cluster_name, const char *node_uuid, uint16_t http_port, int ssl_flag, const char *ssl_file);
 sxi_query_t *sxi_distribution_proto_begin(sxc_client_t *sx, const void *cfg, unsigned int cfg_len);
@@ -114,6 +104,7 @@ sxi_query_t *sxi_volumeacl_proto(sxc_client_t *sx, const char *volname,
                                  void *ctx);
 
 sxi_query_t *sxi_cluster_mode_proto(sxc_client_t *sx, int readonly);
+sxi_query_t *sxi_cluster_upgrade_proto(sxc_client_t *sx);
 
 void sxi_query_free(sxi_query_t *query);
 

@@ -44,12 +44,14 @@ const char *cluster_args_info_full_help[] = {
   "  -U, --unlock               Unlock an SX cluster",
   "  -R, --resize=<+/->SIZE     Proportionally resize an existing SX cluster",
   "  -F, --replace-faulty       Replace faulty nodes in an existing SX cluster",
+  "  -S, --set-faulty           Mark nodes of the cluster as faulty (without\n                               replacing them)",
   "  -I, --info                 Shows status and details of a running cluster",
   "  -G, --force-gc             Force a garbage collection cycle on all nodes",
   "  -X, --force-expire         Force GC and expiration of reservations on all\n                               nodes",
   "      --get-cluster-key      Obtain remote cluster key",
   "  -s, --status               Show current status of cluster nodes",
   "  -m, --set-mode=MODE        Set cluster operating mode ('ro' or 'rw' for\n                               read-only or write-only respectively)",
+  "      --upgrade              Upgrade a cluster",
   "\nNew cluster options:",
   "  -d, --node-dir=PATH        Path to the node directory",
   "      --port=INT             Set the cluster destination TCP port (default 443\n                               in secure mode or 80 in insecure mode)",
@@ -82,23 +84,25 @@ init_help_array(void)
   cluster_args_info_help[10] = cluster_args_info_full_help[10];
   cluster_args_info_help[11] = cluster_args_info_full_help[11];
   cluster_args_info_help[12] = cluster_args_info_full_help[12];
-  cluster_args_info_help[13] = cluster_args_info_full_help[14];
+  cluster_args_info_help[13] = cluster_args_info_full_help[13];
   cluster_args_info_help[14] = cluster_args_info_full_help[15];
   cluster_args_info_help[15] = cluster_args_info_full_help[16];
   cluster_args_info_help[16] = cluster_args_info_full_help[17];
   cluster_args_info_help[17] = cluster_args_info_full_help[18];
   cluster_args_info_help[18] = cluster_args_info_full_help[19];
-  cluster_args_info_help[19] = cluster_args_info_full_help[21];
-  cluster_args_info_help[20] = cluster_args_info_full_help[22];
+  cluster_args_info_help[19] = cluster_args_info_full_help[20];
+  cluster_args_info_help[20] = cluster_args_info_full_help[21];
   cluster_args_info_help[21] = cluster_args_info_full_help[23];
   cluster_args_info_help[22] = cluster_args_info_full_help[24];
-  cluster_args_info_help[23] = cluster_args_info_full_help[26];
-  cluster_args_info_help[24] = cluster_args_info_full_help[28];
-  cluster_args_info_help[25] = 0; 
+  cluster_args_info_help[23] = cluster_args_info_full_help[25];
+  cluster_args_info_help[24] = cluster_args_info_full_help[26];
+  cluster_args_info_help[25] = cluster_args_info_full_help[28];
+  cluster_args_info_help[26] = cluster_args_info_full_help[30];
+  cluster_args_info_help[27] = 0; 
   
 }
 
-const char *cluster_args_info_help[26];
+const char *cluster_args_info_help[28];
 
 typedef enum {ARG_NO
   , ARG_FLAG
@@ -133,12 +137,14 @@ void clear_given (struct cluster_args_info *args_info)
   args_info->unlock_given = 0 ;
   args_info->resize_given = 0 ;
   args_info->replace_faulty_given = 0 ;
+  args_info->set_faulty_given = 0 ;
   args_info->info_given = 0 ;
   args_info->force_gc_given = 0 ;
   args_info->force_expire_given = 0 ;
   args_info->get_cluster_key_given = 0 ;
   args_info->status_given = 0 ;
   args_info->set_mode_given = 0 ;
+  args_info->upgrade_given = 0 ;
   args_info->node_dir_given = 0 ;
   args_info->port_given = 0 ;
   args_info->ssl_ca_file_given = 0 ;
@@ -189,21 +195,23 @@ void init_args_info(struct cluster_args_info *args_info)
   args_info->unlock_help = cluster_args_info_full_help[7] ;
   args_info->resize_help = cluster_args_info_full_help[8] ;
   args_info->replace_faulty_help = cluster_args_info_full_help[9] ;
-  args_info->info_help = cluster_args_info_full_help[10] ;
-  args_info->force_gc_help = cluster_args_info_full_help[11] ;
-  args_info->force_expire_help = cluster_args_info_full_help[12] ;
-  args_info->get_cluster_key_help = cluster_args_info_full_help[13] ;
-  args_info->status_help = cluster_args_info_full_help[14] ;
-  args_info->set_mode_help = cluster_args_info_full_help[15] ;
-  args_info->node_dir_help = cluster_args_info_full_help[17] ;
-  args_info->port_help = cluster_args_info_full_help[18] ;
-  args_info->ssl_ca_file_help = cluster_args_info_full_help[19] ;
-  args_info->admin_key_help = cluster_args_info_full_help[20] ;
-  args_info->batch_mode_help = cluster_args_info_full_help[22] ;
-  args_info->human_readable_help = cluster_args_info_full_help[23] ;
-  args_info->debug_help = cluster_args_info_full_help[24] ;
-  args_info->config_dir_help = cluster_args_info_full_help[25] ;
-  args_info->master_node_help = cluster_args_info_full_help[27] ;
+  args_info->set_faulty_help = cluster_args_info_full_help[10] ;
+  args_info->info_help = cluster_args_info_full_help[11] ;
+  args_info->force_gc_help = cluster_args_info_full_help[12] ;
+  args_info->force_expire_help = cluster_args_info_full_help[13] ;
+  args_info->get_cluster_key_help = cluster_args_info_full_help[14] ;
+  args_info->status_help = cluster_args_info_full_help[15] ;
+  args_info->set_mode_help = cluster_args_info_full_help[16] ;
+  args_info->upgrade_help = cluster_args_info_full_help[17] ;
+  args_info->node_dir_help = cluster_args_info_full_help[19] ;
+  args_info->port_help = cluster_args_info_full_help[20] ;
+  args_info->ssl_ca_file_help = cluster_args_info_full_help[21] ;
+  args_info->admin_key_help = cluster_args_info_full_help[22] ;
+  args_info->batch_mode_help = cluster_args_info_full_help[24] ;
+  args_info->human_readable_help = cluster_args_info_full_help[25] ;
+  args_info->debug_help = cluster_args_info_full_help[26] ;
+  args_info->config_dir_help = cluster_args_info_full_help[27] ;
+  args_info->master_node_help = cluster_args_info_full_help[29] ;
   
 }
 
@@ -367,6 +375,8 @@ cluster_cmdline_parser_dump(FILE *outfile, struct cluster_args_info *args_info)
     write_into_file(outfile, "resize", args_info->resize_orig, 0);
   if (args_info->replace_faulty_given)
     write_into_file(outfile, "replace-faulty", 0, 0 );
+  if (args_info->set_faulty_given)
+    write_into_file(outfile, "set-faulty", 0, 0 );
   if (args_info->info_given)
     write_into_file(outfile, "info", 0, 0 );
   if (args_info->force_gc_given)
@@ -379,6 +389,8 @@ cluster_cmdline_parser_dump(FILE *outfile, struct cluster_args_info *args_info)
     write_into_file(outfile, "status", 0, 0 );
   if (args_info->set_mode_given)
     write_into_file(outfile, "set-mode", args_info->set_mode_orig, 0);
+  if (args_info->upgrade_given)
+    write_into_file(outfile, "upgrade", 0, 0 );
   if (args_info->node_dir_given)
     write_into_file(outfile, "node-dir", args_info->node_dir_orig, 0);
   if (args_info->port_given)
@@ -458,6 +470,7 @@ reset_group_MODE(struct cluster_args_info *args_info)
   free_string_field (&(args_info->resize_arg));
   free_string_field (&(args_info->resize_orig));
   args_info->replace_faulty_given = 0 ;
+  args_info->set_faulty_given = 0 ;
   args_info->info_given = 0 ;
   args_info->force_gc_given = 0 ;
   args_info->force_expire_given = 0 ;
@@ -466,6 +479,7 @@ reset_group_MODE(struct cluster_args_info *args_info)
   args_info->set_mode_given = 0 ;
   free_string_field (&(args_info->set_mode_arg));
   free_string_field (&(args_info->set_mode_orig));
+  args_info->upgrade_given = 0 ;
 
   args_info->MODE_group_counter = 0;
 }
@@ -726,12 +740,14 @@ cluster_cmdline_parser_internal (
         { "unlock",	0, NULL, 'U' },
         { "resize",	1, NULL, 'R' },
         { "replace-faulty",	0, NULL, 'F' },
+        { "set-faulty",	0, NULL, 'S' },
         { "info",	0, NULL, 'I' },
         { "force-gc",	0, NULL, 'G' },
         { "force-expire",	0, NULL, 'X' },
         { "get-cluster-key",	0, NULL, 0 },
         { "status",	0, NULL, 's' },
         { "set-mode",	1, NULL, 'm' },
+        { "upgrade",	0, NULL, 0 },
         { "node-dir",	1, NULL, 'd' },
         { "port",	1, NULL, 0 },
         { "ssl-ca-file",	1, NULL, 0 },
@@ -744,7 +760,7 @@ cluster_cmdline_parser_internal (
         { 0,  0, 0, 0 }
       };
 
-      c = getopt_long (argc, argv, "hVNMLUR:FIGXsm:d:k:bHDc:", long_options, &option_index);
+      c = getopt_long (argc, argv, "hVNMLUR:FSIGXsm:d:k:bHDc:", long_options, &option_index);
 
       if (c == -1) break;	/* Exit from `while (1)' loop.  */
 
@@ -855,6 +871,21 @@ cluster_cmdline_parser_internal (
               &(local_args_info.replace_faulty_given), optarg, 0, 0, ARG_NO,
               check_ambiguity, override, 0, 0,
               "replace-faulty", 'F',
+              additional_error))
+            goto failure;
+        
+          break;
+        case 'S':	/* Mark nodes of the cluster as faulty (without replacing them).  */
+        
+          if (args_info->MODE_group_counter && override)
+            reset_group_MODE (args_info);
+          args_info->MODE_group_counter += 1;
+        
+          if (update_arg( 0 , 
+               0 , &(args_info->set_faulty_given),
+              &(local_args_info.set_faulty_given), optarg, 0, 0, ARG_NO,
+              check_ambiguity, override, 0, 0,
+              "set-faulty", 'S',
               additional_error))
             goto failure;
         
@@ -1023,6 +1054,23 @@ cluster_cmdline_parser_internal (
                 &(local_args_info.get_cluster_key_given), optarg, 0, 0, ARG_NO,
                 check_ambiguity, override, 0, 0,
                 "get-cluster-key", '-',
+                additional_error))
+              goto failure;
+          
+          }
+          /* Upgrade a cluster.  */
+          else if (strcmp (long_options[option_index].name, "upgrade") == 0)
+          {
+          
+            if (args_info->MODE_group_counter && override)
+              reset_group_MODE (args_info);
+            args_info->MODE_group_counter += 1;
+          
+            if (update_arg( 0 , 
+                 0 , &(args_info->upgrade_given),
+                &(local_args_info.upgrade_given), optarg, 0, 0, ARG_NO,
+                check_ambiguity, override, 0, 0,
+                "upgrade", '-',
                 additional_error))
               goto failure;
           

@@ -29,6 +29,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <yajl/yajl_parse.h>
+#include <arpa/inet.h>
 #include "fcgi-utils.h"
 #include "fcgi-actions-volume.h"
 #include "../libsx/src/misc.h"
@@ -64,7 +65,7 @@ void fcgi_locate_volume(const sx_hashfs_volume_t *vol) {
      * Although most of them (file creation, file deletion, etc) can be
      * safely target to PREV and NEXT volumes, listing files is only 
      * guaranteed to be accurate when performed against a PREV volnode */
-    s = sx_hashfs_volnodes(hashfs, NL_PREV, vol, fsize, &allnodes, &blocksize);
+    s = sx_hashfs_effective_volnodes(hashfs, NL_PREV, vol, fsize, &allnodes, &blocksize);
     switch(s) {
 	case OK:
 	    break;
@@ -168,7 +169,7 @@ void fcgi_list_volume(const sx_hashfs_volume_t *vol) {
         return;
     CGI_PUTS("{\"volumeSize\":");
     CGI_PUTLL(vol->size);
-    CGI_PRINTF(",\"replicaCount\":%u,\"volumeUsedSize\":", vol->replica_count);
+    CGI_PRINTF(",\"replicaCount\":%u,\"volumeUsedSize\":", vol->max_replica);
     CGI_PUTLL(vol->cursize);
     if (size_only) {
         CGI_PUTS("}");
@@ -736,7 +737,7 @@ static rc_ty acl_nodes(sx_hashfs_t *hashfs, sx_blob_t *blob, sx_nodelist_t **nod
 {
     if (!nodes)
         return FAIL_EINTERNAL;
-    *nodes = sx_nodelist_dup(sx_hashfs_nodelist(hashfs, NL_NEXTPREV));
+    *nodes = sx_nodelist_dup(sx_hashfs_effective_nodes(hashfs, NL_NEXTPREV));
     if (!*nodes)
         return FAIL_EINTERNAL;
     return OK;
@@ -887,7 +888,7 @@ void fcgi_create_volume(void) {
 	sx_blob_t *joblb;
 	const void *job_data;
 	unsigned int job_datalen;
-	const sx_nodelist_t *allnodes = sx_hashfs_nodelist(hashfs, NL_NEXTPREV);
+	const sx_nodelist_t *allnodes = sx_hashfs_effective_nodes(hashfs, NL_NEXTPREV);
 	int extra_job_timeout = 50 * (sx_nodelist_count(allnodes)-1);
 	job_t job;
 	rc_ty res;
@@ -988,7 +989,7 @@ void fcgi_delete_volume(void) {
 	if(!emptyvol)
 	    quit_errmsg(409, "Cannot delete non-empty volume");
 
-	allnodes = sx_hashfs_nodelist(hashfs, NL_NEXTPREV);
+	allnodes = sx_hashfs_effective_nodes(hashfs, NL_NEXTPREV);
 	timeout = 5 * 60 * sx_nodelist_count(allnodes);
 	joblb = sx_blob_new();
 	if(!joblb)
@@ -1208,7 +1209,7 @@ static rc_ty volmod_nodes(sx_hashfs_t *hashfs, sx_blob_t *blob, sx_nodelist_t **
     if (!nodes)
         return FAIL_EINTERNAL;
     /* All nodes have to receive modification request since owners and sizes are set globally */
-    *nodes = sx_nodelist_dup(sx_hashfs_nodelist(hashfs, NL_NEXTPREV));
+    *nodes = sx_nodelist_dup(sx_hashfs_effective_nodes(hashfs, NL_NEXTPREV));
     if (!*nodes)
         return FAIL_EINTERNAL;
 
@@ -1459,8 +1460,7 @@ static rc_ty volmod_parse_complete(void *yctx)
 
     if(ctx->newrevs != -1 || ctx->newsize != -1) {
         /* Check if new volume configuration is ok */
-        if((s = sx_hashfs_check_volume_settings(hashfs, volume, ctx->newsize != -1 ? ctx->newsize : vol->size, vol->replica_count,
-           ctx->newrevs != -1 ? ctx->newrevs : vol->revisions)) != OK)
+        if((s = sx_hashfs_check_volume_settings(hashfs, volume, ctx->newsize != -1 ? ctx->newsize : vol->size, vol->max_replica, ctx->newrevs != -1 ? ctx->newrevs : vol->revisions)) != OK)
             return s; /* Message is set by sx_hashfs_check_volume_settings() */
     }
 
@@ -1809,7 +1809,7 @@ static rc_ty cluster_mode_nodes(sx_hashfs_t *h, sx_blob_t *blob, sx_nodelist_t *
     if(!nodes)
         return FAIL_EINTERNAL;
     /* Spawn cluster mode job to all nodes */
-    *nodes = sx_nodelist_dup(sx_hashfs_nodelist(hashfs, NL_NEXTPREV));
+    *nodes = sx_nodelist_dup(sx_hashfs_effective_nodes(hashfs, NL_NEXTPREV));
     if(!*nodes)
         return FAIL_EINTERNAL;
     return OK;
@@ -1831,4 +1831,141 @@ void fcgi_cluster_mode(void) {
     struct cluster_mode_ctx c = { -1, CB_CM_START };
 
     job_2pc_handle_request(sx_hashfs_client(hashfs), &cluster_mode_spec, &c);
+}
+
+static const char *upgrade_get_lock(sx_blob_t *b)
+{
+    return "UPGRADE";
+}
+
+static int upgrade_to_blob(sxc_client_t *sx, int nodes, void *yctx, sx_blob_t *blob)
+{
+    int64_t *ver = (int64_t*)yctx;
+    if (!ver) {
+        NULLARG();
+        return 1;
+    }
+    return sx_blob_add_int64(blob, *ver);
+}
+
+static rc_ty upgrade_nodes(sx_hashfs_t *hashfs, sx_blob_t *blob, sx_nodelist_t **nodes)
+{
+    if (!nodes)
+        return FAIL_EINTERNAL;
+    *nodes = sx_nodelist_dup(sx_hashfs_effective_nodes(hashfs, NL_NEXTPREV));
+    if (!*nodes)
+        return FAIL_EINTERNAL;
+    return OK;
+}
+
+static sxi_query_t* upgrade_proto_from_blob(sxc_client_t *sx, sx_blob_t *b, jobphase_t phase)
+{
+    switch (phase) {
+        case JOBPHASE_REQUEST:
+            return sxi_cluster_upgrade_proto(sx);
+        default:
+            return NULL;
+    }
+}
+
+static unsigned upgrade_timeout(sxc_client_t *sx, int nodes)
+{
+    return JOB_NO_EXPIRY;
+}
+
+static rc_ty upgrade_execute_blob(sx_hashfs_t *hashfs, sx_blob_t *b, jobphase_t phase, int remote)
+{
+    switch (phase) {
+        case JOBPHASE_REQUEST:
+            INFO("Preparing to upgrade node");
+            if (sx_hashfs_upgrade_1_0_prepare(hashfs) ||
+                sx_hashfs_upgrade_1_0_local(hashfs))
+                return EAGAIN;
+            return OK;
+        default:
+            return OK;
+    }
+}
+
+const job_2pc_t upgrade_spec = {
+    NULL,
+    JOBTYPE_UPGRADE_1_0_TO_1_1,
+    NULL,
+    upgrade_get_lock,
+    upgrade_to_blob,
+    upgrade_execute_blob,
+    upgrade_proto_from_blob,
+    upgrade_nodes,
+    upgrade_timeout
+};
+
+void fcgi_cluster_upgrade(void) {
+   int64_t ver = sx_hashfs_hdist_getversion(hashfs);
+   job_2pc_handle_request(sx_hashfs_client(hashfs), &upgrade_spec, &ver);
+}
+
+static void blob_send(const sx_blob_t *b)
+{
+    const void *data;
+    uint32_t len;
+    sx_blob_to_data(b, &data, &len);
+    len = htonl(len);
+    CGI_PUTD(&len, sizeof(len));
+    CGI_PUTD(data, len);
+}
+
+static void blob_send_eof(void)
+{
+    sx_blob_t *b = sx_blob_new();
+    if (!b)
+        quit_errmsg(500, "OOM");
+    sx_blob_add_string(b, "EOF$");
+    blob_send(b);
+    sx_blob_free(b);
+}
+
+static int list_rev_cb(const sx_hashfs_volume_t *vol, const sx_uuid_t *target, const sx_hash_t *revision_id, const sx_hash_t *contents, int64_t nblocks)
+{
+    int64_t i=-1;
+    sx_blob_t *b = sx_blob_new();
+    if (!b)
+        return -1;
+    do {
+        if (sx_blob_add_string(b, "[REV]") ||
+            sx_blob_add_blob(b, revision_id->b, sizeof(revision_id->b)))
+            break;
+        for (i=0;i<nblocks;i++) {
+            const sx_hash_t *hash = &contents[i];
+            sx_nodelist_t *nl = sx_hashfs_all_hashnodes(hashfs, NL_NEXT, hash, vol->max_replica);
+            if (!nl)
+                break;
+            if (sx_nodelist_lookup(nl, target))
+                sx_blob_add_blob(b, hash->b, sizeof(hash->b));
+            sx_nodelist_delete(nl);
+        }
+        if (sx_blob_add_string(b, "$")) {
+            i = -1;
+            break;
+        }
+        blob_send(b);
+    } while(0);
+    sx_blob_free(b);
+    return i == nblocks ? 0 : -1;
+}
+
+void fcgi_list_revision_blocks(const sx_hashfs_volume_t *vol) {
+    int max_age = arg_num("max-age");
+    const char *min_rev  = get_arg("min-rev");
+    const char *node_uuid = get_arg("for-node-uuid");
+    int metadb = arg_num("metadb");
+    sx_hash_t min_revision;
+    sx_uuid_t uuid;
+    if (max_age < 0 || !min_rev || !node_uuid || uuid_from_string(&uuid, node_uuid) ||
+        hex2bin(min_rev, strlen(min_rev), min_revision.b, sizeof(min_revision.b)))
+        quit_errmsg(400, "Required arguments missing or invalid");
+    rc_ty rc;
+    CGI_PUTS("\r\n");
+    if ((rc = sx_hashfs_list_revision_blocks(hashfs, vol, &uuid, &min_revision, max_age, metadb, list_rev_cb)))
+        quit_errmsg(rc2http(rc), msg_get_reason());
+    blob_send_eof();
 }

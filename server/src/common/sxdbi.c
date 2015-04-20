@@ -210,6 +210,10 @@ static int qprep_db(sqlite3 *db, sqlite3_stmt **q, const char *query) {
 }
 
 int qprep(sxi_db_t *db, sqlite3_stmt **q, const char *query) {
+    if (!db) {
+        NULLARG();
+        return -1;
+    }
     return qprep_db(db->handle, q, query);
 }
 

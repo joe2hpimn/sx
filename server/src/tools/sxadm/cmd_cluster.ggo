@@ -17,12 +17,14 @@ groupoption "lock" L "Lock an SX cluster for changes" group="MODE"
 groupoption "unlock" U "Unlock an SX cluster" group="MODE"
 groupoption "resize" R "Proportionally resize an existing SX cluster" group="MODE" string typestr="<+/->SIZE"
 groupoption "replace-faulty" F "Replace faulty nodes in an existing SX cluster" group="MODE"
+groupoption "set-faulty" S "Mark nodes of the cluster as faulty (without replacing them)" group="MODE"
 groupoption "info" I "Shows status and details of a running cluster" group="MODE"
 groupoption "force-gc" G "Force a garbage collection cycle on all nodes" group="MODE"
 groupoption "force-expire" X "Force GC and expiration of reservations on all nodes" group="MODE"
 groupoption "get-cluster-key" - "Obtain remote cluster key" group="MODE" hidden
 groupoption "status" s "Show current status of cluster nodes" group="MODE"
 groupoption "set-mode" m "Set cluster operating mode ('ro' or 'rw' for read-only or write-only respectively)" group="MODE" string typestr="MODE"
+groupoption "upgrade" - "Upgrade a cluster" group="MODE"
 
 section "New cluster options"
 option "node-dir" d "Path to the node directory" string typestr="PATH" dependon="new" optional

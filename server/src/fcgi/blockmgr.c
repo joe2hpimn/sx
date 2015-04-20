@@ -142,8 +142,8 @@ void blockmgr_process_queue(struct blockmgr_data_t *q) {
 	uuid_from_binary(&node_uuid, n);
 
 	/* MODHDIST: no point in transfering to _prev set */
-	if(!(node = sx_nodelist_lookup(sx_hashfs_nodelist(q->hashfs, NL_NEXT), &node_uuid))) {
-	    WARN("Removing transfer to non existing node %s", node_uuid.string);
+	if(!(node = sx_nodelist_lookup(sx_hashfs_effective_nodes(q->hashfs, NL_NEXT), &node_uuid))) {
+	    WARN("Removing transfer to non existing (possibly ignored) node %s", node_uuid.string);
 	    sqlite3_reset(q->qlist);
 	    blockmgr_del_xfer(q, xfer_id);
 	    continue;

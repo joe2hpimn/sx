@@ -50,7 +50,10 @@ struct sxi_hashop {
   unsigned hashes_count;
   unsigned hashes_pos;
   unsigned replica;
-  char id[2*SXI_SHA1_TEXT_LEN+1];
+  sx_hash_t reserve_id;
+  sx_hash_t revision_id;
+  int has_reserve_id;
+  int has_revision_id;
 };
 
 void sxi_hashop_begin(sxi_hashop_t *a, sxi_conns_t *conns, hash_presence_cb_t cb, enum sxi_hashop_kind kind, unsigned replica, const sx_hash_t *reservehash, const sx_hash_t *idhash, void *context, uint64_t op_expires_at);
