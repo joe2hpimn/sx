@@ -8,7 +8,7 @@
 	create 0640
         sharedscripts
 	postrotate
-		[ ! -f @localstatedir@/run/sxserver/sxhttpd.pid ] || kill -USR1 `cat @localstatedir@/run/sxserver/sxhttpd.pid`
+		[ ! -s @localstatedir@/run/sxserver/sxhttpd.pid ] || kill -USR1 `cat @localstatedir@/run/sxserver/sxhttpd.pid`
 	endscript
 }
 
@@ -22,6 +22,6 @@
 	create 0640
         sharedscripts
 	postrotate
-		[ ! -f @localstatedir@/run/sxserver/sxfcgi.pid ] || kill -USR1 `cat @localstatedir@/run/sxserver/sxfcgi.pid`
+		[ ! -s @localstatedir@/run/sxserver/sxfcgi.pid ] || kill -USR1 `cat @localstatedir@/run/sxserver/sxfcgi.pid`
 	endscript
 }
