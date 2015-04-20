@@ -51,8 +51,6 @@
 #include "vcrypto.h"
 #include "crypt_blowfish.h"
 
-#define BCRYPT_ITERATIONS_LOG2 14
-
 int sxc_fgetline(sxc_client_t *sx, FILE *f, char **ret) {
     char buf[2048], *cur;
     int curlen = 0, len, eol = 0;
@@ -1851,12 +1849,12 @@ uint32_t sxi_crc32(uint32_t crc, const void *buf, size_t size)
     return crc ^ ~0U;
 }
 
-int sxi_derive_key(const char *pass, const char *salt, unsigned salt_size, char *out, unsigned int len)
+int sxi_derive_key(const char *pass, const char *salt, unsigned salt_size, unsigned int log2_iter, char *out, unsigned int len)
 {
     char settingbuf[30];
     const char *genkey, *setting;
 
-    setting = _crypt_gensalt_blowfish_rn("$2b$", BCRYPT_ITERATIONS_LOG2, salt, salt_size, settingbuf, sizeof(settingbuf));
+    setting = _crypt_gensalt_blowfish_rn("$2b$", log2_iter, salt, salt_size, settingbuf, sizeof(settingbuf));
     if (!setting)
         return -1;
     genkey = _crypt_blowfish_rn(pass, setting, out, len);

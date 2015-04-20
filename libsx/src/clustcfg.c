@@ -44,6 +44,8 @@
 #include "misc.h"
 #include <sys/mman.h>
 
+#define BCRYPT_TOKEN_ITERATIONS_LOG2 12
+
 struct _sxc_cluster_t {
     sxc_client_t *sx;
     char *config_dir;
@@ -2705,7 +2707,7 @@ static int pass2key(sxc_cluster_t *cluster, const char *user, const char *pass, 
         sxi_strlcpy(password, pass, sizeof(password));
     } 
 
-    if(sxi_derive_key(password, salt, AUTH_UID_LEN, keybuf, sizeof(keybuf))) {
+    if(sxi_derive_key(password, salt, AUTH_UID_LEN, BCRYPT_TOKEN_ITERATIONS_LOG2, keybuf, sizeof(keybuf))) {
         sxi_seterr(sx, SXE_ECRYPT, "Failed to derive key");
         memset(password, 0, sizeof(password));
         munlock(password, sizeof(password));

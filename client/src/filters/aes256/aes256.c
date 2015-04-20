@@ -50,7 +50,7 @@
 #define ERROR(...)	{ sxc_filter_msg(handle, SX_LOG_ERR, __VA_ARGS__); }
 
 #define FILTER_BLOCK_SIZE 16384
-#define BCRYPT_ITERATIONS_LOG2 14
+#define BCRYPT_AES_ITERATIONS_LOG2 14
 #define KEY_SIZE SHA512_DIGEST_LENGTH
 #define IV_SIZE 16
 #define MAC_SIZE 32
@@ -92,7 +92,7 @@ static int derive_key(const sxf_handle_t *handle, const char *pass, const unsign
     EVP_MD_CTX ctx;
     int ret;
 
-    if(sxi_derive_key(pass, (const char*)salt, salt_size, keybuf, sizeof(keybuf))) {
+    if(sxi_derive_key(pass, (const char*)salt, salt_size, BCRYPT_AES_ITERATIONS_LOG2, keybuf, sizeof(keybuf))) {
         ERROR("Failed to derive key");
         return -1;
     }
