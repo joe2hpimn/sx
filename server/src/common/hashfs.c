@@ -4085,10 +4085,12 @@ extract_volume_files_err:
     return ret;
 }
 
+static rc_ty volume_next_common(sx_hashfs_t *h);
+
 int sx_hashfs_extract(sx_hashfs_t *h, const char *destpath) {
     int ret = -1, s, r, i;
     sqlite3_stmt *locks[METADBS+1], *unlocks[METADBS+1];
-    const sx_hashfs_volume_t *vol = NULL;
+    const sx_hashfs_volume_t *vol = &h->curvol;
 
     if(!destpath || !*destpath) {
         WARN("Failed to extract files: Bad output path");
@@ -4112,8 +4114,11 @@ int sx_hashfs_extract(sx_hashfs_t *h, const char *destpath) {
         goto sx_hashfs_extract_err;
     }
 
+    h->curvol.name[0] = '\0';
+    h->curvoluser = 0;
+
     /* Iterate over all volumes */
-    for(s = sx_hashfs_volume_first(h, &vol, 0); s == OK; s = sx_hashfs_volume_next(h)) {
+    for(s = volume_next_common(h); s == OK; s = volume_next_common(h)) {
         int64_t restored = 0, nfiles = 0;
         unsigned int len;
         char *partdir = NULL;
@@ -6093,36 +6098,36 @@ rc_ty sx_hashfs_volume_first(sx_hashfs_t *h, const sx_hashfs_volume_t **volume, 
     return sx_hashfs_volume_next(h);
 }
 
-rc_ty sx_hashfs_volume_next(sx_hashfs_t *h) {
+static rc_ty volume_next_common(sx_hashfs_t *h) {
     const char *name;
     rc_ty res = FAIL_EINTERNAL;
     int r;
 
     if(!h) {
-	WARN("Called with invalid arguments");
-	return EINVAL;
+        WARN("Called with invalid arguments");
+        return EINVAL;
     }
 
     sqlite3_reset(h->q_nextvol);
     if(qbind_text(h->q_nextvol, ":previous", h->curvol.name))
-	goto volume_list_err;
+        goto volume_next_common_err;
     if(h->curvoluser) {
         if(qbind_blob(h->q_nextvol, ":user", h->curvoluser, AUTH_UID_LEN))
-            goto volume_list_err;
+            goto volume_next_common_err;
     } else {
         if(qbind_null(h->q_nextvol, ":user"))
-            goto volume_list_err;
+            goto volume_next_common_err;
     }
 
     r = qstep(h->q_nextvol);
     if(r == SQLITE_DONE)
-	res = ITER_NO_MORE;
+        res = ITER_NO_MORE;
     if(r != SQLITE_ROW)
-	goto volume_list_err;
+        goto volume_next_common_err;
 
     name = (const char *)sqlite3_column_text(h->q_nextvol, 1);
     if(!name)
-	goto volume_list_err;
+        goto volume_next_common_err;
 
     sxi_strlcpy(h->curvol.name, name, sizeof(h->curvol.name));
     h->curvol.id = sqlite3_column_int64(h->q_nextvol, 0);
@@ -6133,15 +6138,23 @@ rc_ty sx_hashfs_volume_next(sx_hashfs_t *h) {
     h->curvol.revisions = sqlite3_column_int(h->q_nextvol, 6);
     h->curvol.changed = sqlite3_column_int64(h->q_nextvol, 7);
 
-    if(sx_nodelist_count(h->ignored_nodes) >= h->curvol.max_replica) {
-	sqlite3_reset(h->q_nextvol);
+    res = OK;
+volume_next_common_err:
+    sqlite3_reset(h->q_nextvol);
+    return res;
+}
+
+rc_ty sx_hashfs_volume_next(sx_hashfs_t *h) {
+    rc_ty res = volume_next_common(h);
+    if(res != OK)
+        goto volume_list_err;
+
+    if(sx_nodelist_count(h->ignored_nodes) >= h->curvol.max_replica)
 	return sx_hashfs_volume_next(h);
-    }
     h->curvol.effective_replica = h->curvol.max_replica - sx_nodelist_count(h->ignored_nodes);
 
     res = OK;
     volume_list_err:
-    sqlite3_reset(h->q_nextvol);
     return res;
 }
 
