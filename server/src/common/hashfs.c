@@ -4246,7 +4246,7 @@ rc_ty sx_hashfs_upgrade_1_0_local(sx_hashfs_t *h)
             n++;
         }
         if (rc == ITER_NO_MORE) {
-            snprintf(msg, sizeof(msg), "Upgrade - %d remote volume names listed", n);
+            snprintf(msg, sizeof(msg), "Local upgrade completed - %d remote volume names listed", n);
             sx_hashfs_set_progress_info(h, INPRG_UPGRADE, msg);
             rc = OK;
 
@@ -10764,7 +10764,7 @@ rc_ty sx_hashfs_gc_run(sx_hashfs_t *h, int *terminate)
                     }
                 } else
                     qrollback(h->datadb[j][i]);
-            } while (ret == SQLITE_ROW);
+            } while (ret == SQLITE_ROW && !*terminate);
         }
     }
     INFO("GCed %lld hashes and %lld unused tokens", (long long)gc_blocks, (long long)gc_unused_tokens);
@@ -14236,7 +14236,7 @@ rc_ty sx_hashfs_list_revision_blocks(sx_hashfs_t *h, const sx_hashfs_volume_t *v
     sqlite3_reset(h->qm_needs_upgrade[i]);
     int r = qstep(h->qm_needs_upgrade[i]);
     sqlite3_reset(h->qm_needs_upgrade[i]);
-    if (r != SQLITE_ROW) {
+    if (r != SQLITE_DONE) {
         msg_set_reason("Upgrade not yet completed");
         return EAGAIN;
     }

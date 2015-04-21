@@ -1784,12 +1784,10 @@ int main(int argc, char **argv) {
             ret = extract_node(sx, node_args.inputs[0], node_args.extract_arg);
         else if(node_args.rename_cluster_given)
             ret = rename_cluster(sx, node_args.inputs[0], node_args.rename_cluster_arg);
-        /* FIXME: Temporarily disabled, should be enabled only on gcparial branch
         else if(node_args.upgrade_given)
             ret = upgrade_node(sx, node_args.inputs[0]);
         else if(node_args.upgrade_job_given)
             ret = upgrade_job_node(sx, node_args.inputs[0]);
-        */
     node_out:
 	node_cmdline_parser_free(&node_args);
         sx_done(&sx);

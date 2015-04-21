@@ -66,16 +66,18 @@ static int heal_pending_queries;
 static int heal_pending_count;
 static int64_t heal_received;
 
-static rc_ty heal_wait(sx_hashfs_t *hashfs)
+static rc_ty heal_wait(sx_hashfs_t *hashfs, int *terminate)
 {
     rc_ty ret = FAIL_EINTERNAL;
-    while (heal_pending_queries > 0) {
+    while (heal_pending_queries > 0 && !*terminate) {
         DEBUG("Waiting for %d pending queries", heal_pending_queries);
         if (sxi_curlev_poll(sxi_conns_get_curlev(sx_hashfs_conns(hashfs)))) {
             WARN("polling failed");
             return ret;
         }
     }
+    if (*terminate)
+        return EAGAIN;
     if (heal_pending_queries)
         WARN("pending queries negative: %d", heal_pending_queries);
     else
@@ -84,7 +86,6 @@ static rc_ty heal_wait(sx_hashfs_t *hashfs)
     heal_pending_queries = 0;
     return ret;
 }
-
 
 
 static int heal_data_cb(curlev_context_t *cbdata, const unsigned char *data, size_t size) {
@@ -287,22 +288,22 @@ static int heal_cb(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, const sx_hash_
     return ret;
 }
 
-static rc_ty process_heal(sx_hashfs_t *hashfs)
+static rc_ty process_heal(sx_hashfs_t *hashfs, int *terminate)
 {
     char msg[128];
     rc_ty rc;
     heal_pending_count = 0;
     heal_received = 0;
-    while ((rc = sx_hashfs_remote_heal(hashfs, heal_cb)) == OK) {
+    while ((rc = sx_hashfs_remote_heal(hashfs, heal_cb)) == OK && !*terminate) {
         INFO("GC disabled: pending remote volume heal");
         snprintf(msg, sizeof(msg), "Pending remote volume heal: %d, %lld revisions", heal_pending_queries,
                 (long long)heal_pending_count);
         DEBUG("Pending %d queries, %lld revisions", heal_pending_queries, (long long)heal_pending_count);
-        if ((rc = heal_wait(hashfs)))
+        if ((rc = heal_wait(hashfs, terminate)))
             return rc;
     }
     if (rc != ITER_NO_MORE)
-        return rc;
+        return rc == OK ? EAGAIN : rc;
     sx_hashfs_set_progress_info(hashfs, INPRG_IDLE, NULL);
     INFO("GC re-enabled: heal completed");
     return OK;
@@ -351,12 +352,11 @@ int gc(sxc_client_t *sx, const char *self, const char *dir, int pipe, int pipe_e
         sx_hashfs_distcheck(hashfs);
 
         /* TODO: phase dependency (only after local upgrade completed) */
-        /* FIXME: Temporarily disabled, should be enabled only on gcparial branch */
-        /* rc = process_heal(hashfs);
+        rc = process_heal(hashfs, &terminate);
         if (rc) {
             WARN("Heal failed: %s", rc2str(rc));
             continue;
-        }*/
+        }
         /* TODO: restrict GC until upgrade finishes locally */
         rc = sx_hashfs_gc_periodic(hashfs, &terminate, force_expire ? -1 : GC_GRACE_PERIOD);
         sx_hashfs_checkpoint_gc(hashfs);
