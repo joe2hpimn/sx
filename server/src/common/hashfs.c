@@ -3586,11 +3586,77 @@ static rc_ty alldb_1_0_to_1_1(sxi_all_db_t *alldb)
 {
     /* running this function again must succeed and be a noop */
     rc_ty ret = FAIL_EINTERNAL;
-    sqlite3_stmt *q = NULL;
+    char qrybuff[128];
+    sqlite3_stmt *q = NULL, *tq = NULL, *jdq = NULL;
     do {
-        qnullify(q);
+        int64_t tmpid;
+        int r;
+
+        /* Update file delete jobs having tempfile ID as job data to store file revision instead */
+        snprintf(qrybuff, sizeof(qrybuff), "SELECT job, data FROM jobs WHERE type = %d AND LENGTH(data) == %ld AND complete = 0 LIMIT 1", JOBTYPE_DELETE_FILE, sizeof(tmpid));
+        if (qprep(alldb->event, &q, qrybuff))
+            break;
+        if (qprep(alldb->temp, &tq, "SELECT t || ':' || token FROM tmpfiles WHERE tid = :id"))
+            break;
+        if (qprep(alldb->event, &jdq, "UPDATE jobs SET data = :data WHERE job = :id"))
+            break;
+
+        r = qstep(q);
+        while(r == SQLITE_ROW) {
+            int64_t id = sqlite3_column_int64(q, 0);
+            const void *data = sqlite3_column_blob(q, 1);
+            const char *rev;
+            int rt;
+
+            /* Set tempfile ID from current job data */
+            memcpy(&tmpid, data, sizeof(tmpid));
+            sqlite3_reset(q);
+            sqlite3_reset(tq);
+            sqlite3_reset(jdq);
+
+            /* Get tempfile entry */
+            if(qbind_int64(tq, ":id", tmpid)) {
+                WARN("Failed to prepare tempfile picking query for ID %lld", (long long)tmpid);
+                break;
+            }
+
+            rt = qstep(tq);
+            if(rt == SQLITE_DONE) {
+                DEBUG("Tempfile %lld does not exist for job %lld", (long long)tmpid, (long long)id);
+                r = qstep(q);
+                continue;
+            } else if(rt != SQLITE_ROW) {
+                WARN("Failed to get tempfile %lld", (long long)tmpid);
+                break;
+            }
+
+            /* Get tempfile revision */
+            rev = (const char *)sqlite3_column_text(tq, 0);
+            if(!rev || strlen(rev) != REV_LEN) {
+                WARN("Invalid tempfile revision");
+                break;
+            }
+
+            /* Update existing job data */
+            if(qbind_blob(jdq, ":data", rev, REV_LEN) || qbind_int64(jdq, ":id", id) || qstep_noret(jdq)) {
+                WARN("Failed to perform job data update query");
+                break;
+            }
+            DEBUG("Upgraded job %lld data from tempfile ID %lld to revision %s", (long long)id, (long long)tmpid, rev);
+
+            sqlite3_reset(tq);
+            sqlite3_reset(jdq);
+            r = qstep(q);
+        }
+
+        if(r != SQLITE_DONE) {
+            WARN("Failed to finish filedelete jobs upgrade");
+            break;
+        }
         ret = OK;
     } while(0);
+    qnullify(jdq);
+    qnullify(tq);
     qnullify(q);
     return ret;
 }

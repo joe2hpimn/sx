@@ -1563,14 +1563,7 @@ static act_result_t filedelete_commit(sx_hashfs_t *hashfs, job_t job_id, job_dat
     const sx_node_t *me = sx_hashfs_self(hashfs);
     act_result_t ret = ACT_RESULT_OK;
     unsigned int nnode, nnodes;
-    int64_t tmpfile_id;
     rc_ty s;
-
-    /*
-     * Compatibility notice:
-     * Getting tempfile for delete job using tmpfile_id as token is a legacy method, but should be supported
-     * to properly handle existing jobs. Code dealing with tmpfile_id can be dropped in next release.
-     */
 
     nnodes = sx_nodelist_count(nodes);
     for(nnode = 0; nnode<nnodes; nnode++) {
@@ -1596,12 +1589,6 @@ static act_result_t filedelete_commit(sx_hashfs_t *hashfs, job_t job_id, job_dat
     }
 
  action_failed:
-    if (job_data->len == sizeof(tmpfile_id)) {
-        memcpy(&tmpfile_id, job_data->ptr, sizeof(tmpfile_id));
-        DEBUG("Invoking legacy file delete job type: %lld", (long long)tmpfile_id);
-        if(sx_hashfs_tmp_delete(hashfs, tmpfile_id))
-            INFO("Failed to delete tempfile %lld", (long long)tmpfile_id); /* Not a big deal */
-    }
     return ret;
 }
 
@@ -4820,8 +4807,13 @@ static rc_ty get_failed_job_expiration_ttl(struct jobmgr_data_t *q) {
         memcpy(rev, q->job_data->ptr, REV_LEN);
         rev[REV_LEN] = '\0';
         /* JOBTYPE_DELETE_FILE contains revision as job data. Use it to get tempfile entry. */
-        if((s = sx_hashfs_getinfo_by_revision(q->hashfs, rev, &revinfo)) != OK)
-            return s;
+        if((s = sx_hashfs_getinfo_by_revision(q->hashfs, rev, &revinfo)) != OK) {
+            /* File could be deleted already, set size to 0 but do not fail and let job manager to finish */
+            if(s == ENOENT)
+                fsize = 0;
+            else
+                return s;
+        }
 	fsize = revinfo.file_size;
     }
 
