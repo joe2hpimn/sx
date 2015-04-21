@@ -53,8 +53,14 @@ static const char hexchar[16] = "0123456789abcdef";
 int bin2hex(const void *src, uint32_t src_len, char *dst, uint32_t dst_len)
 {
     const uint8_t *usrc = src;
-    if(dst_len < 2 * src_len + 1)
+    if(!src) {
+        NULLARG();
+        return -1;
+    }
+    if(dst_len < 2 * src_len + 1) {
+        WARN("bad bin2hex input dst_len=%d, src_len=%d", dst_len, src_len);
 	return -1;
+    }
     for (uint32_t i = 0; i < src_len;i++) {
         uint8_t c = usrc[i];
         dst[0] = hexchar[c >> 4];

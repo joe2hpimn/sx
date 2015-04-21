@@ -59,7 +59,7 @@ static rc_ty user_nodes(sx_hashfs_t *hashfs, sx_blob_t *blob, sx_nodelist_t **no
     if (!nodes)
         return FAIL_EINTERNAL;
     /* Users are created globally, in no particluar order (PREVNEXT would be fine too) */
-    *nodes = sx_nodelist_dup(sx_hashfs_nodelist(hashfs, NL_NEXTPREV));
+    *nodes = sx_nodelist_dup(sx_hashfs_effective_nodes(hashfs, NL_NEXTPREV));
     if (!*nodes)
         return FAIL_EINTERNAL;
     return OK;

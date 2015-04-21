@@ -126,7 +126,7 @@ int sx_blob_cat(sx_blob_t *dest, sx_blob_t *src) {
     return 0;
 }
 
-void sx_blob_to_data(sx_blob_t *s, const void **d, unsigned int *len) {
+void sx_blob_to_data(const sx_blob_t *s, const void **d, unsigned int *len) {
     *d = s->blob ? s->blob : (const void *)"";
     *len = s->pos;
 }

@@ -122,6 +122,7 @@ static int yacb_jobres_string(void *ctx, const unsigned char *s, size_t l) {
 
 	memcpy(yactx->message, s, l);
 	yactx->message[l] = '\0';
+        CBDEBUG("Job message: %s", yactx->message);
     } else if(yactx->state == JR_RES) {
 	if(yactx->status != JOBST_UNDEF) {
 	    CBDEBUG("Request status already received");

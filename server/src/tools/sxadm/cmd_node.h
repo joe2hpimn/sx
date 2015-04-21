@@ -49,6 +49,8 @@ struct node_args_info
   char * rename_cluster_arg;	/**< @brief Set a new name for an SX cluster.  */
   char * rename_cluster_orig;	/**< @brief Set a new name for an SX cluster original value given at command line.  */
   const char *rename_cluster_help; /**< @brief Set a new name for an SX cluster help description.  */
+  const char *upgrade_help; /**< @brief Upgrade a node to new SX version help description.  */
+  const char *upgrade_job_help; /**< @brief Run the upgrade job directly help description.  */
   char * cluster_key_arg;	/**< @brief File containing a pre-generated cluster authentication token or stdin if \"-\" is given (default autogenerate token)..  */
   char * cluster_key_orig;	/**< @brief File containing a pre-generated cluster authentication token or stdin if \"-\" is given (default autogenerate token). original value given at command line.  */
   const char *cluster_key_help; /**< @brief File containing a pre-generated cluster authentication token or stdin if \"-\" is given (default autogenerate token). help description.  */
@@ -72,6 +74,8 @@ struct node_args_info
   unsigned int check_given ;	/**< @brief Whether check was given.  */
   unsigned int extract_given ;	/**< @brief Whether extract was given.  */
   unsigned int rename_cluster_given ;	/**< @brief Whether rename-cluster was given.  */
+  unsigned int upgrade_given ;	/**< @brief Whether upgrade was given.  */
+  unsigned int upgrade_job_given ;	/**< @brief Whether upgrade-job was given.  */
   unsigned int cluster_key_given ;	/**< @brief Whether cluster-key was given.  */
   unsigned int batch_mode_given ;	/**< @brief Whether batch-mode was given.  */
   unsigned int owner_given ;	/**< @brief Whether owner was given.  */

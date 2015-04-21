@@ -49,7 +49,7 @@ typedef enum _jobtype_t {
     JOBTYPE_CREATE_USER,
     JOBTYPE_VOLUME_ACL,
     JOBTYPE_REPLICATE_BLOCKS,
-    JOBTYPE_FLUSH_FILE,
+    JOBTYPE_FLUSH_FILE_REMOTE,
     JOBTYPE_DELETE_FILE,
     JOBTYPE_DISTRIBUTION,
     JOBTYPE_STARTREBALANCE,
@@ -101,6 +101,7 @@ extern const job_2pc_t userdel_spec;
 extern const job_2pc_t user_newkey_spec;
 extern const job_2pc_t volmod_spec;
 extern const job_2pc_t cluster_mode_spec;
+extern const job_2pc_t revision_spec;
 
 void job_2pc_handle_request(sxc_client_t *sx, const job_2pc_t *spec, void *yctx);
 #endif

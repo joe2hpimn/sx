@@ -98,6 +98,7 @@ int volume_exists(void);
 int arg_num(const char *arg);
 #define has_arg(a) (arg_num(a) >= 0)
 const char *get_arg(const char *arg);
+int get_arg_uint(const char *arg);
 int arg_is(const char *arg, const char *ref);
 void json_send_qstring(const char *s);
 int json_qstring(char *buf, unsigned int buflen, const char *s);

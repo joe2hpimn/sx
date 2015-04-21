@@ -37,17 +37,19 @@ static void send_distribution(const sx_nodelist_t *nodes) {
     CGI_PUTC('[');
     for(i = 0; i < n; i++) {
 	const sx_node_t *node = sx_nodelist_get(nodes, i);
-	const char *uuid = sx_node_uuid_str(node);
+	const sx_uuid_t *uuid = sx_node_uuid(node);
 	const char *addr = sx_node_addr(node);
 	const char *int_addr = sx_node_internal_addr(node);
 
 	if(i)
 	    CGI_PUTC(',');
-	CGI_PRINTF("{\"nodeUUID\":\"%s\",\"nodeAddress\":\"%s\",", uuid, addr);
+	CGI_PRINTF("{\"nodeUUID\":\"%s\",\"nodeAddress\":\"%s\",", uuid->string, addr);
 	if(strcmp(addr, int_addr))
 	    CGI_PRINTF("\"nodeInternalAddress\":\"%s\",", int_addr);
 	CGI_PUTS("\"nodeCapacity\":");
 	CGI_PUTLL(sx_node_capacity(node));
+	if(sx_hashfs_is_node_ignored(hashfs, uuid))
+	    CGI_PUTS(",\"nodeFlags\":\"i\"");
 	CGI_PUTC('}');
     }
     CGI_PUTC(']');
@@ -89,7 +91,7 @@ void fcgi_handle_cluster_requests(void) {
 	CGI_PUTS("\"clusterStatus\":{\"distributionModels\":[");
 
 	if(!sx_storage_is_bare(hashfs)) {
-	    const sx_nodelist_t *nodes = sx_hashfs_nodelist(hashfs, NL_PREV);
+	    const sx_nodelist_t *nodes = sx_hashfs_all_nodes(hashfs, NL_PREV);
 	    const sx_uuid_t *dist_uuid;
 	    unsigned int version;
 	    uint64_t checksum;
@@ -98,7 +100,7 @@ void fcgi_handle_cluster_requests(void) {
 		send_distribution(nodes);
 		if(sx_hashfs_is_rebalancing(hashfs)) {
 		    CGI_PUTC(',');
-		    send_distribution(sx_hashfs_nodelist(hashfs, NL_NEXT));
+		    send_distribution(sx_hashfs_all_nodes(hashfs, NL_NEXT));
 		}
 	    }
 	    dist_uuid = sx_hashfs_distinfo(hashfs, &version, &checksum);
@@ -162,7 +164,7 @@ void fcgi_handle_cluster_requests(void) {
                 priv = PRIV_READ | PRIV_WRITE;
 
 	    CGI_PRINTF(":{\"owner\":\"%s\",\"replicaCount\":%u,\"maxRevisions\":%u,\"privs\":\"%c%c\",\"usedSize\":", owner,
-                vol->replica_count, vol->revisions, (priv & PRIV_READ) ? 'r' : '-', (priv & PRIV_WRITE) ? 'w' : '-');
+                vol->max_replica, vol->revisions, (priv & PRIV_READ) ? 'r' : '-', (priv & PRIV_WRITE) ? 'w' : '-');
 
 	    CGI_PUTLL(vol->cursize);
             CGI_PRINTF(",\"sizeBytes\":");
@@ -208,7 +210,7 @@ void fcgi_handle_cluster_requests(void) {
 	comma |= 1;
     }
     if(has_arg("nodeList")) {
-	const sx_nodelist_t *nodes = sx_hashfs_nodelist(hashfs, NL_NEXTPREV);
+	const sx_nodelist_t *nodes = sx_hashfs_effective_nodes(hashfs, NL_NEXTPREV);
 
 	if(comma) CGI_PUTC(',');
 	CGI_PUTS("\"nodeList\":");
@@ -221,7 +223,7 @@ void fcgi_handle_cluster_requests(void) {
 	comma |= 1;
     }
     if(has_arg("nodeMaps")) {
-	const sx_nodelist_t *nodes = sx_hashfs_nodelist(hashfs, NL_NEXTPREV);
+	const sx_nodelist_t *nodes = sx_hashfs_all_nodes(hashfs, NL_NEXTPREV);
 	unsigned int nnode, nnodes = sx_nodelist_count(nodes);
 
 	if(comma) CGI_PUTC(',');

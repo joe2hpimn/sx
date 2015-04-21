@@ -120,6 +120,9 @@ void volume_ops(void) {
 	if(!has_arg("o") || arg_is("o", "list")) {
 	    /* List volume content - READ required */
 	    fcgi_list_volume(vol);
+        } else if(arg_is("o","revision_blocks")) {
+            quit_unless_has(PRIV_CLUSTER);
+            fcgi_list_revision_blocks(vol);
 	} else
 	    quit_errnum(404);
 
@@ -185,7 +188,10 @@ void volume_ops(void) {
             fcgi_distlock();
 	} else if(!strcmp(".nodes", volume)) {
 	    /* Update distribution (sxadm entry) - ADMIN required */
-	    fcgi_set_nodes();
+	    if(has_arg("setfaulty"))
+		fcgi_mark_faultynodes();
+	    else
+		fcgi_set_nodes();
 	} else if (!strcmp(".users", volume)) {
 	    /* Create new user - ADMIN required */
 	    fcgi_create_user();
@@ -336,6 +342,8 @@ void file_ops(void) {
                 quit_unless_has(PRIV_CLUSTER);
                 if (arg_is("o","reserve"))
                     fcgi_hashop_blocks(HASHOP_RESERVE);
+                else if (arg_is("o", "revmod"))
+                    fcgi_revision_op();
                 else
                     quit_errmsg(400,"Invalid operation requested on hash batch");
                 return;
@@ -351,7 +359,6 @@ void file_ops(void) {
 	    fcgi_push_blocks();
 	    return;
 	}
-
 	if(has_priv(PRIV_CLUSTER)) {
 	    /* New file propagation (s2s) - CLUSTER required */
 	    fcgi_create_file();
@@ -385,6 +392,17 @@ void file_ops(void) {
 	    fcgi_node_repaired();
 	    return;
 	}
+
+	if(!strcmp(volume, ".data")) {
+            if (has_arg("o")) {
+		/* Hashop reserve/inuse (s2s) - CLUSTER required */
+                quit_unless_has(PRIV_CLUSTER);
+                if (arg_is("o", "revmod")) {
+                    fcgi_revision_op();
+                    return;
+                }
+            }
+        }
 
 	if(is_reserved())
             quit_errmsg(405, "Method Not Allowed");
