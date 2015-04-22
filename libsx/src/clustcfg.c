@@ -3764,10 +3764,10 @@ static int node_status_setup_cb(curlev_context_t *cbdata, void *ctx, const char 
     return 0;
 }
 
-int sxi_cluster_status(sxc_cluster_t *cluster, const node_status_cb_t status_cb, void *ctx) {
+int sxi_cluster_status(sxc_cluster_t *cluster, const node_status_cb_t status_cb, int human_readable) {
     sxi_conns_t *conns = sxi_cluster_get_conns(cluster);
     sxc_client_t *sx = sxi_cluster_get_client(cluster);
-    int ret = 1;
+    int ret = 1, fail = 0;
     sxi_hostlist_t *hosts;
     sxi_hostlist_t hlist;
     unsigned int i;
@@ -3790,6 +3790,7 @@ int sxi_cluster_status(sxc_cluster_t *cluster, const node_status_cb_t status_cb,
     nnodes = sxi_hostlist_get_count(hosts);
     sxi_hostlist_init(&hlist);
 
+    sxi_set_operation(sx, "check cluster status", NULL, NULL, NULL);
     for(i = 0; i < nnodes; i++) {
         int qret;
         const char *node = sxi_hostlist_get_host(hosts, i);
@@ -3821,21 +3822,34 @@ int sxi_cluster_status(sxc_cluster_t *cluster, const node_status_cb_t status_cb,
             SXDEBUG("Failed to get status of node %s: %s", node, sxc_geterrmsg(sx));
             yajl_free(yctx->yh);
             free(yctx);
-            goto sxc_cluster_status_err;
+            sxc_clearerr(sx);
+            sxi_seterr(sx, SXE_ECOMM, "Can't query node %s", node);
+            fail = 1;
+            status_cb(sx, NULL, human_readable);
+            continue;
         }
 
         if(yajl_complete_parse(yctx->yh) != yajl_status_ok || yctx->state != NS_COMPLETE) {
             SXDEBUG("Failed to complete parsing of node %s status", node);
             yajl_free(yctx->yh);
             free(yctx);
-            goto sxc_cluster_status_err;
+            sxc_clearerr(sx);
+            sxi_seterr(sx, SXE_ECOMM, "Can't query node %s", node);
+            fail = 1;
+            status_cb(sx, NULL, human_readable);
+            continue;
         }
 
-        status_cb(sx, &yctx->status, ctx);
+        status_cb(sx, &yctx->status, human_readable);
         yajl_free(yctx->yh);
         free(yctx);
     }
 
+    if(fail) {
+        sxc_clearerr(sx);
+        sxi_seterr(sx, SXE_ECOMM, "Failed to communicate with all cluster nodes");
+        goto sxc_cluster_status_err;
+    }
     ret = 0;
 sxc_cluster_status_err:
     sxi_hostlist_empty(&hlist);

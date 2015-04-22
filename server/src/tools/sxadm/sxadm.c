@@ -1538,21 +1538,16 @@ extract_node_err:
     return ret;
 }
 
-struct status_print_ctx {
-    int first;
-    int human_readable;
-};
-
-static void print_status(sxc_client_t *sx, const sxi_node_status_t *status, void *ctx) {
-    struct status_print_ctx *pctx = (struct status_print_ctx*)ctx;
+static void print_status(sxc_client_t *sx, const sxi_node_status_t *status, int human_readable) {
     char str[64];
 
-    if(!sx || !status || !ctx)
+    if(!sx)
         return;
 
-    if(!pctx->first)
-        printf("\n");
-    pctx->first = 0;
+    if(!status) {
+        printf("ERROR: %s\n\n", sxc_geterrmsg(sx));
+        return;
+    }
 
     printf("Node %s status:\n", status->uuid);
     printf("    Versions:\n");
@@ -1572,16 +1567,16 @@ static void print_status(sxc_client_t *sx, const sxi_node_status_t *status, void
     printf("        Internal address: %s\n", status->internal_addr);
     printf("    Storage:\n");
     printf("        Storage directory: %s\n", status->storage_dir);
-    fmt_capa(status->storage_allocated, str, sizeof(str), pctx->human_readable);
+    fmt_capa(status->storage_allocated, str, sizeof(str), human_readable);
     printf("        Allocated space: %s\n", str);
-    fmt_capa(status->storage_commited, str, sizeof(str), pctx->human_readable);
+    fmt_capa(status->storage_commited, str, sizeof(str), human_readable);
     printf("        Used space: %s\n", str);
     printf("    Storage filesystem:\n");
-    fmt_capa(status->block_size, str, sizeof(str), pctx->human_readable);
+    fmt_capa(status->block_size, str, sizeof(str), human_readable);
     printf("        Block size: %s\n", str);
-    fmt_capa(status->block_size * status->total_blocks, str, sizeof(str), pctx->human_readable);
+    fmt_capa(status->block_size * status->total_blocks, str, sizeof(str), human_readable);
     printf("        Total size: %s\n", str);
-    fmt_capa(status->block_size * status->avail_blocks, str, sizeof(str), pctx->human_readable);
+    fmt_capa(status->block_size * status->avail_blocks, str, sizeof(str), human_readable);
     printf("        Available: %s\n", str);
     if(status->total_blocks && status->avail_blocks) /* Avoid division by 0 */
         printf("        Used: %.2lf%%\n", (double)(status->total_blocks - status->avail_blocks) * 100.0 / status->total_blocks);
@@ -1589,24 +1584,27 @@ static void print_status(sxc_client_t *sx, const sxi_node_status_t *status, void
         printf("        Used: N/A\n");
     
     printf("    Memory:\n");
-    fmt_capa(status->mem_total, str, sizeof(str), pctx->human_readable);
-    printf("        Total: %s\n", str);
+    fmt_capa(status->mem_total, str, sizeof(str), human_readable);
+    printf("        Total: %s\n\n", str);
     
 }
 
 static int cluster_status(sxc_client_t *sx, struct cluster_args_info *args) {
     sxc_cluster_t *clust = cluster_load(sx, args, 1);
     int ret;
-    struct status_print_ctx pctx = { 1, args->human_readable_given };
 
+    if(!args) {
+        fprintf(stderr, "ERROR: NULL argument\n");
+        return 1;
+    }
     if(!clust) {
-        sxi_seterr(sx, SXE_EARG, "Failed to load cluster");
+        fprintf(stderr, "ERROR: Failed to load cluster\n");
         return 1;
     }
 
-    ret = sxi_cluster_status(clust, print_status, &pctx);
+    ret = sxi_cluster_status(clust, print_status, args->human_readable_given);
     if(ret)
-        sxi_seterr(sx, SXE_EARG, "Failed to get cluster status");
+        fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
 
     sxc_cluster_free(clust);
     return ret;

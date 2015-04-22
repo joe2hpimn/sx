@@ -50,8 +50,8 @@ sxc_xfer_stat_t* sxi_xfer_new(sxc_client_t *sx, sxc_xfer_callback xfer_callback,
 /* Get transfer stats from cluster */
 sxc_xfer_stat_t *sxi_cluster_get_xfer_stat(sxc_cluster_t* cluster);
 
-typedef void (*node_status_cb_t)(sxc_client_t *sx, const sxi_node_status_t *status, void *ctx);
-int sxi_cluster_status(sxc_cluster_t *cluster, const node_status_cb_t status_cb, void *ctx);
+typedef void (*node_status_cb_t)(sxc_client_t *sx, const sxi_node_status_t *status, int human_readable);
+int sxi_cluster_status(sxc_cluster_t *cluster, const node_status_cb_t status_cb, int human_readable);
 int sxi_cluster_distribution_lock(sxc_cluster_t *cluster, const char *master);
 int sxi_cluster_distribution_unlock(sxc_cluster_t *cluster, const char *master);
 int sxi_cluster_set_mode(sxc_cluster_t *cluster, int readonly);
