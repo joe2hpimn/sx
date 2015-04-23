@@ -125,6 +125,7 @@ void fcgi_hashop_blocks(enum sxi_hashop_kind kind) {
     int comma = 0;
     unsigned idx = 0;
     uint64_t op_expires_at;
+    unsigned replica;
 
     auth_complete();
     quit_unless_authed();
@@ -132,6 +133,8 @@ void fcgi_hashop_blocks(enum sxi_hashop_kind kind) {
     reserve_id = get_arg("reserve_id");
     revision_id = get_arg("revision_id");
     expires = get_arg("op_expires_at");
+    replica = get_arg_uint("replica");
+    if (replica == -1) replica = 0;
     if (kind != HASHOP_CHECK) {
         if (!reserve_id || !revision_id || !expires)
             quit_errmsg(400, "Missing id/expires");
@@ -171,7 +174,7 @@ void fcgi_hashop_blocks(enum sxi_hashop_kind kind) {
                     rc = EINVAL;
                     break;
                 }
-                rc = sx_hashfs_hashop_perform(hashfs, blocksize, 0, HASHOP_RESERVE, &reqhash, &reserve_hash, &revision_hash, op_expires_at, &present);
+                rc = sx_hashfs_hashop_perform(hashfs, blocksize, replica, HASHOP_RESERVE, &reqhash, &reserve_hash, &revision_hash, op_expires_at, &present);
                 break;
             case HASHOP_CHECK:
                 rc = sx_hashfs_hashop_perform(hashfs, blocksize, 0, HASHOP_CHECK, &reqhash, NULL, NULL, 0, &present);

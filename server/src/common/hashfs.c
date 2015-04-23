@@ -7006,17 +7006,8 @@ static rc_ty sx_hashfs_hashop_moduse(sx_hashfs_t *h, const sx_hash_t *reserve_id
         return EINVAL;
     }
     if (!replica) {
-        if (op) {
-            msg_set_reason("replica is zero is only valid for reservations");
-            return EINVAL;
-        }
-    }
-
-    if (!op) {
-        if (replica) {
-            msg_set_reason("op=0 is valid only for reservations");
-            return EINVAL;
-        }
+        msg_set_reason("replica zero is not valid");
+        return EINVAL;
     }
 
     if (!revision_id) {
@@ -7107,7 +7098,7 @@ rc_ty sx_hashfs_hashop_perform(sx_hashfs_t *h, unsigned int block_size, unsigned
             break;
         case HASHOP_RESERVE:
             /* we must always reserve, even if ENOENT */
-            rc = sx_hashfs_hashop_moduse(h, reserve_id, revision_id, hs, hash, 0, 0, op_expires_at);
+            rc = sx_hashfs_hashop_moduse(h, reserve_id, revision_id, hs, hash, replica_count, 0, op_expires_at);
             if (rc == OK)
                 rc = sx_hashfs_hashop_ishash(h, hs, hash);
             break;
@@ -7888,7 +7879,7 @@ rc_ty sx_hashfs_putfile_gettoken(sx_hashfs_t *h, const uint8_t *user, int64_t si
         sx_unique_fileid(h->sx, vol, name, revision, &h->put_revision_id))
         goto gettoken_err;
     DEBUGHASH("file initial PUT reserve_id", &h->put_reserve_id);
-    sxi_hashop_begin(&h->hc, h->sx_clust, hdck_cb, HASHOP_RESERVE, 0, &h->put_reserve_id, &h->put_revision_id, hdck_cb_ctx, expires_at);
+    sxi_hashop_begin(&h->hc, h->sx_clust, hdck_cb, HASHOP_RESERVE, vol->max_replica, &h->put_reserve_id, &h->put_revision_id, hdck_cb_ctx, expires_at);
     sqlite3_reset(h->qt_gettoken);
     return OK;
 
@@ -8330,7 +8321,7 @@ static rc_ty reserve_replicas(sx_hashfs_t *h, uint64_t op_expires_at)
         memset(hashop, 0, sizeof(*hashop));
         DEBUGHASH("reserve_replicas reserve_id", &h->put_reserve_id);
         sxi_hashop_begin(hashop, h->sx_clust, NULL,
-                         HASHOP_RESERVE, 0, &h->put_reserve_id, &h->put_revision_id, NULL, op_expires_at);
+                         HASHOP_RESERVE, h->put_replica, &h->put_reserve_id, &h->put_revision_id, NULL, op_expires_at);
         while((ret = are_blocks_available(h, all_hashes, hashop,
                                           uniq_hash_indexes, node_indexes,
                                           &cur_item, uniq_count, hash_size,
@@ -13120,6 +13111,7 @@ static rc_ty sx_hashfs_should_repair(sx_hashfs_t *h, const block_meta_t *blockme
     }
     if (!max_replica)
         return ITER_NO_MORE;
+    DEBUG("max_replica: %d", max_replica);
     hashnodes = sx_hashfs_all_hashnodes(h, NL_PREV, &blockmeta->hash, max_replica);
     if (!hashnodes) {
         WARN("cannot determine nodes for hash");
