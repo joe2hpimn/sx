@@ -8215,7 +8215,7 @@ static rc_ty are_blocks_available(sx_hashfs_t *h, sx_hash_t *hashes,
 	*current = check_item+1;
         if (sxi_hashop_batch_flush(hdck))
             WARN("Failed to query hash: %s", sxc_geterrmsg(h->sx));
-        rc = sx_hashfs_hashop_perform(h, bsz[hash_size], replica_count, hdck->kind, hash, &hdck->reserve_id, &hdck->revision_id, hdck->op_expires_at, NULL);
+        rc = sx_hashfs_hashop_perform(h, bsz[hash_size], hdck->replica, hdck->kind, hash, &hdck->reserve_id, &hdck->revision_id, hdck->op_expires_at, NULL);
         if(rc != OK) {
             WARN("hashop_perform/finish failed: %s", rc2str(rc));
             return rc;
