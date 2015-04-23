@@ -523,9 +523,14 @@ void fcgi_distlock(void) {
         return;
     }
 
-    /* If cluster is rebalancing, then lock shouldn't be acquired */
-    if(dctx.op && sx_hashfs_is_rebalancing(hashfs))
-        quit_errmsg(409, "Cluster is rebalancing");
+    /* If cluster is changing hdist already, then lock shouldn't be acquired */
+    if(dctx.op) {
+        sx_inprogress_t status = sx_hashfs_get_progress_info(hashfs, NULL);
+        if(status == INPRG_ERROR)
+            quit_errmsg(500, msg_get_reason());
+        if(status != INPRG_IDLE)
+            quit_errmsg(409, "Distribution changes in progress");
+    }
 
     if(!has_priv(PRIV_CLUSTER)) {
         char hexuser[AUTH_UID_LEN*2+1];

@@ -4382,6 +4382,7 @@ static act_result_t distlock_common(sx_hashfs_t *hashfs, job_t job_id, job_data_
     query_list_t *qrylist = NULL;
     const char *lockid = NULL;
     int32_t op = 0;
+    rc_ty s;
 
     b = sx_blob_from_data(job_data->ptr, job_data->len);
     if(!b) {
@@ -4406,7 +4407,7 @@ static act_result_t distlock_common(sx_hashfs_t *hashfs, job_t job_id, job_data_
     for(nnode = 0; nnode<nnodes; nnode++) {
         const sx_node_t *node = sx_nodelist_get(nodes, nnode);
 
-        if(sx_node_cmp(me, node)) { /* Do not apply locally, its already been done */
+        if(sx_node_cmp(me, node)) {
             if(!proto) {
                 proto = sxi_distlock_proto(sx, op, lockid);
                 if(!proto) {
@@ -4427,8 +4428,24 @@ static act_result_t distlock_common(sx_hashfs_t *hashfs, job_t job_id, job_data_
                 action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to setup cluster communication");
             }
             qrylist[nnode].query_sent = 1;
-        } else
+        } else if(phase == JOBPHASE_REQUEST) {
             succeeded[nnode] = 1; /* Locally mark as succeeded */
+        } else { /* ABORT phase on local node, revert previously set distlock */
+            /* op variable was previously inverted */
+            if(op) { /* Lock operation */
+                s = sx_hashfs_distlock_acquire(hashfs, lockid);
+                if(s != OK && s != EEXIST) { /* EEXIST is not an error when we want to revert the lock */
+                    WARN("Failed to acquire lock %s", lockid);
+                    action_error(ACT_RESULT_PERMFAIL, rc2http(s), "Failed to acquire distribution lock");
+                }
+            } else { /* Unlock operation */
+                s = sx_hashfs_distlock_release(hashfs);
+                if(s != OK) {
+                    WARN("Failed to release lock %s", lockid);
+                    action_error(ACT_RESULT_PERMFAIL, rc2http(s), "Failed to release distribution lock");
+                }
+            }
+        }
     }
 
  action_failed:
