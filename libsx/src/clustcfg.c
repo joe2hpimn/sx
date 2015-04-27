@@ -2979,23 +2979,36 @@ char *sxc_user_newkey(sxc_cluster_t *cluster, const char *username, const char *
         return NULL;
     }
 
-    /* Only fetch uid if user is not changing his own key. If he's not allowed to do so, it will be rejected from get_user_info_wrap() */
+    /* Only fetch uid if user is not changing his own key. If he's not allowed to do so, the operation will be rejected from get_user_info_wrap() */
     if(memcmp(curtoken_bin, uid, AUTH_UID_LEN)) {
         uint8_t tmpuid[AUTH_UID_LEN];
 
         memcpy(tmpuid, uid, sizeof(tmpuid));
         if(get_user_info_wrap(cluster, username, uid, NULL)) { /* Read existing user ID, which is stored along with his key */
             SXDEBUG("Failed to get existing user UID");
-            if(sxc_geterrnum(sx) == SXE_EAUTH) { /* If not authorsized, warn that only admin can change clone's key */
+            if(sxc_geterrnum(sx) == SXE_EAUTH) { /* If not authorized, warn that only admin can change other user's key */
                sxc_clearerr(sx);
-               sxi_seterr(sx, SXE_EARG, "Only admin can change clone's key");
+               sxi_seterr(sx, SXE_EARG, "Only admin can change other user's key");
             }
             return NULL;
         }
 
         if(memcmp(tmpuid, uid, AUTH_UID_LEN) && !oldtoken && !generate_key) {
-            sxi_seterr(sx, SXE_EARG, "Cannot use username and password for clones");
-            return NULL;
+            char zerouid[AUTH_UID_LEN];
+            memset(zerouid, 0, AUTH_UID_LEN);
+
+            /* Compatibility notice:
+             * 1.0 version of SX server does not return a user UID from usergetkey query.
+             * get_user_info_wrap() memsets the uid and then fills it if some data was returned. In 1.0 server
+             * case it will be left zeroed, therefore we should first check if the field was filled. */
+            if(memcmp(zerouid, uid, AUTH_UID_LEN)) {
+                /* UID is not zeroed, it was returned from the server and is different than destination user UID, it is a clone. */
+                sxi_seterr(sx, SXE_EARG, "Cannot use username and password for clones");
+                return NULL;
+            } else {
+                SXDEBUG("User '%s' UID was not returned by the server, assuming the user is not a clone", username);
+                memcpy(uid, tmpuid, AUTH_UID_LEN);
+            }
         }
     }
 
