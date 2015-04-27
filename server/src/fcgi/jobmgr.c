@@ -843,7 +843,7 @@ static rc_ty filerev_from_jobdata_tmpfileid(sx_hashfs_t *hashfs, job_data_t *job
     }
     filerev->volume_id = tmpinfo->volume_id;
     filerev->block_size = tmpinfo->block_size;
-    memcpy(filerev->name, tmpinfo->name, sizeof(filerev->name));
+    sxi_strlcpy(filerev->name, tmpinfo->name, sizeof(filerev->name));
     free(tmpinfo);
     return OK;
 }
