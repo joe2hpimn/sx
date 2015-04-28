@@ -101,42 +101,6 @@ sxc_cluster_t *load_config(sxc_client_t *sx, const char *uri, sxc_uri_t **sxuri)
     return cluster;
 }
 
-static int read_pass_file(const char *pass_file, char *pass, unsigned int pass_len) {
-    FILE *f;
-    unsigned int len;
-    char *p;
-
-    if(!pass_file || !pass) {
-        fprintf(stderr, "ERROR: NULL argument\n");
-        return 1;
-    }
-
-    if(pass_len <= 8) {
-        fprintf(stderr, "ERROR: Invalid argument: Password buffer too short\n");
-        return 1;
-    }
-
-    f = fopen(pass_file, "r");
-    if(!f) {
-        fprintf(stderr, "ERROR: Failed to open pass file %s\n", pass_file);
-        return 1;
-    }
-
-    p = fgets(pass, pass_len, f);
-    fclose(f);
-
-    if(!p) {
-        fprintf(stderr, "ERROR: Failed to read pass file %s\n", pass_file);
-        memset(pass, 0, pass_len);
-        return 1;
-    }
-
-    len = strlen(p);
-    if(len && p[len-1] == '\n')
-        p[len-1] = '\0';
-    return 0;
-}
-
 static int add_user(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_uri_t *u, const char *username, const char* pass_file, enum enum_role type, const char *authfile, int batch_mode, const char *oldtoken, const char *existing, const char *desc, int generate_key) {
     char *key;
     int created_role = (type == role_arg_admin ? 1 : 0);
@@ -147,7 +111,7 @@ static int add_user(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_uri_t *u, cons
 	return 1;
     }
 
-    if(pass_file) {
+    if(pass_file && strcmp(pass_file, "-")) {
         if(oldtoken) {
             fprintf(stderr, "ERROR: Can't use pass file and old key\n");
             return 1;
@@ -157,7 +121,7 @@ static int add_user(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_uri_t *u, cons
         }
 
         mlock(pass, sizeof(pass));
-        if(read_pass_file(pass_file, pass, sizeof(pass))) {
+        if(sxc_read_pass_file(sx, pass_file, pass, sizeof(pass))) {
             fprintf(stderr, "ERROR: Can't use pass file to clone users\n");
             munlock(pass, sizeof(pass));
             return 1;
@@ -171,7 +135,7 @@ static int add_user(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_uri_t *u, cons
     else /* Creating new user */
         key = sxc_user_add(cluster, username, pass_file ? pass : NULL, type == role_arg_admin, oldtoken, desc, generate_key);
 
-    if(pass_file) {
+    if(pass_file && strcmp(pass_file, "-")) {
         memset(pass, 0, sizeof(pass));
         munlock(pass, sizeof(pass));
     }
@@ -244,7 +208,7 @@ static int newkey_user(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_uri_t *u, c
         }
 
         mlock(pass, sizeof(pass));
-        if(read_pass_file(pass_file, pass, sizeof(pass))) {
+        if(sxc_read_pass_file(sx, pass_file, pass, sizeof(pass))) {
             fprintf(stderr, "ERROR: Can't use pass file to clone users\n");
             munlock(pass, sizeof(pass));
             return 1;

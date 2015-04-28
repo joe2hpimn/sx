@@ -43,6 +43,9 @@ struct gengetopt_args_info
   char * config_link_arg;	/**< @brief Use a configuration link for an automated setup.  */
   char * config_link_orig;	/**< @brief Use a configuration link for an automated setup original value given at command line.  */
   const char *config_link_help; /**< @brief Use a configuration link for an automated setup help description.  */
+  char * sxauthd_arg;	/**< @brief Use sxauthd credentials (provide https://[username@]host/ uri).  */
+  char * sxauthd_orig;	/**< @brief Use sxauthd credentials (provide https://[username@]host/ uri) original value given at command line.  */
+  const char *sxauthd_help; /**< @brief Use sxauthd credentials (provide https://[username@]host/ uri) help description.  */
   const char *list_help; /**< @brief List configured profiles and aliases help description.  */
   const char *info_help; /**< @brief Show information about a configured cluster help description.  */
   const char *delete_help; /**< @brief Delete a profile help description.  */
@@ -79,6 +82,7 @@ struct gengetopt_args_info
   unsigned int full_help_given ;	/**< @brief Whether full-help was given.  */
   unsigned int version_given ;	/**< @brief Whether version was given.  */
   unsigned int config_link_given ;	/**< @brief Whether config-link was given.  */
+  unsigned int sxauthd_given ;	/**< @brief Whether sxauthd was given.  */
   unsigned int list_given ;	/**< @brief Whether list was given.  */
   unsigned int info_given ;	/**< @brief Whether info was given.  */
   unsigned int delete_given ;	/**< @brief Whether delete was given.  */

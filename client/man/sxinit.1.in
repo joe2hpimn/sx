@@ -20,6 +20,9 @@ Print version and exit
 \fB\-C\fR, \fB\-\-config\-link\fR=\fI\,URI\/\fR
 Use a configuration link to perform an automated setup. The configuration link can be provided by a cluster administrator or obtained with \fBsxacl-usergetkey\fR(1).
 .TP
+\fB\-\-sxauthd\fR=\fI\,https://[username@]host/\/\fR
+Use sxauthd to access the cluster. sxauthd is part of SX Enterprise Edition and provides an enterprise login functionality by integrating with existing authentication mechanisms such as LDAP or PAM.
+.TP
 \fB\-L\fR, \fB\-\-list\fR
 List configured clusters and aliases
 .TP

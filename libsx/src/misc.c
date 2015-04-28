@@ -294,6 +294,34 @@ char *sxi_urlencode(sxc_client_t *sx, const char *string, int encode_slash) {
     return ret;
 }
 
+/* URL decoding: http://geekhideout.com/urlcode.shtml */
+
+/* Converts a hex character to its integer value */
+static char from_hex(char ch) {
+  return isdigit(ch) ? ch - '0' : tolower(ch) - 'a' + 10;
+}
+
+char *sxc_urldecode(sxc_client_t *sx, const char *s) {
+    char *q, *ret = calloc(1, strlen(s) + 1);
+    if(!ret) {
+        sxi_seterr(sx, SXE_EMEM, "Failed to allocate decoded string: Out of memory");
+        return NULL;
+    }
+
+    q = ret;
+    while(*s) {
+        if(*s == '%' && s[1] && s[2]) {
+            *q++ = from_hex(s[1]) << 4 | from_hex(s[2]);
+            s+=3;
+        } else if(*s == '+')
+            *q++ = ' ';
+        else
+            *q++ = *s++;
+    }
+    *q = '\0';
+    return ret;
+}
+
 static void downcase(char *s) {
     for(;*s;s++) {
 	char c = *s;

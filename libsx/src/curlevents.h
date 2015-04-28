@@ -180,6 +180,7 @@ int sxi_retry_check(sxi_retry_t *retry, unsigned current_try);
 void sxi_retry_msg(sxc_client_t *sx, sxi_retry_t *retry, const char *host);
 int sxi_retry_done(sxi_retry_t **retry);
 int sxi_curlev_fetch_certificates(curl_events_t *e, const char *url, int quiet);
+char *sxi_curlev_fetch_sxauthd_credentials(curl_events_t *e, const char *url, const char *username, const char *password, const char *label, const char *unique_name, int quiet);
 
 sxi_conns_t *sxi_curlev_get_conns(curlev_t *ev);
 void sxi_curlev_set_verified(curlev_t *ev, int value);

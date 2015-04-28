@@ -876,6 +876,36 @@ void sxi_conns_disable_blacklisting(sxi_conns_t *conns) {
 	conns->no_blacklisting = 1;
 }
 
+char *sxi_conns_fetch_sxauthd_credentials(sxi_conns_t *conns, const char *username, const char *pass, const char *unique_name, const char *display_name, const char *host, int port, int quiet) {
+    unsigned int len;
+    sxc_client_t *sx;
+    char *url, *ret;
+    if(!conns)
+        return NULL;
+    sx = sxi_conns_get_client(conns);
+
+    if(!username || !host || port < 0 || !pass) {
+        sxi_seterr(sx, SXE_EARG, "Invalid argument");
+        return NULL;
+    }
+
+    len = lenof("https://:65535/.auth/api/v1/create") + strlen(host) + 1;
+    url = malloc(len);
+    if(!url) {
+        sxi_seterr(sx, SXE_EMEM, "Out of memory");
+        return NULL;
+    }
+
+    if(port)
+        snprintf(url, len, "https://%s:%u/.auth/api/v1/create", host, port);
+    else
+        snprintf(url, len, "https://%s/.auth/api/v1/create", host);
+
+    ret = sxi_curlev_fetch_sxauthd_credentials(sxi_conns_get_curlev(conns), url, username, pass, unique_name, display_name, quiet);
+    free(url);
+    return ret;
+}
+
 int sxi_conns_root_noauth(sxi_conns_t *conns, const char *tmpcafile, int quiet)
 {
     unsigned i, hostcount, n;
@@ -883,7 +913,6 @@ int sxi_conns_root_noauth(sxi_conns_t *conns, const char *tmpcafile, int quiet)
     const char *bracket_open, *bracket_close;
     const char *query = "";
     char *url;
-
     if (sxi_is_debug_enabled(conns->sx))
 	sxi_curlev_set_verbose(conns->curlev, 1);
     hostcount = sxi_hostlist_get_count(&conns->hlist);

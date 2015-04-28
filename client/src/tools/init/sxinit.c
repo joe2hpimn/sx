@@ -35,6 +35,8 @@
 #include <errno.h>
 #include <termios.h>
 #include <sys/mman.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 
 #include "sx.h"
 #include "cmdline.h"
@@ -138,21 +140,20 @@ static int list_clusters(void) {
     return 0;
 }
 
-static int del_profile(sxc_uri_t *u) {
+static int del_profile(const char *profile, const char *host) {
     int ret = -1;
     const char *config_dir = sxc_get_confdir(sx);
     unsigned int profdir_len, confdir_len, fname_len;
     const char *home_dir = NULL;
     char *fname;
-    const char *profile;
 
-    if(!u || !u->host) {
+    if(!host) {
         sxi_seterr(sx, SXE_EARG, "Cannot locate config directory: Invalid argument");
         return ret;
     }
 
-    confdir_len = strlen(u->host);
-    if(memchr(u->host, '/', confdir_len)) {
+    confdir_len = strlen(host);
+    if(memchr(host, '/', confdir_len)) {
         sxi_seterr(sx, SXE_EARG, "Cannot locate config directory: Invalid argument");
         return ret;
     }
@@ -172,10 +173,8 @@ static int del_profile(sxc_uri_t *u) {
     } else
         confdir_len += strlen(config_dir) + 1;
 
-    if(!u->profile || !u->profile[0])
+    if(!profile || !profile[0])
         profile = "default";
-    else
-        profile = u->profile;
 
     profdir_len = confdir_len + strlen("/auth/");
     fname_len = strlen(profile) + profdir_len + 1;
@@ -186,12 +185,12 @@ static int del_profile(sxc_uri_t *u) {
     }
 
     if(config_dir)
-        snprintf(fname, fname_len, "%s/%s/auth/%s", config_dir, u->host, profile);
+        snprintf(fname, fname_len, "%s/%s/auth/%s", config_dir, host, profile);
     else
-        snprintf(fname, fname_len, "%s/.sx/%s/auth/%s", home_dir, u->host, profile);
+        snprintf(fname, fname_len, "%s/.sx/%s/auth/%s", home_dir, host, profile);
 
     if(access(fname, F_OK)) {
-        sxi_seterr(sx, SXE_ECFG, "Cannot locate profile 'sx://%s@%s/'", profile, u->host);
+        sxi_seterr(sx, SXE_ECFG, "Cannot locate profile 'sx://%s@%s/'", profile, host);
         goto rm_profile_err;
     }
 
@@ -202,7 +201,7 @@ static int del_profile(sxc_uri_t *u) {
     }
 
     /* Clean all aliases combined with given profile */
-    if(sxc_del_aliases(sx, profile, u->host)) {
+    if(sxc_del_aliases(sx, profile, host)) {
         SXDEBUG("Failed to delete aliases for profile '%s': %s", profile, sxc_geterrmsg(sx));
         goto rm_profile_err;
     }
@@ -225,10 +224,10 @@ rm_profile_err:
 }
 
 /* Check if alias exists and if so, compare its uri with given by user */
-static int check_alias(const char *alias, const sxc_uri_t *u) {
+static int check_alias(const char *alias, const char *profile, const char *host) {
     sxc_uri_t *tmp = NULL;
 
-    if(!alias || !u) {
+    if(!alias || !host) {
         fprintf(stderr, "ERROR: Invalid argument\n");
         return 1;
     }
@@ -253,19 +252,19 @@ static int check_alias(const char *alias, const sxc_uri_t *u) {
     }
 
     /* Check host part of uri */
-    if(strcmp(tmp->host, u->host)) {
+    if(strcmp(tmp->host, host)) {
         fprintf(stderr, "ERROR: Alias '%s' is already used\n", alias);
         sxc_free_uri(tmp);
         return 1;
     }
 
-    if(!u->profile && !tmp->profile) { /* No profile defined, same uri */
+    if(!profile && !tmp->profile) { /* No profile defined, same uri */
         sxc_free_uri(tmp);
         return 0;
     }
 
-    if(u->profile && tmp->profile) { /* Both uris have profile defined, compare them */
-        if(strcmp(u->profile, tmp->profile)) {
+    if(profile && tmp->profile) { /* Both uris have profile defined, compare them */
+        if(strcmp(profile, tmp->profile)) {
             fprintf(stderr, "ERROR: Alias '%s' is already used\n", alias);
             sxc_free_uri(tmp);
             return 1;
@@ -300,11 +299,11 @@ static int yesno(const char *prompt, int def)
     return 0;
 }
 
-/* Fetch basic cluster information like security flag or UUID by doing a not authorised query with fake key */
-static int fetch_cluster_noauth_info(sxc_cluster_t *cluster, const sxc_uri_t *u) {
+/* Fetch basic cluster information like security flag or UUID by doing a not authorised query with a fake key */
+static int fetch_cluster_noauth_info(sxc_cluster_t *cluster, const char *profile) {
     char tok_buf[AUTHTOK_ASCII_LEN+1];
     sxi_strlcpy(tok_buf, "wFPs+e1B3wMRud8TzGw7YHjS08LWGuoIdfALMZTPLMVFKYM41rVlDwAA", sizeof(tok_buf));
-    if(sxc_cluster_add_access(cluster, u->profile, tok_buf) || sxc_cluster_set_access(cluster, u->profile)) {
+    if(sxc_cluster_add_access(cluster, profile, tok_buf) || sxc_cluster_set_access(cluster, profile)) {
         fprintf(stderr, "ERROR: Failed to set profile authentication: %s\n", sxc_geterrmsg(sx));
         return 1;
     }
@@ -316,7 +315,8 @@ static int fetch_cluster_noauth_info(sxc_cluster_t *cluster, const sxc_uri_t *u)
 }
 
 struct init_conf {
-    sxc_uri_t *uri;
+    char *profile;
+    char *host;
     unsigned int port;
     char *token;
     char *hostlist;
@@ -325,10 +325,69 @@ struct init_conf {
     const char *alias;
 };
 
+static char *parse_sxauthd_uri(const char *uri, const char **username, const char **host, int *port) {
+    char *ret, *q;
+    int p = -1;
+
+    if(!sx)
+        return NULL;
+    if(!uri || !username || !host || !port) {
+        fprintf(stderr, "ERROR: NULL argument\n");
+        return NULL;
+    }
+
+    /* Try to parse protocol prefix */
+    if(strstr(uri, "://")) {
+        /* If https:// prefix added, skip it */
+        if(strncmp("https://", uri, lenof("https://"))) {
+            fprintf(stderr, "ERROR: Only https protocol is supported\n");
+            return NULL;
+        }
+        uri += lenof("https://");
+    }
+
+    ret = strdup(uri);
+    if(!ret) {
+        fprintf(stderr, "ERROR: Out of memory\n");
+        return NULL;
+    }
+
+    /* Get port number */
+    q = strrchr(ret, ':');
+    if(q) {
+        char *enumb = NULL;
+        p = strtol(q+1, &enumb, 10);
+        if(*enumb || p < 0) {
+            fprintf(stderr, "ERROR: Failed to parse port number\n");
+            free(ret);
+            return NULL;
+        }
+        *q = '\0';
+    }
+    /* Use a default port if not set */
+    if(p == -1)
+        p = 443;
+
+    /* Get host name */
+    q = strrchr(ret, '@');
+    if(q) {
+        *q = '\0';
+        *host = q+1;
+        *username = ret;
+    } else {
+        *host = ret;
+        *username = NULL;
+    }
+
+    *port = p;
+    return ret;
+}
+
 static char *parse_config_link(const char *link, struct init_conf *c) {
     char *q, *dlink = NULL;
     int ret = 1;
     const char *ssl = NULL, *port = NULL;
+    sxc_uri_t *uri = NULL;
 
     if(!link || !c) {
         fprintf(stderr, "ERROR: Invalid argument\n");
@@ -380,9 +439,26 @@ static char *parse_config_link(const char *link, struct init_conf *c) {
     }
     *q++ = '\0';
 
-    c->uri = sxc_parse_uri(sx, dlink);
-    if(!c->uri) {
+    uri = sxc_parse_uri(sx, dlink);
+    if(!uri) {
         fprintf(stderr, "ERROR: Failed to parse configuration link: Invalid configuration URI\n");
+        goto parse_config_link_err;
+    }
+
+    if(uri->profile && !(c->profile = sxc_urldecode(sx, uri->profile))) {
+        fprintf(stderr, "ERROR: Failed to parse configuration link: %s\n", sxc_geterrmsg(sx));
+        goto parse_config_link_err;
+    }
+
+    /* Neither volume nor path should be passed in configuration link */
+    if(uri->volume || uri->path) {
+        fprintf(stderr, "ERROR: Failed to parse configuration link: Invalid SX uri\n");
+        goto parse_config_link_err;
+    }
+
+    /* No need to urldecode host name */
+    if(!(c->host = strdup(uri->host))) {
+        fprintf(stderr, "ERROR: Failed to parse configuration link: Out of memory\n");
         goto parse_config_link_err;
     }
 
@@ -399,9 +475,13 @@ static char *parse_config_link(const char *link, struct init_conf *c) {
             *q++ = '\0';
 
         if(!strcmp(key, "token")) {
-            c->token = value;
+            c->token = sxc_urldecode(sx, value);
+            if(!c->token) {
+                fprintf(stderr, "ERROR: Failed to parse configuration link: Out of memory\n");
+                goto parse_config_link_err;
+            }
         } else if(!strcmp(key, "ip")) {
-            c->hostlist = strdup(value);
+            c->hostlist = sxc_urldecode(sx, value);
             if(!c->hostlist) {
                 fprintf(stderr, "ERROR: Failed to parse configuration link: Out of memory\n");
                 goto parse_config_link_err;
@@ -438,6 +518,7 @@ static char *parse_config_link(const char *link, struct init_conf *c) {
 
     ret = 0;
 parse_config_link_err:
+    sxc_free_uri(uri);
     if(ret) {
         free(dlink);
         return NULL;
@@ -465,15 +546,25 @@ int main(int argc, char **argv) {
     memset(&c, 0, sizeof(c));
     c.ssl = 1; /* Use SSL by default */
 
-    /* Check if sx://profile@cluster/ or --list, or --config-link option is given but not together */
-    if((args.inputs_num != 1 && !args.list_given && !args.config_link_given)
-        || (args.inputs_num != 0 && (args.list_given || args.config_link_given)) /* --list and --config-link does not take inputs */
-        || (args.pass_file_given && (args.config_link_given || args.auth_file_given)) /* --pass-file cannot be used with --config-link or --auth-file */
-        || (args.config_link_given && (args.list_given || args.delete_given || args.info_given || args.auth_file_given))) {
-	cmdline_parser_print_help();
+    /* Check if sx://profile@cluster/ or --list, --config-link, or --sxauthd option is given but not together */
+    if((args.inputs_num != 1 && !args.list_given && !args.config_link_given && !args.sxauthd_given)
+        || (args.inputs_num != 0 && (args.list_given || args.config_link_given || args.sxauthd_given)) /* --list, --sxauthd and --config-link does not take inputs */
+        || (args.pass_file_given && (args.config_link_given || args.auth_file_given))) { /* --pass-file cannot be used with --config-link or --auth-file */
+        cmdline_parser_print_help();
 	printf("\n");
 	fprintf(stderr, "ERROR: Wrong number of arguments\n");
 	goto init_err;
+    }
+
+    /* --sxauthd and --config-link do not work with certain arguments */
+    if(args.config_link_given || args.sxauthd_given) {
+        if(args.list_given || args.delete_given || args.info_given || args.auth_file_given
+           || args.no_ssl_given || args.key_given || args.port_given || args.host_list_given) {
+            cmdline_parser_print_help();
+            printf("\n");
+            fprintf(stderr, "ERROR: Invalid arguments (%s option must not be used with cluster-specific options)\n", args.config_link_given ? "--config-link" : "--sxauthd");
+            goto init_err;
+        }
     }
 
     signal(SIGINT, sighandler);
@@ -496,18 +587,106 @@ int main(int argc, char **argv) {
         goto init_err;
     }
 
-    if(args.config_link_given) {
-        link = parse_config_link(args.config_link_arg, &c);
+    if(args.sxauthd_given) {
+        const char *sxauthd_username = NULL, *sxauthd_host = NULL;
+        int sxauthd_port = -1;
+        char sxauthd_pass[1024];
+        char sxauthd_user[65];
+        char *q = parse_sxauthd_uri(args.sxauthd_arg, &sxauthd_username, &sxauthd_host, &sxauthd_port);
+        if(!q)
+            goto init_err;
+
+        /* Check if we can proceed in batch mode */
+        if(args.batch_mode_given) {
+            if(!sxauthd_username) {
+                fprintf(stderr, "ERROR: Cannot proceed in batch mode: sxauthd username not specified\n");
+                free(q);
+                goto init_err;
+            }
+            if(!args.pass_file_given || !strcmp(args.pass_file_arg, "-")) {
+                fprintf(stderr, "ERROR: Cannot proceed in batch mode: Pass file not supplied\n");
+                free(q);
+                goto init_err;
+            }
+        }
+
+        if(!sxauthd_username) {
+            if(sxc_prompt_username(sx, sxauthd_user, sizeof(sxauthd_user), "[sxauthd]: ")) {
+                fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
+                free(q);
+                goto init_err;
+            }
+        } else {
+            if(strlen(sxauthd_username) >= sizeof(sxauthd_user)) {
+                sxi_seterr(sx, SXE_EARG, "Username too long");
+                free(q);
+                goto init_err;
+            }
+            snprintf(sxauthd_user, sizeof(sxauthd_user), "%s", sxauthd_username);
+        }
+        mlock(sxauthd_pass, sizeof(sxauthd_pass));
+        if(args.pass_file_given && strcmp(args.pass_file_arg, "-")) {
+            if(sxc_read_pass_file(sx, args.pass_file_arg, sxauthd_pass, sizeof(sxauthd_pass))) {
+                fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
+                munlock(sxauthd_pass, sizeof(sxauthd_pass));
+                free(q);
+                goto init_err;
+            }
+        } else if(sxc_prompt_password(sx, sxauthd_pass, sizeof(sxauthd_pass), "[sxauthd]: ", 0)) {
+            fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
+            munlock(sxauthd_pass, sizeof(sxauthd_pass));
+            free(q);
+            goto init_err;
+        }
+
+        link = sxc_fetch_sxauthd_credentials(sx, sxauthd_user, sxauthd_pass, sxauthd_host, sxauthd_port, args.batch_mode_given);
+        if(!link) {
+            fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
+            memset(sxauthd_pass, 0, sizeof(sxauthd_pass));
+            munlock(sxauthd_pass, sizeof(sxauthd_pass));
+            free(q);
+            goto init_err;
+        }
+        memset(sxauthd_pass, 0, sizeof(sxauthd_pass));
+        munlock(sxauthd_pass, sizeof(sxauthd_pass));
+        free(q);
+    } else if(args.config_link_given) {
+        link = strdup(args.config_link_arg);
+        if(!link) {
+            fprintf(stderr, "ERROR: Out of memory\n");
+            goto init_err;
+        }
+    }
+
+    if(link) {
+        char *tmp = link;
+        link = parse_config_link(tmp, &c);
+        free(tmp);
         if(!link) {
             ret = 1;
             goto init_err;
         }
     } else {
-        c.uri = sxc_parse_uri(sx, args.inputs[0]);
-        if(!c.uri) {
+        sxc_uri_t *uri = sxc_parse_uri(sx, args.inputs[0]);
+        if(!uri) {
 	    fprintf(stderr, "ERROR: Invalid SX URI %s\n", args.inputs[0]);
             goto init_err;
         }
+
+        /* Duplicate profile name */
+        if(uri->profile && !(c.profile = strdup(uri->profile))) {
+            fprintf(stderr, "ERROR: Out of memory\n");
+            sxc_free_uri(uri);
+            goto init_err;
+        }
+
+        /* Duplicate host name */
+        if(uri->host && !(c.host = strdup(uri->host))) {
+            fprintf(stderr, "ERROR: Out of memory\n");
+            sxc_free_uri(uri);
+            goto init_err;
+        }
+        sxc_free_uri(uri);
 
         if(args.host_list_given) {
             c.hostlist = strdup(args.host_list_arg);
@@ -529,22 +708,8 @@ int main(int argc, char **argv) {
         }
     }
 
-    if(args.alias_given) {
-        c.alias = args.alias_arg;
-        if(check_alias(c.alias, c.uri))
-            goto init_err;
-    }
-
-    if(args.delete_given) {
-        ret = del_profile(c.uri);
-        if(ret)
-            fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
-
-        goto init_err;
-    }
-
     if(!args.force_reinit_flag)
-	cluster = sxc_cluster_load(sx, args.config_dir_arg, c.uri->host);
+	cluster = sxc_cluster_load(sx, args.config_dir_arg, c.host);
 
     if(args.info_given) {
         if(!cluster) {
@@ -553,7 +718,23 @@ int main(int argc, char **argv) {
         }
 
         /* Print cluster information and exit */
-        ret = sxc_cluster_info(cluster, c.uri);
+        ret = sxc_cluster_info(cluster, c.profile, c.host);
+        if(ret)
+            fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
+        goto init_err;
+    }
+
+    if(args.alias_given) {
+        c.alias = args.alias_arg;
+        if(check_alias(c.alias, c.profile, c.host))
+            goto init_err;
+    }
+
+    if(args.delete_given) {
+        ret = del_profile(c.profile, c.host);
+        if(ret)
+            fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
+
         goto init_err;
     }
 
@@ -565,7 +746,7 @@ int main(int argc, char **argv) {
 	goto init_err;
     }
 
-    if(sxc_cluster_set_sslname(cluster, c.uri->host)) {
+    if(sxc_cluster_set_sslname(cluster, c.host)) {
         fprintf(stderr, "ERROR: Cannot initialize new cluster: %s\n", sxc_geterrmsg(sx));
         goto init_err;
     }
@@ -594,8 +775,8 @@ int main(int argc, char **argv) {
 	} while(this_host);
     } else {
 	/* DNS based cluster */
-	if(sxc_cluster_set_dnsname(cluster, c.uri->host)) {
-	    fprintf(stderr, "ERROR: Cannot set cluster DNS name to %s: %s\n", c.uri->host, sxc_geterrmsg(sx));
+	if(sxc_cluster_set_dnsname(cluster, c.host)) {
+	    fprintf(stderr, "ERROR: Cannot set cluster DNS name to %s: %s\n", c.host, sxc_geterrmsg(sx));
 	    goto init_err;
 	}
     }
@@ -614,7 +795,7 @@ int main(int argc, char **argv) {
 
 	if(!args.batch_mode_flag) {
 	    /* do a bogus query with a fake key to get the remote security flag */
-            if(fetch_cluster_noauth_info(cluster, c.uri))
+            if(fetch_cluster_noauth_info(cluster, c.profile))
                 goto init_err; /* Error message has already been printed */
 
 	    if(sxi_conns_internally_secure(sxi_cluster_get_conns(cluster)) == 1) {
@@ -633,27 +814,77 @@ int main(int argc, char **argv) {
         }
     }
 
-    if(!args.config_link_given) {
+    if(!link) {
         unsigned int toklen;
         char tok_buf[AUTHTOK_ASCII_LEN+1];
+        char *token;
 
-        if(args.auth_file_given && strcmp(args.auth_file_arg, "-")) {
-            FILE *f = fopen(args.auth_file_arg, "r");
-            if(!f) {
-                fprintf(stderr, "ERROR: Failed to open key file %s\n", args.auth_file_arg);
+        /* Check if we can proceed in batch mode */
+        if(args.batch_mode_given && !args.key_given && !args.auth_file_given) {
+            if(!c.profile) {
+                fprintf(stderr, "ERROR: Cannot proceed in batch mode: Username not specified\n");
                 goto init_err;
             }
-            c.token = fgets(tok_buf, sizeof(tok_buf), f);
+            if(!args.pass_file_given || !strcmp(args.pass_file_arg, "-")) {
+                fprintf(stderr, "ERROR: Cannot proceed in batch mode: Neither pass file nor auth file were supplied\n");
+                goto init_err;
+            }
+        }
+
+        if(args.auth_file_given && strcmp(args.auth_file_arg, "-")) {
+            int fd;
+            struct stat st;
+            uid_t uid;
+            FILE *f = fopen(args.auth_file_arg, "r");
+            if(!f) {
+                fprintf(stderr, "ERROR: Failed to open key file '%s': %s\n", args.auth_file_arg, strerror(errno));
+                goto init_err;
+            }
+
+            if((fd = fileno(f)) < 0) {
+                fprintf(stderr, "ERROR: Failed to get key file '%s' descriptor\n", args.auth_file_arg);
+                fclose(f);
+                goto init_err;
+            }
+
+            if(fstat(fd, &st)) {
+                fprintf(stderr, "ERROR: Failed to stat key file '%s': %s\n", args.auth_file_arg, strerror(errno));
+                fclose(f);
+                goto init_err;
+            }
+
+            uid = geteuid();
+            if(st.st_uid != uid) {
+                struct passwd *pw = getpwuid(uid);
+                fprintf(stderr, "ERROR: User '%s' must be the key file owner\n", pw ? pw->pw_name : "");
+                fclose(f);
+                goto init_err;
+            }
+
+            if(!S_ISREG(st.st_mode)) {
+                fprintf(stderr, "ERROR: Key file is not a regular file\n");
+                fclose(f);
+                goto init_err;
+            }
+
+            if(st.st_mode & (S_IRGRP | S_IWGRP | S_IXGRP | S_IROTH | S_IWOTH | S_IXOTH)) {
+                fprintf(stderr, "ERROR: Key file is group or others accessible\n");
+                fclose(f);
+                goto init_err;
+            }
+
+            token = fgets(tok_buf, sizeof(tok_buf), f);
             fclose(f);
         } else if(args.key_given) {
             printf("Please enter the user key: ");
-            c.token = fgets(tok_buf, sizeof(tok_buf), stdin);
+            token = fgets(tok_buf, sizeof(tok_buf), stdin);
         } else { /* No key nor auth file given, prompt for password */
-            char pass[1024], *p = NULL;
+            char pass[1024];
+            char user[65];
 
             if(!sxc_cluster_get_uuid(cluster)) {
                 /* Send a bogus query in order to obtain cluster UUID */
-                if(fetch_cluster_noauth_info(cluster, c.uri))
+                if(fetch_cluster_noauth_info(cluster, c.profile))
                     goto init_err; /* Error message has already been printed */
 
                 if(!sxc_cluster_get_uuid(cluster)) {
@@ -663,50 +894,70 @@ int main(int argc, char **argv) {
             }
 
             mlock(pass, sizeof(pass));
+            memset(pass, 0, sizeof(pass));
             if(args.pass_file_given && strcmp(args.pass_file_arg, "-")) {
-                FILE *f = fopen(args.pass_file_arg, "r");
-                unsigned int len;
-
-                if(!f) {
-                    fprintf(stderr, "ERROR: Failed to open pass file %s\n", args.pass_file_arg);
+                if(sxc_read_pass_file(sx, args.pass_file_arg, pass, sizeof(pass))) {
+                    fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
                     munlock(pass, sizeof(pass));
                     goto init_err;
                 }
-                p = fgets(pass, sizeof(pass), f);
-                fclose(f);
+            }
 
-                if(!p) {
-                    fprintf(stderr, "ERROR: Failed to read pass file %s\n", args.pass_file_arg);
+            /* If username is not set, prompt for it, otherwise use a profile */
+            if(!c.profile) {
+                if(!args.auth_file_given && !args.key_given) {
+                    if(sxc_prompt_username(sx, user, sizeof(user), NULL)) {
+                        fprintf(stderr, "ERROR: Failed to get username: %s\n", sxc_geterrmsg(sx));
+                        memset(pass, 0, sizeof(pass));
+                        munlock(pass, sizeof(pass));
+                        goto init_err;
+                    }
+                }
+            } else {
+                if(strlen(c.profile) >= sizeof(user)) {
+                    fprintf(stderr, "ERROR: Username is too long\n");
                     memset(pass, 0, sizeof(pass));
                     munlock(pass, sizeof(pass));
                     goto init_err;
                 }
-
-                len = strlen(p);
-                if(len && p[len-1] == '\n')
-                    p[len-1] = '\0';
+                snprintf(user, sizeof(user), "%s", c.profile);
             }
 
-            /* If p is NULL, user will be prompted for a password, otherwise pass buffer will be used */
-            if(sxc_pass2token(cluster, c.uri->profile, p, tok_buf, sizeof(tok_buf))) {
+            /* If p is NULL, we have to ask user for a password */
+            if(!*pass && sxc_prompt_password(sx, pass, sizeof(pass), NULL, 0)) {
+                fprintf(stderr, "ERROR: Failed to get user password\n");
+                memset(pass, 0, sizeof(pass));
+                munlock(pass, sizeof(pass));
+                goto init_err;
+            }
+
+            /* Generate a token */
+            if(sxc_pass2token(cluster, user, pass, tok_buf, sizeof(tok_buf))) {
                 fprintf(stderr, "ERROR: Failed to get authentication token: %s\n", sxc_geterrmsg(sx));
                 memset(pass, 0, sizeof(pass));
                 munlock(pass, sizeof(pass));
                 goto init_err;
             }
+
             memset(pass, 0, sizeof(pass));
             munlock(pass, sizeof(pass));
-            c.token = tok_buf;
+            token = tok_buf;
         }
 
-        toklen = strlen(c.token);
-        if(toklen && c.token[toklen - 1] == '\n')
-            c.token[toklen] = '\0';
-    }
+        if(!token) {
+            fprintf(stderr, "ERROR: Failed to obtain user key\n");
+            goto init_err;
+        }
 
-    if(!c.token) {
-        fprintf(stderr, "ERROR: Failed to read user key\n");
-        goto init_err;
+        toklen = strlen(token);
+        if(toklen && token[toklen - 1] == '\n')
+            token[toklen] = '\0';
+
+        c.token = strdup(token);
+        if(!c.token) {
+            fprintf(stderr, "ERROR: Out of memory\n");
+            goto init_err;
+        }
     }
 
     if(!strncmp("CLUSTER/ALLNODE/ROOT/USER", c.token, lenof("CLUSTER/ALLNODE/ROOT/USER"))) {
@@ -714,8 +965,8 @@ int main(int argc, char **argv) {
 	goto init_err;
     }
 
-    if(sxc_cluster_add_access(cluster, c.uri->profile, c.token) ||
-       sxc_cluster_set_access(cluster, c.uri->profile)) {
+    if(sxc_cluster_add_access(cluster, c.profile, c.token) ||
+       sxc_cluster_set_access(cluster, c.profile)) {
 	fprintf(stderr, "ERROR: Failed to set profile authentication: %s\n", sxc_geterrmsg(sx));
 	goto init_err;
     }
@@ -739,30 +990,35 @@ int main(int argc, char **argv) {
 
     if(args.alias_given) {
         const char *profile;
-        if(!c.uri->profile || !c.uri->profile[0])
+        if(!c.profile || !c.profile[0])
             profile = "default";
         else
-            profile = c.uri->profile;
+            profile = c.profile;
 
         /* Save alias into .aliases file. Alias variable was set before. */
-        if(sxc_set_alias(sx, c.alias, profile, c.uri->host)) {
+        if(sxc_set_alias(sx, c.alias, profile, c.host)) {
             fprintf(stderr, "ERROR: Failed to set alias %s: %s\n", c.alias, sxc_geterrmsg(sx));
             goto init_err;
         }
     }
 
+    if(args.sxauthd_given)
+        printf("Your SX cluster access has been properly configured. You can use sx://%s%s%s uri%s%s%s with SX client tools.\n", c.profile ? c.profile : "",
+                c.profile ? "@" : "", c.host, args.alias_given ? " or " : "", args.alias_given ? c.alias : "", args.alias_given ? " alias" : "");
     ret = 0;
  init_err:
     if(sx && ret) {
-	if(c.uri && strstr(sxc_geterrmsg(sx), SXBC_SXINIT_RESOLVE_ERR))
-	    fprintf(stderr, SXBC_SXINIT_RESOLVE_MSG, c.uri->host, c.uri->host);
+	if(c.host && strstr(sxc_geterrmsg(sx), SXBC_SXINIT_RESOLVE_ERR))
+	    fprintf(stderr, SXBC_SXINIT_RESOLVE_MSG, c.host, c.host);
 	else if(strstr(sxc_geterrmsg(sx), SXBC_SXINIT_UUID_ERR))
 	    fprintf(stderr, SXBC_SXINIT_UUID_MSG);
     }
-    sxc_free_uri(c.uri);
     sxc_cluster_free(cluster);
     free(link);
     free(c.hostlist);
+    free(c.host);
+    free(c.profile);
+    free(c.token);
     signal(SIGINT, SIG_IGN);
     signal(SIGTERM, SIG_IGN);
     sxc_shutdown(sx, 0);

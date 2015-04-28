@@ -80,6 +80,7 @@ mv "$prefix/etc/sxserver/sxhttpd.conf.1" "$prefix/etc/sxserver/sxhttpd.conf"
 
 # TODO: sxadm should be more easily scriptable
 "$prefix/sbin/sxadm" node --info "$SXSTOREDIR/data" | grep 'Admin key: ' | cut -d\  -f3 >"$SXSTOREDIR/data/admin.key"
+chmod 600 "$SXSTOREDIR/data/admin.key"
 
 cleanup () {
     echo "cleaning up"

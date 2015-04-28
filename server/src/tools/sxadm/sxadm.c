@@ -1593,10 +1593,6 @@ static int cluster_status(sxc_client_t *sx, struct cluster_args_info *args) {
     sxc_cluster_t *clust = cluster_load(sx, args, 1);
     int ret;
 
-    if(!args) {
-        fprintf(stderr, "ERROR: NULL argument\n");
-        return 1;
-    }
     if(!clust) {
         fprintf(stderr, "ERROR: Failed to load cluster\n");
         return 1;

@@ -164,6 +164,19 @@ int sxc_cluster_set_conns_limit(sxc_cluster_t *cluster, unsigned int max_active,
 /* Return configuration link that can be passed to cluster users */
 char *sxc_cluster_configuration_link(sxc_cluster_t *cluster, const char *username, const char *token);
 
+/*
+ * Return configuration link returned by sxaduthd
+ *
+ * uri: should be in form: https://[username@]host/
+ * unique: A unique name for sxauthd authentication that will be used for that particular account (device)
+ * display_name: A user friendly name that can be used to display while accessing device (can be non-unique)
+ * pass_file: A file name that contains user password, if not NULL, can be used instead of reading stdin.
+ * quiet: Do not prompt for cluster certificate when set to 1.
+ */
+char *sxc_fetch_sxauthd_credentials(sxc_client_t *sx, const char *username, const char *pass, const char *host, int port, int quiet);
+
+int sxc_read_pass_file(sxc_client_t *sx, const char *pass_file, char *pass, unsigned int pass_len);
+
 /* Transfer direction */
 typedef enum { SXC_XFER_DIRECTION_DOWNLOAD = 1, SXC_XFER_DIRECTION_UPLOAD = 2, SXC_XFER_DIRECTION_BOTH = 3 } sxc_xfer_direction_t;
 
@@ -303,8 +316,11 @@ int sxc_meta_setval_fromhex(sxc_meta_t *meta, const char *key, const char *value
 void sxc_meta_delval(sxc_meta_t *meta, const char *key);
 void sxc_meta_empty(sxc_meta_t *meta);
 
-/* Return authentication token based on user name and password.
- * If username argument is NULL, user will be prompted for a user name, otherwise only password will be required. */
+/* Prompt for username */
+int sxc_prompt_username(sxc_client_t *sx, char *buff, unsigned int bufflen, const char *prefix);
+/* Prompt for user password */
+int sxc_prompt_password(sxc_client_t *sx, char *buff, unsigned int buff_len, const char *prefix, int repeat);
+/* Return authentication token based on user name and password */
 int sxc_pass2token(sxc_cluster_t *cluster, const char *username, const char *password, char *tok_buf, unsigned int tok_size);
 
 char *sxc_user_add(sxc_cluster_t *cluster, const char *username, const char *pass, int admin, const char *oldtoken, const char *desc, int generate_key);
@@ -356,7 +372,7 @@ typedef struct _sxc_uri_t {
 sxc_uri_t *sxc_parse_uri(sxc_client_t *sx, const char *uri);
 void sxc_free_uri(sxc_uri_t *uri);
 /* Print basic cluster information */
-int sxc_cluster_info(sxc_cluster_t *cluster, const sxc_uri_t *uri);
+int sxc_cluster_info(sxc_cluster_t *cluster, const char *profile, const char *host);
 
 int sxc_fgetline(sxc_client_t *sx, FILE *f, char **ret);
 
@@ -597,6 +613,9 @@ int sxc_filter_get_input(const sxf_handle_t *h, sxc_input_t type, const char *pr
 
 /* Escape string */
 char *sxc_escstr(char *str);
+
+/* URL-decode string */
+char *sxc_urldecode(sxc_client_t *sx, const char *s);
 
 int sxc_set_node_preference(sxc_client_t *sx, float preference);
 
