@@ -613,7 +613,7 @@ struct _sx_hashfs_t {
     sqlite3_stmt *qt_getmeta;
     sqlite3_stmt *qt_countmeta;
     sqlite3_stmt *qt_gettoken;
-    sqlite3_stmt *qt_tokenstats;
+    sqlite3_stmt *qt_tokendata;
     sqlite3_stmt *qt_tmpbyrev;
     sqlite3_stmt *qt_tmpdata;
     sqlite3_stmt *qt_delete;
@@ -937,7 +937,7 @@ static void close_all_dbs(sx_hashfs_t *h) {
     sqlite3_finalize(h->qt_countmeta);
     sqlite3_finalize(h->qt_gettoken);
     sqlite3_finalize(h->qt_tmpdata);
-    sqlite3_finalize(h->qt_tokenstats);
+    sqlite3_finalize(h->qt_tokendata);
     sqlite3_finalize(h->qt_tmpbyrev);
     sqlite3_finalize(h->qt_delete);
     sqlite3_finalize(h->qt_flush);
@@ -1561,7 +1561,7 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 	goto open_hashfs_fail;
     if(qprep(h->tempdb, &h->qt_gettoken, "SELECT token, ttl, volume_id, name, t || ':' || token AS revision FROM tmpfiles WHERE tid = :id AND flushed = 0"))
 	goto open_hashfs_fail;
-    if(qprep(h->tempdb, &h->qt_tokenstats, "SELECT tid, size, volume_id, length(content), t || ':' || token AS revision, name FROM tmpfiles WHERE token = :token AND flushed = 0"))
+    if(qprep(h->tempdb, &h->qt_tokendata, "SELECT tid, size, volume_id, name, content FROM tmpfiles WHERE token = :token AND flushed = 0"))
 	goto open_hashfs_fail;
     if(qprep(h->tempdb, &h->qt_tmpbyrev, "SELECT tid, name, size, volume_id, content, uniqidx, flushed, avail, token FROM tmpfiles WHERE t = :rev_time AND token = :rev_token AND flushed = 1"))
         goto open_hashfs_fail;
@@ -7617,27 +7617,27 @@ rc_ty sx_hashfs_putfile_extend_begin(sx_hashfs_t *h, sx_uid_t user_id, const uin
     if(memcmp(self_uuid->binary, tkdt.uuid.binary, sizeof(tkdt.uuid.binary)))
 	return EINVAL;
 
-    sqlite3_reset(h->qt_tokenstats);
-    if(qbind_text(h->qt_tokenstats, ":token", tkdt.token))
+    sqlite3_reset(h->qt_tokendata);
+    if(qbind_text(h->qt_tokendata, ":token", tkdt.token))
 	goto putfile_extend_err;
 
-    r = qstep(h->qt_tokenstats);
+    r = qstep(h->qt_tokendata);
     if(r == SQLITE_DONE)
 	ret = ENOENT;
     if(r != SQLITE_ROW)
 	goto putfile_extend_err;
 
-    if((ret = sx_hashfs_volume_by_id(h, sqlite3_column_int64(h->qt_tokenstats, 2), &vol)))
+    if((ret = sx_hashfs_volume_by_id(h, sqlite3_column_int64(h->qt_tokendata, 2), &vol)))
 	goto putfile_extend_err;
 
-    h->put_id = sqlite3_column_int64(h->qt_tokenstats, 0);
+    h->put_id = sqlite3_column_int64(h->qt_tokendata, 0);
     h->put_replica = vol->max_replica;
-    h->put_extendsize = sqlite3_column_int64(h->qt_tokenstats, 1);
-    h->put_extendfrom = sqlite3_column_int(h->qt_tokenstats, 3) / sizeof(sx_hash_t);
+    h->put_extendsize = sqlite3_column_int64(h->qt_tokendata, 1);
+    h->put_extendfrom = sqlite3_column_bytes(h->qt_tokendata, 4) / sizeof(sx_hash_t);
     ret = sx_hashfs_countjobs(h, user_id);
 
     putfile_extend_err:
-    sqlite3_reset(h->qt_tokenstats);
+    sqlite3_reset(h->qt_tokendata);
     return ret;
 }
 
@@ -8481,13 +8481,15 @@ unsigned int sx_hashfs_job_file_timeout(sx_hashfs_t *h, unsigned int ndests, uin
 rc_ty sx_hashfs_putfile_commitjob(sx_hashfs_t *h, const uint8_t *user, sx_uid_t user_id, const char *token, job_t *job_id) {
     unsigned int expected_blocks, actual_blocks, ndests, blocksize;
     int64_t tmpfile_id, expected_size, volid;
-    rc_ty ret = FAIL_EINTERNAL, ret2;
+    rc_ty ret;
     sx_nodelist_t *singlenode = NULL, *volnodes = NULL, *revisionnodes = NULL;
     const sx_hashfs_volume_t *vol;
     const sx_uuid_t *self_uuid;
     const sx_node_t *self;
     struct token_data tkdt;
-    int r, has_begun = 0;
+    const char *fname;
+    sqlite3_stmt *q;
+    int ndb, r, has_begun = 0;
 
     if(!h || !user || !job_id) {
 	NULLARG();
@@ -8517,28 +8519,99 @@ rc_ty sx_hashfs_putfile_commitjob(sx_hashfs_t *h, const uint8_t *user, sx_uid_t 
 	return ret;
     }
 
-    if(qbegin(h->tempdb))
+    if(qbegin(h->tempdb)) {
+	ret = FAIL_EINTERNAL;
 	goto putfile_commitjob_err;
+    }
     has_begun = 1;
 
-    sqlite3_reset(h->qt_tokenstats);
-    if(qbind_text(h->qt_tokenstats, ":token", tkdt.token))
+    sqlite3_reset(h->qt_tokendata);
+    if(qbind_text(h->qt_tokendata, ":token", tkdt.token)) {
+	ret = FAIL_EINTERNAL;
 	goto putfile_commitjob_err;
-    r = qstep(h->qt_tokenstats);
+    }
+    r = qstep(h->qt_tokendata);
     if(r == SQLITE_DONE) {
         msg_set_reason("Token is unknown or already flushed");
 	ret = ENOENT;
     }
-    if(r != SQLITE_ROW)
+    if(r != SQLITE_ROW) {
+	ret = FAIL_EINTERNAL;
 	goto putfile_commitjob_err;
+    }
 
-    tmpfile_id = sqlite3_column_int64(h->qt_tokenstats, 0);
-    expected_size = sqlite3_column_int64(h->qt_tokenstats, 1);
-    volid = sqlite3_column_int64(h->qt_tokenstats, 2);
-    ret2 = sx_hashfs_volume_by_id(h, volid, &vol);
-    if(ret2) {
+    tmpfile_id = sqlite3_column_int64(h->qt_tokendata, 0);
+    expected_size = sqlite3_column_int64(h->qt_tokendata, 1);
+    volid = sqlite3_column_int64(h->qt_tokendata, 2);
+    fname = (const char *)sqlite3_column_text(h->qt_tokendata, 3);
+    actual_blocks = sqlite3_column_bytes(h->qt_tokendata, 4);
+    ret = sx_hashfs_volume_by_id(h, volid, &vol);
+    if(ret) {
 	WARN("Cannot locate volume %lld for tmp file %lld", (long long)volid, (long long)tmpfile_id);
-	ret = ret2;
+	goto putfile_commitjob_err;
+    }
+
+    ndb = getmetadb(fname);
+    q = h->qm_get[ndb];
+    sqlite3_reset(q);
+    if(qbind_int64(q, ":volume", volid) || qbind_text(q, ":name", fname)) {
+	WARN("Failed to lookup latest revision for tmpfile %lld", (long long)tmpfile_id);
+	sqlite3_reset(q);
+	ret = FAIL_EINTERNAL;
+	goto putfile_commitjob_err;
+    }
+    r = qstep(q);
+    if(r == SQLITE_ROW) {
+	/* Don't create a new revision if the file hasn't changed */
+	if(expected_size == sqlite3_column_int64(q, 1) &&
+	   actual_blocks == sqlite3_column_bytes(q, 2) &&
+	   (actual_blocks == 0 || !memcmp(sqlite3_column_blob(q, 2), sqlite3_column_blob(h->qt_tokendata, 4), actual_blocks))) {
+	    int64_t fid = sqlite3_column_int64(q, 0);
+	    sxc_meta_t *fmeta;
+	    unsigned int i;
+
+	    sqlite3_reset(q);
+	    if((ret = fill_filemeta(h, ndb, fid)))
+		goto putfile_commitjob_err;
+	    if(!(fmeta = sxc_meta_new(h->sx))) {
+		ret = ENOMEM;
+		goto putfile_commitjob_err;
+	    }
+
+	    if((ret = sx_hashfs_tmp_getmeta(h, tmpfile_id, fmeta))) {
+		sxc_meta_free(fmeta);
+		goto putfile_commitjob_err;
+	    }
+	    for(i=0; i < h->nmeta; i++) {
+		const void *v;
+		unsigned int vlen;
+
+		/* if(!strcmp(h->meta[i].key, "attribsAtime")) continue; */
+		if(sxc_meta_getval(fmeta, h->meta[i].key, &v, &vlen))
+		    break;
+		if(h->meta[i].value_len != vlen || memcmp(h->meta[i].value, v, vlen))
+		    break;
+	    }
+	    sxc_meta_free(fmeta);
+	    if(i >= h->nmeta) {
+		if((ret = sx_hashfs_tmp_delete(h, tmpfile_id)))
+		    goto putfile_commitjob_err;
+		if((ret = sx_hashfs_job_new(h, user_id, job_id, JOBTYPE_DUMMY, 3600, NULL, NULL, 0, singlenode)))
+		    goto putfile_commitjob_err;
+		if(qcommit(h->tempdb))
+		    ret = FAIL_EINTERNAL;
+		else
+		    ret = OK;
+		goto putfile_commitjob_err;
+	    }
+	}
+	r = SQLITE_DONE;
+    }
+
+    sqlite3_reset(q);
+    if(r != SQLITE_DONE) {
+	WARN("Failed to lookup latest revision for tmpfile %lld, %d", (long long)tmpfile_id, r);
+	ret = FAIL_EINTERNAL;
 	goto putfile_commitjob_err;
     }
 
@@ -8549,15 +8622,14 @@ rc_ty sx_hashfs_putfile_commitjob(sx_hashfs_t *h, const uint8_t *user, sx_uid_t 
     }
     /* Flushed tempfiles are propagated to all volnodes (both PREV and NEXT),
      * in no particular order (NL_PREVNEXT would be fine as well) */
-    ret2 = sx_hashfs_effective_volnodes(h, NL_NEXTPREV, vol, 0, &volnodes, NULL);
-    if(ret2) {
+    ret = sx_hashfs_effective_volnodes(h, NL_NEXTPREV, vol, 0, &volnodes, NULL);
+    if(ret) {
 	WARN("Cannot determine volume nodes for '%s'", vol->name);
-	ret = ret2;
 	goto putfile_commitjob_err;
     }
-    actual_blocks = sqlite3_column_int64(h->qt_tokenstats, 3);
     if(actual_blocks % sizeof(sx_hash_t)) {
 	msg_set_reason("Corrupted token data");
+	ret = FAIL_EINTERNAL;
 	goto putfile_commitjob_err;
     }
     actual_blocks /= sizeof(sx_hash_t);
@@ -8573,49 +8645,47 @@ rc_ty sx_hashfs_putfile_commitjob(sx_hashfs_t *h, const uint8_t *user, sx_uid_t 
     if(qbind_int64(h->qt_flush, ":id", tmpfile_id) ||
        qstep_noret(h->qt_flush)) {
 	/* The job itself will fail in case a token is still present */
+	ret = FAIL_EINTERNAL;
 	goto putfile_commitjob_err;
     }
 
     ndests = sx_nodelist_count(volnodes);
-    ret2 = sx_hashfs_job_new_begin(h);
-    if(ret2) {
+    ret = sx_hashfs_job_new_begin(h);
+    if(ret) {
         INFO("Failed to begin jobadd");
-	ret = ret2;
 	goto putfile_commitjob_err;
     }
 
-    ret2 = sx_hashfs_job_new_notrigger(h, JOB_NOPARENT, user_id, job_id, JOBTYPE_REPLICATE_BLOCKS, sx_hashfs_job_file_timeout(h, ndests, expected_size), token, &tmpfile_id, sizeof(tmpfile_id), singlenode);
-    if(ret2) {
-        INFO("job_new (replicate) returned: %s", rc2str(ret2));
-	ret = ret2;
+    ret = sx_hashfs_job_new_notrigger(h, JOB_NOPARENT, user_id, job_id, JOBTYPE_REPLICATE_BLOCKS, sx_hashfs_job_file_timeout(h, ndests, expected_size), token, &tmpfile_id, sizeof(tmpfile_id), singlenode);
+    if(ret) {
+        INFO("job_new (replicate) returned: %s", rc2str(ret));
 	goto putfile_commitjob_err;
     }
 
     /* when flush fails we need to undo the parent job which was targeted to
      * all (revision) nodes, so we need to target the flush jub to all nodes.
      * In the request/commit we'll skip the non-volnode nodes */
-    ret2 = sx_hashfs_job_new_notrigger(h, *job_id, user_id, job_id, JOBTYPE_FLUSH_FILE_REMOTE, 60*ndests, token, &tmpfile_id, sizeof(tmpfile_id), revisionnodes);
-    if(ret2) {
-        INFO("job_new (flush remote) returned: %s", rc2str(ret2));
-	ret = ret2;
+    ret = sx_hashfs_job_new_notrigger(h, *job_id, user_id, job_id, JOBTYPE_FLUSH_FILE_REMOTE, 60*ndests, token, &tmpfile_id, sizeof(tmpfile_id), revisionnodes);
+    if(ret) {
+        INFO("job_new (flush remote) returned: %s", rc2str(ret));
 	goto putfile_commitjob_err;
     }
-    ret2 = sx_hashfs_job_new_notrigger(h, *job_id, user_id, job_id, JOBTYPE_FLUSH_FILE_LOCAL, 60, token, &tmpfile_id, sizeof(tmpfile_id), revisionnodes);
-    if(ret2) {
-        INFO("job_new (flush local) returned: %s", rc2str(ret2));
-	ret = ret2;
+    ret = sx_hashfs_job_new_notrigger(h, *job_id, user_id, job_id, JOBTYPE_FLUSH_FILE_LOCAL, 60, token, &tmpfile_id, sizeof(tmpfile_id), revisionnodes);
+    if(ret) {
+        INFO("job_new (flush local) returned: %s", rc2str(ret));
 	goto putfile_commitjob_err;
     }
 
-    ret2 = sx_hashfs_job_new_end(h);
-    if(ret2) {
+    ret = sx_hashfs_job_new_end(h);
+    if(ret) {
         INFO("Failed to commit jobadd");
-	ret = ret2;
 	goto putfile_commitjob_err;
     }
 
-    if(qcommit(h->tempdb))
+    if(qcommit(h->tempdb)) {
+	ret = FAIL_EINTERNAL;
 	goto putfile_commitjob_err;
+    }
 
     ret = OK;
     sx_hashfs_job_trigger(h);
@@ -8624,7 +8694,7 @@ rc_ty sx_hashfs_putfile_commitjob(sx_hashfs_t *h, const uint8_t *user, sx_uid_t 
     if(ret != OK && has_begun)
 	qrollback(h->tempdb);
 
-    sqlite3_reset(h->qt_tokenstats);
+    sqlite3_reset(h->qt_tokendata);
 
     sx_nodelist_delete(revisionnodes);
     sx_nodelist_delete(volnodes);
