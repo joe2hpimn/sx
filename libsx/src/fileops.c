@@ -3427,6 +3427,8 @@ static int single_download(struct batch_hashes *bh, const char *dstname,
 
     single_download_fail:
 
+    if(!ret)
+        sxc_clearerr(sx);
     if (sxi_retry_done(&retry))
         CFGDEBUG("retry_done failed");
 
