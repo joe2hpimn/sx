@@ -283,6 +283,8 @@ int main(int argc, char **argv) {
 	    if(!destfile)
 		goto err;
 	} else {
+	    if(!strcmp(dst, "-"))
+		dst = "/dev/stdout";
 	    destfile = sxc_file_local(sx, dst);
 	    if(!destfile) {
 		fprintf(stderr, "ERROR: Failed to create destination file object: %s\n", sxc_geterrmsg(sx));
