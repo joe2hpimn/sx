@@ -287,20 +287,10 @@ void stat_get(const stat_t *s, value_t *v, double unit)
 }
 
 
-void uuid_generate(sx_uuid_t *u) {
-    struct timeval t;
-    unsigned int i, seed;
-    isaac_ctx is;
-
-    memset(&is, 0, sizeof(is));
-    gettimeofday(&t, NULL);
-    seed = t.tv_sec ^ (t.tv_usec << 7) ^ (getpid() << 19) ^ ((uint64_t)(&seed) >> 4);
-    isaac_seed(&is, seed);
-    for(i=0; i < (seed & 0xff); i++)
-	isaac_rand(&is);
-    for(i=0; i<sizeof(u->binary); i+=sizeof(seed)) {
-	seed = isaac_rand(&is);
-	memcpy(&u->binary[i], &seed, sizeof(seed));
+int uuid_generate(sx_uuid_t *u) {
+    if (sxi_rand_pseudo_bytes(u->binary, sizeof(u->binary)) == -1) {
+        WARN("Failed to generate UUID");
+        return -1;
     }
 
     /* UUID version 4 */
@@ -314,6 +304,7 @@ void uuid_generate(sx_uuid_t *u) {
 	    u->binary[4], u->binary[5], u->binary[6], u->binary[7],
 	    u->binary[8], u->binary[9], u->binary[10], u->binary[11],
 	    u->binary[12], u->binary[13], u->binary[14], u->binary[15]);
+    return 0;
 }
 
 int uuid_from_string(sx_uuid_t *u, const char *s) {

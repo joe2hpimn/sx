@@ -78,7 +78,7 @@ typedef struct _sx_uuid_t {
     char string[UUID_STRING_SIZE+1];
 } sx_uuid_t;
 
-void uuid_generate(sx_uuid_t *u);
+int uuid_generate(sx_uuid_t *u);
 int uuid_from_string(sx_uuid_t *u, const char *s);
 void uuid_from_binary(sx_uuid_t *u, const void *b);
 

@@ -94,11 +94,17 @@ struct _sxi_hdist_t {
 
 sxi_hdist_t *sxi_hdist_new(unsigned int seed, unsigned int max_builds, sx_uuid_t *uuid)
 {
-	sxi_hdist_t *model;
-    
+       sxi_hdist_t *model;
+       sx_uuid_t gen_uuid;
+
     if(max_builds < 1) {
 	CRIT("max_builds < 1");
 	return NULL;
+    }
+    if(!uuid) {
+	if (uuid_generate(&gen_uuid))
+            return NULL;
+        uuid = &gen_uuid;
     }
 
     model = calloc(1, sizeof(struct _sxi_hdist_t));
@@ -162,10 +168,7 @@ sxi_hdist_t *sxi_hdist_new(unsigned int seed, unsigned int max_builds, sx_uuid_t
 	return NULL;
     }
 
-    if(!uuid)
-	uuid_generate(&model->uuid);
-    else
-	memcpy(&model->uuid, uuid, sizeof(*uuid));
+    memcpy(&model->uuid, uuid, sizeof(*uuid));
 
     model->cfg = (char *) wrap_malloc(sizeof(char) * CFG_PREALLOC);
     if(!model->cfg) {

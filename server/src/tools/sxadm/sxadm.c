@@ -170,8 +170,8 @@ static int create_node(struct node_args_info *args) {
 	    CRIT("Invalid cluster UUID %s", args->cluster_uuid_arg);
 	    return 1;
 	}
-    } else
-	uuid_generate(&cluster_uuid);
+    } else if (uuid_generate(&cluster_uuid))
+        return 1;
 
     if(read_or_gen_key(args->cluster_key_arg, ROLE_CLUSTER, &auth))
 	return 1;
@@ -286,8 +286,8 @@ static sx_node_t *parse_nodef(const char *nodef) {
 	    }
 	}
 
-	if(!uuid)
-	    uuid_generate(&nodeid);
+	if(!uuid && uuid_generate(&nodeid))
+            break;
 
 	ret = sx_node_new(&nodeid, addr, int_addr, capa);
 

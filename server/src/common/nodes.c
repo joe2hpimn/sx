@@ -77,8 +77,10 @@ sx_node_t *sx_node_new(const sx_uuid_t *id, const char *addr, const char *intern
 
     if(id)
 	memcpy(&node->id, id, sizeof(*id));
-    else
-	uuid_generate(&node->id);
+    else if (uuid_generate(&node->id)) {
+        free(node);
+        return NULL;
+    }
     node->addr = (char *)(node+1);
     node->capacity = capacity;
     memcpy(node->addr, addr, addrlen);
