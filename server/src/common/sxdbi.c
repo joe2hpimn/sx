@@ -374,6 +374,9 @@ void qlog(void *parg, int errcode, const char *msg)
         case SQLITE_DONE:
         case SQLITE_CONSTRAINT:
             return;/* not an error */
+        case SQLITE_SCHEMA:
+            prio = SX_LOG_DEBUG;
+            break;
         case SQLITE_BUSY:
             prio = SX_LOG_INFO;
             break;
@@ -393,7 +396,7 @@ void qlog(void *parg, int errcode, const char *msg)
             prio = SX_LOG_WARNING;/* possibly transient errors, or errors the admin can't fix */
             break;
     }
-    sxi_log_msg(&logger, "qlog", prio, "SQLite error %x: %s", errcode, msg);
+    sxi_log_msg(&logger, "qlog", prio, "SQLite result 0x%x: %s", errcode, msg);
 }
 
 int qbegin(sxi_db_t *db) {
