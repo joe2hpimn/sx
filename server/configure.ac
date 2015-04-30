@@ -201,7 +201,15 @@ fi
 AC_SUBST(GZIP)
 AC_SUBST(SXHTTPD)
 
+if test "x$prefix" = xNONE; then
+    sxfcgi_conf=$ac_default_prefix/etc/sxserver/sxfcgi.conf
+else
+    sxfcgi_conf=$prefix/etc/sxserver/sxfcgi.conf
+fi
+AC_SUBST([SXFCGI_CONF], [$sxfcgi_conf])
+
 AC_CONFIG_FILES([Makefile sxscripts/Makefile])
+AC_CONFIG_FILES([man/sxadm.8 man/sxadm-node.8 man/sxadm-cluster.8 man/sx.fcgi.8 man/sxfcgi.conf.5 man/sxsim.1 man/sxreport-server.8])
 AC_OUTPUT
 
 AC_MSG_NOTICE([Summary])

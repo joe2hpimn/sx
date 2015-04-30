@@ -1,0 +1,46 @@
+.TH SXFCGI.CONF "8" "April 2015" "sx.fcgi @VERSION@" "Skylable SX Manual"
+.SH NAME
+sxfcgi.conf \- configuration file for sx.fcgi
+.SH DESCRIPTION
+The file contains configuration options for \fBsx.fcgi\fR(8)
+.SH OPTIONS
+When a given option is not present in the configuration file, a default setting will be used.
+.TP
+\fBforeground\fR
+If this option is set, sx.fcgi will not daemonize.
+.TP
+\fBsocket\fR \fISOCKET\fR
+Set socket for connection with httpd.
+.TP
+\fBsocket\-mode\fR \fIMODE\fR
+Set socket mode to MODE (octal number; unix sockets only).
+.TP
+\fBdata\-dir\fR \fIPATH\fR
+Path to the local storage directory.
+.TP
+\fBlogfile\fR \fIFILE\fR
+Write all log information to FILE.
+.TP
+\fBpidfile\fR \fIFILE\fR
+Write process ID to FILE.
+.TP
+\fBssl_ca\fR \fIFILE\fR
+Path to SSL CA certificate.
+.TP
+\fBchildren\fR \fIN\fR
+Start N children processes. The default is 32 - the value can be decreased if the server doesn't handle large amount of connections in order to limit memory usage.
+.TP
+\fBrun\-as\fR \fIuser[:group]\fR
+Run as a specified user and group. 
+.TP
+\fBdebug\fR
+Enable debug messages
+.TP
+\fBgc\-interval\fR \fISECONDS\fR
+Set how ofteh to run the garbage collector, the default value is 3600 seconds (1 hour).
+.SH FILES
+@SXFCGI_CONF@
+.SH FURTHER DOCUMENTATION
+Full documentation with additional examples available at: <http://www.skylable.com/docs/>
+.SH SEE ALSO
+\fBsx.fcgi\fR(8), \fBsxadm\fR(8)

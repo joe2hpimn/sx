@@ -41,7 +41,7 @@ struct main_args_info
   const char *full_help_help; /**< @brief Print help, including hidden options, and exit help description.  */
   const char *version_help; /**< @brief Print version and exit help description.  */
   const char *all_help; /**< @brief Print all the information below help description.  */
-  int anonymize_flag;	/**< @brief Anonymize IP addresses, URLs, and cluster usernames (default=off).  */
+  int anonymize_flag;	/**< @brief Anonymize IP addresses, URLs, and cluster usernames (default=on).  */
   const char *anonymize_help; /**< @brief Anonymize IP addresses, URLs, and cluster usernames help description.  */
   const char *find_request_id_help; /**< @brief Print all messages corresponding to specified request ID help description.  */
   char * sysconfdir_arg;	/**< @brief Path to /etc.  */

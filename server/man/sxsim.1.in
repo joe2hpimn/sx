@@ -1,0 +1,20 @@
+.TH SXSIM "1" "April 2015" "sxsim @VERSION@" "Skylable SX Manual"
+.SH NAME
+sx.fcgi \- simulate data distribution in SX clusters
+.SH SYNOPSIS
+.B sxsim
+[\fI\,OPTIONS\/\fR]...
+.SH DESCRIPTION
+With sxsim one can create virtual clusters and simulate data distribution across the nodes, including operations such as cluster rebalance, node resize, and others.
+.SH OPTIONS
+The tool is fully interactive. Type 'help' to display the list of available commands and their descriptions.
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help and exit
+.TP
+\fB\-V\fR, \fB\-\-version\fR
+Print version and exit
+.SH FURTHER DOCUMENTATION
+Full documentation with additional examples available at: <http://www.skylable.com/docs/>
+.SH SEE ALSO
+\fBsxfcgi.conf\fR(5), \fBsxadm\fR(8)

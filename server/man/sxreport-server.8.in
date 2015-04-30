@@ -1,0 +1,62 @@
+.TH SXREPORT-SERVER "8" "April 2015" "sxreport-server @VERSION@" "Skylable SX Manual"
+.SH NAME
+sxreport-server \- collect configuration and logs from SX nodes
+.SH SYNOPSIS
+.B sxreport-server
+[\fI\,OPTIONS\/\fR]
+.SH DESCRIPTION
+sxreport-server is used to collect configuration and error information from SX nodes. By default all sensitive information (such as IP addresses, URLs or usernames) is anonymized, making the report suitable for submission in a bugreport or
+public mailing list discussions.
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help and exit
+.TP
+\fB\-\-full\-help\fR
+Print help, including hidden options, and exit
+.TP
+\fB\-V\fR, \fB\-\-version\fR
+Print version and exit
+.TP
+\fB\-\-all\fR
+Collect all available information (default mode).
+.TP
+\fB\-\-anonymize\fR
+Anonymize IP addresses, URLs, and cluster usernames (default mode).
+.TP
+\fB\-\-find\-request\-id\fR
+Print all messages corresponding to specified request ID.
+.TP
+\fB\-\-sysconfdir\fR=\fI\,PATH\/\fR
+Path to the \fI\,/etc\/\fP directory used by SX.
+.TP
+\fB\-o\fR, \fB\-\-output\fR=\fI\,STRING\/\fR
+Save output to a given file (default: sxreport\-server\-<timestamp>.log in the current directory).
+.TP
+\fB\-\-append\fR=\fI\,STRING\/\fR
+Append information from a specified file (\- is stdin), anonymized only if \fB\-\-anonymize\fR is specified.
+.PP
+\fB\-\-all\fR options:
+.TP
+\fB\-\-info\fR
+Print static configuration only.
+.TP
+\fB\-\-logs\fR
+Print error messages from logs only (NOT anonymized).
+.TP
+\fB\-\-cluster\fR
+Print information about cluster's status & health.
+.TP
+\fB\-\-storage\fR
+Print information about the node's local storage.
+.PP
+Calling sxreport without any options is equivalent to: sxreport \fB\-\-all\fR
+\fB\-\-anonymize\fR.
+If you need just a specific part, please use a corresponding option listed above.
+If you want to append more information run:
+sxreport \fB\-\-append=\fR/path/to/file \fB\-\-anonymize\fR >> sxreport.log
+.SH FILES
+@SXFCGI_CONF@
+.SH FURTHER DOCUMENTATION
+Full documentation with additional examples available at: <http://www.skylable.com/docs/>
+.SH SEE ALSO
+\fBsxadm\fR(8), \fBsx.fcgi\fR(8), \fBsxfcgi.conf\fR(5)

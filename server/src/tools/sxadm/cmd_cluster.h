@@ -41,7 +41,7 @@ struct cluster_args_info
   const char *full_help_help; /**< @brief Print help, including hidden options, and exit help description.  */
   const char *version_help; /**< @brief Print version and exit help description.  */
   const char *new_help; /**< @brief Create a new SX cluster with a local node help description.  */
-  const char *mod_help; /**< @brief Modify an existing SX cluster help description.  */
+  const char *modify_help; /**< @brief Modify an existing SX cluster help description.  */
   const char *lock_help; /**< @brief Lock an SX cluster for changes help description.  */
   const char *unlock_help; /**< @brief Unlock an SX cluster help description.  */
   char * resize_arg;	/**< @brief Proportionally resize an existing SX cluster.  */
@@ -77,15 +77,15 @@ struct cluster_args_info
   char * config_dir_arg;	/**< @brief Path to SX configuration directory.  */
   char * config_dir_orig;	/**< @brief Path to SX configuration directory original value given at command line.  */
   const char *config_dir_help; /**< @brief Path to SX configuration directory help description.  */
-  char * master_node_arg;	/**< @brief IP address of a node used to aqcuire cluster changes lock.  */
-  char * master_node_orig;	/**< @brief IP address of a node used to aqcuire cluster changes lock original value given at command line.  */
-  const char *master_node_help; /**< @brief IP address of a node used to aqcuire cluster changes lock help description.  */
+  char * locking_node_arg;	/**< @brief IP address of a node used to aqcuire cluster changes lock.  */
+  char * locking_node_orig;	/**< @brief IP address of a node used to aqcuire cluster changes lock original value given at command line.  */
+  const char *locking_node_help; /**< @brief IP address of a node used to aqcuire cluster changes lock help description.  */
   
   unsigned int help_given ;	/**< @brief Whether help was given.  */
   unsigned int full_help_given ;	/**< @brief Whether full-help was given.  */
   unsigned int version_given ;	/**< @brief Whether version was given.  */
   unsigned int new_given ;	/**< @brief Whether new was given.  */
-  unsigned int mod_given ;	/**< @brief Whether mod was given.  */
+  unsigned int modify_given ;	/**< @brief Whether modify was given.  */
   unsigned int lock_given ;	/**< @brief Whether lock was given.  */
   unsigned int unlock_given ;	/**< @brief Whether unlock was given.  */
   unsigned int resize_given ;	/**< @brief Whether resize was given.  */
@@ -105,7 +105,7 @@ struct cluster_args_info
   unsigned int human_readable_given ;	/**< @brief Whether human-readable was given.  */
   unsigned int debug_given ;	/**< @brief Whether debug was given.  */
   unsigned int config_dir_given ;	/**< @brief Whether config-dir was given.  */
-  unsigned int master_node_given ;	/**< @brief Whether master-node was given.  */
+  unsigned int locking_node_given ;	/**< @brief Whether locking-node was given.  */
 
   char **inputs ; /**< @brief unamed options (options without names) */
   unsigned inputs_num ; /**< @brief unamed options number */

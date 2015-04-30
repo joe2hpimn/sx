@@ -219,8 +219,6 @@ void print_help(const char *prog)
     printf("Usage: %s [OPTIONS]\n\n", prog);
     printf("  -h, --help		Print help and exit\n");
     printf("  -V, --version		Print version and exit\n");
-    printf("  -D, --debug		Enable debug messages  (default=off)\n");
-    printf("      --foreground      Do not daemonize  (default=off)\n");
     printf("\n");
 
     printf("This program reads all settings from the config file %s\n", DEFAULT_FCGI_CFGFILE);

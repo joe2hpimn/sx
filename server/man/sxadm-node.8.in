@@ -1,0 +1,63 @@
+.TH SXADM-NODE "8" "April 2015" "sxadm @VERSION@" "Skylable SX Manual"
+.SH NAME
+sxadm-node \- create a node and manage a local storage
+.SH SYNOPSIS
+.B sxadm node
+\fR[\fI\,OPTIONS\/\fR]... \fB<MODE>\fR \fI\,<STORAGE_PATH>\/\fR
+.SH DESCRIPTION
+\fBsxadm node\fR can be used to create a new node and its storage and manage existing ones. All operations are performed locally and only on one node.
+.SH OPTIONS
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help and exit
+.TP
+\fB\-\-full\-help\fR
+Print help, including hidden options, and exit
+.TP
+\fB\-V\fR, \fB\-\-version\fR
+Print version and exit
+.IP
+.SS "Operation modes:"
+.TP
+\fB\-N\fR, \fB\-\-new\fR
+Create a new SX node in \fISTORAGE_PATH\fR. Once a node is created and \fBsx.fcgi\fR is configured and running, it should be joined to a cluster with \fBsxadm cluster\fR.
+.TP
+\fB\-I\fR, \fB\-\-info\fR
+Print details about the node and the storage in \fISTORAGE_PATH\fR. This includes information such as the current disk usage, protocol settings and the list of nodes in the cluster, which the node discovered while being part of the cluster. The current node is marked with an asterisk on the list.
+.TP
+\fB\-C\fR, \fB\-\-check\fR
+Perform sanity check on the local storage in \fISTORAGE_PATH\fR. In order to run the check the node needs to be offline or the cluster must be set read-only with \fBsxadm cluster\fR.
+.TP
+\fB\-E\fR, \fB\-\-extract\fR=\fI\,DESTDIR\/\fR
+Extract all files from the local storage in \fISTORAGE_PATH\fR to \fI\,DESTDIR\/\fR. This option doesn't communicate with other nodes and in most cases it will only be possible to extract data from volumes with replica 2 and higher.
+.TP
+\fB\-\-rename\-cluster\fR
+Set a new name for an SX cluster. This option is useful when a new certificate is deployed on all nodes and the cluster must match the name it was issued for. The operation should be performed on all nodes.
+.TP
+\fB\-\-upgrade\fR
+Upgrade the node's database and storage format to the latest version. sxadm will check if an update is required and perform any needed changes.
+.SS "New node options:"
+.TP
+\fB\-k\fR, \fB\-\-cluster\-key\fR=\fI\,FILE\/\fR
+This option should be used when creating a new node, which is going to join an existing cluster or when re-creating a cluster, which should use the same configuration as the previous one. It will read the cluster key from a file or stdin if "\-" is given. The default is to automatically generate the key, which should be used for the first node in a new cluster. All nodes in the cluster must use the same cluster key.
+.TP
+\fB\-u\fR, \fB\-\-cluster\-uuid\fR=\fI\,UUID\/\fR
+This option should be used when creating a new node, which is going to join an existing cluster or when re-creating a cluster, which should use the same configuration as the previous one. The default is to automatically generate the cluster's UUID, which should be used for the first node in a new cluster. All nodes in the cluster must use the same cluster UUID.
+.TP
+\fB\-b\fR, \fB\-\-batch\-mode\fR
+This option turns off interactive confirmations and assumes "yes" for all questions.
+.TP
+\fB\-\-owner\fR=\fI\,user[:group]\/\fR
+Set ownership to \fI\,user[:group]\/\fR when creating the local storage structure on disk.
+.PP
+.SS "Common options:"
+.TP
+\fB\-H\fR, \fB\-\-human\-readable\fR
+Print human readable sizes  (default=off)
+.TP
+\fB\-D\fR, \fB\-\-debug\fR
+Enable debug messages  (default=off)
+.SH FURTHER DOCUMENTATION
+Full documentation with additional examples available at: <http://www.skylable.com/docs/>
+.SH "SEE ALSO"
+\fBsxadm\fR(8), \fBsxadm-cluster\fR(8), \fBsx.fcgi\fR(8)

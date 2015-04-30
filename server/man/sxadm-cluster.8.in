@@ -1,0 +1,97 @@
+.TH SXADM-CLUSTER "8" "April 2015" "sxadm @VERSION@" "Skylable SX Manual"
+.SH NAME
+sxadm-cluster \- manage SX clusters
+.SH SYNOPSIS
+.B sxadm cluster
+\fR[\fI\,OPTIONS\/\fR] \fB<MODE>\fR \fI\,\fR[\fINODE1 \fR[\fINODE2...\fR]]\fI sx://\/\fR[\fI\,profile@\/\fR]\fI\,cluster\/\fR
+.br
+
+where \fINODE\fR is a string in the form \fI<CAPACITY>/<ADDRESS>[/INTERNAL_ADDRESS][/UUID]\fR, describing a node in a cluster (used for options, which operate on a list of nodes).
+
+.SH DESCRIPTION
+\fBsxadm cluster\fR is used to create and maintain remote clusters. In contrast to \fBsxadm node\fR, all operations are performed over the network, therefore it requires a valid admin access to the cluster.
+.SH OPTIONS
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help and exit
+.TP
+\fB\-\-full\-help\fR
+Print help, including hidden options, and exit
+.TP
+\fB\-V\fR, \fB\-\-version\fR
+Print version and exit
+.IP
+.SS "Operation modes:"
+.TP
+\fB\-N\fR, \fB\-\-new\fR
+Create a new SX cluster with a local node. This command is only used when creating the cluster and requires specification of the first node joining the cluster. If a UUID is not provided in the NODE's string, it will be automatically assigned. The subsequent nodes get joined to the cluster with \fB\-\-modify\fR.
+.TP
+\fB\-I\fR, \fB\-\-info\fR
+Shows configuration of the cluster, its list of nodes and current operations.
+.TP
+\fB\-M\fR, \fB\-\-modify\fR
+Modify an existing SX cluster. This option allows adding, removing and resizing nodes. It operates on a list of nodes - the current list can be obtained with \fB\-\-info\fR.
+.TP
+\fB\-s\fR, \fB\-\-status\fR
+Show current status of all nodes. This includes disk usage, memory usage, software version, and others.
+.TP
+\fB\-L\fR, \fB\-\-lock\fR
+This option applies an advisory lock and should be performed before making changes to the cluster.
+.TP
+\fB\-U\fR, \fB\-\-unlock\fR
+This option removes an advisory lock.
+.TP
+\fB\-R\fR, \fB\-\-resize=\fR<+/\->SIZE
+This option can proportionally grow or shrink the entire cluster, resizing each individual node with respect to its size. For example, growing a cluster made of three nodes: A(1TB), B(1TB), C(2TB) by 4TB will results in new node sizes: A(2TB), B(2TB), C(4TB). The benefit of using this option is a minimized relocation of data across the cluster. The nodes can be also resized individually with \fB\-\-modify\fR.
+.TP
+\fB\-F\fR, \fB\-\-replace\-faulty\fR
+Replace faulty nodes in a cluster. This option takes pairs of faulty node \- replacement node, where the replacement node should provide the same capacity as the faulty one. The replace process assumes all data on the faulty node has been lost and will attempt to recover it from the other nodes in the cluster.
+.TP
+\fB\-S\fR, \fB\-\-set\-faulty\fR
+This option marks selected nodes as faulty, which will no longer be used by the clients. They can be later replaced with \fB\-\-replace\-faulty\fR.
+.TP
+\fB\-G\fR, \fB\-\-force\-gc\fR
+Force a garbage collection cycle on all nodes.
+.TP
+\fB\-X\fR, \fB\-\-force\-expire\fR
+Force GC and expiration of reservations on all nodes.
+.TP
+\fB\-\-get\-cluster\-key\fR
+Obtain remote cluster key.
+.TP
+\fB\-m\fR, \fB\-\-set\-mode\fR=\fI\,MODE\/\fR
+Set cluster operating mode ('ro' or 'rw' for read\-only or write\-only respectively). The read\-only mode can be used to perform cluster maintainance (eg. perform \fBsxadm node \-\-check\fR).
+.SS "New cluster options:"
+.TP
+\fB\-d\fR, \fB\-\-node\-dir\fR=\fI\,PATH\/\fR
+Path to the node directory.
+.TP
+\fB\-\-port\fR=\fI\,INT\/\fR
+Set the cluster destination TCP port (default 443 in secure mode or 80 in insecure mode).
+.TP
+\fB\-\-ssl\-ca\-file\fR=\fI\,PATH\/\fR
+SSL CA certificate file of the SX cluster (same file as in httpd configuration).
+.TP
+\fB\-k\fR, \fB\-\-admin\-key\fR=\fI\,PATH\/\fR
+File containing a pre\-generated admin authentication token or stdin if "\-" is given (default autogenerate token).
+.SS "Common options:"
+.TP
+\fB\-b\fR, \fB\-\-batch\-mode\fR
+Turn off interactive confirmations and assume yes for all questions.
+.TP
+\fB\-H\fR, \fB\-\-human\-readable\fR
+Print human readable sizes  (default=off)
+.TP
+\fB\-D\fR, \fB\-\-debug\fR
+Enable debug messages  (default=off)
+.TP
+\fB\-c\fR, \fB\-\-config\-dir\fR=\fI\,PATH\/\fR
+Path to SX configuration directory
+.SS "Cluster locking options:"
+.TP
+\fB\-\-locking\-node\fR=\fI\,ADDRESS\/\fR
+IP address of a node used to aqcuire a cluster lock. By default a random node will be selected and the lock will be spread across the cluster.
+.SH FURTHER DOCUMENTATION
+Full documentation with additional examples available at: <http://www.skylable.com/docs/>
+.SH "SEE ALSO"
+\fBsxadm\fR(8), \fBsxadm-node\fR(8), \fBsx.fcgi\fR(8)

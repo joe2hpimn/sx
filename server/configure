@@ -636,6 +636,7 @@ ac_subst_vars='am__EXEEXT_FALSE
 am__EXEEXT_TRUE
 LTLIBOBJS
 LIBOBJS
+SXFCGI_CONF
 GZIP
 SXHTTPD
 SQLITE3_LIBS
@@ -14368,7 +14369,17 @@ fi
 
 
 
+if test "x$prefix" = xNONE; then
+    sxfcgi_conf=$ac_default_prefix/etc/sxserver/sxfcgi.conf
+else
+    sxfcgi_conf=$prefix/etc/sxserver/sxfcgi.conf
+fi
+SXFCGI_CONF=$sxfcgi_conf
+
+
 ac_config_files="$ac_config_files Makefile sxscripts/Makefile"
+
+ac_config_files="$ac_config_files man/sxadm.8 man/sxadm-node.8 man/sxadm-cluster.8 man/sx.fcgi.8 man/sxfcgi.conf.5 man/sxsim.1 man/sxreport-server.8"
 
 cat >confcache <<\_ACEOF
 # This file is a shell script that caches the results of configure
@@ -15390,6 +15401,13 @@ do
     "config.h") CONFIG_HEADERS="$CONFIG_HEADERS config.h" ;;
     "Makefile") CONFIG_FILES="$CONFIG_FILES Makefile" ;;
     "sxscripts/Makefile") CONFIG_FILES="$CONFIG_FILES sxscripts/Makefile" ;;
+    "man/sxadm.8") CONFIG_FILES="$CONFIG_FILES man/sxadm.8" ;;
+    "man/sxadm-node.8") CONFIG_FILES="$CONFIG_FILES man/sxadm-node.8" ;;
+    "man/sxadm-cluster.8") CONFIG_FILES="$CONFIG_FILES man/sxadm-cluster.8" ;;
+    "man/sx.fcgi.8") CONFIG_FILES="$CONFIG_FILES man/sx.fcgi.8" ;;
+    "man/sxfcgi.conf.5") CONFIG_FILES="$CONFIG_FILES man/sxfcgi.conf.5" ;;
+    "man/sxsim.1") CONFIG_FILES="$CONFIG_FILES man/sxsim.1" ;;
+    "man/sxreport-server.8") CONFIG_FILES="$CONFIG_FILES man/sxreport-server.8" ;;
 
   *) as_fn_error $? "invalid argument: \`$ac_config_target'" "$LINENO" 5;;
   esac

@@ -5,7 +5,7 @@ usage "sxreport [OPTIONS]"
 purpose "sxreport is used to collect configuration and error information from SX nodes"
 
 option "all" - "Print all the information below" optional
-option "anonymize" - "Anonymize IP addresses, URLs, and cluster usernames" flag off
+option "anonymize" - "Anonymize IP addresses, URLs, and cluster usernames" flag on
 option "find-request-id" - "Print all messages corresponding to specified request ID" optional
 option "sysconfdir"	-	"Path to /etc" string typestr="PATH" optional hidden
 option "output" o "Save output to given file (default: sxreport-server-<timestamp>.log)" string optional

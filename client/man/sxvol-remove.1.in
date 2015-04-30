@@ -23,7 +23,7 @@ Enable debug messages
 \fB\-c\fR, \fB\-\-config\-dir\fR=\fI\,PATH\/\fR
 Path to the SX configuration directory (default: ~/.sx)
 .TP
-\fB\-c\fR, \fB\-\-filter\-dir\fR=\fI\,PATH\/\fR
+\fB\-f\fR, \fB\-\-filter\-dir\fR=\fI\,PATH\/\fR
 Path to the SX filter directory (default: @SX_FILTER_DIR@)
 .SH "EXAMPLES"
 To remove a non-empty volume 'trash' first recursively remove all its files and then remove the volume itself:

@@ -1,0 +1,27 @@
+.TH SXADM "8" "April 2015" "sxadm @VERSION@" "Skylable SX Manual"
+.SH NAME
+sxadm \- manage SX clusters and individual nodes
+.SH SYNOPSIS
+.B sxadm
+\fI\,<command> \/\fR[\fI\,OPTIONS\/\fR]...
+.SH DESCRIPTION
+sxadm is used to create and manage SX clusters and individual nodes. It works in two modes: local and remote.
+.SH COMMANDS
+The available commands are listed below. To get more information about a specific command run \fB'man sxadm-COMMAND'\fR.
+.TP
+.B node
+Perform local operations on a specific node.
+.TP
+.B cluster
+Perform operations on a remote cluster.
+.SH OPTIONS
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help and exit
+.TP
+\fB\-V\fR, \fB\-\-version\fR
+Print version and exit
+.SH FURTHER DOCUMENTATION
+Full documentation with additional examples available at: <http://www.skylable.com/docs/>
+.SH SEE ALSO
+\fBsxadm-node\fR(8), \fBsxadm-cluster\fR(8), \fBsx.fcgi\fR(8)

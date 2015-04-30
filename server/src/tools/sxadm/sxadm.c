@@ -1612,7 +1612,7 @@ static int cluster_dist_lock(sxc_client_t *sx, struct cluster_args_info *args) {
 
     if(!cluster)
         return 1;
-    ret = sxi_cluster_distribution_lock(cluster, args->master_node_given ? args->master_node_arg : NULL);
+    ret = sxi_cluster_distribution_lock(cluster, args->locking_node_given ? args->locking_node_arg : NULL);
     sxc_cluster_free(cluster);
     if(ret)
         fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
@@ -1627,7 +1627,7 @@ static int cluster_dist_unlock(sxc_client_t *sx, struct cluster_args_info *args)
 
     if(!cluster)
         return 1;
-    ret = sxi_cluster_distribution_unlock(cluster, args->master_node_given ? args->master_node_arg : NULL);
+    ret = sxi_cluster_distribution_unlock(cluster, args->locking_node_given ? args->locking_node_arg : NULL);
     sxc_cluster_free(cluster);
     if(ret)
         fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
@@ -1814,7 +1814,7 @@ int main(int argc, char **argv) {
 	    ret = info_cluster(sx, &cluster_args, 0);
 	else if(cluster_args.get_cluster_key_given && cluster_args.inputs_num == 1)
 	    ret = info_cluster(sx, &cluster_args, 1);
-	else if(cluster_args.mod_given && cluster_args.inputs_num >= 2)
+	else if(cluster_args.modify_given && cluster_args.inputs_num >= 2)
 	    ret = change_cluster(sx, &cluster_args);
         else if(cluster_args.lock_given && cluster_args.inputs_num == 1)
             ret = cluster_dist_lock(sx, &cluster_args);

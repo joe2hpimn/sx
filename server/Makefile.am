@@ -3,6 +3,9 @@ SUBDIRS = sxscripts
 AM_CPPFLAGS += -I $(top_srcdir)/../libsx/include -I ../libsx/include -I $(top_srcdir)/src/common -I $(top_srcdir)/../
 SX_CPPFLAGS=-DDEFAULT_FCGI_CFGFILE=\"$(sysconfdir)/sxserver/sxfcgi.conf\"
 
+EXTRA_DIST = man/*.in
+man_MANS = man/sxadm.8 man/sxadm-node.8 man/sxadm-cluster.8 man/sx.fcgi.8 man/sxfcgi.conf.5 man/sxsim.1 man/sxreport-server.8
+
 noinst_LTLIBRARIES = src/common/libcommon.la
 
 noinst_PROGRAMS = test/testfile test/hdist-test test/client-test test/randgen
@@ -142,7 +145,7 @@ test_client_test_CPPFLAGS = $(AM_CPPFLAGS) -I$(top_srcdir)/src/common
 check_PROGRAMS = test/printerrno
 
 check_SCRIPTS = test/runvg.sh test/run-nginx-test.sh test/fcgi-test.pl
-EXTRA_DIST = $(check_SCRIPTS)
+EXTRA_DIST += $(check_SCRIPTS)
 TESTS = test/hdist-test test/run-nginx-test.sh
 
 test_printerrno_SOURCES = test/printerrno.c

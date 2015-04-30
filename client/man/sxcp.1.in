@@ -47,7 +47,7 @@ Enable debug messages
 \fB\-c\fR, \fB\-\-config\-dir\fR=\fI\,PATH\/\fR
 Path to the SX configuration directory (default: ~/.sx)
 .TP
-\fB\-c\fR, \fB\-\-filter\-dir\fR=\fI\,PATH\/\fR
+\fB\-f\fR, \fB\-\-filter\-dir\fR=\fI\,PATH\/\fR
 Path to the SX filter directory (default: @SX_FILTER_DIR@)
 .TP
 \fB\-\-total\-conns\-limit\fR=\fI\,INT\/\fR

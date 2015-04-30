@@ -7,7 +7,7 @@ groupoption "new" N "Creates a new local SX node in STORAGE_PATH" group="MODE"
 groupoption "info" I "Print details about the local node in STORAGE_PATH" group="MODE"
 groupoption "check" C "Perform sanity check on the local node in STORAGE_PATH" group="MODE"
 groupoption "extract" E "Extract all files from the local node in STORAGE_PATH to DESTPATH" group="MODE" string typestr="DESTPATH" hidden
-groupoption "rename-cluster" r "Set a new name for an SX cluster" group="MODE" string typestr="NAME" hidden
+groupoption "rename-cluster" - "Set a new name for an SX cluster" group="MODE" string typestr="NAME" hidden
 groupoption "upgrade" - "Upgrade a node to new SX version" group="MODE"
 groupoption "upgrade-job" - "Run the upgrade job directly" group="MODE" hidden
 
@@ -16,7 +16,6 @@ option "cluster-key" k "File containing a pre-generated cluster authentication t
 option "batch-mode" b "Turn off interactive confirmations and assume yes for all questions" dependon="new" optional
 option "owner" - "Set ownership of storage to user[:group]" string typestr="user[:group]" optional
 option "cluster-uuid" u "The SX cluster UUID (default autogenerate UUID)." string typestr="UUID" dependon="new" optional hidden
-text "NOTE: all nodes of an SX cluster must be created with the same UUID and the same authentication token."
 
 section "Common options"
 option  "human-readable" H "Print human readable sizes" flag off

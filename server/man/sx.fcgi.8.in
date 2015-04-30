@@ -1,0 +1,22 @@
+.TH SX.FCGI "8" "April 2015" "sx.fcgi @VERSION@" "Skylable SX Manual"
+.SH NAME
+sx.fcgi \- SX FastCGI Server
+.SH SYNOPSIS
+.B sx.fcgi
+[\fI\,OPTIONS\/\fR]...
+.SH DESCRIPTION
+sx.fcgi acts as a bridge between the web server and the local storage, and performs all server operations of Skylable SX.
+.SH OPTIONS
+sx.fcgi reads its configuration from \fBsxfcgi.conf\fR(5).
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help and exit
+.TP
+\fB\-V\fR, \fB\-\-version\fR
+Print version and exit
+.SH FILES
+@SXFCGI_CONF@
+.SH FURTHER DOCUMENTATION
+Full documentation with additional examples available at: <http://www.skylable.com/docs/>
+.SH SEE ALSO
+\fBsxfcgi.conf\fR(5), \fBsxadm\fR(8)
