@@ -24,6 +24,7 @@ groupoption "force-expire" X "Force GC and expiration of reservations on all nod
 groupoption "get-cluster-key" - "Obtain remote cluster key" group="MODE" hidden
 groupoption "status" s "Show current status of cluster nodes" group="MODE"
 groupoption "set-mode" m "Set cluster operating mode ('ro' or 'rw' for read-only or write-only respectively)" group="MODE" string typestr="MODE"
+groupoption "upgrade" - "Check node versions and start cluster upgrade" group="MODE"
 
 section "New cluster options"
 option "node-dir" d "Path to the node directory" string typestr="PATH" dependon="new" optional

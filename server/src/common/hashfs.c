@@ -491,7 +491,8 @@ static int qopen(const char *path, sxi_db_t **dbp, const char *dbtype, sx_uuid_t
 	goto qopen_fail;
     str = (const char *)sqlite3_column_text(q, 0);
     if(version && (!str || strcmp(str, version))) {
-	CRIT("Version mismatch on db %s: expected %s, found %s", path, HASHFS_VERSION, str ? str : "none");
+	msg_set_reason("Version mismatch on db %s: expected %s, found %s", path, HASHFS_VERSION, str ? str : "none");
+        CRIT("%s", msg_get_reason());
 	goto qopen_fail;
     }
 
@@ -690,6 +691,7 @@ struct _sx_hashfs_t {
     sqlite3_stmt *qe_lock;
     sqlite3_stmt *qe_unlock;
     sqlite3_stmt *qe_gc;
+    sqlite3_stmt *qe_count_upgradejobs;
     int addjob_begun;
 
     sxi_db_t *xferdb;
@@ -812,6 +814,7 @@ static void close_all_dbs(sx_hashfs_t *h) {
     sqlite3_finalize(h->qe_lock);
     sqlite3_finalize(h->qe_unlock);
     sqlite3_finalize(h->qe_gc);
+    sqlite3_finalize(h->qe_count_upgradejobs);
 
     sqlite3_finalize(h->rit.q_add);
     sqlite3_finalize(h->rit.q_sel);
@@ -1771,6 +1774,8 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
     if(qprep(h->eventdb, &h->qe_unlock, "DELETE FROM hashfs WHERE key = 'lockedby'"))
 	goto open_hashfs_fail;
     if(qprep(h->eventdb, &h->qe_gc, "DELETE FROM jobs WHERE complete=1 AND sched_time <= datetime('now','-1 month')"))
+        goto open_hashfs_fail;
+    if(qprep(h->eventdb, &h->qe_count_upgradejobs, "SELECT COUNT(*) FROM jobs WHERE complete=0 AND lock='$UPGRADE$UPGRADE'"))
         goto open_hashfs_fail;
     if(qprep(h->eventdb, &q, "CREATE TEMP TABLE hash_retry(hash BLOB("STRIFY(SXI_SHA1_BIN_LEN)") PRIMARY KEY NOT NULL, blocksize INTEGER NOT NULL, id INTEGER NOT NULL)") ||
         qstep_noret(q))
@@ -14383,4 +14388,16 @@ rc_ty sx_hashfs_remote_heal(sx_hashfs_t *h, heal_cb_t cb)
     if (i == METADBS)
         return has_heal ? OK : ITER_NO_MORE;
     return rc;
+}
+
+int sx_hashfs_has_upgrade_job(sx_hashfs_t *h)
+{
+    int ret;
+    sqlite3_stmt *q = h->qe_count_upgradejobs;
+    sqlite3_reset(q);
+    if (qstep_ret(q))
+        return -1;
+    ret = sqlite3_column_int(q, 0);
+    sqlite3_reset(q);
+    return ret;
 }

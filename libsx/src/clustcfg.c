@@ -3987,10 +3987,19 @@ int sxi_cluster_status(sxc_cluster_t *cluster, const node_status_cb_t status_cb,
             SXDEBUG("Failed to get status of node %s: %s", node, sxc_geterrmsg(sx));
             yajl_free(yctx->yh);
             free(yctx);
+            enum sxc_error_t code = SXE_ECOMM;
+            char *old_msg = strdup(sxc_geterrmsg(sx));
+            if (qret == 403 && strstr(old_msg, "Volume name is reserved")) {
+                free(old_msg);
+                old_msg = strdup("doesn't support status query (server version older than 1.1?)");
+                code = SXE_EAGAIN;
+            }
             sxc_clearerr(sx);
-            sxi_seterr(sx, SXE_ECOMM, "Can't query node %s", node);
+            sxi_seterr(sx, code, "Can't query node %s%s%s", node, old_msg ? ": " : "", old_msg ? old_msg : "");
+            free(old_msg);
             fail = 1;
-            status_cb(sx, NULL, human_readable);
+            status_cb(sx, qret, NULL, human_readable);
+            sxc_clearerr(sx);
             continue;
         }
 
@@ -4001,11 +4010,11 @@ int sxi_cluster_status(sxc_cluster_t *cluster, const node_status_cb_t status_cb,
             sxc_clearerr(sx);
             sxi_seterr(sx, SXE_ECOMM, "Can't query node %s", node);
             fail = 1;
-            status_cb(sx, NULL, human_readable);
+            status_cb(sx, qret, NULL, human_readable);
             continue;
         }
 
-        status_cb(sx, &yctx->status, human_readable);
+        status_cb(sx, qret, &yctx->status, human_readable);
         yajl_free(yctx->yh);
         free(yctx);
     }

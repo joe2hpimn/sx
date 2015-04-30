@@ -1538,7 +1538,7 @@ extract_node_err:
     return ret;
 }
 
-static void print_status(sxc_client_t *sx, const sxi_node_status_t *status, int human_readable) {
+static void print_status(sxc_client_t *sx, int http_code, const sxi_node_status_t *status, int human_readable) {
     char str[64];
 
     if(!sx)
@@ -1601,6 +1601,77 @@ static int cluster_status(sxc_client_t *sx, struct cluster_args_info *args) {
     ret = sxi_cluster_status(clust, print_status, args->human_readable_given);
     if(ret)
         fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
+
+    sxc_cluster_free(clust);
+    return ret;
+}
+
+enum mismatch {
+    NONE=0,
+    MISMATCH_STORAGE_VERSION,
+    MISMATCH_LIBSX_VERSION,
+    MISMATCH_OLD_VERSION,
+    MISMATCH_NOREPLY,
+    MISMATCH_OFFLINE,
+};
+static int check_upgrade_mismatch;
+
+static void check_status(sxc_client_t *sx, int http_code, const sxi_node_status_t *status, int human_readable)
+{
+    static sxi_node_status_t last_status;
+    static int has_last_status = 0;
+    if (!sx)
+        return;
+    if (!status) {
+        if (http_code == -1)
+            check_upgrade_mismatch |= 1 << MISMATCH_OFFLINE;
+        else if (sxc_geterrnum(sx) == SXE_EAGAIN)
+            check_upgrade_mismatch |= 1 << MISMATCH_OLD_VERSION;
+        else
+            check_upgrade_mismatch |= 1 << MISMATCH_NOREPLY;
+        fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
+        return;
+    }
+    printf("\t%s: %s (%s)\n", status->addr, status->hashfs_version, status->libsx_version);
+    if (!has_last_status) {
+        memcpy(&last_status, status, sizeof(last_status));
+        has_last_status = 1;
+    } else if (strcmp(last_status.hashfs_version, status->hashfs_version))
+        check_upgrade_mismatch |= 1 << MISMATCH_STORAGE_VERSION;
+    else if (strcmp(last_status.libsx_version, status->libsx_version))
+        check_upgrade_mismatch |= 1 << MISMATCH_LIBSX_VERSION;
+}
+
+static int cluster_upgrade(sxc_client_t *sx, struct cluster_args_info *args) {
+    sxc_cluster_t *clust = cluster_load(sx, args, 1);
+    int ret;
+
+    if(!clust) {
+        fprintf(stderr, "ERROR: Failed to load cluster\n");
+        return 1;
+    }
+
+    printf("Versions:\n");
+    ret = sxi_cluster_status(clust, check_status, 0);
+    if(ret)
+        fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
+    if (check_upgrade_mismatch) {
+        fprintf(stderr, "ERROR: Upgrade aborted\n");
+        if (check_upgrade_mismatch & (1 << MISMATCH_OFFLINE))
+            fprintf(stderr,"\tSome nodes are offline\n");
+        if (check_upgrade_mismatch & (1 << MISMATCH_NOREPLY))
+            fprintf(stderr,"\tNot all replies could be parsed\n");
+        if (check_upgrade_mismatch & (1 << MISMATCH_OLD_VERSION))
+            fprintf(stderr,"\tSome nodes are still running version 1.0\n");
+        if (check_upgrade_mismatch & (1 << MISMATCH_STORAGE_VERSION))
+            fprintf(stderr,"\tSome nodes are still running an old server version\n");
+        if (check_upgrade_mismatch & (1 << MISMATCH_LIBSX_VERSION))
+            fprintf(stderr,"\tlibsx versions don't match\n");
+        ret = -1;
+    } else {
+        printf("Triggering upgrade and garbage collector\n");
+        ret = force_gc_cluster(sx, args, 0);
+    }
 
     sxc_cluster_free(clust);
     return ret;
@@ -1837,6 +1908,8 @@ int main(int argc, char **argv) {
             ret = cluster_status(sx, &cluster_args);
         else if(cluster_args.set_mode_given && cluster_args.inputs_num == 1)
             ret = cluster_set_mode(sx, &cluster_args);
+        else if(cluster_args.upgrade_given && cluster_args.inputs_num == 1)
+            ret = cluster_upgrade(sx, &cluster_args);
 	else
 	    cluster_cmdline_parser_print_help();
     cluster_out:

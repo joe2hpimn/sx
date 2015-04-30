@@ -576,7 +576,15 @@ int main(int argc, char **argv) {
 	sx_hashfs_close(test_hashfs);
     } else {
 	CRIT("Failed to initialize the storage interface");
-	fprintf(stderr, "Failed to initialize the storage interface - check the logfile %s\n", args.logfile_arg);
+        const char *msg = msg_get_reason();
+        if (msg && *msg) {
+            fprintf(stderr, "%s\n", msg);
+            if (strstr(msg, "Version mismatch")) {
+                fprintf(stderr,"\nYou should upgrade the node and then try to start it again:\n\tsxadm node --upgrade '%s'\n\n", args.data_dir_arg);
+            }
+        } else {
+            fprintf(stderr, "Failed to initialize the storage interface - check the logfile %s\n", args.logfile_arg);
+        }
         cmdline_parser_free(&args);
         free(pidfile);
         sx_done(&sx);

@@ -294,6 +294,12 @@ static rc_ty process_heal(sx_hashfs_t *hashfs, int *terminate)
     rc_ty rc;
     heal_pending_count = 0;
     heal_received = 0;
+    INFO("Checking for upgrade job");
+    while (sx_hashfs_has_upgrade_job(hashfs)) {
+        DEBUG("Upgrade job still running, waiting ...");
+        sleep(1);
+    }
+    INFO("Checking for remote heal");
     while ((rc = sx_hashfs_remote_heal(hashfs, heal_cb)) == OK && !*terminate) {
         INFO("GC disabled: pending remote volume heal");
         snprintf(msg, sizeof(msg), "Pending remote volume heal: %d, %lld revisions", heal_pending_queries,

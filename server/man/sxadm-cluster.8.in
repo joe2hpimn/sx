@@ -61,6 +61,9 @@ Obtain remote cluster key.
 .TP
 \fB\-m\fR, \fB\-\-set\-mode\fR=\fI\,MODE\/\fR
 Set cluster operating mode ('ro' or 'rw' for read\-only or write\-only respectively). The read\-only mode can be used to perform cluster maintainance (eg. perform \fBsxadm node \-\-check\fR).
+.TP
+\fB\-\-upgrade\fR
+Perform sanity checks on all nodes in the cluster. Start a cluster upgrade if no problems are found, followed by a garbage collection.
 .SS "New cluster options:"
 .TP
 \fB\-d\fR, \fB\-\-node\-dir\fR=\fI\,PATH\/\fR
