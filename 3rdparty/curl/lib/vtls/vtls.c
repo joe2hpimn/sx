@@ -5,7 +5,7 @@
  *                            | (__| |_| |  _ <| |___
  *                             \___|\___/|_| \_\_____|
  *
- * Copyright (C) 1998 - 2014, Daniel Stenberg, <daniel@haxx.se>, et al.
+ * Copyright (C) 1998 - 2015, Daniel Stenberg, <daniel@haxx.se>, et al.
  *
  * This software is licensed as described in the file COPYING, which
  * you should have received as part of this distribution. The terms
@@ -63,17 +63,16 @@
 #include "sendf.h"
 #include "rawstr.h"
 #include "url.h"
-#include "curl_memory.h"
 #include "progress.h"
 #include "share.h"
 #include "timeval.h"
 #include "curl_md5.h"
 #include "warnless.h"
+#include "curl_base64.h"
+#include "curl_printf.h"
 
-#define _MPRINTF_REPLACE /* use our functions only */
-#include <curl/mprintf.h>
-
-/* The last #include file should be: */
+/* The last #include files should be: */
+#include "curl_memory.h"
 #include "memdebug.h"
 
 /* convenience macro to check if this handle is using a shared SSL session */
@@ -277,10 +276,25 @@ void Curl_ssl_cleanup(void)
   }
 }
 
+static bool ssl_prefs_check(struct SessionHandle *data)
+{
+  /* check for CURLOPT_SSLVERSION invalid parameter value */
+  if((data->set.ssl.version < 0)
+     || (data->set.ssl.version >= CURL_SSLVERSION_LAST)) {
+    failf(data, "Unrecognized parameter value passed via CURLOPT_SSLVERSION");
+    return FALSE;
+  }
+  return TRUE;
+}
+
 CURLcode
 Curl_ssl_connect(struct connectdata *conn, int sockindex)
 {
   CURLcode result;
+
+  if(!ssl_prefs_check(conn->data))
+    return CURLE_SSL_CONNECT_ERROR;
+
   /* mark this is being ssl-enabled from here on. */
   conn->ssl[sockindex].use = TRUE;
   conn->ssl[sockindex].state = ssl_connection_negotiating;
@@ -298,6 +312,10 @@ Curl_ssl_connect_nonblocking(struct connectdata *conn, int sockindex,
                              bool *done)
 {
   CURLcode result;
+
+  if(!ssl_prefs_check(conn->data))
+    return CURLE_SSL_CONNECT_ERROR;
+
   /* mark this is being ssl requested from here on. */
   conn->ssl[sockindex].use = TRUE;
 #ifdef curlssl_connect_nonblocking
@@ -315,9 +333,9 @@ Curl_ssl_connect_nonblocking(struct connectdata *conn, int sockindex,
  * Check if there's a session ID for the given connection in the cache, and if
  * there's one suitable, it is provided. Returns TRUE when no entry matched.
  */
-int Curl_ssl_getsessionid(struct connectdata *conn,
-                          void **ssl_sessionid,
-                          size_t *idsize) /* set 0 if unknown */
+bool Curl_ssl_getsessionid(struct connectdata *conn,
+                           void **ssl_sessionid,
+                           size_t *idsize) /* set 0 if unknown */
 {
   struct curl_ssl_session *check;
   struct SessionHandle *data = conn->data;
@@ -464,9 +482,8 @@ CURLcode Curl_ssl_addsessionid(struct connectdata *conn,
   store->sessionid = ssl_sessionid;
   store->idsize = idsize;
   store->age = *general_age;    /* set current age */
-  if(store->name)
     /* free it if there's one already present */
-    free(store->name);
+  free(store->name);
   store->name = clone_host;               /* clone host name */
   store->remote_port = conn->remote_port; /* port number */
 
@@ -592,34 +609,37 @@ void Curl_ssl_free_certinfo(struct SessionHandle *data)
 {
   int i;
   struct curl_certinfo *ci = &data->info.certs;
+
   if(ci->num_of_certs) {
     /* free all individual lists used */
     for(i=0; i<ci->num_of_certs; i++) {
       curl_slist_free_all(ci->certinfo[i]);
       ci->certinfo[i] = NULL;
     }
+
     free(ci->certinfo); /* free the actual array too */
     ci->certinfo = NULL;
     ci->num_of_certs = 0;
   }
 }
 
-int Curl_ssl_init_certinfo(struct SessionHandle * data,
-                           int num)
+CURLcode Curl_ssl_init_certinfo(struct SessionHandle *data, int num)
 {
-  struct curl_certinfo * ci = &data->info.certs;
-  struct curl_slist * * table;
+  struct curl_certinfo *ci = &data->info.certs;
+  struct curl_slist **table;
 
-  /* Initialize the certificate information structures. Return 0 if OK, else 1.
-   */
+  /* Free any previous certificate information structures */
   Curl_ssl_free_certinfo(data);
-  ci->num_of_certs = num;
+
+  /* Allocate the required certificate information structures */
   table = calloc((size_t) num, sizeof(struct curl_slist *));
   if(!table)
-    return 1;
+    return CURLE_OUT_OF_MEMORY;
 
+  ci->num_of_certs = num;
   ci->certinfo = table;
-  return 0;
+
+  return CURLE_OK;
 }
 
 /*
@@ -684,15 +704,75 @@ int Curl_ssl_random(struct SessionHandle *data,
 }
 
 /*
+ * Public key pem to der conversion
+ */
+
+static CURLcode pubkey_pem_to_der(const char *pem,
+                                  unsigned char **der, size_t *der_len)
+{
+  char *stripped_pem, *begin_pos, *end_pos;
+  size_t pem_count, stripped_pem_count = 0, pem_len;
+  CURLcode result;
+
+  /* if no pem, exit. */
+  if(!pem)
+    return CURLE_BAD_CONTENT_ENCODING;
+
+  begin_pos = strstr(pem, "-----BEGIN PUBLIC KEY-----");
+  if(!begin_pos)
+    return CURLE_BAD_CONTENT_ENCODING;
+
+  pem_count = begin_pos - pem;
+  /* Invalid if not at beginning AND not directly following \n */
+  if(0 != pem_count && '\n' != pem[pem_count - 1])
+    return CURLE_BAD_CONTENT_ENCODING;
+
+  /* 26 is length of "-----BEGIN PUBLIC KEY-----" */
+  pem_count += 26;
+
+  /* Invalid if not directly following \n */
+  end_pos = strstr(pem + pem_count, "\n-----END PUBLIC KEY-----");
+  if(!end_pos)
+    return CURLE_BAD_CONTENT_ENCODING;
+
+  pem_len = end_pos - pem;
+
+  stripped_pem = malloc(pem_len - pem_count + 1);
+  if(!stripped_pem)
+    return CURLE_OUT_OF_MEMORY;
+
+  /*
+   * Here we loop through the pem array one character at a time between the
+   * correct indices, and place each character that is not '\n' or '\r'
+   * into the stripped_pem array, which should represent the raw base64 string
+   */
+  while(pem_count < pem_len) {
+    if('\n' != pem[pem_count] && '\r' != pem[pem_count])
+      stripped_pem[stripped_pem_count++] = pem[pem_count];
+    ++pem_count;
+  }
+  /* Place the null terminator in the correct place */
+  stripped_pem[stripped_pem_count] = '\0';
+
+  result = Curl_base64_decode(stripped_pem, der, der_len);
+
+  Curl_safefree(stripped_pem);
+
+  return result;
+}
+
+/*
  * Generic pinned public key check.
  */
 
 CURLcode Curl_pin_peer_pubkey(const char *pinnedpubkey,
                               const unsigned char *pubkey, size_t pubkeylen)
 {
-  FILE *fp = NULL;
-  unsigned char *buf = NULL;
-  long size = 0;
+  FILE *fp;
+  unsigned char *buf = NULL, *pem_ptr = NULL;
+  long filesize;
+  size_t size, pem_len;
+  CURLcode pem_read;
   CURLcode result = CURLE_SSL_PINNEDPUBKEYNOTMATCH;
 
   /* if a path wasn't specified, don't pin */
@@ -708,41 +788,69 @@ CURLcode Curl_pin_peer_pubkey(const char *pinnedpubkey,
     /* Determine the file's size */
     if(fseek(fp, 0, SEEK_END))
       break;
-    size = ftell(fp);
+    filesize = ftell(fp);
     if(fseek(fp, 0, SEEK_SET))
+      break;
+    if(filesize < 0 || filesize > MAX_PINNED_PUBKEY_SIZE)
       break;
 
     /*
-     * if the size of our certificate doesn't match the size of
-     * the file, they can't be the same, don't bother reading it
+     * if the size of our certificate is bigger than the file
+     * size then it can't match
      */
-    if((long) pubkeylen != size)
+    size = curlx_sotouz((curl_off_t) filesize);
+    if(pubkeylen > size)
       break;
 
-    /* Allocate buffer for the pinned key. */
-    buf = malloc(pubkeylen);
+    /*
+     * Allocate buffer for the pinned key
+     * With 1 additional byte for null terminator in case of PEM key
+     */
+    buf = malloc(size + 1);
     if(!buf)
       break;
 
     /* Returns number of elements read, which should be 1 */
-    if((int) fread(buf, pubkeylen, 1, fp) != 1)
+    if((int) fread(buf, size, 1, fp) != 1)
       break;
 
-    /* The one good exit point */
-    if(!memcmp(pubkey, buf, pubkeylen))
+    /* If the sizes are the same, it can't be base64 encoded, must be der */
+    if(pubkeylen == size) {
+      if(!memcmp(pubkey, buf, pubkeylen))
+        result = CURLE_OK;
+      break;
+    }
+
+    /*
+     * Otherwise we will assume it's PEM and try to decode it
+     * after placing null terminator
+     */
+    buf[size] = '\0';
+    pem_read = pubkey_pem_to_der((const char *)buf, &pem_ptr, &pem_len);
+    /* if it wasn't read successfully, exit */
+    if(pem_read)
+      break;
+
+    /*
+     * if the size of our certificate doesn't match the size of
+     * the decoded file, they can't be the same, otherwise compare
+     */
+    if(pubkeylen == pem_len && !memcmp(pubkey, pem_ptr, pubkeylen))
       result = CURLE_OK;
   } while(0);
 
   Curl_safefree(buf);
+  Curl_safefree(pem_ptr);
   fclose(fp);
 
   return result;
 }
 
-void Curl_ssl_md5sum(unsigned char *tmp, /* input */
-                     size_t tmplen,
-                     unsigned char *md5sum, /* output */
-                     size_t md5len)
+#ifndef CURL_DISABLE_CRYPTO_AUTH
+CURLcode Curl_ssl_md5sum(unsigned char *tmp, /* input */
+                         size_t tmplen,
+                         unsigned char *md5sum, /* output */
+                         size_t md5len)
 {
 #ifdef curlssl_md5sum
   curlssl_md5sum(tmp, tmplen, md5sum, md5len);
@@ -752,8 +860,36 @@ void Curl_ssl_md5sum(unsigned char *tmp, /* input */
   (void) md5len;
 
   MD5pw = Curl_MD5_init(Curl_DIGEST_MD5);
+  if(!MD5pw)
+    return CURLE_OUT_OF_MEMORY;
   Curl_MD5_update(MD5pw, tmp, curlx_uztoui(tmplen));
   Curl_MD5_final(MD5pw, md5sum);
+#endif
+  return CURLE_OK;
+}
+#endif
+
+/*
+ * Check whether the SSL backend supports the status_request extension.
+ */
+bool Curl_ssl_cert_status_request(void)
+{
+#ifdef curlssl_cert_status_request
+  return curlssl_cert_status_request();
+#else
+  return FALSE;
+#endif
+}
+
+/*
+ * Check whether the SSL backend supports false start.
+ */
+bool Curl_ssl_false_start(void)
+{
+#ifdef curlssl_false_start
+  return curlssl_false_start();
+#else
+  return FALSE;
 #endif
 }
 

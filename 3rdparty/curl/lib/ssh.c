@@ -5,7 +5,7 @@
  *                            | (__| |_| |  _ <| |___
  *                             \___|\___/|_| \_\_____|
  *
- * Copyright (C) 1998 - 2014, Daniel Stenberg, <daniel@haxx.se>, et al.
+ * Copyright (C) 1998 - 2015, Daniel Stenberg, <daniel@haxx.se>, et al.
  *
  * This software is licensed as described in the file COPYING, which
  * you should have received as part of this distribution. The terms
@@ -83,10 +83,7 @@
 #include "multiif.h"
 #include "select.h"
 #include "warnless.h"
-
-#define _MPRINTF_REPLACE /* use our functions only */
-#include <curl/mprintf.h>
-
+#include "curl_printf.h"
 #include "curl_memory.h"
 /* The last #include file should be: */
 #include "memdebug.h"
@@ -94,6 +91,9 @@
 #ifdef WIN32
 #  undef  PATH_MAX
 #  define PATH_MAX MAX_PATH
+#  ifndef R_OK
+#    define R_OK 4
+#  endif
 #endif
 
 #ifndef PATH_MAX
@@ -543,6 +543,17 @@ static CURLcode ssh_knownhost(struct connectdata *conn)
       keybit = (keytype == LIBSSH2_HOSTKEY_TYPE_RSA)?
         LIBSSH2_KNOWNHOST_KEY_SSHRSA:LIBSSH2_KNOWNHOST_KEY_SSHDSS;
 
+#ifdef HAVE_LIBSSH2_KNOWNHOST_CHECKP
+      keycheck = libssh2_knownhost_checkp(sshc->kh,
+                                          conn->host.name,
+                                          (conn->remote_port != PORT_SSH)?
+                                          conn->remote_port:-1,
+                                          remotekey, keylen,
+                                          LIBSSH2_KNOWNHOST_TYPE_PLAIN|
+                                          LIBSSH2_KNOWNHOST_KEYENC_RAW|
+                                          keybit,
+                                          &host);
+#else
       keycheck = libssh2_knownhost_check(sshc->kh,
                                          conn->host.name,
                                          remotekey, keylen,
@@ -550,6 +561,7 @@ static CURLcode ssh_knownhost(struct connectdata *conn)
                                          LIBSSH2_KNOWNHOST_KEYENC_RAW|
                                          keybit,
                                          &host);
+#endif
 
       infof(data, "SSH host check: %d, key: %s\n", keycheck,
             (keycheck <= LIBSSH2_KNOWNHOST_CHECK_MISMATCH)?
@@ -843,7 +855,7 @@ static CURLcode ssh_statemach_act(struct connectdata *conn, bool *block)
         }
 
         if(out_of_memory || sshc->rsa == NULL) {
-          Curl_safefree(home);
+          free(home);
           Curl_safefree(sshc->rsa);
           Curl_safefree(sshc->rsa_pub);
           state(conn, SSH_SESSION_FREE);
@@ -855,7 +867,7 @@ static CURLcode ssh_statemach_act(struct connectdata *conn, bool *block)
         if(!sshc->passphrase)
           sshc->passphrase = "";
 
-        Curl_safefree(home);
+        free(home);
 
         infof(data, "Using SSH public key file '%s'\n", sshc->rsa_pub);
         infof(data, "Using SSH private key file '%s'\n", sshc->rsa);
@@ -1906,7 +1918,7 @@ static CURLcode ssh_statemach_act(struct connectdata *conn, bool *block)
           }
           result = Curl_client_write(conn, CLIENTWRITE_BODY,
                                      tmpLine, sshc->readdir_len+1);
-          Curl_safefree(tmpLine);
+          free(tmpLine);
 
           if(result) {
             state(conn, SSH_STOP);
@@ -2092,10 +2104,14 @@ static CURLcode ssh_statemach_act(struct connectdata *conn, bool *block)
       if(rc == LIBSSH2_ERROR_EAGAIN) {
         break;
       }
-      else if(rc) {
+      else if(rc ||
+              !(attrs.flags & LIBSSH2_SFTP_ATTR_SIZE) ||
+              (attrs.filesize == 0)) {
         /*
          * libssh2_sftp_open() didn't return an error, so maybe the server
          * just doesn't support stat()
+         * OR the server doesn't return a file size with a stat()
+         * OR file size is 0
          */
         data->req.size = -1;
         data->req.maxdownload = -1;
@@ -2226,7 +2242,7 @@ static CURLcode ssh_statemach_act(struct connectdata *conn, bool *block)
       DEBUGF(infof(data, "SFTP DONE done\n"));
 
       /* Check if nextstate is set and move .nextstate could be POSTQUOTE_INIT
-         After nextstate is executed,the control should come back to
+         After nextstate is executed, the control should come back to
          SSH_SFTP_CLOSE to pass the correct result back  */
       if(sshc->nextstate != SSH_NO_STATE &&
          sshc->nextstate != SSH_SFTP_CLOSE) {
@@ -3251,8 +3267,8 @@ get_pathname(const char **cpp, char **path)
   return CURLE_OK;
 
   fail:
-    Curl_safefree(*path);
-    return CURLE_QUOTE_ERROR;
+  Curl_safefree(*path);
+  return CURLE_QUOTE_ERROR;
 }
 
 

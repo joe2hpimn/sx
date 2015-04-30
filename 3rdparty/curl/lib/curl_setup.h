@@ -7,7 +7,7 @@
  *                            | (__| |_| |  _ <| |___
  *                             \___|\___/|_| \_\_____|
  *
- * Copyright (C) 1998 - 2014, Daniel Stenberg, <daniel@haxx.se>, et al.
+ * Copyright (C) 1998 - 2015, Daniel Stenberg, <daniel@haxx.se>, et al.
  *
  * This software is licensed as described in the file COPYING, which
  * you should have received as part of this distribution. The terms
@@ -189,6 +189,9 @@
 #  endif
 #  ifndef CURL_DISABLE_GOPHER
 #    define CURL_DISABLE_GOPHER
+#  endif
+#  ifndef CURL_DISABLE_SMB
+#    define CURL_DISABLE_SMB
 #  endif
 #endif
 
@@ -601,7 +604,7 @@ int netware_init(void);
 
 #define LIBIDN_REQUIRED_VERSION "0.4.1"
 
-#if defined(USE_GNUTLS) || defined(USE_SSLEAY) || defined(USE_NSS) || \
+#if defined(USE_GNUTLS) || defined(USE_OPENSSL) || defined(USE_NSS) || \
     defined(USE_POLARSSL) || defined(USE_AXTLS) || \
     defined(USE_CYASSL) || defined(USE_SCHANNEL) || \
     defined(USE_DARWINSSL) || defined(USE_GSKIT)
@@ -614,17 +617,23 @@ int netware_init(void);
 #define USE_SPNEGO
 #endif
 
-/* Single point where USE_KRB5 definition might be defined */
-#if !defined(CURL_DISABLE_CRYPTO_AUTH) && defined(USE_WINDOWS_SSPI)
-#define USE_KRB5
+/* Single point where USE_KERBEROS5 definition might be defined */
+#if !defined(CURL_DISABLE_CRYPTO_AUTH) && \
+    (defined(HAVE_GSSAPI) || defined(USE_WINDOWS_SSPI))
+#define USE_KERBEROS5
 #endif
 
 /* Single point where USE_NTLM definition might be defined */
-#if !defined(CURL_DISABLE_HTTP) && !defined(CURL_DISABLE_NTLM) && \
-    !defined(CURL_DISABLE_CRYPTO_AUTH)
-#if defined(USE_SSLEAY) || defined(USE_WINDOWS_SSPI) || \
-    defined(USE_GNUTLS) || defined(USE_NSS) || defined(USE_DARWINSSL)
+#if !defined(CURL_DISABLE_NTLM) && !defined(CURL_DISABLE_CRYPTO_AUTH)
+#if defined(USE_OPENSSL) || defined(USE_WINDOWS_SSPI) || \
+    defined(USE_GNUTLS) || defined(USE_NSS) || defined(USE_DARWINSSL) || \
+    defined(USE_OS400CRYPTO) || defined(USE_WIN32_CRYPTO)
+
+#ifdef HAVE_BORINGSSL /* BoringSSL is not NTLM capable */
+#undef USE_NTLM
+#else
 #define USE_NTLM
+#endif
 #endif
 #endif
 
@@ -642,8 +651,10 @@ int netware_init(void);
 #if defined(__GNUC__) && ((__GNUC__ >= 3) || \
   ((__GNUC__ == 2) && defined(__GNUC_MINOR__) && (__GNUC_MINOR__ >= 7)))
 #  define UNUSED_PARAM __attribute__((__unused__))
+#  define WARN_UNUSED_RESULT __attribute__((warn_unused_result))
 #else
 #  define UNUSED_PARAM /*NOTHING*/
+#  define WARN_UNUSED_RESULT
 #endif
 
 /*

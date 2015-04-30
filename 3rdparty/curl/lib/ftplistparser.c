@@ -5,7 +5,7 @@
  *                            | (__| |_| |  _ <| |___
  *                             \___|\___/|_| \_\_____|
  *
- * Copyright (C) 1998 - 2014, Daniel Stenberg, <daniel@haxx.se>, et al.
+ * Copyright (C) 1998 - 2015, Daniel Stenberg, <daniel@haxx.se>, et al.
  *
  * This software is licensed as described in the file COPYING, which
  * you should have received as part of this distribution. The terms
@@ -23,13 +23,13 @@
 /**
  * Now implemented:
  *
- * 1) UNIX version 1
+ * 1) Unix version 1
  * drwxr-xr-x 1 user01 ftp  512 Jan 29 23:32 prog
- * 2) UNIX version 2
+ * 2) Unix version 2
  * drwxr-xr-x 1 user01 ftp  512 Jan 29 1997  prog
- * 3) UNIX version 3
+ * 3) Unix version 3
  * drwxr-xr-x 1      1   1  512 Jan 29 23:32 prog
- * 4) UNIX symlink
+ * 4) Unix symlink
  * lrwxr-xr-x 1 user01 ftp  512 Jan 29 23:32 prog -> prog2000
  * 5) DOS style
  * 01-29-97 11:32PM <DIR> prog
@@ -49,10 +49,6 @@
 #include "ftp.h"
 #include "ftplistparser.h"
 #include "curl_fnmatch.h"
-
-#define _MPRINTF_REPLACE /* use our functions only */
-#include <curl/mprintf.h>
-
 #include "curl_memory.h"
 /* The last #include file should be: */
 #include "memdebug.h"
@@ -191,8 +187,7 @@ struct ftp_parselist_data *Curl_ftp_parselist_data_alloc(void)
 
 void Curl_ftp_parselist_data_free(struct ftp_parselist_data **pl_data)
 {
-  if(*pl_data)
-    free(*pl_data);
+  free(*pl_data);
   *pl_data = NULL;
 }
 

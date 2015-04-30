@@ -34381,7 +34381,7 @@ $as_echo "no" >&6; }
   tst_allow_poll="unknown"
   #
   case $host_os in
-    darwin*|interix*)
+    darwin[123456789].*|darwin10.*|darwin11.*|darwin12.*|interix*)
                               curl_disallow_poll="yes"
       ;;
   esac

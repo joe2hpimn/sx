@@ -7,7 +7,7 @@
  *                            | (__| |_| |  _ <| |___
  *                             \___|\___/|_| \_\_____|
  *
- * Copyright (C) 1998 - 2014, Daniel Stenberg, <daniel@haxx.se>, et al.
+ * Copyright (C) 1998 - 2015, Daniel Stenberg, <daniel@haxx.se>, et al.
  *
  * This software is licensed as described in the file COPYING, which
  * you should have received as part of this distribution. The terms
@@ -23,15 +23,19 @@
  ***************************************************************************/
 #include "curl_setup.h"
 
-#include "openssl.h" /* OpenSSL versions */
-#include "gtls.h"   /* GnuTLS versions */
-#include "nssg.h"   /* NSS versions */
-#include "gskit.h"  /* Global Secure ToolKit versions */
-#include "polarssl.h" /* PolarSSL versions */
-#include "axtls.h"  /* axTLS versions */
-#include "cyassl.h"  /* CyaSSL versions */
-#include "curl_schannel.h" /* Schannel SSPI version */
-#include "curl_darwinssl.h" /* SecureTransport (Darwin) version */
+#include "openssl.h"        /* OpenSSL versions */
+#include "gtls.h"           /* GnuTLS versions */
+#include "nssg.h"           /* NSS versions */
+#include "gskit.h"          /* Global Secure ToolKit versions */
+#include "polarssl.h"       /* PolarSSL versions */
+#include "axtls.h"          /* axTLS versions */
+#include "cyassl.h"         /* CyaSSL versions */
+#include "schannel.h"       /* Schannel SSPI version */
+#include "darwinssl.h"      /* SecureTransport (Darwin) version */
+
+#ifndef MAX_PINNED_PUBKEY_SIZE
+#define MAX_PINNED_PUBKEY_SIZE 1048576 /* 1MB */
+#endif
 
 #ifndef MD5_DIGEST_LENGTH
 #define MD5_DIGEST_LENGTH 16 /* fixed size */
@@ -78,7 +82,7 @@ int Curl_ssl_check_cxn(struct connectdata *conn);
 /* Certificate information list handling. */
 
 void Curl_ssl_free_certinfo(struct SessionHandle *data);
-int Curl_ssl_init_certinfo(struct SessionHandle * data, int num);
+CURLcode Curl_ssl_init_certinfo(struct SessionHandle * data, int num);
 CURLcode Curl_ssl_push_certinfo_len(struct SessionHandle * data, int certnum,
                                     const char * label, const char * value,
                                     size_t valuelen);
@@ -88,9 +92,9 @@ CURLcode Curl_ssl_push_certinfo(struct SessionHandle * data, int certnum,
 /* Functions to be used by SSL library adaptation functions */
 
 /* extract a session ID */
-int Curl_ssl_getsessionid(struct connectdata *conn,
-                          void **ssl_sessionid,
-                          size_t *idsize) /* set 0 if unknown */;
+bool Curl_ssl_getsessionid(struct connectdata *conn,
+                           void **ssl_sessionid,
+                           size_t *idsize) /* set 0 if unknown */;
 /* add a new session ID */
 CURLcode Curl_ssl_addsessionid(struct connectdata *conn,
                                void *ssl_sessionid,
@@ -104,17 +108,24 @@ void Curl_ssl_delsessionid(struct connectdata *conn, void *ssl_sessionid);
    in */
 int Curl_ssl_random(struct SessionHandle *data, unsigned char *buffer,
                     size_t length);
-void Curl_ssl_md5sum(unsigned char *tmp, /* input */
-                     size_t tmplen,
-                     unsigned char *md5sum, /* output */
-                     size_t md5len);
+CURLcode Curl_ssl_md5sum(unsigned char *tmp, /* input */
+                         size_t tmplen,
+                         unsigned char *md5sum, /* output */
+                         size_t md5len);
 /* Check pinned public key. */
 CURLcode Curl_pin_peer_pubkey(const char *pinnedpubkey,
                               const unsigned char *pubkey, size_t pubkeylen);
 
+bool Curl_ssl_cert_status_request(void);
+
+bool Curl_ssl_false_start(void);
+
 #define SSL_SHUTDOWN_TIMEOUT 10000 /* ms */
 
 #else
+/* Set the API backend definition to none */
+#define CURL_SSL_BACKEND CURLSSLBACKEND_NONE
+
 /* When SSL support is not present, just define away these function calls */
 #define Curl_ssl_init() 1
 #define Curl_ssl_cleanup() Curl_nop_stmt
@@ -134,8 +145,9 @@ CURLcode Curl_pin_peer_pubkey(const char *pinnedpubkey,
 #define Curl_ssl_free_certinfo(x) Curl_nop_stmt
 #define Curl_ssl_connect_nonblocking(x,y,z) CURLE_NOT_BUILT_IN
 #define Curl_ssl_kill_session(x) Curl_nop_stmt
-#define Curl_ssl_random(x,y,z) CURLE_NOT_BUILT_IN
-#define CURL_SSL_BACKEND CURLSSLBACKEND_NONE
+#define Curl_ssl_random(x,y,z) ((void)x, CURLE_NOT_BUILT_IN)
+#define Curl_ssl_cert_status_request() FALSE
+#define Curl_ssl_false_start() FALSE
 #endif
 
 #endif /* HEADER_CURL_VTLS_H */

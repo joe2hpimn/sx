@@ -5,7 +5,7 @@
  *                            | (__| |_| |  _ <| |___
  *                             \___|\___/|_| \_\_____|
  *
- * Copyright (C) 1998 - 2014, Daniel Stenberg, <daniel@haxx.se>, et al.
+ * Copyright (C) 1998 - 2015, Daniel Stenberg, <daniel@haxx.se>, et al.
  *
  * This software is licensed as described in the file COPYING, which
  * you should have received as part of this distribution. The terms
@@ -75,16 +75,14 @@
 #include "curl_ntlm.h"
 #include "http_negotiate.h"
 #include "share.h"
-#include "curl_memory.h"
 #include "select.h"
 #include "multiif.h"
 #include "connect.h"
 #include "non-ascii.h"
+#include "curl_printf.h"
 
-#define _MPRINTF_REPLACE /* use our functions only */
-#include <curl/mprintf.h>
-
-/* The last #include file should be: */
+/* The last #include files should be: */
+#include "curl_memory.h"
 #include "memdebug.h"
 
 /*
@@ -216,7 +214,7 @@ CURLcode Curl_fillreadbuffer(struct connectdata *conn, int bytes, int *nreadp)
     result = Curl_convert_to_network(data, data->req.upload_fromhere, length);
     /* Curl_convert_to_network calls failf if unsuccessful */
     if(result)
-      return(result);
+      return result;
 #endif /* CURL_DOES_CONVERSIONS */
 
     if((nread - hexlen) == 0)
@@ -903,15 +901,6 @@ static CURLcode readwrite_upload(struct SessionHandle *data,
       /* store number of bytes available for upload */
       data->req.upload_present = nread;
 
-#ifndef CURL_DISABLE_SMTP
-      if(conn->handler->protocol & PROTO_FAMILY_SMTP) {
-        result = Curl_smtp_escape_eob(conn, nread);
-        if(result)
-          return result;
-      }
-      else
-#endif /* CURL_DISABLE_SMTP */
-
       /* convert LF to CRLF if so asked */
       if((!sending_http_headers) && (
 #ifdef CURL_DO_LINEEND_CONV
@@ -919,12 +908,16 @@ static CURLcode readwrite_upload(struct SessionHandle *data,
          (data->set.prefer_ascii) ||
 #endif
          (data->set.crlf))) {
-        if(data->state.scratch == NULL)
-          data->state.scratch = malloc(2*BUFSIZE);
-        if(data->state.scratch == NULL) {
-          failf (data, "Failed to alloc scratch buffer!");
-          return CURLE_OUT_OF_MEMORY;
+        /* Do we need to allocate a scratch buffer? */
+        if(!data->state.scratch) {
+          data->state.scratch = malloc(2 * BUFSIZE);
+          if(!data->state.scratch) {
+            failf(data, "Failed to alloc scratch buffer!");
+
+            return CURLE_OUT_OF_MEMORY;
+          }
         }
+
         /*
          * ASCII/EBCDIC Note: This is presumably a text (not binary)
          * transfer so the data should already be in ASCII.
@@ -944,6 +937,7 @@ static CURLcode readwrite_upload(struct SessionHandle *data,
           else
             data->state.scratch[si] = data->req.upload_fromhere[i];
         }
+
         if(si != nread) {
           /* only perform the special operation if we really did replace
              anything */
@@ -956,6 +950,14 @@ static CURLcode readwrite_upload(struct SessionHandle *data,
           data->req.upload_present = nread;
         }
       }
+
+#ifndef CURL_DISABLE_SMTP
+      if(conn->handler->protocol & PROTO_FAMILY_SMTP) {
+        result = Curl_smtp_escape_eob(conn, nread);
+        if(result)
+          return result;
+      }
+#endif /* CURL_DISABLE_SMTP */
     } /* if 0 == data->req.upload_present */
     else {
       /* We have a partial buffer left from a previous "round". Use
@@ -1268,7 +1270,7 @@ long Curl_sleep_time(curl_off_t rate_bps, curl_off_t cur_rate_bps,
    * the next packet at the adjusted rate.  We should wait
    * longer when using larger packets, for instance.
    */
-  rv = ((curl_off_t)((pkt_size * 8) * 1000) / rate_bps);
+  rv = ((curl_off_t)(pkt_size * 1000) / rate_bps);
 
   /* Catch rounding errors and always slow down at least 1ms if
    * we are running too fast.
@@ -1338,6 +1340,7 @@ CURLcode Curl_pretransfer(struct SessionHandle *data)
 #endif
 
     Curl_initinfo(data); /* reset session-specific information "variables" */
+    Curl_pgrsResetTimesSizes(data);
     Curl_pgrsStartNow(data);
 
     if(data->set.timeout)
@@ -1629,7 +1632,7 @@ CURLcode Curl_follow(struct SessionHandle *data,
   if(type == FOLLOW_REDIR) {
     if((data->set.maxredirs != -1) &&
         (data->set.followlocation >= data->set.maxredirs)) {
-      failf(data,"Maximum (%ld) redirects followed", data->set.maxredirs);
+      failf(data, "Maximum (%ld) redirects followed", data->set.maxredirs);
       return CURLE_TOO_MANY_REDIRECTS;
     }
 
