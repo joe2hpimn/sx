@@ -1692,6 +1692,11 @@ static int upgrade_node(sxc_client_t *sx, const char *path)
     sx_hashfs_t *h = sx_hashfs_open(path, sx);
     if (!h)
         return 1;
+    if (sx_storage_is_bare(h)) {
+        sx_hashfs_close(h);
+        INFO("Bare node storage is up to date");
+        return 0;
+    }
     job_t job_id = -1;
     sx_nodelist_t *local = sx_nodelist_new();
     if (local &&
