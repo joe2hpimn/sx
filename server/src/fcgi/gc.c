@@ -60,6 +60,7 @@ struct heal_ctx {
     unsigned metadb;
     uint32_t revisions;
     int64_t count;
+    sx_hash_t last_revision_id;
 };
 
 static int heal_pending_queries;
@@ -103,94 +104,97 @@ static int heal_data_cb(curlev_context_t *cbdata, const unsigned char *data, siz
         return -1;
     memcpy(ctx->data + ctx->len, data, size);
     ctx->len += size;
-    if (!ctx->need) {
-        if (ctx->len < sizeof(ctx->need))
-            return 0;
-        memcpy(&ctx->need, ctx->data + ctx->pos, sizeof(ctx->need));
-        ctx->need = ntohl(ctx->need);
-        ctx->pos += sizeof(ctx->need);
-    }
-    DEBUG("data: pos=%d, need=%d, len=%d", ctx->pos, ctx->need, ctx->len);
-    if (ctx->pos + ctx->need > ctx->len)
-        return 0;
-    sx_blob_t *b = sx_blob_from_data(ctx->data + ctx->pos, ctx->need);
-    if (!b)
-        return -1;
     int ret = -1;
-    do {
-        ctx->pos += ctx->need;
-        ctx->need = 0;
-        ctx->len -= ctx->pos;
-        memmove(ctx->data, ctx->data + ctx->pos, ctx->len);
-        ctx->pos = 0;
-        const sx_hash_t *revision_id;
-        unsigned revision_blob_len;
-        unsigned block_size;
-        const char *magic = NULL;
-        if (sx_blob_get_string(b, &magic)) {
-            WARN("corrupt blob: no magic");
-            break;
+    while(!ctx->eof) {
+        if (!ctx->need) {
+            if (ctx->len < sizeof(ctx->need))
+                return 0;
+            memcpy(&ctx->need, ctx->data + ctx->pos, sizeof(ctx->need));
+            ctx->need = ntohl(ctx->need);
+            ctx->pos += sizeof(ctx->need);
         }
-        if (ctx->count == -1) {
-            if (strcmp(magic,"[COUNT]") ||
-                sx_blob_get_int64(b, &ctx->count)) {
-                WARN("corrupt blob, magic: %s", magic);
+        DEBUG("data: pos=%d, need=%d, len=%d", ctx->pos, ctx->need, ctx->len);
+        if (ctx->pos + ctx->need > ctx->len)
+            return 0;
+        sx_blob_t *b = sx_blob_from_data(ctx->data + ctx->pos, ctx->need);
+        if (!b)
+            return -1;
+        do {
+            ctx->pos += ctx->need;
+            ctx->need = 0;
+            ctx->len -= ctx->pos;
+            memmove(ctx->data, ctx->data + ctx->pos, ctx->len);
+            ctx->pos = 0;
+            const sx_hash_t *revision_id;
+            unsigned revision_blob_len;
+            unsigned block_size;
+            const char *magic = NULL;
+            if (sx_blob_get_string(b, &magic)) {
+                WARN("corrupt blob: no magic");
                 break;
             }
-            ret = 0;
-            heal_pending_count += ctx->count;
-            break;
-        }
-        if (!strcmp(magic, "EOF$")) {
-            DEBUG("got EOF: %d", ctx->metadb);
-            ctx->eof = 1;
-            if (sx_hashfs_heal_update(ctx->hashfs, ctx->vol, NULL, ctx->metadb))
+            if (ctx->count == -1) {
+                if (strcmp(magic,"[COUNT]") ||
+                    sx_blob_get_int64(b, &ctx->count)) {
+                    WARN("corrupt blob, magic: %s", magic);
+                    break;
+                }
+                ret = 0;
+                heal_pending_count += ctx->count;
                 break;
-            ret = 0;
-            break;
-        }
-        if (strcmp(magic, "[REV]")) {
-            WARN("corrupt blob, bad magic: %s", magic);
-            break;
-        }
-        if (sx_blob_get_blob(b, (const void**)&revision_id, &revision_blob_len) ||
+            }
+            if (!strcmp(magic, "EOF$")) {
+                DEBUG("got EOF: %d", ctx->metadb);
+                ctx->eof = 1;
+                if (sx_hashfs_heal_update(ctx->hashfs, ctx->vol, ctx->count ? &ctx->last_revision_id : NULL, ctx->metadb))
+                    break;
+                ret = 0;
+                break;
+            }
+            if (strcmp(magic, "[REV]")) {
+                WARN("corrupt blob, bad magic: %s", magic);
+                break;
+            }
+            if (sx_blob_get_blob(b, (const void**)&revision_id, &revision_blob_len) ||
                 revision_blob_len != sizeof(revision_id->b)) {
-            WARN("corrupt blob, bad revision id");
-            break;
-        }
-        if (sx_blob_get_int32(b, &block_size)) {
-            WARN("corrupt blob received, no blocksize");
-            break;
-        }
-        const sx_hash_t *hash;
-        unsigned hash_blob_len;
-        while (!sx_blob_get_blob(b, (const void**)&hash, &hash_blob_len) &&
-                hash_blob_len == sizeof(hash->b)) {
-            DEBUG("got revision block");
-            rc_ty s = sx_hashfs_hashop_perform(ctx->hashfs, block_size, ctx->vol->max_replica, HASHOP_INUSE, hash, NULL, revision_id, 0, NULL);
-            if (s) {
-                WARN("Failed to add hash blob: %s", rc2str(s));
+                WARN("corrupt blob, bad revision id");
                 break;
             }
-        }
-        if (hash_blob_len) {
-            WARN("corrupt blob received");
-            break;
-        }
-        heal_pending_count--;
-        if (!(heal_received++ % 1000)) {
-            char msg[128];
-            DEBUG("Processing revision: %lld", (long long)ctx->revisions);
-            if (sx_hashfs_heal_update(ctx->hashfs, ctx->vol, revision_id, ctx->metadb))
+            if (sx_blob_get_int32(b, &block_size)) {
+                WARN("corrupt blob received, no blocksize");
                 break;
-            snprintf(msg, sizeof(msg), "Pending remote volume heal: %d queries, %lld revisions; Finished: %lld revisions", heal_pending_queries,
-                    (long long)heal_pending_count, (long long)heal_received);
-            sx_hashfs_set_progress_info(ctx->hashfs, INPRG_UPGRADE, msg);
-        }
-        DEBUG("processed  %ld bytes", size);
-        ret = 0;
-    } while(0);
-    sx_blob_free(b);
+            }
+            const sx_hash_t *hash;
+            unsigned hash_blob_len;
+            while (!sx_blob_get_blob(b, (const void**)&hash, &hash_blob_len) &&
+                   hash_blob_len == sizeof(hash->b)) {
+                DEBUG("got revision block");
+                rc_ty s = sx_hashfs_hashop_perform(ctx->hashfs, block_size, ctx->vol->max_replica, HASHOP_INUSE, hash, NULL, revision_id, 0, NULL);
+                if (s) {
+                    WARN("Failed to add hash blob: %s", rc2str(s));
+                    break;
+                }
+            }
+            if (hash_blob_len) {
+                WARN("corrupt blob received");
+                break;
+            }
+            memcpy(&ctx->last_revision_id, revision_id, sizeof(ctx->last_revision_id));
+            heal_pending_count--;
+            if (!(heal_received++ % 1000)) {
+                char msg[128];
+                DEBUG("Processing revision: %lld", (long long)ctx->revisions);
+                if (sx_hashfs_heal_update(ctx->hashfs, ctx->vol, revision_id, ctx->metadb))
+                    break;
+                snprintf(msg, sizeof(msg), "Pending remote volume heal: %d queries, %lld revisions; Finished: %lld revisions", heal_pending_queries,
+                         (long long)heal_pending_count, (long long)heal_received);
+                sx_hashfs_set_progress_info(ctx->hashfs, INPRG_UPGRADE, msg);
+            }
+            DEBUG("processed  %ld bytes", size);
+            ret = 0;
+        } while(0);
+        sx_blob_free(b);
+    }
     return ret;
 }
 

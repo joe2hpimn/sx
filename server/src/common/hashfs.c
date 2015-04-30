@@ -14286,7 +14286,7 @@ rc_ty sx_hashfs_list_revision_blocks(sx_hashfs_t *h, const sx_hashfs_volume_t *v
             const sx_hash_t *contents = sqlite3_column_blob(q, 2);
             unsigned int block_size;
             int64_t nblocks = size_to_blocks(size, NULL, &block_size);
-            DEBUG("row");
+            DEBUGHASH("row revision", &revision_id);
             if (nblocks * sizeof(*contents) != sqlite3_column_bytes(q, 2)) {
                 msg_set_reason("corrupt file blob: %ld * %lu != %d", nblocks, sizeof(*contents), sqlite3_column_bytes(q, 2));
                 ret = -1;
@@ -14373,7 +14373,6 @@ rc_ty sx_hashfs_remote_heal(sx_hashfs_t *h, heal_cb_t cb)
                         break;
                     min_revision_in = &min_revision_id;
                 }
-                sqlite3_reset(qsel);
                 /* TODO: transaction? */
                 has_heal = 1;
                 if (cb(h, volume, min_revision_in, max_age, i))
