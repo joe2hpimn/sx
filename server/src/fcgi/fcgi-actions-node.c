@@ -1012,10 +1012,16 @@ void fcgi_node_init(void) {
             "volume1":{"xxxx":"rw","yyyy":"r"}
         }
     }
+
+    {
+        "misc":{
+            "mode":"ro"
+        }
+    }
 */
 
 struct cb_sync_ctx {
-    enum cb_sync_state { CB_SYNC_START, CB_SYNC_MAIN, CB_SYNC_USERS, CB_SYNC_VOLUMES, CB_SYNC_PERMS, CB_SYNC_INUSERS, CB_SYNC_INVOLUMES, CB_SYNC_INPERMS, CB_SYNC_USR, CB_SYNC_VOL, CB_SYNC_PRM, CB_SYNC_USRDESC, CB_SYNC_USRID, CB_SYNC_VOLKEY, CB_SYNC_PRMKEY, CB_SYNC_USRAUTH, CB_SYNC_USRKEY, CB_SYNC_USRROLE, CB_SYNC_VOLOWNR, CB_SYNC_VOLREP, CB_SYNC_VOLREVS, CB_SYNC_VOLSIZ, CB_SYNC_VOLMETA, CB_SYNC_VOLMETAKEY, CB_SYNC_VOLMETAVAL, CB_SYNC_PRMVAL, CB_SYNC_OUTRO, CB_SYNC_COMPLETE } state;
+    enum cb_sync_state { CB_SYNC_START, CB_SYNC_MAIN, CB_SYNC_USERS, CB_SYNC_VOLUMES, CB_SYNC_PERMS, CB_SYNC_MISC, CB_SYNC_INMISC, CB_SYNC_MODE, CB_SYNC_INUSERS, CB_SYNC_INVOLUMES, CB_SYNC_INPERMS, CB_SYNC_USR, CB_SYNC_VOL, CB_SYNC_PRM, CB_SYNC_USRDESC, CB_SYNC_USRID, CB_SYNC_VOLKEY, CB_SYNC_PRMKEY, CB_SYNC_USRAUTH, CB_SYNC_USRKEY, CB_SYNC_USRROLE, CB_SYNC_VOLOWNR, CB_SYNC_VOLREP, CB_SYNC_VOLREVS, CB_SYNC_VOLSIZ, CB_SYNC_VOLMETA, CB_SYNC_VOLMETAKEY, CB_SYNC_VOLMETAVAL, CB_SYNC_PRMVAL, CB_SYNC_OUTRO, CB_SYNC_COMPLETE } state;
     int64_t size;
     char name[MAX(SXLIMIT_MAX_VOLNAME_LEN, SXLIMIT_MAX_USERNAME_LEN) + 1];
     char mkey[SXLIMIT_META_MAX_KEY_LEN+1];
@@ -1084,6 +1090,12 @@ static int cb_sync_string(void *ctx, const unsigned char *s, size_t l) {
 	if(sx_hashfs_volume_new_addmeta(hashfs, c->mkey, val, l/2))
 	    return 0;
 	c->state = CB_SYNC_VOLMETAKEY;
+    } else if(c->state == CB_SYNC_MODE) {
+        if(l != 2)
+            return 0;
+        if(sx_hashfs_cluster_set_mode(hashfs, !strncmp(s, "ro", l) ? 1 : 0))
+            return 0;
+        c->state = CB_SYNC_INMISC;
     } else
 	return 0;
     return 1;
@@ -1142,6 +1154,8 @@ static int cb_sync_start_map(void *ctx) {
 	c->state = CB_SYNC_INVOLUMES;
     else if(c->state == CB_SYNC_PERMS)
 	c->state = CB_SYNC_INPERMS;
+    else if(c->state == CB_SYNC_MISC)
+        c->state = CB_SYNC_INMISC;
 
     else if(c->state == CB_SYNC_USR)
 	c->state = CB_SYNC_USRKEY;
@@ -1169,6 +1183,8 @@ static int cb_sync_map_key(void *ctx, const unsigned char *s, size_t l) {
 	    c->state = CB_SYNC_VOLUMES;
 	else if(l == lenof("perms") && !strncmp("perms", s, lenof("perms")))
 	    c->state = CB_SYNC_PERMS;
+        else if(l == lenof("misc") && !strncmp("misc", s, lenof("misc")))
+            c->state = CB_SYNC_MISC;
 	else
 	    return 0;
     } else if(c->state == CB_SYNC_INUSERS ||
@@ -1230,6 +1246,11 @@ static int cb_sync_map_key(void *ctx, const unsigned char *s, size_t l) {
 	memcpy(c->mkey, s, l);
 	c->mkey[l] = '\0';
 	c->state = CB_SYNC_VOLMETAVAL;
+    } else if(c->state == CB_SYNC_INMISC) {
+        if(l == lenof("mode") && !strncmp("mode", s, lenof("mode")))
+            c->state = CB_SYNC_MODE;
+        else
+            return 0;
     } else
 	return 0;
 
@@ -1261,7 +1282,8 @@ static int cb_sync_end_map(void *ctx) {
 	c->state = CB_SYNC_INPERMS;
     } else if(c->state == CB_SYNC_INUSERS ||
 	      c->state == CB_SYNC_INVOLUMES ||
-	      c->state == CB_SYNC_INPERMS) {
+	      c->state == CB_SYNC_INPERMS ||
+              c->state == CB_SYNC_INMISC) {
 	c->state = CB_SYNC_OUTRO;
     } else if(c->state == CB_SYNC_VOLMETAKEY) {
 	c->state = CB_SYNC_VOLKEY;	

@@ -1620,7 +1620,7 @@ struct sync_ctx {
     char buffer[2*1024*1024]; /* Need to fit entirely the largest possible object */
     char *volname;
     unsigned int at;
-    enum { DOING_NOTHING, SYNCING_USERS, SYNCING_VOLUMES, SYNCING_PERMS_VOLUME, SYNCING_PERMS_USERS } what;
+    enum { DOING_NOTHING, SYNCING_USERS, SYNCING_VOLUMES, SYNCING_PERMS_VOLUME, SYNCING_PERMS_USERS, SYNCING_MISC } what;
     struct {
 	char key[(2+SXLIMIT_META_MAX_KEY_LEN)*6+1];
 	char hexvalue[SXLIMIT_META_MAX_VALUE_LEN * 2 + 1];
@@ -1753,6 +1753,7 @@ static int sync_global_objects(sx_hashfs_t *hashfs, const sxi_hostlist_t *hlist)
     const sx_hashfs_volume_t *vol;
     struct sync_ctx ctx;
     rc_ty s;
+    int mode = 0;
 
     ctx.what = DOING_NOTHING;
     ctx.at = 0;
@@ -1892,6 +1893,17 @@ static int sync_global_objects(sx_hashfs_t *hashfs, const sxi_hostlist_t *hlist)
 	if(sync_flush(&ctx))
 	    return -1;
     }
+
+    if(sx_hashfs_cluster_get_mode(hashfs, &mode)) {
+        WARN("Failed to get cluster operating mode");
+        return -1;
+    }
+    /* Syncing cluter operating mode */
+    sprintf(ctx.buffer, "{\"misc\":{\"mode\":\"%s\"", mode ? "ro" : "rw");
+    ctx.what = SYNCING_MISC;
+    ctx.at = lenof("{\"misc\":{\"mode\":\"ro\"");
+    if(sync_flush(&ctx))
+        return -1;
 
     return 0;
 }
