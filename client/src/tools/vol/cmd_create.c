@@ -42,7 +42,7 @@ const char *create_args_info_full_help[] = {
   "  -o, --owner=STRING       Create new volume owned by specified user\n                             (mandatory)",
   "  -s, --size=STRING        Set the size of the new volume (mandatory; allows\n                             K,M,G,T suffixes)",
   "  -f, --filter=NAME        Use filter 'NAME' for the new volume",
-  "      --max-revisions=INT  Set the maximum number of revisions to keep for\n                             files in this volume  (default=`1')",
+  "  -m, --max-revisions=INT  Set the maximum number of revisions to keep for\n                             files in this volume  (default=`1')",
   "\nAdditional options:\n",
   "  -D, --debug              Enable debug messages  (default=off)",
   "  -c, --config-dir=PATH    Path to SX configuration directory",
@@ -591,14 +591,14 @@ create_cmdline_parser_internal (
         { "owner",	1, NULL, 'o' },
         { "size",	1, NULL, 's' },
         { "filter",	1, NULL, 'f' },
-        { "max-revisions",	1, NULL, 0 },
+        { "max-revisions",	1, NULL, 'm' },
         { "debug",	0, NULL, 'D' },
         { "config-dir",	1, NULL, 'c' },
         { "filter-dir",	1, NULL, 0 },
         { 0,  0, 0, 0 }
       };
 
-      c = getopt_long (argc, argv, "hVr:o:s:f:Dc:", long_options, &option_index);
+      c = getopt_long (argc, argv, "hVr:o:s:f:m:Dc:", long_options, &option_index);
 
       if (c == -1) break;	/* Exit from `while (1)' loop.  */
 
@@ -671,6 +671,18 @@ create_cmdline_parser_internal (
             goto failure;
         
           break;
+        case 'm':	/* Set the maximum number of revisions to keep for files in this volume.  */
+        
+        
+          if (update_arg( (void *)&(args_info->max_revisions_arg), 
+               &(args_info->max_revisions_orig), &(args_info->max_revisions_given),
+              &(local_args_info.max_revisions_given), optarg, 0, "1", ARG_INT,
+              check_ambiguity, override, 0, 0,
+              "max-revisions", 'm',
+              additional_error))
+            goto failure;
+        
+          break;
         case 'D':	/* Enable debug messages.  */
         
         
@@ -701,22 +713,8 @@ create_cmdline_parser_internal (
             exit (EXIT_SUCCESS);
           }
 
-          /* Set the maximum number of revisions to keep for files in this volume.  */
-          if (strcmp (long_options[option_index].name, "max-revisions") == 0)
-          {
-          
-          
-            if (update_arg( (void *)&(args_info->max_revisions_arg), 
-                 &(args_info->max_revisions_orig), &(args_info->max_revisions_given),
-                &(local_args_info.max_revisions_given), optarg, 0, "1", ARG_INT,
-                check_ambiguity, override, 0, 0,
-                "max-revisions", '-',
-                additional_error))
-              goto failure;
-          
-          }
           /* Path to SX filter directory.  */
-          else if (strcmp (long_options[option_index].name, "filter-dir") == 0)
+          if (strcmp (long_options[option_index].name, "filter-dir") == 0)
           {
           
           

@@ -8,7 +8,7 @@ option  "owner"     o "Change the volume owner" string optional typestr="NAME"
 
 option  "size"      s "Set a new size of the volume (allows K,M,G,T suffixes)" string optional typestr="SIZE"
 
-option  "max-revisions"      r "Set a new revisions limit for files in the volume" int optional
+option  "max-revisions"      m "Set a new revisions limit for files in the volume" int optional
 
 text "\nAdditional options:\n"
 

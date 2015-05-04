@@ -12,7 +12,7 @@ option  "size"	    s "Set the size of the new volume (mandatory; allows K,M,G,T 
 
 option	"filter"    f "Use filter 'NAME' for the new volume" string typestr="NAME" optional
 
-option  "max-revisions" - "Set the maximum number of revisions to keep for files in this volume" int default="1" optional
+option  "max-revisions" m "Set the maximum number of revisions to keep for files in this volume" int default="1" optional
 
 text "\nAdditional options:\n"
 

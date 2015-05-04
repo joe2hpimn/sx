@@ -200,9 +200,10 @@ int main(int argc, char **argv) {
          * and do the filename appending if target *is* a directory */
         if(sxc_copy(src_file, dst_file, args.recursive_flag, 0, 0, NULL, 1)) {
             fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
+	    if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_NOTFOUND_ERR) && is_sx(fname) && fname[strlen(fname) - 1] == '/')
+		fprintf(stderr, SXBC_TOOLS_NOTFOUND_MSG, fname);
 	    if((cluster1 || cluster2) && strstr(sxc_geterrmsg(sx), SXBC_TOOLS_VOL_ERR))
 		fprintf(stderr, SXBC_TOOLS_VOL_MSG, "", "", cluster1 ? sxc_cluster_get_sslname(cluster1) : sxc_cluster_get_sslname(cluster2));
-		//break
 	    fail = 1;
 	    sxc_file_free(src_file);
 	    src_file = NULL;

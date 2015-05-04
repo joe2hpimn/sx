@@ -43,4 +43,7 @@
 #define SXBC_TOOLS_CONN_ERR "Failed to connect"
 #define SXBC_TOOLS_CONN_MSG "Please check your network connection or run sxinit again.\n"
 
+#define SXBC_TOOLS_NOTFOUND_ERR "Not Found"
+#define SXBC_TOOLS_NOTFOUND_MSG "Use -r to recursively process all files from %s\n"
+
 #endif
