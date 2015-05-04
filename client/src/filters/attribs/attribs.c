@@ -153,7 +153,7 @@ sxc_filter_t sxc_filter={
 /* const char *options */	    NULL,
 /* const char *uuid */		    "43122b8c-56d1-4671-8500-aa6831eb983c",
 /* sxf_type_t type */		    SXF_TYPE_GENERIC,
-/* int version[2] */		    {1, 1},
+/* int version[2] */		    {1, 2},
 /* int (*init)(const sxf_handle_t *handle, void **ctx) */	    NULL,
 /* int (*shutdown)(const sxf_handle_t *handle, void *ctx) */    NULL,
 /* int (*configure)(const char *cfgstr, const char *cfgdir, void **cfgdata, unsigned int *cfgdata_len) */

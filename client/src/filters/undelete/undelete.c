@@ -173,7 +173,7 @@ sxc_filter_t sxc_filter={
 /* const char *options */	    "[volume:]/path/to/trash",
 /* const char *uuid */		    "7e7b7a8f-e294-458a-a2ab-ed8944ffce5c",
 /* sxf_type_t type */		    SXF_TYPE_GENERIC,
-/* int version[2] */		    {1, 1},
+/* int version[2] */		    {1, 2},
 /* int (*init)(const sxf_handle_t *handle, void **ctx) */
 				    undelete_init,
 /* int (*shutdown)(const sxf_handle_t *handle, void *ctx) */

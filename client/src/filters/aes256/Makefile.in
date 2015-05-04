@@ -324,7 +324,7 @@ top_srcdir = @top_srcdir@
 @BUILD_AES256_TRUE@AM_CPPFLAGS = -I $(top_srcdir)/../libsx/include -I $(top_srcdir)/../
 @BUILD_AES256_TRUE@pkglib_LTLIBRARIES = libsxf_aes256.la
 @BUILD_AES256_TRUE@libsxf_aes256_la_SOURCES = aes256.c
-@BUILD_AES256_TRUE@libsxf_aes256_la_LDFLAGS = -module -release 13
+@BUILD_AES256_TRUE@libsxf_aes256_la_LDFLAGS = -module -release 15
 @BUILD_AES256_TRUE@libsxf_aes256_la_LIBADD = @AES256_LIBS@ ../../../../libsx/src/libsx.la
 all: all-am
 

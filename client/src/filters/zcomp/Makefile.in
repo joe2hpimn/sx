@@ -324,7 +324,7 @@ top_srcdir = @top_srcdir@
 @BUILD_ZCOMP_TRUE@AM_CPPFLAGS = -I $(top_srcdir)/../libsx/include
 @BUILD_ZCOMP_TRUE@pkglib_LTLIBRARIES = libsxf_zcomp.la
 @BUILD_ZCOMP_TRUE@libsxf_zcomp_la_SOURCES = zcomp.c
-@BUILD_ZCOMP_TRUE@libsxf_zcomp_la_LDFLAGS = -module -release 10
+@BUILD_ZCOMP_TRUE@libsxf_zcomp_la_LDFLAGS = -module -release 11
 @BUILD_ZCOMP_TRUE@libsxf_zcomp_la_LIBADD = @ZCOMP_LIBS@ ../../../../libsx/src/libsx.la
 all: all-am
 
