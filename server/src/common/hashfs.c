@@ -1617,7 +1617,7 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
                 goto open_hashfs_fail;
 	    if(qprep(h->datadb[j][i], &h->qb_del_reserve[j][i], "DELETE FROM reservations WHERE reservations_id=:reserve_id"))
 		goto open_hashfs_fail;
-	    if(qprep(h->datadb[j][i], &h->qb_find_unused_revision[j][i], "SELECT revision_id FROM revision_ops WHERE revision_id IN (SELECT revision_id FROM revision_ops NATURAL LEFT JOIN reservations WHERE op <= 0 AND age <= :age AND revision_id > :last_revision_id AND reservations_id IS NULL) GROUP BY revision_id HAVING SUM(op)=0 ORDER BY revision_id LIMIT 1"))
+	    if(qprep(h->datadb[j][i], &h->qb_find_unused_revision[j][i], "SELECT revision_id FROM revision_ops WHERE revision_id IN (SELECT revision_id FROM revision_ops NATURAL LEFT JOIN reservations WHERE op <= 0 AND age <= :age AND revision_id > :last_revision_id AND reservations_id IS NULL) GROUP BY revision_id HAVING SUM(op)=0 ORDER BY revision_id"))
 		goto open_hashfs_fail;
 	    if(qprep(h->datadb[j][i], &h->qb_find_unused_block[j][i], "SELECT id, blockno, hash FROM blocks LEFT JOIN revision_blocks ON blocks.hash=blocks_hash WHERE id  > :last AND revision_id IS NULL ORDER BY id"))
 		goto open_hashfs_fail;
@@ -10599,17 +10599,21 @@ static rc_ty foreach_hdb_blob(sx_hashfs_t *h, int *terminate,
             sqlite3_stmt *q_gc1 = h->qb_gc_revision_blocks[j][i];
             sqlite3_stmt *q_gc2 = h->qb_gc_revision[j][i];
             sqlite3_stmt *q_gc3 = h->qb_gc_reserve[j][i];
+            sqlite3_reset(q);
             if (loopvar && qbind_blob(q, loopvar, "", 0))
                 return FAIL_EINTERNAL;
+            int has_last;
             do {
+                has_last = 0;
                 if (qbegin(h->datadb[j][i]))
                     return FAIL_EINTERNAL;
                 ret = SQLITE_ROW;
+                sqlite3_reset(q);
+                sx_hash_t last;
                 for (k=0;k<gc_max_batch && ret == SQLITE_ROW && !*terminate; k++) {
-                    sqlite3_reset(q);
                     ret = qstep(q);
                     if (ret == SQLITE_ROW) {
-                        sx_hash_t last, var;
+                        sx_hash_t var;
                         sqlite3_reset(q_gc1);
                         sqlite3_reset(q_gc2);
                         if (!hash_of_blob_result(&last, q, 0) &&
@@ -10618,6 +10622,7 @@ static rc_ty foreach_hdb_blob(sx_hashfs_t *h, int *terminate,
                             !qbind_blob(q_gc2, ":revision_id", var.b, sizeof(var.b)) &&
                             !qbind_blob(q_gc3, ":revision_id", var.b, sizeof(var.b)) &&
                             !qstep_noret(q_gc1)) {
+                            has_last = 1;
                             k += sqlite3_changes(h->datadb[j][i]->handle);
                             if (!qstep_noret(q_gc2)) {
                                 k += sqlite3_changes(h->datadb[j][i]->handle);
@@ -10633,15 +10638,14 @@ static rc_ty foreach_hdb_blob(sx_hashfs_t *h, int *terminate,
                         }
                         DEBUGHASH("Got revision_id", &var);
                         DEBUGHASH("Got loop id", &last);
-                        sqlite3_reset(q);
-                        if(loopvar && qbind_blob(q, loopvar, last.b, sizeof(last.b))) {
-                            ret = -1;
-                        }
                     }
                 }
+                sqlite3_reset(q);
                 if ((ret == SQLITE_ROW || ret == SQLITE_DONE) && qcommit(h->datadb[j][i]))
                     return FAIL_EINTERNAL;
-            } while (ret == SQLITE_ROW);
+                if(loopvar && has_last && qbind_blob(q, loopvar, last.b, sizeof(last.b)))
+                    ret = -1;
+            } while (!*terminate && (ret == SQLITE_ROW || (ret == SQLITE_DONE && has_last)));
             sqlite3_reset(q);
             sqlite3_reset(q_gc1);
             sqlite3_reset(q_gc2);
@@ -10663,6 +10667,7 @@ static rc_ty bindall(sqlite3_stmt *stmt[][HASHDBS], const char *var, int64_t val
     }
     for (j=0;j<SIZES;j++) {
         for (i=0;i<HASHDBS;i++) {
+            sqlite3_reset(stmt[j][i]);
             if (qbind_int64(stmt[j][i], var, val))
                 return FAIL_EINTERNAL;
         }
