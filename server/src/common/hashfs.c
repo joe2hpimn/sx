@@ -9669,8 +9669,10 @@ rc_ty sx_hashfs_file_delete(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, co
     DEBUG("Deleting file %s, revision %s", file, revision);
 
     ret = get_file_id(h, volume->name, file, revision, &file_id, &mdb, NULL, NULL, &size);
-    if(ret)
+    if(ret) {
+        DEBUG("get_file_id failed: %s", rc2str(ret));
         return ret;
+    }
 
     if(qbind_int64(h->qm_delfile[mdb], ":file", file_id) ||
        qstep_noret(h->qm_delfile[mdb])) {

@@ -1582,8 +1582,9 @@ static act_result_t filedelete_commit(sx_hashfs_t *hashfs, job_t job_id, job_dat
             if (s)
                 action_error(rc2actres(s), rc2http(s), "Failed to retrieve volume id");
     	    s = sx_hashfs_file_delete(hashfs, volume, filerev.name, filerev.revision);
-            if (s)
+            if (s && s != ENOENT) {
                 action_error(rc2actres(s), rc2http(s), "Failed to delete file");
+            }
 	}
 	succeeded[nnode] = 1;
     }
