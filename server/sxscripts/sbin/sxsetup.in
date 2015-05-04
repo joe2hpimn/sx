@@ -1096,7 +1096,7 @@ if [ ! -f "$SX_DATA_DIR/hashfs.db" ]; then
 	LOCKCNT=1
 	MODCNT=1
 	while true; do
-	    if [ -n "`@sbindir@/sxadm cluster --info sx://admin@$SX_CLUSTER_NAME 2>&1 | grep 'Operations in progress'`" ]; then
+	    if [ -n "`@sbindir@/sxadm cluster --info sx://admin@$SX_CLUSTER_NAME 2>&1 | grep 'State of operations'`" ]; then
 		echo "Cluster is busy (another operation in progress)... retrying in 60 seconds (attempt $LOCKCNT of 10)."
 		LOCKCNT=`expr $LOCKCNT + 1`
 		sleep 60
@@ -1174,7 +1174,7 @@ if [ ! -f "$SX_DATA_DIR/hashfs.db" ]; then
 		    sleep 1
 		    continue
 		fi
-		if [ -n "`cat $OUT_TMP | grep 'Operations in progress'`" ]; then
+		if [ -n "`cat $OUT_TMP | grep 'State of operations'`" ]; then
 		    sleep 1
 		    continue
 		else
