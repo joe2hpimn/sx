@@ -4227,6 +4227,7 @@ static sxi_job_t* remote_to_remote_fast(sxc_file_t *source, sxc_meta_t *fmeta, s
     yacb->yajl_end_array = yacb_createfile_end_array;
     yacb->yajl_end_map = yacb_createfile_end_map;
 
+    yctx.max_part_blocks = sxi_ht_count(src_hashes);
     yctx.current.yh = NULL;
     yctx.blocksize = blocksize;
     yctx.name = strdup(dest->path);
