@@ -139,6 +139,7 @@ typedef struct _node_status_t {
 
     char libsx_version[40]; /* Libsx version */
     char hashfs_version[16]; /* HashFS version */
+    char heal_status[40];
 } sxi_node_status_t;
 
 int sxi_conns_set_timeouts(sxi_conns_t *conns, unsigned int hard_timeout, unsigned int soft_timeout);

@@ -14014,6 +14014,16 @@ rc_ty sx_hashfs_node_status(sx_hashfs_t *h, sxi_node_status_t *status) {
 
     snprintf(status->libsx_version, sizeof(status->libsx_version), "%s", sxc_get_version());
     snprintf(status->hashfs_version, sizeof(status->hashfs_version), "%s", HASHFS_VERSION);
+
+    const char *local_heal = sx_hashfs_heal_status_local(h);
+    const char *remote_heal = sx_hashfs_heal_status_remote(h);
+    if (local_heal)
+        snprintf(status->heal_status, sizeof(status->heal_status), "local: %s", local_heal);
+    else if (remote_heal)
+        snprintf(status->heal_status, sizeof(status->heal_status), "remote: %s", remote_heal);
+    else
+        snprintf(status->heal_status, sizeof(status->heal_status), "DONE");
+    status->heal_status[sizeof(status->heal_status)-1] = '\0';
     return OK;
 }
 
@@ -14411,4 +14421,36 @@ int sx_hashfs_has_upgrade_job(sx_hashfs_t *h)
     ret = sqlite3_column_int(q, 0);
     sqlite3_reset(q);
     return ret;
+}
+
+const char *sx_hashfs_heal_status_local(sx_hashfs_t *h)
+{
+    switch (sx_hashfs_has_upgrade_job(h))
+        {
+        case 0:
+            return NULL;
+        case 1:
+            return "In progress";
+        default:
+            return "Error";
+        }
+}
+
+const char *sx_hashfs_heal_status_remote(sx_hashfs_t *h)
+{
+    if (sx_hashfs_has_upgrade_job(h))
+        return "Waiting on local heal";
+    for (unsigned i=0;i<METADBS;i++) {
+        sqlite3_stmt *qsel = h->qm_sel_heal_volume[i];
+        sqlite3_reset(qsel);
+        if(qbind_text(qsel, ":prev", ""))
+            break;
+        int ret = qstep(qsel);
+        sqlite3_reset(qsel);
+        if (ret == SQLITE_ROW)
+            return "Pending";
+        else if (ret != SQLITE_DONE)
+            return "Error";
+    }
+    return NULL;
 }

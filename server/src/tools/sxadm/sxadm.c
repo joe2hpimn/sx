@@ -1592,6 +1592,8 @@ static void print_status(sxc_client_t *sx, int http_code, const sxi_node_status_
     printf("    Memory:\n");
     fmt_capa(status->mem_total, str, sizeof(str), human_readable);
     printf("        Total: %s\n\n", str);
+
+    printf("    Heal: %s\n", status->heal_status);
     
 }
 
@@ -1621,6 +1623,7 @@ enum mismatch {
     MISMATCH_OFFLINE,
 };
 static int check_upgrade_mismatch;
+static int upgrade_complete;
 
 static void check_status(sxc_client_t *sx, int http_code, const sxi_node_status_t *status, int human_readable)
 {
@@ -1646,6 +1649,8 @@ static void check_status(sxc_client_t *sx, int http_code, const sxi_node_status_
         check_upgrade_mismatch |= 1 << MISMATCH_STORAGE_VERSION;
     else if (strcmp(last_status.libsx_version, status->libsx_version))
         check_upgrade_mismatch |= 1 << MISMATCH_LIBSX_VERSION;
+    if (!strcmp(status->heal_status, "DONE"))
+        upgrade_complete = 1;
 }
 
 static int cluster_upgrade(sxc_client_t *sx, struct cluster_args_info *args) {
@@ -1675,8 +1680,12 @@ static int cluster_upgrade(sxc_client_t *sx, struct cluster_args_info *args) {
             fprintf(stderr,"\tlibsx versions don't match\n");
         ret = -1;
     } else {
-        printf("Triggering upgrade and garbage collector\n");
-        ret = force_gc_cluster(sx, args, 0);
+        if (upgrade_complete) {
+            printf("Cluster already fully upgraded\n");
+        } else {
+            printf("Triggering upgrade and garbage collector\n");
+            ret = force_gc_cluster(sx, args, 0);
+        }
     }
 
     sxc_cluster_free(clust);

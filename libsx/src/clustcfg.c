@@ -3659,7 +3659,7 @@ struct node_status_ctx {
     enum node_status_state { NS_ERROR, NS_BEGIN, NS_KEY, NS_OSTYPE, NS_ARCH, NS_RELEASE, NS_VERSION, NS_CORES, NS_ENDIANNESS,
         NS_LOCALTIME, NS_UTCTIME, NS_ADDR, NS_INTERNAL_ADDR, NS_UUID, NS_STORAGE_VERSION, NS_LIBSX_VERSION, NS_STORAGE_DIR,
         NS_STORAGE_ALLOC, NS_STORAGE_USED, NS_FS_BLOCK_SIZE, NS_FS_TOTAL_BLOCKS, NS_FS_AVAIL_BLOCKS,
-        NS_MEM_TOTAL, NS_COMPLETE } state;
+        NS_MEM_TOTAL, NS_HEAL, NS_COMPLETE } state;
 };
 
 static int yacb_node_status_start_map(void *ctx) {
@@ -3784,6 +3784,13 @@ static int yacb_node_status_string(void *ctx, const unsigned char *s, size_t l) 
         }
         memcpy(yactx->status.libsx_version, s, l);
         yactx->status.libsx_version[sizeof(yactx->status.libsx_version)-1] = '\0';
+    } else if(yactx->state == NS_HEAL) {
+        if (l >= sizeof(yactx->status.heal_status)) {
+            CBDEBUG("heal status too long");
+            return 0;
+        }
+        memcpy(yactx->status.heal_status, s, l);
+        yactx->status.heal_status[sizeof(yactx->status.heal_status)-1] = '\0';
     } else if(yactx->state != NS_KEY) {
         CBDEBUG("bad state (in %d, expected %d, %d, %d, %d, %d, %d, %d, %d, %d or %d)", yactx->state, NS_OSTYPE, NS_ARCH,
             NS_RELEASE, NS_VERSION, NS_ADDR, NS_INTERNAL_ADDR, NS_UUID, NS_STORAGE_DIR, NS_STORAGE_VERSION, NS_LIBSX_VERSION);
@@ -3841,6 +3848,8 @@ static int yacb_node_status_map_key(void *ctx, const unsigned char *s, size_t l)
             yactx->state = NS_FS_AVAIL_BLOCKS;
         else if(l == lenof("memTotal") && !memcmp(s, "memTotal", lenof("memTotal")))
             yactx->state = NS_MEM_TOTAL;
+        else if(l == lenof("heal") && !memcmp(s, "heal", lenof("heal")))
+            yactx->state = NS_HEAL;
         else
             CBDEBUG("unexpected key '%.*s'", (unsigned)l, s);
         return 1;

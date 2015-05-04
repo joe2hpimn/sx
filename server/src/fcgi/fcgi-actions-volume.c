@@ -1627,6 +1627,7 @@ void fcgi_node_status(void) {
     CGI_PUTLL(status.avail_blocks);
     CGI_PUTS(",\"memTotal\":");
     CGI_PUTLL(status.mem_total);
+    CGI_PRINTF(",\"heal\":\"%s\"", status.heal_status);
     CGI_PUTC('}');
 }
 

@@ -482,4 +482,6 @@ rc_ty sx_hashfs_remote_heal(sx_hashfs_t *h, heal_cb_t cb);
 rc_ty sx_hashfs_heal_update(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, const sx_hash_t *min_revision_id, unsigned metadb);
 
 int sx_hashfs_has_upgrade_job(sx_hashfs_t *h);
+const char *sx_hashfs_heal_status_local(sx_hashfs_t *h);
+const char *sx_hashfs_heal_status_remote(sx_hashfs_t *h);
 #endif
