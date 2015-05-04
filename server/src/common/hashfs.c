@@ -8534,6 +8534,7 @@ rc_ty sx_hashfs_putfile_commitjob(sx_hashfs_t *h, const uint8_t *user, sx_uid_t 
     if(r == SQLITE_DONE) {
         msg_set_reason("Token is unknown or already flushed");
 	ret = ENOENT;
+	goto putfile_commitjob_err;
     }
     if(r != SQLITE_ROW) {
 	ret = FAIL_EINTERNAL;
