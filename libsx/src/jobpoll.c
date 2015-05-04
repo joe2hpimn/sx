@@ -422,6 +422,7 @@ sxi_job_t* sxi_job_submit(sxi_conns_t *conns, sxi_hostlist_t *hlist, enum sxi_cl
     yres->cbdata = sxi_cbdata_create_job(conns, jobres_finish, &yres->ctx);
     if (!yres->cbdata) {
         free(yres);
+        SXDEBUG("sxi_cbdata_create_job failed");
         return NULL;
     }
 
@@ -472,12 +473,15 @@ sxi_job_t* sxi_job_submit(sxi_conns_t *conns, sxi_hostlist_t *hlist, enum sxi_cl
     if (http_code)
         *http_code = qret;
     if(qret != 200 || yget.state != JG_COMPLETE) {
+        SXDEBUG("unexpected json reply, HTTP %d: parse state %d", qret, yget.state);
 	goto failure;
     }
     SXDEBUG("Received job id %s with %d-%d secs polling\n", yget.job_id, yget.poll_min_delay, yget.poll_max_delay);
 
-    if(sxi_hostlist_add_host(sx, &jobhost, yget.job_host))
+    if(sxi_hostlist_add_host(sx, &jobhost, yget.job_host)) {
+        SXDEBUG("sxi_hostlist_add_host failed");
 	goto failure;
+    }
 
     yres->poll_min_delay = yget.poll_min_delay;
     yres->poll_max_delay = yget.poll_max_delay;
@@ -674,6 +678,7 @@ static int sxi_job_poll(sxi_conns_t *conns, sxi_jobs_t *jobs, int wait)
             rc = sxi_job_status_ev(conns, &jobs->jobs[i], &jobs->successful, &jobs->http_err, &jobs->error);
             if (rc < 0) {
                 ret = -1;
+                SXDEBUG("sxi_job_status_ev failed: %s", jobs->jobs[i]->message);
                 if (!jobs->ignore_errors)
                     break;
                 continue;
@@ -759,11 +764,15 @@ static int sxi_job_poll(sxi_conns_t *conns, sxi_jobs_t *jobs, int wait)
     }
     rc = 0;
     for (i=0;i<jobs->n;i++) {
-        if (jobs->jobs[i])
+        if (jobs->jobs[i] && (wait || jobs->jobs[i]->status != JOBST_PENDING))
             rc = sxi_job_result(sx, &jobs->jobs[i], &jobs->successful, &jobs->http_err, &jobs->error);
-        if(rc)
+        if(rc) {
+            SXDEBUG("Job %s failed: %s", jobs->jobs[i]->job_id, jobs->jobs[i]->message);
             ret = rc;
+        }
     }
+    if(ret)
+        SXDEBUG("job_poll fails with: %d (%s)", ret, sxc_geterrmsg(sx));
     return ret;
 }
 
