@@ -1733,7 +1733,7 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
             goto open_hashfs_fail;
         if(qprep(h->metadb[i], &h->qm_add_heal[i], "INSERT OR IGNORE INTO heal(revision_id, remote_volume, blocks, blocksize, replica_count) VALUES(:revision_id, :remote_volid, :blocks, :blocksize, :replica_count)"))
             goto open_hashfs_fail;
-        if(qprep(h->metadb[i], &h->qm_get_rb[i], "SELECT size, revision_id, content FROM files WHERE volume_id=:volume_id AND age < :age_limit AND revision_id > :min_revision_id ORDER BY revision_id"))
+        if(qprep(h->metadb[i], &h->qm_get_rb[i], "SELECT size, revision_id, content, name FROM files WHERE volume_id=:volume_id AND age < :age_limit AND revision_id > :min_revision_id ORDER BY revision_id"))
             goto open_hashfs_fail;
         if(qprep(h->metadb[i], &h->qm_count_rb[i], "SELECT COUNT(revision_id) FROM files WHERE volume_id=:volume_id AND age < :age_limit AND revision_id > :min_revision_id ORDER BY revision_id"))
             goto open_hashfs_fail;
@@ -14273,7 +14273,7 @@ rc_ty sx_hashfs_list_revision_blocks(sx_hashfs_t *h, const sx_hashfs_volume_t *v
                 qbind_blob(qcount, ":min_revision_id", "", 0))
                 break;
         }
-        DEBUG("before query, volume id: %lld, age_limit: %d", (long long)vol->id, age_limit);
+        DEBUG("before query, volume name: %s, metadb: %d, volume id: %lld, age_limit: %d", vol->name, i, (long long)vol->id, age_limit);
         if (qstep_ret(qcount))
             break;
         if (cb_count(sqlite3_column_int64(qcount, 0))) {
@@ -14293,6 +14293,7 @@ rc_ty sx_hashfs_list_revision_blocks(sx_hashfs_t *h, const sx_hashfs_volume_t *v
             const sx_hash_t *contents = sqlite3_column_blob(q, 2);
             unsigned int block_size;
             int64_t nblocks = size_to_blocks(size, NULL, &block_size);
+            DEBUG("volume: %s, metadb: %d, file: %s", vol->name, i, sqlite3_column_text(q, 3));
             DEBUGHASH("row revision", &revision_id);
             if (nblocks * sizeof(*contents) != sqlite3_column_bytes(q, 2)) {
                 msg_set_reason("corrupt file blob: %ld * %lu != %d", nblocks, sizeof(*contents), sqlite3_column_bytes(q, 2));
@@ -14312,6 +14313,10 @@ rc_ty sx_hashfs_list_revision_blocks(sx_hashfs_t *h, const sx_hashfs_volume_t *v
         if (ret != SQLITE_ROW && ret != SQLITE_DONE)
             break;
         rc = OK;
+        if (min_revision_id) {
+            DEBUG("after query, volume name: %s, metadb: %d, volume id: %lld, age_limit: %d, sent revisions %d", vol->name, i, (long long)vol->id, age_limit, k);
+            DEBUGHASH("last revision in this iteration", min_revision_id);
+        }
     } while(0);
     DEBUG("returning: %s", rc2str(rc));
     return rc;
