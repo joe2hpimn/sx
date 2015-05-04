@@ -764,9 +764,11 @@ static int addnode(struct sxcluster *cluster, const char *host, uint64_t capacit
     sxi_strlcpy(cluster->node[cluster->node_cnt].host, host, sizeof(cluster->node[cluster->node_cnt].host));
     cluster->node[cluster->node_cnt].capacity = capacity;
     cluster->capacity += capacity;
-    if(!uuid && uuid_generate(&cluster->node[cluster->node_cnt].uuid)) {
-        printf("ERROR: cannot generate UUID\n");
-        return -1;
+    if(!uuid) {
+        if (uuid_generate(&cluster->node[cluster->node_cnt].uuid)) {
+            printf("ERROR: cannot generate UUID\n");
+            return -1;
+        }
     } else
 	memcpy(&cluster->node[cluster->node_cnt].uuid, uuid, sizeof(*uuid));
 
