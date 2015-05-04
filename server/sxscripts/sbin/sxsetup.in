@@ -12,6 +12,8 @@ while [ $OPTNUM -le $# ]; do
 	VERSION_GIVEN="yes"
     elif [ "$OPTION" = "--info" -o "$OPTION" = "-i" ]; then
 	INFO_GIVEN="yes"
+    elif [ "$OPTION" = "--upgrade" ]; then
+	UPGRADE_GIVEN="yes"
     elif [ "$OPTION" = "--config-file" ]; then
 	CONFIG_FILE_GIVEN="yes"
 	OPTNUM=`expr $OPTNUM + 1`
@@ -60,6 +62,7 @@ if [ "$HELP_GIVEN" = "yes" ]; then
     echo "-h, --help              Print help and exit"
     echo "-V, --version           Print version and exit"
     echo "-i, --info              Show current node configuration and exit"
+    echo "    --upgrade           Upgrade local storage format and cluster databases to the latest version"
     echo "    --config-file FILE  Use config FILE to configure the node automatically"
     echo "    --advanced          Enable advanced configuration"
     echo "    --no-remote-copy    Don't make and use remote copy of sxsetup.conf"
@@ -80,7 +83,7 @@ CFG_VERSION=2
 ETCDIR="@sysconfdir@"
 CONFIG="$ETCDIR/sxserver/sxsetup.conf"
 
-if [ "$INFO_GIVEN" = "yes" ]; then
+if [ "$INFO_GIVEN" = "yes" -o "$UPGRADE_GIVEN" = "yes" ]; then
     if [ ! -f "$CONFIG" ]; then
 	echo "Not configured. You have to run sxsetup in configuration mode first."
 	exit 1
@@ -90,15 +93,40 @@ if [ "$INFO_GIVEN" = "yes" ]; then
 	exit 1
     fi
     . $CONFIG
-    echo "--- SX INFO ---"
-    echo "SX Version: `@sbindir@/sx.fcgi --version | cut -d\  -f2`"
-    echo "Cluster name: $SX_CLUSTER_NAME"
-    echo "Cluster port: $SX_PORT"
-    @sbindir@/sxadm node --info --human-readable $SX_DATA_DIR | grep -v "HashFS Version"
-    echo "Storage location: $SX_DATA_DIR"
-    test "$SX_USE_SSL" = "yes" && echo "SSL private key: $SX_SSL_KEY_FILE"
-    echo "SX Logfile: $SX_LOG_FILE"
-    exit 0
+    if [ "$INFO_GIVEN" = "yes" ]; then
+	echo "--- SX INFO ---"
+	echo "SX Version: `@sbindir@/sx.fcgi --version | cut -d\  -f2`"
+	echo "Cluster name: $SX_CLUSTER_NAME"
+	echo "Cluster port: $SX_PORT"
+	@sbindir@/sxadm node --info --human-readable $SX_DATA_DIR | grep -v "HashFS Version"
+	echo "Storage location: $SX_DATA_DIR"
+	test "$SX_USE_SSL" = "yes" && echo "SSL private key: $SX_SSL_KEY_FILE"
+	echo "SX Logfile: $SX_LOG_FILE"
+	exit 0
+    else
+	# FIXME: don't stop the node if we can check its state directly (depends on bb#1279)
+	"@sbindir@/sxserver" stop
+        "@sbindir@/sxadm" node $OWNERFLAG --upgrade "$SX_DATA_DIR"
+	if [ $? -ne 0 ]; then
+	    echo "Failed to upgrade the local node"
+	    "@sbindir@/sxserver" start
+	    return 1
+	fi
+	"@sbindir@/sxserver" start
+        "@sbindir@/sxadm" cluster --upgrade "sx://admin@$SX_CLUSTER_NAME"
+	if [ $? -ne 0 ]; then
+	    echo
+	    echo "Failed to upgrade the cluster. Please run sxsetup --upgrade"
+	    echo "again when all other nodes are locally updated and online."
+	    return 1
+	fi
+	# FIXME: check the output of --upgrade and say it's up to date when bb#1279 gets implemented
+        "@sbindir@/sxadm" cluster --info "sx://admin@$SX_CLUSTER_NAME"
+	echo
+	echo "Cluster upgrade started. You can monitor the progress by running:"
+	echo "@sbindir@/sxadm cluster --info sx://admin@$SX_CLUSTER_NAME"
+	return 0
+    fi
 fi
 
 # Read previous answers, and initialize the defaults with them
