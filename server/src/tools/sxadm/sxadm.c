@@ -161,6 +161,23 @@ int yesno(const char *prompt, int def)
     return 0;
 }
 
+static int handle_owner(struct node_args_info *args) {
+    if(args->owner_given) {
+	uid_t uid;
+	gid_t gid;
+	if(parse_usergroup(args->owner_arg, &uid, &gid))
+	    return 1;
+
+	if(chown(args->inputs[0], uid, gid)) {
+	    printf("Can't set ownership of %s to %u:%u\n", args->inputs[0], (unsigned int) uid, (unsigned int) gid);
+	    return 1;
+	}
+	if(runas(args->owner_arg))
+	    return 1;
+    }
+    return 0;
+}
+
 static int create_node(struct node_args_info *args) {
     struct token_pair_t auth;
     sx_uuid_t cluster_uuid;
@@ -189,20 +206,8 @@ static int create_node(struct node_args_info *args) {
 	return 1;
     }
 
-    if(args->owner_given) {
-	uid_t uid;
-	gid_t gid;
-	if(parse_usergroup(args->owner_arg, &uid, &gid))
-	    return 1;
-
-	if(chown(args->inputs[0], uid, gid)) {
-	    printf("Can't set ownership of %s to %u:%u\n", args->inputs[0], (unsigned int) uid, (unsigned int) gid);
-	    return 1;
-	}
-	if(runas(args->owner_arg))
-	    return 1;
-    }
-
+    if(handle_owner(args))
+        return 1;
     rc_ty create_fail = sx_storage_create(args->inputs[0], &cluster_uuid, auth.key, sizeof(auth.key));
     if(create_fail) {
 	printf("Failed to create storage for new node: %s\n", rc2str(create_fail));
@@ -1852,18 +1857,22 @@ int main(int argc, char **argv) {
 	}
 	if(node_args.new_given)
 	    ret = create_node(&node_args);
-	else if(node_args.info_given)
-	    ret = info_node(sx, node_args.inputs[0], &node_args);
-        else if(node_args.check_given)
-            ret = check_node(sx, node_args.inputs[0], node_args.debug_flag);
-        else if(node_args.extract_given)
-            ret = extract_node(sx, node_args.inputs[0], node_args.extract_arg);
-        else if(node_args.rename_cluster_given)
-            ret = rename_cluster(sx, node_args.inputs[0], node_args.rename_cluster_arg);
-        else if(node_args.upgrade_given)
-            ret = upgrade_node(sx, node_args.inputs[0]);
-        else if(node_args.upgrade_job_given)
-            ret = upgrade_job_node(sx, node_args.inputs[0]);
+	else {
+            if(handle_owner(&node_args))
+                ret = 1;
+            else if(node_args.info_given)
+                ret = info_node(sx, node_args.inputs[0], &node_args);
+            else if(node_args.check_given)
+                ret = check_node(sx, node_args.inputs[0], node_args.debug_flag);
+            else if(node_args.extract_given)
+                ret = extract_node(sx, node_args.inputs[0], node_args.extract_arg);
+            else if(node_args.rename_cluster_given)
+                ret = rename_cluster(sx, node_args.inputs[0], node_args.rename_cluster_arg);
+            else if(node_args.upgrade_given)
+                ret = upgrade_node(sx, node_args.inputs[0]);
+            else if(node_args.upgrade_job_given)
+                ret = upgrade_job_node(sx, node_args.inputs[0]);
+        }
     node_out:
 	node_cmdline_parser_free(&node_args);
         sx_done(&sx);

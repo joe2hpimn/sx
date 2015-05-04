@@ -55,9 +55,6 @@ struct node_args_info
   char * cluster_key_orig;	/**< @brief File containing a pre-generated cluster authentication token or stdin if \"-\" is given (default autogenerate token). original value given at command line.  */
   const char *cluster_key_help; /**< @brief File containing a pre-generated cluster authentication token or stdin if \"-\" is given (default autogenerate token). help description.  */
   const char *batch_mode_help; /**< @brief Turn off interactive confirmations and assume yes for all questions help description.  */
-  char * owner_arg;	/**< @brief Set ownership of storage to user[:group].  */
-  char * owner_orig;	/**< @brief Set ownership of storage to user[:group] original value given at command line.  */
-  const char *owner_help; /**< @brief Set ownership of storage to user[:group] help description.  */
   char * cluster_uuid_arg;	/**< @brief The SX cluster UUID (default autogenerate UUID)..  */
   char * cluster_uuid_orig;	/**< @brief The SX cluster UUID (default autogenerate UUID). original value given at command line.  */
   const char *cluster_uuid_help; /**< @brief The SX cluster UUID (default autogenerate UUID). help description.  */
@@ -65,6 +62,9 @@ struct node_args_info
   const char *human_readable_help; /**< @brief Print human readable sizes help description.  */
   int debug_flag;	/**< @brief Enable debug messages (default=off).  */
   const char *debug_help; /**< @brief Enable debug messages help description.  */
+  char * owner_arg;	/**< @brief Set ownership of storage to user[:group].  */
+  char * owner_orig;	/**< @brief Set ownership of storage to user[:group] original value given at command line.  */
+  const char *owner_help; /**< @brief Set ownership of storage to user[:group] help description.  */
   
   unsigned int help_given ;	/**< @brief Whether help was given.  */
   unsigned int full_help_given ;	/**< @brief Whether full-help was given.  */
@@ -78,10 +78,10 @@ struct node_args_info
   unsigned int upgrade_job_given ;	/**< @brief Whether upgrade-job was given.  */
   unsigned int cluster_key_given ;	/**< @brief Whether cluster-key was given.  */
   unsigned int batch_mode_given ;	/**< @brief Whether batch-mode was given.  */
-  unsigned int owner_given ;	/**< @brief Whether owner was given.  */
   unsigned int cluster_uuid_given ;	/**< @brief Whether cluster-uuid was given.  */
   unsigned int human_readable_given ;	/**< @brief Whether human-readable was given.  */
   unsigned int debug_given ;	/**< @brief Whether debug was given.  */
+  unsigned int owner_given ;	/**< @brief Whether owner was given.  */
 
   char **inputs ; /**< @brief unamed options (options without names) */
   unsigned inputs_num ; /**< @brief unamed options number */
