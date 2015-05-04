@@ -379,7 +379,7 @@ int sxc_fgetline(sxc_client_t *sx, FILE *f, char **ret);
 int sxc_input_fn(sxc_client_t *sx, sxc_input_t type, const char *prompt, const char *def, char *in, unsigned int insize, void *ctx); /* default input function */
 
 /* filters */
-#define SXF_ABI_VERSION	9
+#define SXF_ABI_VERSION	10
 
 /** Defines a filter's type
  * This is used to prioritize filters, for example
