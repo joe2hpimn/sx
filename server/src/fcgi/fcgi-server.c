@@ -733,6 +733,8 @@ int main(int argc, char **argv) {
 	close(block_trigger);
         close(gc_trigger);
         close(gc_expire_trigger);
+        close(inner_gc_trigger);
+        close(inner_gc_expire_trigger);
         OS_LibShutdown();
         sx_done(&sx);
         return ret;
@@ -770,7 +772,8 @@ int main(int argc, char **argv) {
         sx_done(&sx);
         return ret;
     }
-    close(inner_block_trigger);
+    close(inner_gc_trigger);
+    close(inner_gc_expire_trigger);
 
     if(have_nodeid)
 	INFO("Node %s in cluster %s starting up", node_uuid.string, cluster_uuid.string);
