@@ -1624,6 +1624,7 @@ enum mismatch {
 };
 static int check_upgrade_mismatch;
 static int upgrade_complete;
+static int upgrade_nodes;
 
 static void check_status(sxc_client_t *sx, int http_code, const sxi_node_status_t *status, int human_readable)
 {
@@ -1631,6 +1632,7 @@ static void check_status(sxc_client_t *sx, int http_code, const sxi_node_status_
     static int has_last_status = 0;
     if (!sx)
         return;
+    upgrade_nodes++;
     if (!status) {
         if (http_code == -1)
             check_upgrade_mismatch |= 1 << MISMATCH_OFFLINE;
@@ -1650,7 +1652,7 @@ static void check_status(sxc_client_t *sx, int http_code, const sxi_node_status_
     else if (strcmp(last_status.libsx_version, status->libsx_version))
         check_upgrade_mismatch |= 1 << MISMATCH_LIBSX_VERSION;
     if (!strcmp(status->heal_status, "DONE"))
-        upgrade_complete = 1;
+        upgrade_complete++;
 }
 
 static int cluster_upgrade(sxc_client_t *sx, struct cluster_args_info *args) {
@@ -1680,7 +1682,7 @@ static int cluster_upgrade(sxc_client_t *sx, struct cluster_args_info *args) {
             fprintf(stderr,"\tlibsx versions don't match\n");
         ret = -1;
     } else {
-        if (upgrade_complete) {
+        if (upgrade_complete == upgrade_nodes) {
             printf("Cluster already fully upgraded\n");
         } else {
             printf("Triggering upgrade and garbage collector\n");
