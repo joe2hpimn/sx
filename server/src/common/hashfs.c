@@ -3392,14 +3392,16 @@ static int ensure_not_running(int lockfd, const char *path)
         ret = -1;
     }
     free(dbpath);
-    if(!ret && fcntl(dbf, F_SETLK, &fl) == -1) {
-        if(errno == EAGAIN || errno == EACCES)
-            WARN("Cannot acquire write lock on storage db %s: node still running?", path);
-        else
-            PWARN("Failed to lock HashFS storage db: %s", path);
-        ret = -1;
+    if(!ret) {
+        if (fcntl(dbf, F_SETLK, &fl) == -1) {
+            if(errno == EAGAIN || errno == EACCES)
+                WARN("Cannot acquire write lock on storage db %s: node still running?", path);
+            else
+                PWARN("Failed to lock HashFS storage db: %s", path);
+            ret = -1;
+        }
+        close(dbf);
     }
-    close(dbf);
     return ret;
 }
 
