@@ -9067,34 +9067,6 @@ rc_ty sx_hashfs_tmp_getinfo(sx_hashfs_t *h, int64_t tmpfile_id, sx_hashfs_tmpinf
     return ret;
 }
 
-static rc_ty get_tempfile_metasize(sx_hashfs_t *h, int64_t tid, int64_t *size) {
-    int r;
-    int64_t metasize = 0;
-
-    if(!h || !size) {
-        NULLARG();
-        return EFAULT;
-    }
-
-    sqlite3_reset(h->qt_getmeta);
-    if(qbind_int64(h->qt_getmeta, ":id", tid))
-        return FAIL_EINTERNAL;
-    while((r = qstep(h->qt_getmeta)) == SQLITE_ROW) {
-        const char *key = (const char *)sqlite3_column_text(h->qt_getmeta, 0);
-        int value_len = sqlite3_column_bytes(h->qt_getmeta, 1);
-
-        metasize += strlen(key) + value_len;
-    }
-    sqlite3_reset(h->qt_getmeta);
-    if(r != SQLITE_DONE) {
-        msg_set_reason("Failed to get temp file metadata size");
-        return FAIL_EINTERNAL;
-    }
-
-    *size = metasize;
-    return OK;
-}
-
 rc_ty sx_hashfs_getinfo_by_revision(sx_hashfs_t *h, const char *revision, sx_hashfs_file_t *filerev)
 {
     unsigned ndb;
@@ -9141,7 +9113,9 @@ rc_ty sx_hashfs_tmp_tofile(sx_hashfs_t *h, const sx_hashfs_tmpinfo_t *missing) {
     rc_ty ret = FAIL_EINTERNAL, ret2;
     const sx_hashfs_volume_t *volume;
     int64_t file_id, totalsize = 0;
-    int r, mdb;
+    int mdb;
+    sxc_meta_t *meta;
+    unsigned int i;
 
     if(!h || !missing) {
 	NULLARG();
@@ -9161,13 +9135,34 @@ rc_ty sx_hashfs_tmp_tofile(sx_hashfs_t *h, const sx_hashfs_tmpinfo_t *missing) {
     }
 
     sqlite3_reset(h->qt_getmeta);
+    if(!(meta = sxc_meta_new(h->sx)))
+        return ENOMEM;
 
-    if(qbegin(h->metadb[mdb]))
-	return FAIL_EINTERNAL;
+    if((ret2 = sx_hashfs_tmp_getmeta(h, missing->tmpfile_id, meta)) != OK) {
+        sxc_meta_free(meta);
+        return ret2;
+    }
 
-    if(get_tempfile_metasize(h, missing->tmpfile_id, &totalsize))
-        goto tmp2file_rollback;
-    totalsize += missing->file_size + strlen(missing->name);
+    /* Calculate total file size */
+    totalsize = missing->file_size + strlen(missing->name);
+    for(i = 0; i < sxc_meta_count(meta); i++) {
+        const void *value;
+        const char *key;
+        unsigned int value_len;
+
+        if(sxc_meta_getkeyval(meta, i, &key, &value, &value_len)) {
+            WARN("Failed to get tempfile meta entry");
+            sxc_meta_free(meta);
+            return FAIL_EINTERNAL;
+        }
+
+        totalsize += strlen(key) + value_len;
+    }
+
+    if(qbegin(h->metadb[mdb])) {
+        sxc_meta_free(meta);
+        return FAIL_EINTERNAL;
+    }
 
     ret2 = create_file(h, volume, missing->name, missing->revision, missing->all_blocks, missing->nall, missing->file_size, totalsize, &file_id);
     if(ret2) {
@@ -9175,27 +9170,28 @@ rc_ty sx_hashfs_tmp_tofile(sx_hashfs_t *h, const sx_hashfs_tmpinfo_t *missing) {
 	goto tmp2file_rollback;
     }
 
-    if(qbind_int64(h->qt_getmeta, ":id", missing->tmpfile_id))
-	goto tmp2file_rollback;
-    while((r = qstep(h->qt_getmeta)) == SQLITE_ROW) {
-	const char *key = (const char *)sqlite3_column_text(h->qt_getmeta, 0);
-	const void *value = sqlite3_column_blob(h->qt_getmeta, 1);
-	int value_len = sqlite3_column_bytes(h->qt_getmeta, 1);
+    /* Set new file meta */
+    for(i = 0; i < sxc_meta_count(meta); i++) {
+        const void *value;
+        const char *key;
+        unsigned int value_len;
 
-	sqlite3_reset(h->qm_metaset[mdb]);
-	if(qbind_int64(h->qm_metaset[mdb], ":file", file_id) ||
-	   qbind_text(h->qm_metaset[mdb], ":key", key) ||
-	   qbind_blob(h->qm_metaset[mdb], ":value", value, value_len) ||
-	   qstep_noret(h->qm_metaset[mdb])) {
-	    sqlite3_reset(h->qm_metaset[mdb]);
-	    goto tmp2file_rollback;
-	}
+        if(sxc_meta_getkeyval(meta, i, &key, &value, &value_len)) {
+            WARN("Failed to get tempfile meta entry");
+            goto tmp2file_rollback;
+        }
+
+        sqlite3_reset(h->qm_metaset[mdb]);
+        if(qbind_int64(h->qm_metaset[mdb], ":file", file_id) ||
+           qbind_text(h->qm_metaset[mdb], ":key", key) ||
+           qbind_blob(h->qm_metaset[mdb], ":value", value, value_len) ||
+           qstep_noret(h->qm_metaset[mdb])) {
+            sqlite3_reset(h->qm_metaset[mdb]);
+            goto tmp2file_rollback;
+        }
     }
-    sqlite3_reset(h->qm_metaset[mdb]);
-    sqlite3_reset(h->qt_getmeta);
-    if(r != SQLITE_DONE)
-	goto tmp2file_rollback;
 
+    sqlite3_reset(h->qm_metaset[mdb]);
     if(qcommit(h->metadb[mdb]))
 	goto tmp2file_rollback;
 
@@ -9208,6 +9204,7 @@ rc_ty sx_hashfs_tmp_tofile(sx_hashfs_t *h, const sx_hashfs_tmpinfo_t *missing) {
 
     sqlite3_reset(h->qm_metaset[mdb]);
     sqlite3_reset(h->qt_getmeta);
+    sxc_meta_free(meta);
 
     return ret;
 }
