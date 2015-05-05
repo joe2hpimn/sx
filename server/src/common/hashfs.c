@@ -3366,7 +3366,45 @@ static rc_ty upgrade_db_prepare(const char *path, const char *dbitem, sxi_db_t *
     return OK;
 }
 
-static rc_ty upgrade_db(const char *path, sxi_db_t *db, const char *from_version, const char *to_version, sx_db_upgrade_fn fn)
+static int ensure_not_running(int lockfd, const char *path)
+{
+    struct flock fl;
+    fl.l_start = 0;
+    fl.l_len = 0;
+    fl.l_type = F_WRLCK;
+    fl.l_whence = SEEK_SET;
+    if(fcntl(lockfd, F_SETLK, &fl) == -1) {
+        if(errno == EAGAIN || errno == EACCES)
+            WARN("Cannot acquire write lock on storage %s: node still running?", path);
+        else
+            PWARN("Failed to lock HashFS storage: %s", path);
+        return -1;
+    }
+    unsigned n = strlen(path) + sizeof("/hashfs.db");
+    char *dbpath = wrap_malloc(n);
+    if (!dbpath)
+        return -1;
+    snprintf(dbpath, n, "%s/hashfs.db", path);
+    int ret = 0;
+    int dbf = open(dbpath, O_RDWR, 0);
+    if (dbf < 0) {
+        PWARN("Cannot open database %s", dbpath);
+        ret = -1;
+    }
+    free(dbpath);
+    if(!ret && fcntl(dbf, F_SETLK, &fl) == -1) {
+        if(errno == EAGAIN || errno == EACCES)
+            WARN("Cannot acquire write lock on storage db %s: node still running?", path);
+        else
+            PWARN("Failed to lock HashFS storage db: %s", path);
+        ret = -1;
+    }
+    close(dbf);
+    return ret;
+}
+
+
+static rc_ty upgrade_db(int lockfd, const char *path, sxi_db_t *db, const char *from_version, const char *to_version, sx_db_upgrade_fn fn)
 {
     sqlite3_stmt *q = NULL;
     rc_ty ret = FAIL_EINTERNAL;
@@ -3391,6 +3429,10 @@ static rc_ty upgrade_db(const char *path, sxi_db_t *db, const char *from_version
         }
         if (cmp)
             break;
+        if (ensure_not_running(lockfd, path)) {
+            ret = FAIL_LOCKED;
+            break;
+        }
         /* old version matches, update it */
         qnullify(q);
         DEBUG("Upgrading DB %s: %s -> %s", path, from_version, to_version);
@@ -3680,7 +3722,7 @@ static const sx_upgrade_t upgrade_sequence[] = {
     }
 };
 
-static rc_ty upgrade_bin(const char *path, const char *from, const char *to, unsigned j, unsigned i)
+static rc_ty upgrade_bin(int lockfd, const char *dir, const char *path, const char *from, const char *to, unsigned j, unsigned i)
 {
     rc_ty ret = FAIL_EINTERNAL;
     char old_header[128];
@@ -3700,6 +3742,10 @@ static rc_ty upgrade_bin(const char *path, const char *from, const char *to, uns
             break;
         if(!memcmp(blockbuf, old_header, strlen(old_header))) {
             /* old version matches, update it */
+            if (ensure_not_running(lockfd, dir)) {
+                ret = FAIL_LOCKED;
+                break;
+            }
             snprintf((char*)blockbuf, bsz[j], "%-16sdatafile_%c_%08x             %08x", to, sizedirs[j], i, bsz[j]);
             if(write_block(fd, blockbuf, 0, bsz[j]))
                 break;
@@ -3769,6 +3815,7 @@ rc_ty sx_storage_upgrade(const char *dir) {
     char *path;
     char dbitem[64];
     struct timeval tv_start, tv_integrity_done, tv_upgrade_done, tv_close;
+    int lockfd = -1;
 
     pathlen = strlen(dir) + 1024;
     rc_ty ret = FAIL_EINTERNAL;
@@ -3815,36 +3862,58 @@ rc_ty sx_storage_upgrade(const char *dir) {
         snprintf(path, pathlen, "%s/xfers.db", dir);
         if((ret = upgrade_db_prepare(path, "xferdb", &alldb.xfer)))
             goto upgrade_fail;
+
+        snprintf(path, pathlen, "%s/hashfs.lock", dir);
+        lockfd = open(path, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
+        if (lockfd < 0) {
+            PWARN("Failed to open %s lockfile", path);
+            goto upgrade_fail;
+        }
+        struct flock fl;
+        fl.l_start = 0;
+        fl.l_len = 0;
+        fl.l_type = F_RDLCK;
+        fl.l_whence = SEEK_SET;
+        if(fcntl(lockfd, F_SETLK, &fl) == -1) {
+            if(errno == EACCES || errno == EAGAIN)
+                INFO("Failed lock HashFS: Storage is locked for maintenance");
+            else
+                PWARN("Failed to acquire read lock");
+            goto upgrade_fail;
+        }
+        snprintf(path, pathlen, "%s", dir);
     }
     gettimeofday(&tv_integrity_done, NULL);
     INFO("Integrity check completed in %.fs", timediff(&tv_start, &tv_integrity_done));
 
     for(i=0;i<sizeof(upgrade_sequence)/sizeof(upgrade_sequence[0]);i++) {
         sx_upgrade_t desc = upgrade_sequence[i];
-        if ((ret = upgrade_db(path, alldb.hashfs, desc.from, desc.to, desc.upgrade_hashfsdb)))
+        if ((ret = upgrade_db(lockfd, path, alldb.hashfs, desc.from, desc.to, desc.upgrade_hashfsdb)))
             goto upgrade_fail;
         for(i=0; i<METADBS; i++) {
-            if ((ret = upgrade_db(path, alldb.meta[i], desc.from, desc.to, desc.upgrade_metadb)))
+            if ((ret = upgrade_db(lockfd, path, alldb.meta[i], desc.from, desc.to, desc.upgrade_metadb)))
                 goto upgrade_fail;
         }
 
         for(j=0; j<SIZES; j++) {
             for(i=0; i<HASHDBS; i++) {
-                if ((ret = upgrade_db(path, alldb.data[j][i], desc.from, desc.to, desc.upgrade_datadb)))
+                snprintf(path, pathlen, "%s", dir);
+                if ((ret = upgrade_db(lockfd, path, alldb.data[j][i], desc.from, desc.to, desc.upgrade_datadb)))
                     goto upgrade_fail;
                 snprintf(path, pathlen, "%s/h%c%08x.bin", dir, sizedirs[j], i);
-                if (upgrade_bin(path, desc.from, desc.to, j, i))
+                if (upgrade_bin(lockfd, dir, path, desc.from, desc.to, j, i))
                     goto upgrade_fail;
             }
         }
+        snprintf(path, pathlen, "%s", dir);
 
-        if((ret = upgrade_db(path, alldb.temp, desc.from, desc.to, desc.upgrade_tempdb)))
+        if((ret = upgrade_db(lockfd, path, alldb.temp, desc.from, desc.to, desc.upgrade_tempdb)))
             goto upgrade_fail;
 
-        if((ret = upgrade_db(path, alldb.event, desc.from, desc.to, desc.upgrade_eventsdb)))
+        if((ret = upgrade_db(lockfd, path, alldb.event, desc.from, desc.to, desc.upgrade_eventsdb)))
             goto upgrade_fail;
 
-        if((ret = upgrade_db(path, alldb.xfer, desc.from, desc.to, desc.upgrade_xfersdb)))
+        if((ret = upgrade_db(lockfd, path, alldb.xfer, desc.from, desc.to, desc.upgrade_xfersdb)))
             goto upgrade_fail;
 
         if (desc.upgrade_alldb(&alldb) || desc.upgrade_alldb(&alldb))
@@ -3866,6 +3935,8 @@ upgrade_fail:
     gettimeofday(&tv_close, NULL);
     if (ret == OK)
         INFO("Storage closed in %.fs", timediff(&tv_upgrade_done, &tv_close));
+    if (lockfd != -1)
+        close(lockfd);
     return ret;
 }
 
