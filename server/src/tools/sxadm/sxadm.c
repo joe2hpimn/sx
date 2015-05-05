@@ -1788,8 +1788,12 @@ static int upgrade_node(sxc_client_t *sx, const char *path)
     if (local &&
         !sx_nodelist_add(local, sx_node_dup(sx_hashfs_self(h)))) {
         rc = sx_hashfs_job_new(h, 0, &job_id, JOBTYPE_UPGRADE_1_0_TO_1_1, JOB_NO_EXPIRY, "UPGRADE", &job_id, sizeof(job_id), local);
-        if (rc)
-            fprintf(stderr, "ERROR: Failed to insert upgrade job: %s (%s)\n", rc2str(rc), msg_get_reason());
+        if (rc) {
+            if (rc == FAIL_LOCKED)
+                job_id = 0;
+            else
+                fprintf(stderr, "ERROR: Failed to insert upgrade job: %s (%s)\n", rc2str(rc), msg_get_reason());
+        }
     } else {
         fprintf(stderr, "Failed to allocate nodelist\n");
     }
