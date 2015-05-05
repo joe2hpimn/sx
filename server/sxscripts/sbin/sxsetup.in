@@ -104,28 +104,39 @@ if [ "$INFO_GIVEN" = "yes" -o "$UPGRADE_GIVEN" = "yes" ]; then
 	echo "SX Logfile: $SX_LOG_FILE"
 	exit 0
     else
-	# FIXME: don't stop the node if we can check its state directly (depends on bb#1279)
-	"@sbindir@/sxserver" stop
-        "@sbindir@/sxadm" node $OWNERFLAG --upgrade "$SX_DATA_DIR"
+        "@sbindir@/sxadm" node $OWNERFLAG --info "$SX_DATA_DIR" > /dev/null 2>&1
 	if [ $? -ne 0 ]; then
-	    echo "Failed to upgrade the local node"
+	    echo "Upgrading local node..."
+	    "@sbindir@/sxserver" stop
+	    "@sbindir@/sxadm" node $OWNERFLAG --upgrade "$SX_DATA_DIR"
+	    if [ $? -ne 0 ]; then
+		echo "Failed to upgrade the local node"
+		"@sbindir@/sxserver" start
+		exit 1
+	    fi
 	    "@sbindir@/sxserver" start
-	    return 1
+	else
+	    echo "Local node is up-to-date."
 	fi
-	"@sbindir@/sxserver" start
+
         "@sbindir@/sxadm" cluster --upgrade "sx://admin@$SX_CLUSTER_NAME"
-	if [ $? -ne 0 ]; then
+	RET=$?
+	if [ $RET -eq 2 ]; then
 	    echo
-	    echo "Failed to upgrade the cluster. Please run sxsetup --upgrade"
-	    echo "again when all other nodes are locally updated and online."
-	    return 1
+	    echo "All components of the cluster are up-to-date!"
+	    exit 0
+	elif [ $RET -ne 0 ]; then
+	    echo
+	    echo "Could not upgrade the cluster at this point. Please run sxsetup --upgrade"
+	    echo "again when all other nodes are locally updated and online. The cluster"
+	    echo "should also get upgraded automatically after the last node is locally upgraded."
+	    exit 1
 	fi
-	# FIXME: check the output of --upgrade and say it's up to date when bb#1279 gets implemented
         "@sbindir@/sxadm" cluster --info "sx://admin@$SX_CLUSTER_NAME"
 	echo
 	echo "Cluster upgrade started. You can monitor the progress by running:"
 	echo "@sbindir@/sxadm cluster --info sx://admin@$SX_CLUSTER_NAME"
-	return 0
+	exit 0
     fi
 fi
 

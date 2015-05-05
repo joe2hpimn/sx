@@ -1680,10 +1680,11 @@ static int cluster_upgrade(sxc_client_t *sx, struct cluster_args_info *args) {
             fprintf(stderr,"\tSome nodes are still running an old server version\n");
         if (check_upgrade_mismatch & (1 << MISMATCH_LIBSX_VERSION))
             fprintf(stderr,"\tlibsx versions don't match\n");
-        ret = -1;
+        ret = 1;
     } else {
         if (upgrade_complete == upgrade_nodes) {
             printf("Cluster already fully upgraded\n");
+	    ret = 2;
         } else {
             printf("Triggering upgrade and garbage collector\n");
             ret = force_gc_cluster(sx, args, 0);
