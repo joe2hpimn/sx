@@ -118,10 +118,19 @@ void fcgi_handle_cluster_requests(void) {
 		} else if(status == INPRG_REPLACE_RUNNING) {
 		    op = "replace";
 		    complete = "false";
-		} else /* if(status == INPRG_REPLACE_COMPLETE) */ {
+		} else if(status == INPRG_REPLACE_COMPLETE) {
 		    op = "replace";
 		    complete = "true";
-		}
+		} else if(status == INPRG_UPGRADE_RUNNING) {
+                    op = "upgrade";
+                    complete = "false";
+		} else if(status == INPRG_UPGRADE_COMPLETE) {
+                    op = "upgrade";
+                    complete = "true";
+                } else {
+                    op = "error";
+                    complete = "false";
+                }
 		CGI_PRINTF(",\"opInProgress\":{\"opType\":\"%s\",\"isComplete\":%s,\"opInfo\":", op, complete);
 		json_send_qstring(progress_msg);
 		CGI_PUTC('}');

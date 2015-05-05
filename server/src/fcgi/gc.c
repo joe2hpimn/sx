@@ -189,7 +189,7 @@ static int heal_data_cb(curlev_context_t *cbdata, const unsigned char *data, siz
                     break;
                 snprintf(msg, sizeof(msg), "Pending remote volume heal: %d queries, %lld revisions; Finished: %lld revisions", heal_pending_queries,
                          (long long)heal_pending_count, (long long)heal_received);
-                sx_hashfs_set_progress_info(ctx->hashfs, INPRG_UPGRADE, msg);
+                sx_hashfs_set_progress_info(ctx->hashfs, INPRG_UPGRADE_RUNNING, msg);
             }
             DEBUG("processed  %ld bytes", size);
             ret = 0;
@@ -329,7 +329,9 @@ static rc_ty process_heal(sx_hashfs_t *hashfs, int *terminate)
     }
     if (rc != ITER_NO_MORE)
         return rc == OK ? EAGAIN : rc;
-    sx_hashfs_set_progress_info(hashfs, INPRG_IDLE, NULL);
+    if (sx_hashfs_get_progress_info(hashfs, NULL) == INPRG_UPGRADE_RUNNING ||
+        sx_hashfs_get_progress_info(hashfs, NULL) == INPRG_UPGRADE_COMPLETE)
+        sx_hashfs_set_progress_info(hashfs, INPRG_IDLE, NULL);
     INFO("GC re-enabled: heal completed");
     return OK;
 }

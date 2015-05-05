@@ -3916,7 +3916,7 @@ rc_ty sx_hashfs_upgrade_1_0_prepare(sx_hashfs_t *h)
 
     bulk_start(&bulk);
     gettimeofday(&tv0, NULL);
-    sx_hashfs_set_progress_info(h, INPRG_UPGRADE, "Upgrade: preparing");
+    sx_hashfs_set_progress_info(h, INPRG_UPGRADE_RUNNING, "Upgrade: preparing");
     for(i=0;i<METADBS;i++) {
         db = h->metadb[i];
         if(qprep(db, &q, "SELECT COUNT(*) FROM files WHERE revision_id IS NULL") ||
@@ -4030,7 +4030,7 @@ rc_ty sx_hashfs_upgrade_1_0_prepare(sx_hashfs_t *h)
                 heal_done += k;
                 snprintf(msg, sizeof(msg), "Upgrade - preparing local files: %lld/%lld remaining",
                         (long long)heal_required - heal_done, (long long)total);
-                sx_hashfs_set_progress_info(h, INPRG_UPGRADE, msg);
+                sx_hashfs_set_progress_info(h, INPRG_UPGRADE_RUNNING, msg);
             }
             rc = OK;
         } while(ret == SQLITE_ROW);
@@ -4043,7 +4043,7 @@ rc_ty sx_hashfs_upgrade_1_0_prepare(sx_hashfs_t *h)
         }
     }
     if (rc == OK)
-        sx_hashfs_set_progress_info(h, INPRG_UPGRADE, "Upgrade - local files prepared");
+        sx_hashfs_set_progress_info(h, INPRG_UPGRADE_RUNNING, "Upgrade - local files prepared");
 
     gettimeofday(&tv1, NULL);
     INFO("Local upgrade prepared in %.fs: %s", timediff(&tv0, &tv1), rc2str(rc));
@@ -4138,7 +4138,7 @@ rc_ty sx_hashfs_upgrade_1_0_local(sx_hashfs_t *h)
     bulk_start(&bulk);
     gettimeofday(&tv0, NULL);
 
-    sx_hashfs_set_progress_info(h, INPRG_UPGRADE, "Upgrade - local file blocks");
+    sx_hashfs_set_progress_info(h, INPRG_UPGRADE_RUNNING, "Upgrade - local file blocks");
     for(i=0;i<METADBS;i++) {
         db = h->metadb[i];
         if(qprep(db, &q, "SELECT SUM(blocks) FROM heal WHERE remote_volume IS NULL") ||
@@ -4160,7 +4160,7 @@ rc_ty sx_hashfs_upgrade_1_0_local(sx_hashfs_t *h)
             unsigned k=0;
             rc = FAIL_EINTERNAL;
             snprintf(msg, sizeof(msg), "Upgrade - local file blocks: %lld remaining", (long long)heal_required);
-            sx_hashfs_set_progress_info(h, INPRG_UPGRADE, msg);
+            sx_hashfs_set_progress_info(h, INPRG_UPGRADE_RUNNING, msg);
             if (qbegin(db) || datadb_beginall(h))
                 break;
             sqlite3_reset(qsel);
@@ -4217,14 +4217,14 @@ rc_ty sx_hashfs_upgrade_1_0_local(sx_hashfs_t *h)
     }
     bulk_done(&bulk);
     if (rc == OK) {
-        sx_hashfs_set_progress_info(h, INPRG_UPGRADE, "Upgrade - local file blocks checkpointing");
+        sx_hashfs_set_progress_info(h, INPRG_UPGRADE_RUNNING, "Upgrade - local file blocks checkpointing");
         gettimeofday(&tv1, NULL);
         for(i=0;i<METADBS;i++)
             qcheckpoint_idle(h->metadb[i]);
         for(unsigned j=0;j<SIZES;j++)
             for(i=0;i<HASHDBS;i++)
                 qcheckpoint_idle(h->datadb[j][i]);
-        sx_hashfs_set_progress_info(h, INPRG_UPGRADE, "Upgrade - local file blocks done");
+        sx_hashfs_set_progress_info(h, INPRG_UPGRADE_RUNNING, "Upgrade - local file blocks done");
         gettimeofday(&tv2, NULL);
         INFO("Checkpoint finished in %.fs", timediff(&tv1, &tv2));
         const sx_hashfs_volume_t *volume;
@@ -4252,7 +4252,7 @@ rc_ty sx_hashfs_upgrade_1_0_local(sx_hashfs_t *h)
         }
         if (rc == ITER_NO_MORE) {
             snprintf(msg, sizeof(msg), "Local upgrade completed - %d remote volume names listed", n);
-            sx_hashfs_set_progress_info(h, INPRG_UPGRADE, msg);
+            sx_hashfs_set_progress_info(h, INPRG_UPGRADE_COMPLETE, msg);
             rc = OK;
 
             INFO("Cleaning events.db");

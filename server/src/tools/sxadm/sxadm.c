@@ -1372,7 +1372,8 @@ static int info_cluster(sxc_client_t *sx, struct cluster_args_info *args, int ke
 		ret = 1;
 		continue;
 	    }
-	    if(clst_rebalance_state(clstnode, &op) != CLSTOP_NOTRUNNING || clst_replace_state(clstnode, &op) != CLSTOP_NOTRUNNING) {
+	    if(clst_rebalance_state(clstnode, &op) != CLSTOP_NOTRUNNING || clst_replace_state(clstnode, &op) != CLSTOP_NOTRUNNING ||
+               clst_upgrade_state(clstnode, &op) != CLSTOP_NOTRUNNING) {
 		if(!header) {
 		    printf("State of operations:\n");
 		    header = 1;

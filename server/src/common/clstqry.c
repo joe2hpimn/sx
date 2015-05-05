@@ -48,6 +48,7 @@ struct cstatus {
 	OP_NONE,
 	OP_REBALANCE,
 	OP_REPLACE,
+        OP_UPGRADE
     } op_type;
     unsigned int version;
     char op_msg[1024];
@@ -253,7 +254,9 @@ static int cb_cstatus_string(void *ctx, const unsigned char *s, size_t l) {
 	    c->op_type = OP_REBALANCE;
 	else if(l == lenof("replace") && !memcmp("replace", s, lenof("replace")))
 	    c->op_type = OP_REPLACE;
-	else
+	else if (l == lenof("upgrade") && !memcmp("upgrade", s, lenof("upgrade")))
+	    c->op_type = OP_UPGRADE;
+        else
 	    c->op_type = OP_NONE;
 	c->state = CS_INPRGKEY;
     } else if(c->state == CS_INPRGMSG) {
@@ -480,6 +483,15 @@ clst_state clst_replace_state(clst_t *st, const char **desc) {
 
     if(desc)
 	*desc = st->op_msg[0] ? st->op_msg : "Replace operation in progress";
+    return st->op_complete ? CLSTOP_COMPLETED : CLSTOP_INPROGRESS;
+}
+
+clst_state clst_upgrade_state(clst_t *st, const char **desc) {
+    if(!st || st->op_type != OP_UPGRADE)
+	return CLSTOP_NOTRUNNING;
+
+    if(desc)
+	*desc = st->op_msg[0] ? st->op_msg : "Upgrade operation in progress";
     return st->op_complete ? CLSTOP_COMPLETED : CLSTOP_INPROGRESS;
 }
 
