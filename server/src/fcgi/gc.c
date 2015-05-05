@@ -51,7 +51,7 @@ static void sighandler(int signum) {
 
 struct heal_ctx {
     sx_hashfs_t *hashfs;
-    const sx_hashfs_volume_t *vol;
+    sx_hashfs_volume_t *vol;
     uint8_t *data;
     unsigned len;
     unsigned pos;
@@ -201,12 +201,18 @@ static int heal_data_cb(curlev_context_t *cbdata, const unsigned char *data, siz
 
 static void heal_finish_cb(curlev_context_t *cbdata, const char *url) {
     struct heal_ctx *ctx = sxi_cbdata_get_context(cbdata);
+    if (!ctx) {
+        DEBUG("ctx not set");
+        return;
+    }
     DEBUG("%p: finish callback for volume %s, metadb %d", cbdata, ctx->vol->name, ctx->metadb);
     while (ctx->len && !ctx->eof && !ctx->need)
         heal_data_cb(cbdata, "", 0);
     DEBUG("%p: finished callback for volume %s, metadb %d", cbdata, ctx->vol->name, ctx->metadb);
     free(ctx->data);
     ctx->data = NULL;
+    free(ctx->vol);
+    ctx->vol = NULL;
     free(ctx);
     sxi_cbdata_set_context(cbdata, NULL);
     heal_pending_queries--;
@@ -241,11 +247,18 @@ static int heal_cb(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, const sx_hash_
             WARN("failed to allocate context");
             break;
         };
-        ctx->vol = vol;
+        ctx->vol = wrap_malloc(sizeof(*ctx->vol));
+        if (!ctx->vol) {
+            WARN("failed to allocate context volume");
+            free(ctx);
+            break;
+        }
+        memcpy(ctx->vol, vol, sizeof(*ctx->vol));
         ctx->hashfs = h;
         ctx->metadb = metadb;
         ctx->count = -1;
         sxi_cbdata_set_context(cbdata, ctx);
+        heal_pending_queries++;
 
         if(min_revision_in && bin2hex(min_revision_in->b, sizeof(min_revision_in->b), min_rev_hex, sizeof(min_rev_hex))) {
             WARN("revision id hex conversion failed");
@@ -275,7 +288,6 @@ static int heal_cb(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, const sx_hash_
         }
         if (nnode != nnodes)
             break;
-        heal_pending_queries++;
         if (sxi_cluster_query_ev_retry(cbdata, sx_hashfs_conns(h), &hlist, REQ_GET, query, NULL, 0, NULL, heal_data_cb, NULL)) {
             cbdata = NULL;/* finish cb will unref */
             WARN("failed to send query %s", query);
@@ -287,6 +299,8 @@ static int heal_cb(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, const sx_hash_
     free(enc_vol);
     sx_nodelist_delete(volnodes);
     sxi_hostlist_empty(&hlist);
+    if (cbdata && ret)
+        heal_finish_cb(cbdata, NULL);
     sxi_cbdata_unref(&cbdata);
     DEBUG("callback result: %d", ret);
     /* TODO: min_revision_out */
