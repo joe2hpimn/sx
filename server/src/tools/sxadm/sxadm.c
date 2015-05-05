@@ -1669,7 +1669,7 @@ static int cluster_upgrade(sxc_client_t *sx, struct cluster_args_info *args) {
     if(ret)
         fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
     if (check_upgrade_mismatch) {
-        fprintf(stderr, "ERROR: Upgrade aborted\n");
+        fprintf(stderr, "Warning: Upgrade aborted\n");
         if (check_upgrade_mismatch & (1 << MISMATCH_OFFLINE))
             fprintf(stderr,"\tSome nodes are offline\n");
         if (check_upgrade_mismatch & (1 << MISMATCH_NOREPLY))
