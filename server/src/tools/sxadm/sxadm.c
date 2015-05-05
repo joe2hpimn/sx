@@ -1591,10 +1591,10 @@ static void print_status(sxc_client_t *sx, int http_code, const sxi_node_status_
     
     printf("    Memory:\n");
     fmt_capa(status->mem_total, str, sizeof(str), human_readable);
-    printf("        Total: %s\n\n", str);
+    printf("        Total: %s\n", str);
 
     printf("    Heal: %s\n", status->heal_status);
-    
+    printf("\n");
 }
 
 static int cluster_status(sxc_client_t *sx, struct cluster_args_info *args) {
