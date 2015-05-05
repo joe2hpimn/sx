@@ -12271,30 +12271,34 @@ static rc_ty sx_hashfs_blocks_retry_next(sx_hashfs_t *h, block_meta_t *blockmeta
 {
     sqlite3_stmt *q = h->rit.q_sel;
     sqlite3_reset(q);
-    rc_ty ret = qstep(q);
-    int hs;
+    rc_ty ret;
+    do {
+        ret = qstep(q);
+        int hs;
 
-    if (ret == SQLITE_DONE) {
-        sx_hashfs_blockmeta_get(h, ret, q, NULL, 0, NULL);
-        return ITER_NO_MORE;
-    }
-    if (ret == SQLITE_ROW) {
-        int bs = sqlite3_column_int(q, 1);
-        for(hs = 0; hs < SIZES; hs++)
-            if(bsz[hs] == bs)
-                break;
-        if(hs == SIZES) {
-            WARN("bad blocksize: %d", bs);
-            return FAIL_BADBLOCKSIZE;
+        if (ret == SQLITE_DONE) {
+            sx_hashfs_blockmeta_get(h, ret, q, NULL, 0, NULL);
+            return ITER_NO_MORE;
         }
-        const sx_hash_t* hash = sqlite3_column_blob(q, 0);
-        if (!hash)
-            return EFAULT;
-        DEBUGHASH("retry_next", hash);
-        unsigned int ndb = gethashdb(hash);
-        ret = sx_hashfs_blockmeta_get(h, ret, q, h->qb_get_meta[hs][ndb], bs, blockmeta);
-        return ret;
-    }
+        if (ret == SQLITE_ROW) {
+            int bs = sqlite3_column_int(q, 1);
+            for(hs = 0; hs < SIZES; hs++)
+                if(bsz[hs] == bs)
+                    break;
+            if(hs == SIZES) {
+                WARN("bad blocksize: %d", bs);
+                return FAIL_BADBLOCKSIZE;
+            }
+            const sx_hash_t* hash = sqlite3_column_blob(q, 0);
+            if (!hash)
+                return EFAULT;
+            DEBUGHASH("retry_next", hash);
+            unsigned int ndb = gethashdb(hash);
+            ret = sx_hashfs_blockmeta_get(h, ret, q, h->qb_get_meta[hs][ndb], bs, blockmeta);
+            if (ret != SQLITE_ROW)
+                return ret;
+        }
+    } while (ret == SQLITE_ROW);
     sqlite3_reset(q);
     return ret;
 }
