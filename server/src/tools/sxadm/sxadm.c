@@ -1593,7 +1593,7 @@ static void print_status(sxc_client_t *sx, int http_code, const sxi_node_status_
     fmt_capa(status->mem_total, str, sizeof(str), human_readable);
     printf("        Total: %s\n", str);
 
-    printf("    Heal: %s\n", status->heal_status);
+    /*printf("    Heal: %s\n", status->heal_status);*/
     printf("\n");
 }
 
