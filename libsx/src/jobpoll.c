@@ -764,11 +764,12 @@ static int sxi_job_poll(sxi_conns_t *conns, sxi_jobs_t *jobs, int wait)
     }
     rc = 0;
     for (i=0;i<jobs->n;i++) {
-        if (jobs->jobs[i] && (wait || jobs->jobs[i]->status != JOBST_PENDING))
+        if (jobs->jobs[i] && (wait || jobs->jobs[i]->status != JOBST_PENDING)) {
             rc = sxi_job_result(sx, &jobs->jobs[i], &jobs->successful, &jobs->http_err, &jobs->error);
-        if(rc) {
-            SXDEBUG("Job %s failed: %s", jobs->jobs[i]->job_id, jobs->jobs[i]->message);
-            ret = rc;
+            if(rc) {
+                SXDEBUG("Job %s failed: %s", jobs->jobs[i]->job_id, jobs->jobs[i]->message);
+                ret = rc;
+            }
         }
     }
     if(ret)
