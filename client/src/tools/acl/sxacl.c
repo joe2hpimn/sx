@@ -217,6 +217,12 @@ static int newkey_user(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_uri_t *u, c
 
     if(batch_mode && !oldtoken && !pass_file)
         generate_key = 1;
+
+    if(!generate_key && !pass_file && !batch_mode) {
+	printf("Enter new password for user '%s'\n", username);
+	fflush(stdout);
+    }
+
     key = sxc_user_newkey(cluster, username, pass_file ? pass : NULL, oldtoken, generate_key);
     if(pass_file) {
         memset(pass, 0, sizeof(pass));
