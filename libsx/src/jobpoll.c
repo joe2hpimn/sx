@@ -678,7 +678,7 @@ static int sxi_job_poll(sxi_conns_t *conns, sxi_jobs_t *jobs, int wait)
             rc = sxi_job_status_ev(conns, &jobs->jobs[i], &jobs->successful, &jobs->http_err, &jobs->error);
             if (rc < 0) {
                 ret = -1;
-                SXDEBUG("sxi_job_status_ev failed: %s", jobs->jobs[i]->message);
+                SXDEBUG("sxi_job_status_ev failed: %s", jobs->jobs[i] ? jobs->jobs[i]->message : "(null job)");
                 if (!jobs->ignore_errors)
                     break;
                 continue;
