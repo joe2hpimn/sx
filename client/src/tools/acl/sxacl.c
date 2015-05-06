@@ -122,7 +122,7 @@ static int add_user(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_uri_t *u, cons
 
         mlock(pass, sizeof(pass));
         if(sxc_read_pass_file(sx, pass_file, pass, sizeof(pass))) {
-            fprintf(stderr, "ERROR: Can't use pass file to clone users\n");
+            fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
             munlock(pass, sizeof(pass));
             return 1;
         }
@@ -132,8 +132,14 @@ static int add_user(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_uri_t *u, cons
         generate_key = 1;
     if(existing) /* Cloning user */
         key = sxc_user_clone(cluster, existing, username, oldtoken, &created_role, desc);
-    else /* Creating new user */
+    else {
+	if(!generate_key && !pass_file && !batch_mode) {
+	    printf("Enter password for user '%s'\n", username);
+	    fflush(stdout);
+	}
+	/* Creating new user */
         key = sxc_user_add(cluster, username, pass_file ? pass : NULL, type == role_arg_admin, oldtoken, desc, generate_key);
+    }
 
     if(pass_file && strcmp(pass_file, "-")) {
         memset(pass, 0, sizeof(pass));
@@ -209,7 +215,7 @@ static int newkey_user(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_uri_t *u, c
 
         mlock(pass, sizeof(pass));
         if(sxc_read_pass_file(sx, pass_file, pass, sizeof(pass))) {
-            fprintf(stderr, "ERROR: Can't use pass file to clone users\n");
+            fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
             munlock(pass, sizeof(pass));
             return 1;
         }
