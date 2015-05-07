@@ -901,6 +901,8 @@ static act_result_t revision_job_from_rev(sx_hashfs_t *hashfs, job_t job_id, job
     if (s)
         action_error(rc2actres(s), rc2http(s), "Failed to lookup file by revision");
     ret = revision_job_from(hashfs, job_id, &filerev, nodes, succeeded, fail_code, fail_msg, adjust_ttl, op, phase);
+    CRIT("File %s (rev %s) on volume %lld was left in an inconsistent state after a failed deletion attempt", filerev.name, filerev.revision, (long long)filerev.volume_id);
+    action_error(ACT_RESULT_PERMFAIL, 500, "File was left in an inconsistent state after a failed deletion attempt");
 action_failed:
     return ret;
 }
