@@ -2264,8 +2264,12 @@ static sxc_cluster_lf_t *sxi_conns_listfiles(sxi_conns_t *conns, const char *vol
     ret->want_relative = glob_pattern && *glob_pattern && glob_pattern[strlen(glob_pattern)-1] == '/';
     ret->pattern_slashes = sxi_count_slashes(glob_pattern);
     ret->reverse = reverse;
-    if (etag_out && yctx.etag_out && *yctx.etag_out)
-        *etag_out = yctx.etag_out;
+    if (yctx.etag_out) {
+        if (etag_out && *yctx.etag_out)
+            *etag_out = yctx.etag_out;
+        else
+            free(yctx.etag_out);
+    }
     return ret;
 }
 
