@@ -34,10 +34,10 @@
 #include <unistd.h>
 #include "rgen.h"
 
+static uint64_t buf[ 128*1024 / 8];
+
 static int gen(rnd_state_t *state, uint64_t size)
 {
-    uint64_t buf[ BUFSIZ / 8];
-
     uint64_t amount = size;
     while (amount > 0) {
         rnd_generate(state, buf, sizeof(buf)/sizeof(buf[0]));
