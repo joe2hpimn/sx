@@ -2906,8 +2906,6 @@ static int process_block(sxi_conns_t *conns, curlev_context_t *cctx)
             writesz = ctx->filesize - hashdata->offsets[j];
         else
             writesz = ctx->blocksize;
-/*            SXDEBUG("writing hash%d @%lld - %lld",i,
-                (long long)hashdata->offsets[j], (long long)hashdata->offsets[j] + writesz);*/
         if(pwrite_all(ctx->fd, ctx->buf, writesz, hashdata->offsets[j])) {
             sxi_cbdata_setsyserr(cctx, SXE_EWRITE, "write");
             SXDEBUG("Failed to write block at offset %llu", (long long unsigned)hashdata->offsets[j]);

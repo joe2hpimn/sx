@@ -595,7 +595,7 @@ sxi_query_t *sxi_hashop_proto_decuse_hash(sxc_client_t *sx, sxi_query_t *query, 
 sxi_query_t *sxi_hashop_proto_inuse_end(sxc_client_t *sx, sxi_query_t *query)
 {
     sxi_query_t *ret = sxi_query_append_fmt(sx, query, 1, "}");
-    if (ret && ret->content)
+    if (ret && ret->content && query)
         SXDEBUG("hashop proto: %.*s", query->content_len, (const char*)query->content);
     return ret;
 }
@@ -803,7 +803,8 @@ sxi_query_t *sxi_volumeacl_proto(sxc_client_t *sx, const char *volname,
     ret = sxi_volumeacl_loop(sx, ret, "revoke-read", revoke_read, ctx);
     ret = sxi_volumeacl_loop(sx, ret, "revoke-write", revoke_write, ctx);
     ret = sxi_query_append_fmt(sx, ret, 1, "}");
-    SXDEBUG("acl query: '%.*s'", ret->content_len, (const char*)ret->content);
+    if (ret)
+        SXDEBUG("acl query: '%.*s'", ret->content_len, (const char*)ret->content);
     free(url);
     return ret;
 }

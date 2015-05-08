@@ -767,7 +767,7 @@ static int sxi_job_poll(sxi_conns_t *conns, sxi_jobs_t *jobs, int wait)
         if (jobs->jobs[i] && (wait || jobs->jobs[i]->status != JOBST_PENDING)) {
             rc = sxi_job_result(sx, &jobs->jobs[i], &jobs->successful, &jobs->http_err, &jobs->error);
             if(rc) {
-                SXDEBUG("Job %s failed: %s", jobs->jobs[i]->job_id, jobs->jobs[i]->message);
+                SXDEBUG("sxi_job_result failed: %s", jobs->jobs[i] ? jobs->jobs[i]->message : "(null job)");
                 ret = rc;
             }
         }

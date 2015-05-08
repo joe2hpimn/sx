@@ -1116,7 +1116,7 @@ int sxc_cluster_listvolumes_next(sxc_cluster_lv_t *lv, char **volume_name, char 
     if(!fread(&meta_count, sizeof(meta_count), 1, lv->f)) {
         SXDEBUG("error reading meta count from results file");
         sxi_setsyserr(sx, SXE_EREAD, "error reading meta count from results file");
-        return -1; /* TODO: free sth? */
+        return -1;
     }
 
     if(meta) {
@@ -1192,6 +1192,8 @@ int sxc_cluster_listvolumes_next(sxc_cluster_lv_t *lv, char **volume_name, char 
 
 	    free(key);
 	    free(value);
+            key = NULL;
+            value = NULL;
 	} else
 	    fseek(lv->f, value_len, SEEK_CUR);
     }
