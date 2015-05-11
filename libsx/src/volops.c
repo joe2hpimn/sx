@@ -511,6 +511,7 @@ int sxc_volume_acl(sxc_cluster_t *cluster, const char *url,
             user_iter.grant_write_users = user;
         } else {
             cluster_err(SXE_EARG, "Unknown permissions for grant: %s", grant);
+	    return 1;
         }
     }
     if (revoke) {
@@ -521,8 +522,10 @@ int sxc_volume_acl(sxc_cluster_t *cluster, const char *url,
         else if (!strcmp(revoke,"read,write") || !strcmp(revoke, "write,read")) {
             user_iter.revoke_read_users = user;
             user_iter.revoke_write_users = user;
-        } else
+        } else {
             cluster_err(SXE_EARG, "Unknown permissions for revoke: %s", revoke);
+	    return 1;
+	}
     }
     proto = sxi_volumeacl_proto(sx, url, grant_read, grant_write,
                                 revoke_read, revoke_write, &user_iter);
