@@ -1930,7 +1930,7 @@ int main(int argc, char **argv) {
 	    ret = force_gc_cluster(sx, &cluster_args, 0);
 	else if(cluster_args.force_expire_given && cluster_args.inputs_num == 1)
 	    ret = force_gc_cluster(sx, &cluster_args, 1);
-        else if(cluster_args.status_given && cluster_args.inputs_num == 1)
+        else if(cluster_args.list_nodes_given && cluster_args.inputs_num == 1)
             ret = cluster_status(sx, &cluster_args);
         else if(cluster_args.set_mode_given && cluster_args.inputs_num == 1)
             ret = cluster_set_mode(sx, &cluster_args);

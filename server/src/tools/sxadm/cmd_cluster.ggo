@@ -7,7 +7,7 @@ sxadm cluster --lock sx://[profile@]cluster
 sxadm cluster --unlock sx://[profile@]cluster
 sxadm cluster --resize <+/->SIZE sx://[profile@]cluster
 sxadm cluster --replace-faulty [options] NODE [NODE ...] sx://[profile@]cluster
-sxadm cluster --status sx://[profile@]cluster
+sxadm cluster --list-nodes sx://[profile@]cluster
 sxadm cluster --set-mode=ro/rw sx://[profile@]cluster"
 
 defgroup "MODE" required
@@ -22,7 +22,7 @@ groupoption "info" I "Shows status and details of a running cluster" group="MODE
 groupoption "force-gc" G "Force a garbage collection cycle on all nodes" group="MODE"
 groupoption "force-expire" X "Force GC and expiration of reservations on all nodes" group="MODE"
 groupoption "get-cluster-key" - "Obtain remote cluster key" group="MODE" hidden
-groupoption "status" s "Show current status of cluster nodes" group="MODE"
+groupoption "list-nodes" l "List all nodes of the cluster and their current status" group="MODE"
 groupoption "set-mode" m "Set cluster operating mode ('ro' or 'rw' for read-only or write-only respectively)" group="MODE" string typestr="MODE"
 groupoption "upgrade" - "Check node versions and start cluster upgrade" group="MODE"
 

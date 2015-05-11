@@ -32,6 +32,9 @@ used to perform administrative ops. We will use it to create a regular
 user account 'jeff':
 
 # sxacl useradd jeff sx://admin@NAME
+Enter password for user 'jeff'
+Enter password:
+Re-enter password:
 User successfully created!
 Name: jeff
 Key : FqmlTd9CWZUuPBGMdjE46DaT1/3kx+EYbahlrhcdVpy/9ePfrtWCIgAA
@@ -44,7 +47,7 @@ sxinit to the node by its IP address:
 
 $ sxinit --host-list IP --alias @jeff sx://jeff@NAME
 [verify and accept the SSL certificate]
-Please enter the user key: FqmlTd9CWZUuPBGMdjE46DaT1/3kx+EYbahlrhcdVpy/9ePfrtWCIgAA
+Enter password:
 
 You can now access the cluster with the alias @jeff or the full
 profile name sx://jeff@NAME

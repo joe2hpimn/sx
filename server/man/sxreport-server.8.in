@@ -59,4 +59,4 @@ sxreport \fB\-\-append=\fR/path/to/file \fB\-\-anonymize\fR >> sxreport.log
 .SH FURTHER DOCUMENTATION
 Full documentation with additional examples available at: <http://www.skylable.com/docs/>
 .SH SEE ALSO
-\fBsxadm\fR(8), \fBsx.fcgi\fR(8), \fBsxfcgi.conf\fR(5)
+\fBsxsetup\fR(8), \fBsxadm\fR(8), \fBsx.fcgi\fR(8), \fBsxfcgi.conf\fR(5)

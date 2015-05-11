@@ -1,0 +1,22 @@
+.TH SXDUMP "8" "May 2015" "sxdump @VERSION@" "Skylable SX Manual"
+.SH NAME
+sxdump \- backup and restore cluster data
+.SH SYNOPSIS
+.B sxdump
+\fR[\fI\,OPTIONS\/\fR] \fI\,--backupdir DIR sx://\/\fR[\fI\,profile@\/\fR]\fI\,cluster\/\fR
+.SH DESCRIPTION
+sxdump analyzes cluster's structure and generates two shell scripts in the current directory: \fBsx-backup.sh\fR and \fBsx-restore.sh\fR. The first script will backup all data from the cluster, and the other contains information on how to recreate the structure, including all volumes, users and ACLs. \fBWARNING:\fR No data from encrypted volumes will be backed up.
+.SH OPTIONS
+.TP
+\fB\-b\fR, \fB\-\-backup\-dir\fR \fI\,DIR\/\fR
+Path to a directory, which will store the cluster backup.
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help and exit
+.TP
+\fB\-V\fR, \fB\-\-version\fR
+Print version and exit
+.SH FURTHER DOCUMENTATION
+Full documentation with additional examples available at: <http://www.skylable.com/docs/>
+.SH SEE ALSO
+\fBsxsetup\fR(8)

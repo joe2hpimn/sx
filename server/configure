@@ -14379,7 +14379,7 @@ SXFCGI_CONF=$sxfcgi_conf
 
 ac_config_files="$ac_config_files Makefile sxscripts/Makefile"
 
-ac_config_files="$ac_config_files man/sxadm.8 man/sxadm-node.8 man/sxadm-cluster.8 man/sx.fcgi.8 man/sxfcgi.conf.5 man/sxsim.1 man/sxreport-server.8"
+ac_config_files="$ac_config_files man/sxadm.8 man/sxadm-node.8 man/sxadm-cluster.8 man/sx.fcgi.8 man/sxfcgi.conf.5 man/sxsim.1 man/sxreport-server.8 man/sxsetup.8 man/sxsetup.conf.5 man/sxdump.8 man/sxserver.8"
 
 cat >confcache <<\_ACEOF
 # This file is a shell script that caches the results of configure
@@ -15408,6 +15408,10 @@ do
     "man/sxfcgi.conf.5") CONFIG_FILES="$CONFIG_FILES man/sxfcgi.conf.5" ;;
     "man/sxsim.1") CONFIG_FILES="$CONFIG_FILES man/sxsim.1" ;;
     "man/sxreport-server.8") CONFIG_FILES="$CONFIG_FILES man/sxreport-server.8" ;;
+    "man/sxsetup.8") CONFIG_FILES="$CONFIG_FILES man/sxsetup.8" ;;
+    "man/sxsetup.conf.5") CONFIG_FILES="$CONFIG_FILES man/sxsetup.conf.5" ;;
+    "man/sxdump.8") CONFIG_FILES="$CONFIG_FILES man/sxdump.8" ;;
+    "man/sxserver.8") CONFIG_FILES="$CONFIG_FILES man/sxserver.8" ;;
 
   *) as_fn_error $? "invalid argument: \`$ac_config_target'" "$LINENO" 5;;
   esac

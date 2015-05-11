@@ -1,0 +1,46 @@
+.TH SXSETUP "8" "May 2015" "sxsetup @VERSION@" "Skylable SX Manual"
+.SH NAME
+sxsetup \- configure and display information about an SX node
+.SH SYNOPSIS
+.B sxsetup
+[\fI\,OPTIONS\/\fR]...
+.SH DESCRIPTION
+With sxsetup one can interactively or automatically configure an SX node and join it to a cluster, as well as display information about a local node.
+.SH OPTIONS
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help and exit
+.TP
+\fB\-V\fR, \fB\-\-version\fR
+Print version and exit
+.TP
+\fB\-i\fR, \fB\-\-info\fR
+Show information and configuration of a local node, including current disk usage.
+.TP
+\fB\-\-upgrade\fR
+Upgrade local storage format and cluster databases to the latest version. This option should be used after upgrading the node to the latest software version, to make use of the new features and improvements.
+.TP
+\fB\-\-config\-file\fR \fI\,FILE\/\fR
+Use config file to configure the node automatically.
+.TP
+\fB\-\-advanced\fR
+Enable advanced configuration options. With this option one can configure additional options such as port numbers, SSL certificate settings, or number of workers. It is also required to configure a node as a regular user instead of root.
+.TP
+\fB\-\-no\-remote\-copy\fR
+By default, sxsetup will create a remote volume "_sxsetup.conf" on the cluster and upload the node configuration into it. When joining a new node to the cluster, it will look for existing configurations and try to obtain some information (such as an SSL certificate) automatically, to limit the number of questions in the interactive mode. With this option no remote copy will be created.
+.TP
+\fB\-\-bare\fR
+Create a bare (unprogrammed) node. A bare node is ready to join a cluster. Multiple bare nodes can be joined to the cluster at once, to minimize time of the rebalance process.
+.TP
+\fB\-\-force\-reinit\fR
+With this option one can reconfigure an existing node.
+.TP
+\fB\-\-wait\fR
+When a new node is added to a cluster, an automatic data rebalance process gets started. During the rebalance, cluster works in read-write mode but no changes to the cluster structure (eg. adding or removing nodes) are allowed. With this option sxsetup will wait until the rebalance is finished.
+.TP
+\fB\-\-debug\fR
+Turn on debug mode for the created node. This will result in a large amount of log files.
+.SH FURTHER DOCUMENTATION
+Full documentation with additional examples available at: <http://www.skylable.com/docs/>
+.SH SEE ALSO
+\fBsxsetup.conf\fR(5), \fBsxfcgi.conf\fR(5), \fBsxadm\fR(8), \fBsxfcgi\fR(8)

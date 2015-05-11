@@ -209,7 +209,7 @@ fi
 AC_SUBST([SXFCGI_CONF], [$sxfcgi_conf])
 
 AC_CONFIG_FILES([Makefile sxscripts/Makefile])
-AC_CONFIG_FILES([man/sxadm.8 man/sxadm-node.8 man/sxadm-cluster.8 man/sx.fcgi.8 man/sxfcgi.conf.5 man/sxsim.1 man/sxreport-server.8])
+AC_CONFIG_FILES([man/sxadm.8 man/sxadm-node.8 man/sxadm-cluster.8 man/sx.fcgi.8 man/sxfcgi.conf.5 man/sxsim.1 man/sxreport-server.8 man/sxsetup.8 man/sxsetup.conf.5 man/sxdump.8 man/sxserver.8])
 AC_OUTPUT
 
 AC_MSG_NOTICE([Summary])

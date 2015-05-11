@@ -1,4 +1,4 @@
-.TH SXFCGI.CONF "8" "April 2015" "sx.fcgi @VERSION@" "Skylable SX Manual"
+.TH SXFCGI.CONF "5" "April 2015" "sx.fcgi @VERSION@" "Skylable SX Manual"
 .SH NAME
 sxfcgi.conf \- configuration file for sx.fcgi
 .SH DESCRIPTION
@@ -43,4 +43,4 @@ Set how ofteh to run the garbage collector, the default value is 3600 seconds (1
 .SH FURTHER DOCUMENTATION
 Full documentation with additional examples available at: <http://www.skylable.com/docs/>
 .SH SEE ALSO
-\fBsx.fcgi\fR(8), \fBsxadm\fR(8)
+\fBsx.fcgi\fR(8), \fBsxadm\fR(8), \fBsxsetup\fR(8)

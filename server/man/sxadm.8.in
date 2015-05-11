@@ -24,4 +24,4 @@ Print version and exit
 .SH FURTHER DOCUMENTATION
 Full documentation with additional examples available at: <http://www.skylable.com/docs/>
 .SH SEE ALSO
-\fBsxadm-node\fR(8), \fBsxadm-cluster\fR(8), \fBsx.fcgi\fR(8)
+\fBsxsetup\fR(8), \fBsxadm-node\fR(8), \fBsxadm-cluster\fR(8), \fBsx.fcgi\fR(8)

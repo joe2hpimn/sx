@@ -1,9 +1,15 @@
-\chapter{Installation}
+\chapter{Installation / Upgrade}
 
 Skylable \SX is tested on all popular UNIX platforms, including Linux,
 FreeBSD, and Mac OS X. We try to support as many platforms as possible,
 if you have troubles installing, compiling or running our software on
 your platform please let us know.
+
+\section{Minimum requirements}
+The default setup described in this manual requires 2GB of RAM available
+for each node. \SX can also be installed on machines with lower resources,
+such as embedded ARM devices, but that requires advanced configuration not
+covered by the manual.
 
 \section{Binary packages}
 The binary packages are available for all popular Linux distributions
@@ -16,8 +22,9 @@ deb http://cdn.skylable.com/debian wheezy main
 \end{lstlisting}
 then run the following commands:
 \begin{lstlisting}
-# wget https://pgp.mit.edu/pks/lookup?op=get&search=0x5377E192B7BC1D2E | sudo apt-key add -
-# apt-get install sx
+$ curl 'https://pgp.mit.edu/pks/lookup?op=get&search=0x5377E192B7BC1D2E' | sudo apt-key  add -
+$ sudo apt-get update
+$ sudo apt-get install sx
 \end{lstlisting}
 
 \subsection{CentOS 5/6/7}
@@ -71,3 +78,89 @@ $ ./configure && make
 \end{lstlisting}
 The rest of the manual assumes that \SX was installed from a binary
 package, so some paths may be different.
+
+\section{Upgrade existing cluster}
+To take advantage of new features and improvements, it's recommended to
+keep the cluster software up to date. The upgrade procedure has been
+simplified and automated as much as possible to allow a smooth update
+of a live cluster.
+\subsection{Upgrading a single node}
+It is recommended to upgrade one node at a time. In case of a problem, the
+other nodes will stay unaffected and will be able to serve data to the
+clients.
+First install the latest version of Skylable \SX in the same way as the
+previous deployment. Then run the following command:
+\begin{lstlisting}
+# sxsetup --upgrade
+Upgrading local node...
+[sx_storage_upgrade]: Performing integrity check on /var/lib/sxserver/storage
+[sx_storage_upgrade]: Integrity check completed in 0s
+[upgrade_db]: Upgraded DB /var/lib/sxserver/storage from SX-Storage 1.6 to SX-Storage 1.7
+[...]
+[sx_storage_upgrade]: Successfully upgraded all DBs
+[sx_storage_upgrade]: Committing changes
+[sx_storage_upgrade]: Schema upgrade completed in 0s
+[sx_storage_upgrade]: Storage closed in 1s
+[upgrade_node]: Storage is up to date
+Starting SX.fcgi
+Starting sxhttpd
+SX node started successfully
+
+Could not upgrade the remote cluster data at this point. Please run
+sxsetup --upgrade again when all other nodes are locally upgraded and
+online. The cluster should also get upgraded automatically after the
+last node is locally upgraded.
+\end{lstlisting}
+The above is the expected output when not all of the nodes have been
+updated yet. When running \verb+sxsetup --upgrade+ on the last node
+of the cluster, it should also start the upgrade of the remote cluster
+data:
+\begin{lstlisting}
+# sxsetup --upgrade
+Upgrading local node...
+[sx_storage_upgrade]: Performing integrity check on /var/lib/sxserver/storage
+[sx_storage_upgrade]: Integrity check completed in 0s
+[upgrade_db]: Upgraded DB /var/lib/sxserver/storage from SX-Storage 1.6 to SX-Storage 1.7
+[...]
+[sx_storage_upgrade]: Successfully upgraded all DBs
+[sx_storage_upgrade]: Committing changes
+[sx_storage_upgrade]: Schema upgrade completed in 0s
+[sx_storage_upgrade]: Storage closed in 1s
+[upgrade_node]: Storage is up to date
+Starting SX.fcgi
+Starting sxhttpd
+SX node started successfully
+
+Upgrading remote cluster data...
+Versions:
+    192.168.1.101: SX-Storage 1.7 (1.1)
+    192.168.1.102: SX-Storage 1.7 (1.1)
+    192.168.1.103: SX-Storage 1.7 (1.1)
+Triggering upgrade and garbage collector
+Current configuration: 536870912000/192.168.100.1/d3f8ad83-d003-4aaa-bbfb-73359af85991 536870912000/192.168.100.2/abc2ed51-b4a8-46b6-a8ac-0beb58e697d2 536870912000/192.168.100.3/a343b7f9-0bef-4f03-8c6f-526ca12d75a9
+Operating mode: read-write
+State of operations:
+  * node d3f8ad83-d003-4aaa-bbfb-73359af85991 (192.168.100.1): Upgrade - local file blocks: 2870963 remaining
+  * node abc2ed51-b4a8-46b6-a8ac-0beb58e697d2 (192.168.100.2): Upgrade - local file blocks: 4111032 remaining
+  * node a343b7f9-0bef-4f03-8c6f-526ca12d75a9 (192.168.100.3): Upgrade - local file blocks: 10438108 remaining
+Distribution: 872eeecb-ebf9-4368-8150-beb23cd44edf(v.7) - checksum: 18024964248989723179
+Cluster UUID: cc8ab859-619e-4806-ade6-c32ab2db1665
+
+Remote upgrade started. You can monitor the progress by running:
+/usr/sbin/sxadm cluster --info sx://admin@mycluster
+\end{lstlisting}
+The remote upgrade process can take some time, depending on the amount of
+data in the cluster. The progress can be monitored with
+\verb+sxadm cluster --info+ as instructed above. When it's done, running
+\verb+sxsetup --upgrade+ on any node should report the cluster is up to date:
+\begin{lstlisting}
+# sxsetup --upgrade
+Local node is up-to-date.
+Versions:
+    192.168.1.101: SX-Storage 1.7 (1.1)
+    192.168.1.102: SX-Storage 1.7 (1.1)
+    192.168.1.103: SX-Storage 1.7 (1.1)
+Cluster already fully upgraded
+
+All components of the cluster are up-to-date!
+\end{lstlisting}

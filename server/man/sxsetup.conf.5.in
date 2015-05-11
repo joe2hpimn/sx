@@ -1,0 +1,77 @@
+.TH SXSETUP.CONF "5" "May 2015" "sxsetup @VERSION@" "Skylable SX Manual"
+.SH NAME
+sxsetup.conf \- configuration file for sxsetup
+.SH DESCRIPTION
+The file contains configuration options for \fBsxsetup\fR(8), used to automatically setup a node and join it to a cluster.
+.SH OPTIONS
+The options are specified in the format of \fBOPTION\fR="\fIVALUE\fR"
+.TP
+\fBSX_CLUSTER_NAME\fR="\fINAME\fR"
+Name of the cluster.
+.TP
+\fBSX_DATA_DIR\fR="\fIPATH\fR"
+Path to the local storage directory.
+.TP
+\fBSX_RUN_DIR\fR="\fIPATH\fR"
+Path to the local state directory.
+.TP
+\fBSX_LIB_DIR\fR="\fIPATH\fR"
+Path to the local lib directory.
+.TP
+\fBSX_LOG_FILE\fR="\fIPATH\fR"
+Path to the log file of \fBsx.fcgi\fR(8).
+.TP
+\fBSX_NODE_SIZE\fR="\fISIZE\fR"
+Size of the node in bytes (use M, G, T for other sizes).
+.TP
+\fBSX_NODE_IP\fR="\fIIPADDR\fR"
+Public IP address of the node.
+.TP
+\fBSX_NODE_INTERNAL_IP\fR="\fIIPADDR\fR"
+Internal IP address of the node (optional).
+.TP
+\fBSX_EXISTING_NODE_IP\fR="\fIIPADDR\fR"
+The IP address of an existing node in the cluster, used when joining the node to already existing cluster.
+.TP
+\fBSX_SERVER_USER\fR="\fINAME\fR"
+Name of the user, which will own the local storage and run \fBsx.fcgi\fR(8).
+.TP
+\fBSX_SERVER_GROUP\fR="\fINAME\fR"
+Name of the group, which will have access to the local storage and run \fBsx.fcgi\fR(8).
+.TP
+\fBSX_CHILDREN_NUM\fR="\fINUMBER\fR"
+Number of workers used by \fBsx.fcgi\fR(8).
+.TP
+\fBSX_PORT\fR="\fINUMBER\fR"
+The port number on which the node will communicate (must be the same across the cluster).
+.TP
+\fBSX_USE_SSL\fR="\fIyes/no\fR"
+Whether to use secure communication.
+.TP
+\fBSX_SSL_KEY_FILE\fR="\fIPATH\fR"
+Path to the SSL key file.
+.TP
+\fBSX_SSL_CERT_FILE\fR="\fIPATH\fR"
+Path to the SSL certificate file.
+.TP
+\fBSX_SSL_KEY\fR="\fISSL_KEY_CONTENTS\fR"
+Contents of the SSL key. The key will be stored under \fBSX_SSL_KEY_FILE\fR.
+.TP
+\fBSX_SSL_CERT\fR="\fISSL_CERT_CONTENTS\fR"
+Contents of the SSL certificate. The certificate will be stored under \fBSX_SSL_CERT_FILE\fR.
+.TP
+\fBSX_CLUSTER_UUID\fR="\fIUUID\fR"
+The UUID of the cluster (used when joining existing cluster).
+.TP
+\fBSX_CLUSTER_KEY\fR="\fIKEY\fR"
+Secret key of the cluster (used when joining existing cluster).
+.TP
+\fBSX_ADMIN_KEY\fR="\fIKEY\fR"
+Secret key of the cluster administrator (used when joining existing cluster).
+.TP
+\fBSX_CFG_VERSION\fR="\fINUMBER\fR"
+Version number of the config file format (currently 2).
+.SH FURTHER DOCUMENTATION
+Full documentation with additional examples available at: <http://www.skylable.com/docs/>
+.SH SEE ALSO
+\fBsxsetup\fR(8), \fBsx.fcgi\fR(8), \fBsxadm\fR(8)

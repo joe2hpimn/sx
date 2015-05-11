@@ -31,7 +31,7 @@ Perform sanity check on the local storage in \fISTORAGE_PATH\fR. In order to run
 \fB\-E\fR, \fB\-\-extract\fR=\fI\,DESTDIR\/\fR
 Extract all files from the local storage in \fISTORAGE_PATH\fR to \fI\,DESTDIR\/\fR. This option doesn't communicate with other nodes and in most cases it will only be possible to extract data from volumes with replica 2 and higher.
 .TP
-\fB\-\-rename\-cluster\fR
+\fB\-\-rename\-cluster\fR=\fI\,NEWNAME\/\fR
 Set a new name for an SX cluster. This option is useful when a new certificate is deployed on all nodes and the cluster must match the name it was issued for. The operation should be performed on all nodes.
 .TP
 \fB\-\-upgrade\fR

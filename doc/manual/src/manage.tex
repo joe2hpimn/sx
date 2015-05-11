@@ -34,8 +34,9 @@ itself.
 
 \section{Administrator access}
 During cluster deployment a default admin account gets created
-and initialized. You should be able to access the cluster from
-any node using \path{sx://admin@mycluster} profile. In order
+and initialized. For security reasons, the account uses a randomly
+generated key instead of a password. You should be able to access the
+cluster from any node using \path{sx://admin@mycluster} profile. In order
 to manage the cluster remotely or from another system account,
 you need to initialize access to the cluster using \path{sxinit}
 \footnote{For more information about access profiles please see
@@ -47,7 +48,7 @@ allow it automatically discover the IP addresses of the other nodes.
 Additionally, we create an alias \path{@cluster}, which later
 can be used instead of \path{sx://admin@mycluster}.
 \begin{lstlisting}
-$ sxinit -l 192.168.1.101 -A @cluster sx://admin@mycluster
+$ sxinit --key -l 192.168.1.101 -A @cluster sx://admin@mycluster
 Warning: self-signed certificate:
 
         Subject: C=GB, ST=UK, O=SX, CN=mycluster
@@ -71,6 +72,9 @@ administrative purposes and perform regular operations as a normal user.
 Use \path{sxacl useradd} to add new users to the cluster:
 \begin{lstlisting}
 $ sxacl useradd jeff @cluster
+Enter password for user 'jeff'
+Enter password:
+Re-enter password: 
 User successfully created!
 Name: jeff
 Key : FqmlTd9CWZUuPBGMdjE46DaT1/3kx+EYbahlrhcdVpy/9ePfrtWCIgAA
@@ -78,9 +82,10 @@ Type: normal
 
 Run 'sxinit sx://jeff@mycluster' to start using the cluster as user 'jeff'.
 \end{lstlisting}
-By default a regular user account gets created. The authentication key is
-automatically generated and can be changed anytime by the cluster
-administrator or the user itself (see below).
+By default a regular user account gets created and the key is generated from the
+password. The user can later authenticate both using the password or the key.
+It's also possible to automatically generate a random key by passing the
+\verb+--generate-key+ option.
 
 \subsection{Listing users}
 In order to list all users in the cluster run:
@@ -91,17 +96,21 @@ jeff (normal)
 \end{lstlisting}
 Only cluster administrators can list users.
 
-\subsection{Key management}
-It is possible to obtain the existing key or issue a new one for any
-user in the cluster. To retrieve the current authentication key for
-user `jeff' run:
+\subsection{Key and password management}
+\SX uses special authentication keys, which are either randomly
+generated or based on passwords. It is possible to obtain the
+existing key or issue a new one for any user in the cluster.
+To retrieve the current authentication key for user `jeff' run:
 \begin{lstlisting}
 $ sxacl usergetkey jeff @cluster
 5tJdVr+RSpA/IPuFeSwUeePtKdbDLWUKqoaoZLkmCcXTw5qzPg5e7AAA
 \end{lstlisting}
-A new key can be issued any time by running:
+A new password/key can be set at any time by running:
 \begin{lstlisting}
 $ sxacl usernewkey jeff @sxtest
+Enter new password for user 'jeff'
+Enter password:
+Re-enter password: 
 Key successfully changed!
 Name   : jeff
 New key: FqmlTd9CWZUuPBGMdjE46DaT1/3MSHk9TLH27dFf5Zd61lEbWEeAqgAA
@@ -149,10 +158,10 @@ Run the following command to list the available filters:
 $ sxvol filter --list
 Name            Ver     Type        Short description
 ----            ---     ----        -----------------
-undelete        1.1     generic     Backup removed files
-zcomp           1.0     compress    Zlib Compression Filter
-aes256          1.4     crypt	    Encrypt data using AES-256-CBC-HMAC-512
-attribs         1.1     generic     File Attributes
+undelete        1.2     generic     Backup removed files
+zcomp           1.1     compress    Zlib Compression Filter
+aes256          1.5     crypt	    Encrypt data using AES-256-CBC-HMAC-512
+attribs         1.2     generic     File Attributes
 \end{lstlisting}
 We will create an encrypted volume for user `jeff'. To obtain more information
 about the \path{aes256} filter run:
@@ -253,6 +262,7 @@ To get information about remote cluster status run the following command:
 \begin{lstlisting}
 $ sxadm cluster --info @cluster2
 Current configuration: 536870912000/192.168.100.1/d3f8ad83-d003-4aaa-bbfb-73359af85991 536870912000/192.168.100.2/abc2ed51-b4a8-46b6-a8ac-0beb58e697d2 536870912000/192.168.100.3/a343b7f9-0bef-4f03-8c6f-526ca12d75a9 536870912000/192.168.100.4/b9b05fc7-7a4b-417d-853b-ac56ed32f5d3 
+Operating mode: read-write
 Distribution: 872eeecb-ebf9-4368-8150-beb23cd44edf(v.7) - checksum: 18024964248989723179
 Cluster UUID: cc8ab859-619e-4806-ade6-c32ab2db1665
 \end{lstlisting}
@@ -262,6 +272,41 @@ SIZE/IP_ADDRESS[/INTERNAL_IP_ADDRESS]/UUID
 \end{lstlisting}
 where \path{SIZE} is in bytes and \path{UUID} is a unique identifier assigned to a node
 when joining the cluster.
+
+In order to get information about the individual nodes run (\verb+-H+ converts
+sizes to human readable form):
+\begin{lstlisting}
+$ sxadm cluster --list-nodes -H @cluster2
+Node d3f8ad83-d003-4aaa-bbfb-73359af85991 status:
+    Versions:
+        SX: 1.1
+        HashFS: SX-Storage 1.7
+    System:
+        Name: Linux
+        Architecture: x86_64
+        Release: 3.2.0-4-amd64
+        Version: #1 SMP Debian 3.2.51-1
+        CPU(s): 8
+        Endianness: little-endian
+        Local time: 2015-05-07 17:03:21 CEST
+        UTC time: 2015-05-07 15:03:21 UTC
+    Network:
+        Public address: 192.168.100.1
+        Internal address: 192.168.100.1
+    Storage:
+        Storage directory: /var/lib/sxserver/storage
+        Allocated space: 259.47G
+        Used space: 227.30G
+    Storage filesystem:
+        Block size: 4.00K
+        Total size: 1.14T
+        Available: 644.28G
+        Used: 53.28%
+    Memory:
+        Total: 31.36G
+[...]
+\end{lstlisting}
+
 
 \subsection{Rebalance mode}
 After making any change to the cluster, it will automatically enter into
@@ -284,6 +329,7 @@ $ sxadm cluster --resize +400G @cluster2
 $ sxadm cluster --info @cluster2
 Target configuration: 644245094400/192.168.100.1/d3f8ad83-d003-4aaa-bbfb-73359af85991 644245094400/192.168.100.2/abc2ed51-b4a8-46b6-a8ac-0beb58e697d2 644245094400/192.168.100.3/a343b7f9-0bef-4f03-8c6f-526ca12d75a9 644245094400/192.168.100.4/b9b05fc7-7a4b-417d-853b-ac56ed32f5d3 
 Current configuration: 536870912000/192.168.100.1/d3f8ad83-d003-4aaa-bbfb-73359af85991 536870912000/192.168.100.2/abc2ed51-b4a8-46b6-a8ac-0beb58e697d2 536870912000/192.168.100.3/a343b7f9-0bef-4f03-8c6f-526ca12d75a9 536870912000/192.168.100.4/b9b05fc7-7a4b-417d-853b-ac56ed32f5d3 
+Operating mode: read-write
 Distribution: 872eeecb-ebf9-4368-8150-beb23cd44edf(v.8) - checksum: 14098478712246199608
 Cluster UUID: cc8ab859-619e-4806-ade6-c32ab2db1665
 \end{lstlisting}
@@ -297,6 +343,7 @@ First, we obtain the current configuration:
 \begin{lstlisting}
 $ sxadm cluster --info @cluster2
 Current configuration: 644245094400/192.168.100.1/d3f8ad83-d003-4aaa-bbfb-73359af85991 644245094400/192.168.100.2/abc2ed51-b4a8-46b6-a8ac-0beb58e697d2 644245094400/192.168.100.3/a343b7f9-0bef-4f03-8c6f-526ca12d75a9 644245094400/192.168.100.4/b9b05fc7-7a4b-417d-853b-ac56ed32f5d3 
+Operating mode: read-write
 Distribution: 872eeecb-ebf9-4368-8150-beb23cd44edf(v.9) - checksum: 18024963750773516843
 Cluster UUID: cc8ab859-619e-4806-ade6-c32ab2db1665
 \end{lstlisting}
@@ -312,6 +359,7 @@ configuration of the cluster is:
 \begin{lstlisting}
 $ sxadm cluster --info @cluster2
 Current configuration: 751619276800/192.168.100.1/d3f8ad83-d003-4aaa-bbfb-73359af85991 644245094400/192.168.100.2/abc2ed51-b4a8-46b6-a8ac-0beb58e697d2 644245094400/192.168.100.3/a343b7f9-0bef-4f03-8c6f-526ca12d75a9 644245094400/192.168.100.4/b9b05fc7-7a4b-417d-853b-ac56ed32f5d3 
+Operating mode: read-write
 Distribution: 872eeecb-ebf9-4368-8150-beb23cd44edf(v.11) - checksum: 18024964785860635179
 Cluster UUID: cc8ab859-619e-4806-ade6-c32ab2db1665
 \end{lstlisting}
@@ -326,6 +374,7 @@ $ sxadm cluster --mod 751619276800/192.168.100.1/d3f8ad83-d003-4aaa-bbfb-73359af
 $ sxadm cluster --info @cluster2
 Target configuration: 751619276800/192.168.100.1/d3f8ad83-d003-4aaa-bbfb-73359af85991 644245094400/192.168.100.2/abc2ed51-b4a8-46b6-a8ac-0beb58e697d2 644245094400/192.168.100.3/a343b7f9-0bef-4f03-8c6f-526ca12d75a9 
 Current configuration: 751619276800/192.168.100.1/d3f8ad83-d003-4aaa-bbfb-73359af85991 644245094400/192.168.100.2/abc2ed51-b4a8-46b6-a8ac-0beb58e697d2 644245094400/192.168.100.3/a343b7f9-0bef-4f03-8c6f-526ca12d75a9 644245094400/192.168.100.4/b9b05fc7-7a4b-417d-853b-ac56ed32f5d3 
+Operating mode: read-write
 Distribution: 872eeecb-ebf9-4368-8150-beb23cd44edf(v.12) - checksum: 16329829800547562843
 Cluster UUID: cc8ab859-619e-4806-ade6-c32ab2db1665
 \end{lstlisting}
@@ -366,6 +415,7 @@ First, we obtain the current cluster configuration:
 \begin{lstlisting}
 $ sxadm cluster --info @cluster2
 Current configuration: ^\marked{536870912000/192.168.100.1/d3f8ad83-d003-4aaa-bbfb-73359af85991}^ ^\marked{536870912000/192.168.100.2/abc2ed51-b4a8-46b6-a8ac-0beb58e697d2}^ ^\marked{536870912000/192.168.100.3/a343b7f9-0bef-4f03-8c6f-526ca12d75a9}^ ^\marked{536870912000/192.168.100.4/b9b05fc7-7a4b-417d-853b-ac56ed32f5d3}^
+Operating mode: read-write
 Distribution: 872eeecb-ebf9-4368-8150-beb23cd44edf(v.7) - checksum: 18024964248989723179
 Cluster UUID: cc8ab859-619e-4806-ade6-c32ab2db1665
 \end{lstlisting}
@@ -404,7 +454,8 @@ the cluster, which now also includes the 1TB nodes:
 $ sxadm cluster --info @cluster2
 Target configuration: ^\marked{536870912000/192.168.100.1/d3f8ad83-d003-4aaa-bbfb-73359af85991}^ ^\marked{536870912000/192.168.100.2/abc2ed51-b4a8-46b6-a8ac-0beb58e697d2}^ ^\markedG{1099511627776/192.168.100.5/42ea1ec2-4127-491a-9ff9-d9fdfd7c92d0}^ ^\markedG{1099511627776/192.168.100.6/5f26e559-fca0-44aa-b2d6-eb6e8e1156b1}^
 Current configuration: 536870912000/192.168.100.1/d3f8ad83-d003-4aaa-bbfb-73359af85991 536870912000/192.168.100.2/abc2ed51-b4a8-46b6-a8ac-0beb58e697d2 536870912000/192.168.100.3/a343b7f9-0bef-4f03-8c6f-526ca12d75a9 536870912000/192.168.100.4/b9b05fc7-7a4b-417d-853b-ac56ed32f5d3
-Operations in progress:
+Operating mode: read-write
+State of operations:
   * node d3f8ad83-d003-4aaa-bbfb-73359af85991 (192.168.100.1): Relocating data
   * node abc2ed51-b4a8-46b6-a8ac-0beb58e697d2 (192.168.100.2): Relocating data
   * node 42ea1ec2-4127-491a-9ff9-d9fdfd7c92d0 (192.168.100.5): Relocation complete
@@ -418,11 +469,50 @@ When the rebalance finishes, the cluster consists of two 500GB nodes:
 \begin{lstlisting}
 $ sxadm cluster --info @cluster2
 Current configuration: 536870912000/192.168.100.1/d3f8ad83-d003-4aaa-bbfb-73359af85991 536870912000/192.168.100.2/abc2ed51-b4a8-46b6-a8ac-0beb58e697d2 1099511627776/192.168.100.5/42ea1ec2-4127-491a-9ff9-d9fdfd7c92d0 1099511627776/192.168.100.6/5f26e559-fca0-44aa-b2d6-eb6e8e1156b1
+Operating mode: read-write
 Distribution: 872eeecb-ebf9-4368-8150-beb23cd44edf(v.10) - checksum: 4695375810298161327
 Cluster UUID: cc8ab859-619e-4806-ade6-c32ab2db1665
 \end{lstlisting}
 The nodes 192.168.100.3 and 192.168.100.4 are no longer part of the cluster
 and can be turned off.
+
+\section{Cluster backup and restore}
+This section describes how to backup and restore the entire cluster.
+
+\subsection{Backup}
+In order to backup the cluster structure run the following command:
+\begin{lstlisting}
+# sxdump --backup-dir /var/backups/sx/ sx://admin@mycluster
+Generating sx-backup.sh and sx-restore.sh
+Review sx-backup.sh (uncomment/edit paths as necessary)
+Run sx-backup.sh on the old cluster
+Review sx-restore.sh (uncomment/edit paths as necessary)
+Stop old cluster
+Use sxsetup --config-file to setup the new cluster
+Run sx-restore.sh on the new cluster
+\end{lstlisting}
+It creates two shell scripts in the current directory: \verb+sx-backup.sh+ and
+\verb+sx-restore.sh+. The first script will backup all data from the cluster,
+and the other contains information on how to recreate the cluster structure,
+including all volumes, users and ACLs. Running \verb+sx-backup.sh+ will create
+a copy of all files in the cluster:
+\begin{lstlisting}
+# ./sx-backup.sh
+
+Backing up volume sx://admin@sxtest/vol1
+
+Downloading /video.mkv (size: 1.22GB)
+Transferred 1.22GB in 8s (@154.35MB/s)           
+[...]
+\end{lstlisting}
+When the script finishes, the data from the cluster will be backed up
+in \verb+/var/backups/sx+. \textbf{No data from encrypted volumes will be
+backed up --- those have to be processed manually.}
+
+\subsection{Restore}
+In order to restore the cluster, including all volumes, users, and ACLs run
+\verb+sx-restore.sh+ created by \verb+sxdump+ against a new cluster. You may
+need to edit the file in case the cluster name or location of the backup changed.
 
 \section{Cluster healing}
 
@@ -442,6 +532,7 @@ option as described in the previous section. In the following example, the node
 $ sxadm cluster --info @cluster2
 Current configuration: 536870912000/192.168.100.1/d3f8ad83-d003-4aaa-bbfb-73359af85991 536870912000/192.168.100.2/abc2ed51-b4a8-46b6-a8ac-0beb58e697d2 536870912000/192.168.100.3/a343b7f9-0bef-4f03-8c6f-526ca12d75a9 ^\marked{536870912000/192.168.100.4/b9b05fc7-7a4b-417d-853b-ac56ed32f5d3}^
 ! Failed to get status of node b9b05fc7-7a4b-417d-853b-ac56ed32f5d3 (192.168.100.4)
+Operating mode: read-write
 Distribution: 872eeecb-ebf9-4368-8150-beb23cd44edf(v.7) - checksum: 18024964248989723179
 Cluster UUID: cc8ab859-619e-4806-ade6-c32ab2db1665
 \end{lstlisting}
@@ -467,7 +558,8 @@ is started:
 \begin{lstlisting}
 $ sxadm cluster --info @cluster2
 Current configuration: 536870912000/192.168.100.1/d3f8ad83-d003-4aaa-bbfb-73359af85991 536870912000/192.168.100.2/abc2ed51-b4a8-46b6-a8ac-0beb58e697d2 536870912000/192.168.100.3/a343b7f9-0bef-4f03-8c6f-526ca12d75a9 536870912000/192.168.100.5/b9b05fc7-7a4b-417d-853b-ac56ed32f5d3
-Operations in progress:
+Operating mode: read-write
+State of operations:
   * node b9b05fc7-7a4b-417d-853b-ac56ed32f5d3 (192.168.100.5): Healing blocks
 Distribution: 872eeecb-ebf9-4368-8150-beb23cd44edf(v.7) - checksum: 18024964248989723179
 Cluster UUID: cc8ab859-619e-4806-ade6-c32ab2db1665
@@ -478,17 +570,56 @@ that case the bare node must be prepared and available with the IP address of
 the broken one. It is also possible to repair more than one node at a time by
 passing more node specifications to \path{--replace-faulty}.
 
+\subsection{Marking broken nodes}
+If a broken node replacement cannot be immediately performed, such a node can be
+marked as faulty and will no longer be actively used in the cluster. To mark
+a node as broken run the following command providing its full specification:
+\begin{lstlisting}
+$ sxadm cluster --set-faulty ^\marked{536870912000/192.168.100.5/b9b05fc7-7a4b-417d-853b-ac56ed32f5d3}^ @cluster2
+$ sxadm cluster --info @cluster2
+Current configuration: 536870912000/192.168.100.1/d3f8ad83-d003-4aaa-bbfb-73359af85991 536870912000/192.168.100.2/abc2ed51-b4a8-46b6-a8ac-0beb58e697d2 536870912000/192.168.100.3/a343b7f9-0bef-4f03-8c6f-526ca12d75a9 536870912000/192.168.100.5/b9b05fc7-7a4b-417d-853b-ac56ed32f5d3
+Faulty nodes: ^\marked{536870912000/192.168.100.5/b9b05fc7-7a4b-417d-853b-ac56ed32f5d3}^
+Operating mode: read-write
+State of operations:
+  * node b9b05fc7-7a4b-417d-853b-ac56ed32f5d3 (192.168.100.5): Faulty (this node is currently being ignored)
+Distribution: 872eeecb-ebf9-4368-8150-beb23cd44edf(v.7) - checksum: 18024964248989723179
+Cluster UUID: cc8ab859-619e-4806-ade6-c32ab2db1665
+\end{lstlisting}
+Cluster with faulty nodes, which have been marked, will properly operate in
+read-write mode, however no changes to the cluster structure will be allowed
+until the faulty nodes get properly replaced as described in the previous
+subsection.
+
+\subsection{Setting read-only mode}
+The cluster can be set into read-only mode to perform maintainance or
+temporarily stop clients from uploading new data by running the following
+command:
+\begin{lstlisting}
+$ sxadm cluster --set-mode=ro @cluster2
+Successfully switched cluster to read-only mode
+\end{lstlisting}
+To switch the cluster back to read-write mode, run the same command with
+\verb+rw+ argument:
+\begin{lstlisting}
+$ sxadm cluster --set-mode=rw @cluster2
+Successfully switched cluster to read-write mode
+\end{lstlisting}
+
 \subsection{Checking storage integrity}
-To check the integrity and correctness of the local storage (called
-\textsl{HashFS}) run the following command on the node you want to check (run
+\SX provides a tool that performs a deep check of the storage structure
+and verifies if the data on disk, stored in a special format called \textsl{HashFS},
+is not corrupted. The tool will calculate and compare checksums of all
+data blocks and report any inconsistencies. In order to perform this check,
+the cluster needs to be set to read-only mode or a particular node needs to
+be temporarily turned off (with \verb+sxserver stop+). When the cluster is
+in read-only mode, you can perform the check on all nodes at the same time.
+Run the following command on the node you want to check (run
 \path{sxsetup --info} if you don't remember the location of the storage):
 \begin{lstlisting}
 # sxadm node --check /var/lib/sxserver/storage/
 [sx_hashfs_check]: Integrity check started   
 HashFS is clean, no errors found
 \end{lstlisting}
-It performs a deep check of the storage structure and also verifies if the
-data on disk is not corrupted by calculating and comparing data checksums.
 
 \subsection{Data recovery}
 It is possible to recover local data in case a node gets damaged. Please

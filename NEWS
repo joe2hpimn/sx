@@ -1,3 +1,35 @@
+1.1
+---
+
+Skylable SX 1.1 brings many new features and improvements.
+The major changes from 1.0 include:
+
+  * All tools now work with passwords instead of authentication keys by
+    default. The change is backward compatible: use --key to keep using
+    the existing key or use 'sxacl usernewkey' to generate a new key based
+    on a password. For security reasons, the automatically created admin
+    account uses a random-generated key by default.
+  * Faulty nodes can now be disabled without the immediate need to replace
+    them ('sxadm cluster --set-faulty')
+  * New garbage collector that improves speed of sxrm operations and supports
+    nodes, which are temporarily separated from the cluster.
+  * No new revision will be created on multi-revision volumes, if an
+    overwritten file hasn't changed at all.
+  * New tool 'sxdump' to automate cluster backup and recovery.
+  * 'sxsetup --upgrade' to automatically upgrade cluster databases and
+    storage to the latest format after updating the software.
+  * 'sxinit --config-link' (use a configuration link for an automated setup)
+  * 'sxinit --sxauthd' (use company credentials to access a cluster with SX
+    Enterprise Edition extensions)
+  * 'sxls --etag' (detect changes in volume contents)
+  * 'sxadm node --check' improvements (now also requires cluster to be in
+    read-only mode or a node to be offline)
+  * 'sxadm cluster --set-mode' (set cluster to read-only mode and back)
+  * 'sxinit --info' (display information about a configured profile)
+  * 'sxadm cluster --list-nodes' (list all nodes and their configuration)
+  * Performance improvements, including better sxls efficiency
+  * Other improvements and bugfixes
+
 1.0
 ---
 

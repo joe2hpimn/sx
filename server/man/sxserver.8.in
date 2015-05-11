@@ -1,0 +1,25 @@
+.TH SXSERVER "8" "May 2015" "sxserver @VERSION@" "Skylable SX Manual"
+.SH NAME
+sxserver \- start and stop SX services
+.SH SYNOPSIS
+.B sxserver
+<\fI\,start\/\fR | \fI\,stop\/\fR | \fI\,restart\/\fR | \fI\,status\/\fR>
+.SH DESCRIPTION
+sxserver is a script, which starts and stop the SX services, such as sx.fcgi and the web server.
+.SH OPTIONS
+.TP
+\fBstart\fR
+Start all configured SX services on the node.
+.TP
+\fBstop\fR
+Stop all running SX services on the node.
+.TP
+\fBrestart\fR
+Restart all SX services on the node.
+.TP
+\fBstatus\fR
+Show information about the SX services, including PID values for the running ones.
+.SH FURTHER DOCUMENTATION
+Full documentation with additional examples available at: <http://www.skylable.com/docs/>
+.SH SEE ALSO
+\fBsxsetup\fR(8), \fBsxfcgi\fR(8)

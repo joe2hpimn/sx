@@ -3,13 +3,10 @@
 \section{Access profiles}
 \label{sec:profiles}
 Using \path{sxinit} one can configure access for multiple users
-and clusters. The access profiles have a format of
-\path{sx://[PROFILE_NAME@]cluster_name}, where \path{PROFILE_NAME}
-is an arbitrary name for the profile, and doesn't need to match
-the username for which the access is configured. In case of a single
-user access to a cluster, \path{PROFILE_NAME} can be omitted and
-\path{sx://cluster_name} will be the default profile for a given
-cluster.
+and clusters. The access profiles have the format of
+\path{sx://[username@]cluster_name}. When the username is omitted,
+\verb+sxinit+ will ask for it and \path{sx://cluster_name} will
+be the default profile for a given cluster.
 
 \subsection{Adding profiles}
 To add an access profile for the user `jeff' and the local cluster
@@ -40,8 +37,8 @@ sx://admin@mycluster                      @cluster
 \end{lstlisting}
 
 \subsection{Deleting profiles}
-To delete a profile run the following command and provide a full URI
-or an alias name as follows:
+To delete a profile run the following command and provide the full
+profile name or its alias as follows:
 \begin{lstlisting}
 $ sxinit --delete @somealias
 \end{lstlisting}
@@ -103,12 +100,12 @@ and then list their contents. To get the list of volumes, which user 'jeff'
 can access run:
 \begin{lstlisting}
 $ sxls -lH @jeff
-  VOL  rep:2  rev:1  rw  -  12.83G  50.00G  25% sx://jeff@mycluster/vol-jeff
+  VOL  rep:2  rev:1  rw  -  12.83G  50.00G jeff 25% sx://jeff@mycluster/vol-jeff
 \end{lstlisting}
 With \path{-l (--long)} and \path{-H (--human-readable)} options \path{sxls}
 displays the list of available volumes, together with additional information
 such as the replica count, maximum number of revisions per file, permissions,
-size and usage.
+size, usage, and the owner name.
 
 Running \path{sxls} against the volume without any arguments returns the first
 level of files, similarly to the command \path{ls}:
@@ -176,9 +173,11 @@ The \SX volumes can be configured\footnote{See \fref{sec:volumes} on how
 to create and configure volumes.} to keep multiple revisions of files. For
 example, if a volume was created with an option to keep 3 revisions, every
 time a specific file gets modified the previous copy will be preserved and
-the latest 3 versions of the file will be available for download. The tools
-such as \path{sxcp} or \path{sxls} will always operate on the latest revision.
-In order to access and manage the older revisions, one has to use \path{sxrev}.
+the latest 3 versions of the file will be available for download. A revision
+is only created when the new file is different from the existing one.
+The tools such as \path{sxcp} or \path{sxls} will always operate on the latest
+revision.  In order to access and manage the older revisions, one has to
+use \path{sxrev}.
 
 In the examples below we will operate on the volume \path{vol-jeff-rev}, which
 was configured to store up to 3 revisions for each file and the example file
