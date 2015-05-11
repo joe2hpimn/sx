@@ -43,7 +43,10 @@ ln -s `pwd`/test/client-test "$prefix/bin/client-test"
 
 built_nginx=`pwd`/../3rdparty/sxhttpd/build-nginx/objs/nginx
 rm -f "$prefix/sbin/sxhttpd"
-test -x "$built_nginx" && ln -s "$built_nginx" "$prefix/sbin/sxhttpd"
+# SXHTTPD has to be overriden when using built-in, but not when using external
+# nginx, so just sed
+test -x "$built_nginx" && ln -s "$built_nginx" "$prefix/sbin/sxhttpd" && \
+    sed -i -e "s|if !.*-c|if ! $prefix/sbin/sxhttpd -c|" "$prefix/sbin/sxserver"
 
 cp "$prefix/etc/sxserver/sxhttpd.conf.default" "$prefix/etc/sxserver/sxhttpd.conf"
 
