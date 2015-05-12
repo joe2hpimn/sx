@@ -705,6 +705,7 @@ struct file_upload_ctx {
     unsigned flush_ok;
     unsigned fail;
     unsigned all_fail;
+    int loop_count;
     sxc_file_t *dest;
     sxc_meta_t *fmeta;
     sxi_query_t *query;
@@ -1363,8 +1364,13 @@ static void upload_blocks_to_hosts(curlev_context_t *cbdata, struct file_upload_
     if (status != 200) {
         if(status == 0) { /* Query has not been sent yet, do not batch again to avoid infinite recursion loop */
             SXDEBUG("Failed to send .data query: %s", sxc_geterrmsg(sx));
-            yctx->fail++;
-            return;
+            if (yctx->loop_count-- > 0) {
+                SXDEBUG("allow retry (loop count: %d)", yctx->loop_count);
+            } else {
+                SXDEBUG("forbidding retry to avoid infinite loop");
+                yctx->fail++;
+                return;
+            }
         }
         SXDEBUG("query failed: %d", status);
         if (uctx) {
@@ -2159,6 +2165,7 @@ static int local_to_remote_begin(sxc_file_t *source, sxc_meta_t *fmeta, sxc_file
     state->fd = s;
     state->blocksize = blocksize;
     state->volhosts = &volhosts;
+    state->loop_count = sxi_hostlist_get_count(&volhosts);
     state->name = strdup(dest->path);
     if (!state->name) {
 	sxi_seterr(sx, SXE_EMEM, "Cannot allocate filename: Out of memory");
