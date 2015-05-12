@@ -330,6 +330,13 @@ static int aes256_data_prepare(const sxf_handle_t *handle, void **ctx, const cha
 	unsigned char key[KEY_SIZE], salt[SALT_SIZE], fp[FP_SIZE];
 	char *keyfile = NULL;
 	int fd, have_fp = 0;
+	uint32_t runtime_ver = SSLeay();
+	uint32_t compile_ver = SSLEAY_VERSION_NUMBER;
+
+    if((runtime_ver & 0xff0000000) != (compile_ver & 0xff0000000)) {
+	ERROR("OpenSSL library version mismatch: compiled: %x, runtime: %d", compile_ver, runtime_ver);
+	return -1;
+    }
 
     mlock(key, sizeof(key));
     if(cfgdata) {

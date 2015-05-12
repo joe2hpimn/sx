@@ -40,19 +40,25 @@ AC_SUBST([ZCOMP_LIBS])
 AM_CONDITIONAL([BUILD_ZCOMP], [test "$have_zlib" = "yes"])
 
 # libcrypto
-AC_CHECK_LIB([crypto], [EVP_EncryptUpdate], [AES256_LIBS="-lcrypto"; have_crypto="yes"])
-AC_SUBST([AES256_LIBS])
+ac_save_LIBS=$LIBS
+PKG_CHECK_MODULES([OPENSSL], [libssl], [have_crypto="yes"], [
+    AC_CHECK_LIB([crypto], [HMAC_Update], [OPENSSL_LIBS="-lcrypto -lssl"; have_crypto="yes"])])
+LIBS=$ac_save_LIBS
 AM_CONDITIONAL([BUILD_AES256], [test "$have_crypto" = "yes"])
 AC_CACHE_CHECK([whether HMAC_Update returns int], ac_cv_type_HMAC_update,
-               [AC_COMPILE_IFELSE(
-                [AC_LANG_PROGRAM([#include <openssl/hmac.h>
-                 ],[return HMAC_Update(NULL, NULL, 0) == 1;])],
-                 [ac_cv_type_HMAC_update=yes],
-                 [ac_cv_type_HMAC_update=no])
-               ])
+[AC_COMPILE_IFELSE(
+    [AC_LANG_PROGRAM([#include <openssl/hmac.h>
+    ],[return HMAC_Update(NULL, NULL, 0) == 1;])],
+    [ac_cv_type_HMAC_update=yes],
+    [ac_cv_type_HMAC_update=no])
+])
 if test "$ac_cv_type_HMAC_update" = "yes"; then
     AC_DEFINE([HMAC_UPDATE_RETURNS_INT], 1, [Defined if HMAC_Update returns int])
 fi
+VCRYPTO_LIBS="$OPENSSL_LIBS"
+VCRYPTO_CFLAGS="$OPENSSL_CFLAGS"
+AC_SUBST(VCRYPTO_LIBS)
+AC_SUBST(VCRYPTO_CFLAGS)
 
 # Checks for header files.
 AC_CHECK_HEADERS([stddef.h stdint.h stdlib.h string.h sys/types.h])
