@@ -891,6 +891,7 @@ int main(int argc, char **argv) {
                     fprintf(stderr, "ERROR: Failed to obtain cluster UUID\n");
                     goto init_err;
                 }
+		sxc_clearerr(sx);
             }
 
             mlock(pass, sizeof(pass));
@@ -925,7 +926,7 @@ int main(int argc, char **argv) {
 
             /* If p is NULL, we have to ask user for a password */
             if(!*pass && sxc_prompt_password(sx, pass, sizeof(pass), NULL, 0)) {
-                fprintf(stderr, "ERROR: Failed to get user password\n");
+                fprintf(stderr, "ERROR: Failed to get user password: %s\n", sxc_geterrmsg(sx));
                 memset(pass, 0, sizeof(pass));
                 munlock(pass, sizeof(pass));
                 goto init_err;

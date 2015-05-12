@@ -587,7 +587,7 @@ static void sxi_cbdata_finish(curl_events_t *e, curlev_context_t **ctxptr, const
         if (rctx->rc != CURLE_WRITE_ERROR) {
             const char *msg = *rctx->errbuf ? rctx->errbuf : strerr;
             if (rctx->rc == CURLE_SSL_CACERT && sxi_curlev_has_cafile(e))
-                sxi_cbdata_seterr(ctx, SXE_ECURL, "%s: Possible MITM attack, see https://wiki.skylable.com/wiki/FAQ#Possible_MITM_attack",
+                sxi_cbdata_seterr(ctx, SXE_ECURL, "%s: Possible MITM attack, see http://www.skylable.com/docs/faq#Possible_MITM_attack",
                            strerr);
             else {
                 SXDEBUG("%s: %s", url ? url : "", msg);
