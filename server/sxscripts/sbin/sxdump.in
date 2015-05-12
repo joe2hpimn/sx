@@ -26,7 +26,7 @@ SXCP = 'sxcp'
 
 OLD = 'sx-backup.sh'
 NEW = 'sx-restore.sh'
-BACKUPDIR = args.backupdir
+BACKUPDIR = args.backup_dir
 
 from subprocess import CalledProcessError, Popen, PIPE
 import sys
