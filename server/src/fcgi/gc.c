@@ -113,7 +113,7 @@ static int heal_data_cb(curlev_context_t *cbdata, const unsigned char *data, siz
             ctx->need = ntohl(ctx->need);
             ctx->pos += sizeof(ctx->need);
         }
-        DEBUG("%p: data: volume: %s, metadb: %d, pos=%d, need=%d, len=%d", cbdata, ctx->vol->name, ctx->metadb, ctx->pos, ctx->need, ctx->len);
+        DEBUG("%p: data: volume: %s, metadb: %d, pos=%d, need=%d, len=%d", (void*)cbdata, ctx->vol->name, ctx->metadb, ctx->pos, ctx->need, ctx->len);
         if (ctx->pos + ctx->need > ctx->len)
             return 0;
         sx_blob_t *b = sx_blob_from_data(ctx->data + ctx->pos, ctx->need);
@@ -144,7 +144,7 @@ static int heal_data_cb(curlev_context_t *cbdata, const unsigned char *data, siz
                 break;
             }
             if (!strcmp(magic, "EOF$")) {
-                DEBUG("%p: got EOF: volume: %s, metadb: %d, count: %lld, got revisions: %d", cbdata, ctx->vol->name, ctx->metadb, (long long)ctx->count, ctx->revisions);
+                DEBUG("%p: got EOF: volume: %s, metadb: %d, count: %lld, got revisions: %d", (void*)cbdata, ctx->vol->name, ctx->metadb, (long long)ctx->count, ctx->revisions);
                 ctx->eof = 1;
                 if (sx_hashfs_heal_update(ctx->hashfs, ctx->vol, ctx->count ? &ctx->last_revision_id : NULL, ctx->metadb))
                     break;
@@ -205,10 +205,10 @@ static void heal_finish_cb(curlev_context_t *cbdata, const char *url) {
         DEBUG("ctx not set");
         return;
     }
-    DEBUG("%p: finish callback for volume %s, metadb %d", cbdata, ctx->vol->name, ctx->metadb);
+    DEBUG("%p: finish callback for volume %s, metadb %d", (void*)cbdata, ctx->vol->name, ctx->metadb);
     while (ctx->len && !ctx->eof && !ctx->need)
         heal_data_cb(cbdata, "", 0);
-    DEBUG("%p: finished callback for volume %s, metadb %d", cbdata, ctx->vol->name, ctx->metadb);
+    DEBUG("%p: finished callback for volume %s, metadb %d", (void*)cbdata, ctx->vol->name, ctx->metadb);
     free(ctx->data);
     ctx->data = NULL;
     free(ctx->vol);
@@ -293,7 +293,7 @@ static int heal_cb(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, const sx_hash_
             WARN("failed to send query %s", query);
             break;
         }
-        DEBUG("Sent query %s, ctx: %p", query, cbdata);
+        DEBUG("Sent query %s, ctx: %p", query, (void*)cbdata);
         ret = 0;
     } while(0);
     free(enc_vol);
