@@ -27,4 +27,5 @@
 /sxscripts/logrotate.d/sxserver
 /sxscripts/sbin/sxserver
 /sxscripts/sbin/sxsetup
+/sxscripts/sbin/sxdump
 /sxscripts/sxserver/sxhttpd.conf.default

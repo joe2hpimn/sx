@@ -9,6 +9,8 @@ config.status
 libtool
 stamp-h1
 *.1
+*.5
+*.8
 *.o
 *.lo
 *.la
