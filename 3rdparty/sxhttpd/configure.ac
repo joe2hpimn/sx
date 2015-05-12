@@ -1,5 +1,5 @@
 AC_PREREQ([2.68])
-AC_INIT([sxhttpd], [1.0])
+AC_INIT([sxhttpd], [1.1])
 AC_CONFIG_AUX_DIR([build-aux])
 AM_INIT_AUTOMAKE([foreign -Wall -Werror])
 AM_MAINTAINER_MODE

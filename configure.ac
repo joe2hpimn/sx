@@ -1,5 +1,5 @@
 
-AC_INIT([sx], [0.9])
+AC_INIT([sx], [1.1])
 AC_CONFIG_AUX_DIR([build-aux])
 AM_INIT_AUTOMAKE([foreign])
 AM_MAINTAINER_MODE
