@@ -381,7 +381,7 @@ static int aes256_data_prepare(const sxf_handle_t *handle, void **ctx, const cha
 	    close(fd);
 	}
 	if(!keyread) {
-	    while((ret = getpassword(handle, have_fp ? 0 : 1, mode, key, salt)) == 1);
+	    while((ret = getpassword(handle, have_fp ? 0 : (mode == SXF_MODE_UPLOAD ? 1 : 0), mode, key, salt)) == 1);
 	    if(ret) {
 		free(keyfile);
 		return -1;
