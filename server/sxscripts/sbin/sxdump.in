@@ -165,6 +165,11 @@ def create_volumes(sxurl):
             print >> sys.stderr, ("\nWarning: "
                                   "Skipping encrypted volume '%s'\n" % url)
             continue
+        if volfilter == '*unknown*':
+            print >> sys.stderr, ("\nWarning: "
+                                  "Skipping volume with unknown filter '%s'\n"
+                                  % url)
+            continue
         vol = url.rsplit("/", 1)[1]
         if vol.startswith("libres3-"):
             print >> sys.stderr, ("Skipping "
