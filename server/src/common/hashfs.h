@@ -350,6 +350,8 @@ rc_ty sx_hashfs_tmp_delete(sx_hashfs_t *h, int64_t tmpfile_id);
 rc_ty sx_hashfs_file_delete(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const char *file, const char *revision);
 rc_ty sx_hashfs_filedelete_job(sx_hashfs_t *h, sx_uid_t user_id, const sx_hashfs_volume_t *vol, const char *name, const char *revision, job_t *job_id);
 
+/* Create and schedule batch jobs (batch rename or delete) */
+rc_ty sx_hashfs_files_processing_job(sx_hashfs_t *h, sx_uid_t user_id, const sx_hashfs_volume_t *vol, int recursive, const char *input_pattern, const char *output_pattern, job_t *job_id);
 
 /* Users */
 typedef enum {

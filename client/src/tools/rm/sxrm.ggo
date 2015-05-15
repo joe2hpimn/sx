@@ -5,6 +5,7 @@ usage "sxrm [OPTIONS]... sx://[profile@]cluster/volume/path..."
 
 option  "recursive"	r "Recursively remove entire directories" flag off
 
+option  "mass"          - "Enable mass delete functionality" flag off hidden
 option  "debug"		D "Enable debug messages" flag off
 option  "verbose"       v "Enable verbose errors" flag off
 

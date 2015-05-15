@@ -53,12 +53,7 @@ struct _sxi_job_t {
     char *job_id;
     unsigned finished;
     long http_err;
-    enum _jobstatus_t {
-	JOBST_UNDEF,
-	JOBST_ERROR,
-	JOBST_OK,
-	JOBST_PENDING
-    } status;
+    sxi_job_status_t status;
     enum jobres_state { JR_BEGIN, JR_BASE, JR_ID, JR_RES, JR_MSG, JR_COMPLETE } state;
     /* temporary notify filter hack */
     struct filter_handle *nf_fh;
@@ -620,7 +615,7 @@ static int sxi_job_status_ev(sxi_conns_t *conns, sxi_job_t **job, unsigned *succ
     return JOB_POLL_MORE;
 }
 
-static int sxi_job_query_ev(sxi_conns_t *conns, sxi_job_t *yres, unsigned *finished)
+int sxi_job_query_ev(sxi_conns_t *conns, sxi_job_t *yres, unsigned *finished)
 {
     yajl_callbacks *yacb;
     sxc_client_t *sx = sxi_conns_get_client(conns);
@@ -825,4 +820,83 @@ void sxi_job_set_nf(sxi_job_t *job, struct filter_handle *nf_fh, nf_fn_t nf_fn, 
     job->nf_dst_clust = strdup(nf_dst_clust);
     job->nf_dst_vol = strdup(nf_dst_vol);
     job->nf_dst_path = strdup(nf_dst_path);
+}
+
+int64_t sxi_job_get_id(const sxi_job_t *job) {
+    char *enumb;
+    int64_t ret;
+
+    if(!job)
+        return -1;
+    ret = strtoll(job->job_id, &enumb, 10);
+    if(enumb && *enumb)
+        return -1;
+    return ret;
+}
+
+sxi_job_t *sxi_job_new(sxi_conns_t *conns, int64_t id, enum sxi_cluster_verb verb, const char *host) {
+    sxi_job_t *job, *ret = NULL;
+    sxc_client_t *sx = sxi_conns_get_client(conns);
+
+    if(!conns)
+        return NULL;
+    if(!host) {
+        sxi_setsyserr(sx, SXE_EARG, "NULL argument");
+        return NULL;
+    }
+
+    job = calloc(1, sizeof(*job));
+    if (!job) {
+        sxi_setsyserr(sx, SXE_EMEM, "cannot allocate job");
+        return NULL;
+    }
+    job->ctx.yactx = job;
+    job->cbdata = sxi_cbdata_create_job(conns, jobres_finish, &job->ctx);
+    if (!job->cbdata) {
+        free(job);
+        SXDEBUG("sxi_cbdata_create_job failed");
+        return NULL;
+    }
+
+    job->poll_min_delay = 0;
+    job->poll_max_delay = 0;
+    job->verb = verb;
+    job->job_host = strdup(host);
+    if (!job->job_host) {
+        SXDEBUG("OOM allocating jobhost");
+        sxi_seterr(sx, SXE_EMEM, "Cannot allocate jobhost");
+        goto sxi_job_from_id_err;
+    }
+    job->name = NULL;
+    job->job_id = malloc(21);
+    if(!job->job_id) {
+        SXDEBUG("OOM allocating job_id string");
+        sxi_seterr(sx, SXE_EMEM, "Cannot allocate job_id");
+        goto sxi_job_from_id_err;
+    }
+    snprintf(job->job_id, 21, "%lld", (long long)id);
+    job->resquery = malloc(lenof(".results/") + strlen(job->job_id) + 1);
+    if(!job->resquery) {
+        SXDEBUG("OOM allocating query");
+        sxi_seterr(sx, SXE_EMEM, "Cannot allocate query");
+        goto sxi_job_from_id_err;
+    }
+    sprintf(job->resquery, ".results/%s", job->job_id);
+    ret = job;
+sxi_job_from_id_err:
+    if(!ret) {
+        free(job->resquery);
+        free(job->job_id);
+        free(job->job_host);
+        sxi_cbdata_unref(&job->cbdata);
+    }
+    return ret;
+}
+
+curlev_context_t *sxi_job_cbdata(const sxi_job_t *job) {
+    return job ? job->cbdata : NULL;
+}
+
+sxi_job_status_t sxi_job_status(const sxi_job_t *job) {
+    return job ? job->status : JOBST_UNDEF;
 }

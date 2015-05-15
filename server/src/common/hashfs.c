@@ -9589,6 +9589,206 @@ sx_hashfs_filedelete_job_err:
     return ret;
 }
 
+static rc_ty schedule_files_processing_job(sx_hashfs_t *h, sx_uid_t user_id, const sx_node_t *n, const sx_hashfs_volume_t *vol, int recursive, const struct timeval *timestamp, const char *input_pattern, const char *output_pattern, job_t *job_id) {
+    const sx_node_t *me = sx_hashfs_self(h);
+
+    if(!n || !vol || !input_pattern || !timestamp || !job_id) {
+        WARN("NULL argument");
+        return EINVAL;
+    }
+
+    if(sx_node_cmp(me, n)) {
+        /* Remote node */
+        char *url;
+        unsigned int len;
+        int qret = 0;
+        sxi_job_t *job;
+        char *input_enc, *output_enc = NULL;
+        sxi_hostlist_t hlist;
+
+        input_enc = sxi_urlencode(h->sx, input_pattern, 0);
+        if(!input_enc) {
+            WARN("Failed to urlencode input pattern");
+            return ENOMEM;
+        }
+
+        if(output_pattern) {
+            output_enc = sxi_urlencode(h->sx, output_pattern, 0);
+            if(!output_enc) {
+                WARN("Failed to urlencode input pattern");
+                free(input_enc);
+                return ENOMEM;
+            }
+        }
+
+        /* 42: 2 x 20 bytes for int64 + '.' separator + nulbyte */
+        len = strlen(vol->name) + lenof("?filter=") + strlen(input_enc) + lenof("&timestamp=") + 42;
+        if(recursive)
+            len += lenof("&recursive");
+        if(output_pattern)
+            len += lenof("&output=") + strlen(output_enc);
+
+        url = wrap_malloc(len);
+        if(!url) {
+            WARN("Failed to allocate url");
+            free(input_enc);
+            free(output_enc);
+            msg_set_reason("Out of memory");
+            return ENOMEM;
+        }
+
+        if(output_pattern)
+            snprintf(url, len, "%s?filter=%s&timestamp=%lld.%lld&output=%s%s", vol->name, input_enc, (long long)timestamp->tv_sec, (long long)timestamp->tv_usec, output_enc, recursive ? "&recursive" : "");
+        else
+            snprintf(url, len, "%s?filter=%s&timestamp=%lld.%lld%s", vol->name, input_enc, (long long)timestamp->tv_sec, (long long)timestamp->tv_usec, recursive ? "&recursive" : "");
+
+        free(input_enc);
+        free(output_enc);
+
+        sxi_hostlist_init(&hlist);
+        if(sxi_hostlist_add_host(h->sx, &hlist, sx_node_internal_addr(n))) {
+            WARN("Failed to add host to list: %s", sxc_geterrmsg(h->sx));
+            sxi_hostlist_empty(&hlist);
+            free(url);
+            return FAIL_EINTERNAL;
+        }
+
+        job = sxi_job_submit(h->sx_clust, &hlist, REQ_DELETE, url, NULL, NULL, 0, &qret, NULL);
+
+        free(url);
+        sxi_hostlist_empty(&hlist);
+
+        if(!job) {
+            WARN("Failed to add new job: %s", sxc_geterrmsg(h->sx));
+            return FAIL_EINTERNAL;
+        }
+
+        *job_id = sxi_job_get_id(job);
+        sxi_job_free(job);
+        if(*job_id == -1) {
+            WARN("Failed to parse job ID");
+            return FAIL_EINTERNAL;
+        }
+
+        return OK;
+    } else {
+        /* Local node */
+        sx_nodelist_t *nodelist = sx_nodelist_new();
+        sx_blob_t *b;
+        const void *job_data = NULL;
+        unsigned int job_data_len = 0;
+        rc_ty ret;
+
+        if(!nodelist) {
+            WARN("Failed to create a nodelist");
+            return FAIL_EINTERNAL;
+        }
+
+        if(sx_nodelist_add(nodelist, sx_node_dup(n))) {
+            WARN("Failed to add node to nodelist");
+            sx_nodelist_delete(nodelist);
+            return FAIL_EINTERNAL;
+        }
+
+        b = sx_blob_new();
+        if(!b) {
+            WARN("Failed to allocate blob");
+            sx_nodelist_delete(nodelist);
+            return FAIL_EINTERNAL;
+        }
+
+        if(sx_blob_add_string(b, vol->name) || sx_blob_add_int32(b, recursive) ||
+           sx_blob_add_string(b, input_pattern) || sx_blob_add_datetime(b, timestamp)) {
+            WARN("Failed to add data to blob");
+            sx_nodelist_delete(nodelist);
+            sx_blob_free(b);
+            return FAIL_EINTERNAL;
+        }
+
+        if(output_pattern && sx_blob_add_string(b, output_pattern)) {
+            WARN("Failed to add data to blob");
+            sx_nodelist_delete(nodelist);
+            sx_blob_free(b);
+            return FAIL_EINTERNAL;
+        }
+        sx_blob_to_data(b, &job_data, &job_data_len);
+        /* Schedule the job locally */
+        ret = sx_hashfs_job_new(h, user_id, job_id, output_pattern ? JOBTYPE_BATCHRENAME : JOBTYPE_BATCHDELETE, 3600, NULL, job_data, job_data_len, nodelist);
+        sx_blob_free(b);
+        sx_nodelist_delete(nodelist);
+        return ret;
+    }
+}
+
+rc_ty sx_hashfs_files_processing_job(sx_hashfs_t *h, sx_uid_t user_id, const sx_hashfs_volume_t *vol, int recursive, const char *input_pattern, const char *output_pattern, job_t *job_id) {
+    rc_ty ret = FAIL_EINTERNAL;
+    sx_nodelist_t *volnodes = NULL;
+    const sx_node_t *me;
+    unsigned int nnodes, i;
+    sx_blob_t *b = NULL;
+    struct timeval timestamp;
+    const void *job_data = NULL;
+    unsigned int job_data_len;
+
+    if(!vol) {
+        msg_set_reason("NULL argument");
+        goto sx_hashfs_files_processing_job_err;
+    }
+
+    if(sx_hashfs_effective_volnodes(h, NL_NEXTPREV, vol, 0, &volnodes, NULL)) {
+        WARN("Failed to get volnodes list");
+        goto sx_hashfs_files_processing_job_err;
+    }
+
+    me = sx_hashfs_self(h);
+
+    if(!volnodes) {
+        msg_set_reason("Failed to get volnodes list");
+        goto sx_hashfs_files_processing_job_err;
+    }
+    if(!me) {
+        msg_set_reason("Failed to get node UUID");
+        goto sx_hashfs_files_processing_job_err;
+    }
+
+    gettimeofday(&timestamp, NULL);
+    b = sx_blob_new();
+    if(!b) {
+        WARN("Failed to create blob");
+        goto sx_hashfs_files_processing_job_err;
+    }
+
+    nnodes = sx_nodelist_count(volnodes);
+    for(i = 0; i < nnodes; i++) {
+        rc_ty s;
+        job_t job = 0;
+        const sx_node_t *n;
+
+        n = sx_nodelist_get(volnodes, i);
+        if((s = schedule_files_processing_job(h, user_id, n, vol, recursive, &timestamp, input_pattern, output_pattern, &job))) {
+            WARN("Failed to create batch delete job on %s: %s", sx_node_uuid_str(n), msg_get_reason());
+            ret = s;
+            goto sx_hashfs_files_processing_job_err;
+        }
+
+        if(!job) {
+            WARN("Job ID is not set");
+            goto sx_hashfs_files_processing_job_err;
+        }
+        if(sx_blob_add_blob(b, sx_node_uuid(n)->binary, UUID_BINARY_SIZE) || sx_blob_add_int64(b, job)) {
+            WARN("Failed to add job ID %lld to blob", (long long)job);
+            goto sx_hashfs_files_processing_job_err;
+        }
+    }
+
+    sx_blob_to_data(b, &job_data, &job_data_len);
+    ret = sx_hashfs_job_new(h, user_id, job_id, JOBTYPE_JOBPOLL, 3600, NULL, job_data, job_data_len, volnodes);
+sx_hashfs_files_processing_job_err:
+    sx_blob_free(b);
+    sx_nodelist_delete(volnodes);
+    return ret;
+}
+
 rc_ty sx_hashfs_tmp_getmeta(sx_hashfs_t *h, int64_t tmpfile_id, sxc_meta_t *metadata) {
     rc_ty ret = FAIL_EINTERNAL;
     int r;
@@ -10182,6 +10382,9 @@ static const char *locknames[] = {
     NULL, /* JOBTYPE_BLOCKS_REVISION */
     "TOKEN_LOCAL", /* JOBTYPE_FLUSH_FILE_LOCAL */
     "UPGRADE", /* JOBTYPE_UPGRADE_1_0_TO_1_1 */
+    NULL, /* JOBTYPE_JOBPOLL */
+    NULL, /* JOBTYPE_BATCHDELETE */
+    NULL, /* JOBTYPE_BATCHRENAME */
 };
 
 #define MAX_PENDING_JOBS 128

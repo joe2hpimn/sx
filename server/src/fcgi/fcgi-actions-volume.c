@@ -1926,3 +1926,113 @@ void fcgi_list_revision_blocks(const sx_hashfs_volume_t *vol) {
         quit_errmsg(rc2http(rc), msg_get_reason());
     blob_send_eof();
 }
+
+static int parse_timeval(const char *str, struct timeval *tv) {
+    char *enumb = NULL;
+
+    if(!str || !tv) {
+        WARN("NULL argument");
+        return -1;
+    }
+    
+    tv->tv_sec = strtoll(str, &enumb, 10);
+    if(enumb) {
+        if(*enumb != '.')
+            return -1;
+        str = enumb + 1;
+        enumb = NULL;
+        tv->tv_usec = strtoll(str, &enumb, 10);
+        if(enumb && *enumb)
+            return -1;
+    } else
+        tv->tv_usec = 0;
+    return 0;
+}
+
+void fcgi_process_files_batch(void) {
+    const sx_hashfs_volume_t *vol;
+    rc_ty s;
+    const char *output_pattern = NULL;
+    const char *input_pattern = get_arg("filter");
+
+    s = sx_hashfs_volume_by_name(hashfs, volume, &vol);
+    if(s != OK)
+        quit_errmsg(rc2http(s), msg_get_reason());
+
+    if(!sx_hashfs_is_or_was_my_volume(hashfs, vol))
+        quit_errnum(404);
+
+    if(has_arg("output")) {
+        output_pattern = get_arg("output");
+
+        quit_errmsg(400, "Operation is not implemented yet");
+        if(!output_pattern)
+            quit_errmsg(400, "Invalid output pattern");
+    }
+
+    if(!input_pattern)
+        input_pattern = "*";
+
+    if(has_priv(PRIV_CLUSTER)) {
+        /* Schedule a batch job slave, will schedule the job on local node only */
+        sx_blob_t *b;
+        const void *job_data = NULL;
+        unsigned int job_data_len = 0;
+        sx_nodelist_t *nodelist;
+        struct timeval timestamp;
+        job_t job_id;
+
+        if(!has_arg("timestamp"))
+            quit_errmsg(400, "Missing timestamp parameter");
+        if(parse_timeval(get_arg("timestamp"), &timestamp))
+            quit_errmsg(400, "Invalid timestamp parameter");
+
+        nodelist = sx_nodelist_new();
+        if(!nodelist)
+            quit_errmsg(500, "Failed to create a nodelist");
+
+        if(sx_nodelist_add(nodelist, sx_node_dup(sx_hashfs_self(hashfs)))) {
+            sx_nodelist_delete(nodelist);
+            quit_errmsg(500, "Failed to add node to nodelist");
+        }
+
+        b = sx_blob_new();
+        if(!b) {
+            sx_nodelist_delete(nodelist);
+            quit_errmsg(500, "Failed to allocate blob");
+        }
+
+        if(sx_blob_add_string(b, vol->name) || sx_blob_add_int32(b, has_arg("recursive")) ||
+           sx_blob_add_string(b, input_pattern) || sx_blob_add_datetime(b, &timestamp)) {
+            sx_nodelist_delete(nodelist);
+            sx_blob_free(b);
+            quit_errmsg(500, "Failed to add data to blob");
+        }
+
+        if(output_pattern && sx_blob_add_string(b, output_pattern)) {
+            sx_nodelist_delete(nodelist);
+            sx_blob_free(b);
+            quit_errmsg(500, "Failed to add data to blob");
+        }
+
+        sx_blob_to_data(b, &job_data, &job_data_len);
+        /* Schedule the job locally */
+        s = sx_hashfs_job_new(hashfs, uid, &job_id, JOBTYPE_BATCHDELETE, 3600, NULL, job_data, job_data_len, nodelist);
+        sx_blob_free(b);
+        sx_nodelist_delete(nodelist);
+        if(s)
+            quit_errmsg(rc2http(s), rc2str(s));
+        send_job_info(job_id);
+    } else {
+        /* Request comes in from the user: create jobs on each volnode */
+        job_t job;
+        if(output_pattern)
+            quit_errmsg(400, "Operation is not implemented yet");
+        else
+            s = sx_hashfs_files_processing_job(hashfs, uid, vol, has_arg("recursive"), input_pattern, output_pattern, &job);
+
+        if(s != OK)
+            quit_errmsg(rc2http(s), msg_get_reason());
+        send_job_info(job);
+    }
+}

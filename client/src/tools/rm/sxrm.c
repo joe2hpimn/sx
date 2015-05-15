@@ -137,7 +137,7 @@ int main(int argc, char **argv) {
             sxc_file_free(target);
         }
     }
-    if (sxc_rm(lst, args.ignore_errors_flag)) {
+    if (sxc_rm(lst, args.ignore_errors_flag, args.mass_given)) {
         fprintf(stderr, "ERROR: Failed to remove file(s): %s\n", sxc_geterrmsg(sx));
 	if(cluster && strstr(sxc_geterrmsg(sx), SXBC_TOOLS_VOL_ERR))
 	    fprintf(stderr, SXBC_TOOLS_VOL_MSG, "", "", sxc_cluster_get_sslname(cluster));
@@ -152,7 +152,11 @@ int main(int argc, char **argv) {
 	}
         ret = 1;
     }
-    printf("Deleted %d file(s)\n", sxc_file_list_get_successful(lst));
+    if(args.mass_given)
+        printf("Deleted %d batch(es) of files\n", sxc_file_list_get_successful(lst));
+    else
+        printf("Deleted %d file(s)\n", sxc_file_list_get_successful(lst));
+
     sxc_file_list_free(lst);
     sxc_cluster_free(cluster);
 

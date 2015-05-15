@@ -23,6 +23,12 @@
 #include <sys/time.h>
 
 typedef struct _sxi_job_t sxi_job_t;
+typedef enum _jobstatus_t {
+        JOBST_UNDEF,
+        JOBST_ERROR,
+        JOBST_OK,
+        JOBST_PENDING
+} sxi_job_status_t;
 typedef struct _sxi_jobs_t {
     sxi_job_t **jobs;
     unsigned n;
@@ -52,5 +58,10 @@ unsigned sxi_jobs_get_successful(const sxi_jobs_t *jobs);
 typedef void (*nf_fn_t)(const sxf_handle_t *handle, void *ctx, const void *cfgdata, unsigned int cfgdata_len, sxf_mode_t mode, const char *source_cluster, const char *source_volume, const char *source_path, const char *dest_cluster, const char *dest_volume, const char *dest_path);
 
 void sxi_job_set_nf(sxi_job_t *job, struct filter_handle *nf_fh, nf_fn_t nf_fn, const char *nf_src_path, const char *nf_dst_clust, const char *nf_dst_vol, const char *nf_dst_path);
+int64_t sxi_job_get_id(const sxi_job_t *job);
+int sxi_job_query_ev(sxi_conns_t *conns, sxi_job_t *yres, unsigned *finished);
+sxi_job_t *sxi_job_new(sxi_conns_t *conns, int64_t id, enum sxi_cluster_verb verb, const char *host);
+curlev_context_t *sxi_job_cbdata(const sxi_job_t *job);
+sxi_job_status_t sxi_job_status(const sxi_job_t *job);
 
 #endif

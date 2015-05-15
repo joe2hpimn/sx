@@ -217,7 +217,7 @@ int main(int argc, char **argv) {
 	src_file = NULL;
     }
 
-    if(sxc_rm(lst, 0)) {
+    if(sxc_rm(lst, 0, 0)) {
         fprintf(stderr, "ERROR: Failed to move file(s): %s\n", sxc_geterrmsg(sx));
 	fail = 1;
     }

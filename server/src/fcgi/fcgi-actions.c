@@ -226,11 +226,17 @@ void volume_ops(void) {
 	    quit_unless_has(PRIV_CLUSTER);
 	    fcgi_revoke_distribution();
         } else {
-	    /* Delete volume - ADMIN or CLUSTER required */
-	    quit_unless_has(PRIV_ADMIN);
 	    if(is_reserved())
 		quit_errmsg(403, "Volume name is reserved");
-	    fcgi_delete_volume();
+            if(has_arg("filter")) {
+                /* Delete or remove files matching given filter */
+                quit_unless_has(PRIV_WRITE);
+                fcgi_process_files_batch();
+            } else {
+                /* Delete volume - ADMIN or CLUSTER required */
+                quit_unless_has(PRIV_ADMIN);
+                fcgi_delete_volume();
+            }
 	}
 	return;
     }
@@ -409,7 +415,7 @@ void file_ops(void) {
 
 	/* File deletion - WRITE required */
 	quit_unless_has(PRIV_WRITE);
-	fcgi_delete_file();
+        fcgi_delete_file();
 	return;
     }
 }

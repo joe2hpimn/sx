@@ -38,6 +38,7 @@ const char *gengetopt_args_info_full_help[] = {
   "      --full-help        Print help, including hidden options, and exit",
   "  -V, --version          Print version and exit",
   "  -r, --recursive        Recursively remove entire directories  (default=off)",
+  "      --mass             Enable mass delete functionality  (default=off)",
   "  -D, --debug            Enable debug messages  (default=off)",
   "  -v, --verbose          Enable verbose errors  (default=off)",
   "      --ignore-errors    Keep deleting files even when there are errors\n                           (default=off)",
@@ -53,9 +54,9 @@ init_help_array(void)
   gengetopt_args_info_help[1] = gengetopt_args_info_full_help[1];
   gengetopt_args_info_help[2] = gengetopt_args_info_full_help[2];
   gengetopt_args_info_help[3] = gengetopt_args_info_full_help[3];
-  gengetopt_args_info_help[4] = gengetopt_args_info_full_help[4];
-  gengetopt_args_info_help[5] = gengetopt_args_info_full_help[5];
-  gengetopt_args_info_help[6] = gengetopt_args_info_full_help[6];
+  gengetopt_args_info_help[4] = gengetopt_args_info_full_help[5];
+  gengetopt_args_info_help[5] = gengetopt_args_info_full_help[6];
+  gengetopt_args_info_help[6] = gengetopt_args_info_full_help[7];
   gengetopt_args_info_help[7] = 0; 
   
 }
@@ -87,6 +88,7 @@ void clear_given (struct gengetopt_args_info *args_info)
   args_info->full_help_given = 0 ;
   args_info->version_given = 0 ;
   args_info->recursive_given = 0 ;
+  args_info->mass_given = 0 ;
   args_info->debug_given = 0 ;
   args_info->verbose_given = 0 ;
   args_info->ignore_errors_given = 0 ;
@@ -99,6 +101,7 @@ void clear_args (struct gengetopt_args_info *args_info)
 {
   FIX_UNUSED (args_info);
   args_info->recursive_flag = 0;
+  args_info->mass_flag = 0;
   args_info->debug_flag = 0;
   args_info->verbose_flag = 0;
   args_info->ignore_errors_flag = 0;
@@ -118,11 +121,12 @@ void init_args_info(struct gengetopt_args_info *args_info)
   args_info->full_help_help = gengetopt_args_info_full_help[1] ;
   args_info->version_help = gengetopt_args_info_full_help[2] ;
   args_info->recursive_help = gengetopt_args_info_full_help[3] ;
-  args_info->debug_help = gengetopt_args_info_full_help[4] ;
-  args_info->verbose_help = gengetopt_args_info_full_help[5] ;
-  args_info->ignore_errors_help = gengetopt_args_info_full_help[6] ;
-  args_info->config_dir_help = gengetopt_args_info_full_help[7] ;
-  args_info->filter_dir_help = gengetopt_args_info_full_help[8] ;
+  args_info->mass_help = gengetopt_args_info_full_help[4] ;
+  args_info->debug_help = gengetopt_args_info_full_help[5] ;
+  args_info->verbose_help = gengetopt_args_info_full_help[6] ;
+  args_info->ignore_errors_help = gengetopt_args_info_full_help[7] ;
+  args_info->config_dir_help = gengetopt_args_info_full_help[8] ;
+  args_info->filter_dir_help = gengetopt_args_info_full_help[9] ;
   
 }
 
@@ -265,6 +269,8 @@ cmdline_parser_dump(FILE *outfile, struct gengetopt_args_info *args_info)
     write_into_file(outfile, "version", 0, 0 );
   if (args_info->recursive_given)
     write_into_file(outfile, "recursive", 0, 0 );
+  if (args_info->mass_given)
+    write_into_file(outfile, "mass", 0, 0 );
   if (args_info->debug_given)
     write_into_file(outfile, "debug", 0, 0 );
   if (args_info->verbose_given)
@@ -507,6 +513,7 @@ cmdline_parser_internal (
         { "full-help",	0, NULL, 0 },
         { "version",	0, NULL, 'V' },
         { "recursive",	0, NULL, 'r' },
+        { "mass",	0, NULL, 0 },
         { "debug",	0, NULL, 'D' },
         { "verbose",	0, NULL, 'v' },
         { "ignore-errors",	0, NULL, 0 },
@@ -602,8 +609,20 @@ cmdline_parser_internal (
             exit (EXIT_SUCCESS);
           }
 
+          /* Enable mass delete functionality.  */
+          if (strcmp (long_options[option_index].name, "mass") == 0)
+          {
+          
+          
+            if (update_arg((void *)&(args_info->mass_flag), 0, &(args_info->mass_given),
+                &(local_args_info.mass_given), optarg, 0, 0, ARG_FLAG,
+                check_ambiguity, override, 1, 0, "mass", '-',
+                additional_error))
+              goto failure;
+          
+          }
           /* Keep deleting files even when there are errors.  */
-          if (strcmp (long_options[option_index].name, "ignore-errors") == 0)
+          else if (strcmp (long_options[option_index].name, "ignore-errors") == 0)
           {
           
           

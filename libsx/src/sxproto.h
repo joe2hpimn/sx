@@ -52,6 +52,7 @@ sxi_query_t *sxi_fileadd_proto_begin(sxc_client_t *sx, const char *volname, cons
 sxi_query_t *sxi_fileadd_proto_addhash(sxc_client_t *sx, sxi_query_t *query, const char *hexhash);
 sxi_query_t *sxi_fileadd_proto_end(sxc_client_t *sx, sxi_query_t *query, sxc_meta_t *metadata);
 sxi_query_t *sxi_filedel_proto(sxc_client_t *sx, const char *volname, const char *path, const char *revision);
+sxi_query_t *sxi_massdel_proto(sxc_client_t *sx, const char *volname, const char *pattern, int recursive);
 
 typedef struct {
     uint8_t b[SXI_SHA1_BIN_LEN];

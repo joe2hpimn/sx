@@ -477,6 +477,40 @@ sxi_query_t *sxi_filedel_proto(sxc_client_t *sx, const char *volname, const char
     return ret;
 }
 
+sxi_query_t *sxi_massdel_proto(sxc_client_t *sx, const char *volname, const char *pattern, int recursive) {
+    char *enc_vol, *enc_pattern, *url;
+    sxi_query_t *ret;
+    unsigned int len;
+
+    enc_vol = sxi_urlencode(sx, volname, 0);
+    enc_pattern = sxi_urlencode(sx, pattern, 0);
+
+    if(!enc_vol || !enc_pattern) {
+        free(enc_vol);
+        free(enc_pattern);
+        sxi_setsyserr(sx, SXE_EMEM, "Failed to quote url: Out of memory");
+        return NULL;
+    }
+
+    len = strlen(enc_vol) + lenof("?filter=") + strlen(enc_pattern) + 1;
+    if(recursive)
+        len += lenof("&recursive");
+    url = malloc(len);
+    if(!url) {
+        sxi_setsyserr(sx, SXE_EMEM, "Failed to generate query: Out of memory");
+        free(enc_vol);
+        free(enc_pattern);
+        return NULL;
+    }
+
+    sprintf(url, "%s?filter=%s%s", enc_vol, enc_pattern, recursive ? "&recursive" : "");
+    ret = sxi_query_create(sx, url, REQ_DELETE);
+    free(enc_vol);
+    free(enc_pattern);
+    free(url);
+    return ret;
+}
+
 static sxi_query_t *sxi_hashop_proto_list(sxc_client_t *sx, unsigned blocksize, const char *hashes, unsigned hashes_len, enum sxi_cluster_verb verb, const char *op, const char *reserve_id, const char *revision_id, unsigned replica, uint64_t op_expires_at)
 {
     char url[DOWNLOAD_MAX_BLOCKS * (EXPIRE_TEXT_LEN + SXI_SHA1_TEXT_LEN) + sizeof(".data/1048576/?o=reserve&reserve_id=&revision_id=") + 104];

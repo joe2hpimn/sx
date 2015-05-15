@@ -531,7 +531,6 @@ void fcgi_delete_file(void) {
     }
 }
 
-
 struct rplfiles {
     sx_blob_t *b;
     sx_hashfs_file_t lastfile;

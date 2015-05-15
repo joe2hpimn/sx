@@ -73,6 +73,9 @@ typedef enum _jobtype_t {
     JOBTYPE_BLOCKS_REVISION,
     JOBTYPE_FLUSH_FILE_LOCAL,
     JOBTYPE_UPGRADE_1_0_TO_1_1,
+    JOBTYPE_JOBPOLL,
+    JOBTYPE_BATCHDELETE,
+    JOBTYPE_BATCHRENAME,
 } jobtype_t;
 
 typedef enum {

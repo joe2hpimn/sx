@@ -513,7 +513,7 @@ int delete_files(sxc_client_t *sx, sxc_cluster_t *cluster, const char *remote_pa
             goto delete_files_err;
         }
     }
-    if(sxc_rm(lst, 0)) {
+    if(sxc_rm(lst, 0, 0)) {
         if(!hide_errors)
             fprintf(stderr, "delete_files: ERROR: Failed to remove file list: %s\n", sxc_geterrmsg(sx));
         goto delete_files_err;

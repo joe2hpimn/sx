@@ -42,6 +42,8 @@ struct gengetopt_args_info
   const char *version_help; /**< @brief Print version and exit help description.  */
   int recursive_flag;	/**< @brief Recursively remove entire directories (default=off).  */
   const char *recursive_help; /**< @brief Recursively remove entire directories help description.  */
+  int mass_flag;	/**< @brief Enable mass delete functionality (default=off).  */
+  const char *mass_help; /**< @brief Enable mass delete functionality help description.  */
   int debug_flag;	/**< @brief Enable debug messages (default=off).  */
   const char *debug_help; /**< @brief Enable debug messages help description.  */
   int verbose_flag;	/**< @brief Enable verbose errors (default=off).  */
@@ -59,6 +61,7 @@ struct gengetopt_args_info
   unsigned int full_help_given ;	/**< @brief Whether full-help was given.  */
   unsigned int version_given ;	/**< @brief Whether version was given.  */
   unsigned int recursive_given ;	/**< @brief Whether recursive was given.  */
+  unsigned int mass_given ;	/**< @brief Whether mass was given.  */
   unsigned int debug_given ;	/**< @brief Whether debug was given.  */
   unsigned int verbose_given ;	/**< @brief Whether verbose was given.  */
   unsigned int ignore_errors_given ;	/**< @brief Whether ignore-errors was given.  */

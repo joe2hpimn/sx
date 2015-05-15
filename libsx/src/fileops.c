@@ -5215,7 +5215,7 @@ int sxc_file_list_add(sxc_file_list_t *lst, sxc_file_t *file, int allow_glob)
         return -1;
     }
     entry = &lst->entries[lst->n - 1];
-    if (allow_glob && !lst->recursive && !strchr(file->path, '*') && !strchr(file->path,'?'))
+    if (allow_glob && !lst->recursive && !strchr(file->path, '*') && !strchr(file->path,'?') && !strchr(file->path,'['))
         allow_glob = 0;/* disable globbing if no glob pattern, even if globbing would be otherwise allowed */
     entry->pattern = file;
     entry->glob = allow_glob;
@@ -5285,7 +5285,7 @@ static int is_single_file_match(const char *pattern, unsigned pattern_slashes, c
         (!ends_with(pattern, '/') || ends_with(filename, '/'));
 }
 
-static int sxi_file_list_foreach(sxc_file_list_t *target, sxc_cluster_t *wait_cluster, multi_cb_t multi_cb, file_list_cb_t cb, int need_locate, int ignore_errors, void *ctx, const sxc_exclude_t *exclude)
+static int sxi_file_list_foreach(sxc_file_list_t *target, sxc_cluster_t *wait_cluster, multi_cb_t multi_cb, file_list_cb_t cb, int need_locate, int ignore_errors, int batched, void *ctx, const sxc_exclude_t *exclude)
 {
     sxc_cluster_t *cluster;
     sxi_job_t *job;
@@ -5369,7 +5369,7 @@ static int sxi_file_list_foreach(sxc_file_list_t *target, sxc_cluster_t *wait_cl
 	    }
 	    sxc_meta_free(vmeta);
 
-            if (!entry->glob) {
+            if (!entry->glob || batched) {
                 if(!(rc = is_excluded(target->sx, pattern->path, exclude))) {
                     job = sxi_file_list_process(target, pattern, cluster, cb, volhosts, pattern->volume, pattern->path, ctx, fh, ignore_errors);
                     rc = sxi_jobs_add(target->sx, &target->jobs, job);
@@ -5457,11 +5457,23 @@ static sxi_job_t* sxi_rm_cb(sxc_file_list_t *target, sxc_file_t *pattern, sxc_cl
     sxi_query_t *query;
     sxi_job_t *job;
     int http_code;
-    if (!cluster || !hlist || !vol || !path)
+    int mass = 0;
+    if (!cluster || !hlist || !vol || !path || !ctx)
         return NULL;
+
+    if(ctx)
+        mass = *(int*)ctx;
     if(fh && fh->f->file_update) {
-	sxc_file_t *file = sxc_file_remote(cluster, vol, path, NULL);
-	int ret;
+        sxc_file_t *file;
+        int ret;
+
+        /* Filter cannot be updated when batched delete operation is being performed */
+        if(mass) {
+            sxi_seterr(target->sx, SXE_EARG, "Cannot use mass delete functionality with \"%s\" filter", fh->f->shortname);
+            return NULL;
+        }
+
+        file = sxc_file_remote(cluster, vol, path, NULL);
 	if(!file)
 	    return NULL;
 	ret = fh->f->file_update(fh, fh->ctx, sxi_filter_get_cfg(fh, vol), sxi_filter_get_cfg_len(fh, vol), SXF_MODE_DELETE, file, NULL, target->recursive);
@@ -5476,25 +5488,39 @@ static sxi_job_t* sxi_rm_cb(sxc_file_list_t *target, sxc_file_t *pattern, sxc_cl
 	}
 	sxc_file_free(file);
     };
-    query = sxi_filedel_proto(target->sx, vol, path, NULL);
+
+    if(mass)
+        query = sxi_massdel_proto(target->sx, vol, path, target->recursive);
+    else
+        query = sxi_filedel_proto(target->sx, vol, path, NULL);
     if (!query)
         return NULL;
     sxi_hostlist_shuffle(hlist);
     sxi_set_operation(target->sx, "remove files", sxi_cluster_get_name(cluster), query->path, NULL);
     job = sxi_job_submit(sxi_cluster_get_conns(cluster), hlist, query->verb, query->path, path, NULL, 0, &http_code, &target->jobs);
-    if(job && fh && fh->f->file_notify)
+    sxi_query_free(query);
+    if(job && fh && fh->f->file_notify) {
+        /* Filter cannot be notified when mass delete operation is being performed */
+        if(mass) {
+            sxi_seterr(target->sx, SXE_EARG, "Cannot use mass delete functionality with \"%s\" filter", fh->f->shortname);
+            return NULL;
+        }
+
 	fh->f->file_notify(fh, fh->ctx, sxi_filter_get_cfg(fh, vol), sxi_filter_get_cfg_len(fh, vol), SXF_MODE_DELETE, sxi_cluster_get_name(cluster), vol, path, NULL, NULL, NULL);
+    }
     if (!job && http_code == 404)
         job = &JOB_NONE;
-    sxi_query_free(query);
     return job;
 }
 
-int sxc_rm(sxc_file_list_t *target, int ignore_errors) {
+int sxc_rm(sxc_file_list_t *target, int ignore_errors, int mass) {
+    int ctx = mass;
+
     if (!target)
         return -1;
+
     sxc_clearerr(target->sx);
-    return sxi_file_list_foreach(target, target->cluster, NULL, sxi_rm_cb, 1, ignore_errors, NULL, NULL);
+    return sxi_file_list_foreach(target, target->cluster, NULL, sxi_rm_cb, 1, ignore_errors, mass, &ctx, NULL);
 }
 
 struct remote_iter {
@@ -5604,7 +5630,7 @@ static int remote_iterate(sxc_file_t *source, int recursive, int onefs, int igno
     if (sxc_file_list_add(lst, source, 1)) {
         ret = -1;
     } else {
-        ret = sxi_file_list_foreach(lst, dest->cluster, multi_cb, remote_copy_cb, 0, ignore_errors, &it, exclude);
+        ret = sxi_file_list_foreach(lst, dest->cluster, multi_cb, remote_copy_cb, 0, ignore_errors, 0, &it, exclude);
         if (!ret) {
             /* create dest dir if successful list of empty volume */
             if (!is_remote(dest) && recursive && mkdir(dest->path, 0777) == -1 && errno != EEXIST) {
