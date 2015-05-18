@@ -4415,7 +4415,9 @@ static sxi_job_t* remote_to_remote(sxc_file_t *source, sxc_file_t *dest, int fai
             while (*src == '/') src++;
             while (*dst == '/') dst++;
             /* equal path component until next slash */
-            while (*src && *dst && *src != '/' && *src++ == *dst++) {}
+            while (*src && *dst && *src != '/' && *src == *dst) {
+                src++; dst++;
+            }
             /* ignore duplicate slashes, but a/b is not equal to ab */
             if (*src == '/' && *dst == '/') {
                 while (*src == '/') src++;
