@@ -32,9 +32,9 @@ http {
 #            ssl_certificate_key @sysconfdir@/ssl/private/sxkey.pem;
 #            ssl_protocols TLSv1 TLSv1.1 TLSv1.2;
 #          # Speed/security tradeoff: move faster ciphers first
-#            ssl_ciphers HIGH:-DH:-ECDH:-AESGCM:HIGH+ECDH:HIGH+AESGCM:HIGH+DH:!SSLv2:!aNULL:!eNULL:!3DES;
-#          # Much slower but with PFS enabled
-#          # ssl_ciphers HIGH:!SSLv2:!aNULL:!eNULL:!3DES;
+#            ssl_ciphers HIGH:-AESGCM:HIGH+AESGCM:!DH:!SSLv2:!aNULL:!eNULL;
+#          # slower but with GCM preferred
+#          # ssl_ciphers HIGH:!DH:!SSLv2:!aNULL:!eNULL;
 #            ssl_prefer_server_ciphers on;
              listen 80 default_server;
 # #            listen [::]:80 default_server ipv6only=on;
