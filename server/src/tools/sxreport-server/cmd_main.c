@@ -25,9 +25,9 @@
 
 #include "cmd_main.h"
 
-const char *main_args_info_purpose = "sxreport is used to collect configuration and error information from SX nodes";
+const char *main_args_info_purpose = "sxreport-server is used to collect configuration and error information from SX\nnodes";
 
-const char *main_args_info_usage = "Usage: sxreport [OPTIONS]";
+const char *main_args_info_usage = "Usage: sxreport-server [OPTIONS]";
 
 const char *main_args_info_versiontext = "";
 
@@ -43,12 +43,13 @@ const char *main_args_info_full_help[] = {
   "      --sysconfdir=PATH  Path to /etc",
   "  -o, --output=STRING    Save output to given file (default:\n                           sxreport-server-<timestamp>.log)",
   "      --append=STRING    Append information from specified file (- is stdin),\n                           anonymized only if --anonymize is specified",
+  "      --get-mem          Print total available memory and exit",
   "\n--all options:\n",
   "      --info             Print static configuration only",
   "      --logs             Print error messages from logs only (NOT anonymized)",
   "      --cluster          Print information about cluster's status & health",
   "      --storage          Print information about the node's local storage",
-  "\nCalling sxreport without any options is equivalent to: sxreport --all\n--anonymize. The output is thus suitable for submission in a bugreport or\npublic mailing list discussions.\nIf you want just specific information use the other flags: they are not\nanonymized by default though.\nIf you want to append more information:\nsxreport --append=/path/to/file --anonymize >>sxreport.log",
+  "\nCalling sxreport-server without any options is equivalent to: sxreport-server\n--all --anonymize. The output is thus suitable for submission in a bugreport or\npublic mailing list discussions.\nIf you want just specific information use the other flags: they are not\nanonymized by default though.\nIf you want to append more information:\nsxreport-server --append=/path/to/file --anonymize >>sxreport.log",
     0
 };
 
@@ -63,12 +64,12 @@ init_help_array(void)
   main_args_info_help[5] = main_args_info_full_help[5];
   main_args_info_help[6] = main_args_info_full_help[7];
   main_args_info_help[7] = main_args_info_full_help[8];
-  main_args_info_help[8] = main_args_info_full_help[9];
-  main_args_info_help[9] = main_args_info_full_help[10];
-  main_args_info_help[10] = main_args_info_full_help[11];
-  main_args_info_help[11] = main_args_info_full_help[12];
-  main_args_info_help[12] = main_args_info_full_help[13];
-  main_args_info_help[13] = main_args_info_full_help[14];
+  main_args_info_help[8] = main_args_info_full_help[10];
+  main_args_info_help[9] = main_args_info_full_help[11];
+  main_args_info_help[10] = main_args_info_full_help[12];
+  main_args_info_help[11] = main_args_info_full_help[13];
+  main_args_info_help[12] = main_args_info_full_help[14];
+  main_args_info_help[13] = main_args_info_full_help[15];
   main_args_info_help[14] = 0; 
   
 }
@@ -107,6 +108,7 @@ void clear_given (struct main_args_info *args_info)
   args_info->sysconfdir_given = 0 ;
   args_info->output_given = 0 ;
   args_info->append_given = 0 ;
+  args_info->get_mem_given = 0 ;
   args_info->info_given = 0 ;
   args_info->logs_given = 0 ;
   args_info->cluster_given = 0 ;
@@ -143,10 +145,11 @@ void init_args_info(struct main_args_info *args_info)
   args_info->append_help = main_args_info_full_help[8] ;
   args_info->append_min = 0;
   args_info->append_max = 0;
-  args_info->info_help = main_args_info_full_help[10] ;
-  args_info->logs_help = main_args_info_full_help[11] ;
-  args_info->cluster_help = main_args_info_full_help[12] ;
-  args_info->storage_help = main_args_info_full_help[13] ;
+  args_info->get_mem_help = main_args_info_full_help[9] ;
+  args_info->info_help = main_args_info_full_help[11] ;
+  args_info->logs_help = main_args_info_full_help[12] ;
+  args_info->cluster_help = main_args_info_full_help[13] ;
+  args_info->storage_help = main_args_info_full_help[14] ;
   
 }
 
@@ -343,6 +346,8 @@ main_cmdline_parser_dump(FILE *outfile, struct main_args_info *args_info)
   if (args_info->output_given)
     write_into_file(outfile, "output", args_info->output_orig, 0);
   write_multiple_into_file(outfile, args_info->append_given, "append", args_info->append_orig, 0);
+  if (args_info->get_mem_given)
+    write_into_file(outfile, "get-mem", 0, 0 );
   if (args_info->info_given)
     write_into_file(outfile, "info", 0, 0 );
   if (args_info->logs_given)
@@ -864,6 +869,7 @@ main_cmdline_parser_internal (
         { "sysconfdir",	1, NULL, 0 },
         { "output",	1, NULL, 'o' },
         { "append",	1, NULL, 0 },
+        { "get-mem",	0, NULL, 0 },
         { "info",	0, NULL, 0 },
         { "logs",	0, NULL, 0 },
         { "cluster",	0, NULL, 0 },
@@ -977,6 +983,20 @@ main_cmdline_parser_internal (
             if (update_multiple_arg_temp(&append_list, 
                 &(local_args_info.append_given), optarg, 0, 0, ARG_STRING,
                 "append", '-',
+                additional_error))
+              goto failure;
+          
+          }
+          /* Print total available memory and exit.  */
+          else if (strcmp (long_options[option_index].name, "get-mem") == 0)
+          {
+          
+          
+            if (update_arg( 0 , 
+                 0 , &(args_info->get_mem_given),
+                &(local_args_info.get_mem_given), optarg, 0, 0, ARG_NO,
+                check_ambiguity, override, 0, 0,
+                "get-mem", '-',
                 additional_error))
               goto failure;
           

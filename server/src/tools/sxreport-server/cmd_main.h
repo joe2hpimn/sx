@@ -21,12 +21,12 @@ extern "C" {
 
 #ifndef MAIN_CMDLINE_PARSER_PACKAGE
 /** @brief the program name (used for printing errors) */
-#define MAIN_CMDLINE_PARSER_PACKAGE "sxreport"
+#define MAIN_CMDLINE_PARSER_PACKAGE "sxreport-server"
 #endif
 
 #ifndef MAIN_CMDLINE_PARSER_PACKAGE_NAME
 /** @brief the complete program name (used for help and version) */
-#define MAIN_CMDLINE_PARSER_PACKAGE_NAME "sxreport"
+#define MAIN_CMDLINE_PARSER_PACKAGE_NAME "sxreport-server"
 #endif
 
 #ifndef MAIN_CMDLINE_PARSER_VERSION
@@ -55,6 +55,7 @@ struct main_args_info
   unsigned int append_min; /**< @brief Append information from specified file (- is stdin), anonymized only if --anonymize is specified's minimum occurreces */
   unsigned int append_max; /**< @brief Append information from specified file (- is stdin), anonymized only if --anonymize is specified's maximum occurreces */
   const char *append_help; /**< @brief Append information from specified file (- is stdin), anonymized only if --anonymize is specified help description.  */
+  const char *get_mem_help; /**< @brief Print total available memory and exit help description.  */
   const char *info_help; /**< @brief Print static configuration only help description.  */
   const char *logs_help; /**< @brief Print error messages from logs only (NOT anonymized) help description.  */
   const char *cluster_help; /**< @brief Print information about cluster's status & health help description.  */
@@ -69,6 +70,7 @@ struct main_args_info
   unsigned int sysconfdir_given ;	/**< @brief Whether sysconfdir was given.  */
   unsigned int output_given ;	/**< @brief Whether output was given.  */
   unsigned int append_given ;	/**< @brief Whether append was given.  */
+  unsigned int get_mem_given ;	/**< @brief Whether get-mem was given.  */
   unsigned int info_given ;	/**< @brief Whether info was given.  */
   unsigned int logs_given ;	/**< @brief Whether logs was given.  */
   unsigned int cluster_given ;	/**< @brief Whether cluster was given.  */

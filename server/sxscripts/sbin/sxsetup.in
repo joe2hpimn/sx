@@ -714,6 +714,23 @@ EOF
 	    SX_CHILDREN_NUM=${NEWVAL:-$SX_CHILDREN_NUM}
 	fi
 
+        TOTAL_MEM=`@sbindir@/sxreport-server --get-mem`
+	if [ "$TOTAL_MEM" -gt 0 ]; then
+	    if [ "$TOTAL_MEM" -lt 2000000000 -a "$SX_CHILDREN_NUM" -gt 8 ]; then
+		echo
+		echo "WARNING: This node has less than 2GB of total memory."
+		if [ -n "$ADVANCED_GIVEN" ]; then
+		    echo "It is not recommended to use more than 8 children processes."
+		else
+		    SX_CHILDREN_NUM=8
+		    echo "The number of children processes will be limited to 8."
+		    echo "Run sxsetup with --advanced to fine-tune the value if needed."
+		fi
+		printf "[ PRESS ENTER TO CONTINUE ]"
+		read FOO
+	    fi
+	fi
+
 	echo
 	echo "--- YOUR CHOICES ---"
 	echo

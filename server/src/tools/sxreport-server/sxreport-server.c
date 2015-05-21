@@ -430,18 +430,27 @@ int main(int argc, char **argv) {
         return 0;
     }
 
-    if(geteuid()) {
-	printf("This program must be run by root\n");
-        main_cmdline_parser_free(&args);
-        return 1;
-    }
-
     params = cmdline_parser_params_create();
     if (!params) {
         fprintf(stderr,"ERROR: Cannot allocate config parser\n");
         main_cmdline_parser_free(&args);
         return 1;
     }
+
+    if(args.get_mem_given) {
+	int64_t mem = 0;
+	int ret = 1;
+	sxc_client_t *sx = sx_init(NULL, NULL, NULL, 0, argc, argv);
+	if(sx) {
+	    ret = sxi_report_mem(sx, &mem) ? 1 : 0;
+	    sx_done(&sx);
+	} 
+	printf("%llu\n", (unsigned long long) mem);
+	return ret;
+    }
+
+    if(geteuid())
+	fprintf(stderr, "WARNING: In most cases this program should be run by root to access all necessary files\n");
 
     if (args.output_given)
         snprintf(name, sizeof(name), "%s", args.output_arg);
@@ -463,6 +472,8 @@ int main(int argc, char **argv) {
     }
 
     sx = sx_init(sxc_file_logger(&flogger, argv[0], name, 0), NULL, NULL, 0, argc, argv);
+    if(!sx)
+	return 1;
     sxc_set_verbose(sx, 1);
     params->initialize = 1;
     cmdline_parser_init(&fcgi_args);/* without this it'll crash */
@@ -508,6 +519,7 @@ int main(int argc, char **argv) {
         logfile_in = fopen(name, "r");
 	if(!logfile_in) {
             WARN("Cannot open input file '%s': %s", name, strerror(errno));
+	    sx_done(&sx);
             return 1;
         }
 	sxi_strlcpy(oname, name, sizeof(oname));
@@ -517,6 +529,7 @@ int main(int argc, char **argv) {
 	    fclose(logfile_in);
             WARN("Cannot open anonymized output file '%s': %s",
                  name, strerror(errno));
+	    sx_done(&sx);
             return 1;
         }
         if(fclose(logfile)) {
@@ -524,6 +537,7 @@ int main(int argc, char **argv) {
 	    fclose(out);
             WARN("Cannot close output file '%s': %s",
                  oname, strerror(errno));
+	    sx_done(&sx);
             return 1;
         }
         logfile = out;
@@ -532,6 +546,7 @@ int main(int argc, char **argv) {
 	    fclose(logfile_in);
             WARN("Cannot close output file '%s': %s",
                  name, strerror(errno));
+	    sx_done(&sx);
             return 1;
         }
         fclose(logfile_in);
