@@ -46,10 +46,11 @@ enum blob_object {
     BLOB_INT32 = 0,
     BLOB_INT64,
     BLOB_STRING,
-    BLOB_BLOB
+    BLOB_BLOB,
+    BLOB_DATETIME
 };
 #define BLOB_MIN_OBJ BLOB_INT32
-#define BLOB_MAX_OBJ BLOB_BLOB
+#define BLOB_MAX_OBJ BLOB_DATETIME
 
 static int64_t blob_htonll(int64_t d) {
 #ifndef WORDS_BIGENDIAN
@@ -110,6 +111,13 @@ int sx_blob_add_string(sx_blob_t *s, const char *d) {
 
 int sx_blob_add_blob(sx_blob_t *s, const void *d, unsigned int len) {
     return pushdata(s, BLOB_BLOB, d, len);
+}
+
+int sx_blob_add_datetime(sx_blob_t *s, const struct timeval *d) {
+    int64_t ts[2];
+    ts[0] = blob_htonll(d->tv_sec + d->tv_usec / 1000000);
+    ts[1] = blob_htonll(d->tv_usec % 1000000);
+    return pushdata(s, BLOB_DATETIME, ts, sizeof(ts));
 }
 
 int sx_blob_cat(sx_blob_t *dest, sx_blob_t *src) {
@@ -240,6 +248,28 @@ int sx_blob_get_blob(sx_blob_t *s, const void **d, unsigned int *len) {
     DEBUG("ok");
     return 0;
 }
+
+int sx_blob_get_datetime(sx_blob_t *s, struct timeval *d) {
+    enum blob_object o;
+    unsigned int l;
+    int64_t ts[2];
+    const void *dt;
+    int ret = getdata(s, &o, &dt, &l);
+
+    if(ret)
+	return ret;
+
+    if(o != BLOB_DATETIME || l != sizeof(ts)) {
+	s->pos -= sizeof(l)*2 + l;
+	return -1;
+    }
+
+    memcpy(ts, dt, sizeof(ts));
+    d->tv_sec = (time_t)blob_htonll(ts[0]);
+    d->tv_usec = (suseconds_t)blob_htonll(ts[1]);
+    return 0;
+}
+
 
 void sx_blob_free(sx_blob_t *s) {
     if(s) {

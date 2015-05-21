@@ -28,6 +28,7 @@
 #ifndef BLOB_H
 #define BLOB_H
 #include "default.h"
+#include <sys/time.h>
 
 typedef struct _sx_blob_t sx_blob_t;
 
@@ -36,6 +37,7 @@ int sx_blob_add_int32(sx_blob_t *s, int32_t d);
 int sx_blob_add_int64(sx_blob_t *s, int64_t d);
 int sx_blob_add_string(sx_blob_t *s, const char *d);
 int sx_blob_add_blob(sx_blob_t *s, const void *d, unsigned int len);
+int sx_blob_add_datetime(sx_blob_t *s, const struct timeval *d);
 int sx_blob_cat(sx_blob_t *dest, sx_blob_t *src);
 void sx_blob_to_data(const sx_blob_t *s, const void **d, unsigned int *len);
 sx_blob_t *sx_blob_from_data(const void *d, unsigned int l);
@@ -43,6 +45,7 @@ int sx_blob_get_int32(sx_blob_t *s, int32_t *d);
 int sx_blob_get_int64(sx_blob_t *s, int64_t *d);
 int sx_blob_get_string(sx_blob_t *s, const char **d);
 int sx_blob_get_blob(sx_blob_t *s, const void **d, unsigned int *len);
+int sx_blob_get_datetime(sx_blob_t *s, struct timeval *d);
 void sx_blob_free(sx_blob_t *s);
 void sx_blob_savepos(sx_blob_t *s);
 void sx_blob_loadpos(sx_blob_t *s);
