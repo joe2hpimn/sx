@@ -21,6 +21,7 @@
 #define _CLUSTER_H
 
 #include "default.h"
+#include <netinet/in.h>
 #include "curlevents-common.h"
 #include "hostlist.h"
 #include "misc.h"
@@ -112,8 +113,8 @@ sxc_xfer_stat_t *sxi_conns_get_xfer_stat(const sxi_conns_t *conns);
 int sxi_conns_set_xfer_stat(sxi_conns_t *conns, sxc_xfer_stat_t *xfer_stat);
 
 typedef struct _node_status_t {
-    char internal_addr[40]; /* Internal node address */
-    char addr[40]; /* Node address */
+    char internal_addr[INET6_ADDRSTRLEN]; /* Internal node address */
+    char addr[INET6_ADDRSTRLEN]; /* Node address */
     char storage_dir[1024]; /* Node storage directory */
     char uuid[UUID_LEN+1]; /* Node UUID string representation */
     int is_bare; /* 1 if node is bare, 0 otherwise */

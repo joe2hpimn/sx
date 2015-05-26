@@ -1366,6 +1366,11 @@ int sxi_volume_info(sxi_conns_t *conns, const char *volume, sxi_hostlist_t *node
     sxc_client_t *sx = sxi_conns_get_client(conns);
 
     sxc_clearerr(sx);
+    if(sxi_getenv("SX_DEBUG_SINGLE_VOLUMEHOST")) {
+        sxi_hostlist_empty(nodes);
+        sxi_hostlist_add_host(sx, nodes, sxi_getenv("SX_DEBUG_SINGLE_VOLUMEHOST"));
+        return 0;
+    }
     if(!(enc_vol = sxi_urlencode(sx, volume, 0))) {
 	SXDEBUG("failed to encode volume %s", volume);
 	return 1;
@@ -1430,10 +1435,6 @@ int sxi_volume_info(sxi_conns_t *conns, const char *volume, sxi_hostlist_t *node
     if(sxi_getenv("SX_DEBUG_SINGLEHOST")) {
 	sxi_hostlist_empty(nodes);
 	sxi_hostlist_add_host(sx, nodes, sxi_getenv("SX_DEBUG_SINGLEHOST"));
-    }
-    if(sxi_getenv("SX_DEBUG_SINGLE_VOLUMEHOST")) {
-        sxi_hostlist_empty(nodes);
-        sxi_hostlist_add_host(sx, nodes, sxi_getenv("SX_DEBUG_SINGLE_VOLUMEHOST"));
     }
     return 0;
 }

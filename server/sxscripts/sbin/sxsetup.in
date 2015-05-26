@@ -947,20 +947,30 @@ if [ -z "$NOSSL_FLAG" ] ; then
     cp $OUT_TMP "$ETCDIR/sxserver/sxhttpd.conf"
 fi
 
+if [ -z "${SX_NODE_IP##*:*}" ]; then
+    SX_NODE_LISTEN_IP="[$SX_NODE_IP]"
+else
+    SX_NODE_LISTEN_IP="$SX_NODE_IP"
+fi
+if [ -z "${SX_NODE_INTERNAL_IP##*:*}" ]; then
+    SX_NODE_LISTEN_INTERNAL_IP="[$SX_NODE_INTERNAL_IP]"
+else
+    SX_NODE_LISTEN_INTERNAL_IP="$SX_NODE_INTERNAL_IP"
+fi
 if [ -n "$SX_NODE_INTERNAL_IP" -a "$SX_NODE_IP" != "$SX_NODE_INTERNAL_IP" ]; then
     if [ -n "`ip addr show 2>/dev/null | grep $SX_NODE_IP`" -o -n "`/sbin/ifconfig 2>/dev/null | grep $SX_NODE_IP`" ]; then
 	# bind to both public and internal IPs
-	sed -e "s/listen 80/listen $SX_NODE_IP:$SX_PORT default_server;\n\
-	     listen $SX_NODE_INTERNAL_IP:$SX_PORT/"\
+	sed -e "s/listen 80/listen $SX_NODE_LISTEN_IP:$SX_PORT default_server;\n\
+	     listen $SX_NODE_LISTEN_INTERNAL_IP:$SX_PORT/"\
 	"$ETCDIR/sxserver/sxhttpd.conf" >$OUT_TMP
     else
 	# only listen on the internal IP (assume public IP is translated via 1:1 NAT)
-	sed -e "s/listen.*80/listen $SX_NODE_INTERNAL_IP:$SX_PORT/"\
+	sed -e "s/listen.*80/listen $SX_NODE_LISTEN_INTERNAL_IP:$SX_PORT/"\
 	"$ETCDIR/sxserver/sxhttpd.conf" >$OUT_TMP
     fi
 else
     # listen on the public IP
-    sed -e "s/listen.*80/listen $SX_NODE_IP:$SX_PORT/"\
+    sed -e "s/listen.*80/listen $SX_NODE_LISTEN_IP:$SX_PORT/"\
     "$ETCDIR/sxserver/sxhttpd.conf" >$OUT_TMP
 fi
 cp $OUT_TMP "$ETCDIR/sxserver/sxhttpd.conf"
@@ -1195,7 +1205,7 @@ if [ ! -f "$SX_DATA_DIR/hashfs.db" ]; then
 		exit 1
 	    fi
 
-	    SXDIST=`cat $OUT_TMP | grep "Current configuration" | cut -d: -f 2`
+	    SXDIST=`cat $OUT_TMP | grep "Current configuration" | cut -d: -f 2-`
 	    if [ -z "$SXDIST" ]; then
 		echo "Failed to obtain the node information."
 		"@sbindir@/sxadm" cluster --unlock "sx://admin@$SX_CLUSTER_NAME"
