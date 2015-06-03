@@ -12257,6 +12257,8 @@ static rc_ty sx_hashfs_blockmeta_get(sx_hashfs_t *h, rc_ty ret, sqlite3_stmt *q,
         /* blockmeta.count = 0 means this hash has no OLD counters
          * so skip it
          * */
+        if (sx_hashfs_br_delete(h, blockmeta))
+            return FAIL_EINTERNAL;
     } else {
         WARN("iteration failed");
         sqlite3_reset(q);
