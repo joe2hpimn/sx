@@ -30,6 +30,7 @@
 #include <dirent.h>
 #include <curl/curl.h>
 #include <fnmatch.h>
+#include <utime.h>
 
 #include "sx.h"
 #include "misc.h"
@@ -2483,7 +2484,7 @@ struct cb_getfile_ctx {
     yajl_callbacks yacb;
     struct cb_error_ctx errctx;
     FILE *f;
-    int64_t filesize, blocksize;
+    int64_t filesize, blocksize, created_at;
     unsigned int nblocks;
     yajl_handle yh;
     enum getfile_state { GF_ERROR, GF_BEGIN, GF_MAIN, GF_BLOCKSIZE, GF_FILESIZE, GF_MTIME, GF_REVISION, GF_DATA, GF_CONTENT, GF_BLOCK, GF_HOSTS, GF_HOST, GF_ENDBLOCK, GF_COMPLETE } state;
@@ -2583,7 +2584,11 @@ static int yacb_getfile_number(void *ctx, const char *s, size_t l) {
 	yactx->filesize = nnumb;
     } else if(yactx->state == GF_MTIME) {
 	/* Nothing to do here */
-	CBDEBUG("HEREEE");
+	if(yactx->created_at >= 0) {
+	    CBDEBUG("createdAt duplicated");
+	    return 0;
+	}
+	yactx->created_at = nnumb;
     } else {
 	CBDEBUG("bad state %d", yactx->state);
 	return 0;
@@ -2703,6 +2708,7 @@ static int getfile_setup_cb(curlev_context_t *cbdata, void *ctx, const char *hos
     yactx->blocksize = 0;
     yactx->filesize = -1;
     yactx->nblocks = 0;
+    yactx->created_at = -1;
 
     return 0;
 }
@@ -3032,7 +3038,7 @@ static int path_is_root(const char *path)
     return !*path;
 }
 
-static int hashes_to_download(sxc_file_t *source, FILE **tf, char **tfname, unsigned int *blocksize, int64_t *filesize, sxc_meta_t *vmeta) {
+static int hashes_to_download(sxc_file_t *source, FILE **tf, char **tfname, unsigned int *blocksize, int64_t *filesize, sxc_meta_t *vmeta, int64_t *created_at) {
     char *enc_vol = NULL, *enc_path = NULL, *url = NULL, *enc_rev = NULL, *hsfname = NULL;
     struct cb_getfile_ctx yctx;
     yajl_callbacks *yacb = &yctx.yacb;
@@ -3123,6 +3129,8 @@ static int hashes_to_download(sxc_file_t *source, FILE **tf, char **tfname, unsi
     *tfname = hsfname;
     *blocksize = yctx.blocksize;
     *filesize = yctx.filesize;
+    if (created_at)
+        *created_at = yctx.created_at;
     ret = 0;
 
 hashes_to_download_err:
@@ -3684,11 +3692,12 @@ static int remote_to_local(sxc_file_t *source, sxc_file_t *dest, int recursive) 
     const void *cfgval = NULL;
     unsigned int cfgval_len = 0;
     struct batch_hashes bh;
+    int64_t created_at;
 
     memset(&bh, 0, sizeof(bh));
     if(!(vmeta = sxc_meta_new(sx)))
 	return 1;
-    if(hashes_to_download(source, &hf, &hashfile, &blocksize, &filesize, vmeta)) {
+    if(hashes_to_download(source, &hf, &hashfile, &blocksize, &filesize, vmeta, &created_at)) {
 	SXDEBUG("failed to retrieve hash list");
 	goto remote_to_local_err;
     }
@@ -4070,6 +4079,20 @@ static int remote_to_local(sxc_file_t *source, sxc_file_t *dest, int recursive) 
 	sxi_tempfile_untrack(sx, tempfilter);
 	tempfilter = NULL;
     }
+    if (created_at >= 0 && !tempdst) {
+        struct utimbuf tb;
+        tb.modtime = created_at;
+        tb.actime = time(NULL);
+        if (utime(dest->path, &tb)) {
+            struct sxi_fmt fmt;
+            sxi_fmt_start(&fmt);
+            sxi_fmt_syserr(&fmt, "utime failed on %s", dest->path);
+            sxi_info(sx, "%s",fmt.buf);
+        } else {
+            SXDEBUG("Set mtime to @%ld", tb.modtime);
+        }
+    }
+
 
     if(fh && fh->f->file_process && fmeta) {
 	if(dstexisted && stat(dest->path, &st) == -1) {
@@ -4157,7 +4180,7 @@ static sxi_job_t* remote_to_remote_fast(sxc_file_t *source, sxc_meta_t *fmeta, s
     sxi_hostlist_init(&src_hosts);
     memset(&yctx, 0, sizeof(yctx));
 
-    if(hashes_to_download(source, &hf, &src_hashfile, &blocksize, &filesize, NULL)) {
+    if(hashes_to_download(source, &hf, &src_hashfile, &blocksize, &filesize, NULL, NULL)) {
 	SXDEBUG("failed to retrieve hash list");
 	return NULL;
     }
@@ -4652,7 +4675,7 @@ static int cat_remote_file(sxc_file_t *source, int dest) {
     unsigned int cfgval_len = 0;
 
     sxi_hostlist_init(&hostlist);
-    if(hashes_to_download(source, &hf, &hashfile, &blocksize, &filesize, NULL)) {
+    if(hashes_to_download(source, &hf, &hashfile, &blocksize, &filesize, NULL, NULL)) {
 	SXDEBUG("failed to retrieve hash list");
 	return 1;
     }
