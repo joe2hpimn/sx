@@ -236,8 +236,12 @@ void fcgi_send_user(void) {
     }
 
     descptr = has_arg("desc") ? &desc : NULL;
-    if(sx_hashfs_get_user_info(hashfs, user_uid, &requid, key, &role, descptr) != OK) /* no such user */
-        quit_errmsg(404, "No such user");
+    if((rc = sx_hashfs_get_user_info(hashfs, user_uid, &requid, key, &role, descptr)) != OK) /* no such user */ {
+        if (rc == ENOENT)
+            quit_errmsg(404, "No such user");
+        else
+            quit_errmsg(rc2http(rc), rc2str(rc));
+    }
     if (!requid) {
         free(desc);
         quit_errmsg(403, "Cluster key is not allowed to be retrieved");
