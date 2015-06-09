@@ -844,6 +844,7 @@ static rc_ty filerev_from_jobdata_tmpfileid(sx_hashfs_t *hashfs, job_data_t *job
     filerev->volume_id = tmpinfo->volume_id;
     filerev->block_size = tmpinfo->block_size;
     sxi_strlcpy(filerev->name, tmpinfo->name, sizeof(filerev->name));
+    sxi_strlcpy(filerev->revision, tmpinfo->revision, sizeof(filerev->revision));
     free(tmpinfo);
     return OK;
 }
@@ -855,14 +856,13 @@ static act_result_t revision_job_from(sx_hashfs_t *hashfs, job_t job_id, const s
     rc_ty s;
     sx_blob_t *blob = NULL;
     job_data_t new_job_data;
-    char revision[REV_LEN+1];
     s = sx_hashfs_volume_by_id(hashfs, filerev->volume_id, &volume);
     if (s)
         action_error(rc2actres(s), rc2http(s), "Failed to retrieve volume info");
     revision_op.lock = NULL;
     revision_op.blocksize = filerev->block_size;
     revision_op.op = op;
-    s = sx_unique_fileid(sx_hashfs_client(hashfs), volume, filerev->name, revision, &revision_op.revision_id);
+    s = sx_unique_fileid(sx_hashfs_client(hashfs), volume, filerev->name, filerev->revision, &revision_op.revision_id);
     if(s)
         action_error(rc2actres(s), rc2http(s), "Failed to compute revision id");
     blob = sx_blob_new();
