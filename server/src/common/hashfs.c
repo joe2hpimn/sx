@@ -57,7 +57,8 @@
 /* NOTE: HASHFS_VERSION must be exactly 14 bytes */
 #define HASHFS_VERSION_1_0 "SX-Storage 1.6"
 #define HASHFS_VERSION_1_1 "SX-Storage 1.7"
-#define HASHFS_VERSION HASHFS_VERSION_1_1
+#define HASHFS_VERSION_1_2 "SX-Storage 1.8"
+#define HASHFS_VERSION HASHFS_VERSION_1_2
 #define SIZES 3
 const char sizedirs[SIZES] = "sml";
 const char *sizelongnames[SIZES] = { "small", "medium", "large" };
@@ -256,7 +257,7 @@ static rc_ty sx_storage_create_1_0(const char *dir, sx_uuid_t *cluster, uint8_t 
     qnullify(q);
 
     /* Create HASHFS tables */
-    if(qprep(db, &q, "CREATE TABLE users (uid INTEGER PRIMARY KEY NOT NULL, user BLOB ("STRIFY(SXI_SHA1_BIN_LEN)") NOT NULL UNIQUE, name TEXT ("STRIFY(SXLIMIT_MAX_USERNAME_LEN)") NOT NULL UNIQUE, key BLOB ("STRIFY(AUTH_KEY_LEN)") NOT NULL UNIQUE, role INTEGER NOT NULL, enabled INTEGER NOT NULL DEFAULT 0, quota INTEGER NOT NULL DEFAULT 0)") || qstep_noret(q))
+    if(qprep(db, &q, "CREATE TABLE users (uid INTEGER PRIMARY KEY NOT NULL, user BLOB ("STRIFY(SXI_SHA1_BIN_LEN)") NOT NULL UNIQUE, name TEXT ("STRIFY(SXLIMIT_MAX_USERNAME_LEN)") NOT NULL UNIQUE, key BLOB ("STRIFY(AUTH_KEY_LEN)") NOT NULL UNIQUE, role INTEGER NOT NULL, enabled INTEGER NOT NULL DEFAULT 0)") || qstep_noret(q))
 	goto create_hashfs_fail;
     qnullify(q);
 /*    if(qprep(db, &q, "CREATE INDEX users_byname ON users(name, enabled)") || qstep_noret(q))
@@ -569,7 +570,6 @@ struct _sx_hashfs_t {
     sqlite3_stmt *q_listusersbycid;
     sqlite3_stmt *q_listacl;
     sqlite3_stmt *q_createuser;
-    sqlite3_stmt *q_createuser_meta;
     sqlite3_stmt *q_deleteuser;
     sqlite3_stmt *q_user_newkey;
     sqlite3_stmt *q_user_setquota;
@@ -920,7 +920,6 @@ static void close_all_dbs(sx_hashfs_t *h) {
     sqlite3_finalize(h->q_listacl);
     sqlite3_finalize(h->q_getaccess);
     sqlite3_finalize(h->q_createuser);
-    sqlite3_finalize(h->q_createuser_meta);
     sqlite3_finalize(h->q_deleteuser);
     sqlite3_finalize(h->q_user_newkey);
     sqlite3_finalize(h->q_user_setquota);
@@ -1451,23 +1450,21 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 
     if(qprep(h->db, &h->q_gethdrev, "SELECT MIN(value) FROM hashfs WHERE key IN ('current_dist_rev','dist_rev')"))
 	goto open_hashfs_fail;
-    if(qprep(h->db, &h->q_getuser, "SELECT uid, key, role, desc, quota FROM users LEFT JOIN usermeta ON users.uid=usermeta.userid WHERE user = :user AND enabled=1"))
+    if(qprep(h->db, &h->q_getuser, "SELECT uid, key, role, desc, quota FROM users WHERE user = :user AND enabled=1"))
 	goto open_hashfs_fail;
     if(qprep(h->db, &h->q_getuserbyid, "SELECT user FROM users WHERE uid = :uid AND (:inactivetoo OR enabled=1)"))
 	goto open_hashfs_fail;
     if(qprep(h->db, &h->q_getuserbyname, "SELECT user FROM users WHERE name = :name AND (:inactivetoo OR enabled=1)"))
 	goto open_hashfs_fail;
-    if(qprep(h->db, &h->q_listusers, "SELECT uid, name, user, key, role, desc, quota FROM users LEFT JOIN usermeta ON users.uid=usermeta.userid WHERE uid > :lastuid AND enabled=1 ORDER BY uid ASC LIMIT 1"))
+    if(qprep(h->db, &h->q_listusers, "SELECT uid, name, user, key, role, desc, quota FROM users WHERE uid > :lastuid AND enabled=1 ORDER BY uid ASC LIMIT 1"))
 	goto open_hashfs_fail;
-    if(qprep(h->db, &h->q_listusersbycid, "SELECT uid, name, user, key, role, desc, quota FROM users LEFT JOIN usermeta ON users.uid=usermeta.userid WHERE uid > :lastuid AND (:inactivetoo OR enabled=1) AND SUBSTR(user, 0, "STRIFY(AUTH_CID_LEN)") = SUBSTR(:common_id, 0, "STRIFY(AUTH_CID_LEN)") ORDER BY uid ASC LIMIT 1"))
+    if(qprep(h->db, &h->q_listusersbycid, "SELECT uid, name, user, key, role, desc, quota FROM users WHERE uid > :lastuid AND (:inactivetoo OR enabled=1) AND SUBSTR(user, 0, "STRIFY(AUTH_CID_LEN)") = SUBSTR(:common_id, 0, "STRIFY(AUTH_CID_LEN)") ORDER BY uid ASC LIMIT 1"))
         goto open_hashfs_fail;
     if(qprep(h->db, &h->q_listacl, "SELECT name, priv, uid, owner_id FROM privs, volumes INNER JOIN users ON user_id=uid WHERE volume_id=:volid AND vid=:volid AND volumes.enabled = 1 AND users.enabled = 1 AND (priv <> 0 OR owner_id=uid) AND user_id > :lastuid ORDER BY user_id ASC LIMIT 1"))
 	goto open_hashfs_fail;
     if(qprep(h->db, &h->q_getaccess, "SELECT privs.priv, volumes.owner_id FROM privs, volumes WHERE privs.volume_id = :volume AND privs.user_id IN (SELECT uid FROM users WHERE SUBSTR(user,0,"STRIFY(AUTH_CID_LEN)")=SUBSTR(:user,0,"STRIFY(AUTH_CID_LEN)") AND enabled=1) AND volumes.vid = :volume AND volumes.enabled = 1"))
 	goto open_hashfs_fail;
-    if(qprep(h->db, &h->q_createuser, "INSERT INTO users(user, name, key, role, quota) VALUES(:userhash,:name,:key,:role,:quota)"))
-	goto open_hashfs_fail;
-    if(qprep(h->db, &h->q_createuser_meta, "INSERT INTO usermeta(userid, desc) SELECT uid, :desc FROM users WHERE user=:userhash"))
+    if(qprep(h->db, &h->q_createuser, "INSERT INTO users(user, name, key, role, quota, desc) VALUES(:userhash,:name,:key,:role,:quota,:desc)"))
 	goto open_hashfs_fail;
     if(qprep(h->db, &h->q_deleteuser, "DELETE FROM users WHERE uid = :uid"))
 	goto open_hashfs_fail;
@@ -1477,9 +1474,9 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
         goto open_hashfs_fail;
     if(qprep(h->db, &h->q_user_newkey, "UPDATE users SET key=:key WHERE name = :username AND uid <> 0"))
 	goto open_hashfs_fail;
-    if(qprep(h->db, &h->q_user_setquota, "UPDATE users SET quota=:quota WHERE SUBSTR(user,0,"STRIFY(AUTH_CID_LEN)") = SUBSTR(:user,0,"STRIFY(AUTH_CID_LEN)") AND enabled = 1 AND uid <> 0"))
+    if(qprep(h->db, &h->q_user_setquota, "UPDATE users SET quota=:quota WHERE SUBSTR(user,0,"STRIFY(AUTH_CID_LEN)") = SUBSTR(:user,0,"STRIFY(AUTH_CID_LEN)") AND enabled = 1 AND role = "STRIFY(ROLE_USER)))
         goto open_hashfs_fail;
-    if(qprep(h->db, &h->q_user_getquota, "SELECT u1.quota, SUM(v.cursize), u1.role FROM volumes v, users u1, users u2 WHERE v.owner_id = u1.uid AND SUBSTR(u1.user,0,"STRIFY(AUTH_CID_LEN)") = SUBSTR(u2.user,0,"STRIFY(AUTH_CID_LEN)") AND u2.uid = :owner_id AND v.enabled = 1 AND u1.enabled = 1 AND u2.enabled = 1"))
+    if(qprep(h->db, &h->q_user_getquota, "SELECT quota, COALESCE((SELECT SUM(cursize) FROM volumes WHERE owner_id IN (SELECT uid FROM users AS allusers WHERE role = "STRIFY(ROLE_USER)" AND SUBSTR(allusers.user, 0, "STRIFY(AUTH_CID_LEN)") = SUBSTR(thisuser.user, 0, "STRIFY(AUTH_CID_LEN)"))), 0) FROM users AS thisuser where thisuser.uid = :owner_id"))
         goto open_hashfs_fail;
     /* update if present otherwise insert:
      * note: the read and write has to be in same transaction otherwise
@@ -3466,6 +3463,37 @@ static rc_ty upgrade_db(int lockfd, const char *path, sxi_db_t *db, const char *
     return ret;
 }
 
+
+/* Version upgrade 1.1 -> 1.2 */
+static rc_ty hashfs_1_1_to_1_2(sxi_db_t *db)
+{
+    rc_ty ret = FAIL_EINTERNAL;
+    sqlite3_stmt *q = NULL;
+    do {
+        if(qprep(db, &q, "ALTER TABLE users ADD COLUMN quota INTEGER NOT NULL DEFAULT 0") || qstep_noret(q))
+            break;
+	qnullify(q);
+
+	if(qprep(db, &q, "ALTER TABLE users ADD COLUMN desc TEXT("STRIFY(SXLIMIT_META_MAX_VALUE_LEN)") NULL") || qstep_noret(q))
+            break;
+	qnullify(q);
+
+	if(qprep(db, &q, "UPDATE users SET desc = (SELECT desc FROM usermeta WHERE usermeta.userid = users.uid)") || qstep_noret(q))
+	    break;
+	qnullify(q);
+
+	if(qprep(db, &q, "DROP TABLE usermeta") || qstep_noret(q))
+	    break;
+	qnullify(q);
+
+        ret = OK;
+    } while(0);
+    qnullify(q);
+    return ret;
+}
+
+
+/* Version upgrade 1.0 -> 1.1 */
 static rc_ty hashfs_1_0_to_1_1(sxi_db_t *db)
 {
     rc_ty ret = FAIL_EINTERNAL;
@@ -3615,29 +3643,6 @@ static rc_ty eventsdb_1_0_to_1_1(sxi_db_t *db)
     return ret;
 }
 
-static rc_ty tempdb_1_0_to_1_1(sxi_db_t *db)
-{
-    rc_ty ret = FAIL_EINTERNAL;
-    sqlite3_stmt *q = NULL;
-    do {
-        qnullify(q);
-        ret = OK;
-    } while(0);
-    qnullify(q);
-    return ret;
-}
-
-static rc_ty xfersdb_1_0_to_1_1(sxi_db_t *db)
-{
-    rc_ty ret = FAIL_EINTERNAL;
-    sqlite3_stmt *q = NULL;
-    do {
-        qnullify(q);
-        ret = OK;
-    } while(0);
-    qnullify(q);
-    return ret;
-}
 
 static rc_ty alldb_1_0_to_1_1(sxi_all_db_t *alldb)
 {
@@ -3718,6 +3723,15 @@ static rc_ty alldb_1_0_to_1_1(sxi_all_db_t *alldb)
     return ret;
 }
 
+static rc_ty upgrade_noop(sxi_db_t *db)
+{
+    return OK;
+}
+
+static rc_ty alldb_noop(sxi_all_db_t *alldb) {
+    return OK;
+}
+
 static const sx_upgrade_t upgrade_sequence[] = {
     {
         HASHFS_VERSION_1_0,
@@ -3725,10 +3739,21 @@ static const sx_upgrade_t upgrade_sequence[] = {
         .upgrade_hashfsdb = hashfs_1_0_to_1_1,
         .upgrade_metadb = metadb_1_0_to_1_1,
         .upgrade_datadb = datadb_1_0_to_1_1,
-        .upgrade_tempdb = tempdb_1_0_to_1_1,
+        .upgrade_tempdb = upgrade_noop,
         .upgrade_eventsdb = eventsdb_1_0_to_1_1,
-        .upgrade_xfersdb = xfersdb_1_0_to_1_1,
+        .upgrade_xfersdb = upgrade_noop,
         .upgrade_alldb = alldb_1_0_to_1_1
+    },
+    {
+        HASHFS_VERSION_1_1,
+        HASHFS_VERSION_1_2,
+        .upgrade_hashfsdb = hashfs_1_1_to_1_2,
+        .upgrade_metadb = upgrade_noop,
+        .upgrade_datadb = upgrade_noop,
+        .upgrade_tempdb = upgrade_noop,
+        .upgrade_eventsdb = upgrade_noop,
+        .upgrade_xfersdb = upgrade_noop,
+        .upgrade_alldb = alldb_noop
     }
 };
 
@@ -3821,7 +3846,7 @@ static void qclose_alldb(sxi_all_db_t *alldb)
 
 rc_ty sx_storage_upgrade(const char *dir) {
     sxi_all_db_t alldb;
-    unsigned i,j,pathlen;
+    unsigned i,j,pathlen, upno;
     char *path;
     char dbitem[64];
     struct timeval tv_start, tv_integrity_done, tv_upgrade_done, tv_close;
@@ -3896,8 +3921,8 @@ rc_ty sx_storage_upgrade(const char *dir) {
     gettimeofday(&tv_integrity_done, NULL);
     INFO("Integrity check completed in %.fs", timediff(&tv_start, &tv_integrity_done));
 
-    for(i=0;i<sizeof(upgrade_sequence)/sizeof(upgrade_sequence[0]);i++) {
-        sx_upgrade_t desc = upgrade_sequence[i];
+    for(upno=0;upno<sizeof(upgrade_sequence)/sizeof(upgrade_sequence[0]);upno++) {
+        sx_upgrade_t desc = upgrade_sequence[upno];
         if ((ret = upgrade_db(lockfd, path, alldb.hashfs, desc.from, desc.to, desc.upgrade_hashfsdb)))
             goto upgrade_fail;
         for(i=0; i<METADBS; i++) {
@@ -5731,6 +5756,14 @@ rc_ty sx_hashfs_create_user(sx_hashfs_t *h, const char *user, const uint8_t *uid
 	    break;
         if (qbind_int64(q, ":quota", quota))
             break;
+	if(desc && *desc) {
+	    if(qbind_text(q, ":desc", desc))
+		break;
+	} else {
+	    if(qbind_null(q, ":desc"))
+		break;
+	}
+
 	int ret = qstep(q);
 	if (ret == SQLITE_CONSTRAINT) {
 	    rc = EEXIST;
@@ -5742,17 +5775,6 @@ rc_ty sx_hashfs_create_user(sx_hashfs_t *h, const char *user, const uint8_t *uid
 	rc = OK;
     } while(0);
     sqlite3_reset(q);
-    INFO("desc: %s", desc);
-    if (desc && *desc) {
-        sqlite3_stmt *q = h->q_createuser_meta;
-        if (qbind_blob(q, ":userhash", uid, AUTH_UID_LEN) ||
-            qbind_text(q, ":desc", desc) ||
-            qstep_noret(q)) {
-            WARN("failed to set user desc");
-            rc = FAIL_EINTERNAL;
-        }
-        sqlite3_reset(q);
-    }
     return rc;
 }
 
@@ -7564,7 +7586,6 @@ static rc_ty get_file_metasize(sx_hashfs_t *h, int64_t file_id, int64_t ndb, int
 
 rc_ty sx_hashfs_get_owner_quota_usage(sx_hashfs_t *h, sx_uid_t uid, int64_t *quota, int64_t *used) {
     sqlite3_stmt *q;
-    sx_priv_t role;
 
     if(!h || (!quota && !used)) {
         WARN("NULL argument");
@@ -7578,18 +7599,11 @@ rc_ty sx_hashfs_get_owner_quota_usage(sx_hashfs_t *h, sx_uid_t uid, int64_t *quo
         return FAIL_EINTERNAL;
     }
 
-    role = sqlite3_column_int64(q, 2);
-    if(role != ROLE_USER) { /* Do not enforce quota for admin users */
-        if(quota)
-            *quota = 0;
-        if(used)
-            *used = 0;
-    } else {
-        if(quota)
-            *quota = sqlite3_column_int64(q, 0);
-        if(used)
-            *used = sqlite3_column_int64(q, 1);
-    }
+    if(quota)
+	*quota = sqlite3_column_int64(q, 0);
+    if(used)
+	*used = sqlite3_column_int64(q, 1);
+
     sqlite3_reset(q);
     return OK;
 }
