@@ -54,6 +54,9 @@ struct useradd_args_info
   char * description_arg;	/**< @brief Set the description of this user (default='').  */
   char * description_orig;	/**< @brief Set the description of this user original value given at command line.  */
   const char *description_help; /**< @brief Set the description of this user help description.  */
+  char * quota_arg;	/**< @brief Set total quota for all volumes owned by this user (allows K,M,G,T suffixes).  */
+  char * quota_orig;	/**< @brief Set total quota for all volumes owned by this user (allows K,M,G,T suffixes) original value given at command line.  */
+  const char *quota_help; /**< @brief Set total quota for all volumes owned by this user (allows K,M,G,T suffixes) help description.  */
   char * config_dir_arg;	/**< @brief Path to SX configuration directory.  */
   char * config_dir_orig;	/**< @brief Path to SX configuration directory original value given at command line.  */
   const char *config_dir_help; /**< @brief Path to SX configuration directory help description.  */
@@ -74,6 +77,7 @@ struct useradd_args_info
   unsigned int auth_file_given ;	/**< @brief Whether auth-file was given.  */
   unsigned int pass_file_given ;	/**< @brief Whether pass-file was given.  */
   unsigned int description_given ;	/**< @brief Whether description was given.  */
+  unsigned int quota_given ;	/**< @brief Whether quota was given.  */
   unsigned int config_dir_given ;	/**< @brief Whether config-dir was given.  */
   unsigned int force_key_given ;	/**< @brief Whether force-key was given.  */
   unsigned int generate_key_given ;	/**< @brief Whether generate-key was given.  */

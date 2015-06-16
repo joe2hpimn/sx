@@ -1,0 +1,34 @@
+.TH SXACL-USERMOD "1" "June 2015" "sxacl @VERSION@" "Skylable SX Manual"
+.SH NAME
+sxacl-usermod \- change user settings
+.SH SYNOPSIS
+.B sxacl usermod
+\fR[\fI\,OPTIONS\/\fR] \fI\,<username> sx://\/\fR[\fI\,profile@\/\fR]\fI\,cluster\/\fR
+.SH DESCRIPTION
+\fBsxacl usermod\fR is used to modify settings of existing users. Only cluster administrators can perform such changes.
+.SH OPTIONS
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help and exit
+.TP
+\fB\-\-full\-help\fR
+Print help, including hidden options, and exit
+.TP
+\fB\-V\fR, \fB\-\-version\fR
+Print version and exit
+.TP
+\fB\-q\fR, \fB\-\-quota\fR=\fI\,SIZE\/\fR
+Set total quota for all volumes owned by this user (allows K,M,G,T suffixes). The user will not be able to store more data than this limit across all of the volumes it owns.
+.TP
+\fB\-c\fR, \fB\-\-config\-dir\fR=\fI\,PATH\/\fR
+Path to the SX configuration directory (default: ~/.sx)
+.TP
+\fB\-D\fR, \fB\-\-debug\fR
+Enable debug messages.
+.SH "EXAMPLES"
+To set the quota of user user 'joe' to 2GB run the following command:
+.br
+\fB    sxacl usermod --quota=2G joe sx://admin@cluster\fP
+.br
+.SH SEE ALSO
+\fBsxacl-useradd\fR(1), \fBsxacl-usernewkey\fR(1), \fBsxacl-usergetkey\fR(1), \fBsxacl-userlist\fR(1), \fBsxacl-userdel\fR(1), \fBsxinit\fR(1)

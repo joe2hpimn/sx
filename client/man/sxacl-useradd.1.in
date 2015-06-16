@@ -20,6 +20,12 @@ Print version and exit
 \fB\-t\fR, \fB\-\-role\fR=\fI\,TYPE\/\fR
 User type. Accepted values are "admin" and "normal" (default).
 .TP
+\fB\-d\fR, \fB\-\-description\fR=\fI\,STRING\/\fR
+Set the optional description of this user.
+.TP
+\fB\-q\fR, \fB\-\-quota\fR=\fI\,SIZE\/\fR
+Set total quota for all volumes owned by this user (allows K,M,G,T suffixes). The user will not be able to store more data than this limit across all of the volumes it owns.
+.TP
 \fB\-a\fR, \fB\-\-auth\-file\fR=\fI\,FILE\/\fR
 Store authentication key in a given file (instead of printing it).
 .TP
@@ -43,4 +49,4 @@ To add the user 'joe' to the cluster run:
 \fB    sxacl useradd joe sx://admin@cluster\fP
 .br
 .SH SEE ALSO
-\fBsxacl-usernewkey\fR(1), \fBsxacl-usergetkey\fR(1), \fBsxacl-userlist\fR(1), \fBsxacl-userdel\fR(1), \fBsxinit\fR(1)
+\fBsxacl-usermod\fR(1), \fBsxacl-usernewkey\fR(1), \fBsxacl-usergetkey\fR(1), \fBsxacl-userlist\fR(1), \fBsxacl-userdel\fR(1), \fBsxinit\fR(1)

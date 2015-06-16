@@ -12,6 +12,7 @@ text "  userdel     Remove an existing user (and gain ownership of its volumes)\
 text "  userlist    List users\n"
 text "  usergetkey  Retrieve the auth key of a user\n"
 text "  usernewkey  Change the auth key of a user\n"
+text "  usermod     Change user settings\n"
 text "  volperm     Manage volume permissions\n"
 text "  volshow     Show all ACLs on a volume\n"
 text "  whoami      Show the username associated with the current auth key\n"

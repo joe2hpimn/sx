@@ -1405,7 +1405,7 @@ static int resize_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
     if(!clust)
 	return 1;
 
-    if(strlen(s) < 3 || (*s != '+' && *s != '-') || (newsize = sxi_parse_size(&s[1])) <= 0) {
+    if(strlen(s) < 3 || (*s != '+' && *s != '-') || (newsize = sxi_parse_size(sx, &s[1], 0)) <= 0) {
 	CRIT("Invalid resize argument: must be in format <+/->SIZE[MODIFIER], eg. +1T");
 	goto resize_cluster_err;
     }

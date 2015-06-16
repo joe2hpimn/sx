@@ -60,7 +60,7 @@ typedef enum _jobtype_t {
     JOBTYPE_REBALANCE_CLEANUP,
     JOBTYPE_DELETE_USER,
     JOBTYPE_DELETE_VOLUME,
-    JOBTYPE_NEWKEY_USER,
+    JOBTYPE_MODIFY_USER,
     JOBTYPE_MODIFY_VOLUME,
     JOBTYPE_REPLACE,
     JOBTYPE_REPLACE_BLOCKS,
@@ -101,7 +101,7 @@ typedef struct {
 extern const job_2pc_t acl_spec;
 extern const job_2pc_t user_spec;
 extern const job_2pc_t userdel_spec;
-extern const job_2pc_t user_newkey_spec;
+extern const job_2pc_t user_modify_spec;
 extern const job_2pc_t volmod_spec;
 extern const job_2pc_t cluster_mode_spec;
 extern const job_2pc_t revision_spec;

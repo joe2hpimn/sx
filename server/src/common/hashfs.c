@@ -256,7 +256,7 @@ static rc_ty sx_storage_create_1_0(const char *dir, sx_uuid_t *cluster, uint8_t 
     qnullify(q);
 
     /* Create HASHFS tables */
-    if(qprep(db, &q, "CREATE TABLE users (uid INTEGER PRIMARY KEY NOT NULL, user BLOB ("STRIFY(SXI_SHA1_BIN_LEN)") NOT NULL UNIQUE, name TEXT ("STRIFY(SXLIMIT_MAX_USERNAME_LEN)") NOT NULL UNIQUE, key BLOB ("STRIFY(AUTH_KEY_LEN)") NOT NULL UNIQUE, role INTEGER NOT NULL, enabled INTEGER NOT NULL DEFAULT 0)") || qstep_noret(q))
+    if(qprep(db, &q, "CREATE TABLE users (uid INTEGER PRIMARY KEY NOT NULL, user BLOB ("STRIFY(SXI_SHA1_BIN_LEN)") NOT NULL UNIQUE, name TEXT ("STRIFY(SXLIMIT_MAX_USERNAME_LEN)") NOT NULL UNIQUE, key BLOB ("STRIFY(AUTH_KEY_LEN)") NOT NULL UNIQUE, role INTEGER NOT NULL, enabled INTEGER NOT NULL DEFAULT 0, quota INTEGER NOT NULL DEFAULT 0)") || qstep_noret(q))
 	goto create_hashfs_fail;
     qnullify(q);
 /*    if(qprep(db, &q, "CREATE INDEX users_byname ON users(name, enabled)") || qstep_noret(q))
@@ -572,6 +572,8 @@ struct _sx_hashfs_t {
     sqlite3_stmt *q_createuser_meta;
     sqlite3_stmt *q_deleteuser;
     sqlite3_stmt *q_user_newkey;
+    sqlite3_stmt *q_user_setquota;
+    sqlite3_stmt *q_user_getquota;
     sqlite3_stmt *q_onoffuser;
     sqlite3_stmt *q_onoffuserclones;
     sqlite3_stmt *q_grant;
@@ -921,6 +923,8 @@ static void close_all_dbs(sx_hashfs_t *h) {
     sqlite3_finalize(h->q_createuser_meta);
     sqlite3_finalize(h->q_deleteuser);
     sqlite3_finalize(h->q_user_newkey);
+    sqlite3_finalize(h->q_user_setquota);
+    sqlite3_finalize(h->q_user_getquota);
     sqlite3_finalize(h->q_grant);
     sqlite3_finalize(h->q_getuid);
     sqlite3_finalize(h->q_getuidname);
@@ -1447,21 +1451,21 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 
     if(qprep(h->db, &h->q_gethdrev, "SELECT MIN(value) FROM hashfs WHERE key IN ('current_dist_rev','dist_rev')"))
 	goto open_hashfs_fail;
-    if(qprep(h->db, &h->q_getuser, "SELECT uid, key, role, desc FROM users LEFT JOIN usermeta ON users.uid=usermeta.userid WHERE user = :user AND enabled=1"))
+    if(qprep(h->db, &h->q_getuser, "SELECT uid, key, role, desc, quota FROM users LEFT JOIN usermeta ON users.uid=usermeta.userid WHERE user = :user AND enabled=1"))
 	goto open_hashfs_fail;
     if(qprep(h->db, &h->q_getuserbyid, "SELECT user FROM users WHERE uid = :uid AND (:inactivetoo OR enabled=1)"))
 	goto open_hashfs_fail;
     if(qprep(h->db, &h->q_getuserbyname, "SELECT user FROM users WHERE name = :name AND (:inactivetoo OR enabled=1)"))
 	goto open_hashfs_fail;
-    if(qprep(h->db, &h->q_listusers, "SELECT uid, name, user, key, role, desc FROM users LEFT JOIN usermeta ON users.uid=usermeta.userid WHERE uid > :lastuid AND enabled=1 ORDER BY uid ASC LIMIT 1"))
+    if(qprep(h->db, &h->q_listusers, "SELECT uid, name, user, key, role, desc, quota FROM users LEFT JOIN usermeta ON users.uid=usermeta.userid WHERE uid > :lastuid AND enabled=1 ORDER BY uid ASC LIMIT 1"))
 	goto open_hashfs_fail;
-    if(qprep(h->db, &h->q_listusersbycid, "SELECT uid, name, user, key, role, desc FROM users LEFT JOIN usermeta ON users.uid=usermeta.userid WHERE uid > :lastuid AND (:inactivetoo OR enabled=1) AND SUBSTR(user, 0, "STRIFY(AUTH_CID_LEN)") = SUBSTR(:common_id, 0, "STRIFY(AUTH_CID_LEN)") ORDER BY uid ASC LIMIT 1"))
+    if(qprep(h->db, &h->q_listusersbycid, "SELECT uid, name, user, key, role, desc, quota FROM users LEFT JOIN usermeta ON users.uid=usermeta.userid WHERE uid > :lastuid AND (:inactivetoo OR enabled=1) AND SUBSTR(user, 0, "STRIFY(AUTH_CID_LEN)") = SUBSTR(:common_id, 0, "STRIFY(AUTH_CID_LEN)") ORDER BY uid ASC LIMIT 1"))
         goto open_hashfs_fail;
     if(qprep(h->db, &h->q_listacl, "SELECT name, priv, uid, owner_id FROM privs, volumes INNER JOIN users ON user_id=uid WHERE volume_id=:volid AND vid=:volid AND volumes.enabled = 1 AND users.enabled = 1 AND (priv <> 0 OR owner_id=uid) AND user_id > :lastuid ORDER BY user_id ASC LIMIT 1"))
 	goto open_hashfs_fail;
     if(qprep(h->db, &h->q_getaccess, "SELECT privs.priv, volumes.owner_id FROM privs, volumes WHERE privs.volume_id = :volume AND privs.user_id IN (SELECT uid FROM users WHERE SUBSTR(user,0,"STRIFY(AUTH_CID_LEN)")=SUBSTR(:user,0,"STRIFY(AUTH_CID_LEN)") AND enabled=1) AND volumes.vid = :volume AND volumes.enabled = 1"))
 	goto open_hashfs_fail;
-    if(qprep(h->db, &h->q_createuser, "INSERT INTO users(user, name, key, role) VALUES(:userhash,:name,:key,:role)"))
+    if(qprep(h->db, &h->q_createuser, "INSERT INTO users(user, name, key, role, quota) VALUES(:userhash,:name,:key,:role,:quota)"))
 	goto open_hashfs_fail;
     if(qprep(h->db, &h->q_createuser_meta, "INSERT INTO usermeta(userid, desc) SELECT uid, :desc FROM users WHERE user=:userhash"))
 	goto open_hashfs_fail;
@@ -1473,6 +1477,10 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
         goto open_hashfs_fail;
     if(qprep(h->db, &h->q_user_newkey, "UPDATE users SET key=:key WHERE name = :username AND uid <> 0"))
 	goto open_hashfs_fail;
+    if(qprep(h->db, &h->q_user_setquota, "UPDATE users SET quota=:quota WHERE SUBSTR(user,0,"STRIFY(AUTH_CID_LEN)") = SUBSTR(:user,0,"STRIFY(AUTH_CID_LEN)") AND enabled = 1 AND uid <> 0"))
+        goto open_hashfs_fail;
+    if(qprep(h->db, &h->q_user_getquota, "SELECT u1.quota, SUM(v.cursize), u1.role FROM volumes v, users u1, users u2 WHERE v.owner_id = u1.uid AND SUBSTR(u1.user,0,"STRIFY(AUTH_CID_LEN)") = SUBSTR(u2.user,0,"STRIFY(AUTH_CID_LEN)") AND u2.uid = :owner_id AND v.enabled = 1 AND u1.enabled = 1 AND u2.enabled = 1"))
+        goto open_hashfs_fail;
     /* update if present otherwise insert:
      * note: the read and write has to be in same transaction otherwise
      * there'd be race conditions.
@@ -1957,7 +1965,7 @@ rc_ty sx_storage_activate(sx_hashfs_t *h, const char *name, const sx_uuid_t *nod
         goto storage_activate_fail;
     }
 
-    r = sx_hashfs_create_user(h, "admin", admin_uid, uid_size, admin_key, key_size, ROLE_ADMIN, "");
+    r = sx_hashfs_create_user(h, "admin", admin_uid, uid_size, admin_key, key_size, ROLE_ADMIN, "", QUOTA_UNLIMITED);
     if(r != OK) {
 	ret = r;
 	goto storage_activate_fail;
@@ -5661,7 +5669,7 @@ char *sxi_hashfs_admintoken(sx_hashfs_t *h) {
 	return NULL;
     }
 
-    if(sx_hashfs_get_user_info(h, ADMIN_USER, NULL, key, NULL, NULL))
+    if(sx_hashfs_get_user_info(h, ADMIN_USER, NULL, key, NULL, NULL, NULL))
 	return NULL;
 
     if(encode_auth_bin(ADMIN_USER, (const unsigned char *) key, AUTH_KEY_LEN, auth, sizeof(auth))) {
@@ -5682,7 +5690,7 @@ rc_ty sx_hashfs_derive_key(sx_hashfs_t *h, unsigned char *key, int len, const ch
     return OK;
 }
 
-rc_ty sx_hashfs_create_user(sx_hashfs_t *h, const char *user, const uint8_t *uid, unsigned uid_size, const uint8_t *key, unsigned key_size, int role, const char *desc)
+rc_ty sx_hashfs_create_user(sx_hashfs_t *h, const char *user, const uint8_t *uid, unsigned uid_size, const uint8_t *key, unsigned key_size, int role, const char *desc, int64_t quota)
 {
     rc_ty rc = FAIL_EINTERNAL;
     if (!h || !user || !uid || !key) {
@@ -5705,6 +5713,11 @@ rc_ty sx_hashfs_create_user(sx_hashfs_t *h, const char *user, const uint8_t *uid
 	return EINVAL;
     }
 
+    if(quota < 0) {
+        msg_set_reason("Invalid quota");
+        return EINVAL;
+    }
+
     sqlite3_stmt *q = h->q_createuser;
     sqlite3_reset(q);
     do {
@@ -5716,6 +5729,8 @@ rc_ty sx_hashfs_create_user(sx_hashfs_t *h, const char *user, const uint8_t *uid
 	    break;
 	if (qbind_int64(q, ":role", role))
 	    break;
+        if (qbind_int64(q, ":quota", quota))
+            break;
 	int ret = qstep(q);
 	if (ret == SQLITE_CONSTRAINT) {
 	    rc = EEXIST;
@@ -5741,38 +5756,96 @@ rc_ty sx_hashfs_create_user(sx_hashfs_t *h, const char *user, const uint8_t *uid
     return rc;
 }
 
-rc_ty sx_hashfs_user_newkey(sx_hashfs_t *h, const char *user, const uint8_t *key, unsigned key_size)
+/* Modify a user
+ *
+ * key: 20 bytes user key. Pass NULL if you do not want to change the key.
+ * key_size: size of a key, should be equal to AUTH_KEY_LEN, ignored when key == NULL.
+ * quota: Value for a new quota, use QUOTA_UNLIMITED to set it unlimited or QUOTA_UNDEFINED if you do not want to change it.
+ *        If a non-zero value is passed, then it should be greater or equal to SXLIMIT_MIN_VOLUME_SIZE.
+ */
+rc_ty sx_hashfs_user_modify(sx_hashfs_t *h, const char *username, const uint8_t *key, unsigned key_size, int64_t quota)
 {
     rc_ty rc = FAIL_EINTERNAL;
-    if (!h || !user || !key) {
+    sqlite3_stmt *q = NULL;
+    int r;
+
+    if (!h || !username || (!key && quota == QUOTA_UNDEFINED)) {
 	NULLARG();
 	return EFAULT;
     }
 
-    if(sx_hashfs_check_username(user)) {
-	msg_set_reason("Invalid user");
+    if(sx_hashfs_check_username(username)) {
+	msg_set_reason("Invalid username");
 	return EINVAL;
     }
 
-    if(key_size != AUTH_KEY_LEN) {
+    if(key && key_size != AUTH_KEY_LEN) {
 	msg_set_reason("Invalid key");
 	return EINVAL;
     }
 
-    sqlite3_stmt *q = h->q_user_newkey;
+    if(quota != QUOTA_UNDEFINED && quota < 0) {
+        msg_set_reason("Invalid quota");
+        return EINVAL;
+    }
+
+    if(qbegin(h->db)) {
+        WARN("Failed to lock database");
+        return FAIL_EINTERNAL;
+    }
+
+    if(key) {
+        q = h->q_user_newkey;
+        sqlite3_reset(q);
+        if(qbind_text(q, ":username", username)) {
+            WARN("Failed to bind username");
+            goto sx_hashfs_user_modify_err;
+        }
+        if(qbind_blob(q, ":key", key, key_size)) {
+            WARN("Failed to bind key");
+            goto sx_hashfs_user_modify_err;
+        }
+        r = qstep(q);
+        if(r != SQLITE_DONE)
+            goto sx_hashfs_user_modify_err;
+        INFO("Key changed for user '%s' ", username);
+        sqlite3_reset(q);
+    }
+
+    if(quota != QUOTA_UNDEFINED) {
+        uint8_t user[AUTH_UID_LEN];
+        q = h->q_user_setquota;
+        sqlite3_reset(q);
+
+        if(sx_hashfs_get_user_by_name(h, username, user, 0)) {
+            WARN("Failed to get user by name");
+            goto sx_hashfs_user_modify_err;
+        }
+        /* All clones will receive new quota */
+        if(qbind_blob(q, ":user", user, AUTH_CID_LEN)) {
+            WARN("Failed to bind username");
+            goto sx_hashfs_user_modify_err;
+        }
+        if(qbind_int64(q, ":quota", quota)) {
+            WARN("Failed to bind quota");
+            goto sx_hashfs_user_modify_err;
+        }
+        r = qstep(q);
+        if(r != SQLITE_DONE)
+            goto sx_hashfs_user_modify_err;
+        INFO("Quota changed for user '%s' (and all its clones): %lld", username, (long long)quota);
+        sqlite3_reset(q);
+    }
+
+    rc = OK;
+sx_hashfs_user_modify_err:
     sqlite3_reset(q);
-    do {
-	if (qbind_text(q, ":username", user))
-	    break;
-	if (qbind_blob(q, ":key", key, key_size))
-	    break;
-	int ret = qstep(q);
-	if (ret != SQLITE_DONE)
-	    break;
-        INFO("Key changed for user '%s' ", user);
-	rc = OK;
-    } while(0);
-    sqlite3_reset(q);
+    if(rc != OK)
+        qrollback(h->db);
+    else if(qcommit(h->db)) {
+        WARN("Failed to commit changes");
+        rc = FAIL_EINTERNAL;
+    }
     return rc;
 }
 
@@ -5856,6 +5929,8 @@ rc_ty sx_hashfs_list_users(sx_hashfs_t *h, const uint8_t *list_clones, user_list
         const uint8_t *user;
         const uint8_t *key;
         int is_admin = 0;
+        int64_t quota, quota_usage;
+        rc_ty s;
 
         sqlite3_reset(q);
         if(qbind_int64(q, ":lastuid", lastuid)) {
@@ -5877,13 +5952,19 @@ rc_ty sx_hashfs_list_users(sx_hashfs_t *h, const uint8_t *list_clones, user_list
 	user = sqlite3_column_blob(q, 2);
 	key = sqlite3_column_blob(q, 3);
 	is_admin = sqlite3_column_int64(q, 4) == ROLE_ADMIN;
+        quota = sqlite3_column_int64(q, 6);
         lastuid = uid;
 
 	if(sqlite3_column_bytes(q, 2) != SXI_SHA1_BIN_LEN || sqlite3_column_bytes(q, 3) != AUTH_KEY_LEN) {
 	    WARN("User %s (%lld) is invalid", name, (long long)uid);
 	    continue;
 	}
-	if(cb(uid, name, user, key, is_admin, desc ? (const char*)sqlite3_column_text(q, 5) : NULL, ctx)) {
+
+        if((s = sx_hashfs_get_owner_quota_usage(h, uid, NULL, &quota_usage))) {
+            WARN("Failed to get user '%s' quota usage", name);
+            continue;
+        }
+	if(cb(uid, name, user, key, is_admin, desc ? (const char*)sqlite3_column_text(q, 5) : NULL, quota, quota_usage, ctx)) {
 	    rc = EINTR;
 	    break;
 	}
@@ -7481,11 +7562,44 @@ static rc_ty get_file_metasize(sx_hashfs_t *h, int64_t file_id, int64_t ndb, int
     return OK;
 }
 
+rc_ty sx_hashfs_get_owner_quota_usage(sx_hashfs_t *h, sx_uid_t uid, int64_t *quota, int64_t *used) {
+    sqlite3_stmt *q;
+    sx_priv_t role;
+
+    if(!h || (!quota && !used)) {
+        WARN("NULL argument");
+        return FAIL_EINTERNAL;
+    }
+
+    q = h->q_user_getquota;
+    sqlite3_reset(q);
+    if(qbind_int64(q, ":owner_id", uid) || qstep_ret(q)) {
+        WARN("Failed to get user quota");
+        return FAIL_EINTERNAL;
+    }
+
+    role = sqlite3_column_int64(q, 2);
+    if(role != ROLE_USER) { /* Do not enforce quota for admin users */
+        if(quota)
+            *quota = 0;
+        if(used)
+            *used = 0;
+    } else {
+        if(quota)
+            *quota = sqlite3_column_int64(q, 0);
+        if(used)
+            *used = sqlite3_column_int64(q, 1);
+    }
+    sqlite3_reset(q);
+    return OK;
+}
+
 rc_ty sx_hashfs_check_file_size(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, const char *filename, int64_t size) {
     int64_t revsz = 0;
     sqlite3_stmt *q;
     int mdb, r, nrevs;
     rc_ty ret = OK;
+    int64_t usage, owner_quota;
 
     if(!vol || size < 0 || !filename) {
         NULLARG();
@@ -7497,7 +7611,13 @@ rc_ty sx_hashfs_check_file_size(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, c
 	return ENOSPC;
     }
 
-    if(vol->cursize <= vol->size - size)
+    if(sx_hashfs_get_owner_quota_usage(h, vol->owner, &owner_quota, &usage)) {
+        WARN("Failed to get volume %s owner %lld quota usage", vol->name, (long long)vol->owner);
+        msg_set_reason("Failed to check volume owner quota");
+        return FAIL_EINTERNAL;
+    }
+
+    if(vol->cursize <= vol->size - size && (!owner_quota || usage <= owner_quota - size))
 	return OK;
 
     mdb = getmetadb(filename);
@@ -7555,7 +7675,7 @@ rc_ty sx_hashfs_check_file_size(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, c
     }
     sqlite3_reset(q);
 
-    if(ret == OK && vol->cursize - revsz > vol->size - size) {
+    if(ret == OK && (vol->cursize - revsz > vol->size - size || (owner_quota && usage - revsz > owner_quota - size))) {
 	msg_set_reason("Quota exceeded");
 	ret = ENOSPC;
     }
@@ -10090,7 +10210,7 @@ rc_ty sx_hashfs_volumemeta_next(sx_hashfs_t *h, const char **key, const void **v
     return sx_hashfs_getfilemeta_next(h, key, value, value_len);
 }
 
-rc_ty sx_hashfs_get_user_info(sx_hashfs_t *h, const uint8_t *user, sx_uid_t *uid, uint8_t *key, sx_priv_t *basepriv, char **desc) {
+rc_ty sx_hashfs_get_user_info(sx_hashfs_t *h, const uint8_t *user, sx_uid_t *uid, uint8_t *key, sx_priv_t *basepriv, char **desc, int64_t *quota) {
     const uint8_t *kcol;
     rc_ty ret = FAIL_EINTERNAL;
     sx_priv_t userpriv;
@@ -10147,6 +10267,8 @@ rc_ty sx_hashfs_get_user_info(sx_hashfs_t *h, const uint8_t *user, sx_uid_t *uid
             goto get_user_info_err;
         }
     }
+    if(quota)
+        *quota = sqlite3_column_int64(h->q_getuser, 4);
     ret = OK;
 
 get_user_info_err:
@@ -10221,7 +10343,7 @@ rc_ty sx_hashfs_generate_uid(sx_hashfs_t *h, uint8_t *uid) {
     }
 
     sxi_rand_pseudo_bytes(uid + AUTH_CID_LEN, AUTH_UID_LEN - AUTH_CID_LEN);
-    while(sx_hashfs_get_user_info(h, uid, NULL, NULL, NULL, NULL) != ENOENT && i < MAX_UID_GEN_TRIES) {
+    while(sx_hashfs_get_user_info(h, uid, NULL, NULL, NULL, NULL, NULL) != ENOENT && i < MAX_UID_GEN_TRIES) {
         i++;
         sxi_rand_pseudo_bytes(uid + AUTH_CID_LEN, AUTH_UID_LEN - AUTH_CID_LEN);
     }

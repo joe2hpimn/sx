@@ -20,6 +20,12 @@ Print version and exit
 \fB\-r\fR, \fB\-\-role\fR
 When this option is given, a user's role will be printed together with the name.
 .TP
+\fB\-v\fR, \fB\-\-verbose\fR
+Print more details about the user, such as its role and quota settings.
+.TP
+\fB\-H\fR, \fB\-\-human\-readable\fR
+Convert all sizes (eg. quota limits) to an easily readable format.
+.TP
 \fB\-c\fR, \fB\-\-config\-dir\fR=\fI\,PATH\/\fR
 Path to the SX configuration directory (default: ~/.sx)
 .TP

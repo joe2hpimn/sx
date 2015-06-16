@@ -8,6 +8,12 @@ sxacl-userlist \- list all users in a cluster
 \fBsxacl userlist\fR lists all users (and their types) in a Skylable SX cluster. Only cluster administrators can list users.
 .SH OPTIONS
 .TP
+\fB\-v\fR, \fB\-\-verbose\fR
+Print additional details about the users, such as their roles and quota settings.
+.TP
+\fB\-H\fR, \fB\-\-human\-readable\fR
+Convert all sizes (eg. quota limits) to an easily readable format.
+.TP
 \fB\-h\fR, \fB\-\-help\fR
 Print help and exit
 .TP
@@ -28,4 +34,4 @@ To list all users in the cluster run:
 \fB    sxacl userlist sx://admin@cluster\fP
 .br
 .SH SEE ALSO
-\fBsxacl-useradd\fR(1), \fBsxacl-userdel\fR(1), \fBsxacl-usergetkey\fR(1), \fBsxacl-usernewkey\fR(1)
+\fBsxacl-useradd\fR(1), \fBsxacl-usermod\fR(1), \fBsxacl-userdel\fR(1), \fBsxacl-usergetkey\fR(1), \fBsxacl-usernewkey\fR(1)

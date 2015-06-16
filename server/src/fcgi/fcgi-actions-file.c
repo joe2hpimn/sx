@@ -437,7 +437,6 @@ static void create_or_extend_tempfile(const sx_hashfs_volume_t *vol, const char 
 
     if(vol && filename && !extending && (s = sx_hashfs_check_file_size(hashfs, vol, filename, yctx.filesize + strlen(filename) + yctx.metasize)) != OK) {
         sx_hashfs_putfile_end(hashfs);
-        WARN("File size is not correct: %s", msg_get_reason());
         if(s == ENOSPC)
             quit_errmsg(413, msg_get_reason());
         else

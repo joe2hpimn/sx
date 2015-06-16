@@ -27,6 +27,9 @@ Retrieve the authentication key of a user.
 .B usernewkey
 Change the authentication key of a user.
 .TP
+.B usermod
+Change user settings.
+.TP
 .B volperm
 Manage volume permissions.
 .TP

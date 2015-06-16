@@ -1887,13 +1887,14 @@ cross_copy_err:
 int check_users(sxc_cluster_t *cluster, const char **users, const int users_num) {
     int i, ret = -1, is_admin, next = 1, num = 0;
     char *user = NULL, *desc = NULL;
+    int64_t quota, quota_used;
     sxc_cluster_lu_t *lstu;
 
     lstu = sxc_cluster_listusers(cluster);
     if(!lstu)
         return ret;
     while(next > 0) {
-        next = sxc_cluster_listusers_next(lstu, &user, &is_admin, &desc);
+        next = sxc_cluster_listusers_next(lstu, &user, &is_admin, &desc, &quota, &quota_used);
         free(desc);
         switch(next) {
             case -1:
@@ -1981,19 +1982,22 @@ int check_admin(sxc_cluster_t *cluster) {
     int ret = -1, is_admin, next = 1;
     char *get_user = NULL;
     char *user = NULL, *desc, *role = NULL;
+    int64_t quota, quota_used;
     sxc_cluster_lu_t *lstu;
 
     lstu = sxc_cluster_listusers(cluster);
     if(!lstu)
         return ret;
 
-    if(sxc_cluster_whoami(cluster, &user, &role))
+    if(sxc_cluster_whoami(cluster, &user, &role, NULL, &quota, &quota_used))
 	goto check_admin_err;
 
     if(!role || strcmp(role, "admin"))
         goto check_admin_err;
+    if(quota != 0 || quota_used != 0)
+        goto check_admin_err;
     while(next > 0) {
-        next = sxc_cluster_listusers_next(lstu, &get_user, &is_admin, &desc);
+        next = sxc_cluster_listusers_next(lstu, &get_user, &is_admin, &desc, &quota, &quota_used);
         free(desc);
         switch(next) {
             case -1:
@@ -2010,6 +2014,10 @@ int check_admin(sxc_cluster_t *cluster) {
         }
     }
 
+    /* Admin should not have quota assigned */
+    if(quota || quota_used)
+        goto check_admin_err;
+
     ret = is_admin;
 check_admin_err:
     sxc_cluster_listusers_free(lstu);
@@ -2022,6 +2030,7 @@ int test_acl(sxc_client_t *sx, sxc_cluster_t *cluster, const char *local_dir_pat
     int ret = 1;
     char *user1, *user2 = NULL, *user3 = NULL, *list[3], *key1 = NULL, *key2 = NULL, *key3 = NULL, key_tmp[AUTHTOK_ASCII_LEN], *volname1 = NULL, *volname2 = NULL, *local_file_path = NULL, *remote_file_path = NULL;
     FILE *file = NULL;
+    int64_t quota, quota_used;
 
     printf("\ntest_acl: Started\n");
     switch(check_admin(cluster)) {
@@ -2052,7 +2061,7 @@ int test_acl(sxc_client_t *sx, sxc_cluster_t *cluster, const char *local_dir_pat
     sprintf(user1, "%sXXXXXX", ACL_USER1);
     if(randomize_name(user1))
         goto test_acl_err;
-    key1 = sxc_user_add(cluster, user1, NULL, 0, NULL, NULL, 0);
+    key1 = sxc_user_add(cluster, user1, NULL, 0, NULL, NULL, 0, 0);
     if(!key1) {
         fprintf(stderr, "test_acl: ERROR: Cannot create '%s' user: %s\n", user1, sxc_geterrmsg(sx));
         goto test_acl_err;
@@ -2069,7 +2078,7 @@ int test_acl(sxc_client_t *sx, sxc_cluster_t *cluster, const char *local_dir_pat
     sprintf(user2, "%sXXXXXX", ACL_USER2);
     if(randomize_name(user2))
         goto test_acl_err;
-    key2 = sxc_user_add(cluster, user2, NULL, 0, NULL, NULL, 0);
+    key2 = sxc_user_add(cluster, user2, NULL, 0, NULL, NULL, 0, 0);
     if(!key2) {
         fprintf(stderr, "test_acl: ERROR: Cannot create '%s' user: %s", user2, sxc_geterrmsg(sx));
         goto test_acl_err;
@@ -2279,7 +2288,7 @@ int test_acl(sxc_client_t *sx, sxc_cluster_t *cluster, const char *local_dir_pat
     sprintf(user3, "%sXXXXXX", ACL_USER1);
     if(randomize_name(user3))
         goto test_acl_err;
-    key3 = sxc_user_add(cluster, user3, NULL, 0, NULL, NULL, 0);
+    key3 = sxc_user_add(cluster, user3, NULL, 0, NULL, NULL, 0, 0);
     if(!key3) {
         fprintf(stderr, "test_acl: ERROR: Cannot create '%s' user: %s\n", user3, sxc_geterrmsg(sx));
         goto test_acl_err;
@@ -2423,7 +2432,7 @@ int test_acl(sxc_client_t *sx, sxc_cluster_t *cluster, const char *local_dir_pat
         goto test_acl_err;
     }
     free(key3);
-    if(sxc_cluster_whoami(cluster, &key3, NULL)) {
+    if(sxc_cluster_whoami(cluster, &key3, NULL, NULL, NULL, NULL)) {
         if(sxc_geterrnum(sx) == 7) {
             printf("test_acl: User permissions after key change enforced correctly.\n");
         } else {
@@ -2447,8 +2456,12 @@ int test_acl(sxc_client_t *sx, sxc_cluster_t *cluster, const char *local_dir_pat
         goto test_acl_err;
     }
     free(key3);
-    if(sxc_cluster_whoami(cluster, &key3, NULL)) {
+    if(sxc_cluster_whoami(cluster, &key3, NULL, NULL, &quota, &quota_used)) {
         fprintf(stderr, "test_acl: ERROR: %s\n", sxc_geterrmsg(sx));
+        goto test_acl_err;
+    }
+    if(quota || quota_used) {
+        fprintf(stderr, "test_acl: ERROR: Got non-zero quota and quota usage\n");
         goto test_acl_err;
     }
     if(strcmp(user1, key3)) {

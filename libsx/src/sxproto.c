@@ -145,7 +145,7 @@ static sxi_query_t* sxi_query_add_meta(sxc_client_t *sx, sxi_query_t *query, con
     return query;
 }
 
-sxi_query_t *sxi_useradd_proto(sxc_client_t *sx, const char *username, const uint8_t *uid, const uint8_t *key, int admin, const char *desc) {
+sxi_query_t *sxi_useradd_proto(sxc_client_t *sx, const char *username, const uint8_t *uid, const uint8_t *key, int admin, const char *desc, int64_t quota) {
     char *qname, *dname = NULL, hexkey[AUTH_KEY_LEN*2+1];
     sxi_query_t *ret;
     unsigned n;
@@ -153,6 +153,11 @@ sxi_query_t *sxi_useradd_proto(sxc_client_t *sx, const char *username, const uin
     qname = sxi_json_quote_string(username);
     if(!qname)
 	return NULL;
+    if(quota < -1) {
+        free(qname);
+        sxi_seterr(sx, SXE_EARG, "Invalid argument");
+        return NULL;
+    }
     if (desc) {
         dname = sxi_json_quote_string(desc);
         if (!dname) {
@@ -161,7 +166,7 @@ sxi_query_t *sxi_useradd_proto(sxc_client_t *sx, const char *username, const uin
         }
     }
 
-    n = sizeof("{\"userName\":,\"userType\":\"normal\",\"userKey\":\"\",\"userDesc\":") + /* the json body without terminator */
+    n = sizeof("{\"userName\":,\"userType\":\"normal\",\"userKey\":\"\"") + /* the json body without terminator */
 	strlen(qname) + /* the json encoded username with quotes */
 	AUTH_KEY_LEN * 2/* the hex encoded key without quotes */;
     sxi_bin2hex(key, AUTH_KEY_LEN, hexkey);
@@ -169,8 +174,10 @@ sxi_query_t *sxi_useradd_proto(sxc_client_t *sx, const char *username, const uin
     if (ret)
         ret = sxi_query_append_fmt(sx, ret, n, "{\"userName\":%s,\"userType\":\"%s\",\"userKey\":\"%s\"",
                                    qname, admin ? "admin" : "normal", hexkey);
-    if (dname)
+    if (ret && dname)
         ret = sxi_query_append_fmt(sx, ret, sizeof(",\"userDesc\":") + strlen(dname), ",\"userDesc\":%s", dname);
+    if (ret && quota != -1)
+        ret = sxi_query_append_fmt(sx, ret, sizeof(",\"userQuota\":") + 20, ",\"userQuota\":%lld", (long long)quota);
     if(ret && uid) { /* If UID has been added, then append its hex representation also */
         char hexuid[AUTH_UID_LEN*2+1];
         sxi_bin2hex(uid, AUTH_UID_LEN, hexuid);
@@ -230,12 +237,19 @@ sxi_query_t *sxi_userclone_proto(sxc_client_t *sx, const char *existingname, con
     return ret;
 }
 
-sxi_query_t *sxi_usernewkey_proto(sxc_client_t *sx, const char *username, const uint8_t *key) {
-    char *qname = NULL, hexkey[AUTH_KEY_LEN*2+1], *query = NULL;
+sxi_query_t *sxi_usermod_proto(sxc_client_t *sx, const char *username, const uint8_t *key, int64_t quota) {
+    char *qname = NULL, *query = NULL;
     sxi_query_t *ret = NULL;
     unsigned n;
 
+    if((!key && quota == -1) || quota < -1) {
+        sxi_seterr(sx, SXE_EARG, "Invalid argument");
+        return NULL;
+    }
+
     do {
+        int comma = 0;
+
         qname = sxi_urlencode(sx, username, 0);
         if(!qname)
             break;
@@ -244,12 +258,25 @@ sxi_query_t *sxi_usernewkey_proto(sxc_client_t *sx, const char *username, const 
         if (!query)
             break;
         snprintf(query, n, ".users/%s", qname);
-        n = sizeof("{\"userKey\":\"\"}") + /* the json body with terminator */
-            AUTH_KEY_LEN * 2 /* the hex encoded key without quotes */;
-        sxi_bin2hex(key, AUTH_KEY_LEN, hexkey);
         ret = sxi_query_create(sx, query, REQ_PUT);
-        if (ret)
-            ret = sxi_query_append_fmt(sx, ret, n, "{\"userKey\":\"%s\"}", hexkey);
+        if(ret)
+            ret = sxi_query_append_fmt(sx, ret, 1, "{");
+        if(key && ret) {
+            char hexkey[AUTH_KEY_LEN*2+1];
+            n = sizeof("\"userKey\":\"\"") + /* the json key with quotes */
+                AUTH_KEY_LEN * 2 /* the hex encoded key without quotes */;
+            sxi_bin2hex(key, AUTH_KEY_LEN, hexkey);
+            ret = sxi_query_append_fmt(sx, ret, n, "\"userKey\":\"%s\"", hexkey);
+            comma = 1;
+        }
+
+        if(quota != -1 && ret) {
+            n = sizeof(",\"quota\":") + /* the json key with quotes */
+                20 /* 20 bytes for a number */;
+            ret = sxi_query_append_fmt(sx, ret, n, "%s\"quota\":%lld", comma ? "," : "", (long long)quota);
+        }
+        if(ret)
+            ret = sxi_query_append_fmt(sx, ret, 1, "}");
     } while(0);
     free(qname);
     free(query);

@@ -1,0 +1,13 @@
+package "sxacl"
+args "--unamed-opts --no-handle-version --no-handle-error --file-name=cmd_usermod --func-name=usermod_cmdline_parser --arg-struct-name=usermod_args_info"
+usage "sxacl usermod [OPTIONS] <username> sx://[profile@]cluster"
+
+section "User modification options"
+option "quota" - "Set total quota for all volumes owned by <username> (allows K,M,G,T suffixes)" typestr="SIZE" string optional
+
+section "Common options"
+
+option  "config-dir"		c "Path to SX configuration directory"
+        string typestr="PATH" optional hidden
+
+option  "debug"		D "Enable debug messages" flag off

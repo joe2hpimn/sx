@@ -14184,7 +14184,7 @@ SX_FILTER_DIR=$filter_dir
 
 ac_config_files="$ac_config_files Makefile"
 
-ac_config_files="$ac_config_files man/sxacl.1 man/sxacl-useradd.1 man/sxacl-userclone.1 man/sxacl-userdel.1 man/sxacl-userlist.1 man/sxacl-usergetkey.1 man/sxacl-usernewkey.1 man/sxacl-volperm.1 man/sxacl-volshow.1 man/sxacl-whoami.1 man/sxcat.1 man/sxrm.1 man/sxls.1 man/sxmv.1 man/sxcp.1 man/sxinit.1 man/sxreport-client.1 man/sxvol.1 man/sxvol-create.1 man/sxvol-modify.1 man/sxvol-remove.1 man/sxvol-filter.1 man/sxrev.1 man/sxrev-list.1 man/sxrev-copy.1 man/sxrev-delete.1"
+ac_config_files="$ac_config_files man/sxacl.1 man/sxacl-useradd.1 man/sxacl-userclone.1 man/sxacl-userdel.1 man/sxacl-userlist.1 man/sxacl-usermod.1 man/sxacl-usergetkey.1 man/sxacl-usernewkey.1 man/sxacl-volperm.1 man/sxacl-volshow.1 man/sxacl-whoami.1 man/sxcat.1 man/sxrm.1 man/sxls.1 man/sxmv.1 man/sxcp.1 man/sxinit.1 man/sxreport-client.1 man/sxvol.1 man/sxvol-create.1 man/sxvol-modify.1 man/sxvol-remove.1 man/sxvol-filter.1 man/sxrev.1 man/sxrev-list.1 man/sxrev-copy.1 man/sxrev-delete.1"
 
 ac_config_files="$ac_config_files src/filters/attribs/Makefile"
 
@@ -15226,6 +15226,7 @@ do
     "man/sxacl-userclone.1") CONFIG_FILES="$CONFIG_FILES man/sxacl-userclone.1" ;;
     "man/sxacl-userdel.1") CONFIG_FILES="$CONFIG_FILES man/sxacl-userdel.1" ;;
     "man/sxacl-userlist.1") CONFIG_FILES="$CONFIG_FILES man/sxacl-userlist.1" ;;
+    "man/sxacl-usermod.1") CONFIG_FILES="$CONFIG_FILES man/sxacl-usermod.1" ;;
     "man/sxacl-usergetkey.1") CONFIG_FILES="$CONFIG_FILES man/sxacl-usergetkey.1" ;;
     "man/sxacl-usernewkey.1") CONFIG_FILES="$CONFIG_FILES man/sxacl-usernewkey.1" ;;
     "man/sxacl-volperm.1") CONFIG_FILES="$CONFIG_FILES man/sxacl-volperm.1" ;;

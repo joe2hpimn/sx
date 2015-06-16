@@ -81,6 +81,9 @@
 
 #define METADBS 16
 
+#define QUOTA_UNDEFINED -1LL
+#define QUOTA_UNLIMITED 0LL
+
 typedef enum {
     NL_PREV,
     NL_NEXT,
@@ -169,8 +172,8 @@ typedef struct _sx_hashfs_user_t {
     int role;
 } sx_hashfs_user_t;
 
-rc_ty sx_hashfs_create_user(sx_hashfs_t *h, const char *user, const uint8_t *uid, unsigned uid_size, const uint8_t *key, unsigned key_size, int role, const char *desc);
-rc_ty sx_hashfs_user_newkey(sx_hashfs_t *h, const char *user, const uint8_t *key, unsigned key_size);
+rc_ty sx_hashfs_create_user(sx_hashfs_t *h, const char *user, const uint8_t *uid, unsigned uid_size, const uint8_t *key, unsigned key_size, int role, const char *desc, int64_t quota);
+rc_ty sx_hashfs_user_modify(sx_hashfs_t *h, const char *user, const uint8_t *key, unsigned key_size, int64_t quota);
 rc_ty sx_hashfs_delete_user(sx_hashfs_t *h, const char *username, const char *new_owner, int all_clones);
 rc_ty sx_hashfs_get_uid(sx_hashfs_t *h, const char *user, int64_t *uid);
 rc_ty sx_hashfs_get_uid_role(sx_hashfs_t *h, const char *user, int64_t *uid, int *role);
@@ -180,10 +183,12 @@ const char *sx_hashfs_authtoken(sx_hashfs_t *h);
 char *sxi_hashfs_admintoken(sx_hashfs_t *h);
 rc_ty sx_hashfs_uid_get_name(sx_hashfs_t *h, uint64_t uid, char *name, unsigned len);
 rc_ty sx_hashfs_user_onoff(sx_hashfs_t *h, const char *user, int enable, int all_clones);
+/* Get user quota and usage */
+rc_ty sx_hashfs_get_owner_quota_usage(sx_hashfs_t *h, sx_uid_t uid, int64_t *quota, int64_t *used);
 /* Generate unique user ID for new user */
 rc_ty sx_hashfs_generate_uid(sx_hashfs_t *h, uint8_t *uid);
 
-typedef int (*user_list_cb_t)(sx_uid_t user_id, const char *username, const uint8_t *user, const uint8_t *key, int is_admin, const char *decs, void *ctx);
+typedef int (*user_list_cb_t)(sx_uid_t user_id, const char *username, const uint8_t *user, const uint8_t *key, int is_admin, const char *desc, int64_t quota, int64_t quota_usage, void *ctx);
 rc_ty sx_hashfs_list_users(sx_hashfs_t *h, const uint8_t *list_clones, user_list_cb_t cb, int desc, void *ctx);
 
 #define CLUSTER_USER (const uint8_t*)"\x08\xb5\x12\x4c\x44\x7f\x00\xb2\xcd\x38\x31\x3f\x44\xe3\x93\xfd\x44\x84\x47"
@@ -361,7 +366,7 @@ typedef enum {
   PRIV_ACL = 4,
   PRIV_ADMIN = 8,
   PRIV_CLUSTER = 16} sx_priv_t;
-rc_ty sx_hashfs_get_user_info(sx_hashfs_t *h, const uint8_t *user, sx_uid_t *uid, uint8_t *key, sx_priv_t *basepriv, char **desc);
+rc_ty sx_hashfs_get_user_info(sx_hashfs_t *h, const uint8_t *user, sx_uid_t *uid, uint8_t *key, sx_priv_t *basepriv, char **desc, int64_t *quota);
 rc_ty sx_hashfs_get_access(sx_hashfs_t *h, const uint8_t *user, const char *volume, sx_priv_t *access);
 
 /* Jobs */

@@ -46,8 +46,10 @@ struct userlist_args_info
   char * clones_arg;	/**< @brief List all clones of a given user.  */
   char * clones_orig;	/**< @brief List all clones of a given user original value given at command line.  */
   const char *clones_help; /**< @brief List all clones of a given user help description.  */
-  int verbose_flag;	/**< @brief Always list user descriptions (default=off).  */
-  const char *verbose_help; /**< @brief Always list user descriptions help description.  */
+  int verbose_flag;	/**< @brief Print additional details about the users (default=off).  */
+  const char *verbose_help; /**< @brief Print additional details about the users help description.  */
+  int human_readable_flag;	/**< @brief Print human readable sizes (default=off).  */
+  const char *human_readable_help; /**< @brief Print human readable sizes help description.  */
   int debug_flag;	/**< @brief Enable debug messages (default=off).  */
   const char *debug_help; /**< @brief Enable debug messages help description.  */
   
@@ -57,6 +59,7 @@ struct userlist_args_info
   unsigned int config_dir_given ;	/**< @brief Whether config-dir was given.  */
   unsigned int clones_given ;	/**< @brief Whether clones was given.  */
   unsigned int verbose_given ;	/**< @brief Whether verbose was given.  */
+  unsigned int human_readable_given ;	/**< @brief Whether human-readable was given.  */
   unsigned int debug_given ;	/**< @brief Whether debug was given.  */
 
   char **inputs ; /**< @brief unamed options (options without names) */

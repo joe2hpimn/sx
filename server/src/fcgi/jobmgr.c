@@ -715,7 +715,7 @@ static act_result_t job_twophase_execute(const job_2pc_t *spec, jobphase_t phase
 		if(newret < ret) /* Severity shall only be raised */
 		    action_set_fail(newret, http_status, sxi_cbdata_geterrmsg(qrylist[nnode].cbdata));
 	    }
-	}
+        }
         query_list_free(qrylist, nnodes);
 	sxi_query_free(proto);
     }
@@ -770,16 +770,16 @@ static act_result_t deleteuser_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_
    return job_twophase_execute(&userdel_spec, JOBPHASE_UNDO, hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
 }
 
-static act_result_t usernewkey_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
-   return job_twophase_execute(&user_newkey_spec, JOBPHASE_COMMIT, hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
+static act_result_t usermodify_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+   return job_twophase_execute(&user_modify_spec, JOBPHASE_COMMIT, hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
 }
 
-static act_result_t usernewkey_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
-   return job_twophase_execute(&user_newkey_spec, JOBPHASE_ABORT, hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
+static act_result_t usermodify_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+   return job_twophase_execute(&user_modify_spec, JOBPHASE_ABORT, hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
 }
 
-static act_result_t usernewkey_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
-   return job_twophase_execute(&user_newkey_spec, JOBPHASE_UNDO, hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
+static act_result_t usermodify_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+   return job_twophase_execute(&user_modify_spec, JOBPHASE_UNDO, hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
 }
 
 static act_result_t cluster_mode_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
@@ -1652,7 +1652,7 @@ static int sync_flush(struct sync_ctx *ctx) {
     return 0;
 }
 
-static int syncusers_cb(sx_uid_t user_id, const char *username, const uint8_t *user, const uint8_t *key, int is_admin, const char *desc, void *ctx) {
+static int syncusers_cb(sx_uid_t user_id, const char *username, const uint8_t *user, const uint8_t *key, int is_admin, const char *desc, int64_t quota, int64_t quota_used, void *ctx) {
     struct sync_ctx *sy = (struct sync_ctx *)ctx;
     unsigned int left = sizeof(sy->buffer) - sy->at;
     char *enc_name, *enc_desc, hexkey[AUTH_KEY_LEN*2+1], hexuser[AUTH_UID_LEN*2+1];
@@ -1662,10 +1662,12 @@ static int syncusers_cb(sx_uid_t user_id, const char *username, const uint8_t *u
        - a fully encoded username - 2 + length(username) * 6 bytes
        - the key - 40 bytes
        - the user ID - 40 bytes
-       - the json skeleton ':{"user":"","key":"","admin":true} - 36 bytes
+       - a fully encoded description - 2 + length(desc) * 6 bytes
+       - the quota - up to 20 bytes
+       - the json skeleton ':{"user":"","key":"","admin":true,"desc":,"quota":} - 53 bytes
        - the trailing '}}\0' - 3 bytes
     */
-    if(left < strlen(username) * 6 + 180) {
+    if(left < strlen(username) * 6 + strlen(desc ? desc : "") * 6 + 200) {
 	if(sync_flush(sy))
 	    return -1;
     }
@@ -1692,7 +1694,7 @@ static int syncusers_cb(sx_uid_t user_id, const char *username, const uint8_t *u
     }
     bin2hex(key, AUTH_KEY_LEN, hexkey, sizeof(hexkey));
     bin2hex(user, AUTH_UID_LEN, hexuser, sizeof(hexuser));
-    sprintf(&sy->buffer[sy->at], "%s:{\"user\":\"%s\",\"key\":\"%s\",\"admin\":%s,\"desc\":%s}", enc_name, hexuser, hexkey, is_admin ? "true" : "false", enc_desc);
+    sprintf(&sy->buffer[sy->at], "%s:{\"user\":\"%s\",\"key\":\"%s\",\"admin\":%s,\"desc\":%s,\"quota\":%lld}", enc_name, hexuser, hexkey, is_admin ? "true" : "false", enc_desc, (long long)quota);
     free(enc_name);
     free(enc_desc);
 
@@ -4747,7 +4749,7 @@ static rc_ty batchdelete_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *
     char timestamp_str[REV_TIME_LEN+1];
     sxi_query_t *query = NULL;
     query_list_t *qrylist = NULL;
-    unsigned int qrylist_len, queries_sent = 0;
+    unsigned int qrylist_len = 0, queries_sent = 0;
     sx_nodelist_t *nonvolnodes = NULL;
     unsigned int nnodes, nnode;
 
@@ -4967,7 +4969,7 @@ static struct {
     { cleanrb_request, cleanrb_commit, force_phase_success, force_phase_success }, /* JOBTYPE_REBALANCE_CLEANUP */
     { deleteuser_request, deleteuser_commit, deleteuser_abort, deleteuser_undo }, /* JOBTYPE_DELETE_USER */
     { deletevol_request, deletevol_commit, deletevol_abort, deletevol_undo }, /* JOBTYPE_DELETE_VOLUME */
-    { force_phase_success, usernewkey_commit, usernewkey_abort, usernewkey_undo }, /* JOBTYPE_NEWKEY_USER */
+    { force_phase_success, usermodify_commit, usermodify_abort, usermodify_undo }, /* JOBTYPE_MODIFY_USER */
     { force_phase_success, volmod_commit, volmod_abort, volmod_undo }, /* JOBTYPE_MODIFY_VOLUME */
     { replace_request, replace_commit, replace_abort, replace_undo }, /* JOBTYPE_REPLACE */
     { replaceblocks_request, replaceblocks_commit, force_phase_success, force_phase_success }, /* JOBTYPE_REPLACE_BLOCKS */

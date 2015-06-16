@@ -70,7 +70,7 @@ char sxi_read_one_char(void);
 int sxi_mkdir_hier(sxc_client_t *sx, const char *fullpath, mode_t mode);
 int sxi_rmdirs(const char *dir);
 
-int64_t sxi_parse_size(const char *str);
+int64_t sxi_parse_size(sxc_client_t *sx, const char *str, int allow_0);
 
 /* Hold information about alias */
 typedef struct _alias_t {

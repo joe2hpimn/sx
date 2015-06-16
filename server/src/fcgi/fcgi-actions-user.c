@@ -106,7 +106,6 @@ static sxi_query_t* userdel_proto_from_blob(sxc_client_t *sx, sx_blob_t *b, jobp
         WARN("Corrupt userdel blob");
         return NULL;
     }
-    INFO("Got BLOB, making proto: %d", remove_all);
 
     switch (phase) {
         case JOBPHASE_REQUEST:
@@ -224,6 +223,7 @@ void fcgi_send_user(void) {
     uint8_t key[AUTH_KEY_LEN];
     char *desc = NULL;
     char **descptr;
+    int64_t quota;
     sx_priv_t role;
     sxi_query_t *q;
     rc_ty rc;
@@ -236,7 +236,7 @@ void fcgi_send_user(void) {
     }
 
     descptr = has_arg("desc") ? &desc : NULL;
-    if((rc = sx_hashfs_get_user_info(hashfs, user_uid, &requid, key, &role, descptr)) != OK) /* no such user */ {
+    if((rc = sx_hashfs_get_user_info(hashfs, user_uid, &requid, key, &role, descptr, &quota)) != OK) /* no such user */ {
         if (rc == ENOENT)
             quit_errmsg(404, "No such user");
         else
@@ -247,7 +247,8 @@ void fcgi_send_user(void) {
         quit_errmsg(403, "Cluster key is not allowed to be retrieved");
     }
 
-    q = sxi_useradd_proto(sx_hashfs_client(hashfs), path, user_uid, key, role == PRIV_ADMIN, desc);
+    /* note: takes 'quota' param to decide if it should be printed or not. Should be taken into account to not break <1.2 client tools JSON parsers */
+    q = sxi_useradd_proto(sx_hashfs_client(hashfs), path, user_uid, key, role == PRIV_ADMIN, desc, has_arg("quota") ? quota : QUOTA_UNDEFINED);
     free(desc);
     if (!q) {
         msg_set_reason("Cannot retrieve user data for '%s': %s", path, sxc_geterrmsg(sx_hashfs_client(hashfs)));
@@ -263,6 +264,7 @@ struct user_ctx {
     char desc[SXLIMIT_META_MAX_VALUE_LEN+1];
     uint8_t token[AUTHTOK_BIN_LEN];
     char type[7];
+    int64_t quota;
     int has_key;
     int has_uid;
     int has_user;
@@ -270,7 +272,7 @@ struct user_ctx {
     int role;
     int is_clone; /* Set to 1 if existing is filled with existing user name */
     enum user_state { CB_USER_START=0, CB_USER_KEY, CB_USER_NAME, CB_USER_ENAME /* Existing user name */, CB_USER_DESC, CB_USER_AUTH,
-        CB_USER_ID, CB_USER_TYPE, CB_USER_COMPLETE } state;
+        CB_USER_ID, CB_USER_TYPE, CB_USER_QUOTA, CB_USER_COMPLETE } state;
 };
 
 static int cb_user_string(void *ctx, const unsigned char *s, size_t l) {
@@ -357,6 +359,33 @@ static int cb_user_string(void *ctx, const unsigned char *s, size_t l) {
     return 1;
 }
 
+static int cb_user_number(void *ctx, const char *s, size_t l) {
+    struct user_ctx *uctx = ctx;
+    switch (uctx->state) {
+        case CB_USER_QUOTA:
+            {
+                char number[21], *enumb = NULL;
+
+                if(l > 20) {
+                    INFO("quota too long");
+                    return 0;
+                }
+                memcpy(number, s, l);
+                number[l] = '\0';
+                uctx->quota = strtoll(number, &enumb, 10);
+                if(enumb && *enumb) {
+                    INFO("Failed to parse quota");
+                    return 0;
+                }
+                break;
+            }
+        default:
+            return 0;
+    }
+    uctx->state = CB_USER_KEY;
+    return 1;
+}
+
 static int cb_user_map_key(void *ctx, const unsigned char *s, size_t l) {
     struct user_ctx *c = ctx;
     if(c->state == CB_USER_KEY) {
@@ -384,6 +413,10 @@ static int cb_user_map_key(void *ctx, const unsigned char *s, size_t l) {
 	    c->state = CB_USER_AUTH;
 	    return 1;
 	}
+        if(l == lenof("userQuota") && !strncmp("userQuota", s, l)) {
+            c->state = CB_USER_QUOTA;
+            return 1;
+        }
         WARN("Unknown key: %.*s", (int)l, s);
     }
     return 0;
@@ -412,7 +445,7 @@ static const yajl_callbacks user_ops_parser = {
     cb_fail_boolean,
     NULL,
     NULL,
-    cb_fail_number,
+    cb_user_number,
     cb_user_string,
     cb_user_start_map,
     cb_user_map_key,
@@ -448,6 +481,11 @@ static rc_ty user_parse_complete(void *yctx)
 
             if((s = sx_hashfs_get_user_by_name(hashfs, uctx->existing, uctx->token, 0)) != OK) {
                 WARN("Failed to get existing user ID");
+                return s;
+            }
+
+            if((s = sx_hashfs_get_user_info(hashfs, uctx->token, NULL, NULL, NULL, NULL, &uctx->quota)) != OK) {
+                WARN("Failed to get existing user quota");
                 return s;
             }
 
@@ -498,6 +536,7 @@ static int user_to_blob(sxc_client_t *sx, int nodes, void *yctx, sx_blob_t *jobl
     if (sx_blob_add_string(joblb, uctx->name) ||
         sx_blob_add_blob(joblb, uctx->token, AUTHTOK_BIN_LEN) ||
         sx_blob_add_int32(joblb, uctx->role) ||
+        sx_blob_add_int64(joblb, uctx->quota) ||
         sx_blob_add_string(joblb, realdesc)) {
         msg_set_reason("Cannot create job blob");
         return -1;
@@ -520,18 +559,20 @@ static sxi_query_t* user_proto_from_blob(sxc_client_t *sx, sx_blob_t *b, jobphas
     const uint8_t *token;
     const char *desc = NULL;
     unsigned auth_len;
+    int64_t quota;
 
     if (sx_blob_get_string(b, &name) ||
 	sx_blob_get_blob(b, (const void**)&token, &auth_len) ||
         auth_len != AUTHTOK_BIN_LEN ||
 	sx_blob_get_int32(b, &role) ||
+        sx_blob_get_int64(b, &quota) ||
         sx_blob_get_string(b, &desc)) {
         WARN("Corrupt user blob");
         return NULL;
     }
     switch (phase) {
         case JOBPHASE_REQUEST:
-            return sxi_useradd_proto(sx, name, token, &token[AUTH_UID_LEN], (role == ROLE_ADMIN), desc);
+            return sxi_useradd_proto(sx, name, token, &token[AUTH_UID_LEN], (role == ROLE_ADMIN), desc, quota);
         case JOBPHASE_COMMIT:
             return sxi_useronoff_proto(sx, name, 1, 0);
         case JOBPHASE_ABORT:/* fall-through */
@@ -551,6 +592,7 @@ static rc_ty user_execute_blob(sx_hashfs_t *hashfs, sx_blob_t *b, jobphase_t pha
     const uint8_t *token;
     unsigned auth_len;
     int role;
+    int64_t quota;
     rc_ty rc = OK, rc2 = OK;
 
     if (!hashfs || !b) {
@@ -561,6 +603,7 @@ static rc_ty user_execute_blob(sx_hashfs_t *hashfs, sx_blob_t *b, jobphase_t pha
 	sx_blob_get_blob(b, (const void**)&token, &auth_len) ||
         auth_len != AUTHTOK_BIN_LEN ||
 	sx_blob_get_int32(b, &role) ||
+        sx_blob_get_int64(b, &quota) ||
         sx_blob_get_string(b, &desc)) {
         msg_set_reason("Corrupted blob");
         return FAIL_EINTERNAL;
@@ -569,7 +612,7 @@ static rc_ty user_execute_blob(sx_hashfs_t *hashfs, sx_blob_t *b, jobphase_t pha
     switch (phase) {
         case JOBPHASE_REQUEST:
             DEBUG("useradd request '%s'", name);
-            rc = sx_hashfs_create_user(hashfs, name, token, AUTH_UID_LEN, token + AUTH_UID_LEN, AUTH_KEY_LEN, role, desc);
+            rc = sx_hashfs_create_user(hashfs, name, token, AUTH_UID_LEN, token + AUTH_UID_LEN, AUTH_KEY_LEN, role, desc, quota);
             if(rc == EINVAL)
                 return rc;
             if (rc == EEXIST) {
@@ -628,15 +671,17 @@ void fcgi_create_user(void)
     job_2pc_handle_request(sx_hashfs_client(hashfs), &user_spec, &uctx);
 }
 
-struct user_newkey_ctx {
+struct user_modify_ctx {
     uint8_t auth[AUTH_KEY_LEN];
-    enum user_newkey_state { CB_USER_NEWKEY_START=0, CB_USER_NEWKEY_AUTH, CB_USER_NEWKEY_KEY, CB_USER_NEWKEY_COMPLETE } state;
+    int key_given, quota_given;
+    int64_t quota;
+    enum user_modify_state { CB_USER_MODIFY_START=0, CB_USER_MODIFY_AUTH, CB_USER_MODIFY_QUOTA, CB_USER_MODIFY_KEY, CB_USER_MODIFY_COMPLETE } state;
 };
 
-static int cb_user_newkey_string(void *ctx, const unsigned char *s, size_t l) {
-    struct user_newkey_ctx *uctx = ctx;
+static int cb_user_modify_string(void *ctx, const unsigned char *s, size_t l) {
+    struct user_modify_ctx *uctx = ctx;
     switch (uctx->state) {
-	case CB_USER_NEWKEY_AUTH:
+	case CB_USER_MODIFY_AUTH:
 	    {
 		char ascii[AUTH_KEY_LEN * 2 + 1];
 		if(l != AUTH_KEY_LEN * 2) {
@@ -649,73 +694,147 @@ static int cb_user_newkey_string(void *ctx, const unsigned char *s, size_t l) {
                     INFO("Bad hexadecimal string: %s", ascii);
                     return 0;
                 }
+                uctx->key_given = 1;
 		break;
 	    }
 	default:
 	    return 0;
     }
-    uctx->state = CB_USER_NEWKEY_KEY;
+    uctx->state = CB_USER_MODIFY_KEY;
     return 1;
 }
 
-static int cb_user_newkey_map_key(void *ctx, const unsigned char *s, size_t l) {
-    struct user_newkey_ctx *c = ctx;
-    if(c->state == CB_USER_NEWKEY_KEY) {
-	if(l == lenof("userKey") && !strncmp("userKey", s, l)) {
-	    c->state = CB_USER_NEWKEY_AUTH;
+static int cb_user_modify_number(void *ctx, const char *s, size_t l) {
+    struct user_modify_ctx *uctx = ctx;
+    switch (uctx->state) {
+        case CB_USER_MODIFY_QUOTA:
+            {
+                char *enumb = NULL, number[21];
+
+                if(l > 20) {
+                    INFO("Invalid length %ld", l);
+                    return 0;
+                }
+
+                memcpy(number, s, l);
+                number[l] = '\0';
+                uctx->quota = strtoll(number, &enumb, 10);
+                if(enumb && *enumb) {
+                    INFO("Failed to parse quota");
+                    return 0;
+                }
+                uctx->quota_given = 1;
+                break;
+            }
+        default:
+            return 0;
+    }
+    uctx->state = CB_USER_MODIFY_KEY;
+    return 1;
+}
+
+static int cb_user_modify_map_key(void *ctx, const unsigned char *s, size_t l) {
+    struct user_modify_ctx *c = ctx;
+    if(c->state == CB_USER_MODIFY_KEY) {
+	if(l == lenof("userKey") && !strncmp("userKey", (const char*)s, l)) {
+	    c->state = CB_USER_MODIFY_AUTH;
 	    return 1;
 	}
+        if(l == lenof("quota") && !strncmp("quota", (const char*)s, l)) {
+            c->state = CB_USER_MODIFY_QUOTA;
+            return 1;
+        }
     }
     return 0;
 }
 
-static int cb_user_newkey_start_map(void *ctx) {
-    struct user_newkey_ctx *c = ctx;
-    if(c->state == CB_USER_NEWKEY_START)
-	c->state = CB_USER_NEWKEY_KEY;
+static int cb_user_modify_start_map(void *ctx) {
+    struct user_modify_ctx *c = ctx;
+    if(c->state == CB_USER_MODIFY_START)
+	c->state = CB_USER_MODIFY_KEY;
     else
 	return 0;
     return 1;
 }
 
-static int cb_user_newkey_end_map(void *ctx) {
-    struct user_newkey_ctx *c = ctx;
-    if(c->state == CB_USER_NEWKEY_KEY)
-	c->state = CB_USER_NEWKEY_COMPLETE;
+static int cb_user_modify_end_map(void *ctx) {
+    struct user_modify_ctx *c = ctx;
+    if(c->state == CB_USER_MODIFY_KEY)
+	c->state = CB_USER_MODIFY_COMPLETE;
     else
 	return 0;
     return 1;
 }
 
-static const yajl_callbacks user_newkey_ops_parser = {
+static const yajl_callbacks user_modify_ops_parser = {
     cb_fail_null,
     cb_fail_boolean,
     NULL,
     NULL,
-    cb_fail_number,
-    cb_user_newkey_string,
-    cb_user_newkey_start_map,
-    cb_user_newkey_map_key,
-    cb_user_newkey_end_map,
+    cb_user_modify_number,
+    cb_user_modify_string,
+    cb_user_modify_start_map,
+    cb_user_modify_map_key,
+    cb_user_modify_end_map,
     cb_fail_start_array,
     cb_fail_end_array
 };
 
-static rc_ty user_newkey_parse_complete(void *yctx)
+static rc_ty user_modify_parse_complete(void *yctx)
 {
-    struct user_newkey_ctx *uctx = yctx;
-    if (!uctx || uctx->state != CB_USER_NEWKEY_COMPLETE)
+    struct user_modify_ctx *uctx = yctx;
+    if (!uctx || uctx->state != CB_USER_MODIFY_COMPLETE)
         return EINVAL;
+
+    if(uctx->quota_given) {
+        rc_ty s;
+        sx_priv_t role;
+        uint8_t requser[AUTH_UID_LEN];
+
+        /* Quota can only be changed by an admin user */
+        if(!has_priv(PRIV_ADMIN)) {
+            msg_set_reason("Permission denied: not enough privileges");
+            return EPERM;
+        }
+
+        if((s = sx_hashfs_get_user_by_name(hashfs, path, requser, 0)) != OK) {
+            if(s == ENOENT) {
+                msg_set_reason("No such user");
+                return ENOENT;
+            } else {
+                msg_set_reason("Failed to retrieve user '%s'", path);
+                return FAIL_EINTERNAL;
+            }
+        }
+
+        if(sx_hashfs_get_user_info(hashfs, requser, NULL, NULL, &role, NULL, NULL) != OK) {
+            msg_set_reason("Failed to retrieve user '%s'", path);
+            return FAIL_EINTERNAL;
+        }
+
+        /* Cannot set quota for admin users */
+        if(role & ~(PRIV_READ | PRIV_WRITE | PRIV_ACL)) {
+            msg_set_reason("Cannot set quota for admin user");
+            return EINVAL;
+        }
+
+        /* Quota can only be either 0 or as small as the smallest allowed volume size */
+        if(uctx->quota != QUOTA_UNLIMITED && uctx->quota < SXLIMIT_MIN_VOLUME_SIZE) {
+            msg_set_reason("Quota must be either 0 or at least %llu bytes", (long long)SXLIMIT_MIN_VOLUME_SIZE);
+            return EINVAL;
+        }
+    }
     return OK;
 }
 
-static int user_newkey_to_blob(sxc_client_t *sx, int nodes, void *yctx, sx_blob_t *joblb)
+static int user_modify_to_blob(sxc_client_t *sx, int nodes, void *yctx, sx_blob_t *joblb)
 {
-    struct user_newkey_ctx *uctx = yctx;
+    struct user_modify_ctx *uctx = yctx;
     uint8_t requser[AUTH_UID_LEN];
     uint8_t key[AUTH_KEY_LEN];
     sx_uid_t requid;
     sx_priv_t role;
+    int64_t oldquota;
     char *desc = NULL;
     rc_ty rc;
 
@@ -732,15 +851,18 @@ static int user_newkey_to_blob(sxc_client_t *sx, int nodes, void *yctx, sx_blob_
         msg_set_reason("cannot retrieve user: %s", path);
         return -1;
     }
-    if(sx_hashfs_get_user_info(hashfs, requser, &requid, key, &role, &desc) != OK) /* no such user */ {
+    if(sx_hashfs_get_user_info(hashfs, requser, &requid, key, &role, &desc, &oldquota) != OK) /* no such user */ {
         msg_set_reason("No such user");
         return -1;
     }
 
     if (sx_blob_add_string(joblb, path) ||
         sx_blob_add_blob(joblb, key, AUTH_KEY_LEN) ||
-        sx_blob_add_blob(joblb, uctx->auth, AUTH_KEY_LEN) ||\
-        sx_blob_add_string(joblb, desc)) {
+        sx_blob_add_blob(joblb, uctx->auth, AUTH_KEY_LEN) ||
+        sx_blob_add_int32(joblb, uctx->key_given) ||
+        sx_blob_add_int64(joblb, oldquota) ||
+        sx_blob_add_int64(joblb, uctx->quota) ||
+        sx_blob_add_int32(joblb, uctx->quota_given)) {
         msg_set_reason("Cannot create job blob");
         free(desc);
         return -1;
@@ -749,48 +871,61 @@ static int user_newkey_to_blob(sxc_client_t *sx, int nodes, void *yctx, sx_blob_
     return 0;
 }
 
-static sxi_query_t* user_newkey_proto_from_blob(sxc_client_t *sx, sx_blob_t *b, jobphase_t phase)
+static sxi_query_t* user_modify_proto_from_blob(sxc_client_t *sx, sx_blob_t *b, jobphase_t phase)
 {
     const char *name;
     const void *auth, *oldauth;
     unsigned auth_len, oldauth_len;
+    int64_t quota, oldquota;
+    int key_given, quota_given;
 
     if (sx_blob_get_string(b, &name) ||
 	sx_blob_get_blob(b, &oldauth, &oldauth_len) ||
 	sx_blob_get_blob(b, &auth, &auth_len) ||
+        sx_blob_get_int32(b, &key_given) ||
+        sx_blob_get_int64(b, &oldquota) ||
+        sx_blob_get_int64(b, &quota) ||
+        sx_blob_get_int32(b, &quota_given) ||
         auth_len != AUTH_KEY_LEN ||
         oldauth_len != AUTH_KEY_LEN) {
         WARN("Corrupt user blob");
         return NULL;
     }
+
     switch (phase) {
         case JOBPHASE_COMMIT:
-            return sxi_usernewkey_proto(sx, name, auth);
+            return sxi_usermod_proto(sx, name, key_given ? auth : NULL, quota_given ? quota : QUOTA_UNDEFINED);
         case JOBPHASE_ABORT:/* fall-through */
-            INFO("Newkey for user '%s': aborting", name);
-            return sxi_usernewkey_proto(sx, name, oldauth);
+            INFO("User '%s' modify: aborting", name);
+            return sxi_usermod_proto(sx, name, key_given ? oldauth : NULL, quota_given ? oldquota : QUOTA_UNDEFINED);
         case JOBPHASE_UNDO:
-            INFO("Newkey for user '%s': undoing", name);
-            return sxi_usernewkey_proto(sx, name, oldauth);
+            INFO("User '%s' modify: undoing", name);
+            return sxi_usermod_proto(sx, name, key_given ? oldauth : NULL, quota_given ? oldquota : QUOTA_UNDEFINED);
         default:
             return NULL;
     }
 }
 
-static rc_ty user_newkey_execute_blob(sx_hashfs_t *hashfs, sx_blob_t *b, jobphase_t phase, int remote)
+static rc_ty user_modify_execute_blob(sx_hashfs_t *h, sx_blob_t *b, jobphase_t phase, int remote)
 {
     const char *name;
     const void *auth, *oldauth;
     unsigned auth_len, oldauth_len;
+    int64_t quota, oldquota;
+    int key_given, quota_given;
     rc_ty rc = OK;
 
-    if (!hashfs || !b) {
+    if (!h || !b) {
         msg_set_reason("NULL arguments");
         return FAIL_EINTERNAL;
     }
     if (sx_blob_get_string(b, &name) ||
 	sx_blob_get_blob(b, &oldauth, &oldauth_len) ||
 	sx_blob_get_blob(b, &auth, &auth_len) ||
+        sx_blob_get_int32(b, &key_given) ||
+        sx_blob_get_int64(b, &oldquota) ||
+        sx_blob_get_int64(b, &quota) ||
+        sx_blob_get_int32(b, &quota_given) ||
         auth_len != AUTH_KEY_LEN) {
         msg_set_reason("Corrupted blob");
         return FAIL_EINTERNAL;
@@ -799,42 +934,42 @@ static rc_ty user_newkey_execute_blob(sx_hashfs_t *hashfs, sx_blob_t *b, jobphas
     switch (phase) {
         case JOBPHASE_REQUEST:
             /* remote */
-            DEBUG("user_newkey request '%s'", name);
-            rc = sx_hashfs_user_newkey(hashfs, name, auth, AUTH_KEY_LEN);
+            DEBUG("user_modify request '%s'", name);
+            rc = sx_hashfs_user_modify(h, name, key_given ? auth : NULL, key_given ? AUTH_KEY_LEN : 0, quota_given ? quota : QUOTA_UNDEFINED);
             if(rc == EINVAL)
                 return rc;
             if (rc != OK) {
-                msg_set_reason("Unable to change user key");
+                msg_set_reason("Unable to modify user");
                 rc = FAIL_EINTERNAL;
             }
             return rc;
         case JOBPHASE_COMMIT:
-            DEBUG("user_newkey commit '%s'", name);
-            rc = sx_hashfs_user_newkey(hashfs, name, auth, AUTH_KEY_LEN);
+            DEBUG("user_modify commit '%s'", name);
+            rc = sx_hashfs_user_modify(h, name, key_given ? auth : NULL, key_given ? AUTH_KEY_LEN : 0, quota_given ? quota : QUOTA_UNDEFINED);
             if(rc == EINVAL)
                 return rc;
             if (rc != OK) {
-                msg_set_reason("Unable to change user key");
+                msg_set_reason("Unable to modify user");
                 rc = FAIL_EINTERNAL;
             }
             return rc;
         case JOBPHASE_ABORT:
-            DEBUG("user_newkey abort '%s'", name);
-            rc = sx_hashfs_user_newkey(hashfs, name, oldauth, AUTH_KEY_LEN);
+            DEBUG("user_modify abort '%s'", name);
+            rc = sx_hashfs_user_modify(h, name, key_given ? oldauth : NULL, key_given ? AUTH_KEY_LEN : 0, quota_given ? oldquota : QUOTA_UNDEFINED);
             if(rc == EINVAL)
                 return rc;
             if (rc != OK) {
-                msg_set_reason("Unable to change user key");
+                msg_set_reason("Unable to modify user");
                 rc = FAIL_EINTERNAL;
             }
             return rc;
         case JOBPHASE_UNDO:
-            DEBUG("user_newkey undo '%s'", name);
-            rc = sx_hashfs_user_newkey(hashfs, name, oldauth, AUTH_KEY_LEN);
+            DEBUG("user_modify undo '%s'", name);
+            rc = sx_hashfs_user_modify(h, name, key_given ? oldauth : NULL, key_given ? AUTH_KEY_LEN : 0, quota_given ? oldquota : QUOTA_UNDEFINED);
             if(rc == EINVAL)
                 return rc;
             if (rc != OK) {
-                msg_set_reason("Unable to change user key");
+                msg_set_reason("Unable to modify user");
                 rc = FAIL_EINTERNAL;
             }
             return rc;
@@ -844,33 +979,39 @@ static rc_ty user_newkey_execute_blob(sx_hashfs_t *hashfs, sx_blob_t *b, jobphas
     }
 }
 
-const job_2pc_t user_newkey_spec = {
-    &user_newkey_ops_parser,
-    JOBTYPE_NEWKEY_USER,
-    user_newkey_parse_complete,
+const job_2pc_t user_modify_spec = {
+    &user_modify_ops_parser,
+    JOBTYPE_MODIFY_USER,
+    user_modify_parse_complete,
     user_get_lock,
-    user_newkey_to_blob,
-    user_newkey_execute_blob,
-    user_newkey_proto_from_blob,
+    user_modify_to_blob,
+    user_modify_execute_blob,
+    user_modify_proto_from_blob,
     user_nodes,
     user_timeout
 };
 
-void fcgi_user_newkey(void)
+void fcgi_user_modify(void)
 {
-    struct user_newkey_ctx uctx;
+    struct user_modify_ctx uctx;
     memset(&uctx, 0, sizeof(uctx));
+    uctx.quota = QUOTA_UNDEFINED;
 
-    job_2pc_handle_request(sx_hashfs_client(hashfs), &user_newkey_spec, &uctx);
+    if(sx_hashfs_check_username(path))
+        quit_errmsg(400, "Invalid username");
+    job_2pc_handle_request(sx_hashfs_client(hashfs), &user_modify_spec, &uctx);
 }
 
-static int print_user(sx_uid_t user_id, const char *username, const uint8_t *user, const uint8_t *key, int is_admin, const char *desc, void *ctx)
+static int print_user(sx_uid_t user_id, const char *username, const uint8_t *user, const uint8_t *key, int is_admin, const char *desc, int64_t quota, int64_t quota_usage, void *ctx)
 {
     int *first = ctx;
     if (!*first)
         CGI_PUTS(",");
     json_send_qstring(username);
-    CGI_PRINTF(":{\"admin\":%s", is_admin ? "true" : "false");
+    CGI_PRINTF(":{\"admin\":%s,\"userQuota\":", is_admin ? "true" : "false");
+    CGI_PUTLL(quota);
+    CGI_PRINTF(",\"userQuotaUsed\":");
+    CGI_PUTLL(quota_usage);
     if (desc) {
         CGI_PUTS(",\"userDesc\":");
         json_send_qstring(desc);

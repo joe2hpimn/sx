@@ -729,8 +729,8 @@ test_get 'the newly created volume for meta ', {'badauth'=>[401],$reader=>[200,'
 test_put_job 'volume creation (with bad meta)', admin_only(400), "badmeta.$vol", "{\"owner\":\"admin\",\"volumeSize\":$volumesize,\"volumeMeta\":{\"badval\":\"0dd\"}}";
 
 # Tiny volume will be used for volume size enforcement tests
-test_put_job "volume creation (tiny volume)", admin_only(200), "tiny$vol", "{\"volumeSize\":$tinyvolumesize,\"owner\":\"admin\"}";
-test_put_job 'granting rights on newly created volume', admin_only(200), "tiny$vol?o=acl", "{\"grant-read\":[\"$reader\",\"$writer\"],\"grant-write\":[\"$writer\"] }";
+test_put_job "volume creation (tiny volume)", admin_only(200), "tiny$vol", "{\"volumeSize\":$tinyvolumesize,\"owner\":\"$writer\"}";
+test_put_job 'granting rights on newly created volume', {'badauth'=>[401],$reader=>[403],$writer=>[200],'admin'=>[200]}, "tiny$vol?o=acl", "{\"grant-read\":[\"$reader\"],\"grant-write\":[] }";
 test_get 'the newly created volume', authed_only(200, 'application/json'), "tiny$vol", undef, sub { my $json = get_json(shift) or return 0; return is_int($json->{'volumeSize'}) && $json->{'volumeSize'} == $tinyvolumesize && is_hash($json->{'fileList'}) && scalar keys %{$json->{'fileList'}} == 0 };
 
 # Misc volume used to test user deletion and revisions
@@ -792,7 +792,34 @@ test_upload 'file upload: (exceeding volume capacity)', $writer, random_data($ti
 # Check if quota will be enforced also for file with metadata (-meta value length: 10/2=5, +1 byte to exceed)
 test_upload 'file upload (exceeding volume capacity (meta))', $writer, random_data($tinyvolumesize-length('toobig')-length('somemeta')-4), "tiny$vol", 'toobig', undef, {'somemeta'=> "ffaabb0011"}, 413;
 # This should return 200
-test_upload 'file upload (exceeding volume capacity (meta))', $writer, random_data($tinyvolumesize-length('toobig')-length('somemeta')-5), "tiny$vol", 'toobig', undef, {'somemeta'=> "ffaabb0011"};
+test_upload 'file upload (with meta, should not exceed volume capacity)', $writer, random_data($tinyvolumesize-length('toobig')-length('somemeta')-5), "tiny$vol", 'toobig', undef, {'somemeta'=> "ffaabb0011"};
+# Chceking volume owner quota handing
+test_delete_job "Wiping tiny$vol contents", {'badauth'=>[401],$reader=>[403],$writer=>[200]}, "tiny$vol/toobig";
+my $mediumvolumesize = $tinyvolumesize * 10;
+test_put_job "volume creation (medium volume)", admin_only(200), "medium$vol", "{\"volumeSize\":$mediumvolumesize,\"owner\":\"$writer\"}";
+test_get 'the newly created volume', {'badauth'=>[401],$reader=>[403],$writer=>[200, 'application/json'],'admin'=>[200, 'application/json']}, "medium$vol", undef, sub { my $json = get_json(shift) or return 0; return is_int($json->{'volumeSize'}) && $json->{'volumeSize'} == $mediumvolumesize && is_hash($json->{'fileList'}) && scalar keys %{$json->{'fileList'}} == 0 };
+# Check if we can change $writer quota
+test_put_job "setting owner quota for $writer", admin_only(200), ".users/$writer", "{\"quota\":$tinyvolumesize}";
+# Check if quota has been set up properly
+test_get "$writer qouta", admin_only(200,'application/json'), ".users/$writer?quota", undef, sub { my $json_raw = shift; my $json = get_json($json_raw) or return 0; return is_int($json->{'userQuota'}) && $json->{'userQuota'} == $tinyvolumesize; };
+# This should return 200
+test_upload 'file upload', $writer, random_data($tinyvolumesize-length('toobig')), "tiny$vol", 'toobig';
+# This file should not be allowed to be uploaded because $writer user quota will be exceeded (data on the other volume owned by $writer is present)
+test_upload 'file upload: (exceeding volume owner quota)', $writer, '', "medium$vol", 'empty', undef, {}, 413;
+test_delete_job "Wiping tiny$vol contents", {'badauth'=>[401],$reader=>[403],$writer=>[200]}, "tiny$vol/toobig";
+# This should return 200 now (file size is the length of file name)
+test_upload 'file upload', $writer, '', "medium$vol", 'empty';
+# This file should not be allowed to be uploaded because $writer user quota will be exceeded (data on the other volume owned by $writer is present)
+test_upload 'file upload (exceeding volume owner quota)', $writer, random_data($tinyvolumesize-length('toobig')), "tiny$vol", 'toobig', undef, {}, 413;
+# Check if we can disable $writer quota
+test_put_job "disabling owner quota for $writer", admin_only(200), ".users/$writer", "{\"quota\":0}";
+# Check if quota has been set up properly
+test_get "$writer qouta", admin_only(200,'application/json'), ".users/$writer?quota", undef, sub { my $json_raw = shift; my $json = get_json($json_raw) or return 0; return is_int($json->{'userQuota'}) && $json->{'userQuota'} == 0; };
+# This should return 200 now
+test_upload 'file upload', $writer, random_data($tinyvolumesize-length('toobig')), "tiny$vol", 'toobig';
+# Check incorrect $writer quota settings
+test_put_job "setting invalid quota for $writer (negative)", {'badauth'=>[401],$reader=>[403],$writer=>[403],'admin'=>[400]}, ".users/$writer", "{\"quota\":-1}";
+test_put_job "setting invalid quota for $writer (too small)", {'badauth'=>[401],$reader=>[403],$writer=>[403],'admin'=>[400]}, ".users/$writer", "{\"quota\":1048575}"; # 1MB is the lowest accepted value
 
 
 test_get 'listing all files', authed_only(200, 'application/json'), $vol, undef, sub { my $json = get_json(shift) or return 0; return is_int($json->{'volumeSize'}) && $json->{'volumeSize'} == $volumesize && is_int($json->{'replicaCount'}) && $json->{'replicaCount'} == 1 && is_hash($json->{'fileList'}) && is_hash($json->{'fileList'}->{'/empty'}) && is_int($json->{'fileList'}->{'/empty'}->{'fileSize'}) && $json->{'fileList'}->{'/empty'}->{'fileSize'} == 0 && is_int($json->{'fileList'}->{'/empty'}->{'blockSize'}) && $json->{'fileList'}->{'/empty'}->{'blockSize'} == 4096 && is_int($json->{'fileList'}->{'/empty'}->{'createdAt'}) && is_string($json->{'fileList'}->{'/empty'}->{'fileRevision'}) };

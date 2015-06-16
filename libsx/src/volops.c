@@ -1237,11 +1237,13 @@ struct cb_listusers_ctx {
     char *desc;
     struct cbl_user_t {
         int is_admin;
-	unsigned int namelen;
+        unsigned int namelen;
         unsigned int desclen;
+        int64_t quota;
+        int64_t quota_used;
     } usrdata;
 
-    enum listusers_state { LU_ERROR, LU_BEGIN, LU_NAME, LU_VALUES, LU_VALNAME, LU_ISADMIN, LU_DESC, LU_DONE, LU_COMPLETE } state;
+    enum listusers_state { LU_ERROR, LU_BEGIN, LU_NAME, LU_VALUES, LU_VALNAME, LU_ISADMIN, LU_DESC, LU_QUOTA, LU_QUOTA_USED, LU_DONE, LU_COMPLETE } state;
 };
 
 static int yacb_listusers_start_map(void *ctx) {
@@ -1333,6 +1335,14 @@ static int yacb_listusers_map_key(void *ctx, const unsigned char *s, size_t l) {
             yactx->state = LU_DESC;
             return 1;
         }
+        if(l == lenof("userQuota") && !memcmp(s, "userQuota", lenof("userQuota"))) {
+            yactx->state = LU_QUOTA;
+            return 1;
+        }
+        if(l == lenof("userQuotaUsed") && !memcmp(s, "userQuotaUsed", lenof("userQuotaUsed"))) {
+            yactx->state = LU_QUOTA_USED;
+            return 1;
+        }
 	CBDEBUG("unexpected usrdata key '%.*s'", (unsigned)l, s);
 	return 0;
     }
@@ -1376,6 +1386,38 @@ static int yacb_listusers_string(void *ctx, const unsigned char *s, size_t l) {
     return 0;
 }
 
+static int yacb_listusers_number(void *ctx, const char *s, size_t l) {
+    struct cb_listusers_ctx *yactx = (struct cb_listusers_ctx *)ctx;
+    char number[21], *enumb = NULL;
+    int64_t n;
+    if (yactx->state == LU_ERROR)
+        return 1;
+
+    if(l > 20) {
+        CBDEBUG("Quota too long");
+        sxi_cbdata_seterr(yactx->cbdata, SXE_ECOMM, "Failed to parse quota");
+        return 0;
+    }
+
+    memcpy(number, s, l);
+    number[l] = '\0';
+    n = strtoll(number, &enumb, 10);
+    if(enumb && *enumb) {
+        CBDEBUG("Failed to parse quota");
+        sxi_cbdata_seterr(yactx->cbdata, SXE_ECOMM, "Failed to parse quota");
+        return 0;
+    }
+    if (yactx->state == LU_QUOTA) {
+        yactx->usrdata.quota = n;
+        yactx->state = LU_VALNAME;
+        return 1;
+    } else if(yactx->state == LU_QUOTA_USED) {
+        yactx->usrdata.quota_used = n;
+        yactx->state = LU_VALNAME;
+        return 1;
+    }
+    return 0;
+}
 
 static int listusers_setup_cb(curlev_context_t *cbdata, void *ctx, const char *host) {
     struct cb_listusers_ctx *yactx = (struct cb_listusers_ctx *)ctx;
@@ -1416,7 +1458,7 @@ struct _sxc_cluster_lu_t {
     char *fname;
 };
 
-sxc_cluster_lu_t *cluster_listusers(sxc_cluster_t *cluster, const char *list_clones) {
+static sxc_cluster_lu_t *cluster_listusers(sxc_cluster_t *cluster, const char *list_clones) {
     sxc_client_t *sx = sxi_cluster_get_client(cluster);
     struct cb_listusers_ctx yctx;
     yajl_callbacks *yacb = &yctx.yacb;
@@ -1435,7 +1477,7 @@ sxc_cluster_lu_t *cluster_listusers(sxc_cluster_t *cluster, const char *list_clo
     yacb->yajl_boolean = yacb_listusers_bool;
     yacb->yajl_string  = yacb_listusers_string;
     yacb->yajl_end_map = yacb_listusers_end_map;
-
+    yacb->yajl_number = yacb_listusers_number;
     yctx.yh = NULL;
     yctx.usrname = NULL;
     yctx.desc = NULL;
@@ -1515,10 +1557,10 @@ sxc_cluster_lu_t *sxc_cluster_listusers(sxc_cluster_t *cluster) {
     return sxc_cluster_listclones(cluster, NULL);
 }
 
-int sxc_cluster_listusers_next(sxc_cluster_lu_t *lu, char **user_name, int *is_admin, char **desc) {
+int sxc_cluster_listusers_next(sxc_cluster_lu_t *lu, char **user_name, int *is_admin, char **desc, int64_t *quota, int64_t *quota_used) {
     struct cbl_user_t user;
     sxc_client_t *sx;
-    if (!lu || !user_name || !is_admin || !desc)
+    if (!lu || !user_name || !is_admin || !desc || !quota || !quota_used)
         return -1;
     *desc = NULL;
     sx = lu->sx;
@@ -1562,7 +1604,8 @@ int sxc_cluster_listusers_next(sxc_cluster_lu_t *lu, char **user_name, int *is_a
         return -1;
     }
     (*desc)[user.desclen] = '\0';
-
+    *quota = user.quota;
+    *quota_used = user.quota_used;
     *is_admin = user.is_admin;
 
     return 1;

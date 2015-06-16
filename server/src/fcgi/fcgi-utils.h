@@ -81,6 +81,7 @@ extern verb_t verb;
 extern uint8_t hashbuf[UPLOAD_CHUNK_SIZE];
 extern uint8_t user[AUTH_UID_LEN];
 extern sx_uid_t uid, common_id;
+extern int64_t user_quota;
 
 void send_server_info(void);
 void handle_request(void);

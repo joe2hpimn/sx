@@ -8,6 +8,7 @@ option  "config-dir"		c "Path to SX configuration directory"
         string typestr="PATH" optional hidden
 
 option  "clones"                - "List all clones of a given user" string typestr="NAME" optional
-option  "verbose"               v "Always list user descriptions" flag off
+option  "verbose"               v "Print additional details about the users" flag off
+option  "human-readable"        H "Print human readable sizes" flag off
 
 option  "debug"		D "Enable debug messages" flag off

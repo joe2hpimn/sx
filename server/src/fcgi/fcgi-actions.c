@@ -338,7 +338,7 @@ void file_ops(void) {
             if (memcmp(requser, user, sizeof(requser))) {
                 quit_unless_has(PRIV_ADMIN);
             }
-            fcgi_user_newkey();
+            fcgi_user_modify();
             return;
         }
 

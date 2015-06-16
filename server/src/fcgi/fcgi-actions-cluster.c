@@ -27,6 +27,7 @@
 
 #include "default.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 #include "fcgi-utils.h"
@@ -270,13 +271,31 @@ void fcgi_handle_cluster_requests(void) {
             quit_errmsg(rc2http(s), msg_get_reason());
         json_send_qstring(self);
         comma |= 1;
-    }
-    if(has_arg("role")) {
-        if(comma) CGI_PUTC(',');
-        CGI_PRINTF("\"role\":\"%s\"", has_priv(PRIV_ADMIN) ? "admin" : "normal");
-        comma |= 1;
-    }
 
+        if(has_arg("role"))
+            CGI_PRINTF(",\"role\":\"%s\"", has_priv(PRIV_ADMIN) ? "admin" : "normal");
+        if(has_arg("userDescription")) {
+            char *desc = NULL;
+            s = sx_hashfs_get_user_info(hashfs, user, NULL, NULL, NULL, &desc, NULL);
+            if (s != OK) {
+                free(desc);
+                quit_errmsg(rc2http(s), msg_get_reason());
+            }
+            CGI_PUTS(",\"userDesc\":");
+            json_send_qstring(desc);
+            free(desc);
+        }
+        if(has_arg("quota")) {
+            int64_t quota_used;
+            /* Get total usage of volumes owned by the user and its clones */
+            if((s = sx_hashfs_get_owner_quota_usage(hashfs, uid, NULL, &quota_used)) != OK)
+                quit_errmsg(rc2http(s), rc2str(s));
+            CGI_PRINTF(",\"userQuota\":");
+            CGI_PUTLL(user_quota);
+            CGI_PRINTF(",\"userQuotaUsed\":");
+            CGI_PUTLL(quota_used);
+        }
+    }
     /* MOAR COMMANDS HERE */
 
     CGI_PUTC('}');

@@ -199,6 +199,7 @@ int is_http_10(void) {
 
 uint8_t user[AUTH_UID_LEN], rhmac[20];
 sx_uid_t uid;
+int64_t user_quota;
 static sx_priv_t role;
 
 static enum authed_t { AUTH_NOTAUTH, AUTH_BODYCHECK, AUTH_BODYCHECKING, AUTH_OK } authed;
@@ -562,7 +563,7 @@ void handle_request(void) {
     memcpy(user, buf, sizeof(user));
     memcpy(rhmac, buf+20, sizeof(rhmac));
 
-    if(sx_hashfs_get_user_info(hashfs, user, &uid, key, &role, NULL) != OK) /* no such user */ {
+    if(sx_hashfs_get_user_info(hashfs, user, &uid, key, &role, NULL, &user_quota) != OK) /* no such user */ {
 	DEBUG("No such user: %s", param+4);
 	send_authreq();
 	return;

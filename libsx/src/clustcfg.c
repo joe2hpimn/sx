@@ -933,8 +933,11 @@ struct cb_whoami_ctx {
     struct cb_error_ctx errctx;
     char *whoami;
     char *role;
+    char *desc;
+    int64_t quota;
+    int64_t quota_used;
     yajl_handle yh;
-    enum whoami_state { FW_ERROR, FW_BEGIN, FW_CLUSTER, FW_WHOAMI, FW_ROLE, FW_COMPLETE } state;
+    enum whoami_state { FW_ERROR, FW_BEGIN, FW_CLUSTER, FW_WHOAMI, FW_ROLE, FW_DESC, FW_QUOTA, FW_QUOTA_USED, FW_COMPLETE } state;
 };
 #define expect_state(expst) do { if(yactx->state != (expst)) { CBDEBUG("bad state (in %d, expected %d)", yactx->state, expst); return 0; } } while(0)
 
@@ -972,6 +975,18 @@ static int yacb_whoami_map_key(void *ctx, const unsigned char *s, size_t l) {
 	}
         if(l == lenof("role") && !memcmp(s, "role", lenof("role"))) {
             yactx->state = FW_ROLE;
+            return 1;
+        }
+        if(l == lenof("userDesc") && !memcmp(s, "userDesc", lenof("userDesc"))) {
+            yactx->state = FW_DESC;
+            return 1;
+        }
+        if(l == lenof("userQuota") && !memcmp(s, "userQuota", lenof("userQuota"))) {
+            yactx->state = FW_QUOTA;
+            return 1;
+        }
+        if(l == lenof("userQuotaUsed") && !memcmp(s, "userQuotaUsed", lenof("userQuotaUsed"))) {
+            yactx->state = FW_QUOTA_USED;
             return 1;
         }
 	CBDEBUG("unexpected cluster key '%.*s'", (unsigned)l, s);
@@ -1015,7 +1030,53 @@ static int yacb_whoami_string(void *ctx, const unsigned char *s, size_t l) {
         memcpy(yactx->role, s, l);
         yactx->role[l] = '\0';
         yactx->state = FW_CLUSTER;
+    } else if(yactx->state == FW_DESC) {
+        if(!(yactx->desc = malloc(l+1))) {
+            CBDEBUG("OOM duplicating user role '%.*s'", (unsigned)l, s);
+            sxi_cbdata_seterr(yactx->cbdata, SXE_EMEM, "Out of memory");
+            return 0;
+        }
+
+        memcpy(yactx->desc, s, l);
+        yactx->desc[l] = '\0';
+        yactx->state = FW_CLUSTER;
     }
+    return 1;
+}
+
+static int yacb_whoami_number(void *ctx, const char *s, size_t l) {
+    struct cb_whoami_ctx *yactx = (struct cb_whoami_ctx *)ctx;
+    char number[21], *enumb = NULL;
+    int64_t n;
+    if(!ctx)
+        return 0;
+    if (yactx->state == FW_ERROR)
+        return 1;
+
+    if(l > 20) {
+        CBDEBUG("Invalid quota length");
+        sxi_cbdata_seterr(yactx->cbdata, SXE_EARG, "Invalid quota length");
+        return 0;
+    }
+    memcpy(number, s, l);
+    number[l] = '\0';
+    n = strtoll(number, &enumb, 10);
+    if(enumb && *enumb) {
+        CBDEBUG("Failed to parse quota");
+        sxi_cbdata_seterr(yactx->cbdata, SXE_EARG, "Failed to parse quota");
+        return 0;
+    }
+    if(n < 0) {
+        CBDEBUG("Quota cannot be negative");
+        sxi_cbdata_seterr(yactx->cbdata, SXE_EARG, "Quota cannot be negative");
+        return 0;
+    }
+    if(yactx->state == FW_QUOTA)
+        yactx->quota = n;
+    else if(yactx->state == FW_QUOTA_USED)
+        yactx->quota_used = n;
+
+    yactx->state = FW_CLUSTER;
     return 1;
 }
 
@@ -1050,6 +1111,9 @@ static int whoami_setup_cb(curlev_context_t *cbdata, void *ctx, const char *host
     yactx->cbdata = cbdata;
     yactx->whoami = NULL;
     yactx->role = NULL;
+    yactx->desc = NULL;
+    yactx->quota = -1;
+    yactx->quota_used = -1;
 
     return 0;
 }
@@ -1066,26 +1130,43 @@ static int whoami_cb(curlev_context_t *cbdata, void *ctx, const void *data, size
     return 0;
 }
 
-int sxc_cluster_whoami(sxc_cluster_t *cluster, char **user, char **role) {
+int sxc_cluster_whoami(sxc_cluster_t *cluster, char **user, char **role, char **desc, int64_t *quota, int64_t *quota_used) {
     struct cb_whoami_ctx yctx;
     yajl_callbacks *yacb = &yctx.yacb;
     sxc_client_t *sx = cluster->sx;
     int ret = -1;
+    char *url;
+    unsigned int len;
 
     if(!user) {
         sxi_seterr(sx, SXE_EARG, "NULL argument");
         return ret;
     }
 
+    memset(&yctx, 0, sizeof(yctx));
     ya_init(yacb);
     yacb->yajl_start_map = yacb_whoami_start_map;
     yacb->yajl_map_key = yacb_whoami_map_key;
     yacb->yajl_string = yacb_whoami_string;
     yacb->yajl_end_map = yacb_whoami_end_map;
+    yacb->yajl_number = yacb_whoami_number;
     yctx.yh = NULL;
 
+    len = lenof("?whoami") + 1;
+    if(role)
+        len += lenof("&role");
+    if(quota)
+        len += lenof("&quota");
+    if(desc)
+        len += lenof("&userDescription");
+    url = malloc(len);
+    if(!url) {
+        sxi_seterr(sx, SXE_EMEM, "Out of memory");
+        goto config_whoami_error;
+    }
+    snprintf(url, len, "?whoami%s%s%s", role ? "&role" : "", quota ? "&quota" : "", desc ? "&userDescription" : "");
     sxi_set_operation(sxi_cluster_get_client(cluster), "whoami", sxi_cluster_get_name(cluster), NULL, NULL);
-    if(sxi_cluster_query(cluster->conns, NULL, REQ_GET, role ? "?whoami&role" : "?whoami", NULL, 0, whoami_setup_cb, whoami_cb, &yctx) != 200) {
+    if(sxi_cluster_query(cluster->conns, NULL, REQ_GET, url, NULL, 0, whoami_setup_cb, whoami_cb, &yctx) != 200) {
 	SXDEBUG("query failed");
 	goto config_whoami_error;
     }
@@ -1108,6 +1189,21 @@ int sxc_cluster_whoami(sxc_cluster_t *cluster, char **user, char **role) {
         goto config_whoami_error;
     }
 
+    if(desc && (!yctx.desc)) {
+        sxi_seterr(sx, SXE_ECOMM, "Failed to get user description");
+        goto config_whoami_error;
+    }
+
+    if(quota && yctx.quota < 0) {
+        sxi_seterr(sx, SXE_ECOMM, "Failed to get user quota");
+        goto config_whoami_error;
+    }
+    if(quota_used && yctx.quota_used < 0) {
+        sxi_seterr(sx, SXE_ECOMM, "Failed to get user quota usage");
+        goto config_whoami_error;
+    }
+
+
     if(role)
         SXDEBUG("whoami: %s (%s)", yctx.whoami, yctx.role);
     else
@@ -1116,16 +1212,26 @@ int sxc_cluster_whoami(sxc_cluster_t *cluster, char **user, char **role) {
     *user = yctx.whoami;
     if(role)
         *role = yctx.role;
+    if(quota)
+        *quota = yctx.quota;
+    if(quota_used)
+        *quota_used = yctx.quota_used;
+    if(desc)
+        *desc = yctx.desc;
     ret = 0;
  config_whoami_error:
+    free(url);
     if(yctx.yh)
 	yajl_free(yctx.yh);
     if (ret) {
         free(yctx.whoami);
         free(yctx.role);
+        free(yctx.desc);
         *user = NULL;
         if(role)
             *role = NULL;
+        if(desc)
+            *desc = NULL;
     }
 
     return ret;
@@ -2909,7 +3015,7 @@ int sxc_pass2token(sxc_cluster_t *cluster, const char *username, const char *pas
     return 0;
 }
 
-static char *user_add(sxc_cluster_t *cluster, const char *username, const char *pass, int admin, const char *oldtoken, const char *existing, int *clone_role, const char *desc, int generate_key) {
+static char *user_add(sxc_cluster_t *cluster, const char *username, const char *pass, int admin, const char *oldtoken, const char *existing, int *clone_role, const char *desc, int generate_key, int64_t quota) {
     uint8_t buf[AUTH_UID_LEN + AUTH_KEY_LEN + 2], *uid = buf, *key = &buf[AUTH_UID_LEN];
     char *tok = NULL, *retkey = NULL;
     sxc_client_t *sx;
@@ -2964,7 +3070,7 @@ static char *user_add(sxc_cluster_t *cluster, const char *username, const char *
     if(existing)
         proto = sxi_userclone_proto(sx, existing, username, oldtoken ? uid : NULL, key, desc);
     else
-        proto = sxi_useradd_proto(sx, username, NULL, key, admin, desc);
+        proto = sxi_useradd_proto(sx, username, NULL, key, admin, desc, quota);
     if(!proto) {
 	cluster_err(SXE_EMEM, "Unable to allocate space for request data");
 	return NULL;
@@ -3024,12 +3130,12 @@ static char *user_add(sxc_cluster_t *cluster, const char *username, const char *
     return retkey;
 }
 
-char *sxc_user_add(sxc_cluster_t *cluster, const char *username, const char *pass, int admin, const char *oldtoken, const char *desc, int generate_key) {
-    return user_add(cluster, username, pass, admin, oldtoken, NULL, NULL, desc, generate_key);
+char *sxc_user_add(sxc_cluster_t *cluster, const char *username, const char *pass, int admin, const char *oldtoken, const char *desc, int generate_key, int64_t quota) {
+    return user_add(cluster, username, pass, admin, oldtoken, NULL, NULL, desc, generate_key, quota);
 }
 
 char *sxc_user_clone(sxc_cluster_t *cluster, const char *username, const char *clonename, const char *oldtoken, int *role, const char *desc) {
-    return user_add(cluster, clonename, NULL, 0, oldtoken, username, role, desc, oldtoken ? 0 : 1);
+    return user_add(cluster, clonename, NULL, 0, oldtoken, username, role, desc, oldtoken ? 0 : 1, 0);
 }
 
 char *sxc_user_newkey(sxc_cluster_t *cluster, const char *username, const char *pass, const char *oldtoken, int generate_key)
@@ -3151,7 +3257,7 @@ char *sxc_user_newkey(sxc_cluster_t *cluster, const char *username, const char *
     }
 
     /* Query */
-    proto = sxi_usernewkey_proto(sx, username, key);
+    proto = sxi_usermod_proto(sx, username, key, -1);
     if(!proto) {
 	cluster_err(SXE_EMEM, "Unable to allocate space for request data");
 	free(tok);
@@ -3211,8 +3317,32 @@ int sxc_user_remove(sxc_cluster_t *cluster, const char *username, int remove_clo
     return ret;
 }
 
+int sxc_user_setquota(sxc_cluster_t *cluster, const char *username, int64_t quota) {
+    sxi_query_t *query;
+    sxc_client_t *sx;
+    int ret;
+
+    if(!cluster)
+        return 1;
+    if(!username || !*username || quota < 0) {
+        cluster_err(SXE_EARG, "Invalid argument");
+        return 1;
+    }
+    sx = sxi_cluster_get_client(cluster);
+
+    query = sxi_usermod_proto(sx, username, NULL, quota);
+    if(!query)
+        return 1;
+
+    sxi_set_operation(sx, "modify user", NULL, NULL, NULL);
+    ret = sxi_job_submit_and_poll(sxi_cluster_get_conns(cluster), NULL, query->verb, query->path, query->content, query->content_len);
+
+    sxi_query_free(query);
+    return ret;
+}
+
 struct cb_userinfo_ctx {
-    enum userkey_state { USERINFO_ERROR, USERINFO_BEGIN, USERINFO_MAP, USERINFO_KEY, USERINFO_ID, USERINFO_ROLE, USERINFO_COMPLETE } state;
+    enum userkey_state { USERINFO_ERROR, USERINFO_BEGIN, USERINFO_MAP, USERINFO_KEY, USERINFO_ID, USERINFO_ROLE, USERINFO_QUOTA, USERINFO_COMPLETE } state;
     struct cb_error_ctx errctx;
     yajl_callbacks yacb;
     curlev_context_t *cbdata;
@@ -3220,6 +3350,7 @@ struct cb_userinfo_ctx {
     uint8_t token[AUTHTOK_BIN_LEN];
     FILE *f;
     char role[7];
+    int64_t quota;
 };
 
 static int userinfo_setup_cb(curlev_context_t *cbdata, void *ctx, const char *host)
@@ -3291,6 +3422,10 @@ static int yacb_userinfo_map_key(void *ctx, const unsigned char *s, size_t l) {
             yactx->state = USERINFO_ROLE;
             return 1;
         }
+        if(l == lenof("userQuota") && !memcmp(s, "userQuota", lenof("userQuota"))) {
+            yactx->state = USERINFO_QUOTA;
+            return 1;
+        }
 	return 1;
     }
 
@@ -3342,6 +3477,39 @@ static int yacb_userinfo_string(void *ctx, const unsigned char *s, size_t l) {
     return 0;
 }
 
+static int yacb_userinfo_number(void *ctx, const char *s, size_t l) {
+    struct cb_userinfo_ctx *yactx = ctx;
+    if(!ctx)
+        return 0;
+    if (yactx->state == USERINFO_ERROR)
+        return 1;
+
+    if(l<=0)
+        return 0;
+    if (yactx->state == USERINFO_MAP)
+        return 1;
+    if (yactx->state == USERINFO_QUOTA) {
+        char number[21], *enumb = NULL;
+
+        if(l > 20) {
+            CBDEBUG("Invalid quota length");
+            return 0;
+        }
+
+        memcpy(number, s, l);
+        number[l] = '\0';
+
+        yactx->quota = strtoll(number, &enumb, 10);
+        if(enumb && *enumb) {
+            CBDEBUG("Failed to parse quota");
+            return 0;
+        }
+        yactx->state = USERINFO_MAP;
+        return 1;
+    }
+    return 0;
+}
+
 static int yacb_userinfo_end_map(void *ctx) {
     struct cb_userinfo_ctx *yactx = ctx;
     if(!ctx)
@@ -3381,6 +3549,7 @@ int sxc_user_getinfo(sxc_cluster_t *cluster, const char *username, FILE *storeau
     yacb->yajl_map_key = yacb_userinfo_map_key;
     yacb->yajl_string = yacb_userinfo_string;
     yacb->yajl_end_map = yacb_userinfo_end_map;
+    yacb->yajl_number = yacb_userinfo_number;
     yctx.yh = NULL;
     yctx.f = storeauth;
 

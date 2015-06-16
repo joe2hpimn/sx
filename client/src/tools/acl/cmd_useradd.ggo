@@ -7,6 +7,7 @@ option "role" t "User type" values="admin","normal" enum default="normal" option
 option "auth-file" a "Store authentication token in given file (instead of stdout)" string optional
 option "pass-file" p "File containing user password (instead of stdin)" string optional
 option "description" d "Set the description of this user" string optional default=""
+option "quota" q "Set total quota for all volumes owned by this user (allows K,M,G,T suffixes)" typestr="SIZE" string optional
 
 section "Common options"
 

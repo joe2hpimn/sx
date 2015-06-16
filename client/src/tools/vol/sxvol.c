@@ -210,9 +210,11 @@ static int volume_create(sxc_client_t *sx, const char *owner)
 	void *cfgdata = NULL;
 	unsigned int cfgdata_len = 0;
 
-    size = sxi_parse_size(create_args.size_arg);
-    if(size <= 0) /* Bad size, message is printed already */
+    size = sxi_parse_size(sx, create_args.size_arg, 0);
+    if(size < 0) {
+        fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
         return 1;
+    }
 
     cluster = getcluster_common(sx, create_args.inputs[0], create_args.config_dir_arg, &uri);
     if(!cluster)
@@ -531,9 +533,11 @@ int main(int argc, char **argv) {
         }
 
         if(modify_args.size_given) {
-            size = sxi_parse_size(modify_args.size_arg);
-            if(size <= 0)
+            size = sxi_parse_size(sx, modify_args.size_arg, 0);
+            if(size < 0) {
+                fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
                 goto modify_err;
+            }
         }
 
         if(modify_args.max_revisions_given) {

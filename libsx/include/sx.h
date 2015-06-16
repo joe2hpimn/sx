@@ -132,7 +132,7 @@ int sxc_cluster_trigger_gc(sxc_cluster_t *cluster, int delete_reservations);
 typedef struct _sxc_cluster_lu_t sxc_cluster_lu_t;
 sxc_cluster_lu_t *sxc_cluster_listusers(sxc_cluster_t *cluster);
 sxc_cluster_lu_t *sxc_cluster_listclones(sxc_cluster_t *cluster, const char *username);
-int sxc_cluster_listusers_next(sxc_cluster_lu_t *lu, char **user_name, int *is_admin, char **desc);
+int sxc_cluster_listusers_next(sxc_cluster_lu_t *lu, char **user_name, int *is_admin, char **desc, int64_t *quota, int64_t *quota_used);
 void sxc_cluster_listusers_free(sxc_cluster_lu_t *lu);
 
 typedef struct _sxc_cluster_la_t sxc_cluster_la_t;
@@ -323,7 +323,7 @@ int sxc_prompt_password(sxc_client_t *sx, char *buff, unsigned int buff_len, con
 /* Return authentication token based on user name and password */
 int sxc_pass2token(sxc_cluster_t *cluster, const char *username, const char *password, char *tok_buf, unsigned int tok_size);
 
-char *sxc_user_add(sxc_cluster_t *cluster, const char *username, const char *pass, int admin, const char *oldtoken, const char *desc, int generate_key);
+char *sxc_user_add(sxc_cluster_t *cluster, const char *username, const char *pass, int admin, const char *oldtoken, const char *desc, int generate_key, int64_t quota);
 /*
  * Clone existing user
  * username: existing user name
@@ -336,8 +336,11 @@ char *sxc_user_clone(sxc_cluster_t *cluster, const char *username, const char *c
 int sxc_user_remove(sxc_cluster_t *cluster, const char *username, int remove_clones);
 int sxc_user_getinfo(sxc_cluster_t *cluster, const char *username, FILE *storeauth, int *is_admin, int get_config_link);
 char *sxc_user_newkey(sxc_cluster_t *cluster, const char *username, const char *pass, const char *oldtoken, int generate_key);
+/* Set quota for files stored in all volumes owned by the user. 
+ * Only non-negative values are allowed, when 0 is given, no quota enforcement will be performed for the user. */
+int sxc_user_setquota(sxc_cluster_t *cluster, const char *username, int64_t quota);
 
-int sxc_cluster_whoami(sxc_cluster_t *cluster, char **user, char **role);
+int sxc_cluster_whoami(sxc_cluster_t *cluster, char **user, char **role, char **desc, int64_t *quota, int64_t *quota_used);
 
 int sxc_volume_add(sxc_cluster_t *cluster, const char *name, int64_t size, unsigned int replica, unsigned int revisions, sxc_meta_t *metadata, const char *owner);
 int sxc_volume_remove(sxc_cluster_t *cluster, const char *name);
