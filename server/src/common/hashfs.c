@@ -6466,10 +6466,11 @@ rc_ty sx_hashfs_check_volume_settings(sx_hashfs_t *h, const char *volume, int64_
     return sx_hashfs_check_volume_size(h, size, replica);
 }
 
+static rc_ty get_priv_holder(sx_hashfs_t *h, uint64_t uid, const char *volume, int64_t *holder);
 rc_ty sx_hashfs_volume_new_finish(sx_hashfs_t *h, const char *volume, int64_t size, unsigned int replica, unsigned int revisions, sx_uid_t uid) {
     unsigned int reqlen = 0;
-    rc_ty ret = FAIL_EINTERNAL;
-    int64_t volid;
+    rc_ty ret = FAIL_EINTERNAL, s;
+    int64_t volid, privholder = -1;
     int r;
 
     if(!h) {
@@ -6525,8 +6526,17 @@ rc_ty sx_hashfs_volume_new_finish(sx_hashfs_t *h, const char *volume, int64_t si
 	}
     }
 
+    s = get_priv_holder(h, uid, volume, &privholder);
+    if(s != OK && s != ENOENT) {
+        WARN("Failed to get priv holder for %lld", (long long)uid);
+        ret = s;
+        goto volume_new_err;
+    }
+    if(s == ENOENT)
+        privholder = uid;
+
     if(qbind_int64(h->q_addvolprivs, ":volume", volid) ||
-       qbind_int64(h->q_addvolprivs, ":user", uid) ||
+       qbind_int64(h->q_addvolprivs, ":user", privholder) ||
        qbind_int(h->q_addvolprivs, ":priv", PRIV_READ | PRIV_WRITE) ||
        qstep_noret(h->q_addvolprivs))
 	goto volume_new_err;
@@ -6903,7 +6913,7 @@ rc_ty sx_hashfs_grant(sx_hashfs_t *h, uint64_t uid, const char *volume, int priv
         }
         if(rc == ENOENT)
             privholder = uid;
-        rc = OK;
+        rc = FAIL_EINTERNAL;
 	if (qbind_int64(q,":uid", privholder))
 	    break;
 	if (qbind_int64(q,":volid", vol->id))
@@ -6918,6 +6928,7 @@ rc_ty sx_hashfs_grant(sx_hashfs_t *h, uint64_t uid, const char *volume, int priv
             INFO("Granted '%s' permission to %lld on volume %s", (priv & PRIV_READ ? "read" : "write"), (long long)uid, volume);
         } else
             INFO("Granted '%s' permission to '%s' on volume %s", (priv & PRIV_READ ? "read" : "write"), name, volume);
+        rc = OK;
     } while(0);
     sqlite3_reset(q);
     return rc;
@@ -6947,6 +6958,7 @@ rc_ty sx_hashfs_revoke(sx_hashfs_t *h, uint64_t uid, const char *volume, int pri
         }
         if(rc == ENOENT)
             privholder = uid;
+        rc = FAIL_EINTERNAL;
 	if (qbind_int64(q,":uid", privholder))
 	    break;
 	if (qbind_int64(q,":volid", vol->id))
@@ -6961,6 +6973,7 @@ rc_ty sx_hashfs_revoke(sx_hashfs_t *h, uint64_t uid, const char *volume, int pri
             INFO("Revoked '%s' permission from %lld on volume %s", (~privmask & PRIV_READ ? "read" : "write"), (long long)uid, volume);
         } else
 	    INFO("Revoked '%s' permission from '%s' on volume %s", (~privmask & PRIV_READ ? "read" : "write"), name, volume);
+        rc = OK;
     } while(0);
     sqlite3_reset(q);
     return rc;
