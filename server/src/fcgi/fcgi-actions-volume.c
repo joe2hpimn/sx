@@ -863,7 +863,7 @@ void fcgi_create_volume(void) {
 	    }
 	}
 
-	s = sx_hashfs_volume_new_finish(hashfs, volume, yctx.volsize, yctx.replica, yctx.revisions, owner_uid);
+	s = sx_hashfs_volume_new_finish(hashfs, volume, yctx.volsize, yctx.replica, yctx.revisions, owner_uid, 1);
 	sx_blob_free(yctx.metablb);
 
 	switch (s) {

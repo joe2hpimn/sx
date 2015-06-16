@@ -202,7 +202,7 @@ rc_ty sx_hashfs_revoke(sx_hashfs_t *h, uint64_t uid, const char *volume, int pri
 /* Volume ops */
 void sx_hashfs_volume_new_begin(sx_hashfs_t *h);
 rc_ty sx_hashfs_volume_new_addmeta(sx_hashfs_t *h, const char *key, const void *value, unsigned int value_len);
-rc_ty sx_hashfs_volume_new_finish(sx_hashfs_t *h, const char *volume, int64_t size, unsigned int replica, unsigned int revisions, sx_uid_t owner_uid);
+rc_ty sx_hashfs_volume_new_finish(sx_hashfs_t *h, const char *volume, int64_t size, unsigned int replica, unsigned int revisions, sx_uid_t owner_uid, int do_transaction);
 /* Returns (and logs reason/error):
  *  - EFAULT
  *  - EINVAL

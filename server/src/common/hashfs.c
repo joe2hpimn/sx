@@ -6467,7 +6467,7 @@ rc_ty sx_hashfs_check_volume_settings(sx_hashfs_t *h, const char *volume, int64_
 }
 
 static rc_ty get_priv_holder(sx_hashfs_t *h, uint64_t uid, const char *volume, int64_t *holder);
-rc_ty sx_hashfs_volume_new_finish(sx_hashfs_t *h, const char *volume, int64_t size, unsigned int replica, unsigned int revisions, sx_uid_t uid) {
+rc_ty sx_hashfs_volume_new_finish(sx_hashfs_t *h, const char *volume, int64_t size, unsigned int replica, unsigned int revisions, sx_uid_t uid, int do_transaction) {
     unsigned int reqlen = 0;
     rc_ty ret = FAIL_EINTERNAL, s;
     int64_t volid, privholder = -1;
@@ -6482,7 +6482,7 @@ rc_ty sx_hashfs_volume_new_finish(sx_hashfs_t *h, const char *volume, int64_t si
     sqlite3_reset(h->q_addvolmeta);
     sqlite3_reset(h->q_addvolprivs);
 
-    if(qbegin(h->db))
+    if(do_transaction && qbegin(h->db))
 	return FAIL_EINTERNAL;
 
     /* Check volume size inside transaction to not fall into race */
@@ -6541,7 +6541,7 @@ rc_ty sx_hashfs_volume_new_finish(sx_hashfs_t *h, const char *volume, int64_t si
        qstep_noret(h->q_addvolprivs))
 	goto volume_new_err;
 
-    if(qcommit(h->db))
+    if(do_transaction && qcommit(h->db))
 	goto volume_new_err;
 
     ret = OK;
@@ -6551,7 +6551,7 @@ rc_ty sx_hashfs_volume_new_finish(sx_hashfs_t *h, const char *volume, int64_t si
     sqlite3_reset(h->q_addvolmeta);
     sqlite3_reset(h->q_addvolprivs);
 
-    if(ret != OK)
+    if(ret != OK && do_transaction)
 	qrollback(h->db);
 
     h->nmeta = 0;

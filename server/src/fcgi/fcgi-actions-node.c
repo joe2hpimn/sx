@@ -1286,7 +1286,7 @@ static int cb_sync_end_map(void *ctx) {
 	    return 0;
 	if(!c->revs)
 	    c->revs = 1;
-	s = sx_hashfs_volume_new_finish(hashfs, c->name, c->size, c->replica, c->revs, c->uid);
+	s = sx_hashfs_volume_new_finish(hashfs, c->name, c->size, c->replica, c->revs, c->uid, 0);
 	if(s != OK && s != EEXIST)
 	    return 0;
 	if(sx_hashfs_volume_enable(hashfs, c->name))
