@@ -491,4 +491,10 @@ rc_ty sx_hashfs_heal_update(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, const
 int sx_hashfs_has_upgrade_job(sx_hashfs_t *h);
 const char *sx_hashfs_heal_status_local(sx_hashfs_t *h);
 const char *sx_hashfs_heal_status_remote(sx_hashfs_t *h);
+
+
+rc_ty sx_hashfs_syncglobs_begin(sx_hashfs_t *h);
+void sx_hashfs_syncglobs_abort(sx_hashfs_t *h);
+rc_ty sx_hashfs_syncglobs_end(sx_hashfs_t *h);
+
 #endif

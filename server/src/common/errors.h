@@ -38,7 +38,6 @@ enum sx_error_t {
   FAIL_BADBLOCKSIZE,
   /* Replica less than 1 or greater than the number of nodes in the cluster */
   FAIL_BADREPLICA,
-  FAIL_VOLUME_EEXIST,
   FAIL_EINTERNAL,/* generic error */
   FAIL_EINIT,/* some initialization failed */
   FAIL_ETOOMANY, /* Used by rate limiting code */

@@ -869,7 +869,7 @@ void fcgi_create_volume(void) {
 	switch (s) {
 	case OK:
 	    break;
-	case FAIL_VOLUME_EEXIST:
+	case EEXIST:
 	    quit_errmsg(409, "Volume already exists");
 	case ENAMETOOLONG: /* FIXME: currently not returned */
 	    quit_errmsg(414, "Volume name too long");

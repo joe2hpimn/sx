@@ -1270,11 +1270,13 @@ static int cb_sync_map_key(void *ctx, const unsigned char *s, size_t l) {
 
 static int cb_sync_end_map(void *ctx) {
     struct cb_sync_ctx *c = (struct cb_sync_ctx *)ctx;
+    rc_ty s;
 
     if(c->state == CB_SYNC_USRKEY) {
 	if(!c->have_key || c->admin < 0 || !c->have_user)
 	    return 0;
-	if(sx_hashfs_create_user(hashfs, c->name, c->user, sizeof(c->user), c->key, sizeof(c->key), c->admin != 0, c->desc, c->quota))
+	s = sx_hashfs_create_user(hashfs, c->name, c->user, sizeof(c->user), c->key, sizeof(c->key), c->admin != 0, c->desc, c->quota);
+	if(s != OK && s != EEXIST)
 	    return 0;
 	if(sx_hashfs_user_onoff(hashfs, c->name, 1, 0))
 	    return 0;
@@ -1284,7 +1286,8 @@ static int cb_sync_end_map(void *ctx) {
 	    return 0;
 	if(!c->revs)
 	    c->revs = 1;
-	if(sx_hashfs_volume_new_finish(hashfs, c->name, c->size, c->replica, c->revs, c->uid))
+	s = sx_hashfs_volume_new_finish(hashfs, c->name, c->size, c->replica, c->revs, c->uid);
+	if(s != OK && s != EEXIST)
 	    return 0;
 	if(sx_hashfs_volume_enable(hashfs, c->name))
 	    return 0;
@@ -1332,21 +1335,29 @@ void fcgi_sync_globs(void) {
     if(!yh)
 	quit_errmsg(500, "Cannot allocate json parser");
 
-    /* MODHDIST: transaction starts here */
+    if(sx_hashfs_syncglobs_begin(hashfs))
+	quit_errmsg(503, "Failed to prepare object synchronization");
+
     int len;
     while((len = get_body_chunk(hashbuf, sizeof(hashbuf))) > 0)
 	if(yajl_parse(yh, hashbuf, len) != yajl_status_ok) break;
 
     if(len || yajl_complete_parse(yh) != yajl_status_ok || yctx.state != CB_SYNC_COMPLETE) {
 	yajl_free(yh);
-	/* MODHDIST: rollback here */
+	sx_hashfs_syncglobs_abort(hashfs);
 	quit_errmsg(400, "Invalid request content");
     }
     yajl_free(yh);
 
     auth_complete();
-    /* MODHDIST: commit if authed, rollback if unauthed */
-    quit_unless_authed();
+    if(!is_authed()) {
+	sx_hashfs_syncglobs_abort(hashfs);
+	send_authreq();
+	return;
+    }
+
+    if(sx_hashfs_syncglobs_end(hashfs))
+	quit_errmsg(503, "Failed to finalize object synchronization");
 
     CGI_PUTS("\r\n");
 }

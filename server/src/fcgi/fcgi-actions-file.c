@@ -389,17 +389,8 @@ void fcgi_create_file(void) {
     quit_unless_authed();
 
     s = sx_hashfs_createfile_commit(hashfs, volume, path, get_arg("rev"), yctx.filesize);
-    switch (s) {
-    case OK:
-	break;
-    case ENOENT:
-	quit_errnum(404);
-    case EINVAL:
-	quit_errnum(400);
-    default:
-	WARN("sx_hashfs_createfile_commit failed: %d", s);
-	quit_errmsg(500, "Cannot initialize file upload");
-    }
+    if(s != OK)
+	quit_errmsg(rc2http(s), msg_get_reason());
 
     CGI_PUTS("\r\n");
 }

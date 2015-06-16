@@ -6501,7 +6501,7 @@ rc_ty sx_hashfs_volume_new_finish(sx_hashfs_t *h, const char *volume, int64_t si
     if(r == SQLITE_CONSTRAINT) {
 	const sx_hashfs_volume_t *vol;
 	if(sx_hashfs_volume_by_name(h, volume, &vol) == OK)
-	    ret = FAIL_VOLUME_EEXIST;
+	    ret = EEXIST;
 	else
 	    ret = FAIL_LOCKED;
     }
@@ -8223,7 +8223,7 @@ static rc_ty delete_old_revs_common(sx_hashfs_t *h, const sx_hashfs_volume_t *vo
             if(revision) { /* If revision is given, then check if it is not outdated */
                 if(strcmp(revision, (const char *)sqlite3_column_text(h->qm_oldrevs[mdb], 0)) < 0) {
                     msg_set_reason("Newer copies of this file already exist");
-                    rc = EINVAL;
+                    rc = EEXIST;
                     break;
                 }
             }
@@ -8274,6 +8274,7 @@ static rc_ty create_file(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const
     unsigned int nblocks2;
     int r, mdb;
     sqlite3_stmt *q;
+    rc_ty s;
 
     if(!h || !volume || !name || !revision || (!blocks && nblocks)) {
 	NULLARG();
@@ -8325,9 +8326,11 @@ static rc_ty create_file(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const
     sqlite3_reset(q);
 
     /* Drop old exisiting revisions of the file */
-    if(delete_old_revs_common(h, volume, name, revision, 1, NULL) != OK) {
-        WARN("Failed to remove old revisions");
-        return FAIL_EINTERNAL;
+    s = delete_old_revs_common(h, volume, name, revision, 1, NULL);
+    if(s != OK) {
+	if(s != EEXIST)
+	    WARN("Failed to remove old revisions");
+        return s;
     }
 
     sx_hash_t revision_id;
@@ -14881,4 +14884,35 @@ const char *sx_hashfs_heal_status_remote(sx_hashfs_t *h)
             return "Error";
     }
     return NULL;
+}
+
+rc_ty sx_hashfs_syncglobs_begin(sx_hashfs_t *h) {
+    if(!h) {
+        NULLARG();
+        return EINVAL;
+    }
+
+    if(qbegin(h->db))
+	return FAIL_EINTERNAL;
+
+    return OK;
+}
+
+void sx_hashfs_syncglobs_abort(sx_hashfs_t *h) {
+    if(h)
+	qrollback(h->db);
+}
+
+rc_ty sx_hashfs_syncglobs_end(sx_hashfs_t *h) {
+    if(!h) {
+        NULLARG();
+        return EINVAL;
+    }
+
+    if(qcommit(h->db)) {
+	qrollback(h->db);
+	return FAIL_EINTERNAL;
+    }
+
+    return OK;
 }

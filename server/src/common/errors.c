@@ -43,8 +43,6 @@ const char *rc2str(rc_ty rc)
 	    return "Bad blocksize";
 	case FAIL_BADREPLICA:
 	    return "Bad replica count";
-	case FAIL_VOLUME_EEXIST:
-	    return "Volume already exists";
 	case FAIL_LOCKED:
 	    return "Resource is temporarily locked";
 	case FAIL_EINTERNAL:
@@ -75,7 +73,6 @@ int rc2http(rc_ty rc) {
 
     case EEXIST:
     case ENOTEMPTY:
-    case FAIL_VOLUME_EEXIST:
     case FAIL_LOCKED:
 	return 409;
 
