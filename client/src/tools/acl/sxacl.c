@@ -480,15 +480,15 @@ static int volume_acl(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_uri_t *uri, 
     return ret;
 }
 
-static int change_quota(sxc_client_t *sx, sxc_cluster_t *cluster, const char *user, int64_t quota) {
+static int modify_user(sxc_client_t *sx, sxc_cluster_t *cluster, const char *user, int64_t quota, const char *desc) {
     int ret;
 
-    if(!user || quota < 0) {
+    if(!user || (quota == -1 && !desc) || quota < -1) {
         fprintf(stderr, "ERROR: Invalid argument\n");
         return 1;
     }
 
-    ret = sxc_user_setquota(cluster, user, quota);
+    ret = sxc_user_modify(cluster, user, quota, desc);
     if(ret) {
         fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
         return ret;
@@ -724,7 +724,7 @@ int main(int argc, char **argv) {
             usernewkey_cmdline_parser_free(&args);
         } else if (!strcmp(argv[1], "usermod")) {
             struct usermod_args_info args;
-            int64_t quota;
+            int64_t quota = -1;
 
             if (usermod_cmdline_parser(argc - 1, &argv[1], &args)) {
                 ret = 1;
@@ -740,7 +740,7 @@ int main(int argc, char **argv) {
                 break;
             }
             sxc_set_debug(sx, args.debug_flag);
-            if (args.inputs_num != 2 || !args.quota_given) {
+            if (args.inputs_num != 2) {
                 usermod_cmdline_parser_print_help();
                 printf("\n");
                 fprintf(stderr, "ERROR: Wrong number of arguments\n");
@@ -753,14 +753,17 @@ int main(int argc, char **argv) {
                 break;
             }
 
-            quota = sxi_parse_size(sx, args.quota_arg, 1);
-            if(quota < 0) {
-                fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
-                ret = 1;
-                break;
+            if(args.quota_given) {
+                quota = sxi_parse_size(sx, args.quota_arg, 1);
+                if(quota < 0) {
+                    fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
+                    ret = 1;
+                    break;
+                }
+
             }
 
-            ret = change_quota(sx, cluster, args.inputs[0], quota);
+            ret = modify_user(sx, cluster, args.inputs[0], quota, args.description_given ? args.description_arg : NULL);
             if(ret)
                 break;
             usermod_cmdline_parser_free(&args);

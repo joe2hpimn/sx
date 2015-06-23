@@ -4,6 +4,7 @@ usage "sxacl usermod [OPTIONS] <username> sx://[profile@]cluster"
 
 section "User modification options"
 option "quota" - "Set total quota for all volumes owned by <username> (allows K,M,G,T suffixes)" typestr="SIZE" string optional
+option "description" d "Set description of the user" string optional
 
 section "Common options"
 

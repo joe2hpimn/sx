@@ -338,7 +338,7 @@ int sxc_user_getinfo(sxc_cluster_t *cluster, const char *username, FILE *storeau
 char *sxc_user_newkey(sxc_cluster_t *cluster, const char *username, const char *pass, const char *oldtoken, int generate_key);
 /* Set quota for files stored in all volumes owned by the user. 
  * Only non-negative values are allowed, when 0 is given, no quota enforcement will be performed for the user. */
-int sxc_user_setquota(sxc_cluster_t *cluster, const char *username, int64_t quota);
+int sxc_user_modify(sxc_cluster_t *cluster, const char *username, int64_t quota, const char *description);
 
 int sxc_cluster_whoami(sxc_cluster_t *cluster, char **user, char **role, char **desc, int64_t *quota, int64_t *quota_used);
 

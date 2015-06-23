@@ -673,9 +673,10 @@ void fcgi_create_user(void)
 
 struct user_modify_ctx {
     uint8_t auth[AUTH_KEY_LEN];
-    int key_given, quota_given;
+    int key_given, quota_given, desc_given;
     int64_t quota;
-    enum user_modify_state { CB_USER_MODIFY_START=0, CB_USER_MODIFY_AUTH, CB_USER_MODIFY_QUOTA, CB_USER_MODIFY_KEY, CB_USER_MODIFY_COMPLETE } state;
+    char description[SXLIMIT_META_MAX_VALUE_LEN+1];
+    enum user_modify_state { CB_USER_MODIFY_START=0, CB_USER_MODIFY_AUTH, CB_USER_MODIFY_QUOTA, CB_USER_MODIFY_KEY, CB_USER_MODIFY_DESC, CB_USER_MODIFY_COMPLETE } state;
 };
 
 static int cb_user_modify_string(void *ctx, const unsigned char *s, size_t l) {
@@ -697,6 +698,17 @@ static int cb_user_modify_string(void *ctx, const unsigned char *s, size_t l) {
                 uctx->key_given = 1;
 		break;
 	    }
+        case CB_USER_MODIFY_DESC:
+            {
+                if(l > SXLIMIT_META_MAX_VALUE_LEN) {
+                    INFO("Bad description length %ld", l);
+                    return 0;
+                }
+                memcpy(uctx->description, s, l);
+                uctx->description[l] = '\0';
+                uctx->desc_given = 1;
+                break;
+            }
 	default:
 	    return 0;
     }
@@ -744,6 +756,10 @@ static int cb_user_modify_map_key(void *ctx, const unsigned char *s, size_t l) {
             c->state = CB_USER_MODIFY_QUOTA;
             return 1;
         }
+        if(l == lenof("desc") && !strncmp("desc", (const char*)s, l)) {
+            c->state = CB_USER_MODIFY_DESC;
+            return 1;
+        }
     }
     return 0;
 }
@@ -786,16 +802,18 @@ static rc_ty user_modify_parse_complete(void *yctx)
     if (!uctx || uctx->state != CB_USER_MODIFY_COMPLETE)
         return EINVAL;
 
-    if(uctx->quota_given) {
-        rc_ty s;
-        sx_priv_t role;
-        uint8_t requser[AUTH_UID_LEN];
-
-        /* Quota can only be changed by an admin user */
+    if(uctx->quota_given || uctx->desc_given) {
+        /* Quota and description can only be changed by an admin user */
         if(!has_priv(PRIV_ADMIN)) {
             msg_set_reason("Permission denied: not enough privileges");
             return EPERM;
         }
+    }
+
+    if(uctx->quota_given) {
+        rc_ty s;
+        sx_priv_t role;
+        uint8_t requser[AUTH_UID_LEN];
 
         if((s = sx_hashfs_get_user_by_name(hashfs, path, requser, 0)) != OK) {
             if(s == ENOENT) {
@@ -835,7 +853,7 @@ static int user_modify_to_blob(sxc_client_t *sx, int nodes, void *yctx, sx_blob_
     sx_uid_t requid;
     sx_priv_t role;
     int64_t oldquota;
-    char *desc = NULL;
+    char *olddesc = NULL;
     rc_ty rc;
 
     if (!joblb) {
@@ -851,7 +869,7 @@ static int user_modify_to_blob(sxc_client_t *sx, int nodes, void *yctx, sx_blob_
         msg_set_reason("cannot retrieve user: %s", path);
         return -1;
     }
-    if(sx_hashfs_get_user_info(hashfs, requser, &requid, key, &role, &desc, &oldquota) != OK) /* no such user */ {
+    if(sx_hashfs_get_user_info(hashfs, requser, &requid, key, &role, &olddesc, &oldquota) != OK) /* no such user */ {
         msg_set_reason("No such user");
         return -1;
     }
@@ -862,22 +880,25 @@ static int user_modify_to_blob(sxc_client_t *sx, int nodes, void *yctx, sx_blob_
         sx_blob_add_int32(joblb, uctx->key_given) ||
         sx_blob_add_int64(joblb, oldquota) ||
         sx_blob_add_int64(joblb, uctx->quota) ||
-        sx_blob_add_int32(joblb, uctx->quota_given)) {
+        sx_blob_add_int32(joblb, uctx->quota_given) ||
+        sx_blob_add_string(joblb, olddesc) ||
+        sx_blob_add_string(joblb, uctx->description) ||
+        sx_blob_add_int32(joblb, uctx->desc_given)) {
         msg_set_reason("Cannot create job blob");
-        free(desc);
+        free(olddesc);
         return -1;
     }
-    free(desc);
+    free(olddesc);
     return 0;
 }
 
 static sxi_query_t* user_modify_proto_from_blob(sxc_client_t *sx, sx_blob_t *b, jobphase_t phase)
 {
-    const char *name;
+    const char *name, *olddesc, *desc;
     const void *auth, *oldauth;
     unsigned auth_len, oldauth_len;
     int64_t quota, oldquota;
-    int key_given, quota_given;
+    int key_given, quota_given, desc_given;
 
     if (sx_blob_get_string(b, &name) ||
 	sx_blob_get_blob(b, &oldauth, &oldauth_len) ||
@@ -886,21 +907,25 @@ static sxi_query_t* user_modify_proto_from_blob(sxc_client_t *sx, sx_blob_t *b, 
         sx_blob_get_int64(b, &oldquota) ||
         sx_blob_get_int64(b, &quota) ||
         sx_blob_get_int32(b, &quota_given) ||
+        sx_blob_get_string(b, &olddesc) ||
+        sx_blob_get_string(b, &desc) ||
+        sx_blob_get_int32(b, &desc_given) ||
         auth_len != AUTH_KEY_LEN ||
-        oldauth_len != AUTH_KEY_LEN) {
+        oldauth_len != AUTH_KEY_LEN ||
+        (desc_given && (!olddesc || !desc))) {
         WARN("Corrupt user blob");
         return NULL;
     }
 
     switch (phase) {
         case JOBPHASE_COMMIT:
-            return sxi_usermod_proto(sx, name, key_given ? auth : NULL, quota_given ? quota : QUOTA_UNDEFINED);
+            return sxi_usermod_proto(sx, name, key_given ? auth : NULL, quota_given ? quota : QUOTA_UNDEFINED, desc_given ? desc : NULL);
         case JOBPHASE_ABORT:/* fall-through */
             INFO("User '%s' modify: aborting", name);
-            return sxi_usermod_proto(sx, name, key_given ? oldauth : NULL, quota_given ? oldquota : QUOTA_UNDEFINED);
+            return sxi_usermod_proto(sx, name, key_given ? oldauth : NULL, quota_given ? oldquota : QUOTA_UNDEFINED, desc_given ? olddesc : NULL);
         case JOBPHASE_UNDO:
             INFO("User '%s' modify: undoing", name);
-            return sxi_usermod_proto(sx, name, key_given ? oldauth : NULL, quota_given ? oldquota : QUOTA_UNDEFINED);
+            return sxi_usermod_proto(sx, name, key_given ? oldauth : NULL, quota_given ? oldquota : QUOTA_UNDEFINED, desc_given ? olddesc : NULL);
         default:
             return NULL;
     }
@@ -908,11 +933,11 @@ static sxi_query_t* user_modify_proto_from_blob(sxc_client_t *sx, sx_blob_t *b, 
 
 static rc_ty user_modify_execute_blob(sx_hashfs_t *h, sx_blob_t *b, jobphase_t phase, int remote)
 {
-    const char *name;
+    const char *name, *olddesc, *desc;
     const void *auth, *oldauth;
     unsigned auth_len, oldauth_len;
     int64_t quota, oldquota;
-    int key_given, quota_given;
+    int key_given, quota_given, desc_given;
     rc_ty rc = OK;
 
     if (!h || !b) {
@@ -926,7 +951,11 @@ static rc_ty user_modify_execute_blob(sx_hashfs_t *h, sx_blob_t *b, jobphase_t p
         sx_blob_get_int64(b, &oldquota) ||
         sx_blob_get_int64(b, &quota) ||
         sx_blob_get_int32(b, &quota_given) ||
-        auth_len != AUTH_KEY_LEN) {
+        sx_blob_get_string(b, &olddesc) ||
+        sx_blob_get_string(b, &desc) ||
+        sx_blob_get_int32(b, &desc_given) ||
+        auth_len != AUTH_KEY_LEN ||
+        (desc_given && (!olddesc || !desc))) {
         msg_set_reason("Corrupted blob");
         return FAIL_EINTERNAL;
     }
@@ -935,7 +964,7 @@ static rc_ty user_modify_execute_blob(sx_hashfs_t *h, sx_blob_t *b, jobphase_t p
         case JOBPHASE_REQUEST:
             /* remote */
             DEBUG("user_modify request '%s'", name);
-            rc = sx_hashfs_user_modify(h, name, key_given ? auth : NULL, key_given ? AUTH_KEY_LEN : 0, quota_given ? quota : QUOTA_UNDEFINED);
+            rc = sx_hashfs_user_modify(h, name, key_given ? auth : NULL, key_given ? AUTH_KEY_LEN : 0, quota_given ? quota : QUOTA_UNDEFINED, desc_given ? desc : NULL);
             if(rc == EINVAL)
                 return rc;
             if (rc != OK) {
@@ -945,7 +974,7 @@ static rc_ty user_modify_execute_blob(sx_hashfs_t *h, sx_blob_t *b, jobphase_t p
             return rc;
         case JOBPHASE_COMMIT:
             DEBUG("user_modify commit '%s'", name);
-            rc = sx_hashfs_user_modify(h, name, key_given ? auth : NULL, key_given ? AUTH_KEY_LEN : 0, quota_given ? quota : QUOTA_UNDEFINED);
+            rc = sx_hashfs_user_modify(h, name, key_given ? auth : NULL, key_given ? AUTH_KEY_LEN : 0, quota_given ? quota : QUOTA_UNDEFINED, desc_given ? desc : NULL);
             if(rc == EINVAL)
                 return rc;
             if (rc != OK) {
@@ -955,7 +984,7 @@ static rc_ty user_modify_execute_blob(sx_hashfs_t *h, sx_blob_t *b, jobphase_t p
             return rc;
         case JOBPHASE_ABORT:
             DEBUG("user_modify abort '%s'", name);
-            rc = sx_hashfs_user_modify(h, name, key_given ? oldauth : NULL, key_given ? AUTH_KEY_LEN : 0, quota_given ? oldquota : QUOTA_UNDEFINED);
+            rc = sx_hashfs_user_modify(h, name, key_given ? oldauth : NULL, key_given ? AUTH_KEY_LEN : 0, quota_given ? oldquota : QUOTA_UNDEFINED, desc_given ? olddesc : NULL);
             if(rc == EINVAL)
                 return rc;
             if (rc != OK) {
@@ -965,7 +994,7 @@ static rc_ty user_modify_execute_blob(sx_hashfs_t *h, sx_blob_t *b, jobphase_t p
             return rc;
         case JOBPHASE_UNDO:
             DEBUG("user_modify undo '%s'", name);
-            rc = sx_hashfs_user_modify(h, name, key_given ? oldauth : NULL, key_given ? AUTH_KEY_LEN : 0, quota_given ? oldquota : QUOTA_UNDEFINED);
+            rc = sx_hashfs_user_modify(h, name, key_given ? oldauth : NULL, key_given ? AUTH_KEY_LEN : 0, quota_given ? oldquota : QUOTA_UNDEFINED, desc_given ? olddesc : NULL);
             if(rc == EINVAL)
                 return rc;
             if (rc != OK) {

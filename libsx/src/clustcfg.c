@@ -3257,7 +3257,7 @@ char *sxc_user_newkey(sxc_cluster_t *cluster, const char *username, const char *
     }
 
     /* Query */
-    proto = sxi_usermod_proto(sx, username, key, -1);
+    proto = sxi_usermod_proto(sx, username, key, -1, NULL);
     if(!proto) {
 	cluster_err(SXE_EMEM, "Unable to allocate space for request data");
 	free(tok);
@@ -3317,20 +3317,20 @@ int sxc_user_remove(sxc_cluster_t *cluster, const char *username, int remove_clo
     return ret;
 }
 
-int sxc_user_setquota(sxc_cluster_t *cluster, const char *username, int64_t quota) {
+int sxc_user_modify(sxc_cluster_t *cluster, const char *username, int64_t quota, const char *description) {
     sxi_query_t *query;
     sxc_client_t *sx;
     int ret;
 
     if(!cluster)
         return 1;
-    if(!username || !*username || quota < 0) {
+    if(!username || !*username || quota < -1 || (quota == -1 && !description)) {
         cluster_err(SXE_EARG, "Invalid argument");
         return 1;
     }
     sx = sxi_cluster_get_client(cluster);
 
-    query = sxi_usermod_proto(sx, username, NULL, quota);
+    query = sxi_usermod_proto(sx, username, NULL, quota, description);
     if(!query)
         return 1;
 

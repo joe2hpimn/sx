@@ -34,14 +34,15 @@ const char *usermod_args_info_versiontext = "";
 const char *usermod_args_info_description = "";
 
 const char *usermod_args_info_full_help[] = {
-  "  -h, --help             Print help and exit",
-  "      --full-help        Print help, including hidden options, and exit",
-  "  -V, --version          Print version and exit",
+  "  -h, --help                Print help and exit",
+  "      --full-help           Print help, including hidden options, and exit",
+  "  -V, --version             Print version and exit",
   "\nUser modification options:",
-  "      --quota=SIZE       Set total quota for all volumes owned by <username>\n                           (allows K,M,G,T suffixes)",
+  "      --quota=SIZE          Set total quota for all volumes owned by <username>\n                              (allows K,M,G,T suffixes)",
+  "  -d, --description=STRING  Set description of the user",
   "\nCommon options:",
-  "  -c, --config-dir=PATH  Path to SX configuration directory",
-  "  -D, --debug            Enable debug messages  (default=off)",
+  "  -c, --config-dir=PATH     Path to SX configuration directory",
+  "  -D, --debug               Enable debug messages  (default=off)",
     0
 };
 
@@ -54,12 +55,13 @@ init_help_array(void)
   usermod_args_info_help[3] = usermod_args_info_full_help[3];
   usermod_args_info_help[4] = usermod_args_info_full_help[4];
   usermod_args_info_help[5] = usermod_args_info_full_help[5];
-  usermod_args_info_help[6] = usermod_args_info_full_help[7];
-  usermod_args_info_help[7] = 0; 
+  usermod_args_info_help[6] = usermod_args_info_full_help[6];
+  usermod_args_info_help[7] = usermod_args_info_full_help[8];
+  usermod_args_info_help[8] = 0; 
   
 }
 
-const char *usermod_args_info_help[8];
+const char *usermod_args_info_help[9];
 
 typedef enum {ARG_NO
   , ARG_FLAG
@@ -86,6 +88,7 @@ void clear_given (struct usermod_args_info *args_info)
   args_info->full_help_given = 0 ;
   args_info->version_given = 0 ;
   args_info->quota_given = 0 ;
+  args_info->description_given = 0 ;
   args_info->config_dir_given = 0 ;
   args_info->debug_given = 0 ;
 }
@@ -96,6 +99,8 @@ void clear_args (struct usermod_args_info *args_info)
   FIX_UNUSED (args_info);
   args_info->quota_arg = NULL;
   args_info->quota_orig = NULL;
+  args_info->description_arg = NULL;
+  args_info->description_orig = NULL;
   args_info->config_dir_arg = NULL;
   args_info->config_dir_orig = NULL;
   args_info->debug_flag = 0;
@@ -111,8 +116,9 @@ void init_args_info(struct usermod_args_info *args_info)
   args_info->full_help_help = usermod_args_info_full_help[1] ;
   args_info->version_help = usermod_args_info_full_help[2] ;
   args_info->quota_help = usermod_args_info_full_help[4] ;
-  args_info->config_dir_help = usermod_args_info_full_help[6] ;
-  args_info->debug_help = usermod_args_info_full_help[7] ;
+  args_info->description_help = usermod_args_info_full_help[5] ;
+  args_info->config_dir_help = usermod_args_info_full_help[7] ;
+  args_info->debug_help = usermod_args_info_full_help[8] ;
   
 }
 
@@ -210,6 +216,8 @@ usermod_cmdline_parser_release (struct usermod_args_info *args_info)
   unsigned int i;
   free_string_field (&(args_info->quota_arg));
   free_string_field (&(args_info->quota_orig));
+  free_string_field (&(args_info->description_arg));
+  free_string_field (&(args_info->description_orig));
   free_string_field (&(args_info->config_dir_arg));
   free_string_field (&(args_info->config_dir_orig));
   
@@ -255,6 +263,8 @@ usermod_cmdline_parser_dump(FILE *outfile, struct usermod_args_info *args_info)
     write_into_file(outfile, "version", 0, 0 );
   if (args_info->quota_given)
     write_into_file(outfile, "quota", args_info->quota_orig, 0);
+  if (args_info->description_given)
+    write_into_file(outfile, "description", args_info->description_orig, 0);
   if (args_info->config_dir_given)
     write_into_file(outfile, "config-dir", args_info->config_dir_orig, 0);
   if (args_info->debug_given)
@@ -491,12 +501,13 @@ usermod_cmdline_parser_internal (
         { "full-help",	0, NULL, 0 },
         { "version",	0, NULL, 'V' },
         { "quota",	1, NULL, 0 },
+        { "description",	1, NULL, 'd' },
         { "config-dir",	1, NULL, 'c' },
         { "debug",	0, NULL, 'D' },
         { 0,  0, 0, 0 }
       };
 
-      c = getopt_long (argc, argv, "hVc:D", long_options, &option_index);
+      c = getopt_long (argc, argv, "hVd:c:D", long_options, &option_index);
 
       if (c == -1) break;	/* Exit from `while (1)' loop.  */
 
@@ -519,6 +530,18 @@ usermod_cmdline_parser_internal (
             goto failure;
           usermod_cmdline_parser_free (&local_args_info);
           return 0;
+        
+          break;
+        case 'd':	/* Set description of the user.  */
+        
+        
+          if (update_arg( (void *)&(args_info->description_arg), 
+               &(args_info->description_orig), &(args_info->description_given),
+              &(local_args_info.description_given), optarg, 0, 0, ARG_STRING,
+              check_ambiguity, override, 0, 0,
+              "description", 'd',
+              additional_error))
+            goto failure;
         
           break;
         case 'c':	/* Path to SX configuration directory.  */

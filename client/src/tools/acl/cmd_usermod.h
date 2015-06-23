@@ -43,6 +43,9 @@ struct usermod_args_info
   char * quota_arg;	/**< @brief Set total quota for all volumes owned by <username> (allows K,M,G,T suffixes).  */
   char * quota_orig;	/**< @brief Set total quota for all volumes owned by <username> (allows K,M,G,T suffixes) original value given at command line.  */
   const char *quota_help; /**< @brief Set total quota for all volumes owned by <username> (allows K,M,G,T suffixes) help description.  */
+  char * description_arg;	/**< @brief Set description of the user.  */
+  char * description_orig;	/**< @brief Set description of the user original value given at command line.  */
+  const char *description_help; /**< @brief Set description of the user help description.  */
   char * config_dir_arg;	/**< @brief Path to SX configuration directory.  */
   char * config_dir_orig;	/**< @brief Path to SX configuration directory original value given at command line.  */
   const char *config_dir_help; /**< @brief Path to SX configuration directory help description.  */
@@ -53,6 +56,7 @@ struct usermod_args_info
   unsigned int full_help_given ;	/**< @brief Whether full-help was given.  */
   unsigned int version_given ;	/**< @brief Whether version was given.  */
   unsigned int quota_given ;	/**< @brief Whether quota was given.  */
+  unsigned int description_given ;	/**< @brief Whether description was given.  */
   unsigned int config_dir_given ;	/**< @brief Whether config-dir was given.  */
   unsigned int debug_given ;	/**< @brief Whether debug was given.  */
 

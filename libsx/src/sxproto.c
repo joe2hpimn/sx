@@ -237,12 +237,12 @@ sxi_query_t *sxi_userclone_proto(sxc_client_t *sx, const char *existingname, con
     return ret;
 }
 
-sxi_query_t *sxi_usermod_proto(sxc_client_t *sx, const char *username, const uint8_t *key, int64_t quota) {
+sxi_query_t *sxi_usermod_proto(sxc_client_t *sx, const char *username, const uint8_t *key, int64_t quota, const char *description) {
     char *qname = NULL, *query = NULL;
     sxi_query_t *ret = NULL;
     unsigned n;
 
-    if((!key && quota == -1) || quota < -1) {
+    if((!key && quota == -1 && !description) || quota < -1) {
         sxi_seterr(sx, SXE_EARG, "Invalid argument");
         return NULL;
     }
@@ -255,8 +255,10 @@ sxi_query_t *sxi_usermod_proto(sxc_client_t *sx, const char *username, const uin
             break;
         n = sizeof(".users/") + strlen(qname);
         query = malloc(n);
-        if (!query)
+        if (!query) {
+            sxi_seterr(sx, SXE_EMEM, "Out of memory");
             break;
+        }
         snprintf(query, n, ".users/%s", qname);
         ret = sxi_query_create(sx, query, REQ_PUT);
         if(ret)
@@ -274,7 +276,21 @@ sxi_query_t *sxi_usermod_proto(sxc_client_t *sx, const char *username, const uin
             n = sizeof(",\"quota\":") + /* the json key with quotes */
                 20 /* 20 bytes for a number */;
             ret = sxi_query_append_fmt(sx, ret, n, "%s\"quota\":%lld", comma ? "," : "", (long long)quota);
+            comma = 1;
         }
+
+        if(description && ret) {
+            char *desc_enc = sxi_json_quote_string(description);
+
+            if(!desc_enc) {
+                sxi_seterr(sx, SXE_EMEM, "Failed to quote description: Out of memory");
+                break;
+            }
+            n = sizeof(",\"desc\":") + strlen(desc_enc);
+            ret = sxi_query_append_fmt(sx, ret, n, "%s\"desc\":%s", comma ? "," : "", desc_enc);
+            free(desc_enc);
+        }
+
         if(ret)
             ret = sxi_query_append_fmt(sx, ret, 1, "}");
     } while(0);
