@@ -424,7 +424,7 @@ static void create_or_extend_tempfile(const sx_hashfs_volume_t *vol, const char 
     s = sx_hashfs_putfile_gettoken(hashfs, user, yctx.filesize, &token, hash_presence_callback, &ctx);
     if (s != OK) {
 	sx_hashfs_putfile_end(hashfs);
-	if(s == ENOSPC) //ACAB
+	if(s == ENOSPC)
 	    quit_errmsg(413, msg_get_reason());
 	WARN("store_filehash_end failed: %d", s);
 	if(!*msg_get_reason())
@@ -433,7 +433,7 @@ static void create_or_extend_tempfile(const sx_hashfs_volume_t *vol, const char 
     }
 
     CGI_PRINTF("Content-type: application/json\r\n\r\n{\"uploadToken\":");
-    json_send_qstring(token);
+    json_send_qstring(extending ? path : token);
     CGI_PUTS(",\"uploadData\":{");
     ctx.h = hashfs;
     ctx.comma = 0;

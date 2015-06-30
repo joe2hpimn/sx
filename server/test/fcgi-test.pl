@@ -459,6 +459,10 @@ sub test_upload {
 	    fail 'cannot request file upload - bad json';
 	    return;
 	}
+	if(defined($token) && $token ne $jsobj->{'uploadToken'}) {
+	    fail 'upload token has changed';
+	    return;
+	}
 	$token = $jsobj->{'uploadToken'};
 	if(!is_string($token)) {
 	    fail 'cannot request file upload - bad upload token';
