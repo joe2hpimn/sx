@@ -2207,7 +2207,7 @@ char *sxi_ith_slash(char *s, unsigned int i) {
     return NULL;
 }
 
-static sxc_cluster_lf_t *sxi_conns_listfiles(sxi_conns_t *conns, const char *volume, sxi_hostlist_t *volhosts, const char *glob_pattern, int recursive, int64_t *volume_used_size, int64_t *volume_size, unsigned int *replica_count, unsigned int *nfiles, int reverse, int sizeOnly, const char *etag_in, char **etag_out) {
+static sxc_cluster_lf_t *sxi_conns_listfiles(sxi_conns_t *conns, const char *volume, sxi_hostlist_t *volhosts, const char *glob_pattern, int recursive, int64_t *volume_used_size, int64_t *volume_size, unsigned int *replica_count, unsigned int *nfiles, int reverse, const char *etag_in, char **etag_out) {
     char *enc_vol, *enc_glob = NULL, *url, *fname;
     struct cb_listfiles_ctx yctx;
     yajl_callbacks *yacb = &yctx.yacb;
@@ -2247,9 +2247,6 @@ static sxc_cluster_lf_t *sxi_conns_listfiles(sxi_conns_t *conns, const char *vol
     if(recursive)
 	len += lenof("&recursive");
 
-    if(sizeOnly)
-        len += lenof("&sizeOnly");
-
     if(!(url = malloc(len))) {
         SXDEBUG("OOM allocating url (%u bytes)", len);
         sxi_seterr(sx, SXE_EMEM, "List failed: Out of memory");
@@ -2267,11 +2264,6 @@ static sxc_cluster_lf_t *sxi_conns_listfiles(sxi_conns_t *conns, const char *vol
     }
     if(recursive) {
         sprintf(cur, "%s", qm ? "?recursive" : "&recursive");
-        qm = 0;
-        cur += strlen(cur);
-    }
-    if(sizeOnly) {
-        sprintf(cur, "%s", qm ? "?sizeOnly" : "&sizeOnly");
         qm = 0;
         cur += strlen(cur);
     }
@@ -2429,7 +2421,7 @@ sxc_cluster_lf_t *sxc_cluster_listfiles_etag(sxc_cluster_t *cluster, const char 
     if (*etag)
         SXDEBUG("ETag in: %s", etag);
 
-    ret = sxi_conns_listfiles(sxi_cluster_get_conns(cluster), volume, &volhosts, glob_pattern, recursive, volume_used_size, volume_size, replica_count, nfiles, reverse, 0, *etag ? etag : NULL, &etag_out);
+    ret = sxi_conns_listfiles(sxi_cluster_get_conns(cluster), volume, &volhosts, glob_pattern, recursive, volume_used_size, volume_size, replica_count, nfiles, reverse, *etag ? etag : NULL, &etag_out);
     sxi_hostlist_empty(&volhosts);
     SXDEBUG("ETag out: %s", etag_out ? etag_out : "");
 

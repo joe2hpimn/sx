@@ -142,7 +142,7 @@ void fcgi_list_volume(const sx_hashfs_volume_t *vol) {
     sx_hash_t etag;
     rc_ty s;
     const char *pattern;
-    int recursive, size_only;
+    int recursive;
     int64_t i, nmax;
 
     if (int64_arg("limit", &nmax, ~0u))
@@ -150,19 +150,15 @@ void fcgi_list_volume(const sx_hashfs_volume_t *vol) {
 
     CGI_PUTS("Content-type: application/json\r\n");
 
-    /* If we have sizeOnly parameter given, no listing will be performed */
-    size_only = has_arg("sizeOnly");
-    if (!size_only) {
-        pattern = get_arg("filter");
-        recursive = has_arg("recursive");
-        if(!pattern)
-            pattern = "/";
-        if (sx_hashfs_list_etag(hashfs, vol, pattern, recursive, &etag)) {
-            quit_errmsg(500, "failed to calculate etag");
-        }
-        if(is_object_fresh(&etag, 'L', NO_LAST_MODIFIED)) {
-            return;
-        }
+    pattern = get_arg("filter");
+    recursive = has_arg("recursive");
+    if(!pattern)
+        pattern = "/";
+    if (sx_hashfs_list_etag(hashfs, vol, pattern, recursive, &etag)) {
+        quit_errmsg(500, "failed to calculate etag");
+    }
+    if(is_object_fresh(&etag, 'L', NO_LAST_MODIFIED)) {
+        return;
     }
     CGI_PUTS("\r\n");
     if (verb == VERB_HEAD)
@@ -171,10 +167,6 @@ void fcgi_list_volume(const sx_hashfs_volume_t *vol) {
     CGI_PUTLL(vol->size);
     CGI_PRINTF(",\"replicaCount\":%u,\"volumeUsedSize\":", vol->max_replica);
     CGI_PUTLL(vol->cursize);
-    if (size_only) {
-        CGI_PUTS("}");
-        return;
-    }
 
     s = sx_hashfs_list_first(hashfs, vol, get_arg("filter"), &file, has_arg("recursive"), get_arg("after"));
     switch(s) {
