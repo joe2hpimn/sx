@@ -139,17 +139,17 @@ void volume_ops(void) {
 	return;
     }
 
-    /* Only ADMIN or better allowed beyond this point */
-    quit_unless_has(PRIV_ADMIN);
-
+    /* privs enforcement will be done after body parsing */
     if(verb == VERB_PUT && arg_is("o", "mod")) {
         if(is_reserved())
             quit_errmsg(403, "Volume name is reserved");
-        quit_unless_has(PRIV_ADMIN);
-        /* Modify volume - ADMIN required */
+        /* Modify volume */
         fcgi_volume_mod();
         return;
     }
+
+    /* Only ADMIN or better allowed beyond this point */
+    quit_unless_has(PRIV_ADMIN);
 
     if(verb == VERB_PUT && (arg_is("o","disable") || arg_is("o","enable"))) {
 	/* Enable / disable volume (2pc/s2s) - CLUSTER required */

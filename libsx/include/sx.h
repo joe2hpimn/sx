@@ -307,6 +307,7 @@ int sxc_remove_sxfile(sxc_file_t *file);
 sxc_meta_t *sxc_meta_new(sxc_client_t *sx);
 sxc_meta_t *sxc_filemeta_new(sxc_file_t *file);
 sxc_meta_t *sxc_volumemeta_new(sxc_file_t *file);
+sxc_meta_t *sxc_custom_volumemeta_new(sxc_file_t *file);
 void sxc_meta_free(sxc_meta_t *meta);
 unsigned int sxc_meta_count(sxc_meta_t *meta);
 int sxc_meta_getval(sxc_meta_t *meta, const char *key, const void **value, unsigned int *value_len);
@@ -344,7 +345,7 @@ int sxc_cluster_whoami(sxc_cluster_t *cluster, char **user, char **role, char **
 
 int sxc_volume_add(sxc_cluster_t *cluster, const char *name, int64_t size, unsigned int replica, unsigned int revisions, sxc_meta_t *metadata, const char *owner);
 int sxc_volume_remove(sxc_cluster_t *cluster, const char *name);
-int sxc_volume_modify(sxc_cluster_t *cluster, const char *volume, const char *newowner, int64_t newsize, int max_revs);
+int sxc_volume_modify(sxc_cluster_t *cluster, const char *volume, const char *newowner, int64_t newsize, int max_revs, sxc_meta_t *custom_meta);
 int sxc_volume_acl(sxc_cluster_t *cluster, const char *url,
                   const char *user, const char *grant, const char *revoke);
 

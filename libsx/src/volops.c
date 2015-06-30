@@ -72,7 +72,7 @@ int sxc_volume_remove(sxc_cluster_t *cluster, const char *name) {
     sxc_clearerr(sx);
 
     sxi_hostlist_init(&volhosts);
-    if(sxi_locate_volume(sxi_cluster_get_conns(cluster), name, &volhosts, NULL, NULL)) {
+    if(sxi_locate_volume(sxi_cluster_get_conns(cluster), name, &volhosts, NULL, NULL, NULL)) {
 	sxi_hostlist_empty(&volhosts);
 	return 1;
     }
@@ -92,7 +92,7 @@ int sxc_volume_remove(sxc_cluster_t *cluster, const char *name) {
     return ret;
 }
 
-int sxc_volume_modify(sxc_cluster_t *cluster, const char *volume, const char *newowner, int64_t newsize, int max_revs) {
+int sxc_volume_modify(sxc_cluster_t *cluster, const char *volume, const char *newowner, int64_t newsize, int max_revs, sxc_meta_t *custom_meta) {
     sxc_client_t *sx;
     sxi_hostlist_t volhosts;
     sxi_query_t *query = NULL;
@@ -109,12 +109,12 @@ int sxc_volume_modify(sxc_cluster_t *cluster, const char *volume, const char *ne
 
     sxc_clearerr(sx);
     sxi_hostlist_init(&volhosts);
-    if(sxi_locate_volume(sxi_cluster_get_conns(cluster), volume, &volhosts, NULL, NULL))
+    if(sxi_locate_volume(sxi_cluster_get_conns(cluster), volume, &volhosts, NULL, NULL, NULL))
         goto sxc_volume_modify_err;
 
-    query = sxi_volume_mod_proto(sx, volume, newowner, newsize, max_revs);
+    query = sxi_volume_mod_proto(sx, volume, newowner, newsize, max_revs, custom_meta);
     if(!query) {
-        sxi_seterr(sx, SXE_EMEM, "Failed to prepare volume chown query");
+        sxi_seterr(sx, SXE_EMEM, "Failed to prepare volume modify query");
         goto sxc_volume_modify_err;
     }
 
@@ -1063,7 +1063,7 @@ int sxc_cluster_listvolumes_next(sxc_cluster_lv_t *lv, char **volume_name, char 
         if(sxi_is_debug_enabled(sx)) {
             sxi_hostlist_t nodes;
             sxi_hostlist_init(&nodes);
-            if (!sxi_locate_volume(sxi_cluster_get_conns(lv->cluster), *volume_name, &nodes, NULL, NULL)) {
+            if (!sxi_locate_volume(sxi_cluster_get_conns(lv->cluster), *volume_name, &nodes, NULL, NULL, NULL)) {
                 unsigned n = sxi_hostlist_get_count(&nodes);
                 SXDEBUG("Volume %s master nodes:", *volume_name);
                 for (i=0;i<n;i++)
@@ -1805,7 +1805,7 @@ sxc_cluster_la_t *sxc_cluster_listaclusers(sxc_cluster_t *cluster, const char *v
     sxc_clearerr(sx);
 
     sxi_hostlist_init(&volhosts);
-    if(sxi_locate_volume(sxi_cluster_get_conns(cluster), volume, &volhosts, NULL, NULL)) {
+    if(sxi_locate_volume(sxi_cluster_get_conns(cluster), volume, &volhosts, NULL, NULL, NULL)) {
 	sxi_hostlist_empty(&volhosts);
 	return NULL;
     }

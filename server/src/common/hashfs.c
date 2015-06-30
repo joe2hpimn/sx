@@ -588,6 +588,7 @@ struct _sx_hashfs_t {
     sqlite3_stmt *q_getaccess;
     sqlite3_stmt *q_addvol;
     sqlite3_stmt *q_addvolmeta;
+    sqlite3_stmt *q_drop_custom_volmeta;
     sqlite3_stmt *q_addvolprivs;
     sqlite3_stmt *q_chprivs;
     sqlite3_stmt *q_dropvolprivs;
@@ -895,6 +896,7 @@ static void close_all_dbs(sx_hashfs_t *h) {
 
     sqlite3_finalize(h->q_addvol);
     sqlite3_finalize(h->q_addvolmeta);
+    sqlite3_finalize(h->q_drop_custom_volmeta);
     sqlite3_finalize(h->q_addvolprivs);
     sqlite3_finalize(h->q_dropvolprivs);
     sqlite3_finalize(h->q_chprivs);
@@ -1337,7 +1339,7 @@ static int load_config(sx_hashfs_t *h, sxc_client_t *sx) {
 sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
     unsigned int dirlen, pathlen, i, j;
     sqlite3_stmt *q = NULL;
-    char *path, dbitem[64], qrybuff[128];
+    char *path, dbitem[64], qrybuff[512];
     const char *str;
     sx_hashfs_t *h;
     struct flock fl;
@@ -1516,6 +1518,9 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 	goto open_hashfs_fail;
     if(qprep(h->db, &h->q_addvolmeta, "INSERT INTO vmeta (volume_id, key, value) VALUES (:volume, :key, :value)"))
 	goto open_hashfs_fail;
+    snprintf(qrybuff, sizeof(qrybuff), "DELETE FROM vmeta WHERE volume_id = :volume AND SUBSTR(key,1,%lu) = '%s'", lenof(SX_CUSTOM_META_PREFIX), SX_CUSTOM_META_PREFIX);
+    if(qprep(h->db, &h->q_drop_custom_volmeta, qrybuff))
+        goto open_hashfs_fail;
     if(qprep(h->db, &h->q_addvolprivs, "INSERT INTO privs (volume_id, user_id, priv) VALUES (:volume, :user, :priv)"))
 	goto open_hashfs_fail;
     if(qprep(h->db, &h->q_chprivs, "UPDATE privs SET user_id = :new WHERE user_id IN (SELECT uid FROM users WHERE SUBSTR(user,0,"STRIFY(AUTH_CID_LEN)")=SUBSTR(:user,0,"STRIFY(AUTH_CID_LEN)"))"))
@@ -2135,7 +2140,20 @@ rc_ty sx_hashfs_check_meta(const char *key, const void *value, unsigned int valu
 	msg_set_reason("Invalid metadata key '%s': must be valid UTF8", key);
 	return EINVAL;
     }
-    return 0;
+    return OK;
+}
+
+rc_ty sx_hashfs_check_volume_meta(const char *key, const void *value, unsigned int value_len) {
+    rc_ty s = sx_hashfs_check_meta(key, value, value_len);
+    if(s != OK)
+        return s;
+    /* Check if the volume meta does not contain reserved prefix */
+    if(strlen(key) >= lenof(SX_CUSTOM_META_PREFIX) && !strncmp(SX_CUSTOM_META_PREFIX, key, lenof(SX_CUSTOM_META_PREFIX))) {
+        DEBUG("Volume meta key cannot contain reserved prefix %s", SX_CUSTOM_META_PREFIX);
+        return EINVAL;
+    }
+
+    return OK;
 }
 
 int sx_hashfs_check_username(const char *name) {
@@ -6374,7 +6392,7 @@ rc_ty sx_hashfs_volume_new_addmeta(sx_hashfs_t *h, const char *key, const void *
 	return FAIL_EINTERNAL;
 
     rc_ty rc;
-    if((rc = sx_hashfs_check_meta(key, value, value_len)))
+    if((rc = sx_hashfs_check_volume_meta(key, value, value_len)))
 	return rc;
 
     if(h->nmeta >= SXLIMIT_META_MAX_ITEMS)
@@ -7954,12 +7972,6 @@ static rc_ty is_tmp_newrev(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, con
     }
 
     ndb = getmetadb(fname);
-    if(ndb < 0) {
-        WARN("Failed to get meta db for file name: %s", fname);
-        msg_set_reason("Failed to obtain the current revision of the uploaded file");
-        return FAIL_EINTERNAL;
-    }
-
     q = h->qm_get[ndb];
     sqlite3_reset(q);
     if(qbind_int64(q, ":volume", volume->id) || qbind_text(q, ":name", fname)) {
@@ -13648,7 +13660,7 @@ volume_change_revs_err:
     return ret;
 }
 
-rc_ty sx_hashfs_volume_mod(sx_hashfs_t *h, const char *volume, const char *newowner, int64_t newsize, int max_revs) {
+rc_ty sx_hashfs_volume_mod(sx_hashfs_t *h, const char *volume, const char *newowner, int64_t newsize, int max_revs, sxc_meta_t *metadata) {
     rc_ty ret = FAIL_EINTERNAL, s;
     const sx_hashfs_volume_t *vol = NULL;
     sx_uid_t newid;
@@ -13658,7 +13670,7 @@ rc_ty sx_hashfs_volume_mod(sx_hashfs_t *h, const char *volume, const char *newow
         return ret;
     }
 
-    if(!*newowner && newsize == -1 && max_revs == -1)
+    if(!*newowner && newsize == -1 && max_revs == -1 && !metadata)
         return OK; /* Nothing to do */
 
     if(qbegin(h->db)) {
@@ -13711,6 +13723,44 @@ rc_ty sx_hashfs_volume_mod(sx_hashfs_t *h, const char *volume, const char *newow
         }
     }
 
+    if(metadata) {
+        unsigned int nmeta = sxc_meta_count(metadata);
+        unsigned int i;
+
+        if(qbind_int64(h->q_drop_custom_volmeta, ":volume", vol->id) || qstep_noret(h->q_drop_custom_volmeta))
+            goto sx_hashfs_volume_mod_err;
+
+        if(qbind_int64(h->q_addvolmeta, ":volume", vol->id))
+            goto sx_hashfs_volume_mod_err;
+
+        for(i = 0; i < nmeta; i++) {
+            const char *metakey;
+            const void *metaval;
+            char metakey_prefixed[SXLIMIT_META_MAX_KEY_LEN+1];
+            unsigned int l;
+
+            if(sxc_meta_getkeyval(metadata, i, &metakey, &metaval, &l)) {
+                msg_set_reason("Invalid metadata");
+                ret = EINVAL;
+                goto sx_hashfs_volume_mod_err;
+            }
+
+            if(strlen(metakey) > SXLIMIT_META_MAX_KEY_LEN - lenof(SX_CUSTOM_META_PREFIX)) {
+                INFO("Custom meta key is too long: must reserve space for prefix");
+                msg_set_reason("Invalid metadata");
+                ret = EINVAL;
+                goto sx_hashfs_volume_mod_err;
+            }
+
+            snprintf(metakey_prefixed, sizeof(metakey_prefixed), "%s%s", SX_CUSTOM_META_PREFIX, metakey);
+            sqlite3_reset(h->q_addvolmeta);
+            if(qbind_text(h->q_addvolmeta, ":key", metakey_prefixed) ||
+               qbind_blob(h->q_addvolmeta, ":value", metaval, l) ||
+               qstep_noret(h->q_addvolmeta))
+                goto sx_hashfs_volume_mod_err;
+        }
+    }
+
     if(qcommit(h->db)) {
         WARN("Failed to commit changes");
         goto sx_hashfs_volume_mod_err;
@@ -13720,7 +13770,8 @@ rc_ty sx_hashfs_volume_mod(sx_hashfs_t *h, const char *volume, const char *newow
 sx_hashfs_volume_mod_err:
     if(ret != OK)
         qrollback(h->db);
-
+    sqlite3_reset(h->q_drop_custom_volmeta);
+    sqlite3_reset(h->q_addvolmeta);
     return ret;
 }
 

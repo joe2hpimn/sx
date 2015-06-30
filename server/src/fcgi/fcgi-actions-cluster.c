@@ -153,6 +153,13 @@ void fcgi_handle_cluster_requests(void) {
         uint8_t *u = has_priv(PRIV_ADMIN) ? NULL : user;/* user = NULL: list all volumes */
 	for(s = sx_hashfs_volume_first(hashfs, &vol, u); s == OK; s = sx_hashfs_volume_next(hashfs)) {
             sx_priv_t priv = 0;
+            unsigned int i;
+            struct {
+                char key[SXLIMIT_META_MAX_KEY_LEN+1];
+                uint8_t value[SXLIMIT_META_MAX_VALUE_LEN];
+                int value_len;
+            } custom_meta[SXLIMIT_META_MAX_ITEMS], meta[SXLIMIT_META_MAX_ITEMS];
+            unsigned int nmeta = 0, ncustommeta = 0;
 
 	    if(comma)
 		CGI_PUTC(',');
@@ -179,35 +186,63 @@ void fcgi_handle_cluster_requests(void) {
 	    CGI_PUTLL(vol->cursize);
             CGI_PRINTF(",\"sizeBytes\":");
             CGI_PUTLL(vol->size);
-
-            if(has_arg("volumeMeta")) {
+            if(has_arg("volumeMeta") || has_arg("customVolumeMeta")) {
                 const char *metakey;
                 const void *metavalue;
-                unsigned int metasize, comma_meta = 0;
+                unsigned int metasize;
 
                 if((s = sx_hashfs_volumemeta_begin(hashfs, vol)) != OK) {
                     CGI_PUTS("}}");
                     quit_itererr("Cannot lookup volume metadata", s);
                 }
-
-                CGI_PUTS(",\"volumeMeta\":{");
                 while((s = sx_hashfs_volumemeta_next(hashfs, &metakey, &metavalue, &metasize)) == OK) {
+                    if(!strncmp(SX_CUSTOM_META_PREFIX, metakey, lenof(SX_CUSTOM_META_PREFIX))) {
+                        if(has_arg("customVolumeMeta")) {
+                            /* Append custom meta value */
+                            sxi_strlcpy(custom_meta[ncustommeta].key, metakey + lenof(SX_CUSTOM_META_PREFIX), sizeof(custom_meta[ncustommeta].key) - lenof(SX_CUSTOM_META_PREFIX));
+                            memcpy(custom_meta[ncustommeta].value, metavalue, metasize);
+                            custom_meta[ncustommeta].value_len = metasize;
+                            ncustommeta++;
+                        }
+                    } else {
+                        if(has_arg("volumeMeta")) {
+                            /* Append regular meta value */
+                            sxi_strlcpy(meta[nmeta].key, metakey, sizeof(meta[nmeta].key));
+                            memcpy(meta[nmeta].value, metavalue, metasize);
+                            meta[nmeta].value_len = metasize;
+                            nmeta++;
+                        }
+                    }
+                }
+            }
+
+            if(has_arg("volumeMeta")) {
+                CGI_PUTS(",\"volumeMeta\":{");
+                for(i = 0; i < nmeta; i++) {
                     char hexval[SXLIMIT_META_MAX_VALUE_LEN*2+1];
-                    if(comma_meta)
+                    if(i)
                         CGI_PUTC(',');
-                    else
-                        comma_meta |= 1;
-                    json_send_qstring(metakey);
+                    json_send_qstring(meta[i].key);
                     CGI_PUTS(":\"");
-                    bin2hex(metavalue, metasize, hexval, sizeof(hexval));
+                    bin2hex(meta[i].value, meta[i].value_len, hexval, sizeof(hexval));
                     CGI_PUTS(hexval);
                     CGI_PUTC('"');
                 }
                 CGI_PUTC('}');
-                if(s != ITER_NO_MORE) {
-                    CGI_PUTS("}}");
-                    quit_itererr("Failed to list volume metadata", s);
+            }
+            if(has_arg("customVolumeMeta")) {
+                CGI_PUTS(",\"customVolumeMeta\":{");
+                for(i = 0; i < ncustommeta; i++) {
+                    char hexval[SXLIMIT_META_MAX_VALUE_LEN*2+1];
+                    if(i)
+                        CGI_PUTC(',');
+                    json_send_qstring(custom_meta[i].key);
+                    CGI_PUTS(":\"");
+                    bin2hex(custom_meta[i].value, custom_meta[i].value_len, hexval, sizeof(hexval));
+                    CGI_PUTS(hexval);
+                    CGI_PUTC('"');
                 }
+                CGI_PUTC('}');
             }
 	    CGI_PUTS("}");
 	}

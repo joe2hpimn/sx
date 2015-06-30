@@ -1245,6 +1245,8 @@ struct cb_locate_ctx {
     int64_t blocksize;
     yajl_handle yh;
     sxc_meta_t *meta;
+    sxc_meta_t *custom_meta;
+    enum meta_type { LC_META_TYPE_REGULAR, LC_META_TYPE_CUSTOM } mtype;
     char *curkey;
     enum locate_state { LC_ERROR, LC_BEGIN, LC_KEYS, LC_SIZE, LC_NODES, LC_NODE, LC_META, LC_METAKEY, LC_METAVALUE, LC_COMPLETE } state;
 };
@@ -1285,10 +1287,21 @@ static int yacb_locate_map_key(void *ctx, const unsigned char *s, size_t l) {
 	    return 1;
 	} else if(l == lenof("volumeMeta") && !memcmp(s, "volumeMeta", lenof("volumeMeta"))) {
 	    yactx->state = LC_META;
+            yactx->mtype = LC_META_TYPE_REGULAR;
 	    return 1;
-	}
+        } else if(l == lenof("customVolumeMeta") && !memcmp(s, "customVolumeMeta", lenof("customVolumeMeta"))) {
+            yactx->state = LC_META;
+            yactx->mtype = LC_META_TYPE_CUSTOM;
+            return 1;
+        }
     } else if(yactx->state == LC_METAKEY) {
-	if(yactx->meta) {
+        sxc_meta_t *meta = NULL;
+
+        if(yactx->meta && yactx->mtype == LC_META_TYPE_REGULAR)
+            meta = yactx->meta;
+        else if(yactx->custom_meta && yactx->mtype == LC_META_TYPE_CUSTOM)
+            meta = yactx->custom_meta;
+        if(meta) {
 	    yactx->curkey = malloc(l+1);
 	    if(!yactx->curkey) {
 		CBDEBUG("OOM duplicating meta key '%.*s'", (unsigned)l, s);
@@ -1382,9 +1395,15 @@ static int yacb_locate_string(void *ctx, const unsigned char *s, size_t l) {
 	free(host);
 	return 1;
     } else if(yactx->state == LC_METAVALUE) {
-	if(yactx->meta) {
-	    if(sxc_meta_setval_fromhex(yactx->meta, yactx->curkey, (const char *)s, l)) {
-		CBDEBUG("failed to add value");
+        sxc_meta_t *meta = NULL;
+
+        if(yactx->meta && yactx->mtype == LC_META_TYPE_REGULAR)
+            meta = yactx->meta;
+        else if(yactx->custom_meta && yactx->mtype == LC_META_TYPE_CUSTOM)
+            meta = yactx->custom_meta;
+	if(meta) {
+	    if(sxc_meta_setval_fromhex(meta, yactx->curkey, (const char *)s, l)) {
+		CBDEBUG("failed to add value: %s", sxc_geterrmsg(sx));
                 sxi_cbdata_restore_global_error(sx, yactx->cbdata);
 		return 0;
 	    }
@@ -1444,6 +1463,7 @@ static int locate_setup_cb(curlev_context_t *cbdata, void *ctx, const char *host
     free(yactx->curkey);
     yactx->curkey = NULL;
     sxc_meta_empty(yactx->meta);
+    sxc_meta_empty(yactx->custom_meta);
 
     yactx->state = LC_BEGIN;
     yactx->blocksize = -1;
@@ -1464,7 +1484,7 @@ static int locate_cb(curlev_context_t *cbdata, void *ctx, const void *data, size
     return 0;
 }
 
-int sxi_volume_info(sxi_conns_t *conns, const char *volume, sxi_hostlist_t *nodes, int64_t *size, sxc_meta_t *metadata) {
+int sxi_volume_info(sxi_conns_t *conns, const char *volume, sxi_hostlist_t *nodes, int64_t *size, sxc_meta_t *meta, sxc_meta_t *custom_meta) {
     struct cb_locate_ctx yctx;
     yajl_callbacks *yacb = &yctx.yacb;
     char *enc_vol, *url;
@@ -1482,7 +1502,7 @@ int sxi_volume_info(sxi_conns_t *conns, const char *volume, sxi_hostlist_t *node
 	return 1;
     }
 
-    if(!(url = malloc(strlen(enc_vol) + lenof("?o=locate&volumeMeta&size=") + 64))) {
+    if(!(url = malloc(strlen(enc_vol) + lenof("?o=locate&volumeMeta&customVolumeMeta&size=") + 64))) {
 	SXDEBUG("OOM allocating url (%lu bytes)", strlen(enc_vol) + lenof("?o=locate&volumeMeta&size=") + 64);
 	sxi_seterr(sx, SXE_EMEM, "List failed: Out of memory");
 	free(enc_vol);
@@ -1492,8 +1512,10 @@ int sxi_volume_info(sxi_conns_t *conns, const char *volume, sxi_hostlist_t *node
 	sprintf(url, "%s?o=locate&size=%lld", enc_vol, (long long int)*size);
     else
 	sprintf(url, "%s?o=locate", enc_vol);
-    if(metadata)
+    if(meta)
 	strcat(url, "&volumeMeta");
+    if(custom_meta)
+        strcat(url, "&customVolumeMeta");
     free(enc_vol);
 
     ya_init(yacb);
@@ -1507,7 +1529,8 @@ int sxi_volume_info(sxi_conns_t *conns, const char *volume, sxi_hostlist_t *node
 
     yctx.yh = NULL;
     yctx.hlist = nodes;
-    yctx.meta = metadata;
+    yctx.meta = meta;
+    yctx.custom_meta = custom_meta;
     yctx.curkey = NULL;
 
     sxi_set_operation(sx, "locate volume", sxi_conns_get_sslname(conns), volume, NULL);
@@ -1517,7 +1540,8 @@ int sxi_volume_info(sxi_conns_t *conns, const char *volume, sxi_hostlist_t *node
 	SXDEBUG("query returned %d", qret);
 	if(yctx.yh)
 	    yajl_free(yctx.yh);
-	sxc_meta_empty(metadata);
+	sxc_meta_empty(meta);
+        sxc_meta_empty(custom_meta);
         sxi_seterr(sx, SXE_ECOMM, "failed to query volume location");
         /* we must return an error code */
 	return qret ? qret : -1;
@@ -1530,7 +1554,8 @@ int sxi_volume_info(sxi_conns_t *conns, const char *volume, sxi_hostlist_t *node
         }
 	if(yctx.yh)
 	    yajl_free(yctx.yh);
-	sxi_ht_empty(metadata);
+        sxc_meta_empty(custom_meta);
+	sxc_meta_empty(meta);
 	return -SXE_ECOMM;
     }
     if(size)
@@ -1545,9 +1570,9 @@ int sxi_volume_info(sxi_conns_t *conns, const char *volume, sxi_hostlist_t *node
     return 0;
 }
 
-int sxi_locate_volume(sxi_conns_t *conns, const char *volume, sxi_hostlist_t *nodes, int64_t *size, sxc_meta_t *metadata) {
+int sxi_locate_volume(sxi_conns_t *conns, const char *volume, sxi_hostlist_t *nodes, int64_t *size, sxc_meta_t *metadata, sxc_meta_t *custom_metadata) {
     sxi_set_operation(sxi_conns_get_client(conns), "locate volume", volume, NULL, NULL);
-    return sxi_volume_info(conns, volume, nodes, size, metadata);
+    return sxi_volume_info(conns, volume, nodes, size, metadata, custom_metadata);
 }
 
 int sxi_is_valid_cluster(const sxc_cluster_t *cluster) {
@@ -2383,7 +2408,7 @@ sxc_cluster_lf_t *sxc_cluster_listfiles_etag(sxc_cluster_t *cluster, const char 
     sxc_client_t *sx = sxi_cluster_get_client(cluster);
 
     sxi_hostlist_init(&volhosts);
-    if(sxi_locate_volume(sxi_cluster_get_conns(cluster), volume, &volhosts, NULL, NULL)) {
+    if(sxi_locate_volume(sxi_cluster_get_conns(cluster), volume, &volhosts, NULL, NULL, NULL)) {
         CFGDEBUG("Failed to locate volume %s", volume);
         sxi_hostlist_empty(&volhosts);
         return NULL;

@@ -87,7 +87,7 @@ static sxi_query_t *sxi_query_create(sxc_client_t *sx, const char *path, enum sx
 }
 
 /* also closes outer json object */
-static sxi_query_t* sxi_query_add_meta(sxc_client_t *sx, sxi_query_t *query, const char *field, sxc_meta_t *metadata)
+static sxi_query_t* sxi_query_add_meta(sxc_client_t *sx, sxi_query_t *query, const char *field, sxc_meta_t *metadata, int comma, int allow_empty)
 {
     unsigned int i, nmeta;
     const char *key;
@@ -101,8 +101,8 @@ static sxi_query_t* sxi_query_add_meta(sxc_client_t *sx, sxi_query_t *query, con
         sxi_query_free(query);
         return NULL;
     }
-    if (nmeta) {
-        if (!(query = sxi_query_append_fmt(sx, query, strlen(field)+5, ",\"%s\":{", field)))
+    if (nmeta || allow_empty) {
+        if (!(query = sxi_query_append_fmt(sx, query, strlen(field)+6, "%s\"%s\":{", comma ? "," : "", field)))
             return NULL;
     }
 
@@ -139,7 +139,7 @@ static sxi_query_t* sxi_query_add_meta(sxc_client_t *sx, sxi_query_t *query, con
         sxi_query_free(query);
         return NULL;
     }
-    if (!(query = sxi_query_append_fmt(sx, query, 2, nmeta ? "}}" : "}")))
+    if (!(query = sxi_query_append_fmt(sx, query, 2, (nmeta || allow_empty) ? "}}" : "}")))
         return NULL;
     query->content_len = strlen(query->content);
     return query;
@@ -380,7 +380,7 @@ sxi_query_t *sxi_volumeadd_proto(sxc_client_t *sx, const char *volname, const ch
                                    (long long)size, qowner, replica, revisions);
     }
     free(qowner);
-    return sxi_query_add_meta(sx, ret, "volumeMeta", metadata);
+    return sxi_query_add_meta(sx, ret, "volumeMeta", metadata, 1, 0);
 }
 
 sxi_query_t *sxi_flushfile_proto(sxc_client_t *sx, const char *token) {
@@ -473,7 +473,7 @@ sxi_query_t *sxi_fileadd_proto_end(sxc_client_t *sx, sxi_query_t *query, sxc_met
     query = sxi_query_append_fmt(sx, query, 1, "]");
     if (!query)
         return NULL;
-    return sxi_query_add_meta(sx, query, "fileMeta", metadata);
+    return sxi_query_add_meta(sx, query, "fileMeta", metadata, 1, 0);
 }
 
 
@@ -951,13 +951,13 @@ sxi_query_t *sxi_volsizes_proto_end(sxc_client_t *sx, sxi_query_t *query) {
     return sxi_query_append_fmt(sx, query, 2, "}");
 }
 
-sxi_query_t *sxi_volume_mod_proto(sxc_client_t *sx, const char *volume, const char *newowner, int64_t newsize, int max_revs) {
+sxi_query_t *sxi_volume_mod_proto(sxc_client_t *sx, const char *volume, const char *newowner, int64_t newsize, int max_revs, sxc_meta_t *meta) {
     sxi_query_t *query = NULL, *ret = NULL;
     char *enc_vol = NULL, *enc_owner = NULL, *path = NULL;
     unsigned int len;
     int comma = 0;
 
-    if(!volume || (!newowner && newsize < 0 && max_revs < 0)) {
+    if(!volume || (!newowner && newsize < 0 && max_revs < 0 && !meta)) {
         SXDEBUG("Invalid argument");
         return NULL;
     }
@@ -1019,12 +1019,21 @@ sxi_query_t *sxi_volume_mod_proto(sxc_client_t *sx, const char *volume, const ch
         }
     }
 
-    query = sxi_query_append_fmt(sx, query, 2, "}");
-    if(!query) {
-        SXDEBUG("Failed to close query JSON");
-        goto sxi_volume_mod_proto_err;
+    if(meta) {
+        /* This call encloses the JSON too */
+        query = sxi_query_add_meta(sx, query, "customVolumeMeta", meta, (max_revs > 0 || newsize > 0 || newowner) ? 1 : 0, 1);
+        if(!query) {
+            SXDEBUG("Failed to append volume metadata to query JSON");
+            goto sxi_volume_mod_proto_err;
+        }
+    } else {
+        /* JSON should be enclosed when meta is not given */
+        query = sxi_query_append_fmt(sx, query, 2, "}");
+        if(!query) {
+            SXDEBUG("Failed to close query JSON");
+            goto sxi_volume_mod_proto_err;
+        }
     }
-
     ret = query;
 sxi_volume_mod_proto_err:
     free(enc_vol);

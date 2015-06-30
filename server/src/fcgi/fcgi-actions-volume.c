@@ -54,9 +54,15 @@ static rc_ty int64_arg(const char* arg, int64_t *v, int64_t defaultv)
 
 void fcgi_locate_volume(const sx_hashfs_volume_t *vol) {
     sx_nodelist_t *allnodes, *goodnodes;
-    unsigned int blocksize, nnode, nnodes;
+    unsigned int blocksize, nnode, nnodes, i;
     int64_t fsize;
     rc_ty s;
+    struct {
+        char key[SXLIMIT_META_MAX_KEY_LEN+1];
+        uint8_t value[SXLIMIT_META_MAX_VALUE_LEN];
+        int value_len;
+    } custom_meta[SXLIMIT_META_MAX_ITEMS], meta[SXLIMIT_META_MAX_ITEMS];
+    unsigned int nmeta = 0, ncustommeta = 0;
 
     if (int64_arg("size", &fsize, 0))
         quit_errmsg(400, msg_get_reason());
@@ -98,38 +104,72 @@ void fcgi_locate_volume(const sx_hashfs_volume_t *vol) {
 	quit_errmsg(503, "All nodes for the volume have failed");
     }
 
-    if(has_arg("volumeMeta") && sx_hashfs_volumemeta_begin(hashfs, vol)) {
-	sx_nodelist_delete(goodnodes);
-	quit_errmsg(500, "Cannot lookup volume metadata");
-    }
+    if(has_arg("volumeMeta") || has_arg("customVolumeMeta")) {
+        const char *metakey;
+        const void *metavalue;
+        unsigned int metasize;
+        if(sx_hashfs_volumemeta_begin(hashfs, vol)) {
+            sx_nodelist_delete(goodnodes);
+            quit_errmsg(500, "Cannot lookup volume metadata");
+        }
 
+        while((s = sx_hashfs_volumemeta_next(hashfs, &metakey, &metavalue, &metasize)) == OK) {
+            if(!strncmp(SX_CUSTOM_META_PREFIX, metakey, lenof(SX_CUSTOM_META_PREFIX))) {
+                if(has_arg("customVolumeMeta")) {
+                    /* Append custom meta value */
+                    sxi_strlcpy(custom_meta[ncustommeta].key, metakey + lenof(SX_CUSTOM_META_PREFIX), sizeof(custom_meta[ncustommeta].key) - lenof(SX_CUSTOM_META_PREFIX));
+                    memcpy(custom_meta[ncustommeta].value, metavalue, metasize);
+                    custom_meta[ncustommeta].value_len = metasize;
+                    ncustommeta++;
+                }
+            } else {
+                if(has_arg("volumeMeta")) {
+                    /* Append regular meta value */
+                    sxi_strlcpy(meta[nmeta].key, metakey, sizeof(meta[nmeta].key));
+                    memcpy(meta[nmeta].value, metavalue, metasize);
+                    meta[nmeta].value_len = metasize;
+                    nmeta++;
+                }
+            }
+        }
+
+        if(s != ITER_NO_MORE) {
+            sx_nodelist_delete(goodnodes);
+            quit_errmsg(rc2http(s), rc2str(s));
+        }
+    }
     CGI_PUTS("Content-type: application/json\r\n\r\n{\"nodeList\":");
     send_nodes_randomised(goodnodes);
     sx_nodelist_delete(goodnodes);
     if(has_arg("size"))
 	CGI_PRINTF(",\"blockSize\":%d", blocksize);
     if(has_arg("volumeMeta")) {
-	const char *metakey;
-	const void *metavalue;
-	int metasize, comma = 0;
-
-	CGI_PUTS(",\"volumeMeta\":{");
-	while((s = sx_hashfs_volumemeta_next(hashfs, &metakey, &metavalue, &metasize)) == OK) {
-	    char hexval[SXLIMIT_META_MAX_VALUE_LEN*2+1];
-	    if(comma)
-		CGI_PUTC(',');
-	    else
-		comma |= 1;
-	    json_send_qstring(metakey);
-	    CGI_PUTS(":\"");
-	    bin2hex(metavalue, metasize, hexval, sizeof(hexval));
-	    CGI_PUTS(hexval);
-	    CGI_PUTC('"');
-	}
-	CGI_PUTC('}');
-	if(s != ITER_NO_MORE) {
-	    quit_itererr("Failed to list volume metadata", s);
-	}
+        CGI_PUTS(",\"volumeMeta\":{");
+        for(i = 0; i < nmeta; i++) {
+            char hexval[SXLIMIT_META_MAX_VALUE_LEN*2+1];
+            if(i)
+                CGI_PUTC(',');
+            json_send_qstring(meta[i].key);
+            CGI_PUTS(":\"");
+            bin2hex(meta[i].value, meta[i].value_len, hexval, sizeof(hexval));
+            CGI_PUTS(hexval);
+            CGI_PUTC('"');
+        }
+        CGI_PUTC('}');
+    }
+    if(has_arg("customVolumeMeta")) {
+        CGI_PUTS(",\"customVolumeMeta\":{");
+        for(i = 0; i < ncustommeta; i++) {
+            char hexval[SXLIMIT_META_MAX_VALUE_LEN*2+1];
+            if(i)
+                CGI_PUTC(',');
+            json_send_qstring(custom_meta[i].key);
+            CGI_PUTS(":\"");
+            bin2hex(custom_meta[i].value, custom_meta[i].value_len, hexval, sizeof(hexval));
+            CGI_PUTS(hexval);
+            CGI_PUTC('"');
+        }
+        CGI_PUTC('}');
     }
     CGI_PUTC('}');
 
@@ -340,7 +380,7 @@ static int cb_vol_string(void *ctx, const unsigned char *s, size_t l) {
     if(hex2bin(s, l, metavalue, sizeof(metavalue)))
 	return 0;
     l/=2;
-    if(sx_hashfs_check_meta(c->metakey, metavalue, l) ||
+    if(sx_hashfs_check_volume_meta(c->metakey, metavalue, l) ||
        sx_blob_add_string(c->metablb, c->metakey) ||
        sx_blob_add_blob(c->metablb, metavalue, l))
 	return 0;
@@ -1178,9 +1218,9 @@ void fcgi_volsizes(void) {
     yajl_free(yh);
 }
 
-/* {"owner":"alice","size":1000000000,"maxRevisions":10} */
+/* {"owner":"alice","size":1000000000,"maxRevisions":10,"customVolumeMeta":{"customMeta1":"aabbcc"}} */
 struct volmod_ctx {
-    enum cb_volmod_state { CB_VOLMOD_START, CB_VOLMOD_KEY, CB_VOLMOD_OWNER, CB_VOLMOD_SIZE, CB_VOLMOD_REVS, CB_VOLMOD_COMPLETE } state;
+    enum cb_volmod_state { CB_VOLMOD_START, CB_VOLMOD_KEY, CB_VOLMOD_OWNER, CB_VOLMOD_SIZE, CB_VOLMOD_REVS, CB_VOLMOD_META, CB_VOLMOD_METAKEY, CB_VOLMOD_METAVAL, CB_VOLMOD_COMPLETE } state;
     const char *volume;
     char oldowner[SXLIMIT_MAX_FILENAME_LEN+1];
     char newowner[SXLIMIT_MAX_FILENAME_LEN+1];
@@ -1188,7 +1228,27 @@ struct volmod_ctx {
     int64_t newsize;
     int oldrevs;
     int newrevs;
+    char metakey[SXLIMIT_META_MAX_KEY_LEN+1];
+    int nmeta;
+    sxc_meta_t *meta;
+    int noldmeta;
+    sxc_meta_t *oldmeta;
 };
+
+static void volmod_ctx_init(struct volmod_ctx *ctx) {
+    ctx->state = CB_VOLMOD_START;
+    ctx->oldowner[0] = '\0';
+    ctx->newowner[0] = '\0';
+    ctx->newsize = -1;
+    ctx->oldsize = -1;
+    ctx->newrevs = -1;
+    ctx->oldrevs = -1;
+    ctx->volume = volume;
+    ctx->meta = NULL;
+    ctx->nmeta = -1;
+    ctx->oldmeta = NULL;
+    ctx->noldmeta = -1;
+}
 
 static const char *volmod_get_lock(sx_blob_t *b)
 {
@@ -1196,28 +1256,31 @@ static const char *volmod_get_lock(sx_blob_t *b)
     return !sx_blob_get_string(b, &vol) ? vol : NULL;
 }
 
-static rc_ty volmod_nodes(sx_hashfs_t *hashfs, sx_blob_t *blob, sx_nodelist_t **nodes)
+static rc_ty volmod_nodes(sx_hashfs_t *h, sx_blob_t *blob, sx_nodelist_t **nodes)
 {
     if (!nodes)
         return FAIL_EINTERNAL;
     /* All nodes have to receive modification request since owners and sizes are set globally */
-    *nodes = sx_nodelist_dup(sx_hashfs_effective_nodes(hashfs, NL_NEXTPREV));
+    *nodes = sx_nodelist_dup(sx_hashfs_effective_nodes(h, NL_NEXTPREV));
     if (!*nodes)
         return FAIL_EINTERNAL;
 
     return OK;
 }
 
-static int blob_to_volmod(sx_blob_t *b, struct volmod_ctx *ctx) {
+static int blob_to_volmod(sxc_client_t *sx, sx_blob_t *b, struct volmod_ctx *ctx) {
     const char *oldowner = NULL, *newowner = NULL;
+    int i;
+    int ret = 1;
 
     if(!b || !ctx)
         return 1;
+    volmod_ctx_init(ctx);
 
     if(sx_blob_get_string(b, &ctx->volume) || sx_blob_get_string(b, &oldowner)
        || sx_blob_get_string(b, &newowner) || sx_blob_get_int64(b, &ctx->oldsize)
        || sx_blob_get_int64(b, &ctx->newsize) || sx_blob_get_int32(b, &ctx->oldrevs)
-       || sx_blob_get_int32(b, &ctx->newrevs)) {
+       || sx_blob_get_int32(b, &ctx->newrevs) || sx_blob_get_int32(b, &ctx->nmeta)) {
         WARN("Corrupted volume mod blob");
         return 1;
     }
@@ -1232,12 +1295,87 @@ static int blob_to_volmod(sx_blob_t *b, struct volmod_ctx *ctx) {
     else
         ctx->newowner[0] = '\0';
 
-    return 0;
+    if(ctx->nmeta != -1) {
+        ctx->meta = sxc_meta_new(sx);
+        if(!ctx->meta) {
+            WARN("Failed to allocate metadata");
+            return 1;
+        }
+    } else
+        ctx->meta = NULL;
+
+    for(i = 0; i < ctx->nmeta; i++) {
+        const char *metakey;
+        const void *metaval;
+        unsigned int l;
+
+        if(sx_blob_get_string(b, &metakey) || sx_blob_get_blob(b, &metaval, &l)) {
+            WARN("Failed to get meta key-value pair from blob");
+            goto blob_to_volmod_err;
+        }
+
+        if(sx_hashfs_check_meta(metakey, metaval, l)) {
+            WARN("Invalid meta");
+            goto blob_to_volmod_err;
+        }
+
+        if(sxc_meta_setval(ctx->meta, metakey, metaval, l)) {
+            WARN("Failed to add meta key-value pair to context blob");
+            goto blob_to_volmod_err;
+        }
+    }
+
+    if(sx_blob_get_int32(b, &ctx->noldmeta)) {
+        msg_set_reason("Corrupted volume mod blob");
+        goto blob_to_volmod_err;
+    }
+
+    if(ctx->noldmeta != -1) {
+        ctx->oldmeta = sxc_meta_new(sx);
+        if(!ctx->oldmeta) {
+            WARN("Failed to allocate metadata");
+            goto blob_to_volmod_err;
+        }
+    } else
+        ctx->oldmeta = NULL;
+
+    for(i = 0; i < ctx->noldmeta; i++) {
+        const char *metakey;
+        const void *metaval;
+        unsigned int l;
+
+        if(sx_blob_get_string(b, &metakey) || sx_blob_get_blob(b, &metaval, &l)) {
+            WARN("Failed to get meta key-value pair from blob");
+            goto blob_to_volmod_err;
+        }
+
+        if(sx_hashfs_check_meta(metakey, metaval, l)) {
+            WARN("Invalid meta");
+            goto blob_to_volmod_err;
+        }
+
+        if(sxc_meta_setval(ctx->oldmeta, metakey, metaval, l)) {
+            WARN("Failed to add meta key-value pair to context blob");
+            goto blob_to_volmod_err;
+        }
+    }
+
+    ret = 0;
+blob_to_volmod_err:
+    if(ret) {
+        sxc_meta_free(ctx->meta);
+        sxc_meta_free(ctx->oldmeta);
+        ctx->meta = NULL;
+        ctx->oldmeta = NULL;
+    }
+    return ret;
 }
 
 static int volmod_to_blob(sxc_client_t *sx, int nodes, void *yctx, sx_blob_t *joblb)
 {
     struct volmod_ctx *ctx = yctx;
+    int i;
+
     if (!joblb) {
         msg_set_reason("Cannot allocate job storage");
         return -1;
@@ -1246,10 +1384,49 @@ static int volmod_to_blob(sxc_client_t *sx, int nodes, void *yctx, sx_blob_t *jo
     if(sx_blob_add_string(joblb, ctx->volume) || sx_blob_add_string(joblb, ctx->oldowner)
         || sx_blob_add_string(joblb, ctx->newowner) || sx_blob_add_int64(joblb, ctx->oldsize)
         || sx_blob_add_int64(joblb, ctx->newsize) || sx_blob_add_int32(joblb, ctx->oldrevs)
-        || sx_blob_add_int32(joblb, ctx->newrevs)) {
+        || sx_blob_add_int32(joblb, ctx->newrevs) || sx_blob_add_int32(joblb, ctx->nmeta)) {
         msg_set_reason("Cannot create job storage");
         return -1;
     }
+
+    for(i = 0; i < ctx->nmeta; i++) {
+        const char *metakey;
+        const void *metaval;
+        unsigned int l;
+
+        if(sxc_meta_getkeyval(ctx->meta, i, &metakey, &metaval, &l)) {
+            msg_set_reason("Cannot create job storage");
+            return -1;
+        }
+
+        if(sx_blob_add_string(joblb, metakey) || sx_blob_add_blob(joblb, metaval, l)) {
+            msg_set_reason("Cannot create job storage");
+            return -1;
+        }
+    }
+
+    /* Backup also old meta */
+    if(sx_blob_add_int32(joblb, ctx->noldmeta)) {
+        msg_set_reason("Cannot create job storage");
+        return -1;
+    }
+
+    for(i = 0; i < ctx->noldmeta; i++) {
+        const char *metakey;
+        const void *metaval;
+        unsigned int l;
+
+        if(sxc_meta_getkeyval(ctx->oldmeta, i, &metakey, &metaval, &l)) {
+            msg_set_reason("Cannot create job storage");
+            return -1;
+        }
+
+        if(sx_blob_add_string(joblb, metakey) || sx_blob_add_blob(joblb, metaval, l)) {
+            msg_set_reason("Cannot create job storage");
+            return -1;
+        }
+    }
+
     return 0;
 }
 
@@ -1261,22 +1438,30 @@ static unsigned volmod_timeout(sxc_client_t *sx, int nodes)
 static sxi_query_t* volmod_proto_from_blob(sxc_client_t *sx, sx_blob_t *b, jobphase_t phase)
 {
     struct volmod_ctx ctx;
+    sxi_query_t *ret;
 
-    if(blob_to_volmod(b, &ctx)) {
+    if(blob_to_volmod(sx, b, &ctx)) {
         WARN("Failed to read job blob");
         return NULL;
     }
 
     switch (phase) {
         case JOBPHASE_COMMIT:
-            return sxi_volume_mod_proto(sx, ctx.volume, ctx.newowner, ctx.newsize, ctx.newrevs);
+            ret = sxi_volume_mod_proto(sx, ctx.volume, ctx.newowner, ctx.newsize, ctx.newrevs, ctx.meta);
+            break;
         case JOBPHASE_ABORT:
-            return sxi_volume_mod_proto(sx, ctx.volume, ctx.oldowner, ctx.oldsize, ctx.oldrevs);
+            ret = sxi_volume_mod_proto(sx, ctx.volume, ctx.oldowner, ctx.oldsize, ctx.oldrevs, ctx.oldmeta);
+            break;
         case JOBPHASE_UNDO:
-            return sxi_volume_mod_proto(sx, ctx.volume, ctx.oldowner, ctx.oldsize, ctx.oldrevs);
+            ret = sxi_volume_mod_proto(sx, ctx.volume, ctx.oldowner, ctx.oldsize, ctx.oldrevs, ctx.oldmeta);
+            break;
         default:
-            return NULL;
+            ret = NULL;
     }
+
+    sxc_meta_free(ctx.meta);
+    sxc_meta_free(ctx.oldmeta);
+    return ret;
 }
 
 static rc_ty volmod_create_revsclean_job(sx_hashfs_t *h, const char *v) {
@@ -1349,7 +1534,7 @@ static rc_ty volmod_execute_blob(sx_hashfs_t *h, sx_blob_t *b, jobphase_t phase,
         return FAIL_EINTERNAL;
     }
 
-    if(blob_to_volmod(b, &ctx)) {
+    if(blob_to_volmod(sx_hashfs_client(h), b, &ctx)) {
         WARN("Corrupted volume mod blob");
         return FAIL_EINTERNAL;
     }
@@ -1359,9 +1544,11 @@ static rc_ty volmod_execute_blob(sx_hashfs_t *h, sx_blob_t *b, jobphase_t phase,
 
     switch (phase) {
         case JOBPHASE_COMMIT:
-            rc = sx_hashfs_volume_mod(h, ctx.volume, ctx.newowner, ctx.newsize, ctx.newrevs);
+            rc = sx_hashfs_volume_mod(h, ctx.volume, ctx.newowner, ctx.newsize, ctx.newrevs, ctx.meta);
             if (rc != OK)
                 WARN("Failed to change volume %s: %s", ctx.volume, msg_get_reason());
+            sxc_meta_free(ctx.oldmeta);
+            sxc_meta_free(ctx.meta);
             if(rc == OK && ctx.newrevs < ctx.oldrevs) {
                 rc = volmod_create_revsclean_job(h, ctx.volume);
                 if(rc != OK)
@@ -1371,18 +1558,24 @@ static rc_ty volmod_execute_blob(sx_hashfs_t *h, sx_blob_t *b, jobphase_t phase,
             }
             return rc;
         case JOBPHASE_ABORT:
-            rc = sx_hashfs_volume_mod(h, ctx.volume, ctx.oldowner, ctx.oldsize, ctx.oldrevs);
+            rc = sx_hashfs_volume_mod(h, ctx.volume, ctx.oldowner, ctx.oldsize, ctx.oldrevs, ctx.oldmeta);
             if (rc != OK)
                 WARN("Failed to change volume %s: %s", ctx.volume, msg_get_reason());
+            sxc_meta_free(ctx.oldmeta);
+            sxc_meta_free(ctx.meta);
             return rc;
         case JOBPHASE_UNDO:
             CRIT("volume '%s' may have been left in an inconsistent state after a failed modification attempt", ctx.volume);
-            rc = sx_hashfs_volume_mod(h, ctx.volume, ctx.oldowner, ctx.oldsize, ctx.oldrevs);
+            rc = sx_hashfs_volume_mod(h, ctx.volume, ctx.oldowner, ctx.oldsize, ctx.oldrevs, ctx.oldmeta);
             if (rc != OK)
                 WARN("Failed to change volume %s: %s", ctx.volume, msg_get_reason());
+            sxc_meta_free(ctx.oldmeta);
+            sxc_meta_free(ctx.meta);
             return rc;
         default:
             WARN("Impossible job phase: %d", phase);
+            sxc_meta_free(ctx.oldmeta);
+            sxc_meta_free(ctx.meta);
             return FAIL_EINTERNAL;
     }
 }
@@ -1392,8 +1585,17 @@ static rc_ty volmod_parse_complete(void *yctx)
     rc_ty s;
     struct volmod_ctx *ctx = yctx;
     const sx_hashfs_volume_t *vol = NULL;
+
     if (!ctx || ctx->state != CB_VOLMOD_COMPLETE)
         return EINVAL;
+
+    if((*ctx->newowner || ctx->newsize != -1 || ctx->newrevs != -1) && !has_priv(PRIV_ADMIN)) {
+        msg_set_reason("Permission denied: Not enough privileges");
+        return EPERM;
+    } else if(!has_priv(PRIV_ACL)) {
+        msg_set_reason("Permission denied: Not enough privileges");
+        return EPERM;
+    }
 
     /* Check if volume exists */
     if(sx_hashfs_volume_by_name(hashfs, volume, &vol) != OK) {
@@ -1456,6 +1658,44 @@ static rc_ty volmod_parse_complete(void *yctx)
             return s; /* Message is set by sx_hashfs_check_volume_settings() */
     }
 
+    if(ctx->nmeta != -1) {
+        const char *metakey;
+        const void *metaval;
+        unsigned int l;
+
+        /* New meta has been given, we need to backup old meta in order to properly handle abort/undo phases */
+        if((s = sx_hashfs_volumemeta_begin(hashfs, vol)) != OK)
+            return s;
+        ctx->oldmeta = sxc_meta_new(sx_hashfs_client(hashfs));
+        if(!ctx->oldmeta) {
+            msg_set_reason("Out of memory");
+            return FAIL_EINTERNAL;
+        }
+
+        ctx->noldmeta = 0;
+        s = sx_hashfs_volumemeta_next(hashfs, &metakey, &metaval, &l);
+        while(s == OK) {
+            if(!strncmp(SX_CUSTOM_META_PREFIX, metakey, lenof(SX_CUSTOM_META_PREFIX))) {
+                if(sxc_meta_setval(ctx->oldmeta, metakey + lenof(SX_CUSTOM_META_PREFIX), metaval, l)) {
+                    msg_set_reason("Out of memory");
+                    sxc_meta_free(ctx->oldmeta);
+                    ctx->oldmeta = NULL;
+                    return FAIL_EINTERNAL;
+                }
+                ctx->noldmeta++;
+            }
+            s = sx_hashfs_volumemeta_next(hashfs, &metakey, &metaval, &l);
+        }
+
+        if(s != ITER_NO_MORE) {
+            WARN("Failed to iterate volume meta");
+            sxc_meta_free(ctx->oldmeta);
+            ctx->oldmeta = NULL;
+            return s;
+        }
+    } else
+        ctx->oldmeta = NULL;
+
     return OK;
 }
 
@@ -1471,6 +1711,39 @@ static int cb_volmod_string(void *ctx, const unsigned char *s, size_t l) {
         c->newowner[l] = '\0';
 
         c->state = CB_VOLMOD_KEY;
+        return 1;
+    } else if(c->state == CB_VOLMOD_METAVAL) {
+        uint8_t metaval[SXLIMIT_META_MAX_VALUE_LEN];
+
+        if(l > SXLIMIT_META_MAX_VALUE_LEN) {
+            INFO("Invalid meta key length");
+            return 0;
+        }
+        if(sxi_hex2bin((const char*)s, l, metaval, sizeof(metaval))) {
+            INFO("Invalid meta value");
+            return 0;
+        }
+        l /= 2;
+
+        if(sx_hashfs_check_meta(c->metakey, metaval, l)) {
+            INFO("Invalid meta key-value pair");
+            return 0;
+        }
+
+        if(!c->meta) {
+            c->meta = sxc_meta_new(sx_hashfs_client(hashfs));
+            if(!c->meta) {
+                WARN("Failed to allocate metadata");
+                return 0;
+            }
+        }
+
+        if(sxc_meta_setval(c->meta, c->metakey, metaval, l)) {
+            WARN("Failed to add data to meta blob");
+            return 0;
+        }
+        c->nmeta++;
+        c->state = CB_VOLMOD_METAKEY;
         return 1;
     }
     return 0;
@@ -1517,6 +1790,8 @@ static int cb_volmod_start_map(void *ctx) {
     struct volmod_ctx *c = (struct volmod_ctx *)ctx;
     if(c->state == CB_VOLMOD_START)
         c->state = CB_VOLMOD_KEY;
+    else if(c->state == CB_VOLMOD_META)
+        c->state = CB_VOLMOD_METAKEY;
     else
         return 0;
     return 1;
@@ -1537,6 +1812,18 @@ static int cb_volmod_map_key(void *ctx, const unsigned char *s, size_t l) {
             c->state = CB_VOLMOD_REVS;
             return 1;
         }
+        if(l == lenof("customVolumeMeta") && !strncmp("customVolumeMeta", (const char*)s, l)) {
+            c->state = CB_VOLMOD_META;
+            c->nmeta = 0;
+            return 1;
+        }
+    } else if(c->state == CB_VOLMOD_METAKEY) {
+        if(c->nmeta >= SXLIMIT_META_MAX_ITEMS || l > SXLIMIT_META_MAX_KEY_LEN - lenof(SX_CUSTOM_META_PREFIX) || l < SXLIMIT_META_MIN_KEY_LEN)
+            return 0;
+        memcpy(c->metakey, s, l);
+        c->metakey[l] = '\0';
+        c->state = CB_VOLMOD_METAVAL;
+        return 1;
     }
     return 0;
 }
@@ -1545,6 +1832,8 @@ static int cb_volmod_end_map(void *ctx) {
     struct volmod_ctx *c = (struct volmod_ctx *)ctx;
     if(c->state == CB_VOLMOD_KEY)
         c->state = CB_VOLMOD_COMPLETE;
+    else if(c->state == CB_VOLMOD_METAKEY)
+        c->state = CB_VOLMOD_KEY;
     else
         return 0;
     return 1;
@@ -1578,18 +1867,10 @@ const job_2pc_t volmod_spec = {
 
 void fcgi_volume_mod(void) {
     struct volmod_ctx ctx;
-
-    /* Assign begin state */
-    ctx.state = CB_VOLMOD_START;
-    ctx.oldowner[0] = '\0';
-    ctx.newowner[0] = '\0';
-    ctx.newsize = -1;
-    ctx.oldsize = -1;
-    ctx.newrevs = -1;
-    ctx.oldrevs = -1;
-    ctx.volume = volume;
-
+    volmod_ctx_init(&ctx);
     job_2pc_handle_request(sx_hashfs_client(hashfs), &volmod_spec, &ctx);
+    sxc_meta_free(ctx.meta);
+    sxc_meta_free(ctx.oldmeta);
 }
 
 void fcgi_node_status(void) {

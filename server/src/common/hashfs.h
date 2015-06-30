@@ -83,6 +83,7 @@
 
 #define QUOTA_UNDEFINED -1LL
 #define QUOTA_UNLIMITED 0LL
+#define SX_CUSTOM_META_PREFIX "custom:"
 
 typedef enum {
     NL_PREV,
@@ -138,7 +139,8 @@ rc_ty sx_hashfs_challenge_gen(sx_hashfs_t *h, sx_hash_challenge_t *c, int random
 
 int sx_hashfs_check_volume_name(const char *name);
 rc_ty sx_hashfs_check_volume_settings(sx_hashfs_t *h, const char *volume, int64_t size, unsigned int replica, unsigned int revisions);
-int sx_hashfs_check_meta(const char *key, const void *value, unsigned int value_len);
+rc_ty sx_hashfs_check_meta(const char *key, const void *value, unsigned int value_len);
+rc_ty sx_hashfs_check_volume_meta(const char *key, const void *value, unsigned int value_len);
 int sx_hashfs_check_username(const char *name);
 
 rc_ty sx_hashfs_derive_key(sx_hashfs_t *h, unsigned char *key, int len, const char *info);
@@ -257,7 +259,7 @@ int sx_hashfs_is_node_ignored(sx_hashfs_t *h, const sx_uuid_t *node_uuid);
 rc_ty sx_hashfs_set_unfaulty(sx_hashfs_t *h, const sx_uuid_t *nodeid, int64_t dist_rev);
 
 /* Change volume ownership and/or size*/
-rc_ty sx_hashfs_volume_mod(sx_hashfs_t *h, const char *volume, const char *newowner, int64_t newsize, int max_revs);
+rc_ty sx_hashfs_volume_mod(sx_hashfs_t *h, const char *volume, const char *newowner, int64_t newsize, int max_revs, sxc_meta_t *metadata);
 
 /* File list */
 typedef struct _sx_hashfs_file_t {

@@ -548,7 +548,7 @@ int main(int argc, char **argv) {
             revs = modify_args.max_revisions_arg;
         }
 
-        ret = sxc_volume_modify(cluster, uri->volume, modify_args.owner_arg, size, revs);
+        ret = sxc_volume_modify(cluster, uri->volume, modify_args.owner_arg, size, revs, NULL);
         if(ret) {
             fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
             goto modify_err;
