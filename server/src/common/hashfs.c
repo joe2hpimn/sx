@@ -6544,9 +6544,10 @@ rc_ty sx_hashfs_volume_new_finish(sx_hashfs_t *h, const char *volume, int64_t si
     r = qstep(h->q_addvol);
     if(r == SQLITE_CONSTRAINT) {
 	const sx_hashfs_volume_t *vol;
-	if(sx_hashfs_volume_by_name(h, volume, &vol) == OK)
+	if(sx_hashfs_volume_by_name(h, volume, &vol) == OK) {
 	    ret = EEXIST;
-	else
+            msg_set_reason("Volume already exists");
+        } else
 	    ret = FAIL_LOCKED;
     }
 

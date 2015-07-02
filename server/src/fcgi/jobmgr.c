@@ -397,7 +397,7 @@ static act_result_t createvol_request(sx_hashfs_t *hashfs, job_t job_id, job_dat
 
 	    s = sx_hashfs_volume_new_finish(hashfs, volname, volsize, replica, revisions, owner_uid, 1);
 	    if(s != OK) {
-                const char *msg = s == EINVAL ? msg_get_reason() : rc2str(s);
+                const char *msg = (s == EINVAL || s == EEXIST) ? msg_get_reason() : rc2str(s);
 		action_error(rc2actres(s), rc2http(s), msg);
             }
 	    succeeded[nnode] = 1;
