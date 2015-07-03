@@ -1248,5 +1248,17 @@ test_put_job "switching cluster back to read-write mode", , {'admin'=>[200]}, ".
 # PUT should work again
 test_upload 'file upload to read-write cluster', $writer, '', "large$vol", 'empty';
 
+
+
+# Check cluster meta operations
+test_get "cluster meta (empty)", {'badauth'=>[401],$reader=>[200,'application/json'],$writer=>[200,'application/json'],'admin'=>[200,'application/json']}, "?clusterMeta", undef, sub { my $json = get_json(shift) or return 0; return is_hash($json->{'clusterMeta'}) && (scalar keys %{$json->{'clusterMeta'}} == 0); };
+test_put_job "cluster meta change (two meta entries)", admin_only(200), ".clusterMeta", "{\"clusterMeta\":{\"key1\":\"aabbcc\",\"key2\":\"0123456789\"}}";
+test_get "cluster meta (two entries)", {'badauth'=>[401],$reader=>[200,'application/json'],$writer=>[200,'application/json'],'admin'=>[200,'application/json']}, "?clusterMeta", undef, sub { my $json = get_json(shift) or return 0; return is_hash($json->{'clusterMeta'}) && (scalar keys %{$json->{'clusterMeta'}} == 2) && $json->{'clusterMeta'}->{'key1'} eq 'aabbcc' && $json->{'clusterMeta'}->{'key2'} eq '0123456789' };
+test_put_job "cluster meta change (one meta entry)", admin_only(200), ".clusterMeta", "{\"clusterMeta\":{\"key3\":\"1010\"}}";
+test_get "cluster meta (one entry)", {'badauth'=>[401],$reader=>[200,'application/json'],$writer=>[200,'application/json'],'admin'=>[200,'application/json']}, "?clusterMeta", undef, sub { my $json = get_json(shift) or return 0; return is_hash($json->{'clusterMeta'}) && (scalar keys %{$json->{'clusterMeta'}} == 1) && $json->{'clusterMeta'}->{'key3'} eq '1010' };
+test_put_job "cluster meta change (max meta entries)", admin_only(200), ".clusterMeta", "{\"clusterMeta\":{$metaitems}}";
+test_get "cluster meta (max entries)", {'badauth'=>[401],$reader=>[200,'application/json'],$writer=>[200,'application/json'],'admin'=>[200,'application/json']}, "?clusterMeta", undef, sub { my $json = get_json(shift) or return 0; return is_hash($json->{'clusterMeta'}) && (scalar keys %{$json->{'clusterMeta'}} == 128) };
+test_put_job "cluster meta change (too many meta entries)", admin_only(400), ".clusterMeta", "{\"clusterMeta\":{$metaitems},\"toomany\":\"acab\"}";
+
 print "\nTests performed: ".($okies+$fails)." - $fails failed, $okies succeeded\n";
 exit ($fails > 0);

@@ -58,6 +58,17 @@ struct cluster_args_info
   char * set_mode_orig;	/**< @brief Set cluster operating mode ('ro' or 'rw' for read-only or write-only respectively) original value given at command line.  */
   const char *set_mode_help; /**< @brief Set cluster operating mode ('ro' or 'rw' for read-only or write-only respectively) help description.  */
   const char *upgrade_help; /**< @brief Check node versions and start cluster upgrade help description.  */
+  char ** set_meta_arg;	/**< @brief Set cluster metadata ('key=value' entries are accepted).  */
+  char ** set_meta_orig;	/**< @brief Set cluster metadata ('key=value' entries are accepted) original value given at command line.  */
+  unsigned int set_meta_min; /**< @brief Set cluster metadata ('key=value' entries are accepted)'s minimum occurreces */
+  unsigned int set_meta_max; /**< @brief Set cluster metadata ('key=value' entries are accepted)'s maximum occurreces */
+  const char *set_meta_help; /**< @brief Set cluster metadata ('key=value' entries are accepted) help description.  */
+  char * get_meta_arg;	/**< @brief Show cluster metadata (use ALL to show all entries).  */
+  char * get_meta_orig;	/**< @brief Show cluster metadata (use ALL to show all entries) original value given at command line.  */
+  const char *get_meta_help; /**< @brief Show cluster metadata (use ALL to show all entries) help description.  */
+  char * delete_meta_arg;	/**< @brief Delete cluster metadata entry.  */
+  char * delete_meta_orig;	/**< @brief Delete cluster metadata entry original value given at command line.  */
+  const char *delete_meta_help; /**< @brief Delete cluster metadata entry help description.  */
   char * node_dir_arg;	/**< @brief Path to the node directory.  */
   char * node_dir_orig;	/**< @brief Path to the node directory original value given at command line.  */
   const char *node_dir_help; /**< @brief Path to the node directory help description.  */
@@ -99,6 +110,10 @@ struct cluster_args_info
   unsigned int list_nodes_given ;	/**< @brief Whether list-nodes was given.  */
   unsigned int set_mode_given ;	/**< @brief Whether set-mode was given.  */
   unsigned int upgrade_given ;	/**< @brief Whether upgrade was given.  */
+  unsigned int set_meta_given ;	/**< @brief Whether set-meta was given.  */
+  int set_meta_group ; /**< @brief Whether set-meta's was updated.  */
+  unsigned int get_meta_given ;	/**< @brief Whether get-meta was given.  */
+  unsigned int delete_meta_given ;	/**< @brief Whether delete-meta was given.  */
   unsigned int node_dir_given ;	/**< @brief Whether node-dir was given.  */
   unsigned int port_given ;	/**< @brief Whether port was given.  */
   unsigned int ssl_ca_file_given ;	/**< @brief Whether ssl-ca-file was given.  */

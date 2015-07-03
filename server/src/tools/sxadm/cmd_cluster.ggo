@@ -25,6 +25,9 @@ groupoption "get-cluster-key" - "Obtain remote cluster key" group="MODE" hidden
 groupoption "list-nodes" l "List all nodes of the cluster and their current status" group="MODE"
 groupoption "set-mode" m "Set cluster operating mode ('ro' or 'rw' for read-only or write-only respectively)" group="MODE" string typestr="MODE"
 groupoption "upgrade" - "Check node versions and start cluster upgrade" group="MODE"
+groupoption "set-meta" - "Set cluster metadata ('key=value' entries are accepted)" group="MODE" string multiple
+groupoption "get-meta" - "Show cluster metadata (use ALL to show all entries)" group="MODE" string typestr="KEY"
+groupoption "delete-meta" - "Delete cluster metadata entry" group="MODE" string typestr="KEY"
 
 section "New cluster options"
 option "node-dir" d "Path to the node directory" string typestr="PATH" dependon="new" optional

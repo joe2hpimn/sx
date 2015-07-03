@@ -4853,6 +4853,9 @@ int sxc_cat(sxc_file_t *source, int dest) {
 }
 
 struct cb_filemeta_ctx {
+    /* 'fileMeta' or 'clusterMeta', or sth else... */
+    const char *meta_key;
+
     curlev_context_t *cbdata;
     yajl_handle yh;
     struct cb_error_ctx errctx;
@@ -4889,8 +4892,12 @@ static int yacb_filemeta_map_key(void *ctx, const unsigned char *s, size_t l) {
     }
     if(yactx->state == FM_FM) {
 	yactx->state++;
-	if(l != lenof("fileMeta") || memcmp(s, "fileMeta", lenof("fileMeta"))) {
-	    CBDEBUG("expected fileMeta, recevived %.*s", (int)l, s);
+        if(!yactx->meta_key) {
+            CBDEBUG("meta_key has not been set");
+            return 0;
+        }
+	if(l != strlen(yactx->meta_key) || memcmp(s, yactx->meta_key, strlen(yactx->meta_key))) {
+	    CBDEBUG("expected %s, received %.*s", yactx->meta_key, (int)l, s);
 	    return 0;
 	}
 	return 1;
@@ -5075,6 +5082,50 @@ sxc_meta_t *sxc_volumemeta_new(sxc_file_t *file) {
     return meta;
 }
 
+sxc_meta_t *sxc_clustermeta_new(sxc_cluster_t *cluster) {
+    sxc_meta_t *meta = NULL;
+    struct cb_filemeta_ctx yctx;
+    yajl_callbacks *yacb = &yctx.yacb;
+    sxc_client_t *sx = sxi_cluster_get_client(cluster);
+    sxi_conns_t *conns = sxi_cluster_get_conns(cluster);
+
+    ya_init(yacb);
+    yacb->yajl_start_map = yacb_filemeta_start_map;
+    yacb->yajl_map_key = yacb_filemeta_map_key;
+    yacb->yajl_string = yacb_filemeta_string;
+    yacb->yajl_end_map = yacb_filemeta_end_map;
+
+    yctx.yh = NULL;
+    yctx.nextk = NULL;
+    yctx.meta_key = "clusterMeta";
+    yctx.meta = sxc_meta_new(sx);
+    if(!yctx.meta)
+        goto sxc_clustermeta_begin_err;
+
+    sxi_set_operation(sx, "get cluster metadata", NULL, NULL, NULL);
+    if(sxi_cluster_query(conns, NULL, REQ_GET, "?clusterMeta", NULL, 0, filemeta_setup_cb, filemeta_cb, &yctx) != 200) {
+        SXDEBUG("file get query failed");
+        goto sxc_clustermeta_begin_err;
+    }
+
+    if(yajl_complete_parse(yctx.yh) != yajl_status_ok || yctx.state != FM_COMPLETE) {
+        sxi_seterr(sx, SXE_ECOMM, "Failed to retrieve the file metadata: Communication error");
+        goto sxc_clustermeta_begin_err;
+    }
+
+    meta = yctx.meta;
+    yctx.meta = NULL;
+
+sxc_clustermeta_begin_err:
+    if(yctx.yh)
+        yajl_free(yctx.yh);
+    free(yctx.nextk);
+    if(yctx.meta)
+        sxc_meta_free(yctx.meta);
+
+    return meta;
+}
+
 sxc_meta_t *sxc_filemeta_new(sxc_file_t *file) {
     sxi_hostlist_t volnodes;
     sxc_client_t *sx;
@@ -5127,6 +5178,7 @@ sxc_meta_t *sxc_filemeta_new(sxc_file_t *file) {
 
     yctx.yh = NULL;
     yctx.nextk = NULL;
+    yctx.meta_key = "fileMeta";
     yctx.meta = sxc_meta_new(sx);
     if(!yctx.meta)
 	goto filemeta_begin_err;

@@ -213,6 +213,9 @@ void volume_ops(void) {
         } else if(!strcmp(volume, ".mode")) {
             /* Switch cluster to read-only or to read-write mode (sxadm entry) - ADMIN required */
             fcgi_cluster_mode();
+        } else if(!strcmp(volume, ".clusterMeta")) {
+            /* Set cluster metadata - ADMIN required */
+            fcgi_cluster_setmeta();
         } else {
 	    /* Create new volume - ADMIN required */
 	    if(is_reserved())

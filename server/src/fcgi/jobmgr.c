@@ -790,6 +790,18 @@ static act_result_t cluster_mode_abort(sx_hashfs_t *hashfs, job_t job_id, job_da
    return job_twophase_execute(&cluster_mode_spec, JOBPHASE_ABORT, hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
 }
 
+static act_result_t cluster_setmeta_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+   return job_twophase_execute(&cluster_setmeta_spec, JOBPHASE_COMMIT, hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
+}
+
+static act_result_t cluster_setmeta_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+   return job_twophase_execute(&cluster_setmeta_spec, JOBPHASE_ABORT, hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
+}
+
+static act_result_t cluster_setmeta_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+   return job_twophase_execute(&cluster_setmeta_spec, JOBPHASE_UNDO, hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
+}
+
 static int req_append(char **req, unsigned int *req_len, const char *append_me) {
     unsigned int current_len, append_len;
 
@@ -1903,10 +1915,62 @@ static int sync_global_objects(sx_hashfs_t *hashfs, const sxi_hostlist_t *hlist)
         WARN("Failed to get cluster operating mode");
         return -1;
     }
-    /* Syncing cluter operating mode */
-    sprintf(ctx.buffer, "{\"misc\":{\"mode\":\"%s\"", mode ? "ro" : "rw");
+
+    time_t last_clustermeta_mod;
+    if(sx_hashfs_clustermeta_last_change(hashfs, &last_clustermeta_mod)) {
+        WARN("Failed to last cluster meta modification time");
+        return -1;
+    }
+
+    /* Syncing misc globs */
+    sprintf(ctx.buffer, "{\"misc\":{\"mode\":\"%s\",\"clusterMetaLastModified\":%ld", mode ? "ro" : "rw", last_clustermeta_mod);
     ctx.what = SYNCING_MISC;
-    ctx.at = lenof("{\"misc\":{\"mode\":\"ro\"");
+    ctx.at = strlen(ctx.buffer);
+
+    s = sx_hashfs_clustermeta_begin(hashfs);
+    if(s == OK) {
+        const char *key;
+        const void *val;
+        unsigned int val_len;
+        char *enc_name;
+
+        ctx.nmeta = 0;
+        while((s=sx_hashfs_clustermeta_next(hashfs, &key, &val, &val_len)) == OK) {
+            enc_name = sxi_json_quote_string(key);
+            if(!enc_name) {
+                WARN("Cannot encode cluster meta key %s", key);
+                s = ENOMEM;
+                break;
+            }
+            /* encoded key and value lengths + quoting, colon and comma */
+            strcpy(ctx.meta[ctx.nmeta].key, enc_name);
+            free(enc_name);
+            bin2hex(val, val_len, ctx.meta[ctx.nmeta].hexvalue, sizeof(ctx.meta[0].hexvalue));
+            ctx.nmeta++;
+        }
+        if(s == ITER_NO_MORE)
+            s = OK;
+    }
+    if(s != OK) {
+        WARN("Failed to get cluster meta");
+        return -1;
+    }
+
+    if(ctx.nmeta) {
+        unsigned int i;
+        strcat(&ctx.buffer[ctx.at], ",\"clusterMeta\":{");
+        ctx.at += lenof(",\"clusterMeta\":{");
+        for(i=0; i<ctx.nmeta; i++) {
+            ctx.at = strlen(ctx.buffer);
+            sprintf(&ctx.buffer[ctx.at], "%s%s:\"%s\"",
+                    i ? "," : "",
+                    ctx.meta[i].key,
+                    ctx.meta[i].hexvalue);
+        }
+        strcat(ctx.buffer, "}");
+        ctx.at = strlen(ctx.buffer);
+    }
+
     if(sync_flush(&ctx))
         return -1;
 
@@ -4985,6 +5049,7 @@ static struct {
     { jobpoll_request, force_phase_success, jobpoll_abort, jobpoll_undo }, /* JOBTYPE_JOBPOLL */
     { batchdelete_request, force_phase_success, batchdelete_abort, batchdelete_undo }, /* JOBTYPE_BATCHDELETE */
     { batchrename_request, force_phase_success, batchrename_abort, batchrename_undo }, /* JOBTYPE_BATCHRENAME */
+    { force_phase_success, cluster_setmeta_commit, cluster_setmeta_abort, cluster_setmeta_undo }, /* JOBTYPE_CLUSTER_SETMETA */
 };
 
 

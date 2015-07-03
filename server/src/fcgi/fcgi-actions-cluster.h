@@ -30,4 +30,6 @@
 
 void fcgi_handle_cluster_requests(void);
 void fcgi_challenge_response(void);
+void fcgi_cluster_setmeta(void);
+
 #endif

@@ -1100,3 +1100,25 @@ sxi_query_t *sxi_cluster_mode_proto(sxc_client_t *sx, int readonly) {
 sxi_query_t *sxi_cluster_upgrade_proto(sxc_client_t *sx) {
     return sxi_query_create(sx, ".upgrade", REQ_PUT);
 }
+
+sxi_query_t *sxi_cluster_setmeta_proto(sxc_client_t *sx, int timestamp, sxc_meta_t *meta) {
+    sxi_query_t *query;
+
+    query = sxi_query_create(sx, ".clusterMeta", REQ_PUT);
+
+    if(query)
+        query = sxi_query_append_fmt(sx, query, 1, "{");
+
+    /* Timestamp won't be included if it is -1 */
+    if(timestamp != -1 && query)
+        query = sxi_query_append_fmt(sx, query, lenof("\"timestamp\":") + 21, "\"timestamp\":%d", timestamp);
+
+    /* This should also enclose the JSON */
+    if(query)
+        query = sxi_query_add_meta(sx, query, "clusterMeta", meta, timestamp != -1 ? 1 : 0, 1);
+
+    if(!query)
+        sxi_seterr(sx, SXE_EMEM, "Failed to allocate query");
+
+    return query;
+}

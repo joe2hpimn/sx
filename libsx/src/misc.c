@@ -1213,7 +1213,7 @@ int sxi_ht_add(sxi_ht *ht, const void *key, unsigned int key_length, void *value
 }
 
 unsigned int sxi_ht_count(sxi_ht *ht) {
-    return ht ? ht->items : 0;
+    return ht ? ht->items - ht->deleted: 0;
 }
 
 int sxi_ht_get(sxi_ht *ht, const void *key, unsigned int key_length, void **value) {

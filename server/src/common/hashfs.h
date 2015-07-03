@@ -473,6 +473,14 @@ rc_ty sx_hashfs_cluster_get_name(sx_hashfs_t *h, const char **name);
 
 int sx_hashfs_is_readonly(sx_hashfs_t *h);
 
+/* Load cluster meta from database */
+rc_ty sx_hashfs_clustermeta_begin(sx_hashfs_t *h);
+rc_ty sx_hashfs_clustermeta_next(sx_hashfs_t *h, const char **key, const void **value, unsigned int *value_len);
+void sx_hashfs_clustermeta_set_begin(sx_hashfs_t *h);
+rc_ty sx_hashfs_clustermeta_set_addmeta(sx_hashfs_t *h, const char *key, const void *value, unsigned int value_len);
+rc_ty sx_hashfs_clustermeta_set_finish(sx_hashfs_t *h, time_t ts, int do_transaction);
+rc_ty sx_hashfs_clustermeta_last_change(sx_hashfs_t *h, time_t *t);
+
 typedef struct {
     sx_hash_t revision_id;
     int32_t blocksize;

@@ -1829,6 +1829,172 @@ static int upgrade_job_node(sxc_client_t *sx, const char *path)
     return s == OK ? 0 : 1;
 }
 
+static int get_cluster_meta(sxc_client_t *sx, struct cluster_args_info *args) {
+    sxc_cluster_t *cluster;
+    sxc_meta_t *meta;
+    unsigned int i, count;
+
+    cluster = cluster_load(sx, args, 1);
+    if(!cluster || !args->get_meta_arg)
+        return 1;
+
+    meta = sxc_clustermeta_new(cluster);
+    if(!meta) {
+        fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
+        sxc_cluster_free(cluster);
+        return 1;
+    }
+
+    count = sxc_meta_count(meta);
+    if(!strcmp(args->get_meta_arg, "ALL")) {
+        for(i = 0; i < count; i++) {
+            const char *metakey = NULL;
+            const void *metaval = NULL;
+            char metaval_str[SXLIMIT_META_MAX_VALUE_LEN+1];
+            unsigned int l;
+
+            if(sxc_meta_getkeyval(meta, i, &metakey, &metaval, &l) || !metakey || !metaval || l > SXLIMIT_META_MAX_VALUE_LEN) {
+                fprintf(stderr, "ERROR: Failed to get cluster meta\n");
+                sxc_cluster_free(cluster);
+                sxc_meta_free(meta);
+                return 1;
+            }
+
+            memcpy(metaval_str, metaval, l);
+            metaval_str[l] = '\0';
+            printf("%s=%s\n", metakey, metaval_str);
+        }
+    } else {
+        const void *metaval = NULL;
+        char metaval_str[SXLIMIT_META_MAX_VALUE_LEN+1];
+        unsigned int l;
+
+        if(sxc_meta_getval(meta, args->get_meta_arg, &metaval, &l) || !metaval || l > SXLIMIT_META_MAX_VALUE_LEN) {
+            fprintf(stderr, "ERROR: Cluster meta key '%s' does not exist\n", args->get_meta_arg);
+            sxc_cluster_free(cluster);
+            sxc_meta_free(meta);
+            return 1;
+        }
+
+        memcpy(metaval_str, metaval, l);
+        metaval_str[l] = '\0';
+        printf("%s=%s\n", args->get_meta_arg, metaval_str);
+    }
+
+    sxc_meta_free(meta);
+    sxc_cluster_free(cluster);
+    return 0;
+}
+
+static int set_cluster_meta(sxc_client_t *sx, struct cluster_args_info *args) {
+    sxc_cluster_t *cluster;
+    int ret;
+    sxc_meta_t *meta;
+    unsigned int i;
+
+    if(!args || !args->set_meta_given) {
+        fprintf(stderr, "ERROR: Invalid argument\n");
+        return 1;
+    }
+
+    cluster = cluster_load(sx, args, 1);
+    if(!cluster)
+        return 1;
+
+    meta = sxc_clustermeta_new(cluster);
+    if(!meta) {
+        sxc_cluster_free(cluster);
+        fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
+        return 1;
+    }
+
+    for(i = 0; i < args->set_meta_given; i++) {
+        char metakey[SXLIMIT_META_MAX_KEY_LEN+1];
+        size_t off;
+        const char *val, *str = args->set_meta_arg[i];
+        unsigned int value_len;
+
+        /* Look for '='' char to separate key and value */
+        val = strchr(str, '=');
+        if(!val) {
+            fprintf(stderr, "ERROR: Meta entries must be in 'key=value' format\n");
+            sxc_cluster_free(cluster);
+            sxc_meta_free(meta);
+            return 1;
+        }
+
+        off = val - str;
+        if(off > SXLIMIT_META_MAX_KEY_LEN) {
+            fprintf(stderr, "ERROR: Meta key too long\n");
+            sxc_cluster_free(cluster);
+            sxc_meta_free(meta);
+            return 1;
+        }
+
+        memcpy(metakey, str, off);
+        metakey[off] = '\0';
+        val++;
+        value_len = strlen(val);
+
+        if(value_len > SXLIMIT_META_MAX_VALUE_LEN) {
+            fprintf(stderr, "ERROR: Meta value too long\n");
+            sxc_cluster_free(cluster);
+            sxc_meta_free(meta);
+            return 1;
+        }
+
+        if(sxc_meta_setval(meta, metakey, val, value_len)) {
+            fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
+            sxc_cluster_free(cluster);
+            sxc_meta_free(meta);
+            return 1;
+        }
+    }
+
+    ret = sxi_cluster_set_meta(cluster, meta);
+    sxc_cluster_free(cluster);
+    sxc_meta_free(meta);
+    if(ret)
+        fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
+    else
+        printf("Successfully updated cluster metadata\n");
+    return ret;
+}
+
+static int del_cluster_meta(sxc_client_t *sx, struct cluster_args_info *args) {
+    sxc_cluster_t *cluster;
+    sxc_meta_t *meta;
+    int ret;
+
+    cluster = cluster_load(sx, args, 1);
+    if(!cluster)
+        return 1;
+
+    meta = sxc_clustermeta_new(cluster);
+    if(!meta) {
+        fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
+        sxc_cluster_free(cluster);
+        return 1;
+    }
+
+    if(sxc_meta_getval(meta, args->delete_meta_arg, NULL, NULL)) {
+        fprintf(stderr, "ERROR: Cluster meta key '%s' does not exist\n", args->delete_meta_arg);
+        sxc_meta_free(meta);
+        sxc_cluster_free(cluster);
+        return 1;
+    }
+
+    sxc_meta_delval(meta, args->delete_meta_arg);
+    ret = sxi_cluster_set_meta(cluster, meta);
+    sxc_cluster_free(cluster);
+    sxc_meta_free(meta);
+    if(ret)
+        fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
+    else
+        printf("Successfully removed cluster meta key '%s'\n", args->delete_meta_arg);
+    return ret;
+}
+
 int main(int argc, char **argv) {
     struct main_args_info main_args;
     struct node_args_info node_args;
@@ -1936,6 +2102,12 @@ int main(int argc, char **argv) {
             ret = cluster_set_mode(sx, &cluster_args);
         else if(cluster_args.upgrade_given && cluster_args.inputs_num == 1)
             ret = cluster_upgrade(sx, &cluster_args);
+        else if(cluster_args.set_meta_given && cluster_args.inputs_num == 1)
+            ret = set_cluster_meta(sx, &cluster_args);
+        else if(cluster_args.get_meta_given && cluster_args.inputs_num == 1)
+            ret = get_cluster_meta(sx, &cluster_args);
+        else if(cluster_args.delete_meta_given && cluster_args.inputs_num == 1)
+            ret = del_cluster_meta(sx, &cluster_args);
 	else
 	    cluster_cmdline_parser_print_help();
     cluster_out:

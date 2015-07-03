@@ -70,6 +70,8 @@ const unsigned int bsz[SIZES] = {SX_BS_SMALL, SX_BS_MEDIUM, SX_BS_LARGE};
 #define TOKEN_EXPIRE_LEN 16
 #define TOKEN_TEXT_LEN (UUID_STRING_SIZE + 1 + TOKEN_RAND_BYTES * 2 + 1 + TOKEN_REPLICA_LEN + 1 + TOKEN_EXPIRE_LEN + 1 + AUTH_KEY_LEN * 2)
 
+#define SX_CLUSTER_META_PREFIX "clusterMeta:"
+
 #define WARNHASH(MSG, X) do {				\
     char _warnhash[sizeof(sx_hash_t)*2+1];		\
     bin2hex((X)->b, sizeof(*X), _warnhash, sizeof(_warnhash));	\
@@ -587,6 +589,8 @@ struct _sx_hashfs_t {
     sqlite3_stmt *q_volbyname;
     sqlite3_stmt *q_volbyid;
     sqlite3_stmt *q_metaget;
+    sqlite3_stmt *q_get_cluster_meta;
+    sqlite3_stmt *q_drop_cluster_meta;
     sqlite3_stmt *q_nextvol;
     sqlite3_stmt *q_getaccess;
     sqlite3_stmt *q_addvol;
@@ -962,6 +966,8 @@ static void close_all_dbs(sx_hashfs_t *h) {
     sqlite3_finalize(h->q_volbyname);
     sqlite3_finalize(h->q_volbyid);
     sqlite3_finalize(h->q_metaget);
+    sqlite3_finalize(h->q_get_cluster_meta);
+    sqlite3_finalize(h->q_drop_cluster_meta);
     sqlite3_finalize(h->q_delval);
     sqlite3_finalize(h->q_setval);
     sqlite3_finalize(h->q_getval);
@@ -1468,11 +1474,11 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 	goto open_hashfs_fail;
     if(qprep(h->db, &h->q_listusers, "SELECT uid, name, user, key, role, desc, quota FROM users WHERE uid > :lastuid AND enabled=1 ORDER BY uid ASC LIMIT 1"))
 	goto open_hashfs_fail;
-    if(qprep(h->db, &h->q_listusersbycid, "SELECT uid, name, user, key, role, desc, quota FROM users WHERE uid > :lastuid AND (:inactivetoo OR enabled=1) AND SUBSTR(user, 0, "STRIFY(AUTH_CID_LEN)") = SUBSTR(:common_id, 0, "STRIFY(AUTH_CID_LEN)") ORDER BY uid ASC LIMIT 1"))
+    if(qprep(h->db, &h->q_listusersbycid, "SELECT uid, name, user, key, role, desc, quota FROM users WHERE uid > :lastuid AND (:inactivetoo OR enabled=1) AND SUBSTR(user, 1, "STRIFY(AUTH_CID_LEN)") = SUBSTR(:common_id, 1, "STRIFY(AUTH_CID_LEN)") ORDER BY uid ASC LIMIT 1"))
         goto open_hashfs_fail;
     if(qprep(h->db, &h->q_listacl, "SELECT name, priv, uid, owner_id FROM privs, volumes INNER JOIN users ON user_id=uid WHERE volume_id=:volid AND vid=:volid AND volumes.enabled = 1 AND users.enabled = 1 AND (priv <> 0 OR owner_id=uid) AND user_id > :lastuid ORDER BY user_id ASC LIMIT 1"))
 	goto open_hashfs_fail;
-    if(qprep(h->db, &h->q_getaccess, "SELECT privs.priv, volumes.owner_id FROM privs, volumes WHERE privs.volume_id = :volume AND privs.user_id IN (SELECT uid FROM users WHERE SUBSTR(user,0,"STRIFY(AUTH_CID_LEN)")=SUBSTR(:user,0,"STRIFY(AUTH_CID_LEN)") AND enabled=1) AND volumes.vid = :volume AND volumes.enabled = 1"))
+    if(qprep(h->db, &h->q_getaccess, "SELECT privs.priv, volumes.owner_id FROM privs, volumes WHERE privs.volume_id = :volume AND privs.user_id IN (SELECT uid FROM users WHERE SUBSTR(user,1,"STRIFY(AUTH_CID_LEN)")=SUBSTR(:user,1,"STRIFY(AUTH_CID_LEN)") AND enabled=1) AND volumes.vid = :volume AND volumes.enabled = 1"))
 	goto open_hashfs_fail;
     if(qprep(h->db, &h->q_createuser, "INSERT INTO users(user, name, key, role, quota, desc) VALUES(:userhash,:name,:key,:role,:quota,:desc)"))
 	goto open_hashfs_fail;
@@ -1480,13 +1486,13 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 	goto open_hashfs_fail;
     if(qprep(h->db, &h->q_onoffuser, "UPDATE users SET enabled = :enable WHERE name = :username"))
 	goto open_hashfs_fail;
-    if(qprep(h->db, &h->q_onoffuserclones, "UPDATE users SET enabled = :enable WHERE SUBSTR(user,0,"STRIFY(AUTH_CID_LEN)") = SUBSTR(:user,0,"STRIFY(AUTH_CID_LEN)") AND uid <> 0"))
+    if(qprep(h->db, &h->q_onoffuserclones, "UPDATE users SET enabled = :enable WHERE SUBSTR(user,1,"STRIFY(AUTH_CID_LEN)") = SUBSTR(:user,1,"STRIFY(AUTH_CID_LEN)") AND uid <> 0"))
         goto open_hashfs_fail;
     if(qprep(h->db, &h->q_user_newkey, "UPDATE users SET key=:key WHERE name = :username AND uid <> 0"))
 	goto open_hashfs_fail;
-    if(qprep(h->db, &h->q_user_setquota, "UPDATE users SET quota=:quota WHERE SUBSTR(user,0,"STRIFY(AUTH_CID_LEN)") = SUBSTR(:user,0,"STRIFY(AUTH_CID_LEN)") AND enabled = 1 AND role = "STRIFY(ROLE_USER)))
+    if(qprep(h->db, &h->q_user_setquota, "UPDATE users SET quota=:quota WHERE SUBSTR(user,1,"STRIFY(AUTH_CID_LEN)") = SUBSTR(:user,1,"STRIFY(AUTH_CID_LEN)") AND enabled = 1 AND role = "STRIFY(ROLE_USER)))
         goto open_hashfs_fail;
-    if(qprep(h->db, &h->q_user_getquota, "SELECT quota, COALESCE((SELECT SUM(cursize) FROM volumes WHERE owner_id IN (SELECT uid FROM users AS allusers WHERE role = "STRIFY(ROLE_USER)" AND SUBSTR(allusers.user, 0, "STRIFY(AUTH_CID_LEN)") = SUBSTR(thisuser.user, 0, "STRIFY(AUTH_CID_LEN)"))), 0) FROM users AS thisuser where thisuser.uid = :owner_id"))
+    if(qprep(h->db, &h->q_user_getquota, "SELECT quota, COALESCE((SELECT SUM(cursize) FROM volumes WHERE owner_id IN (SELECT uid FROM users AS allusers WHERE role = "STRIFY(ROLE_USER)" AND SUBSTR(allusers.user, 1, "STRIFY(AUTH_CID_LEN)") = SUBSTR(thisuser.user, 1, "STRIFY(AUTH_CID_LEN)"))), 0) FROM users AS thisuser where thisuser.uid = :owner_id"))
         goto open_hashfs_fail;
     if(qprep(h->db, &h->q_user_setdesc, "UPDATE users SET desc = :desc WHERE uid = :uid"))
         goto open_hashfs_fail;
@@ -1520,6 +1526,10 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 	goto open_hashfs_fail;
     if(qprep(h->db, &h->q_metaget, "SELECT key, value FROM vmeta WHERE volume_id = :volume"))
 	goto open_hashfs_fail;
+    if(qprep(h->db, &h->q_get_cluster_meta, "SELECT key, value FROM hashfs WHERE key LIKE '"SX_CLUSTER_META_PREFIX"%'"))
+        goto open_hashfs_fail;
+    if(qprep(h->db, &h->q_drop_cluster_meta, "DELETE FROM hashfs WHERE key LIKE '"SX_CLUSTER_META_PREFIX"%'"))
+        goto open_hashfs_fail;
     if(qprep(h->db, &h->q_addvol, "INSERT INTO volumes (volume, replica, revs, cursize, maxsize, owner_id) VALUES (:volume, :replica, :revs, 0, :size, :owner)"))
 	goto open_hashfs_fail;
     if(qprep(h->db, &h->q_addvolmeta, "INSERT INTO vmeta (volume_id, key, value) VALUES (:volume, :key, :value)"))
@@ -1530,7 +1540,7 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
         goto open_hashfs_fail;
     if(qprep(h->db, &h->q_addvolprivs, "INSERT INTO privs (volume_id, user_id, priv) VALUES (:volume, :user, :priv)"))
 	goto open_hashfs_fail;
-    if(qprep(h->db, &h->q_chprivs, "UPDATE privs SET user_id = :new WHERE user_id IN (SELECT uid FROM users WHERE SUBSTR(user,0,"STRIFY(AUTH_CID_LEN)")=SUBSTR(:user,0,"STRIFY(AUTH_CID_LEN)"))"))
+    if(qprep(h->db, &h->q_chprivs, "UPDATE privs SET user_id = :new WHERE user_id IN (SELECT uid FROM users WHERE SUBSTR(user,1,"STRIFY(AUTH_CID_LEN)")=SUBSTR(:user,1,"STRIFY(AUTH_CID_LEN)"))"))
         goto open_hashfs_fail;
     if(qprep(h->db, &h->q_onoffvol, "UPDATE volumes SET enabled = :enable WHERE volume = :volume AND volume NOT LIKE '.BAD%'"))
 	goto open_hashfs_fail;
@@ -1556,9 +1566,9 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
         goto open_hashfs_fail;
     if(qprep(h->db, &h->q_setnodepushtime, "INSERT OR REPLACE INTO node_volume_updates VALUES (:node, :now)"))
         goto open_hashfs_fail;
-    if(qprep(h->db, &h->q_userisowner, "SELECT 1 FROM users u1 JOIN users u2 ON SUBSTR(u1.user, 0, "STRIFY(AUTH_CID_LEN)") = SUBSTR(u2.user, 0, "STRIFY(AUTH_CID_LEN)") WHERE u1.uid = :owner_id AND u2.uid = :uid AND u1.enabled = 1 AND u2.enabled = 1"))
+    if(qprep(h->db, &h->q_userisowner, "SELECT 1 FROM users u1 JOIN users u2 ON SUBSTR(u1.user, 1, "STRIFY(AUTH_CID_LEN)") = SUBSTR(u2.user, 1, "STRIFY(AUTH_CID_LEN)") WHERE u1.uid = :owner_id AND u2.uid = :uid AND u1.enabled = 1 AND u2.enabled = 1"))
         goto open_hashfs_fail;
-    if(qprep(h->db, &h->q_getprivholder, "SELECT uid FROM users JOIN privs ON user_id = uid WHERE SUBSTR(user, 0, "STRIFY(AUTH_CID_LEN)") = SUBSTR(:user, 0, "STRIFY(AUTH_CID_LEN)") AND enabled = 1"))
+    if(qprep(h->db, &h->q_getprivholder, "SELECT uid FROM users JOIN privs ON user_id = uid WHERE SUBSTR(user, 1, "STRIFY(AUTH_CID_LEN)") = SUBSTR(:user, 1, "STRIFY(AUTH_CID_LEN)") AND enabled = 1"))
         goto open_hashfs_fail;
 
     OPEN_DB("tempdb", &h->tempdb);
@@ -10327,9 +10337,18 @@ rc_ty sx_hashfs_volumemeta_begin(sx_hashfs_t *h, const sx_hashfs_volume_t *volum
 
     h->nmeta = 0;
     while((r = qstep(h->q_metaget)) == SQLITE_ROW) {
-	const char *key = (const char *)sqlite3_column_text(h->q_metaget, 0);
-	const void *value = sqlite3_column_text(h->q_metaget, 1);
-	int value_len = sqlite3_column_bytes(h->q_metaget, 1), key_len;
+        const char *key;
+        const void *value;
+        unsigned int value_len, key_len;
+
+        if(h->nmeta >= SXLIMIT_META_MAX_ITEMS) {
+            msg_set_reason("Exceeded number of meta entries limit");
+            break;
+        }
+
+	key = (const char *)sqlite3_column_text(h->q_metaget, 0);
+	value = sqlite3_column_text(h->q_metaget, 1);
+	value_len = sqlite3_column_bytes(h->q_metaget, 1);
 	if(!key || !value) {
 	    OOM();
 	    goto getvolumemeta_begin_err;
@@ -10348,8 +10367,6 @@ rc_ty sx_hashfs_volumemeta_begin(sx_hashfs_t *h, const sx_hashfs_volume_t *volum
 	memcpy(h->meta[h->nmeta].value, value, value_len);
 	h->meta[h->nmeta].value_len = value_len;
 	h->nmeta++;
-	if(h->nmeta >= SXLIMIT_META_MAX_ITEMS)
-	    break;
     }
 
     if(r != SQLITE_DONE)
@@ -10365,6 +10382,176 @@ rc_ty sx_hashfs_volumemeta_begin(sx_hashfs_t *h, const sx_hashfs_volume_t *volum
 
 rc_ty sx_hashfs_volumemeta_next(sx_hashfs_t *h, const char **key, const void **value, unsigned int *value_len) {
     return sx_hashfs_getfilemeta_next(h, key, value, value_len);
+}
+
+/* Return last modification time of cluster meta. Default to time(NULL) if not set yet. */
+rc_ty sx_hashfs_clustermeta_last_change(sx_hashfs_t *h, time_t *t) {
+    int r;
+
+    if(!t) {
+        NULLARG();
+        return EINVAL;
+    }
+
+    if(qbind_text(h->q_getval, ":k", "clusterMetaLastModified")) {
+        WARN("Failed to get cluster meta last modification time");
+        return FAIL_EINTERNAL;
+    }
+
+    sqlite3_reset(h->q_getval);
+    r = qstep(h->q_getval);
+    if(r == SQLITE_ROW) {
+        const void *ts_bin;
+        ts_bin = sqlite3_column_blob(h->q_getval, 0);
+        if(sqlite3_column_bytes(h->q_getval, 0) != sizeof(time_t)) {
+            sqlite3_reset(h->q_getval);
+            WARN("Failed to get last cluster meta modification time");
+            return FAIL_EINTERNAL;
+        }
+        memcpy(t, ts_bin, sizeof(time_t));
+        sqlite3_reset(h->q_getval);
+        return OK;
+    } else if(r != SQLITE_DONE) {
+        sqlite3_reset(h->q_getval);
+        WARN("Failed to get last cluster meta modification time");
+        return FAIL_EINTERNAL;
+    } else {
+        sqlite3_reset(h->q_getval);
+        *t = time(NULL);
+        return OK;
+    }
+}
+
+rc_ty sx_hashfs_clustermeta_begin(sx_hashfs_t *h) {
+    rc_ty ret = FAIL_EINTERNAL;
+    int r;
+
+    if(!h) {
+        NULLARG();
+        return EFAULT;
+    }
+
+    sqlite3_reset(h->q_get_cluster_meta);
+    h->nmeta = 0;
+    while((r = qstep(h->q_get_cluster_meta)) == SQLITE_ROW) {
+        const char *key;
+        const void *value;
+        unsigned int value_len, key_len;
+
+        if(h->nmeta >= SXLIMIT_META_MAX_ITEMS) {
+            msg_set_reason("Exceeded number of cluster meta entries limit");
+            break;
+        }
+
+        key = (const char *)sqlite3_column_text(h->q_get_cluster_meta, 0);
+        value = sqlite3_column_text(h->q_get_cluster_meta, 1);
+        value_len = sqlite3_column_bytes(h->q_get_cluster_meta, 1);
+        if(!key || !value) {
+            msg_set_reason("Failed to get cluster meta");
+            goto sx_hashfs_clustermeta_begin_err;
+        }
+
+        key_len = strlen(key);
+        if(key_len >= sizeof(h->meta[0].key) + lenof(SX_CLUSTER_META_PREFIX)) {
+            msg_set_reason("Key '%s' is too long: must be less than %ld", key, sizeof(h->meta[0].key) + lenof(SX_CLUSTER_META_PREFIX));
+            goto sx_hashfs_clustermeta_begin_err;
+        }
+
+        if(key_len <= lenof(SX_CLUSTER_META_PREFIX)) {
+            msg_set_reason("Key '%s' is too short: must be at least %ld", key, lenof(SX_CLUSTER_META_PREFIX));
+            goto sx_hashfs_clustermeta_begin_err;
+        }
+        if(strncmp(key, SX_CLUSTER_META_PREFIX, lenof(SX_CLUSTER_META_PREFIX))) {
+            msg_set_reason("Key '%s' is not prefixed with '%s'", key, SX_CLUSTER_META_PREFIX);
+            goto sx_hashfs_clustermeta_begin_err;
+        }
+
+        if(value_len > sizeof(h->meta[0].value)) {
+            /* Do not log the value, might contain sensitive data */
+            msg_set_reason("Value is too long: %d >= %ld", value_len, sizeof(h->meta[0].key));
+            goto sx_hashfs_clustermeta_begin_err;
+        }
+        memcpy(h->meta[h->nmeta].key, key + lenof(SX_CLUSTER_META_PREFIX), key_len - lenof(SX_CLUSTER_META_PREFIX) + 1);
+        memcpy(h->meta[h->nmeta].value, value, value_len);
+        h->meta[h->nmeta].value_len = value_len;
+        h->nmeta++;
+    }
+
+    if(r != SQLITE_DONE) {
+        INFO("Failed to iterate all cluster meta entries");
+        goto sx_hashfs_clustermeta_begin_err;
+    }
+
+    ret = OK;
+
+sx_hashfs_clustermeta_begin_err:
+    sqlite3_reset(h->q_get_cluster_meta);
+
+    return ret;
+}
+
+rc_ty sx_hashfs_clustermeta_next(sx_hashfs_t *h, const char **key, const void **value, unsigned int *value_len) {
+    return sx_hashfs_getfilemeta_next(h, key, value, value_len);
+}
+
+void sx_hashfs_clustermeta_set_begin(sx_hashfs_t *h) {
+    addmeta_begin_common(h);
+}
+
+rc_ty sx_hashfs_clustermeta_set_addmeta(sx_hashfs_t *h, const char *key, const void *value, unsigned int value_len) {
+    if(!h)
+        return FAIL_EINTERNAL;
+
+    rc_ty rc;
+    if((rc = sx_hashfs_check_meta(key, value, value_len)))
+        return rc;
+
+    return addmeta_common(h, key, value, value_len);
+}
+
+rc_ty sx_hashfs_clustermeta_set_finish(sx_hashfs_t *h, time_t ts, int do_transaction) {
+    rc_ty ret = FAIL_EINTERNAL;
+    sqlite3_stmt *q = h->q_setval;
+    unsigned int i;
+
+    if(do_transaction && qbegin(h->db)) {
+        INFO("Failed to begin transaction");
+        goto sx_hashfs_clustermeta_set_err;
+    }
+
+    if(qstep_noret(h->q_drop_cluster_meta)) {
+        INFO("Failed to drop existing cluster meta");
+        goto sx_hashfs_clustermeta_set_err;
+    }
+
+    for(i = 0; i < h->nmeta; i++) {
+        char metakey_prefixed[SXLIMIT_META_MAX_KEY_LEN + lenof(SX_CLUSTER_META_PREFIX) + 1];
+
+        snprintf(metakey_prefixed, sizeof(metakey_prefixed), "%s%s", SX_CLUSTER_META_PREFIX, h->meta[i].key);
+        sqlite3_reset(q);
+        if(qbind_text(q, ":k", metakey_prefixed) || qbind_blob(q, ":v", h->meta[i].value, h->meta[i].value_len) || qstep_noret(q)) {
+            WARN("Failed to set meta key '%s'", metakey_prefixed);
+            goto sx_hashfs_clustermeta_set_err;
+        }
+    }
+
+    sqlite3_reset(q);
+    if(ts && (qbind_text(q, ":k", "clusterMetaLastModified") || qbind_blob(q, ":v", &ts, sizeof(ts)) || qstep_noret(q))) {
+        WARN("Failed to set last modification time");
+        goto sx_hashfs_clustermeta_set_err;
+    }
+
+    if(do_transaction && qcommit(h->db)) {
+        WARN("Failed to commit transaction");
+        goto sx_hashfs_clustermeta_set_err;
+    }
+
+    ret = OK;
+sx_hashfs_clustermeta_set_err:
+    if(do_transaction && ret != OK)
+        qrollback(h->db);
+    sqlite3_reset(q);
+    return ret;
 }
 
 rc_ty sx_hashfs_get_user_info(sx_hashfs_t *h, const uint8_t *user, sx_uid_t *uid, uint8_t *key, sx_priv_t *basepriv, char **desc, int64_t *quota) {
@@ -10664,6 +10851,7 @@ static const char *locknames[] = {
     NULL, /* JOBTYPE_JOBPOLL */
     NULL, /* JOBTYPE_BATCHDELETE */
     NULL, /* JOBTYPE_BATCHRENAME */
+    "CLUSTER_SETMETA", /* JOBTYPE_CLUSTER_SETMETA */
 };
 
 #define MAX_PENDING_JOBS 128

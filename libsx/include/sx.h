@@ -308,6 +308,7 @@ sxc_meta_t *sxc_meta_new(sxc_client_t *sx);
 sxc_meta_t *sxc_filemeta_new(sxc_file_t *file);
 sxc_meta_t *sxc_volumemeta_new(sxc_file_t *file);
 sxc_meta_t *sxc_custom_volumemeta_new(sxc_file_t *file);
+sxc_meta_t *sxc_clustermeta_new(sxc_cluster_t *cluster);
 void sxc_meta_free(sxc_meta_t *meta);
 unsigned int sxc_meta_count(sxc_meta_t *meta);
 int sxc_meta_getval(sxc_meta_t *meta, const char *key, const void **value, unsigned int *value_len);

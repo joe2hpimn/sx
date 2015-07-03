@@ -64,6 +64,15 @@ Set cluster operating mode ('ro' or 'rw' for read\-only or write\-only respectiv
 .TP
 \fB\-\-upgrade\fR
 Perform sanity checks on all nodes in the cluster. Start a cluster upgrade if no problems are found, followed by a garbage collection.
+.TP
+\fB\-\-set\-meta\fR=\fI\,"KEY=VALUE"\/\fR
+Set cluster metadata in a form of a key-value pair. The metadata can only be set by a cluster administrator, but can be obtained by all users.
+.TP
+\fB\-\-get\-meta\fR=\fI\,KEY\/\fR
+Display a specific entry from the cluster metadata. When the key is ALL, then all entries will get displayed.
+.TP
+\fB\-\-delete\-meta\fR=\fI\,KEY\/\fR
+Delete a specific entry from the cluster metadata.
 .SS "New cluster options:"
 .TP
 \fB\-d\fR, \fB\-\-node\-dir\fR=\fI\,PATH\/\fR

@@ -4310,14 +4310,12 @@ int sxi_cluster_distribution_unlock(sxc_cluster_t *cluster, const char *master) 
 
 int sxi_cluster_set_mode(sxc_cluster_t *cluster, int readonly) {
     sxi_query_t *query;
-    sxc_client_t *sx = sxi_cluster_get_client(cluster);
-    sxi_conns_t *conns = sxi_cluster_get_conns(cluster);
+    sxc_client_t *sx;
+    sxi_conns_t *conns;
     sxi_hostlist_t *hosts;
 
-    if(!cluster) {
-        sxi_seterr(sx, SXE_EARG, "Invalid argument");
+    if(!cluster)
         return 1;
-    }
 
     sx = sxi_cluster_get_client(cluster);
     conns = sxi_cluster_get_conns(cluster);
@@ -4341,6 +4339,45 @@ int sxi_cluster_set_mode(sxc_cluster_t *cluster, int readonly) {
     }
 
     sxi_set_operation(sx, readonly ? "switch cluster to read-only mode" : "switch cluster to read-write mode", NULL, NULL, NULL);
+    if(sxi_job_submit_and_poll(conns, hosts, query->verb, query->path, query->content, query->content_len)) {
+        sxi_query_free(query);
+        return 1;
+    }
+
+    sxi_query_free(query);
+    return 0;
+}
+
+int sxi_cluster_set_meta(sxc_cluster_t *cluster, sxc_meta_t *meta) {
+    sxi_query_t *query;
+    sxc_client_t *sx;
+    sxi_conns_t *conns;
+    sxi_hostlist_t *hosts;
+
+    if(!cluster)
+        return 1;
+
+    sx = sxi_cluster_get_client(cluster);
+    conns = sxi_cluster_get_conns(cluster);
+
+    if(!sx || !conns) {
+        sxi_seterr(sx, SXE_EARG, "Invalid argument");
+        return 1;
+    }
+
+    hosts = sxi_conns_get_hostlist(conns);
+    if(!hosts) {
+        sxi_seterr(sx, SXE_ECOMM, "Failed to get cluster host list");
+        return 1;
+    }
+
+    query = sxi_cluster_setmeta_proto(sx, -1, meta);
+    if(!query) {
+        SXDEBUG("Failed to prepare query");
+        return 1;
+    }
+
+    sxi_set_operation(sx, "set cluster meta", NULL, NULL, NULL);
     if(sxi_job_submit_and_poll(conns, hosts, query->verb, query->path, query->content, query->content_len)) {
         sxi_query_free(query);
         return 1;

@@ -107,6 +107,8 @@ sxi_query_t *sxi_volumeacl_proto(sxc_client_t *sx, const char *volname,
 sxi_query_t *sxi_cluster_mode_proto(sxc_client_t *sx, int readonly);
 sxi_query_t *sxi_cluster_upgrade_proto(sxc_client_t *sx);
 
+sxi_query_t *sxi_cluster_setmeta_proto(sxc_client_t *sx, int timestamp, sxc_meta_t *meta);
+
 void sxi_query_free(sxi_query_t *query);
 
 #endif
