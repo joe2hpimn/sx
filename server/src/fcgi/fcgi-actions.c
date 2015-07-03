@@ -139,6 +139,15 @@ void volume_ops(void) {
 	return;
     }
 
+    if(verb == VERB_DELETE && has_arg("filter")) {
+        if(is_reserved())
+            quit_errmsg(403, "Volume name is reserved");
+        /* Delete or remove files matching given filter */
+        quit_unless_has(PRIV_WRITE);
+        fcgi_process_files_batch();
+        return;
+    }
+
     /* privs enforcement will be done after body parsing */
     if(verb == VERB_PUT && arg_is("o", "mod")) {
         if(is_reserved())
@@ -228,15 +237,9 @@ void volume_ops(void) {
         } else {
 	    if(is_reserved())
 		quit_errmsg(403, "Volume name is reserved");
-            if(has_arg("filter")) {
-                /* Delete or remove files matching given filter */
-                quit_unless_has(PRIV_WRITE);
-                fcgi_process_files_batch();
-            } else {
-                /* Delete volume - ADMIN or CLUSTER required */
-                quit_unless_has(PRIV_ADMIN);
-                fcgi_delete_volume();
-            }
+            /* Delete volume - ADMIN or CLUSTER required */
+            quit_unless_has(PRIV_ADMIN);
+            fcgi_delete_volume();
 	}
 	return;
     }

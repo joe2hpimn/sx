@@ -1038,6 +1038,40 @@ test_get 'listing all \'tree/*/\' files', authed_only(200, 'application/json'), 
         return 0 unless is_hash($json->{'fileList'}->{'/tree/[]/?*\\'});
     };
 
+### Check mass delete operation ###
+test_delete_job "mass delete on $vol", {'badauth'=>[401],$reader=>[403],$writer=>[200]}, "$vol?filter=/tree/?/a";
+
+# List  'tree/*/' - Now it should not contain /tree/a/a and /tree/b/a files dropped in preceding query
+test_get 'listing all \'tree/*/\' files', authed_only(200, 'application/json'), "$vol?filter=tree/*/", undef,
+    sub {
+        my $json_raw = shift;
+        my $json = get_json($json_raw) or return 0;
+        return 0 unless is_int($json->{'volumeSize'}) && $json->{'volumeSize'} == $volumesize && is_int($json->{'replicaCount'}) &&
+            $json->{'replicaCount'} == 1 && is_hash($json->{'fileList'}) && scalar keys %{$json->{'fileList'}} == 7;
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/a/b'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/a/c'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/b/b'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/[]/a'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/[]/\a'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/[]/\a/'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/[]/?*\\'});
+    };
+
+# Delete /tree/a/b, /tree/a/c, /tree/b/b
+test_delete_job "mass delete on $vol", {'badauth'=>[401],$reader=>[403],'admin'=>[200]}, "$vol?filter=/tree/[ab]/*";
+# List  'tree/*/'
+test_get 'listing all \'tree/*/\' files', authed_only(200, 'application/json'), "$vol?filter=tree/*/", undef,
+    sub {
+        my $json_raw = shift;
+        my $json = get_json($json_raw) or return 0;
+        return 0 unless is_int($json->{'volumeSize'}) && $json->{'volumeSize'} == $volumesize && is_int($json->{'replicaCount'}) &&
+            $json->{'replicaCount'} == 1 && is_hash($json->{'fileList'}) && scalar keys %{$json->{'fileList'}} == 4;
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/[]/a'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/[]/\a'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/[]/\a/'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/[]/?*\\'});
+    };
+
 
 
 ### Check volume modification request ###
