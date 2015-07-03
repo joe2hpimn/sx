@@ -83,7 +83,7 @@
 
 #define QUOTA_UNDEFINED -1LL
 #define QUOTA_UNLIMITED 0LL
-#define SX_CUSTOM_META_PREFIX "custom:"
+#define SX_CUSTOM_META_PREFIX "$custom$"
 
 typedef enum {
     NL_PREV,
@@ -259,7 +259,9 @@ int sx_hashfs_is_node_ignored(sx_hashfs_t *h, const sx_uuid_t *node_uuid);
 rc_ty sx_hashfs_set_unfaulty(sx_hashfs_t *h, const sx_uuid_t *nodeid, int64_t dist_rev);
 
 /* Change volume ownership and/or size*/
-rc_ty sx_hashfs_volume_mod(sx_hashfs_t *h, const char *volume, const char *newowner, int64_t newsize, int max_revs, sxc_meta_t *metadata);
+rc_ty sx_hashfs_volume_mod(sx_hashfs_t *h, const char *volume, const char *newowner, int64_t newsize, int max_revs, int modify_meta);
+rc_ty sx_hashfs_volume_mod_begin(sx_hashfs_t *h, const sx_hashfs_volume_t *vol);
+rc_ty sx_hashfs_volume_mod_addmeta(sx_hashfs_t *h, const char *key, const void *value, unsigned int value_len);
 
 /* File list */
 typedef struct _sx_hashfs_file_t {

@@ -731,6 +731,14 @@ test_get 'the newly created volume', authed_only(200, 'application/json'), "meta
 test_get 'the newly created volume for meta ', {'badauth'=>[401],$reader=>[200,'application/json'],$writer=>[200,'application/json'],'admin'=>[200,'application/json']}, "?volumeList&volumeMeta", undef, sub { my $json = get_json(shift) or return 0; if(!(is_hash($json->{'volumeList'}) && is_hash($json->{'volumeList'}->{"meta.$vol"}))) { return 0; } my $meta = $json->{'volumeList'}->{"meta.$vol"}->{'volumeMeta'}; return is_hash($meta) && (scalar keys %{$meta} == 3) && $meta->{'one'} eq '01' && $meta->{'two'} eq '2222' && $meta->{'three'} eq '333333'; };
 
 test_put_job 'volume creation (with bad meta)', admin_only(400), "badmeta.$vol", "{\"owner\":\"admin\",\"volumeSize\":$volumesize,\"volumeMeta\":{\"badval\":\"0dd\"}}";
+test_put_job 'volume creation (max meta key size)', admin_only(200), "maxmetakey.$vol", "{\"owner\":\"admin\",\"volumeSize\":$tinyvolumesize,\"volumeMeta\":{\"".('A' x 256)."\":\"acab\"}}";
+test_put_job 'volume creation (meta key too long)', admin_only(400), "badmeta2.$vol", "{\"owner\":\"admin\",\"volumeSize\":$tinyvolumesize,\"volumeMeta\":{\"".('A' x 257)."\":\"acab\"}}";
+test_put_job 'volume creation (max meta value size)', admin_only(200), "maxmetaval.$vol", "{\"owner\":\"admin\",\"volumeSize\":$tinyvolumesize,\"volumeMeta\":{\"key\":\"".('a' x 2048)."\"}}";
+test_put_job 'volume creation (meta value too long)', admin_only(400), "badmeta3.$vol", "{\"owner\":\"admin\",\"volumeSize\":$tinyvolumesize,\"volumeMeta\":{\"key\":\"".('a' x 2049)."\"}}";
+my $metaitems = join(',', map { qq{"$_":"acab"} } 0..127);
+test_put_job 'volume creation (max meta items)', admin_only(200), "maxmetaitems.$vol", "{\"owner\":\"admin\",\"volumeSize\":$tinyvolumesize,\"volumeMeta\":{$metaitems}}";
+test_put_job 'volume creation (too many meta items)', admin_only(400), "badmeta4.$vol", "{\"owner\":\"admin\",\"volumeSize\":$tinyvolumesize,\"volumeMeta\":{$metaitems,\"toomany\":\"acab\"}}";
+
 
 # Tiny volume will be used for volume size enforcement tests
 test_put_job "volume creation (tiny volume)", admin_only(200), "tiny$vol", "{\"volumeSize\":$tinyvolumesize,\"owner\":\"$writer\"}";
@@ -1113,7 +1121,7 @@ test_put_job "custom tiny$vol volume meta and size setting", {'badauth'=>[401],$
 test_put_job "custom tiny$vol volume meta and revisions limit setting", {'badauth'=>[401],$reader=>[403],$writer=>[403]}, "tiny$vol?o=mod", "{\"customVolumeMeta\":{\"customMetaKey1\":\"aabbcc\",\"customMetaKey2\":\"123456abcd\"},\"maxRevisions\":2}";
 test_put_job "custom tiny$vol volume meta and owner setting", {'badauth'=>[401],$reader=>[403],$writer=>[403]}, "tiny$vol?o=mod", "{\"customVolumeMeta\":{\"customMetaKey1\":\"aabbcc\",\"customMetaKey2\":\"123456abcd\"},\"owner\":\"$reader\"}";
 # Creating volume with meta key that uses the reserved prefix should fail
-test_put_job "volume creation (tiny volume with invalid meta)", admin_only(400), "badtiny$vol", "{\"volumeSize\":$tinyvolumesize,\"owner\":\"admin\",\"volumeMeta\":{\"custom:\":\"00\"}}";
+test_put_job "volume creation (tiny volume with invalid meta)", admin_only(400), "badtiny$vol", '{"volumeSize":$tinyvolumesize,"owner":"admin","volumeMeta":{"$custom$":"00"}}';
 test_put_job "owner quota change for $writer", admin_only(200), ".users/$writer", "{\"quota\":0}";
 
 my $oldsize = $tinyvolumesize;

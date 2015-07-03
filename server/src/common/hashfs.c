@@ -477,6 +477,9 @@ static int qopen(const char *path, sxi_db_t **dbp, const char *dbtype, sx_uuid_t
     if(qprep(*dbp, &q, "PRAGMA synchronous = NORMAL") || qstep_noret(q))
 	goto qopen_fail;
     qnullify(q);
+    if(qprep(*dbp, &q, "PRAGMA case_sensitive_like = true") || qstep_noret(q))
+        goto qopen_fail;
+    qnullify(q);
     /* TODO: pagesize might not always be 1024,
      * limits should be in bytes */
     snprintf(qstr, sizeof(qstr), "PRAGMA journal_size_limit = %d",
@@ -589,6 +592,7 @@ struct _sx_hashfs_t {
     sqlite3_stmt *q_addvol;
     sqlite3_stmt *q_addvolmeta;
     sqlite3_stmt *q_drop_custom_volmeta;
+    sqlite3_stmt *q_count_volmeta;
     sqlite3_stmt *q_addvolprivs;
     sqlite3_stmt *q_chprivs;
     sqlite3_stmt *q_dropvolprivs;
@@ -770,6 +774,7 @@ struct _sx_hashfs_t {
 	int value_len;
     } meta[SXLIMIT_META_MAX_ITEMS];
     unsigned int nmeta;
+    unsigned int nmeta_limit; /* Used to make a lower limit than SXLIMIT_META_MAX_ITEMS */
 
     unsigned int relocdb_start, relocdb_cur;
     int64_t relocid;
@@ -897,6 +902,7 @@ static void close_all_dbs(sx_hashfs_t *h) {
     sqlite3_finalize(h->q_addvol);
     sqlite3_finalize(h->q_addvolmeta);
     sqlite3_finalize(h->q_drop_custom_volmeta);
+    sqlite3_finalize(h->q_count_volmeta);
     sqlite3_finalize(h->q_addvolprivs);
     sqlite3_finalize(h->q_dropvolprivs);
     sqlite3_finalize(h->q_chprivs);
@@ -1518,8 +1524,9 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 	goto open_hashfs_fail;
     if(qprep(h->db, &h->q_addvolmeta, "INSERT INTO vmeta (volume_id, key, value) VALUES (:volume, :key, :value)"))
 	goto open_hashfs_fail;
-    snprintf(qrybuff, sizeof(qrybuff), "DELETE FROM vmeta WHERE volume_id = :volume AND SUBSTR(key,1,%lu) = '%s'", lenof(SX_CUSTOM_META_PREFIX), SX_CUSTOM_META_PREFIX);
-    if(qprep(h->db, &h->q_drop_custom_volmeta, qrybuff))
+    if(qprep(h->db, &h->q_drop_custom_volmeta, "DELETE FROM vmeta WHERE volume_id = :volume AND key LIKE '"SX_CUSTOM_META_PREFIX"%'"))
+        goto open_hashfs_fail;
+    if(qprep(h->db, &h->q_count_volmeta, "SELECT COUNT(*) FROM vmeta WHERE volume_id = :volume AND key NOT LIKE '"SX_CUSTOM_META_PREFIX"%'"))
         goto open_hashfs_fail;
     if(qprep(h->db, &h->q_addvolprivs, "INSERT INTO privs (volume_id, user_id, priv) VALUES (:volume, :user, :priv)"))
 	goto open_hashfs_fail;
@@ -6382,9 +6389,61 @@ rc_ty sx_hashfs_delete_user(sx_hashfs_t *h, const char *username, const char *ne
     return ret;
 }
 
+static void addmeta_begin_common(sx_hashfs_t *h) {
+    h->nmeta = 0;
+    h->nmeta_limit = SXLIMIT_META_MAX_ITEMS;
+}
+
+static rc_ty addmeta_common(sx_hashfs_t *h, const char *key, const void *value, unsigned int value_len) {
+    if(!h)
+        return FAIL_EINTERNAL;
+
+    if(h->nmeta >= h->nmeta_limit)
+        return EOVERFLOW;
+
+    memcpy(h->meta[h->nmeta].key, key, strlen(key)+1);
+    memcpy(h->meta[h->nmeta].value, value, value_len);
+    h->meta[h->nmeta].value_len = value_len;
+    h->nmeta++;
+    return OK;
+}
+
+rc_ty sx_hashfs_volume_mod_begin(sx_hashfs_t *h, const sx_hashfs_volume_t *vol) {
+    int count;
+
+    if(!h || !vol) {
+        NULLARG();
+        return EINVAL;
+    }
+
+    addmeta_begin_common(h);
+
+    sqlite3_reset(h->q_count_volmeta);
+    if(qbind_int64(h->q_count_volmeta, ":volume", vol->id) || qstep_ret(h->q_count_volmeta)) {
+        WARN("Failed to get non-custom volume meta count");
+        return FAIL_EINTERNAL;
+    }
+    count = sqlite3_column_int(h->q_count_volmeta, 0);
+    sqlite3_reset(h->q_count_volmeta);
+    if(count >= SXLIMIT_META_MAX_ITEMS)
+        return EOVERFLOW;
+    h->nmeta_limit -= count;
+    return OK;
+}
+
+rc_ty sx_hashfs_volume_mod_addmeta(sx_hashfs_t *h, const char *key, const void *value, unsigned int value_len) {
+    if(!h)
+        return FAIL_EINTERNAL;
+
+    rc_ty rc;
+    if((rc = sx_hashfs_check_meta(key, value, value_len)))
+        return rc;
+
+    return addmeta_common(h, key, value, value_len);
+}
 
 void sx_hashfs_volume_new_begin(sx_hashfs_t *h) {
-    h->nmeta = 0;
+    addmeta_begin_common(h);
 }
 
 rc_ty sx_hashfs_volume_new_addmeta(sx_hashfs_t *h, const char *key, const void *value, unsigned int value_len) {
@@ -6395,14 +6454,7 @@ rc_ty sx_hashfs_volume_new_addmeta(sx_hashfs_t *h, const char *key, const void *
     if((rc = sx_hashfs_check_volume_meta(key, value, value_len)))
 	return rc;
 
-    if(h->nmeta >= SXLIMIT_META_MAX_ITEMS)
-	return EOVERFLOW;
-
-    memcpy(h->meta[h->nmeta].key, key, strlen(key)+1);
-    memcpy(h->meta[h->nmeta].value, value, value_len);
-    h->meta[h->nmeta].value_len = value_len;
-    h->nmeta++;
-    return OK;
+    return addmeta_common(h, key, value, value_len);
 }
 
 static rc_ty get_min_reqs(sx_hashfs_t *h, unsigned int *min_nodes, int64_t *min_capa) {
@@ -13661,7 +13713,7 @@ volume_change_revs_err:
     return ret;
 }
 
-rc_ty sx_hashfs_volume_mod(sx_hashfs_t *h, const char *volume, const char *newowner, int64_t newsize, int max_revs, sxc_meta_t *metadata) {
+rc_ty sx_hashfs_volume_mod(sx_hashfs_t *h, const char *volume, const char *newowner, int64_t newsize, int max_revs, int modify_meta) {
     rc_ty ret = FAIL_EINTERNAL, s;
     const sx_hashfs_volume_t *vol = NULL;
     sx_uid_t newid;
@@ -13671,7 +13723,7 @@ rc_ty sx_hashfs_volume_mod(sx_hashfs_t *h, const char *volume, const char *newow
         return ret;
     }
 
-    if(!*newowner && newsize == -1 && max_revs == -1 && !metadata)
+    if(!*newowner && newsize == -1 && max_revs == -1 && !modify_meta)
         return OK; /* Nothing to do */
 
     if(qbegin(h->db)) {
@@ -13724,8 +13776,7 @@ rc_ty sx_hashfs_volume_mod(sx_hashfs_t *h, const char *volume, const char *newow
         }
     }
 
-    if(metadata) {
-        unsigned int nmeta = sxc_meta_count(metadata);
+    if(modify_meta) {
         unsigned int i;
 
         if(qbind_int64(h->q_drop_custom_volmeta, ":volume", vol->id) || qstep_noret(h->q_drop_custom_volmeta))
@@ -13734,29 +13785,20 @@ rc_ty sx_hashfs_volume_mod(sx_hashfs_t *h, const char *volume, const char *newow
         if(qbind_int64(h->q_addvolmeta, ":volume", vol->id))
             goto sx_hashfs_volume_mod_err;
 
-        for(i = 0; i < nmeta; i++) {
-            const char *metakey;
-            const void *metaval;
+        for(i = 0; i < h->nmeta; i++) {
             char metakey_prefixed[SXLIMIT_META_MAX_KEY_LEN+1];
-            unsigned int l;
 
-            if(sxc_meta_getkeyval(metadata, i, &metakey, &metaval, &l)) {
-                msg_set_reason("Invalid metadata");
-                ret = EINVAL;
-                goto sx_hashfs_volume_mod_err;
-            }
-
-            if(strlen(metakey) > SXLIMIT_META_MAX_KEY_LEN - lenof(SX_CUSTOM_META_PREFIX)) {
+            if(strlen(h->meta[i].key) > SXLIMIT_META_MAX_KEY_LEN - lenof(SX_CUSTOM_META_PREFIX)) {
                 INFO("Custom meta key is too long: must reserve space for prefix");
                 msg_set_reason("Invalid metadata");
                 ret = EINVAL;
                 goto sx_hashfs_volume_mod_err;
             }
 
-            snprintf(metakey_prefixed, sizeof(metakey_prefixed), "%s%s", SX_CUSTOM_META_PREFIX, metakey);
+            snprintf(metakey_prefixed, sizeof(metakey_prefixed), "%s%s", SX_CUSTOM_META_PREFIX, h->meta[i].key);
             sqlite3_reset(h->q_addvolmeta);
             if(qbind_text(h->q_addvolmeta, ":key", metakey_prefixed) ||
-               qbind_blob(h->q_addvolmeta, ":value", metaval, l) ||
+               qbind_blob(h->q_addvolmeta, ":value", h->meta[i].value, h->meta[i].value_len) ||
                qstep_noret(h->q_addvolmeta))
                 goto sx_hashfs_volume_mod_err;
         }
