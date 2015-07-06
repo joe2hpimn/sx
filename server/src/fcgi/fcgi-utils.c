@@ -265,7 +265,7 @@ void send_authreq(void) {
     quit_errmsg(401, "Invalid credentials");
 }
 
-static char *inplace_urldecode(char *s, char forbid, char dedup, int *has_forbidden) {
+static char *inplace_urldecode(char *s, char forbid, char dedup, int *has_forbidden, int plusdec) {
     enum { COPY, PCT } mode = COPY;
     char *src = s, *dst = s, c;
     int v;
@@ -287,7 +287,9 @@ static char *inplace_urldecode(char *s, char forbid, char dedup, int *has_forbid
 		mode = PCT;
 		break;
 	    }
-	    if(dst != src - 1)
+	    if(plusdec && c == '+')
+		*dst = ' ';
+	    else if(dst != src - 1)
 		*dst = c;
 	    dst++;
 	    if(dedup && c == dedup) {
@@ -467,7 +469,7 @@ void handle_request(void) {
 		    } while(*nextarg == '&');
 		}
 		if(*argp) {
-		    if(!(args[nargs] = inplace_urldecode(argp, 0, 0, NULL)))
+		    if(!(args[nargs] = inplace_urldecode(argp, 0, 0, NULL, 1)))
 			quit_errmsg(400, "Invalid URL encoding");
 		    if(utf8_validate_len(args[nargs]) < 0)
 			quit_errmsg(400, "Parameters with invalid utf-8 encoding");
@@ -496,7 +498,7 @@ void handle_request(void) {
     volume = *reqbuf ? reqbuf : NULL;
 
     int forbidden = 0;
-    if((volume && !inplace_urldecode(volume, '/', 0, &forbidden)) || (path && !inplace_urldecode(path, '/', '/', &forbidden))) {
+    if((volume && !inplace_urldecode(volume, '/', 0, &forbidden, 0)) || (path && !inplace_urldecode(path, '/', '/', &forbidden, 0))) {
         if (forbidden)
             quit_errmsg(400, "Volume or path with forbidden %2f or %00");
         else
