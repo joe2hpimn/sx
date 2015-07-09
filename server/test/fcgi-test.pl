@@ -310,7 +310,7 @@ sub job_submit {
 	return undef;
     }
     if($exp_st != 200) {
-	return -1;
+	return '';
     }
     if($repl->content_type ne 'application/json') {
 	fail "job request received an unexpected content type - got '".$repl->content_type."' expected: 'application/json'";
@@ -344,7 +344,7 @@ sub job_result {
 	    fail "job result received an unexpected content type - got '".$repl->content_type."' expected: 'application/json'";
 	    return undef;
 	}
-	if(!$json || !is_string($json->{'requestStatus'}) || !is_string($json->{'requestMessage'}) || !defined($json->{'requestId'}) || $json->{'requestId'} != $jobid) {
+	if(!$json || !is_string($json->{'requestStatus'}) || !is_string($json->{'requestMessage'}) || !defined($json->{'requestId'}) || $json->{'requestId'} ne $jobid) {
 	    fail "bad reply content to job result";
 	    return undef;
 	}
@@ -640,7 +640,7 @@ sub test_job {
 
 	my $jobid = job_submit $verb, $q, $content, $auth, $exp_st;
 	next unless defined($jobid);
-	if($jobid == -1) {
+	if($jobid eq '') {
 	    ok;
 	    next;
 	}

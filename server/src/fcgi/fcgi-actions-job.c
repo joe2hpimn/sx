@@ -27,6 +27,7 @@
 
 #include "default.h"
 #include <stdlib.h>
+#include <string.h>
 
 #include "fcgi-actions-job.h"
 #include "fcgi-utils.h"
@@ -35,12 +36,36 @@
 
 void fcgi_job_result(void) {
     char *eon;
-    job_t job = strtoll(path, &eon, 10);
+    job_t job;;
     job_status_t status;
     const char *message;
 
+    if(strlen(path) >= UUID_STRING_SIZE + 2) {
+	/* New request id format */
+	sx_uuid_t emitter;
+	char uuidstr[sizeof(emitter.string)];
+	rc_ty s;
+
+	if(path[UUID_STRING_SIZE] != ':')
+	    quit_errmsg(404, "Invalid request id");
+
+	memcpy(uuidstr, path, UUID_STRING_SIZE);
+	uuidstr[UUID_STRING_SIZE] = '\0';
+
+	if(uuid_from_string(&emitter, uuidstr))
+	    quit_errmsg(404, "Invalid request id");
+
+	if((s = sx_hashfs_self_uuid(hashfs, &emitter)))
+	    quit_errmsg(404, "Invalid request id");
+
+	if(strcmp(uuidstr, emitter.string))
+	    quit_errmsg(404, "Invalid request id");
+
+	job = strtoll(path + UUID_STRING_SIZE + 1, &eon, 10);
+    } else /* Legacy request id format */
+	job = strtoll(path, &eon, 10);
     if(*eon || job == JOB_FAILURE)
-	quit_errmsg(400, "Invalid request id");
+	quit_errmsg(404, "Invalid request id");
 
     switch(sx_hashfs_job_result(hashfs, job, has_priv(PRIV_ADMIN) ? 0 : uid, &status, &message)) {
     case OK:
@@ -51,9 +76,9 @@ void fcgi_job_result(void) {
 	quit_errmsg(500, msg_get_reason());
     }
 
-    CGI_PUTS("Content-type: application/json\r\n\r\n{\"requestId\":\"");
-    CGI_PUTLL(job);
-    CGI_PRINTF("\",\"requestStatus\":\"%s\",\"requestMessage\":", (status != JOB_OK ? (status == JOB_ERROR ? "ERROR" : "PENDING") : "OK"));
+    CGI_PUTS("Content-type: application/json\r\n\r\n{\"requestId\":");
+    json_send_qstring(path);
+    CGI_PRINTF(",\"requestStatus\":\"%s\",\"requestMessage\":", (status != JOB_OK ? (status == JOB_ERROR ? "ERROR" : "PENDING") : "OK"));
     json_send_qstring(message);
     CGI_PUTS("}");
 }

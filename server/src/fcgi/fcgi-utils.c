@@ -858,7 +858,12 @@ void send_nodes_randomised(const sx_nodelist_t *nodes) {
 }
 
 void send_job_info(job_t job) {
-    CGI_PUTS("Content-Type: application/json\r\n\r\n{\"requestId\":\"");
+    sx_uuid_t node;
+    rc_ty s = sx_hashfs_self_uuid(hashfs, &node);
+
+    if(s)
+	quit_errmsg(rc2http(s), msg_get_reason());
+    CGI_PRINTF("Content-Type: application/json\r\n\r\n{\"requestId\":\"%s:", node.string);
     CGI_PUTLL(job);
     CGI_PUTS("\",\"minPollInterval\":100,\"maxPollInterval\":6000}");
 }
