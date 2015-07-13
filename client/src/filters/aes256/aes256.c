@@ -41,7 +41,7 @@
 #include <openssl/hmac.h>
 #include <errno.h>
 
-#include "libsx/src/misc.h"
+#include "libsxclient/src/misc.h"
 #include "sx.h"
 
 /* logger prefixes with aes256: already */

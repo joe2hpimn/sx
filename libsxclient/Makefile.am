@@ -1,6 +1,6 @@
 ACLOCAL_AMFLAGS = -I m4
 # https://www.gnu.org/software/libtool/manual/html_node/Updating-version-info.html
-LIBSX_VERSION=2:0:0
+LIBSXCLIENT_VERSION=2:0:0
 
 SUBDIRS=
 if BUILD_LTDL
@@ -16,8 +16,8 @@ DIST_SUBDIRS=$(SUBDIRS)
 include_HEADERS = include/sx.h
 
 AM_CPPFLAGS = -I $(top_srcdir)/include -I $(top_srcdir)/src -I include $(LTDLINCL)
-lib_LTLIBRARIES = src/libsx.la
-src_libsx_la_SOURCES = \
+lib_LTLIBRARIES = src/libsxclient.la
+src_libsxclient_la_SOURCES = \
 	include/sx.h \
 	include/default.h \
 	include/gnuc.h \
@@ -42,8 +42,8 @@ src_libsx_la_SOURCES = \
 	src/volops.h \
 	src/jobpoll.c \
 	src/jobpoll.h \
-	src/libsx.c \
-	src/libsx-int.h \
+	src/libsxclient.c \
+	src/libsxclient-int.h \
 	src/filter.c \
 	src/filter.h \
 	src/sxlog.h \
@@ -58,24 +58,24 @@ src_libsx_la_SOURCES = \
 	src/crypt_blowfish.c \
 	src/crypt_blowfish.h
 if BUILD_NFTW
-src_libsx_la_SOURCES += \
+src_libsxclient_la_SOURCES += \
 	src/nftw.c \
 	src/sxftw.h
 endif
 if BUILD_NSS
-src_libsx_la_SOURCES += src/nss.c
+src_libsxclient_la_SOURCES += src/nss.c
 endif
 if BUILD_OPENSSL
-src_libsx_la_SOURCES += \
+src_libsxclient_la_SOURCES += \
 	src/openssl.c\
 	src/cert.c \
 	src/cert.h
 endif
 
-src_libsx_la_LIBADD = @YAJL_LIBS@ @LIBCURL@ @LIBLTDL@ @VCRYPTO_LIBS@
+src_libsxclient_la_LIBADD = @YAJL_LIBS@ @LIBCURL@ @LIBLTDL@ @VCRYPTO_LIBS@
 # TODO: only sx_ should be exported not sxi_
-src_libsx_la_LDFLAGS = -no-undefined -export-symbols-regex sx.* -version-info $(LIBSX_VERSION)
-src_libsx_la_CPPFLAGS = $(AM_CPPFLAGS) @YAJL_CPPFLAGS@ @LIBCURL_CPPFLAGS@ @VCRYPTO_CFLAGS@ \
+src_libsxclient_la_LDFLAGS = -no-undefined -export-symbols-regex sx.* -version-info $(LIBSXCLIENT_VERSION)
+src_libsxclient_la_CPPFLAGS = $(AM_CPPFLAGS) @YAJL_CPPFLAGS@ @LIBCURL_CPPFLAGS@ @VCRYPTO_CFLAGS@ \
 			-DINFO_CPPFLAGS="\"$(AM_CPPFLAGS) $(CPPFLAGS) @YAJL_CPPFLAGS@ @LIBCURL_CPPFLAGS@ @OPENSSL_CFLAGS@ @NSS_CFLAGS@\""\
 			-DINFO_CFLAGS="\"$(AM_CFLAGS) $(CFLAGS)\""\
 			-DINFO_LDFLAGS="\"$(AM_LDFLAGS) $(LDFLAGS) @YAJL_LIBS@ @LIBCURL@ @LIBLTDL@ @VCRYPTO_LIBS@\""\

@@ -29,8 +29,8 @@
 #include <string.h>
 #include "log.h"
 #include "hashfs.h"
-#include "../libsx/src/misc.h"
-#include "../libsx/src/vcrypto.h"
+#include "../libsxclient/src/misc.h"
+#include "../libsxclient/src/vcrypto.h"
 #include <sys/types.h>
 #include <regex.h>
 #include <netinet/in.h>

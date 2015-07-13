@@ -37,7 +37,7 @@
 #include "sx.h"
 #include "cmdline.h"
 #include "version.h"
-#include "libsx/src/misc.h"
+#include "libsxclient/src/misc.h"
 #include "bcrumbs.h"
 
 struct gengetopt_args_info args;

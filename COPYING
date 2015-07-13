@@ -22,8 +22,8 @@ OpenSSL. You may extend this exception to your version of the program,
 but you are not obligated to do so. If you do not wish to do so, delete
 this exception statement from your version.
 
-Skylable SX Client Library (libsx)
-----------------------------------
+Skylable SX Client Library (libsxclient)
+----------------------------------------
 
 The Library component of Skylable SX is distributed under the GNU Lesser
 General Public License version 2.1 or (at your option) any later version
@@ -123,7 +123,7 @@ Linenoise
 LIBCURL
 -------
 
-libsx/src/cert.c is based on lib/{ssluse,hostcheck,rawstr}.c from libcurl,
+libsxclient/src/cert.c is based on lib/{ssluse,hostcheck,rawstr}.c from libcurl,
 which has the following license:
 
 /*

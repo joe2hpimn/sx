@@ -41,7 +41,7 @@
 #include "volops.h"
 #include "sxproto.h"
 #include "jobpoll.h"
-#include "libsx-int.h"
+#include "libsxclient-int.h"
 #include "curlevents.h"
 #include "vcrypto.h"
 

@@ -4,7 +4,7 @@ AC_CONFIG_AUX_DIR([build-aux])
 AM_INIT_AUTOMAKE([foreign])
 AM_MAINTAINER_MODE
 
-ac_configure_args="$ac_configure_args --enable-shared=libsx,sxclient,sx"
+ac_configure_args="$ac_configure_args --enable-shared=libsxclient,sxclient,sx"
 
 
 AC_ARG_WITH([system_libs],AC_HELP_STRING([--with-system-libs],
@@ -74,7 +74,7 @@ AM_CONDITIONAL([BUILD_SQLITE3], [test "$build_sqlite3" = "yes"])
 AC_SUBST(SQLITE3_LIBS)
 AC_SUBST(SQLITE3_CFLAGS)
 
-AC_CONFIG_SUBDIRS([libsx])
+AC_CONFIG_SUBDIRS([libsxclient])
 AC_CONFIG_SUBDIRS([client])
 
 if test "$build_server" = "yes"; then

@@ -40,16 +40,16 @@
 #include "sxdbi.h"
 #include "hashfs.h"
 #include "hdist.h"
-#include "../libsx/src/misc.h"
+#include "../libsxclient/src/misc.h"
 
 #include "sx.h"
 #include "qsort.h"
 #include "utils.h"
 #include "blob.h"
-#include "../libsx/src/vcrypto.h"
-#include "../libsx/src/clustcfg.h"
-#include "../libsx/src/cluster.h"
-#include "../libsx/src/sxreport.h"
+#include "../libsxclient/src/vcrypto.h"
+#include "../libsxclient/src/clustcfg.h"
+#include "../libsxclient/src/cluster.h"
+#include "../libsxclient/src/sxreport.h"
 #include "job_common.h"
 
 #define HASHDBS 16
@@ -14787,7 +14787,7 @@ rc_ty sx_hashfs_node_status(sx_hashfs_t *h, sxi_node_status_t *status) {
         snprintf(status->uuid, sizeof(status->uuid), "%s", sx_node_uuid_str(n));
     }
 
-    snprintf(status->libsx_version, sizeof(status->libsx_version), "%s", sxc_get_version());
+    snprintf(status->libsxclient_version, sizeof(status->libsxclient_version), "%s", sxc_get_version());
     snprintf(status->hashfs_version, sizeof(status->hashfs_version), "%s", HASHFS_VERSION);
 
     const char *local_heal = sx_hashfs_heal_status_local(h);

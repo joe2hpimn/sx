@@ -21,9 +21,9 @@
 #define SXREPORT_H
 #include "sx.h"
 #include "default.h"
-#include "libsx-int.h"
+#include "libsxclient-int.h"
 /* build info */
-/* need to expand this in libsx / server respectively
+/* need to expand this in libsxclient / server respectively
  * as they might have different flags */
 #define sxi_report_build_flags(sx) do {\
     sxi_info(sx,"CPPFLAGS: %s", INFO_CPPFLAGS);\

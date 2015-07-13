@@ -25,7 +25,7 @@
 #include <curl/curl.h>
 #include <unistd.h>
 
-#include "libsx-int.h"
+#include "libsxclient-int.h"
 #include "yajlwrap.h"
 #include "cluster.h"
 #include "curlevents.h"

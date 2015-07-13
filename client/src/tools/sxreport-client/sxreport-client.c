@@ -39,8 +39,8 @@
 #include "cmdline.h"
 
 #include "sx.h"
-#include "../../../../libsx/src/sxreport.h"
-#include "../../../../libsx/src/misc.h"
+#include "../../../../libsxclient/src/sxreport.h"
+#include "../../../../libsxclient/src/misc.h"
 #include "version.h"
 
 static int filter_list(sxc_client_t *sx)

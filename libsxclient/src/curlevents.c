@@ -22,7 +22,7 @@
 #endif
 
 #include "curlevents.h"
-#include "libsx-int.h"
+#include "libsxclient-int.h"
 #include "misc.h"
 #include "sxproto.h"
 #include "vcrypto.h"

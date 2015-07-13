@@ -26,9 +26,9 @@
  */
 
 #include "hashfs.h"
-#include "../libsx/src/clustcfg.h"
-#include "../libsx/src/curlevents.h"
-#include "../libsx/src/yajlwrap.h"
+#include "../libsxclient/src/clustcfg.h"
+#include "../libsxclient/src/curlevents.h"
+#include "../libsxclient/src/yajlwrap.h"
 #include <string.h>
 #include <stdint.h>
 #include <errno.h>

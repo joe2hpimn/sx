@@ -17,8 +17,8 @@
  *
  */
 
-#ifndef __LIBSX_INT_H
-#define __LIBSX_INT_H
+#ifndef __LIBSXCLIENT_INT_H
+#define __LIBSXCLIENT_INT_H
 
 #include "sx.h"
 #include "sxlog.h"

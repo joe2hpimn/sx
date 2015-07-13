@@ -149,7 +149,7 @@ void sxi_cbdata_setsyserr(curlev_context_t *ctx, enum sxc_error_t err, const cha
 /* Restore error message and id from global buffer.
  *
  * That data will be copied to local buffer to be able to assign errors to particular query context.
- * It will be needed when multiple queries are performed in parallel. Many libsx functions store error only in
+ * It will be needed when multiple queries are performed in parallel. Many libsxclient functions store error only in
  * global buffer, this function is designed to retrieve it. Note that global error will be wiped.
  *
  * Return 1 if restoring fails */

@@ -22,7 +22,7 @@
 
 #include <stdio.h>
 #include "sx.h"
-#include "libsx-int.h"
+#include "libsxclient-int.h"
 
 void sxi_filter_unloadall(sxc_client_t *sx);
 

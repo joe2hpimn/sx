@@ -27,7 +27,7 @@
 #include <fcntl.h>
 #include <errno.h>
 
-#include "libsx-int.h"
+#include "libsxclient-int.h"
 #include "misc.h"
 #include "hostlist.h"
 #include "clustcfg.h"

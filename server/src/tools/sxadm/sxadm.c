@@ -41,11 +41,11 @@
 #include <unistd.h>
 #include <errno.h>
 
-#include "../libsx/src/clustcfg.h"
-#include "../libsx/src/jobpoll.h"
-#include "../libsx/src/vcrypto.h"
-#include "../libsx/src/misc.h"
-#include "../libsx/src/hostlist.h"
+#include "../libsxclient/src/clustcfg.h"
+#include "../libsxclient/src/jobpoll.h"
+#include "../libsxclient/src/vcrypto.h"
+#include "../libsxclient/src/misc.h"
+#include "../libsxclient/src/hostlist.h"
 
 #include "cmd_main.h"
 #include "cmd_node.h"
@@ -1557,7 +1557,7 @@ static void print_status(sxc_client_t *sx, int http_code, const sxi_node_status_
 
     printf("Node %s status:\n", status->uuid);
     printf("    Versions:\n");
-    printf("        SX: %s\n", status->libsx_version);
+    printf("        SX: %s\n", status->libsxclient_version);
     printf("        HashFS: %s\n", status->hashfs_version);
     printf("    System:\n");
     printf("        Name: %s\n", status->os_name);
@@ -1617,7 +1617,7 @@ static int cluster_status(sxc_client_t *sx, struct cluster_args_info *args) {
 enum mismatch {
     NONE=0,
     MISMATCH_STORAGE_VERSION,
-    MISMATCH_LIBSX_VERSION,
+    MISMATCH_LIBSXCLIENT_VERSION,
     MISMATCH_OLD_VERSION,
     MISMATCH_NOREPLY,
     MISMATCH_OFFLINE,
@@ -1643,14 +1643,14 @@ static void check_status(sxc_client_t *sx, int http_code, const sxi_node_status_
         fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
         return;
     }
-    printf("\t%s: %s (%s)\n", status->addr, status->hashfs_version, status->libsx_version);
+    printf("\t%s: %s (%s)\n", status->addr, status->hashfs_version, status->libsxclient_version);
     if (!has_last_status) {
         memcpy(&last_status, status, sizeof(last_status));
         has_last_status = 1;
     } else if (strcmp(last_status.hashfs_version, status->hashfs_version))
         check_upgrade_mismatch |= 1 << MISMATCH_STORAGE_VERSION;
-    else if (strcmp(last_status.libsx_version, status->libsx_version))
-        check_upgrade_mismatch |= 1 << MISMATCH_LIBSX_VERSION;
+    else if (strcmp(last_status.libsxclient_version, status->libsxclient_version))
+        check_upgrade_mismatch |= 1 << MISMATCH_LIBSXCLIENT_VERSION;
     if (!strcmp(status->heal_status, "DONE"))
         upgrade_complete++;
 }
@@ -1678,8 +1678,8 @@ static int cluster_upgrade(sxc_client_t *sx, struct cluster_args_info *args) {
             fprintf(stderr,"\tSome nodes are still running version 1.0\n");
         if (check_upgrade_mismatch & (1 << MISMATCH_STORAGE_VERSION))
             fprintf(stderr,"\tSome nodes are still running an old server version\n");
-        if (check_upgrade_mismatch & (1 << MISMATCH_LIBSX_VERSION))
-            fprintf(stderr,"\tlibsx versions don't match\n");
+        if (check_upgrade_mismatch & (1 << MISMATCH_LIBSXCLIENT_VERSION))
+            fprintf(stderr,"\tlibsxclient versions don't match\n");
         ret = 1;
     } else {
         if (upgrade_complete == upgrade_nodes) {

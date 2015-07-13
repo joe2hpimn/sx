@@ -57,9 +57,9 @@
 #include <arpa/nameser.h>
 #include <resolv.h>
 
-#include "../libsx/src/sxproto.h"
-#include "../libsx/src/misc.h"
-#include "../libsx/src/curlevents.h"
+#include "../libsxclient/src/sxproto.h"
+#include "../libsxclient/src/misc.h"
+#include "../libsxclient/src/curlevents.h"
 #include "hashfs.h"
 #include "hdist.h"
 #include "job_common.h"

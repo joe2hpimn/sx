@@ -34,8 +34,8 @@
 #include "fcgi-utils.h"
 #include "hashfs.h"
 #include "blob.h"
-#include "../../../libsx/src/sxproto.h"
-#include "../../../libsx/src/vcrypto.h"
+#include "../../../libsxclient/src/sxproto.h"
+#include "../../../libsxclient/src/vcrypto.h"
 
 void fcgi_user_onoff(int enable, int all_clones) {
     rc_ty s;

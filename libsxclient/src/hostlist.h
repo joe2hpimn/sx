@@ -20,7 +20,7 @@
 #ifndef _HOSTLIST_H
 #define _HOSTLIST_H
 
-#include "libsx-int.h"
+#include "libsxclient-int.h"
 
 typedef struct _sxi_hostlist_t {
     char **hosts;

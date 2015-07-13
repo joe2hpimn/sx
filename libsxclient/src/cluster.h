@@ -138,7 +138,7 @@ typedef struct _node_status_t {
     char os_version[256]; /* System version */
     char os_arch[40]; /* Machine architecture */
 
-    char libsx_version[40]; /* Libsx version */
+    char libsxclient_version[40]; /* Libsx version */
     char hashfs_version[16]; /* HashFS version */
     char heal_status[40];
 } sxi_node_status_t;

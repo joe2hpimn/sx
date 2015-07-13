@@ -30,7 +30,7 @@
 
 #include "default.h"
 
-#include "../libsx/src/clustcfg.h"
+#include "../libsxclient/src/clustcfg.h"
 
 #include "nodes.h"
 

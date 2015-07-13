@@ -1,6 +1,6 @@
 ACLOCAL_AMFLAGS = -I m4 -I /usr/share/aclocal
 SUBDIRS = sxscripts
-AM_CPPFLAGS += -I $(top_srcdir)/../libsx/include -I ../libsx/include -I $(top_srcdir)/src/common -I $(top_srcdir)/../
+AM_CPPFLAGS += -I $(top_srcdir)/../libsxclient/include -I ../libsxclient/include -I $(top_srcdir)/src/common -I $(top_srcdir)/../
 SX_CPPFLAGS=-DDEFAULT_FCGI_CFGFILE=\"$(sysconfdir)/sxserver/sxfcgi.conf\"
 
 EXTRA_DIST = man/*.in
@@ -44,7 +44,7 @@ src_common_libcommon_la_SOURCES = \
 		    src/common/init.c \
 		    src/common/init.h
 
-src_common_libcommon_la_LIBADD = @CRYPTO_LIBS@ @HDIST_LIBS@ @SQLITE3_LIBS@ $(top_builddir)/../libsx/src/libsx.la
+src_common_libcommon_la_LIBADD = @CRYPTO_LIBS@ @HDIST_LIBS@ @SQLITE3_LIBS@ $(top_builddir)/../libsxclient/src/libsxclient.la
 src_common_libcommon_la_CPPFLAGS = $(AM_CPPFLAGS) @CRYPTO_CFLAGS@ @YAJL_CPPFLAGS@
 src_common_libcommon_la_CFLAGS = $(AM_CFLAGS) @SQLITE3_CFLAGS@
 src_common_libcommon_la_LIBTOOLFLAGS = $(AM_LIBTOOLFLAGS) --tag=disable-shared

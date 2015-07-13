@@ -43,7 +43,7 @@
 #include "log.h"
 #include "nodes.h"
 #include "zlib.h"
-#include "../libsx/src/vcrypto.h"
+#include "../libsxclient/src/vcrypto.h"
 
 #ifdef WORDS_BIGENDIAN
 uint32_t swapu32(uint32_t v)

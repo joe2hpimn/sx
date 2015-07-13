@@ -30,7 +30,7 @@
 
 #include <yajl/yajl_parse.h>
 #include "blob.h"
-#include "../../libsx/src/sxproto.h"
+#include "../../libsxclient/src/sxproto.h"
 
 typedef int64_t job_t;
 

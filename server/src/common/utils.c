@@ -45,8 +45,8 @@
 #include <unistd.h>
 #include <ftw.h>
 #include "isaac.h"
-#include "../libsx/src/misc.h"
-#include "../libsx/src/vcrypto.h"
+#include "../libsxclient/src/misc.h"
+#include "../libsxclient/src/vcrypto.h"
 #include "version.h"
 
 static const char hexchar[16] = "0123456789abcdef";

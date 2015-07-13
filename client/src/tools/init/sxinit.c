@@ -41,9 +41,9 @@
 #include "sx.h"
 #include "cmdline.h"
 #include "version.h"
-#include "libsx/src/misc.h"
-#include "libsx/src/clustcfg.h"
-#include "libsx/src/cluster.h"
+#include "libsxclient/src/misc.h"
+#include "libsxclient/src/clustcfg.h"
+#include "libsxclient/src/cluster.h"
 #include "bcrumbs.h"
 
 static sxc_client_t *sx = NULL;

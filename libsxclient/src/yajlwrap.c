@@ -22,7 +22,7 @@
 
 #include "yajlwrap.h"
 #include "types.h"
-#include "libsx-int.h"
+#include "libsxclient-int.h"
 
 static int yacb_fail_null(void *ctx) {
     return 0;

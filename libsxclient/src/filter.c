@@ -26,7 +26,7 @@
 #include <dirent.h>
 #include <sys/stat.h>
 
-#include "libsx-int.h"
+#include "libsxclient-int.h"
 #include "misc.h"
 #include "ltdl.h"
 #include "filter.h"

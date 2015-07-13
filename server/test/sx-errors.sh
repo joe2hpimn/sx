@@ -77,7 +77,7 @@ runtest "Upload to non-existing volume" $SXCP /etc/passwd sx://$HOSTNAME/notexis
 runtest "List non-existent volume" $SXLS sx://$HOSTNAME/notexist
 
 for i in ../client/src/filters/*/.libs/*.so.0.0*; do
-    # can't symlink, libsx only supports real files for plugins
+    # can't symlink, libsxclient only supports real files for plugins
     cp `pwd`/$i $SX_FILTER_DIR/
 done
 

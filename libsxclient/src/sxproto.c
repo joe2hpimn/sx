@@ -21,7 +21,7 @@
 #include <string.h>
 #include <stdlib.h>
 
-#include "libsx-int.h"
+#include "libsxclient-int.h"
 #include "sxproto.h"
 #include "misc.h"
 #include "vcrypto.h"

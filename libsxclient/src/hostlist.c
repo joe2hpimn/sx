@@ -26,7 +26,7 @@
 #include <netdb.h>
 
 #include "hostlist.h"
-#include "libsx-int.h"
+#include "libsxclient-int.h"
 #include "misc.h"
 
 void sxi_hostlist_init(sxi_hostlist_t *list) {

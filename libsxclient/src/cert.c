@@ -29,7 +29,7 @@
 #include <openssl/x509v3.h>
 #include <openssl/ssl.h>
 #include <openssl/err.h>
-#include "libsx-int.h"
+#include "libsxclient-int.h"
 
 #define CURL_HOST_NOMATCH 0
 #define CURL_HOST_MATCH   1

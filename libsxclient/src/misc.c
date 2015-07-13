@@ -46,7 +46,7 @@
 #include "sxftw.h"
 #endif
 
-#include "libsx-int.h"
+#include "libsxclient-int.h"
 #include "misc.h"
 #include "vcrypto.h"
 #include "crypt_blowfish.h"

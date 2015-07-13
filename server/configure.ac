@@ -127,7 +127,7 @@ else
 fi
 AC_MSG_CHECKING([for working resolver in lib$checkingin])
 AC_LINK_IFELSE([AC_LANG_PROGRAM([
-#include "$srcdir/../libsx/include/default.h"
+#include "$srcdir/../libsxclient/include/default.h"
 #include <sys/types.h>
 #include <netinet/in.h>
 #include <arpa/nameser.h>

@@ -51,8 +51,8 @@
 #include "cmd_volshow.h"
 #include "cmd_whoami.h"
 #include "cmd_userclone.h"
-#include "libsx/src/misc.h"
-#include "libsx/src/clustcfg.h"
+#include "libsxclient/src/misc.h"
+#include "libsxclient/src/clustcfg.h"
 #include "version.h"
 #include "bcrumbs.h"
 
@@ -517,7 +517,7 @@ int main(int argc, char **argv) {
         if(!strcmp(SRC_VERSION, sxc_get_version()))
             fprintf(stderr, "ERROR: Version mismatch: our version '%s' - library version '%s'\n", SRC_VERSION, sxc_get_version());
         else
-            fprintf(stderr, "ERROR: Failed to init libsx\n");
+            fprintf(stderr, "ERROR: Failed to init libsxclient\n");
         return 1;
     }
 

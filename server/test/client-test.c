@@ -39,9 +39,9 @@
 #include <unistd.h>
 
 #include "sx.h"
-#include "libsx/src/clustcfg.h"
-#include "libsx/src/volops.h"
-#include "libsx/src/misc.h"
+#include "libsxclient/src/clustcfg.h"
+#include "libsxclient/src/volops.h"
+#include "libsxclient/src/misc.h"
 #include "version.h"
 #include "rgen.h"
 #include "client-test-cmdline.h"
@@ -89,7 +89,7 @@ static int run_test(sxc_client_t *sx, sxc_cluster_t *cluster, const char *local_
     return test->fun(sx, cluster, local_dir_path, remote_dir_path, profile_name, cluster_name, filter_dir, test->filter1_name, test->filter1_cfg, test->filter2_name, test->filter2_cfg, test->block_size, test->block_count, args, max_revisions, check_data_size);
 }
 
-int64_t bytes; /* FIXME: small change in libsx to avoid this to be global */
+int64_t bytes; /* FIXME: small change in libsxclient to avoid this to be global */
 client_test_t tests[];
 
 static float to_human (long long int n) {

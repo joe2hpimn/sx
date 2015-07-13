@@ -37,10 +37,10 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <syslog.h>
-#include "../libsx/src/sxlog.h"
-#include "../libsx/src/misc.h"
-#include "../libsx/src/cluster.h"
-#include "../libsx/src/vcrypto.h"
+#include "../libsxclient/src/sxlog.h"
+#include "../libsxclient/src/misc.h"
+#include "../libsxclient/src/cluster.h"
+#include "../libsxclient/src/vcrypto.h"
 
 static struct _sx_logger_ctx {
     pid_t pid;

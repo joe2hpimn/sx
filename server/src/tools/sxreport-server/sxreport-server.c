@@ -47,10 +47,10 @@
 #include "hashfs.h"
 #include "init.h"
 #include "../../fcgi/cfgfile.h"
-#include "../../../libsx/src/sxreport.h"
-#include "../../../libsx/src/sxlog.h"
-#include "../../../libsx/src/misc.h"
-#include "../../../libsx/src/vcrypto.h"
+#include "../../../libsxclient/src/sxreport.h"
+#include "../../../libsxclient/src/sxlog.h"
+#include "../../../libsxclient/src/misc.h"
+#include "../../../libsxclient/src/vcrypto.h"
 
 static struct gengetopt_args_info fcgi_args;
 static int fcgi_args_parsed;

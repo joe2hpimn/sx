@@ -27,8 +27,8 @@
 
 #ifndef HASHOP_H
 #define HASHOP_H
-#include "../../../libsx/src/sxproto.h"
-#include "../../../libsx/src/cluster.h"
+#include "../../../libsxclient/src/sxproto.h"
+#include "../../../libsxclient/src/cluster.h"
 
 typedef int (*hash_presence_cb_t)(const char *hash, unsigned idx, int code, void *context);
 struct sxi_hashop {

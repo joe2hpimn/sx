@@ -32,7 +32,7 @@
 #include "utils.h"
 #include "nodes.h"
 #include "job_common.h"
-#include "../libsx/src/cluster.h"
+#include "../libsxclient/src/cluster.h"
 #include "sxdbi.h"
 #include "hashop.h"
 

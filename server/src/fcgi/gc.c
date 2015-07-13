@@ -36,7 +36,7 @@
 #include "log.h"
 #include "hashfs.h"
 #include "nodes.h"
-#include "../libsx/src/curlevents.h"
+#include "../libsxclient/src/curlevents.h"
 #include <arpa/inet.h>
 
 static int terminate = 0;

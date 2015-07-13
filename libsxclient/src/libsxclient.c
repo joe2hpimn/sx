@@ -29,7 +29,7 @@
 #include <pwd.h>
 #include <ctype.h>
 
-#include "libsx-int.h"
+#include "libsxclient-int.h"
 #include "ltdl.h"
 #include "filter.h"
 #include "clustcfg.h"
@@ -76,7 +76,7 @@ int sxc_lib_init(const char *client_version)
 
     memset(&l, 0, sizeof(l));
     l.max_level = SX_LOG_DEBUG;
-    l.func = (*sxc_default_logger)(&log, "libsx init");
+    l.func = (*sxc_default_logger)(&log, "libsxclient init");
 
     const char *this_version = sxc_get_version();
     if (!client_version || strcmp(client_version, this_version)) {

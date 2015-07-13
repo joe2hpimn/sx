@@ -31,7 +31,7 @@
 #include "gnuc.h"
 #include "sx.h"
 #include <errno.h>
-#include "../libsx/src/sxlog.h"
+#include "../libsxclient/src/sxlog.h"
 
 extern sxc_logger_t server_logger;
 extern struct sxi_logger logger;

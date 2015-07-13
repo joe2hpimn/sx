@@ -35,7 +35,7 @@
 #include "sx.h"
 #include "cmdline.h"
 #include "version.h"
-#include "libsx/src/misc.h"
+#include "libsxclient/src/misc.h"
 #include "bcrumbs.h"
 
 static sxc_client_t *sx = NULL;

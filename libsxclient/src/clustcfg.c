@@ -33,7 +33,7 @@
 #include <pwd.h>
 #include <fcntl.h>
 
-#include "libsx-int.h"
+#include "libsxclient-int.h"
 #include "cluster.h"
 #include "yajlwrap.h"
 #include "clustcfg.h"
@@ -654,7 +654,7 @@ int sxc_cluster_info(sxc_cluster_t *cluster, const char *profile, const char *ho
 
     printf("Current profile: %s\n", profile ? profile : "default");
     printf("Configuration directory: %s\n", cluster->config_dir);
-    printf("libsx version: %s\n", sxc_get_version());
+    printf("libsxclient version: %s\n", sxc_get_version());
 
     config_link = sxc_cluster_configuration_link(cluster, profile, access->auth);
     if(!config_link)
@@ -3848,7 +3848,7 @@ struct node_status_ctx {
     curlev_context_t *cbdata;
     struct cb_error_ctx errctx;
     enum node_status_state { NS_ERROR, NS_BEGIN, NS_KEY, NS_OSTYPE, NS_ARCH, NS_RELEASE, NS_VERSION, NS_CORES, NS_ENDIANNESS,
-        NS_LOCALTIME, NS_UTCTIME, NS_ADDR, NS_INTERNAL_ADDR, NS_UUID, NS_STORAGE_VERSION, NS_LIBSX_VERSION, NS_STORAGE_DIR,
+        NS_LOCALTIME, NS_UTCTIME, NS_ADDR, NS_INTERNAL_ADDR, NS_UUID, NS_STORAGE_VERSION, NS_LIBSXCLIENT_VERSION, NS_STORAGE_DIR,
         NS_STORAGE_ALLOC, NS_STORAGE_USED, NS_FS_BLOCK_SIZE, NS_FS_TOTAL_BLOCKS, NS_FS_AVAIL_BLOCKS,
         NS_MEM_TOTAL, NS_HEAL, NS_COMPLETE } state;
 };
@@ -3968,13 +3968,13 @@ static int yacb_node_status_string(void *ctx, const unsigned char *s, size_t l) 
         }
         memcpy(yactx->status.hashfs_version, s, l);
         yactx->status.hashfs_version[sizeof(yactx->status.hashfs_version)-1] = '\0';
-    } else if(yactx->state == NS_LIBSX_VERSION) {
-        if(l >= sizeof(yactx->status.libsx_version)) {
+    } else if(yactx->state == NS_LIBSXCLIENT_VERSION) {
+        if(l >= sizeof(yactx->status.libsxclient_version)) {
             CBDEBUG("hashfs version string too long");
             return 0;
         }
-        memcpy(yactx->status.libsx_version, s, l);
-        yactx->status.libsx_version[sizeof(yactx->status.libsx_version)-1] = '\0';
+        memcpy(yactx->status.libsxclient_version, s, l);
+        yactx->status.libsxclient_version[sizeof(yactx->status.libsxclient_version)-1] = '\0';
     } else if(yactx->state == NS_HEAL) {
         if (l >= sizeof(yactx->status.heal_status)) {
             CBDEBUG("heal status too long");
@@ -3984,7 +3984,7 @@ static int yacb_node_status_string(void *ctx, const unsigned char *s, size_t l) 
         yactx->status.heal_status[sizeof(yactx->status.heal_status)-1] = '\0';
     } else if(yactx->state != NS_KEY) {
         CBDEBUG("bad state (in %d, expected %d, %d, %d, %d, %d, %d, %d, %d, %d or %d)", yactx->state, NS_OSTYPE, NS_ARCH,
-            NS_RELEASE, NS_VERSION, NS_ADDR, NS_INTERNAL_ADDR, NS_UUID, NS_STORAGE_DIR, NS_STORAGE_VERSION, NS_LIBSX_VERSION);
+            NS_RELEASE, NS_VERSION, NS_ADDR, NS_INTERNAL_ADDR, NS_UUID, NS_STORAGE_DIR, NS_STORAGE_VERSION, NS_LIBSXCLIENT_VERSION);
     }
 
     yactx->state = NS_KEY;
@@ -4023,8 +4023,8 @@ static int yacb_node_status_map_key(void *ctx, const unsigned char *s, size_t l)
             yactx->state = NS_UUID;
         else if(l == lenof("hashFSVersion") && !memcmp(s, "hashFSVersion", lenof("hashFSVersion")))
             yactx->state = NS_STORAGE_VERSION;
-        else if(l == lenof("libsxVersion") && !memcmp(s, "libsxVersion", lenof("libsxVersion")))
-            yactx->state = NS_LIBSX_VERSION;
+        else if(l == lenof("libsxclientVersion") && !memcmp(s, "libsxclientVersion", lenof("libsxclientVersion")))
+            yactx->state = NS_LIBSXCLIENT_VERSION;
         else if(l == lenof("nodeDir") && !memcmp(s, "nodeDir", lenof("nodeDir")))
             yactx->state = NS_STORAGE_DIR;
         else if(l == lenof("storageAllocated") && !memcmp(s, "storageAllocated", lenof("storageAllocated")))

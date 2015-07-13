@@ -32,7 +32,7 @@
 #include <arpa/inet.h>
 #include "fcgi-utils.h"
 #include "fcgi-actions-volume.h"
-#include "../libsx/src/misc.h"
+#include "../libsxclient/src/misc.h"
 #include "blob.h"
 #include "utils.h"
 #include "job_common.h"
@@ -1900,7 +1900,7 @@ void fcgi_node_status(void) {
     CGI_PRINTF("\"osType\":\"%s\",\"osArch\":\"%s\",\"osRelease\":\"%s\",\"osVersion\":\"%s\",\"cores\":%d",
         status.os_name, status.os_arch, status.os_release, status.os_version, status.cores);
     CGI_PRINTF(",\"osEndianness\":\"%s\",\"localTime\":\"%s\",\"utcTime\":\"%s\"", status.endianness, status.localtime, status.utctime);
-    CGI_PRINTF(",\"hashFSVersion\":\"%s\",\"libsxVersion\":\"%s\"", status.hashfs_version, status.libsx_version);
+    CGI_PRINTF(",\"hashFSVersion\":\"%s\",\"libsxclientVersion\":\"%s\"", status.hashfs_version, status.libsxclient_version);
     if(!status.is_bare)
         CGI_PRINTF(",\"address\":\"%s\",\"internalAddress\":\"%s\",\"UUID\":\"%s\"", status.addr, status.internal_addr, status.uuid);
     CGI_PRINTF(",\"nodeDir\":\"%s\"", status.storage_dir);

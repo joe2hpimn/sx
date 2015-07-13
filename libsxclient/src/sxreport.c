@@ -20,7 +20,7 @@
 #include "default.h"
 #include "sxreport.h"
 #include "sxlog.h"
-#include "libsx-int.h"
+#include "libsxclient-int.h"
 #include "ltdl.h"
 #include <string.h>
 #include <yajl/yajl_version.h>
@@ -116,7 +116,7 @@ void sxi_report_section(sxc_client_t *sx, const char *section)
 void sxi_report_library_versions(sxc_client_t *sx, const char *srcver)
 {
     sxi_report_section(sx, "Library versions");
-    check_library(sx, "libsx", srcver, sxc_get_version(), 1);
+    check_library(sx, "libsxclient", srcver, sxc_get_version(), 1);
     sxi_report_library_int(sx, "yajl", YAJL_VERSION, yajl_version(), 10000, 100, 1);
 
     curl_version_info_data *data = curl_version_info(CURLVERSION_NOW);

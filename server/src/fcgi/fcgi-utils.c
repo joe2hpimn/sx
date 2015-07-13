@@ -32,13 +32,13 @@
 #include <strings.h>
 #include <stdlib.h>
 
-#include "../libsx/src/vcrypto.h"
+#include "../libsxclient/src/vcrypto.h"
 
 #include "fcgi-utils.h"
 #include "fcgi-actions.h"
 #include "utils.h"
 #include "hashfs.h"
-#include "../libsx/src/misc.h"
+#include "../libsxclient/src/misc.h"
 #include "version.h"
 
 #define MAX_CLOCK_DRIFT 10

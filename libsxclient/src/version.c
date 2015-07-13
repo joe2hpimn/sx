@@ -19,12 +19,12 @@
 
 #include "version.h"
 #include "sx.h"
-#include "libsx-int.h"
+#include "libsxclient-int.h"
 
 const char *sxc_get_version(void) {
     return SRC_VERSION;
 }
 
 const char *sxi_get_useragent(void) {
-    return "libSX/"SRC_VERSION;
+    return "libSXClient/"SRC_VERSION;
 }

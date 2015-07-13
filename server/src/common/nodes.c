@@ -31,7 +31,7 @@
 
 #include "nodes.h"
 #include "log.h"
-#include "../libsx/src/hostlist.h"
+#include "../libsxclient/src/hostlist.h"
 
 struct _sx_node_t {
     sx_uuid_t id;

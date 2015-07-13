@@ -41,8 +41,8 @@
 #include "hdist.h"
 #include "utils.h"
 #include "linenoise.h"
-#include "../../../../libsx/src/vcrypto.h"
-#include "../../../../libsx/src/misc.h"
+#include "../../../../libsxclient/src/vcrypto.h"
+#include "../../../../libsxclient/src/misc.h"
 
 #define MBVAL 1048576
 #define MINSIZE (10 * MBVAL)
