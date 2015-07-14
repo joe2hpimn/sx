@@ -4405,6 +4405,8 @@ rc_ty sx_hashfs_upgrade_1_0_local(sx_hashfs_t *h)
                 qprep(h->eventdb, &q, "VACUUM") || qstep_noret(q))
                 WARN("Clean failed on events.db");/* not critical */
             qnullify(q);
+            if (!sx_hashfs_heal_status_remote(h))
+                sx_hashfs_set_progress_info(h, INPRG_IDLE, NULL);
         }
     }
     if (rc)
