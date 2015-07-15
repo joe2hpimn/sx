@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2012-2014 Skylable Ltd. <info-copyright@skylable.com>
+ *  Copyright (C) 2012-2015 Skylable Ltd. <info-copyright@skylable.com>
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
@@ -306,9 +306,18 @@ static int aes256_configure(const sxf_handle_t *handle, const char *cfgstr, cons
 	memcpy(*cfgdata, salt, SALT_SIZE);
 	if(keyfp(handle, key, NULL, (unsigned char *) *cfgdata + SALT_SIZE)) {
 	    free(*cfgdata);
+	    *cfgdata = NULL;
 	    return -1;
 	}
 	*cfgdata_len = SALT_SIZE + FP_SIZE;
+
+	if(sxc_meta_setval(custom_meta, "aes256_fp", *cfgdata, *cfgdata_len)) {
+	    ERROR("Failed to set custom meta");
+	    free(*cfgdata);
+	    *cfgdata = NULL;
+	    *cfgdata_len = 0;
+	    return -1;
+	}
     }
 
     return 0;
@@ -336,6 +345,15 @@ static int aes256_data_prepare(const sxf_handle_t *handle, void **ctx, const cha
     if((runtime_ver & 0xff0000000) != (compile_ver & 0xff0000000)) {
 	ERROR("OpenSSL library version mismatch: compiled: %x, runtime: %d", compile_ver, runtime_ver);
 	return -1;
+    }
+
+    if(!cfgdata || cfgdata_len == SALT_SIZE + 1) {
+	const void *mdata;
+	unsigned int mdata_len;
+        if(!sxc_meta_getval(custom_meta, "aes256_fp", &mdata, &mdata_len)) {
+	    cfgdata = mdata;
+	    cfgdata_len = mdata_len;
+	}
     }
 
     mlock(key, sizeof(key));
@@ -386,9 +404,23 @@ static int aes256_data_prepare(const sxf_handle_t *handle, void **ctx, const cha
 		free(keyfile);
 		return -1;
 	    }
-	    if(have_fp && keyfp(handle, key, fp, NULL)) {
-		free(keyfile);
-		return -1;
+	    if(have_fp) {
+		if(keyfp(handle, key, fp, NULL)) {
+		    free(keyfile);
+		    return -1;
+		}
+	    } else {
+		unsigned char mdata[SALT_SIZE + FP_SIZE];
+		memcpy(mdata, salt, SALT_SIZE);
+		if(keyfp(handle, key, NULL, mdata + SALT_SIZE)) {
+		    free(keyfile);
+		    return -1;
+		}
+		if(sxc_meta_setval(custom_meta, "aes256_fp", mdata, sizeof(mdata))) {
+		    ERROR("Failed to set custom meta");
+		    free(keyfile);
+		    return -1;
+		}
 	    }
 	    fd = open(keyfile, O_WRONLY | O_CREAT | O_TRUNC, 0600);
 	    if(fd == -1) {
@@ -685,7 +717,7 @@ sxc_filter_t sxc_filter={
 /* const char *options */	    "\n\tnogenkey (don't generate a key file when creating a volume)\n\tparanoid (don't use key files at all - always ask for a password)\n\tsalt:HEX (force given salt, HEX must be 32 chars long)",
 /* const char *uuid */		    "35a5404d-1513-4009-904c-6ee5b0cd8634",
 /* sxf_type_t type */		    SXF_TYPE_CRYPT,
-/* int version[2] */		    {1, 5},
+/* int version[2] */		    {1, 6},
 /* int (*init)(const sxf_handle_t *handle, void **ctx) */	    aes256_init,
 /* int (*shutdown)(const sxf_handle_t *handle, void *ctx) */    aes256_shutdown,
 /* int (*configure)(const sxf_handle_t *handle, const char *cfgstr, const char *cfgdir, void **cfgdata, unsigned int *cfgdata_len, sxc_meta_t *custom_meta) */
