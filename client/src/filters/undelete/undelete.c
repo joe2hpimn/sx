@@ -59,7 +59,7 @@ static int undelete_shutdown(const sxf_handle_t *handle, void *ctx)
     return 0;
 }
 
-static int undelete_configure(const sxf_handle_t *handle, const char *cfg, const char *cfgdir, void **cfgdata, unsigned int *cfgdata_len)
+static int undelete_configure(const sxf_handle_t *handle, const char *cfg, const char *cfgdir, void **cfgdata, unsigned int *cfgdata_len, sxc_meta_t *custom_meta)
 {
     const char *path = cfg;
     char *parsed;
@@ -178,11 +178,11 @@ sxc_filter_t sxc_filter={
 				    undelete_init,
 /* int (*shutdown)(const sxf_handle_t *handle, void *ctx) */
 				    undelete_shutdown,
-/* int (*configure)(const char *cfgstr, const char *cfgdir, void **cfgdata, unsigned int *cfgdata_len) */
+/* int (*configure)(const sxf_handle_t *handle, const char *cfgstr, const char *cfgdir, void **cfgdata, unsigned int *cfgdata_len, sxc_meta_t *custom_meta) */
 				    undelete_configure,
 /* int (*data_prepare)(const sxf_handle_t *handle, void **ctx, const char *filename, const char *cfgdir, const void *cfgdata, unsigned int cfgdata_len, sxf_mode_t mode) */
 				    NULL,
-/* ssize_t (*data_process)(const sxf_handle_t *handle, void *ctx, const void *in, size_t insize, void *out, size_t outsize, sxf_mode_t mode, sxf_action_t *action) */
+/* int (*data_prepare)(const sxf_handle_t *handle, void **ctx, const char *filename, const char *cfgdir, const void *cfgdata, unsigned int cfgdata_len, sxc_meta_t *custom_meta, sxf_mode_t mode) */
 				    NULL,
 /* int (*data_finish)(const sxf_handle_t *handle, void **ctx, sxf_mode_t mode) */
 				    NULL,

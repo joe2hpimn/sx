@@ -215,7 +215,7 @@ static int keyfp(const sxf_handle_t *handle, const unsigned char *key, const uns
     return -1;
 }
 
-static int aes256_configure(const sxf_handle_t *handle, const char *cfgstr, const char *cfgdir, void **cfgdata, unsigned int *cfgdata_len)
+static int aes256_configure(const sxf_handle_t *handle, const char *cfgstr, const char *cfgdir, void **cfgdata, unsigned int *cfgdata_len, sxc_meta_t *custom_meta)
 {
 	unsigned char key[KEY_SIZE], salt[SALT_SIZE];
 	char *keyfile;
@@ -323,7 +323,7 @@ static int aes256_shutdown(const sxf_handle_t *handle, void *ctx)
     return 0;
 }
 
-static int aes256_data_prepare(const sxf_handle_t *handle, void **ctx, const char *filename, const char *cfgdir, const void *cfgdata, unsigned int cfgdata_len, sxf_mode_t mode)
+static int aes256_data_prepare(const sxf_handle_t *handle, void **ctx, const char *filename, const char *cfgdir, const void *cfgdata, unsigned int cfgdata_len, sxc_meta_t *custom_meta, sxf_mode_t mode)
 {
 	struct aes256_ctx *actx;
 	int keyread = 0, ret;
@@ -688,10 +688,9 @@ sxc_filter_t sxc_filter={
 /* int version[2] */		    {1, 5},
 /* int (*init)(const sxf_handle_t *handle, void **ctx) */	    aes256_init,
 /* int (*shutdown)(const sxf_handle_t *handle, void *ctx) */    aes256_shutdown,
-/* int (*parse_cfgstr)(const char *cfgstr, void **cfgdata, unsigned int *cfgdata_len) */
-/* int (*configure)(const char *cfgstr, const char *cfgdir, void **cfgdata, unsigned int *cfgdata_len) */
+/* int (*configure)(const sxf_handle_t *handle, const char *cfgstr, const char *cfgdir, void **cfgdata, unsigned int *cfgdata_len, sxc_meta_t *custom_meta) */
 				    aes256_configure,
-/* int (*data_prepare)(const sxf_handle_t *handle, void **ctx, const char *filename, const char *cfgdir, const void *cfgdata, unsigned int cfgdata_len, sxf_mode_t mode) */
+/* int (*data_prepare)(const sxf_handle_t *handle, void **ctx, const char *filename, const char *cfgdir, const void *cfgdata, unsigned int cfgdata_len, sxc_meta_t *custom_meta, sxf_mode_t mode) */
 				    aes256_data_prepare,
 /* ssize_t (*data_process)(const sxf_handle_t *handle, void *ctx, const void *in, size_t insize, void *out, size_t outsize, sxf_mode_t mode, sxf_action_t *action) */
 				    aes256_data_process,

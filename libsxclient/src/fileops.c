@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2012-2014 Skylable Ltd. <info-copyright@skylable.com>
+ *  Copyright (C) 2012-2015 Skylable Ltd. <info-copyright@skylable.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -1924,7 +1924,7 @@ static int local_to_remote_begin(sxc_file_t *source, sxc_meta_t *fmeta, sxc_file
     sxi_hostlist_t shost, volhosts;
     sxc_client_t *sx = dest->sx;
     int64_t fsz, orig_fsz;
-    sxc_meta_t *vmeta = NULL;
+    sxc_meta_t *vmeta = NULL, *cvmeta = NULL;
     const void *mval;
     unsigned int mval_len;
     struct filter_handle *fh = NULL;
@@ -2005,9 +2005,11 @@ static int local_to_remote_begin(sxc_file_t *source, sxc_meta_t *fmeta, sxc_file
 
     if(!(vmeta = sxc_meta_new(sx)))
 	goto local_to_remote_err;
+    if(!(cvmeta = sxc_meta_new(sx)))
+	goto local_to_remote_err;
     /* TODO: multiplex the locate too! */
     orig_fsz = fsz = st.st_size;
-    if ((qret = sxi_volume_info(sxi_cluster_get_conns(dest->cluster), dest->volume, &volhosts, &fsz, vmeta, NULL))) {
+    if ((qret = sxi_volume_info(sxi_cluster_get_conns(dest->cluster), dest->volume, &volhosts, &fsz, vmeta, cvmeta))) {
 	SXDEBUG("failed to locate destination volume");
 	goto local_to_remote_err;
     }
@@ -2080,11 +2082,21 @@ static int local_to_remote_begin(sxc_file_t *source, sxc_meta_t *fmeta, sxc_file
 	    td = fileno(tempfile);
 
 	    if(fh->f->data_prepare) {
-		if(fh->f->data_prepare(fh, &fh->ctx, source->path, fdir, cfgval, cfgval_len, SXF_MODE_UPLOAD)) {
+		unsigned int cvmeta_modcount = sxc_meta_modcount(cvmeta);
+		if(fh->f->data_prepare(fh, &fh->ctx, source->path, fdir, cfgval, cfgval_len, cvmeta, SXF_MODE_UPLOAD)) {
 		    sxi_seterr(sx, SXE_EFILTER, "Filter ID %s failed to initialize itself", filter_uuid);
                     free(fdir);
 		    fclose(tempfile);
 		    goto local_to_remote_err;
+		}
+		if(cvmeta_modcount != sxc_meta_modcount(cvmeta)) {
+		    if(sxc_volume_modify(dest->cluster, dest->volume, NULL, -1, -1, cvmeta)) {
+			if(sxc_geterrnum(dest->sx) == SXE_EAUTH)
+			    /* ignore error for non-owner */
+			    sxc_clearerr(dest->sx);
+			else
+			    goto local_to_remote_err;
+		    }
 		}
 	    }
 	    free(fdir);
@@ -2231,6 +2243,7 @@ static int local_to_remote_begin(sxc_file_t *source, sxc_meta_t *fmeta, sxc_file
 	sxi_tempfile_untrack(sx, fname);
 
     sxc_meta_free(vmeta);
+    sxc_meta_free(cvmeta);
 
     if(s>=0)
 	close(s);
@@ -3038,7 +3051,7 @@ static int path_is_root(const char *path)
     return !*path;
 }
 
-static int hashes_to_download(sxc_file_t *source, FILE **tf, char **tfname, unsigned int *blocksize, int64_t *filesize, sxc_meta_t *vmeta, int64_t *created_at) {
+static int hashes_to_download(sxc_file_t *source, FILE **tf, char **tfname, unsigned int *blocksize, int64_t *filesize, sxc_meta_t *vmeta, sxc_meta_t *cvmeta, int64_t *created_at) {
     char *enc_vol = NULL, *enc_path = NULL, *url = NULL, *enc_rev = NULL, *hsfname = NULL;
     struct cb_getfile_ctx yctx;
     yajl_callbacks *yacb = &yctx.yacb;
@@ -3053,7 +3066,7 @@ static int hashes_to_download(sxc_file_t *source, FILE **tf, char **tfname, unsi
         sxi_seterr(source->sx, SXE_EARG, "Invalid path");
         goto hashes_to_download_err;
     }
-    if(sxi_volume_info(sxi_cluster_get_conns(source->cluster), source->volume, &volnodes, NULL, vmeta, NULL)) {
+    if(sxi_volume_info(sxi_cluster_get_conns(source->cluster), source->volume, &volnodes, NULL, vmeta, cvmeta)) {
 	SXDEBUG("failed to locate destination file");
 	goto hashes_to_download_err;
     }
@@ -3685,7 +3698,7 @@ static int remote_to_local(sxc_file_t *source, sxc_file_t *dest, int recursive) 
     char filter_uuid[37], filter_cfgkey[37 + 5], *filter_cfgdir = NULL;
     char outbuff[8192];
     const char *confdir;
-    sxc_meta_t *vmeta = NULL;
+    sxc_meta_t *vmeta = NULL, *cvmeta = NULL;
     sxc_meta_t *fmeta = NULL;
     const void *mval;
     unsigned int mval_len;
@@ -3697,7 +3710,9 @@ static int remote_to_local(sxc_file_t *source, sxc_file_t *dest, int recursive) 
     memset(&bh, 0, sizeof(bh));
     if(!(vmeta = sxc_meta_new(sx)))
 	return 1;
-    if(hashes_to_download(source, &hf, &hashfile, &blocksize, &filesize, vmeta, &created_at)) {
+    if(!(cvmeta = sxc_meta_new(sx)))
+	goto remote_to_local_err;
+    if(hashes_to_download(source, &hf, &hashfile, &blocksize, &filesize, vmeta, cvmeta, &created_at)) {
 	SXDEBUG("failed to retrieve hash list");
 	goto remote_to_local_err;
     }
@@ -3784,9 +3799,19 @@ static int remote_to_local(sxc_file_t *source, sxc_file_t *dest, int recursive) 
 	}
 
 	if(tempdst && fh->f->data_prepare) {
-	    if(fh->f->data_prepare(fh, &fh->ctx, source->path, filter_cfgdir, cfgval, cfgval_len, SXF_MODE_DOWNLOAD)) {
+	    unsigned int cvmeta_modcount = sxc_meta_modcount(cvmeta);
+	    if(fh->f->data_prepare(fh, &fh->ctx, source->path, filter_cfgdir, cfgval, cfgval_len, cvmeta, SXF_MODE_DOWNLOAD)) {
 		sxi_seterr(sx, SXE_EFILTER, "Filter ID %s failed to initialize itself", filter_uuid);
 		goto remote_to_local_err;
+	    }
+	    if(cvmeta_modcount != sxc_meta_modcount(cvmeta)) {
+		if(sxc_volume_modify(source->cluster, source->volume, NULL, -1, -1, cvmeta)) {
+		    if(sxc_geterrnum(source->sx) == SXE_EAUTH)
+			/* ignore error for non-owner */
+			sxc_clearerr(source->sx);
+		    else
+			goto remote_to_local_err;
+		}
 	    }
 	}
 
@@ -4015,10 +4040,20 @@ static int remote_to_local(sxc_file_t *source, sxc_file_t *dest, int recursive) 
 	}
 	free(destpath);
 	if(fh->f->data_prepare) {
-	    if(fh->f->data_prepare(fh, &fh->ctx, source->path, filter_cfgdir, cfgval, cfgval_len, SXF_MODE_DOWNLOAD)) {
+	    unsigned int cvmeta_modcount = sxc_meta_modcount(cvmeta);
+	    if(fh->f->data_prepare(fh, &fh->ctx, source->path, filter_cfgdir, cfgval, cfgval_len, cvmeta, SXF_MODE_DOWNLOAD)) {
 		sxi_seterr(sx, SXE_EFILTER, "Filter ID %s failed to initialize itself", filter_uuid);
 		fclose(tempfile);
 		goto remote_to_local_err;
+	    }
+	    if(cvmeta_modcount != sxc_meta_modcount(cvmeta)) {
+		if(sxc_volume_modify(source->cluster, source->volume, NULL, -1, -1, cvmeta)) {
+		    if(sxc_geterrnum(source->sx) == SXE_EAUTH)
+			/* ignore error for non-owner */
+			sxc_clearerr(source->sx);
+		    else
+			goto remote_to_local_err;
+		}
 	    }
 	}
 	f_size = lseek(d, 0, SEEK_END);
@@ -4093,7 +4128,6 @@ static int remote_to_local(sxc_file_t *source, sxc_file_t *dest, int recursive) 
         }
     }
 
-
     if(fh && fh->f->file_process && fmeta) {
 	if(dstexisted && stat(dest->path, &st) == -1) {
 	    sxi_setsyserr(sx, SXE_EREAD, "failed to stat destination file %s", dest->path);
@@ -4128,6 +4162,7 @@ remote_to_local_err:
     }
 
     sxc_meta_free(vmeta);
+    sxc_meta_free(cvmeta);
     sxc_meta_free(fmeta);
     free(filter_cfgdir);
 
@@ -4180,7 +4215,7 @@ static sxi_job_t* remote_to_remote_fast(sxc_file_t *source, sxc_meta_t *fmeta, s
     sxi_hostlist_init(&src_hosts);
     memset(&yctx, 0, sizeof(yctx));
 
-    if(hashes_to_download(source, &hf, &src_hashfile, &blocksize, &filesize, NULL, NULL)) {
+    if(hashes_to_download(source, &hf, &src_hashfile, &blocksize, &filesize, NULL, NULL, NULL)) {
 	SXDEBUG("failed to retrieve hash list");
 	return NULL;
     }
@@ -4668,14 +4703,14 @@ static int cat_remote_file(sxc_file_t *source, int dest) {
     struct filter_handle *fh = NULL;
     char filter_uuid[37], filter_cfgkey[37 + 5], *filter_cfgdir = NULL;
     const char *confdir;
-    sxc_meta_t *vmeta = NULL;
+    sxc_meta_t *vmeta = NULL, *cvmeta = NULL;
     const void *mval;
     unsigned int mval_len;
     const void *cfgval = NULL;
     unsigned int cfgval_len = 0;
 
     sxi_hostlist_init(&hostlist);
-    if(hashes_to_download(source, &hf, &hashfile, &blocksize, &filesize, NULL, NULL)) {
+    if(hashes_to_download(source, &hf, &hashfile, &blocksize, &filesize, NULL, NULL, NULL)) {
 	SXDEBUG("failed to retrieve hash list");
 	return 1;
     }
@@ -4717,9 +4752,22 @@ static int cat_remote_file(sxc_file_t *source, int dest) {
 	}
 
 	if(fh->f->data_prepare) {
-	    if(fh->f->data_prepare(fh, &fh->ctx, source->path, filter_cfgdir, cfgval, cfgval_len, SXF_MODE_DOWNLOAD)) {
+	    unsigned int cvmeta_modcount;
+	    if(!(cvmeta = sxc_custom_volumemeta_new(source)))
+		goto sxc_cat_fail;
+	    cvmeta_modcount = sxc_meta_modcount(cvmeta);
+	    if(fh->f->data_prepare(fh, &fh->ctx, source->path, filter_cfgdir, cfgval, cfgval_len, cvmeta, SXF_MODE_DOWNLOAD)) {
 		sxi_seterr(sx, SXE_EFILTER, "Filter ID %s failed to initialize itself", filter_uuid);
 		goto sxc_cat_fail;
+	    }
+	    if(cvmeta_modcount != sxc_meta_modcount(cvmeta)) {
+		if(sxc_volume_modify(source->cluster, source->volume, NULL, -1, -1, cvmeta)) {
+		    if(sxc_geterrnum(source->sx) == SXE_EAUTH)
+			/* ignore error for non-owner */
+			sxc_clearerr(source->sx);
+		    else
+			goto sxc_cat_fail;
+		}
 	    }
 	}
 	if(!(fbuf = malloc(blocksize))) {
@@ -4788,6 +4836,7 @@ static int cat_remote_file(sxc_file_t *source, int dest) {
     sxc_cat_fail:
     free(buf);
     sxc_meta_free(vmeta);
+    sxc_meta_free(cvmeta);
     free(fbuf);
     if (hf)
         fclose(hf);

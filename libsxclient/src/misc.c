@@ -1098,6 +1098,7 @@ struct _sxi_ht_t {
     unsigned int deleted;
     unsigned int size;
     unsigned int current;
+    unsigned int modcount;
 };
 
 
@@ -1125,6 +1126,7 @@ sxi_ht *sxi_ht_new(sxc_client_t *sx, unsigned int initial_size) {
     ht->size = initial_size;
     ht->deleted = 0;
     ht->current = 0;
+    ht->modcount = 0;
     return ht;
 }
 
@@ -1138,6 +1140,7 @@ int sxi_ht_add(sxi_ht *ht, const void *key, unsigned int key_length, void *value
     sxc_client_t *sx = ht->sx;
     unsigned int i;
 
+    ht->modcount++;
     for(i=1; ;i++) {
 	pos = (h + gethashpos(i)) & (ht->size - 1);
 	item = ht->tab[pos];
@@ -1216,6 +1219,10 @@ unsigned int sxi_ht_count(sxi_ht *ht) {
     return ht ? ht->items - ht->deleted: 0;
 }
 
+unsigned int sxi_ht_modcount(sxi_ht *ht) {
+    return ht ? ht->modcount : 0;
+}
+
 int sxi_ht_get(sxi_ht *ht, const void *key, unsigned int key_length, void **value) {
     uint32_t h = hashfn(key, key_length), pos;
     struct sxi_ht_item_t *item;
@@ -1245,6 +1252,7 @@ void sxi_ht_del(sxi_ht *ht, const void *key, unsigned int key_length) {
     struct sxi_ht_item_t *item;
     unsigned int i;
 
+    ht->modcount++;
     for(i=1; ;i++) {
 	pos = (h + gethashpos(i)) & (ht->size - 1);
 	item = ht->tab[pos];
@@ -1273,7 +1281,7 @@ void sxi_ht_empty(sxi_ht *ht) {
 	free(ht->tab[i]);
     }
     memset(ht->tab, 0, sizeof(struct sxi_ht_item_t *) * ht->size);
-    ht->items = ht->deleted = 0;
+    ht->items = ht->deleted = ht->modcount = 0;
 }
 
 void sxi_ht_enum_reset(sxi_ht *ht) {
@@ -1496,6 +1504,10 @@ void sxc_meta_delval(sxc_meta_t *meta, const char *key) {
 
 unsigned int sxc_meta_count(sxc_meta_t *meta) {
     return meta ? sxi_ht_count(meta) : 0;
+}
+
+unsigned int sxc_meta_modcount(sxc_meta_t *meta) {
+    return meta ? sxi_ht_modcount(meta) : 0;
 }
 
 int sxc_meta_getkeyval(sxc_meta_t *meta, unsigned int itemno, const char **key, const void **value, unsigned int *value_len) {

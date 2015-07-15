@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2012-2014 Skylable Ltd. <info-copyright@skylable.com>
+ *  Copyright (C) 2012-2015 Skylable Ltd. <info-copyright@skylable.com>
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
@@ -205,7 +205,7 @@ static int volume_create(sxc_client_t *sx, const char *owner)
 	char *voldir = NULL, *voldir_old = NULL;
 	int ret = 1;
 	int64_t size;
-	sxc_meta_t *vmeta = NULL;
+	sxc_meta_t *vmeta = NULL, *cvmeta = NULL;
         const sxc_filter_t *filter = NULL;
 	void *cfgdata = NULL;
 	unsigned int cfgdata_len = 0;
@@ -249,7 +249,7 @@ static int volume_create(sxc_client_t *sx, const char *owner)
 
     if(create_args.filter_given) {
 	    const sxf_handle_t *filters;
-	    int fcount, i, filter_idx;
+	    int fcount, i, filter_idx = -1;
 	    char *farg;
 	    char uuidcfg[41];
 	    uint8_t uuid[16];
@@ -263,12 +263,6 @@ static int volume_create(sxc_client_t *sx, const char *owner)
 	if(farg)
 	    *farg++ = 0;
 
-	vmeta = sxc_meta_new(sx);
-	if(!vmeta) {
-	    fprintf(stderr, "ERROR: Out of memory\n");
-	    goto create_err;
-	}
-
 	for(i = 0; i < fcount; i++) {
             const sxc_filter_t *f = sxc_get_filter(&filters[i]);
 	    if(!strcmp(f->shortname, create_args.filter_arg))
@@ -278,16 +272,20 @@ static int volume_create(sxc_client_t *sx, const char *owner)
 		}
 	}
 
-	if(!filter) {
+	if(!filter || filter_idx == -1) {
 	    fprintf(stderr, "ERROR: Filter '%s' not found\n", create_args.filter_arg);
-	    sxc_meta_free(vmeta);
+	    goto create_err;
+	}
+
+	vmeta = sxc_meta_new(sx);
+	if(!vmeta) {
+	    fprintf(stderr, "ERROR: Out of memory\n");
 	    goto create_err;
 	}
 
 	sxi_uuid_parse(filter->uuid, uuid);
 	if(sxc_meta_setval(vmeta, "filterActive", uuid, 16)) {
 	    fprintf(stderr, "ERROR: Can't use filter '%s' - metadata error\n", create_args.filter_arg);
-	    sxc_meta_free(vmeta);
 	    goto create_err;
 	}
 	snprintf(uuidcfg, sizeof(uuidcfg), "%s-cfg", filter->uuid);
@@ -297,7 +295,6 @@ static int volume_create(sxc_client_t *sx, const char *owner)
 	    fdir = malloc(strlen(confdir) + strlen(filter->uuid) + strlen(uri->volume) + 11);
 	    if(!fdir) {
 		fprintf(stderr, "ERROR: Out of memory\n");
-		sxc_meta_free(vmeta);
 		goto create_err;
 	    }
 	    sprintf(fdir, "%s/volumes/%s", confdir, uri->volume);
@@ -307,14 +304,17 @@ static int volume_create(sxc_client_t *sx, const char *owner)
 	    if(access(fdir, F_OK)) {
 		if(mkdir(fdir, 0700) == -1) {
 		    fprintf(stderr, "ERROR: Can't create filter configuration directory %s\n", fdir);
-		    sxc_meta_free(vmeta);
 		    free(fdir);
 		    goto create_err;
 		}
 	    }
-	    if(filter->configure(&filters[filter_idx], farg, fdir, &cfgdata, &cfgdata_len)) {
+	    cvmeta = sxc_meta_new(sx);
+	    if(!cvmeta) {
+		fprintf(stderr, "ERROR: Out of memory\n");
+		goto create_err;
+	    }
+	    if(filter->configure(&filters[filter_idx], farg, fdir, &cfgdata, &cfgdata_len, cvmeta)) {
 		fprintf(stderr, "ERROR: Can't configure filter '%s'\n", create_args.filter_arg);
-		sxc_meta_free(vmeta);
 		free(fdir);
 		goto create_err;
 	    }
@@ -322,8 +322,6 @@ static int volume_create(sxc_client_t *sx, const char *owner)
 	    if(cfgdata) {
 		if(sxc_meta_setval(vmeta, uuidcfg, cfgdata, cfgdata_len)) {
 		    fprintf(stderr, "ERROR: Can't store configuration for filter '%s' - metadata error\n", create_args.filter_arg);
-		    sxc_meta_free(vmeta);
-		    free(cfgdata);
 		    goto create_err;
 		}
 	    }
@@ -331,17 +329,21 @@ static int volume_create(sxc_client_t *sx, const char *owner)
     }
 
     ret = sxc_volume_add(cluster, uri->volume, size, create_args.replica_arg, create_args.max_revisions_arg, vmeta, owner);
-    sxc_meta_free(vmeta);
+    if(!ret && sxc_meta_count(cvmeta))
+	ret = sxc_volume_modify(cluster, uri->volume, NULL, -1, -1, cvmeta);
 
     if(!ret)
 	ret = sxi_volume_cfg_store(sx, cluster, uri->volume, filter ? filter->uuid : NULL, cfgdata, cfgdata_len);
-    free(cfgdata);
     if(ret)
 	fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
     else
 	printf("Volume '%s' (replica: %d, size: %s, max-revisions: %d) created.\n", uri->volume, create_args.replica_arg, create_args.size_arg, create_args.max_revisions_arg);
 
 create_err:
+    sxc_meta_free(vmeta);
+    sxc_meta_free(cvmeta);
+    free(cfgdata);
+
     if(ret && voldir && !access(voldir, F_OK) && !reject_dots(uri->volume))
 	sxi_rmdirs(voldir);
 

@@ -48,7 +48,7 @@ static int zcomp_init(const sxf_handle_t *handle, void **ctx)
     return 0;
 }
 
-static int zcomp_configure(const sxf_handle_t *handle, const char *cfgstr, const char *cfgdir, void **cfgdata, unsigned int *cfgdata_len)
+static int zcomp_configure(const sxf_handle_t *handle, const char *cfgstr, const char *cfgdir, void **cfgdata, unsigned int *cfgdata_len, sxc_meta_t *custom_meta)
 {
 	const char *pt = cfgstr;
 
@@ -87,7 +87,7 @@ static int zcomp_shutdown(const sxf_handle_t *handle, void *ctx)
     return 0;
 }
 
-static int zcomp_data_prepare(const sxf_handle_t *handle, void **ctx, const char *filename, const char *cfgdir, const void *cfgdata, unsigned int cfgdata_len, sxf_mode_t mode)
+static int zcomp_data_prepare(const sxf_handle_t *handle, void **ctx, const char *filename, const char *cfgdir, const void *cfgdata, unsigned int cfgdata_len, sxc_meta_t *custom_meta, sxf_mode_t mode)
 {
 	struct zcomp_ctx *zctx;
 	int level = Z_DEFAULT_COMPRESSION;
@@ -225,9 +225,9 @@ sxc_filter_t sxc_filter={
 /* int version[2] */		    {1, 1},
 /* int (*init)(const sxf_handle_t *handle, void **ctx) */	    zcomp_init,
 /* int (*shutdown)(const sxf_handle_t *handle, void *ctx) */    zcomp_shutdown,
-/* int (*configure)(const char *cfgstr, const char *cfgdir, void **cfgdata, unsigned int *cfgdata_len) */
+/* int (*configure)(const sxf_handle_t *handle, const char *cfgstr, const char *cfgdir, void **cfgdata, unsigned int *cfgdata_len, sxc_meta_t *custom_meta) */
 				    zcomp_configure,
-/* int (*data_prepare)(const sxf_handle_t *handle, void **ctx, const char *filename, const char *cfgdir, const void *cfgdata, unsigned int cfgdata_len, sxf_mode_t mode) */
+/* int (*data_prepare)(const sxf_handle_t *handle, void **ctx, const char *filename, const char *cfgdir, const void *cfgdata, unsigned int cfgdata_len, sxc_meta_t *custom_meta, sxf_mode_t mode) */
 				    zcomp_data_prepare,
 /* ssize_t (*data_process)(const sxf_handle_t *handle, void *ctx, const void *in, size_t insize, void *out, size_t outsize, sxf_mode_t mode, sxf_action_t *action) */
 				    zcomp_data_process,

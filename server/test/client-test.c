@@ -194,7 +194,7 @@ static int create_volume(sxc_client_t *sx, sxc_cluster_t *cluster, const char *v
     const char *confdir;
     const sxc_filter_t *filter = NULL;
     const sxf_handle_t *filters = NULL;
-    sxc_meta_t *meta = NULL;
+    sxc_meta_t *meta = NULL, *custom_meta = NULL;
 
     if(filter_name) {
         sxc_filter_loadall(sx, filter_dir);
@@ -217,7 +217,8 @@ static int create_volume(sxc_client_t *sx, sxc_cluster_t *cluster, const char *v
             goto create_volume_err;
         }
         meta = sxc_meta_new(sx);
-        if(!meta) {
+        custom_meta = sxc_meta_new(sx);
+        if(!meta || !custom_meta) {
             fprintf(stderr, "create_volume: ERROR: Cannot initiate meta.\n");
             goto create_volume_err;
         }
@@ -257,7 +258,7 @@ static int create_volume(sxc_client_t *sx, sxc_cluster_t *cluster, const char *v
                     goto create_volume_err;
                 }
 	    }
-	    if(filter->configure(&filters[filter_idx], filter_cfg, fdir, &cfgdata, &cfgdata_len)) {
+	    if(filter->configure(&filters[filter_idx], filter_cfg, fdir, &cfgdata, &cfgdata_len, custom_meta)) {
                 fprintf(stderr, "create_volume: ERROR: Cannot configure filter.\n");
 		free(fdir);
 		goto create_volume_err;
@@ -274,6 +275,10 @@ static int create_volume(sxc_client_t *sx, sxc_cluster_t *cluster, const char *v
             fprintf(stderr, "create_volume: ERROR: %s\n", sxc_geterrmsg(sx));
         goto create_volume_err;
     }
+    if(sxc_meta_count(custom_meta) && sxc_volume_modify(cluster, volname, NULL, -1, -1, custom_meta)) {
+        fprintf(stderr, "volume_modify: ERROR: %s\n", sxc_geterrmsg(sx));
+        goto create_volume_err;
+    }
     if(sxi_volume_cfg_store(sx, cluster, volname, filter ? filter->uuid : NULL, cfgdata, cfgdata_len)) {
         fprintf(stderr, "create_volume: ERROR: %s\n", sxc_geterrmsg(sx));
         goto create_volume_err;
@@ -288,6 +293,7 @@ create_volume_err:
     free(voldir);
     free(cfgdata);
     sxc_meta_free(meta);
+    sxc_meta_free(custom_meta);
     return ret;
 } /* create_volume */
 

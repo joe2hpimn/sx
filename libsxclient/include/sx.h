@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2012-2014 Skylable Ltd. <info-copyright@skylable.com>
+ *  Copyright (C) 2012-2015 Skylable Ltd. <info-copyright@skylable.com>
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -76,7 +76,7 @@ int sxc_get_aliases(sxc_client_t *sx, const char *profile, const char *host, cha
 int sxc_set_tempdir(sxc_client_t *sx, const char *tempdir);
 
 enum sxc_error_t {
-    SXE_NOERROR,	/* No error occoured */
+    SXE_NOERROR,	/* No error occured */
     SXE_EARG,		/* Invalid argument */
     SXE_EMEM,		/* Out of memory */
     SXE_EREAD,		/* Error reading from disk */
@@ -311,6 +311,7 @@ sxc_meta_t *sxc_custom_volumemeta_new(sxc_file_t *file);
 sxc_meta_t *sxc_clustermeta_new(sxc_cluster_t *cluster);
 void sxc_meta_free(sxc_meta_t *meta);
 unsigned int sxc_meta_count(sxc_meta_t *meta);
+unsigned int sxc_meta_modcount(sxc_meta_t *meta);
 int sxc_meta_getval(sxc_meta_t *meta, const char *key, const void **value, unsigned int *value_len);
 int sxc_meta_getkeyval(sxc_meta_t *meta, unsigned int itemno, const char **key, const void **value, unsigned int *value_len);
 int sxc_meta_setval(sxc_meta_t *meta, const char *key, const void *value, unsigned int value_len);
@@ -384,7 +385,7 @@ int sxc_fgetline(sxc_client_t *sx, FILE *f, char **ret);
 int sxc_input_fn(sxc_client_t *sx, sxc_input_t type, const char *prompt, const char *def, char *in, unsigned int insize, void *ctx); /* default input function */
 
 /* filters */
-#define SXF_ABI_VERSION	10
+#define SXF_ABI_VERSION	11
 
 /** Defines a filter's type
  * This is used to prioritize filters, for example
@@ -468,7 +469,7 @@ typedef struct {
      *                 allocated by \ref init or \ref data_prepare
      */
 
-    int (*configure)(const sxf_handle_t *handle, const char *cfgstr, const char *cfgdir, void **cfgdata, unsigned int *cfgdata_len);
+    int (*configure)(const sxf_handle_t *handle, const char *cfgstr, const char *cfgdir, void **cfgdata, unsigned int *cfgdata_len, sxc_meta_t *custom_meta);
     /**< Called when a volume is created by sxvol
      *
      * @param[in] handle an opaque handle for sxc_filter_msg
@@ -476,11 +477,12 @@ typedef struct {
      * @param[in] cfgdir per-volume directory used to store client-local data
      * @param[out] cfgdata allocate and store volume metadata here
      * @param[out] cfgdata_len length of cfgdata
+     * @param[in] custom_meta custom volume metadata
      * @retval 0 on success
      * @retval non-zero on error
      * */
 
-    int (*data_prepare)(const sxf_handle_t *handle, void **ctx, const char *filename, const char *cfgdir, const void *cfgdata, unsigned int cfgdata_len, sxf_mode_t mode);
+    int (*data_prepare)(const sxf_handle_t *handle, void **ctx, const char *filename, const char *cfgdir, const void *cfgdata, unsigned int cfgdata_len, sxc_meta_t *custom_meta, sxf_mode_t mode);
     /**< Called before processing a file
      *
      * If data_process is NULL this function might not be called at all.
@@ -492,6 +494,7 @@ typedef struct {
      * @param[in] cfgdir per-volume directory used to store client-local data
      * @param[in] cfgdata volume metadata here, as defined by \ref configure
      * @param[in] cfgdata_len length of cfgdata
+     * @param[in] custom_meta custom volume metadata
      * @param[in] mode either SXF_MODE_UPLOAD or SXF_MODE_DOWNLOAD
      * @retval 0 on success
      * @retval non-zero on error

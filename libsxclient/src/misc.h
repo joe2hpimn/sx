@@ -55,6 +55,7 @@ int sxi_tempfile_istracked(sxc_client_t *sx, const char *name);
 char *sxi_urlencode(sxc_client_t *sx, const char *string, int encode_slash);
 
 unsigned int sxi_ht_count(sxi_ht *ht);
+unsigned int sxi_ht_modcount(sxi_ht *ht);
 void sxi_ht_enum_reset(sxi_ht *ht);
 int sxi_ht_enum_getnext(sxi_ht *ht, const void **key, unsigned int *key_len, const void **value);
 void sxi_ht_empty(sxi_ht *ht);
