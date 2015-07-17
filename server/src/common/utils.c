@@ -361,7 +361,7 @@ int derive_key(const unsigned char *salt, unsigned slen,
         !sxi_hmac_sha1_update(hmac_ctx, ikm, ilen) || /* Input Keying Material */
         !sxi_hmac_sha1_final(hmac_ctx, prk, &mdlen)) {
         /*SSLERR();*/
-	sxi_md_cleanup(&hmac_ctx);
+	sxi_hmac_sha1_cleanup(&hmac_ctx);
         return -1;
     }
     if (!sxi_hmac_sha1_init_ex(hmac_ctx, prk, mdlen) || /* PRK */
@@ -369,7 +369,7 @@ int derive_key(const unsigned char *salt, unsigned slen,
         !sxi_hmac_sha1_update(hmac_ctx, (const unsigned char*)"\x1", 1) || /* || 0x01 */
         !sxi_hmac_sha1_final(hmac_ctx, md, &mdlen)) {
         /*SSLERR();*/
-	sxi_md_cleanup(&hmac_ctx);
+	sxi_hmac_sha1_cleanup(&hmac_ctx);
         return -1;
     }
     sxi_hmac_sha1_cleanup(&hmac_ctx);
