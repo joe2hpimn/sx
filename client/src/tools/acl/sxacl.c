@@ -287,6 +287,7 @@ static int getkey_user(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_uri_t *u, c
 {
     int rc = 0;
     FILE *f = stdout;
+    char *user = NULL;
 
     if(u->volume) {
 	fprintf(stderr, "ERROR: Bad URI: Please omit volume\n");
@@ -300,14 +301,48 @@ static int getkey_user(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_uri_t *u, c
             return 1;
         }
     }
-    rc = sxc_user_getinfo(cluster, username, f, NULL, get_config_link);
-    if (authfile && fclose(f)) {
-        fprintf(stderr, "ERROR: Can't close file %s: %s\n", authfile, strerror(errno));
-	return 1;
+
+    rc = sxc_cluster_whoami(cluster, &user, NULL, NULL, NULL, NULL);
+    if(rc) {
+        fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
+        goto getkey_user_err;
     }
 
-    if (rc)
-        fprintf(stderr, "ERROR: Can't retrieve key for user %s: %s\n", username, sxc_geterrmsg(sx));
+    if(!strcmp(username, user)) {
+        const char *token;
+
+        token = sxc_cluster_get_access(cluster, u->profile);
+        if(!token) {
+            fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
+            goto getkey_user_err;
+        }
+
+        /* Got a valid authorization token, output it to file */
+        if(get_config_link) {
+            char *link = sxc_cluster_configuration_link(cluster, username, token);
+
+            if(!link) {
+                fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
+                goto getkey_user_err;
+            }
+
+            fprintf(f, "%s\n", link);
+            free(link);
+        } else
+            fprintf(f, "%s\n", token);
+    } else {
+        /* Requested user name is different, call usergetkey query */
+        rc = sxc_user_getinfo(cluster, username, f, NULL, get_config_link);
+        if(rc)
+            fprintf(stderr, "ERROR: Can't retrieve key for user %s: %s\n", username, sxc_geterrmsg(sx));
+    }
+
+getkey_user_err:
+    if (authfile && fclose(f)) {
+        fprintf(stderr, "ERROR: Can't close file %s: %s\n", authfile, strerror(errno));
+        rc = 1;
+    }
+    free(user);
     return rc;
 }
 

@@ -214,7 +214,7 @@ int sxc_cluster_set_cafile(sxc_cluster_t *cluster, const char *cafile) {
     return 0;
 }
 
-static struct sxi_access *sxc_cluster_get_access(sxc_cluster_t *cluster, const char *profile_name) {
+static struct sxi_access *cluster_get_access(sxc_cluster_t *cluster, const char *profile_name) {
     struct sxi_access *auth;
     if(!cluster)
 	return NULL;
@@ -231,6 +231,21 @@ static struct sxi_access *sxc_cluster_get_access(sxc_cluster_t *cluster, const c
     return NULL;
 }
 
+const char *sxc_cluster_get_access(sxc_cluster_t *cluster, const char *profile_name) {
+    struct sxi_access *access;
+    sxc_client_t *sx;
+
+    if(!cluster)
+        return NULL;
+    sx = sxi_cluster_get_client(cluster);
+    access = cluster_get_access(cluster, profile_name);
+    if(!access) {
+        sxi_seterr(sx, SXE_ECFG, "Failed to obtain profile '%s' access token", profile_name ? profile_name : "default");
+        return NULL;
+    }
+    return access->auth;
+}
+
 int sxc_cluster_add_access(sxc_cluster_t *cluster, const char *profile_name, const char *access_token) {
     struct sxi_access *access;
 
@@ -244,7 +259,7 @@ int sxc_cluster_add_access(sxc_cluster_t *cluster, const char *profile_name, con
     if(!profile_name || !*profile_name)
 	profile_name = "default";
 
-    access = sxc_cluster_get_access(cluster, profile_name);
+    access = cluster_get_access(cluster, profile_name);
     if(access)
 	memcpy(access->auth, access_token, AUTHTOK_ASCII_LEN);
     else {
@@ -270,7 +285,7 @@ int sxc_cluster_add_access(sxc_cluster_t *cluster, const char *profile_name, con
 }
 
 int sxc_cluster_set_access(sxc_cluster_t *cluster, const char *profile_name) {
-    struct sxi_access *access = sxc_cluster_get_access(cluster, profile_name);
+    struct sxi_access *access = cluster_get_access(cluster, profile_name);
     sxc_client_t *sx = cluster->sx;
 
     sxc_clearerr(sx);
@@ -615,7 +630,7 @@ int sxc_cluster_info(sxc_cluster_t *cluster, const char *profile, const char *ho
         return 1;
     }
 
-    access = sxc_cluster_get_access(cluster, profile);
+    access = cluster_get_access(cluster, profile);
     if(!access || !access->auth) {
         sxi_seterr(sx, SXE_ECFG, "Failed to get user access");
         return 1;
@@ -4453,11 +4468,17 @@ char *sxc_cluster_configuration_link(sxc_cluster_t *cluster, const char *usernam
         fingerprint[SXI_SHA1_TEXT_LEN] = '\0';
     }
 
-    len = lenof("sx:///?token=&port=&ssl=y") + strlen(cluster_name) + strlen(token) + 11 + 1;
+    enc_token = sxi_urlencode(sx, token, 1);
+    if(!enc_token)
+        return NULL;
+
+    len = lenof("sx:///?token=&port=&ssl=y") + strlen(cluster_name) + strlen(enc_token) + 11 + 1;
     if(username) {
         enc_user = sxi_urlencode(sx, username, 1);
-        if(!enc_user)
+        if(!enc_user) {
+            free(enc_token);
             return NULL;
+        }
         len += strlen(enc_user) + 1; /* username@ */
     }
     if(ssl)
@@ -4465,17 +4486,11 @@ char *sxc_cluster_configuration_link(sxc_cluster_t *cluster, const char *usernam
     if(!is_dns) {
         enc_host = sxi_urlencode(sx, host, 1);
         if(!enc_host) {
+            free(enc_token);
             free(enc_user);
             return NULL;
         }
         len += lenof("&ip=") + strlen(enc_host);
-    }
-
-    enc_token = sxi_urlencode(sx, token, 1);
-    if(!enc_token) {
-        free(enc_user);
-        free(enc_host);
-        return NULL;
     }
 
     ret = malloc(len);

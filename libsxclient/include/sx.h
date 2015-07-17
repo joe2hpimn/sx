@@ -114,6 +114,7 @@ int sxc_cluster_add_host(sxc_cluster_t *cluster, const char *host);
 int sxc_cluster_set_cafile(sxc_cluster_t *cluster, const char *cafile);
 int sxc_cluster_add_access(sxc_cluster_t *cluster, const char *profile_name, const char *access_token);
 int sxc_cluster_set_access(sxc_cluster_t *cluster, const char *profile_name);
+const char *sxc_cluster_get_access(sxc_cluster_t *cluster, const char *profile_name);
 int sxc_cluster_set_httpport(sxc_cluster_t *cluster, unsigned int port);
 unsigned int sxc_cluster_get_httpport(const sxc_cluster_t *cluster);
 sxc_cluster_t *sxc_cluster_load(sxc_client_t *sx, const char *config_dir, const char *cluster_name);
