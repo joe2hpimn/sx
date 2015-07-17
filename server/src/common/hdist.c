@@ -127,6 +127,7 @@ sxi_hdist_t *sxi_hdist_new(unsigned int seed, unsigned int max_builds, sx_uuid_t
     model->sxnl = (sx_nodelist_t **) wrap_calloc(sizeof(sx_nodelist_t *), max_builds);
     if(!model->sxnl) {
 	CRIT("Can't allocate memory for model->sxnl");
+	free(model->node_list);
 	free(model);
 	return NULL;
     }
@@ -135,6 +136,7 @@ sxi_hdist_t *sxi_hdist_new(unsigned int seed, unsigned int max_builds, sx_uuid_t
     if(!model->node_count) {
 	CRIT("Can't allocate memory for model->node_count");
 	free(model->node_list);
+	free(model->sxnl);
 	free(model);
 	return NULL;
     }
@@ -143,6 +145,7 @@ sxi_hdist_t *sxi_hdist_new(unsigned int seed, unsigned int max_builds, sx_uuid_t
     if(!model->capacity_total) {
 	CRIT("Can't allocate memory for model->capacity_total");
 	free(model->node_list);
+	free(model->sxnl);
 	free(model->node_count);
 	free(model);
 	return NULL;
@@ -152,6 +155,7 @@ sxi_hdist_t *sxi_hdist_new(unsigned int seed, unsigned int max_builds, sx_uuid_t
     if(!model->circle) {
 	CRIT("Can't allocate memory for model->circle");
 	free(model->node_list);
+	free(model->sxnl);
 	free(model->node_count);
 	free(model->capacity_total);
 	free(model);
@@ -162,6 +166,7 @@ sxi_hdist_t *sxi_hdist_new(unsigned int seed, unsigned int max_builds, sx_uuid_t
     if(!model->circle_points) {
 	CRIT("Can't allocate memory for model->circle_points");
 	free(model->node_list);
+	free(model->sxnl);
 	free(model->node_count);
 	free(model->circle);
 	free(model->capacity_total);
@@ -175,6 +180,7 @@ sxi_hdist_t *sxi_hdist_new(unsigned int seed, unsigned int max_builds, sx_uuid_t
     if(!model->cfg) {
 	CRIT("Can't allocate memory for model->circle_points");
 	free(model->node_list);
+	free(model->sxnl);
 	free(model->node_count);
 	free(model->circle);
 	free(model->capacity_total);

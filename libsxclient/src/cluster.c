@@ -717,8 +717,10 @@ int sxi_sha1_calc(const void *salt, unsigned salt_len, const void *buffer, unsig
     sxi_md_ctx *ctx = sxi_md_init();
     if (!ctx)
         return -1;
-    if (!sxi_sha1_init(ctx))
+    if (!sxi_sha1_init(ctx)) {
+        sxi_md_cleanup(&ctx);
         return 1;
+    }
 
     if(salt && !sxi_sha1_update(ctx, salt, salt_len)) {
         sxi_md_cleanup(&ctx);

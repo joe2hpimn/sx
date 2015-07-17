@@ -75,10 +75,11 @@ int anonymize_item(struct buffer *buf, const char *category, const char *str, si
     unsigned mdlen = sizeof(md);
     unsigned i;
     hmac_ctx = sxi_hmac_sha1_init();
-    if (!sxi_hmac_sha1_init_ex(hmac_ctx, hmac_key, sizeof(hmac_key)) ||
+    if (!hmac_ctx || !sxi_hmac_sha1_init_ex(hmac_ctx, hmac_key, sizeof(hmac_key)) ||
         !sxi_hmac_sha1_update(hmac_ctx, category, strlen(category)+1) ||
         !sxi_hmac_sha1_update(hmac_ctx, str, len) ||
         !sxi_hmac_sha1_final(hmac_ctx, md, &mdlen)) {
+	sxi_hmac_sha1_cleanup(&hmac_ctx);
         return -1;
     }
     sxi_hmac_sha1_cleanup(&hmac_ctx);

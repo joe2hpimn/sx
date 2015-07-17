@@ -227,6 +227,9 @@ static const yajl_callbacks presence_parser = {
 static int presence_setup_cb(curlev_context_t *cbdata, const char *host) {
     struct hashop_ctx *yactx = sxi_cbdata_get_hashop_ctx(cbdata);
 
+    if(!yactx)
+	return 1;
+
     if(yactx->yh)
 	yajl_free(yactx->yh);
 

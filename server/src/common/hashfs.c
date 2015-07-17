@@ -5125,7 +5125,7 @@ rc_ty sx_hashfs_revision_next(sx_hashfs_t *h, int reversed) {
 
 rc_ty sx_hashfs_list_etag(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const char *pattern, int8_t recurse, sx_hash_t *etag)
 {
-    sxi_md_ctx *hash_ctx = sxi_md_init();
+    sxi_md_ctx *hash_ctx;
     rc_ty rc = OK;
     unsigned i;
     char *vol_newest;
@@ -5161,6 +5161,7 @@ rc_ty sx_hashfs_list_etag(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, cons
         sqlite3_reset(h->qm_newest[i]);
         sqlite3_reset(h->qm_count[i]);
     }
+    hash_ctx = sxi_md_init();
     if (!hash_ctx) {
         WARN("failed to initialize etag hash");
         rc = FAIL_EINTERNAL;
@@ -7981,8 +7982,10 @@ static int reserve_fileid(sx_hashfs_t *h, int64_t volume_id, const char *name, s
     sxi_md_ctx *hash_ctx = sxi_md_init();
     if (!hash_ctx)
         return 1;
-    if (!sxi_sha1_init(hash_ctx))
+    if (!sxi_sha1_init(hash_ctx)) {
+	sxi_md_cleanup(&hash_ctx);
         return 1;
+    }
 
     if (!sxi_sha1_update(hash_ctx, h->cluster_uuid.binary, sizeof(h->cluster_uuid.binary)) ||
         !sxi_sha1_update(hash_ctx, &volume_id, sizeof(volume_id)) ||
@@ -8005,8 +8008,10 @@ int sx_unique_fileid(sxc_client_t *sx, const sx_hashfs_volume_t *volume, const c
     sxi_md_ctx *hash_ctx = sxi_md_init();
     if (!hash_ctx)
         return 1;
-    if (!sxi_sha1_init(hash_ctx))
+    if (!sxi_sha1_init(hash_ctx)) {
+	sxi_md_cleanup(&hash_ctx);
         return 1;
+    }
 
     DEBUG("fileid input: %s, %s, %s", volume->name, name, revision);
     if (!sxi_sha1_update(hash_ctx, volume->name, strlen(volume->name) + 1) ||

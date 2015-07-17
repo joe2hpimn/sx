@@ -966,6 +966,8 @@ static int yacb_createfile_end_map(void *ctx) {
 static int createfile_setup_cb(curlev_context_t *cbdata, const char *host) {
     struct file_upload_ctx *yactx = sxi_cbdata_get_upload_ctx(cbdata);
     sxc_client_t *sx = sxi_conns_get_client(sxi_cbdata_get_conns(cbdata));
+    if(!yactx)
+	return 1;
 
     if(yactx->current.yh)
 	yajl_free(yactx->current.yh);
@@ -994,6 +996,8 @@ static int createfile_setup_cb(curlev_context_t *cbdata, const char *host) {
 
 static int createfile_cb(curlev_context_t *cbdata, const unsigned char *data, size_t size) {
     struct file_upload_ctx *yactx = sxi_cbdata_get_upload_ctx(cbdata);
+    if(!yactx)
+	return 1;
     if(yajl_parse(yactx->current.yh, data, size) != yajl_status_ok) {
         if (yactx->current.state != CF_ERROR) {
             CBDEBUG("failed to parse JSON data: %s", sxi_cbdata_geterrmsg(yactx->cbdata));
@@ -2916,6 +2920,8 @@ static int process_block(sxi_conns_t *conns, curlev_context_t *cctx)
     sxc_client_t *sx = sxi_conns_get_client(conns);
     struct file_download_ctx *ctx = sxi_cbdata_get_download_ctx(cctx);
 
+    if(!ctx)
+	return -1;
     if (ctx->hashes.i > ctx->hashes.n) {
         SXDEBUG("out of range hash count: %d,%d", ctx->hashes.i, ctx->hashes.n);
         return -1;
@@ -3179,8 +3185,10 @@ static struct file_download_ctx *dctx_new(sxc_client_t *sx)
     if (!mdctx)
         return NULL;
     struct file_download_ctx *ctx = calloc(1, sizeof(*ctx));
-    if (!ctx)
+    if (!ctx) {
+	sxi_md_cleanup(&mdctx);
         return NULL;
+    }
     ctx->ctx = mdctx;
     return ctx;
 }
@@ -3226,6 +3234,10 @@ static int check_block(sxc_cluster_t *cluster, sxi_ht *hashes, const char *zeroh
     if(i == hashdata->ocnt)
         return 0;
     dctx = dctx_new(sxi_conns_get_client(conns));
+    if(!dctx) {
+        cluster_err(SXE_EMEM, "failed to allocate dctx");
+        return -1;
+    }
     dctx->buf = malloc(blocksize);
     if (!dctx->buf) {
         cluster_err(SXE_EMEM, "failed to allocate buffer");

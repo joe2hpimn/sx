@@ -2906,6 +2906,7 @@ static int username_hash(sxc_client_t *sx, const char *user, unsigned char *uid)
     }
     if(!sxi_sha1_init(ch_ctx)) {
         sxi_seterr(sx, SXE_ECRYPT, "Cannot compute hash: Unable to initialize crypto library");
+        sxi_md_cleanup(&ch_ctx);
         return 1;
     }
     if(!sxi_sha1_update(ch_ctx, user, len) || !sxi_sha1_final(ch_ctx, uid, NULL)) {

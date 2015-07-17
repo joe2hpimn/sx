@@ -168,8 +168,11 @@ static int yacb_jobres_end_map(void *ctx) {
 
 static int jobres_setup_cb(curlev_context_t *cbdata, const char *host) {
     struct job_ctx *jctx = sxi_cbdata_get_job_ctx(cbdata);
-    sxi_job_t *yactx = jctx->yactx;
+    sxi_job_t *yactx;
 
+    if(!jctx)
+	return 1;
+    yactx = jctx->yactx;
     yactx->cbdata = cbdata;
     if(yactx->yh)
 	yajl_free(yactx->yh);
@@ -189,7 +192,10 @@ static int jobres_setup_cb(curlev_context_t *cbdata, const char *host) {
 
 static int jobres_cb(curlev_context_t *cbdata, const unsigned char *data, size_t size) {
     struct job_ctx *jctx = sxi_cbdata_get_job_ctx(cbdata);
-    sxi_job_t *yactx = jctx->yactx;
+    sxi_job_t *yactx;
+    if(!jctx)
+	return 1;
+    yactx = jctx->yactx;
     if(yajl_parse(yactx->yh, data, size) != yajl_status_ok) {
 	CBDEBUG("failed to parse JSON data: %s", sxi_cbdata_geterrmsg(yactx->cbdata));
         sxi_cbdata_seterr(yactx->cbdata, SXE_ECOMM, "communication error AAA");
@@ -388,7 +394,7 @@ static int jobget_cb(curlev_context_t *cbdata, void *ctx, const void *data, size
 static void jobres_finish(curlev_context_t *ctx, const char *url)
 {
     struct job_ctx *jctx = sxi_cbdata_get_job_ctx(ctx);
-    if (jctx->queries_finished) /* finished, not necesarely successfully */
+    if (jctx && jctx->queries_finished) /* finished, not necessarily successfully */
         (*jctx->queries_finished)++;
 }
 
