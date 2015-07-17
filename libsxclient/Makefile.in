@@ -1334,7 +1334,7 @@ include/extraversion.h.tmp:
 .PHONY: include/extraversion.h.tmp
 
 @RUN_LDCONFIG_TRUE@install-exec-hook:
-@RUN_LDCONFIG_TRUE@	test -n "$$DESTDIR" || PATH="$$PATH:/sbin" ldconfig $(libdir) || true;
+@RUN_LDCONFIG_TRUE@	test -n "$$DESTDIR" || PATH="$$PATH:/sbin" ldconfig -X || true;
 
 # Tell versions [3.59,3.63) of GNU make to not export all variables.
 # Otherwise a system limit (for SysV at least) may be exceeded.
