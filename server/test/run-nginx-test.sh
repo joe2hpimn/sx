@@ -92,6 +92,7 @@ cleanup () {
     rm -rf $prefix
 }
 export SX_FCGI_OPTS="--config-file=$prefix/etc/sxserver/sxfcgi.conf"
+export SX_HTTPD_OPTS="-c $prefix/etc/sxserver/sxhttpd.conf"
 "$prefix/sbin/sxserver" start
 
 trap cleanup EXIT INT

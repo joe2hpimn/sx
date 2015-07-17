@@ -80,7 +80,8 @@ case "$1" in
 
         exit_if_running "sxhttpd" "$SX_RUN_DIR/sxhttpd.pid"
         echo "Starting sxhttpd"
-        if ! @SXHTTPD@ -c @sysconfdir@/sxserver/sxhttpd.conf; then
+	test -z "$SX_HTTPD_OPTS" && SX_HTTPD_OPTS="-c @sysconfdir@/sxserver/sxhttpd.conf"
+	if ! @SXHTTPD@ $SX_HTTPD_OPTS; then
 	    echo "ERROR: Failed to start sxhttpd. Please check the log files at $SXLOGDIR"
 	    $0 stop
 	    exit 1
