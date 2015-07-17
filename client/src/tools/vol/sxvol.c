@@ -310,6 +310,7 @@ static int volume_create(sxc_client_t *sx, const char *owner)
 	    }
 	    cvmeta = sxc_meta_new(sx);
 	    if(!cvmeta) {
+		free(fdir);
 		fprintf(stderr, "ERROR: Out of memory\n");
 		goto create_err;
 	    }

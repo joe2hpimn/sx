@@ -437,12 +437,14 @@ static void abInit(struct abuf *ab) {
 }
 
 static void abAppend(struct abuf *ab, const char *s, int len) {
-    char *new = realloc(ab->b,ab->len+len);
+    if(len > 0) {
+	char *new = realloc(ab->b,ab->len+len);
 
-    if (new == NULL) return;
-    memcpy(new+ab->len,s,len);
-    ab->b = new;
-    ab->len += len;
+	if (new == NULL) return;
+	memcpy(new+ab->len,s,len);
+	ab->b = new;
+	ab->len += len;
+    }
 }
 
 static void abFree(struct abuf *ab) {
