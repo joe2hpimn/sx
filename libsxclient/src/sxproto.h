@@ -100,8 +100,8 @@ sxi_query_t *sxi_distlock_proto(sxc_client_t *sx, int lock, const char *lockid);
 
 typedef const char* (*acl_cb_t)(void *ctx);
 sxi_query_t *sxi_volumeacl_proto(sxc_client_t *sx, const char *volname,
-                                 acl_cb_t grant_read, acl_cb_t grant_write,
-                                 acl_cb_t revoke_read, acl_cb_t revoke_write,
+                                 acl_cb_t grant_read, acl_cb_t grant_write, acl_cb_t grant_manager,
+                                 acl_cb_t revoke_read, acl_cb_t revoke_write, acl_cb_t revoke_manager,
                                  void *ctx);
 
 sxi_query_t *sxi_cluster_mode_proto(sxc_client_t *sx, int readonly);

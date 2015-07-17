@@ -2378,7 +2378,7 @@ check_users_err:
  *  0 - user has the same rights as given in arguments
  *  1 - different user rights */
 static int check_user(sxc_cluster_t *cluster, const char *volname, const char *user, int rights) {
-    int ret = -1, next = 1, tmp_rights, read = 1, write = 2, owner = 4, can_read, can_write, is_owner;
+    int ret = -1, next = 1, acl;
     char *get_user = NULL;
     sxc_cluster_la_t *lstu;
 
@@ -2386,7 +2386,7 @@ static int check_user(sxc_cluster_t *cluster, const char *volname, const char *u
     if(!lstu)
         return ret;
     while(next > 0) {
-        next = sxc_cluster_listaclusers_next(lstu, &get_user, &can_read, &can_write, &is_owner);
+        next = sxc_cluster_listaclusers_next(lstu, &get_user, &acl);
         switch(next) {
             case -1:
                 if(get_user)
@@ -2396,12 +2396,9 @@ static int check_user(sxc_cluster_t *cluster, const char *volname, const char *u
             case 1:
                 if(!strcmp(user, get_user)) {
                     free(get_user);
-                    tmp_rights = 0;
-                    tmp_rights |= can_read ? read : 0;
-                    tmp_rights |= can_write ? write : 0;
-                    tmp_rights |= is_owner ? owner : 0;
-                    if(rights != tmp_rights) {
+                    if(rights != acl) {
                         ret = 1;
+                        fprintf(stderr, "rights: %x, acl: %x\n", rights, acl);
                         goto check_user_err;
                     }
                     next = 0;
@@ -2595,7 +2592,7 @@ static int test_acl(sxc_client_t *sx, sxc_cluster_t *cluster, const char *local_
         fprintf(stderr, "test_acl: ERROR: Cannot create new volume.\n");
         goto test_acl_err;
     }
-    switch(check_user(cluster, volname1, user1, 1 + 2 + 4)) { /* read + write + owner */
+    switch(check_user(cluster, volname1, user1, SX_ACL_FULL)) { /* read + write + manager + owner */
         case -1:
             fprintf(stderr, "test_acl: ERROR: %s\n", sxc_geterrmsg(sx));
             goto test_acl_err;
@@ -2631,7 +2628,7 @@ static int test_acl(sxc_client_t *sx, sxc_cluster_t *cluster, const char *local_
         fprintf(stderr, "test_acl: ERROR: Cannot upload '%s' file.\n", local_file_path);
         goto test_acl_err;
     }
-    if(sxc_volume_acl(cluster, volname2, user1, "read", NULL)) {
+    if(sxc_volume_acl(cluster, volname2, user1, SX_ACL_READ, 0)) {
         fprintf(stderr, "test_acl: ERROR: Cannot add 'read' permission to '%s': %s\n", user1, sxc_geterrmsg(sx));
         goto test_acl_err;
     }
@@ -2650,7 +2647,7 @@ static int test_acl(sxc_client_t *sx, sxc_cluster_t *cluster, const char *local_
             printf("test_acl: 'read' permission granted correctly.\n");
             break;
     }
-    switch(check_user(cluster, volname2, user1, 1)) { /* read */
+    switch(check_user(cluster, volname2, user1, SX_ACL_READ)) { /* read */
         case -1:
             fprintf(stderr, "test_acl: ERROR: %s\n", sxc_geterrmsg(sx));
             goto test_acl_err;
@@ -2669,7 +2666,7 @@ static int test_acl(sxc_client_t *sx, sxc_cluster_t *cluster, const char *local_
         fprintf(stderr, "test_acl: ERROR: File has been deleted without permission.\n");
         goto test_acl_err;
     }
-    if(sxc_volume_acl(cluster, volname1, user2, "write", NULL)) {
+    if(sxc_volume_acl(cluster, volname1, user2, SX_ACL_WRITE, 0)) {
         fprintf(stderr, "test_acl: ERROR: Cannot add 'write' permission to '%s': %s\n", user2, sxc_geterrmsg(sx));
         goto test_acl_err;
     }
@@ -2702,7 +2699,7 @@ static int test_acl(sxc_client_t *sx, sxc_cluster_t *cluster, const char *local_
         fprintf(stderr, "test_acl: ERROR: Cannot delete '%s' file.\n", remote_file_path);
         goto test_acl_err;
     }
-    if(sxc_volume_acl(cluster, volname2, user1, NULL, "read")) {
+    if(sxc_volume_acl(cluster, volname2, user1, 0, SX_ACL_READ)) {
         fprintf(stderr, "test_acl: ERROR: Cannot revoke 'read' permission from '%s': %s\n", user1, sxc_geterrmsg(sx));
         goto test_acl_err;
     }
@@ -2710,7 +2707,7 @@ static int test_acl(sxc_client_t *sx, sxc_cluster_t *cluster, const char *local_
         fprintf(stderr, "test_acl: ERROR: Failed to set '%s' profile authentication: %s\n", user1, sxc_geterrmsg(sx));
         goto test_acl_err;
     }
-    if(sxc_volume_acl(cluster, volname1, user2, NULL, "write")) {
+    if(sxc_volume_acl(cluster, volname1, user2, 0, SX_ACL_WRITE)) {
         fprintf(stderr, "test_acl: ERROR: Cannot revoke 'write' permission from '%s': %s\n", user2, sxc_geterrmsg(sx));
         goto test_acl_err;
     }
@@ -2756,7 +2753,7 @@ static int test_acl(sxc_client_t *sx, sxc_cluster_t *cluster, const char *local_
             fprintf(stderr, "test_acl: ERROR: Different user list.\n");
             goto test_acl_err;
     }
-    if(sxc_volume_acl(cluster, volname1, user3, "read,write", NULL)) {
+    if(sxc_volume_acl(cluster, volname1, user3, SX_ACL_RW, 0)) {
         fprintf(stderr, "test_acl: ERROR: Cannot add 'read,write' permission to %s: %s\n", user3, sxc_geterrmsg(sx));
         goto test_acl_err;
     }
@@ -2764,7 +2761,7 @@ static int test_acl(sxc_client_t *sx, sxc_cluster_t *cluster, const char *local_
         fprintf(stderr, "test_acl: ERROR: Failed to set '%s' profile authentication: %s\n", user3, sxc_geterrmsg(sx));
         goto test_acl_err;
     }
-    if(sxc_volume_acl(cluster, volname1, user2, "read", NULL)) {
+    if(sxc_volume_acl(cluster, volname1, user2, SX_ACL_READ, 0)) {
         if(sxc_geterrnum(sx) == SXE_EAUTH)
             printf("test_acl: User permissions enforced correctly.\n");
         else {
@@ -2779,7 +2776,7 @@ static int test_acl(sxc_client_t *sx, sxc_cluster_t *cluster, const char *local_
         fprintf(stderr, "test_acl: ERROR: Failed to set default profile: %s\n", sxc_geterrmsg(sx));
         goto test_acl_err;
     }
-    if(sxc_volume_acl(cluster, volname1, user3, NULL, "read,write")) {
+    if(sxc_volume_acl(cluster, volname1, user3, 0, SX_ACL_RW)) {
         fprintf(stderr, "test_acl: ERROR: Cannot revoke 'read,write' permission from '%s': %s\n", user3, sxc_geterrmsg(sx));
         goto test_acl_err;
     }
@@ -2791,7 +2788,7 @@ static int test_acl(sxc_client_t *sx, sxc_cluster_t *cluster, const char *local_
         fprintf(stderr, "test_acl: ERROR: Failed to set '%s' profile authentication: %s\n", user3, sxc_geterrmsg(sx));
         goto test_acl_err;
     }
-    switch(check_user(cluster, volname1, user1, 1 + 2)) { /* read + write */
+    switch(check_user(cluster, volname1, user1, SX_ACL_RW)) { /* read + write */
         case -1:
             fprintf(stderr, "test_acl: ERROR: %s\n", sxc_geterrmsg(sx));
             goto test_acl_err;
@@ -2799,7 +2796,7 @@ static int test_acl(sxc_client_t *sx, sxc_cluster_t *cluster, const char *local_
             fprintf(stderr, "test_acl: ERROR: '%s' has diferent rights on '%s'.\n", user1, volname1);
             goto test_acl_err;
     }
-    switch(check_user(cluster, volname1, user3, 1 + 2 + 4)) { /* read + write + owner */
+    switch(check_user(cluster, volname1, user3, SX_ACL_FULL)) { /* read + write + manager + owner */
         case -1:
             fprintf(stderr, "test_acl: ERROR: %s\n", sxc_geterrmsg(sx));
             goto test_acl_err;

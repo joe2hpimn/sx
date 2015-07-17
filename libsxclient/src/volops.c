@@ -424,66 +424,70 @@ int sxi_volume_cfg_check(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_meta_t *v
 #define cluster_err(...) sxi_seterr(sxi_cluster_get_client(cluster), __VA_ARGS__)
 #define cluster_syserr(...) sxi_setsyserr(sxi_cluster_get_client(cluster), __VA_ARGS__)
 
-struct user_iter {
-    sxc_client_t *sx;
-    char *user;
-    const char *grant_read_users;
-    const char *grant_write_users;
-    const char *revoke_read_users;
-    const char *revoke_write_users;
+struct priv_iter {
+    const char *read_users;
+    const char *write_users;
+    const char *manager_users;
 };
 
-static const char *acl_loop(struct user_iter *iter, const char **ptr)
-{
-    const char *q = *ptr;
-    const char *qend;
-    unsigned int n;
+struct user_iter {
+    sxc_client_t *sx;
+    const char *user;
+    int grant_acls;
+    int revoke_acls;
+};
 
-    if (!q)
-        return NULL;
-    qend = strchr(q, ',');
-    if (!qend) {
-        qend = q + strlen(q);
-        *ptr = NULL;
-    } else
-        *ptr = qend+1;
-    n = qend - q;
-    free(iter->user);
-    iter->user = malloc(n + 1);
-    if (!iter->user) {
-        sxi_setsyserr(iter->sx, SXE_EMEM, "OOM on allocating username");
-        return NULL;
+static const char *get_grant_acl(void *ctx, sx_acl_t priv)
+{
+    struct user_iter *iter = ctx;
+    if (iter->grant_acls & priv) {
+        iter->grant_acls &= ~priv;
+        return iter->user;
     }
-    sxi_strlcpy(iter->user, q, n+1);
-    return iter->user;
+    return NULL;
+}
+
+static const char *get_revoke_acl(void *ctx, sx_acl_t priv)
+{
+    struct user_iter *iter = ctx;
+    if (iter->revoke_acls & priv) {
+        iter->revoke_acls &= ~priv;
+        return iter->user;
+    }
+    return NULL;
 }
 
 static const char *grant_read(void *ctx)
 {
-    struct user_iter *iter = ctx;
-    return acl_loop(iter, &iter->grant_read_users);
+    return get_grant_acl(ctx, SX_ACL_READ);
 }
 
 static const char *grant_write(void *ctx)
 {
-    struct user_iter *iter = ctx;
-    return acl_loop(iter, &iter->grant_write_users);
+    return get_grant_acl(ctx, SX_ACL_WRITE);
+}
+
+static const char *grant_manager(void *ctx)
+{
+    return get_grant_acl(ctx, SX_ACL_MANAGER);
 }
 
 static const char *revoke_read(void *ctx)
 {
-    struct user_iter *iter = ctx;
-    return acl_loop(iter, &iter->revoke_read_users);
+    return get_revoke_acl(ctx, SX_ACL_READ);
 }
 
 static const char *revoke_write(void *ctx)
 {
-    struct user_iter *iter = ctx;
-    return acl_loop(iter, &iter->revoke_write_users);
+    return get_revoke_acl(ctx, SX_ACL_WRITE);
 }
 
-int sxc_volume_acl(sxc_cluster_t *cluster, const char *url,
-                  const char *user, const char *grant, const char *revoke)
+static const char *revoke_manager(void *ctx)
+{
+    return get_revoke_acl(ctx, SX_ACL_MANAGER);
+}
+
+int sxc_volume_acl(sxc_cluster_t *cluster, const char *url, const char *user, int grant_acls, int revoke_acls)
 {
     struct user_iter user_iter;
     sxc_client_t *sx;
@@ -495,41 +499,26 @@ int sxc_volume_acl(sxc_cluster_t *cluster, const char *url,
 	cluster_err(SXE_EARG, "Null args");
         return 1;
     }
-    if (!grant && !revoke) {
+    if (!grant_acls && !revoke_acls) {
         cluster_err(SXE_EARG, "You must specify at least one grant/revoke operation to perform");
+        return 1;
+    }
+    if (grant_acls & revoke_acls) {
+        cluster_err(SXE_EARG, "Conflicting operation: cannot both grant and revoke same privilege");
+        return 1;
+    }
+    if ((grant_acls & SX_ACL_OWNER) ||
+        (revoke_acls & SX_ACL_OWNER)) {
+        cluster_err(SXE_EARG, "Cannot grant or revoke owner privilege");
         return 1;
     }
     sx = sxi_cluster_get_client(cluster);
     user_iter.sx = sx;
-    if (grant) {
-        if (!strcmp(grant,"read"))
-            user_iter.grant_read_users = user;
-        else if (!strcmp(grant,"write"))
-            user_iter.grant_write_users = user;
-        else if (!strcmp(grant,"read,write") || !strcmp(grant, "write,read")) {
-            user_iter.grant_read_users = user;
-            user_iter.grant_write_users = user;
-        } else {
-            cluster_err(SXE_EARG, "Unknown permissions for grant: %s", grant);
-	    return 1;
-        }
-    }
-    if (revoke) {
-        if (!strcmp(revoke,"read"))
-            user_iter.revoke_read_users = user;
-        else if (!strcmp(revoke,"write"))
-            user_iter.revoke_write_users = user;
-        else if (!strcmp(revoke,"read,write") || !strcmp(revoke, "write,read")) {
-            user_iter.revoke_read_users = user;
-            user_iter.revoke_write_users = user;
-        } else {
-            cluster_err(SXE_EARG, "Unknown permissions for revoke: %s", revoke);
-	    return 1;
-	}
-    }
-    proto = sxi_volumeacl_proto(sx, url, grant_read, grant_write,
-                                revoke_read, revoke_write, &user_iter);
-    free(user_iter.user);
+    user_iter.grant_acls = grant_acls;
+    user_iter.revoke_acls = revoke_acls;
+    user_iter.user = user;
+    proto = sxi_volumeacl_proto(sx, url, grant_read, grant_write, grant_manager,
+                                revoke_read, revoke_write, revoke_manager, &user_iter);
 
     sxi_set_operation(sxi_cluster_get_client(cluster), "modify volume acl", sxi_cluster_get_name(cluster), url, NULL);
     rc = sxi_job_submit_and_poll(sxi_cluster_get_conns(cluster), NULL, proto->verb, proto->path, proto->content, proto->content_len);
@@ -1621,9 +1610,7 @@ void sxc_cluster_listusers_free(sxc_cluster_lu_t *lu) {
 }
 
 struct cbl_acluser_t {
-    int can_read;
-    int can_write;
-    int is_owner;
+    int acls;
     unsigned int namelen;
 };
 
@@ -1693,11 +1680,13 @@ static int yacb_listaclusers_string(void *ctx, const unsigned char *s, size_t l)
         return yacb_error_map_key(&yactx->errctx, s, l);
     if(yactx->state == LA_PRIVS) {
 	if(l == lenof("read") && !memcmp(s, "read", lenof("read")))
-            yactx->acluser.can_read = 1;
+            yactx->acluser.acls |= SX_ACL_READ;
 	else if(l == lenof("write") && !memcmp(s, "write", lenof("write")))
-            yactx->acluser.can_write = 1;
+            yactx->acluser.acls |= SX_ACL_WRITE;
+	else if(l == lenof("manager") && !memcmp(s, "manager", lenof("manager")))
+            yactx->acluser.acls |= SX_ACL_MANAGER;
 	else if(l == lenof("owner") && !memcmp(s, "owner", lenof("owner")))
-	    yactx->acluser.is_owner = 1;
+            yactx->acluser.acls |= SX_ACL_OWNER;
 	else {
 	    CBDEBUG("unexpected attribute '%.*s' in LA_PRIVS", (unsigned)l, s);
 	    return 0;
@@ -1903,11 +1892,11 @@ sxc_cluster_la_t *sxc_cluster_listaclusers(sxc_cluster_t *cluster, const char *v
     return ret;
 }
 
-int sxc_cluster_listaclusers_next(sxc_cluster_la_t *la, char **acluser_name, int *can_read, int *can_write, int *is_owner) {
+int sxc_cluster_listaclusers_next(sxc_cluster_la_t *la, char **acluser_name, int *acls) {
     struct cbl_acluser_t acluser;
     sxc_client_t *sx;
 
-    if (!la || !acluser_name || !can_read || !can_write || !is_owner)
+    if (!la || !acluser_name || !acls)
         return -1;
     sx = la->sx;
     if(!fread(&acluser, sizeof(acluser), 1, la->f)) {
@@ -1937,9 +1926,7 @@ int sxc_cluster_listaclusers_next(sxc_cluster_la_t *la, char **acluser_name, int
     }
     (*acluser_name)[acluser.namelen] = '\0';
 
-    *can_read = acluser.can_read;
-    *can_write = acluser.can_write;
-    *is_owner = acluser.is_owner;
+    *acls = acluser.acls;
 
     return 1;
 }

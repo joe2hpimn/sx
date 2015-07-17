@@ -85,6 +85,8 @@ EOF
         echo "$ADMIN_KEY" | ../client/src/tools/init/sxinit --port "$SX_PORT" --host-list=127.0.1.1 sx://admin@localhost --no-ssl --key
 #    ../client/src/tools/vol/sxvol create sx://admin@localhost/vol$i -r $i -o admin -s 100M
     if [ $i -eq 1 ]; then
+#        ../client/src/tools/acl/sxacl useradd --generate-key u1 sx://admin@localhost
+#        ../client/src/tools/acl/sxacl volperm --grant=manager u1 sx://admin@localhost/vol$i
  #       echo "$ADMIN_KEY" | ../client/src/tools/init/sxinit --port "$SX_PORT" --host-list=127.0.1.1 sx://admin@localhost --no-ssl --key
         test/randgen 40960 40960 >mvtest
 #        ../client/src/tools/cp/sxcp mvtest sx://admin@localhost/vol1/
@@ -92,6 +94,7 @@ EOF
 
     i=$(( i+1 ))
 done
+exit 0
 rm -f mvtestx && ../client/src/tools/cp/sxcp sx://admin@localhost/vol1/mvtest mvtestx
 
 list=127.0.1.1

@@ -366,9 +366,13 @@ typedef enum {
   PRIV_NONE = 0,
   PRIV_READ = 1,
   PRIV_WRITE = 2,
-  PRIV_ACL = 4,
-  PRIV_ADMIN = 8,
-  PRIV_CLUSTER = 16} sx_priv_t;
+  PRIV_MANAGER = 4,
+  PRIV_OWNER = 8,
+  PRIV_ADMIN = 16,
+  PRIV_CLUSTER = 32} sx_priv_t;
+
+#define ALL_USER_PRIVS (PRIV_READ | PRIV_WRITE | PRIV_MANAGER)
+
 rc_ty sx_hashfs_get_user_info(sx_hashfs_t *h, const uint8_t *user, sx_uid_t *uid, uint8_t *key, sx_priv_t *basepriv, char **desc, int64_t *quota);
 rc_ty sx_hashfs_get_access(sx_hashfs_t *h, const uint8_t *user, const char *volume, sx_priv_t *access);
 

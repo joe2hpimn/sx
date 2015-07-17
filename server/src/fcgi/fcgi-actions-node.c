@@ -1069,22 +1069,6 @@ static int cb_sync_string(void *ctx, const unsigned char *s, size_t l) {
 	if(sx_hashfs_get_user_info(hashfs, usr, &c->uid, NULL, NULL, NULL, NULL))
 	    return 0;
 	c->state = CB_SYNC_VOLKEY;
-    } else if(c->state == CB_SYNC_PRMVAL) {
-	sx_priv_t priv = 0;
-	if(l < 1 || l >2)
-	    return 0;
-	if(l == lenof("rw") && !strncmp("rw", s, lenof("rw")))
-	    priv = PRIV_READ | PRIV_WRITE;
-	else if(*s == 'r')
-	    priv = PRIV_READ;
-	else if(*s == 'w')
-	    priv = PRIV_WRITE;
-	else
-	    return 0;
-	sx_hashfs_revoke(hashfs, c->uid, c->name, PRIV_READ | PRIV_WRITE);
-	if(sx_hashfs_grant(hashfs, c->uid, c->name, priv))
-	    return 0;
-	c->state = CB_SYNC_PRMKEY;
     } else if(c->state == CB_SYNC_VOLMETAVAL) {
 	uint8_t val[SXLIMIT_META_MAX_VALUE_LEN];
 	if(!l || (l & 1) || l > sizeof(val) * 2)
@@ -1130,7 +1114,7 @@ static int cb_sync_number(void *ctx, const char *s, size_t l) {
     char number[24], *eon;
     int64_t n;
 
-    if(c->state != CB_SYNC_VOLREP && c->state != CB_SYNC_VOLSIZ && c->state != CB_SYNC_VOLREVS && c->state != CB_SYNC_USRQUOTA && c->state != CB_SYNC_CLUSTERMETA_TS)
+    if(c->state != CB_SYNC_VOLREP && c->state != CB_SYNC_VOLSIZ && c->state != CB_SYNC_VOLREVS && c->state != CB_SYNC_USRQUOTA && c->state != CB_SYNC_CLUSTERMETA_TS && c->state != CB_SYNC_PRMVAL)
 	return 0;
 
     if(l<1 || l>20)
@@ -1152,15 +1136,25 @@ static int cb_sync_number(void *ctx, const char *s, size_t l) {
         c->cluster_meta_ts = (time_t)n;
     else if(n > 0xffffffff)
 	return 0;
-    else if(c->state == CB_SYNC_VOLREP)
+    else if (c->state == CB_SYNC_PRMVAL) {
+        sx_hashfs_revoke(hashfs, c->uid, c->name, ALL_USER_PRIVS);
+        if ((n & ~ALL_USER_PRIVS)) {
+            WARN("Bad privilege in sync: %d", (int)n);
+            return 0;
+        }
+        if(sx_hashfs_grant(hashfs, c->uid, c->name, n))
+            return 0;
+    } else if(c->state == CB_SYNC_VOLREP)
 	c->replica = (unsigned int)n;
-    else 
+    else
 	c->revs = (unsigned int)n;
 
     if(c->state == CB_SYNC_USRQUOTA)
         c->state = CB_SYNC_USRKEY;
     else if(c->state == CB_SYNC_CLUSTERMETA_TS)
         c->state = CB_SYNC_INMISC;
+    else if(c->state == CB_SYNC_PRMVAL)
+        c->state = CB_SYNC_PRMKEY;
     else
         c->state = CB_SYNC_VOLKEY;
 

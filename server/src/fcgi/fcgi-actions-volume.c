@@ -36,6 +36,7 @@
 #include "blob.h"
 #include "utils.h"
 #include "job_common.h"
+#include "version.h"
 
 static rc_ty int64_arg(const char* arg, int64_t *v, int64_t defaultv)
 {
@@ -402,15 +403,17 @@ static int cb_vol_end_map(void *ctx) {
     return 1;
 }
 
-enum acl_state { CB_ACL_START=0, CB_ACL_KEY, CB_ACL_KEYARRAY, CB_ACL_GRANT_READ, CB_ACL_GRANT_WRITE, CB_ACL_REVOKE_READ, CB_ACL_REVOKE_WRITE, CB_ACL_COMPLETE };
+enum acl_state { CB_ACL_START=0, CB_ACL_KEY, CB_ACL_KEYARRAY, CB_ACL_GRANT_READ, CB_ACL_GRANT_WRITE, CB_ACL_GRANT_MANAGER, CB_ACL_REVOKE_READ, CB_ACL_REVOKE_WRITE, CB_ACL_REVOKE_MANAGER, CB_ACL_COMPLETE };
 struct acl_op {
     char *name;
     int priv;
+    int require_owner;
 };
 
 struct acl_ctx {
     struct acl_op *ops;
     unsigned n;
+    int require_owner;
     enum acl_state state;
 };
 
@@ -424,12 +427,20 @@ static int cb_acl_string(void *ctx, const unsigned char *s, size_t l) {
 	case CB_ACL_GRANT_WRITE:
 	    priv = PRIV_WRITE;
 	    break;
-	case CB_ACL_REVOKE_READ:
+        case CB_ACL_GRANT_MANAGER:
+            priv = PRIV_MANAGER;
+            c->require_owner = 1;
+            break;
+        case CB_ACL_REVOKE_READ:
 	    priv = ~PRIV_READ;
 	    break;
 	case CB_ACL_REVOKE_WRITE:
 	    priv = ~PRIV_WRITE;
 	    break;
+        case CB_ACL_REVOKE_MANAGER:
+            priv = ~PRIV_MANAGER;
+            c->require_owner = 1;
+            break;
 	default:
 	    WARN("acl bad string state: %d", c->state);
 	    return 0;
@@ -496,12 +507,20 @@ static int cb_acl_map_key(void *ctx, const unsigned char *s, size_t l) {
 	c->state = CB_ACL_GRANT_WRITE;
 	return 1;
     }
+    if (l == lenof("grant-manager") && !strncmp("grant-manager", s, l)) {
+	c->state = CB_ACL_GRANT_MANAGER;
+	return 1;
+    }
     if (l == lenof("revoke-read") && !strncmp("revoke-read", s, l)) {
 	c->state = CB_ACL_REVOKE_READ;
 	return 1;
     }
     if (l == lenof("revoke-write") && !strncmp("revoke-write", s, l)) {
 	c->state = CB_ACL_REVOKE_WRITE;
+	return 1;
+    }
+    if (l == lenof("revoke-manager") && !strncmp("revoke-manager", s, l)) {
+	c->state = CB_ACL_REVOKE_MANAGER;
 	return 1;
     }
     WARN("bad map key word: %.*s", (int)l, s);
@@ -536,8 +555,9 @@ static const yajl_callbacks acl_ops_parser = {
 static int print_acl(const char *username, int priv, int is_owner, void *ctx)
 {
     int *first = ctx;
+    /* FIXME: should set api_version for send_server_info, however send_server_info is called before handle_request */
     if (*first)
-	CGI_PUTS("Content-type: application/json\r\n\r\n{");
+	CGI_PRINTF("Content-type: application/json\r\nSX-API-Version: %u\r\n\r\n{", SRC_API_VERSION_1_2);
     else
         CGI_PUTS(",");
     json_send_qstring(username);
@@ -549,6 +569,10 @@ static int print_acl(const char *username, int priv, int is_owner, void *ctx)
     }
     if (priv & PRIV_WRITE) {
 	CGI_PRINTF("%s\"write\"", comma ? "," : "");
+	comma = 1;
+    }
+    if (is_owner || (priv & PRIV_MANAGER)) {
+	CGI_PRINTF("%s\"manager\"", comma ? "," : "");
 	comma = 1;
     }
     if (is_owner) {
@@ -581,7 +605,13 @@ void fcgi_list_acl(const sx_hashfs_volume_t *vol) {
 static rc_ty acl_parse_complete(void *yctx)
 {
     struct acl_ctx *actx = yctx;
-    return actx && actx->state == CB_ACL_COMPLETE ? OK : EINVAL;
+    if (!actx || actx->state != CB_ACL_COMPLETE)
+        return EINVAL;
+    if (actx->require_owner && !has_priv(PRIV_OWNER)) {
+        msg_set_reason("Permission denied: granting/revoking the manager privilege requires owner or admin privilege");
+        return EPERM;
+    }
+    return OK;
 }
 
 static int acl_to_blob(sxc_client_t *sx, int nodes, void *yctx, sx_blob_t *blob)
@@ -729,6 +759,11 @@ static const char *grant_write_cb(void *ctx)
     return blob_iter_cb(ctx, 1, PRIV_WRITE);
 }
 
+static const char *grant_manager_cb(void *ctx)
+{
+    return blob_iter_cb(ctx, 1, PRIV_MANAGER);
+}
+
 static const char *revoke_read_cb(void *ctx)
 {
     return blob_iter_cb(ctx, -1, PRIV_READ);
@@ -737,6 +772,11 @@ static const char *revoke_read_cb(void *ctx)
 static const char *revoke_write_cb(void *ctx)
 {
     return blob_iter_cb(ctx, -1, PRIV_WRITE);
+}
+
+static const char *revoke_manager_cb(void *ctx)
+{
+    return blob_iter_cb(ctx, -1, PRIV_MANAGER);
 }
 
 static sxi_query_t* acl_proto_from_blob(sxc_client_t *sx, sx_blob_t *b, jobphase_t phase)
@@ -754,8 +794,8 @@ static sxi_query_t* acl_proto_from_blob(sxc_client_t *sx, sx_blob_t *b, jobphase
     iter.b = b;
     iter.phase = phase;
     return sxi_volumeacl_proto(sx, volume,
-                               grant_read_cb, grant_write_cb,
-                               revoke_read_cb, revoke_write_cb,
+                               grant_read_cb, grant_write_cb, grant_manager_cb,
+                               revoke_read_cb, revoke_write_cb, revoke_manager_cb,
                                &iter);
 }
 
@@ -1606,7 +1646,7 @@ static rc_ty volmod_parse_complete(void *yctx)
     if((*ctx->newowner || ctx->newsize != -1 || ctx->newrevs != -1) && !has_priv(PRIV_ADMIN)) {
         msg_set_reason("Permission denied: Not enough privileges");
         return EPERM;
-    } else if(!has_priv(PRIV_ACL)) {
+    } else if(!has_priv(PRIV_MANAGER)) {
         msg_set_reason("Permission denied: Not enough privileges");
         return EPERM;
     }

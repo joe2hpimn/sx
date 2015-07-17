@@ -428,16 +428,18 @@ static int show_acls(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_uri_t *u)
     int rc = 0;
     sxc_cluster_la_t *lst;
     char *user = NULL;
-    int can_read, can_write, is_owner;
+    int acl;
 
     for (lst = sxc_cluster_listaclusers(cluster, u->volume);
-         lst && sxc_cluster_listaclusers_next(lst, &user, &can_read, &can_write, &is_owner);) {
+         lst && sxc_cluster_listaclusers_next(lst, &user, &acl);) {
         printf("%s:", user);
-        if (can_read)
+        if (acl & SX_ACL_READ)
             printf(" read");
-        if (can_write)
+        if (acl & SX_ACL_WRITE)
             printf(" write");
-        if (is_owner)
+        if (acl & SX_ACL_MANAGER)
+            printf(" manager");
+        if (acl & SX_ACL_OWNER)
             printf(" owner");
         printf("\n");
         free(user);
@@ -454,9 +456,35 @@ static int show_acls(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_uri_t *u)
     return rc;
 }
 
+static int privs_to_bits(const char *action, const char *str)
+{
+    int privs = 0;
+    while (str && *str) {
+        unsigned len = strcspn(str, ",");
+        if (!strncmp(str, "read",len))
+            privs |= SX_ACL_READ;
+        else if (!strncmp(str, "write",len))
+            privs |= SX_ACL_WRITE;
+        else if (!strncmp(str, "manager",len))
+            privs |= SX_ACL_MANAGER;
+        else
+            return -1;
+        str = str + len;
+        if (*str == ',') str++;
+    }
+    if (privs & SX_ACL_MANAGER) {
+        int newprivs = privs | SX_ACL_RW;
+        if (privs != newprivs) {
+            fprintf(stderr, "%s read/write automatically due to change of 'manager' privilege\n", action);
+            privs = newprivs;
+        }
+    }
+    return privs;
+}
+
 static int volume_acl(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_uri_t *uri, const char *user, const char *grant, const char *revoke)
 {
-    int ret;
+    int ret, grant_acls, revoke_acls;
 
     if(!uri->volume) {
 	fprintf(stderr, "ERROR: Bad URI: No volume\n");
@@ -469,7 +497,17 @@ static int volume_acl(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_uri_t *uri, 
 	    printf("\nUse '--grant' or '--revoke' options to modify the permissions. See 'sxacl volperm -h' for more info.\n");
 	return ret;
     }
-    ret = sxc_volume_acl(cluster, uri->volume, user, grant, revoke);
+    grant_acls = privs_to_bits("Granting", grant);
+    revoke_acls = privs_to_bits("Revoking", revoke);
+    if (grant_acls < 0) {
+        fprintf(stderr, "ERROR: cannot parse grant privileges: %s\n", grant);
+        return 1;
+    }
+    if (revoke_acls < 0) {
+        fprintf(stderr, "ERROR: cannot parse revoke privileges: %s\n", grant);
+        return 1;
+    }
+    ret = sxc_volume_acl(cluster, uri->volume, user, grant_acls, revoke_acls);
     if(ret) {
 	fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
     } else {

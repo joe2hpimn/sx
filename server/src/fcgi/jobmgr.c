@@ -1758,10 +1758,8 @@ static int syncperms_cb(const char *username, int priv, int is_owner, void *ctx)
     }
 
     sy->what = SYNCING_PERMS_USERS;
-    sprintf(&sy->buffer[sy->at], "\"%s\":\"%s%s\"",
-	    userhex,
-	    (priv & PRIV_READ) ? "r" : "",
-	    (priv & PRIV_WRITE) ? "w" : "");
+    sprintf(&sy->buffer[sy->at], "\"%s\":%d",
+	    userhex, priv);
     sy->at = strlen(sy->buffer);
     return 0;
 }

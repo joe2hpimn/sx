@@ -831,7 +831,7 @@ static rc_ty user_modify_parse_complete(void *yctx)
         }
 
         /* Cannot set quota for admin users */
-        if(role & ~(PRIV_READ | PRIV_WRITE | PRIV_ACL)) {
+       if(role & ~(PRIV_READ | PRIV_WRITE | PRIV_MANAGER)) {
             msg_set_reason("Cannot set quota for admin user");
             return EINVAL;
         }

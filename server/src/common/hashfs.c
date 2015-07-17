@@ -6188,11 +6188,11 @@ rc_ty sx_hashfs_list_acl(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, sx_uid_t
             return rc;
     }
 
-    if (!(priv & (PRIV_ADMIN | PRIV_ACL))) {
-        DEBUG("Not an owner/admin: printed only self privileges");
+    if (!(priv & (PRIV_ADMIN | PRIV_MANAGER))) {
+        DEBUG("Not an owner/manager/admin: printed only self privileges");
         return OK;
     }
-    /* admin and owner can see full ACL list */
+    /* admin, manager and owner can see full ACL list */
 
     sqlite3_stmt *q = h->q_listacl;
     do {
@@ -7033,9 +7033,9 @@ rc_ty sx_hashfs_grant(sx_hashfs_t *h, uint64_t uid, const char *volume, int priv
 
         if(sx_hashfs_uid_get_name(h, uid, name, SXLIMIT_MAX_USERNAME_LEN+1)) {
             WARN("Failed to get user %lld name", (long long)uid);
-            INFO("Granted '%s' permission to %lld on volume %s", (priv & PRIV_READ ? "read" : "write"), (long long)uid, volume);
+            INFO("Granted '%s' permission to %lld on volume %s", (priv & PRIV_READ ? "read" : priv & PRIV_WRITE ? "write" : "manager"), (long long)uid, volume);
         } else
-            INFO("Granted '%s' permission to '%s' on volume %s", (priv & PRIV_READ ? "read" : "write"), name, volume);
+            INFO("Granted '%s' permission to '%s' on volume %s", (priv & PRIV_READ ? "read" : priv & PRIV_WRITE ? "write" : "manager"), name, volume);
         rc = OK;
     } while(0);
     sqlite3_reset(q);
@@ -7078,9 +7078,9 @@ rc_ty sx_hashfs_revoke(sx_hashfs_t *h, uint64_t uid, const char *volume, int pri
 
         if(sx_hashfs_uid_get_name(h, uid, name, SXLIMIT_MAX_USERNAME_LEN+1)) {
             WARN("Failed to get user %lld name", (long long)uid);
-            INFO("Revoked '%s' permission from %lld on volume %s", (~privmask & PRIV_READ ? "read" : "write"), (long long)uid, volume);
+            INFO("Revoked '%s' permission from %lld on volume %s", (~privmask & PRIV_READ ? "read" : ~privmask & PRIV_WRITE ? "write" : "manager"), (long long)uid, volume);
         } else
-	    INFO("Revoked '%s' permission from '%s' on volume %s", (~privmask & PRIV_READ ? "read" : "write"), name, volume);
+	    INFO("Revoked '%s' permission from '%s' on volume %s", (~privmask & PRIV_READ ? "read" : ~privmask & PRIV_WRITE ? "write" : "manager"), name, volume);
         rc = OK;
     } while(0);
     sqlite3_reset(q);
@@ -10734,7 +10734,7 @@ rc_ty sx_hashfs_get_access(sx_hashfs_t *h, const uint8_t *user, const char *volu
 	return FAIL_EINTERNAL;
 
     r = sqlite3_column_int(h->q_getaccess, 0);
-    if(!(r & ~(PRIV_READ | PRIV_WRITE))) {
+    if(!(r & ~(PRIV_READ | PRIV_WRITE | PRIV_MANAGER))) {
 	ret = OK;
 	*access = r;
     } else {
@@ -10752,7 +10752,7 @@ rc_ty sx_hashfs_get_access(sx_hashfs_t *h, const uint8_t *user, const char *volu
 
     /* Compare common ID part of UIDs */
     if(!memcmp(owner_uid, user, AUTH_CID_LEN))
-        *access |= PRIV_ACL;
+        *access |= PRIV_MANAGER | PRIV_OWNER;
 
     sqlite3_reset(h->q_getaccess);
     return ret;

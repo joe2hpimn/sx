@@ -135,9 +135,23 @@ sxc_cluster_lu_t *sxc_cluster_listclones(sxc_cluster_t *cluster, const char *use
 int sxc_cluster_listusers_next(sxc_cluster_lu_t *lu, char **user_name, int *is_admin, char **desc, int64_t *quota, int64_t *quota_used);
 void sxc_cluster_listusers_free(sxc_cluster_lu_t *lu);
 
+typedef enum {
+    SX_ACL_READ_FLAG=0,
+    SX_ACL_WRITE_FLAG,
+    SX_ACL_MANAGER_FLAG,
+    SX_ACL_OWNER_FLAG
+} sx_acl_t;
+
+#define SX_ACL_READ (1 << SX_ACL_READ_FLAG)
+#define SX_ACL_WRITE (1 << SX_ACL_WRITE_FLAG)
+#define SX_ACL_RW (SX_ACL_READ | SX_ACL_WRITE)
+#define SX_ACL_MANAGER (1 << SX_ACL_MANAGER_FLAG)
+#define SX_ACL_OWNER (1 << SX_ACL_OWNER_FLAG)
+#define SX_ACL_FULL (SX_ACL_RW | SX_ACL_MANAGER | SX_ACL_OWNER)
+
 typedef struct _sxc_cluster_la_t sxc_cluster_la_t;
 sxc_cluster_la_t *sxc_cluster_listaclusers(sxc_cluster_t *cluster, const char *volume);
-int sxc_cluster_listaclusers_next(sxc_cluster_la_t *la, char **acluser_name, int *can_read, int *can_write, int *is_owner);
+int sxc_cluster_listaclusers_next(sxc_cluster_la_t *la, char **acluser_name, int *acls);
 void sxc_cluster_listaclusers_free(sxc_cluster_la_t *la);
 
 typedef struct _sxi_ht_t sxc_meta_t;
@@ -348,9 +362,7 @@ int sxc_cluster_whoami(sxc_cluster_t *cluster, char **user, char **role, char **
 int sxc_volume_add(sxc_cluster_t *cluster, const char *name, int64_t size, unsigned int replica, unsigned int revisions, sxc_meta_t *metadata, const char *owner);
 int sxc_volume_remove(sxc_cluster_t *cluster, const char *name);
 int sxc_volume_modify(sxc_cluster_t *cluster, const char *volume, const char *newowner, int64_t newsize, int max_revs, sxc_meta_t *custom_meta);
-int sxc_volume_acl(sxc_cluster_t *cluster, const char *url,
-                  const char *user, const char *grant, const char *revoke);
-
+int sxc_volume_acl(sxc_cluster_t *cluster, const char *url, const char *user, int grant_privs, int revoke_privs);
 
 typedef struct {
     char *revision;

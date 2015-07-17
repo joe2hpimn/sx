@@ -5,7 +5,7 @@ sxacl-volperm \- manage volume permissions
 .B sxacl volperm
 \fR[\fI\,OPTIONS\/\fR] \fI\,<username> sx://\/\fR[\fI\,profile@\/\fR]\fI\,cluster/volume\/\fR
 .SH DESCRIPTION
-\fBsxacl volperm\fR manages volume permissions for a specific user. It can be used to grant or revoke read/write access. Only volume owners and cluster administrators can change volume permissions.
+\fBsxacl volperm\fR manages volume permissions for a specific user. It can be used to grant or revoke read/write access, or to grant the manager privilege. Only volume owners and cluster administrators can change volume permissions.
 .SH OPTIONS
 .TP
 \fB\-h\fR, \fB\-\-help\fR
@@ -18,10 +18,10 @@ Print help, including hidden options, and exit
 Print version and exit
 .TP
 \fB\-\-grant=<privilege>\fR
-Grant a privilege on the volume to the user. The accepted values are "read", "write" or "read,write".
+Grant a privilege on the volume to the user. The accepted values are "read", "write", "manager" or a combination of the privileges.
 .TP
 \fB\-\-revoke=<privilege>\fR
-Revoke a privilege on the volume from the user. The accepted values are "read", "write" or "read,write".
+Revoke a privilege on the volume from the user. The accepted values are "read", "write", "manager" or a combination of the privileges.
 .TP
 \fB\-c\fR, \fB\-\-config\-dir\fR=\fI\,PATH\/\fR
 Path to the SX configuration directory (default: ~/.sx)
@@ -29,7 +29,7 @@ Path to the SX configuration directory (default: ~/.sx)
 \fB\-D\fR, \fB\-\-debug\fR
 Enable debug messages.
 .SH "EXAMPLES"
-To grant user 'joe' full access to the volume 'data' run:
+To grant user 'joe' full access to all files inside the volume 'data' run:
 .br
 \fB    sxacl volperm \-\-grant=read,write joe sx://admin@cluster/data\fP
 .br

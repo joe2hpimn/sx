@@ -47,7 +47,7 @@ uint8_t hashbuf[UPLOAD_CHUNK_SIZE];
 time_t last_flush;
 void send_server_info(void) {
     last_flush = time(NULL);
-    CGI_PRINTF("Server: Skylable SX\r\nSX-Cluster: %s (%s)%s\r\nSX-API-Version: %u\r\nVary: Accept-Encoding\r\n", src_version(), sx_hashfs_uuid(hashfs)->string, sx_hashfs_uses_secure_proto(hashfs) ? " ssl" : "", SRC_API_VERSION);
+    CGI_PRINTF("Server: Skylable SX\r\nSX-Cluster: %s (%s)%s\r\nSX-API-Version: %u\r\nVary: Accept-Encoding\r\n", src_version(), sx_hashfs_uuid(hashfs)->string, sx_hashfs_uses_secure_proto(hashfs) ? " ssl" : "", SRC_API_VERSION_DEFAULT);
 }
 
 static const char *http_err_str(int http_status) {
@@ -663,7 +663,7 @@ int get_priv(int volume_priv) {
 	/* Non volume check, use the base role */
         mypriv = 0;
         if (role >= PRIV_ADMIN)
-            mypriv |= PRIV_READ | PRIV_WRITE | PRIV_ACL | PRIV_ADMIN;/* admin has all below */
+            mypriv |= PRIV_READ | PRIV_WRITE | PRIV_MANAGER | PRIV_OWNER | PRIV_ADMIN;/* admin has all below */
         if (role >= PRIV_CLUSTER)
             mypriv |= PRIV_CLUSTER;
     }
@@ -671,7 +671,7 @@ int get_priv(int volume_priv) {
 }
 
 int has_priv(sx_priv_t reqpriv) {
-    return get_priv(!(reqpriv & ~(PRIV_READ | PRIV_WRITE | PRIV_ACL))) & reqpriv;
+    return get_priv(!(reqpriv & ~(PRIV_READ | PRIV_WRITE | PRIV_MANAGER | PRIV_OWNER))) & reqpriv;
 }
 
 int is_reserved(void) {
