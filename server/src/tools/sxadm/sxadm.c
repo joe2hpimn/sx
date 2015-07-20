@@ -1138,7 +1138,7 @@ static int setfaulty_nodes(sxc_client_t *sx, struct cluster_args_info *args) {
 	if(sxi_hostlist_add_host(sx, &deadnode, sx_node_addr(nodes[i])) ||
 	   sxi_hostlist_add_host(sx, &deadnode, sx_node_internal_addr(nodes[i]))) {
 	    sxi_hostlist_empty(&deadnode);
-	    WARN("Cannot check fautly nodes status");
+	    WARN("Cannot check faulty nodes status");
 	    break;
 	}
 	clst_destroy(clst);
