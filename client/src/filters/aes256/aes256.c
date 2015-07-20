@@ -219,14 +219,14 @@ static int aes256_configure(const sxf_handle_t *handle, const char *cfgstr, cons
 {
 	unsigned char key[KEY_SIZE], salt[SALT_SIZE];
 	char *keyfile;
-	int fd, user_salt = 0, nogenkey = 0, paranoid = 0;
+	int fd, user_salt = 0, nogenkey = 1, paranoid = 0;
 	const char *pt;
 
     if(cfgstr) {
 	if(strstr(cfgstr, "paranoid") && strstr(cfgstr, "salt:")) {
 	    ERROR("User provided salt cannot be used in paranoid mode");
 	    return -1;
-	} else if(strncmp(cfgstr, "paranoid", 8) && strncmp(cfgstr, "salt:", 5) && strncmp(cfgstr, "nogenkey", 8)) {
+	} else if(strncmp(cfgstr, "paranoid", 8) && strncmp(cfgstr, "salt:", 5) && strncmp(cfgstr, "nogenkey", 8) && strncmp(cfgstr, "setkey", 6)) {
 	    ERROR("Invalid configuration '%s'", cfgstr);
 	    return -1;
 	}
@@ -241,8 +241,8 @@ static int aes256_configure(const sxf_handle_t *handle, const char *cfgstr, cons
 	    }
 	    user_salt = 1;
 	}
-	if(strstr(cfgstr, "nogenkey"))
-	    nogenkey = 1;
+	if(strstr(cfgstr, "setkey"))
+	    nogenkey = 0;
 	if(strstr(cfgstr, "paranoid"))
 	    paranoid = 1;
     }
@@ -714,7 +714,7 @@ sxc_filter_t sxc_filter={
 /* const char *shortname */	    "aes256",
 /* const char *shortdesc */	    "Encrypt data using AES-256-CBC-HMAC-512 mode.",
 /* const char *summary */	    "The filter automatically encrypts and decrypts all data using OpenSSL's AES-256 in CBC-HMAC-512 mode.",
-/* const char *options */	    "\n\tnogenkey (don't generate a key file when creating a volume)\n\tparanoid (don't use key files at all - always ask for a password)\n\tsalt:HEX (force given salt, HEX must be 32 chars long)",
+/* const char *options */	    "\n\tsetkey (set a permanent key when creating a volume)\n\tparanoid (don't use key files at all - always ask for a password)\n\tsalt:HEX (force given salt, HEX must be 32 chars long)",
 /* const char *uuid */		    "35a5404d-1513-4009-904c-6ee5b0cd8634",
 /* sxf_type_t type */		    SXF_TYPE_CRYPT,
 /* int version[2] */		    {1, 6},
