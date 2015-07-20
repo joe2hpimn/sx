@@ -83,13 +83,13 @@ EOF
     $prefix/sbin/sxsetup --config-file $CONF_TMP --debug --advanced --wait
     rm -f $CONF_TMP
         echo "$ADMIN_KEY" | ../client/src/tools/init/sxinit --port "$SX_PORT" --host-list=127.0.1.1 sx://admin@localhost --no-ssl --key
-#    ../client/src/tools/vol/sxvol create sx://admin@localhost/vol$i -r $i -o admin -s 100M
+    ../client/src/tools/vol/sxvol create sx://admin@localhost/vol$i -r $i -o admin -s 100M
     if [ $i -eq 1 ]; then
 #        ../client/src/tools/acl/sxacl useradd --generate-key u1 sx://admin@localhost
 #        ../client/src/tools/acl/sxacl volperm --grant=manager u1 sx://admin@localhost/vol$i
  #       echo "$ADMIN_KEY" | ../client/src/tools/init/sxinit --port "$SX_PORT" --host-list=127.0.1.1 sx://admin@localhost --no-ssl --key
         test/randgen 40960 40960 >mvtest
-#        ../client/src/tools/cp/sxcp mvtest sx://admin@localhost/vol1/
+        ../client/src/tools/cp/sxcp mvtest sx://admin@localhost/vol1/
     fi
 
     i=$(( i+1 ))

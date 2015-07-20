@@ -544,11 +544,18 @@ struct rebalance_iter {
     unsigned rebalance_ver;
     int retry_mode;
     sqlite3_stmt *q[SIZES][HASHDBS];
+    sqlite3_stmt *q_num[SIZES][HASHDBS];
     sqlite3_stmt *q_add;
     sqlite3_stmt *q_sel;
     sqlite3_stmt *q_remove;
     sqlite3_stmt *q_reset;
     sqlite3_stmt *q_count;
+    int64_t blocks_all;
+    int64_t blocks_pos;
+    int64_t blocks_retry_all;
+    int64_t blocks_retry_pos;
+    int64_t last_iter;
+    int64_t current_iter;
 };
 
 typedef struct {
@@ -856,6 +863,7 @@ static void close_all_dbs(sx_hashfs_t *h) {
             sqlite3_finalize(h->qb_find_unused_block[j][i]);
             sqlite3_finalize(h->qb_deleteold[j][i]);
             sqlite3_finalize(h->rit.q[j][i]);
+            sqlite3_finalize(h->rit.q_num[j][i]);
             sqlite3_finalize(h->qb_find_expired_reservation[j][i]);
             sqlite3_finalize(h->qb_find_expired_reservation2[j][i]);
             sqlite3_finalize(h->qb_gc_revision_blocks[j][i]);
@@ -1642,9 +1650,15 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
                 goto open_hashfs_fail;
             if(qprep(h->datadb[j][i], &h->qb_reserve[j][i], "INSERT OR IGNORE INTO reservations(reservations_id, revision_id, ttl) VALUES(:reserve_id, :revision_id, :ttl)"))
                 goto open_hashfs_fail;
+            /* Select just the revisions that are part of a fully uploaded file (i.e. no reservations).
+               if a hash has both reservations (incomplete upload), and fully uploaded references, this returns just the fully uploaded references.
+               As long as file flush atomically checks for presence and bumps reference counter there shouldn't be race conditions here.
+            */
             if(qprep(h->datadb[j][i], &h->qb_get_meta[j][i], "SELECT replica, op, revision_id FROM revision_blocks NATURAL INNER JOIN revision_ops NATURAL LEFT JOIN reservations WHERE blocks_hash=:hash AND age < :current_age AND reservations_id IS NULL"))
                 goto open_hashfs_fail;
-            if(qprep(h->datadb[j][i], &h->rit.q[j][i], "SELECT hash FROM blocks WHERE hash > :prevhash AND blockno IS NOT NULL"))
+            if(qprep(h->datadb[j][i], &h->rit.q[j][i], "SELECT hash FROM blocks WHERE hash > :prevhash"))
+                goto open_hashfs_fail;
+            if(qprep(h->datadb[j][i], &h->rit.q_num[j][i], "SELECT COUNT(hash) FROM blocks"))
                 goto open_hashfs_fail;
 	    if(qprep(h->datadb[j][i], &h->qb_del_reserve[j][i], "DELETE FROM reservations WHERE reservations_id=:reserve_id"))
 		goto open_hashfs_fail;
@@ -1808,10 +1822,6 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
         goto open_hashfs_fail;
     if(qprep(h->eventdb, &h->qe_count_upgradejobs, "SELECT COUNT(*) FROM jobs WHERE complete=0 AND lock='$UPGRADE$UPGRADE'"))
         goto open_hashfs_fail;
-    if(qprep(h->eventdb, &q, "CREATE TEMP TABLE hash_retry(hash BLOB("STRIFY(SXI_SHA1_BIN_LEN)") PRIMARY KEY NOT NULL, blocksize INTEGER NOT NULL, id INTEGER NOT NULL)") ||
-        qstep_noret(q))
-        goto open_hashfs_fail;
-    qnullify(q);
     if(qprep(h->eventdb, &h->rit.q_add, "INSERT OR IGNORE INTO hash_retry(hash, blocksize, id) VALUES(:hash, :blocksize, :hash)"))
         goto open_hashfs_fail;
     if(qprep(h->eventdb, &h->rit.q_sel, "SELECT hash, blocksize FROM hash_retry WHERE hash > :prevhash"))
@@ -3531,6 +3541,20 @@ static rc_ty hashfs_1_1_to_1_2(sxi_db_t *db)
     return ret;
 }
 
+static rc_ty eventdb_1_1_to_1_2(sxi_db_t *db)
+{
+    rc_ty ret = FAIL_EINTERNAL;
+    sqlite3_stmt *q = NULL;
+    do {
+        if(qprep(db, &q, "CREATE TABLE hash_retry(hash BLOB("STRIFY(SXI_SHA1_BIN_LEN)") PRIMARY KEY NOT NULL, blocksize INTEGER NOT NULL, id INTEGER NOT NULL)") || qstep_noret(q))
+            break;
+	qnullify(q);
+
+        ret = OK;
+    } while(0);
+    qnullify(q);
+    return ret;
+}
 
 /* Version upgrade 1.0 -> 1.1 */
 static rc_ty hashfs_1_0_to_1_1(sxi_db_t *db)
@@ -3790,7 +3814,7 @@ static const sx_upgrade_t upgrade_sequence[] = {
         .upgrade_metadb = upgrade_noop,
         .upgrade_datadb = upgrade_noop,
         .upgrade_tempdb = upgrade_noop,
-        .upgrade_eventsdb = upgrade_noop,
+        .upgrade_eventsdb = eventdb_1_1_to_1_2,
         .upgrade_xfersdb = upgrade_noop,
         .upgrade_alldb = alldb_noop
     }
@@ -12828,6 +12852,7 @@ static rc_ty sx_hashfs_blocks_restart(sx_hashfs_t *h, unsigned rebalance_version
     for(j=0;j<SIZES;j++) {
         for(i=0;i<HASHDBS;i++) {
             sqlite3_reset(h->rit.q[j][i]);
+            sqlite3_reset(h->rit.q_num[j][i]);
             sqlite3_reset(h->qb_get_meta[j][i]);
             sqlite3_reset(h->qb_deleteold[j][i]);
             sqlite3_clear_bindings(h->rit.q[j][i]);
@@ -12847,6 +12872,8 @@ static rc_ty sx_hashfs_blocks_restart(sx_hashfs_t *h, unsigned rebalance_version
     }
     h->rit.sizeidx = h->rit.ndbidx = 0;
     h->rit.retry_mode = 0;
+    h->rit.blocks_pos = h->rit.blocks_retry_pos = 0;
+    h->rit.last_iter = h->rit.current_iter = 0;
     return OK;
 }
 
@@ -12963,6 +12990,7 @@ static rc_ty sx_hashfs_blocks_retry_next(sx_hashfs_t *h, block_meta_t *blockmeta
             for(hs = 0; hs < SIZES; hs++)
                 if(bsz[hs] == bs)
                     break;
+            h->rit.blocks_retry_pos++;
             if(hs == SIZES) {
                 WARN("bad blocksize: %d", bs);
                 return FAIL_BADBLOCKSIZE;
@@ -12998,6 +13026,8 @@ static rc_ty sx_hashfs_blocks_next(sx_hashfs_t *h, block_meta_t *blockmeta)
                       ret == SQLITE_DONE ? "DONE" :
                       ret == SQLITE_ROW ? "ROW" :
                       "ERROR");
+                if (ret == SQLITE_ROW)
+                    h->rit.blocks_pos++;
                 ret = sx_hashfs_blockmeta_get(h, ret, q, qmeta, bsz[h->rit.sizeidx], blockmeta);
                 sqlite3_reset(q);
                 if (ret != SQLITE_ROW && ret != SQLITE_DONE)
@@ -13012,20 +13042,36 @@ static rc_ty sx_hashfs_blocks_next(sx_hashfs_t *h, block_meta_t *blockmeta)
 
 rc_ty sx_hashfs_br_init(sx_hashfs_t *h)
 {
+    unsigned j, i;
     rc_ty ret = OK;
     unsigned rebalance_version = sxi_hdist_version(h->hd);
     DEBUG("block rebalance initialized");
     h->rit.rebalance_ver = rebalance_version;
     h->rit.retry_mode = 0;
+    h->rit.last_iter = h->rit.current_iter = 0;
     sqlite3_reset(h->rit.q_reset);
     if (qstep_noret(h->rit.q_reset))
         ret = FAIL_EINTERNAL;
     sqlite3_reset(h->rit.q_reset);
+    h->rit.blocks_all = 0;
+    for(j=0; j<SIZES && ret == OK; j++) {
+	for(i=0; i<HASHDBS; i++) {
+            sqlite3_reset(h->rit.q_num[j][i]);
+            if (qstep_ret(h->rit.q_num[j][i])) {
+                WARN("Failed to count blocks");
+                ret = FAIL_EINTERNAL;
+                break;
+            }
+            h->rit.blocks_all += sqlite3_column_int64(h->rit.q_num[j][i], 0);
+            sqlite3_reset(h->rit.q_num[j][i]);
+        }
+    }
     return ret;
 }
 
 rc_ty sx_hashfs_br_begin(sx_hashfs_t *h)
 {
+    char msg[128];
     unsigned rebalance_version = sxi_hdist_version(h->hd);
     if (rebalance_version != h->rit.rebalance_ver) {
         rc_ty rc;
@@ -13040,16 +13086,29 @@ rc_ty sx_hashfs_br_begin(sx_hashfs_t *h)
         sqlite3_reset(h->rit.q_count);
         if (qstep_ret(h->rit.q_count))
             return FAIL_EINTERNAL;
-        n = sqlite3_column_int64(h->rit.q_count, 0);
+        h->rit.blocks_retry_all = n = sqlite3_column_int64(h->rit.q_count, 0);
         sqlite3_reset(h->rit.q_count);
         DEBUG("retry: %lld hashes", (long long)n);
         if (!n) {
             DEBUG("outer iteration done");
+            snprintf(msg, sizeof(msg),"Relocating data (processed %lld+%lld blocks)",
+                     (long long)h->rit.blocks_pos, (long long)h->rit.blocks_retry_pos);
+            sx_hashfs_set_progress_info(h, INPRG_REBALANCE_RUNNING, msg);
             return ITER_NO_MORE;
         }
+        snprintf(msg, sizeof(msg), "Relocating data (retry: %lld blocks remaining, processed: %lld+%lld blocks)", (long long)h->rit.blocks_retry_all,
+                 (long long)h->rit.blocks_pos, (long long)h->rit.blocks_retry_pos);
+    } else {
+        /* When we are finished blocks_all and blocks_pos may not match if blocks were uploaded, GCed during the rebalance.
+           The newly uploaded blocks must already be in the correct place and wouldn't have been moved by the rebalance.
+         */
+        snprintf(msg, sizeof(msg), "Relocating data (%lld out of ~%lld blocks processed)", (long long)h->rit.blocks_pos, (long long)h->rit.blocks_all);
     }
+    sx_hashfs_set_progress_info(h, INPRG_REBALANCE_RUNNING, msg);
+    h->rit.current_iter = 0;
     return OK;
 }
+
 
 rc_ty sx_hashfs_br_next(sx_hashfs_t *h, block_meta_t **blockmetaptr)
 {
@@ -13067,12 +13126,27 @@ rc_ty sx_hashfs_br_next(sx_hashfs_t *h, block_meta_t **blockmetaptr)
         ret = sx_hashfs_blocks_next(h, blockmeta);
     if (ret == OK) {
         DEBUGHASH("br_next", &blockmeta->hash);
+        h->rit.current_iter++;
         return OK;
     }
     sx_hashfs_blockmeta_free(blockmetaptr);
     if (ret == ITER_NO_MORE) {
+        if (h->rit.retry_mode && !h->rit.last_iter && !h->rit.current_iter) {
+            /* this sequence is expected:
+               br_begin = OK
+               br_next = OK (0 or more times)
+               br_next = ITER_NO_MORE (retry_mode set to 1)
+               br_begin = OK
+               br_next = OK (0 or more times)
+               br_next = ITER_NO_MORE
+               br_begin = ITER_NO_MORE
+               if br_begin keeps returning OK and br_next immediately ITER_NO_MORE then there might be a bug
+            */
+            WARN("previous and current iteration both immediately returned ITER_NO_MORE, but br_begin didn't");
+        }
         h->rit.retry_mode = 1;
         DEBUG("retry_mode enabled");
+        h->rit.last_iter = h->rit.current_iter;
     }
     return ret;
 }

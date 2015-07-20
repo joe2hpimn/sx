@@ -2503,7 +2503,6 @@ static act_result_t blockrb_request(sx_hashfs_t *hashfs, job_t job_id, job_data_
     }
 
     memset(rbdata, 0, sizeof(rbdata));
-    sx_hashfs_set_progress_info(hashfs, INPRG_REBALANCE_RUNNING, "Relocating data");
 
     s = sx_hashfs_br_begin(hashfs);
     if(s == ITER_NO_MORE) {
