@@ -10,7 +10,11 @@ option  "size"      s "Set a new size of the volume (allows K,M,G,T suffixes)" s
 
 option  "max-revisions"      m "Set a new revisions limit for files in the volume" int optional
 
+option  "reset-custom-meta"    - "Reset custom metadata assigned to the volume" flag off
+
 text "\nAdditional options:\n"
+
+option  "reset-local-config"    - "Reset local configuration of the volume" flag off
 
 option  "debug"                 D "Enable debug messages" flag off
 

@@ -5,7 +5,7 @@ sxvol-modify \- modify existing volumes
 .B sxvol modify
 \fR<\fI\,OPTIONS\/\fR> \fI\,sx://\/\fR[\fI\,profile@\/\fR]\fI\,cluster/volume\/\fR
 .SH DESCRIPTION
-Modify settings of an existing remote volume such as its owner or size. Only cluster administrators can modify volumes.
+Modify configuration of an existing volume. Some settings, such as the volume size or owner, can only be changed by cluster administrators.
 .SH OPTIONS
 .TP
 \fB\-h\fR, \fB\-\-help\fR
@@ -25,6 +25,12 @@ Set a new size of the volume. If the new size is lower than the current space us
 .TP
 \fB\-\-max\-revisions\fR=\fI\,NUMBER\/\fR
 Set a new limit for the number of file revisions kept int the volume. If the new limit is lower than a previous one, the oldest file revisions, which exceed it will be deleted. See \fBsxrev\fR(1) for more information about revisions.
+.TP
+\fB\-\-reset\-custom\-meta\fR
+Reset custom metadata of the volume. This option should only be used when reconfiguring a filter-enabled volume.
+.TP
+\fB\-\-reset\-local\-config\fR
+This option resets the local configuration of the volume stored in the SX configuration directory (by default ~/.sx). 
 .TP
 \fB\-D\fR, \fB\-\-debug\fR
 Enable debug messages

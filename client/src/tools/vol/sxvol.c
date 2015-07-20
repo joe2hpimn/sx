@@ -361,6 +361,28 @@ create_err:
     return ret;
 }
 
+int wipe_config(sxc_cluster_t *cluster, const char *volume)
+{
+    const char *confdir = sxi_cluster_get_confdir(cluster);
+    char *voldir = malloc(strlen(confdir) + strlen(volume) + 10);
+
+    if(!voldir) {
+	fprintf(stderr, "ERROR: Out of memory\n");
+	return 1;
+    }
+    sprintf(voldir, "%s/volumes/%s", confdir, volume);
+    /* wipe existing local config */
+    if(!reject_dots(volume)) {
+	if(!access(voldir, F_OK) && sxi_rmdirs(voldir)) {
+	    fprintf(stderr, "ERROR: Can't wipe volume configuration directory %s\n", voldir);
+	    free(voldir);
+	    return 1;
+	}
+    }
+    free(voldir);
+    return 0;
+}
+
 int main(int argc, char **argv) {
     int ret = 0;
     sxc_client_t *sx;
@@ -460,32 +482,8 @@ int main(int argc, char **argv) {
 	    else if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_VOLDEL_ERR))
 		fprintf(stderr, SXBC_TOOLS_VOLDEL_MSG, uri->profile ? uri->profile : "", uri->profile ? "@" : "", uri->host, uri->volume);
 	} else {
-	    const char *confdir = sxi_cluster_get_confdir(cluster);
-	    char *voldir;
 	    printf("Volume '%s' removed.\n", uri->volume);
-
-	    voldir = malloc(strlen(confdir) + strlen(uri->volume) + 10);
-	    if(!voldir) {
-		ret = 1;
-		fprintf(stderr, "ERROR: Out of memory\n");
-		remove_cmdline_parser_free(&remove_args);
-		sxc_free_uri(uri);
-		sxc_cluster_free(cluster);
-		goto main_err;
-	    }
-	    sprintf(voldir, "%s/volumes/%s", confdir, uri->volume);
-	    /* wipe existing local config */
-	    if(!reject_dots(uri->volume)) {
-		if(!access(voldir, F_OK) && sxi_rmdirs(voldir)) {
-		    ret = 1;
-		    fprintf(stderr, "ERROR: Can't wipe volume configuration directory %s\n", voldir);
-		    free(voldir);
-		    sxc_free_uri(uri);
-		    sxc_cluster_free(cluster);
-		    goto main_err;
-		}
-	    }
-	    free(voldir);
+	    ret = wipe_config(cluster, uri->volume);
 	}
 	sxc_free_uri(uri);
 	sxc_cluster_free(cluster);
@@ -497,6 +495,8 @@ int main(int argc, char **argv) {
         sxc_uri_t *uri;
         int64_t size = -1;
         int revs = -1;
+	sxc_meta_t *meta = NULL;
+
 
         ret = 1;
         if(modify_cmdline_parser(argc - 1, &argv[1], &modify_args)) {
@@ -520,7 +520,7 @@ int main(int argc, char **argv) {
             goto main_err;
         }
 
-        if(!modify_args.owner_given && !modify_args.size_given && !modify_args.max_revisions_given) {
+        if(!modify_args.owner_given && !modify_args.size_given && !modify_args.max_revisions_given && !modify_args.reset_custom_meta_given && !modify_args.reset_local_config_given) {
             modify_cmdline_parser_print_help();
             printf("\n");
             fprintf(stderr, "ERROR: Invalid arguments\n");
@@ -551,20 +551,39 @@ int main(int argc, char **argv) {
             revs = modify_args.max_revisions_arg;
         }
 
-        ret = sxc_volume_modify(cluster, uri->volume, modify_args.owner_arg, size, revs, NULL);
-        if(ret) {
-            fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
-            goto modify_err;
-        } else {
-	    if(modify_args.owner_given)
-		printf("Volume owner changed to '%s'\n", modify_args.owner_arg);
-	    if(modify_args.size_given)
-		printf("Volume size changed to %s\n", modify_args.size_arg);
-            if(modify_args.max_revisions_given)
-                printf("Volume revisions limit changed to %d\n", modify_args.max_revisions_arg);
+        if(modify_args.reset_custom_meta_given) {
+	    meta = sxc_meta_new(sx);
+	    if(!meta) {
+		fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
+		goto modify_err;
+	    }
+	}
+
+        if(modify_args.owner_given || modify_args.size_given || modify_args.max_revisions_given || modify_args.reset_custom_meta_given) {
+	    ret = sxc_volume_modify(cluster, uri->volume, modify_args.owner_arg, size, revs, meta);
+	    if(ret) {
+		fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
+		goto modify_err;
+	    } else {
+		if(modify_args.owner_given)
+		    printf("Volume owner changed to '%s'\n", modify_args.owner_arg);
+		if(modify_args.size_given)
+		    printf("Volume size changed to %s\n", modify_args.size_arg);
+		if(modify_args.max_revisions_given)
+		    printf("Volume revisions limit changed to %d\n", modify_args.max_revisions_arg);
+		if(modify_args.reset_custom_meta_given)
+		    printf("Volume custom metadata reset\n");
+	    }
+	}
+
+	if(modify_args.reset_local_config_given) {
+	    ret = wipe_config(cluster, uri->volume);
+	    if(!ret)
+		printf("Volume local configuration reset\n");
 	}
 
     modify_err:
+	sxc_meta_free(meta);
         sxc_free_uri(uri);
         sxc_cluster_free(cluster);
         modify_cmdline_parser_free(&modify_args);

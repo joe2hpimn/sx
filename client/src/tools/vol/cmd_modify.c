@@ -34,16 +34,18 @@ const char *modify_args_info_versiontext = "";
 const char *modify_args_info_description = "";
 
 const char *modify_args_info_full_help[] = {
-  "  -h, --help               Print help and exit",
-  "      --full-help          Print help, including hidden options, and exit",
-  "  -V, --version            Print version and exit",
+  "  -h, --help                Print help and exit",
+  "      --full-help           Print help, including hidden options, and exit",
+  "  -V, --version             Print version and exit",
   "\nVolume modification options:\n",
-  "  -o, --owner=NAME         Change the volume owner",
-  "  -s, --size=SIZE          Set a new size of the volume (allows K,M,G,T\n                             suffixes)",
-  "  -m, --max-revisions=INT  Set a new revisions limit for files in the volume",
+  "  -o, --owner=NAME          Change the volume owner",
+  "  -s, --size=SIZE           Set a new size of the volume (allows K,M,G,T\n                              suffixes)",
+  "  -m, --max-revisions=INT   Set a new revisions limit for files in the volume",
+  "      --reset-custom-meta   Reset custom metadata assigned to the volume\n                              (default=off)",
   "\nAdditional options:\n",
-  "  -D, --debug              Enable debug messages  (default=off)",
-  "  -c, --config-dir=PATH    Path to SX configuration directory",
+  "      --reset-local-config  Reset local configuration of the volume\n                              (default=off)",
+  "  -D, --debug               Enable debug messages  (default=off)",
+  "  -c, --config-dir=PATH     Path to SX configuration directory",
     0
 };
 
@@ -59,11 +61,13 @@ init_help_array(void)
   modify_args_info_help[6] = modify_args_info_full_help[6];
   modify_args_info_help[7] = modify_args_info_full_help[7];
   modify_args_info_help[8] = modify_args_info_full_help[8];
-  modify_args_info_help[9] = 0; 
+  modify_args_info_help[9] = modify_args_info_full_help[9];
+  modify_args_info_help[10] = modify_args_info_full_help[10];
+  modify_args_info_help[11] = 0; 
   
 }
 
-const char *modify_args_info_help[10];
+const char *modify_args_info_help[12];
 
 typedef enum {ARG_NO
   , ARG_FLAG
@@ -93,6 +97,8 @@ void clear_given (struct modify_args_info *args_info)
   args_info->owner_given = 0 ;
   args_info->size_given = 0 ;
   args_info->max_revisions_given = 0 ;
+  args_info->reset_custom_meta_given = 0 ;
+  args_info->reset_local_config_given = 0 ;
   args_info->debug_given = 0 ;
   args_info->config_dir_given = 0 ;
 }
@@ -106,6 +112,8 @@ void clear_args (struct modify_args_info *args_info)
   args_info->size_arg = NULL;
   args_info->size_orig = NULL;
   args_info->max_revisions_orig = NULL;
+  args_info->reset_custom_meta_flag = 0;
+  args_info->reset_local_config_flag = 0;
   args_info->debug_flag = 0;
   args_info->config_dir_arg = NULL;
   args_info->config_dir_orig = NULL;
@@ -123,8 +131,10 @@ void init_args_info(struct modify_args_info *args_info)
   args_info->owner_help = modify_args_info_full_help[4] ;
   args_info->size_help = modify_args_info_full_help[5] ;
   args_info->max_revisions_help = modify_args_info_full_help[6] ;
-  args_info->debug_help = modify_args_info_full_help[8] ;
-  args_info->config_dir_help = modify_args_info_full_help[9] ;
+  args_info->reset_custom_meta_help = modify_args_info_full_help[7] ;
+  args_info->reset_local_config_help = modify_args_info_full_help[9] ;
+  args_info->debug_help = modify_args_info_full_help[10] ;
+  args_info->config_dir_help = modify_args_info_full_help[11] ;
   
 }
 
@@ -274,6 +284,10 @@ modify_cmdline_parser_dump(FILE *outfile, struct modify_args_info *args_info)
     write_into_file(outfile, "size", args_info->size_orig, 0);
   if (args_info->max_revisions_given)
     write_into_file(outfile, "max-revisions", args_info->max_revisions_orig, 0);
+  if (args_info->reset_custom_meta_given)
+    write_into_file(outfile, "reset-custom-meta", 0, 0 );
+  if (args_info->reset_local_config_given)
+    write_into_file(outfile, "reset-local-config", 0, 0 );
   if (args_info->debug_given)
     write_into_file(outfile, "debug", 0, 0 );
   if (args_info->config_dir_given)
@@ -526,6 +540,8 @@ modify_cmdline_parser_internal (
         { "owner",	1, NULL, 'o' },
         { "size",	1, NULL, 's' },
         { "max-revisions",	1, NULL, 'm' },
+        { "reset-custom-meta",	0, NULL, 0 },
+        { "reset-local-config",	0, NULL, 0 },
         { "debug",	0, NULL, 'D' },
         { "config-dir",	1, NULL, 'c' },
         { 0,  0, 0, 0 }
@@ -622,6 +638,32 @@ modify_cmdline_parser_internal (
             exit (EXIT_SUCCESS);
           }
 
+          /* Reset custom metadata assigned to the volume.  */
+          if (strcmp (long_options[option_index].name, "reset-custom-meta") == 0)
+          {
+          
+          
+            if (update_arg((void *)&(args_info->reset_custom_meta_flag), 0, &(args_info->reset_custom_meta_given),
+                &(local_args_info.reset_custom_meta_given), optarg, 0, 0, ARG_FLAG,
+                check_ambiguity, override, 1, 0, "reset-custom-meta", '-',
+                additional_error))
+              goto failure;
+          
+          }
+          /* Reset local configuration of the volume.  */
+          else if (strcmp (long_options[option_index].name, "reset-local-config") == 0)
+          {
+          
+          
+            if (update_arg((void *)&(args_info->reset_local_config_flag), 0, &(args_info->reset_local_config_given),
+                &(local_args_info.reset_local_config_given), optarg, 0, 0, ARG_FLAG,
+                check_ambiguity, override, 1, 0, "reset-local-config", '-',
+                additional_error))
+              goto failure;
+          
+          }
+          
+          break;
         case '?':	/* Invalid option.  */
           /* `getopt_long' already printed an error message.  */
           goto failure;
