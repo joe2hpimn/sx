@@ -891,11 +891,11 @@ static int replace_nodes(sxc_client_t *sx, struct cluster_args_info *args) {
 		continue;
 	    cn = sx_nodelist_get(curnodes, j);
 	    if(!strcmp(sx_node_addr(cn), addr) || !strcmp(sx_node_internal_addr(cn), addr)) {
-		CRIT("IP address '%s' is already owned by node %s", addr, sx_node_uuid_str(cn));
+		CRIT("IP address '%s' is already assigned to node %s", addr, sx_node_uuid_str(cn));
 		break;
 	    }
 	    if(!strcmp(sx_node_addr(cn), int_addr) || !strcmp(sx_node_internal_addr(cn), int_addr)) {
-		CRIT("IP address '%s' is already owned by node %s", int_addr, sx_node_uuid_str(cn));
+		CRIT("IP address '%s' is already assigned to node %s", int_addr, sx_node_uuid_str(cn));
 		break;
 	    }
 	}
@@ -905,11 +905,11 @@ static int replace_nodes(sxc_client_t *sx, struct cluster_args_info *args) {
 	for(j = 0; j < sx_nodelist_count(rplnodes); j++) {
 	    cn = sx_nodelist_get(rplnodes, j);
 	    if(!strcmp(sx_node_addr(cn), addr) || !strcmp(sx_node_internal_addr(cn), addr)) {
-		CRIT("Same IP address '%s' specified for multiple nodes", addr);
+		CRIT("Same IP address '%s' specified for multiple replacement nodes", addr);
 		break;
 	    }
 	    if(!strcmp(sx_node_addr(cn), int_addr) || !strcmp(sx_node_internal_addr(cn), int_addr)) {
-		CRIT("Same IP address '%s' specified for multiple nodes", int_addr);
+		CRIT("Same IP address '%s' specified for multiple replacement nodes", int_addr);
 		break;
 	    }
 	}
@@ -976,6 +976,40 @@ static int replace_nodes(sxc_client_t *sx, struct cluster_args_info *args) {
     if(sxc_cluster_fetchnodes(clust) ||
        sxc_cluster_save(clust, args->config_dir_arg))
 	WARN("Cannot update local cluster configuration: %s", sxc_geterrmsg(sx));
+
+    for(i = 0; i < sx_nodelist_count(rplnodes); i++) {
+	const sx_node_t *rn = sx_nodelist_get(rplnodes, i);
+	const sx_node_t *cn = sx_nodelist_lookup(curnodes, sx_node_uuid(rn));
+	const char *addr;
+	sxi_hostlist_t deadnode;
+
+	if(!cn)
+	    continue;
+	sxi_hostlist_init(&deadnode);
+
+	addr = sx_node_addr(cn);
+	if(strcmp(sx_node_addr(rn), addr) &&
+	   sxi_hostlist_add_host(sx, &deadnode, addr))  {
+	    WARN("Cannot check replaced nodes status");
+	    break;
+	}
+
+	addr = sx_node_internal_addr(cn);
+	if(strcmp(sx_node_internal_addr(rn), addr) &&
+	   sxi_hostlist_add_host(sx, &deadnode, addr))  {
+	    sxi_hostlist_empty(&deadnode);
+	    WARN("Cannot check replaced nodes status");
+	    break;
+	}
+
+	if(sxi_hostlist_get_count(&deadnode) > 0) {
+	    clst_destroy(clst);
+	    clst = clst_query(conns, &deadnode);
+	    if(clst)
+		WARN("The replaced node %s appears to be still running on the old address. Please make sure it is properly shut down!", sx_node_uuid_str(rn));
+	}
+	sxi_hostlist_empty(&deadnode);
+    }
 
     ret = 0;
 
@@ -1097,6 +1131,22 @@ static int setfaulty_nodes(sxc_client_t *sx, struct cluster_args_info *args) {
 	WARN("Cannot update local cluster configuration: %s", sxc_geterrmsg(sx));
 
     ret = 0;
+
+    for(i = 0; i < nnodes; i++) {
+	sxi_hostlist_t deadnode;
+	sxi_hostlist_init(&deadnode);
+	if(sxi_hostlist_add_host(sx, &deadnode, sx_node_addr(nodes[i])) ||
+	   sxi_hostlist_add_host(sx, &deadnode, sx_node_internal_addr(nodes[i]))) {
+	    sxi_hostlist_empty(&deadnode);
+	    WARN("Cannot check fautly nodes status");
+	    break;
+	}
+	clst_destroy(clst);
+	clst = clst_query(conns, &deadnode);
+	sxi_hostlist_empty(&deadnode);
+	if(clst)
+	    WARN("Faulty node %s appears to be still running. Please make sure it is properly shut down!", sx_node_uuid_str(nodes[i]));
+    }
 
  setfaulty_err:
     for(i = 0; i < nnodes; i++)
