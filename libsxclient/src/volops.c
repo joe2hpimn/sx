@@ -934,6 +934,7 @@ struct _sxc_cluster_lv_t {
     sxc_cluster_t *cluster;
     FILE *f;
     char *fname;
+    int has_meta;
 };
 
 sxc_cluster_lv_t *sxc_cluster_listvolumes(sxc_cluster_t *cluster, int get_meta) {
@@ -1010,6 +1011,7 @@ sxc_cluster_lv_t *sxc_cluster_listvolumes(sxc_cluster_t *cluster, int get_meta) 
     ret->f = yctx.f;
     ret->fname = fname;
     ret->cluster = cluster;
+    ret->has_meta = get_meta ? 1 : 0;
     return ret;
 }
 
@@ -1020,6 +1022,12 @@ int sxc_cluster_listvolumes_next(sxc_cluster_lv_t *lv, char **volume_name, char 
     unsigned int i = 0;
     char *key = NULL;
     void *value = NULL;
+
+    if(!lv->has_meta && meta) {
+        SXDEBUG("set get_meta to 1 to obtain volume meta");
+        sxi_seterr(sx, SXE_EARG, "Invalid argument");
+        return -1;
+    }
 
     if(!fread(&volume, sizeof(volume), 1, lv->f)) {
 	if(ferror(lv->f)) {

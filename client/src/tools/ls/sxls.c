@@ -194,7 +194,7 @@ int main(int argc, char **argv) {
                     unsigned int len;
                     if(n<=0) {
                         if(n) {
-                            fprintf(stderr, "ERROR: Failed to retrieve file name for %s\n", args.inputs[i]);
+                            fprintf(stderr, "ERROR: Failed to retrieve volume name for %s\n", args.inputs[i]);
                             ret = 1;
                         }
                         break;
@@ -228,7 +228,7 @@ int main(int argc, char **argv) {
 
 		    if(n<=0) {
 			if(n)
-        		    fprintf(stderr, "ERROR: Failed to retrieve file name for %s\n", args.inputs[i]);
+                            fprintf(stderr, "ERROR: Failed to retrieve volume name for %s\n", args.inputs[i]);
 			break;
 		    }
 
