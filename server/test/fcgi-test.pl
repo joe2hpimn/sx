@@ -846,7 +846,7 @@ test_get "$writer quota", admin_only(200,'application/json'), ".users/$writer?qu
 # This should return 200
 test_upload 'file upload', $writer, random_data($tinyvolumesize-length('toobig')), "tiny$vol", 'toobig';
 # Check if volume usage is computed correctly
-test_get "$writer quota usage", {$writer=>[200,'application/json']}, "?whoami&quota", undef, sub { my $json_raw = shift; my $json = get_json($json_raw) or return 0; return is_int($json->{'userQuota'}) && $json->{'userQuota'} == $tinyvolumesize && is_int($json->{'userQuotaUsed'}) && $json->{'userQuotaUsed'} == $tinyvolumesize; };
+test_get "$writer quota usage", {$writer=>[200,'application/json']}, ".self", undef, sub { my $json_raw = shift; my $json = get_json($json_raw) or return 0; return is_hash($json->{$writer}) && is_int($json->{$writer}->{'userQuota'}) && $json->{$writer}->{'userQuota'} == $tinyvolumesize && is_int($json->{$writer}->{'userQuotaUsed'}) && $json->{$writer}->{'userQuotaUsed'} == $tinyvolumesize; };
 # This file should not be allowed to be uploaded because $writer user quota will be exceeded (data on the other volume owned by $writer is present)
 test_upload 'file upload: (exceeding volume owner quota)', $writer, '', "medium$vol", 'empty', undef, {}, 413;
 test_delete_job "Wiping tiny$vol contents", {'badauth'=>[401],$reader=>[403],$writer=>[200]}, "tiny$vol/toobig";
@@ -859,11 +859,11 @@ test_put_job "disabling owner quota for $writer", admin_only(200), ".users/$writ
 # Check if quota has been set up properly
 test_get "$writer quota", admin_only(200,'application/json'), ".users/$writer?quota", undef, sub { my $json_raw = shift; my $json = get_json($json_raw) or return 0; return is_int($json->{'userQuota'}) && $json->{'userQuota'} == 0; };
 # Check if volume usage is computed correctly
-test_get "$writer quota usage", {$writer=>[200,'application/json']}, "?whoami&quota", undef, sub { my $json_raw = shift; my $json = get_json($json_raw) or return 0; return is_int($json->{'userQuota'}) && $json->{'userQuota'} == 0 && is_int($json->{'userQuotaUsed'}) && $json->{'userQuotaUsed'} == length('empty'); };
+test_get "$writer quota usage", {$writer=>[200,'application/json']}, ".self", undef, sub { my $json_raw = shift; my $json = get_json($json_raw) or return 0; return is_hash($json->{$writer}) && is_int($json->{$writer}->{'userQuota'}) && $json->{$writer}->{'userQuota'} == 0 && is_int($json->{$writer}->{'userQuotaUsed'}) && $json->{$writer}->{'userQuotaUsed'} == length('empty'); };
 # This should return 200 now
 test_upload 'file upload', $writer, random_data($tinyvolumesize-length('toobig')), "tiny$vol", 'toobig';
 # Check if volume usage is computed correctly
-test_get "$writer quota usage", {$writer=>[200,'application/json']}, "?whoami&quota", undef, sub { my $json_raw = shift; my $json = get_json($json_raw) or return 0; return is_int($json->{'userQuota'}) && $json->{'userQuota'} == 0 && is_int($json->{'userQuotaUsed'}) && $json->{'userQuotaUsed'} == length('empty') + $tinyvolumesize; };
+test_get "$writer quota usage", {$writer=>[200,'application/json']}, ".self", undef, sub { my $json_raw = shift; my $json = get_json($json_raw) or return 0; return is_hash($json->{$writer}) && is_int($json->{$writer}->{'userQuota'}) && $json->{$writer}->{'userQuota'} == 0 && is_int($json->{$writer}->{'userQuotaUsed'}) && $json->{$writer}->{'userQuotaUsed'} == length('empty') + $tinyvolumesize; };
 test_put_job "setting invalid quota for $writer (negative)", {'badauth'=>[401],$reader=>[403],$writer=>[403],'admin'=>[400]}, ".users/$writer", "{\"quota\":-1}";
 test_put_job "setting invalid quota for $writer (too small)", {'badauth'=>[401],$reader=>[403],$writer=>[403],'admin'=>[400]}, ".users/$writer", "{\"quota\":1048575}"; # 1MB is the lowest accepted value
 
@@ -1114,12 +1114,12 @@ test_get 'listing all \'tree/*/\' files', authed_only(200, 'application/json'), 
 ### Check volume modification request ###
 test_delete_job "Wiping tiny$vol contents", {'badauth'=>[401],$reader=>[403],$writer=>[200]}, "tiny$vol/toobig";
 # Check if volume usage is computed correctly
-test_get "$writer quota usage", {$writer=>[200,'application/json']}, "?whoami&quota", undef, sub { my $json_raw = shift; my $json = get_json($json_raw) or return 0; return is_int($json->{'userQuota'}) && $json->{'userQuota'} == 0 && is_int($json->{'userQuotaUsed'}) && $json->{'userQuotaUsed'} == length('empty'); };
+test_get "$writer quota usage", {$writer=>[200,'application/json']}, ".self", undef, sub { my $json_raw = shift; my $json = get_json($json_raw) or return 0; return is_hash($json->{$writer}) && is_int($json->{$writer}->{'userQuota'}) && $json->{$writer}->{'userQuota'} == 0 && is_int($json->{$writer}->{'userQuotaUsed'}) && $json->{$writer}->{'userQuotaUsed'} == length('empty'); };
 test_upload 'file upload (add first revision)', $writer, random_data($tinyvolumesize/2-length('toobig')), "tiny$vol", 'toobig';
 test_upload 'file upload (overwrite existing revision)', $writer, random_data($tinyvolumesize/2-length('toobig')), "tiny$vol", 'toobig';
 test_get 'file revisions (should be 1)', authed_only(200, 'application/json'), "tiny$vol/toobig?fileRevisions", undef, sub { my $json = get_json(shift); return 0 unless is_hash($json->{'fileRevisions'}) && scalar keys %{$json->{'fileRevisions'}} == 1; };
 # Check if volume usage is computed correctly
-test_get "$writer quota usage", {$writer=>[200,'application/json']}, "?whoami&quota", undef, sub { my $json_raw = shift; my $json = get_json($json_raw) or return 0; return is_int($json->{'userQuota'}) && $json->{'userQuota'} == 0 && is_int($json->{'userQuotaUsed'}) && $json->{'userQuotaUsed'} == length('empty') + $tinyvolumesize/2; };
+test_get "$writer quota usage", {$writer=>[200,'application/json']}, ".self", undef, sub { my $json_raw = shift; my $json = get_json($json_raw) or return 0; return is_hash($json->{$writer}) && is_int($json->{$writer}->{'userQuota'}) && $json->{$writer}->{'userQuota'} == 0 && is_int($json->{$writer}->{'userQuotaUsed'}) && $json->{$writer}->{'userQuotaUsed'} == length('empty') + $tinyvolumesize/2; };
 test_put_job "Increasing max revisions for tiny$vol", admin_only(200), "tiny$vol?o=mod", "{\"maxRevisions\":2}";
 test_get "tiny$vol max revisions limit modification", {'badauth'=>[401],$reader=>[200,'application/json'],$writer=>[200,'application/json'],'admin'=>[200,'application/json']}, "?volumeList", undef, sub { my $json = get_json(shift); return 0 unless is_hash($json->{'volumeList'}) && is_hash($json->{'volumeList'}->{"tiny$vol"}) && is_int($json->{'volumeList'}->{"tiny$vol"}->{'maxRevisions'}) && $json->{'volumeList'}->{"tiny$vol"}->{'maxRevisions'} == 2; };
 test_put_job "Increasing max revisions for tiny$vol (too high)", admin_only(400), "tiny$vol?o=mod", "{\"maxRevisions\":100}"; # Revisions limit is too high
@@ -1127,7 +1127,7 @@ test_put_job "Increasing max revisions for $vol", admin_only(400), "$vol?o=mod",
 test_upload 'file upload (add new revision)', $writer, random_data($tinyvolumesize/2-length('toobig')), "tiny$vol", 'toobig';
 test_get 'file revisions (should be 2)', authed_only(200, 'application/json'), "tiny$vol/toobig?fileRevisions", undef, sub { my $json = get_json(shift); return 0 unless is_hash($json->{'fileRevisions'}) && scalar keys %{$json->{'fileRevisions'}} == 2; };
 # Check if volume usage is computed correctly
-test_get "$writer quota", {$writer=>[200,'application/json']}, "?whoami&quota", undef, sub { my $json_raw = shift; my $json = get_json($json_raw) or return 0; return is_int($json->{'userQuota'}) && $json->{'userQuota'} == 0 && is_int($json->{'userQuotaUsed'}) && $json->{'userQuotaUsed'} == length('empty') + $tinyvolumesize; };# Check incorrect $writer quota settings
+test_get "$writer quota usage", {$writer=>[200,'application/json']}, ".self", undef, sub { my $json_raw = shift; my $json = get_json($json_raw) or return 0; return is_hash($json->{$writer}) && is_int($json->{$writer}->{'userQuota'}) && $json->{$writer}->{'userQuota'} == 0 && is_int($json->{$writer}->{'userQuotaUsed'}) && $json->{$writer}->{'userQuotaUsed'} == length('empty') + $tinyvolumesize; };
 test_put_job "Decreasing max revisions for tiny$vol", admin_only(200), "tiny$vol?o=mod", "{\"maxRevisions\":1}"; # New revisions limit is lower than current one
 test_upload 'file upload (overwrite existing revision)', $writer, random_data($tinyvolumesize/2-length('toobig')), "tiny$vol", 'toobig'; # This will allow server to finish delete jobs
 test_get 'file revisions (should be 1)', authed_only(200, 'application/json'), "tiny$vol/toobig?fileRevisions", undef, sub { my $json = get_json(shift); return 0 unless is_hash($json->{'fileRevisions'}) && scalar keys %{$json->{'fileRevisions'}} == 1; };
@@ -1136,7 +1136,7 @@ test_put_job "custom tiny$vol volume meta setting", {'admin'=>[200,'application/
 test_get "tiny$vol volume meta (two custom values)", {'admin'=>[200,'application/json'],'badauth'=>[401],$reader=>[200,'application/json'],$writer=>[200,'application/json']}, "?volumeList&customVolumeMeta", undef, sub { my $json = get_json(shift) or return 0; return is_hash($json->{"volumeList"}) && is_hash($json->{"volumeList"}->{"tiny$vol"}) && is_hash($json->{"volumeList"}->{"tiny$vol"}->{'customVolumeMeta'}) && keys %{$json->{"volumeList"}->{"tiny$vol"}->{'customVolumeMeta'}} == 2 && ($json->{"volumeList"}->{"tiny$vol"}->{'customVolumeMeta'}->{'customMetaKey1'} eq 'aabbcc') && ($json->{"volumeList"}->{"tiny$vol"}->{'customVolumeMeta'}->{'customMetaKey2'} eq '123456abcd'); };
 test_upload 'file upload (overwrite existing revision)', $writer, random_data($tinyvolumesize-length('toobig')), "tiny$vol", 'toobig'; # Should fit exactly into volume capacity
 # Check if volume usage is computed correctly
-test_get "$writer quota", {$writer=>[200,'application/json']}, "?whoami&quota", undef, sub { my $json_raw = shift; my $json = get_json($json_raw) or return 0; return is_int($json->{'userQuota'}) && $json->{'userQuota'} == 0 && is_int($json->{'userQuotaUsed'}) && $json->{'userQuotaUsed'} == length('empty') + $tinyvolumesize; };
+test_get "$writer quota usage", {$writer=>[200,'application/json']}, ".self", undef, sub { my $json_raw = shift; my $json = get_json($json_raw) or return 0; return is_hash($json->{$writer}) && is_int($json->{$writer}->{'userQuota'}) && $json->{$writer}->{'userQuota'} == 0 && is_int($json->{$writer}->{'userQuotaUsed'}) && $json->{$writer}->{'userQuotaUsed'} == length('empty') + $tinyvolumesize; };
 # Try setting custom meta values on a volume with existing, non-custom meta
 test_put_job "custom meta.$vol volume meta setting", {'admin'=>[200,'application/json']}, "meta.$vol?o=mod", "{\"customVolumeMeta\":{\"customMetaKey1\":\"aabbccdefa\"}}";
 # Setting custom volume meta should not influence existing values

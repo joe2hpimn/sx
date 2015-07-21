@@ -32,6 +32,7 @@
 #include <yajl/yajl_parse.h>
 
 #include "fcgi-utils.h"
+#include "fcgi-actions-user.h"
 #include "hashfs.h"
 #include "blob.h"
 #include "../../../libsxclient/src/sxproto.h"
@@ -1031,7 +1032,7 @@ void fcgi_user_modify(void)
     job_2pc_handle_request(sx_hashfs_client(hashfs), &user_modify_spec, &uctx);
 }
 
-static int print_user(sx_uid_t user_id, const char *username, const uint8_t *user, const uint8_t *key, int is_admin, const char *desc, int64_t quota, int64_t quota_usage, void *ctx)
+static int print_user(sx_uid_t user_id, const char *username, const uint8_t *userhash, const uint8_t *key, int is_admin, const char *desc, int64_t quota, int64_t quota_usage, void *ctx)
 {
     int *first = ctx;
     if (!*first)
@@ -1072,3 +1073,29 @@ void fcgi_list_users(void) {
         quit_itererr("Failed to list users", rc);
 }
 
+void fcgi_self(void) {
+    rc_ty s;
+    char name[SXLIMIT_MAX_USERNAME_LEN+1];
+    int64_t quota_used;
+    char *desc = NULL;
+    int first = 1, rc;
+
+    s = sx_hashfs_uid_get_name(hashfs, uid, name, sizeof(name));
+    if (s != OK)
+        quit_errmsg(rc2http(s), msg_get_reason());
+    /* Get total usage of volumes owned by the user and its clones */
+    if((s = sx_hashfs_get_owner_quota_usage(hashfs, uid, NULL, &quota_used)) != OK)
+        quit_errmsg(rc2http(s), rc2str(s));
+    s = sx_hashfs_get_user_info(hashfs, user, NULL, NULL, NULL, &desc, NULL);
+    if (s != OK) {
+        free(desc);
+        quit_errmsg(rc2http(s), msg_get_reason());
+    }
+
+    CGI_PUTS("Content-type: application/json\r\n\r\n{");
+    rc = print_user(uid, name, user, NULL, has_priv(PRIV_ADMIN), desc, user_quota, quota_used, &first);
+    CGI_PUTS("}");
+    free(desc);
+    if(rc)
+        quit_itererr("Failed to list users", EINTR);
+}

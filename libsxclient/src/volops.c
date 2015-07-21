@@ -1455,15 +1455,13 @@ struct _sxc_cluster_lu_t {
     char *fname;
 };
 
-static sxc_cluster_lu_t *cluster_listusers(sxc_cluster_t *cluster, const char *list_clones) {
+static sxc_cluster_lu_t *cluster_listusers_common(sxc_cluster_t *cluster, const char *url) {
     sxc_client_t *sx = sxi_cluster_get_client(cluster);
     struct cb_listusers_ctx yctx;
     yajl_callbacks *yacb = &yctx.yacb;
     sxc_cluster_lu_t *ret;
     char *fname;
     int qret;
-    unsigned int len;
-    char *query;
 
     sxc_clearerr(sx);
 
@@ -1484,20 +1482,7 @@ static sxc_cluster_lu_t *cluster_listusers(sxc_cluster_t *cluster, const char *l
         return NULL;
     }
 
-    len = strlen(".users?desc") + 1;
-    if(list_clones)
-        len += strlen("&clones=") + strlen(list_clones);
-    query = malloc(len);
-    if(!query) {
-        CFGDEBUG("Failed to allocate memory for query");
-        fclose(yctx.f);
-        unlink(fname);
-        free(fname);
-        return NULL;
-    }
-    snprintf(query, len, ".users?desc%s%s", (list_clones ? "&clones=" : ""), (list_clones ? list_clones : ""));
-    sxi_set_operation(sx, "list users", sxi_cluster_get_name(cluster), NULL, NULL);
-    qret = sxi_cluster_query(sxi_cluster_get_conns(cluster), NULL, REQ_GET, query, NULL, 0, listusers_setup_cb, listusers_cb, &yctx);
+    qret = sxi_cluster_query(sxi_cluster_get_conns(cluster), NULL, REQ_GET, url, NULL, 0, listusers_setup_cb, listusers_cb, &yctx);
     if(qret != 200) {
         CFGDEBUG("query returned %d", qret);
         free(yctx.usrname);
@@ -1506,10 +1491,8 @@ static sxc_cluster_lu_t *cluster_listusers(sxc_cluster_t *cluster, const char *l
         fclose(yctx.f);
         unlink(fname);
         free(fname);
-        free(query);
         return NULL;
     }
-    free(query);
 
     if(yajl_complete_parse(yctx.yh) != yajl_status_ok || yctx.state != LU_COMPLETE) {
         if (yctx.state != LU_ERROR) {
@@ -1546,6 +1529,27 @@ static sxc_cluster_lu_t *cluster_listusers(sxc_cluster_t *cluster, const char *l
     return ret;
 }
 
+static sxc_cluster_lu_t *cluster_listusers(sxc_cluster_t *cluster, const char *list_clones) {
+    sxc_client_t *sx = sxi_cluster_get_client(cluster);
+    sxc_cluster_lu_t *ret;
+    unsigned int len;
+    char *query;
+
+    len = strlen(".users?desc") + 1;
+    if(list_clones)
+        len += strlen("&clones=") + strlen(list_clones);
+    query = malloc(len);
+    if(!query) {
+        CFGDEBUG("Failed to allocate memory for query");
+        return NULL;
+    }
+    snprintf(query, len, ".users?desc%s%s", (list_clones ? "&clones=" : ""), (list_clones ? list_clones : ""));
+    sxi_set_operation(sx, "list users", sxi_cluster_get_name(cluster), NULL, NULL);
+    ret = cluster_listusers_common(cluster, query);
+    free(query);
+    return ret;
+}
+
 sxc_cluster_lu_t *sxc_cluster_listclones(sxc_cluster_t *cluster, const char *username) {
     return cluster_listusers(cluster, username);
 }
@@ -1557,9 +1561,11 @@ sxc_cluster_lu_t *sxc_cluster_listusers(sxc_cluster_t *cluster) {
 int sxc_cluster_listusers_next(sxc_cluster_lu_t *lu, char **user_name, int *is_admin, char **desc, int64_t *quota, int64_t *quota_used) {
     struct cbl_user_t user;
     sxc_client_t *sx;
-    if (!lu || !user_name || !is_admin || !desc || !quota || !quota_used)
+    char *user_desc;
+    if (!lu || !user_name)
         return -1;
-    *desc = NULL;
+    if(desc)
+        *desc = NULL;
     sx = lu->sx;
 
     if(!fread(&user, sizeof(user), 1, lu->f)) {
@@ -1585,27 +1591,104 @@ int sxc_cluster_listusers_next(sxc_cluster_lu_t *lu, char **user_name, int *is_a
     if(!fread(*user_name, user.namelen, 1, lu->f)) {
         SXDEBUG("error reading name from results file");
         sxi_setsyserr(sx, SXE_EREAD, "Failed to retrieve next user: Read item from cache failed");
+        free(*user_name);
+        *user_name = NULL;
         return -1;
     }
     (*user_name)[user.namelen] = '\0';
 
-    *desc = malloc(user.desclen + 1);
-    if(!*desc) {
+    user_desc = malloc(user.desclen + 1);
+    if(!user_desc) {
         SXDEBUG("OOM allocating result file name (%u bytes)", user.desclen);
         sxi_seterr(sx, SXE_EMEM, "Failed to retrieve next user: Out of memory");
+        free(*user_name);
+        *user_name = NULL;
         return -1;
     }
-    if(user.desclen && !fread(*desc, user.desclen, 1, lu->f)) {
+
+    if(user.desclen && !fread(user_desc, user.desclen, 1, lu->f)) {
         SXDEBUG("error reading name from results file");
         sxi_setsyserr(sx, SXE_EREAD, "Failed to retrieve next user: Read item from cache failed");
+        free(user_desc);
+        free(*user_name);
+        *user_name = NULL;
         return -1;
     }
-    (*desc)[user.desclen] = '\0';
-    *quota = user.quota;
-    *quota_used = user.quota_used;
-    *is_admin = user.is_admin;
+    user_desc[user.desclen] = '\0';
+
+    if(desc)
+        *desc = user_desc;
+    else
+        free(user_desc);
+    if(quota)
+        *quota = user.quota;
+    if(quota_used)
+        *quota_used = user.quota_used;
+    if(is_admin)
+        *is_admin = user.is_admin;
 
     return 1;
+}
+
+int sxc_cluster_whoami(sxc_cluster_t *cluster, char **user, char **role, char **desc, int64_t *quota, int64_t *quota_used) {
+    sxc_client_t *sx = sxi_cluster_get_client(cluster);
+    sxc_cluster_lu_t *lu;
+    int rc, ret = 1, is_admin = 0;
+
+    if(!user) {
+        sxi_seterr(sx, SXE_EARG, "NULL argument");
+        return 1;
+    }
+
+    *user = NULL;
+    if(role)
+        *role = NULL;
+    if(desc)
+        *desc = NULL;
+    if(quota)
+        *quota = -1;
+    if(quota_used)
+        *quota_used = -1;
+
+    sxi_set_operation(sx, "get user details", sxi_cluster_get_name(cluster), NULL, NULL);
+    lu = cluster_listusers_common(cluster, ".self");
+    if(!lu)
+        goto sxc_cluster_whoami_err;
+    rc = sxc_cluster_listusers_next(lu, user, &is_admin, desc, quota, quota_used);
+    sxc_cluster_listusers_free(lu);
+    /* successful sxc_cluster_listusers_next() returns 1 */
+    if(rc != 1)
+        goto sxc_cluster_whoami_err;
+
+    if(role) {
+        if(is_admin)
+            *role = strdup("admin");
+        else
+            *role = strdup("normal");
+        if(!*role)
+            goto sxc_cluster_whoami_err;
+    }
+
+    ret = 0;
+sxc_cluster_whoami_err:
+    if(ret) {
+        free(*user);
+        *user = NULL;
+        if(desc) {
+            free(*desc);
+            *desc = NULL;
+        }
+        if(role) {
+            free(*role);
+            *role = NULL;
+        }
+        if(quota)
+            *quota = -1;
+        if(quota_used)
+            *quota_used = -1;
+    }
+
+    return ret;
 }
 
 void sxc_cluster_listusers_free(sxc_cluster_lu_t *lu) {

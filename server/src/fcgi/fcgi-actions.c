@@ -83,6 +83,12 @@ void volume_ops(void) {
             return;
         }
 
+        /* Get basic user information */
+        if(!strcmp(volume, ".self")) {
+            fcgi_self();
+            return;
+        }
+
 	if(is_reserved())
 	    quit_errmsg(403, "Volume name is reserved");
 

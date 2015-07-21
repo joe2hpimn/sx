@@ -338,6 +338,8 @@ void fcgi_handle_cluster_requests(void) {
         comma |= 1;
     }
 
+    /* Notice: The whoami API becomes obsolete since 1.2 release and is going to be dropped in next release.
+     *         Please use GET .self query instead. */
     if(has_arg("whoami")) {
         char self[SXLIMIT_MAX_USERNAME_LEN+2];
         if(comma) CGI_PUTC(',');
