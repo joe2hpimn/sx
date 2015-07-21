@@ -1643,7 +1643,10 @@ static rc_ty volmod_parse_complete(void *yctx)
     if (!ctx || ctx->state != CB_VOLMOD_COMPLETE)
         return EINVAL;
 
-    if((*ctx->newowner || ctx->newsize != -1 || ctx->newrevs != -1) && !has_priv(PRIV_ADMIN)) {
+    if((*ctx->newowner || ctx->newsize != -1) && !has_priv(PRIV_ADMIN)) {
+        msg_set_reason("Permission denied: Not enough privileges");
+        return EPERM;
+    } else if(ctx->newrevs != -1 && !has_priv(PRIV_OWNER)) {
         msg_set_reason("Permission denied: Not enough privileges");
         return EPERM;
     } else if(!has_priv(PRIV_MANAGER)) {
