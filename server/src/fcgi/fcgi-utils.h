@@ -55,9 +55,19 @@
 	    DEBUG("FCGX_PutChar() failed");	\
     } while(0)
 
+static inline int FMT_PRINTF(2,3) FCGX_FPrintF_chk(FCGX_Stream *stream, const char *fmt, ...)
+{
+    int rc;
+    va_list ap;
+    va_start(ap, fmt);
+    rc = FCGX_VFPrintF(stream, fmt, ap);
+    va_end(ap);
+    return rc;
+}
+
 #define CGI_PRINTF(...)				\
     do {					\
-	if(FCGX_FPrintF(fcgi_out, __VA_ARGS__) < 0)	\
+	if(FCGX_FPrintF_chk(fcgi_out, __VA_ARGS__) < 0)	\
 	    DEBUG("FCGX_FPrintF() failed");	\
     } while(0)
 

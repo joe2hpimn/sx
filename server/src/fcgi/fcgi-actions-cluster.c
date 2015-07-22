@@ -393,7 +393,7 @@ void fcgi_challenge_response(void) {
 	quit_errnum(400);
 
     /* Forbid caching just in case we decide to clear globals here */
-    CGI_PRINTF("Pragma: no-cache\r\nCache-control: no-cache\r\nContent-type: application/octet-stream\r\nContent-Length: %u\r\n\r\n", sizeof(c.response));
+    CGI_PRINTF("Pragma: no-cache\r\nCache-control: no-cache\r\nContent-type: application/octet-stream\r\nContent-Length: %lu\r\n\r\n", sizeof(c.response));
     CGI_PUTD(c.response, sizeof(c.response));
 }
 
