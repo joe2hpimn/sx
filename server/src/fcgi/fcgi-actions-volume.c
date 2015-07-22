@@ -557,7 +557,7 @@ static int print_acl(const char *username, int priv, int is_owner, void *ctx)
     int *first = ctx;
     /* FIXME: should set api_version for send_server_info, however send_server_info is called before handle_request */
     if (*first)
-	CGI_PRINTF("Content-type: application/json\r\nSX-API-Version: %u\r\n\r\n{", SRC_API_VERSION_1_2);
+	CGI_PRINTF("Content-type: application/json\r\n\r\n{", SRC_API_VERSION);
     else
         CGI_PUTS(",");
     json_send_qstring(username);
