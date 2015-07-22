@@ -5077,7 +5077,7 @@ static rc_ty massrename_drop_old_src_revs(sx_hashfs_t *h, const sx_hashfs_volume
             if(sxi_cluster_query_ev(qrylist[*queries_sent].cbdata, sx_hashfs_conns(h), sx_node_internal_addr(node), query->verb, query->path, NULL, 0, NULL, NULL)) {
                 WARN("Failed to query node %s: %s", sx_node_uuid_str(node), sxc_geterrmsg(sx_hashfs_client(h)));
                 msg_set_reason("Failed to setup cluster communication");
-                ret = ECOMM;
+                ret = EAGAIN;
                 goto massrename_drop_old_src_revs_err;
             }
             qrylist[*queries_sent].query_sent = 1;
@@ -5205,7 +5205,7 @@ static rc_ty massrename_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *j
 
         if((s = massrename_drop_old_src_revs(hashfs, vol, source, nonvolnodes, &queries_sent, &qrylist_len, &qrylist)) != OK) {
             INFO("Failed to drop old %s revisions: %s", source, msg_get_reason());
-            if(s == ENOMEM || s == ECOMM)
+            if(s == ENOMEM || s == EAGAIN)
                 action_error(ACT_RESULT_TEMPFAIL, 503, msg_get_reason());
             else
                 action_error(rc2actres(s), rc2http(s), "Failed to remove old source revisions");
@@ -5249,7 +5249,7 @@ static rc_ty massrename_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *j
 
         if((t = massrename_drop_old_src_revs(hashfs, vol, name, nonvolnodes, &queries_sent, &qrylist_len, &qrylist)) != OK) {
             WARN("Failed to drop old %s revisions: %s", name, msg_get_reason());
-            if(t == ENOMEM || t == ECOMM)
+            if(t == ENOMEM || t == EAGAIN)
                 action_error(ACT_RESULT_TEMPFAIL, 503, msg_get_reason());
             else
                 action_error(rc2actres(t), rc2http(t), "Failed to remove old source revisions");
