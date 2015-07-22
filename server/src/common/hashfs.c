@@ -3556,7 +3556,31 @@ static rc_ty eventdb_1_1_to_1_2(sxi_db_t *db)
         if(qprep(db, &q, "CREATE TABLE hash_retry(hash BLOB("STRIFY(SXI_SHA1_BIN_LEN)") PRIMARY KEY NOT NULL, blocksize INTEGER NOT NULL, id INTEGER NOT NULL)") || qstep_noret(q))
             break;
 	qnullify(q);
+        ret = OK;
+    } while(0);
+    qnullify(q);
+    return ret;
+}
 
+static rc_ty metadb_1_1_to_1_2(sxi_db_t *db)
+{
+    rc_ty ret = FAIL_EINTERNAL;
+    sqlite3_stmt *q = NULL;
+    do {
+        if(qprep(db, &q, "CREATE TABLE hash_retry(hash BLOB("STRIFY(SXI_SHA1_BIN_LEN)") PRIMARY KEY NOT NULL, blocksize INTEGER NOT NULL, id INTEGER NOT NULL)") || qstep_noret(q))
+            break;
+	qnullify(q);
+
+        /* cannot delete the dummy check column with alter table, have to turn off CHECK enforcement during upgrade */
+        if(qprep(db, &q, "PRAGMA ignore_check_constraints = ON") || qstep_noret(q))
+            break;
+        qnullify(q);
+        /* delete revision_id to force recalculation and rebuild of revision_id -> block maps
+           (perform by upgrade_1_0_or_1_prepare and upgrade_1_0_or_1_1_local )
+        */
+        if(qprep(db, &q, "UPDATE files SET revision_id = NULL") || qstep_noret(q))
+            break;
+        qnullify(q);
         ret = OK;
     } while(0);
     qnullify(q);
@@ -3576,7 +3600,6 @@ static rc_ty hashfs_1_0_to_1_1(sxi_db_t *db)
 	if(qprep(db, &q, "CREATE TABLE ignorednodes (dist INTEGER NOT NULL, node BLOB ("STRIFY(UUID_BINARY_SIZE)") NOT NULL, PRIMARY KEY (dist, node))") || qstep_noret(q))
 	    break;
 	qnullify(q);
-
         ret = OK;
     } while(0);
     qnullify(q);
@@ -3818,7 +3841,7 @@ static const sx_upgrade_t upgrade_sequence[] = {
         HASHFS_VERSION_1_1,
         HASHFS_VERSION_1_2,
         .upgrade_hashfsdb = hashfs_1_1_to_1_2,
-        .upgrade_metadb = upgrade_noop,
+        .upgrade_metadb = metadb_1_1_to_1_2,
         .upgrade_datadb = upgrade_noop,
         .upgrade_tempdb = upgrade_noop,
         .upgrade_eventsdb = eventdb_1_1_to_1_2,
@@ -4078,7 +4101,7 @@ static void bulk_done(const struct bulk_save *save)
     gc_max_batch = save->gc_max_batch;
 }
 
-rc_ty sx_hashfs_upgrade_1_0_prepare(sx_hashfs_t *h)
+rc_ty sx_hashfs_upgrade_1_0_or_1_1_prepare(sx_hashfs_t *h)
 {
     sxi_db_t *db = NULL;
     sqlite3_stmt *q = NULL;
@@ -4135,7 +4158,6 @@ rc_ty sx_hashfs_upgrade_1_0_prepare(sx_hashfs_t *h)
 
                 int64_t fid = sqlite3_column_int64(qsel, 0);
                 int64_t volid = sqlite3_column_int64(qsel, 1);
-                const unsigned char *name = sqlite3_column_text(qsel, 2);
                 const unsigned char *rev = sqlite3_column_text(qsel, 3);
                 int64_t size = sqlite3_column_int64(qsel, 4);
                 unsigned blocks = size_to_blocks(size, NULL, &bsize);
@@ -4198,6 +4220,9 @@ rc_ty sx_hashfs_upgrade_1_0_prepare(sx_hashfs_t *h)
                       break;
                   qnullify(q);
               }
+              if(qprep(db, &q, "PRAGMA ignore_check_constraints = OFF") || qstep_noret(q))
+                  break;
+              qnullify(q);
             }
             if (datadb_commitall(h) || qcommit(db))
                 break;
@@ -4300,7 +4325,7 @@ static rc_ty gc_eventdb(sx_hashfs_t *h)
     return OK;
 }
 
-rc_ty sx_hashfs_upgrade_1_0_local(sx_hashfs_t *h)
+rc_ty sx_hashfs_upgrade_1_0_or_1_1_local(sx_hashfs_t *h)
 {
     struct timeval tv0, tv1, tv2, tv3;
     sqlite3_stmt *q = NULL;
@@ -11226,7 +11251,7 @@ static const char *locknames[] = {
     "IGNNODES", /* JOBTYPE_IGNODES */
     NULL, /* JOBTYPE_BLOCKS_REVISION */
     "TOKEN_LOCAL", /* JOBTYPE_FLUSH_FILE_LOCAL */
-    "UPGRADE", /* JOBTYPE_UPGRADE_1_0_TO_1_1 */
+    "UPGRADE", /* JOBTYPE_UPGRADE_FROM_1_0_OR_1_1 */
     NULL, /* JOBTYPE_JOBPOLL */
     NULL, /* JOBTYPE_BATCHDELETE */
     NULL, /* JOBTYPE_BATCHRENAME */

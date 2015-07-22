@@ -4582,8 +4582,8 @@ static rc_ty revision_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_d
 static act_result_t upgrade_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     act_result_t ret = ACT_RESULT_OK;
     INFO("Preparing to upgrade node");
-    if (sx_hashfs_upgrade_1_0_prepare(hashfs) ||
-        sx_hashfs_upgrade_1_0_local(hashfs))
+    if (sx_hashfs_upgrade_1_0_or_1_1_prepare(hashfs) ||
+        sx_hashfs_upgrade_1_0_or_1_1_local(hashfs))
         action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to upgrade local node");
     ret = force_phase_success(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
  action_failed:
@@ -5345,7 +5345,7 @@ static struct {
     { ignodes_request, ignodes_commit, force_phase_success, force_phase_success }, /* JOBTYPE_IGNODES */
     { force_phase_success, revision_commit, revision_abort, revision_undo }, /* JOBTYPE_BLOCKS_REVISION */
     { force_phase_success, fileflush_local, fileflush_remote_undo, force_phase_success }, /* JOBTYPE_FLUSH_FILE_LOCAL  - 1 node */
-    { upgrade_request, force_phase_success, force_phase_success, force_phase_success }, /* JOBTYPE_UPGRADE_1_0_TO_1_1 */
+    { upgrade_request, force_phase_success, force_phase_success, force_phase_success }, /* JOBTYPE_UPGRADE_FROM_1_0_OR_1_1 */
     { jobpoll_request, force_phase_success, jobpoll_abort, jobpoll_undo }, /* JOBTYPE_JOBPOLL */
     { massdelete_request, force_phase_success, massdelete_abort, massdelete_undo }, /* JOBTYPE_MASSDELETE */
     { massrename_request, force_phase_success, massrename_abort, massrename_undo }, /* JOBTYPE_MASSRENAME */

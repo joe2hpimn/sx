@@ -498,8 +498,8 @@ typedef struct {
 } sx_revision_op_t;
 int sx_revision_op_of_blob(sx_blob_t *b, sx_revision_op_t *op);
 int sx_unique_fileid(sxc_client_t *sx, const char *revision, sx_hash_t *fileid);
-rc_ty sx_hashfs_upgrade_1_0_prepare(sx_hashfs_t *h);
-rc_ty sx_hashfs_upgrade_1_0_local(sx_hashfs_t *h);
+rc_ty sx_hashfs_upgrade_1_0_or_1_1_prepare(sx_hashfs_t *h);
+rc_ty sx_hashfs_upgrade_1_0_or_1_1_local(sx_hashfs_t *h);
 
 typedef int (*lrb_cb_t)(const sx_hashfs_volume_t *vol, const sx_uuid_t *target, const sx_hash_t *revision_id, const sx_hash_t *contents, int64_t nblocks, unsigned blocksize);
 typedef int (*lrb_count_t)(int64_t count);

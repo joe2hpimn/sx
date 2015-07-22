@@ -1840,7 +1840,7 @@ static int upgrade_node(sxc_client_t *sx, const char *path)
     sx_nodelist_t *local = sx_nodelist_new();
     if (local &&
         !sx_nodelist_add(local, sx_node_dup(sx_hashfs_self(h)))) {
-        rc = sx_hashfs_job_new(h, 0, &job_id, JOBTYPE_UPGRADE_1_0_TO_1_1, JOB_NO_EXPIRY, "UPGRADE", &job_id, sizeof(job_id), local);
+        rc = sx_hashfs_job_new(h, 0, &job_id, JOBTYPE_UPGRADE_FROM_1_0_OR_1_1, JOB_NO_EXPIRY, "UPGRADE", &job_id, sizeof(job_id), local);
         if (rc) {
             if (rc == FAIL_LOCKED)
                 job_id = 0;
@@ -1866,11 +1866,11 @@ static int upgrade_job_node(sxc_client_t *sx, const char *path)
         return 1;
     rc_ty s;
     do {
-        if ((s = sx_hashfs_upgrade_1_0_prepare(hashfs))) {
+        if ((s = sx_hashfs_upgrade_1_0_or_1_1_prepare(hashfs))) {
             WARN("Failed to prepare upgrade job: %s", rc2str(s));
             break;
         }
-        if ((s = sx_hashfs_upgrade_1_0_local(hashfs))) {
+        if ((s = sx_hashfs_upgrade_1_0_or_1_1_local(hashfs))) {
             WARN("Failed to run upgrade job: %s", rc2str(s));
             break;
         }
