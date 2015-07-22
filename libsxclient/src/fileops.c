@@ -4582,7 +4582,7 @@ remote_to_remote_err:
 }
 
 static int mkdir_parents(sxc_client_t *sx, const char *path);
-static sxi_job_t* remote_copy_ev(sxc_file_t *pattern, sxc_file_t *source, sxc_file_t *dest, int recursive, unsigned int *errors, int fail_same_file)
+static sxi_job_t* remote_copy_ev(sxc_file_t *pattern, sxc_file_t *source, sxc_file_t *dest, int recursive, int show_errors, unsigned int *errors, int fail_same_file)
 {
     sxi_job_t *job;
     free(source->origpath);
@@ -4600,7 +4600,7 @@ static sxi_job_t* remote_copy_ev(sxc_file_t *pattern, sxc_file_t *source, sxc_fi
             ret = cat_remote_file(source, dest->cat_fd);
         else
             ret = remote_to_local(source, dest, recursive);
-        if (sxc_geterrnum(source->sx) != SXE_NOERROR) {
+        if (show_errors && sxc_geterrnum(source->sx) != SXE_NOERROR) {
 	    if(dest->path)
 		sxi_notice(source->sx, "ERROR: %s: %s", dest->path, sxc_geterrmsg(source->sx));
 	    else
@@ -5777,6 +5777,7 @@ int sxc_rm(sxc_file_list_t *target, int ignore_errors, int mass) {
 struct remote_iter {
     sxc_file_t *dest;
     int recursive;
+    int ignore_errors;
     unsigned int errors;
     int fail_same_file;
 };
@@ -5794,6 +5795,7 @@ static sxi_job_t *remote_copy_cb(sxc_file_list_t *target, sxc_file_t *pattern, s
     sxc_file_t *source;
     struct remote_iter *it = ctx;
     sxi_job_t *ret;
+    int is_different;
 
     source = sxc_file_remote(cluster, vol, path, NULL);
     if(!source)
@@ -5801,7 +5803,8 @@ static sxi_job_t *remote_copy_cb(sxc_file_list_t *target, sxc_file_t *pattern, s
 
     /* we could support parallelization for remote_to_remote and
      * remote_to_remote_fast if they would just return a job ... */
-    ret = remote_copy_ev(pattern, source, it->dest, it->recursive && different_file(source->path, pattern->path), &it->errors, it->fail_same_file);
+    is_different = different_file(source->path, pattern->path);
+    ret = remote_copy_ev(pattern, source, it->dest, it->recursive && is_different, it->ignore_errors && is_different, &it->errors, it->fail_same_file);
 
     sxc_file_free(source);
 
@@ -5892,6 +5895,7 @@ static int remote_iterate(sxc_file_t *source, int recursive, int onefs, int igno
     it.recursive = recursive;
     it.errors = 0;
     it.fail_same_file = fail_same_file;
+    it.ignore_errors = ignore_errors;
 
     lst = sxc_file_list_new(source->sx, recursive);
     if (!lst)
