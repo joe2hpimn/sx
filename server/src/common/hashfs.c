@@ -1732,19 +1732,19 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
             goto open_hashfs_fail;
 	if(qprep(h->metadb[i], &h->qm_ins[i], "INSERT INTO files (volume_id, name, size, content, rev, revision_id, age) VALUES (:volume, :name, :size, :hashes, :revision, :revision_id, :age)"))
 	    goto open_hashfs_fail;
-        if(qprep(h->metadb[i], &h->qm_list[i], "SELECT name, size, rev FROM files WHERE volume_id = :volume AND name > :previous AND (:limit is NULL OR name < :limit) AND pmatch(name, :pattern, :pattern_slashes, :slash_ending) > 0 GROUP BY name HAVING rev = MAX(rev) ORDER BY name ASC LIMIT 1"))
+        if(qprep(h->metadb[i], &h->qm_list[i], "SELECT name, size, rev, revision_id FROM files WHERE volume_id = :volume AND name > :previous AND (:limit is NULL OR name < :limit) AND pmatch(name, :pattern, :pattern_slashes, :slash_ending) > 0 GROUP BY name HAVING rev = MAX(rev) ORDER BY name ASC LIMIT 1"))
             goto open_hashfs_fail;
-        if(qprep(h->metadb[i], &h->qm_list_eq[i], "SELECT name, size, rev FROM files WHERE volume_id = :volume AND name >= :previous AND (:limit is NULL OR name < :limit) AND pmatch(name, :pattern, :pattern_slashes, :slash_ending) > 0 GROUP BY name HAVING rev = MAX(rev) ORDER BY name ASC LIMIT 2"))
+        if(qprep(h->metadb[i], &h->qm_list_eq[i], "SELECT name, size, rev, revision_id FROM files WHERE volume_id = :volume AND name >= :previous AND (:limit is NULL OR name < :limit) AND pmatch(name, :pattern, :pattern_slashes, :slash_ending) > 0 GROUP BY name HAVING rev = MAX(rev) ORDER BY name ASC LIMIT 2"))
             goto open_hashfs_fail;
-	if(qprep(h->metadb[i], &h->qm_listrevs[i], "SELECT size, rev FROM files WHERE volume_id = :volume AND name = :name AND rev > :previous ORDER BY rev ASC LIMIT 1"))
+	if(qprep(h->metadb[i], &h->qm_listrevs[i], "SELECT size, rev, revision_id FROM files WHERE volume_id = :volume AND name = :name AND rev > :previous ORDER BY rev ASC LIMIT 1"))
 	    goto open_hashfs_fail;
 	if(qprep(h->metadb[i], &h->qm_get[i], "SELECT fid, size, content, rev, LENGTH(CAST(name AS BLOB)) + size + COALESCE((SELECT SUM(LENGTH(CAST(key AS BLOB)) + LENGTH(value)) FROM fmeta WHERE file_id = fid),0) FROM files WHERE volume_id = :volume AND name = :name GROUP BY name HAVING rev = MAX(rev) LIMIT 1"))
             goto open_hashfs_fail;
-        if(qprep(h->metadb[i], &h->qm_listrevs_rev[i], "SELECT size, rev FROM files WHERE volume_id = :volume AND name = :name AND (:previous IS NULL OR rev < :previous) ORDER BY rev DESC LIMIT 1"))
+        if(qprep(h->metadb[i], &h->qm_listrevs_rev[i], "SELECT size, rev, revision_id FROM files WHERE volume_id = :volume AND name = :name AND (:previous IS NULL OR rev < :previous) ORDER BY rev DESC LIMIT 1"))
 	    goto open_hashfs_fail;
 	if(qprep(h->metadb[i], &h->qm_getrev[i], "SELECT fid, size, content, rev, LENGTH(CAST(name AS BLOB)) + size + COALESCE((SELECT SUM(LENGTH(CAST(key AS BLOB)) + LENGTH(value)) FROM fmeta WHERE file_id = fid),0), age, revision_id FROM files WHERE volume_id = :volume AND name = :name AND rev = :revision LIMIT 1"))
 	    goto open_hashfs_fail;
-	if(qprep(h->metadb[i], &h->qm_findrev[i], "SELECT volume_id, name, size FROM files WHERE rev = :revision LIMIT 1"))
+	if(qprep(h->metadb[i], &h->qm_findrev[i], "SELECT volume_id, name, size, revision_id FROM files WHERE rev = :revision LIMIT 1"))
 	    goto open_hashfs_fail;
 	if(qprep(h->metadb[i], &h->qm_oldrevs[i], "SELECT rev, size, (SELECT COUNT(*) FROM files AS b WHERE b.volume_id = a.volume_id AND b.name = a.name), fid, LENGTH(CAST(name AS BLOB)) + size + COALESCE((SELECT SUM(LENGTH(CAST(key AS BLOB)) + LENGTH(value)) FROM fmeta WHERE file_id = a.fid),0) FROM files AS a WHERE a.volume_id = :volume AND a.name = :name ORDER BY rev ASC"))
 	    goto open_hashfs_fail;
@@ -4141,7 +4141,7 @@ rc_ty sx_hashfs_upgrade_1_0_prepare(sx_hashfs_t *h)
                     WARN("volume_by_id failed");
                     break;
                 }
-                if (sx_unique_fileid(sx_hashfs_client(h), volume, (const char*)name, (const char*)rev, &revision_id)) {
+                if (sx_unique_fileid(sx_hashfs_client(h), (const char*)rev, &revision_id)) {
                     WARN("unique_fileid failed");
                     break;
                 }
@@ -5111,6 +5111,7 @@ rc_ty sx_hashfs_revision_first(sx_hashfs_t *h, const sx_hashfs_volume_t *volume,
 rc_ty sx_hashfs_revision_next(sx_hashfs_t *h, int reversed) {
     sqlite3_stmt *q = (reversed ? h->qm_listrevs_rev[h->rev_ndb] : h->qm_listrevs[h->rev_ndb]);
     const char *revision;
+    const void *revid;
     int r;
 
     sqlite3_reset(q);
@@ -5144,6 +5145,13 @@ rc_ty sx_hashfs_revision_next(sx_hashfs_t *h, int reversed) {
     sxi_strlcpy(h->list_file.revision, revision, sizeof(h->list_file.revision));
     size_to_blocks(h->list_file.file_size, NULL, &h->list_file.block_size);
 
+    revid = sqlite3_column_blob(q, 2);
+    if(!revid || sqlite3_column_bytes(q, 2) != SXI_SHA1_BIN_LEN) {
+        WARN("Invalid revision ID");
+        sqlite3_reset(q);
+        return FAIL_EINTERNAL;
+    }
+    memcpy(h->list_file.revision_id.b, revid, SXI_SHA1_BIN_LEN);
     sqlite3_reset(q);
 
     return OK;
@@ -5263,6 +5271,7 @@ static rc_ty lookup_file_name(sx_hashfs_t *h, int db_idx, int update_cache) {
     sqlite3_stmt *stmt;
     list_entry_t *e = &h->list_cache[db_idx];
     const char *q = NULL;
+    const void *revid;
 
     if(!h->list_recurse && (q = ith_slash(e->name, h->list_pattern_slashes + 1))) {
         /* We are not searching recursively and next slash was found in pervious name,
@@ -5332,6 +5341,13 @@ static rc_ty lookup_file_name(sx_hashfs_t *h, int db_idx, int update_cache) {
 
     strncpy(e->name, n, sizeof(e->name));
     e->name[sizeof(e->name)-1] = '\0';
+
+    revid = sqlite3_column_blob(stmt, 3);
+    if(!revid || sqlite3_column_bytes(stmt, 3) != SXI_SHA1_BIN_LEN) {
+        WARN("Invalid revision ID");
+        goto lookup_file_name_err;
+    }
+    memcpy(h->list_file.revision_id.b, revid, SXI_SHA1_BIN_LEN);
 
     ret = OK;
     lookup_file_name_err:
@@ -8048,10 +8064,10 @@ static int reserve_fileid(sx_hashfs_t *h, int64_t volume_id, const char *name, s
     return ret;
 }
 
-int sx_unique_fileid(sxc_client_t *sx, const sx_hashfs_volume_t *volume, const char *name, const char *revision, sx_hash_t *fileid)
+int sx_unique_fileid(sxc_client_t *sx, const char *revision, sx_hash_t *fileid)
 {
     int ret = 0;
-    if (!name || !revision || !fileid) {
+    if (!revision || !fileid) {
         NULLARG();
         return 1;
     }
@@ -8063,10 +8079,8 @@ int sx_unique_fileid(sxc_client_t *sx, const sx_hashfs_volume_t *volume, const c
         return 1;
     }
 
-    DEBUG("fileid input: %s, %s, %s", volume->name, name, revision);
-    if (!sxi_sha1_update(hash_ctx, volume->name, strlen(volume->name) + 1) ||
-        !sxi_sha1_update(hash_ctx, name, strlen(name) + 1) ||
-        !sxi_sha1_update(hash_ctx, revision, strlen(revision)) ||
+    DEBUG("fileid input: %s", revision);
+    if (!sxi_sha1_update(hash_ctx, revision, strlen(revision)) ||
         !sxi_sha1_final(hash_ctx, fileid->b, NULL)) {
         ret = 1;
     }
@@ -8416,7 +8430,7 @@ rc_ty sx_hashfs_putfile_gettoken(sx_hashfs_t *h, const uint8_t *user, int64_t si
     const sx_hashfs_volume_t *vol;
     if (reserve_fileid(h, volid, name, &h->put_reserve_id) ||
         sx_hashfs_volume_by_id(h, volid, &vol) ||
-        sx_unique_fileid(h->sx, vol, name, revision, &h->put_revision_id))
+        sx_unique_fileid(h->sx, revision, &h->put_revision_id))
         goto gettoken_err;
     DEBUGHASH("file initial PUT reserve_id", &h->put_reserve_id);
     sxi_hashop_begin(&h->hc, h->sx_clust, hdck_cb, HASHOP_RESERVE, vol->max_replica, &h->put_reserve_id, &h->put_revision_id, hdck_cb_ctx, expires_at);
@@ -8587,7 +8601,7 @@ static rc_ty create_file(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const
     if(qbind_int64(h->qm_ins[mdb], ":volume", volume->id) ||
        qbind_text(h->qm_ins[mdb], ":name", name) ||
        qbind_text(h->qm_ins[mdb], ":revision", revision) ||
-       sx_unique_fileid(sx_hashfs_client(h), volume, name, revision, &revision_id) ||
+       sx_unique_fileid(sx_hashfs_client(h), revision, &revision_id) ||
        qbind_blob(h->qm_ins[mdb], ":revision_id", &revision_id, sizeof(revision_id)) ||
        qbind_int64(h->qm_ins[mdb], ":size", size) ||
        qbind_int64(h->qm_ins[mdb], ":age", sxi_hdist_version(h->hd)) ||
@@ -9329,25 +9343,26 @@ rc_ty sx_hashfs_tmp_getinfo(sx_hashfs_t *h, int64_t tmpfile_id, sx_hashfs_tmpinf
     sxi_strlcpy(token, (const char*)sqlite3_column_text(q, 8), sizeof(token));
     sqlite3_reset(q); /* Do not deadlock if we need to update this very entry */
 
+    /* revision_id when deleting the file must match
+     * the revision_id used here when creating it */
+    if (sx_unique_fileid(h->sx, tbd->revision, &tbd->revision_id))
+        goto getmissing_err;
+
     if(nuniqs && recheck_presence) {
 	unsigned int r, l;
 
 	/* For each replica set populate tbd->avlblty via hash_presence callback */
 	for(i=1; i<=tbd->replica_count; i++) {
-            sx_hash_t revision_id, reserve_id;
+            sx_hash_t reserve_id;
 	    unsigned int cur_item = 0;
 	    sort_by_node_then_hash(tbd->all_blocks, tbd->uniq_ids, tbd->nidxs, tbd->nuniq, i, tbd->replica_count);
-            /* revision_id when deleting the file must match
-	     * the revision_id used here when creating it */
-            if (sx_unique_fileid(h->sx, volume, tbd->name, tbd->revision, &revision_id))
-                goto getmissing_err;
             /* reserve_id must match the id used in reserve */
             if (reserve_fileid(h, tbd->volume_id, tbd->name, &reserve_id))
                 goto getmissing_err;
             DEBUGHASH("tmp_get_info reserve_id", &reserve_id);
-            DEBUGHASH("tmp_get_info revision_id", &revision_id);
+            DEBUGHASH("tmp_get_info revision_id", &tbd->revision_id);
             sxi_hashop_begin(&h->hc, h->sx_clust, tmp_getmissing_cb,
-                             HASHOP_INUSE, tbd->replica_count, &reserve_id, &revision_id, tbd, 0);
+                             HASHOP_INUSE, tbd->replica_count, &reserve_id, &tbd->revision_id, tbd, 0);
 	    tbd->current_replica = i;
             DEBUG("begin queries for replica #%d", i);
 	    while((ret2 = are_blocks_available(h,
@@ -9434,6 +9449,8 @@ rc_ty sx_hashfs_getinfo_by_revision(sx_hashfs_t *h, const char *revision, sx_has
     }
 
     for(ndb=0;ndb<METADBS;ndb++) {
+        const void *revid;
+
         sqlite3_stmt *q = h->qm_findrev[ndb];
         if(qbind_text(q, ":revision", revision))
             return FAIL_EINTERNAL;
@@ -9450,11 +9467,18 @@ rc_ty sx_hashfs_getinfo_by_revision(sx_hashfs_t *h, const char *revision, sx_has
         filerev->volume_id = sqlite3_column_int64(q, 0);
         const unsigned char *name = sqlite3_column_text(q, 1);
         filerev->file_size = sqlite3_column_int64(q, 2);
+        revid = sqlite3_column_blob(q, 3);
+        if(!revid || sqlite3_column_bytes(q, 3) != SXI_SHA1_BIN_LEN) {
+            msg_set_reason("Invalid revision id");
+            sqlite3_reset(q);
+            return FAIL_EINTERNAL;
+        }
         size_to_blocks(filerev->file_size, NULL, &filerev->block_size);
         strncpy(filerev->name, (const char*)name, sizeof(filerev->name));
         filerev->name[sizeof(filerev->name)-1] = '\0';
         strncpy(filerev->revision, revision, sizeof(filerev->revision));
         filerev->revision[sizeof(filerev->revision)-1] = '\0';
+        memcpy(filerev->revision_id.b, revid, SXI_SHA1_BIN_LEN);
         sqlite3_reset(q);
         return OK;
     }
@@ -9830,15 +9854,13 @@ rc_ty sx_hashfs_filedelete_job(sx_hashfs_t *h, sx_uid_t user_id, const sx_hashfs
             ret = sx_hashfs_job_new_notrigger(h, *job_id, user_id, job_id, JOBTYPE_DELETE_FILE, timeout, lockname, revision, strlen(revision), targets);
             if (ret == OK) {
                 sx_revision_op_t revision_op;
-                ret = sx_unique_fileid(h->sx, vol, name, revision, &revision_op.revision_id);
-                if (ret == OK) {
-                    revision_op.lock = lockname;
-                    revision_op.op = -1;
-                    revision_op.blocksize = filerev.block_size;
-                    /* job to unbump revision for blocks */
-                    ret = sx_hashfs_job_new_2pc(h, &revision_spec, &revision_op, user_id, job_id, 0);
-                    DEBUG("ret3: %d", ret);
-                }
+                revision_op.lock = lockname;
+                revision_op.op = -1;
+                revision_op.blocksize = filerev.block_size;
+                memcpy(revision_op.revision_id.b, filerev.revision_id.b, SXI_SHA1_BIN_LEN);
+
+                /* job to unbump revision for blocks */
+                ret = sx_hashfs_job_new_2pc(h, &revision_spec, &revision_op, user_id, job_id, 0);
             }
             free(lockname);
         } else if(ret != OK) {
@@ -9883,15 +9905,14 @@ rc_ty sx_hashfs_filedelete_job(sx_hashfs_t *h, sx_uid_t user_id, const sx_hashfs
 	ret = sx_hashfs_job_new_notrigger(h, *job_id, user_id, job_id, JOBTYPE_DELETE_FILE, timeout, lockname, filerev->revision, REV_LEN, targets);
         if (ret == OK) {
             sx_revision_op_t revision_op;
-            ret = sx_unique_fileid(h->sx, vol, name, filerev->revision, &revision_op.revision_id);
-            if (ret == OK) {
-                revision_op.lock = lockname;
-                revision_op.op = -1;
-                revision_op.blocksize = filerev->block_size;
-                /* job to unbump revision for blocks */
-                ret = sx_hashfs_job_new_2pc(h, &revision_spec, &revision_op, user_id, job_id, 0);
-                DEBUG("ret5: %d", ret);
-            }
+
+            revision_op.lock = lockname;
+            revision_op.op = -1;
+            revision_op.blocksize = filerev->block_size;
+            memcpy(revision_op.revision_id.b, filerev->revision_id.b, SXI_SHA1_BIN_LEN);
+
+            /* job to unbump revision for blocks */
+            ret = sx_hashfs_job_new_2pc(h, &revision_spec, &revision_op, user_id, job_id, 0);
         }
 	free(lockname);
 

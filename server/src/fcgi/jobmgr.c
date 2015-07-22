@@ -857,6 +857,8 @@ static rc_ty filerev_from_jobdata_tmpfileid(sx_hashfs_t *hashfs, job_data_t *job
     filerev->block_size = tmpinfo->block_size;
     sxi_strlcpy(filerev->name, tmpinfo->name, sizeof(filerev->name));
     sxi_strlcpy(filerev->revision, tmpinfo->revision, sizeof(filerev->revision));
+    memcpy(filerev->revision_id.b, tmpinfo->revision_id.b, SXI_SHA1_BIN_LEN);
+
     free(tmpinfo);
     return OK;
 }
@@ -874,9 +876,8 @@ static act_result_t revision_job_from(sx_hashfs_t *hashfs, job_t job_id, const s
     revision_op.lock = NULL;
     revision_op.blocksize = filerev->block_size;
     revision_op.op = op;
-    s = sx_unique_fileid(sx_hashfs_client(hashfs), volume, filerev->name, filerev->revision, &revision_op.revision_id);
-    if(s)
-        action_error(rc2actres(s), rc2http(s), "Failed to compute revision id");
+    memcpy(revision_op.revision_id.b, filerev->revision_id.b, SXI_SHA1_BIN_LEN);
+
     blob = sx_blob_new();
     if (!blob)
         action_error(ACT_RESULT_TEMPFAIL, 500, "Cannot allocate blob");
@@ -4876,17 +4877,9 @@ static rc_ty massdelete_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *j
 
         for(t = sx_hashfs_revision_first(hashfs, vol, name+1, &filerev, 0); t == OK; t = sx_hashfs_revision_next(hashfs, 0)) {
             rc_ty u;
-            sx_hash_t revision_id;
             if(strncmp(filerev->revision, timestamp_str, REV_TIME_LEN) > 0) {
                 DEBUG("Skipping %s: %.*s > %s", filerev->name, (int)REV_TIME_LEN, filerev->revision, timestamp_str);
                 continue;
-            }
-
-            /* Compute unique file ID needed for revision unbump */
-            if((u = sx_unique_fileid(sx_hashfs_client(hashfs), vol, name+1, filerev->revision, &revision_id)) != OK) {
-                WARN("Failed to compute file revision hash");
-                t = u;
-                break;
             }
 
             if(nnodes) {           
@@ -4915,7 +4908,7 @@ static rc_ty massdelete_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *j
             }
 
             /* File is deleted, we can unbump the revision */
-            if((u = sx_hashfs_revision_op(hashfs, filerev->block_size, &revision_id, -1)) != OK) {
+            if((u = sx_hashfs_revision_op(hashfs, filerev->block_size, &filerev->revision_id, -1)) != OK) {
                 WARN("Failed to unbump file revision");
                 t = u;
                 break;
@@ -4924,7 +4917,7 @@ static rc_ty massdelete_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *j
             for(nnode = 0; nnode < nnodes; nnode++) {
                 const sx_node_t *node = sx_nodelist_get(nonvolnodes, nnode);
                 sxi_query_free(query);
-                query = sxi_hashop_proto_revision(sx_hashfs_client(hashfs), filerev->block_size, &revision_id, -1);
+                query = sxi_hashop_proto_revision(sx_hashfs_client(hashfs), filerev->block_size, &filerev->revision_id, -1);
                 if(!query) {
                     WARN("Cannot allocate query");
                     action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");

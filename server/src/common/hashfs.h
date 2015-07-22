@@ -272,6 +272,7 @@ typedef struct _sx_hashfs_file_t {
     unsigned int created_at;
     char name[SXLIMIT_MAX_FILENAME_LEN+2];
     char revision[REV_LEN+1];
+    sx_hash_t revision_id;
 } sx_hashfs_file_t;
 rc_ty sx_hashfs_list_first(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const char *pattern, const sx_hashfs_file_t **file, int recurse, const char *after, int escape);
 rc_ty sx_hashfs_list_next(sx_hashfs_t *h);
@@ -345,6 +346,7 @@ typedef struct _sx_hashfs_tmpinfo_t {
     unsigned int current_replica; /* Replica being presence checked */
     char name[SXLIMIT_MAX_FILENAME_LEN+1]; /* File name */
     char revision[128]; /* File revision */
+    sx_hash_t revision_id;
     int somestatechanged;
 } sx_hashfs_tmpinfo_t;
 rc_ty sx_hashfs_tmp_getmeta(sx_hashfs_t *h, int64_t tmpfile_id, sxc_meta_t *metadata);
@@ -495,7 +497,7 @@ typedef struct {
     int op;
 } sx_revision_op_t;
 int sx_revision_op_of_blob(sx_blob_t *b, sx_revision_op_t *op);
-int sx_unique_fileid(sxc_client_t *sx, const sx_hashfs_volume_t *volume, const char *name, const char *revision, sx_hash_t *fileid);
+int sx_unique_fileid(sxc_client_t *sx, const char *revision, sx_hash_t *fileid);
 rc_ty sx_hashfs_upgrade_1_0_prepare(sx_hashfs_t *h);
 rc_ty sx_hashfs_upgrade_1_0_local(sx_hashfs_t *h);
 
