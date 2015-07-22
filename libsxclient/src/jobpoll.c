@@ -828,25 +828,17 @@ void sxi_job_set_nf(sxi_job_t *job, struct filter_handle *nf_fh, nf_fn_t nf_fn, 
     job->nf_dst_path = strdup(nf_dst_path);
 }
 
-int64_t sxi_job_get_id(const sxi_job_t *job) {
-    char *enumb;
-    int64_t ret;
-
-    if(!job)
-        return -1;
-    ret = strtoll(job->job_id, &enumb, 10);
-    if(enumb && *enumb)
-        return -1;
-    return ret;
+const char *sxi_job_get_id(const sxi_job_t *job) {
+    return job ? job->job_id : NULL;
 }
 
-sxi_job_t *sxi_job_new(sxi_conns_t *conns, int64_t id, enum sxi_cluster_verb verb, const char *host) {
+sxi_job_t *sxi_job_new(sxi_conns_t *conns, const char *id, enum sxi_cluster_verb verb, const char *host) {
     sxi_job_t *job, *ret = NULL;
     sxc_client_t *sx = sxi_conns_get_client(conns);
 
     if(!conns)
         return NULL;
-    if(!host) {
+    if(!host || !id) {
         sxi_setsyserr(sx, SXE_EARG, "NULL argument");
         return NULL;
     }
@@ -874,13 +866,12 @@ sxi_job_t *sxi_job_new(sxi_conns_t *conns, int64_t id, enum sxi_cluster_verb ver
         goto sxi_job_from_id_err;
     }
     job->name = NULL;
-    job->job_id = malloc(21);
+    job->job_id = strdup(id);
     if(!job->job_id) {
         SXDEBUG("OOM allocating job_id string");
         sxi_seterr(sx, SXE_EMEM, "Cannot allocate job_id");
         goto sxi_job_from_id_err;
     }
-    snprintf(job->job_id, 21, "%lld", (long long)id);
     job->resquery = malloc(lenof(".results/") + strlen(job->job_id) + 1);
     if(!job->resquery) {
         SXDEBUG("OOM allocating query");

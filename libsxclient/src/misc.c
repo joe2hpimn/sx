@@ -1903,3 +1903,19 @@ int sxi_derive_key(const char *pass, const char *salt, unsigned salt_size, unsig
 
     return 0;
 }
+
+unsigned int sxi_str_has_glob(const char *s) {
+    unsigned int len = strlen(s), i;
+    int esc = 0;
+    for(i = 0; i < len; i++) {
+        if(s[i] == '\\')
+            esc = !esc;
+        else if(strchr("?*[", s[i]) && !esc)
+            break;
+        else
+            esc = 0;
+    }
+    if(len && i < len)
+        return 1;
+    return 0;
+}

@@ -209,7 +209,7 @@ void fcgi_list_volume(const sx_hashfs_volume_t *vol) {
     CGI_PRINTF(",\"replicaCount\":%u,\"volumeUsedSize\":", vol->max_replica);
     CGI_PUTLL(vol->cursize);
 
-    s = sx_hashfs_list_first(hashfs, vol, get_arg("filter"), &file, has_arg("recursive"), get_arg("after"));
+    s = sx_hashfs_list_first(hashfs, vol, get_arg("filter"), &file, has_arg("recursive"), get_arg("after"), 0);
     switch(s) {
     case OK:
     case ITER_NO_MORE:
@@ -1051,7 +1051,7 @@ void fcgi_delete_volume(void) {
 	    quit_errmsg(404, "This volume does not belong here");
 
 	if(!vol->cursize) {
-	    s = sx_hashfs_list_first(hashfs, vol, NULL, NULL, 1, NULL);
+	    s = sx_hashfs_list_first(hashfs, vol, NULL, NULL, 1, NULL, 0);
 	    if(s == ITER_NO_MORE)
 		emptyvol = 1;
 	    else if(s != OK)
@@ -2281,10 +2281,9 @@ static int parse_timeval(const char *str, struct timeval *tv) {
     return 0;
 }
 
-void fcgi_process_files_batch(void) {
+void fcgi_mass_delete(void) {
     const sx_hashfs_volume_t *vol;
     rc_ty s;
-    const char *output_pattern = NULL;
     const char *input_pattern = get_arg("filter");
 
     s = sx_hashfs_volume_by_name(hashfs, volume, &vol);
@@ -2293,14 +2292,6 @@ void fcgi_process_files_batch(void) {
 
     if(!sx_hashfs_is_or_was_my_volume(hashfs, vol))
         quit_errnum(404);
-
-    if(has_arg("output")) {
-        output_pattern = get_arg("output");
-
-        quit_errmsg(400, "Operation is not implemented yet");
-        if(!output_pattern)
-            quit_errmsg(400, "Invalid output pattern");
-    }
 
     if(!input_pattern)
         input_pattern = "*";
@@ -2341,15 +2332,9 @@ void fcgi_process_files_batch(void) {
             quit_errmsg(500, "Failed to add data to blob");
         }
 
-        if(output_pattern && sx_blob_add_string(b, output_pattern)) {
-            sx_nodelist_delete(nodelist);
-            sx_blob_free(b);
-            quit_errmsg(500, "Failed to add data to blob");
-        }
-
         sx_blob_to_data(b, &job_data, &job_data_len);
         /* Schedule the job locally */
-        s = sx_hashfs_job_new(hashfs, uid, &job_id, JOBTYPE_BATCHDELETE, 3600, NULL, job_data, job_data_len, nodelist);
+        s = sx_hashfs_job_new(hashfs, uid, &job_id, JOBTYPE_MASSDELETE, 3600, NULL, job_data, job_data_len, nodelist);
         sx_blob_free(b);
         sx_nodelist_delete(nodelist);
         if(s)
@@ -2358,10 +2343,106 @@ void fcgi_process_files_batch(void) {
     } else {
         /* Request comes in from the user: create jobs on each volnode */
         job_t job;
-        if(output_pattern)
-            quit_errmsg(400, "Operation is not implemented yet");
-        else
-            s = sx_hashfs_files_processing_job(hashfs, uid, vol, has_arg("recursive"), input_pattern, output_pattern, &job);
+        s = sx_hashfs_files_processing_job(hashfs, uid, vol, has_arg("recursive"), input_pattern, NULL, &job);
+
+        if(s != OK)
+            quit_errmsg(rc2http(s), msg_get_reason());
+        send_job_info(job);
+    }
+}
+
+void fcgi_mass_rename(void) {
+    const sx_hashfs_volume_t *vol;
+    rc_ty s;
+    const char *dest = get_arg("dest");
+    const char *source = get_arg("source");
+    unsigned int slen, dlen;
+    const sx_hashfs_file_t *file = NULL;
+
+    s = sx_hashfs_volume_by_name(hashfs, volume, &vol);
+    if(s != OK)
+        quit_errmsg(rc2http(s), msg_get_reason());
+
+    if(!sx_hashfs_is_or_was_my_volume(hashfs, vol))
+        quit_errnum(404);
+
+    if(!source || !dest)
+        quit_errmsg(400, "Invalid argument");
+    slen = strlen(source);
+    dlen = strlen(dest);
+    if(!dlen || !slen)
+        quit_errmsg(400, "Invalid argument");
+
+    /* Check if dest is a directory when source is a directory too */
+    if((source[slen-1] == '/' && dest[dlen-1] != '/'))
+        quit_errmsg(400, "Not a directory");
+    if(dlen == 1 && dest[0] == '/') /* Volume root cannot be the target, because it always exists */
+        quit_errmsg(400, "Target cannot be a volume root");
+
+    if(has_priv(PRIV_CLUSTER)) {
+        /* Schedule a batch job slave, will schedule the job on local node only */
+        sx_blob_t *b;
+        const void *job_data = NULL;
+        unsigned int job_data_len = 0;
+        sx_nodelist_t *nodelist;
+        struct timeval timestamp;
+        job_t job_id;
+
+        if(!has_arg("timestamp"))
+            quit_errmsg(400, "Missing timestamp parameter");
+        if(parse_timeval(get_arg("timestamp"), &timestamp))
+            quit_errmsg(400, "Invalid timestamp parameter");
+
+        nodelist = sx_nodelist_new();
+        if(!nodelist)
+            quit_errmsg(500, "Failed to create a nodelist");
+
+        if(sx_nodelist_add(nodelist, sx_node_dup(sx_hashfs_self(hashfs)))) {
+            sx_nodelist_delete(nodelist);
+            quit_errmsg(500, "Failed to add node to nodelist");
+        }
+
+        b = sx_blob_new();
+        if(!b) {
+            sx_nodelist_delete(nodelist);
+            quit_errmsg(500, "Failed to allocate blob");
+        }
+
+        if(sx_blob_add_string(b, vol->name) || sx_blob_add_int32(b, 0) ||
+           sx_blob_add_string(b, source) || sx_blob_add_datetime(b, &timestamp) ||
+           sx_blob_add_string(b, dest)) {
+            sx_nodelist_delete(nodelist);
+            sx_blob_free(b);
+            quit_errmsg(500, "Failed to add data to blob");
+        }
+
+        sx_blob_to_data(b, &job_data, &job_data_len);
+        /* Schedule the job locally */
+        s = sx_hashfs_job_new(hashfs, uid, &job_id, JOBTYPE_MASSRENAME, 3600, NULL, job_data, job_data_len, nodelist);
+        sx_blob_free(b);
+        sx_nodelist_delete(nodelist);
+        if(s)
+            quit_errmsg(rc2http(s), rc2str(s));
+        send_job_info(job_id);
+    } else {
+        /* Request comes in from the user: create jobs on each volnode */
+        job_t job;
+
+        /* Check if dest exists and if so, reject it */
+        s = sx_hashfs_list_first(hashfs, vol, dest, &file, 0, NULL, 1);
+        if(s == OK && ((dest[dlen-1] != '/' && !strcmp(dest, file->name + 1)) || (dest[dlen-1] == '/' && !strncmp(dest, file->name + 1, dlen))))
+            quit_errmsg(rc2http(EEXIST), "Target already exists");
+        else if(s != ITER_NO_MORE && s != OK)
+            quit_errmsg(rc2http(s), rc2str(s));
+
+        /* Check source file existence */
+        s = sx_hashfs_list_first(hashfs, vol, source, &file, 0, NULL, 1);
+        if(s == ITER_NO_MORE || (s == OK && slen && source[slen-1] != '/' && strcmp(source, file->name + 1)))
+            quit_errmsg(rc2http(ENOENT), "Not Found");
+        else if(s != OK && s != ITER_NO_MORE)
+            quit_errmsg(rc2http(s), rc2str(s));
+
+        s = sx_hashfs_files_processing_job(hashfs, uid, vol, 0, source, dest, &job);
 
         if(s != OK)
             quit_errmsg(rc2http(s), msg_get_reason());

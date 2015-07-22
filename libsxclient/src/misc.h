@@ -103,5 +103,9 @@ uint32_t sxi_crc32(uint32_t crc, const void *buf, size_t size);
 /* Use blowfish key derivation */
 int sxi_derive_key(const char *pass, const char *salt, unsigned salt_size, unsigned int log2_iter, char *out, unsigned int len);
 
+/* Return index of first non-escaped globbing character (*, ? or [) or zero if it does not occur int input string.
+ * Cannot be called with NULL argument. */
+unsigned int sxi_str_has_glob(const char *s);
+
 #endif
 

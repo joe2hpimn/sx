@@ -4121,7 +4121,7 @@ static act_result_t revsclean_vol_commit(sx_hashfs_t *hashfs, job_t job_id, job_
     }
 
     /* All volnodes that received this commit request should iterate over files and schedule delete jobs for the outdate revs */
-    for(s = sx_hashfs_list_first(hashfs, vol, NULL, &file, 1, file_threshold); s == OK; s = sx_hashfs_list_next(hashfs)) {
+    for(s = sx_hashfs_list_first(hashfs, vol, NULL, &file, 1, file_threshold, 0); s == OK; s = sx_hashfs_list_next(hashfs)) {
         unsigned int scheduled_per_file = 0;
 
         if((t = sx_hashfs_delete_old_revs(hashfs, vol, file->name+1, &scheduled_per_file)) != OK) {
@@ -4601,9 +4601,8 @@ static rc_ty jobpoll_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_
     nnodes = sx_nodelist_count(nodes);
     const sx_node_t *me = sx_hashfs_self(hashfs);
     int r;
-    const uint8_t *uuid_bin = NULL;
     sx_uuid_t uuid;
-    unsigned int uuid_len;
+    const char *jobid = NULL;
 
     b = sx_blob_from_data(job_data->ptr, job_data->len);
     if(!b) {
@@ -4624,25 +4623,36 @@ static rc_ty jobpoll_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_
         action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
     }
 
-    while(!(r = sx_blob_get_blob(b, (const void**)&uuid_bin, &uuid_len))) {
+    while(!(r = sx_blob_get_string(b, &jobid))) {
         job_status_t status;
         const char *message = NULL;
         job_t job;
         const sx_node_t *node = NULL;
+        unsigned int uuid_len;
+        char uuid_str[UUID_STRING_SIZE+1];
+        const char *p;
+        char *enumb;
 
-        if(uuid_len != UUID_BINARY_SIZE || !uuid_bin) {
-            WARN("Corrupted node list for job %lld", (long long)job_id);
+        if(!jobid || !(p = strchr(jobid, ':'))) {
+            WARN("Corrupted node list for job %s", jobid);
             action_error(ACT_RESULT_PERMFAIL, 500, "Internal error: invalid node list");
         }
-        uuid_from_binary(&uuid, uuid_bin);
 
-        node = sx_nodelist_lookup_index(nodes, &uuid, &nnode);
-
-        if(sx_blob_get_int64(b, &job)) {
-            WARN("Cannot get data from blob for job %lld: Failed to get job ID", (long long)job_id);
-            action_error(ACT_RESULT_PERMFAIL, 500, "Internal error: data corruption detected");
+        uuid_len = p - jobid;
+        if(uuid_len != UUID_STRING_SIZE) {
+            WARN("Corrupted node list for job %s", jobid);
+            action_error(ACT_RESULT_PERMFAIL, 500, "Internal error: invalid node list");
+        }
+        memcpy(uuid_str, jobid, UUID_STRING_SIZE);
+        uuid_str[UUID_STRING_SIZE] = '\0';
+        uuid_from_string(&uuid, uuid_str);
+        job = strtoll(p + 1, &enumb, 10);
+        if(enumb && *enumb) {
+            WARN("Corrupted node list for job %s", jobid);
+            action_error(ACT_RESULT_PERMFAIL, 500, "Internal error: invalid node list");
         }
 
+        node = sx_nodelist_lookup_index(nodes, &uuid, &nnode);
         if(!node)
             continue; /* Node has been removed because it has failed or succeeded */
 
@@ -4656,11 +4666,11 @@ static rc_ty jobpoll_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_
             else if(status == JOB_PENDING)
                 action_error(ACT_RESULT_TEMPFAIL, 503, "Local job is pending");
             else {
-                WARN("Remote job has failed: status: %d, message: %s", status, message);
-                action_error(ACT_RESULT_PERMFAIL, 500, "Local job failed");
+                WARN("Local job has failed: status: %d, message: %s", status, message);
+                action_error(ACT_RESULT_PERMFAIL, rc2http(s), message);
             }
         } else {
-            jobs[nnode] = sxi_job_new(sx_hashfs_conns(hashfs), job, REQ_DELETE, sx_node_internal_addr(node));
+            jobs[nnode] = sxi_job_new(sx_hashfs_conns(hashfs), jobid, REQ_DELETE, sx_node_internal_addr(node));
             if(!jobs[nnode]) {
                 WARN("Cannot allocate memory for job %lld to poll", (long long)job);
                 action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
@@ -4797,7 +4807,7 @@ static rc_ty effective_non_volnodes(sx_hashfs_t *h, sx_hashfs_nl_t which, const 
 }
 
 #define MAX_BATCH_ITER  2048
-static rc_ty batchdelete_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+static rc_ty massdelete_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     act_result_t ret = ACT_RESULT_OK;
     rc_ty s;
     struct timeval timestamp;
@@ -4858,11 +4868,12 @@ static rc_ty batchdelete_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *
     }
 
     /* Perform operations */
-    for(s = sx_hashfs_list_first(hashfs, vol, pattern, &file, recursive, NULL); s == OK && i < MAX_BATCH_ITER; s = sx_hashfs_list_next(hashfs)) {
+    for(s = sx_hashfs_list_first(hashfs, vol, pattern, &file, recursive, NULL, 0); s == OK && i < MAX_BATCH_ITER; s = sx_hashfs_list_next(hashfs)) {
         rc_ty t;
         const sx_hashfs_file_t *filerev = NULL;
-        char name[SXLIMIT_MAX_FILENAME_LEN+1];
+        char name[SXLIMIT_MAX_FILENAME_LEN+2];
         sxi_strlcpy(name, file->name, sizeof(name));
+
         for(t = sx_hashfs_revision_first(hashfs, vol, name+1, &filerev, 0); t == OK; t = sx_hashfs_revision_next(hashfs, 0)) {
             rc_ty u;
             sx_hash_t revision_id;
@@ -4982,28 +4993,327 @@ action_failed:
     return ret;
 }
 
-static rc_ty batchdelete_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+static rc_ty massdelete_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     CRIT("Some files were left in an inconsistent state after a failed deletion attempt");
     return force_phase_success(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
 }
 
-static rc_ty batchdelete_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+static rc_ty massdelete_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     CRIT("Some files were left in an inconsistent state after a failed deletion attempt");
     return force_phase_success(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
 }
 
-static rc_ty batchrename_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
-    act_result_t ret;
-    action_set_fail(ACT_RESULT_PERMFAIL, 500, "Operation not implemented yet");
+/* Drop all stale source revisions */
+static rc_ty massrename_drop_old_src_revs(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, const char *filename, sx_nodelist_t *nodes, unsigned int *queries_sent, unsigned int *list_len, query_list_t **list) {
+    rc_ty ret = FAIL_EINTERNAL, t;
+    const sx_hashfs_file_t *filerev = NULL;
+    query_list_t *qrylist;
+    unsigned int nnodes, nnode;
+    sxi_query_t *query = NULL;
+
+    if(!vol || !filename || !nodes || !list || !queries_sent || !list_len) {
+        NULLARG();
+        return EINVAL;
+    }
+
+    qrylist = *list;
+    nnodes = sx_nodelist_count(nodes);
+    if(nnodes && !qrylist) {
+        /* When file has no more revisions than volume limit, then this should be enough to supply worst case */
+        *list_len = MAX_BATCH_ITER * nnodes + vol->effective_replica - 1;
+        qrylist = wrap_calloc(*list_len, sizeof(*qrylist));
+        if(!qrylist) {
+            WARN("Cannot allocate result space");
+            msg_set_reason("Not enough memory to perform the requested action");
+            ret = ENOMEM;
+            goto massrename_drop_old_src_revs_err;
+        }
+    }
+
+    /* Iterate through all older revisions of the file and drop them */
+    for(t = sx_hashfs_revision_first(h, vol, filename, &filerev, 0); t == OK; t = sx_hashfs_revision_next(h, 0)) {
+        rc_ty u;
+
+        if(nnodes) {
+            /* We can reach memory limit when temporary over-replica situation happens, need to reallocate qrylist array */
+            if(*queries_sent + nnodes >= *list_len) {
+                INFO("Reallocating queries list %d -> %d", *list_len, *list_len * 2);
+                query_list_t *oldptr = qrylist;
+                DEBUG("Reallocating queries list");
+                qrylist = wrap_realloc(oldptr, 2 * (*list_len) * sizeof(*oldptr));
+                if(!qrylist) {
+                    WARN("Failed to reallocate queries list array");
+                    qrylist = oldptr;
+                    msg_set_reason("Not enough memory to perform the requested action");
+                    ret = ENOMEM;
+                    goto massrename_drop_old_src_revs_err;
+                }
+                *list_len *= 2;
+
+                /* Reset newly allocated entries to avoid using uninits in query_list_free() */
+                memset(qrylist + *queries_sent, 0, (*list_len - *queries_sent) * sizeof(*qrylist));
+            }
+        }
+
+        /* Delete the revision */
+        if((u = sx_hashfs_file_delete(h, vol, filerev->name, filerev->revision)) != OK) {
+            WARN("Failed to delete file revision %s: %s", filerev->revision, msg_get_reason());
+            t = u;
+            break;
+        }
+
+        /* File is deleted, we can unbump the revision */
+        if((u = sx_hashfs_revision_op(h, filerev->block_size, &filerev->revision_id, -1)) != OK) {
+            WARN("Failed to unbump file revision");
+            t = u;
+            break;
+        }
+
+        for(nnode = 0; nnode < nnodes; nnode++) {
+            const sx_node_t *node = sx_nodelist_get(nodes, nnode);
+            sxi_query_free(query);
+            query = sxi_hashop_proto_revision(sx_hashfs_client(h), filerev->block_size, &filerev->revision_id, -1);
+            if(!query) {
+                WARN("Cannot allocate query");
+                msg_set_reason("Not enough memory to perform the requested action");
+                ret = ENOMEM;
+                goto massrename_drop_old_src_revs_err;
+            }
+
+            qrylist[*queries_sent].cbdata = sxi_cbdata_create_generic(sx_hashfs_conns(h), NULL, NULL);
+            if(sxi_cluster_query_ev(qrylist[*queries_sent].cbdata, sx_hashfs_conns(h), sx_node_internal_addr(node), query->verb, query->path, NULL, 0, NULL, NULL)) {
+                WARN("Failed to query node %s: %s", sx_node_uuid_str(node), sxc_geterrmsg(sx_hashfs_client(h)));
+                msg_set_reason("Failed to setup cluster communication");
+                ret = ECOMM;
+                goto massrename_drop_old_src_revs_err;
+            }
+            qrylist[*queries_sent].query_sent = 1;
+            (*queries_sent)++;
+        }
+    }
+
+    if(t != ITER_NO_MORE && t != ENOENT) {
+        WARN("Failed to delete all revisions of file %s: %s", filename, msg_get_reason());
+        ret = t;
+        goto massrename_drop_old_src_revs_err;
+    }
+
+    ret = OK;
+massrename_drop_old_src_revs_err:
+    sxi_query_free(query);
+    *list = qrylist;
     return ret;
 }
 
-static rc_ty batchrename_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+static rc_ty massrename_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    act_result_t ret = ACT_RESULT_OK;
+    rc_ty s;
+    struct timeval timestamp;
+    sx_blob_t *b;
+    const char *volname = NULL, *source = NULL, *dest = NULL;
+    const sx_hashfs_volume_t *vol = NULL;
+    const sx_hashfs_file_t *file = NULL;
+    unsigned int dlen, slen, plen;
+    int recursive = 0; /* TODO: Not used, but passed by a generic mass jobs scheduler */
+    char timestamp_str[REV_TIME_LEN+1];
+    char newname[SXLIMIT_MAX_FILENAME_LEN+1];
+    const char *suffix;
+    query_list_t *qrylist = NULL;
+    unsigned int qrylist_len = 0, queries_sent = 0;
+    sx_nodelist_t *nonvolnodes = NULL;
+
+    b = sx_blob_from_data(job_data->ptr, job_data->len);
+    if(!b) {
+        WARN("Cannot allocate blob for job %lld", (long long)job_id);
+        action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
+    }
+
+    if(sx_blob_get_string(b, &volname) || sx_blob_get_int32(b, &recursive) ||
+       sx_blob_get_string(b, &source) || sx_blob_get_datetime(b, &timestamp) ||
+       sx_blob_get_string(b, &dest)) {
+        WARN("Cannot get data from blob for job %lld: %s %s", (long long)job_id, volname, source);
+        action_error(ACT_RESULT_PERMFAIL, 500, "Internal error: data corruption detected");
+    }
+
+    if(!volname || !source || !dest) {
+        WARN("Cannot get data from blob for job %lld: NULL volname or pattern", (long long)job_id);
+        action_error(ACT_RESULT_PERMFAIL, 500, "Internal error: data corruption detected");
+    }
+
+    if(timeval2str(&timestamp, timestamp_str)) {
+        WARN("Cannot parse timestamp");
+        action_error(ACT_RESULT_PERMFAIL, 500, "Internal error: data corruption detected");
+    }
+
+    if((s = sx_hashfs_volume_by_name(hashfs, volname, &vol))) {
+        WARN("Failed to load volume %s", volname);
+        action_error(rc2actres(s), rc2http(s), msg_get_reason());
+    }
+
+    if((s = effective_non_volnodes(hashfs, NL_NEXTPREV, vol, &nonvolnodes)) != OK) {
+        WARN("Failed to get non-volnodes list");
+        action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to get non-volnodes list");
+    }
+
+    slen = strlen(source);
+    /* Check if source points to the root of the volume and handle it */
+    if(slen == 1 && *source == '/') {
+        slen = 0;
+        source = "";
+    }
+    dlen = strlen(dest);
+
+    if(!dlen) {
+        WARN("Destination %s is empty", dest);
+        action_error(ACT_RESULT_PERMFAIL, 500, "Internal error: Invalid argument");
+    }
+
+    if((!slen || source[slen-1] == '/') && dest[dlen-1] != '/') {
+        WARN("Destination %s is not a directory", dest);
+        action_error(ACT_RESULT_PERMFAIL, 500, "Internal error: Invalid argument");
+    }
+
+    sxi_strlcpy(newname, dest, sizeof(newname));
+
+    suffix = strrchr(source, '/');
+    if(suffix) /* prefix len is until suffix only */
+        plen = suffix - source + 1;
+    else /* Source does not contain slashes, whole source will be prefixed with dest */
+        plen = 0;
+
+    if(slen && source[slen-1] != '/') {
+        sx_hashfs_file_t f;
+
+        /* F2F, only rename source to dest */
+        if(dest[dlen-1] == '/') {
+            /* Check if appending new name suffix to the destination prefix won't exceed filename limit */
+            if(strlen(source) - plen + dlen > SXLIMIT_MAX_FILENAME_LEN)
+                action_error(ACT_RESULT_PERMFAIL, 500, "Filename too long");
+
+            /* Destination is a directory, append source without the prefix */
+            sxi_strlcpy(newname + dlen, source + plen, sizeof(newname) - dlen);
+        }
+
+        DEBUG("[F2F] Renaming file %s to %s", source, newname);
+        if((s = sx_hashfs_getfile_begin(hashfs, vol->name, source, NULL, &f, NULL))) {
+            sx_hashfs_getfile_end(hashfs);
+            if(s == ENOENT)
+                action_error(ACT_RESULT_PERMFAIL, 404, "Not found");
+            else
+                action_error(rc2actres(s), rc2http(s), rc2str(s));
+        }
+
+        sx_hashfs_getfile_end(hashfs);
+        if((s = sx_hashfs_file_rename(hashfs, vol, source, f.revision, newname)) != OK) {
+            if(s != ENOENT)
+                WARN("Failed to rename file %s to %s: %s", source, newname, msg_get_reason());
+            action_error(rc2actres(s), rc2http(s), msg_get_reason());
+        }
+
+        if((s = massrename_drop_old_src_revs(hashfs, vol, source, nonvolnodes, &queries_sent, &qrylist_len, &qrylist)) != OK) {
+            INFO("Failed to drop old %s revisions: %s", source, msg_get_reason());
+            if(s == ENOMEM || s == ECOMM)
+                action_error(ACT_RESULT_TEMPFAIL, 503, msg_get_reason());
+            else
+                action_error(rc2actres(s), rc2http(s), "Failed to remove old source revisions");
+        }
+
+        /* Success */
+        goto action_failed;
+    }
+
+    /* Iterate over files - happens only when source is a directory (ends with slash) */
+    for(s = sx_hashfs_list_first(hashfs, vol, source, &file, 1, NULL, 1); s == OK && queries_sent < MAX_BATCH_ITER; s = sx_hashfs_list_next(hashfs)) {
+        rc_ty t;
+        const sx_hashfs_file_t *filerev = NULL;
+        char name[SXLIMIT_MAX_FILENAME_LEN+1];
+
+        /* +1 because of preceding slash */
+        sxi_strlcpy(name, file->name + 1, sizeof(name));
+
+        /* Check if appending new name suffix to the destination prefix won't exceed filename limit */
+        if(strlen(name) - plen + dlen > SXLIMIT_MAX_FILENAME_LEN) {
+            msg_set_reason("Filename too long");
+            s = ENAMETOOLONG;
+            break;
+        }
+
+        /* Destination is a directory, append source without the prefix */
+        sxi_strlcpy(newname + dlen, name + plen, sizeof(newname) - dlen);
+
+        DEBUG("[D2D] Renaming file %s to %s", name, newname);
+        if(strncmp(file->revision, timestamp_str, REV_TIME_LEN) > 0) {
+            DEBUG("Skipping %s: %.*s > %s", name, (int)REV_TIME_LEN, filerev->revision, timestamp_str);
+            continue;
+        }
+
+        /* Rename the youngest revision */
+        if((t = sx_hashfs_file_rename(hashfs, vol, name, file->revision, newname)) != OK) {
+            WARN("Failed to rename file revision %s: %s", file->revision, msg_get_reason());
+            s = t;
+            break;
+        }
+
+        if((t = massrename_drop_old_src_revs(hashfs, vol, name, nonvolnodes, &queries_sent, &qrylist_len, &qrylist)) != OK) {
+            WARN("Failed to drop old %s revisions: %s", name, msg_get_reason());
+            if(t == ENOMEM || t == ECOMM)
+                action_error(ACT_RESULT_TEMPFAIL, 503, msg_get_reason());
+            else
+                action_error(rc2actres(t), rc2http(t), "Failed to remove old source revisions");
+        }
+    }
+
+    if(s != ITER_NO_MORE) {
+        if(queries_sent >= MAX_BATCH_ITER) {
+            DEBUG("Sleeping job due to exceeded deletions limit");
+            action_error(ACT_RESULT_TEMPFAIL, 503, "Exceeded limit");
+        } else {
+            WARN("Failed to finish batch job: %s", rc2str(s));
+            action_error(rc2actres(s), rc2http(s), rc2str(s));
+        }
+    }
+    /* Job is done */
+    ret = ACT_RESULT_OK;
+action_failed:
+    sx_blob_free(b);
+    sx_nodelist_delete(nonvolnodes);
+    if(qrylist) {
+        unsigned int i;
+        for(i = 0; i < queries_sent; i++) {
+            int rc;
+            long http_status = 0;
+            if(!qrylist[i].query_sent)
+                continue;
+            rc = sxi_cbdata_wait(qrylist[i].cbdata, sxi_conns_get_curlev(sx_hashfs_conns(hashfs)), &http_status);
+            if(rc == -2) {
+                CRIT("Failed to wait for query");
+                action_set_fail(ACT_RESULT_PERMFAIL, 500, "Internal error in cluster communication");
+                continue;
+            }
+            if(rc == -1) {
+                WARN("Query failed with %ld", http_status);
+                if(ret > ACT_RESULT_TEMPFAIL) /* Only raise OK to TEMP */
+                    action_set_fail(ACT_RESULT_TEMPFAIL, 503, sxi_cbdata_geterrmsg(qrylist[i].cbdata));
+            } else if (http_status != 200 && http_status != 410 && http_status != 404) {
+                act_result_t newret = http2actres(http_status);
+                if(newret < ret) /* Severity shall only be raised */
+                    action_set_fail(newret, http_status, sxi_cbdata_geterrmsg(qrylist[i].cbdata));
+            }
+        }
+        query_list_free(qrylist, qrylist_len);
+    }
+
+    if(ret == ACT_RESULT_OK)
+        succeeded[0] = 1;
+    return ret;
+}
+
+static rc_ty massrename_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     CRIT("Some files were left in an inconsistent state after a failed rename attempt");
     return force_phase_success(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
 }
 
-static rc_ty batchrename_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+static rc_ty massrename_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     CRIT("Some files were left in an inconsistent state after a failed rename attempt");
     return force_phase_success(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
 }
@@ -5044,8 +5354,8 @@ static struct {
     { force_phase_success, fileflush_local, fileflush_remote_undo, force_phase_success }, /* JOBTYPE_FLUSH_FILE_LOCAL  - 1 node */
     { upgrade_request, force_phase_success, force_phase_success, force_phase_success }, /* JOBTYPE_UPGRADE_1_0_TO_1_1 */
     { jobpoll_request, force_phase_success, jobpoll_abort, jobpoll_undo }, /* JOBTYPE_JOBPOLL */
-    { batchdelete_request, force_phase_success, batchdelete_abort, batchdelete_undo }, /* JOBTYPE_BATCHDELETE */
-    { batchrename_request, force_phase_success, batchrename_abort, batchrename_undo }, /* JOBTYPE_BATCHRENAME */
+    { massdelete_request, force_phase_success, massdelete_abort, massdelete_undo }, /* JOBTYPE_MASSDELETE */
+    { massrename_request, force_phase_success, massrename_abort, massrename_undo }, /* JOBTYPE_MASSRENAME */
     { force_phase_success, cluster_setmeta_commit, cluster_setmeta_abort, cluster_setmeta_undo }, /* JOBTYPE_CLUSTER_SETMETA */
 };
 
@@ -5313,6 +5623,7 @@ static rc_ty get_failed_job_expiration_ttl(struct jobmgr_data_t *q) {
         if((s = sx_hashfs_tmp_getinfo(q->hashfs, tmpfile_id, &tmpinfo, 0)) != OK)
             return s;
 	fsize = tmpinfo->file_size;
+        free(tmpinfo);
     } else if(q->job_type == JOBTYPE_DELETE_FILE) {
 	sx_hashfs_file_t revinfo;
         rc_ty s;

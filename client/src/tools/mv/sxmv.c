@@ -121,14 +121,26 @@ static sxc_file_t *sxfile_from_arg(sxc_cluster_t **cluster, const char *arg, int
     return file;
 }
 
+static int cmp_clusters(sxc_cluster_t *c1, sxc_cluster_t *c2) {
+    const char *c1_uuid, *c2_uuid;
+    if(!c1 || !c2)
+        return -1;
+    c1_uuid = sxc_cluster_get_uuid(c1);
+    c2_uuid = sxc_cluster_get_uuid(c2);
+    if(!c1_uuid || !c2_uuid)
+        return -1;
+    return strcmp(c1_uuid, c2_uuid);
+}
+
 int main(int argc, char **argv) {
-    int ret = 1, i, fail = 0;
+    int ret = 1, fail = 0;
     sxc_file_t *src_file = NULL, *dst_file = NULL;
     const char *fname;
     char *filter_dir;
     sxc_logger_t log;
     sxc_cluster_t *cluster1 = NULL, *cluster2 = NULL;
     sxc_file_list_t *lst = NULL;
+    unsigned int i;
 
     if(cmdline_parser(argc, argv, &args))
 	exit(1);
@@ -192,28 +204,112 @@ int main(int argc, char **argv) {
 
     lst = sxc_file_list_new(sx, args.recursive_given);
     for(i = 0;i < args.inputs_num-1; i++) {
+        int fallback = 1;
         fname = args.inputs[i];
         if(!(src_file = sxfile_from_arg(&cluster2, fname, !args.recursive_flag)))
             goto main_err;
 
-        /* TODO: more than one input requires directory as target,
-         * and do the filename appending if target *is* a directory */
-        if(sxc_copy(src_file, dst_file, args.recursive_flag, 0, 0, NULL, 1)) {
-            fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
-	    if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_NOTFOUND_ERR) && is_sx(fname) && fname[strlen(fname) - 1] == '/')
-		fprintf(stderr, SXBC_TOOLS_NOTFOUND_MSG, fname);
-	    if((cluster1 || cluster2) && strstr(sxc_geterrmsg(sx), SXBC_TOOLS_VOL_ERR))
-		fprintf(stderr, SXBC_TOOLS_VOL_MSG, "", "", cluster1 ? sxc_cluster_get_sslname(cluster1) : sxc_cluster_get_sslname(cluster2));
-	    fail = 1;
-	    sxc_file_free(src_file);
-	    src_file = NULL;
-	    break;
+        if(!cmp_clusters(cluster1, cluster2) && !strcmp(sxc_file_get_volume(src_file), sxc_file_get_volume(dst_file)) &&
+           !sxc_file_has_glob(src_file)) {
+            /* Here we know that both src and dest share the same volume, belong to the same cluster and do not contain globbings. We can use mass rename facility */
+            if(sxc_mass_rename(cluster1, src_file, dst_file)) {
+                if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_NOTFOUND_ERR)) {
+                    const char *src_name = sxc_file_get_path(src_file);
+                    unsigned int slen;
+                    char *newpath;
+
+                    if(!src_name) {
+                        fprintf(stderr, "ERROR: NULL argument\n");
+                        fail = 1;
+                        sxc_file_free(src_file);
+                        src_file = NULL;
+                        break;
+                    }
+                    slen = strlen(src_name);
+
+                    if(!slen || src_name[slen-1] == '/') {
+                        /* Source does not exist and source path already ends with slash, it is an error */
+                        fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
+                        fail = 1;
+                        sxc_file_free(src_file);
+                        src_file = NULL;
+                        break;
+                    }
+
+                    if(!args.recursive_given) {
+                        /* Source does not exist and recursive flag has not been given, print a hint to use it */
+                        fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
+                        fprintf(stderr, SXBC_TOOLS_NOTFOUND_MSG, fname);
+                        fail = 1;
+                        sxc_file_free(src_file);
+                        src_file = NULL;
+                        break;
+                    }
+
+                    newpath = malloc(slen + 2);
+                    if(!newpath) {
+                        fprintf(stderr, "ERROR: Out of memory\n");
+                        fail = 1;
+                        sxc_file_free(src_file);
+                        src_file = NULL;
+                        break;
+                    }
+
+                    /* Append slash character to the source */
+                    snprintf(newpath, slen + 2, "%s/", src_name);
+
+                    if(sxc_file_set_path(src_file, newpath)) {
+                        fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
+                        free(newpath);
+                        fail = 1;
+                        sxc_file_free(src_file);
+                        src_file = NULL;
+                        break;
+                    }
+
+                    /* Try again with modified paths */
+                    sxc_clearerr(sx);
+                    free(newpath);
+                    if(!sxc_mass_rename(cluster1, src_file, dst_file))
+                        fallback = 0;
+                }
+
+                if(sxc_geterrnum(sx) && !strstr(sxc_geterrmsg(sx),"Target already exists")) {
+                    /* If destination file or directory exists, we have to use cp+rm fallback, otherwise it is an error */
+                    fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
+                    fail = 1;
+                    sxc_file_free(src_file);
+                    src_file = NULL;
+                    break;
+                }
+                sxc_clearerr(sx);
+            } else
+                fallback = 0;
+
+            if(!fallback)
+                sxc_file_free(src_file);
         }
 
-        if(sxc_file_list_add(lst, src_file, 1)) {
-	    fprintf(stderr, "ERROR: Cannot add file list entry '%s': %s\n", fname, sxc_geterrmsg(sx));
-            goto main_err;
-	}
+        if(fallback) {
+            /* TODO: more than one input requires directory as target,
+             * and do the filename appending if target *is* a directory */
+            if(sxc_copy(src_file, dst_file, args.recursive_flag, 0, 0, NULL, 1)) {
+                fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
+                if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_NOTFOUND_ERR) && is_sx(fname) && fname[strlen(fname) - 1] == '/')
+    		    fprintf(stderr, SXBC_TOOLS_NOTFOUND_MSG, fname);
+	        if((cluster1 || cluster2) && strstr(sxc_geterrmsg(sx), SXBC_TOOLS_VOL_ERR))
+		    fprintf(stderr, SXBC_TOOLS_VOL_MSG, "", "", cluster1 ? sxc_cluster_get_sslname(cluster1) : sxc_cluster_get_sslname(cluster2));
+	        fail = 1;
+	        sxc_file_free(src_file);
+	        src_file = NULL;
+	        break;
+            }
+
+            if(sxc_file_list_add(lst, src_file, 1)) {
+	        fprintf(stderr, "ERROR: Cannot add file list entry '%s': %s\n", fname, sxc_geterrmsg(sx));
+                goto main_err;
+            }
+        }
 	src_file = NULL;
     }
 

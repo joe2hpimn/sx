@@ -47,6 +47,7 @@ my $PUBLIC = everyone(200);
 my ($fails, $okies) = (0, 0);
 my @cleanupf;
 my @cleanupv;
+my %cleanupm;
 my $in_cleanup = 0;
 
 my $QUERYHOST = 'localhost';
@@ -699,6 +700,10 @@ sub cleanup {
     foreach my $del (@cleanupv) {
 	test_delete_job "volume cleanup", {'admin'=>[200]}, $del;
     }
+    # Cleanup cluster meta
+    if(%cleanupm && is_hash(\%cleanupm)) {
+        test_put_job "cluster meta cleanup", admin_only(200), ".clusterMeta", "{\"clusterMeta\":" . encode_json(\%cleanupm) . "}";
+    }
     print " done\n";
 }
 
@@ -834,7 +839,7 @@ test_upload 'file upload: (exceeding volume capacity)', $writer, random_data($ti
 test_upload 'file upload (exceeding volume capacity (meta))', $writer, random_data($tinyvolumesize-length('toobig')-length('somemeta')-4), "tiny$vol", 'toobig', undef, {'somemeta'=> "ffaabb0011"}, 413;
 # This should return 200
 test_upload 'file upload (with meta, should not exceed volume capacity)', $writer, random_data($tinyvolumesize-length('toobig')-length('somemeta')-5), "tiny$vol", 'toobig', undef, {'somemeta'=> "ffaabb0011"};
-# Chceking volume owner quota handing
+# Checking volume owner quota handing
 test_delete_job "Wiping tiny$vol contents", {'badauth'=>[401],$reader=>[403],$writer=>[200]}, "tiny$vol/toobig";
 my $mediumvolumesize = $tinyvolumesize * 10;
 test_mkvol "volume creation (medium volume)", admin_only(200), "medium$vol", "{\"volumeSize\":$mediumvolumesize,\"owner\":\"$writer\"}";
@@ -1111,6 +1116,77 @@ test_get 'listing all \'tree/*/\' files', authed_only(200, 'application/json'), 
 
 
 
+
+
+### Check mass rename operation ###
+# Check failing on existing dest case
+test_put_job "mass rename on $vol (invalid arguments)", {'badauth'=>[401],$reader=>[403],$writer=>[409]}, "$vol?source=tree/[]/&dest=tree/";
+# Rename /tree to /treee
+test_put_job "mass rename on $vol (rename /tree to /treee)", {'badauth'=>[401],$reader=>[403],$writer=>[200]}, "$vol?source=tree/&dest=treee/";
+# List  'treee/' -> check if /tree directory has been correctly renamed to /treee
+test_get 'listing all \'treee/\' files', authed_only(200, 'application/json'), "$vol?filter=treee/&recursive", undef,
+    sub {
+        my $json_raw = shift;
+        my $json = get_json($json_raw) or return 0;
+        return 0 unless is_int($json->{'volumeSize'}) && $json->{'volumeSize'} == $volumesize && is_int($json->{'replicaCount'}) &&
+            $json->{'replicaCount'} == 1 && is_hash($json->{'fileList'}) && scalar keys %{$json->{'fileList'}} == 6;
+        return 0 unless is_hash($json->{'fileList'}->{'/treee/b'});
+        return 0 unless is_hash($json->{'fileList'}->{'/treee/[]'});
+        return 0 unless is_hash($json->{'fileList'}->{'/treee/[]/a'});
+        return 0 unless is_hash($json->{'fileList'}->{'/treee/[]/\a'});
+        return 0 unless is_hash($json->{'fileList'}->{'/treee/[]/\a/a'});
+        return 0 unless is_hash($json->{'fileList'}->{'/treee/[]/?*\\'});
+    };
+
+test_get 'listing all \'tree/\' files', authed_only(200, 'application/json'), "$vol?filter=tree/*", undef,
+    sub {
+        my $json_raw = shift;
+        my $json = get_json($json_raw) or return 0;
+        return 0 unless is_int($json->{'volumeSize'}) && $json->{'volumeSize'} == $volumesize && is_int($json->{'replicaCount'}) &&
+            $json->{'replicaCount'} == 1 && is_hash($json->{'fileList'}) && scalar keys %{$json->{'fileList'}} == 0;
+    };
+
+# Rename /treee again to /tree
+test_put_job "mass rename on $vol (rename /treee to /tree)", {'badauth'=>[401],$reader=>[403],$writer=>[200]}, "$vol?source=treee/&dest=tree/";
+# List  'tree/' recursively
+test_get 'listing all \'tree/\' files', authed_only(200, 'application/json'), "$vol?filter=tree/&recursive", undef,
+    sub {
+        my $json_raw = shift;
+        my $json = get_json($json_raw) or return 0;
+        return 0 unless is_int($json->{'volumeSize'}) && $json->{'volumeSize'} == $volumesize && is_int($json->{'replicaCount'}) &&
+            $json->{'replicaCount'} == 1 && is_hash($json->{'fileList'}) && scalar keys %{$json->{'fileList'}} == 6;
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/b'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/[]'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/[]/a'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/[]/\a'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/[]/\a/a'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/[]/?*\\'});
+    };
+test_get 'listing all \'treee/\' files', authed_only(200, 'application/json'), "$vol?filter=treee/*", undef,
+    sub {
+        my $json_raw = shift;
+        my $json = get_json($json_raw) or return 0;
+        return 0 unless is_int($json->{'volumeSize'}) && $json->{'volumeSize'} == $volumesize && is_int($json->{'replicaCount'}) &&
+            $json->{'replicaCount'} == 1 && is_hash($json->{'fileList'}) && scalar keys %{$json->{'fileList'}} == 0;
+    };
+
+my $randname = random_string(1020);
+test_upload 'file upload (long file name)', $writer, '', $vol, "abc/".$randname;
+test_get 'file with long name existence', authed_only(200, 'application/json'), "$vol?filter=abc/$randname", undef, sub { my $json_raw = shift; my $json = get_json($json_raw) or return 0; return 0 unless is_int($json->{'volumeSize'}) && $json->{'volumeSize'} == $volumesize && is_int($json->{'replicaCount'}) && $json->{'replicaCount'} == 1 && is_hash($json->{'fileList'}) && scalar keys %{$json->{'fileList'}} == 1; };
+# Rename /abc to /abcd should fail since there is a file with too long name 
+test_put_job "mass rename on $vol (rename /abc to /abcd)", {'badauth'=>[401],$reader=>[403],$writer=>[200]}, "$vol?source=abc/&dest=abcd/", undef, 'ERROR';
+# Check if the file still exists and pick also the current volume usage
+my $curvolsize;
+test_get 'file with long name existence (should exist after failed mass rename)', authed_only(200, 'application/json'), "$vol?filter=abc/$randname", undef, sub { my $json_raw = shift; my $json = get_json($json_raw) or return 0; return 0 unless is_int($json->{'volumeUsedSize'}) && is_int($json->{'volumeSize'}) && $json->{'volumeSize'} == $volumesize && is_int($json->{'replicaCount'}) && $json->{'replicaCount'} == 1 && is_hash($json->{'fileList'}) && scalar keys %{$json->{'fileList'}} == 1; $curvolsize = $json->{'volumeUsedSize'}; };
+# Now curvolsize should contain current volume usage
+# Rename /abc to /a
+test_put_job "mass rename on $vol (rename /abc to /a)", {'badauth'=>[401],$reader=>[403],$writer=>[200]}, "$vol?source=abc/&dest=a/";
+# Check the volume usage now (should be 2 bytes less)
+test_get "$vol volume usage", authed_only(200, 'application/json'), "$vol?filter=a/$randname", undef, sub { my $json_raw = shift; my $json = get_json($json_raw) or return 0; return 0 unless is_int($json->{'volumeUsedSize'}) && is_int($json->{'volumeSize'}) && $json->{'volumeSize'} == $volumesize && is_int($json->{'replicaCount'}) && $json->{'replicaCount'} == 1 && is_hash($json->{'fileList'}) && scalar keys %{$json->{'fileList'}} == 1; $curvolsize == $json->{'volumeUsedSize'} + 2; };
+
+
+
+
 ### Check volume modification request ###
 test_delete_job "Wiping tiny$vol contents", {'badauth'=>[401],$reader=>[403],$writer=>[200]}, "tiny$vol/toobig";
 # Check if volume usage is computed correctly
@@ -1209,8 +1285,8 @@ my $wc = $wu.'.clone';
 my $rc = $ru.'.clone';
 my $wk = random_data(20);
 my $rk = random_data(20);
-my $rcid = ""; # ID of reader user clone that needs to be saved inside authorisation token 
-my $wcid = ""; # ID of writer user clone that needs to be saved inside authorisation token 
+my $rcid = ""; # ID of reader user clone that needs to be saved inside authorization token 
+my $wcid = ""; # ID of writer user clone that needs to be saved inside authorization token 
 my $content;
 
 test_create_user $ru;
@@ -1278,16 +1354,19 @@ test_put_job "switching cluster back to read-write mode", , {'admin'=>[200]}, ".
 test_upload 'file upload to read-write cluster', $writer, '', "large$vol", 'empty';
 
 
-
 # Check cluster meta operations
-test_get "cluster meta (empty)", {'badauth'=>[401],$reader=>[200,'application/json'],$writer=>[200,'application/json'],'admin'=>[200,'application/json']}, "?clusterMeta", undef, sub { my $json = get_json(shift) or return 0; return is_hash($json->{'clusterMeta'}) && (scalar keys %{$json->{'clusterMeta'}} == 0); };
-test_put_job "cluster meta change (two meta entries)", admin_only(200), ".clusterMeta", "{\"clusterMeta\":{\"key1\":\"aabbcc\",\"key2\":\"0123456789\"}}";
-test_get "cluster meta (two entries)", {'badauth'=>[401],$reader=>[200,'application/json'],$writer=>[200,'application/json'],'admin'=>[200,'application/json']}, "?clusterMeta", undef, sub { my $json = get_json(shift) or return 0; return is_hash($json->{'clusterMeta'}) && (scalar keys %{$json->{'clusterMeta'}} == 2) && $json->{'clusterMeta'}->{'key1'} eq 'aabbcc' && $json->{'clusterMeta'}->{'key2'} eq '0123456789' };
-test_put_job "cluster meta change (one meta entry)", admin_only(200), ".clusterMeta", "{\"clusterMeta\":{\"key3\":\"1010\"}}";
-test_get "cluster meta (one entry)", {'badauth'=>[401],$reader=>[200,'application/json'],$writer=>[200,'application/json'],'admin'=>[200,'application/json']}, "?clusterMeta", undef, sub { my $json = get_json(shift) or return 0; return is_hash($json->{'clusterMeta'}) && (scalar keys %{$json->{'clusterMeta'}} == 1) && $json->{'clusterMeta'}->{'key3'} eq '1010' };
-test_put_job "cluster meta change (max meta entries)", admin_only(200), ".clusterMeta", "{\"clusterMeta\":{$metaitems}}";
-test_get "cluster meta (max entries)", {'badauth'=>[401],$reader=>[200,'application/json'],$writer=>[200,'application/json'],'admin'=>[200,'application/json']}, "?clusterMeta", undef, sub { my $json = get_json(shift) or return 0; return is_hash($json->{'clusterMeta'}) && (scalar keys %{$json->{'clusterMeta'}} == 128) };
-test_put_job "cluster meta change (too many meta entries)", admin_only(400), ".clusterMeta", "{\"clusterMeta\":{$metaitems},\"toomany\":\"acab\"}";
+test_get "cluster meta (empty)", {'badauth'=>[401],$reader=>[200,'application/json'],$writer=>[200,'application/json'],'admin'=>[200,'application/json']}, "?clusterMeta", undef, sub { my $json = get_json(shift) or return 0; return 0 unless is_hash($json->{'clusterMeta'}); %cleanupm = %{$json->{'clusterMeta'}}; return is_hash(\%cleanupm); };
+if(%cleanupm && is_hash(\%cleanupm)) {
+    test_put_job "cluster meta change (two meta entries)", admin_only(200), ".clusterMeta", "{\"clusterMeta\":{\"key1\":\"aabbcc\",\"key2\":\"0123456789\"}}";
+    test_get "cluster meta (two entries)", {'badauth'=>[401],$reader=>[200,'application/json'],$writer=>[200,'application/json'],'admin'=>[200,'application/json']}, "?clusterMeta", undef, sub { my $json = get_json(shift) or return 0; return is_hash($json->{'clusterMeta'}) && (scalar keys %{$json->{'clusterMeta'}} == 2) && $json->{'clusterMeta'}->{'key1'} eq 'aabbcc' && $json->{'clusterMeta'}->{'key2'} eq '0123456789' };
+    test_put_job "cluster meta change (one meta entry)", admin_only(200), ".clusterMeta", "{\"clusterMeta\":{\"key3\":\"1010\"}}";
+    test_get "cluster meta (one entry)", {'badauth'=>[401],$reader=>[200,'application/json'],$writer=>[200,'application/json'],'admin'=>[200,'application/json']}, "?clusterMeta", undef, sub { my $json = get_json(shift) or return 0; return is_hash($json->{'clusterMeta'}) && (scalar keys %{$json->{'clusterMeta'}} == 1) && $json->{'clusterMeta'}->{'key3'} eq '1010' };
+    test_put_job "cluster meta change (max meta entries)", admin_only(200), ".clusterMeta", "{\"clusterMeta\":{$metaitems}}";
+    test_get "cluster meta (max entries)", {'badauth'=>[401],$reader=>[200,'application/json'],$writer=>[200,'application/json'],'admin'=>[200,'application/json']}, "?clusterMeta", undef, sub { my $json = get_json(shift) or return 0; return is_hash($json->{'clusterMeta'}) && (scalar keys %{$json->{'clusterMeta'}} == 128) };
+    test_put_job "cluster meta change (too many meta entries)", admin_only(400), ".clusterMeta", "{\"clusterMeta\":{$metaitems},\"toomany\":\"acab\"}";
+} else {
+    printf "Skipped cluster meta tests\n";
+}
 
 cleanup;
 

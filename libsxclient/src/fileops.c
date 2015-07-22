@@ -4701,6 +4701,112 @@ int sxc_copy(sxc_file_t *source, sxc_file_t *dest, int recursive, int onefs, int
     return ret;
 }
 
+int sxc_mass_rename(sxc_cluster_t *cluster, sxc_file_t *source, sxc_file_t *dest) {
+    sxc_client_t *sx;
+    sxi_conns_t *conns;
+    char *url;
+    unsigned int len, slen, dlen;
+    char *vol_enc = NULL, *src_enc = NULL, *dst_enc = NULL;
+    sxi_hostlist_t hosts;
+    const char *p, *d;
+    char *dest_final;
+
+    if(!cluster)
+        return -1;
+    sx = sxi_cluster_get_client(cluster);
+    conns = sxi_cluster_get_conns(cluster);
+    if(!source || !source->path || !dest || !dest->path) {
+        sxi_seterr(sx, SXE_EARG, "Invalid argument");
+        return -1;
+    }
+
+    sxi_hostlist_init(&hosts);
+    if(sxi_locate_volume(conns, source->volume, &hosts, NULL, NULL, NULL))
+        return -1;
+
+    vol_enc = sxi_urlencode(sx, source->volume, 0);
+    if(!vol_enc) {
+        sxi_hostlist_empty(&hosts);
+        sxi_seterr(sx, SXE_EMEM, "Failed to encode volume name");
+        return -1;
+    }
+
+    if(!*source->path)
+        p = "/";
+    else
+        p = source->path;
+    slen = strlen(p);
+
+    if(!*dest->path)
+        d = "/";
+    else
+        d = dest->path;
+    dlen = strlen(d);
+
+    if(slen && p[slen-1] == '/' && dlen && d[dlen-1] != '/') {
+        /* dir -> file, append slash to dest */
+        dest_final = malloc(dlen+2);
+        if(!dest_final) {
+            sxi_seterr(sx, SXE_EMEM, "Out of memory");
+            sxi_hostlist_empty(&hosts);
+            free(vol_enc);
+            return -1;
+        }
+        snprintf(dest_final, dlen+2, "%s/", d);
+    } else {
+        dest_final = strdup(d);
+        if(!dest_final) {
+            sxi_seterr(sx, SXE_EMEM, "Out of memory");
+            sxi_hostlist_empty(&hosts);
+            free(vol_enc);
+            return -1;
+        }
+    }
+
+    dst_enc = sxi_urlencode(sx, dest_final, 0);
+    free(dest_final);
+    if(!dst_enc) {
+        sxi_seterr(sx, SXE_EMEM, "Failed to encode target file name");
+        sxi_hostlist_empty(&hosts);
+        free(vol_enc);
+        return -1;
+    }
+
+    src_enc = sxi_urlencode(sx, p, 0);
+    if(!src_enc) {
+        sxi_seterr(sx, SXE_EMEM, "Failed to encode source file name");
+        sxi_hostlist_empty(&hosts);
+        free(vol_enc);
+        free(dst_enc);
+        return -1;
+    }
+
+    len = strlen(vol_enc) + lenof("?source=") + strlen(src_enc) + lenof("&dest=") + strlen(dst_enc) + 1;
+    url = malloc(len);
+    if(!url) {
+        sxi_seterr(sx, SXE_EMEM, "Failed to allocate query");
+        sxi_hostlist_empty(&hosts);
+        free(dst_enc);
+        free(src_enc);
+        free(vol_enc);
+        return -1;
+    }
+
+    snprintf(url, len, "%s?source=%s&dest=%s", vol_enc, src_enc, dst_enc);
+    free(dst_enc);
+    free(src_enc);
+    free(vol_enc);
+    if(sxi_job_submit_and_poll(conns, &hosts, REQ_PUT, url, NULL, 0)) {
+        sxi_hostlist_empty(&hosts);
+        free(url);
+        return -1;
+    }
+
+    free(url);
+    sxi_hostlist_empty(&hosts);
+    return 0;
+}
+
 static int cat_remote_file(sxc_file_t *source, int dest) {
     char *hashfile, ha[42];
     uint8_t *buf, *fbuf = NULL;
@@ -5700,6 +5806,24 @@ static sxi_job_t *remote_copy_cb(sxc_file_list_t *target, sxc_file_t *pattern, s
     sxc_file_free(source);
 
     return ret;
+}
+
+int sxc_file_has_glob(sxc_file_t *file) {
+    if(!file || !file->path)
+        return -1;
+    return sxi_str_has_glob(file->path);
+}
+
+int sxc_file_is_remote_dir(sxc_file_t *file) {
+    if(!file || !file->path)
+        return -1;
+    if(sxc_file_is_sx(file)) {
+        if(ends_with(file->path, '/'))
+            return 1; /* fakedir */
+        else if(!*file->path)
+            return 1; /* root of the volume */
+    }
+    return 0;
 }
 
 int sxc_file_require_dir(sxc_file_t *file)

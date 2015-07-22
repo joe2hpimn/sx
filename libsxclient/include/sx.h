@@ -288,7 +288,9 @@ sxc_file_t *sxc_file_remote(sxc_cluster_t *cluster, const char *volume, const ch
 sxc_file_t *sxc_file_local(sxc_client_t *sx, const char *path);
 sxc_file_t *sxc_file_from_url(sxc_client_t *sx, sxc_cluster_t **cluster, const char *url);
 int sxc_file_is_sx(sxc_file_t *file);
+int sxc_file_is_remote_dir(sxc_file_t *file);
 int sxc_file_require_dir(sxc_file_t *file);
+int sxc_file_has_glob(sxc_file_t *file);
 sxc_cluster_t *sxc_file_get_cluster(sxc_file_t *file);
 const char *sxc_file_get_volume(sxc_file_t *file);
 const char *sxc_file_get_path(sxc_file_t *file);
@@ -305,6 +307,7 @@ void sxc_exclude_delete(sxc_exclude_t *e);
 int sxc_copy(sxc_file_t *source, sxc_file_t *dest, int recursive, int onefs, int ignore_errors, const sxc_exclude_t *exclude, int fail_same_file);
 int sxc_copy_sxfile(sxc_file_t *source, sxc_file_t *dest, int fail_same_file);
 int sxc_cat(sxc_file_t *source, int dest);
+int sxc_mass_rename(sxc_cluster_t *cluster, sxc_file_t *source, sxc_file_t *dest);
 
 typedef struct _sxc_file_list_t sxc_file_list_t;
 

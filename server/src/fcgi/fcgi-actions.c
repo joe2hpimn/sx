@@ -148,9 +148,9 @@ void volume_ops(void) {
     if(verb == VERB_DELETE && has_arg("filter")) {
         if(is_reserved())
             quit_errmsg(403, "Volume name is reserved");
-        /* Delete or remove files matching given filter */
+        /* Delete files matching given filter */
         quit_unless_has(PRIV_WRITE);
-        fcgi_process_files_batch();
+        fcgi_mass_delete();
         return;
     }
 
@@ -160,6 +160,15 @@ void volume_ops(void) {
             quit_errmsg(403, "Volume name is reserved");
         /* Modify volume */
         fcgi_volume_mod();
+        return;
+    }
+
+    if(verb == VERB_PUT && has_arg("source") && has_arg("dest")) {
+        if(is_reserved())
+            quit_errmsg(403, "Volume name is reserved");
+        /* Rename files matching given filter to the destination pattern */
+        quit_unless_has(PRIV_WRITE);
+        fcgi_mass_rename();
         return;
     }
 

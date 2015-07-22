@@ -656,6 +656,7 @@ struct _sx_hashfs_t {
     sqlite3_stmt *qm_metaset[METADBS];
     sqlite3_stmt *qm_metadel[METADBS];
     sqlite3_stmt *qm_delfile[METADBS];
+    sqlite3_stmt *qm_mvfile[METADBS];
     sqlite3_stmt *qm_wiperelocs[METADBS];
     sqlite3_stmt *qm_addrelocs[METADBS];
     sqlite3_stmt *qm_getreloc[METADBS];
@@ -742,15 +743,15 @@ struct _sx_hashfs_t {
     sx_hashfs_file_t list_file;
     int list_recurse;
     int64_t list_volid;
-    char list_pattern[SXLIMIT_MAX_FILENAME_LEN+2]; /* +2 -> NUL byte plus possibly added glob if pattern ends with slash */
+    char list_pattern[2*SXLIMIT_MAX_FILENAME_LEN+3];
     list_entry_t list_cache[METADBS];
     unsigned int list_pattern_slashes; /* Number of slashes in pattern */
     int list_pattern_end_with_slash; /* 1 if pattern ends with slash */
 
     /* fields below are used during iteration */
     /* No need to append byte for asterisk, because that limit is up to first NUL byte */
-    char list_lower_limit[SXLIMIT_MAX_FILENAME_LEN+1];
-    char list_upper_limit[SXLIMIT_MAX_FILENAME_LEN+1];
+    char list_lower_limit[2*SXLIMIT_MAX_FILENAME_LEN+3];
+    char list_upper_limit[2*SXLIMIT_MAX_FILENAME_LEN+3];
     int list_limit_len; /* Both itername and itername_limit will have the same length */
 
     int64_t get_id;
@@ -889,6 +890,7 @@ static void close_all_dbs(sx_hashfs_t *h) {
 	sqlite3_finalize(h->qm_metaset[i]);
 	sqlite3_finalize(h->qm_metadel[i]);
 	sqlite3_finalize(h->qm_delfile[i]);
+        sqlite3_finalize(h->qm_mvfile[i]);
 	sqlite3_finalize(h->qm_wiperelocs[i]);
 	sqlite3_finalize(h->qm_addrelocs[i]);
 	sqlite3_finalize(h->qm_getreloc[i]);
@@ -1740,7 +1742,7 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
             goto open_hashfs_fail;
         if(qprep(h->metadb[i], &h->qm_listrevs_rev[i], "SELECT size, rev FROM files WHERE volume_id = :volume AND name = :name AND (:previous IS NULL OR rev < :previous) ORDER BY rev DESC LIMIT 1"))
 	    goto open_hashfs_fail;
-	if(qprep(h->metadb[i], &h->qm_getrev[i], "SELECT fid, size, content, rev, LENGTH(CAST(name AS BLOB)) + size + COALESCE((SELECT SUM(LENGTH(CAST(key AS BLOB)) + LENGTH(value)) FROM fmeta WHERE file_id = fid),0) FROM files WHERE volume_id = :volume AND name = :name AND rev = :revision LIMIT 1"))
+	if(qprep(h->metadb[i], &h->qm_getrev[i], "SELECT fid, size, content, rev, LENGTH(CAST(name AS BLOB)) + size + COALESCE((SELECT SUM(LENGTH(CAST(key AS BLOB)) + LENGTH(value)) FROM fmeta WHERE file_id = fid),0), age, revision_id FROM files WHERE volume_id = :volume AND name = :name AND rev = :revision LIMIT 1"))
 	    goto open_hashfs_fail;
 	if(qprep(h->metadb[i], &h->qm_findrev[i], "SELECT volume_id, name, size FROM files WHERE rev = :revision LIMIT 1"))
 	    goto open_hashfs_fail;
@@ -1754,6 +1756,8 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 	    goto open_hashfs_fail;
 	if(qprep(h->metadb[i], &h->qm_delfile[i], "DELETE FROM files WHERE fid = :file"))
 	    goto open_hashfs_fail;
+        if(qprep(h->metadb[i], &h->qm_mvfile[i], "UPDATE files SET name = :newname WHERE name = :oldname AND rev = :rev"))
+            goto open_hashfs_fail;
 	if(qprep(h->metadb[i], &h->qm_wiperelocs[i], "DELETE FROM relocs"))
 	    goto open_hashfs_fail;
 	if(qprep(h->metadb[i], &h->qm_addrelocs[i], "INSERT INTO relocs (file_id, dest) SELECT fid, :node FROM files WHERE volume_id = :volid"))
@@ -5095,10 +5099,6 @@ rc_ty sx_hashfs_revision_first(sx_hashfs_t *h, const sx_hashfs_volume_t *volume,
     q = (reversed ? h->qm_listrevs_rev[h->rev_ndb] : h->qm_listrevs[h->rev_ndb]);
     sqlite3_reset(q);
 
-    if(qbind_int64(q, ":volume", volume->id) ||
-       qbind_text(q, ":name", name))
-	return FAIL_EINTERNAL;
-
     sxi_strlcpy(h->list_file.name, name, sizeof(h->list_file.name));
     h->list_file.revision[0] = '\0';
     h->list_volid = volume->id;
@@ -5341,9 +5341,8 @@ static rc_ty lookup_file_name(sx_hashfs_t *h, int db_idx, int update_cache) {
     return ret;
 }
 
-static int parse_pattern(sx_hashfs_t *h, const char *pattern) {
-    int plen;
-    unsigned int l, r;
+static int parse_pattern(sx_hashfs_t *h, const char *pattern, int escape) {
+    unsigned int plen, l, r;
 
     /* If pattern is empty, make it a single slash */
     if(!pattern)
@@ -5355,19 +5354,44 @@ static int parse_pattern(sx_hashfs_t *h, const char *pattern) {
     if (!*pattern)
         pattern = "/";
 
-    /* Pattern length is at least 1, so this call is OK */
-    plen = check_file_name(pattern);
-    if(plen < 0) {
-        WARN("Could not get pattern length");
+    plen = strlen(pattern);
+    if(plen >= sizeof(h->list_pattern)) {
+        msg_set_reason("Pattern is too long");
         return 1;
+    }
+
+    if(utf8_validate_len(pattern) < 0) {
+        msg_set_reason("Invalid pattern '%s': must be valid UTF8", pattern);
+        return 1;
+    }
+
+    if(escape) {
+        /* Iterate through pattern and escape globbing characters */
+        for(l = 0, r = 0; l < plen; l++) {
+            if(r >= sizeof(h->list_pattern))
+                break;
+            if(strchr("*?[]\\", pattern[l]))
+                h->list_pattern[r++] = '\\';
+            if(r >= sizeof(h->list_pattern))
+                break;
+            h->list_pattern[r++] = pattern[l];
+        }
+
+        if(r >= sizeof(h->list_pattern)) {
+            msg_set_reason("Pattern is too long");
+            return 1;
+        }
+
+        h->list_pattern[r] = '\0';
+        /* Update pattern length */
+        plen = r;
+    } else {
+        /* Clone pattern, plen is up to 2*SXLIMIT_MAX_FILE_NAME_LEN */
+        sxi_strlcpy(h->list_pattern, pattern, sizeof(h->list_pattern));
     }
 
     /* Reset globbing character position */
     h->list_limit_len = -1;
-
-    /* Clone pattern, plen is up to SXLIMIT_MAX_FILE_NAME_LEN */
-    memcpy(h->list_pattern, pattern, plen);
-    h->list_pattern[plen] = '\0';
 
     /* Check if first character is a globbing one. */
     if(strchr("*?[\\", h->list_pattern[0]))
@@ -5377,7 +5401,7 @@ static int parse_pattern(sx_hashfs_t *h, const char *pattern) {
      * Iterate over pattern and remove multiplied slashes from that
      * l points to chars in new pattern and r points to char in old one
      */
-    for(l = 0, r = 1; r < (unsigned int)plen; r++) {
+    for(l = 0, r = 1; r < plen; r++) {
         if(h->list_pattern[l] != '/' || h->list_pattern[r] != '/') {
             l++;
             if(l!=r)
@@ -5419,7 +5443,7 @@ static int parse_pattern(sx_hashfs_t *h, const char *pattern) {
     return 0;
 }
 
-rc_ty sx_hashfs_list_first(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const char *pattern, const sx_hashfs_file_t **file, int recurse, const char *after) {
+rc_ty sx_hashfs_list_first(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const char *pattern, const sx_hashfs_file_t **file, int recurse, const char *after, int escape) {
     unsigned int l = 0;
 
     if(!h || !volume) {
@@ -5434,7 +5458,7 @@ rc_ty sx_hashfs_list_first(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, con
     }
 
     /* Check given search pattern for globbing characters */
-    if(parse_pattern(h, pattern)) {
+    if(parse_pattern(h, pattern, escape)) {
         WARN("Failed to parse listing pattern");
         return EINVAL;
     }
@@ -6743,7 +6767,7 @@ rc_ty sx_hashfs_volume_disable(sx_hashfs_t *h, const char *volume) {
 	}
     }
 
-    ret = sx_hashfs_list_first(h, vol, NULL, NULL, 1, NULL);
+    ret = sx_hashfs_list_first(h, vol, NULL, NULL, 1, NULL, 0);
     if(ret == OK) {
 	msg_set_reason("Cannot disable non empty volume");
 	ret = ENOTEMPTY;
@@ -9915,10 +9939,10 @@ sx_hashfs_filedelete_job_err:
     return ret;
 }
 
-static rc_ty schedule_files_processing_job(sx_hashfs_t *h, sx_uid_t user_id, const sx_node_t *n, const sx_hashfs_volume_t *vol, int recursive, const struct timeval *timestamp, const char *input_pattern, const char *output_pattern, job_t *job_id) {
+static rc_ty schedule_files_processing_job(sx_hashfs_t *h, sx_uid_t user_id, const sx_node_t *n, const sx_hashfs_volume_t *vol, int recursive, const struct timeval *timestamp, const char *input_pattern, const char *dest, char **jobid) {
     const sx_node_t *me = sx_hashfs_self(h);
 
-    if(!n || !vol || !input_pattern || !timestamp || !job_id) {
+    if(!n || !vol || !input_pattern || !timestamp || !jobid) {
         WARN("NULL argument");
         return EINVAL;
     }
@@ -9929,7 +9953,7 @@ static rc_ty schedule_files_processing_job(sx_hashfs_t *h, sx_uid_t user_id, con
         unsigned int len;
         int qret = 0;
         sxi_job_t *job;
-        char *input_enc, *output_enc = NULL;
+        char *input_enc, *dest_enc = NULL;
         sxi_hostlist_t hlist;
 
         input_enc = sxi_urlencode(h->sx, input_pattern, 0);
@@ -9938,9 +9962,9 @@ static rc_ty schedule_files_processing_job(sx_hashfs_t *h, sx_uid_t user_id, con
             return ENOMEM;
         }
 
-        if(output_pattern) {
-            output_enc = sxi_urlencode(h->sx, output_pattern, 0);
-            if(!output_enc) {
+        if(dest) {
+            dest_enc = sxi_urlencode(h->sx, dest, 0);
+            if(!dest_enc) {
                 WARN("Failed to urlencode input pattern");
                 free(input_enc);
                 return ENOMEM;
@@ -9951,25 +9975,25 @@ static rc_ty schedule_files_processing_job(sx_hashfs_t *h, sx_uid_t user_id, con
         len = strlen(vol->name) + lenof("?filter=") + strlen(input_enc) + lenof("&timestamp=") + 42;
         if(recursive)
             len += lenof("&recursive");
-        if(output_pattern)
-            len += lenof("&output=") + strlen(output_enc);
+        if(dest)
+            len += lenof("&dest=") + strlen(dest_enc);
 
         url = wrap_malloc(len);
         if(!url) {
             WARN("Failed to allocate url");
             free(input_enc);
-            free(output_enc);
+            free(dest_enc);
             msg_set_reason("Out of memory");
             return ENOMEM;
         }
 
-        if(output_pattern)
-            snprintf(url, len, "%s?filter=%s&timestamp=%lld.%lld&output=%s%s", vol->name, input_enc, (long long)timestamp->tv_sec, (long long)timestamp->tv_usec, output_enc, recursive ? "&recursive" : "");
+        if(dest)
+            snprintf(url, len, "%s?source=%s&timestamp=%lld.%lld&dest=%s%s", vol->name, input_enc, (long long)timestamp->tv_sec, (long long)timestamp->tv_usec, dest_enc, recursive ? "&recursive" : "");
         else
             snprintf(url, len, "%s?filter=%s&timestamp=%lld.%lld%s", vol->name, input_enc, (long long)timestamp->tv_sec, (long long)timestamp->tv_usec, recursive ? "&recursive" : "");
 
         free(input_enc);
-        free(output_enc);
+        free(dest_enc);
 
         sxi_hostlist_init(&hlist);
         if(sxi_hostlist_add_host(h->sx, &hlist, sx_node_internal_addr(n))) {
@@ -9979,7 +10003,7 @@ static rc_ty schedule_files_processing_job(sx_hashfs_t *h, sx_uid_t user_id, con
             return FAIL_EINTERNAL;
         }
 
-        job = sxi_job_submit(h->sx_clust, &hlist, REQ_DELETE, url, NULL, NULL, 0, &qret, NULL);
+        job = sxi_job_submit(h->sx_clust, &hlist, dest ? REQ_PUT : REQ_DELETE, url, NULL, NULL, 0, &qret, NULL);
 
         free(url);
         sxi_hostlist_empty(&hlist);
@@ -9989,10 +10013,10 @@ static rc_ty schedule_files_processing_job(sx_hashfs_t *h, sx_uid_t user_id, con
             return FAIL_EINTERNAL;
         }
 
-        *job_id = sxi_job_get_id(job);
+        *jobid = strdup(sxi_job_get_id(job));
         sxi_job_free(job);
-        if(*job_id == -1) {
-            WARN("Failed to parse job ID");
+        if(*jobid == NULL) {
+            WARN("Failed to get job ID");
             return FAIL_EINTERNAL;
         }
 
@@ -10004,6 +10028,7 @@ static rc_ty schedule_files_processing_job(sx_hashfs_t *h, sx_uid_t user_id, con
         const void *job_data = NULL;
         unsigned int job_data_len = 0;
         rc_ty ret;
+        job_t job_id;
 
         if(!nodelist) {
             WARN("Failed to create a nodelist");
@@ -10031,7 +10056,7 @@ static rc_ty schedule_files_processing_job(sx_hashfs_t *h, sx_uid_t user_id, con
             return FAIL_EINTERNAL;
         }
 
-        if(output_pattern && sx_blob_add_string(b, output_pattern)) {
+        if(dest && sx_blob_add_string(b, dest)) {
             WARN("Failed to add data to blob");
             sx_nodelist_delete(nodelist);
             sx_blob_free(b);
@@ -10039,14 +10064,19 @@ static rc_ty schedule_files_processing_job(sx_hashfs_t *h, sx_uid_t user_id, con
         }
         sx_blob_to_data(b, &job_data, &job_data_len);
         /* Schedule the job locally */
-        ret = sx_hashfs_job_new(h, user_id, job_id, output_pattern ? JOBTYPE_BATCHRENAME : JOBTYPE_BATCHDELETE, 3600, NULL, job_data, job_data_len, nodelist);
+        ret = sx_hashfs_job_new(h, user_id, &job_id, dest ? JOBTYPE_MASSRENAME : JOBTYPE_MASSDELETE, 3600, NULL, job_data, job_data_len, nodelist);
+        if(ret == OK) {
+            *jobid = malloc(UUID_STRING_SIZE + 1 + 21);
+            snprintf(*jobid, UUID_STRING_SIZE + 1 + 21, "%s:%lld", sx_node_uuid_str(me), (long long)job_id);
+        }
+
         sx_blob_free(b);
         sx_nodelist_delete(nodelist);
         return ret;
     }
 }
 
-rc_ty sx_hashfs_files_processing_job(sx_hashfs_t *h, sx_uid_t user_id, const sx_hashfs_volume_t *vol, int recursive, const char *input_pattern, const char *output_pattern, job_t *job_id) {
+rc_ty sx_hashfs_files_processing_job(sx_hashfs_t *h, sx_uid_t user_id, const sx_hashfs_volume_t *vol, int recursive, const char *input_pattern, const char *dest, job_t *job_id) {
     rc_ty ret = FAIL_EINTERNAL;
     sx_nodelist_t *volnodes = NULL;
     const sx_node_t *me;
@@ -10056,7 +10086,7 @@ rc_ty sx_hashfs_files_processing_job(sx_hashfs_t *h, sx_uid_t user_id, const sx_
     const void *job_data = NULL;
     unsigned int job_data_len;
 
-    if(!vol) {
+    if(!vol || !input_pattern) {
         msg_set_reason("NULL argument");
         goto sx_hashfs_files_processing_job_err;
     }
@@ -10087,24 +10117,25 @@ rc_ty sx_hashfs_files_processing_job(sx_hashfs_t *h, sx_uid_t user_id, const sx_
     nnodes = sx_nodelist_count(volnodes);
     for(i = 0; i < nnodes; i++) {
         rc_ty s;
-        job_t job = 0;
+        char *jobid = NULL;
         const sx_node_t *n;
 
         n = sx_nodelist_get(volnodes, i);
-        if((s = schedule_files_processing_job(h, user_id, n, vol, recursive, &timestamp, input_pattern, output_pattern, &job))) {
+        if((s = schedule_files_processing_job(h, user_id, n, vol, recursive, &timestamp, input_pattern, dest, &jobid)) != OK) {
             WARN("Failed to create batch delete job on %s: %s", sx_node_uuid_str(n), msg_get_reason());
             ret = s;
             goto sx_hashfs_files_processing_job_err;
         }
-
-        if(!job) {
+        if(!jobid) {
             WARN("Job ID is not set");
             goto sx_hashfs_files_processing_job_err;
         }
-        if(sx_blob_add_blob(b, sx_node_uuid(n)->binary, UUID_BINARY_SIZE) || sx_blob_add_int64(b, job)) {
-            WARN("Failed to add job ID %lld to blob", (long long)job);
+        if(sx_blob_add_string(b, jobid)) {
+            WARN("Failed to add job ID %s to blob", jobid);
+            free(jobid);
             goto sx_hashfs_files_processing_job_err;
         }
+        free(jobid);
     }
 
     sx_blob_to_data(b, &job_data, &job_data_len);
@@ -10223,6 +10254,226 @@ static rc_ty get_file_id(sx_hashfs_t *h, const char *volume, const char *filenam
 
     sqlite3_reset(q);
     return res;
+}
+
+/* Rename files with database switch */
+static rc_ty rename_switch_dbs(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, const char *oldname, const char *revision, unsigned int mdb1, const char *newname, unsigned int mdb2) {
+    rc_ty ret = FAIL_EINTERNAL;
+    sqlite3_stmt *qget = h->qm_getrev[mdb1], *qins = h->qm_ins[mdb2], *qdel = h->qm_delfile[mdb1];
+    sqlite3_stmt *qmget = h->qm_metaget[mdb1], *qmset = h->qm_metaset[mdb2], *qmdel = h->qm_metadel[mdb1];
+    int r, db2_locked;
+    int64_t oldid, newid, size, age;
+    const void *content, *revision_id;
+    unsigned int content_len, revision_id_len, nmeta;
+
+    if(qbegin(h->metadb[mdb1])) {
+        msg_set_reason("Failed to lock database");
+        return FAIL_EINTERNAL;
+    }
+
+    if(qbegin(h->metadb[mdb2])) {
+        msg_set_reason("Failed to lock database");
+        qrollback(h->metadb[mdb1]);
+        return FAIL_EINTERNAL;
+    }
+
+    db2_locked = 1;
+    sqlite3_reset(qget);
+    sqlite3_reset(qins);
+    sqlite3_reset(qdel);
+    sqlite3_reset(qmget);
+    sqlite3_reset(qmset);
+    sqlite3_reset(qmdel);
+
+    if(qbind_int64(qget, ":volume", vol->id) || qbind_text(qget, ":name", oldname) ||
+       qbind_text(qget, ":revision", revision)) {
+        msg_set_reason("Failed to rename file '%s' to '%s'", oldname, newname);
+        goto rename_switch_dbs_err;
+    }
+
+    r = qstep(qget);
+    if(r == SQLITE_DONE) {
+        msg_set_reason("No such file: %s", oldname);
+        ret = ENOENT;
+        goto rename_switch_dbs_err;
+    }
+    if(r != SQLITE_ROW) {
+        msg_set_reason("Failed to rename file '%s' to '%s'", oldname, newname);
+        goto rename_switch_dbs_err;
+    }
+
+    /* Get existing file data */
+    oldid = sqlite3_column_int64(qget, 0);
+    size = sqlite3_column_int64(qget, 1);
+    content = sqlite3_column_blob(qget, 2);
+    content_len = sqlite3_column_bytes(qget, 2);
+    age = sqlite3_column_int64(qget, 5);
+    revision_id = sqlite3_column_blob(qget, 6);
+    revision_id_len = sqlite3_column_bytes(qget, 6);
+
+    /* Insert existing file data with updated name to the correct database */
+    if(qbind_int64(qins, ":volume", vol->id) || qbind_text(qins, ":name", newname) ||
+       qbind_int64(qins, ":size", size) || qbind_blob(qins, ":hashes", content_len ? content : "", content_len) ||
+       qbind_text(qins, ":revision", revision) || qbind_blob(qins, ":revision_id", revision_id, revision_id_len) ||
+       qbind_int64(qins, ":age", age)) {
+        msg_set_reason("Failed to rename file '%s' to '%s'", oldname, newname);
+        goto rename_switch_dbs_err;
+    }
+    r = qstep(qins);
+    if(r == SQLITE_CONSTRAINT) {
+        msg_set_reason("File %s already exists in new database: %s", newname, sqlite3_errmsg(sqlite3_db_handle(qins)));
+        ret = EEXIST;
+        goto rename_switch_dbs_err;
+    } else if(r != SQLITE_DONE) {
+        msg_set_reason("Failed to rename file '%s' to '%s'", oldname, newname);
+        goto rename_switch_dbs_err;
+    }
+
+    /* Get new file entry row id */
+    newid = sqlite3_last_insert_rowid(sqlite3_db_handle(qins));
+
+    /* Drop old entry */
+    if(qbind_int64(qdel, ":file", oldid) || qstep_noret(qdel)) {
+        msg_set_reason("Failed to rename file '%s' to '%s'", oldname, newname);
+        goto rename_switch_dbs_err;
+    }
+
+    /* Now move file meta */
+    if(qbind_int64(qmget, ":file", oldid)) {
+        msg_set_reason("Failed to rename file '%s' to '%s'", oldname, newname);
+        goto rename_switch_dbs_err;
+    }
+
+    /* Iterate over existing file meta */
+    nmeta = 0;
+    while((r = qstep(qmget)) == SQLITE_ROW) {
+        const char *key = (const char *)sqlite3_column_text(qmget, 0);
+        const void *value = sqlite3_column_text(qmget, 1);
+        unsigned int value_len = sqlite3_column_bytes(qmget, 1), key_len;
+
+        if(!key)
+            break;
+        key_len = strlen(key);
+        if(key_len > SXLIMIT_META_MAX_KEY_LEN)
+            break;
+        if(!value || value_len > SXLIMIT_META_MAX_VALUE_LEN)
+            break;
+        if(nmeta >= SXLIMIT_META_MAX_ITEMS)
+            break;
+
+        sqlite3_reset(qmset);
+        /* Insert new entry */
+        if(qbind_int64(qmset, ":file", newid) || qbind_text(qmset, ":key", key) ||
+           qbind_blob(qmset, ":value", value, value_len) || qstep_noret(qmset)) {
+            msg_set_reason("Failed to change new file meta");
+            goto rename_switch_dbs_err;
+        }
+
+        /* Delete old entry */
+        if(qbind_int64(qmdel, ":file", oldid) || qbind_text(qmdel, ":key", key) ||
+           qstep_noret(qmdel)) {
+            msg_set_reason("Failed to delete old file meta");
+            goto rename_switch_dbs_err;
+        }
+        nmeta++;
+    }
+
+    if(r != SQLITE_DONE) {
+        msg_set_reason("Failed to move file meta");
+        goto rename_switch_dbs_err;
+    }
+
+    if(qcommit(h->metadb[mdb2]))
+        goto rename_switch_dbs_err;
+    db2_locked = 0;
+
+    if(qcommit(h->metadb[mdb1]))
+        goto rename_switch_dbs_err;
+    
+    ret = OK;
+rename_switch_dbs_err:
+    if(ret != OK) {
+        qrollback(h->metadb[mdb1]);
+        if(db2_locked)
+            qrollback(h->metadb[mdb2]);
+    }
+    sqlite3_reset(qget);
+    sqlite3_reset(qins);
+    sqlite3_reset(qdel);
+    sqlite3_reset(qmget);
+    sqlite3_reset(qmset);
+    sqlite3_reset(qmdel);
+    return ret;
+}
+
+/* Change name for a file. If new file name belongs to a different meta db, all its entries will have to be moved to the destination database. 
+ * Otherwise simple rename is sufficient. */
+rc_ty sx_hashfs_file_rename(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const char *oldname, const char *revision, const char *newname) {
+    int mdb1, mdb2;
+    int64_t ndiff;
+
+    if(!h || !volume || !oldname || !newname) {
+        NULLARG();
+        return EFAULT;
+    }
+
+    if(!h->have_hd) {
+        WARN("Called before initialization");
+        return FAIL_EINIT;
+    }
+
+    if(!sx_hashfs_is_or_was_my_volume(h, volume)) {
+        msg_set_reason("Wrong node for volume '%s': ...", volume->name);
+        return ENOENT;
+    }
+
+    if(check_file_name(oldname) < 0 || check_file_name(newname) < 0) {
+        msg_set_reason("Invalid file name");
+        return EINVAL;
+    }
+
+    if(check_revision(revision)) {
+        msg_set_reason("Invalid file revision");
+        return EINVAL;
+    }
+
+    mdb1 = getmetadb(oldname);
+    if(mdb1 < 0) {
+        DEBUG("Invalid meta db for source file");
+        return FAIL_EINTERNAL;
+    }
+
+    mdb2 = getmetadb(newname);
+    if(mdb2 < 0) {
+        DEBUG("Invalid meta db for destination file");
+        return FAIL_EINTERNAL;
+    }
+
+    if(mdb1 == mdb2) {
+        /* File stays in the same database, task is to only update its name */
+        if(qbind_text(h->qm_mvfile[mdb1], ":oldname", oldname) ||
+           qbind_text(h->qm_mvfile[mdb1], ":rev", revision) ||
+           qbind_text(h->qm_mvfile[mdb1], ":newname", newname) ||
+           qstep_noret(h->qm_mvfile[mdb1])) {
+            msg_set_reason("Failed to rename file '%s' to '%s'", oldname, newname);
+            return FAIL_EINTERNAL;
+        }
+    } else {
+        rc_ty s;
+
+        if((s = rename_switch_dbs(h, volume, oldname, revision, mdb1, newname, mdb2)) != OK)
+            return s;
+    }
+
+    /* Compute name sizes difference */
+    ndiff = strlen(newname);
+    ndiff -= strlen(oldname);
+    if(ndiff && sx_hashfs_update_volume_cursize(h, volume->id, ndiff)) {
+        WARN("Failed to update volume size");
+        return FAIL_EINTERNAL;
+    }
+
+    return OK;
 }
 
 rc_ty sx_hashfs_file_delete(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const char *file, const char *revision) {

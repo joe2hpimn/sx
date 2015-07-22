@@ -273,7 +273,7 @@ typedef struct _sx_hashfs_file_t {
     char name[SXLIMIT_MAX_FILENAME_LEN+2];
     char revision[REV_LEN+1];
 } sx_hashfs_file_t;
-rc_ty sx_hashfs_list_first(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const char *pattern, const sx_hashfs_file_t **file, int recurse, const char *after);
+rc_ty sx_hashfs_list_first(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const char *pattern, const sx_hashfs_file_t **file, int recurse, const char *after, int escape);
 rc_ty sx_hashfs_list_next(sx_hashfs_t *h);
 rc_ty sx_hashfs_revision_first(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const char *name, const sx_hashfs_file_t **file, int reversed);
 rc_ty sx_hashfs_revision_next(sx_hashfs_t *h, int reversed);
@@ -357,6 +357,9 @@ rc_ty sx_hashfs_tmp_delete(sx_hashfs_t *h, int64_t tmpfile_id);
 /* File delete */
 rc_ty sx_hashfs_file_delete(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const char *file, const char *revision);
 rc_ty sx_hashfs_filedelete_job(sx_hashfs_t *h, sx_uid_t user_id, const sx_hashfs_volume_t *vol, const char *name, const char *revision, job_t *job_id);
+
+/* File rename */
+rc_ty sx_hashfs_file_rename(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const char *oldname, const char *revision, const char *newname);
 
 /* Create and schedule batch jobs (batch rename or delete) */
 rc_ty sx_hashfs_files_processing_job(sx_hashfs_t *h, sx_uid_t user_id, const sx_hashfs_volume_t *vol, int recursive, const char *input_pattern, const char *output_pattern, job_t *job_id);
