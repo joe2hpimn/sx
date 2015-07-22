@@ -72,6 +72,8 @@ const unsigned int bsz[SIZES] = {SX_BS_SMALL, SX_BS_MEDIUM, SX_BS_LARGE};
 
 #define SX_CLUSTER_META_PREFIX "clusterMeta:"
 
+#define DEBUG_REVISION_ID
+
 #define WARNHASH(MSG, X) do {				\
     char _warnhash[sizeof(sx_hash_t)*2+1];		\
     bin2hex((X)->b, sizeof(*X), _warnhash, sizeof(_warnhash));	\
@@ -565,6 +567,7 @@ typedef struct {
     unsigned int created_at;
     char name[SXLIMIT_MAX_FILENAME_LEN+2];
     char revision[REV_LEN+1];
+    sx_hash_t revision_id;
 } list_entry_t;
 
 struct _sx_hashfs_t {
@@ -5154,6 +5157,19 @@ rc_ty sx_hashfs_revision_next(sx_hashfs_t *h, int reversed) {
     memcpy(h->list_file.revision_id.b, revid, SXI_SHA1_BIN_LEN);
     sqlite3_reset(q);
 
+    #ifdef DEBUG_REVISION_ID
+        sx_hash_t revid_ref;
+        if(sx_unique_fileid(h->sx, h->list_file.revision, &revid_ref)) {
+            WARN("Failed to check revision ID for %s", h->list_file.revision);
+            return FAIL_EINTERNAL;
+        }
+
+        if(memcmp(revid_ref.b, h->list_file.revision_id.b, sizeof(revid_ref.b))) {
+            WARN("Revision ID mismatch for %s", h->list_file.revision);
+            return FAIL_EINTERNAL;
+        }
+    #endif
+
     return OK;
 }
 
@@ -5347,7 +5363,20 @@ static rc_ty lookup_file_name(sx_hashfs_t *h, int db_idx, int update_cache) {
         WARN("Invalid revision ID");
         goto lookup_file_name_err;
     }
-    memcpy(h->list_file.revision_id.b, revid, SXI_SHA1_BIN_LEN);
+    memcpy(e->revision_id.b, revid, SXI_SHA1_BIN_LEN);
+
+    #ifdef DEBUG_REVISION_ID
+        sx_hash_t revid_ref;
+        if(sx_unique_fileid(h->sx, e->revision, &revid_ref)) {
+            WARN("Failed to check revision ID for %s", h->list_file.revision);
+            goto lookup_file_name_err;
+        }
+
+        if(memcmp(revid_ref.b, e->revision_id.b, sizeof(revid_ref.b))) {
+            WARN("Revision ID mismatch for %s", h->list_file.revision);
+            goto lookup_file_name_err;
+        }
+    #endif
 
     ret = OK;
     lookup_file_name_err:
@@ -5573,6 +5602,7 @@ rc_ty sx_hashfs_list_next(sx_hashfs_t *h) {
         h->list_file.block_size = 0;
         h->list_file.nblocks = 0;
         h->list_file.revision[0] = '\0';
+        memset(h->list_file.revision_id.b, 0, sizeof(h->list_file.revision_id.b));
         /*
           h->list_file.created_at = 0;
 
@@ -5585,6 +5615,7 @@ rc_ty sx_hashfs_list_next(sx_hashfs_t *h) {
     } else {
         strncpy(h->list_file.name + 1, h->list_cache[min_idx].name, sizeof(h->list_file.name)-1);
         h->list_file.name[sizeof(h->list_file.name)-1] = '\0';
+        memcpy(h->list_file.revision_id.b, h->list_cache[min_idx].revision_id.b, sizeof(h->list_file.revision_id.b));
     }
 
     /* Lookup next file name for this database */
@@ -9480,6 +9511,19 @@ rc_ty sx_hashfs_getinfo_by_revision(sx_hashfs_t *h, const char *revision, sx_has
         filerev->revision[sizeof(filerev->revision)-1] = '\0';
         memcpy(filerev->revision_id.b, revid, SXI_SHA1_BIN_LEN);
         sqlite3_reset(q);
+
+        #ifdef DEBUG_REVISION_ID
+            sx_hash_t revid_ref;
+            if(sx_unique_fileid(h->sx, filerev->revision, &revid_ref)) {
+                WARN("Failed to check revision ID for %s", filerev->revision);
+                return FAIL_EINTERNAL;
+            }
+
+            if(memcmp(revid_ref.b, filerev->revision_id.b, sizeof(revid_ref.b))) {
+                WARN("Revision ID mismatch for %s", h->list_file.revision);
+                return FAIL_EINTERNAL;
+            }
+        #endif
         return OK;
     }
     return ENOENT;
@@ -9858,6 +9902,22 @@ rc_ty sx_hashfs_filedelete_job(sx_hashfs_t *h, sx_uid_t user_id, const sx_hashfs
                 revision_op.op = -1;
                 revision_op.blocksize = filerev.block_size;
                 memcpy(revision_op.revision_id.b, filerev.revision_id.b, SXI_SHA1_BIN_LEN);
+                #ifdef DEBUG_REVISION_ID
+                    sx_hash_t revid_ref;
+                    if(sx_unique_fileid(h->sx, filerev.revision, &revid_ref)) {
+                        WARN("Failed to check revision ID for %s", filerev.revision);
+                        ret = FAIL_EINTERNAL;
+                        free(lockname);
+                        goto sx_hashfs_filedelete_job_err;
+                    }
+
+                    if(memcmp(revid_ref.b, filerev.revision_id.b, sizeof(revid_ref.b))) {
+                        WARN("Revision ID mismatch for %s", filerev.revision);
+                        ret = FAIL_EINTERNAL;
+                        free(lockname);
+                        goto sx_hashfs_filedelete_job_err;
+                    }
+                #endif
 
                 /* job to unbump revision for blocks */
                 ret = sx_hashfs_job_new_2pc(h, &revision_spec, &revision_op, user_id, job_id, 0);
@@ -9910,6 +9970,22 @@ rc_ty sx_hashfs_filedelete_job(sx_hashfs_t *h, sx_uid_t user_id, const sx_hashfs
             revision_op.op = -1;
             revision_op.blocksize = filerev->block_size;
             memcpy(revision_op.revision_id.b, filerev->revision_id.b, SXI_SHA1_BIN_LEN);
+            #ifdef DEBUG_REVISION_ID
+                sx_hash_t revid_ref;
+                if(sx_unique_fileid(h->sx, filerev->revision, &revid_ref)) {
+                    WARN("Failed to check revision ID for %s", filerev->revision);
+                    ret = FAIL_EINTERNAL;
+                    free(lockname);
+                    goto sx_hashfs_filedelete_job_err;
+                }
+
+                if(sx_unique_fileid(h->sx, filerev->revision, &revid_ref) || memcmp(revid_ref.b, filerev->revision_id.b, sizeof(revid_ref.b))) {
+                    WARN("Revision ID mismatch for %s", filerev->revision);
+                    ret = FAIL_EINTERNAL;
+                    free(lockname);
+                    goto sx_hashfs_filedelete_job_err;
+                }
+            #endif
 
             /* job to unbump revision for blocks */
             ret = sx_hashfs_job_new_2pc(h, &revision_spec, &revision_op, user_id, job_id, 0);
