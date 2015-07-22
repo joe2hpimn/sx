@@ -464,7 +464,7 @@ int sxc_file_set_path(sxc_file_t *file, const char *newpath)
     return 0;
 }
 
-sxc_file_t *sxi_file_dup(sxc_file_t *file)
+static sxc_file_t *file_dup(sxc_file_t *file)
 {
     sxc_file_t *ret;
     sxc_client_t *sx;
@@ -2394,8 +2394,8 @@ static int local_to_remote_iterate(sxc_file_t *source, int recursive, int depth,
         }
 	if(onefs && sb.st_dev != sdev)
 	    continue;
-        src = sxi_file_dup(source);
-        dst = sxi_file_dup(dest);
+        src = file_dup(source);
+        dst = file_dup(dest);
         if (!src || !dst)
             break;
         free(src->path);
