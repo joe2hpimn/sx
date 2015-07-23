@@ -18,7 +18,7 @@ Print help, including hidden options, and exit
 Print version and exit
 .TP
 \fB\-o\fR, \fB\-\-owner\fR=\fI\,NAME\/\fR
-Set a new owner of the volume. The old owner will be automatically removed from the volume ACL (it can be granted access again using \fBsxacl\fR(1)) and the new owner will be granted read and write access.
+Set a new owner of the volume. The old owner will be automatically removed from the volume ACL (it can be granted access again using \fBsxacl\fR(1)) and the new owner will be granted read, write and manager access.
 .TP
 \fB\-s\fR, \fB\-\-size\fR=\fI\,SIZE\/\fR
 Set a new size of the volume. If the new size is lower than the current space usage of the volume, it will not be possible to store any new data until enough data gets removed to satisfy the limit. The size can be followed by one of the following suffixes: K(-ilobytes), M(-megabytes), G(-igabytes) and T(-erabytes) suffixes.

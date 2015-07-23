@@ -4,7 +4,7 @@ usage "sxvol modify <OPTIONS> sx://[profile@]cluster/volume"
 
 text "\nVolume modification options:\n"
 
-option  "owner"     o "Grant full privileges to the new owner NAME, and revoke all privileges for previous owner" string optional typestr="NAME"
+option  "owner"     o "Change the volume owner" string optional typestr="NAME"
 
 option  "size"      s "Set a new size of the volume (allows K,M,G,T suffixes)" string optional typestr="SIZE"
 
