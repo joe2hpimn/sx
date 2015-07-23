@@ -45,9 +45,9 @@
 #include "sx.h"
 
 /* logger prefixes with aes256: already */
-#define NOTICE(...)	{ sxc_filter_msg(handle, SX_LOG_NOTICE, __VA_ARGS__); }
-#define WARN(...)	{ sxc_filter_msg(handle, SX_LOG_WARNING, __VA_ARGS__); }
-#define ERROR(...)	{ sxc_filter_msg(handle, SX_LOG_ERR, __VA_ARGS__); }
+#define NOTICE(...)	sxc_filter_msg(handle, SX_LOG_NOTICE, __VA_ARGS__)
+#define WARN(...)	sxc_filter_msg(handle, SX_LOG_WARNING, __VA_ARGS__)
+#define ERROR(...)	sxc_filter_msg(handle, SX_LOG_ERR, __VA_ARGS__)
 
 #define FILTER_BLOCK_SIZE 16384
 #define BCRYPT_AES_ITERATIONS_LOG2 14
@@ -387,13 +387,16 @@ static int aes256_data_prepare(const sxf_handle_t *handle, void **ctx, const cha
 	fd = open(keyfile, O_RDONLY);
 	if(fd == -1) {
 	    if(errno == ENOENT) {
-		NOTICE("The key file doesn't exist and will be created now");
+		if(have_fp)
+		    NOTICE("The local key file doesn't exist and will be created now");
+		else
+		    NOTICE("First upload to the encrypted volume, set the volume password now");
 	    } else {
 		WARN("Can't open key file %s -- attempt to recreate it", keyfile);
 	    }
 	} else {
 	    if(read(fd, key, sizeof(key)) != sizeof(key))
-		WARN("Can't read key file %s -- new key file will be created", keyfile)
+		WARN("Can't read key file %s -- new key file will be created", keyfile);
 	    else
 		keyread = 1;
 	    close(fd);
