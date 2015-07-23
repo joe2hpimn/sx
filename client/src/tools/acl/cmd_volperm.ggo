@@ -4,12 +4,12 @@ usage "sxacl volperm [OPTIONS] user sx://[profile@]cluster/volume"
 
 section "Volume permission modification options"
 
-option "grant" - "Grant a privilege on the volume to the user" string typestr="<privilege>" optional
+option "grant" - "Grant a privilege on the volume to the user" string typestr="<privileges>" optional
 
 option  "revoke" - "Revoke a privilege on the volume from the user" string
-    typestr="<privilege>" optional
+    typestr="<privileges>" optional
 
-text "where <privilege> can be any of \"read\", \"write\" or \"read,write\""
+text "where <privileges> can be a comma-separated list of privileges:\n \"read\", \"write\", or \"manager\""
 
 section "Common options"
 
