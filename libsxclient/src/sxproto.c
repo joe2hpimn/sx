@@ -871,7 +871,7 @@ sxi_query_t *sxi_volumeacl_proto(sxc_client_t *sx, const char *volname,
         free(url);
         return NULL;
     }
-    snprintf(url, n, "%s?o=acl", enc_vol);
+    snprintf(url, n, "%s?o=acl&manager", enc_vol);
     free(enc_vol);
     ret = sxi_query_create(sx, url, REQ_PUT);
     ret = sxi_query_append_fmt(sx, ret, 1, "{");

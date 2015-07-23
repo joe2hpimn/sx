@@ -1896,7 +1896,7 @@ sxc_cluster_la_t *sxc_cluster_listaclusers(sxc_cluster_t *cluster, const char *v
 	return NULL;
     }
 
-    len = strlen(enc_vol) + 1 + sizeof("?o=acl");
+    len = strlen(enc_vol) + 1 + sizeof("?o=acl&manager");
 
     if(!(url = malloc(len))) {
 	CFGDEBUG("OOM allocating url (%u bytes)", len);
@@ -1905,7 +1905,7 @@ sxc_cluster_la_t *sxc_cluster_listaclusers(sxc_cluster_t *cluster, const char *v
 	free(enc_vol);
 	return NULL;
     }
-    snprintf(url, len, "%s?o=acl", enc_vol);
+    snprintf(url, len, "%s?o=acl&manager", enc_vol);
     free(enc_vol);
 
     if(!(fname = sxi_make_tempfile(sx, NULL, &yctx.f))) {

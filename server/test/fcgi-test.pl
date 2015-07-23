@@ -782,11 +782,11 @@ test_get 'the newly created volume', authed_only(200, 'application/json'), "tiny
 
 # Misc volume used to test user deletion and revisions
 test_mkvol "volume creation (misc volume)", admin_only(200), "misc$vol", "{\"volumeSize\":$tinyvolumesize,\"owner\":\"$delme\",\"replicaCount\":1,\"maxRevisions\":2}";
-test_get 'checking volume ownership', admin_only(200, 'application/json'), "misc$vol?o=acl", undef, sub { my $json = get_json(shift);
+test_get 'checking volume ownership', admin_only(200, 'application/json'), "misc$vol?o=acl&manager", undef, sub { my $json = get_json(shift);
     my %is_priv   = map { $_, 1 } @{$json->{$delme}};
     return is_array($json->{$delme}) && $is_priv{'owner'}; };
 test_delete_job "user deletion", admin_only(200), ".users/$delme";
-test_get 'checking volume ownership', admin_only(200, 'application/json'), "misc$vol?o=acl", undef, sub { 
+test_get 'checking volume ownership', admin_only(200, 'application/json'), "misc$vol?o=acl&manager", undef, sub { 
     my $json = get_json(shift);
     my %is_priv = ();
     foreach (@{$json->{'admin'}}) { $is_priv{$_} = 1 };
@@ -1235,9 +1235,9 @@ test_put_job "Increasing tiny$vol volume size", admin_only(200), "tiny$vol?o=mod
 test_upload 'bigger file upload (overwrite existing revision)', $writer, random_data($oldsize-length('toobig')+1), "tiny$vol", 'toobig';
 test_put_job "tiny$vol ownership change (invalid owner)", admin_only(404), "tiny$vol?o=mod", "{\"owner\":\"somebadusername\"}";
 test_put_job "tiny$vol ownership change ($reader)", admin_only(200), "tiny$vol?o=mod", "{\"owner\":\"$reader\"}";
-test_get 'volume ownership', {$reader=>[200,'application/json']}, "tiny$vol?o=acl", undef, sub { my $json = get_json(shift); my %is_priv = map { $_, 1 } @{$json->{$reader}}; return is_array($json->{$reader}) && $is_priv{'owner'}; };
+test_get 'volume ownership', {$reader=>[200,'application/json']}, "tiny$vol?o=acl&manager", undef, sub { my $json = get_json(shift); my %is_priv = map { $_, 1 } @{$json->{$reader}}; return is_array($json->{$reader}) && $is_priv{'owner'}; };
 test_put_job "tiny$vol ownership change (admin)", admin_only(200), "tiny$vol?o=mod", "{\"owner\":\"admin\"}";
-test_get 'volume ownership', {'admin'=>[200,'application/json']}, "tiny$vol?o=acl", undef, sub { my $json = get_json(shift); my %is_priv = map { $_, 1 } @{$json->{'admin'}}; return is_array($json->{'admin'}) && $is_priv{'owner'}; };
+test_get 'volume ownership', {'admin'=>[200,'application/json']}, "tiny$vol?o=acl&manager", undef, sub { my $json = get_json(shift); my %is_priv = map { $_, 1 } @{$json->{'admin'}}; return is_array($json->{'admin'}) && $is_priv{'owner'}; };
 
 
 
@@ -1306,7 +1306,7 @@ $TOK{$rc} = encode_base64(hex_to_bin($rcid) . $rk . chr(0) . chr(0));
 
 test_mkvol "volume creation (clones' volume)", admin_only(200), "clones$vol", "{\"volumeSize\":$tinyvolumesize,\"owner\":\"$wu\"}";
 test_put_job 'granting rights on newly created volume', {$wc=>[200],'badauth'=>[401],$rc=>[403],$wu=>[200],$ru=>[403],'admin'=>[200]}, "clones$vol?o=acl", "{\"grant-read\":[\"$ru\",\"$wu\"],\"grant-write\":[\"$wu\"] }";
-test_get 'the newly created volume ownership', {'badauth'=>[401],$wu=>[200,'application/json'],'admin'=>[200,'application/json'],$wc=>[200,'application/json']}, "clones$vol?o=acl", undef, sub { my $json = get_json(shift) or return 0; return is_array($json->{$wu}) && @{$json->{$wu}} == 4 && is_array($json->{$ru}) && @{$json->{$ru}} == 1 && is_array($json->{$wc}) && @{$json->{$wc}} == 4 };
+test_get 'the newly created volume ownership', {'badauth'=>[401],$wu=>[200,'application/json'],'admin'=>[200,'application/json'],$wc=>[200,'application/json']}, "clones$vol?o=acl&manager", undef, sub { my $json = get_json(shift) or return 0; return is_array($json->{$wu}) && @{$json->{$wu}} == 4 && is_array($json->{$ru}) && @{$json->{$ru}} == 1 && is_array($json->{$wc}) && @{$json->{$wc}} == 4 };
 
 test_upload 'file upload (empty file)', $wc, '', "clones$vol", 'empty.clone';
 test_get 'listing as cloned users too', {'badauth'=>[401],$ru=>[200,'application/json'],$wu=>[200,'application/json'],'admin'=>[200,'application/json'],$rc=>[200,'application/json'],$wc=>[200,'application/json']},
@@ -1317,9 +1317,9 @@ test_upload 'file upload (empty file) again', $wu, '', "clones$vol", 'empty.clon
 test_get 'listing as cloned users too', {'badauth'=>[401],$ru=>[200,'application/json'],$wu=>[200,'application/json'],'admin'=>[200,'application/json'],$rc=>[200,'application/json'],$wc=>[401]},
     "clones$vol?filter=empty.clone", undef, sub { my $json = get_json(shift) or return 0; return is_hash($json->{'fileList'}) && scalar keys %{$json->{'fileList'}} == 1 && is_hash($json->{'fileList'}->{'/empty.clone'}) };
 
-test_get 'if volume is still owned by $wu', {$wu=>[200, 'application/json'],'admin'=>[200, 'application/json']}, "clones$vol?o=acl", undef, sub { my $json = get_json(shift) or return 0; return is_array($json->{$wu}) && @{$json->{$wu}} == 4; };
+test_get 'if volume is still owned by $wu', {$wu=>[200, 'application/json'],'admin'=>[200, 'application/json']}, "clones$vol?o=acl&manager", undef, sub { my $json = get_json(shift) or return 0; return is_array($json->{$wu}) && @{$json->{$wu}} == 4; };
 test_delete_job "$wu deletion", {'admin'=>[200, 'application/json']}, ".users/$wu";
-test_get 'if volume is no longer owned by $wu', {'admin'=>[200, 'application/json']}, "clones$vol?o=acl", undef, sub { my $json = get_json(shift) or return 0; return !is_array($json->{$wu}) && is_array($json->{'admin'}) && @{$json->{'admin'}} == 4; };
+test_get 'if volume is no longer owned by $wu', {'admin'=>[200, 'application/json']}, "clones$vol?o=acl&manager", undef, sub { my $json = get_json(shift) or return 0; return !is_array($json->{$wu}) && is_array($json->{'admin'}) && @{$json->{'admin'}} == 4; };
 test_get 'listing as cloned users too', {'badauth'=>[401],$ru=>[200,'application/json'],$wu=>[401],'admin'=>[200,'application/json'],$rc=>[200,'application/json'],$wc=>[401]},
         "clones$vol?filter=empty.clone", undef, sub { my $json = get_json(shift) or return 0; return is_hash($json->{'fileList'}) && scalar keys %{$json->{'fileList'}} == 1 && is_hash($json->{'fileList'}->{'/empty.clone'}) };
 

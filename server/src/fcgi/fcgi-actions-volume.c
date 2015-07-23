@@ -552,11 +552,16 @@ static const yajl_callbacks acl_ops_parser = {
     cb_acl_end_array
 };
 
+struct acl_print_ctx {
+    int first;
+    int is_1_1;
+};
+
 static int print_acl(const char *username, int priv, int is_owner, void *ctx)
 {
-    int *first = ctx;
+    struct acl_print_ctx *actx = ctx;
     /* FIXME: should set api_version for send_server_info, however send_server_info is called before handle_request */
-    if (*first)
+    if (actx->first)
 	CGI_PUTS("Content-type: application/json\r\n\r\n{");
     else
         CGI_PUTS(",");
@@ -571,7 +576,7 @@ static int print_acl(const char *username, int priv, int is_owner, void *ctx)
 	CGI_PRINTF("%s\"write\"", comma ? "," : "");
 	comma = 1;
     }
-    if (is_owner || (priv & PRIV_MANAGER)) {
+    if (!actx->is_1_1 && (is_owner || (priv & PRIV_MANAGER))) {
 	CGI_PRINTF("%s\"manager\"", comma ? "," : "");
 	comma = 1;
     }
@@ -580,19 +585,21 @@ static int print_acl(const char *username, int priv, int is_owner, void *ctx)
 	comma = 1;
     }
     CGI_PUTS("]");
-    *first = 0;
+    actx->first = 0;
     return 0;
 }
 
 void fcgi_list_acl(const sx_hashfs_volume_t *vol) {
-    int first = 1;
-    rc_ty rc = sx_hashfs_list_acl(hashfs, vol, uid, get_priv(1), print_acl, &first);
+    struct acl_print_ctx actx;
+    actx.first = 1;
+    actx.is_1_1 = !has_arg("manager");
+    rc_ty rc = sx_hashfs_list_acl(hashfs, vol, uid, get_priv(1), print_acl, &actx);
     if (rc != OK) {
 	if (rc == ENOENT)
 	    quit_errmsg(404, "Volume not found");
         if (rc == EPERM)
             quit_errmsg(403, "Not enough privileges to list volume ACL");
-	if (first) {
+	if (actx.first) {
 	    msg_set_reason("Failed to list volume acl: %s", rc2str(rc));
 	    quit_errmsg(500, msg_get_reason());
 	}
