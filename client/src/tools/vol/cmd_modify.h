@@ -40,9 +40,9 @@ struct modify_args_info
   const char *help_help; /**< @brief Print help and exit help description.  */
   const char *full_help_help; /**< @brief Print help, including hidden options, and exit help description.  */
   const char *version_help; /**< @brief Print version and exit help description.  */
-  char * owner_arg;	/**< @brief Change the volume owner.  */
-  char * owner_orig;	/**< @brief Change the volume owner original value given at command line.  */
-  const char *owner_help; /**< @brief Change the volume owner help description.  */
+  char * owner_arg;	/**< @brief Grant full privileges to the new owner NAME, and revoke all privileges for previous owner.  */
+  char * owner_orig;	/**< @brief Grant full privileges to the new owner NAME, and revoke all privileges for previous owner original value given at command line.  */
+  const char *owner_help; /**< @brief Grant full privileges to the new owner NAME, and revoke all privileges for previous owner help description.  */
   char * size_arg;	/**< @brief Set a new size of the volume (allows K,M,G,T suffixes).  */
   char * size_orig;	/**< @brief Set a new size of the volume (allows K,M,G,T suffixes) original value given at command line.  */
   const char *size_help; /**< @brief Set a new size of the volume (allows K,M,G,T suffixes) help description.  */
