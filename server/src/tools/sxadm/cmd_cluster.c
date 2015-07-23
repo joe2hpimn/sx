@@ -50,7 +50,7 @@ const char *cluster_args_info_full_help[] = {
   "  -X, --force-expire          Force GC and expiration of reservations on all\n                                nodes",
   "      --get-cluster-key       Obtain remote cluster key",
   "  -l, --list-nodes            List all nodes of the cluster and their current\n                                status",
-  "  -m, --set-mode=MODE         Set cluster operating mode ('ro' or 'rw' for\n                                read-only or write-only respectively)",
+  "  -m, --set-mode=MODE         Set cluster operating mode ('ro' or 'rw' for\n                                read-only or read-write respectively)",
   "      --upgrade               Check node versions and start cluster upgrade",
   "      --set-meta=STRING       Set cluster metadata ('key=value' entries are\n                                accepted)",
   "      --get-meta=KEY          Show cluster metadata (use ALL to show all\n                                entries)",
@@ -1314,7 +1314,7 @@ cluster_cmdline_parser_internal (
             goto failure;
         
           break;
-        case 'm':	/* Set cluster operating mode ('ro' or 'rw' for read-only or write-only respectively).  */
+        case 'm':	/* Set cluster operating mode ('ro' or 'rw' for read-only or read-write respectively).  */
         
           if (args_info->MODE_group_counter && override)
             reset_group_MODE (args_info);

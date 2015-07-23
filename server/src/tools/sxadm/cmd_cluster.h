@@ -54,9 +54,9 @@ struct cluster_args_info
   const char *force_expire_help; /**< @brief Force GC and expiration of reservations on all nodes help description.  */
   const char *get_cluster_key_help; /**< @brief Obtain remote cluster key help description.  */
   const char *list_nodes_help; /**< @brief List all nodes of the cluster and their current status help description.  */
-  char * set_mode_arg;	/**< @brief Set cluster operating mode ('ro' or 'rw' for read-only or write-only respectively).  */
-  char * set_mode_orig;	/**< @brief Set cluster operating mode ('ro' or 'rw' for read-only or write-only respectively) original value given at command line.  */
-  const char *set_mode_help; /**< @brief Set cluster operating mode ('ro' or 'rw' for read-only or write-only respectively) help description.  */
+  char * set_mode_arg;	/**< @brief Set cluster operating mode ('ro' or 'rw' for read-only or read-write respectively).  */
+  char * set_mode_orig;	/**< @brief Set cluster operating mode ('ro' or 'rw' for read-only or read-write respectively) original value given at command line.  */
+  const char *set_mode_help; /**< @brief Set cluster operating mode ('ro' or 'rw' for read-only or read-write respectively) help description.  */
   const char *upgrade_help; /**< @brief Check node versions and start cluster upgrade help description.  */
   char ** set_meta_arg;	/**< @brief Set cluster metadata ('key=value' entries are accepted).  */
   char ** set_meta_orig;	/**< @brief Set cluster metadata ('key=value' entries are accepted) original value given at command line.  */

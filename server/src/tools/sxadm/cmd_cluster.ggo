@@ -23,7 +23,7 @@ groupoption "force-gc" G "Force a garbage collection cycle on all nodes" group="
 groupoption "force-expire" X "Force GC and expiration of reservations on all nodes" group="MODE"
 groupoption "get-cluster-key" - "Obtain remote cluster key" group="MODE" hidden
 groupoption "list-nodes" l "List all nodes of the cluster and their current status" group="MODE"
-groupoption "set-mode" m "Set cluster operating mode ('ro' or 'rw' for read-only or write-only respectively)" group="MODE" string typestr="MODE"
+groupoption "set-mode" m "Set cluster operating mode ('ro' or 'rw' for read-only or read-write respectively)" group="MODE" string typestr="MODE"
 groupoption "upgrade" - "Check node versions and start cluster upgrade" group="MODE"
 groupoption "set-meta" - "Set cluster metadata ('key=value' entries are accepted)" group="MODE" string multiple
 groupoption "get-meta" - "Show cluster metadata (use ALL to show all entries)" group="MODE" string typestr="KEY"
