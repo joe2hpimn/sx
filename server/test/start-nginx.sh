@@ -17,8 +17,8 @@ trap print_status EXIT
 N=${N-4}
 echo "Preparing cluster with $N nodes"
 if [ `uname` = "OpenBSD" ]; then
-   # we hit ENOLCK otherwise
-   N=1
+   echo "Raise these limits if needed:"
+   sysctl kern.maxlocksperuid kern.maxfiles
 fi
 ulimit -c unlimited
 export ASAN_OPTIONS=log_path=/tmp/asan.log
