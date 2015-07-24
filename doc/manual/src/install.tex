@@ -15,10 +15,10 @@ covered by the manual.
 The binary packages are available for all popular Linux distributions
 and this is the easiest and recommended way to install Skylable \SX.
 
-\subsection{Debian Wheezy}
+\subsection{Debian Jessie}
 Add the following entry to \path{/etc/apt/sources.list}:
 \begin{lstlisting}
-deb http://cdn.skylable.com/debian wheezy main
+deb http://cdn.skylable.com/debian jessie main
 \end{lstlisting}
 then run the following commands:
 \begin{lstlisting}
@@ -95,7 +95,7 @@ previous deployment. Then run the following command:
 Upgrading local node...
 [sx_storage_upgrade]: Performing integrity check on /var/lib/sxserver/storage
 [sx_storage_upgrade]: Integrity check completed in 0s
-[upgrade_db]: Upgraded DB /var/lib/sxserver/storage from SX-Storage 1.6 to SX-Storage 1.7
+[upgrade_db]: Upgraded DB /var/lib/sxserver/storage from SX-Storage 1.7 to SX-Storage 1.8
 [...]
 [sx_storage_upgrade]: Successfully upgraded all DBs
 [sx_storage_upgrade]: Committing changes
@@ -120,7 +120,7 @@ data:
 Upgrading local node...
 [sx_storage_upgrade]: Performing integrity check on /var/lib/sxserver/storage
 [sx_storage_upgrade]: Integrity check completed in 0s
-[upgrade_db]: Upgraded DB /var/lib/sxserver/storage from SX-Storage 1.6 to SX-Storage 1.7
+[upgrade_db]: Upgraded DB /var/lib/sxserver/storage from SX-Storage 1.7 to SX-Storage 1.8
 [...]
 [sx_storage_upgrade]: Successfully upgraded all DBs
 [sx_storage_upgrade]: Committing changes
@@ -133,9 +133,9 @@ SX node started successfully
 
 Upgrading remote cluster data...
 Versions:
-    192.168.1.101: SX-Storage 1.7 (1.1)
-    192.168.1.102: SX-Storage 1.7 (1.1)
-    192.168.1.103: SX-Storage 1.7 (1.1)
+    192.168.1.101: SX-Storage 1.8 (1.2)
+    192.168.1.102: SX-Storage 1.8 (1.2)
+    192.168.1.103: SX-Storage 1.8 (1.2)
 Triggering upgrade and garbage collector
 Current configuration: 536870912000/192.168.100.1/d3f8ad83-d003-4aaa-bbfb-73359af85991 536870912000/192.168.100.2/abc2ed51-b4a8-46b6-a8ac-0beb58e697d2 536870912000/192.168.100.3/a343b7f9-0bef-4f03-8c6f-526ca12d75a9
 Operating mode: read-write
@@ -157,9 +157,9 @@ data in the cluster. The progress can be monitored with
 # sxsetup --upgrade
 Local node is up-to-date.
 Versions:
-    192.168.1.101: SX-Storage 1.7 (1.1)
-    192.168.1.102: SX-Storage 1.7 (1.1)
-    192.168.1.103: SX-Storage 1.7 (1.1)
+    192.168.1.101: SX-Storage 1.8 (1.2)
+    192.168.1.102: SX-Storage 1.8 (1.2)
+    192.168.1.103: SX-Storage 1.8 (1.2)
 Cluster already fully upgraded
 
 All components of the cluster are up-to-date!

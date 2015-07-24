@@ -1,7 +1,7 @@
-Upgrade notes for SX 1.1
+Upgrade notes for SX 1.2
 ------------------------
 
-Skylable SX 1.1 is backward compatible with SX 1.0. To take advantage of the
+Skylable SX 1.2 is backward compatible with SX 1.1. To take advantage of the
 new features and improvements, a basic cluster upgrade procedure is required.
 Please see the section 2.4 of the User Manual (manual.pdf), also available
 online at: http://www.skylable.com/products/sx/manual

@@ -13,7 +13,7 @@ Run \path{sxsetup --info} to display the node's configuration:
 \begin{lstlisting}
 # sxsetup --info
 --- SX INFO ---
-SX Version: 1.0
+SX Version: 1.2
 Cluster name: ^\marked{mycluster}^
 Cluster port: 443
 Cluster UUID: 01dca714-8cc9-4e26-960e-daf04892b1e2
@@ -172,21 +172,20 @@ Short description: Encrypt data using AES-256-CBC-HMAC-512 mode.
 Summary: The filter automatically encrypts and decrypts all data using
 	 OpenSSL's AES-256 in CBC-HMAC-512 mode.
 Options: 
-	nogenkey (don't generate a key file when creating a volume)
+        setkey (set a permanent key when creating a volume)
 	paranoid (don't use key files at all - always ask for a password)
 	salt:HEX (force given salt, HEX must be 32 chars long)
 UUID: 35a5404d-1513-4009-904c-6ee5b0cd8634
 Type: crypt
-Version: 1.4
+Version: 1.6
 \end{lstlisting}
-By default, the \path{aes256} filter asks for the password during volume
-creation. Since we're creating a volume for another user, we pass the
-\path{nogenkey} option, which delays the key creation till the first data
-transfer.
+Now run the following command to create an encrypted volume:
 \begin{lstlisting}
-$ sxvol create -o jeff -r 2 -s 50G -f aes256=nogenkey @cluster/vol-jeff-aes
+$ sxvol create -o jeff -r 2 -s 50G -f aes256 @cluster/vol-jeff-aes
 Volume 'vol-jeff-aes' (replica: 2, size: 50G, max-revisions: 1) created.
 \end{lstlisting}
+The user will be asked to set a new password when doing the first upload
+to that volume.
 
 \subsection{Listing all volumes}
 To get a list of all volumes in the cluster run \path{sxls} with the cluster
@@ -206,12 +205,13 @@ of the volume, and the usage percentage.
 
 \subsection{Managing volume permissions}
 Cluster administrators and volume owners can grant or revoke access
-to the volumes to other users. To list the current access control list
-for the volume \path{vol-jeff} run:
+to the volumes to other users. The owner can also grant another user
+the manager privilege, which allows to manage the volume permissions.
+To list the current access control list for the volume \path{vol-jeff} run:
 \begin{lstlisting}
 $ sxacl volshow @cluster/vol-jeff
 admin: read write
-jeff: read write owner
+jeff: read write manager owner
 (all admin users): read write admin
 \end{lstlisting}
 To grant full access to user `bob' run:
@@ -220,18 +220,18 @@ $ sxacl volperm --grant=read,write bob @cluster/vol-jeff
 New volume ACL:
 admin: read write
 bob: read write
-jeff: read write owner
+jeff: read write manager owner
 (all admin users): read write admin
 \end{lstlisting}
 User `bob' can now download, upload and remove files to the volume but cannot
-make any changes to the volume itself (this is restricted to admins
+make any changes to the volume itself (this is restricted to admins, managers
 and owners). To revoke write access from user `bob' run:
 \begin{lstlisting}
 $ sxacl volperm --revoke=write bob @cluster/vol-jeff
 New volume ACL:
 admin: read write
 bob: read
-jeff: read write owner
+jeff: read write manager owner
 (all admin users): read write admin
 \end{lstlisting}
 Now `bob' can only read files but cannot upload or remove anything.
@@ -279,8 +279,8 @@ sizes to human readable form):
 $ sxadm cluster --list-nodes -H @cluster2
 Node d3f8ad83-d003-4aaa-bbfb-73359af85991 status:
     Versions:
-        SX: 1.1
-        HashFS: SX-Storage 1.7
+        SX: 1.2
+        HashFS: SX-Storage 1.8
     System:
         Name: Linux
         Architecture: x86_64

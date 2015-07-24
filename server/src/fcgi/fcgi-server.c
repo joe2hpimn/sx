@@ -580,7 +580,7 @@ int main(int argc, char **argv) {
         if (msg && *msg) {
             fprintf(stderr, "%s\n", msg);
             if (strstr(msg, "Version mismatch")) {
-                fprintf(stderr,"\nYou should upgrade the node and then try to start it again:\n\tsxadm node --upgrade '%s'\n\n", args.data_dir_arg);
+                fprintf(stderr,"\nYou should upgrade the node by running:\n\tsxsetup --upgrade\n\n");
             }
         } else {
             fprintf(stderr, "Failed to initialize the storage interface - check the logfile %s\n", args.logfile_arg);

@@ -1,3 +1,18 @@
+1.2
+---
+
+The key features and improvements in this release include:
+
+  * Support for IPv6 clusters
+  * New 'manager' privilege for volumes (allows granting/revoking access to
+    other users)
+  * New global quota mechanism for volume owners ('sxacl usermod --quota')
+  * Support for cluster metadata ('sxadm cluster --(set|get|delete)-meta')
+  * Improvements to the aes256 filter; now the default mode is to set the
+    volume password during the first upload
+  * Server side support for mass deletes and renames
+  * Minor improvements and bugfixes
+
 1.1
 ---
 

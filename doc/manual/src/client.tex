@@ -230,3 +230,9 @@ $ sxrev list @jeff/vol-jeff-rev/document.pdf
 Revisions for file @jeff/vol-jeff-rev/document.pdf (most recent first):
 1.      2014-11-18 12:05 size:128026 rev:"2014-11-18 12:05:00.938:d2bc1190a0f70f4b4925d702e0d567a7"
 \end{lstlisting}
+The volume owner can also change the maximum number of revisions kept for files
+by issuing the following command:
+\begin{lstlisting}
+$ sxvol modify --max-revisions=5 @jeff/vol-jeff-rev
+Volume revisions limit changed to 5
+\end{lstlisting}
