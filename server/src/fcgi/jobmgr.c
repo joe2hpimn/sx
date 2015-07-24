@@ -1776,7 +1776,7 @@ static int sync_global_objects(sx_hashfs_t *hashfs, const sxi_hostlist_t *hlist)
     ctx.hashfs = hashfs;
     ctx.hlist = hlist;
 
-    if(sx_hashfs_list_users(hashfs, NULL, syncusers_cb, 1, &ctx))
+    if(sx_hashfs_list_users(hashfs, NULL, syncusers_cb, 1, 1, &ctx))
 	return -1;
 
     /* Force flush after all users */

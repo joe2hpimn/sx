@@ -6114,7 +6114,7 @@ int encode_auth_bin(const uint8_t *userhash, const unsigned char *key, unsigned 
     return 0;
 }
 
-rc_ty sx_hashfs_list_users(sx_hashfs_t *h, const uint8_t *list_clones, user_list_cb_t cb, int desc, void *ctx) {
+rc_ty sx_hashfs_list_users(sx_hashfs_t *h, const uint8_t *list_clones, user_list_cb_t cb, int desc, int send_quota, void *ctx) {
     rc_ty rc = FAIL_EINTERNAL;
     uint64_t lastuid = 0;
     sqlite3_stmt *q;
@@ -6135,7 +6135,7 @@ rc_ty sx_hashfs_list_users(sx_hashfs_t *h, const uint8_t *list_clones, user_list
         const uint8_t *user;
         const uint8_t *key;
         int is_admin = 0;
-        int64_t quota, quota_usage;
+        int64_t quota = QUOTA_UNDEFINED, quota_usage = QUOTA_UNDEFINED;
         rc_ty s;
 
         sqlite3_reset(q);
@@ -6158,7 +6158,8 @@ rc_ty sx_hashfs_list_users(sx_hashfs_t *h, const uint8_t *list_clones, user_list
 	user = sqlite3_column_blob(q, 2);
 	key = sqlite3_column_blob(q, 3);
 	is_admin = sqlite3_column_int64(q, 4) == ROLE_ADMIN;
-        quota = sqlite3_column_int64(q, 6);
+        if(send_quota)
+            quota = sqlite3_column_int64(q, 6);
         lastuid = uid;
 
 	if(sqlite3_column_bytes(q, 2) != SXI_SHA1_BIN_LEN || sqlite3_column_bytes(q, 3) != AUTH_KEY_LEN) {
@@ -6166,7 +6167,7 @@ rc_ty sx_hashfs_list_users(sx_hashfs_t *h, const uint8_t *list_clones, user_list
 	    continue;
 	}
 
-        if((s = sx_hashfs_get_owner_quota_usage(h, uid, NULL, &quota_usage))) {
+        if(send_quota && (s = sx_hashfs_get_owner_quota_usage(h, uid, NULL, &quota_usage))) {
             WARN("Failed to get user '%s' quota usage", name);
             continue;
         }

@@ -1535,15 +1535,15 @@ static sxc_cluster_lu_t *cluster_listusers(sxc_cluster_t *cluster, const char *l
     unsigned int len;
     char *query;
 
-    len = strlen(".users?desc") + 1;
+    len = lenof(".users?desc&quota") + 1;
     if(list_clones)
-        len += strlen("&clones=") + strlen(list_clones);
+        len += lenof("&clones=") + strlen(list_clones);
     query = malloc(len);
     if(!query) {
         CFGDEBUG("Failed to allocate memory for query");
         return NULL;
     }
-    snprintf(query, len, ".users?desc%s%s", (list_clones ? "&clones=" : ""), (list_clones ? list_clones : ""));
+    snprintf(query, len, ".users?desc&quota%s%s", (list_clones ? "&clones=" : ""), (list_clones ? list_clones : ""));
     sxi_set_operation(sx, "list users", sxi_cluster_get_name(cluster), NULL, NULL);
     ret = cluster_listusers_common(cluster, query);
     free(query);

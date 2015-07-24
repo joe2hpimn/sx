@@ -1038,13 +1038,16 @@ static int print_user(sx_uid_t user_id, const char *username, const uint8_t *use
     if (!*first)
         CGI_PUTS(",");
     json_send_qstring(username);
-    CGI_PRINTF(":{\"admin\":%s,\"userQuota\":", is_admin ? "true" : "false");
-    CGI_PUTLL(quota);
-    CGI_PRINTF(",\"userQuotaUsed\":");
-    CGI_PUTLL(quota_usage);
+    CGI_PRINTF(":{\"admin\":%s", is_admin ? "true" : "false");
     if (desc) {
         CGI_PUTS(",\"userDesc\":");
         json_send_qstring(desc);
+    }
+    if(quota != QUOTA_UNDEFINED) {
+        CGI_PUTS(",\"userQuota\":");
+        CGI_PUTLL(quota);
+        CGI_PRINTF(",\"userQuotaUsed\":");
+        CGI_PUTLL(quota_usage);
     }
     CGI_PUTS("}");
     *first = 0;
@@ -1067,7 +1070,7 @@ void fcgi_list_users(void) {
             quit_errmsg(rc2http(rc), rc2str(rc));
     }
     CGI_PUTS("Content-type: application/json\r\n\r\n{");
-    rc = sx_hashfs_list_users(hashfs, clones ? clones_cid : NULL, print_user, has_arg("desc"), &first);
+    rc = sx_hashfs_list_users(hashfs, clones ? clones_cid : NULL, print_user, has_arg("desc"), has_arg("quota"), &first);
     CGI_PUTS("}");
     if (rc != OK)
         quit_itererr("Failed to list users", rc);
