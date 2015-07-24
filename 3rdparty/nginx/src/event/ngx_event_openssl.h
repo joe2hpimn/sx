@@ -18,6 +18,7 @@
 #include <openssl/engine.h>
 #include <openssl/evp.h>
 #include <openssl/ocsp.h>
+#include <openssl/rand.h>
 
 #define NGX_SSL_NAME     "OpenSSL"
 
