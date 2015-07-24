@@ -72,7 +72,7 @@ const unsigned int bsz[SIZES] = {SX_BS_SMALL, SX_BS_MEDIUM, SX_BS_LARGE};
 
 #define SX_CLUSTER_META_PREFIX "clusterMeta:"
 
-#define DEBUG_REVISION_ID
+/*#define DEBUG_REVISION_ID*/
 
 #define WARNHASH(MSG, X) do {				\
     char _warnhash[sizeof(sx_hash_t)*2+1];		\
