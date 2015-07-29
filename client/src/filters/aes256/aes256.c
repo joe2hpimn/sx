@@ -134,14 +134,14 @@ static int getpassword(const sxf_handle_t *handle, int repeat, sxf_mode_t mode, 
     mlock(pass1, sizeof(pass1));
     if(sxc_filter_get_input(handle, SXC_INPUT_SENSITIVE, prompt, NULL, pass1, sizeof(pass1))) {
 	munlock(pass1, sizeof(pass1));
-	printf("[aes256]: Can't obtain password\n");
+	ERROR("Can't obtain password");
 	return -1;
     }
 
     if(strlen(pass1) < 8) {
 	memset(pass1, 0, sizeof(pass1));
 	munlock(pass1, sizeof(pass1));
-	printf("[aes256]: ERROR: Password must be at least 8 characters long\n");
+	ERROR("Password must be at least 8 characters long");
 	return 1;
     }
 
@@ -151,7 +151,7 @@ static int getpassword(const sxf_handle_t *handle, int repeat, sxf_mode_t mode, 
 	    memset(pass1, 0, sizeof(pass1));
 	    munlock(pass1, sizeof(pass1));
 	    munlock(pass2, sizeof(pass2));
-	    printf("[aes256]: Can't obtain password\n");
+	    ERROR("Can't obtain password");
 	    return -1;
 	}
 	if(strcmp(pass1, pass2)) {
@@ -159,7 +159,7 @@ static int getpassword(const sxf_handle_t *handle, int repeat, sxf_mode_t mode, 
 	    munlock(pass1, sizeof(pass1));
 	    memset(pass2, 0, sizeof(pass2));
 	    munlock(pass2, sizeof(pass2));
-	    printf("[aes256]: ERROR: Passwords don't match\n");
+	    ERROR("Passwords don't match");
 	    return 1;
 	}
 	memset(pass2, 0, sizeof(pass2));
@@ -232,11 +232,11 @@ static int aes256_configure(const sxf_handle_t *handle, const char *cfgstr, cons
 	}
 	if((pt = strstr(cfgstr, "salt:"))) {
 	    if(strlen(pt) < 5 + 2 * SALT_SIZE) {
-		ERROR("Invalid salt length - must be %u bytes (hex string len %u)\n", SALT_SIZE, SALT_SIZE * 2);
+		ERROR("Invalid salt length - must be %u bytes (hex string len %u)", SALT_SIZE, SALT_SIZE * 2);
 		return -1;
 	    }
 	    if(sxi_hex2bin(&pt[5], 2 * SALT_SIZE, salt, sizeof(salt))) {
-		ERROR("Invalid salt - can't decode hex string '%s'\n", &pt[5]);
+		ERROR("Invalid salt - can't decode hex string '%s'", &pt[5]);
 		return -1;
 	    }
 	    user_salt = 1;
@@ -359,7 +359,7 @@ static int aes256_data_prepare(const sxf_handle_t *handle, void **ctx, const cha
     mlock(key, sizeof(key));
     if(cfgdata) {
 	if(cfgdata_len == SALT_SIZE) { /* paranoid (no-key-file) mode */
-	    printf("[aes256]: File '%s' will be %s with provided password\n", filename, mode == SXF_MODE_UPLOAD ? "encrypted" : "decrypted");
+	    NOTICE("File '%s' will be %s with provided password", filename, mode == SXF_MODE_UPLOAD ? "encrypted" : "decrypted");
 	    memcpy(salt, cfgdata, SALT_SIZE);
 	    while((ret = getpassword(handle, mode == SXF_MODE_UPLOAD ? 1 : 0, mode, key, salt)) == 1);
 	    if(ret)
