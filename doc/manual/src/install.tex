@@ -55,6 +55,17 @@ then execute:
 # yum install skylable-sx
 \end{lstlisting}
 
+\subsection{FreeBSD}
+To install the latest version of \SX on FreeBSD run:
+\begin{lstlisting}
+# pkg install sx
+\end{lstlisting}
+After configuring the node with \verb+sxsetup+ execute the following
+command to run the service automatically on system startup:
+\begin{lstlisting}
+# echo 'sxserver_enable="YES"' >> /etc/rc.conf
+\end{lstlisting}
+
 \section{Source code}
 In order to compile \SX from source, you will need the following packages to
 be installed together with their development versions:
