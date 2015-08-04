@@ -350,9 +350,55 @@ static int aes256_data_prepare(const sxf_handle_t *handle, void **ctx, const cha
     if(!cfgdata || cfgdata_len == SALT_SIZE + 1) {
 	const void *mdata;
 	unsigned int mdata_len;
+	unsigned char custfp[SALT_SIZE + FP_SIZE];
+	char *fpfile;
         if(!sxc_meta_getval(custom_meta, "aes256_fp", &mdata, &mdata_len)) {
 	    cfgdata = mdata;
 	    cfgdata_len = mdata_len;
+	    fpfile = malloc(strlen(cfgdir) + 8);
+	    if(!fpfile) {
+		ERROR("OOM");
+		return -1;
+	    }
+	    sprintf(fpfile, "%s/custfp", cfgdir);
+	    if(access(fpfile, F_OK)) {
+		fd = open(fpfile, O_WRONLY | O_CREAT, 0600);
+		if(fd == -1) {
+		    ERROR("Can't create file %s", fpfile);
+		    free(fpfile);
+		    return -1;
+		}
+		if(write(fd, mdata, mdata_len) != mdata_len) {
+		    ERROR("Can't write to file %s", fpfile);
+		    free(fpfile);
+		    close(fd);
+		    return -1;
+		}
+	    } else {
+		fd = open(fpfile, O_RDONLY);
+		if(fd == -1) {
+		    ERROR("Can't open file %s", fpfile);
+		    free(fpfile);
+		    return -1;
+		}
+		if(read(fd, custfp, sizeof(custfp)) != sizeof(custfp)) {
+		    ERROR("Can't read file %s", fpfile);
+		    free(fpfile);
+		    close(fd);
+		    return -1;
+		}
+		if(memcmp(custfp, mdata, mdata_len)) {
+		    NOTICE("Detected volume password change");
+		    unlink(fpfile);
+		    sprintf(fpfile, "%s/key", cfgdir);
+		    unlink(fpfile);
+		}
+	    }
+	    free(fpfile);
+	    if(close(fd)) {
+		ERROR("Can't close descriptor %d", fd);
+		return -1;
+	    }
 	}
     }
 
