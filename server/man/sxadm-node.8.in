@@ -36,6 +36,9 @@ Set a new name for an SX cluster. This option is useful when a new certificate i
 .TP
 \fB\-\-upgrade\fR
 Upgrade the node's database and storage format to the latest version. sxadm will check if an update is required and perform any needed changes.
+.TP
+\fB\-\-compact\fR
+Compact the node data returning allocated but unused space to the system. It is recommended to run the garbage collector before compacting the node. Depending on the storage size, the operation may take more time.
 .SS "New node options:"
 .TP
 \fB\-k\fR, \fB\-\-cluster\-key\fR=\fI\,FILE\/\fR

@@ -53,6 +53,7 @@
 #include "job_common.h"
 
 #define HASHDBS 16
+#define METADBS 16
 #define GCDBS 1
 /* NOTE: HASHFS_VERSION must be exactly 14 bytes */
 #define HASHFS_VERSION_1_0 "SX-Storage 1.6"
@@ -15714,4 +15715,231 @@ rc_ty sx_hashfs_syncglobs_end(sx_hashfs_t *h) {
     }
 
     return OK;
+}
+
+
+rc_ty sx_hashfs_compact(sx_hashfs_t *h, int64_t *bytes_freed) {
+    sqlite3_stmt *qsyn = NULL, *qnys = NULL, *qget = NULL, *qdel = NULL, *qupa = NULL, *qupb = NULL, *qset = NULL, *qvac = NULL;
+    unsigned int ndb, hs, rollback = 0;
+    int64_t freed = 0;
+    rc_ty ret = FAIL_EINTERNAL;
+
+    for(hs = 0; hs < SIZES; hs++) {
+	for(ndb=0; ndb<HASHDBS; ndb++) {
+	    int r;
+
+	    DEBUG("Examining %s db #%u", sizelongnames[hs], ndb);
+	    if(qprep(h->datadb[hs][ndb], &qsyn, "PRAGMA synchronous = FULL") ||
+	       qprep(h->datadb[hs][ndb], &qnys, "PRAGMA synchronous = NORMAL") ||
+	       qprep(h->datadb[hs][ndb], &qget, "SELECT blocknumber FROM avail ORDER BY blocknumber ASC") ||
+	       qprep(h->datadb[hs][ndb], &qdel, "DELETE FROM avail WHERE blocknumber >= :next") ||
+	       qprep(h->datadb[hs][ndb], &qupa, "UPDATE avail SET blocknumber = :wasfull WHERE blocknumber = :wasempty") ||
+	       qprep(h->datadb[hs][ndb], &qupb, "UPDATE blocks SET blockno = :wasempty WHERE blockno = :wasfull") ||
+	       qprep(h->datadb[hs][ndb], &qset, "UPDATE hashfs SET value = :next WHERE key = 'next_blockno'") ||
+	       qprep(h->datadb[hs][ndb], &qvac, "VACUUM")) {
+		WARN("Cannot prepare defrag queries on %s db #%u", sizelongnames[hs], ndb);
+		goto defrag_err;
+	    }
+
+	    if(qstep_noret(qsyn)) {
+		WARN("Unable to enable fully synchronous mode on %s db #%u", sizelongnames[hs], ndb);
+		goto defrag_err;
+	    }
+
+	    while(1) { /* Foreach block in freelist */
+		int64_t empty, next_empty, full, nextblq;
+		if(qbegin(h->datadb[hs][ndb])) {
+		    WARN("Cannot lock %s db #%u", sizelongnames[hs], ndb);
+		    goto defrag_err;
+		}
+
+		rollback = 1;
+		r = qstep(qget);
+
+		/* No (more) blocks in the freelist */
+		if(r == SQLITE_DONE) {
+		    struct stat st;
+
+		    DEBUG("No more free blocks on %s db #%u", sizelongnames[hs], ndb);
+
+		    if(fstat(h->datafd[hs][ndb], &st)) {
+			WARN("Cannot stat %s datafile #%u", sizelongnames[hs], ndb);
+			msg_set_errno_reason("Failed to stat datafile");
+			goto defrag_err;
+		    }
+		    sqlite3_reset(h->qb_nextalloc[hs][ndb]);
+		    if(qstep_ret(h->qb_nextalloc[hs][ndb])) {
+			WARN("Failed to lookup next block on %s db #%u", sizelongnames[hs], ndb);
+			goto defrag_err;
+		    }
+		    nextblq = sqlite3_column_int64(h->qb_nextalloc[hs][ndb], 0);
+		    sqlite3_reset(h->qb_nextalloc[hs][ndb]);
+
+		    nextblq *= bsz[hs];
+		    if(st.st_size > nextblq) {
+			if(ftruncate(h->datafd[hs][ndb], nextblq) || fsync(h->datafd[hs][ndb])) {
+			    WARN("Cannot truncate %s datafile #%u", sizelongnames[hs], ndb);
+			    msg_set_errno_reason("Failed to truncate datafile");
+			    goto defrag_err;
+			}
+			INFO("Size of %s datafile #%u reduced from %lld to %lld", sizelongnames[hs], ndb, (long long)st.st_size, (long long)nextblq);
+			freed += st.st_size - nextblq;
+		    }
+
+		    qrollback(h->datadb[hs][ndb]); /* Just a lock, nothing to commit here */
+		    qstep_noret(qvac);
+		    rollback = 0;
+
+		    break;
+		}
+
+
+		/* An error occourred */
+		if(r != SQLITE_ROW) {
+		    WARN("Error retrieving free blocks for %s db #%u", sizelongnames[hs], ndb);
+		    goto defrag_err;
+		}
+
+
+		/* There is a block in the freelist */
+		empty = sqlite3_column_int64(qget, 0);
+		next_empty = 0;
+		for(full = empty + 1; ; full++) {
+		    r = qstep(qget);
+		    if(r == SQLITE_ROW) {
+			int64_t ne = sqlite3_column_int64(qget, 0);
+			if(ne == full)
+			    continue;
+			next_empty = ne;
+			break;
+		    }
+		    if(r == SQLITE_DONE)
+			break; /* All the remaining blocks are used */
+
+		    WARN("Error retrieving free blocks for %s db #%u", sizelongnames[hs], ndb);
+		    goto defrag_err;
+		}
+
+		sqlite3_reset(qget); /* Don't deadlock on later updates */
+
+		sqlite3_reset(h->qb_nextalloc[hs][ndb]);
+		if(qstep_ret(h->qb_nextalloc[hs][ndb])) {
+		    WARN("Error retrieving next block for %s db #%u", sizelongnames[hs], ndb);
+		    goto defrag_err;
+		}
+		nextblq = sqlite3_column_int64(h->qb_nextalloc[hs][ndb], 0);
+		sqlite3_reset(h->qb_nextalloc[hs][ndb]);
+
+		DEBUG("On %s db #%u: first empty %lld, last empty %lld, next %lld",
+		       sizelongnames[hs], ndb, (long long)empty, (long long)(full - 1), (long long)nextblq);
+
+		if(full >= nextblq) {
+		    /* The hole reaches till the end of the datafile: set next to first empty block */
+		    DEBUG("Trailing hole starting at %lld", (long long)empty);
+		    if(qbind_int64(qdel, ":next", empty) || qstep_noret(qdel) ||
+		       qbind_int64(qset, ":next", empty) || qstep_noret(qset)) {
+			WARN("Error updating free and next block position for %s db #%u", sizelongnames[hs], ndb);
+			goto defrag_err;
+		    }
+		} else {
+		    /* This is an internal hole: move subsequent full blocks into the empty space */
+		    int64_t nblq, relocblqs;
+		    if(!next_empty)
+			next_empty = nextblq;
+
+		    relocblqs = MIN(next_empty - full, full - empty);
+		    for(nblq = 0; nblq < relocblqs; nblq++) {
+
+			DEBUG("Relocating full block %lld onto free block %lld on %s db #%u", (long long)(full+nblq), (long long)(empty+nblq), sizelongnames[hs], ndb);
+			if(read_block(h->datafd[hs][ndb], h->blockbuf, (full+nblq) * bsz[hs], bsz[hs])) {
+			    WARN("Error reading block %lld on %s datafile #%u", (long long)(full+nblq), sizelongnames[hs], ndb);
+			    goto defrag_err;
+			}
+			if(write_block(h->datafd[hs][ndb], h->blockbuf, (empty+nblq) * bsz[hs], bsz[hs])) {
+			    WARN("Error writing block %lld on %s datafile #%u", (long long)(empty+nblq), sizelongnames[hs], ndb);
+			    goto defrag_err;
+			}
+			if(qbind_int64(qupa, ":wasfull", full+nblq) ||
+			   qbind_int64(qupa, ":wasempty", empty+nblq) ||
+			   qstep_noret(qupa)) {
+			    WARN("Error updating free block on %s db #%u", sizelongnames[hs], ndb);
+			    goto defrag_err;
+			}
+			if(qbind_int64(qupb, ":wasfull", full+nblq) ||
+			   qbind_int64(qupb, ":wasempty", empty+nblq) ||
+			   qstep_noret(qupb)) {
+			    WARN("Error updating block on %s datafile #%u", sizelongnames[hs], ndb);
+			    goto defrag_err;
+			}
+		    }
+		    if(fdatasync(h->datafd[hs][ndb])) {
+			WARN("Failed to flush %s datafile #%u to disk", sizelongnames[hs], ndb);
+			msg_set_errno_reason("Failed to flush datafile to disk");
+			goto defrag_err;
+		    }
+		}
+		if(qcommit(h->datadb[hs][ndb])) {
+		    WARN("Failed to commit changes to %s db #%u", sizelongnames[hs], ndb);
+		    goto defrag_err;
+		}
+		qcheckpoint(h->datadb[hs][ndb]);
+		rollback = 0;
+	    }
+
+	    qstep_noret(qnys);
+
+	    qnullify(qsyn);
+	    qnullify(qnys);
+	    qnullify(qget);
+	    qnullify(qdel);
+	    qnullify(qupa);
+	    qnullify(qupb);
+	    qnullify(qset);
+	    qnullify(qvac);
+	}
+    }
+
+    for(ndb=0; ndb<METADBS; ndb++) {
+	DEBUG("Examining file db #%u", ndb);
+	if(qprep(h->metadb[ndb], &qvac, "VACUUM") || qstep_noret(qvac))
+	    WARN("Failed to run VACUUM on file db #%u", ndb);
+	qnullify(qvac);
+    }
+
+    DEBUG("Examining event db");
+    if(qprep(h->eventdb, &qvac, "VACUUM") || qstep_noret(qvac))
+	WARN("Failed to run VACUUM on event db");
+    qnullify(qvac);
+
+    DEBUG("Examining transfer db");
+    if(qprep(h->xferdb, &qvac, "VACUUM") || qstep_noret(qvac))
+	WARN("Failed to run VACUUM on transfer db");
+    qnullify(qvac);
+
+    DEBUG("Examining temporary file db");
+    if(qprep(h->tempdb, &qvac, "VACUUM") || qstep_noret(qvac))
+	WARN("Failed to run VACUUM on temproary file db");
+    qnullify(qvac);
+
+    if(bytes_freed)
+	*bytes_freed = freed;
+    ret = OK;
+
+ defrag_err:
+
+    if(qnys)
+	qstep_noret(qnys);
+
+    sqlite3_finalize(qsyn);
+    sqlite3_finalize(qnys);
+    sqlite3_finalize(qget);
+    sqlite3_finalize(qdel);
+    sqlite3_finalize(qupa);
+    sqlite3_finalize(qupb);
+    sqlite3_finalize(qset);
+    sqlite3_finalize(qvac);
+    if(rollback)
+	qrollback(h->datadb[hs][ndb]);
+
+    return ret;
 }

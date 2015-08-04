@@ -79,8 +79,6 @@
 #define SXLIMIT_MIN_REVISIONS 1
 #define SXLIMIT_MAX_REVISIONS 64
 
-#define METADBS 16
-
 #define QUOTA_UNDEFINED -1LL
 #define QUOTA_UNLIMITED 0LL
 #define SX_CUSTOM_META_PREFIX "$custom$"
@@ -516,5 +514,7 @@ const char *sx_hashfs_heal_status_remote(sx_hashfs_t *h);
 rc_ty sx_hashfs_syncglobs_begin(sx_hashfs_t *h);
 void sx_hashfs_syncglobs_abort(sx_hashfs_t *h);
 rc_ty sx_hashfs_syncglobs_end(sx_hashfs_t *h);
+
+rc_ty sx_hashfs_compact(sx_hashfs_t *h, int64_t *bytes_freed);
 
 #endif

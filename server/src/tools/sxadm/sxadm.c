@@ -1594,6 +1594,49 @@ extract_node_err:
     return ret;
 }
 
+static int compact_data(sxc_client_t *sx, const char *path, int human_readable) {
+    sx_hashfs_t *h = NULL;
+    char szstr[32];
+    int64_t freed;
+    rc_ty s;
+
+    if(!path || !sx) {
+        fprintf(stderr, "ERROR: Failed to extract data: NULL argument\n");
+        return 1;
+    }
+
+    /* Chekc if we can read hashfs */
+    if(access(path, R_OK)) {
+        if(errno == EACCES)
+            fprintf(stderr, "ERROR: Can't access %s\n", path);
+        else if(errno == ENOENT)
+            fprintf(stderr, "ERROR: No valid SX storage found at %s\n", path);
+        else
+            fprintf(stderr, "ERROR: Can't open SX storage at %s\n", path);
+        return 1;
+    }
+
+    h = sx_hashfs_open(path, sx);
+    if(!h)
+        return 1;
+
+    /* Compact hashfs data */
+    s = sx_hashfs_compact(h, &freed);
+    sx_hashfs_close(h);
+    if(s) {
+        fprintf(stderr, "Failed to compact node data\n");
+	return 1;
+    }
+
+    fmt_capa(freed, szstr, sizeof(szstr), human_readable);
+    printf("Operation complete (disk space freed: %s)\n", szstr);
+
+    if(freed < 4 * 1024 * 1024)
+	printf("NOTE: If you have recently removed a lot of files and want to reclaim that space, please force a GC run first (see \"sxadm cluster --help\")\n");
+
+    return 0;
+}
+
 static void print_status(sxc_client_t *sx, int http_code, const sxi_node_status_t *status, int human_readable) {
     char str[64];
 
@@ -2105,6 +2148,8 @@ int main(int argc, char **argv) {
                 ret = upgrade_node(sx, node_args.inputs[0]);
             else if(node_args.upgrade_job_given)
                 ret = upgrade_job_node(sx, node_args.inputs[0]);
+	    else if(node_args.compact_given)
+		ret = compact_data(sx, node_args.inputs[0], node_args.human_readable_flag);
         }
     node_out:
 	node_cmdline_parser_free(&node_args);
