@@ -52,6 +52,10 @@
 #include "../libsxclient/src/sxreport.h"
 #include "job_common.h"
 
+#ifndef HAVE_FDATASYNC
+#define fdatasync fsync
+#endif
+
 #define HASHDBS 16
 #define METADBS 16
 #define GCDBS 1
