@@ -47,8 +47,18 @@ sxc_client_t* sx_init(const sxc_logger_t *custom_logger, const char *application
     return sx;
 }
 
+static sx_done_called = 0;
+
 void sx_done(sxc_client_t **sx)
 {
+    if (sx_done_called) {
+        sxc_shutdown(*sx, 1);
+        *sx = NULL;
+        return;
+    }
+    sx_done_called = 1;
+    /* may not be safe to call these multiple times,
+     * sxc_shutdown with signal=0 calls sxc_lib_shutdown */
     sxc_shutdown(*sx, 0);
     *sx = NULL;
     log_done();
