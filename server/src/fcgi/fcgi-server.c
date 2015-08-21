@@ -52,21 +52,106 @@
 #include "cmdline.h"
 #include "init.h"
 #include "gc.h"
+#include "hbeat.h"
 #include "utils.h"
 
 FCGX_Stream *fcgi_in, *fcgi_out, *fcgi_err;
 FCGX_ParamArray envp;
 sx_hashfs_t *hashfs;
-int job_trigger, block_trigger, gc_trigger, gc_expire_trigger;
+
 static pid_t ownpid;
 
 #define MAX_CHILDREN 256
 #define JOBMGR MAX_CHILDREN
 #define BLKMGR MAX_CHILDREN+1
 #define GCMGR MAX_CHILDREN+2
+#define HBEATMGR MAX_CHILDREN+3
+
+static const char *mgr_names[] = {
+    "job manager",
+    "block manager",
+    "garbage collector",
+    "heartbeat manager",
+};
 
 static int terminate = 0;
-static pid_t pids[MAX_CHILDREN+3];
+static pid_t pids[MAX_CHILDREN+4];
+
+enum trig_t {
+    TRIG_JOB = 0,
+    TRIG_BLOCK,
+    TRIG_GC,
+    TRIG_EGC,
+    TRIG_HBEAT,
+
+    TRIG_MAX
+};
+static int pipes[TRIG_MAX * 2];
+
+static void trig_init() {
+    unsigned int i;
+    for(i=0; i<TRIG_MAX * 2; i++)
+	pipes[i] = -1;
+}
+
+
+static void trig_destroy_common(int sel) {
+    unsigned int i;
+    for(i=0; i<TRIG_MAX; i++) {
+	if(pipes[i*2+sel] < 0)
+	    continue;
+	close(pipes[i*2+sel]);
+	pipes[i*2+sel] = -1;
+    }
+}
+
+static void trig_destroy_workers(void) {
+    trig_destroy_common(0);
+}
+static void trig_destroy_managers(void) {
+    trig_destroy_common(1);
+}
+static void trig_destroy_all(void) {
+    trig_destroy_workers();
+    trig_destroy_managers();
+}
+
+static int trig_create(void) {
+    unsigned int i;
+    for(i=0; i<TRIG_MAX; i++) {
+	int *trig = &pipes[i * 2];
+	if(pipe(trig)) {
+	    PCRIT("Cannot create communication pipe");
+	    trig_destroy_all();
+	    return -1;
+	}
+    }
+
+    return 0;
+}
+
+static int trig_worker(enum trig_t which) {
+    return pipes[which * 2];
+}
+static int trig_manager(enum trig_t which) {
+    return pipes[which * 2 + 1];
+}
+
+static int get_procnum(pid_t pid) {
+    unsigned int i;
+    for(i=0; i < sizeof(pids) / sizeof(*pids); i++)
+	if(pids[i] == pid)
+	    return i;
+    return -1;
+}
+static int is_manager(int procnum) {
+    return (procnum >= MAX_CHILDREN && procnum < sizeof(pids) / sizeof(*pids));
+}
+static const char *process_name(int procnum) {
+    if(procnum < MAX_CHILDREN || procnum >= sizeof(pids) / sizeof(*pids))
+	return "worker";
+    return mgr_names[procnum - MAX_CHILDREN];
+}
 
 static void killall(int signum) {
     int i;
@@ -155,7 +240,7 @@ static int accept_loop(sxc_client_t *sx, const char *self, const char *dir) {
         rc = EXIT_FAILURE;
 	goto accept_loop_end;
     }
-    sx_hashfs_set_triggers(hashfs, job_trigger, block_trigger, gc_trigger, gc_expire_trigger);
+    sx_hashfs_set_triggers(hashfs, trig_worker(TRIG_JOB), trig_worker(TRIG_BLOCK), trig_worker(TRIG_GC), trig_worker(TRIG_EGC), trig_worker(TRIG_HBEAT));
 
     ownpid = getpid();
     FCGX_Init();
@@ -189,11 +274,6 @@ static int accept_loop(sxc_client_t *sx, const char *self, const char *dir) {
         INFO("Accept loop exiting after %u requests", worker_max_requests);
 
  accept_loop_end:
-    OS_LibShutdown();
-    close(job_trigger);
-    close(block_trigger);
-    close(gc_trigger);
-    close(gc_expire_trigger);
     return rc;
 }
 
@@ -228,8 +308,152 @@ void print_help(const char *prog)
     printf("\n");
 }
 
+
+
+#define MAX_PID_ATTEMPTS 10
+char *make_pidfile(const char *pidfile_arg, int *pidfd) {
+    char buf[8192];
+    char *pidfile = NULL;
+    unsigned int i;
+
+    *pidfd = -1;
+
+    /* Make absolute */
+    if(*pidfile_arg == '/')
+	pidfile = strdup(pidfile_arg);
+    else {
+	const char *pfile = pidfile;
+	if(!getcwd(buf, sizeof(buf))) {
+	    PCRIT("Cannot get the current work directory");
+	    goto pidfile_err;
+	}
+	pidfile = malloc(strlen(buf) + 1 + strlen(pfile) + 1);
+	if(pidfile)
+	    sprintf(pidfile, "%s/%s", buf, pfile);
+    }
+    if(!pidfile) {
+	PCRIT("Failed to allocate pidfile");
+	goto pidfile_err;
+    }
+
+    /* Try to read pid from pidfile */
+    for(i=0;i<MAX_PID_ATTEMPTS;i++) {
+	char *eopid;
+	int pidsz, readfd;
+
+	*pidfd = open(pidfile, O_CREAT | O_WRONLY | O_EXCL, 0644);
+	if(*pidfd >= 0)
+	    break; /* New pidfile created */
+	if(errno != EEXIST) {
+	    PCRIT("Failed to create pidfile %s", pidfile);
+	    goto pidfile_err;
+	}
+
+	/* Pidfile exists */
+	readfd = open(pidfile, O_RDONLY);
+	if(readfd < 0) {
+	    if(errno == ENOENT)
+		continue;
+	    PCRIT("Failed to open existing pidfile %s", pidfile);
+	    goto pidfile_err;
+	}
+
+	/* Get pid */
+	pidsz = read(readfd, buf, sizeof(buf)-1);
+	close(readfd);
+	if(pidsz < 0) {
+	    PCRIT("Failed to read pid from existing pidfile %s", pidfile);
+	    goto pidfile_err;
+	}
+	
+	if(pidsz) {
+	    /* Check if still alive */
+	    buf[pidsz] = 0;
+	    pidsz = strtol(buf, &eopid, 10);
+	    if(*eopid != '\0' && *eopid != '\n') {
+		CRIT("Failed to read pid from existing pidfile %s", pidfile);
+		goto pidfile_err;
+	    }
+
+	    if(kill(pidsz, 0) == -1) {
+		if(errno == ESRCH) {
+		    /* Process is dead: unlink and try again */
+		    if(unlink(pidfile)) {
+			PCRIT("Failed to remove stale pidfile %s", pidfile);
+			goto pidfile_err;
+		    }
+		    INFO("Removed stale pidfile %s", pidfile);
+		    continue;
+		}
+		if(errno != EPERM) {
+		    PCRIT("Cannot determine if pid %d is alive", pidsz);
+		    goto pidfile_err;
+		}
+	    }
+
+	    CRIT("Pid %d is still alive", pidsz);
+	    goto pidfile_err;
+	}
+
+	/* Pidfile is empty: unlink and try again */
+	if(unlink(pidfile)) {
+	    PCRIT("Failed to remove empty pidfile %s", pidfile);
+	    goto pidfile_err;
+	}
+	INFO("Removed empty pidfile %s", pidfile);
+    }
+
+    if(i==MAX_PID_ATTEMPTS)
+	CRIT("Cannot create pidfile after "STRIFY(MAX_PID_ATTEMPTS)" tries");
+
+ pidfile_err:
+    if(*pidfd < 0) {
+	free(pidfile);
+	pidfile = NULL;
+    }
+    
+    return pidfile;
+}
+
+
+static int sxreinit(sxc_client_t **sx, const char *procdesc, sxc_logger_t *logger, const char *logfile, int foreground, int debug, int argc, char **argv) {
+    if(*sx)
+	sx_done(sx);
+
+    *sx = sx_init(logger, procdesc, logfile, foreground, argc, argv);
+    if(!*sx)
+	return -1;
+
+    if(debug)
+	log_setminlevel(*sx,SX_LOG_DEBUG);
+
+    return 0;
+}
+
+#define NOPIDFILE() do { free(pidfile); pidfile = NULL; } while(0)
+
+#define SPAWNMGR(pid, child)						\
+    do {								\
+	const char *name = process_name(pid);				\
+	pids[pid] = fork();						\
+	if(pids[pid] <= 0) {						\
+	    if(pids[pid] == 0) {					\
+		trig_destroy_workers();					\
+		NOPIDFILE();						\
+		if(!sxreinit(&sx, name, NULL, args.logfile_arg, foreground, debug, argc, argv)) \
+		    ret = child;					\
+		else							\
+		    ret = EXIT_FAILURE;					\
+	    } else							\
+		PCRIT("Cannot spawn the %s process", name);		\
+	    killall(SIGTERM);						\
+	    goto getout;						\
+	}								\
+    } while(0)
+
+
 int main(int argc, char **argv) {
-    int i, s, pidfd =-1, sockmode = -1, trig[2], inner_job_trigger, inner_block_trigger, inner_gc_trigger, inner_gc_expire_trigger, alive;
+    int i, s, pidfd =-1, sockmode = -1, alive;
     int debug, foreground, have_nodeid = 0;
     sx_uuid_t cluster_uuid, node_uuid;
     char *pidfile = NULL;
@@ -243,6 +467,10 @@ int main(int argc, char **argv) {
     time_t wait_start;
     pid_t dead;
     sxc_client_t *sx = NULL;
+    int ret = EXIT_FAILURE;
+
+    memset(pids, 0, sizeof(pids));
+    trig_init();
 
     if(cmdline_args(argc, argv, &cmdargs))
 	return EXIT_FAILURE;
@@ -276,10 +504,9 @@ int main(int argc, char **argv) {
     debug = (cmdargs.debug_flag || args.debug_flag) ? 1 : 0;
     foreground = (cmdargs.foreground_flag || args.foreground_flag) ? 1 : 0;
 
-    sx = sx_init(NULL, NULL, NULL, foreground, argc, argv);
-    if (!sx) {
+    if(sxreinit(&sx, NULL, NULL, NULL, foreground, debug, argc, argv)) {
 	cmdline_args_free(&cmdargs);
-        return EXIT_FAILURE;
+        goto getout;
     }
 
     if(!cmdargs.config_file_given)
@@ -293,36 +520,18 @@ int main(int argc, char **argv) {
 	    WARN("Can't increase the limit for maximum number of open files (current: %u/%u)", l_soft, l_hard);
     }
 
-    if(args.run_as_given) {
-        if (runas(args.run_as_arg) == -1) {
-            cmdline_parser_free(&args);
-            return EXIT_FAILURE;
-        }
-    }
+    if(args.run_as_given && runas(args.run_as_arg) == -1)
+        goto getout;
+
     /* must init with logfile after we switched uid, otherwise children wouldn't be able
      * to open the logfile */
-    sx_done(&sx);
-    sx = sx_init(NULL, NULL, args.logfile_arg, foreground, argc, argv);
-    if (!sx) {
-        cmdline_parser_free(&args);
-        sx_done(&sx);
-	return EXIT_FAILURE;
-    }
-
-    memset(pids, 0, sizeof(pids));
-
-    if(debug)
-	log_setminlevel(sx,SX_LOG_DEBUG);
+    if(sxreinit(&sx, NULL, NULL, args.logfile_arg, foreground, debug, argc, argv))
+	goto getout;
 
     if(!FCGX_IsCGI()) {
 	CRIT("This program cannot be run as a fastcgi application; please refer to the documentation or --help for invocation instuctions.");
-        cmdline_parser_free(&args);
-        sx_done(&sx);
-	return EXIT_FAILURE;
+        goto getout;
     }
-
-    if(debug)
-	log_setminlevel(sx,SX_LOG_DEBUG);
 
     /* the interactions between these values are complex,
      * no validation: responsibility of the admin when tweaking hidden vars */
@@ -339,178 +548,28 @@ int main(int argc, char **argv) {
 
     if(args.children_arg <= 0 || args.children_arg > MAX_CHILDREN) {
 	CRIT("Invalid number of children");
-        cmdline_parser_free(&args);
-        sx_done(&sx);
-	return EXIT_FAILURE;
+        goto getout;
     }
 
-    if(args.pidfile_given)
-	pidfile = args.pidfile_arg;
+    /* Create triggers */
+    if(trig_create())
+	goto getout;
 
+    /* Create the pidfile before detaching from terminal */
+    if(args.pidfile_given) {
+	pidfile = make_pidfile(args.pidfile_arg, &pidfd);
+	if(!pidfile)
+	    goto getout;
+    }
+
+    /* Create the fcgi socket and set permissions */
     if(args.socket_mode_given) {
 	sockmode = args.socket_mode_arg;
 	if(sockmode<=0) {
 	    CRIT("Invalid socket mode");
-            cmdline_parser_free(&args);
-            sx_done(&sx);
-            return EXIT_FAILURE;
+	    goto getout;
 	}
     }
-
-    /* Create trigger pipe */
-    if(pipe(trig)) {
-	PCRIT("Cannot create communication pipe");
-        cmdline_parser_free(&args);
-        sx_done(&sx);
-	return EXIT_FAILURE;
-    }
-    job_trigger = trig[1];
-    inner_job_trigger = trig[0];
-
-    if(pipe(trig)) {
-	PCRIT("Cannot create communication pipe");
-        cmdline_parser_free(&args);
-        sx_done(&sx);
-	return EXIT_FAILURE;
-    }
-    block_trigger = trig[1];
-    inner_block_trigger = trig[0];
-
-    if(pipe(trig)) {
-	PCRIT("Cannot create communication pipe");
-        cmdline_parser_free(&args);
-        sx_done(&sx);
-	return EXIT_FAILURE;
-    }
-    gc_trigger = trig[1];
-    inner_gc_trigger = trig[0];
-    if(pipe(trig)) {
-	PCRIT("Cannot create communication pipe");
-        cmdline_parser_free(&args);
-        sx_done(&sx);
-	return EXIT_FAILURE;
-    }
-    gc_expire_trigger = trig[1];
-    inner_gc_expire_trigger = trig[0];
-    /* Create the pidfile before detaching from terminal */
-#define MAX_PID_ATTEMPTS 10
-    if(pidfile) {
-	if(*pidfile == '/')
-	    pidfile = strdup(pidfile);
-	else {
-	    const char *pfile = pidfile;
-	    if(!getcwd(buf, sizeof(buf))) {
-		PCRIT("Cannot get the current work directory");
-                cmdline_parser_free(&args);
-                sx_done(&sx);
-		return EXIT_FAILURE;
-	    }
-	    pidfile = malloc(strlen(buf) + 1 + strlen(pfile) + 1);
-	    if(pidfile)
-		sprintf(pidfile, "%s/%s", buf, pfile);
-	}
-	if(!pidfile) {
-	    PCRIT("Failed to allocate pidfile");
-            cmdline_parser_free(&args);
-            sx_done(&sx);
-	    return EXIT_FAILURE;
-	}
-	for(i=0;i<MAX_PID_ATTEMPTS;i++) {
-	    char *eopid;
-	    int pidsz;
-
-	    pidfd = open(pidfile, O_CREAT | O_WRONLY | O_EXCL, 0644);
-	    if(pidfd >= 0)
-		break;
-	    if(errno != EEXIST) {
-		PCRIT("Failed to create pidfile %s", pidfile);
-                cmdline_parser_free(&args);
-                free(pidfile);
-                sx_done(&sx);
-		return EXIT_FAILURE;
-	    }
-
-	    pidfd = open(pidfile, O_RDONLY);
-	    if(pidfd < 0) {
-		if(errno == ENOENT)
-		    continue;
-		PCRIT("Failed to open existing pidfile %s", pidfile);
-                cmdline_parser_free(&args);
-                free(pidfile);
-                sx_done(&sx);
-		return EXIT_FAILURE;
-	    }
-
-	    pidsz = read(pidfd, buf, sizeof(buf)-1);
-	    close(pidfd);
-	    if(pidsz < 0) {
-		PCRIT("Failed to read pid from existing pidfile %s", pidfile);
-                cmdline_parser_free(&args);
-                free(pidfile);
-                sx_done(&sx);
-		return EXIT_FAILURE;
-	    }
-
-	    if(pidsz) {
-		/* Filled-in pidfile */
-		buf[pidsz] = 0;
-		pidsz = strtol(buf, &eopid, 10);
-		if(*eopid != '\0' && *eopid != '\n') {
-		    CRIT("Failed to read pid from existing pidfile %s", pidfile);
-                    cmdline_parser_free(&args);
-                    free(pidfile);
-                    sx_done(&sx);
-		    return EXIT_FAILURE;
-		}
-
-		if(kill(pidsz, 0) == -1) {
-		    if(errno == ESRCH) {
-			if(unlink(pidfile)) {
-			    PCRIT("Failed to remove stale pidfile %s", pidfile);
-                            cmdline_parser_free(&args);
-                            free(pidfile);
-                            sx_done(&sx);
-			    return EXIT_FAILURE;
-			}
-			INFO("Removed stale pidfile %s", pidfile);
-			continue;
-		    }
-		    if(errno != EPERM) {
-			PCRIT("Cannot determine if pid %d is alive", pidsz);
-                        cmdline_parser_free(&args);
-                        free(pidfile);
-                        sx_done(&sx);
-			return EXIT_FAILURE;
-		    }
-		}
-
-		CRIT("Pid %d is still alive", pidsz);
-                cmdline_parser_free(&args);
-                free(pidfile);
-                sx_done(&sx);
-		return EXIT_FAILURE;
-	    }
-
-	    /* Empty pidfile */
-	    if(unlink(pidfile)) {
-		PCRIT("Failed to remove empty pidfile %s", pidfile);
-                cmdline_parser_free(&args);
-                free(pidfile);
-                sx_done(&sx);
-		return EXIT_FAILURE;
-	    }
-	    INFO("Removed empty pidfile %s", pidfile);
-	}
-
-	if(i==MAX_PID_ATTEMPTS) {
-	    CRIT("Cannot create pidfile after "STRIFY(MAX_PID_ATTEMPTS)" tries");
-            cmdline_parser_free(&args);
-            free(pidfile);
-            sx_done(&sx);
-	    return EXIT_FAILURE;
-	}
-    }
-    /* Create the fcgi socket and set permissions */
     if(sockmode >= 0)
 	mask = umask(0);
 
@@ -518,10 +577,7 @@ int main(int argc, char **argv) {
     s = FCGX_OpenSocket(args.socket_arg, 1024);
     if(s<0) {
 	CRIT("Failed to open socket '%s'", args.socket_arg);
-        cmdline_parser_free(&args);
-        free(pidfile);
-        sx_done(&sx);
-	return EXIT_FAILURE;
+	goto getout;
     }
     INFO("Socket '%s' opened successfully", args.socket_arg);
 
@@ -531,25 +587,16 @@ int main(int argc, char **argv) {
 	umask(mask);
 	if(getsockname(s, (struct sockaddr *)&sa, &salen)) {
 	    PCRIT("failed to determine socket domain");
-            cmdline_parser_free(&args);
-            free(pidfile);
-            sx_done(&sx);
-	    return EXIT_FAILURE;
+	    goto getout;
 	}
 	if(sa.sun_family == AF_UNIX) {
 	    if(salen > sizeof(sa)) {
 		CRIT("Cannot locate socket: path too long");
-                cmdline_parser_free(&args);
-                free(pidfile);
-                sx_done(&sx);
-		return EXIT_FAILURE;
+		goto getout;
 	    }
 	    if(chmod(sa.sun_path, sockmode)) {
 		PCRIT("Cannot set permissions on socket %s", sa.sun_path);
-                cmdline_parser_free(&args);
-                free(pidfile);
-                sx_done(&sx);
-		return EXIT_FAILURE;
+		goto getout;
 	    }
 	} else
 	    WARN("Ignoring socket permissions on non-unix socket");
@@ -558,10 +605,7 @@ int main(int argc, char **argv) {
     if(s != FCGI_LISTENSOCK_FILENO) {
 	if(dup2(s, FCGI_LISTENSOCK_FILENO)<0) {
 	    PCRIT("Failed to rename socket descriptor %d to %d", s, FCGI_LISTENSOCK_FILENO);
-            cmdline_parser_free(&args);
-            free(pidfile);
-            sx_done(&sx);
-	    return EXIT_FAILURE;
+	    goto getout;
 	}
 	close(s);
     }
@@ -585,10 +629,7 @@ int main(int argc, char **argv) {
         } else {
             fprintf(stderr, "Failed to initialize the storage interface - check the logfile %s\n", args.logfile_arg);
         }
-        cmdline_parser_free(&args);
-        free(pidfile);
-        sx_done(&sx);
-	return EXIT_FAILURE;
+	goto getout;
     }
 
     /* Detach from terminal if required to do so */
@@ -596,38 +637,26 @@ int main(int argc, char **argv) {
 	int fd;
 	if(chdir("/")) {
 	    PCRIT("Failed to change to root directory");
-            cmdline_parser_free(&args);
-            free(pidfile);
-            sx_done(&sx);
-	    return EXIT_FAILURE;
+	    goto getout;
 	}
 #if STDIN_FILENO != FCGI_LISTENSOCK_FILENO
 	if((fd = open("/dev/null", O_RDONLY))<0 || dup2(fd, STDIN_FILENO)<0) {
 	    PCRIT("Failed to redirect standard input to null");
-            cmdline_parser_free(&args);
-            free(pidfile);
-            sx_done(&sx);
-	    return EXIT_FAILURE;
+	    goto getout;
 	}
         close(fd);
 #endif
 #if STDOUT_FILENO != FCGI_LISTENSOCK_FILENO
 	if((fd = open("/dev/null", O_WRONLY))<0 || dup2(fd, STDOUT_FILENO)<0) {
 	    PCRIT("Failed to redirect standard output to null");
-            cmdline_parser_free(&args);
-            free(pidfile);
-            sx_done(&sx);
-	    return EXIT_FAILURE;
+	    goto getout;
 	}
         close(fd);
 #endif
 #if STDERR_FILENO != FCGI_LISTENSOCK_FILENO
 	if((fd = open("/dev/null", O_WRONLY))<0 || dup2(fd, STDERR_FILENO)<0) {
 	    PCRIT("Failed to redirect standard error to null");
-            cmdline_parser_free(&args);
-            free(pidfile);
-            sx_done(&sx);
-	    return EXIT_FAILURE;
+	    goto getout;
 	}
         close(fd);
 #endif
@@ -636,22 +665,18 @@ int main(int argc, char **argv) {
 	    break;
 	case -1:
 	    PCRIT("Cannot fork into background");
-            cmdline_parser_free(&args);
-            free(pidfile);
-            sx_done(&sx);
-	    return EXIT_FAILURE;
+	    goto getout;
 	default:
 	    INFO("Successfully daemonized");
-            cmdline_parser_free(&args);
-            free(pidfile);
-            OS_LibShutdown();
-            sx_done(&sx);
-	    return EXIT_SUCCESS;
+	    NOPIDFILE();
+	    ret = EXIT_SUCCESS;
+	    goto getout;
 	}
 
 	setsid();
     }
 
+    /* Install signal handlers */
     struct sigaction act;
     sigemptyset(&act.sa_mask);
     act.sa_flags = 0;
@@ -672,108 +697,25 @@ int main(int argc, char **argv) {
 	i = strlen(buf);
 	if(write(pidfd, buf, i) != i) {
 	    PCRIT("Failed to write pid to pidfile %s", pidfile);
-            cmdline_parser_free(&args);
-            free(pidfile);
-            sx_done(&sx);
-	    return EXIT_FAILURE;
+	    goto getout;
 	}
 	close(pidfd);
+	pidfd = -1;
     }
 
     /* Spawn the job manager */
-    pids[JOBMGR] = fork();
-    if(pids[JOBMGR] < 0) {
-	PCRIT("Cannot spawn the job manager");
-        cmdline_parser_free(&args);
-        free(pidfile);
-        sx_done(&sx);
-	return EXIT_FAILURE;
-    } else if(!pids[JOBMGR]) {
-        int ret;
-        sx_done(&sx);
-        sx = sx_init(NULL, "job manager", args.logfile_arg, foreground, argc, argv);
-        if (sx) {
-            if(debug)
-                log_setminlevel(sx,SX_LOG_DEBUG);
-            ret = jobmgr(sx, argv[0], args.data_dir_arg, inner_job_trigger);
-        } else {
-            ret = 1;
-        }
-        cmdline_parser_free(&args);
-        free(pidfile);
-        sx_done(&sx);
-        OS_LibShutdown();
-        return ret;
-    }
-    close(inner_job_trigger);
+    SPAWNMGR(JOBMGR, jobmgr(sx, args.data_dir_arg, trig_manager(TRIG_JOB)));
 
     /* Spawn the block manager */
-    pids[BLKMGR] = fork();
-    if(pids[BLKMGR] < 0) {
-	PCRIT("Cannot spawn the block manager");
-        cmdline_parser_free(&args);
-        free(pidfile);
-	kill(pids[JOBMGR], SIGTERM);
-        sx_done(&sx);
-	return EXIT_FAILURE;
-    } else if(!pids[BLKMGR]) {
-        int ret;
-        sx_done(&sx);
-        sx = sx_init(NULL, "block manager", args.logfile_arg, foreground, argc, argv);
-        if (sx) {
-            if(debug)
-                log_setminlevel(sx,SX_LOG_DEBUG);
-            ret = blockmgr(sx, argv[0], args.data_dir_arg, inner_block_trigger);
-        } else {
-            ret = 1;
-        }
-        cmdline_parser_free(&args);
-        free(pidfile);
-	close(job_trigger);
-	close(block_trigger);
-        close(gc_trigger);
-        close(gc_expire_trigger);
-        close(inner_gc_trigger);
-        close(inner_gc_expire_trigger);
-        OS_LibShutdown();
-        sx_done(&sx);
-        return ret;
-    }
-    close(inner_block_trigger);
+    SPAWNMGR(BLKMGR, blockmgr(sx, args.data_dir_arg, trig_manager(TRIG_BLOCK)));
 
     /* Spawn the garbage collector */
-    pids[GCMGR] = fork();
-    if(pids[GCMGR] < 0) {
-	PCRIT("Cannot spawn the garbage collector");
-        cmdline_parser_free(&args);
-        free(pidfile);
-	kill(pids[JOBMGR], SIGTERM);
-	kill(pids[BLKMGR], SIGTERM);
-        sx_done(&sx);
-	return EXIT_FAILURE;
-    } else if(!pids[GCMGR]) {
-        int ret;
-        sx_done(&sx);
-        sx = sx_init(NULL, "heal & garbage collector", args.logfile_arg, foreground, argc, argv);
-        if (sx) {
-            if(debug)
-                log_setminlevel(sx,SX_LOG_DEBUG);
-            ret = gc(sx, argv[0], args.data_dir_arg, inner_gc_trigger, inner_gc_expire_trigger);
-        } else {
-            ret = 1;
-        }
-        cmdline_parser_free(&args);
-        free(pidfile);
-	close(job_trigger);
-	close(block_trigger);
-        close(gc_trigger);
-        close(gc_expire_trigger);
-        OS_LibShutdown();
-        sx_done(&sx);
-        return ret;
-    }
-    close(inner_gc_trigger);
-    close(inner_gc_expire_trigger);
+    SPAWNMGR(GCMGR, gc(sx, args.data_dir_arg, trig_manager(TRIG_GC), trig_manager(TRIG_EGC)));
+
+    /* Spawn the heartbeat manager */
+    SPAWNMGR(HBEATMGR, hbeatmgr(sx, args.data_dir_arg, trig_manager(TRIG_HBEAT)));
+
+    trig_destroy_managers();
 
     if(have_nodeid)
 	INFO("Node %s in cluster %s starting up", node_uuid.string, cluster_uuid.string);
@@ -782,7 +724,8 @@ int main(int argc, char **argv) {
 
     /* Spawn workers and monitor them */
     while(!terminate) {
-	int status;
+	const char *deadname;
+	int status, procnum;
 
 	/* Prefork/respawn all the (missing) children */
 	for(i=0; !terminate && i<args.children_arg; i++) {
@@ -794,20 +737,12 @@ int main(int argc, char **argv) {
 		    terminate = -1;
 		    break;
 		case 0:
-                    sx_done(&sx);
-                    sx = sx_init(&fcgilog, "fastcgi worker", args.logfile_arg, foreground, argc, argv);
-                    if (sx) {
-                        if(debug)
-                            log_setminlevel(sx,SX_LOG_DEBUG);
-                        status = accept_loop(sx, argv[0], args.data_dir_arg);
-                    } else {
-                        status = 1;
-                    }
-		    cmdline_parser_free(&args);
-		    free(pidfile);
-		    OS_LibShutdown();
-                    sx_done(&sx);
-		    return status;
+		    NOPIDFILE();
+		    if(!sxreinit(&sx, "fastcgi worker", &fcgilog, args.logfile_arg, foreground, debug, argc, argv))
+                        ret = accept_loop(sx, argv[0], args.data_dir_arg);
+		    else
+                        ret = EXIT_FAILURE;
+		    goto getout;
 		}
 		DEBUG("Spawned new worker: pid %d", pids[i]);
 	    }
@@ -827,31 +762,23 @@ int main(int argc, char **argv) {
 	    break;
 	}
 
-	if(dead == pids[JOBMGR] || dead == pids[BLKMGR] || dead == pids[GCMGR]) {
+	procnum = get_procnum(dead);
+	deadname = process_name(procnum);
+	if(is_manager(dead)) {
 	    /* Critical child died */
 	    if(WIFEXITED(status) && WEXITSTATUS(status) == EXIT_SUCCESS) {
                 if (!terminate)
-                    WARN("Critical child exited (PID %d)", dead);
-		terminate = 1;
-            }
-	    else {
-		const char *deadproc;
-		if(dead == pids[JOBMGR])
-		    deadproc = "Job manager";
-		else if(dead == pids[BLKMGR])
-		    deadproc = "Block manager";
-		else
-		    deadproc = "Garbage collector";
+                    WARN("Process %s exited (PID %d)", deadname, dead);
+            } else {
 		if(WIFSIGNALED(status))
-		    CRIT("%s was killed with %d",  deadproc, WTERMSIG(status));
+		    CRIT("Process %s was killed with %d",  deadname, WTERMSIG(status));
 		else
-		    CRIT("%s terminated abnormally : %d", deadproc, WEXITSTATUS(status));
-		terminate = -1;
+		    CRIT("Process %s terminated abnormally : %d", deadname, WEXITSTATUS(status));
 	    }
+	    terminate = 1;
 	} else if(WIFEXITED(status) && WEXITSTATUS(status)) {
-	    /* Worker died abnormally - FIXME is this even possible? or harmful? */
-	    CRIT("Worker process %d terminated abnormally : %d", dead, WEXITSTATUS(status));
-	    terminate = -1;
+	    /* Worker died abnormally */
+	    WARN("Worker process %d terminated abnormally : %d", dead, WEXITSTATUS(status));
 	} else if(WIFSIGNALED(status)) {
 	    /* Worker was killed */
 	    WARN("Worker process %d killed with %d", dead, WTERMSIG(status));
@@ -860,12 +787,8 @@ int main(int argc, char **argv) {
 	    DEBUG("Worker process %d exited", dead);
 	}
 
-	for(i=0; i<sizeof(pids) / sizeof(*pids); i++) {
-	    if(pids[i]==dead) {
-		pids[i] = 0;
-		break;
-	    }
-	}
+	if(procnum >= 0 && procnum <= sizeof(pids) / sizeof(*pids))
+	    pids[procnum] = 0;
     }
 
     killall(SIGTERM); /* ask all children to quit */
@@ -904,18 +827,19 @@ int main(int argc, char **argv) {
     } else
 	INFO("All children have exited");
 
-    if(pidfile) {
+    ret = terminate == 1 ? EXIT_SUCCESS : EXIT_FAILURE;
+
+ getout:
+    if(pidfd >= 0)
+	close(pidfd);
+    if(pidfile) { /* Only set in the parent */
 	unlink(pidfile);
 	free(pidfile);
     }
-
-    OS_LibShutdown();
-    close(job_trigger);
-    close(block_trigger);
-    close(gc_trigger);
-    close(gc_expire_trigger);
-    cmdline_parser_free(&args);
     sx_done(&sx);
+    trig_destroy_all();
+    cmdline_parser_free(&args);
+    OS_LibShutdown();
 
-    return terminate == 1 ? EXIT_SUCCESS : EXIT_FAILURE;
+    return ret;
 }

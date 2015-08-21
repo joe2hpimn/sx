@@ -264,7 +264,7 @@ void blockmgr_process_queue(struct blockmgr_data_t *q) {
     sqlite3_reset(q->qlist); /* Better safe than deadlocked */
 }
 
-int blockmgr(sxc_client_t *sx, const char *self, const char *dir, int pipe) {
+int blockmgr(sxc_client_t *sx, const char *dir, int pipe) {
     struct blockmgr_data_t q;
     struct sigaction act;
     sxi_db_t *xferdb;
@@ -331,6 +331,5 @@ int blockmgr(sxc_client_t *sx, const char *self, const char *dir, int pipe) {
     sqlite3_finalize(q.qlist);
     sqlite3_finalize(q.qdel);
     sx_hashfs_close(q.hashfs);
-    close(pipe);
     return terminate ? EXIT_SUCCESS : EXIT_FAILURE;
 }

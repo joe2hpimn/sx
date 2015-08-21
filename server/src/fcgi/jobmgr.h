@@ -28,6 +28,6 @@
 #ifndef JOBMGR_H
 #define JOBMGR_H
 
-int jobmgr(sxc_client_t *sx, const char *self, const char *dir, int pipe);
+int jobmgr(sxc_client_t *sx, const char *dir, int pipe);
 
 #endif

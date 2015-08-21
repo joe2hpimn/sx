@@ -167,6 +167,7 @@ am_src_fcgi_sx_fcgi_OBJECTS =  \
 	src/fcgi/src_fcgi_sx_fcgi-jobmgr.$(OBJEXT) \
 	src/fcgi/src_fcgi_sx_fcgi-blockmgr.$(OBJEXT) \
 	src/fcgi/src_fcgi_sx_fcgi-gc.$(OBJEXT) \
+	src/fcgi/src_fcgi_sx_fcgi-hbeat.$(OBJEXT) \
 	src/fcgi/src_fcgi_sx_fcgi-fcgi-server.$(OBJEXT) \
 	src/fcgi/src_fcgi_sx_fcgi-cfgfile.$(OBJEXT) \
 	src/fcgi/src_fcgi_sx_fcgi-cmdline.$(OBJEXT)
@@ -795,6 +796,8 @@ src_fcgi_sx_fcgi_SOURCES = \
 		    src/fcgi/blockmgr.h \
 		    src/fcgi/gc.c \
 		    src/fcgi/gc.h \
+		    src/fcgi/hbeat.c \
+		    src/fcgi/hbeat.h \
 		    src/fcgi/fcgi-server.c \
 		    src/fcgi/fcgi-server.h \
 		    src/fcgi/cfgfile.c \
@@ -1143,6 +1146,8 @@ src/fcgi/src_fcgi_sx_fcgi-blockmgr.$(OBJEXT):  \
 	src/fcgi/$(am__dirstamp) src/fcgi/$(DEPDIR)/$(am__dirstamp)
 src/fcgi/src_fcgi_sx_fcgi-gc.$(OBJEXT): src/fcgi/$(am__dirstamp) \
 	src/fcgi/$(DEPDIR)/$(am__dirstamp)
+src/fcgi/src_fcgi_sx_fcgi-hbeat.$(OBJEXT): src/fcgi/$(am__dirstamp) \
+	src/fcgi/$(DEPDIR)/$(am__dirstamp)
 src/fcgi/src_fcgi_sx_fcgi-fcgi-server.$(OBJEXT):  \
 	src/fcgi/$(am__dirstamp) src/fcgi/$(DEPDIR)/$(am__dirstamp)
 src/fcgi/src_fcgi_sx_fcgi-cfgfile.$(OBJEXT): src/fcgi/$(am__dirstamp) \
@@ -1307,6 +1312,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@src/fcgi/$(DEPDIR)/src_fcgi_sx_fcgi-fcgi-server.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/fcgi/$(DEPDIR)/src_fcgi_sx_fcgi-fcgi-utils.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/fcgi/$(DEPDIR)/src_fcgi_sx_fcgi-gc.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@src/fcgi/$(DEPDIR)/src_fcgi_sx_fcgi-hbeat.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/fcgi/$(DEPDIR)/src_fcgi_sx_fcgi-jobmgr.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/fcgi/$(DEPDIR)/src_tools_sxreport_server_sxreport_server-cfgfile.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/tools/sxadm/$(DEPDIR)/src_tools_sxadm_sxadm-cmd_cluster.Po@am__quote@
@@ -1617,6 +1623,20 @@ src/fcgi/src_fcgi_sx_fcgi-gc.obj: src/fcgi/gc.c
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='src/fcgi/gc.c' object='src/fcgi/src_fcgi_sx_fcgi-gc.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_fcgi_sx_fcgi_CPPFLAGS) $(CPPFLAGS) $(src_fcgi_sx_fcgi_CFLAGS) $(CFLAGS) -c -o src/fcgi/src_fcgi_sx_fcgi-gc.obj `if test -f 'src/fcgi/gc.c'; then $(CYGPATH_W) 'src/fcgi/gc.c'; else $(CYGPATH_W) '$(srcdir)/src/fcgi/gc.c'; fi`
+
+src/fcgi/src_fcgi_sx_fcgi-hbeat.o: src/fcgi/hbeat.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_fcgi_sx_fcgi_CPPFLAGS) $(CPPFLAGS) $(src_fcgi_sx_fcgi_CFLAGS) $(CFLAGS) -MT src/fcgi/src_fcgi_sx_fcgi-hbeat.o -MD -MP -MF src/fcgi/$(DEPDIR)/src_fcgi_sx_fcgi-hbeat.Tpo -c -o src/fcgi/src_fcgi_sx_fcgi-hbeat.o `test -f 'src/fcgi/hbeat.c' || echo '$(srcdir)/'`src/fcgi/hbeat.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) src/fcgi/$(DEPDIR)/src_fcgi_sx_fcgi-hbeat.Tpo src/fcgi/$(DEPDIR)/src_fcgi_sx_fcgi-hbeat.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='src/fcgi/hbeat.c' object='src/fcgi/src_fcgi_sx_fcgi-hbeat.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_fcgi_sx_fcgi_CPPFLAGS) $(CPPFLAGS) $(src_fcgi_sx_fcgi_CFLAGS) $(CFLAGS) -c -o src/fcgi/src_fcgi_sx_fcgi-hbeat.o `test -f 'src/fcgi/hbeat.c' || echo '$(srcdir)/'`src/fcgi/hbeat.c
+
+src/fcgi/src_fcgi_sx_fcgi-hbeat.obj: src/fcgi/hbeat.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_fcgi_sx_fcgi_CPPFLAGS) $(CPPFLAGS) $(src_fcgi_sx_fcgi_CFLAGS) $(CFLAGS) -MT src/fcgi/src_fcgi_sx_fcgi-hbeat.obj -MD -MP -MF src/fcgi/$(DEPDIR)/src_fcgi_sx_fcgi-hbeat.Tpo -c -o src/fcgi/src_fcgi_sx_fcgi-hbeat.obj `if test -f 'src/fcgi/hbeat.c'; then $(CYGPATH_W) 'src/fcgi/hbeat.c'; else $(CYGPATH_W) '$(srcdir)/src/fcgi/hbeat.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) src/fcgi/$(DEPDIR)/src_fcgi_sx_fcgi-hbeat.Tpo src/fcgi/$(DEPDIR)/src_fcgi_sx_fcgi-hbeat.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='src/fcgi/hbeat.c' object='src/fcgi/src_fcgi_sx_fcgi-hbeat.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_fcgi_sx_fcgi_CPPFLAGS) $(CPPFLAGS) $(src_fcgi_sx_fcgi_CFLAGS) $(CFLAGS) -c -o src/fcgi/src_fcgi_sx_fcgi-hbeat.obj `if test -f 'src/fcgi/hbeat.c'; then $(CYGPATH_W) 'src/fcgi/hbeat.c'; else $(CYGPATH_W) '$(srcdir)/src/fcgi/hbeat.c'; fi`
 
 src/fcgi/src_fcgi_sx_fcgi-fcgi-server.o: src/fcgi/fcgi-server.c
 @am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_fcgi_sx_fcgi_CPPFLAGS) $(CPPFLAGS) $(src_fcgi_sx_fcgi_CFLAGS) $(CFLAGS) -MT src/fcgi/src_fcgi_sx_fcgi-fcgi-server.o -MD -MP -MF src/fcgi/$(DEPDIR)/src_fcgi_sx_fcgi-fcgi-server.Tpo -c -o src/fcgi/src_fcgi_sx_fcgi-fcgi-server.o `test -f 'src/fcgi/fcgi-server.c' || echo '$(srcdir)/'`src/fcgi/fcgi-server.c

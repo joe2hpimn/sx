@@ -336,7 +336,7 @@ static rc_ty process_heal(sx_hashfs_t *hashfs, int *terminate)
     return OK;
 }
 
-int gc(sxc_client_t *sx, const char *self, const char *dir, int pipe, int pipe_expire) {
+int gc(sxc_client_t *sx, const char *dir, int pipe, int pipe_expire) {
     struct sigaction act;
     sx_hashfs_t *hashfs;
     rc_ty rc;

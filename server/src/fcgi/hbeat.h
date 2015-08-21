@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2012-2014 Skylable Ltd. <info-copyright@skylable.com>
+ *  Copyright (C) 2015 Skylable Ltd. <info-copyright@skylable.com>
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
@@ -25,9 +25,9 @@
  *  this exception statement from your version.
  */
 
-#ifndef BLOCKMGR_H
-#define BLOCKMGR_H
+#ifndef HBEAT_H
+#define HBEAT_H
 
-int blockmgr(sxc_client_t *sx, const char *dir, int pipe);
+int hbeatmgr(sxc_client_t *sx, const char *dir, int pipe);
 
 #endif

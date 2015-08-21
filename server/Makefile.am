@@ -74,6 +74,8 @@ src_fcgi_sx_fcgi_SOURCES = \
 		    src/fcgi/blockmgr.h \
 		    src/fcgi/gc.c \
 		    src/fcgi/gc.h \
+		    src/fcgi/hbeat.c \
+		    src/fcgi/hbeat.h \
 		    src/fcgi/fcgi-server.c \
 		    src/fcgi/fcgi-server.h \
 		    src/fcgi/cfgfile.c \
