@@ -48,7 +48,7 @@ int64_t sxi_file_download_get_xfer_sent(const struct file_download_ctx *ctx);
 
 /* Set information about current transfer upload value */
 int sxi_host_upload_set_xfer_stat(struct host_upload_ctx* ctx, int64_t uploaded, int64_t to_upload);
-/* Get numner of bytes to be downloaded */
+/* Get number of bytes to be downloaded */
 int64_t sxi_host_upload_get_xfer_to_send(const struct host_upload_ctx *ctx);
 /* Get number of bytes already downloaded */
 int64_t sxi_host_upload_get_xfer_sent(const struct host_upload_ctx *ctx);
@@ -58,5 +58,17 @@ int sxi_set_xfer_stat(sxc_xfer_stat_t *xfer_stat, int64_t dl, int64_t ul, double
 
 /* Update timing information for progress stats */
 int sxi_update_time_window(sxc_xfer_progress_t *xfer, int64_t bytes, int64_t skipped);
+
+/* sxfs related helpers */
+typedef struct _sxi_sxfs_data_t {
+    unsigned int blocksize, nhashes;
+    int64_t filesize;
+    char *sourcepath, **ha;
+    void *bh;
+} sxi_sxfs_data_t;
+
+sxi_sxfs_data_t *sxi_sxfs_download_init(sxc_file_t *source);
+int sxi_sxfs_download_run(sxi_sxfs_data_t *sxfs, sxc_cluster_t *cluster, sxc_file_t *dest, off_t offset, long int size);
+void sxi_sxfs_download_finish(sxi_sxfs_data_t *sxfs);
 
 #endif

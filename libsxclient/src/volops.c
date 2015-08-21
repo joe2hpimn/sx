@@ -1217,6 +1217,8 @@ void sxc_cluster_listvolumes_reset(sxc_cluster_lv_t *lv) {
 }
 
 void sxc_cluster_listvolumes_free(sxc_cluster_lv_t *lv) {
+    if(!lv)
+        return;
     fclose(lv->f);
     unlink(lv->fname);
     free(lv->fname);

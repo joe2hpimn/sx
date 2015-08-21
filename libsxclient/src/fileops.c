@@ -4203,6 +4203,310 @@ remote_to_local_err:
     return ret;
 }
 
+sxi_sxfs_data_t *sxi_sxfs_download_init(sxc_file_t *source)
+{
+    int i = 0, ha_i = 0;
+    off_t curoff = 0;
+    char *hashfile = NULL;
+    sxc_client_t *sx;
+    sxc_meta_t *vmeta = NULL;
+    struct batch_hashes *bh = NULL;
+    struct hash_down_data_t *hashdata;
+    sxi_ht *hosts = NULL;
+    sxi_sxfs_data_t *ret = NULL, *sxfs;
+    FILE *hfd = NULL;
+
+    if(!source)
+        return ret;
+    sx = source->sx;
+    sxfs = (sxi_sxfs_data_t*)calloc(1, sizeof(sxi_sxfs_data_t));
+    if(!sxfs) {
+	SXDEBUG("failed to create sxfs data structure");
+        sxi_seterr(sx, SXE_EMEM, "Out of memory");
+        return ret;
+    }
+    sxfs->sourcepath = strdup(source->path);
+    if(!sxfs->sourcepath) {
+	SXDEBUG("failed to duplicate source path");
+        sxi_seterr(sx, SXE_EMEM, "Out of memory");
+        goto sxi_sxfs_download_init_err;
+    }
+    bh = (struct batch_hashes*)calloc(1, sizeof(struct batch_hashes));
+    if(!bh) {
+	SXDEBUG("failed to create hashes container");
+        sxi_seterr(sx, SXE_EMEM, "Out of memory");
+        goto sxi_sxfs_download_init_err;
+    }
+    sxfs->bh = (void*)bh;
+
+    if(!(vmeta = sxc_meta_new(sx)))
+	goto sxi_sxfs_download_init_err;
+    if(hashes_to_download(source, &hfd, &hashfile, &sxfs->blocksize, &sxfs->filesize, vmeta, NULL, NULL)) {
+	SXDEBUG("failed to retrieve hash list");
+	goto sxi_sxfs_download_init_err;
+    }
+
+    sxfs->nhashes = bh->n = (sxfs->filesize + sxfs->blocksize - 1) / sxfs->blocksize;
+    sxfs->ha = (char**)calloc(sxfs->nhashes, sizeof(char*));
+    if(!sxfs->ha) {
+	SXDEBUG("failed to create hash list");
+        sxi_seterr(sx, SXE_EMEM, "Out of memory");
+        goto sxi_sxfs_download_init_err;
+    }
+    for(i=0; i<sxfs->nhashes; i++) {
+        sxfs->ha[i] = (char*)calloc(1, SXI_SHA1_TEXT_LEN + 1);
+        if(!sxfs->ha[i]) {
+            SXDEBUG("failed to create hash list entry");
+            sxi_seterr(sx, SXE_EMEM, "Out of memory");
+            goto sxi_sxfs_download_init_err;
+        }
+    }
+    if(!(bh->hashes = sxi_ht_new(sx, bh->n*6/5))) {
+        SXDEBUG("failed to create hash table");
+        goto sxi_sxfs_download_init_err;
+    }
+
+    if(!(bh->hashdata = calloc(sizeof(*bh->hashdata), bh->n))) {
+        SXDEBUG("failed to create hashdata table");
+        sxi_seterr(sx, SXE_EMEM, "Out of memory");
+        goto sxi_sxfs_download_init_err;
+    }
+    if(!(hosts = sxi_ht_new(sx, INITIAL_HASH_ITEMS))) {
+	SXDEBUG("failed to create hosts table");
+	goto sxi_sxfs_download_init_err;
+    }
+    if(sxi_volume_cfg_check(sx, source->cluster, vmeta, source->volume))
+	goto sxi_sxfs_download_init_err;
+    /* TODO: filters handling */
+    
+    while(!feof(hfd)) {
+	char ha[42];
+	sxi_hostlist_t *hostlist;
+        
+        if(!fread(ha, 40, 1, hfd)) {
+            if(ferror(hfd)) {
+                SXDEBUG("failed to read hash");
+                sxi_setsyserr(sx, SXE_ETMP, "Download failed: Cannot read from cache file");
+            }
+            break;
+        }
+        memcpy(sxfs->ha[ha_i++], ha, SXI_SHA1_TEXT_LEN);
+
+        if(sxi_ht_get(bh->hashes, ha, SXI_SHA1_TEXT_LEN, (void **)&hashdata)) {
+            if(bh->i >= bh->n) {
+                SXDEBUG("overflow allocating hash data container: %d, %d", bh->i, bh->n);
+                goto sxi_sxfs_download_init_err;
+            }
+            hashdata = &bh->hashdata[bh->i++];
+            hostlist = &hashdata->hosts;
+            sxi_hostlist_init(hostlist);
+            hashdata->ocnt = 0;
+            hashdata->state = TRANSFER_NOT_STARTED;
+            if(sxi_ht_add(bh->hashes, ha, SXI_SHA1_TEXT_LEN, hashdata)) {
+                SXDEBUG("failed to add a new entry to the hash table");
+                goto sxi_sxfs_download_init_err;
+            }
+            memcpy(hashdata->hash, ha, SXI_SHA1_TEXT_LEN);
+        } else
+            hostlist = NULL;
+
+        if(hashdata->ocnt == hashdata->osize) {
+            size_t size;
+            hashdata->osize = !hashdata->osize ? 1 : hashdata->osize + 64;
+            size = sizeof(*hashdata->offsets) * hashdata->osize;
+            if(!(hashdata->offsets = sxi_realloc(sx, hashdata->offsets, size))) {
+                SXDEBUG("OOM growing offsets buffer");
+                sxi_seterr(sx, SXE_EMEM, "Copy failed: Out of memory");
+                goto sxi_sxfs_download_init_err;
+            }
+        }
+        hashdata->offsets[hashdata->ocnt++] = curoff;
+        curoff += sxfs->blocksize;
+
+        if(load_hosts_for_hash(sx, hfd, ha, hostlist, hosts)) {
+            SXDEBUG("failed to load hosts for %.40s", ha);
+            goto sxi_sxfs_download_init_err;
+        }
+    }
+
+    ret = sxfs;
+sxi_sxfs_download_init_err:
+    if(!ret) {
+        if(bh)
+            free(bh);
+        if(sxfs->sourcepath)
+            free(sxfs->sourcepath);
+        if(sxfs->ha) {
+            for(i=0; i<sxfs->nhashes; i++)
+                if(sxfs->ha[i])
+                    free(sxfs->ha[i]);
+            free(sxfs->ha);
+        }
+        free(sxfs);
+    }
+    if(hosts) {
+	char *hlist;
+	sxi_ht_enum_reset(hosts);
+	while(!sxi_ht_enum_getnext(hosts, NULL, NULL, (const void **)&hlist)) {
+	    free(hlist);
+	}
+	sxi_ht_free(hosts);
+    }
+    if(hfd)
+        fclose(hfd);
+    if(hashfile) {
+        unlink(hashfile);
+        sxi_tempfile_untrack(sx, hashfile);
+    }
+    sxc_meta_free(vmeta);
+    return ret;
+}
+
+int sxi_sxfs_download_run(sxi_sxfs_data_t *sxfs, sxc_cluster_t *cluster, sxc_file_t *dest, off_t offset, long int size) {
+    int i, ret = 1, fd, fail = 0;
+    long int blocks;
+    char ha[42];
+    off_t blocks_i, curoff = 0;
+    sxc_client_t *sx;
+    sxc_xfer_stat_t *xfer_stat = NULL;
+    struct batch_hashes bh, *full_bh;
+    struct hash_down_data_t *hashdata, *full_hd;
+
+    if(!dest)
+        return ret;
+    sx = dest->sx;
+    if(!sxfs || !cluster || offset < 0 || size < 0) {
+	SXDEBUG("invalid argument");
+        sxi_seterr(sx, SXE_EARG, "Invalid argument");
+        return ret;
+    }
+    full_bh = (struct batch_hashes*)sxfs->bh;
+    memset(&bh, 0, sizeof(bh));
+    if((fd = open(dest->path, O_RDWR|O_CREAT, S_IWUSR|S_IRUSR|S_IWGRP|S_IRGRP|S_IWOTH|S_IROTH))<0) {
+	SXDEBUG("failed to create destination file");
+	sxi_setsyserr(sx, SXE_EWRITE, "Cannot open destination file %s", dest->path);
+        return ret;
+    }
+    blocks_i = offset / sxfs->blocksize;
+    if(offset + size > sxfs->filesize)
+        blocks = (sxfs->filesize + sxfs->blocksize - 1) / sxfs->blocksize - blocks_i;
+    else
+        blocks = (offset + size + sxfs->blocksize - 1) / sxfs->blocksize - blocks_i;
+
+    while(blocks) {
+        batch_hashes_free(&bh);
+        bh.i = 0;
+        bh.n = MIN(BLOCKS_PER_TABLE, blocks);
+        if(!(bh.hashes = sxi_ht_new(sx, bh.n*6/5))) {
+            SXDEBUG("failed to create hash table");
+            goto sxi_sxfs_download_run_err;
+        }
+        if(!(bh.hashdata = calloc(sizeof(*bh.hashdata), bh.n))) {
+            SXDEBUG("failed to create hashdata table");
+	    sxi_seterr(sx, SXE_EMEM, "Out of memory");
+            goto sxi_sxfs_download_run_err;
+        }
+
+        for(i=0; blocks && i<BLOCKS_PER_TABLE; i++, blocks--) {
+            memcpy(ha, sxfs->ha[blocks_i++], SXI_SHA1_TEXT_LEN);
+	    if(sxi_ht_get(full_bh->hashes, ha, SXI_SHA1_TEXT_LEN, (void **)&full_hd)) {
+                SXDEBUG("failed to get entry from hash table");
+                goto sxi_sxfs_download_run_err;
+            }
+	    if(sxi_ht_get(bh.hashes, ha, SXI_SHA1_TEXT_LEN, (void **)&hashdata)) {
+                if(bh.i >= bh.n) {
+		    SXDEBUG("overflow allocating hash data container: %d, %d", bh.i, bh.n);
+                    goto sxi_sxfs_download_run_err;
+                }
+                hashdata = &bh.hashdata[bh.i++];
+		hashdata->ocnt = 0;
+                hashdata->state = TRANSFER_NOT_STARTED;
+		if(sxi_ht_add(bh.hashes, ha, SXI_SHA1_TEXT_LEN, hashdata)) {
+		    SXDEBUG("failed to add a new entry to the hash table");
+                    goto sxi_sxfs_download_run_err;
+		}
+                memcpy(hashdata->hash, ha, SXI_SHA1_TEXT_LEN);
+            }
+            if(hashdata->ocnt == hashdata->osize) {
+                size_t size;
+                hashdata->osize = !hashdata->osize ? 1 : hashdata->osize + 64;
+                size = sizeof(*hashdata->offsets) * hashdata->osize;
+                if(!(hashdata->offsets = sxi_realloc(sx, hashdata->offsets, size))) {
+                    SXDEBUG("OOM growing offsets buffer");
+                    sxi_seterr(sx, SXE_EMEM, "Copy failed: Out of memory");
+                    break;
+                }
+            }
+	    hashdata->offsets[hashdata->ocnt++] = curoff;
+	    curoff += sxfs->blocksize;
+            sxi_hostlist_add_list(sx, &hashdata->hosts, &full_hd->hosts);
+        }
+
+        xfer_stat = sxi_cluster_get_xfer_stat(cluster);
+        if(xfer_stat) {
+            /* Set information about new file download */
+            if(sxi_xfer_set_file(xfer_stat, sxfs->sourcepath, sxfs->filesize, sxfs->blocksize, SXC_XFER_DIRECTION_DOWNLOAD)) {
+                SXDEBUG("Could not set transfer information to file %s", dest->path);
+                goto sxi_sxfs_download_run_err;
+            }
+
+            if(xfer_stat->xfer_callback(xfer_stat) != SXE_NOERROR) {
+                SXDEBUG("Could not start transfer");
+                sxi_seterr(sx, SXE_ABORT, "Transfer aborted");
+                goto sxi_sxfs_download_run_err;
+            }
+            xfer_stat->status = SXC_XFER_STATUS_RUNNING;
+        }
+
+        fail = multi_download(&bh, dest->path, sxfs->blocksize, cluster, fd, sxfs->filesize);
+        if(fail) {
+            SXDEBUG("multi_download failed, trying single download");
+            fail = single_download(&bh, dest->path, sxfs->blocksize, cluster, fd, sxfs->filesize);
+        }
+
+        /* Update information about transfers, but not when aborting */
+        if(xfer_stat && sxc_geterrnum(sx) != SXE_ABORT) {
+            xfer_stat->status = SXC_XFER_STATUS_PART_FINISHED;
+            if(xfer_stat->xfer_callback(xfer_stat) != SXE_NOERROR) {
+                SXDEBUG("Could not finish transfer");
+                sxi_seterr(sx, SXE_ABORT, "Transfer aborted");
+                goto sxi_sxfs_download_run_err;
+            }
+        }
+    }
+    /* TODO: filter cleanup */
+    if(fail)
+	goto sxi_sxfs_download_run_err;
+    /* TODO: filter processing */
+    if(sxi_getenv("SX_DEBUG_DELAY"))
+        sleep(atoi(sxi_getenv("SX_DEBUG_DELAY")));
+
+    ret = 0;
+sxi_sxfs_download_run_err:
+    close(fd);
+    batch_hashes_free(&bh);
+    return ret;
+}
+
+void sxi_sxfs_download_finish(sxi_sxfs_data_t *sxfs) {
+    int i;
+    if(!sxfs)
+        return;
+    if(sxfs->sourcepath)
+        free(sxfs->sourcepath);
+    if(sxfs->ha) {
+        for(i=0; i<sxfs->nhashes; i++)
+            if(sxfs->ha[i])
+                free(sxfs->ha[i]);
+        free(sxfs->ha);
+    }
+    if(sxfs->bh) {
+        batch_hashes_free((struct batch_hashes*)sxfs->bh);
+        free(sxfs->bh);
+    }
+    free(sxfs);
+}
+
 static sxi_job_t* remote_to_remote_fast(sxc_file_t *source, sxc_meta_t *fmeta, sxc_file_t *dest) {
     char *src_hashfile, *rcur, ha[42];
     sxi_ht *src_hashes = NULL;

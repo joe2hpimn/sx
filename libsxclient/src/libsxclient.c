@@ -79,7 +79,7 @@ int sxc_lib_init(const char *client_version)
     l.func = (*sxc_default_logger)(&log, "libsxclient init");
 
     const char *this_version = sxc_get_version();
-    if (!client_version || strcmp(client_version, this_version)) {
+    if (client_version && strcmp(client_version, this_version)) {
         sxi_log_msg(&l, "sxc_init", SX_LOG_CRIT, "Version mismatch: Our version '%s' - library version '%s'",
                     client_version, this_version);
         return -1;
