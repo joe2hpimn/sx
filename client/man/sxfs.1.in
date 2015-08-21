@@ -1,0 +1,152 @@
+.TH SXFS "1" "August 2015" "sxfs @VERSION@" "Skylable SX Manual"
+.SH NAME
+sxfs \- filesystem client based on Skylable SX
+.SH SYNOPSIS
+.B sxfs
+[\fI\,OPTIONS\/\fR] \fI\,sx://\/\fR[\fI\,profile@\/\fR]\fI\,cluster/volume mountpoint\/\fR
+.SH DESCRIPTION
+sxfs can mount SX volumes as local filesystems. It is based on FUSE and allows for interacting with remote files just as if they were local files on the computer.
+.SH OPTIONS
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help and exit
+.TP
+\fB\-\-full\-help\fR
+Print help, including hidden options, and exit
+.TP
+\fB\-V\fR, \fB\-\-version\fR
+Print version and exit
+.TP
+\fB\-t\fR, \fB\-\-tempdir\fR=\fI\,PATH\/\fR
+Set directory for temporary files created by sxfs. By default sxfs will create a temporary directory /var/tmp/sxfs-*.
+.TP
+\fB\-R\fR, \fB\-\-recovery\-dir\fR=\fI\,PATH\/\fR
+On exit, sxfs will move to the recovery directory all files, which could not be uploaded to the remote volume. By default, it will create a recovery directory /var/tmp/sxfs-*-lost.
+.TP
+\fB\-l\fR, \fB\-\-logfile\fR=\fI\,PATH\/\fR
+Enable logging to the specified file.
+.TP
+\fB\-o\fR, \fB\-\-mount\-options\fR=\fI\,OPT\/\fR
+Mount options; see below for the list of available options.
+.TP
+\fB\-q\fR, \fB\-\-use\-queues\fR
+This option enables the use of queues for upload and delete operations. By default sxfs will wait for each operation and report the result to the application performing the action (eg. cp). When this option is enabled, all operations will be queued and performed in the background. This improves the interaction with the mounted volume, however errors might not be reported back to the application. It is highly recommended to use this option together with \fB\-\-logfile\fR and monitor the logfile for possible issues.
+.TP
+\fB\-f\fR, \fB\-\-foreground\fR
+Run in the foreground.
+.TP
+\fB\-D\fR, \fB\-\-debug\fR
+Enable debug messages.
+.TP
+\fB\-v\fR, \fB\-\-verbose\fR
+Log more information about read/write operations. This option automatically enables \fB\-\-debug\fR.
+.TP
+\fB\-\-sx\-debug\fR
+Enable debug messages from the SX library.
+.TP
+\fB\-\-open\-limit\fR=\fI\,INT\/\fR
+Set the limit for the number of open files (default: 1024).
+.TP
+\fB\-\-fuse\-help\fR
+Show FUSE help.
+.TP
+\fB\-\-fuse\-version\fR
+Show FUSE version.
+.TP
+\fB\-s\fR, \fB\-\-fuse\-single\-threaded\fR
+Disable multi\-threaded operation of FUSE (used for debugging purposes).
+.TP
+\fB\-\-fuse\-debug\fR
+Run FUSE in debug mode.
+.TP
+\fB\-c\fR, \fB\-\-config\-dir\fR=\fI\,PATH\/\fR
+Path to the SX configuration directory (default: ~/.sx)
+.SH MOUNT OPTIONS
+.TP
+\fBrw\fR
+Mount filesystem in read/write mode (default)
+.TP
+\fBro\fR
+Mount filesystem in read-only mode
+.TP
+\fBdebug\fR
+Enable debug output
+.TP
+\fBallow_other\fR
+Allow access to other users
+.TP
+\fBallow_root\fR
+Allow access to root
+.TP
+\fBauto_unmount\fR
+Auto unmount on process termination
+.TP
+\fBlarge_read\fR
+Issue large read requests
+.TP
+\fBbig_writes\fR
+Enable larger than 4kB writes
+.TP
+\fBdirect_io\fR
+Use direct I/O
+.TP
+\fBasync_read\fR
+Perform reads asynchronously (default)
+.TP
+\fBsync_read\fR
+Perform reads synchronously
+.TP
+\fBatomic_o_trunc\fR
+Enable atomic open+truncate support
+.TP
+\fBfsname\fR=\fI\,NAME\/\fR
+Set filesystem name
+.TP
+\fBsubtype\fR=\fI\,TYPE\/\fR
+Set filesystem type
+.TP
+\fBmax_read\fR=\fI\,SIZE\/\fR
+Set maximum size of read requests
+.TP
+\fBmax_write\fR=\fI\,SIZE\/\fR
+Set maximum size of write requests
+.TP
+\fBmax_readahead\fR=\fI\,SIZE\/\fR
+Set maximum size of readahead
+.TP
+\fBumask\fR=\fI\,MODE\/\fR
+Set default umask mode
+.TP
+\fBuid\fR=\fI\,UID\/\fR
+Set file owner
+.TP
+\fBgid\fR=\fI\,GID\/\fR
+Set file group
+.TP
+\fBmodules\fR=\fI\,MOD1[:MOD2...]\/\fR
+Names of modules to push onto filesystem stack
+.TP
+\fBnegative_timeout\fR=\fI\,TIME\/\fR
+Cache timeout for deleted names (0.0s)
+.TP
+\fBattr_timeout\fR=\fI\,TIME\/\fR
+Cache timeout for attributes (1.0s)
+.TP
+\fBentry_timeout\fR=\fI\,TIME\/\fR
+Cache timeout for names (1.0s)
+.TP
+\fBmax_background\fR=\fI\,NUMBER\/\fR
+Set number of maximum background requests
+.TP
+\fBsubdir\fR=\fI\,DIRNAME\/\fR
+Prepend DIRNAME to all paths
+.SH "EXAMPLES"
+To mount the remote volume 'movies' with default options run:
+.br
+\fB    sxfs sx://jeff@cluster/movies /home/jeff/movies\fP
+
+.br
+To unmount the locally mounted volume run:
+\fB    fusermount -u /home/jeff/movies\fP
+.SH "SEE ALSO"
+\fBsxinit\fR(1), \fBsxcp\fR(1), \fBsxmv\fR(1), \fBsxcat\fR(1), \fBsxrm\fR(1), \fBsxrev\fR(1)

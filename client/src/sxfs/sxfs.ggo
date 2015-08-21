@@ -1,0 +1,22 @@
+package "sxfs"
+description "SX Filesystem"
+args "--unamed-opts --no-handle-version --no-handle-error --file-name=cmdline"
+usage "sxfs [OPTIONS] sx://[profile@]cluster/volume mountpoint"
+
+option "tempdir"            t "Set sxfs temporary directory" string typestr="PATH" optional
+option "recovery-dir"       R "Set directory for files that could not be uploaded (if not specified tempdir with \"-lost\" suffix will be used)" string typestr="PATH" optional
+option "logfile"            l "Set sxfs logfile" string typestr="PATH" optional
+option "mount-options"      o "Mount options" string typestr="OPT" multiple optional
+option "use-queues"         q "Enable queues for upload and delete operations" flag off
+option "foreground"         f "Run in foreground" flag off
+option "debug"              D "Enable debug messages" flag off
+option "verbose"            v "Log more information about read/write operations (enables debug mode)" flag off hidden
+option "sx-debug"           - "Enable SX debug mode (enables running in foreground)" flag off hidden
+option "open-limit"         - "Set open files limit" int optional hidden
+
+option "fuse-help"          - "Show FUSE help" flag off hidden
+option "fuse-version"       - "Show FUSE version" flag off hidden
+option "fuse-single-threaded"    s "Disable FUSE multi-threaded operation" flag off hidden
+option "fuse-debug"         - "Run FUSE debug mode" flag off hidden
+
+option "config-dir"         c "Path to SX configuration directory" string typestr="PATH" optional hidden

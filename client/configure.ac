@@ -60,6 +60,13 @@ VCRYPTO_CFLAGS="$OPENSSL_CFLAGS"
 AC_SUBST(VCRYPTO_LIBS)
 AC_SUBST(VCRYPTO_CFLAGS)
 
+# FUSE
+PKG_PROG_PKG_CONFIG
+ac_save_LIBS=$LIBS
+PKG_CHECK_EXISTS([fuse >= 2.7.0], [PKG_CHECK_MODULES([FUSE], [fuse >= 2.7.0], [build_sxfs=yes], [])], [])
+
+LIBS=$ac_save_LIBS
+
 # Checks for header files.
 AC_CHECK_HEADERS([stddef.h stdint.h stdlib.h string.h sys/types.h])
 AC_HEADER_ASSERT
@@ -103,6 +110,10 @@ fi
 AC_SUBST([AM_CFLAGS])
 AC_SUBST([AM_LDFLAGS])
 
+AM_CONDITIONAL([BUILD_SXFS], [test "$build_sxfs" = "yes"])
+AC_SUBST(FUSE_LIBS)
+AC_SUBST(FUSE_CFLAGS)
+
 if test "x$prefix" = xNONE; then
   filter_dir=$ac_default_prefix/lib/$PACKAGE
 else
@@ -111,7 +122,7 @@ fi
 AC_SUBST([SX_FILTER_DIR], [$filter_dir])
 
 AC_CONFIG_FILES([Makefile])
-AC_CONFIG_FILES([man/sxacl.1 man/sxacl-useradd.1 man/sxacl-userclone.1 man/sxacl-userdel.1 man/sxacl-userlist.1 man/sxacl-usermod.1 man/sxacl-usergetkey.1 man/sxacl-usernewkey.1 man/sxacl-volperm.1 man/sxacl-volshow.1 man/sxacl-whoami.1 man/sxcat.1 man/sxrm.1 man/sxls.1 man/sxmv.1 man/sxcp.1 man/sxinit.1 man/sxreport-client.1 man/sxvol.1 man/sxvol-create.1 man/sxvol-modify.1 man/sxvol-remove.1 man/sxvol-filter.1 man/sxrev.1 man/sxrev-list.1 man/sxrev-copy.1 man/sxrev-delete.1])
+AC_CONFIG_FILES([man/sxacl.1 man/sxacl-useradd.1 man/sxacl-userclone.1 man/sxacl-userdel.1 man/sxacl-userlist.1 man/sxacl-usermod.1 man/sxacl-usergetkey.1 man/sxacl-usernewkey.1 man/sxacl-volperm.1 man/sxacl-volshow.1 man/sxacl-whoami.1 man/sxcat.1 man/sxrm.1 man/sxls.1 man/sxmv.1 man/sxcp.1 man/sxinit.1 man/sxreport-client.1 man/sxvol.1 man/sxvol-create.1 man/sxvol-modify.1 man/sxvol-remove.1 man/sxvol-filter.1 man/sxrev.1 man/sxrev-list.1 man/sxrev-copy.1 man/sxrev-delete.1 man/sxfs.1])
 AC_CONFIG_FILES([src/filters/attribs/Makefile])
 AC_CONFIG_FILES([src/filters/zcomp/Makefile])
 AC_CONFIG_FILES([src/filters/aes256/Makefile])

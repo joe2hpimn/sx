@@ -5,9 +5,12 @@ SUBDIRS = src/filters/zcomp src/filters/attribs src/filters/aes256 src/filters/u
 AM_CPPFLAGS = -I $(top_srcdir)/../libsxclient/include -I ../libsxclient/include -I $(top_srcdir)/../ -I $(top_srcdir)/src/common -DSX_FILTER_DIR=\"$(pkglibdir)\"
 
 EXTRA_DIST = man/*.in
-man_MANS = man/sxacl.1 man/sxacl-useradd.1 man/sxacl-userclone.1 man/sxacl-userdel.1 man/sxacl-userlist.1 man/sxacl-usermod.1 man/sxacl-usergetkey.1 man/sxacl-usernewkey.1 man/sxacl-volperm.1 man/sxacl-volshow.1 man/sxacl-whoami.1 man/sxcat.1 man/sxrm.1 man/sxls.1 man/sxmv.1 man/sxcp.1 man/sxinit.1 man/sxreport-client.1 man/sxvol.1 man/sxvol-create.1 man/sxvol-modify.1 man/sxvol-remove.1 man/sxvol-filter.1 man/sxrev.1 man/sxrev-list.1 man/sxrev-copy.1 man/sxrev-delete.1
+man_MANS = man/sxacl.1 man/sxacl-useradd.1 man/sxacl-userclone.1 man/sxacl-userdel.1 man/sxacl-userlist.1 man/sxacl-usermod.1 man/sxacl-usergetkey.1 man/sxacl-usernewkey.1 man/sxacl-volperm.1 man/sxacl-volshow.1 man/sxacl-whoami.1 man/sxcat.1 man/sxrm.1 man/sxls.1 man/sxmv.1 man/sxcp.1 man/sxinit.1 man/sxreport-client.1 man/sxvol.1 man/sxvol-create.1 man/sxvol-modify.1 man/sxvol-remove.1 man/sxvol-filter.1 man/sxrev.1 man/sxrev-list.1 man/sxrev-copy.1 man/sxrev-delete.1 man/sxfs.1
 
 bin_PROGRAMS = src/tools/init/sxinit src/tools/ls/sxls src/tools/mv/sxmv src/tools/cp/sxcp src/tools/cat/sxcat src/tools/vol/sxvol src/tools/acl/sxacl src/tools/sxreport-client/sxreport-client src/tools/rm/sxrm src/tools/rev/sxrev
+if BUILD_SXFS
+bin_PROGRAMS += src/sxfs/sxfs
+endif
 
 src_tools_init_sxinit_SOURCES = \
 	src/tools/init/sxinit.c \
@@ -114,3 +117,13 @@ src_tools_rev_sxrev_SOURCES = \
 	src/tools/rev/cmd_delete.h
 
 src_tools_rev_sxrev_LDADD = $(top_builddir)/../libsxclient/src/libsxclient.la
+
+src_sxfs_sxfs_SOURCES = \
+	src/sxfs/common.c \
+	src/sxfs/common.h \
+	src/sxfs/params.h \
+	src/sxfs/sxfs.c \
+	src/sxfs/cmdline.c \
+	src/sxfs/cmdline.h
+src_sxfs_sxfs_LDADD = $(top_builddir)/../libsxclient/src/libsxclient.la @FUSE_LIBS@
+src_sxfs_sxfs_CPPFLAGS = $(AM_CPPFLAGS) @FUSE_CFLAGS@

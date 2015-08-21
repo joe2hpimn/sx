@@ -93,7 +93,9 @@ bin_PROGRAMS = src/tools/init/sxinit$(EXEEXT) \
 	src/tools/cp/sxcp$(EXEEXT) src/tools/cat/sxcat$(EXEEXT) \
 	src/tools/vol/sxvol$(EXEEXT) src/tools/acl/sxacl$(EXEEXT) \
 	src/tools/sxreport-client/sxreport-client$(EXEEXT) \
-	src/tools/rm/sxrm$(EXEEXT) src/tools/rev/sxrev$(EXEEXT)
+	src/tools/rm/sxrm$(EXEEXT) src/tools/rev/sxrev$(EXEEXT) \
+	$(am__EXEEXT_1)
+@BUILD_SXFS_TRUE@am__append_1 = src/sxfs/sxfs
 subdir = .
 ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
 am__aclocal_m4_deps = $(top_srcdir)/m4/ax_append_compile_flags.m4 \
@@ -120,11 +122,23 @@ CONFIG_CLEAN_FILES = man/sxacl.1 man/sxacl-useradd.1 \
 	man/sxmv.1 man/sxcp.1 man/sxinit.1 man/sxreport-client.1 \
 	man/sxvol.1 man/sxvol-create.1 man/sxvol-modify.1 \
 	man/sxvol-remove.1 man/sxvol-filter.1 man/sxrev.1 \
-	man/sxrev-list.1 man/sxrev-copy.1 man/sxrev-delete.1
+	man/sxrev-list.1 man/sxrev-copy.1 man/sxrev-delete.1 \
+	man/sxfs.1
 CONFIG_CLEAN_VPATH_FILES =
+@BUILD_SXFS_TRUE@am__EXEEXT_1 = src/sxfs/sxfs$(EXEEXT)
 am__installdirs = "$(DESTDIR)$(bindir)" "$(DESTDIR)$(man1dir)"
 PROGRAMS = $(bin_PROGRAMS)
 am__dirstamp = $(am__leading_dot)dirstamp
+am_src_sxfs_sxfs_OBJECTS = src/sxfs/src_sxfs_sxfs-common.$(OBJEXT) \
+	src/sxfs/src_sxfs_sxfs-sxfs.$(OBJEXT) \
+	src/sxfs/src_sxfs_sxfs-cmdline.$(OBJEXT)
+src_sxfs_sxfs_OBJECTS = $(am_src_sxfs_sxfs_OBJECTS)
+src_sxfs_sxfs_DEPENDENCIES =  \
+	$(top_builddir)/../libsxclient/src/libsxclient.la
+AM_V_lt = $(am__v_lt_@AM_V@)
+am__v_lt_ = $(am__v_lt_@AM_DEFAULT_V@)
+am__v_lt_0 = --silent
+am__v_lt_1 = 
 am_src_tools_acl_sxacl_OBJECTS = src/tools/acl/sxacl.$(OBJEXT) \
 	src/tools/acl/cmd_main.$(OBJEXT) \
 	src/tools/acl/cmd_whoami.$(OBJEXT) \
@@ -140,10 +154,6 @@ am_src_tools_acl_sxacl_OBJECTS = src/tools/acl/sxacl.$(OBJEXT) \
 src_tools_acl_sxacl_OBJECTS = $(am_src_tools_acl_sxacl_OBJECTS)
 src_tools_acl_sxacl_DEPENDENCIES =  \
 	$(top_builddir)/../libsxclient/src/libsxclient.la
-AM_V_lt = $(am__v_lt_@AM_V@)
-am__v_lt_ = $(am__v_lt_@AM_DEFAULT_V@)
-am__v_lt_0 = --silent
-am__v_lt_1 = 
 am_src_tools_cat_sxcat_OBJECTS = src/tools/cat/sxcat.$(OBJEXT) \
 	src/tools/cat/cmdline.$(OBJEXT)
 src_tools_cat_sxcat_OBJECTS = $(am_src_tools_cat_sxcat_OBJECTS)
@@ -231,14 +241,14 @@ AM_V_CCLD = $(am__v_CCLD_@AM_V@)
 am__v_CCLD_ = $(am__v_CCLD_@AM_DEFAULT_V@)
 am__v_CCLD_0 = @echo "  CCLD    " $@;
 am__v_CCLD_1 = 
-SOURCES = $(src_tools_acl_sxacl_SOURCES) \
+SOURCES = $(src_sxfs_sxfs_SOURCES) $(src_tools_acl_sxacl_SOURCES) \
 	$(src_tools_cat_sxcat_SOURCES) $(src_tools_cp_sxcp_SOURCES) \
 	$(src_tools_init_sxinit_SOURCES) $(src_tools_ls_sxls_SOURCES) \
 	$(src_tools_mv_sxmv_SOURCES) $(src_tools_rev_sxrev_SOURCES) \
 	$(src_tools_rm_sxrm_SOURCES) \
 	$(src_tools_sxreport_client_sxreport_client_SOURCES) \
 	$(src_tools_vol_sxvol_SOURCES)
-DIST_SOURCES = $(src_tools_acl_sxacl_SOURCES) \
+DIST_SOURCES = $(src_sxfs_sxfs_SOURCES) $(src_tools_acl_sxacl_SOURCES) \
 	$(src_tools_cat_sxcat_SOURCES) $(src_tools_cp_sxcp_SOURCES) \
 	$(src_tools_init_sxinit_SOURCES) $(src_tools_ls_sxls_SOURCES) \
 	$(src_tools_mv_sxmv_SOURCES) $(src_tools_rev_sxrev_SOURCES) \
@@ -337,8 +347,9 @@ am__DIST_COMMON = $(srcdir)/Makefile.in $(srcdir)/config.h.in \
 	$(top_srcdir)/man/sxacl-volshow.1.in \
 	$(top_srcdir)/man/sxacl-whoami.1.in \
 	$(top_srcdir)/man/sxacl.1.in $(top_srcdir)/man/sxcat.1.in \
-	$(top_srcdir)/man/sxcp.1.in $(top_srcdir)/man/sxinit.1.in \
-	$(top_srcdir)/man/sxls.1.in $(top_srcdir)/man/sxmv.1.in \
+	$(top_srcdir)/man/sxcp.1.in $(top_srcdir)/man/sxfs.1.in \
+	$(top_srcdir)/man/sxinit.1.in $(top_srcdir)/man/sxls.1.in \
+	$(top_srcdir)/man/sxmv.1.in \
 	$(top_srcdir)/man/sxreport-client.1.in \
 	$(top_srcdir)/man/sxrev-copy.1.in \
 	$(top_srcdir)/man/sxrev-delete.1.in \
@@ -421,6 +432,8 @@ ECHO_T = @ECHO_T@
 EGREP = @EGREP@
 EXEEXT = @EXEEXT@
 FGREP = @FGREP@
+FUSE_CFLAGS = @FUSE_CFLAGS@
+FUSE_LIBS = @FUSE_LIBS@
 GREP = @GREP@
 HASMAKE = @HASMAKE@
 INSTALL = @INSTALL@
@@ -525,7 +538,7 @@ ACLOCAL_AMFLAGS = -I m4
 SUBDIRS = src/filters/zcomp src/filters/attribs src/filters/aes256 src/filters/undelete
 AM_CPPFLAGS = -I $(top_srcdir)/../libsxclient/include -I ../libsxclient/include -I $(top_srcdir)/../ -I $(top_srcdir)/src/common -DSX_FILTER_DIR=\"$(pkglibdir)\"
 EXTRA_DIST = man/*.in
-man_MANS = man/sxacl.1 man/sxacl-useradd.1 man/sxacl-userclone.1 man/sxacl-userdel.1 man/sxacl-userlist.1 man/sxacl-usermod.1 man/sxacl-usergetkey.1 man/sxacl-usernewkey.1 man/sxacl-volperm.1 man/sxacl-volshow.1 man/sxacl-whoami.1 man/sxcat.1 man/sxrm.1 man/sxls.1 man/sxmv.1 man/sxcp.1 man/sxinit.1 man/sxreport-client.1 man/sxvol.1 man/sxvol-create.1 man/sxvol-modify.1 man/sxvol-remove.1 man/sxvol-filter.1 man/sxrev.1 man/sxrev-list.1 man/sxrev-copy.1 man/sxrev-delete.1
+man_MANS = man/sxacl.1 man/sxacl-useradd.1 man/sxacl-userclone.1 man/sxacl-userdel.1 man/sxacl-userlist.1 man/sxacl-usermod.1 man/sxacl-usergetkey.1 man/sxacl-usernewkey.1 man/sxacl-volperm.1 man/sxacl-volshow.1 man/sxacl-whoami.1 man/sxcat.1 man/sxrm.1 man/sxls.1 man/sxmv.1 man/sxcp.1 man/sxinit.1 man/sxreport-client.1 man/sxvol.1 man/sxvol-create.1 man/sxvol-modify.1 man/sxvol-remove.1 man/sxvol-filter.1 man/sxrev.1 man/sxrev-list.1 man/sxrev-copy.1 man/sxrev-delete.1 man/sxfs.1
 src_tools_init_sxinit_SOURCES = \
 	src/tools/init/sxinit.c \
 	src/tools/init/cmdline.c \
@@ -629,6 +642,16 @@ src_tools_rev_sxrev_SOURCES = \
 	src/tools/rev/cmd_delete.h
 
 src_tools_rev_sxrev_LDADD = $(top_builddir)/../libsxclient/src/libsxclient.la
+src_sxfs_sxfs_SOURCES = \
+	src/sxfs/common.c \
+	src/sxfs/common.h \
+	src/sxfs/params.h \
+	src/sxfs/sxfs.c \
+	src/sxfs/cmdline.c \
+	src/sxfs/cmdline.h
+
+src_sxfs_sxfs_LDADD = $(top_builddir)/../libsxclient/src/libsxclient.la @FUSE_LIBS@
+src_sxfs_sxfs_CPPFLAGS = $(AM_CPPFLAGS) @FUSE_CFLAGS@
 all: config.h
 	$(MAKE) $(AM_MAKEFLAGS) all-recursive
 
@@ -736,6 +759,8 @@ man/sxrev-copy.1: $(top_builddir)/config.status $(top_srcdir)/man/sxrev-copy.1.i
 	cd $(top_builddir) && $(SHELL) ./config.status $@
 man/sxrev-delete.1: $(top_builddir)/config.status $(top_srcdir)/man/sxrev-delete.1.in
 	cd $(top_builddir) && $(SHELL) ./config.status $@
+man/sxfs.1: $(top_builddir)/config.status $(top_srcdir)/man/sxfs.1.in
+	cd $(top_builddir) && $(SHELL) ./config.status $@
 install-binPROGRAMS: $(bin_PROGRAMS)
 	@$(NORMAL_INSTALL)
 	@list='$(bin_PROGRAMS)'; test -n "$(bindir)" || list=; \
@@ -801,6 +826,22 @@ installcheck-binPROGRAMS: $(bin_PROGRAMS)
 	    else echo "$$f does not support $$opt" 1>&2; bad=1; fi; \
 	  done; \
 	done; rm -f c$${pid}_.???; exit $$bad
+src/sxfs/$(am__dirstamp):
+	@$(MKDIR_P) src/sxfs
+	@: > src/sxfs/$(am__dirstamp)
+src/sxfs/$(DEPDIR)/$(am__dirstamp):
+	@$(MKDIR_P) src/sxfs/$(DEPDIR)
+	@: > src/sxfs/$(DEPDIR)/$(am__dirstamp)
+src/sxfs/src_sxfs_sxfs-common.$(OBJEXT): src/sxfs/$(am__dirstamp) \
+	src/sxfs/$(DEPDIR)/$(am__dirstamp)
+src/sxfs/src_sxfs_sxfs-sxfs.$(OBJEXT): src/sxfs/$(am__dirstamp) \
+	src/sxfs/$(DEPDIR)/$(am__dirstamp)
+src/sxfs/src_sxfs_sxfs-cmdline.$(OBJEXT): src/sxfs/$(am__dirstamp) \
+	src/sxfs/$(DEPDIR)/$(am__dirstamp)
+
+src/sxfs/sxfs$(EXEEXT): $(src_sxfs_sxfs_OBJECTS) $(src_sxfs_sxfs_DEPENDENCIES) $(EXTRA_src_sxfs_sxfs_DEPENDENCIES) src/sxfs/$(am__dirstamp)
+	@rm -f src/sxfs/sxfs$(EXEEXT)
+	$(AM_V_CCLD)$(LINK) $(src_sxfs_sxfs_OBJECTS) $(src_sxfs_sxfs_LDADD) $(LIBS)
 src/tools/acl/$(am__dirstamp):
 	@$(MKDIR_P) src/tools/acl
 	@: > src/tools/acl/$(am__dirstamp)
@@ -980,6 +1021,7 @@ src/tools/vol/sxvol$(EXEEXT): $(src_tools_vol_sxvol_OBJECTS) $(src_tools_vol_sxv
 
 mostlyclean-compile:
 	-rm -f *.$(OBJEXT)
+	-rm -f src/sxfs/*.$(OBJEXT)
 	-rm -f src/tools/acl/*.$(OBJEXT)
 	-rm -f src/tools/cat/*.$(OBJEXT)
 	-rm -f src/tools/cp/*.$(OBJEXT)
@@ -994,6 +1036,9 @@ mostlyclean-compile:
 distclean-compile:
 	-rm -f *.tab.c
 
+@AMDEP_TRUE@@am__include@ @am__quote@src/sxfs/$(DEPDIR)/src_sxfs_sxfs-cmdline.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@src/sxfs/$(DEPDIR)/src_sxfs_sxfs-common.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@src/sxfs/$(DEPDIR)/src_sxfs_sxfs-sxfs.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/tools/acl/$(DEPDIR)/cmd_main.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/tools/acl/$(DEPDIR)/cmd_useradd.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/tools/acl/$(DEPDIR)/cmd_userclone.Po@am__quote@
@@ -1056,6 +1101,48 @@ distclean-compile:
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LTCOMPILE) -c -o $@ $<
 
+src/sxfs/src_sxfs_sxfs-common.o: src/sxfs/common.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_sxfs_sxfs_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT src/sxfs/src_sxfs_sxfs-common.o -MD -MP -MF src/sxfs/$(DEPDIR)/src_sxfs_sxfs-common.Tpo -c -o src/sxfs/src_sxfs_sxfs-common.o `test -f 'src/sxfs/common.c' || echo '$(srcdir)/'`src/sxfs/common.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) src/sxfs/$(DEPDIR)/src_sxfs_sxfs-common.Tpo src/sxfs/$(DEPDIR)/src_sxfs_sxfs-common.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='src/sxfs/common.c' object='src/sxfs/src_sxfs_sxfs-common.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_sxfs_sxfs_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o src/sxfs/src_sxfs_sxfs-common.o `test -f 'src/sxfs/common.c' || echo '$(srcdir)/'`src/sxfs/common.c
+
+src/sxfs/src_sxfs_sxfs-common.obj: src/sxfs/common.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_sxfs_sxfs_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT src/sxfs/src_sxfs_sxfs-common.obj -MD -MP -MF src/sxfs/$(DEPDIR)/src_sxfs_sxfs-common.Tpo -c -o src/sxfs/src_sxfs_sxfs-common.obj `if test -f 'src/sxfs/common.c'; then $(CYGPATH_W) 'src/sxfs/common.c'; else $(CYGPATH_W) '$(srcdir)/src/sxfs/common.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) src/sxfs/$(DEPDIR)/src_sxfs_sxfs-common.Tpo src/sxfs/$(DEPDIR)/src_sxfs_sxfs-common.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='src/sxfs/common.c' object='src/sxfs/src_sxfs_sxfs-common.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_sxfs_sxfs_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o src/sxfs/src_sxfs_sxfs-common.obj `if test -f 'src/sxfs/common.c'; then $(CYGPATH_W) 'src/sxfs/common.c'; else $(CYGPATH_W) '$(srcdir)/src/sxfs/common.c'; fi`
+
+src/sxfs/src_sxfs_sxfs-sxfs.o: src/sxfs/sxfs.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_sxfs_sxfs_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT src/sxfs/src_sxfs_sxfs-sxfs.o -MD -MP -MF src/sxfs/$(DEPDIR)/src_sxfs_sxfs-sxfs.Tpo -c -o src/sxfs/src_sxfs_sxfs-sxfs.o `test -f 'src/sxfs/sxfs.c' || echo '$(srcdir)/'`src/sxfs/sxfs.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) src/sxfs/$(DEPDIR)/src_sxfs_sxfs-sxfs.Tpo src/sxfs/$(DEPDIR)/src_sxfs_sxfs-sxfs.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='src/sxfs/sxfs.c' object='src/sxfs/src_sxfs_sxfs-sxfs.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_sxfs_sxfs_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o src/sxfs/src_sxfs_sxfs-sxfs.o `test -f 'src/sxfs/sxfs.c' || echo '$(srcdir)/'`src/sxfs/sxfs.c
+
+src/sxfs/src_sxfs_sxfs-sxfs.obj: src/sxfs/sxfs.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_sxfs_sxfs_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT src/sxfs/src_sxfs_sxfs-sxfs.obj -MD -MP -MF src/sxfs/$(DEPDIR)/src_sxfs_sxfs-sxfs.Tpo -c -o src/sxfs/src_sxfs_sxfs-sxfs.obj `if test -f 'src/sxfs/sxfs.c'; then $(CYGPATH_W) 'src/sxfs/sxfs.c'; else $(CYGPATH_W) '$(srcdir)/src/sxfs/sxfs.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) src/sxfs/$(DEPDIR)/src_sxfs_sxfs-sxfs.Tpo src/sxfs/$(DEPDIR)/src_sxfs_sxfs-sxfs.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='src/sxfs/sxfs.c' object='src/sxfs/src_sxfs_sxfs-sxfs.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_sxfs_sxfs_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o src/sxfs/src_sxfs_sxfs-sxfs.obj `if test -f 'src/sxfs/sxfs.c'; then $(CYGPATH_W) 'src/sxfs/sxfs.c'; else $(CYGPATH_W) '$(srcdir)/src/sxfs/sxfs.c'; fi`
+
+src/sxfs/src_sxfs_sxfs-cmdline.o: src/sxfs/cmdline.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_sxfs_sxfs_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT src/sxfs/src_sxfs_sxfs-cmdline.o -MD -MP -MF src/sxfs/$(DEPDIR)/src_sxfs_sxfs-cmdline.Tpo -c -o src/sxfs/src_sxfs_sxfs-cmdline.o `test -f 'src/sxfs/cmdline.c' || echo '$(srcdir)/'`src/sxfs/cmdline.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) src/sxfs/$(DEPDIR)/src_sxfs_sxfs-cmdline.Tpo src/sxfs/$(DEPDIR)/src_sxfs_sxfs-cmdline.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='src/sxfs/cmdline.c' object='src/sxfs/src_sxfs_sxfs-cmdline.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_sxfs_sxfs_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o src/sxfs/src_sxfs_sxfs-cmdline.o `test -f 'src/sxfs/cmdline.c' || echo '$(srcdir)/'`src/sxfs/cmdline.c
+
+src/sxfs/src_sxfs_sxfs-cmdline.obj: src/sxfs/cmdline.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_sxfs_sxfs_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT src/sxfs/src_sxfs_sxfs-cmdline.obj -MD -MP -MF src/sxfs/$(DEPDIR)/src_sxfs_sxfs-cmdline.Tpo -c -o src/sxfs/src_sxfs_sxfs-cmdline.obj `if test -f 'src/sxfs/cmdline.c'; then $(CYGPATH_W) 'src/sxfs/cmdline.c'; else $(CYGPATH_W) '$(srcdir)/src/sxfs/cmdline.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) src/sxfs/$(DEPDIR)/src_sxfs_sxfs-cmdline.Tpo src/sxfs/$(DEPDIR)/src_sxfs_sxfs-cmdline.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='src/sxfs/cmdline.c' object='src/sxfs/src_sxfs_sxfs-cmdline.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_sxfs_sxfs_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o src/sxfs/src_sxfs_sxfs-cmdline.obj `if test -f 'src/sxfs/cmdline.c'; then $(CYGPATH_W) 'src/sxfs/cmdline.c'; else $(CYGPATH_W) '$(srcdir)/src/sxfs/cmdline.c'; fi`
+
 src/tools/sxreport-client/src_tools_sxreport_client_sxreport_client-sxreport-client.o: src/tools/sxreport-client/sxreport-client.c
 @am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_tools_sxreport_client_sxreport_client_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT src/tools/sxreport-client/src_tools_sxreport_client_sxreport_client-sxreport-client.o -MD -MP -MF src/tools/sxreport-client/$(DEPDIR)/src_tools_sxreport_client_sxreport_client-sxreport-client.Tpo -c -o src/tools/sxreport-client/src_tools_sxreport_client_sxreport_client-sxreport-client.o `test -f 'src/tools/sxreport-client/sxreport-client.c' || echo '$(srcdir)/'`src/tools/sxreport-client/sxreport-client.c
 @am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) src/tools/sxreport-client/$(DEPDIR)/src_tools_sxreport_client_sxreport_client-sxreport-client.Tpo src/tools/sxreport-client/$(DEPDIR)/src_tools_sxreport_client_sxreport_client-sxreport-client.Po
@@ -1089,6 +1176,7 @@ mostlyclean-libtool:
 
 clean-libtool:
 	-rm -rf .libs _libs
+	-rm -rf src/sxfs/.libs src/sxfs/_libs
 	-rm -rf src/tools/acl/.libs src/tools/acl/_libs
 	-rm -rf src/tools/cat/.libs src/tools/cat/_libs
 	-rm -rf src/tools/cp/.libs src/tools/cp/_libs
@@ -1474,6 +1562,8 @@ clean-generic:
 distclean-generic:
 	-test -z "$(CONFIG_CLEAN_FILES)" || rm -f $(CONFIG_CLEAN_FILES)
 	-test . = "$(srcdir)" || test -z "$(CONFIG_CLEAN_VPATH_FILES)" || rm -f $(CONFIG_CLEAN_VPATH_FILES)
+	-rm -f src/sxfs/$(DEPDIR)/$(am__dirstamp)
+	-rm -f src/sxfs/$(am__dirstamp)
 	-rm -f src/tools/acl/$(DEPDIR)/$(am__dirstamp)
 	-rm -f src/tools/acl/$(am__dirstamp)
 	-rm -f src/tools/cat/$(DEPDIR)/$(am__dirstamp)
@@ -1504,7 +1594,7 @@ clean-am: clean-binPROGRAMS clean-generic clean-libtool mostlyclean-am
 
 distclean: distclean-recursive
 	-rm -f $(am__CONFIG_DISTCLEAN_FILES)
-	-rm -rf src/tools/acl/$(DEPDIR) src/tools/cat/$(DEPDIR) src/tools/cp/$(DEPDIR) src/tools/init/$(DEPDIR) src/tools/ls/$(DEPDIR) src/tools/mv/$(DEPDIR) src/tools/rev/$(DEPDIR) src/tools/rm/$(DEPDIR) src/tools/sxreport-client/$(DEPDIR) src/tools/vol/$(DEPDIR)
+	-rm -rf src/sxfs/$(DEPDIR) src/tools/acl/$(DEPDIR) src/tools/cat/$(DEPDIR) src/tools/cp/$(DEPDIR) src/tools/init/$(DEPDIR) src/tools/ls/$(DEPDIR) src/tools/mv/$(DEPDIR) src/tools/rev/$(DEPDIR) src/tools/rm/$(DEPDIR) src/tools/sxreport-client/$(DEPDIR) src/tools/vol/$(DEPDIR)
 	-rm -f Makefile
 distclean-am: clean-am distclean-compile distclean-generic \
 	distclean-hdr distclean-libtool distclean-tags
@@ -1552,7 +1642,7 @@ installcheck-am: installcheck-binPROGRAMS
 maintainer-clean: maintainer-clean-recursive
 	-rm -f $(am__CONFIG_DISTCLEAN_FILES)
 	-rm -rf $(top_srcdir)/autom4te.cache
-	-rm -rf src/tools/acl/$(DEPDIR) src/tools/cat/$(DEPDIR) src/tools/cp/$(DEPDIR) src/tools/init/$(DEPDIR) src/tools/ls/$(DEPDIR) src/tools/mv/$(DEPDIR) src/tools/rev/$(DEPDIR) src/tools/rm/$(DEPDIR) src/tools/sxreport-client/$(DEPDIR) src/tools/vol/$(DEPDIR)
+	-rm -rf src/sxfs/$(DEPDIR) src/tools/acl/$(DEPDIR) src/tools/cat/$(DEPDIR) src/tools/cp/$(DEPDIR) src/tools/init/$(DEPDIR) src/tools/ls/$(DEPDIR) src/tools/mv/$(DEPDIR) src/tools/rev/$(DEPDIR) src/tools/rm/$(DEPDIR) src/tools/sxreport-client/$(DEPDIR) src/tools/vol/$(DEPDIR)
 	-rm -f Makefile
 maintainer-clean-am: distclean-am maintainer-clean-generic
 
