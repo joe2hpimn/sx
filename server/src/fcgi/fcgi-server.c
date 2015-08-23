@@ -322,14 +322,13 @@ char *make_pidfile(const char *pidfile_arg, int *pidfd) {
     if(*pidfile_arg == '/')
 	pidfile = strdup(pidfile_arg);
     else {
-	const char *pfile = pidfile;
 	if(!getcwd(buf, sizeof(buf))) {
 	    PCRIT("Cannot get the current work directory");
 	    goto pidfile_err;
 	}
-	pidfile = malloc(strlen(buf) + 1 + strlen(pfile) + 1);
+	pidfile = malloc(strlen(buf) + 1 + strlen(pidfile_arg) + 1);
 	if(pidfile)
-	    sprintf(pidfile, "%s/%s", buf, pfile);
+	    sprintf(pidfile, "%s/%s", buf, pidfile_arg);
     }
     if(!pidfile) {
 	PCRIT("Failed to allocate pidfile");
