@@ -2910,6 +2910,10 @@ static int check_files(sx_hashfs_t *h, int debug) {
             if(check_file_name(name) < 0)
                 CHECK_ERROR("Found invalid name on row %lld in metadata database %08x: %s", (long long int)row, i, msg_get_reason());
 
+            /* Check if current meta database is correct for given file */
+            if(getmetadb(name) != (int)i)
+                CHECK_ERROR("File %s is stored in metadata database %d, but should be stored in database %d", name, i, getmetadb(name));
+
             size = sqlite3_column_int64(list, 3);
             hashes = sqlite3_column_blob(list, 4);
             if(size && !hashes) {
@@ -3026,6 +3030,12 @@ static int check_blocks_existence(sx_hashfs_t *h, int debug, unsigned int hs, un
         }
         off *= bsz[hs];
 
+        if(gethashdb(refhash) != ndb) {
+            bin2hex(refhash->b, sizeof(*refhash), h1, sizeof(h1));
+            CHECK_ERROR("Block %s is misplaced (should be stored in %d, but is stored in %d)", h1, ndb, gethashdb(refhash));
+            continue;
+        }
+
         if(read_block(h->datafd[hs][ndb], h->blockbuf, off, bsz[hs])) {
             bin2hex(refhash->b, sizeof(*refhash), h1, sizeof(h1));
             CHECK_ERROR("Failed to read hash %s (row %lld) from %s data file %08x at offset %lld", h1, (long long int)row, sizelongnames[hs], ndb, (long long int)off);
@@ -3117,8 +3127,15 @@ static int check_blocks(sx_hashfs_t *h, int debug) {
     for(j = 0; j < SIZES; j++) {
         for(i = 0; i < HASHDBS; i++) {
             sqlite3_stmt *index = NULL;
+            sqlite3_stmt *avail = NULL;
 
-            /* Create index on blockno field to prevent sqlite from doning this */
+            /* Check whether any block from hash table is considered as available*/
+            if(qprep(h->datadb[j][i], &avail, "SELECT blockno, lower(hex(hash)) FROM blocks JOIN avail WHERE blockno = avail.blocknumber ORDER BY blockno ASC")) {
+                ret = -1;
+                goto check_blocks_err;
+            }
+
+            /* Create index on blockno field to prevent sqlite from doing this */
             if(qprep(h->datadb[j][i], &index, "CREATE INDEX blocknoidx ON blocks(blockno)") || qstep_noret(index)) {
                 ret = -1;
                 goto check_blocks_itererr;
@@ -3141,8 +3158,22 @@ static int check_blocks(sx_hashfs_t *h, int debug) {
             }
             ret += r;
 
+            r = qstep(avail);
+            if(r != SQLITE_DONE) {
+                while(r == SQLITE_ROW) {
+                    CHECK_ERROR("Block number %lld (hash %s) is listed in the avail table", (long long)sqlite3_column_int64(avail, 0), sqlite3_column_text(avail, 1));
+                    r = qstep(avail);
+                }
+            }
+
+            if(r != SQLITE_DONE) {
+                ret = -1;
+                goto check_blocks_itererr;
+            }
+
             check_blocks_itererr:
             sqlite3_finalize(index);
+            sqlite3_finalize(avail);
 
             if(ret == -1) {
                 CHECK_FATAL("Verification of hashes in %s hash database %08x aborted due to errors", sizelongnames[j], i);
