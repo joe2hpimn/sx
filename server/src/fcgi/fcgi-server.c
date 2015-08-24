@@ -786,7 +786,7 @@ int main(int argc, char **argv) {
 	    DEBUG("Worker process %d exited", dead);
 	}
 
-	if(procnum >= 0 && procnum <= sizeof(pids) / sizeof(*pids))
+	if(procnum >= 0 && procnum < sizeof(pids) / sizeof(*pids))
 	    pids[procnum] = 0;
     }
 
