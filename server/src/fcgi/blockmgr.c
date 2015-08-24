@@ -307,6 +307,7 @@ int blockmgr(sxc_client_t *sx, const char *dir, int pipe) {
             break;
 
 	DEBUG("Start processing block queue");
+        msg_new_id();
 
 	dc = sx_hashfs_distcheck(q.hashfs);
 	if(dc < 0) {

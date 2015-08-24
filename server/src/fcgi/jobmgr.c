@@ -5963,6 +5963,7 @@ int jobmgr(sxc_client_t *sx, const char *dir, int pipe) {
         if (wait_trigger(pipe, JOBMGR_DELAY_MIN, &forced_awake))
             break;
 
+        msg_new_id();
 	DEBUG("Start processing job queue");
 	jobmgr_process_queue(&q, forced_awake);
 	DEBUG("Done processing job queue");

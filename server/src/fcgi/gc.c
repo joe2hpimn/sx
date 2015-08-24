@@ -374,6 +374,7 @@ int gc(sxc_client_t *sx, const char *dir, int pipe, int pipe_expire) {
             INFO("GC force expire is set");
         if (terminate)
             break;
+        msg_new_id();
 
         gettimeofday(&tv1, NULL);
         sx_hashfs_distcheck(hashfs);
