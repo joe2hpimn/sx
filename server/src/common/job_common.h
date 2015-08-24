@@ -77,6 +77,7 @@ typedef enum _jobtype_t {
     JOBTYPE_MASSDELETE,
     JOBTYPE_MASSRENAME,
     JOBTYPE_CLUSTER_SETMETA,
+    JOBTYPE_JOBSPAWN,
 } jobtype_t;
 
 typedef enum {

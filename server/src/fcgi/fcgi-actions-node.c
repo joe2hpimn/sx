@@ -31,6 +31,7 @@
 #include <yajl/yajl_parse.h>
 #include "fcgi-utils.h"
 #include "utils.h"
+#include "fcgi-actions-node.h"
 
 /* {"nodeList":[{"nodeUUID":"%s","nodeAddress":"%s","nodeInternalAddress":"%s","nodeCapacity":%llu}]} */
 struct cb_nodes_ctx {

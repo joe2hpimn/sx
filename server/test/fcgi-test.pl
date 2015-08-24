@@ -1119,8 +1119,20 @@ test_get 'listing all \'tree/*/\' files', authed_only(200, 'application/json'), 
 
 
 ### Check mass rename operation ###
-# Check failing on existing dest case
-test_put_job "mass rename on $vol (invalid arguments)", {'badauth'=>[401],$reader=>[403],$writer=>[409]}, "$vol?source=tree/[]/&dest=tree/";
+test_get 'listing all \'tree/\' files', authed_only(200, 'application/json'), "$vol?filter=tree/&recursive", undef,
+    sub {
+        my $json_raw = shift;
+        my $json = get_json($json_raw) or return 0;
+        return 0 unless is_int($json->{'volumeSize'}) && $json->{'volumeSize'} == $volumesize && is_int($json->{'replicaCount'}) &&
+            $json->{'replicaCount'} == 1 && is_hash($json->{'fileList'}) && scalar keys %{$json->{'fileList'}} == 6;
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/b'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/[]'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/[]/a'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/[]/\a'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/[]/\a/a'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/[]/?*\\'});
+    };
+
 # Rename /tree to /treee
 test_put_job "mass rename on $vol (rename /tree to /treee)", {'badauth'=>[401],$reader=>[403],$writer=>[200]}, "$vol?source=tree/&dest=treee/";
 # List  'treee/' -> check if /tree directory has been correctly renamed to /treee

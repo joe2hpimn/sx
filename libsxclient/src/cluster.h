@@ -67,6 +67,7 @@ int sxi_cluster_query(sxi_conns_t *conns, const sxi_hostlist_t *hlist, enum sxi_
 int sxi_cluster_query_track(sxi_conns_t *conns, const sxi_hostlist_t *hlist, enum sxi_cluster_verb verb, const char *query, void *content, size_t content_size, cluster_setupcb setup_callback, cluster_datacb data_callback, void *context, int track_xfer);
 int sxi_conns_hashcalc(sxi_conns_t *conns, const void *buffer, unsigned int len, char *hash);
 int sxi_conns_hashcalc_core(sxc_client_t *sx, const void *salt, unsigned salt_len, const void *buffer, unsigned int len, char *hash);
+int sxi_reject_dots(const char *str);
 int sxi_cluster_query_ev(curlev_context_t *cbdata,
                          sxi_conns_t *conns, const char *host,
                          enum sxi_cluster_verb verb, const char *query,

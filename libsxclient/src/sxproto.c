@@ -72,7 +72,7 @@ static FMT_PRINTF(4, 5) sxi_query_t* sxi_query_append_fmt(sxc_client_t *sx, sxi_
     return query;
 }
 
-static sxi_query_t *sxi_query_create(sxc_client_t *sx, const char *path, enum sxi_cluster_verb verb)
+sxi_query_t *sxi_query_create(sxc_client_t *sx, const char *path, enum sxi_cluster_verb verb)
 {
     sxi_query_t *ret = calloc(1, sizeof(*ret));
     if (ret) {

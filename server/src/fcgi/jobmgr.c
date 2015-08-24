@@ -4590,6 +4590,655 @@ static act_result_t upgrade_request(sx_hashfs_t *hashfs, job_t job_id, job_data_
     return ret;
 }
 
+static rc_ty commit_local_mass_job(sx_hashfs_t *h, job_t job, const void *job_data, unsigned int job_data_len, jobtype_t job_type) {
+    sx_blob_t *b, *newb;
+    const char *volname = NULL, *source = NULL, *dest = NULL;
+    int recursive = 0;
+    struct timeval timestamp;
+    const void *new_job_data;
+    unsigned int new_job_data_len;
+
+    if(!job_data || (job_type != JOBTYPE_MASSDELETE && job_type != JOBTYPE_MASSRENAME))
+        return EINVAL;
+
+    b = sx_blob_from_data(job_data, job_data_len);
+    if(!b) {
+        INFO("Corrupt job data");
+        return -1;
+    }
+
+    if(sx_blob_get_string(b, &volname) || sx_blob_get_int32(b, &recursive) ||
+       sx_blob_get_string(b, &source) || sx_blob_get_datetime(b, &timestamp)) {
+        INFO("Cannot get data from blob");
+        sx_blob_free(b);
+        return FAIL_EINTERNAL;
+    }
+
+    if(!volname || !source) {
+        INFO("Cannot get data from blob");
+        sx_blob_free(b);
+        return FAIL_EINTERNAL;
+    }
+
+    if(job_type == JOBTYPE_MASSRENAME) {
+        if(sx_blob_get_string(b, &dest) || !dest) {
+            INFO("Cannot get data from blob");
+            sx_blob_free(b);
+            return FAIL_EINTERNAL;
+        }
+    }
+
+    newb = sx_blob_new();
+    if(!newb) {
+        INFO("Out of memory allocating new job data blob");
+        sx_blob_free(b);
+        return FAIL_EINTERNAL;
+    }
+
+    if(sx_blob_add_string(newb, volname) || sx_blob_add_int32(newb, recursive) ||
+       sx_blob_add_string(newb, source) || sx_blob_add_datetime(newb, &timestamp)) {
+        INFO("Cannot set new job data blob");
+        sx_blob_free(b);
+        sx_blob_free(newb);
+        return FAIL_EINTERNAL;
+    }
+
+    if(job_type == JOBTYPE_MASSRENAME && sx_blob_add_string(newb, dest)) {
+        INFO("Cannot set new job data blob");
+        sx_blob_free(b);
+        sx_blob_free(newb);
+        return FAIL_EINTERNAL;
+    }
+
+    /* Set false wait flag */
+    if(sx_blob_add_int32(newb, 0)) {
+        INFO("Cannot set new job data blob");
+        sx_blob_free(b);
+        sx_blob_free(newb);
+        return FAIL_EINTERNAL;
+    }
+
+    sx_blob_free(b);
+    sx_blob_to_data(newb, &new_job_data, &new_job_data_len);
+    if(sx_hashfs_set_job_data(h, job, new_job_data, new_job_data_len, JOBMGR_DELAY_MAX, 1)) {
+        INFO("Cannot set new job data for job %lld", (long long)job);
+        sx_blob_free(newb);
+        return FAIL_EINTERNAL;
+    }
+    sx_blob_free(newb);
+    return OK;
+}
+
+static sxi_query_t *massdelete_data_to_query(sxc_client_t *sx, const void *job_data, unsigned int job_data_len, const char *commit_jobid) {
+    sxi_query_t *ret = NULL;
+    struct timeval timestamp;
+    sx_blob_t *b = NULL;
+    const char *volname = NULL, *pattern = NULL;
+    int recursive = 0;
+    char *url;
+    char *vol_enc = NULL, *pattern_enc = NULL;
+    unsigned int len;
+
+    b = sx_blob_from_data(job_data, job_data_len);
+    if(!b) {
+        INFO("Corrupt job data");
+        return NULL;
+    }
+
+    if(sx_blob_get_string(b, &volname) || sx_blob_get_int32(b, &recursive) ||
+       sx_blob_get_string(b, &pattern) || sx_blob_get_datetime(b, &timestamp)) {
+        sx_blob_free(b);
+        INFO("Cannot get data from blob");
+        return NULL;
+    }
+
+    if(!volname || !pattern) {
+        INFO("Cannot get data from blob");
+        sx_blob_free(b);
+        return NULL;
+    }
+
+    vol_enc = sxi_urlencode(sx, volname, 0);
+    if(!vol_enc) {
+        INFO("Failed to urlencode source pattern");
+        sx_blob_free(b);
+        return NULL;
+    }
+
+    pattern_enc = sxi_urlencode(sx, pattern, 0);
+    if(!pattern_enc) {
+        INFO("Failed to urlencode input pattern");
+        free(vol_enc);
+        sx_blob_free(b);
+        return NULL;
+    }
+
+    sx_blob_free(b);
+
+    /* 42: 2 x 20 bytes for int64 + '.' separator + nulbyte */
+    len = strlen(vol_enc) + lenof("?filter=") + strlen(pattern_enc) + lenof("&timestamp=") + 42;
+    if(commit_jobid)
+        len += lenof("&commit=") + strlen(commit_jobid);
+    if(recursive)
+        len += lenof("&recursive");
+    url = malloc(len);
+    if(!url) {
+        INFO("Failed to allocate url");
+        free(vol_enc);
+        free(pattern_enc);
+        return NULL;
+    }
+
+    snprintf(url, len, "%s?filter=%s&timestamp=%lld.%lld%s%s%s", vol_enc, pattern_enc, (long long)timestamp.tv_sec, (long long)timestamp.tv_usec, recursive ? "&recursive" : "", commit_jobid ? "&commit=" : "", commit_jobid ? commit_jobid : "");
+    free(vol_enc);
+    free(pattern_enc);
+
+    ret = sxi_query_create(sx, url, REQ_DELETE);
+    free(url);
+    if(!ret) {
+        INFO("Out of memory allocating query");
+        return NULL;
+    }
+
+    return ret;
+}
+
+static sxi_query_t *massrename_data_to_query(sxc_client_t *sx, const void *job_data, unsigned int job_data_len, const char *commit_jobid) {
+    sxi_query_t *ret = NULL;
+    struct timeval timestamp;
+    sx_blob_t *b = NULL;
+    const char *volname = NULL, *source = NULL, *dest = NULL;
+    int recursive = 0;
+    char *url;
+    char *vol_enc = NULL, *src_enc = NULL, *dst_enc = NULL;
+    unsigned int len;
+
+    b = sx_blob_from_data(job_data, job_data_len);
+    if(!b) {
+        INFO("Corrupt job data");
+        return NULL;
+    }
+
+    if(sx_blob_get_string(b, &volname) || sx_blob_get_int32(b, &recursive) ||
+       sx_blob_get_string(b, &source) || sx_blob_get_datetime(b, &timestamp) ||
+       sx_blob_get_string(b, &dest)) {
+        sx_blob_free(b);
+        INFO("Cannot get data from blob");
+        return NULL;
+    }
+
+    if(!volname || !source || !dest) {
+        INFO("Cannot get data from blob");
+        sx_blob_free(b);
+        return NULL;
+    }
+
+    vol_enc = sxi_urlencode(sx, volname, 0);
+    if(!vol_enc) {
+        INFO("Failed to urlencode source pattern");
+        sx_blob_free(b);
+        return NULL;
+    }
+
+    src_enc = sxi_urlencode(sx, source, 0);
+    if(!src_enc) {
+        INFO("Failed to urlencode input pattern");
+        free(vol_enc);
+        sx_blob_free(b);
+        return NULL;
+    }
+
+    dst_enc = sxi_urlencode(sx, dest, 0);
+    if(!dst_enc) {
+        INFO("Failed to urlencode input pattern");
+        free(src_enc);
+        free(vol_enc);
+        sx_blob_free(b);
+        return NULL;
+    }
+    sx_blob_free(b);
+
+    /* 42: 2 x 20 bytes for int64 + '.' separator + nulbyte */
+    len = strlen(vol_enc) + lenof("?source=") + strlen(src_enc) + lenof("&dest=") + strlen(dst_enc) + lenof("&timestamp=") + 42;
+    if(commit_jobid)
+        len += lenof("&commit=") + strlen(commit_jobid);
+    url = malloc(len);
+    if(!url) {
+        INFO("Failed to allocate url");
+        free(vol_enc);
+        free(src_enc);
+        free(dst_enc);
+        return NULL;
+    }
+
+    snprintf(url, len, "%s?source=%s&timestamp=%lld.%lld&dest=%s%s%s", vol_enc, src_enc, (long long)timestamp.tv_sec, (long long)timestamp.tv_usec, dst_enc, commit_jobid ? "&commit=" : "", commit_jobid ? commit_jobid : "");
+    free(vol_enc);
+    free(src_enc);
+    free(dst_enc);
+
+    ret = sxi_query_create(sx, url, REQ_PUT);
+    free(url);
+    if(!ret) {
+        INFO("Out of memory allocating query");
+        return NULL;
+    }
+
+    return ret;
+}
+
+static int parse_job_id(const char *jobid, job_t *job, sx_uuid_t *uuid) {
+    unsigned int uuid_len;
+    char uuid_str[UUID_STRING_SIZE+1];
+    const char *p;
+    char *enumb;
+
+    if(!jobid || !job || !uuid || !(p = strchr(jobid, ':')))
+        return -1;
+
+    uuid_len = p - jobid;
+    if(uuid_len != UUID_STRING_SIZE)
+        return -1;
+    memcpy(uuid_str, jobid, UUID_STRING_SIZE);
+    uuid_str[UUID_STRING_SIZE] = '\0';
+    *job = strtoll(p + 1, &enumb, 10);
+    if(enumb && *enumb) {
+        *job = -1;
+        return -1;
+    }
+    uuid_from_string(uuid, uuid_str);
+
+    return 0;
+}
+
+static rc_ty jobspawn_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    act_result_t ret = ACT_RESULT_OK;
+    rc_ty s;
+    sx_blob_t *b = NULL, *spawn_newb = NULL, *jobids_blob = NULL;
+    sxc_client_t *sx = sx_hashfs_client(hashfs);
+    sxi_conns_t *clust = sx_hashfs_conns(hashfs);
+    unsigned int nnode, nnodes;
+    const sx_node_t *me = sx_hashfs_self(hashfs);
+    const void *slave_job_data;
+    unsigned int slave_job_data_len;
+    sxi_query_t *proto = NULL;
+    jobtype_t slave_job_type;
+    const void *new_job_data;
+    unsigned int new_job_data_len;
+    char slave_job_id[UUID_STRING_SIZE + 1 + 21];
+    const char *slave_job_lockname;
+    int slave_job_timeout;
+    job_t child;
+    int r;
+    query_list_t *qrylist = NULL;
+    unsigned int nsucceeded = 0;
+
+    nnodes = sx_nodelist_count(nodes);
+    b = sx_blob_from_data(job_data->ptr, job_data->len);
+    if(!b) {
+        WARN("Cannot allocate blob for job %lld", (long long)job_id);
+        action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
+    }
+
+    if(sx_blob_get_int64(b, &child) || sx_blob_get_int32(b, (int32_t*)&slave_job_type) ||
+       sx_blob_get_int32(b, &slave_job_timeout) || sx_blob_get_string(b, &slave_job_lockname) ||
+       sx_blob_get_blob(b, &slave_job_data, &slave_job_data_len)) {
+        WARN("Failed to get slave job data");
+        action_error(ACT_RESULT_PERMFAIL, 500, "Internal error: Corrupt job data");
+    }
+
+    DEBUG("Slave job type: %d, child job ID: %lld", slave_job_type, (long long)child);
+
+    spawn_newb = sx_blob_new();
+    if(!spawn_newb) {
+        WARN("Cannot allocate blob for job %lld", (long long)job_id);
+        action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
+    }
+
+    /* Clone beginning of the current job data blob */
+    if(sx_blob_cat(spawn_newb, b)) {
+        WARN("Failed to add slave job data");
+        action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
+    }
+
+    /* Pick list of already scheduled and not commited job IDs */
+    if((r = sx_blob_get_blob(b, &new_job_data, &new_job_data_len)) == 0) {
+        const char *jobid;
+
+        if(nnodes == 0) {
+            DEBUG("Advancing spawn job %lld to the commit phase", (long long)job_id);
+            goto action_failed;
+        }
+
+        jobids_blob = sx_blob_from_data(new_job_data, new_job_data_len);
+        if(!jobids_blob) {
+            WARN("Cannot allocate blob for job %lld", (long long)job_id);
+            action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
+        }
+
+        /* Iterate through job IDs blob to move towards the blob end. Also check if job ID nodes does not
+         * intersect with nodelist. */
+        while((r = sx_blob_get_string(jobids_blob, &jobid)) == 0) {
+            job_t job;
+            sx_uuid_t uuid;
+            const sx_node_t *node;
+
+            if(parse_job_id(jobid, &job, &uuid)) {
+                WARN("Corrupted node list for job %s", jobid);
+                action_error(ACT_RESULT_PERMFAIL, 500, "Internal error: invalid node list");
+            }
+
+            node = sx_nodelist_lookup_index(nodes, &uuid, &nnode);
+            if(node) {
+                WARN("Node %s is already stored in job ID list", sx_node_internal_addr(node));
+                action_error(ACT_RESULT_PERMFAIL, 500, "Internal error: Corrupt job data");
+            }
+        }
+        if(r < 0) {
+            WARN("Failed to check job data blob");
+            action_error(ACT_RESULT_PERMFAIL, 500, "Internal error: Corrupt job data");
+        }
+    } else if(r < 0) {
+        WARN("Failed to check job data blob");
+        action_error(ACT_RESULT_PERMFAIL, 500, "Internal error: Corrupt job data");
+    } else {
+        jobids_blob = sx_blob_new();
+        if(!jobids_blob) {
+            WARN("Cannot allocate blob for job %lld", (long long)job_id);
+            action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
+        }
+    }
+
+    switch(slave_job_type) {
+        case JOBTYPE_MASSRENAME: {
+            proto = massrename_data_to_query(sx, slave_job_data, slave_job_data_len, NULL);
+            break;
+        }
+        case JOBTYPE_MASSDELETE: {
+            proto = massdelete_data_to_query(sx, slave_job_data, slave_job_data_len, NULL);
+            break;
+        }
+        default: {
+            WARN("Invalid job data: slave job type not supported");
+            action_error(ACT_RESULT_PERMFAIL, 500, "Internal error: Slave job type not supported");
+        }
+    }
+
+    if(!proto) {
+        WARN("Failed to get slave job spawn query");
+        action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
+    }
+
+    qrylist = wrap_calloc(nnodes, sizeof(*qrylist));
+    if(!qrylist) {
+        WARN("Cannot allocate result space");
+        action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
+    }
+
+    for(nnode = 0; nnode<nnodes; nnode++) {
+        const sx_node_t *node = sx_nodelist_get(nodes, nnode);
+
+        if(sx_node_cmp(me, node)) {
+            qrylist[nnode].cbdata = sxi_job_submit_ev(clust, sx_node_internal_addr(node), proto->verb, proto->path, proto->path, proto->content, proto->content_len);
+            if(!qrylist[nnode].cbdata) {
+                WARN("Failed to query node %s: %s", sx_node_uuid_str(node), sxc_geterrmsg(sx));
+                action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to setup cluster communication");
+            }
+            qrylist[nnode].query_sent = 1;
+        } else {
+            /* Local node */
+            sx_nodelist_t *nodelist = sx_nodelist_new();
+            job_t local_slave_job_id;
+            if(!nodelist) {
+                WARN("Failed to create a nodelist");
+                action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
+            }
+
+            if(sx_nodelist_add(nodelist, sx_node_dup(node))) {
+                WARN("Failed to add node to nodelist");
+                sx_nodelist_delete(nodelist);
+                action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
+            }
+
+            /* Schedule the job locally */
+            if((s = sx_hashfs_job_new(hashfs, 0, &local_slave_job_id, slave_job_type, slave_job_timeout, slave_job_lockname, slave_job_data, slave_job_data_len, nodelist)) != OK) {
+                sx_nodelist_delete(nodelist);
+                INFO("Failed to add local slave job: %s", msg_get_reason());
+                if(s == FAIL_LOCKED)
+                    action_error(rc2actres(s), rc2http(s), "A complex operation is already running on the cluster");
+                else
+                    action_error(rc2actres(s), rc2http(s), msg_get_reason());
+            }
+
+            sx_nodelist_delete(nodelist);
+            /* Save a string representation of local slave job id */
+            snprintf(slave_job_id, sizeof(slave_job_id), "%s:%lld", sx_node_uuid_str(me), (long long)local_slave_job_id);
+            if(sx_blob_add_string(jobids_blob, slave_job_id)) {
+                WARN("Failed to save job id to a new job data blob");
+                action_error(ACT_RESULT_PERMFAIL, 500, "Not enough memory to perform the requested action");
+            }
+            succeeded[nnode] = 1;
+            nsucceeded++;
+        }
+    }
+
+action_failed:
+    if(qrylist) {
+        for(nnode=0; nnode<nnodes; nnode++) {
+            sxi_job_t *remote_job;
+            long http_status = 0;
+            if(!qrylist[nnode].query_sent)
+                continue;
+            remote_job = sxi_job_submit_ev_wait(qrylist[nnode].cbdata, &http_status);
+            if(!remote_job) {
+                act_result_t newret = http2actres(http_status);
+                if(newret < ret) /* Severity shall only be raised */
+                    action_set_fail(newret, http_status, sxi_cbdata_geterrmsg(qrylist[nnode].cbdata));
+            } else {
+                DEBUG("Successfully advanced remote slave job on %s", sx_node_internal_addr(sx_nodelist_get(nodes, nnode)));
+                if(sx_blob_add_string(jobids_blob, sxi_job_get_id(remote_job))) {
+                    WARN("Failed to save job id to a new job data blob");
+                    sxi_job_free(remote_job);
+                    action_set_fail(ACT_RESULT_PERMFAIL, 500, "Not enough memory to perform the requested action");
+                }
+                sxi_job_free(remote_job);
+                succeeded[nnode] = 1;
+                nsucceeded++;
+            }
+        }
+        query_list_free(qrylist, nnodes);
+    }
+    sxi_query_free(proto);
+
+    if(jobids_blob && nsucceeded) {    
+        /* Append list of job IDs to spawn job data blob */
+        sx_blob_to_data(jobids_blob, &new_job_data, &new_job_data_len);
+        if(sx_blob_add_blob(spawn_newb, new_job_data, new_job_data_len)) {
+            WARN("Failed to update spawn job data");
+            action_set_fail(ACT_RESULT_PERMFAIL, 500, "Failed to update job data");
+            sx_blob_free(b);
+            sx_blob_free(jobids_blob);
+            sx_blob_free(spawn_newb);
+            return ret;
+        }
+
+        sx_blob_to_data(spawn_newb, &new_job_data, &new_job_data_len);
+        DEBUG("Setting new job data for job %lld: %d", (long long)job_id, new_job_data_len);
+        if(sx_hashfs_set_job_data(hashfs, job_id, new_job_data, new_job_data_len, 0, 1)) {
+            WARN("Failed to update spawn job data");
+            action_set_fail(ACT_RESULT_PERMFAIL, 500, "Failed to update job data");
+            sx_blob_free(b);
+            sx_blob_free(jobids_blob);
+            sx_blob_free(spawn_newb);
+            return ret;
+        }
+    }
+
+    if(nnodes && nsucceeded == nnodes) {
+        DEBUG("Setting new job data for job %lld, length: %d", (long long)child, new_job_data_len);
+        sx_blob_to_data(jobids_blob, &new_job_data, &new_job_data_len);
+        if(sx_hashfs_set_job_data(hashfs, child, new_job_data, new_job_data_len, 0, 1)) {
+            WARN("Failed to update child job data");
+            action_set_fail(ACT_RESULT_PERMFAIL, 500, "Failed to update job data");
+            sx_blob_free(b);
+            sx_blob_free(jobids_blob);
+            sx_blob_free(spawn_newb);
+            return ret;
+        }
+
+        /* Tempfail the job to force job data being reloaded */
+        action_set_fail(ACT_RESULT_TEMPFAIL, 200, "Forcing job data reload");
+    }
+
+    sx_blob_free(b);
+    sx_blob_free(jobids_blob);
+    sx_blob_free(spawn_newb);
+    return ret;
+}
+
+static rc_ty jobspawn_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    act_result_t ret = ACT_RESULT_OK;
+    sx_blob_t *b = NULL, *list_blob = NULL;
+    sxc_client_t *sx = sx_hashfs_client(hashfs);
+    sxi_conns_t *clust = sx_hashfs_conns(hashfs);
+    query_list_t *qrylist = NULL;
+    unsigned int nnode, nnodes;
+    nnodes = sx_nodelist_count(nodes);
+    const sx_node_t *me = sx_hashfs_self(hashfs);
+    const void *slave_job_data;
+    unsigned int slave_job_data_len;
+    sxi_query_t *proto = NULL;
+    jobtype_t slave_job_type;
+    const char *slave_job_lockname;
+    job_t child;
+    const void *job_id_list;
+    unsigned int job_id_list_len;
+    int slave_job_timeout;
+    const char *jobid;
+    int r;
+    sx_uuid_t uuid;
+
+    b = sx_blob_from_data(job_data->ptr, job_data->len);
+    if(!b) {
+        WARN("Cannot allocate blob for job %lld", (long long)job_id);
+        action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
+    }
+
+    if(sx_blob_get_int64(b, &child) || sx_blob_get_int32(b, (int32_t*)&slave_job_type) ||
+       sx_blob_get_int32(b, &slave_job_timeout) || sx_blob_get_string(b, &slave_job_lockname) ||
+       sx_blob_get_blob(b, &slave_job_data, &slave_job_data_len) || sx_blob_get_blob(b, &job_id_list, &job_id_list_len)) {
+        WARN("Failed to get slave job data");
+        action_error(ACT_RESULT_PERMFAIL, 500, "Internal error: Corrupt job data");
+    }
+
+    list_blob = sx_blob_from_data(job_id_list, job_id_list_len);
+    if(!list_blob) {
+        WARN("Failed to get slave job ID list");
+        action_error(ACT_RESULT_PERMFAIL, 500, "Internal error: Corrupt job data");
+    }
+
+    nnodes = sx_nodelist_count(nodes);
+
+    qrylist = wrap_calloc(nnodes, sizeof(*qrylist));
+    if(!qrylist) {
+        WARN("Cannot allocate result space");
+        action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
+    }
+
+    while(!(r = sx_blob_get_string(list_blob, &jobid))) {
+        job_t job;
+        const sx_node_t *node = NULL;
+        if(parse_job_id(jobid, &job, &uuid)) {
+            WARN("Corrupted node list for job %s", jobid);
+            action_error(ACT_RESULT_PERMFAIL, 500, "Internal error: invalid node list");
+        }
+
+        node = sx_nodelist_lookup_index(nodes, &uuid, &nnode);
+        if(!node)
+            continue; /* Node has been removed because it has failed or succeeded */
+
+        if(!sx_node_cmp(node, me)) {
+            if(commit_local_mass_job(hashfs, job, slave_job_data, slave_job_data_len, slave_job_type)) {
+                INFO("Failed to commit local %s: %s", jobid, msg_get_reason());
+                action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to commit slave job");
+            }
+            succeeded[nnode] = 1;
+        } else {
+            sxi_query_free(proto);
+            proto = NULL;
+            switch(slave_job_type) {
+                case JOBTYPE_MASSRENAME: {
+                    proto = massrename_data_to_query(sx, slave_job_data, slave_job_data_len, jobid);
+                    break;
+                }
+                case JOBTYPE_MASSDELETE: {
+                    proto = massdelete_data_to_query(sx, slave_job_data, slave_job_data_len, jobid);
+                    break;
+                }
+                default: {
+                    WARN("Invalid job data: slave job type not supported");
+                    action_error(ACT_RESULT_PERMFAIL, 500, "Internal error: Slave job type not supported");
+                }
+            }
+
+            if(!proto) {
+                WARN("Failed to prepare commit query for remote job %s", jobid);
+                action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to setup cluster communication");
+            }
+
+            qrylist[nnode].cbdata = sxi_cbdata_create_generic(clust, NULL, NULL);
+            if(sxi_cluster_query_ev(qrylist[nnode].cbdata, clust, sx_node_internal_addr(node), proto->verb, proto->path, proto->content, proto->content_len, NULL, NULL)) {
+                WARN("Failed to query node %s: %s", sx_node_uuid_str(node), sxc_geterrmsg(sx));
+                action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to setup cluster communication");
+            }
+            qrylist[nnode].query_sent = 1;
+        }
+    }
+
+    if(r < 0) {
+        WARN("Cannot get data from blob for job %lld", (long long)job_id);
+        action_error(ACT_RESULT_PERMFAIL, 500, "Internal error: data corruption detected");
+    }
+
+    ret = ACT_RESULT_OK;
+action_failed:
+    if(qrylist) {
+        for(nnode=0; nnode<nnodes; nnode++) {
+            int rc;
+            long http_status = 0;
+            if(!qrylist[nnode].query_sent)
+                continue;
+            rc = sxi_cbdata_wait(qrylist[nnode].cbdata, sxi_conns_get_curlev(clust), &http_status);
+            if(rc == -2) {
+                CRIT("Failed to wait for query");
+                action_set_fail(ACT_RESULT_PERMFAIL, 500, "Internal error in cluster communication");
+                continue;
+            }
+            if(rc == -1) {
+                WARN("Query failed with %ld", http_status);
+                if(ret > ACT_RESULT_TEMPFAIL) /* Only raise OK to TEMP */
+                    action_set_fail(ACT_RESULT_TEMPFAIL, 503, sxi_cbdata_geterrmsg(qrylist[nnode].cbdata));
+            } else if(http_status != 200) {
+                act_result_t newret = http2actres(http_status);
+                if(newret < ret) /* Severity shall only be raised */
+                    action_set_fail(newret, http_status, sxi_cbdata_geterrmsg(qrylist[nnode].cbdata));
+            } else {
+                DEBUG("Successfully advanced remote slave job on %s", sx_node_internal_addr(sx_nodelist_get(nodes, nnode)));
+                succeeded[nnode] = 1;
+            }
+        }
+        query_list_free(qrylist, nnodes);
+    }
+    sxi_query_free(proto);
+    sx_blob_free(b);
+    sx_blob_free(list_blob);
+    return ret;
+}
+
+static rc_ty jobspawn_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    CRIT("Some files were left in an inconsistent state after a failed spawn job attempt");
+    return force_phase_success(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
+}
+
 static rc_ty jobpoll_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     act_result_t ret = ACT_RESULT_OK;
     rc_ty s;
@@ -4629,26 +5278,8 @@ static rc_ty jobpoll_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_
         const char *message = NULL;
         job_t job;
         const sx_node_t *node = NULL;
-        unsigned int uuid_len;
-        char uuid_str[UUID_STRING_SIZE+1];
-        const char *p;
-        char *enumb;
 
-        if(!jobid || !(p = strchr(jobid, ':'))) {
-            WARN("Corrupted node list for job %s", jobid);
-            action_error(ACT_RESULT_PERMFAIL, 500, "Internal error: invalid node list");
-        }
-
-        uuid_len = p - jobid;
-        if(uuid_len != UUID_STRING_SIZE) {
-            WARN("Corrupted node list for job %s", jobid);
-            action_error(ACT_RESULT_PERMFAIL, 500, "Internal error: invalid node list");
-        }
-        memcpy(uuid_str, jobid, UUID_STRING_SIZE);
-        uuid_str[UUID_STRING_SIZE] = '\0';
-        uuid_from_string(&uuid, uuid_str);
-        job = strtoll(p + 1, &enumb, 10);
-        if(enumb && *enumb) {
+        if(parse_job_id(jobid, &job, &uuid)) {
             WARN("Corrupted node list for job %s", jobid);
             action_error(ACT_RESULT_PERMFAIL, 500, "Internal error: invalid node list");
         }
@@ -4736,27 +5367,9 @@ action_failed:
     return ret;
 }
 
-static rc_ty jobpoll_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
-    CRIT("Some files could be left in an inconsistent state after a failed polling job %lld", (long long)job_id);
+static rc_ty jobpoll_abort_and_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    CRIT("Some files were left in an inconsistent state after a failed mass job attempt");
     return force_phase_success(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
-}
-
-static rc_ty jobpoll_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
-    CRIT("Some files could be left in an inconsistent state after a failed polling job %lld", (long long)job_id);
-    return force_phase_success(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
-}
-
-static int timeval2str(const struct timeval *tv, char *buff) {
-    struct tm *t;
-
-    if(!tv || !buff)
-        return -1;
-
-    t = gmtime(&tv->tv_sec);
-    if(strftime(buff, REV_TIME_LEN, "%Y-%m-%d %H:%M:%S", t) != REV_TIME_LEN - 4)
-        return -1;
-    snprintf(buff + REV_TIME_LEN - 4, 5, ".%03lld", (long long)tv->tv_usec / 1000);
-    return 0;
 }
 
 static rc_ty effective_non_volnodes(sx_hashfs_t *h, sx_hashfs_nl_t which, const sx_hashfs_volume_t *volume, sx_nodelist_t **nodes) {
@@ -4810,9 +5423,58 @@ static rc_ty effective_non_volnodes(sx_hashfs_t *h, sx_hashfs_nl_t which, const 
 #define MAX_BATCH_ITER  2048
 static rc_ty massdelete_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     act_result_t ret = ACT_RESULT_OK;
+    struct timeval timestamp;
+    sx_blob_t *b = NULL;
+    const char *volname = NULL, *pattern = NULL;
+    int recursive = 0;
+    int r, wait = 0;
+
+    b = sx_blob_from_data(job_data->ptr, job_data->len);
+    if(!b) {
+        WARN("Cannot allocate blob for job %lld", (long long)job_id);
+        action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
+    }
+
+    /* Read through the blob */
+    if(sx_blob_get_string(b, &volname) || sx_blob_get_int32(b, &recursive) ||
+       sx_blob_get_string(b, &pattern) || sx_blob_get_datetime(b, &timestamp)) {
+        WARN("Cannot get data from blob for job %lld: %s %s", (long long)job_id, volname, pattern);
+        action_error(ACT_RESULT_PERMFAIL, 500, "Internal error: data corruption detected");
+    }
+
+    if(!volname || !pattern) {
+        WARN("Cannot get data from blob for job %lld: NULL volname or pattern", (long long)job_id);
+        action_error(ACT_RESULT_PERMFAIL, 500, "Internal error: data corruption detected");
+    }
+
+    if((r = sx_blob_get_int32(b, &wait)) == 1) {
+        DEBUG("Wait flag is not set - running legacy mass rename job");
+        goto action_failed;
+    } else if(r < 0) {
+        WARN("Cannot get data from blob for job %lld: %s %s", (long long)job_id, volname, pattern);
+        action_error(ACT_RESULT_PERMFAIL, 500, "Internal error: data corruption detected");
+    }
+
+    /* Check if the job should wait for a remote commit */
+    if(wait)
+        action_error(ACT_RESULT_TEMPFAIL, 503, "Waiting for a commit");
+
+    /* Adjust job timeout when it is commited */
+    *adjust_ttl = MASS_JOB_TIMEOUT;
+    /* Request phase should go to a commit phase when wait flag is not set */
+    ret = ACT_RESULT_OK;
+action_failed:
+    sx_blob_free(b);
+    if(ret == ACT_RESULT_OK)
+        succeeded[0] = 1;
+    return ret;
+}
+
+static rc_ty massdelete_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    act_result_t ret = ACT_RESULT_OK;
     rc_ty s;
     struct timeval timestamp;
-    sx_blob_t *b;
+    sx_blob_t *b = NULL;
     const char *volname = NULL, *pattern = NULL;
     const sx_hashfs_volume_t *vol = NULL;
     const sx_hashfs_file_t *file = NULL;
@@ -4842,7 +5504,7 @@ static rc_ty massdelete_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *j
         action_error(ACT_RESULT_PERMFAIL, 500, "Internal error: data corruption detected");
     }
 
-    if(timeval2str(&timestamp, timestamp_str)) {
+    if(sx_hashfs_timeval2str(&timestamp, timestamp_str)) {
         WARN("Cannot parse timestamp");
         action_error(ACT_RESULT_PERMFAIL, 500, "Internal error: data corruption detected");
     }
@@ -4996,6 +5658,56 @@ static rc_ty massdelete_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_
     return force_phase_success(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
 }
 
+static rc_ty massrename_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    act_result_t ret = ACT_RESULT_OK;
+    struct timeval timestamp;
+    sx_blob_t *b = NULL;
+    const char *volname = NULL, *source = NULL, *dest = NULL;
+    int recursive = 0;
+    int r, wait = 0;
+
+    b = sx_blob_from_data(job_data->ptr, job_data->len);
+    if(!b) {
+        WARN("Cannot allocate blob for job %lld", (long long)job_id);
+        action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
+    }
+
+    /* Read through the blob */
+    if(sx_blob_get_string(b, &volname) || sx_blob_get_int32(b, &recursive) ||
+       sx_blob_get_string(b, &source) || sx_blob_get_datetime(b, &timestamp) ||
+       sx_blob_get_string(b, &dest)) {
+        WARN("Cannot get data from blob for job %lld: %s %s", (long long)job_id, volname, source);
+        action_error(ACT_RESULT_PERMFAIL, 500, "Internal error: data corruption detected");
+    }
+
+    if(!volname || !source || !dest) {
+        WARN("Cannot get data from blob for job %lld: NULL volname or pattern", (long long)job_id);
+        action_error(ACT_RESULT_PERMFAIL, 500, "Internal error: data corruption detected");
+    }
+
+    if((r = sx_blob_get_int32(b, &wait)) == 1) {
+        DEBUG("Wait flag is not set - running legacy mass rename job");
+        goto action_failed;
+    } else if(r < 0) {
+        WARN("Cannot get data from blob for job %lld: %s %s", (long long)job_id, volname, source);
+        action_error(ACT_RESULT_PERMFAIL, 500, "Internal error: data corruption detected");
+    }
+
+    /* Check if the job should wait for a remote commit */
+    if(wait)
+        action_error(ACT_RESULT_TEMPFAIL, 503, "Waiting for a commit");
+
+    /* Adjust job timeout when it is commited */
+    *adjust_ttl = MASS_JOB_TIMEOUT;
+    /* Request phase should go to a commit phase when wait flag is not set */
+    ret = ACT_RESULT_OK;
+action_failed:
+    sx_blob_free(b);
+    if(ret == ACT_RESULT_OK)
+        succeeded[0] = 1;
+    return ret;
+}
+
 /* Drop all stale source revisions */
 static rc_ty massrename_drop_old_src_revs(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, const char *filename, sx_nodelist_t *nodes, unsigned int *queries_sent, unsigned int *list_len, query_list_t **list) {
     rc_ty ret = FAIL_EINTERNAL, t;
@@ -5098,22 +5810,25 @@ massrename_drop_old_src_revs_err:
     return ret;
 }
 
-static rc_ty massrename_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+static rc_ty massrename_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     act_result_t ret = ACT_RESULT_OK;
     rc_ty s;
     struct timeval timestamp;
-    sx_blob_t *b;
+    sx_blob_t *b = NULL;
     const char *volname = NULL, *source = NULL, *dest = NULL;
     const sx_hashfs_volume_t *vol = NULL;
     const sx_hashfs_file_t *file = NULL;
     unsigned int dlen, slen, plen;
-    int recursive = 0; /* TODO: Not used, but passed by a generic mass jobs scheduler */
+    int recursive = 0;
     char timestamp_str[REV_TIME_LEN+1];
     char newname[SXLIMIT_MAX_FILENAME_LEN+1];
     const char *suffix;
     query_list_t *qrylist = NULL;
     unsigned int qrylist_len = 0, queries_sent = 0;
+    unsigned int i = 0;
     sx_nodelist_t *nonvolnodes = NULL;
+    int require_dir;
+    unsigned int source_slashes;
 
     b = sx_blob_from_data(job_data->ptr, job_data->len);
     if(!b) {
@@ -5133,7 +5848,7 @@ static rc_ty massrename_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *j
         action_error(ACT_RESULT_PERMFAIL, 500, "Internal error: data corruption detected");
     }
 
-    if(timeval2str(&timestamp, timestamp_str)) {
+    if(sx_hashfs_timeval2str(&timestamp, timestamp_str)) {
         WARN("Cannot parse timestamp");
         action_error(ACT_RESULT_PERMFAIL, 500, "Internal error: data corruption detected");
     }
@@ -5154,69 +5869,39 @@ static rc_ty massrename_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *j
         slen = 0;
         source = "";
     }
+    source_slashes = sxi_count_slashes(source);
     dlen = strlen(dest);
 
-    if(!dlen) {
-        WARN("Destination %s is empty", dest);
-        action_error(ACT_RESULT_PERMFAIL, 500, "Internal error: Invalid argument");
+    if((s = sx_hashfs_list_first(hashfs, vol, source, &file, 1, NULL, 0)) != OK) {
+        if(s == ITER_NO_MORE)
+            action_error(ACT_RESULT_PERMFAIL, 404, "Not found");
+        else
+            action_error(rc2actres(s), rc2http(s), msg_get_reason());
+    } else {
+        /* Got OK, means that source file does exist. Check if it points to more than one file. */
+        if((s = sx_hashfs_list_next(hashfs)) != OK) {
+            if(s == ITER_NO_MORE)
+                require_dir = 0; /* F2F */
+            else
+                action_error(rc2actres(s), rc2http(s), msg_get_reason());
+        } else {
+            /* More than one file is returned as a source */
+            if(!slen || source[slen-1] == '/' || sxi_str_has_glob(source))
+                require_dir = 1;
+            else /* Source points to more than one file, does not contain globbing, but listing returned more than one file, it points to a directory */
+                require_dir = 0;
+        }
     }
 
-    if((!slen || source[slen-1] == '/') && dest[dlen-1] != '/') {
+    if(require_dir && (dlen && dest[dlen-1] != '/')) {
         WARN("Destination %s is not a directory", dest);
         action_error(ACT_RESULT_PERMFAIL, 500, "Internal error: Invalid argument");
     }
 
     sxi_strlcpy(newname, dest, sizeof(newname));
 
-    suffix = strrchr(source, '/');
-    if(suffix) /* prefix len is until suffix only */
-        plen = suffix - source + 1;
-    else /* Source does not contain slashes, whole source will be prefixed with dest */
-        plen = 0;
-
-    if(slen && source[slen-1] != '/') {
-        sx_hashfs_file_t f;
-
-        /* F2F, only rename source to dest */
-        if(dest[dlen-1] == '/') {
-            /* Check if appending new name suffix to the destination prefix won't exceed filename limit */
-            if(strlen(source) - plen + dlen > SXLIMIT_MAX_FILENAME_LEN)
-                action_error(ACT_RESULT_PERMFAIL, 500, "Filename too long");
-
-            /* Destination is a directory, append source without the prefix */
-            sxi_strlcpy(newname + dlen, source + plen, sizeof(newname) - dlen);
-        }
-
-        DEBUG("[F2F] Renaming file %s to %s", source, newname);
-        if((s = sx_hashfs_getfile_begin(hashfs, vol->name, source, NULL, &f, NULL))) {
-            sx_hashfs_getfile_end(hashfs);
-            if(s == ENOENT)
-                action_error(ACT_RESULT_PERMFAIL, 404, "Not found");
-            else
-                action_error(rc2actres(s), rc2http(s), rc2str(s));
-        }
-
-        sx_hashfs_getfile_end(hashfs);
-        if((s = sx_hashfs_file_rename(hashfs, vol, source, f.revision, newname)) != OK) {
-            if(s != ENOENT)
-                WARN("Failed to rename file %s to %s: %s", source, newname, msg_get_reason());
-            action_error(rc2actres(s), rc2http(s), msg_get_reason());
-        }
-
-        if((s = massrename_drop_old_src_revs(hashfs, vol, source, nonvolnodes, &queries_sent, &qrylist_len, &qrylist)) != OK) {
-            INFO("Failed to drop old %s revisions: %s", source, msg_get_reason());
-            if(s == ENOMEM || s == EAGAIN)
-                action_error(ACT_RESULT_TEMPFAIL, 503, msg_get_reason());
-            else
-                action_error(rc2actres(s), rc2http(s), "Failed to remove old source revisions");
-        }
-
-        /* Success */
-        goto action_failed;
-    }
-
-    /* Iterate over files - happens only when source is a directory (ends with slash) */
-    for(s = sx_hashfs_list_first(hashfs, vol, source, &file, 1, NULL, 1); s == OK && queries_sent < MAX_BATCH_ITER; s = sx_hashfs_list_next(hashfs)) {
+    /* Iterate over files - happens only when source points to more than one file */
+    for(s = sx_hashfs_list_first(hashfs, vol, source, &file, 1, NULL, 0); s == OK && i + queries_sent < MAX_BATCH_ITER; s = sx_hashfs_list_next(hashfs)) {
         rc_ty t;
         const sx_hashfs_file_t *filerev = NULL;
         char name[SXLIMIT_MAX_FILENAME_LEN+1];
@@ -5224,24 +5909,35 @@ static rc_ty massrename_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *j
         /* +1 because of preceding slash */
         sxi_strlcpy(name, file->name + 1, sizeof(name));
 
-        /* Check if appending new name suffix to the destination prefix won't exceed filename limit */
-        if(strlen(name) - plen + dlen > SXLIMIT_MAX_FILENAME_LEN) {
-            msg_set_reason("Filename too long");
-            s = ENAMETOOLONG;
-            break;
+        /* source can contain globbing, need to find out last slash position. */
+        suffix = sxi_ith_slash(name, source_slashes);
+        if(source_slashes) { /* prefix len is until suffix only */
+            if(!suffix) {
+                WARN("File name %s did not match number of slashes from the pattern %s", name, source);
+                s = FAIL_EINTERNAL;
+                break;
+            }
+            plen = suffix - name + 1;
+        } else /* File name does not contain slashes, full file name will be prefixed with dest */
+            plen = 0;
+
+        if(require_dir || dest[dlen-1] == '/') {
+            /* Check if appending new name suffix to the destination prefix won't exceed filename limit */
+            if(strlen(name) - plen + dlen > SXLIMIT_MAX_FILENAME_LEN)
+                action_error(ACT_RESULT_PERMFAIL, 500, "Filename too long");
+
+            /* Destination is a directory, append source without the prefix */
+            sxi_strlcpy(newname + dlen, name + plen, sizeof(newname) - dlen);
         }
 
-        /* Destination is a directory, append source without the prefix */
-        sxi_strlcpy(newname + dlen, name + plen, sizeof(newname) - dlen);
-
-        DEBUG("[D2D] Renaming file %s to %s", name, newname);
+        DEBUG("Renaming file %s to %s", name, newname);
         if(strncmp(file->revision, timestamp_str, REV_TIME_LEN) > 0) {
             DEBUG("Skipping %s: %.*s > %s", name, (int)REV_TIME_LEN, filerev->revision, timestamp_str);
             continue;
         }
 
         /* Rename the youngest revision */
-        if((t = sx_hashfs_file_rename(hashfs, vol, name, file->revision, newname)) != OK) {
+        if((t = sx_hashfs_file_rename(hashfs, vol, &timestamp, name, file->revision, newname)) != OK) {
             WARN("Failed to rename file revision %s: %s", file->revision, msg_get_reason());
             s = t;
             break;
@@ -5254,10 +5950,18 @@ static rc_ty massrename_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *j
             else
                 action_error(rc2actres(t), rc2http(t), "Failed to remove old source revisions");
         }
+        i++;
+
+        if(!require_dir) {
+            /* When !require_dir we want to process only one file */
+            DEBUG("Skipping iteration, file to file rename requested");
+            s = ITER_NO_MORE;
+            break;
+        }
     }
 
     if(s != ITER_NO_MORE) {
-        if(queries_sent >= MAX_BATCH_ITER) {
+        if(i + queries_sent >= MAX_BATCH_ITER) {
             DEBUG("Sleeping job due to exceeded deletions limit");
             action_error(ACT_RESULT_TEMPFAIL, 503, "Exceeded limit");
         } else {
@@ -5265,13 +5969,13 @@ static rc_ty massrename_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *j
             action_error(rc2actres(s), rc2http(s), rc2str(s));
         }
     }
+
     /* Job is done */
     ret = ACT_RESULT_OK;
 action_failed:
     sx_blob_free(b);
     sx_nodelist_delete(nonvolnodes);
     if(qrylist) {
-        unsigned int i;
         for(i = 0; i < queries_sent; i++) {
             int rc;
             long http_status = 0;
@@ -5346,10 +6050,11 @@ static struct {
     { force_phase_success, revision_commit, revision_abort, revision_undo }, /* JOBTYPE_BLOCKS_REVISION */
     { force_phase_success, fileflush_local, fileflush_remote_undo, force_phase_success }, /* JOBTYPE_FLUSH_FILE_LOCAL  - 1 node */
     { upgrade_request, force_phase_success, force_phase_success, force_phase_success }, /* JOBTYPE_UPGRADE_FROM_1_0_OR_1_1 */
-    { jobpoll_request, force_phase_success, jobpoll_abort, jobpoll_undo }, /* JOBTYPE_JOBPOLL */
-    { massdelete_request, force_phase_success, massdelete_abort, massdelete_undo }, /* JOBTYPE_MASSDELETE */
-    { massrename_request, force_phase_success, massrename_abort, massrename_undo }, /* JOBTYPE_MASSRENAME */
+    { jobpoll_request, force_phase_success, jobpoll_abort_and_undo, jobpoll_abort_and_undo }, /* JOBTYPE_JOBPOLL */
+    { massdelete_request, massdelete_commit, massdelete_abort, massdelete_undo }, /* JOBTYPE_MASSDELETE */
+    { massrename_request, massrename_commit, massrename_abort, massrename_undo }, /* JOBTYPE_MASSRENAME */
     { force_phase_success, cluster_setmeta_commit, cluster_setmeta_abort, cluster_setmeta_undo }, /* JOBTYPE_CLUSTER_SETMETA */
+    { jobspawn_request, jobspawn_commit, force_phase_success, jobspawn_undo }, /* JOBTYPE_JOBSPAWN */
 };
 
 

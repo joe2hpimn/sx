@@ -5024,6 +5024,10 @@ int sxc_mass_rename(sxc_cluster_t *cluster, sxc_file_t *source, sxc_file_t *dest
         return -1;
     }
 
+    if(sxi_reject_dots(dest->path) || !strncmp(dest->path, "../", 3) || !strncmp(dest->path, "./", 2)) {
+        sxi_seterr(sx, SXE_EARG, "Destination with '.' or '..' is not accepted");
+        return -1;
+    }
     sxi_hostlist_init(&hosts);
     if(sxi_locate_volume(conns, source->volume, &hosts, NULL, NULL, NULL))
         return -1;
@@ -5100,6 +5104,7 @@ int sxc_mass_rename(sxc_cluster_t *cluster, sxc_file_t *source, sxc_file_t *dest
     free(dst_enc);
     free(src_enc);
     free(vol_enc);
+    sxi_set_operation(sx, "rename files", NULL, NULL, NULL);
     if(sxi_job_submit_and_poll(conns, &hosts, REQ_PUT, url, NULL, 0)) {
         sxi_hostlist_empty(&hosts);
         free(url);

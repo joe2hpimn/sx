@@ -37,6 +37,7 @@
 #include "utils.h"
 #include "job_common.h"
 #include "version.h"
+#include <fnmatch.h>
 
 static rc_ty int64_arg(const char* arg, int64_t *v, int64_t defaultv)
 {
@@ -2288,10 +2289,54 @@ static int parse_timeval(const char *str, struct timeval *tv) {
     return 0;
 }
 
+static rc_ty mass_job_commit(sx_blob_t *b, const char *job_id_str, const void *job_data, unsigned int job_data_len, job_t *job_id) {
+    rc_ty s;
+    const char *q = strchr(job_id_str, ':');
+    const char *uuid_str = sx_node_uuid_str(sx_hashfs_self(hashfs));
+    char *enumb = NULL;
+
+    if(!q || q - job_id_str != UUID_STRING_SIZE) {
+        msg_set_reason("Invalid job ID");
+        return EINVAL;
+    }
+    if(!uuid_str) {
+        msg_set_reason("Invalid node UUID");
+        return EINVAL;
+    }
+    if(strncmp(job_id_str, uuid_str, q - job_id_str)) {
+        msg_set_reason("UUID mismatch");
+        return EINVAL;
+    }
+    q++;
+    *job_id = strtoll(q, &enumb, 10);
+    if(enumb && *enumb) {
+        msg_set_reason("Invalid job ID");
+        return EINVAL;
+    }
+
+    if(sx_blob_add_int32(b, 0)) {
+        msg_set_reason("Failed to add data to blob");
+        return EINVAL;
+    }
+    sx_blob_to_data(b, &job_data, &job_data_len);
+    if((s = sx_hashfs_set_job_data(hashfs, *job_id, job_data, job_data_len, JOBMGR_DELAY_MAX, 1)) != OK) {
+        WARN("Failed to update job data for %s: %s", job_id_str, msg_get_reason());
+        msg_set_reason("Failed to update job data");
+        return EINVAL;
+    }
+
+    return OK;
+}
+
 void fcgi_mass_delete(void) {
     const sx_hashfs_volume_t *vol;
     rc_ty s;
     const char *input_pattern = get_arg("filter");
+    sx_blob_t *b;
+    struct timeval timestamp;
+    job_t job_id;
+    const void *job_data = NULL;
+    unsigned int job_data_len = 0;
 
     s = sx_hashfs_volume_by_name(hashfs, volume, &vol);
     if(s != OK)
@@ -2304,57 +2349,82 @@ void fcgi_mass_delete(void) {
         input_pattern = "*";
 
     if(has_priv(PRIV_CLUSTER)) {
-        /* Schedule a batch job slave, will schedule the job on local node only */
-        sx_blob_t *b;
-        const void *job_data = NULL;
-        unsigned int job_data_len = 0;
-        sx_nodelist_t *nodelist;
-        struct timeval timestamp;
-        job_t job_id;
-
         if(!has_arg("timestamp"))
             quit_errmsg(400, "Missing timestamp parameter");
         if(parse_timeval(get_arg("timestamp"), &timestamp))
             quit_errmsg(400, "Invalid timestamp parameter");
+    } else {
+        /* Determine timestamp */
+        gettimeofday(&timestamp, NULL);
+    }
 
+    b = sx_blob_new();
+    if(!b)
+        quit_errmsg(500, "Failed to allocate blob");
+
+    if(sx_blob_add_string(b, vol->name) || sx_blob_add_int32(b, has_arg("recursive")) ||
+       sx_blob_add_string(b, input_pattern) || sx_blob_add_datetime(b, &timestamp)) {
+        sx_blob_free(b);
+        quit_errmsg(500, "Failed to add data to blob");
+    }
+
+    if(has_priv(PRIV_CLUSTER) && has_arg("commit")) {
+        s = mass_job_commit(b, get_arg("commit"), job_data, job_data_len, &job_id);
+        sx_blob_free(b);
+        if(s != OK)
+            quit_errmsg(rc2http(s), msg_get_reason());
+        /* To be consistent, return existing job info on success */
+        send_job_info(job_id);
+        return;
+    } else {
+        /* Wait flag is enabled by default, mass rename jobs won't start unless commited */
+        if(sx_blob_add_int32(b, 1)) {
+            INFO("Failed to add wait flag to job data blob");
+            sx_blob_free(b);
+            quit_errmsg(500, "Failed to add data to blob");
+        }
+    }
+
+    if(has_priv(PRIV_CLUSTER)) {
+        sx_nodelist_t *nodelist;
+
+        /* Schedule a batch job slave, will schedule the job on local node only */
         nodelist = sx_nodelist_new();
-        if(!nodelist)
+        if(!nodelist) {
+            sx_blob_free(b);
             quit_errmsg(500, "Failed to create a nodelist");
+        }
 
         if(sx_nodelist_add(nodelist, sx_node_dup(sx_hashfs_self(hashfs)))) {
             sx_nodelist_delete(nodelist);
-            quit_errmsg(500, "Failed to add node to nodelist");
-        }
-
-        b = sx_blob_new();
-        if(!b) {
-            sx_nodelist_delete(nodelist);
-            quit_errmsg(500, "Failed to allocate blob");
-        }
-
-        if(sx_blob_add_string(b, vol->name) || sx_blob_add_int32(b, has_arg("recursive")) ||
-           sx_blob_add_string(b, input_pattern) || sx_blob_add_datetime(b, &timestamp)) {
-            sx_nodelist_delete(nodelist);
             sx_blob_free(b);
-            quit_errmsg(500, "Failed to add data to blob");
+            quit_errmsg(500, "Failed to add node to nodelist");
         }
 
         sx_blob_to_data(b, &job_data, &job_data_len);
         /* Schedule the job locally */
-        s = sx_hashfs_job_new(hashfs, uid, &job_id, JOBTYPE_MASSDELETE, 3600, NULL, job_data, job_data_len, nodelist);
+        s = sx_hashfs_job_new(hashfs, uid, &job_id, JOBTYPE_MASSDELETE, MASS_JOB_INITIAL_TIMEOUT, volume, job_data, job_data_len, nodelist);
         sx_blob_free(b);
         sx_nodelist_delete(nodelist);
         if(s)
             quit_errmsg(rc2http(s), rc2str(s));
         send_job_info(job_id);
     } else {
-        /* Request comes in from the user: create jobs on each volnode */
-        job_t job;
-        s = sx_hashfs_files_processing_job(hashfs, uid, vol, has_arg("recursive"), input_pattern, NULL, &job);
+        sx_nodelist_t *volnodes;
 
+        /* Request comes in from the user: create jobs on each volnode */
+        if((s = sx_hashfs_effective_volnodes(hashfs, NL_NEXTPREV, vol, 0, &volnodes, NULL)) != OK) {
+            sx_blob_free(b);
+            quit_errmsg(rc2http(s), msg_get_reason());
+        }
+
+        sx_blob_to_data(b, &job_data, &job_data_len);
+        s = sx_hashfs_mass_job_new(hashfs, uid, &job_id, JOBTYPE_MASSDELETE, MASS_JOB_INITIAL_TIMEOUT, volume, job_data, job_data_len, volnodes);
+        sx_blob_free(b);
+        sx_nodelist_delete(volnodes);
         if(s != OK)
             quit_errmsg(rc2http(s), msg_get_reason());
-        send_job_info(job);
+        send_job_info(job_id);
     }
 }
 
@@ -2365,6 +2435,11 @@ void fcgi_mass_rename(void) {
     const char *source = get_arg("source");
     unsigned int slen, dlen;
     const sx_hashfs_file_t *file = NULL;
+    sx_blob_t *b;
+    const void *job_data = NULL;
+    unsigned int job_data_len = 0;
+    struct timeval timestamp;
+    job_t job_id;
 
     s = sx_hashfs_volume_by_name(hashfs, volume, &vol);
     if(s != OK)
@@ -2387,72 +2462,108 @@ void fcgi_mass_rename(void) {
         quit_errmsg(400, "Target cannot be a volume root");
 
     if(has_priv(PRIV_CLUSTER)) {
-        /* Schedule a batch job slave, will schedule the job on local node only */
-        sx_blob_t *b;
-        const void *job_data = NULL;
-        unsigned int job_data_len = 0;
-        sx_nodelist_t *nodelist;
-        struct timeval timestamp;
-        job_t job_id;
-
         if(!has_arg("timestamp"))
             quit_errmsg(400, "Missing timestamp parameter");
         if(parse_timeval(get_arg("timestamp"), &timestamp))
             quit_errmsg(400, "Invalid timestamp parameter");
+    } else {
+        /* Determine timestamp */
+        gettimeofday(&timestamp, NULL);
+    }
 
-        nodelist = sx_nodelist_new();
-        if(!nodelist)
-            quit_errmsg(500, "Failed to create a nodelist");
+    b = sx_blob_new();
+    if(!b)
+        quit_errmsg(500, "Failed to allocate blob");
 
-        if(sx_nodelist_add(nodelist, sx_node_dup(sx_hashfs_self(hashfs)))) {
-            sx_nodelist_delete(nodelist);
-            quit_errmsg(500, "Failed to add node to nodelist");
-        }
+    if(sx_blob_add_string(b, vol->name) || sx_blob_add_int32(b, 0) ||
+       sx_blob_add_string(b, source) || sx_blob_add_datetime(b, &timestamp) ||
+       sx_blob_add_string(b, dest)) {
+        sx_blob_free(b);
+        quit_errmsg(500, "Failed to add data to blob");
+    }
 
-        b = sx_blob_new();
-        if(!b) {
-            sx_nodelist_delete(nodelist);
-            quit_errmsg(500, "Failed to allocate blob");
-        }
-
-        if(sx_blob_add_string(b, vol->name) || sx_blob_add_int32(b, 0) ||
-           sx_blob_add_string(b, source) || sx_blob_add_datetime(b, &timestamp) ||
-           sx_blob_add_string(b, dest)) {
-            sx_nodelist_delete(nodelist);
+    if(has_priv(PRIV_CLUSTER) && has_arg("commit")) {
+        s = mass_job_commit(b, get_arg("commit"), job_data, job_data_len, &job_id);
+        sx_blob_free(b);
+        if(s != OK)
+            quit_errmsg(rc2http(s), msg_get_reason());
+        /* To be consistent, return existing job info on success */
+        send_job_info(job_id);
+        return;
+    } else {
+        /* Wait flag is enabled by default, mass rename jobs won't start unless commited */
+        if(sx_blob_add_int32(b, 1)) {
+            INFO("Failed to add wait flag to job data blob");
             sx_blob_free(b);
             quit_errmsg(500, "Failed to add data to blob");
         }
+    }
+
+    if(has_priv(PRIV_CLUSTER)) {
+        sx_nodelist_t *nodelist;
+
+        /* Schedule a batch job slave, will schedule the job on local node only */
+        nodelist = sx_nodelist_new();
+        if(!nodelist) {
+            sx_blob_free(b);
+            quit_errmsg(500, "Failed to create a nodelist");
+        }
+
+        if(sx_nodelist_add(nodelist, sx_node_dup(sx_hashfs_self(hashfs)))) {
+            sx_nodelist_delete(nodelist);
+            sx_blob_free(b);
+            quit_errmsg(500, "Failed to add node to nodelist");
+        }
 
         sx_blob_to_data(b, &job_data, &job_data_len);
-        /* Schedule the job locally */
-        s = sx_hashfs_job_new(hashfs, uid, &job_id, JOBTYPE_MASSRENAME, 3600, NULL, job_data, job_data_len, nodelist);
-        sx_blob_free(b);
+        /* Schedule the job locally with small expiration time, it will be bumped later in commit phase */
+        s = sx_hashfs_job_new(hashfs, 0, &job_id, JOBTYPE_MASSRENAME, MASS_JOB_INITIAL_TIMEOUT, volume, job_data, job_data_len, nodelist);
         sx_nodelist_delete(nodelist);
-        if(s)
+        sx_blob_free(b);
+        if(s == FAIL_LOCKED)
+            quit_errmsg(409, "A complex operation is already running on the cluster");
+        else if(s != OK)
             quit_errmsg(rc2http(s), rc2str(s));
         send_job_info(job_id);
-    } else {
-        /* Request comes in from the user: create jobs on each volnode */
-        job_t job;
-
-        /* Check if dest exists and if so, reject it */
-        s = sx_hashfs_list_first(hashfs, vol, dest, &file, 0, NULL, 1);
-        if(s == OK && ((dest[dlen-1] != '/' && !strcmp(dest, file->name + 1)) || (dest[dlen-1] == '/' && !strncmp(dest, file->name + 1, dlen))))
-            quit_errmsg(rc2http(EEXIST), "Target already exists");
-        else if(s != ITER_NO_MORE && s != OK)
-            quit_errmsg(rc2http(s), rc2str(s));
+    } else { /* Request comes in from the user: create polling job with all volnodes as target */
+        sx_nodelist_t *volnodes = NULL;
 
         /* Check source file existence */
-        s = sx_hashfs_list_first(hashfs, vol, source, &file, 0, NULL, 1);
-        if(s == ITER_NO_MORE || (s == OK && slen && source[slen-1] != '/' && strcmp(source, file->name + 1)))
+        s = sx_hashfs_list_first(hashfs, vol, source, &file, 0, NULL, 0);
+        if(s == ITER_NO_MORE) {
+            sx_blob_free(b);
             quit_errmsg(rc2http(ENOENT), "Not Found");
-        else if(s != OK && s != ITER_NO_MORE)
+        } else if(s == OK) {
+            int has_glob = sxi_str_has_glob(source);
+
+            if(!has_glob && source[slen-1] != '/' && fnmatch(source, file->name + 1, FNM_PATHNAME)) {
+                sx_blob_free(b);
+                quit_errmsg(rc2http(ENOENT), "Not Found");
+            } else if(has_glob) {
+                /* Source file exists. Check whether dest has a trailing slash when listing points to more than one file */
+                s = sx_hashfs_list_next(hashfs);
+                if(s == OK && dest[dlen-1] != '/') {
+                    sx_blob_free(b);
+                    quit_errmsg(400, "Not a directory");
+                }
+            }
+        }
+        if(s != OK && s != ITER_NO_MORE) {
+            sx_blob_free(b);
             quit_errmsg(rc2http(s), rc2str(s));
+        }
 
-        s = sx_hashfs_files_processing_job(hashfs, uid, vol, 0, source, dest, &job);
+        if((s = sx_hashfs_effective_volnodes(hashfs, NL_NEXTPREV, vol, 0, &volnodes, NULL)) != OK) {
+            sx_blob_free(b);
+            quit_errmsg(rc2http(s), msg_get_reason());
+        }
 
+        sx_blob_to_data(b, &job_data, &job_data_len);
+        s = sx_hashfs_mass_job_new(hashfs, uid, &job_id, JOBTYPE_MASSRENAME, MASS_JOB_INITIAL_TIMEOUT, volume, job_data, job_data_len, volnodes);
+        sx_blob_free(b);
+        sx_nodelist_delete(volnodes);
         if(s != OK)
             quit_errmsg(rc2http(s), msg_get_reason());
-        send_job_info(job);
+        send_job_info(job_id);
     }
 }

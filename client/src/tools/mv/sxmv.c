@@ -209,9 +209,8 @@ int main(int argc, char **argv) {
         if(!(src_file = sxfile_from_arg(&cluster2, fname, !args.recursive_flag)))
             goto main_err;
 
-        if(!cmp_clusters(cluster1, cluster2) && !strcmp(sxc_file_get_volume(src_file), sxc_file_get_volume(dst_file)) &&
-           !sxc_file_has_glob(src_file)) {
-            /* Here we know that both src and dest share the same volume, belong to the same cluster and do not contain globbings. We can use mass rename facility */
+        if(!cmp_clusters(cluster1, cluster2) && !strcmp(sxc_file_get_volume(src_file), sxc_file_get_volume(dst_file))) {
+            /* Here we know that both src and dest share the same volume and belong to the same cluster. We can use mass rename facility. */
             if(sxc_mass_rename(cluster1, src_file, dst_file)) {
                 if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_NOTFOUND_ERR)) {
                     const char *src_name = sxc_file_get_path(src_file);
@@ -272,10 +271,7 @@ int main(int argc, char **argv) {
                     free(newpath);
                     if(!sxc_mass_rename(cluster1, src_file, dst_file))
                         fallback = 0;
-                }
-
-                if(sxc_geterrnum(sx) && !strstr(sxc_geterrmsg(sx),"Target already exists")) {
-                    /* If destination file or directory exists, we have to use cp+rm fallback, otherwise it is an error */
+                } else {
                     fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
                     fail = 1;
                     sxc_file_free(src_file);

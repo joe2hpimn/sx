@@ -422,16 +422,16 @@ static enum head_result head_cb(curlev_context_t *ctx, long http_status, char *p
     CURLOPT_INTERFACE;
 */
 
-static int reject_dots(const char *query)
+int sxi_reject_dots(const char *str)
 {
     const char *lastslash;
-    if (strstr(query, "/../") || strstr(query, "/./"))
+    if (strstr(str, "/../") || strstr(str, "/./"))
         return 1;
-    lastslash = strrchr(query, '/');
+    lastslash = strrchr(str, '/');
     if (lastslash)
         lastslash++;
     else
-        lastslash = query;
+        lastslash = str;
     if (!strcmp(lastslash, "..") || !strcmp(lastslash, "."))
         return 1;
     return 0;
@@ -466,7 +466,7 @@ int sxi_cluster_query_ev(curlev_context_t *cbdata,
 	sxi_cbdata_seterr(cbdata, SXE_EARG, "Cluster query failed: Invalid argument");
 	return -1;
     }
-    if (reject_dots(query)) {
+    if (sxi_reject_dots(query)) {
         sxi_cbdata_seterr(cbdata, SXE_EARG, "URL with '.' or '..' is not accepted");
         return -1;
     }

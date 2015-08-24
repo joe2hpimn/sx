@@ -109,6 +109,7 @@ sxi_query_t *sxi_cluster_upgrade_proto(sxc_client_t *sx);
 
 sxi_query_t *sxi_cluster_setmeta_proto(sxc_client_t *sx, int timestamp, sxc_meta_t *meta);
 
+sxi_query_t *sxi_query_create(sxc_client_t *sx, const char *path, enum sxi_cluster_verb verb);
 void sxi_query_free(sxi_query_t *query);
 
 #endif

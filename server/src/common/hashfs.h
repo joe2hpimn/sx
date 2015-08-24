@@ -60,6 +60,9 @@
 #define QUOTA_UNLIMITED 0LL
 #define SX_CUSTOM_META_PREFIX "$custom$"
 
+#define MASS_JOB_INITIAL_TIMEOUT 60
+#define MASS_JOB_TIMEOUT 3600
+
 typedef enum {
     NL_PREV,
     NL_NEXT,
@@ -255,6 +258,9 @@ rc_ty sx_hashfs_revision_first(sx_hashfs_t *h, const sx_hashfs_volume_t *volume,
 rc_ty sx_hashfs_revision_next(sx_hashfs_t *h, int reversed);
 rc_ty sx_hashfs_list_etag(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const char *pattern, int8_t recurse, sx_hash_t *etag);
 
+/* Convert time to string representation which can be part of the revision string */
+int sx_hashfs_timeval2str(const struct timeval *tv, char *buff);
+
 /* 0 = stop, 1 = continue */
 typedef int (*sx_find_cb_t)(const sx_hashfs_volume_t *volume, const sx_hashfs_file_t *file, const sx_hash_t *contents, unsigned int nblocks, void *ctx);
 rc_ty sx_hashfs_file_find(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const char* lastpath, const char *lastrev, const char *maxrev, sx_find_cb_t cb, void *ctx);
@@ -336,10 +342,10 @@ rc_ty sx_hashfs_file_delete(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, co
 rc_ty sx_hashfs_filedelete_job(sx_hashfs_t *h, sx_uid_t user_id, const sx_hashfs_volume_t *vol, const char *name, const char *revision, job_t *job_id);
 
 /* File rename */
-rc_ty sx_hashfs_file_rename(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const char *oldname, const char *revision, const char *newname);
+rc_ty sx_hashfs_file_rename(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const struct timeval *tv, const char *oldname, const char *revision, const char *newname);
 
-/* Create and schedule batch jobs (batch rename or delete) */
-rc_ty sx_hashfs_files_processing_job(sx_hashfs_t *h, sx_uid_t user_id, const sx_hashfs_volume_t *vol, int recursive, const char *input_pattern, const char *output_pattern, job_t *job_id);
+/* Create and schedule mass jobs */
+rc_ty sx_hashfs_mass_job_new(sx_hashfs_t *h, sx_uid_t user_id, job_t *job_id, jobtype_t slave_job_type, unsigned int slave_job_timeout, const char *slave_job_lockname, const void *slave_job_data, unsigned int slave_job_data_len, const sx_nodelist_t *targets);
 
 /* Users */
 typedef enum {
@@ -369,6 +375,7 @@ rc_ty sx_hashfs_countjobs(sx_hashfs_t *h, sx_uid_t user_id);
 rc_ty sx_hashfs_job_lock(sx_hashfs_t *h, const char *owner);
 rc_ty sx_hashfs_job_unlock(sx_hashfs_t *h, const char *owner);
 unsigned int sx_hashfs_job_file_timeout(sx_hashfs_t *h, unsigned int ndests, uint64_t size);
+rc_ty sx_hashfs_set_job_data(sx_hashfs_t *h, job_t job, const void *data, unsigned int len, unsigned int expires_in, int lockdb);
 
 /* Xfers */
 rc_ty sx_hashfs_xfer_tonodes(sx_hashfs_t *h, sx_hash_t *block, unsigned int size, const sx_nodelist_t *targets);

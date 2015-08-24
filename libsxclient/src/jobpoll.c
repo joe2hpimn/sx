@@ -897,3 +897,118 @@ curlev_context_t *sxi_job_cbdata(const sxi_job_t *job) {
 sxi_job_status_t sxi_job_status(const sxi_job_t *job) {
     return job ? job->status : JOBST_UNDEF;
 }
+
+static int jobget_ev_setup_cb(curlev_context_t *cbdata, const char *host) {
+    struct cb_jobget_ctx *yactx;
+
+    if(!cbdata)
+        return -1;
+
+    yactx = (struct cb_jobget_ctx *)sxi_cbdata_get_context(cbdata);
+
+    if(yactx->yh)
+        yajl_free(yactx->yh);
+
+    yactx->cbdata = cbdata;
+    if(!(yactx->yh  = yajl_alloc(&yactx->yacb, NULL, yactx))) {
+        CBDEBUG("failed to allocate yajl structure");
+        sxi_cbdata_seterr(cbdata, SXE_EMEM, "List failed: Out of memory");
+        return 1;
+    }
+
+    yactx->state = JG_BEGIN;
+    free(yactx->job_id);
+    yactx->job_id = NULL;
+    yactx->job_host = host;
+    yactx->poll_min_delay = 0;
+    yactx->poll_max_delay = 0;
+
+    return 0;
+}
+
+static int jobget_ev_cb(curlev_context_t *cbdata, const unsigned char *data, size_t size) {
+    struct cb_jobget_ctx *yactx;
+
+    if(!cbdata)
+        return -1;
+
+    yactx = (struct cb_jobget_ctx *)sxi_cbdata_get_context(cbdata);
+
+    if(yajl_parse(yactx->yh, data, size) != yajl_status_ok) {
+        CBDEBUG("failed to parse JSON data");
+        return 1;
+    }
+
+    return 0;
+}
+
+curlev_context_t *sxi_job_submit_ev(sxi_conns_t *conns, const char *host, enum sxi_cluster_verb verb, const char *query, const char *name, void *content, size_t content_size) {
+    sxc_client_t *sx;
+    struct cb_jobget_ctx *jobget_ctx;
+    curlev_context_t *cbdata;
+
+    if (!conns || !host || !query)
+        return NULL;
+
+    sx = sxi_conns_get_client(conns);
+    cbdata = sxi_cbdata_create_generic(conns, NULL, NULL);
+
+    jobget_ctx = calloc(1, sizeof(*jobget_ctx));
+    if(!jobget_ctx) {
+        sxi_seterr(sx, SXE_EMEM, "Out of memory allocating jobget context");
+        sxi_cbdata_unref(&cbdata);
+        return NULL;
+    }
+
+    /* This context is used to parse job submit query json respone */
+    sxi_cbdata_set_context(cbdata, jobget_ctx);
+    ya_init(&jobget_ctx->yacb);
+    jobget_ctx->yacb.yajl_start_map = yacb_jobget_start_map;
+    jobget_ctx->yacb.yajl_map_key = yacb_jobget_map_key;
+    jobget_ctx->yacb.yajl_string = yacb_jobget_string;
+    jobget_ctx->yacb.yajl_number = yacb_jobget_number;
+    jobget_ctx->yacb.yajl_end_map = yacb_jobget_end_map;
+
+    if(sxi_cluster_query_ev(cbdata, conns, host, verb, query, content, content_size, jobget_ev_setup_cb, jobget_ev_cb)) {
+        sxi_cbdata_unref(&cbdata);
+        return NULL;
+    }
+
+    return cbdata;
+}
+
+sxi_job_t *sxi_job_submit_ev_wait(curlev_context_t *cbdata, long *http_status) {
+    int rc;
+    sxi_conns_t *conns = sxi_cbdata_get_conns(cbdata);
+    sxc_client_t *sx = sxi_conns_get_client(conns);
+    struct cb_jobget_ctx *jobget_ctx = sxi_cbdata_get_context(cbdata);
+    sxi_job_t *ret = NULL;
+
+    if(!cbdata || !sx || !conns)
+        return NULL;
+
+    if(!jobget_ctx) {
+        sxi_seterr(sx, SXE_EARG, "Invalid argument: Jobget context is not set");
+        return NULL;
+    }
+    rc = sxi_cbdata_wait(cbdata, sxi_conns_get_curlev(conns), http_status);
+    if(rc == -2) {
+        sxi_seterr(sx, SXE_ECOMM, "Failed to wait for query");
+        goto sxi_job_submit_ev_wait_err;
+    }
+
+    if(rc == -1 || *http_status != 200) {
+        sxi_seterr(sx, SXE_ECOMM, "Query failed with %ld", *http_status);
+        goto sxi_job_submit_ev_wait_err;
+    }
+
+    ret = sxi_job_new(conns, jobget_ctx->job_id, -1, jobget_ctx->job_host);
+sxi_job_submit_ev_wait_err:
+    yajl_free(jobget_ctx->yh);
+    free(jobget_ctx->job_id);
+    free(jobget_ctx);
+    /* Reset context just in case */
+    sxi_cbdata_set_context(cbdata, NULL);
+
+    return ret;
+}

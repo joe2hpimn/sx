@@ -63,5 +63,7 @@ int sxi_job_query_ev(sxi_conns_t *conns, sxi_job_t *yres, unsigned *finished);
 sxi_job_t *sxi_job_new(sxi_conns_t *conns, const char *id, enum sxi_cluster_verb verb, const char *host);
 curlev_context_t *sxi_job_cbdata(const sxi_job_t *job);
 sxi_job_status_t sxi_job_status(const sxi_job_t *job);
+curlev_context_t *sxi_job_submit_ev(sxi_conns_t *conns, const char *host, enum sxi_cluster_verb verb, const char *query, const char *name, void *content, size_t content_size);
+sxi_job_t *sxi_job_submit_ev_wait(curlev_context_t *cbdata, long *http_status);
 
 #endif

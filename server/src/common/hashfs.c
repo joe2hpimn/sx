@@ -41,6 +41,7 @@
 #include "hashfs.h"
 #include "hdist.h"
 #include "../libsxclient/src/misc.h"
+#include "../libsxclient/src/curlevents.h"
 
 #include "sx.h"
 #include "qsort.h"
@@ -63,6 +64,7 @@
 #define HASHFS_VERSION_1_0 "SX-Storage 1.6"
 #define HASHFS_VERSION_1_1 "SX-Storage 1.7"
 #define HASHFS_VERSION_1_2 "SX-Storage 1.8"
+/*#define HASHFS_VERSION_1_3 "SX-Storage 1.9"*/
 #define HASHFS_VERSION HASHFS_VERSION_1_2
 #define SIZES 3
 const char sizedirs[SIZES] = "sml";
@@ -712,9 +714,11 @@ struct _sx_hashfs_t {
     sqlite3_stmt *qe_getjob;
     sqlite3_stmt *qe_getfiledeljob;
     sqlite3_stmt *qe_addjob;
+    sqlite3_stmt *qe_mod_jobdata;
     sqlite3_stmt *qe_addact;
     sqlite3_stmt *qe_countjobs;
     sqlite3_stmt *qe_islocked;
+    sqlite3_stmt *qe_expired;
     sqlite3_stmt *qe_hasjobs;
     sqlite3_stmt *qe_lock;
     sqlite3_stmt *qe_unlock;
@@ -836,9 +840,11 @@ static void close_all_dbs(sx_hashfs_t *h) {
     sqlite3_finalize(h->qe_getjob);
     sqlite3_finalize(h->qe_getfiledeljob);
     sqlite3_finalize(h->qe_addjob);
+    sqlite3_finalize(h->qe_mod_jobdata);
     sqlite3_finalize(h->qe_addact);
     sqlite3_finalize(h->qe_countjobs);
     sqlite3_finalize(h->qe_islocked);
+    sqlite3_finalize(h->qe_expired);
     sqlite3_finalize(h->qe_hasjobs);
     sqlite3_finalize(h->qe_lock);
     sqlite3_finalize(h->qe_unlock);
@@ -1764,7 +1770,7 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 	    goto open_hashfs_fail;
 	if(qprep(h->metadb[i], &h->qm_delfile[i], "DELETE FROM files WHERE fid = :file"))
 	    goto open_hashfs_fail;
-        if(qprep(h->metadb[i], &h->qm_mvfile[i], "UPDATE files SET name = :newname WHERE name = :oldname AND rev = :rev"))
+        if(qprep(h->metadb[i], &h->qm_mvfile[i], "UPDATE files SET name = :newname, rev = :newrev WHERE name = :oldname AND rev = :rev"))
             goto open_hashfs_fail;
 	if(qprep(h->metadb[i], &h->qm_wiperelocs[i], "DELETE FROM relocs"))
 	    goto open_hashfs_fail;
@@ -1817,12 +1823,16 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
         goto open_hashfs_fail;
     if(qprep(h->eventdb, &h->qe_addjob, "INSERT INTO jobs (parent, type, lock, expiry_time, data, user) SELECT :parent, :type, :lock, datetime(:expiry + strftime('%s', COALESCE((SELECT expiry_time FROM jobs WHERE job = :parent), 'now')), 'unixepoch'), :data, :uid"))
 	goto open_hashfs_fail;
+    if(qprep(h->eventdb, &h->qe_mod_jobdata, "UPDATE jobs SET data = :data WHERE job = :id"))
+        goto open_hashfs_fail;
     if(qprep(h->eventdb, &h->qe_addact, "INSERT INTO actions (job_id, target, addr, internaladdr, capacity) VALUES (:job, :node, :addr, :int_addr, :capa)"))
 	goto open_hashfs_fail;
     if(qprep(h->eventdb, &h->qe_countjobs, "SELECT COUNT(*) FROM jobs WHERE user = :uid AND complete = 0"))
 	goto open_hashfs_fail;
     if(qprep(h->eventdb, &h->qe_islocked, "SELECT value from hashfs WHERE key = 'lockedby'"))
 	goto open_hashfs_fail;
+    if(qprep(h->eventdb, &h->qe_expired, "SELECT expiry_time < strftime('%Y-%m-%d %H:%M:%f', 'now', :delay) FROM jobs WHERE job = :id"))
+        goto open_hashfs_fail;
     snprintf(qrybuff, sizeof(qrybuff), "SELECT 1 FROM jobs WHERE complete = 0 AND type NOT IN (%d, %d, %d, %d, %d) LIMIT 1", JOBTYPE_DISTRIBUTION, JOBTYPE_JLOCK, JOBTYPE_STARTREBALANCE, JOBTYPE_FINISHREBALANCE, JOBTYPE_REPLACE);
     if(qprep(h->eventdb, &h->qe_hasjobs, qrybuff))
 	goto open_hashfs_fail;
@@ -3525,6 +3535,22 @@ static rc_ty upgrade_db(int lockfd, const char *path, sxi_db_t *db, const char *
     return ret;
 }
 
+/* Version upgrade 1.2 -> 1.3 */
+static rc_ty metadb_1_2_to_1_3(sxi_db_t *db)
+{
+    rc_ty ret = FAIL_EINTERNAL;
+    sqlite3_stmt *q = NULL;
+    do {
+        if(qprep(db, &q, "CREATE UNIQUE INDEX revision ON files(rev)") || qstep_noret(q))
+            break;
+        qnullify(q);
+
+        ret = OK;
+    } while(0);
+    qnullify(q);
+    return ret;
+}
+
 
 /* Version upgrade 1.1 -> 1.2 */
 static rc_ty hashfs_1_1_to_1_2(sxi_db_t *db)
@@ -3853,7 +3879,18 @@ static const sx_upgrade_t upgrade_sequence[] = {
         .upgrade_eventsdb = eventdb_1_1_to_1_2,
         .upgrade_xfersdb = upgrade_noop,
         .upgrade_alldb = alldb_noop
-    }
+    },
+    /*{
+        HASHFS_VERSION_1_2,
+        HASHFS_VERSION_1_3,
+        .upgrade_hashfsdb = upgrade_noop,
+        .upgrade_metadb = metadb_1_2_to_1_3,
+        .upgrade_datadb = upgrade_noop,
+        .upgrade_tempdb = upgrade_noop,
+        .upgrade_eventsdb = upgrade_noop,
+        .upgrade_xfersdb = upgrade_noop,
+        .upgrade_alldb = alldb_noop
+    }*/
 };
 
 static rc_ty upgrade_bin(int lockfd, const char *dir, const char *path, const char *from, const char *to, unsigned j, unsigned i)
@@ -10068,210 +10105,113 @@ sx_hashfs_filedelete_job_err:
     return ret;
 }
 
-static rc_ty schedule_files_processing_job(sx_hashfs_t *h, sx_uid_t user_id, const sx_node_t *n, const sx_hashfs_volume_t *vol, int recursive, const struct timeval *timestamp, const char *input_pattern, const char *dest, char **jobid) {
-    const sx_node_t *me = sx_hashfs_self(h);
+rc_ty sx_hashfs_set_job_data(sx_hashfs_t *h, job_t job, const void *data, unsigned int len, unsigned int expires_in, int lockdb) {
+    rc_ty ret = FAIL_EINTERNAL;
 
-    if(!n || !vol || !input_pattern || !timestamp || !jobid) {
-        WARN("NULL argument");
+    if(!data) {
+        NULLARG();
         return EINVAL;
     }
 
-    if(sx_node_cmp(me, n)) {
-        /* Remote node */
-        char *url;
-        unsigned int len;
-        int qret = 0;
-        sxi_job_t *job;
-        char *input_enc, *dest_enc = NULL;
-        sxi_hostlist_t hlist;
-
-        input_enc = sxi_urlencode(h->sx, input_pattern, 0);
-        if(!input_enc) {
-            WARN("Failed to urlencode input pattern");
-            return ENOMEM;
-        }
-
-        if(dest) {
-            dest_enc = sxi_urlencode(h->sx, dest, 0);
-            if(!dest_enc) {
-                WARN("Failed to urlencode input pattern");
-                free(input_enc);
-                return ENOMEM;
-            }
-        }
-
-        /* 42: 2 x 20 bytes for int64 + '.' separator + nulbyte */
-        len = strlen(vol->name) + lenof("?filter=") + strlen(input_enc) + lenof("&timestamp=") + 42;
-        if(recursive)
-            len += lenof("&recursive");
-        if(dest)
-            len += lenof("&dest=") + strlen(dest_enc);
-
-        url = wrap_malloc(len);
-        if(!url) {
-            WARN("Failed to allocate url");
-            free(input_enc);
-            free(dest_enc);
-            msg_set_reason("Out of memory");
-            return ENOMEM;
-        }
-
-        if(dest)
-            snprintf(url, len, "%s?source=%s&timestamp=%lld.%lld&dest=%s%s", vol->name, input_enc, (long long)timestamp->tv_sec, (long long)timestamp->tv_usec, dest_enc, recursive ? "&recursive" : "");
-        else
-            snprintf(url, len, "%s?filter=%s&timestamp=%lld.%lld%s", vol->name, input_enc, (long long)timestamp->tv_sec, (long long)timestamp->tv_usec, recursive ? "&recursive" : "");
-
-        free(input_enc);
-        free(dest_enc);
-
-        sxi_hostlist_init(&hlist);
-        if(sxi_hostlist_add_host(h->sx, &hlist, sx_node_internal_addr(n))) {
-            WARN("Failed to add host to list: %s", sxc_geterrmsg(h->sx));
-            sxi_hostlist_empty(&hlist);
-            free(url);
-            return FAIL_EINTERNAL;
-        }
-
-        job = sxi_job_submit(h->sx_clust, &hlist, dest ? REQ_PUT : REQ_DELETE, url, NULL, NULL, 0, &qret, NULL);
-
-        free(url);
-        sxi_hostlist_empty(&hlist);
-
-        if(!job) {
-            WARN("Failed to add new job: %s", sxc_geterrmsg(h->sx));
-            return FAIL_EINTERNAL;
-        }
-
-        *jobid = strdup(sxi_job_get_id(job));
-        sxi_job_free(job);
-        if(*jobid == NULL) {
-            WARN("Failed to get job ID");
-            return FAIL_EINTERNAL;
-        }
-
-        return OK;
-    } else {
-        /* Local node */
-        sx_nodelist_t *nodelist = sx_nodelist_new();
-        sx_blob_t *b;
-        const void *job_data = NULL;
-        unsigned int job_data_len = 0;
-        rc_ty ret;
-        job_t job_id;
-
-        if(!nodelist) {
-            WARN("Failed to create a nodelist");
-            return FAIL_EINTERNAL;
-        }
-
-        if(sx_nodelist_add(nodelist, sx_node_dup(n))) {
-            WARN("Failed to add node to nodelist");
-            sx_nodelist_delete(nodelist);
-            return FAIL_EINTERNAL;
-        }
-
-        b = sx_blob_new();
-        if(!b) {
-            WARN("Failed to allocate blob");
-            sx_nodelist_delete(nodelist);
-            return FAIL_EINTERNAL;
-        }
-
-        if(sx_blob_add_string(b, vol->name) || sx_blob_add_int32(b, recursive) ||
-           sx_blob_add_string(b, input_pattern) || sx_blob_add_datetime(b, timestamp)) {
-            WARN("Failed to add data to blob");
-            sx_nodelist_delete(nodelist);
-            sx_blob_free(b);
-            return FAIL_EINTERNAL;
-        }
-
-        if(dest && sx_blob_add_string(b, dest)) {
-            WARN("Failed to add data to blob");
-            sx_nodelist_delete(nodelist);
-            sx_blob_free(b);
-            return FAIL_EINTERNAL;
-        }
-        sx_blob_to_data(b, &job_data, &job_data_len);
-        /* Schedule the job locally */
-        ret = sx_hashfs_job_new(h, user_id, &job_id, dest ? JOBTYPE_MASSRENAME : JOBTYPE_MASSDELETE, 3600, NULL, job_data, job_data_len, nodelist);
-        if(ret == OK) {
-            *jobid = malloc(UUID_STRING_SIZE + 1 + 21);
-            snprintf(*jobid, UUID_STRING_SIZE + 1 + 21, "%s:%lld", sx_node_uuid_str(me), (long long)job_id);
-        }
-
-        sx_blob_free(b);
-        sx_nodelist_delete(nodelist);
-        return ret;
+    if(lockdb && qbegin(h->eventdb)) {
+        INFO("Failed to lock database");
+        return FAIL_EINTERNAL;
     }
+
+    sqlite3_reset(h->qe_expired);
+    sqlite3_reset(h->qe_mod_jobdata);
+    if(qbind_int64(h->qe_expired, ":id", job) || qbind_int(h->qe_expired, ":delay", expires_in) || qstep_ret(h->qe_expired)) {
+        INFO("Failed to update job data for job %lld", (long long)job);
+        goto sx_hashfs_set_job_data_err;
+    }
+
+    if(sqlite3_column_int(h->qe_expired, 0)) {
+        msg_set_reason("Job expired");
+        goto sx_hashfs_set_job_data_err;
+    }
+
+    if(qbind_int64(h->qe_mod_jobdata, ":id", job) || qbind_blob(h->qe_mod_jobdata, ":data", data, len) || qstep_noret(h->qe_mod_jobdata)) {
+        INFO("Failed to update job data for job %lld", (long long)job);
+        goto sx_hashfs_set_job_data_err;
+    }
+
+    if(lockdb && qcommit(h->eventdb)) {
+        INFO("Failed to commit job data changes");
+        goto sx_hashfs_set_job_data_err;
+    }
+
+    ret = OK;
+sx_hashfs_set_job_data_err:
+    if(ret && lockdb)
+        qrollback(h->eventdb);
+    sqlite3_reset(h->qe_expired);
+    sqlite3_reset(h->qe_mod_jobdata);
+    return ret;
 }
 
-rc_ty sx_hashfs_files_processing_job(sx_hashfs_t *h, sx_uid_t user_id, const sx_hashfs_volume_t *vol, int recursive, const char *input_pattern, const char *dest, job_t *job_id) {
-    rc_ty ret = FAIL_EINTERNAL;
-    sx_nodelist_t *volnodes = NULL;
-    const sx_node_t *me;
-    unsigned int nnodes, i;
+rc_ty sx_hashfs_mass_job_new(sx_hashfs_t *h, sx_uid_t user_id, job_t *job_id, jobtype_t slave_job_type, unsigned int slave_job_timeout, const char *slave_job_lockname, const void *slave_job_data, unsigned int slave_job_data_len, const sx_nodelist_t *targets) {
+    rc_ty ret = FAIL_EINTERNAL, s;
     sx_blob_t *b = NULL;
-    struct timeval timestamp;
-    const void *job_data = NULL;
+    job_t parent;
+    const void *job_data;
     unsigned int job_data_len;
 
-    if(!vol || !input_pattern) {
+    if(!targets || !job_id) {
         msg_set_reason("NULL argument");
-        goto sx_hashfs_files_processing_job_err;
+        return EINVAL;
     }
 
-    if(sx_hashfs_effective_volnodes(h, NL_NEXTPREV, vol, 0, &volnodes, NULL)) {
-        WARN("Failed to get volnodes list");
-        goto sx_hashfs_files_processing_job_err;
+    s = sx_hashfs_job_new_begin(h);
+    if(s != OK)
+        return s;
+
+    /* Parent job will be a spawning job, it should receive a slave job data together with a child job ID and the slave job type */
+    s = sx_hashfs_job_new_notrigger(h, JOB_NOPARENT, user_id, &parent, JOBTYPE_JOBSPAWN, slave_job_timeout, NULL, NULL, 0, targets);
+    if(s != OK) {
+        ret = s;
+        goto sx_hashfs_mass_job_new_err;
     }
 
-    me = sx_hashfs_self(h);
-
-    if(!volnodes) {
-        msg_set_reason("Failed to get volnodes list");
-        goto sx_hashfs_files_processing_job_err;
-    }
-    if(!me) {
-        msg_set_reason("Failed to get node UUID");
-        goto sx_hashfs_files_processing_job_err;
+    /* Child job has no job data set here, it is gonna receive it when spawning job is called */
+    s = sx_hashfs_job_new_notrigger(h, parent, user_id, job_id, JOBTYPE_JOBPOLL, MASS_JOB_TIMEOUT, NULL, NULL, 0, targets);
+    if(s != OK) {
+        ret = s;
+        goto sx_hashfs_mass_job_new_err;
     }
 
-    gettimeofday(&timestamp, NULL);
     b = sx_blob_new();
     if(!b) {
-        WARN("Failed to create blob");
-        goto sx_hashfs_files_processing_job_err;
+        msg_set_reason("Failed to allocate job data");
+        goto sx_hashfs_mass_job_new_err;
     }
 
-    nnodes = sx_nodelist_count(volnodes);
-    for(i = 0; i < nnodes; i++) {
-        rc_ty s;
-        char *jobid = NULL;
-        const sx_node_t *n;
-
-        n = sx_nodelist_get(volnodes, i);
-        if((s = schedule_files_processing_job(h, user_id, n, vol, recursive, &timestamp, input_pattern, dest, &jobid)) != OK) {
-            WARN("Failed to create batch delete job on %s: %s", sx_node_uuid_str(n), msg_get_reason());
-            ret = s;
-            goto sx_hashfs_files_processing_job_err;
-        }
-        if(!jobid) {
-            WARN("Job ID is not set");
-            goto sx_hashfs_files_processing_job_err;
-        }
-        if(sx_blob_add_string(b, jobid)) {
-            WARN("Failed to add job ID %s to blob", jobid);
-            free(jobid);
-            goto sx_hashfs_files_processing_job_err;
-        }
-        free(jobid);
+    /* Save slave job data together with child job ID */
+    if(sx_blob_add_int64(b, *job_id) || sx_blob_add_int32(b, slave_job_type) || sx_blob_add_int32(b, slave_job_timeout) ||
+       sx_blob_add_string(b, slave_job_lockname) || sx_blob_add_blob(b, slave_job_data, slave_job_data_len)) {
+        msg_set_reason("Failed to prepare job data");
+        goto sx_hashfs_mass_job_new_err;
     }
 
+    /* Update parent job data to contain all needed values. Needs to be done after child job is scheduled in order to provide 
+     * its job ID which will be used for further job data change */
     sx_blob_to_data(b, &job_data, &job_data_len);
-    ret = sx_hashfs_job_new(h, user_id, job_id, JOBTYPE_JOBPOLL, 3600, NULL, job_data, job_data_len, volnodes);
-sx_hashfs_files_processing_job_err:
+    if(sx_hashfs_set_job_data(h, parent, job_data, job_data_len, 0, 0)) {
+        msg_set_reason("Failed to apply parent job data");
+        goto sx_hashfs_mass_job_new_err;
+    }
+
+    /* All jobs are scheduled properly now, apply and trigger them */
+    s = sx_hashfs_job_new_end(h);
+    if(s) {
+        ret = s;
+        goto sx_hashfs_mass_job_new_err;
+    }
+
+    ret = OK;
+sx_hashfs_mass_job_new_err:
+    if(ret != OK)
+        sx_hashfs_job_new_abort(h);
     sx_blob_free(b);
-    sx_nodelist_delete(volnodes);
     return ret;
 }
 
@@ -10385,8 +10325,21 @@ static rc_ty get_file_id(sx_hashfs_t *h, const char *volume, const char *filenam
     return res;
 }
 
+int sx_hashfs_timeval2str(const struct timeval *tv, char *buff) {
+    struct tm *t;
+
+    if(!tv || !buff)
+        return -1;
+
+    t = gmtime(&tv->tv_sec);
+    if(strftime(buff, REV_TIME_LEN, "%Y-%m-%d %H:%M:%S", t) != REV_TIME_LEN - 4)
+        return -1;
+    snprintf(buff + REV_TIME_LEN - 4, 5, ".%03lld", (long long)tv->tv_usec / 1000);
+    return 0;
+}
+
 /* Rename files with database switch */
-static rc_ty rename_switch_dbs(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, const char *oldname, const char *revision, unsigned int mdb1, const char *newname, unsigned int mdb2) {
+static rc_ty rename_switch_dbs(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, const char *oldname, const char *revision, unsigned int mdb1, const char *newname, const char *newrev, unsigned int mdb2) {
     rc_ty ret = FAIL_EINTERNAL;
     sqlite3_stmt *qget = h->qm_getrev[mdb1], *qins = h->qm_ins[mdb2], *qdel = h->qm_delfile[mdb1];
     sqlite3_stmt *qmget = h->qm_metaget[mdb1], *qmset = h->qm_metaset[mdb2], *qmdel = h->qm_metadel[mdb1];
@@ -10443,7 +10396,7 @@ static rc_ty rename_switch_dbs(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, co
     /* Insert existing file data with updated name to the correct database */
     if(qbind_int64(qins, ":volume", vol->id) || qbind_text(qins, ":name", newname) ||
        qbind_int64(qins, ":size", size) || qbind_blob(qins, ":hashes", content_len ? content : "", content_len) ||
-       qbind_text(qins, ":revision", revision) || qbind_blob(qins, ":revision_id", revision_id, revision_id_len) ||
+       qbind_text(qins, ":revision", newrev) || qbind_blob(qins, ":revision_id", revision_id, revision_id_len) ||
        qbind_int64(qins, ":age", age)) {
         msg_set_reason("Failed to rename file '%s' to '%s'", oldname, newname);
         goto rename_switch_dbs_err;
@@ -10537,9 +10490,12 @@ rename_switch_dbs_err:
 
 /* Change name for a file. If new file name belongs to a different meta db, all its entries will have to be moved to the destination database. 
  * Otherwise simple rename is sufficient. */
-rc_ty sx_hashfs_file_rename(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const char *oldname, const char *revision, const char *newname) {
+rc_ty sx_hashfs_file_rename(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const struct timeval *tv, const char *oldname, const char *revision, const char *newname) {
     int mdb1, mdb2;
     int64_t ndiff;
+    rc_ty s;
+    char newrev[REV_LEN+1];
+    uint8_t hash[SXI_SHA1_BIN_LEN];
 
     if(!h || !volume || !oldname || !newname) {
         NULLARG();
@@ -10578,21 +10534,41 @@ rc_ty sx_hashfs_file_rename(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, co
         return FAIL_EINTERNAL;
     }
 
+    /* Calculate hash of the old revision */
+    if(sxi_sha1_calc(NULL, 0, revision, REV_LEN, hash)) {
+        msg_set_reason("Failed to calculate new revion for renamed file");
+        return FAIL_EINTERNAL;
+    }
+
+    /* Set common timestamp */
+    if(sx_hashfs_timeval2str(tv, newrev)) {
+        msg_set_reason("Failed to calculate new revion for renamed file");
+        return FAIL_EINTERNAL;
+    }
+
+    newrev[REV_TIME_LEN] = ':';
+    /* Generate revision random part using hash of the old revision */
+    sxi_bin2hex(hash, TOKEN_RAND_BYTES, newrev + REV_TIME_LEN + 1); /* Notice: previously calculated hash is truncated here */
+    newrev[REV_LEN] = '\0';
+
+    /* Check newly created revision string, just in case */
+    if(check_revision(newrev)) {
+        msg_set_reason("Invalid file revision");
+        return EINVAL;
+    }
+
     if(mdb1 == mdb2) {
         /* File stays in the same database, task is to only update its name */
         if(qbind_text(h->qm_mvfile[mdb1], ":oldname", oldname) ||
            qbind_text(h->qm_mvfile[mdb1], ":rev", revision) ||
            qbind_text(h->qm_mvfile[mdb1], ":newname", newname) ||
+           qbind_text(h->qm_mvfile[mdb1], ":newrev", newrev) ||
            qstep_noret(h->qm_mvfile[mdb1])) {
             msg_set_reason("Failed to rename file '%s' to '%s'", oldname, newname);
             return FAIL_EINTERNAL;
         }
-    } else {
-        rc_ty s;
-
-        if((s = rename_switch_dbs(h, volume, oldname, revision, mdb1, newname, mdb2)) != OK)
-            return s;
-    }
+    } else if((s = rename_switch_dbs(h, volume, oldname, revision, mdb1, newname, newrev, mdb2)) != OK)
+        return s;
 
     /* Compute name sizes difference */
     ndiff = strlen(newname);
@@ -10600,6 +10576,11 @@ rc_ty sx_hashfs_file_rename(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, co
     if(ndiff && sx_hashfs_update_volume_cursize(h, volume->id, ndiff)) {
         WARN("Failed to update volume size");
         return FAIL_EINTERNAL;
+    }
+
+    if((s = delete_old_revs_common(h, volume, newname, NULL, 0, NULL)) != OK) {
+        WARN("Failed to delete old revisions of file '%s'", newname);
+        return s;
     }
 
     return OK;
@@ -11260,9 +11241,10 @@ static const char *locknames[] = {
     "TOKEN_LOCAL", /* JOBTYPE_FLUSH_FILE_LOCAL */
     "UPGRADE", /* JOBTYPE_UPGRADE_FROM_1_0_OR_1_1 */
     NULL, /* JOBTYPE_JOBPOLL */
-    NULL, /* JOBTYPE_BATCHDELETE */
-    NULL, /* JOBTYPE_BATCHRENAME */
+    NULL, /* JOBTYPE_MASSDELETE */
+    "MASSRENAME", /* JOBTYPE_MASSRENAME */
     "CLUSTER_SETMETA", /* JOBTYPE_CLUSTER_SETMETA */
+    NULL, /* JOBTYPE_JOBSPAWN */
 };
 
 #define MAX_PENDING_JOBS 128

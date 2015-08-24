@@ -42,5 +42,7 @@ void fcgi_node_repaired(void);
 void fcgi_node_repaired(void);
 void fcgi_distlock(void);
 void fcgi_mark_faultynodes(void);
+void fcgi_node_mass_job_lock(void);
+void fcgi_node_mass_job_unlock(void);
 
 #endif
