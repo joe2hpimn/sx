@@ -106,10 +106,10 @@ static void trig_destroy_common(int sel) {
 }
 
 static void trig_destroy_workers(void) {
-    trig_destroy_common(0);
+    trig_destroy_common(1);
 }
 static void trig_destroy_managers(void) {
-    trig_destroy_common(1);
+    trig_destroy_common(0);
 }
 static void trig_destroy_all(void) {
     trig_destroy_workers();
@@ -131,10 +131,10 @@ static int trig_create(void) {
 }
 
 static int trig_worker(enum trig_t which) {
-    return pipes[which * 2];
+    return pipes[which * 2 + 1];
 }
 static int trig_manager(enum trig_t which) {
-    return pipes[which * 2 + 1];
+    return pipes[which * 2];
 }
 
 static int get_procnum(pid_t pid) {
