@@ -1296,6 +1296,14 @@ static int batch_hashes_to_hosts(curlev_context_t *cbdata, struct file_upload_ct
         sxi_seterr(sx, SXE_ECOMM, "All replicas have previously failed");
         return -1;
     }
+
+    if(sxi_cbdata_geterrnum(cbdata) == SXE_ABORT) {
+        SXDEBUG("Transfer abort requested");
+        yctx->all_fail = 1;
+        yctx->fail++;
+        return -1;
+    }
+
     for (i=from;i<size;i++) {
         struct need_hash *need = &needed[i];
         const char *host = NULL;
