@@ -6,6 +6,15 @@ usage "sx.fcgi"
 option  "socket"		- "Set socket for connection with httpd"
         string typestr="SOCKET" required
 
+option  "children"		- "Start N children processes"
+        int default="24" typestr="N" optional
+
+option  "reserved-socket"	- "Set httpd socket reserved for internode communication"
+        string typestr="SOCKET" optional
+
+option  "reserved-children"	- "Start N children processes reserved for internode communication"
+        int default="8" typestr="N" dependon="reserved-socket" optional
+
 option  "socket-mode"		- "Set socket mode to MODE (octal number; unix sockets only)"
         int typestr="MODE" optional
 
@@ -17,9 +26,6 @@ option  "logfile"		- "Write all log information to FILE"
 
 option  "pidfile"		- "Write process ID to FILE"
         string typestr="FILE" optional
-
-option  "children"		- "Start N children processes"
-        int default="32" typestr="N" optional
 
 option  "foreground"		- "Do not daemonize" flag off
 

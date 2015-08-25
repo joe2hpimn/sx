@@ -51,6 +51,7 @@ struct _sxc_client_t {
     char *op_vol;
     char *op_path;
     char *confdir;
+    char *qprefix;
     alias_list_t *alias;
     float node_preference;
 };
@@ -204,6 +205,7 @@ void sxc_client_shutdown(sxc_client_t *sx, int signal) {
             sx->log.func->close(sx->log.func->ctx);
         }
 	sxi_filter_unloadall(sx);
+	free(sx->qprefix);
 	free(sx->tempdir);
 	free(sx);
     }
@@ -523,3 +525,27 @@ float sxi_get_node_preference(sxc_client_t *sx) {
     return sx ? sx->node_preference : 0.0;
 }
 
+int sxi_set_query_prefix(sxc_client_t *sx, const char *prefix) {
+    char *nuprefix;
+    if(!sx)
+	return 1;
+
+    if(prefix) {
+	nuprefix = strdup(prefix);
+	if(!nuprefix) {
+	    sxi_setsyserr(sx, SXE_EMEM, "Couldn't duplicate prefix '%s'", prefix);
+	    return 1;
+	}
+    } else
+	nuprefix = NULL;
+
+    free(sx->qprefix);
+    sx->qprefix = nuprefix;
+    return 0;
+}
+
+const char *sxi_get_query_prefix(sxc_client_t *sx) {
+    if(!sx)
+	return NULL;
+    return sx->qprefix;
+}

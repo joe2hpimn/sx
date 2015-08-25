@@ -374,11 +374,11 @@ int arg_is(const char *arg, const char *ref) {
  * max(URI) = 8174 
  */
 static char reqbuf[8174];
-void handle_request(void) {
+void handle_request(worker_type_t wtype) {
     const char *param, *p_method, *p_uri;
     char *argp;
     unsigned int plen;
-    int cluster_readonly = 0;
+    int cluster_readonly = 0, s2sreq = 0;
 
     if(sx_hashfs_cluster_get_mode(hashfs, &cluster_readonly)) {
         CRIT("Failed to get cluster operating mode");
@@ -442,6 +442,21 @@ void handle_request(void) {
 	param++;
 	plen--;
     } while(*param == '/');
+
+    if(!strncmp(param, ".s2s/", lenof(".s2s/"))) {
+	param += lenof(".s2s/");
+	plen -= lenof(".s2s/");
+	while(*param == '/') {
+	    param++;
+	    plen--;
+	}
+	s2sreq = 1;
+    }
+    if(wtype == WORKER_S2S && !s2sreq)
+	WARN("Misconfiguration detected. Please make sure your restricted-socket config option is properly set.");
+    /* FIXME: we could detect the opposite kind of mismatch
+     * at the cost of extra complications in the wtype definition
+     * I prefer to privilege simplicity at this point */
 
     memcpy(reqbuf, param, plen+1);
     argp = memchr(reqbuf, '?', plen);
@@ -573,6 +588,11 @@ void handle_request(void) {
     DEBUG("Request from uid %lld", (long long)uid);
     if(cluster_readonly && (verb == VERB_PUT || verb == VERB_DELETE) && !has_priv(PRIV_CLUSTER) && !has_priv(PRIV_ADMIN))
         quit_errmsg(503, "Cluster is in read-only mode");
+
+    if(s2sreq && !has_priv(PRIV_CLUSTER)) {
+	send_authreq();
+	return;
+    }
 
     if(!sxi_hmac_sha1_init_ex(hmac_ctx, key, sizeof(key))) {
 	WARN("hmac_init failed");

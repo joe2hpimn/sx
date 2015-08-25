@@ -446,7 +446,7 @@ int sxi_cluster_query_ev(curlev_context_t *cbdata,
 {
     sxc_client_t *sx = conns->sx;
     int rc;
-    const char *bracket_open, *bracket_close;
+    const char *bracket_open, *bracket_close, *qprefix;
     unsigned n;
 
     if (!cbdata) {
@@ -477,7 +477,11 @@ int sxi_cluster_query_ev(curlev_context_t *cbdata,
 	return -1;
     }
 
-    n = lenof("https://[]:65535") + strlen(host) + 1 + strlen(query) + 1;
+    qprefix = sxi_get_query_prefix(sx);
+    if(!qprefix)
+	qprefix = "";
+
+    n = lenof("https://[]:65535") + strlen(host) + 1 + strlen(qprefix) + strlen(query) + 1;
     char *url = malloc(n);
     request_headers_t request = { host, url, conns->port ? conns->port : (conns->insecure ? 80 : 443) };
     reply_t reply = {{ cbdata, head_cb, errfn}, callback};
@@ -490,10 +494,11 @@ int sxi_cluster_query_ev(curlev_context_t *cbdata,
     bracket_open = strchr(host, ':') ? "[" : "";
     bracket_close = strchr(host, ':') ? "]" : "";
     /* caveats: we loose SNI support when connecting directly to IP */
+
     if(conns->port)
-	snprintf(url, n, "http%s://%s%s%s:%u/%s", conns->insecure ? "" : "s", bracket_open, host, bracket_close, conns->port, query);
+	snprintf(url, n, "http%s://%s%s%s:%u/%s%s", conns->insecure ? "" : "s", bracket_open, host, bracket_close, conns->port, qprefix, query);
     else
-	snprintf(url, n, "http%s://%s%s%s/%s", conns->insecure ? "" : "s", bracket_open, host, bracket_close, query);
+	snprintf(url, n, "http%s://%s%s%s/%s%s", conns->insecure ? "" : "s", bracket_open, host, bracket_close, qprefix, query);
     sxi_cbdata_reset(cbdata);
 
     if(setup_callback && setup_callback(cbdata, host)) {

@@ -38,11 +38,13 @@ const char *gengetopt_args_info_full_help[] = {
   "      --full-help               Print help, including hidden options, and exit",
   "  -V, --version                 Print version and exit",
   "      --socket=SOCKET           Set socket for connection with httpd",
+  "      --children=N              Start N children processes  (default=`24')",
+  "      --reserved-socket=SOCKET  Set httpd socket reserved for internode\n                                  communication",
+  "      --reserved-children=N     Start N children processes reserved for\n                                  internode communication  (default=`8')",
   "      --socket-mode=MODE        Set socket mode to MODE (octal number; unix\n                                  sockets only)",
   "      --data-dir=PATH           Path to data directory",
   "      --logfile=FILE            Write all log information to FILE",
   "      --pidfile=FILE            Write process ID to FILE",
-  "      --children=N              Start N children processes  (default=`32')",
   "      --foreground              Do not daemonize  (default=off)",
   "      --debug                   Enable debug messages  (default=off)",
   "      --run-as=user[:group]     Run as specified user[:group]",
@@ -76,11 +78,13 @@ init_help_array(void)
   gengetopt_args_info_help[10] = gengetopt_args_info_full_help[10];
   gengetopt_args_info_help[11] = gengetopt_args_info_full_help[11];
   gengetopt_args_info_help[12] = gengetopt_args_info_full_help[12];
-  gengetopt_args_info_help[13] = 0; 
+  gengetopt_args_info_help[13] = gengetopt_args_info_full_help[13];
+  gengetopt_args_info_help[14] = gengetopt_args_info_full_help[14];
+  gengetopt_args_info_help[15] = 0; 
   
 }
 
-const char *gengetopt_args_info_help[14];
+const char *gengetopt_args_info_help[16];
 
 typedef enum {ARG_NO
   , ARG_FLAG
@@ -135,11 +139,13 @@ void clear_given (struct gengetopt_args_info *args_info)
   args_info->full_help_given = 0 ;
   args_info->version_given = 0 ;
   args_info->socket_given = 0 ;
+  args_info->children_given = 0 ;
+  args_info->reserved_socket_given = 0 ;
+  args_info->reserved_children_given = 0 ;
   args_info->socket_mode_given = 0 ;
   args_info->data_dir_given = 0 ;
   args_info->logfile_given = 0 ;
   args_info->pidfile_given = 0 ;
-  args_info->children_given = 0 ;
   args_info->foreground_given = 0 ;
   args_info->debug_given = 0 ;
   args_info->run_as_given = 0 ;
@@ -162,6 +168,12 @@ void clear_args (struct gengetopt_args_info *args_info)
   FIX_UNUSED (args_info);
   args_info->socket_arg = NULL;
   args_info->socket_orig = NULL;
+  args_info->children_arg = 24;
+  args_info->children_orig = NULL;
+  args_info->reserved_socket_arg = NULL;
+  args_info->reserved_socket_orig = NULL;
+  args_info->reserved_children_arg = 8;
+  args_info->reserved_children_orig = NULL;
   args_info->socket_mode_orig = NULL;
   args_info->data_dir_arg = NULL;
   args_info->data_dir_orig = NULL;
@@ -169,8 +181,6 @@ void clear_args (struct gengetopt_args_info *args_info)
   args_info->logfile_orig = NULL;
   args_info->pidfile_arg = NULL;
   args_info->pidfile_orig = NULL;
-  args_info->children_arg = 32;
-  args_info->children_orig = NULL;
   args_info->foreground_flag = 0;
   args_info->debug_flag = 0;
   args_info->run_as_arg = NULL;
@@ -209,25 +219,27 @@ void init_args_info(struct gengetopt_args_info *args_info)
   args_info->full_help_help = gengetopt_args_info_full_help[1] ;
   args_info->version_help = gengetopt_args_info_full_help[2] ;
   args_info->socket_help = gengetopt_args_info_full_help[3] ;
-  args_info->socket_mode_help = gengetopt_args_info_full_help[4] ;
-  args_info->data_dir_help = gengetopt_args_info_full_help[5] ;
-  args_info->logfile_help = gengetopt_args_info_full_help[6] ;
-  args_info->pidfile_help = gengetopt_args_info_full_help[7] ;
-  args_info->children_help = gengetopt_args_info_full_help[8] ;
-  args_info->foreground_help = gengetopt_args_info_full_help[9] ;
-  args_info->debug_help = gengetopt_args_info_full_help[10] ;
-  args_info->run_as_help = gengetopt_args_info_full_help[11] ;
-  args_info->ssl_ca_help = gengetopt_args_info_full_help[12] ;
-  args_info->gc_interval_help = gengetopt_args_info_full_help[13] ;
-  args_info->gc_max_batch_help = gengetopt_args_info_full_help[14] ;
-  args_info->blockmgr_delay_help = gengetopt_args_info_full_help[15] ;
-  args_info->db_min_passive_wal_pages_help = gengetopt_args_info_full_help[16] ;
-  args_info->db_max_passive_wal_pages_help = gengetopt_args_info_full_help[17] ;
-  args_info->db_max_wal_restart_pages_help = gengetopt_args_info_full_help[18] ;
-  args_info->db_idle_restart_help = gengetopt_args_info_full_help[19] ;
-  args_info->db_busy_timeout_help = gengetopt_args_info_full_help[20] ;
-  args_info->worker_max_wait_help = gengetopt_args_info_full_help[21] ;
-  args_info->worker_max_requests_help = gengetopt_args_info_full_help[22] ;
+  args_info->children_help = gengetopt_args_info_full_help[4] ;
+  args_info->reserved_socket_help = gengetopt_args_info_full_help[5] ;
+  args_info->reserved_children_help = gengetopt_args_info_full_help[6] ;
+  args_info->socket_mode_help = gengetopt_args_info_full_help[7] ;
+  args_info->data_dir_help = gengetopt_args_info_full_help[8] ;
+  args_info->logfile_help = gengetopt_args_info_full_help[9] ;
+  args_info->pidfile_help = gengetopt_args_info_full_help[10] ;
+  args_info->foreground_help = gengetopt_args_info_full_help[11] ;
+  args_info->debug_help = gengetopt_args_info_full_help[12] ;
+  args_info->run_as_help = gengetopt_args_info_full_help[13] ;
+  args_info->ssl_ca_help = gengetopt_args_info_full_help[14] ;
+  args_info->gc_interval_help = gengetopt_args_info_full_help[15] ;
+  args_info->gc_max_batch_help = gengetopt_args_info_full_help[16] ;
+  args_info->blockmgr_delay_help = gengetopt_args_info_full_help[17] ;
+  args_info->db_min_passive_wal_pages_help = gengetopt_args_info_full_help[18] ;
+  args_info->db_max_passive_wal_pages_help = gengetopt_args_info_full_help[19] ;
+  args_info->db_max_wal_restart_pages_help = gengetopt_args_info_full_help[20] ;
+  args_info->db_idle_restart_help = gengetopt_args_info_full_help[21] ;
+  args_info->db_busy_timeout_help = gengetopt_args_info_full_help[22] ;
+  args_info->worker_max_wait_help = gengetopt_args_info_full_help[23] ;
+  args_info->worker_max_requests_help = gengetopt_args_info_full_help[24] ;
   
 }
 
@@ -322,6 +334,10 @@ cmdline_parser_release (struct gengetopt_args_info *args_info)
 
   free_string_field (&(args_info->socket_arg));
   free_string_field (&(args_info->socket_orig));
+  free_string_field (&(args_info->children_orig));
+  free_string_field (&(args_info->reserved_socket_arg));
+  free_string_field (&(args_info->reserved_socket_orig));
+  free_string_field (&(args_info->reserved_children_orig));
   free_string_field (&(args_info->socket_mode_orig));
   free_string_field (&(args_info->data_dir_arg));
   free_string_field (&(args_info->data_dir_orig));
@@ -329,7 +345,6 @@ cmdline_parser_release (struct gengetopt_args_info *args_info)
   free_string_field (&(args_info->logfile_orig));
   free_string_field (&(args_info->pidfile_arg));
   free_string_field (&(args_info->pidfile_orig));
-  free_string_field (&(args_info->children_orig));
   free_string_field (&(args_info->run_as_arg));
   free_string_field (&(args_info->run_as_orig));
   free_string_field (&(args_info->ssl_ca_arg));
@@ -382,6 +397,12 @@ cmdline_parser_dump(FILE *outfile, struct gengetopt_args_info *args_info)
     write_into_file(outfile, "version", 0, 0 );
   if (args_info->socket_given)
     write_into_file(outfile, "socket", args_info->socket_orig, 0);
+  if (args_info->children_given)
+    write_into_file(outfile, "children", args_info->children_orig, 0);
+  if (args_info->reserved_socket_given)
+    write_into_file(outfile, "reserved-socket", args_info->reserved_socket_orig, 0);
+  if (args_info->reserved_children_given)
+    write_into_file(outfile, "reserved-children", args_info->reserved_children_orig, 0);
   if (args_info->socket_mode_given)
     write_into_file(outfile, "socket-mode", args_info->socket_mode_orig, 0);
   if (args_info->data_dir_given)
@@ -390,8 +411,6 @@ cmdline_parser_dump(FILE *outfile, struct gengetopt_args_info *args_info)
     write_into_file(outfile, "logfile", args_info->logfile_orig, 0);
   if (args_info->pidfile_given)
     write_into_file(outfile, "pidfile", args_info->pidfile_orig, 0);
-  if (args_info->children_given)
-    write_into_file(outfile, "children", args_info->children_orig, 0);
   if (args_info->foreground_given)
     write_into_file(outfile, "foreground", 0, 0 );
   if (args_info->debug_given)
@@ -538,6 +557,11 @@ cmdline_parser_required2 (struct gengetopt_args_info *args_info, const char *pro
   
   
   /* checks for dependences among options */
+  if (args_info->reserved_children_given && ! args_info->reserved_socket_given)
+    {
+      fprintf (stderr, "%s: '--reserved-children' option depends on option 'reserved-socket'%s\n", prog_name, (additional_error ? additional_error : ""));
+      error_occurred = 1;
+    }
 
   return error_occurred;
 }
@@ -704,11 +728,13 @@ cmdline_parser_internal (
         { "full-help",	0, NULL, 0 },
         { "version",	0, NULL, 'V' },
         { "socket",	1, NULL, 0 },
+        { "children",	1, NULL, 0 },
+        { "reserved-socket",	1, NULL, 0 },
+        { "reserved-children",	1, NULL, 0 },
         { "socket-mode",	1, NULL, 0 },
         { "data-dir",	1, NULL, 0 },
         { "logfile",	1, NULL, 0 },
         { "pidfile",	1, NULL, 0 },
-        { "children",	1, NULL, 0 },
         { "foreground",	0, NULL, 0 },
         { "debug",	0, NULL, 0 },
         { "run-as",	1, NULL, 0 },
@@ -773,6 +799,48 @@ cmdline_parser_internal (
               goto failure;
           
           }
+          /* Start N children processes.  */
+          else if (strcmp (long_options[option_index].name, "children") == 0)
+          {
+          
+          
+            if (update_arg( (void *)&(args_info->children_arg), 
+                 &(args_info->children_orig), &(args_info->children_given),
+                &(local_args_info.children_given), optarg, 0, "24", ARG_INT,
+                check_ambiguity, override, 0, 0,
+                "children", '-',
+                additional_error))
+              goto failure;
+          
+          }
+          /* Set httpd socket reserved for internode communication.  */
+          else if (strcmp (long_options[option_index].name, "reserved-socket") == 0)
+          {
+          
+          
+            if (update_arg( (void *)&(args_info->reserved_socket_arg), 
+                 &(args_info->reserved_socket_orig), &(args_info->reserved_socket_given),
+                &(local_args_info.reserved_socket_given), optarg, 0, 0, ARG_STRING,
+                check_ambiguity, override, 0, 0,
+                "reserved-socket", '-',
+                additional_error))
+              goto failure;
+          
+          }
+          /* Start N children processes reserved for internode communication.  */
+          else if (strcmp (long_options[option_index].name, "reserved-children") == 0)
+          {
+          
+          
+            if (update_arg( (void *)&(args_info->reserved_children_arg), 
+                 &(args_info->reserved_children_orig), &(args_info->reserved_children_given),
+                &(local_args_info.reserved_children_given), optarg, 0, "8", ARG_INT,
+                check_ambiguity, override, 0, 0,
+                "reserved-children", '-',
+                additional_error))
+              goto failure;
+          
+          }
           /* Set socket mode to MODE (octal number; unix sockets only).  */
           else if (strcmp (long_options[option_index].name, "socket-mode") == 0)
           {
@@ -825,20 +893,6 @@ cmdline_parser_internal (
                 &(local_args_info.pidfile_given), optarg, 0, 0, ARG_STRING,
                 check_ambiguity, override, 0, 0,
                 "pidfile", '-',
-                additional_error))
-              goto failure;
-          
-          }
-          /* Start N children processes.  */
-          else if (strcmp (long_options[option_index].name, "children") == 0)
-          {
-          
-          
-            if (update_arg( (void *)&(args_info->children_arg), 
-                 &(args_info->children_orig), &(args_info->children_given),
-                &(local_args_info.children_given), optarg, 0, "32", ARG_INT,
-                check_ambiguity, override, 0, 0,
-                "children", '-',
                 additional_error))
               goto failure;
           

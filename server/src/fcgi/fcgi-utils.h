@@ -94,7 +94,11 @@ extern sx_uid_t uid, common_id;
 extern int64_t user_quota;
 
 void send_server_info(void);
-void handle_request(void);
+typedef enum _worker_type_t {
+    WORKER_GENERIC,
+    WORKER_S2S
+} worker_type_t;
+void handle_request(worker_type_t wtype);
 void send_error(int errnum, const char *message);
 void send_partial_error(const char *message, rc_ty rc);
 int64_t content_len(void);

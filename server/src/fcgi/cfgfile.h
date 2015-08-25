@@ -43,6 +43,15 @@ struct gengetopt_args_info
   char * socket_arg;	/**< @brief Set socket for connection with httpd.  */
   char * socket_orig;	/**< @brief Set socket for connection with httpd original value given at command line.  */
   const char *socket_help; /**< @brief Set socket for connection with httpd help description.  */
+  int children_arg;	/**< @brief Start N children processes (default='24').  */
+  char * children_orig;	/**< @brief Start N children processes original value given at command line.  */
+  const char *children_help; /**< @brief Start N children processes help description.  */
+  char * reserved_socket_arg;	/**< @brief Set httpd socket reserved for internode communication.  */
+  char * reserved_socket_orig;	/**< @brief Set httpd socket reserved for internode communication original value given at command line.  */
+  const char *reserved_socket_help; /**< @brief Set httpd socket reserved for internode communication help description.  */
+  int reserved_children_arg;	/**< @brief Start N children processes reserved for internode communication (default='8').  */
+  char * reserved_children_orig;	/**< @brief Start N children processes reserved for internode communication original value given at command line.  */
+  const char *reserved_children_help; /**< @brief Start N children processes reserved for internode communication help description.  */
   int socket_mode_arg;	/**< @brief Set socket mode to MODE (octal number; unix sockets only).  */
   char * socket_mode_orig;	/**< @brief Set socket mode to MODE (octal number; unix sockets only) original value given at command line.  */
   const char *socket_mode_help; /**< @brief Set socket mode to MODE (octal number; unix sockets only) help description.  */
@@ -55,9 +64,6 @@ struct gengetopt_args_info
   char * pidfile_arg;	/**< @brief Write process ID to FILE.  */
   char * pidfile_orig;	/**< @brief Write process ID to FILE original value given at command line.  */
   const char *pidfile_help; /**< @brief Write process ID to FILE help description.  */
-  int children_arg;	/**< @brief Start N children processes (default='32').  */
-  char * children_orig;	/**< @brief Start N children processes original value given at command line.  */
-  const char *children_help; /**< @brief Start N children processes help description.  */
   int foreground_flag;	/**< @brief Do not daemonize (default=off).  */
   const char *foreground_help; /**< @brief Do not daemonize help description.  */
   int debug_flag;	/**< @brief Enable debug messages (default=off).  */
@@ -103,11 +109,13 @@ struct gengetopt_args_info
   unsigned int full_help_given ;	/**< @brief Whether full-help was given.  */
   unsigned int version_given ;	/**< @brief Whether version was given.  */
   unsigned int socket_given ;	/**< @brief Whether socket was given.  */
+  unsigned int children_given ;	/**< @brief Whether children was given.  */
+  unsigned int reserved_socket_given ;	/**< @brief Whether reserved-socket was given.  */
+  unsigned int reserved_children_given ;	/**< @brief Whether reserved-children was given.  */
   unsigned int socket_mode_given ;	/**< @brief Whether socket-mode was given.  */
   unsigned int data_dir_given ;	/**< @brief Whether data-dir was given.  */
   unsigned int logfile_given ;	/**< @brief Whether logfile was given.  */
   unsigned int pidfile_given ;	/**< @brief Whether pidfile was given.  */
-  unsigned int children_given ;	/**< @brief Whether children was given.  */
   unsigned int foreground_given ;	/**< @brief Whether foreground was given.  */
   unsigned int debug_given ;	/**< @brief Whether debug was given.  */
   unsigned int run_as_given ;	/**< @brief Whether run-as was given.  */

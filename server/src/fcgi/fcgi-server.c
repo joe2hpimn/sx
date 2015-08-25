@@ -214,10 +214,18 @@ static sxc_logger_t fcgilog = {
 
 void OS_LibShutdown(void);
 #include <sys/resource.h>
-static int accept_loop(sxc_client_t *sx, const char *self, const char *dir) {
+static int accept_loop(sxc_client_t *sx, const char *dir, int socket, worker_type_t wtype) {
     struct sigaction act;
     int i, rc = EXIT_SUCCESS;
     FCGX_Request req;
+
+    if(socket != FCGI_LISTENSOCK_FILENO) {
+	if(dup2(socket, FCGI_LISTENSOCK_FILENO)<0) {
+	    PCRIT("Failed to rename socket descriptor %d to %d", socket, FCGI_LISTENSOCK_FILENO);
+	    return EXIT_FAILURE;
+	}
+	close(socket);
+    }
 
     /* must use sigaction, because signal would set ERESTARTSYS
      * and we'd never break out of the accept loop */
@@ -261,7 +269,7 @@ static int accept_loop(sxc_client_t *sx, const char *self, const char *dir) {
         }
         in_request = 1;
 	send_server_info();
-	handle_request();
+	handle_request(wtype);
         sx_hashfs_checkpoint_passive(hashfs);
         in_request = 0;
     }
@@ -281,24 +289,26 @@ void print_help(const char *prog)
 {
     int i =0;
     const char *config_options[] = {
-  "      socket=SOCKET        Set socket for connection with httpd",
-  "      socket-mode=MODE     Set socket mode to MODE (octal number; unix\n                               sockets only)",
-  "      data-dir=PATH        Path to data directory",
-  "      logfile=FILE         Write all log information to FILE",
-  "      pidfile=FILE         Write process ID to FILE",
-  "      children=N           Start N children processes  (default=`32')",
-  "      foreground           Do not daemonize  (default=off)",
-  "      debug                Enable debug messages  (default=off)",
-  "      run-as=user[:group]  Run as specified user[:group]",
-  "      ssl_ca=STRING        Path to SSL CA certificate",
+  "      socket=SOCKET          Set socket for connection with httpd",
+  "      children=N             Start N children processes (default=`24')",
+  "      reserved-socket=SOCKET Set httpd socket reserved for internode\n                             communication (default=none)",
+  "      reserved-children=N    Start N children processes reserved for\n                             internode communication (only applicable\n                             if reserved-socket is set; default=`8')",
+  "      socket-mode=MODE       Set mode of httpd socket(s) to MODE (octal\n                             number; applies to unix sockets only)",
+  "      data-dir=PATH          Path to data directory",
+  "      logfile=FILE           Write all log information to FILE",
+  "      pidfile=FILE           Write process ID to FILE",
+  "      foreground             Do not daemonize  (default=off)",
+  "      debug                  Enable debug messages  (default=off)",
+  "      run-as=user[:group]    Run as specified user[:group]",
+  "      ssl_ca=PATH            Path to SSL CA certificate",
     0
     };
 
     printf("%s %s\n\n", CMDLINE_PARSER_PACKAGE, src_version());
     printf("SX FastCGI Server\n\n");
     printf("Usage: %s [OPTIONS]\n\n", prog);
-    printf("  -h, --help		Print help and exit\n");
-    printf("  -V, --version		Print version and exit\n");
+    printf("  -h, --help                 Print help and exit\n");
+    printf("  -V, --version              Print version and exit\n");
     printf("\n");
 
     printf("This program reads all settings from the config file %s\n", DEFAULT_FCGI_CFGFILE);
@@ -415,18 +425,60 @@ char *make_pidfile(const char *pidfile_arg, int *pidfd) {
 }
 
 
-static int sxreinit(sxc_client_t **sx, const char *procdesc, sxc_logger_t *logger, const char *logfile, int foreground, int debug, int argc, char **argv) {
+static int sxreinit(sxc_client_t **sx, const char *procdesc, sxc_logger_t *logr, const char *logfile, int foreground, int debug, int argc, char **argv) {
     if(*sx)
 	sx_done(sx);
 
-    *sx = sx_init(logger, procdesc, logfile, foreground, argc, argv);
+    *sx = sx_init(logr, procdesc, logfile, foreground, argc, argv);
     if(!*sx)
 	return -1;
 
     if(debug)
 	log_setminlevel(*sx,SX_LOG_DEBUG);
 
+    if(sxi_set_query_prefix(*sx, ".s2s/")) {
+	WARN("Failed to set SX query prefix");
+    }
+
     return 0;
+}
+
+static int open_socket(const char *path, int mode) {
+    mode_t mask;
+    int s;
+
+    if(mode >= 0)
+	mask = umask(0);
+
+    INFO("Opening socket '%s'. If you see nothing past this line, it means that the socket could not be opened. Please double check it.", path);
+    s = FCGX_OpenSocket(path, 1024);
+    if(s<0) {
+	CRIT("Failed to open socket '%s'", path);
+	return -1;
+    }
+    INFO("Socket '%s' opened successfully", path);
+
+    if(mode >= 0) {
+	struct sockaddr_un sa;
+	int salen = sizeof(sa);
+	umask(mask);
+	if(getsockname(s, (struct sockaddr *)&sa, &salen)) {
+	    PCRIT("failed to determine socket domain");
+	    return -1;
+	}
+	if(sa.sun_family == AF_UNIX) {
+	    if(salen > sizeof(sa)) {
+		CRIT("Cannot locate socket: path too long");
+		return -1;
+	    }
+	    if(chmod(sa.sun_path, mode)) {
+		PCRIT("Cannot set permissions on socket %s", sa.sun_path);
+		return -1;
+	    }
+	} else
+	    WARN("Ignoring socket permissions on non-unix socket");
+    }
+    return s;
 }
 
 #define NOPIDFILE() do { free(pidfile); pidfile = NULL; } while(0)
@@ -452,13 +504,12 @@ static int sxreinit(sxc_client_t **sx, const char *procdesc, sxc_logger_t *logge
 
 
 int main(int argc, char **argv) {
-    int i, s, pidfd =-1, sockmode = -1, alive;
+    int i, s, rs = -1, pidfd =-1, sockmode = -1, alive, all_children;
     int debug, foreground, have_nodeid = 0;
     sx_uuid_t cluster_uuid, node_uuid;
     char *pidfile = NULL;
     sx_hashfs_t *test_hashfs;
     char buf[8192];
-    mode_t mask;
     struct gengetopt_args_info args;
     struct cmdline_args_info cmdargs;
     struct cmdline_parser_params *params;
@@ -549,6 +600,14 @@ int main(int argc, char **argv) {
 	CRIT("Invalid number of children");
         goto getout;
     }
+    all_children = args.children_arg;
+    if(args.reserved_socket_given) {
+	all_children += args.reserved_children_arg;
+	if(args.reserved_children_arg <= 0 || all_children > MAX_CHILDREN) {
+	    CRIT("Invalid number of children");
+	    goto getout;
+	}
+    }
 
     /* Create triggers */
     if(trig_create())
@@ -569,44 +628,19 @@ int main(int argc, char **argv) {
 	    goto getout;
 	}
     }
-    if(sockmode >= 0)
-	mask = umask(0);
 
-    INFO("Opening socket '%s'. If you see nothing past this line, it means that the socket could not be opened. Please double check it.", args.socket_arg);
-    s = FCGX_OpenSocket(args.socket_arg, 1024);
-    if(s<0) {
-	CRIT("Failed to open socket '%s'", args.socket_arg);
+    s = open_socket(args.socket_arg, sockmode);
+    if(s < 0)
 	goto getout;
-    }
-    INFO("Socket '%s' opened successfully", args.socket_arg);
-
-    if(sockmode >= 0) {
-	struct sockaddr_un sa;
-	int salen = sizeof(sa);
-	umask(mask);
-	if(getsockname(s, (struct sockaddr *)&sa, &salen)) {
-	    PCRIT("failed to determine socket domain");
+    if(args.reserved_socket_given) {
+	if(!strcmp(args.socket_arg, args.reserved_socket_arg)) {
+	    /* Catch some silly mistake */
+	    CRIT("Path to socket and reserved-socket must be different. Please check your configuration.");
 	    goto getout;
 	}
-	if(sa.sun_family == AF_UNIX) {
-	    if(salen > sizeof(sa)) {
-		CRIT("Cannot locate socket: path too long");
-		goto getout;
-	    }
-	    if(chmod(sa.sun_path, sockmode)) {
-		PCRIT("Cannot set permissions on socket %s", sa.sun_path);
-		goto getout;
-	    }
-	} else
-	    WARN("Ignoring socket permissions on non-unix socket");
-    }
-
-    if(s != FCGI_LISTENSOCK_FILENO) {
-	if(dup2(s, FCGI_LISTENSOCK_FILENO)<0) {
-	    PCRIT("Failed to rename socket descriptor %d to %d", s, FCGI_LISTENSOCK_FILENO);
+	rs = open_socket(args.reserved_socket_arg, sockmode);
+	if(rs < 0)
 	    goto getout;
-	}
-	close(s);
     }
 
     /* Just attempt to open the hashfs so we can alert about basic mistakes
@@ -638,27 +672,27 @@ int main(int argc, char **argv) {
 	    PCRIT("Failed to change to root directory");
 	    goto getout;
 	}
-#if STDIN_FILENO != FCGI_LISTENSOCK_FILENO
-	if((fd = open("/dev/null", O_RDONLY))<0 || dup2(fd, STDIN_FILENO)<0) {
-	    PCRIT("Failed to redirect standard input to null");
-	    goto getout;
+	if(s != STDIN_FILENO && rs != STDIN_FILENO) {
+	    if((fd = open("/dev/null", O_RDONLY))<0 || dup2(fd, STDIN_FILENO)<0) {
+		PCRIT("Failed to redirect standard input to null");
+		goto getout;
+	    }
+	    close(fd);
 	}
-        close(fd);
-#endif
-#if STDOUT_FILENO != FCGI_LISTENSOCK_FILENO
-	if((fd = open("/dev/null", O_WRONLY))<0 || dup2(fd, STDOUT_FILENO)<0) {
-	    PCRIT("Failed to redirect standard output to null");
-	    goto getout;
+	if(s != STDOUT_FILENO && rs != STDOUT_FILENO) {
+	    if((fd = open("/dev/null", O_WRONLY))<0 || dup2(fd, STDOUT_FILENO)<0) {
+		PCRIT("Failed to redirect standard output to null");
+		goto getout;
+	    }
+	    close(fd);
 	}
-        close(fd);
-#endif
-#if STDERR_FILENO != FCGI_LISTENSOCK_FILENO
-	if((fd = open("/dev/null", O_WRONLY))<0 || dup2(fd, STDERR_FILENO)<0) {
-	    PCRIT("Failed to redirect standard error to null");
-	    goto getout;
+	if(s != STDERR_FILENO && rs != STDERR_FILENO) {
+	    if((fd = open("/dev/null", O_WRONLY))<0 || dup2(fd, STDERR_FILENO)<0) {
+		PCRIT("Failed to redirect standard error to null");
+		goto getout;
+	    }
+	    close(fd);
 	}
-        close(fd);
-#endif
 	switch(fork()) {
 	case 0:
 	    break;
@@ -727,7 +761,7 @@ int main(int argc, char **argv) {
 	int status, procnum;
 
 	/* Prefork/respawn all the (missing) children */
-	for(i=0; !terminate && i<args.children_arg; i++) {
+	for(i=0; !terminate && i<all_children; i++) {
 	    if(pids[i]<=0) {
 		pids[i] = fork();
 		switch(pids[i]) {
@@ -738,7 +772,9 @@ int main(int argc, char **argv) {
 		case 0:
 		    NOPIDFILE();
 		    if(!sxreinit(&sx, "fastcgi worker", &fcgilog, args.logfile_arg, foreground, debug, argc, argv))
-                        ret = accept_loop(sx, argv[0], args.data_dir_arg);
+                        ret = (i >= args.children_arg) ?
+			    accept_loop(sx, args.data_dir_arg, rs, WORKER_S2S) :
+			    accept_loop(sx, args.data_dir_arg, s, WORKER_GENERIC);
 		    else
                         ret = EXIT_FAILURE;
 		    goto getout;
@@ -750,7 +786,7 @@ int main(int argc, char **argv) {
 	if(terminate)
 	    break;
 
-	DEBUG("All %d children active, waiting...", args.children_arg);
+	DEBUG("All %d children active, waiting...", all_children);
         do {
             dead = wait(&status);
         } while(dead == -1 && errno == EINTR);
