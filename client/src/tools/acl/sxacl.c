@@ -486,7 +486,7 @@ static int show_acls(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_uri_t *u)
 	    fprintf(stderr, SXBC_TOOLS_VOL_MSG, u->profile ? u->profile : "", u->profile ? "@" : "", u->host);
         rc = 1;
     } else {
-        printf("(all admin users): read write admin\n");
+        printf("(all admin users): read write manager\n");
     }
     return rc;
 }
