@@ -104,6 +104,27 @@ if [ "$INFO_GIVEN" = "yes" -o "$UPGRADE_GIVEN" = "yes" ]; then
 	echo "SX Logfile: $SX_LOG_FILE"
 	exit 0
     else
+	# Update config files if needed and possible
+	if [ -n "`grep 'children=32' $ETCDIR/sxserver/sxfcgi.conf`" -a -z "`grep reserved-children $ETCDIR/sxserver/sxfcgi.conf`" -a -z "`grep 'location /.s2s/' $ETCDIR/sxserver/sxhttpd.conf`" ]; then
+	    echo "Enabling support for reserved workers..."
+	    # update sxfcgi.conf
+	    sed -i.old -e 's/children=32/children=24/' $ETCDIR/sxserver/sxfcgi.conf
+	    echo "reserved-socket=\"$SX_RUN_DIR/sxfcgi-reserved.socket\"" >> $ETCDIR/sxserver/sxfcgi.conf
+	    echo "reserved-children=8" >> $ETCDIR/sxserver/sxfcgi.conf
+
+	    # update sxhttpd.conf
+	    sed -i.old -e "s|location / {|location /.s2s/ {\n\
+                 fastcgi_pass unix:$SX_RUN_DIR/sxfcgi-reserved.socket;\n\
+                 fastcgi_store off;\n\
+                 fastcgi_read_timeout 300s;\n\
+                 fastcgi_max_temp_file_size 0;\n\
+                 include fastcgi_params;\n\
+             }\n\
+	     location / {|" $ETCDIR/sxserver/sxhttpd.conf
+	    "@sbindir@/sxserver" restart
+	fi
+
+	# Upgrade hashfs
         "@sbindir@/sxadm" node $OWNERFLAG --info "$SX_DATA_DIR" > /dev/null 2>&1
 	if [ $? -ne 0 ]; then
 	    echo "Upgrading local node..."
@@ -198,7 +219,8 @@ SX_SERVER_GROUP=`id -n -g "$SX_SERVER_USER"`
 SX_RUN_DIR=${SX_RUN_DIR:-"@localstatedir@/run/sxserver"}
 SX_LIB_DIR=${SX_LIB_DIR:-"@localstatedir@/lib/sxserver"}
 SX_NODE_SIZE=${SX_NODE_SIZE:-"1T"}
-SX_CHILDREN_NUM=${SX_CHILDREN_NUM:-"32"}
+SX_CHILDREN_NUM=${SX_CHILDREN_NUM:-"24"}
+SX_RESERVED_CHILDREN_NUM=${SX_RESERVED_CHILDREN_NUM:-"8"}
 SX_LOG_FILE=${SX_LOG_FILE:-"@localstatedir@/log/sxserver/sxfcgi.log"}
 
 # temp files
@@ -711,20 +733,25 @@ EOF
 		SX_SERVER_GROUP=`id -n -g "$SX_SERVER_USER"`
 	    fi
 	    echo
-	    printf "Number of children processes used by the server [default=$SX_CHILDREN_NUM]: "
+	    printf "Number of children processes used to communicate with the clients [default=$SX_CHILDREN_NUM]: "
 	    read NEWVAL
 	    SX_CHILDREN_NUM=${NEWVAL:-$SX_CHILDREN_NUM}
+	    printf "Number of children processes used to communicate with other nodes [default=$SX_RESERVED_CHILDREN_NUM]: "
+	    read NEWVAL
+	    SX_RESERVED_CHILDREN_NUM=${NEWVAL:-$SX_RESERVED_CHILDREN_NUM}
 	fi
 
         TOTAL_MEM=`@sbindir@/sxreport-server --get-mem`
 	if [ "$TOTAL_MEM" -gt 0 ]; then
-	    if [ "$TOTAL_MEM" -lt 2000000000 -a "$SX_CHILDREN_NUM" -gt 8 ]; then
+	    TOTAL_CHILDREN=`expr $SX_CHILDREN_NUM + $SX_RESERVED_CHILDREN_NUM`
+	    if [ "$TOTAL_MEM" -lt 2000000000 -a "$TOTAL_CHILDREN" -gt 8 ]; then
 		echo
 		echo "WARNING: This node has less than 2GB of total memory."
 		if [ -n "$ADVANCED_GIVEN" ]; then
 		    echo "It is not recommended to use more than 8 children processes."
 		else
-		    SX_CHILDREN_NUM=8
+		    SX_CHILDREN_NUM=6
+		    SX_RESERVED_CHILDREN_NUM=2
 		    echo "The number of children processes will be limited to 8."
 		    echo "Run sxsetup with --advanced to fine-tune the value if needed."
 		fi
@@ -870,6 +897,7 @@ SX_EXISTING_NODE_IP="$SX_EXISTING_NODE_IP"
 SX_SERVER_USER="$SX_SERVER_USER"
 SX_SERVER_GROUP="$SX_SERVER_GROUP"
 SX_CHILDREN_NUM="$SX_CHILDREN_NUM"
+SX_RESERVED_CHILDREN_NUM="$SX_RESERVED_CHILDREN_NUM"
 SX_PORT="$SX_PORT"
 SX_USE_SSL="$SX_USE_SSL"
 SX_SSL_KEY_FILE="$SX_SSL_KEY_FILE"
@@ -895,9 +923,11 @@ cat >"$ETCDIR/sxserver/sxfcgi.conf" <<EOF
 pidfile="$SX_RUN_DIR/sxfcgi.pid"
 logfile="$SX_LOG_FILE"
 socket="$SX_RUN_DIR/sxfcgi.socket"
+reserved-socket="$SX_RUN_DIR/sxfcgi-reserved.socket"
 socket-mode=0660
 data-dir="$SX_DATA_DIR"
 children=$SX_CHILDREN_NUM
+reserved-children=$SX_RESERVED_CHILDREN_NUM
 EOF
 
 if [ -z "$SX_NO_ROOT" ]; then
