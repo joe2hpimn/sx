@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2012-2014 Skylable Ltd. <info-copyright@skylable.com>
+ *  Copyright (C) 2012-2015 Skylable Ltd. <info-copyright@skylable.com>
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
@@ -40,7 +40,7 @@
 #include "log.h"
 #include "init.h"
 
-#define MAXBUILDS 2
+#define MAXBUILDS 3
 #define NODES_NUM 10
 #define HASHES_NUM 14
 
@@ -76,6 +76,18 @@ const char *newuuids[NODES_NUM] = {
     "cdf2c9ee-5241-4d42-8571-003b794acd12",
     "cf09ae2a-895f-404e-937b-6b00b48f0f7a"
 };
+
+/*
+ * Zone configuration:
+ *
+ * ZoneA: 127.0.0.1, 127.0.0.2, 127.0.0.3
+ * ZoneB: 127.0.0.4, 127.0.0.5, 127.0.0.6
+ * ZoneC: 127.0.0.7, 127.0.0.8
+ * Ungrouped: 127.0.0.9, 127.0.0.10
+ * Max replica = 5
+ */
+#define ZONES "ZoneA:c75c959b-451d-4c52-b9c6-ad991d29e2c0,870a0ca9-2189-4169-b62f-a2af7b50176a,38aed4ea-2c19-444a-8f47-150c245e78ad;ZoneB:32ecf2d1-a15d-497b-96a8-387e07ea9227,23cba650-2dc8-4ca4-94dd-fd97b2dfe8ae,2a6214d0-09a8-427a-8727-ab11a37e4207;ZoneC:0fb84f06-09ef-47e0-b7b0-632be4f97617,4e7dc5a3-10d0-4174-8499-7d5edf9e00fb"
+#define ZONES_MAXREPLICA 5
 
 const struct hashtest {
     uint64_t hash;
@@ -476,7 +488,150 @@ const struct hashtest hashtests1[HASHES_NUM] = {
     }
 };
 
-#define FINAL_CHECKSUM 7314584254095991903LL
+/* zone test */
+const struct hashtest hashtests2[HASHES_NUM] = {
+    { 0x855594d66b4839d3LL,
+	{
+	    { "127.0.0.3", NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL },
+	    { "127.0.0.3", "127.0.0.10", NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL },
+	    { "127.0.0.3", "127.0.0.10", "127.0.0.5", NULL, NULL, NULL, NULL, NULL, NULL, NULL },
+	    { "127.0.0.3", "127.0.0.10", "127.0.0.5", "127.0.0.9", NULL, NULL, NULL, NULL, NULL, NULL },
+	    { "127.0.0.3", "127.0.0.10", "127.0.0.5", "127.0.0.9", "127.0.0.8", NULL, NULL, NULL, NULL, NULL },
+	}
+    },
+
+    { 0x76992ccc2b51ad85LL,
+	{
+	    { "127.0.0.9", NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL },
+	    { "127.0.0.9", "127.0.0.10", NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL },
+	    { "127.0.0.9", "127.0.0.10", "127.0.0.5", NULL, NULL, NULL, NULL, NULL, NULL, NULL },
+	    { "127.0.0.9", "127.0.0.10", "127.0.0.5", "127.0.0.8", NULL, NULL, NULL, NULL, NULL, NULL },
+	    { "127.0.0.9", "127.0.0.10", "127.0.0.5", "127.0.0.8", "127.0.0.3", NULL, NULL, NULL, NULL, NULL },
+	}
+    },
+
+    { 0xfa8ed848438c498bLL,
+	{
+	    { "127.0.0.9", NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL },
+	    { "127.0.0.9", "127.0.0.7", NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL },
+	    { "127.0.0.9", "127.0.0.7", "127.0.0.10", NULL, NULL, NULL, NULL, NULL, NULL, NULL },
+	    { "127.0.0.9", "127.0.0.7", "127.0.0.10", "127.0.0.3", NULL, NULL, NULL, NULL, NULL, NULL },
+	    { "127.0.0.9", "127.0.0.7", "127.0.0.10", "127.0.0.3", "127.0.0.5", NULL, NULL, NULL, NULL, NULL },
+	}
+    },
+
+    { 0x1c1f96193cdf14b8LL,
+	{
+	    { "127.0.0.10", NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL },
+	    { "127.0.0.10", "127.0.0.7", NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL },
+	    { "127.0.0.10", "127.0.0.7", "127.0.0.4", NULL, NULL, NULL, NULL, NULL, NULL, NULL },
+	    { "127.0.0.10", "127.0.0.7", "127.0.0.4", "127.0.0.2", NULL, NULL, NULL, NULL, NULL, NULL },
+	    { "127.0.0.10", "127.0.0.7", "127.0.0.4", "127.0.0.2", "127.0.0.9", NULL, NULL, NULL, NULL, NULL },
+	}
+    },
+
+    { 0xd8472a3d6d156626LL,
+	{
+	    { "127.0.0.7", NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL },
+	    { "127.0.0.7", "127.0.0.6", NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL },
+	    { "127.0.0.7", "127.0.0.6", "127.0.0.10", NULL, NULL, NULL, NULL, NULL, NULL, NULL },
+	    { "127.0.0.7", "127.0.0.6", "127.0.0.10", "127.0.0.9", NULL, NULL, NULL, NULL, NULL, NULL },
+	    { "127.0.0.7", "127.0.0.6", "127.0.0.10", "127.0.0.9", "127.0.0.3", NULL, NULL, NULL, NULL, NULL },
+	}
+    },
+
+    { 0x20c358f7ee877a3fLL,
+	{
+	    { "127.0.0.5", NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL },
+	    { "127.0.0.5", "127.0.0.7", NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL },
+	    { "127.0.0.5", "127.0.0.7", "127.0.0.10", NULL, NULL, NULL, NULL, NULL, NULL, NULL },
+	    { "127.0.0.5", "127.0.0.7", "127.0.0.10", "127.0.0.9", NULL, NULL, NULL, NULL, NULL, NULL },
+	    { "127.0.0.5", "127.0.0.7", "127.0.0.10", "127.0.0.9", "127.0.0.3", NULL, NULL, NULL, NULL, NULL },
+	}
+    },
+
+    { 0x76992ccc2b51ad85LL,
+	{
+	    { "127.0.0.9", NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL },
+	    { "127.0.0.9", "127.0.0.10", NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL },
+	    { "127.0.0.9", "127.0.0.10", "127.0.0.5", NULL, NULL, NULL, NULL, NULL, NULL, NULL },
+	    { "127.0.0.9", "127.0.0.10", "127.0.0.5", "127.0.0.8", NULL, NULL, NULL, NULL, NULL, NULL },
+	    { "127.0.0.9", "127.0.0.10", "127.0.0.5", "127.0.0.8", "127.0.0.3", NULL, NULL, NULL, NULL, NULL },
+	}
+    },
+
+    { 0x9031e875f6787a94LL,
+	{
+	    { "127.0.0.5", NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL },
+	    { "127.0.0.5", "127.0.0.8", NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL },
+	    { "127.0.0.5", "127.0.0.8", "127.0.0.10", NULL, NULL, NULL, NULL, NULL, NULL, NULL },
+	    { "127.0.0.5", "127.0.0.8", "127.0.0.10", "127.0.0.9", NULL, NULL, NULL, NULL, NULL, NULL },
+	    { "127.0.0.5", "127.0.0.8", "127.0.0.10", "127.0.0.9", "127.0.0.1", NULL, NULL, NULL, NULL, NULL },
+	}
+    },
+
+    { 0x5690ff1bf6d3239fLL,
+	{
+	    { "127.0.0.9", NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL },
+	    { "127.0.0.9", "127.0.0.8", NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL },
+	    { "127.0.0.9", "127.0.0.8", "127.0.0.1", NULL, NULL, NULL, NULL, NULL, NULL, NULL },
+	    { "127.0.0.9", "127.0.0.8", "127.0.0.1", "127.0.0.5", NULL, NULL, NULL, NULL, NULL, NULL },
+	    { "127.0.0.9", "127.0.0.8", "127.0.0.1", "127.0.0.5", "127.0.0.10", NULL, NULL, NULL, NULL, NULL },
+	}
+    },
+
+    { 0xf6b93a8fa6b9ad9cLL,
+	{
+	    { "127.0.0.10", NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL },
+	    { "127.0.0.10", "127.0.0.7", NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL },
+	    { "127.0.0.10", "127.0.0.7", "127.0.0.9", NULL, NULL, NULL, NULL, NULL, NULL, NULL },
+	    { "127.0.0.10", "127.0.0.7", "127.0.0.9", "127.0.0.3", NULL, NULL, NULL, NULL, NULL, NULL },
+	    { "127.0.0.10", "127.0.0.7", "127.0.0.9", "127.0.0.3", "127.0.0.4", NULL, NULL, NULL, NULL, NULL },
+	}
+    },
+
+    { 0xc7831e7f58d4acc4LL,
+	{
+	    { "127.0.0.9", NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL },
+	    { "127.0.0.9", "127.0.0.5", NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL },
+	    { "127.0.0.9", "127.0.0.5", "127.0.0.7", NULL, NULL, NULL, NULL, NULL, NULL, NULL },
+	    { "127.0.0.9", "127.0.0.5", "127.0.0.7", "127.0.0.3", NULL, NULL, NULL, NULL, NULL, NULL },
+	    { "127.0.0.9", "127.0.0.5", "127.0.0.7", "127.0.0.3", "127.0.0.10", NULL, NULL, NULL, NULL, NULL },
+	}
+    },
+
+    { 0xce59202a83b6d11fLL,
+	{
+	    { "127.0.0.5", NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL },
+	    { "127.0.0.5", "127.0.0.7", NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL },
+	    { "127.0.0.5", "127.0.0.7", "127.0.0.3", NULL, NULL, NULL, NULL, NULL, NULL, NULL },
+	    { "127.0.0.5", "127.0.0.7", "127.0.0.3", "127.0.0.10", NULL, NULL, NULL, NULL, NULL, NULL },
+	    { "127.0.0.5", "127.0.0.7", "127.0.0.3", "127.0.0.10", "127.0.0.9", NULL, NULL, NULL, NULL, NULL },
+	}
+    },
+
+    { 0xa4c09fca0d8ae3dLL,
+	{
+	    { "127.0.0.10", NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL },
+	    { "127.0.0.10", "127.0.0.8", NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL },
+	    { "127.0.0.10", "127.0.0.8", "127.0.0.9", NULL, NULL, NULL, NULL, NULL, NULL, NULL },
+	    { "127.0.0.10", "127.0.0.8", "127.0.0.9", "127.0.0.5", NULL, NULL, NULL, NULL, NULL, NULL },
+	    { "127.0.0.10", "127.0.0.8", "127.0.0.9", "127.0.0.5", "127.0.0.2", NULL, NULL, NULL, NULL, NULL },
+	}
+    },
+
+    { 0x64ee5a8b44b4bccdLL,
+	{
+	    { "127.0.0.6", NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL },
+	    { "127.0.0.6", "127.0.0.3", NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL },
+	    { "127.0.0.6", "127.0.0.3", "127.0.0.8", NULL, NULL, NULL, NULL, NULL, NULL, NULL },
+	    { "127.0.0.6", "127.0.0.3", "127.0.0.8", "127.0.0.10", NULL, NULL, NULL, NULL, NULL, NULL },
+	    { "127.0.0.6", "127.0.0.3", "127.0.0.8", "127.0.0.10", "127.0.0.9", NULL, NULL, NULL, NULL, NULL },
+	}
+    }
+};
+
+#define FINAL_CHECKSUM -7705156229742031497LL
 
 int locate_cmp(sxi_hdist_t *model1, sxi_hdist_t *model2, uint64_t hash, int replica, int bidx, const struct hashtest *ht)
 {
@@ -543,7 +698,7 @@ int print_nodes(sxi_hdist_t *model, int bidx)
 	return 1;
     fprintf(stderr, "Nodelist[%d]: ", bidx);
     for(i = 0; i < sx_nodelist_count(nodelist); i++)
-	fprintf(stderr, "%s, ", sx_node_addr(sx_nodelist_get(nodelist, i)));
+	fprintf(stderr, "%s (%s), ", sx_node_addr(sx_nodelist_get(nodelist, i)), sx_node_uuid_str(sx_nodelist_get(nodelist, i)));
     fprintf(stderr, "\n");
     return 0;
 }
@@ -577,7 +732,7 @@ int main(int argc, char **argv)
 	}
     }
 
-    if(sxi_hdist_build(hdist) != OK) {
+    if(sxi_hdist_build(hdist, NULL) != OK) {
 	CRIT("Can't build distribution model (1)");
 	goto main_err;
     }
@@ -612,7 +767,7 @@ int main(int argc, char **argv)
 	}
     }
 
-    if(sxi_hdist_build(hdist) != OK) {
+    if(sxi_hdist_build(hdist, NULL) != OK) {
 	CRIT("Can't build distribution model (2)");
 	goto main_err;
     }
@@ -645,7 +800,7 @@ int main(int argc, char **argv)
 	}
     }
 
-    if(sxi_hdist_build(hdist) != OK) {
+    if(sxi_hdist_build(hdist, NULL) != OK) {
 	CRIT("Can't build distribution model (3)");
 	goto main_err;
     }
@@ -686,7 +841,7 @@ int main(int argc, char **argv)
 	}
     }
 
-    if(sxi_hdist_build(hdist) != OK) {
+    if(sxi_hdist_build(hdist, NULL) != OK) {
 	CRIT("Can't build distribution model (3)");
 	goto main_err;
     }
@@ -695,11 +850,6 @@ int main(int argc, char **argv)
     if(dbg) {
 	print_nodes(hdist, 0);
 	print_nodes(hdist, 1);
-    }
-
-    if((uint64_t) FINAL_CHECKSUM != sxi_hdist_checksum(hdist)) {
-	CRIT("Unexpected checksum: %lld", (long long int) sxi_hdist_checksum(hdist));
-	goto main_err;
     }
 
     DEBUG("*** Creating exact copy of HDIST based on existing config ***");
@@ -738,8 +888,79 @@ int main(int argc, char **argv)
 	for(j = 1; j <= 8; j++)
 	    if(locate_cmp(hdist, hdist2, hashtests1[i].hash, j, 1, &hashtests1[i]))
 		goto main_err;
-    ret = 0;
 
+    sxi_hdist_free(hdist2);
+    hdist2 = NULL;
+
+    /* zone test */
+    DEBUG("Creating new build with zones");
+    if(sxi_hdist_newbuild(hdist) != OK) {
+	CRIT("Can't create new build (3)");
+	goto main_err;
+    }
+
+    /* get nodes from build 1 (previous 0) */
+    nodelist = sxi_hdist_nodelist(hdist, 1);
+    if(!nodelist) {
+	CRIT("sxi_hdist_nodelist failed");
+	goto main_err;
+    }
+    DEBUG("Re-adding %d nodes from previous build", sx_nodelist_count(nodelist));
+    for(i = 0; i < sx_nodelist_count(nodelist); i++) {
+	node = sx_nodelist_get(nodelist, i);
+	if(sxi_hdist_addnode(hdist, sx_node_uuid(node), sx_node_addr(node), sx_node_internal_addr(node), sx_node_capacity(node), NULL)) {
+	    CRIT("addnode failed (5)");
+	    goto main_err;
+	}
+    }
+
+    if(sxi_hdist_build(hdist, ZONES) != OK) {
+	CRIT("Can't build distribution model (4)");
+	goto main_err;
+    }
+    DEBUG("Number of builds: %d", sxi_hdist_buildcnt(hdist));
+
+    if(sxi_hdist_maxreplica(hdist, 0) != ZONES_MAXREPLICA) {
+	CRIT("Invalid max replica, should be %d", ZONES_MAXREPLICA);
+	goto main_err;
+    }
+
+    if((uint64_t) FINAL_CHECKSUM != sxi_hdist_checksum(hdist)) {
+	CRIT("Unexpected checksum: %lld", (long long int) sxi_hdist_checksum(hdist));
+	goto main_err;
+    }
+
+    DEBUG("*** Creating exact copy of HDIST based on existing config ***");
+    if(sxi_hdist_get_cfg(hdist, &cfg, &cfg_len)) {
+	CRIT("Can't get config");
+	goto main_err;
+    } else {
+	DEBUG("Compressed config size: %u", (unsigned int) cfg_len);
+    }
+
+    if(!(hdist2 = sxi_hdist_from_cfg(cfg, cfg_len))) {
+	CRIT("Can't build HDIST from config");
+	goto main_err;
+    }
+
+    if(!sxi_hdist_same_origin(hdist, hdist2)) {
+	CRIT("UUIDs are different for old and new model");
+	goto main_err;
+    }
+
+    if(sxi_hdist_checksum(hdist) != sxi_hdist_checksum(hdist2)) {
+	CRIT("Checksums don't match for original and copied build");
+	goto main_err;
+    } else {
+	DEBUG("Models' checksums OK");
+    }
+
+    for(i = 0; i < HASHES_NUM; i++)
+	for(j = 1; j <= ZONES_MAXREPLICA; j++)
+	    if(locate_cmp(hdist, hdist2, hashtests2[i].hash, j, 0, &hashtests2[i]))
+		goto main_err;
+
+    ret = 0;
 main_err:
 
     sxi_hdist_free(hdist);

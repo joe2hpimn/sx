@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2012-2014 Skylable Ltd. <info-copyright@skylable.com>
+ *  Copyright (C) 2012-2015 Skylable Ltd. <info-copyright@skylable.com>
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
@@ -26,6 +26,7 @@
  */
 
 #include "default.h"
+#include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <stdint.h>
@@ -44,6 +45,7 @@
 #include "nodes.h"
 #include "zlib.h"
 #include "../libsxclient/src/vcrypto.h"
+#include "../libsxclient/src/misc.h"
 
 #ifdef WORDS_BIGENDIAN
 uint32_t swapu32(uint32_t v)
@@ -64,11 +66,13 @@ struct hdist_point {
     unsigned int num;
     unsigned int node_points;
     unsigned int node_id;
+    unsigned int zone_id;
 };
 
 struct hdist_node {
     sx_node_t *sxn;
     unsigned int id;
+    unsigned int zone_id;
     uint64_t capacity;
 };
 
@@ -89,6 +93,8 @@ struct _sxi_hdist_t {
     struct hdist_node **node_list;
     sx_nodelist_t **sxnl;
     unsigned int *node_count;
+    unsigned int *zone_count;
+    char **zone_cfg;
     struct hdist_point **circle;
     unsigned int *circle_points;
 };
@@ -120,58 +126,49 @@ sxi_hdist_t *sxi_hdist_new(unsigned int seed, unsigned int max_builds, sx_uuid_t
     model->node_list = (struct hdist_node **) wrap_calloc(sizeof(struct hdist_node *), max_builds);
     if(!model->node_list) {
 	CRIT("Can't allocate memory for model->node_list");
-	free(model);
-	return NULL;
+	goto hdist_new_err;
     }
 
     model->sxnl = (sx_nodelist_t **) wrap_calloc(sizeof(sx_nodelist_t *), max_builds);
     if(!model->sxnl) {
 	CRIT("Can't allocate memory for model->sxnl");
-	free(model->node_list);
-	free(model);
-	return NULL;
+	goto hdist_new_err;
     }
 
     model->node_count = (unsigned int *) wrap_calloc(sizeof(unsigned int), max_builds);
     if(!model->node_count) {
 	CRIT("Can't allocate memory for model->node_count");
-	free(model->node_list);
-	free(model->sxnl);
-	free(model);
-	return NULL;
+	goto hdist_new_err;
+    }
+
+    model->zone_count = (unsigned int *) wrap_calloc(sizeof(unsigned int), max_builds);
+    if(!model->zone_count) {
+	CRIT("Can't allocate memory for model->zone_count");
+	goto hdist_new_err;
+    }
+
+    model->zone_cfg = (char **) wrap_calloc(sizeof(char *), max_builds);
+    if(!model->zone_cfg) {
+	CRIT("Can't allocate memory for model->zone_cfg");
+	goto hdist_new_err;
     }
 
     model->capacity_total = (uint64_t *) wrap_calloc(sizeof(uint64_t), max_builds);
     if(!model->capacity_total) {
 	CRIT("Can't allocate memory for model->capacity_total");
-	free(model->node_list);
-	free(model->sxnl);
-	free(model->node_count);
-	free(model);
-	return NULL;
+	goto hdist_new_err;
     }
 
     model->circle = (struct hdist_point **) wrap_malloc(sizeof(struct hdist_point *) * max_builds);
     if(!model->circle) {
 	CRIT("Can't allocate memory for model->circle");
-	free(model->node_list);
-	free(model->sxnl);
-	free(model->node_count);
-	free(model->capacity_total);
-	free(model);
-	return NULL;
+	goto hdist_new_err;
     }
 
     model->circle_points = (unsigned int *) wrap_calloc(sizeof(unsigned int), max_builds);
     if(!model->circle_points) {
 	CRIT("Can't allocate memory for model->circle_points");
-	free(model->node_list);
-	free(model->sxnl);
-	free(model->node_count);
-	free(model->circle);
-	free(model->capacity_total);
-	free(model);
-	return NULL;
+	goto hdist_new_err;
     }
 
     memcpy(&model->uuid, uuid, sizeof(*uuid));
@@ -179,37 +176,44 @@ sxi_hdist_t *sxi_hdist_new(unsigned int seed, unsigned int max_builds, sx_uuid_t
     model->cfg = (char *) wrap_malloc(sizeof(char) * CFG_PREALLOC);
     if(!model->cfg) {
 	CRIT("Can't allocate memory for model->circle_points");
-	free(model->node_list);
-	free(model->sxnl);
-	free(model->node_count);
-	free(model->circle);
-	free(model->capacity_total);
-	free(model->circle_points);
-	free(model);
-	return NULL;
+	goto hdist_new_err;
     }
+
     model->cfg_alloced = CFG_PREALLOC;
     model->cfg_size = sprintf(model->cfg, "HDIST:%s:%u:%u", model->uuid.string, seed, max_builds);
 
     model->seed = seed;
     isaac_seed(&model->rctx, seed);
     model->state = 0xcafe;
+
     return model;
+
+hdist_new_err:
+    free(model->node_list);
+    free(model->sxnl);
+    free(model->node_count);
+    free(model->zone_count);
+    free(model->zone_cfg);
+    free(model->capacity_total);
+    free(model->circle);
+    free(model->circle_points);
+    free(model);
+    return NULL;
 }
 
-static char *gettoken(const char *str, unsigned int *pos, char *buf, size_t bufsize)
+static char *gettoken(const char *str, unsigned int *pos, char *buf, size_t bufsize, char delim)
 {
 	size_t len, stored = 0;
 
     if(!str || !buf || *pos >= strlen(str))
 	return NULL;
     len = strlen(&str[*pos]);
-    if(str[*pos] == ':') {
+    if(str[*pos] == delim) {
 	(*pos)++;
 	len--;
     }
     while(len) {
-	if(str[*pos] == ':') {
+	if(str[*pos] == delim) {
 	    (*pos)++;
 	    break;
 	} else {
@@ -221,7 +225,7 @@ static char *gettoken(const char *str, unsigned int *pos, char *buf, size_t bufs
 	    len--;
 	}
     }
-    if(stored + 1 >= bufsize) {
+    if(stored + 1 > bufsize) {
 	CRIT("provided buffer too small");
 	return NULL;
     }
@@ -250,7 +254,7 @@ static char *addr_from_hdist(const char *addr)
 sxi_hdist_t *sxi_hdist_from_cfg(const void *cfg, unsigned int cfg_len)
 {
 	char *cs;
-	char token[128], *pt;
+	char token[16384], *pt, *zone = NULL;
 	unsigned int pos = 0, seed, max_builds;
 	uLongf destlen, got;
 	sx_uuid_t uuid;
@@ -277,7 +281,7 @@ sxi_hdist_t *sxi_hdist_from_cfg(const void *cfg, unsigned int cfg_len)
     }
 
     /* magic */
-    pt = gettoken(cs, &pos, token, sizeof(token));
+    pt = gettoken(cs, &pos, token, sizeof(token), ':');
     if(!pt || strcmp(pt, "HDIST")) {
 	CRIT("Invalid configuration data (magic)");
 	free(cs);
@@ -285,7 +289,7 @@ sxi_hdist_t *sxi_hdist_from_cfg(const void *cfg, unsigned int cfg_len)
     }
 
     /* UUID */
-    pt = gettoken(cs, &pos, token, sizeof(token));
+    pt = gettoken(cs, &pos, token, sizeof(token), ':');
     if(uuid_from_string(&uuid, pt)) {
 	CRIT("Invalid configuration data (UUID = %s)", pt);
 	free(cs);
@@ -293,7 +297,7 @@ sxi_hdist_t *sxi_hdist_from_cfg(const void *cfg, unsigned int cfg_len)
     }
 
     /* seed */
-    pt = gettoken(cs, &pos, token, sizeof(token));
+    pt = gettoken(cs, &pos, token, sizeof(token), ':');
     if(!pt || !isdigit(*pt)) {
 	CRIT("Invalid configuration data (seed)");
 	free(cs);
@@ -302,7 +306,7 @@ sxi_hdist_t *sxi_hdist_from_cfg(const void *cfg, unsigned int cfg_len)
     seed = atoi(pt);
 
     /* max_builds */
-    pt = gettoken(cs, &pos, token, sizeof(token));
+    pt = gettoken(cs, &pos, token, sizeof(token), ':');
     if(!pt || !isdigit(*pt)) {
 	CRIT("Invalid configuration data (max_builds)");
 	free(cs);
@@ -316,12 +320,12 @@ sxi_hdist_t *sxi_hdist_from_cfg(const void *cfg, unsigned int cfg_len)
 	return NULL;
     }
 
-    while((pt = gettoken(cs, &pos, token, sizeof(token)))) {
+    while((pt = gettoken(cs, &pos, token, sizeof(token), ':'))) {
 	if(!strcmp(pt, "BUILD") || !strcmp(pt, "REBALANCED")) {
 		long long int checksum;
 
 	    if(!strcmp(pt, "BUILD"))
-		ret = sxi_hdist_build(model);
+		ret = sxi_hdist_build(model, zone);
 	    else
 		ret = sxi_hdist_rebalanced(model);
 
@@ -329,7 +333,7 @@ sxi_hdist_t *sxi_hdist_from_cfg(const void *cfg, unsigned int cfg_len)
 		break;
 
 	    /* checksum */
-	    pt = gettoken(cs, &pos, token, sizeof(token));
+	    pt = gettoken(cs, &pos, token, sizeof(token), ':');
 	    if(!pt || (!isdigit(*pt) && *pt != '-')) {
 		CRIT("Invalid configuration data (checksum)");
 		ret = EINVAL;
@@ -346,6 +350,29 @@ sxi_hdist_t *sxi_hdist_from_cfg(const void *cfg, unsigned int cfg_len)
 		ret = EINVAL;
 		break;
 	    };
+
+	} else if(!strcmp(pt, "ZONE")) {
+	    unsigned int zlen;
+	    pt = gettoken(cs, &pos, token, sizeof(token), ':');
+	    if(!pt || strlen(pt) < 38) {
+		CRIT("Invalid configuration data (zone data)");
+		ret = EINVAL;
+		break;
+	    }
+	    free(zone);
+	    zone = malloc(strlen(pt));
+	    if(!zone) {
+		CRIT("OOM");
+		ret = ENOMEM;
+		break;
+	    }
+	    zlen = strlen(pt) - 1;
+	    if(sxi_b64_dec_core(pt, zone, &zlen)) {
+		CRIT("Can't decode zone data");
+		ret = EINVAL;
+		break;
+	    }
+	    zone[zlen] = 0;
 
 	} else {
 		char addr[INET6_ADDRSTRLEN], addr_int[INET6_ADDRSTRLEN];
@@ -369,7 +396,7 @@ sxi_hdist_t *sxi_hdist_from_cfg(const void *cfg, unsigned int cfg_len)
 	    }
 
 	    /* addr */
-	    pt = gettoken(cs, &pos, addr, sizeof(addr));
+	    pt = gettoken(cs, &pos, addr, sizeof(addr), ':');
 	    if(!pt) {
 		CRIT("Invalid configuration data (addr)");
 		ret = EINVAL;
@@ -377,7 +404,7 @@ sxi_hdist_t *sxi_hdist_from_cfg(const void *cfg, unsigned int cfg_len)
 	    }
 
 	    /* addr_int */
-	    pt = gettoken(cs, &pos, addr_int, sizeof(addr_int));
+	    pt = gettoken(cs, &pos, addr_int, sizeof(addr_int), ':');
 	    if(!pt) {
 		CRIT("Invalid configuration data (addr_int)");
 		ret = EINVAL;
@@ -385,7 +412,7 @@ sxi_hdist_t *sxi_hdist_from_cfg(const void *cfg, unsigned int cfg_len)
 	    }
 
 	    /* capacity + prev_uuid */
-	    pt = gettoken(cs, &pos, token, sizeof(token));
+	    pt = gettoken(cs, &pos, token, sizeof(token), ':');
 	    if(!pt || !isdigit(*pt)) {
 		CRIT("Invalid configuration data (capacity)");
 		ret = EINVAL;
@@ -411,6 +438,7 @@ sxi_hdist_t *sxi_hdist_from_cfg(const void *cfg, unsigned int cfg_len)
 	}
     }
     free(cs);
+    free(zone);
 
     if(ret) {
 	sxi_hdist_free(model);
@@ -442,6 +470,19 @@ rc_ty sxi_hdist_get_cfg(const sxi_hdist_t *model, const void **cfg, unsigned int
     return OK;
 }
 
+const char *sxi_hdist_get_zones(const sxi_hdist_t *model, unsigned int bidx)
+{
+    if(!model)
+	return NULL;
+
+    if(bidx >= model->builds) {
+	CRIT("Invalid build index (%u >= %u)", bidx, model->builds);
+	return NULL;
+    }
+
+    return model->zone_cfg[bidx];
+}
+
 static int get_node_idx(const sxi_hdist_t *model, unsigned int bidx, unsigned int node_id)
 {
 	unsigned int i;
@@ -471,6 +512,7 @@ static rc_ty hdist_addnode(sxi_hdist_t *model, unsigned int id, uint64_t capacit
     }
     model->node_list[0] = node_list_new;
     node_list_new[model->node_count[0]].id = id;
+    node_list_new[model->node_count[0]].zone_id = 0;
     if(sxn) {
 	node_list_new[model->node_count[0]].sxn = sx_node_dup(sxn);
 	if(!node_list_new[model->node_count[0]].sxn) {
@@ -602,6 +644,8 @@ rc_ty sxi_hdist_newbuild(sxi_hdist_t *model)
 	model->node_list[i] = model->node_list[i - 1];
 	model->sxnl[i] = model->sxnl[i - 1];
 	model->node_count[i] = model->node_count[i - 1];
+	model->zone_count[i] = model->zone_count[i - 1];
+	model->zone_cfg[i] = model->zone_cfg[i - 1];
 	model->capacity_total[i] = model->capacity_total[i - 1];
 	model->circle[i] = model->circle[i - 1];
 	model->circle_points[i] = model->circle_points[i - 1];
@@ -676,7 +720,12 @@ static int hchecksum(sxi_hdist_t *model)
                 }
             }
 	    v += sx_node_capacity(model->node_list[i][j].sxn);
+	    v += model->node_list[i][j].zone_id;
 	}
+	if(model->zone_cfg[i] && !sxi_sha1_update(sctx, model->zone_cfg[i], strlen(model->zone_cfg[i]))) {
+            sxi_md_cleanup(&sctx);
+            return 1;
+        }
 	if(model->circle_points[i])
 	    v ^= model->circle[i][model->circle_points[i] - 1].rnd;
     }
@@ -715,6 +764,8 @@ rc_ty sxi_hdist_rebalanced(sxi_hdist_t *model)
 	model->sxnl[i] = NULL;
 	free(model->circle[i]);
 	model->circle[i] = NULL;
+	free(model->zone_cfg[i]);
+	model->zone_cfg[i] = NULL;
     }
 
     model->builds = 1;
@@ -736,13 +787,13 @@ rc_ty sxi_hdist_rebalanced(sxi_hdist_t *model)
     return update_cfg(model);
 }
 
-static int node_in_set(unsigned int *nodes, struct hdist_node *node_list, unsigned int count, unsigned int id)
+static int node_in_set(unsigned int *nodes, unsigned int *zones, struct hdist_node *node_list, unsigned int count, unsigned int id, unsigned int zone_id)
 {
 	unsigned int i;
 
     if(nodes) {
 	for(i = 0; i < count; i++)
-	    if(nodes[i] == id)
+	    if(nodes[i] == id || (zone_id && zones[i] == zone_id))
 		return 1;
     } else {
 	for(i = 0; i < count; i++)
@@ -753,10 +804,96 @@ static int node_in_set(unsigned int *nodes, struct hdist_node *node_list, unsign
     return 0;
 }
 
-rc_ty sxi_hdist_build(sxi_hdist_t *model)
+static int set_zones(sxi_hdist_t *model, const char *zones)
 {
-	unsigned int i, j, p;
+    char *buf;
+    unsigned int pos = 0, zone_id = 0;
+
+    if(!model || !zones) {
+	CRIT("Invalid arguments");
+	return EINVAL;
+    }
+
+    buf = malloc(strlen(zones) + 1);
+    if(!buf) {
+	CRIT("OOM");
+	return ENOMEM;
+    }
+
+    while(gettoken(zones, &pos, buf, strlen(zones) + 1, ';')) {
+	char token[128], *pt, *upt;
+	unsigned int zpos = 0, i;
+
+	zone_id++;
+	if(!(pt = strrchr(buf, ':'))) {
+	    CRIT("Can't parse zone %d - invalid format (zone name)", zone_id);
+	    free(buf);
+	    return EINVAL;
+	}
+	*pt++ = 0;
+	if(!*pt || strlen(pt) < 36) {
+	    CRIT("Can't parse zone %d (%s) - invalid format (no UUID after colon)", zone_id, buf);
+	    free(buf);
+	    return EINVAL;
+	}
+
+	upt = gettoken(pt, &zpos, token, sizeof(token), ',');
+	if(!upt)
+	    upt = pt;
+
+	do {
+	    sx_uuid_t uuid;
+	    int found = 0;
+
+	    if(uuid_from_string(&uuid, upt)) {
+		CRIT("Invalid UUID '%s' in zone '%s'", upt, buf);
+		free(buf);
+		return EINVAL;
+	    }
+	    for(i = 0; i < model->node_count[0]; i++) {
+		if(!memcmp(sx_node_uuid(model->node_list[0][i].sxn), &uuid, sizeof(uuid))) {
+		    if(model->node_list[0][i].zone_id) {
+			if(model->node_list[0][i].zone_id == zone_id)
+			    CRIT("Node with UUID %s was already assigned to zone '%s'", upt, buf);
+			else
+			    CRIT("Node with UUID %s was already assigned to another zone", upt);
+			free(buf);
+			return EINVAL;
+		    }
+		    model->node_list[0][i].zone_id = zone_id;
+		    found = 1;
+		    break;
+		}
+	    }
+	    if(!found) {
+		CRIT("UUID %s from zone '%s' doesn't match any node", upt, buf);
+		free(buf);
+		return EINVAL;
+	    }
+	} while((upt = gettoken(pt, &zpos, token, sizeof(token), ',')));
+    }
+
+    free(buf);
+    if(zone_id) {
+	model->zone_cfg[0] = strdup(zones);
+	if(!model->zone_cfg[0]) {
+	    CRIT("OOM");
+	    return ENOMEM;
+	}
+	model->zone_count[0] = zone_id;
+	return 0;
+    }
+
+    CRIT("No valid zones found");
+    return EINVAL;
+}
+
+rc_ty sxi_hdist_build(sxi_hdist_t *model, const char *zones)
+{
+	unsigned int i, j, p, cfg_size;
 	unsigned int points_total;
+	int ret;
+	char *zone_b64 = NULL;
 
     if(!model || model->state != 0xcafe) {
 	CRIT("Invalid hash distribution model");
@@ -767,6 +904,9 @@ rc_ty sxi_hdist_build(sxi_hdist_t *model)
 	CRIT("Node count is 0");
 	return EINVAL;
     }
+
+    if(zones && (ret = set_zones(model, zones)))
+	return ret;
 
     /* Total number of points */
     points_total = MIN(model->node_count[0] * SXI_HDIST_MAX_NODE_POINTS, SXI_HDIST_MAX_TOTAL_POINTS);
@@ -804,6 +944,7 @@ rc_ty sxi_hdist_build(sxi_hdist_t *model)
 		    return FAIL_EINTERNAL;
 		}
 		model->circle[0][p].node_id = model->node_list[0][i].id;
+		model->circle[0][p].zone_id = model->node_list[0][i].zone_id;
 		model->circle[0][p].rnd = isaac_rand(&model->rctx);
 		model->circle[0][p].node_points = node_points;
 		model->circle[0][p++].point = isaac_rand(&model->rctx);
@@ -825,7 +966,7 @@ rc_ty sxi_hdist_build(sxi_hdist_t *model)
 		}
 
 		node_points_cnt = node_points;
-		if(node_in_set(NULL, model->node_list[1], model->node_count[1], model->node_list[0][i].id)) {
+		if(node_in_set(NULL, NULL, model->node_list[1], model->node_count[1], model->node_list[0][i].id, 0)) {
 		    for(j = 0; j < model->circle_points[1] && node_points_cnt; j++) {
 			if(model->circle[1][j].node_id == model->node_list[0][i].id) {
 			    if(p >= points_total) {
@@ -833,6 +974,7 @@ rc_ty sxi_hdist_build(sxi_hdist_t *model)
 				return FAIL_EINTERNAL;
 			    }
 			    model->circle[0][p].node_id = model->node_list[0][i].id;
+			    model->circle[0][p].zone_id = model->node_list[0][i].zone_id;
 			    model->circle[0][p].node_points = node_points;
 			    model->circle[0][p].rnd = model->circle[1][j].rnd;
 			    model->circle[0][p++].point = model->circle[1][j].point;
@@ -846,6 +988,7 @@ rc_ty sxi_hdist_build(sxi_hdist_t *model)
 			return FAIL_EINTERNAL;
 		    }
 		    model->circle[0][p].node_id = model->node_list[0][i].id;
+		    model->circle[0][p].zone_id = model->node_list[0][i].zone_id;
 		    model->circle[0][p].node_points = node_points;
 		    model->circle[0][p].point = isaac_rand(&model->rctx);
 		    model->circle[0][p++].rnd = isaac_rand(&model->rctx);
@@ -877,13 +1020,28 @@ rc_ty sxi_hdist_build(sxi_hdist_t *model)
         return ENOMEM;
     }
 
-    if(model->cfg_size + 28 > model->cfg_alloced) {
+    cfg_size = 28;
+    if(model->zone_cfg[0]) {
+	zone_b64 = sxi_b64_enc_core(model->zone_cfg[0], strlen(model->zone_cfg[0]));
+	if(!zone_b64) {
+	    CRIT("Failed to encode zone configuration");
+	    return ENOMEM;
+	}
+	cfg_size += strlen(zone_b64) + 6;
+    }
+
+    if(model->cfg_size + cfg_size > model->cfg_alloced) {
 	model->cfg_alloced += CFG_PREALLOC;
 	model->cfg = (char *) wrap_realloc_or_free(model->cfg, sizeof(char) * model->cfg_alloced);
 	if(!model->cfg) {
 	    CRIT("Can't realloc model->cfg");
+	    free(zone_b64);
 	    return ENOMEM;
 	}
+    }
+    if(zone_b64) {
+	model->cfg_size += sprintf(model->cfg + model->cfg_size, ":ZONE:%s", zone_b64);
+	free(zone_b64);
     }
     model->cfg_size += sprintf(model->cfg + model->cfg_size, ":BUILD:%lld", (long long int) model->checksum);
     return update_cfg(model);
@@ -906,12 +1064,15 @@ void sxi_hdist_free(sxi_hdist_t *model)
 	for(j = 0; j < model->node_count[i]; j++)
 	    sx_node_delete(model->node_list[i][j].sxn);
 	free(model->node_list[i]);
+	free(model->zone_cfg[i]);
 	sx_nodelist_delete(model->sxnl[i]);
 	free(model->circle[i]);
     }
     free(model->node_count);
     free(model->node_list);
     free(model->sxnl);
+    free(model->zone_count);
+    free(model->zone_cfg);
     free(model->circle);
     free(model->cfg);
     free(model->cfg_blob);
@@ -922,7 +1083,7 @@ void sxi_hdist_free(sxi_hdist_t *model)
  * replica_count: number (>= 1) of copies to be stored on different nodes
  * dest_nodes: array of size replica_count that will be filled with node IDs
  */
-static rc_ty hdist_hash(const sxi_hdist_t *model, uint64_t hash, unsigned int replica_count, unsigned int *dest_nodes, unsigned int bidx, int store)
+static rc_ty hdist_hash(const sxi_hdist_t *model, uint64_t hash, unsigned int replica_count, unsigned int *dest_nodes, unsigned int *dest_zones, unsigned int bidx, int store)
 {
 	unsigned int i, j, l = 0, h, m, rdiv;
 	int node_idx;
@@ -942,8 +1103,8 @@ static rc_ty hdist_hash(const sxi_hdist_t *model, uint64_t hash, unsigned int re
 	return EINVAL;
     }
 
-    if(replica_count > model->node_count[bidx]) {
-	CRIT("replica_count > model->node_count[bidx]");
+    if(replica_count > sxi_hdist_maxreplica(model, bidx)) {
+	CRIT("replica_count > max_replica");
 	return EINVAL;
     }
 
@@ -971,6 +1132,7 @@ static rc_ty hdist_hash(const sxi_hdist_t *model, uint64_t hash, unsigned int re
     }
 
     dest_nodes[0] = model->circle[bidx][m].node_id;
+    dest_zones[0] = model->circle[bidx][m].zone_id;
 
     rdiv = MAX_RDIV;
     for(i = 1; i < replica_count; i++) {
@@ -978,7 +1140,7 @@ static rc_ty hdist_hash(const sxi_hdist_t *model, uint64_t hash, unsigned int re
 	for(j = 0; j < 2; j++) {
 	    for(h = m + 1; h < model->circle_points[bidx]; h++) {
 		    struct hdist_point *p = &model->circle[bidx][h];
-		if(!node_in_set(dest_nodes, NULL, i, p->node_id)) {
+		if(!node_in_set(dest_nodes, dest_zones, NULL, i, p->node_id, p->zone_id)) {
 		    /*
 		    if(!j && p->num > (p->node_points / rdiv)) {
 			node_idx = -1;
@@ -993,7 +1155,7 @@ static rc_ty hdist_hash(const sxi_hdist_t *model, uint64_t hash, unsigned int re
 	    if(h == model->circle_points[bidx] && m != h) {
 		for(h = 0; h < m; h++) {
 		    struct hdist_point *p = &model->circle[bidx][h];
-		    if(!node_in_set(dest_nodes, NULL, i, p->node_id)) {
+		    if(!node_in_set(dest_nodes, dest_zones, NULL, i, p->node_id, p->zone_id)) {
 			/*
 			if(!j && p->num > (p->node_points / rdiv)) {
 			    node_idx = -1;
@@ -1014,6 +1176,7 @@ static rc_ty hdist_hash(const sxi_hdist_t *model, uint64_t hash, unsigned int re
 	    return FAIL_EINTERNAL;
 	}
 	dest_nodes[i] = model->circle[bidx][h].node_id;
+	dest_zones[i] = model->circle[bidx][h].zone_id;
 	if(rdiv >= 2)
 	    rdiv--;
     }
@@ -1021,9 +1184,9 @@ static rc_ty hdist_hash(const sxi_hdist_t *model, uint64_t hash, unsigned int re
     return 0;
 }
 
-sx_nodelist_t *sxi_hdist_locate(const sxi_hdist_t *model, uint64_t hash, unsigned int replica_count, int bidx)
+sx_nodelist_t *sxi_hdist_locate(const sxi_hdist_t *model, uint64_t hash, unsigned int replica_count, unsigned int bidx)
 {
-	unsigned int *dest_nodes, i, j;
+	unsigned int *dest_nodes, *dest_zones, i, j;
 	rc_ty ret;
 	sx_nodelist_t *nodelist = NULL;
 	const sx_node_t *node;
@@ -1037,11 +1200,20 @@ sx_nodelist_t *sxi_hdist_locate(const sxi_hdist_t *model, uint64_t hash, unsigne
 	return NULL;
     }
 
-    ret = hdist_hash(model, hash, replica_count, dest_nodes, bidx, 0);
+    dest_zones = (unsigned int *) malloc(sizeof(unsigned int) * replica_count);
+    if(!dest_zones) {
+	CRIT("ERROR: Can't allocate dest_nodes");
+	free(dest_nodes);
+	return NULL;
+    }
+
+
+    ret = hdist_hash(model, hash, replica_count, dest_nodes, dest_zones, bidx, 0);
     if(!ret) {
 	nodelist = sx_nodelist_new();
 	if(!nodelist) {
 	    free(dest_nodes);
+	    free(dest_zones);
 	    return NULL;
 	}
 	for(i = 0; i < replica_count; i++) {
@@ -1055,11 +1227,13 @@ sx_nodelist_t *sxi_hdist_locate(const sxi_hdist_t *model, uint64_t hash, unsigne
 	    if(!node) {
 		CRIT("ERROR: Can't map internal node id -> sx_node_t");
 		free(dest_nodes);
+		free(dest_zones);
 		sx_nodelist_delete(nodelist);
 		return NULL;
 	    }
 	    if(sx_nodelist_add(nodelist, sx_node_dup(node))) {
 		free(dest_nodes);
+		free(dest_zones);
 		sx_nodelist_delete(nodelist);
 		return NULL;
 	    }
@@ -1067,10 +1241,11 @@ sx_nodelist_t *sxi_hdist_locate(const sxi_hdist_t *model, uint64_t hash, unsigne
     }
 
     free(dest_nodes);
+    free(dest_zones);
     return nodelist;
 }
 
-const sx_nodelist_t *sxi_hdist_nodelist(const sxi_hdist_t *model, int bidx)
+const sx_nodelist_t *sxi_hdist_nodelist(const sxi_hdist_t *model, unsigned int bidx)
 {
     if(!model)
 	return NULL;
@@ -1109,4 +1284,23 @@ int sxi_hdist_same_origin(const sxi_hdist_t *model1, const sxi_hdist_t *model2)
 	return 0;
 
     return !memcmp(&model1->uuid, &model2->uuid, sizeof(sx_uuid_t));
+}
+
+int sxi_hdist_maxreplica(const sxi_hdist_t *model, unsigned int bidx)
+{
+    int i, r = 0;
+
+    if(!model)
+	return 0;
+
+    if(bidx >= model->builds) {
+	CRIT("Invalid build index (%u >= %u)", bidx, model->builds);
+	return 0;
+    }
+
+    for(i = 0; i < model->node_count[bidx]; i++)
+	if(!model->node_list[bidx][i].zone_id)
+	    r++;
+
+    return r + model->zone_count[bidx];
 }

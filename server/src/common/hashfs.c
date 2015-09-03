@@ -4978,7 +4978,7 @@ rc_ty sx_hashfs_modhdist(sx_hashfs_t *h, const sx_nodelist_t *list) {
 	return FAIL_EINTERNAL;
     }
 
-    ret = sxi_hdist_build(newmod);
+    ret = sxi_hdist_build(newmod, NULL);
     if(ret) {
 	msg_set_reason("Failed to update the distribution model");
 	sxi_hdist_free(newmod);
@@ -12109,7 +12109,7 @@ rc_ty sx_hashfs_hdist_change_req(sx_hashfs_t *h, const sx_nodelist_t *newdist, j
 	return EINVAL;
     }
 
-    if((r = sxi_hdist_build(newmod)) != OK) {
+    if((r = sxi_hdist_build(newmod, NULL)) != OK) {
 	sxi_hdist_free(newmod);
 	msg_set_reason("Failed to build updated distribution");
 	return r;
@@ -12289,7 +12289,7 @@ rc_ty sx_hashfs_hdist_replace_req(sx_hashfs_t *h, const sx_nodelist_t *replaceme
 	}
     }
 
-    if((r = sxi_hdist_build(newmod)) != OK) {
+    if((r = sxi_hdist_build(newmod, NULL)) != OK) {
 	sxi_hdist_free(newmod);
 	msg_set_reason("Failed to build updated distribution");
 	return r;
@@ -14960,7 +14960,7 @@ static rc_ty bump_hdist_version_only(sx_hashfs_t *h, int inactive_dist, int64_t 
 	    return ENOMEM;
 	}
     }
-    if(sxi_hdist_build(newmod)) {
+    if(sxi_hdist_build(newmod, NULL)) {
 	msg_set_reason("Failed to build updated distribution");
 	sxi_hdist_free(newmod);
 	return FAIL_EINTERNAL;

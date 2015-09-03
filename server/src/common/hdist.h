@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2012-2014 Skylable Ltd. <info-copyright@skylable.com>
+ *  Copyright (C) 2012-2015 Skylable Ltd. <info-copyright@skylable.com>
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
@@ -45,17 +45,19 @@ sxi_hdist_t *sxi_hdist_from_cfg(const void *cfg, unsigned int cfg_len);
 
 rc_ty sxi_hdist_get_cfg(const sxi_hdist_t *model, const void **cfg, unsigned int *cfg_len);
 
+const char *sxi_hdist_get_zones(const sxi_hdist_t *model, unsigned int bidx);
+
 rc_ty sxi_hdist_addnode(sxi_hdist_t *model, const sx_uuid_t *uuid, const char *addr, const char *internal_addr, int64_t capacity, const sx_uuid_t *prev_uuid);
 
 rc_ty sxi_hdist_newbuild(sxi_hdist_t *model);
 
-rc_ty sxi_hdist_build(sxi_hdist_t *model);
+rc_ty sxi_hdist_build(sxi_hdist_t *model, const char *zones);
 
 rc_ty sxi_hdist_rebalanced(sxi_hdist_t *model);
 
-sx_nodelist_t *sxi_hdist_locate(const sxi_hdist_t *model, uint64_t hash, unsigned int replica_count, int bidx);
+sx_nodelist_t *sxi_hdist_locate(const sxi_hdist_t *model, uint64_t hash, unsigned int replica_count, unsigned int bidx);
 
-const sx_nodelist_t *sxi_hdist_nodelist(const sxi_hdist_t *model, int bidx);
+const sx_nodelist_t *sxi_hdist_nodelist(const sxi_hdist_t *model, unsigned int bidx);
 
 unsigned int sxi_hdist_buildcnt(const sxi_hdist_t *model);
 
@@ -66,6 +68,8 @@ uint64_t sxi_hdist_checksum(const sxi_hdist_t *model);
 const sx_uuid_t *sxi_hdist_uuid(const sxi_hdist_t *model);
 
 int sxi_hdist_same_origin(const sxi_hdist_t *model1, const sxi_hdist_t *model2);
+
+int sxi_hdist_maxreplica(const sxi_hdist_t *model, unsigned int bidx);
 
 void sxi_hdist_free(sxi_hdist_t *model);
 

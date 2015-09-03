@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2012-2014 Skylable Ltd. <info-copyright@skylable.com>
+ *  Copyright (C) 2012-2015 Skylable Ltd. <info-copyright@skylable.com>
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
@@ -41,6 +41,7 @@
 #include "hdist.h"
 #include "utils.h"
 #include "linenoise.h"
+#include "init.h"
 #include "../../../../libsxclient/src/vcrypto.h"
 #include "../../../../libsxclient/src/misc.h"
 
@@ -85,12 +86,15 @@ struct sxcluster {
     unsigned int bsize_cnt[3];
     unsigned int node_cnt;
     struct sxnode *node;
+    char *zones;
     unsigned int need_update, tid;
 
     uint64_t capacity;
     uint64_t read;
     uint64_t stored;
     uint64_t deduped;
+
+    sxc_client_t *sx;
 };
 
 static int dedup(struct sxcluster *cluster);
@@ -115,6 +119,7 @@ static void free_cluster(struct sxcluster *cluster)
     free(cluster->node);
     cluster->node = NULL;
     cluster->node_cnt = 0;
+    free(cluster->zones);
     sxi_hdist_free(cluster->hdist);
 }
 
@@ -317,7 +322,7 @@ static int dump_cluster(struct sxcluster *cluster, FILE *file)
 	    block = &node->block[j];
 	    if(!block->hash)
 		continue;
-	    fprintf(file, "%s,%016llx,%u,%u,%u\n", node->host, (long long unsigned int) block->hash, block->bs, block->replica_cnt, block->links);
+	    fprintf(file, "%s,%s,%016llx,%u,%u,%u\n", node->host, node->uuid.string, (long long unsigned int) block->hash, block->bs, block->replica_cnt, block->links);
 	}
     }
 
@@ -363,8 +368,10 @@ static int update(struct sxcluster *cluster)
 	}
     }
 
-    if(sxi_hdist_build(cluster->hdist) != OK) {
+    if(sxi_hdist_build(cluster->hdist, cluster->zones) != OK) {
 	printf("ERROR: Can't build distribution model\n");
+	sxi_hdist_free(cluster->hdist);
+	cluster->hdist = NULL;
 	return -1;
     }
 
@@ -490,6 +497,7 @@ static int rebalance(struct sxcluster *cluster)
     newcluster.read = cluster->read;
     newcluster.deduped = cluster->deduped;
     dedup(&newcluster);
+    newcluster.sx = cluster->sx;
     free_cluster(cluster);
     memcpy(cluster, &newcluster, sizeof(newcluster));
     cluster->need_update = 0;
@@ -747,6 +755,10 @@ static int addnode(struct sxcluster *cluster, const char *host, uint64_t capacit
 	    printf("Node '%s' already exists\n", host);
 	    return -1;
 	}
+	if(uuid && !memcmp(&cluster->node[i].uuid, uuid, sizeof(*uuid))) {
+	    printf("Node with UUID '%s' already exists\n", uuid->string);
+	    return -1;
+	}
     }
 
     if(capacity < MINSIZE) {
@@ -971,6 +983,7 @@ static void shutdown(struct sxcluster *cluster, int ret)
     free_cluster(cluster);
     cmdline_parser_free(&args);
     sxi_vcrypto_cleanup();
+    sx_done(&cluster->sx);
     exit(ret);
 }
 
@@ -1043,6 +1056,7 @@ void interactive_completion(const char *line, linenoiseCompletions *lc)
 {
 	unsigned int len, i;
 	char *commands[] = { "addnode", "delnode", "help", "info", "debug", "blkstats", "resize",
+			     "set-zones", "get-zones",
 			     "rebalance", /* "rebalanceV2", */ "store", "save", "savecmds",
 			     "load", "dump", "reset", "execute", "exit" };
 
@@ -1067,6 +1081,8 @@ static int runcmd(struct sxcluster *cluster, int mode, char *line)
 	printf("  addnode	-> add new node\n");
 	printf("  delnode	-> delete existing node\n");
 	printf("  resize	-> resize single node\n");
+	printf("  set-zones	-> group nodes into zones\n");
+	printf("  get-zones	-> get active zones configuration\n");
 	printf("  rebalance	-> force cluster rebalance\n");
 	/* printf("  rebalanceV2	-> force cluster rebalance (V2 - testing)\n"); */
 	printf("\n");
@@ -1098,16 +1114,24 @@ static int runcmd(struct sxcluster *cluster, int mode, char *line)
 	    print_blkstats(cluster);
 
     } else if(!strncmp(line, "addnode", 7)) {
-	    char host[128], cap[128];
+	    char host[128], cap[128], uuid[128];
 	    unsigned int len = strlen(line);
 	    int64_t size;
+	    sx_uuid_t u;
 
-	if(len < 10 || strlen(line) >= 128 || sscanf(&line[8], "%[^@]@%s", host, cap) != 2) {
+	memset(&uuid, 0, sizeof(uuid));
+	if(len < 10 || strlen(line) >= 128 || (sscanf(&line[8], "%[^@]@%[^:]:%s", host, cap, uuid) != 3 && sscanf(&line[8], "%[^@]@%s", host, cap) != 2)) {
 	    printf("Usage: addnode NODE@CAPACITY\n");
 	    printf("       CAPACITY allows K, M, G, T suffixes; default is M\n");
 	} else {
+	    if(*uuid) {
+		if(uuid_from_string(&u, uuid)) {
+		    printf("Invalid UUID\n");
+		    return 1;
+		}
+	    }
 	    size = str2size(cap);
-	    if(size != -1 && !addnode(cluster, host, size, NULL))
+	    if(size != -1 && !addnode(cluster, host, size, *uuid ? &u : NULL))
 		cluster->need_update = 1;
 	}
 
@@ -1186,6 +1210,44 @@ static int runcmd(struct sxcluster *cluster, int mode, char *line)
 		printf("Node '%s' doesn't exist\n", host);
 	}
 
+    } else if(!strncmp(line, "set-zones", 9)) {
+	unsigned int len = strlen(line);
+	if(len < 48) {
+	    printf("Usage: set-zones ZoneName1:UUID1,UUID2...;ZoneName2:UUID3,UUID4...\n");
+	} else {
+	    if(!cluster->node_cnt) {
+		printf("Null cluster, use 'addnode' to add new nodes\n");
+		return 0;
+	    }
+	    cluster->need_update = 1;
+	    if(!(cluster->zones = strdup(&line[10])) || update(cluster)) {
+		free(cluster->zones);
+		cluster->zones = NULL;
+		printf("Failed to set new zones configuration\n");
+	    } else {
+		printf("New zones configuration applied, running rebalance\n");
+		rebalance(cluster);
+	    }
+	}
+
+    } else if(!strncmp(line, "get-zones", 9)) {
+	const char *zones;
+	if(!cluster->node_cnt) {
+	    printf("Null cluster, use 'addnode' to add new nodes\n");
+	    return 0;
+	}
+
+	if(!sxi_hdist_version(cluster->hdist) || cluster->need_update) {
+	    printf("Updating distribution model...\n");
+	    update(cluster);
+	}
+
+	zones = sxi_hdist_get_zones(cluster->hdist, 0);
+	if(!zones)
+	    printf("No active zones found\n");
+	else
+	    printf("%s\n", zones);
+
 /*
     } else if(!strncmp(line, "rebalanceV2", 11)) {
 	if(mode == IA) {
@@ -1241,14 +1303,14 @@ static int runcmd(struct sxcluster *cluster, int mode, char *line)
 	    break;
 	}
 
-	if(replica_count > cluster->node_cnt) {
-	    printf("ERROR: Invalid replica count %u (> number of nodes (%u))\n", replica_count, cluster->node_cnt);
-	    return 0;
-	}
-
 	if(!sxi_hdist_version(cluster->hdist) || cluster->need_update) {
 	    printf("Updating distribution model...\n");
 	    update(cluster);
+	}
+
+	if(replica_count > sxi_hdist_maxreplica(cluster->hdist, 0)) {
+	    printf("ERROR: Invalid replica count %u (max: %u)\n", replica_count, sxi_hdist_maxreplica(cluster->hdist, 0));
+	    return 0;
 	}
 
 	printf("Processing data in %s (replica count = %u)\n", path, replica_count);
@@ -1316,8 +1378,10 @@ static int runcmd(struct sxcluster *cluster, int mode, char *line)
 	if(strlen(line) != 9 || strcmp(line, "reset all")) {
 	    printf("Usage: reset all\n");
 	} else {
+	    sxc_client_t *sx = cluster->sx;
 	    free_cluster(cluster);
 	    memset(cluster, 0, sizeof(struct sxcluster));
+	    cluster->sx = sx;
 	}
 
     } else if(mode == CL && !strncmp(line, "continue", 8)) {
@@ -1348,7 +1412,7 @@ static int runcmd(struct sxcluster *cluster, int mode, char *line)
 
 static int execute(struct sxcluster *cluster, const char *fname)
 {
-	char buff[256];
+	char buff[4096];
 	FILE *file = fopen(fname, "r");
 
     if(!file) {
@@ -1671,7 +1735,7 @@ static void print_cluster(struct sxcluster *cluster)
 	n = &cluster->node[i];
 	if(n->del_flag)
 	    continue;
-	printf("Node %s: %.1f MB / %llu MB (%.1f%%)\n", n->host, n->stored / (float) MBVAL, (unsigned long long) n->capacity / MBVAL, 100.0 * n->stored / (n->capacity + 1));
+	printf("Node %s (%s): %.1f MB / %llu MB (%.1f%%)\n", n->host, n->uuid.string, n->stored / (float) MBVAL, (unsigned long long) n->capacity / MBVAL, 100.0 * n->stored / (n->capacity + 1));
     }
 }
 
@@ -1679,6 +1743,7 @@ int main(int argc, char **argv)
 {
 	struct sxcluster cluster;
 	int i, ret = 0;
+	sxc_logger_t log;
 
     if(cmdline_parser(argc, argv, &args))
 	return 1;
@@ -1691,6 +1756,14 @@ int main(int argc, char **argv)
 	cmdline_parser_free(&args);
 	return 0;
     }
+
+    memset(&cluster, 0, sizeof(cluster));
+    cluster.sx = sx_init(sxc_default_logger(&log, argv[0]), NULL, NULL, 0, argc, argv);
+    if(!cluster.sx) {
+	fprintf(stderr, "Fatal error: sx_init() failed\n");
+	return 1;
+    }
+    log_setminlevel(cluster.sx, SX_LOG_WARNING);
 
     if(argc == 1 || args.execute_given) {
 	if(!isatty(fileno(stdin))) {
@@ -1726,8 +1799,6 @@ int main(int argc, char **argv)
 	    return 1;
 	}
     }
-
-    memset(&cluster, 0, sizeof(cluster));
 
     if(args.dump_cluster_given) {
 	/*
@@ -1770,7 +1841,7 @@ int main(int argc, char **argv)
 	}
     }
 
-    if(sxi_hdist_build(cluster.hdist) != OK) {
+    if(sxi_hdist_build(cluster.hdist, NULL) != OK) {
 	printf("ERROR: Can't build distribution model\n");
 	shutdown(&cluster, 1);
     }
