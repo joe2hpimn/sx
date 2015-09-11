@@ -1932,7 +1932,8 @@ static int gc_node(sxc_client_t *sx, const char *path)
     if (!hashfs)
         return 1;
     int term = 0;
-    gc_max_batch = 100;
+    gc_max_batch_time = 5;
+    gc_yield_time = 1.1;
     rc_ty s = sx_hashfs_gc_periodic(hashfs, &term, GC_GRACE_PERIOD);
     s |= sx_hashfs_gc_run(hashfs, &term);
     sx_hashfs_close(hashfs);

@@ -51,6 +51,8 @@ const char *gengetopt_args_info_full_help[] = {
   "      --ssl_ca=STRING           Path to SSL CA certificate",
   "      --gc-interval=sec         How often to run the GC  (default=`3600')",
   "      --gc-max-batch=N          Maximum number of rows/transaction in the GC\n                                  (default=`100')",
+  "      --gc-max-batch-time=N     Maximum time for a transaction in the GC in\n                                  seconds  (default=`5')",
+  "      --gc-yield-time=N         Time to yield between GC transactions\n                                  (default=`1.1')",
   "      --blockmgr-delay=sec      Blockmgr delay  (default=`3')",
   "      --db-min-passive-wal-pages=N\n                                Minimum number of pages in WAL to trigger a\n                                  passive checkpoint  (default=`5000')",
   "      --db-max-passive-wal-pages=N\n                                Maximum number of pages in WAL to trigger a\n                                  passive checkpoint  (default=`10000')",
@@ -152,6 +154,8 @@ void clear_given (struct gengetopt_args_info *args_info)
   args_info->ssl_ca_given = 0 ;
   args_info->gc_interval_given = 0 ;
   args_info->gc_max_batch_given = 0 ;
+  args_info->gc_max_batch_time_given = 0 ;
+  args_info->gc_yield_time_given = 0 ;
   args_info->blockmgr_delay_given = 0 ;
   args_info->db_min_passive_wal_pages_given = 0 ;
   args_info->db_max_passive_wal_pages_given = 0 ;
@@ -191,6 +195,10 @@ void clear_args (struct gengetopt_args_info *args_info)
   args_info->gc_interval_orig = NULL;
   args_info->gc_max_batch_arg = 100;
   args_info->gc_max_batch_orig = NULL;
+  args_info->gc_max_batch_time_arg = 5;
+  args_info->gc_max_batch_time_orig = NULL;
+  args_info->gc_yield_time_arg = 1.1;
+  args_info->gc_yield_time_orig = NULL;
   args_info->blockmgr_delay_arg = 3;
   args_info->blockmgr_delay_orig = NULL;
   args_info->db_min_passive_wal_pages_arg = 5000;
@@ -232,14 +240,16 @@ void init_args_info(struct gengetopt_args_info *args_info)
   args_info->ssl_ca_help = gengetopt_args_info_full_help[14] ;
   args_info->gc_interval_help = gengetopt_args_info_full_help[15] ;
   args_info->gc_max_batch_help = gengetopt_args_info_full_help[16] ;
-  args_info->blockmgr_delay_help = gengetopt_args_info_full_help[17] ;
-  args_info->db_min_passive_wal_pages_help = gengetopt_args_info_full_help[18] ;
-  args_info->db_max_passive_wal_pages_help = gengetopt_args_info_full_help[19] ;
-  args_info->db_max_wal_restart_pages_help = gengetopt_args_info_full_help[20] ;
-  args_info->db_idle_restart_help = gengetopt_args_info_full_help[21] ;
-  args_info->db_busy_timeout_help = gengetopt_args_info_full_help[22] ;
-  args_info->worker_max_wait_help = gengetopt_args_info_full_help[23] ;
-  args_info->worker_max_requests_help = gengetopt_args_info_full_help[24] ;
+  args_info->gc_max_batch_time_help = gengetopt_args_info_full_help[17] ;
+  args_info->gc_yield_time_help = gengetopt_args_info_full_help[18] ;
+  args_info->blockmgr_delay_help = gengetopt_args_info_full_help[19] ;
+  args_info->db_min_passive_wal_pages_help = gengetopt_args_info_full_help[20] ;
+  args_info->db_max_passive_wal_pages_help = gengetopt_args_info_full_help[21] ;
+  args_info->db_max_wal_restart_pages_help = gengetopt_args_info_full_help[22] ;
+  args_info->db_idle_restart_help = gengetopt_args_info_full_help[23] ;
+  args_info->db_busy_timeout_help = gengetopt_args_info_full_help[24] ;
+  args_info->worker_max_wait_help = gengetopt_args_info_full_help[25] ;
+  args_info->worker_max_requests_help = gengetopt_args_info_full_help[26] ;
   
 }
 
@@ -351,6 +361,8 @@ cmdline_parser_release (struct gengetopt_args_info *args_info)
   free_string_field (&(args_info->ssl_ca_orig));
   free_string_field (&(args_info->gc_interval_orig));
   free_string_field (&(args_info->gc_max_batch_orig));
+  free_string_field (&(args_info->gc_max_batch_time_orig));
+  free_string_field (&(args_info->gc_yield_time_orig));
   free_string_field (&(args_info->blockmgr_delay_orig));
   free_string_field (&(args_info->db_min_passive_wal_pages_orig));
   free_string_field (&(args_info->db_max_passive_wal_pages_orig));
@@ -423,6 +435,10 @@ cmdline_parser_dump(FILE *outfile, struct gengetopt_args_info *args_info)
     write_into_file(outfile, "gc-interval", args_info->gc_interval_orig, 0);
   if (args_info->gc_max_batch_given)
     write_into_file(outfile, "gc-max-batch", args_info->gc_max_batch_orig, 0);
+  if (args_info->gc_max_batch_time_given)
+    write_into_file(outfile, "gc-max-batch-time", args_info->gc_max_batch_time_orig, 0);
+  if (args_info->gc_yield_time_given)
+    write_into_file(outfile, "gc-yield-time", args_info->gc_yield_time_orig, 0);
   if (args_info->blockmgr_delay_given)
     write_into_file(outfile, "blockmgr-delay", args_info->blockmgr_delay_orig, 0);
   if (args_info->db_min_passive_wal_pages_given)
@@ -741,6 +757,8 @@ cmdline_parser_internal (
         { "ssl_ca",	1, NULL, 0 },
         { "gc-interval",	1, NULL, 0 },
         { "gc-max-batch",	1, NULL, 0 },
+        { "gc-max-batch-time",	1, NULL, 0 },
+        { "gc-yield-time",	1, NULL, 0 },
         { "blockmgr-delay",	1, NULL, 0 },
         { "db-min-passive-wal-pages",	1, NULL, 0 },
         { "db-max-passive-wal-pages",	1, NULL, 0 },
@@ -973,6 +991,34 @@ cmdline_parser_internal (
                 &(local_args_info.gc_max_batch_given), optarg, 0, "100", ARG_INT,
                 check_ambiguity, override, 0, 0,
                 "gc-max-batch", '-',
+                additional_error))
+              goto failure;
+          
+          }
+          /* Maximum time for a transaction in the GC in seconds.  */
+          else if (strcmp (long_options[option_index].name, "gc-max-batch-time") == 0)
+          {
+          
+          
+            if (update_arg( (void *)&(args_info->gc_max_batch_time_arg), 
+                 &(args_info->gc_max_batch_time_orig), &(args_info->gc_max_batch_time_given),
+                &(local_args_info.gc_max_batch_time_given), optarg, 0, "5", ARG_FLOAT,
+                check_ambiguity, override, 0, 0,
+                "gc-max-batch-time", '-',
+                additional_error))
+              goto failure;
+          
+          }
+          /* Time to yield between GC transactions.  */
+          else if (strcmp (long_options[option_index].name, "gc-yield-time") == 0)
+          {
+          
+          
+            if (update_arg( (void *)&(args_info->gc_yield_time_arg), 
+                 &(args_info->gc_yield_time_orig), &(args_info->gc_yield_time_given),
+                &(local_args_info.gc_yield_time_given), optarg, 0, "1.1", ARG_FLOAT,
+                check_ambiguity, override, 0, 0,
+                "gc-yield-time", '-',
                 additional_error))
               goto failure;
           

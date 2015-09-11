@@ -586,7 +586,8 @@ int main(int argc, char **argv) {
     /* the interactions between these values are complex,
      * no validation: responsibility of the admin when tweaking hidden vars */
     gc_interval = args.gc_interval_arg;
-    gc_max_batch = args.gc_max_batch_arg;
+    gc_max_batch_time = args.gc_max_batch_time_arg;
+    gc_yield_time = args.gc_yield_time_arg;
     blockmgr_delay = args.blockmgr_delay_arg;
     db_min_passive_wal_pages = args.db_min_passive_wal_pages_arg;
     db_max_passive_wal_pages = args.db_max_passive_wal_pages_arg;

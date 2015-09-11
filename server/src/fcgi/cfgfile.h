@@ -80,6 +80,12 @@ struct gengetopt_args_info
   int gc_max_batch_arg;	/**< @brief Maximum number of rows/transaction in the GC (default='100').  */
   char * gc_max_batch_orig;	/**< @brief Maximum number of rows/transaction in the GC original value given at command line.  */
   const char *gc_max_batch_help; /**< @brief Maximum number of rows/transaction in the GC help description.  */
+  float gc_max_batch_time_arg;	/**< @brief Maximum time for a transaction in the GC in seconds (default='5').  */
+  char * gc_max_batch_time_orig;	/**< @brief Maximum time for a transaction in the GC in seconds original value given at command line.  */
+  const char *gc_max_batch_time_help; /**< @brief Maximum time for a transaction in the GC in seconds help description.  */
+  float gc_yield_time_arg;	/**< @brief Time to yield between GC transactions (default='1.1').  */
+  char * gc_yield_time_orig;	/**< @brief Time to yield between GC transactions original value given at command line.  */
+  const char *gc_yield_time_help; /**< @brief Time to yield between GC transactions help description.  */
   float blockmgr_delay_arg;	/**< @brief Blockmgr delay (default='3').  */
   char * blockmgr_delay_orig;	/**< @brief Blockmgr delay original value given at command line.  */
   const char *blockmgr_delay_help; /**< @brief Blockmgr delay help description.  */
@@ -122,6 +128,8 @@ struct gengetopt_args_info
   unsigned int ssl_ca_given ;	/**< @brief Whether ssl_ca was given.  */
   unsigned int gc_interval_given ;	/**< @brief Whether gc-interval was given.  */
   unsigned int gc_max_batch_given ;	/**< @brief Whether gc-max-batch was given.  */
+  unsigned int gc_max_batch_time_given ;	/**< @brief Whether gc-max-batch-time was given.  */
+  unsigned int gc_yield_time_given ;	/**< @brief Whether gc-yield-time was given.  */
   unsigned int blockmgr_delay_given ;	/**< @brief Whether blockmgr-delay was given.  */
   unsigned int db_min_passive_wal_pages_given ;	/**< @brief Whether db-min-passive-wal-pages was given.  */
   unsigned int db_max_passive_wal_pages_given ;	/**< @brief Whether db-max-passive-wal-pages was given.  */

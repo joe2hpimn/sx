@@ -463,6 +463,15 @@ void qrollback_real(sxi_db_t *db, const char *file, int line) {
     qdone(db, file, line);
 }
 
+void qyield(sxi_db_t *db)
+{
+    DEBUG("Yielding %s for %.2fs", sqlite3_db_filename(db->handle, "main"), gc_yield_time);
+    /* If SQLite is compiled with HAVE_USLEEP it tries to acquire the lock at least every 100ms,
+       otherwise at least every 1s.
+       Sleep longer than that to give a chance for other processes to acquire the lock */
+    usleep((useconds_t)(gc_yield_time * 1000000));
+}
+
 /*
  * Get index from file name that matches number of slashes in pattern.
  * Possibly returned values:

@@ -721,7 +721,8 @@ const char *src_version(void)
 }
 
 int gc_interval;
-int gc_max_batch;
+double gc_max_batch_time;
+double gc_yield_time;
 float blockmgr_delay;
 /* used outside of fcgi */
 int db_min_passive_wal_pages=5000;

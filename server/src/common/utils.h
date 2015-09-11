@@ -127,7 +127,8 @@ pid_t wrap_waitpid_impl(pid_t pid, int *status, int options, const char *_f);
 
 /* tweaks */
 extern int gc_interval;
-extern int gc_max_batch;
+extern double gc_max_batch_time;
+extern double gc_yield_time;
 extern float blockmgr_delay;
 extern int db_min_passive_wal_pages;
 extern int db_max_passive_wal_pages;

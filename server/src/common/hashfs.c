@@ -11771,14 +11771,18 @@ static rc_ty foreach_hdb_blob(sx_hashfs_t *h, int *terminate,
             if (loopvar && qbind_blob(q, loopvar, "", 0))
                 return FAIL_EINTERNAL;
             int has_last;
+            int first = 1;
             do {
+                if (!first)
+                    qyield(h->datadb[j][i]);
+                first = 0;
                 has_last = 0;
                 if (qbegin(h->datadb[j][i]))
                     return FAIL_EINTERNAL;
                 ret = SQLITE_ROW;
                 sqlite3_reset(q);
                 sx_hash_t last;
-                for (k=0;k<gc_max_batch && ret == SQLITE_ROW && !*terminate; k++) {
+                while(ret == SQLITE_ROW && !*terminate && qelapsed(h->datadb[j][i]) < gc_max_batch_time) {
                     ret = qstep(q);
                     if (ret == SQLITE_ROW) {
                         sx_hash_t var;
@@ -11813,7 +11817,7 @@ static rc_ty foreach_hdb_blob(sx_hashfs_t *h, int *terminate,
                     return FAIL_EINTERNAL;
                 if(loopvar && has_last && qbind_blob(q, loopvar, last.b, sizeof(last.b)))
                     ret = -1;
-            } while (!*terminate && (ret == SQLITE_ROW || (ret == SQLITE_DONE && has_last)));
+            } while (!*terminate && ret == SQLITE_ROW);
             sqlite3_reset(q);
             sqlite3_reset(q_gc1);
             sqlite3_reset(q_gc2);
@@ -11877,7 +11881,7 @@ rc_ty sx_hashfs_gc_periodic(sx_hashfs_t *h, int *terminate, int grace_period)
 
 rc_ty sx_hashfs_gc_run(sx_hashfs_t *h, int *terminate)
 {
-    unsigned i, j, k;
+    unsigned i, j;
     uint64_t gc_unused_tokens = 0, gc_blocks = 0;
     int ret = 0;
     ret = 0;
@@ -11894,7 +11898,11 @@ rc_ty sx_hashfs_gc_run(sx_hashfs_t *h, int *terminate)
             sqlite3_stmt *q = h->qb_find_unused_block[j][i];
             sqlite3_stmt *q_gc = h->qb_gc1[j][i];
             sqlite3_stmt *q_setfree = h->qb_setfree[j][i];
+            int first = 1;
             do {
+                if (!first)
+                    qyield(h->datadb[j][i]);
+                first = 0;
                 sqlite3_reset(q);
                 sqlite3_reset(q_gc);
                 sqlite3_reset(q_setfree);
@@ -11904,7 +11912,7 @@ rc_ty sx_hashfs_gc_run(sx_hashfs_t *h, int *terminate)
                     ret = -1;
                     break;
                 }
-                for (k=0;k<gc_max_batch && (ret = qstep(q)) == SQLITE_ROW && !*terminate; k++) {
+                while((ret = qstep(q)) == SQLITE_ROW && !*terminate && qelapsed(h->datadb[j][i]) < gc_max_batch_time) {
                     int is_null = sqlite3_column_type(q, 1) == SQLITE_NULL;
                     last = sqlite3_column_int64(q, 0);
                     const sx_hash_t *hash = sqlite3_column_blob(q, 2);

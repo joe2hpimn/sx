@@ -58,6 +58,7 @@ int qlasterr_busy(sxi_db_t *db);
 double qelapsed(sxi_db_t *db);
 void qlog(void *parg, int errcode, const char *msg);
 int qbegin(sxi_db_t *db);
+void qyield(sxi_db_t *db);
 int qcommit_real(sxi_db_t *db, const char *file, int line);
 void qrollback_real(sxi_db_t *db, const char *file, int line);
 #define qcommit(db) qcommit_real(db, __FILE__, __LINE__)
