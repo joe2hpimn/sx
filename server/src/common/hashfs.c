@@ -11916,18 +11916,14 @@ rc_ty sx_hashfs_gc_run(sx_hashfs_t *h, int *terminate)
                     break;
                 }
                 while((ret = qstep(q)) == SQLITE_ROW && !*terminate && qelapsed(h->datadb[j][i]) < gc_max_batch_time) {
-                    int is_null = sqlite3_column_type(q, 1) == SQLITE_NULL;
                     last = sqlite3_column_int64(q, 0);
-                    const sx_hash_t *hash = sqlite3_column_blob(q, 2);
-                    if (hash && sqlite3_column_bytes(q, 2) == sizeof(*hash)) {
-                        if (sx_hashfs_blkrb_can_gc(h, hash, bsz[j]) != OK) {
-                            DEBUGHASH("Hash is locked by rebalance", hash);
+                    sx_hash_t hash;
+                    if (hash_of_blob_result(&hash, q, 2) == OK) {
+                        if (sx_hashfs_blkrb_can_gc(h, &hash, bsz[j]) != OK) {
+                            DEBUGHASH("Hash is locked by rebalance", &hash);
                             continue;
                         }
-                    }
-                    if (hash)
-                        DEBUGHASH("freeing block with hash", hash);
-                    if (!is_null) {
+                        DEBUGHASH("freeing block with hash", &hash);
                         int64_t blockno = sqlite3_column_int64(q, 1);
                         DEBUG("freeing blockno %ld, @%d/%d/%ld", blockno, j, i, blockno * bsz[j]);
                         if (qbind_int64(q_setfree, ":blockno", blockno) ||
