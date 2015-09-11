@@ -491,6 +491,9 @@ static int qopen(const char *path, sxi_db_t **dbp, const char *dbtype, sx_uuid_t
     if(qprep(*dbp, &q, "PRAGMA case_sensitive_like = true") || qstep_noret(q))
         goto qopen_fail;
     qnullify(q);
+    if(qprep(*dbp, &q, "PRAGMA cache_spill = false") || qstep_noret(q))
+        goto qopen_fail;
+    qnullify(q);
     /* TODO: pagesize might not always be 1024,
      * limits should be in bytes */
     snprintf(qstr, sizeof(qstr), "PRAGMA journal_size_limit = %d",
