@@ -386,9 +386,6 @@ int gc(sxc_client_t *sx, const char *dir, int pipe, int pipe_expire) {
             continue;
         }
         /* TODO: restrict GC until upgrade finishes locally */
-        rc = sx_hashfs_gc_periodic(hashfs, &terminate, force_expire ? -1 : GC_GRACE_PERIOD);
-        sx_hashfs_checkpoint_gc(hashfs);
-        sx_hashfs_checkpoint_passive(hashfs);
         gettimeofday(&tv2, NULL);
         INFO("GC periodic completed in %.1f sec", timediff(&tv1, &tv2));
         if (rc) {
@@ -400,9 +397,12 @@ int gc(sxc_client_t *sx, const char *dir, int pipe, int pipe_expire) {
                 sleep(1);
             gettimeofday(&tv1, NULL);
             if (timediff(&tv0, &tv1) > gc_interval || forced_awake) {
+                sx_hashfs_gc_periodic(hashfs, &terminate, force_expire ? -1 : GC_GRACE_PERIOD);
                 sx_hashfs_gc_run(hashfs, &terminate);
                 gettimeofday(&tv2, NULL);
                 INFO("GC run completed in %.1f sec", timediff(&tv1, &tv2));
+                sx_hashfs_checkpoint_gc(hashfs);
+                sx_hashfs_checkpoint_passive(hashfs);
                 sx_hashfs_gc_info(hashfs, &terminate);
                 memcpy(&tv0, &tv1, sizeof(tv0));
             }

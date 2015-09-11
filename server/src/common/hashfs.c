@@ -706,6 +706,7 @@ struct _sx_hashfs_t {
     sqlite3_stmt *qb_del_reserve[SIZES][HASHDBS];
     sqlite3_stmt *qb_find_unused_revision[SIZES][HASHDBS];
     sqlite3_stmt *qb_find_unused_block[SIZES][HASHDBS];
+    sqlite3_stmt *qb_find_gc_block[SIZES][HASHDBS];
     sqlite3_stmt *qb_deleteold[SIZES][HASHDBS];
     sqlite3_stmt *qb_find_expired_reservation[SIZES][HASHDBS];
     sqlite3_stmt *qb_find_expired_reservation2[SIZES][HASHDBS];
@@ -879,6 +880,7 @@ static void close_all_dbs(sx_hashfs_t *h) {
             sqlite3_finalize(h->qb_del_reserve[j][i]);
             sqlite3_finalize(h->qb_find_unused_revision[j][i]);
             sqlite3_finalize(h->qb_find_unused_block[j][i]);
+            sqlite3_finalize(h->qb_find_gc_block[j][i]);
             sqlite3_finalize(h->qb_deleteold[j][i]);
             sqlite3_finalize(h->rit.q[j][i]);
             sqlite3_finalize(h->rit.q_num[j][i]);
@@ -1685,6 +1687,8 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 		goto open_hashfs_fail;
 	    if(qprep(h->datadb[j][i], &h->qb_find_unused_block[j][i], "SELECT id, blockno, hash FROM blocks LEFT JOIN revision_blocks ON blocks.hash=blocks_hash WHERE id  > :last AND revision_id IS NULL ORDER BY id"))
 		goto open_hashfs_fail;
+            if(qprep(h->datadb[j][i], &h->qb_find_gc_block[j][i], "SELECT id, blockno, blocks_hash FROM revision_blocks INNER JOIN blocks ON blocks.hash = blocks_hash WHERE blocks_hash IN (SELECT blocks_hash from revision_blocks where revision_id=:revision_id) GROUP BY blocks_hash HAVING revision_id=:revision_id"))
+                goto open_hashfs_fail;
             /* hash moved,
              * hashes that are not moved don't have the old counters deleted,
              * and must be taken into account when GCing!
@@ -11783,6 +11787,7 @@ static rc_ty foreach_hdb_blob(sx_hashfs_t *h, int *terminate,
 {
     unsigned i,j;
     int64_t k;
+    int64_t gc_blocks = 0;
     if (!h || !terminate || !loop || !count) {
 	NULLARG();
         return EFAULT;
@@ -11796,6 +11801,7 @@ static rc_ty foreach_hdb_blob(sx_hashfs_t *h, int *terminate,
             sqlite3_stmt *q_gc1 = h->qb_gc_revision_blocks[j][i];
             sqlite3_stmt *q_gc2 = h->qb_gc_revision[j][i];
             sqlite3_stmt *q_gc3 = h->qb_gc_reserve[j][i];
+            sqlite3_stmt *q_gc_blocks = h->qb_find_gc_block[j][i];
             sqlite3_reset(q);
             if (loopvar && qbind_blob(q, loopvar, "", 0))
                 return FAIL_EINTERNAL;
@@ -11817,13 +11823,29 @@ static rc_ty foreach_hdb_blob(sx_hashfs_t *h, int *terminate,
                         sx_hash_t var;
                         sqlite3_reset(q_gc1);
                         sqlite3_reset(q_gc2);
+                        sqlite3_reset(q_gc_blocks);
                         if (!hash_of_blob_result(&last, q, 0) &&
                             !hash_of_blob_result(&var, q, col) &&
                             !qbind_blob(q_gc1, ":revision_id", var.b, sizeof(var.b)) &&
                             !qbind_blob(q_gc2, ":revision_id", var.b, sizeof(var.b)) &&
                             !qbind_blob(q_gc3, ":revision_id", var.b, sizeof(var.b)) &&
-                            !qstep_noret(q_gc1)) {
+                            !qbind_blob(q_gc_blocks, ":revision_id", var.b, sizeof(var.b))) {
                             has_last = 1;
+                            int locked = 0;
+                            int ret2 = 0;
+                            while ((ret2 = qstep(q_gc_blocks)) == SQLITE_ROW) {
+                                DEBUG("got row");
+                                if (gc_block(h, j, i, q_gc_blocks, 0, 2) == OK)
+                                    gc_blocks++;
+                                else
+                                    locked=1;
+                            }
+                            if (ret2 != SQLITE_DONE || locked) {
+                                DEBUG("some blocks are locked");
+                                continue;/* don't delete the revision either so we can delete the block next time */
+                            }
+                            if (qstep_noret(q_gc1))
+                                continue;
                             k += sqlite3_changes(h->datadb[j][i]->handle);
                             if (!qstep_noret(q_gc2)) {
                                 k += sqlite3_changes(h->datadb[j][i]->handle);
@@ -11856,6 +11878,7 @@ static rc_ty foreach_hdb_blob(sx_hashfs_t *h, int *terminate,
             }
         }
     }
+    INFO("GCed %lld hashes", (long long)gc_blocks);
     return OK;
 }
 
@@ -11916,11 +11939,13 @@ rc_ty sx_hashfs_gc_run(sx_hashfs_t *h, int *terminate)
     ret = 0;
 
     int age = sxi_hdist_version(h->hd);
+    DEBUG("age is %d", age);
     if (bindall(h->qb_find_unused_revision, ":age", age) ||
         foreach_hdb_blob(h, terminate,
                          h->qb_find_unused_revision, ":last_revision_id",
                          0, &gc_unused_tokens))
         ret = -1;
+    INFO("Running slow check");
     for (j=0;j<SIZES && !ret && !*terminate ;j++) {
         for (i=0;i<HASHDBS && !ret && !*terminate;i++) {
             int64_t last = 0;
