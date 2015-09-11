@@ -1678,7 +1678,7 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
                 goto open_hashfs_fail;
 	    if(qprep(h->datadb[j][i], &h->qb_del_reserve[j][i], "DELETE FROM reservations WHERE reservations_id=:reserve_id"))
 		goto open_hashfs_fail;
-	    if(qprep(h->datadb[j][i], &h->qb_find_unused_revision[j][i], "SELECT revision_id FROM revision_ops WHERE revision_id IN (SELECT revision_id FROM revision_ops NATURAL LEFT JOIN reservations WHERE op <= 0 AND age <= :age AND revision_id > :last_revision_id AND reservations_id IS NULL) GROUP BY revision_id HAVING SUM(op)=0 ORDER BY revision_id"))
+	    if(qprep(h->datadb[j][i], &h->qb_find_unused_revision[j][i], "SELECT revision_id FROM revision_ops WHERE revision_id IN (SELECT revision_id FROM revision_ops NATURAL LEFT JOIN reservations WHERE op in (-1, 0) AND age <= :age AND revision_id > :last_revision_id AND reservations_id IS NULL) GROUP BY revision_id HAVING SUM(op)=0 ORDER BY revision_id"))
 		goto open_hashfs_fail;
 	    if(qprep(h->datadb[j][i], &h->qb_find_unused_block[j][i], "SELECT id, blockno, hash FROM blocks LEFT JOIN revision_blocks ON blocks.hash=blocks_hash WHERE id  > :last AND revision_id IS NULL ORDER BY id"))
 		goto open_hashfs_fail;
