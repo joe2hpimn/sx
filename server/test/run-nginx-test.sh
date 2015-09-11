@@ -59,9 +59,11 @@ cat >"$prefix/etc/sxserver/sxfcgi.conf" <<EOF
 pidfile="$SXRUNDIR/sxfcgi.pid"
 logfile="$SXLOGFILE"
 socket="$SXRUNDIR/sxfcgi.socket"
+reserved-socket="$SXRUNDIR/sxfcgi-reserved.socket"
 socket-mode=0660
 data-dir="$SXSTOREDIR/data"
 children=2
+reserved-children=2
 EOF
 if [ "x$VERBOSE" = "x1" ]; then
     echo debug >>"$prefix/etc/sxserver/sxfcgi.conf"

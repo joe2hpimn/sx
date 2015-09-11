@@ -75,6 +75,7 @@ while [ $i -le $N ]; do
     SX_CLUSTER_UUID="$CLUSTER_UUID"
     SX_ADMIN_KEY="$ADMIN_KEY"
     SX_CHILDREN_NUM=4
+    SX_RESERVED_CHILDREN_NUM=3
 EOF
 #    export SX_USE_VALGRIND=yes
     if [ $i -gt 1 ]; then
