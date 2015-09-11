@@ -38,6 +38,8 @@
 #include <fnmatch.h>
 #include "hashfs.h"
 
+#define SLOW_QUERY_DT 5.0
+
 static void qclose_db(sqlite3 **dbp)
 {
     sqlite3 *db;
@@ -101,6 +103,9 @@ static void qcheckpoint_run(sxi_db_t *db, int kind)
         DEBUG("WAL %s: %d frames, %d checkpointed: %s in %.1fs", sqlite3_db_filename(db->handle, "main"), log, ckpt, sqlite3_errmsg(db->handle),
              timediff(&tv0, &tv1));
     }
+    double dt = timediff(&tv0, &tv1);
+    if (dt > SLOW_QUERY_DT)
+        INFO("Slow WAL checkpoint completed on %s in %.2fs", sqlite3_db_filename(db->handle, "main"), dt);
     db->wal_pages = 0;
 }
 
@@ -275,7 +280,7 @@ int qstep(sqlite3_stmt *q) {
 	double dt;
 	gettimeofday(&t2, NULL);
 	dt = timediff(&t1, &t2);
-	if(dt > 5)
+	if(dt > SLOW_QUERY_DT)
 	    INFO("Slow query \"%s\" completed in %.2f sec", sqlite3_sql(q), dt);
     }
     if(ret != SQLITE_ROW)
@@ -408,6 +413,8 @@ int qbegin(sxi_db_t *db) {
 
     /* BEGIN IMMEDIATE will not invoke the busy handler, must simulate it here */
     ret = qstep_retry(q);
+    gettimeofday(&db->tv_begin, NULL);
+    db->has_begin_time = 1;
     sqlite3_finalize(q);
     if(ret != SQLITE_DONE) {
         WARN("SQLITE begin failed: %s", sqlite3_errstr(ret));
@@ -416,7 +423,25 @@ int qbegin(sxi_db_t *db) {
     return 0;
 }
 
-int qcommit(sxi_db_t *db) {
+double qelapsed(sxi_db_t *db)
+{
+    if (db && db->has_begin_time) {
+        struct timeval tv;
+        gettimeofday(&tv, NULL);
+        return timediff(&db->tv_begin, &tv);
+    }
+    return 0.0;
+}
+
+static void qdone(sxi_db_t *db, const char *file, int line)
+{
+    double dt = qelapsed(db);
+    if (dt > SLOW_QUERY_DT)
+        INFO("Slow transaction finished at %s:%d after %.2f sec", file, line, dt);
+    db->has_begin_time = 0;
+}
+
+int qcommit_real(sxi_db_t *db, const char *file, int line) {
     sqlite3_stmt *q;
     int ret;
 
@@ -425,15 +450,17 @@ int qcommit(sxi_db_t *db) {
 
     ret = qstep_noret(q);
     sqlite3_finalize(q);
+    qdone(db, file, line);
     return ret;
 }
 
-void qrollback(sxi_db_t *db) {
+void qrollback_real(sxi_db_t *db, const char *file, int line) {
     sqlite3_stmt *q = NULL;
 
     if(qprep(db, &q, "ROLLBACK") ||  qstep_noret(q))
 	CRIT("ROLLBACK failed");
     sqlite3_finalize(q);
+    qdone(db, file, line);
 }
 
 /*

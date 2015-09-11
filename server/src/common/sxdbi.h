@@ -36,6 +36,8 @@ typedef struct {
     int wal_pages;
     int last_total_changes;
     struct timeval tv_last;
+    struct timeval tv_begin;
+    int has_begin_time;
 } sxi_db_t;
 
 sxi_db_t* qnew(sqlite3 *handle);
@@ -53,10 +55,13 @@ int qbind_text(sqlite3_stmt *q, const char *param, const char *val);
 int qbind_blob(sqlite3_stmt *q, const char *param, const void *val, int len);
 int qbind_null(sqlite3_stmt *q, const char *param);
 int qlasterr_busy(sxi_db_t *db);
+double qelapsed(sxi_db_t *db);
 void qlog(void *parg, int errcode, const char *msg);
 int qbegin(sxi_db_t *db);
-int qcommit(sxi_db_t *db);
-void qrollback(sxi_db_t *db);
+int qcommit_real(sxi_db_t *db, const char *file, int line);
+void qrollback_real(sxi_db_t *db, const char *file, int line);
+#define qcommit(db) qcommit_real(db, __FILE__, __LINE__)
+#define qrollback(db) qrollback_real(db, __FILE__, __LINE__)
 void qclose(sxi_db_t **db);
 void pmatch(sqlite3_context *ctx, int argc, sqlite3_value **argv);
 
