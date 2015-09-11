@@ -4150,11 +4150,12 @@ static rc_ty datadb_commitall(sx_hashfs_t *h);
 static void datadb_rollbackall(sx_hashfs_t *h);
 static rc_ty sx_hashfs_revision_op_internal(sx_hashfs_t *h, unsigned int hs, const sx_hash_t *revision_id, int op, int age);
 
+#define BULK_MAX_BATCH 1000
+
 struct bulk_save {
     int db_min_passive_wal_pages;
     int db_max_passive_wal_pages;
     int db_max_restart_wal_pages;
-    int gc_max_batch;
 };
 
 static void bulk_start(struct bulk_save *save)
@@ -4162,9 +4163,7 @@ static void bulk_start(struct bulk_save *save)
     save->db_min_passive_wal_pages = db_min_passive_wal_pages;
     save->db_max_passive_wal_pages = db_max_passive_wal_pages;
     save->db_max_restart_wal_pages = db_max_restart_wal_pages;
-    save->gc_max_batch = gc_max_batch;
     db_min_passive_wal_pages = db_max_passive_wal_pages = db_max_restart_wal_pages = 50000;
-    gc_max_batch = 1000;
 }
 
 static void bulk_done(const struct bulk_save *save)
@@ -4172,7 +4171,6 @@ static void bulk_done(const struct bulk_save *save)
     db_min_passive_wal_pages = save->db_min_passive_wal_pages;
     db_max_passive_wal_pages = save->db_max_passive_wal_pages;
     db_max_restart_wal_pages = save->db_max_restart_wal_pages;
-    gc_max_batch = save->gc_max_batch;
 }
 
 rc_ty sx_hashfs_upgrade_1_0_or_1_1_prepare(sx_hashfs_t *h)
@@ -4225,7 +4223,7 @@ rc_ty sx_hashfs_upgrade_1_0_or_1_1_prepare(sx_hashfs_t *h)
             if (qbegin(db) || datadb_beginall(h))
                 break;
             sqlite3_reset(qsel);
-            while ((ret = qstep(qsel)) == SQLITE_ROW && (k < gc_max_batch)) {
+            while ((ret = qstep(qsel)) == SQLITE_ROW && (k < BULK_MAX_BATCH)) {
                 sx_hash_t revision_id;
                 const sx_hashfs_volume_t *volume;
                 unsigned int bsize;
@@ -4439,7 +4437,7 @@ rc_ty sx_hashfs_upgrade_1_0_or_1_1_local(sx_hashfs_t *h)
             if (qbegin(db) || datadb_beginall(h))
                 break;
             sqlite3_reset(qsel);
-            while ((ret = qstep(qsel)) == SQLITE_ROW && (k++ < gc_max_batch)) {
+            while ((ret = qstep(qsel)) == SQLITE_ROW && (k++ < BULK_MAX_BATCH)) {
                 unsigned int hs;
                 sx_hash_t revision_id;
                 int64_t blocks = sqlite3_column_int64(qsel, 1);
@@ -15547,7 +15545,7 @@ rc_ty sx_hashfs_list_revision_blocks(sx_hashfs_t *h, const sx_hashfs_volume_t *v
             break;
         }
         sqlite3_reset(qcount);
-        while ((ret = qstep(q)) == SQLITE_ROW && (k++ < gc_max_batch)) {
+        while ((ret = qstep(q)) == SQLITE_ROW && (k++ < BULK_MAX_BATCH)) {
             sx_hash_t revision_id;
             int64_t size = sqlite3_column_int64(q, 0);
             if (hash_of_blob_result(&revision_id, q, 1)) {
