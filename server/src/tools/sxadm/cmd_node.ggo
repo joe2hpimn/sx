@@ -11,6 +11,7 @@ groupoption "rename-cluster" - "Set a new name for an SX cluster" group="MODE" s
 groupoption "upgrade" - "Upgrade a node to new SX version" group="MODE"
 groupoption "upgrade-job" - "Run the upgrade job directly" group="MODE" hidden
 groupoption "compact" - "Compact the node data freeing up any allocated but unused storage space" group="MODE"
+groupoption "gc" - "Run GC on node immediately" group="MODE" hidden
 
 section "New node options"
 option "cluster-key" k "File containing a pre-generated cluster authentication token or stdin if \"-\" is given (default autogenerate token)." string typestr="FILE" dependon="new" optional

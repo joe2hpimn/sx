@@ -1922,6 +1922,23 @@ static int upgrade_job_node(sxc_client_t *sx, const char *path)
     return s == OK ? 0 : 1;
 }
 
+static int gc_node(sxc_client_t *sx, const char *path)
+{
+    if (!sxc_is_verbose(sx)) {
+        log_setminlevel(sx, SX_LOG_INFO);
+        sxc_set_verbose(sx, 1);
+    }
+    sx_hashfs_t *hashfs = sx_hashfs_open(path, sx);
+    if (!hashfs)
+        return 1;
+    int term = 0;
+    gc_max_batch = 100;
+    rc_ty s = sx_hashfs_gc_periodic(hashfs, &term, GC_GRACE_PERIOD);
+    s |= sx_hashfs_gc_run(hashfs, &term);
+    sx_hashfs_close(hashfs);
+    return s == OK ? 0 : 1;
+}
+
 static int get_cluster_meta(sxc_client_t *sx, struct cluster_args_info *args) {
     sxc_cluster_t *cluster;
     sxc_meta_t *meta;
@@ -2117,8 +2134,10 @@ int main(int argc, char **argv) {
 	    return 1;
         }
 	sxc_set_debug(sx, node_args.debug_flag);
-        if (node_args.debug_flag)
+        if (node_args.debug_flag) {
+            sxc_set_verbose(sx, 1);
             log_setminlevel(sx, SX_LOG_DEBUG);
+        }
 	if(node_args.version_given) {
 	    printf("%s %s\n", MAIN_CMDLINE_PARSER_PACKAGE, src_version());
 	    ret = 0;
@@ -2150,6 +2169,8 @@ int main(int argc, char **argv) {
                 ret = upgrade_job_node(sx, node_args.inputs[0]);
 	    else if(node_args.compact_given)
 		ret = compact_data(sx, node_args.inputs[0], node_args.human_readable_flag);
+            else if(node_args.gc_given)
+                ret = gc_node(sx, node_args.inputs[0]);
         }
     node_out:
 	node_cmdline_parser_free(&node_args);

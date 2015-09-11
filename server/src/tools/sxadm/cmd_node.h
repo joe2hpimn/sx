@@ -52,6 +52,7 @@ struct node_args_info
   const char *upgrade_help; /**< @brief Upgrade a node to new SX version help description.  */
   const char *upgrade_job_help; /**< @brief Run the upgrade job directly help description.  */
   const char *compact_help; /**< @brief Compact the node data freeing up any allocated but unused storage space help description.  */
+  const char *gc_help; /**< @brief Run GC on node immediately help description.  */
   char * cluster_key_arg;	/**< @brief File containing a pre-generated cluster authentication token or stdin if \"-\" is given (default autogenerate token)..  */
   char * cluster_key_orig;	/**< @brief File containing a pre-generated cluster authentication token or stdin if \"-\" is given (default autogenerate token). original value given at command line.  */
   const char *cluster_key_help; /**< @brief File containing a pre-generated cluster authentication token or stdin if \"-\" is given (default autogenerate token). help description.  */
@@ -78,6 +79,7 @@ struct node_args_info
   unsigned int upgrade_given ;	/**< @brief Whether upgrade was given.  */
   unsigned int upgrade_job_given ;	/**< @brief Whether upgrade-job was given.  */
   unsigned int compact_given ;	/**< @brief Whether compact was given.  */
+  unsigned int gc_given ;	/**< @brief Whether gc was given.  */
   unsigned int cluster_key_given ;	/**< @brief Whether cluster-key was given.  */
   unsigned int batch_mode_given ;	/**< @brief Whether batch-mode was given.  */
   unsigned int cluster_uuid_given ;	/**< @brief Whether cluster-uuid was given.  */
