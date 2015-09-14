@@ -53,6 +53,7 @@ const char *gengetopt_args_info_full_help[] = {
   "      --gc-max-batch=N          Maximum number of rows/transaction in the GC\n                                  (default=`100')",
   "      --gc-max-batch-time=N     Maximum time for a transaction in the GC in\n                                  seconds  (default=`5')",
   "      --gc-yield-time=N         Time to yield between GC transactions\n                                  (default=`1.1')",
+  "      --gc-slow-check           Run the old GC  (default=on)",
   "      --blockmgr-delay=sec      Blockmgr delay  (default=`3')",
   "      --db-min-passive-wal-pages=N\n                                Minimum number of pages in WAL to trigger a\n                                  passive checkpoint  (default=`5000')",
   "      --db-max-passive-wal-pages=N\n                                Maximum number of pages in WAL to trigger a\n                                  passive checkpoint  (default=`10000')",
@@ -156,6 +157,7 @@ void clear_given (struct gengetopt_args_info *args_info)
   args_info->gc_max_batch_given = 0 ;
   args_info->gc_max_batch_time_given = 0 ;
   args_info->gc_yield_time_given = 0 ;
+  args_info->gc_slow_check_given = 0 ;
   args_info->blockmgr_delay_given = 0 ;
   args_info->db_min_passive_wal_pages_given = 0 ;
   args_info->db_max_passive_wal_pages_given = 0 ;
@@ -199,6 +201,7 @@ void clear_args (struct gengetopt_args_info *args_info)
   args_info->gc_max_batch_time_orig = NULL;
   args_info->gc_yield_time_arg = 1.1;
   args_info->gc_yield_time_orig = NULL;
+  args_info->gc_slow_check_flag = 1;
   args_info->blockmgr_delay_arg = 3;
   args_info->blockmgr_delay_orig = NULL;
   args_info->db_min_passive_wal_pages_arg = 5000;
@@ -242,14 +245,15 @@ void init_args_info(struct gengetopt_args_info *args_info)
   args_info->gc_max_batch_help = gengetopt_args_info_full_help[16] ;
   args_info->gc_max_batch_time_help = gengetopt_args_info_full_help[17] ;
   args_info->gc_yield_time_help = gengetopt_args_info_full_help[18] ;
-  args_info->blockmgr_delay_help = gengetopt_args_info_full_help[19] ;
-  args_info->db_min_passive_wal_pages_help = gengetopt_args_info_full_help[20] ;
-  args_info->db_max_passive_wal_pages_help = gengetopt_args_info_full_help[21] ;
-  args_info->db_max_wal_restart_pages_help = gengetopt_args_info_full_help[22] ;
-  args_info->db_idle_restart_help = gengetopt_args_info_full_help[23] ;
-  args_info->db_busy_timeout_help = gengetopt_args_info_full_help[24] ;
-  args_info->worker_max_wait_help = gengetopt_args_info_full_help[25] ;
-  args_info->worker_max_requests_help = gengetopt_args_info_full_help[26] ;
+  args_info->gc_slow_check_help = gengetopt_args_info_full_help[19] ;
+  args_info->blockmgr_delay_help = gengetopt_args_info_full_help[20] ;
+  args_info->db_min_passive_wal_pages_help = gengetopt_args_info_full_help[21] ;
+  args_info->db_max_passive_wal_pages_help = gengetopt_args_info_full_help[22] ;
+  args_info->db_max_wal_restart_pages_help = gengetopt_args_info_full_help[23] ;
+  args_info->db_idle_restart_help = gengetopt_args_info_full_help[24] ;
+  args_info->db_busy_timeout_help = gengetopt_args_info_full_help[25] ;
+  args_info->worker_max_wait_help = gengetopt_args_info_full_help[26] ;
+  args_info->worker_max_requests_help = gengetopt_args_info_full_help[27] ;
   
 }
 
@@ -439,6 +443,8 @@ cmdline_parser_dump(FILE *outfile, struct gengetopt_args_info *args_info)
     write_into_file(outfile, "gc-max-batch-time", args_info->gc_max_batch_time_orig, 0);
   if (args_info->gc_yield_time_given)
     write_into_file(outfile, "gc-yield-time", args_info->gc_yield_time_orig, 0);
+  if (args_info->gc_slow_check_given)
+    write_into_file(outfile, "gc-slow-check", 0, 0 );
   if (args_info->blockmgr_delay_given)
     write_into_file(outfile, "blockmgr-delay", args_info->blockmgr_delay_orig, 0);
   if (args_info->db_min_passive_wal_pages_given)
@@ -759,6 +765,7 @@ cmdline_parser_internal (
         { "gc-max-batch",	1, NULL, 0 },
         { "gc-max-batch-time",	1, NULL, 0 },
         { "gc-yield-time",	1, NULL, 0 },
+        { "gc-slow-check",	0, NULL, 0 },
         { "blockmgr-delay",	1, NULL, 0 },
         { "db-min-passive-wal-pages",	1, NULL, 0 },
         { "db-max-passive-wal-pages",	1, NULL, 0 },
@@ -1019,6 +1026,18 @@ cmdline_parser_internal (
                 &(local_args_info.gc_yield_time_given), optarg, 0, "1.1", ARG_FLOAT,
                 check_ambiguity, override, 0, 0,
                 "gc-yield-time", '-',
+                additional_error))
+              goto failure;
+          
+          }
+          /* Run the old GC.  */
+          else if (strcmp (long_options[option_index].name, "gc-slow-check") == 0)
+          {
+          
+          
+            if (update_arg((void *)&(args_info->gc_slow_check_flag), 0, &(args_info->gc_slow_check_given),
+                &(local_args_info.gc_slow_check_given), optarg, 0, 0, ARG_FLAG,
+                check_ambiguity, override, 1, 0, "gc-slow-check", '-',
                 additional_error))
               goto failure;
           

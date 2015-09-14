@@ -11945,6 +11945,8 @@ rc_ty sx_hashfs_gc_run(sx_hashfs_t *h, int *terminate)
                          h->qb_find_unused_revision, ":last_revision_id",
                          0, &gc_unused_tokens))
         ret = -1;
+    if (!gc_slow_check)
+        return ret;
     INFO("Running slow check");
     for (j=0;j<SIZES && !ret && !*terminate ;j++) {
         for (i=0;i<HASHDBS && !ret && !*terminate;i++) {

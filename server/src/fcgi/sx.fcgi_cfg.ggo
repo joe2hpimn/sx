@@ -48,6 +48,9 @@ option "gc-max-batch-time"           - "Maximum time for a transaction in the GC
 option "gc-yield-time"           - "Time to yield between GC transactions"
        float default="1.1" typestr="N" optional hidden
 
+option "gc-slow-check"           - "Run the old GC"
+       flag on hidden
+
 option "blockmgr-delay"       - "Blockmgr delay"
        float default="3" typestr="sec" optional hidden
 
