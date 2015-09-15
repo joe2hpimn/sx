@@ -1687,7 +1687,7 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 		goto open_hashfs_fail;
 	    if(qprep(h->datadb[j][i], &h->qb_find_unused_block[j][i], "SELECT id, blockno, hash FROM blocks LEFT JOIN revision_blocks ON blocks.hash=blocks_hash WHERE id  > :last AND revision_id IS NULL ORDER BY id"))
 		goto open_hashfs_fail;
-            if(qprep(h->datadb[j][i], &h->qb_find_gc_block[j][i], "SELECT id, blockno, blocks_hash FROM revision_blocks INNER JOIN blocks ON blocks.hash = blocks_hash WHERE blocks_hash IN (SELECT blocks_hash from revision_blocks where revision_id=:revision_id) GROUP BY blocks_hash HAVING revision_id=:revision_id"))
+            if(qprep(h->datadb[j][i], &h->qb_find_gc_block[j][i], "SELECT id, blockno, blocks_hash FROM revision_blocks INNER JOIN blocks ON blocks.hash = blocks_hash WHERE blocks_hash IN (SELECT blocks_hash from revision_blocks where revision_id=:revision_id) GROUP BY blocks_hash HAVING revision_id=:revision_id AND COUNT(*)=1"))
                 goto open_hashfs_fail;
             /* hash moved,
              * hashes that are not moved don't have the old counters deleted,
@@ -1696,7 +1696,7 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
              * */
             if(qprep(h->datadb[j][i], &h->qb_deleteold[j][i], "DELETE FROM revision_blocks WHERE blocks_hash=:hash AND age < :current_age"))
                 goto open_hashfs_fail;
-            if(qprep(h->datadb[j][i], &h->qb_find_expired_reservation[j][i], "SELECT reservations_id, revision_id FROM reservations NATURAL INNER JOIN revision_blocks INNER JOIN blocks ON blocks.hash = blocks_hash WHERE reservations_id > :lastreserve_id GROUP BY reservations_id HAVING created_at < :expires ORDER BY reservations_id LIMIT 1"))
+            if(qprep(h->datadb[j][i], &h->qb_find_expired_reservation[j][i], "SELECT reservations_id, revision_id FROM reservations NATURAL INNER JOIN revision_blocks INNER JOIN blocks ON blocks.hash = blocks_hash WHERE reservations_id > :lastreserve_id GROUP BY reservations_id HAVING MAX(created_at) < :expires ORDER BY reservations_id LIMIT 1"))
                goto open_hashfs_fail;
             if(qprep(h->datadb[j][i], &h->qb_find_expired_reservation2[j][i], "SELECT revision_id from reservations WHERE ttl < :now LIMIT 1"))
                goto open_hashfs_fail;
