@@ -393,11 +393,13 @@ int gc(sxc_client_t *sx, const char *dir, int pipe, int pipe_expire) {
         } else {
             if (terminate)
                 break;
+            if (force_expire)
+                sx_hashfs_gc_periodic(hashfs, &terminate, -1);
             if (!forced_awake)
                 sleep(1);
             gettimeofday(&tv1, NULL);
             if (timediff(&tv0, &tv1) > gc_interval || forced_awake) {
-                sx_hashfs_gc_periodic(hashfs, &terminate, force_expire ? -1 : GC_GRACE_PERIOD);
+                sx_hashfs_gc_periodic(hashfs, &terminate, GC_GRACE_PERIOD);
                 sx_hashfs_gc_run(hashfs, &terminate);
                 gettimeofday(&tv2, NULL);
                 INFO("GC run completed in %.1f sec", timediff(&tv1, &tv2));

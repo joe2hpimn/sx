@@ -1922,7 +1922,7 @@ static int upgrade_job_node(sxc_client_t *sx, const char *path)
     return s == OK ? 0 : 1;
 }
 
-static int gc_node(sxc_client_t *sx, const char *path)
+static int gc_node(sxc_client_t *sx, const char *path, int force_expire)
 {
     if (!sxc_is_verbose(sx)) {
         log_setminlevel(sx, SX_LOG_INFO);
@@ -1934,8 +1934,8 @@ static int gc_node(sxc_client_t *sx, const char *path)
     int term = 0;
     gc_max_batch_time = 5;
     gc_yield_time = 1.1;
-    /*    gc_slow_check = 1; */
-    rc_ty s = sx_hashfs_gc_periodic(hashfs, &term, GC_GRACE_PERIOD);
+    gc_slow_check = 0;
+    rc_ty s = sx_hashfs_gc_periodic(hashfs, &term, force_expire ? -1 : GC_GRACE_PERIOD);
     s |= sx_hashfs_gc_run(hashfs, &term);
     sx_hashfs_close(hashfs);
     return s == OK ? 0 : 1;
@@ -2171,8 +2171,8 @@ int main(int argc, char **argv) {
                 ret = upgrade_job_node(sx, node_args.inputs[0]);
 	    else if(node_args.compact_given)
 		ret = compact_data(sx, node_args.inputs[0], node_args.human_readable_flag);
-            else if(node_args.gc_given)
-                ret = gc_node(sx, node_args.inputs[0]);
+            else if(node_args.gc_given || node_args.gc_expire_given)
+                ret = gc_node(sx, node_args.inputs[0], node_args.gc_expire_given);
         }
     node_out:
 	node_cmdline_parser_free(&node_args);
