@@ -25,6 +25,8 @@
  *  this exception statement from your version.
  */
 
+// ACAB: add a reusable zone parser or change sxadm syntax (i.e. add zones to nodefs)
+
 #include "default.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -654,6 +656,8 @@ rc_ty sxi_hdist_newbuild(sxi_hdist_t *model)
     model->node_list[0] = NULL;
     model->sxnl[0] = NULL;
     model->node_count[0] = 0;
+    model->zone_count[0] = 0;
+    model->zone_cfg[0] = NULL;
     model->state = 0xcafe;
     return OK;
 }
@@ -1103,7 +1107,7 @@ static rc_ty hdist_hash(const sxi_hdist_t *model, uint64_t hash, unsigned int re
 	return EINVAL;
     }
 
-    if(replica_count > sxi_hdist_maxreplica(model, bidx)) {
+    if(replica_count > sxi_hdist_maxreplica(model, bidx, NULL)) {
 	CRIT("replica_count > max_replica");
 	return EINVAL;
     }
@@ -1286,9 +1290,9 @@ int sxi_hdist_same_origin(const sxi_hdist_t *model1, const sxi_hdist_t *model2)
     return !memcmp(&model1->uuid, &model2->uuid, sizeof(sx_uuid_t));
 }
 
-int sxi_hdist_maxreplica(const sxi_hdist_t *model, unsigned int bidx)
+int sxi_hdist_maxreplica(const sxi_hdist_t *model, unsigned int bidx, const sx_nodelist_t *ignored)
 {
-    int i, r = 0;
+    int i, j, r = 0;
 
     if(!model)
 	return 0;
@@ -1298,9 +1302,70 @@ int sxi_hdist_maxreplica(const sxi_hdist_t *model, unsigned int bidx)
 	return 0;
     }
 
-    for(i = 0; i < model->node_count[bidx]; i++)
-	if(!model->node_list[bidx][i].zone_id)
-	    r++;
+    /* One replica on each unzoned node */
+    for(i = 0; i < model->node_count[bidx]; i++) {
+	if(model->node_list[bidx][i].zone_id)
+	    continue; /* Node is zoned */
+	if(ignored && sx_nodelist_lookup(ignored, sx_node_uuid(model->node_list[bidx][i].sxn)))
+	    continue; /* Node is ignored */
+	r++;
+    }
 
-    return r + model->zone_count[bidx];
+    /* And one replica for each fully alive zone */
+    for(j = 1; j <= model->zone_count[bidx]; j++) {
+	for(i = 0; i < model->node_count[bidx]; i++) {
+	    if(model->node_list[bidx][i].zone_id != j)
+		continue; /* Not in this zone */
+	    if(ignored && sx_nodelist_lookup(ignored, sx_node_uuid(model->node_list[bidx][i].sxn)))
+		break; /* Node is ignored */
+	}
+	if(i == model->node_count[bidx])
+	    r++; /* All nodes are up in this zone */
+    }
+
+    return r;
+}
+
+int64_t sxi_hdist_capacity(const sxi_hdist_t *model, unsigned int bidx, const sx_nodelist_t *ignored)
+{
+    int i, j;
+    int64_t ret = 0;
+
+    if(!model)
+	return 0;
+
+    if(bidx >= model->builds) {
+	CRIT("Invalid build index (%u >= %u)", bidx, model->builds);
+	return 0;
+    }
+
+    /* Sum up all unzoned nodes */
+    for(i = 0; i < model->node_count[bidx]; i++) {
+	if(model->node_list[bidx][i].zone_id)
+	    continue; /* Node is zoned */
+	if(ignored && sx_nodelist_lookup(ignored, sx_node_uuid(model->node_list[bidx][i].sxn)))
+	    continue; /* Node is ignored */
+	ret += model->node_list[bidx][i].capacity;
+    }
+
+    /* Add capacity of each fully alive zone */
+    for(j = 1; j <= model->zone_count[bidx]; j++) {
+	int64_t zonecapa = 0;
+	for(i = 0; i < model->node_count[bidx]; i++) {
+	    if(model->node_list[bidx][i].zone_id != j)
+		continue; /* Not in this zone */
+	    if(ignored && sx_nodelist_lookup(ignored, sx_node_uuid(model->node_list[bidx][i].sxn)))
+		break; /* Node is ignored */
+
+	    /* Node is in the current zone */
+	    if(!zonecapa)
+		zonecapa = model->node_list[bidx][i].capacity;
+	    else
+		zonecapa = MAX(zonecapa, model->node_list[bidx][i].capacity);
+	}
+	if(i == model->node_count[bidx])
+	    ret += zonecapa; /* All nodes are up in this zone */
+    }
+
+    return ret;
 }

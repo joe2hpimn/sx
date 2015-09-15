@@ -2418,66 +2418,6 @@ static act_result_t jlock_abort_and_undo(sx_hashfs_t *hashfs, job_t job_id, job_
     return jlock_common(0, hashfs, nodes, succeeded, fail_code, fail_msg);
 }
 
-
-
-static const sx_node_t *blocktarget(sx_hashfs_t *hashfs, const block_meta_t *b) {
-    const sx_node_t *self = sx_hashfs_self(hashfs);
-    const sx_nodelist_t *odst, *ndst;
-    sx_nodelist_t *oldnodes, *newnodes;
-    const sx_node_t *ret = NULL;
-    unsigned int i, or, nr;
-
-    odst = sx_hashfs_all_nodes(hashfs, NL_PREV);
-    ndst = sx_hashfs_all_nodes(hashfs, NL_NEXT);
-    if(!odst || !ndst)
-	return NULL;
-
-    or = sx_nodelist_count(odst);
-    nr = sx_nodelist_count(ndst);
-    if(!or || !nr)
-	return NULL;
-
-    oldnodes = sx_hashfs_all_hashnodes(hashfs, NL_PREV, &b->hash, or);
-    if(!oldnodes) {
-	WARN("No old node set");
-	return NULL;
-    }
-
-    newnodes = sx_hashfs_all_hashnodes(hashfs, NL_NEXT, &b->hash, nr);
-    if(!newnodes) {
-	WARN("No new node set");
-	sx_nodelist_delete(oldnodes);
-	return NULL;
-    }
-
-    for(i=0; i<or; i++) {
-	const sx_node_t *target;
-	if(sx_node_cmp(sx_nodelist_get(oldnodes, i), self))
-	    continue;
-	if(i >= nr) {
-	    /* Not reached: we prevent the numer of nodes to be less than the max replica */
-	    WARN("We were replica %u for block but the new model only has got %u replicas", i, nr);
-	    break;
-	}
-	target = sx_nodelist_get(newnodes, i);
-
-	/* Convert the target node from the allocated list into a const
-	 * node from the hashfs list so the caller needs no free */
-	for(i=0; i<nr; i++) {
-	    const sx_node_t *ctarget = sx_nodelist_get(ndst, i);
-	    if(sx_node_cmp(ctarget, target))
-		continue;
-	    ret = ctarget;
-	    break;
-	}
-	break;
-    }
-
-    sx_nodelist_delete(oldnodes);
-    sx_nodelist_delete(newnodes);
-    return ret;
-}
-
 #define RB_MAX_NODES (2 /* FIXME: bump me ? */)
 #define RB_MAX_BLOCKS (100 /* FIXME: should be a sane(!) multiple of DOWNLOAD_MAX_BLOCKS */)
 #define RB_MAX_TRIES (RB_MAX_BLOCKS * RB_MAX_NODES)
@@ -2526,12 +2466,11 @@ static act_result_t blockrb_request(sx_hashfs_t *hashfs, job_t job_id, job_data_
 
 	bin2hex(&blockmeta->hash, sizeof(blockmeta->hash), hstr, sizeof(hstr));
 
-	target = blocktarget(hashfs, blockmeta);
-	if(!target) {
+	s = sx_hashfs_new_home_for_old_block(hashfs, &blockmeta->hash, &target);
+	if(s != OK) {
 	    /* Should never trigger */
-	    WARN("Failed to identify target for %s", hstr);
+	    WARN("Failed to identify target for %s: %s", hstr, msg_get_reason());
 	    sx_hashfs_blockmeta_free(&blockmeta);
-	    s = FAIL_EINTERNAL;
 	    break;
 	}
 	if(!sx_node_cmp(self, target)) {
@@ -3437,7 +3376,6 @@ static int rplblocks_cb(curlev_context_t *cbdata, void *ctx, const void *data, s
 	    c->pos += todo;
 	    if(c->pos == c->itemsz) {
 		const sx_block_meta_index_t *bmi;
-		unsigned int maxreplica = sx_nodelist_count(sx_hashfs_all_nodes(c->hashfs, NL_NEXT));
 		sx_hash_t hash;
 		const void *ptr;
 
@@ -3482,7 +3420,7 @@ static int rplblocks_cb(curlev_context_t *cbdata, void *ctx, const void *data, s
 		    }
 		}
 
-		if(sx_hashfs_block_put(c->hashfs, c->block, c->itemsz, maxreplica, 0)) {
+		if(sx_hashfs_block_put(c->hashfs, c->block, c->itemsz, 0)) {
 		    WARN("Failed to mod hash");
 		    return 1;
 		}

@@ -33,12 +33,13 @@
 #include "utils.h"
 #include "fcgi-actions-node.h"
 
-/* {"nodeList":[{"nodeUUID":"%s","nodeAddress":"%s","nodeInternalAddress":"%s","nodeCapacity":%llu}]} */
+/* {"nodeList":[{"nodeUUID":"%s","nodeAddress":"%s","nodeInternalAddress":"%s","nodeCapacity":%llu}], "distZones":"Zone1:..."} */
 struct cb_nodes_ctx {
-    enum cb_nodes_state { CB_NODES_START, CB_NODES_ROOT, CB_NODES_ARRAY, CB_NODES_LIST, CB_NODES_NODE, CB_NODES_UUID, CB_NODES_ADDR, CB_NODES_INTADDR, CB_NODES_CAPA, CB_NODES_COMPLETE } state;
+    enum cb_nodes_state { CB_NODES_START, CB_NODES_ROOT, CB_NODES_ARRAY, CB_NODES_LIST, CB_NODES_NODE, CB_NODES_UUID, CB_NODES_ADDR, CB_NODES_INTADDR, CB_NODES_CAPA, CB_ZONES, CB_NODES_COMPLETE } state;
     sx_uuid_t id;
     char *addr;
     char *intaddr;
+    char *zones;
     int64_t capacity;
     int have_uuid;
     sx_nodelist_t *nodes;
@@ -56,6 +57,10 @@ static int cb_nodes_map_key(void *ctx, const unsigned char *s, size_t l) {
     struct cb_nodes_ctx *c = (struct cb_nodes_ctx *)ctx;
     if(c->state == CB_NODES_ROOT && l == lenof("nodeList") && !strncmp("nodeList", s, lenof("nodeList"))) {
 	c->state = CB_NODES_ARRAY;
+	return 1;
+    }
+    if(c->state == CB_NODES_ROOT && l == lenof("distZones") && !strncmp("distZones", s, lenof("distZones"))) {
+	c->state = CB_ZONES;
 	return 1;
     }
     if(c->state == CB_NODES_NODE) {
@@ -94,6 +99,14 @@ static int cb_nodes_string(void *ctx, const unsigned char *s, size_t l) {
 	    return 0;
 	memcpy(addr, s, l);
 	addr[l] = '\0';
+    } else if(c->state == CB_ZONES) {
+	if(c->zones)
+	    return 0;
+	c->zones = wrap_malloc(l+1);
+	memcpy(c->zones, s, l);
+	c->zones[l] = '\0';
+	c->state = CB_NODES_ROOT;
+	return 1;
     } else
 	return 0;
 
@@ -188,6 +201,7 @@ void fcgi_set_nodes(void) {
     yctx.intaddr = NULL;
     yctx.capacity = -1;
     yctx.have_uuid = 0;
+    yctx.zones = NULL;
     yctx.nodes = sx_nodelist_new();
     if(!yctx.nodes)
 	quit_errmsg(500, "Cannot allocate nodelist");
@@ -206,6 +220,7 @@ void fcgi_set_nodes(void) {
 	yajl_free(yh);
 	free(yctx.addr);
 	free(yctx.intaddr);
+	free(yctx.zones);
 	sx_nodelist_delete(yctx.nodes);
 	quit_errmsg(400, "Invalid request content");
     }
@@ -214,12 +229,18 @@ void fcgi_set_nodes(void) {
     auth_complete();
     quit_unless_authed();
 
-    if(has_arg("replace"))
+    if(has_arg("replace")) {
+	if(yctx.zones) {
+	    sx_nodelist_delete(yctx.nodes);
+	    free(yctx.zones);
+	    quit_errmsg(400, "Replacement requests cannot alter distribution zones");
+	}
 	s = sx_hashfs_hdist_replace_req(hashfs, yctx.nodes, &job);
-    else
-	s = sx_hashfs_hdist_change_req(hashfs, yctx.nodes, &job);
+    } else
+	s = sx_hashfs_hdist_change_req(hashfs, yctx.nodes, yctx.zones, &job);
 
     sx_nodelist_delete(yctx.nodes);
+    free(yctx.zones);
     if(s != OK)
 	quit_errmsg(rc2http(s), msg_get_reason());
     send_job_info(job);
@@ -758,6 +779,7 @@ void fcgi_new_distribution(void) {
 	s = sx_hashfs_hdist_change_add(hashfs, yctx.cfg, yctx.cfg_len);
     else
 	s = sx_hashfs_hdist_replace_add(hashfs, yctx.cfg, yctx.cfg_len, yctx.faulty);
+
     sx_nodelist_delete(yctx.faulty);
     free(yctx.cfg);
     if(s != OK)

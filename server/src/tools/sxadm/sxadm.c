@@ -336,7 +336,6 @@ static int create_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
     sx_node_t *node = NULL;
     sx_hashfs_t *stor = NULL;
     sxc_cluster_t *clust = NULL;
-    sx_nodelist_t *single_node = NULL;
     struct addrinfo *nodeai = NULL, *uriai = NULL, hint;
     const char *clust_token;
     const sx_uuid_t *clust_uuid;
@@ -349,11 +348,6 @@ static int create_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
     node = parse_nodef(args->inputs[0]);
     if(!node)
 	goto create_cluster_err;
-    single_node = sx_nodelist_new();
-    if(!single_node || sx_nodelist_add(single_node, sx_node_dup(node))) {
-	CRIT("Failed to create the cluster nodelist");
-	goto create_cluster_err;
-    }
 
     nodeai = sxi_gethostai(sx_node_addr(node));
     if(!nodeai) {
@@ -576,7 +570,7 @@ static int create_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
 	}
     }
 
-    rc_ty rs = sx_storage_activate(stor, sxc_cluster_get_sslname(clust), sx_node_uuid(node), auth.uid, AUTH_UID_LEN, auth.key, AUTH_KEY_LEN, http_port, copy_cafile ? "ca.pem" : NULL, single_node);
+    rc_ty rs = sx_storage_activate(stor, sxc_cluster_get_sslname(clust), node, auth.uid, AUTH_UID_LEN, auth.key, AUTH_KEY_LEN, http_port, copy_cafile ? "ca.pem" : NULL);
     if(rs != OK) {
 	CRIT("Failed to activate node: %s", sx_hashfs_geterrmsg(stor));
 	goto create_cluster_err;
@@ -586,7 +580,6 @@ static int create_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
     ret = 0;
 
  create_cluster_err:
-    sx_nodelist_delete(single_node);
     free(copy_cafile);
     sx_hashfs_close(stor);
     sxc_cluster_free(clust);
@@ -642,7 +635,7 @@ static sxc_cluster_t *cluster_load(sxc_client_t *sx, struct cluster_args_info *a
     return clust;
 }
 
-static int change_commit(sxc_client_t *sx, sxc_cluster_t *clust, sx_node_t **nodes, int nnodes, struct cluster_args_info *args) {
+static int change_commit(sxc_client_t *sx, sxc_cluster_t *clust, sx_node_t **nodes, int nnodes, const char *zones, struct cluster_args_info *args) {
     char *query = NULL;
     unsigned int i, query_sz, query_at;
     int ret = 1;
@@ -693,7 +686,22 @@ static int change_commit(sxc_client_t *sx, sxc_cluster_t *clust, sx_node_t **nod
 	}
     }
 
-    strcat(query, "]}"); /* Always fits due to need above */
+    if(zones) {
+	unsigned int need = strlen(zones) + sizeof("],\"distZones\":\"\"}");
+	if(need > query_sz - query_at) {
+	    char *newquery;
+	    query_sz += need;
+	    newquery = realloc(query, query_sz + 4096);
+	    if(!newquery) {
+		CRIT("Out of memory when generating the update query");
+		goto change_commit_err;
+	    }
+	    query = newquery;
+	}
+	/* ACAB: zones must have been already sanitized and is guaranteed not to contain json escapes or quotes */
+	sprintf(query + query_at, "],\"distZones\":\"%s\"}", zones);
+    } else
+	strcat(query, "]}"); /* Always fits due to need above */
 
     if(sxi_job_submit_and_poll(sxi_cluster_get_conns(clust), NULL, REQ_PUT, ".nodes", query, strlen(query))) {
 	CRIT("The update request failed: %s", sxc_geterrmsg(sx));
@@ -711,11 +719,19 @@ static int change_commit(sxc_client_t *sx, sxc_cluster_t *clust, sx_node_t **nod
     return ret;
 }
 
+
+// ACAB: TODO: validate syntax, verify node uuids, forbid dups, etc.
+// it would be nice to have a zonedef validator shared wioth hdist.c
+static int parse_zonedef(const char *zones, sx_node_t **nodes, unsigned int nnodes) {
+    return strchr(zones, ':') != NULL;
+}
+
+
 static int change_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
     unsigned int i, j, nnodes = args->inputs_num - 1;
     sxc_cluster_t *clust = cluster_load(sx, args, 1);
     char *query = NULL;
-    int ret = 1;
+    int ret = 1, have_zones = 0;
     sx_node_t **nodes;
 
     if(!clust)
@@ -729,9 +745,14 @@ static int change_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
     }
 
     for(i=0; i<nnodes; i++) {
+	if(i+1 == nnodes) {
+	    if(parse_zonedef(args->inputs[i], nodes, i)) {
+		have_zones = 1;
+		nnodes--;
+		break;
+	    }
+	}
 	nodes[i] = parse_nodef(args->inputs[i]);
-	if(!nodes[i])
-	    goto change_cluster_err;
 
 	if(i) {
 	    const char *uuid, *addr, *int_addr;
@@ -755,8 +776,11 @@ static int change_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
 	    }
 	}
     }
-
-    ret = change_commit(sx, clust, nodes, nnodes, args);
+    if(!nnodes) {
+	CRIT("Invalid distribution: no nodes provided");
+	ret = 1;
+    } else
+	ret = change_commit(sx, clust, nodes, nnodes, have_zones ? args->inputs[nnodes] : NULL, args);
 
  change_cluster_err:
     for(i=0; i<nnodes; i++)
@@ -1300,7 +1324,7 @@ static int force_gc_cluster(sxc_client_t *sx, struct cluster_args_info *args, in
     return ret;
 }
 
-static void print_dist(const sx_nodelist_t *nodes) {
+static void print_dist(const sx_nodelist_t *nodes, const char *zones) {
     if(nodes) {
 	unsigned int i, nnodes = sx_nodelist_count(nodes);
 	for(i = 0; i < nnodes; i++) {
@@ -1313,6 +1337,8 @@ static void print_dist(const sx_nodelist_t *nodes) {
 	    else
 		printf("%lld/%s/%s ", (long long)sx_node_capacity(node), addr, sx_node_uuid_str(node));
 	}
+	if(i && zones)
+	    printf("%s", zones);
 	printf("\n");
     } else
 	printf("Invalid distribution\n");
@@ -1342,7 +1368,7 @@ static int info_cluster(sxc_client_t *sx, struct cluster_args_info *args, int ke
 	nodes = clst_nodes(clst, 1);
 	if(!keyonly) {
 	    printf("Target configuration: ");
-	    print_dist(nodes);
+	    print_dist(nodes, clst_zones(clst, 0));
 	}
     case 1:
 	nodes_prev = clst_nodes(clst, 0);
@@ -1350,14 +1376,14 @@ static int info_cluster(sxc_client_t *sx, struct cluster_args_info *args, int ke
 	    nodes = nodes_prev;
 	if(!keyonly) {
 	    printf("Current configuration: ");
-	    print_dist(clst_nodes(clst, 0));
+	    print_dist(nodes_prev, clst_zones(clst, 0));
 	}
     }
 
     faulty_nodes = clst_faulty_nodes(clst);
     if(!keyonly && sx_nodelist_count(faulty_nodes)) {
 	printf("Faulty nodes: ");
-	print_dist(faulty_nodes);
+	print_dist(faulty_nodes, NULL);
     }
     
     if(!keyonly)
@@ -1562,7 +1588,7 @@ static int resize_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
 		    goto resize_cluster_err;
 		}
 	    }
-	    ret = change_commit(sx, clust, nodes, nnodes, args);
+	    ret = change_commit(sx, clust, nodes, nnodes, clst_zones(clst, 0), args);
 	}
     }
 

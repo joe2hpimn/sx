@@ -98,7 +98,7 @@ uint16_t sx_hashfs_http_port(sx_hashfs_t *h);
 const char *sx_hashfs_ca_file(sx_hashfs_t *h);
 void sx_storage_usage(sx_hashfs_t *h, int64_t *allocated, int64_t *committed);
 const sx_uuid_t *sx_hashfs_distinfo(sx_hashfs_t *h, unsigned int *version, uint64_t *checksum);
-rc_ty sx_storage_activate(sx_hashfs_t *h, const char *name, const sx_uuid_t *node_uuid, uint8_t *admin_uid, unsigned int uid_size, uint8_t *admin_key, int key_size, uint16_t port, const char *ssl_ca_file, const sx_nodelist_t *allnodes);
+rc_ty sx_storage_activate(sx_hashfs_t *h, const char *name, const sx_node_t *firstnode, uint8_t *admin_uid, unsigned int uid_size, uint8_t *admin_key, int key_size, uint16_t port, const char *ssl_ca_file);
 rc_ty sx_hashfs_setnodedata(sx_hashfs_t *h, const char *name, const sx_uuid_t *node_uuid, uint16_t port, int use_ssl, const char *ssl_ca_crt);
 int sx_hashfs_uses_secure_proto(sx_hashfs_t *h);
 void sx_hashfs_set_triggers(sx_hashfs_t *h, int job_trigger, int xfer_trigger, int gc_trigger, int gc_expire_trigger, int hbeat_trigger);
@@ -134,8 +134,7 @@ int sx_hashfs_check_username(const char *name);
 rc_ty sx_hashfs_derive_key(sx_hashfs_t *h, unsigned char *key, int len, const char *info);
 
 /* HashFS properties */
-rc_ty sx_hashfs_modhdist(sx_hashfs_t *h, const sx_nodelist_t *list);
-rc_ty sx_hashfs_hdist_change_req(sx_hashfs_t *h, const sx_nodelist_t *newdist, job_t *job_id);
+rc_ty sx_hashfs_hdist_change_req(sx_hashfs_t *h, const sx_nodelist_t *newdist, const char *zonedef, job_t *job_id);
 rc_ty sx_hashfs_hdist_replace_req(sx_hashfs_t *h, const sx_nodelist_t *replacements, job_t *job_id);
 rc_ty sx_hashfs_hdist_change_add(sx_hashfs_t *h, const void *cfg, unsigned int cfg_len);
 rc_ty sx_hashfs_hdist_replace_add(sx_hashfs_t *h, const void *cfg, unsigned int cfg_len, const sx_nodelist_t *badnodes);
@@ -146,6 +145,7 @@ rc_ty sx_hashfs_hdist_rebalance(sx_hashfs_t *h);
 rc_ty sx_hashfs_hdist_endrebalance(sx_hashfs_t *h);
 int64_t sx_hashfs_hdist_getversion(sx_hashfs_t *h);
 
+const char *sx_hashfs_zonedef(sx_hashfs_t *h, sx_hashfs_nl_t which);
 const sx_nodelist_t *sx_hashfs_all_nodes(sx_hashfs_t *h, sx_hashfs_nl_t which);
 const sx_nodelist_t *sx_hashfs_effective_nodes(sx_hashfs_t *h, sx_hashfs_nl_t which);
 const sx_node_t *sx_hashfs_self(sx_hashfs_t *h);
@@ -286,7 +286,7 @@ rc_ty sx_hashfs_getfilemeta_next(sx_hashfs_t *h, const char **key, const void **
 
 /* Block xfer */
 rc_ty sx_hashfs_block_get(sx_hashfs_t *h, unsigned int bs, const sx_hash_t *hash, const uint8_t **block);
-rc_ty sx_hashfs_block_put(sx_hashfs_t *h, const uint8_t *data, unsigned int bs, unsigned int replica_count, int propagate);
+rc_ty sx_hashfs_block_put(sx_hashfs_t *h, const uint8_t *data, unsigned int bs, unsigned int replica_count);
 
 /* hash batch ops for GC */
 rc_ty sx_hashfs_hashop_perform(sx_hashfs_t *h, unsigned int block_size, unsigned replica_count, enum sxi_hashop_kind kind, const sx_hash_t *hash, const sx_hash_t *reserve_id, const sx_hash_t *revision_id, uint64_t op_expires_at, int *present);
@@ -511,7 +511,7 @@ void sx_hashfs_syncglobs_abort(sx_hashfs_t *h);
 rc_ty sx_hashfs_syncglobs_end(sx_hashfs_t *h);
 
 rc_ty sx_hashfs_compact(sx_hashfs_t *h, int64_t *bytes_freed);
-
+rc_ty sx_hashfs_new_home_for_old_block(sx_hashfs_t *h, const sx_hash_t *block, const sx_node_t **target);
 
 /* RAFT implementation ops */
 

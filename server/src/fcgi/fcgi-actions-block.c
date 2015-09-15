@@ -532,8 +532,7 @@ void fcgi_save_blocks(void) {
     token++;
 
     if(has_priv(PRIV_CLUSTER)) {  /* FIXME: use a cluster token to avoid arbitrary replays to over-replica nodes */
-	/* MODHDIST: WTF?! */
-	replica_count = sx_nodelist_count(sx_hashfs_all_nodes(hashfs, NL_NEXT));
+	replica_count = 0; /* convention to mean just take the f** block and stfu - see sx_hashfs_block_put */
     } else {
         if(sx_hashfs_token_get(hashfs, user, token, &replica_count, NULL))
             quit_errmsg(400, "Invalid token");
@@ -557,12 +556,12 @@ void fcgi_save_blocks(void) {
         rc_ty rc;
 	/* Maximum replica used here;
 	 * block_put internally skips ignored nodes and only propagates to effective nodes */
-        if ((rc = sx_hashfs_block_put(hashfs, src, blocksize, replica_count, !has_priv(PRIV_CLUSTER)))) {
+        if ((rc = sx_hashfs_block_put(hashfs, src, blocksize, replica_count))) {
             WARN("Cannot store block: %s", rc2str(rc));
 	    quit_errmsg(500, "Cannot store block");
         }
     }
-    if(replica_count > 1 && !has_priv(PRIV_CLUSTER))
+    if(replica_count > 1)
 	sx_hashfs_xfer_trigger(hashfs);
 
     CGI_PUTS("\r\n");

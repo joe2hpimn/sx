@@ -920,7 +920,7 @@ int main(int argc, char **argv)
     }
     DEBUG("Number of builds: %d", sxi_hdist_buildcnt(hdist));
 
-    if(sxi_hdist_maxreplica(hdist, 0) != ZONES_MAXREPLICA) {
+    if(sxi_hdist_maxreplica(hdist, 0, NULL) != ZONES_MAXREPLICA) {
 	CRIT("Invalid max replica, should be %d", ZONES_MAXREPLICA);
 	goto main_err;
     }

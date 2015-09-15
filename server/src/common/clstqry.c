@@ -37,8 +37,8 @@ struct cstatus {
     sx_nodelist_t *two;
     sx_nodelist_t *ign;
     yajl_handle yh;
-    char *addr, *auth;
-    char *int_addr;
+    char *addr, *int_addr, *auth;
+    char *zone_one, *zone_two;
     sx_uuid_t uuid, distid;
     uint64_t checksum;
     int64_t capa;
@@ -267,6 +267,21 @@ static int cb_cstatus_string(void *ctx, const unsigned char *s, size_t l) {
 	    return 0;
 	c->have_distid = 1;
 	c->state = CS_SKEY;
+    } else if(c->state == CS_NODES) {
+	char **zone;
+	if(c->nsets == 0)
+	    zone = &c->zone_one;
+	else  if(c->nsets == 1)
+	    zone = &c->zone_two;
+	else
+	    return 0;
+	if(*zone)
+	    return 0;
+	*zone = malloc(l+1);
+	if(!*zone)
+	    return 0;
+	memcpy(*zone, s, l);
+	(*zone)[l] = '\0';
     } else if(c->state == CS_ADDR) {
 	if(c->addr)
 	    return 0;
@@ -445,6 +460,10 @@ static int cstatus_setup_cb(curlev_context_t *cbdata, void *ctx, const char *hos
 	return 1;
     }
 
+    free(yactx->zone_one);
+    free(yactx->zone_two);
+    yactx->zone_one = NULL;
+    yactx->zone_two = NULL;
     free(yactx->auth);
     free(yactx->addr);
     free(yactx->int_addr);
@@ -487,6 +506,8 @@ void clst_destroy(clst_t *st) {
     sx_nodelist_delete(st->one);
     sx_nodelist_delete(st->two);
     sx_nodelist_delete(st->ign);
+    free(st->zone_one);
+    free(st->zone_two);
     free(st->auth);
     free(st->addr);
     free(st->int_addr);
@@ -505,7 +526,7 @@ clst_t *clst_query(sxi_conns_t *conns, sxi_hostlist_t *hlist) {
     if(!(yctx = calloc(1, sizeof(*yctx))))
 	return NULL;
 
-    if(sxi_cluster_query(conns, hlist, REQ_GET, "?clusterStatus&operatingMode&raftStatus", NULL, 0, cstatus_setup_cb, cstatus_cb, yctx) != 200) {
+    if(sxi_cluster_query(conns, hlist, REQ_GET, "?clusterStatus&operatingMode&raftStatus&distZones", NULL, 0, cstatus_setup_cb, cstatus_cb, yctx) != 200) {
 	clst_destroy(yctx);
 	return NULL;
     }
@@ -533,6 +554,13 @@ const sx_nodelist_t *clst_nodes(clst_t *st, unsigned int dist) {
 	return NULL;
 
     return dist ? st->two : st->one;
+}
+
+const char *clst_zones(clst_t *st, unsigned int dist) {
+    if(!st || dist >= st->nsets)
+	return NULL;
+
+    return dist ? st->zone_two : st->zone_one;
 }
 
 const sx_nodelist_t *clst_faulty_nodes(clst_t *st) {

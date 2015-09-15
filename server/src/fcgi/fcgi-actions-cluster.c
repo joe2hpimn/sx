@@ -33,8 +33,13 @@
 #include "fcgi-utils.h"
 #include "fcgi-actions-cluster.h"
 
-static void send_distribution(const sx_nodelist_t *nodes) {
+static void send_distribution(sx_hashfs_nl_t which) {
+    const sx_nodelist_t *nodes = sx_hashfs_all_nodes(hashfs, which);
     unsigned int i, n = sx_nodelist_count(nodes);
+    const char *zonedef;
+
+    if(!nodes)
+	return;
 
     CGI_PUTC('[');
     for(i = 0; i < n; i++) {
@@ -53,6 +58,10 @@ static void send_distribution(const sx_nodelist_t *nodes) {
 	if(sx_hashfs_is_node_ignored(hashfs, uuid))
 	    CGI_PUTS(",\"nodeFlags\":\"i\"");
 	CGI_PUTC('}');
+    }
+    if(i && (zonedef = sx_hashfs_zonedef(hashfs, which))) {
+	CGI_PUTS(", ");
+	json_send_qstring(zonedef);
     }
     CGI_PUTC(']');
 }
@@ -102,18 +111,16 @@ void fcgi_handle_cluster_requests(void) {
 	CGI_PUTS("\"clusterStatus\":{\"distributionModels\":[");
 
 	if(!sx_storage_is_bare(hashfs)) {
-	    const sx_nodelist_t *nodes = sx_hashfs_all_nodes(hashfs, NL_PREV);
 	    const sx_uuid_t *dist_uuid;
 	    unsigned int version;
 	    uint64_t checksum;
 
-	    if(nodes) {
-		send_distribution(nodes);
-		if(sx_hashfs_is_rebalancing(hashfs)) {
-		    CGI_PUTC(',');
-		    send_distribution(sx_hashfs_all_nodes(hashfs, NL_NEXT));
-		}
+	    send_distribution(NL_PREV);
+	    if(sx_hashfs_is_rebalancing(hashfs)) {
+		CGI_PUTC(',');
+		send_distribution(NL_NEXT);
 	    }
+
 	    dist_uuid = sx_hashfs_distinfo(hashfs, &version, &checksum);
 	    CGI_PRINTF("],\"distributionUUID\":\"%s\",\"distributionVersion\":%u,\"distributionChecksum\":", dist_uuid->string, version);
 	    CGI_PUTLL(checksum);

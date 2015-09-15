@@ -1308,8 +1308,8 @@ static int runcmd(struct sxcluster *cluster, int mode, char *line)
 	    update(cluster);
 	}
 
-	if(replica_count > sxi_hdist_maxreplica(cluster->hdist, 0)) {
-	    printf("ERROR: Invalid replica count %u (max: %u)\n", replica_count, sxi_hdist_maxreplica(cluster->hdist, 0));
+	if(replica_count > sxi_hdist_maxreplica(cluster->hdist, 0, NULL)) {
+	    printf("ERROR: Invalid replica count %u (max: %u)\n", replica_count, sxi_hdist_maxreplica(cluster->hdist, 0, NULL));
 	    return 0;
 	}
 

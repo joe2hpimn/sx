@@ -69,7 +69,11 @@ const sx_uuid_t *sxi_hdist_uuid(const sxi_hdist_t *model);
 
 int sxi_hdist_same_origin(const sxi_hdist_t *model1, const sxi_hdist_t *model2);
 
-int sxi_hdist_maxreplica(const sxi_hdist_t *model, unsigned int bidx);
+int sxi_hdist_maxreplica(const sxi_hdist_t *model, unsigned int bidx, const sx_nodelist_t *ignored);
+
+int64_t sxi_hdist_maxsize(const sxi_hdist_t *model, unsigned int bidx, const sx_nodelist_t *ignored);
+
+int64_t sxi_hdist_capacity(const sxi_hdist_t *model, unsigned int bidx, const sx_nodelist_t *ignored);
 
 void sxi_hdist_free(sxi_hdist_t *model);
 

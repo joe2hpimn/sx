@@ -438,6 +438,8 @@ static void create_or_extend_tempfile(const sx_hashfs_volume_t *vol, const char 
     ctx.h = hashfs;
     ctx.comma = 0;
     while((s = sx_hashfs_putfile_getblock(hashfs)) == OK) {
+	/* Nothing to do here, API does a little bit of work at a time by design
+	 * We can stick keepalives in here if we ever need to */
     }
     sx_hashfs_putfile_end(hashfs);
     CGI_PUTS("}");

@@ -786,8 +786,10 @@ struct _sx_hashfs_t {
     sxi_hdist_t *hd;
     sx_nodelist_t *prev_dist, *next_dist, *nextprev_dist, *prevnext_dist, *faulty_nodes, *ignored_nodes, *effprev_dist, *effnext_dist, *effnextprev_dist, *effprevnext_dist;
     int64_t hd_rev;
-    unsigned int have_hd, is_rebalancing, is_orphan;
+    unsigned int have_hd, is_rebalancing, is_orphan, prev_maxreplica, next_maxreplica, effprev_maxreplica, effnext_maxreplica;
+    int64_t effective_capacity;
     time_t last_dist_change;
+    const char *distzones[2];
 
     sx_hashfs_volume_t curvol;
     const uint8_t *curvoluser;
@@ -1138,6 +1140,7 @@ static int load_config(sx_hashfs_t *h, sxc_client_t *sx) {
     if(h->have_hd)
 	sxi_hdist_free(h->hd);
     h->have_hd = 0;
+    h->distzones[0] = h->distzones[1] = NULL;
     h->hd_rev = 0;
     sx_nodelist_delete(h->next_dist);
     h->next_dist = NULL;
@@ -1278,6 +1281,7 @@ static int load_config(sx_hashfs_t *h, sxc_client_t *sx) {
 	}
 
 	h->next_dist = sx_nodelist_dup(sxi_hdist_nodelist(h->hd, 0));
+	h->distzones[0] = sxi_hdist_get_zones(h->hd, 0);
 	if(sxi_hdist_buildcnt(h->hd) == 1) {
 	    h->prev_dist = sx_nodelist_dup(h->next_dist);
 	    if(!sx_nodelist_lookup(h->next_dist, &h->node_uuid)) {
@@ -1286,6 +1290,7 @@ static int load_config(sx_hashfs_t *h, sxc_client_t *sx) {
 	    }
 	} else if(sxi_hdist_buildcnt(h->hd) == 2) {
 	    h->prev_dist = sx_nodelist_dup(sxi_hdist_nodelist(h->hd, 1));
+	    h->distzones[1] = sxi_hdist_get_zones(h->hd, 1);
 	    h->is_rebalancing = 1;
 	} else {
 	    CRIT("Failed to load cluster distribution: too many models");
@@ -1380,6 +1385,14 @@ static int load_config(sx_hashfs_t *h, sxc_client_t *sx) {
 	    CRIT("Failed to allocate list of ignored nodes from database");
 	    goto load_config_fail;
 	}
+
+	h->next_maxreplica = sxi_hdist_maxreplica(h->hd, 0, NULL);
+	h->prev_maxreplica = sxi_hdist_maxreplica(h->hd, h->is_rebalancing ? 1 : 0, NULL);
+	h->effnext_maxreplica = sxi_hdist_maxreplica(h->hd, 0, h->ignored_nodes);
+	h->effprev_maxreplica = sxi_hdist_maxreplica(h->hd, h->is_rebalancing ? 1 : 0, h->ignored_nodes);
+	h->effective_capacity = sxi_hdist_capacity(h->hd, 0, h->ignored_nodes);
+	if(h->is_rebalancing)
+	    h->effective_capacity = MIN(h->effective_capacity, sxi_hdist_capacity(h->hd, 1, h->ignored_nodes));
 
 	h->effprev_dist = sx_nodelist_new();
 	for(i=0; i<sx_nodelist_count(h->prev_dist); i++) {
@@ -2070,37 +2083,37 @@ int sx_storage_is_bare(sx_hashfs_t *h) {
 }
 
 static rc_ty update_raft_timeout(sx_hashfs_t *h);
-rc_ty sx_storage_activate(sx_hashfs_t *h, const char *name, const sx_uuid_t *node_uuid, uint8_t *admin_uid, unsigned int uid_size, uint8_t *admin_key, int key_size, uint16_t port, const char *ssl_ca_file, const sx_nodelist_t *allnodes) {
+rc_ty sx_storage_activate(sx_hashfs_t *h, const char *name, const sx_node_t *firstnode, uint8_t *admin_uid, unsigned int uid_size, uint8_t *admin_key, int key_size, uint16_t port, const char *ssl_ca_file) {
     rc_ty r, ret = FAIL_EINTERNAL;
-    sqlite3_stmt *q = NULL;
-    const sx_node_t *self;
-    unsigned int nodeidx;
+    const sx_uuid_t *node_uuid;
+    sxi_hdist_t *newmod = NULL;
+    unsigned int blob_size;
+    sqlite3_stmt *q;
+    const void *blob;
     sx_hash_t hash;
 
-    if(!h || !name || !node_uuid || !admin_key) {
+    if(!h || !name || !firstnode || !admin_key || !(node_uuid = sx_node_uuid(firstnode))) {
 	NULLARG();
 	return EFAULT;
     }
-    if(!sx_storage_is_bare(h)) {
+    q = h->q_setval;
+
+    if(h->have_hd || !sx_storage_is_bare(h)) {
 	msg_set_reason("Storage was already activated");
 	return EINVAL;
     }
 
-    self = sx_nodelist_lookup_index(allnodes, node_uuid, &nodeidx);
-    if(!self) {
-	msg_set_reason("Failed to find node uuid in node list");
+    if(sx_node_capacity(firstnode) < SXLIMIT_MIN_NODE_SIZE) {
+	msg_set_reason("Invalid capacity: Node cannot be smaller than %u bytes", SXLIMIT_MIN_NODE_SIZE);
 	return EINVAL;
     }
 
     if(qbegin(h->db))
 	return FAIL_EINTERNAL;
 
-    if(qprep(h->db, &q, "INSERT OR REPLACE INTO hashfs (key, value) VALUES (:k , :v)"))
-	goto storage_activate_fail;
-
     admin_uid = hash.b;
     if(sx_hashfs_hash_buf(NULL, 0, "admin", 5, &hash)) {
-        CRIT("Failed to initialize admin user ID hash");
+        msg_set_reason("Failed to initialize admin user ID hash");
         goto storage_activate_fail;
     }
 
@@ -2115,6 +2128,7 @@ rc_ty sx_storage_activate(sx_hashfs_t *h, const char *name, const sx_uuid_t *nod
 	goto storage_activate_fail;
     }
 
+    sqlite3_reset(q);
     if(ssl_ca_file) {
 	if(qbind_text(q, ":k", "ssl_ca_file") || qbind_text(q, ":v", ssl_ca_file) || qstep_noret(q))
 	    goto storage_activate_fail;
@@ -2129,8 +2143,35 @@ rc_ty sx_storage_activate(sx_hashfs_t *h, const char *name, const sx_uuid_t *nod
     if(sx_hashfs_hdist_change_commit(h))
 	goto storage_activate_fail;
 
-    if(sx_hashfs_modhdist(h, allnodes))
+    newmod = sxi_hdist_new(HDIST_SEED, 2, NULL);
+    if(!newmod) {
+	msg_set_reason("Not enough memory to generate new distribution model");
+	ret = ENOMEM;
+    }
+
+    if(sxi_hdist_addnode(newmod, sx_node_uuid(firstnode), sx_node_addr(firstnode), sx_node_internal_addr(firstnode), sx_node_capacity(firstnode), NULL)) {
+	msg_set_reason("Failed to add node to distribution");
 	goto storage_activate_fail;
+    }
+
+    if(sxi_hdist_build(newmod, NULL)) {
+	msg_set_reason("Failed to build the distribution model");
+	goto storage_activate_fail;
+    }
+
+    if(sxi_hdist_get_cfg(newmod, &blob, &blob_size)) {
+	msg_set_reason("Failed to retrieve the distribution model configuration");
+	goto storage_activate_fail;
+    }
+
+    if(qbind_text(q, ":k", "dist") || qbind_blob(q, ":v", blob, blob_size) || qstep_noret(q)) {
+	msg_set_reason("Failed to save the updated distribution model");
+	goto storage_activate_fail;
+    }
+    if(qbind_text(q, ":k", "dist_rev") || qbind_int64(q, ":v", sxi_hdist_version(newmod)) || qstep_noret(q)) {
+	msg_set_reason("Failed to save the updated distribution model");
+	goto storage_activate_fail;
+    }
 
     if(update_raft_timeout(h) != OK)
         goto storage_activate_fail;
@@ -2138,15 +2179,18 @@ rc_ty sx_storage_activate(sx_hashfs_t *h, const char *name, const sx_uuid_t *nod
     if(qcommit(h->db))
 	goto storage_activate_fail;
 
+    h->hd = newmod;
+    h->have_hd = 1;
+
     ret = OK;
  storage_activate_fail:
     if(ret != OK) {
 	qrollback(h->db);
 	sxc_clearerr(h->sx);
 	sxi_seterr(h->sx, SXE_EARG, "%s", msg_get_reason());
+	sxi_hdist_free(newmod);
     }
 
-    sqlite3_finalize(q);
     return ret;
 }
 
@@ -2463,6 +2507,10 @@ rc_ty sx_hashfs_token_get(sx_hashfs_t *h, const uint8_t *user, const char *token
     struct token_data tkdt;
     if(parse_token(h->sx, user, token, &h->tokenkey, &tkdt))
 	return EINVAL;
+    if(tkdt.replica < 1) {
+	WARN("Found token with invalid replica");
+	return FAIL_EINTERNAL;
+    }
     *replica_count = tkdt.replica;
     if (expires_at)
         *expires_at = tkdt.expires_at;
@@ -2725,7 +2773,7 @@ static int check_file_hashes(sx_hashfs_t *h, int debug, const sx_hash_t *hashes,
         }
 
         /* Distribution doesn't matter, we skip blocks existence during rebalance */
-        hashnodes = sx_hashfs_all_hashnodes(h, NL_PREV, hash, replica_count);
+        hashnodes = sx_hashfs_all_hashnodes(h, NL_NEXT, hash, replica_count);
         if(hashnodes) {
             int skip = 0;
             /* Skip hashes stored on remote nodes */
@@ -5139,102 +5187,24 @@ int sx_hashfs_is_orphan(sx_hashfs_t *h) {
     return h ? h->is_orphan : 0;
 }
 
-/* MODHDIST: this was forked off into sx_hashfs_hdist_change_add
- * it should be simplified to only handle local activation (sxadm cluster --new) */
-rc_ty sx_hashfs_modhdist(sx_hashfs_t *h, const sx_nodelist_t *list) {
-    sxi_hdist_t *newmod = NULL;
-    unsigned int nnodes, i, blob_size;
-    sqlite3_stmt *q = NULL;
-    const void *blob;
-    rc_ty ret = OK;
-
-    if(!h || !list) {
-	NULLARG();
-	return EINVAL;
-    }
-
-    nnodes = sx_nodelist_count(list);
-    if(nnodes < 1) {
-	msg_set_reason("Called with empty distribution list");
-	return EINVAL;
-    }
-
-    if(h->have_hd == 0) {
-	newmod = sxi_hdist_new(HDIST_SEED, 2, NULL);
-    } else if(!h->is_rebalancing) {
-	ret = sxi_hdist_get_cfg(h->hd, &blob, &blob_size);
-	if(ret == OK) {
-	    newmod = sxi_hdist_from_cfg(blob, blob_size);
-	    if(newmod)
-		ret = sxi_hdist_newbuild(newmod);
-	}
-    } else
-	ret = EEXIST;
-
-    if(ret == OK && !newmod) /* Either _new() or _from_cfg() failed above */
-	ret = ENOMEM;
-
-    if(ret != OK) {
-	msg_set_reason("Failed to prepare the distribution update");
-	sxi_hdist_free(newmod);
-	return ret;
-    }
-
-    for(i=0; i<nnodes; i++) {
-	const sx_node_t *n = sx_nodelist_get(list, i);
-	if(sx_node_capacity(n) < SXLIMIT_MIN_NODE_SIZE) {
-	    sxi_hdist_free(newmod);
-	    msg_set_reason("Invalid capacity: Node %s cannot be smaller than %u bytes", sx_node_uuid_str(n), SXLIMIT_MIN_NODE_SIZE);
-	    return EINVAL;
-	}
-	ret = sxi_hdist_addnode(newmod, sx_node_uuid(n), sx_node_addr(n), sx_node_internal_addr(n), sx_node_capacity(n), NULL);
-	if(ret == OK)
-	    continue;
-	msg_set_reason("Failed to add the distribution node");
-	sxi_hdist_free(newmod);
-	return FAIL_EINTERNAL;
-    }
-
-    ret = sxi_hdist_build(newmod, NULL);
-    if(ret) {
-	msg_set_reason("Failed to update the distribution model");
-	sxi_hdist_free(newmod);
-	return FAIL_EINTERNAL;
-    }
-
-    ret = sxi_hdist_get_cfg(newmod, &blob, &blob_size);
-    if(ret) {
-	msg_set_reason("Failed to update the distribution model");
-	sxi_hdist_free(newmod);
-	return FAIL_EINTERNAL;
-    }
-
-    if(qprep(h->db, &q, "INSERT OR REPLACE INTO hashfs (key, value) VALUES (:k , :v)") ||
-       qbind_text(q, ":k", "dist") ||
-       qbind_blob(q, ":v", blob, blob_size) ||
-       qstep_noret(q)) {
-	msg_set_reason("Failed to save the updated distribution model");
-	ret = FAIL_EINTERNAL;
-    } else {
-	sqlite3_reset(q);
-	if(qbind_text(q, ":k", "dist_rev") ||
-	   qbind_int64(q, ":v", sxi_hdist_version(newmod)) ||
-	   qstep_noret(q)) {
-	    msg_set_reason("Failed to save the updated distribution model");
-	    ret = FAIL_EINTERNAL;
-	}
-    }
-    qnullify(q);
-    if(ret)
-	return ret;
-
-    if(h->have_hd)
-	sxi_hdist_free(h->hd);
-    h->hd = newmod;
-    h->have_hd = 1;
-    return OK;
+static int is_subreplica(sx_hashfs_t *h, unsigned int max_replica) {
+    return (h->next_maxreplica - h->effnext_maxreplica >= max_replica);
 }
 
+const char *sx_hashfs_zonedef(sx_hashfs_t *h, sx_hashfs_nl_t which) {
+    if(!h)
+	return NULL;
+    switch(which) {
+    case NL_PREV:
+	return h->distzones[0];
+    case NL_NEXT:
+	return h->distzones[1];
+    case NL_PREVNEXT:
+    case NL_NEXTPREV:
+    default:
+	return NULL;
+    }
+}
 
 const sx_nodelist_t *sx_hashfs_all_nodes(sx_hashfs_t *h, sx_hashfs_nl_t which) {
     if(!h)
@@ -5277,7 +5247,7 @@ const sx_nodelist_t *sx_hashfs_effective_nodes(sx_hashfs_t *h, sx_hashfs_nl_t wh
 static int hash_nidx_tobuf(sx_hashfs_t *h, const sx_hash_t *hash, unsigned int required_replica, unsigned int max_volume_replica, unsigned int *nidx) {
     const sx_nodelist_t *nodes;
     sx_nodelist_t *belongsto;
-    unsigned int i, start, nnodes;
+    unsigned int i, start;
     int ret;
 
     if(!h || !hash) {
@@ -5290,16 +5260,14 @@ static int hash_nidx_tobuf(sx_hashfs_t *h, const sx_hash_t *hash, unsigned int r
 	return -1;
     }
 
-    nodes = sx_hashfs_all_nodes(h, NL_NEXT);
-    nnodes = sx_nodelist_count(nodes);
+    nodes = sx_hashfs_all_nodes(h, NL_NEXT); /* this matches the set used in are_blocks_available */
 
-    if(max_volume_replica < 1 || max_volume_replica > nnodes ||
-       required_replica < 1 || required_replica > max_volume_replica ) {
-	msg_set_reason("Bad replica count: %d must be between %d and %d", max_volume_replica, 1, nnodes);
+    if(max_volume_replica < 1 || max_volume_replica > h->next_maxreplica ||
+       required_replica < 1 || required_replica > max_volume_replica) {
+	msg_set_reason("Bad replica count: %d must be between %d and %d", max_volume_replica, 1, max_volume_replica);
 	return -1;
     }
 
-    /* MODHDIST: using _next set - see rant under are_blocks_available() */
     belongsto = sxi_hdist_locate(h->hd, MurmurHash64(hash, sizeof(*hash), HDIST_SEED), max_volume_replica, 0);
     if(!belongsto) {
 	WARN("Cannot get nodes for volume");
@@ -5954,7 +5922,6 @@ rc_ty sx_hashfs_list_next(sx_hashfs_t *h) {
 
 sx_nodelist_t *sx_hashfs_all_hashnodes(sx_hashfs_t *h, sx_hashfs_nl_t which, const sx_hash_t *hash, unsigned int replica_count) {
     sx_nodelist_t *prev = NULL, *next = NULL;
-    unsigned int nnodes;
     int64_t mh;
 
     if(!h || !hash) {
@@ -5975,25 +5942,23 @@ sx_nodelist_t *sx_hashfs_all_hashnodes(sx_hashfs_t *h, sx_hashfs_nl_t which, con
     mh = MurmurHash64(hash, sizeof(*hash), HDIST_SEED);
 
     if(h->is_rebalancing && (which == NL_PREV || which == NL_PREVNEXT || which == NL_NEXTPREV)) {
-	nnodes = sx_nodelist_count(h->prev_dist);
-	if(replica_count <= nnodes) {
+	if(replica_count <= h->prev_maxreplica) {
 	    prev = sxi_hdist_locate(h->hd, mh, replica_count, 1);
 	    if(!prev) {
 		msg_set_reason("Failed to locate hash");
 		return NULL;
 	    }
 	} else if(which == NL_PREV)
-	    msg_set_reason("Bad replica count: %d should be below %d", replica_count, nnodes);
+	    msg_set_reason("Bad replica count: %d should be below %d", replica_count, h->prev_maxreplica);
 
 	/* MODHDIST: over replica request is only fatal if we don't have a NEXT part */
 	if(which == NL_PREV)
 	    return prev;
     }
 
-    nnodes = sx_nodelist_count(h->next_dist);
-    if(replica_count > nnodes) {
+    if(replica_count > h->next_maxreplica) {
 	/* MODHDIST: over replica request is always fatal (replica can't have decreased) */
-	msg_set_reason("Bad replica count: %d should be below %d", replica_count, nnodes);
+	msg_set_reason("Bad replica count: %d should be below %d", replica_count, h->next_maxreplica);
 	sx_nodelist_delete(prev);
 	return NULL;
     }
@@ -6030,12 +5995,11 @@ sx_nodelist_t *sx_hashfs_effective_hashnodes(sx_hashfs_t *h, sx_hashfs_nl_t whic
     sx_nodelist_t *effnodes, *allnodes;
     unsigned int nnodes, i;
 
-    nnodes = sx_nodelist_count(h->ignored_nodes);
-    if(replica_count <= nnodes)
+    if(is_subreplica(h, replica_count))
 	return NULL;
 
     allnodes = sx_hashfs_all_hashnodes(h, which, hash, replica_count);
-    if(!nnodes)
+    if(!sx_nodelist_count(h->ignored_nodes))
 	return allnodes;
 
     effnodes = sx_nodelist_new();
@@ -6896,21 +6860,9 @@ static rc_ty get_min_reqs(sx_hashfs_t *h, unsigned int *min_nodes, int64_t *min_
     return OK;
 }
 
-static int64_t get_cluster_capacity(sx_hashfs_t *h, sx_hashfs_nl_t which) {
-    int64_t size = 0;
-    unsigned int i, nnodes;
-
-    nnodes = sx_nodelist_count(sx_hashfs_all_nodes(h, which));
-    for(i = 0; i < nnodes; i++)
-        size += sx_node_capacity(sx_nodelist_get(sx_hashfs_all_nodes(h, which), i));
-
-    return size;
-}
-
 /* Return error if given size is incorrect */
 static rc_ty sx_hashfs_check_volume_size(sx_hashfs_t *h, int64_t size, unsigned int replica) {
     int64_t vols_size;
-    int64_t nodes_size = 0;
 
     if(size < SXLIMIT_MIN_VOLUME_SIZE || size > SXLIMIT_MAX_VOLUME_SIZE) {
         msg_set_reason("Invalid volume size %lld: must be between %lld and %lld",
@@ -6928,28 +6880,18 @@ static rc_ty sx_hashfs_check_volume_size(sx_hashfs_t *h, int64_t size, unsigned 
         return FAIL_EINTERNAL;
     }
 
-    if(sx_hashfs_is_rebalancing(h)) /* NL_PREV will differ from NL_NEXT */
-        nodes_size = MIN(get_cluster_capacity(h, NL_PREV), get_cluster_capacity(h, NL_NEXT));
-    else
-        nodes_size = get_cluster_capacity(h, NL_PREV); /* All dists are equal, doesn't matter which one will we take here */
-
-    if(!nodes_size) {
-        msg_set_reason("Failed to get node sizes");
-        return FAIL_EINTERNAL;
-    }
-
     /* Check if cluster capacity is not reached yet (better error message) */
-    if(SXLIMIT_MIN_VOLUME_SIZE > nodes_size - vols_size) {
+    if(vols_size + SXLIMIT_MIN_VOLUME_SIZE * replica >= h->effective_capacity) {
         msg_set_reason("Invalid volume size %lld: reached cluster capacity", (long long)size);
         return EINVAL;
     }
 
     /* Total volumes size is greater than cluster capacity */
-    if(vols_size + size * (int64_t)replica > nodes_size) {
+    if(vols_size + size * (int64_t)replica > h->effective_capacity) {
         msg_set_reason("Invalid volume size %lld - with replica %u and current cluster usage it must be between %lld and %lld",
                        (long long)size, replica,
                        (long long)SXLIMIT_MIN_VOLUME_SIZE,
-                       (long long)(nodes_size - vols_size) / replica);
+                       (long long)(h->effective_capacity - vols_size) / replica);
         return EINVAL;
     }
 
@@ -6968,11 +6910,13 @@ rc_ty sx_hashfs_check_volume_settings(sx_hashfs_t *h, const char *volume, int64_
 	return ret;
 
     if(h->have_hd) {
-	unsigned int minreplica = sx_nodelist_count(h->ignored_nodes) + 1;
-	unsigned int maxreplica = MIN(sx_nodelist_count(sx_hashfs_all_nodes(h, NL_PREV)), sx_nodelist_count(sx_hashfs_all_nodes(h, NL_NEXT)));
+	unsigned int maxreplica = MIN(h->prev_maxreplica, h->next_maxreplica);
+	unsigned int minreplica = 1+
+	    MIN(h->prev_maxreplica - h->effprev_maxreplica,
+		h->next_maxreplica - h->effnext_maxreplica);
 	if(replica < minreplica || replica > maxreplica) {
-	    if(maxreplica == 1)
-		msg_set_reason("Invalid replica count %d: must be 1 for a single-node cluster", replica);
+	    if(!minreplica || minreplica == maxreplica)
+		msg_set_reason("Invalid replica count %d: must be %d", replica, maxreplica);
 	    else
 		msg_set_reason("Invalid replica count %d: must be between %d and %d", replica, minreplica, maxreplica);
 	    return EINVAL;
@@ -7294,6 +7238,7 @@ static rc_ty volume_next_common(sx_hashfs_t *h) {
     h->curvol.owner = sqlite3_column_int64(h->q_nextvol, 5);
     h->curvol.revisions = sqlite3_column_int(h->q_nextvol, 6);
     h->curvol.changed = sqlite3_column_int64(h->q_nextvol, 7);
+    h->curvol.effective_replica = MIN(h->effnext_maxreplica, h->curvol.max_replica);
 
     res = OK;
 volume_next_common_err:
@@ -7304,15 +7249,12 @@ volume_next_common_err:
 rc_ty sx_hashfs_volume_next(sx_hashfs_t *h) {
     rc_ty res = volume_next_common(h);
     if(res != OK)
-        goto volume_list_err;
+        return res;
 
-    if(sx_nodelist_count(h->ignored_nodes) >= h->curvol.max_replica)
-	return sx_hashfs_volume_next(h);
-    h->curvol.effective_replica = h->curvol.max_replica - sx_nodelist_count(h->ignored_nodes);
+    if(is_subreplica(h, h->curvol.max_replica))
+	return sx_hashfs_volume_next(h); /* Skip subreplica volumes */
 
-    res = OK;
-    volume_list_err:
-    return res;
+    return OK;
 }
 
 
@@ -7356,12 +7298,12 @@ static rc_ty volume_get_common(sx_hashfs_t *h, const char *name, int64_t volid, 
     h->curvol.owner = sqlite3_column_int64(q, 5);
     h->curvol.revisions = sqlite3_column_int(q, 6);
     h->curvol.changed = sqlite3_column_int64(q, 7);
+    h->curvol.effective_replica = MIN(h->effnext_maxreplica, h->curvol.max_replica);
 
-    if(sx_nodelist_count(h->ignored_nodes) >= h->curvol.max_replica) {
+    if(is_subreplica(h, h->curvol.max_replica)) {
 	res = ENOENT;
 	goto volume_err;
     }
-    h->curvol.effective_replica = h->curvol.max_replica - sx_nodelist_count(h->ignored_nodes);
 
     *volume = &h->curvol;
     res = OK;
@@ -7923,7 +7865,17 @@ rc_ty sx_hashfs_hashop_mod(sx_hashfs_t *h, const sx_hash_t *hash, const sx_hash_
     return rc;
 }
 
-rc_ty sx_hashfs_block_put(sx_hashfs_t *h, const uint8_t *data, unsigned int bs, unsigned int replica_count, int propagate) {
+/*
+ * Saves the block in hashfs reusing an existing "hole" or appending to the datafile
+ *
+ * replica_count:
+ * for client uploads, the value is retieved from the upload token in fcgi_save_blocks
+ * if the block belongs in here, then we store it
+ * if replica_count is higher than one, then we also set it up for propagation to all other hashnodes
+ * if replica_count is 0, then it means that the block was sent from another node (so we just take it
+ * and don't propagate it further)
+ */
+rc_ty sx_hashfs_block_put(sx_hashfs_t *h, const uint8_t *data, unsigned int bs, unsigned int replica_count) {
     sx_nodelist_t *belongsto;
     unsigned int ndb, hs;
     sx_hash_t hash;
@@ -7949,7 +7901,7 @@ rc_ty sx_hashfs_block_put(sx_hashfs_t *h, const uint8_t *data, unsigned int bs, 
     DEBUGHASH("Block uploaded by user", &hash);
 
     /* MODHDIST: lookup is strictly on bidx 0 */
-    belongsto = sxi_hdist_locate(h->hd, MurmurHash64(&hash, sizeof(hash), HDIST_SEED), replica_count, 0);
+    belongsto = sx_hashfs_all_hashnodes(h, NL_NEXT, &hash, replica_count ? replica_count : h->next_maxreplica);
     r = sx_nodelist_lookup(belongsto, &h->node_uuid) == NULL;
     sx_nodelist_delete(belongsto);
     if(r) {
@@ -8048,7 +8000,7 @@ rc_ty sx_hashfs_block_put(sx_hashfs_t *h, const uint8_t *data, unsigned int bs, 
     if(ret != OK && ret != EAGAIN)
 	return FAIL_EINTERNAL;
 
-    if(propagate && replica_count > 1) {
+    if(replica_count > 1) {
 	sx_nodelist_t *targets = sx_hashfs_effective_hashnodes(h, NL_NEXT, &hash, replica_count);
 	rc_ty ret = sx_hashfs_xfer_tonodes(h, &hash, bs, targets);
 	sx_nodelist_delete(targets);
@@ -8189,6 +8141,14 @@ struct timeval* sx_hashfs_volsizes_timestamp(sx_hashfs_t *h) {
     return &h->volsizes_push_timestamp;
 }
 
+
+/*
+ * FILE UPLOAD STEP 1
+ *
+ * A new empty tempfile is created in the temp db
+ *
+ * (Follow up: sx_hashfs_putfile_putblock is called for every block)
+ */
 rc_ty sx_hashfs_putfile_begin(sx_hashfs_t *h, sx_uid_t user_id, const char *volume, const char *file, const sx_hashfs_volume_t **volptr) {
     uint8_t rnd[TOKEN_RAND_BYTES];
     const sx_hashfs_volume_t *vol;
@@ -8231,6 +8191,13 @@ rc_ty sx_hashfs_putfile_begin(sx_hashfs_t *h, sx_uid_t user_id, const char *volu
     return sx_hashfs_countjobs(h, user_id);
 }
 
+/*
+ * FILE UPLOAD STEP 1
+ *
+ * A previously created tempfile is extended with more blocks
+ *
+ * (Follow up: sx_hashfs_putfile_putblock is called for every block)
+ */
 rc_ty sx_hashfs_putfile_extend_begin(sx_hashfs_t *h, sx_uid_t user_id, const uint8_t *user, const char *token) {
     const sx_hashfs_volume_t *vol;
     const sx_uuid_t *self_uuid;
@@ -8276,6 +8243,14 @@ rc_ty sx_hashfs_putfile_extend_begin(sx_hashfs_t *h, sx_uid_t user_id, const uin
     return ret;
 }
 
+/*
+ * FILE UPLOAD STEP 2
+ *
+ * The list of file blocks is built one block at a time and held in a memory array
+ *
+ * (Follow up: sx_hashfs_putfile_putblock again, sx_hashfs_putfile_putmeta
+ * or sx_hashfs_putfile_gettoken)
+ */
 rc_ty sx_hashfs_putfile_putblock(sx_hashfs_t *h, sx_hash_t *hash) {
     if(!h || !hash || !h->put_id)
 	return EINVAL;
@@ -8291,6 +8266,14 @@ rc_ty sx_hashfs_putfile_putblock(sx_hashfs_t *h, sx_hash_t *hash) {
     return OK;
 }
 
+/*
+ * FILE UPLOAD STEP 2
+ *
+ * The list of meta pairs is built one pair at a time and held in a memory array
+ *
+ * (Follow up: sx_hashfs_putfile_putmeta again, sx_hashfs_putfile_putblock
+ * or sx_hashfs_putfile_gettoken)
+ */
 rc_ty sx_hashfs_putfile_putmeta(sx_hashfs_t *h, const char *key, const void *value, unsigned int value_len) {
     rc_ty rc;
 
@@ -8635,6 +8618,19 @@ static rc_ty check_tmpfile_size(sx_hashfs_t *h, int64_t tmpfile_id, int strict) 
     return ENOSPC;
 }
 
+/*
+ * FILE UPLOAD STEP 3
+ *
+ * A unique set is computed from the list of blocks
+ * For each unique block the first (alive) target node is looked up in hdist
+ * The unique set is sorted by target (so all same targeted blocks are lcose together)
+ * The previously created tempfile db entry is updated or extended with the current batch
+ * of blocks, unique blocks and new/modified/deleted meta pairs.
+ * Hash presence is started via hashop_begin using the caller provided callback and context
+ * The upload token is returned
+ *
+ * (Follow up: sx_hashfs_putfile_getblock)
+ */
 rc_ty sx_hashfs_putfile_gettoken(sx_hashfs_t *h, const uint8_t *user, int64_t size_or_seq, const char **token, hash_presence_cb_t hdck_cb, void *hdck_cb_ctx) {
     const char *ptr;
     sqlite3_stmt *q;
@@ -8698,7 +8694,7 @@ rc_ty sx_hashfs_putfile_gettoken(sx_hashfs_t *h, const uint8_t *user, int64_t si
 
 	/* Lookup first node */
 	for(i=0; i<h->put_putblock; i++) {
-	    /* We (via hash_nidx_tobuf) check presence on the ultimate target nodes, i.e. NL_NEXT */
+	    /* Fills in the index of the target node for the current block on the NL_NEXT dist */
 	    if(hash_nidx_tobuf(h, &h->put_blocks[h->put_hashnos[i]], 1, h->put_replica, &h->put_nidxs[h->put_hashnos[i]]) < 1)
 		goto gettoken_err;
 	}
@@ -9098,7 +9094,7 @@ static rc_ty are_blocks_available(sx_hashfs_t *h, sx_hash_t *hashes,
      * A better approach would be to check presence on _prev, then _next and merge the results.
      * This is however not possible without a major api rework :(
      */
-    const sx_nodelist_t *nodes = sx_hashfs_all_nodes(h, NL_NEXT);
+    const sx_nodelist_t *nodes = sx_hashfs_all_nodes(h, NL_NEXT); /* this matches the set in hash_nidx_tobuf */
     unsigned int check_item = *current;
     unsigned int thisnode, nextnode, prevnode = nidxs[replica_count * hashnos[check_item] + check_replica - 1];
 
@@ -9154,6 +9150,7 @@ static rc_ty are_blocks_available(sx_hashfs_t *h, sx_hash_t *hashes,
 	WARN("failed to get nodelist");
 	return FAIL_EINTERNAL;
     }
+    /* this should always be false because of the way we fill the node index */
     if(sx_nodelist_lookup(h->ignored_nodes, sx_node_uuid(node))) {
 	sx_hash_t *hash = &hashes[hashnos[check_item]];
 	*current = check_item+1;
@@ -9208,7 +9205,7 @@ static rc_ty reserve_replicas(sx_hashfs_t *h, uint64_t op_expires_at)
     unsigned uniq_count = h->put_putblock;
     if (!uniq_count || hashop->kind == HASHOP_SKIP)
         return OK;
-    unsigned hash_size = h->put_hs, effective_replica = h->put_replica - sx_nodelist_count(h->ignored_nodes);
+    unsigned hash_size = h->put_hs, effective_replica = MIN(h->put_replica, h->effnext_maxreplica);
     unsigned int *node_indexes = wrap_malloc((1+effective_replica) * h->put_nblocks * sizeof(*node_indexes));
 
     if (!node_indexes)
@@ -9255,6 +9252,14 @@ static rc_ty reserve_replicas(sx_hashfs_t *h, uint64_t op_expires_at)
     return ret;
 }
 
+/*
+ * FILE UPLOAD STEP 4
+ *
+ * Performs hash presence check and callback invocation on the missing blocks
+ * via are_blocks_available + (local db lookup | sxi_hashop_batch_add)
+ *
+ * (Follow up: sx_hashfs_putfile_end)
+ */
 rc_ty sx_hashfs_putfile_getblock(sx_hashfs_t *h) {
     rc_ty ret;
     if(!h || !h->put_token[0])
@@ -9293,6 +9298,11 @@ void sx_hashfs_createfile_end(sx_hashfs_t *h) {
     putfile_reinit(h);
 }
 
+/*
+ * FILE UPLOAD STEP 5
+ *
+ * Cleanup, deallocation
+ */
 void sx_hashfs_putfile_end(sx_hashfs_t *h) {
     if(!h)
 	return;
@@ -12208,10 +12218,10 @@ int64_t sx_hashfs_hdist_getversion(sx_hashfs_t *h) {
     return h ? h->hd_rev : 0;
 }
 
-rc_ty sx_hashfs_hdist_change_req(sx_hashfs_t *h, const sx_nodelist_t *newdist, job_t *job_id) {
+rc_ty sx_hashfs_hdist_change_req(sx_hashfs_t *h, const sx_nodelist_t *newdist, const char *zonedef, job_t *job_id) {
     sxi_hdist_t *newmod;
-    unsigned int nnodes, minnodes, i, cfg_len;
-    int64_t newclustersize = 0, minclustersize;
+    unsigned int nnodes, newreplica, reqreplica, i, cfg_len;
+    int64_t newclustersize, reqclustersize;
     sx_nodelist_t *targets;
     job_t finish_job;
     const void *cfg;
@@ -12243,16 +12253,10 @@ rc_ty sx_hashfs_hdist_change_req(sx_hashfs_t *h, const sx_nodelist_t *newdist, j
 	return EINVAL;
     }
 
-    r = get_min_reqs(h, &minnodes, &minclustersize);
+    r = get_min_reqs(h, &reqreplica, &reqclustersize);
     if(r) {
 	msg_set_reason("Failed to compute cluster requirements");
 	return r;
-    }
-
-    nnodes = sx_nodelist_count(newdist);
-    if(nnodes < minnodes) {
-	msg_set_reason("Invalid distribution: this cluster requires at least %u nodes to operate.", minnodes);
-	return EINVAL;
     }
 
     if((r = sxi_hdist_get_cfg(h->hd, &cfg, &cfg_len)) != OK) {
@@ -12271,6 +12275,12 @@ rc_ty sx_hashfs_hdist_change_req(sx_hashfs_t *h, const sx_nodelist_t *newdist, j
 	return r;
     }
 
+    nnodes = sx_nodelist_count(newdist);
+    if(!nnodes) {
+	sxi_hdist_free(newmod);
+	msg_set_reason("Invalid distribution: no nodes found");
+	return EINVAL;
+    }
     for(i=0; i<nnodes; i++) {
 	const sx_node_t *n = sx_nodelist_get(newdist, i);
 	unsigned int j;
@@ -12292,7 +12302,6 @@ rc_ty sx_hashfs_hdist_change_req(sx_hashfs_t *h, const sx_nodelist_t *newdist, j
 		return EINVAL;
 	    }
 	}
-	newclustersize += sx_node_capacity(n);
 	r = sxi_hdist_addnode(newmod, sx_node_uuid(n), sx_node_addr(n), sx_node_internal_addr(n), sx_node_capacity(n), NULL);
 	if(r) {
 	    sxi_hdist_free(newmod);
@@ -12301,16 +12310,25 @@ rc_ty sx_hashfs_hdist_change_req(sx_hashfs_t *h, const sx_nodelist_t *newdist, j
 	}
     }
 
-    if(newclustersize < minclustersize) {
-	sxi_hdist_free(newmod);
-	msg_set_reason("Invalid distribution: this cluster requires a total capacity of at least %lld bytes to operate.", (long long)minclustersize);
-	return EINVAL;
-    }
-
-    if((r = sxi_hdist_build(newmod, NULL)) != OK) {
+    // ACAB: sanitize zones!
+    if((r = sxi_hdist_build(newmod, zonedef)) != OK) {
 	sxi_hdist_free(newmod);
 	msg_set_reason("Failed to build updated distribution");
 	return r;
+    }
+
+    newreplica = sxi_hdist_maxreplica(newmod, 0, NULL);
+    if(newreplica < reqreplica) {
+	sxi_hdist_free(newmod);
+	msg_set_reason("Invalid distribution: the requested distribution provides a maximum replica of %u but the cluster requires at least a replica of %u to operate.", newreplica, reqreplica);
+	return EINVAL;
+    }
+
+    newclustersize = sxi_hdist_capacity(newmod, 1, NULL);
+    if(newclustersize < reqclustersize) {
+	sxi_hdist_free(newmod);
+	msg_set_reason("Invalid distribution: the requested distribution provides a capacity of %lld bytes but this cluster requires a minimum of %lld bytes to operate.", (long long)newclustersize, (long long)reqclustersize);
+	return EINVAL;
     }
 
     if((r = sxi_hdist_get_cfg(newmod, &cfg, &cfg_len)) != OK) {
@@ -12487,7 +12505,7 @@ rc_ty sx_hashfs_hdist_replace_req(sx_hashfs_t *h, const sx_nodelist_t *replaceme
 	}
     }
 
-    if((r = sxi_hdist_build(newmod, NULL)) != OK) {
+    if((r = sxi_hdist_build(newmod, h->distzones[0])) != OK) {
 	sxi_hdist_free(newmod);
 	msg_set_reason("Failed to build updated distribution");
 	return r;
@@ -12549,8 +12567,7 @@ rc_ty sx_hashfs_hdist_replace_req(sx_hashfs_t *h, const sx_nodelist_t *replaceme
 }
 
 rc_ty sx_hashfs_hdist_change_add(sx_hashfs_t *h, const void *cfg, unsigned int cfg_len) {
-    int64_t newclustersize = 0, minclustersize;
-    unsigned int nnodes, minnodes, i;
+    unsigned int nnodes, i;
     sxi_hdist_t *newmod;
     const sx_nodelist_t *nodes;
     sqlite3_stmt *q = NULL;
@@ -12590,22 +12607,10 @@ rc_ty sx_hashfs_hdist_change_add(sx_hashfs_t *h, const void *cfg, unsigned int c
 	return FAIL_EINTERNAL;
     }
 
-    ret = get_min_reqs(h, &minnodes, &minclustersize);
-    if(ret) {
-	msg_set_reason("Failed to compute cluster requirements");
-	goto change_add_fail;
-    }
-
     nodes = sxi_hdist_nodelist(newmod, 0);
     if(!nodes || !(nnodes = sx_nodelist_count(nodes))) {
 	msg_set_reason("Failed to retrieve the list of the updated nodes");
 	ret = FAIL_EINTERNAL;
-	goto change_add_fail;
-    }
-
-    if(nnodes < minnodes) {
-	msg_set_reason("Invalid distribution: this cluster requires at least %u nodes to operate.", minnodes);
-	ret = EINVAL;
 	goto change_add_fail;
     }
 
@@ -12630,13 +12635,6 @@ rc_ty sx_hashfs_hdist_change_add(sx_hashfs_t *h, const void *cfg, unsigned int c
 		goto change_add_fail;
 	    }
 	}
-	newclustersize += sx_node_capacity(n);
-    }
-
-    if(newclustersize < minclustersize) {
-	msg_set_reason("Invalid distribution: this cluster requires a total capacity of at least %lld bytes to operate.", (long long)minclustersize);
-	ret = EINVAL;
-	goto change_add_fail;
     }
 
     if(qprep(h->db, &q, "INSERT OR REPLACE INTO hashfs (key, value) VALUES (:k , :v)")) {
@@ -15047,7 +15045,7 @@ rc_ty sx_hashfs_init_replacement(sx_hashfs_t *h) {
     rc_ty ret = FAIL_EINTERNAL;
     sqlite3_stmt *q = NULL;
     sx_uuid_t myid;
-    unsigned int nnode, nnodes;
+    unsigned int lostnodes, nnode, nnodes;
 
     if(!h) {
         NULLARG();
@@ -15061,10 +15059,10 @@ rc_ty sx_hashfs_init_replacement(sx_hashfs_t *h) {
 	goto init_replacement_fail;
     qnullify(q);
 
-    nnodes = sx_nodelist_count(h->faulty_nodes);
-    if(nnodes) {
+    lostnodes = h->next_maxreplica - h->effnext_maxreplica;
+    if(lostnodes) {
 	if(qprep(h->db, &q, "UPDATE volumes SET volume = '.BAD' || volume, enabled = 0, changed = 0 WHERE volume NOT LIKE '.BAD%' AND replica <= :replica") ||
-	   qbind_int(q, ":replica", nnodes) ||
+	   qbind_int(q, ":replica", lostnodes) ||
 	   qstep_noret(q))
 	    goto init_replacement_fail;
 	qnullify(q);
@@ -15159,7 +15157,7 @@ static rc_ty bump_hdist_version_only(sx_hashfs_t *h, int inactive_dist, int64_t 
 	    return ENOMEM;
 	}
     }
-    if(sxi_hdist_build(newmod, NULL)) {
+    if(sxi_hdist_build(newmod, h->distzones[0])) {
 	msg_set_reason("Failed to build updated distribution");
 	sxi_hdist_free(newmod);
 	return FAIL_EINTERNAL;
@@ -16177,6 +16175,65 @@ rc_ty sx_hashfs_compact(sx_hashfs_t *h, int64_t *bytes_freed) {
 }
 
 
+// ACAB: think of a less retarded name
+rc_ty sx_hashfs_new_home_for_old_block(sx_hashfs_t *h, const sx_hash_t *block, const sx_node_t **target) {
+    const sx_node_t *self;
+    sx_nodelist_t *homes;
+    unsigned int replica;
+    const sx_node_t *newhome;
+
+    if(!h || !block || !target) {
+	NULLARG();
+	return EFAULT;
+    }
+
+    if(!h->have_hd) {
+	msg_set_reason("Called before initialization");
+	return FAIL_EINIT;
+    }
+
+    self = sx_hashfs_self(h);
+    if(!h->is_rebalancing) {
+	*target = self;
+	return OK;
+    }
+
+    /* Old home */
+    homes = sx_hashfs_all_hashnodes(h, NL_PREV, block, h->prev_maxreplica);
+    if(!homes)
+	return FAIL_EINTERNAL;
+    if(!sx_nodelist_lookup_index(homes, &h->node_uuid, &replica)) {
+	sx_nodelist_delete(homes);
+	msg_set_reason("The requested block did not belong in here");
+	return EINVAL;
+    }
+    sx_nodelist_delete(homes);
+    if(replica > h->next_maxreplica) {
+	msg_set_reason("This node was home for replica %u of the block, but the new distribution allows for a maximum replica of %u", replica, h->next_maxreplica);
+	return EINVAL;
+    }
+
+    /* New home */
+    homes = sx_hashfs_all_hashnodes(h, NL_NEXT, block, h->next_maxreplica);
+    if(!homes)
+	return FAIL_EINTERNAL;
+    newhome = sx_nodelist_get(homes, replica);
+    if(!newhome) {
+	sx_nodelist_delete(homes);
+	msg_set_reason("Could not find a new home for block replica %u", replica);
+	return EINVAL;
+    }
+
+    /* Make return the const version of newhome */
+    *target = sx_nodelist_lookup(sx_hashfs_all_nodes(h, NL_NEXT), sx_node_uuid(newhome));
+    sx_nodelist_delete(homes);
+    if(!*target) {
+	msg_set_reason("Failed to find const target");
+	return FAIL_EINTERNAL;
+    }
+
+    return OK;
+}
 
 
 /* Raft implementation operations */
@@ -16496,3 +16553,4 @@ void sx_hashfs_raft_state_empty(sx_hashfs_t *h, sx_raft_state_t *state) {
     free(state->leader_state.node_states);
     memset(state, 0, sizeof(*state));
 }
+
