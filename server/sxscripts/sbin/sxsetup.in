@@ -264,6 +264,25 @@ ask_yn() {
     done
 }
 
+read_ascii()
+{
+    read $1
+    eval "_READVAL=\$$1"
+    save_LC_TYPE=$LC_TYPE
+    LC_CTYPE=C
+    case "$_READVAL" in
+	*[![:cntrl:][:print:]]*)
+	    ask_yn "WARNING: the input contains non-ASCII characters, do you want to continue with it? (y/N)"
+	    if [ "$ANSWER" != "y" ]; then
+		printf "Try again: "
+		read_ascii $1
+	    fi
+	    LC_CTYPE=$save_LC_TYPE
+	    ;;
+    esac
+    LC_CTYPE=$save_LC_TYPE
+}
+
 check_port() {
     IP=$1
     PORT=$2
@@ -306,7 +325,7 @@ ask_questions() {
 	echo "It is recommended to use a FQDN for clustername, but not required. Refer to the documentation for more info."
 	while true; do
 	    printf "Enter the cluster name (use the same across all nodes) [$SX_CLUSTER_NAME]: "
-	    read NEWVAL
+	    read_ascii NEWVAL
 	    SX_CLUSTER_NAME=${NEWVAL:-$SX_CLUSTER_NAME}
 	    test -n "$SX_CLUSTER_NAME" && break
 	    echo "Cluster name must be provided!"
@@ -318,7 +337,7 @@ ask_questions() {
 	echo "Please provide the location where all incoming data will be stored."
 	while true; do
 	    printf "Path to SX storage [default=$SX_DATA_DIR]: "
-	    read NEWVAL
+	    read_ascii NEWVAL
 	    SX_DATA_DIR=${NEWVAL:-$SX_DATA_DIR}
 	    if [ -d "$SX_DATA_DIR" ]; then 
 		echo
@@ -338,7 +357,7 @@ ask_questions() {
 	echo "use M, G and T suffixes, eg. 100T for 100 terabytes."
 	while true; do
 	    printf "Maximum size [default=$SX_NODE_SIZE]: "
-	    read NEWVAL
+	    read_ascii NEWVAL
 	    SX_NODE_SIZE=${NEWVAL:-$SX_NODE_SIZE}
 	    test -z "$SX_NODE_SIZE" && continue
 	    if [ -z "`echo $SX_NODE_SIZE | egrep ^[0-9]+[MGT]?$`" ]; then
@@ -376,13 +395,13 @@ ask_questions() {
 
 	while true; do
 	    printf "Enter the IP address of this node [default=$SX_NODE_IP]: "
-	    read NEWVAL
+	    read_ascii NEWVAL
 	    SX_NODE_IP=${NEWVAL:-$SX_NODE_IP}
 	    test -z "$SX_NODE_IP" && continue
 	    if [ -n "$ADVANCED_GIVEN" ]; then
 		while true; do
 		    printf "Enter the port number (use the same value for all nodes in the cluster) [default=$SX_PORT]: "
-		    read NEWVAL
+		    read_ascii NEWVAL
 		    SX_PORT=${NEWVAL:-$SX_PORT}
 		    test -n "$SX_PORT" && break
 		done
@@ -407,7 +426,7 @@ ask_questions() {
 		echo
 		while true; do
 		    printf "Enter the internal IP address of this node [default=$SX_NODE_INTERNAL_IP]: "
-		    read NEWVAL
+		    read_ascii NEWVAL
 		    SX_NODE_INTERNAL_IP=${NEWVAL:-$SX_NODE_INTERNAL_IP}
 		    test -z "$SX_NODE_INTERNAL_IP" && continue
 		    check_port "$SX_NODE_INTERNAL_IP" $SX_PORT
@@ -438,7 +457,7 @@ ask_questions() {
 		else
 		    printf "IP address: "
 		fi
-		read NEWVAL
+		read_ascii NEWVAL
 		SX_EXISTING_NODE_IP=${NEWVAL:-$SX_EXISTING_NODE_IP}
 		if [ "$SX_EXISTING_NODE_IP" = "$SX_NODE_IP" -o "$SX_EXISTING_NODE_IP" = "$SX_NODE_INTERNAL_IP" ]; then
 		    echo "$SX_EXISTING_NODE_IP is the IP address of this node."
@@ -471,7 +490,7 @@ ask_questions() {
 
 	    while true; do
 		printf "Admin key or path to key-file [default=$SX_ADMIN_KEY]: "
-		read NEWVAL
+		read_ascii NEWVAL
 		SX_ADMIN_KEY=${NEWVAL:-$SX_ADMIN_KEY}
 		if [ -z "$SX_ADMIN_KEY" ]; then
 		    echo "Admin key is required to connect to the existing cluster"
@@ -501,7 +520,7 @@ ask_questions() {
 
 	    while true; do
 		printf "Cluster key or path to key-file [default=$SX_CLUSTER_KEY]: "
-		read NEWVAL
+		read_ascii NEWVAL
 		SX_CLUSTER_KEY=${NEWVAL:-$SX_CLUSTER_KEY}
 		if [ -z "$SX_CLUSTER_KEY" ]; then
 		    echo "Cluster key is required to configure the bare node"
@@ -527,7 +546,7 @@ ask_questions() {
 	    echo "'sxsetup --info' on $SX_EXISTING_NODE_IP."
 	    while true; do
 		printf "Cluster UUID [default=$SX_CLUSTER_UUID]: "
-		read NEWVAL
+		read_ascii NEWVAL
 		SX_CLUSTER_UUID=${NEWVAL:-$SX_CLUSTER_UUID}
 		if [ -z "$SX_CLUSTER_UUID" ]; then
 		    echo "Cluster UUID is required to configure the bare node"
@@ -721,7 +740,7 @@ EOF
 	    if [ -z "$SX_NO_ROOT" ]; then
 		while true; do
 		    printf "What user should the SX server be running as [default=$SX_SERVER_USER]: "
-		    read NEWVAL
+		    read_ascii NEWVAL
 		    test -z "$NEWVAL" && break
 		    id $NEWVAL > /dev/null 2>&1 && break
 		    echo "User $NEWVAL doesn't exist!"
@@ -734,10 +753,10 @@ EOF
 	    fi
 	    echo
 	    printf "Number of children processes used to communicate with the clients [default=$SX_CHILDREN_NUM]: "
-	    read NEWVAL
+	    read_ascii NEWVAL
 	    SX_CHILDREN_NUM=${NEWVAL:-$SX_CHILDREN_NUM}
 	    printf "Number of children processes used to communicate with other nodes [default=$SX_RESERVED_CHILDREN_NUM]: "
-	    read NEWVAL
+	    read_ascii NEWVAL
 	    SX_RESERVED_CHILDREN_NUM=${NEWVAL:-$SX_RESERVED_CHILDREN_NUM}
 	fi
 
