@@ -11786,7 +11786,6 @@ static rc_ty foreach_hdb_blob(sx_hashfs_t *h, int *terminate,
                               sqlite3_stmt *loop[][HASHDBS], const char *loopvar, int col, uint64_t *count)
 {
     unsigned i,j;
-    int64_t k;
     int64_t gc_blocks = 0;
     if (!h || !terminate || !loop || !count) {
 	NULLARG();
@@ -11846,11 +11845,8 @@ static rc_ty foreach_hdb_blob(sx_hashfs_t *h, int *terminate,
                             }
                             if (qstep_noret(q_gc1))
                                 continue;
-                            k += sqlite3_changes(h->datadb[j][i]->handle);
                             if (!qstep_noret(q_gc2)) {
-                                k += sqlite3_changes(h->datadb[j][i]->handle);
                                 if (!qstep_noret(q_gc3)) {
-                                    k += sqlite3_changes(h->datadb[j][i]->handle);
                                     (*count)++;
                                 }
                             } else {
