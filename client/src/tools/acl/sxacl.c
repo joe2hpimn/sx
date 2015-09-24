@@ -491,7 +491,7 @@ static int show_acls(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_uri_t *u)
     return rc;
 }
 
-static int privs_to_bits(const char *action, const char *str)
+static int privs_to_bits(const char *action, const char *str, int manager_update)
 {
     int privs = 0;
     while (str && *str) {
@@ -507,7 +507,7 @@ static int privs_to_bits(const char *action, const char *str)
         str = str + len;
         if (*str == ',') str++;
     }
-    if (privs & SX_ACL_MANAGER) {
+    if (manager_update && (privs & SX_ACL_MANAGER)) {
         int newprivs = privs | SX_ACL_RW;
         if (privs != newprivs) {
             fprintf(stderr, "%s read/write automatically due to change of 'manager' privilege\n", action);
@@ -532,8 +532,8 @@ static int volume_acl(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_uri_t *uri, 
 	    printf("\nUse '--grant' or '--revoke' options to modify the permissions. See 'sxacl volperm -h' for more info.\n");
 	return ret;
     }
-    grant_acls = privs_to_bits("Granting", grant);
-    revoke_acls = privs_to_bits("Revoking", revoke);
+    grant_acls = privs_to_bits("Granting", grant, revoke ? 0 : 1);
+    revoke_acls = privs_to_bits("Revoking", revoke, grant ? 0: 1);
     if (grant_acls < 0) {
         fprintf(stderr, "ERROR: cannot parse grant privileges: %s\n", grant);
         return 1;
