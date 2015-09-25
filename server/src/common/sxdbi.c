@@ -115,14 +115,8 @@ void qcheckpoint(sxi_db_t *db)
         return;
     if (db->wal_pages >= db_max_restart_wal_pages)
         qcheckpoint_run(db, SQLITE_CHECKPOINT_RESTART);
-    else if (db->wal_pages >= db_max_passive_wal_pages)
+    else
         qcheckpoint_run(db, SQLITE_CHECKPOINT_PASSIVE);
-}
-
-void qcheckpoint_restart(sxi_db_t *db)
-{
-    if (db && db->wal_pages >= db_min_passive_wal_pages)
-        qcheckpoint_run(db, SQLITE_CHECKPOINT_RESTART);
 }
 
 void qcheckpoint_idle(sxi_db_t *db)
@@ -133,7 +127,7 @@ void qcheckpoint_idle(sxi_db_t *db)
             struct timeval tv;
             gettimeofday(&tv, NULL);
             if (timediff(&db->tv_last, &tv) >= db_idle_restart) {
-                qcheckpoint_run(db, SQLITE_CHECKPOINT_RESTART);
+                qcheckpoint(db);
                 memcpy(&db->tv_last, &tv, sizeof(tv));
                 db->last_total_changes = changes;
             }

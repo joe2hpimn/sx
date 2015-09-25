@@ -494,10 +494,17 @@ static int qopen(const char *path, sxi_db_t **dbp, const char *dbtype, sx_uuid_t
     if(qprep(*dbp, &q, "PRAGMA cache_spill = false") || qstep_noret(q))
         goto qopen_fail;
     qnullify(q);
+
+    /*
+      A restart/full checkpoint can be very expensive, usually journal_size_limit is enough
+      to keep WAL size under control.
+      Only perform a restart checkpoint if we've exceeded the journal_size_limit!
+     */
+
     /* TODO: pagesize might not always be 1024,
      * limits should be in bytes */
     snprintf(qstr, sizeof(qstr), "PRAGMA journal_size_limit = %d",
-             db_max_restart_wal_pages * 1024);
+             ((db_max_passive_wal_pages + db_max_restart_wal_pages) / 2) * 1024);
     if(qprep(*dbp, &q, qstr) || qstep_ret(q))
 	goto qopen_fail;
     qnullify(q);
@@ -1038,15 +1045,15 @@ void sx_hashfs_checkpoint_passive(sx_hashfs_t *h)
      * by default sqlite performs a PASSIVE checkpoint every 1000 pages,
      * and ignores errors
      * */
-    qcheckpoint(h->db);
-    qcheckpoint(h->tempdb);
+    qcheckpoint_idle(h->db);
+    qcheckpoint_idle(h->tempdb);
     for (i=0;i<METADBS;i++)
-        qcheckpoint(h->metadb[i]);
+        qcheckpoint_idle(h->metadb[i]);
     for (i=0;i<SIZES;i++)
         for (j=0;j<HASHDBS;j++)
-            qcheckpoint(h->datadb[i][j]);
-    qcheckpoint(h->eventdb);
-    qcheckpoint(h->xferdb);
+            qcheckpoint_idle(h->datadb[i][j]);
+    qcheckpoint_idle(h->eventdb);
+    qcheckpoint_idle(h->xferdb);
 }
 
 void sx_hashfs_checkpoint_gc(sx_hashfs_t *h)

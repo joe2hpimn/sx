@@ -42,7 +42,6 @@ typedef struct {
 
 sxi_db_t* qnew(sqlite3 *handle);
 void qcheckpoint(sxi_db_t *db);
-void qcheckpoint_restart(sxi_db_t *db);
 void qcheckpoint_idle(sxi_db_t *db);
 int qprep(sxi_db_t *db, sqlite3_stmt **q, const char *query);
 int qstep(sqlite3_stmt *q);
