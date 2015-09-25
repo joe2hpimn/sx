@@ -1657,7 +1657,10 @@ static void print_status(sxc_client_t *sx, int http_code, const sxi_node_status_
     printf("        Architecture: %s\n", status->os_arch);
     printf("        Release: %s\n", status->os_release);
     printf("        Version: %s\n", status->os_version);
-    printf("        CPU(s): %d\n", status->cores);
+    if(status->cores != -1)
+        printf("        CPU(s): %d\n", status->cores);
+    else
+        printf("        CPU(s): N/A\n");
     printf("        Endianness: %s\n", status->endianness);
     printf("        Local time: %s\n", status->localtime);
     printf("        UTC time: %s\n", status->utctime);
@@ -1671,20 +1674,35 @@ static void print_status(sxc_client_t *sx, int http_code, const sxi_node_status_
     fmt_capa(status->storage_commited, str, sizeof(str), human_readable);
     printf("        Used space: %s\n", str);
     printf("    Storage filesystem:\n");
-    fmt_capa(status->block_size, str, sizeof(str), human_readable);
-    printf("        Block size: %s\n", str);
-    fmt_capa(status->block_size * status->total_blocks, str, sizeof(str), human_readable);
-    printf("        Total size: %s\n", str);
-    fmt_capa(status->block_size * status->avail_blocks, str, sizeof(str), human_readable);
-    printf("        Available: %s\n", str);
-    if(status->total_blocks && status->avail_blocks) /* Avoid division by 0 */
+    if(status->block_size != -1) {
+        fmt_capa(status->block_size, str, sizeof(str), human_readable);
+        printf("        Block size: %s\n", str);
+    } else
+        printf("        Block size: N/A\n");
+
+    if(status->avail_blocks != -1) {
+        fmt_capa(status->block_size * status->total_blocks, str, sizeof(str), human_readable);
+        printf("        Total size: %s\n", str);
+    } else
+        printf("        Total size: N/A\n");
+
+    if(status->total_blocks != -1) {
+        fmt_capa(status->block_size * status->avail_blocks, str, sizeof(str), human_readable);
+        printf("        Available: %s\n", str);
+    } else
+        printf("        Available: N/A\n");
+
+    if(status->total_blocks > 0 && status->avail_blocks > 0) /* Avoid division by 0 and printing not assigned (-1) values */
         printf("        Used: %.2lf%%\n", (double)(status->total_blocks - status->avail_blocks) * 100.0 / status->total_blocks);
     else
         printf("        Used: N/A\n");
     
     printf("    Memory:\n");
-    fmt_capa(status->mem_total, str, sizeof(str), human_readable);
-    printf("        Total: %s\n", str);
+    if(status->mem_total != -1) {
+        fmt_capa(status->mem_total, str, sizeof(str), human_readable);
+        printf("        Total: %s\n", str);
+    } else
+        printf("        Total: N/A\n");
 
     /*printf("    Heal: %s\n", status->heal_status);*/
     printf("\n");

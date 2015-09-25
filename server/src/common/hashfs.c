@@ -15233,31 +15233,35 @@ rc_ty sx_hashfs_node_status(sx_hashfs_t *h, sxi_node_status_t *status) {
         return EINVAL;
     }
     memset(status, 0, sizeof(*status));
+    status->block_size = -1;
+    status->total_blocks = -1;
+    status->avail_blocks = -1;
+    status->mem_total = -1;
+    status->cores = -1;
 
     /* System information */
     if(sxi_report_os(h->sx, status->os_name, sizeof(status->os_name), status->os_arch, sizeof(status->os_arch),
         status->os_release, sizeof(status->os_release), status->os_version, sizeof(status->os_version))) {
         WARN("Failed to get OS information: %s", sxc_geterrmsg(h->sx));
-        return FAIL_EINTERNAL;
+        sprintf(status->os_name, "N/A");
+        sprintf(status->os_arch, "N/A");
+        sprintf(status->os_release, "N/A");
+        sprintf(status->os_version, "N/A");
     }
 
     /* Processor information */
     if(sxi_report_cpu(h->sx, &status->cores, status->endianness, sizeof(status->endianness))) {
         WARN("Failed to get CPU information: %s", sxc_geterrmsg(h->sx));
-        return FAIL_EINTERNAL;
+        sprintf(status->endianness, "N/A");
     }
 
     /* Filesystem information */
-    if(sxi_report_fs(h->sx, h->dir, &status->block_size, &status->total_blocks, &status->avail_blocks)) {
+    if(sxi_report_fs(h->sx, h->dir, &status->block_size, &status->total_blocks, &status->avail_blocks))
         WARN("Failed to get hashFS node directory filesystem information: %s", sxc_geterrmsg(h->sx));
-        return FAIL_EINTERNAL;
-    }
 
     /* Get available memory */
-    if(sxi_report_mem(h->sx, &status->mem_total)) {
+    if(sxi_report_mem(h->sx, &status->mem_total))
         WARN("Failed to get memory information: %s", sxc_geterrmsg(h->sx));
-        return FAIL_EINTERNAL;
-    }
 
     tm = gmtime(&t);
     if (tm && strftime(status->utctime, sizeof(status->utctime), "%Y-%m-%d %H:%M:%S UTC", tm) <= 0) {
