@@ -3289,17 +3289,21 @@ static int check_jobs(sx_hashfs_t *h, int debug) {
     int ret = 0, r;
     sqlite3_stmt *q = NULL;
 
-    if(qprep(h->eventdb, &q, "SELECT j1.job, j2.job, j1.user, j1.parent FROM jobs j1 LEFT JOIN jobs j2 ON j1.parent = j2.job WHERE j1.parent IS NOT NULL AND j1.user IS NOT NULL")) {
+    if(qprep(h->eventdb, &q, "SELECT j1.job, j2.job, j1.user, j1.parent, j1.complete FROM jobs j1 LEFT JOIN jobs j2 ON j1.parent = j2.job WHERE j1.parent IS NOT NULL AND j1.user IS NOT NULL")) {
         CHECK_FATAL("Failed to prepare query");
         return -1;
     }
 
     while((r = qstep(q)) == SQLITE_ROW) {
+        rc_ty s;
         int64_t job = sqlite3_column_int64(q, 0);
         int64_t userid = sqlite3_column_int64(q, 2);
         uint8_t useruid[AUTH_UID_LEN];
-        if(sx_hashfs_get_user_by_uid(h, (sx_uid_t)userid, useruid, 0) != OK)
-            CHECK_ERROR("User with ID %lld is job %lld owner but does not exist or is disabled", (long long)userid, (long long)job);
+        if((s = sx_hashfs_get_user_by_uid(h, (sx_uid_t)userid, useruid, 0)) == ENOENT && sqlite3_column_int(q, 4) != 1)
+            CHECK_PRINT_WARN("User with ID %lld is job %lld owner but does not exist or is disabled", (long long)userid, (long long)job);
+
+        if(s != OK && s != ENOENT)
+            CHECK_ERROR("Failed to check job %lld owner existence", (long long)job);
 
         if(sqlite3_column_type(q, 1) == SQLITE_NULL) {
             int64_t parent = sqlite3_column_int64(q, 3);
