@@ -51,7 +51,7 @@ const char *gengetopt_args_info_full_help[] = {
   "      --ssl_ca=STRING           Path to SSL CA certificate",
   "      --gc-interval=sec         How often to run the GC  (default=`3600')",
   "      --gc-max-batch=N          Maximum number of rows/transaction in the GC\n                                  (default=`100')",
-  "      --gc-max-batch-time=N     Maximum time for a transaction in the GC in\n                                  seconds  (default=`5')",
+  "      --gc-max-batch-time=N     Maximum time for a transaction in the GC in\n                                  seconds  (default=`1')",
   "      --gc-yield-time=N         Time to yield between GC transactions\n                                  (default=`1.1')",
   "      --gc-slow-check           Run the old GC  (default=on)",
   "      --blockmgr-delay=sec      Blockmgr delay  (default=`3')",
@@ -197,7 +197,7 @@ void clear_args (struct gengetopt_args_info *args_info)
   args_info->gc_interval_orig = NULL;
   args_info->gc_max_batch_arg = 100;
   args_info->gc_max_batch_orig = NULL;
-  args_info->gc_max_batch_time_arg = 5;
+  args_info->gc_max_batch_time_arg = 1;
   args_info->gc_max_batch_time_orig = NULL;
   args_info->gc_yield_time_arg = 1.1;
   args_info->gc_yield_time_orig = NULL;
@@ -1009,7 +1009,7 @@ cmdline_parser_internal (
           
             if (update_arg( (void *)&(args_info->gc_max_batch_time_arg), 
                  &(args_info->gc_max_batch_time_orig), &(args_info->gc_max_batch_time_given),
-                &(local_args_info.gc_max_batch_time_given), optarg, 0, "5", ARG_FLOAT,
+                &(local_args_info.gc_max_batch_time_given), optarg, 0, "1", ARG_FLOAT,
                 check_ambiguity, override, 0, 0,
                 "gc-max-batch-time", '-',
                 additional_error))

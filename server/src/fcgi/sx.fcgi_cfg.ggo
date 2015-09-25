@@ -43,7 +43,7 @@ option "gc-max-batch"           - "Maximum number of rows/transaction in the GC"
        int default="100" typestr="N" optional hidden
 
 option "gc-max-batch-time"           - "Maximum time for a transaction in the GC in seconds"
-       float default="5" typestr="N" optional hidden
+       float default="1" typestr="N" optional hidden
 
 option "gc-yield-time"           - "Time to yield between GC transactions"
        float default="1.1" typestr="N" optional hidden

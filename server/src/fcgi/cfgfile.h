@@ -80,7 +80,7 @@ struct gengetopt_args_info
   int gc_max_batch_arg;	/**< @brief Maximum number of rows/transaction in the GC (default='100').  */
   char * gc_max_batch_orig;	/**< @brief Maximum number of rows/transaction in the GC original value given at command line.  */
   const char *gc_max_batch_help; /**< @brief Maximum number of rows/transaction in the GC help description.  */
-  float gc_max_batch_time_arg;	/**< @brief Maximum time for a transaction in the GC in seconds (default='5').  */
+  float gc_max_batch_time_arg;	/**< @brief Maximum time for a transaction in the GC in seconds (default='1').  */
   char * gc_max_batch_time_orig;	/**< @brief Maximum time for a transaction in the GC in seconds original value given at command line.  */
   const char *gc_max_batch_time_help; /**< @brief Maximum time for a transaction in the GC in seconds help description.  */
   float gc_yield_time_arg;	/**< @brief Time to yield between GC transactions (default='1.1').  */

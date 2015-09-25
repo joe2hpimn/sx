@@ -1950,7 +1950,7 @@ static int gc_node(sxc_client_t *sx, const char *path, int force_expire)
     if (!hashfs)
         return 1;
     int term = 0;
-    gc_max_batch_time = 5;
+    gc_max_batch_time = 1;
     gc_yield_time = 1.1;
     gc_slow_check = 0;
     rc_ty s = sx_hashfs_gc_periodic(hashfs, &term, force_expire ? -1 : GC_GRACE_PERIOD);
