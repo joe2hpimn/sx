@@ -2417,18 +2417,20 @@ void fcgi_mass_rename(void) {
     if(!sx_hashfs_is_or_was_my_volume(hashfs, vol))
         quit_errnum(404);
 
-    if(!source || !dest)
-        quit_errmsg(400, "Invalid argument");
+    if(!source)
+        source = "";
+    if(!dest)
+        dest = "";
+    while(*source == '/')
+        source++;
+    while(*dest == '/')
+        dest++;
     slen = strlen(source);
     dlen = strlen(dest);
-    if(!dlen || !slen)
-        quit_errmsg(400, "Invalid argument");
 
     /* Check if dest is a directory when source is a directory too */
-    if((source[slen-1] == '/' && dest[dlen-1] != '/'))
+    if(((!slen || source[slen-1] == '/') && (dlen && dest[dlen-1] != '/')))
         quit_errmsg(400, "Not a directory");
-    if(dlen == 1 && dest[0] == '/') /* Volume root cannot be the target, because it always exists */
-        quit_errmsg(400, "Target cannot be a volume root");
 
     if(has_priv(PRIV_CLUSTER)) {
         if(!has_arg("timestamp"))
@@ -2505,13 +2507,13 @@ void fcgi_mass_rename(void) {
         } else if(s == OK) {
             int has_glob = sxi_str_has_glob(source);
 
-            if(!has_glob && source[slen-1] != '/' && fnmatch(source, file->name + 1, FNM_PATHNAME)) {
+            if(!has_glob && (!slen || source[slen-1] != '/') && fnmatch(source, file->name + 1, FNM_PATHNAME)) {
                 sx_blob_free(b);
                 quit_errmsg(rc2http(ENOENT), "Not Found");
             } else if(has_glob) {
                 /* Source file exists. Check whether dest has a trailing slash when listing points to more than one file */
                 s = sx_hashfs_list_next(hashfs);
-                if(s == OK && dest[dlen-1] != '/') {
+                if(s == OK && (dlen && dest[dlen-1] != '/')) {
                     sx_blob_free(b);
                     quit_errmsg(400, "Not a directory");
                 }

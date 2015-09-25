@@ -5829,6 +5829,7 @@ static rc_ty massrename_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *jo
     sx_nodelist_t *nonvolnodes = NULL;
     int require_dir;
     unsigned int source_slashes;
+    long http_code = 0;
 
     b = sx_blob_from_data(job_data->ptr, job_data->len);
     if(!b) {
@@ -5864,11 +5865,6 @@ static rc_ty massrename_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *jo
     }
 
     slen = strlen(source);
-    /* Check if source points to the root of the volume and handle it */
-    if(slen == 1 && *source == '/') {
-        slen = 0;
-        source = "";
-    }
     source_slashes = sxi_count_slashes(source);
     dlen = strlen(dest);
 
@@ -5894,13 +5890,12 @@ static rc_ty massrename_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *jo
     }
 
     if(require_dir && (dlen && dest[dlen-1] != '/')) {
-        WARN("Destination %s is not a directory", dest);
-        action_error(ACT_RESULT_PERMFAIL, 500, "Internal error: Invalid argument");
+        DEBUG("Destination %s is not a directory", dest);
+        action_error(ACT_RESULT_PERMFAIL, 400, "Not a directory");
     }
 
     sxi_strlcpy(newname, dest, sizeof(newname));
 
-    /* Iterate over files - happens only when source points to more than one file */
     for(s = sx_hashfs_list_first(hashfs, vol, source, &file, 1, NULL, 0); s == OK && i + queries_sent < MAX_BATCH_ITER; s = sx_hashfs_list_next(hashfs)) {
         rc_ty t;
         const sx_hashfs_file_t *filerev = NULL;
@@ -5921,10 +5916,13 @@ static rc_ty massrename_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *jo
         } else /* File name does not contain slashes, full file name will be prefixed with dest */
             plen = 0;
 
-        if(require_dir || dest[dlen-1] == '/') {
+        if(require_dir || !dlen || dest[dlen-1] == '/') {
             /* Check if appending new name suffix to the destination prefix won't exceed filename limit */
-            if(strlen(name) - plen + dlen > SXLIMIT_MAX_FILENAME_LEN)
-                action_error(ACT_RESULT_PERMFAIL, 500, "Filename too long");
+            if(strlen(name) - plen + dlen > SXLIMIT_MAX_FILENAME_LEN) {
+                DEBUG("Skipping '%s': Filename too long", name);
+                http_code = 400;
+                continue;
+            }
 
             /* Destination is a directory, append source without the prefix */
             sxi_strlcpy(newname + dlen, name + plen, sizeof(newname) - dlen);
@@ -5933,6 +5931,13 @@ static rc_ty massrename_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *jo
         DEBUG("Renaming file %s to %s", name, newname);
         if(strncmp(file->revision, timestamp_str, REV_TIME_LEN) > 0) {
             DEBUG("Skipping %s: %.*s > %s", name, (int)REV_TIME_LEN, filerev->revision, timestamp_str);
+            /* Do not set failed flag, it is not an error, just skip the file */
+            continue;
+        }
+
+        if(strlen(newname) < SXLIMIT_MIN_FILENAME_LEN || strlen(newname) > SXLIMIT_MAX_FILENAME_LEN || utf8_validate_len(newname) < 0) {
+            DEBUG("Skipping '%s': Invalid filename", name);
+            http_code = 400;
             continue;
         }
 
@@ -5965,9 +5970,12 @@ static rc_ty massrename_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *jo
             DEBUG("Sleeping job due to exceeded deletions limit");
             action_error(ACT_RESULT_TEMPFAIL, 503, "Exceeded limit");
         } else {
-            WARN("Failed to finish batch job: %s", rc2str(s));
+            INFO("Failed to finish mass job: %s", rc2str(s));
             action_error(rc2actres(s), rc2http(s), rc2str(s));
         }
+    } else if(http_code) {
+        /* If we reached the end of the list and http_code is set, then we should fail the job. */
+        action_error(ACT_RESULT_PERMFAIL, http_code, "Some files could not be renamed");
     }
 
     /* Job is done */
