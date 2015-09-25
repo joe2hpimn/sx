@@ -889,3 +889,547 @@ void fcgi_cluster_setmeta(void) {
     sx_blob_free(c.meta);
     sx_blob_free(c.oldmeta);
 }
+
+/* Sample body:
+ * {"clusterSettings":{"key1":"aabbcc","key2":"ccbbaa"},"timestamp":123123123}
+ */
+struct cluster_settings_ctx {
+    time_t ts;
+    time_t oldts;
+    int has_timestamp;
+    char key[SXLIMIT_SETTINGS_MAX_KEY_LEN+1];
+    sx_setting_type_t key_type;
+    char old_value[SXLIMIT_SETTINGS_MAX_VALUE_LEN+1];
+    unsigned int old_value_len;
+    sx_blob_t *entries;
+    unsigned int nentries;
+    enum cluster_settings_state { CB_SETTINGS_START=0, CB_SETTINGS_KEY, CB_SETTINGS_TIMESTAMP, CB_SETTINGS_ENTRIES, CB_SETTINGS_ENTRY_KEY, CB_SETTINGS_ENTRY_VALUE, CB_SETTINGS_COMPLETE } state;
+};
+
+static int cb_cluster_settings_string(void *ctx, const unsigned char *s, size_t l) {
+    struct cluster_settings_ctx *c = ctx;
+    char value[SXLIMIT_SETTINGS_MAX_VALUE_LEN+1];
+    if(c->state == CB_SETTINGS_ENTRY_VALUE) {
+        if(hex2bin((const char*)s, l, (uint8_t*)value, sizeof(value)))
+            return 0;
+        l/=2;
+        if(l > SXLIMIT_SETTINGS_MAX_VALUE_LEN)
+            return 0;
+        value[l] = '\0';
+        if(sx_blob_add_string(c->entries, c->key) ||
+           sx_blob_add_int32(c->entries, c->key_type) ||
+           sx_hashfs_parse_cluster_setting(hashfs, c->key, c->key_type, value, c->entries) ||
+           sx_hashfs_parse_cluster_setting(hashfs, c->key, c->key_type, c->old_value, c->entries))
+            return 0;
+
+        c->nentries++;
+        c->state = CB_SETTINGS_ENTRY_KEY;
+        return 1;
+    }
+    DEBUG("Invalid state %d: expected %d", c->state, CB_SETTINGS_ENTRY_VALUE);
+    return 0;
+}
+
+static int cb_cluster_settings_number(void *ctx, const char *s, size_t l) {
+    struct cluster_settings_ctx *c = ctx;
+    if(c->state == CB_SETTINGS_TIMESTAMP) {
+        char number[21], *enumb;
+        if(c->has_timestamp || l<1 || l>20)
+            return 0;
+
+        memcpy(number, s, l);
+        number[l] = '\0';
+        c->ts = strtol(number, &enumb, 10);
+        if(enumb && *enumb)
+            return 0;
+        c->has_timestamp = 1;
+        c->state = CB_SETTINGS_KEY;
+        return 1;
+    }
+    DEBUG("Invalid state %d: expected %d", c->state, CB_SETTINGS_TIMESTAMP);
+    return 0;
+}
+
+static int cb_cluster_settings_map_key(void *ctx, const unsigned char *s, size_t l) {
+    struct cluster_settings_ctx *c = ctx;
+    if(c->state == CB_SETTINGS_KEY) {
+        if(l == lenof("clusterSettings") && !strncmp("clusterSettings", (const char*)s, lenof("clusterSettings"))) {
+            c->state = CB_SETTINGS_ENTRIES;
+            return 1;
+        }
+        if(l == lenof("timestamp") && !strncmp("timestamp", (const char*)s, lenof("timestamp"))) {
+            c->state = CB_SETTINGS_TIMESTAMP;
+            return 1;
+        }
+    } else if(c->state == CB_SETTINGS_ENTRY_KEY) {
+        rc_ty rc;
+        const char *old_value;
+        if(c->nentries >= SXLIMIT_SETTINGS_MAX_ITEMS || l < SXLIMIT_SETTINGS_MIN_KEY_LEN || l > SXLIMIT_SETTINGS_MAX_KEY_LEN)
+            return 0;
+        memcpy(c->key, s, l);
+        c->key[l] = '\0';
+
+        if((rc = sx_hashfs_cluster_settings_get(hashfs, c->key, &c->key_type, &old_value)) != OK)
+            return 0;
+
+        sxi_strlcpy(c->old_value, old_value, sizeof(c->old_value));
+        c->state = CB_SETTINGS_ENTRY_VALUE;
+        return 1;
+    }
+    DEBUG("Invalid state %d: expected %d or %d", c->state, CB_SETTINGS_KEY, CB_SETTINGS_ENTRY_KEY);
+    return 0;
+}
+
+static int cb_cluster_settings_start_map(void *ctx) {
+    struct cluster_settings_ctx *c = ctx;
+    if(c->state == CB_SETTINGS_START)
+        c->state = CB_SETTINGS_KEY;
+    else if(c->state == CB_SETTINGS_ENTRIES)
+        c->state = CB_SETTINGS_ENTRY_KEY;
+    else
+        return 0;
+    return 1;
+}
+
+static int cb_cluster_settings_end_map(void *ctx) {
+    struct cluster_settings_ctx *c = ctx;
+    if(c->state == CB_SETTINGS_KEY)
+        c->state = CB_SETTINGS_COMPLETE;
+    else if(c->state == CB_SETTINGS_ENTRY_KEY)
+        c->state = CB_SETTINGS_KEY;
+    else
+        return 0;
+    return 1;
+}
+
+static const yajl_callbacks cluster_settings_ops_parser = {
+    cb_fail_null,
+    cb_fail_boolean,
+    NULL,
+    NULL,
+    cb_cluster_settings_number,
+    cb_cluster_settings_string,
+    cb_cluster_settings_start_map,
+    cb_cluster_settings_map_key,
+    cb_cluster_settings_end_map,
+    cb_fail_start_array,
+    cb_fail_end_array
+};
+
+static rc_ty cluster_settings_parse_complete(void *yctx)
+{
+    struct cluster_settings_ctx *c = yctx;
+
+    if(!c || c->state != CB_SETTINGS_COMPLETE)
+        return EINVAL;
+
+    /* Check if timestamp has been correctly syncronised between nodes */
+    if(has_priv(PRIV_CLUSTER) && !c->has_timestamp) {
+        msg_set_reason("Timestamp has not been set");
+        return EINVAL;
+    } else if(!has_priv(PRIV_CLUSTER)) {
+        if(c->has_timestamp) {
+            msg_set_reason("Timestamp can only be synced in s2s communication");
+            return EINVAL;
+        }
+        c->ts = time(NULL);
+    }
+
+    return OK;
+}
+
+static int cluster_settings_to_blob(sxc_client_t *sx, int nodes, void *yctx, sx_blob_t *joblb)
+{
+    struct cluster_settings_ctx *c = yctx;
+
+    if(!joblb || !c->entries) {
+        msg_set_reason("Invalid argument");
+        return -1;
+    }
+
+    if(sx_blob_add_int64(joblb, c->oldts) || sx_blob_add_int64(joblb, c->ts)) {
+        msg_set_reason("Cannot create job blob");
+        return -1;
+    }
+
+    /* Append settings to blob */
+    if(append_meta_to_blob(sx, c->nentries, c->entries, joblb))
+        return -1;
+
+    return 0;
+}
+
+static unsigned cluster_settings_timeout(sxc_client_t *sx, int nodes)
+{
+    return nodes > 1 ? 50 * (nodes - 1) : 20;
+}
+
+static int get_sxc_meta_from_settings_blob(sxc_client_t *sx, sx_blob_t *b, sxc_meta_t *meta, int new_settings) {
+    int i, count;
+
+    if(!sx || !b || !meta) {
+        WARN("Invalid argument");
+        msg_set_reason("Invalid argument");
+        return -1;
+    }
+
+    if(sx_blob_get_int32(b, &count)) {
+        WARN("Failed to get meta entries count from job blob");
+        msg_set_reason("Cannot get meta from blob");
+        return -1;
+    }
+    for(i = 0; i < count; i++) {
+        const char *key = NULL;
+        char new_value[SXLIMIT_SETTINGS_MAX_VALUE_LEN+1];
+        char old_value[SXLIMIT_SETTINGS_MAX_VALUE_LEN+1];
+        sx_setting_type_t type;
+
+        if(sx_blob_get_string(b, &key) || sx_blob_get_int32(b, (int*)&type)) {
+            WARN("Failed to get %dth settings entry from blob", i);
+            msg_set_reason("Cannot get settings entry from blob");
+            return -1;
+        }
+
+        switch(type) {
+            case SX_SETTING_TYPE_INT: {
+                int64_t new, old;
+                if(sx_blob_get_int64(b, &new) || sx_blob_get_int64(b, &old)){
+                    WARN("Failed to get integer settings entry from blob");
+                    msg_set_reason("Cannot get settings entry from blob");
+                    return -1;
+                }
+
+                sprintf(new_value, "%lld", (long long)new);
+                sprintf(old_value, "%lld", (long long)old);
+                break;
+            }
+            case SX_SETTING_TYPE_UINT: {
+                uint64_t new, old;
+                if(sx_blob_get_uint64(b, &new) || sx_blob_get_uint64(b, &old)){
+                    WARN("Failed to get unsinged integer settings entry from blob");
+                    msg_set_reason("Cannot get settings entry from blob");
+                    return -1;
+                }
+
+                sprintf(new_value, "%llu", (unsigned long long)new);
+                sprintf(old_value, "%llu", (unsigned long long)old);
+                break;
+            }
+            case SX_SETTING_TYPE_BOOL: {
+                int new, old;
+                if(sx_blob_get_bool(b, &new) || sx_blob_get_bool(b, &old)){
+                    WARN("Failed to get boolean settings entry from blob");
+                    msg_set_reason("Cannot get settings entry from blob");
+                    return -1;
+                }
+
+                sprintf(new_value, "%d", new);
+                sprintf(old_value, "%d", old);
+                break;
+            }
+            case SX_SETTING_TYPE_FLOAT: {
+                double new, old;
+                if(sx_blob_get_float(b, &new) || sx_blob_get_float(b, &old)){
+                    WARN("Failed to get double settings entry from blob");
+                    msg_set_reason("Cannot get settings entry from blob");
+                    return -1;
+                }
+
+                sprintf(new_value, "%lf", new);
+                sprintf(old_value, "%lf", old);
+                break;
+            }
+            case SX_SETTING_TYPE_STRING: {
+                const char *new, *old;
+                if(sx_blob_get_string(b, &new) || sx_blob_get_string(b, &old)){
+                    WARN("Failed to get string settings entry from blob");
+                    msg_set_reason("Cannot get settings entry from blob");
+                    return -1;
+                }
+                sxi_strlcpy(new_value, new, sizeof(new_value));
+                sxi_strlcpy(old_value, old, sizeof(old_value));
+                break;
+            }
+        }
+
+        if(sxc_meta_setval(meta, key, new_settings ? new_value : old_value, new_settings ? strlen(new_value) : strlen(old_value))) {
+            WARN("Failed to add settings entry");
+            msg_set_reason("Cannot get settings entry from blob");
+            return -1;
+        }
+    }
+
+    return 0;
+}
+
+static sxi_query_t* cluster_settings_proto_from_blob(sxc_client_t *sx, sx_blob_t *b, jobphase_t phase)
+{
+    time_t ts = 0, oldts = 0;
+    sxc_meta_t *meta = NULL;
+    sxi_query_t *ret = NULL;
+
+    meta = sxc_meta_new(sx);
+    if(!meta) {
+        WARN("Failed to allocate new settings meta");
+        goto cluster_setmeta_proto_from_blob_err;
+    }
+
+    if(sx_blob_get_int64(b, &oldts) || sx_blob_get_int64(b, &ts)) {
+        WARN("Corrupt user blob");
+        goto cluster_setmeta_proto_from_blob_err;
+    }
+
+    if(get_sxc_meta_from_settings_blob(sx, b, meta, phase == JOBPHASE_COMMIT)) {
+        WARN("Failed to load cluster settings from blob");
+        goto cluster_setmeta_proto_from_blob_err;
+    }
+
+    switch(phase) {
+        case JOBPHASE_COMMIT:
+            ret = sxi_cluster_settings_proto(sx, ts, meta);
+            break;
+        case JOBPHASE_ABORT:
+        case JOBPHASE_UNDO:
+            INFO("Aborting/Undoing cluster settings change");
+            ret = sxi_cluster_settings_proto(sx, oldts, meta);
+            break;
+        default:
+            WARN("Invalid job phase");
+    }
+
+cluster_setmeta_proto_from_blob_err:
+    sxc_meta_free(meta);
+    return ret;
+}
+
+static rc_ty cluster_settings_execute_blob(sx_hashfs_t *h, sx_blob_t *b, jobphase_t phase, int remote)
+{
+    rc_ty ret = FAIL_EINTERNAL;
+    time_t ts = 0, oldts = 0;
+    int i, count, use_new;
+    rc_ty s;
+
+    if(sx_blob_get_int64(b, &oldts) || sx_blob_get_int64(b, &ts)) {
+        WARN("Corrupt user blob");
+        return FAIL_EINTERNAL;
+    }
+
+    if(remote && phase == JOBPHASE_REQUEST)
+        phase = JOBPHASE_COMMIT;
+
+    if(phase == JOBPHASE_COMMIT)
+        use_new = 1;
+    else
+        use_new = 0;
+
+    if(sx_hashfs_modify_cluster_settings_begin(h)) {
+        msg_set_reason("Failed to modify cluster settings");
+        return FAIL_LOCKED;
+    }
+    if(sx_blob_get_int32(b, &count)) {
+        WARN("Failed to get meta entries count from job blob");
+        msg_set_reason("Cannot get meta from blob");
+        return FAIL_EINTERNAL;
+    }
+
+    for(i = 0; i < count; i++) {
+        const char *key = NULL;
+        sx_setting_type_t type;
+
+        if(sx_blob_get_string(b, &key) || sx_blob_get_int32(b, (int*)&type)) {
+            WARN("Failed to get %dth settings entry from blob", i);
+            msg_set_reason("Cannot get settings entry from blob");
+            return -1;
+        }
+
+        switch(type) {
+            case SX_SETTING_TYPE_INT: {
+                int64_t new, old;
+                if(sx_blob_get_int64(b, &new) || sx_blob_get_int64(b, &old)){
+                    WARN("Failed to get integer settings entry from blob");
+                    msg_set_reason("Cannot get settings entry from blob");
+                    return -1;
+                }
+
+                if((s = sx_hashfs_cluster_settings_set_int64(h, key, phase == JOBPHASE_COMMIT ? new : old)) != OK) {
+                    WARN("Failed to modify cluster settings");
+                    ret = s;
+                    goto cluster_settings_execute_blob_err;
+                }
+                break;
+            }
+            case SX_SETTING_TYPE_UINT: {
+                uint64_t new, old;
+                if(sx_blob_get_uint64(b, &new) || sx_blob_get_uint64(b, &old)){
+                    WARN("Failed to get unsigned integer settings entry from blob");
+                    msg_set_reason("Cannot get settings entry from blob");
+                    return -1;
+                }
+
+                if((s = sx_hashfs_cluster_settings_set_uint64(h, key, phase == JOBPHASE_COMMIT ? new : old)) != OK) {
+                    WARN("Failed to modify cluster settings");
+                    ret = s;
+                    goto cluster_settings_execute_blob_err;
+                }
+                break;
+            }
+            case SX_SETTING_TYPE_BOOL: {
+                int new, old;
+                if(sx_blob_get_bool(b, &new) || sx_blob_get_bool(b, &old)){
+                    WARN("Failed to get boolean settings entry from blob");
+                    msg_set_reason("Cannot get settings entry from blob");
+                    return -1;
+                }
+
+                if((s = sx_hashfs_cluster_settings_set_bool(h, key, phase == JOBPHASE_COMMIT ? new : old)) != OK) {
+                    WARN("Failed to modify cluster settings");
+                    ret = s;
+                    goto cluster_settings_execute_blob_err;
+                }
+                break;
+            }
+            case SX_SETTING_TYPE_FLOAT: {
+                double new, old;
+                if(sx_blob_get_float(b, &new) || sx_blob_get_float(b, &old)){
+                    WARN("Failed to get integer settings entry from blob");
+                    msg_set_reason("Cannot get settings entry from blob");
+                    return -1;
+                }
+
+                if((s = sx_hashfs_cluster_settings_set_double(h, key, phase == JOBPHASE_COMMIT ? new : old)) != OK) {
+                    WARN("Failed to modify cluster settings");
+                    ret = s;
+                    goto cluster_settings_execute_blob_err;
+                }
+                break;
+            }
+            case SX_SETTING_TYPE_STRING: {
+                const char *new, *old;
+                if(sx_blob_get_string(b, &new) || sx_blob_get_string(b, &old)){
+                    WARN("Failed to get string settings entry from blob");
+                    msg_set_reason("Cannot get settings entry from blob");
+                    return -1;
+                }
+
+                if((s = sx_hashfs_cluster_settings_set_string(h, key, phase == JOBPHASE_COMMIT ? new : old)) != OK) {
+                    WARN("Failed to modify cluster settings");
+                    ret = s;
+                    goto cluster_settings_execute_blob_err;
+                }
+                break;
+            }
+        }
+    }
+
+    ret = OK;
+cluster_settings_execute_blob_err:
+    if(ret != OK)
+        sx_hashfs_modify_cluster_settings_abort(h);
+    else {
+        switch(phase) {
+            case JOBPHASE_COMMIT:
+                DEBUG("Cluster settings change request");
+                ret = sx_hashfs_modify_cluster_settings_end(h, ts, 0);
+                break;
+            case JOBPHASE_ABORT:
+                DEBUG("Aborting cluster settings change");
+                ret = sx_hashfs_modify_cluster_settings_end(h, oldts, 0);
+                break;
+            case JOBPHASE_UNDO:
+                CRIT("Cluster may have been left in an inconsistent state after a failed cluster settings modification");
+                ret = sx_hashfs_modify_cluster_settings_end(h, oldts, 0);
+                break;
+            default:
+                WARN("Invalid job phase: %d", phase);
+        }
+    }
+
+    if(phase == JOBPHASE_REQUEST && ret == OK)
+        INFO("Sucessfully modified cluster settings");
+    return ret;
+}
+
+static const char *cluster_settings_get_lock(sx_blob_t *b)
+{
+    return "CLUSTER_SETTINGS";
+}
+
+static rc_ty cluster_settings_nodes(sx_hashfs_t *h, sx_blob_t *blob, sx_nodelist_t **nodes)
+{
+    if(!nodes)
+        return FAIL_EINTERNAL;
+    *nodes = sx_nodelist_dup(sx_hashfs_effective_nodes(hashfs, NL_NEXTPREV));
+    if(!*nodes)
+        return FAIL_EINTERNAL;
+    return OK;
+}
+
+const job_2pc_t cluster_settings_spec = {
+    &cluster_settings_ops_parser,
+    JOBTYPE_CLUSTER_SETTINGS,
+    cluster_settings_parse_complete,
+    cluster_settings_get_lock,
+    cluster_settings_to_blob,
+    cluster_settings_execute_blob,
+    cluster_settings_proto_from_blob,
+    cluster_settings_nodes,
+    cluster_settings_timeout
+};
+
+void fcgi_cluster_settings(void) {
+    struct cluster_settings_ctx c;
+    sxc_client_t *sx = sx_hashfs_client(hashfs);
+
+    memset(&c, 0, sizeof(c));
+
+    c.entries = sx_blob_new();
+    if(!c.entries)
+        quit_errmsg(500, "Out of memory");
+
+    job_2pc_handle_request(sx, &cluster_settings_spec, &c);
+
+    sx_blob_free(c.entries);
+}
+
+void fcgi_get_cluster_settings(void) {
+    rc_ty s;
+    const char *key = NULL;
+    const char *value = NULL;
+    sx_setting_type_t type, *t;
+    int comma = 0;
+    char hexval[SXLIMIT_SETTINGS_MAX_VALUE_LEN*2+1];
+
+    if(has_arg("key")) {
+        key = get_arg("key");
+        s = sx_hashfs_cluster_settings_get(hashfs, key, &type, &value);
+        if(s != OK)
+            quit_errmsg(rc2http(s), msg_get_reason());
+    }
+
+    CGI_PUTS("Content-type: application/json\r\n\r\n{\"clusterSettings\":{");
+
+    if(has_arg("key")) {
+        json_send_qstring(key);
+        CGI_PUTS(":\"");
+        bin2hex(value, strlen(value), hexval, sizeof(hexval));
+        CGI_PRINTF("%s\"}}", hexval);
+        return;
+    }
+
+    for(s = sx_hashfs_cluster_settings_first(hashfs, &key, &t, &value); s == OK; s = sx_hashfs_cluster_settings_next(hashfs)) {
+        if(comma)
+            CGI_PUTC(',');
+        else
+            comma = 1;
+        json_send_qstring(key);
+        CGI_PUTS(":\"");
+        bin2hex(value, strlen(value), hexval, sizeof(hexval));
+        CGI_PUTS(hexval);
+        CGI_PUTC('"');
+    }
+    if(s != ITER_NO_MORE) {
+        CGI_PUTC('}');
+        quit_itererr("Failed get cluster settings", s);
+    } else
+        CGI_PUTS("}}");
+}

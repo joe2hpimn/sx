@@ -489,6 +489,40 @@ rc_ty sx_hashfs_clustermeta_set_addmeta(sx_hashfs_t *h, const char *key, const v
 rc_ty sx_hashfs_clustermeta_set_finish(sx_hashfs_t *h, time_t ts, int do_transaction);
 rc_ty sx_hashfs_clustermeta_last_change(sx_hashfs_t *h, time_t *t);
 
+/* Known types of cluster settings */
+typedef enum { SX_SETTING_TYPE_BOOL, SX_SETTING_TYPE_INT, SX_SETTING_TYPE_UINT, SX_SETTING_TYPE_FLOAT, SX_SETTING_TYPE_STRING } sx_setting_type_t;
+
+/* Parse and validate cluster setting entry, the output blob gets appended the parsed value */
+rc_ty sx_hashfs_parse_cluster_setting(sx_hashfs_t *h, const char *key, sx_setting_type_t type, const char *value, sx_blob_t *out);
+/* Load all cluster settings and allow to iterate over them using function below */
+rc_ty sx_hashfs_cluster_settings_first(sx_hashfs_t *h, const char **key, sx_setting_type_t **type, const char **value);
+rc_ty sx_hashfs_cluster_settings_next(sx_hashfs_t *h);
+/* Begin cluster settings modifications */
+rc_ty sx_hashfs_modify_cluster_settings_begin(sx_hashfs_t *h);
+/* Add new cluster settings entry to be modified */
+void sx_hashfs_modify_cluster_settings_abort(sx_hashfs_t *h);
+rc_ty sx_hashfs_cluster_settings_set_int64(sx_hashfs_t *h, const char *key, int64_t value);
+rc_ty sx_hashfs_cluster_settings_set_string(sx_hashfs_t *h, const char *key, const char *string);
+rc_ty sx_hashfs_cluster_settings_set_double(sx_hashfs_t *h, const char *key, double ret);
+rc_ty sx_hashfs_cluster_settings_set_boolean(sx_hashfs_t *h, const char *key, int ret);
+rc_ty sx_hashfs_cluster_settings_set_uint64(sx_hashfs_t *h, const char *key, uint64_t ret);
+rc_ty sx_hashfs_cluster_settings_set_bool(sx_hashfs_t *h, const char *key, int value);
+
+/* Save modified cluster settings (have to be done to release the db lock acquired with _begin()) */
+rc_ty sx_hashfs_modify_cluster_settings_end(sx_hashfs_t *h, time_t ts, int in_transaction);
+
+
+/* Get last cluster settings modification time */
+rc_ty sx_hashfs_cluster_settings_last_change(sx_hashfs_t *h, time_t *t);
+/* Get single cluster settings entry, value should be an array with length at least SXLIMIT_SETTINGS_MAX_VALUE_LEN, value_len is going to hold final length of the value */
+rc_ty sx_hashfs_cluster_settings_get(sx_hashfs_t *h, const char *key, sx_setting_type_t *type, const char **value);
+/* Get int64 cluster settings entry */
+rc_ty sx_hashfs_cluster_settings_get_int64(sx_hashfs_t *h, const char *key, int64_t *ret);
+rc_ty sx_hashfs_cluster_settings_get_string(sx_hashfs_t *h, const char *key, char *ret, unsigned int max_len);
+rc_ty sx_hashfs_cluster_settings_get_double(sx_hashfs_t *h, const char *key, double *ret);
+rc_ty sx_hashfs_cluster_settings_get_boolean(sx_hashfs_t *h, const char *key, int *ret);
+rc_ty sx_hashfs_cluster_settings_get_uint64(sx_hashfs_t *h, const char *key, uint64_t *ret);
+
 typedef struct {
     sx_hash_t revision_id;
     int32_t blocksize;

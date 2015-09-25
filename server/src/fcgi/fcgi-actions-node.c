@@ -1044,13 +1044,15 @@ void fcgi_node_init(void) {
         "misc":{
             "mode":"ro",
             "clusterMeta":{"key1":"val1","key2":"val2"},
-            "clusterMetaLastModified":123123123
+            "clusterMetaLastModified":123123123,
+            "clusterSettings":{"key1":"val1","key2":"val2"},
+            "clusterSettingsLastModified":12341234
         }
     }
 */
 
 struct cb_sync_ctx {
-    enum cb_sync_state { CB_SYNC_START, CB_SYNC_MAIN, CB_SYNC_USERS, CB_SYNC_VOLUMES, CB_SYNC_PERMS, CB_SYNC_MISC, CB_SYNC_INMISC, CB_SYNC_MODE, CB_SYNC_CLUSTERMETA_TS, CB_SYNC_CLUSTERMETA, CB_SYNC_CLUSTERMETA_KEY, CB_SYNC_CLUSTERMETA_VAL, CB_SYNC_INUSERS, CB_SYNC_INVOLUMES, CB_SYNC_INPERMS, CB_SYNC_USR, CB_SYNC_VOL, CB_SYNC_PRM, CB_SYNC_USRDESC, CB_SYNC_USRID, CB_SYNC_USRQUOTA, CB_SYNC_VOLKEY, CB_SYNC_PRMKEY, CB_SYNC_USRAUTH, CB_SYNC_USRKEY, CB_SYNC_USRROLE, CB_SYNC_VOLOWNR, CB_SYNC_VOLREP, CB_SYNC_VOLREVS, CB_SYNC_VOLSIZ, CB_SYNC_VOLMETA, CB_SYNC_VOLMETAKEY, CB_SYNC_VOLMETAVAL, CB_SYNC_PRMVAL, CB_SYNC_OUTRO, CB_SYNC_COMPLETE } state;
+    enum cb_sync_state { CB_SYNC_START, CB_SYNC_MAIN, CB_SYNC_USERS, CB_SYNC_VOLUMES, CB_SYNC_PERMS, CB_SYNC_MISC, CB_SYNC_INMISC, CB_SYNC_MODE, CB_SYNC_CLUSTER_SETTINGS_TS, CB_SYNC_CLUSTER_SETTINGS, CB_SYNC_CLUSTER_SETTINGS_KEY, CB_SYNC_CLUSTER_SETTINGS_VAL, CB_SYNC_CLUSTERMETA_TS, CB_SYNC_CLUSTERMETA, CB_SYNC_CLUSTERMETA_KEY, CB_SYNC_CLUSTERMETA_VAL, CB_SYNC_INUSERS, CB_SYNC_INVOLUMES, CB_SYNC_INPERMS, CB_SYNC_USR, CB_SYNC_VOL, CB_SYNC_PRM, CB_SYNC_USRDESC, CB_SYNC_USRID, CB_SYNC_USRQUOTA, CB_SYNC_VOLKEY, CB_SYNC_PRMKEY, CB_SYNC_USRAUTH, CB_SYNC_USRKEY, CB_SYNC_USRROLE, CB_SYNC_VOLOWNR, CB_SYNC_VOLREP, CB_SYNC_VOLREVS, CB_SYNC_VOLSIZ, CB_SYNC_VOLMETA, CB_SYNC_VOLMETAKEY, CB_SYNC_VOLMETAVAL, CB_SYNC_PRMVAL, CB_SYNC_OUTRO, CB_SYNC_COMPLETE } state;
     int64_t size;
     int64_t quota; /* Quota for volumes owned by the user */
     time_t cluster_meta_ts;
@@ -1062,11 +1064,15 @@ struct cb_sync_ctx {
     sx_uid_t uid;
     int admin, have_key, have_user;
     unsigned int replica, revs;
+    char setting_key[SXLIMIT_SETTINGS_MAX_KEY_LEN+1];
+    sx_setting_type_t setting_type;
+    time_t cluster_settings_ts;
+    unsigned int nsettings;
+    sx_blob_t *settings;
 };
 
 static int cb_sync_string(void *ctx, const unsigned char *s, size_t l) {
     struct cb_sync_ctx *c = (struct cb_sync_ctx *)ctx;
-
     if(c->state == CB_SYNC_USRAUTH) {
 	if(l != AUTH_KEY_LEN * 2)
 	    return 0;
@@ -1120,6 +1126,21 @@ static int cb_sync_string(void *ctx, const unsigned char *s, size_t l) {
         if(sx_hashfs_clustermeta_set_addmeta(hashfs, c->mkey, val, l/2))
             return 0;
         c->state = CB_SYNC_CLUSTERMETA_KEY;
+    } else if(c->state == CB_SYNC_CLUSTER_SETTINGS_VAL) {
+        char val[SXLIMIT_SETTINGS_MAX_VALUE_LEN+1];
+        if(!l || (l & 1) || l > SXLIMIT_SETTINGS_MAX_VALUE_LEN * 2)
+            return 0;
+        if(hex2bin((const char*)s, l, (uint8_t*)val, sizeof(val)))
+            return 0;
+        l /= 2;
+        val[l] = '\0';
+        if(sx_blob_add_string(c->settings, c->setting_key) || sx_blob_add_int32(c->settings, c->setting_type) ||
+           sx_hashfs_parse_cluster_setting(hashfs, c->setting_key, c->setting_type, val, c->settings)) {
+            WARN("Failed to store cluster settings data");
+            return 0;
+        }
+        c->nsettings++;
+        c->state = CB_SYNC_CLUSTER_SETTINGS_KEY;
     } else
 	return 0;
     return 1;
@@ -1141,7 +1162,7 @@ static int cb_sync_number(void *ctx, const char *s, size_t l) {
     char number[24], *eon;
     int64_t n;
 
-    if(c->state != CB_SYNC_VOLREP && c->state != CB_SYNC_VOLSIZ && c->state != CB_SYNC_VOLREVS && c->state != CB_SYNC_USRQUOTA && c->state != CB_SYNC_CLUSTERMETA_TS && c->state != CB_SYNC_PRMVAL)
+    if(c->state != CB_SYNC_VOLREP && c->state != CB_SYNC_VOLSIZ && c->state != CB_SYNC_VOLREVS && c->state != CB_SYNC_USRQUOTA && c->state != CB_SYNC_CLUSTERMETA_TS && c->state != CB_SYNC_CLUSTER_SETTINGS_TS && c->state != CB_SYNC_PRMVAL)
 	return 0;
 
     if(l<1 || l>20)
@@ -1161,6 +1182,8 @@ static int cb_sync_number(void *ctx, const char *s, size_t l) {
         c->quota = n;
     else if(c->state == CB_SYNC_CLUSTERMETA_TS)
         c->cluster_meta_ts = (time_t)n;
+    else if(c->state == CB_SYNC_CLUSTER_SETTINGS_TS)
+        c->cluster_settings_ts = (time_t)n;
     else if(n > 0xffffffff)
 	return 0;
     else if (c->state == CB_SYNC_PRMVAL) {
@@ -1179,6 +1202,8 @@ static int cb_sync_number(void *ctx, const char *s, size_t l) {
     if(c->state == CB_SYNC_USRQUOTA)
         c->state = CB_SYNC_USRKEY;
     else if(c->state == CB_SYNC_CLUSTERMETA_TS)
+        c->state = CB_SYNC_INMISC;
+    else if(c->state == CB_SYNC_CLUSTER_SETTINGS_TS)
         c->state = CB_SYNC_INMISC;
     else if(c->state == CB_SYNC_PRMVAL)
         c->state = CB_SYNC_PRMKEY;
@@ -1214,7 +1239,8 @@ static int cb_sync_start_map(void *ctx) {
 	c->state = CB_SYNC_VOLMETAKEY;
     else if(c->state == CB_SYNC_CLUSTERMETA)
         c->state = CB_SYNC_CLUSTERMETA_KEY;
-
+    else if(c->state == CB_SYNC_CLUSTER_SETTINGS)
+        c->state = CB_SYNC_CLUSTER_SETTINGS_KEY;
     else
 	return 0;
 
@@ -1302,6 +1328,15 @@ static int cb_sync_map_key(void *ctx, const unsigned char *s, size_t l) {
         memcpy(c->mkey, s, l);
         c->mkey[l] = '\0';
         c->state = CB_SYNC_CLUSTERMETA_VAL;
+    } else if(c->state == CB_SYNC_CLUSTER_SETTINGS_KEY) {
+        const char *old_value;
+        if(l >= sizeof(c->setting_key))
+            return 0;
+        memcpy(c->setting_key, s, l);
+        c->setting_key[l] = '\0';
+        if(sx_hashfs_cluster_settings_get(hashfs, c->setting_key, &c->setting_type, &old_value))
+            return 0;
+        c->state = CB_SYNC_CLUSTER_SETTINGS_VAL;
     } else if(c->state == CB_SYNC_INMISC) {
         if(l == lenof("mode") && !strncmp("mode", s, lenof("mode")))
             c->state = CB_SYNC_MODE;
@@ -1310,6 +1345,10 @@ static int cb_sync_map_key(void *ctx, const unsigned char *s, size_t l) {
             c->state = CB_SYNC_CLUSTERMETA;
         } else if(l == lenof("clusterMetaLastModified") && !strncmp("clusterMetaLastModified", s, lenof("clusterMetaLastModified")))
             c->state = CB_SYNC_CLUSTERMETA_TS;
+        else if(l == lenof("clusterSettings") && !strncmp("clusterSettings", s, lenof("clusterSettings"))) {
+            c->state = CB_SYNC_CLUSTER_SETTINGS;
+        } else if(l == lenof("clusterSettingsLastModified") && !strncmp("clusterSettingsLastModified", s, lenof("clusterSettingsLastModified")))
+            c->state = CB_SYNC_CLUSTER_SETTINGS_TS;
         else
             return 0;
     } else
@@ -1348,12 +1387,101 @@ static int cb_sync_end_map(void *ctx) {
 	      c->state == CB_SYNC_INPERMS) {
 	c->state = CB_SYNC_OUTRO;
     } else if(c->state == CB_SYNC_INMISC) {
-        if(sx_hashfs_clustermeta_set_finish(hashfs, c->cluster_meta_ts, 0))
-            return 0;
         c->state = CB_SYNC_OUTRO;
     } else if(c->state == CB_SYNC_VOLMETAKEY) {
 	c->state = CB_SYNC_VOLKEY;	
     } else if(c->state == CB_SYNC_CLUSTERMETA_KEY) {
+        if(sx_hashfs_clustermeta_set_finish(hashfs, c->cluster_meta_ts, 0))
+            return 0;
+        c->state = CB_SYNC_INMISC;
+    } else if(c->state == CB_SYNC_CLUSTER_SETTINGS_KEY) {
+        unsigned int i;
+
+        sx_blob_reset(c->settings);
+        for(i = 0; i < c->nsettings; i++) {
+            sx_setting_type_t type;
+            const char *key = NULL;
+            if(sx_blob_get_string(c->settings, &key) || sx_blob_get_int32(c->settings, (int32_t *)(&type))) {
+                WARN("Data corruption detected: Failed to get cluster setting key and type %s", key);
+                return 0;
+            }
+
+            switch(type) {
+                case SX_SETTING_TYPE_INT: {
+                    int64_t v;
+                    if(sx_blob_get_int64(c->settings, &v)) {
+                        WARN("Failed to obtain integer setting from blob");
+                        return 0;
+                    }
+
+                    if(sx_hashfs_cluster_settings_set_int64(hashfs, key, v)) {
+                        WARN("Failed to modify cluster settings");
+                        return 0;
+                    }
+                    break;
+                }
+
+                case SX_SETTING_TYPE_UINT: {
+                    uint64_t v;
+                    if(sx_blob_get_uint64(c->settings, &v)) {
+                        WARN("Failed to obtain unsigned integer setting from blob");
+                        return 0;
+                    }
+
+                    if(sx_hashfs_cluster_settings_set_uint64(hashfs, key, v)) {
+                        WARN("Failed to modify cluster settings");
+                        return 0;
+                    }
+                    break;
+                }
+
+                case SX_SETTING_TYPE_BOOL: {
+                    int v;
+                    if(sx_blob_get_bool(c->settings, &v)) {
+                        WARN("Failed to obtain boolean setting from blob");
+                        return 0;
+                    }
+
+                    if(sx_hashfs_cluster_settings_set_bool(hashfs, key, v)) {
+                        WARN("Failed to modify cluster settings");
+                        return 0;
+                    }
+                    break;
+                }
+
+                case SX_SETTING_TYPE_FLOAT: {
+                    double v;
+                    if(sx_blob_get_float(c->settings, &v)) {
+                        WARN("Failed to obtain float setting from blob");
+                        return 0;
+                    }
+
+                    if(sx_hashfs_cluster_settings_set_double(hashfs, key, v)) {
+                        WARN("Failed to modify cluster settings");
+                        return 0;
+                    }
+                    break;
+                }
+
+                case SX_SETTING_TYPE_STRING: {
+                    const char *str;
+                    if(sx_blob_get_string(c->settings, &str)) {
+                        WARN("Failed to obtain string setting from blob");
+                        return 0;
+                    }
+
+                    if(sx_hashfs_cluster_settings_set_string(hashfs, key, str)) {
+                        WARN("Failed to modify cluster settings");
+                        return 0;
+                    }
+                    break;
+                }
+            }
+        }
+        if(sx_hashfs_modify_cluster_settings_end(hashfs, c->cluster_settings_ts, 1))
+            return 0;
+        c->nsettings = 0;
+        sx_blob_reset(c->settings);
         c->state = CB_SYNC_INMISC;
     } else if(c->state == CB_SYNC_OUTRO) {
 	c->state = CB_SYNC_COMPLETE;
@@ -1384,12 +1512,18 @@ void fcgi_sync_globs(void) {
     struct cb_sync_ctx yctx;
     memset(&yctx, 0, sizeof(yctx));
     yctx.state = CB_SYNC_START;
+    yctx.settings = sx_blob_new();
+    if(!yctx.settings)
+        quit_errmsg(500, "Cannot allocate data store");
 
     yajl_handle yh = yajl_alloc(&sync_parser, NULL, &yctx);
-    if(!yh)
+    if(!yh) {
+        sx_blob_free(yctx.settings);
 	quit_errmsg(500, "Cannot allocate json parser");
+    }
 
     if(sx_hashfs_syncglobs_begin(hashfs)) {
+        sx_blob_free(yctx.settings);
         yajl_free(yh);
 	quit_errmsg(503, "Failed to prepare object synchronization");
     }
@@ -1397,24 +1531,29 @@ void fcgi_sync_globs(void) {
     int len;
     while((len = get_body_chunk(hashbuf, sizeof(hashbuf))) > 0)
 	if(yajl_parse(yh, hashbuf, len) != yajl_status_ok) break;
-
+ 
     if(len || yajl_complete_parse(yh) != yajl_status_ok || yctx.state != CB_SYNC_COMPLETE) {
 	yajl_free(yh);
 	sx_hashfs_syncglobs_abort(hashfs);
+        sx_blob_free(yctx.settings);
 	quit_errmsg(400, "Invalid request content");
     }
     yajl_free(yh);
 
     auth_complete();
     if(!is_authed()) {
+        sx_blob_free(yctx.settings);
 	sx_hashfs_syncglobs_abort(hashfs);
 	send_authreq();
 	return;
     }
 
-    if(sx_hashfs_syncglobs_end(hashfs))
+    if(sx_hashfs_syncglobs_end(hashfs)) {
+        sx_blob_free(yctx.settings);
 	quit_errmsg(503, "Failed to finalize object synchronization");
+    }
 
+    sx_blob_free(yctx.settings);
     CGI_PUTS("\r\n");
 }
 

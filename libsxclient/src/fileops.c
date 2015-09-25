@@ -5351,7 +5351,9 @@ struct cb_filemeta_ctx {
     enum filemeta_state { FM_ERROR, FM_BEGIN, FM_FM, FM_ITEMS, FM_KEY, FM_VAL, FM_DONE, FM_COMPLETE } state;
 };
 
-/* {"fileMeta":{"key1":"value1", "key2":"value2"}} */
+/* {"<meta_key>":{"key1":"value1", "key2":"value2"}}                    *
+ * where <meta_key> can be fileMeta, clusterMeta or clusterSettings,    *
+ * the expected value is stored as meta_key field in above structure    */
 
 static int yacb_filemeta_start_map(void *ctx) {
     struct cb_filemeta_ctx *yactx = (struct cb_filemeta_ctx *)ctx;
@@ -5370,7 +5372,7 @@ static int yacb_filemeta_map_key(void *ctx, const unsigned char *s, size_t l) {
 
     if (yactx->state == FM_ERROR)
         return yacb_error_map_key(&yactx->errctx, s, l);
-    if (yactx->state == FM_FM) {
+    if (yactx->state == FM_FM || yactx->state == FM_DONE) {
         if (ya_check_error(yactx->cbdata, &yactx->errctx, s, l)) {
             yactx->state = FM_ERROR;
             return 1;
@@ -5608,6 +5610,70 @@ sxc_clustermeta_begin_err:
     free(yctx.nextk);
     if(yctx.meta)
         sxc_meta_free(yctx.meta);
+
+    return meta;
+}
+
+sxc_meta_t *sxc_cluster_settings_new(sxc_cluster_t *cluster, const char *key) {
+    sxc_meta_t *meta = NULL;
+    struct cb_filemeta_ctx yctx;
+    yajl_callbacks *yacb = &yctx.yacb;
+    sxc_client_t *sx = sxi_cluster_get_client(cluster);
+    sxi_conns_t *conns = sxi_cluster_get_conns(cluster);
+    char *url = NULL, *key_enc = NULL;
+    unsigned int len;
+
+    ya_init(yacb);
+    yacb->yajl_start_map = yacb_filemeta_start_map;
+    yacb->yajl_map_key = yacb_filemeta_map_key;
+    yacb->yajl_string = yacb_filemeta_string;
+    yacb->yajl_end_map = yacb_filemeta_end_map;
+
+    yctx.yh = NULL;
+    yctx.nextk = NULL;
+    yctx.meta_key = "clusterSettings";
+    yctx.meta = sxc_meta_new(sx);
+    if(!yctx.meta)
+        goto sxc_cluster_settings_new_err;
+
+    len = lenof(".clusterSettings") + 1;
+    if(key && strcmp(key, "ALL")) {
+        key_enc = sxi_urlencode(sx, key, 1);
+        if(!key_enc) {
+            SXDEBUG("Failed to urlencode key");
+            goto sxc_cluster_settings_new_err;
+        }
+    }
+    if(key_enc)
+        len += lenof("?key=") + strlen(key_enc);
+    url = malloc(len);
+    if(!url) {
+        SXDEBUG("OOM allocating query url");
+        goto sxc_cluster_settings_new_err;
+    }
+    snprintf(url, len, ".clusterSettings%s%s", key_enc ? "?key=" : "", key_enc ? key_enc : "");
+    sxi_set_operation(sx, "get cluster settings", NULL, NULL, NULL);
+    if(sxi_cluster_query(conns, NULL, REQ_GET, url, NULL, 0, filemeta_setup_cb, filemeta_cb, &yctx) != 200) {
+        SXDEBUG("file get query failed");
+        goto sxc_cluster_settings_new_err;
+    }
+
+    if(yajl_complete_parse(yctx.yh) != yajl_status_ok || yctx.state != FM_COMPLETE) {
+        sxi_seterr(sx, SXE_ECOMM, "Failed to retrieve cluster settings: Communication error");
+        goto sxc_cluster_settings_new_err;
+    }
+
+    meta = yctx.meta;
+    yctx.meta = NULL;
+
+sxc_cluster_settings_new_err:
+    if(yctx.yh)
+        yajl_free(yctx.yh);
+    free(yctx.nextk);
+    if(yctx.meta)
+        sxc_meta_free(yctx.meta);
+    free(url);
+    free(key_enc);
 
     return meta;
 }

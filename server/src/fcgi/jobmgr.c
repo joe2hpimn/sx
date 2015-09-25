@@ -805,6 +805,18 @@ static act_result_t cluster_setmeta_undo(sx_hashfs_t *hashfs, job_t job_id, job_
    return job_twophase_execute(&cluster_setmeta_spec, JOBPHASE_UNDO, hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
 }
 
+static act_result_t cluster_settings_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+   return job_twophase_execute(&cluster_settings_spec, JOBPHASE_COMMIT, hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
+}
+
+static act_result_t cluster_settings_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+   return job_twophase_execute(&cluster_settings_spec, JOBPHASE_ABORT, hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
+}
+
+static act_result_t cluster_settings_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+   return job_twophase_execute(&cluster_settings_spec, JOBPHASE_UNDO, hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
+}
+
 static int req_append(char **req, unsigned int *req_len, const char *append_me) {
     unsigned int current_len, append_len;
 
@@ -1633,6 +1645,7 @@ static int challenge_cb(curlev_context_t *cbdata, void *ctx, const void *data, s
     return 0;
 }
 
+typedef enum { MISC_TYPE_META, MISC_TYPE_SETTINGS } misc_obj_type;
 struct sync_ctx {
     sx_hashfs_t *hashfs;
     const sxi_hostlist_t *hlist;
@@ -1640,11 +1653,18 @@ struct sync_ctx {
     char *volname;
     unsigned int at;
     enum { DOING_NOTHING, SYNCING_USERS, SYNCING_VOLUMES, SYNCING_PERMS_VOLUME, SYNCING_PERMS_USERS, SYNCING_MISC } what;
-    struct {
-	char key[(2+SXLIMIT_META_MAX_KEY_LEN)*6+1];
-	char hexvalue[SXLIMIT_META_MAX_VALUE_LEN * 2 + 1];
-    } meta[SXLIMIT_META_MAX_ITEMS];
-    unsigned int nmeta;
+    union {
+        struct {
+            char key[(2+SXLIMIT_META_MAX_KEY_LEN)*6+1];
+            char hexvalue[SXLIMIT_META_MAX_VALUE_LEN * 2 + 1];
+        } meta[SXLIMIT_META_MAX_ITEMS];
+        struct {
+            char key[(2+SXLIMIT_SETTINGS_MAX_KEY_LEN)*6+1];
+            char hexvalue[SXLIMIT_SETTINGS_MAX_VALUE_LEN * 2 + 1];
+        } settings[SXLIMIT_SETTINGS_MAX_ITEMS];
+    } misc;
+    unsigned int nmisc;
+    misc_obj_type misc_type;
 };
 
 static int sync_flush(struct sync_ctx *ctx) {
@@ -1768,6 +1788,110 @@ static int syncperms_cb(const char *username, int priv, int is_owner, void *ctx)
     return 0;
 }
 
+/* This function is supposed to synchronize misc global objects, cluster meta and cluster settings.
+ * Assumption is that all settings and all metadata fit into the ctx->buffer which is static.
+ * In case more settings are supported and those would not fit into the buffer, consider resizing that 
+ * to the required capacity. */
+static int sync_misc_objects(sx_hashfs_t *hashfs, struct sync_ctx *ctx) {
+    time_t last_mod;
+    rc_ty s;
+    const char *json_key;
+    const char *key, *hexval;
+    char *enc_name;
+    unsigned int i;
+
+    if(!hashfs || !ctx)
+        return -1;
+
+    /* Get misc object modification time according to the requested misc object type */
+    if((ctx->misc_type == MISC_TYPE_META && sx_hashfs_clustermeta_last_change(hashfs, &last_mod)) ||
+       (ctx->misc_type == MISC_TYPE_SETTINGS && sx_hashfs_cluster_settings_last_change(hashfs, &last_mod))) {
+        WARN("Failed to last modification time");
+        return -1;
+    }
+
+    if(ctx->misc_type == MISC_TYPE_META) {
+        sprintf(ctx->buffer, "{\"misc\":{\"clusterMetaLastModified\":%ld", last_mod);
+        json_key = "clusterMeta";
+    } else {
+        sprintf(ctx->buffer, "{\"misc\":{\"clusterSettingsLastModified\":%ld", last_mod);
+        json_key = "clusterSettings";
+    }
+
+    ctx->what = SYNCING_MISC;
+    ctx->at = strlen(ctx->buffer);
+
+    /* Load global objects */
+    if(ctx->misc_type == MISC_TYPE_META) {
+        const void *val;
+        unsigned int val_len;
+        
+        /* Load cluster metadata */
+        s = sx_hashfs_clustermeta_begin(hashfs);
+        if(s == OK) {
+            ctx->nmisc = 0;
+            while((s=sx_hashfs_clustermeta_next(hashfs, &key, &val, &val_len)) == OK) {
+                enc_name = sxi_json_quote_string(key);
+                if(!enc_name) {
+                    WARN("Cannot encode cluster meta key %s", key);
+                    s = ENOMEM;
+                    break;
+                }
+                /* encoded key and value lengths + quoting, colon and comma */
+                strcpy(ctx->misc.meta[ctx->nmisc].key, enc_name);
+                free(enc_name);
+                bin2hex(val, val_len, ctx->misc.meta[ctx->nmisc].hexvalue, sizeof(ctx->misc.meta[0].hexvalue));
+                ctx->nmisc++;
+            }
+        }
+    } else {
+        const char *value;
+
+        /* Load cluster settings */
+        for(s = sx_hashfs_cluster_settings_first(hashfs, &key, NULL, &value); s == OK; s = sx_hashfs_cluster_settings_next(hashfs)) {
+            enc_name = sxi_json_quote_string(key);
+            if(!enc_name) {
+                WARN("Cannot encode cluster settings key %s", key);
+                s = ENOMEM;
+                break;
+            }
+            /* encoded key and value lengths + quoting, colon and comma */
+            strcpy(ctx->misc.settings[ctx->nmisc].key, enc_name);
+            free(enc_name);
+            bin2hex(value, strlen(value), ctx->misc.settings[ctx->nmisc].hexvalue, sizeof(ctx->misc.settings[0].hexvalue));
+            ctx->nmisc++;
+
+            if(ctx->nmisc == SXLIMIT_SETTINGS_MAX_ITEMS) {
+                CRIT("Reached maximum settings limit");
+                s = FAIL_EINTERNAL;
+                break;
+            }
+        }
+    }
+
+    if(s == ITER_NO_MORE)
+        s = OK;
+    if(s != OK) {
+        WARN("Failed to synchronize misc cluster objects");
+        return -1;
+    }
+
+    /* Fill the buffer */
+    sprintf(&ctx->buffer[ctx->at], ",\"%s\":{", json_key);
+    for(i=0; i<ctx->nmisc; i++) {
+        key = (ctx->misc_type == MISC_TYPE_META ? ctx->misc.meta[i].key : ctx->misc.settings[i].key);
+        hexval = (ctx->misc_type == MISC_TYPE_META ? ctx->misc.meta[i].hexvalue : ctx->misc.settings[i].hexvalue);
+        ctx->at = strlen(ctx->buffer);
+        sprintf(&ctx->buffer[ctx->at], "%s%s:\"%s\"", i ? "," : "", key, hexval);
+    }
+    ctx->at = strlen(ctx->buffer);
+    ctx->buffer[ctx->at++] = '}';
+
+    if(sync_flush(ctx))
+        return -1;
+    return 0;
+}
+
 static int sync_global_objects(sx_hashfs_t *hashfs, const sxi_hostlist_t *hlist) {
     const sx_hashfs_volume_t *vol;
     struct sync_ctx ctx;
@@ -1813,7 +1937,7 @@ static int sync_global_objects(sx_hashfs_t *hashfs, const sxi_hostlist_t *hlist)
 	    const void *val;
 	    unsigned int val_len;
 
-	    ctx.nmeta = 0;
+	    ctx.nmisc = 0;
 	    while((s=sx_hashfs_volumemeta_next(hashfs, &key, &val, &val_len)) == OK) {
 		enc_name = sxi_json_quote_string(key);
 		if(!enc_name) {
@@ -1823,10 +1947,10 @@ static int sync_global_objects(sx_hashfs_t *hashfs, const sxi_hostlist_t *hlist)
 		}
 		/* encoded key and value lengths + quoting, colon and comma */
 		need += strlen(enc_name) + val_len * 2 + 4;
-		strcpy(ctx.meta[ctx.nmeta].key, enc_name);
+		strcpy(ctx.misc.meta[ctx.nmisc].key, enc_name);
 		free(enc_name);
-		bin2hex(val, val_len, ctx.meta[ctx.nmeta].hexvalue, sizeof(ctx.meta[0].hexvalue));
-		ctx.nmeta++;
+		bin2hex(val, val_len, ctx.misc.meta[ctx.nmisc].hexvalue, sizeof(ctx.misc.meta[0].hexvalue));
+		ctx.nmisc++;
 	    }
 	    if(s == ITER_NO_MORE)
 		s = OK;
@@ -1859,15 +1983,15 @@ static int sync_global_objects(sx_hashfs_t *hashfs, const sxi_hostlist_t *hlist)
 	}
 	sprintf(&ctx.buffer[ctx.at], "%s:{\"owner\":\"%s\",\"size\":%lld,\"replica\":%u,\"revs\":%u", enc_name, userhex, (long long)vol->size, vol->max_replica, vol->revisions);
 	free(enc_name);
-	if(ctx.nmeta) {
+	if(ctx.nmisc) {
 	    unsigned int i;
 	    strcat(ctx.buffer, ",\"meta\":{");
-	    for(i=0; i<ctx.nmeta; i++) {
+	    for(i=0; i<ctx.nmisc; i++) {
 		ctx.at = strlen(ctx.buffer);
 		sprintf(&ctx.buffer[ctx.at], "%s%s:\"%s\"",
 			i ? "," : "",
-			ctx.meta[i].key,
-			ctx.meta[i].hexvalue);
+			ctx.misc.meta[i].key,
+			ctx.misc.meta[i].hexvalue);
 	    }
 	    strcat(ctx.buffer, "}");
 	}
@@ -1918,62 +2042,23 @@ static int sync_global_objects(sx_hashfs_t *hashfs, const sxi_hostlist_t *hlist)
         return -1;
     }
 
-    time_t last_clustermeta_mod;
-    if(sx_hashfs_clustermeta_last_change(hashfs, &last_clustermeta_mod)) {
-        WARN("Failed to last cluster meta modification time");
-        return -1;
-    }
-
     /* Syncing misc globs */
-    sprintf(ctx.buffer, "{\"misc\":{\"mode\":\"%s\",\"clusterMetaLastModified\":%ld", mode ? "ro" : "rw", last_clustermeta_mod);
+    sprintf(ctx.buffer, "{\"misc\":{\"mode\":\"%s\"", mode ? "ro" : "rw");
     ctx.what = SYNCING_MISC;
     ctx.at = strlen(ctx.buffer);
-
-    s = sx_hashfs_clustermeta_begin(hashfs);
-    if(s == OK) {
-        const char *key;
-        const void *val;
-        unsigned int val_len;
-        char *enc_name;
-
-        ctx.nmeta = 0;
-        while((s=sx_hashfs_clustermeta_next(hashfs, &key, &val, &val_len)) == OK) {
-            enc_name = sxi_json_quote_string(key);
-            if(!enc_name) {
-                WARN("Cannot encode cluster meta key %s", key);
-                s = ENOMEM;
-                break;
-            }
-            /* encoded key and value lengths + quoting, colon and comma */
-            strcpy(ctx.meta[ctx.nmeta].key, enc_name);
-            free(enc_name);
-            bin2hex(val, val_len, ctx.meta[ctx.nmeta].hexvalue, sizeof(ctx.meta[0].hexvalue));
-            ctx.nmeta++;
-        }
-        if(s == ITER_NO_MORE)
-            s = OK;
-    }
-    if(s != OK) {
-        WARN("Failed to get cluster meta");
-        return -1;
-    }
-
-    if(ctx.nmeta) {
-        unsigned int i;
-        strcat(&ctx.buffer[ctx.at], ",\"clusterMeta\":{");
-        ctx.at += lenof(",\"clusterMeta\":{");
-        for(i=0; i<ctx.nmeta; i++) {
-            ctx.at = strlen(ctx.buffer);
-            sprintf(&ctx.buffer[ctx.at], "%s%s:\"%s\"",
-                    i ? "," : "",
-                    ctx.meta[i].key,
-                    ctx.meta[i].hexvalue);
-        }
-        strcat(ctx.buffer, "}");
-        ctx.at = strlen(ctx.buffer);
-    }
-
     if(sync_flush(&ctx))
+        return -1;
+
+    /* Synchronize cluster meta */
+    ctx.misc_type = MISC_TYPE_META;
+    ctx.nmisc = 0;
+    if(sync_misc_objects(hashfs, &ctx))
+        return -1;
+
+    /* Synchronize cluster settings */
+    ctx.misc_type = MISC_TYPE_SETTINGS;
+    ctx.nmisc = 0;
+    if(sync_misc_objects(hashfs, &ctx))
         return -1;
 
     return 0;
@@ -6009,6 +6094,7 @@ static struct {
     { massrename_request, massrename_commit, massrename_abort, massrename_undo }, /* JOBTYPE_MASSRENAME */
     { force_phase_success, cluster_setmeta_commit, cluster_setmeta_abort, cluster_setmeta_undo }, /* JOBTYPE_CLUSTER_SETMETA */
     { jobspawn_request, jobspawn_commit, force_phase_success, jobspawn_undo }, /* JOBTYPE_JOBSPAWN */
+    { force_phase_success, cluster_settings_commit, cluster_settings_abort, cluster_settings_undo }, /* JOBTYPE_CLUSTER_SETTINGS */
 };
 
 

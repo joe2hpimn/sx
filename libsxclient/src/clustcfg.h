@@ -56,6 +56,7 @@ int sxi_cluster_distribution_lock(sxc_cluster_t *cluster, const char *master);
 int sxi_cluster_distribution_unlock(sxc_cluster_t *cluster, const char *master);
 int sxi_cluster_set_mode(sxc_cluster_t *cluster, int readonly);
 int sxi_cluster_set_meta(sxc_cluster_t *cluster, sxc_meta_t *meta);
+int sxi_cluster_set_settings(sxc_cluster_t *cluster, sxc_meta_t *meta);
 
 /* Use getaddrinfo() to create a hostlist from a hostname */
 int sxi_conns_resolve_hostlist(sxi_conns_t *conns);

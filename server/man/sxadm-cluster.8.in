@@ -73,6 +73,12 @@ Display a specific entry from the cluster metadata. When the key is ALL, then al
 .TP
 \fB\-\-delete\-meta\fR=\fI\,KEY\/\fR
 Delete a specific entry from the cluster metadata.
+.TP
+\fB\-\-set\-param\fR=\fI\,"KEY=VALUE"\/\fR
+Set a cluster parameter in a form of a key-value pair. The cluster settings can only be changed by an administrator.
+.TP
+\fB\-\-get\-param\fR=\fI\,KEY\/\fR
+Get a value of a specific cluster parameter. When the key is ALL, then all cluster settings will be displayed. The cluster settings can only be accessed by an administrator.
 .SS "New cluster options:"
 .TP
 \fB\-d\fR, \fB\-\-node\-dir\fR=\fI\,PATH\/\fR

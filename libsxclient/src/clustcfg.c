@@ -4072,7 +4072,7 @@ int sxi_cluster_set_mode(sxc_cluster_t *cluster, int readonly) {
     return 0;
 }
 
-int sxi_cluster_set_meta(sxc_cluster_t *cluster, sxc_meta_t *meta) {
+static int cluster_set_meta_common(sxc_cluster_t *cluster, sxc_meta_t *meta, int is_cluster_meta) {
     sxi_query_t *query;
     sxc_client_t *sx;
     sxi_conns_t *conns;
@@ -4095,13 +4095,16 @@ int sxi_cluster_set_meta(sxc_cluster_t *cluster, sxc_meta_t *meta) {
         return 1;
     }
 
-    query = sxi_cluster_setmeta_proto(sx, -1, meta);
+    if(is_cluster_meta)
+        query = sxi_cluster_setmeta_proto(sx, -1, meta);
+    else
+        query = sxi_cluster_settings_proto(sx, -1, meta);
     if(!query) {
         SXDEBUG("Failed to prepare query");
         return 1;
     }
 
-    sxi_set_operation(sx, "set cluster meta", NULL, NULL, NULL);
+    sxi_set_operation(sx, is_cluster_meta ? "set cluster meta" : "set cluster settings", NULL, NULL, NULL);
     if(sxi_job_submit_and_poll(conns, hosts, query->verb, query->path, query->content, query->content_len)) {
         sxi_query_free(query);
         return 1;
@@ -4109,6 +4112,14 @@ int sxi_cluster_set_meta(sxc_cluster_t *cluster, sxc_meta_t *meta) {
 
     sxi_query_free(query);
     return 0;
+}
+
+int sxi_cluster_set_meta(sxc_cluster_t *cluster, sxc_meta_t *meta) {
+    return cluster_set_meta_common(cluster, meta, 1);
+}
+
+int sxi_cluster_set_settings(sxc_cluster_t *cluster, sxc_meta_t *meta) {
+    return cluster_set_meta_common(cluster, meta, 0);
 }
 
 char *sxc_cluster_configuration_link(sxc_cluster_t *cluster, const char *username, const char *token) {

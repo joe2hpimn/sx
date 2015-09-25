@@ -55,6 +55,8 @@ const char *cluster_args_info_full_help[] = {
   "      --set-meta=STRING       Set cluster metadata ('key=value' entries are\n                                accepted)",
   "      --get-meta=KEY          Show cluster metadata (use ALL to show all\n                                entries)",
   "      --delete-meta=KEY       Delete cluster metadata entry",
+  "      --set-param=STRING      Set cluster parameter ('key=value' entries are\n                                accepted)",
+  "      --get-param=KEY         Show cluster parameter value (use ALL to show all\n                                settings)",
   "\nNew cluster options:",
   "  -d, --node-dir=PATH         Path to the node directory",
   "      --port=INT              Set the cluster destination TCP port (default 443\n                                in secure mode or 80 in insecure mode)",
@@ -98,17 +100,19 @@ init_help_array(void)
   cluster_args_info_help[21] = cluster_args_info_full_help[22];
   cluster_args_info_help[22] = cluster_args_info_full_help[23];
   cluster_args_info_help[23] = cluster_args_info_full_help[24];
-  cluster_args_info_help[24] = cluster_args_info_full_help[26];
-  cluster_args_info_help[25] = cluster_args_info_full_help[27];
+  cluster_args_info_help[24] = cluster_args_info_full_help[25];
+  cluster_args_info_help[25] = cluster_args_info_full_help[26];
   cluster_args_info_help[26] = cluster_args_info_full_help[28];
   cluster_args_info_help[27] = cluster_args_info_full_help[29];
-  cluster_args_info_help[28] = cluster_args_info_full_help[31];
-  cluster_args_info_help[29] = cluster_args_info_full_help[33];
-  cluster_args_info_help[30] = 0; 
+  cluster_args_info_help[28] = cluster_args_info_full_help[30];
+  cluster_args_info_help[29] = cluster_args_info_full_help[31];
+  cluster_args_info_help[30] = cluster_args_info_full_help[33];
+  cluster_args_info_help[31] = cluster_args_info_full_help[35];
+  cluster_args_info_help[32] = 0; 
   
 }
 
-const char *cluster_args_info_help[31];
+const char *cluster_args_info_help[33];
 
 typedef enum {ARG_NO
   , ARG_FLAG
@@ -154,6 +158,8 @@ void clear_given (struct cluster_args_info *args_info)
   args_info->set_meta_given = 0 ; args_info->set_meta_group = 0 ;
   args_info->get_meta_given = 0 ;
   args_info->delete_meta_given = 0 ;
+  args_info->set_param_given = 0 ; args_info->set_param_group = 0 ;
+  args_info->get_param_given = 0 ;
   args_info->node_dir_given = 0 ;
   args_info->port_given = 0 ;
   args_info->ssl_ca_file_given = 0 ;
@@ -180,6 +186,10 @@ void clear_args (struct cluster_args_info *args_info)
   args_info->get_meta_orig = NULL;
   args_info->delete_meta_arg = NULL;
   args_info->delete_meta_orig = NULL;
+  args_info->set_param_arg = NULL;
+  args_info->set_param_orig = NULL;
+  args_info->get_param_arg = NULL;
+  args_info->get_param_orig = NULL;
   args_info->node_dir_arg = NULL;
   args_info->node_dir_orig = NULL;
   args_info->port_orig = NULL;
@@ -223,15 +233,19 @@ void init_args_info(struct cluster_args_info *args_info)
   args_info->set_meta_max = 0;
   args_info->get_meta_help = cluster_args_info_full_help[19] ;
   args_info->delete_meta_help = cluster_args_info_full_help[20] ;
-  args_info->node_dir_help = cluster_args_info_full_help[22] ;
-  args_info->port_help = cluster_args_info_full_help[23] ;
-  args_info->ssl_ca_file_help = cluster_args_info_full_help[24] ;
-  args_info->admin_key_help = cluster_args_info_full_help[25] ;
-  args_info->batch_mode_help = cluster_args_info_full_help[27] ;
-  args_info->human_readable_help = cluster_args_info_full_help[28] ;
-  args_info->debug_help = cluster_args_info_full_help[29] ;
-  args_info->config_dir_help = cluster_args_info_full_help[30] ;
-  args_info->locking_node_help = cluster_args_info_full_help[32] ;
+  args_info->set_param_help = cluster_args_info_full_help[21] ;
+  args_info->set_param_min = 0;
+  args_info->set_param_max = 0;
+  args_info->get_param_help = cluster_args_info_full_help[22] ;
+  args_info->node_dir_help = cluster_args_info_full_help[24] ;
+  args_info->port_help = cluster_args_info_full_help[25] ;
+  args_info->ssl_ca_file_help = cluster_args_info_full_help[26] ;
+  args_info->admin_key_help = cluster_args_info_full_help[27] ;
+  args_info->batch_mode_help = cluster_args_info_full_help[29] ;
+  args_info->human_readable_help = cluster_args_info_full_help[30] ;
+  args_info->debug_help = cluster_args_info_full_help[31] ;
+  args_info->config_dir_help = cluster_args_info_full_help[32] ;
+  args_info->locking_node_help = cluster_args_info_full_help[34] ;
   
 }
 
@@ -381,6 +395,9 @@ cluster_cmdline_parser_release (struct cluster_args_info *args_info)
   free_string_field (&(args_info->get_meta_orig));
   free_string_field (&(args_info->delete_meta_arg));
   free_string_field (&(args_info->delete_meta_orig));
+  free_multiple_string_field (args_info->set_param_given, &(args_info->set_param_arg), &(args_info->set_param_orig));
+  free_string_field (&(args_info->get_param_arg));
+  free_string_field (&(args_info->get_param_orig));
   free_string_field (&(args_info->node_dir_arg));
   free_string_field (&(args_info->node_dir_orig));
   free_string_field (&(args_info->port_orig));
@@ -474,6 +491,9 @@ cluster_cmdline_parser_dump(FILE *outfile, struct cluster_args_info *args_info)
     write_into_file(outfile, "get-meta", args_info->get_meta_orig, 0);
   if (args_info->delete_meta_given)
     write_into_file(outfile, "delete-meta", args_info->delete_meta_orig, 0);
+  write_multiple_into_file(outfile, args_info->set_param_given, "set-param", args_info->set_param_orig, 0);
+  if (args_info->get_param_given)
+    write_into_file(outfile, "get-param", args_info->get_param_orig, 0);
   if (args_info->node_dir_given)
     write_into_file(outfile, "node-dir", args_info->node_dir_orig, 0);
   if (args_info->port_given)
@@ -706,6 +726,11 @@ reset_group_MODE(struct cluster_args_info *args_info)
   args_info->delete_meta_given = 0 ;
   free_string_field (&(args_info->delete_meta_arg));
   free_string_field (&(args_info->delete_meta_orig));
+  args_info->set_param_given = 0 ; args_info->set_param_group = 0 ;
+  free_multiple_string_field (args_info->set_param_given, &(args_info->set_param_arg), &(args_info->set_param_orig));
+  args_info->get_param_given = 0 ;
+  free_string_field (&(args_info->get_param_arg));
+  free_string_field (&(args_info->get_param_orig));
 
   args_info->MODE_group_counter = 0;
 }
@@ -762,6 +787,9 @@ cluster_cmdline_parser_required2 (struct cluster_args_info *args_info, const cha
 
   /* checks for required options */
   if (check_multiple_option_occurrences(prog_name, args_info->set_meta_given, args_info->set_meta_min, args_info->set_meta_max, "'--set-meta'"))
+     error_occurred = 1;
+  
+  if (check_multiple_option_occurrences(prog_name, args_info->set_param_given, args_info->set_param_min, args_info->set_param_max, "'--set-param'"))
      error_occurred = 1;
   
   if (args_info->MODE_group_counter == 0)
@@ -1062,6 +1090,7 @@ cluster_cmdline_parser_internal (
   int c;	/* Character of the parsed option.  */
 
   struct generic_list * set_meta_list = NULL;
+  struct generic_list * set_param_list = NULL;
   int error_occurred = 0;
   struct cluster_args_info local_args_info;
   
@@ -1112,6 +1141,8 @@ cluster_cmdline_parser_internal (
         { "set-meta",	1, NULL, 0 },
         { "get-meta",	1, NULL, 0 },
         { "delete-meta",	1, NULL, 0 },
+        { "set-param",	1, NULL, 0 },
+        { "get-param",	1, NULL, 0 },
         { "node-dir",	1, NULL, 'd' },
         { "port",	1, NULL, 0 },
         { "ssl-ca-file",	1, NULL, 0 },
@@ -1489,6 +1520,39 @@ cluster_cmdline_parser_internal (
               goto failure;
           
           }
+          /* Set cluster parameter ('key=value' entries are accepted).  */
+          else if (strcmp (long_options[option_index].name, "set-param") == 0)
+          {
+          
+            if (update_multiple_arg_temp(&set_param_list, 
+                &(local_args_info.set_param_given), optarg, 0, 0, ARG_STRING,
+                "set-param", '-',
+                additional_error))
+              goto failure;
+            if (!args_info->set_param_group)
+              {
+                args_info->set_param_group = 1;
+                args_info->MODE_group_counter += 1;
+              }
+          
+          }
+          /* Show cluster parameter value (use ALL to show all settings).  */
+          else if (strcmp (long_options[option_index].name, "get-param") == 0)
+          {
+          
+            if (args_info->MODE_group_counter && override)
+              reset_group_MODE (args_info);
+            args_info->MODE_group_counter += 1;
+          
+            if (update_arg( (void *)&(args_info->get_param_arg), 
+                 &(args_info->get_param_orig), &(args_info->get_param_given),
+                &(local_args_info.get_param_given), optarg, 0, 0, ARG_STRING,
+                check_ambiguity, override, 0, 0,
+                "get-param", '-',
+                additional_error))
+              goto failure;
+          
+          }
           /* Set the cluster destination TCP port (default 443 in secure mode or 80 in insecure mode).  */
           else if (strcmp (long_options[option_index].name, "port") == 0)
           {
@@ -1554,9 +1618,15 @@ cluster_cmdline_parser_internal (
     &(args_info->set_meta_orig), args_info->set_meta_given,
     local_args_info.set_meta_given, 0,
     ARG_STRING, set_meta_list);
+  update_multiple_arg((void *)&(args_info->set_param_arg),
+    &(args_info->set_param_orig), args_info->set_param_given,
+    local_args_info.set_param_given, 0,
+    ARG_STRING, set_param_list);
 
   args_info->set_meta_given += local_args_info.set_meta_given;
   local_args_info.set_meta_given = 0;
+  args_info->set_param_given += local_args_info.set_param_given;
+  local_args_info.set_param_given = 0;
   
   if (check_required)
     {
@@ -1596,6 +1666,7 @@ cluster_cmdline_parser_internal (
 
 failure:
   free_list (set_meta_list, 1 );
+  free_list (set_param_list, 1 );
   
   cluster_cmdline_parser_release (&local_args_info);
   return (EXIT_FAILURE);

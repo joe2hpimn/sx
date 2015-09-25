@@ -69,6 +69,14 @@ struct cluster_args_info
   char * delete_meta_arg;	/**< @brief Delete cluster metadata entry.  */
   char * delete_meta_orig;	/**< @brief Delete cluster metadata entry original value given at command line.  */
   const char *delete_meta_help; /**< @brief Delete cluster metadata entry help description.  */
+  char ** set_param_arg;	/**< @brief Set cluster parameter ('key=value' entries are accepted).  */
+  char ** set_param_orig;	/**< @brief Set cluster parameter ('key=value' entries are accepted) original value given at command line.  */
+  unsigned int set_param_min; /**< @brief Set cluster parameter ('key=value' entries are accepted)'s minimum occurreces */
+  unsigned int set_param_max; /**< @brief Set cluster parameter ('key=value' entries are accepted)'s maximum occurreces */
+  const char *set_param_help; /**< @brief Set cluster parameter ('key=value' entries are accepted) help description.  */
+  char * get_param_arg;	/**< @brief Show cluster parameter value (use ALL to show all settings).  */
+  char * get_param_orig;	/**< @brief Show cluster parameter value (use ALL to show all settings) original value given at command line.  */
+  const char *get_param_help; /**< @brief Show cluster parameter value (use ALL to show all settings) help description.  */
   char * node_dir_arg;	/**< @brief Path to the node directory.  */
   char * node_dir_orig;	/**< @brief Path to the node directory original value given at command line.  */
   const char *node_dir_help; /**< @brief Path to the node directory help description.  */
@@ -114,6 +122,9 @@ struct cluster_args_info
   int set_meta_group ; /**< @brief Whether set-meta's was updated.  */
   unsigned int get_meta_given ;	/**< @brief Whether get-meta was given.  */
   unsigned int delete_meta_given ;	/**< @brief Whether delete-meta was given.  */
+  unsigned int set_param_given ;	/**< @brief Whether set-param was given.  */
+  int set_param_group ; /**< @brief Whether set-param's was updated.  */
+  unsigned int get_param_given ;	/**< @brief Whether get-param was given.  */
   unsigned int node_dir_given ;	/**< @brief Whether node-dir was given.  */
   unsigned int port_given ;	/**< @brief Whether port was given.  */
   unsigned int ssl_ca_file_given ;	/**< @brief Whether ssl-ca-file was given.  */

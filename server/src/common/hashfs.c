@@ -89,6 +89,8 @@ const unsigned int bsz[SIZES] = {SX_BS_SMALL, SX_BS_MEDIUM, SX_BS_LARGE};
 #define TOKEN_TEXT_LEN (UUID_STRING_SIZE + 1 + TOKEN_RAND_BYTES * 2 + 1 + TOKEN_REPLICA_LEN + 1 + TOKEN_EXPIRE_LEN + 1 + AUTH_KEY_LEN * 2)
 
 #define SX_CLUSTER_META_PREFIX "clusterMeta:"
+#define SX_CLUSTER_SETTINGS_PREFIX "$clusterSettings$"
+#define SX_CLUSTER_SETTINGS_TYPE_LEN lenof("STRING")
 
 /*#define DEBUG_REVISION_ID*/
 
@@ -726,6 +728,10 @@ struct _sx_hashfs_t {
     sqlite3_stmt *q_volbyid;
     sqlite3_stmt *q_metaget;
     sqlite3_stmt *q_get_cluster_meta;
+    sqlite3_stmt *q_get_prefixed_val;
+    sqlite3_stmt *q_get_prefixed_keyval;
+    sqlite3_stmt *q_set_prefixed_keyval;
+    sqlite3_stmt *q_iterate_prefixed_keyval;
     sqlite3_stmt *q_drop_cluster_meta;
     sqlite3_stmt *q_nextvol;
     sqlite3_stmt *q_getaccess;
@@ -930,6 +936,14 @@ struct _sx_hashfs_t {
     unsigned int relocdb_start, relocdb_cur;
     int64_t relocid;
 
+    struct {
+        /* The cluster setting type */
+        sx_setting_type_t type;
+        /* The setting key */
+        char key[SXLIMIT_SETTINGS_MAX_KEY_LEN+1];
+        /* The setting value string representation, validated according to the key type */
+        char value[SXLIMIT_SETTINGS_MAX_VALUE_LEN+1];
+    } current_setting;
 
     int datafd[SIZES][HASHDBS];
     sx_uuid_t cluster_uuid, node_uuid; /* MODHDIST: store sx_node_t instead - see sx_hashfs_self */
@@ -1124,6 +1138,9 @@ static void close_all_dbs(sx_hashfs_t *h) {
     sqlite3_finalize(h->q_volbyid);
     sqlite3_finalize(h->q_metaget);
     sqlite3_finalize(h->q_get_cluster_meta);
+    sqlite3_finalize(h->q_get_prefixed_val);
+    sqlite3_finalize(h->q_set_prefixed_keyval);
+    sqlite3_finalize(h->q_get_prefixed_keyval);
     sqlite3_finalize(h->q_drop_cluster_meta);
     sqlite3_finalize(h->q_delval);
     sqlite3_finalize(h->q_setval);
@@ -1727,6 +1744,18 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
         goto open_hashfs_fail;
     if(qprep(h->db, &h->q_drop_cluster_meta, "DELETE FROM hashfs WHERE key LIKE '"SX_CLUSTER_META_PREFIX"%'"))
         goto open_hashfs_fail;
+
+    /* Prefixed key-value pairs, they are stored in hashfs table with special prefix. Queries below are common for the prefixed entries,
+     * which are currently cluster meta and cluster settings. */
+    /* :pattern is the prefix with appended '%' character to support LIKE. TODO: Check if the '%' could be added directly here.
+     * TODO: also check if order by is needed. */
+    if(qprep(h->db, &h->q_get_prefixed_keyval, "SELECT key, value FROM hashfs WHERE key LIKE :pattern AND (:previous IS NULL OR key > :previous) ORDER BY key"))
+        goto open_hashfs_fail;
+    if(qprep(h->db, &h->q_get_prefixed_val, "SELECT value FROM hashfs WHERE key = :prefix || :key"))
+        goto open_hashfs_fail;
+    if(qprep(h->db, &h->q_set_prefixed_keyval, "INSERT OR REPLACE INTO hashfs (key,value) VALUES (:prefix || :key, :value)"))
+        goto open_hashfs_fail;
+
     if(qprep(h->db, &h->q_addvol, "INSERT INTO volumes (volume, replica, revs, cursize, maxsize, owner_id) VALUES (:volume, :replica, :revs, 0, :size, :owner)"))
 	goto open_hashfs_fail;
     if(qprep(h->db, &h->q_addvolmeta, "INSERT INTO vmeta (volume_id, key, value) VALUES (:volume, :key, :value)"))
@@ -2418,6 +2447,213 @@ rc_ty sx_hashfs_check_meta(const char *key, const void *value, unsigned int valu
 	return EINVAL;
     }
     return OK;
+}
+
+/* Use this function to validate cluster settings. Its aim is to check whether specific settings
+ * are consistent with other ones. */
+static rc_ty cluster_settings_validate(sx_hashfs_t *h) {
+
+    /*
+     * Put all other necessary checks here
+     */
+
+    return OK;
+}
+
+static rc_ty settings_check_int64(sx_hashfs_t *h, const char *key, const char *value, int64_t *ret) {
+    char *enumb = NULL;
+    int64_t l;
+    if(strlen(value) > 20) {
+        msg_set_reason("Invalid setting value for type INT");
+        return EINVAL;
+    }
+
+    l = strtoll(value, &enumb, 10);
+    if(enumb && *enumb) {
+        msg_set_reason("Invalid setting value for type INT");
+        return EINVAL;
+    }
+
+    if(ret)
+        *ret = l;
+    return OK;
+}
+
+static rc_ty settings_check_uint64(sx_hashfs_t *h, const char *key, const char *value, uint64_t *ret) {
+    char *enumb = NULL;
+    uint64_t l;
+    if(strlen(value) > 20) {
+        msg_set_reason("Invalid setting value for type UINT");
+        return EINVAL;
+    }
+
+    if(*value == '-') {
+        msg_set_reason("Invalid setting value for type UINT");
+        return EINVAL;
+    }
+
+    l = strtoull(value, &enumb, 10);
+    if(enumb && *enumb) {
+        msg_set_reason("Invalid setting value for type UINT");
+        return EINVAL;
+    }
+
+    if(ret)
+        *ret = l;
+    return OK;
+}
+
+static rc_ty settings_check_bool(sx_hashfs_t *h, const char *key, const char *value, int *ret) {
+    int l;
+    if(!strcmp(value, "1"))
+        l = 1;
+    else if(!strcmp(value, "0"))
+        l = 0;
+    else {
+        msg_set_reason("Invalid setting value for type BOOL");
+        return EINVAL;
+    }
+
+    if(ret)
+        *ret = l;
+    return OK;
+}
+
+static rc_ty settings_check_float(sx_hashfs_t *h, const char *key, const char *value, double *ret) {
+    char *enumb = NULL;
+    double l;
+
+    l = strtod(value, &enumb);
+    if(enumb && *enumb) {
+        msg_set_reason("Invalid setting value for type FLOAT");
+        return EINVAL;
+    }
+
+    if(ret)
+        *ret = l;
+    return OK;
+}
+
+static rc_ty settings_check_string(sx_hashfs_t *h, const char *key, const char *value) {
+    if(sxi_utf8_validate(value)) {
+        msg_set_reason("Invalid setting value for type STRING");
+        return EINVAL;
+    }
+    return OK;
+}
+
+static rc_ty settings_check_common(const char *key, sx_setting_type_t type, const char *value) {
+    unsigned int key_len;
+    unsigned int value_len;
+
+    if(!key || !value) {
+        NULLARG();
+        WARN("NULL ARGUMENT");
+        return EFAULT;
+    }
+
+    key_len = strlen(key);
+    if(key_len < SXLIMIT_SETTINGS_MIN_KEY_LEN) {
+        msg_set_reason("Invalid setting key length %d: must be between %d and %d",
+                       key_len, SXLIMIT_SETTINGS_MIN_KEY_LEN, SXLIMIT_SETTINGS_MAX_KEY_LEN);
+        return EINVAL;
+    }
+    if(key_len > SXLIMIT_SETTINGS_MAX_KEY_LEN) {
+        msg_set_reason("Invalid setting key length %d: must be between %d and %d",
+                       key_len, SXLIMIT_SETTINGS_MIN_KEY_LEN, SXLIMIT_SETTINGS_MAX_KEY_LEN);
+        return EMSGSIZE;
+    }
+    value_len = strlen(value);
+    if(SXLIMIT_SETTINGS_MIN_VALUE_LEN > 0 && value_len < SXLIMIT_SETTINGS_MIN_VALUE_LEN) {
+        msg_set_reason("Invalid setting value length %d: must be between %d and %d",
+                       value_len, SXLIMIT_SETTINGS_MIN_VALUE_LEN, SXLIMIT_SETTINGS_MAX_VALUE_LEN);
+        return EINVAL;
+    }
+    if(value_len > SXLIMIT_SETTINGS_MAX_VALUE_LEN) {
+        msg_set_reason("Invalid setting value length %d: must be between %d and %d",
+                       value_len, SXLIMIT_SETTINGS_MIN_VALUE_LEN, SXLIMIT_SETTINGS_MAX_VALUE_LEN);
+        return EMSGSIZE;
+    }
+
+    if(utf8_validate_len(key) < 0) {
+        msg_set_reason("Invalid setting key '%s': must be valid UTF8", key);
+        return EINVAL;
+    }
+    return OK;
+}
+
+rc_ty sx_hashfs_parse_cluster_setting(sx_hashfs_t *h, const char *key, sx_setting_type_t type, const char *value, sx_blob_t *out) {
+    rc_ty s;
+
+    if(!key || !value || !out) {
+        NULLARG();
+        return EINVAL;
+    }
+
+    s = settings_check_common(key, type, value);
+    if(s)
+        return s;
+    switch(type) {
+        case SX_SETTING_TYPE_INT: {
+            int64_t v;
+            s = settings_check_int64(h, key, value, &v);
+            if(s != OK)
+                return s;
+            if(sx_blob_add_int64(out, v)) {
+                msg_set_reason("Failed to add integer value to blob");
+                return s;
+            }
+            return OK;
+        }
+
+        case SX_SETTING_TYPE_UINT: {
+            uint64_t v;
+            s = settings_check_uint64(h, key, value, &v);
+            if(s != OK)
+                return s;
+            if(sx_blob_add_uint64(out, v)) {
+                msg_set_reason("Failed to add unsigned integer value to blob");
+                return s;
+            }
+            return OK;
+        }
+
+        case SX_SETTING_TYPE_BOOL: {
+            int v;
+            s = settings_check_bool(h, key, value, &v);
+            if(s != OK)
+                return s;
+            if(sx_blob_add_bool(out, v)) {
+                msg_set_reason("Failed to add float value to blob");
+                return s;
+            }
+            return OK;
+        }
+
+        case SX_SETTING_TYPE_FLOAT: {
+            double v;
+            s = settings_check_float(h, key, value, &v);
+            if(s != OK)
+                return s;
+            if(sx_blob_add_float(out, v)) {
+                msg_set_reason("Failed to add integer float to blob");
+                return s;
+            }
+            return OK;
+        }
+
+        case SX_SETTING_TYPE_STRING: {
+            s = settings_check_string(h, key, value);
+            if(s != OK)
+                return s;
+            if(sx_blob_add_string(out, value)) {
+                msg_set_reason("Failed to add integer value to blob");
+                return s;
+            }
+            return OK;
+        }
+    }
+    return FAIL_EINTERNAL;
 }
 
 rc_ty sx_hashfs_check_volume_meta(const char *key, const void *value, unsigned int value_len, int check_prefix) {
@@ -11190,8 +11426,7 @@ rc_ty sx_hashfs_volumemeta_next(sx_hashfs_t *h, const char **key, const void **v
     return sx_hashfs_getfilemeta_next(h, key, value, value_len);
 }
 
-/* Return last modification time of cluster meta. Default to time(NULL) if not set yet. */
-rc_ty sx_hashfs_clustermeta_last_change(sx_hashfs_t *h, time_t *t) {
+static rc_ty cluster_meta_last_change_common(sx_hashfs_t *h, time_t *t, int is_cluster_meta) {
     int r;
 
     if(!t) {
@@ -11199,7 +11434,7 @@ rc_ty sx_hashfs_clustermeta_last_change(sx_hashfs_t *h, time_t *t) {
         return EINVAL;
     }
 
-    if(qbind_text(h->q_getval, ":k", "clusterMetaLastModified")) {
+    if(qbind_text(h->q_getval, ":k", is_cluster_meta ? "clusterMetaLastModified" : "clusterSettingsLastModified")) {
         WARN("Failed to get cluster meta last modification time");
         return FAIL_EINTERNAL;
     }
@@ -11226,6 +11461,11 @@ rc_ty sx_hashfs_clustermeta_last_change(sx_hashfs_t *h, time_t *t) {
         *t = time(NULL);
         return OK;
     }
+}
+
+/* Return last modification time of cluster meta. Default to time(NULL) if not set yet. */
+rc_ty sx_hashfs_clustermeta_last_change(sx_hashfs_t *h, time_t *t) {
+    return cluster_meta_last_change_common(h, t, 1);
 }
 
 rc_ty sx_hashfs_clustermeta_begin(sx_hashfs_t *h) {
@@ -11358,6 +11598,585 @@ sx_hashfs_clustermeta_set_err:
         qrollback(h->db);
     sqlite3_reset(q);
     return ret;
+}
+
+rc_ty sx_hashfs_modify_cluster_settings_begin(sx_hashfs_t *h) {
+    if(qbegin(h->db)) {
+        INFO("Failed to lock database");
+        return FAIL_LOCKED;
+    }
+    return OK;
+}
+
+void sx_hashfs_modify_cluster_settings_abort(sx_hashfs_t *h) {
+    qrollback(h->db);
+}
+
+static rc_ty settings_insert(sx_hashfs_t *h, const char *key, const sx_blob_t *b) {
+    sqlite3_stmt *q = h->q_set_prefixed_keyval;
+    const void *data;
+    unsigned int data_len;
+
+    if(!key || !b) {
+        NULLARG();
+        return EINVAL;
+    }
+
+    sx_blob_to_data(b, &data, &data_len);
+    if(qbind_text(q, ":key", key) || qbind_text(q, ":prefix", SX_CLUSTER_SETTINGS_PREFIX) ||
+       qbind_blob(q, ":value", data, data_len) || qstep_noret(q)) {
+        sqlite3_reset(q);
+        msg_set_reason("Failed to save cluster settings");
+        return FAIL_EINTERNAL;
+    }
+    sqlite3_reset(q);
+    return OK;
+}
+
+rc_ty sx_hashfs_cluster_settings_set_int64(sx_hashfs_t *h, const char *key, int64_t value) {
+    sx_blob_t *b;
+
+    b = sx_blob_new();
+    if(!b) {
+        msg_set_reason("Out of memory");
+        INFO("Failed to allocate new blob");
+        return FAIL_EINTERNAL;
+    }
+
+    if(sx_blob_add_int64(b, value)) {
+        msg_set_reason("Out of memory");
+        INFO("Failed to add data to blob");
+        sx_blob_free(b);
+        return FAIL_EINTERNAL;
+    }
+
+    if(settings_insert(h, key, b)) {
+        INFO("Failed to save settings");
+        sx_blob_free(b);
+        return FAIL_EINTERNAL;
+    }
+
+    sx_blob_free(b);
+    return OK;
+}
+
+rc_ty sx_hashfs_cluster_settings_set_uint64(sx_hashfs_t *h, const char *key, uint64_t value) {
+    sx_blob_t *b;
+
+    b = sx_blob_new();
+    if(!b) {
+        msg_set_reason("Out of memory");
+        INFO("Failed to allocate new blob");
+        return FAIL_EINTERNAL;
+    }
+
+    if(sx_blob_add_uint64(b, value)) {
+        msg_set_reason("Out of memory");
+        INFO("Failed to add data to blob");
+        sx_blob_free(b);
+        return FAIL_EINTERNAL;
+    }
+
+    if(settings_insert(h, key, b)) {
+        INFO("Failed to save settings");
+        sx_blob_free(b);
+        return FAIL_EINTERNAL;
+    }
+
+    sx_blob_free(b);
+    return OK;
+}
+
+rc_ty sx_hashfs_cluster_settings_set_bool(sx_hashfs_t *h, const char *key, int value) {
+    sx_blob_t *b;
+
+    b = sx_blob_new();
+    if(!b) {
+        msg_set_reason("Out of memory");
+        INFO("Failed to allocate new blob");
+        return FAIL_EINTERNAL;
+    }
+
+    if(sx_blob_add_bool(b, value)) {
+        msg_set_reason("Out of memory");
+        INFO("Failed to add data to blob");
+        sx_blob_free(b);
+        return FAIL_EINTERNAL;
+    }
+
+    if(settings_insert(h, key, b)) {
+        INFO("Failed to save settings");
+        sx_blob_free(b);
+        return FAIL_EINTERNAL;
+    }
+
+    sx_blob_free(b);
+    return OK;
+}
+
+rc_ty sx_hashfs_cluster_settings_set_double(sx_hashfs_t *h, const char *key, double value) {
+    sx_blob_t *b;
+
+    b = sx_blob_new();
+    if(!b) {
+        msg_set_reason("Out of memory");
+        INFO("Failed to allocate new blob");
+        return FAIL_EINTERNAL;
+    }
+
+    if(sx_blob_add_float(b, value)) {
+        msg_set_reason("Out of memory");
+        INFO("Failed to add data to blob");
+        sx_blob_free(b);
+        return FAIL_EINTERNAL;
+    }
+
+    if(settings_insert(h, key, b)) {
+        INFO("Failed to save settings");
+        sx_blob_free(b);
+        return FAIL_EINTERNAL;
+    }
+
+    sx_blob_free(b);
+    return OK;
+}
+
+rc_ty sx_hashfs_cluster_settings_set_string(sx_hashfs_t *h, const char *key, const char *string) {
+    sx_blob_t *b;
+
+    b = sx_blob_new();
+    if(!b) {
+        msg_set_reason("Out of memory");
+        INFO("Failed to allocate new blob");
+        return FAIL_EINTERNAL;
+    }
+
+    if(sx_blob_add_string(b, string)) {
+        msg_set_reason("Out of memory");
+        INFO("Failed to add data to blob");
+        sx_blob_free(b);
+        return FAIL_EINTERNAL;
+    }
+
+    if(settings_insert(h, key, b)) {
+        INFO("Failed to save settings");
+        sx_blob_free(b);
+        return FAIL_EINTERNAL;
+    }
+
+    sx_blob_free(b);
+    return OK;
+}
+
+rc_ty sx_hashfs_modify_cluster_settings_end(sx_hashfs_t *h, time_t ts, int in_transaction) {
+    rc_ty ret = FAIL_EINTERNAL;
+    sqlite3_stmt *q = h->q_setval;
+
+    sqlite3_reset(q);
+    if(ts && (qbind_text(q, ":k", "clusterSettingsLastModified") || qbind_blob(q, ":v", &ts, sizeof(ts)) || qstep_noret(q))) {
+        WARN("Failed to set last modification time");
+        goto sx_hashfs_modify_cluster_settings_finish_err;
+    }
+
+    /* Validate cluster settings when all modifications are applied */
+    if(cluster_settings_validate(h))
+        goto sx_hashfs_modify_cluster_settings_finish_err;
+
+    if(!in_transaction && qcommit(h->db)) {
+        WARN("Failed to commit transaction");
+        goto sx_hashfs_modify_cluster_settings_finish_err;
+    }
+
+    ret = OK;
+sx_hashfs_modify_cluster_settings_finish_err:
+    if(!in_transaction && ret != OK)
+        sx_hashfs_modify_cluster_settings_abort(h);
+    sqlite3_reset(q);
+    return ret;
+}
+
+rc_ty sx_hashfs_cluster_settings_first(sx_hashfs_t *h, const char **key, sx_setting_type_t **type, const char **value) {
+    rc_ty s;
+
+    if(!h) {
+        NULLARG();
+        return EFAULT;
+    }
+
+    /* Reset the currently stored setting entry */
+    memset(h->current_setting.key, 0, sizeof(h->current_setting.key));
+    memset(h->current_setting.value, 0, sizeof(h->current_setting.value));
+
+    /* Pick first entry */
+    s = sx_hashfs_cluster_settings_next(h);
+    if(s != OK)
+        return s;
+
+    if(key)
+        *key = h->current_setting.key;
+    if(type)
+        *type = &h->current_setting.type;
+    if(value)
+        *value = h->current_setting.value;
+    return OK;
+}
+
+rc_ty sx_hashfs_cluster_settings_next(sx_hashfs_t *h) {
+    sqlite3_stmt *q = h->q_get_prefixed_keyval;
+    rc_ty ret = FAIL_EINTERNAL;
+    int r;
+    sx_blob_t *b = NULL;
+    char prev[SXLIMIT_SETTINGS_MAX_KEY_LEN + lenof(SX_CLUSTER_SETTINGS_PREFIX) + 1];
+
+    snprintf(prev, sizeof(prev), "%s%s", SX_CLUSTER_SETTINGS_PREFIX, h->current_setting.key);
+    sqlite3_reset(q);
+    if(qbind_text(q, ":pattern", SX_CLUSTER_SETTINGS_PREFIX"%") || qbind_text(q, ":previous", prev)) {
+        WARN("Failed to bind query values");
+        sqlite3_reset(q);
+        return FAIL_EINTERNAL;
+    }
+
+    r = qstep(q);
+    if(r == SQLITE_ROW) {
+        const char *key;
+        const void *data;
+        unsigned int data_len;
+        blob_object_t obj;
+
+        key = (const char *)sqlite3_column_text(q, 0);
+        data = sqlite3_column_blob(q, 1);
+        data_len = sqlite3_column_bytes(q, 1);
+        if(!data || data_len < SXLIMIT_SETTINGS_MIN_VALUE_LEN || data_len > SXLIMIT_SETTINGS_MAX_VALUE_LEN) {
+            WARN("Invalid settings entry");
+            goto sx_hashfs_cluster_settings_begin_err;
+        }
+
+        if(!key || strlen(key) < SXLIMIT_SETTINGS_MIN_KEY_LEN + lenof(SX_CLUSTER_SETTINGS_PREFIX) ||
+           strncmp(key, SX_CLUSTER_SETTINGS_PREFIX, lenof(SX_CLUSTER_SETTINGS_PREFIX))) {
+            WARN("Invaid key format: %s", key);
+            goto sx_hashfs_cluster_settings_begin_err;
+        }
+
+        b = sx_blob_from_data(data, data_len);
+        if(!b) {
+            INFO("Failed to get blob from data");
+            goto sx_hashfs_cluster_settings_begin_err;
+        }
+
+        if(sx_blob_peek_objtype(b, &obj)) {
+            INFO("Failed to get setting type from blob");
+            goto sx_hashfs_cluster_settings_begin_err;
+        }
+
+        /* Parse the setting value */
+        switch(obj) {
+            case BLOB_INT64: {
+                int64_t v;
+                if(sx_blob_get_int64(b, &v)) {
+                    WARN("Failed to get integer setting type");
+                    goto sx_hashfs_cluster_settings_begin_err;
+                }
+                sprintf(h->current_setting.value, "%lld", (long long)v);
+                h->current_setting.type = SX_SETTING_TYPE_INT;
+                break;
+            }
+            case BLOB_UINT64: {
+                uint64_t v;
+                if(sx_blob_get_uint64(b, &v)) {
+                    WARN("Failed to get unsigned integer setting type");
+                    goto sx_hashfs_cluster_settings_begin_err;
+                }
+                sprintf(h->current_setting.value, "%llu", (unsigned long long)v);
+                h->current_setting.type = SX_SETTING_TYPE_UINT;
+                break;
+            }
+            case BLOB_BOOL: {
+                int v;
+                if(sx_blob_get_bool(b, &v)) {
+                    WARN("Failed to get boolean setting type");
+                    goto sx_hashfs_cluster_settings_begin_err;
+                }
+                sprintf(h->current_setting.value, "%d", v);
+                h->current_setting.type = SX_SETTING_TYPE_BOOL;
+                break;
+            }
+            case BLOB_FLOAT: {
+                double v;
+                if(sx_blob_get_float(b, &v)) {
+                    WARN("Failed to get float setting type");
+                    goto sx_hashfs_cluster_settings_begin_err;
+                }
+                sprintf(h->current_setting.value, "%lf", v);
+                h->current_setting.type = SX_SETTING_TYPE_FLOAT;
+                break;
+            }
+            case BLOB_STRING: {
+                const char *str;
+                if(sx_blob_get_string(b, &str)) {
+                    WARN("Failed to get string setting type");
+                    goto sx_hashfs_cluster_settings_begin_err;
+                }
+                if(strlen(str) > SXLIMIT_SETTINGS_MAX_VALUE_LEN) {
+                    WARN("Failed to get string setting type");
+                    goto sx_hashfs_cluster_settings_begin_err;
+                }
+                sxi_strlcpy(h->current_setting.value, str, sizeof(h->current_setting.value));
+                h->current_setting.type = SX_SETTING_TYPE_STRING;
+                break;
+            }
+            default: {
+                WARN("Unknown type of setting: %d", obj);
+                goto sx_hashfs_cluster_settings_begin_err;
+            }
+        }
+        sxi_strlcpy(h->current_setting.key, key + lenof(SX_CLUSTER_SETTINGS_PREFIX), sizeof(h->current_setting.key) - lenof(SX_CLUSTER_SETTINGS_PREFIX));
+
+        if(settings_check_common(key, h->current_setting.type, h->current_setting.value)) {
+            INFO("Failed to get setting type from blob");
+            goto sx_hashfs_cluster_settings_begin_err;
+        }
+
+        ret = OK;
+    } else if(r != SQLITE_DONE) {
+        INFO("Failed to iterate all cluster settings");
+        goto sx_hashfs_cluster_settings_begin_err;
+    } else
+        ret = ITER_NO_MORE;
+sx_hashfs_cluster_settings_begin_err:
+    sqlite3_reset(q);
+    sx_blob_free(b);
+
+    return ret;
+}
+
+rc_ty sx_hashfs_cluster_settings_last_change(sx_hashfs_t *h, time_t *t) {
+    return cluster_meta_last_change_common(h, t, 0);
+}
+
+static rc_ty cluster_settings_get_common(sx_hashfs_t* h, const char *key, sx_blob_t **out) {
+    int r;
+    sqlite3_stmt *q = h->q_get_prefixed_val;
+
+    if(!key || !out) {
+        NULLARG();
+        return EINVAL;
+    }
+
+    *out = NULL;
+
+    if(strlen(key) > SXLIMIT_SETTINGS_MAX_KEY_LEN || strlen(key) < SXLIMIT_SETTINGS_MIN_KEY_LEN)
+        return EINVAL;
+
+    sqlite3_reset(q);
+    if(qbind_text(q, ":key", key) || qbind_text(q, ":prefix", SX_CLUSTER_SETTINGS_PREFIX)) {
+        INFO("Failed to get cluster settings entry at '%s'", key);
+        sqlite3_reset(q);
+        return FAIL_EINTERNAL;
+    }
+
+    r = qstep(q);
+    if(r == SQLITE_DONE) {
+        sqlite3_reset(q);
+        msg_set_reason("Key '%s' does not exist", key);
+        return ENOENT;
+    } else if(r == SQLITE_ROW) {
+        const void *data;
+        unsigned int data_len;
+
+        data = sqlite3_column_blob(q, 0);
+        data_len = sqlite3_column_bytes(q, 0);
+        if(!data || data_len < SXLIMIT_SETTINGS_MIN_VALUE_LEN || data_len > SXLIMIT_SETTINGS_MAX_VALUE_LEN) {
+            sqlite3_reset(q);
+            return FAIL_EINTERNAL;
+        }
+
+        *out = sx_blob_from_data(data, data_len);
+        if(!*out) {
+            INFO("Failed to get blob from data");
+            sqlite3_reset(q);
+            return FAIL_EINTERNAL;
+        }
+        sqlite3_reset(q);
+    } else {
+        INFO("Failed to get cluster settings entry at '%s'", key);
+        sqlite3_reset(q);
+        return FAIL_EINTERNAL;
+    }
+
+    sqlite3_reset(q);
+    return OK;
+}
+
+rc_ty sx_hashfs_cluster_settings_get(sx_hashfs_t *h, const char *key, sx_setting_type_t *type, const char **value) {
+    sx_blob_t *b = NULL;
+    blob_object_t obj;
+    rc_ty s;
+    if((s = cluster_settings_get_common(h, key, &b)) != OK)
+        return s;
+
+    if(sx_blob_peek_objtype(b, &obj)) {
+        INFO("Failed to get setting type from blob");
+        sx_blob_free(b);
+        return FAIL_EINTERNAL;
+    }
+
+    switch(obj) {
+        case BLOB_INT64: {
+            int64_t v;
+            if(sx_blob_get_int64(b, &v)) {
+                WARN("Failed to get integer setting type");
+                sx_blob_free(b);
+                return FAIL_EINTERNAL;
+            }
+            h->current_setting.type = SX_SETTING_TYPE_INT;
+            sprintf(h->current_setting.value, "%lld", (long long)v);
+            break;
+        }
+        case BLOB_UINT64: {
+            uint64_t v;
+            if(sx_blob_get_uint64(b, &v)) {
+                WARN("Failed to get unsigned integer setting type");
+                sx_blob_free(b);
+                return FAIL_EINTERNAL;
+            }
+            sprintf(h->current_setting.value, "%llu", (unsigned long long)v);
+            h->current_setting.type = SX_SETTING_TYPE_UINT;
+            break;
+        }
+        case BLOB_BOOL: {
+            int v;
+            if(sx_blob_get_bool(b, &v)) {
+                WARN("Failed to get boolean setting type");
+                sx_blob_free(b);
+                return FAIL_EINTERNAL;
+            }
+            sprintf(h->current_setting.value, "%d", v);
+            h->current_setting.type = SX_SETTING_TYPE_BOOL;
+            break;
+        }
+        case BLOB_FLOAT: {
+            double v;
+            if(sx_blob_get_float(b, &v)) {
+                WARN("Failed to get float setting type");
+                sx_blob_free(b);
+                return FAIL_EINTERNAL;
+            }
+            sprintf(h->current_setting.value, "%lf", v);
+            h->current_setting.type = SX_SETTING_TYPE_FLOAT;
+            break;
+        }
+        case BLOB_STRING: {
+            const char *str;
+            h->current_setting.type = SX_SETTING_TYPE_STRING;
+            if(sx_blob_get_string(b, &str)) {
+                WARN("Failed to get string setting type");
+                sx_blob_free(b);
+                return FAIL_EINTERNAL;
+            }
+            sxi_strlcpy(h->current_setting.value, str, sizeof(h->current_setting.value));
+            break;
+        }
+        default: {
+            WARN("Unknown type of setting: %d", obj);
+            sx_blob_free(b);
+            return FAIL_EINTERNAL;
+        }
+    }
+    sxi_strlcpy(h->current_setting.key, key, sizeof(h->current_setting.key));
+        
+    *value = h->current_setting.value;
+    *type = h->current_setting.type;
+    sx_blob_free(b);
+    return OK;
+}
+
+rc_ty sx_hashfs_cluster_settings_get_int64(sx_hashfs_t *h, const char *key, int64_t *ret) {
+    sx_blob_t *b = NULL;
+    rc_ty s;
+    if((s = cluster_settings_get_common(h, key, &b)) != OK)
+        return s;
+
+    if(sx_blob_get_int64(b, ret)) {
+        INFO("Failed to get integer type from blob");
+        sx_blob_free(b);
+        return FAIL_EINTERNAL;
+    }
+
+    sx_blob_free(b);
+    return OK;
+}
+
+rc_ty sx_hashfs_cluster_settings_get_uint64(sx_hashfs_t *h, const char *key, uint64_t *ret) {
+    sx_blob_t *b = NULL;
+    rc_ty s;
+    if((s = cluster_settings_get_common(h, key, &b)) != OK)
+        return s;
+
+    if(sx_blob_get_uint64(b, ret)) {
+        INFO("Failed to get unsigned integer type from blob");
+        sx_blob_free(b);
+        return FAIL_EINTERNAL;
+    }
+
+    sx_blob_free(b);
+    return OK;
+}
+
+rc_ty sx_hashfs_cluster_settings_get_boolean(sx_hashfs_t *h, const char *key, int *ret) {
+    sx_blob_t *b = NULL;
+    rc_ty s;
+    if((s = cluster_settings_get_common(h, key, &b)) != OK)
+        return s;
+
+    if(sx_blob_get_bool(b, ret)) {
+        INFO("Failed to get bool type from blob");
+        sx_blob_free(b);
+        return FAIL_EINTERNAL;
+    }
+
+    sx_blob_free(b);
+    return OK;
+}
+
+rc_ty sx_hashfs_cluster_settings_get_double(sx_hashfs_t *h, const char *key, double *ret) {
+    sx_blob_t *b = NULL;
+    rc_ty s;
+    if((s = cluster_settings_get_common(h, key, &b)) != OK)
+        return s;
+
+    if(sx_blob_get_float(b, ret)) {
+        INFO("Failed to get float type from blob");
+        sx_blob_free(b);
+        return FAIL_EINTERNAL;
+    }
+
+    sx_blob_free(b);
+    return OK;
+}
+
+rc_ty sx_hashfs_cluster_settings_get_string(sx_hashfs_t *h, const char *key, char *ret, unsigned int max_len) {
+    sx_blob_t *b = NULL;
+    rc_ty s;
+    const char *str;
+
+    if((s = cluster_settings_get_common(h, key, &b)) != OK)
+        return s;
+
+    if(sx_blob_get_string(b, &str)) {
+        INFO("Failed to get string type from blob");
+        sx_blob_free(b);
+        return FAIL_EINTERNAL;
+    }
+
+    if(strlen(str) > max_len) {
+        INFO("Buffer too short");
+        sx_blob_free(b);
+        return EINVAL;
+    }
+
+    sxi_strlcpy(ret, str, max_len);
+    sx_blob_free(b);
+    return OK;
 }
 
 rc_ty sx_hashfs_get_user_info(sx_hashfs_t *h, const uint8_t *user, sx_uid_t *uid, uint8_t *key, sx_priv_t *basepriv, char **desc, int64_t *quota) {
@@ -11663,6 +12482,7 @@ static const char *locknames[] = {
     "MASSRENAME", /* JOBTYPE_MASSRENAME */
     "CLUSTER_SETMETA", /* JOBTYPE_CLUSTER_SETMETA */
     NULL, /* JOBTYPE_JOBSPAWN */
+    "CLUSTER_SETTINGS", /* JOBTYPE_CLUSTER_SETTINGS */
 };
 
 #define MAX_PENDING_JOBS 128

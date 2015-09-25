@@ -78,6 +78,7 @@ typedef enum _jobtype_t {
     JOBTYPE_MASSRENAME,
     JOBTYPE_CLUSTER_SETMETA,
     JOBTYPE_JOBSPAWN,
+    JOBTYPE_CLUSTER_SETTINGS,
 } jobtype_t;
 
 typedef enum {
@@ -108,6 +109,7 @@ extern const job_2pc_t volmod_spec;
 extern const job_2pc_t cluster_mode_spec;
 extern const job_2pc_t revision_spec;
 extern const job_2pc_t cluster_setmeta_spec;
+extern const job_2pc_t cluster_settings_spec;
 
 void job_2pc_handle_request(sxc_client_t *sx, const job_2pc_t *spec, void *yctx);
 #endif

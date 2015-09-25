@@ -1105,11 +1105,10 @@ sxi_query_t *sxi_cluster_upgrade_proto(sxc_client_t *sx) {
     return sxi_query_create(sx, ".upgrade", REQ_PUT);
 }
 
-sxi_query_t *sxi_cluster_setmeta_proto(sxc_client_t *sx, int timestamp, sxc_meta_t *meta) {
+static sxi_query_t *cluster_setmeta_proto_common(sxc_client_t *sx, int timestamp, sxc_meta_t *meta, int is_cluster_meta) {
     sxi_query_t *query;
 
-    query = sxi_query_create(sx, ".clusterMeta", REQ_PUT);
-
+    query = sxi_query_create(sx, is_cluster_meta ? ".clusterMeta" : ".clusterSettings", REQ_PUT);
     if(query)
         query = sxi_query_append_fmt(sx, query, 1, "{");
 
@@ -1119,12 +1118,20 @@ sxi_query_t *sxi_cluster_setmeta_proto(sxc_client_t *sx, int timestamp, sxc_meta
 
     /* This should also enclose the JSON */
     if(query)
-        query = sxi_query_add_meta(sx, query, "clusterMeta", meta, timestamp != -1 ? 1 : 0, 1);
+        query = sxi_query_add_meta(sx, query, is_cluster_meta ? "clusterMeta" : "clusterSettings", meta, timestamp != -1 ? 1 : 0, 1);
 
     if(!query)
         sxi_seterr(sx, SXE_EMEM, "Failed to allocate query");
 
     return query;
+}
+
+sxi_query_t *sxi_cluster_setmeta_proto(sxc_client_t *sx, int timestamp, sxc_meta_t *meta) {
+    return cluster_setmeta_proto_common(sx, timestamp, meta, 1);
+}
+
+sxi_query_t *sxi_cluster_settings_proto(sxc_client_t *sx, int timestamp, sxc_meta_t *meta) {
+    return cluster_setmeta_proto_common(sx, timestamp, meta, 0);
 }
 
 sxi_query_t *sxi_raft_request_vote(sxc_client_t *sx, int64_t term, int64_t hdist_version, const char *hashfs_version, const char *candidate_uuid, int64_t last_log_index, int64_t last_log_term) {

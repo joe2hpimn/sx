@@ -28,6 +28,8 @@ groupoption "upgrade" - "Check node versions and start cluster upgrade" group="M
 groupoption "set-meta" - "Set cluster metadata ('key=value' entries are accepted)" group="MODE" string multiple
 groupoption "get-meta" - "Show cluster metadata (use ALL to show all entries)" group="MODE" string typestr="KEY"
 groupoption "delete-meta" - "Delete cluster metadata entry" group="MODE" string typestr="KEY"
+groupoption "set-param" - "Set cluster parameter ('key=value' entries are accepted)" group="MODE" string multiple
+groupoption "get-param" - "Show cluster parameter value (use ALL to show all settings)" group="MODE" string typestr="KEY"
 
 section "New cluster options"
 option "node-dir" d "Path to the node directory" string typestr="PATH" dependon="new" optional

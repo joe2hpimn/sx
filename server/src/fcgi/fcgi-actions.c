@@ -89,6 +89,13 @@ void volume_ops(void) {
             return;
         }
 
+        if(!strcmp(volume, ".clusterSettings")) {
+            quit_unless_has(PRIV_ADMIN);
+            /* Set cluster settings - ADMIN required */
+            fcgi_get_cluster_settings();
+            return;
+        }
+
 	if(is_reserved())
 	    quit_errmsg(403, "Volume name is reserved");
 
@@ -231,6 +238,9 @@ void volume_ops(void) {
         } else if(!strcmp(volume, ".clusterMeta")) {
             /* Set cluster metadata - ADMIN required */
             fcgi_cluster_setmeta();
+        } else if(!strcmp(volume, ".clusterSettings")) {
+            /* Set cluster settings - ADMIN required */
+            fcgi_cluster_settings();
         } else if(!strcmp(volume, ".requestVote")) { /* Raft RequestVote request handler */
             quit_unless_has(PRIV_CLUSTER);
             fcgi_raft_request_vote();
