@@ -9974,12 +9974,6 @@ rc_ty sx_hashfs_filedelete_job(sx_hashfs_t *h, sx_uid_t user_id, const sx_hashfs
     if(ret)
 	return ret;
 
-    if(qbegin(h->tempdb)) {
-        sx_nodelist_delete(targets);
-        msg_set_reason("Internal error: failed to start database transaction");
-        return FAIL_EINTERNAL;
-    }
-
     ret = sx_hashfs_job_new_begin(h);
     if(ret)
         goto sx_hashfs_filedelete_job_err;
@@ -10000,8 +9994,9 @@ rc_ty sx_hashfs_filedelete_job(sx_hashfs_t *h, sx_uid_t user_id, const sx_hashfs
 
             timeout = sx_hashfs_job_file_timeout(h, vol->effective_replica, filerev.file_size);
             /* Create a job for newly created tempfile */
-            ret = sx_hashfs_job_new_notrigger(h, *job_id, user_id, job_id, JOBTYPE_DELETE_FILE, timeout, lockname, revision, strlen(revision), targets);
+            ret = sx_hashfs_job_new_notrigger(h, JOB_NOPARENT, user_id, job_id, JOBTYPE_DELETE_FILE, timeout, lockname, revision, strlen(revision), targets);
             if (ret == OK) {
+                added = 1;
                 sx_revision_op_t revision_op;
                 revision_op.lock = lockname;
                 revision_op.op = -1;
@@ -10112,32 +10107,20 @@ rc_ty sx_hashfs_filedelete_job(sx_hashfs_t *h, sx_uid_t user_id, const sx_hashfs
         goto sx_hashfs_filedelete_job_err;
     }
 
-    if(!added) {
-        ret = sx_hashfs_job_new_notrigger(h, *job_id, user_id, job_id, JOBTYPE_DUMMY, 3600, NULL, NULL, 0, targets);
-        if(ret != OK) {
-            if(ret != FAIL_ETOOMANY)
-                WARN("Failed to create dummy job: %s", msg_get_reason());
-            goto sx_hashfs_filedelete_job_err;
-        }
-    }
-
     ret = OK;
 sx_hashfs_filedelete_job_err:
-    DEBUG("end ret:%d", ret);
-    sx_nodelist_delete(targets);
-    if(!ret) {
-        if(!qcommit(h->tempdb)) {
-            return sx_hashfs_job_new_end(h);
-        } else {
-            ret = FAIL_EINTERNAL;
-            msg_set_reason("Internal error: failed to commit database transaction");
-        }
+    if(ret == OK && !added) {
+        ret = sx_hashfs_job_new_notrigger(h, *job_id, user_id, job_id, JOBTYPE_DUMMY, 3600, NULL, NULL, 0, targets);
+        if(ret != OK && ret != FAIL_ETOOMANY)
+            WARN("Failed to create dummy job: %s", msg_get_reason());
     }
 
-    if(ret) {
-        qrollback(h->tempdb);
+    DEBUG("end ret:%d", ret);
+    sx_nodelist_delete(targets);
+    if(!ret)
+        return sx_hashfs_job_new_end(h);
+    else
         sx_hashfs_job_new_abort(h);
-    }
     return ret;
 }
 
