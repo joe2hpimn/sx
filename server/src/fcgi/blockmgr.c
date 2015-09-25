@@ -258,7 +258,7 @@ void blockmgr_process_queue(struct blockmgr_data_t *q) {
 
 	if(trigger_jobmgr)
 	    sx_hashfs_job_trigger(q->hashfs);
-        sx_hashfs_checkpoint_passive(q->hashfs);
+        sx_hashfs_checkpoint_idle(q->hashfs);
     }
     sxi_hostlist_empty(&uploadto);
     sqlite3_reset(q->qlist); /* Better safe than deadlocked */
@@ -322,8 +322,7 @@ int blockmgr(sxc_client_t *sx, const char *dir, int pipe) {
 	blockmgr_process_queue(&q);
 	DEBUG("Done processing block queue");
         sx_hashfs_checkpoint_xferdb(q.hashfs);
-        sx_hashfs_checkpoint_gc(q.hashfs);
-        sx_hashfs_checkpoint_passive(q.hashfs);
+        sx_hashfs_checkpoint_idle(q.hashfs);
     }
 
  blockmgr_err:

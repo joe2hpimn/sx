@@ -403,16 +403,14 @@ int gc(sxc_client_t *sx, const char *dir, int pipe, int pipe_expire) {
                 sx_hashfs_gc_run(hashfs, &terminate);
                 gettimeofday(&tv2, NULL);
                 INFO("GC run completed in %.1f sec", timediff(&tv1, &tv2));
-                sx_hashfs_checkpoint_gc(hashfs);
-                sx_hashfs_checkpoint_passive(hashfs);
+                sx_hashfs_checkpoint_idle(hashfs);
                 sx_hashfs_gc_info(hashfs, &terminate);
                 memcpy(&tv0, &tv1, sizeof(tv0));
             }
         }
         if (terminate)
             break;
-        sx_hashfs_checkpoint_gc(hashfs);
-        sx_hashfs_checkpoint_passive(hashfs);
+        sx_hashfs_checkpoint_idle(hashfs);
     }
     sx_hashfs_close(hashfs);
 

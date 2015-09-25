@@ -1086,7 +1086,7 @@ static sxi_db_t *open_db(const char *basedir, const char *dbname, const sx_uuid_
 }
 
 
-void sx_hashfs_checkpoint_passive(sx_hashfs_t *h)
+void sx_hashfs_checkpoint_idle(sx_hashfs_t *h)
 {
     unsigned i, j;
     /* PASSIVE: doesn't block writers/readers
