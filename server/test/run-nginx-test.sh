@@ -115,3 +115,9 @@ perl `dirname $0`/fcgi-test.pl 127.0.0.1:8013 $SXSTOREDIR/data || {
     fi
     exit 1;
 }
+
+"$prefix/sbin/sxserver" stop
+
+"$prefix/sbin/sxadm" node --check "$SXSTOREDIR/data" || {
+    exit 1
+}
