@@ -1940,37 +1940,6 @@ void fcgi_volume_mod(void) {
     sx_blob_free(ctx.oldmeta);
 }
 
-void fcgi_node_status(void) {
-    sxi_node_status_t status;
-    rc_ty s;
-
-    s = sx_hashfs_node_status(hashfs, &status);
-    if(s != OK)
-        quit_errmsg(rc2http(s), msg_get_reason());
-    CGI_PUTS("Content-type: application/json\r\n\r\n{");
-    CGI_PRINTF("\"osType\":\"%s\",\"osArch\":\"%s\",\"osRelease\":\"%s\",\"osVersion\":\"%s\",\"cores\":%d",
-        status.os_name, status.os_arch, status.os_release, status.os_version, status.cores);
-    CGI_PRINTF(",\"osEndianness\":\"%s\",\"localTime\":\"%s\",\"utcTime\":\"%s\"", status.endianness, status.localtime, status.utctime);
-    CGI_PRINTF(",\"hashFSVersion\":\"%s\",\"libsxclientVersion\":\"%s\"", status.hashfs_version, status.libsxclient_version);
-    if(!status.is_bare)
-        CGI_PRINTF(",\"address\":\"%s\",\"internalAddress\":\"%s\",\"UUID\":\"%s\"", status.addr, status.internal_addr, status.uuid);
-    CGI_PRINTF(",\"nodeDir\":\"%s\"", status.storage_dir);
-    CGI_PRINTF(",\"storageAllocated\":");
-    CGI_PUTLL(status.storage_allocated);
-    CGI_PRINTF(",\"storageUsed\":");
-    CGI_PUTLL(status.storage_commited);
-    CGI_PUTS(",\"fsBlockSize\":");
-    CGI_PUTLL(status.block_size);
-    CGI_PUTS(",\"fsTotalBlocks\":");
-    CGI_PUTLL(status.total_blocks);
-    CGI_PUTS(",\"fsAvailBlocks\":");
-    CGI_PUTLL(status.avail_blocks);
-    CGI_PUTS(",\"memTotal\":");
-    CGI_PUTLL(status.mem_total);
-    CGI_PRINTF(",\"heal\":\"%s\"", status.heal_status);
-    CGI_PUTC('}');
-}
-
 struct cluster_mode_ctx {
     int mode; /* 1: readonly, 0: read-write (default) */
     enum cluster_mode_state { CB_CM_START=0, CB_CM_KEY, CB_CM_MODE, CB_CM_COMPLETE } state;
