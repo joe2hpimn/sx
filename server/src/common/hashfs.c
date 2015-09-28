@@ -2056,6 +2056,7 @@ int sx_storage_is_bare(sx_hashfs_t *h) {
     return (h != NULL) && (h->cluster_name == NULL);
 }
 
+static rc_ty update_raft_timeout(sx_hashfs_t *h);
 rc_ty sx_storage_activate(sx_hashfs_t *h, const char *name, const sx_uuid_t *node_uuid, uint8_t *admin_uid, unsigned int uid_size, uint8_t *admin_key, int key_size, uint16_t port, const char *ssl_ca_file, const sx_nodelist_t *allnodes) {
     rc_ty r, ret = FAIL_EINTERNAL;
     sqlite3_stmt *q = NULL;
@@ -2117,6 +2118,9 @@ rc_ty sx_storage_activate(sx_hashfs_t *h, const char *name, const sx_uuid_t *nod
 
     if(sx_hashfs_modhdist(h, allnodes))
 	goto storage_activate_fail;
+
+    if(update_raft_timeout(h) != OK)
+        goto storage_activate_fail;
 
     if(qcommit(h->db))
 	goto storage_activate_fail;
@@ -3675,6 +3679,8 @@ static rc_ty hashfs_1_1_to_1_2(sxi_db_t *db)
     rc_ty ret = FAIL_EINTERNAL;
     sqlite3_stmt *q = NULL;
     do {
+        sx_raft_state_t state;
+
         if(qprep(db, &q, "ALTER TABLE users ADD COLUMN quota INTEGER NOT NULL DEFAULT 0") || qstep_noret(q))
             break;
 	qnullify(q);
@@ -3690,6 +3696,54 @@ static rc_ty hashfs_1_1_to_1_2(sxi_db_t *db)
 	if(qprep(db, &q, "DROP TABLE usermeta") || qstep_noret(q))
 	    break;
 	qnullify(q);
+
+        /* TODO: Move this code to 1_2 -> 1_3 before release */
+
+        /* Make the log entry as blob for now, defaults to NULL that will probably be used by hearbeat queries */
+        if(qprep(db, &q, "CREATE TABLE raft_log (term_id INTEGER NOT NULL PRIMARY KEY, data BLOB DEFAULT NULL)") || qstep_noret(q))
+            break;
+        qnullify(q);
+
+        /************************
+         *  RAFT INITIAL STATE  *
+         ************************/
+        if(qprep(db, &q, "INSERT INTO hashfs (key,value) VALUES (:k, :v)"))
+            break;
+        memset(&state, 0, sizeof(state));
+        state.election_timeout = sxi_rand() % (RAFT_ELECTION_TIMEOUT_MAX - RAFT_ELECTION_TIMEOUT_MIN) + RAFT_ELECTION_TIMEOUT_MIN;
+        if(qbind_text(q, ":k", "raftRole") || qbind_int(q, ":v", state.role) || qstep_noret(q))
+            break;
+        sqlite3_reset(q);
+
+        if(qbind_text(q, ":k", "raftCurrentTerm") || qbind_int64(q, ":v", state.current_term.term) || qstep_noret(q))
+            break;
+        sqlite3_reset(q);
+        
+        if(qbind_text(q, ":k", "raftElectionTimeout") || qbind_int(q, ":v", state.election_timeout) || qstep_noret(q))
+            break;
+        sqlite3_reset(q);
+        
+        if(qbind_text(q, ":k", "raftCommitIndex") || qbind_int64(q, ":v", state.commit_index) || qstep_noret(q))
+            break;
+        sqlite3_reset(q);
+        
+        if(qbind_text(q, ":k", "raftLastApplied") || qbind_int64(q, ":v", state.last_applied) || qstep_noret(q))
+            break;
+        sqlite3_reset(q);
+
+        gettimeofday(&state.last_contact, NULL);
+        if(qbind_text(q, ":k", "raftLastContactSec") || qbind_int64(q, ":v", state.last_contact.tv_sec) || qstep_noret(q))
+            break;
+        sqlite3_reset(q);
+
+        if(qbind_text(q, ":k", "raftLastContactUsec") || qbind_int64(q, ":v", state.last_contact.tv_usec) || qstep_noret(q))
+            break;
+        sqlite3_reset(q);
+
+        /* dist_rev will be part of raft state, but is called the same as in main database. */
+        if(qbind_text(q, ":k", "raftLastHdistVersion") || qbind_int64(q, ":v", state.leader_state.hdist_version) || qstep_noret(q))
+            break;
+        sqlite3_reset(q);
 
         ret = OK;
     } while(0);
@@ -16130,4 +16184,302 @@ rc_ty sx_hashfs_compact(sx_hashfs_t *h, int64_t *bytes_freed) {
 	qrollback(h->datadb[hs][ndb]);
 
     return ret;
+}
+
+
+
+
+/* Raft implementation operations */
+
+rc_ty sx_hashfs_raft_state_begin(sx_hashfs_t *h) {
+    if(qbegin(h->db)) {
+        WARN("Failed to lock database");
+        return FAIL_LOCKED;
+    }
+    return OK;
+}
+
+rc_ty sx_hashfs_raft_state_end(sx_hashfs_t *h) {
+    if(qcommit(h->db)) {
+        sx_hashfs_raft_state_abort(h);
+        WARN("Failed to commit raft state changes");
+        return FAIL_EINTERNAL;
+    }
+    return OK;
+}
+
+void sx_hashfs_raft_state_abort(sx_hashfs_t *h) {
+    qrollback(h->db);
+}
+
+rc_ty sx_hashfs_raft_state_get(sx_hashfs_t *h, sx_raft_state_t *state) {
+    rc_ty ret = FAIL_EINTERNAL;
+    sx_blob_t *b = NULL;
+    int r;
+    const void *data;
+    unsigned int data_len;
+    sqlite3_stmt *q = h->q_getval;
+
+    if(!state) {
+        NULLARG();
+        return EINVAL;
+    }
+
+    memset(state, 0, sizeof(*state));
+
+    if(qbind_text(q, ":k", "raftRole") || qstep_ret(q))
+        goto sx_hashfs_raft_state_get_err;
+    state->role = sqlite3_column_int(q, 0);
+    sqlite3_reset(q);
+
+    if(qbind_text(q, ":k", "raftCurrentTerm") || qstep_ret(q))
+        goto sx_hashfs_raft_state_get_err;
+    state->current_term.term = sqlite3_column_int64(q, 0);
+    sqlite3_reset(q);
+    /* A current_term.leader field can be missing when no leader is known for the node */
+    if(qbind_text(q, ":k", "raftCurrentTermLeader"))
+        goto sx_hashfs_raft_state_get_err;
+    r = qstep(q);
+
+    if(r == SQLITE_ROW) {
+        const char *uuid_str;
+
+        uuid_str = (const char*)sqlite3_column_text(q, 0);
+        if(!uuid_str)
+            goto sx_hashfs_raft_state_get_err;
+        if(uuid_from_string(&state->current_term.leader, uuid_str))
+            goto sx_hashfs_raft_state_get_err;
+        state->current_term.has_leader = 1;
+    } else if(r != SQLITE_DONE)
+        goto sx_hashfs_raft_state_get_err;
+    sqlite3_reset(q);
+
+    if(qbind_text(q, ":k", "raftElectionTimeout") || qstep_ret(q))
+        goto sx_hashfs_raft_state_get_err;
+    state->election_timeout = sqlite3_column_int(q, 0);
+    sqlite3_reset(q);
+
+    if(qbind_text(q, ":k", "raftCommitIndex") || qstep_ret(q))
+        goto sx_hashfs_raft_state_get_err;
+    state->commit_index = sqlite3_column_int64(q, 0);
+    sqlite3_reset(q);
+
+    if(qbind_text(q, ":k", "raftLastApplied") || qstep_ret(q))
+        goto sx_hashfs_raft_state_get_err;
+    state->last_applied = sqlite3_column_int64(q, 0);
+    sqlite3_reset(q);
+
+    if(qbind_text(q, ":k", "raftLastContactSec") || qstep_ret(q))
+        goto sx_hashfs_raft_state_get_err;
+    state->last_contact.tv_sec = sqlite3_column_int64(q, 0);
+    sqlite3_reset(q);
+
+    if(qbind_text(q, ":k", "raftLastContactUsec") || qstep_ret(q))
+        goto sx_hashfs_raft_state_get_err;
+    state->last_contact.tv_usec = sqlite3_column_int64(q, 0);
+    sqlite3_reset(q);
+
+    /* A votedFor field can be missing when the node has not voted in current term yet */
+    if(qbind_text(q, ":k", "raftVotedFor"))
+        goto sx_hashfs_raft_state_get_err;
+    r = qstep(q);
+    if(r == SQLITE_ROW) {
+        const char *uuid_str;
+
+        uuid_str = (const char*)sqlite3_column_text(q, 0);
+        if(!uuid_str)
+            goto sx_hashfs_raft_state_get_err;
+        if(uuid_from_string(&state->voted_for, uuid_str))
+            goto sx_hashfs_raft_state_get_err;
+        state->voted = 1;
+    } else if(r != SQLITE_DONE)
+        goto sx_hashfs_raft_state_get_err;
+    sqlite3_reset(q);
+
+    /* If this node is a leader, it should store nodelist with their statuses */
+    if(state->role == RAFT_ROLE_LEADER) {
+        unsigned int i;
+
+        if(qbind_text(q, ":k", "raftLastHdistVersion") || qstep_ret(q))
+            goto sx_hashfs_raft_state_get_err;
+        state->leader_state.hdist_version = sqlite3_column_int64(q, 0);
+        sqlite3_reset(q);
+
+        if(qbind_text(q, ":k", "raftNodesState") || qstep_ret(q))
+            goto sx_hashfs_raft_state_get_err;
+        data = sqlite3_column_blob(q, 0);
+        data_len = sqlite3_column_bytes(q, 0);
+        if(!data)
+            goto sx_hashfs_raft_state_get_err;
+        b = sx_blob_from_data(data, data_len);
+        sqlite3_reset(q);
+        if(!b)
+            goto sx_hashfs_raft_state_get_err;
+
+        if(sx_blob_get_int32(b, (int*)&state->leader_state.nnodes)) {
+            WARN("Corrupt raft node states list");
+            goto sx_hashfs_raft_state_get_err;
+        }
+
+        state->leader_state.node_states = malloc(state->leader_state.nnodes * sizeof(sx_raft_node_state_t));
+        if(!state->leader_state.node_states) {
+            WARN("Cannot allocate node states list");
+            goto sx_hashfs_raft_state_get_err;
+        }
+
+        for(i = 0; i < state->leader_state.nnodes; i++) {
+            const uint8_t *uuid;
+            unsigned int uuid_len;
+
+            if(sx_blob_get_blob(b, (const void**)&uuid, &uuid_len) || uuid_len != UUID_BINARY_SIZE ||
+               sx_blob_get_int64(b, &state->leader_state.node_states[i].next_index) || sx_blob_get_int64(b, &state->leader_state.node_states[i].match_index) ||
+               sx_blob_get_datetime(b, &state->leader_state.node_states[i].last_contact) || sx_blob_get_int32(b, &state->leader_state.node_states[i].hbeat_success)) {
+                WARN("Corrupt raft node states list");
+                goto sx_hashfs_raft_state_get_err;
+            }
+            uuid_from_binary(&state->leader_state.node_states[i].node, uuid);
+        }
+    }
+
+    ret = OK;
+sx_hashfs_raft_state_get_err:
+    if(ret != OK) {
+        WARN("Failed to obtain raft state");
+        msg_set_reason("Failed to obtain raft state");
+        free(state->leader_state.node_states);
+        state->leader_state.node_states = NULL;
+    }
+    sx_blob_free(b);
+    sqlite3_reset(q);
+    return ret;
+}
+
+rc_ty sx_hashfs_raft_state_set(sx_hashfs_t *h, const sx_raft_state_t *state) {
+    rc_ty ret = FAIL_EINTERNAL;
+    sx_blob_t *b = NULL;
+    sqlite3_stmt *qset = h->q_setval, *qdel = h->q_delval;
+    const void *data;
+    unsigned int data_len;
+
+    if(!state) {
+        NULLARG();
+        return EINVAL;
+    }
+
+    if(qbind_text(qset, ":k", "raftRole") || qbind_int(qset, ":v", state->role) || qstep_noret(qset))
+        goto sx_hashfs_raft_state_set_err;
+    sqlite3_reset(qset);
+
+    if(qbind_text(qset, ":k", "raftCurrentTerm") || qbind_int64(qset, ":v", state->current_term.term) || qstep_noret(qset))
+        goto sx_hashfs_raft_state_set_err;
+    sqlite3_reset(qset);
+
+    if(state->current_term.has_leader) {
+        /* If the node knows current leader, save it */
+        if(qbind_text(qset, ":k", "raftCurrentTermLeader") || qbind_text(qset, ":v", state->current_term.leader.string) || qstep_noret(qset))
+            goto sx_hashfs_raft_state_set_err;
+        sqlite3_reset(qset);
+    } else {
+        /* If node hasn't voted, drop the vote */
+        sqlite3_reset(qdel);
+        if(qbind_text(qdel, ":k", "raftCurrentTermLeader") || qstep_noret(qdel))
+            goto sx_hashfs_raft_state_set_err;
+        sqlite3_reset(qdel);
+    }
+
+    if(qbind_text(qset, ":k", "raftElectionTimeout") || qbind_int(qset, ":v", state->election_timeout) || qstep_noret(qset))
+        goto sx_hashfs_raft_state_set_err;
+    sqlite3_reset(qset);
+
+    if(qbind_text(qset, ":k", "raftCommitIndex") || qbind_int64(qset, ":v", state->commit_index) || qstep_noret(qset))
+        goto sx_hashfs_raft_state_set_err;
+    sqlite3_reset(qset);
+
+    if(qbind_text(qset, ":k", "raftLastApplied") || qbind_int64(qset, ":v", state->last_applied) || qstep_noret(qset))
+        goto sx_hashfs_raft_state_set_err;
+    sqlite3_reset(qset);
+
+    if(qbind_text(qset, ":k", "raftLastContactSec") || qbind_int64(qset, ":v", state->last_contact.tv_sec) || qstep_noret(qset))
+        goto sx_hashfs_raft_state_set_err;
+    sqlite3_reset(qset);
+
+    if(qbind_text(qset, ":k", "raftLastContactUsec") || qbind_int64(qset, ":v", state->last_contact.tv_usec) || qstep_noret(qset))
+        goto sx_hashfs_raft_state_set_err;
+    sqlite3_reset(qset);
+
+    if(state->voted) {
+        /* If node has voted, then save the vote */
+        if(qbind_text(qset, ":k", "raftVotedFor") || qbind_text(qset, ":v", state->voted_for.string) || qstep_noret(qset))
+            goto sx_hashfs_raft_state_set_err;
+        sqlite3_reset(qset);
+    } else {
+        /* If node hasn't voted, drop the vote */
+        sqlite3_reset(qdel);
+        if(qbind_text(qdel, ":k", "raftVotedFor") || qstep_noret(qdel))
+            goto sx_hashfs_raft_state_set_err;
+        sqlite3_reset(qdel);
+    }
+
+    /* If this node is a leader, it should store nodelist with their statuses */
+    if(state->role == RAFT_ROLE_LEADER) {
+        unsigned int i;
+
+        if(qbind_text(qset, ":k", "raftLastHdistVersion") || qbind_int64(qset, ":v", state->leader_state.hdist_version) || qstep_noret(qset))
+            goto sx_hashfs_raft_state_set_err;
+        sqlite3_reset(qset);
+
+        b = sx_blob_new();
+        if(!b) {
+            ret = ENOMEM;
+            goto sx_hashfs_raft_state_set_err;
+        }
+
+        if(sx_blob_add_int32(b, state->leader_state.nnodes))
+            goto sx_hashfs_raft_state_set_err;
+
+        for(i = 0; i < state->leader_state.nnodes; i++) {
+            if(sx_blob_add_blob(b, state->leader_state.node_states[i].node.binary, UUID_BINARY_SIZE) ||
+               sx_blob_add_int64(b, state->leader_state.node_states[i].next_index) || sx_blob_add_int64(b, state->leader_state.node_states[i].match_index) ||
+               sx_blob_add_datetime(b, &state->leader_state.node_states[i].last_contact) || sx_blob_add_int32(b, state->leader_state.node_states[i].hbeat_success))
+                goto sx_hashfs_raft_state_set_err;
+        }
+
+        sx_blob_to_data(b, &data, &data_len);
+        if(qbind_text(qset, ":k", "raftNodesState") || qbind_blob(qset, ":v", data, data_len) || qstep_noret(qset))
+            goto sx_hashfs_raft_state_set_err;
+    }
+
+    ret = OK;
+sx_hashfs_raft_state_set_err:
+    sx_blob_free(b);
+    sqlite3_reset(qset);
+    sqlite3_reset(qdel);
+    if(ret != OK)
+        msg_set_reason("Failed to set raft state");
+    return ret;
+}
+
+/* Last contact time gets reset on storage activation. Must be called inside transaction. */
+static rc_ty update_raft_timeout(sx_hashfs_t *h) {
+    sx_raft_state_t state;
+    rc_ty s;
+
+    if((s = sx_hashfs_raft_state_get(h, &state)) != OK)
+        return s;
+
+    gettimeofday(&state.last_contact, NULL);
+    if((s = sx_hashfs_raft_state_set(h, &state)) != OK) {
+        sx_hashfs_raft_state_empty(h, &state);
+        return s;
+    }
+
+    sx_hashfs_raft_state_empty(h, &state);
+    return OK;
+}
+
+void sx_hashfs_raft_state_empty(sx_hashfs_t *h, sx_raft_state_t *state) {
+    if(!state)
+        return;
+    free(state->leader_state.node_states);
+    memset(state, 0, sizeof(*state));
 }

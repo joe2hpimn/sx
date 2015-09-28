@@ -112,4 +112,42 @@ sxi_query_t *sxi_cluster_setmeta_proto(sxc_client_t *sx, int timestamp, sxc_meta
 sxi_query_t *sxi_query_create(sxc_client_t *sx, const char *path, enum sxi_cluster_verb verb);
 void sxi_query_free(sxi_query_t *query);
 
+/* Raft RequestVote request.
+ *
+ * term: ID of the candidate's term
+ * hdist_version: candidate's hdist version
+ * hashfs_version: candidate's hashfs version
+ * candidate_uuid: UUID of the candidate node
+ * last_log_index: last index of candidate's log
+ * last_log_term: ;ast index of candidate's term
+ */
+sxi_query_t *sxi_raft_request_vote(sxc_client_t *sx, int64_t term, int64_t hdist_version, const char *hashfs_version, const char *candidate_uuid, int64_t last_log_index, int64_t last_log_term);
+
+/* Raft AppendEntries request.
+ *
+ * term: ID of the leader term
+ * hdist_version: leader's hdist version
+ * hashfs_version: leader's hashfs version
+ * leader_uuid: leader's node UUID string representation
+ * prev_log_index: previous leader log index
+ * prev_log_term: previous leader term ID
+ * leader_commit: index of highest log entry known to be committed
+ */
+sxi_query_t *sxi_raft_append_entries_begin(sxc_client_t *sx, int64_t term, int64_t hdist_version, const char *hashfs_version, const char *leader_uuid, int64_t prev_log_index, int64_t prev_log_term, int64_t leader_commit);
+
+/* Raft AppendEntries request.
+ *
+ * index: Index of log entry
+ * entry: binary data of the log entry
+ * entry_len: length of the log entry binary data
+ * comma: set to 1 if this is called more than once to properly place entries in the JSON
+ */
+sxi_query_t *sxi_raft_append_entries_add(sxc_client_t *sx, sxi_query_t *query, int64_t index, const void *entry, unsigned int entry_len, int comma);
+
+/* Raft AppendEntries request.
+ *
+ * Use this function to properly enclose request body
+ */
+sxi_query_t *sxi_raft_append_entries_finish(sxc_client_t *sx, sxi_query_t *query);
+
 #endif

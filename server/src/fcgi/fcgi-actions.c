@@ -231,6 +231,12 @@ void volume_ops(void) {
         } else if(!strcmp(volume, ".clusterMeta")) {
             /* Set cluster metadata - ADMIN required */
             fcgi_cluster_setmeta();
+        } else if(!strcmp(volume, ".requestVote")) { /* Raft RequestVote request handler */
+            quit_unless_has(PRIV_CLUSTER);
+            fcgi_raft_request_vote();
+        } else if(!strcmp(volume, ".appendEntries")) { /* Raft AppendEntries request handler */
+            quit_unless_has(PRIV_CLUSTER);
+            fcgi_raft_append_entries();
         } else {
 	    /* Create new volume - ADMIN required */
 	    if(is_reserved())

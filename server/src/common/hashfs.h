@@ -63,6 +63,14 @@
 #define MASS_JOB_INITIAL_TIMEOUT 60
 #define MASS_JOB_TIMEOUT 3600
 
+/* Time span, after which the followers should issue a new election when leader is down */
+#define RAFT_ELECTION_TIMEOUT_MIN 60
+#define RAFT_ELECTION_TIMEOUT_MAX 80
+
+/* Limits for raft log entries (per one request) */
+#define MAX_RAFT_LOG_ENTRIES 128
+#define MAX_RAFT_LOG_ENTRY_LEN  1024
+
 typedef enum {
     NL_PREV,
     NL_NEXT,
@@ -503,5 +511,83 @@ void sx_hashfs_syncglobs_abort(sx_hashfs_t *h);
 rc_ty sx_hashfs_syncglobs_end(sx_hashfs_t *h);
 
 rc_ty sx_hashfs_compact(sx_hashfs_t *h, int64_t *bytes_freed);
+
+
+/* RAFT implementation ops */
+
+/* Raft roles */
+typedef enum raft_role { RAFT_ROLE_FOLLOWER, RAFT_ROLE_CANDIDATE, RAFT_ROLE_LEADER } sx_raft_role_t;
+
+/* Holds log information about each node */
+typedef struct _raft_node_state_t {
+    sx_uuid_t node;
+    /* Index of the next log entry to send to that server */
+    int64_t next_index;
+    /* Index of the highest log entry known to be replicated on server */
+    int64_t match_index;
+
+    /* Last successful contact with particular node */
+    struct timeval last_contact;
+
+    /* Last heartbeat success */
+    int hbeat_success;
+} sx_raft_node_state_t;
+
+/* Defines the raft term */
+typedef struct _raft_term_t {
+    /* References to term_id field in raft_log table */
+    int64_t term;
+
+    /* Leader for particular term */
+    sx_uuid_t leader;
+    int has_leader;
+} sx_raft_term_t;
+
+/* Substructure used to extract fieds from raft state used by the leader only */
+struct raft_leader_state {
+    /* Indices of log entries for each node. Initialised when this node is a leader. */
+    sx_raft_node_state_t *node_states;
+    /* Number of nodes */
+    unsigned int nnodes;
+    /* Current hdist version */
+    int64_t hdist_version;
+};
+
+/* Raft protocol context */
+typedef struct _raft_state_t {
+    /* This node raft role */
+    sx_raft_role_t role;
+    /* ID of the latest term server has seen */
+    sx_raft_term_t current_term;
+    /* UUID of the node this node has voted for */
+    sx_uuid_t voted_for;
+    /* Set to 1 when this node has voted, 0 otherwise */
+    int voted;
+    /* Index of the highest log entry known to be comitted */
+    int64_t commit_index;
+    /* Index of the highest log entry applied to state machine */
+    int64_t last_applied;
+    /* The time, after which followers should issue a new election */
+    unsigned int election_timeout;
+    /* The time, when last raft query received */
+    struct timeval last_contact;
+
+    /* State properties specitic to current raft leader */
+    struct raft_leader_state leader_state;
+} sx_raft_state_t;
+
+/* Locks hashfs db */
+rc_ty sx_hashfs_raft_state_begin(sx_hashfs_t *h);
+/* Commits hashfs db */
+rc_ty sx_hashfs_raft_state_end(sx_hashfs_t *h);
+/* Rollbacks hashfs db */
+void sx_hashfs_raft_state_abort(sx_hashfs_t *h);
+
+/* Get raft state from database */
+rc_ty sx_hashfs_raft_state_get(sx_hashfs_t *h, sx_raft_state_t *state);
+/* Save raft state into database */
+rc_ty sx_hashfs_raft_state_set(sx_hashfs_t *h, const sx_raft_state_t *state);
+/* Release memory taken by the raft state internals */
+void sx_hashfs_raft_state_empty(sx_hashfs_t *h, sx_raft_state_t *state);
 
 #endif

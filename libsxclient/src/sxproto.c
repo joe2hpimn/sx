@@ -1124,3 +1124,69 @@ sxi_query_t *sxi_cluster_setmeta_proto(sxc_client_t *sx, int timestamp, sxc_meta
 
     return query;
 }
+
+sxi_query_t *sxi_raft_request_vote(sxc_client_t *sx, int64_t term, int64_t hdist_version, const char *hashfs_version, const char *candidate_uuid, int64_t last_log_index, int64_t last_log_term) {
+    sxi_query_t *query = sxi_query_create(sx, ".requestVote", REQ_PUT);
+
+    /* Length: lenof(str) + 3 times long long (20) + UUID_STRING_SIZE */
+    if(query)
+        query = sxi_query_append_fmt(sx, query, lenof("{\"term\":,\"distributionVersion\":,\"hashFSVersion\":\"\",\"libsxclientVersion\":\"\",\"candidateID\":\"\",\"lastLogIndex\":,\"lastLogTerm\":}") + 60 + 36,
+                "{\"term\":%lld,\"distributionVersion\":%lld,\"hashFSVersion\":\"%s\",\"libsxclientVersion\":\"%s\",\"candidateID\":\"%s\",\"lastLogIndex\":%lld,\"lastLogTerm\":%lld}",
+                (long long)term, (long long)hdist_version, hashfs_version, sxc_get_version(), candidate_uuid, (long long)last_log_index, (long long)last_log_term);
+
+    if(!query)
+        sxi_seterr(sx, SXE_EMEM, "Failed to allocate query");
+
+    return query;
+}
+
+sxi_query_t *sxi_raft_append_entries_begin(sxc_client_t *sx, int64_t term, int64_t hdist_version, const char *hashfs_version, const char *leader_uuid, int64_t prev_log_index, int64_t prev_log_term, int64_t leader_commit) {
+    sxi_query_t *query = sxi_query_create(sx, ".appendEntries", REQ_PUT);
+
+    /* Length: lenof(str) + 4 times long long (20) + UUID_STRING_SIZE */
+    if(query)
+        query = sxi_query_append_fmt(sx, query, lenof("{\"term\":,\"distributionVersion\":,\"hashFSVersion\":\"\",\"libsxclientVersion\":\"\",\"leaderID\":\"\",\"prevLogIndex\":,\"prevLogTerm\":,\"leaderCommit\":,\"entries\":[") + 80 + 36,
+                "{\"term\":%lld,\"distributionVersion\":%lld,\"hashFSVersion\":\"%s\",\"libsxclientVersion\":\"%s\",\"leaderID\":\"%s\",\"prevLogIndex\":%lld,\"prevLogTerm\":%lld,\"leaderCommit\":%lld,\"entries\":[",
+                (long long)term, (long long)hdist_version, hashfs_version, sxc_get_version(), leader_uuid, (long long)prev_log_index, (long long)prev_log_term, (long long)leader_commit);
+
+    if(!query)
+        sxi_seterr(sx, SXE_EMEM, "Failed to allocate query");
+
+    return query;
+}
+
+sxi_query_t *sxi_raft_append_entries_add(sxc_client_t *sx, sxi_query_t *query, int64_t index, const void *entry, unsigned int entry_len, int comma) {
+    char *hex;
+
+    if(!query)
+        sxi_seterr(sx, SXE_EARG, "NULL argument");
+
+    hex = malloc(entry_len * 2 + 1);
+    if(!hex) {
+        sxi_seterr(sx, SXE_EMEM, "Out of memory encoding entry");
+        sxi_query_free(query);
+        return NULL;
+    }
+    sxi_bin2hex(entry, entry_len, hex);
+
+    query = sxi_query_append_fmt(sx, query, lenof(",{\"index\":,\"entry\":\"\"}") + 20 + entry_len * 2 + 1, "%s{\"index\":%lld,\"entry\":\"%s\"}",
+        comma ? "," : "", (long long)index, hex);
+
+    if(!query)
+        sxi_seterr(sx, SXE_EMEM, "Failed to add log entry");
+
+    free(hex);
+    return query;
+}
+
+sxi_query_t *sxi_raft_append_entries_finish(sxc_client_t *sx, sxi_query_t *query) {
+    if(!query)
+        sxi_seterr(sx, SXE_EARG, "NULL argument");
+
+    query = sxi_query_append_fmt(sx, query, 3, "]}");
+
+    if(!query)
+        sxi_seterr(sx, SXE_EMEM, "Failed to add log entry");
+
+    return query;
+}

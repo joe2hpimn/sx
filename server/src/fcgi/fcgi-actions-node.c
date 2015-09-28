@@ -1464,3 +1464,593 @@ void fcgi_node_status(void) {
     CGI_PRINTF(",\"heal\":\"%s\"", status.heal_status);
     CGI_PUTC('}');
 }
+
+/*
+ * Sample body:
+ *
+ * {
+ *      "term":123,
+ *      "distributionVersion":3,
+ *      "hashFSVersion":"SX-Storage 1.9",
+ *      "libsxclientVersion":"1.2",
+ *      "candidateID":"6f24df87-d9e1-47e4-a8fa-e39a8244e90c",
+ *      "lastLogIndex":273612,
+ *      "lastLogTerm":122
+ * }
+ *
+ */
+
+struct cb_request_vote_ctx {
+    enum cb_request_vote_state { CB_RV_START, CB_RV_KEY, CB_RV_TERM, CB_RV_HDIST_VERSION, CB_RV_HASHFS_VERSION, CB_RV_LIB_VERSION, CB_RV_CANDIDATE_UUID, CB_RV_LAST_LOG_INDEX, CB_RV_LAST_LOG_TERM, CB_RV_COMPLETE } state;
+    int64_t term;
+    int64_t last_log_index;
+    int64_t last_log_term;
+    sx_uuid_t candidate_uuid;
+    int64_t hdist_version;
+    char hashfs_version[15];
+    char libsxclient_version[128];
+};
+
+static int cb_request_vote_string(void *ctx, const unsigned char *s, size_t l) {
+    struct cb_request_vote_ctx *c = (struct cb_request_vote_ctx*)ctx;
+
+    if(c->state == CB_RV_CANDIDATE_UUID) {
+        char uuid_str[UUID_STRING_SIZE+1];
+
+        if(l != UUID_STRING_SIZE)
+            return 0;
+        memcpy(uuid_str, s, UUID_STRING_SIZE);
+        uuid_str[UUID_STRING_SIZE] = '\0';
+        if(uuid_from_string(&c->candidate_uuid, uuid_str))
+            return 0;
+        c->state = CB_RV_KEY;
+        return 1;
+    } else if(c->state == CB_RV_HASHFS_VERSION) {
+        if(l >= sizeof(c->hashfs_version))
+            return 0;
+        memcpy(c->hashfs_version, s, l);
+        c->hashfs_version[l] = '\0';
+        c->state = CB_RV_KEY;
+        return 1;
+    } else if(c->state == CB_RV_LIB_VERSION) {
+        if(l >= sizeof(c->libsxclient_version))
+            return 0;
+        memcpy(c->libsxclient_version, s, l);
+        c->libsxclient_version[l] = '\0';
+        c->state = CB_RV_KEY;
+        return 1;
+    }
+
+    return 0;
+}
+
+static int cb_request_vote_number(void *ctx, const char *s, size_t l) {
+    struct cb_request_vote_ctx *c = (struct cb_request_vote_ctx *)ctx;
+    char number[24], *eon;
+    int64_t n;
+
+    if(c->state != CB_RV_TERM && c->state != CB_RV_HDIST_VERSION && c->state != CB_RV_LAST_LOG_INDEX && c->state != CB_RV_LAST_LOG_TERM)
+        return 0;
+
+    if(l<1 || l>20)
+        return 0;
+    memcpy(number, s, l);
+    number[l] = '\0';
+    n = strtoll(number, &eon, 10);
+    if(*eon || n < 0)
+        return 0;
+
+    if(c->state == CB_RV_TERM) {
+        c->term = n;
+        c->state = CB_RV_KEY;
+    } else if(c->state == CB_RV_HDIST_VERSION) {
+        c->hdist_version = n;
+        c->state = CB_RV_KEY;
+    } else if(c->state == CB_RV_LAST_LOG_INDEX) {
+        c->last_log_index = n;
+        c->state = CB_RV_KEY;
+    } else if(c->state == CB_RV_LAST_LOG_TERM) {
+        c->last_log_term = n;
+    } else
+        return 0;
+    c->state = CB_RV_KEY;
+    return 1;
+}
+
+static int cb_request_vote_start_map(void *ctx) {
+    struct cb_request_vote_ctx *c = (struct cb_request_vote_ctx*)ctx;
+
+    if(c->state == CB_RV_START)
+        c->state = CB_RV_KEY;
+    else
+        return 0;
+
+    return 1;
+}
+
+static int cb_request_vote_map_key(void *ctx, const unsigned char *s, size_t l) {
+    struct cb_request_vote_ctx *c = (struct cb_request_vote_ctx*)ctx;
+
+    if(c->state == CB_RV_KEY) {
+        if(l == lenof("term") && !strncmp("term", (const char *)s, lenof("term")))
+            c->state = CB_RV_TERM;
+        else if(l == lenof("candidateID") && !strncmp("candidateID", (const char *)s, lenof("candidateID")))
+            c->state = CB_RV_CANDIDATE_UUID;
+        else if(l == lenof("lastLogIndex") && !strncmp("lastLogIndex", (const char *)s, lenof("lastLogIndex")))
+            c->state = CB_RV_LAST_LOG_INDEX;
+        else if(l == lenof("lastLogTerm") && !strncmp("lastLogTerm", (const char *)s, lenof("lastLogTerm")))
+            c->state = CB_RV_LAST_LOG_TERM;
+        else if(l == lenof("distributionVersion") && !strncmp("distributionVersion", (const char *)s, lenof("distributionVersion")))
+            c->state = CB_RV_HDIST_VERSION;
+        else if(l == lenof("hashFSVersion") && !strncmp("hashFSVersion", (const char *)s, lenof("hashFSVersion")))
+            c->state = CB_RV_HASHFS_VERSION;
+        else if(l == lenof("libsxclientVersion") && !strncmp("libsxclientVersion", (const char *)s, lenof("libsxclientVersion")))
+            c->state = CB_RV_LIB_VERSION;
+        else
+            return 0;
+    } else
+        return 0;
+
+    return 1;
+}
+
+static int cb_request_vote_end_map(void *ctx) {
+    struct cb_request_vote_ctx *c = (struct cb_request_vote_ctx*)ctx;
+
+    if(c->state == CB_RV_KEY)
+        c->state = CB_RV_COMPLETE;
+    else
+        return 0;
+    return 1;
+}
+
+static const yajl_callbacks request_vote_parser = {
+    cb_fail_null,
+    cb_fail_boolean,
+    NULL,
+    NULL,
+    cb_request_vote_number,
+    cb_request_vote_string,
+    cb_request_vote_start_map,
+    cb_request_vote_map_key,
+    cb_request_vote_end_map,
+    cb_fail_start_array,
+    cb_fail_end_array
+};
+
+void fcgi_raft_request_vote(void) {
+    struct cb_request_vote_ctx ctx;
+    sx_raft_state_t state;
+    int len;
+    int success = 0;
+    int state_changed = 0;
+
+    memset(&ctx, 0, sizeof(ctx));
+    yajl_handle yh = yajl_alloc(&request_vote_parser, NULL, &ctx);
+    if(!yh)
+        quit_errmsg(500, "Cannot allocate json parser");
+
+    while((len = get_body_chunk(hashbuf, sizeof(hashbuf))) > 0)
+        if(yajl_parse(yh, hashbuf, len) != yajl_status_ok)
+            break;
+
+    if(len || yajl_complete_parse(yh) != yajl_status_ok || ctx.state != CB_RV_COMPLETE) {
+        yajl_free(yh);
+        quit_errmsg(400, "Invalid request content");
+    }
+    yajl_free(yh);
+
+    auth_complete();
+    if(!is_authed()) {
+        send_authreq();
+        return;
+    }
+
+    if(sx_hashfs_raft_state_begin(hashfs))
+        quit_errmsg(500, "Database is locked");
+
+    if(sx_hashfs_raft_state_get(hashfs, &state)) {
+        sx_hashfs_raft_state_abort(hashfs);
+        quit_errmsg(500, "Failed to obtain current raft state");
+    }
+
+    if(sx_hashfs_is_node_ignored(hashfs, &ctx.candidate_uuid)) {
+        DEBUG("Node %s is ignored, but is sending RequestVote requests", ctx.candidate_uuid.string);
+        goto request_vote_out;
+    }
+
+    /* Check, if candidate's term is not obsolete */
+    if(ctx.term < state.current_term.term) {
+        DEBUG("Current term (%lld) is greater than candidate's (%lld): rejecting",
+                (long long)state.current_term.term, (long long)ctx.term);
+        goto request_vote_out;
+    }
+    if(ctx.hdist_version < sx_hashfs_hdist_getversion(hashfs)) {
+        DEBUG("Current hdist version (%lld) is newer than candidate's (%lld): rejecting",
+                (long long)sx_hashfs_hdist_getversion(hashfs), (long long)ctx.hdist_version);
+        goto request_vote_out;
+    }
+    if(strcmp(ctx.hashfs_version, sx_hashfs_version(hashfs)) < 0) {
+        DEBUG("Local hashfs version (%s) is newer than candidate's (%s): rejecting",
+                sx_hashfs_version(hashfs), ctx.hashfs_version);
+        goto request_vote_out;
+    }
+
+
+    /* Check if current term is not obsolete */
+    if(state.current_term.term < ctx.term || sx_hashfs_hdist_getversion(hashfs) < ctx.hdist_version || strcmp(ctx.hashfs_version, sx_hashfs_version(hashfs)) > 0) {
+        DEBUG("Becoming a follower, current term: (%lld), term for %s: (%lld)", (long long)state.current_term.term,
+                ctx.candidate_uuid.string, (long long)ctx.term);
+        state.role = RAFT_ROLE_FOLLOWER;
+        state.voted = 0;
+        state.current_term.term = ctx.term;
+        state_changed = 1;
+    }
+
+    /* Check, if this cluster has not voted already */
+    if(state.voted && strcmp(state.voted_for.string, ctx.candidate_uuid.string)) {
+        DEBUG("This node has already voted for %s", ctx.candidate_uuid.string);
+        goto request_vote_out;
+    }
+
+    /* Grant vote */
+    memcpy(&state.voted_for, &ctx.candidate_uuid, sizeof(state.voted_for));
+    state.voted = 1;
+    DEBUG("Granted vote for %s", ctx.candidate_uuid.string);
+
+    success = 1;
+    state_changed = 1;
+request_vote_out:
+    /* Save new state when necessary */
+    if(state_changed) {
+        if(sx_hashfs_raft_state_set(hashfs, &state)) {
+            WARN("Failed to update raft state");
+            sx_hashfs_raft_state_abort(hashfs);
+            sx_hashfs_raft_state_empty(hashfs, &state);
+            quit_errmsg(500, "Failed to update raft state");
+        }
+
+        if(sx_hashfs_raft_state_end(hashfs)) {
+            WARN("Failed to update raft state");
+            sx_hashfs_raft_state_empty(hashfs, &state);
+            quit_errmsg(500, "Failed to update raft state");
+        }
+    } else
+        sx_hashfs_raft_state_abort(hashfs);
+
+    CGI_PRINTF("Content-type: application/json\r\n\r\n{\"success\":%s,\"term\":", success ? "true" : "false");
+    CGI_PUTLL(state.current_term.term);
+    CGI_PRINTF(",\"distributionVersion\":");
+    CGI_PUTLL(sx_hashfs_hdist_getversion(hashfs));
+    CGI_PRINTF(",\"hashFSVersion\":\"%s\",\"libsxclientVersion\":\"%s\"}", sx_hashfs_version(hashfs), sxc_get_version());
+    sx_hashfs_raft_state_empty(hashfs, &state);
+}
+
+struct raft_log_entry {
+    int64_t index;
+    uint8_t data[MAX_RAFT_LOG_ENTRY_LEN];
+    unsigned int data_len;
+};
+
+/*
+ * Sample body:
+ *
+ * {
+ *      "term":123,
+ *      "distributionVersion":3,
+ *      "leaderID":"6f24df87-d9e1-47e4-a8fa-e39a8244e90c",
+ *      "prevLogIndex":23445,
+ *      "prevLogTerm":123,
+ *      "leaderCommit":23447,
+ *      "hashFSVersion":"SX-Storage 1.9",
+ *      "libsxclientVersion":"1.2",
+ *      "entries":[
+ *              {"index":23446,"entry":"abababababababababab"},
+ *              {"index":23447,"entry":"acacacacacacacacacacacac"},
+ *              {"index":23446,"entry":"ffffffff"}
+ *      ]
+ * }
+ *
+ */
+
+struct cb_append_entries_ctx {
+    enum cb_append_entries_state { CB_AE_START, CB_AE_KEY, CB_AE_TERM, CB_AE_HDIST_VERSION, CB_AE_HASHFS_VERSION, CB_AE_LIB_VERSION, CB_AE_LEADER_UUID, CB_AE_PREV_LOG_INDEX, CB_AE_PREV_LOG_TERM, CB_AE_LEADER_COMMIT, CB_AE_ENTRIES_ARRAY, CB_AE_ENTRIES, CB_AE_ENTRIES_KEY, CB_AE_ENTRIES_INDEX, CB_AE_ENTRIES_ENTRY, CB_AE_COMPLETE } state;
+    int64_t term;
+    int64_t prev_log_index;
+    int64_t prev_log_term;
+    sx_uuid_t leader_uuid;
+    int64_t leader_commit;
+    int64_t hdist_version;
+    char hashfs_version[15];
+    char libsxclient_version[128];
+    unsigned int nentries;
+    struct raft_log_entry entries[MAX_RAFT_LOG_ENTRIES];
+};
+
+static int cb_append_entries_string(void *ctx, const unsigned char *s, size_t l) {
+    struct cb_append_entries_ctx *c = (struct cb_append_entries_ctx*)ctx;
+
+    if(c->state == CB_AE_LEADER_UUID) {
+        char uuid_str[UUID_STRING_SIZE+1];
+
+        if(l != UUID_STRING_SIZE)
+            return 0;
+        memcpy(uuid_str, s, UUID_STRING_SIZE);
+        uuid_str[UUID_STRING_SIZE] = '\0';
+        if(uuid_from_string(&c->leader_uuid, uuid_str))
+            return 0;
+        c->state = CB_AE_KEY;
+        return 1;
+    } else if(c->state == CB_AE_ENTRIES_ENTRY) {
+        if(l > MAX_RAFT_LOG_ENTRY_LEN / 2) {
+            INFO("Too long log entry");
+            return 0;
+        }
+
+        if(sxi_hex2bin((const char*)s, l, c->entries[c->nentries].data, MAX_RAFT_LOG_ENTRY_LEN)) {
+            INFO("Failed to parse log entry");
+            return 0;
+        }
+        c->state = CB_AE_ENTRIES_KEY;
+        return 1;
+    } else if(c->state == CB_AE_HASHFS_VERSION) {
+        if(l >= sizeof(c->hashfs_version))
+            return 0;
+        memcpy(c->hashfs_version, s, l);
+        c->hashfs_version[l] = '\0';
+        c->state = CB_AE_KEY;
+        return 1;
+    } else if(c->state == CB_AE_LIB_VERSION) {
+        if(l >= sizeof(c->libsxclient_version))
+            return 0;
+        memcpy(c->libsxclient_version, s, l);
+        c->libsxclient_version[l] = '\0';
+        c->state = CB_AE_KEY;
+        return 1;
+    }
+
+    return 0;
+}
+
+static int cb_append_entries_number(void *ctx, const char *s, size_t l) {
+    struct cb_append_entries_ctx *c = (struct cb_append_entries_ctx *)ctx;
+    char number[24], *eon;
+    int64_t n;
+
+    if(c->state != CB_AE_TERM && c->state != CB_AE_HDIST_VERSION && c->state != CB_AE_PREV_LOG_INDEX &&
+        c->state != CB_AE_PREV_LOG_TERM && c->state != CB_AE_LEADER_COMMIT)
+        return 0;
+
+    if(l<1 || l>20)
+        return 0;
+    memcpy(number, s, l);
+    number[l] = '\0';
+    n = strtoll(number, &eon, 10);
+    if(*eon || n < -1)
+        return 0;
+
+    if(c->state == CB_AE_TERM) {
+        c->term = n;
+        c->state = CB_AE_KEY;
+    } else if(c->state == CB_AE_HDIST_VERSION) {
+        c->hdist_version = n;
+        c->state = CB_AE_KEY;
+    } else if(c->state == CB_AE_PREV_LOG_INDEX) {
+        c->prev_log_index = n;
+        c->state = CB_AE_KEY;
+    } else if(c->state == CB_AE_PREV_LOG_TERM) {
+        c->prev_log_term = n;
+        c->state = CB_AE_KEY;
+    } else if(c->state == CB_AE_LEADER_COMMIT) {
+        c->leader_commit = n;
+        c->state = CB_AE_KEY;
+    } else if(c->state == CB_AE_ENTRIES_INDEX) {
+        c->entries[c->nentries].index = n;
+        c->state = CB_AE_ENTRIES_KEY;
+    } else
+        return 0;
+    return 1;
+}
+
+static int cb_append_entries_start_map(void *ctx) {
+    struct cb_append_entries_ctx *c = (struct cb_append_entries_ctx*)ctx;
+
+    if(c->state == CB_AE_START)
+        c->state = CB_AE_KEY;
+    else if(c->state == CB_AE_ENTRIES)
+        c->state = CB_AE_ENTRIES_KEY;
+    else
+        return 0;
+
+    return 1;
+}
+
+static int cb_append_entries_map_key(void *ctx, const unsigned char *s, size_t l) {
+    struct cb_append_entries_ctx *c = (struct cb_append_entries_ctx*)ctx;
+
+    if(c->state == CB_AE_KEY) {
+        if(l == lenof("term") && !strncmp("term", (const char *)s, lenof("term")))
+            c->state = CB_AE_TERM;
+        else if(l == lenof("leaderID") && !strncmp("leaderID", (const char *)s, lenof("leaderID")))
+            c->state = CB_AE_LEADER_UUID;
+        else if(l == lenof("prevLogIndex") && !strncmp("prevLogIndex", (const char *)s, lenof("prevLogIndex")))
+            c->state = CB_AE_PREV_LOG_INDEX;
+        else if(l == lenof("prevLogTerm") && !strncmp("prevLogTerm", (const char *)s, lenof("prevLogTerm")))
+            c->state = CB_AE_PREV_LOG_TERM;
+        else if(l == lenof("leaderCommit") && !strncmp("leaderCommit", (const char *)s, lenof("leaderCommit")))
+            c->state = CB_AE_LEADER_COMMIT;
+        else if(l == lenof("entries") && !strncmp("entries", (const char *)s, lenof("entries")))
+            c->state = CB_AE_ENTRIES_ARRAY;
+        else if(l == lenof("distributionVersion") && !strncmp("distributionVersion", (const char *)s, lenof("distributionVersion")))
+            c->state = CB_AE_HDIST_VERSION;
+        else if(l == lenof("hashFSVersion") && !strncmp("hashFSVersion", (const char *)s, lenof("hashFSVersion")))
+            c->state = CB_AE_HASHFS_VERSION;
+        else if(l == lenof("libsxclientVersion") && !strncmp("libsxclientVersion", (const char *)s, lenof("libsxclientVersion")))
+            c->state = CB_AE_LIB_VERSION;
+        else
+            return 0;
+    } else if(c->state == CB_AE_ENTRIES_KEY) {
+        if(l == lenof("index") && !strncmp("index", (const char *)s, lenof("index")))
+            c->state = CB_AE_ENTRIES_INDEX;
+        else if(l == lenof("entry") && !strncmp("entry", (const char *)s, lenof("entry")))
+            c->state = CB_AE_ENTRIES_ENTRY;
+        else
+            return 0;
+    } else
+        return 0;
+
+    return 1;
+}
+
+static int cb_append_entries_end_map(void *ctx) {
+    struct cb_append_entries_ctx *c = (struct cb_append_entries_ctx*)ctx;
+
+    if(c->state == CB_AE_KEY)
+        c->state = CB_AE_COMPLETE;
+    else if(c->state == CB_AE_ENTRIES_KEY) {
+        c->nentries++;
+        c->state = CB_AE_ENTRIES;
+    } else
+        return 0;
+    return 1;
+}
+
+static int cb_append_entries_start_array(void *ctx) {
+    struct cb_append_entries_ctx *c = (struct cb_append_entries_ctx*)ctx;
+
+    if(c->state == CB_AE_ENTRIES_ARRAY)
+        c->state = CB_AE_ENTRIES;
+    else
+        return 0;
+    return 1;
+}
+
+static int cb_append_entries_end_array(void *ctx) {
+    struct cb_append_entries_ctx *c = (struct cb_append_entries_ctx*)ctx;
+
+    if(c->state == CB_AE_ENTRIES)
+        c->state = CB_AE_KEY;
+    else
+        return 0;
+    return 1;
+}
+
+static const yajl_callbacks append_entries_parser = {
+    cb_fail_null,
+    cb_fail_boolean,
+    NULL,
+    NULL,
+    cb_append_entries_number,
+    cb_append_entries_string,
+    cb_append_entries_start_map,
+    cb_append_entries_map_key,
+    cb_append_entries_end_map,
+    cb_append_entries_start_array,
+    cb_append_entries_end_array
+};
+
+void fcgi_raft_append_entries(void) {
+    struct cb_append_entries_ctx ctx;
+    sx_raft_state_t state;
+    int len;
+    int success = 0;
+    int state_changed = 0;
+
+    memset(&ctx, 0, sizeof(ctx));
+    yajl_handle yh = yajl_alloc(&append_entries_parser, NULL, &ctx);
+    if(!yh)
+        quit_errmsg(500, "Cannot allocate json parser");
+
+    while((len = get_body_chunk(hashbuf, sizeof(hashbuf))) > 0)
+        if(yajl_parse(yh, hashbuf, len) != yajl_status_ok)
+            break;
+
+    if(len || yajl_complete_parse(yh) != yajl_status_ok || ctx.state != CB_AE_COMPLETE) {
+        yajl_free(yh);
+        quit_errmsg(400, "Invalid request content");
+    }
+    yajl_free(yh);
+
+    auth_complete();
+    if(!is_authed()) {
+        send_authreq();
+        return;
+    }
+
+    if(sx_hashfs_raft_state_begin(hashfs))
+        quit_errmsg(500, "Database is locked");
+
+    if(sx_hashfs_raft_state_get(hashfs, &state)) {
+        sx_hashfs_raft_state_abort(hashfs);
+        quit_errmsg(500, "Failed to obtain current raft state");
+    }
+    
+    if(sx_hashfs_is_node_ignored(hashfs, &ctx.leader_uuid)) {
+        DEBUG("Node %s is ignored, but is sending AppendEntries requests", ctx.leader_uuid.string);
+        goto append_entries_out;
+    }
+
+    /* Check, if candidate's term is not obsolete */
+    if(ctx.term < state.current_term.term) {
+        DEBUG("Current term (%lld) is greater than candidate's (%lld): rejecting", (long long)state.current_term.term, (long long)ctx.term);
+        goto append_entries_out;
+    }
+    if(ctx.hdist_version < sx_hashfs_hdist_getversion(hashfs)) {
+        DEBUG("Current hdist version (%lld) is newer than candidate's (%lld): rejecting",
+                (long long)sx_hashfs_hdist_getversion(hashfs), (long long)ctx.hdist_version);
+        goto append_entries_out;
+    }
+
+    if(strcmp(ctx.hashfs_version, sx_hashfs_version(hashfs)) < 0) {
+        DEBUG("Local hashfs version (%s) is newer than candidate's (%s): rejecting",
+                sx_hashfs_version(hashfs), ctx.hashfs_version);
+        goto append_entries_out;
+    }
+
+    /* This node has obsolete term, become a follower */
+    if(state.current_term.term < ctx.term || sx_hashfs_hdist_getversion(hashfs) < ctx.hdist_version || strcmp(ctx.hashfs_version, sx_hashfs_version(hashfs)) > 0) {
+        DEBUG("Becoming a follower, current term: (%lld), term for %s: (%lld)", (long long)state.current_term.term, ctx.leader_uuid.string, (long long)ctx.term);
+        state.role = RAFT_ROLE_FOLLOWER;
+        state.current_term.term = ctx.term;
+        state.voted = 0;
+    }
+
+    if(state.role == RAFT_ROLE_CANDIDATE) {
+        /* I am a candidate, but received a ping from another leader, terms are the same. 
+         * This means that I lost voting! */
+        DEBUG("Another node (%s) won the voting, becoming a follower", ctx.leader_uuid.string);
+        state.role = RAFT_ROLE_FOLLOWER;
+        state.current_term.term = ctx.term;
+        state.voted = 0;
+    }
+    gettimeofday(&state.last_contact, NULL);
+    memcpy(&state.current_term.leader, &ctx.leader_uuid, sizeof(state.current_term.leader));
+    state.current_term.has_leader = 1;
+
+    success = 1;
+    state_changed = 1;
+append_entries_out:
+    /* Save new state when necessary */
+    if(state_changed) {
+        if(sx_hashfs_raft_state_set(hashfs, &state)) {
+            WARN("Failed to update raft state");
+            sx_hashfs_raft_state_abort(hashfs);
+            sx_hashfs_raft_state_empty(hashfs, &state);
+            quit_errmsg(500, "Failed to update raft state");
+        }
+
+        if(sx_hashfs_raft_state_end(hashfs)) {
+            WARN("Failed to update raft state");
+            sx_hashfs_raft_state_empty(hashfs, &state);
+            quit_errmsg(500, "Failed to update raft state");
+        }
+    } else
+        sx_hashfs_raft_state_abort(hashfs);
+
+    CGI_PRINTF("Content-type: application/json\r\n\r\n{\"success\":%s,\"term\":", success ? "true" : "false");
+    CGI_PUTLL(state.current_term.term);
+    CGI_PRINTF(",\"distributionVersion\":");
+    CGI_PUTLL(sx_hashfs_hdist_getversion(hashfs));
+    CGI_PRINTF(",\"hashFSVersion\":\"%s\",\"libsxclientVersion\":\"%s\"}", sx_hashfs_version(hashfs), sxc_get_version());
+    sx_hashfs_raft_state_empty(hashfs, &state);
+}

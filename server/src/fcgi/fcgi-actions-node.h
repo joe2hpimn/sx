@@ -45,5 +45,7 @@ void fcgi_mark_faultynodes(void);
 void fcgi_node_mass_job_lock(void);
 void fcgi_node_mass_job_unlock(void);
 void fcgi_node_status(void);
+void fcgi_raft_request_vote(void);
+void fcgi_raft_append_entries(void);
 
 #endif

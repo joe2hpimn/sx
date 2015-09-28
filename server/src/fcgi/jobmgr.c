@@ -4845,7 +4845,10 @@ static int parse_job_id(const char *jobid, job_t *job, sx_uuid_t *uuid) {
         *job = -1;
         return -1;
     }
-    uuid_from_string(uuid, uuid_str);
+    if(uuid_from_string(uuid, uuid_str)) {
+        *job = -1;
+        return -1;
+    }
 
     return 0;
 }
