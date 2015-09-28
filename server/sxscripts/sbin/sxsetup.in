@@ -79,7 +79,7 @@ if [ "$VERSION_GIVEN" = "yes" ]; then
     exit 0
 fi
 
-CFG_VERSION=2
+CFG_VERSION=3
 ETCDIR="@sysconfdir@"
 CONFIG="$ETCDIR/sxserver/sxsetup.conf"
 
