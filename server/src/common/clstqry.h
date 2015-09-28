@@ -53,5 +53,16 @@ clst_state clst_replace_state(clst_t *st, const char **desc);
 clst_state clst_upgrade_state(clst_t *st, const char **desc);
 void clst_destroy(clst_t *st);
 int clst_readonly(clst_t *st);
+
+typedef struct _raft_node_data_t {
+    sx_uuid_t uuid;
+    int64_t last_contact;
+    unsigned int state;
+} raft_node_data_t;
+
+const char *clst_leader_node(clst_t *st);
+const char* clst_raft_role(clst_t *st);
+const raft_node_data_t *clst_raft_nodes_data(clst_t *st, unsigned int *nnodes);
+
 #endif
 

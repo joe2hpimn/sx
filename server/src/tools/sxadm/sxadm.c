@@ -1362,6 +1362,7 @@ static int info_cluster(sxc_client_t *sx, struct cluster_args_info *args, int ke
     
     if(!keyonly)
         printf("Operating mode: %s\n", clst_readonly(clst) ? "read-only" : "read-write");
+
     if(nodes) {
 	unsigned int i, nnodes = sx_nodelist_count(nodes), header = 0;
 	unsigned int version;
@@ -1369,6 +1370,9 @@ static int info_cluster(sxc_client_t *sx, struct cluster_args_info *args, int ke
 	const sx_uuid_t *distid = clst_distuuid(clst, &version, &checksum);
 	const char *auth = clst_auth(clst);
 	sxi_hostlist_t hlist;
+        clst_t *clstleader = NULL;
+        const sx_node_t *leader;
+        sx_nodelist_t *unavailable_nodes;
 
 	if(keyonly) {
 	    if(!auth)
@@ -1379,6 +1383,14 @@ static int info_cluster(sxc_client_t *sx, struct cluster_args_info *args, int ke
 	    sxc_cluster_free(clust);
 	    return 0;
 	}
+
+        unavailable_nodes = sx_nodelist_new();
+        if(!unavailable_nodes) {
+            CRIT("OOM allocating unavailable_nodes");
+            clst_destroy(clst);
+            sxc_cluster_free(clust);
+            return 1;
+        }
 
 	if(nodes != nodes_prev) {
 	    unsigned int nnodes_prev = sx_nodelist_count(nodes_prev);
@@ -1411,6 +1423,7 @@ static int info_cluster(sxc_client_t *sx, struct cluster_args_info *args, int ke
 
 	    if(sxi_hostlist_add_host(sx, &hlist, sx_node_internal_addr(node))) {
 		CRIT("OOM adding to hostlist");
+                sx_nodelist_delete(unavailable_nodes);
 		clst_destroy(clst);
 		sxc_cluster_free(clust);
 		return 1;
@@ -1420,6 +1433,13 @@ static int info_cluster(sxc_client_t *sx, struct cluster_args_info *args, int ke
 	    if(!clstnode) {
 		printf("! Failed to get status of node %s (%s)\n", sx_node_uuid_str(node), sx_node_internal_addr(node));
 		ret = 1;
+                if(sx_nodelist_add(unavailable_nodes, sx_node_dup(node))) {
+                    CRIT("OOM adding unavailable node to list");
+                    sx_nodelist_delete(unavailable_nodes);
+                    clst_destroy(clst);
+                    sxc_cluster_free(clust);
+                    return 1;
+                }
 		continue;
 	    }
 	    if(clst_rebalance_state(clstnode, &op) != CLSTOP_NOTRUNNING || clst_replace_state(clstnode, &op) != CLSTOP_NOTRUNNING ||
@@ -1430,12 +1450,48 @@ static int info_cluster(sxc_client_t *sx, struct cluster_args_info *args, int ke
 		}
 		printf("  * node %s (%s): %s\n", sx_node_uuid_str(node), sx_node_internal_addr(node), op);
 	    }
-	    clst_destroy(clstnode);
+
+            if(clst_raft_role(clstnode) && !strcmp(clst_raft_role(clstnode), "leader")) {
+                clstleader = clstnode;
+                leader = node;
+            } else
+	        clst_destroy(clstnode);
 	}
+
+        if(clstleader) {
+            const raft_node_data_t *raft_nodes;
+            unsigned int raft_nnodes = 0;
+
+            raft_nodes = clst_raft_nodes_data(clstleader, &raft_nnodes);
+            if(raft_nodes) {
+                for(i = 0; i < raft_nnodes; i++) {
+                    const sx_node_t *node = sx_nodelist_lookup(nodes, &raft_nodes[i].uuid);
+                    int responds = sx_nodelist_lookup(unavailable_nodes, sx_node_uuid(node)) ? 1 : 0;
+
+                    if(!i)
+                         printf("State of nodes:\n");
+                    if(!node || sx_nodelist_lookup(faulty_nodes, sx_node_uuid(node)))
+                        continue;
+                    printf("  * node %s (%s): ", sx_node_uuid_str(node), sx_node_internal_addr(node));
+                
+                    if(!memcmp(&raft_nodes[i].uuid, sx_node_uuid(leader), sizeof(raft_nodes[i].uuid)))
+                        printf("leader");
+                    else if((raft_nodes[i].state && responds) || (!raft_nodes[i].state && !responds))
+                        printf("checking status");
+                    else if(raft_nodes[i].state)
+                        printf("alive");
+                    else
+                        printf("dead, last contact: %lld second(s) ago", (long long)raft_nodes[i].last_contact);
+                    printf("\n");
+                }
+            }
+            clst_destroy(clstleader);
+        }
 
 	if(distid)
 	    printf("Distribution: %s(v.%u) - checksum: %llu\n", distid->string, version, (unsigned long long)checksum);
 	printf("Cluster UUID: %s\n", sxc_cluster_get_uuid(clust));
+        sx_nodelist_delete(unavailable_nodes);
     }
 
     clst_destroy(clst);

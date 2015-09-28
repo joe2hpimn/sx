@@ -378,6 +378,48 @@ void fcgi_handle_cluster_requests(void) {
             CGI_PUTLL(quota_used);
         }
     }
+
+    if(has_arg("raftStatus")) {
+        sx_raft_state_t state;
+        struct timeval now;
+
+        gettimeofday(&now, NULL);
+        if(comma)
+            CGI_PUTC(',');
+
+        if(sx_hashfs_raft_state_begin(hashfs))
+            quit_itererr("Failed to get raft state", 500);
+        if(sx_hashfs_raft_state_get(hashfs, &state)) {
+            sx_hashfs_raft_state_abort(hashfs);
+            quit_itererr("Failed to get raft state", 500);
+        }
+
+        CGI_PRINTF("\"raftStatus\":{\"role\":\"%s\",\"leader\":\"%s\"", state.role == RAFT_ROLE_FOLLOWER ? "follower" : (state.role == RAFT_ROLE_CANDIDATE ? "candidate" : "leader"),
+            state.current_term.has_leader && !sx_hashfs_is_node_ignored(hashfs, &state.current_term.leader) ? state.current_term.leader.string : "<nobody>");
+        if(state.role == RAFT_ROLE_LEADER) {
+            unsigned int i;
+
+            CGI_PRINTF(",\"nodeStates\":{");
+            for(i = 0; i < state.leader_state.nnodes && sx_nodelist_count(sx_hashfs_effective_nodes(hashfs, NL_NEXTPREV)) >= 3; i++) {
+                double timediff = sxi_timediff(&now, &state.leader_state.node_states[i].last_contact);
+                if(i)
+                    CGI_PUTC(',');
+                CGI_PRINTF("\"%s\":{\"state\":\"", state.leader_state.node_states[i].node.string);
+                if(!state.leader_state.node_states[i].hbeat_success)
+                    CGI_PUTS("dead");
+                else
+                    CGI_PUTS("alive");
+                CGI_PUTS("\",\"lastContact\":");
+                CGI_PUTLL((long long)timediff);
+                CGI_PUTC('}');
+            }
+            CGI_PUTC('}');
+        }
+        CGI_PUTC('}');
+        sx_hashfs_raft_state_abort(hashfs);
+        sx_hashfs_raft_state_empty(hashfs, &state);
+        comma |= 1;
+    }
     /* MOAR COMMANDS HERE */
 
     CGI_PUTC('}');

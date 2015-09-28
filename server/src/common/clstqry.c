@@ -54,7 +54,13 @@ struct cstatus {
     char op_msg[1024];
     curlev_context_t *cbdata;
 
-    enum cstatus_state { CS_BEGIN, CS_BASEKEY, CS_CSTATUS, CS_SKEY, CS_DISTS, CS_DIST, CS_NODES, CS_NODEKEY, CS_UUID, CS_ADDR, CS_INT_ADDR, CS_CAPA, CS_NODEFLAGS, CS_DISTID, CS_DISTVER, CS_DISTCHK, CS_AUTH, CS_INPRG, CS_INPRGKEY, CS_INPRGOP, CS_INPRGDONE, CS_INPRGMSG, CS_COMPLETE, CS_MODE } state;
+    /* Raft status data */
+    char raft_role[16];
+    char raft_status_leader[UUID_STRING_SIZE+1];
+    raft_node_data_t *raft_nodes;
+    unsigned int raft_nnodes;
+
+    enum cstatus_state { CS_BEGIN, CS_BASEKEY, CS_CSTATUS, CS_SKEY, CS_DISTS, CS_DIST, CS_NODES, CS_NODEKEY, CS_UUID, CS_ADDR, CS_INT_ADDR, CS_CAPA, CS_NODEFLAGS, CS_DISTID, CS_DISTVER, CS_DISTCHK, CS_AUTH, CS_INPRG, CS_INPRGKEY, CS_INPRGOP, CS_INPRGDONE, CS_INPRGMSG, CS_RS, CS_RSKEY, CS_RS_ROLE, CS_RS_LEADER, CS_RS_NODES, CS_RS_NODES_UUID, CS_RS_NODES_NODE, CS_RS_NODES_NODE_KEY, CS_RS_NODES_NODE_STATE, CS_RS_NODES_NODE_LC, CS_COMPLETE, CS_MODE } state;
 };
 
 static int cb_cstatus_start_map(void *ctx) {
@@ -68,6 +74,12 @@ static int cb_cstatus_start_map(void *ctx) {
 	c->state = CS_NODEKEY;
     else if(c->state == CS_INPRG)
 	c->state = CS_INPRGKEY;
+    else if(c->state == CS_RS)
+        c->state = CS_RSKEY;
+    else if(c->state == CS_RS_NODES)
+        c->state = CS_RS_NODES_UUID;
+    else if(c->state == CS_RS_NODES_NODE)
+        c->state = CS_RS_NODES_NODE_KEY;
     else
 	return 0;
 
@@ -80,6 +92,8 @@ static int cb_cstatus_map_key(void *ctx, const unsigned char *s, size_t l) {
     if(c->state == CS_BASEKEY) {
 	if(l == lenof("clusterStatus") && !memcmp("clusterStatus", s, lenof("clusterStatus")))
 	    c->state = CS_CSTATUS;
+        else if(l == lenof("raftStatus") && !memcmp("raftStatus", s, lenof("raftStatus")))
+            c->state = CS_RS;
 	else
 	    return 0;
     } else if(c->state == CS_SKEY) {
@@ -121,6 +135,40 @@ static int cb_cstatus_map_key(void *ctx, const unsigned char *s, size_t l) {
 	    c->state = CS_INPRGMSG;
 	else
 	    return 0;
+    } else if(c->state == CS_RSKEY) {
+        if(l == lenof("role") && !memcmp("role", s, lenof("role")))
+            c->state = CS_RS_ROLE;
+        else if(l == lenof("leader") && !memcmp("leader", s, lenof("leader")))
+            c->state = CS_RS_LEADER;
+        else if(l == lenof("nodeStates") && !memcmp("nodeStates", s, lenof("nodeStates")))
+            c->state = CS_RS_NODES;
+        else
+            return 0;
+    } else if(c->state == CS_RS_NODES_UUID) {
+        raft_node_data_t *oldptr = c->raft_nodes;
+        char uuid_str[UUID_STRING_SIZE+1];
+        if(l != UUID_STRING_SIZE)
+            return 0;
+        c->raft_nodes = realloc(oldptr, sizeof(raft_node_data_t) * (c->raft_nnodes+1));
+        if(!c->raft_nodes) {
+            c->raft_nodes = oldptr;
+            return 0;
+        }
+        memset(&c->raft_nodes[c->raft_nnodes], 0, sizeof(c->raft_nodes[c->raft_nnodes]));
+        memcpy(uuid_str, s, UUID_STRING_SIZE);
+        uuid_str[UUID_STRING_SIZE] = '\0';
+        if(uuid_from_string(&c->raft_nodes[c->raft_nnodes].uuid, uuid_str))
+            return 0;
+        c->raft_nnodes++;
+        c->state = CS_RS_NODES_NODE;
+        return 1;
+    } else if(c->state == CS_RS_NODES_NODE_KEY) {
+        if(l == lenof("state") && !memcmp("state", s, lenof("state")))
+            c->state = CS_RS_NODES_NODE_STATE;
+        else if(l == lenof("lastContact") && !memcmp("lastContact", s, lenof("lastContact")))
+            c->state = CS_RS_NODES_NODE_LC;
+        else
+            return 0;
     } else
 	return 0;
 
@@ -153,6 +201,12 @@ static int cb_cstatus_end_map(void *ctx) {
 	c->state = CS_SKEY;
     else if(c->state == CS_BASEKEY)
 	c->state = CS_COMPLETE;
+    else if(c->state == CS_RSKEY)
+        c->state = CS_BASEKEY;
+    else if(c->state == CS_RS_NODES_NODE_KEY)
+        c->state = CS_RS_NODES_UUID;
+    else if(c->state == CS_RS_NODES_UUID)
+        c->state = CS_RSKEY;
     else
 	return 0;
 
@@ -267,6 +321,29 @@ static int cb_cstatus_string(void *ctx, const unsigned char *s, size_t l) {
     } else if(c->state == CS_NODEFLAGS) {
 	c->is_ignd = memchr(s, 'i', l) != NULL;
 	c->state = CS_NODEKEY;
+    } else if(c->state == CS_RS_ROLE) {
+        if(l >= sizeof(c->raft_role))
+            return 0;
+        memcpy(c->raft_role, s, l);
+        c->raft_role[l] = '\0';
+        c->state = CS_RSKEY;
+    } else if(c->state == CS_RS_LEADER) {
+        if(l == lenof("<nobody>") && !memcmp(s, "<nobody>", l))
+            sxi_strlcpy(c->raft_status_leader, "<nobody>", sizeof(c->raft_status_leader));
+        else if(l == UUID_STRING_SIZE)
+            memcpy(c->raft_status_leader, s, UUID_STRING_SIZE);
+        else
+            return 0;
+        c->raft_status_leader[UUID_STRING_SIZE] = '\0';
+        c->state = CS_RSKEY;
+    } else if(c->state == CS_RS_NODES_NODE_STATE) {
+        if(l == lenof("alive") && !memcmp(s, "alive", l))
+            c->raft_nodes[c->raft_nnodes-1].state = 1;
+        else if(l == lenof("dead") && !memcmp(s, "dead", l))
+            c->raft_nodes[c->raft_nnodes-1].state = 0;
+        else
+            return 0;
+        c->state = CS_RS_NODES_NODE_KEY;
     } else
 	return 0;
 
@@ -278,7 +355,7 @@ static int cb_cstatus_number(void *ctx, const char *s, size_t l) {
     char number[24], *eon;
     int64_t lld;
 
-    if(c->state != CS_CAPA && c->state != CS_DISTVER && c->state != CS_DISTCHK)
+    if(c->state != CS_CAPA && c->state != CS_DISTVER && c->state != CS_DISTCHK && c->state != CS_RS_NODES_NODE_LC)
 	return 0;
 
     if(c->capa || l<1 || l>20)
@@ -300,6 +377,11 @@ static int cb_cstatus_number(void *ctx, const char *s, size_t l) {
 	    return 0;
 	c->version = (unsigned int)(lld & 0xffffffff);
 	c->state = CS_SKEY;
+    } else if(c->state == CS_RS_NODES_NODE_LC) {
+        if(lld < 0)
+            return 0;
+        c->raft_nodes[c->raft_nnodes-1].last_contact = lld;
+        c->state = CS_RS_NODES_NODE_KEY;
     } else {
 	c->checksum = (uint64_t)lld;
 	c->state = CS_SKEY;
@@ -310,10 +392,8 @@ static int cb_cstatus_number(void *ctx, const char *s, size_t l) {
 
 int cb_cstatus_boolean(void *ctx, int boolean) {
     struct cstatus *c = (struct cstatus *)ctx;
-
     if(c->state != CS_INPRGDONE)
-	return 0;
-
+        return 0;
     c->op_complete = boolean;
     c->state = CS_INPRGKEY;
     return 1;
@@ -368,9 +448,11 @@ static int cstatus_setup_cb(curlev_context_t *cbdata, void *ctx, const char *hos
     free(yactx->auth);
     free(yactx->addr);
     free(yactx->int_addr);
+    free(yactx->raft_nodes);
     yactx->auth = NULL;
     yactx->addr = NULL;
     yactx->int_addr = NULL;
+    yactx->raft_nodes = NULL;
     yactx->have_uuid = 0;
     yactx->is_ignd = 0;
     yactx->have_distid = 0;
@@ -384,6 +466,9 @@ static int cstatus_setup_cb(curlev_context_t *cbdata, void *ctx, const char *hos
     yactx->state = CS_BEGIN;
     yactx->cbdata = cbdata;
     yactx->readonly = 0;
+    memset(&yactx->raft_status_leader, 0, sizeof(yactx->raft_status_leader));
+    memset(yactx->raft_role, 0, sizeof(yactx->raft_role));
+    yactx->raft_nnodes = 0;
 
     return 0;
 }
@@ -405,6 +490,7 @@ void clst_destroy(clst_t *st) {
     free(st->auth);
     free(st->addr);
     free(st->int_addr);
+    free(st->raft_nodes);
     if(st->yh)
 	yajl_free(st->yh);
     free(st);
@@ -419,7 +505,7 @@ clst_t *clst_query(sxi_conns_t *conns, sxi_hostlist_t *hlist) {
     if(!(yctx = calloc(1, sizeof(*yctx))))
 	return NULL;
 
-    if(sxi_cluster_query(conns, hlist, REQ_GET, "?clusterStatus&operatingMode", NULL, 0, cstatus_setup_cb, cstatus_cb, yctx) != 200) {
+    if(sxi_cluster_query(conns, hlist, REQ_GET, "?clusterStatus&operatingMode&raftStatus", NULL, 0, cstatus_setup_cb, cstatus_cb, yctx) != 200) {
 	clst_destroy(yctx);
 	return NULL;
     }
@@ -499,3 +585,17 @@ int clst_readonly(clst_t *st) {
     return st ? st->readonly : 0;
 }
 
+const char* clst_leader_node(clst_t *st) {
+    return st ? st->raft_status_leader : NULL;
+}
+
+const char* clst_raft_role(clst_t *st) {
+    return st ? st->raft_role : NULL;
+}
+
+const raft_node_data_t *clst_raft_nodes_data(clst_t *st, unsigned int *nnodes) {
+    if(!st || !nnodes)
+        return NULL;
+    *nnodes = st->raft_nnodes;
+    return st->raft_nodes;
+}
