@@ -16254,11 +16254,11 @@ rc_ty sx_hashfs_raft_state_get(sx_hashfs_t *h, sx_raft_state_t *state) {
         goto sx_hashfs_raft_state_get_err;
     state->current_term.term = sqlite3_column_int64(q, 0);
     sqlite3_reset(q);
+
     /* A current_term.leader field can be missing when no leader is known for the node */
     if(qbind_text(q, ":k", "raftCurrentTermLeader"))
         goto sx_hashfs_raft_state_get_err;
     r = qstep(q);
-
     if(r == SQLITE_ROW) {
         const char *uuid_str;
 
@@ -16323,6 +16323,16 @@ rc_ty sx_hashfs_raft_state_get(sx_hashfs_t *h, sx_raft_state_t *state) {
         state->leader_state.hdist_version = sqlite3_column_int64(q, 0);
         sqlite3_reset(q);
 
+        if(qbind_text(q, ":k", "raftFaultyJobID"))
+            goto sx_hashfs_raft_state_get_err;
+        r = qstep(q);
+        if(r == SQLITE_ROW) {
+            state->leader_state.job_id = sqlite3_column_int64(q, 0);
+            state->leader_state.job_scheduled = 1;
+        } else if(r != SQLITE_DONE)
+            goto sx_hashfs_raft_state_get_err;
+        sqlite3_reset(q);
+
         if(qbind_text(q, ":k", "raftNodesState") || qstep_ret(q))
             goto sx_hashfs_raft_state_get_err;
         data = sqlite3_column_blob(q, 0);
@@ -16351,7 +16361,8 @@ rc_ty sx_hashfs_raft_state_get(sx_hashfs_t *h, sx_raft_state_t *state) {
 
             if(sx_blob_get_blob(b, (const void**)&uuid, &uuid_len) || uuid_len != UUID_BINARY_SIZE ||
                sx_blob_get_int64(b, &state->leader_state.node_states[i].next_index) || sx_blob_get_int64(b, &state->leader_state.node_states[i].match_index) ||
-               sx_blob_get_datetime(b, &state->leader_state.node_states[i].last_contact) || sx_blob_get_int32(b, &state->leader_state.node_states[i].hbeat_success)) {
+               sx_blob_get_datetime(b, &state->leader_state.node_states[i].last_contact) || sx_blob_get_int32(b, &state->leader_state.node_states[i].hbeat_success) ||
+               sx_blob_get_int32(b, &state->leader_state.node_states[i].is_faulty)) {
                 WARN("Corrupt raft node states list");
                 goto sx_hashfs_raft_state_get_err;
             }
@@ -16446,6 +16457,17 @@ rc_ty sx_hashfs_raft_state_set(sx_hashfs_t *h, const sx_raft_state_t *state) {
             goto sx_hashfs_raft_state_set_err;
         sqlite3_reset(qset);
 
+        if(state->leader_state.job_scheduled) {
+            if(qbind_text(qset, ":k", "raftFaultyJobID") || qbind_int64(qset, ":v", state->leader_state.job_id) || qstep_noret(qset))
+                goto sx_hashfs_raft_state_set_err;
+            sqlite3_reset(qset);
+        } else {
+            sqlite3_reset(qdel);
+            if(qbind_text(qdel, ":k", "raftFaultyJobID") || qstep_noret(qdel))
+                goto sx_hashfs_raft_state_set_err;
+            sqlite3_reset(qdel);
+        }
+
         b = sx_blob_new();
         if(!b) {
             ret = ENOMEM;
@@ -16458,7 +16480,8 @@ rc_ty sx_hashfs_raft_state_set(sx_hashfs_t *h, const sx_raft_state_t *state) {
         for(i = 0; i < state->leader_state.nnodes; i++) {
             if(sx_blob_add_blob(b, state->leader_state.node_states[i].node.binary, UUID_BINARY_SIZE) ||
                sx_blob_add_int64(b, state->leader_state.node_states[i].next_index) || sx_blob_add_int64(b, state->leader_state.node_states[i].match_index) ||
-               sx_blob_add_datetime(b, &state->leader_state.node_states[i].last_contact) || sx_blob_add_int32(b, state->leader_state.node_states[i].hbeat_success))
+               sx_blob_add_datetime(b, &state->leader_state.node_states[i].last_contact) || sx_blob_add_int32(b, state->leader_state.node_states[i].hbeat_success) ||
+               sx_blob_add_int32(b, state->leader_state.node_states[i].is_faulty))
                 goto sx_hashfs_raft_state_set_err;
         }
 

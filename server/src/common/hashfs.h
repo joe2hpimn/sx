@@ -531,6 +531,9 @@ typedef struct _raft_node_state_t {
 
     /* Last heartbeat success */
     int hbeat_success;
+
+    /* Set to 1 when the node is marked as faulty and scheduled for being ignored, but the job is pending. */
+    int is_faulty;
 } sx_raft_node_state_t;
 
 /* Defines the raft term */
@@ -538,7 +541,7 @@ typedef struct _raft_term_t {
     /* References to term_id field in raft_log table */
     int64_t term;
 
-    /* Leader for particular term */
+    /* A leader uuid for particular term */
     sx_uuid_t leader;
     int has_leader;
 } sx_raft_term_t;
@@ -551,6 +554,15 @@ struct raft_leader_state {
     unsigned int nnodes;
     /* Current hdist version */
     int64_t hdist_version;
+
+    /* Nodes ignoring (aka 'set-faulty') job ID
+     *
+     * Set when leader node decide to ignore some nodes and schedules a job.
+     * When leader node is being woken up, it is checking the job status.
+     * When job fails, it is gonna be retried later.
+     */
+    int64_t job_id;
+    int job_scheduled;
 };
 
 /* Raft protocol context */

@@ -63,7 +63,6 @@ typedef enum _raft_rpc_type_t { RAFT_RPC_REQUEST_VOTE, RAFT_RPC_APPEND_ENTRIES }
  */
 
 struct cb_raft_response_ctx {
-    curlev_context_t *cbdata;
     yajl_handle yh;
     enum cb_raft_response_state { CB_RR_START, CB_RR_KEY, CB_RR_TERM, CB_RR_HDIST_VERSION, CB_RR_HASHFS_VERSION, CB_RR_LIB_VERSION, CB_RR_SUCCESS, CB_RR_COMPLETE } state;
     sx_raft_term_t term;
@@ -203,7 +202,6 @@ static int raft_response_setup_cb(curlev_context_t *cbdata, const char *host) {
     if(c->yh)
         yajl_free(c->yh);
 
-    c->cbdata = cbdata;
     if(!(c->yh  = yajl_alloc(&raft_response_parser, NULL, c))) {
         INFO("failed to allocate yajl structure");
         sxi_cbdata_seterr(cbdata, SXE_EMEM, "List failed: Out of memory");
@@ -307,6 +305,12 @@ static rc_ty raft_rpc_bcast(sx_hashfs_t *h, sx_raft_state_t *state, raft_rpc_typ
         const sx_node_t *node = sx_nodelist_get(nodes, nnode);
 
         if(sx_node_cmp(me, node)) {
+            if(state->role == RAFT_ROLE_LEADER) {
+                /* Node can be marked as faulty when JOBTYPE_IGNODES job is pending, skip the node, it is not gonna response anyway. */
+                if(state->leader_state.node_states[nnode].is_faulty)
+                    continue;
+            }
+
             cbdata[nnode] = sxi_cbdata_create_generic(clust, NULL, NULL);
             sxi_cbdata_set_context(cbdata[nnode], &ctx[nnode]);
             if(sxi_cluster_query_ev(cbdata[nnode], clust, sx_node_internal_addr(node), proto->verb, proto->path, proto->content, proto->content_len, raft_response_setup_cb, raft_response_cb)) {
@@ -385,6 +389,174 @@ raft_rpc_bcast_err:
     return ret;
 }
 
+/* Check node states and mark dead nodes as faulty. A node is considered dead when it is not available for more than assumed timeout.
+ * If there already exist a nodes ignoring job, then only check its status and exit. Returns negative when error occured.
+ *
+ * Note: This function should be called inside transaction on raft state to avoid role change races. This function does not
+ *       perform any remote queries, it makes an internal job and should not cause database locks being held too long.
+ */
+static int raft_ignore_dead_nodes(sx_hashfs_t *h, sx_raft_state_t *state, const sx_nodelist_t *nodes, unsigned int nnodes) {
+    unsigned int i;
+    struct timeval now;
+    sx_nodelist_t *faulty = NULL, *targets = NULL;
+    unsigned min_replica;
+    const sx_hashfs_volume_t *vol;
+    rc_ty s;
+    int ret = -1;
+    const sx_node_t *me = sx_hashfs_self(h);
+
+    if(!state || !nodes || !me)
+        return -1;
+
+    min_replica = state->leader_state.nnodes;
+
+    if(state->leader_state.job_scheduled) {
+        job_status_t job_status;
+        const char *job_message;
+
+        /* When the job is already scheduled, avoid trying to reschedule it again.
+         * Check its status instead. */
+        if((s = sx_hashfs_job_result(h, state->leader_state.job_id, 0, &job_status, &job_message)) != OK) {
+            WARN("Failed to check job %lld status", (long long)state->leader_state.job_id);
+            return -1;
+        }
+
+        /* When job finishes (with success or not) the job_scheduled field is reset.
+         * Also all nodes which has is_faulty flag enabled will have it reset. This is done
+         * in error handler. */
+        if(job_status == JOB_OK) {
+            state->leader_state.job_scheduled = 0;
+            state->leader_state.job_id = -1LL;
+        } else if(job_status == JOB_ERROR) {
+            WARN("Job %lld failed: %s", (long long)state->leader_state.job_id, job_message);
+            state->leader_state.job_scheduled = 0;
+            state->leader_state.job_id = -1LL;
+            return -1;
+        }
+
+        ret = 0;
+        goto raft_ignore_dead_nodes_err;
+    }
+
+    /* Iterate over volumes in order to find a volume with minimum replica */
+    for(s = sx_hashfs_volume_first(h, &vol, NULL); s == OK; s = sx_hashfs_volume_next(h)) {
+        /* Note: Currently _sxsetup.conf volume is always created via sxsetup with replica 1, effectively
+         *       preventing automatic nodes ignoring from being executed. This volume is only necessary to
+         *       store configuration data which can still be properly provided for sxsetup on new nodes.
+         *       This could be handled sxsetup side, _sxsetup.conf volume could be recreated for each
+         *       successful node join. Although user would not be able to decrease number of nodes then. */
+        if(strcmp(vol->name, "_sxsetup.conf") && vol->effective_replica < min_replica)
+            min_replica = vol->effective_replica;
+    }
+
+    if(s != ITER_NO_MORE) {
+        WARN("Failed to check minimum volumes replica");
+        return -1;
+    }
+
+    if(min_replica < 2)
+        return 0; /* Immediately return. Cannot ignore dead nodes when min replica is too low. */
+
+    gettimeofday(&now, NULL);
+    /* Iterate over list and find dead nodes. Do it inside transaction in order to avoid state change race. */
+    for(i = 0; i < state->leader_state.nnodes; i++) {
+        if(!state->leader_state.node_states[i].hbeat_success && sxi_timediff(&now, &state->leader_state.node_states[i].last_contact) > SXLIMIT_MAX_NODE_UNREACHABLE) {
+            sx_node_t *node;
+
+            /* Node is dead, mark it as faulty */
+
+            DEBUG("Node %s is dead", state->leader_state.node_states[i].node.string);
+            if(!faulty) {
+                /* Prepare faulty nodes list */
+                faulty = sx_nodelist_new();
+                if(!faulty) {
+                    INFO("Out of memory allocating faulty nodes list");
+                    return -1;
+                }
+            }
+
+            if(!(node = sx_node_new(&state->leader_state.node_states[i].node, "127.0.0.1", "127.0.0.1", 1))) {
+                INFO("Out of memory allocating faulty node %s", state->leader_state.node_states[i].node.string);
+                goto raft_ignore_dead_nodes_err;
+            }
+
+            if(sx_nodelist_add(faulty, node)) {
+                INFO("Failed to add node to faulty nodelist");
+                goto raft_ignore_dead_nodes_err;
+            }
+
+            min_replica--;
+            DEBUG("Faulty nodes count: %d, min_replica: %d", sx_nodelist_count(faulty), min_replica);
+            if(min_replica == 0)
+                break; /* Not enough replica */
+        }
+    }
+
+    /* Check if faulty nodelist is filled and we have enough replicas reserved for volumes */
+    if(min_replica && faulty) {
+        sx_blob_t *b;
+        const void *data;
+        unsigned int data_len;
+
+        INFO("Setting %d node(s) as faulty due to heartbeat timeout", sx_nodelist_count(faulty));
+
+        targets = sx_nodelist_new();
+        if(!targets) {
+            INFO("Out of memory allocating job targets");
+            goto raft_ignore_dead_nodes_err;
+        }
+
+        for(i = 0; i < state->leader_state.nnodes; i++) {
+            const sx_node_t *node = sx_nodelist_get(nodes, i);
+            if(sx_nodelist_lookup(faulty, sx_node_uuid(node)))
+                continue;
+
+            /* If the leader created a nodes ignoring job knowing that it had failed to contact all the healthy
+             * nodes (those that has not hbeat_success flag set, but did not time out), the job would most probably fail.
+             * It is better to skip creating such a job and wait for those alive nodes to become up again or time out too. */
+            if(!state->leader_state.node_states[i].hbeat_success) {
+                DEBUG("Not all nodes successfully received heartbeat, but are not considered dead yet");
+                ret = 0;
+                goto raft_ignore_dead_nodes_err;
+            }
+
+            if(sx_nodelist_add(targets, sx_node_dup(node))) {
+                INFO("Out of memory preparing job targets");
+                goto raft_ignore_dead_nodes_err;
+            }
+        }
+
+        /* Nodelist created, the new job is gonna be created now. */
+        b = sx_nodelist_to_blob(faulty);
+        if(!b) {
+            INFO("Out of memory allocating nodelist blob");
+            goto raft_ignore_dead_nodes_err;
+        }
+
+        sx_blob_to_data(b, &data, &data_len);
+        s = sx_hashfs_job_new(h, 0, &state->leader_state.job_id, JOBTYPE_IGNODES, 20 * sx_nodelist_count(targets), "IGNODES", data, data_len, targets);
+        sx_blob_free(b);
+
+        if(s != OK)
+            WARN("Failed to set %d node(s) as faulty: %s", sx_nodelist_count(faulty), msg_get_reason());
+        else {
+            state->leader_state.job_scheduled = 1;
+            DEBUG("Successfully scheduled nodes ignoring job: %lld", (long long)state->leader_state.job_id);
+        }
+    } else if(faulty) /* faulty is set when at least one node is considered dead and should be ignored */
+        DEBUG("Cannot mark %d nodes as faulty due to minimum volumes replica requirement not met", sx_nodelist_count(faulty));
+
+    ret = 0;
+raft_ignore_dead_nodes_err:
+    if(!state->leader_state.job_scheduled) {
+        for(i = 0; i < state->leader_state.nnodes; i++)
+            state->leader_state.node_states[i].is_faulty = 0; /* Reset the faulty flag when job is not shceduled to allow further pings being performed */
+    }
+    sx_nodelist_delete(targets);
+    sx_nodelist_delete(faulty);
+    return ret;
+}
+
 static rc_ty raft_leader_send_heartbeat(sx_hashfs_t *h, sx_raft_state_t *state, const sx_nodelist_t *nodes, unsigned int nnodes) {
     const sx_node_t *me = sx_hashfs_self(h);
     rc_ty s;
@@ -433,6 +605,11 @@ static rc_ty raft_leader_send_heartbeat(sx_hashfs_t *h, sx_raft_state_t *state, 
             save_state.leader_state.node_states[i].hbeat_success = state->leader_state.node_states[i].hbeat_success;
         }
         state_changed = 1;
+
+        /* Successfully called heartbeats, last contact fields are updated. Consider whether some nodes need
+         * to be marked as faulty and perform this operation when safe. */
+        if(SXLIMIT_MAX_NODE_UNREACHABLE && raft_ignore_dead_nodes(h, &save_state, nodes, nnodes))
+            WARN("Failed to mark dead nodes as faulty");
     }
 
     if(state_changed) {
@@ -595,7 +772,7 @@ static int raft_leader_reload_nodelist(sx_hashfs_t *h, sx_raft_state_t *state, c
     /* Initialize node states to contain exactly the same nodes as in effective nodelist */
     nstates = calloc(nnodes, sizeof(sx_raft_node_state_t));
     if(!nstates) {
-        WARN("Cannot allocate nodes state list");
+        WARN("Cannot allocate node states list");
         return -1;
     }
 

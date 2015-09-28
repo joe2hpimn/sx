@@ -52,7 +52,7 @@
 #define SXLIMIT_MIN_REVISIONS 1
 #define SXLIMIT_MAX_REVISIONS 64
 
-/* Maximum allowed time for node to be unreachable */
-#define SXLIMIT_MAX_NODE_UNREACHABLE    60
+/* Maximum time allowed for node to be unreachable (set 0 to disable) */
+#define SXLIMIT_MAX_NODE_UNREACHABLE    0
 
 #endif
