@@ -66,11 +66,11 @@ void fcgi_handle_cluster_requests(void) {
 
     /* Allow caching of rarely changing hdist-based items but force
      * revalidation so we authenticate and authorize the request again */
-    if(has_arg("clusterStatus") + has_arg("nodeList") + has_arg("nodeMaps") + has_arg("clusterMeta") == nargs) {
+    if(has_arg("nodeList") + has_arg("nodeMaps") + has_arg("clusterMeta") == nargs) {
 	time_t lastmod = 0;
 	const char *ifmod;
 
-        if(has_arg("clusterStatus") || has_arg("nodeList") || has_arg("nodeMaps"))
+        if(has_arg("nodeList") || has_arg("nodeMaps"))
             lastmod = sx_hashfs_disttime(hashfs);
         if(has_arg("clusterMeta")) {
             time_t last_meta_mod;
@@ -159,6 +159,10 @@ void fcgi_handle_cluster_requests(void) {
 	const sx_hashfs_volume_t *vol;
         char owner[SXLIMIT_MAX_USERNAME_LEN+1];
 
+        if(comma) {
+            CGI_PUTC(',');
+            comma = 0;
+        }
 	CGI_PUTS("\"volumeList\":{");
         uint8_t *u = has_priv(PRIV_ADMIN) ? NULL : user;/* user = NULL: list all volumes */
 	for(s = sx_hashfs_volume_first(hashfs, &vol, u); s == OK; s = sx_hashfs_volume_next(hashfs)) {
