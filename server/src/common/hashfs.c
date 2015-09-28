@@ -773,6 +773,9 @@ struct _sx_hashfs_t {
     sqlite3_stmt *qx_hasheld;
 
     sxi_db_t *hbeatdb;
+    sqlite3_stmt *qh_getval;
+    sqlite3_stmt *qh_setval;
+    sqlite3_stmt *qh_delval;
 
     struct timeval volsizes_push_timestamp;
 
@@ -869,6 +872,9 @@ struct _sx_hashfs_t {
 static void close_all_dbs(sx_hashfs_t *h) {
     unsigned int i, j;
 
+    sqlite3_finalize(h->qh_getval);
+    sqlite3_finalize(h->qh_setval);
+    sqlite3_finalize(h->qh_delval);
     qclose(&h->hbeatdb);
 
     sqlite3_finalize(h->qx_add);
@@ -1936,6 +1942,12 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
        goto open_hashfs_fail;
 
     if(!(h->hbeatdb = open_db(dir, "hbeatdb", &h->cluster_uuid, HASHFS_VERSION, h->q_getval)))
+        goto open_hashfs_fail;
+    if(qprep(h->hbeatdb, &h->qh_getval, "SELECT value FROM hashfs WHERE key = :k"))
+	goto open_hashfs_fail;
+    if(qprep(h->hbeatdb, &h->qh_setval, "INSERT OR REPLACE INTO hashfs (key,value) VALUES (:k, :v)"))
+        goto open_hashfs_fail;
+    if(qprep(h->hbeatdb, &h->qh_delval, "DELETE FROM hashfs WHERE key = :k"))
         goto open_hashfs_fail;
 
 
@@ -3672,37 +3684,12 @@ static rc_ty metadb_1_2_to_1_3(sxi_db_t *db)
     return ret;
 }
 
-
-/* Version upgrade 1.1 -> 1.2 */
-static rc_ty hashfs_1_1_to_1_2(sxi_db_t *db)
+static rc_ty hbeatdb_1_2_to_1_3(sxi_db_t *db)
 {
     rc_ty ret = FAIL_EINTERNAL;
     sqlite3_stmt *q = NULL;
     do {
         sx_raft_state_t state;
-
-        if(qprep(db, &q, "ALTER TABLE users ADD COLUMN quota INTEGER NOT NULL DEFAULT 0") || qstep_noret(q))
-            break;
-	qnullify(q);
-
-	if(qprep(db, &q, "ALTER TABLE users ADD COLUMN desc TEXT("STRIFY(SXLIMIT_META_MAX_VALUE_LEN)") NULL") || qstep_noret(q))
-            break;
-	qnullify(q);
-
-	if(qprep(db, &q, "UPDATE users SET desc = (SELECT desc FROM usermeta WHERE usermeta.userid = users.uid)") || qstep_noret(q))
-	    break;
-	qnullify(q);
-
-	if(qprep(db, &q, "DROP TABLE usermeta") || qstep_noret(q))
-	    break;
-	qnullify(q);
-
-        /* TODO: Move this code to 1_2 -> 1_3 before release */
-
-        /* Make the log entry as blob for now, defaults to NULL that will probably be used by hearbeat queries */
-        if(qprep(db, &q, "CREATE TABLE raft_log (term_id INTEGER NOT NULL PRIMARY KEY, data BLOB DEFAULT NULL)") || qstep_noret(q))
-            break;
-        qnullify(q);
 
         /************************
          *  RAFT INITIAL STATE  *
@@ -3744,6 +3731,36 @@ static rc_ty hashfs_1_1_to_1_2(sxi_db_t *db)
         if(qbind_text(q, ":k", "raftLastHdistVersion") || qbind_int64(q, ":v", state.leader_state.hdist_version) || qstep_noret(q))
             break;
         sqlite3_reset(q);
+        qnullify(q);
+
+        ret = OK;
+
+    } while(0);
+    qnullify(q);
+    return ret;
+}
+
+/* Version upgrade 1.1 -> 1.2 */
+static rc_ty hashfs_1_1_to_1_2(sxi_db_t *db)
+{
+    rc_ty ret = FAIL_EINTERNAL;
+    sqlite3_stmt *q = NULL;
+    do {
+        if(qprep(db, &q, "ALTER TABLE users ADD COLUMN quota INTEGER NOT NULL DEFAULT 0") || qstep_noret(q))
+            break;
+	qnullify(q);
+
+	if(qprep(db, &q, "ALTER TABLE users ADD COLUMN desc TEXT("STRIFY(SXLIMIT_META_MAX_VALUE_LEN)") NULL") || qstep_noret(q))
+            break;
+	qnullify(q);
+
+	if(qprep(db, &q, "UPDATE users SET desc = (SELECT desc FROM usermeta WHERE usermeta.userid = users.uid)") || qstep_noret(q))
+	    break;
+	qnullify(q);
+
+	if(qprep(db, &q, "DROP TABLE usermeta") || qstep_noret(q))
+	    break;
+	qnullify(q);
 
         ret = OK;
     } while(0);
@@ -4041,6 +4058,7 @@ static const sx_upgrade_t upgrade_sequence[] = {
         .from = HASHFS_VERSION_1_2,
         .to = HASHFS_VERSION_1_3,
         .upgrade_metadb = metadb_1_2_to_1_3,
+	.upgrade_hbeatdb = hbeatdb_1_2_to_1_3,
 	NEWDBS({"hbeatdb", "hbeat.db"} /* , {"otherstuff", "other.db"}, ... */)
     }
 };
@@ -16192,7 +16210,7 @@ rc_ty sx_hashfs_compact(sx_hashfs_t *h, int64_t *bytes_freed) {
 /* Raft implementation operations */
 
 rc_ty sx_hashfs_raft_state_begin(sx_hashfs_t *h) {
-    if(qbegin(h->db)) {
+    if(qbegin(h->hbeatdb)) {
         WARN("Failed to lock database");
         return FAIL_LOCKED;
     }
@@ -16200,7 +16218,7 @@ rc_ty sx_hashfs_raft_state_begin(sx_hashfs_t *h) {
 }
 
 rc_ty sx_hashfs_raft_state_end(sx_hashfs_t *h) {
-    if(qcommit(h->db)) {
+    if(qcommit(h->hbeatdb)) {
         sx_hashfs_raft_state_abort(h);
         WARN("Failed to commit raft state changes");
         return FAIL_EINTERNAL;
@@ -16209,7 +16227,7 @@ rc_ty sx_hashfs_raft_state_end(sx_hashfs_t *h) {
 }
 
 void sx_hashfs_raft_state_abort(sx_hashfs_t *h) {
-    qrollback(h->db);
+    qrollback(h->hbeatdb);
 }
 
 rc_ty sx_hashfs_raft_state_get(sx_hashfs_t *h, sx_raft_state_t *state) {
@@ -16218,7 +16236,7 @@ rc_ty sx_hashfs_raft_state_get(sx_hashfs_t *h, sx_raft_state_t *state) {
     int r;
     const void *data;
     unsigned int data_len;
-    sqlite3_stmt *q = h->q_getval;
+    sqlite3_stmt *q = h->qh_getval;
 
     if(!state) {
         NULLARG();
@@ -16357,7 +16375,7 @@ sx_hashfs_raft_state_get_err:
 rc_ty sx_hashfs_raft_state_set(sx_hashfs_t *h, const sx_raft_state_t *state) {
     rc_ty ret = FAIL_EINTERNAL;
     sx_blob_t *b = NULL;
-    sqlite3_stmt *qset = h->q_setval, *qdel = h->q_delval;
+    sqlite3_stmt *qset = h->qh_setval, *qdel = h->qh_delval;
     const void *data;
     unsigned int data_len;
 

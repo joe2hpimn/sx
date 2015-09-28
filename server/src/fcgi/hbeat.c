@@ -743,8 +743,10 @@ int hbeatmgr(sxc_client_t *sx, const char *dir, int pipe) {
 	    INFO("Distribution reloaded");
 
 	DEBUG("Beat!");
-        if(!sx_storage_is_bare(hashfs) && !sx_hashfs_is_rebalancing(hashfs) && !sx_hashfs_is_orphan(hashfs))
+        if(!sx_storage_is_bare(hashfs) && !sx_hashfs_is_rebalancing(hashfs) && !sx_hashfs_is_orphan(hashfs)) {
 	    raft_hbeat(hashfs, dc > 0);
+	    sx_hashfs_checkpoint_hbeatdb(hashfs);
+	}
     }
 
  hbeat_err:
