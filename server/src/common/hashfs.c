@@ -1346,6 +1346,7 @@ static int load_config(sx_hashfs_t *h, sxc_client_t *sx) {
 	}
 	sxi_conns_set_cafile(h->sx_clust, h->ssl_ca_file);
 	sxi_conns_disable_blacklisting(h->sx_clust);
+	sxi_conns_disable_clock_adjust(h->sx_clust);
 	if(sxi_conns_set_timeouts(h->sx_clust, SXI_CONNS_HARD_TIMEOUT, SXI_CONNS_SOFT_TIMEOUT))
 	    WARN("Failed to set connection timeouts");
 

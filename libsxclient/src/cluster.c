@@ -50,6 +50,7 @@ struct _sxi_conns_t {
     int clock_drifted;
     int vcheckwarn;
     int no_blacklisting;
+    int no_clock_adjust;
     uint16_t port;
 
     /* Transfer progress stats */
@@ -151,7 +152,7 @@ time_t sxi_conns_get_timediff(const sxi_conns_t *conns) {
     return conns ? conns->timediff : 0;
 }
 void sxi_conns_set_timediff(sxi_conns_t *conns, time_t timediff) {
-    if(conns)
+    if(conns && !conns->no_clock_adjust)
 	conns->timediff = timediff;
 }
 
@@ -881,6 +882,11 @@ int sxi_conns_set_timeout(sxi_conns_t *conns, const char *host, int timeout_acti
 void sxi_conns_disable_blacklisting(sxi_conns_t *conns) {
     if(conns)
 	conns->no_blacklisting = 1;
+}
+
+void sxi_conns_disable_clock_adjust(sxi_conns_t *conns) {
+    if(conns)
+	conns->no_clock_adjust = 1;
 }
 
 char *sxi_conns_fetch_sxauthd_credentials(sxi_conns_t *conns, const char *username, const char *pass, const char *unique_name, const char *display_name, const char *host, int port, int quiet) {
