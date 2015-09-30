@@ -2452,6 +2452,57 @@ rc_ty sx_hashfs_check_meta(const char *key, const void *value, unsigned int valu
 /* Use this function to validate cluster settings. Its aim is to check whether specific settings
  * are consistent with other ones. */
 static rc_ty cluster_settings_validate(sx_hashfs_t *h) {
+    uint64_t hb_keepalive, hb_deadtime, hb_warntime, hb_initdead;
+
+    /*
+     * RAFT settings checks
+     */
+
+    if(sx_hashfs_cluster_settings_get_uint64(h, "hb_keepalive", &hb_keepalive)) {
+        WARN("Failed to load hb_keepalive setting value");
+        msg_set_reason("Failed to validate cluster settings");
+        return FAIL_EINTERNAL;
+    }
+
+    if(sx_hashfs_cluster_settings_get_uint64(h, "hb_deadtime", &hb_deadtime)) {
+        WARN("Failed to load hb_deadtime setting value");
+        msg_set_reason("Failed to validate cluster settings");
+        return FAIL_EINTERNAL;
+    }
+
+    if(hb_keepalive < 1) {
+        msg_set_reason("'hb_keepalive' setting must be greater than 0");
+        return EINVAL;
+    }
+
+    if(hb_deadtime && hb_deadtime <= hb_keepalive) {
+        msg_set_reason("'hb_deadtime' setting must be greater than 'hb_keepalive' setting");
+        return EINVAL;
+    }
+
+    if(sx_hashfs_cluster_settings_get_uint64(h, "hb_warntime", &hb_warntime)) {
+        WARN("Failed to load hb_warntime setting value");
+        msg_set_reason("Failed to validate cluster settings");
+        return FAIL_EINTERNAL;
+    }
+
+    if(hb_warntime < hb_keepalive) {
+        msg_set_reason("'hb_warntime' setting must be greater or equal to 'hb_keepalive' setting");
+        return EINVAL;
+    }
+
+    if(hb_deadtime) {
+        if(sx_hashfs_cluster_settings_get_uint64(h, "hb_initdead", &hb_initdead)) {
+            WARN("Failed to load hb_initdead setting value");
+            msg_set_reason("Failed to validate cluster settings");
+            return FAIL_EINTERNAL;
+        }
+
+        if(hb_initdead < hb_deadtime) {
+            msg_set_reason("'hb_initdead' setting must be greater or equal to 'hb_deadtime' setting");
+            return EINVAL;
+        }
+    }
 
     /*
      * Put all other necessary checks here
@@ -4074,6 +4125,79 @@ static rc_ty upgrade_db(int lockfd, const char *path, sxi_db_t *db, const sx_has
 }
 
 /* Version upgrade 1.2 -> 1.9 */
+static rc_ty hashfs_1_2_to_1_9(sxi_db_t *db)
+{
+    rc_ty ret = FAIL_EINTERNAL;
+    sqlite3_stmt *q = NULL;
+    sx_blob_t *b = NULL;
+    do {
+        const void *data;
+        unsigned int data_len;
+
+        if(qprep(db, &q, "INSERT INTO hashfs (key,value) VALUES ("STRIFY(SX_CLUSTER_SETTINGS_PREFIX)" || :k, :v)"))
+            break;
+
+        if(!(b = sx_blob_new())) {
+            WARN("Failed to allocate blob");
+            break;
+        }
+
+        /*
+         * NOTE: While adding new settings please update the SXLIMIT_SETTINGS_MAX_ITEMS if needed.
+         *       Update cluster_settings_validate() and/or cluster sx_hashfs_check_cluster_setting()
+         *       functions in order to provide setting-specific validation.
+         */
+
+        /* Create default heartbeat cluster settings */
+        if(sx_blob_add_uint64(b, 20)) {
+            WARN("Failed to add setting value to the blob");
+            break;
+        }
+        sx_blob_to_data(b, &data, &data_len);
+        if(qbind_text(q, ":k", "hb_keepalive") || qbind_blob(q, ":v", data, data_len) || qstep_noret(q))
+            break;
+        sx_blob_reset(b);
+        sqlite3_reset(q);
+
+        if(sx_blob_add_uint64(b, 0)) {
+            WARN("Failed to add setting value to the blob");
+            break;
+        }
+        sx_blob_to_data(b, &data, &data_len);
+        if(qbind_text(q, ":k", "hb_deadtime") || qbind_blob(q, ":v", data, data_len) || qstep_noret(q))
+            break;
+        sx_blob_reset(b);
+        sqlite3_reset(q);
+
+        if(sx_blob_add_uint64(b, 120)) {
+            WARN("Failed to add setting value to the blob");
+            break;
+        }
+        sx_blob_to_data(b, &data, &data_len);
+        if(qbind_text(q, ":k", "hb_initdead") || qbind_blob(q, ":v", data, data_len) || qstep_noret(q))
+            break;
+        sx_blob_reset(b);
+        sqlite3_reset(q);
+
+        if(sx_blob_add_uint64(b, 120)) {
+            WARN("Failed to add setting value to the blob");
+            break;
+        }
+        sx_blob_to_data(b, &data, &data_len);
+        if(qbind_text(q, ":k", "hb_warntime") || qbind_blob(q, ":v", data, data_len) || qstep_noret(q))
+            break;
+        sx_blob_reset(b);
+        sqlite3_reset(q);
+
+        qnullify(q);
+
+        ret = OK;
+    } while(0);
+    qnullify(q);
+    sx_blob_free(b);
+    return ret;
+}
+
 static rc_ty metadb_1_2_to_1_9(sxi_db_t *db)
 {
     rc_ty ret = FAIL_EINTERNAL;
@@ -4102,7 +4226,7 @@ static rc_ty hbeatdb_1_2_to_1_9(sxi_db_t *db)
         if(qprep(db, &q, "INSERT INTO hashfs (key,value) VALUES (:k, :v)"))
             break;
         memset(&state, 0, sizeof(state));
-        state.election_timeout = sxi_rand() % (RAFT_ELECTION_TIMEOUT_MAX - RAFT_ELECTION_TIMEOUT_MIN) + RAFT_ELECTION_TIMEOUT_MIN;
+        state.election_timeout = sxi_rand() % 40 + 60; /* inside [3*hb_keepalive,5*hb_keepalive) */
         if(qbind_text(q, ":k", "raftRole") || qbind_int(q, ":v", state.role) || qstep_noret(q))
             break;
         sqlite3_reset(q);
@@ -4462,6 +4586,7 @@ static const sx_upgrade_t upgrade_sequence[] = {
     {
         .from = HASHFS_VERSION_1_2,
         .to = HASHFS_VERSION_1_9,
+        .upgrade_hashfsdb = hashfs_1_2_to_1_9,
         .upgrade_metadb = metadb_1_2_to_1_9,
 	.upgrade_hbeatdb = hbeatdb_1_2_to_1_9,
 	NEWDBS({"hbeatdb", "hbeat.db"} /* , {"otherstuff", "other.db"}, ... */)
@@ -14229,7 +14354,7 @@ rc_ty sx_hashfs_challenge_gen(sx_hashfs_t *h, sx_hash_challenge_t *c, int random
 }
 
 /* MODHDIST: this has got a lot in common with sx_storage_activate
- * except it's the entry for the cluster instead od sxadm */
+ * except it's the entry for the cluster instead of sxadm */
 rc_ty sx_hashfs_setnodedata(sx_hashfs_t *h, const char *name, const sx_uuid_t *node_uuid, uint16_t port, int use_ssl, const char *ssl_ca_crt) {
     rc_ty ret = FAIL_EINTERNAL;
     char *ssl_ca_file = NULL;
@@ -14303,6 +14428,9 @@ rc_ty sx_hashfs_setnodedata(sx_hashfs_t *h, const char *name, const sx_uuid_t *n
 
     if(qprep(h->db, &q, "DELETE FROM users WHERE uid <> 0") || qstep_noret(q))
 	goto setnodedata_fail;
+
+    if(update_raft_timeout(h))
+        goto setnodedata_fail;
 
     if(qcommit(h->db))
 	goto setnodedata_fail;

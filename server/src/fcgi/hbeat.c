@@ -406,7 +406,7 @@ raft_rpc_bcast_err:
  * Note: This function should be called inside transaction on raft state to avoid role change races. This function does not
  *       perform any remote queries, it makes an internal job and should not cause database locks being held too long.
  */
-static int raft_ignore_dead_nodes(sx_hashfs_t *h, sx_raft_state_t *state, const sx_nodelist_t *nodes, unsigned int nnodes) {
+static int raft_ignore_dead_nodes(sx_hashfs_t *h, sx_raft_state_t *state, const sx_nodelist_t *nodes, unsigned int nnodes, int hdist_changed, uint64_t hb_deadtime) {
     unsigned int i;
     struct timeval now;
     sx_nodelist_t *faulty = NULL, *targets = NULL;
@@ -471,7 +471,7 @@ static int raft_ignore_dead_nodes(sx_hashfs_t *h, sx_raft_state_t *state, const 
     gettimeofday(&now, NULL);
     /* Iterate over list and find dead nodes. Do it inside transaction in order to avoid state change race. */
     for(i = 0; i < state->leader_state.nnodes; i++) {
-        if(!state->leader_state.node_states[i].hbeat_success && sxi_timediff(&now, &state->leader_state.node_states[i].last_contact) > SXLIMIT_MAX_NODE_UNREACHABLE) {
+        if(!state->leader_state.node_states[i].hbeat_success && sxi_timediff(&now, &state->leader_state.node_states[i].last_contact) > hb_deadtime) {
             sx_node_t *node;
 
             /* Node is dead, mark it as faulty */
@@ -568,7 +568,7 @@ raft_ignore_dead_nodes_err:
     return ret;
 }
 
-static rc_ty raft_leader_send_heartbeat(sx_hashfs_t *h, sx_raft_state_t *state, const sx_nodelist_t *nodes, unsigned int nnodes) {
+static rc_ty raft_leader_send_heartbeat(sx_hashfs_t *h, sx_raft_state_t *state, const sx_nodelist_t *nodes, unsigned int nnodes, int hdist_changed, uint64_t hb_deadtime) {
     const sx_node_t *me = sx_hashfs_self(h);
     rc_ty s;
     sx_raft_term_t max_recv_term;
@@ -619,7 +619,7 @@ static rc_ty raft_leader_send_heartbeat(sx_hashfs_t *h, sx_raft_state_t *state, 
 
         /* Successfully called heartbeats, last contact fields are updated. Consider whether some nodes need
          * to be marked as faulty and perform this operation when safe. */
-        if(SXLIMIT_MAX_NODE_UNREACHABLE && raft_ignore_dead_nodes(h, &save_state, nodes, nnodes))
+        if(hb_deadtime && raft_ignore_dead_nodes(h, &save_state, nodes, nnodes, hdist_changed, hb_deadtime))
             WARN("Failed to mark dead nodes as faulty");
     }
 
@@ -652,7 +652,7 @@ static void raft_node_state_init(sx_raft_node_state_t *ns, const sx_uuid_t *node
     ns->hbeat_success = 1;
 }
 
-static rc_ty raft_election_start(sx_hashfs_t *h, sx_raft_state_t *state, const sx_nodelist_t *nodes, unsigned int nnodes) {
+static rc_ty raft_election_start(sx_hashfs_t *h, sx_raft_state_t *state, const sx_nodelist_t *nodes, unsigned int nnodes, uint64_t hb_keepalive, int *won_election) {
     const sx_node_t *me = sx_hashfs_self(h);
     rc_ty ret = FAIL_EINTERNAL, s;
     unsigned int nnode;
@@ -665,7 +665,7 @@ static rc_ty raft_election_start(sx_hashfs_t *h, sx_raft_state_t *state, const s
     struct timeval now;
     sx_hashfs_version_t max_recv_hashfs_version;
 
-    if(!state || !me || !nodes) {
+    if(!state || !me || !nodes || !won_election) {
         sx_hashfs_raft_state_abort(h);
         return EINVAL;
     }
@@ -681,6 +681,12 @@ static rc_ty raft_election_start(sx_hashfs_t *h, sx_raft_state_t *state, const s
     state->voted = 1;
 
     version_init(&max_recv_hashfs_version);
+
+    /* Did not win the election so far */
+    *won_election = 0;
+
+    /* Randomize new ET */
+    state->election_timeout = sxi_rand() % 2 * hb_keepalive + 3 * hb_keepalive; /* inside [3*hb_keepalive,5*hb_keepalive) */
 
     /* Save state changes (become the candidate immediately) */
     if((s = sx_hashfs_raft_state_set(h, state)) != OK) {
@@ -747,6 +753,8 @@ static rc_ty raft_election_start(sx_hashfs_t *h, sx_raft_state_t *state, const s
         save_state.current_term.has_leader = 1;
         state_changed = 1;
         node_states = NULL;
+        /* Mark the election success flag to be positive */
+        *won_election = 1;
     }
 
     if(state_changed) {
@@ -817,11 +825,12 @@ static int raft_leader_reload_nodelist(sx_hashfs_t *h, sx_raft_state_t *state, c
     return 0;
 }
 
-static void raft_hbeat(sx_hashfs_t *h, int hdist_changed) {
+static void raft_hbeat(sx_hashfs_t *h, int hdist_changed, int hb_keepalive_changed, uint64_t hb_keepalive, uint64_t hb_deadtime) {
     sx_raft_state_t state;
     struct timeval now;
     const sx_nodelist_t *nodes;
     unsigned int nnodes;
+    int reload_state = 0;
 
     /* Prepare node list */
     nodes = sx_hashfs_effective_nodes(h, NL_NEXTPREV);
@@ -842,9 +851,15 @@ static void raft_hbeat(sx_hashfs_t *h, int hdist_changed) {
     }
 
     if(sx_hashfs_raft_state_get(h, &state)) {
-        sx_hashfs_raft_state_abort(h);
         INFO("Failed to load raft state: %s", msg_get_reason());
         return;
+    }
+
+    if(hb_keepalive_changed) {
+        DEBUG("'hb_keepalive' has recently changed, recalculating election timeout");
+        /* Randomize new ET, because new hb_keepalive setting values has been set */
+        state.election_timeout = sxi_rand() % 2 * hb_keepalive + 3 * hb_keepalive; /* inside [3*hb_keepalive,5*hb_keepalive) */
+        reload_state = 1;
     }
 
     gettimeofday(&now, NULL);
@@ -868,33 +883,61 @@ static void raft_hbeat(sx_hashfs_t *h, int hdist_changed) {
                 INFO("Failed to save raft state");
                 goto raft_hbeat_err;
             }
+            reload_state = 0;
         } else
             sx_hashfs_raft_state_abort(h);
     } else if(sxi_timediff(&now, &state.last_contact) > state.election_timeout) {
+        int won_election = 0;
         DEBUG("Election timeout elapsed, switching to CANDIDATE state");
         /* Election timeout reached, start an election */
-        if(raft_election_start(h, &state, nodes, nnodes)) {
+        if(raft_election_start(h, &state, nodes, nnodes, hb_keepalive, &won_election)) {
             WARN("Failed to start an election");
             goto raft_hbeat_err;
         }
+
+        if(won_election)
+           reload_state = 1;
     } else {
         /* Database transaction is open, no changes are made */
         sx_hashfs_raft_state_abort(h);
     }
 
+    if(reload_state) {
+        /* Winning an election requires reloading the raft state */
+        sx_hashfs_raft_state_empty(h, &state);
+
+        if(sx_hashfs_raft_state_begin(h)) {
+            INFO("Failed to load raft state: Database is locked");
+            goto raft_hbeat_err;
+        }
+
+        if(sx_hashfs_raft_state_get(h, &state)) {
+            INFO("Failed to load raft state: %s", msg_get_reason());
+            goto raft_hbeat_err;
+        }
+
+        /* Only reloaded state, close db transaction to not hold it while waiting for heartbeat queries */
+        sx_hashfs_raft_state_abort(h);
+    }
+
     /* No database transaction open here */
-    if(state.role == RAFT_ROLE_LEADER && raft_leader_send_heartbeat(h, &state, nodes, nnodes))
+    if(state.role == RAFT_ROLE_LEADER && raft_leader_send_heartbeat(h, &state, nodes, nnodes, hdist_changed, hb_deadtime))
         DEBUG("Failed to send heartbeat query to all of the nodes");
 
 raft_hbeat_err:
     sx_hashfs_raft_state_empty(h, &state);
 }
 
-#define HBEAT_INTERVAL 20.0f
+#define HB_KEEPALIVE_DEFAULT    20LL
+/* Disabled by default */
+#define HB_DEADTIME_DEFAULT     0LL
+#define HB_INITDEAD_DEFAULT     120LL
 
 int hbeatmgr(sxc_client_t *sx, const char *dir, int pipe) {
     struct sigaction act;
     sx_hashfs_t *hashfs = NULL;
+    uint64_t hb_deadtime, hb_initdead, hb_keepalive = 0;
+    struct timeval started, now;
 
     sigemptyset(&act.sa_mask);
     act.sa_flags = 0;
@@ -909,6 +952,7 @@ int hbeatmgr(sxc_client_t *sx, const char *dir, int pipe) {
     sigaction(SIGHUP, &act, NULL);
     sigaction(SIGUSR1, &act, NULL);
 
+    gettimeofday(&started, NULL);
     hashfs = sx_hashfs_open(dir, sx);
     if(!hashfs) {
 	CRIT("Failed to initialize the hash server interface");
@@ -919,8 +963,28 @@ int hbeatmgr(sxc_client_t *sx, const char *dir, int pipe) {
 
     while(!terminate) {
 	int dc;
+        uint64_t prev_hb_keepalive = hb_keepalive;
 
-        if(wait_trigger(pipe, HBEAT_INTERVAL, NULL))
+        if(sx_hashfs_cluster_settings_get_uint64(hashfs, "hb_keepalive", &hb_keepalive)) {
+            WARN("Failed to get hb_keepalive setting, defaulting to %llds", HB_KEEPALIVE_DEFAULT);
+            hb_keepalive = HB_KEEPALIVE_DEFAULT;
+        }
+
+        gettimeofday(&now, NULL);
+        if(sx_hashfs_cluster_settings_get_uint64(hashfs, "hb_initdead", &hb_initdead)) {
+            WARN("Failed to get hb_initdead setting, defaulting to %llds", HB_INITDEAD_DEFAULT);
+            hb_initdead = HB_INITDEAD_DEFAULT;
+        }
+
+        /* If node has started before hb_initdead timeout is reached, do not exclude dead nodes */
+        if(sxi_timediff(&now, &started) <= hb_initdead)
+            hb_deadtime = 0;
+        else if(sx_hashfs_cluster_settings_get_uint64(hashfs, "hb_deadtime", &hb_deadtime)) {
+            WARN("Failed to get hb_deadtime setting, defaulting to %llds", HB_DEADTIME_DEFAULT);
+            hb_deadtime = HB_DEADTIME_DEFAULT;
+        }
+
+        if(wait_trigger(pipe, (float)hb_keepalive, NULL))
             break;
 
 	dc = sx_hashfs_distcheck(hashfs);
@@ -932,7 +996,7 @@ int hbeatmgr(sxc_client_t *sx, const char *dir, int pipe) {
 
 	DEBUG("Beat!");
         if(!sx_storage_is_bare(hashfs) && !sx_hashfs_is_rebalancing(hashfs) && !sx_hashfs_is_orphan(hashfs)) {
-	    raft_hbeat(hashfs, dc > 0);
+	    raft_hbeat(hashfs, dc > 0, prev_hb_keepalive != hb_keepalive, hb_keepalive, hb_deadtime);
 	    sx_hashfs_checkpoint_hbeatdb(hashfs);
 	}
     }

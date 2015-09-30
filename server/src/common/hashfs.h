@@ -63,10 +63,6 @@
 #define MASS_JOB_INITIAL_TIMEOUT 60
 #define MASS_JOB_TIMEOUT 3600
 
-/* Time span, after which the followers should issue a new election when leader is down */
-#define RAFT_ELECTION_TIMEOUT_MIN 60
-#define RAFT_ELECTION_TIMEOUT_MAX 80
-
 /* Limits for raft log entries (per one request) */
 #define MAX_RAFT_LOG_ENTRIES 128
 #define MAX_RAFT_LOG_ENTRY_LEN  1024

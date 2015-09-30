@@ -2202,6 +2202,16 @@ void fcgi_raft_append_entries(void) {
         state.current_term.term = ctx.term;
         state.voted = 0;
     }
+
+    if(state.role == RAFT_ROLE_LEADER) {
+        /* I am the leader, but received a ping from another viable leader (which could establish itself via voting),
+         * terms are the same. Become a follower and respect remote node as the legitimate leader. */
+        DEBUG("Another node (%s) is a viable leader, becoming a follower", ctx.leader_uuid.string);
+        state.role = RAFT_ROLE_FOLLOWER;
+        state.current_term.term = ctx.term;
+        state.voted = 0;
+    }
+
     gettimeofday(&state.last_contact, NULL);
     memcpy(&state.current_term.leader, &ctx.leader_uuid, sizeof(state.current_term.leader));
     state.current_term.has_leader = 1;

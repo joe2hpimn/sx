@@ -389,11 +389,14 @@ void fcgi_handle_cluster_requests(void) {
     if(has_arg("raftStatus")) {
         sx_raft_state_t state;
         struct timeval now;
+        uint64_t hb_warntime;
 
         gettimeofday(&now, NULL);
         if(comma)
             CGI_PUTC(',');
 
+        if(sx_hashfs_cluster_settings_get_uint64(hashfs, "hb_warntime", &hb_warntime))
+            quit_itererr("Failed to obtain hb_warntime setting", 500);
         if(sx_hashfs_raft_state_begin(hashfs))
             quit_itererr("Failed to get raft state", 500);
         if(sx_hashfs_raft_state_get(hashfs, &state)) {
@@ -412,7 +415,7 @@ void fcgi_handle_cluster_requests(void) {
                 if(i)
                     CGI_PUTC(',');
                 CGI_PRINTF("\"%s\":{\"state\":\"", state.leader_state.node_states[i].node.string);
-                if(!state.leader_state.node_states[i].hbeat_success)
+                if(!state.leader_state.node_states[i].hbeat_success && timediff > hb_warntime)
                     CGI_PUTS("dead");
                 else
                     CGI_PUTS("alive");
