@@ -72,7 +72,7 @@ struct _sxfs_file_t {
 typedef struct _sxfs_file_t sxfs_file_t;
 
 struct _sxfs_state {
-    int read_only, recovery_failed, threads_num, *fh_table;
+    int read_only, filter, recovery_failed, threads_num, *fh_table;
     size_t fh_limit;
     char *pname, *tempdir, *lostdir, *empty_file_path, *read_block_template;
     pthread_key_t pkey;
@@ -94,6 +94,12 @@ struct _sxfs_sx_data {
     pthread_mutex_t *sx_data_mutex;
 };
 typedef struct _sxfs_sx_data sxfs_sx_data_t;
+
+#define SXFS_FILTER_AES 1
+#define SXFS_FILTER_ATTRIBS 2
+#define SXFS_FILTER_UNDELETE 4
+#define SXFS_FILTER_ZCOMP 8
+#define SXFS_FILTER_NEEDFILE (SXFS_FILTER_AES|SXFS_FILTER_ZCOMP) /* those filters need to download whole file to read it */
 
 #define ALLOC_AMOUNT 100
 #define THREAD_WAIT_USEC 200000L /* microseconds to wait for other threads (200000 -> 0.2s) */

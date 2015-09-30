@@ -1470,6 +1470,71 @@ sxfs_open_err:
     return ret;
 } /* sxfs_open */
 
+static int get_file (const char *path, sxfs_file_t *sxfs_file) {
+    int fd, ret = -1;
+    char *local_file_path;
+    sxc_client_t *sx;
+    sxc_cluster_t *cluster;
+    sxc_file_t *file_local = NULL, *file_remote = NULL;
+
+    if(SXFS_DATA->args->verbose_flag)
+        SXFS_DEBUG("Downloading the file");
+    if(sxfs_get_sx_data(SXFS_DATA, &sx, &cluster)) {
+        SXFS_LOG("Cannot get Sx data");
+        return ret;
+    }
+    local_file_path = (char*)malloc(strlen(SXFS_DATA->tempdir) + 1 + lenof("file_write_XXXXXX") + 1);
+    if(!local_file_path) {
+        SXFS_LOG("Out of memory");
+        errno = ENOMEM;
+        return ret;
+    }
+    sprintf(local_file_path, "%s/file_write_XXXXXX", SXFS_DATA->tempdir);
+    fd = mkstemp(local_file_path);
+    if(fd < 0) {
+        SXFS_LOG("Cannot create unique temporary file: %s", strerror(errno));
+        free(local_file_path);
+        return ret;
+    }
+    if(close(fd)) {
+        SXFS_LOG("Cannot close '%s' file: %s", local_file_path, strerror(errno));
+        goto get_file_err;
+    }
+    file_local = sxc_file_local(sx, local_file_path);
+    if(!file_local) {
+        SXFS_LOG("Cannot create local file object: %s", sxc_geterrmsg(sx));
+        errno = sxfs_sx_err(sx);
+        goto get_file_err;
+    }
+    file_remote = sxc_file_remote(cluster, SXFS_DATA->uri->volume, path+1, NULL);
+    if(!file_remote) {
+        SXFS_LOG("Cannot create file object: %s", sxc_geterrmsg(sx));
+        errno = sxfs_sx_err(sx);
+        goto get_file_err;
+    }
+    if(sxc_copy(file_remote, file_local, 0, 0, 0, NULL, 1)) {
+        SXFS_LOG("%s", sxc_geterrmsg(sx));
+        errno = sxfs_sx_err(sx);
+        goto get_file_err;
+    }
+    sxfs_file->write_fd = open(local_file_path, O_RDWR);
+    if(sxfs_file->write_fd < 0) {
+        SXFS_LOG("Cannot open '%s' file: %s", local_file_path, strerror(errno));
+        goto get_file_err;
+    }
+    sxfs_file->write_path = local_file_path;
+    local_file_path = NULL;
+
+    ret = 0;
+get_file_err:
+    if(local_file_path && unlink(local_file_path))
+        SXFS_LOG("Cannot remove '%s' file: %s", local_file_path, strerror(errno));
+    free(local_file_path);
+    sxc_file_free(file_local);
+    sxc_file_free(file_remote);
+    return ret;
+} /* get_file */
+
 static int sxfs_read (const char *path, char *buf, size_t size, off_t offset, struct fuse_file_info *file_info) {
     int i, ret = -1, blocks_locked = 0, fd = 0;
     int64_t start, end;
@@ -1509,6 +1574,8 @@ static int sxfs_read (const char *path, char *buf, size_t size, off_t offset, st
         return -EFAULT;
     }
     pthread_mutex_unlock(&SXFS_DATA->files_mutex);
+    if((SXFS_DATA->filter & SXFS_FILTER_NEEDFILE) && sxfs_file->write_fd < 0 && get_file(path, sxfs_file))
+        return -errno;
     if(sxfs_file->write_fd >= 0) {
         if(SXFS_DATA->args->verbose_flag)
             SXFS_DEBUG("Reading from write cache file");
@@ -1627,7 +1694,6 @@ sxfs_read_err:
 
 static int sxfs_write (const char *path, const char *buf, size_t size, off_t offset, struct fuse_file_info *file_info) {
     int ret = -1, locked = 0;
-    char *local_file_path = NULL;
     sxfs_file_t *sxfs_file;
     struct stat st;
 
@@ -1664,67 +1730,9 @@ static int sxfs_write (const char *path, const char *buf, size_t size, off_t off
         ret = -EFAULT;
         goto sxfs_write_err;
     }
-    if(sxfs_file->write_fd < 0) {
-        int fd;
-        sxc_client_t *sx;
-        sxc_cluster_t *cluster;
-        sxc_file_t *file_local, *file_remote;
-
-        if(SXFS_DATA->args->verbose_flag)
-            SXFS_DEBUG("Downloading the file");
-        if(sxfs_get_sx_data(SXFS_DATA, &sx, &cluster)) {
-            SXFS_LOG("Cannot get Sx data");
-            ret = errno ? -errno : -ENOMSG;
-            goto sxfs_write_err;
-        }
-        local_file_path = (char*)malloc(strlen(SXFS_DATA->tempdir) + 1 + lenof("file_write_XXXXXX") + 1);
-        if(!local_file_path) {
-            SXFS_LOG("Out of memory");
-            ret = -ENOMEM;
-            goto sxfs_write_err;
-        }
-        sprintf(local_file_path, "%s/file_write_XXXXXX", SXFS_DATA->tempdir);
-        fd = mkstemp(local_file_path);
-        if(fd < 0) {
-            SXFS_LOG("Cannot create unique temporary file: %s", strerror(errno));
-            ret = -errno;
-            goto sxfs_write_err;
-        }
-        if(close(fd)) {
-            SXFS_LOG("Cannot close '%s' file: %s", local_file_path, strerror(errno));
-            ret = -errno;
-            goto sxfs_write_err;
-        }
-        file_local = sxc_file_local(sx, local_file_path);
-        if(!file_local) {
-            SXFS_LOG("Cannot create local file object: %s", sxc_geterrmsg(sx));
-            ret = -sxfs_sx_err(sx);
-            goto sxfs_write_err;
-        }
-        file_remote = sxc_file_remote(cluster, SXFS_DATA->uri->volume, path+1, NULL);
-        if(!file_remote) {
-            SXFS_LOG("Cannot create file object: %s", sxc_geterrmsg(sx));
-            sxc_file_free(file_local);
-            ret = -sxfs_sx_err(sx);
-            goto sxfs_write_err;
-        }
-        if(sxc_copy(file_remote, file_local, 0, 0, 0, NULL, 1)) {
-            SXFS_LOG("%s", sxc_geterrmsg(sx));
-            sxc_file_free(file_local);
-            sxc_file_free(file_remote);
-            ret = -sxfs_sx_err(sx);
-            goto sxfs_write_err;
-        }
-        sxc_file_free(file_local);
-        sxc_file_free(file_remote);
-        sxfs_file->write_fd = open(local_file_path, O_RDWR);
-        if(sxfs_file->write_fd < 0) {
-            SXFS_LOG("Cannot open '%s' file: %s", local_file_path, strerror(errno));
-            ret = -errno;
-            goto sxfs_write_err;
-        }
-        sxfs_file->write_path = local_file_path;
-        local_file_path = NULL;
+    if(sxfs_file->write_fd < 0 && get_file(path, sxfs_file)) {
+        ret = -errno;
+        goto sxfs_write_err;
     }
     ret = pwrite(sxfs_file->write_fd, buf, size, offset);
     if(ret < 0) {
@@ -1755,9 +1763,6 @@ static int sxfs_write (const char *path, const char *buf, size_t size, off_t off
 sxfs_write_err:
     if(locked)
         pthread_mutex_unlock(&SXFS_DATA->files_mutex);
-    if(local_file_path && unlink(local_file_path) && errno != ENOENT)
-        SXFS_LOG("Cannot remove '%s' file: %s", local_file_path, strerror(errno));
-    free(local_file_path);
     return ret;
 } /* sxfs_write */
 
@@ -2688,6 +2693,27 @@ runas_err:
     return ret;
 } /* runas */
 
+static int str_to_filter (const char *filter) {
+    if(!strcmp(filter, "aes256"))
+        return SXFS_FILTER_AES;
+    if(!strcmp(filter, "attribs"))
+        return SXFS_FILTER_ATTRIBS;
+    if(!strcmp(filter, "undelete"))
+        return SXFS_FILTER_UNDELETE;
+    if(!strcmp(filter, "zcomp"))
+        return SXFS_FILTER_ZCOMP;
+    return -1;
+} /* str_to_filter */
+
+static const char *filters_whitelist[] = {"attribs", "undelete", NULL};
+static int check_filter (const char *filter) {
+    int i = 0;
+    for(; filters_whitelist[i]; i++)
+        if(!strcmp(filters_whitelist[i], filter))
+            return 1;
+    return 0;
+} /* check_filter */
+
 int main (int argc, char **argv) {
     int i, ret = 1, acl, runas_found = 0, pthread_flag = 0, tempdir_created = 0, tmp;
     unsigned int j;
@@ -2885,7 +2911,9 @@ int main (int argc, char **argv) {
     sxc_set_debug(sx, args.sx_debug_flag);
     if(args.verbose_flag)
         args.debug_flag = 1;
-    if(filter_dir_env)
+    if(args.filter_dir_given)
+        filter_dir = strdup(args.filter_dir_arg);
+    else if(filter_dir_env)
         filter_dir = strdup(filter_dir_env);
     else
         filter_dir = strdup(SX_FILTER_DIR);
@@ -2944,15 +2972,28 @@ int main (int argc, char **argv) {
                 for(i=0; i<filters_count; i++) {
                     const sxc_filter_t *f = sxc_get_filter(&filters[i]);
                     if(!strncmp(remote_filter_uuid, f->uuid, 36)) {
-                        fprintf(stderr, "ERROR: '%s' volume uses '%s' filter - filters are not yet supported\n", sxfs->uri->volume, f->shortname);
-                        goto main_err;
+                        sxfs->filter = str_to_filter(f->shortname);
+                        if(sxfs->filter < 0) {
+                            fprintf(stderr, "ERROR: Unknown filter\n");
+                            goto main_err;
+                        }
+                        if(!check_filter(f->shortname)) {
+                            sxfs->read_only = 1;
+                            fprintf(stderr, "*** '%s' filter is not yet fully supported - enabling read-only mode ***\n", f->shortname);
+                        }
+                        if(sxfs->filter & SXFS_FILTER_ATTRIBS)
+                            fprintf(stderr, "*** File attributes are not yet supported ***\n");
+                        break;
                     }
                 }
-                fprintf(stderr, "ERROR: Unknown filter\n");
+                if(i == filters_count) {
+                    fprintf(stderr, "ERROR: Unknown filter\n");
+                    goto main_err;
+                }
             } else {
                 fprintf(stderr, "ERROR: Wrong size of filter data\n");
+                goto main_err;
             }
-            goto main_err;
         }
     }
     /* get default profile */

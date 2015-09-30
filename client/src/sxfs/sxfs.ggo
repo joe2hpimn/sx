@@ -20,3 +20,4 @@ option "fuse-single-threaded"    s "Disable FUSE multi-threaded operation" flag 
 option "fuse-debug"         - "Run FUSE debug mode" flag off hidden
 
 option "config-dir"         c "Path to SX configuration directory" string typestr="PATH" optional hidden
+option  "filter-dir"	    - "Path to SX filter directory" string typestr="PATH" optional hidden

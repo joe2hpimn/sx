@@ -406,6 +406,20 @@ void sxfs_sx_data_destroy (void *ptr) {
 int sxfs_get_sx_data (sxfs_state_t *sxfs, sxc_client_t **sx, sxc_cluster_t **cluster) {
     sxfs_sx_data_t *sx_data = (sxfs_sx_data_t*)pthread_getspecific(sxfs->pkey);
     if(!sx_data) {
+        char *filter_dir = NULL;
+        const char *filter_dir_env = sxi_getenv("SX_FILTER_DIR");
+
+        if(sxfs->args->filter_dir_given)
+            filter_dir = strdup(sxfs->args->filter_dir_arg);
+        else if(filter_dir_env)
+            filter_dir = strdup(filter_dir_env);
+        else
+            filter_dir = strdup(SX_FILTER_DIR);
+        if(!filter_dir) {
+            sxfs_log(sxfs, __FUNCTION__, 0, "Cannot set filter directory");
+            errno = ENOMEM;
+            return -1;
+        }
         pthread_mutex_lock(&sxfs->sx_data_mutex);
         do {
             sx_data = (sxfs_sx_data_t*)calloc(sizeof(sxfs_sx_data_t), 1);
@@ -426,6 +440,7 @@ int sxfs_get_sx_data (sxfs_state_t *sxfs, sxc_client_t **sx, sxc_cluster_t **clu
                 break;
             }
             sxc_set_debug(sx_data->sx, sxfs->args->sx_debug_flag);
+            sxc_filter_loadall(sx_data->sx, filter_dir);
             sx_data->cluster = sxc_cluster_load_and_update(sx_data->sx, sxfs->uri->host, sxfs->uri->profile);
             if(!sx_data->cluster) {
                 sxfs_log(sxfs, __FUNCTION__, 0, "Cannot load config for %s: %s\n", sxfs->uri->host, sxc_geterrmsg(sx_data->sx));
@@ -434,6 +449,7 @@ int sxfs_get_sx_data (sxfs_state_t *sxfs, sxc_client_t **sx, sxc_cluster_t **clu
             }
             sx_data->sx_data_mutex = &sxfs->sx_data_mutex;
         } while(0);
+        free(filter_dir);
         if(sx_data) {
             if(sx_data->cluster) {
                 int tmp;
