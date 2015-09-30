@@ -61,6 +61,9 @@ Run FUSE in debug mode.
 .TP
 \fB\-c\fR, \fB\-\-config\-dir\fR=\fI\,PATH\/\fR
 Path to the SX configuration directory (default: ~/.sx)
+.TP
+\fB\-f\fR, \fB\-\-filter\-dir\fR=\fI\,PATH\/\fR
+Path to the SX filter directory (default: @SX_FILTER_DIR@)
 .SH MOUNT OPTIONS
 .TP
 \fBrw\fR
@@ -68,6 +71,18 @@ Mount filesystem in read/write mode (default)
 .TP
 \fBro\fR
 Mount filesystem in read-only mode
+.TP
+\fBuse_queues\fR
+See \fB\-\-use\-queues\fR
+.TP
+\fBlogfile\fR=\fI\,PATH\/\fR
+See \fB\-\-logfile\fR
+.TP
+\fBtempdir\fR=\fI\,PATH\/\fR
+See \fB\-\-tempdir\fR
+.TP
+\fBrecovery_dir\fR=\fI\,PATH\/\fR
+See \fB\-\-recovery\-dir\fR
 .TP
 \fBdebug\fR
 Enable debug output

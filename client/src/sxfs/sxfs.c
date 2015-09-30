@@ -33,6 +33,8 @@
 #include <string.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <grp.h>
+#include <pwd.h>
 #include <sys/stat.h>
 #include <inttypes.h>
 #include "libsxclient/src/clustcfg.h"
@@ -2601,8 +2603,97 @@ static int check_arg (const char *arg) {
     return 0;
 } /* check_arg */
 
+static int runas (const char *usergroup) {
+    int ret = -1;
+    uid_t uid;
+    gid_t gid;
+    char *user, *group, *end;
+    struct group *gr = NULL;
+    struct passwd *pw = NULL;
+
+    user = strdup(usergroup);
+    if(!user) {
+        fprintf(stderr, "ERROR: Out of memory: %s\n", usergroup);
+        return -1;
+    }
+    group = strchr(user, ':');
+    if(group)
+        *group++ = '\0';
+    if(!*user && (!group || !*group)) {
+	fprintf(stderr, "ERROR: Cannot parse '%s'\n", usergroup);
+	goto runas_err;
+    }
+    uid = strtol(user, &end, 10);
+    errno = 0;
+    if(end == user + strlen(user))
+        pw = getpwuid(uid);
+    else
+        pw = getpwnam(user);
+    if(!pw) {
+        if(errno)
+           fprintf(stderr, "ERROR: Cannot get password file entry: %s\n", strerror(errno));
+        else
+           fprintf(stderr, "ERROR: Cannot find password file entry: %s\n", user);
+        endpwent();
+	goto runas_err;
+    }
+    uid = pw->pw_uid;
+    if(!group || !*group) {
+        gid = pw->pw_gid;
+    } else {
+        gid = strtol(group, &end, 10);
+        errno = 0;
+        if(end == group + strlen(group))
+            gr = getgrgid(gid);
+        else
+            gr = getgrnam(group);
+        if(!gr) {
+            if(errno)
+               fprintf(stderr, "ERROR: Cannot get group file entry: %s\n", strerror(errno));
+            else
+               fprintf(stderr, "ERROR: Cannot find group file entry: %s\n", user);
+            endgrent();
+            goto runas_err;
+        }
+        gid = gr->gr_gid;
+    }
+    uid = pw->pw_uid;
+    if(getuid() == uid && geteuid() == uid &&
+       getgid() == gid && getegid() == gid) {
+        ret = 0; /* don't do anything if correct user is already set */
+	goto runas_err;
+    }
+#ifdef HAVE_SETGROUPS
+    if(setgroups(1, &gid) == -1) {
+        fprintf(stderr, "ERROR: Setgroups failed: %s\n", strerror(errno));
+        goto runas_err;
+    }
+#endif
+    if(setgid(gid) == -1) {
+        fprintf(stderr, "ERROR: Cannot set GID: %s\n", strerror(errno));
+	goto runas_err;
+    }
+    if(setuid(uid) == -1) {
+        fprintf(stderr, "ERROR: Cannot set UID: %s\n", strerror(errno));
+	goto runas_err;
+    }
+    if(setenv("HOME", pw->pw_dir, 1)) {
+        fprintf(stderr, "ERROR: Cannot set HOME variable: %s\n", strerror(errno));
+        goto runas_err;
+    }
+
+    ret = 0;
+runas_err:
+    free(user);
+    if(pw)
+        endpwent();
+    if(gr)
+        endgrent();
+    return ret;
+} /* runas */
+
 int main (int argc, char **argv) {
-    int i, ret = 1, acl, pthread_flag = 0, tempdir_created = 0, tmp;
+    int i, ret = 1, acl, runas_found = 0, pthread_flag = 0, tempdir_created = 0, tmp;
     unsigned int j;
     char *volume_name = NULL, *username = NULL, *filter_dir, *profile = NULL;
     const char *filter_dir_env = sxi_getenv("SX_FILTER_DIR");
@@ -2654,13 +2745,13 @@ int main (int argc, char **argv) {
         fuse_opt_free_args(&fargs);
         return ret;
     }
-    if(args.tempdir_given && !strcmp(args.tempdir_arg, args.inputs[1])) {
-        cmdline_parser_print_help();
-        fprintf(stderr, "\nERROR: Please do not use the same path for temporary directory and mount point\n");
-        cmdline_parser_free(&args);
-        fuse_opt_free_args(&fargs);
-        return ret;
+    sxfs = (sxfs_state_t*)calloc(1, sizeof(sxfs_state_t));
+    if(!sxfs) {
+        fprintf(stderr, "ERROR: Out of memory\n");
+        goto main_err;
     }
+    sxfs->args = &args;
+    sxfs->pname = argv[0];
     if(args.sx_debug_flag)
         args.foreground_flag = 1;
     if(args.foreground_flag && fuse_opt_add_arg(&fargs, "-f")) {
@@ -2680,35 +2771,103 @@ int main (int argc, char **argv) {
     for(j=0; j<args.mount_options_given; j++)
         if(fuse_opt_add_arg(&fargs_tmp, args.mount_options_arg[j])) {
             fprintf(stderr, "ERROR: Out of memory\n");
-            fuse_opt_free_args(&fargs_tmp);
             goto main_err;
         }
-    for(i=0; i<fargs_tmp.argc; i++)
+    for(i=0; i<fargs_tmp.argc; i++) { /* check 'runas=' before other options */
+        if(!strncmp(fargs_tmp.argv[i], "runas=", lenof("runas="))) {
+            const char *user_name = fargs_tmp.argv[i] + lenof("runas=");
+            if(runas_found) {
+                cmdline_parser_print_help();
+                fprintf(stderr, "\nERROR: Please pass runas username exactly once\n");
+                goto main_err;
+            }
+            runas_found = 1;
+            if(!*user_name) {
+                cmdline_parser_print_help();
+                fprintf(stderr, "\nERROR: Please specify username for 'runas' option\n");
+                goto main_err;
+            }
+            if(runas(user_name))
+                goto main_err;
+        }
+    }
+    for(i=0; i<fargs_tmp.argc; i++) {
         if(check_arg(fargs_tmp.argv[i])) {
             if(fuse_opt_add_arg(&fargs, "-o")) {
                 fprintf(stderr, "ERROR: Out of memory\n");
-                fuse_opt_free_args(&fargs_tmp);
                 goto main_err;
             }
             if(fuse_opt_add_arg(&fargs, fargs_tmp.argv[i])) {
                 fprintf(stderr, "ERROR: Out of memory\n");
-                fuse_opt_free_args(&fargs_tmp);
                 goto main_err;
             }
+        } else {
+            if(!strcmp(fargs_tmp.argv[i], "use_queues")) {
+                args.use_queues_flag = 1;
+            } else if(!strncmp(fargs_tmp.argv[i], "logfile=", lenof("logfile="))) {
+                const char *logfile = fargs_tmp.argv[i] + lenof("logfile=");
+                if(args.logfile_given || sxfs->logfile) {
+                    cmdline_parser_print_help();
+                    fprintf(stderr, "\nERROR: Please pass logfile path exactly once\n");
+                    goto main_err;
+                }
+                if(!*logfile) {
+                    cmdline_parser_print_help();
+                    fprintf(stderr, "\nERROR: Please specify path for logfile\n");
+                    goto main_err;
+                }
+                sxfs->logfile = fopen(logfile, "a");
+                if(!sxfs->logfile) {
+                    fprintf(stderr, "ERROR: Cannot open logfile: %s\n", strerror(errno));
+                    goto main_err;
+                }
+            } else if(!strncmp(fargs_tmp.argv[i], "tempdir=", lenof("tempdir="))) {
+                const char *tempdir = fargs_tmp.argv[i] + lenof("tempdir=");
+                if(args.tempdir_given || sxfs->tempdir) {
+                    cmdline_parser_print_help();
+                    fprintf(stderr, "\nERROR: Please pass temporary directory path exactly once\n");
+                    goto main_err;
+                }
+                if(!*tempdir) {
+                    cmdline_parser_print_help();
+                    fprintf(stderr, "\nERROR: Please specify path for temporary directory\n");
+                    goto main_err;
+                }
+                sxfs->tempdir = strdup(tempdir);
+                if(!sxfs->tempdir) {
+                    fprintf(stderr, "ERROR: Out of memory\n");
+                    goto main_err;
+                }
+            } else if(!strncmp(fargs_tmp.argv[i], "recovery_dir=", lenof("recovery_dir="))) {
+                const char *lostdir = fargs_tmp.argv[i] + lenof("recovery_dir=");
+                if(args.recovery_dir_given || sxfs->lostdir) {
+                    cmdline_parser_print_help();
+                    fprintf(stderr, "\nERROR: Please pass recovery directory path exactly once\n");
+                    goto main_err;
+                }
+                if(!*lostdir) {
+                    cmdline_parser_print_help();
+                    fprintf(stderr, "\nERROR: Please specify path for recovery dir\n");
+                    goto main_err;
+                }
+                sxfs->lostdir = strdup(lostdir);
+                if(!sxfs->lostdir) {
+                    fprintf(stderr, "ERROR: Out of memory\n");
+                    goto main_err;
+                }
+            }
         }
-    fuse_opt_free_args(&fargs_tmp);
+    }
     if(fuse_opt_add_arg(&fargs, args.inputs[1])) {
         fprintf(stderr, "ERROR: Out of memory\n");
         goto main_err;
     }
 
-    sxfs = (sxfs_state_t*)calloc(1, sizeof(sxfs_state_t));
-    if(!sxfs) {
-        fprintf(stderr, "ERROR: Out of memory\n");
+    if((args.tempdir_given && !strcmp(args.tempdir_arg, args.inputs[1])) || (sxfs->tempdir && !strcmp(sxfs->tempdir, args.inputs[1]))) {
+        cmdline_parser_print_help();
+        fprintf(stderr, "\nERROR: Please do not use the same path for temporary directory and mount point\n");
         goto main_err;
     }
-    sxfs->args = &args;
-    sxfs->pname = argv[0];
     if(args.open_limit_given && args.open_limit_arg > 0) /* fh_limit must be a positive number */
         sxfs->fh_limit = (size_t)args.open_limit_arg + 1; /* 0 is for directories */
     else
@@ -2844,7 +3003,7 @@ int main (int argc, char **argv) {
         args.use_queues_flag = 0;
         fprintf(stderr, "*** Queues do not work in read-only mode ***\n");
     }
-    if(args.use_queues_flag && !args.logfile_given)
+    if(args.use_queues_flag && !args.logfile_given && !sxfs->logfile)
         fprintf(stderr, "*** It is recommended to always use --logfile together with --use-queues ***\n");
 
     if(gettimeofday(&tv, NULL)) {
@@ -2862,6 +3021,10 @@ int main (int argc, char **argv) {
             fprintf(stderr, "ERROR: Cannot open logfile: %s\n", strerror(errno));
             goto main_err;
         }
+    } else if(!sxfs->logfile && args.debug_flag) {
+        fprintf(stderr, "*** Debug mode has no effect without logfile. Suggested option: --logfile=PATH (-l) ***\n");
+    }
+    if(sxfs->logfile) {
         fprintf(sxfs->logfile, "Used parameters: sxfs");
         for(i=1; i<argc; i++)
             fprintf(sxfs->logfile, " %s", argv[i]);
@@ -2871,18 +3034,15 @@ int main (int argc, char **argv) {
                 fprintf(sxfs->logfile, " %s", fargs.argv[i]);
         }
         fprintf(sxfs->logfile, "\n");
-    } else {
-        sxfs->logfile = NULL;
-        if(args.debug_flag)
-            fprintf(stderr, "*** Debug mode has no effect without logfile. Suggested option: --logfile=PATH (-l) ***\n");
     }
-    if(args.tempdir_given) {
-        if(mkdir(args.tempdir_arg, 0700)) {
-            fprintf(stderr, "ERROR: Cannot create '%s' directory: %s\n", args.tempdir_arg, strerror(errno));
+    if(args.tempdir_given || sxfs->tempdir) {
+        if(!sxfs->tempdir)
+            sxfs->tempdir = args.tempdir_arg;
+        if(mkdir(sxfs->tempdir, 0700)) {
+            fprintf(stderr, "ERROR: Cannot create '%s' directory: %s\n", sxfs->tempdir, strerror(errno));
             goto main_err;
         }
-        sxfs->tempdir = args.tempdir_arg;
-    } else {
+    } else if(!sxfs->tempdir) {
         size_t n = strlen("/var/tmp/sxfs-") + 14 /* date and time */ + 1 + lenof("XXXXXX") + 1;
         sxfs->tempdir = (char*)malloc(n);
         if(!sxfs->tempdir) {
@@ -2901,7 +3061,7 @@ int main (int argc, char **argv) {
     tempdir_created = 1;
     if(args.recovery_dir_given) {
         sxfs->lostdir = args.recovery_dir_arg;
-    } else {
+    } else if(!sxfs->lostdir) {
         sxfs->lostdir = (char*)malloc(strlen(sxfs->tempdir) + 1 + lenof(SXFS_LOSTDIR_SUFIX) + 1);
         if(!sxfs->lostdir) {
             fprintf(stderr, "ERROR: Out of memory");
@@ -3136,7 +3296,7 @@ main_err:
         if(sxfs->empty_file_path) {
             if(unlink(sxfs->empty_file_path)) {
                 if(sxfs->logfile)
-                    fprintf(sxfs->logfile, "Cannot remove '%s' directory: %s", sxfs->empty_file_path, strerror(errno));
+                    fprintf(sxfs->logfile, "Cannot remove '%s' directory: %s\n", sxfs->empty_file_path, strerror(errno));
                 fprintf(stderr, "ERROR: Cannot remove '%s' directory: %s\n", sxfs->empty_file_path, strerror(errno));
             }
             free(sxfs->empty_file_path);
@@ -3144,12 +3304,12 @@ main_err:
         free(sxfs->read_block_template);
         if(tempdir_created && !sxfs->recovery_failed && sxfs_rmdirs(sxfs->tempdir)) {
             if(sxfs->logfile)
-                fprintf(sxfs->logfile, "Cannot remove '%s' directory: %s", sxfs->tempdir, strerror(errno));
+                fprintf(sxfs->logfile, "Cannot remove '%s' directory: %s\n", sxfs->tempdir, strerror(errno));
             fprintf(stderr, "ERROR: Cannot remove '%s' directory: %s\n", sxfs->tempdir, strerror(errno));
         }
         if(tempdir_created == 2 && rmdir(sxfs->lostdir) && errno != ENOTEMPTY) {
             if(sxfs->logfile)
-                fprintf(sxfs->logfile, "Cannot remove '%s' directory: %s", sxfs->lostdir, strerror(errno));
+                fprintf(sxfs->logfile, "Cannot remove '%s' directory: %s\n", sxfs->lostdir, strerror(errno));
             fprintf(stderr, "ERROR: Cannot remove '%s' directory: %s\n", sxfs->lostdir, strerror(errno));
         }
         if(!args.tempdir_given)
@@ -3203,6 +3363,7 @@ main_err:
     sxc_cluster_free(cluster);
     sxc_shutdown(sx, 0);
     fuse_opt_free_args(&fargs);
+    fuse_opt_free_args(&fargs_tmp);
     cmdline_parser_free(&args);
     return ret;
 } /* main */
