@@ -410,20 +410,25 @@ int sxfs_get_sx_data (sxfs_state_t *sxfs, sxc_client_t **sx, sxc_cluster_t **clu
         do {
             sx_data = (sxfs_sx_data_t*)calloc(sizeof(sxfs_sx_data_t), 1);
             if(!sx_data) {
-                SXFS_LOG("Out of memory");
+                sxfs_log(sxfs, __FUNCTION__, 0, "Out of memory");
                 errno = ENOMEM;
                 break;
             }
             sx_data->sx = sxc_client_init(sxc_default_logger(&sx_data->log, sxfs->pname), sxc_input_fn, NULL);
             if(!sx_data->sx) {
-                SXFS_LOG("Cannot initialize Sx");
+                sxfs_log(sxfs, __FUNCTION__, 0, "Cannot initialize Sx");
                 errno = ENOMEM;
+                break;
+            }
+            if(sxfs->args->config_dir_given && sxc_set_confdir(sx_data->sx, sxfs->args->config_dir_arg)) {
+                sxfs_log(sxfs, __FUNCTION__, 0, "Could not set configuration directory to '%s': %s", sxfs->args->config_dir_arg, sxc_geterrmsg(sx_data->sx));
+                errno = sxfs_sx_err(sx_data->sx);
                 break;
             }
             sxc_set_debug(sx_data->sx, sxfs->args->sx_debug_flag);
             sx_data->cluster = sxc_cluster_load_and_update(sx_data->sx, sxfs->uri->host, sxfs->uri->profile);
             if(!sx_data->cluster) {
-                SXFS_LOG("Cannot load config for %s: %s\n", sxfs->uri->host, sxc_geterrmsg(sx_data->sx));
+                sxfs_log(sxfs, __FUNCTION__, 0, "Cannot load config for %s: %s\n", sxfs->uri->host, sxc_geterrmsg(sx_data->sx));
                 errno = sxfs_sx_err(sx_data->sx);
                 break;
             }
@@ -433,7 +438,7 @@ int sxfs_get_sx_data (sxfs_state_t *sxfs, sxc_client_t **sx, sxc_cluster_t **clu
             if(sx_data->cluster) {
                 int tmp;
                 if((tmp = pthread_setspecific(sxfs->pkey, (void*)sx_data))) {
-                    SXFS_LOG("Cannot set per-thread memory: %s", strerror(tmp));
+                    sxfs_log(sxfs, __FUNCTION__, 0, "Cannot set per-thread memory: %s", strerror(tmp));
                     sxc_client_shutdown(sx_data->sx, 0);
                     sxc_cluster_free(sx_data->cluster);
                     free(sx_data);
@@ -483,11 +488,11 @@ void sxfs_lsfile_free (sxfs_lsfile_t *file) {
  * st.st_blocks     Number of blocks allocated for this object. */
 int sxfs_lsdir_add_file (sxfs_lsdir_t *dir, const char *path, struct stat *st) {
     int ret = -1;
-    time_t amctime;
-    char *name, *storage_file_path = NULL;
+    time_t mctime;
+    char *name;
     sxfs_lsfile_t *file;
 
-    if(time(&amctime) < 0) {
+    if(time(&mctime) < 0) {
         SXFS_LOG("Cannot get current time: %s", strerror(errno));
         return -1;
     }
@@ -509,26 +514,10 @@ int sxfs_lsdir_add_file (sxfs_lsdir_t *dir, const char *path, struct stat *st) {
     }
     if(st) {
         file->st.st_size = st->st_size;
-        if(st->st_mtime)
-            file->st.st_mtime = file->st.st_ctime = st->st_mtime;
-        else
-            file->st.st_mtime = file->st.st_ctime = amctime;
+        file->st.st_mtime = file->st.st_ctime = st->st_mtime;
     } else {
-        storage_file_path = (char*)malloc(strlen(SXFS_DATA->tempdir) + 1 + lenof(SXFS_UPLOAD_DIR) + strlen(path) + 1);
-        if(!storage_file_path) {
-            SXFS_LOG("Out of memory");
-            errno = ENOMEM;
-            goto sxfs_lsdir_add_file_err;
-        }
-        sprintf(storage_file_path, "%s/%s%s", SXFS_DATA->tempdir, SXFS_UPLOAD_DIR, path);
-        if(stat(storage_file_path, &file->st)) {
-            if(errno != ENOENT) {
-                SXFS_LOG("Cannot stat %s file: %s", storage_file_path, strerror(errno));
-                goto sxfs_lsdir_add_file_err;
-            }
-    /*        file->st.st_size = 0;*/ /* calloc() has been used */
-            file->st.st_mtime = file->st.st_ctime = amctime;
-        }
+/*        file->st.st_size = 0;*/ /* calloc() has been used */
+        file->st.st_mtime = file->st.st_ctime = mctime;
     }
     file->st.st_uid = getuid();
     file->st.st_gid = getgid();
@@ -538,19 +527,18 @@ int sxfs_lsdir_add_file (sxfs_lsdir_t *dir, const char *path, struct stat *st) {
     dir->files[dir->nfiles] = file;
     dir->nfiles++;
     file = NULL;
-    dir->st.st_mtime = dir->st.st_ctime = amctime;
+    dir->st.st_mtime = dir->st.st_ctime = mctime;
 
     ret = 0;
 sxfs_lsdir_add_file_err:
-    free(storage_file_path);
     sxfs_lsfile_free(file);
     return ret;
 } /* sxfs_lsdir_add_file */
 
-int sxfs_lsdir_add_dir (sxfs_lsdir_t *dir, const char *path, struct stat *st) {
+int sxfs_lsdir_add_dir (sxfs_lsdir_t *dir, const char *path) {
     int ret = -1, slash = 0;
-    time_t amctime;
-    char *path2, *storage_file_path = NULL, *name;
+    time_t mctime;
+    char *path2, *name;
     sxfs_lsdir_t *subdir = NULL;
 
     if(path[strlen(path)-1] == '/') {
@@ -572,7 +560,7 @@ int sxfs_lsdir_add_dir (sxfs_lsdir_t *dir, const char *path, struct stat *st) {
         sprintf(path2, "%s/", path);
         name = strrchr(path, '/') + 1;
     }
-    if(time(&amctime) < 0) {
+    if(time(&mctime) < 0) {
         SXFS_LOG("Cannot get current time: %s", strerror(errno));
         goto sxfs_lsdir_add_dir_err;
     }
@@ -609,27 +597,7 @@ int sxfs_lsdir_add_dir (sxfs_lsdir_t *dir, const char *path, struct stat *st) {
         SXFS_LOG("Cannot compute hash of '%s'", slash ? path : path2);
         goto sxfs_lsdir_add_dir_err;
     }
-    if(st) {
-        if(st->st_mtime)
-            subdir->st.st_mtime = subdir->st.st_ctime = st->st_mtime;
-        else
-            subdir->st.st_mtime = subdir->st.st_ctime = amctime;
-    } else {
-        storage_file_path = (char*)malloc(strlen(SXFS_DATA->tempdir) + 1 + lenof(SXFS_UPLOAD_DIR) + strlen(path) + 1);
-        if(!storage_file_path) {
-            SXFS_LOG("Out of memory");
-            errno = ENOMEM;
-            goto sxfs_lsdir_add_dir_err;
-        }
-        sprintf(storage_file_path, "%s/%s%s", SXFS_DATA->tempdir, SXFS_UPLOAD_DIR, path);
-        if(stat(storage_file_path, &subdir->st)) {
-            if(errno != ENOENT) {
-                SXFS_LOG("Cannot stat %s file: %s", storage_file_path, strerror(errno));
-                goto sxfs_lsdir_add_dir_err;
-            }
-            subdir->st.st_mtime = subdir->st.st_ctime = amctime;
-        }
-    }
+    subdir->st.st_mtime = subdir->st.st_ctime = mctime;
     subdir->parent = dir;
     subdir->st.st_uid = getuid();
     subdir->st.st_gid = getgid();
@@ -639,13 +607,12 @@ int sxfs_lsdir_add_dir (sxfs_lsdir_t *dir, const char *path, struct stat *st) {
     subdir->st.st_blocks = (DIRECTORY_SIZE + 511) / 512;
     dir->dirs[dir->ndirs] = subdir;
     dir->ndirs++;
-    dir->st.st_mtime = dir->st.st_ctime = amctime;
+    dir->st.st_mtime = dir->st.st_ctime = mctime;
     subdir = NULL;
 
     ret = 0;
 sxfs_lsdir_add_dir_err:
     free(path2);
-    free(storage_file_path);
     sxfs_lsdir_free(subdir);
     return ret;
 } /* sxfs_lsdir_add_dir */
@@ -940,7 +907,7 @@ sxfs_lsdir_t* sxfs_ls_update (const char *absolute_path) {
                             dir->dirs[index]->st.st_mtime = st.st_mtime;
                         dir->dirs[index]->remote = 2;
                     } else {
-                        if(sxfs_lsdir_add_dir(dir, fpath, &st)) {
+                        if(sxfs_lsdir_add_dir(dir, fpath)) {
                             SXFS_LOG("Cannot add new directory to cache: %s", fpath);
                             goto sxfs_ls_update_err;
                         }

@@ -60,7 +60,7 @@ int sxfs_get_sx_data (sxfs_state_t *sxfs, sxc_client_t **sx, sxc_cluster_t **clu
 
 void sxfs_lsfile_free (sxfs_lsfile_t *file);
 int sxfs_lsdir_add_file (sxfs_lsdir_t *dir, const char *path, struct stat *st);
-int sxfs_lsdir_add_dir (sxfs_lsdir_t *dir, const char *path, struct stat *st);
+int sxfs_lsdir_add_dir (sxfs_lsdir_t *dir, const char *path);
 void sxfs_lsdir_free (sxfs_lsdir_t *dir);
 
 int sxfs_str_cmp (const void **ptr, size_t index, const char *file_name);
