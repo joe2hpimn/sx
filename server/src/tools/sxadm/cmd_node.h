@@ -60,10 +60,10 @@ struct node_args_info
   char * cluster_key_arg;	/**< @brief File containing a pre-generated cluster authentication token or stdin if \"-\" is given (default autogenerate token)..  */
   char * cluster_key_orig;	/**< @brief File containing a pre-generated cluster authentication token or stdin if \"-\" is given (default autogenerate token). original value given at command line.  */
   const char *cluster_key_help; /**< @brief File containing a pre-generated cluster authentication token or stdin if \"-\" is given (default autogenerate token). help description.  */
-  const char *batch_mode_help; /**< @brief Turn off interactive confirmations and assume yes for all questions help description.  */
   char * cluster_uuid_arg;	/**< @brief The SX cluster UUID (default autogenerate UUID)..  */
   char * cluster_uuid_orig;	/**< @brief The SX cluster UUID (default autogenerate UUID). original value given at command line.  */
   const char *cluster_uuid_help; /**< @brief The SX cluster UUID (default autogenerate UUID). help description.  */
+  const char *batch_mode_help; /**< @brief Turn off interactive confirmations, progress notifications and assume yes for all questions help description.  */
   int human_readable_flag;	/**< @brief Print human readable sizes (default=off).  */
   const char *human_readable_help; /**< @brief Print human readable sizes help description.  */
   int debug_flag;	/**< @brief Enable debug messages (default=off).  */
@@ -89,8 +89,8 @@ struct node_args_info
   unsigned int vacuum_given ;	/**< @brief Whether vacuum was given.  */
   unsigned int get_definition_given ;	/**< @brief Whether get-definition was given.  */
   unsigned int cluster_key_given ;	/**< @brief Whether cluster-key was given.  */
-  unsigned int batch_mode_given ;	/**< @brief Whether batch-mode was given.  */
   unsigned int cluster_uuid_given ;	/**< @brief Whether cluster-uuid was given.  */
+  unsigned int batch_mode_given ;	/**< @brief Whether batch-mode was given.  */
   unsigned int human_readable_given ;	/**< @brief Whether human-readable was given.  */
   unsigned int debug_given ;	/**< @brief Whether debug was given.  */
   unsigned int owner_given ;	/**< @brief Whether owner was given.  */

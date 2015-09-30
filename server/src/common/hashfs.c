@@ -2693,6 +2693,7 @@ int sx_hashfs_analyze(sx_hashfs_t *h, int verbose)
 
 static int check_warn_printed = 0;
 static int check_info_printed = 0;
+static int progress_enabled = 0;
 
 static void check_print_pgrs(void) {
     static char chars[] = { '-', '\\', '|', '/'};
@@ -2700,6 +2701,8 @@ static void check_print_pgrs(void) {
     static struct timeval last_time;
     struct timeval now;
 
+    if(!progress_enabled)
+        return;
     if(idx == -1) {
         idx = 0;
         gettimeofday(&last_time, NULL);
@@ -2713,22 +2716,24 @@ static void check_print_pgrs(void) {
     }
 }
 
-#define CHECK_PRINT_WARN(...) do { CHECK_LOG_INTERNAL(SX_LOG_WARNING, __VA_ARGS__, "   "); } while(0)
+#define CHECK_PRINT_WARN(...) do { CHECK_LOG_INTERNAL(SX_LOG_WARNING, __VA_ARGS__, progress_enabled ? "   " : "\n"); } while(0)
 #define CHECK_ERROR(...) do { ret++; CHECK_PRINT_WARN(__VA_ARGS__); } while(0)
 #define CHECK_FATAL(...) CHECK_PRINT_WARN(__VA_ARGS__)
-#define CHECK_INFO(...) do { CHECK_LOG_INTERNAL(SX_LOG_INFO, __VA_ARGS__, "   "); } while(0)
+#define CHECK_INFO(...) do { CHECK_LOG_INTERNAL(SX_LOG_INFO, __VA_ARGS__, progress_enabled ? "   " : "\n"); } while(0)
 #define CHECK_START do { CHECK_PRINT_WARN("Integrity check started"); } while(0)
 #define CHECK_FINISH do { fprintf(stderr, "%s", check_warn_printed ? "\b \n" : "\b"); printf("%s", check_info_printed ? "\n" : ""); } while(0)
 #define CHECK_PGRS do { check_print_pgrs(); } while(0)
 
 #define CHECK_LOG_INTERNAL(lvl, msg, ...) do { \
                                             if((lvl) == SX_LOG_WARNING) { \
-                                                fprintf(stderr, "%s[%s]: ", (check_warn_printed || check_info_printed) ? "\b \n" : "\b", __func__); \
+                                                if(progress_enabled) \
+                                                    fprintf(stderr, "%s[%s]: ", (check_warn_printed || check_info_printed) ? "\b \n" : "\b", __func__); \
                                                 fprintf(stderr, msg"%s", __VA_ARGS__); \
                                                 check_warn_printed = 1; \
                                             } else { \
-                                                fprintf(stderr, "\b%s", check_info_printed ? " " : ""); \
-                                                fprintf(stdout, "%s[%s]: "msg"%s", check_info_printed ? "\n" : "", __func__, __VA_ARGS__); \
+                                                if(progress_enabled) \
+                                                    fprintf(stderr, "\b%s", check_info_printed ? " " : ""); \
+                                                fprintf(stdout, "%s[%s]: "msg"%s", (check_info_printed && progress_enabled) ? "\n" : "", __func__, __VA_ARGS__); \
                                                 fflush(stdout); \
                                                 check_info_printed = 1; \
                                             } \
@@ -3494,7 +3499,7 @@ lock_db_err:
 }
 
 #define RUN_CHECK(func) do { r = func(h, debug); if(r == -1) { ret = -1; goto sx_hashfs_check_err; } ret += r; } while(0)
-int sx_hashfs_check(sx_hashfs_t *h, int debug) {
+int sx_hashfs_check(sx_hashfs_t *h, int debug, int show_progress) {
     int ret = -1, r = 0, i, j;
     const unsigned int NLOCKS = METADBS + SIZES * HASHDBS + 5;
     sqlite3_stmt *locks[NLOCKS], *unlocks[NLOCKS];
@@ -3505,6 +3510,8 @@ int sx_hashfs_check(sx_hashfs_t *h, int debug) {
     fl.l_len = 0;
     fl.l_type = F_WRLCK;
     fl.l_whence = SEEK_SET;
+
+    progress_enabled = show_progress;
 
     memset(locks, 0, sizeof(locks));
     memset(unlocks, 0, sizeof(unlocks));
@@ -3529,7 +3536,7 @@ int sx_hashfs_check(sx_hashfs_t *h, int debug) {
        lock_db(h->tempdb, locks + r + 1, unlocks + r + 1) ||
        lock_db(h->xferdb, locks + r + 2, unlocks + r + 2) ||
        lock_db(h->eventdb, locks + r + 3, unlocks + r + 3) ||
-       lock_db(h->hbeatdb, locks + r + 3, unlocks + r + 4) ) {
+       lock_db(h->hbeatdb, locks + r + 4, unlocks + r + 4) ) {
         CHECK_FATAL("Failed to lock database");
         goto sx_hashfs_check_err;
     }
@@ -3552,7 +3559,8 @@ int sx_hashfs_check(sx_hashfs_t *h, int debug) {
     /* Cluster is in read-only mode or node is stopped, we can perform HashFS check */
 
     ret = 0;
-    CHECK_START;
+    if(progress_enabled)
+        CHECK_START;
 
     /* Analyze databases using PRAGMA integrity_check query */
     RUN_CHECK(sx_hashfs_analyze);
@@ -3570,19 +3578,24 @@ int sx_hashfs_check(sx_hashfs_t *h, int debug) {
     RUN_CHECK(check_jobs);
 
 sx_hashfs_check_err:
-    CHECK_FINISH;
+    if(progress_enabled)
+        CHECK_FINISH;
 
     for(i = 0; i < NLOCKS; i++) {
-        if(unlocks[i] && qstep_noret(unlocks[i]))
+        if(unlocks[i] && qstep_noret(unlocks[i])) {
 	    CHECK_FATAL("Failed to unlock database");
+            ret = -1;
+        }
         sqlite3_finalize(locks[i]);
         sqlite3_finalize(unlocks[i]);
     }
 
     if(hashfs_locked) {
         fl.l_type = F_RDLCK; /* Downgrade to read lock */
-        if(fcntl(h->lockfd, F_SETLK, &fl) == -1)
+        if(fcntl(h->lockfd, F_SETLK, &fl) == -1) {
             CHECK_FATAL("Failed to release HashFS lock: %s", strerror(errno));
+            ret = -1;
+        }
     }
 
     return ret;

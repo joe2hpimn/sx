@@ -1731,7 +1731,7 @@ resize_cluster_err:
     return ret;
 }
 
-static int check_node(sxc_client_t *sx, const char *path, int debug) {
+static int check_node(sxc_client_t *sx, const char *path, int debug, int show_progress) {
     int ret = -1;
     sx_hashfs_t *h = NULL;
 
@@ -1756,7 +1756,7 @@ static int check_node(sxc_client_t *sx, const char *path, int debug) {
         goto check_node_err;
     }
 
-    ret = sx_hashfs_check(h, debug);
+    ret = sx_hashfs_check(h, debug, show_progress);
 
 check_node_err:
     sx_hashfs_close(h);
@@ -1765,7 +1765,7 @@ check_node_err:
         ret = 1;
     } else if(ret)
         fprintf(stderr, "Failed to check HashFS integrity\n");
-    else
+    else if(show_progress)
         printf("HashFS is clean, no errors found\n");
     return ret;
 }
@@ -2422,7 +2422,7 @@ int main(int argc, char **argv) {
             else if(node_args.info_given)
                 ret = info_node(sx, node_args.inputs[0], &node_args);
             else if(node_args.check_given)
-                ret = check_node(sx, node_args.inputs[0], node_args.debug_flag);
+                ret = check_node(sx, node_args.inputs[0], node_args.debug_flag, !node_args.batch_mode_given);
             else if(node_args.extract_given)
                 ret = extract_node(sx, node_args.inputs[0], node_args.extract_arg);
             else if(node_args.rename_cluster_given)

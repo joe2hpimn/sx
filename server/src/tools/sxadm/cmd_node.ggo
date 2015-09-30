@@ -19,10 +19,10 @@ groupoption "get-definition" - "Print node definition in 'cluster --mod' format"
 
 section "New node options"
 option "cluster-key" k "File containing a pre-generated cluster authentication token or stdin if \"-\" is given (default autogenerate token)." string typestr="FILE" dependon="new" optional
-option "batch-mode" b "Turn off interactive confirmations and assume yes for all questions" dependon="new" optional
 option "cluster-uuid" u "The SX cluster UUID (default autogenerate UUID)." string typestr="UUID" dependon="new" optional hidden
 
 section "Common options"
+option "batch-mode" b "Turn off interactive confirmations, progress notifications and assume yes for all questions" optional
 option  "human-readable" H "Print human readable sizes" flag off
 option "debug"  D "Enable debug messages" flag off
 option "owner" - "Set ownership of storage to user[:group]" string typestr="user[:group]" optional
