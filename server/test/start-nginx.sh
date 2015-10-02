@@ -61,7 +61,7 @@ while [ $i -le $N ]; do
     echo "Initializing node $i"
     CONF_TMP=$prefix/conf.tmp
     cat >>$CONF_TMP <<EOF
-    SX_CFG_VERSION=2
+    SX_CFG_VERSION=3
     SX_CLUSTER_NAME="$CLUSTER_NAME"
     SX_DATA_DIR="$prefix/var/lib/sxserver/storage"
     SX_RUN_DIR="$prefix/var/run/sxserver"
