@@ -81,6 +81,7 @@ while [ $i -le $N ]; do
     SX_SSL_KEY_FILE=`pwd`/test/keys/cluster1.key
     SX_SSL_CERT_FILE=`pwd`/test/keys/cluster1.pem
     SX_CHILDREN_NUM=4
+    SX_RESERVED_CHILDREN_NUM=3
 EOF
     if [ $i -gt 1 ]; then
 	echo "SX_EXISTING_NODE_IP=\"127.0.1.1\"" >> $CONF_TMP
