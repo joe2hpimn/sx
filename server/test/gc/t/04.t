@@ -1,11 +1,12 @@
 #!/bin/bash
 . ./common.sh
 
-plan 9
+plan 10
 N=4 require_cmd test/start-nginx.sh
 require_cmd $RANDGEN 489000 489651 >x1
 require_cmd $RANDGEN 489000 489651 >x2
 require_cmd $RANDGEN 489000 489651 >x3
+require_cmd $RANDGEN 489000 489651 >x4
 require_cmd $SXVOL create -o admin -s 2M -r 3 $SXURI/vol3
 ls -l x1 x2
 require_cmd $SXCP x1 $SXURI/vol3/
@@ -89,6 +90,18 @@ set +e
 
 (
         testcase 9 "nothing to expire"
+        nodegc_expire 1 2 3 4 >$LOGFILE 2>&1
+        (! grep -c 'freeing block' $LOGFILE) | is 0
+)
+
+(
+        testcase 10 "GC one file after reupload"
+        require_cmd $SXCP x4 $SXURI/vol3/
+        require_cmd $SXCP x4 $SXURI/vol3/
+        $SXRM $SXURI/vol3/x4
+        nodegc 1 2 3 4 >$LOGFILE 2>&1
+        grep -c 'freeing block with hash' $LOGFILE | is 90
+
         nodegc_expire 1 2 3 4 >$LOGFILE 2>&1
         (! grep -c 'freeing block' $LOGFILE) | is 0
 )

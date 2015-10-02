@@ -7854,6 +7854,9 @@ rc_ty sx_hashfs_hashop_perform(sx_hashfs_t *h, unsigned int block_size, unsigned
     unsigned int hs;
     rc_ty rc;
 
+    if (kind == HASHOP_SKIP)
+        return OK;
+
     if (UNLIKELY(sxi_log_is_debug(&logger))) {
         char debughash[sizeof(sx_hash_t)*2+1];		\
         bin2hex(hash->b, sizeof(*hash), debughash, sizeof(debughash));	\
@@ -8547,7 +8550,7 @@ static rc_ty check_tmpfile_size(sx_hashfs_t *h, int64_t tmpfile_id, int strict) 
 	s = is_tmp_newrev(h, vol, filename, tmpfile_id, filesize, sqlite3_column_blob(h->qt_tmpdata, 4), sqlite3_column_bytes(h->qt_tmpdata, 4));
 	if(s == EEXIST) {
 	    sqlite3_reset(h->qt_tmpdata);
-	    return OK; /* Allow reuploads no matter what */
+	    return EEXIST; /* Allow reuploads no matter what */
 	}
 	if(s != OK) {
 	    sqlite3_reset(h->qt_tmpdata);
@@ -8640,6 +8643,7 @@ rc_ty sx_hashfs_putfile_gettoken(sx_hashfs_t *h, const uint8_t *user, int64_t si
     rc_ty ret = FAIL_EINTERNAL;
     unsigned int blocksize;
     int64_t expires_at;
+    int skip_reservation=0;
 
     if(!h || !h->put_id)
 	return EINVAL;
@@ -8756,7 +8760,11 @@ rc_ty sx_hashfs_putfile_gettoken(sx_hashfs_t *h, const uint8_t *user, int64_t si
 
     if(h->put_extendsize < 0 || h->put_putblock + h->put_extendfrom == total_blocks) {
 	rc_ty ret2 = check_tmpfile_size(h, h->put_id, h->put_putblock + h->put_extendfrom == total_blocks);
-	if(ret2) {
+        if(ret2 == EEXIST) {
+            skip_reservation=1;
+            ret2 = OK;
+        }
+        if(ret2) {
 	    ret = ret2;
 	    goto gettoken_err;
 	}
@@ -8781,7 +8789,8 @@ rc_ty sx_hashfs_putfile_gettoken(sx_hashfs_t *h, const uint8_t *user, int64_t si
         sx_unique_fileid(h->sx, revision, &h->put_revision_id))
         goto gettoken_err;
     DEBUGHASH("file initial PUT reserve_id", &h->put_reserve_id);
-    sxi_hashop_begin(&h->hc, h->sx_clust, hdck_cb, HASHOP_RESERVE, vol->max_replica, &h->put_reserve_id, &h->put_revision_id, hdck_cb_ctx, expires_at);
+    sxi_hashop_begin(&h->hc, h->sx_clust, hdck_cb, skip_reservation ? HASHOP_SKIP : HASHOP_RESERVE,
+                     vol->max_replica, &h->put_reserve_id, &h->put_revision_id, hdck_cb_ctx, expires_at);
     sqlite3_reset(h->qt_gettoken);
     return OK;
 
@@ -9197,7 +9206,7 @@ static rc_ty reserve_replicas(sx_hashfs_t *h, uint64_t op_expires_at)
     sxi_hashop_t *hashop = &h->hc;
     unsigned int *uniq_hash_indexes = h->put_hashnos;
     unsigned uniq_count = h->put_putblock;
-    if (!uniq_count)
+    if (!uniq_count || hashop->kind == HASHOP_SKIP)
         return OK;
     unsigned hash_size = h->put_hs, effective_replica = h->put_replica - sx_nodelist_count(h->ignored_nodes);
     unsigned int *node_indexes = wrap_malloc((1+effective_replica) * h->put_nblocks * sizeof(*node_indexes));

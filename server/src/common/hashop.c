@@ -435,6 +435,8 @@ int sxi_hashop_batch_add(sxi_hashop_t *hashop, const char *host, unsigned idx, c
     sxc_client_t *sx;
     if (!hashop)
         return -1;
+    if (hashop->kind == HASHOP_SKIP)
+        return 0;
     sx = sxi_conns_get_client(hashop->conns);
     if (!host || !binhash) {
         sxi_seterr(sx, SXE_EARG, "Null arg to hashop_batch_add");

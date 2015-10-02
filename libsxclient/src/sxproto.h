@@ -38,7 +38,8 @@ enum sxi_hashop_kind {
     HASHOP_RESERVE,
     HASHOP_CHECK,
     HASHOP_INUSE,
-    HASHOP_DELETE
+    HASHOP_DELETE,
+    HASHOP_SKIP
 };
 
 sxi_query_t *sxi_useradd_proto(sxc_client_t *sx, const char *username, const uint8_t *uid, const uint8_t *key, int admin, const char *desc, int64_t quota);

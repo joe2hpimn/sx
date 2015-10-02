@@ -1,7 +1,7 @@
 #!/bin/bash
 . ./common.sh
 
-plan 4
+plan 5
 N=1 require_cmd test/start-nginx.sh
 require_cmd $SXVOL create -s 16M -o admin -r 1 $SXURI/vol1
 
@@ -50,7 +50,19 @@ set +e
 )
 
 (
-    testcase 4 "lots of small files"
+    testcase 4 "reupload file"
+    $RANDGEN 4096 4096 >4k3
+    $SXCP 4k3 $SXURI/vol1/
+    $SXCP 4k3 $SXURI/vol1/
+    $SXRM $SXURI/vol1/4k3
+    nodegc 1 >$LOGFILE 2>&1
+    grep -c 'freeing block with hash' $LOGFILE | is 1
+
+    rm 4k3
+)
+
+(
+    testcase 5 "lots of small files"
     mkdir -p smalltest
     for i in $(seq 1 64); do $RANDGEN 131071 131071 >smalltest/$i; done
     $SXCP -r smalltest $SXURI/vol1/
