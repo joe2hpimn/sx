@@ -12189,47 +12189,9 @@ rc_ty sx_hashfs_gc_run(sx_hashfs_t *h, int *terminate)
     return ret ? FAIL_EINTERNAL : OK;
 }
 
-static rc_ty print_datadb_count(sx_hashfs_t *h, const char *table, int *terminate)
-{
-    rc_ty ret = OK;
-    uint64_t count = 0;
-    unsigned i,j;
-    char query[128];
-    sqlite3_stmt *q = NULL;
-    snprintf(query, sizeof(query), "SELECT COUNT(*) FROM %s", table);
-    for (j=0;j<SIZES && !*terminate;j++) {
-        for (i=0;i<HASHDBS && !*terminate;i++) {
-            qnullify(q);
-            if (qprep(h->datadb[j][i], &q, query) || qstep_ret(q)) {
-                WARN("print_count failed");
-                ret = FAIL_EINTERNAL;
-                break;
-            }
-            count += sqlite3_column_int64(q, 0);
-            qnullify(q);
-        }
-    }
-    qnullify(q);
-    if (!terminate)
-        return ret;
-    INFO("Table %s has %lld entries", table, (long long)count);
-    return ret;
-}
-
 rc_ty sx_hashfs_gc_info(sx_hashfs_t *h, int *terminate)
 {
-    rc_ty ret = OK;
-    struct timeval tv0, tv1;
-    gettimeofday(&tv0, NULL);
-    if (print_datadb_count(h, "blocks", terminate) ||
-        print_datadb_count(h, "revision_ops", terminate) ||
-        print_datadb_count(h, "reservations", terminate) ||
-        print_datadb_count(h, "revision_blocks", terminate) ||
-        print_datadb_count(h, "avail", terminate))
-        ret = FAIL_EINTERNAL;
-    gettimeofday(&tv1, NULL);
-    INFO("GC info completed in %.1fs", timediff(&tv0, &tv1));
-    return ret;
+    return OK;
 }
 
 rc_ty sx_hashfs_gc_expire_all_reservations(sx_hashfs_t *h)
