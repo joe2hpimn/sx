@@ -1233,7 +1233,7 @@ if [ ! -f "$SX_DATA_DIR/hashfs.db" ]; then
 	    fi
 	    "@sbindir@/sxadm" cluster --lock "sx://admin@$SX_CLUSTER_NAME" > $OUT_TMP 2>&1
 	    if [ $? -ne 0 ]; then
-		if [ -n "`grep 'Cluster is already locked' $OUT_TMP`" -a $LOCKCNT -le 10 ]; then
+		if [ -n "`grep 'Cluster is already locked' $OUT_TMP`" -o -n "`grep 'Distribution changes in progress' $OUT_TMP`" ] && [ $LOCKCNT -le 10 ]; then
 		    echo "Cluster is busy (already locked for changes by another process)... retrying in 60 seconds (attempt $LOCKCNT of 10)."
 		    LOCKCNT=`expr $LOCKCNT + 1`
 		    sleep 60
