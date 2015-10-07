@@ -2110,15 +2110,24 @@ sxc_cluster_lf_t *sxc_cluster_listfiles_etag(sxc_cluster_t *cluster, const char 
     char *path = NULL;
     char etag[1024];
     char *etag_out = NULL;
+    sxc_meta_t *vmeta;
     sxc_client_t *sx = sxi_cluster_get_client(cluster);
 
+    if(!(vmeta = sxc_meta_new(sx)))
+	return NULL;
     sxi_hostlist_init(&volhosts);
-    if(sxi_locate_volume(sxi_cluster_get_conns(cluster), volume, &volhosts, NULL, NULL, NULL)) {
+    if(sxi_locate_volume(sxi_cluster_get_conns(cluster), volume, &volhosts, NULL, vmeta, NULL)) {
         CFGDEBUG("Failed to locate volume %s", volume);
         sxi_hostlist_empty(&volhosts);
+	sxc_meta_free(vmeta);
         return NULL;
     }
-
+    if(sxi_volume_cfg_check(sx, cluster, vmeta, volume)) {
+	sxi_hostlist_empty(&volhosts);
+	sxc_meta_free(vmeta);
+	return NULL;
+    }
+    sxc_meta_free(vmeta);
     etag[0] = '\0';
     if (etag_file && strchr(etag_file, '/')) {
         sxi_seterr(sx, SXE_EARG, "etag file cannot contain /");
