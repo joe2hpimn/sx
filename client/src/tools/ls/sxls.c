@@ -67,7 +67,10 @@ static int setup_filters(sxc_client_t *sx, const char *fdir)
     	free(filter_dir);
 	return 1;
     }
-    sxc_filter_loadall(sx, filter_dir);
+    if(sxc_filter_loadall(sx, filter_dir)) {
+	fprintf(stderr, "WARNING: Failed to load filters: %s\n", sxc_geterrmsg(sx));
+	sxc_clearerr(sx);
+    }
     free(filter_dir);
     return 0;
 }

@@ -267,7 +267,10 @@ int main(int argc, char **argv) {
 	fprintf(stderr, "ERROR: Failed to set filter dir\n");
 	goto err;
     }
-    sxc_filter_loadall(sx, filter_dir);
+    if(sxc_filter_loadall(sx, filter_dir)) {
+	fprintf(stderr, "WARNING: Failed to load filters: %s\n", sxc_geterrmsg(sx));
+	sxc_clearerr(sx);
+    }
     free(filter_dir);
 
     if(op == OPCOPY) {

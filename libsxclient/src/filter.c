@@ -62,7 +62,7 @@ static int filter_register(sxc_client_t *sx, const char *filename)
 		return 1;
 	    }
 	    if(filter->abi_version != SXF_ABI_VERSION) {
-		SXDEBUG("ABI version mismatch (filter: %d, library: %d) with %s\n", filter->abi_version, SXF_ABI_VERSION, filename);
+		SXDEBUG("ABI version mismatch (filter: %d, library: %d) with %s", filter->abi_version, SXF_ABI_VERSION, filename);
 		lt_dlclose(dlh);
 		return 1;
 	    }
@@ -168,8 +168,8 @@ static int filter_loadall(sxc_client_t *sx, const char *filter_dir)
     }
 
     if(!(dir = opendir(filter_dir))) {
-	SXDEBUG("Can't open filter directory %s\n", filter_dir);
-	sxi_seterr(sx, SXE_EFILTER, "Can't open filter directory %s\n", filter_dir);
+	SXDEBUG("Can't open filter directory %s", filter_dir);
+	sxi_seterr(sx, SXE_EFILTER, "Can't open filter directory %s", filter_dir);
 	return 1;
     }
 
