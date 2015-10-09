@@ -38,7 +38,7 @@ const char *main_args_info_full_help[] = {
   "      --full-help        Print help, including hidden options, and exit",
   "  -V, --version          Print version and exit",
   "      --all              Print all the information below",
-  "      --anonymize        Anonymize IP addresses, URLs, and cluster usernames\n                           (default=on)",
+  "      --no-anonymize     Do not anonymize sensitive information  (default=off)",
   "      --find-request-id  Print all messages corresponding to specified request\n                           ID",
   "      --sysconfdir=PATH  Path to /etc",
   "  -o, --output=STRING    Save output to given file (default:\n                           sxreport-server-<timestamp>.log)",
@@ -103,7 +103,7 @@ void clear_given (struct main_args_info *args_info)
   args_info->full_help_given = 0 ;
   args_info->version_given = 0 ;
   args_info->all_given = 0 ;
-  args_info->anonymize_given = 0 ;
+  args_info->no_anonymize_given = 0 ;
   args_info->find_request_id_given = 0 ;
   args_info->sysconfdir_given = 0 ;
   args_info->output_given = 0 ;
@@ -119,7 +119,7 @@ static
 void clear_args (struct main_args_info *args_info)
 {
   FIX_UNUSED (args_info);
-  args_info->anonymize_flag = 1;
+  args_info->no_anonymize_flag = 0;
   args_info->sysconfdir_arg = NULL;
   args_info->sysconfdir_orig = NULL;
   args_info->output_arg = NULL;
@@ -138,7 +138,7 @@ void init_args_info(struct main_args_info *args_info)
   args_info->full_help_help = main_args_info_full_help[1] ;
   args_info->version_help = main_args_info_full_help[2] ;
   args_info->all_help = main_args_info_full_help[3] ;
-  args_info->anonymize_help = main_args_info_full_help[4] ;
+  args_info->no_anonymize_help = main_args_info_full_help[4] ;
   args_info->find_request_id_help = main_args_info_full_help[5] ;
   args_info->sysconfdir_help = main_args_info_full_help[6] ;
   args_info->output_help = main_args_info_full_help[7] ;
@@ -337,8 +337,8 @@ main_cmdline_parser_dump(FILE *outfile, struct main_args_info *args_info)
     write_into_file(outfile, "version", 0, 0 );
   if (args_info->all_given)
     write_into_file(outfile, "all", 0, 0 );
-  if (args_info->anonymize_given)
-    write_into_file(outfile, "anonymize", 0, 0 );
+  if (args_info->no_anonymize_given)
+    write_into_file(outfile, "no-anonymize", 0, 0 );
   if (args_info->find_request_id_given)
     write_into_file(outfile, "find-request-id", 0, 0 );
   if (args_info->sysconfdir_given)
@@ -864,7 +864,7 @@ main_cmdline_parser_internal (
         { "full-help",	0, NULL, 0 },
         { "version",	0, NULL, 'V' },
         { "all",	0, NULL, 0 },
-        { "anonymize",	0, NULL, 0 },
+        { "no-anonymize",	0, NULL, 0 },
         { "find-request-id",	0, NULL, 0 },
         { "sysconfdir",	1, NULL, 0 },
         { "output",	1, NULL, 'o' },
@@ -936,14 +936,14 @@ main_cmdline_parser_internal (
               goto failure;
           
           }
-          /* Anonymize IP addresses, URLs, and cluster usernames.  */
-          else if (strcmp (long_options[option_index].name, "anonymize") == 0)
+          /* Do not anonymize sensitive information.  */
+          else if (strcmp (long_options[option_index].name, "no-anonymize") == 0)
           {
           
           
-            if (update_arg((void *)&(args_info->anonymize_flag), 0, &(args_info->anonymize_given),
-                &(local_args_info.anonymize_given), optarg, 0, 0, ARG_FLAG,
-                check_ambiguity, override, 1, 0, "anonymize", '-',
+            if (update_arg((void *)&(args_info->no_anonymize_flag), 0, &(args_info->no_anonymize_given),
+                &(local_args_info.no_anonymize_given), optarg, 0, 0, ARG_FLAG,
+                check_ambiguity, override, 1, 0, "no-anonymize", '-',
                 additional_error))
               goto failure;
           

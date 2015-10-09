@@ -20,8 +20,8 @@ Print version and exit
 \fB\-\-all\fR
 Collect all available information (default mode).
 .TP
-\fB\-\-anonymize\fR
-Anonymize IP addresses, URLs, and cluster usernames (default mode).
+\fB\-\-no\-anonymize\fR
+Do not anonymize IP addresses, URLs, or cluster usernames (default: anonymize all sensitive information).
 .TP
 \fB\-\-find\-request\-id\fR
 Print all messages corresponding to specified request ID.
@@ -33,7 +33,7 @@ Path to the \fI\,/etc\/\fP directory used by SX.
 Save output to a given file (default: sxreport\-server\-<timestamp>.log in the current directory).
 .TP
 \fB\-\-append\fR=\fI\,STRING\/\fR
-Append information from a specified file (\- is stdin), anonymized only if \fB\-\-anonymize\fR is specified.
+Append information from a specified file (\- is stdin).
 .PP
 \fB\-\-all\fR options:
 .TP
@@ -50,10 +50,9 @@ Print information about cluster's status & health.
 Print information about the node's local storage.
 .PP
 Calling sxreport without any options is equivalent to: sxreport \fB\-\-all\fR
-\fB\-\-anonymize\fR.
 If you need just a specific part, please use a corresponding option listed above.
 If you want to append more information run:
-sxreport \fB\-\-append=\fR/path/to/file \fB\-\-anonymize\fR >> sxreport.log
+sxreport \fB\-\-append=\fR/path/to/file >> sxreport.log
 .SH FILES
 @SXFCGI_CONF@
 .SH FURTHER DOCUMENTATION

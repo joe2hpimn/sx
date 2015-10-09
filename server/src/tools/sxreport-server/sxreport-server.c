@@ -62,14 +62,14 @@ static FILE *logfile;
 static void dump(const char *name, FILE *in)
 {
     char line[1024];
-    INFO("--- %s: ---", name);
+    INFO("\n--- %s ---", name);
     while (fgets(line, sizeof(line), in)) {
         unsigned n = strlen(line);
         if (n > 0)
             line[n-1] = '\0';
         INFO("\t%s", line);
     }
-    INFO("\n---=---\n");
+    INFO("---=---");
 }
 
 static int run_command(const char *cmd)
@@ -303,6 +303,8 @@ static void print_sxhttpd_conf(sxc_client_t *sx, const char *dir, const char *fi
 
 static void print_info(sxc_client_t *sx, const char *sysconfdir)
 {
+    char file[1024];
+
     sxi_report_section(sx, "Build configuration");
     sxi_report_library_versions(sx, src_version());
     sxi_report_library_int(sx, "sqlite", SQLITE_VERSION_NUMBER, sqlite3_libversion_number(),
@@ -326,7 +328,7 @@ static void print_info(sxc_client_t *sx, const char *sysconfdir)
     INFO("SX.fcgi configuration file: %s/sxserver/sxfcgi.conf", sysconfdir);
     INFO("SX.fcgi configuration parsed OK: %s",
            fcgi_args_parsed ? "yes" : "no");
-    cmdline_parser_dump(logfile, &fcgi_args);
+
     if (fcgi_args.data_dir_given) {
         struct stat log, data;
         INFO("Data directory: %s/data", fcgi_args.data_dir_arg);
@@ -336,10 +338,13 @@ static void print_info(sxc_client_t *sx, const char *sysconfdir)
                 log.st_dev == data.st_dev)
                 /* filling data partition will make us impossible to log or
                  * viceversa */
-                WARN("WARNING: log and data directory are on same partition!");
+                WARN("WARNING: log and data directories are on the same partition!");
             INFO("\tData I/O blocksize: %ld", (long)data.st_blksize);
         }
     }
+    snprintf(file,sizeof(file),"%s/sxserver/sxfcgi.conf", sysconfdir);
+    dump_file(file, file);
+
     print_sxhttpd_conf(sx, sysconfdir, "/sxserver/sxhttpd.conf");
 
     sxi_report_limits(sx);
@@ -512,7 +517,7 @@ int main(int argc, char **argv) {
             dump_file(args.append_arg[i], args.append_arg[i]);
     }
 
-    if (args.anonymize_given) {
+    if (!args.no_anonymize_flag) {
         FILE *out, *logfile_in;
 	char oname[1024];
 
@@ -557,7 +562,7 @@ int main(int argc, char **argv) {
     if (fcgi_args_parsed)
         cmdline_parser_free(&fcgi_args);
     free(params);
-    printf("%s stored in %s\n", args.anonymize_given ? "Anonymized report" : "Report", name);
+    printf("%s stored in %s\n", args.no_anonymize_given ? "Report" : "Anonymized report", name);
     printf("You can attach it to a bugreport at %s\n", PACKAGE_BUGREPORT);
     main_cmdline_parser_free(&args);
     sx_done(&sx);
