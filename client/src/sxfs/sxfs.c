@@ -794,7 +794,7 @@ static int sxfs_rename (const char *path, const char *newpath) {
             ret = -sxfs_sx_err(sx);
             goto sxfs_rename_err;
         }
-        if(sxc_mass_rename(cluster, src, dest)) {
+        if(sxc_mass_rename(cluster, src, dest, 1)) {
             SXFS_LOG("%s", sxc_geterrmsg(sx));
             ret = -sxfs_sx_err(sx);
             goto sxfs_rename_err;

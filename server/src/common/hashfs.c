@@ -10624,7 +10624,7 @@ int sx_hashfs_timeval2str(const struct timeval *tv, char *buff) {
 static rc_ty rename_switch_dbs(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, const char *oldname, const char *revision, unsigned int mdb1, const char *newname, const char *newrev, unsigned int mdb2) {
     rc_ty ret = FAIL_EINTERNAL;
     sqlite3_stmt *qget = h->qm_getrev[mdb1], *qins = h->qm_ins[mdb2], *qdel = h->qm_delfile[mdb1];
-    sqlite3_stmt *qmget = h->qm_metaget[mdb1], *qmset = h->qm_metaset[mdb2], *qmdel = h->qm_metadel[mdb1];
+    sqlite3_stmt *qmget = h->qm_metaget[mdb1], *qmset = h->qm_metaset[mdb2];
     int r, db2_locked;
     int64_t oldid, newid, size, age;
     const void *content, *revision_id;
@@ -10647,7 +10647,6 @@ static rc_ty rename_switch_dbs(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, co
     sqlite3_reset(qdel);
     sqlite3_reset(qmget);
     sqlite3_reset(qmset);
-    sqlite3_reset(qmdel);
 
     if(qbind_int64(qget, ":volume", vol->id) || qbind_text(qget, ":name", oldname) ||
        qbind_text(qget, ":revision", revision)) {
@@ -10696,12 +10695,6 @@ static rc_ty rename_switch_dbs(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, co
     /* Get new file entry row id */
     newid = sqlite3_last_insert_rowid(sqlite3_db_handle(qins));
 
-    /* Drop old entry */
-    if(qbind_int64(qdel, ":file", oldid) || qstep_noret(qdel)) {
-        msg_set_reason("Failed to rename file '%s' to '%s'", oldname, newname);
-        goto rename_switch_dbs_err;
-    }
-
     /* Now move file meta */
     if(qbind_int64(qmget, ":file", oldid)) {
         msg_set_reason("Failed to rename file '%s' to '%s'", oldname, newname);
@@ -10733,17 +10726,17 @@ static rc_ty rename_switch_dbs(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, co
             goto rename_switch_dbs_err;
         }
 
-        /* Delete old entry */
-        if(qbind_int64(qmdel, ":file", oldid) || qbind_text(qmdel, ":key", key) ||
-           qstep_noret(qmdel)) {
-            msg_set_reason("Failed to delete old file meta");
-            goto rename_switch_dbs_err;
-        }
         nmeta++;
     }
 
     if(r != SQLITE_DONE) {
         msg_set_reason("Failed to move file meta");
+        goto rename_switch_dbs_err;
+    }
+
+    /* Drop old file entry */
+    if(qbind_int64(qdel, ":file", oldid) || qstep_noret(qdel)) {
+        msg_set_reason("Failed to rename file '%s' to '%s'", oldname, newname);
         goto rename_switch_dbs_err;
     }
 
@@ -10766,7 +10759,6 @@ rename_switch_dbs_err:
     sqlite3_reset(qdel);
     sqlite3_reset(qmget);
     sqlite3_reset(qmset);
-    sqlite3_reset(qmdel);
     return ret;
 }
 
@@ -10787,6 +10779,11 @@ rc_ty sx_hashfs_file_rename(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, co
     if(!h->have_hd) {
         WARN("Called before initialization");
         return FAIL_EINIT;
+    }
+
+    if(!strcmp(oldname, newname)) {
+        WARN("Source and destination filenames are equal");
+        return EINVAL;
     }
 
     if(!sx_hashfs_is_or_was_my_volume(h, volume)) {

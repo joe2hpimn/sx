@@ -1134,7 +1134,7 @@ test_get 'listing all \'tree/\' files', authed_only(200, 'application/json'), "$
     };
 
 # Rename /tree to /treee
-test_put_job "mass rename on $vol (rename /tree to /treee)", {'badauth'=>[401],$reader=>[403],$writer=>[200]}, "$vol?source=tree/&dest=treee/";
+test_put_job "mass rename on $vol (rename /tree to /treee)", {'badauth'=>[401],$reader=>[403],$writer=>[200]}, "$vol?source=tree/&dest=treee/&recursive";
 # List  'treee/' -> check if /tree directory has been correctly renamed to /treee
 test_get 'listing all \'treee/\' files', authed_only(200, 'application/json'), "$vol?filter=treee/&recursive", undef,
     sub {
@@ -1159,7 +1159,7 @@ test_get 'listing all \'tree/\' files', authed_only(200, 'application/json'), "$
     };
 
 # Rename /treee again to /tree
-test_put_job "mass rename on $vol (rename /treee to /tree)", {'badauth'=>[401],$reader=>[403],$writer=>[200]}, "$vol?source=treee/&dest=tree/";
+test_put_job "mass rename on $vol (rename /treee to /tree)", {'badauth'=>[401],$reader=>[403],$writer=>[200]}, "$vol?source=treee/&dest=tree/&recursive";
 # List  'tree/' recursively
 test_get 'listing all \'tree/\' files', authed_only(200, 'application/json'), "$vol?filter=tree/&recursive", undef,
     sub {
@@ -1184,7 +1184,7 @@ test_get 'listing all \'treee/\' files', authed_only(200, 'application/json'), "
 
 
 # Rename /tree/b to /tree/c
-test_put_job "mass rename on $vol (rename /tree/[b] to /tree/c)", {'badauth'=>[401],$reader=>[403],$writer=>[200]}, "$vol?source=tree/[b]&dest=tree/c";
+test_put_job "mass rename on $vol (rename /tree/[b] to /tree/c)", {'badauth'=>[401],$reader=>[403],$writer=>[200]}, "$vol?source=tree/[b]&dest=tree/c&recursive";
 # List  'tree/' recursively
 test_get 'listing all \'tree/\' files', authed_only(200, 'application/json'), "$vol?filter=tree/&recursive", undef,
     sub {
@@ -1202,7 +1202,7 @@ test_get 'listing all \'tree/\' files', authed_only(200, 'application/json'), "$
 
 
 # Rename /tree/[]/ to /tree/x/
-test_put_job "mass rename on $vol (rename /tree/\\[\\]/ to /tree/x/)", {'badauth'=>[401],$reader=>[403],$writer=>[200]}, "$vol?source=tree/\\[\\]/&dest=tree/x/";
+test_put_job "mass rename on $vol (rename /tree/\\[\\]/ to /tree/x/)", {'badauth'=>[401],$reader=>[403],$writer=>[200]}, "$vol?source=tree/\\[\\]/&dest=tree/x/&recursive";
 # List  'tree/' recursively
 test_get 'listing all \'tree/\' files', authed_only(200, 'application/json'), "$vol?filter=tree/&recursive", undef,
     sub {
@@ -1220,7 +1220,7 @@ test_get 'listing all \'tree/\' files', authed_only(200, 'application/json'), "$
 
 
 # Try to rename /tree/x/ to /tree/z, should fail, because z is not a directory
-test_put_job "mass rename on $vol (rename /tree/x/ to /tree/z)", {'badauth'=>[401],$reader=>[403],$writer=>[400]}, "$vol?source=tree/x/&dest=tree/z";
+test_put_job "mass rename on $vol (rename /tree/x/ to /tree/z)", {'badauth'=>[401],$reader=>[403],$writer=>[400]}, "$vol?source=tree/x/&dest=tree/z&recursive";
 # List  'tree/' recursively (not changed now)
 test_get 'listing all \'tree/\' files', authed_only(200, 'application/json'), "$vol?filter=tree/&recursive", undef,
     sub {
@@ -1259,7 +1259,7 @@ test_get 'listing all \'tree/\' files', authed_only(200, 'application/json'), "$
 
 
 # Rename /tree/x/a to /tree/[] (should overwrite the existing file and correctly reduce x/ from path)
-test_put_job "mass rename on $vol (overwrite existing file)", {'badauth'=>[401],$reader=>[403],$writer=>[200]}, "$vol?source=tree/x/a&dest=tree/[]";
+test_put_job "mass rename on $vol (overwrite existing file)", {'badauth'=>[401],$reader=>[403],$writer=>[200]}, "$vol?source=tree/x/a&dest=tree/[]&recursive";
 # List  'tree/' recursively (not changed now)
 test_get 'listing all \'tree/\' files', authed_only(200, 'application/json'), "$vol?filter=tree/&recursive", undef,
     sub {
@@ -1277,7 +1277,7 @@ test_get 'listing all \'tree/\' files', authed_only(200, 'application/json'), "$
 
 
 # Rename /tree/x/\a to /tree/a (use globbing '[dx]' and '??' for it)
-test_put_job "mass rename on $vol (rename /tree/[dx]/??/? to /tree/a)", {'badauth'=>[401],$reader=>[403],$writer=>[200]}, "$vol?source=tree/[dx]/??/?&dest=tree/a";
+test_put_job "mass rename on $vol (rename /tree/[dx]/??/? to /tree/a)", {'badauth'=>[401],$reader=>[403],$writer=>[200]}, "$vol?source=tree/[dx]/??/?&dest=tree/a&recursive";
 # List  'tree/' recursively (not changed now)
 test_get 'listing all \'tree/\' files', authed_only(200, 'application/json'), "$vol?filter=tree/&recursive", undef,
     sub {
@@ -1302,7 +1302,7 @@ test_get 'listing files matching pattern \'[ad]\'', authed_only(200, 'applicatio
             $json->{'replicaCount'} == 1 && is_hash($json->{'fileList'}) && scalar keys %{$json->{'fileList'}} == 0;
     };
 
-test_put_job "mass rename on $vol (rename /tree/[ad] to /)", {'badauth'=>[401],$reader=>[403],$writer=>[200]}, "$vol?source=tree/[ad]&dest=";
+test_put_job "mass rename on $vol (rename /tree/[ad] to /)", {'badauth'=>[401],$reader=>[403],$writer=>[200]}, "$vol?source=tree/[ad]&dest=&recursive";
 # List  'tree/' recursively (not changed now)
 test_get 'listing all \'tree/\' files', authed_only(200, 'application/json'), "$vol?filter=tree/&recursive", undef,
     sub {
@@ -1325,8 +1325,78 @@ test_get 'listing files matching pattern \'[ad]\'', authed_only(200, 'applicatio
         return 0 unless is_hash($json->{'fileList'}->{'/d'});
     };
 
+# Test non-recursive mass rename
+test_put_job "mass rename on $vol (rename /[ad] to /tree)", {'badauth'=>[401],$reader=>[403],$writer=>[200]}, "$vol?source=[ad]&dest=tree/";
+test_put_job "mass rename on $vol (rename /tree/a to /tree/x)", {'badauth'=>[401],$reader=>[403],$writer=>[200]}, "$vol?source=tree/a&dest=tree/x";
+# List  'tree/' recursively
+test_get 'listing all \'tree/\' files', authed_only(200, 'application/json'), "$vol?filter=tree/&recursive", undef,
+    sub {
+        my $json_raw = shift;
+        my $json = get_json($json_raw) or return 0;
+        return 0 unless is_int($json->{'volumeSize'}) && $json->{'volumeSize'} == $volumesize && is_int($json->{'replicaCount'}) &&
+            $json->{'replicaCount'} == 1 && is_hash($json->{'fileList'}) && scalar keys %{$json->{'fileList'}} == 5;
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/[]'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/x/\a'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/x/?*\\'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/x'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/d'});
+    };
 
+test_get 'listing files matching pattern \'[ad]\'', authed_only(200, 'application/json'), "$vol?filter=[ad]&recursive", undef,
+    sub {
+        my $json_raw = shift;
+        my $json = get_json($json_raw) or return 0;
+        return 0 unless is_int($json->{'volumeSize'}) && $json->{'volumeSize'} == $volumesize && is_int($json->{'replicaCount'}) &&
+            $json->{'replicaCount'} == 1 && is_hash($json->{'fileList'}) && scalar keys %{$json->{'fileList'}} == 0;
+    };
 
+test_put_job "mass rename on $vol (non-recursively rename /tree/x to /tree/c)", {'badauth'=>[401],$reader=>[403],$writer=>[200]}, "$vol?source=tree/x&dest=tree/c";
+# Check correctness of non-recursive rename, x/* should be left intact
+test_get 'listing all \'tree/\' files', authed_only(200, 'application/json'), "$vol?filter=tree/&recursive", undef,
+    sub {
+        my $json_raw = shift;
+        my $json = get_json($json_raw) or return 0;
+        return 0 unless is_int($json->{'volumeSize'}) && $json->{'volumeSize'} == $volumesize && is_int($json->{'replicaCount'}) &&
+            $json->{'replicaCount'} == 1 && is_hash($json->{'fileList'}) && scalar keys %{$json->{'fileList'}} == 5;
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/[]'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/x/\a'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/x/?*\\'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/c'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/d'});
+    };
+
+test_put_job "mass rename on $vol (non-recursively rename /tree/c to /tree/c)", {'badauth'=>[401],$reader=>[403],$writer=>[200]}, "$vol?source=tree/c&dest=tree/c";
+test_put_job "mass rename on $vol (recursively rename /tree/x to /tree/x)", {'badauth'=>[401],$reader=>[403],$writer=>[200]}, "$vol?source=tree/x/&dest=tree/x/&recursive";
+# Check correctness of renaming files /tree/x/* and /tree/c to itself (those files should be skipped and all should be left untouched)
+test_get 'listing all \'tree/\' files', authed_only(200, 'application/json'), "$vol?filter=tree/&recursive", undef,
+    sub {
+        my $json_raw = shift;
+        my $json = get_json($json_raw) or return 0;
+        return 0 unless is_int($json->{'volumeSize'}) && $json->{'volumeSize'} == $volumesize && is_int($json->{'replicaCount'}) &&
+            $json->{'replicaCount'} == 1 && is_hash($json->{'fileList'}) && scalar keys %{$json->{'fileList'}} == 5;
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/[]'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/x/\a'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/x/?*\\'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/c'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/d'});
+    };
+
+test_put_job "mass rename on $vol (move /tree/c to /tree/a/ subdir)", {'badauth'=>[401],$reader=>[403],$writer=>[200]}, "$vol?source=tree/c&dest=tree/a/a";
+test_put_job "mass rename on $vol (move /tree/d to /tree/a)", {'badauth'=>[401],$reader=>[403],$writer=>[200]}, "$vol?source=tree/d&dest=tree/a";
+test_put_job "mass rename on $vol (move /tree/a to /tree/b recursively)", {'badauth'=>[401],$reader=>[403],$writer=>[200]}, "$vol?source=tree/a&dest=tree/b&recursive";
+# Check correctness of renaming more than one file and substitution up to the firs slash in the filename suffix
+test_get 'listing all \'tree/\' files', authed_only(200, 'application/json'), "$vol?filter=tree/&recursive", undef,
+    sub {
+        my $json_raw = shift;
+        my $json = get_json($json_raw) or return 0;
+        return 0 unless is_int($json->{'volumeSize'}) && $json->{'volumeSize'} == $volumesize && is_int($json->{'replicaCount'}) &&
+            $json->{'replicaCount'} == 1 && is_hash($json->{'fileList'}) && scalar keys %{$json->{'fileList'}} == 5;
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/[]'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/x/\a'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/x/?*\\'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/b/a'});
+        return 0 unless is_hash($json->{'fileList'}->{'/tree/b'});
+    };
 
 
 

@@ -70,6 +70,8 @@
 #include "version.h"
 #include "clstqry.h"
 
+static int current_job_status = 0;
+
 typedef enum _act_result_t {
     ACT_RESULT_UNSET = 0,
     ACT_RESULT_OK = 1,
@@ -89,6 +91,7 @@ typedef act_result_t (*job_action_t)(sx_hashfs_t *hashfs, job_t job_id, job_data
     do {						    \
 	ret = (retcode);				    \
 	*fail_code = (failcode);			    \
+        current_job_status = (failcode);                    \
 	sxi_strlcpy(fail_msg, (failmsg), JOB_FAIL_REASON_SIZE); \
         DEBUG("fail set to: %s\n", fail_msg); \
     } while(0)
@@ -5239,7 +5242,7 @@ static rc_ty jobpoll_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_
             else if(status == JOB_PENDING)
                 action_error(ACT_RESULT_TEMPFAIL, 503, "Local job is pending");
             else {
-                WARN("Local job has failed: status: %d, message: %s", status, message);
+                DEBUG("Local job has failed: message: %s", message);
                 action_error(ACT_RESULT_PERMFAIL, rc2http(s), message);
             }
         } else {
@@ -5683,7 +5686,6 @@ static rc_ty massrename_drop_old_src_revs(sx_hashfs_t *h, const sx_hashfs_volume
         if(nnodes) {
             /* We can reach memory limit when temporary over-replica situation happens, need to reallocate qrylist array */
             if(*queries_sent + nnodes >= *list_len) {
-                INFO("Reallocating queries list %d -> %d", *list_len, *list_len * 2);
                 query_list_t *oldptr = qrylist;
                 DEBUG("Reallocating queries list");
                 qrylist = wrap_realloc(oldptr, 2 * (*list_len) * sizeof(*oldptr));
@@ -5763,12 +5765,11 @@ static rc_ty massrename_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *jo
     int recursive = 0;
     char timestamp_str[REV_TIME_LEN+1];
     char newname[SXLIMIT_MAX_FILENAME_LEN+1];
-    const char *suffix;
+    char *suffix;
     query_list_t *qrylist = NULL;
     unsigned int qrylist_len = 0, queries_sent = 0;
     unsigned int i = 0;
     sx_nodelist_t *nonvolnodes = NULL;
-    int require_dir;
     unsigned int source_slashes;
     long http_code = 0;
 
@@ -5809,41 +5810,32 @@ static rc_ty massrename_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *jo
     source_slashes = sxi_count_slashes(source);
     dlen = strlen(dest);
 
-    if((s = sx_hashfs_list_first(hashfs, vol, source, &file, 1, NULL, 0)) != OK) {
-        if(s == ITER_NO_MORE)
-            action_error(ACT_RESULT_PERMFAIL, 404, "Not found");
-        else
-            action_error(rc2actres(s), rc2http(s), msg_get_reason());
-    } else {
-        /* Got OK, means that source file does exist. Check if it points to more than one file. */
-        if((s = sx_hashfs_list_next(hashfs)) != OK) {
-            if(s == ITER_NO_MORE)
-                require_dir = 0; /* F2F */
-            else
-                action_error(rc2actres(s), rc2http(s), msg_get_reason());
-        } else {
-            /* More than one file is returned as a source */
-            if(!slen || source[slen-1] == '/' || sxi_str_has_glob(source))
-                require_dir = 1;
-            else /* Source points to more than one file, does not contain globbing, but listing returned more than one file, it points to a directory */
-                require_dir = 0;
-        }
-    }
-
-    if(require_dir && (dlen && dest[dlen-1] != '/')) {
-        DEBUG("Destination %s is not a directory", dest);
-        action_error(ACT_RESULT_PERMFAIL, 400, "Not a directory");
-    }
-
     sxi_strlcpy(newname, dest, sizeof(newname));
-
-    for(s = sx_hashfs_list_first(hashfs, vol, source, &file, 1, NULL, 0); s == OK && i + queries_sent < MAX_BATCH_ITER; s = sx_hashfs_list_next(hashfs)) {
+    for(s = sx_hashfs_list_first(hashfs, vol, source, &file, recursive, NULL, 0); s == OK && i + queries_sent < MAX_BATCH_ITER; s = sx_hashfs_list_next(hashfs)) {
         rc_ty t;
         const sx_hashfs_file_t *filerev = NULL;
         char name[SXLIMIT_MAX_FILENAME_LEN+1];
+        unsigned int name_len;
+
+        if(strncmp(file->revision, timestamp_str, REV_TIME_LEN) > 0) {
+            DEBUG("Skipping %s: %.*s > %s", name, (int)REV_TIME_LEN, filerev->revision, timestamp_str);
+            /* Do not set failed flag, it is not an error, just skip the file */
+            continue;
+        }
 
         /* +1 because of preceding slash */
         sxi_strlcpy(name, file->name + 1, sizeof(name));
+        name_len = strlen(name);
+
+        if(name_len && name[name_len-1] == '/') {
+            if(recursive) {
+                WARN("File name ends with slash, but listing is recursive");
+                s = FAIL_EINTERNAL;
+                break;
+            }
+            DEBUG("Skipping file %s, it is a directory", name);
+            continue;
+        }
 
         /* source can contain globbing, need to find out last slash position. */
         suffix = sxi_ith_slash(name, source_slashes);
@@ -5853,11 +5845,13 @@ static rc_ty massrename_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *jo
                 s = FAIL_EINTERNAL;
                 break;
             }
-            plen = suffix - name + 1;
+            suffix++;
+            plen = suffix - name;
         } else /* File name does not contain slashes, full file name will be prefixed with dest */
             plen = 0;
 
-        if(require_dir || !dlen || dest[dlen-1] == '/') {
+        /* If dest has a trailing slash, append the suffix after it */
+        if(!dlen || dest[dlen-1] == '/') {
             /* Check if appending new name suffix to the destination prefix won't exceed filename limit */
             if(strlen(name) - plen + dlen > SXLIMIT_MAX_FILENAME_LEN) {
                 DEBUG("Skipping '%s': Filename too long", name);
@@ -5867,11 +5861,29 @@ static rc_ty massrename_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *jo
 
             /* Destination is a directory, append source without the prefix */
             sxi_strlcpy(newname + dlen, name + plen, sizeof(newname) - dlen);
+        } else if(suffix && sxi_count_slashes(suffix)) {
+            /* Dest does not have a trailing slash, replace it until first slash in the suffix */
+
+            /* Get next slash position */
+            suffix = sxi_ith_slash(suffix, 1);
+            if(!suffix) {
+                WARN("Suffix contains slash, but failed to get its string position");
+                s = FAIL_EINTERNAL;
+                break;
+            }
+            /* Check filename correctness */
+            if(strlen(suffix) + dlen > SXLIMIT_MAX_FILENAME_LEN) {
+                DEBUG("Skipping '%s': Filename too long", name);
+                http_code = 400;
+                continue;
+            }
+            /* Create new filename */
+            sxi_strlcpy(newname + dlen, suffix, sizeof(newname) - dlen);
         }
 
         DEBUG("Renaming file %s to %s", name, newname);
-        if(strncmp(file->revision, timestamp_str, REV_TIME_LEN) > 0) {
-            DEBUG("Skipping %s: %.*s > %s", name, (int)REV_TIME_LEN, filerev->revision, timestamp_str);
+        if(!strcmp(name, newname)) {
+            DEBUG("Skipping %s: destination and source filenames are equal", name);
             /* Do not set failed flag, it is not an error, just skip the file */
             continue;
         }
@@ -5897,13 +5909,6 @@ static rc_ty massrename_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *jo
                 action_error(rc2actres(t), rc2http(t), "Failed to remove old source revisions");
         }
         i++;
-
-        if(!require_dir) {
-            /* When !require_dir we want to process only one file */
-            DEBUG("Skipping iteration, file to file rename requested");
-            s = ITER_NO_MORE;
-            break;
-        }
     }
 
     if(s != ITER_NO_MORE) {
@@ -5955,7 +5960,8 @@ action_failed:
 }
 
 static rc_ty massrename_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
-    CRIT("Some files were left in an inconsistent state after a failed rename attempt");
+    if(current_job_status / 100 != 4)
+        CRIT("Some files were left in an inconsistent state after a failed rename attempt");
     return force_phase_success(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
 }
 
@@ -6544,6 +6550,7 @@ static void jobmgr_process_queue(struct jobmgr_data_t *q, int forced) {
 	q->job_failed = (sqlite3_column_int(q->qjob, 4) != 0);
 	q->job_data = make_jobdata(ptr, plen, sqlite3_column_int(q->qjob, 5));
 	sqlite3_reset(q->qjob);
+        current_job_status = 0;
 
 	if(!q->job_data) {
 	    WARN("Job %lld has got invalid data", (long long)q->job_id);

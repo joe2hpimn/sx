@@ -2402,13 +2402,14 @@ void fcgi_mass_rename(void) {
     rc_ty s;
     const char *dest = get_arg("dest");
     const char *source = get_arg("source");
-    unsigned int slen, dlen;
+    unsigned int slen, dlen, sslashes;
     const sx_hashfs_file_t *file = NULL;
     sx_blob_t *b;
     const void *job_data = NULL;
     unsigned int job_data_len = 0;
     struct timeval timestamp;
     job_t job_id;
+    int recursive = has_arg("recursive");
 
     s = sx_hashfs_volume_by_name(hashfs, volume, &vol);
     if(s != OK)
@@ -2427,6 +2428,7 @@ void fcgi_mass_rename(void) {
         dest++;
     slen = strlen(source);
     dlen = strlen(dest);
+    sslashes = sxi_count_slashes(source);
 
     /* Check if dest is a directory when source is a directory too */
     if(((!slen || source[slen-1] == '/') && (dlen && dest[dlen-1] != '/')))
@@ -2446,7 +2448,7 @@ void fcgi_mass_rename(void) {
     if(!b)
         quit_errmsg(500, "Failed to allocate blob");
 
-    if(sx_blob_add_string(b, vol->name) || sx_blob_add_int32(b, 0) ||
+    if(sx_blob_add_string(b, vol->name) || sx_blob_add_int32(b, has_arg("recursive")) ||
        sx_blob_add_string(b, source) || sx_blob_add_datetime(b, &timestamp) ||
        sx_blob_add_string(b, dest)) {
         sx_blob_free(b);
@@ -2498,30 +2500,33 @@ void fcgi_mass_rename(void) {
         send_job_info(job_id);
     } else { /* Request comes in from the user: create polling job with all volnodes as target */
         sx_nodelist_t *volnodes = NULL;
+        unsigned int nfiles = 0;
 
-        /* Check source file existence */
-        s = sx_hashfs_list_first(hashfs, vol, source, &file, 0, NULL, 0);
-        if(s == ITER_NO_MORE) {
-            sx_blob_free(b);
-            quit_errmsg(rc2http(ENOENT), "Not Found");
-        } else if(s == OK) {
-            int has_glob = sxi_str_has_glob(source);
+        /* Check number of source file matches */
+        for(s = sx_hashfs_list_first(hashfs, vol, source, &file, recursive, NULL, 0); s == OK; s = sx_hashfs_list_next(hashfs)) {
+            unsigned int nslashes = sxi_count_slashes(file->name + 1);
 
-            if(!has_glob && (!slen || source[slen-1] != '/') && fnmatch(source, file->name + 1, FNM_PATHNAME)) {
-                sx_blob_free(b);
-                quit_errmsg(rc2http(ENOENT), "Not Found");
-            } else if(has_glob) {
-                /* Source file exists. Check whether dest has a trailing slash when listing points to more than one file */
-                s = sx_hashfs_list_next(hashfs);
-                if(s == OK && (dlen && dest[dlen-1] != '/')) {
-                    sx_blob_free(b);
-                    quit_errmsg(400, "Not a directory");
-                }
+            if(!recursive && nslashes > sslashes) {
+                DEBUG("Listed file has more slashes, skipping due to non-recursive rename required");
+                continue;
             }
+
+            nfiles++;
+            /* We need an information if source pattern points to more than one file */
+            if(nfiles == 2)
+                break;
         }
         if(s != OK && s != ITER_NO_MORE) {
             sx_blob_free(b);
             quit_errmsg(rc2http(s), rc2str(s));
+        } else if(nfiles == 0 && s == ITER_NO_MORE) {
+            /* No such file, skip creating mass rename job */
+            sx_blob_free(b);
+            quit_errmsg(404, "Not Found");
+        } else if(nfiles == 2 && (dlen && dest[dlen-1] != '/') && !recursive) {
+            /* Source pattern points to more than one file, directory is required as target */
+            sx_blob_free(b);
+            quit_errmsg(400, "Not a directory");
         }
 
         if((s = sx_hashfs_effective_volnodes(hashfs, NL_NEXTPREV, vol, 0, &volnodes, NULL)) != OK) {

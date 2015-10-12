@@ -5013,7 +5013,7 @@ int sxc_copy(sxc_file_t *source, sxc_file_t *dest, int recursive, int onefs, int
     return ret;
 }
 
-int sxc_mass_rename(sxc_cluster_t *cluster, sxc_file_t *source, sxc_file_t *dest) {
+int sxc_mass_rename(sxc_cluster_t *cluster, sxc_file_t *source, sxc_file_t *dest, int recursive) {
     sxc_client_t *sx;
     sxi_conns_t *conns;
     char *url;
@@ -5098,6 +5098,8 @@ int sxc_mass_rename(sxc_cluster_t *cluster, sxc_file_t *source, sxc_file_t *dest
     }
 
     len = strlen(vol_enc) + lenof("?source=") + strlen(src_enc) + lenof("&dest=") + strlen(dst_enc) + 1;
+    if(recursive)
+        len += lenof("&recursive");
     url = malloc(len);
     if(!url) {
         sxi_seterr(sx, SXE_EMEM, "Failed to allocate query");
@@ -5108,7 +5110,7 @@ int sxc_mass_rename(sxc_cluster_t *cluster, sxc_file_t *source, sxc_file_t *dest
         return -1;
     }
 
-    snprintf(url, len, "%s?source=%s&dest=%s", vol_enc, src_enc, dst_enc);
+    snprintf(url, len, "%s?source=%s&dest=%s%s", vol_enc, src_enc, dst_enc, recursive ? "&recursive" : "");
     free(dst_enc);
     free(src_enc);
     free(vol_enc);

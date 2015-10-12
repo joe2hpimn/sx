@@ -217,69 +217,16 @@ int main(int argc, char **argv) {
             goto main_err;
 
         if(!cmp_clusters(cluster1, cluster2) && !strcmp(sxc_file_get_volume(src_file), sxc_file_get_volume(dst_file))) {
+            int r;
             /* Here we know that both src and dest share the same volume and belong to the same cluster. We can use mass rename facility. */
-            if(sxc_mass_rename(cluster1, src_file, dst_file)) {
-                if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_NOTFOUND_ERR)) {
-                    const char *src_name = sxc_file_get_path(src_file);
-                    unsigned int slen;
-                    char *newpath;
-
-                    if(!src_name) {
-                        fprintf(stderr, "ERROR: NULL argument\n");
-                        fail = 1;
-                        sxc_file_free(src_file);
-                        src_file = NULL;
-                        break;
-                    }
-                    slen = strlen(src_name);
-
-                    if(!slen || src_name[slen-1] == '/') {
-                        /* Source does not exist and source path already ends with slash, it is an error */
-                        fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
-                        fail = 1;
-                        sxc_file_free(src_file);
-                        src_file = NULL;
-                        break;
-                    }
-
-                    if(!args.recursive_given) {
-                        /* Source does not exist and recursive flag has not been given, print a hint to use it */
-                        fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
-                        fprintf(stderr, SXBC_TOOLS_NOTFOUND_MSG, fname);
-                        fail = 1;
-                        sxc_file_free(src_file);
-                        src_file = NULL;
-                        break;
-                    }
-
-                    newpath = malloc(slen + 2);
-                    if(!newpath) {
-                        fprintf(stderr, "ERROR: Out of memory\n");
-                        fail = 1;
-                        sxc_file_free(src_file);
-                        src_file = NULL;
-                        break;
-                    }
-
-                    /* Append slash character to the source */
-                    snprintf(newpath, slen + 2, "%s/", src_name);
-
-                    if(sxc_file_set_path(src_file, newpath)) {
-                        fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
-                        free(newpath);
-                        fail = 1;
-                        sxc_file_free(src_file);
-                        src_file = NULL;
-                        break;
-                    }
-
-                    /* Try again with modified paths */
+            if((r = sxc_mass_rename(cluster1, src_file, dst_file, args.recursive_given))) {
+                if(r == -2) {
+                    /* Mass operation requested on a volume with filename processing filter, falling back to sxc_copy + sxc_rm method */
                     sxc_clearerr(sx);
-                    free(newpath);
-                    if(!sxc_mass_rename(cluster1, src_file, dst_file))
-                        fallback = 0;
                 } else {
                     fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
+                    if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_NOTFOUND_ERR) && !args.recursive_given)
+                        fprintf(stderr, SXBC_TOOLS_NOTFOUND_MSG, fname);
                     fail = 1;
                     sxc_file_free(src_file);
                     src_file = NULL;
