@@ -25,8 +25,6 @@
  *  this exception statement from your version.
  */
 
-// ACAB: add a reusable zone parser or change sxadm syntax (i.e. add zones to nodefs)
-
 #include "default.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -75,6 +73,7 @@ struct hdist_node {
     sx_node_t *sxn;
     unsigned int id;
     unsigned int zone_id;
+    char *zone_name;
     uint64_t capacity;
 };
 
@@ -331,6 +330,8 @@ sxi_hdist_t *sxi_hdist_from_cfg(const void *cfg, unsigned int cfg_len)
 	    else
 		ret = sxi_hdist_rebalanced(model);
 
+	    free(zone);
+	    zone = NULL;
 	    if(ret)
 		break;
 
@@ -485,6 +486,25 @@ const char *sxi_hdist_get_zones(const sxi_hdist_t *model, unsigned int bidx)
     return model->zone_cfg[bidx];
 }
 
+const char *sxi_hdist_get_node_zone(const sxi_hdist_t *model, unsigned int bidx, sx_uuid_t uuid)
+{
+    int i;
+
+    if(!model)
+	return NULL;
+
+    if(bidx >= model->builds) {
+	CRIT("Invalid build index (%u >= %u)", bidx, model->builds);
+	return NULL;
+    }
+
+    for(i = 0; i < model->node_count[bidx]; i++)
+	if(!memcmp(sx_node_uuid(model->node_list[bidx][i].sxn), &uuid, sizeof(uuid)))
+	    return model->node_list[bidx][i].zone_name;
+
+    return NULL;
+}
+
 static int get_node_idx(const sxi_hdist_t *model, unsigned int bidx, unsigned int node_id)
 {
 	unsigned int i;
@@ -515,6 +535,7 @@ static rc_ty hdist_addnode(sxi_hdist_t *model, unsigned int id, uint64_t capacit
     model->node_list[0] = node_list_new;
     node_list_new[model->node_count[0]].id = id;
     node_list_new[model->node_count[0]].zone_id = 0;
+    node_list_new[model->node_count[0]].zone_name = NULL;
     if(sxn) {
 	node_list_new[model->node_count[0]].sxn = sx_node_dup(sxn);
 	if(!node_list_new[model->node_count[0]].sxn) {
@@ -658,6 +679,9 @@ rc_ty sxi_hdist_newbuild(sxi_hdist_t *model)
     model->node_count[0] = 0;
     model->zone_count[0] = 0;
     model->zone_cfg[0] = NULL;
+    model->capacity_total[0] = 0;
+    model->circle[0] = NULL;
+    model->circle_points[0] = 0;
     model->state = 0xcafe;
     return OK;
 }
@@ -760,8 +784,10 @@ rc_ty sxi_hdist_rebalanced(sxi_hdist_t *model)
     }
 
     for(i = 1; i < model->builds; i++) {
-	for(j = 0; j < model->node_count[i]; j++)
+	for(j = 0; j < model->node_count[i]; j++) {
 	    sx_node_delete(model->node_list[i][j].sxn);
+	    free(model->node_list[i][j].zone_name);
+	}
 	free(model->node_list[i]);
 	model->node_list[i] = NULL;
 	sx_nodelist_delete(model->sxnl[i]);
@@ -813,7 +839,7 @@ static int set_zones(sxi_hdist_t *model, const char *zones)
     char *buf;
     unsigned int pos = 0, zone_id = 0;
 
-    if(!model || !zones) {
+    if(!zones) {
 	CRIT("Invalid arguments");
 	return EINVAL;
     }
@@ -835,6 +861,11 @@ static int set_zones(sxi_hdist_t *model, const char *zones)
 	    return EINVAL;
 	}
 	*pt++ = 0;
+	if(strlen(buf) > 128) {
+	    CRIT("Zone name too long (%s)", buf);
+	    free(buf);
+	    return EINVAL;
+	}
 	if(!*pt || strlen(pt) < 36) {
 	    CRIT("Can't parse zone %d (%s) - invalid format (no UUID after colon)", zone_id, buf);
 	    free(buf);
@@ -854,42 +885,52 @@ static int set_zones(sxi_hdist_t *model, const char *zones)
 		free(buf);
 		return EINVAL;
 	    }
-	    for(i = 0; i < model->node_count[0]; i++) {
-		if(!memcmp(sx_node_uuid(model->node_list[0][i].sxn), &uuid, sizeof(uuid))) {
-		    if(model->node_list[0][i].zone_id) {
-			if(model->node_list[0][i].zone_id == zone_id)
-			    CRIT("Node with UUID %s was already assigned to zone '%s'", upt, buf);
-			else
-			    CRIT("Node with UUID %s was already assigned to another zone", upt);
-			free(buf);
-			return EINVAL;
+	    if(model) {
+		for(i = 0; i < model->node_count[0]; i++) {
+		    if(!memcmp(sx_node_uuid(model->node_list[0][i].sxn), &uuid, sizeof(uuid))) {
+			if(model->node_list[0][i].zone_id) {
+			    if(model->node_list[0][i].zone_id == zone_id)
+				CRIT("Node with UUID %s was already assigned to zone '%s'", upt, buf);
+			    else
+				CRIT("Node with UUID %s was already assigned to another zone", upt);
+			    free(buf);
+			    return EINVAL;
+			}
+			model->node_list[0][i].zone_id = zone_id;
+			model->node_list[0][i].zone_name = strdup(buf);
+			found = 1;
+			break;
 		    }
-		    model->node_list[0][i].zone_id = zone_id;
-		    found = 1;
-		    break;
 		}
-	    }
-	    if(!found) {
-		CRIT("UUID %s from zone '%s' doesn't match any node", upt, buf);
-		free(buf);
-		return EINVAL;
+		if(!found) {
+		    CRIT("UUID %s from zone '%s' doesn't match any node", upt, buf);
+		    free(buf);
+		    return EINVAL;
+		}
 	    }
 	} while((upt = gettoken(pt, &zpos, token, sizeof(token), ',')));
     }
 
     free(buf);
     if(zone_id) {
-	model->zone_cfg[0] = strdup(zones);
-	if(!model->zone_cfg[0]) {
-	    CRIT("OOM");
-	    return ENOMEM;
+	if(model) {
+	    model->zone_cfg[0] = strdup(zones);
+	    if(!model->zone_cfg[0]) {
+		CRIT("OOM");
+		return ENOMEM;
+	    }
+	    model->zone_count[0] = zone_id;
 	}
-	model->zone_count[0] = zone_id;
 	return 0;
     }
 
     CRIT("No valid zones found");
     return EINVAL;
+}
+
+rc_ty sxi_hdist_check_zones(const char *zones)
+{
+    return set_zones(NULL, zones);
 }
 
 rc_ty sxi_hdist_build(sxi_hdist_t *model, const char *zones)
@@ -1065,8 +1106,10 @@ void sxi_hdist_free(sxi_hdist_t *model)
     free(model->capacity_total);
     free(model->circle_points);
     for(i = 0; i < model->builds; i++) {
-	for(j = 0; j < model->node_count[i]; j++)
+	for(j = 0; j < model->node_count[i]; j++) {
 	    sx_node_delete(model->node_list[i][j].sxn);
+	    free(model->node_list[i][j].zone_name);
+	}
 	free(model->node_list[i]);
 	free(model->zone_cfg[i]);
 	sx_nodelist_delete(model->sxnl[i]);

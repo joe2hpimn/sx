@@ -47,6 +47,10 @@ rc_ty sxi_hdist_get_cfg(const sxi_hdist_t *model, const void **cfg, unsigned int
 
 const char *sxi_hdist_get_zones(const sxi_hdist_t *model, unsigned int bidx);
 
+const char *sxi_hdist_get_node_zone(const sxi_hdist_t *model, unsigned int bidx, sx_uuid_t uuid);
+
+rc_ty sxi_hdist_check_zones(const char *zones);
+
 rc_ty sxi_hdist_addnode(sxi_hdist_t *model, const sx_uuid_t *uuid, const char *addr, const char *internal_addr, int64_t capacity, const sx_uuid_t *prev_uuid);
 
 rc_ty sxi_hdist_newbuild(sxi_hdist_t *model);

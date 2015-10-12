@@ -1056,7 +1056,7 @@ void interactive_completion(const char *line, linenoiseCompletions *lc)
 {
 	unsigned int len, i;
 	char *commands[] = { "addnode", "delnode", "help", "info", "debug", "blkstats", "resize",
-			     "set-zones", "get-zones",
+			     "set-zones", "get-zones", "del-zones",
 			     "rebalance", /* "rebalanceV2", */ "store", "save", "savecmds",
 			     "load", "dump", "reset", "execute", "exit" };
 
@@ -1083,6 +1083,7 @@ static int runcmd(struct sxcluster *cluster, int mode, char *line)
 	printf("  resize	-> resize single node\n");
 	printf("  set-zones	-> group nodes into zones\n");
 	printf("  get-zones	-> get active zones configuration\n");
+	printf("  del-zones	-> delete zones configuration\n");
 	printf("  rebalance	-> force cluster rebalance\n");
 	/* printf("  rebalanceV2	-> force cluster rebalance (V2 - testing)\n"); */
 	printf("\n");
@@ -1220,6 +1221,7 @@ static int runcmd(struct sxcluster *cluster, int mode, char *line)
 		return 0;
 	    }
 	    cluster->need_update = 1;
+	    free(cluster->zones);
 	    if(!(cluster->zones = strdup(&line[10])) || update(cluster)) {
 		free(cluster->zones);
 		cluster->zones = NULL;
@@ -1247,6 +1249,27 @@ static int runcmd(struct sxcluster *cluster, int mode, char *line)
 	    printf("No active zones found\n");
 	else
 	    printf("%s\n", zones);
+
+    } else if(!strncmp(line, "del-zones", 9)) {
+	unsigned int len = strlen(line);
+	const char *zones;
+	if(len != 9) {
+	    printf("Usage: del-zones\n");
+	} else {
+	    if(!cluster->node_cnt) {
+		printf("Null cluster, use 'addnode' to add new nodes\n");
+		return 0;
+	    }
+	    zones = sxi_hdist_get_zones(cluster->hdist, 0);
+	    if(zones) {
+		free(cluster->zones);
+		cluster->zones = NULL;
+		printf("Zones configuration deleted, running rebalance\n");
+		cluster->need_update = 1;
+		rebalance(cluster);
+	    } else
+		printf("No active zones found\n");
+	}
 
 /*
     } else if(!strncmp(line, "rebalanceV2", 11)) {
@@ -1732,10 +1755,12 @@ static void print_cluster(struct sxcluster *cluster)
     printf("Total space usage: %.1f MB / %llu MB (%.1f%%)\n", cluster->stored / (float) MBVAL, (unsigned long long) cluster->capacity / MBVAL, 100.0 * cluster->stored / (cluster->capacity + 1));
 
     for(i = 0; i < cluster->node_cnt; i++) {
+	const char *zone_name;
 	n = &cluster->node[i];
 	if(n->del_flag)
 	    continue;
-	printf("Node %s (%s): %.1f MB / %llu MB (%.1f%%)\n", n->host, n->uuid.string, n->stored / (float) MBVAL, (unsigned long long) n->capacity / MBVAL, 100.0 * n->stored / (n->capacity + 1));
+	zone_name = sxi_hdist_get_node_zone(cluster->hdist, 0, n->uuid);
+	printf("Node %s (%s%s%s): %.1f MB / %llu MB (%.1f%%)\n", n->host, n->uuid.string, zone_name ? " zone:" : "", zone_name ? zone_name : "",  n->stored / (float) MBVAL, (unsigned long long) n->capacity / MBVAL, 100.0 * n->stored / (n->capacity + 1));
     }
 }
 
