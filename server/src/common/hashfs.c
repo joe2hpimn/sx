@@ -1751,7 +1751,7 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
                if a hash has both reservations (incomplete upload), and fully uploaded references, this returns just the fully uploaded references.
                As long as file flush atomically checks for presence and bumps reference counter there shouldn't be race conditions here.
             */
-            if(qprep(h->datadb[j][i], &h->qb_get_meta[j][i], "SELECT replica, op, revision_id FROM revision_blocks NATURAL INNER JOIN revision_ops NATURAL LEFT JOIN reservations WHERE blocks_hash=:hash AND age < :current_age AND reservations_id IS NULL"))
+            if(qprep(h->datadb[j][i], &h->qb_get_meta[j][i], "SELECT replica, op, revision_blocks.revision_id FROM revision_blocks INNER JOIN revision_ops ON revision_blocks.revision_id=revision_ops.revision_id NATURAL LEFT JOIN reservations WHERE blocks_hash=:hash AND revision_blocks.age < :current_age AND reservations_id IS NULL"))
                 goto open_hashfs_fail;
             if(qprep(h->datadb[j][i], &h->rit.q[j][i], "SELECT hash FROM blocks WHERE hash > :prevhash"))
                 goto open_hashfs_fail;
@@ -13784,7 +13784,6 @@ rc_ty sx_hashfs_br_delete(sx_hashfs_t *h, const block_meta_t *blockmeta)
 {
     unsigned int ndb, hs;
     rc_ty ret;
-
     if (!h || !blockmeta) {
         NULLARG();
         return EFAULT;
