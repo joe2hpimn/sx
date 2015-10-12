@@ -1759,7 +1759,7 @@ static void print_cluster(struct sxcluster *cluster)
 	n = &cluster->node[i];
 	if(n->del_flag)
 	    continue;
-	zone_name = sxi_hdist_get_node_zone(cluster->hdist, 0, n->uuid);
+	zone_name = sxi_hdist_get_node_zone(cluster->hdist, 0, &n->uuid);
 	printf("Node %s (%s%s%s): %.1f MB / %llu MB (%.1f%%)\n", n->host, n->uuid.string, zone_name ? " zone:" : "", zone_name ? zone_name : "",  n->stored / (float) MBVAL, (unsigned long long) n->capacity / MBVAL, 100.0 * n->stored / (n->capacity + 1));
     }
 }

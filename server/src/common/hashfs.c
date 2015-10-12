@@ -12310,7 +12310,6 @@ rc_ty sx_hashfs_hdist_change_req(sx_hashfs_t *h, const sx_nodelist_t *newdist, c
 	}
     }
 
-    // ACAB: sanitize zones!
     if((r = sxi_hdist_build(newmod, zonedef)) != OK) {
 	sxi_hdist_free(newmod);
 	msg_set_reason("Failed to build updated distribution");

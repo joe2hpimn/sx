@@ -116,7 +116,6 @@ const char *get_arg(const char *arg);
 int get_arg_uint(const char *arg);
 int arg_is(const char *arg, const char *ref);
 void json_send_qstring(const char *s);
-int json_qstring(char *buf, unsigned int buflen, const char *s);
 void send_httpdate(time_t t);
 void send_qstring_hash(const sx_hash_t *h);
 int is_http_10(void);

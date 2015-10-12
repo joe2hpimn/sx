@@ -52,6 +52,7 @@
 #include "cmd_cluster.h"
 
 #include "hashfs.h"
+#include "hdist.h"
 #include "clstqry.h"
 #include "sx.h"
 #include "init.h"
@@ -298,9 +299,6 @@ static sx_node_t *parse_nodef(const char *nodef) {
 
     } while(0);
     free(n);
-    if(!ret)
-	CRIT("Malformed node definition %s", nodef);
-
     return ret;
 }
 
@@ -346,8 +344,10 @@ static int create_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
     unsigned int http_port;
 
     node = parse_nodef(args->inputs[0]);
-    if(!node)
+    if(!node) {
+	CRIT("Malformed node definition %s", args->inputs[0]);
 	goto create_cluster_err;
+    }
 
     nodeai = sxi_gethostai(sx_node_addr(node));
     if(!nodeai) {
@@ -687,19 +687,27 @@ static int change_commit(sxc_client_t *sx, sxc_cluster_t *clust, sx_node_t **nod
     }
 
     if(zones) {
-	unsigned int need = strlen(zones) + sizeof("],\"distZones\":\"\"}");
+	char *qzones = sxi_json_quote_string(zones);
+	unsigned int need;
+
+	if(!qzones) {
+	    CRIT("Out of memory encoding the zone definition");
+	    goto change_commit_err;
+	}
+	need = strlen(qzones) + sizeof("],\"distZones\":}");
 	if(need > query_sz - query_at) {
 	    char *newquery;
 	    query_sz += need;
 	    newquery = realloc(query, query_sz + 4096);
 	    if(!newquery) {
 		CRIT("Out of memory when generating the update query");
+		free(qzones);
 		goto change_commit_err;
 	    }
 	    query = newquery;
 	}
-	/* ACAB: zones must have been already sanitized and is guaranteed not to contain json escapes or quotes */
-	sprintf(query + query_at, "],\"distZones\":\"%s\"}", zones);
+	sprintf(query + query_at, "],\"distZones\":%s}", qzones);
+	free(qzones);
     } else
 	strcat(query, "]}"); /* Always fits due to need above */
 
@@ -720,18 +728,12 @@ static int change_commit(sxc_client_t *sx, sxc_cluster_t *clust, sx_node_t **nod
 }
 
 
-// ACAB: TODO: validate syntax, verify node uuids, forbid dups, etc.
-// it would be nice to have a zonedef validator shared wioth hdist.c
-static int parse_zonedef(const char *zones, sx_node_t **nodes, unsigned int nnodes) {
-    return strchr(zones, ':') != NULL;
-}
-
-
 static int change_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
     unsigned int i, j, nnodes = args->inputs_num - 1;
     sxc_cluster_t *clust = cluster_load(sx, args, 1);
+    const char *zones = NULL;
     char *query = NULL;
-    int ret = 1, have_zones = 0;
+    int ret = 1;
     sx_node_t **nodes;
 
     if(!clust)
@@ -745,14 +747,16 @@ static int change_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
     }
 
     for(i=0; i<nnodes; i++) {
-	if(i+1 == nnodes) {
-	    if(parse_zonedef(args->inputs[i], nodes, i)) {
-		have_zones = 1;
+	nodes[i] = parse_nodef(args->inputs[i]);
+	if(!nodes[i]) {
+	    zones = args->inputs[i];
+	    if(i+1 == nnodes && sxi_hdist_check_zones(zones) == OK) {
 		nnodes--;
 		break;
 	    }
+	    CRIT("Malformed definition %s", zones);
+	    goto change_cluster_err;
 	}
-	nodes[i] = parse_nodef(args->inputs[i]);
 
 	if(i) {
 	    const char *uuid, *addr, *int_addr;
@@ -780,7 +784,7 @@ static int change_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
 	CRIT("Invalid distribution: no nodes provided");
 	ret = 1;
     } else
-	ret = change_commit(sx, clust, nodes, nnodes, have_zones ? args->inputs[nnodes] : NULL, args);
+	ret = change_commit(sx, clust, nodes, nnodes, zones, args);
 
  change_cluster_err:
     for(i=0; i<nnodes; i++)
@@ -815,8 +819,10 @@ static int replace_nodes(sxc_client_t *sx, struct cluster_args_info *args) {
     }
     for(i = 0; i < nnodes; i++) {
 	nodes[i] = parse_nodef(args->inputs[i]);
-	if(!nodes[i])
+	if(!nodes[i]) {
+	    CRIT("Malformed node definition %s", args->inputs[i]);
 	    goto replace_node_err;
+	}
     }
 
     conns = sxi_cluster_get_conns(clust);
@@ -1071,8 +1077,10 @@ static int setfaulty_nodes(sxc_client_t *sx, struct cluster_args_info *args) {
     }
     for(i = 0; i < nnodes; i++) {
 	nodes[i] = parse_nodef(args->inputs[i]);
-	if(!nodes[i])
+	if(!nodes[i]) {
+	    CRIT("Malformed node definition %s", args->inputs[i]);
 	    goto setfaulty_err;
+	}
 	for(j = 0; j < i; j++) {
 	    if(!sx_node_cmp(nodes[i], nodes[j])) {
 		CRIT("Node '%s' was specified multiple times", sx_node_uuid_str(nodes[i]));
@@ -1344,11 +1352,38 @@ static void print_dist(const sx_nodelist_t *nodes, const char *zones) {
 	printf("Invalid distribution\n");
 }
 
+static int sortnodes(const void *a, const void *b) {
+    const sx_node_t *nodea = *(const sx_node_t **)a;
+    const sx_node_t *nodeb = *(const sx_node_t **)b;
+    int64_t capaa = sx_node_capacity(nodea);
+    int64_t capab = sx_node_capacity(nodeb);
+    const sx_uuid_t *uuida, *uuidb;
+
+    if(capaa > capab)
+	return -1;
+    if(capaa < capab)
+	return 1;
+
+    uuida = sx_node_uuid(nodea);
+    uuidb = sx_node_uuid(nodeb);
+    return memcmp(uuida->binary, uuidb->binary, sizeof(uuida->binary));
+}
+
 static int info_cluster(sxc_client_t *sx, struct cluster_args_info *args, int keyonly) {
     sxc_cluster_t *clust = cluster_load(sx, args, 1);
-    clst_t *clst;
+    clst_t *clst = NULL, *clstleader = NULL;
     const sx_nodelist_t *nodes = NULL, *nodes_prev = NULL, *faulty_nodes = NULL;
-    int ret = 0;
+    const raft_node_data_t *raft_status = NULL;
+    sx_nodelist_t *merged = NULL;
+    const sx_node_t **sorted = NULL;
+    const sx_uuid_t *distid;
+    sx_uuid_t leaderid;
+    unsigned int i, nnodes, distver, raft_nstatus;
+    uint64_t distchk;
+    const char *zonedef = NULL;
+    sxi_hdist_t *zmodel = NULL;
+    char capastr[32];
+    int ret = 1;
 
     if(!clust)
 	return 1;
@@ -1356,170 +1391,240 @@ static int info_cluster(sxc_client_t *sx, struct cluster_args_info *args, int ke
     clst = clst_query(sxi_cluster_get_conns(clust), NULL);
     if(!clst) {
 	CRIT("Failed to query cluster status");
-	sxc_cluster_free(clust);
-	return 1;
+	goto info_out;
     }
+
+    if(keyonly) {
+	const char *auth = clst_auth(clst);
+	if(!auth)
+	    CRIT("Failed to obtain cluster key");
+	else
+	    printf("Cluster key: %s\n", auth);
+	ret = 0;
+	goto info_out;
+    }
+
+    printf("Cluster UUID: %s\n", sxc_cluster_get_uuid(clust));
+    printf("Operating mode: %s\n", clst_readonly(clst) ? "read-only" : "read-write");
 
     switch(clst_ndists(clst)) {
     case 0:
 	printf("Node is not part of a cluster\n");
-	break;
+	ret = 0;
+	goto info_out;
     case 2:
 	nodes = clst_nodes(clst, 1);
-	if(!keyonly) {
-	    printf("Target configuration: ");
-	    print_dist(nodes, clst_zones(clst, 0));
-	}
+	zonedef = clst_zones(clst, 1);
+	printf("Target configuration: ");
+	print_dist(nodes, zonedef);
     case 1:
 	nodes_prev = clst_nodes(clst, 0);
-	if(!nodes)
+	if(!nodes) {
 	    nodes = nodes_prev;
-	if(!keyonly) {
-	    printf("Current configuration: ");
-	    print_dist(nodes_prev, clst_zones(clst, 0));
+	    zonedef = clst_zones(clst, 0);
 	}
+    }
+
+    printf("Current configuration: ");
+    print_dist(nodes_prev, zonedef);
+    distid = clst_distuuid(clst, &distver, &distchk);
+    if(distid)
+	printf("Distribution: %s(v.%u) - checksum: %llu\n", distid->string, distver, (unsigned long long)distchk);
+    else
+	printf("Distribution: unavailable");
+
+    if(zonedef) {
+	sxi_hdist_t *mod = NULL;
+	do {
+	    mod = sxi_hdist_new(0, 1, NULL);
+	    if(!mod) {
+		CRIT("Failed to allocate zone distribution model");
+		break;
+	    }
+	    nnodes = sx_nodelist_count(nodes);
+	    for(i=0; i<nnodes; i++) {
+		const sx_node_t *node = sx_nodelist_get(nodes, i);
+		if(sxi_hdist_addnode(mod, sx_node_uuid(node), sx_node_addr(node), sx_node_internal_addr(node), sx_node_capacity(node), NULL))
+		    break;
+	    }
+	    if(i<nnodes) {
+		CRIT("Failed to compose zone distribution model");
+		break;
+	    }
+	    if(sxi_hdist_build(mod, zonedef)) {
+		CRIT("Failed to build zone distribution model");
+		break;
+	    }
+	    zmodel = mod;
+	} while(0);
+	if(!zmodel) {
+	    sxi_hdist_free(mod);
+	    goto info_out;
+	}
+    }
+
+    if(sx_nodelist_count(nodes) >= 3) {
+	/* There should be a leader */
+	if(!uuid_from_string(&leaderid, clst_leader_node(clst))) {
+	    const char *role = clst_raft_role(clst);
+	    if(!role || strcmp(role, "leader")) {
+		const sx_node_t *leadernode;
+		/* Query the leader */
+
+		if((leadernode = sx_nodelist_lookup(nodes_prev, &leaderid))) {
+		    sxi_hostlist_t hlist;
+
+		    sxi_hostlist_init(&hlist);
+		    if(sxi_hostlist_add_host(sx, &hlist, sx_node_internal_addr(leadernode))) {
+			CRIT("OOM checking leader status");
+			goto info_out;
+		    }
+		    clstleader = clst_query(sxi_cluster_get_conns(clust), &hlist);
+		    sxi_hostlist_empty(&hlist);
+		    if(clstleader) {
+			role = clst_raft_role(clstleader);
+			if(!role || strcmp(role, "leader")) {
+			    clst_destroy(clstleader);
+			    clstleader = NULL;
+			}
+		    }
+		}
+	    } else
+		clstleader = clst; /* We happen to have already queried the leader */
+	}
+	if(clstleader)
+	    raft_status = clst_raft_nodes_data(clstleader, &raft_nstatus);
+	else
+	    WARN("Election in progress: reported roles may not be accurate");
     }
 
     faulty_nodes = clst_faulty_nodes(clst);
-    if(!keyonly && sx_nodelist_count(faulty_nodes)) {
-	printf("Faulty nodes: ");
-	print_dist(faulty_nodes, NULL);
+    merged = sx_nodelist_new();
+    if(!merged ||
+       sx_nodelist_addlist(merged, nodes) ||
+       sx_nodelist_addlist(merged, nodes_prev)) {
+	CRIT("Failed to allocate list of nodes");
+	goto info_out;
     }
-    
-    if(!keyonly)
-        printf("Operating mode: %s\n", clst_readonly(clst) ? "read-only" : "read-write");
+    nnodes = sx_nodelist_count(merged);
+    sorted = malloc(sizeof(sorted[0]) * nnodes);
+    if(!sorted) {
+	CRIT("Failed to allocate array of nodes");
+	goto info_out;
+    }
+    for(i=0; i<nnodes; i++)
+	sorted[i] = sx_nodelist_get(merged, i);
+    qsort(sorted, nnodes, sizeof(sorted[0]), sortnodes);
 
-    if(nodes) {
-	unsigned int i, nnodes = sx_nodelist_count(nodes), header = 0;
-	unsigned int version;
-	uint64_t checksum;
-	const sx_uuid_t *distid = clst_distuuid(clst, &version, &checksum);
-	const char *auth = clst_auth(clst);
+    ret = 0;
+    for(i=0; i<nnodes; i++) {
+	const sx_node_t *node = sorted[i];
+	const sx_uuid_t *nodeuuid = sx_node_uuid(node);
+	const char *nodeaddr = sx_node_addr(node), *nodeintaddr = sx_node_internal_addr(node);;
+	const char *zone = NULL, *op = NULL;
 	sxi_hostlist_t hlist;
-        clst_t *clstleader = NULL;
-        const sx_node_t *leader;
-        sx_nodelist_t *unavailable_nodes;
+	clst_t *clstnode = NULL;
+	int isleader = 0, isonline = 1;
+	int64_t last_seen = 0;
 
-	if(keyonly) {
-	    if(!auth)
-		CRIT("Failed to obtain cluster key");
+	enum state_t { ST_NONE, ST_FAULTY, ST_LEAVING, ST_JOINING, ST_LEADER, ST_FOLLOWER } st = ST_NONE;
+
+	zone = zmodel ? sxi_hdist_get_node_zone(zmodel, 0, nodeuuid) : NULL;
+
+	if(sx_nodelist_lookup(faulty_nodes, nodeuuid))
+	    st = ST_FAULTY;
+	else if(!sx_nodelist_lookup(nodes, nodeuuid))
+	    st = ST_LEAVING;
+	else if(!sx_nodelist_lookup(nodes_prev, nodeuuid))
+	    st = ST_JOINING;
+	if(clstleader && !memcmp(nodeuuid, &leaderid, sizeof(leaderid)))
+	    isleader = 1;
+	if(st == ST_NONE)
+	    st = isleader ? ST_LEADER : ST_FOLLOWER;
+
+	if(st == ST_FAULTY)
+	    isonline = 0;
+	else if(st != ST_JOINING && raft_status) {
+	    unsigned int j;
+	    for(j=0; j<raft_nstatus; j++) {
+		if(memcmp(&raft_status[j].uuid, nodeuuid, sizeof(*nodeuuid)))
+		    continue;
+		if(!raft_status[j].state) {
+		    last_seen = raft_status[j].last_contact;
+		    isonline = 0;
+		}
+		break;
+	    }
+	}
+
+	if(isonline) {
+	    if(!isleader) {
+		sxi_hostlist_init(&hlist);
+		if(sxi_hostlist_add_host(sx, &hlist, nodeintaddr)) {
+		    CRIT("OOM checking node status");
+		    ret = 1;
+		    goto info_out;
+		}
+		clstnode = clst_query(sxi_cluster_get_conns(clust), &hlist);
+		sxi_hostlist_empty(&hlist);
+	    } else
+		clstnode = clstleader; /* We have already queried the leader */
+
+	    if(clstnode) {
+		if(clst_rebalance_state(clstnode, &op) == CLSTOP_NOTRUNNING &&
+		   clst_replace_state(clstnode, &op) == CLSTOP_NOTRUNNING &&
+		   clst_upgrade_state(clstnode, &op) == CLSTOP_NOTRUNNING)
+		    op = NULL;
+	    } else
+		isonline = 0;
+	}
+
+	printf("  * node %s: addr: %s", nodeuuid->string, nodeaddr);
+	if(strcmp(nodeaddr, nodeintaddr))
+	    printf(", int.addr: %s", nodeintaddr);
+	fmt_capa(sx_node_capacity(node), capastr, sizeof(capastr), args->human_readable_flag);
+	printf(", capacity: %s", capastr);
+	if(zone)
+	    printf(", zone: %s", zone);
+
+	printf(", status: ");
+	switch(st) {
+	case ST_FAULTY:
+	    printf("faulty");
+	    op = "this node is currently being ignored";
+	    break;
+	case ST_LEAVING:
+	    printf("leaving");
+	    break;
+	case ST_JOINING:
+	    printf("joining");
+	    break;
+	case ST_LEADER:
+	    printf("leader");
+	    break;
+	case ST_FOLLOWER:
+	default:
+	    printf("follower");
+	    break;
+	}
+	if(!isonline) {
+	    if(last_seen)
+		printf(", online: no (last contact: %lld seconds ago)\n", (long long)last_seen);
 	    else
-		printf("Cluster key: %s\n", auth);
-	    clst_destroy(clst);
-	    sxc_cluster_free(clust);
-	    return 0;
-	}
+		printf(", online: no\n");
+	} else
+	    printf(", online: yes, activity: %s\n", op ? op : "idle");
 
-        unavailable_nodes = sx_nodelist_new();
-        if(!unavailable_nodes) {
-            CRIT("OOM allocating unavailable_nodes");
-            clst_destroy(clst);
-            sxc_cluster_free(clust);
-            return 1;
-        }
-
-	if(nodes != nodes_prev) {
-	    unsigned int nnodes_prev = sx_nodelist_count(nodes_prev);
-	    for(i = 0; i < nnodes_prev; i++) {
-		const sx_node_t *node = sx_nodelist_get(nodes_prev, i);
-		if(!sx_nodelist_lookup(nodes, sx_node_uuid(node))) {
-		    if(!header) {
-			printf("State of operations:\n");
-			header = 1;
-		    }
-		    printf("  * node %s (%s): Node being removed from the cluster\n", sx_node_uuid_str(node), sx_node_internal_addr(node));
-		}
-	    }
-	}
-
-	sxi_hostlist_init(&hlist);
-	for(i = 0; i < nnodes; i++) {
-	    const sx_node_t *node = sx_nodelist_get(nodes, i);
-	    const char *op = NULL;
-	    clst_t *clstnode;
-
-	    if(sx_nodelist_lookup(faulty_nodes, sx_node_uuid(node))) {
-		if(!header) {
-		    printf("State of operations:\n");
-		    header = 1;
-		}
-		printf("  * node %s (%s): %s\n", sx_node_uuid_str(node), sx_node_internal_addr(node), "Faulty (this node is currently being ignored)");
-		continue;
-	    }
-
-	    if(sxi_hostlist_add_host(sx, &hlist, sx_node_internal_addr(node))) {
-		CRIT("OOM adding to hostlist");
-                sx_nodelist_delete(unavailable_nodes);
-		clst_destroy(clst);
-		sxc_cluster_free(clust);
-		return 1;
-	    }
-            clstnode = clst_query(sxi_cluster_get_conns(clust), &hlist);
-	    sxi_hostlist_empty(&hlist);
-	    if(!clstnode) {
-		printf("! Failed to get status of node %s (%s)\n", sx_node_uuid_str(node), sx_node_internal_addr(node));
-		ret = 1;
-                if(sx_nodelist_add(unavailable_nodes, sx_node_dup(node))) {
-                    CRIT("OOM adding unavailable node to list");
-                    sx_nodelist_delete(unavailable_nodes);
-                    clst_destroy(clst);
-                    sxc_cluster_free(clust);
-                    return 1;
-                }
-		continue;
-	    }
-	    if(clst_rebalance_state(clstnode, &op) != CLSTOP_NOTRUNNING || clst_replace_state(clstnode, &op) != CLSTOP_NOTRUNNING ||
-               clst_upgrade_state(clstnode, &op) != CLSTOP_NOTRUNNING) {
-		if(!header) {
-		    printf("State of operations:\n");
-		    header = 1;
-		}
-		printf("  * node %s (%s): %s\n", sx_node_uuid_str(node), sx_node_internal_addr(node), op);
-	    }
-
-            if(clst_raft_role(clstnode) && !strcmp(clst_raft_role(clstnode), "leader")) {
-                clstleader = clstnode;
-                leader = node;
-            } else
-	        clst_destroy(clstnode);
-	}
-
-        if(clstleader) {
-            const raft_node_data_t *raft_nodes;
-            unsigned int raft_nnodes = 0;
-
-            raft_nodes = clst_raft_nodes_data(clstleader, &raft_nnodes);
-            if(raft_nodes) {
-                for(i = 0; i < raft_nnodes; i++) {
-                    const sx_node_t *node = sx_nodelist_lookup(nodes, &raft_nodes[i].uuid);
-                    int responds = sx_nodelist_lookup(unavailable_nodes, sx_node_uuid(node)) ? 1 : 0;
-
-                    if(!i)
-                         printf("State of nodes:\n");
-                    if(!node || sx_nodelist_lookup(faulty_nodes, sx_node_uuid(node)))
-                        continue;
-                    printf("  * node %s (%s): ", sx_node_uuid_str(node), sx_node_internal_addr(node));
-                
-                    if(!memcmp(&raft_nodes[i].uuid, sx_node_uuid(leader), sizeof(raft_nodes[i].uuid)))
-                        printf("leader");
-                    else if((raft_nodes[i].state && responds) || (!raft_nodes[i].state && !responds))
-                        printf("checking status");
-                    else if(raft_nodes[i].state)
-                        printf("alive");
-                    else
-                        printf("dead, last contact: %lld second(s) ago", (long long)raft_nodes[i].last_contact);
-                    printf("\n");
-                }
-            }
-            clst_destroy(clstleader);
-        }
-
-	if(distid)
-	    printf("Distribution: %s(v.%u) - checksum: %llu\n", distid->string, version, (unsigned long long)checksum);
-	printf("Cluster UUID: %s\n", sxc_cluster_get_uuid(clust));
-        sx_nodelist_delete(unavailable_nodes);
+	if(!isleader)
+	    clst_destroy(clstnode);
     }
 
+ info_out:
+    free(sorted);
+    sxi_hdist_free(zmodel);
+    sx_nodelist_delete(merged);
+    if(clstleader != clst) /* Don't free it twice if they are the same */
+	clst_destroy(clstleader);
     clst_destroy(clst);
     sxc_cluster_free(clust);
     return ret;

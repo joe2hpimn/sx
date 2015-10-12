@@ -486,7 +486,7 @@ const char *sxi_hdist_get_zones(const sxi_hdist_t *model, unsigned int bidx)
     return model->zone_cfg[bidx];
 }
 
-const char *sxi_hdist_get_node_zone(const sxi_hdist_t *model, unsigned int bidx, sx_uuid_t uuid)
+const char *sxi_hdist_get_node_zone(const sxi_hdist_t *model, unsigned int bidx, const sx_uuid_t *uuid)
 {
     int i;
 
@@ -499,7 +499,7 @@ const char *sxi_hdist_get_node_zone(const sxi_hdist_t *model, unsigned int bidx,
     }
 
     for(i = 0; i < model->node_count[bidx]; i++)
-	if(!memcmp(sx_node_uuid(model->node_list[bidx][i].sxn), &uuid, sizeof(uuid)))
+	if(!memcmp(sx_node_uuid(model->node_list[bidx][i].sxn), uuid, sizeof(*uuid)))
 	    return model->node_list[bidx][i].zone_name;
 
     return NULL;
@@ -863,6 +863,11 @@ static int set_zones(sxi_hdist_t *model, const char *zones)
 	*pt++ = 0;
 	if(strlen(buf) > 128) {
 	    CRIT("Zone name too long (%s)", buf);
+	    free(buf);
+	    return EINVAL;
+	}
+	if(utf8_validate_len(buf) < 0) {
+	    CRIT("Zone name (%s) contains invalid characters", buf);
 	    free(buf);
 	    return EINVAL;
 	}

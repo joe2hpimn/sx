@@ -730,48 +730,6 @@ void json_send_qstring(const char *s) {
     }
 }
 
-int json_qstring(char *buf, unsigned int buflen, const char *s) {
-    const char *hex_digits = "0123456789abcdef", *begin = s;
-    unsigned int len = 0;
-    char escaped[6] = { '\\', 'u', '0', '0', 'x', 'x' };
-
-    if(buflen < 3)
-	return -1;
-
-    *buf = '"';
-    buf++;
-    buflen--;
-    while(1) {
-	unsigned char c = begin[len];
-	/* flush on end of string and escape quotation mark, reverse solidus,
-	 * and the control characters (U+0000 through U+001F) */
-	if(c < ' ' || c == '"' || c== '\\') {
-	    if(buflen < len + 2) /* Also check for close quote and NUL */
-		return -1;
-	    if(len) { /* flush */
-		memcpy(buf, begin, len);
-		buf += len;
-		buflen -= len;
-	    }
-	    begin = &begin[len+1];
-	    len = 0;
-	    if(!c) {
-		buf[0] = '"';
-		buf[1] = '\0';
-		return 0;
-	    }
-	    escaped[4] = hex_digits[c >> 4];
-	    escaped[5] = hex_digits[c & 0xf];
-	    if(buflen < 6 + 2)
-		return -1;
-	    memcpy(buf, escaped, 6);
-	    buf += 6;
-	    buflen -= 6;
-	} else
-	    len++;
-    }
-}
-
 void send_httpdate(time_t t) {
     const char *month[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
     const char *wkday[] = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
