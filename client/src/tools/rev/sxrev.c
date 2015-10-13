@@ -78,9 +78,13 @@ static sxc_file_t *make_sxfile(sxc_cluster_t **cluster, const char *host, const 
     if(!*cluster) {
 	fprintf(stderr, "ERROR: Failed to load config for %s: %s\n", host, sxc_geterrmsg(sx));
 	if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_CFG_ERR))
-	    fprintf(stderr, SXBC_TOOLS_CFG_MSG, host, host);
+	    fprintf(stderr, SXBC_TOOLS_CFG_MSG, host, profile ? profile : "", profile ? "@" : "", host);
 	else if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_CONN_ERR))
 	    fprintf(stderr, SXBC_TOOLS_CONN_MSG);
+	else if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_CERT_ERR))
+	    fprintf(stderr, SXBC_TOOLS_CERT_MSG, profile ? profile : "", profile ? "@" : "", host);
+	else if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_INVALIDPROF_ERR))
+            fprintf(stderr, SXBC_TOOLS_INVALIDPROF_MSG);
 	return NULL;
     }
 

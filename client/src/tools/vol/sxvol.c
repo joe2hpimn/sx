@@ -165,9 +165,13 @@ static sxc_cluster_t *getcluster_common(sxc_client_t *sx, const char *sxurl, con
     if(!cluster) {
 	fprintf(stderr, "ERROR: Failed to load config for %s: %s\n", uri->host, sxc_geterrmsg(sx));
 	if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_CFG_ERR))
-	    fprintf(stderr, SXBC_TOOLS_CFG_MSG, uri->host, uri->host);
+	    fprintf(stderr, SXBC_TOOLS_CFG_MSG, uri->host, uri->profile ? uri->profile : "", uri->profile ? "@" : "", uri->host);
         else if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_CONN_ERR))
-            fprintf(stderr, SXBC_TOOLS_CONN_MSG);;
+            fprintf(stderr, SXBC_TOOLS_CONN_MSG);
+	else if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_CERT_ERR))
+	    fprintf(stderr, SXBC_TOOLS_CERT_MSG, uri->profile ? uri->profile : "", uri->profile ? "@" : "", uri->host);
+	else if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_INVALIDPROF_ERR))
+	    fprintf(stderr, SXBC_TOOLS_INVALIDPROF_MSG);
 	sxc_free_uri(uri);
     } else
 	*clusturi = uri;

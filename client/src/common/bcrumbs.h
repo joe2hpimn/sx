@@ -29,7 +29,7 @@
 #define SXBC_SXINIT_UUID_MSG "See http://www.skylable.com/docs/faq#Server_UUID_mismatch for more information.\n"
 
 #define SXBC_TOOLS_CFG_ERR "Cannot stat configuration directory"
-#define SXBC_TOOLS_CFG_MSG "Make sure you didn't typo cluster name '%s' or forgot to run 'sxinit sx://%s'\n"
+#define SXBC_TOOLS_CFG_MSG "Make sure you didn't typo cluster name '%s' or forgot to run 'sxinit sx://%s%s%s'\n"
 
 #define SXBC_TOOLS_VOL_ERR "No such volume"
 #define SXBC_TOOLS_VOL_MSG "Use 'sxls sx://%s%s%s' to list the existing volumes.\n"
@@ -45,5 +45,11 @@
 
 #define SXBC_TOOLS_NOTFOUND_ERR "Not Found"
 #define SXBC_TOOLS_NOTFOUND_MSG "Use -r to recursively process all files from %s\n"
+
+#define SXBC_TOOLS_CERT_ERR "certificate" /* checked after 'Failed to load config' */
+#define SXBC_TOOLS_CERT_MSG "Please consult the problem with your cluster administrator and run 'sxinit sx://%s%s%s' again.\n"
+
+#define SXBC_TOOLS_INVALIDPROF_ERR "Invalid profile"
+#define SXBC_TOOLS_INVALIDPROF_MSG "Run 'sxinit -L' to list all available profiles.\n"
 
 #endif

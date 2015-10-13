@@ -118,15 +118,22 @@ int main(int argc, char **argv) {
         const char *url = args.inputs[i];
         sxc_file_t *target = sxc_file_from_url(sx, &cluster, url);
         if (!target) {
+	    sxc_uri_t *u = NULL;
             fprintf(stderr, "ERROR: Can't process URL '%s': %s\n", url, sxc_geterrmsg(sx));
 	    if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_CFG_ERR)) {
-		sxc_uri_t *u = sxc_parse_uri(sx, url);
-		if(u) {
-		    fprintf(stderr, SXBC_TOOLS_CFG_MSG, u->host, u->host);
-		    sxc_free_uri(u);
-		}
-	    } else if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_CONN_ERR))
+		u = sxc_parse_uri(sx, url);
+		if(u)
+		    fprintf(stderr, SXBC_TOOLS_CFG_MSG, u->host, u->profile ? u->profile : "", u->profile ? "@" : "", u->host);
+	    } else if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_CONN_ERR)) {
                 fprintf(stderr, SXBC_TOOLS_CONN_MSG);
+	    } else if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_CERT_ERR)) {
+		u = sxc_parse_uri(sx, url);
+		if(u)
+		    fprintf(stderr, SXBC_TOOLS_CERT_MSG, u->profile ? u->profile : "", u->profile ? "@" : "", u->host);
+	    } else if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_INVALIDPROF_ERR)) {
+		fprintf(stderr, SXBC_TOOLS_INVALIDPROF_MSG);
+	    }
+	    sxc_free_uri(u);
             ret = 1;
             break;
         }

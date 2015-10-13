@@ -177,9 +177,13 @@ int main(int argc, char **argv) {
 	if(!cluster) {
 	    fprintf(stderr, "ERROR: Failed to load config for %s: %s\n", u->host, sxc_geterrmsg(sx));
 	    if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_CFG_ERR))
-		fprintf(stderr, SXBC_TOOLS_CFG_MSG, u->host, u->host);
+		fprintf(stderr, SXBC_TOOLS_CFG_MSG, u->host, u->profile ? u->profile : "", u->profile ? "@" : "", u->host);
             else if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_CONN_ERR))
                 fprintf(stderr, SXBC_TOOLS_CONN_MSG);
+	    else if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_CERT_ERR))
+		fprintf(stderr, SXBC_TOOLS_CERT_MSG, u->profile ? u->profile : "", u->profile ? "@" : "", u->host);
+	    else if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_INVALIDPROF_ERR))
+                fprintf(stderr, SXBC_TOOLS_INVALIDPROF_MSG);
 	    sxc_free_uri(u);
 	    ret = 1;
 	    continue;
