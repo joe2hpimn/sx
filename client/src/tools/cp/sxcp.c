@@ -516,7 +516,6 @@ static int progress_callback(const sxc_xfer_stat_t *xfer_stat) {
                 char *processed_number = process_number(xfer_stat->current_xfer.sent);
                 char *processed_speed = process_number(xfer_stat->current_xfer.real_speed);
                 char *processed_time = process_time(xfer_stat->current_xfer.total_time);
-                const char *transferred_str = get_callback_type() == bar_progress ? "Transferred" : " transferred";
                 const char *file_name = get_callback_type() == bar_progress ? "" : xfer_stat->current_xfer.file_name;
                 char *file_name_esc = strdup(file_name);
 
@@ -524,7 +523,10 @@ static int progress_callback(const sxc_xfer_stat_t *xfer_stat) {
                     sxc_escstr(file_name_esc);
 
                 if(processed_number && processed_speed && processed_time && file_name_esc) {
-                    printf("%s%s %sB in %s (@%sB/s)\n", file_name_esc, transferred_str, processed_number, processed_time, processed_speed);
+                    if(get_callback_type() == bar_progress)
+                        printf("Transferred %sB in %s (@%sB/s)\n", processed_number, processed_time, processed_speed);
+                    else
+                        printf("Transferred %s %sB in %s (@%sB/s)\n", file_name_esc, processed_number, processed_time, processed_speed);
                     fflush(stdout);
                 }
 
