@@ -39,6 +39,9 @@ Upgrade the node's database and storage format to the latest version. sxadm will
 .TP
 \fB\-\-compact\fR
 Compact the node data returning allocated but unused space to the system. It is recommended to run the garbage collector before compacting the node. Depending on the storage size, the operation may take more time.
+.TP
+\fB\-\-get\-definition\fR
+Print the definition of the node in \fISTORAGE_PATH\fR in the format used by \fBcluster \-\-mod\fR.
 .SS "New node options:"
 .TP
 \fB\-k\fR, \fB\-\-cluster\-key\fR=\fI\,FILE\/\fR

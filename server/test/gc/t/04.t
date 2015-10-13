@@ -3,11 +3,11 @@
 
 plan 10
 N=4 require_cmd test/start-nginx.sh
-require_cmd $RANDGEN 489000 489651 >x1
-require_cmd $RANDGEN 489000 489651 >x2
-require_cmd $RANDGEN 489000 489651 >x3
-require_cmd $RANDGEN 489000 489651 >x4
-require_cmd $SXVOL create -o admin -s 2M -r 3 $SXURI/vol3
+$RANDGEN 489000 489651 >x1 2>/dev/null || exit 1
+$RANDGEN 489000 489651 >x2 2>/dev/null || exit 1
+$RANDGEN 489000 489651 >x3 2>/dev/null || exit 1
+$RANDGEN 489000 489651 >x4 2>/dev/null || exit 1
+$SXVOL create -o admin -s 2M -r 3 $SXURI/vol3
 ls -l x1 x2
 require_cmd $SXCP x1 $SXURI/vol3/
 require_cmd $SXCP x2 $SXURI/vol3/
@@ -25,29 +25,29 @@ set +e
 
 (
         testcase 2 "file downloadable"
-        $SXCP $SXURI/vol3/x2 x2_d
+        require_cmd $SXCP $SXURI/vol3/x2 x2_d
         cmp x2 x2_d
 )
 
 (
         testcase 3 "upload/reuse, nothing to GC"
-        $SXCP x3 $SXURI/vol3/
+        require_cmd $SXCP x3 $SXURI/vol3/
         nodegc_expire 1 2 3 4 >$LOGFILE 2>&1
         (! grep -c 'freeing block' $LOGFILE) | is 0
 )
 
 (
         testcase 4 "files downloadable"
-        $SXCP $SXURI/vol3/x3 x3_d
-        $SXCP $SXURI/vol3/x2 x2_d2
+        require_cmd $SXCP $SXURI/vol3/x3 x3_d
+        require_cmd $SXCP $SXURI/vol3/x2 x2_d2
         cmp x3 x3_d
         cmp x2 x2_d2
 )
 
 (
         testcase 5 "upload to multiple volumes"
-        $RANDGEN 489000 489651 >x1
-        $RANDGEN 489000 489651 >x2
+        $RANDGEN 489000 489651 >x1 2>/dev/null || exit 1
+        $RANDGEN 489000 489651 >x2 2>/dev/null || exit 1
         for i in $(seq 1 4); do
                 $SXVOL create -o admin -s 2M -r $i $SXURI/volx$i
         done

@@ -8,7 +8,7 @@ require_cmd $SXVOL create -s 16M -o admin -r 1 $SXURI/vol1
 set +e
 (
     testcase 1 "1 file 1 block"
-    $RANDGEN 4096 4096 >4k
+    $RANDGEN 4096 4096 >4k 2>/dev/null || exit 1
     $SXCP 4k $SXURI/vol1/
     nodegc 1 >$LOGFILE 2>&1
     (! grep -c 'freeing block' $LOGFILE) | is 0
@@ -18,7 +18,7 @@ set +e
 
 (
     testcase 2 "deleted file is GCed"
-    $SXRM sx://admin@localhost/vol1/4k
+    $SXRM $SXURI/vol1/4k
     nodegc 1 >$LOGFILE 2>&1
     grep -c 'freeing block with hash' $LOGFILE | is 1
 )
@@ -26,7 +26,7 @@ set +e
 (
     testcase 3 "multiple uses of same block"
     # Test that blocks are not removed when still referenced by one file
-    $RANDGEN 4096 4096 >4k2
+    $RANDGEN 4096 4096 >4k2 2>/dev/null || exit 1
     nodegc 1 >$LOGFILE 2>&1
     (! grep -c 'freeing block' $LOGFILE) | is 0
 

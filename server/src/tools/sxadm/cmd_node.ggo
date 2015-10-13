@@ -15,6 +15,7 @@ groupoption "gc" - "Run GC on node immediately" group="MODE" hidden
 groupoption "gc-expire" - "Run GC on node immediately and " group="MODE" hidden
 groupoption "warm-cache" - "Warm DB caches" group="MODE" hidden
 groupoption "vacuum"    - "Vacuum" group="MODE" hidden
+groupoption "get-definition" - "Print node definition in 'cluster --mod' format" group="MODE"
 
 section "New node options"
 option "cluster-key" k "File containing a pre-generated cluster authentication token or stdin if \"-\" is given (default autogenerate token)." string typestr="FILE" dependon="new" optional

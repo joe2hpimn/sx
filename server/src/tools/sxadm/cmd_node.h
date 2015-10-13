@@ -56,6 +56,7 @@ struct node_args_info
   const char *gc_expire_help; /**< @brief Run GC on node immediately and  help description.  */
   const char *warm_cache_help; /**< @brief Warm DB caches help description.  */
   const char *vacuum_help; /**< @brief Vacuum help description.  */
+  const char *get_definition_help; /**< @brief Print node definition in 'cluster --mod' format help description.  */
   char * cluster_key_arg;	/**< @brief File containing a pre-generated cluster authentication token or stdin if \"-\" is given (default autogenerate token)..  */
   char * cluster_key_orig;	/**< @brief File containing a pre-generated cluster authentication token or stdin if \"-\" is given (default autogenerate token). original value given at command line.  */
   const char *cluster_key_help; /**< @brief File containing a pre-generated cluster authentication token or stdin if \"-\" is given (default autogenerate token). help description.  */
@@ -86,6 +87,7 @@ struct node_args_info
   unsigned int gc_expire_given ;	/**< @brief Whether gc-expire was given.  */
   unsigned int warm_cache_given ;	/**< @brief Whether warm-cache was given.  */
   unsigned int vacuum_given ;	/**< @brief Whether vacuum was given.  */
+  unsigned int get_definition_given ;	/**< @brief Whether get-definition was given.  */
   unsigned int cluster_key_given ;	/**< @brief Whether cluster-key was given.  */
   unsigned int batch_mode_given ;	/**< @brief Whether batch-mode was given.  */
   unsigned int cluster_uuid_given ;	/**< @brief Whether cluster-uuid was given.  */

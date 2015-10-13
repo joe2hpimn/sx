@@ -1259,6 +1259,25 @@ static int info_node(sxc_client_t *sx, const char *path, struct node_args_info *
     return ret;
 }
 
+static int get_node_definition(sxc_client_t *sx, const char *path)
+{
+    int ret = 0;
+    sx_hashfs_t *h;
+
+    h = sx_hashfs_open(path, sx);
+    if(!h)
+	return 1;
+    const sx_node_t *self = sx_hashfs_self(h);
+    if (!self)
+        return 1;
+    if(strcmp(sx_node_addr(self), sx_node_internal_addr(self)))
+	printf("%lld/%s/%s/%s\n", (long long)sx_node_capacity(self), sx_node_addr(self), sx_node_internal_addr(self), sx_node_uuid(self)->string);
+    else
+	printf("%lld/%s/%s\n", (long long)sx_node_capacity(self), sx_node_addr(self), sx_node_uuid(self)->string);
+    sx_hashfs_close(h);
+    return ret;
+}
+
 /* sxadm node --rename-cluster <STORAGE_PATH> */
 static int rename_cluster(sxc_client_t *sx, const char *path, const char *name)
 {
@@ -2420,6 +2439,8 @@ int main(int argc, char **argv) {
                 ret = warm_cache_node(sx, node_args.inputs[0]);
             else if(node_args.vacuum_given)
                 ret = vacuum_node(sx, node_args.inputs[0]);
+            else if(node_args.get_definition_given)
+                ret = get_node_definition(sx, node_args.inputs[0]);
         }
     node_out:
 	node_cmdline_parser_free(&node_args);

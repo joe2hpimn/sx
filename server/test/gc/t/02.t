@@ -8,7 +8,7 @@ require_cmd $SXVOL create -s 1M -o admin -r 1 $SXURI/vol1
 set +e
 (
     testcase 1 "file is GCed on 2 node cluster"
-    $RANDGEN 8192 8192 >8k
+    $RANDGEN 8192 8192 >8k || exit 1
     $SXCP 8k $SXURI/vol1/
     nodegc 1 2 >$LOGFILE 2>&1
     (! grep -c 'freeing block' $LOGFILE) | is 0

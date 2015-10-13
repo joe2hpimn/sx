@@ -19,6 +19,7 @@ test_result()
     else
         echo "not ok $1 - $2: exitcode $exitcode" >&3
     fi
+    echo -n '#' >&3
     echo "== END $1 - $2 =="
 }
 
