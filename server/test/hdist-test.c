@@ -40,7 +40,7 @@
 #include "log.h"
 #include "init.h"
 
-#define MAXBUILDS 3
+#define MAXBUILDS 4
 #define NODES_NUM 10
 #define HASHES_NUM 14
 
@@ -631,7 +631,7 @@ const struct hashtest hashtests2[HASHES_NUM] = {
     }
 };
 
-#define FINAL_CHECKSUM -7705156229742031497LL
+#define FINAL_CHECKSUM 10983074363246975376ULL
 
 int locate_cmp(sxi_hdist_t *model1, sxi_hdist_t *model2, uint64_t hash, int replica, int bidx, const struct hashtest *ht)
 {
@@ -925,11 +925,6 @@ int main(int argc, char **argv)
 	goto main_err;
     }
 
-    if((uint64_t) FINAL_CHECKSUM != sxi_hdist_checksum(hdist)) {
-	CRIT("Unexpected checksum: %lld", (long long int) sxi_hdist_checksum(hdist));
-	goto main_err;
-    }
-
     DEBUG("*** Creating exact copy of HDIST based on existing config ***");
     if(sxi_hdist_get_cfg(hdist, &cfg, &cfg_len)) {
 	CRIT("Can't get config");
@@ -958,6 +953,79 @@ int main(int argc, char **argv)
     for(i = 0; i < HASHES_NUM; i++)
 	for(j = 1; j <= ZONES_MAXREPLICA; j++)
 	    if(locate_cmp(hdist, hdist2, hashtests2[i].hash, j, 0, &hashtests2[i]))
+		goto main_err;
+
+    sxi_hdist_free(hdist2);
+    hdist2 = NULL;
+
+    /* remove zones and repeat tests */
+
+    DEBUG("Creating new build without zones");
+    if(sxi_hdist_newbuild(hdist) != OK) {
+	CRIT("Can't create new build (4)");
+	goto main_err;
+    }
+
+    /* get nodes from build 1 (previous 0) */
+    nodelist = sxi_hdist_nodelist(hdist, 1);
+    if(!nodelist) {
+	CRIT("sxi_hdist_nodelist failed");
+	goto main_err;
+    }
+    DEBUG("Re-adding %d nodes from previous build", sx_nodelist_count(nodelist));
+    for(i = 0; i < sx_nodelist_count(nodelist); i++) {
+	node = sx_nodelist_get(nodelist, i);
+	if(sxi_hdist_addnode(hdist, sx_node_uuid(node), sx_node_addr(node), sx_node_internal_addr(node), sx_node_capacity(node), NULL)) {
+	    CRIT("addnode failed (6)");
+	    goto main_err;
+	}
+    }
+
+    if(sxi_hdist_build(hdist, NULL) != OK) {
+	CRIT("Can't build distribution model (5)");
+	goto main_err;
+    }
+    DEBUG("Number of builds: %d", sxi_hdist_buildcnt(hdist));
+
+    if(sxi_hdist_maxreplica(hdist, 0, NULL) != 10 /* number of nodes */) {
+	CRIT("Invalid max replica, should be 10");
+	goto main_err;
+    }
+
+    if(FINAL_CHECKSUM != sxi_hdist_checksum(hdist)) {
+	CRIT("Unexpected checksum: %llu", (unsigned long long) sxi_hdist_checksum(hdist));
+	goto main_err;
+    }
+
+    DEBUG("*** Creating exact copy of HDIST based on existing config ***");
+    if(sxi_hdist_get_cfg(hdist, &cfg, &cfg_len)) {
+	CRIT("Can't get config");
+	goto main_err;
+    } else {
+	DEBUG("Compressed config size: %u", (unsigned int) cfg_len);
+    }
+
+    if(!(hdist2 = sxi_hdist_from_cfg(cfg, cfg_len))) {
+	CRIT("Can't build HDIST from config");
+	goto main_err;
+    }
+
+    if(!sxi_hdist_same_origin(hdist, hdist2)) {
+	CRIT("UUIDs are different for old and new model");
+	goto main_err;
+    }
+
+    if(sxi_hdist_checksum(hdist) != sxi_hdist_checksum(hdist2)) {
+	CRIT("Checksums don't match for original and copied build");
+	goto main_err;
+    } else {
+	DEBUG("Models' checksums OK");
+    }
+
+    /* test bidx 0 (10 nodes) */
+    for(i = 0; i < HASHES_NUM; i++)
+	for(j = 1; j <= 10; j++)
+	    if(locate_cmp(hdist, hdist2, hashtests0[i].hash, j, 0, &hashtests0[i]))
 		goto main_err;
 
     ret = 0;
