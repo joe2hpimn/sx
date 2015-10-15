@@ -489,7 +489,8 @@ create_hashfs_fail:
     if (ret != OK)
 	WARN("failed to create hashfs");
     sqlite3_finalize(q);
-    qclose(&db);
+    if(db)
+        qclose(&db);
     free(path);
     sxc_free_uri(uri);
     if(ret)
@@ -9668,7 +9669,7 @@ rc_ty sx_hashfs_tmp_getinfo(sx_hashfs_t *h, int64_t tmpfile_id, sx_hashfs_tmpinf
 
     content = sqlite3_column_blob(q, 4);
     contentsz = sqlite3_column_bytes(q, 4);
-    if(contentsz % sizeof(sx_hash_t) || contentsz / sizeof(*content) != nblocks) {
+    if((!content && contentsz) || contentsz % sizeof(sx_hash_t) || contentsz / sizeof(*content) != nblocks) {
 	WARN("Tmpfile with bad content length");
 	msg_set_reason("Internal corruption detected (bad content)");
 	ret = EFAULT;
@@ -9677,6 +9678,12 @@ rc_ty sx_hashfs_tmp_getinfo(sx_hashfs_t *h, int64_t tmpfile_id, sx_hashfs_tmpinf
 
     uniqs = sqlite3_column_blob(q, 5);
     contentsz = sqlite3_column_bytes(q, 5);
+    if(!uniqs && contentsz) {
+        WARN("Failed to load uniqs blob");
+        msg_set_reason("Internal corruption detected (bad content)");
+        ret = EFAULT;
+        goto getmissing_err;
+    }
     nuniqs = contentsz / sizeof(*uniqs);
     if(contentsz % sizeof(*uniqs) || nuniqs > nblocks)  {
 	WARN("Tmpfile with bad unique length");
@@ -9715,8 +9722,10 @@ rc_ty sx_hashfs_tmp_getinfo(sx_hashfs_t *h, int64_t tmpfile_id, sx_hashfs_tmpinf
     tbd->uniq_ids = (unsigned int *)&tbd->all_blocks[nblocks];
     tbd->nidxs = &tbd->uniq_ids[nuniqs];
     tbd->avlblty = (int8_t *)&tbd->nidxs[nblocks * volume->max_replica];
-    memcpy(tbd->all_blocks, content, nblocks * sizeof(sx_hash_t));
-    memcpy(tbd->uniq_ids, uniqs, nuniqs * sizeof(tbd->uniq_ids[0]));
+    if(nblocks)
+        memcpy(tbd->all_blocks, content, nblocks * sizeof(sx_hash_t));
+    if(nuniqs)
+        memcpy(tbd->uniq_ids, uniqs, nuniqs * sizeof(tbd->uniq_ids[0]));
     memset(tbd->nidxs, -1, nblocks * sizeof(tbd->nidxs[0]) * volume->max_replica);
     for(i=0; i<nuniqs; i++) {
 	/* MODHDIST: pick from _next, bidx=0 */

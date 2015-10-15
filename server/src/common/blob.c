@@ -121,6 +121,8 @@ int sx_blob_add_datetime(sx_blob_t *s, const struct timeval *d) {
 }
 
 int sx_blob_cat(sx_blob_t *dest, sx_blob_t *src) {
+    if(!src->pos)
+        return 0;
     if(dest->size - dest->pos < src->pos) {
 	unsigned int size = dest->size + MAX(src->pos, 1024);
 	uint8_t *newblob;

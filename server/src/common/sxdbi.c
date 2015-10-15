@@ -144,7 +144,7 @@ void qcheckpoint_idle(sxi_db_t *db)
 
 void qclose(sxi_db_t **db)
 {
-    if (!db) {
+    if (!db || !*db) {
         WARN("Null DBp");
         return;
     }
