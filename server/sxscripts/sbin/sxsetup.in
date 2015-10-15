@@ -1263,7 +1263,7 @@ if [ ! -f "$SX_DATA_DIR/hashfs.db" ]; then
 		"@sbindir@/sxserver" stop
 		exit 1
 	    fi
-	    SXDIST="$SXDIST $NEWNODE"
+	    SXDIST="$NEWNODE $SXDIST"
 	    (
 	    set -x
 	    "@sbindir@/sxadm" cluster --mod $SXDIST "sx://admin@$SX_CLUSTER_NAME" 2>$OUT_TMP
