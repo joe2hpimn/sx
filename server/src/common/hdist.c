@@ -47,6 +47,8 @@
 #include "../libsxclient/src/vcrypto.h"
 #include "../libsxclient/src/misc.h"
 
+#define critmsg(...) do { CRIT(__VA_ARGS__); msg_set_reason(__VA_ARGS__); } while(0)
+
 #ifdef WORDS_BIGENDIAN
 uint32_t swapu32(uint32_t v)
 {
@@ -78,7 +80,7 @@ struct hdist_node {
 };
 
 struct _sxi_hdist_t {
-    unsigned int state, builds, version;
+    unsigned int state, builds, builds_alloced, version;
     unsigned int max_builds;
     unsigned int last_id; /* internal */
     uint64_t *capacity_total;
@@ -106,7 +108,7 @@ sxi_hdist_t *sxi_hdist_new(unsigned int seed, unsigned int max_builds, sx_uuid_t
        sx_uuid_t gen_uuid;
 
     if(max_builds < 1) {
-	CRIT("max_builds < 1");
+	critmsg("Failed to generate new distribution model: max_builds < 1");
 	return NULL;
     }
     if(!uuid) {
@@ -117,7 +119,7 @@ sxi_hdist_t *sxi_hdist_new(unsigned int seed, unsigned int max_builds, sx_uuid_t
 
     model = calloc(1, sizeof(struct _sxi_hdist_t));
     if(!model) {
-	CRIT("Can't allocate hdist");
+	critmsg("Out of memory allocating new distribution model");
 	return NULL;
     }
 
@@ -126,49 +128,49 @@ sxi_hdist_t *sxi_hdist_new(unsigned int seed, unsigned int max_builds, sx_uuid_t
 
     model->node_list = (struct hdist_node **) wrap_calloc(sizeof(struct hdist_node *), max_builds);
     if(!model->node_list) {
-	CRIT("Can't allocate memory for model->node_list");
+	critmsg("Out of memory allocating new distribution model (node_list)");
 	goto hdist_new_err;
     }
 
     model->sxnl = (sx_nodelist_t **) wrap_calloc(sizeof(sx_nodelist_t *), max_builds);
     if(!model->sxnl) {
-	CRIT("Can't allocate memory for model->sxnl");
+	critmsg("Out of memory allocating new distribution model (sxnl)");
 	goto hdist_new_err;
     }
 
     model->node_count = (unsigned int *) wrap_calloc(sizeof(unsigned int), max_builds);
     if(!model->node_count) {
-	CRIT("Can't allocate memory for model->node_count");
+	critmsg("Out of memory allocating new distribution model (node_count)");
 	goto hdist_new_err;
     }
 
     model->zone_count = (unsigned int *) wrap_calloc(sizeof(unsigned int), max_builds);
     if(!model->zone_count) {
-	CRIT("Can't allocate memory for model->zone_count");
+	critmsg("Out of memory allocating new distribution model (zone_count)");
 	goto hdist_new_err;
     }
 
     model->zone_cfg = (char **) wrap_calloc(sizeof(char *), max_builds);
     if(!model->zone_cfg) {
-	CRIT("Can't allocate memory for model->zone_cfg");
+	critmsg("Out of memory allocating new distribution model (zone_cfg)");
 	goto hdist_new_err;
     }
 
     model->capacity_total = (uint64_t *) wrap_calloc(sizeof(uint64_t), max_builds);
     if(!model->capacity_total) {
-	CRIT("Can't allocate memory for model->capacity_total");
+	critmsg("Out of memory allocating new distribution model (capacity_total)");
 	goto hdist_new_err;
     }
 
     model->circle = (struct hdist_point **) wrap_malloc(sizeof(struct hdist_point *) * max_builds);
     if(!model->circle) {
-	CRIT("Can't allocate memory for model->circle");
+	critmsg("Out of memory allocating new distribution model (circle)");
 	goto hdist_new_err;
     }
 
     model->circle_points = (unsigned int *) wrap_calloc(sizeof(unsigned int), max_builds);
     if(!model->circle_points) {
-	CRIT("Can't allocate memory for model->circle_points");
+	critmsg("Out of memory allocating new distribution model (circle_points)");
 	goto hdist_new_err;
     }
 
@@ -176,7 +178,7 @@ sxi_hdist_t *sxi_hdist_new(unsigned int seed, unsigned int max_builds, sx_uuid_t
 
     model->cfg = (char *) wrap_malloc(sizeof(char) * CFG_PREALLOC);
     if(!model->cfg) {
-	CRIT("Can't allocate memory for model->circle_points");
+	critmsg("Out of memory allocating new distribution model (cfg)");
 	goto hdist_new_err;
     }
 
@@ -186,6 +188,7 @@ sxi_hdist_t *sxi_hdist_new(unsigned int seed, unsigned int max_builds, sx_uuid_t
     model->seed = seed;
     isaac_seed(&model->rctx, seed);
     model->state = 0xcafe;
+    model->builds_alloced = 1;
 
     return model;
 
@@ -219,7 +222,7 @@ static char *gettoken(const char *str, unsigned int *pos, char *buf, size_t bufs
 	    break;
 	} else {
 	    if(stored + 1 >= bufsize) {
-		CRIT("provided buffer too small");
+		critmsg("Internal error: Failed to parse string (buffer too small)");
 		return NULL;
 	    }
 	    buf[stored++] = str[(*pos)++];
@@ -227,7 +230,7 @@ static char *gettoken(const char *str, unsigned int *pos, char *buf, size_t bufs
 	}
     }
     if(stored + 1 > bufsize) {
-	CRIT("provided buffer too small");
+	critmsg("Internal error: Failed to parse string (buffer too small)");
 	return NULL;
     }
     buf[stored] = 0;
@@ -265,18 +268,18 @@ sxi_hdist_t *sxi_hdist_from_cfg(const void *cfg, unsigned int cfg_len)
     destlen = swapu32(*(uint32_t *) cfg);
     cs = malloc(destlen);
     if(!cs) {
-	CRIT("Can't allocate memory to uncompress cfg blob");
+	critmsg("Out of memory decompressing distribution model");
 	return NULL;
     }
     got = destlen;
     if(uncompress((Bytef *) cs, &got, (const Bytef *) cfg + 4, cfg_len - 4) != Z_OK || got != destlen) {
-	CRIT("Can't uncompress cfg blob");
+	critmsg("Internal error: Failed to uncompress distribution model");
 	free(cs);
 	return NULL;
     }
 
     if(got < 30) {
-	CRIT("Invalid configuration data (too short)");
+	critmsg("Internal error: Invalid configuration data (too short)");
 	free(cs);
 	return NULL;
     }
@@ -284,7 +287,7 @@ sxi_hdist_t *sxi_hdist_from_cfg(const void *cfg, unsigned int cfg_len)
     /* magic */
     pt = gettoken(cs, &pos, token, sizeof(token), ':');
     if(!pt || strcmp(pt, "HDIST")) {
-	CRIT("Invalid configuration data (magic)");
+	critmsg("Internal error: Invalid configuration data (bad magic)");
 	free(cs);
 	return NULL;
     }
@@ -292,7 +295,7 @@ sxi_hdist_t *sxi_hdist_from_cfg(const void *cfg, unsigned int cfg_len)
     /* UUID */
     pt = gettoken(cs, &pos, token, sizeof(token), ':');
     if(uuid_from_string(&uuid, pt)) {
-	CRIT("Invalid configuration data (UUID = %s)", pt);
+	critmsg("Internal error: Invalid configuration data (UUID = %s)", pt);
 	free(cs);
 	return NULL;
     }
@@ -300,7 +303,7 @@ sxi_hdist_t *sxi_hdist_from_cfg(const void *cfg, unsigned int cfg_len)
     /* seed */
     pt = gettoken(cs, &pos, token, sizeof(token), ':');
     if(!pt || !isdigit(*pt)) {
-	CRIT("Invalid configuration data (seed)");
+	critmsg("Internal error: Invalid configuration data (seed)");
 	free(cs);
 	return NULL;
     }
@@ -309,7 +312,7 @@ sxi_hdist_t *sxi_hdist_from_cfg(const void *cfg, unsigned int cfg_len)
     /* max_builds */
     pt = gettoken(cs, &pos, token, sizeof(token), ':');
     if(!pt || !isdigit(*pt)) {
-	CRIT("Invalid configuration data (max_builds)");
+	critmsg("Internal error: Invalid configuration data (max_builds)");
 	free(cs);
 	return NULL;
     }
@@ -338,18 +341,18 @@ sxi_hdist_t *sxi_hdist_from_cfg(const void *cfg, unsigned int cfg_len)
 	    /* checksum */
 	    pt = gettoken(cs, &pos, token, sizeof(token), ':');
 	    if(!pt || (!isdigit(*pt) && *pt != '-')) {
-		CRIT("Invalid configuration data (checksum)");
+		critmsg("Internal error: Invalid configuration data (checksum)");
 		ret = EINVAL;
 		break;
 	    }
 	    checksum = strtoll(pt, NULL, 0);
 	    if(checksum == LLONG_MAX) {
-		CRIT("Invalid configuration data (checksum conversion)");
+		critmsg("Internal error: Invalid configuration data (checksum conversion)");
 		ret = EINVAL;
 		break;
 	    }
 	    if(model->checksum != (uint64_t) checksum) {
-		CRIT("Invalid checksum of new model");
+		critmsg("Internal error: distribution checksum mismatch");
 		ret = EINVAL;
 		break;
 	    };
@@ -358,20 +361,20 @@ sxi_hdist_t *sxi_hdist_from_cfg(const void *cfg, unsigned int cfg_len)
 	    unsigned int zlen;
 	    pt = gettoken(cs, &pos, token, sizeof(token), ':');
 	    if(!pt || strlen(pt) < 38) {
-		CRIT("Invalid configuration data (zone data)");
+		critmsg("Internal error: Invalid configuration data (zone data)");
 		ret = EINVAL;
 		break;
 	    }
 	    free(zone);
 	    zone = malloc(strlen(pt));
 	    if(!zone) {
-		CRIT("OOM");
+		critmsg("Out of memory allocating zone distribution");
 		ret = ENOMEM;
 		break;
 	    }
 	    zlen = strlen(pt) - 1;
 	    if(sxi_b64_dec_core(pt, zone, &zlen)) {
-		CRIT("Can't decode zone data");
+		critmsg("Internal error: Can't decode zone data");
 		ret = EINVAL;
 		break;
 	    }
@@ -387,13 +390,13 @@ sxi_hdist_t *sxi_hdist_from_cfg(const void *cfg, unsigned int cfg_len)
 	    if((prev_uuid = strchr(pt, '@'))) {
 		*prev_uuid++ = 0;
 		if(uuid_from_string(&puuid, prev_uuid)) {
-		    CRIT("Invalid configuration data (prev_uuid = %s)", prev_uuid);
+		    critmsg("Internal error: Invalid configuration data (prev_uuid = %s)", prev_uuid);
 		    ret = EINVAL;
 		    break;
 		}
 	    }
 	    if(uuid_from_string(&uuid, pt)) {
-		CRIT("Invalid configuration data (UUID = %s)", pt);
+		critmsg("Internal error: Invalid configuration data (UUID = %s)", pt);
 		ret = EINVAL;
 		break;
 	    }
@@ -401,7 +404,7 @@ sxi_hdist_t *sxi_hdist_from_cfg(const void *cfg, unsigned int cfg_len)
 	    /* addr */
 	    pt = gettoken(cs, &pos, addr, sizeof(addr), ':');
 	    if(!pt) {
-		CRIT("Invalid configuration data (addr)");
+		critmsg("Internal error: Invalid configuration data (addr)");
 		ret = EINVAL;
 		break;
 	    }
@@ -409,7 +412,7 @@ sxi_hdist_t *sxi_hdist_from_cfg(const void *cfg, unsigned int cfg_len)
 	    /* addr_int */
 	    pt = gettoken(cs, &pos, addr_int, sizeof(addr_int), ':');
 	    if(!pt) {
-		CRIT("Invalid configuration data (addr_int)");
+		critmsg("Internal error: Invalid configuration data (addr_int)");
 		ret = EINVAL;
 		break;
 	    }
@@ -417,21 +420,19 @@ sxi_hdist_t *sxi_hdist_from_cfg(const void *cfg, unsigned int cfg_len)
 	    /* capacity + prev_uuid */
 	    pt = gettoken(cs, &pos, token, sizeof(token), ':');
 	    if(!pt || !isdigit(*pt)) {
-		CRIT("Invalid configuration data (capacity)");
+		critmsg("Internal error: Invalid configuration data (capacity)");
 		ret = EINVAL;
 		break;
 	    }
 	    capacity = strtoll(pt, NULL, 0);
 	    if(capacity <= 0 || capacity == LLONG_MAX) {
-		CRIT("Invalid configuration data (capacity conversion)");
+		critmsg("Internal error: Invalid configuration data (capacity conversion)");
 		ret = EINVAL;
 		break;
 	    }
 
-	    if(model->state == 0xbabe && (ret = sxi_hdist_newbuild(model))) {
-		CRIT("Can't create new build");
+	    if(model->state == 0xbabe && (ret = sxi_hdist_newbuild(model)))
 		break;
-	    }
 
             char *orig_addr = addr_from_hdist(addr), *orig_addr_int = addr_from_hdist(addr_int);
 	    ret = sxi_hdist_addnode(model, &uuid, orig_addr, orig_addr_int, capacity, prev_uuid ? &puuid : NULL);
@@ -449,7 +450,7 @@ sxi_hdist_t *sxi_hdist_from_cfg(const void *cfg, unsigned int cfg_len)
     }
 
     if(model->state != 0xbabe) {
-	CRIT("Invalid model state after loading cfg");
+	critmsg("Internal error: Invalid model state after loading cfg");
 	sxi_hdist_free(model);
 	return NULL;
     }
@@ -463,7 +464,7 @@ rc_ty sxi_hdist_get_cfg(const sxi_hdist_t *model, const void **cfg, unsigned int
 	return EINVAL;
 
     if(model->state != 0xbabe) {
-	CRIT("Invalid model state - can't get cfg");
+	critmsg("Internal error: failed to get configuration due to invalid distribution state");
 	return EINVAL;
     }
 
@@ -479,7 +480,7 @@ const char *sxi_hdist_get_zones(const sxi_hdist_t *model, unsigned int bidx)
 	return NULL;
 
     if(bidx >= model->builds) {
-	CRIT("Invalid build index (%u >= %u)", bidx, model->builds);
+	critmsg("Failed to retrieve distribution zones: invalid build index (%u >= %u)", bidx, model->builds);
 	return NULL;
     }
 
@@ -494,7 +495,7 @@ const char *sxi_hdist_get_node_zone(const sxi_hdist_t *model, unsigned int bidx,
 	return NULL;
 
     if(bidx >= model->builds) {
-	CRIT("Invalid build index (%u >= %u)", bidx, model->builds);
+	critmsg("Failed to retrieve node zone: invalid build index (%u >= %u)", bidx, model->builds);
 	return NULL;
     }
 
@@ -523,13 +524,13 @@ static rc_ty hdist_addnode(sxi_hdist_t *model, unsigned int id, uint64_t capacit
 	return EINVAL;
 
     if(model->state != 0xcafe) {
-	CRIT("Model not initialized");
+	critmsg("Internal error: model not initialized");
 	return EINVAL;
     }
 
     node_list_new = (struct hdist_node *) wrap_realloc(model->node_list[0], (model->node_count[0] + 1) * sizeof(struct hdist_node));
     if(!node_list_new) {
-	CRIT("Can't add new node - realloc() failed");
+	critmsg("Out of memory adding node to model");
 	return ENOMEM;
     }
     model->node_list[0] = node_list_new;
@@ -539,7 +540,7 @@ static rc_ty hdist_addnode(sxi_hdist_t *model, unsigned int id, uint64_t capacit
     if(sxn) {
 	node_list_new[model->node_count[0]].sxn = sx_node_dup(sxn);
 	if(!node_list_new[model->node_count[0]].sxn) {
-	    CRIT("sx_node_dup failed");
+	    critmsg("Out of memory adding node to distribution (node duplication)");
 	    return ENOMEM;
 	}
     } else {
@@ -552,7 +553,7 @@ static rc_ty hdist_addnode(sxi_hdist_t *model, unsigned int id, uint64_t capacit
 	model->cfg_alloced += CFG_PREALLOC;
 	model->cfg = (char *) wrap_realloc_or_free(model->cfg, sizeof(char) * model->cfg_alloced);
 	if(!model->cfg) {
-	    CRIT("Can't realloc model->cfg");
+	    critmsg("Out of memory adding node to distribution (cfg)");
 	    return ENOMEM;
 	}
     }
@@ -654,12 +655,12 @@ rc_ty sxi_hdist_newbuild(sxi_hdist_t *model)
 	unsigned int i;
 
     if(model->state != 0xbabe) {
-	CRIT("Invalid hash distribution model");
+	critmsg("Cannot build distribution: invalid model state");
 	return EINVAL;
     }
 
     if(model->builds + 1 > model->max_builds) {
-	CRIT("Too many builds already (max: %u)", model->max_builds);
+	critmsg("Cannot build distribution: too many builds already (max: %u)", model->max_builds);
 	return EINVAL;
     }
 
@@ -683,6 +684,7 @@ rc_ty sxi_hdist_newbuild(sxi_hdist_t *model)
     model->circle[0] = NULL;
     model->circle_points[0] = 0;
     model->state = 0xcafe;
+    model->builds_alloced++;
     return OK;
 }
 
@@ -697,13 +699,13 @@ rc_ty static update_cfg(sxi_hdist_t *model)
     destLen = compressBound(osize);
     model->cfg_blob = malloc(destLen + 4);
     if(!model->cfg_blob) {
-	CRIT("Can't allocate model->cfg_blob");
+	critmsg("Out of memory updating distribution configuration");
 	return ENOMEM;
     }
     osize = swapu32(osize);
     memcpy(model->cfg_blob, &osize, 4);
     if(compress2((Bytef *) model->cfg_blob + 4, &destLen, (const Bytef *) model->cfg, model->cfg_size + 1, 9) != Z_OK) {
-	CRIT("Can't compress cfg blob");
+	critmsg("Failed to compress configuration");
 	return ENOMEM;
     }
     model->cfg_blob_size = destLen + 4;
@@ -774,12 +776,12 @@ rc_ty sxi_hdist_rebalanced(sxi_hdist_t *model)
 	return EINVAL;
 
     if(model->state != 0xbabe) {
-	CRIT("Invalid hash distribution model");
+	critmsg("Cannot flatten distribution: invalid model state");
 	return EINVAL;
     }
 
     if(model->builds < 2) {
-	CRIT("Invalid number of builds (%u)", model->builds);
+	critmsg("Cannot flatten distribution: invalid number of builds (%u)", model->builds);
 	return EINVAL;
     }
 
@@ -799,9 +801,10 @@ rc_ty sxi_hdist_rebalanced(sxi_hdist_t *model)
     }
 
     model->builds = 1;
+    model->builds_alloced = 1;
     model->version++;
     if(hchecksum(model)) {
-        CRIT("Can't allocate memory for digest");
+	critmsg("Cannot flatten distribution: failed to compute checksum");
         return ENOMEM;
     }
 
@@ -809,7 +812,7 @@ rc_ty sxi_hdist_rebalanced(sxi_hdist_t *model)
 	model->cfg_alloced += CFG_PREALLOC;
 	model->cfg = (char *) wrap_realloc_or_free(model->cfg, sizeof(char) * model->cfg_alloced);
 	if(!model->cfg) {
-	    CRIT("Can't realloc model->cfg");
+	    critmsg("Out of memory while flattening distribution model");
 	    return ENOMEM;
 	}
     }
@@ -836,44 +839,48 @@ static int node_in_set(unsigned int *nodes, unsigned int *zones, struct hdist_no
 
 static int set_zones(sxi_hdist_t *model, const char *zones)
 {
-    char *buf;
+    char *buf, **zone_names = NULL, **zpt;
     unsigned int pos = 0, zone_id = 0;
 
     if(!zones) {
-	CRIT("Invalid arguments");
+	critmsg("Cannot set distribution zones: invalid arguments");
 	return EINVAL;
     }
 
     buf = malloc(strlen(zones) + 1);
     if(!buf) {
-	CRIT("OOM");
+	critmsg("Out of memory setting distribution zones");
 	return ENOMEM;
     }
 
     while(gettoken(zones, &pos, buf, strlen(zones) + 1, ';')) {
 	char token[128], *pt, *upt;
-	unsigned int zpos = 0, i;
+	unsigned int zpos = 0, i, j;
 
 	zone_id++;
 	if(!(pt = strrchr(buf, ':'))) {
-	    CRIT("Can't parse zone %d - invalid format (zone name)", zone_id);
+	    critmsg("Cannot set distribution zones: invalid name in zone %d - ", zone_id);
 	    free(buf);
+            free(zone_names);
 	    return EINVAL;
 	}
 	*pt++ = 0;
 	if(strlen(buf) > 128) {
-	    CRIT("Zone name too long (%s)", buf);
+	    critmsg("Cannot set distribution zones: zone name too long (%s)", buf);
 	    free(buf);
+            free(zone_names);
 	    return EINVAL;
 	}
 	if(utf8_validate_len(buf) < 0) {
-	    CRIT("Zone name (%s) contains invalid characters", buf);
+	    critmsg("Cannot set distribution zones: zone name (%s) contains invalid characters", buf);
 	    free(buf);
+            free(zone_names);
 	    return EINVAL;
 	}
 	if(!*pt || strlen(pt) < 36) {
-	    CRIT("Can't parse zone %d (%s) - invalid format (no UUID after colon)", zone_id, buf);
+	    critmsg("Cannot set distribution zones: invalid format (no UUID after colon) in zone %d (%s)", zone_id, buf);
 	    free(buf);
+            free(zone_names);
 	    return EINVAL;
 	}
 
@@ -886,8 +893,9 @@ static int set_zones(sxi_hdist_t *model, const char *zones)
 	    int found = 0;
 
 	    if(uuid_from_string(&uuid, upt)) {
-		CRIT("Invalid UUID '%s' in zone '%s'", upt, buf);
+		critmsg("Cannot set distribution zones: invalid UUID '%s' in zone '%s'", upt, buf);
 		free(buf);
+		free(zone_names);
 		return EINVAL;
 	    }
 	    if(model) {
@@ -895,21 +903,38 @@ static int set_zones(sxi_hdist_t *model, const char *zones)
 		    if(!memcmp(sx_node_uuid(model->node_list[0][i].sxn), &uuid, sizeof(uuid))) {
 			if(model->node_list[0][i].zone_id) {
 			    if(model->node_list[0][i].zone_id == zone_id)
-				CRIT("Node with UUID %s was already assigned to zone '%s'", upt, buf);
+				critmsg("Cannot set distribution zones: node with UUID %s was already assigned to zone '%s'", upt, buf);
 			    else
-				CRIT("Node with UUID %s was already assigned to another zone", upt);
+				critmsg("Cannot set distribution zones: node with UUID %s was already assigned to another zone", upt);
 			    free(buf);
+			    free(zone_names);
 			    return EINVAL;
 			}
+			for(j = 0; j < zone_id - 1; j++) {
+			    if(!strcmp(buf, zone_names[j])) {
+				critmsg("Cannot set distribution zones: duplicated zone name '%s'", buf);
+				free(buf);
+				free(zone_names);
+				return EINVAL;
+			    }
+			}
+			if(!(zpt = realloc(zone_names, zone_id * sizeof(char *)))) {
+			    critmsg("Out of memory setting distribution zones (zone_names)");
+			    free(buf);
+			    free(zone_names);
+			    return ENOMEM;
+			}
+			zone_names = zpt;
 			model->node_list[0][i].zone_id = zone_id;
-			model->node_list[0][i].zone_name = strdup(buf);
+			zone_names[zone_id - 1] = model->node_list[0][i].zone_name = strdup(buf);
 			found = 1;
 			break;
 		    }
 		}
 		if(!found) {
-		    CRIT("UUID %s from zone '%s' doesn't match any node", upt, buf);
+		    critmsg("Cannot set distribution zones: UUID %s from zone '%s' doesn't match any node", upt, buf);
 		    free(buf);
+		    free(zone_names);
 		    return EINVAL;
 		}
 	    }
@@ -917,11 +942,12 @@ static int set_zones(sxi_hdist_t *model, const char *zones)
     }
 
     free(buf);
+    free(zone_names);
     if(zone_id) {
 	if(model) {
 	    model->zone_cfg[0] = strdup(zones);
 	    if(!model->zone_cfg[0]) {
-		CRIT("OOM");
+		critmsg("Out of memory setting distribution zones (zone_cfg)");
 		return ENOMEM;
 	    }
 	    model->zone_count[0] = zone_id;
@@ -929,7 +955,7 @@ static int set_zones(sxi_hdist_t *model, const char *zones)
 	return 0;
     }
 
-    CRIT("No valid zones found");
+    critmsg("Cannot set distribution zones: No valid zones found");
     return EINVAL;
 }
 
@@ -946,12 +972,12 @@ rc_ty sxi_hdist_build(sxi_hdist_t *model, const char *zones)
 	char *zone_b64 = NULL;
 
     if(!model || model->state != 0xcafe) {
-	CRIT("Invalid hash distribution model");
+	critmsg("Cannot build distribution: invalid model");
 	return EINVAL;
     }
 
     if(!model->node_count[0]) {
-	CRIT("Node count is 0");
+	critmsg("Cannot build distribution: node count is 0");
 	return EINVAL;
     }
 
@@ -970,7 +996,7 @@ rc_ty sxi_hdist_build(sxi_hdist_t *model, const char *zones)
 
     model->circle[0] = (struct hdist_point *) wrap_malloc(points_total * sizeof(struct hdist_point));
     if(!model->circle[0]) {
-	CRIT("Can't allocate model->circle[0]");
+	critmsg("Out of memory building distribution model (circle[0])");
 	return ENOMEM;
     }
 
@@ -983,14 +1009,14 @@ rc_ty sxi_hdist_build(sxi_hdist_t *model, const char *zones)
 		node_points++;
 		model->circle[0] = wrap_realloc_or_free(model->circle[0], ++points_total * sizeof(struct hdist_point));
 		if(!model->circle[0]) {
-		    CRIT("Can't realloc model->circle[0]");
+		    critmsg("Out of memory building distribution model (circle[0])");
 		    return ENOMEM;
 		}
 	    }
 
 	    for(j = 0; j < node_points; j++) {
 		if(p >= points_total) {
-		    CRIT("p >= points_total (1)");
+		    critmsg("Internal error: distribution build failed (p >= points_total (1))");
 		    return FAIL_EINTERNAL;
 		}
 		model->circle[0][p].node_id = model->node_list[0][i].id;
@@ -1010,7 +1036,7 @@ rc_ty sxi_hdist_build(sxi_hdist_t *model, const char *zones)
 		    node_points++;
 		    model->circle[0] = wrap_realloc_or_free(model->circle[0], ++points_total * sizeof(struct hdist_point));
 		    if(!model->circle[0]) {
-			CRIT("Can't realloc model->circle[0]");
+			critmsg("Out of memory building distribution model (circle[0])");
 			return ENOMEM;
 		    }
 		}
@@ -1020,7 +1046,7 @@ rc_ty sxi_hdist_build(sxi_hdist_t *model, const char *zones)
 		    for(j = 0; j < model->circle_points[1] && node_points_cnt; j++) {
 			if(model->circle[1][j].node_id == model->node_list[0][i].id) {
 			    if(p >= points_total) {
-				CRIT("p >= points_total (2)");
+				critmsg("Internal error: distribution build failed (p >= points_total (2))");
 				return FAIL_EINTERNAL;
 			    }
 			    model->circle[0][p].node_id = model->node_list[0][i].id;
@@ -1034,7 +1060,7 @@ rc_ty sxi_hdist_build(sxi_hdist_t *model, const char *zones)
 		}
 		for(j = 0; j < node_points_cnt; j++) {
 		    if(p >= points_total) {
-			CRIT("p >= points_total (3)");
+			critmsg("Internal error: distribution build failed (p >= points_total (3))");
 			return FAIL_EINTERNAL;
 		    }
 		    model->circle[0][p].node_id = model->node_list[0][i].id;
@@ -1051,7 +1077,7 @@ rc_ty sxi_hdist_build(sxi_hdist_t *model, const char *zones)
     qsort(model->circle[0], p, sizeof(struct hdist_point), circle_cmp_rnd);
     nums = (unsigned int *) calloc(model->last_id, sizeof(unsigned int));
     if(!nums) {
-        CRIT("Can't allocate memory (nums)");
+        critmsg("Can't allocate memory (nums)");
         return ENOMEM;
     }
     for(i = 0; i < p; i++)
@@ -1066,7 +1092,7 @@ rc_ty sxi_hdist_build(sxi_hdist_t *model, const char *zones)
     model->builds++;
     model->version++;
     if(hchecksum(model)) {
-        CRIT("Can't allocate memory for digest");
+	critmsg("Cannot build distribution: failed to compute checksum");
         return ENOMEM;
     }
 
@@ -1074,7 +1100,7 @@ rc_ty sxi_hdist_build(sxi_hdist_t *model, const char *zones)
     if(model->zone_cfg[0]) {
 	zone_b64 = sxi_b64_enc_core(model->zone_cfg[0], strlen(model->zone_cfg[0]));
 	if(!zone_b64) {
-	    CRIT("Failed to encode zone configuration");
+	    critmsg("Cannot build distribution: failed to encode zone configuration");
 	    return ENOMEM;
 	}
 	cfg_size += strlen(zone_b64) + 6;
@@ -1084,7 +1110,7 @@ rc_ty sxi_hdist_build(sxi_hdist_t *model, const char *zones)
 	model->cfg_alloced += CFG_PREALLOC;
 	model->cfg = (char *) wrap_realloc_or_free(model->cfg, sizeof(char) * model->cfg_alloced);
 	if(!model->cfg) {
-	    CRIT("Can't realloc model->cfg");
+	    critmsg("Out of memory building distribution model (cfg)");
 	    free(zone_b64);
 	    return ENOMEM;
 	}
@@ -1105,12 +1131,12 @@ void sxi_hdist_free(sxi_hdist_t *model)
 	return;
 
     if(model->state != 0xcafe && model->state != 0xbabe) {
-	CRIT("Corrupted hash distribution model");
+	WARN("Corrupted hash distribution model");
 	return;
     }
     free(model->capacity_total);
     free(model->circle_points);
-    for(i = 0; i < model->builds; i++) {
+    for(i = 0; i < model->builds_alloced; i++) {
 	for(j = 0; j < model->node_count[i]; j++) {
 	    sx_node_delete(model->node_list[i][j].sxn);
 	    free(model->node_list[i][j].zone_name);
@@ -1141,22 +1167,22 @@ static rc_ty hdist_hash(const sxi_hdist_t *model, uint64_t hash, unsigned int re
 	int node_idx;
 
     if(!model || model->state != 0xbabe) {
-	CRIT("Invalid hash distribution model");
+	critmsg("Failed to locate object: invalid distribution model");
 	return EINVAL;
     }
 
     if(!dest_nodes) {
-	CRIT("Invalid argument (dest_nodes == NULL)");
+	critmsg("Failed to locate object: invalid argument (dest_nodes == NULL)");
 	return EINVAL;
     }
 
     if(bidx >= model->builds) {
-	CRIT("Invalid build index (%u >= %u)", bidx, model->builds);
+	critmsg("Failed to locate object: invalid build index (%u >= %u)", bidx, model->builds);
 	return EINVAL;
     }
 
     if(replica_count > sxi_hdist_maxreplica(model, bidx, NULL)) {
-	CRIT("replica_count > max_replica");
+	critmsg("Failed to locate object: replica_count > max_replica");
 	return EINVAL;
     }
 
@@ -1179,7 +1205,7 @@ static rc_ty hdist_hash(const sxi_hdist_t *model, uint64_t hash, unsigned int re
 
     node_idx = get_node_idx(model, bidx, model->circle[bidx][m].node_id);
     if(node_idx < 0) {
-	CRIT("Node with ID %d not found", model->circle[bidx][m].node_id);
+	critmsg("Failed to locate object: node with ID %d not found", model->circle[bidx][m].node_id);
 	return FAIL_EINTERNAL;
     }
 
@@ -1224,7 +1250,7 @@ static rc_ty hdist_hash(const sxi_hdist_t *model, uint64_t hash, unsigned int re
 		break;
 	}
 	if(node_idx == -1) {
-	    CRIT("Can't replicate data");
+	    critmsg("Failed to locate object: can't replicate data");
 	    return FAIL_EINTERNAL;
 	}
 	dest_nodes[i] = model->circle[bidx][h].node_id;
@@ -1248,13 +1274,13 @@ sx_nodelist_t *sxi_hdist_locate(const sxi_hdist_t *model, uint64_t hash, unsigne
 
     dest_nodes = (unsigned int *) malloc(sizeof(unsigned int) * replica_count);
     if(!dest_nodes) {
-	CRIT("ERROR: Can't allocate dest_nodes");
+	critmsg("Out of memory locating object (nodes)");
 	return NULL;
     }
 
     dest_zones = (unsigned int *) malloc(sizeof(unsigned int) * replica_count);
     if(!dest_zones) {
-	CRIT("ERROR: Can't allocate dest_nodes");
+	critmsg("Out of memory locating object (zones)");
 	free(dest_nodes);
 	return NULL;
     }
@@ -1277,7 +1303,7 @@ sx_nodelist_t *sxi_hdist_locate(const sxi_hdist_t *model, uint64_t hash, unsigne
 		}
 	    }
 	    if(!node) {
-		CRIT("ERROR: Can't map internal node id -> sx_node_t");
+		critmsg("Failed to locate object: cannot map internal node id -> sx_node_t");
 		free(dest_nodes);
 		free(dest_zones);
 		sx_nodelist_delete(nodelist);
@@ -1303,7 +1329,7 @@ const sx_nodelist_t *sxi_hdist_nodelist(const sxi_hdist_t *model, unsigned int b
 	return NULL;
 
     if((model->state == 0xcafe && bidx > model->builds) || (model->state != 0xcafe && bidx >= model->builds)) {
-	CRIT("Invalid build index (%u >= %u)", bidx, model->builds);
+	critmsg("Failed to retrieve list of nodes: invalid build index (%u >= %u)", bidx, model->builds);
 	return NULL;
     }
 
@@ -1346,7 +1372,7 @@ int sxi_hdist_maxreplica(const sxi_hdist_t *model, unsigned int bidx, const sx_n
 	return 0;
 
     if(bidx >= model->builds) {
-	CRIT("Invalid build index (%u >= %u)", bidx, model->builds);
+	critmsg("Failed to compute maximum replica: invalid build index (%u >= %u)", bidx, model->builds);
 	return 0;
     }
 
@@ -1383,7 +1409,7 @@ int64_t sxi_hdist_capacity(const sxi_hdist_t *model, unsigned int bidx, const sx
 	return 0;
 
     if(bidx >= model->builds) {
-	CRIT("Invalid build index (%u >= %u)", bidx, model->builds);
+	critmsg("Failed to compute distribution capacity: invalid build index (%u >= %u)", bidx, model->builds);
 	return 0;
     }
 

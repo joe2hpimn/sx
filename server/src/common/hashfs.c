@@ -2145,24 +2145,18 @@ rc_ty sx_storage_activate(sx_hashfs_t *h, const char *name, const sx_node_t *fir
 
     newmod = sxi_hdist_new(HDIST_SEED, 2, NULL);
     if(!newmod) {
-	msg_set_reason("Not enough memory to generate new distribution model");
 	ret = ENOMEM;
-    }
-
-    if(sxi_hdist_addnode(newmod, sx_node_uuid(firstnode), sx_node_addr(firstnode), sx_node_internal_addr(firstnode), sx_node_capacity(firstnode), NULL)) {
-	msg_set_reason("Failed to add node to distribution");
 	goto storage_activate_fail;
     }
 
-    if(sxi_hdist_build(newmod, NULL)) {
-	msg_set_reason("Failed to build the distribution model");
+    if(sxi_hdist_addnode(newmod, sx_node_uuid(firstnode), sx_node_addr(firstnode), sx_node_internal_addr(firstnode), sx_node_capacity(firstnode), NULL))
 	goto storage_activate_fail;
-    }
 
-    if(sxi_hdist_get_cfg(newmod, &blob, &blob_size)) {
-	msg_set_reason("Failed to retrieve the distribution model configuration");
+    if(sxi_hdist_build(newmod, NULL))
 	goto storage_activate_fail;
-    }
+
+    if(sxi_hdist_get_cfg(newmod, &blob, &blob_size))
+	goto storage_activate_fail;
 
     if(qbind_text(q, ":k", "dist") || qbind_blob(q, ":v", blob, blob_size) || qstep_noret(q)) {
 	msg_set_reason("Failed to save the updated distribution model");
@@ -12259,19 +12253,14 @@ rc_ty sx_hashfs_hdist_change_req(sx_hashfs_t *h, const sx_nodelist_t *newdist, c
 	return r;
     }
 
-    if((r = sxi_hdist_get_cfg(h->hd, &cfg, &cfg_len)) != OK) {
-	msg_set_reason("Failed to duplicate current distribution (get)");
+    if((r = sxi_hdist_get_cfg(h->hd, &cfg, &cfg_len)) != OK)
 	return r;
-    }
 
-    if(!(newmod = sxi_hdist_from_cfg(cfg, cfg_len))) {
-	msg_set_reason("Failed to duplicate current distribution (from_cfg)");
+    if(!(newmod = sxi_hdist_from_cfg(cfg, cfg_len)))
 	return EINVAL;
-    }
 
     if((r = sxi_hdist_newbuild(newmod))) {
 	sxi_hdist_free(newmod);
-	msg_set_reason("Failed to update current distribution");
 	return r;
     }
 
@@ -12305,14 +12294,12 @@ rc_ty sx_hashfs_hdist_change_req(sx_hashfs_t *h, const sx_nodelist_t *newdist, c
 	r = sxi_hdist_addnode(newmod, sx_node_uuid(n), sx_node_addr(n), sx_node_internal_addr(n), sx_node_capacity(n), NULL);
 	if(r) {
 	    sxi_hdist_free(newmod);
-	    msg_set_reason("Failed to update current distribution");
 	    return FAIL_EINTERNAL;
 	}
     }
 
     if((r = sxi_hdist_build(newmod, zonedef)) != OK) {
 	sxi_hdist_free(newmod);
-	msg_set_reason("Failed to build updated distribution");
 	return r;
     }
 
@@ -12332,7 +12319,6 @@ rc_ty sx_hashfs_hdist_change_req(sx_hashfs_t *h, const sx_nodelist_t *newdist, c
 
     if((r = sxi_hdist_get_cfg(newmod, &cfg, &cfg_len)) != OK) {
 	sxi_hdist_free(newmod);
-	msg_set_reason("Failed to retrieve updated distribution");
 	return r;
     }
 
@@ -12465,19 +12451,14 @@ rc_ty sx_hashfs_hdist_replace_req(sx_hashfs_t *h, const sx_nodelist_t *replaceme
 	}
     }
 
-    if((r = sxi_hdist_get_cfg(h->hd, &cfg, &cfg_len)) != OK) {
-	msg_set_reason("Failed to duplicate current distribution (get)");
+    if((r = sxi_hdist_get_cfg(h->hd, &cfg, &cfg_len)) != OK)
 	return r;
-    }
 
-    if(!(newmod = sxi_hdist_from_cfg(cfg, cfg_len))) {
-	msg_set_reason("Failed to duplicate current distribution (from_cfg)");
+    if(!(newmod = sxi_hdist_from_cfg(cfg, cfg_len)))
 	return EINVAL;
-    }
 
     if((r = sxi_hdist_newbuild(newmod))) {
 	sxi_hdist_free(newmod);
-	msg_set_reason("Failed to update current distribution");
 	return r;
     }
 
@@ -12499,26 +12480,22 @@ rc_ty sx_hashfs_hdist_replace_req(sx_hashfs_t *h, const sx_nodelist_t *replaceme
 	r = sxi_hdist_addnode(newmod, sx_node_uuid(oldnode), sx_node_addr(oldnode), sx_node_internal_addr(oldnode), sx_node_capacity(oldnode), NULL);
 	if(r) {
 	    sxi_hdist_free(newmod);
-	    msg_set_reason("Failed to update current distribution");
 	    return FAIL_EINTERNAL;
 	}
     }
 
     if((r = sxi_hdist_build(newmod, h->distzones[0])) != OK) {
 	sxi_hdist_free(newmod);
-	msg_set_reason("Failed to build updated distribution");
 	return r;
     }
 
     if(sxi_hdist_rebalanced(newmod)) {
-	msg_set_reason("Failed to flat the current distribution");
 	sxi_hdist_free(newmod);
 	return FAIL_EINTERNAL;
     }
 
     if((r = sxi_hdist_get_cfg(newmod, &cfg, &cfg_len)) != OK) {
 	sxi_hdist_free(newmod);
-	msg_set_reason("Failed to retrieve updated distribution");
 	return r;
     }
 
@@ -12590,7 +12567,6 @@ rc_ty sx_hashfs_hdist_change_add(sx_hashfs_t *h, const void *cfg, unsigned int c
 
     newmod = sxi_hdist_from_cfg(cfg, cfg_len);
     if(!newmod) {
-	msg_set_reason("Failed to load the new distribution");
 	return EINVAL;
     }
 
@@ -12647,10 +12623,8 @@ rc_ty sx_hashfs_hdist_change_add(sx_hashfs_t *h, const void *cfg, unsigned int c
 	unsigned int cur_cfg_len;
 
 	ret = sxi_hdist_get_cfg(h->hd, &cur_cfg, &cur_cfg_len);
-	if(ret) {
-	    msg_set_reason("Failed to retrieve the current distribution model");
+	if(ret)
 	    goto change_add_fail;
-	}
 	if(qbind_text(q, ":k", "current_dist") ||
 	   qbind_blob(q, ":v", cur_cfg, cur_cfg_len) ||
 	   qstep_noret(q)) {
@@ -12748,10 +12722,8 @@ rc_ty sx_hashfs_hdist_replace_add(sx_hashfs_t *h, const void *cfg, unsigned int 
     }
 
     newmod = sxi_hdist_from_cfg(cfg, cfg_len);
-    if(!newmod) {
-	msg_set_reason("Failed to load the new distribution");
+    if(!newmod)
 	return EINVAL;
-    }
 
     if(sxi_hdist_buildcnt(newmod) != 1) {
 	sxi_hdist_free(newmod);
@@ -12875,10 +12847,8 @@ rc_ty sx_hashfs_hdist_replace_add(sx_hashfs_t *h, const void *cfg, unsigned int 
 	unsigned int cur_cfg_len;
 
 	ret = sxi_hdist_get_cfg(h->hd, &cur_cfg, &cur_cfg_len);
-	if(ret) {
-	    msg_set_reason("Failed to retrieve the current distribution model");
+	if(ret)
 	    goto replace_add_fail;
-	}
 	if(qbind_text(q, ":k", "current_dist") ||
 	   qbind_blob(q, ":v", cur_cfg, cur_cfg_len) ||
 	   qstep_noret(q)) {
@@ -13044,26 +13014,20 @@ rc_ty sx_hashfs_hdist_set_rebalanced(sx_hashfs_t *h) {
     }
 
     ret = sxi_hdist_get_cfg(h->hd, &cfg, &cfg_len);
-    if(ret) {
-	msg_set_reason("Failed to retrieve the current distribution model");
+    if(ret)
 	return ret;
-    }
 
     rebalanced = sxi_hdist_from_cfg(cfg, cfg_len);
-    if(!rebalanced) {
-	msg_set_reason("Failed to clone the current distribution model");
+    if(!rebalanced)
 	return FAIL_EINTERNAL;
-    }
 
     if(sxi_hdist_rebalanced(rebalanced)) {
-	msg_set_reason("Failed to flat the current distribution");
 	sxi_hdist_free(rebalanced);
 	return FAIL_EINTERNAL;
     }
 
     ret = sxi_hdist_get_cfg(rebalanced, &cfg, &cfg_len);
     if(ret) {
-	msg_set_reason("Failed to retrieve the rebalanced distribution model");
 	sxi_hdist_free(rebalanced);
 	return ret;
     }
@@ -15131,16 +15095,11 @@ static rc_ty bump_hdist_version_only(sx_hashfs_t *h, int inactive_dist, int64_t 
 	return EINVAL;
     }
 
-    if(sxi_hdist_get_cfg(h->hd, &cur_cfg, &cur_cfg_len)) {
-	msg_set_reason("Failed to retrive current distribution (get)");
+    if(sxi_hdist_get_cfg(h->hd, &cur_cfg, &cur_cfg_len))
 	return FAIL_EINTERNAL;
-    }
-    if(!(newmod = sxi_hdist_from_cfg(cur_cfg, cur_cfg_len))) {
-	msg_set_reason("Failed to duplicate current distribution (from_cfg)");
+    if(!(newmod = sxi_hdist_from_cfg(cur_cfg, cur_cfg_len)))
 	return ENOMEM;
-    }
     if(sxi_hdist_newbuild(newmod)) {
-	msg_set_reason("Failed to update node distribution");
 	sxi_hdist_free(newmod);
 	return FAIL_EINTERNAL;
     }
@@ -15150,23 +15109,19 @@ static rc_ty bump_hdist_version_only(sx_hashfs_t *h, int inactive_dist, int64_t 
     for(nnode=0; nnode<nnodes; nnode++) {
 	const sx_node_t *n = sx_nodelist_get(nodes, nnode);
 	if(sxi_hdist_addnode(newmod, sx_node_uuid(n), sx_node_addr(n), sx_node_internal_addr(n), sx_node_capacity(n), NULL)) {
-	    msg_set_reason("Failed to update node distribution");
 	    sxi_hdist_free(newmod);
 	    return ENOMEM;
 	}
     }
     if(sxi_hdist_build(newmod, h->distzones[0])) {
-	msg_set_reason("Failed to build updated distribution");
 	sxi_hdist_free(newmod);
 	return FAIL_EINTERNAL;
     }
     if(sxi_hdist_rebalanced(newmod)) {
-	msg_set_reason("Failed to flat the updated distribution");
 	sxi_hdist_free(newmod);
 	return FAIL_EINTERNAL;
     }
     if(sxi_hdist_get_cfg(newmod, &cfg, &cfg_len)) {
-	msg_set_reason("Failed to retrieve the updated distribution model");
 	sxi_hdist_free(newmod);
 	return FAIL_EINTERNAL;
     }
