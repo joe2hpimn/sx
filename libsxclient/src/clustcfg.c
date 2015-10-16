@@ -3953,6 +3953,7 @@ static int distribution_lock_common(sxc_cluster_t *cluster, int op, const char *
     sxi_hostlist_t *hosts, new_hosts;
     const char *min_host = NULL;
     unsigned int i;
+    long http_code = 0;
 
     if(!cluster) {
         sxi_seterr(sx, SXE_EARG, "Invalid argument");
@@ -4005,9 +4006,16 @@ static int distribution_lock_common(sxc_cluster_t *cluster, int op, const char *
     }
 
     sxi_set_operation(sx, op ? "lock cluster" : "unlock cluster", NULL, NULL, NULL);
-    if(sxi_job_submit_and_poll(conns, &new_hosts, query->verb, query->path, query->content, query->content_len)) {
+    if(sxi_job_submit_and_poll_err(conns, &new_hosts, query->verb, query->path, query->content, query->content_len, &http_code)) {
         sxi_query_free(query);
         sxi_hostlist_empty(&new_hosts);
+        if(http_code == 409 && !op) {
+            /* For unlock operation do not print "Cluster is already locked message", this could happen if
+             * existing job was pending */
+            SXDEBUG("Clearing the error message: %s, the error is expected", sxc_geterrmsg(sx));
+            sxc_clearerr(sx);
+            return 0;
+        }
         return 1;
     }
 

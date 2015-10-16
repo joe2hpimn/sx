@@ -399,7 +399,7 @@ static void jobres_finish(curlev_context_t *ctx, const char *url)
 }
 
 static int sxi_job_poll(sxi_conns_t *conns, sxi_jobs_t *jobs, int wait);
-sxi_job_t* sxi_job_submit(sxi_conns_t *conns, sxi_hostlist_t *hlist, enum sxi_cluster_verb verb, const char *query, const char *name, void *content, size_t content_size, int* http_code, sxi_jobs_t *jobs) {
+sxi_job_t* sxi_job_submit(sxi_conns_t *conns, sxi_hostlist_t *hlist, enum sxi_cluster_verb verb, const char *query, const char *name, void *content, size_t content_size, long* http_code, sxi_jobs_t *jobs) {
     sxc_client_t *sx = sxi_conns_get_client(conns);
     struct cb_jobget_ctx yget;
     sxi_hostlist_t jobhost;
@@ -794,7 +794,7 @@ int sxi_job_submit_and_poll_err(sxi_conns_t *conns, sxi_hostlist_t *hlist, enum 
 {
     int rc;
     sxi_job_t *jtable[1] = {
-        sxi_job_submit(conns, hlist, verb, query, NULL, content, content_size, NULL, NULL)
+        sxi_job_submit(conns, hlist, verb, query, NULL, content, content_size, http_err, NULL)
     };
     if (!jtable[0])
         return -1;

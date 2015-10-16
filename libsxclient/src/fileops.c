@@ -6026,7 +6026,7 @@ static sxi_job_t* sxi_rm_cb(sxc_file_list_t *target, sxc_file_t *pattern, sxc_cl
 {
     sxi_query_t *query;
     sxi_job_t *job;
-    int http_code;
+    long http_code;
     int mass = 0;
     if (!cluster || !hlist || !vol || !path || !ctx)
         return NULL;

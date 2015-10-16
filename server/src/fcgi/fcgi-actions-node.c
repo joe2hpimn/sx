@@ -551,7 +551,7 @@ void fcgi_distlock(void) {
         if(status == INPRG_ERROR)
             quit_errmsg(500, msg_get_reason());
         if(status != INPRG_IDLE)
-            quit_errmsg(409, "Distribution changes in progress");
+            quit_errmsg(409, "Cluster is already locked");
     }
 
     if(!has_priv(PRIV_CLUSTER)) {
@@ -619,8 +619,12 @@ void fcgi_distlock(void) {
  
         res = sx_hashfs_job_new(hashfs, uid, &job, JOBTYPE_DISTLOCK, 20, "DISTLOCK", job_data, job_datalen, allnodes);
         sx_blob_free(joblb);
-        if(res != OK)
-            quit_errmsg(rc2http(res), msg_get_reason());
+        if(res != OK) {
+            if(res == FAIL_LOCKED)
+                quit_errmsg(409, "Cluster is already locked");
+            else
+                quit_errmsg(rc2http(res), msg_get_reason());
+        }
  
         send_job_info(job);
         return;
