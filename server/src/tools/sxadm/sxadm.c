@@ -1613,8 +1613,10 @@ static int info_cluster(sxc_client_t *sx, struct cluster_args_info *args, int ke
 		printf(", online: ** no ** (last contact: %lld seconds ago)\n", (long long)last_seen);
 	    else
 		printf(", online: ** no **\n");
-	} else
-	    printf(", online: yes, activity: %s\n", op ? op : "idle");
+	} else if(op)
+	    printf(", online: yes, activity: %s\n", op);
+	else
+	    printf(", online: yes\n" );
 
 	if(!isleader)
 	    clst_destroy(clstnode);

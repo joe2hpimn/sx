@@ -42,6 +42,7 @@
 #include "jobpoll.h"
 #include "curlevents.h"
 #include "vcrypto.h"
+#include "volops.h"
 #include "misc.h"
 #include <sys/mman.h>
 
