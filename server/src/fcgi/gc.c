@@ -359,6 +359,7 @@ int gc(sxc_client_t *sx, const char *dir, int pipe, int pipe_expire) {
         return EXIT_FAILURE;
     }
 
+    INFO("GC slow check is : %s", gc_slow_check ? "enabled" : "disabled");
     memset(&tv0, 0, sizeof(tv0));
     while(!terminate) {
         int forced_awake = 0, force_expire = 0;
@@ -399,12 +400,14 @@ int gc(sxc_client_t *sx, const char *dir, int pipe, int pipe_expire) {
                 sleep(1);
             gettimeofday(&tv1, NULL);
             if (timediff(&tv0, &tv1) > gc_interval || forced_awake) {
+                INFO("Starting GC");
                 sx_hashfs_gc_periodic(hashfs, &terminate, GC_GRACE_PERIOD);
                 sx_hashfs_gc_run(hashfs, &terminate);
                 gettimeofday(&tv2, NULL);
                 INFO("GC run completed in %.1f sec", timediff(&tv1, &tv2));
                 sx_hashfs_checkpoint_idle(hashfs);
                 sx_hashfs_gc_info(hashfs, &terminate);
+                INFO("GC completed");
                 memcpy(&tv0, &tv1, sizeof(tv0));
             }
         }

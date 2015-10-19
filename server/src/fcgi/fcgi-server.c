@@ -588,7 +588,7 @@ int main(int argc, char **argv) {
     gc_interval = args.gc_interval_arg;
     gc_max_batch_time = args.gc_max_batch_time_arg;
     gc_yield_time = args.gc_yield_time_arg;
-    gc_slow_check = args.gc_slow_check_flag;
+    gc_slow_check = !args.gc_no_slow_check_flag;
     blockmgr_delay = args.blockmgr_delay_arg;
     db_min_passive_wal_pages = args.db_min_passive_wal_pages_arg;
     db_max_passive_wal_pages = args.db_max_passive_wal_pages_arg;

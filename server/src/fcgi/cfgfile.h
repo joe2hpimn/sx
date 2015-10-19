@@ -86,8 +86,8 @@ struct gengetopt_args_info
   float gc_yield_time_arg;	/**< @brief Time to yield between GC transactions (default='1.1').  */
   char * gc_yield_time_orig;	/**< @brief Time to yield between GC transactions original value given at command line.  */
   const char *gc_yield_time_help; /**< @brief Time to yield between GC transactions help description.  */
-  int gc_slow_check_flag;	/**< @brief Run the old GC (default=on).  */
-  const char *gc_slow_check_help; /**< @brief Run the old GC help description.  */
+  int gc_no_slow_check_flag;	/**< @brief Don't run the old GC (default=off).  */
+  const char *gc_no_slow_check_help; /**< @brief Don't run the old GC help description.  */
   float blockmgr_delay_arg;	/**< @brief Blockmgr delay (default='3').  */
   char * blockmgr_delay_orig;	/**< @brief Blockmgr delay original value given at command line.  */
   const char *blockmgr_delay_help; /**< @brief Blockmgr delay help description.  */
@@ -132,7 +132,7 @@ struct gengetopt_args_info
   unsigned int gc_max_batch_given ;	/**< @brief Whether gc-max-batch was given.  */
   unsigned int gc_max_batch_time_given ;	/**< @brief Whether gc-max-batch-time was given.  */
   unsigned int gc_yield_time_given ;	/**< @brief Whether gc-yield-time was given.  */
-  unsigned int gc_slow_check_given ;	/**< @brief Whether gc-slow-check was given.  */
+  unsigned int gc_no_slow_check_given ;	/**< @brief Whether gc-no-slow-check was given.  */
   unsigned int blockmgr_delay_given ;	/**< @brief Whether blockmgr-delay was given.  */
   unsigned int db_min_passive_wal_pages_given ;	/**< @brief Whether db-min-passive-wal-pages was given.  */
   unsigned int db_max_passive_wal_pages_given ;	/**< @brief Whether db-max-passive-wal-pages was given.  */

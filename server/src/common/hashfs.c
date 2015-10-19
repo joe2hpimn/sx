@@ -12172,9 +12172,11 @@ rc_ty sx_hashfs_gc_run(sx_hashfs_t *h, int *terminate)
                     ret = -1;
                     break;
                 }
-                while((ret = qstep(q)) == SQLITE_ROW && !*terminate && qelapsed(h->datadb[j][i]) < gc_max_batch_time) {
+                while((ret = qstep(q)) == SQLITE_ROW && !*terminate) {
                     if (gc_block(h, j, i, q, 0, 2) == OK)
                         gc_blocks++;
+                    if (qelapsed(h->datadb[j][i]) < gc_max_batch_time)
+                        break;
                 }
                 sqlite3_reset(q);
                 if (ret == SQLITE_DONE)
