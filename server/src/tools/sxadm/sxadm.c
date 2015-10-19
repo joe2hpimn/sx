@@ -1516,6 +1516,7 @@ static int info_cluster(sxc_client_t *sx, struct cluster_args_info *args, int ke
 	sorted[i] = sx_nodelist_get(merged, i);
     qsort(sorted, nnodes, sizeof(sorted[0]), sortnodes);
 
+    printf("State of nodes:\n");
     ret = 0;
     for(i=0; i<nnodes; i++) {
 	const sx_node_t *node = sorted[i];
@@ -1609,9 +1610,9 @@ static int info_cluster(sxc_client_t *sx, struct cluster_args_info *args, int ke
 	}
 	if(!isonline) {
 	    if(last_seen)
-		printf(", online: no (last contact: %lld seconds ago)\n", (long long)last_seen);
+		printf(", online: ** no ** (last contact: %lld seconds ago)\n", (long long)last_seen);
 	    else
-		printf(", online: no\n");
+		printf(", online: ** no **\n");
 	} else
 	    printf(", online: yes, activity: %s\n", op ? op : "idle");
 
