@@ -18,6 +18,15 @@
 /* Define to 1 if you have the `memset' function. */
 #undef HAVE_MEMSET
 
+/* Define to 1 if you have the `mincore' function. */
+#undef HAVE_MINCORE
+
+/* Define to 1 if you have the `posix_fadvise' function. */
+#undef HAVE_POSIX_FADVISE
+
+/* Define to 1 if you have the `posix_madvise' function. */
+#undef HAVE_POSIX_MADVISE
+
 /* Define to 1 if you have the `setgroups' function. */
 #undef HAVE_SETGROUPS
 

@@ -69,8 +69,12 @@ option "db-idle-restart"            - "Interval to force a WAL restart when idle
 option "db-busy-timeout"            - "SQLite database busy timeout"
        int default="20" typestr="sec" optional hidden
 
+option "db-max-mmapsize"            - "SQLite mmap size (0 to disable)"
+       int default="2147418112" typestr="N" optional hidden
+
 option "worker-max-wait"          - "Maximum time to wait before killing a worker"
        int default="300" typestr="sec" optional hidden
 
 option "worker-max-requests"      - "Maximum number of requests / worker"
        int default="5000" typestr="N" optional hidden
+

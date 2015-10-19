@@ -166,7 +166,7 @@ fi
 AC_C_BIGENDIAN()
 
 # Checks for library functions.
-AC_CHECK_FUNCS([setproctitle memset fdatasync setgroups])
+AC_CHECK_FUNCS([setproctitle memset fdatasync setgroups posix_madvise posix_fadvise mincore])
 
 AC_ARG_WITH(system_sqlite3,AC_HELP_STRING([--with-system-sqlite3],
             [Use system SQLite3]))

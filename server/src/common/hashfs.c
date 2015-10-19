@@ -104,6 +104,8 @@ rc_ty sx_hashfs_check_blocksize(unsigned int bs) {
 }
 
 static int write_block(int fd, const void *data, uint64_t off, unsigned int data_len) {
+    uint64_t orig_off = off;
+    unsigned int orig_len = data_len;
     uint8_t *dt = (uint8_t *)data;
     while(data_len) {
 	int l = pwrite(fd, dt, data_len, off);
@@ -117,6 +119,13 @@ static int write_block(int fd, const void *data, uint64_t off, unsigned int data
 	dt += l;
 	off += l;
     }
+    /* Large uploads can kick out more useful pages from the cache (such as DB pages).
+       Do not put the uploaded file into cache immediately.
+     */
+#ifdef HAVE_POSIX_FADVISE
+    if (posix_fadvise(fd, orig_off, orig_len, POSIX_FADV_DONTNEED))
+        PWARN("fadvise failed");
+#endif
     return 0;
 }
 
@@ -513,6 +522,10 @@ static int qopen(const char *path, sxi_db_t **dbp, const char *dbtype, const sx_
 	goto qopen_fail;
     }
     if(qprep(*dbp, &q, "PRAGMA synchronous = NORMAL") || qstep_noret(q))
+	goto qopen_fail;
+    qnullify(q);
+    snprintf(qstr, sizeof(qstr), "PRAGMA mmap_size = %d", db_max_mmapsize);
+    if(qprep(*dbp, &q, qstr) || qstep_ret(q))
 	goto qopen_fail;
     qnullify(q);
     if(qprep(*dbp, &q, "PRAGMA case_sensitive_like = true") || qstep_noret(q))
@@ -12008,6 +12021,7 @@ static rc_ty foreach_hdb_blob(sx_hashfs_t *h, int *terminate,
         for (i=0;i<HASHDBS && !*terminate;i++) {
             int ret;
             sqlite3_stmt *q = loop[j][i];
+            qreadahead(h->datadb[j][i]);
             DEBUG("Running %s", sqlite3_sql(q));
             sqlite3_stmt *q_gc1 = h->qb_gc_revision_blocks[j][i];
             sqlite3_stmt *q_gc2 = h->qb_gc_revision[j][i];
@@ -12109,6 +12123,7 @@ static rc_ty bindall(sqlite3_stmt *stmt[][HASHDBS], const char *var, int64_t val
 
 rc_ty sx_hashfs_gc_periodic(sx_hashfs_t *h, int *terminate, int grace_period)
 {
+    sx_hashfs_incore(h, NULL, NULL);
     /* tokens expire when there was no upload activity within GC_GRACE_PERIOD
      * (i.e. ~2 days) */
     uint64_t real_now = time(NULL), now;
@@ -12139,6 +12154,7 @@ rc_ty sx_hashfs_gc_periodic(sx_hashfs_t *h, int *terminate, int grace_period)
     return ret;
 }
 
+/* TODO: fadvise write_block, --vacuum, flag for custom vfs, print slow check status, print gc start end */
 rc_ty sx_hashfs_gc_run(sx_hashfs_t *h, int *terminate)
 {
     unsigned i, j;
@@ -12146,6 +12162,7 @@ rc_ty sx_hashfs_gc_run(sx_hashfs_t *h, int *terminate)
     int ret = 0;
     ret = 0;
 
+    sx_hashfs_incore(h, NULL, NULL);
     int age = sxi_hdist_version(h->hd);
     DEBUG("age is %d", age);
     if (bindall(h->qb_find_unused_revision, ":age", age) ||
@@ -12192,6 +12209,7 @@ rc_ty sx_hashfs_gc_run(sx_hashfs_t *h, int *terminate)
         }
     }
     INFO("GCed %lld hashes and %lld unused tokens", (long long)gc_blocks, (long long)gc_unused_tokens);
+    sx_hashfs_incore(h, NULL, NULL);
     return ret ? FAIL_EINTERNAL : OK;
 }
 
@@ -16509,3 +16527,83 @@ void sx_hashfs_raft_state_empty(sx_hashfs_t *h, sx_raft_state_t *state) {
     memset(state, 0, sizeof(*state));
 }
 
+int sx_hashfs_incore(sx_hashfs_t *h, float *data_resident, float *other_resident)
+{
+    unsigned i,j;
+    if (!h)
+        return 1;
+    int64_t data_incore = 0, data_pages = 0;
+    for(j=0; j<SIZES; j++) {
+        for(i=0; i<HASHDBS; i++)
+            if (qincore(h->datadb[j][i], &data_incore, &data_pages))
+                return 1;
+    }
+    int64_t other_incore = 0, other_pages = 0;
+    if (qincore(h->eventdb, &other_incore, &other_pages) ||
+        qincore(h->tempdb, &other_incore, &other_pages) ||
+        qincore(h->xferdb, &other_incore, &other_pages))
+        return 1;
+    for(j=0; j<METADBS;j++) {
+        if (qincore(h->metadb[j], &other_incore, &other_pages))
+            return 1;
+    }
+    if (qincore(h->hbeatdb, &other_incore, &other_pages) ||
+        qincore(h->db, &other_incore, &other_pages))
+        return 1;
+
+    float dr, or;
+    dr = data_pages ? 100.0 * data_incore / data_pages : 0.0;
+    or = other_pages ? 100.0 * other_incore / other_pages : 0.0;
+    INFO("Data DB resident: %lld/%lld (%.2f%%)", (long long)data_incore, (long long)data_pages, dr);
+    INFO("Other DB resident: %lld/%lld (%.2f%%)", (long long)other_incore, (long long)other_pages, or);
+    if (data_resident)
+        *data_resident = dr;
+    if (other_resident)
+        *other_resident = or;
+    return 0;
+}
+
+void sx_hashfs_warm_cache(sx_hashfs_t *h)
+{
+    unsigned i,j;
+    if (!h)
+        return;
+    sx_hashfs_incore(h, NULL, NULL);
+    for(j=0; j<SIZES; j++) {
+        for(i=0; i<HASHDBS; i++)
+            qreadahead(h->datadb[j][i]);
+    }
+    qreadahead(h->eventdb);
+    qreadahead(h->tempdb);
+    qreadahead(h->xferdb);
+    for(j=0; j<METADBS;j++) {
+        qreadahead(h->metadb[j]);
+    }
+    qreadahead(h->hbeatdb);
+    qreadahead(h->db);
+    sx_hashfs_incore(h, NULL, NULL);
+}
+
+int sx_hashfs_vacuum(sx_hashfs_t *h)
+{
+    unsigned i,j;
+    sx_hashfs_incore(h, NULL, NULL);
+    for(j=0; j<SIZES; j++) {
+        for(i=0; i<HASHDBS; i++) {
+            if (qvacuum(h->datadb[j][i]))
+                return 1;
+        }
+    }
+    if (qvacuum(h->eventdb) ||
+        qvacuum(h->tempdb) ||
+        qvacuum(h->xferdb))
+        return 1;
+    for(j=0; j<METADBS;j++) {
+        if (qvacuum(h->metadb[j]))
+            return 1;
+    }
+    if (qvacuum(h->hbeatdb) ||
+        qvacuum(h->db))
+        return 1;
+    return 0;
+}

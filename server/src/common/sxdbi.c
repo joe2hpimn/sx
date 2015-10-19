@@ -37,6 +37,7 @@
 #include "log.h"
 #include <fnmatch.h>
 #include "hashfs.h"
+#include <sys/mman.h>
 
 #define SLOW_QUERY_DT 5.0
 
@@ -560,4 +561,122 @@ void pmatch(sqlite3_context *ctx, int argc, sqlite3_value **argv) {
 
     pmatch_return:
     sqlite3_result_int(ctx, r);
+}
+
+static int qfetch(sxi_db_t *db, sqlite3_file **pFile, void **pp, sqlite3_int64 *size)
+{
+    if (!db || !pFile || !pp || !size)
+        return SQLITE_NOMEM;
+    sqlite3_file *file = NULL;
+    int rc;
+
+    *pp = NULL;
+    *size = 0;
+
+    if ((rc = sqlite3_file_control(db->handle, NULL, SQLITE_FCNTL_FILE_POINTER, &file)) != SQLITE_OK) {
+        WARN("Failed to retrieve file pointer: %s", sqlite3_errstr(rc));
+        return rc;
+    }
+    if (!file) {
+        WARN("file pointer not available");
+        return SQLITE_NOMEM;
+    }
+    if (!file->pMethods || !file->pMethods->xFileSize || !file->pMethods->xFetch || !file->pMethods->xUnfetch) {
+        WARN("mmap not available");
+        return SQLITE_NOMEM;
+    }
+    if ((rc = file->pMethods->xFileSize(file, size)) != SQLITE_OK) {
+        WARN("file size not available: %s", sqlite3_errstr(rc));
+        return rc;
+    }
+    if ((rc = file->pMethods->xFetch(file, 0, *size, pp)) != SQLITE_OK) {
+        WARN("page fetch not available: %s", sqlite3_errstr(rc));
+        return rc;
+    }
+    if (!pp) {
+        WARN("page not available");
+        return SQLITE_NOMEM;
+    }
+    *pFile = file;
+    return SQLITE_OK;
+}
+
+static void qunfetch(sqlite3_file **pFile, void **pp)
+{
+    if (!pFile || !*pp)
+        return;
+    sqlite3_file *file = *pFile;
+    if (file && file->pMethods && file->pMethods->xUnfetch)
+        file->pMethods->xUnfetch(file, 0, *pp);
+    *pFile = NULL;
+    *pp = NULL;
+}
+
+void qreadahead(sxi_db_t *db)
+{
+#ifdef HAVE_POSIX_MADVISE
+    sqlite3_file *file;
+    sqlite3_int64 size;
+    void *pp;
+    if (qfetch(db, &file, &pp, &size))
+        return;
+    size_t chunkSize = 2*1024*1024;
+    char *p = pp;
+    while (size > 0) {
+        chunkSize = size < chunkSize ? size : chunkSize;
+        if (posix_madvise(p, chunkSize, POSIX_MADV_WILLNEED)) {
+            PWARN("madvise failed");
+            break;
+        }
+        p += chunkSize;
+        size -= chunkSize;
+    }
+    qunfetch(&file, &pp);
+#endif
+}
+
+int qincore(sxi_db_t *db, int64_t *incore_pages, int64_t *total_pages)
+{
+#ifdef HAVE_MINCORE
+    if (!db || !incore_pages || !total_pages)
+        return SQLITE_NOMEM;
+    long pagesize = sysconf(_SC_PAGESIZE);
+    if (pagesize < 0) {
+        PWARN("cannot retrieve pagesize");
+        return SQLITE_NOMEM;
+    }
+
+    sqlite3_file *file;
+    sqlite3_int64 size;
+    void *pp;
+    int rc;
+    if ((rc = qfetch(db, &file, &pp, &size)))
+        return rc;
+    unsigned n = (size + pagesize - 1) / pagesize;
+    unsigned char *vec = wrap_calloc(n, 1);
+    if (!vec)
+        return SQLITE_NOMEM;
+    if (mincore(pp, size, vec)) {
+        PWARN("mincore failed");
+    } else {
+        unsigned i;
+        for (i=0;i<n;i++)
+            *incore_pages += vec[i]&1;
+        *total_pages += n;
+    }
+    free(vec);
+    qunfetch(&file, &pp);
+#endif
+    return SQLITE_OK;
+}
+
+int qvacuum(sxi_db_t *db)
+{
+    int rc = 0;
+    qreadahead(db);
+    sqlite3_stmt *q = NULL;
+    if (qprep(db, &q, "VACUUM") || qstep_noret(q))
+        rc = 1;
+    qnullify(q);
+    return rc;
 }

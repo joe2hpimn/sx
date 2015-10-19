@@ -136,5 +136,6 @@ extern int db_max_passive_wal_pages;
 extern int db_max_restart_wal_pages;
 extern int db_idle_restart;
 extern int db_busy_timeout;
+extern int db_max_mmapsize;
 extern int worker_max_wait;
 extern int worker_max_requests;

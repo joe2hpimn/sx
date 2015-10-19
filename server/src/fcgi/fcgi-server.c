@@ -593,6 +593,7 @@ int main(int argc, char **argv) {
     db_min_passive_wal_pages = args.db_min_passive_wal_pages_arg;
     db_max_passive_wal_pages = args.db_max_passive_wal_pages_arg;
     db_max_restart_wal_pages = args.db_max_wal_restart_pages_arg;
+    db_max_mmapsize = args.db_max_mmapsize_arg;
     db_idle_restart = args.db_idle_restart_arg;
     db_busy_timeout = args.db_busy_timeout_arg;
     worker_max_wait = args.worker_max_wait_arg;
@@ -798,6 +799,8 @@ int main(int argc, char **argv) {
 	    terminate = -1;
 	    break;
 	}
+
+        /* TODO: SIGBUS handling if mmap I/O is enabled */
 
 	procnum = get_procnum(dead);
 	deadname = process_name(procnum);

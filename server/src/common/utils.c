@@ -731,5 +731,6 @@ int db_max_passive_wal_pages=10000;
 int db_max_restart_wal_pages=20000;
 int db_idle_restart=60;
 int db_busy_timeout=20;
+int db_max_mmapsize=2147418112;
 int worker_max_wait;
 int worker_max_requests;

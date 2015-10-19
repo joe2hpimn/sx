@@ -64,6 +64,9 @@ void qrollback_real(sxi_db_t *db, const char *file, int line);
 #define qrollback(db) qrollback_real(db, __FILE__, __LINE__)
 void qclose(sxi_db_t **db);
 void pmatch(sqlite3_context *ctx, int argc, sqlite3_value **argv);
+void qreadahead(sxi_db_t *db);
+int qincore(sxi_db_t *db, int64_t *incore_pages, int64_t *total_pages);
+int qvacuum(sxi_db_t *db);
 
 #define qnullify(Q) do { sqlite3_finalize(Q); Q = NULL; } while(0)
 

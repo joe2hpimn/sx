@@ -48,6 +48,8 @@ const char *node_args_info_full_help[] = {
   "      --compact              Compact the node data freeing up any allocated but\n                               unused storage space",
   "      --gc                   Run GC on node immediately",
   "      --gc-expire            Run GC on node immediately and ",
+  "      --warm-cache           Warm DB caches",
+  "      --vacuum               Vacuum",
   "\nNew node options:",
   "  -k, --cluster-key=FILE     File containing a pre-generated cluster\n                               authentication token or stdin if \"-\" is given\n                               (default autogenerate token).",
   "  -b, --batch-mode           Turn off interactive confirmations and assume yes\n                               for all questions",
@@ -71,13 +73,13 @@ init_help_array(void)
   node_args_info_help[6] = node_args_info_full_help[6];
   node_args_info_help[7] = node_args_info_full_help[9];
   node_args_info_help[8] = node_args_info_full_help[11];
-  node_args_info_help[9] = node_args_info_full_help[14];
-  node_args_info_help[10] = node_args_info_full_help[15];
-  node_args_info_help[11] = node_args_info_full_help[16];
-  node_args_info_help[12] = node_args_info_full_help[18];
-  node_args_info_help[13] = node_args_info_full_help[19];
-  node_args_info_help[14] = node_args_info_full_help[20];
-  node_args_info_help[15] = node_args_info_full_help[21];
+  node_args_info_help[9] = node_args_info_full_help[16];
+  node_args_info_help[10] = node_args_info_full_help[17];
+  node_args_info_help[11] = node_args_info_full_help[18];
+  node_args_info_help[12] = node_args_info_full_help[20];
+  node_args_info_help[13] = node_args_info_full_help[21];
+  node_args_info_help[14] = node_args_info_full_help[22];
+  node_args_info_help[15] = node_args_info_full_help[23];
   node_args_info_help[16] = 0; 
   
 }
@@ -120,6 +122,8 @@ void clear_given (struct node_args_info *args_info)
   args_info->compact_given = 0 ;
   args_info->gc_given = 0 ;
   args_info->gc_expire_given = 0 ;
+  args_info->warm_cache_given = 0 ;
+  args_info->vacuum_given = 0 ;
   args_info->cluster_key_given = 0 ;
   args_info->batch_mode_given = 0 ;
   args_info->cluster_uuid_given = 0 ;
@@ -166,12 +170,14 @@ void init_args_info(struct node_args_info *args_info)
   args_info->compact_help = node_args_info_full_help[11] ;
   args_info->gc_help = node_args_info_full_help[12] ;
   args_info->gc_expire_help = node_args_info_full_help[13] ;
-  args_info->cluster_key_help = node_args_info_full_help[15] ;
-  args_info->batch_mode_help = node_args_info_full_help[16] ;
-  args_info->cluster_uuid_help = node_args_info_full_help[17] ;
-  args_info->human_readable_help = node_args_info_full_help[19] ;
-  args_info->debug_help = node_args_info_full_help[20] ;
-  args_info->owner_help = node_args_info_full_help[21] ;
+  args_info->warm_cache_help = node_args_info_full_help[14] ;
+  args_info->vacuum_help = node_args_info_full_help[15] ;
+  args_info->cluster_key_help = node_args_info_full_help[17] ;
+  args_info->batch_mode_help = node_args_info_full_help[18] ;
+  args_info->cluster_uuid_help = node_args_info_full_help[19] ;
+  args_info->human_readable_help = node_args_info_full_help[21] ;
+  args_info->debug_help = node_args_info_full_help[22] ;
+  args_info->owner_help = node_args_info_full_help[23] ;
   
 }
 
@@ -338,6 +344,10 @@ node_cmdline_parser_dump(FILE *outfile, struct node_args_info *args_info)
     write_into_file(outfile, "gc", 0, 0 );
   if (args_info->gc_expire_given)
     write_into_file(outfile, "gc-expire", 0, 0 );
+  if (args_info->warm_cache_given)
+    write_into_file(outfile, "warm-cache", 0, 0 );
+  if (args_info->vacuum_given)
+    write_into_file(outfile, "vacuum", 0, 0 );
   if (args_info->cluster_key_given)
     write_into_file(outfile, "cluster-key", args_info->cluster_key_orig, 0);
   if (args_info->batch_mode_given)
@@ -417,6 +427,8 @@ reset_group_MODE(struct node_args_info *args_info)
   args_info->compact_given = 0 ;
   args_info->gc_given = 0 ;
   args_info->gc_expire_given = 0 ;
+  args_info->warm_cache_given = 0 ;
+  args_info->vacuum_given = 0 ;
 
   args_info->MODE_group_counter = 0;
 }
@@ -652,6 +664,8 @@ node_cmdline_parser_internal (
         { "compact",	0, NULL, 0 },
         { "gc",	0, NULL, 0 },
         { "gc-expire",	0, NULL, 0 },
+        { "warm-cache",	0, NULL, 0 },
+        { "vacuum",	0, NULL, 0 },
         { "cluster-key",	1, NULL, 'k' },
         { "batch-mode",	0, NULL, 'b' },
         { "cluster-uuid",	1, NULL, 'u' },
@@ -908,6 +922,40 @@ node_cmdline_parser_internal (
                 &(local_args_info.gc_expire_given), optarg, 0, 0, ARG_NO,
                 check_ambiguity, override, 0, 0,
                 "gc-expire", '-',
+                additional_error))
+              goto failure;
+          
+          }
+          /* Warm DB caches.  */
+          else if (strcmp (long_options[option_index].name, "warm-cache") == 0)
+          {
+          
+            if (args_info->MODE_group_counter && override)
+              reset_group_MODE (args_info);
+            args_info->MODE_group_counter += 1;
+          
+            if (update_arg( 0 , 
+                 0 , &(args_info->warm_cache_given),
+                &(local_args_info.warm_cache_given), optarg, 0, 0, ARG_NO,
+                check_ambiguity, override, 0, 0,
+                "warm-cache", '-',
+                additional_error))
+              goto failure;
+          
+          }
+          /* Vacuum.  */
+          else if (strcmp (long_options[option_index].name, "vacuum") == 0)
+          {
+          
+            if (args_info->MODE_group_counter && override)
+              reset_group_MODE (args_info);
+            args_info->MODE_group_counter += 1;
+          
+            if (update_arg( 0 , 
+                 0 , &(args_info->vacuum_given),
+                &(local_args_info.vacuum_given), optarg, 0, 0, ARG_NO,
+                check_ambiguity, override, 0, 0,
+                "vacuum", '-',
                 additional_error))
               goto failure;
           
