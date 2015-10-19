@@ -109,6 +109,8 @@ struct gengetopt_args_info
   int db_max_mmapsize_arg;	/**< @brief SQLite mmap size (0 to disable) (default='2147418112').  */
   char * db_max_mmapsize_orig;	/**< @brief SQLite mmap size (0 to disable) original value given at command line.  */
   const char *db_max_mmapsize_help; /**< @brief SQLite mmap size (0 to disable) help description.  */
+  int db_no_custom_vfs_flag;	/**< @brief Do not use custom SQLite VFS (default=off).  */
+  const char *db_no_custom_vfs_help; /**< @brief Do not use custom SQLite VFS help description.  */
   int worker_max_wait_arg;	/**< @brief Maximum time to wait before killing a worker (default='300').  */
   char * worker_max_wait_orig;	/**< @brief Maximum time to wait before killing a worker original value given at command line.  */
   const char *worker_max_wait_help; /**< @brief Maximum time to wait before killing a worker help description.  */
@@ -143,6 +145,7 @@ struct gengetopt_args_info
   unsigned int db_idle_restart_given ;	/**< @brief Whether db-idle-restart was given.  */
   unsigned int db_busy_timeout_given ;	/**< @brief Whether db-busy-timeout was given.  */
   unsigned int db_max_mmapsize_given ;	/**< @brief Whether db-max-mmapsize was given.  */
+  unsigned int db_no_custom_vfs_given ;	/**< @brief Whether db-no-custom-vfs was given.  */
   unsigned int worker_max_wait_given ;	/**< @brief Whether worker-max-wait was given.  */
   unsigned int worker_max_requests_given ;	/**< @brief Whether worker-max-requests was given.  */
 

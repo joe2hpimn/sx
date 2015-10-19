@@ -36,6 +36,8 @@ src_common_libcommon_la_SOURCES = \
 		    src/common/hashfs.c \
 		    src/common/hashop.h \
 		    src/common/hashop.c \
+		    src/common/vfs_unix_waitsem.c\
+		    src/common/vfs_unix_waitsem.h\
 		    src/common/sxdbi.c\
 		    src/common/qsort.c \
 		    src/common/isaac.c \
@@ -45,6 +47,7 @@ src_common_libcommon_la_SOURCES = \
 		    src/common/init.h
 
 src_common_libcommon_la_LIBADD = @CRYPTO_LIBS@ @HDIST_LIBS@ @SQLITE3_LIBS@ $(top_builddir)/../libsxclient/src/libsxclient.la
+src_common_libcommon_la_LDFLAGS = $(AM_LDFLAGS) -pthread
 src_common_libcommon_la_CPPFLAGS = $(AM_CPPFLAGS) @CRYPTO_CFLAGS@ @YAJL_CPPFLAGS@
 src_common_libcommon_la_CFLAGS = $(AM_CFLAGS) @SQLITE3_CFLAGS@
 src_common_libcommon_la_LIBTOOLFLAGS = $(AM_LIBTOOLFLAGS) --tag=disable-shared

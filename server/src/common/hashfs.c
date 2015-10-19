@@ -37,6 +37,7 @@
 #include <errno.h>
 #include <fnmatch.h>
 
+#include "vfs_unix_waitsem.h"
 #include "sxdbi.h"
 #include "hashfs.h"
 #include "hdist.h"
@@ -517,10 +518,11 @@ static int qopen(const char *path, sxi_db_t **dbp, const char *dbtype, const sx_
     }
     if (!(*dbp = qnew(handle)))
         goto qopen_fail;
-    if(sqlite3_busy_timeout(handle, db_busy_timeout * 1000)) {
-	CRIT("Failed to set timeout on database %s: %s", path, sqlite3_errmsg(handle));
-	goto qopen_fail;
-    }
+    /* have to use PRAGMA so that our custom VFS can intercept it */
+    snprintf(qstr, sizeof(qstr), "PRAGMA busy_timeout=%d", db_busy_timeout * 1000);
+    if(qprep(*dbp, &q, qstr) || qstep_ret(q))
+        goto qopen_fail;
+    qnullify(q);
     if(qprep(*dbp, &q, "PRAGMA synchronous = NORMAL") || qstep_noret(q))
 	goto qopen_fail;
     qnullify(q);
@@ -1526,6 +1528,11 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
      * forked processes */
     sqlite3_initialize();
     sqlite3_test_control(SQLITE_TESTCTRL_PRNG_RESET);
+    if (db_custom_vfs) {
+        int rc = waitsem_register(NULL, 1);
+        if (rc != SQLITE_OK)
+            WARN("Failed to register VFS: %s", sqlite3_errstr(rc));
+    }
     /* reset OpenSSL's PRNG otherwise it'll share state after a fork */
     sxi_rand_cleanup();
 
@@ -2081,6 +2088,7 @@ void sx_hashfs_close(sx_hashfs_t *h) {
     */
     if(h->sx_clust)
 	sxi_conns_free(h->sx_clust);
+    waitsem_unregister();
     sqlite3_shutdown();
     free(h->ssl_ca_file);
     free(h->cluster_name);
@@ -12154,7 +12162,6 @@ rc_ty sx_hashfs_gc_periodic(sx_hashfs_t *h, int *terminate, int grace_period)
     return ret;
 }
 
-/* TODO: fadvise write_block, --vacuum, flag for custom vfs, print slow check status, print gc start end */
 rc_ty sx_hashfs_gc_run(sx_hashfs_t *h, int *terminate)
 {
     unsigned i, j;

@@ -61,6 +61,7 @@ const char *gengetopt_args_info_full_help[] = {
   "      --db-idle-restart=sec     Interval to force a WAL restart when idle\n                                  (default=`60')",
   "      --db-busy-timeout=sec     SQLite database busy timeout  (default=`20')",
   "      --db-max-mmapsize=N       SQLite mmap size (0 to disable)\n                                  (default=`2147418112')",
+  "      --db-no-custom-vfs        Do not use custom SQLite VFS  (default=off)",
   "      --worker-max-wait=sec     Maximum time to wait before killing a worker\n                                  (default=`300')",
   "      --worker-max-requests=N   Maximum number of requests / worker\n                                  (default=`5000')",
     0
@@ -166,6 +167,7 @@ void clear_given (struct gengetopt_args_info *args_info)
   args_info->db_idle_restart_given = 0 ;
   args_info->db_busy_timeout_given = 0 ;
   args_info->db_max_mmapsize_given = 0 ;
+  args_info->db_no_custom_vfs_given = 0 ;
   args_info->worker_max_wait_given = 0 ;
   args_info->worker_max_requests_given = 0 ;
 }
@@ -218,6 +220,7 @@ void clear_args (struct gengetopt_args_info *args_info)
   args_info->db_busy_timeout_orig = NULL;
   args_info->db_max_mmapsize_arg = 2147418112;
   args_info->db_max_mmapsize_orig = NULL;
+  args_info->db_no_custom_vfs_flag = 0;
   args_info->worker_max_wait_arg = 300;
   args_info->worker_max_wait_orig = NULL;
   args_info->worker_max_requests_arg = 5000;
@@ -257,8 +260,9 @@ void init_args_info(struct gengetopt_args_info *args_info)
   args_info->db_idle_restart_help = gengetopt_args_info_full_help[24] ;
   args_info->db_busy_timeout_help = gengetopt_args_info_full_help[25] ;
   args_info->db_max_mmapsize_help = gengetopt_args_info_full_help[26] ;
-  args_info->worker_max_wait_help = gengetopt_args_info_full_help[27] ;
-  args_info->worker_max_requests_help = gengetopt_args_info_full_help[28] ;
+  args_info->db_no_custom_vfs_help = gengetopt_args_info_full_help[27] ;
+  args_info->worker_max_wait_help = gengetopt_args_info_full_help[28] ;
+  args_info->worker_max_requests_help = gengetopt_args_info_full_help[29] ;
   
 }
 
@@ -465,6 +469,8 @@ cmdline_parser_dump(FILE *outfile, struct gengetopt_args_info *args_info)
     write_into_file(outfile, "db-busy-timeout", args_info->db_busy_timeout_orig, 0);
   if (args_info->db_max_mmapsize_given)
     write_into_file(outfile, "db-max-mmapsize", args_info->db_max_mmapsize_orig, 0);
+  if (args_info->db_no_custom_vfs_given)
+    write_into_file(outfile, "db-no-custom-vfs", 0, 0 );
   if (args_info->worker_max_wait_given)
     write_into_file(outfile, "worker-max-wait", args_info->worker_max_wait_orig, 0);
   if (args_info->worker_max_requests_given)
@@ -781,6 +787,7 @@ cmdline_parser_internal (
         { "db-idle-restart",	1, NULL, 0 },
         { "db-busy-timeout",	1, NULL, 0 },
         { "db-max-mmapsize",	1, NULL, 0 },
+        { "db-no-custom-vfs",	0, NULL, 0 },
         { "worker-max-wait",	1, NULL, 0 },
         { "worker-max-requests",	1, NULL, 0 },
         { 0,  0, 0, 0 }
@@ -1145,6 +1152,18 @@ cmdline_parser_internal (
                 &(local_args_info.db_max_mmapsize_given), optarg, 0, "2147418112", ARG_INT,
                 check_ambiguity, override, 0, 0,
                 "db-max-mmapsize", '-',
+                additional_error))
+              goto failure;
+          
+          }
+          /* Do not use custom SQLite VFS.  */
+          else if (strcmp (long_options[option_index].name, "db-no-custom-vfs") == 0)
+          {
+          
+          
+            if (update_arg((void *)&(args_info->db_no_custom_vfs_flag), 0, &(args_info->db_no_custom_vfs_given),
+                &(local_args_info.db_no_custom_vfs_given), optarg, 0, 0, ARG_FLAG,
+                check_ambiguity, override, 1, 0, "db-no-custom-vfs", '-',
                 additional_error))
               goto failure;
           

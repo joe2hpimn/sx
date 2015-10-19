@@ -135,6 +135,7 @@ am_src_common_libcommon_la_OBJECTS =  \
 	src/common/src_common_libcommon_la-hdist.lo \
 	src/common/src_common_libcommon_la-hashfs.lo \
 	src/common/src_common_libcommon_la-hashop.lo \
+	src/common/src_common_libcommon_la-vfs_unix_waitsem.lo \
 	src/common/src_common_libcommon_la-sxdbi.lo \
 	src/common/src_common_libcommon_la-qsort.lo \
 	src/common/src_common_libcommon_la-isaac.lo \
@@ -149,7 +150,7 @@ am__v_lt_1 =
 src_common_libcommon_la_LINK = $(LIBTOOL) $(AM_V_lt) --tag=CC \
 	$(src_common_libcommon_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) \
 	--mode=link $(CCLD) $(src_common_libcommon_la_CFLAGS) \
-	$(CFLAGS) $(AM_LDFLAGS) $(LDFLAGS) -o $@
+	$(CFLAGS) $(src_common_libcommon_la_LDFLAGS) $(LDFLAGS) -o $@
 am__installdirs = "$(DESTDIR)$(bindir)" "$(DESTDIR)$(sbindir)" \
 	"$(DESTDIR)$(man1dir)" "$(DESTDIR)$(man5dir)" \
 	"$(DESTDIR)$(man8dir)"
@@ -759,6 +760,8 @@ src_common_libcommon_la_SOURCES = \
 		    src/common/hashfs.c \
 		    src/common/hashop.h \
 		    src/common/hashop.c \
+		    src/common/vfs_unix_waitsem.c\
+		    src/common/vfs_unix_waitsem.h\
 		    src/common/sxdbi.c\
 		    src/common/qsort.c \
 		    src/common/isaac.c \
@@ -768,6 +771,7 @@ src_common_libcommon_la_SOURCES = \
 		    src/common/init.h
 
 src_common_libcommon_la_LIBADD = @CRYPTO_LIBS@ @HDIST_LIBS@ @SQLITE3_LIBS@ $(top_builddir)/../libsxclient/src/libsxclient.la
+src_common_libcommon_la_LDFLAGS = $(AM_LDFLAGS) -pthread
 src_common_libcommon_la_CPPFLAGS = $(AM_CPPFLAGS) @CRYPTO_CFLAGS@ @YAJL_CPPFLAGS@
 src_common_libcommon_la_CFLAGS = $(AM_CFLAGS) @SQLITE3_CFLAGS@
 src_common_libcommon_la_LIBTOOLFLAGS = $(AM_LIBTOOLFLAGS) --tag=disable-shared
@@ -980,6 +984,9 @@ src/common/src_common_libcommon_la-hashfs.lo:  \
 	src/common/$(am__dirstamp) \
 	src/common/$(DEPDIR)/$(am__dirstamp)
 src/common/src_common_libcommon_la-hashop.lo:  \
+	src/common/$(am__dirstamp) \
+	src/common/$(DEPDIR)/$(am__dirstamp)
+src/common/src_common_libcommon_la-vfs_unix_waitsem.lo:  \
 	src/common/$(am__dirstamp) \
 	src/common/$(DEPDIR)/$(am__dirstamp)
 src/common/src_common_libcommon_la-sxdbi.lo:  \
@@ -1296,6 +1303,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@src/common/$(DEPDIR)/src_common_libcommon_la-sxdbi.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/common/$(DEPDIR)/src_common_libcommon_la-sxproc.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/common/$(DEPDIR)/src_common_libcommon_la-utils.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@src/common/$(DEPDIR)/src_common_libcommon_la-vfs_unix_waitsem.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/common/$(DEPDIR)/src_tools_sxsim_sxsim-hdist.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/common/$(DEPDIR)/src_tools_sxsim_sxsim-isaac.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/fcgi/$(DEPDIR)/src_fcgi_sx_fcgi-blockmgr.Po@am__quote@
@@ -1420,6 +1428,13 @@ src/common/src_common_libcommon_la-hashop.lo: src/common/hashop.c
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='src/common/hashop.c' object='src/common/src_common_libcommon_la-hashop.lo' libtool=yes @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CC $(src_common_libcommon_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_common_libcommon_la_CPPFLAGS) $(CPPFLAGS) $(src_common_libcommon_la_CFLAGS) $(CFLAGS) -c -o src/common/src_common_libcommon_la-hashop.lo `test -f 'src/common/hashop.c' || echo '$(srcdir)/'`src/common/hashop.c
+
+src/common/src_common_libcommon_la-vfs_unix_waitsem.lo: src/common/vfs_unix_waitsem.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(LIBTOOL) $(AM_V_lt) --tag=CC $(src_common_libcommon_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_common_libcommon_la_CPPFLAGS) $(CPPFLAGS) $(src_common_libcommon_la_CFLAGS) $(CFLAGS) -MT src/common/src_common_libcommon_la-vfs_unix_waitsem.lo -MD -MP -MF src/common/$(DEPDIR)/src_common_libcommon_la-vfs_unix_waitsem.Tpo -c -o src/common/src_common_libcommon_la-vfs_unix_waitsem.lo `test -f 'src/common/vfs_unix_waitsem.c' || echo '$(srcdir)/'`src/common/vfs_unix_waitsem.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) src/common/$(DEPDIR)/src_common_libcommon_la-vfs_unix_waitsem.Tpo src/common/$(DEPDIR)/src_common_libcommon_la-vfs_unix_waitsem.Plo
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='src/common/vfs_unix_waitsem.c' object='src/common/src_common_libcommon_la-vfs_unix_waitsem.lo' libtool=yes @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CC $(src_common_libcommon_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_common_libcommon_la_CPPFLAGS) $(CPPFLAGS) $(src_common_libcommon_la_CFLAGS) $(CFLAGS) -c -o src/common/src_common_libcommon_la-vfs_unix_waitsem.lo `test -f 'src/common/vfs_unix_waitsem.c' || echo '$(srcdir)/'`src/common/vfs_unix_waitsem.c
 
 src/common/src_common_libcommon_la-sxdbi.lo: src/common/sxdbi.c
 @am__fastdepCC_TRUE@	$(AM_V_CC)$(LIBTOOL) $(AM_V_lt) --tag=CC $(src_common_libcommon_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_common_libcommon_la_CPPFLAGS) $(CPPFLAGS) $(src_common_libcommon_la_CFLAGS) $(CFLAGS) -MT src/common/src_common_libcommon_la-sxdbi.lo -MD -MP -MF src/common/$(DEPDIR)/src_common_libcommon_la-sxdbi.Tpo -c -o src/common/src_common_libcommon_la-sxdbi.lo `test -f 'src/common/sxdbi.c' || echo '$(srcdir)/'`src/common/sxdbi.c

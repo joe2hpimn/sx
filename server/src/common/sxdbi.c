@@ -85,6 +85,12 @@ sxi_db_t *qnew(sqlite3 *handle)
         return NULL;
     }
     db->handle = handle;
+    char *zVfsName = NULL;
+    sqlite3_file_control(handle, "main", SQLITE_FCNTL_VFSNAME, &zVfsName);
+    if (zVfsName) {
+        DEBUG("Using VFS %s", zVfsName);
+        sqlite3_free(zVfsName);
+    }
     sqlite3_wal_hook(handle, qwal_hook, db);
     return db;
 }
@@ -142,6 +148,8 @@ void qclose(sxi_db_t **db)
         WARN("Null DBp");
         return;
     }
+    if (!*db)
+      return;
     qclose_db(&(*db)->handle);
     free(*db);
     *db = NULL;
@@ -460,11 +468,13 @@ void qrollback_real(sxi_db_t *db, const char *file, int line) {
 
 void qyield(sxi_db_t *db)
 {
+    #if 0
     DEBUG("Yielding %s for %.2fs", sqlite3_db_filename(db->handle, "main"), gc_yield_time);
     /* If SQLite is compiled with HAVE_USLEEP it tries to acquire the lock at least every 100ms,
        otherwise at least every 1s.
        Sleep longer than that to give a chance for other processes to acquire the lock */
     usleep((useconds_t)(gc_yield_time * 1000000));
+    #endif
 }
 
 /*

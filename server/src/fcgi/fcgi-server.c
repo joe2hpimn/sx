@@ -594,6 +594,7 @@ int main(int argc, char **argv) {
     db_max_passive_wal_pages = args.db_max_passive_wal_pages_arg;
     db_max_restart_wal_pages = args.db_max_wal_restart_pages_arg;
     db_max_mmapsize = args.db_max_mmapsize_arg;
+    db_custom_vfs = !args.db_no_custom_vfs_flag;
     db_idle_restart = args.db_idle_restart_arg;
     db_busy_timeout = args.db_busy_timeout_arg;
     worker_max_wait = args.worker_max_wait_arg;
