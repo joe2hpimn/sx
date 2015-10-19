@@ -162,7 +162,7 @@ sxi_hdist_t *sxi_hdist_new(unsigned int seed, unsigned int max_builds, sx_uuid_t
 	goto hdist_new_err;
     }
 
-    model->circle = (struct hdist_point **) wrap_malloc(sizeof(struct hdist_point *) * max_builds);
+    model->circle = (struct hdist_point **) wrap_calloc(sizeof(struct hdist_point *), max_builds);
     if(!model->circle) {
 	critmsg("Out of memory allocating new distribution model (circle)");
 	goto hdist_new_err;
