@@ -856,23 +856,25 @@ sxi_query_t *sxi_volumeacl_proto(sxc_client_t *sx, const char *volname,
                                  void *ctx)
 {
     sxi_query_t *ret;
-    unsigned n = strlen(volname) + sizeof("?o=acl");
+    unsigned n;
     char *enc_vol;
-    char *url = malloc(n);
-
-    if (!url) {
-        sxi_setsyserr(sx, SXE_EMEM, "Cannot allocate url");
-        return NULL;
-    }
+    char *url;
 
     enc_vol = sxi_urlencode(sx, volname, 0);
     if (!enc_vol) {
         sxi_setsyserr(sx, SXE_EMEM, "Cannot allocate encoded url");
-        free(url);
+        return NULL;
+    }
+    n = strlen(enc_vol) + sizeof("?o=acl");
+    url = malloc(n);
+    if (!url) {
+        sxi_setsyserr(sx, SXE_EMEM, "Cannot allocate url");
+        free(enc_vol);
         return NULL;
     }
     snprintf(url, n, "%s?o=acl&manager", enc_vol);
     free(enc_vol);
+
     ret = sxi_query_create(sx, url, REQ_PUT);
     ret = sxi_query_append_fmt(sx, ret, 1, "{");
     ret = sxi_volumeacl_loop(sx, ret, "grant-read", grant_read, ctx);
