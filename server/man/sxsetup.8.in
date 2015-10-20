@@ -35,6 +35,9 @@ Create a bare (unprogrammed) node. A bare node is ready to join a cluster. Multi
 \fB\-\-force\-reinit\fR
 With this option one can reconfigure an existing node.
 .TP
+\fB\-\-deactivate\fR
+This option will relocate all data stored on this node to other nodes in the cluster and deactivate the node. The procedure can take more time depending on the data size and the network speed. When it's finished, the node will no longer be a member of the cluster. The local storage of the node is not deleted.
+.TP
 \fB\-\-wait\fR
 When a new node is added to a cluster, an automatic data rebalance process gets started. During the rebalance, cluster works in read-write mode but no changes to the cluster structure (eg. adding or removing nodes) are allowed. With this option sxsetup will wait until the rebalance is finished.
 .TP

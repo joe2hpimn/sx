@@ -39,6 +39,9 @@ while [ $OPTNUM -le $# ]; do
     elif [ "$OPTION" = "--force-reinit" ]; then
 	FORCE_REINIT_GIVEN="yes"
 
+    elif [ "$OPTION" = "--deactivate" ]; then
+	DEACTIVATE_GIVEN="yes"
+
     elif [ "$OPTION" = "--wait" ]; then
 	WAIT_GIVEN="yes"
 
@@ -68,6 +71,7 @@ if [ "$HELP_GIVEN" = "yes" ]; then
     echo "    --no-remote-copy    Don't make and use remote copy of sxsetup.conf"
     echo "    --bare              Create a bare (unprogrammed) node"
     echo "    --force-reinit      Overwrite existing configuration"
+    echo "    --deactivate        Leave cluster and deactivate the node"
     echo "    --wait              Wait till rebalance finishes after joining the cluster"
     echo "    --debug             Turn on debug mode for the created node"
     echo
@@ -176,9 +180,13 @@ fi
 # Read previous answers, and initialize the defaults with them
 LOAD_CONFIG=${CONFIG_FILE:-"$CONFIG"}
 if [ -f "$LOAD_CONFIG" ]; then
+    if [ ! -r "$LOAD_CONFIG" ]; then
+	echo "No permission to read $LOAD_CONFIG"
+	exit 1
+    fi
     . "$LOAD_CONFIG"
     if [ -f "$SX_DATA_DIR/hashfs.db" ]; then 
-	if [ "$FORCE_REINIT_GIVEN" != "yes" ]; then
+	if [ "$FORCE_REINIT_GIVEN" != "yes" -a "$DEACTIVATE_GIVEN" != "yes" ]; then
 	    echo "This SX node is already configured. Run sxsetup with --info to display"
 	    echo "the current configuration or with --force-reinit to set it up again."
 	    echo "See sxsetup --help for more options."
@@ -801,7 +809,128 @@ EOF
     done
 } #ask_questions()
 
+cluster_modify() {
+    # Commit new cluster config
+    LOCKCNT=1
+    MODCNT=1
+    while true; do
+	if [ -n "`@sbindir@/sxadm cluster --info sx://admin@$SX_CLUSTER_NAME 2>&1 | grep 'activity:'`" ]; then
+	    echo "Cluster is busy (another operation in progress)... retrying in 60 seconds (attempt $LOCKCNT of 10)."
+	    LOCKCNT=`expr $LOCKCNT + 1`
+	    sleep 60
+	    continue
+	fi
+	"@sbindir@/sxadm" cluster --lock "sx://admin@$SX_CLUSTER_NAME" > $OUT_TMP 2>&1
+	if [ $? -ne 0 ]; then
+	    if [ -n "`grep 'Cluster is already locked' $OUT_TMP`" -o -n "`grep 'Distribution changes in progress' $OUT_TMP`" ] && [ $LOCKCNT -le 10 ]; then
+		echo "Cluster is busy (already locked for changes by another process)... retrying in 60 seconds (attempt $LOCKCNT of 10)."
+		LOCKCNT=`expr $LOCKCNT + 1`
+		sleep 60
+		continue
+	    fi
+	    echo "Failed to modify the cluster. The error message from 'sxadm cluster --lock' was:"
+	    cat $OUT_TMP
+	    echo
+	    echo "Please check the error and try again later."
+	    return 1
+	fi
+
+	"@sbindir@/sxadm" cluster --info "sx://admin@$SX_CLUSTER_NAME" > $OUT_TMP
+	if [ $? -ne 0 ]; then
+	    echo "Failed to retrieve current configuration of the cluster."
+	    "@sbindir@/sxadm" cluster --unlock "sx://admin@$SX_CLUSTER_NAME" > /dev/null
+	    return 1
+	fi
+	SXDIST=`cat $OUT_TMP | grep "Current configuration" | cut -d: -f 2-`
+	if [ -z "$SXDIST" ]; then
+	    echo "Failed to obtain the node information."
+	    "@sbindir@/sxadm" cluster --unlock "sx://admin@$SX_CLUSTER_NAME" > /dev/null
+	    return 1
+	fi
+
+	if [ -n "$NEWNODE" ]; then
+	    SXDIST="$NEWNODE $SXDIST"
+	elif [ -n "$REMOVENODE" ]; then
+	    # FIXME: add support for zones
+            SXDIST=`echo $SXDIST | sed "s|$REMOVENODE||g"`
+	    if [ -z "$SXDIST" ]; then
+		echo "This is the last node in the cluster, no data will be relocated."
+		"@sbindir@/sxserver" stop
+		mv "$CONFIG" "$CONFIG.old.$OLDSTAMP"
+		echo "The node has been successfully deactivated."
+		rm -rf $SXSETUP_TMPDIR
+		trap - EXIT INT
+		exit 0
+	    fi
+	else
+	    echo "Invalid operation mode."
+	    "@sbindir@/sxadm" cluster --unlock "sx://admin@$SX_CLUSTER_NAME" > /dev/null
+	    return 1
+	fi
+
+	"@sbindir@/sxadm" cluster --mod $SXDIST "sx://admin@$SX_CLUSTER_NAME" 2>$OUT_TMP
+	if [ $? = 0 ]; then
+	    "@sbindir@/sxadm" cluster --unlock "sx://admin@$SX_CLUSTER_NAME" > /dev/null
+	    break
+	fi
+	"@sbindir@/sxadm" cluster --unlock "sx://admin@$SX_CLUSTER_NAME" > /dev/null
+	if [ -n "`grep -E 'temporarily locked|complex operation|Failed to setup job targets' $OUT_TMP`" -a $MODCNT -le 10 ]; then
+	    echo "Cluster busy... retrying in 60 seconds (attempt $MODCNT of 10)."
+	    MODCNT=`expr $MODCNT + 1`
+	    sleep 60
+	else
+            cat $OUT_TMP
+	    echo "Failed to modify cluster sx://$SX_CLUSTER_NAME"
+	    return 1
+	fi
+    done
+    return 0
+}
+
 OLDSTAMP="`date +%s`"
+
+if [ "$DEACTIVATE_GIVEN" = "yes" ]; then
+    if [ ! -f "$CONFIG" ]; then
+	echo "Not configured. You have to run sxsetup in configuration mode first."
+	exit 1
+    fi
+    if [ "$SXSETUP_BATCH_MODE" != "yes" ]; then
+	echo "This option will relocate all data stored on this node to other nodes in"
+	echo "the cluster and deactivate the node. The procedure can take more time"
+	echo "depending on the data size and the network speed. Please do not interrupt"
+	echo "it and don't turn off the node until the operation is finished."
+	ask_yn "Do you want to continue? (y/N)"
+	if [ "$ANSWER" != "y" ]; then
+	    exit 0
+	fi
+    fi
+
+    REMOVENODE=`@sbindir@/sxadm node --get-definition $SX_DATA_DIR`
+    cluster_modify || exit 1
+
+    echo "Waiting for cluster to finish data relocation..."
+    while true; do
+	"@sbindir@/sxadm" cluster --info "sx://admin@$SX_CLUSTER_NAME" > $OUT_TMP
+	if [ $? -ne 0 ]; then
+	    sleep 10
+	    continue
+	fi
+	if [ -n "`cat $OUT_TMP | grep 'activity:'`" ]; then
+	    sleep 10
+	    continue
+	else
+	    break
+	fi
+    done
+
+    "@sbindir@/sxserver" stop
+    mv "$CONFIG" "$CONFIG.old.$OLDSTAMP"
+
+    echo "The node has been successfully deactivated."
+    rm -rf $SXSETUP_TMPDIR
+    trap - EXIT INT
+    exit 0
+fi
 
 if [ "$CONFIG_FILE_GIVEN" = "yes" ]; then
     echo "Using config file $CONFIG_FILE"
@@ -1059,12 +1188,9 @@ if [ ! -f "$SX_DATA_DIR/hashfs.db" ]; then
 	fi
 
 	# Create node
-        (
-        set -x
         "@sbindir@/sxadm" node --new\
             --batch-mode $OWNERFLAG $UUIDFLAG $KEYFLAG\
             "$SX_DATA_DIR"
-        )
 	if [ $? -ne 0 ]; then
 	    echo "Failed to create the bare node. Please make sure that $SX_SERVER_USER:$SX_SERVER_GROUP"
 	    echo "has write access to $SX_DATA_DIR"
@@ -1095,12 +1221,9 @@ if [ ! -f "$SX_DATA_DIR/hashfs.db" ]; then
         exit 0
 
     elif [ -z "$SX_EXISTING_NODE_IP" ]; then
-        (
-        set -x
         "@sbindir@/sxadm" node --new\
             --batch-mode $OWNERFLAG $KEYFLAG\
             $UUIDFLAG "$SX_DATA_DIR"
-        )
 	if [ $? -ne 0 ]; then
 	    echo "Failed to create the first node. Please make sure that $SX_SERVER_USER:$SX_SERVER_GROUP"
 	    echo "has write access to $SX_DATA_DIR"
@@ -1121,8 +1244,6 @@ if [ ! -f "$SX_DATA_DIR/hashfs.db" ]; then
 	    echo $SX_ADMIN_KEY > $ADMINKEY_TMP
 	    ADMKEYFILE="--admin-key $ADMINKEY_TMP"
 	fi
-        (
-        set -x
         "@sbindir@/sxadm" cluster --new\
             --port="$SX_PORT"\
             --batch-mode\
@@ -1131,7 +1252,6 @@ if [ ! -f "$SX_DATA_DIR/hashfs.db" ]; then
             $SSLCAFILE \
 	    $NEWNODE \
 	    "sx://$SX_CLUSTER_NAME"
-        )
 	if [ $? -ne 0 ]; then
 	    echo "Failed to create the initial cluster."
 	    exit 1
@@ -1194,14 +1314,11 @@ if [ ! -f "$SX_DATA_DIR/hashfs.db" ]; then
 	echo "SX_ADMIN_KEY=\"$SX_ADMIN_KEY\"" >> "$CONFIG"
 
 	# Create node
-        (
-        set -x
         "@sbindir@/sxadm" node --new\
             --batch-mode $OWNERFLAG\
 	    --cluster-uuid="$SXUUID"\
 	    --cluster-key="$CLUSTKEY_TMP"\
             "$SX_DATA_DIR"
-        )
 	if [ $? -ne 0 ]; then
 	    echo "Failed to create the node. Please make sure that $SX_SERVER_USER:$SX_SERVER_GROUP"
 	    echo "has write access to $SX_DATA_DIR"
@@ -1221,70 +1338,11 @@ if [ ! -f "$SX_DATA_DIR/hashfs.db" ]; then
 	    NEWNODE="$SX_NODE_SIZE/$SX_NODE_IP"
 	fi
 
-	# Commit new cluster config
-	LOCKCNT=1
-	MODCNT=1
-	while true; do
-	    if [ -n "`@sbindir@/sxadm cluster --info sx://admin@$SX_CLUSTER_NAME 2>&1 | grep 'State of operations'`" ]; then
-		echo "Cluster is busy (another operation in progress)... retrying in 60 seconds (attempt $LOCKCNT of 10)."
-		LOCKCNT=`expr $LOCKCNT + 1`
-		sleep 60
-		continue
-	    fi
-	    "@sbindir@/sxadm" cluster --lock "sx://admin@$SX_CLUSTER_NAME" > $OUT_TMP 2>&1
-	    if [ $? -ne 0 ]; then
-		if [ -n "`grep 'Cluster is already locked' $OUT_TMP`" -o -n "`grep 'Distribution changes in progress' $OUT_TMP`" ] && [ $LOCKCNT -le 10 ]; then
-		    echo "Cluster is busy (already locked for changes by another process)... retrying in 60 seconds (attempt $LOCKCNT of 10)."
-		    LOCKCNT=`expr $LOCKCNT + 1`
-		    sleep 60
-		    continue
-		fi
-		echo "Failed to add the new node to the cluster, which could not be properly"
-		echo "locked. The error message from 'sxadm cluster --lock' was:"
-		cat $OUT_TMP
-		echo
-		echo "Please check the error and try again later."
-		"@sbindir@/sxserver" stop
-		exit 1
-	    fi
-
-	    "@sbindir@/sxadm" cluster --info "sx://admin@$SX_CLUSTER_NAME" > $OUT_TMP
-	    if [ $? -ne 0 ]; then
-		echo "Failed to retrieve current configuration of the cluster."
-		"@sbindir@/sxadm" cluster --unlock "sx://admin@$SX_CLUSTER_NAME"
-		"@sbindir@/sxserver" stop
-		exit 1
-	    fi
-
-	    SXDIST=`cat $OUT_TMP | grep "Current configuration" | cut -d: -f 2-`
-	    if [ -z "$SXDIST" ]; then
-		echo "Failed to obtain the node information."
-		"@sbindir@/sxadm" cluster --unlock "sx://admin@$SX_CLUSTER_NAME"
-		"@sbindir@/sxserver" stop
-		exit 1
-	    fi
-	    SXDIST="$NEWNODE $SXDIST"
-	    (
-	    set -x
-	    "@sbindir@/sxadm" cluster --mod $SXDIST "sx://admin@$SX_CLUSTER_NAME" 2>$OUT_TMP
-	    )
-	    if [ $? = 0 ]; then
-		"@sbindir@/sxadm" cluster --unlock "sx://admin@$SX_CLUSTER_NAME"
-		break
-	    fi
-	    "@sbindir@/sxadm" cluster --unlock "sx://admin@$SX_CLUSTER_NAME"
-
-	    if [ -n "`grep -E 'temporarily locked|complex operation|Failed to setup job targets' $OUT_TMP`" -a $MODCNT -le 10 ]; then
-		echo "Cluster busy... retrying in 60 seconds (attempt $MODCNT of 10)."
-		MODCNT=`expr $MODCNT + 1`
-		sleep 60
-	    else
-                cat $OUT_TMP
-		echo "Failed to modify cluster sx://$SX_CLUSTER_NAME"
-		"@sbindir@/sxserver" stop
-		exit 1
-	    fi
-	done
+	cluster_modify
+	if [ $? -ne 0 ]; then
+	    "@sbindir@/sxserver" stop
+	    exit 1
+	fi
 
 	# store sxsetup.conf (non-critical)
 	if [ "$NO_REMOTE_COPY_GIVEN" != "yes" ]; then
@@ -1300,11 +1358,11 @@ if [ ! -f "$SX_DATA_DIR/hashfs.db" ]; then
 	    while true; do
 		"@sbindir@/sxadm" cluster --info "sx://admin@$SX_CLUSTER_NAME" > $OUT_TMP
 		if [ $? -ne 0 ]; then
-		    sleep 1
+		    sleep 10
 		    continue
 		fi
-		if [ -n "`cat $OUT_TMP | grep 'State of operations'`" ]; then
-		    sleep 1
+		if [ -n "`cat $OUT_TMP | grep 'activity:'`" ]; then
+		    sleep 10
 		    continue
 		else
 		    break
