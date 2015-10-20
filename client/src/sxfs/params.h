@@ -31,7 +31,6 @@
 #define _BSD_SOURCE
 #include "default.h"
 #include <stdio.h>
-#include <openssl/md5.h>
 #include <pthread.h>
 #define FUSE_USE_VERSION 26 /* This has to be defined before fuse.h */
 #include <fuse.h>
