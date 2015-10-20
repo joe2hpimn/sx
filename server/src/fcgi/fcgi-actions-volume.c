@@ -845,6 +845,12 @@ void fcgi_acl_volume(void) {
     int i;
     if (is_reserved())
 	quit_errmsg(403, "Invalid volume name: must not start with a '.'");
+
+    const sx_hashfs_volume_t *vol;
+    rc_ty rc = sx_hashfs_volume_by_name(hashfs, volume, &vol);
+    if (rc)
+        quit_errmsg(rc2http(rc), msg_get_reason());
+
     struct acl_ctx actx;
     memset(&actx, 0, sizeof(actx));
 
