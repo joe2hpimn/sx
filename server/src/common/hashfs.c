@@ -585,10 +585,12 @@ static int qopen(const char *path, sxi_db_t **dbp, const char *dbtype, const sx_
     if(qprep(*dbp, &q, "PRAGMA synchronous = NORMAL") || qstep_noret(q))
 	goto qopen_fail;
     qnullify(q);
+    #if 0
     snprintf(qstr, sizeof(qstr), "PRAGMA mmap_size = %d", db_max_mmapsize);
     if(qprep(*dbp, &q, qstr) || qstep_ret(q))
 	goto qopen_fail;
     qnullify(q);
+    #endif
     if(qprep(*dbp, &q, "PRAGMA case_sensitive_like = true") || qstep_noret(q))
         goto qopen_fail;
     qnullify(q);
