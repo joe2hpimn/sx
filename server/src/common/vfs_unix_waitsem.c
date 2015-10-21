@@ -17,6 +17,9 @@
  * timed waiting on locks.
  */
 
+#include "config.h"
+#if HAVE_DECL_CLOCK_GETTIME && HAVE_DECL_SEM_TIMEDWAIT
+
 /* make asserts opt-in */
 #if !defined(SQLITE_DEBUG)
 # define NDEBUG 1
@@ -754,7 +757,19 @@ int waitsem_unregister(void){
     memset(&gWait, 0, sizeof(gWait));
     return SQLITE_OK;
 }
+#else
 
+#include "sqlite3.h"
+int waitsem_register(const char *zOrigVfsName, int makeDefault)
+{
+  return SQLITE_NOTFOUND;
+}
+
+int waitsem_unregister(void)
+{
+  return SQLITE_NOTFOUND;
+}
+#endif
 /* Local Variables: */
 /* c-basic-offset: 2 */
 /* indent-tabs-mode: nil */

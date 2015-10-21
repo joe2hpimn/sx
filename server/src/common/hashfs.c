@@ -1530,8 +1530,12 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
     sqlite3_test_control(SQLITE_TESTCTRL_PRNG_RESET);
     if (db_custom_vfs) {
         int rc = waitsem_register(NULL, 1);
-        if (rc != SQLITE_OK)
-            WARN("Failed to register VFS: %s", sqlite3_errstr(rc));
+        if (rc != SQLITE_OK) {
+            if (rc == SQLITE_NOTFOUND)
+                NOTICE("Custom VFS not available");
+            else
+                WARN("Failed to register VFS: %s", sqlite3_errstr(rc));
+        }
     }
     /* reset OpenSSL's PRNG otherwise it'll share state after a fork */
     sxi_rand_cleanup();

@@ -168,6 +168,9 @@ AC_C_BIGENDIAN()
 # Checks for library functions.
 AC_CHECK_FUNCS([setproctitle memset fdatasync setgroups posix_madvise posix_fadvise mincore])
 
+AC_CHECK_DECLS([sem_timedwait],[],[],[[#include <semaphore.h>]])
+AC_CHECK_DECLS([clock_gettime],[],[],[[#include <time.h>]])
+
 AC_ARG_WITH(system_sqlite3,AC_HELP_STRING([--with-system-sqlite3],
             [Use system SQLite3]))
 
