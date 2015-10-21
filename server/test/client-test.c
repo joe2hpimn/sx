@@ -35,13 +35,13 @@
 #include <fcntl.h>
 #include <sys/types.h>
 #include <sys/stat.h>
-#include <openssl/sha.h>
 #include <unistd.h>
 
 #include "sx.h"
 #include "libsxclient/src/clustcfg.h"
 #include "libsxclient/src/volops.h"
 #include "libsxclient/src/misc.h"
+#include "libsxclient/src/vcrypto.h"
 #include "version.h"
 #include "rgen.h"
 #include "client-test-cmdline.h"
@@ -560,18 +560,22 @@ static void create_block(rnd_state_t *state, unsigned char *block, const uint64_
         block[i] = rand_2cmres(state);
 } /* create_block */
 
-static int create_file(const char* local_file_path, uint64_t block_size, uint64_t block_count, unsigned char sha_hash[SHA_DIGEST_LENGTH], const int force_size) {
+static int create_file(const char* local_file_path, uint64_t block_size, uint64_t block_count, unsigned char sha_hash[SXI_SHA1_BIN_LEN], const int force_size) {
     int ret = 1;
     uint64_t seed, i;
     unsigned char *block;
     FILE *file = NULL;
     rnd_state_t state;
-    SHA_CTX ctx;
+    sxi_md_ctx *ctx = sxi_md_init();
 
+    if(!ctx) {
+        fprintf(stderr, "create_file: ERROR: Cannot allocate memory for checksum.\n");
+        return ret;
+    }
     block = (unsigned char*)malloc(block_size);
     if(!block) {
         fprintf(stderr, "create_file: ERROR: Cannot allocate memory for block.\n");
-        return ret;
+        goto create_file_err;
     }
     seed = make_seed();
     printf("create_file: Seed: %012lx\n", seed);
@@ -600,8 +604,8 @@ static int create_file(const char* local_file_path, uint64_t block_size, uint64_
         fprintf(stderr, "create_file: ERROR: Cannot create '%s' file: %s\n", local_file_path, strerror(errno));
         goto create_file_err;
     }
-    if(sha_hash && !SHA1_Init(&ctx)) {
-        fprintf(stderr, "create_file: ERROR: SHA1_Init() failure.\n");
+    if(sha_hash && !sxi_sha1_init(ctx)) {
+        fprintf(stderr, "create_file: ERROR: Checksum init failure.\n");
         goto create_file_err;
     }
     for(i=0; i<block_count; i++) {
@@ -609,13 +613,13 @@ static int create_file(const char* local_file_path, uint64_t block_size, uint64_
             fprintf(stderr, "create_file: ERROR: Error while writing to '%s' file. (%llu)\n", local_file_path, (unsigned long long)i);
             goto create_file_err;
         }
-        if(sha_hash && !SHA1_Update(&ctx, block, block_size)) {
-            fprintf(stderr, "create_file: ERROR: SHA1_Update() failure. (%llu)\n", (unsigned long long)i);
+        if(sha_hash && !sxi_sha1_update(ctx, block, block_size)) {
+            fprintf(stderr, "create_file: ERROR: Checksum update failure. (%llu)\n", (unsigned long long)i);
             goto create_file_err;
         }
     }
-    if(sha_hash && !SHA1_Final(sha_hash, &ctx)) {
-        fprintf(stderr, "create_file: ERROR: SHA1_Final() failure.\n");
+    if(sha_hash && !sxi_sha1_final(ctx, sha_hash, NULL)) {
+        fprintf(stderr, "create_file: ERROR: Checksum final calculation failure.\n");
         goto create_file_err;
     }
     if(fclose(file) == EOF) {
@@ -629,6 +633,7 @@ static int create_file(const char* local_file_path, uint64_t block_size, uint64_
     ret = 0;
 create_file_err:
     free(block);
+    sxi_md_cleanup(&ctx);
     if(ret && file) {
         if(fclose(file) == EOF)
             fprintf(stderr, "create_file: ERROR: Cannot close '%s' file: %s\n", local_file_path, strerror(errno));
@@ -692,15 +697,19 @@ test_empty_file_err:
 static int test_transfer(sxc_client_t *sx, sxc_cluster_t *cluster, const char *local_dir_path, const char *remote_dir_path, const char *profile_name, const char *cluster_name, const char *filter_dir, const char *filter1_name, const char *filter1_cfg, const char *filter2_name, const char *filter2_cfg, uint64_t block_size, uint64_t block_count, const struct gengetopt_args_info *args, const unsigned int max_revisions, const int check_data_size) {
     int ret = 1;
     char *local_file_path = NULL, *remote_file_path = NULL;
-    unsigned char *block = NULL, hash1[SHA_DIGEST_LENGTH], hash2[SHA_DIGEST_LENGTH];
+    unsigned char *block = NULL, hash1[SXI_SHA1_BIN_LEN], hash2[SXI_SHA1_BIN_LEN];
     FILE *file = NULL;
-    SHA_CTX ctx;
+    sxi_md_ctx *ctx = sxi_md_init();
     size_t tmp;
 
     printf("test_transfer: Started\n");
+    if(!ctx) {
+        fprintf(stderr, "test_transfer: ERROR: Cannot allocate memory for checksum.\n");
+        return ret;
+    }
     if(sxc_cluster_set_progress_cb(sx, cluster, test_callback, (void*)&bytes)) {
         fprintf(stderr, "test_transfer: ERROR: Cannot set callback.\n");
-        return ret;
+        goto test_transfer_err;
     }
     block = (unsigned char*)malloc(block_size);
     if(!block) {
@@ -748,13 +757,13 @@ static int test_transfer(sxc_client_t *sx, sxc_cluster_t *cluster, const char *l
         fprintf(stderr, "test_transfer: ERROR: Cannot download '%s' file.\n", remote_file_path);
         goto test_transfer_err;
     }
-    if(!SHA1_Init(&ctx)) {
-        fprintf(stderr, "test_transfer: ERROR: SHA1_Init() failure.\n");
+    if(!sxi_sha1_init(ctx)) {
+        fprintf(stderr, "test_transfer: ERROR: Checksum init failure.\n");
         goto test_transfer_err;
     }
     while((tmp = fread(block, sizeof(unsigned char), block_size, file))) {
-        if(!SHA1_Update(&ctx, block, tmp)) {
-            fprintf(stderr, "test_transfer: ERROR: SHA1_Update() failure.\n");
+        if(!sxi_sha1_update(ctx, block, tmp)) {
+            fprintf(stderr, "test_transfer: ERROR: Checksum update failure.\n");
             goto test_transfer_err;
         }
         if(tmp < block_size) {
@@ -762,11 +771,11 @@ static int test_transfer(sxc_client_t *sx, sxc_cluster_t *cluster, const char *l
             goto test_transfer_err;
         }
     }
-    if(!SHA1_Final(hash2, &ctx)) {
-        fprintf(stderr, "test_transfer: ERROR: SHA1_Final() failure.\n");
+    if(!sxi_sha1_final(ctx, hash2, NULL)) {
+        fprintf(stderr, "test_transfer: ERROR: Checksum final calculation failure.\n");
         goto test_transfer_err;
     }
-    if(memcmp(hash1, hash2, SHA_DIGEST_LENGTH)) {
+    if(memcmp(hash1, hash2, SXI_SHA1_BIN_LEN)) {
         fprintf(stderr, "test_transfer: ERROR: Uploaded and downloaded file differs.\n");
         goto test_transfer_err;
     }
@@ -775,6 +784,7 @@ static int test_transfer(sxc_client_t *sx, sxc_cluster_t *cluster, const char *l
     printf("test_transfer: Succeeded\n");
 test_transfer_err:
     free(block);
+    sxi_md_cleanup(&ctx);
     if(file) {
         if(fclose(file) == EOF) {
             fprintf(stderr, "test_transfer: ERROR: Cannot close '%s' file: %s\n", local_file_path, strerror(errno));
@@ -792,9 +802,9 @@ test_transfer_err:
 static int test_revision(sxc_client_t *sx, sxc_cluster_t *cluster, const char *local_dir_path, const char *remote_dir_path, const char *profile_name, const char *cluster_name, const char *filter_dir, const char *filter1_name, const char *filter1_cfg, const char *filter2_name, const char *filter2_cfg, uint64_t block_size, uint64_t block_count, const struct gengetopt_args_info *args, const unsigned int max_revisions, const int check_data_size) {
     int ret = 1;
     char *local_file_path = NULL, *remote_file_path = NULL;
-    unsigned char *block, hash[SHA_DIGEST_LENGTH], **hashes;
+    unsigned char *block, hash[SXI_SHA1_BIN_LEN], **hashes = NULL;
     FILE *file = NULL;
-    SHA_CTX ctx;
+    sxi_md_ctx *ctx = sxi_md_init();
     sxc_uri_t *uri = NULL;
     sxc_file_t *src = NULL, *dest = NULL;
     sxc_revlist_t *revs = NULL;
@@ -802,10 +812,14 @@ static int test_revision(sxc_client_t *sx, sxc_cluster_t *cluster, const char *l
     size_t tmp;
 
     printf("test_revision: Started (revision: %d)\n", max_revisions);
+    if(!ctx) {
+        fprintf(stderr, "test_revision: ERROR: Cannot allocate memory for checksum.\n");
+        return ret;
+    }
     block = (unsigned char*)malloc(block_size);
     if(!block) {
         fprintf(stderr, "test_revision: ERROR: Cannot allocate memory for block.\n");
-        return ret;
+        goto test_revision_err;
     }
     hashes = (unsigned char**)calloc(max_revisions, sizeof(unsigned char*));
     if(!hashes) {
@@ -813,7 +827,7 @@ static int test_revision(sxc_client_t *sx, sxc_cluster_t *cluster, const char *l
         goto test_revision_err;
     }
     for(i=0; i<max_revisions; i++) {
-        hashes[i] = (unsigned char*)malloc(SHA_DIGEST_LENGTH);
+        hashes[i] = (unsigned char*)malloc(SXI_SHA1_BIN_LEN);
         if(!hashes[i]) {
             fprintf(stderr, "test_revision: ERROR: Cannot allocate memory for hashes[%d].)\n", i);
             goto test_revision_err;
@@ -906,13 +920,13 @@ static int test_revision(sxc_client_t *sx, sxc_cluster_t *cluster, const char *l
             fprintf(stderr, "test_revision: ERROR: Cannot open '%s' file.\n", remote_file_path);
             goto test_revision_err;
         }
-        if(!SHA1_Init(&ctx)) {
-            fprintf(stderr, "test_revision: ERROR: SHA1_Init() failure while downloading file. (%d)\n", i);
+        if(!sxi_sha1_init(ctx)) {
+            fprintf(stderr, "test_revision: ERROR: Checksum init failure while downloading file. (%d)\n", i);
             goto test_revision_err;
         }
         while((tmp = fread(block, sizeof(unsigned char), block_size, file))) {
-            if(!SHA1_Update(&ctx, block, tmp)) {
-                fprintf(stderr, "test_revision: ERROR: SHA1_Update() failure while downloading file. (%d)\n", i);
+            if(!sxi_sha1_update(ctx, block, tmp)) {
+                fprintf(stderr, "test_revision: ERROR: Checksum update failure while downloading file. (%d)\n", i);
                 goto test_revision_err;
             }
             if(tmp < block_size) {
@@ -933,11 +947,11 @@ static int test_revision(sxc_client_t *sx, sxc_cluster_t *cluster, const char *l
             goto test_revision_err;
         }
         file = NULL;
-        if(!SHA1_Final(hash, &ctx)) {
-            fprintf(stderr, "test_revision: ERROR: SHA1_Final() failure while downloading file. (%d)\n", i);
+        if(!sxi_sha1_final(ctx, hash, NULL)) {
+            fprintf(stderr, "test_revision: ERROR: Checksum final calculation failure while downloading file. (%d)\n", i);
             goto test_revision_err;
         }
-        if(memcmp(hash, hashes[i], SHA_DIGEST_LENGTH)) {
+        if(memcmp(hash, hashes[i], SXI_SHA1_BIN_LEN)) {
             fprintf(stderr, "test_revision: ERROR: Uploaded and downloaded file differs. (%d)\n", i);
             goto test_revision_err;
         }
@@ -996,6 +1010,7 @@ test_revision_err:
             free(hashes[i]);
     free(hashes);
     free(block);
+    sxi_md_cleanup(&ctx);
     sxc_free_uri(uri);
     sxc_file_free(src);
     sxc_file_free(dest);
@@ -1006,17 +1021,21 @@ test_revision_err:
 static int test_cat(sxc_client_t *sx, sxc_cluster_t *cluster, const char *local_dir_path, const char *remote_dir_path, const char *profile_name, const char *cluster_name, const char *filter_dir, const char *filter1_name, const char *filter1_cfg, const char *filter2_name, const char *filter2_cfg, uint64_t block_size, uint64_t block_count, const struct gengetopt_args_info *args, const unsigned int max_revisions, const int check_data_size) {
     int fd = 0, ret = 1, tmp;
     char *local_file_path = NULL, *cat_file_path = NULL, *remote_file_path = NULL;
-    unsigned char *block = NULL, hash_in[SHA_DIGEST_LENGTH], hash_out[SHA_DIGEST_LENGTH];
+    unsigned char *block = NULL, hash_in[SXI_SHA1_BIN_LEN], hash_out[SXI_SHA1_BIN_LEN];
     FILE *file = NULL;
     sxc_uri_t *uri = NULL;
     sxc_file_t *src = NULL;
-    SHA_CTX ctx;
+    sxi_md_ctx *ctx = sxi_md_init();
 
     printf("test_cat: Started\n");
+    if(!ctx) {
+        fprintf(stderr, "test_cat: ERROR: Cannot allocate memory for checksum.\n");
+        return ret;
+    }
     block = (unsigned char*)malloc(SX_BS_LARGE);
     if(!block) {
         fprintf(stderr, "test_cat: ERROR: Cannot allocate memory for block.\n");
-        return ret;
+        goto test_cat_err;
     }
     local_file_path = (char*)malloc(strlen(local_dir_path) + strlen(CAT_FILE_NAME_IN) + 1);
     if(!local_file_path) {
@@ -1075,15 +1094,15 @@ static int test_cat(sxc_client_t *sx, sxc_cluster_t *cluster, const char *local_
         fprintf(stderr, "test_cat: ERROR: Cannot open '%s' file: %s\n", cat_file_path, strerror(errno));
         goto test_cat_err;
     }
-    if(!SHA1_Init(&ctx)) {
-        fprintf(stderr, "test_cat: ERROR: SHA1_Init() failure.\n");
+    if(!sxi_sha1_init(ctx)) {
+        fprintf(stderr, "test_cat: ERROR: Checksum init failure.\n");
         if(fclose(file))
             fprintf(stderr, "test_cat: ERROR: Cannot close '%s' file: %s\n", cat_file_path, strerror(errno));
         goto test_cat_err;
     }
     while((tmp = fread(block, sizeof(unsigned char), SX_BS_LARGE, file))) {
-        if(!SHA1_Update(&ctx, block, tmp)) {
-            fprintf(stderr, "test_cat: ERROR: SHA1_Update() failure.\n");
+        if(!sxi_sha1_update(ctx, block, tmp)) {
+            fprintf(stderr, "test_cat: ERROR: Checksum update failure.\n");
             if(fclose(file))
                 fprintf(stderr, "test_cat: ERROR: Cannot close '%s' file: %s\n", cat_file_path, strerror(errno));
             goto test_cat_err;
@@ -1097,11 +1116,11 @@ static int test_cat(sxc_client_t *sx, sxc_cluster_t *cluster, const char *local_
     }
     if(fclose(file))
         fprintf(stderr, "test_cat: ERROR: Cannot close '%s' file: %s\n", cat_file_path, strerror(errno));
-    if(!SHA1_Final(hash_out, &ctx)) {
+    if(!sxi_sha1_final(ctx, hash_out, NULL)) {
         fprintf(stderr, "test_cat_file: ERROR: SHA1_Final() failure.\n");
         goto test_cat_err;
     }
-    if(memcmp(hash_in, hash_out, SHA_DIGEST_LENGTH)) {
+    if(memcmp(hash_in, hash_out, SXI_SHA1_BIN_LEN)) {
         fprintf(stderr, "test_cat: ERROR: File from cat differs.\n");
         goto test_cat_err;
     }
@@ -1121,6 +1140,7 @@ test_cat_err:
     free(local_file_path);
     free(cat_file_path);
     free(remote_file_path);
+    sxi_md_cleanup(&ctx);
     sxc_free_uri(uri);
     sxc_file_free(src);
     return ret;
@@ -2108,17 +2128,21 @@ test_quota_err:
 static int test_copy(sxc_client_t *sx, sxc_cluster_t *cluster, const char *local_dir_path, const char *remote_dir_path, const char *profile_name, const char *cluster_name, const char *filter_dir, const char *filter1_name, const char *filter1_cfg, const char *filter2_name, const char *filter2_cfg, uint64_t block_size, uint64_t block_count, const struct gengetopt_args_info *args, const unsigned int max_revisions, const int check_data_size) {
     int ret = 1, tmp;
     char *volname1, *volname2 = NULL, *local_file_path = NULL, *remote_file1_path = NULL, *remote_file2_path = NULL;
-    unsigned char block[SX_BS_MEDIUM], hash1[SHA_DIGEST_LENGTH], hash2[SHA_DIGEST_LENGTH];
+    unsigned char block[SX_BS_MEDIUM], hash1[SXI_SHA1_BIN_LEN], hash2[SXI_SHA1_BIN_LEN];
     FILE *file = NULL;
     sxc_uri_t *uri = NULL;
     sxc_file_t *src = NULL, *dest = NULL;
-    SHA_CTX ctx;
+    sxi_md_ctx *ctx = sxi_md_init();
 
     printf("\ntest_copy: Started\n");
+    if(!ctx) {
+        fprintf(stderr, "test_copy: ERROR: Cannot allocate memory for checksum.\n");
+        return ret;
+    }
     volname1 = (char*)malloc(sizeof(VOLNAME) + 2 + (filter1_name ? strlen(filter1_name) : strlen("NonFilter")) + 1 + strlen("XXXXXX") + 1);
     if(!volname1) {
         fprintf(stderr, "test_copy: ERROR: Cannot allocate memory for volname1.\n");
-        return ret;
+        goto test_copy_err;
     }
     sprintf(volname1, "%s1_%s_XXXXXX", VOLNAME, filter1_name ? filter1_name : "NonFilter");
     if(randomize_name(volname1))
@@ -2207,13 +2231,13 @@ static int test_copy(sxc_client_t *sx, sxc_cluster_t *cluster, const char *local
         fprintf(stderr, "test_copy: ERROR: Cannot download '%s' file.\n", remote_file2_path);
         goto test_copy_err;
     }
-    if(!SHA1_Init(&ctx)) {
-        fprintf(stderr, "test_copy: ERROR: SHA1_Init() failure.\n");
+    if(!sxi_sha1_init(ctx)) {
+        fprintf(stderr, "test_copy: ERROR: Checksum init failure.\n");
         goto test_copy_err;
     }
     while((tmp = fread(block, sizeof(unsigned char), SX_BS_MEDIUM, file))) {
-        if(!SHA1_Update(&ctx, block, tmp)) {
-            fprintf(stderr, "test_copy: ERROR: SHA1_Update() failure.\n");
+        if(!sxi_sha1_update(ctx, block, tmp)) {
+            fprintf(stderr, "test_copy: ERROR: Checksum update failure.\n");
             goto test_copy_err;
         }
         if(tmp < SX_BS_MEDIUM) {
@@ -2221,11 +2245,11 @@ static int test_copy(sxc_client_t *sx, sxc_cluster_t *cluster, const char *local
             goto test_copy_err;
         }
     }
-    if(!SHA1_Final(hash2, &ctx)) {
-        fprintf(stderr, "test_copy: ERROR: SHA1_Final() failure.\n");
+    if(!sxi_sha1_final(ctx, hash2, NULL)) {
+        fprintf(stderr, "test_copy: ERROR: Checksum final calculation failure.\n");
         goto test_copy_err;
     }
-    if(memcmp(hash1, hash2, SHA_DIGEST_LENGTH)) {
+    if(memcmp(hash1, hash2, SXI_SHA1_BIN_LEN)) {
         fprintf(stderr, "test_copy: ERROR: Uploaded and downloaded file differs.\n");
         goto test_copy_err;
     }
@@ -2264,6 +2288,7 @@ test_copy_err:
     free(local_file_path);
     free(remote_file1_path);
     free(remote_file2_path);
+    sxi_md_cleanup(&ctx);
     sxc_free_uri(uri);
     sxc_file_free(src);
     sxc_file_free(dest);
