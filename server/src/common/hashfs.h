@@ -80,6 +80,7 @@ typedef int64_t sx_uid_t;
 rc_ty sx_storage_create(const char *dir, sx_uuid_t *cluster, uint8_t *key, int key_size);
 rc_ty sx_storage_upgrade(const char *dir);
 typedef struct _sx_hashfs_t sx_hashfs_t;
+rc_ty sx_storage_upgrade_job(sx_hashfs_t *hashfs);
 sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx);
 void sx_hashfs_checkpoint_idle(sx_hashfs_t *h);
 void sx_hashfs_checkpoint_eventdb(sx_hashfs_t *h);

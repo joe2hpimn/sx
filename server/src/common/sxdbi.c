@@ -438,6 +438,8 @@ double qelapsed(sxi_db_t *db)
 
 static void qdone(sxi_db_t *db, const char *file, int line)
 {
+    if (!db)
+        return;
     double dt = qelapsed(db);
     if (dt > SLOW_QUERY_DT)
         INFO("Slow transaction finished at %s:%d after %.2f sec", file, line, dt);

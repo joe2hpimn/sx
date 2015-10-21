@@ -4017,6 +4017,7 @@ typedef struct {
     sx_db_upgrade_fn upgrade_xfersdb;
     sx_db_upgrade_fn upgrade_hbeatdb;
     rc_ty (*upgrade_alldb)(sxi_all_db_t *alldb);
+    jobtype_t job;
 } sx_upgrade_t;
 
 static rc_ty upgrade_db_precheck(sxi_db_t **dbp, const char *dbname)
@@ -4605,7 +4606,8 @@ static const sx_upgrade_t upgrade_sequence[] = {
         .upgrade_metadb = metadb_1_0_to_1_1,
         .upgrade_datadb = datadb_1_0_to_1_1,
         .upgrade_eventsdb = eventsdb_1_0_to_1_1,
-        .upgrade_alldb = alldb_1_0_to_1_1
+        .upgrade_alldb = alldb_1_0_to_1_1,
+        .job = JOBTYPE_UPGRADE_FROM_1_0_OR_1_1
     },
     {
         .from = HASHFS_VERSION_1_1,
@@ -4613,6 +4615,7 @@ static const sx_upgrade_t upgrade_sequence[] = {
         .upgrade_hashfsdb = hashfs_1_1_to_1_2,
         .upgrade_metadb = metadb_1_1_to_1_2,
         .upgrade_eventsdb = eventdb_1_1_to_1_2,
+        .job = JOBTYPE_UPGRADE_FROM_1_0_OR_1_1
     },
     {
         .from = HASHFS_VERSION_1_2,
@@ -4620,7 +4623,8 @@ static const sx_upgrade_t upgrade_sequence[] = {
         .upgrade_hashfsdb = hashfs_1_2_to_1_9,
         .upgrade_metadb = metadb_1_2_to_1_9,
 	.upgrade_hbeatdb = hbeatdb_1_2_to_1_9,
-	NEWDBS({"hbeatdb", "hbeat.db"} /* , {"otherstuff", "other.db"}, ... */)
+	NEWDBS({"hbeatdb", "hbeat.db"} /* , {"otherstuff", "other.db"}, ... */),
+        .job = JOBTYPE_DUMMY
     }
 };
 
@@ -4749,6 +4753,7 @@ rc_ty sx_storage_upgrade(const char *dir) {
     struct timeval tv_start, tv_integrity_done, tv_upgrade_done, tv_close;
     int lockfd = -1;
     rc_ty fnret = OK, ret = FAIL_EINTERNAL;
+    sqlite3_stmt *q = NULL;
 
     pathlen = strlen(dir) + 1024;
     memset(&alldb, 0, sizeof(alldb));
@@ -4781,12 +4786,17 @@ rc_ty sx_storage_upgrade(const char *dir) {
     uuid_from_binary(&cluster, ptr);
     sqlite3_reset(qgetval);
 
+    if(qprep(alldb.hashfs, &q, "INSERT OR REPLACE INTO hashfs (key, value) SELECT 'upgraded_from', value FROM hashfs WHERE key='version'") ||
+       qstep_noret(q))
+        goto upgrade_fail;
+    qnullify(q);
+
     for(upno=0;upno<sizeof(upgrade_sequence)/sizeof(upgrade_sequence[0]);upno++) {
 	sx_upgrade_t desc = upgrade_sequence[upno];
 	const struct newdbdef *nudbs = desc.new_dbs;
 	if(nudbs) {
 	    sqlite3_stmt *qsetval;
-	    if(qprep(alldb.hashfs, &qsetval, "INSERT INTO hashfs (key, value) VALUES (:k, :v)"))
+	    if(qprep(alldb.hashfs, &qsetval, "INSERT OR IGNORE INTO hashfs (key, value) VALUES (:k, :v)"))
 		goto upgrade_fail;
 
 	    for(; nudbs->dbtype; nudbs++) {
@@ -4809,7 +4819,6 @@ rc_ty sx_storage_upgrade(const char *dir) {
 	}
     }
 
-    
     for(i=0; i<METADBS; i++) {
 	snprintf(dbitem, sizeof(dbitem), "metadb_%08x", i);
 	if(!(alldb.meta[i] = open_db(dir, dbitem, &cluster, NULL, qgetval)) ||
@@ -4942,6 +4951,7 @@ upgrade_fail:
     if(fnret != OK)
 	ret = fnret;
     qnullify(qgetval);
+    qnullify(q);
     free(path);
     if (ret)
         qrollback_alldb(&alldb);
@@ -4952,6 +4962,56 @@ upgrade_fail:
     if (lockfd != -1)
         close(lockfd);
     return ret;
+}
+
+rc_ty sx_storage_upgrade_job(sx_hashfs_t *h)
+{
+    sqlite3_stmt *q = NULL;
+    rc_ty rc = FAIL_EINTERNAL;
+    if (sx_storage_is_bare(h)) {
+        INFO("Bare node storage is up to date");
+        return OK;
+    }
+
+    sx_nodelist_t *local = sx_nodelist_new();
+    job_t job_id = JOB_NOPARENT;
+    jobtype_t last_jobtype = JOBTYPE_DUMMY;
+    if (!local || sx_nodelist_add(local, sx_node_dup(sx_hashfs_self(h)))) {
+        rc = ENOMEM;
+        goto upgrade_job_fail;
+    }
+    if(qprep(h->db, &q, "SELECT value FROM hashfs WHERE key='upgraded_from'") ||
+       qstep_ret(q)) {
+        goto upgrade_job_fail;
+    }
+    const char *upgrade_from = (const char*)sqlite3_column_text(q, 0);
+
+    for(unsigned upno=0;upno<sizeof(upgrade_sequence)/sizeof(upgrade_sequence[0]);upno++) {
+        sx_upgrade_t desc = upgrade_sequence[upno];
+        /* Only insert upgrade job if we are upgrading *from* this version */
+        if (strcmp(desc.from, upgrade_from))
+            continue;
+        if(desc.job == JOBTYPE_DUMMY || last_jobtype == desc.job)
+            continue;
+        upgrade_from = desc.to;
+        rc = sx_hashfs_job_new(h, 0, &job_id, desc.job, JOB_NO_EXPIRY, desc.to, &job_id, sizeof(job_id), local);
+        last_jobtype = desc.job;
+        if (rc) {
+            if (rc == FAIL_LOCKED)
+                rc =  OK; /* Job already added */
+            else
+                goto upgrade_job_fail;
+        } else {
+            INFO("Insert upgrade job %s -> %s", desc.from, desc.to);
+        }
+    }
+
+    rc = OK;
+
+upgrade_job_fail:
+    qnullify(q);
+    sx_nodelist_delete(local);
+    return rc;
 }
 
 static rc_ty datadb_begin(sx_hashfs_t *h, unsigned int hs);

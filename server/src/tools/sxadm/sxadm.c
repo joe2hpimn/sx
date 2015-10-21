@@ -2104,31 +2104,12 @@ static int upgrade_node(sxc_client_t *sx, const char *path)
     sx_hashfs_t *h = sx_hashfs_open(path, sx);
     if (!h)
         return 1;
-    if (sx_storage_is_bare(h)) {
-        sx_hashfs_close(h);
-        INFO("Bare node storage is up to date");
-        return 0;
-    }
-    job_t job_id = -1;
-    sx_nodelist_t *local = sx_nodelist_new();
-    if (local &&
-        !sx_nodelist_add(local, sx_node_dup(sx_hashfs_self(h)))) {
-        rc = sx_hashfs_job_new(h, 0, &job_id, JOBTYPE_UPGRADE_FROM_1_0_OR_1_1, JOB_NO_EXPIRY, "UPGRADE", &job_id, sizeof(job_id), local);
-        if (rc) {
-            if (rc == FAIL_LOCKED)
-                job_id = 0;
-            else
-                fprintf(stderr, "ERROR: Failed to insert upgrade job: %s (%s)\n", rc2str(rc), msg_get_reason());
-        }
-    } else {
-        fprintf(stderr, "Failed to allocate nodelist\n");
-    }
-    sx_nodelist_delete(local);
+    rc = sx_storage_upgrade_job(h);
+    if (rc)
+        fprintf(stderr, "ERROR: Failed to add upgrade job: %s (%s)\n", rc2str(rc), msg_get_reason());
     sx_hashfs_close(h);
-    if (job_id == -1)
-        return -1;
     INFO("Storage is up to date");
-    return 0;
+    return rc != OK;
 }
 
 static int upgrade_job_node(sxc_client_t *sx, const char *path)
