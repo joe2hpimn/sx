@@ -5761,7 +5761,7 @@ static rc_ty massrename_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *jo
     const char *volname = NULL, *source = NULL, *dest = NULL;
     const sx_hashfs_volume_t *vol = NULL;
     const sx_hashfs_file_t *file = NULL;
-    unsigned int dlen, slen, plen;
+    unsigned int dlen, plen;
     int recursive = 0;
     char timestamp_str[REV_TIME_LEN+1];
     char newname[SXLIMIT_MAX_FILENAME_LEN+1];
@@ -5806,7 +5806,6 @@ static rc_ty massrename_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *jo
         action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to get non-volnodes list");
     }
 
-    slen = strlen(source);
     source_slashes = sxi_count_slashes(source);
     dlen = strlen(dest);
 
