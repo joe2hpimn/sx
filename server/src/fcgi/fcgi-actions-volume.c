@@ -33,6 +33,7 @@
 #include "fcgi-utils.h"
 #include "fcgi-actions-volume.h"
 #include "../libsxclient/src/misc.h"
+#include "../libsxclient/src/clustcfg.h"
 #include "blob.h"
 #include "utils.h"
 #include "job_common.h"
@@ -973,7 +974,7 @@ void fcgi_create_volume(void) {
 	job_t job;
 	rc_ty res;
 
-        res = sx_hashfs_check_volume_settings(hashfs, volume, yctx.volsize, yctx.replica, yctx.revisions);
+        res = sx_hashfs_check_volume_settings(hashfs, volume, yctx.volsize, -1, yctx.replica, yctx.revisions);
         if(res != OK) {
             sx_blob_free(yctx.metablb);
             if(res == EINVAL)
@@ -1719,7 +1720,7 @@ static rc_ty volmod_parse_complete(void *yctx)
 
     if(ctx->newrevs != -1 || ctx->newsize != -1) {
         /* Check if new volume configuration is ok */
-        if((s = sx_hashfs_check_volume_settings(hashfs, volume, ctx->newsize != -1 ? ctx->newsize : vol->size, vol->max_replica, ctx->newrevs != -1 ? ctx->newrevs : vol->revisions)) != OK)
+        if((s = sx_hashfs_check_volume_settings(hashfs, volume, ctx->newsize != -1 ? ctx->newsize : vol->size, vol->size, vol->max_replica, ctx->newrevs != -1 ? ctx->newrevs : vol->revisions)) != OK)
             return s; /* Message is set by sx_hashfs_check_volume_settings() */
     }
 

@@ -1442,7 +1442,6 @@ test_get "$writer quota usage", {$writer=>[200,'application/json']}, ".self", un
 test_put_job "Increasing max revisions for tiny$vol", {$writer=>[200]}, "tiny$vol?o=mod", "{\"maxRevisions\":2}";
 test_get "tiny$vol max revisions limit modification", {'badauth'=>[401],$reader=>[200,'application/json'],$writer=>[200,'application/json'],'admin'=>[200,'application/json']}, "?volumeList", undef, sub { my $json = get_json(shift); return 0 unless is_hash($json->{'volumeList'}) && is_hash($json->{'volumeList'}->{"tiny$vol"}) && is_int($json->{'volumeList'}->{"tiny$vol"}->{'maxRevisions'}) && $json->{'volumeList'}->{"tiny$vol"}->{'maxRevisions'} == 2; };
 test_put_job "Increasing max revisions for tiny$vol (too high)", {$writer=>[400]}, "tiny$vol?o=mod", "{\"maxRevisions\":100}"; # Revisions limit is too high
-test_put_job "Increasing max revisions for $vol", {'admin'=>[400]}, "$vol?o=mod", "{\"maxRevisions\":5}"; # Will exceed cluster capacity
 test_upload 'file upload (add new revision)', $writer, random_data($tinyvolumesize/2-length('toobig')), "tiny$vol", 'toobig';
 test_get 'file revisions (should be 2)', authed_only(200, 'application/json'), "tiny$vol/toobig?fileRevisions", undef, sub { my $json = get_json(shift); return 0 unless is_hash($json->{'fileRevisions'}) && scalar keys %{$json->{'fileRevisions'}} == 2; };
 # Check if volume usage is computed correctly

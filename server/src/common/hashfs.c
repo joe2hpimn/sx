@@ -6894,7 +6894,7 @@ static rc_ty get_min_reqs(sx_hashfs_t *h, unsigned int *min_nodes, int64_t *min_
 }
 
 /* Return error if given size is incorrect */
-static rc_ty sx_hashfs_check_volume_size(sx_hashfs_t *h, int64_t size, unsigned int replica) {
+static rc_ty sx_hashfs_check_volume_size(sx_hashfs_t *h, int64_t size, int64_t old_size, unsigned int replica) {
     int64_t vols_size;
 
     if(size < SXLIMIT_MIN_VOLUME_SIZE || size > SXLIMIT_MAX_VOLUME_SIZE) {
@@ -6912,6 +6912,8 @@ static rc_ty sx_hashfs_check_volume_size(sx_hashfs_t *h, int64_t size, unsigned 
         msg_set_reason("Failed to get volume sizes");
         return FAIL_EINTERNAL;
     }
+    if(old_size != -1)
+	vols_size -= old_size;
 
     /* Check if cluster capacity is not reached yet (better error message) */
     if(vols_size + SXLIMIT_MIN_VOLUME_SIZE * replica >= h->effective_capacity) {
@@ -6931,7 +6933,7 @@ static rc_ty sx_hashfs_check_volume_size(sx_hashfs_t *h, int64_t size, unsigned 
     return OK;
 }
 
-rc_ty sx_hashfs_check_volume_settings(sx_hashfs_t *h, const char *volume, int64_t size, unsigned int replica, unsigned int revisions) {
+rc_ty sx_hashfs_check_volume_settings(sx_hashfs_t *h, const char *volume, int64_t size, int64_t old_size, unsigned int replica, unsigned int revisions) {
     rc_ty ret;
 
     if(!h) {
@@ -6961,7 +6963,7 @@ rc_ty sx_hashfs_check_volume_settings(sx_hashfs_t *h, const char *volume, int64_
 	return EINVAL;
     }
 
-    return sx_hashfs_check_volume_size(h, size, replica);
+    return sx_hashfs_check_volume_size(h, size, old_size, replica);
 }
 
 static rc_ty get_priv_holder(sx_hashfs_t *h, uint64_t uid, const char *volume, int64_t *holder);
@@ -6984,7 +6986,7 @@ rc_ty sx_hashfs_volume_new_finish(sx_hashfs_t *h, const char *volume, int64_t si
 	return FAIL_EINTERNAL;
 
     /* Check volume size inside transaction to not fall into race */
-    if((ret = sx_hashfs_check_volume_settings(h, volume, size, replica, revisions)) != OK)
+    if((ret = sx_hashfs_check_volume_settings(h, volume, size, -1, replica, revisions)) != OK)
         goto volume_new_err;
     ret = FAIL_EINTERNAL;
 
@@ -14630,7 +14632,7 @@ rc_ty sx_hashfs_volume_mod(sx_hashfs_t *h, const char *volume, const char *newow
 
     if(newsize != -1 && newsize != vol->size) {
         /* Check new volume size correctness */
-        if((s = sx_hashfs_check_volume_size(h, newsize, vol->max_replica))) {
+        if((s = sx_hashfs_check_volume_size(h, newsize, vol->size, vol->max_replica))) {
             WARN("Invalid volume size given");
             ret = s;
             goto sx_hashfs_volume_mod_err;
