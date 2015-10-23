@@ -1654,9 +1654,12 @@ void fcgi_raft_request_vote(void) {
     int len;
     int success = 0;
     int state_changed = 0;
+    yajl_handle yh;
 
     memset(&ctx, 0, sizeof(ctx));
-    yajl_handle yh = yajl_alloc(&request_vote_parser, NULL, &ctx);
+    local_version = sx_hashfs_version(hashfs);
+
+    yh = yajl_alloc(&request_vote_parser, NULL, &ctx);
     if(!yh)
         quit_errmsg(500, "Cannot allocate json parser");
 
@@ -1700,7 +1703,6 @@ void fcgi_raft_request_vote(void) {
                 (long long)sx_hashfs_hdist_getversion(hashfs), (long long)ctx.hdist_version);
         goto request_vote_out;
     }
-    local_version = sx_hashfs_version(hashfs);
     if(sx_hashfs_version_cmp(&ctx.remote_version, local_version) < 0) {
         DEBUG("Local hashfs version (%s) is newer than candidate's (%s): rejecting",
 	      local_version->string, ctx.remote_version.string);
@@ -1990,9 +1992,12 @@ void fcgi_raft_append_entries(void) {
     int len;
     int success = 0;
     int state_changed = 0;
+    yajl_handle yh;
 
     memset(&ctx, 0, sizeof(ctx));
-    yajl_handle yh = yajl_alloc(&append_entries_parser, NULL, &ctx);
+    local_version = sx_hashfs_version(hashfs);
+
+    yh = yajl_alloc(&append_entries_parser, NULL, &ctx);
     if(!yh)
         quit_errmsg(500, "Cannot allocate json parser");
 
@@ -2036,7 +2041,6 @@ void fcgi_raft_append_entries(void) {
         goto append_entries_out;
     }
 
-    local_version = sx_hashfs_version(hashfs);
     if(sx_hashfs_version_cmp(&ctx.remote_version, local_version) < 0) {
         DEBUG("Local hashfs version (%s) is newer than candidate's (%s): rejecting",
                 local_version->string, ctx.remote_version.string);
