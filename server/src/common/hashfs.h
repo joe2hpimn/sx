@@ -150,7 +150,14 @@ const sx_nodelist_t *sx_hashfs_effective_nodes(sx_hashfs_t *h, sx_hashfs_nl_t wh
 const sx_node_t *sx_hashfs_self(sx_hashfs_t *h);
 rc_ty sx_hashfs_self_uuid(sx_hashfs_t *h, sx_uuid_t *uuid);
 const char *sx_hashfs_self_unique(sx_hashfs_t *h);
-const char *sx_hashfs_version(sx_hashfs_t *h);
+typedef struct sx_hashfs_version {
+    char *string;
+    char full[17];
+    unsigned int major, minor;
+} sx_hashfs_version_t;
+sx_hashfs_version_t *sx_hashfs_version(sx_hashfs_t *h);
+rc_ty sx_hashfs_version_parse(const char *vstr, sx_hashfs_version_t *ver);
+int sx_hashfs_version_cmp(const sx_hashfs_version_t *vera, const sx_hashfs_version_t *verb);
 const sx_uuid_t *sx_hashfs_uuid(sx_hashfs_t *h);
 
 typedef struct _sx_hashfs_user_t {

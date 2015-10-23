@@ -1220,7 +1220,7 @@ static int info_node(sxc_client_t *sx, const char *path, struct node_args_info *
     h = sx_hashfs_open(path, sx);
     if(!h)
 	return 1;
-    printf("HashFS Version: %s\n", sx_hashfs_version(h));
+    printf("HashFS Version: %s\n", sx_hashfs_version(h)->string);
     printf("Cluster UUID: %s\n", sx_hashfs_uuid(h)->string);
     printf("Cluster key: %s\n", sx_hashfs_authtoken(h));
     admin = sxi_hashfs_admintoken(h);

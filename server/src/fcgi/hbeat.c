@@ -39,6 +39,14 @@
 
 static int terminate = 0;
 
+#define version_init(ver) \
+    do {				\
+	(ver)->full[0] = '\0';		\
+	(ver)->string = (ver)->full;	\
+	(ver)->major = 0;		\
+	(ver)->minor = 0;		\
+    } while(0)
+
 static void sighandler(int signum) {
     if (signum == SIGHUP || signum == SIGUSR1) {
 	log_reopen();
@@ -68,7 +76,7 @@ struct cb_raft_response_ctx {
     sx_raft_term_t term;
     int success;
     int64_t hdist_version;
-    char hashfs_version[15];
+    sx_hashfs_version_t remote_version;
     char libsxclient_version[128];
 };
 
@@ -76,10 +84,13 @@ static int cb_raft_response_string(void *ctx, const unsigned char *s, size_t l) 
     struct cb_raft_response_ctx *c = (struct cb_raft_response_ctx*)ctx;
 
     if(c->state == CB_RR_HASHFS_VERSION) {
-        if(l >= sizeof(c->hashfs_version))
+	char ver[sizeof(c->remote_version.full)];
+        if(l >= sizeof(ver))
             return 0;
-        memcpy(c->hashfs_version, s, l);
-        c->hashfs_version[l] = '\0';
+        memcpy(ver, s, l);
+        ver[l] = '\0';
+	if(sx_hashfs_version_parse(ver, &c->remote_version))
+	    return 0;
         c->state = CB_RR_KEY;
         return 1;
     } else if(c->state == CB_RR_LIB_VERSION) {
@@ -211,7 +222,7 @@ static int raft_response_setup_cb(curlev_context_t *cbdata, const char *host) {
     c->state = CB_RR_START;
     c->success = -1;
     c->term.term = -1;
-    memset(c->hashfs_version, 0, sizeof(c->hashfs_version));
+    version_init(&c->remote_version);
     memset(c->libsxclient_version, 0, sizeof(c->libsxclient_version));
 
     return 0;
@@ -237,7 +248,7 @@ static int raft_response_cb(curlev_context_t *cbdata, const unsigned char *data,
     return 0;
 }
 
-static rc_ty raft_rpc_bcast(sx_hashfs_t *h, sx_raft_state_t *state, raft_rpc_type_t rpc_type, const sx_nodelist_t *nodes, unsigned int nnodes, sx_raft_term_t *max_recv_term, int64_t *max_recv_hdist_version, char *max_recv_hashfs_version, unsigned int max_recv_hashfs_version_len, unsigned int *succeeded) {
+static rc_ty raft_rpc_bcast(sx_hashfs_t *h, sx_raft_state_t *state, raft_rpc_type_t rpc_type, const sx_nodelist_t *nodes, unsigned int nnodes, sx_raft_term_t *max_recv_term, int64_t *max_recv_hdist_version, sx_hashfs_version_t *max_recv_hashfs_version, unsigned int *succeeded) {
     const sx_node_t *me = sx_hashfs_self(h);
     rc_ty ret = FAIL_EINTERNAL;
     sxc_client_t *sx = sx_hashfs_client(h);
@@ -263,11 +274,11 @@ static rc_ty raft_rpc_bcast(sx_hashfs_t *h, sx_raft_state_t *state, raft_rpc_typ
 
     memset(max_recv_term, 0, sizeof(*max_recv_term));
     *max_recv_hdist_version = 0;
-    memset(max_recv_hashfs_version, 0, max_recv_hashfs_version_len);
+    version_init(max_recv_hashfs_version);
     if(rpc_type == RAFT_RPC_REQUEST_VOTE) {
         DEBUG("Starting new election for term %lld", (long long)state->current_term.term);
 
-        proto = sxi_raft_request_vote(sx, state->current_term.term, sx_hashfs_hdist_getversion(h), sx_hashfs_version(h), sx_node_uuid_str(me), state->last_applied, state->current_term.term);
+        proto = sxi_raft_request_vote(sx, state->current_term.term, sx_hashfs_hdist_getversion(h), sx_hashfs_version(h)->string, sx_node_uuid_str(me), state->last_applied, state->current_term.term);
         if(!proto) {
             INFO("Failed to allocate RequestVote query");
             goto raft_rpc_bcast_err;
@@ -275,7 +286,7 @@ static rc_ty raft_rpc_bcast(sx_hashfs_t *h, sx_raft_state_t *state, raft_rpc_typ
     } else {
         DEBUG("Sending AppendEntry query for term %lld", (long long)state->current_term.term);
 
-        proto = sxi_raft_append_entries_begin(sx, state->current_term.term, sx_hashfs_hdist_getversion(h), sx_hashfs_version(h), sx_node_uuid_str(me), state->last_applied-1, state->current_term.term-1, state->last_applied);
+        proto = sxi_raft_append_entries_begin(sx, state->current_term.term, sx_hashfs_hdist_getversion(h), sx_hashfs_version(h)->string, sx_node_uuid_str(me), state->last_applied-1, state->current_term.term-1, state->last_applied);
         if(!proto) {
             INFO("Failed to allocate AppendEntries query");
             goto raft_rpc_bcast_err;
@@ -370,8 +381,8 @@ raft_rpc_bcast_err:
                 memcpy(max_recv_term, &ctx[nnode].term, sizeof(*max_recv_term));
             if(ctx[nnode].hdist_version > *max_recv_hdist_version)
                 *max_recv_hdist_version = ctx[nnode].hdist_version;
-            if(strcmp(ctx[nnode].hashfs_version, max_recv_hashfs_version) > 0)
-                sxi_strlcpy(max_recv_hashfs_version, ctx[nnode].hashfs_version, max_recv_hashfs_version_len);
+            if(sx_hashfs_version_cmp(&ctx[nnode].remote_version, max_recv_hashfs_version) > 0)
+		sx_hashfs_version_parse(ctx[nnode].remote_version.full, max_recv_hashfs_version);
         }
     }
 
@@ -564,13 +575,13 @@ static rc_ty raft_leader_send_heartbeat(sx_hashfs_t *h, sx_raft_state_t *state, 
     int64_t max_recv_hdist_version = 0;
     sx_raft_state_t save_state;
     unsigned int state_changed = 0;
-    char max_recv_hashfs_version[15];
+    sx_hashfs_version_t max_recv_hashfs_version;
 
     if(!state || !me || !nodes)
         return EINVAL;
 
-    memset(max_recv_hashfs_version, 0, sizeof(max_recv_hashfs_version));
-    s = raft_rpc_bcast(h, state, RAFT_RPC_APPEND_ENTRIES, nodes, nnodes, &max_recv_term, &max_recv_hdist_version, max_recv_hashfs_version, sizeof(max_recv_hashfs_version), NULL);
+    version_init(&max_recv_hashfs_version);
+    s = raft_rpc_bcast(h, state, RAFT_RPC_APPEND_ENTRIES, nodes, nnodes, &max_recv_term, &max_recv_hdist_version, &max_recv_hashfs_version, NULL);
     if(s != OK) {
         INFO("Failed to send heardbeat message to all nodes: %s", msg_get_reason());
         return s;
@@ -588,7 +599,7 @@ static rc_ty raft_leader_send_heartbeat(sx_hashfs_t *h, sx_raft_state_t *state, 
         return FAIL_EINTERNAL;
     }
 
-    if(save_state.current_term.term < max_recv_term.term || save_state.leader_state.hdist_version < max_recv_hdist_version || strcmp(sx_hashfs_version(h), max_recv_hashfs_version) < 0) {
+    if(save_state.current_term.term < max_recv_term.term || save_state.leader_state.hdist_version < max_recv_hdist_version || sx_hashfs_version_cmp(sx_hashfs_version(h), &max_recv_hashfs_version) < 0) {
         DEBUG("Stale current term: %lld, max remote term: %lld", (long long)save_state.current_term.term, (long long)max_recv_term.term);
         save_state.role = RAFT_ROLE_FOLLOWER;
         memcpy(&save_state.current_term, &max_recv_term, sizeof(save_state.current_term));
@@ -652,7 +663,7 @@ static rc_ty raft_election_start(sx_hashfs_t *h, sx_raft_state_t *state, const s
     int64_t max_recv_hdist_version;
     int state_changed = 0;
     struct timeval now;
-    char max_recv_hashfs_version[15];
+    sx_hashfs_version_t max_recv_hashfs_version;
 
     if(!state || !me || !nodes) {
         sx_hashfs_raft_state_abort(h);
@@ -669,7 +680,7 @@ static rc_ty raft_election_start(sx_hashfs_t *h, sx_raft_state_t *state, const s
     memcpy(&state->voted_for, sx_node_uuid(me), sizeof(sx_uuid_t));
     state->voted = 1;
 
-    memset(max_recv_hashfs_version, 0, sizeof(max_recv_hashfs_version));
+    version_init(&max_recv_hashfs_version);
 
     /* Save state changes (become the candidate immediately) */
     if((s = sx_hashfs_raft_state_set(h, state)) != OK) {
@@ -697,7 +708,7 @@ static rc_ty raft_election_start(sx_hashfs_t *h, sx_raft_state_t *state, const s
         raft_node_state_init(&node_states[nnode], sx_node_uuid(node), state->last_applied + 1, &now);
     }
 
-    ret = raft_rpc_bcast(h, state, RAFT_RPC_REQUEST_VOTE, nodes, nnodes, &max_recv_term, &max_recv_hdist_version, max_recv_hashfs_version, sizeof(max_recv_hashfs_version), &succeeded);
+    ret = raft_rpc_bcast(h, state, RAFT_RPC_REQUEST_VOTE, nodes, nnodes, &max_recv_term, &max_recv_hdist_version, &max_recv_hashfs_version, &succeeded);
     if(ret != OK) {
         WARN("Failed to request vote");
         free(node_states);
@@ -718,7 +729,7 @@ static rc_ty raft_election_start(sx_hashfs_t *h, sx_raft_state_t *state, const s
         return s;
     }
 
-    if(state->current_term.term < max_recv_term.term || sx_hashfs_hdist_getversion(h) < max_recv_hdist_version || strcmp(sx_hashfs_version(h), max_recv_hashfs_version) < 0) {
+    if(state->current_term.term < max_recv_term.term || sx_hashfs_hdist_getversion(h) < max_recv_hdist_version || sx_hashfs_version_cmp(sx_hashfs_version(h), &max_recv_hashfs_version) < 0) {
         DEBUG("Stale current term: %lld, max remote term: %lld", (long long)state->current_term.term, (long long)max_recv_term.term);
         save_state.role = RAFT_ROLE_FOLLOWER;
         memcpy(&save_state.current_term, &max_recv_term, sizeof(save_state.current_term));

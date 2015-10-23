@@ -1513,7 +1513,7 @@ struct cb_request_vote_ctx {
     int64_t last_log_term;
     sx_uuid_t candidate_uuid;
     int64_t hdist_version;
-    char hashfs_version[15];
+    sx_hashfs_version_t remote_version;
     char libsxclient_version[128];
 };
 
@@ -1532,10 +1532,13 @@ static int cb_request_vote_string(void *ctx, const unsigned char *s, size_t l) {
         c->state = CB_RV_KEY;
         return 1;
     } else if(c->state == CB_RV_HASHFS_VERSION) {
-        if(l >= sizeof(c->hashfs_version))
+	char ver[sizeof(c->remote_version.full)];
+        if(l >= sizeof(ver))
             return 0;
-        memcpy(c->hashfs_version, s, l);
-        c->hashfs_version[l] = '\0';
+        memcpy(ver, s, l);
+        ver[l] = '\0';
+	if(sx_hashfs_version_parse(ver, &c->remote_version))
+	    return 0;
         c->state = CB_RV_KEY;
         return 1;
     } else if(c->state == CB_RV_LIB_VERSION) {
@@ -1645,6 +1648,7 @@ static const yajl_callbacks request_vote_parser = {
 };
 
 void fcgi_raft_request_vote(void) {
+    const sx_hashfs_version_t *local_version;
     struct cb_request_vote_ctx ctx;
     sx_raft_state_t state;
     int len;
@@ -1696,15 +1700,16 @@ void fcgi_raft_request_vote(void) {
                 (long long)sx_hashfs_hdist_getversion(hashfs), (long long)ctx.hdist_version);
         goto request_vote_out;
     }
-    if(strcmp(ctx.hashfs_version, sx_hashfs_version(hashfs)) < 0) {
+    local_version = sx_hashfs_version(hashfs);
+    if(sx_hashfs_version_cmp(&ctx.remote_version, local_version) < 0) {
         DEBUG("Local hashfs version (%s) is newer than candidate's (%s): rejecting",
-                sx_hashfs_version(hashfs), ctx.hashfs_version);
+	      local_version->string, ctx.remote_version.string);
         goto request_vote_out;
     }
 
 
     /* Check if current term is not obsolete */
-    if(state.current_term.term < ctx.term || sx_hashfs_hdist_getversion(hashfs) < ctx.hdist_version || strcmp(ctx.hashfs_version, sx_hashfs_version(hashfs)) > 0) {
+    if(state.current_term.term < ctx.term || sx_hashfs_hdist_getversion(hashfs) < ctx.hdist_version || sx_hashfs_version_cmp(&ctx.remote_version, local_version) > 0) {
         DEBUG("Becoming a follower, current term: (%lld), term for %s: (%lld)", (long long)state.current_term.term,
                 ctx.candidate_uuid.string, (long long)ctx.term);
         state.role = RAFT_ROLE_FOLLOWER;
@@ -1748,7 +1753,7 @@ request_vote_out:
     CGI_PUTLL(state.current_term.term);
     CGI_PRINTF(",\"distributionVersion\":");
     CGI_PUTLL(sx_hashfs_hdist_getversion(hashfs));
-    CGI_PRINTF(",\"hashFSVersion\":\"%s\",\"libsxclientVersion\":\"%s\"}", sx_hashfs_version(hashfs), sxc_get_version());
+    CGI_PRINTF(",\"hashFSVersion\":\"%s\",\"libsxclientVersion\":\"%s\"}", local_version->string, sxc_get_version());
     sx_hashfs_raft_state_empty(hashfs, &state);
 }
 
@@ -1787,7 +1792,7 @@ struct cb_append_entries_ctx {
     sx_uuid_t leader_uuid;
     int64_t leader_commit;
     int64_t hdist_version;
-    char hashfs_version[15];
+    sx_hashfs_version_t remote_version;
     char libsxclient_version[128];
     unsigned int nentries;
     struct raft_log_entry entries[MAX_RAFT_LOG_ENTRIES];
@@ -1820,10 +1825,13 @@ static int cb_append_entries_string(void *ctx, const unsigned char *s, size_t l)
         c->state = CB_AE_ENTRIES_KEY;
         return 1;
     } else if(c->state == CB_AE_HASHFS_VERSION) {
-        if(l >= sizeof(c->hashfs_version))
+	char ver[sizeof(c->remote_version.full)];
+        if(l >= sizeof(ver))
             return 0;
-        memcpy(c->hashfs_version, s, l);
-        c->hashfs_version[l] = '\0';
+        memcpy(ver, s, l);
+        ver[l] = '\0';
+	if(sx_hashfs_version_parse(ver, &c->remote_version))
+	    return 0;
         c->state = CB_AE_KEY;
         return 1;
     } else if(c->state == CB_AE_LIB_VERSION) {
@@ -1976,6 +1984,7 @@ static const yajl_callbacks append_entries_parser = {
 };
 
 void fcgi_raft_append_entries(void) {
+    const sx_hashfs_version_t *local_version;
     struct cb_append_entries_ctx ctx;
     sx_raft_state_t state;
     int len;
@@ -2027,14 +2036,15 @@ void fcgi_raft_append_entries(void) {
         goto append_entries_out;
     }
 
-    if(strcmp(ctx.hashfs_version, sx_hashfs_version(hashfs)) < 0) {
+    local_version = sx_hashfs_version(hashfs);
+    if(sx_hashfs_version_cmp(&ctx.remote_version, local_version) < 0) {
         DEBUG("Local hashfs version (%s) is newer than candidate's (%s): rejecting",
-                sx_hashfs_version(hashfs), ctx.hashfs_version);
+                local_version->string, ctx.remote_version.string);
         goto append_entries_out;
     }
 
     /* This node has obsolete term, become a follower */
-    if(state.current_term.term < ctx.term || sx_hashfs_hdist_getversion(hashfs) < ctx.hdist_version || strcmp(ctx.hashfs_version, sx_hashfs_version(hashfs)) > 0) {
+    if(state.current_term.term < ctx.term || sx_hashfs_hdist_getversion(hashfs) < ctx.hdist_version || sx_hashfs_version_cmp(&ctx.remote_version, local_version) > 0) {
         DEBUG("Becoming a follower, current term: (%lld), term for %s: (%lld)", (long long)state.current_term.term, ctx.leader_uuid.string, (long long)ctx.term);
         state.role = RAFT_ROLE_FOLLOWER;
         state.current_term.term = ctx.term;
@@ -2077,6 +2087,6 @@ append_entries_out:
     CGI_PUTLL(state.current_term.term);
     CGI_PRINTF(",\"distributionVersion\":");
     CGI_PUTLL(sx_hashfs_hdist_getversion(hashfs));
-    CGI_PRINTF(",\"hashFSVersion\":\"%s\",\"libsxclientVersion\":\"%s\"}", sx_hashfs_version(hashfs), sxc_get_version());
+    CGI_PRINTF(",\"hashFSVersion\":\"%s\",\"libsxclientVersion\":\"%s\"}", local_version->string, sxc_get_version());
     sx_hashfs_raft_state_empty(hashfs, &state);
 }

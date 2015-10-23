@@ -171,7 +171,7 @@ static void print_hashfs(sxc_client_t *sx, const char *path)
     else
         INFO("This is a bare node");
 
-    INFO("HashFS Version: %s", sx_hashfs_version(h));
+    INFO("HashFS Version: %s", sx_hashfs_version(h)->string);
 
     sx_hashfs_stats(h);
     sx_hashfs_analyze(h, 1);
