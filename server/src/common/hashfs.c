@@ -3429,7 +3429,7 @@ static int check_users(sx_hashfs_t *h, int debug) {
     unsigned int admin_found = 0;
     sqlite3_stmt *q = NULL;
 
-    if(qprep(h->db, &q, "SELECT uid, user, name, role, enabled FROM users")) {
+    if(qprep(h->db, &q, "SELECT uid, user, name, role, quota, enabled FROM users")) {
         ret = -1;
         goto check_users_err;
     }
@@ -3439,6 +3439,7 @@ static int check_users(sx_hashfs_t *h, int debug) {
         int uid_len = sqlite3_column_bytes(q, 1);
         const char *name = (const char*)sqlite3_column_text(q, 2);
         int role = sqlite3_column_int(q, 3);
+        int64_t quota = sqlite3_column_int64(q, 4);
 
         CHECK_PGRS;
         if(uid_len != AUTH_UID_LEN)
@@ -3449,7 +3450,7 @@ static int check_users(sx_hashfs_t *h, int debug) {
 
         /* Check special admin user existence */
         if(name && !strcmp(name, "admin")) {
-            int enabled = sqlite3_column_int(q, 4);
+            int enabled = sqlite3_column_int(q, 5);
 
             if(role != ROLE_ADMIN)
                 CHECK_ERROR("admin user has bad role: %d", role);
@@ -3466,6 +3467,10 @@ static int check_users(sx_hashfs_t *h, int debug) {
 
         if(name && strcmp(name, "rootcluster") && role == ROLE_CLUSTER)
             CHECK_ERROR("User %s has CLUSTER role", name);
+
+        /* Quota can only be either unlimited (0) or as small as the smallest allowed volume size */
+        if(quota != QUOTA_UNLIMITED && quota < SXLIMIT_MIN_VOLUME_SIZE)
+            CHECK_ERROR("User %s has incorrect quota %lld: must be either 0 or at least %lld bytes", name, (long long)quota, (long long)SXLIMIT_MIN_VOLUME_SIZE);
     }
 
     if(!admin_found && h->have_hd)
@@ -6301,8 +6306,9 @@ rc_ty sx_hashfs_create_user(sx_hashfs_t *h, const char *user, const uint8_t *uid
 	return EINVAL;
     }
 
-    if(quota < 0) {
-        msg_set_reason("Invalid quota");
+    /* Quota can only be either unlimited (0) or as small as the smallest allowed volume size */
+    if(quota != QUOTA_UNLIMITED && quota < SXLIMIT_MIN_VOLUME_SIZE) {
+        msg_set_reason("Quota must be either 0 or at least %lld bytes", (long long)SXLIMIT_MIN_VOLUME_SIZE);
         return EINVAL;
     }
 

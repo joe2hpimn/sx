@@ -466,6 +466,12 @@ static rc_ty user_parse_complete(void *yctx)
         return EINVAL;
     }
 
+    /* Quota can only be either unlimited (0) or as small as the smallest allowed volume size */
+    if(uctx->quota != QUOTA_UNLIMITED && uctx->quota < SXLIMIT_MIN_VOLUME_SIZE) {
+        msg_set_reason("Quota must be either 0 or at least %lld bytes", (long long)SXLIMIT_MIN_VOLUME_SIZE);
+        return EINVAL;
+    }
+
     if(!uctx->has_uid) {
         /* Check if priv is not cluster */
         if(has_priv(PRIV_CLUSTER)) {
@@ -839,7 +845,7 @@ static rc_ty user_modify_parse_complete(void *yctx)
 
         /* Quota can only be either 0 or as small as the smallest allowed volume size */
         if(uctx->quota != QUOTA_UNLIMITED && uctx->quota < SXLIMIT_MIN_VOLUME_SIZE) {
-            msg_set_reason("Quota must be either 0 or at least %llu bytes", (long long)SXLIMIT_MIN_VOLUME_SIZE);
+            msg_set_reason("Quota must be either 0 or at least %lld bytes", (long long)SXLIMIT_MIN_VOLUME_SIZE);
             return EINVAL;
         }
     }
