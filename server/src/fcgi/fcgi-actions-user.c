@@ -211,7 +211,7 @@ void fcgi_delete_user() {
         s = sx_hashfs_uid_get_name(hashfs, uid, new_owner, sizeof(new_owner));
         if(s != OK)
             quit_errmsg(rc2http(s), msg_get_reason());
-        if(sx_hashfs_check_username(new_owner))
+        if(sx_hashfs_check_username(new_owner, 0))
             quit_errmsg(500, "Internal error (requesting user has an invalid name)");
         uctx.newowner = new_owner;
     }
@@ -461,7 +461,14 @@ static rc_ty user_parse_complete(void *yctx)
     rc_ty s;
     if (!uctx || uctx->state != CB_USER_COMPLETE)
         return EINVAL;
-    if(sx_hashfs_check_username(uctx->name)) {
+
+    /*
+     * Check if username is valid.
+     *
+     * Check if username contains forbidden path elements (such as slash) only for requests coming from user
+     * in order to allow cluster to synchronize if users with invalid names already exist.
+     */
+    if(sx_hashfs_check_username(uctx->name, !has_priv(PRIV_CLUSTER))) {
 	msg_set_reason("Invalid username");
         return EINVAL;
     }
@@ -867,7 +874,7 @@ static int user_modify_to_blob(sxc_client_t *sx, int nodes, void *yctx, sx_blob_
         msg_set_reason("Cannot allocate job blob");
         return -1;
     }
-    if(sx_hashfs_check_username(path)) {
+    if(sx_hashfs_check_username(path, 1)) {
         msg_set_reason("Invalid username");
         return -1;
     }
@@ -1033,7 +1040,7 @@ void fcgi_user_modify(void)
     memset(&uctx, 0, sizeof(uctx));
     uctx.quota = QUOTA_UNDEFINED;
 
-    if(sx_hashfs_check_username(path))
+    if(sx_hashfs_check_username(path, 1))
         quit_errmsg(400, "Invalid username");
     job_2pc_handle_request(sx_hashfs_client(hashfs), &user_modify_spec, &uctx);
 }

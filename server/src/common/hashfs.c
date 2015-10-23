@@ -2324,7 +2324,7 @@ static int getmetadb(const char *filename) {
     return MurmurHash64(&hash, sizeof(hash), MURMUR_SEED) & (METADBS-1);
 }
 
-static rc_ty check_path_element(const char *name, unsigned name_min, unsigned name_max, const char *what)
+static rc_ty check_path_element(const char *name, unsigned name_min, unsigned name_max, const char *what, int path_check)
 {
     unsigned int namelen;
     if (!name) {
@@ -2346,7 +2346,7 @@ static rc_ty check_path_element(const char *name, unsigned name_min, unsigned na
 	return EINVAL;
     }
     unsigned i;
-    for (i=0;i<namelen;i++) {
+    for (i=0; path_check && i<namelen; i++) {
         if ((unsigned)name[i] < ' ' || name[i] == '/' || name[i] == '\\') {
             msg_set_reason("Invalid %s name '%s': contains forbidden characters (\\n/\\)", what, name);
             return EINVAL;
@@ -2358,7 +2358,7 @@ static rc_ty check_path_element(const char *name, unsigned name_min, unsigned na
 /* Returns 0 if the volume name is valid,
  * sets reason otherwise */
 rc_ty sx_hashfs_check_volume_name(const char *name) {
-    return check_path_element(name, SXLIMIT_MIN_VOLNAME_LEN, SXLIMIT_MAX_VOLNAME_LEN, "volume");
+    return check_path_element(name, SXLIMIT_MIN_VOLNAME_LEN, SXLIMIT_MAX_VOLNAME_LEN, "volume", 1);
 }
 
 static int check_file_name(const char *name) {
@@ -2431,8 +2431,8 @@ rc_ty sx_hashfs_check_volume_meta(const char *key, const void *value, unsigned i
     return OK;
 }
 
-int sx_hashfs_check_username(const char *name) {
-    return check_path_element(name, SXLIMIT_MIN_USERNAME_LEN, SXLIMIT_MAX_USERNAME_LEN, "username");
+int sx_hashfs_check_username(const char *name, int path_check) {
+    return check_path_element(name, SXLIMIT_MIN_USERNAME_LEN, SXLIMIT_MAX_USERNAME_LEN, "username", path_check);
 }
 
 
@@ -3445,7 +3445,7 @@ static int check_users(sx_hashfs_t *h, int debug) {
         if(uid_len != AUTH_UID_LEN)
             CHECK_ERROR("User with ID %lld has bad UID assigned", (long long)userid);
 
-        if(sx_hashfs_check_username(name))
+        if(sx_hashfs_check_username(name, 1))
             CHECK_ERROR("Bad name for user with ID %lld", (long long)userid);
 
         /* Check special admin user existence */
@@ -6291,7 +6291,10 @@ rc_ty sx_hashfs_create_user(sx_hashfs_t *h, const char *user, const uint8_t *uid
 	return EFAULT;
     }
 
-    if(sx_hashfs_check_username(user)) {
+    /* Note: the path_check element has to be enforced before the sx_hashfs_create_user function is called.
+     *       Rationale is that the path_check has been added after some users with forbidden characters could be created.
+     */
+    if(sx_hashfs_check_username(user, 0)) {
 	msg_set_reason("Invalid user");
 	return EINVAL;
     }
@@ -6365,7 +6368,7 @@ rc_ty sx_hashfs_user_modify(sx_hashfs_t *h, const char *username, const uint8_t 
 	return EFAULT;
     }
 
-    if(sx_hashfs_check_username(username)) {
+    if(sx_hashfs_check_username(username, 1)) {
 	msg_set_reason("Invalid username");
 	return EINVAL;
     }
@@ -6666,7 +6669,7 @@ rc_ty sx_hashfs_list_clones_next(sx_hashfs_t *h) {
 
     u->id = sqlite3_column_int64(q, 0);
     name = (const char *)sqlite3_column_text(q, 1);
-    if(!name || sx_hashfs_check_username(name)) {
+    if(!name || sx_hashfs_check_username(name, 0)) {
         WARN("Invalid user name");
         goto sx_hashfs_list_volume_owners_next_err;
     }
@@ -6768,7 +6771,7 @@ rc_ty sx_hashfs_list_acl(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, sx_uid_t
 
 static rc_ty get_uid_role(sx_hashfs_t *h, const char *username, int64_t *uid, int *role, int inactivetoo) {
     rc_ty rc = FAIL_EINTERNAL;
-    if (!h || !username || sx_hashfs_check_username(username))
+    if (!h || !username || sx_hashfs_check_username(username, 0))
 	return EINVAL;
     sqlite3_stmt *q = h->q_getuid;
     sqlite3_reset(q);
@@ -11437,7 +11440,7 @@ static rc_ty get_user_common(sx_hashfs_t *h, sx_uid_t uid, const char *name, uin
 	if(qbind_int64(q, ":uid", uid) || qbind_int(q, ":inactivetoo", inactivetoo))
 	    goto get_user_common_fail;
     } else {
-	if(sx_hashfs_check_username(name)) {
+	if(sx_hashfs_check_username(name, 0)) {
 	    msg_set_reason("Invalid username");
 	    return EINVAL;
 	}

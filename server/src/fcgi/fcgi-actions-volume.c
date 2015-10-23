@@ -373,7 +373,7 @@ static int cb_vol_string(void *ctx, const unsigned char *s, size_t l) {
 	    return 0;
 	memcpy(c->owner, s, l);
 	c->owner[l] = '\0';
-	if(sx_hashfs_check_username(c->owner))
+	if(sx_hashfs_check_username(c->owner, 1))
 	    return 0;
 	c->state = CB_VOL_KEY;
 	return 1;
@@ -1685,8 +1685,8 @@ static rc_ty volmod_parse_complete(void *yctx)
             return ENOENT;
         }
 
-        if(sx_hashfs_check_username(ctx->newowner)) {
-            msg_set_reason("Bad user name");
+        if(sx_hashfs_check_username(ctx->newowner, 1)) {
+            msg_set_reason("Invalid username");
             return EINVAL;
         }
 
