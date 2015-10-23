@@ -2418,13 +2418,13 @@ rc_ty sx_hashfs_check_meta(const char *key, const void *value, unsigned int valu
     return OK;
 }
 
-rc_ty sx_hashfs_check_volume_meta(const char *key, const void *value, unsigned int value_len) {
+rc_ty sx_hashfs_check_volume_meta(const char *key, const void *value, unsigned int value_len, int check_prefix) {
     rc_ty s = sx_hashfs_check_meta(key, value, value_len);
     if(s != OK)
         return s;
     /* Check if the volume meta does not contain reserved prefix */
-    if(strlen(key) >= lenof(SX_CUSTOM_META_PREFIX) && !strncmp(SX_CUSTOM_META_PREFIX, key, lenof(SX_CUSTOM_META_PREFIX))) {
-        DEBUG("Volume meta key cannot contain reserved prefix %s", SX_CUSTOM_META_PREFIX);
+    if(check_prefix && strlen(key) >= lenof(SX_CUSTOM_META_PREFIX) && !strncmp(SX_CUSTOM_META_PREFIX, key, lenof(SX_CUSTOM_META_PREFIX))) {
+        INFO("Volume meta key cannot contain reserved prefix %s", SX_CUSTOM_META_PREFIX);
         return EINVAL;
     }
 
@@ -6992,7 +6992,7 @@ rc_ty sx_hashfs_volume_new_addmeta(sx_hashfs_t *h, const char *key, const void *
 	return FAIL_EINTERNAL;
 
     rc_ty rc;
-    if((rc = sx_hashfs_check_volume_meta(key, value, value_len)))
+    if((rc = sx_hashfs_check_volume_meta(key, value, value_len, 0)))
 	return rc;
 
     return addmeta_common(h, key, value, value_len);

@@ -1468,7 +1468,7 @@ test_put_job "custom tiny$vol volume meta and size setting", {'badauth'=>[401],$
 test_put_job "custom tiny$vol volume meta and revisions limit setting", {'badauth'=>[401],$reader=>[403]}, "tiny$vol?o=mod", "{\"customVolumeMeta\":{\"customMetaKey1\":\"aabbcc\",\"customMetaKey2\":\"123456abcd\"},\"maxRevisions\":2}";
 test_put_job "custom tiny$vol volume meta and owner setting", {'badauth'=>[401],$reader=>[403],$writer=>[403]}, "tiny$vol?o=mod", "{\"customVolumeMeta\":{\"customMetaKey1\":\"aabbcc\",\"customMetaKey2\":\"123456abcd\"},\"owner\":\"$reader\"}";
 # Creating volume with meta key that uses the reserved prefix should fail
-test_mkvol "volume creation (tiny volume with invalid meta)", admin_only(400), "badtiny$vol", '{"volumeSize":$tinyvolumesize,"owner":"admin","volumeMeta":{"$custom$":"00"}}';
+test_mkvol "volume creation (tiny volume with invalid meta)", admin_only(400), "badtiny$vol", "{\"volumeSize\":$tinyvolumesize,\"owner\":\"admin\",\"volumeMeta\":{\"\$custom\$\":\"00\"}}";
 test_put_job "owner quota change for $writer", admin_only(200), ".users/$writer", "{\"quota\":0}";
 
 my $oldsize = $tinyvolumesize;

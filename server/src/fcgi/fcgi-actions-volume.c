@@ -383,7 +383,7 @@ static int cb_vol_string(void *ctx, const unsigned char *s, size_t l) {
     if(hex2bin(s, l, metavalue, sizeof(metavalue)))
 	return 0;
     l/=2;
-    if(sx_hashfs_check_volume_meta(c->metakey, metavalue, l) ||
+    if(sx_hashfs_check_volume_meta(c->metakey, metavalue, l, !has_priv(PRIV_CLUSTER)) ||
        sx_blob_add_string(c->metablb, c->metakey) ||
        sx_blob_add_blob(c->metablb, metavalue, l))
 	return 0;
@@ -965,7 +965,7 @@ void fcgi_create_volume(void) {
 	CGI_PUTS("\r\n");
 	return;
     } else {
-	/* Request comes in from the user: broadcst to all nodes */
+	/* Request comes in from the user: broadcast to all nodes */
 	sx_blob_t *joblb;
 	const void *job_data;
 	unsigned int job_datalen;

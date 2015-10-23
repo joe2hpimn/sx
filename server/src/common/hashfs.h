@@ -127,7 +127,7 @@ rc_ty sx_hashfs_challenge_gen(sx_hashfs_t *h, sx_hash_challenge_t *c, int random
 int sx_hashfs_check_volume_name(const char *name);
 rc_ty sx_hashfs_check_volume_settings(sx_hashfs_t *h, const char *volume, int64_t size, int64_t old_size, unsigned int replica, unsigned int revisions);
 rc_ty sx_hashfs_check_meta(const char *key, const void *value, unsigned int value_len);
-rc_ty sx_hashfs_check_volume_meta(const char *key, const void *value, unsigned int value_len);
+rc_ty sx_hashfs_check_volume_meta(const char *key, const void *value, unsigned int value_len, int check_prefix);
 int sx_hashfs_check_username(const char *name);
 
 rc_ty sx_hashfs_derive_key(sx_hashfs_t *h, unsigned char *key, int len, const char *info);
