@@ -61,7 +61,8 @@
 #define HASHDBS 16
 #define METADBS 16
 #define GCDBS 1
-/* NOTE: HASHFS_VERSION must be exactly 14 bytes */
+/* NOTE: strlen(HASHFS_VERSION) must 15 bytes or less
+ * Older versions must come alphabetically before newer versions! */
 #define HASHFS_VERSION_1_0 "SX-Storage 1.6"
 #define HASHFS_VERSION_1_1 "SX-Storage 1.7"
 #define HASHFS_VERSION_1_2 "SX-Storage 1.8"
@@ -559,7 +560,7 @@ static int qopen(const char *path, sxi_db_t **dbp, const char *dbtype, const sx_
 	goto qopen_fail;
     str = (const char *)sqlite3_column_text(q, 0);
     if(version && (!str || strcmp(str, version))) {
-	msg_set_reason("Version mismatch on db %s: expected %s, found %s", path, HASHFS_VERSION, str ? str : "none");
+	msg_set_reason("Version mismatch on db %s: expected %s, found %s", path, version, str ? str : "none");
         CRIT("%s", msg_get_reason());
 	goto qopen_fail;
     }

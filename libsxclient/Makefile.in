@@ -1323,12 +1323,9 @@ include/extraversion.h: include/extraversion.h.tmp
 include/extraversion.h.tmp:
 	$(AM_V_GEN) \
 	    mkdir -p include &&\
-	    (VER="$$(cd $(top_srcdir) && LANG=C git describe --exact-match 2>/dev/null)" &&\
-	    echo "#define SRC_VERSION \"$$VER\"" >$@) ||\
-	    (VER="$$(cd $(top_srcdir) && LANG=C git describe --always --dirty=+ 2>/dev/null)" &&\
-	    echo "#define SRC_VERSION \"$$VER\"" >$@) ||\
-	    (COMMITVER=$Format:%h$ && test "$$COMMITVER" != "ormat:%h" && \
-	    echo "#define SRC_VERSION SRC_DEFAULT_VERSION\".$$COMMITVER\"" >$@) ||\
+	    (EXTRAVER="$$(cd $(top_srcdir) && git log --pretty=format:'%h' -1 2>/dev/null)" &&\
+	     EXTRAVER="$$EXTRAVER$$(git diff-index --quiet HEAD 2>/dev/null || echo +; true)" &&\
+	    echo "#define SRC_VERSION SRC_DEFAULT_VERSION\"-$$EXTRAVER\"" >$@) ||\
 	    echo "#define SRC_VERSION SRC_DEFAULT_VERSION" >$@
 
 .PHONY: include/extraversion.h.tmp

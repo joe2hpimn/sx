@@ -1,5 +1,9 @@
 AC_PREREQ([2.68])
-AC_INIT([libsxclient], [1.2], [https://bugzilla.skylable.com])
+m4_define([sx_major_version], m4_esyscmd_s([awk '/^#define SRC_MAJOR_VERSION/ { print $3 }' include/version.h]))
+m4_define([sx_minor_version], m4_esyscmd_s([awk '/^#define SRC_MINOR_VERSION/ { print $3 }' include/version.h]))
+m4_define([sx_full_version], [sx_major_version.sx_minor_version])
+
+AC_INIT([libsxclient], [sx_full_version], [https://bugzilla.skylable.com])
 AC_CONFIG_AUX_DIR([build-aux])
 AC_CONFIG_MACRO_DIR([m4])
 AM_INIT_AUTOMAKE([foreign -Wall -Werror color-tests parallel-tests std-options subdir-objects])

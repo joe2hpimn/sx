@@ -1,5 +1,8 @@
+m4_define([sx_major_version], m4_esyscmd_s([awk '/^#define SRC_MAJOR_VERSION/ { print $3 }' libsxclient/include/version.h]))
+m4_define([sx_minor_version], m4_esyscmd_s([awk '/^#define SRC_MINOR_VERSION/ { print $3 }' libsxclient/include/version.h]))
+m4_define([sx_full_version], [sx_major_version.sx_minor_version])
 
-AC_INIT([sx], [1.2])
+AC_INIT([sx], [sx_full_version], [https://bugzilla.skylable.com])
 AC_CONFIG_AUX_DIR([build-aux])
 AM_INIT_AUTOMAKE([foreign])
 AM_MAINTAINER_MODE
