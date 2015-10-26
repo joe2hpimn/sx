@@ -733,7 +733,7 @@ EOF
 	    done
 	    if [ "$CREATED" = 0 ]; then
 		CERTCN=`openssl x509 -in "$SX_SSL_CERT_FILE" -text|grep Subject: | sed -e 's/.*CN=//'`
-		if [ "$CERTCN" != "$SX_CLUSTER_NAME" ]; then
+		if [ "$CERTCN" != "$SX_CLUSTER_NAME" -a -z "`echo $SX_CLUSTER_NAME | grep .$CERTCN`" ]; then
 		    echo "ERROR: The certificate's CN ($CERTCN) doesn't match the cluster name: $SX_CLUSTER_NAME"
 		    echo "If you changed the cluster name then you must manually remove $SX_SSL_KEY_FILE and $SX_SSL_CERT_FILE!"
 		    echo "Run $0 --force-reinit to automatically wipe the old SSL key and certificate."
