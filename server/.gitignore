@@ -22,6 +22,7 @@
 /test/test-nginx1.conf
 /test/testfile
 /test/fastcgi_params
+/test/blob-test
 /test/hdist-test
 /test/client-test
 /sxscripts/logrotate.d/sxserver

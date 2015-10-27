@@ -41,16 +41,7 @@ struct _sx_blob_t {
     unsigned int savedpos;
 };
 
-
-enum blob_object {
-    BLOB_INT32 = 0,
-    BLOB_INT64,
-    BLOB_STRING,
-    BLOB_BLOB,
-    BLOB_DATETIME
-};
 #define BLOB_MIN_OBJ BLOB_INT32
-#define BLOB_MAX_OBJ BLOB_DATETIME
 
 static int64_t blob_htonll(int64_t d) {
 #ifndef WORDS_BIGENDIAN
@@ -105,6 +96,11 @@ int sx_blob_add_int64(sx_blob_t *s, int64_t d) {
     return pushdata(s, BLOB_INT64, &d, sizeof(d));
 }
 
+int sx_blob_add_uint64(sx_blob_t *s, uint64_t d) {
+    d = blob_htonll(d);
+    return pushdata(s, BLOB_UINT64, &d, sizeof(d));
+}
+
 int sx_blob_add_string(sx_blob_t *s, const char *d) {
     return pushdata(s, BLOB_STRING, d, strlen(d)+1);
 }
@@ -118,6 +114,17 @@ int sx_blob_add_datetime(sx_blob_t *s, const struct timeval *d) {
     ts[0] = blob_htonll(d->tv_sec + d->tv_usec / 1000000);
     ts[1] = blob_htonll(d->tv_usec % 1000000);
     return pushdata(s, BLOB_DATETIME, ts, sizeof(ts));
+}
+
+int sx_blob_add_bool(sx_blob_t *s, int d) {
+    int32_t v = (d != 0);
+    return pushdata(s, BLOB_BOOL, &v, sizeof(v));
+}
+
+int sx_blob_add_float(sx_blob_t *s, double d) {
+    char hexfloat[32];
+    snprintf(hexfloat, sizeof(hexfloat), "%a", d);
+    return pushdata(s, BLOB_FLOAT, hexfloat, strlen(hexfloat) + 1);
 }
 
 int sx_blob_cat(sx_blob_t *dest, sx_blob_t *src) {
@@ -168,7 +175,7 @@ static int getdata(sx_blob_t *s, enum blob_object *itm, const void **d, unsigned
 	return -1;
     memcpy(&i, s->blob + s->pos, sizeof(i));
     *itm = htonl(i);
-    if(*itm < BLOB_MIN_OBJ || *itm > BLOB_MAX_OBJ)
+    if(*itm < BLOB_MIN_OBJ || *itm >= BLOB_MAX_OBJ)
 	return -1;
     memcpy(&i, s->blob + s->pos + sizeof(i), sizeof(i));
     i = htonl(i);
@@ -178,6 +185,25 @@ static int getdata(sx_blob_t *s, enum blob_object *itm, const void **d, unsigned
     *len = i;
     *d = s->blob + s->pos + sizeof(i)*2;
     s->pos += sizeof(i)*2 + i;
+    return 0;
+}
+
+int sx_blob_peek_objtype(sx_blob_t *s, blob_object_t *type) {
+    enum blob_object o;
+    unsigned int l;
+    const void *dt;
+    unsigned int pos = s->pos;
+
+    /* Load type and data (the latter is not necessary), do necessary checks */
+    int ret = getdata(s, &o, &dt, &l);
+
+    /* Restore previous position */
+    s->pos = pos;
+
+    if(ret)
+        return -1;
+
+    *type = o;
     return 0;
 }
 
@@ -216,6 +242,25 @@ int sx_blob_get_int64(sx_blob_t *s, int64_t *d) {
 
     memcpy(d, dt, sizeof(*d));
     *d = blob_htonll(*d);
+    return 0;
+}
+
+int sx_blob_get_uint64(sx_blob_t *s, uint64_t *d) {
+    enum blob_object o;
+    unsigned int l;
+    const void *dt;
+    int ret = getdata(s, &o, &dt, &l);
+
+    if(ret)
+	return ret;
+
+    if(o != BLOB_UINT64 || l != sizeof(*d)) {
+	s->pos -= sizeof(l)*2 + l;
+	return -1;
+    }
+
+    memcpy(d, dt, sizeof(*d));
+    *d = (uint64_t)blob_htonll(*d);
     return 0;
 }
 
@@ -272,6 +317,50 @@ int sx_blob_get_datetime(sx_blob_t *s, struct timeval *d) {
     return 0;
 }
 
+int sx_blob_get_bool(sx_blob_t *s, int *d) {
+    enum blob_object o;
+    unsigned int l;
+    const void *dt;
+    int32_t v;
+    int ret = getdata(s, &o, &dt, &l);
+
+    if(ret)
+	return ret;
+
+    if(o != BLOB_BOOL || l != sizeof(v)) {
+	s->pos -= sizeof(l)*2 + l;
+	return -1;
+    }
+
+    memcpy(&v, dt, sizeof(v));
+    *d = (v != 0);
+    return 0;
+}
+
+int sx_blob_get_float(sx_blob_t *s, double *d) {
+    const char *hexfloat, *eon;
+    enum blob_object o;
+    unsigned int l;
+    double v;
+    int ret = getdata(s, &o, (const void **)&hexfloat, &l);
+
+    if(ret)
+	return ret;
+
+    if(o != BLOB_FLOAT || l < 1 || hexfloat[l-1] != '\0' || strlen(hexfloat) != l - 1) {
+	s->pos -= sizeof(l)*2 + l;
+	return -1;
+    }
+
+    v = strtod(hexfloat, (char **)&eon);
+    if(eon != &hexfloat[l-1]) {
+	s->pos -= sizeof(l)*2 + l;
+	return -1;
+    }
+
+    *d = v;
+    return 0;
+}
 
 void sx_blob_free(sx_blob_t *s) {
     if(s) {

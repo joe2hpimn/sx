@@ -90,13 +90,15 @@ POST_UNINSTALL = :
 build_triplet = @build@
 host_triplet = @host@
 noinst_PROGRAMS = test/testfile$(EXEEXT) test/hdist-test$(EXEEXT) \
-	test/client-test$(EXEEXT) test/randgen$(EXEEXT)
+	test/client-test$(EXEEXT) test/randgen$(EXEEXT) \
+	test/blob-test$(EXEEXT)
 bin_PROGRAMS = src/tools/sxsim/sxsim$(EXEEXT)
 sbin_PROGRAMS = src/fcgi/sx.fcgi$(EXEEXT) \
 	src/tools/sxreport-server/sxreport-server$(EXEEXT) \
 	src/tools/sxadm/sxadm$(EXEEXT)
 check_PROGRAMS = test/printerrno$(EXEEXT)
-TESTS = test/hdist-test$(EXEEXT) test/run-nginx-test.sh
+TESTS = test/hdist-test$(EXEEXT) test/blob-test$(EXEEXT) \
+	test/run-nginx-test.sh
 subdir = .
 ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
 am__aclocal_m4_deps = $(top_srcdir)/m4/ax_append_compile_flags.m4 \
@@ -213,6 +215,9 @@ src_tools_sxsim_sxsim_LINK = $(LIBTOOL) $(AM_V_lt) --tag=CC \
 	$(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=link $(CCLD) \
 	$(src_tools_sxsim_sxsim_CFLAGS) $(CFLAGS) $(AM_LDFLAGS) \
 	$(LDFLAGS) -o $@
+am_test_blob_test_OBJECTS = test/test_blob_test-blob-test.$(OBJEXT)
+test_blob_test_OBJECTS = $(am_test_blob_test_OBJECTS)
+test_blob_test_DEPENDENCIES = src/common/libcommon.la
 am_test_client_test_OBJECTS =  \
 	test/test_client_test-client-test.$(OBJEXT) \
 	test/test_client_test-rgen.$(OBJEXT) \
@@ -269,15 +274,17 @@ am__v_CCLD_1 =
 SOURCES = $(src_common_libcommon_la_SOURCES) \
 	$(src_fcgi_sx_fcgi_SOURCES) $(src_tools_sxadm_sxadm_SOURCES) \
 	$(src_tools_sxreport_server_sxreport_server_SOURCES) \
-	$(src_tools_sxsim_sxsim_SOURCES) $(test_client_test_SOURCES) \
-	$(test_hdist_test_SOURCES) $(test_printerrno_SOURCES) \
-	$(test_randgen_SOURCES) $(test_testfile_SOURCES)
+	$(src_tools_sxsim_sxsim_SOURCES) $(test_blob_test_SOURCES) \
+	$(test_client_test_SOURCES) $(test_hdist_test_SOURCES) \
+	$(test_printerrno_SOURCES) $(test_randgen_SOURCES) \
+	$(test_testfile_SOURCES)
 DIST_SOURCES = $(src_common_libcommon_la_SOURCES) \
 	$(src_fcgi_sx_fcgi_SOURCES) $(src_tools_sxadm_sxadm_SOURCES) \
 	$(src_tools_sxreport_server_sxreport_server_SOURCES) \
-	$(src_tools_sxsim_sxsim_SOURCES) $(test_client_test_SOURCES) \
-	$(test_hdist_test_SOURCES) $(test_printerrno_SOURCES) \
-	$(test_randgen_SOURCES) $(test_testfile_SOURCES)
+	$(src_tools_sxsim_sxsim_SOURCES) $(test_blob_test_SOURCES) \
+	$(test_client_test_SOURCES) $(test_hdist_test_SOURCES) \
+	$(test_printerrno_SOURCES) $(test_randgen_SOURCES) \
+	$(test_testfile_SOURCES)
 RECURSIVE_TARGETS = all-recursive check-recursive cscopelist-recursive \
 	ctags-recursive dvi-recursive html-recursive info-recursive \
 	install-data-recursive install-dvi-recursive \
@@ -861,6 +868,9 @@ test_randgen_SOURCES = test/randgen.c test/rgen.h test/rgen.c
 test_hdist_test_SOURCES = test/hdist-test.c
 test_hdist_test_LDADD = src/common/libcommon.la @HDIST_LIBS@
 test_hdist_test_CPPFLAGS = $(AM_CPPFLAGS) -I$(top_srcdir)/src/common
+test_blob_test_SOURCES = test/blob-test.c
+test_blob_test_LDADD = src/common/libcommon.la @HDIST_LIBS@
+test_blob_test_CPPFLAGS = $(AM_CPPFLAGS) -I$(top_srcdir)/src/common
 test_testfile_SOURCES = test/testfile.c
 test_client_test_SOURCES = test/client-test.c test/rgen.h test/rgen.c test/client-test-cmdline.h test/client-test-cmdline.c
 test_client_test_LDADD = src/common/libcommon.la @HDIST_LIBS@
@@ -1239,6 +1249,12 @@ test/$(am__dirstamp):
 test/$(DEPDIR)/$(am__dirstamp):
 	@$(MKDIR_P) test/$(DEPDIR)
 	@: > test/$(DEPDIR)/$(am__dirstamp)
+test/test_blob_test-blob-test.$(OBJEXT): test/$(am__dirstamp) \
+	test/$(DEPDIR)/$(am__dirstamp)
+
+test/blob-test$(EXEEXT): $(test_blob_test_OBJECTS) $(test_blob_test_DEPENDENCIES) $(EXTRA_test_blob_test_DEPENDENCIES) test/$(am__dirstamp)
+	@rm -f test/blob-test$(EXEEXT)
+	$(AM_V_CCLD)$(LINK) $(test_blob_test_OBJECTS) $(test_blob_test_LDADD) $(LIBS)
 test/test_client_test-client-test.$(OBJEXT): test/$(am__dirstamp) \
 	test/$(DEPDIR)/$(am__dirstamp)
 test/test_client_test-rgen.$(OBJEXT): test/$(am__dirstamp) \
@@ -1336,6 +1352,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@test/$(DEPDIR)/printerrno.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@test/$(DEPDIR)/randgen.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@test/$(DEPDIR)/rgen.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@test/$(DEPDIR)/test_blob_test-blob-test.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@test/$(DEPDIR)/test_client_test-client-test-cmdline.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@test/$(DEPDIR)/test_client_test-client-test.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@test/$(DEPDIR)/test_client_test-rgen.Po@am__quote@
@@ -1877,6 +1894,20 @@ src/tools/sxsim/src_tools_sxsim_sxsim-cmdline.obj: src/tools/sxsim/cmdline.c
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_tools_sxsim_sxsim_CPPFLAGS) $(CPPFLAGS) $(src_tools_sxsim_sxsim_CFLAGS) $(CFLAGS) -c -o src/tools/sxsim/src_tools_sxsim_sxsim-cmdline.obj `if test -f 'src/tools/sxsim/cmdline.c'; then $(CYGPATH_W) 'src/tools/sxsim/cmdline.c'; else $(CYGPATH_W) '$(srcdir)/src/tools/sxsim/cmdline.c'; fi`
 
+test/test_blob_test-blob-test.o: test/blob-test.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_blob_test_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT test/test_blob_test-blob-test.o -MD -MP -MF test/$(DEPDIR)/test_blob_test-blob-test.Tpo -c -o test/test_blob_test-blob-test.o `test -f 'test/blob-test.c' || echo '$(srcdir)/'`test/blob-test.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) test/$(DEPDIR)/test_blob_test-blob-test.Tpo test/$(DEPDIR)/test_blob_test-blob-test.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='test/blob-test.c' object='test/test_blob_test-blob-test.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_blob_test_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o test/test_blob_test-blob-test.o `test -f 'test/blob-test.c' || echo '$(srcdir)/'`test/blob-test.c
+
+test/test_blob_test-blob-test.obj: test/blob-test.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_blob_test_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT test/test_blob_test-blob-test.obj -MD -MP -MF test/$(DEPDIR)/test_blob_test-blob-test.Tpo -c -o test/test_blob_test-blob-test.obj `if test -f 'test/blob-test.c'; then $(CYGPATH_W) 'test/blob-test.c'; else $(CYGPATH_W) '$(srcdir)/test/blob-test.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) test/$(DEPDIR)/test_blob_test-blob-test.Tpo test/$(DEPDIR)/test_blob_test-blob-test.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='test/blob-test.c' object='test/test_blob_test-blob-test.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_blob_test_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o test/test_blob_test-blob-test.obj `if test -f 'test/blob-test.c'; then $(CYGPATH_W) 'test/blob-test.c'; else $(CYGPATH_W) '$(srcdir)/test/blob-test.c'; fi`
+
 test/test_client_test-client-test.o: test/client-test.c
 @am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(test_client_test_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT test/test_client_test-client-test.o -MD -MP -MF test/$(DEPDIR)/test_client_test-client-test.Tpo -c -o test/test_client_test-client-test.o `test -f 'test/client-test.c' || echo '$(srcdir)/'`test/client-test.c
 @am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) test/$(DEPDIR)/test_client_test-client-test.Tpo test/$(DEPDIR)/test_client_test-client-test.Po
@@ -2327,6 +2358,13 @@ recheck: all $(check_PROGRAMS) $(check_SCRIPTS)
 test/hdist-test.log: test/hdist-test$(EXEEXT)
 	@p='test/hdist-test$(EXEEXT)'; \
 	b='test/hdist-test'; \
+	$(am__check_pre) $(LOG_DRIVER) --test-name "$$f" \
+	--log-file $$b.log --trs-file $$b.trs \
+	$(am__common_driver_flags) $(AM_LOG_DRIVER_FLAGS) $(LOG_DRIVER_FLAGS) -- $(LOG_COMPILE) \
+	"$$tst" $(AM_TESTS_FD_REDIRECT)
+test/blob-test.log: test/blob-test$(EXEEXT)
+	@p='test/blob-test$(EXEEXT)'; \
+	b='test/blob-test'; \
 	$(am__check_pre) $(LOG_DRIVER) --test-name "$$f" \
 	--log-file $$b.log --trs-file $$b.trs \
 	$(am__common_driver_flags) $(AM_LOG_DRIVER_FLAGS) $(LOG_DRIVER_FLAGS) -- $(LOG_COMPILE) \
