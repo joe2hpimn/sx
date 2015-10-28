@@ -352,7 +352,8 @@ int sx_blob_get_float(sx_blob_t *s, double *d) {
 	return -1;
     }
 
-    v = strtod(hexfloat, (char **)&eon);
+    /* Using strtold because strtod is broken on solaris and friends */
+    v = strtold(hexfloat, (char **)&eon);
     if(eon != &hexfloat[l-1]) {
 	s->pos -= sizeof(l)*2 + l;
 	return -1;

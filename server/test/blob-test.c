@@ -43,6 +43,11 @@
 #define BLOBVAL "Test\0Blob"
 #define FLOATVAL sqrt(3)
 
+static int lame_timercmp(const struct timeval *tv1, const struct timeval *tv2) {
+    /* Because OSX */
+    return (tv1->tv_sec != tv2->tv_sec) || (tv1->tv_usec != tv2->tv_usec);
+}
+
 int main(int argc, char **argv) {
     sxc_client_t *sx = sx_init(NULL, NULL, NULL, 0, argc, argv);
     sx_blob_t *b = NULL, *b2;
@@ -187,7 +192,7 @@ int main(int argc, char **argv) {
 
     if(sx_blob_get_datetime(b, &tv2))
 	GTFO("Failed to get datetime");
-    if(timercmp(&tv1, &tv2, !=))
+    if(lame_timercmp(&tv1, &tv2))
 	GTFO("Value of mismatch on datetime");
 
     if(!sx_blob_peek_objtype(b, &t))
