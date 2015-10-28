@@ -8975,7 +8975,7 @@ int sx_unique_fileid(sxc_client_t *sx, const char *revision, sx_hash_t *fileid)
     return ret;
 }
 
-static rc_ty is_tmp_newrev(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const char *fname, int64_t tmpfile_id, int64_t tmpfile_size, const void *tmpfile_d, unsigned int tmpfile_dsz) {
+static rc_ty is_tmp_newrev(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const char *fname, int64_t tmpfile_id, int64_t tmpfile_size, const void *tmpfile_d, unsigned int tmpfile_dsz, int partial) {
     unsigned int i, ndb;
     sxc_meta_t *fmeta;
     sqlite3_stmt *q;
@@ -9009,10 +9009,16 @@ static rc_ty is_tmp_newrev(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, con
     }
 
     if(tmpfile_size != sqlite3_column_int64(q, 1) ||
-       tmpfile_dsz != sqlite3_column_bytes(q, 2) ||
+       (!partial && tmpfile_dsz != sqlite3_column_bytes(q, 2)) ||
+       (partial && tmpfile_dsz > sqlite3_column_bytes(q, 2)) ||
        (tmpfile_dsz != 0 && memcmp(sqlite3_column_blob(q, 2), tmpfile_d, tmpfile_dsz)))	{
 	sqlite3_reset(q);
 	return OK; /* File has changed */
+    }
+
+    if(partial) {
+	sqlite3_reset(q);
+        return EEXIST;
     }
 
     fid = sqlite3_column_int64(q, 0);
@@ -9051,7 +9057,7 @@ static rc_ty is_tmp_newrev(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, con
     return OK; /* File meta has changed */
 }
 
-static rc_ty check_tmpfile_size(sx_hashfs_t *h, int64_t tmpfile_id, int strict) {
+static rc_ty check_tmpfile_size(sx_hashfs_t *h, int64_t tmpfile_id, int strict, int creating) {
     int64_t volid, filesize, fullsize, revsz = 0, vavail, qavail, usage, owner_quota;
     const sx_hashfs_volume_t *vol;
     const char *filename;
@@ -9080,8 +9086,8 @@ static rc_ty check_tmpfile_size(sx_hashfs_t *h, int64_t tmpfile_id, int strict) 
     }
     fullsize = sqlite3_column_int64(h->qt_tmpdata, 9);
 
-    if(strict) {
-	s = is_tmp_newrev(h, vol, filename, tmpfile_id, filesize, sqlite3_column_blob(h->qt_tmpdata, 4), sqlite3_column_bytes(h->qt_tmpdata, 4));
+    {
+	s = is_tmp_newrev(h, vol, filename, tmpfile_id, filesize, sqlite3_column_blob(h->qt_tmpdata, 4), sqlite3_column_bytes(h->qt_tmpdata, 4), !strict);
 	if(s == EEXIST) {
 	    sqlite3_reset(h->qt_tmpdata);
 	    return EEXIST; /* Allow reuploads no matter what */
@@ -9090,6 +9096,10 @@ static rc_ty check_tmpfile_size(sx_hashfs_t *h, int64_t tmpfile_id, int strict) 
 	    sqlite3_reset(h->qt_tmpdata);
 	    return s;
 	}
+    }
+    if(!strict && !creating) {
+        sqlite3_reset(h->qt_tmpdata);
+        return OK;
     }
 
     if(vol->size < fullsize) {
@@ -9305,12 +9315,15 @@ rc_ty sx_hashfs_putfile_gettoken(sx_hashfs_t *h, const uint8_t *user, int64_t si
 	}
     }
 
+    rc_ty ret2 = check_tmpfile_size(h, h->put_id, h->put_putblock + h->put_extendfrom == total_blocks, h->put_extendsize < 0);
+    if(ret2 == EEXIST) {
+        DEBUG("Reservation: skipping");
+        skip_reservation=1;
+        ret2 = OK;
+    } else {
+        DEBUG("Reservation: not skipping");
+    }
     if(h->put_extendsize < 0 || h->put_putblock + h->put_extendfrom == total_blocks) {
-	rc_ty ret2 = check_tmpfile_size(h, h->put_id, h->put_putblock + h->put_extendfrom == total_blocks);
-        if(ret2 == EEXIST) {
-            skip_reservation=1;
-            ret2 = OK;
-        }
         if(ret2) {
 	    ret = ret2;
 	    goto gettoken_err;
@@ -9962,7 +9975,7 @@ rc_ty sx_hashfs_putfile_commitjob(sx_hashfs_t *h, const uint8_t *user, sx_uid_t 
     }
 
     /* Don't create a new revision if the file hasn't changed */
-    ret = is_tmp_newrev(h, vol, fname, tmpfile_id, expected_size, blocks, actual_blocks);
+    ret = is_tmp_newrev(h, vol, fname, tmpfile_id, expected_size, blocks, actual_blocks, 0);
     if(ret == EEXIST) {
 	if((ret = sx_hashfs_tmp_delete(h, tmpfile_id)))
 	    goto putfile_commitjob_err;
