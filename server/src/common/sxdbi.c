@@ -632,12 +632,14 @@ void qreadahead(sxi_db_t *db)
     void *pp;
     if (qfetch(db, &file, &pp, &size))
         return;
+    if (!pp)
+        return;
     size_t chunkSize = 2*1024*1024;
     char *p = pp;
     while (size > 0) {
         chunkSize = size < chunkSize ? size : chunkSize;
         if (posix_madvise(p, chunkSize, POSIX_MADV_WILLNEED)) {
-            PWARN("madvise failed");
+            PINFO("madvise failed at offset %lld", (long long)(p - (const char*)pp));
             break;
         }
         p += chunkSize;
@@ -649,6 +651,7 @@ void qreadahead(sxi_db_t *db)
 
 int qincore(sxi_db_t *db, int64_t *incore_pages, int64_t *total_pages)
 {
+    int rc = SQLITE_OK;
 #ifdef HAVE_MINCORE
     if (!db || !incore_pages || !total_pages)
         return SQLITE_NOMEM;
@@ -661,15 +664,17 @@ int qincore(sxi_db_t *db, int64_t *incore_pages, int64_t *total_pages)
     sqlite3_file *file;
     sqlite3_int64 size;
     void *pp;
-    int rc;
     if ((rc = qfetch(db, &file, &pp, &size)))
         return rc;
+    if (!pp)
+        return SQLITE_NOMEM;
     unsigned n = (size + pagesize - 1) / pagesize;
     unsigned char *vec = wrap_calloc(n, 1);
     if (!vec)
         return SQLITE_NOMEM;
     if (mincore(pp, size, vec)) {
-        PWARN("mincore failed");
+        PINFO("mincore failed");
+        rc = SQLITE_NOMEM;
     } else {
         unsigned i;
         for (i=0;i<n;i++)
@@ -679,7 +684,7 @@ int qincore(sxi_db_t *db, int64_t *incore_pages, int64_t *total_pages)
     free(vec);
     qunfetch(&file, &pp);
 #endif
-    return SQLITE_OK;
+    return rc;
 }
 
 int qvacuum(sxi_db_t *db)

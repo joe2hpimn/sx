@@ -2963,6 +2963,7 @@ static int analyze_db(sxi_db_t *db, int verbose)
     sqlite3_stmt *qint = NULL, *qfk = NULL;
     if(name && verbose)
         INFO("%s:", name);
+    qreadahead(db);
     if (qprep(db, &qint, "PRAGMA integrity_check;") || qprep(db, &qfk, "PRAGMA foreign_key_check")) {
         ret = -1;
         WARN("Failed to prepare query");
@@ -13227,7 +13228,6 @@ static rc_ty foreach_hdb_blob(sx_hashfs_t *h, int *terminate,
         for (i=0;i<HASHDBS && !*terminate;i++) {
             int ret;
             sqlite3_stmt *q = loop[j][i];
-            qreadahead(h->datadb[j][i]);
             DEBUG("Running %s", sqlite3_sql(q));
             sqlite3_stmt *q_gc1 = h->qb_gc_revision_blocks[j][i];
             sqlite3_stmt *q_gc2 = h->qb_gc_revision[j][i];
@@ -13383,6 +13383,7 @@ rc_ty sx_hashfs_gc_run(sx_hashfs_t *h, int *terminate)
             int64_t last = 0;
             sqlite3_stmt *q = h->qb_find_unused_block[j][i];
             int first = 1;
+            qreadahead(h->datadb[j][i]);
             do {
                 if (!first)
                     qyield(h->datadb[j][i]);
