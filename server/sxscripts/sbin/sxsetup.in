@@ -652,6 +652,15 @@ EOF
 				mv $OUT_TMP $XCONF_TMP
 				. $XCONF_TMP
 			    fi
+			else
+			    "@sbindir@/sxadm" cluster --get-param sxsetup_conf "sx://admin@$SX_CLUSTER_NAME" 2>/dev/null | sed 's/sxsetup_conf=//' | xxd -ps -r > $XCONF_TMP 2>/dev/null
+			    if [ -s "$XCONF_TMP" ]; then
+				sed -e "s/SX_/XSX_/g" $XCONF_TMP > $OUT_TMP
+				if [ $? = 0 ]; then
+				    mv $OUT_TMP $XCONF_TMP
+				    . $XCONF_TMP
+				fi
+			    fi
 			fi
 		    fi
 
@@ -1273,10 +1282,14 @@ if [ ! -f "$SX_DATA_DIR/hashfs.db" ]; then
 	    echo "$SX_ADMIN_KEY" > $ADMINKEY_TMP
 	    "@bindir@/sxinit" --batch-mode --force-reinit --port="$SX_PORT" $NOSSL_FLAG --auth-file="$ADMINKEY_TMP" --host-list="$SX_NODE_IP" "sx://admin@$SX_CLUSTER_NAME" > /dev/null 2>&1
 	    if [ $? = 0 ]; then
-		if [ -n "`@bindir@/sxls sx://admin@$SX_CLUSTER_NAME/_sxsetup.conf 2>&1 | grep "No such volume"`" ]; then
-		    "@bindir@/sxvol" create -o admin -r 1 -s 10M "sx://admin@$SX_CLUSTER_NAME/_sxsetup.conf" > /dev/null 2>&1
+		XCONF=`cat $CONFIG | xxd -ps 2>/dev/null | tr -d '\n'`
+		if [ -n "$XCONF" ]; then
+		    "@sbindir@/sxadm" cluster --set-param sxsetup_conf=$XCONF "sx://admin@$SX_CLUSTER_NAME" > /dev/null 2>&1
+		    if [ $? = 0 ]; then
+			"@bindir@/sxrm" -r "sx://admin@$SX_CLUSTER_NAME/_sxsetup.conf" > /dev/null 2>&1
+			"@bindir@/sxvol" remove "sx://admin@$SX_CLUSTER_NAME/_sxsetup.conf" > /dev/null 2>&1
+		    fi
 		fi
-		"@bindir@/sxcp" $CONFIG "sx://admin@$SX_CLUSTER_NAME/_sxsetup.conf/sxsetup.conf.$SX_NODE_IP" > /dev/null 2>&1
 	    fi
 	fi
 
@@ -1346,11 +1359,14 @@ if [ ! -f "$SX_DATA_DIR/hashfs.db" ]; then
 
 	# store sxsetup.conf (non-critical)
 	if [ "$NO_REMOTE_COPY_GIVEN" != "yes" ]; then
-	    if [ -n "`@bindir@/sxls sx://admin@$SX_CLUSTER_NAME/_sxsetup.conf 2>&1 | grep "No such volume"`" ]; then
-		sleep 5
-		"@bindir@/sxvol" create -o admin -r 2 -s 10M "sx://admin@$SX_CLUSTER_NAME/_sxsetup.conf" > /dev/null 2>&1
+	    XCONF=`cat $CONFIG | xxd -ps 2>/dev/null | tr -d '\n'`
+	    if [ -n "$XCONF" ]; then
+		"@sbindir@/sxadm" cluster --set-param sxsetup_conf=$XCONF "sx://admin@$SX_CLUSTER_NAME" > /dev/null 2>&1
+		if [ $? = 0 ]; then
+		    "@bindir@/sxrm" -r "sx://admin@$SX_CLUSTER_NAME/_sxsetup.conf" > /dev/null 2>&1
+		    "@bindir@/sxvol" remove "sx://admin@$SX_CLUSTER_NAME/_sxsetup.conf" > /dev/null 2>&1
+		fi
 	    fi
-	    "@bindir@/sxcp" $CONFIG "sx://admin@$SX_CLUSTER_NAME/_sxsetup.conf/sxsetup.conf.$SX_NODE_IP" > /dev/null 2>&1
 	fi
 
 	if [ "$WAIT_GIVEN" = "yes" ]; then

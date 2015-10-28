@@ -4189,6 +4189,17 @@ static rc_ty hashfs_1_2_to_1_9(sxi_db_t *db)
         sx_blob_reset(b);
         sqlite3_reset(q);
 
+	/* sxsetup_conf */
+        if(sx_blob_add_string(b, "")) {
+            WARN("Failed to add setting value to the blob");
+            break;
+        }
+        sx_blob_to_data(b, &data, &data_len);
+        if(qbind_text(q, ":k", "sxsetup_conf") || qbind_blob(q, ":v", data, data_len) || qstep_noret(q))
+            break;
+        sx_blob_reset(b);
+        sqlite3_reset(q);
+
         qnullify(q);
 
         ret = OK;
