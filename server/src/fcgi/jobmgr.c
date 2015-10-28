@@ -3093,7 +3093,7 @@ struct volsizes_push_ctx {
 };
 
 /* Push volume sizes to particular node */
-static curlev_context_t *push_volume_sizes(sx_hashfs_t *h, const sx_node_t *n, unsigned int node_index, sxi_query_t *query) {
+static curlev_context_t *push_volume_sizes(sx_hashfs_t *h, const sx_node_t *n, unsigned int node_index, sxi_query_t **query) {
     curlev_context_t *ret;
     struct volsizes_push_ctx *ctx;
 
@@ -3105,7 +3105,6 @@ static curlev_context_t *push_volume_sizes(sx_hashfs_t *h, const sx_node_t *n, u
     ret = sxi_cbdata_create_generic(sx_hashfs_conns(h), NULL, NULL);
     if(!ret) {
         WARN("Failed to allocate cbdata");
-        sxi_query_free(query);
         return NULL;
     }
 
@@ -3113,7 +3112,6 @@ static curlev_context_t *push_volume_sizes(sx_hashfs_t *h, const sx_node_t *n, u
     ctx = malloc(sizeof(*ctx));
     if(!ctx) {
         WARN("Failed to allocate push context");
-        sxi_query_free(query);
         sxi_cbdata_unref(&ret);
         return NULL;
     }
@@ -3121,15 +3119,17 @@ static curlev_context_t *push_volume_sizes(sx_hashfs_t *h, const sx_node_t *n, u
     /* Assign index to distinguish nodes during polling */
     ctx->idx = node_index;
     /* Assign query to free it later (its content may be used in async callbacks) */
-    ctx->query = query;
+    ctx->query = *query;
+    /* Avoid double free */
+    *query = NULL;
     /* Set fail flag to 1 (failed), it will be assgined to 0 later */
     ctx->fail = 1;
     /* Add context to cbdata */
     sxi_cbdata_set_context(ret, ctx);
 
-    if(sxi_cluster_query_ev(ret, sx_hashfs_conns(h), sx_node_internal_addr(n), REQ_PUT, query->path, query->content, query->content_len, NULL, NULL)) {
+    if(sxi_cluster_query_ev(ret, sx_hashfs_conns(h), sx_node_internal_addr(n), REQ_PUT, ctx->query->path, ctx->query->content, ctx->query->content_len, NULL, NULL)) {
         WARN("Failed to push volume size to host %s: %s", sx_node_internal_addr(n), sxc_geterrmsg(sx_hashfs_client(h)));
-        sxi_query_free(query);
+        sxi_query_free(ctx->query);
         free(ctx);
         sxi_cbdata_unref(&ret);
         return NULL;
@@ -4240,18 +4240,17 @@ static act_result_t revsclean_vol_undo(sx_hashfs_t *hashfs, job_t job_id, job_da
 
 
 /* Update cbdata array with new context and send volsizes query to given node */
-static rc_ty finalize_query(sx_hashfs_t *h, curlev_context_t ***cbdata, unsigned int *ncbdata, const sx_node_t *n, unsigned int node_index, sxi_query_t *query) {
+static rc_ty finalize_query(sx_hashfs_t *h, curlev_context_t ***cbdata, unsigned int *ncbdata, const sx_node_t *n, unsigned int node_index, sxi_query_t **query) {
     curlev_context_t *ctx;
     curlev_context_t **newptr;
     rc_ty ret = FAIL_EINTERNAL;
 
-    if(!h || !cbdata || !ncbdata || !n || !query) {
+    if(!h || !cbdata || !ncbdata || !n || !query || !*query) {
         NULLARG();
-        sxi_query_free(query);
         goto finalize_query_err;
     }
 
-    if(!(query = sxi_volsizes_proto_end(sx_hashfs_client(h), query))) {
+    if(!(*query = sxi_volsizes_proto_end(sx_hashfs_client(h), *query))) {
         WARN("Failed to close query proto");
         goto finalize_query_err;
     }
@@ -4259,7 +4258,6 @@ static rc_ty finalize_query(sx_hashfs_t *h, curlev_context_t ***cbdata, unsigned
     newptr = realloc(*cbdata, sizeof(curlev_context_t*) * (*ncbdata + 1));
     if(!newptr) {
         WARN("Failed to allocate memory for next cbdata");
-        sxi_query_free(query);
         goto finalize_query_err;
     }
     *cbdata = newptr;
@@ -4296,6 +4294,7 @@ static rc_ty checkpoint_volume_sizes(sx_hashfs_t *h) {
     unsigned int ncbdata = 0;
     unsigned int nnodes;
     unsigned int fail;
+    sxi_query_t *query = NULL;
 
     /* Reload hashfs */
     check_distribution(h);
@@ -4324,7 +4323,6 @@ static rc_ty checkpoint_volume_sizes(sx_hashfs_t *h) {
         int64_t last_push_time;
         int s;
         int required = 0;
-        sxi_query_t *query = NULL;
         const sx_node_t *n = sx_nodelist_get(nodes, i);
         const sx_hashfs_volume_t *vol = NULL;
         int j;
@@ -4367,17 +4365,25 @@ static rc_ty checkpoint_volume_sizes(sx_hashfs_t *h) {
                     /* Increase number of required volumes */
                     required++;
                     /* Check if number of volumes is not too big, we should avoid too long json */
-                    if(required >= VOLSIZES_VOLS_PER_QUERY && finalize_query(h, &cbdata, &ncbdata, n, i, query)) {
-                        WARN("Failed to finalize and send query");
-                        goto checkpoint_volume_sizes_err;
+                    if(required >= VOLSIZES_VOLS_PER_QUERY) {
+                        /* On successful call query variable will be nullified and stored in the ctx */
+                        if(finalize_query(h, &cbdata, &ncbdata, n, i, &query)) {
+                            WARN("Failed to finalize and send query");
+                            goto checkpoint_volume_sizes_err;
+                        }
+                        required = 0;
                     }
                 }
             }
         }
 
-        if(required && finalize_query(h, &cbdata, &ncbdata, n, i, query)) {
-            WARN("Failed to finalize and send query");
-            goto checkpoint_volume_sizes_err;
+        if(required) {
+            /* On successful call query variable will be nullified and stored in the ctx */
+            if(finalize_query(h, &cbdata, &ncbdata, n, i, &query)) {
+                WARN("Failed to finalize and send query");
+                goto checkpoint_volume_sizes_err;
+            }
+            required = 0;
         }
 
         if(s != ITER_NO_MORE) {
@@ -4460,6 +4466,7 @@ checkpoint_volume_sizes_err:
         sxi_cbdata_unref(&cbdata[i]);
     }
 
+    sxi_query_free(query);
     free(cbdata);
     return ret;
 }
