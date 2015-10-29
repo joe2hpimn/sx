@@ -2163,6 +2163,20 @@ int sx_hashfs_uses_secure_proto(sx_hashfs_t *h) {
     return (h->ssl_ca_file != NULL);
 }
 
+static int set_nonblock(int fd)
+{
+    int flags = fcntl(fd, F_GETFL, 0);
+    if (flags == -1) {
+        PWARN("Failed to get flags");
+        return -1;
+    }
+    if (fcntl(fd, F_SETFL, flags | O_NONBLOCK)) {
+        PWARN("Failed to set non-blocking flag");
+        return -1;
+    }
+    return 0;
+}
+
 void sx_hashfs_set_triggers(sx_hashfs_t *h, int job_trigger, int xfer_trigger, int gc_trigger, int gc_expire_trigger, int hbeat_trigger) {
     if(!h)
 	return;
@@ -2171,6 +2185,12 @@ void sx_hashfs_set_triggers(sx_hashfs_t *h, int job_trigger, int xfer_trigger, i
     h->gc_trigger = gc_trigger;
     h->gc_expire_trigger = gc_expire_trigger;
     h->hbeat_trigger = hbeat_trigger;
+    /* set non blocking flags after fork, they may not be preserved by fork on all OSes */
+    set_nonblock(job_trigger);
+    set_nonblock(xfer_trigger);
+    set_nonblock(gc_trigger);
+    set_nonblock(gc_expire_trigger);
+    set_nonblock(hbeat_trigger);
 }
 
 void sx_hashfs_close(sx_hashfs_t *h) {
@@ -12975,7 +12995,7 @@ rc_ty sx_hashfs_job_unlock(sx_hashfs_t *h, const char *owner) {
 
 static void ignore(int v)
 {
-    if (v < 0)
+    if (v < 0 && errno != EWOULDBLOCK && errno != EAGAIN)
         PWARN("ignoring write failure");
 }
 
