@@ -30,6 +30,7 @@ groupoption "get-meta" - "Show cluster metadata (use ALL to show all entries)" g
 groupoption "delete-meta" - "Delete cluster metadata entry" group="MODE" string typestr="KEY"
 groupoption "set-param" - "Set cluster parameter ('key=value' entries are accepted)" group="MODE" string multiple
 groupoption "get-param" - "Show cluster parameter value (use ALL to show all settings)" group="MODE" string typestr="KEY"
+groupoption "force-job-allowance" - "Override the cluster jobs allowance policy (dangerous)" group="MODE" hidden
 
 section "New cluster options"
 option "node-dir" d "Path to the node directory" string typestr="PATH" dependon="new" optional

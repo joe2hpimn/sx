@@ -33,5 +33,6 @@ void fcgi_challenge_response(void);
 void fcgi_cluster_setmeta(void);
 void fcgi_cluster_settings(void);
 void fcgi_get_cluster_settings(void);
+void fcgi_cluster_junlock(void);
 
 #endif

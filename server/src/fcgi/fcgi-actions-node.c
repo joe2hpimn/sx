@@ -1128,7 +1128,7 @@ static int cb_sync_string(void *ctx, const unsigned char *s, size_t l) {
         c->state = CB_SYNC_CLUSTERMETA_KEY;
     } else if(c->state == CB_SYNC_CLUSTER_SETTINGS_VAL) {
         char val[SXLIMIT_SETTINGS_MAX_VALUE_LEN+1];
-        if(!l || (l & 1) || l > SXLIMIT_SETTINGS_MAX_VALUE_LEN * 2)
+        if((l & 1) || l > SXLIMIT_SETTINGS_MAX_VALUE_LEN * 2)
             return 0;
         if(hex2bin((const char*)s, l, (uint8_t*)val, sizeof(val)))
             return 0;
@@ -1578,7 +1578,7 @@ void fcgi_node_jlock(void) {
 
 
 void fcgi_node_junlock(void) {
-    rc_ty s = sx_hashfs_job_unlock(hashfs, path);
+    rc_ty s = sx_hashfs_job_unlock(hashfs, strcmp(path, "any") ? path : NULL);
     if(s != OK)
 	quit_errmsg(rc2http(s), msg_get_reason());
 

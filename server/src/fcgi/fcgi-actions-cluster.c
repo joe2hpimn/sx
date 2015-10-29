@@ -1444,3 +1444,16 @@ void fcgi_get_cluster_settings(void) {
     } else
         CGI_PUTS("}}");
 }
+
+void fcgi_cluster_junlock(void) {
+    job_t job_id;
+    rc_ty s;
+
+    s = sx_hashfs_job_unlock(hashfs, NULL);
+    if(s == OK)
+	s = sx_hashfs_job_new(hashfs, 0, &job_id, JOBTYPE_JUNLOCKALL, 90, NULL, NULL, 0, sx_hashfs_all_nodes(hashfs, NL_NEXTPREV));
+    if(s == OK)
+	send_job_info(job_id);
+    else
+	quit_errmsg(500, msg_get_reason());
+}

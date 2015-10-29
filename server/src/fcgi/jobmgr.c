@@ -2564,7 +2564,7 @@ static act_result_t startrebalance_request(sx_hashfs_t *hashfs, job_t job_id, jo
 }
 
 
-static act_result_t jlock_common(int lock, sx_hashfs_t *hashfs, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg) {
+static act_result_t jlock_common(int lock, sx_hashfs_t *hashfs, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int unlockall) {
     sxi_conns_t *clust = sx_hashfs_conns(hashfs);
     const sx_node_t *me = sx_hashfs_self(hashfs);
     unsigned int i, nnodes = sx_nodelist_count(nodes);
@@ -2576,6 +2576,8 @@ static act_result_t jlock_common(int lock, sx_hashfs_t *hashfs, const sx_nodelis
     for(i=0; i<nnodes; i++) {
 	const sx_node_t *node = sx_nodelist_get(nodes, i);
 	const char *owner = sx_node_uuid_str(me);
+	if(!lock && unlockall)
+	    owner = "any";
 	if(sx_node_cmp(me, node)) {
 	    /* Remote node */
 	    if(!query) {
@@ -2599,7 +2601,7 @@ static act_result_t jlock_common(int lock, sx_hashfs_t *hashfs, const sx_nodelis
 	    if(lock)
 		s = sx_hashfs_job_lock(hashfs, owner);
 	    else
-		s = sx_hashfs_job_unlock(hashfs, owner);
+		s = sx_hashfs_job_unlock(hashfs, unlockall ? NULL : owner);
 	    if(s != OK)
 		action_error(rc2actres(s), rc2http(s), msg_get_reason());
 	    if(succeeded)
@@ -2639,11 +2641,11 @@ static act_result_t jlock_common(int lock, sx_hashfs_t *hashfs, const sx_nodelis
 }
 
 static act_result_t jlock_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
-    return jlock_common(1, hashfs, nodes, succeeded, fail_code, fail_msg);
+    return jlock_common(1, hashfs, nodes, succeeded, fail_code, fail_msg, 0);
 }
 
 static act_result_t jlock_abort_and_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
-    return jlock_common(0, hashfs, nodes, succeeded, fail_code, fail_msg);
+    return jlock_common(0, hashfs, nodes, succeeded, fail_code, fail_msg, 0);
 }
 
 static void send_unlock(sx_hashfs_t *hashfs, const sx_nodelist_t *nodes) {
@@ -2652,7 +2654,13 @@ static void send_unlock(sx_hashfs_t *hashfs, const sx_nodelist_t *nodes) {
     
     if(!nodes)
 	return;
-    jlock_common(0, hashfs, nodes, NULL, &ret, buf);
+    jlock_common(0, hashfs, nodes, NULL, &ret, buf, 0);
+}
+
+
+static act_result_t junlockall_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    jlock_common(0, hashfs, nodes, succeeded, fail_code, fail_msg, 1);
+    return force_phase_success(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
 }
 
 #define RB_MAX_NODES (2 /* FIXME: bump me ? */)
@@ -6251,6 +6259,7 @@ static struct {
     { force_phase_success, cluster_setmeta_commit, cluster_setmeta_abort, cluster_setmeta_undo }, /* JOBTYPE_CLUSTER_SETMETA */
     { jobspawn_request, jobspawn_commit, force_phase_success, jobspawn_undo }, /* JOBTYPE_JOBSPAWN */
     { force_phase_success, cluster_settings_commit, cluster_settings_abort, cluster_settings_undo }, /* JOBTYPE_CLUSTER_SETTINGS */
+    { junlockall_request, force_phase_success, force_phase_success, force_phase_success }, /* JOBTYPE_JUNLOCKALL */
 };
 
 

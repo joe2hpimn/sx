@@ -268,7 +268,11 @@ void volume_ops(void) {
 	} else if(!strcmp(volume, ".dist")) {
 	    quit_unless_has(PRIV_CLUSTER);
 	    fcgi_revoke_distribution();
-        } else {
+        } else if(!strcmp(volume, ".jlock")) {
+	    /* Last resort "just unlock it" action for the jlock stuck case - sxadm entry */
+	    quit_unless_has(PRIV_ADMIN);
+	    fcgi_cluster_junlock();
+	} else {
 	    if(is_reserved())
 		quit_errmsg(403, "Volume name is reserved");
             /* Delete volume - ADMIN or CLUSTER required */

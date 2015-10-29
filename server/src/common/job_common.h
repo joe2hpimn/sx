@@ -79,6 +79,7 @@ typedef enum _jobtype_t {
     JOBTYPE_CLUSTER_SETMETA,
     JOBTYPE_JOBSPAWN,
     JOBTYPE_CLUSTER_SETTINGS,
+    JOBTYPE_JUNLOCKALL,
 } jobtype_t;
 
 typedef enum {

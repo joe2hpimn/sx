@@ -1357,6 +1357,25 @@ static int force_gc_cluster(sxc_client_t *sx, struct cluster_args_info *args, in
     return ret;
 }
 
+static int junlock_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
+    sxc_cluster_t *cluster = cluster_load(sx, args, 1);
+    int ret;
+
+    if(!cluster)
+        return 1;
+
+    if(sxi_job_submit_and_poll(sxi_cluster_get_conns(cluster), NULL, REQ_DELETE, ".jlock", NULL, 0)) {
+	CRIT("The request failed: %s", sxc_geterrmsg(sx));
+	ret = 1;
+    } else {
+	ret = 0;
+        printf("Successfully forced job allowance\n");
+    }
+    sxc_cluster_free(cluster);
+    return ret;
+}
+
+
 static void print_dist(const sx_nodelist_t *nodes, const char *zones) {
     if(nodes) {
 	unsigned int i, nnodes = sx_nodelist_count(nodes);
@@ -2548,6 +2567,8 @@ int main(int argc, char **argv) {
             ret = set_cluster_param(sx, &cluster_args);
         else if(cluster_args.delete_meta_given && cluster_args.inputs_num == 1)
             ret = del_cluster_meta(sx, &cluster_args);
+        else if(cluster_args.force_job_allowance_given && cluster_args.inputs_num == 1)
+            ret = junlock_cluster(sx, &cluster_args);
 	else
 	    cluster_cmdline_parser_print_help();
     cluster_out:

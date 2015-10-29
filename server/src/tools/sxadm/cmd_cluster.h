@@ -77,6 +77,7 @@ struct cluster_args_info
   char * get_param_arg;	/**< @brief Show cluster parameter value (use ALL to show all settings).  */
   char * get_param_orig;	/**< @brief Show cluster parameter value (use ALL to show all settings) original value given at command line.  */
   const char *get_param_help; /**< @brief Show cluster parameter value (use ALL to show all settings) help description.  */
+  const char *force_job_allowance_help; /**< @brief Override the cluster jobs allowance policy (dangerous) help description.  */
   char * node_dir_arg;	/**< @brief Path to the node directory.  */
   char * node_dir_orig;	/**< @brief Path to the node directory original value given at command line.  */
   const char *node_dir_help; /**< @brief Path to the node directory help description.  */
@@ -125,6 +126,7 @@ struct cluster_args_info
   unsigned int set_param_given ;	/**< @brief Whether set-param was given.  */
   int set_param_group ; /**< @brief Whether set-param's was updated.  */
   unsigned int get_param_given ;	/**< @brief Whether get-param was given.  */
+  unsigned int force_job_allowance_given ;	/**< @brief Whether force-job-allowance was given.  */
   unsigned int node_dir_given ;	/**< @brief Whether node-dir was given.  */
   unsigned int port_given ;	/**< @brief Whether port was given.  */
   unsigned int ssl_ca_file_given ;	/**< @brief Whether ssl-ca-file was given.  */
