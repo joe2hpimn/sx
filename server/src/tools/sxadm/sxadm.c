@@ -130,7 +130,10 @@ static int read_or_gen_key(const char *token_file, int role, struct token_pair_t
 	memcpy(result->key, bintok+AUTH_UID_LEN, AUTH_KEY_LEN);
 	result->uid = result->uid_store;
     } else {
-	gen_key(result->key, sizeof(result->key));
+	if(sxi_rand_bytes(result->key, sizeof(result->key))) {
+	    CRIT("Failed to generate random stream");
+	    return -1;
+	}
 	encode_auth_bin(token_uid, result->key, sizeof(result->key), result->token, sizeof(result->token));
 	result->uid = NULL;
     }

@@ -333,7 +333,7 @@ int anonymize_filter(sxc_client_t *sx, const char *datadir, FILE *in, FILE *out)
     } else {
         WARN("[Using random key for anonymization]");
         /* When there is no working hashfs use a random key */
-        if(sxi_rand_pseudo_bytes(hmac_key, sizeof(hmac_key)) == -1) {
+        if(sxi_rand_pseudo_bytes(hmac_key, sizeof(hmac_key))) {
             return -1;
         }
     }

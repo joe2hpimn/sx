@@ -207,6 +207,15 @@ if test "$with_system_libs" = "yes"; then
 fi
 AM_CONDITIONAL([BUILD_CURL], [test "$build_curl" = "yes"])
 
+AC_ARG_ENABLE([vghints],
+    AS_HELP_STRING([--enable-vghints], [build with support for valgrind hints]),
+    [vghints=$enableval], [vghints=no])
+if test "x$vghints" = "xyes"; then
+   AC_CHECK_HEADER([valgrind/memcheck.h],
+	AC_DEFINE([ENABLE_VGHINTS], 1, [Build with support for valgrind hints]),
+	AC_MSG_ERROR([Cannot find valgrind includes]))
+fi
+
 AC_SUBST(CURL_LIBS)
 AC_SUBST(YAJL_LIBS)
 

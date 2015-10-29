@@ -2794,7 +2794,7 @@ rc_ty sx_hashfs_make_token(sx_hashfs_t *h, const uint8_t *user, const char *rndh
 	/* non-blocking pseudo-random bytes, i.e. we don't want to block or deplete
 	 * entropy as we only need a unique sequence of bytes, not a secret one as
 	 * it is sent in plaintext anyway, and signed with an HMAC */
-	if(sxi_rand_pseudo_bytes(rndbin, sizeof(rndbin)) == -1) {
+	if(sxi_rand_pseudo_bytes(rndbin, sizeof(rndbin))) {
 	    /* can also return 0 or 1 but that doesn't matter here */
 	    WARN("Cannot generate random bytes");
 	    msg_set_reason("Failed to generate random string");
@@ -8799,7 +8799,7 @@ rc_ty sx_hashfs_putfile_begin(sx_hashfs_t *h, sx_uid_t user_id, const char *volu
     /* non-blocking pseudo-random bytes, i.e. we don't want to block or deplete
      * entropy as we only need a unique sequence of bytes, not a secret one as
      * it is sent in plaintext anyway, and signed with an HMAC */
-    if (sxi_rand_pseudo_bytes(rnd, sizeof(rnd)) == -1) {
+    if (sxi_rand_pseudo_bytes(rnd, sizeof(rnd))) {
 	/* can also return 0 or 1 but that doesn't matter here */
 	WARN("Cannot generate random bytes");
 	return FAIL_EINTERNAL;
@@ -12542,7 +12542,7 @@ rc_ty sx_hashfs_get_user_by_name(sx_hashfs_t *h, const char *name, uint8_t *user
 #define MAX_UID_GEN_TRIES     100
 /* TODO: Find a better way to generate unique UIDs */
 rc_ty sx_hashfs_generate_uid(sx_hashfs_t *h, uint8_t *uid) {
-    unsigned int i = 0;
+    unsigned int i;
 
     if(!uid) {
         NULLARG();
@@ -12554,10 +12554,11 @@ rc_ty sx_hashfs_generate_uid(sx_hashfs_t *h, uint8_t *uid) {
         return FAIL_LOCKED;
     }
 
-    sxi_rand_pseudo_bytes(uid + AUTH_CID_LEN, AUTH_UID_LEN - AUTH_CID_LEN);
-    while(sx_hashfs_get_user_info(h, uid, NULL, NULL, NULL, NULL, NULL) != ENOENT && i < MAX_UID_GEN_TRIES) {
-        i++;
-        sxi_rand_pseudo_bytes(uid + AUTH_CID_LEN, AUTH_UID_LEN - AUTH_CID_LEN);
+    for(i = 0; i < MAX_UID_GEN_TRIES; i++) {
+	if(sxi_rand_pseudo_bytes(uid + AUTH_CID_LEN, AUTH_UID_LEN - AUTH_CID_LEN))
+	    continue;
+	if(sx_hashfs_get_user_info(h, uid, NULL, NULL, NULL, NULL, NULL) == ENOENT)
+	    break;
     }
 
     if(i == MAX_UID_GEN_TRIES) {
@@ -14444,7 +14445,7 @@ rc_ty sx_hashfs_challenge_gen(sx_hashfs_t *h, sx_hash_challenge_t *c, int random
     rc_ty ret;
 
     if(random_challenge) {
-	if(sxi_rand_pseudo_bytes(c->challenge, sizeof(c->challenge)) == -1) {
+	if(sxi_rand_pseudo_bytes(c->challenge, sizeof(c->challenge))) {
 	    WARN("Cannot generate random bytes");
 	    msg_set_reason("Failed to generate random nounce");
 	    return FAIL_EINTERNAL;

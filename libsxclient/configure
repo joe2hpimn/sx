@@ -826,6 +826,7 @@ with_system_libs
 with_ssl
 with_nss
 with_libcurl
+enable_vghints
 enable_assert
 enable_largefile
 '
@@ -1478,6 +1479,7 @@ Optional Features:
                           optimize for fast installation [default=yes]
   --disable-libtool-lock  avoid locking (might break parallel builds)
   --enable-ltdl-install   install libltdl
+  --enable-vghints        build with support for valgrind hints
   --disable-assert        turn off assertions
   --disable-largefile     omit support for large files
 
@@ -15584,6 +15586,26 @@ else
   BUILD_CURL_FALSE=
 fi
 
+
+# Check whether --enable-vghints was given.
+if test "${enable_vghints+set}" = set; then :
+  enableval=$enable_vghints; vghints=$enableval
+else
+  vghints=no
+fi
+
+if test "x$vghints" = "xyes"; then
+   ac_fn_c_check_header_mongrel "$LINENO" "valgrind/memcheck.h" "ac_cv_header_valgrind_memcheck_h" "$ac_includes_default"
+if test "x$ac_cv_header_valgrind_memcheck_h" = xyes; then :
+
+$as_echo "#define ENABLE_VGHINTS 1" >>confdefs.h
+
+else
+  as_fn_error $? "Cannot find valgrind includes" "$LINENO" 5
+fi
+
+
+fi
 
 
 

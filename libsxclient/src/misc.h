@@ -39,7 +39,7 @@ void sxi_bin2hex(const void *bin, unsigned int len, char *hex);
 int sxi_uuid_parse(const char *uuid_str, uint8_t *uuid);
 void sxi_uuid_unparse(const uint8_t *uuid, char *uuid_str);
 int sxi_hex2bin(const char *src, uint32_t src_len, uint8_t *dst, uint32_t dst_len);
-unsigned int sxi_rand(void);
+unsigned int sxi_rand(void); /* Note: use sxi_rand_pseudo_bytes if you need to detect random generation errors */
 char *sxi_getenv(const char *name);
 
 typedef struct _sxi_ht_t sxi_ht;

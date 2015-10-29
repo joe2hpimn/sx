@@ -18,6 +18,9 @@
  */
 
 #include "sxlog.h"
+#ifdef ENABLE_VGHINTS
+#include "valgrind/memcheck.h"
+#endif
 
 int sxi_crypto_check_ver(struct sxi_logger *l);
 
@@ -42,8 +45,26 @@ void sxi_sha256(const unsigned char *d, size_t n,unsigned char *md);
 
 void sxi_report_crypto(sxc_client_t *sx);
 
-int sxi_rand_bytes(unsigned char *d, int len);
-int sxi_rand_pseudo_bytes(unsigned char *d, int len);
+int sxi_rand_bytes_impl(unsigned char *d, int len);
+int sxi_rand_pseudo_bytes_impl(unsigned char *d, int len);
+#ifdef ENABLE_VGHINTS
+static __inline__ int sxi_rand_bytes(unsigned char *dest, int size) {
+    int ret = sxi_rand_bytes_impl(dest, size);
+    if(!ret)
+	VALGRIND_MAKE_MEM_DEFINED(dest, size);
+    return ret;
+}
+static __inline__ int sxi_rand_pseudo_bytes(unsigned char *dest, int size) {
+    int ret = sxi_rand_pseudo_bytes_impl(dest, size);
+    if(!ret)
+	VALGRIND_MAKE_MEM_DEFINED(dest, size);
+    return ret;
+}
+#else
+#define sxi_rand_bytes sxi_rand_bytes_impl
+#define sxi_rand_pseudo_bytes sxi_rand_pseudo_bytes_impl
+#endif
+
 void sxi_rand_cleanup(void);
 
 int sxi_sha1_calc(const void *salt, unsigned salt_len, const void *buffer, unsigned int len, unsigned char *hash);

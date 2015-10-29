@@ -254,17 +254,18 @@ void sxi_report_crypto(sxc_client_t *sx)
     sxi_info(sx, "NSS: %s", NSS_GetVersion());
 }
 
-int sxi_rand_bytes(unsigned char *d, int len)
+int sxi_rand_bytes_impl(unsigned char *d, int len)
 {
     /* TODO: does this block, use /dev/urandom instead? */
     if (PK11_GenerateRandom(d, len) == SECSuccess)
-        return 1;
-    return 0;
+        return 0; /* Success */
+    else
+    	return -1; /* Failure */
 }
 
-int sxi_rand_pseudo_bytes(unsigned char *d, int len)
+int sxi_rand_pseudo_bytes_impl(unsigned char *d, int len)
 {
-    return sxi_rand_bytes(d, len);
+    return sxi_rand_bytes_impl(d, len);
 }
 
 void sxi_rand_cleanup(void)

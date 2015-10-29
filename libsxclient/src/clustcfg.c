@@ -2787,7 +2787,7 @@ static char *user_add(sxc_cluster_t *cluster, const char *username, const char *
         memcpy(buf, old, AUTHTOK_BIN_LEN);
     } else if(generate_key) {
         /* Generate random key */
-        if (sxi_rand_bytes(key, AUTH_KEY_LEN) != 1) {
+        if (sxi_rand_bytes(key, AUTH_KEY_LEN)) {
             cluster_err(SXE_ECRYPT, "Unable to produce a random key");
             return NULL;
         }
@@ -2958,7 +2958,7 @@ char *sxc_user_newkey(sxc_cluster_t *cluster, const char *username, const char *
         memcpy(key, &old[AUTH_UID_LEN], AUTH_KEY_LEN);
     } else if(generate_key) {
         /* Generate random key */
-        if (sxi_rand_bytes(key, AUTH_KEY_LEN) != 1) {
+        if (sxi_rand_bytes(key, AUTH_KEY_LEN)) {
             cluster_err(SXE_ECRYPT, "Unable to produce a random key");
             return NULL;
         }

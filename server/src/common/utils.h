@@ -82,7 +82,6 @@ int uuid_generate(sx_uuid_t *u);
 int uuid_from_string(sx_uuid_t *u, const char *s);
 void uuid_from_binary(sx_uuid_t *u, const void *b);
 
-int gen_key(unsigned char *buf, int num);
 int derive_key(const unsigned char *salt, unsigned slen,
                const unsigned char *ikm, unsigned ilen,
                const char *info,

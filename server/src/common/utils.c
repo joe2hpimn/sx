@@ -288,7 +288,7 @@ void stat_get(const stat_t *s, value_t *v, double unit)
 
 
 int uuid_generate(sx_uuid_t *u) {
-    if (sxi_rand_pseudo_bytes(u->binary, sizeof(u->binary)) == -1) {
+    if (sxi_rand_pseudo_bytes(u->binary, sizeof(u->binary))) {
         WARN("Failed to generate UUID");
         return -1;
     }
@@ -334,14 +334,6 @@ void uuid_from_binary(sx_uuid_t *u, const void *b) {
 	    u->binary[8], u->binary[9], u->binary[10], u->binary[11],
 	    u->binary[12], u->binary[13], u->binary[14], u->binary[15]);
 }
-
-int gen_key(unsigned char *buf, int num)
-{
-    if (sxi_rand_bytes(buf, num))
-        return 0;
-    return -1;
-}
-
 
 #define PWARNF(...) sxi_log_msg(&logger, _f, SX_LOG_WARNING, __VA_ARGS__)
 

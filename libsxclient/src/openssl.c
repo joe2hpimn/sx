@@ -227,7 +227,7 @@ int sxi_sha1_final(sxi_md_ctx *ctx, unsigned char *out, unsigned int *len)
     return 1;
 }
 
-int sxi_rand_bytes(unsigned char *d, int len)
+int sxi_rand_bytes_impl(unsigned char *d, int len)
 {
     char namebuf[1024];
     const char *rndfile = RAND_file_name(namebuf, sizeof(namebuf));
@@ -235,14 +235,17 @@ int sxi_rand_bytes(unsigned char *d, int len)
         RAND_load_file(rndfile, -1);
     if(RAND_status() == 1 && RAND_bytes(d, len) == 1) {
         RAND_write_file(rndfile);
-        return 1;
+        return 0; /* Success */
     }
-    return 0;
+    return -1; /* Failure */
 }
 
-int sxi_rand_pseudo_bytes(unsigned char *d, int len)
+int sxi_rand_pseudo_bytes_impl(unsigned char *d, int len)
 {
-    return RAND_pseudo_bytes(d, len);
+    if(RAND_pseudo_bytes(d, len) >= 0)
+	return 0; /* Success */
+    else
+	return -1; /* Failure */
 }
 
 void sxi_rand_cleanup(void)
