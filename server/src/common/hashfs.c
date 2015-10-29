@@ -2744,6 +2744,9 @@ int sx_hashfs_check_username(const char *name, int path_check) {
     return check_path_element(name, SXLIMIT_MIN_USERNAME_LEN, SXLIMIT_MAX_USERNAME_LEN, "username", path_check);
 }
 
+static int check_userdesc(const char *desc) {
+    return check_path_element(desc, SXLIMIT_MIN_USERDESC_LEN, SXLIMIT_MAX_USERDESC_LEN, "user description", 0);
+}
 
 static int parse_revision(const char *revision, unsigned int *revtime) {
     const char *eod;
@@ -4312,7 +4315,7 @@ static rc_ty hashfs_1_1_to_1_2(sxi_db_t *db)
             break;
 	qnullify(q);
 
-	if(qprep(db, &q, "ALTER TABLE users ADD COLUMN desc TEXT("STRIFY(SXLIMIT_META_MAX_VALUE_LEN)") NULL") || qstep_noret(q))
+	if(qprep(db, &q, "ALTER TABLE users ADD COLUMN desc TEXT("STRIFY(SXLIMIT_MAX_USERDESC_LEN)") NULL") || qstep_noret(q))
             break;
 	qnullify(q);
 
@@ -6754,6 +6757,11 @@ rc_ty sx_hashfs_create_user(sx_hashfs_t *h, const char *user, const uint8_t *uid
 	return EINVAL;
     }
 
+    if(desc && check_userdesc(desc)) {
+	msg_set_reason("Invalid user description");
+	return EINVAL;
+    }
+
     if(key_size != AUTH_KEY_LEN) {
 	msg_set_reason("Invalid key");
 	return EINVAL;
@@ -6825,6 +6833,11 @@ rc_ty sx_hashfs_user_modify(sx_hashfs_t *h, const char *username, const uint8_t 
 
     if(sx_hashfs_check_username(username, 1)) {
 	msg_set_reason("Invalid username");
+	return EINVAL;
+    }
+
+    if(description && check_userdesc(description)) {
+	msg_set_reason("Invalid user description");
 	return EINVAL;
     }
 

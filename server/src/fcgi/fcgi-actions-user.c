@@ -262,7 +262,7 @@ void fcgi_send_user(void) {
 
 struct user_ctx {
     char name[SXLIMIT_MAX_USERNAME_LEN + 1], existing[SXLIMIT_MAX_USERNAME_LEN + 1];
-    char desc[SXLIMIT_META_MAX_VALUE_LEN+1];
+    char desc[SXLIMIT_MAX_USERDESC_LEN+1];
     uint8_t token[AUTHTOK_BIN_LEN];
     char type[7];
     int64_t quota;
@@ -534,7 +534,7 @@ static rc_ty user_parse_complete(void *yctx)
 
 static int user_to_blob(sxc_client_t *sx, int nodes, void *yctx, sx_blob_t *joblb)
 {
-    char realdesc[SXLIMIT_META_MAX_VALUE_LEN+1];
+    char realdesc[SXLIMIT_MAX_USERDESC_LEN+1];
     struct user_ctx *uctx = yctx;
     if (!joblb) {
         msg_set_reason("Cannot allocate job blob");
@@ -679,17 +679,18 @@ const job_2pc_t user_spec = {
 
 void fcgi_create_user(void)
 {
-    struct user_ctx uctx;
-    memset(&uctx, 0, sizeof(uctx));
-
-    job_2pc_handle_request(sx_hashfs_client(hashfs), &user_spec, &uctx);
+    struct user_ctx *uctx = wrap_calloc(1, sizeof(*uctx));
+    if(!uctx)
+	quit_errmsg(503, "Out of memory");
+    job_2pc_handle_request(sx_hashfs_client(hashfs), &user_spec, uctx);
+    free(uctx);
 }
 
 struct user_modify_ctx {
     uint8_t auth[AUTH_KEY_LEN];
     int key_given, quota_given, desc_given;
     int64_t quota;
-    char description[SXLIMIT_META_MAX_VALUE_LEN+1];
+    char description[SXLIMIT_MAX_USERDESC_LEN+1];
     enum user_modify_state { CB_USER_MODIFY_START=0, CB_USER_MODIFY_AUTH, CB_USER_MODIFY_QUOTA, CB_USER_MODIFY_KEY, CB_USER_MODIFY_DESC, CB_USER_MODIFY_COMPLETE } state;
 };
 
@@ -714,7 +715,7 @@ static int cb_user_modify_string(void *ctx, const unsigned char *s, size_t l) {
 	    }
         case CB_USER_MODIFY_DESC:
             {
-                if(l > SXLIMIT_META_MAX_VALUE_LEN) {
+                if(l > SXLIMIT_MAX_USERDESC_LEN) {
                     INFO("Bad description length %ld", l);
                     return 0;
                 }

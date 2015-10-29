@@ -57,15 +57,14 @@ static rc_ty int64_arg(const char* arg, int64_t *v, int64_t defaultv)
 
 void fcgi_locate_volume(const sx_hashfs_volume_t *vol) {
     sx_nodelist_t *allnodes, *goodnodes;
-    unsigned int blocksize, nnode, nnodes, i;
+    unsigned int blocksize, nnode, nnodes, i, nmeta = 0, comma;
+    struct metacontent {
+	char key[SXLIMIT_META_MAX_KEY_LEN+1];
+	char hexval[SXLIMIT_META_MAX_VALUE_LEN * 2 + 1];
+	int custom;
+    } *meta = NULL;
     int64_t fsize;
     rc_ty s;
-    struct {
-        char key[SXLIMIT_META_MAX_KEY_LEN+1];
-        uint8_t value[SXLIMIT_META_MAX_VALUE_LEN];
-        int value_len;
-    } custom_meta[SXLIMIT_META_MAX_ITEMS], meta[SXLIMIT_META_MAX_ITEMS];
-    unsigned int nmeta = 0, ncustommeta = 0;
 
     if (int64_arg("size", &fsize, 0))
         quit_errmsg(400, msg_get_reason());
@@ -111,34 +110,33 @@ void fcgi_locate_volume(const sx_hashfs_volume_t *vol) {
         const char *metakey;
         const void *metavalue;
         unsigned int metasize;
+
         if(sx_hashfs_volumemeta_begin(hashfs, vol)) {
             sx_nodelist_delete(goodnodes);
             quit_errmsg(500, "Cannot lookup volume metadata");
         }
 
-        while((s = sx_hashfs_volumemeta_next(hashfs, &metakey, &metavalue, &metasize)) == OK) {
-            if(!strncmp(SX_CUSTOM_META_PREFIX, metakey, lenof(SX_CUSTOM_META_PREFIX))) {
-                if(has_arg("customVolumeMeta")) {
-                    /* Append custom meta value */
-                    sxi_strlcpy(custom_meta[ncustommeta].key, metakey + lenof(SX_CUSTOM_META_PREFIX), sizeof(custom_meta[ncustommeta].key) - lenof(SX_CUSTOM_META_PREFIX));
-                    memcpy(custom_meta[ncustommeta].value, metavalue, metasize);
-                    custom_meta[ncustommeta].value_len = metasize;
-                    ncustommeta++;
-                }
-            } else {
-                if(has_arg("volumeMeta")) {
-                    /* Append regular meta value */
-                    sxi_strlcpy(meta[nmeta].key, metakey, sizeof(meta[nmeta].key));
-                    memcpy(meta[nmeta].value, metavalue, metasize);
-                    meta[nmeta].value_len = metasize;
-                    nmeta++;
-                }
-            }
-        }
+	if(!(meta = wrap_malloc(sizeof(*meta) * SXLIMIT_META_MAX_ITEMS))) {
+	    sx_nodelist_delete(goodnodes);
+	    quit_errmsg(503, "Out of memory");
+	}
 
-        if(s != ITER_NO_MORE) {
-            sx_nodelist_delete(goodnodes);
-            quit_errmsg(rc2http(s), rc2str(s));
+	for(nmeta = 0; (s = sx_hashfs_volumemeta_next(hashfs, &metakey, &metavalue, &metasize)) == OK && nmeta < SXLIMIT_META_MAX_ITEMS; nmeta++) {
+	    if(strncmp(SX_CUSTOM_META_PREFIX, metakey, lenof(SX_CUSTOM_META_PREFIX))) {
+		sxi_strlcpy(meta[nmeta].key, metakey, sizeof(meta[nmeta].key));
+		meta[nmeta].custom = 0;
+	    } else {
+		sxi_strlcpy(meta[nmeta].key, metakey + lenof(SX_CUSTOM_META_PREFIX), sizeof(meta[nmeta].key));
+		meta[nmeta].custom = 1;
+	    }
+	    if(bin2hex(metavalue, metasize, meta[nmeta].hexval, sizeof(meta[i].hexval)))
+		break;
+	}
+
+	if(s != ITER_NO_MORE) {
+	    sx_nodelist_delete(goodnodes);
+	    free(meta);
+	    quit_itererr("Internal error enumerating volume metadata", FAIL_EINTERNAL);
         }
     }
     CGI_PUTS("Content-type: application/json\r\n\r\n{\"nodeList\":");
@@ -148,34 +146,34 @@ void fcgi_locate_volume(const sx_hashfs_volume_t *vol) {
 	CGI_PRINTF(",\"blockSize\":%d", blocksize);
     if(has_arg("volumeMeta")) {
         CGI_PUTS(",\"volumeMeta\":{");
+	comma = 0;
         for(i = 0; i < nmeta; i++) {
-            char hexval[SXLIMIT_META_MAX_VALUE_LEN*2+1];
-            if(i)
+	    if(meta[i].custom)
+		continue;
+            if(comma)
                 CGI_PUTC(',');
             json_send_qstring(meta[i].key);
-            CGI_PUTS(":\"");
-            bin2hex(meta[i].value, meta[i].value_len, hexval, sizeof(hexval));
-            CGI_PUTS(hexval);
-            CGI_PUTC('"');
+            CGI_PRINTF(":\"%s\"", meta[i].hexval);
+	    comma |= 1;
         }
         CGI_PUTC('}');
     }
     if(has_arg("customVolumeMeta")) {
         CGI_PUTS(",\"customVolumeMeta\":{");
-        for(i = 0; i < ncustommeta; i++) {
-            char hexval[SXLIMIT_META_MAX_VALUE_LEN*2+1];
-            if(i)
+	comma = 0;
+        for(i = 0; i < nmeta; i++) {
+	    if(!meta[i].custom)
+		continue;
+            if(comma)
                 CGI_PUTC(',');
-            json_send_qstring(custom_meta[i].key);
-            CGI_PUTS(":\"");
-            bin2hex(custom_meta[i].value, custom_meta[i].value_len, hexval, sizeof(hexval));
-            CGI_PUTS(hexval);
-            CGI_PUTC('"');
+            json_send_qstring(meta[i].key);
+            CGI_PRINTF(":\"%s\"", meta[i].hexval);
+	    comma |= 1;
         }
         CGI_PUTC('}');
     }
     CGI_PUTC('}');
-
+    free(meta);
 }
 
 

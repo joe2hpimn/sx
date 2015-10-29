@@ -1506,54 +1506,64 @@ static const yajl_callbacks sync_parser = {
 
 
 void fcgi_sync_globs(void) {
+    struct cb_sync_ctx *yctx;
     if(!sx_storage_is_bare(hashfs))
 	quit_errmsg(400, "Node already initialized");
 
-    struct cb_sync_ctx yctx;
-    memset(&yctx, 0, sizeof(yctx));
-    yctx.state = CB_SYNC_START;
-    yctx.settings = sx_blob_new();
-    if(!yctx.settings)
-        quit_errmsg(500, "Cannot allocate data store");
+    if(!(yctx = wrap_calloc(1, sizeof(*yctx))))
+	quit_errmsg(503, "Out of memory");
 
-    yajl_handle yh = yajl_alloc(&sync_parser, NULL, &yctx);
+    yctx->settings = sx_blob_new();
+    if(!yctx->settings) {
+	free(yctx);
+        quit_errmsg(500, "Cannot allocate data store");
+    }
+
+    yctx->state = CB_SYNC_START;
+
+    yajl_handle yh = yajl_alloc(&sync_parser, NULL, yctx);
     if(!yh) {
-        sx_blob_free(yctx.settings);
+	sx_blob_free(yctx->settings);
+	free(yctx);
 	quit_errmsg(500, "Cannot allocate json parser");
     }
 
     if(sx_hashfs_syncglobs_begin(hashfs)) {
-        sx_blob_free(yctx.settings);
         yajl_free(yh);
+	sx_blob_free(yctx->settings);
+	free(yctx);
 	quit_errmsg(503, "Failed to prepare object synchronization");
     }
 
     int len;
     while((len = get_body_chunk(hashbuf, sizeof(hashbuf))) > 0)
 	if(yajl_parse(yh, hashbuf, len) != yajl_status_ok) break;
- 
-    if(len || yajl_complete_parse(yh) != yajl_status_ok || yctx.state != CB_SYNC_COMPLETE) {
+    if(len || yajl_complete_parse(yh) != yajl_status_ok || yctx->state != CB_SYNC_COMPLETE) {
 	yajl_free(yh);
+	sx_blob_free(yctx->settings);
+	free(yctx);
 	sx_hashfs_syncglobs_abort(hashfs);
-        sx_blob_free(yctx.settings);
 	quit_errmsg(400, "Invalid request content");
     }
     yajl_free(yh);
 
     auth_complete();
     if(!is_authed()) {
-        sx_blob_free(yctx.settings);
+        sx_blob_free(yctx->settings);
+	free(yctx);
 	sx_hashfs_syncglobs_abort(hashfs);
 	send_authreq();
 	return;
     }
 
     if(sx_hashfs_syncglobs_end(hashfs)) {
-        sx_blob_free(yctx.settings);
+        sx_blob_free(yctx->settings);
+	free(yctx);
 	quit_errmsg(503, "Failed to finalize object synchronization");
     }
 
-    sx_blob_free(yctx.settings);
+    sx_blob_free(yctx->settings);
+    free(yctx);
     CGI_PUTS("\r\n");
 }
 

@@ -165,6 +165,11 @@ void fcgi_handle_cluster_requests(void) {
     if(has_arg("volumeList")) {
 	const sx_hashfs_volume_t *vol;
         char owner[SXLIMIT_MAX_USERNAME_LEN+1];
+	struct {
+	    char key[SXLIMIT_META_MAX_KEY_LEN+1];
+	    char hexval[SXLIMIT_META_MAX_VALUE_LEN * 2 + 1];
+	    int custom;
+	} *meta = NULL;
 
         if(comma) {
             CGI_PUTC(',');
@@ -174,13 +179,7 @@ void fcgi_handle_cluster_requests(void) {
         uint8_t *u = has_priv(PRIV_ADMIN) ? NULL : user;/* user = NULL: list all volumes */
 	for(s = sx_hashfs_volume_first(hashfs, &vol, u); s == OK; s = sx_hashfs_volume_next(hashfs)) {
             sx_priv_t priv = 0;
-            unsigned int i;
-            struct {
-                char key[SXLIMIT_META_MAX_KEY_LEN+1];
-                uint8_t value[SXLIMIT_META_MAX_VALUE_LEN];
-                int value_len;
-            } custom_meta[SXLIMIT_META_MAX_ITEMS], meta[SXLIMIT_META_MAX_ITEMS];
-            unsigned int nmeta = 0, ncustommeta = 0;
+            unsigned int i, nmeta = 0;
 
 	    if(comma)
 		CGI_PUTC(',');
@@ -190,11 +189,13 @@ void fcgi_handle_cluster_requests(void) {
 	    json_send_qstring(vol->name);
             if((s = sx_hashfs_get_access(hashfs, user, vol->name, &priv)) != OK) {
                 CGI_PUTS("}");
+		free(meta);
                 quit_itererr("Failed to get volume privs", s);
             }
 
             if((s = sx_hashfs_uid_get_name(hashfs, vol->owner, owner, sizeof(owner))) != OK) {
                 CGI_PUTS("}");
+		free(meta);
                 quit_itererr("Failed to get volume owner name", s);
             }
 
@@ -214,59 +215,66 @@ void fcgi_handle_cluster_requests(void) {
 
                 if((s = sx_hashfs_volumemeta_begin(hashfs, vol)) != OK) {
                     CGI_PUTS("}}");
+		    free(meta);
                     quit_itererr("Cannot lookup volume metadata", s);
                 }
-                while((s = sx_hashfs_volumemeta_next(hashfs, &metakey, &metavalue, &metasize)) == OK) {
-                    if(!strncmp(SX_CUSTOM_META_PREFIX, metakey, lenof(SX_CUSTOM_META_PREFIX))) {
-                        if(has_arg("customVolumeMeta")) {
-                            /* Append custom meta value */
-                            sxi_strlcpy(custom_meta[ncustommeta].key, metakey + lenof(SX_CUSTOM_META_PREFIX), sizeof(custom_meta[ncustommeta].key) - lenof(SX_CUSTOM_META_PREFIX));
-                            memcpy(custom_meta[ncustommeta].value, metavalue, metasize);
-                            custom_meta[ncustommeta].value_len = metasize;
-                            ncustommeta++;
-                        }
-                    } else {
-                        if(has_arg("volumeMeta")) {
-                            /* Append regular meta value */
-                            sxi_strlcpy(meta[nmeta].key, metakey, sizeof(meta[nmeta].key));
-                            memcpy(meta[nmeta].value, metavalue, metasize);
-                            meta[nmeta].value_len = metasize;
-                            nmeta++;
-                        }
-                    }
-                }
+		if(!meta)
+		    meta = wrap_malloc(sizeof(*meta) * SXLIMIT_META_MAX_ITEMS);
+		if(!meta) {
+                    CGI_PUTS("}}");
+                    quit_itererr("Out of memory looking up volume metadata", ENOMEM);
+		}
+		for(nmeta=0; (s = sx_hashfs_volumemeta_next(hashfs, &metakey, &metavalue, &metasize)) == OK && nmeta < SXLIMIT_META_MAX_ITEMS; nmeta++) {
+		    if(strncmp(SX_CUSTOM_META_PREFIX, metakey, lenof(SX_CUSTOM_META_PREFIX))) {
+			sxi_strlcpy(meta[nmeta].key, metakey, sizeof(meta[0].key));
+			meta[nmeta].custom = 0;
+		    } else {
+			sxi_strlcpy(meta[nmeta].key, metakey + lenof(SX_CUSTOM_META_PREFIX), sizeof(meta[0].key));
+			meta[nmeta].custom = 1;
+		    }
+		    if(bin2hex(metavalue, metasize, meta[nmeta].hexval, sizeof(meta[0].hexval)))
+			break;
+		}
+
+		if(s != ITER_NO_MORE) {
+		    free(meta);
+                    CGI_PUTS("}}");
+                    quit_itererr("Internal error enumerating volume metadata", FAIL_EINTERNAL);
+		}
             }
 
             if(has_arg("volumeMeta")) {
+		int comma2 = 0;
                 CGI_PUTS(",\"volumeMeta\":{");
                 for(i = 0; i < nmeta; i++) {
-                    char hexval[SXLIMIT_META_MAX_VALUE_LEN*2+1];
-                    if(i)
+		    if(meta[i].custom)
+			continue;
+                    if(comma2)
                         CGI_PUTC(',');
                     json_send_qstring(meta[i].key);
-                    CGI_PUTS(":\"");
-                    bin2hex(meta[i].value, meta[i].value_len, hexval, sizeof(hexval));
-                    CGI_PUTS(hexval);
-                    CGI_PUTC('"');
+                    CGI_PRINTF(":\"%s\"", meta[i].hexval);
+		    comma2 |= 1;
                 }
                 CGI_PUTC('}');
             }
             if(has_arg("customVolumeMeta")) {
+		int comma2 = 0;
                 CGI_PUTS(",\"customVolumeMeta\":{");
-                for(i = 0; i < ncustommeta; i++) {
-                    char hexval[SXLIMIT_META_MAX_VALUE_LEN*2+1];
-                    if(i)
+                for(i = 0; i < nmeta; i++) {
+		    if(!meta[i].custom)
+			continue;
+                    if(comma2)
                         CGI_PUTC(',');
-                    json_send_qstring(custom_meta[i].key);
-                    CGI_PUTS(":\"");
-                    bin2hex(custom_meta[i].value, custom_meta[i].value_len, hexval, sizeof(hexval));
-                    CGI_PUTS(hexval);
-                    CGI_PUTC('"');
+                    json_send_qstring(meta[i].key);
+                    CGI_PRINTF(":\"%s\"", meta[i].hexval);
+		    comma2 |= 1;
                 }
                 CGI_PUTC('}');
             }
 	    CGI_PUTS("}");
 	}
+
+	free(meta);
 
 	CGI_PUTS("}");
 	if(s != ITER_NO_MORE) {

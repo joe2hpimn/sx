@@ -1894,28 +1894,35 @@ static int sync_misc_objects(sx_hashfs_t *hashfs, struct sync_ctx *ctx) {
 
 static int sync_global_objects(sx_hashfs_t *hashfs, const sxi_hostlist_t *hlist) {
     const sx_hashfs_volume_t *vol;
-    struct sync_ctx ctx;
+    struct sync_ctx *sctx;
     rc_ty s;
     int mode = 0;
 
-    ctx.what = DOING_NOTHING;
-    ctx.at = 0;
-    ctx.hashfs = hashfs;
-    ctx.hlist = hlist;
-
-    if(sx_hashfs_list_users(hashfs, NULL, syncusers_cb, 1, 1, &ctx))
+    if(!(sctx = wrap_malloc(sizeof(*sctx))))
 	return -1;
+
+    sctx->what = DOING_NOTHING;
+    sctx->at = 0;
+    sctx->hashfs = hashfs;
+    sctx->hlist = hlist;
+
+    if(sx_hashfs_list_users(hashfs, NULL, syncusers_cb, 1, 1, sctx)) {
+	free(sctx);
+	return -1;
+    }
 
     /* Force flush after all users */
-    if(ctx.what != DOING_NOTHING && sync_flush(&ctx))
+    if(sctx->what != DOING_NOTHING && sync_flush(sctx)) {
+	free(sctx);
 	return -1;
+    }
 
     s = sx_hashfs_volume_first(hashfs, &vol, 0);
     while(s == OK) {
 	uint8_t user[AUTH_UID_LEN];
 	char userhex[AUTH_UID_LEN * 2 + 1], *enc_name;
 	unsigned int need = strlen(vol->name) * 6 + 256;
-	unsigned int left = sizeof(ctx.buffer) - ctx.at;
+	unsigned int left = sizeof(sctx->buffer) - sctx->at;
 
 	/* Need to fit:
 	   - the preliminary '},"volumes":' part - 13 bytes
@@ -1928,6 +1935,7 @@ static int sync_global_objects(sx_hashfs_t *hashfs, const sxi_hostlist_t *hlist)
 
 	if(sx_hashfs_get_user_by_uid(hashfs, vol->owner, user, 0)) {
 	    WARN("Cannot find user %lld (owner of %s)", (long long)vol->owner, vol->name);
+	    free(sctx);
 	    return -1;
 	}
 	bin2hex(user, AUTH_UID_LEN, userhex, sizeof(userhex));
@@ -1937,7 +1945,7 @@ static int sync_global_objects(sx_hashfs_t *hashfs, const sxi_hostlist_t *hlist)
 	    const void *val;
 	    unsigned int val_len;
 
-	    ctx.nmisc = 0;
+	    sctx->nmisc = 0;
 	    while((s=sx_hashfs_volumemeta_next(hashfs, &key, &val, &val_len)) == OK) {
 		enc_name = sxi_json_quote_string(key);
 		if(!enc_name) {
@@ -1947,10 +1955,10 @@ static int sync_global_objects(sx_hashfs_t *hashfs, const sxi_hostlist_t *hlist)
 		}
 		/* encoded key and value lengths + quoting, colon and comma */
 		need += strlen(enc_name) + val_len * 2 + 4;
-		strcpy(ctx.misc.meta[ctx.nmisc].key, enc_name);
+		strcpy(sctx->misc.meta[sctx->nmisc].key, enc_name);
 		free(enc_name);
-		bin2hex(val, val_len, ctx.misc.meta[ctx.nmisc].hexvalue, sizeof(ctx.misc.meta[0].hexvalue));
-		ctx.nmisc++;
+		bin2hex(val, val_len, sctx->misc.meta[sctx->nmisc].hexvalue, sizeof(sctx->misc.meta[0].hexvalue));
+		sctx->nmisc++;
 	    }
 	    if(s == ITER_NO_MORE)
 		s = OK;
@@ -1961,17 +1969,20 @@ static int sync_global_objects(sx_hashfs_t *hashfs, const sxi_hostlist_t *hlist)
 	}
 
 	if(left < need) {
-	    if(sync_flush(&ctx))
+	    if(sync_flush(sctx)) {
+		free(sctx);
 		return -1;
+	    }
 	}
 
-	if(ctx.what == DOING_NOTHING) {
-	    strcpy(ctx.buffer, "{\"volumes\":{");
-	    ctx.at = lenof("{\"volumes\":{");
-	} else if(ctx.what == SYNCING_VOLUMES) {
-	    ctx.buffer[ctx.at++] = ',';
+	if(sctx->what == DOING_NOTHING) {
+	    strcpy(sctx->buffer, "{\"volumes\":{");
+	    sctx->at = lenof("{\"volumes\":{");
+	} else if(sctx->what == SYNCING_VOLUMES) {
+	    sctx->buffer[sctx->at++] = ',';
 	} else {
 	    WARN("Called out of sequence");
+	    free(sctx);
 	    return -1;
 	}
 
@@ -1981,86 +1992,101 @@ static int sync_global_objects(sx_hashfs_t *hashfs, const sxi_hostlist_t *hlist)
 	    s = ENOMEM;
 	    break;
 	}
-	sprintf(&ctx.buffer[ctx.at], "%s:{\"owner\":\"%s\",\"size\":%lld,\"replica\":%u,\"revs\":%u", enc_name, userhex, (long long)vol->size, vol->max_replica, vol->revisions);
+	sprintf(&sctx->buffer[sctx->at], "%s:{\"owner\":\"%s\",\"size\":%lld,\"replica\":%u,\"revs\":%u", enc_name, userhex, (long long)vol->size, vol->max_replica, vol->revisions);
 	free(enc_name);
-	if(ctx.nmisc) {
+	if(sctx->nmisc) {
 	    unsigned int i;
-	    strcat(ctx.buffer, ",\"meta\":{");
-	    for(i=0; i<ctx.nmisc; i++) {
-		ctx.at = strlen(ctx.buffer);
-		sprintf(&ctx.buffer[ctx.at], "%s%s:\"%s\"",
+	    strcat(sctx->buffer, ",\"meta\":{");
+	    for(i=0; i<sctx->nmisc; i++) {
+		sctx->at = strlen(sctx->buffer);
+		sprintf(&sctx->buffer[sctx->at], "%s%s:\"%s\"",
 			i ? "," : "",
-			ctx.misc.meta[i].key,
-			ctx.misc.meta[i].hexvalue);
+			sctx->misc.meta[i].key,
+			sctx->misc.meta[i].hexvalue);
 	    }
-	    strcat(ctx.buffer, "}");
+	    strcat(sctx->buffer, "}");
 	}
-	ctx.at = strlen(ctx.buffer);
-	strcat(&ctx.buffer[ctx.at++], "}");
-	ctx.what = SYNCING_VOLUMES;
+	sctx->at = strlen(sctx->buffer);
+	strcat(&sctx->buffer[sctx->at++], "}");
+	sctx->what = SYNCING_VOLUMES;
 	s = sx_hashfs_volume_next(hashfs);
     }
     if(s != ITER_NO_MORE) {
 	WARN("Sending failed with %d", s);
+	free(sctx);
 	return -1;
     }
 
     /* Force flush after all volumes */
-    if(ctx.what != DOING_NOTHING && sync_flush(&ctx))
+    if(sctx->what != DOING_NOTHING && sync_flush(sctx)) {
+	free(sctx);
 	return -1;
+    }
 
     s = sx_hashfs_volume_first(hashfs, &vol, 0);
     while(s == OK) {
-	ctx.volname = sxi_json_quote_string(vol->name);
-	if(!ctx.volname) {
+	sctx->volname = sxi_json_quote_string(vol->name);
+	if(!sctx->volname) {
 	    WARN("Failed to encode volume %s", vol->name);
+	    free(sctx);
 	    return -1;
 	}
-	if(sx_hashfs_list_acl(hashfs, vol, 0, PRIV_ADMIN, syncperms_cb, &ctx)) {
+	if(sx_hashfs_list_acl(hashfs, vol, 0, PRIV_ADMIN, syncperms_cb, sctx)) {
 	    WARN("Failed to list permissions for %s: %s", vol->name, msg_get_reason());
-	    free(ctx.volname);
+	    free(sctx->volname);
+	    free(sctx);
 	    return -1;
 	}
-	free(ctx.volname);
+	free(sctx->volname);
 
-	if(ctx.what == SYNCING_PERMS_USERS) {
-	    strcat(&ctx.buffer[ctx.at++], "}");
-	    ctx.what = SYNCING_PERMS_VOLUME;
+	if(sctx->what == SYNCING_PERMS_USERS) {
+	    strcat(&sctx->buffer[sctx->at++], "}");
+	    sctx->what = SYNCING_PERMS_VOLUME;
 	}
 	s = sx_hashfs_volume_next(hashfs);
     }
 
-    if(ctx.what != DOING_NOTHING) {
-	if(ctx.what == SYNCING_PERMS_USERS)
-	    strcat(&ctx.buffer[ctx.at++], "}");
-	if(sync_flush(&ctx))
+    if(sctx->what != DOING_NOTHING) {
+	if(sctx->what == SYNCING_PERMS_USERS)
+	    strcat(&sctx->buffer[sctx->at++], "}");
+	if(sync_flush(sctx)) {
+	    free(sctx);
 	    return -1;
+	}
     }
 
     if(sx_hashfs_cluster_get_mode(hashfs, &mode)) {
         WARN("Failed to get cluster operating mode");
+	free(sctx);
         return -1;
     }
 
     /* Syncing misc globs */
-    sprintf(ctx.buffer, "{\"misc\":{\"mode\":\"%s\"", mode ? "ro" : "rw");
-    ctx.what = SYNCING_MISC;
-    ctx.at = strlen(ctx.buffer);
-    if(sync_flush(&ctx))
+    sprintf(sctx->buffer, "{\"misc\":{\"mode\":\"%s\"", mode ? "ro" : "rw");
+    sctx->what = SYNCING_MISC;
+    sctx->at = strlen(sctx->buffer);
+    if(sync_flush(sctx)) {
+	free(sctx);
         return -1;
+    }
 
     /* Synchronize cluster meta */
-    ctx.misc_type = MISC_TYPE_META;
-    ctx.nmisc = 0;
-    if(sync_misc_objects(hashfs, &ctx))
+    sctx->misc_type = MISC_TYPE_META;
+    sctx->nmisc = 0;
+    if(sync_misc_objects(hashfs, sctx)) {
+	free(sctx);
         return -1;
+    }
 
     /* Synchronize cluster settings */
-    ctx.misc_type = MISC_TYPE_SETTINGS;
-    ctx.nmisc = 0;
-    if(sync_misc_objects(hashfs, &ctx))
+    sctx->misc_type = MISC_TYPE_SETTINGS;
+    sctx->nmisc = 0;
+    if(sync_misc_objects(hashfs, sctx)) {
+	free(sctx);
         return -1;
+    }
 
+    free(sctx);
     return 0;
 }
 
