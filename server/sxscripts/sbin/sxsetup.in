@@ -143,6 +143,23 @@ if [ "$INFO_GIVEN" = "yes" -o "$UPGRADE_GIVEN" = "yes" ]; then
 	else
 	    echo "Local node is up-to-date."
 	fi
+
+	# move remote sxsetup.conf into settings if needed
+	"@bindir@/sxls" "sx://admin@$SX_CLUSTER_NAME/_sxsetup.conf" > /dev/null 2>&1
+	if [ $? = 0 ]; then
+	    XCONF=`cat $CONFIG | xxd -ps 2>/dev/null | tr -d '\n'`
+	    if [ -n "$XCONF" ]; then
+		echo "Moving remote sxsetup.conf into cluster settings..."
+		"@sbindir@/sxadm" cluster --set-param sxsetup_conf=$XCONF "sx://admin@$SX_CLUSTER_NAME" > /dev/null 2>&1
+		if [ $? = 0 ]; then
+		    echo "Removing _sxsetup.conf volume..."
+		    "@bindir@/sxrm" -r "sx://admin@$SX_CLUSTER_NAME/_sxsetup.conf" > /dev/null 2>&1
+		    "@bindir@/sxvol" remove "sx://admin@$SX_CLUSTER_NAME/_sxsetup.conf" > /dev/null 2>&1
+		fi
+	    fi
+	fi
+
+	# run cluster --upgrade
 	OUT=`mktemp /tmp/sxsetupXXXXXXX`
 	if [ $? -ne 0 ]; then
 	    echo "ERROR: Failed to create temporary file"
