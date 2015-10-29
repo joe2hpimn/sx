@@ -14477,8 +14477,7 @@ rc_ty sx_hashfs_challenge_gen(sx_hashfs_t *h, sx_hash_challenge_t *c, int random
 rc_ty sx_hashfs_setnodedata(sx_hashfs_t *h, const char *name, const sx_uuid_t *node_uuid, uint16_t port, int use_ssl, const char *ssl_ca_crt) {
     rc_ty ret = FAIL_EINTERNAL;
     char *ssl_ca_file = NULL;
-    sqlite3_stmt *q = NULL;
-    int rollback = 0;
+    int r, rollback = 0;
 
     if(!h || !name || !node_uuid || !*name) {
 	NULLARG();
@@ -14487,6 +14486,20 @@ rc_ty sx_hashfs_setnodedata(sx_hashfs_t *h, const char *name, const sx_uuid_t *n
     if(!sx_storage_is_bare(h)) {
 	msg_set_reason("Storage was already activated");
 	return EINVAL;
+    }
+    sqlite3_reset(h->q_getval);
+    if(qbind_text(h->q_getval, ":k", "cluster_name")) {
+        msg_set_reason("Failed to get cluster name");
+        return FAIL_EINTERNAL;
+    }
+    r = qstep(h->q_getval);
+    sqlite3_reset(h->q_getval);
+    if(r == SQLITE_ROW) {
+	msg_set_reason("Storage was already activated");
+	return EINVAL;
+    } else if(r != SQLITE_DONE) {
+        msg_set_reason("Failed to get cluster name");
+        return FAIL_EINTERNAL;
     }
 
     if(use_ssl && ssl_ca_crt) {
@@ -14532,20 +14545,22 @@ rc_ty sx_hashfs_setnodedata(sx_hashfs_t *h, const char *name, const sx_uuid_t *n
 	goto setnodedata_fail;
     rollback = 1;
 
-    if(qprep(h->db, &q, "INSERT OR REPLACE INTO hashfs (key, value) VALUES (:k , :v)"))
+    sqlite3_reset(h->q_setval);
+    if(qbind_text(h->q_setval, ":k", "ssl_ca_file") ||
+       qbind_text(h->q_setval, ":v", ssl_ca_file ? ssl_ca_file : "") ||
+       qstep_noret(h->q_setval))
 	goto setnodedata_fail;
-
-    if(qbind_text(q, ":k", "ssl_ca_file") || qbind_text(q, ":v", ssl_ca_file ? ssl_ca_file : "") || qstep_noret(q))
+    if(qbind_text(h->q_setval, ":k", "cluster_name") ||
+       qbind_text(h->q_setval, ":v", name) ||
+       qstep_noret(h->q_setval))
 	goto setnodedata_fail;
-    if(qbind_text(q, ":k", "cluster_name") || qbind_text(q, ":v", name) || qstep_noret(q))
+    if(qbind_text(h->q_setval, ":k", "http_port") ||
+       qbind_int(h->q_setval, ":v", port) ||
+       qstep_noret(h->q_setval))
 	goto setnodedata_fail;
-    if(qbind_text(q, ":k", "http_port") || qbind_int(q, ":v", port) || qstep_noret(q))
-	goto setnodedata_fail;
-    if(qbind_text(q, ":k", "node") || qbind_blob(q, ":v", node_uuid->binary, sizeof(node_uuid->binary)) || qstep_noret(q))
-	goto setnodedata_fail;
-    qnullify(q);
-
-    if(qprep(h->db, &q, "DELETE FROM users WHERE uid <> 0") || qstep_noret(q))
+    if(qbind_text(h->q_setval, ":k", "node") ||
+       qbind_blob(h->q_setval, ":v", node_uuid->binary, sizeof(node_uuid->binary)) ||
+       qstep_noret(h->q_setval))
 	goto setnodedata_fail;
 
     if(update_raft_timeout(h))
@@ -14556,11 +14571,11 @@ rc_ty sx_hashfs_setnodedata(sx_hashfs_t *h, const char *name, const sx_uuid_t *n
 
     ret = OK;
     rollback = 0;
+
  setnodedata_fail:
     if(rollback)
 	qrollback(h->db);
 
-    sqlite3_finalize(q);
     free(ssl_ca_file);
     return ret;
 }
@@ -16794,32 +16809,14 @@ rc_ty sx_hashfs_cluster_set_name(sx_hashfs_t *h, const char *name) {
 }
 
 rc_ty sx_hashfs_cluster_get_name(sx_hashfs_t *h, const char **name) {
-    const char *n;
-
     if(!h || !name) {
         msg_set_reason("Invalid argument");
         return EINVAL;
     }
-
-    sqlite3_reset(h->q_getval);
-    if(qbind_text(h->q_getval, ":k", "cluster_name") || qstep_ret(h->q_getval)) {
-        msg_set_reason("Failed to get cluster name");
-        return FAIL_EINTERNAL;
+    if(sx_storage_is_bare(h)) {
+        msg_set_reason("This node is not a cluster member");
+        return FAIL_EINIT;
     }
-
-    n = (const char*)sqlite3_column_text(h->q_getval, 0);
-    if(!n) {
-        msg_set_reason("Failed go get cluster name");
-        return FAIL_EINTERNAL;
-    }
-
-    free(h->cluster_name);
-    h->cluster_name = wrap_strdup((const char*)sqlite3_column_text(h->q_getval, 0));
-    if (!h->cluster_name) {
-        msg_set_reason("Failed to get cluster name: Out of memory");
-        return FAIL_EINTERNAL;
-    }
-
     *name = h->cluster_name;
     return OK;
 }

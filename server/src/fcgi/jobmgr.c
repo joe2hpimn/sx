@@ -126,6 +126,54 @@ static act_result_t rc2actres(rc_ty rc) {
     return http2actres(rc2http(rc));
 }
 
+/* A convenience function to get all targets of a job: intended (almost)
+ * exclusively for the case when cleanup is required for parent actions.
+ * It subverts the normal 2PC mechanics. Please do not misuse/abuse. */
+static sx_nodelist_t *get_all_job_targets(sx_hashfs_t *hashfs, job_t job_id) {
+    sxi_db_t *eventdb = sx_hashfs_eventdb(hashfs);
+    sx_nodelist_t *ret = NULL;
+    sqlite3_stmt *q = NULL;
+    int r;
+
+    ret = sx_nodelist_new();
+    if(!ret) {
+	WARN("Failed to allocate nodelist");
+	goto alltgt_fail;
+    }
+    if(qprep(eventdb, &q, "SELECT id, target, addr, internaladdr, capacity FROM actions WHERE job_id = :jobid") ||
+       qbind_int64(q, ":jobid", job_id)) {
+	CRIT("Failed to prepare query");
+	goto alltgt_fail;
+    }
+    while((r = qstep(q)) == SQLITE_ROW) {
+	const void *id = sqlite3_column_blob(q, 1);
+	unsigned int idlen = sqlite3_column_bytes(q, 1);
+	const char *addr = sqlite3_column_text(q, 2);
+	const char *intaddr = sqlite3_column_text(q, 3);
+	int64_t capa = sqlite3_column_int64(q, 4);
+	sx_uuid_t uuid;
+	
+	if(!id || idlen != sizeof(uuid.binary) || !addr || !intaddr) {
+	    WARN("Found invalid data in action %lld", (long long)sqlite3_column_int64(q, 0));
+	    continue; /* best effort */
+	}
+	uuid_from_binary(&uuid, id);
+	if(sx_nodelist_add(ret, sx_node_new(&uuid, addr, intaddr, capa))) {
+	    WARN("Failed to add target to list");
+	    goto alltgt_fail;
+	}
+    }
+
+    if(r != SQLITE_DONE)
+	WARN("Failed to collect all targets");
+
+ alltgt_fail:
+    sqlite3_finalize(q);
+    return ret;
+}
+
+static void send_unlock(sx_hashfs_t *hashfs, const sx_nodelist_t *nodes);
+
 typedef struct {
 	curlev_context_t *cbdata;
 	int query_sent;
@@ -2090,33 +2138,44 @@ static int sync_global_objects(sx_hashfs_t *hashfs, const sxi_hostlist_t *hlist)
     return 0;
 }
 
-static act_result_t challenge_and_sync(sx_hashfs_t *hashfs, const sx_node_t *node, int *fail_code, char *fail_msg) {
+static int challenge_and_sync(sx_hashfs_t *hashfs, const sx_node_t *node, int *fail_code, char *fail_msg) {
     sx_hash_challenge_t chlrsp;
     char challenge[lenof(".challenge/") + sizeof(chlrsp.challenge) * 2 + 1];
     sxi_conns_t *clust = sx_hashfs_conns(hashfs);
     sxc_client_t *sx = sx_hashfs_client(hashfs);
-    act_result_t ret = ACT_RESULT_OK;
     struct cb_challenge_ctx ctx;
     sxi_query_t *initproto;
     sxi_hostlist_t hlist;
-    int qret;
+    int qret, ret = 1;
 
     sxi_hostlist_init(&hlist);
     ctx.at = 0;
-    if(sx_hashfs_challenge_gen(hashfs, &chlrsp, 1))
-	action_error(ACT_RESULT_TEMPFAIL, 500, "Cannot generate challenge for new node");
+    if(sx_hashfs_challenge_gen(hashfs, &chlrsp, 1)) {
+	WARN("Failed to generate challenge %s: %s",  sx_node_uuid_str(node), msg_get_reason());
+	ret = 1;
+	goto sync_err;
+    }
 
-    if(sxi_hostlist_add_host(sx, &hlist, sx_node_internal_addr(node)))
-	action_error(ACT_RESULT_TEMPFAIL, 500, "Not enough memory to perform challenge request");
+    if(sxi_hostlist_add_host(sx, &hlist, sx_node_internal_addr(node))) {
+	WARN("Not enough memory to perform challenge request on %s", sx_node_uuid_str(node));
+	ret = 1;
+	goto sync_err;
+    }
 
     strcpy(challenge, ".challenge/");
     bin2hex(chlrsp.challenge, sizeof(chlrsp.challenge), challenge + lenof(".challenge/"), sizeof(challenge) - lenof(".challenge/"));
     qret = sxi_cluster_query(clust, &hlist, REQ_GET, challenge, NULL, 0, NULL, challenge_cb, &ctx);
-    if(qret != 200 || ctx.at != sizeof(chlrsp.response))
-	action_error(http2actres(qret), qret, sxc_geterrmsg(sx));
+    if(qret != 200 || ctx.at != sizeof(chlrsp.response)) {
+	WARN("Challenge query to %s failed: %s", sx_node_uuid_str(node), sxc_geterrmsg(sx));
+	ret = 2;
+	goto sync_err;
+    }
 
-    if(memcmp(chlrsp.response, ctx.chlrsp.response, sizeof(chlrsp.response)))
-	action_error(ACT_RESULT_PERMFAIL, 500, "Bad challenge response");
+    if(memcmp(chlrsp.response, ctx.chlrsp.response, sizeof(chlrsp.response))) {
+	WARN("Bad challenge response from %s", sx_node_uuid_str(node));
+	ret = 2;
+	goto sync_err;
+    }	
 
     initproto = sxi_nodeinit_proto(sx,
 				   sx_hashfs_cluster_name(hashfs),
@@ -2124,21 +2183,30 @@ static act_result_t challenge_and_sync(sx_hashfs_t *hashfs, const sx_node_t *nod
 				   sx_hashfs_http_port(hashfs),
 				   sx_hashfs_uses_secure_proto(hashfs),
 				   sx_hashfs_ca_file(hashfs));
-    if(!initproto)
-	action_error(rc2actres(ENOMEM), rc2http(ENOMEM), "Failed to prepare query");
+    if(!initproto) {
+	WARN("Not enough memory to perform node initialise request on %s", sx_node_uuid_str(node));
+	ret = 1;
+	goto sync_err;
+    }
 
     qret = sxi_cluster_query(clust, &hlist, initproto->verb, initproto->path, initproto->content, initproto->content_len, NULL, NULL, NULL);
     sxi_query_free(initproto);
-    if(qret != 200)
-	action_error(http2actres(qret), qret, "Failed to initialize new node");
+    if(qret != 200) {
+	WARN("Initialise query to %s failed: %s", sx_node_uuid_str(node), sxc_geterrmsg(sx));
+	ret = 2;
+	goto sync_err;
+    }
 
     /* MOHDIST: Create users and volumes */
-    if(sync_global_objects(hashfs, &hlist))
-	action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to syncronize blobal objects on new node");
+    if(sync_global_objects(hashfs, &hlist)) {
+	WARN("Failed to synchronize objects on node %s", sx_node_uuid_str(node));
+	ret = 2;
+	goto sync_err;
+    }	
 
-    ret = ACT_RESULT_OK;
+    ret = 0;
 
- action_failed:
+ sync_err:
     sxi_hostlist_empty(&hlist);
     return ret;
 }
@@ -2192,42 +2260,76 @@ static act_result_t distribution_request(sx_hashfs_t *hashfs, job_t job_id, job_
 	action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
     }
     nnodes = sx_nodelist_count(nodes);
+
+    /* Sync newly added nodes first - failure is always PERM */
     for(nnode = 0; nnode < nnodes; nnode++) {
 	const sx_node_t *node = sx_nodelist_get(nodes, nnode);
 	int was_in = sx_nodelist_lookup(prev, sx_node_uuid(node)) != NULL;
 	int is_in = sx_nodelist_lookup(next, sx_node_uuid(node)) != NULL;
-
-	if(sxi_hostlist_add_host(sx, &hlist, sx_node_internal_addr(node)))
-	    action_error(ACT_RESULT_TEMPFAIL, 500, "Not enough memory to perform challenge request");
 
 	if(!was_in) {
 	    if(!is_in) {
 		WARN("Node %s is not part of either the old and the new distributions", sx_node_uuid_str(node));
 		action_error(ACT_RESULT_PERMFAIL, 500, "Bad distribution data");
 	    }
-
+	    
 	    if(!sx_node_cmp(me, node)) {
 		WARN("This node cannot be both a distribution change initiator and a new node");
 		action_error(ACT_RESULT_PERMFAIL, 500, "Something is really out of place");
 	    }
 
 	    /* Challenge new node */
-	    ret = challenge_and_sync(hashfs, node, fail_code, fail_msg);
-	    if(ret != ACT_RESULT_OK)
-		goto action_failed;
+	    switch(challenge_and_sync(hashfs, node, fail_code, fail_msg)) {
+	    case 0:
+		break;
+	    case 1:
+		action_error(ACT_RESULT_PERMFAIL, 500, "Failed to join new node due to local errors");
+	    default:
+		action_error(ACT_RESULT_PERMFAIL, 500, "Failed to join new node due to remote errors");
+	    }
 	}
+    }
+
+    /* Set distribution on newly added nodes first */
+    for(nnode = 0; nnode < nnodes; nnode++) {
+	const sx_node_t *node = sx_nodelist_get(nodes, nnode);
+	int was_in = sx_nodelist_lookup(prev, sx_node_uuid(node)) != NULL;
+
+	if(was_in)
+	    continue;
+
+	if(sxi_hostlist_add_host(sx, &hlist, sx_node_internal_addr(node)))
+	    action_error(ACT_RESULT_TEMPFAIL, 500, "Not enough memory to perform challenge request");
+
+	qret = sxi_cluster_query(clust, &hlist, proto->verb, proto->path, proto->content, proto->content_len, NULL, NULL, NULL);
+	if(qret != 200)
+	    action_error(http2actres(qret), qret, sxc_geterrmsg(sx));
+
+	sxi_hostlist_empty(&hlist);
+	succeeded[nnode] = 1;
+    }
+
+    /* Finally set distribution on existing nodes */
+    for(nnode = 0; nnode < nnodes; nnode++) {
+	const sx_node_t *node = sx_nodelist_get(nodes, nnode);
+	int was_in = sx_nodelist_lookup(prev, sx_node_uuid(node)) != NULL;
+
+	if(!was_in)
+	    continue;
 
 	if(sx_node_cmp(me, node)) {
+	    if(sxi_hostlist_add_host(sx, &hlist, sx_node_internal_addr(node)))
+		action_error(ACT_RESULT_TEMPFAIL, 500, "Not enough memory to perform challenge request");
 	    qret = sxi_cluster_query(clust, &hlist, proto->verb, proto->path, proto->content, proto->content_len, NULL, NULL, NULL);
 	    if(qret != 200)
 		action_error(http2actres(qret), qret, sxc_geterrmsg(sx));
+	    sxi_hostlist_empty(&hlist);
 	} else {
 	    s = sx_hashfs_hdist_change_add(hashfs, job_data->ptr, job_data->len);
 	    if(s)
 		action_set_fail(rc2actres(s), rc2http(s), msg_get_reason());
 	}
 
-	sxi_hostlist_empty(&hlist);
 	succeeded[nnode] = 1;
     }
 
@@ -2237,6 +2339,11 @@ action_failed:
     sxi_hostlist_empty(&hlist);
     sxi_hdist_free(hdist);
 
+    if(ret == ACT_RESULT_PERMFAIL) {
+	sx_nodelist_t *lockednodes = get_all_job_targets(hashfs, job_id);
+	send_unlock(hashfs, lockednodes);
+	sx_nodelist_delete(lockednodes);
+    }
     return ret;
 }
 
@@ -2305,14 +2412,20 @@ action_failed:
     return ret;
 }
 
-static act_result_t revoke_dist_common(sx_hashfs_t *hashfs, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg) {
+static act_result_t revoke_dist_common(sx_hashfs_t *hashfs, job_t job_id, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg) {
     const sx_node_t *me = sx_hashfs_self(hashfs);
     sxi_conns_t *clust = sx_hashfs_conns(hashfs);
     sxc_client_t *sx = sx_hashfs_client(hashfs);
     act_result_t ret = ACT_RESULT_OK;
     unsigned int nnode, nnodes;
+    sx_nodelist_t *lockednodes;
     sxi_hostlist_t hlist;
     rc_ty s;
+
+    /* Extra force unlock in case of timeouts */
+    lockednodes = get_all_job_targets(hashfs, job_id);
+    send_unlock(hashfs, lockednodes);
+    sx_nodelist_delete(lockednodes);
 
     sxi_hostlist_init(&hlist);
     nnodes = sx_nodelist_count(nodes);
@@ -2338,7 +2451,6 @@ static act_result_t revoke_dist_common(sx_hashfs_t *hashfs, const sx_nodelist_t 
 
 action_failed:
     sxi_hostlist_empty(&hlist);
-
     return ret;
 }
 
@@ -2362,7 +2474,7 @@ static act_result_t distribution_abort(sx_hashfs_t *hashfs, job_t job_id, job_da
 	action_error(ACT_RESULT_PERMFAIL, 500, "Bad distribution data");
     }
 
-    ret = revoke_dist_common(hashfs, nodes, succeeded, fail_code, fail_msg);
+    ret = revoke_dist_common(hashfs, job_id, nodes, succeeded, fail_code, fail_msg);
 
 action_failed:
     sxi_hdist_free(hdist);
@@ -2490,7 +2602,8 @@ static act_result_t jlock_common(int lock, sx_hashfs_t *hashfs, const sx_nodelis
 		s = sx_hashfs_job_unlock(hashfs, owner);
 	    if(s != OK)
 		action_error(rc2actres(s), rc2http(s), msg_get_reason());
-	    succeeded[i] = 1;
+	    if(succeeded)
+		succeeded[i] = 1;
 	}
     }
 
@@ -2510,7 +2623,8 @@ static act_result_t jlock_common(int lock, sx_hashfs_t *hashfs, const sx_nodelis
 			if(newret < ret) /* Severity shall only be raised */
 			    action_set_fail(newret, http_status, sxi_cbdata_geterrmsg(qrylist[i].cbdata));
 		    } else
-			succeeded[i] = 1;
+			if(succeeded)
+			    succeeded[i] = 1;
 		} else {
 		    CRIT("Failed to wait for query");
 		    action_set_fail(ACT_RESULT_PERMFAIL, 500, "Internal error in cluster communication");
@@ -2530,6 +2644,15 @@ static act_result_t jlock_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t 
 
 static act_result_t jlock_abort_and_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     return jlock_common(0, hashfs, nodes, succeeded, fail_code, fail_msg);
+}
+
+static void send_unlock(sx_hashfs_t *hashfs, const sx_nodelist_t *nodes) {
+    char buf[JOB_FAIL_REASON_SIZE];
+    int ret;
+    
+    if(!nodes)
+	return;
+    jlock_common(0, hashfs, nodes, NULL, &ret, buf);
 }
 
 #define RB_MAX_NODES (2 /* FIXME: bump me ? */)
@@ -3353,7 +3476,7 @@ static act_result_t replace_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_t 
 	action_error(ACT_RESULT_PERMFAIL, 500, "Bad distribution data");
     }
 
-    ret = revoke_dist_common(hashfs, nodes, succeeded, fail_code, fail_msg);
+    ret = revoke_dist_common(hashfs, job_id, nodes, succeeded, fail_code, fail_msg);
 
 action_failed:
     sx_nodelist_delete(faulty);
