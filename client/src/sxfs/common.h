@@ -52,6 +52,7 @@ char *sxfs_hash (sxfs_state_t *sxfs, const char *name);
 int sxfs_build_path (const char *path);
 int sxfs_copy_file (sxfs_state_t *sxfs, const char *source, const char *dest);
 int sxfs_rmdirs (const char *path);
+int sxfs_clear_path (const char *path);
 
 int sxfs_get_file (sxfs_file_t *sxfs_file, sxc_client_t *sx, sxc_cluster_t *cluster, int start_block, int end_block);
 int sxfs_get_block_background (sxfs_file_t *sxfs_file, int block_num);
@@ -70,7 +71,7 @@ int sxfs_lsfile_cmp (const void **files, size_t index, const char *file_name);
 int sxfs_lsdir_cmp (const void **dirs, size_t index, const char *dir_name);
 ssize_t sxfs_find_entry (const void **table, size_t size, const char *name, int (*compare)(const void**, size_t, const char*));
 
-sxfs_lsdir_t* sxfs_ls_update (const char *absolute_path);
+int sxfs_ls_update (const char *absolute_path, sxfs_lsdir_t **dir);
 int sxfs_ls_stat (const char *path, struct stat *st); /* returned values: <0 - error /  0 - not found / 1 - file / 2 - directory */
 int sxfs_update_mtime (const char *local_file_path, const char *remote_file_path, sxfs_lsfile_t *lsfile);
 

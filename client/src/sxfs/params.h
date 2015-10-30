@@ -40,9 +40,12 @@
 #include "server/src/common/sxlimits.h"
 
 #define SXFS_THREADS_LIMIT 64
+#define SXFS_FILE_OPENED 0x1
+#define SXFS_FILE_REMOVED 0x2
 
 struct _sxfs_lsfile_t {
     int remote, opened;
+    time_t remote_mtime;
     char *name;
     struct stat st;
 };
@@ -106,8 +109,8 @@ typedef struct _sxfs_sx_data sxfs_sx_data_t;
 #define JOB_SLEEP_USEC 5000000L /* microseconds deletion and upload threads wait for next turn */
 #define LAST_ACTION_WAIT_USEC 1000000L /* microseconds must have been passed since last file action */
 #define SXFS_DATA ((sxfs_state_t*) fuse_get_context()->private_data)
-#define SXFS_LOG(...) sxfs_log(SXFS_DATA, __FUNCTION__, 0, __VA_ARGS__)
-#define SXFS_DEBUG(...) sxfs_log(SXFS_DATA, __FUNCTION__, 1, __VA_ARGS__)
+#define SXFS_LOG(...) sxfs_log(SXFS_DATA, __func__, 0, __VA_ARGS__)
+#define SXFS_DEBUG(...) sxfs_log(SXFS_DATA, __func__, 1, __VA_ARGS__)
 
 #endif
 
