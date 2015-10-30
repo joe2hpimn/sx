@@ -733,14 +733,23 @@ static int change_commit(sxc_client_t *sx, sxc_cluster_t *clust, sx_node_t **nod
 
 static int change_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
     unsigned int i, j, nnodes = args->inputs_num - 1;
-    sxc_cluster_t *clust = cluster_load(sx, args, 1);
+    sxc_cluster_t *clust = cluster_load(sx, args, 0);
     const char *zones = NULL;
     char *query = NULL;
     int ret = 1;
     sx_node_t **nodes;
+    sxi_hostlist_t *hlist;
 
     if(!clust)
 	return 1;
+
+    sxc_cluster_fetchnodes(clust);
+    hlist = sxi_conns_get_hostlist(sxi_cluster_get_conns(clust));
+    if(!hlist) {
+	CRIT("Failed to retrieve node list for cache or cluster");
+	sxc_cluster_free(clust);
+	return 1;
+    }
 
     nodes = (sx_node_t **) calloc(nnodes, sizeof(sx_node_t *));
     if(!nodes) {
@@ -750,6 +759,7 @@ static int change_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
     }
 
     for(i=0; i<nnodes; i++) {
+	const char *uuid, *addr, *int_addr;
 	nodes[i] = parse_nodef(args->inputs[i]);
 	if(!nodes[i]) {
 	    zones = args->inputs[i];
@@ -761,12 +771,10 @@ static int change_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
 	    goto change_cluster_err;
 	}
 
+	uuid = sx_node_uuid_str(nodes[i]);
+	addr = sx_node_addr(nodes[i]);
+	int_addr = sx_node_internal_addr(nodes[i]);
 	if(i) {
-	    const char *uuid, *addr, *int_addr;
-	    uuid = sx_node_uuid_str(nodes[i]);
-	    addr = sx_node_addr(nodes[i]);
-	    int_addr = sx_node_internal_addr(nodes[i]);
-
 	    for(j = 0; j < i; j++) {
 		if(!strcmp(sx_node_uuid_str(nodes[j]), uuid)) {
 		    CRIT("Same UUID '%s' specified for multiple nodes", uuid);
@@ -781,6 +789,10 @@ static int change_cluster(sxc_client_t *sx, struct cluster_args_info *args) {
 		    goto change_cluster_err;
 		}
 	    }
+	}
+	if(sxi_hostlist_add_host(sx, hlist, addr) || sxi_hostlist_add_host(sx, hlist, int_addr)) {
+	    CRIT("Out of memory updating the list of nodes");
+	    goto change_cluster_err;
 	}
     }
     if(!nnodes) {

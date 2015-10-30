@@ -13579,8 +13579,8 @@ rc_ty sx_hashfs_hdist_change_req(sx_hashfs_t *h, const sx_nodelist_t *newdist, c
 	return ENOMEM;
     }
 
-    if((r = sx_nodelist_addlist(targets, sxi_hdist_nodelist(newmod, 1))) ||
-       (r = sx_nodelist_addlist(targets, sxi_hdist_nodelist(newmod, 0)))) {
+    if((r = sx_nodelist_addlist(targets, sxi_hdist_nodelist(newmod, 0))) ||
+       (r = sx_nodelist_addlist(targets, sxi_hdist_nodelist(newmod, 1)))) {
 	sx_nodelist_delete(targets);
 	sxi_hdist_free(newmod);
 	msg_set_reason("Failed to setup job targets");
