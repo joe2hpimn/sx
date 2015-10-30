@@ -1056,7 +1056,7 @@ sxfs_chown_err:
 } /* sxfs_chown */
 
 static int sxfs_truncate (const char *path, off_t length) {
-    int ret = -1, fd, locked = 0, tmp = 0;
+    int ret = -1, fd = -1, locked = 0, tmp = 0;
     ssize_t index;
     char *file_name, *local_file_path = NULL, *storage_file_path = NULL;
     time_t mctime;
@@ -1155,11 +1155,6 @@ static int sxfs_truncate (const char *path, off_t length) {
                     ret = -errno;
                 goto sxfs_truncate_err;
             }
-            if(sxfs_get_sx_data(SXFS_DATA, &sx, &cluster)) {
-                SXFS_LOG("Cannot get Sx data");
-                ret = errno ? -errno : -ENOMSG;
-                goto sxfs_truncate_err;
-            }
             local_file_path = (char*)malloc(strlen(SXFS_DATA->tempdir) + 1 + strlen("sxfs_write_XXXXXX") + 1);
             if(!local_file_path) {
                 SXFS_LOG("Out of memory");
@@ -1173,42 +1168,72 @@ static int sxfs_truncate (const char *path, off_t length) {
                 ret = -errno;
                 goto sxfs_truncate_err;
             }
-            if(close(fd)) {
-                SXFS_LOG("Cannot close '%s' file: %s", local_file_path, strerror(errno));
-                ret = -errno;
-                goto sxfs_truncate_err;
-            }
-            file_local = sxc_file_local(sx, local_file_path);
-            if(!file_local) {
-                SXFS_LOG("Cannot create local file object: %s", sxc_geterrmsg(sx));
-                ret = -sxfs_sx_err(sx);
-                goto sxfs_truncate_err;
-            }
-            file_remote = sxc_file_remote(cluster, SXFS_DATA->uri->volume, path+1, NULL);
-            if(!file_remote) {
-                SXFS_LOG("Cannot create file object: %s", sxc_geterrmsg(sx));
-                ret = -sxfs_sx_err(sx);
-                goto sxfs_truncate_err;
-            }
-            if(sxc_copy(file_remote, file_local, 0, 0, 0, NULL, 1)) {
-                SXFS_LOG("%s", sxc_geterrmsg(sx));
-                ret = -sxfs_sx_err(sx);
-                goto sxfs_truncate_err;
-            }
-            if(truncate(local_file_path, length)) {
-                SXFS_LOG("Cannot set '%s' size to %lld: %s", local_file_path, (long long int)length, strerror(errno));
-                if(errno == ENOSPC)
-                    ret = -ENOBUFS;
-                else
-                    ret = -errno;
-                goto sxfs_truncate_err;
-            }
-            if(sxfs_file) {
-                sxfs_file->write_fd = open(local_file_path, O_RDWR);
-                if(sxfs_file->write_fd < 0) {
-                    SXFS_LOG("Cannot open '%s' file: %s", local_file_path, strerror(errno));
+            if(length) {
+                if(close(fd)) {
+                    SXFS_LOG("Cannot close '%s' file: %s", local_file_path, strerror(errno));
                     ret = -errno;
                     goto sxfs_truncate_err;
+                }
+                fd = -1;
+                if(sxfs_get_sx_data(SXFS_DATA, &sx, &cluster)) {
+                    SXFS_LOG("Cannot get Sx data");
+                    ret = errno ? -errno : -ENOMSG;
+                    goto sxfs_truncate_err;
+                }
+                file_local = sxc_file_local(sx, local_file_path);
+                if(!file_local) {
+                    SXFS_LOG("Cannot create local file object: %s", sxc_geterrmsg(sx));
+                    ret = -sxfs_sx_err(sx);
+                    goto sxfs_truncate_err;
+                }
+                file_remote = sxc_file_remote(cluster, SXFS_DATA->uri->volume, path+1, NULL);
+                if(!file_remote) {
+                    SXFS_LOG("Cannot create file object: %s", sxc_geterrmsg(sx));
+                    ret = -sxfs_sx_err(sx);
+                    goto sxfs_truncate_err;
+                }
+                if(SXFS_DATA->filter * SXFS_FILTER_NEEDFILE) {
+                    if(sxc_copy(file_remote, file_local, 0, 0, 0, NULL, 1)) {
+                        SXFS_LOG("%s", sxc_geterrmsg(sx));
+                        ret = -sxfs_sx_err(sx);
+                        goto sxfs_truncate_err;
+                    }
+                } else {
+                    sxi_sxfs_data_t *fdata = sxi_sxfs_download_init(file_remote);
+
+                    if(!fdata) {
+                        SXFS_LOG("Cannot initialize file downloading: %s", sxc_geterrmsg(sx));
+                        ret = -sxfs_sx_err(sx);
+                        goto sxfs_truncate_err;
+                    }
+                    if(sxi_sxfs_download_run(fdata, cluster, file_local, 0, length)) {
+                        SXFS_LOG("Cannot download the file: %s", sxc_geterrmsg(sx));
+                        errno = sxfs_sx_err(sx);
+                        sxi_sxfs_download_finish(fdata);
+                        goto sxfs_truncate_err;
+                    }
+                    sxi_sxfs_download_finish(fdata);
+                }
+                if(truncate(local_file_path, length)) {
+                    SXFS_LOG("Cannot set '%s' size to %lld: %s", local_file_path, (long long int)length, strerror(errno));
+                    if(errno == ENOSPC)
+                        ret = -ENOBUFS;
+                    else
+                        ret = -errno;
+                    goto sxfs_truncate_err;
+                }
+            }
+            if(sxfs_file) {
+                if(fd >= 0) {
+                    sxfs_file->write_fd = fd;
+                    fd = -1;
+                } else {
+                    sxfs_file->write_fd = open(local_file_path, O_RDWR);
+                    if(sxfs_file->write_fd < 0) {
+                        SXFS_LOG("Cannot open '%s' file: %s", local_file_path, strerror(errno));
+                        ret = -errno;
+                        goto sxfs_truncate_err;
+                    }
                 }
                 sxfs_file->write_path = local_file_path;
                 local_file_path = NULL;
@@ -1236,6 +1261,8 @@ sxfs_truncate_err:
         pthread_mutex_unlock(&SXFS_DATA->upload_mutex);
     if(locked & 2)
         pthread_mutex_unlock(&SXFS_DATA->files_mutex);
+    if(fd >= 0 && close(fd))
+        SXFS_LOG("Cannot close '%s' file: %s", local_file_path, strerror(errno));
     if(local_file_path && unlink(local_file_path) && errno != ENOENT)
         SXFS_LOG("Cannot remove '%s' file: %s", local_file_path, strerror(errno));
     free(local_file_path);
@@ -2812,6 +2839,10 @@ int main (int argc, char **argv) {
             if(runas(user_name))
                 goto main_err;
         }
+    }
+    if(fuse_opt_add_arg(&fargs, "-oatomic_o_trunc")) {
+        fprintf(stderr, "ERROR: Out of memory\n");
+        goto main_err;
     }
     for(i=0; i<fargs_tmp.argc; i++) {
         if(check_arg(fargs_tmp.argv[i])) {
