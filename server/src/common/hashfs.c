@@ -1741,7 +1741,7 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
         goto open_hashfs_fail;
     /* To keep the next query simple we do not check if the user is enabled
      * This is preliminary enforced in auth_begin */
-    if(qprep(h->db, &h->q_nextvol, "SELECT volumes.vid, volumes.volume, volumes.replica, volumes.cursize, volumes.maxsize, volumes.owner_id, volumes.revs, volumes.changed FROM volumes LEFT JOIN privs ON privs.volume_id = volumes.vid WHERE volumes.volume > :previous AND volumes.enabled = 1 AND (:user IS NULL OR (privs.priv > 0 AND privs.user_id IN (SELECT uid FROM users WHERE SUBSTR(user,0,"STRIFY(AUTH_CID_LEN)")=SUBSTR(:user,0,"STRIFY(AUTH_CID_LEN)")))) ORDER BY volumes.volume ASC LIMIT 1"))
+    if(qprep(h->db, &h->q_nextvol, "SELECT volumes.vid, volumes.volume, volumes.replica, volumes.cursize, volumes.maxsize, volumes.owner_id, volumes.revs, volumes.changed FROM volumes LEFT JOIN privs ON privs.volume_id = volumes.vid WHERE volumes.volume > :previous AND volumes.enabled = 1 AND (:user IS NULL OR (privs.priv > 0 AND privs.user_id IN (SELECT uid FROM users WHERE SUBSTR(user,1,"STRIFY(AUTH_CID_LEN)")=SUBSTR(:user,1,"STRIFY(AUTH_CID_LEN)")))) ORDER BY volumes.volume ASC LIMIT 1"))
 	goto open_hashfs_fail;
     if(qprep(h->db, &h->q_volbyname, "SELECT vid, volume, replica, cursize, maxsize, owner_id, revs, changed FROM volumes WHERE volume = :name AND enabled = 1"))
 	goto open_hashfs_fail;
