@@ -1678,6 +1678,15 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
     if(load_config(h, sx))
 	goto open_hashfs_fail;
 
+    /* General notes about queries in SQLite (feel free to add/amend)
+     * - In EXPLAIN things to watch out (these are logged by qlog() with the tag "automatic index"):
+     *   - "SCAN TABLE": unless listing the whole table, it should rather be "SEARCH TABLE t USING [COVERING] INDEX"
+     *   - "USE TEMP B-TREE": an explicit index should be created for the ORDER/GROUP BY column(s)
+     *   Note: the term sqlite_autoindex_XXX does NOT indicate a slow temporary index but rather an index implicitly
+     *         generated at table creation time (e.g. due to a PK or UNIQUE column) - these are OK!
+     * - Foreign keys do not generate implicit indexes in the child table which will need to be explicitly added whenever needed
+     */
+
     if(qprep(h->db, &h->q_gethdrev, "SELECT MIN(value) FROM hashfs WHERE key IN ('current_dist_rev','dist_rev')"))
 	goto open_hashfs_fail;
     if(qprep(h->db, &h->q_getuser, "SELECT uid, key, role, desc, quota FROM users WHERE user = :user AND enabled=1"))
