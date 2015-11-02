@@ -2712,7 +2712,12 @@ static act_result_t blockrb_request(sx_hashfs_t *hashfs, job_t job_id, job_data_
 	bin2hex(&blockmeta->hash, sizeof(blockmeta->hash), hstr, sizeof(hstr));
 
 	s = sx_hashfs_new_home_for_old_block(hashfs, &blockmeta->hash, &target);
-	if(s != OK) {
+	if(s == EINVAL) {
+	    /* Block homelessness (mostly triggering on blocks left over from previous rebalances) */
+	    INFO("Failed to identify target for %s: %s", hstr, msg_get_reason());
+	    sx_hashfs_blockmeta_free(&blockmeta);
+	    continue;
+	} else if(s != OK) {
 	    /* Should never trigger */
 	    WARN("Failed to identify target for %s: %s", hstr, msg_get_reason());
 	    sx_hashfs_blockmeta_free(&blockmeta);
