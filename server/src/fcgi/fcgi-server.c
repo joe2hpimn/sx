@@ -805,7 +805,7 @@ int main(int argc, char **argv) {
 
 	procnum = get_procnum(dead);
 	deadname = process_name(procnum);
-	if(is_manager(dead)) {
+	if(is_manager(procnum)) {
 	    /* Critical child died */
 	    if(WIFEXITED(status) && WEXITSTATUS(status) == EXIT_SUCCESS) {
                 if (!terminate)
