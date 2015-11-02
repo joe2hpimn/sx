@@ -17410,7 +17410,7 @@ rc_ty sx_hashfs_new_home_for_old_block(sx_hashfs_t *h, const sx_hash_t *block, c
     }
     sx_nodelist_delete(homes);
     if(replica >= h->next_maxreplica) {
-	msg_set_reason("This node was home for replica %u of the block, but the new distribution allows for a maximum replica of %u", replica, h->next_maxreplica);
+	msg_set_reason("This node was home for replica %u of the block, but the new distribution allows for a maximum replica of %u", replica + 1, h->next_maxreplica);
 	return EINVAL;
     }
 
@@ -17421,7 +17421,7 @@ rc_ty sx_hashfs_new_home_for_old_block(sx_hashfs_t *h, const sx_hash_t *block, c
     newhome = sx_nodelist_get(homes, replica);
     if(!newhome) {
 	sx_nodelist_delete(homes);
-	msg_set_reason("Could not find a new home for block replica %u", replica);
+	msg_set_reason("Could not find a new home for block replica %u", replica + 1);
 	return EINVAL;
     }
 
