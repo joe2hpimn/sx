@@ -786,12 +786,14 @@ struct _sx_hashfs_t {
     uint64_t qm_list_queries;
     sqlite3_stmt *qm_get[METADBS];
     sqlite3_stmt *qm_getrev[METADBS];
+    sqlite3_stmt *qm_getrev_or_tombstone[METADBS];
     sqlite3_stmt *qm_findrev[METADBS];
     sqlite3_stmt *qm_oldrevs[METADBS];
     sqlite3_stmt *qm_metaget[METADBS];
     sqlite3_stmt *qm_metaset[METADBS];
     sqlite3_stmt *qm_metadel[METADBS];
     sqlite3_stmt *qm_delfile[METADBS];
+    sqlite3_stmt *qm_del_tombstone[METADBS];
     sqlite3_stmt *qm_mvfile[METADBS];
     sqlite3_stmt *qm_wiperelocs[METADBS];
     sqlite3_stmt *qm_addrelocs[METADBS];
@@ -1046,12 +1048,14 @@ static void close_all_dbs(sx_hashfs_t *h) {
         sqlite3_finalize(h->qm_listrevs_rev[i]);
 	sqlite3_finalize(h->qm_get[i]);
 	sqlite3_finalize(h->qm_getrev[i]);
+	sqlite3_finalize(h->qm_getrev_or_tombstone[i]);
 	sqlite3_finalize(h->qm_findrev[i]);
 	sqlite3_finalize(h->qm_oldrevs[i]);
 	sqlite3_finalize(h->qm_metaget[i]);
 	sqlite3_finalize(h->qm_metaset[i]);
 	sqlite3_finalize(h->qm_metadel[i]);
 	sqlite3_finalize(h->qm_delfile[i]);
+	sqlite3_finalize(h->qm_del_tombstone[i]);
         sqlite3_finalize(h->qm_mvfile[i]);
 	sqlite3_finalize(h->qm_wiperelocs[i]);
 	sqlite3_finalize(h->qm_addrelocs[i]);
@@ -1966,21 +1970,23 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
             goto open_hashfs_fail;
 	if(qprep(h->metadb[i], &h->qm_ins[i], "INSERT INTO files (volume_id, name, size, content, rev, revision_id, age) VALUES (:volume, :name, :size, :hashes, :revision, :revision_id, :age)"))
 	    goto open_hashfs_fail;
-        if(qprep(h->metadb[i], &h->qm_list[i], "SELECT name, size, rev, revision_id FROM files WHERE volume_id = :volume AND name > :previous AND (:limit is NULL OR name < :limit) AND pmatch(name, :pattern, :pattern_slashes, :slash_ending) > 0 GROUP BY name HAVING rev = MAX(rev) ORDER BY name ASC LIMIT 1"))
+        if(qprep(h->metadb[i], &h->qm_list[i], "SELECT name, size, rev, revision_id FROM files WHERE volume_id = :volume AND name > :previous AND (:limit is NULL OR name < :limit) AND pmatch(name, :pattern, :pattern_slashes, :slash_ending) > 0 AND age >= 0 GROUP BY name HAVING rev = MAX(rev) ORDER BY name ASC LIMIT 1"))
             goto open_hashfs_fail;
-        if(qprep(h->metadb[i], &h->qm_list_eq[i], "SELECT name, size, rev, revision_id FROM files WHERE volume_id = :volume AND name >= :previous AND (:limit is NULL OR name < :limit) AND pmatch(name, :pattern, :pattern_slashes, :slash_ending) > 0 GROUP BY name HAVING rev = MAX(rev) ORDER BY name ASC LIMIT 2"))
+        if(qprep(h->metadb[i], &h->qm_list_eq[i], "SELECT name, size, rev, revision_id FROM files WHERE volume_id = :volume AND name >= :previous AND (:limit is NULL OR name < :limit) AND pmatch(name, :pattern, :pattern_slashes, :slash_ending) > 0 AND age >= 0 GROUP BY name HAVING rev = MAX(rev) ORDER BY name ASC LIMIT 2"))
             goto open_hashfs_fail;
-	if(qprep(h->metadb[i], &h->qm_listrevs[i], "SELECT size, rev, revision_id FROM files WHERE volume_id = :volume AND name = :name AND rev > :previous ORDER BY rev ASC LIMIT 1"))
+	if(qprep(h->metadb[i], &h->qm_listrevs[i], "SELECT size, rev, revision_id FROM files WHERE volume_id = :volume AND name = :name AND rev > :previous AND age >= 0 ORDER BY rev ASC LIMIT 1"))
 	    goto open_hashfs_fail;
-	if(qprep(h->metadb[i], &h->qm_get[i], "SELECT fid, size, content, rev, LENGTH(CAST(name AS BLOB)) + size + COALESCE((SELECT SUM(LENGTH(CAST(key AS BLOB)) + LENGTH(value)) FROM fmeta WHERE file_id = fid),0) FROM files WHERE volume_id = :volume AND name = :name GROUP BY name HAVING rev = MAX(rev) LIMIT 1"))
+	if(qprep(h->metadb[i], &h->qm_get[i], "SELECT fid, size, content, rev, LENGTH(CAST(name AS BLOB)) + size + COALESCE((SELECT SUM(LENGTH(CAST(key AS BLOB)) + LENGTH(value)) FROM fmeta WHERE file_id = fid),0) FROM files WHERE volume_id = :volume AND name = :name AND age >= 0 GROUP BY name HAVING rev = MAX(rev) LIMIT 1"))
             goto open_hashfs_fail;
-        if(qprep(h->metadb[i], &h->qm_listrevs_rev[i], "SELECT size, rev, revision_id FROM files WHERE volume_id = :volume AND name = :name AND (:previous IS NULL OR rev < :previous) ORDER BY rev DESC LIMIT 1"))
+        if(qprep(h->metadb[i], &h->qm_listrevs_rev[i], "SELECT size, rev, revision_id FROM files WHERE volume_id = :volume AND name = :name AND (:previous IS NULL OR rev < :previous) AND age >= 0 ORDER BY rev DESC LIMIT 1"))
 	    goto open_hashfs_fail;
-	if(qprep(h->metadb[i], &h->qm_getrev[i], "SELECT fid, size, content, rev, LENGTH(CAST(name AS BLOB)) + size + COALESCE((SELECT SUM(LENGTH(CAST(key AS BLOB)) + LENGTH(value)) FROM fmeta WHERE file_id = fid),0), age, revision_id FROM files WHERE volume_id = :volume AND name = :name AND rev = :revision LIMIT 1"))
+	if(qprep(h->metadb[i], &h->qm_getrev[i], "SELECT fid, size, content, rev, LENGTH(CAST(name AS BLOB)) + size + COALESCE((SELECT SUM(LENGTH(CAST(key AS BLOB)) + LENGTH(value)) FROM fmeta WHERE file_id = fid),0), age, revision_id FROM files WHERE volume_id = :volume AND name = :name AND rev = :revision AND age >= 0 LIMIT 1"))
 	    goto open_hashfs_fail;
-	if(qprep(h->metadb[i], &h->qm_findrev[i], "SELECT volume_id, name, size, revision_id FROM files WHERE rev = :revision LIMIT 1"))
+	if(qprep(h->metadb[i], &h->qm_getrev_or_tombstone[i], "SELECT fid, size, content, rev, LENGTH(CAST(name AS BLOB)) + size + COALESCE((SELECT SUM(LENGTH(CAST(key AS BLOB)) + LENGTH(value)) FROM fmeta WHERE file_id = fid),0), age, revision_id FROM files WHERE volume_id = :volume AND name = :name AND rev = :revision LIMIT 1"))
 	    goto open_hashfs_fail;
-	if(qprep(h->metadb[i], &h->qm_oldrevs[i], "SELECT rev, size, (SELECT COUNT(*) FROM files AS b WHERE b.volume_id = a.volume_id AND b.name = a.name), fid, LENGTH(CAST(name AS BLOB)) + size + COALESCE((SELECT SUM(LENGTH(CAST(key AS BLOB)) + LENGTH(value)) FROM fmeta WHERE file_id = a.fid),0) FROM files AS a WHERE a.volume_id = :volume AND a.name = :name ORDER BY rev ASC"))
+	if(qprep(h->metadb[i], &h->qm_findrev[i], "SELECT volume_id, name, size, revision_id FROM files WHERE rev = :revision AND age >= 0 LIMIT 1"))
+	    goto open_hashfs_fail;
+	if(qprep(h->metadb[i], &h->qm_oldrevs[i], "SELECT rev, size, (SELECT COUNT(*) FROM files AS b WHERE b.volume_id = a.volume_id AND b.name = a.name AND age >= 0), fid, LENGTH(CAST(name AS BLOB)) + size + COALESCE((SELECT SUM(LENGTH(CAST(key AS BLOB)) + LENGTH(value)) FROM fmeta WHERE file_id = a.fid),0) FROM files AS a WHERE a.volume_id = :volume AND a.name = :name AND age >= 0 ORDER BY rev ASC"))
 	    goto open_hashfs_fail;
 	if(qprep(h->metadb[i], &h->qm_metaget[i], "SELECT key, value FROM fmeta WHERE file_id = :file"))
 	    goto open_hashfs_fail;
@@ -1988,37 +1994,39 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 	    goto open_hashfs_fail;
 	if(qprep(h->metadb[i], &h->qm_metadel[i], "DELETE FROM fmeta WHERE file_id = :file AND key = :key"))
 	    goto open_hashfs_fail;
-	if(qprep(h->metadb[i], &h->qm_delfile[i], "DELETE FROM files WHERE fid = :file"))
+	if(qprep(h->metadb[i], &h->qm_delfile[i], "DELETE FROM files WHERE fid = :file AND age >= 0"))
 	    goto open_hashfs_fail;
-        if(qprep(h->metadb[i], &h->qm_mvfile[i], "UPDATE files SET name = :newname, rev = :newrev WHERE name = :oldname AND rev = :rev"))
+	if(qprep(h->metadb[i], &h->qm_del_tombstone[i], "DELETE FROM files WHERE fid = :file AND age < 0"))
+	    goto open_hashfs_fail;
+        if(qprep(h->metadb[i], &h->qm_mvfile[i], "UPDATE files SET name = :newname, rev = :newrev WHERE name = :oldname AND rev = :rev AND age >= 0"))
             goto open_hashfs_fail;
 	if(qprep(h->metadb[i], &h->qm_wiperelocs[i], "DELETE FROM relocs"))
 	    goto open_hashfs_fail;
-	if(qprep(h->metadb[i], &h->qm_addrelocs[i], "INSERT INTO relocs (file_id, dest) SELECT fid, :node FROM files WHERE volume_id = :volid"))
+	if(qprep(h->metadb[i], &h->qm_addrelocs[i], "INSERT INTO relocs (file_id, dest) SELECT fid, :node FROM files WHERE volume_id = :volid AND age >= 0"))
 	    goto open_hashfs_fail;
-	if(qprep(h->metadb[i], &h->qm_getreloc[i], "SELECT file_id, dest, volume_id, name, size, rev, content FROM relocs LEFT JOIN files ON relocs.file_id = files.fid WHERE file_id > :prev"))
+	if(qprep(h->metadb[i], &h->qm_getreloc[i], "SELECT file_id, dest, volume_id, name, size, rev, content FROM relocs LEFT JOIN files ON relocs.file_id = files.fid WHERE file_id > :prev AND age >= 0"))
 	    goto open_hashfs_fail;
 	if(qprep(h->metadb[i], &h->qm_delreloc[i], "DELETE FROM relocs WHERE file_id = :fileid"))
 	    goto open_hashfs_fail;
 	if(qprep(h->metadb[i], &h->qm_delbyvol[i], "DELETE FROM files WHERE volume_id = :volid"))
 	    goto open_hashfs_fail;
-        if(qprep(h->metadb[i], &h->qm_sumfilesizes[i], "SELECT SUM(x) FROM (SELECT files.size + LENGTH(CAST(files.name AS BLOB)) + SUM(COALESCE(LENGTH(CAST(fmeta.key AS BLOB)) + LENGTH(fmeta.value),0)) AS x FROM files LEFT JOIN fmeta ON files.fid = fmeta.file_id WHERE files.volume_id = :volid GROUP BY files.fid)"))
+        if(qprep(h->metadb[i], &h->qm_sumfilesizes[i], "SELECT SUM(x) FROM (SELECT files.size + LENGTH(CAST(files.name AS BLOB)) + SUM(COALESCE(LENGTH(CAST(fmeta.key AS BLOB)) + LENGTH(fmeta.value),0)) AS x FROM files LEFT JOIN fmeta ON files.fid = fmeta.file_id WHERE files.volume_id = :volid AND age >= 0 GROUP BY files.fid)"))
             goto open_hashfs_fail;
-        if(qprep(h->metadb[i], &h->qm_newest[i], "SELECT MAX(rev) FROM files WHERE volume_id = :volid"))
+        if(qprep(h->metadb[i], &h->qm_newest[i], "SELECT MAX(rev) FROM files WHERE volume_id = :volid AND age >= 0"))
             goto open_hashfs_fail;
-        if(qprep(h->metadb[i], &h->qm_count[i], "SELECT COUNT(rev) FROM files WHERE volume_id = :volid"))
+        if(qprep(h->metadb[i], &h->qm_count[i], "SELECT COUNT(rev) FROM files WHERE volume_id = :volid AND age >= 0"))
 	    goto open_hashfs_fail;
-        if(qprep(h->metadb[i], &h->qm_list_rev_dec[i], "SELECT size, rev, content FROM files WHERE volume_id=:volid AND name = :name AND rev < :maxrev ORDER BY rev DESC LIMIT 1"))
+        if(qprep(h->metadb[i], &h->qm_list_rev_dec[i], "SELECT size, rev, content FROM files WHERE volume_id=:volid AND name = :name AND rev < :maxrev AND age >= 0 ORDER BY rev DESC LIMIT 1"))
             goto open_hashfs_fail;
-        if(qprep(h->metadb[i], &h->qm_list_file[i], "SELECT size, rev, content, name FROM files WHERE volume_id=:volid AND name > :previous AND rev < :maxrev ORDER BY name ASC, rev DESC LIMIT 1"))
+        if(qprep(h->metadb[i], &h->qm_list_file[i], "SELECT size, rev, content, name FROM files WHERE volume_id=:volid AND name > :previous AND rev < :maxrev AND age >= 0 ORDER BY name ASC, rev DESC LIMIT 1"))
             goto open_hashfs_fail;
         if(qprep(h->metadb[i], &h->qm_del_heal[i], "DELETE FROM heal WHERE revision_id=:revision_id"))
             goto open_hashfs_fail;
         if(qprep(h->metadb[i], &h->qm_add_heal[i], "INSERT OR IGNORE INTO heal(revision_id, remote_volume, blocks, blocksize, replica_count) VALUES(:revision_id, :remote_volid, :blocks, :blocksize, :replica_count)"))
             goto open_hashfs_fail;
-        if(qprep(h->metadb[i], &h->qm_get_rb[i], "SELECT size, revision_id, content, name FROM files WHERE volume_id=:volume_id AND age < :age_limit AND revision_id > :min_revision_id ORDER BY revision_id"))
+        if(qprep(h->metadb[i], &h->qm_get_rb[i], "SELECT size, revision_id, content, name FROM files WHERE volume_id=:volume_id AND age < :age_limit AND revision_id > :min_revision_id AND age >= 0 ORDER BY revision_id"))
             goto open_hashfs_fail;
-        if(qprep(h->metadb[i], &h->qm_count_rb[i], "SELECT COUNT(revision_id) FROM files WHERE volume_id=:volume_id AND age < :age_limit AND revision_id > :min_revision_id ORDER BY revision_id"))
+        if(qprep(h->metadb[i], &h->qm_count_rb[i], "SELECT COUNT(revision_id) FROM files WHERE volume_id=:volume_id AND age < :age_limit AND revision_id > :min_revision_id AND age >= 0 ORDER BY revision_id"))
             goto open_hashfs_fail;
         if(qprep(h->metadb[i], &h->qm_add_heal_volume[i], "INSERT OR REPLACE INTO heal_volume(name, max_age, min_revision) VALUES(:name,:max_age,:min_revision_id)"))
             goto open_hashfs_fail;
@@ -2028,7 +2036,7 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
             goto open_hashfs_fail;
         if(qprep(h->metadb[i], &h->qm_del_heal_volume[i], "DELETE FROM heal_volume WHERE name=:name"))
             goto open_hashfs_fail;
-        if(qprep(h->metadb[i], &h->qm_needs_upgrade[i], "SELECT fid, volume_id, name, rev, size FROM files WHERE revision_id IS NULL"))
+        if(qprep(h->metadb[i], &h->qm_needs_upgrade[i], "SELECT fid, volume_id, name, rev, size FROM files WHERE revision_id IS NULL AND age >= 0"))
             goto open_hashfs_fail;
     }
 
@@ -3447,7 +3455,7 @@ static int check_files(sx_hashfs_t *h, int debug) {
         sqlite3_stmt *list = NULL;
         int rows = 0;
 
-        if(qprep(h->metadb[i], &list, "SELECT fid, volume_id, name, size, content FROM files ORDER BY name ASC")) {
+        if(qprep(h->metadb[i], &list, "SELECT fid, volume_id, name, size, content FROM files WHERE age >= 0 ORDER BY name ASC")) {
             ret = -1;
             CHECK_FATAL("Failed to prepare queries");
             goto check_files_itererr;
@@ -5691,7 +5699,7 @@ static int extract_volume_files(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, c
     memset(list, 0, sizeof(list));
 
     for(i = 0; i < METADBS; i++) {
-        if(qprep(h->metadb[i], &list[i], "SELECT name, size, content FROM files WHERE volume_id = :volid")
+        if(qprep(h->metadb[i], &list[i], "SELECT name, size, content FROM files WHERE volume_id = :volid AND age >= 0")
            || qbind_int64(list[i], ":volid", vol->id)) {
             WARN("Failed to prepare files list query for volume %s", vol->name);
             goto extract_volume_files_err;
@@ -9614,7 +9622,7 @@ static rc_ty create_file(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const
 	return FAIL_EINTERNAL;
     }
 
-    q = h->qm_getrev[mdb];
+    q = h->qm_getrev_or_tombstone[mdb];
     sqlite3_reset(q);
     if(qbind_int64(q, ":volume", volume->id)
        || qbind_text(q, ":name", name)
@@ -9624,11 +9632,19 @@ static rc_ty create_file(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const
         return FAIL_EINTERNAL;
     }
 
+    int delete = 0;
+
     r = qstep(q);
     if(r == SQLITE_ROW) {
-        DEBUG("File '%s (%s)' on volume '%s' is already here", name, revision, volume->name);
+        int age = sqlite3_column_int64(q, 5);
         sqlite3_reset(q);
-        return EEXIST;
+        if (age < 0) {
+            DEBUG("Out of order add (delete already received)");
+            delete = 1;
+        } else {
+            DEBUG("File '%s (%s)' on volume '%s' is already here", name, revision, volume->name);
+            return EEXIST;
+        }
     } else if(r != SQLITE_DONE) {
         msg_set_reason("Failed to check revision existence");
         sqlite3_reset(q);
@@ -9642,6 +9658,13 @@ static rc_ty create_file(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const
 	if(s != EEXIST)
 	    WARN("Failed to remove old revisions");
         return s;
+    }
+
+    if (delete) {
+        if (qbind_int64(h->qm_del_tombstone[mdb], ":file", sqlite3_column_int64(q, 0)) ||
+            qstep_noret(h->qm_del_tombstone[mdb]))
+            return FAIL_EINTERNAL;
+        return OK;
     }
 
     sx_hash_t revision_id;
@@ -9664,6 +9687,7 @@ static rc_ty create_file(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const
 	return FAIL_EINTERNAL;
     }
     sqlite3_reset(h->qm_ins[mdb]);
+    DEBUG("Inserted revision %s", revision);
 
     if(file_id)
 	*file_id = sqlite3_last_insert_rowid(sqlite3_db_handle(h->qm_ins[mdb]));
@@ -11240,6 +11264,7 @@ static rc_ty get_file_id(sx_hashfs_t *h, const char *volume, const char *filenam
     ndb = getmetadb(filename);
     if(ndb < 0)
 	return FAIL_EINTERNAL;
+    *database_number = ndb;
 
     if(revision) {
 	if(check_revision(revision)) {
@@ -11258,7 +11283,6 @@ static rc_ty get_file_id(sx_hashfs_t *h, const char *volume, const char *filenam
     r = qstep(q);
     if(r == SQLITE_ROW) {
 	*file_id = sqlite3_column_int64(q, 0);
-	*database_number = ndb;
 	res = OK;
 	if(created_at || etag) {
 	    const char *rev = (const char *)sqlite3_column_text(q, 3);
@@ -11570,6 +11594,29 @@ rc_ty sx_hashfs_file_delete(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, co
     ret = get_file_id(h, volume->name, file, revision, &file_id, &mdb, NULL, NULL, &size);
     if(ret) {
         DEBUG("get_file_id failed: %s", rc2str(ret));
+        if (ret == ENOENT) {
+            /* precondition: add should have arrived, add in the db a marker that we are waiting for the add,
+             and perform the delete once it has arrived*/
+            DEBUG("Out of order delete"); /* delete reached this node before create */
+            if (qbegin(h->metadb[mdb]))
+                return FAIL_EINTERNAL;
+            sqlite3_reset(h->qm_ins[mdb]);
+            if (qbind_int64(h->qm_ins[mdb], ":volume", volume->id) ||
+                qbind_text(h->qm_ins[mdb], ":name", file) ||
+                qbind_text(h->qm_ins[mdb], ":revision", revision) ||
+                qbind_null(h->qm_ins[mdb], ":revision_id") ||
+                qbind_int64(h->qm_ins[mdb], ":size", -1) ||
+                qbind_int64(h->qm_ins[mdb], ":age", -1) ||
+                qbind_blob(h->qm_ins[mdb], ":hashes", "", 0) ||
+                qstep_noret(h->qm_ins[mdb])) {
+                WARN("Failed to insert tombstone");
+                ret = FAIL_EINTERNAL;
+            }
+            if (ret == ENOENT)
+                ret = qcommit(h->metadb[mdb]);
+            else
+                qrollback(h->metadb[mdb]);
+        }
         return ret;
     }
 
