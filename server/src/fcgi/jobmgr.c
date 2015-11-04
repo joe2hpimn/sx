@@ -3375,9 +3375,14 @@ static act_result_t replace_request(sx_hashfs_t *hashfs, job_t job_id, job_data_
 	    }
 
 	    /* Challenge new node */
-	    ret = challenge_and_sync(hashfs, node, fail_code, fail_msg);
-	    if(ret != ACT_RESULT_OK)
-		goto action_failed;
+	    switch(challenge_and_sync(hashfs, node, fail_code, fail_msg)) {
+	    case 0:
+		break;
+	    case 1:
+		action_error(ACT_RESULT_PERMFAIL, 500, "Failed to join new node due to local errors");
+	    default:
+		action_error(ACT_RESULT_PERMFAIL, 500, "Failed to join new node due to remote errors");
+	    }
 	}
 
 	if(sx_node_cmp(me, node)) {
@@ -3400,6 +3405,12 @@ action_failed:
     sxi_query_free(proto);
     sxi_hostlist_empty(&hlist);
     sxi_hdist_free(hdist);
+
+    if(ret == ACT_RESULT_PERMFAIL) {
+	sx_nodelist_t *lockednodes = get_all_job_targets(hashfs, job_id);
+	send_unlock(hashfs, lockednodes);
+	sx_nodelist_delete(lockednodes);
+    }
 
     return ret;
 }
