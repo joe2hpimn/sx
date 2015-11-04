@@ -1018,7 +1018,7 @@ int sxfs_ls_update (const char *absolute_path, sxfs_lsdir_t **given_dir) {
     sprintf(path, "%s", absolute_path);
     ptr = strrchr(path, '/') + 1;
     *ptr = '\0';
-    flist = sxc_cluster_listfiles_etag(cluster, SXFS_DATA->uri->volume, path, 0, NULL, NULL, NULL, NULL, 0, dir->etag);
+    flist = sxc_cluster_listfiles_etag(cluster, SXFS_DATA->uri->volume, path, 0, NULL, NULL, NULL, NULL, NULL, 0, dir->etag);
     if(!flist) {
         if(sxc_geterrnum(sx) != SXE_SKIP) {
             SXFS_LOG("%s", sxc_geterrmsg(sx));
@@ -1026,7 +1026,7 @@ int sxfs_ls_update (const char *absolute_path, sxfs_lsdir_t **given_dir) {
             goto sxfs_ls_update_err;
         }
         if(!dir->init) {
-            flist = sxc_cluster_listfiles(cluster, SXFS_DATA->uri->volume, path, 0, NULL, NULL, NULL, NULL, 0);
+            flist = sxc_cluster_listfiles(cluster, SXFS_DATA->uri->volume, path, 0, NULL, NULL, NULL, NULL, NULL, 0);
             if(!flist) {
                 SXFS_LOG("%s", sxc_geterrmsg(sx));
                 ret = -sxfs_sx_err(sx);
@@ -1358,7 +1358,7 @@ int sxfs_update_mtime (const char *local_file_path, const char *remote_file_path
     }
     if(lsfile)
         lsfile->remote = 1;
-    flist = sxc_cluster_listfiles(cluster, SXFS_DATA->uri->volume, remote_file_path, 0, NULL, NULL, NULL, NULL, 0);
+    flist = sxc_cluster_listfiles(cluster, SXFS_DATA->uri->volume, remote_file_path, 0, NULL, NULL, NULL, NULL, NULL, 0);
     if(!flist) {
         SXFS_LOG("%s", sxc_geterrmsg(sx));
         ret = -sxfs_sx_err(sx);
@@ -1414,7 +1414,7 @@ static int sxfs_delete_check (sxc_client_t *sx, sxc_cluster_t *cluster, sxfs_sta
 
     sxfs_log(sxfs, __func__, 1, "Checking deletion list");
     for(i=0; i<nfiles_del; i++) {
-        flist = sxc_cluster_listfiles(cluster, sxfs->uri->volume, delete_list[i], 0, NULL, NULL, NULL, NULL, 0);
+        flist = sxc_cluster_listfiles(cluster, sxfs->uri->volume, delete_list[i], 0, NULL, NULL, NULL, NULL, NULL, 0);
         if(!flist) {
             sxfs_log(sxfs, __func__, 0, "Cannot check '%s' file existence on the server: %s", delete_list[i], sxc_geterrmsg(sx));
             ret = -sxfs_sx_err(sx);

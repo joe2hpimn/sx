@@ -5959,7 +5959,6 @@ static int sxi_file_list_foreach(sxc_file_list_t *target, sxc_cluster_t *wait_cl
         do {
             uint64_t single_files = 0;
             uint64_t files_in_dir = 0;
-            unsigned replica;
             struct timeval t0, t1;
 	    const void *mval;
 	    unsigned int mval_len;
@@ -6017,7 +6016,7 @@ static int sxi_file_list_foreach(sxc_file_list_t *target, sxc_cluster_t *wait_cl
             }
             /* glob */
             CFGDEBUG("Listing using glob pattern '%s'", pattern->path);
-            lst = sxc_cluster_listfiles(cluster, pattern->volume, pattern->path, target->recursive, NULL, NULL, &replica, &entry->nfiles, 0);
+            lst = sxc_cluster_listfiles(cluster, pattern->volume, pattern->path, target->recursive, NULL, NULL, NULL, NULL, &entry->nfiles, 0);
             if (!lst) {
                 CFGDEBUG("Cannot list files");
                 break;

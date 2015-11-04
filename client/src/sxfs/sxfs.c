@@ -1826,7 +1826,7 @@ static int sxfs_statfs (const char *path, struct statvfs *st) {
         return -sxfs_sx_err(sx);
     }
     while(1) {
-        tmp = sxc_cluster_listvolumes_next(vlist, &volname, NULL, &used_volsize, &volsize, NULL, NULL, NULL, NULL);
+        tmp = sxc_cluster_listvolumes_next(vlist, &volname, NULL, &used_volsize, &volsize, NULL, NULL, NULL, NULL, NULL);
         if(tmp) {
             if(tmp < 0) {
                 SXFS_LOG("Failed to retrieve volume data");
@@ -3124,7 +3124,7 @@ int main (int argc, char **argv) {
                 sprintf(path, "%s", fargs.argv[i]+7);
                 if(path[strlen(path)-1] == '/')
                     path[strlen(path)-1] = '\0';
-                flist = sxc_cluster_listfiles(cluster, sxfs->uri->volume, path, 0, NULL, NULL, NULL, NULL, 0);
+                flist = sxc_cluster_listfiles(cluster, sxfs->uri->volume, path, 0, NULL, NULL, NULL, NULL, NULL, 0);
                 if(!flist) {
                     fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
                     break;

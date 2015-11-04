@@ -1592,10 +1592,11 @@ struct cb_listfiles_ctx {
     char *frev;
     struct cbl_file_t file;
     unsigned int replica;
+    unsigned int effective_replica;
     unsigned int nfiles;
     const char *etag_in;
     char *etag_out;
-    enum list_files_state { LF_ERROR, LF_BEGIN, LF_MAIN, LF_REPLICACNT, LF_VOLUMEUSEDSIZE, LF_VOLUMESIZE, LF_FILES, LF_FILE, LF_FILECONTENT, LF_FILEATTRS, LF_FILESIZE, LF_BLOCKSIZE, LF_FILETIME, LF_FILEREV, LF_COMPLETE } state;
+    enum list_files_state { LF_ERROR, LF_BEGIN, LF_MAIN, LF_REPLICACNT, LF_EFFREPLICACNT, LF_VOLUMEUSEDSIZE, LF_VOLUMESIZE, LF_FILES, LF_FILE, LF_FILECONTENT, LF_FILEATTRS, LF_FILESIZE, LF_BLOCKSIZE, LF_FILETIME, LF_FILEREV, LF_COMPLETE } state;
 };
 
 
@@ -1637,6 +1638,8 @@ static int yacb_listfiles_map_key(void *ctx, const unsigned char *s, size_t l) {
             yactx->state = LF_VOLUMEUSEDSIZE;
 	else if(l == lenof("replicaCount") && !memcmp(s, "replicaCount", lenof("replicaCount")))
 	    yactx->state = LF_REPLICACNT;
+	else if(l == lenof("effectiveReplicaCount") && !memcmp(s, "effectiveReplicaCount", lenof("effectiveReplicaCount")))
+	    yactx->state = LF_EFFREPLICACNT;
 	else if(l == lenof("fileList") && !memcmp(s, "fileList", lenof("fileList")))
 	    yactx->state = LF_FILES;
 	else {
@@ -1731,6 +1734,14 @@ static int yacb_listfiles_number(void *ctx, const char *s, size_t l) {
 	    return 0;
 	}
 	yactx->replica = nnumb;
+	yactx->state = LF_MAIN;
+	return 1;
+    case LF_EFFREPLICACNT:
+	if(yactx->effective_replica) {
+	    CBDEBUG("effectiveReplicaCount already received");
+	    return 0;
+	}
+	yactx->effective_replica = nnumb;
 	yactx->state = LF_MAIN;
 	return 1;
     case LF_FILESIZE:
@@ -1872,6 +1883,7 @@ static int listfiles_setup_cb(curlev_context_t *cbdata, void *ctx, const char *h
     yactx->volume_size = 0;
     yactx->volume_used_size = 0;
     yactx->replica = 0;
+    yactx->effective_replica = 0;
     free(yactx->fname);
     yactx->fname = NULL;
     free(yactx->frev);
@@ -1938,7 +1950,7 @@ char *sxi_ith_slash(char *s, unsigned int i) {
     return NULL;
 }
 
-static sxc_cluster_lf_t *sxi_conns_listfiles(sxi_conns_t *conns, const char *volume, sxi_hostlist_t *volhosts, const char *glob_pattern, int recursive, int64_t *volume_used_size, int64_t *volume_size, unsigned int *replica_count, unsigned int *nfiles, int reverse, const char *etag_in, char **etag_out) {
+static sxc_cluster_lf_t *sxi_conns_listfiles(sxi_conns_t *conns, const char *volume, sxi_hostlist_t *volhosts, const char *glob_pattern, int recursive, int64_t *volume_used_size, int64_t *volume_size, unsigned int *replica_count, unsigned int *effective_replica_count, unsigned int *nfiles, int reverse, const char *etag_in, char **etag_out) {
     char *enc_vol, *enc_glob = NULL, *url, *fname;
     struct cb_listfiles_ctx yctx;
     yajl_callbacks *yacb = &yctx.yacb;
@@ -2085,6 +2097,9 @@ static sxc_cluster_lf_t *sxi_conns_listfiles(sxi_conns_t *conns, const char *vol
     if(replica_count)
 	*replica_count = yctx.replica;
 
+    if(effective_replica_count)
+	*effective_replica_count = yctx.effective_replica > 0 ? yctx.effective_replica : yctx.replica;
+
     if(nfiles)
 	*nfiles = yctx.nfiles;
 
@@ -2104,7 +2119,7 @@ static sxc_cluster_lf_t *sxi_conns_listfiles(sxi_conns_t *conns, const char *vol
 }
 
 
-sxc_cluster_lf_t *sxc_cluster_listfiles_etag(sxc_cluster_t *cluster, const char *volume, const char *glob_pattern, int recursive, int64_t *volume_used_size, int64_t *volume_size, unsigned int *replica_count, unsigned int *nfiles, int reverse, const char *etag_file) {
+sxc_cluster_lf_t *sxc_cluster_listfiles_etag(sxc_cluster_t *cluster, const char *volume, const char *glob_pattern, int recursive, int64_t *volume_used_size, int64_t *volume_size, unsigned int *replica_count, unsigned int *effective_replica_count, unsigned int *nfiles, int reverse, const char *etag_file) {
     sxi_hostlist_t volhosts;
     sxc_cluster_lf_t *ret;
     const char *confdir = sxi_cluster_get_confdir(cluster);
@@ -2161,7 +2176,7 @@ sxc_cluster_lf_t *sxc_cluster_listfiles_etag(sxc_cluster_t *cluster, const char 
     if (*etag)
         SXDEBUG("ETag in: %s", etag);
 
-    ret = sxi_conns_listfiles(sxi_cluster_get_conns(cluster), volume, &volhosts, glob_pattern, recursive, volume_used_size, volume_size, replica_count, nfiles, reverse, *etag ? etag : NULL, &etag_out);
+    ret = sxi_conns_listfiles(sxi_cluster_get_conns(cluster), volume, &volhosts, glob_pattern, recursive, volume_used_size, volume_size, replica_count, effective_replica_count, nfiles, reverse, *etag ? etag : NULL, &etag_out);
     sxi_hostlist_empty(&volhosts);
     SXDEBUG("ETag out: %s", etag_out ? etag_out : "");
 
@@ -2179,8 +2194,8 @@ sxc_cluster_lf_t *sxc_cluster_listfiles_etag(sxc_cluster_t *cluster, const char 
     return ret;
 }
 
-sxc_cluster_lf_t *sxc_cluster_listfiles(sxc_cluster_t *cluster, const char *volume, const char *glob_pattern, int recursive, int64_t *volume_used_size, int64_t *volume_size, unsigned int *replica_count, unsigned int *nfiles, int reverse) {
-    return sxc_cluster_listfiles_etag(cluster, volume, glob_pattern, recursive, volume_used_size, volume_size, replica_count, nfiles, reverse, NULL);
+sxc_cluster_lf_t *sxc_cluster_listfiles(sxc_cluster_t *cluster, const char *volume, const char *glob_pattern, int recursive, int64_t *volume_used_size, int64_t *volume_size, unsigned int *replica_count, unsigned int *effective_replica_count, unsigned int *nfiles, int reverse) {
+    return sxc_cluster_listfiles_etag(cluster, volume, glob_pattern, recursive, volume_used_size, volume_size, replica_count, effective_replica_count, nfiles, reverse, NULL);
 }
 
 int sxc_cluster_listfiles_prev(sxc_cluster_lf_t *lf, char **file_name, int64_t *file_size, time_t *file_created_at, char **file_revision) {

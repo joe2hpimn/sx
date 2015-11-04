@@ -202,8 +202,8 @@ void fcgi_handle_cluster_requests(void) {
             if(has_priv(PRIV_ADMIN))
                 priv = PRIV_READ | PRIV_WRITE;
 
-	    CGI_PRINTF(":{\"owner\":\"%s\",\"replicaCount\":%u,\"maxRevisions\":%u,\"privs\":\"%c%c\",\"usedSize\":", owner,
-                vol->max_replica, vol->revisions, (priv & PRIV_READ) ? 'r' : '-', (priv & PRIV_WRITE) ? 'w' : '-');
+	    CGI_PRINTF(":{\"owner\":\"%s\",\"replicaCount\":%u,\"effectiveReplicaCount\":%u,\"maxRevisions\":%u,\"privs\":\"%c%c\",\"usedSize\":", owner,
+                vol->max_replica, vol->effective_replica, vol->revisions, (priv & PRIV_READ) ? 'r' : '-', (priv & PRIV_WRITE) ? 'w' : '-');
 
 	    CGI_PUTLL(vol->cursize);
             CGI_PRINTF(",\"sizeBytes\":");

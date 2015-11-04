@@ -195,7 +195,7 @@ int main(int argc, char **argv) {
                 unsigned int max_owner_len = 0;
                 while(1) {
                     char *owner;
-                    int n = sxc_cluster_listvolumes_next(fv, NULL, &owner, NULL, NULL, NULL, NULL, NULL, NULL);
+                    int n = sxc_cluster_listvolumes_next(fv, NULL, &owner, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
                     unsigned int len;
                     if(n<=0) {
                         if(n) {
@@ -221,15 +221,15 @@ int main(int argc, char **argv) {
                     char *owner;
 		    int64_t vsize;
                     int64_t vusedsize;
-		    unsigned int vreplica, vrevs;
+		    unsigned int vreplica, veffreplica, vrevs;
                     sxc_meta_t *vmeta = NULL;
                     int n = 0;
                     char privs[3] = { 0, 0, 0 };
 
                     if(args.long_format_given)
-		        n = sxc_cluster_listvolumes_next(fv, &vname, &owner, &vusedsize, &vsize, &vreplica, &vrevs, privs, &vmeta);
+		        n = sxc_cluster_listvolumes_next(fv, &vname, &owner, &vusedsize, &vsize, &vreplica, &veffreplica, &vrevs, privs, &vmeta);
                     else
-                        n = sxc_cluster_listvolumes_next(fv, &vname, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+                        n = sxc_cluster_listvolumes_next(fv, &vname, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
 
 		    if(n<=0) {
 			if(n)
@@ -244,7 +244,7 @@ int main(int argc, char **argv) {
 			const char *filter_name = NULL;
                         char *human_size = NULL, *human_used_size = NULL;
                         int64_t percent;
-			char repstr[6], revstr[8];
+			char repstr[10], revstr[8];
 
 			/* Initialize volume file structure */
 			if(!(volume_file = sxc_file_remote(cluster, vname, NULL, NULL))) {
@@ -267,7 +267,10 @@ int main(int argc, char **argv) {
 			    filter_name = "-";
 			}
 
-			snprintf(repstr, sizeof(repstr), "rep:%u", vreplica);
+			if(veffreplica < vreplica)
+			    snprintf(repstr, sizeof(repstr), "rep:%u(%u)", veffreplica, vreplica);
+			else
+			    snprintf(repstr, sizeof(repstr), "rep:%u", vreplica);
                         snprintf(revstr, sizeof(revstr), "rev:%u", vrevs);
 			printf("    VOL %6s %6s %3s %10s", repstr, revstr, privs, filter_name);
 
@@ -314,7 +317,7 @@ int main(int argc, char **argv) {
                 ret = 1;
             }
 	} else {
-	    sxc_cluster_lf_t *fl = sxc_cluster_listfiles_etag(cluster, u->volume, u->path, args.recursive_flag, NULL, NULL, NULL, NULL, 0, args.etag_arg);
+	    sxc_cluster_lf_t *fl = sxc_cluster_listfiles_etag(cluster, u->volume, u->path, args.recursive_flag, NULL, NULL, NULL, NULL, NULL, 0, args.etag_arg);
 	    if(fl) {
 		while(1) {
 		    char *fname;

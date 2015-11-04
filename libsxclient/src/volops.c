@@ -538,6 +538,7 @@ struct cb_listvolumes_ctx {
 	int64_t size;
         int64_t used_size;
 	unsigned int replica_count;
+	unsigned int effective_replica_count;
         unsigned int revisions;
 	unsigned int namelen;
         unsigned int owner_len;
@@ -547,8 +548,8 @@ struct cb_listvolumes_ctx {
     sxc_meta_t *meta;
     unsigned int meta_count;
     char *curkey;
-    enum listvolumes_state { LV_ERROR, LV_BEGIN, LV_BASE, LV_VOLUMES, LV_NAME, LV_VALUES, LV_VALNAME, LV_OWNER,
-			     LV_REPLICA, LV_REVISIONS, LV_PRIVS, LV_USEDSIZE, LV_SIZE, LV_META, LV_META_KEY, LV_META_VALUE, LV_DONE, LV_COMPLETE } state;
+    enum listvolumes_state { LV_ERROR, LV_BEGIN, LV_BASE, LV_VOLUMES, LV_NAME, LV_VALUES, LV_VALNAME, LV_OWNER, LV_REPLICA,
+			     LV_EFFREPLICA, LV_REVISIONS, LV_PRIVS, LV_USEDSIZE, LV_SIZE, LV_META, LV_META_KEY, LV_META_VALUE, LV_DONE, LV_COMPLETE } state;
 };
 #define expect_state(expst) do { if(yactx->state != (expst)) { CBDEBUG("bad state (in %d, expected %d)", yactx->state, expst); return 0; } } while(0)
 
@@ -590,6 +591,8 @@ static int yacb_listvolumes_end_map(void *ctx) {
 	    CBDEBUG("incomplete entry");
 	    return 0;
 	}
+	if(yactx->voldata.effective_replica_count < 1)
+	    yactx->voldata.effective_replica_count = yactx->voldata.replica_count;
 	if(!fwrite(&yactx->voldata, sizeof(yactx->voldata), 1, yactx->f) || !fwrite(yactx->volname, yactx->voldata.namelen, 1, yactx->f)) {
 	    CBDEBUG("failed to save file attributes to temporary file");
 	    sxi_cbdata_setsyserr(yactx->cbdata, SXE_EWRITE, "Failed to write to temporary file");
@@ -737,6 +740,7 @@ static int yacb_listvolumes_map_key(void *ctx, const unsigned char *s, size_t l)
 	}
 	memcpy(yactx->volname, s, yactx->voldata.namelen);
 	yactx->voldata.replica_count = 0;
+	yactx->voldata.effective_replica_count = 0;
         yactx->voldata.revisions = 0;
         yactx->voldata.used_size = -1;
 	yactx->voldata.size = -1;
@@ -752,6 +756,10 @@ static int yacb_listvolumes_map_key(void *ctx, const unsigned char *s, size_t l)
         }
 	if(l == lenof("replicaCount") && !memcmp(s, "replicaCount", lenof("replicaCount"))) {
 	    yactx->state = LV_REPLICA;
+	    return 1;
+	}
+	if(l == lenof("effectiveReplicaCount") && !memcmp(s, "effectiveReplicaCount", lenof("effectiveReplicaCount"))) {
+	    yactx->state = LV_EFFREPLICA;
 	    return 1;
 	}
         if(l == lenof("maxRevisions") && !memcmp(s, "maxRevisions", lenof("maxRevisions"))) {
@@ -825,6 +833,22 @@ static int yacb_listvolumes_number(void *ctx, const char *s, size_t l) {
 	    CBDEBUG("invalid number '%.*s'", (unsigned)l, s);
 	    return 0;
 	}
+    } else if(yactx->state == LV_EFFREPLICA) {
+	if(yactx->voldata.effective_replica_count) {
+	    CBDEBUG("Effective replica count already received");
+	    return 0;
+	}
+	if(l < 1 || l > 10) {
+	    CBDEBUG("Invalid effective replica count '%.*s'", (unsigned)l, s);
+	    return 0;
+	}
+	memcpy(numb, s, l);
+	numb[l] = '\0';
+	yactx->voldata.effective_replica_count = strtol(numb, &enumb, 10);
+	if(*enumb || yactx->voldata.effective_replica_count < 1) {
+	    CBDEBUG("invalid number '%.*s'", (unsigned)l, s);
+	    return 0;
+	}
     } else if(yactx->state == LV_REVISIONS) {
         if(yactx->voldata.revisions) {
             CBDEBUG("Revisions limit already received: %d", yactx->voldata.revisions);
@@ -878,7 +902,7 @@ static int yacb_listvolumes_number(void *ctx, const char *s, size_t l) {
 	    return 0;
 	}
     } else {
-	CBDEBUG("bad state (in %d, expected %d or %d)", yactx->state, LV_REPLICA, LV_SIZE);
+	CBDEBUG("bad state %d", yactx->state);
 	return 0;
     }
 
@@ -1015,7 +1039,7 @@ sxc_cluster_lv_t *sxc_cluster_listvolumes(sxc_cluster_t *cluster, int get_meta) 
     return ret;
 }
 
-int sxc_cluster_listvolumes_next(sxc_cluster_lv_t *lv, char **volume_name, char **volume_owner, int64_t *volume_used_size, int64_t *volume_size, unsigned int *replica_count, unsigned int *revisions, char privs[3], sxc_meta_t **meta) {
+int sxc_cluster_listvolumes_next(sxc_cluster_lv_t *lv, char **volume_name, char **volume_owner, int64_t *volume_used_size, int64_t *volume_size, unsigned int *replica_count, unsigned int *effective_replica_count, unsigned int *revisions, char privs[3], sxc_meta_t **meta) {
     struct cbl_volume_t volume;
     sxc_client_t *sx = lv->sx;
     unsigned int meta_count = 0;
@@ -1106,6 +1130,9 @@ int sxc_cluster_listvolumes_next(sxc_cluster_lv_t *lv, char **volume_name, char 
 
     if(replica_count)
 	*replica_count = volume.replica_count;
+
+    if(effective_replica_count)
+	*effective_replica_count = volume.effective_replica_count;
 
     if(revisions)
         *revisions = volume.revisions;
