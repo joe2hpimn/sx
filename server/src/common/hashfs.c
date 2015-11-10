@@ -13560,7 +13560,7 @@ rc_ty sx_hashfs_hdist_change_req(sx_hashfs_t *h, const sx_nodelist_t *newdist, c
 	return EINVAL;
     }
 
-    newclustersize = sxi_hdist_capacity(newmod, 1, NULL);
+    newclustersize = sxi_hdist_capacity(newmod, 0, NULL);
     if(newclustersize < reqclustersize) {
 	sxi_hdist_free(newmod);
 	msg_set_reason("Invalid distribution: the requested distribution provides a capacity of %lld bytes but this cluster requires a minimum of %lld bytes to operate.", (long long)newclustersize, (long long)reqclustersize);
