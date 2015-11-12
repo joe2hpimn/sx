@@ -13464,8 +13464,9 @@ int64_t sx_hashfs_hdist_getversion(sx_hashfs_t *h) {
 
 rc_ty sx_hashfs_hdist_change_req(sx_hashfs_t *h, const sx_nodelist_t *newdist, const char *zonedef, job_t *job_id) {
     sxi_hdist_t *newmod;
-    unsigned int nnodes, newreplica, reqreplica, i, cfg_len;
+    unsigned int nnodes, ncurnodes, newreplica, reqreplica, i, j, cfg_len;
     int64_t newclustersize, reqclustersize;
+    const sx_nodelist_t *curnodes;
     sx_nodelist_t *targets;
     job_t finish_job;
     const void *cfg;
@@ -13522,7 +13523,6 @@ rc_ty sx_hashfs_hdist_change_req(sx_hashfs_t *h, const sx_nodelist_t *newdist, c
     }
     for(i=0; i<nnodes; i++) {
 	const sx_node_t *n = sx_nodelist_get(newdist, i);
-	unsigned int j;
 	if(sx_node_capacity(n) < SXLIMIT_MIN_NODE_SIZE) {
 	    sxi_hdist_free(newmod);
 	    msg_set_reason("Invalid capacity: Node %s cannot be smaller than %u bytes", sx_node_uuid_str(n), SXLIMIT_MIN_NODE_SIZE);
@@ -13541,10 +13541,27 @@ rc_ty sx_hashfs_hdist_change_req(sx_hashfs_t *h, const sx_nodelist_t *newdist, c
 		return EINVAL;
 	    }
 	}
+
 	r = sxi_hdist_addnode(newmod, sx_node_uuid(n), sx_node_addr(n), sx_node_internal_addr(n), sx_node_capacity(n), NULL);
 	if(r) {
 	    sxi_hdist_free(newmod);
 	    return FAIL_EINTERNAL;
+	}
+    }
+
+    curnodes = sx_hashfs_all_nodes(h, NL_PREV);
+    ncurnodes = sx_nodelist_count(curnodes);
+    for(i=0; i<ncurnodes; i++) {
+	const sx_node_t *n = sx_nodelist_get(curnodes, i);
+	if(sx_nodelist_lookup(newdist, sx_node_uuid(n)))
+	    continue;
+	for(j=0; j<nnodes; j++) {
+	    const sx_node_t *other = sx_nodelist_get(newdist, j);
+	    if(!sx_node_cmp_addrs(n, other)) {
+		sxi_hdist_free(newmod);
+		msg_set_reason("New node %s shares the same address with existing node %s, which is about to be removed. You can re-use the address of the old node when the removal procedure is finished");
+		return EINVAL;
+	    }
 	}
     }
 
