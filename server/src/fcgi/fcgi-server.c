@@ -270,7 +270,6 @@ static int accept_loop(sxc_client_t *sx, const char *dir, int socket, worker_typ
         in_request = 1;
 	send_server_info();
 	handle_request(wtype);
-        sx_hashfs_checkpoint_idle(hashfs);
         in_request = 0;
     }
     FCGX_Finish_r(&req);
