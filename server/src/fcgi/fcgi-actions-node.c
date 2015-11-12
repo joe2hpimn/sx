@@ -632,13 +632,13 @@ void fcgi_distlock(void) {
     CGI_PUTS("\r\n");
 }
 
-/* {"newDistribution":"HEX(blob_cfg)", "faultyNodes":["uuid1", "uuiid2"]} */
-/* MODHDIST: maybe add revision here */
+/* {"newDistribution":"HEX(blob_cfg)", "softwareVersion":"hashfsVER", "faultyNodes":["uuid1", "uuiid2"]} */
 struct cb_updist_ctx {
-    enum cb_updist_state { CB_UPDIST_START, CB_UPDIST_KEY, CB_UPDIST_CFG, CB_UPDIST_FAULTY, CB_UPDIST_FAULTYNODE, CB_UPDIST_COMPLETE } state;
+    enum cb_updist_state { CB_UPDIST_START, CB_UPDIST_KEY, CB_UPDIST_CFG, CB_UPDIST_VER, CB_UPDIST_FAULTY, CB_UPDIST_FAULTYNODE, CB_UPDIST_COMPLETE } state;
     void *cfg;
+    char remote_ver[sizeof(((sx_hashfs_version_t *)0)->full)];
     sx_nodelist_t *faulty;
-    unsigned int cfg_len, nfaulty;
+    unsigned int cfg_len;
 };
 
 static int cb_updist_string(void *ctx, const unsigned char *s, size_t l) {
@@ -658,6 +658,16 @@ static int cb_updist_string(void *ctx, const unsigned char *s, size_t l) {
 	    c->cfg = NULL;
 	    return 0;
 	}
+
+	c->state = CB_UPDIST_KEY;
+	return 1;
+    }
+
+    if(c->state == CB_UPDIST_VER) {
+	if(c->remote_ver[0] || l >= sizeof(c->remote_ver))
+	    return 0;
+	memcpy(c->remote_ver, s, l);
+	c->remote_ver[l] = '\0';
 
 	c->state = CB_UPDIST_KEY;
 	return 1;
@@ -692,6 +702,8 @@ static int cb_updist_map_key(void *ctx, const unsigned char *s, size_t l) {
 
     if(l == lenof("newDistribution") && !strncmp("newDistribution", s, lenof("newDistribution")))
 	c->state = CB_UPDIST_CFG;
+    else if(l == lenof("softwareVersion") && !strncmp("softwareVersion", s, lenof("softwareVersion")))
+	c->state = CB_UPDIST_VER;
     else if(l == lenof("faultyNodes") && !strncmp("faultyNodes", s, lenof("faultyNodes")))
 	c->state = CB_UPDIST_FAULTY;
     else
@@ -746,10 +758,12 @@ static const yajl_callbacks updist_parser = {
 void fcgi_new_distribution(void) {
     struct cb_updist_ctx yctx;
     yajl_handle yh;
+    sx_hashfs_version_t *lver, rver;
     rc_ty s;
-    int len;
+    int len, v;
 
     yctx.cfg = NULL;
+    yctx.remote_ver[0] = '\0';
     yctx.state = CB_UPDIST_START;
     yctx.faulty = sx_nodelist_new();
     if(!yctx.faulty)
@@ -774,9 +788,27 @@ void fcgi_new_distribution(void) {
 
     auth_complete();
     if(!is_authed()) {
+	sx_nodelist_delete(yctx.faulty);
 	free(yctx.cfg);
 	send_authreq();
 	return;
+    }
+
+    if(sx_hashfs_version_parse(yctx.remote_ver, &rver)) {
+	sx_nodelist_delete(yctx.faulty);
+	free(yctx.cfg);
+	quit_errmsg(400, "Invalid software version");
+    }
+
+    lver = sx_hashfs_version(hashfs);
+    v = sx_hashfs_version_cmp(lver, &rver);
+    if(v != 0) {
+	sx_nodelist_delete(yctx.faulty);
+	free(yctx.cfg);
+	if(v > 0)
+	    quit_errmsg(400, "Remote software version is too old");
+	else
+	    quit_errmsg(400, "Local software version is too old");
     }
 
     if(!sx_nodelist_count(yctx.faulty))

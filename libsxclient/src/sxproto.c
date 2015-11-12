@@ -772,27 +772,33 @@ sxi_query_t *sxi_nodeinit_proto(sxc_client_t *sx, const char *cluster_name, cons
     return ret;
 }
 
-sxi_query_t *sxi_distribution_proto_begin(sxc_client_t *sx, const void *cfg, unsigned int cfg_len) {
-    char *hexcfg = NULL;
+sxi_query_t *sxi_distribution_proto_begin(sxc_client_t *sx, const void *cfg, unsigned int cfg_len, const char *swver) {
+    char *hexcfg = NULL, *enc_ver = NULL;
     sxi_query_t *ret;
     unsigned int n;
 
-    if(!sx || !cfg || !cfg_len)
-	return 0;
+    if(!sx || !cfg || !cfg_len || !swver)
+	return NULL;
 
     hexcfg = malloc(cfg_len * 2 + 1);
     if(!hexcfg)
 	return NULL;
-
     sxi_bin2hex(cfg, cfg_len, hexcfg);
 
-    n = sizeof("{\"newDistribution\":\"\",\"faultyNodes\":[") + cfg_len * 2;
+    enc_ver = sxi_urlencode(sx, swver, 0);
+    if(!enc_ver) {
+	free(hexcfg);
+	return NULL;
+    }
+
+    n = sizeof("{\"newDistribution\":\"\",\"softwareVersion\":\"\",\"faultyNodes\":[") + cfg_len * 2  + strlen(enc_ver);
     ret = sxi_query_create(sx, ".dist", REQ_PUT);
     if(ret) {
 	ret->comma = 0;
-	ret = sxi_query_append_fmt(sx, ret, n, "{\"newDistribution\":\"%s\",\"faultyNodes\":[", hexcfg);
+	ret = sxi_query_append_fmt(sx, ret, n, "{\"newDistribution\":\"%s\",\"softwareVersion\":\"%s\",\"faultyNodes\":[", hexcfg, enc_ver);
     }
 
+    free(enc_ver);
     free(hexcfg);
     return ret;
 }

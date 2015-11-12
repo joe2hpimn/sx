@@ -2212,6 +2212,7 @@ static int challenge_and_sync(sx_hashfs_t *hashfs, const sx_node_t *node, int *f
 }
 
 static act_result_t distribution_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    const sx_hashfs_version_t *swver = sx_hashfs_version(hashfs);
     sxi_hdist_t *hdist;
     const sx_nodelist_t *prev, *next;
     act_result_t ret = ACT_RESULT_OK;
@@ -2252,7 +2253,7 @@ static act_result_t distribution_request(sx_hashfs_t *hashfs, job_t job_id, job_
 	action_error(ACT_RESULT_PERMFAIL, 500, "Bad distribution data");
     }
 
-    proto = sxi_distribution_proto_begin(sx, job_data->ptr, job_data->len);
+    proto = sxi_distribution_proto_begin(sx, job_data->ptr, job_data->len, swver->string);
     if(proto)
 	proto = sxi_distribution_proto_end(sx, proto);
     if(!proto) {
@@ -3301,6 +3302,7 @@ static curlev_context_t *push_volume_sizes(sx_hashfs_t *h, const sx_node_t *n, u
 }
 
 static act_result_t replace_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    const sx_hashfs_version_t *swver = sx_hashfs_version(hashfs);
     sxi_hdist_t *hdist = NULL;
     sx_nodelist_t *faulty = NULL;
     act_result_t ret = ACT_RESULT_OK;
@@ -3347,7 +3349,7 @@ static act_result_t replace_request(sx_hashfs_t *hashfs, job_t job_id, job_data_
 	action_error(ACT_RESULT_PERMFAIL, 500, "Bad distribution data");
     }
 
-    proto = sxi_distribution_proto_begin(sx, cfg, cfg_len);
+    proto = sxi_distribution_proto_begin(sx, cfg, cfg_len, swver->string);
     nnodes = sx_nodelist_count(faulty);
     for(nnode = 0; proto && nnode<nnodes; nnode++) {
 	const sx_node_t *node = sx_nodelist_get(faulty, nnode);
