@@ -13559,7 +13559,7 @@ rc_ty sx_hashfs_hdist_change_req(sx_hashfs_t *h, const sx_nodelist_t *newdist, c
 	    const sx_node_t *other = sx_nodelist_get(newdist, j);
 	    if(!sx_node_cmp_addrs(n, other)) {
 		sxi_hdist_free(newmod);
-		msg_set_reason("New node %s shares the same address with existing node %s, which is about to be removed. You can re-use the address of the old node when the removal procedure is finished");
+		msg_set_reason("New node %s shares the same address with existing node %s, which is about to be removed. You can re-use the address of the old node when the removal procedure is finished", sx_node_uuid_str(other), sx_node_uuid_str(n));
 		return EINVAL;
 	    }
 	}

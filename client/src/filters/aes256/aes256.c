@@ -46,6 +46,10 @@
 #include "server/src/common/sxlimits.h"
 #include "sx.h"
 
+#ifdef ENABLE_VGHINTS
+#include "valgrind/memcheck.h"
+#endif
+
 /* logger prefixes with aes256: already */
 #define NOTICE(...)	sxc_filter_msg(handle, SX_LOG_NOTICE, __VA_ARGS__)
 #define WARN(...)	sxc_filter_msg(handle, SX_LOG_WARNING, __VA_ARGS__)
@@ -198,6 +202,9 @@ static int keyfp(const sxf_handle_t *handle, const unsigned char *key, unsigned 
 	memcpy(current_digest, current_fp + SALT_SIZE, KEY_SIZE);
     } else {
 	RAND_pseudo_bytes(salt, sizeof(salt));
+#ifdef ENABLE_VGHINTS
+	VALGRIND_MAKE_MEM_DEFINED(salt, sizeof(salt));
+#endif
     }
     if(!SHA256_Init(&sctx) ||
        !SHA256_Update(&sctx, key, key_size) ||
@@ -272,6 +279,9 @@ static int aes256_configure(const sxf_handle_t *handle, const char *cfgstr, cons
 	    ERROR("Can't generate salt, please try again");
 	    return -1;
 	}
+#ifdef ENABLE_VGHINTS
+	VALGRIND_MAKE_MEM_DEFINED(salt, sizeof(salt));
+#endif
     }
 
     if(paranoid || nogenkey) {

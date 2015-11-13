@@ -128,6 +128,15 @@ else
 fi
 AC_SUBST([SX_FILTER_DIR], [$filter_dir])
 
+AC_ARG_ENABLE([vghints],
+    AS_HELP_STRING([--enable-vghints], [build with support for valgrind hints]),
+    [vghints=$enableval], [vghints=no])
+if test "x$vghints" = "xyes"; then
+   AC_CHECK_HEADER([valgrind/memcheck.h],
+       AC_DEFINE([ENABLE_VGHINTS], 1, [Build with support for valgrind hints]),
+       AC_MSG_ERROR([Cannot find valgrind includes]))
+fi
+
 AC_CONFIG_FILES([Makefile])
 AC_CONFIG_FILES([man/sxacl.1 man/sxacl-useradd.1 man/sxacl-userclone.1 man/sxacl-userdel.1 man/sxacl-userlist.1 man/sxacl-usermod.1 man/sxacl-usergetkey.1 man/sxacl-usernewkey.1 man/sxacl-volperm.1 man/sxacl-volshow.1 man/sxacl-whoami.1 man/sxcat.1 man/sxrm.1 man/sxls.1 man/sxmv.1 man/sxcp.1 man/sxinit.1 man/sxreport-client.1 man/sxvol.1 man/sxvol-create.1 man/sxvol-modify.1 man/sxvol-remove.1 man/sxvol-filter.1 man/sxrev.1 man/sxrev-list.1 man/sxrev-copy.1 man/sxrev-delete.1 man/sxfs.1])
 AC_CONFIG_FILES([src/filters/attribs/Makefile])
