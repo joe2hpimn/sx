@@ -458,8 +458,8 @@ static int ctx_prepare(const sxf_handle_t *handle, void **ctx, const char *filen
 		    return -1;
 		}
 		keyread = 1;
-		close(fd);
 	    }
+	    close(fd);
 	}
 	if(!keyread) {
 	    if(have_fp || encrypted_meta)
