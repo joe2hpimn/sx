@@ -332,6 +332,7 @@ pdfdir = @pdfdir@
 prefix = @prefix@
 program_transform_name = @program_transform_name@
 psdir = @psdir@
+runstatedir = @runstatedir@
 sbindir = @sbindir@
 sharedstatedir = @sharedstatedir@
 srcdir = @srcdir@
@@ -343,7 +344,7 @@ top_srcdir = @top_srcdir@
 @BUILD_ZCOMP_TRUE@AM_CPPFLAGS = -I $(top_srcdir)/../libsxclient/include -I $(top_srcdir)/../
 @BUILD_ZCOMP_TRUE@pkglib_LTLIBRARIES = libsxf_zcomp.la
 @BUILD_ZCOMP_TRUE@libsxf_zcomp_la_SOURCES = zcomp.c
-@BUILD_ZCOMP_TRUE@libsxf_zcomp_la_LDFLAGS = -module -release 11
+@BUILD_ZCOMP_TRUE@libsxf_zcomp_la_LDFLAGS = -module -release 12
 @BUILD_ZCOMP_TRUE@libsxf_zcomp_la_LIBADD = @ZCOMP_LIBS@ ../../../../libsxclient/src/libsxclient.la
 all: all-am
 

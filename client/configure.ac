@@ -48,7 +48,10 @@ ac_save_LIBS=$LIBS
 PKG_CHECK_MODULES([OPENSSL], [libssl], [have_crypto="yes"], [
     AC_CHECK_LIB([crypto], [HMAC_Update], [OPENSSL_LIBS="-lcrypto -lssl"; have_crypto="yes"])])
 LIBS=$ac_save_LIBS
-AM_CONDITIONAL([BUILD_AES256], [test "$have_crypto" = "yes"])
+if test "$have_crypto" = "yes"; then
+    AC_CHECK_LIB([crypto], [PKCS5_PBKDF2_HMAC], [have_pbkdf2_hmac="yes"])
+fi
+AM_CONDITIONAL([BUILD_AES256], [test "$have_pbkdf2_hmac" = "yes"])
 AC_CACHE_CHECK([whether HMAC_Update returns int], ac_cv_type_HMAC_update,
 [AC_COMPILE_IFELSE(
     [AC_LANG_PROGRAM([#include <openssl/hmac.h>

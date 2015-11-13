@@ -238,6 +238,8 @@ static int create_volume(sxc_client_t *sx, sxc_cluster_t *cluster, const char *v
         }
         if(!filter) {
             fprintf(stderr, "create_volume: ERROR: Filter not found.\n");
+	    /* FIXME: move filter processing to main() and iterate through available filters */
+	    ret = 2;
             goto create_volume_err;
         }
         sxi_uuid_parse(filter->uuid, uuid);
@@ -1525,7 +1527,13 @@ static int volume_test(const char *progname, sxc_client_t *sx, sxc_cluster_t *cl
     else
         check_data_size = 1;
     printf("\nVolume test - filter: %s; filter configuration: %s\n", filter_name ? filter_name : "<no filter>", filter_cfg ? filter_cfg : "<none>");
-    if(create_volume(sx, cluster, volname, args->owner_arg, filter_dir, filter_name, filter_cfg, args->replica_arg, max_revisions, args->human_flag, 0)) {
+    /* FIXME: handle this stuff properly */
+    int retFIXME = create_volume(sx, cluster, volname, args->owner_arg, filter_dir, filter_name, filter_cfg, args->replica_arg, max_revisions, args->human_flag, 0);
+    if(retFIXME == 2) {
+        ret = 0;
+        goto volume_test_err;
+    }
+    if(retFIXME == 1) {
         fprintf(stderr, "volume_test: ERROR: Cannot create new volume.\n");
         goto volume_test_err;
     }
@@ -2175,10 +2183,13 @@ static int test_copy(sxc_client_t *sx, sxc_cluster_t *cluster, const char *local
     }
     sprintf(remote_file2_path, "sx://%s%s%s/%s/%s/%s", profile_name ? profile_name : "", profile_name ? "@" : "", cluster_name, volname2, REMOTE_DIR, COPY_FILE_NAME);
     printf("test_copy: Filters: %s (%s) and %s (%s).\n", filter1_name, filter1_cfg, filter2_name, filter2_cfg);
-    if(create_volume(sx, cluster, volname1, args->owner_arg, filter_dir, filter1_name, filter1_cfg, args->replica_arg, 1, args->human_flag, 0)) {
-        fprintf(stderr, "test_copy: ERROR: Cannot create new volume.\n");
+    int retFIXME = create_volume(sx, cluster, volname1, args->owner_arg, filter_dir, filter1_name, filter1_cfg, args->replica_arg, 1, args->human_flag, 0);
+    if(retFIXME == 2) {
+	ret = 0;
         goto test_copy_err;
     }
+    if(retFIXME == 1)
+        goto test_copy_err;
     if(create_volume(sx, cluster, volname2, args->owner_arg, filter_dir, filter2_name, filter2_cfg, args->replica_arg, 1, args->human_flag, 0)) {
         fprintf(stderr, "test_copy: ERROR: Cannot create new volume.\n");
         goto test_copy_err;
