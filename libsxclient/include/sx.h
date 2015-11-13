@@ -433,7 +433,7 @@ typedef enum {
 /** Defines the direction of the transfer
  */
 typedef enum {
-    SXF_MODE_UPLOAD = 0,/**< file upload */
+    SXF_MODE_UPLOAD = 1,/**< file upload */
     SXF_MODE_DOWNLOAD,/**< file download */
     SXF_MODE_RCOPY, /**< remote-to-remote copy (fast mode) */
     SXF_MODE_DELETE, /**< file delete */

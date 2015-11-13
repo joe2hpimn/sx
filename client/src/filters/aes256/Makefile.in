@@ -148,6 +148,18 @@ libsxf_aes256_la_LINK = $(LIBTOOL) $(AM_V_lt) --tag=CC \
 	$(AM_CFLAGS) $(CFLAGS) $(libsxf_aes256_la_LDFLAGS) $(LDFLAGS) \
 	-o $@
 @BUILD_AES256_TRUE@am_libsxf_aes256_la_rpath = -rpath $(pkglibdir)
+@BUILD_AES256_TRUE@libsxf_aes256_dummy_la_DEPENDENCIES =  \
+@BUILD_AES256_TRUE@	../../../../libsxclient/src/libsxclient.la
+am__libsxf_aes256_dummy_la_SOURCES_DIST = aes256_dummy.c
+@BUILD_AES256_TRUE@am_libsxf_aes256_dummy_la_OBJECTS =  \
+@BUILD_AES256_TRUE@	aes256_dummy.lo
+libsxf_aes256_dummy_la_OBJECTS = $(am_libsxf_aes256_dummy_la_OBJECTS)
+libsxf_aes256_dummy_la_LINK = $(LIBTOOL) $(AM_V_lt) --tag=CC \
+	$(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=link $(CCLD) \
+	$(AM_CFLAGS) $(CFLAGS) $(libsxf_aes256_dummy_la_LDFLAGS) \
+	$(LDFLAGS) -o $@
+@BUILD_AES256_TRUE@am_libsxf_aes256_dummy_la_rpath = -rpath \
+@BUILD_AES256_TRUE@	$(pkglibdir)
 AM_V_P = $(am__v_P_@AM_V@)
 am__v_P_ = $(am__v_P_@AM_DEFAULT_V@)
 am__v_P_0 = false
@@ -182,8 +194,10 @@ AM_V_CCLD = $(am__v_CCLD_@AM_V@)
 am__v_CCLD_ = $(am__v_CCLD_@AM_DEFAULT_V@)
 am__v_CCLD_0 = @echo "  CCLD    " $@;
 am__v_CCLD_1 = 
-SOURCES = $(libsxf_aes256_la_SOURCES)
-DIST_SOURCES = $(am__libsxf_aes256_la_SOURCES_DIST)
+SOURCES = $(libsxf_aes256_la_SOURCES) \
+	$(libsxf_aes256_dummy_la_SOURCES)
+DIST_SOURCES = $(am__libsxf_aes256_la_SOURCES_DIST) \
+	$(am__libsxf_aes256_dummy_la_SOURCES_DIST)
 am__can_run_installinfo = \
   case $$AM_UPDATE_INFO_DIR in \
     n|no|NO) false;; \
@@ -332,6 +346,7 @@ pdfdir = @pdfdir@
 prefix = @prefix@
 program_transform_name = @program_transform_name@
 psdir = @psdir@
+runstatedir = @runstatedir@
 sbindir = @sbindir@
 sharedstatedir = @sharedstatedir@
 srcdir = @srcdir@
@@ -341,10 +356,13 @@ top_build_prefix = @top_build_prefix@
 top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
 @BUILD_AES256_TRUE@AM_CPPFLAGS = -I $(top_srcdir)/../libsxclient/include -I $(top_srcdir)/../ @VCRYPTO_CFLAGS@
-@BUILD_AES256_TRUE@pkglib_LTLIBRARIES = libsxf_aes256.la
+@BUILD_AES256_TRUE@pkglib_LTLIBRARIES = libsxf_aes256.la libsxf_aes256_dummy.la
 @BUILD_AES256_TRUE@libsxf_aes256_la_SOURCES = aes256.c
-@BUILD_AES256_TRUE@libsxf_aes256_la_LDFLAGS = -module -release 15
+@BUILD_AES256_TRUE@libsxf_aes256_la_LDFLAGS = -module -release 20
 @BUILD_AES256_TRUE@libsxf_aes256_la_LIBADD = ../../../../libsxclient/src/libsxclient.la @VCRYPTO_LIBS@
+@BUILD_AES256_TRUE@libsxf_aes256_dummy_la_SOURCES = aes256_dummy.c
+@BUILD_AES256_TRUE@libsxf_aes256_dummy_la_LDFLAGS = -module -release 00
+@BUILD_AES256_TRUE@libsxf_aes256_dummy_la_LIBADD = ../../../../libsxclient/src/libsxclient.la
 all: all-am
 
 .SUFFIXES:
@@ -417,6 +435,9 @@ clean-pkglibLTLIBRARIES:
 libsxf_aes256.la: $(libsxf_aes256_la_OBJECTS) $(libsxf_aes256_la_DEPENDENCIES) $(EXTRA_libsxf_aes256_la_DEPENDENCIES) 
 	$(AM_V_CCLD)$(libsxf_aes256_la_LINK) $(am_libsxf_aes256_la_rpath) $(libsxf_aes256_la_OBJECTS) $(libsxf_aes256_la_LIBADD) $(LIBS)
 
+libsxf_aes256_dummy.la: $(libsxf_aes256_dummy_la_OBJECTS) $(libsxf_aes256_dummy_la_DEPENDENCIES) $(EXTRA_libsxf_aes256_dummy_la_DEPENDENCIES) 
+	$(AM_V_CCLD)$(libsxf_aes256_dummy_la_LINK) $(am_libsxf_aes256_dummy_la_rpath) $(libsxf_aes256_dummy_la_OBJECTS) $(libsxf_aes256_dummy_la_LIBADD) $(LIBS)
+
 mostlyclean-compile:
 	-rm -f *.$(OBJEXT)
 
@@ -424,6 +445,7 @@ distclean-compile:
 	-rm -f *.tab.c
 
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/aes256.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/aes256_dummy.Plo@am__quote@
 
 .c.o:
 @am__fastdepCC_TRUE@	$(AM_V_CC)depbase=`echo $@ | sed 's|[^/]*$$|$(DEPDIR)/&|;s|\.o$$||'`;\

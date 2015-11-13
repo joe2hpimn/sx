@@ -42,6 +42,8 @@
 #include <errno.h>
 
 #include "libsxclient/src/misc.h"
+#include "libsxclient/src/fileops.h"
+#include "server/src/common/sxlimits.h"
 #include "sx.h"
 
 /* logger prefixes with aes256: already */
@@ -71,12 +73,14 @@ struct aes256_ctx {
     EVP_CIPHER_CTX ectx, dctx;
     HMAC_CTX ivhash;
     HMAC_CTX hmac;
+    unsigned char keys[2 * KEY_SIZE];
     unsigned char key[KEY_SIZE], ivmac[EVP_MAX_MD_SIZE];
     unsigned int inbytes, blkbytes, data_in, data_out_left, data_end;
     unsigned char in[IV_SIZE + FILTER_BLOCK_SIZE + AES_BLOCK_SIZE + MAC_SIZE];
     unsigned char blk[IV_SIZE + FILTER_BLOCK_SIZE + AES_BLOCK_SIZE + MAC_SIZE];
     char *keyfile;
     int decrypt_err;
+    sxf_mode_t crypto_inited;
 };
 
 
@@ -86,7 +90,7 @@ static int aes256_init(const sxf_handle_t *handle, void **ctx)
     return 0;
 }
 
-static int derive_key(const sxf_handle_t *handle, const char *pass, const unsigned char *salt, unsigned salt_size, unsigned char *out, unsigned out_size)
+static int derive_key(const sxf_handle_t *handle, const char *pass, const unsigned char *salt, unsigned salt_size, unsigned char *key, unsigned int key_size, unsigned char *meta_key, unsigned int meta_key_size)
 {
     char keybuf[61];
     EVP_MD_CTX ctx;
@@ -102,7 +106,7 @@ static int derive_key(const sxf_handle_t *handle, const char *pass, const unsign
     EVP_MD_CTX_init(&ctx);
     ret = -1;
     do {
-        unsigned int len;
+	unsigned int len;
         if (EVP_DigestInit_ex(&ctx, EVP_sha512(), NULL) != 1) {
             ERROR("EVP_DigestInit_ex failed");
             break;
@@ -111,21 +115,30 @@ static int derive_key(const sxf_handle_t *handle, const char *pass, const unsign
             ERROR("EVP_DigestUpdate failed");
             break;
         }
-        if (EVP_DigestFinal_ex(&ctx, out, &len) != 1) {
+        if (EVP_DigestFinal_ex(&ctx, key, &len) != 1) {
             ERROR("EVP_DigestFinal_ex failed");
             break;
         }
-        if (len != out_size) {
+        if (len != key_size) {
             ERROR("Bad digest size: %d bytes", len);
             break;
         }
         ret = 0;
     } while(0);
     EVP_MD_CTX_cleanup(&ctx);
+
+    if(meta_key) {
+	/* generate a key for meta encryption from the bcrypt one */
+	if(PKCS5_PBKDF2_HMAC(keybuf, strlen(keybuf), salt, salt_size, 1, EVP_sha512(), meta_key_size, meta_key) == 0) {
+	    ERROR("Failed to generate meta key");
+	    return -1;
+	}
+    }
+
     return ret;
 }
 
-static int getpassword(const sxf_handle_t *handle, int repeat, sxf_mode_t mode, unsigned char *key, const unsigned char *salt)
+static int getpassword(const sxf_handle_t *handle, int repeat, sxf_mode_t mode, unsigned char *keys, const unsigned char *salt, int gen_meta_key)
 {
     char pass1[1024], pass2[1024], prompt[64];
     int ret;
@@ -166,13 +179,13 @@ static int getpassword(const sxf_handle_t *handle, int repeat, sxf_mode_t mode, 
 	munlock(pass2, sizeof(pass2));
     }
 
-    ret = derive_key(handle, pass1, salt, SALT_SIZE, key, KEY_SIZE);
+    ret = derive_key(handle, pass1, salt, SALT_SIZE, keys, KEY_SIZE, gen_meta_key ? &keys[KEY_SIZE] : NULL, gen_meta_key ? KEY_SIZE : 0);
     memset(pass1, 0, sizeof(pass1));
     munlock(pass1, sizeof(pass1));
     return ret;
 }
 
-static int keyfp(const sxf_handle_t *handle, const unsigned char *key, const unsigned char *current_fp, unsigned char *new_fp)
+static int keyfp(const sxf_handle_t *handle, const unsigned char *key, unsigned int key_size, const unsigned char *current_fp, unsigned char *new_fp)
 {
     unsigned char salt[SALT_SIZE], tmp[SHA256_DIGEST_LENGTH], digest[KEY_SIZE];
     unsigned char current_salt[SALT_SIZE], current_digest[KEY_SIZE];
@@ -187,13 +200,13 @@ static int keyfp(const sxf_handle_t *handle, const unsigned char *key, const uns
 	RAND_pseudo_bytes(salt, sizeof(salt));
     }
     if(!SHA256_Init(&sctx) ||
-       !SHA256_Update(&sctx, key, KEY_SIZE) ||
+       !SHA256_Update(&sctx, key, key_size) ||
        !SHA256_Final(tmp, &sctx)) {
         ERROR("Can't create key fingerprint (sha256)");
         return -1;
     }
     sxi_bin2hex(tmp, sizeof(tmp), keyfphex);
-    if (derive_key(handle, keyfphex, salt, sizeof(salt), digest, sizeof(digest))) {
+    if (derive_key(handle, keyfphex, salt, sizeof(salt), digest, sizeof(digest), NULL, 0)) {
         ERROR("Can't create key fingerprint");
         return -1;
     }
@@ -215,18 +228,18 @@ static int keyfp(const sxf_handle_t *handle, const unsigned char *key, const uns
     return -1;
 }
 
-static int aes256_configure(const sxf_handle_t *handle, const char *cfgstr, const char *cfgdir, void **cfgdata, unsigned int *cfgdata_len, sxc_meta_t *custom_meta)
+static int aes256_configure(const sxf_handle_t *handle, const char *cfgstr, const char *cfgdir, void **cfgdata, unsigned int *cfgdata_len, sxc_meta_t *custom_volume_meta)
 {
-	unsigned char key[KEY_SIZE], salt[SALT_SIZE];
+	unsigned char keys[2 * KEY_SIZE], salt[SALT_SIZE];
 	char *keyfile;
-	int fd, user_salt = 0, nogenkey = 1, paranoid = 0;
+	int fd, user_salt = 0, nogenkey = 1, paranoid = 0, encrypt_meta = 0;
 	const char *pt;
 
     if(cfgstr) {
 	if(strstr(cfgstr, "paranoid") && strstr(cfgstr, "salt:")) {
 	    ERROR("User provided salt cannot be used in paranoid mode");
 	    return -1;
-	} else if(strncmp(cfgstr, "paranoid", 8) && strncmp(cfgstr, "salt:", 5) && strncmp(cfgstr, "nogenkey", 8) && strncmp(cfgstr, "setkey", 6)) {
+	} else if(strncmp(cfgstr, "paranoid", 8) && strncmp(cfgstr, "salt:", 5) && strncmp(cfgstr, "nogenkey", 8) && strncmp(cfgstr, "setkey", 6) && strncmp(cfgstr, "encrypt_filenames", 17)) {
 	    ERROR("Invalid configuration '%s'", cfgstr);
 	    return -1;
 	}
@@ -243,6 +256,13 @@ static int aes256_configure(const sxf_handle_t *handle, const char *cfgstr, cons
 	}
 	if(strstr(cfgstr, "setkey"))
 	    nogenkey = 0;
+	if(strstr(cfgstr, "encrypt_filenames")) {
+	    encrypt_meta = 1;
+	    if(sxc_meta_setval(custom_volume_meta, "aes256_encrypt_meta", "x", 1)) {
+		ERROR("Failed to set custom meta");
+		return -1;
+	    }
+	}
 	if(strstr(cfgstr, "paranoid"))
 	    paranoid = 1;
     }
@@ -266,8 +286,8 @@ static int aes256_configure(const sxf_handle_t *handle, const char *cfgstr, cons
     }
 
     if(cfgdir) {
-	int ret;
-	while((ret = getpassword(handle, 1, SXF_MODE_UPLOAD, key, salt)) == 1);
+	int ret, key_size = encrypt_meta ? 2 * KEY_SIZE : KEY_SIZE;
+	while((ret = getpassword(handle, 1, SXF_MODE_UPLOAD, keys, salt, encrypt_meta)) == 1);
 	if(ret)
 	    return -1;
 
@@ -284,7 +304,7 @@ static int aes256_configure(const sxf_handle_t *handle, const char *cfgstr, cons
 	    free(keyfile);
 	    return -1;
 	}
-	if(write(fd, key, sizeof(key)) != sizeof(key)) {
+	if(write(fd, keys, key_size) != key_size) {
 	    ERROR("Can't write key data to file %s", keyfile);
 	    close(fd);
 	    unlink(keyfile);
@@ -304,14 +324,14 @@ static int aes256_configure(const sxf_handle_t *handle, const char *cfgstr, cons
 	    return -1;
 
 	memcpy(*cfgdata, salt, SALT_SIZE);
-	if(keyfp(handle, key, NULL, (unsigned char *) *cfgdata + SALT_SIZE)) {
+	if(keyfp(handle, keys, key_size, NULL, (unsigned char *) *cfgdata + SALT_SIZE)) {
 	    free(*cfgdata);
 	    *cfgdata = NULL;
 	    return -1;
 	}
 	*cfgdata_len = SALT_SIZE + FP_SIZE;
 
-	if(sxc_meta_setval(custom_meta, "aes256_fp", *cfgdata, *cfgdata_len)) {
+	if(sxc_meta_setval(custom_volume_meta, "aes256_fp", *cfgdata, *cfgdata_len)) {
 	    ERROR("Failed to set custom meta");
 	    free(*cfgdata);
 	    *cfgdata = NULL;
@@ -323,36 +343,20 @@ static int aes256_configure(const sxf_handle_t *handle, const char *cfgstr, cons
     return 0;
 }
 
-static int aes256_shutdown(const sxf_handle_t *handle, void *ctx)
+static int ctx_prepare(const sxf_handle_t *handle, void **ctx, const char *filename, const char *cfgdir, const void *cfgdata, unsigned int cfgdata_len, sxc_meta_t *custom_volume_meta, sxf_mode_t mode, int use_meta_key)
 {
-    if(ctx) {
-	memset(ctx, 0, sizeof(struct aes256_ctx));
-	free(ctx);
-    }
-    return 0;
-}
-
-static int aes256_data_prepare(const sxf_handle_t *handle, void **ctx, const char *filename, const char *cfgdir, const void *cfgdata, unsigned int cfgdata_len, sxc_meta_t *custom_meta, sxf_mode_t mode)
-{
-	struct aes256_ctx *actx;
-	int keyread = 0, ret;
-	unsigned char key[KEY_SIZE], salt[SALT_SIZE], fp[FP_SIZE];
+	int fd, have_fp = 0, encrypted_meta = 0;
+	unsigned char keys[2 * KEY_SIZE], salt[SALT_SIZE], fp[FP_SIZE];
+	int keyread = 0, key_size, ret;
 	char *keyfile = NULL;
-	int fd, have_fp = 0;
-	uint32_t runtime_ver = SSLeay();
-	uint32_t compile_ver = SSLEAY_VERSION_NUMBER;
-
-    if((runtime_ver & 0xff0000000) != (compile_ver & 0xff0000000)) {
-	ERROR("OpenSSL library version mismatch: compiled: %x, runtime: %d", compile_ver, runtime_ver);
-	return -1;
-    }
-
-    if(!cfgdata || cfgdata_len == SALT_SIZE + 1) {
+	struct aes256_ctx *actx;
 	const void *mdata;
 	unsigned int mdata_len;
+
+    if(!cfgdata || cfgdata_len == SALT_SIZE + 1) {
 	unsigned char custfp[SALT_SIZE + FP_SIZE];
 	char *fpfile;
-        if(!sxc_meta_getval(custom_meta, "aes256_fp", &mdata, &mdata_len)) {
+        if(!sxc_meta_getval(custom_volume_meta, "aes256_fp", &mdata, &mdata_len)) {
 	    cfgdata = mdata;
 	    cfgdata_len = mdata_len;
 	    fpfile = malloc(strlen(cfgdir) + 8);
@@ -401,13 +405,15 @@ static int aes256_data_prepare(const sxf_handle_t *handle, void **ctx, const cha
 	    }
 	}
     }
+    if(!sxc_meta_getval(custom_volume_meta, "aes256_encrypt_meta", &mdata, &mdata_len))
+	encrypted_meta = 1;
 
-    mlock(key, sizeof(key));
+    mlock(keys, sizeof(keys));
     if(cfgdata) {
 	if(cfgdata_len == SALT_SIZE) { /* paranoid (no-key-file) mode */
 	    NOTICE("File '%s' will be %s with provided password", filename, mode == SXF_MODE_UPLOAD ? "encrypted" : "decrypted");
 	    memcpy(salt, cfgdata, SALT_SIZE);
-	    while((ret = getpassword(handle, mode == SXF_MODE_UPLOAD ? 1 : 0, mode, key, salt)) == 1);
+	    while((ret = getpassword(handle, mode == SXF_MODE_UPLOAD ? 1 : 0, mode, keys, salt, 0)) == 1);
 	    if(ret)
 		return -1;
 	    keyread = 1;
@@ -441,31 +447,52 @@ static int aes256_data_prepare(const sxf_handle_t *handle, void **ctx, const cha
 		WARN("Can't open key file %s -- attempt to recreate it", keyfile);
 	    }
 	} else {
-	    if(read(fd, key, sizeof(key)) != sizeof(key))
+	    if((key_size = read(fd, keys, sizeof(keys))) == -1)
 		WARN("Can't read key file %s -- new key file will be created", keyfile);
-	    else
+	    else {
+		if((!encrypted_meta && key_size != KEY_SIZE) || (encrypted_meta && key_size != 2 * KEY_SIZE)) {
+		    ERROR("Local configuration doesn't match remote settings (filename encryption)");
+		    NOTICE("Something has changed remotely or your local configuration is corrupted: you will need to reset the local or remote volume configuration to continue using the volume.");
+		    close(fd);
+		    free(keyfile);
+		    return -1;
+		}
 		keyread = 1;
-	    close(fd);
+		close(fd);
+	    }
 	}
 	if(!keyread) {
-	    while((ret = getpassword(handle, have_fp ? 0 : (mode == SXF_MODE_UPLOAD ? 1 : 0), mode, key, salt)) == 1);
+	    if(have_fp || encrypted_meta)
+		NOTICE("Filename encryption is %s", encrypted_meta ? "enabled" : "disabled");
+	    else if(!encrypted_meta) {
+		char answer, def = 'n';
+		if(sxc_filter_get_input(handle, SXC_INPUT_YN, "[aes256]: Enable filename encryption (introduces additional slowdown)?", &def, &answer, sizeof(char))) {
+		    ERROR("Failed to get user input");
+		    free(keyfile);
+		    return -1;
+		}
+		if(answer == 'y')
+		    encrypted_meta = 1;
+	    }
+	    while((ret = getpassword(handle, have_fp ? 0 : (mode == SXF_MODE_UPLOAD ? 1 : 0), mode, keys, salt, encrypted_meta)) == 1);
 	    if(ret) {
 		free(keyfile);
 		return -1;
 	    }
 	    if(have_fp) {
-		if(keyfp(handle, key, fp, NULL)) {
+		if(keyfp(handle, keys, encrypted_meta ? 2 * KEY_SIZE : KEY_SIZE, fp, NULL)) {
 		    free(keyfile);
 		    return -1;
 		}
 	    } else {
 		unsigned char mdata[SALT_SIZE + FP_SIZE];
 		memcpy(mdata, salt, SALT_SIZE);
-		if(keyfp(handle, key, NULL, mdata + SALT_SIZE)) {
+		if(keyfp(handle, keys, encrypted_meta ? 2 * KEY_SIZE : KEY_SIZE, NULL, mdata + SALT_SIZE)) {
 		    free(keyfile);
 		    return -1;
 		}
-		if(sxc_meta_setval(custom_meta, "aes256_fp", mdata, sizeof(mdata))) {
+
+		if(sxc_meta_setval(custom_volume_meta, "aes256_fp", mdata, sizeof(mdata)) || (encrypted_meta && sxc_meta_setval(custom_volume_meta, "aes256_encrypt_meta", "x", 1))) {
 		    ERROR("Failed to set custom meta");
 		    free(keyfile);
 		    return -1;
@@ -475,7 +502,8 @@ static int aes256_data_prepare(const sxf_handle_t *handle, void **ctx, const cha
 	    if(fd == -1) {
 		WARN("Can't open file %s for writing -- continuing without key file", keyfile);
 	    } else {
-		if(write(fd, key, sizeof(key)) != sizeof(key)) {
+		key_size = encrypted_meta ? 2 * KEY_SIZE : KEY_SIZE;
+		if(write(fd, keys, key_size) != key_size) {
 		    close(fd);
 		    unlink(keyfile);
 		    WARN("Can't write key data to file %s -- continuing without key file", keyfile);
@@ -494,49 +522,87 @@ static int aes256_data_prepare(const sxf_handle_t *handle, void **ctx, const cha
 	return -1;
     }
     actx->keyfile = keyfile;
+    mlock(actx->keys, sizeof(actx->keys));
+    memcpy(actx->keys, keys, sizeof(actx->keys));
+    memset(keys, 0, sizeof(keys));
+    munlock(keys, sizeof(keys));
+
+    *ctx = actx;
+    return 0;
+}
+
+static int data_prepare(const sxf_handle_t *handle, void **ctx, const char *filename, const char *cfgdir, const void *cfgdata, unsigned int cfgdata_len, sxc_meta_t *custom_volume_meta, sxf_mode_t mode, int use_meta_key)
+{
+	struct aes256_ctx *actx;
+	uint32_t runtime_ver = SSLeay();
+	uint32_t compile_ver = SSLEAY_VERSION_NUMBER;
+
+    if((runtime_ver & 0xff0000000) != (compile_ver & 0xff0000000)) {
+	ERROR("OpenSSL library version mismatch: compiled: %x, runtime: %d", compile_ver, runtime_ver);
+	return -1;
+    }
+
+    if(!*ctx && ctx_prepare(handle, ctx, filename, cfgdir, cfgdata, cfgdata_len, custom_volume_meta, mode, use_meta_key))
+	return -1;
+
+    actx = *ctx;
+
+    if(actx->crypto_inited) {
+	HMAC_CTX_cleanup(&actx->hmac);
+	HMAC_CTX_cleanup(&actx->ivhash);
+	memset(actx->key, 0, sizeof(actx->key));
+	munlock(actx->key, sizeof(actx->key));
+	if(actx->crypto_inited == SXF_MODE_UPLOAD) {
+	    EVP_CIPHER_CTX_cleanup(&actx->ectx);
+	    memset(&actx->ectx, 0, sizeof(actx->ectx));
+	    munlock(&actx->ectx, sizeof(actx->ectx));
+	} else {
+	    EVP_CIPHER_CTX_cleanup(&actx->dctx);
+	    memset(&actx->dctx, 0, sizeof(actx->dctx));
+	    munlock(&actx->dctx, sizeof(actx->dctx));
+	}
+	actx->inbytes = actx->blkbytes = actx->data_in = actx->data_out_left = actx->data_end = 0;
+	actx->crypto_inited = 0;
+    }
+
     mlock(actx->key, sizeof(actx->key));
-    memcpy(actx->key, key, sizeof(actx->key));
-    memset(key, 0, sizeof(key));
-    munlock(key, sizeof(key));
+    memcpy(actx->key, use_meta_key ? &actx->keys[KEY_SIZE] : actx->keys, KEY_SIZE);
 
     HMAC_CTX_init(&actx->ivhash);
     HMAC_CTX_init(&actx->hmac);
 
     if (hmac_init_ex(&actx->ivhash, actx->key, KEY_SIZE/2, EVP_sha1(), NULL) != 1) {
         ERROR("Can't initialize HMAC context(1)");
-        free(keyfile);
-        free(actx);
         return -1;
     }
     if (hmac_init_ex(&actx->hmac, actx->key, KEY_SIZE/2, EVP_sha512(), NULL) != 1) {
         ERROR("Can't initialize HMAC context(2)");
-        free(keyfile);
-        free(actx);
         return -1;
     }
     if(mode == SXF_MODE_UPLOAD) {
 	mlock(&actx->ectx, sizeof(actx->ectx));
 	EVP_CIPHER_CTX_init(&actx->ectx);
-	if(EVP_EncryptInit_ex(&actx->ectx, EVP_aes_256_cbc(), NULL, actx->key + KEY_SIZE, NULL) != 1) {
+	if(EVP_EncryptInit_ex(&actx->ectx, EVP_aes_256_cbc(), NULL, actx->key + KEY_SIZE/2, NULL) != 1) {
 	    ERROR("Can't initialize encryption context");
-	    free(keyfile);
-	    free(actx);
 	    return -1;
 	}
     } else {
 	mlock(&actx->dctx, sizeof(actx->dctx));
 	EVP_CIPHER_CTX_init(&actx->dctx);
-	if(EVP_DecryptInit_ex(&actx->dctx, EVP_aes_256_cbc(), NULL, actx->key + KEY_SIZE, NULL) != 1) {
+	if(EVP_DecryptInit_ex(&actx->dctx, EVP_aes_256_cbc(), NULL, actx->key + KEY_SIZE/2, NULL) != 1) {
 	    ERROR("Can't initialize decryption context");
-	    free(keyfile);
-	    free(actx);
 	    return -1;
 	}
     }
 
-    *ctx = actx;
     memset(actx->ivmac, 0, sizeof(actx->ivmac));
+    actx->crypto_inited = mode;
     return 0;
+}
+
+static int aes256_data_prepare(const sxf_handle_t *handle, void **ctx, const char *filename, const char *cfgdir, const void *cfgdata, unsigned int cfgdata_len, sxc_meta_t *custom_volume_meta, sxf_mode_t mode)
+{
+    return data_prepare(handle, ctx, filename, cfgdir, cfgdata, cfgdata_len, custom_volume_meta, mode, 0);
 }
 
 static int hmac_compare(const unsigned char *hmac1, const unsigned char *hmac2, size_t len)
@@ -731,31 +797,141 @@ static ssize_t aes256_data_process(const sxf_handle_t *handle, void *ctx, const 
     }
 }
 
+static int aes256_shutdown(const sxf_handle_t *handle, void *ctx)
+{
+	struct aes256_ctx *actx = ctx;
+
+    if(!actx)
+	return 0;
+
+    free(actx->keyfile);
+    memset(actx, 0, sizeof(struct aes256_ctx));
+    munlock(actx->keys, sizeof(actx->keys));
+    free(actx);
+    return 0;
+}
+
 static int aes256_data_finish(const sxf_handle_t *handle, void **ctx, sxf_mode_t mode)
 {
 	struct aes256_ctx *actx = *ctx;
 
-    if(actx) {
-        HMAC_CTX_cleanup(&actx->hmac);
-        HMAC_CTX_cleanup(&actx->ivhash);
-	if(mode == SXF_MODE_UPLOAD) {
-	    EVP_CIPHER_CTX_cleanup(&actx->ectx);
-	    memset(&actx->ectx, 0, sizeof(actx->ectx));
-	    munlock(&actx->ectx, sizeof(actx->ectx));
-	} else {
-	    EVP_CIPHER_CTX_cleanup(&actx->dctx);
-	    memset(&actx->dctx, 0, sizeof(actx->dctx));
-	    munlock(&actx->dctx, sizeof(actx->dctx));
-	}
-	if(actx->decrypt_err && actx->keyfile)
-	    unlink(actx->keyfile);
-	free(actx->keyfile);
-	memset(*ctx, 0, sizeof(struct aes256_ctx));
-	munlock(actx->key, sizeof(actx->key));
-	free(*ctx);
+    if(!actx || !actx->crypto_inited)
+	return 0;
+
+    HMAC_CTX_cleanup(&actx->hmac);
+    HMAC_CTX_cleanup(&actx->ivhash);
+    memset(actx->key, 0, sizeof(actx->key));
+    munlock(actx->key, sizeof(actx->key));
+    if(mode == SXF_MODE_UPLOAD) {
+	EVP_CIPHER_CTX_cleanup(&actx->ectx);
+	memset(&actx->ectx, 0, sizeof(actx->ectx));
+	munlock(&actx->ectx, sizeof(actx->ectx));
+    } else {
+	EVP_CIPHER_CTX_cleanup(&actx->dctx);
+	memset(&actx->dctx, 0, sizeof(actx->dctx));
+	munlock(&actx->dctx, sizeof(actx->dctx));
+    }
+    if(actx->decrypt_err && actx->keyfile) {
+	unlink(actx->keyfile);
+	aes256_shutdown(handle, actx);
 	*ctx = NULL;
     }
+
     return 0;
+}
+
+
+static int aes256_filemeta_process(const sxf_handle_t *handle, void **ctx, const char *cfgdir, const void *cfgdata, unsigned int cfgdata_len, sxc_file_t *file, sxf_filemeta_type_t filemeta_type, const char *filename, char **new_filename, sxc_meta_t *file_meta, sxc_meta_t *custom_volume_meta)
+{
+    ssize_t bytes;
+    char fmeta_padded[SXLIMIT_MAX_FILENAME_LEN + 19 + 1];
+    const void *enc_meta;
+    unsigned int enc_meta_len;
+    sxf_action_t action = SXF_ACTION_DATA_END;
+    int ret = -1;
+
+    if(sxc_meta_getval(custom_volume_meta, "aes256_encrypt_meta", &enc_meta, &enc_meta_len)) {
+	*new_filename = strdup(filename);
+	if(!*new_filename) {
+	    ERROR("OOM");
+	    return -1;
+	}
+	return 0;
+    }
+
+    if(data_prepare(handle, ctx, filename, cfgdir, cfgdata, cfgdata_len, custom_volume_meta, filemeta_type == SXF_FILEMETA_LOCAL ? SXF_MODE_UPLOAD : SXF_MODE_DOWNLOAD, 1))
+	return -1;
+
+    if(filemeta_type == SXF_FILEMETA_LOCAL) {
+	SHA_CTX sctx;
+        unsigned char output_bin[SHA_DIGEST_LENGTH];
+        char *output;
+	char fname_enc[SXLIMIT_MAX_FILENAME_LEN + 19 + 1 + IV_SIZE + AES_BLOCK_SIZE + MAC_SIZE];
+	struct aes256_ctx *actx = *ctx;
+
+	bytes = snprintf(fmeta_padded, sizeof(fmeta_padded), "%s:%llu", filename, (unsigned long long) sxc_file_get_size(file));
+	memset(&fmeta_padded[bytes], 0, sizeof(fmeta_padded) - bytes);
+
+	bytes = aes256_data_process(handle, *ctx, fmeta_padded, sizeof(fmeta_padded), fname_enc, sizeof(fname_enc), SXF_MODE_UPLOAD, &action);
+	if(bytes <= 0)
+	    goto filemeta_err;
+
+	if(!SHA1_Init(&sctx) ||
+	  !SHA1_Update(&sctx, filename, strlen(filename)) ||
+	  !SHA1_Update(&sctx, &actx->keys[KEY_SIZE], KEY_SIZE) ||
+	  !SHA1_Final(output_bin, &sctx)) {
+	    ERROR("Failed to compute hash");
+	    goto filemeta_err;
+	}
+
+        output = malloc(2 * SHA_DIGEST_LENGTH + 1);
+        if(!output) {
+            ERROR("Failed to allocate memory");
+	    goto filemeta_err;
+        }
+        sxi_bin2hex(output_bin, SHA_DIGEST_LENGTH, output);
+
+        if(sxc_meta_setval(file_meta, "aesEncryptedMeta", fname_enc, bytes)) {
+            ERROR("Failed to set filemeta value");
+            free(output);
+	    goto filemeta_err;
+        }
+
+        *new_filename = output;
+
+    } else if(filemeta_type == SXF_FILEMETA_REMOTE) {
+	char *pt;
+
+        if(sxc_meta_getval(file_meta, "aesEncryptedMeta", &enc_meta, &enc_meta_len)) {
+            ERROR("Failed to get encrypted meta");
+	    goto filemeta_err;
+        }
+	bytes = aes256_data_process(handle, *ctx, enc_meta, enc_meta_len, fmeta_padded, sizeof(fmeta_padded), SXF_MODE_DOWNLOAD, &action);
+	if(bytes <= 0)
+	    goto filemeta_err;
+
+	if(!(pt = strrchr(fmeta_padded, ':'))) {
+	    ERROR("Invalid file meta format");
+	    goto filemeta_err;
+	}
+	*pt++ = 0;
+
+	if(sxi_file_set_size(file, (unsigned long long) atoll(pt))) {
+	    ERROR("Failed to set file size");
+	    goto filemeta_err;
+	}
+
+        *new_filename = strdup(fmeta_padded);
+	if(!*new_filename) {
+	    ERROR("OOM");
+	    goto filemeta_err;
+	}
+    }
+
+    ret = 0;
+filemeta_err:
+    aes256_data_finish(handle, ctx, filemeta_type == SXF_FILEMETA_LOCAL ? SXF_MODE_UPLOAD : SXF_MODE_DOWNLOAD);
+    return ret;
 }
 
 sxc_filter_t sxc_filter={
@@ -763,15 +939,15 @@ sxc_filter_t sxc_filter={
 /* const char *shortname */	    "aes256",
 /* const char *shortdesc */	    "Encrypt data using AES-256-CBC-HMAC-512 mode.",
 /* const char *summary */	    "The filter automatically encrypts and decrypts all data using OpenSSL's AES-256 in CBC-HMAC-512 mode.",
-/* const char *options */	    "\n\tsetkey (set a permanent key when creating a volume)\n\tparanoid (don't use key files at all - always ask for a password)\n\tsalt:HEX (force given salt, HEX must be 32 chars long)",
-/* const char *uuid */		    "35a5404d-1513-4009-904c-6ee5b0cd8634",
+/* const char *options */	    "\n\tsetkey (set a permanent key when creating a volume)\n\tparanoid (don't use key files at all - always ask for a password)\n\tencrypt_filenames: enable encryption of filenames (may be slow with big number of files)\n\tsalt:HEX (force given salt, HEX must be 32 chars long)",
+/* const char *uuid */		    "15b0ac3c-404f-481e-bc98-6598e4577bbd",
 /* sxf_type_t type */		    SXF_TYPE_CRYPT,
-/* int version[2] */		    {1, 6},
+/* int version[2] */		    {2, 0},
 /* int (*init)(const sxf_handle_t *handle, void **ctx) */	    aes256_init,
 /* int (*shutdown)(const sxf_handle_t *handle, void *ctx) */    aes256_shutdown,
-/* int (*configure)(const sxf_handle_t *handle, const char *cfgstr, const char *cfgdir, void **cfgdata, unsigned int *cfgdata_len, sxc_meta_t *custom_meta) */
+/* int (*configure)(const sxf_handle_t *handle, const char *cfgstr, const char *cfgdir, void **cfgdata, unsigned int *cfgdata_len, sxc_meta_t *custom_volume_meta) */
 				    aes256_configure,
-/* int (*data_prepare)(const sxf_handle_t *handle, void **ctx, const char *filename, const char *cfgdir, const void *cfgdata, unsigned int cfgdata_len, sxc_meta_t *custom_meta, sxf_mode_t mode) */
+/* int (*data_prepare)(const sxf_handle_t *handle, void **ctx, const char *filename, const char *cfgdir, const void *cfgdata, unsigned int cfgdata_len, sxc_meta_t *custom_volume_meta, sxf_mode_t mode) */
 				    aes256_data_prepare,
 /* ssize_t (*data_process)(const sxf_handle_t *handle, void *ctx, const void *in, size_t insize, void *out, size_t outsize, sxf_mode_t mode, sxf_action_t *action) */
 				    aes256_data_process,
@@ -783,9 +959,8 @@ sxc_filter_t sxc_filter={
 				    NULL,
 /* int (*file_update)(const sxf_handle_t *handle, void *ctx, const void *cfgdata, unsigned int cfgdata_len, sxf_mode_t mode, sxc_file_t *source, sxc_file_t *dest, int recursive) */
 				    NULL,
-/* int (*filemeta_process)(const sxf_handle_t *handle, void *ctx, const char *cfgdir, const void *cfgdata, unsigned int cfgdata_len, sxc_file_t *file, sxf_filemeta_type_t filemeta_type, const char *filename, char **new_filename, sxc_meta_t *file_meta, sxc_meta_t *custom_volume_meta) */
-				    NULL,
+/* int (*filemeta_process)(const sxf_handle_t *handle, void **ctx, const char *cfgdir, const void *cfgdata, unsigned int cfgdata_len, sxc_file_t *file, sxf_filemeta_type_t filemeta_type, const char *filename, char **new_filename, sxc_meta_t *file_meta, sxc_meta_t *custom_volume_meta) */
+				    aes256_filemeta_process,
 /* internal */
 /* const char *tname; */	    NULL
 };
-

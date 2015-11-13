@@ -143,6 +143,9 @@ static int test_input_fn(sxc_client_t *sx, sxc_input_t type, const char *prompt,
         return -1;
     }
     switch(type) {
+        case SXC_INPUT_YN:
+            *in = 'y';
+            break;
         case SXC_INPUT_SENSITIVE:
             snprintf(in, insize, "yacWetheas9");
             break;

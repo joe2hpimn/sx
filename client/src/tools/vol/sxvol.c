@@ -85,7 +85,9 @@ static int filter_list(sxc_client_t *sx)
     printf("Name\t\tVer\tType\t\tShort description\n");
     printf("----\t\t---\t----\t\t-----------------\n");
     for(i = 0; i < count; i++) {
-         const sxc_filter_t *f = sxc_get_filter(&filters[i]);
+        const sxc_filter_t *f = sxc_get_filter(&filters[i]);
+	if(!f->version[0] && !f->version[1])
+	    continue;
 	printf("%-12s\t%d.%d\t%s\t%s%s\n", f->shortname, f->version[0], f->version[1], f->tname, strlen(f->tname) >= 8 ? "" : "\t", f->shortdesc);
     }
 
