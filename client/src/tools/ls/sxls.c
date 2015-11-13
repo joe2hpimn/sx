@@ -31,6 +31,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <signal.h>
+#include <termios.h>
+#include <unistd.h>
 
 #include "sx.h"
 #include "cmdline.h"
@@ -43,8 +45,15 @@ static sxc_client_t *sx = NULL;
 
 static void sighandler(int signal)
 {
+    struct termios tcur;
     if(sx)
 	sxc_shutdown(sx, signal);
+
+    /* work around for ctrl+c during getpassword() in the aes filter */
+    tcgetattr(0, &tcur);
+    tcur.c_lflag |= ECHO;
+    tcsetattr(0, TCSANOW, &tcur);
+
     fprintf(stderr, "Process interrupted\n");
     exit(1);
 }
