@@ -54,8 +54,26 @@ struct _sxc_file_t {
     char *path;
     char *rev;
     char *origpath;
+    char *remote_path;
+    uint64_t size;
+    uint64_t remote_size;
+    time_t created_at;
     sxi_ht *seen;
     int cat_fd;
+    /* Set to 1 when filemeta has been fetched from the server */
+    int meta_fetched;
+
+    /* Needed for file processing filters */
+    sxc_meta_t *meta;
+
+    time_t a_time;
+    time_t c_time;
+    time_t m_time;
+
+    uid_t uid;
+    uid_t gid;
+
+    mode_t mode;
 };
 
 sxc_xfer_stat_t* sxi_xfer_new(sxc_client_t *sx, sxc_xfer_callback xfer_callback, void *ctx) {
@@ -335,13 +353,13 @@ static int is_remote(sxc_file_t *f) {
     return f->cluster != NULL;
 }
 
-sxc_file_t *sxc_file_remote(sxc_cluster_t *cluster, const char *volume, const char *path, const char *revision) {
+sxc_file_t *sxi_file_remote(sxc_cluster_t *cluster, const char *volume, const char *path, const char *remote_path, const char *revision, sxc_meta_t *filemeta, int meta_fetched) {
     sxc_file_t *ret;
 
     if(!cluster || !sxi_is_valid_cluster(cluster))
 	return NULL;
 
-    if(!volume) {
+    if(!volume || (!path && !remote_path)) {
 	CFGDEBUG("called with NULL param");
 	cluster_err(SXE_EARG, "Cannot create remote file object: Invalid argument");
 	return NULL;
@@ -356,16 +374,33 @@ sxc_file_t *sxc_file_remote(sxc_cluster_t *cluster, const char *volume, const ch
     ret->sx = sxi_cluster_get_client(cluster);
     ret->cluster = cluster;
     ret->volume = strdup(volume);
-    ret->path = path ? strdup(path) : strdup("");
     ret->rev = revision ? strdup(revision) : NULL;
+    ret->path = path ? strdup(path) : NULL;
+    ret->remote_path = remote_path ? strdup(remote_path) : NULL;
+    ret->size = SXC_UINT64_UNDEFINED;
+    ret->remote_size = SXC_UINT64_UNDEFINED;
+    ret->created_at = SXC_UINT64_UNDEFINED;
+    ret->a_time = SXC_UINT64_UNDEFINED;
+    ret->c_time = SXC_UINT64_UNDEFINED;
+    ret->m_time = SXC_UINT64_UNDEFINED;
+    ret->mode = SXC_UINT32_UNDEFINED;
+    ret->uid = SXC_UINT32_UNDEFINED;
+    ret->gid = SXC_UINT32_UNDEFINED;
+    ret->meta = sxi_meta_dup(ret->sx, filemeta);
+    ret->meta_fetched = meta_fetched;
 
-    if(!ret->volume || !ret->path || (revision && !ret->rev)) {
+    if(!ret->volume || (path && !ret->path) || (remote_path && !remote_path) || (revision && !ret->rev) || (filemeta && !ret->meta)) {
 	CFGDEBUG("OOM duplicating item");
-	cluster_err(SXE_EMEM, "Cannot create remote file object: Out of memory");
+	cluster_err(SXE_EMEM, "Cannot create local file object: Out of memory");
 	sxc_file_free(ret);
 	return NULL;
     }
+
     return ret;
+}
+
+sxc_file_t *sxc_file_remote(sxc_cluster_t *cluster, const char *volume, const char *path, const char *revision) {
+    return sxi_file_remote(cluster, volume, path ? path : "", NULL, revision, NULL, 0);
 }
 
 int sxc_file_is_sx(sxc_file_t *file)
@@ -374,6 +409,10 @@ int sxc_file_is_sx(sxc_file_t *file)
 }
 
 sxc_file_t *sxc_file_local(sxc_client_t *sx, const char *path) {
+    return sxi_file_local(sx, path, NULL);
+}
+
+sxc_file_t *sxi_file_local(sxc_client_t *sx, const char *path, sxc_meta_t *meta) {
     sxc_file_t *ret;
 
     if(!(ret = calloc(1, sizeof(*ret)))) {
@@ -385,6 +424,16 @@ sxc_file_t *sxc_file_local(sxc_client_t *sx, const char *path) {
     ret->sx = sx;
     ret->cluster = NULL;
     ret->volume = NULL;
+    ret->remote_path = NULL;
+    ret->remote_size = SXC_UINT64_UNDEFINED;
+    ret->created_at = SXC_UINT64_UNDEFINED;
+    ret->a_time = SXC_UINT64_UNDEFINED;
+    ret->c_time = SXC_UINT64_UNDEFINED;
+    ret->m_time = SXC_UINT64_UNDEFINED;
+    ret->mode = SXC_UINT32_UNDEFINED;
+    ret->uid = SXC_UINT32_UNDEFINED;
+    ret->gid = SXC_UINT32_UNDEFINED;
+
     ret->path = strdup(path);
     if(!ret->path) {
 	SXDEBUG("OOM duplicating item");
@@ -393,6 +442,17 @@ sxc_file_t *sxc_file_local(sxc_client_t *sx, const char *path) {
 	return NULL;
     }
 
+    if(meta)
+        ret->meta = sxi_meta_dup(sx, meta);
+    else
+        ret->meta = sxc_meta_new(sx);
+    if(!ret->meta) {
+	SXDEBUG("OOM creating local file object");
+	sxi_seterr(sx, SXE_EMEM, "Cannot create local file object: Out of memory");
+        free(ret->path);
+        free(ret);
+	return NULL;
+    }
     return ret;
 }
 
@@ -434,19 +494,132 @@ sxc_file_t *sxc_file_from_url(sxc_client_t *sx, sxc_cluster_t **cluster, const c
     return NULL;
 }
 
-sxc_cluster_t *sxc_file_get_cluster(sxc_file_t *file)
+sxc_cluster_t *sxc_file_get_cluster(const sxc_file_t *file)
 {
     return file ? file->cluster : NULL;
 }
 
-const char *sxc_file_get_volume(sxc_file_t *file)
+const char *sxc_file_get_volume(const sxc_file_t *file)
 {
     return file ? file->volume : NULL;
 }
 
-const char *sxc_file_get_path(sxc_file_t *file)
+const char *sxc_file_get_path(const sxc_file_t *file)
 {
     return file ? file->path : NULL;
+}
+
+const char *sxc_file_get_remote_path(const sxc_file_t *file)
+{
+    return file ? file->remote_path : NULL;
+}
+
+int64_t sxc_file_get_size(const sxc_file_t *file)
+{
+    return file ? file->size : SXC_UINT64_UNDEFINED;
+}
+
+int64_t sxc_file_get_remote_size(const sxc_file_t *file)
+{
+    return file ? file->remote_size : SXC_UINT64_UNDEFINED;
+}
+
+time_t sxc_file_get_created_at(const sxc_file_t *file)
+{
+    return file ? file->created_at : SXC_UINT32_UNDEFINED;
+}
+
+time_t sxc_file_get_ctime(const sxc_file_t *file)
+{
+    return file ? file->c_time : SXC_UINT32_UNDEFINED;
+}
+
+time_t sxc_file_get_atime(const sxc_file_t *file)
+{
+    return file ? file->a_time : SXC_UINT32_UNDEFINED;
+}
+
+time_t sxc_file_get_mtime(const sxc_file_t *file)
+{
+    return file ? file->m_time : SXC_UINT32_UNDEFINED;
+}
+
+mode_t sxc_file_get_mode(const sxc_file_t *file)
+{
+    return file ? file->mode : SXC_UINT32_UNDEFINED;
+}
+
+uid_t sxc_file_get_uid(const sxc_file_t *file)
+{
+    return file ? file->uid : SXC_UINT32_UNDEFINED;
+}
+
+uid_t sxc_file_get_gid(const sxc_file_t *file)
+{
+    return file ? file->gid : SXC_UINT32_UNDEFINED;
+}
+
+int sxi_file_set_size(sxc_file_t *file, uint64_t size) {
+    if(!file)
+        return 1;
+    file->size = size;
+    return 0;
+}
+
+int sxi_file_set_mode(sxc_file_t *file, mode_t mode) {
+    if(!file)
+        return 1;
+    file->mode = mode;
+    return 0;
+}
+
+int sxi_file_set_uid(sxc_file_t *file, uid_t uid) {
+    if(!file)
+        return 1;
+    file->uid = uid;
+    return 0;
+}
+
+int sxi_file_set_gid(sxc_file_t *file, uid_t gid) {
+    if(!file)
+        return 1;
+    file->gid = gid;
+    return 0;
+}
+
+int sxi_file_set_ctime(sxc_file_t *file, time_t c_time) {
+    if(!file)
+        return 1;
+    file->c_time = c_time;
+    return 0;
+}
+
+int sxi_file_set_atime(sxc_file_t *file, time_t a_time) {
+    if(!file)
+        return 1;
+    file->a_time = a_time;
+    return 0;
+}
+
+int sxi_file_set_mtime(sxc_file_t *file, time_t m_time) {
+    if(!file)
+        return 1;
+    file->m_time = m_time;
+    return 0;
+}
+
+int sxi_file_set_remote_size(sxc_file_t *file, uint64_t remote_size) {
+    if(!file)
+        return 1;
+    file->remote_size = remote_size;
+    return 0;
+}
+
+int sxi_file_set_created_at(sxc_file_t *file, time_t created_at) {
+    if(!file)
+        return 1;
+    file->created_at = created_at;
+    return 0;
 }
 
 int sxc_file_set_path(sxc_file_t *file, const char *newpath)
@@ -461,10 +634,40 @@ int sxc_file_set_path(sxc_file_t *file, const char *newpath)
     }
     free(file->path);
     file->path = pt;
+
+    /* Changed local path may need updating the remote path */
+    free(file->remote_path);
+    file->remote_path = NULL;
     return 0;
 }
 
-static sxc_file_t *file_dup(sxc_file_t *file)
+int sxi_file_set_remote_path(sxc_file_t *file, const char *newpath)
+{
+    char *pt;
+    if(!file || !newpath)
+        return 1;
+    pt = strdup(newpath);
+    if(!pt) {
+        sxi_setsyserr(file->sx, SXE_EMEM, "Cannot strdup newpath");
+        return 1;
+    }
+    free(file->remote_path);
+    file->remote_path = pt;
+    return 0;
+}
+
+int sxi_file_set_meta(sxc_file_t *file, sxc_meta_t *meta)
+{
+    if(!file || !meta)
+        return 1;
+    sxc_meta_free(file->meta);
+    file->meta = sxi_meta_dup(file->sx, meta);
+    if(!file->meta)
+        return 1;
+    return 0;
+}
+
+sxc_file_t *sxi_file_dup(sxc_file_t *file)
 {
     sxc_file_t *ret;
     sxc_client_t *sx;
@@ -479,6 +682,15 @@ static sxc_file_t *file_dup(sxc_file_t *file)
         ret->cluster = file->cluster;
         ret->job = file->job;
         ret->jobs = file->jobs;
+        ret->size = file->size;
+        ret->remote_size = file->remote_size;
+        ret->created_at = file->created_at;
+        ret->a_time = file->a_time;
+        ret->c_time = file->c_time;
+        ret->m_time = file->m_time;
+        ret->uid = file->uid;
+        ret->gid = file->gid;
+        ret->mode = file->mode;
         if (file->volume && !(ret->volume = strdup(file->volume)))
             break;
         if (file->path && !(ret->path = strdup(file->path)))
@@ -487,6 +699,11 @@ static sxc_file_t *file_dup(sxc_file_t *file)
             break;
         if (file->rev && !(ret->rev = strdup(file->rev)))
             break;
+        if(file->remote_path && !(ret->remote_path = strdup(file->remote_path)))
+            break;
+        if(file->meta && !(ret->meta = sxi_meta_dup(sx, file->meta)))
+            break;
+        ret->meta_fetched = file->meta_fetched;
         return ret;
     } while(0);
     sxi_setsyserr(sx, SXE_EMEM, "Cannot dup file");
@@ -500,7 +717,9 @@ void sxc_file_free(sxc_file_t *sxfile) {
     free(sxfile->origpath);
     free(sxfile->volume);
     free(sxfile->path);
+    free(sxfile->remote_path);
     free(sxfile->rev);
+    sxc_meta_free(sxfile->meta);
     sxi_ht_free(sxfile->seen);
     free(sxfile);
 }
@@ -1587,7 +1806,7 @@ static int multi_part_compute_hash_ev(struct file_upload_ctx *yctx)
 
     if(yctx->pos == 0) {
 	fmeta = yctx->fmeta;
-	yctx->query = sxi_fileadd_proto_begin(sx, yctx->dest->volume, yctx->dest->path, NULL, yctx->pos, yctx->blocksize, yctx->size);
+	yctx->query = sxi_fileadd_proto_begin(sx, yctx->dest->volume, yctx->dest->remote_path, NULL, yctx->pos, yctx->blocksize, yctx->size);
         yctx->ref_crc = 0xffffffff;
     } else {
 	fmeta = NULL;
@@ -1808,7 +2027,7 @@ static sxi_job_t* multi_upload(struct file_upload_ctx *state)
     return state->job;
 }
 
-static char *get_filter_dir(sxc_client_t *sx, const char *confdir, const char *uuid, const char *volume)
+char *sxi_get_filter_dir(sxc_client_t *sx, const char *confdir, const char *uuid, const char *volume)
 {
     char *fdir;
     int rc = 0;
@@ -1907,6 +2126,9 @@ static int maybe_append_path(sxc_file_t *dest, sxc_file_t *source, int recursive
     }
     free(dest->path);
     dest->path = path;
+    /* Reset previously stored remote path, it needs to be recalculated */
+    free(dest->remote_path);
+    dest->remote_path = NULL;
     return 0;
 }
 
@@ -1920,13 +2142,17 @@ static int restore_path(sxc_file_t *dest)
                 sxi_setsyserr(dest->sx, SXE_EMEM, "Cannot dup path");
                 return 1;
             }
+
+            /* Reset remote path, might need to be recalculated */
+            free(dest->remote_path);
+            dest->remote_path = NULL;
         }
         return 0;
     }
     return 1;
 }
 
-static int local_to_remote_begin(sxc_file_t *source, sxc_meta_t *fmeta, sxc_file_t *dest, int recursive) {
+static int local_to_remote_begin(sxc_file_t *source, sxc_file_t *dest, int recursive) {
     unsigned int blocksize;
     char *fname = NULL, *tempfname = NULL;
     struct stat st;
@@ -1942,6 +2168,7 @@ static int local_to_remote_begin(sxc_file_t *source, sxc_meta_t *fmeta, sxc_file
     struct filter_handle *fh = NULL;
     int qret = -1;
     sxc_xfer_stat_t *xfer_stat = NULL;
+    char *fdir = NULL;
 
     sxi_hostlist_init(&volhosts);
     sxi_hostlist_init(&shost);
@@ -2009,7 +2236,7 @@ static int local_to_remote_begin(sxc_file_t *source, sxc_meta_t *fmeta, sxc_file
 	if(!tsource)
 	    SXDEBUG("failed to create source file object for temporary input file");
 	else {
-	    ret = local_to_remote_begin(tsource, fmeta, dest, recursive);
+	    ret = local_to_remote_begin(tsource, dest, recursive);
 	    sxc_file_free(tsource);
 	}
 	goto local_to_remote_err; /* cleanup, not necessarily an error */
@@ -2021,6 +2248,13 @@ static int local_to_remote_begin(sxc_file_t *source, sxc_meta_t *fmeta, sxc_file
 	goto local_to_remote_err;
     /* TODO: multiplex the locate too! */
     orig_fsz = fsz = st.st_size;
+    if(sxi_file_set_size(source, st.st_size) || sxi_file_set_atime(source, st.st_atime) || sxi_file_set_ctime(source, st.st_ctime) ||
+       sxi_file_set_mtime(source, st.st_mtime) || sxi_file_set_uid(source, st.st_uid) || sxi_file_set_gid(source, st.st_gid) ||
+       sxi_file_set_mode(source, st.st_mode) || sxi_file_set_created_at(source, st.st_ctime)) {
+        SXDEBUG("Failed to set local file size");
+        goto local_to_remote_err;
+    }
+
     if ((qret = sxi_volume_info(sxi_cluster_get_conns(dest->cluster), dest->volume, &volhosts, &fsz, vmeta, cvmeta))) {
 	SXDEBUG("failed to locate destination volume");
 	goto local_to_remote_err;
@@ -2046,7 +2280,6 @@ static int local_to_remote_begin(sxc_file_t *source, sxc_meta_t *fmeta, sxc_file
 	    const void *cfgval = NULL;
 	    unsigned int cfgval_len = 0;
 	    const char *confdir = sxi_cluster_get_confdir(dest->cluster);
-	    char *fdir = NULL;
 	    int fret;
 
 	if(mval_len != 16) {
@@ -2070,49 +2303,70 @@ static int local_to_remote_begin(sxc_file_t *source, sxc_meta_t *fmeta, sxc_file
 	    goto local_to_remote_err;
 
 	if(confdir) {
-	    fdir = get_filter_dir(sx, confdir, filter_uuid, dest->volume);
+	    fdir = sxi_get_filter_dir(sx, confdir, filter_uuid, dest->volume);
 	    if(!fdir) {
                 qret = 404;
 		goto local_to_remote_err;
             }
 	}
 
-	if(fh->f->file_process) {
-	    if(fh->f->file_process(fh, fh->ctx, source->path, fmeta, fdir, cfgval, cfgval_len, SXF_MODE_UPLOAD)) {
-		sxi_seterr(sx, SXE_EFILTER, "Filter ID %s failed to process source file", filter_uuid);
-		free(fdir);
-		goto local_to_remote_err;
-	    }
-	}
+        if(sxi_file_process(sx, fh, fdir, source, SXF_MODE_UPLOAD)) {
+            SXDEBUG("Failed to process file %s", source->path);
+            goto local_to_remote_err;
+        }
+
+        /* Store the metadata from the source file into dest */
+        sxc_meta_free(dest->meta);
+        dest->meta = sxi_meta_dup(sx, source->meta);
+        if(!dest->meta) {
+            SXDEBUG("Failed to duplicate source file metadata");
+            sxi_notice(sx, "Failed to duplicate source file metadata");
+            goto local_to_remote_err;
+        }
+        dest->meta_fetched = source->meta_fetched;
+        dest->size = st.st_size;
 
 	if(fh->f->data_process) {
 	    if(!(tempfname = sxi_tempfile_track(sx, NULL, &tempfile))) {
 		SXDEBUG("Failed to generate filter temporary file");
-		free(fdir);
 		goto local_to_remote_err;
 	    }
 	    td = fileno(tempfile);
 
 	    if(fh->f->data_prepare) {
-		unsigned int cvmeta_modcount = sxc_meta_modcount(cvmeta);
+                unsigned char chksum1[SXI_SHA1_BIN_LEN], chksum2[SXI_SHA1_BIN_LEN];
+
+                if(sxi_meta_checksum(sx, cvmeta, chksum1)) {
+                    SXDEBUG("Failed to compute custom volume meta checksum");
+                    fclose(tempfile);
+                    goto local_to_remote_err;
+                }
+
 		if(fh->f->data_prepare(fh, &fh->ctx, source->path, fdir, cfgval, cfgval_len, cvmeta, SXF_MODE_UPLOAD)) {
 		    sxi_seterr(sx, SXE_EFILTER, "Filter ID %s failed to initialize itself", filter_uuid);
-                    free(fdir);
 		    fclose(tempfile);
 		    goto local_to_remote_err;
 		}
-		if(cvmeta_modcount != sxc_meta_modcount(cvmeta)) {
+
+                if(sxi_meta_checksum(sx, cvmeta, chksum2)) {
+                    SXDEBUG("Failed to compute custom volume meta checksum");
+                    fclose(tempfile);
+                    goto local_to_remote_err;
+                }
+
+		if(memcmp(chksum1, chksum2, SXI_SHA1_BIN_LEN)) {
+                    SXDEBUG("Checksums different, modifying volume %s\n", dest->volume);
 		    if(sxc_volume_modify(dest->cluster, dest->volume, NULL, -1, -1, cvmeta)) {
 			if(sxc_geterrnum(dest->sx) == SXE_EAUTH)
 			    /* ignore error for non-owner */
 			    sxc_clearerr(dest->sx);
-			else
+			else {
+                            fclose(tempfile);
 			    goto local_to_remote_err;
+                        }
 		    }
 		}
 	    }
-	    free(fdir);
-	    fdir = NULL;
 
 	    while((bread = read(s, inbuff, sizeof(inbuff))) > 0) {
 		if(lseek(s, 0, SEEK_CUR) == st.st_size)
@@ -2158,6 +2412,12 @@ static int local_to_remote_begin(sxc_file_t *source, sxc_meta_t *fmeta, sxc_file
 		goto local_to_remote_err;
 	    }
 
+            /* Update remote size of the processed file */
+            if(sxi_file_set_remote_size(dest, st.st_size)) {
+                SXDEBUG("Failed to set local file size");
+                goto local_to_remote_err;
+            }
+
 	    if(st.st_size != orig_fsz) {
 		fsz = st.st_size;
 		if((qret = sxi_volume_info(sxi_cluster_get_conns(dest->cluster), dest->volume, &volhosts, &fsz, NULL, NULL))) {
@@ -2171,7 +2431,6 @@ static int local_to_remote_begin(sxc_file_t *source, sxc_meta_t *fmeta, sxc_file
 		blocksize = fsz;
 	    }
 	}
-	free(fdir);
 
 	if(fh->f->file_update) {
 	    fret = fh->f->file_update(fh, fh->ctx, cfgval, cfgval_len, SXF_MODE_UPLOAD, source, dest, recursive);
@@ -2185,6 +2444,11 @@ static int local_to_remote_begin(sxc_file_t *source, sxc_meta_t *fmeta, sxc_file
 	}
     }
 
+    if(sxi_filemeta_process(sx, fh, fdir, dest, cvmeta)) {
+        SXDEBUG("Failed to process dest filename");
+        goto local_to_remote_err;
+    }
+
     state->max_part_blocks = UPLOAD_PART_THRESHOLD / blocksize;
     state->cluster = dest->cluster;
     state->fd = s;
@@ -2196,7 +2460,7 @@ static int local_to_remote_begin(sxc_file_t *source, sxc_meta_t *fmeta, sxc_file
 	sxi_seterr(sx, SXE_EMEM, "Cannot allocate filename: Out of memory");
         goto local_to_remote_err;
     }
-    state->fmeta = fmeta;
+    state->fmeta = dest->meta;
     state->dest = dest;
     state->size = st.st_size;
     state->mtime = st.st_mtime;
@@ -2260,6 +2524,7 @@ static int local_to_remote_begin(sxc_file_t *source, sxc_meta_t *fmeta, sxc_file
     if(s>=0)
 	close(s);
     free(buf);
+    free(fdir);
 
     if(tempfname) {
 	unlink(tempfname);
@@ -2315,8 +2580,8 @@ static int sxi_jobs_wait_one(sxc_file_t *file, sxi_job_t *job)
 }
 
 
-static int local_to_remote(sxc_file_t *source, sxc_meta_t *fmeta, sxc_file_t *dest) {
-    int rc = local_to_remote_begin(source, fmeta, dest, 0);
+static int local_to_remote(sxc_file_t *source, sxc_file_t *dest) {
+    int rc = local_to_remote_begin(source, dest, 0);
     if (rc)
         return rc;
     return sxi_jobs_wait_one(dest, dest->job);
@@ -2331,16 +2596,10 @@ static int local_to_remote_iterate(sxc_file_t *source, int recursive, int depth,
     char *path = NULL, *destpath = NULL;
     struct stat sb;
     int ret = 0, qret = -1, r;
-    sxc_meta_t *emptymeta = sxc_meta_new(sx);
     dev_t sdev;
 
-    if(!emptymeta) {
-        SXDEBUG("emptymeta is NULL");
-	return -1;
-    }
     if (stat(source->path, &sb) == -1) {
         sxi_setsyserr(source->sx, SXE_EREAD, "Cannot stat '%s'", source->path);
-	sxc_meta_free(emptymeta);
         return -1;
     }
     sdev = sb.st_dev;
@@ -2348,15 +2607,17 @@ static int local_to_remote_iterate(sxc_file_t *source, int recursive, int depth,
     if (!recursive || !S_ISDIR(sb.st_mode)) {
         if((r = is_excluded(sx, source->path, exclude)) > 0) {
             sxi_info(sx, "Skipping file: %s", source->path);
-            sxc_meta_free(emptymeta);
             return 0;
         } else if(r < 0) {
-            sxc_meta_free(emptymeta);
             return r;
         }
 
-	ret = local_to_remote(source, emptymeta, dest);
-	sxc_meta_free(emptymeta);
+        if(sxi_file_set_size(source, sb.st_size)) {
+            SXDEBUG("Failed to set local file size");
+            return -1;
+        }
+
+	ret = local_to_remote(source, dest);
         if (ret)
             SXDEBUG("uploading one file failed");
 	return ret;
@@ -2366,7 +2627,6 @@ static int local_to_remote_iterate(sxc_file_t *source, int recursive, int depth,
     dir = opendir(source->path);
     if (!dir) {
         sxi_setsyserr(sx, SXE_EREAD, "Cannot open directory '%s'", source->path);
-	sxc_meta_free(emptymeta);
         free(path);
         free(destpath);
         return -1;
@@ -2402,8 +2662,8 @@ static int local_to_remote_iterate(sxc_file_t *source, int recursive, int depth,
         }
 	if(onefs && sb.st_dev != sdev)
 	    continue;
-        src = file_dup(source);
-        dst = file_dup(dest);
+        src = sxi_file_dup(source);
+        dst = sxi_file_dup(dest);
         if (!src || !dst)
             break;
         free(src->path);
@@ -2435,7 +2695,7 @@ static int local_to_remote_iterate(sxc_file_t *source, int recursive, int depth,
             } else if(r < 0)
                 break;
             SXDEBUG("Starting to upload %s", src->path);
-            if ((qret = local_to_remote_begin(src, emptymeta, dst, 1)) != 0) {
+            if ((qret = local_to_remote_begin(src, dst, 1)) != 0) {
                 sxi_notice(sx, "%s: %s", src->path, sxc_geterrmsg(sx));
                 SXDEBUG("failed to begin upload on %s", src->path);
                 if (qret == 403 || qret == 404 || qret == 413) {
@@ -2445,7 +2705,6 @@ static int local_to_remote_iterate(sxc_file_t *source, int recursive, int depth,
                 }
                 ret = -1;
             }
-            sxc_meta_empty(emptymeta);
             if (!dest->jobs) {
                 dest->jobs = calloc(1, sizeof(*dest->jobs));
                 if (!dest->jobs) {
@@ -2476,7 +2735,6 @@ static int local_to_remote_iterate(sxc_file_t *source, int recursive, int depth,
     sxc_file_free(src);
     sxc_file_free(dst);
     src = dst = NULL;
-    sxc_meta_free(emptymeta);
     free(path);
     free(destpath);
     closedir(dir);
@@ -3065,32 +3323,25 @@ static int path_is_root(const char *path)
     return !*path;
 }
 
-static int hashes_to_download(sxc_file_t *source, FILE **tf, char **tfname, unsigned int *blocksize, int64_t *filesize, sxc_meta_t *vmeta, sxc_meta_t *cvmeta, int64_t *created_at) {
+static int hashes_to_download(sxc_file_t *source, sxi_hostlist_t *volnodes, FILE **tf, char **tfname, unsigned int *blocksize, int64_t *filesize, int64_t *created_at) {
     char *enc_vol = NULL, *enc_path = NULL, *url = NULL, *enc_rev = NULL, *hsfname = NULL;
     struct cb_getfile_ctx yctx;
     yajl_callbacks *yacb = &yctx.yacb;
-    sxi_hostlist_t volnodes;
     sxc_client_t *sx = source->sx;
     unsigned int urlen;
     int ret = 1;
 
     memset(&yctx, 0, sizeof(yctx));
-    sxi_hostlist_init(&volnodes);
     if (path_is_root(source->path)) {
         sxi_seterr(source->sx, SXE_EARG, "Invalid path");
         goto hashes_to_download_err;
     }
-    if(sxi_volume_info(sxi_cluster_get_conns(source->cluster), source->volume, &volnodes, NULL, vmeta, cvmeta)) {
-	SXDEBUG("failed to locate destination file");
-	goto hashes_to_download_err;
-    }
-
     if(!(enc_vol = sxi_urlencode(source->sx, source->volume, 0))) {
 	SXDEBUG("failed to encode volume %s", source->volume);
 	goto hashes_to_download_err;
     }
 
-    if(!(enc_path = sxi_urlencode(source->sx, source->path, 0))) {
+    if(!(enc_path = sxi_urlencode(source->sx, source->remote_path, 0))) {
 	SXDEBUG("failed to encode path %s", source->path);
 	goto hashes_to_download_err;
     }
@@ -3133,7 +3384,7 @@ static int hashes_to_download(sxc_file_t *source, FILE **tf, char **tfname, unsi
     yctx.yh = NULL;
 
     sxi_set_operation(sx, "download file content hashes", sxi_cluster_get_name(source->cluster), source->volume, source->path);
-    if(sxi_cluster_query(sxi_cluster_get_conns(source->cluster), &volnodes, REQ_GET, url, NULL, 0, getfile_setup_cb, getfile_cb, &yctx) != 200) {
+    if(sxi_cluster_query(sxi_cluster_get_conns(source->cluster), volnodes, REQ_GET, url, NULL, 0, getfile_setup_cb, getfile_cb, &yctx) != 200) {
 	SXDEBUG("file get query failed");
 	goto hashes_to_download_err;
     }
@@ -3173,7 +3424,6 @@ hashes_to_download_err:
 	    sxi_tempfile_untrack(sx, hsfname);
 	}
     }
-    sxi_hostlist_empty(&volnodes);
     free(enc_rev);
     free(enc_path);
     free(enc_vol);
@@ -3719,23 +3969,70 @@ static int remote_to_local(sxc_file_t *source, sxc_file_t *dest, int recursive) 
     char outbuff[8192];
     const char *confdir;
     sxc_meta_t *vmeta = NULL, *cvmeta = NULL;
-    sxc_meta_t *fmeta = NULL;
     const void *mval;
     unsigned int mval_len;
     const void *cfgval = NULL;
     unsigned int cfgval_len = 0;
     struct batch_hashes bh;
     int64_t created_at;
+    sxi_hostlist_t volnodes;
 
     memset(&bh, 0, sizeof(bh));
     if(!(vmeta = sxc_meta_new(sx)))
 	return 1;
-    if(!(cvmeta = sxc_meta_new(sx)))
-	goto remote_to_local_err;
-    if(hashes_to_download(source, &hf, &hashfile, &blocksize, &filesize, vmeta, cvmeta, &created_at)) {
-	SXDEBUG("failed to retrieve hash list");
-	goto remote_to_local_err;
+    if(!(cvmeta = sxc_meta_new(sx))) {
+        sxc_meta_free(vmeta);
+        return 1;
     }
+    sxi_hostlist_init(&volnodes);
+    if(sxi_volume_info(sxi_cluster_get_conns(source->cluster), source->volume, &volnodes, NULL, vmeta, cvmeta)) {
+        SXDEBUG("failed to locate destination file");
+        goto remote_to_local_err;
+    }
+
+    if(sxi_volume_cfg_check(sx, source->cluster, vmeta, source->volume))
+        goto remote_to_local_err;
+    if(!sxc_meta_getval(vmeta, "filterActive", &mval, &mval_len)) {
+        if(mval_len != 16) {
+            sxi_seterr(sx, SXE_EFILTER, "Filter(s) enabled but can't handle metadata");
+            goto remote_to_local_err;
+        }
+        sxi_uuid_unparse(mval, filter_uuid);
+        fh = sxi_filter_gethandle(sx, mval);
+        if(!fh) {
+            SXDEBUG("Filter ID %s required by source volume not found", filter_uuid);
+            sxi_seterr(sx, SXE_EFILTER, "Filter ID %s required by source volume not found", filter_uuid);
+            goto remote_to_local_err;
+        }
+
+        snprintf(filter_cfgkey, sizeof(filter_cfgkey), "%s-cfg", filter_uuid);
+        sxc_meta_getval(vmeta, filter_cfgkey, &cfgval, &cfgval_len);
+        if(cfgval_len && sxi_filter_add_cfg(fh, source->volume, cfgval, cfgval_len))
+            goto remote_to_local_err;
+
+        confdir = sxi_cluster_get_confdir(source->cluster);
+        if(confdir) {
+            filter_cfgdir = sxi_get_filter_dir(sx, confdir, filter_uuid, source->volume);
+            if(!filter_cfgdir)
+                goto remote_to_local_err;
+        }
+    }
+
+    if(sxi_filemeta_process(sx, fh, filter_cfgdir, source, cvmeta)) {
+        SXDEBUG("Failed to process source filename");
+        goto remote_to_local_err;
+    }
+
+    if(hashes_to_download(source, &volnodes, &hf, &hashfile, &blocksize, &filesize, &created_at)) {
+        SXDEBUG("failed to retrieve hash list");
+        goto remote_to_local_err;
+    }
+
+    /* Store remote file size and created_at fields */
+    source->remote_size = filesize;
+    source->created_at = created_at;
+    dest->remote_size = filesize;
+    source->created_at = created_at;
 
     if(!(buf = malloc(blocksize))) {
 	SXDEBUG("OOM allocating the block buffer (%u bytes)", blocksize);
@@ -3785,68 +4082,52 @@ static int remote_to_local(sxc_file_t *source, sxc_file_t *dest, int recursive) 
 	d = fileno(tf);
     }
 
+    if(fh && tempdst && fh->f->data_prepare) {
+        unsigned char chksum1[SXI_SHA1_BIN_LEN], chksum2[SXI_SHA1_BIN_LEN];
+
+        if(sxi_meta_checksum(sx, cvmeta, chksum1)) {
+            SXDEBUG("Failed to compute custom volume meta checksum");
+            goto remote_to_local_err;
+        }
+
+        if(fh->f->data_prepare(fh, &fh->ctx, source->path, filter_cfgdir, cfgval, cfgval_len, cvmeta, SXF_MODE_DOWNLOAD)) {
+            sxi_seterr(sx, SXE_EFILTER, "Filter ID %s failed to initialize itself", filter_uuid);
+            goto remote_to_local_err;
+        }
+
+        if(sxi_meta_checksum(sx, cvmeta, chksum2)) {
+            SXDEBUG("Failed to compute custom volume meta checksum");
+            goto remote_to_local_err;
+        }
+
+        if(memcmp(chksum1, chksum2, SXI_SHA1_BIN_LEN)) {
+            SXDEBUG("Checksums different, modifying volume %s\n", dest->volume);
+            if(sxc_volume_modify(source->cluster, source->volume, NULL, -1, -1, cvmeta)) {
+                if(sxc_geterrnum(source->sx) == SXE_EAUTH)
+                    /* ignore error for non-owner */
+                    sxc_clearerr(source->sx);
+                else
+                    goto remote_to_local_err;
+            }
+        }
+    }
+
+    if(fh) {
+        if(fh->f->file_update) {
+            fret = fh->f->file_update(fh, fh->ctx, cfgval, cfgval_len, SXF_MODE_DOWNLOAD, source, dest, recursive);
+            if(fret == 100) {
+                ret = 0;
+                goto remote_to_local_err;
+            } else if(fret) {
+                sxi_seterr(sx, SXE_EFILTER, "Filter ID %s failed to process files", filter_uuid);
+                goto remote_to_local_err;
+            }
+        }
+    }
+
     if(!(hosts = sxi_ht_new(dest->sx, INITIAL_HASH_ITEMS))) {
 	SXDEBUG("failed to create hosts table");
 	goto remote_to_local_err;
-    }
-
-    if(sxi_volume_cfg_check(sx, source->cluster, vmeta, source->volume))
-	goto remote_to_local_err;
-    if(!sxc_meta_getval(vmeta, "filterActive", &mval, &mval_len)) {
-	if(mval_len != 16) {
-	    sxi_seterr(sx, SXE_EFILTER, "Filter(s) enabled but can't handle metadata");
-	    goto remote_to_local_err;
-	}
-	sxi_uuid_unparse(mval, filter_uuid);
-
-	fh = sxi_filter_gethandle(sx, mval);
-	if(!fh) {
-	    SXDEBUG("Filter ID %s required by source volume not found", filter_uuid);
-	    sxi_seterr(sx, SXE_EFILTER, "Filter ID %s required by source volume not found", filter_uuid);
-	    goto remote_to_local_err;
-	}
-
-	snprintf(filter_cfgkey, sizeof(filter_cfgkey), "%s-cfg", filter_uuid);
-	sxc_meta_getval(vmeta, filter_cfgkey, &cfgval, &cfgval_len);
-	if(cfgval_len && sxi_filter_add_cfg(fh, source->volume, cfgval, cfgval_len))
-	    goto remote_to_local_err;
-
-	confdir = sxi_cluster_get_confdir(source->cluster);
-	if(confdir) {
-	    filter_cfgdir = get_filter_dir(sx, confdir, filter_uuid, source->volume);
-	    if(!filter_cfgdir)
-		goto remote_to_local_err;
-	}
-
-	if(tempdst && fh->f->data_prepare) {
-	    unsigned int cvmeta_modcount = sxc_meta_modcount(cvmeta);
-	    if(fh->f->data_prepare(fh, &fh->ctx, source->path, filter_cfgdir, cfgval, cfgval_len, cvmeta, SXF_MODE_DOWNLOAD)) {
-		sxi_seterr(sx, SXE_EFILTER, "Filter ID %s failed to initialize itself", filter_uuid);
-		goto remote_to_local_err;
-	    }
-	    if(cvmeta_modcount != sxc_meta_modcount(cvmeta)) {
-		if(sxc_volume_modify(source->cluster, source->volume, NULL, -1, -1, cvmeta)) {
-		    if(sxc_geterrnum(source->sx) == SXE_EAUTH)
-			/* ignore error for non-owner */
-			sxc_clearerr(source->sx);
-		    else
-			goto remote_to_local_err;
-		}
-	    }
-	}
-
-	fmeta = sxc_filemeta_new(source);
-
-	if(fh->f->file_update) {
-	    fret = fh->f->file_update(fh, fh->ctx, cfgval, cfgval_len, SXF_MODE_DOWNLOAD, source, dest, recursive);
-	    if(fret == 100) {
-		ret = 0;
-		goto remote_to_local_err;
-	    } else if(fret) {
-		sxi_seterr(sx, SXE_EFILTER, "Filter ID %s failed to process files", filter_uuid);
-		goto remote_to_local_err;
-	    }
-	}
     }
 
     while(!feof(hf)) {
@@ -4060,19 +4341,36 @@ static int remote_to_local(sxc_file_t *source, sxc_file_t *dest, int recursive) 
 	}
 	free(destpath);
 	if(fh->f->data_prepare) {
-	    unsigned int cvmeta_modcount = sxc_meta_modcount(cvmeta);
+            unsigned char chksum1[SXI_SHA1_BIN_LEN], chksum2[SXI_SHA1_BIN_LEN];
+
+            if(sxi_meta_checksum(sx, cvmeta, chksum1)) {
+                SXDEBUG("Failed to compute custom volume meta checksum");
+                fclose(tempfile);
+                goto remote_to_local_err;
+            }
+
 	    if(fh->f->data_prepare(fh, &fh->ctx, source->path, filter_cfgdir, cfgval, cfgval_len, cvmeta, SXF_MODE_DOWNLOAD)) {
 		sxi_seterr(sx, SXE_EFILTER, "Filter ID %s failed to initialize itself", filter_uuid);
 		fclose(tempfile);
 		goto remote_to_local_err;
 	    }
-	    if(cvmeta_modcount != sxc_meta_modcount(cvmeta)) {
+
+            if(sxi_meta_checksum(sx, cvmeta, chksum2)) {
+                SXDEBUG("Failed to compute custom volume meta checksum");
+                fclose(tempfile);
+                goto remote_to_local_err;
+            }
+
+            if(memcmp(chksum1, chksum2, SXI_SHA1_BIN_LEN)) {
+                SXDEBUG("Checksums different, modifying volume %s\n", dest->volume);
 		if(sxc_volume_modify(source->cluster, source->volume, NULL, -1, -1, cvmeta)) {
 		    if(sxc_geterrnum(source->sx) == SXE_EAUTH)
 			/* ignore error for non-owner */
 			sxc_clearerr(source->sx);
-		    else
+		    else {
+                        fclose(tempfile);
 			goto remote_to_local_err;
+                    }
 		}
 	    }
 	}
@@ -4148,16 +4446,16 @@ static int remote_to_local(sxc_file_t *source, sxc_file_t *dest, int recursive) 
         }
     }
 
-    if(fh && fh->f->file_process && fmeta) {
-	if(dstexisted && stat(dest->path, &st) == -1) {
-	    sxi_setsyserr(sx, SXE_EREAD, "failed to stat destination file %s", dest->path);
-	    goto remote_to_local_err;
-	}
-	if(!dstexisted || (S_ISREG(st.st_mode) && st.st_uid == getuid())) {
-	    if(fh->f->file_process(fh, fh->ctx, dest->path, fmeta, filter_cfgdir, cfgval, cfgval_len, SXF_MODE_DOWNLOAD)) {
-		sxi_seterr(sx, SXE_EFILTER, "Filter ID %s failed to process destination file", filter_uuid);
-		goto remote_to_local_err;
-	    }
+    if(fh && fh->f->file_process) {
+        if(dstexisted && stat(dest->path, &st) == -1) {
+            sxi_setsyserr(sx, SXE_EREAD, "failed to stat destination file %s", dest->path);
+            goto remote_to_local_err;
+        }
+        if(!dstexisted || (S_ISREG(st.st_mode) && st.st_uid == getuid())) {
+            if(sxi_file_process(sx, fh, filter_cfgdir, dest, SXF_MODE_DOWNLOAD)) {
+                SXDEBUG("Failed to process dest file meta");
+                goto remote_to_local_err;
+            }
 	}
     }
 
@@ -4181,9 +4479,9 @@ remote_to_local_err:
 	sxi_ht_free(hosts);
     }
 
+    sxi_hostlist_empty(&volnodes);
     sxc_meta_free(vmeta);
     sxc_meta_free(cvmeta);
-    sxc_meta_free(fmeta);
     free(filter_cfgdir);
 
     if(tempdst) {
@@ -4217,15 +4515,26 @@ sxi_sxfs_data_t *sxi_sxfs_download_init(sxc_file_t *source)
     off_t curoff = 0;
     char *hashfile = NULL;
     sxc_client_t *sx;
-    sxc_meta_t *vmeta = NULL;
+    sxc_meta_t *vmeta = NULL, *cvmeta = NULL;
     struct batch_hashes *bh = NULL;
     struct hash_down_data_t *hashdata;
     sxi_ht *hosts = NULL;
     sxi_sxfs_data_t *ret = NULL, *sxfs;
     FILE *hfd = NULL;
+    sxi_hostlist_t volnodes;
+
+    char filter_uuid[37], filter_cfgkey[37 + 5], *filter_cfgdir = NULL;
+    const char *confdir;
+    const void *mval;
+    unsigned int mval_len;
+    const void *cfgval = NULL;
+    unsigned int cfgval_len = 0;
+    struct filter_handle *fh = NULL;
 
     if(!source)
         return ret;
+    sxi_hostlist_init(&volnodes);
+
     sx = source->sx;
     sxfs = (sxi_sxfs_data_t*)calloc(1, sizeof(sxi_sxfs_data_t));
     if(!sxfs) {
@@ -4233,23 +4542,66 @@ sxi_sxfs_data_t *sxi_sxfs_download_init(sxc_file_t *source)
         sxi_seterr(sx, SXE_EMEM, "Out of memory");
         return ret;
     }
-    sxfs->sourcepath = strdup(source->path);
-    if(!sxfs->sourcepath) {
-	SXDEBUG("failed to duplicate source path");
-        sxi_seterr(sx, SXE_EMEM, "Out of memory");
-        goto sxi_sxfs_download_init_err;
-    }
+
     bh = (struct batch_hashes*)calloc(1, sizeof(struct batch_hashes));
     if(!bh) {
-	SXDEBUG("failed to create hashes container");
+        SXDEBUG("failed to create hashes container");
         sxi_seterr(sx, SXE_EMEM, "Out of memory");
         goto sxi_sxfs_download_init_err;
     }
     sxfs->bh = (void*)bh;
 
     if(!(vmeta = sxc_meta_new(sx)))
-	goto sxi_sxfs_download_init_err;
-    if(hashes_to_download(source, &hfd, &hashfile, &sxfs->blocksize, &sxfs->filesize, vmeta, NULL, NULL)) {
+        goto sxi_sxfs_download_init_err;
+    if(!(cvmeta = sxc_meta_new(sx)))
+        goto sxi_sxfs_download_init_err;
+
+    if(sxi_volume_info(sxi_cluster_get_conns(source->cluster), source->volume, &volnodes, NULL, vmeta, cvmeta)) {
+        SXDEBUG("failed to locate destination file");
+        goto sxi_sxfs_download_init_err;
+    }
+
+    if(sxi_volume_cfg_check(sx, source->cluster, vmeta, source->volume))
+        goto sxi_sxfs_download_init_err;
+    if(!sxc_meta_getval(vmeta, "filterActive", &mval, &mval_len)) {
+        if(mval_len != 16) {
+            sxi_seterr(sx, SXE_EFILTER, "Filter(s) enabled but can't handle metadata");
+            goto sxi_sxfs_download_init_err;
+        }
+        sxi_uuid_unparse(mval, filter_uuid);
+        fh = sxi_filter_gethandle(sx, mval);
+        if(!fh) {
+            SXDEBUG("Filter ID %s required by source volume not found", filter_uuid);
+            sxi_seterr(sx, SXE_EFILTER, "Filter ID %s required by source volume not found", filter_uuid);
+            goto sxi_sxfs_download_init_err;
+        }
+
+        snprintf(filter_cfgkey, sizeof(filter_cfgkey), "%s-cfg", filter_uuid);
+        sxc_meta_getval(vmeta, filter_cfgkey, &cfgval, &cfgval_len);
+        if(cfgval_len && sxi_filter_add_cfg(fh, source->volume, cfgval, cfgval_len))
+            goto sxi_sxfs_download_init_err;
+
+        confdir = sxi_cluster_get_confdir(source->cluster);
+        if(confdir) {
+            filter_cfgdir = sxi_get_filter_dir(sx, confdir, filter_uuid, source->volume);
+            if(!filter_cfgdir)
+                goto sxi_sxfs_download_init_err;
+        }
+    }
+
+    if(sxi_filemeta_process(sx, fh, filter_cfgdir, source, cvmeta)) {
+        SXDEBUG("Failed to process source filename");
+        goto sxi_sxfs_download_init_err;
+    }
+
+    sxfs->sourcepath = strdup(source->remote_path);
+    if(!sxfs->sourcepath) {
+        SXDEBUG("failed to duplicate source path");
+        sxi_seterr(sx, SXE_EMEM, "Out of memory");
+        goto sxi_sxfs_download_init_err;
+    }
+
+    if(hashes_to_download(source, &volnodes, &hfd, &hashfile, &sxfs->blocksize, &sxfs->filesize, NULL)) {
 	SXDEBUG("failed to retrieve hash list");
 	goto sxi_sxfs_download_init_err;
     }
@@ -4366,7 +4718,10 @@ sxi_sxfs_download_init_err:
         unlink(hashfile);
         sxi_tempfile_untrack(sx, hashfile);
     }
+    free(filter_cfgdir);
     sxc_meta_free(vmeta);
+    sxc_meta_free(cvmeta);
+    sxi_hostlist_empty(&volnodes);
     return ret;
 }
 
@@ -4515,8 +4870,8 @@ void sxi_sxfs_download_finish(sxi_sxfs_data_t *sxfs) {
     free(sxfs);
 }
 
-static sxi_job_t* remote_to_remote_fast(sxc_file_t *source, sxc_meta_t *fmeta, sxc_file_t *dest) {
-    char *src_hashfile, *rcur, ha[42];
+static sxi_job_t* remote_to_remote_fast(sxc_file_t *source, sxc_file_t *dest) {
+    char *src_hashfile = NULL, *rcur, ha[42];
     sxi_ht *src_hashes = NULL;
     sxc_client_t *sx = source->sx;
     struct file_upload_ctx yctx;
@@ -4525,7 +4880,7 @@ static sxi_job_t* remote_to_remote_fast(sxc_file_t *source, sxc_meta_t *fmeta, s
     sxi_hostlist_t volhosts;
     int64_t filesize;
     uint8_t *buf = NULL;
-    FILE *hf;
+    FILE *hf = NULL;
     sxi_query_t *query = NULL;
     sxi_job_t *job = NULL;
     sxc_xfer_stat_t *xfer_stat;
@@ -4534,17 +4889,74 @@ static sxi_job_t* remote_to_remote_fast(sxc_file_t *source, sxc_meta_t *fmeta, s
     long http_status = 0;
     sxi_hostlist_t src_hosts;
     curlev_context_t *cbdata = NULL;
+    sxc_meta_t *vmeta = NULL, *cvmeta = NULL;
+    struct filter_handle *fh = NULL;
 
+    char filter_uuid[37], filter_cfgkey[37 + 5];
+    const void *mval;
+    unsigned int mval_len;
+    const void *cfgval = NULL;
+    unsigned int cfgval_len = 0;
     sxi_hostlist_init(&volhosts);
     sxi_hostlist_init(&src_hosts);
     memset(&yctx, 0, sizeof(yctx));
 
-    if(hashes_to_download(source, &hf, &src_hashfile, &blocksize, &filesize, NULL, NULL, NULL)) {
-	SXDEBUG("failed to retrieve hash list");
-	return NULL;
+    vmeta = sxc_meta_new(sx);
+    if(!vmeta) {
+        SXDEBUG("Out of memory allocating volume meta");
+        sxi_seterr(sx, SXE_EMEM, "Out of memory");
+        return NULL;
     }
 
-    query = sxi_fileadd_proto_begin(dest->sx, dest->volume, dest->path, NULL, 0, blocksize, filesize);
+    cvmeta = sxc_meta_new(sx);
+    if(!cvmeta) {
+        SXDEBUG("Out of memory allocating volume meta");
+        sxi_seterr(sx, SXE_EMEM, "Out of memory");
+        sxc_meta_free(vmeta);
+        return NULL;
+    }
+
+    if(sxi_volume_info(sxi_cluster_get_conns(source->cluster), source->volume, &volhosts, NULL, vmeta, cvmeta)) {
+        SXDEBUG("failed to locate destination file");
+        goto remote_to_remote_fast_err;
+    }
+
+    if(sxi_volume_cfg_check(sx, source->cluster, vmeta, source->volume))
+        goto remote_to_remote_fast_err;
+    if(!sxc_meta_getval(vmeta, "filterActive", &mval, &mval_len)) {
+        if(mval_len != 16) {
+            sxi_seterr(sx, SXE_EFILTER, "Filter(s) enabled but can't handle metadata");
+            goto remote_to_remote_fast_err;
+        }
+        sxi_uuid_unparse(mval, filter_uuid);
+        fh = sxi_filter_gethandle(sx, mval);
+        if(!fh) {
+            SXDEBUG("Filter ID %s required by source volume not found", filter_uuid);
+            sxi_seterr(sx, SXE_EFILTER, "Filter ID %s required by source volume not found", filter_uuid);
+            goto remote_to_remote_fast_err;
+        }
+
+        snprintf(filter_cfgkey, sizeof(filter_cfgkey), "%s-cfg", filter_uuid);
+        sxc_meta_getval(vmeta, filter_cfgkey, &cfgval, &cfgval_len);
+        if(cfgval_len && sxi_filter_add_cfg(fh, source->volume, cfgval, cfgval_len))
+            goto remote_to_remote_fast_err;
+    }
+
+    free(dest->remote_path);
+    dest->remote_path = NULL;
+
+    /* Dest path could be changed */
+    if(sxi_filemeta_process(sx, fh, NULL, dest, cvmeta)) {
+        SXDEBUG("Failed to process source filename");
+        goto remote_to_remote_fast_err;
+    }
+
+    if(hashes_to_download(source, &volhosts, &hf, &src_hashfile, &blocksize, &filesize, NULL)) {
+	SXDEBUG("failed to retrieve hash list");
+        goto remote_to_remote_fast_err;
+    }
+
+    query = sxi_fileadd_proto_begin(dest->sx, dest->volume, dest->remote_path, NULL, 0, blocksize, filesize);
     if(!query)
 	goto remote_to_remote_fast_err;
 
@@ -4596,13 +5008,14 @@ static sxi_job_t* remote_to_remote_fast(sxc_file_t *source, sxc_meta_t *fmeta, s
 	}
     }
 
-    query = sxi_fileadd_proto_end(dest->sx, query, fmeta);
+    query = sxi_fileadd_proto_end(dest->sx, query, dest->meta);
     if(!query)
 	goto remote_to_remote_fast_err;
 
-    if(sxi_locate_volume(sxi_cluster_get_conns(dest->cluster), dest->volume, &volhosts, NULL, NULL, NULL)) {
-	SXDEBUG("failed to locate destination file");
-	goto remote_to_remote_fast_err;
+    sxi_hostlist_empty(&volhosts);
+    if(sxi_volume_info(sxi_cluster_get_conns(dest->cluster), dest->volume, &volhosts, NULL, NULL, NULL)) {
+        SXDEBUG("failed to locate destination file");
+        goto remote_to_remote_fast_err;
     }
 
     ya_init(yacb);
@@ -4617,7 +5030,7 @@ static sxi_job_t* remote_to_remote_fast(sxc_file_t *source, sxc_meta_t *fmeta, s
     yctx.max_part_blocks = sxi_ht_count(src_hashes);
     yctx.current.yh = NULL;
     yctx.blocksize = blocksize;
-    yctx.name = strdup(dest->path);
+    yctx.name = strdup(dest->remote_path);
     if(!yctx.name) {
         sxi_seterr(sx, SXE_EMEM, "Cannot allocate destination path buffer");
         goto remote_to_remote_fast_err;
@@ -4743,6 +5156,8 @@ static sxi_job_t* remote_to_remote_fast(sxc_file_t *source, sxc_meta_t *fmeta, s
     }
 
 remote_to_remote_fast_err:
+    sxc_meta_free(vmeta);
+    sxc_meta_free(cvmeta);
     if(src_hashes) {
 	sxi_ht_enum_reset(src_hashes);
 	while(!sxi_ht_enum_getnext(src_hashes, NULL, NULL, (const void **)&rcur))
@@ -4765,8 +5180,10 @@ remote_to_remote_fast_err:
 
     if (hf)
         fclose(hf);
-    unlink(src_hashfile);
-    sxi_tempfile_untrack(sx, src_hashfile);
+    if(src_hashfile) {
+        unlink(src_hashfile);
+        sxi_tempfile_untrack(sx, src_hashfile);
+    }
     sxi_hostlist_empty(&volhosts);
     sxi_hostlist_empty(&src_hosts);
 
@@ -4779,7 +5196,6 @@ static sxi_job_t* remote_to_remote(sxc_file_t *source, sxc_file_t *dest, int fai
     sxc_file_t *cache;
     char *tmpname;
     int nofast = 0;
-    sxc_meta_t *fmeta;
     sxi_job_t *ret = NULL;
     FILE *f;
 
@@ -4854,39 +5270,37 @@ static sxi_job_t* remote_to_remote(sxc_file_t *source, sxc_file_t *dest, int fai
 	}
     }
 
-    fmeta = sxc_filemeta_new(source);
-    if(!fmeta)
-	return NULL;
-
     if(!nofast && !strcmp(suuid, duuid)) {
-	ret = remote_to_remote_fast(source, fmeta, dest);
-	sxc_meta_free(fmeta);
+	ret = remote_to_remote_fast(source, dest);
 	return ret;
     }
 
     if(!(tmpname = sxi_tempfile_track(dest->sx, NULL, &f))) {
 	SXDEBUG("failed to create local cache file");
-	sxc_meta_free(fmeta);
 	return NULL;
     }
     fclose(f);
 
-    if(!(cache = sxc_file_local(source->sx, tmpname)))
+    if(!(cache = sxi_file_local(source->sx, tmpname, source->meta)))
 	goto remote_to_remote_err;
 
     if(remote_to_local(source, cache, 0)) {
-	SXDEBUG("failed to download source file");
-	goto remote_to_remote_err;
+        SXDEBUG("failed to download source file");
+        goto remote_to_remote_err;
     }
 
-    if(local_to_remote_begin(cache, fmeta, dest, 0)) {
+    free(dest->remote_path);
+    dest->remote_path = NULL;
+
+    sxc_meta_empty(cache->meta);
+
+    if(local_to_remote_begin(cache, dest, 0)) {
 	SXDEBUG("failed to upload destination file");
 	goto remote_to_remote_err;
     }
     ret = dest->job;
 
 remote_to_remote_err:
-    sxc_meta_free(fmeta);
     sxc_file_free(cache);
     unlink(tmpname);
     sxi_tempfile_untrack(sx, tmpname);
@@ -5022,6 +5436,11 @@ int sxc_mass_rename(sxc_cluster_t *cluster, sxc_file_t *source, sxc_file_t *dest
     sxi_hostlist_t hosts;
     const char *p, *d;
     char *dest_final;
+    sxc_meta_t *vmeta;
+    const void *mval;
+    unsigned int mval_len;
+    struct filter_handle *fh;
+    char filter_uuid[37];
 
     if(!cluster)
         return -1;
@@ -5036,9 +5455,46 @@ int sxc_mass_rename(sxc_cluster_t *cluster, sxc_file_t *source, sxc_file_t *dest
         sxi_seterr(sx, SXE_EARG, "Destination with '.' or '..' is not accepted");
         return -1;
     }
-    sxi_hostlist_init(&hosts);
-    if(sxi_locate_volume(conns, source->volume, &hosts, NULL, NULL, NULL))
+    if(!(vmeta = sxc_meta_new(sx)))
         return -1;
+    sxi_hostlist_init(&hosts);
+    if(sxi_locate_volume(conns, source->volume, &hosts, NULL, vmeta, NULL)) {
+        sxc_meta_free(vmeta);
+        return -1;
+    }
+
+    if(sxi_volume_cfg_check(sx, source->cluster, vmeta, source->volume)) {
+        sxi_hostlist_empty(&hosts);
+        sxc_meta_free(vmeta);
+        return -1;
+    }
+    if(!sxc_meta_getval(vmeta, "filterActive", &mval, &mval_len)) {
+        if(mval_len != 16) {
+            sxi_seterr(sx, SXE_EFILTER, "Filter(s) enabled but can't handle metadata");
+            sxi_hostlist_empty(&hosts);
+            sxc_meta_free(vmeta);
+            return -1;
+        }
+        sxi_uuid_unparse(mval, filter_uuid);
+        fh = sxi_filter_gethandle(sx, mval);
+        if(!fh) {
+            SXDEBUG("Filter ID %s required by source volume not found", filter_uuid);
+            sxi_seterr(sx, SXE_EFILTER, "Filter ID %s required by source volume not found", filter_uuid);
+            sxi_hostlist_empty(&hosts);
+            sxc_meta_free(vmeta);
+            return -1;
+        }
+
+        if(fh->f->filemeta_process) {
+            SXDEBUG("Mass rename operation requested on a volume with filename processing filter");
+            sxi_seterr(sx, SXE_ECFG, "Cannot use mass operation while using filename processing filter");
+            sxi_hostlist_empty(&hosts);
+            sxc_meta_free(vmeta);
+            return -2; /* Special case: possible fallback usage */
+        }
+    }
+
+    sxc_meta_free(vmeta);
 
     vol_enc = sxi_urlencode(sx, source->volume, 0);
     if(!vol_enc) {
@@ -5129,7 +5585,7 @@ int sxc_mass_rename(sxc_cluster_t *cluster, sxc_file_t *source, sxc_file_t *dest
 static int cat_remote_file(sxc_file_t *source, int dest) {
     char *hashfile, ha[42];
     uint8_t *buf, *fbuf = NULL;
-    sxi_hostlist_t hostlist;
+    sxi_hostlist_t hostlist, volnodes;
     int64_t filesize;
     FILE *hf;
     int ret = 1;
@@ -5147,8 +5603,16 @@ static int cat_remote_file(sxc_file_t *source, int dest) {
     unsigned int cfgval_len = 0;
 
     sxi_hostlist_init(&hostlist);
-    if(hashes_to_download(source, &hf, &hashfile, &blocksize, &filesize, NULL, NULL, NULL)) {
+    sxi_hostlist_init(&volnodes);
+    if(sxi_volume_info(sxi_cluster_get_conns(source->cluster), source->volume, &volnodes, NULL, vmeta, cvmeta)) {
+        SXDEBUG("failed to locate destination file");
+        sxi_hostlist_empty(&volnodes);
+        return 1;
+    }
+
+    if(hashes_to_download(source, &volnodes, &hf, &hashfile, &blocksize, &filesize, NULL)) {
 	SXDEBUG("failed to retrieve hash list");
+        sxi_hostlist_empty(&volnodes);
 	return 1;
     }
 
@@ -5183,21 +5647,32 @@ static int cat_remote_file(sxc_file_t *source, int dest) {
 
 	confdir = sxi_cluster_get_confdir(source->cluster);
 	if(confdir) {
-	    filter_cfgdir = get_filter_dir(sx, confdir, filter_uuid, source->volume);
+	    filter_cfgdir = sxi_get_filter_dir(sx, confdir, filter_uuid, source->volume);
 	    if(!filter_cfgdir)
 		goto sxc_cat_fail;
 	}
 
 	if(fh->f->data_prepare) {
-	    unsigned int cvmeta_modcount;
+            unsigned char chksum1[SXI_SHA1_BIN_LEN], chksum2[SXI_SHA1_BIN_LEN];
+
 	    if(!(cvmeta = sxc_custom_volumemeta_new(source)))
 		goto sxc_cat_fail;
-	    cvmeta_modcount = sxc_meta_modcount(cvmeta);
+            if(sxi_meta_checksum(sx, cvmeta, chksum1)) {
+                SXDEBUG("Failed to compute custom volume meta checksum");
+                goto sxc_cat_fail;
+            }
+
 	    if(fh->f->data_prepare(fh, &fh->ctx, source->path, filter_cfgdir, cfgval, cfgval_len, cvmeta, SXF_MODE_DOWNLOAD)) {
 		sxi_seterr(sx, SXE_EFILTER, "Filter ID %s failed to initialize itself", filter_uuid);
 		goto sxc_cat_fail;
 	    }
-	    if(cvmeta_modcount != sxc_meta_modcount(cvmeta)) {
+            if(sxi_meta_checksum(sx, cvmeta, chksum2)) {
+                SXDEBUG("Failed to compute custom volume meta checksum");
+                goto sxc_cat_fail;
+            }
+
+            if(memcmp(chksum1, chksum2, SXI_SHA1_BIN_LEN)) {
+                SXDEBUG("Checksums different, modifying volume %s\n", source->volume);
 		if(sxc_volume_modify(source->cluster, source->volume, NULL, -1, -1, cvmeta)) {
 		    if(sxc_geterrnum(source->sx) == SXE_EAUTH)
 			/* ignore error for non-owner */
@@ -5280,6 +5755,7 @@ static int cat_remote_file(sxc_file_t *source, int dest) {
     free(filter_cfgdir);
     unlink(hashfile);
     sxi_tempfile_untrack(sx, hashfile);
+    sxi_hostlist_empty(&volnodes);
     return ret;
 }
 
@@ -5685,6 +6161,11 @@ sxc_meta_t *sxc_filemeta_new(sxc_file_t *file) {
     struct cb_filemeta_ctx yctx;
     yajl_callbacks *yacb = &yctx.yacb;
     sxc_meta_t *ret = NULL;
+    sxc_meta_t *vmeta = NULL, *cvmeta = NULL;
+    const void *mval;
+    unsigned int mval_len;
+    char *filter_cfgdir = NULL;
+    struct filter_handle *fh = NULL;
 
     if(!file)
 	return NULL;
@@ -5694,11 +6175,63 @@ sxc_meta_t *sxc_filemeta_new(sxc_file_t *file) {
 	return NULL;
     }
 
+    /* Check if meta needs to be fetched, we can skip redundant query then */
+    if(file->meta_fetched) {
+        SXDEBUG("File meta has already been obtained");
+        return sxi_meta_dup(sx, file->meta);
+    }
+
     memset(&yctx, 0, sizeof(yctx));
     sxi_hostlist_init(&volnodes);
-    if(sxi_locate_volume(sxi_cluster_get_conns(file->cluster), file->volume, &volnodes, NULL, NULL, NULL)) {
+
+    vmeta = sxc_meta_new(sx);
+    if(!vmeta) {
+        SXDEBUG("Failed to allocate volume meta");
+        goto filemeta_begin_err;
+    }
+
+    cvmeta = sxc_meta_new(sx);
+    if(!cvmeta) {
+        SXDEBUG("Failed to allocate custom volume meta");
+        goto filemeta_begin_err;
+    }
+
+    if(sxi_locate_volume(sxi_cluster_get_conns(file->cluster), file->volume, &volnodes, NULL, vmeta, cvmeta)) {
 	SXDEBUG("failed to locate file");
 	goto filemeta_begin_err;
+    }
+
+    if(!sxc_meta_getval(vmeta, "filterActive", &mval, &mval_len)) {
+        char filter_uuid[37], cfgkey[37 + 5];
+        const void *cfgval = NULL;
+        unsigned int cfgval_len = 0;
+        const char *confdir;
+        if(mval_len != 16) {
+            SXDEBUG("Filter(s) enabled but can't handle metadata");
+            goto filemeta_begin_err;
+        }
+        sxi_uuid_unparse(mval, filter_uuid);
+        fh = sxi_filter_gethandle(sx, mval);
+        if(!fh) {
+            SXDEBUG("Filter ID %s required by destination volume not found", filter_uuid);
+            goto filemeta_begin_err;
+        }
+        snprintf(cfgkey, sizeof(cfgkey), "%s-cfg", filter_uuid);
+        sxc_meta_getval(vmeta, cfgkey, &cfgval, &cfgval_len);
+        if(cfgval_len && sxi_filter_add_cfg(fh, file->volume, cfgval, cfgval_len))
+            goto filemeta_begin_err;
+
+        confdir = sxi_cluster_get_confdir(file->cluster);
+        if(confdir) {
+            filter_cfgdir = sxi_get_filter_dir(sx, confdir, filter_uuid, file->volume);
+            if(!filter_cfgdir)
+                goto filemeta_begin_err;
+        }
+    }
+
+    if(!file->remote_path && sxi_filemeta_process(sx, fh, filter_cfgdir, file, cvmeta)) {
+        SXDEBUG("failed to process filemeta");
+        goto filemeta_begin_err;
     }
 
     if(!(enc_vol = sxi_urlencode(file->sx, file->volume, 0))) {
@@ -5706,7 +6239,7 @@ sxc_meta_t *sxc_filemeta_new(sxc_file_t *file) {
 	goto filemeta_begin_err;
     }
 
-    if(!(enc_path = sxi_urlencode(file->sx, file->path, 0))) {
+    if(!(enc_path = sxi_urlencode(file->sx, file->remote_path, 0))) {
 	SXDEBUG("failed to encode path %s", file->path);
 	goto filemeta_begin_err;
     }
@@ -5749,6 +6282,7 @@ sxc_meta_t *sxc_filemeta_new(sxc_file_t *file) {
 
     ret = yctx.meta;
     yctx.meta = NULL;
+    file->meta_fetched = 1;
 
  filemeta_begin_err:
     sxi_hostlist_empty(&volnodes);
@@ -5760,7 +6294,9 @@ sxc_meta_t *sxc_filemeta_new(sxc_file_t *file) {
     free(yctx.nextk);
     if(yctx.meta)
 	sxc_meta_free(yctx.meta);
-
+    sxc_meta_free(vmeta);
+    sxc_meta_free(cvmeta);
+    free(filter_cfgdir);
     return ret;
 }
 
@@ -5872,13 +6408,24 @@ void sxc_file_list_free(sxc_file_list_t *lst)
     }
 }
 
-static sxi_job_t* sxi_file_list_process(sxc_file_list_t *target, sxc_file_t *pattern, sxc_cluster_t *cluster,
-                                        file_list_cb_t cb, sxi_hostlist_t *hlist, const char *vol, const char *path,
-                                        void *ctx, struct filter_handle *fh, int ignore_errors)
+static sxi_job_t* file_list_process(sxc_file_list_t *target, sxc_file_t *pattern, sxc_cluster_t *cluster,
+                                        file_list_cb_t cb, sxi_hostlist_t *hlist, sxc_meta_t *cvmeta, sxc_file_t *file,
+                                        void *ctx, struct filter_handle *fh, const char *filter_cfgdir, int ignore_errors)
 {
     sxi_job_t *job = NULL;
     do {
-        job = cb(target, pattern, cluster, hlist, vol, path, ctx, fh);
+        if(sxi_filemeta_process(target->sx, fh, filter_cfgdir, file, cvmeta)) {
+            sxi_seterr(target->sx, SXE_EARG, "Failed to process remote filename");
+            return NULL;
+        }
+
+        /* Process listed file properties before calling list callback */
+        if(sxi_file_process(target->sx, fh, filter_cfgdir, file, SXF_MODE_LIST)) {
+            sxi_seterr(target->sx, SXE_EARG, "Failed to process remote file");
+            return NULL;
+        }
+
+        job = cb(target, pattern, cluster, hlist, cvmeta, file, ctx, fh, filter_cfgdir);
         if (ignore_errors && !job) {
             job = &JOB_NONE;
             target->error++;
@@ -5943,11 +6490,11 @@ static int sxi_file_list_foreach(sxc_file_list_t *target, sxc_cluster_t *wait_cl
     }
     for (i=0;i<target->n;i++) {
         struct sxc_file_entry *entry = &target->entries[i];
-        char *filename = NULL;
         sxc_file_t *pattern = entry->pattern;
         sxc_cluster_lf_t *lst = NULL;
         sxi_hostlist_t volhosts_storage;
         sxi_hostlist_t *volhosts = need_locate ? &volhosts_storage : NULL;
+        char *filter_cfgdir = NULL;
 
         if (!target->recursive && (!*pattern->path || (pattern->path[0] == '/' && !pattern->path[1]))) {
             sxi_seterr(target->sx, SXE_EARG, "Cannot operate on volume root in non-recursive mode: '/%s'", pattern->volume);
@@ -5962,7 +6509,7 @@ static int sxi_file_list_foreach(sxc_file_list_t *target, sxc_cluster_t *wait_cl
             struct timeval t0, t1;
 	    const void *mval;
 	    unsigned int mval_len;
-	    sxc_meta_t *vmeta;
+	    sxc_meta_t *vmeta, *cvmeta = NULL;
 	    struct filter_handle *fh = NULL;
 
             gettimeofday(&t0, NULL);
@@ -5971,19 +6518,34 @@ static int sxi_file_list_foreach(sxc_file_list_t *target, sxc_cluster_t *wait_cl
 		rc = -1;
 		break;
 	    }
-            if(volhosts && sxi_locate_volume(sxi_cluster_get_conns(cluster), pattern->volume, volhosts, NULL, vmeta, NULL)) {
+            if(!(cvmeta = sxc_meta_new(target->sx))) {
+                rc = -1;
+                sxc_meta_free(vmeta);
+                break;
+            }
+            if(volhosts && sxi_locate_volume(sxi_cluster_get_conns(cluster), pattern->volume, volhosts, NULL, vmeta, cvmeta)) {
                 CFGDEBUG("failed to locate volume %s", pattern->volume);
 		sxc_meta_free(vmeta);
+                sxc_meta_free(cvmeta);
+                break;
+            }
+
+            if(sxi_volume_cfg_check(target->sx, cluster, vmeta, pattern->volume)) {
+                CFGDEBUG("Failed to check volume configuration");
+                sxc_meta_free(vmeta);
+                sxc_meta_free(cvmeta);
                 break;
             }
 	    if(!sxc_meta_getval(vmeta, "filterActive", &mval, &mval_len)) {
 		char filter_uuid[37], cfgkey[37 + 5];
 		const void *cfgval = NULL;
 		unsigned int cfgval_len = 0;
+                const char *confdir;
 		if(mval_len != 16) {
 		    CFGDEBUG("Filter(s) enabled but can't handle metadata");
 		    rc = -1;
 		    sxc_meta_free(vmeta);
+                    sxc_meta_free(cvmeta);
 		    break;
 		}
 		sxi_uuid_unparse(mval, filter_uuid);
@@ -5992,6 +6554,7 @@ static int sxi_file_list_foreach(sxc_file_list_t *target, sxc_cluster_t *wait_cl
 		    CFGDEBUG("Filter ID %s required by destination volume not found", filter_uuid);
 		    rc = -1;
 		    sxc_meta_free(vmeta);
+                    sxc_meta_free(cvmeta);
 		    break;
 		}
 		snprintf(cfgkey, sizeof(cfgkey), "%s-cfg", filter_uuid);
@@ -5999,44 +6562,62 @@ static int sxi_file_list_foreach(sxc_file_list_t *target, sxc_cluster_t *wait_cl
 		if(cfgval_len && sxi_filter_add_cfg(fh, pattern->volume, cfgval, cfgval_len)) {
 		    rc = -1;
 		    sxc_meta_free(vmeta);
+                    sxc_meta_free(cvmeta);
 		    break;
 		}
+
+                confdir = sxi_cluster_get_confdir(cluster);
+                if(confdir) {
+                    filter_cfgdir = sxi_get_filter_dir(target->sx, confdir, filter_uuid, pattern->volume);
+                    if(!filter_cfgdir) {
+                        rc = -1;
+                        sxc_meta_free(vmeta);
+                        sxc_meta_free(cvmeta);
+                        break;
+                    }
+                }
 	    }
 	    sxc_meta_free(vmeta);
-
             if (!entry->glob || batched) {
+                if(fh && fh->f->filemeta_process && batched) {
+                    sxi_seterr(target->sx, SXE_EARG, "Cannot use mass operation while using filename processing filter");
+                    rc = -1;
+                    sxc_meta_free(cvmeta);
+                    break;
+                }
                 if(!(rc = is_excluded(target->sx, pattern->path, exclude))) {
-                    job = sxi_file_list_process(target, pattern, cluster, cb, volhosts, pattern->volume, pattern->path, ctx, fh, ignore_errors);
+                    job = file_list_process(target, pattern, cluster, cb, volhosts, cvmeta, pattern, ctx, fh, filter_cfgdir, ignore_errors);
                     rc = sxi_jobs_add(target->sx, &target->jobs, job);
                 } else if(rc > 0) {
                     rc = 0;
                     sxi_info(target->sx, "Skipping file: %s", pattern->path);
                 }
+                sxc_meta_free(cvmeta);
                 break;
             }
+            sxc_meta_free(cvmeta);
             /* glob */
             CFGDEBUG("Listing using glob pattern '%s'", pattern->path);
-            lst = sxc_cluster_listfiles(cluster, pattern->volume, pattern->path, target->recursive, NULL, NULL, NULL, NULL, &entry->nfiles, 0);
+            lst = sxc_cluster_listfiles(cluster, pattern->volume, pattern->path, target->recursive, NULL, NULL, NULL, NULL, &entry->nfiles, 0, 0);
             if (!lst) {
                 CFGDEBUG("Cannot list files");
                 break;
             }
             gettimeofday(&t1, NULL);
-            /*sxi_info(target->sx, "Received list of %d files in %.1fs", entry->nfiles, sxi_timediff(&t1, &t0));*/
             CFGDEBUG("Glob pattern matched %d files", entry->nfiles);
             rc = 0;
             unsigned pattern_slashes = sxi_count_slashes(pattern->path) + 1;
             for (j=0;j<entry->nfiles && !rc;j++) {
-                if (sxc_cluster_listfiles_next(lst, &filename, NULL, NULL, NULL) <= 0) {
+                sxc_file_t *remote_file = NULL;
+                if (sxc_cluster_listfiles_next(cluster, pattern->volume, lst, &remote_file) <= 0) {
                     CFGDEBUG("Failed to list file %d/%d", j, entry->nfiles);
                     break;
                 }
-                if (is_single_file_match(pattern->path, pattern_slashes, filename))
+                if (is_single_file_match(pattern->path, pattern_slashes, remote_file->path))
                     single_files++;
                 else
                     files_in_dir++;
-                free(filename);
-                filename = NULL;
+                sxc_file_free(remote_file);
             }
             if (!target->recursive)
                 files_in_dir = 0;/* omitted */
@@ -6047,24 +6628,24 @@ static int sxi_file_list_foreach(sxc_file_list_t *target, sxc_cluster_t *wait_cl
             }
             CFGDEBUG("Single files: %lld, files in dir: %lld", (long long)single_files, (long long)files_in_dir);
             for (j=0;j<entry->nfiles && !rc;j++) {
-                if (sxc_cluster_listfiles_prev(lst, &filename, NULL, NULL, NULL) <= 0) {
+                sxc_file_t *remote_file = NULL;
+                if(sxc_cluster_listfiles_prev(cluster, pattern->volume, lst, &remote_file) <= 0) {
                     CFGDEBUG("Failed to list file %d/%d", j, entry->nfiles);
                     break;
                 }
-                if (!target->recursive && !is_single_file_match(pattern->path, pattern_slashes, filename)) {
-                    sxi_notice(target->sx, "Omitting (file in) directory: %s", filename);
+                if (!target->recursive && !is_single_file_match(pattern->path, pattern_slashes, remote_file->path)) {
+                    sxi_notice(target->sx, "Omitting (file in) directory: %s", remote_file->path);
                 } else {
-                    CFGDEBUG("Processing file '%s/%s'", pattern->volume, filename);
-                    if(!(rc = is_excluded(target->sx, filename, exclude))) {
-                        job = sxi_file_list_process(target, pattern, cluster, cb, volhosts, pattern->volume, filename, ctx, fh, ignore_errors);
+                    CFGDEBUG("Processing file '%s/%s'", pattern->volume, remote_file->path);
+                    if(!(rc = is_excluded(target->sx, remote_file->path, exclude))) {
+                        job = file_list_process(target, pattern, cluster, cb, volhosts, cvmeta, remote_file, ctx, fh, filter_cfgdir, ignore_errors);
                         rc = sxi_jobs_add(target->sx, &target->jobs, job);
                     } else if(rc > 0) {
-                        sxi_info(target->sx, "Skipping file: %s", filename);
+                        sxi_info(target->sx, "Skipping file: %s", remote_file->path);
                         rc = 0;
                     }
                 }
-                free(filename);
-                filename = NULL;
+                sxc_file_free(remote_file);
             }
             if (!entry->nfiles) {
                 if (*pattern->path) {
@@ -6072,11 +6653,14 @@ static int sxi_file_list_foreach(sxc_file_list_t *target, sxc_cluster_t *wait_cl
                     rc = -1;
                 }
             }
+            free(filter_cfgdir);
+            filter_cfgdir = NULL;
         } while(0);
         if (volhosts)
             sxi_hostlist_empty(volhosts);
         if (lst)
             sxc_cluster_listfiles_free(lst);
+        free(filter_cfgdir);
         if (rc)
             break;
     }
@@ -6087,19 +6671,18 @@ static int sxi_file_list_foreach(sxc_file_list_t *target, sxc_cluster_t *wait_cl
 
 /* --- file list END ---- */
 
-static sxi_job_t* sxi_rm_cb(sxc_file_list_t *target, sxc_file_t *pattern, sxc_cluster_t *cluster, sxi_hostlist_t *hlist, const char *vol, const char *path, void *ctx, struct filter_handle *fh)
+static sxi_job_t* sxi_rm_cb(sxc_file_list_t *target, sxc_file_t *pattern, sxc_cluster_t *cluster, sxi_hostlist_t *hlist, sxc_meta_t *cvmeta, sxc_file_t *file, void *ctx, struct filter_handle *fh, const char *filter_cfgdir)
 {
     sxi_query_t *query;
     sxi_job_t *job;
     long http_code;
     int mass = 0;
-    if (!cluster || !hlist || !vol || !path || !ctx)
+    if (!cluster || !hlist || !file || !ctx)
         return NULL;
 
     if(ctx)
         mass = *(int*)ctx;
     if(fh && fh->f->file_update) {
-        sxc_file_t *file;
         int ret;
 
         /* Filter cannot be updated when batched delete operation is being performed */
@@ -6108,31 +6691,30 @@ static sxi_job_t* sxi_rm_cb(sxc_file_list_t *target, sxc_file_t *pattern, sxc_cl
             return NULL;
         }
 
-        file = sxc_file_remote(cluster, vol, path, NULL);
-	if(!file)
-	    return NULL;
-	ret = fh->f->file_update(fh, fh->ctx, sxi_filter_get_cfg(fh, vol), sxi_filter_get_cfg_len(fh, vol), SXF_MODE_DELETE, file, NULL, target->recursive);
+        if(sxi_filemeta_process(target->sx, fh, filter_cfgdir, file, cvmeta)) {
+            sxc_file_free(file);
+            return NULL;
+        }
+
+	ret = fh->f->file_update(fh, fh->ctx, sxi_filter_get_cfg(fh, file->volume), sxi_filter_get_cfg_len(fh, file->volume), SXF_MODE_DELETE, file, NULL, target->recursive);
 	if(ret == 100) {
 	    job = &JOB_NONE;
-	    sxc_file_free(file);
 	    return job;
 	} else if(ret) {
 	    sxi_seterr(target->sx, SXE_EFILTER, "Filter failed to process files");
-	    sxc_file_free(file);
 	    return NULL;
 	}
-	sxc_file_free(file);
-    };
+    }
 
     if(mass)
-        query = sxi_massdel_proto(target->sx, vol, path, target->recursive);
+        query = sxi_massdel_proto(target->sx, file->volume, file->remote_path, target->recursive);
     else
-        query = sxi_filedel_proto(target->sx, vol, path, NULL);
+        query = sxi_filedel_proto(target->sx, file->volume, file->remote_path, NULL);
     if (!query)
         return NULL;
     sxi_hostlist_shuffle(hlist);
     sxi_set_operation(target->sx, "remove files", sxi_cluster_get_name(cluster), query->path, NULL);
-    job = sxi_job_submit(sxi_cluster_get_conns(cluster), hlist, query->verb, query->path, path, NULL, 0, &http_code, &target->jobs);
+    job = sxi_job_submit(sxi_cluster_get_conns(cluster), hlist, query->verb, query->path, file->path, NULL, 0, &http_code, &target->jobs);
     sxi_query_free(query);
     if(job && fh && fh->f->file_notify) {
         /* Filter cannot be notified when mass delete operation is being performed */
@@ -6141,7 +6723,7 @@ static sxi_job_t* sxi_rm_cb(sxc_file_list_t *target, sxc_file_t *pattern, sxc_cl
             return NULL;
         }
 
-	fh->f->file_notify(fh, fh->ctx, sxi_filter_get_cfg(fh, vol), sxi_filter_get_cfg_len(fh, vol), SXF_MODE_DELETE, sxi_cluster_get_name(cluster), vol, path, NULL, NULL, NULL);
+	fh->f->file_notify(fh, fh->ctx, sxi_filter_get_cfg(fh, file->volume), sxi_filter_get_cfg_len(fh, file->volume), SXF_MODE_DELETE, sxi_cluster_get_name(cluster), file->volume, file->path, NULL, NULL, NULL);
     }
     if (!job && http_code == 404)
         job = &JOB_NONE;
@@ -6174,23 +6756,47 @@ static int different_file(const char *path1, const char *path2)
 }
 
 static sxi_job_t *remote_copy_cb(sxc_file_list_t *target, sxc_file_t *pattern, sxc_cluster_t *cluster, sxi_hostlist_t *hlist,
-                                 const char *vol, const char *path, void *ctx, struct filter_handle *fh)
+                                 sxc_meta_t *cvmeta, sxc_file_t *file, void *ctx, struct filter_handle *fh, const char *filter_cfgdir)
 {
-    sxc_file_t *source;
     struct remote_iter *it = ctx;
     sxi_job_t *ret;
     int is_different;
 
-    source = sxc_file_remote(cluster, vol, path, NULL);
-    if(!source)
+    /* Calculate remote filename if not done yet. Happens when first list element is being copied via
+     * this callback. Following function would not unnecessarily call filter callbacks if filename had
+     * been already processed. */
+    if(sxi_filemeta_process(target->sx, fh, filter_cfgdir, it->dest, cvmeta))
+        return NULL;
+
+    if(file->meta) {
+        /* Destination file should derive meta from the source file. If dest file is stored on a volume
+         * with different filter, it will be reset later. */
+        sxc_meta_free(it->dest->meta);
+        it->dest->meta = sxi_meta_dup(target->sx, file->meta);
+        if(!it->dest->meta) {
+            sxi_seterr(target->sx, SXE_EMEM, "Failed to duplicate source file meta");
+            return NULL;
+        }
+        it->dest->meta_fetched = file->meta_fetched;
+    } else {
+        /* In case meta is not available, fetch remote file meta */
+        sxc_meta_free(it->dest->meta);
+        it->dest->meta = sxc_filemeta_new(file);
+        if(!it->dest->meta) {
+            sxi_seterr(target->sx, SXE_EMEM, "Failed to duplicate source file meta");
+            return NULL;
+        }
+    }
+    it->dest->remote_size = file->remote_size;
+
+    /* Process destination file, because its properties have changed. */
+    if(sxi_file_process(target->sx, fh, filter_cfgdir, it->dest, SXF_MODE_LIST))
         return NULL;
 
     /* we could support parallelization for remote_to_remote and
      * remote_to_remote_fast if they would just return a job ... */
-    is_different = different_file(source->path, pattern->path);
-    ret = remote_copy_ev(pattern, source, it->dest, it->recursive && is_different, it->ignore_errors && is_different, &it->errors, it->fail_same_file);
-
-    sxc_file_free(source);
+    is_different = different_file(file->path, pattern->path);
+    ret = remote_copy_ev(pattern, file, it->dest, it->recursive && is_different, it->ignore_errors && is_different, &it->errors, it->fail_same_file);
 
     return ret;
 }
@@ -6287,7 +6893,7 @@ static int remote_iterate(sxc_file_t *source, int recursive, int onefs, int igno
     if (sxc_file_list_add(lst, source, 1)) {
         ret = -1;
     } else {
-        ret = sxi_file_list_foreach(lst, dest->cluster, multi_cb, remote_copy_cb, 0, ignore_errors, 0, &it, exclude);
+        ret = sxi_file_list_foreach(lst, dest->cluster, multi_cb, remote_copy_cb, 1, ignore_errors, 0, &it, exclude);
         if (!ret) {
             /* create dest dir if successful list of empty volume */
             if (!is_remote(dest) && recursive && mkdir(dest->path, 0777) == -1 && errno != EEXIST) {
@@ -6654,4 +7260,168 @@ int sxc_copy_sxfile(sxc_file_t *source, sxc_file_t *dest, int fail_same_file) {
 	return sxi_jobs_wait_one(dest, job);
     } else
 	return remote_to_local(source, dest, 0);
+}
+
+/* Retrieve remote filename when filter is given. Converts local path to its remote representation and the other way around.
+ * This function does nothing when both paths are already initialised. At least either file->path or file->remote_path must
+ * be initialised in order to proceed. If filter does not implement filename_process() callback, then remote path is a copy
+ * of local path (and the other way accordingly). */
+int sxi_filemeta_process(sxc_client_t *sx, struct filter_handle *fh, const char *cfgdir, sxc_file_t *file, sxc_meta_t *custom_volume_meta) {
+    const char *src;
+    char *dest = NULL, *output;
+    unsigned int nslashes = 0;
+
+    if(!file || (!file->path && !file->remote_path && !file->cat_fd)) {
+        sxi_seterr(sx, SXE_EARG, "NULL argument");
+        return -1;
+    }
+
+    /* Process filename only when one of the paths is not set */
+    if(file->remote_path && file->path)
+        return 0;
+    /* Support sxc_cat: in this situation file will not get the path */
+    if(file->cat_fd)
+        return 0;
+    if(file->path)
+        src = file->path;
+    else
+        src = file->remote_path;
+
+    while(src[nslashes] == '/')
+        nslashes++;
+
+    if(fh && fh->f && fh->f->filemeta_process && *src && !ends_with(src, '/')) {
+        unsigned char chksum1[SXI_SHA1_BIN_LEN], chksum2[SXI_SHA1_BIN_LEN];
+        /* Remote file can be processed without initial listing. */
+        if(!file->meta) {
+            if(!file->path) /* If filename is remote, we have to obtain remote file meta */
+                file->meta = sxc_filemeta_new(file);
+            else
+                file->meta = sxc_meta_new(sx);
+            if(!file->meta) {
+                SXDEBUG("Failed to allocate file meta");
+                return -1;
+            }
+        }
+
+        if(sxi_meta_checksum(sx, custom_volume_meta, chksum1)) {
+            SXDEBUG("Failed to compute custom volume meta checksum");
+            return -1;
+        }
+
+        if(fh->f->filemeta_process(fh, &fh->ctx, cfgdir, fh->cfg ? fh->cfg->cfg : NULL, fh->cfg ? fh->cfg->cfg_len : 0, file, file->path ? SXF_FILEMETA_LOCAL : SXF_FILEMETA_REMOTE, src + nslashes, &dest, file->meta, custom_volume_meta) || !dest){
+            char uuid_str[37];
+            sxi_uuid_unparse(fh->uuid_bin, uuid_str);
+            sxi_seterr(sx, SXE_EFILTER, "Filter ID %s failed to process files", uuid_str);
+            free(dest);
+            return -1;
+        }
+
+        if(sxi_meta_checksum(sx, custom_volume_meta, chksum2)) {
+            SXDEBUG("Failed to compute custom volume meta checksum");
+            return -1;
+        }
+
+        if(memcmp(chksum1, chksum2, SXI_SHA1_BIN_LEN)) {
+            SXDEBUG("Checksums different, modifying volume %s\n", file->volume);
+            if(sxc_volume_modify(file->cluster, file->volume, NULL, -1, -1, custom_volume_meta)) {
+                if(sxc_geterrnum(sx) == SXE_EAUTH)
+                    /* ignore error for non-owner */
+                    sxc_clearerr(sx);
+                else {
+                    free(dest);
+                    return -1;
+                }
+            }
+        }
+    } else {
+        dest = strdup(src + nslashes);
+        if(!dest) {
+            sxi_seterr(sx, SXE_EMEM, "Out of memory");
+            return -1;
+        }
+    }
+
+    if(!nslashes)
+        output = dest;
+    else {
+        output = malloc(nslashes + strlen(dest) + 1);
+        if(!output) {
+            sxi_seterr(sx, SXE_EMEM, "Out of memory");
+            free(dest);
+            return -1;
+        }
+        snprintf(output + nslashes, strlen(dest) + 1, "%s", dest);
+        for(;nslashes > 0; nslashes--)
+            output[nslashes-1] = '/';
+        free(dest);
+    }
+
+    if(file->path)
+        file->remote_path = output;
+    else
+        file->path = output;
+
+    return 0;
+}
+
+int sxi_file_process(sxc_client_t *sx, struct filter_handle *fh, const char *cfgdir, sxc_file_t *file, sxf_mode_t mode) {
+    if(!file) {
+        sxi_seterr(sx, SXE_EARG, "NULL argument");
+        return -1;
+    }
+
+    if(is_remote(file) && ends_with(file->remote_path, '/'))
+        return 0;
+
+    if(fh && fh->f && fh->f->file_process) {
+        sxc_meta_t *meta = sxi_meta_dup(sx, file->meta);
+        if(!meta && file->meta) {
+            SXDEBUG("Failed to duplicate file meta");
+            return 1;
+        }
+
+        if(!meta) {
+            if(mode == SXF_MODE_LIST)
+                meta = sxc_meta_new(sx);
+            else
+                meta = sxc_filemeta_new(file);
+            if(!meta) {
+                SXDEBUG("Failed to create dummy file meta");
+                return -1;
+            }
+        }
+
+        if(fh->f->file_process(fh, fh->ctx, file, meta, cfgdir, fh->cfg ? fh->cfg->cfg : NULL, fh->cfg ? fh->cfg->cfg_len : 0, mode)){
+            char uuid_str[37];
+            sxi_uuid_unparse(fh->uuid_bin, uuid_str);
+            sxi_seterr(sx, SXE_EFILTER, "Filter ID %s failed to process files", uuid_str);
+            sxc_meta_free(meta);
+            return -1;
+        }
+
+        /* When not in listing mode, save the file meta as the created one.
+         * NOTE: this is a fallback solution for old servers which are not able to return file meta with the list of files */
+        if(mode != SXF_MODE_LIST) {
+            sxc_meta_free(file->meta);
+            file->meta = meta;
+        } else
+            sxc_meta_free(meta);
+    }
+
+    /* Check file sizes and assume default in case */
+    if(file->size != SXC_UINT64_UNDEFINED && file->remote_size == SXC_UINT64_UNDEFINED && sxi_file_set_remote_size(file, file->size)) {
+        sxi_seterr(sx, SXE_EMEM, "Failed to set remote size");
+        return -1;
+    } else if(file->size == SXC_UINT64_UNDEFINED && file->remote_size != SXC_UINT64_UNDEFINED && sxi_file_set_size(file, file->remote_size)) {
+        sxi_seterr(sx, SXE_EMEM, "Failed to set local size");
+        return -1;
+    }
+
+    /* Note: both local and remote size of the file can be left uninitialized (hold SXC_UINT64_UNDEFINED value) and that is 
+     * perfectly normal situation. This happens for regular downloads when pattern does not have a globbing character and does not
+     * end with slash, effectively pointing to at most one single file. Then file can be processed before it would get the
+     * remote size from filter and before it is remotely listed. */
+
+    return 0;
 }

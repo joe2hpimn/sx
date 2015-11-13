@@ -107,5 +107,11 @@ int sxi_derive_key(const char *pass, const char *salt, unsigned salt_size, unsig
  * Cannot be called with NULL argument. */
 unsigned int sxi_str_has_glob(const char *s);
 
+sxc_meta_t *sxi_meta_dup(sxc_client_t *sx, sxc_meta_t *meta);
+int sxi_meta_checksum(sxc_client_t *sx, sxc_meta_t *meta, unsigned char *hash);
+
+uint32_t sxi_swapu32(uint32_t v);
+uint64_t sxi_swapu64(uint64_t v);
+
 #endif
 

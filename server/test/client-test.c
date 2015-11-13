@@ -197,7 +197,10 @@ static int create_volume(sxc_client_t *sx, sxc_cluster_t *cluster, const char *v
     sxc_meta_t *meta = NULL, *custom_meta = NULL;
 
     if(filter_name) {
-        sxc_filter_loadall(sx, filter_dir);
+        if(sxc_filter_loadall(sx, filter_dir)) {
+            fprintf(stderr, "create_volume: ERROR: Cannot load filters.\n");
+            goto create_volume_err;
+        }
         confdir = sxi_cluster_get_confdir(cluster);
         voldir = (char*)malloc(strlen(confdir) + strlen("/volumes/") + strlen(volname) + 1);
         if(!voldir) {
@@ -435,7 +438,6 @@ download_files_err:
 
 static int delete_files(sxc_client_t *sx, sxc_cluster_t *cluster, const char *remote_path, const int recursive, const int hide_errors) {
     int ret = 1, n;
-    char *file_name;
     sxc_uri_t *uri;
     sxc_file_t *file = NULL;
     sxc_file_list_t *lst;
@@ -453,14 +455,17 @@ static int delete_files(sxc_client_t *sx, sxc_cluster_t *cluster, const char *re
         goto delete_files_err;
     }
     if(remote_path[strlen(remote_path) - 1] == '/') {
-        file_list = sxc_cluster_listfiles(cluster, uri->volume, uri->path, 0, NULL, NULL, NULL, NULL, NULL, 0);
+        file_list = sxc_cluster_listfiles(cluster, uri->volume, uri->path, 0, NULL, NULL, NULL, NULL, NULL, 0, 0);
         if(!file_list) {
             if(!hide_errors)
                 fprintf(stderr, "delete_files: ERROR: Cannot get volume files list: %s\n", sxc_geterrmsg(sx));
             goto delete_files_err;
         }
         while(1) {
-            n = sxc_cluster_listfiles_next(file_list, &file_name, NULL, NULL, NULL);
+            const char *file_name;
+
+            file = NULL;
+            n = sxc_cluster_listfiles_next(cluster, uri->volume, file_list, &file);
             if(n <= 0) {
                 if(n) {
                     fprintf(stderr, "delete_files: ERROR: %s\n", sxc_geterrmsg(sx));
@@ -468,23 +473,16 @@ static int delete_files(sxc_client_t *sx, sxc_cluster_t *cluster, const char *re
                 }
                 break;
             }
-            if(!file_name) {
+            if(!file) {
                 fprintf(stderr, "delete_files: ERROR: NULL file name pointer received.\n");
                 goto delete_files_err;
             }
-            file = sxc_file_remote(cluster, uri->volume, file_name, NULL);
-            if(!file) {
-                fprintf(stderr, "delete_files: ERROR: Cannot open '%s%s' file: %s\n", remote_path, file_name, sxc_geterrmsg(sx));
-                free(file_name);
-                goto delete_files_err;
-            }
+            file_name = sxc_file_get_path(file);
             if(sxc_file_list_add(lst, file, recursive)) {
                 fprintf(stderr, "delete_files: ERROR: Cannot add file list entry '%s': %s\n", file_name, sxc_geterrmsg(sx));
                 sxc_file_free(file);
-                free(file_name);
                 goto delete_files_err;
             }
-            free(file_name);
         }
     } else {
         file = sxc_file_remote(cluster, uri->volume, uri->path, NULL);
@@ -518,35 +516,35 @@ delete_files_err:
  *  1 - file found */
 static int find_file(sxc_client_t *sx, sxc_cluster_t *cluster, const char *remote_file_path, const int hide_errors) {
     int ret = -1, n;
-    char *file_name = NULL;
     sxc_uri_t *uri;
     sxc_file_list_t *lst = NULL;
     sxc_cluster_lf_t *file_list;
+    sxc_file_t *file = NULL;
 
     uri = sxc_parse_uri(sx, remote_file_path);
     if(!uri) {
         fprintf(stderr, "find_file: ERROR: %s\n", sxc_geterrmsg(sx));
         return ret;
     }
-    file_list = sxc_cluster_listfiles(cluster, uri->volume, uri->path, 0, NULL, NULL, NULL, NULL, NULL, 0);
+    file_list = sxc_cluster_listfiles(cluster, uri->volume, uri->path, 0, NULL, NULL, NULL, NULL, NULL, 0, 0);
     if(!file_list) {
         if(!hide_errors)
             fprintf(stderr, "find_file: ERROR: Cannot get volume files list: %s\n", sxc_geterrmsg(sx));
         goto find_file_err;
     }
-    n = sxc_cluster_listfiles_next(file_list, &file_name, NULL, NULL, NULL);
+    n = sxc_cluster_listfiles_next(cluster, uri->volume, file_list, &file);
     if(n < 0) {
         fprintf(stderr, "find_file: ERROR: %s\n", sxc_geterrmsg(sx));
         goto find_file_err;
     }
-    if(n > 0 && !file_name) {
+    if(n > 0 && (!file || !sxc_file_get_path(file))) {
         fprintf(stderr, "find_file: ERROR: NULL file name pointer received.\n");
         goto find_file_err;
     }
 
     ret = n ? 1 : 0;
 find_file_err:
-    free(file_name);
+    sxc_file_free(file);
     sxc_free_uri(uri);
     sxc_file_list_free(lst);
     sxc_cluster_listfiles_free(file_list);

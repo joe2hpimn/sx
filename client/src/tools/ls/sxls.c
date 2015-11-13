@@ -317,20 +317,34 @@ int main(int argc, char **argv) {
                 ret = 1;
             }
 	} else {
-	    sxc_cluster_lf_t *fl = sxc_cluster_listfiles_etag(cluster, u->volume, u->path, args.recursive_flag, NULL, NULL, NULL, NULL, NULL, 0, args.etag_arg);
+	    sxc_cluster_lf_t *fl = sxc_cluster_listfiles_etag(cluster, u->volume, u->path, args.recursive_flag, NULL, NULL, NULL, NULL, NULL, 0, args.etag_arg, 0);
 	    if(fl) {
 		while(1) {
-		    char *fname;
-		    int64_t fsize;
-		    time_t ftime;
+                    sxc_file_t *file;
                     char *human_str = NULL;
-		    int n = sxc_cluster_listfiles_next(fl, &fname, &fsize, &ftime, NULL);
-		    if(n<=0) {
-			if(n)
-			    fprintf(stderr, "ERROR: Failed to retrieve file name for %s\n", args.inputs[i]);
-			break;
-		    }
+                    char *fname;
+                    time_t ftime;
+                    int64_t fsize;
+		    int n = sxc_cluster_listfiles_next(cluster, u->volume, fl, &file);
+                    if(n<=0) {
+                        if(n)
+                            fprintf(stderr, "ERROR: Failed to retrieve file name for %s: %s\n", args.inputs[i], sxc_geterrmsg(sx));
+                        break;
+                    }
 
+                    if(!file) {
+                        fprintf(stderr, "ERROR: Failed to retrieve file name for %s: %s\n", args.inputs[i], sxc_geterrmsg(sx));
+                        break;
+                    }
+
+                    fname = strdup(sxc_file_get_path(file));
+                    if(!fname) {
+                        fprintf(stderr, "ERROR: Failed to retrieve file name for %s\n", args.inputs[i]);
+                        sxc_file_free(file);
+                        break;
+                    }
+                    fsize = sxc_file_get_size(file);
+                    ftime = sxc_file_get_created_at(file);
 		    if(args.long_format_given) {
 			unsigned int namelen = strlen(fname);
 			if(namelen && fname[namelen-1] == '/')
@@ -363,6 +377,7 @@ int main(int argc, char **argv) {
                             printf("sx://%s/%s%s\n", sxc_escstr(u->host), sxc_escstr(u->volume), sxc_escstr(fname));
                     }
 		    free(fname);
+                    sxc_file_free(file);
 		}
 		sxc_cluster_listfiles_free(fl);
 	    } else {

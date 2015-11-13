@@ -104,11 +104,19 @@ int main(int argc, char **argv) {
 	cmdline_parser_free(&args);
 	return 1;
     }
-    sxc_set_confdir(sx, args.config_dir_arg);
+    if(args.config_dir_given && sxc_set_confdir(sx, args.config_dir_arg)) {
+        cmdline_parser_free(&args);
+        sxc_shutdown(sx, 0);
+        return 1;
+    }
     sxc_set_verbose(sx, 1);
 
     filter_dir = get_filter_dir(sx, args.filter_dir_arg);
-    sxc_filter_loadall(sx, filter_dir);
+    if(sxc_filter_loadall(sx, filter_dir)) {
+        cmdline_parser_free(&args);
+        sxc_shutdown(sx, 0);
+        return 1;
+    }
     sxi_report_build_info(sx);
 #define INFO_PKGCONFIG ""
 #define INFO_PKGCONFIG_LIBDIR ""

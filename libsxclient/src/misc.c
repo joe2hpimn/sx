@@ -1609,6 +1609,69 @@ int sxc_meta_setval_fromhex(sxc_meta_t *meta, const char *key, const char *value
     return 0;
 }
 
+sxc_meta_t *sxi_meta_dup(sxc_client_t *sx, sxc_meta_t *meta) {
+    sxc_meta_t *ret;
+    unsigned int i;
+
+    if(!meta)
+        return NULL;
+
+    ret = sxc_meta_new(sx);
+    if(!ret)
+        return NULL;
+    for(i = 0; i < sxc_meta_count(meta); i++) {
+        const char *key;
+        const void *value;
+        unsigned int value_len;
+
+        if(sxc_meta_getkeyval(meta, i, &key, &value, &value_len)) {
+            sxc_meta_free(ret);
+            return NULL;
+        }
+
+        if(sxc_meta_setval(ret, key, value, value_len)) {
+            sxc_meta_free(ret);
+            return NULL;
+        }
+    }
+
+    return ret;
+}
+
+int sxi_meta_checksum(sxc_client_t *sx, sxc_meta_t *meta, unsigned char *hash) {
+    sxi_md_ctx *ctx = sxi_md_init();
+    unsigned int i;
+    if (!ctx || !meta || !hash)
+        return 1;
+    if (!sxi_sha1_init(ctx)) {
+        sxi_md_cleanup(&ctx);
+        return 1;
+    }
+
+    for(i = 0; i < sxc_meta_count(meta); i++) {
+        const char *key;
+        const void *value;
+        unsigned int value_len;
+
+        if(sxc_meta_getkeyval(meta, i, &key, &value, &value_len)) {
+            sxi_md_cleanup(&ctx);
+            return 1;
+        }
+
+        if(!sxi_sha1_update(ctx, key, strlen(key)) || !sxi_sha1_update(ctx, value, value_len)) {
+            sxi_md_cleanup(&ctx);
+            return 1;
+        }
+    }
+
+    if(!sxi_sha1_final(ctx, hash, NULL)) {
+        sxi_md_cleanup(&ctx);
+        return 1;
+    }
+    sxi_md_cleanup(&ctx);
+    return 0;
+}
+
 char sxi_read_one_char(void)
 {
     char line[3];
@@ -1919,3 +1982,25 @@ unsigned int sxi_str_has_glob(const char *s) {
         return 1;
     return 0;
 }
+
+#ifdef WORDS_BIGENDIAN
+uint32_t sxi_swapu32(uint32_t v)
+{
+    v = ((v << 8) & 0xff00ff00) | ((v >> 8) & 0xff00ff); 
+    return (v << 16) | (v >> 16);
+}
+uint64_t sxi_swapu64(uint64_t v)
+{
+    v = ((v << 8) & 0xff00ff00ff00ff00ULL) | ((v >> 8) & 0x00ff00ff00ff00ffULL);
+    v = ((v << 16) & 0xffff0000ffff0000ULL) | ((v >> 16) & 0x0000ffff0000ffffULL);
+    return (v << 32) | (v >> 32);
+}
+#else
+uint64_t sxi_swapu64(uint64_t v) {
+    return v;
+}
+uint32_t sxi_swapu32(uint32_t v)
+{
+    return v;
+}
+#endif

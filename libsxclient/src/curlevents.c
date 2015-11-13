@@ -437,8 +437,9 @@ void sxi_cbdata_set_etag(curlev_context_t *cbdata, const char* etag, unsigned et
 {
     if (cbdata) {
         struct recv_context *rctx = &cbdata->recv_ctx;
-        if (etag_len < sizeof(rctx->etag)) {
-            memcpy(rctx->etag, etag, etag_len);
+        if (etag_len < sizeof(rctx>etag)) {
+            if(etag)
+                memcpy(rctx->etag, etag, etag_len);
             rctx->etag[etag_len] = '\0';
         }
     }

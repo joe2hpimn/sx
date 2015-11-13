@@ -34,33 +34,19 @@
 #include <utime.h>
 
 #include "sx.h"
-
-#ifdef WORDS_BIGENDIAN
-uint32_t swapu32(uint32_t v)
-{
-    v = ((v << 8) & 0xff00ff00) | ((v >> 8) & 0xff00ff); 
-    return (v << 16) | (v >> 16);
-}
-uint64_t swapu64(uint64_t v)
-{
-    v = ((v << 8) & 0xff00ff00ff00ff00ULL) | ((v >> 8) & 0x00ff00ff00ff00ffULL);
-    v = ((v << 16) & 0xffff0000ffff0000ULL) | ((v >> 16) & 0x0000ffff0000ffffULL);
-    return (v << 32) | (v >> 32);
-}
-#else
-#define swapu32(x) (x)
-#define swapu64(x) (x)
-#endif
+#include "libsxclient/src/fileops.h"
+#include "libsxclient/src/misc.h"
 
 #define ERROR(...)	{ sxc_filter_msg(handle, SX_LOG_ERR, __VA_ARGS__); }
 #define WARN(...)	{ sxc_filter_msg(handle, SX_LOG_WARNING, __VA_ARGS__); }
 
-static int attribs_process_up(const sxf_handle_t *handle, void *ctx, const char *filename, sxc_meta_t *meta, const void *cfgdata, unsigned int cfgdata_len)
+static int attribs_process_up(const sxf_handle_t *handle, void *ctx, sxc_file_t *file, sxc_meta_t *meta, const void *cfgdata, unsigned int cfgdata_len)
 {
 	struct stat sb;
 	uint32_t val32;
 	uint64_t val64;
 	unsigned int i, nmeta = sxc_meta_count(meta);
+        const char *filename = sxc_file_get_path(file);
 
     /* Do not override existing attributes */
     for(i=0; i<nmeta; i++) {
@@ -79,43 +65,44 @@ static int attribs_process_up(const sxf_handle_t *handle, void *ctx, const char 
 	return 1;
     }
 
-    val32 = swapu32(sb.st_mode);
+    val32 = sxi_swapu32(sb.st_mode);
     if(sxc_meta_setval(meta, "attribsMode", &val32, sizeof(val32)))
 	return 1;
 
-    val32 = swapu32(sb.st_uid);
+    val32 = sxi_swapu32(sb.st_uid);
     if(sxc_meta_setval(meta, "attribsUID", &val32, sizeof(val32)))
 	return 1;
 
-    val32 = swapu32(sb.st_gid);
+    val32 = sxi_swapu32(sb.st_gid);
     if(sxc_meta_setval(meta, "attribsGID", &val32, sizeof(val32)))
 	return 1;
 
-    val64 = swapu64(sb.st_mtime);
+    val64 = sxi_swapu64(sb.st_mtime);
     if(sxc_meta_setval(meta, "attribsAtime", &val64, sizeof(val64)))
 	return 1;
 
-    val64 = swapu64(sb.st_mtime);
+    val64 = sxi_swapu64(sb.st_mtime);
     if(sxc_meta_setval(meta, "attribsMtime", &val64, sizeof(val64)))
 	return 1;
 
-    val64 = swapu64(sb.st_size);
+    val64 = sxi_swapu64(sb.st_size);
     if(sxc_meta_setval(meta, "attribsSize", &val64, sizeof(val64)))
 	return 1;
 
     return 0;
 }
 
-static int attribs_process_down(const sxf_handle_t *handle, void *ctx, const char *filename, sxc_meta_t *meta, const void *cfgdata, unsigned int cfgdata_len)
+static int attribs_process_down(const sxf_handle_t *handle, void *ctx, sxc_file_t *file, sxc_meta_t *meta, const void *cfgdata, unsigned int cfgdata_len)
 {
 	const void *val, *val2;
 	unsigned int len, len2;
 	struct utimbuf utb;
+        const char *filename = sxc_file_get_path(file);
 
     sxc_meta_getval(meta, "attribsMode", &val, &len);
     if(len != sizeof(uint32_t))
 	return 1;
-    if(chmod(filename, (mode_t)swapu32(*(uint32_t *) val)))
+    if(chmod(filename, (mode_t)sxi_swapu32(*(uint32_t *) val)))
 	WARN("Failed to chmod file %s", filename);
 
     /* root only */
@@ -123,26 +110,68 @@ static int attribs_process_down(const sxf_handle_t *handle, void *ctx, const cha
     sxc_meta_getval(meta, "attribsGID", &val2, &len2);
     if(len != sizeof(uint32_t) || len2 != sizeof(uint32_t))
 	return 1;
-    chown(filename, (uid_t)swapu32(*(uint32_t *) val), (gid_t)swapu32(*(uint32_t *) val2));
+    chown(filename, (uid_t)sxi_swapu32(*(uint32_t *) val), (gid_t)sxi_swapu32(*(uint32_t *) val2));
 
     sxc_meta_getval(meta, "attribsAtime", &val, &len);
     sxc_meta_getval(meta, "attribsMtime", &val2, &len2);
     if(len != sizeof(uint64_t) || len2 != sizeof(uint64_t))
 	return 1;
-    utb.actime = swapu64(*(uint64_t *) val);
-    utb.modtime = swapu64(*(uint64_t *) val2);
+    utb.actime = sxi_swapu64(*(uint64_t *) val);
+    utb.modtime = sxi_swapu64(*(uint64_t *) val2);
     if(utime(filename, &utb))
 	WARN("Failed to set times for file %s", filename);
 
     return 0;
 }
 
-static int attribs_process(const sxf_handle_t *handle, void *ctx, const char *filename, sxc_meta_t *filemeta, const char *cfgdir, const void *cfgdata, unsigned int cfgdata_len, sxf_mode_t mode)
+static int attribs_process_list(const sxf_handle_t *handle, void *ctx, sxc_file_t *file, sxc_meta_t *meta, const void *cfgdata, unsigned int cfgdata_len)
+{
+    const void *val, *val2;
+    unsigned int len, len2;
+
+    if(!sxc_meta_count(meta)) /* for compatibility with SX 1.x */
+	return 0;
+
+    sxc_meta_getval(meta, "attribsSize", &val, &len);
+    if(len != sizeof(uint64_t))
+        return 1;
+
+    if(sxi_file_set_size(file, sxi_swapu64(*(const uint64_t *) val))) {
+        ERROR("Failed to set file size");
+        return 1;
+    }
+
+    sxc_meta_getval(meta, "attribsMode", &val, &len);
+    if(len != sizeof(uint32_t))
+        return 1;
+    sxi_file_set_mode(file, (mode_t)sxi_swapu32(*(const uint32_t *) val));
+
+    sxc_meta_getval(meta, "attribsUID", &val, &len);
+    sxc_meta_getval(meta, "attribsGID", &val2, &len2);
+    if(len != sizeof(uint32_t) || len2 != sizeof(uint32_t))
+        return 1;
+    sxi_file_set_uid(file, (uid_t)sxi_swapu32(*(const uint32_t *) val));
+    sxi_file_set_gid(file, (uid_t)sxi_swapu32(*(const uint32_t *) val2));
+
+    sxc_meta_getval(meta, "attribsAtime", &val, &len);
+    sxc_meta_getval(meta, "attribsMtime", &val2, &len2);
+    if(len != sizeof(uint64_t) || len2 != sizeof(uint64_t))
+        return 1;
+    sxi_file_set_atime(file, sxi_swapu64(*(const uint64_t *) val));
+    sxi_file_set_mtime(file, sxi_swapu64(*(const uint64_t *) val2));
+    sxi_file_set_ctime(file, sxi_swapu64(*(const uint64_t *) val2));
+    sxi_file_set_created_at(file, sxi_swapu64(*(const uint64_t *) val2));
+
+    return 0;
+}
+static int attribs_process(const sxf_handle_t *handle, void *ctx, sxc_file_t *file, sxc_meta_t *filemeta, const char *cfgdir, const void *cfgdata, unsigned int cfgdata_len, sxf_mode_t mode)
 {
     if(mode == SXF_MODE_UPLOAD)
-	return attribs_process_up(handle, ctx, filename, filemeta, cfgdata, cfgdata_len);
-    else
-	return attribs_process_down(handle, ctx, filename, filemeta, cfgdata, cfgdata_len);
+	return attribs_process_up(handle, ctx, file, filemeta, cfgdata, cfgdata_len);
+    else if(mode == SXF_MODE_DOWNLOAD)
+	return attribs_process_down(handle, ctx, file, filemeta, cfgdata, cfgdata_len);
+    else /* SXF_MODE_LIST */
+        return attribs_process_list(handle, ctx, file, filemeta, cfgdata, cfgdata_len);
 }
 
 sxc_filter_t sxc_filter={
@@ -153,7 +182,7 @@ sxc_filter_t sxc_filter={
 /* const char *options */	    NULL,
 /* const char *uuid */		    "43122b8c-56d1-4671-8500-aa6831eb983c",
 /* sxf_type_t type */		    SXF_TYPE_GENERIC,
-/* int version[2] */		    {1, 2},
+/* int version[2] */		    {1, 3},
 /* int (*init)(const sxf_handle_t *handle, void **ctx) */	    NULL,
 /* int (*shutdown)(const sxf_handle_t *handle, void *ctx) */    NULL,
 /* int (*configure)(const sxf_handle_t *handle, const char *cfgstr, const char *cfgdir, void **cfgdata, unsigned int *cfgdata_len, sxc_meta_t *custom_meta) */
@@ -170,6 +199,8 @@ sxc_filter_t sxc_filter={
 				    NULL,
 /* int (*file_update)(const sxf_handle_t *handle, void *ctx, const void *cfgdata, unsigned int cfgdata_len, sxf_mode_t mode, sxc_file_t *source, sxc_file_t *dest, int recursive) */
 				    NULL,
+/* int (*filemeta_process)(const sxf_handle_t *handle, void **ctx, const char *cfgdir, const void *cfgdata, unsigned int cfgdata_len, sxc_file_t *file, sxf_filemeta_type_t filemeta_type, const char *filename, char **new_filename, sxc_meta_t *file_meta, sxc_meta_t *custom_volume_meta) */
+                                    NULL,
 /* internal */
 /* const char *tname; */	    NULL
 };

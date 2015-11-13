@@ -484,7 +484,7 @@ static int sxfs_rename (const char *path, const char *newpath) {
     sxc_file_t *src = NULL, *dest = NULL;
     sxfs_lsdir_t *dir_from, *dir_to;
     sxfs_file_t *sxfs_file;
- 
+
     if(!path || !newpath) {
         SXFS_LOG("NULL argument");
         return -EINVAL;
@@ -753,6 +753,8 @@ static int sxfs_rename (const char *path, const char *newpath) {
     }
     /* move remote file */
     if(!SXFS_DATA->args->use_queues_flag || (operation_type == 1 && dir_from->files[index_from]->remote) || (operation_type == 2 && dir_from->dirs[index_from]->remote)) {
+        int r;
+
         src = sxc_file_remote(cluster, SXFS_DATA->uri->volume, src_path+1, NULL);
         if(!src) {
             SXFS_LOG("Cannot create file object: %s", sxc_geterrmsg(sx));
@@ -765,12 +767,30 @@ static int sxfs_rename (const char *path, const char *newpath) {
             ret = -sxfs_sx_err(sx);
             goto sxfs_rename_err;
         }
-        if(sxc_mass_rename(cluster, src, dest, 1)) {
-            SXFS_LOG("%s", sxc_geterrmsg(sx));
-            ret = -sxfs_sx_err(sx);
-            goto sxfs_rename_err;
+
+        if((r = sxc_mass_rename(cluster, src, dest, 1))) {
+            if(r == -2) {
+                /* Mass operation requested on a volume with filename processing filter, falling back to sxc_copy + sxc_rm method */
+                sxc_clearerr(sx);
+
+                if(sxc_copy(src, dest, 1, 0, 0, NULL, 0)) {
+                    SXFS_LOG("%s", sxc_geterrmsg(sx));
+                    ret = -sxfs_sx_err(sx);
+                    goto sxfs_rename_err;
+                }
+
+                if((ret = sxfs_delete(src_path, 1))) {
+                    SXFS_LOG("Failed to remove source file");
+                    goto sxfs_rename_err;
+                }
+            } else { /* Rename operation failed */
+                SXFS_LOG("%s", sxc_geterrmsg(sx));
+                ret = -sxfs_sx_err(sx);
+                goto sxfs_rename_err;
+            }
         }
     }
+
     /* cache update */
     if(operation_type == 1) { /* renaming file */
         sxfs_lsfile_t *file = dir_from->files[index_from];
@@ -2677,7 +2697,7 @@ static int check_filter (const char *filter) {
 int main (int argc, char **argv) {
     int i, ret = 1, acl, runas_found = 0, pthread_flag = 0, tempdir_created = 0, tmp;
     unsigned int j;
-    char *volume_name = NULL, *username = NULL, *filter_dir, *profile = NULL;
+    char *volume_name = NULL, *username = NULL, *profile = NULL, *filter_dir = NULL;
     const char *filter_dir_env = sxi_getenv("SX_FILTER_DIR");
     struct timeval tv;
     struct tm *tm;
@@ -3107,9 +3127,10 @@ int main (int argc, char **argv) {
     for(i=fargs.argc-1; i>0; i--) /* index 0 is program name */
         if(!strncmp(fargs.argv[i], "subdir=", 7)) {
             int fail = 1;
-            char *path = NULL, *name, *ptr, *fpath;
+            char *path = NULL, *name, *ptr;
             sxc_cluster_lf_t *flist = NULL;
             sxfs_lsdir_t *dir = sxfs->root;
+            sxc_file_t *file = NULL;
 
             if(*(fargs.argv[i]+7) != '/') {
                 fprintf(stderr, "ERROR: Please use absolute path as a subdir\n");
@@ -3124,24 +3145,28 @@ int main (int argc, char **argv) {
                 sprintf(path, "%s", fargs.argv[i]+7);
                 if(path[strlen(path)-1] == '/')
                     path[strlen(path)-1] = '\0';
-                flist = sxc_cluster_listfiles(cluster, sxfs->uri->volume, path, 0, NULL, NULL, NULL, NULL, NULL, 0);
+                flist = sxc_cluster_listfiles(cluster, sxfs->uri->volume, path, 0, NULL, NULL, NULL, NULL, NULL, 0, 1 /* Forces file metadata to be fetched */);
                 if(!flist) {
                     fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
                     break;
                 }
-                tmp = sxc_cluster_listfiles_next(flist, &fpath, NULL, NULL, NULL);
+                tmp = sxc_cluster_listfiles_next(cluster, sxfs->uri->volume, flist, &file);
                 if(tmp) {
+                    const char *fpath;
+
                     if(tmp < 0) {
                         fprintf(stderr, "ERROR: Cannot retrieve file name: %s", sxc_geterrmsg(sx));
                         break;
                     }
+                    fpath = sxc_file_get_path(file);
                     if(fpath[strlen(fpath)-1] != '/') /* there can be a file with same name as $subdir */
                         tmp = 1;
                     else
                         tmp = 0;
-                    free(fpath);
+                    sxc_file_free(file);
+                    file = NULL;
                     if(tmp) {
-                        tmp = sxc_cluster_listfiles_next(flist, NULL, NULL, NULL, NULL);
+                        tmp = sxc_cluster_listfiles_next(cluster, sxfs->uri->volume, flist, &file);
                         if(tmp) {
                             if(tmp < 0) {
                                 fprintf(stderr, "ERROR: Cannot retrieve file name: %s", sxc_geterrmsg(sx));
@@ -3197,6 +3222,7 @@ int main (int argc, char **argv) {
                 }
                 fail = 0;
             } while(0);
+            sxc_file_free(file);
             free(path);
             sxc_cluster_listfiles_free(flist);
             if(fail)

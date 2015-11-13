@@ -30,10 +30,13 @@
 #include <string.h>
 #include <stdlib.h>
 #include <sys/types.h>
+#include <sys/stat.h>
 
 #include "sx.h"
 #define ZLIB_CONST
 #include "zlib.h"
+#include "libsxclient/src/fileops.h"
+#include "libsxclient/src/misc.h"
 
 #define ERROR(...)	sxc_filter_msg(handle, SX_LOG_ERR, __VA_ARGS__)
 
@@ -214,6 +217,66 @@ static int zcomp_data_finish(const sxf_handle_t *handle, void **ctx, sxf_mode_t 
     return 0;
 }
 
+static int zcomp_process_up(const sxf_handle_t *handle, void *ctx, sxc_file_t *file, sxc_meta_t *meta, const void *cfgdata, unsigned int cfgdata_len)
+{
+    struct stat sb;
+    uint64_t val64;
+    unsigned int i, nmeta = sxc_meta_count(meta);
+
+    /* Do not override existing attributes */
+    for(i=0; i<nmeta; i++) {
+        const char *key;
+        if(sxc_meta_getkeyval(meta, i, &key, NULL, NULL))
+            return 1;
+        if(!strncmp(key, "zcomp", sizeof("zcomp")-1))
+            return 0;
+    }
+
+    if(stat(sxc_file_get_path(file), &sb) == -1) {
+        ERROR("Failed to stat file %s", sxc_file_get_path(file));
+        return 1;
+    }
+
+    val64 = sxi_swapu64(sb.st_size);
+    if(sxc_meta_setval(meta, "zcompSize", &val64, sizeof(val64)))
+        return 1;
+    return 0;
+}
+
+static int zcomp_process_list(const sxf_handle_t *handle, void *ctx, sxc_file_t *file, sxc_meta_t *meta, const void *cfgdata, unsigned int cfgdata_len)
+{
+    const void *val;
+    unsigned int len;
+
+    if(!sxc_meta_count(meta))
+        return 0;
+    if(sxc_meta_getval(meta, "zcompSize", &val, &len)) {
+        ERROR("Failed to get local file size");
+        return 1;
+    }
+    if(len != sizeof(uint64_t)) {
+        ERROR("Invalid local size lentgh");
+        return 1;
+    }
+
+    if(sxi_file_set_size(file, *((const uint64_t*)val)))
+        return 1;
+    return 0;
+}
+
+static int zcomp_file_process(const sxf_handle_t *handle, void *ctx, sxc_file_t *file, sxc_meta_t *filemeta, const char *cfgdir, const void *cfgdata, unsigned int cfgdata_len, sxf_mode_t mode)
+{
+    if(!filemeta) {
+        ERROR("NULL filemeta");
+        return 1;
+    }
+
+    if(mode == SXF_MODE_UPLOAD)
+        return zcomp_process_up(handle, ctx, file, filemeta, cfgdata, cfgdata_len);
+    else
+        return zcomp_process_list(handle, ctx, file, filemeta, cfgdata, cfgdata_len);
+}
+
 sxc_filter_t sxc_filter={
 /* int abi_version */		    SXF_ABI_VERSION,
 /* const char *shortname */	    "zcomp",
@@ -222,7 +285,7 @@ sxc_filter_t sxc_filter={
 /* const char *options */	    "level:N (N = 1..9)",
 /* const char *uuid */		    "d5dbdf0a-fb17-4d1b-a9ce-4060317af5b5",
 /* sxf_type_t type */		    SXF_TYPE_COMPRESS,
-/* int version[2] */		    {1, 1},
+/* int version[2] */		    {1, 2},
 /* int (*init)(const sxf_handle_t *handle, void **ctx) */	    zcomp_init,
 /* int (*shutdown)(const sxf_handle_t *handle, void *ctx) */    zcomp_shutdown,
 /* int (*configure)(const sxf_handle_t *handle, const char *cfgstr, const char *cfgdir, void **cfgdata, unsigned int *cfgdata_len, sxc_meta_t *custom_meta) */
@@ -233,12 +296,14 @@ sxc_filter_t sxc_filter={
 				    zcomp_data_process,
 /* int (*data_finish)(const sxf_handle_t *handle, void **ctx, sxf_mode_t mode) */
 				    zcomp_data_finish,
-/* int (*file_process)(const sxf_handle_t *handle, void *ctx, const char *filename, sxc_metalist_t **metalist, sxc_meta_t *meta, const char *cfgdir, const void *cfgdata, unsigned int cfgdata_len, sxf_mode_t mode) */
-				    NULL,
+/* int (*file_process)(const sxf_handle_t *handle, void *ctx, sxc_file_t *file, sxc_meta_t *meta, const char *cfgdir, const void *cfgdata, unsigned int cfgdata_len, sxf_mode_t mode) */
+				    zcomp_file_process,
 /* void (*file_notify)(const sxf_handle_t *handle, void *ctx, const void *cfgdata, unsigned int cfgdata_len, sxf_mode_t mode, const char *source_cluster, const char *source_volume, const char *source_path, const char *dest_cluster, const char *dest_volume, const char *dest_path) */
 				    NULL,
 /* int (*file_update)(const sxf_handle_t *handle, void *ctx, const void *cfgdata, unsigned int cfgdata_len, sxf_mode_t mode, sxc_file_t *source, sxc_file_t *dest, int recursive) */
 				    NULL,
+/* int (*filemeta_process)(const sxf_handle_t *handle, void **ctx, const char *cfgdir, const void *cfgdata, unsigned int cfgdata_len, sxc_file_t *file, sxf_filemeta_type_t filemeta_type, const char *filename, char **new_filename, sxc_meta_t *file_meta, sxc_meta_t *custom_volume_meta) */
+                                    NULL,
 /* internal */
 /* const char *tname; */	    NULL
 };

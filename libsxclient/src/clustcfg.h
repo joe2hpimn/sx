@@ -40,7 +40,7 @@ const char *sxi_cluster_get_confdir(const sxc_cluster_t *cluster);
  * inside! */
 
 typedef sxi_job_t* (*file_list_cb_t)(sxc_file_list_t *target, sxc_file_t *pattern, sxc_cluster_t *cfg, sxi_hostlist_t *hlist,
-                                   const char *vol, const char *path, void *ctx, struct filter_handle *fh);
+                                   sxc_meta_t *cvmeta, sxc_file_t *file, void *ctx, struct filter_handle *fh, const char *filter_fcgdir);
 typedef int (*multi_cb_t)(sxc_file_list_t *target, void *ctx);
 char *sxi_ith_slash(char *s, unsigned int i);
 unsigned sxi_count_slashes(const char *str);
@@ -60,5 +60,4 @@ int sxi_cluster_set_settings(sxc_cluster_t *cluster, sxc_meta_t *meta);
 
 /* Use getaddrinfo() to create a hostlist from a hostname */
 int sxi_conns_resolve_hostlist(sxi_conns_t *conns);
-
 #endif

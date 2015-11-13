@@ -71,4 +71,29 @@ sxi_sxfs_data_t *sxi_sxfs_download_init(sxc_file_t *source);
 int sxi_sxfs_download_run(sxi_sxfs_data_t *sxfs, sxc_cluster_t *cluster, sxc_file_t *dest, off_t offset, long int size);
 void sxi_sxfs_download_finish(sxi_sxfs_data_t *sxfs);
 
+int sxi_file_set_ctime(sxc_file_t *file, time_t creatd_at);
+
+int sxi_filemeta_process(sxc_client_t *sx, struct filter_handle *fh, const char *cfgdir, sxc_file_t *file, sxc_meta_t *custom_volume_meta);
+
+int sxi_file_process(sxc_client_t *sx, struct filter_handle *fh, const char *cfgdir, sxc_file_t *file, sxf_mode_t mode);
+
+sxc_file_t *sxi_file_remote(sxc_cluster_t *cluster, const char *volume, const char *path, const char *remote_path, const char *revision, sxc_meta_t *filemeta, int meta_fetched);
+sxc_file_t *sxi_file_dup(sxc_file_t *file);
+char *sxi_get_filter_dir(sxc_client_t *sx, const char *confdir, const char *uuid, const char *volume);
+sxc_file_t *sxi_file_local(sxc_client_t *sx, const char *path, sxc_meta_t *meta);
+
+
+/* File properties setters */
+int sxi_file_set_mode(sxc_file_t *file, mode_t mode);
+int sxi_file_set_ctime(sxc_file_t *file, time_t c_time);
+int sxi_file_set_atime(sxc_file_t *file, time_t a_time);
+int sxi_file_set_mtime(sxc_file_t *file, time_t m_time);
+int sxi_file_set_created_at(sxc_file_t *file, time_t created_at);
+int sxi_file_set_uid(sxc_file_t *file, uid_t uid);
+int sxi_file_set_gid(sxc_file_t *file, uid_t gid);
+int sxi_file_set_remote_path(sxc_file_t *file, const char *newpath);
+int sxi_file_set_size(sxc_file_t *file, uint64_t size);
+int sxi_file_set_remote_size(sxc_file_t *file, uint64_t remote_size);
+int sxi_file_set_meta(sxc_file_t *file, sxc_meta_t *meta);
+
 #endif

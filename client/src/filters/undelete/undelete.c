@@ -103,7 +103,7 @@ static int undelete_configure(const sxf_handle_t *handle, const char *cfg, const
     return 0;
 }
 
-int copy_to_trash(const sxf_handle_t *handle, void *ctx, const void *cfgdata, unsigned int cfgdata_len, sxf_mode_t mode, sxc_file_t *source, sxc_file_t *dest, int recursive)
+static int copy_to_trash(const sxf_handle_t *handle, void *ctx, const void *cfgdata, unsigned int cfgdata_len, sxf_mode_t mode, sxc_file_t *source, sxc_file_t *dest, int recursive)
 {
     struct undelete_ctx *uctx = ctx;
     sxc_file_t *copy;
@@ -192,6 +192,8 @@ sxc_filter_t sxc_filter={
 				    NULL,
 /* int (*file_update)(const sxf_handle_t *handle, void *ctx, const void *cfgdata, unsigned int cfgdata_len, sxf_mode_t mode, sxc_file_t *source, sxc_file_t *dest, int recursive) */
 				    copy_to_trash,
+/* int (*filemeta_process)(const sxf_handle_t *handle, void **ctx, const char *cfgdir, const void *cfgdata, unsigned int cfgdata_len, sxc_file_t *file, sxf_filemeta_type_t filemeta_type, const char *filename, char **new_filename, sxc_meta_t *file_meta, sxc_meta_t *custom_volume_meta) */
+                                    NULL,
 /* internal */
 /* const char *tname; */	    NULL
 };

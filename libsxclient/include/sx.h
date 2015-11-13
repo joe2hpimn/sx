@@ -161,13 +161,19 @@ sxc_cluster_lv_t *sxc_cluster_listvolumes(sxc_cluster_t *cluster, int get_meta);
 int sxc_cluster_listvolumes_next(sxc_cluster_lv_t *lv, char **volume_name, char **volume_owner, int64_t *volume_used_size, int64_t *volume_size, unsigned int *replica_count, unsigned int *effective_replica_count, unsigned int *revisions, char privs[3], sxc_meta_t **meta);
 void sxc_cluster_listvolumes_free(sxc_cluster_lv_t *lv);
 
+#define SXC_UINT64_UNDEFINED 0xffffffffffffffff
+#define SXC_UINT32_UNDEFINED 0xffffffff
+
 typedef struct _sxc_cluster_lf_t sxc_cluster_lf_t;
-sxc_cluster_lf_t *sxc_cluster_listfiles(sxc_cluster_t *cluster, const char *volume, const char *glob_pattern, int recursive, int64_t *volume_used_size, int64_t *volume_size, unsigned int *replica_count, unsigned int *effective_replica_count, unsigned int *nfiles, int reverse);
-sxc_cluster_lf_t *sxc_cluster_listfiles_etag(sxc_cluster_t *cluster, const char *volume, const char *glob_pattern, int recursive, int64_t *volume_used_size, int64_t *volume_size, unsigned int *replica_count, unsigned int *effective_replica_count, unsigned int *nfiles, int reverse, const char *etag_file);
-int sxc_cluster_listfiles_next(sxc_cluster_lf_t *lf, char **file_name, int64_t *file_size, time_t *file_created_at, char **file_revision);
-int sxc_cluster_listfiles_prev(sxc_cluster_lf_t *lf, char **file_name, int64_t *file_size, time_t *file_created_at, char **file_revision);
+sxc_cluster_lf_t *sxc_cluster_listfiles(sxc_cluster_t *cluster, const char *volume, const char *glob_pattern, int recursive, int64_t *volume_used_size, int64_t *volume_size, unsigned int *replica_count, unsigned int *effective_replica_count, unsigned int *nfiles, int reverse, int force_meta_fetch);
+sxc_cluster_lf_t *sxc_cluster_listfiles_etag(sxc_cluster_t *cluster, const char *volume, const char *glob_pattern, int recursive, int64_t *volume_used_size, int64_t *volume_size, unsigned int *replica_count, unsigned int *effective_replica_count, unsigned int *nfiles, int reverse, const char *etag_file, int force_meta_fetch);
+typedef struct _sxc_file_t sxc_file_t;
+int sxc_cluster_listfiles_next(sxc_cluster_t *cluster, const char *volume, sxc_cluster_lf_t *lf, sxc_file_t **file);
+int sxc_cluster_listfiles_prev(sxc_cluster_t *cluster, const char *volume, sxc_cluster_lf_t *lf, sxc_file_t **file);
+
 void sxc_cluster_listfiles_free(sxc_cluster_lf_t *lf);
 void sxc_cluster_listvolumes_reset(sxc_cluster_lv_t *lv);
+
 
 /*
  * Set active connections limits.
@@ -283,7 +289,6 @@ typedef struct _sxc_xfer_stat sxc_xfer_stat_t;
 int sxc_cluster_set_progress_cb(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_xfer_callback cb, void *ctx);
 /*sxc_xfer_callback sxc_cluster_get_progress_cb(const sxc_cluster_t *cluster);*/
 
-typedef struct _sxc_file_t sxc_file_t;
 sxc_file_t *sxc_file_remote(sxc_cluster_t *cluster, const char *volume, const char *path, const char *revision);
 sxc_file_t *sxc_file_local(sxc_client_t *sx, const char *path);
 sxc_file_t *sxc_file_from_url(sxc_client_t *sx, sxc_cluster_t **cluster, const char *url);
@@ -291,9 +296,19 @@ int sxc_file_is_sx(sxc_file_t *file);
 int sxc_file_is_remote_dir(sxc_file_t *file);
 int sxc_file_require_dir(sxc_file_t *file);
 int sxc_file_has_glob(sxc_file_t *file);
-sxc_cluster_t *sxc_file_get_cluster(sxc_file_t *file);
-const char *sxc_file_get_volume(sxc_file_t *file);
-const char *sxc_file_get_path(sxc_file_t *file);
+sxc_cluster_t *sxc_file_get_cluster(const sxc_file_t *file);
+const char *sxc_file_get_volume(const sxc_file_t *file);
+const char *sxc_file_get_path(const sxc_file_t *file);
+const char *sxc_file_get_remote_path(const sxc_file_t *file);
+mode_t sxc_file_get_mode(const sxc_file_t *file);
+time_t sxc_file_get_ctime(const sxc_file_t *file);
+time_t sxc_file_get_atime(const sxc_file_t *file);
+time_t sxc_file_get_mtime(const sxc_file_t *file);
+time_t sxc_file_get_created_at(const sxc_file_t *file);
+uid_t sxc_file_get_uid(const sxc_file_t *file);
+uid_t sxc_file_get_gid(const sxc_file_t *file);
+int64_t sxc_file_get_size(const sxc_file_t *file);
+int64_t sxc_file_get_remote_size(const sxc_file_t *file);
 int sxc_file_set_path(sxc_file_t *file, const char *newpath);
 void sxc_file_free(sxc_file_t *sxfile);
 
@@ -402,7 +417,7 @@ int sxc_fgetline(sxc_client_t *sx, FILE *f, char **ret);
 int sxc_input_fn(sxc_client_t *sx, sxc_input_t type, const char *prompt, const char *def, char *in, unsigned int insize, void *ctx); /* default input function */
 
 /* filters */
-#define SXF_ABI_VERSION	11
+#define SXF_ABI_VERSION	12
 
 /** Defines a filter's type
  * This is used to prioritize filters, for example
@@ -421,7 +436,8 @@ typedef enum {
     SXF_MODE_UPLOAD = 0,/**< file upload */
     SXF_MODE_DOWNLOAD,/**< file download */
     SXF_MODE_RCOPY, /**< remote-to-remote copy (fast mode) */
-    SXF_MODE_DELETE /**< file delete */
+    SXF_MODE_DELETE, /**< file delete */
+    SXF_MODE_LIST /**< remote file listing (called when file is processed before download or upload) */
 } sxf_mode_t;
 
 /** EOF and looping control
@@ -431,6 +447,13 @@ typedef enum {
     SXF_ACTION_REPEAT,/**< repeat call with same 'in' and 'insize' parameters */
     SXF_ACTION_DATA_END/**< marks the file's last block */
 } sxf_action_t;
+
+/** Determines whether filename is local or remote
+ */
+typedef enum {
+    SXF_FILEMETA_LOCAL = 0,/**< file meta is local */
+    SXF_FILEMETA_REMOTE /**< file meta is remote */
+} sxf_filemeta_type_t;
 
 struct filter_handle;
 typedef struct filter_handle sxf_handle_t;
@@ -486,7 +509,7 @@ typedef struct {
      *                 allocated by \ref init or \ref data_prepare
      */
 
-    int (*configure)(const sxf_handle_t *handle, const char *cfgstr, const char *cfgdir, void **cfgdata, unsigned int *cfgdata_len, sxc_meta_t *custom_meta);
+    int (*configure)(const sxf_handle_t *handle, const char *cfgstr, const char *cfgdir, void **cfgdata, unsigned int *cfgdata_len, sxc_meta_t *custom_volume_meta);
     /**< Called when a volume is created by sxvol
      *
      * @param[in] handle an opaque handle for sxc_filter_msg
@@ -494,12 +517,12 @@ typedef struct {
      * @param[in] cfgdir per-volume directory used to store client-local data
      * @param[out] cfgdata allocate and store volume metadata here
      * @param[out] cfgdata_len length of cfgdata
-     * @param[in] custom_meta custom volume metadata
+     * @param[in] custom_volume_meta custom volume metadata
      * @retval 0 on success
      * @retval non-zero on error
      * */
 
-    int (*data_prepare)(const sxf_handle_t *handle, void **ctx, const char *filename, const char *cfgdir, const void *cfgdata, unsigned int cfgdata_len, sxc_meta_t *custom_meta, sxf_mode_t mode);
+    int (*data_prepare)(const sxf_handle_t *handle, void **ctx, const char *filename, const char *cfgdir, const void *cfgdata, unsigned int cfgdata_len, sxc_meta_t *custom_volume_meta, sxf_mode_t mode);
     /**< Called before processing a file
      *
      * If data_process is NULL this function might not be called at all.
@@ -511,7 +534,7 @@ typedef struct {
      * @param[in] cfgdir per-volume directory used to store client-local data
      * @param[in] cfgdata volume metadata here, as defined by \ref configure
      * @param[in] cfgdata_len length of cfgdata
-     * @param[in] custom_meta custom volume metadata
+     * @param[in] custom_volume_meta custom volume metadata
      * @param[in] mode either SXF_MODE_UPLOAD or SXF_MODE_DOWNLOAD
      * @retval 0 on success
      * @retval non-zero on error
@@ -562,7 +585,7 @@ typedef struct {
      */
 
 
-    int (*file_process)(const sxf_handle_t *handle, void *ctx, const char *filename, sxc_meta_t *meta, const char *cfgdir, const void *cfgdata, unsigned int cfgdata_len, sxf_mode_t mode);
+    int (*file_process)(const sxf_handle_t *handle, void *ctx, sxc_file_t *file, sxc_meta_t *meta, const char *cfgdir, const void *cfgdata, unsigned int cfgdata_len, sxf_mode_t mode);
     /**<
      * Process an entire file and/or its metadata.
      * It can process a file and set per-file metadata before the file begins to upload (called
@@ -572,11 +595,12 @@ typedef struct {
      *
      * @param[in] handle an opaque handle for sxc_filter_msg
      * @param[in] ctx context structure, allocated by \ref init
+     * @param[in,out] file file structure
      * @param[in,out] meta file metadata
      * @param[in] cfgdir per-volume directory used to store client-local data
      * @param[in] cfgdata volume metadata here, as defined by \ref configure
      * @param[in] cfgdata_len length of cfgdata
-     * @param[in] mode either SXF_MODE_UPLOAD or SXF_MODE_DOWNLOAD
+     * @param[in] mode SXF_MODE_UPLOAD, SXF_MODE_DOWNLOAD or SXF_MODE_LIST
      * @retval 0 on success
      * @retval non-zero on error
      */
@@ -610,6 +634,25 @@ typedef struct {
      * @param[in] source source file object
      * @param[in] dest destination file object
      * @param[in] recursive information whether a file operation is performed within recursive mode
+     */
+
+    int (*filemeta_process)(const sxf_handle_t *handle, void **ctx, const char *cfgdir, const void *cfgdata, unsigned int cfgdata_len, sxc_file_t *file, sxf_filemeta_type_t filemeta_type, const char *filename, char **new_filename, sxc_meta_t *file_meta, sxc_meta_t *custom_volume_meta);
+    /**<
+     * Process filename and/or file meta before a specific action takes place.
+     *
+     * \note libsxclient is responsible for freeing pointer allocated and stored to new_filename
+     *
+     * @param[in] handle an opaque handle for sxc_filter_msg
+     * @param[in,out] ctx context structure
+     * @param[in] cfgdir per-volume directory used to store client-local data
+     * @param[in] cfgdata volume configuration metadata, as defined by \ref configure
+     * @param[in] cfgdata_len length of cfgdata
+     * @param[in] file file object
+     * @param[in] filemeta_type filemeta type (SXF_FILEMETA_*)
+     * @param[in] filename filename to be processed
+     * @param[out] new_filename new file name to be used
+     * @param[out] file_meta file meta
+     * @param[in] custom_volume_meta custom volume metadata
      */
 
     /** */

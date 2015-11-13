@@ -247,7 +247,32 @@ void fcgi_list_volume(const sx_hashfs_volume_t *vol) {
             CGI_PUTLL(file->file_size);
             CGI_PRINTF(",\"blockSize\":%u,\"createdAt\":", file->block_size);
             CGI_PUTT(file->created_at);
-            CGI_PRINTF(",\"fileRevision\":\"%s\"}", file->revision);
+            CGI_PRINTF(",\"fileRevision\":\"%s\"", file->revision);
+
+            if(has_arg("meta")) {
+                rc_ty t;
+                const char *key;
+                const void *value;
+                unsigned int value_len;
+                unsigned int comma_meta = 0;
+                t = sx_hashfs_getfilemeta_begin(hashfs, volume, file->name+1, file->revision, NULL, NULL);
+                if(t != OK && t != ITER_NO_MORE)
+                    quit_itererr(msg_get_reason(), t);
+                CGI_PRINTF(",\"fileMeta\":{");
+                while((t = sx_hashfs_getfilemeta_next(hashfs, &key, &value, &value_len)) == OK) {
+                    char hex[SXLIMIT_META_MAX_VALUE_LEN*2+1];
+                    if(comma_meta)
+                        CGI_PUTC(',');
+                    json_send_qstring(key);
+                    sxi_bin2hex(value, value_len, hex);
+                    CGI_PRINTF(":\"%s\"", hex);
+                    comma_meta = 1;
+                }
+                CGI_PUTC('}');
+                if(t != ITER_NO_MORE)
+                    break;
+            }
+            CGI_PUTC('}');
 	} else {
 	    /* A Fakedir */
             CGI_PUTS(":{}");

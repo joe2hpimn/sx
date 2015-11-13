@@ -101,6 +101,7 @@ typedef struct _sxfs_sx_data sxfs_sx_data_t;
 #define SXFS_FILTER_ATTRIBS 2
 #define SXFS_FILTER_UNDELETE 4
 #define SXFS_FILTER_ZCOMP 8
+#define SXFS_FILTER_RANDOMNAMES 16
 #define SXFS_FILTER_NEEDFILE (SXFS_FILTER_AES|SXFS_FILTER_ZCOMP) /* those filters need to download whole file to read it */
 
 #define ALLOC_AMOUNT 100
