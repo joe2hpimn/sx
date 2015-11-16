@@ -424,12 +424,9 @@ static void create_or_extend_tempfile(const sx_hashfs_volume_t *vol, const char 
     s = sx_hashfs_putfile_gettoken(hashfs, user, yctx.filesize, &token, hash_presence_callback, &ctx);
     if (s != OK) {
 	sx_hashfs_putfile_end(hashfs);
-	if(s == ENOSPC)
-	    quit_errmsg(413, msg_get_reason());
-	WARN("store_filehash_end failed: %d", s);
 	if(!*msg_get_reason())
 	    msg_set_reason("Cannot obtain upload token: %s", rc2str(s));
-	quit_errmsg(500, msg_get_reason());
+	quit_errmsg((s == ENOSPC) ? 413 : rc2http(s), msg_get_reason());
     }
 
     CGI_PRINTF("Content-type: application/json\r\n\r\n{\"uploadToken\":");
