@@ -336,6 +336,21 @@ static rc_ty process_heal(sx_hashfs_t *hashfs, int *terminate)
     return OK;
 }
 
+static rc_ty cb_heal(int mdb, const sx_uuid_t *node, int64_t start, int64_t stop, void *ctx)
+{
+    if (!node) {
+        NULLARG();
+        return EFAULT;
+    }
+    DEBUG("Have: %s, mdb %d [%lld,%lld]", node->string, mdb, (long long)start, (long long)stop);
+    return OK;
+}
+
+rc_ty process_fileblock_heal(sx_hashfs_t *h)
+{
+    return sx_hashfs_intervals(h, cb_heal, NULL);
+}
+
 int gc(sxc_client_t *sx, const char *dir, int pipe, int pipe_expire) {
     struct sigaction act;
     sx_hashfs_t *hashfs;
@@ -379,6 +394,8 @@ int gc(sxc_client_t *sx, const char *dir, int pipe, int pipe_expire) {
 
         gettimeofday(&tv1, NULL);
         sx_hashfs_distcheck(hashfs);
+
+        rc = process_fileblock_heal(hashfs);
 
         /* TODO: phase dependency (only after local upgrade completed) */
         rc = process_heal(hashfs, &terminate);

@@ -891,12 +891,19 @@ static rc_ty filerev_from_jobdata_rev(sx_hashfs_t *hashfs, job_data_t *job_data,
 {
     char revision[REV_LEN+1];
 
-    if(job_data->len != REV_LEN) {
+    switch(job_data->len) {
+    case REV_LEN_1_2:
+        memcpy(revision, job_data->ptr, REV_LEN_1_2);
+        revision[REV_LEN_1_2] = 0;
+        break;
+    case REV_LEN:
+        memcpy(revision, job_data->ptr, REV_LEN);
+        revision[REV_LEN] = 0;
+        break;
+    default:
 	CRIT("Bad job data");
         return FAIL_EINTERNAL;
     }
-    memcpy(revision, job_data->ptr, REV_LEN);
-    revision[REV_LEN] = 0;
     return sx_hashfs_getinfo_by_revision(hashfs, revision, filerev);
 }
 
@@ -6542,16 +6549,12 @@ static rc_ty get_failed_job_expiration_ttl(struct jobmgr_data_t *q) {
     } else if(q->job_type == JOBTYPE_DELETE_FILE) {
 	sx_hashfs_file_t revinfo;
         rc_ty s;
-        char rev[REV_LEN+1];
 
-        if(!q->job_data || !q->job_data->ptr || q->job_data->len != REV_LEN)
+        if(!q->job_data || !q->job_data->ptr)
             return FAIL_EINTERNAL;
 
-        /* Need to nul terminate string */
-        memcpy(rev, q->job_data->ptr, REV_LEN);
-        rev[REV_LEN] = '\0';
         /* JOBTYPE_DELETE_FILE contains revision as job data. Use it to get tempfile entry. */
-        if((s = sx_hashfs_getinfo_by_revision(q->hashfs, rev, &revinfo)) != OK) {
+        if((s = filerev_from_jobdata_rev(q->hashfs, q->job_data->ptr, &revinfo)) != OK) {
             /* File could be deleted already, set size to 0 but do not fail and let job manager to finish */
             if(s == ENOENT)
                 fsize = 0;

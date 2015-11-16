@@ -55,6 +55,7 @@
 #include "../libsxclient/src/cluster.h"
 #include "../libsxclient/src/sxreport.h"
 #include "job_common.h"
+#include "intervalset.h"
 
 #ifndef HAVE_FDATASYNC
 #define fdatasync fsync
@@ -74,6 +75,7 @@
 /* Current versioning */
 #define MAKE_HASHFS_VER(major, minor) "SXST "STRIFY(major)"."STRIFY(minor)
 #define HASHFS_VERSION_1_9 MAKE_HASHFS_VER(1,9)
+#define HASHFS_VERSION_1_10 MAKE_HASHFS_VER(1,10)
 
 #define HASHFS_VERSION_INITIAL HASHFS_VERSION_1_0
 #define HASHFS_VERSION_CURRENT MAKE_HASHFS_VER(SRC_MAJOR_VERSION, SRC_MINOR_VERSION)
@@ -771,6 +773,7 @@ struct _sx_hashfs_t {
     sqlite3_stmt *qt_tokendata;
     sqlite3_stmt *qt_tmpbyrev;
     sqlite3_stmt *qt_tmpdata;
+    sqlite3_stmt *qt_tmpassignid;
     sqlite3_stmt *qt_delete;
     sqlite3_stmt *qt_flush;
     sqlite3_stmt *qt_gc_revisions;
@@ -811,6 +814,8 @@ struct _sx_hashfs_t {
     sqlite3_stmt *qm_upd_heal_volume[METADBS];
     sqlite3_stmt *qm_del_heal_volume[METADBS];
     sqlite3_stmt *qm_needs_upgrade[METADBS];
+
+    sxi_iset_t iset[METADBS];
 
     sxi_db_t *datadb[SIZES][HASHDBS];
     sqlite3_stmt *qb_nextavail[SIZES][HASHDBS];
@@ -1071,6 +1076,7 @@ static void close_all_dbs(sx_hashfs_t *h) {
         sqlite3_finalize(h->qm_upd_heal_volume[i]);
         sqlite3_finalize(h->qm_del_heal_volume[i]);
         sqlite3_finalize(h->qm_needs_upgrade[i]);
+        sxi_iset_finalize(&h->iset[i]);
 	qclose(&h->metadb[i]);
     }
 
@@ -1128,6 +1134,7 @@ static void close_all_dbs(sx_hashfs_t *h) {
     sqlite3_finalize(h->qt_countmeta);
     sqlite3_finalize(h->qt_gettoken);
     sqlite3_finalize(h->qt_tmpdata);
+    sqlite3_finalize(h->qt_tmpassignid);
     sqlite3_finalize(h->qt_tokendata);
     sqlite3_finalize(h->qt_tmpbyrev);
     sqlite3_finalize(h->qt_delete);
@@ -1326,9 +1333,26 @@ static int load_config(sx_hashfs_t *h, sxc_client_t *sx) {
 	    goto load_config_fail;
 	}
 	uuid_from_binary(&h->node_uuid, p);
+        for (i=0;i<METADBS;i++) {
+            if (!h->metadb[i])
+                continue;
+            if (qbegin(h->metadb[i])) {
+                CRIT("Failed to start metadb transaction");
+                goto load_config_fail;
+            }
+            if (sxi_iset_set_self_id(&h->iset[i], &h->node_uuid)) {
+                qrollback(h->metadb[i]);
+                CRIT("Cannot set self UUID");
+                goto load_config_fail;
+            }
+            if (qcommit(h->metadb[i])) {
+                CRIT("Failed to commit metadb transaction");
+                goto load_config_fail;
+            }
+        }
 
-	sqlite3_reset(h->q_getval);
-	if(qbind_text(h->q_getval, ":k", "current_dist_rev")) {
+        sqlite3_reset(h->q_getval);
+        if(qbind_text(h->q_getval, ":k", "current_dist_rev")) {
 	    CRIT("Failed to retrieve cluster distribution from database");
 	    goto load_config_fail;
 	}
@@ -1833,6 +1857,8 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
         goto open_hashfs_fail;
     if(qprep(h->tempdb, &h->qt_tmpdata, "SELECT t || ':' || token AS revision, name, size, volume_id, content, uniqidx, flushed, avail, token, LENGTH(CAST(name AS BLOB)) + size + COALESCE((SELECT SUM(LENGTH(CAST(key AS BLOB)) + LENGTH(value)) FROM tmpmeta WHERE tmpmeta.tid = tmpfiles.tid),0) FROM tmpfiles WHERE tid = :id"))
 	goto open_hashfs_fail;
+    if(qprep(h->tempdb, &h->qt_tmpassignid, "UPDATE tmpfiles SET token=(:node || ':' || :node_op_counter) WHERE tid = :id"))
+        goto open_hashfs_fail;
     if(qprep(h->tempdb, &h->qt_updateuniq, "UPDATE tmpfiles SET uniqidx = :uniq, avail = :avail WHERE tid = :id AND flushed = 1"))
 	goto open_hashfs_fail;
     if(qprep(h->tempdb, &h->qt_flush, "UPDATE tmpfiles SET flushed = 1 WHERE tid = :id"))
@@ -1964,7 +1990,7 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 	qnullify(q);
         if(sqlite3_create_function(h->metadb[i]->handle, "pmatch", 4, SQLITE_UTF8 | SQLITE_DETERMINISTIC, NULL, pmatch, NULL, NULL))
             goto open_hashfs_fail;
-	if(qprep(h->metadb[i], &h->qm_ins[i], "INSERT INTO files (volume_id, name, size, content, rev, revision_id, age) VALUES (:volume, :name, :size, :hashes, :revision, :revision_id, :age)"))
+	if(qprep(h->metadb[i], &h->qm_ins[i], "INSERT INTO files (volume_id, name, size, content, rev, revision_id, age, node_id, node_op_counter) VALUES (:volume, :name, :size, :hashes, :revision, :revision_id, :age, :node_id, :node_op_counter)"))
 	    goto open_hashfs_fail;
         if(qprep(h->metadb[i], &h->qm_list[i], "SELECT name, size, rev, revision_id FROM files WHERE volume_id = :volume AND name > :previous AND (:limit is NULL OR name < :limit) AND pmatch(name, :pattern, :pattern_slashes, :slash_ending) > 0 GROUP BY name HAVING rev = MAX(rev) ORDER BY name ASC LIMIT 1"))
             goto open_hashfs_fail;
@@ -2029,6 +2055,9 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
         if(qprep(h->metadb[i], &h->qm_del_heal_volume[i], "DELETE FROM heal_volume WHERE name=:name"))
             goto open_hashfs_fail;
         if(qprep(h->metadb[i], &h->qm_needs_upgrade[i], "SELECT fid, volume_id, name, rev, size FROM files WHERE revision_id IS NULL"))
+            goto open_hashfs_fail;
+        if (sxi_iset_prepare(&h->iset[i], h->metadb[i]) ||
+            sxi_iset_set_self_id(&h->iset[i], &h->node_uuid))
             goto open_hashfs_fail;
     }
 
@@ -2765,14 +2794,24 @@ static int check_userdesc(const char *desc) {
     return check_path_element(desc, SXLIMIT_MIN_USERDESC_LEN, SXLIMIT_MAX_USERDESC_LEN, "user description", 0);
 }
 
-static int parse_revision(const char *revision, unsigned int *revtime) {
+static int check_revision_length(const char *revision)
+{
+    if(!revision)
+	return -1;
+    if(strlen(revision) != REV_LEN && strlen(revision) != REV_LEN_1_2) {
+        msg_set_reason("Bad revision length: %ld", strlen(revision));
+	return -1;
+    }
+    return 0;
+}
+
+static int parse_revision(const char *revision, unsigned int *revtime, sx_uuid_t *node, int64_t *node_op_counter) {
+    char uuid[UUID_STRING_SIZE+1];
     const char *eod;
     time_t t;
 
-    if(!revision)
-	return -1;
-    if(strlen(revision) != REV_LEN)
-	return -1;
+    if (check_revision_length(revision))
+        return -1;
     if(revision[REV_TIME_LEN] != ':')
 	return -1;
 
@@ -2781,11 +2820,33 @@ static int parse_revision(const char *revision, unsigned int *revtime) {
 	return -1;
     if(revtime)
 	*revtime = (unsigned int)t;
+    if (node_op_counter)
+        *node_op_counter = NO_REV_NODEOP;
+    if(strlen(revision) == REV_LEN) {
+        if (node) {
+            memcpy(uuid, revision + REV_TIME_LEN + 1, UUID_STRING_SIZE);
+            uuid[UUID_STRING_SIZE] = '\0';
+            if (uuid_from_string(node, uuid)) {
+                msg_set_reason("Can't parse node UUID in revision");
+                return -1;
+            }
+        }
+        if (revision[REV_TIME_LEN + 1 + UUID_STRING_SIZE] != ':')
+            return -1;
+        if (node_op_counter) {
+            char *eon = NULL;
+            *node_op_counter = strtoll(revision + REV_TIME_LEN + 1 + UUID_STRING_SIZE + 1, &eon, 10);
+            if ((eon && *eon) || *node_op_counter < 0) {
+                msg_set_reason("Cannot parse node op counter");
+                return -1;
+            }
+        }
+    }
     return 0;
 }
 
 static int check_revision(const char *revision) {
-    return parse_revision(revision, NULL);
+    return parse_revision(revision, NULL, NULL, NULL);
 }
 
 #define TOKEN_SIGNED_LEN UUID_STRING_SIZE + 1 + TOKEN_RAND_BYTES * 2 + 1 + TOKEN_REPLICA_LEN + 1 + TOKEN_EXPIRE_LEN + 1
@@ -4272,6 +4333,29 @@ static rc_ty metadb_1_2_to_1_9(sxi_db_t *db)
     return ret;
 }
 
+static rc_ty metadb_1_9_to_1_10(sxi_db_t *db)
+{
+    rc_ty ret = FAIL_EINTERNAL;
+    sqlite3_stmt *q = NULL;
+    do {
+        if (sxi_iset_create(db))
+            break;
+        if(qprep(db, &q, "ALTER TABLE files ADD COLUMN node_id INTEGER REFERENCES node_uuids(node_id)") || qstep_noret(q))
+            break;
+        qnullify(q);
+        if(qprep(db, &q, "ALTER TABLE files ADD COLUMN node_op_counter INTEGER") || qstep_noret(q))
+            break;
+        qnullify(q);
+        if(qprep(db, &q, "CREATE UNIQUE INDEX op_id ON files(node_id, node_op_counter)") || qstep_noret(q))
+            break;
+        qnullify(q);
+
+        ret = OK;
+    } while(0);
+    qnullify(q);
+    return ret;
+}
+
 static rc_ty hbeatdb_1_2_to_1_9(sxi_db_t *db)
 {
     rc_ty ret = FAIL_EINTERNAL;
@@ -4595,13 +4679,13 @@ static rc_ty alldb_1_0_to_1_1(sxi_all_db_t *alldb)
 
             /* Get tempfile revision */
             rev = (const char *)sqlite3_column_text(tq, 0);
-            if(!rev || strlen(rev) != REV_LEN) {
+            if(!rev || check_revision_length(rev)) {
                 WARN("Invalid tempfile revision");
                 break;
             }
 
             /* Update existing job data */
-            if(qbind_blob(jdq, ":data", rev, REV_LEN) || qbind_int64(jdq, ":id", id) || qstep_noret(jdq)) {
+            if(qbind_blob(jdq, ":data", rev, strlen(rev)) || qbind_int64(jdq, ":id", id) || qstep_noret(jdq)) {
                 WARN("Failed to perform job data update query");
                 break;
             }
@@ -4651,6 +4735,12 @@ static const sx_upgrade_t upgrade_sequence[] = {
         .upgrade_metadb = metadb_1_2_to_1_9,
 	.upgrade_hbeatdb = hbeatdb_1_2_to_1_9,
 	NEWDBS({"hbeatdb", "hbeat.db"} /* , {"otherstuff", "other.db"}, ... */),
+        .job = JOBTYPE_DUMMY
+    },
+    {
+        .from = HASHFS_VERSION_1_9,
+        .to = HASHFS_VERSION_1_10,
+        .upgrade_metadb = metadb_1_9_to_1_10,
         .job = JOBTYPE_DUMMY
     }
 };
@@ -6056,7 +6146,7 @@ rc_ty sx_hashfs_revision_next(sx_hashfs_t *h, int reversed) {
 
     h->list_file.file_size = sqlite3_column_int64(q, 0);
     revision = (const char *)sqlite3_column_text(q, 1);
-    if(parse_revision(revision, &h->list_file.created_at)) {
+    if(parse_revision(revision, &h->list_file.created_at, NULL, NULL)) {
 	WARN("Found bad revision %s", revision ? revision : "(NULL)");
 	sqlite3_reset(q);
 	return FAIL_EINTERNAL;
@@ -6263,7 +6353,7 @@ static rc_ty lookup_file_name(sx_hashfs_t *h, int db_idx, int update_cache) {
     e->nblocks = size_to_blocks(e->file_size, NULL, &e->block_size);
 
     revision = (const char *)sqlite3_column_text(stmt, 2);
-    if(!revision || parse_revision(revision, &e->created_at)) {
+    if(!revision || parse_revision(revision, &e->created_at, NULL, NULL)) {
         WARN("Bad revision found on file %s, volid %lld", h->list_file.name, (long long)h->list_volid);
         goto lookup_file_name_err;
     } else {
@@ -8171,7 +8261,7 @@ rc_ty sx_hashfs_getfile_begin(sx_hashfs_t *h, const char *volume, const char *fi
 
     rev = (const char *)sqlite3_column_text(q, 3);
     if(!rev ||
-       parse_revision(rev, &created_at) ||
+       parse_revision(rev, &created_at, NULL, NULL) ||
        (etag && hash_buf(h->cluster_uuid.string, strlen(h->cluster_uuid.string), rev, strlen(rev), etag))) {
 	sx_hashfs_getfile_end(h);
 	return FAIL_EINTERNAL;
@@ -9545,7 +9635,7 @@ rc_ty sx_hashfs_delete_old_revs(sx_hashfs_t *h, const sx_hashfs_volume_t *volume
 }
 
 /* WARNING: MUST BE CALLED WITHIN A TANSACTION ON META !!! */
-static rc_ty create_file(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const char *name, const char *revision, sx_hash_t *blocks, unsigned int nblocks, int64_t size, int64_t totalsize, int64_t *file_id) {
+static rc_ty create_file(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const char *name, const char *revision, sx_hash_t *blocks, unsigned int nblocks, int64_t size, int64_t totalsize, int64_t *file_id, int64_t node_id, int64_t node_op_counter) {
     unsigned int nblocks2;
     int r, mdb;
     sqlite3_stmt *q;
@@ -9576,6 +9666,13 @@ static rc_ty create_file(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const
     if(mdb < 0) {
 	msg_set_reason("Failed to locate file database");
 	return FAIL_EINTERNAL;
+    }
+
+    if (node_op_counter != NO_REV_NODEOP) {
+        DEBUG("iset add on mdb %d, node id %lld, counter: %lld", mdb, (long long)node_id, (long long)node_op_counter);
+        s = sxi_iset_add(&h->iset[mdb], node_id, node_op_counter, node_op_counter);
+        if (s)
+            return s; /* TODO: EEXIST handling */
     }
 
     q = h->qm_getrev[mdb];
@@ -9622,6 +9719,15 @@ static rc_ty create_file(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const
 	sqlite3_reset(h->qm_ins[mdb]);
 	return FAIL_EINTERNAL;
     }
+    if (node_op_counter == NO_REV_NODEOP) {
+        if(qbind_null(h->qm_ins[mdb], ":node_id") ||
+           qbind_null(h->qm_ins[mdb], ":node_op_counter"))
+            return FAIL_EINTERNAL;
+    } else {
+        if (qbind_int64(h->qm_ins[mdb], ":node_id", node_id) ||
+            qbind_int64(h->qm_ins[mdb], ":node_op_counter", node_op_counter))
+            return FAIL_EINTERNAL;
+    }
 
     if (qstep_noret(h->qm_ins[mdb])) {
 	WARN("Failed to create file '%s' on volume '%s'", name, volume->name);
@@ -9653,7 +9759,9 @@ rc_ty sx_hashfs_createfile_commit(sx_hashfs_t *h, const char *volume, const char
 	return EFAULT;
     }
 
-    if(check_revision(revision)) {
+    int64_t node_op_counter;
+    sx_uuid_t node;
+    if(parse_revision(revision, NULL, &node, &node_op_counter)) {
 	msg_set_reason("Invalid revision");
 	return EINVAL;
     }
@@ -9688,15 +9796,30 @@ rc_ty sx_hashfs_createfile_commit(sx_hashfs_t *h, const char *volume, const char
     if(qbegin(h->metadb[mdb]))
 	return FAIL_EINTERNAL;
 
+    sxi_iset_t *iset = &h->iset[mdb];
+    int64_t node_id;
+    if (node_op_counter == NO_REV_NODEOP) {
+        node_id = NO_REV_NODEOP;
+    } else if (sxi_iset_node_id(&h->iset[mdb], &node, &node_id)) {
+        msg_set_reason("Invalid node id in revision");
+        return FAIL_EINTERNAL;
+    }
+    ret2 = sxi_iset_is_mem(iset, node_id, node_op_counter);
+    if (ret2 == OK) {
+        DEBUG("Out of order add (delete or add already received) for %s", revision);
+        ret = OK;
+        goto createfile_rollback;
+    }
+
     /* Increment file size with size of its meta values and keys */
     for(i=0; i<h->nmeta; i++) {
         totalsize += strlen(h->meta[i].key) + h->meta[i].value_len;
     }
 
-    ret2 = create_file(h, vol, name, revision, h->put_blocks, nblocks, size, totalsize, &file_id);
+    ret2 = create_file(h, vol, name, revision, h->put_blocks, nblocks, size, totalsize, &file_id, node_id, node_op_counter);
     if(ret2) {
 	ret = ret2;
-	goto cretatefile_rollback;
+	goto createfile_rollback;
     }
 
     for(i=0; i<h->nmeta; i++) {
@@ -9709,14 +9832,14 @@ rc_ty sx_hashfs_createfile_commit(sx_hashfs_t *h, const char *volume, const char
     }
     sqlite3_reset(h->qm_metaset[mdb]);
     if(i != h->nmeta)
-	goto cretatefile_rollback;
+	goto createfile_rollback;
 
     if(qcommit(h->metadb[mdb]))
-	goto cretatefile_rollback;
+	goto createfile_rollback;
 
     ret = OK;
 
- cretatefile_rollback:
+ createfile_rollback:
     if(ret != OK)
 	qrollback(h->metadb[mdb]);
 
@@ -9995,6 +10118,36 @@ unsigned int sx_hashfs_job_file_timeout(sx_hashfs_t *h, unsigned int ndests, uin
     return timeout;
 }
 
+static rc_ty assign_op_counter(sx_hashfs_t *h, int mdb, int64_t tmpfile_id) {
+    rc_ty rc = FAIL_EINTERNAL;
+    if (!h) {
+        NULLARG();
+        return EFAULT;
+    }
+    sxi_iset_t *iset = &h->iset[mdb];
+    int64_t node_op_counter;
+    if (qbegin(h->metadb[mdb]))
+        return rc;
+    if (sxi_iset_get_counter(iset, &node_op_counter) ||
+        sxi_iset_update_counter(iset, node_op_counter)) {
+        qrollback(h->metadb[mdb]);
+        return rc;
+    }
+    if (qcommit(h->metadb[mdb]))
+        return rc;
+    char node_op_counterstr[COUNTER_LEN+1];
+    snprintf(node_op_counterstr, sizeof(node_op_counterstr), "%0"STRIFY(COUNTER_LEN)"lld", (long long)node_op_counter);
+    if (qbind_int64(h->qt_tmpassignid, ":id", tmpfile_id) ||
+        qbind_text(h->qt_tmpassignid, ":node", h->node_uuid.string) ||
+        qbind_text(h->qt_tmpassignid, ":node_op_counter", node_op_counterstr) ||
+        qstep_noret(h->qt_tmpassignid)) {
+        qrollback(h->tempdb);
+        return rc;
+    }
+    DEBUG("assigned op counter %lld to file %lld, mdb %d", (long long)node_op_counter, (long long)tmpfile_id, mdb);
+    return OK;
+}
+
 rc_ty sx_hashfs_putfile_commitjob(sx_hashfs_t *h, const uint8_t *user, sx_uid_t user_id, const char *token, job_t *job_id) {
     unsigned int expected_blocks, actual_blocks, ndests, blocksize;
     int64_t tmpfile_id, expected_size, volid;
@@ -10068,6 +10221,7 @@ rc_ty sx_hashfs_putfile_commitjob(sx_hashfs_t *h, const uint8_t *user, sx_uid_t 
 	WARN("Cannot locate volume %lld for tmp file %lld", (long long)volid, (long long)tmpfile_id);
 	goto putfile_commitjob_err;
     }
+    unsigned int mdb = getmetadb(fname);
 
     /* Don't create a new revision if the file hasn't changed */
     ret = is_tmp_newrev(h, vol, fname, tmpfile_id, expected_size, blocks, actual_blocks, 0);
@@ -10125,6 +10279,11 @@ rc_ty sx_hashfs_putfile_commitjob(sx_hashfs_t *h, const uint8_t *user, sx_uid_t 
 	goto putfile_commitjob_err;
     }
 
+    ret = assign_op_counter(h, mdb, tmpfile_id);
+    if(ret) {
+        INFO("job_new (assign op) returned: %s", rc2str(ret));
+        goto putfile_commitjob_err;
+    }
     ret = sx_hashfs_job_new_notrigger(h, JOB_NOPARENT, user_id, job_id, JOBTYPE_REPLICATE_BLOCKS, sx_hashfs_job_file_timeout(h, ndests, expected_size), token, &tmpfile_id, sizeof(tmpfile_id), singlenode);
     if(ret) {
         INFO("job_new (replicate) returned: %s", rc2str(ret));
@@ -10587,7 +10746,21 @@ rc_ty sx_hashfs_tmp_tofile(sx_hashfs_t *h, const sx_hashfs_tmpinfo_t *missing) {
         return FAIL_EINTERNAL;
     }
 
-    ret2 = create_file(h, volume, missing->name, missing->revision, missing->all_blocks, missing->nall, missing->file_size, totalsize, &file_id);
+    int64_t node_id = sxi_iset_self_id(&h->iset[mdb]);
+    int64_t node_op_counter;
+    ret2 = parse_revision(missing->revision, NULL, NULL, &node_op_counter);
+    if(ret2) {
+        WARN("Cannot parse revision!");
+        ret = ret2;
+        goto tmp2file_rollback;
+    }
+    ret2 = sxi_iset_is_mem(&h->iset[mdb], node_id, node_op_counter);
+    if (ret2 == OK) {
+        DEBUG("Out of order add (delete already received) for %s", missing->revision);
+        ret = EEXIST; /* rollback transaction */
+        goto tmp2file_rollback;
+    }
+    ret2 = create_file(h, volume, missing->name, missing->revision, missing->all_blocks, missing->nall, missing->file_size, totalsize, &file_id, node_id, node_op_counter);
     if(ret2) {
 	ret = ret2;
 	goto tmp2file_rollback;
@@ -10624,6 +10797,8 @@ rc_ty sx_hashfs_tmp_tofile(sx_hashfs_t *h, const sx_hashfs_tmpinfo_t *missing) {
  tmp2file_rollback:
     if(ret != OK)
 	qrollback(h->metadb[mdb]);
+    if (ret == EEXIST)
+        ret = OK;
 
     sqlite3_reset(h->qm_metaset[mdb]);
     sqlite3_reset(h->qt_getmeta);
@@ -10960,7 +11135,7 @@ rc_ty sx_hashfs_filedelete_job(sx_hashfs_t *h, sx_uid_t user_id, const sx_hashfs
 	sprintf(lockname, "%s:%s", name, filerev->revision);
 
         timeout = sx_hashfs_job_file_timeout(h, vol->effective_replica, filerev->file_size);
-	ret = sx_hashfs_job_new_notrigger(h, *job_id, user_id, job_id, JOBTYPE_DELETE_FILE, timeout, lockname, filerev->revision, REV_LEN, targets);
+	ret = sx_hashfs_job_new_notrigger(h, *job_id, user_id, job_id, JOBTYPE_DELETE_FILE, timeout, lockname, filerev->revision, strlen(filerev->revision), targets);
         if (ret == OK) {
             sx_revision_op_t revision_op;
 
@@ -11227,7 +11402,7 @@ static rc_ty get_file_id(sx_hashfs_t *h, const char *volume, const char *filenam
 	if(created_at || etag) {
 	    const char *rev = (const char *)sqlite3_column_text(q, 3);
 	    if(!rev ||
-	       (created_at && parse_revision(rev, created_at)) ||
+	       (created_at && parse_revision(rev, created_at, NULL, NULL)) ||
 	       (etag && hash_buf(h->cluster_uuid.string, strlen(h->cluster_uuid.string), rev, strlen(rev), etag)))
 		res = FAIL_EINTERNAL;
 	}
@@ -11449,7 +11624,7 @@ rc_ty sx_hashfs_file_rename(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, co
     }
 
     /* Calculate hash of the old revision */
-    if(sxi_sha1_calc(NULL, 0, revision, REV_LEN, hash)) {
+    if(sxi_sha1_calc(NULL, 0, revision, strlen(revision), hash)) {
         msg_set_reason("Failed to calculate new revion for renamed file");
         return FAIL_EINTERNAL;
     }
@@ -11460,6 +11635,7 @@ rc_ty sx_hashfs_file_rename(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, co
         return FAIL_EINTERNAL;
     }
 
+    /* TODO: update to generate new style revision IDs */
     newrev[REV_TIME_LEN] = ':';
     /* Generate revision random part using hash of the old revision */
     sxi_bin2hex(hash, TOKEN_RAND_BYTES, newrev + REV_TIME_LEN + 1); /* Notice: previously calculated hash is truncated here */
@@ -11530,6 +11706,27 @@ rc_ty sx_hashfs_file_delete(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, co
 	return EINVAL;
     }
     DEBUG("Deleting file %s, revision %s", file, revision);
+
+    mdb = getmetadb(file);
+    sx_uuid_t node;
+    int64_t node_op_counter;
+    if (parse_revision(revision, NULL, &node, &node_op_counter)) {
+        msg_set_reason("Failed to parse revision");
+        return FAIL_EINTERNAL;
+    }
+    if (node_op_counter != NO_REV_NODEOP) {
+        int64_t node_id;
+        if (sxi_iset_node_id(&h->iset[mdb], &node, &node_id)) {
+            msg_set_reason("Failed to assign node id");
+            return FAIL_EINTERNAL;
+        }
+        DEBUG("iset add on mdb %d, node id %lld, counter: %lld", mdb, (long long)node_id, (long long)node_op_counter);
+        /* we do want to store the ID here even on ENOENT to detect out-of-order PUT/DELETE */
+        if (sxi_iset_add(&h->iset[mdb], node_id, node_op_counter, node_op_counter)) {
+            msg_set_reason("Failed to update interval");
+            return FAIL_EINTERNAL;
+        }
+    }
 
     ret = get_file_id(h, volume->name, file, revision, &file_id, &mdb, NULL, NULL, &size);
     if(ret) {
@@ -15359,7 +15556,7 @@ rc_ty sx_hashfs_relocs_next(sx_hashfs_t *h, const sx_reloc_t **reloc) {
 	    return ENOMEM;
 	}
 
-	if(parse_revision(rev, &rlc->file.created_at)) {
+	if(parse_revision(rev, &rlc->file.created_at, NULL, NULL)) {
 	    WARN("Bad revision on file %lld in %u", (long long)h->relocid, ndb);
 	    sqlite3_reset(q);
 	    sx_hashfs_reloc_free(rlc);
@@ -17884,4 +18081,36 @@ int sx_hashfs_vacuum(sx_hashfs_t *h)
         qvacuum(h->db))
         return 1;
     return 0;
+}
+
+rc_ty sx_hashfs_intervals(sx_hashfs_t *h, rc_ty (*cb)(int mdb, const sx_uuid_t *node, int64_t start, int64_t stop, void *ctx), void *ctx)
+{
+    if (!h || !cb) {
+        NULLARG();
+        return EFAULT;
+    }
+    unsigned i;
+    for (i=0;i<METADBS;i++) {
+        sxi_iset_t *iset = &h->iset[i];
+        if (sxi_iset_iter_begin(iset))
+            return FAIL_EINTERNAL;
+        int64_t last_node_id = -1;
+        int64_t node_id, start, stop;
+        sx_uuid_t node;
+        rc_ty s;
+        while ((s = sxi_iset_iter_next(iset, &node_id, &start, &stop)) == OK) {
+            if (node_id != last_node_id) {
+                s = sxi_iset_node_uuid(iset, node_id, &node);
+                if (s != OK)
+                    break;
+            }
+            s = cb(i, &node, start, stop, ctx);
+            if (s != OK)
+                break;
+        }
+        sxi_iset_iter_done(iset);
+        if (s != ITER_NO_MORE)
+            return s;
+    }
+    return OK;
 }

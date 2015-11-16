@@ -44,7 +44,9 @@ src_common_libcommon_la_SOURCES = \
 		    src/common/sxproc.c \
 		    src/common/sxproc.h \
 		    src/common/init.c \
-		    src/common/init.h
+		    src/common/init.h \
+		    src/common/intervalset.c \
+		    src/common/intervalset.h
 
 src_common_libcommon_la_LIBADD = @CRYPTO_LIBS@ @HDIST_LIBS@ @SQLITE3_LIBS@ $(top_builddir)/../libsxclient/src/libsxclient.la
 src_common_libcommon_la_LDFLAGS = $(AM_LDFLAGS) -pthread

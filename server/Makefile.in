@@ -142,7 +142,8 @@ am_src_common_libcommon_la_OBJECTS =  \
 	src/common/src_common_libcommon_la-qsort.lo \
 	src/common/src_common_libcommon_la-isaac.lo \
 	src/common/src_common_libcommon_la-sxproc.lo \
-	src/common/src_common_libcommon_la-init.lo
+	src/common/src_common_libcommon_la-init.lo \
+	src/common/src_common_libcommon_la-intervalset.lo
 src_common_libcommon_la_OBJECTS =  \
 	$(am_src_common_libcommon_la_OBJECTS)
 AM_V_lt = $(am__v_lt_@AM_V@)
@@ -775,7 +776,9 @@ src_common_libcommon_la_SOURCES = \
 		    src/common/sxproc.c \
 		    src/common/sxproc.h \
 		    src/common/init.c \
-		    src/common/init.h
+		    src/common/init.h \
+		    src/common/intervalset.c \
+		    src/common/intervalset.h
 
 src_common_libcommon_la_LIBADD = @CRYPTO_LIBS@ @HDIST_LIBS@ @SQLITE3_LIBS@ $(top_builddir)/../libsxclient/src/libsxclient.la
 src_common_libcommon_la_LDFLAGS = $(AM_LDFLAGS) -pthread
@@ -1012,6 +1015,9 @@ src/common/src_common_libcommon_la-sxproc.lo:  \
 	src/common/$(am__dirstamp) \
 	src/common/$(DEPDIR)/$(am__dirstamp)
 src/common/src_common_libcommon_la-init.lo:  \
+	src/common/$(am__dirstamp) \
+	src/common/$(DEPDIR)/$(am__dirstamp)
+src/common/src_common_libcommon_la-intervalset.lo:  \
 	src/common/$(am__dirstamp) \
 	src/common/$(DEPDIR)/$(am__dirstamp)
 
@@ -1312,6 +1318,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@src/common/$(DEPDIR)/src_common_libcommon_la-hashop.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/common/$(DEPDIR)/src_common_libcommon_la-hdist.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/common/$(DEPDIR)/src_common_libcommon_la-init.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@src/common/$(DEPDIR)/src_common_libcommon_la-intervalset.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/common/$(DEPDIR)/src_common_libcommon_la-isaac.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/common/$(DEPDIR)/src_common_libcommon_la-log.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/common/$(DEPDIR)/src_common_libcommon_la-nodes.Plo@am__quote@
@@ -1487,6 +1494,13 @@ src/common/src_common_libcommon_la-init.lo: src/common/init.c
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='src/common/init.c' object='src/common/src_common_libcommon_la-init.lo' libtool=yes @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CC $(src_common_libcommon_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_common_libcommon_la_CPPFLAGS) $(CPPFLAGS) $(src_common_libcommon_la_CFLAGS) $(CFLAGS) -c -o src/common/src_common_libcommon_la-init.lo `test -f 'src/common/init.c' || echo '$(srcdir)/'`src/common/init.c
+
+src/common/src_common_libcommon_la-intervalset.lo: src/common/intervalset.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(LIBTOOL) $(AM_V_lt) --tag=CC $(src_common_libcommon_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_common_libcommon_la_CPPFLAGS) $(CPPFLAGS) $(src_common_libcommon_la_CFLAGS) $(CFLAGS) -MT src/common/src_common_libcommon_la-intervalset.lo -MD -MP -MF src/common/$(DEPDIR)/src_common_libcommon_la-intervalset.Tpo -c -o src/common/src_common_libcommon_la-intervalset.lo `test -f 'src/common/intervalset.c' || echo '$(srcdir)/'`src/common/intervalset.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) src/common/$(DEPDIR)/src_common_libcommon_la-intervalset.Tpo src/common/$(DEPDIR)/src_common_libcommon_la-intervalset.Plo
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='src/common/intervalset.c' object='src/common/src_common_libcommon_la-intervalset.lo' libtool=yes @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CC $(src_common_libcommon_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_common_libcommon_la_CPPFLAGS) $(CPPFLAGS) $(src_common_libcommon_la_CFLAGS) $(CFLAGS) -c -o src/common/src_common_libcommon_la-intervalset.lo `test -f 'src/common/intervalset.c' || echo '$(srcdir)/'`src/common/intervalset.c
 
 src/fcgi/src_fcgi_sx_fcgi-fcgi-actions.o: src/fcgi/fcgi-actions.c
 @am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_fcgi_sx_fcgi_CPPFLAGS) $(CPPFLAGS) $(src_fcgi_sx_fcgi_CFLAGS) $(CFLAGS) -MT src/fcgi/src_fcgi_sx_fcgi-fcgi-actions.o -MD -MP -MF src/fcgi/$(DEPDIR)/src_fcgi_sx_fcgi-fcgi-actions.Tpo -c -o src/fcgi/src_fcgi_sx_fcgi-fcgi-actions.o `test -f 'src/fcgi/fcgi-actions.c' || echo '$(srcdir)/'`src/fcgi/fcgi-actions.c
