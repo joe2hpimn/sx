@@ -37,6 +37,8 @@
 #include "hashfs.h"
 #include "nodes.h"
 #include "../libsxclient/src/curlevents.h"
+#include "intervalset.h"
+#include "jobmgr.h"
 #include <arpa/inet.h>
 
 static int terminate = 0;
@@ -336,19 +338,131 @@ static rc_ty process_heal(sx_hashfs_t *hashfs, int *terminate)
     return OK;
 }
 
-static rc_ty cb_heal(int mdb, const sx_uuid_t *node, int64_t start, int64_t stop, void *ctx)
+rc_ty hostlist_add_fallbacks(sxc_client_t *sx, sxi_hostlist_t *hl, const sx_nodelist_t *all, unsigned primary)
 {
-    if (!node) {
+    int s;
+    if (!hl || !all) {
         NULLARG();
         return EFAULT;
     }
-    DEBUG("Have: %s, mdb %d [%lld,%lld]", node->string, mdb, (long long)start, (long long)stop);
+    sxi_hostlist_init(hl);
+    s = sxi_hostlist_add_host(sx, hl, sx_node_internal_addr(sx_nodelist_get(all, primary)));
+    for (unsigned i=0;i<sx_nodelist_count(all) && !s;i++) {
+        if (i != primary)
+            s = sxi_hostlist_add_host(sx, hl, sx_node_internal_addr(sx_nodelist_get(all, i)));
+    }
+    if (s) {
+        sxi_hostlist_empty(hl);
+        return ENOMEM;
+    }
     return OK;
+}
+
+static int heal_ask_data_cb(curlev_context_t *cbdata, const unsigned char *data, size_t size)
+{
+    void *ctx = sxi_cbdata_get_context(cbdata);
+    return rplfiles_cb(cbdata, ctx, data, size);
+}
+
+static void heal_ask_finish_cb(curlev_context_t *cbdata, const char *url) {
+    if (!cbdata)
+        return;
+    void *ctx = sxi_cbdata_get_context(cbdata);
+    free(ctx);
+    DEBUG("finished");
+}
+
+static rc_ty heal_ask(sx_hashfs_t *h, const sxi_hostlist_t *targets, const sx_uuid_t *node, unsigned mdb, int64_t start, int64_t stop)
+{
+    rc_ty ret = FAIL_EINTERNAL;
+    curlev_context_t *cbdata = sxi_cbdata_create_generic(sx_hashfs_conns(h), heal_ask_finish_cb, NULL);
+    if (!cbdata)
+        return ENOMEM;
+    char *query = NULL;
+    do {
+        unsigned n = lenof(".rejoin/?mdb=&node=&start=&?stop=") + 2 + UUID_STRING_SIZE + 2*COUNTER_LEN;
+        query = wrap_malloc(n);
+        if (!query)
+            break;
+        snprintf(query, n, ".rejoin/?mdb=%u&node=%s&start=%lld&stop=%lld", mdb, node->string, (long long)start, (long long)stop);
+        DEBUG("Asking %s", query);
+        struct rplfiles *ctx = wrap_calloc(1, sizeof(*ctx));
+        if (!ctx) {
+            ret = ENOMEM;
+            break;
+        }
+	ctx->hashfs = h;
+	ctx->b = NULL;
+	ctx->pos = 0;
+	ctx->ngood = 0;
+	ctx->needend = 0;
+	ctx->state = RPL_HDRSIZE;
+        ctx->files_and_volumes = 1;
+        sxi_cbdata_set_context(cbdata, ctx);
+
+        if (sxi_cluster_query_ev_retry(cbdata, sx_hashfs_conns(h), targets, REQ_GET, query, NULL, 0, NULL, heal_ask_data_cb, NULL)) {
+            cbdata = NULL;
+            break;
+        }
+        ret = OK;
+    } while(0);
+    /* will be freed when request completes */
+    sxi_cbdata_unref(&cbdata);
+    free(query);
+    return ret;
 }
 
 rc_ty process_fileblock_heal(sx_hashfs_t *h)
 {
-    return sx_hashfs_intervals(h, cb_heal, NULL);
+    /* this assumes that a node is only removed after all its files have been synchronized to all relevant nodes,
+       i.e. you cannot remove nodes while you have faulty/pending flushes/unsynchronized nodes */
+    const sx_nodelist_t *all = sx_hashfs_all_nodes(h, NL_PREVNEXT);
+    unsigned nnodes = sx_nodelist_count(all);
+    /* TODO: better batching */
+    /*  build a nodelist with source node as first node, and all the rest as fallback nodes:
+       we'll need to make the difference between an op id that is:
+       - present on the remote node's interval set, with associated file => sync file, check which blocks need to be synced
+        - present on the remote node's interval set, but not file => file was deleted, add opid locally nothing else to sync
+        - absent on remote node's interval set => either remote node is not authoritative (i.e. a fallback node), or there is an
+        upload in progress
+        file / vol will be checked whether t belongs on this node, if not only blocks are checked
+    */
+    unsigned i;
+    for (i = 0; i < nnodes; i++) {
+        const sx_uuid_t *node = sx_node_uuid(sx_nodelist_get(all, i));
+        sxi_iset_t *iset;
+        DEBUG("Processing node %s", node->string);
+        sxi_hostlist_t targets;
+        if (hostlist_add_fallbacks(sx_hashfs_client(h), &targets, all, i))
+            return ENOMEM;
+        for (unsigned mdb=0;(iset = sx_hashfs_intervals(h, mdb)); mdb++) {
+            if (sxi_iset_iter_begin(iset, node))
+                break;
+            int64_t last_stop = -1;
+            int64_t start, stop;
+            rc_ty s;
+            while ((s = sxi_iset_iter_next(iset, &start, &stop)) == OK) {
+                int64_t m_start = last_stop + 1;
+                int64_t m_stop = start - 1;
+                if (m_start <= m_stop) {
+                    if (heal_ask(h, &targets, node, mdb, m_start, m_stop))
+                        break;
+                }
+            }
+            /* always ask for (last_stop, +Inf) */
+            if (heal_ask(h, &targets, node, mdb, last_stop + 1, INT64_MAX))
+                s = FAIL_EINTERNAL;
+            sxi_iset_iter_done(iset);
+            if (s != ITER_NO_MORE)
+                break;
+        }
+        sxi_hostlist_empty(&targets);
+        if (iset)
+            break;
+    }
+    if (i != nnodes)
+        return FAIL_EINTERNAL;
+    return OK;
 }
 
 int gc(sxc_client_t *sx, const char *dir, int pipe, int pipe_expire) {
@@ -395,7 +509,9 @@ int gc(sxc_client_t *sx, const char *dir, int pipe, int pipe_expire) {
         gettimeofday(&tv1, NULL);
         sx_hashfs_distcheck(hashfs);
 
+        INFO("file/block heal starting");
         rc = process_fileblock_heal(hashfs);
+        INFO("file/block heal finished: %s", rc2str(rc));
 
         /* TODO: phase dependency (only after local upgrade completed) */
         rc = process_heal(hashfs, &terminate);

@@ -36,6 +36,7 @@
 #include "sxdbi.h"
 #include "hashop.h"
 #include "sxlimits.h"
+#include "intervalset.h"
 
 #define TOKEN_RAND_BYTES 16
 #define REV_TIME_LEN lenof("YYYY-MM-DD hh:mm:ss.sss")
@@ -646,6 +647,8 @@ void sx_hashfs_warm_cache(sx_hashfs_t *h);
 int sx_hashfs_vacuum(sx_hashfs_t *h);
 int sx_hashfs_incore(sx_hashfs_t *h, float *data_incore, float *other_incore);
 
-rc_ty sx_hashfs_intervals(sx_hashfs_t *h, rc_ty (*cb)(int mdb, const sx_uuid_t *node, int64_t start, int64_t stop, void *ctx), void *ctx);
+sxi_iset_t *sx_hashfs_intervals(sx_hashfs_t *h, unsigned mdb);
+
+rc_ty sx_hashfs_file_intervals(sx_hashfs_t *h, int mdb, const sx_uuid_t *node, int64_t start, int64_t stop, sx_find_cb_t cb, void *ctx);
 
 #endif

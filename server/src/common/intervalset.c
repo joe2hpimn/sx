@@ -124,6 +124,7 @@ void sxi_iset_finalize(sxi_iset_t *iset)
     sqlite3_finalize(iset->qupd_counter);
     sqlite3_finalize(iset->qlookup_id);
     sqlite3_finalize(iset->qsel_all);
+    sqlite3_finalize(iset->qiter);
     memset(iset, 0, sizeof(*iset));
 }
 
@@ -143,6 +144,7 @@ rc_ty sxi_iset_prepare(sxi_iset_t *iset, sxi_db_t *db)
         qprep(db, &iset->qupd_counter, "UPDATE op_counter SET value=MAX(value, :value)+1") ||
         qprep(db, &iset->qlookup_id, "SELECT node_uuid FROM node_uuids WHERE node_id=:node_id") ||
         qprep(db, &iset->qsel_all, "SELECT node_id, start, stop FROM intervals ORDER BY node_id, start") ||
+        qprep(db, &iset->qiter, "SELECT start, stop FROM intervals NATURAL INNER JOIN node_uuids WHERE node_uuid=:node_uuid ORDER BY start") ||
         qprep(db, &q, "PRAGMA foreign_keys = ON") ||
         qstep_noret(q))
         {
@@ -213,7 +215,6 @@ rc_ty sxi_iset_delall(sxi_iset_t *iset, int64_t node_id)
 
 rc_ty sxi_iset_node_id(sxi_iset_t *iset, const sx_uuid_t* uuid, int64_t *node_id)
 {
-    rc_ty ret = FAIL_EINTERNAL;
     if (!iset || !uuid) {
         NULLARG();
         return EFAULT;
@@ -223,26 +224,24 @@ rc_ty sxi_iset_node_id(sxi_iset_t *iset, const sx_uuid_t* uuid, int64_t *node_id
         return FAIL_EINTERNAL;
     }
     sqlite3_reset(iset->qlookup_uuid);
-    if (qbind_text(iset->qlookup_uuid, ":node_uuid", uuid->string))
+    if (qbind_text(iset->qlookup_uuid, ":node_uuid", uuid->string) ||
+        qstep_ret(iset->qlookup_uuid))
         return FAIL_EINTERNAL;
-    switch (qstep(iset->qlookup_uuid)) {
-    case SQLITE_ROW:
-        *node_id = sqlite3_column_int64(iset->qlookup_uuid, 0);
-        ret = OK;
-        break;
-    case SQLITE_DONE:
-        if (qbind_text(iset->qinsert_uuid, ":node_uuid", uuid->string) ||
-            qstep_noret(iset->qinsert_uuid))
-            return FAIL_EINTERNAL;
-        *node_id = sqlite3_last_insert_rowid(iset->db->handle);
-        ret = OK;
-        break;
-    default:
-        ret = FAIL_EINTERNAL;
-        break;
-    }
+    *node_id = sqlite3_column_int64(iset->qlookup_uuid, 0);
     sqlite3_reset(iset->qlookup_uuid);
-    return ret;
+    return OK;
+}
+
+rc_ty sxi_iset_node_add(sxi_iset_t *iset, const sx_uuid_t* uuid)
+{
+    if (!iset || !uuid) {
+        NULLARG();
+        return EFAULT;
+    }
+    if (qbind_text(iset->qinsert_uuid, ":node_uuid", uuid->string) ||
+        qstep_noret(iset->qinsert_uuid))
+        return FAIL_EINTERNAL;
+    return OK;
 }
 
 rc_ty sxi_iset_node_uuid(sxi_iset_t *iset, int64_t node_id, sx_uuid_t *node_uuid)
@@ -279,8 +278,6 @@ rc_ty sxi_iset_set_self_id(sxi_iset_t *iset, const sx_uuid_t *uuid)
         NULLARG();
         return EFAULT;
     }
-    if (!iset->qlookup_id)
-        return OK; /* not initialized yet */
     return sxi_iset_node_id(iset, uuid, &iset->self_id);
 }
 
@@ -348,27 +345,28 @@ rc_ty sxi_iset_etag(sxi_iset_t *iset, sx_hash_t *etag)
     return ret;
 }
 
-rc_ty sxi_iset_iter_begin(sxi_iset_t *iset)
+rc_ty sxi_iset_iter_begin(sxi_iset_t *iset, const sx_uuid_t *node)
 {
-    if (!iset) {
+    if (!iset || !node) {
         NULLARG();
         return EFAULT;
     }
-    sqlite3_reset(iset->qsel_all);
+    sqlite3_reset(iset->qiter);
+    if (qbind_text(iset->qiter, ":node_uuid", node->string))
+        return FAIL_EINTERNAL;
     return OK;
 }
 
-rc_ty sxi_iset_iter_next(sxi_iset_t *iset, int64_t *node_id, int64_t *start, int64_t *stop)
+rc_ty sxi_iset_iter_next(sxi_iset_t *iset, int64_t *start, int64_t *stop)
 {
-    if (!iset || !node_id || !start || !stop) {
+    if (!iset || !start || !stop) {
         NULLARG();
         return EFAULT;
     }
-    switch (qstep(iset->qsel_all)) {
+    switch (qstep(iset->qiter)) {
     case SQLITE_ROW:
-        *node_id = sqlite3_column_int64(iset->qsel_all, 0);
-        *start = sqlite3_column_int64(iset->qsel_all, 1);
-        *stop = sqlite3_column_int64(iset->qsel_all, 2);
+        *start = sqlite3_column_int64(iset->qsel_all, 0);
+        *stop = sqlite3_column_int64(iset->qsel_all, 1);
         return OK;
     case SQLITE_DONE:
         return ITER_NO_MORE;

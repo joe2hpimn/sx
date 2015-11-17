@@ -70,6 +70,13 @@ void volume_ops(void) {
 	    return;
 	}
 
+        if (!strcmp(volume, ".rejoin")) {
+            /* Node rejoin / missing file healing */
+            quit_unless_has(PRIV_CLUSTER);
+            fcgi_send_file_intervals();
+            return;
+        }
+
 	if(!strcmp(volume, ".users")) {
 	    /* List users - ADMIN required */
 	    quit_unless_has(PRIV_ADMIN);

@@ -28,6 +28,23 @@
 #ifndef JOBMGR_H
 #define JOBMGR_H
 
+enum replace_state { RPL_HDRSIZE = 0, RPL_HDRDATA, RPL_DATA, RPL_END };
+struct rplfiles {
+    sx_hashfs_t *hashfs;
+    sx_blob_t *b;
+    sx_hash_t hash;
+    uint8_t hdr[1024 +
+                SXLIMIT_MAX_FILENAME_LEN +
+                REV_LEN +
+                ( 128 + SXLIMIT_META_MAX_KEY_LEN + SXLIMIT_META_MAX_VALUE_LEN ) * SXLIMIT_META_MAX_ITEMS];
+    char volume[SXLIMIT_MAX_VOLNAME_LEN+1],
+	file[SXLIMIT_MAX_FILENAME_LEN+1],
+	rev[REV_LEN+1];
+    unsigned int ngood, itemsz, pos, needend, files_and_volumes;
+    enum replace_state state;
+};
+
 int jobmgr(sxc_client_t *sx, const char *dir, int pipe);
+int rplfiles_cb(curlev_context_t *cbdata, void *ctx, const void *data, size_t size);
 
 #endif

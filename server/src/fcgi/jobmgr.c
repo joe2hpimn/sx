@@ -3553,7 +3553,6 @@ static act_result_t replaceblocks_request(sx_hashfs_t *hashfs, job_t job_id, job
 }
 
 
-enum replace_state { RPL_HDRSIZE = 0, RPL_HDRDATA, RPL_DATA, RPL_END };
 
 struct rplblocks {
     sx_hashfs_t *hashfs;
@@ -3780,23 +3779,7 @@ static act_result_t replaceblocks_commit(sx_hashfs_t *hashfs, job_t job_id, job_
     return ret;
 }
 
-
-struct rplfiles {
-    sx_hashfs_t *hashfs;
-    sx_blob_t *b;
-    sx_hash_t hash;
-    uint8_t hdr[1024 +
-		  SXLIMIT_MAX_FILENAME_LEN +
-		  REV_LEN +
-		  ( 128 + SXLIMIT_META_MAX_KEY_LEN + SXLIMIT_META_MAX_VALUE_LEN ) * SXLIMIT_META_MAX_ITEMS];
-    char volume[SXLIMIT_MAX_VOLNAME_LEN+1],
-	file[SXLIMIT_MAX_FILENAME_LEN+1],
-	rev[REV_LEN+1];
-    unsigned int ngood, itemsz, pos, needend;
-    enum replace_state state;
-};
-
-static int rplfiles_cb(curlev_context_t *cbdata, void *ctx, const void *data, size_t size) {
+int rplfiles_cb(curlev_context_t *cbdata, void *ctx, const void *data, size_t size) {
     struct rplfiles *c = (struct rplfiles *)ctx;
     uint8_t *input = (uint8_t *)data;
     unsigned int todo;
@@ -3850,6 +3833,22 @@ static int rplfiles_cb(curlev_context_t *cbdata, void *ctx, const void *data, si
 			INFO("Spurious tail of %u bytes", (unsigned int)size);
 		    return 0;
 		}
+                if(c->files_and_volumes) {
+                    if(strcmp(signature, "$VOL$")) {
+                        WARN("Invalid blob signature '%s'", signature);
+                        return 1;
+                    }
+                    const char *volume;
+                    if (sx_blob_get_string(c->b, &volume)) {
+                        WARN("Invalid volume name");
+                        return 1;
+                    }
+                    sxi_strlcpy(c->volume, volume, sizeof(c->volume));
+                    if(sx_blob_get_string(c->b, &signature)) {
+                        WARN("Cannot read create blob file signature");
+                        return 1;
+                    }
+                }
 		if(strcmp(signature, "$FILE$")) {
 		    WARN("Invalid blob signature '%s'", signature);
 		    return 1;
@@ -3952,6 +3951,7 @@ static act_result_t replacefiles_request(sx_hashfs_t *hashfs, job_t job_id, job_
     ctx = malloc(sizeof(*ctx));
     if(!ctx)
 	action_error(ACT_RESULT_TEMPFAIL, 503, "Out of memory allocating request context");
+    ctx->files_and_volumes = 0;
 
     while((s = sx_hashfs_replace_getstartfile(hashfs, maxrev, ctx->volume, ctx->file, ctx->rev)) == OK) {
 	unsigned int nnode, nnodes, rndnode;

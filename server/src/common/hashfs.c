@@ -814,6 +814,7 @@ struct _sx_hashfs_t {
     sqlite3_stmt *qm_upd_heal_volume[METADBS];
     sqlite3_stmt *qm_del_heal_volume[METADBS];
     sqlite3_stmt *qm_needs_upgrade[METADBS];
+    sqlite3_stmt *qm_list_intervals[METADBS];
 
     sxi_iset_t iset[METADBS];
 
@@ -1076,6 +1077,7 @@ static void close_all_dbs(sx_hashfs_t *h) {
         sqlite3_finalize(h->qm_upd_heal_volume[i]);
         sqlite3_finalize(h->qm_del_heal_volume[i]);
         sqlite3_finalize(h->qm_needs_upgrade[i]);
+        sqlite3_finalize(h->qm_list_intervals[i]);
         sxi_iset_finalize(&h->iset[i]);
 	qclose(&h->metadb[i]);
     }
@@ -2056,8 +2058,9 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
             goto open_hashfs_fail;
         if(qprep(h->metadb[i], &h->qm_needs_upgrade[i], "SELECT fid, volume_id, name, rev, size FROM files WHERE revision_id IS NULL"))
             goto open_hashfs_fail;
-        if (sxi_iset_prepare(&h->iset[i], h->metadb[i]) ||
-            sxi_iset_set_self_id(&h->iset[i], &h->node_uuid))
+        if(qprep(h->metadb[i], &h->qm_list_intervals[i], "SELECT volume_id, name, rev, size, content FROM files NATURAL INNER JOIN node_uuids WHERE node_uuid=:node_uuid AND node_op_counter >= :start AND node_op_counter <= :stop ORDER BY node_op_counter"))
+            goto open_hashfs_fail;
+        if (sxi_iset_prepare(&h->iset[i], h->metadb[i]))
             goto open_hashfs_fail;
     }
 
@@ -9807,7 +9810,7 @@ rc_ty sx_hashfs_createfile_commit(sx_hashfs_t *h, const char *volume, const char
     ret2 = sxi_iset_is_mem(iset, node_id, node_op_counter);
     if (ret2 == OK) {
         DEBUG("Out of order add (delete or add already received) for %s", revision);
-        ret = OK;
+        ret = EEXIST;
         goto createfile_rollback;
     }
 
@@ -10060,11 +10063,14 @@ rc_ty sx_hashfs_putfile_getblock(sx_hashfs_t *h) {
 	    DEBUG("{%s}: finished:%d, queries:%d, ok:%d, enoent:%d, cbfail:%d",
 		  h->node_uuid.string,
 		  h->hc.finished, h->hc.queries, h->hc.ok, h->hc.enoent, h->hc.cb_fail);
+        #if 0
+        /* FIXME: For testing only */
         ret = reserve_replicas(h, op_expires_at);
         if (ret) {
             WARN("failed to reserve replicas: %s", rc2str(ret));
             return ret;
         }
+        #endif
 	h->put_success = 1;
 	return ITER_NO_MORE;
     }
@@ -10284,20 +10290,26 @@ rc_ty sx_hashfs_putfile_commitjob(sx_hashfs_t *h, const uint8_t *user, sx_uid_t 
         INFO("job_new (assign op) returned: %s", rc2str(ret));
         goto putfile_commitjob_err;
     }
+    #if 0
+    /* FIXME: For testing only */
     ret = sx_hashfs_job_new_notrigger(h, JOB_NOPARENT, user_id, job_id, JOBTYPE_REPLICATE_BLOCKS, sx_hashfs_job_file_timeout(h, ndests, expected_size), token, &tmpfile_id, sizeof(tmpfile_id), singlenode);
     if(ret) {
         INFO("job_new (replicate) returned: %s", rc2str(ret));
 	goto putfile_commitjob_err;
     }
+    #endif
 
     /* when flush fails we need to undo the parent job which was targeted to
      * all (revision) nodes, so we need to target the flush jub to all nodes.
      * In the request/commit we'll skip the non-volnode nodes */
+    #if 0
+    /* For testing: rely on healing to restore files on other nodes */
     ret = sx_hashfs_job_new_notrigger(h, *job_id, user_id, job_id, JOBTYPE_FLUSH_FILE_REMOTE, 60*ndests, token, &tmpfile_id, sizeof(tmpfile_id), revisionnodes);
     if(ret) {
         INFO("job_new (flush remote) returned: %s", rc2str(ret));
 	goto putfile_commitjob_err;
     }
+    #endif
     ret = sx_hashfs_job_new_notrigger(h, *job_id, user_id, job_id, JOBTYPE_FLUSH_FILE_LOCAL, 60, token, &tmpfile_id, sizeof(tmpfile_id), revisionnodes);
     if(ret) {
         INFO("job_new (flush local) returned: %s", rc2str(ret));
@@ -14075,16 +14087,30 @@ rc_ty sx_hashfs_hdist_change_add(sx_hashfs_t *h, const void *cfg, unsigned int c
 	return EINVAL;
     }
 
-    if(qbegin(h->db)) {
-	sxi_hdist_free(newmod);
-	return FAIL_EINTERNAL;
-    }
-
     nodes = sxi_hdist_nodelist(newmod, 0);
     if(!nodes || !(nnodes = sx_nodelist_count(nodes))) {
 	msg_set_reason("Failed to retrieve the list of the updated nodes");
 	ret = FAIL_EINTERNAL;
 	goto change_add_fail;
+    }
+
+    for (i=0;i<METADBS;i++) {
+        if (qbegin(h->metadb[i]))
+            break;
+        unsigned j;
+        for (j=0;j<nnodes; j++) {
+            if (sxi_iset_node_add(&h->iset[i], sx_node_uuid(sx_nodelist_get(nodes, j))))
+                break;
+        }
+        if (j != nnodes || qcommit(h->metadb[i])) {
+            qrollback(h->metadb[i]);
+            break;
+        }
+    }
+
+    if(i != METADBS || qbegin(h->db)) {
+	sxi_hdist_free(newmod);
+	return FAIL_EINTERNAL;
     }
 
     for(i = 0; i<nnodes; i++) {
@@ -18083,34 +18109,55 @@ int sx_hashfs_vacuum(sx_hashfs_t *h)
     return 0;
 }
 
-rc_ty sx_hashfs_intervals(sx_hashfs_t *h, rc_ty (*cb)(int mdb, const sx_uuid_t *node, int64_t start, int64_t stop, void *ctx), void *ctx)
+sxi_iset_t *sx_hashfs_intervals(sx_hashfs_t *h, unsigned mdb)
 {
-    if (!h || !cb) {
+    if (!h) {
+        NULLARG();
+        return NULL;
+    }
+    if (mdb >= METADBS) {
+        /* end of iteration */
+        return NULL;
+    }
+    return &h->iset[mdb];
+}
+
+rc_ty sx_hashfs_file_intervals(sx_hashfs_t *h, int mdb, const sx_uuid_t *node, int64_t start, int64_t stop, sx_find_cb_t cb, void *ctx)
+{
+    rc_ty rc = FAIL_EINTERNAL;
+    if (!h || !node) {
         NULLARG();
         return EFAULT;
     }
-    unsigned i;
-    for (i=0;i<METADBS;i++) {
-        sxi_iset_t *iset = &h->iset[i];
-        if (sxi_iset_iter_begin(iset))
-            return FAIL_EINTERNAL;
-        int64_t last_node_id = -1;
-        int64_t node_id, start, stop;
-        sx_uuid_t node;
-        rc_ty s;
-        while ((s = sxi_iset_iter_next(iset, &node_id, &start, &stop)) == OK) {
-            if (node_id != last_node_id) {
-                s = sxi_iset_node_uuid(iset, node_id, &node);
-                if (s != OK)
-                    break;
-            }
-            s = cb(i, &node, start, stop, ctx);
-            if (s != OK)
+    if (mdb < 0 || mdb >= METADBS) {
+        WARN("mdb out of range");
+        return EINVAL;
+    }
+    sqlite3_stmt *q = h->qm_list_intervals[mdb];
+    sqlite3_reset(q);
+    if (qbind_text(q, ":node_uuid", node->string) ||
+        qbind_int64(q, ":start", start) ||
+        qbind_int64(q, ":stop", stop))
+        return FAIL_EINTERNAL;
+    int ret;
+    const sx_hashfs_volume_t *volume = NULL;
+    while ((ret = qstep(q)) == SQLITE_ROW) {
+        int64_t volid = sqlite3_column_int64(q, 0);
+        if (!volume || volume->id != volid) {
+            if (sx_hashfs_volume_by_id(h, volid, &volume))
                 break;
         }
-        sxi_iset_iter_done(iset);
-        if (s != ITER_NO_MORE)
-            return s;
+        sx_hashfs_file_t file;
+        memset(&file, 0, sizeof(file));/* TODO: do we need other fields? */
+        sxi_strlcpy(file.name, (const char*)sqlite3_column_text(q, 1), sizeof(file.name));
+        sxi_strlcpy(file.revision, (const char*)sqlite3_column_text(q, 2), sizeof(file.revision));
+        file.file_size = sqlite3_column_int64(q, 3);
+        DEBUG("found: name=%s, revision=%s", file.name, file.revision);
+        if (cb && !cb(volume, &file, sqlite3_column_blob(q, 4), sqlite3_column_bytes(q, 4) / SXI_SHA1_BIN_LEN, ctx)) {
+            rc = FAIL_ETOOMANY;
+            break;
+        }
     }
-    return OK;
+    sqlite3_reset(q);
+    return ret == SQLITE_DONE ? ITER_NO_MORE : rc;
 }

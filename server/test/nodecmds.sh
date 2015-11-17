@@ -112,7 +112,7 @@ sx_node_new_bare()
     load_node_vars 1
     set_node_vars "$1"
     echo "SX_CLUSTER_KEY=$SX_CLUSTER_KEY" >>"$CONF_TMP"
-    "$prefix/sbin/sxsetup" --config-file "$CONF_TMP" --advanced --bare
+    "$prefix/sbin/sxsetup" --config-file "$CONF_TMP" --debug --advanced --bare
 }
 
 sx_node_new_join()

@@ -2242,3 +2242,4 @@ void fcgi_mass_rename(void) {
         send_job_info(job_id);
     }
 }
+

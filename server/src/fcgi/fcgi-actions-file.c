@@ -438,10 +438,12 @@ void fcgi_delete_file(void) {
     }
 }
 
+enum rpl_mode { SEND_FILES_ONLY, SEND_FILES_VOLUME };
 struct rplfiles {
     sx_blob_t *b;
     sx_hashfs_file_t lastfile;
     unsigned int bytes_sent;
+    enum rpl_mode mode;
 };
 
 static void send_rplfiles_header(struct rplfiles *ctx) {
@@ -467,6 +469,10 @@ static int rplfiles_cb(const sx_hashfs_volume_t *volume, const sx_hashfs_file_t 
     if(c->bytes_sent >= REPLACEMENT_BATCH_SIZE)
 	return 0;
     sx_blob_reset(c->b);
+    if (c->mode == SEND_FILES_VOLUME && (
+        (sx_blob_add_string(c->b, "$VOL$") ||
+         sx_blob_add_string(c->b, volume->name))))
+        return 0;
     if(sx_blob_add_string(c->b, "$FILE$") ||
        sx_blob_add_int32(c->b, nblocks) ||
        sx_blob_add_string(c->b, file->name) ||
@@ -490,6 +496,33 @@ static int rplfiles_cb(const sx_hashfs_volume_t *volume, const sx_hashfs_file_t 
     CGI_PUTD(contents, bodylen);
     c->bytes_sent += bodylen;
     return 1;
+}
+
+
+static rc_ty rplfiles_init(struct rplfiles *ctx, enum rpl_mode mode)
+{
+    ctx->bytes_sent = 0;
+    ctx->mode = mode;
+    ctx->b = sx_blob_new();
+    if (!ctx->b)
+        return ENOMEM;
+    return OK;
+}
+
+static void rplfiles_finish(struct rplfiles *ctx, rc_ty s)
+{
+    if(s == ITER_NO_MORE) {
+        sx_blob_reset(ctx->b);
+        if(!sx_blob_add_string(ctx->b, "$THEEND$"))
+            send_rplfiles_header(ctx);
+        sx_blob_free(ctx->b);
+        return;
+    }
+
+    sx_blob_free(ctx->b);
+    if(s != FAIL_ETOOMANY && !ctx->bytes_sent)
+        quit_errmsg(rc2http(s), msg_get_reason());
+    /* s == FAIL_ETOOMANY should imply bytes_sent ... */
 }
 
 void fcgi_send_replacement_files(void) {
@@ -525,21 +558,35 @@ void fcgi_send_replacement_files(void) {
     if(!sx_hashfs_is_or_was_my_volume(hashfs, vol))
 	quit_errnum(404);
 
-    ctx.bytes_sent = 0;
-    ctx.b = sx_blob_new();
-    if(!ctx.b)
-	quit_errmsg(503, "Out of memory");
+    s = rplfiles_init(&ctx, SEND_FILES_ONLY);
+    if (s != OK)
+	quit_errmsg(rc2http(s), rc2str(s));
 
     s = sx_hashfs_file_find(hashfs, vol, startname, startrev, get_arg("maxrev"), rplfiles_cb, &ctx);
-    if(s == ITER_NO_MORE) {
-	sx_blob_reset(ctx.b);
-	if(!sx_blob_add_string(ctx.b, "$THEEND$"))
-	    send_rplfiles_header(&ctx);
-	sx_blob_free(ctx.b);
-	return;
-    }
+    rplfiles_finish(&ctx, s);
+}
 
-    sx_blob_free(ctx.b);
-    if(s != FAIL_ETOOMANY && !ctx.bytes_sent)
-	quit_errmsg(rc2http(s), msg_get_reason());
+void fcgi_send_file_intervals(void) {
+    int mdb = get_arg_uint("mdb");
+    sx_uuid_t node;
+    if (uuid_from_string(&node, get_arg("node")))
+        quit_errmsg(400, "Bad node parameter");
+    int64_t start, stop;
+    char *eon = NULL;
+    start = strtoll(get_arg("start"), &eon, 10);
+    if (!eon || *eon || start < 0)
+        quit_errmsg(400, "Invalid start position");
+    eon = NULL;
+    stop = strtoll(get_arg("stop"), &eon, 10);
+    if (!eon || *eon || stop < 0)
+        quit_errmsg(400, "Invalid stop position");
+
+    struct rplfiles ctx;
+    rc_ty s = rplfiles_init(&ctx, SEND_FILES_VOLUME);
+    if (s != OK) {
+        WARN("failed to init: %s", rc2str(s));
+        quit_errmsg(rc2http(s), rc2str(s));
+    }
+    s = sx_hashfs_file_intervals(hashfs, mdb, &node, start, stop, rplfiles_cb, &ctx);
+    rplfiles_finish(&ctx, s);
 }

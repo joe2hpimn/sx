@@ -45,6 +45,7 @@ typedef struct {
     sqlite3_stmt *qupd_counter;
     sqlite3_stmt *qlookup_id;
     sqlite3_stmt *qsel_all;
+    sqlite3_stmt *qiter;
     int64_t self_id;
 } sxi_iset_t;
 
@@ -59,6 +60,7 @@ rc_ty sxi_iset_get_counter(sxi_iset_t *iset, int64_t *node_counter);
 rc_ty sxi_iset_update_counter(sxi_iset_t *iset, int64_t node_counter);
 
 rc_ty sxi_iset_node_id(sxi_iset_t *iset, const sx_uuid_t* uuid, int64_t *node_id);
+rc_ty sxi_iset_node_add(sxi_iset_t *iset, const sx_uuid_t* uuid);
 rc_ty sxi_iset_node_uuid(sxi_iset_t *iset, int64_t node_id, sx_uuid_t *node_uuid);
 
 rc_ty sxi_iset_add(sxi_iset_t *iset, int64_t node_id, int64_t start, int64_t stop);
@@ -66,8 +68,8 @@ rc_ty sxi_iset_is_mem(sxi_iset_t *iset, int64_t node_id, int64_t val);
 rc_ty sxi_iset_merge(sxi_iset_t *iset, int64_t lhs_node_id, int64_t rhs_node_id);
 rc_ty sxi_iset_delall(sxi_iset_t *iset, int64_t node_id);
 
-rc_ty sxi_iset_iter_begin(sxi_iset_t *iset);
-rc_ty sxi_iset_iter_next(sxi_iset_t *iset, int64_t *node_id, int64_t *start, int64_t *stop);
+rc_ty sxi_iset_iter_begin(sxi_iset_t *iset, const sx_uuid_t *node);
+rc_ty sxi_iset_iter_next(sxi_iset_t *iset, int64_t *start, int64_t *stop);
 rc_ty sxi_iset_iter_done(sxi_iset_t *iset);
 
 rc_ty sxi_iset_etag(sxi_iset_t *iset, sx_hash_t *etag);
