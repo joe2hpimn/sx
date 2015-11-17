@@ -37,7 +37,6 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netdb.h>
-#include <yajl/yajl_parse.h>
 #include <unistd.h>
 #include <errno.h>
 

@@ -29,12 +29,13 @@
 #include <string.h>
 #include <stdlib.h>
 #include <arpa/inet.h>
-#include <yajl/yajl_parse.h>
 
 #include "fcgi-actions-file.h"
 #include "fcgi-utils.h"
 #include "utils.h"
 #include "blob.h"
+
+#include "libsxclient/src/jparse.h"
 
 void fcgi_send_file_meta(void) {
     const char *metakey;
@@ -184,160 +185,80 @@ static int hash_presence_callback(const char *hexhash, unsigned int index, int c
 /* create: {"fileSize":1234,"fileData":["hash1","hash2"],"fileMeta":{"key":"value","key2":"value2"}} */
 /* extend: {"extendSeq":1234,"fileData":["hash1","hash2"],"fileMeta":{"key":"value","key2":"value2"}} */
 struct cb_newfile_ctx {
-    enum cb_newfile_state { CB_NEWFILE_START, CB_NEWFILE_KEY, CB_NEWFILE_CONTENT, CB_NEWFILE_HASH, CB_NEWFILE_SIZE, CB_NEWFILE_META, CB_NEWFILE_METAKEY, CB_NEWFILE_METAVALUE, CB_NEWFILE_COMPLETE } state;
     int64_t filesize; /* file size if creating, extend seq if extending */
-    unsigned nhashes;
-    int extending;
+    rc_ty rc;
     char metakey[SXLIMIT_META_MAX_KEY_LEN+1];
 };
 
-static int cb_newfile_start_map(void *ctx) {
+static void cb_newfile_size(jparse_t *J, void *ctx, int64_t size) {
     struct cb_newfile_ctx *c = (struct cb_newfile_ctx *)ctx;
-    if(c->state == CB_NEWFILE_START)
-	c->state = CB_NEWFILE_KEY;
-    else if(c->state == CB_NEWFILE_META)
-	c->state = CB_NEWFILE_METAKEY;
-    else
-	return 0;
-    return 1;
+    c->filesize = size;
 }
 
-static int cb_newfile_map_key(void *ctx, const unsigned char *s, size_t l) {
+static void cb_newfile_block(jparse_t *J, void *ctx, const char *string, unsigned int length) {
     struct cb_newfile_ctx *c = (struct cb_newfile_ctx *)ctx;
+    sx_hash_t hash;
 
-    if(c->state == CB_NEWFILE_KEY) {
-	if(l == lenof("fileData") && !strncmp("fileData", s, lenof("fileData"))) {
-	    c->state = CB_NEWFILE_CONTENT;
-	    return 1;
-	}
-
-	if(l == lenof("fileMeta") && !strncmp("fileMeta", s, lenof("fileMeta"))) {
-	    c->state = CB_NEWFILE_META;
-	    return 1;
-	}
-
-	if((!c->extending && l == lenof("fileSize") && !strncmp("fileSize", s, lenof("fileSize"))) ||
-	   (c->extending && l == lenof("extendSeq") && !strncmp("extendSeq", s, lenof("extendSeq")))) {
-	    c->state = CB_NEWFILE_SIZE;
-	    return 1;
-	}
-
-	return 0;
+    if(length != SXI_SHA1_TEXT_LEN || hex2bin(string, SXI_SHA1_TEXT_LEN, hash.b, sizeof(hash.b))) {
+	c->rc = EINVAL;
+	sxi_jparse_cancel(J, "Invalid block '%.*s'", length, string);
+	return;
     }
 
-    if(c->state == CB_NEWFILE_METAKEY) {
-	if(l >= sizeof(c->metakey))
-	    return 0;
-	memcpy(c->metakey, s, l);
-	c->metakey[l] = '\0';
-	c->state = CB_NEWFILE_METAVALUE;
-	return 1;
+    c->rc = sx_hashfs_putfile_putblock(hashfs, &hash);
+    if(c->rc != OK) {
+	const char *reason = msg_get_reason();
+	sxi_jparse_cancel(J, "Failed to add block '%.*s': %s", length, string, reason ? reason : " (reason unknown)");
+	return;
+    }
+}
+
+static void cb_newfile_addmeta(jparse_t *J, void *ctx, const char *string, unsigned int length) {
+    const char *metakey = sxi_jpath_mapkey(sxi_jpath_down(sxi_jparse_whereami(J)));
+    uint8_t metavalue[SXLIMIT_META_MAX_VALUE_LEN];
+    struct cb_newfile_ctx *c = ctx;
+
+    if(hex2bin(string, length, metavalue, sizeof(metavalue))) {
+	c->rc = EINVAL;
+	sxi_jparse_cancel(J, "Invalid volume metadata value for key '%s'", metakey);
+	return;
     }
 
-    return 0;
-}
-
-static int cb_newfile_number(void *ctx, const char *s, size_t l) {
-    char number[32], *eon;
-    struct cb_newfile_ctx *c = (struct cb_newfile_ctx *)ctx;
-
-    if(c->state != CB_NEWFILE_SIZE || c->filesize != -1 || l<1 || l>20)
-	return 0;
-    memcpy(number, s, l);
-    number[l] = '\0';
-    c->filesize = strtoll(number, &eon, 10);
-    if(*eon || c->filesize < 0)
-	return 0;
-    c->state = CB_NEWFILE_KEY;
-    return 1;
-}
-
-static int cb_newfile_start_array(void *ctx) {
-    struct cb_newfile_ctx *c = (struct cb_newfile_ctx *)ctx;
-    return (c->nhashes == 0 && c->state++ == CB_NEWFILE_CONTENT);
-}
-
-static int cb_newfile_string(void *ctx, const unsigned char *s, size_t l) {
-    struct cb_newfile_ctx *c = (struct cb_newfile_ctx *)ctx;
-
-    if(c->state == CB_NEWFILE_HASH) {
-	sx_hash_t hash;
-	if(l != SXI_SHA1_TEXT_LEN)
-	    return 0;
-
-	if(hex2bin(s, SXI_SHA1_TEXT_LEN, hash.b, sizeof(hash.b)))
-	    return 0;
-
-	rc_ty rc = sx_hashfs_putfile_putblock(hashfs, &hash);
-	if (rc != OK) {
-	    WARN("filehash_add failed: %d", rc);
-	    return 0;
-	}
-
-	c->nhashes++;
-	return 1;
+    c->rc = sx_hashfs_putfile_putmeta(hashfs, metakey, metavalue, length / 2);
+    if(sx_hashfs_putfile_putmeta(hashfs, metakey, metavalue, length / 2)) {
+	const char *reason = msg_get_reason();
+	sxi_jparse_cancel(J, "'%s'", reason ? reason : "Invalid file metadata");
+	return;
     }
+}
 
-    if(c->state == CB_NEWFILE_METAVALUE) {
-	uint8_t metavalue[SXLIMIT_META_MAX_VALUE_LEN];
-	if(hex2bin(s, l, metavalue, sizeof(metavalue)))
-	    return 0;
-	if(sx_hashfs_putfile_putmeta(hashfs, c->metakey, metavalue, l/2))
-	    return 0;
-	c->state = CB_NEWFILE_METAKEY;
-	return 1;
+static void cb_newfile_delmeta(jparse_t *J, void *ctx) {
+    const char *metakey = sxi_jpath_mapkey(sxi_jpath_down(sxi_jparse_whereami(J)));
+    struct cb_newfile_ctx *c = ctx;
+
+    c->rc = sx_hashfs_putfile_putmeta(hashfs, metakey, NULL, 0);
+    if(c->rc != OK) {
+	const char *reason = msg_get_reason();
+	sxi_jparse_cancel(J, "'%s'", reason ? reason : "Invalid file metadata");
+	return;
     }
-    return 0;
 }
-
-static int cb_newfile_null(void *ctx) {
-    struct cb_newfile_ctx *c = (struct cb_newfile_ctx *)ctx;
-
-    if(c->state != CB_NEWFILE_METAVALUE)
-	return 0;
-
-    if(sx_hashfs_putfile_putmeta(hashfs, c->metakey, NULL, 0))
-	return 0;
-    c->state = CB_NEWFILE_METAKEY;
-    return 1;
-}
-
-static int cb_newfile_end_array(void *ctx) {
-    struct cb_newfile_ctx *c = (struct cb_newfile_ctx *)ctx;
-    if(c->state != CB_NEWFILE_HASH)
-	return 0;
-    c->state = CB_NEWFILE_KEY;
-    return 1;
-}
-
-static int cb_newfile_end_map(void *ctx) {
-    struct cb_newfile_ctx *c = (struct cb_newfile_ctx *)ctx;
-    if(c->state == CB_NEWFILE_METAKEY)
-	c->state = CB_NEWFILE_KEY;
-    else if(c->state == CB_NEWFILE_KEY)
-	c->state = CB_NEWFILE_COMPLETE;
-    else
-	return 0;
-    return 1;
-}
-
-
-static const yajl_callbacks newfile_parser = {
-    cb_newfile_null,
-    cb_fail_boolean,
-    NULL,
-    NULL,
-    cb_newfile_number,
-    cb_newfile_string,
-    cb_newfile_start_map,
-    cb_newfile_map_key,
-    cb_newfile_end_map,
-    cb_newfile_start_array,
-    cb_newfile_end_array
-};
-
 
 void fcgi_create_file(void) {
+    const struct jparse_actions acts = {
+	JPACTS_INT64(
+		     JPACT(cb_newfile_size, JPKEY("fileSize"))
+		     ),
+	JPACTS_STRING(
+		      JPACT(cb_newfile_block, JPKEY("fileData"), JPANYITM),
+		      JPACT(cb_newfile_addmeta, JPKEY("fileMeta"), JPANYKEY)
+		      ),
+	JPACTS_NULL(
+		    JPACT(cb_newfile_delmeta, JPKEY("fileMeta"), JPANYKEY)
+		    )
+    };
+    struct cb_newfile_ctx yctx;
+    jparse_t *J;
     int len;
     rc_ty s;
 
@@ -359,28 +280,27 @@ void fcgi_create_file(void) {
 	quit_errmsg(rc2http(s), "Cannot initialize file upload");
     }
 
-    struct cb_newfile_ctx yctx;
-    yctx.state = CB_NEWFILE_START;
     yctx.filesize = -1;
-    yctx.nhashes = 0;
-    yctx.extending = 0;
+    yctx.rc = EINVAL;
 
-    yajl_handle yh = yajl_alloc(&newfile_parser, NULL, &yctx);
-    if(!yh) {
+    J = sxi_jparse_create(&acts, &yctx, 0);
+    if(!J) {
 	sx_hashfs_createfile_end(hashfs);
-	quit_errmsg(500, "Cannot allocate json parser");
+	quit_errmsg(503, "Cannot create JSON parser");
     }
 
     while((len = get_body_chunk(hashbuf, sizeof(hashbuf))) > 0)
-	if(yajl_parse(yh, hashbuf, len) != yajl_status_ok) break;
+	if(sxi_jparse_digest(J, hashbuf, len))
+	    break;
 
-    if(len || yajl_complete_parse(yh) != yajl_status_ok || yctx.state != CB_NEWFILE_COMPLETE) {
-	yajl_free(yh);
+    if(len || sxi_jparse_done(J)) {
+	send_error(rc2http(yctx.rc), sxi_jparse_geterr(J));
 	sx_hashfs_createfile_end(hashfs);
-	quit_errmsg(400, "Invalid request content");
+	sxi_jparse_destroy(J);
+	return;
     }
+    sxi_jparse_destroy(J);
 
-    yajl_free(yh);
     auth_complete();
     quit_unless_authed();
 
@@ -392,32 +312,46 @@ void fcgi_create_file(void) {
 }
 
 static void create_or_extend_tempfile(const sx_hashfs_volume_t *vol, const char *filename, int extending) {
+    const struct jparse_actions acts = {
+	JPACTS_INT64(
+		     JPACT(cb_newfile_size, JPKEY(extending ? "extendSeq" : "fileSize"))
+		     ),
+	JPACTS_STRING(
+		      JPACT(cb_newfile_block, JPKEY("fileData"), JPANYITM),
+		      JPACT(cb_newfile_addmeta, JPKEY("fileMeta"), JPANYKEY)
+		      ),
+	JPACTS_NULL(
+		    JPACT(cb_newfile_delmeta, JPKEY("fileMeta"), JPANYKEY)
+		    )
+    };
+    struct cb_newfile_ctx yctx;
     hash_presence_ctx_t ctx;
     const char *token;
+    jparse_t *J;
     int len;
     rc_ty s;
 
-    struct cb_newfile_ctx yctx;
-    yctx.state = CB_NEWFILE_START;
     yctx.filesize = -1;
-    yctx.nhashes = 0;
-    yctx.extending = extending;
-    yajl_handle yh = yajl_alloc(&newfile_parser, NULL, &yctx);
-    if(!yh) {
+    yctx.rc = EINVAL;
+
+    J = sxi_jparse_create(&acts, &yctx, 0);
+    if(!J) {
 	sx_hashfs_putfile_end(hashfs);
-	quit_errmsg(500, "Cannot allocate json parser");
+	quit_errmsg(503, "Cannot create JSON parser");
     }
 
     while((len = get_body_chunk(hashbuf, sizeof(hashbuf))) > 0)
-	if(yajl_parse(yh, hashbuf, len) != yajl_status_ok) break;
+	if(sxi_jparse_digest(J, hashbuf, len))
+	    break;
 
-    if(len || yajl_complete_parse(yh) != yajl_status_ok || yctx.state != CB_NEWFILE_COMPLETE) {
-	yajl_free(yh);
+    if(len || sxi_jparse_done(J)) {
+	send_error(rc2http(yctx.rc), sxi_jparse_geterr(J));
 	sx_hashfs_putfile_end(hashfs);
-	quit_errmsg(400, "Invalid request content");
+	sxi_jparse_destroy(J);
+	return;
     }
+    sxi_jparse_destroy(J);
 
-    yajl_free(yh);
     auth_complete();
     quit_unless_authed();
 

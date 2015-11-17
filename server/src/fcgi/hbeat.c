@@ -32,6 +32,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <yajl/yajl_parse.h>
+
 #include "hashfs.h"
 #include "utils.h"
 #include "log.h"

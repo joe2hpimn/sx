@@ -1843,7 +1843,6 @@ static int syncperms_cb(const char *username, int priv, int is_owner, void *ctx)
 static int sync_misc_objects(sx_hashfs_t *hashfs, struct sync_ctx *ctx) {
     time_t last_mod;
     rc_ty s;
-    const char *json_key;
     const char *key, *hexval;
     char *enc_name;
     unsigned int i;
@@ -1858,13 +1857,7 @@ static int sync_misc_objects(sx_hashfs_t *hashfs, struct sync_ctx *ctx) {
         return -1;
     }
 
-    if(ctx->misc_type == MISC_TYPE_META) {
-        sprintf(ctx->buffer, "{\"misc\":{\"clusterMetaLastModified\":%ld", last_mod);
-        json_key = "clusterMeta";
-    } else {
-        sprintf(ctx->buffer, "{\"misc\":{\"clusterSettingsLastModified\":%ld", last_mod);
-        json_key = "clusterSettings";
-    }
+    sprintf(ctx->buffer, "{\"misc\":{\"%s\":[%ld,{", ctx->misc_type == MISC_TYPE_META ? "clusterMeta" : "clusterSettings", last_mod);
 
     ctx->what = SYNCING_MISC;
     ctx->at = strlen(ctx->buffer);
@@ -1925,7 +1918,6 @@ static int sync_misc_objects(sx_hashfs_t *hashfs, struct sync_ctx *ctx) {
     }
 
     /* Fill the buffer */
-    sprintf(&ctx->buffer[ctx->at], ",\"%s\":{", json_key);
     for(i=0; i<ctx->nmisc; i++) {
         key = (ctx->misc_type == MISC_TYPE_META ? ctx->misc.meta[i].key : ctx->misc.settings[i].key);
         hexval = (ctx->misc_type == MISC_TYPE_META ? ctx->misc.meta[i].hexvalue : ctx->misc.settings[i].hexvalue);
@@ -1933,7 +1925,8 @@ static int sync_misc_objects(sx_hashfs_t *hashfs, struct sync_ctx *ctx) {
         sprintf(&ctx->buffer[ctx->at], "%s%s:\"%s\"", i ? "," : "", key, hexval);
     }
     ctx->at = strlen(ctx->buffer);
-    ctx->buffer[ctx->at++] = '}';
+    strcpy(&ctx->buffer[ctx->at], "}]");
+    ctx->at += 2;
 
     if(sync_flush(ctx))
         return -1;

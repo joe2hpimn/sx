@@ -463,28 +463,33 @@ void file_ops(void) {
 
 void job_2pc_handle_request(sxc_client_t *sx, const job_2pc_t *spec, void *yctx)
 {
-    if (spec->parser) {
-        rc_ty rc = OK;
-        yajl_handle yh = yajl_alloc(spec->parser, NULL, yctx);
-        if (!yh)
-            quit_errmsg(500, "Cannot allocate json parser");
-        int len;
-        while((len = get_body_chunk(hashbuf, sizeof(hashbuf))) > 0)
-            if(yajl_parse(yh, hashbuf, len) != yajl_status_ok) break;
-        if(len || yajl_complete_parse(yh) != yajl_status_ok)
-            rc = EINVAL;
-        yajl_free(yh);
-        if(rc == OK) {
-            auth_complete();
-            quit_unless_authed();
-            rc = spec->parse_complete(yctx);
-        }
-        if (rc) {
+    if(spec->jpacts) {
+	jparse_t *J = sxi_jparse_create(spec->jpacts, yctx, 0);
+	rc_ty rc;
+	int len;
+
+	if(!J)
+	    quit_errmsg(503, "Cannot create JSON parser");
+	while((len = get_body_chunk(hashbuf, sizeof(hashbuf))) > 0)
+	    if(sxi_jparse_digest(J, hashbuf, len))
+		break;
+	if(len || sxi_jparse_done(J)) {
+	    send_error(400, sxi_jparse_geterr(J));
+	    sxi_jparse_destroy(J);
+	    return;
+	}
+	sxi_jparse_destroy(J);
+
+	auth_complete();
+	quit_unless_authed();
+
+	rc = spec->parse_complete ? spec->parse_complete(yctx) : OK;
+	if(rc) {
             const char *msg = msg_get_reason();
             if(!msg || !*msg)
                 msg = "Invalid request content";
             quit_errmsg(rc2http(rc), msg);
-        }
+	}
     } else {
         /* check that body is empty? */
         auth_complete();

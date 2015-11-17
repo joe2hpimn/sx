@@ -28,15 +28,15 @@
 #include "default.h"
 #include <string.h>
 #include <stdlib.h>
-#include <yajl/yajl_parse.h>
 
 #include "clstqry.h"
+#include "libsxclient/src/jparse.h"
 
 struct cstatus {
+    jparse_t *J;
     sx_nodelist_t *one;
     sx_nodelist_t *two;
     sx_nodelist_t *ign;
-    yajl_handle yh;
     char *addr, *int_addr, *auth;
     char *zone_one, *zone_two;
     sx_uuid_t uuid, distid;
@@ -59,382 +59,371 @@ struct cstatus {
     char raft_status_leader[UUID_STRING_SIZE+1];
     raft_node_data_t *raft_nodes;
     unsigned int raft_nnodes;
-
-    enum cstatus_state { CS_BEGIN, CS_BASEKEY, CS_CSTATUS, CS_SKEY, CS_DISTS, CS_DIST, CS_NODES, CS_NODEKEY, CS_UUID, CS_ADDR, CS_INT_ADDR, CS_CAPA, CS_NODEFLAGS, CS_DISTID, CS_DISTVER, CS_DISTCHK, CS_AUTH, CS_INPRG, CS_INPRGKEY, CS_INPRGOP, CS_INPRGDONE, CS_INPRGMSG, CS_RS, CS_RSKEY, CS_RS_ROLE, CS_RS_LEADER, CS_RS_NODES, CS_RS_NODES_UUID, CS_RS_NODES_NODE, CS_RS_NODES_NODE_KEY, CS_RS_NODES_NODE_STATE, CS_RS_NODES_NODE_LC, CS_COMPLETE, CS_MODE } state;
 };
 
-static int cb_cstatus_start_map(void *ctx) {
-    struct cstatus *c = (struct cstatus *)ctx;
+/*
 
-    if(c->state == CS_BEGIN)
-	c->state = CS_BASEKEY;
-    else if(c->state == CS_CSTATUS)
-	c->state = CS_SKEY;
-    else if(c->state == CS_NODES)
-	c->state = CS_NODEKEY;
-    else if(c->state == CS_INPRG)
-	c->state = CS_INPRGKEY;
-    else if(c->state == CS_RS)
-        c->state = CS_RSKEY;
-    else if(c->state == CS_RS_NODES)
-        c->state = CS_RS_NODES_UUID;
-    else if(c->state == CS_RS_NODES_NODE)
-        c->state = CS_RS_NODES_NODE_KEY;
-    else
-	return 0;
-
-    return 1;
-}
-
-static int cb_cstatus_map_key(void *ctx, const unsigned char *s, size_t l) {
-    struct cstatus *c = (struct cstatus *)ctx;
-
-    if(c->state == CS_BASEKEY) {
-	if(l == lenof("clusterStatus") && !memcmp("clusterStatus", s, lenof("clusterStatus")))
-	    c->state = CS_CSTATUS;
-        else if(l == lenof("raftStatus") && !memcmp("raftStatus", s, lenof("raftStatus")))
-            c->state = CS_RS;
-	else
-	    return 0;
-    } else if(c->state == CS_SKEY) {
-	if(l == lenof("distributionModels") && !memcmp("distributionModels", s, lenof("distributionModels")))
-	    c->state = CS_DISTS;
-	else if(l == lenof("distributionUUID") && !memcmp("distributionUUID", s, lenof("distributionUUID")))
-	    c->state = CS_DISTID;
-	else if(l == lenof("distributionVersion") && !memcmp("distributionVersion", s, lenof("distributionVersion")))
-	    c->state = CS_DISTVER;
-	else if(l == lenof("distributionChecksum") && !memcmp("distributionChecksum", s, lenof("distributionChecksum")))
-	    c->state = CS_DISTCHK;
-	else if(l == lenof("clusterAuth") && !memcmp("clusterAuth", s, lenof("clusterAuth")))
-	    c->state = CS_AUTH;
-	else if(l == lenof("opInProgress") && !memcmp("opInProgress", s, lenof("opInProgress")))
-	    c->state = CS_INPRG;
-        else if(l == lenof("operatingMode") && !memcmp("operatingMode", s, lenof("operatingMode")))
-            c->state = CS_MODE;
-	else
-	    return 0;
-    } else if(c->state == CS_NODEKEY) {
-	if(l == lenof("nodeUUID") && !memcmp("nodeUUID", s, lenof("nodeUUID")))
-	    c->state = CS_UUID;
-	else if(l == lenof("nodeAddress") && !memcmp("nodeAddress", s, lenof("nodeAddress")))
-	    c->state = CS_ADDR;
-	else if(l == lenof("nodeInternalAddress") && !memcmp("nodeInternalAddress", s, lenof("nodeInternalAddress")))
-	    c->state = CS_INT_ADDR;
-	else if(l == lenof("nodeCapacity") && !memcmp("nodeCapacity", s, lenof("nodeCapacity")))
-	    c->state = CS_CAPA;
-	else if(l == lenof("nodeFlags") && !memcmp("nodeFlags", s, lenof("nodeFlags")))
-	    c->state = CS_NODEFLAGS;
-	else
-	    return 0;
-    } else if(c->state == CS_INPRGKEY) {
-	if(l == lenof("opType") && !memcmp("opType", s, lenof("opType")))
-	    c->state = CS_INPRGOP;
-	else if(l == lenof("isComplete") && !memcmp("isComplete", s, lenof("isComplete")))
-	    c->state = CS_INPRGDONE;
-	else if(l == lenof("opInfo") && !memcmp("opInfo", s, lenof("opInfo")))
-	    c->state = CS_INPRGMSG;
-	else
-	    return 0;
-    } else if(c->state == CS_RSKEY) {
-        if(l == lenof("role") && !memcmp("role", s, lenof("role")))
-            c->state = CS_RS_ROLE;
-        else if(l == lenof("leader") && !memcmp("leader", s, lenof("leader")))
-            c->state = CS_RS_LEADER;
-        else if(l == lenof("nodeStates") && !memcmp("nodeStates", s, lenof("nodeStates")))
-            c->state = CS_RS_NODES;
-        else
-            return 0;
-    } else if(c->state == CS_RS_NODES_UUID) {
-        raft_node_data_t *oldptr = c->raft_nodes;
-        char uuid_str[UUID_STRING_SIZE+1];
-        if(l != UUID_STRING_SIZE)
-            return 0;
-        c->raft_nodes = realloc(oldptr, sizeof(raft_node_data_t) * (c->raft_nnodes+1));
-        if(!c->raft_nodes) {
-            c->raft_nodes = oldptr;
-            return 0;
+{
+    "clusterStatus": {
+        "distributionModels": [
+            [
+                {
+                    "nodeUUID": "UUID",
+                    "nodeAddress": "ADDR",
+                    "nodeInternalAddress": "INTADDR",
+                    "nodeCapacity": 1234,
+                    "nodeFlags": "FLAGS"
+                }
+            ],
+            []
+        ],
+        "distributionUUID": "UUID",
+        "distributionVersion": 123,
+        "distributionChecksum": 6667,
+        "clusterAuth": "AUTH",
+        "opInProgress": {
+            "opType": "OP",
+            "isComplete": true,
+            "opInfo": "MESSAGE"
+        },
+        "operatingMode": "MODE"
+    },
+    "raftStatus": {
+        "role": "ROLE",
+        "leader": "LEADER",
+        "nodeStates": {
+            "NODEUUID": {
+                "state": "STATE",
+                "lastContact": 12345
+            }
         }
-        memset(&c->raft_nodes[c->raft_nnodes], 0, sizeof(c->raft_nodes[c->raft_nnodes]));
-        memcpy(uuid_str, s, UUID_STRING_SIZE);
-        uuid_str[UUID_STRING_SIZE] = '\0';
-        if(uuid_from_string(&c->raft_nodes[c->raft_nnodes].uuid, uuid_str))
-            return 0;
-        c->raft_nnodes++;
-        c->state = CS_RS_NODES_NODE;
-        return 1;
-    } else if(c->state == CS_RS_NODES_NODE_KEY) {
-        if(l == lenof("state") && !memcmp("state", s, lenof("state")))
-            c->state = CS_RS_NODES_NODE_STATE;
-        else if(l == lenof("lastContact") && !memcmp("lastContact", s, lenof("lastContact")))
-            c->state = CS_RS_NODES_NODE_LC;
-        else
-            return 0;
-    } else
-	return 0;
-
-    return 1;
+    }
 }
 
-static int cb_cstatus_end_map(void *ctx) {
-    struct cstatus *c = (struct cstatus *)ctx;
+*/
 
-    if(c->state == CS_NODEKEY) {
-	sx_node_t *node;
-	if(!c->have_uuid || !c->addr || c->capa <= 0 || c->nsets < 0 || c->nsets > 1)
-	    return 0;
-	node = sx_node_new(&c->uuid, c->addr, c->int_addr, c->capa);
-	if(sx_nodelist_add(c->nsets ? c->two : c->one, node))
-	    return 0;
-	if(c->is_ignd && !sx_nodelist_lookup(c->ign, sx_node_uuid(node)) && sx_nodelist_add(c->ign, sx_node_dup(node)))
-	    return 0;
-	free(c->addr);
-	free(c->int_addr);
-	c->addr = NULL;
-	c->int_addr = NULL;
-	c->capa = 0;
-	c->have_uuid = 0;
-	c->is_ignd = 0;
-	c->state = CS_NODES;
-    } else if(c->state == CS_SKEY)
-	c->state = CS_BASEKEY;
-    else if(c->state == CS_INPRGKEY)
-	c->state = CS_SKEY;
-    else if(c->state == CS_BASEKEY)
-	c->state = CS_COMPLETE;
-    else if(c->state == CS_RSKEY)
-        c->state = CS_BASEKEY;
-    else if(c->state == CS_RS_NODES_NODE_KEY)
-        c->state = CS_RS_NODES_UUID;
-    else if(c->state == CS_RS_NODES_UUID)
-        c->state = CS_RSKEY;
-    else
-	return 0;
-
-    return 1;
-}
-
-static int cb_cstatus_start_array(void *ctx) {
-    struct cstatus *c = (struct cstatus *)ctx;
-
-    if(c->state == CS_DISTS)
-	c->state = CS_DIST;
-    else if(c->state == CS_DIST) {
-	if(c->nsets < 0 || c->nsets > 1)
-	    return 0;
-	if(c->nsets < 0 || c->nsets > 1)
-	    return 0;
-	c->state = CS_NODES;
-    } else
-	return 0;
-
-    return 1;
-}
-
-static int cb_cstatus_end_array(void *ctx) {
-    struct cstatus *c = (struct cstatus *)ctx;
-
-    if(c->state == CS_NODES) {
-	c->nsets++;
-	c->state = CS_DIST;
-    } else if(c->state == CS_DIST)
-	c->state = CS_SKEY;
-    else
-	return 0;
-
-    return 1;
-}
-
-
-static int cb_cstatus_string(void *ctx, const unsigned char *s, size_t l) {
+static void cb_cstatus_dist_nuuid(jparse_t *J, void *ctx, const char *string, unsigned int length) {
     struct cstatus *c = (struct cstatus *)ctx;
     char uuid[UUID_STRING_SIZE + 1];
 
-    if(c->state == CS_UUID) {
-	if(c->have_uuid || l != UUID_STRING_SIZE)
-	    return 0;
-	memcpy(uuid, s, UUID_STRING_SIZE);
-	uuid[UUID_STRING_SIZE] = '\0';
-	if(uuid_from_string(&c->uuid, uuid))
-	    return 0;
-	c->have_uuid = 1;
-	c->state = CS_NODEKEY;
-    } else if(c->state == CS_DISTID) {
-	if(c->have_distid || l != UUID_STRING_SIZE)
-	    return 0;
-	memcpy(uuid, s, UUID_STRING_SIZE);
-	uuid[UUID_STRING_SIZE] = '\0';
-	if(uuid_from_string(&c->distid, uuid))
-	    return 0;
-	c->have_distid = 1;
-	c->state = CS_SKEY;
-    } else if(c->state == CS_NODES) {
-	char **zone;
-	if(c->nsets == 0)
-	    zone = &c->zone_one;
-	else  if(c->nsets == 1)
-	    zone = &c->zone_two;
-	else
-	    return 0;
-	if(*zone)
-	    return 0;
-	*zone = malloc(l+1);
-	if(!*zone)
-	    return 0;
-	memcpy(*zone, s, l);
-	(*zone)[l] = '\0';
-    } else if(c->state == CS_ADDR) {
-	if(c->addr)
-	    return 0;
-	c->addr = malloc(l+1);
-	if(!c->addr)
-	    return 0;
-	memcpy(c->addr, s, l);
-	c->addr[l] = '\0';
-	c->state = CS_NODEKEY;
-    } else if(c->state == CS_INT_ADDR) {
-	if(c->int_addr)
-	    return 0;
-	c->int_addr = malloc(l+1);
-	if(!c->int_addr)
-	    return 0;
-	memcpy(c->int_addr, s, l);
-	c->int_addr[l] = '\0';
-	c->state = CS_NODEKEY;
-    } else if(c->state == CS_NODEFLAGS) {
-	c->is_ignd = memchr(s, 'i', l) != NULL;
-	c->state = CS_NODEKEY;
-    } else if(c->state == CS_AUTH) {
-	if(c->auth)
-	    return 0;
-	c->auth = malloc(l+1);
-	if(!c->auth)
-	    return 0;
-	memcpy(c->auth, s, l);
-	c->auth[l] = '\0';
-	c->state = CS_SKEY;
-    } else if(c->state == CS_MODE) {
-        if(c->readonly)
-            return 0;
-        if(!memcmp("read-only", s, lenof("read-only")))
-            c->readonly = 1;
-        c->state = CS_SKEY;
-    } else if(c->state == CS_INPRGOP) {
-	if(l == lenof("rebalance") && !memcmp("rebalance", s, lenof("rebalance")))
-	    c->op_type = OP_REBALANCE;
-	else if(l == lenof("replace") && !memcmp("replace", s, lenof("replace")))
-	    c->op_type = OP_REPLACE;
-	else if (l == lenof("upgrade") && !memcmp("upgrade", s, lenof("upgrade")))
-	    c->op_type = OP_UPGRADE;
-        else
-	    c->op_type = OP_NONE;
-	c->state = CS_INPRGKEY;
-    } else if(c->state == CS_INPRGMSG) {
-	unsigned int ml = MIN(l, sizeof(c->op_msg) - 1);
-	memcpy(c->op_msg, s, ml);
-	c->op_msg[ml] = '\0';
-	c->state = CS_INPRGKEY;
-    } else if(c->state == CS_NODEFLAGS) {
-	c->is_ignd = memchr(s, 'i', l) != NULL;
-	c->state = CS_NODEKEY;
-    } else if(c->state == CS_RS_ROLE) {
-        if(l >= sizeof(c->raft_role))
-            return 0;
-        memcpy(c->raft_role, s, l);
-        c->raft_role[l] = '\0';
-        c->state = CS_RSKEY;
-    } else if(c->state == CS_RS_LEADER) {
-        if(l == lenof("<nobody>") && !memcmp(s, "<nobody>", l))
-            sxi_strlcpy(c->raft_status_leader, "<nobody>", sizeof(c->raft_status_leader));
-        else if(l == UUID_STRING_SIZE)
-            memcpy(c->raft_status_leader, s, UUID_STRING_SIZE);
-        else
-            return 0;
-        c->raft_status_leader[UUID_STRING_SIZE] = '\0';
-        c->state = CS_RSKEY;
-    } else if(c->state == CS_RS_NODES_NODE_STATE) {
-        if(l == lenof("alive") && !memcmp(s, "alive", l))
-            c->raft_nodes[c->raft_nnodes-1].state = 1;
-        else if(l == lenof("dead") && !memcmp(s, "dead", l))
-            c->raft_nodes[c->raft_nnodes-1].state = 0;
-        else
-            return 0;
-        c->state = CS_RS_NODES_NODE_KEY;
-    } else
-	return 0;
-
-    return 1;
+    if(length != UUID_STRING_SIZE) {
+	sxi_jparse_cancel(J, "Invalid node UUID (dist %d, entry %d)",
+			  sxi_jpath_arraypos(sxi_jpath_down(sxi_jpath_down(sxi_jparse_whereami(J)))),
+			  sxi_jpath_arraypos(sxi_jpath_down(sxi_jpath_down(sxi_jpath_down(sxi_jparse_whereami(J))))));
+	return;
+    }
+    memcpy(uuid, string, UUID_STRING_SIZE);
+    uuid[UUID_STRING_SIZE] = '\0';
+    if(uuid_from_string(&c->uuid, uuid)) {
+	sxi_jparse_cancel(J, "Invalid node UUID (dist %d, entry %d)",
+			  sxi_jpath_arraypos(sxi_jpath_down(sxi_jpath_down(sxi_jparse_whereami(J)))),
+			  sxi_jpath_arraypos(sxi_jpath_down(sxi_jpath_down(sxi_jpath_down(sxi_jparse_whereami(J))))));
+	return;
+    }
+    c->have_uuid = 1;
 }
 
-static int cb_cstatus_number(void *ctx, const char *s, size_t l) {
+
+static void set_cstatus_naddr(jparse_t *J, char **dest, const char *src, unsigned int len) {
+    char *buf;
+    if(*dest) {
+	sxi_jparse_cancel(J, "Duplicate node address field (dist %d, entry %d)",
+			  sxi_jpath_arraypos(sxi_jpath_down(sxi_jpath_down(sxi_jparse_whereami(J)))),
+			  sxi_jpath_arraypos(sxi_jpath_down(sxi_jpath_down(sxi_jpath_down(sxi_jparse_whereami(J))))));
+	return;
+    }
+    buf = malloc(len + 1);
+    if(!buf) {
+	sxi_jparse_cancel(J, "Out of memory processing distribution");
+	return;
+    }
+    memcpy(buf, src, len);
+    buf[len] = '\0';
+    *dest = buf;
+}
+
+static void cb_cstatus_dist_naddr(jparse_t *J, void *ctx, const char *string, unsigned int length) {
     struct cstatus *c = (struct cstatus *)ctx;
-    char number[24], *eon;
-    int64_t lld;
+    set_cstatus_naddr(J, &c->addr, string, length);
+}
 
-    if(c->state != CS_CAPA && c->state != CS_DISTVER && c->state != CS_DISTCHK && c->state != CS_RS_NODES_NODE_LC)
-	return 0;
+static void cb_cstatus_dist_nintaddr(jparse_t *J, void *ctx, const char *string, unsigned int length) {
+    struct cstatus *c = (struct cstatus *)ctx;
+    set_cstatus_naddr(J, &c->int_addr, string, length);
+}
 
-    if(c->capa || l<1 || l>20)
-	return 0;
+static void cb_cstatus_dist_nflags(jparse_t *J, void *ctx, const char *string, unsigned int length) {
+    struct cstatus *c = (struct cstatus *)ctx;
+    c->is_ignd = memchr(string, 'i', length) != NULL;
+}
 
-    memcpy(number, s, l);
-    number[l] = '\0';
-    lld = strtoll(number, &eon, 10);
-    if(*eon)
-	return 0;
+static void cb_cstatus_dist_ncapa(jparse_t *J, void *ctx, int64_t num) {
+    struct cstatus *c = (struct cstatus *)ctx;
+    if(num <= 0) {
+	sxi_jparse_cancel(J, "Invalid node capacity %lld (dist %d, entry %d)", (long long)num,
+			  sxi_jpath_arraypos(sxi_jpath_down(sxi_jpath_down(sxi_jparse_whereami(J)))),
+			  sxi_jpath_arraypos(sxi_jpath_down(sxi_jpath_down(sxi_jpath_down(sxi_jparse_whereami(J))))));
+	return;
+    }
+    c->capa = num;
+}
 
-    if(c->state == CS_CAPA) {
-	if(lld < 0)
-	    return 0;
-	c->capa = lld;
-	c->state = CS_NODEKEY;
-    } else if(c->state == CS_DISTVER) {
-	if(lld < 0 || lld >0xffffffff)
-	    return 0;
-	c->version = (unsigned int)(lld & 0xffffffff);
-	c->state = CS_SKEY;
-    } else if(c->state == CS_RS_NODES_NODE_LC) {
-        if(lld < 0)
-            return 0;
-        c->raft_nodes[c->raft_nnodes-1].last_contact = lld;
-        c->state = CS_RS_NODES_NODE_KEY;
-    } else {
-	c->checksum = (uint64_t)lld;
-	c->state = CS_SKEY;
+static void cb_cstatus_dist_nbegin(jparse_t *J, void *ctx) {
+    struct cstatus *c = (struct cstatus *)ctx;
+    c->capa = 0;
+    c->have_uuid = 0;
+    c->is_ignd = 0;
+}
+
+static void cb_cstatus_dist_ndone(jparse_t *J, void *ctx) {
+    int ndist = sxi_jpath_arraypos(sxi_jpath_down(sxi_jpath_down(sxi_jparse_whereami(J))));
+    struct cstatus *c = (struct cstatus *)ctx;
+    sx_node_t *node;
+
+    if(ndist < 0 || ndist > 1) {
+	/* Not reached */
+	sxi_jparse_cancel(J, "Internal error processing node distribution");
+	return;
+    }
+    if(!c->have_uuid || !c->addr) {
+	sxi_jparse_cancel(J, "Incomplete node description (dist %d, entry %d)", ndist,
+			  sxi_jpath_arraypos(sxi_jpath_down(sxi_jpath_down(sxi_jpath_down(sxi_jparse_whereami(J))))));
+	return;
     }
 
-    return 1;
+    node = sx_node_new(&c->uuid, c->addr, c->int_addr, c->capa);
+    if(sx_nodelist_add(ndist ? c->two : c->one, node)) {
+	sxi_jparse_cancel(J, "Out of memory processing node distribution");
+	return;
+    }
+    if(c->is_ignd && !sx_nodelist_lookup(c->ign, sx_node_uuid(node)) && sx_nodelist_add(c->ign, sx_node_dup(node))) {
+	sxi_jparse_cancel(J, "Out of memory processing node distribution");
+	return;
+    }
+    free(c->addr);
+    free(c->int_addr);
+    c->addr = NULL;
+    c->int_addr = NULL;
+    c->nsets = MAX(ndist + 1, c->nsets);
 }
 
-int cb_cstatus_boolean(void *ctx, int boolean) {
+static void cb_cstatus_dist_zone(jparse_t *J, void *ctx, const char *string, unsigned int length) {
+    int ndist = sxi_jpath_arraypos(sxi_jpath_down(sxi_jpath_down(sxi_jparse_whereami(J))));
     struct cstatus *c = (struct cstatus *)ctx;
-    if(c->state != CS_INPRGDONE)
-        return 0;
-    c->op_complete = boolean;
-    c->state = CS_INPRGKEY;
-    return 1;
+    char **dest, *zone;
+
+    dest = (ndist == 0) ? &c->zone_one : &c->zone_two;
+    if(*dest) {
+	sxi_jparse_cancel(J, "Duplicate zone definition on dist %d", ndist);
+	return;
+    }
+    zone = malloc(length + 1);
+    if(!zone) {
+	sxi_jparse_cancel(J, "Out of memory processing zone definition");
+	return;
+    }
+    memcpy(zone, string, length);
+    zone[length] = '\0';
+    *dest = zone;
 }
 
-static const yajl_callbacks cstatus_parser = {
-    cb_fail_null,
-    cb_cstatus_boolean,
-    NULL,
-    NULL,
-    cb_cstatus_number,
-    cb_cstatus_string,
-    cb_cstatus_start_map,
-    cb_cstatus_map_key,
-    cb_cstatus_end_map,
-    cb_cstatus_start_array,
-    cb_cstatus_end_array
+static void cb_cstatus_distid(jparse_t *J, void *ctx, const char *string, unsigned int length) {
+    struct cstatus *c = (struct cstatus *)ctx;
+    char uuid[UUID_STRING_SIZE + 1];
+
+    if(length != UUID_STRING_SIZE) {
+	sxi_jparse_cancel(J, "Invalid distribution UUID");
+	return;
+    }
+    memcpy(uuid, string, UUID_STRING_SIZE);
+    uuid[UUID_STRING_SIZE] = '\0';
+    if(uuid_from_string(&c->distid, uuid)) {
+	sxi_jparse_cancel(J, "Invalid distribution UUID");
+	return;
+    }
+    c->have_distid = 1;
+}
+
+
+static void cb_cstatus_distver(jparse_t *J, void *ctx, int64_t num) {
+    struct cstatus *c = (struct cstatus *)ctx;
+    if(num < 0 || num > 0xffffffff) {
+	sxi_jparse_cancel(J, "Invalid disttribution version %lld", (long long)num);
+	return;
+    }
+    c->version = (unsigned int)(num);
+}
+
+static void cb_cstatus_distsum(jparse_t *J, void *ctx, int64_t num) {
+    struct cstatus *c = (struct cstatus *)ctx;
+    c->checksum = (uint64_t)num;
+}
+
+static void cb_cstatus_auth(jparse_t *J, void *ctx, const char *string, unsigned int length) {
+    struct cstatus *c = (struct cstatus *)ctx;
+    if(c->auth) {
+	sxi_jparse_cancel(J, "Duplicate cluster authentication token");
+	return;
+    }
+    c->auth = malloc(length + 1);
+    if(!c->auth) {
+	sxi_jparse_cancel(J, "Out of memory processing cluster authentication token");
+	return;
+    }
+    memcpy(c->auth, string, length);
+    c->auth[length] = '\0';
+}
+
+static void cb_cstatus_mode(jparse_t *J, void *ctx, const char *string, unsigned int length) {
+    struct cstatus *c = (struct cstatus *)ctx;
+    if(length == lenof("read-only") && !memcmp("read-only", string, lenof("read-only")))
+	c->readonly = 1;
+}
+
+static void cb_cstatus_op_type(jparse_t *J, void *ctx, const char *string, unsigned int length) {
+    struct cstatus *c = (struct cstatus *)ctx;
+    if(length == lenof("rebalance") && !memcmp("rebalance", string, lenof("rebalance")))
+	c->op_type = OP_REBALANCE;
+    else if(length == lenof("replace") && !memcmp("replace", string, lenof("replace")))
+	c->op_type = OP_REPLACE;
+    else if (length == lenof("upgrade") && !memcmp("upgrade", string, lenof("upgrade")))
+	c->op_type = OP_UPGRADE;
+    else
+	c->op_type = OP_NONE;
+}
+
+static void cb_cstatus_op_info(jparse_t *J, void *ctx, const char *string, unsigned int length) {
+    struct cstatus *c = (struct cstatus *)ctx;
+    unsigned int ml = MIN(length, sizeof(c->op_msg) - 1);
+    memcpy(c->op_msg, string, ml);
+    c->op_msg[ml] = '\0';
+}
+
+static void cb_cstatus_op_complete(jparse_t *J, void *ctx, int complete) {
+    struct cstatus *c = (struct cstatus *)ctx;
+    c->op_complete = complete;
+}
+
+static void cb_cstatus_raft_role(jparse_t *J, void *ctx, const char *string, unsigned int length) {
+    struct cstatus *c = (struct cstatus *)ctx;
+    unsigned int ml = MIN(length, sizeof(c->raft_role) - 1);
+    memcpy(c->raft_role, string, ml);
+    c->raft_role[ml] = '\0';
+}
+
+static void cb_cstatus_raft_leader(jparse_t *J, void *ctx, const char *string, unsigned int length) {
+    struct cstatus *c = (struct cstatus *)ctx;
+    sx_uuid_t uuid;
+
+    if(length == lenof("<nobody>") && !memcmp(string, "<nobody>", lenof("<nobody>"))) {
+	sxi_strlcpy(c->raft_status_leader, "<nobody>", sizeof(c->raft_status_leader));
+	return;
+    }
+    if(length == UUID_STRING_SIZE) {
+	memcpy(c->raft_status_leader, string, UUID_STRING_SIZE);
+	c->raft_status_leader[UUID_STRING_SIZE] = '\0';
+	if(!uuid_from_string(&uuid, c->raft_status_leader))
+	    return;
+    }
+    sxi_jparse_cancel(J, "Invalid raft leader UUID");
+}
+
+static void cb_cstatus_raft_ns_node(jparse_t *J, void *ctx) {
+    const char *node = sxi_jpath_mapkey(sxi_jpath_down(sxi_jpath_down(sxi_jparse_whereami(J))));
+    struct cstatus *c = (struct cstatus *)ctx;
+    raft_node_data_t *nunodes;
+
+    if(strlen(node) != UUID_STRING_SIZE) {
+	sxi_jparse_cancel(J, "Invalid node UUID %s", node);
+	return;
+    }
+
+    nunodes = realloc(c->raft_nodes, sizeof(raft_node_data_t) * (c->raft_nnodes+1));
+    if(!nunodes) {
+	sxi_jparse_cancel(J, "Out of memory processing raft node states");
+	return;
+    }
+    c->raft_nodes = nunodes;
+    memset(&c->raft_nodes[c->raft_nnodes], 0, sizeof(c->raft_nodes[c->raft_nnodes]));
+    if(uuid_from_string(&c->raft_nodes[c->raft_nnodes].uuid, node)) {
+	sxi_jparse_cancel(J, "Invalid node UUID %s", node);
+	return;
+    }
+    c->raft_nnodes++;
+}
+
+static void cb_cstatus_raft_ns_state(jparse_t *J, void *ctx, const char *string, unsigned int length) {
+    struct cstatus *c = (struct cstatus *)ctx;
+    if(length == lenof("alive") && !memcmp(string, "alive", lenof("alive")))
+	c->raft_nodes[c->raft_nnodes-1].state = 1;
+    else if(length == lenof("dead") && !memcmp(string, "dead", lenof("dead")))
+	c->raft_nodes[c->raft_nnodes-1].state = 0;
+    else {
+	sxi_jparse_cancel(J, "Invalid state %.*s on node %s", length, string,
+			  sxi_jpath_mapkey(sxi_jpath_down(sxi_jpath_down(sxi_jparse_whereami(J)))));
+	return;
+    }
+}
+
+static void cb_cstatus_raft_ns_ts(jparse_t *J, void *ctx, int64_t num) {
+    struct cstatus *c = (struct cstatus *)ctx;
+
+    if(num < 0) {
+	sxi_jparse_cancel(J, "Invalid last contact value on node %s",
+			  sxi_jpath_mapkey(sxi_jpath_down(sxi_jpath_down(sxi_jparse_whereami(J)))));
+	return;
+    }
+    c->raft_nodes[c->raft_nnodes-1].last_contact = num;
+}
+
+const struct jparse_actions cstatus_acts = {
+    JPACTS_STRING(
+		  JPACT(cb_cstatus_dist_nuuid, JPKEY("clusterStatus"), JPKEY("distributionModels"), JPARR(0), JPANYITM, JPKEY("nodeUUID")),
+		  JPACT(cb_cstatus_dist_naddr, JPKEY("clusterStatus"), JPKEY("distributionModels"), JPARR(0), JPANYITM, JPKEY("nodeAddress")),
+		  JPACT(cb_cstatus_dist_nintaddr, JPKEY("clusterStatus"), JPKEY("distributionModels"), JPARR(0), JPANYITM, JPKEY("nodeInternalAddress")),
+		  JPACT(cb_cstatus_dist_nflags, JPKEY("clusterStatus"), JPKEY("distributionModels"), JPARR(0), JPANYITM, JPKEY("nodeFlags")),
+		  JPACT(cb_cstatus_dist_nuuid, JPKEY("clusterStatus"), JPKEY("distributionModels"), JPARR(1), JPANYITM, JPKEY("nodeUUID")),
+		  JPACT(cb_cstatus_dist_naddr, JPKEY("clusterStatus"), JPKEY("distributionModels"), JPARR(1), JPANYITM, JPKEY("nodeAddress")),
+		  JPACT(cb_cstatus_dist_nintaddr, JPKEY("clusterStatus"), JPKEY("distributionModels"), JPARR(1), JPANYITM, JPKEY("nodeInternalAddress")),
+		  JPACT(cb_cstatus_dist_nflags, JPKEY("clusterStatus"), JPKEY("distributionModels"), JPARR(1), JPANYITM, JPKEY("nodeFlags")),
+		  JPACT(cb_cstatus_dist_zone, JPKEY("clusterStatus"), JPKEY("distributionModels"), JPARR(0)),
+		  JPACT(cb_cstatus_dist_zone, JPKEY("clusterStatus"), JPKEY("distributionModels"), JPARR(1)),
+		  JPACT(cb_cstatus_distid, JPKEY("clusterStatus"), JPKEY("distributionUUID")),
+		  JPACT(cb_cstatus_auth, JPKEY("clusterStatus"), JPKEY("clusterAuth")),
+		  JPACT(cb_cstatus_mode, JPKEY("clusterStatus"), JPKEY("operatingMode")),
+		  JPACT(cb_cstatus_op_type, JPKEY("clusterStatus"), JPKEY("opInProgress"), JPKEY("opType")),
+		  JPACT(cb_cstatus_op_info, JPKEY("clusterStatus"), JPKEY("opInProgress"), JPKEY("opInfo")),
+		  JPACT(cb_cstatus_raft_role, JPKEY("raftStatus"), JPKEY("role")),
+		  JPACT(cb_cstatus_raft_leader, JPKEY("raftStatus"), JPKEY("leader")),
+		  JPACT(cb_cstatus_raft_ns_state, JPKEY("raftStatus"), JPKEY("nodeStates"), JPANYKEY, JPKEY("state"))
+		  ),
+    JPACTS_INT64(
+		 JPACT(cb_cstatus_dist_ncapa, JPKEY("clusterStatus"), JPKEY("distributionModels"), JPARR(0), JPANYITM, JPKEY("nodeCapacity")),
+		 JPACT(cb_cstatus_dist_ncapa, JPKEY("clusterStatus"), JPKEY("distributionModels"), JPARR(1), JPANYITM, JPKEY("nodeCapacity")),
+		 JPACT(cb_cstatus_distver, JPKEY("clusterStatus"), JPKEY("distributionVersion")),
+		 JPACT(cb_cstatus_distsum, JPKEY("clusterStatus"), JPKEY("distributionChecksum")),
+		 JPACT(cb_cstatus_raft_ns_ts, JPKEY("raftStatus"), JPKEY("nodeStates"), JPANYKEY, JPKEY("lastContact"))
+		 ),
+    JPACTS_MAP_BEGIN(
+		     JPACT(cb_cstatus_dist_nbegin, JPKEY("clusterStatus"), JPKEY("distributionModels"), JPARR(0), JPANYITM),
+		     JPACT(cb_cstatus_dist_nbegin, JPKEY("clusterStatus"), JPKEY("distributionModels"), JPARR(1), JPANYITM),
+		     JPACT(cb_cstatus_raft_ns_node, JPKEY("raftStatus"), JPKEY("nodeStates"), JPANYKEY)
+		     ),
+    JPACTS_MAP_END(
+		   JPACT(cb_cstatus_dist_ndone, JPKEY("clusterStatus"), JPKEY("distributionModels"), JPARR(0), JPANYITM),
+		   JPACT(cb_cstatus_dist_ndone, JPKEY("clusterStatus"), JPKEY("distributionModels"), JPARR(1), JPANYITM)
+		   ),
+    JPACTS_BOOL(
+		JPACT(cb_cstatus_op_complete, JPKEY("clusterStatus"), JPKEY("opInProgress"), JPKEY("isComplete"))
+		)
 };
+
 
 static int cstatus_setup_cb(curlev_context_t *cbdata, void *ctx, const char *host) {
     struct cstatus *yactx = (struct cstatus *)ctx;
 
-    if(yactx->yh)
-	yajl_free(yactx->yh);
-
-    if(!(yactx->yh  = yajl_alloc(&cstatus_parser, NULL, yactx))) {
+    sxi_jparse_destroy(yactx->J);
+    if(!(yactx->J  = sxi_jparse_create(&cstatus_acts, yactx, 1))) {
 	CRIT("Cannot get cluster status: out of memory");
 	return 1;
     }
@@ -482,7 +471,6 @@ static int cstatus_setup_cb(curlev_context_t *cbdata, void *ctx, const char *hos
     yactx->op_type = OP_NONE;
     yactx->op_complete = -1;
     yactx->op_msg[0] = '\0';
-    yactx->state = CS_BEGIN;
     yactx->cbdata = cbdata;
     yactx->readonly = 0;
     memset(&yactx->raft_status_leader, 0, sizeof(yactx->raft_status_leader));
@@ -494,9 +482,12 @@ static int cstatus_setup_cb(curlev_context_t *cbdata, void *ctx, const char *hos
 
 static int cstatus_cb(curlev_context_t *cbdata, void *ctx, const void *data, size_t size) {
     struct cstatus *yactx = (struct cstatus *)ctx;
-    if(yajl_parse(yactx->yh, data, size) != yajl_status_ok)
+
+    if(sxi_jparse_digest(yactx->J, data, size)) {
+	CRIT("Error querying cluster: %s", sxi_jparse_geterr(yactx->J));
 	return 1;
-    return 0;
+    } else
+	return 0;
 }
 
 
@@ -512,8 +503,7 @@ void clst_destroy(clst_t *st) {
     free(st->addr);
     free(st->int_addr);
     free(st->raft_nodes);
-    if(st->yh)
-	yajl_free(st->yh);
+    sxi_jparse_destroy(st->J);
     free(st);
 }
 
@@ -531,15 +521,22 @@ clst_t *clst_query(sxi_conns_t *conns, sxi_hostlist_t *hlist) {
 	return NULL;
     }
 
-    if(yajl_complete_parse(yctx->yh) != yajl_status_ok || yctx->state != CS_COMPLETE || yctx->nsets < 0 || yctx->nsets > 2) {
+    if(sxi_jparse_done(yctx->J)) {
+	CRIT("Error querying cluster: %s", sxi_jparse_geterr(yctx->J));
 	clst_destroy(yctx);
 	return NULL;
     }
 
-    yajl_free(yctx->yh);
+    if(yctx->nsets < 0 || yctx->nsets > 2) {
+	CRIT("Error querying cluster: invalid distribution sets");
+	clst_destroy(yctx);
+	return NULL;
+    }
+
+    sxi_jparse_destroy(yctx->J);
     free(yctx->addr);
     free(yctx->int_addr);
-    yctx->yh = NULL;
+    yctx->J = NULL;
     yctx->addr = NULL;
     yctx->int_addr = NULL;
     return yctx;

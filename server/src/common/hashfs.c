@@ -2742,7 +2742,7 @@ rc_ty sx_hashfs_check_volume_meta(const char *key, const void *value, unsigned i
         return s;
     /* Check if the volume meta does not contain reserved prefix */
     if(check_prefix && strlen(key) >= lenof(SX_CUSTOM_META_PREFIX) && !strncmp(SX_CUSTOM_META_PREFIX, key, lenof(SX_CUSTOM_META_PREFIX))) {
-        INFO("Volume meta key cannot contain reserved prefix %s", SX_CUSTOM_META_PREFIX);
+        msg_set_reason("Volume meta key cannot contain reserved prefix %s", SX_CUSTOM_META_PREFIX);
         return EINVAL;
     }
 
@@ -8914,8 +8914,10 @@ rc_ty sx_hashfs_putfile_putmeta(sx_hashfs_t *h, const char *key, const void *val
     if(!h)
 	return FAIL_EINTERNAL;
 
-    if(h->nmeta >= SXLIMIT_META_MAX_ITEMS)
+    if(h->nmeta >= SXLIMIT_META_MAX_ITEMS) {
+	msg_set_reason("Too many metadata entries");
 	return EOVERFLOW;
+    }
 
     if(!value) {
 	/* Delete key: check key (and bogus value) */

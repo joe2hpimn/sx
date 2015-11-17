@@ -36,6 +36,7 @@
 #include "blob.h"
 #include "fcgi-actions-block.h"
 #include "job_common.h"
+#include "libsxclient/src/jparse.h"
 
 void fcgi_send_blocks(void) {
     unsigned int blocksize;
@@ -567,144 +568,87 @@ void fcgi_save_blocks(void) {
     CGI_PUTS("\r\n");
 }
 
+/* {"hash1":["uuid1", "uuid2""], "hash2":["uuid3", "uuid1"], ...} */
 struct pushblox_ctx {
     sx_blob_t *stash;
     rc_ty error;
-    enum pushblox_state { CB_PB_START, CB_PB_HASH, CB_PB_TARGETS, CB_PB_TARGET, CB_PB_COMPLETE } state;
 };
 
-static int cb_pushblox_start_map(void *ctx) {
+void cb_pushblox_target(jparse_t *J, void *ctx, const char *string, unsigned int length) {
+    jploc_t *lkey = sxi_jparse_whereami(J), *lhost = sxi_jpath_down(lkey);
     struct pushblox_ctx *c = ctx;
-    if(c->state == CB_PB_START)
-	c->state = CB_PB_HASH;
-    else
-	return 0;
-    return 1;
-}
 
-static int cb_pushblox_end_map(void *ctx) {
-    struct pushblox_ctx *c = ctx;
-    if(c->state != CB_PB_HASH)
-	return 0;
-
-    if(sx_blob_add_blob(c->stash, "", 1)) {
-	c->error = ENOMEM;
-	return 0;
+    if(!sxi_jpath_arraypos(lhost)) { /* First target of a block */
+	const char *key = sxi_jpath_mapkey(lkey);
+	sx_hash_t block;
+	if(strlen(key) != sizeof(block) * 2 ||
+	   hex2bin(key, sizeof(block) * 2, (uint8_t *)&block, sizeof(block))) {
+	    c->error = EINVAL;
+	    sxi_jparse_cancel(J, "Invalid block name '%s'", key);
+	    return;
+	}
+	if(sx_blob_add_blob(c->stash, &block, sizeof(block))) {
+	    c->error = ENOMEM;
+	    sxi_jparse_cancel(J, "Out of memory");
+	    return;
+	}
     }
 
-    c->state = CB_PB_COMPLETE;
-    return 1;
-}
+    if(length == UUID_STRING_SIZE) {
+	char uuidstr[UUID_STRING_SIZE+1];
+	sx_uuid_t uuid;
 
-static int cb_pushblox_map_key(void *ctx, const unsigned char *s, size_t l) {
-    struct pushblox_ctx *c = ctx;
-    sx_hash_t block;
-
-    if(c->state != CB_PB_HASH)
-	return 0;
-
-    c->state = CB_PB_TARGETS;
-    if(hex2bin(s, l, (uint8_t *)&block, sizeof(block)))
-	return 0;
-
-    if(sx_blob_add_blob(c->stash, &block, sizeof(block))) {
-	c->error = ENOMEM;
-	return 0;
+	memcpy(uuidstr, string, UUID_STRING_SIZE);
+	uuidstr[UUID_STRING_SIZE] = '\0';
+	if(!uuid_from_string(&uuid, uuidstr)) {
+	    if(sx_blob_add_blob(c->stash, uuid.binary, sizeof(uuid.binary))) {
+		c->error = ENOMEM;
+		sxi_jparse_cancel(J, "Out of memory");
+	    }
+	    return; /* Target added */
+	}
     }
-
-    return 1;
+    sxi_jparse_cancel(J, "Invalid target uuid '%.*s'", length, string);
+    c->error = EINVAL;
 }
-
-static int cb_pushblox_start_array(void *ctx) {
-    struct pushblox_ctx *c = ctx;
-    if(c->state == CB_PB_TARGETS)
-	c->state = CB_PB_TARGET;
-    else
-	return 0;
-    return 1;
-}
-
-static int cb_pushblox_end_array(void *ctx) {
-    struct pushblox_ctx *c = ctx;
-    if(c->state == CB_PB_TARGET)
-	c->state = CB_PB_HASH;
-    else
-	return 0;
-    return 1;
-}
-
-static int cb_pushblox_string(void *ctx, const unsigned char *s, size_t l) {
-    struct pushblox_ctx *c = ctx;
-    char uuidstr[UUID_STRING_SIZE+1];
-    sx_uuid_t uuid;
-
-    if(c->state != CB_PB_TARGET)
-	return 0;
-
-    if(l != UUID_STRING_SIZE)
-	return 0;
-
-    memcpy(uuidstr, s, UUID_STRING_SIZE);
-    uuidstr[UUID_STRING_SIZE] = '\0';
-
-    if(uuid_from_string(&uuid, uuidstr))
-	return 0;
-
-    if(sx_blob_add_blob(c->stash, uuid.binary, sizeof(uuid.binary))) {
-	c->error = ENOMEM;
-	return 0;
-    }
-
-    return 1;
-}
-
-static const yajl_callbacks pushblx_parser = {
-    cb_fail_null,
-    cb_fail_boolean,
-    NULL,
-    NULL,
-    cb_fail_number,
-    cb_pushblox_string,
-    cb_pushblox_start_map,
-    cb_pushblox_map_key,
-    cb_pushblox_end_map,
-    cb_pushblox_start_array,
-    cb_pushblox_end_array
-};
 
 
 void fcgi_push_blocks(void) {
+    const struct jparse_actions acts = {
+	JPACTS_STRING(JPACT(cb_pushblox_target, JPANYKEY, JPANYITM))
+    };
     struct pushblox_ctx yctx;
     unsigned int blocksize;
     const char *eop;
+    jparse_t *J;
+    int len;
 
     blocksize = strtol(path, (char **)&eop, 10);
     if(*eop || sx_hashfs_check_blocksize(blocksize) != OK)
 	quit_errmsg(404, "Invalid blocksize");
 
+    J = sxi_jparse_create(&acts, &yctx, 0);
+    if(!J)
+	quit_errmsg(503, "Cannot create JSON parser");
+
     yctx.stash = sx_blob_new();
-    if(!yctx.stash)
-	quit_errmsg(500, "Cannot allocate temporary storage");
-    yctx.state = CB_PB_START;
-    yctx.error = EINVAL;
-
-    yajl_handle yh = yajl_alloc(&pushblx_parser, NULL, &yctx);
-    if(!yh) {
-	sx_blob_free(yctx.stash);
-	quit_errmsg(500, "Cannot allocate json parser");
+    if(!yctx.stash) {
+	sxi_jparse_destroy(J);
+	quit_errmsg(503, "Cannot allocate temporary storage");
     }
 
-    int len;
     while((len = get_body_chunk(hashbuf, sizeof(hashbuf))) > 0)
-	if(yajl_parse(yh, hashbuf, len) != yajl_status_ok) break;
+	if(sxi_jparse_digest(J, hashbuf, len))
+	    break;
 
-    if(len || yajl_complete_parse(yh) != yajl_status_ok || yctx.state != CB_PB_COMPLETE) {
-	yajl_free(yh);
+    if(len || sxi_jparse_done(J)) {
+	send_error(rc2http(yctx.error), sxi_jparse_geterr(J));
 	sx_blob_free(yctx.stash);
-	quit_errmsg(rc2http(yctx.error), (yctx.error == ENOMEM) ? "Out of memory processing the request" : "Invalid request content");
+	sxi_jparse_destroy(J);
+	return;
     }
-    yajl_free(yh);
 
+    sxi_jparse_destroy(J);
     auth_complete();
     if(!is_authed()) {
 	sx_blob_free(yctx.stash);

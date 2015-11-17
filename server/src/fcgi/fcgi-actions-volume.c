@@ -28,7 +28,6 @@
 #include "default.h"
 #include <string.h>
 #include <stdlib.h>
-#include <yajl/yajl_parse.h>
 #include <arpa/inet.h>
 #include "fcgi-utils.h"
 #include "fcgi-actions-volume.h"
@@ -39,6 +38,9 @@
 #include "job_common.h"
 #include "version.h"
 #include <fnmatch.h>
+
+#include "libsxclient/src/jparse.h"
+
 
 static rc_ty int64_arg(const char* arg, int64_t *v, int64_t defaultv)
 {
@@ -292,143 +294,7 @@ void fcgi_list_volume(const sx_hashfs_volume_t *vol) {
     CGI_PUTS("}");
 }
 
-/* {"volumeSize":123, "replicaCount":2, "volumeMeta":{"metaKey":"hex(value)"}, "user":"jack", "maxRevisions":5} */
-struct cb_vol_ctx {
-    enum cb_vol_state { CB_VOL_START, CB_VOL_KEY, CB_VOL_VOLSIZE, CB_VOL_REPLICACNT, CB_VOL_OWNER, CB_VOL_NREVS, CB_VOL_META, CB_VOL_METAKEY, CB_VOL_METAVALUE, CB_VOL_COMPLETE } state;
-    int64_t volsize;
-    int replica;
-    unsigned int nmeta, revisions;
-    char owner[SXLIMIT_MAX_USERNAME_LEN+1];
-    char metakey[SXLIMIT_META_MAX_KEY_LEN+1];
-    sx_blob_t *metablb;
-};
 
-static int cb_vol_number(void *ctx, const char *s, size_t l) {
-    struct cb_vol_ctx *c = (struct cb_vol_ctx *)ctx;
-    char number[24], *eon;
-    if(c->state == CB_VOL_VOLSIZE) {
-	if(c->volsize != -1 || l<1 || l>20)
-	    return 0;
-
-	memcpy(number, s, l);
-	number[l] = '\0';
-	c->volsize = strtoll(number, &eon, 10);
-	if(*eon || c->volsize < 0)
-	    return 0;
-    } else if(c->state == CB_VOL_REPLICACNT) {
-	if(c->replica || l<1 || l>10)
-	    return 0;
-
-	memcpy(number, s, l);
-	number[l] = '\0';
-	c->replica = strtol(number, &eon, 10);
-	if(*eon || c->replica < 1)
-	    return 0;
-    } else if(c->state == CB_VOL_NREVS) {
-	if(c->revisions || l<1 || l>10)
-	    return 0;
-	memcpy(number, s, l);
-	number[l] = '\0';
-	c->revisions = strtol(number, &eon, 10);
-	if(*eon || c->revisions < 1)
-	    return 0;
-    } else
-	return 0;
-
-    c->state = CB_VOL_KEY;
-    return 1;
-}
-
-static int cb_vol_start_map(void *ctx) {
-    struct cb_vol_ctx *c = (struct cb_vol_ctx *)ctx;
-    if(c->state == CB_VOL_START)
-	c->state = CB_VOL_KEY;
-    else if(c->state == CB_VOL_META)
-	c->state = CB_VOL_METAKEY;
-    else
-	return 0;
-    return 1;
-}
-
-static int cb_vol_map_key(void *ctx, const unsigned char *s, size_t l) {
-    struct cb_vol_ctx *c = (struct cb_vol_ctx *)ctx;
-    if(c->state == CB_VOL_KEY) {
-	if(l == lenof("volumeSize") && !strncmp("volumeSize", s, lenof("volumeSize"))) {
-	    c->state = CB_VOL_VOLSIZE;
-	    return 1;
-	}
-	if(l == lenof("replicaCount") && !strncmp("replicaCount", s, lenof("replicaCount"))) {
-	    c->state = CB_VOL_REPLICACNT;
-	    return 1;
-	}
-	if(l == lenof("volumeMeta") && !strncmp("volumeMeta", s, lenof("volumeMeta"))) {
-	    c->state = CB_VOL_META;
-	    return 1;
-	}
-	if(l == lenof("owner") && !strncmp("owner", s, l)) {
-	    c->state = CB_VOL_OWNER;
-	    return 1;
-	}
-	if(l == lenof("maxRevisions") && !strncmp("maxRevisions", s, l)) {
-	    c->state = CB_VOL_NREVS;
-	    return 1;
-	}
-    } else if(c->state == CB_VOL_METAKEY) {
-	if(c->nmeta >= SXLIMIT_META_MAX_ITEMS || l < SXLIMIT_META_MIN_KEY_LEN || l > SXLIMIT_META_MAX_KEY_LEN)
-	    return 0;
-	c->nmeta++;
-	memcpy(c->metakey, s, l);
-	c->metakey[l] = '\0';
-	c->state = CB_VOL_METAVALUE;
-	return 1;
-    }
-    return 0;
-}
-
-static int cb_vol_string(void *ctx, const unsigned char *s, size_t l) {
-    struct cb_vol_ctx *c = (struct cb_vol_ctx *)ctx;
-    uint8_t metavalue[SXLIMIT_META_MAX_VALUE_LEN];
-
-    if(c->state == CB_VOL_OWNER) {
-	if(c->owner[0])
-	    return 0;
-	if(l >= sizeof(c->owner))
-	    return 0;
-	memcpy(c->owner, s, l);
-	c->owner[l] = '\0';
-	if(sx_hashfs_check_username(c->owner, 1))
-	    return 0;
-	c->state = CB_VOL_KEY;
-	return 1;
-    } else if(c->state != CB_VOL_METAVALUE)
-	return 0;
-
-    if(hex2bin(s, l, metavalue, sizeof(metavalue)))
-	return 0;
-    l/=2;
-    if(sx_hashfs_check_volume_meta(c->metakey, metavalue, l, !has_priv(PRIV_CLUSTER)) ||
-       sx_blob_add_string(c->metablb, c->metakey) ||
-       sx_blob_add_blob(c->metablb, metavalue, l))
-	return 0;
-
-    c->state = CB_VOL_METAKEY;
-    return 1;
-}
-
-static int cb_vol_end_map(void *ctx) {
-    struct cb_vol_ctx *c = (struct cb_vol_ctx *)ctx;
-    if(c->state == CB_VOL_KEY) {
-	c->state = CB_VOL_COMPLETE;
-	if(!c->replica)
-	    c->replica = 1;
-    } else if(c->state == CB_VOL_METAKEY)
-	c->state = CB_VOL_KEY;
-    else
-	return 0;
-    return 1;
-}
-
-enum acl_state { CB_ACL_START=0, CB_ACL_KEY, CB_ACL_KEYARRAY, CB_ACL_GRANT_READ, CB_ACL_GRANT_WRITE, CB_ACL_GRANT_MANAGER, CB_ACL_REVOKE_READ, CB_ACL_REVOKE_WRITE, CB_ACL_REVOKE_MANAGER, CB_ACL_COMPLETE };
 struct acl_op {
     char *name;
     int priv;
@@ -439,142 +305,60 @@ struct acl_ctx {
     struct acl_op *ops;
     unsigned n;
     int require_owner;
-    enum acl_state state;
 };
 
-static int cb_acl_string(void *ctx, const unsigned char *s, size_t l) {
+static void cb_acl(jparse_t *J, void *ctx, const char *string, unsigned int length) {
+    const char *aclop = sxi_jpath_mapkey(sxi_jparse_whereami(J));
     struct acl_ctx *c = ctx;
     int priv;
-    switch (c->state) {
-	case CB_ACL_GRANT_READ:
-	    priv = PRIV_READ;
-	    break;
-	case CB_ACL_GRANT_WRITE:
-	    priv = PRIV_WRITE;
-	    break;
-        case CB_ACL_GRANT_MANAGER:
-            priv = PRIV_MANAGER;
-            c->require_owner = 1;
-            break;
-        case CB_ACL_REVOKE_READ:
-	    priv = ~PRIV_READ;
-	    break;
-	case CB_ACL_REVOKE_WRITE:
-	    priv = ~PRIV_WRITE;
-	    break;
-        case CB_ACL_REVOKE_MANAGER:
-            priv = ~PRIV_MANAGER;
-            c->require_owner = 1;
-            break;
-	default:
-	    WARN("acl bad string state: %d", c->state);
-	    return 0;
+
+    if(!strcmp(aclop, "grant-read")) {
+	priv = PRIV_READ;
+    } else if (!strcmp(aclop, "grant-write")) {
+	priv = PRIV_WRITE;
+    } else if (!strcmp(aclop, "grant-manager")) {
+	priv = PRIV_MANAGER;
+	c->require_owner = 1;
+    } else if (!strcmp(aclop, "revoke-read")) {
+	priv = ~PRIV_READ;
+    } else if (!strcmp(aclop, "revoke-write")) {
+	priv = ~PRIV_WRITE;
+    } else if (!strcmp(aclop, "revoke-manager")) {
+	priv = ~PRIV_MANAGER;
+	c->require_owner = 1;
+    } else {
+	/* Not reached */
+	sxi_jparse_cancel(J, "Invalid ACL change request %s", aclop);
+	return;
     }
+
     struct acl_op *newops = realloc(c->ops, sizeof(*newops) * (++c->n));
     if (!newops) {
-	WARN("Cannot realloc acl ops");
-	return 0;
+	sxi_jparse_cancel(J, "Out of memory processing ACL change request");
+	return;
     }
     c->ops = newops;
 
-    char *name = malloc(l + 1);
+    char *name = malloc(length + 1);
     if (!name) {
-	WARN("Cannot malloc name");
-	return 0;
+	sxi_jparse_cancel(J, "Out of memory processing ACL change request");
+	return;
     }
-    memcpy(name, s, l);
-    name[l] = 0;
+    memcpy(name, string, length);
+    name[length] = 0;
     c->ops[c->n-1].name = name;
     c->ops[c->n-1].priv = priv;
-    return 1;
 }
 
-static int cb_acl_start_map(void *ctx) {
-    struct acl_ctx *c = ctx;
-    if (c->state == CB_ACL_START) {
-	c->state = CB_ACL_KEY;
-	return 1;
-    }
-    WARN("bad map state");
-    return 0;
-}
-
-static int cb_acl_start_array(void *ctx) {
-    struct acl_ctx *c = ctx;
-    if (c->state == CB_ACL_KEY || c->state == CB_ACL_START) {
-	WARN("bad array state");
-	return 0;
-    }
-    return 1;
-}
-
-static int cb_acl_end_array(void *ctx) {
-    struct acl_ctx *c = ctx;
-    if (c->state == CB_ACL_START) {
-	WARN("bad array end state");
-	return 0;
-    }
-    c->state = CB_ACL_KEY;
-    return 1;
-}
-
-static int cb_acl_map_key(void *ctx, const unsigned char *s, size_t l) {
-    struct acl_ctx *c = ctx;
-    if (c->state != CB_ACL_KEY) {
-	WARN("bad map key state ");
-	return 0;
-    }
-    if (l == lenof("grant-read") && !strncmp("grant-read", s, l)) {
-	c->state = CB_ACL_GRANT_READ;
-	return 1;
-    }
-    if (l == lenof("grant-write") && !strncmp("grant-write", s, l)) {
-	c->state = CB_ACL_GRANT_WRITE;
-	return 1;
-    }
-    if (l == lenof("grant-manager") && !strncmp("grant-manager", s, l)) {
-	c->state = CB_ACL_GRANT_MANAGER;
-	return 1;
-    }
-    if (l == lenof("revoke-read") && !strncmp("revoke-read", s, l)) {
-	c->state = CB_ACL_REVOKE_READ;
-	return 1;
-    }
-    if (l == lenof("revoke-write") && !strncmp("revoke-write", s, l)) {
-	c->state = CB_ACL_REVOKE_WRITE;
-	return 1;
-    }
-    if (l == lenof("revoke-manager") && !strncmp("revoke-manager", s, l)) {
-	c->state = CB_ACL_REVOKE_MANAGER;
-	return 1;
-    }
-    WARN("bad map key word: %.*s", (int)l, s);
-    return 0;
-}
-
-static int cb_acl_end_map(void *ctx) {
-    struct acl_ctx *c = ctx;
-    if(c->state == CB_ACL_KEY)
-	c->state = CB_ACL_COMPLETE;
-    else {
-	WARN("bad array end state");
-	return 0;
-    }
-    return 1;
-}
-
-static const yajl_callbacks acl_ops_parser = {
-    cb_fail_null,
-    cb_fail_boolean,
-    NULL,
-    NULL,
-    cb_fail_number,
-    cb_acl_string,
-    cb_acl_start_map,
-    cb_acl_map_key,
-    cb_acl_end_map,
-    cb_acl_start_array,
-    cb_acl_end_array
+const struct jparse_actions acl_acts = {
+    JPACTS_STRING(
+		  JPACT(cb_acl, JPKEY("grant-read"), JPANYITM),
+		  JPACT(cb_acl, JPKEY("grant-write"), JPANYITM),
+		  JPACT(cb_acl, JPKEY("grant-manager"), JPANYITM),
+		  JPACT(cb_acl, JPKEY("revoke-read"), JPANYITM),
+		  JPACT(cb_acl, JPKEY("revoke-write"), JPANYITM),
+		  JPACT(cb_acl, JPKEY("revoke-manager"), JPANYITM)
+		  )
 };
 
 struct acl_print_ctx {
@@ -637,7 +421,7 @@ void fcgi_list_acl(const sx_hashfs_volume_t *vol) {
 static rc_ty acl_parse_complete(void *yctx)
 {
     struct acl_ctx *actx = yctx;
-    if (!actx || actx->state != CB_ACL_COMPLETE)
+    if (!actx)
         return EINVAL;
     if (actx->require_owner && !has_priv(PRIV_OWNER)) {
         msg_set_reason("Permission denied: granting/revoking the manager privilege requires owner or admin privilege");
@@ -853,7 +637,7 @@ static unsigned acl_timeout(sxc_client_t *sx, int nodes)
 }
 
 const job_2pc_t acl_spec = {
-    &acl_ops_parser,
+    &acl_acts,
     JOBTYPE_VOLUME_ACL,
     acl_parse_complete,
     acl_get_lock,
@@ -885,54 +669,129 @@ void fcgi_acl_volume(void) {
     free(actx.ops);
 }
 
-static const yajl_callbacks vol_ops_parser = {
-    cb_fail_null,
-    cb_fail_boolean,
-    NULL,
-    NULL,
-    cb_vol_number,
-    cb_vol_string,
-    cb_vol_start_map,
-    cb_vol_map_key,
-    cb_vol_end_map,
-    cb_fail_start_array,
-    cb_fail_end_array
+/* {"volumeSize":123, "replicaCount":2, "volumeMeta":{"metaKey":"hex(value)"}, "user":"jack", "maxRevisions":5} */
+struct cb_volnew_ctx {
+    sx_blob_t *metablb;
+    int64_t volsize;
+    int replica, oom;
+    unsigned int nmeta, revisions;
+    char owner[SXLIMIT_MAX_USERNAME_LEN+1];
 };
 
+void cb_volnew_volsize(jparse_t *J, void *ctx, int64_t volsize) {
+    struct cb_volnew_ctx *c = ctx;
+    c->volsize = volsize;
+}
+
+void cb_volnew_replica(jparse_t *J, void *ctx, int32_t replica_count) {
+    struct cb_volnew_ctx *c = ctx;
+    if(replica_count < 1) {
+	sxi_jparse_cancel(J, "Invalid volume replica count");
+	return;
+    }
+    c->replica = replica_count;
+}
+
+void cb_volnew_revisions(jparse_t *J, void *ctx, int32_t revisions) {
+    struct cb_volnew_ctx *c = ctx;
+    if(revisions < 1) {
+	sxi_jparse_cancel(J, "Invalid number of revisions");
+	return;
+    }
+    c->revisions = revisions;
+}
+
+void cb_volnew_owner(jparse_t *J, void *ctx, const char *string, unsigned int length) {
+    struct cb_volnew_ctx *c = ctx;
+    if(length >= sizeof(c->owner)) {
+	sxi_jparse_cancel(J, "Invalid volume owner");
+	return;
+    }
+    memcpy(c->owner, string, length);
+    c->owner[length] = '\0';
+}
+
+void cb_volnew_meta(jparse_t *J, void *ctx, const char *string, unsigned int length) {
+    const char *metakey = sxi_jpath_mapkey(sxi_jpath_down(sxi_jparse_whereami(J)));
+    uint8_t metavalue[SXLIMIT_META_MAX_VALUE_LEN];
+    struct cb_volnew_ctx *c = ctx;
+
+    if(c->nmeta >= SXLIMIT_META_MAX_ITEMS) {
+	sxi_jparse_cancel(J, "Too many volume metadata entries (max: %u)", SXLIMIT_META_MAX_ITEMS);
+	return;
+    }
+
+    if(hex2bin(string, length, metavalue, sizeof(metavalue))) {
+	sxi_jparse_cancel(J, "Invalid volume metadata value for key '%s'", metakey);
+	return;
+    }
+
+    length /= 2;
+    if(sx_hashfs_check_volume_meta(metakey, metavalue, length, !has_priv(PRIV_CLUSTER))) {
+	const char *reason = msg_get_reason();
+	sxi_jparse_cancel(J, "'%s'", reason ? reason : "Invalid volume metadata");
+	return;
+    }
+
+    if(sx_blob_add_string(c->metablb, metakey) ||
+       sx_blob_add_blob(c->metablb, metavalue, length)) {
+	sxi_jparse_cancel(J, "Out of memory processing volume creation request");
+	c->oom = 1;
+	return;
+    }
+    c->nmeta++;
+}
+
 void fcgi_create_volume(void) {
-    struct cb_vol_ctx yctx;
+    const struct jparse_actions acts = {
+	JPACTS_INT64(
+		     JPACT(cb_volnew_volsize, JPKEY("volumeSize"))
+		     ),
+	JPACTS_INT32(
+		     JPACT(cb_volnew_replica, JPKEY("replicaCount")),
+		     JPACT(cb_volnew_revisions, JPKEY("maxRevisions"))
+		     ),
+	JPACTS_STRING(
+		      JPACT(cb_volnew_meta, JPKEY("volumeMeta"), JPANYKEY),
+		      JPACT(cb_volnew_owner, JPKEY("owner"))
+		      )
+    };
+    struct cb_volnew_ctx yctx;
+    jparse_t *J;
+    int len;
     rc_ty s;
 
     if(sx_hashfs_check_volume_name(volume))
 	quit_errmsg(400, "Bad volume name");
 
-    yctx.state = CB_VOL_START;
+    J = sxi_jparse_create(&acts, &yctx, 0);
+    if(!J)
+	quit_errmsg(503, "Cannot create JSON parser");
+
     yctx.volsize = -1LL;
     yctx.replica = 0;
     yctx.revisions = 0;
     yctx.owner[0] = '\0';
     yctx.nmeta = 0;
+    yctx.oom = 0;
     yctx.metablb = sx_blob_new();
-    if(!yctx.metablb)
+    if(!yctx.metablb) {
+	sxi_jparse_destroy(J);
 	quit_errmsg(500, "Cannot allocate meta storage");
+    }
     sx_blob_savepos(yctx.metablb);
 
-    yajl_handle yh = yajl_alloc(&vol_ops_parser, NULL, &yctx);
-    if(!yh) {
-	sx_blob_free(yctx.metablb);
-	quit_errmsg(500, "Cannot allocate json parser");
-    }
-
-    int len;
     while((len = get_body_chunk(hashbuf, sizeof(hashbuf))) > 0)
-	if(yajl_parse(yh, hashbuf, len) != yajl_status_ok) break;
+	if(sxi_jparse_digest(J, hashbuf, len))
+	    break;
 
-    if(len || yajl_complete_parse(yh) != yajl_status_ok || !yctx.owner[0] || yctx.state != CB_VOL_COMPLETE) {
-	yajl_free(yh);
+    if(len || sxi_jparse_done(J)) {
+	send_error(yctx.oom ? 500 : 400, sxi_jparse_geterr(J));
 	sx_blob_free(yctx.metablb);
-	quit_errmsg(400, "Invalid request content");
+	sxi_jparse_destroy(J);
+	return;
     }
-    yajl_free(yh);
+    sxi_jparse_destroy(J);
 
     auth_complete();
     if(!is_authed()) {
@@ -941,14 +800,27 @@ void fcgi_create_volume(void) {
 	return;
     }
 
+    if(yctx.volsize < 0) {
+	sx_blob_free(yctx.metablb);
+	quit_errmsg(400, "Invalid volume size");
+    }
+
+    if(!yctx.owner[0] || sx_hashfs_check_username(yctx.owner, 1)) {
+	sx_blob_free(yctx.metablb);
+	quit_errmsg(400, "Invalid volume owner: invalid username");
+    }
+
     int64_t owner_uid;
     if(sx_hashfs_get_uid(hashfs, yctx.owner, &owner_uid)) {
 	sx_blob_free(yctx.metablb);
-	quit_errmsg(400, "Invalid owner");
+	quit_errmsg(400, "Invalid volume owner: user does not exit");
     }
 
+    /* New volume defaults */
     if(yctx.revisions == 0)
 	yctx.revisions = 1;
+    if(!yctx.replica)
+	yctx.replica = 1;
 
     if(has_priv(PRIV_CLUSTER)) {
 	/* Request comes in from the cluster: apply locally */
@@ -1132,181 +1004,99 @@ void fcgi_trigger_gc(void)
 
 /* {"vol1":123,"vol2":122} */
 struct cb_volsizes_ctx {
-    enum cb_volsizes_state { CB_VOLSIZES_START, CB_VOLSIZES_KEY, CB_VOLSIZES_SIZE, CB_VOLSIZES_COMPLETE } state;
-    sx_hashfs_volume_t *vols;
+    struct volsizes_data {
+	int64_t id;
+	int64_t size;
+    } *vols;
     unsigned int nvols;
 };
 
-static int cb_volsizes_number(void *ctx, const char *s, size_t l) {
-    struct cb_volsizes_ctx *c = (struct cb_volsizes_ctx *)ctx;
-    char number[21], *eon;
-    if(c->state == CB_VOLSIZES_SIZE) {
-        sx_hashfs_volume_t *vol = &c->vols[c->nvols-1];
+void cb_volsizes(jparse_t *J, void *ctx, int64_t volsize) {
+    const char *volname = sxi_jpath_mapkey(sxi_jparse_whereami(J));
+    struct cb_volsizes_ctx *c = ctx;
+    const sx_hashfs_volume_t *vol;
 
-        if(vol->cursize >= 0 || l<1 || l>20) {
-            WARN("Failed to parse volume size");
-            return 0;
-        }
+    if(sx_hashfs_volume_by_name(hashfs, volname, &vol) != OK)
+	return; /* Could be anything, just skip this vol */
 
-        memcpy(number, s, l);
-        number[l] = '\0';
-        vol->cursize = strtoll(number, &eon, 10);
-        if(*eon)
-            return 0;
-        if(vol->cursize < 0) {
-            WARN("Volume size is negative, falling back to 0");
-            vol->cursize = 0;
-        }
+    if(sx_hashfs_is_node_volume_owner(hashfs, NL_PREV, sx_hashfs_self(hashfs), vol))
+	return; /* Could happen if we are rebalancing */
+
+    if(!(c->nvols & 0xf)) {
+	struct volsizes_data *nuvols;
+	nuvols = realloc(c->vols, (c->nvols + 16) * sizeof(c->vols[0]));
+	if(!nuvols) {
+	    sxi_jparse_cancel(J, "Out of memory processing request");
+	    return;
+	}
+	c->vols = nuvols;
     }
-    c->state = CB_VOLSIZES_KEY;
-    return 1;
+    c->vols[c->nvols].id = vol->id;
+    c->vols[c->nvols].size = volsize;
+    c->nvols++;
 }
-
-static int cb_volsizes_start_map(void *ctx) {
-    struct cb_volsizes_ctx *c = (struct cb_volsizes_ctx *)ctx;
-    if(c->state == CB_VOLSIZES_START)
-        c->state = CB_VOLSIZES_KEY;
-    else
-        return 0;
-    return 1;
-}
-
-static int cb_volsizes_map_key(void *ctx, const unsigned char *s, size_t l) {
-    struct cb_volsizes_ctx *c = (struct cb_volsizes_ctx *)ctx;
-    if(c->state == CB_VOLSIZES_KEY) {
-        char name[SXLIMIT_MAX_VOLNAME_LEN+1];
-        const sx_hashfs_volume_t *vol;
-        sx_hashfs_volume_t *oldptr;
-
-        if(l > SXLIMIT_MAX_VOLNAME_LEN) {
-            WARN("Failed to parse volume: name is too long");
-            return 0;
-        }
-
-        /* Copy to local buffer to support nulbyte termination */
-        memcpy(name, s, l);
-        name[l] = '\0';
-
-        /* Get volume instance */
-        if(sx_hashfs_volume_by_name(hashfs, name, &vol) != OK) {
-            WARN("Failed to get volume %s instance: %s", name, msg_get_reason());
-            return 0;
-        }
-
-        /* Check if volume was mine on PREV */
-        if(sx_hashfs_is_node_volume_owner(hashfs, NL_PREV, sx_hashfs_self(hashfs), vol)) {
-            WARN("Request was sent to node that is a volnode of %s", vol->name);
-            msg_set_reason(".volsizes request sent to a volnode of %s", vol->name);
-            return 0;
-        }
-
-        /* Get memory for new volume */
-        oldptr = c->vols;
-        c->vols = realloc(c->vols, (++c->nvols) * sizeof(*vol));
-        if(!c->vols) {
-            WARN("Failed to realloc volumes array");
-            free(oldptr);
-            return 0;
-        }
-
-        /* Copy current volume to the array */
-        memcpy(&c->vols[c->nvols-1], vol, sizeof(*vol));
-
-        /* Reset cursize */
-        c->vols[c->nvols-1].cursize = -1LL;
-
-        c->state = CB_VOLSIZES_SIZE;
-        return 1;
-    }
-    return 0;
-}
-
-static int cb_volsizes_end_map(void *ctx) {
-    struct cb_volsizes_ctx *c = (struct cb_volsizes_ctx *)ctx;
-    if(c->state == CB_VOLSIZES_KEY)
-        c->state = CB_VOLSIZES_COMPLETE;
-    else
-        return 0;
-    return 1;
-}
-
-static const yajl_callbacks volsizes_parser = {
-    cb_fail_null,
-    cb_fail_boolean,
-    NULL,
-    NULL,
-    cb_volsizes_number,
-    NULL,
-    cb_volsizes_start_map,
-    cb_volsizes_map_key,
-    cb_volsizes_end_map,
-    NULL,
-    NULL
-};
 
 void fcgi_volsizes(void) {
+    const struct jparse_actions acts = {
+	JPACTS_INT64(JPACT(cb_volsizes, JPANYKEY))
+    };
     struct cb_volsizes_ctx yctx;
-    yajl_handle yh;
+    jparse_t *J;
     int len;
     unsigned int i;
 
     /* Assign begin state */
-    yctx.state = CB_VOLSIZES_START;
     yctx.nvols = 0;
     yctx.vols = NULL;
 
-    yh = yajl_alloc(&volsizes_parser, NULL, &yctx);
-    if(!yh)
-        quit_errmsg(500, "Cannot allocate json parser");
+    J = sxi_jparse_create(&acts, &yctx, 0);
+    if(!J)
+	quit_errmsg(503, "Cannot create JSON parser");
 
     while((len = get_body_chunk(hashbuf, sizeof(hashbuf))) > 0)
-        if(yajl_parse(yh, hashbuf, len) != yajl_status_ok) break;
+	if(sxi_jparse_digest(J, hashbuf, len))
+	    break;
 
-    if(len || yajl_complete_parse(yh) != yajl_status_ok || yctx.state != CB_VOLSIZES_COMPLETE) {
+    if(len || sxi_jparse_done(J)) {
         free(yctx.vols);
-        yajl_free(yh);
-        WARN("Failed to parse JSON");
-        quit_errmsg(400, "Invalid request content");
+	send_error(500, sxi_jparse_geterr(J));
+	sxi_jparse_destroy(J);
+	return;
     }
+    sxi_jparse_destroy(J);
 
     /* JSON parsing completed */
     auth_complete();
     if(!is_authed()) {
         free(yctx.vols);
-        yajl_free(yh);
         send_authreq();
         return;
     }
 
     for(i = 0; i < yctx.nvols; i++) {
-        const sx_hashfs_volume_t *vol = &yctx.vols[i];
         rc_ty rc;
 
         /* Set volume size */
-        if((rc = sx_hashfs_reset_volume_cursize(hashfs, vol->id, vol->cursize)) != OK) {
-            WARN("Failed to set volume %s size to %lld", vol->name, (long long)vol->cursize);
+        if((rc = sx_hashfs_reset_volume_cursize(hashfs, yctx.vols[i].id, yctx.vols[i].size)) != OK) {
+            WARN("Failed to set volume id %llu size to %lld", (long long)yctx.vols[i].id, (long long)yctx.vols[i].size);
             free(yctx.vols);
-            yajl_free(yh);
             quit_errmsg(rc2http(rc), rc2str(rc));
         }
     }
 
     CGI_PUTS("\r\n");
     free(yctx.vols);
-    yajl_free(yh);
 }
 
 /* {"owner":"alice","size":1000000000,"maxRevisions":10,"customVolumeMeta":{"customMeta1":"aabbcc"}} */
 struct volmod_ctx {
-    enum cb_volmod_state { CB_VOLMOD_START, CB_VOLMOD_KEY, CB_VOLMOD_OWNER, CB_VOLMOD_SIZE, CB_VOLMOD_REVS, CB_VOLMOD_META, CB_VOLMOD_METAKEY, CB_VOLMOD_METAVAL, CB_VOLMOD_COMPLETE } state;
     const char *volume;
-    char oldowner[SXLIMIT_MAX_FILENAME_LEN+1];
-    char newowner[SXLIMIT_MAX_FILENAME_LEN+1];
+    char oldowner[SXLIMIT_MAX_USERNAME_LEN+1];
+    char newowner[SXLIMIT_MAX_USERNAME_LEN+1];
     int64_t oldsize;
     int64_t newsize;
     int oldrevs;
     int newrevs;
-    char metakey[SXLIMIT_META_MAX_KEY_LEN+1];
     int nmeta;
     sx_blob_t *meta;
     int noldmeta;
@@ -1314,7 +1104,6 @@ struct volmod_ctx {
 };
 
 static void volmod_ctx_init(struct volmod_ctx *ctx) {
-    ctx->state = CB_VOLMOD_START;
     ctx->oldowner[0] = '\0';
     ctx->newowner[0] = '\0';
     ctx->newsize = -1;
@@ -1678,7 +1467,7 @@ static rc_ty volmod_parse_complete(void *yctx)
     struct volmod_ctx *ctx = yctx;
     const sx_hashfs_volume_t *vol = NULL;
 
-    if (!ctx || ctx->state != CB_VOLMOD_COMPLETE)
+    if (!ctx)
         return EINVAL;
 
     if((*ctx->newowner || ctx->newsize != -1) && !has_priv(PRIV_ADMIN)) {
@@ -1800,158 +1589,88 @@ static rc_ty volmod_parse_complete(void *yctx)
 }
 
 
-static int cb_volmod_string(void *ctx, const unsigned char *s, size_t l) {
+static void cb_volmod_owner(jparse_t *J, void *ctx, const char *string, unsigned int length) {
     struct volmod_ctx *c = (struct volmod_ctx *)ctx;
-    if(c->state == CB_VOLMOD_OWNER) {
-        if(l > SXLIMIT_MAX_USERNAME_LEN) {
-            WARN("Failed to parse volume: name is too long");
-            return 0;
-        }
-        memcpy(c->newowner, s, l);
-        c->newowner[l] = '\0';
-
-        c->state = CB_VOLMOD_KEY;
-        return 1;
-    } else if(c->state == CB_VOLMOD_METAVAL) {
-        uint8_t metaval[SXLIMIT_META_MAX_VALUE_LEN];
-
-        if(sxi_hex2bin((const char*)s, l, metaval, sizeof(metaval))) {
-            INFO("Invalid meta value");
-            return 0;
-        }
-        l /= 2;
-
-        if(sx_hashfs_check_meta(c->metakey, metaval, l)) {
-            INFO("Invalid meta key-value pair");
-            return 0;
-        }
-
-        if(sx_blob_add_string(c->meta, c->metakey) || sx_blob_add_blob(c->meta, metaval, l)) {
-            WARN("Failed to add data to meta blob");
-            return 0;
-        }
-        c->nmeta++;
-        c->state = CB_VOLMOD_METAKEY;
-        return 1;
+    if(length > SXLIMIT_MAX_USERNAME_LEN) {
+	sxi_jparse_cancel(J, "Username is too long");
+	return;
     }
-    return 0;
+    memcpy(c->newowner, string, length);
+    c->newowner[length] = '\0';
 }
 
-static int cb_volmod_number(void *ctx, const char *s, size_t l) {
+static void cb_volmod_meta(jparse_t *J, void *ctx, const char *string, unsigned int length) {
+    const char *key = sxi_jpath_mapkey(sxi_jpath_down(sxi_jparse_whereami(J)));
     struct volmod_ctx *c = (struct volmod_ctx *)ctx;
-    char number[21], *eon;
-    int64_t n;
-    if(l<1 || l>20) {
-        WARN("Failed to parse number: invalid length: %ld", l);
-        return 0;
+    uint8_t metaval[SXLIMIT_META_MAX_VALUE_LEN];
+
+    if(!c->meta) {
+	c->meta = sx_blob_new();
+	if(!c->meta) {
+	    sxi_jparse_cancel(J, "Out of memory processing custom metadata");
+	    return;
+	}
+	c->nmeta = 0;
     }
 
-    memcpy(number, s, l);
-    number[l] = '\0';
-    n = strtoll(number, &eon, 10);
-    if(*eon) {
-        WARN("Failed to parse number");
-        return 0;
+    if(sxi_hex2bin(string, length, metaval, sizeof(metaval))) {
+	sxi_jparse_cancel(J, "Invalid meta value on '%.*s'", string, length);
+	return;
     }
 
-    if(c->state == CB_VOLMOD_SIZE) {
-        if(c->newsize >= 0) {
-            WARN("Failed to parse new volume size: already assigned");
-            return 0;
-        }
-        c->newsize = n;
-        c->state = CB_VOLMOD_KEY;
-        return 1;
-    } else if(c->state == CB_VOLMOD_REVS) {
-        if(c->newrevs >= 0) {
-            WARN("Failed to parse new volume revisions limit: already assigned");
-            return 0;
-        }
-        c->newrevs = n;
-        c->state = CB_VOLMOD_KEY;
-        return 1;
+    length /= 2;
+    if(sx_hashfs_check_meta(key, metaval, length)) {
+	sxi_jparse_cancel(J, "Invalid custom volume metadata pair %s", key);
+	return;
     }
-    return 0;
-}
-
-static int cb_volmod_start_map(void *ctx) {
-    struct volmod_ctx *c = (struct volmod_ctx *)ctx;
-    if(c->state == CB_VOLMOD_START)
-        c->state = CB_VOLMOD_KEY;
-    else if(c->state == CB_VOLMOD_META)
-        c->state = CB_VOLMOD_METAKEY;
-    else
-        return 0;
-    return 1;
-}
-
-static int cb_volmod_map_key(void *ctx, const unsigned char *s, size_t l) {
-    struct volmod_ctx *c = (struct volmod_ctx *)ctx;
-    if(c->state == CB_VOLMOD_KEY) {
-        if(l == lenof("owner") && !strncmp("owner", (const char*)s, l)) {
-            c->state = CB_VOLMOD_OWNER;
-            return 1;
-        }
-        if(l == lenof("size") && !strncmp("size", (const char*)s, l)) {
-            c->state = CB_VOLMOD_SIZE;
-            return 1;
-        }
-        if(l == lenof("maxRevisions") && !strncmp("maxRevisions", (const char*)s, l)) {
-            c->state = CB_VOLMOD_REVS;
-            return 1;
-        }
-        if(l == lenof("customVolumeMeta") && !strncmp("customVolumeMeta", (const char*)s, l)) {
-            if(c->nmeta != -1) {
-                DEBUG("customVolumeMeta has already been parsed");
-                return 0;
-            }
-            c->meta = sx_blob_new();
-            if(!c->meta) {
-                WARN("Failed to allocate metadata");
-                return 0;
-            }
-            c->nmeta = 0;
-            c->state = CB_VOLMOD_META;
-            return 1;
-        }
-    } else if(c->state == CB_VOLMOD_METAKEY) {
-        if(c->nmeta >= SXLIMIT_META_MAX_ITEMS || l > SXLIMIT_META_MAX_KEY_LEN - lenof(SX_CUSTOM_META_PREFIX) || l < SXLIMIT_META_MIN_KEY_LEN)
-            return 0;
-        memcpy(c->metakey, s, l);
-        c->metakey[l] = '\0';
-        c->state = CB_VOLMOD_METAVAL;
-        return 1;
+    if(sx_blob_add_string(c->meta, key) || sx_blob_add_blob(c->meta, metaval, length)) {
+	sxi_jparse_cancel(J, "Out of memory processing custom metadata pair");
+	return;
     }
-    return 0;
+    c->nmeta++;
 }
 
-static int cb_volmod_end_map(void *ctx) {
+static void cb_volmod_size(jparse_t *J, void *ctx, int64_t num) {
     struct volmod_ctx *c = (struct volmod_ctx *)ctx;
-    if(c->state == CB_VOLMOD_KEY)
-        c->state = CB_VOLMOD_COMPLETE;
-    else if(c->state == CB_VOLMOD_METAKEY)
-        c->state = CB_VOLMOD_KEY;
-    else
-        return 0;
-    return 1;
+    if(c->newsize >= 0) {
+	sxi_jparse_cancel(J, "Volume size already received");
+	return;
+    }
+    if(num <= 0) {
+	sxi_jparse_cancel(J, "Invalid new volume size");
+	return;
+    }
+    c->newsize = num;
 }
 
-static const yajl_callbacks volmod_parser = {
-    cb_fail_null,
-    cb_fail_boolean,
-    NULL,
-    NULL,
-    cb_volmod_number,
-    cb_volmod_string,
-    cb_volmod_start_map,
-    cb_volmod_map_key,
-    cb_volmod_end_map,
-    NULL,
-    NULL
+static void cb_volmod_revs(jparse_t *J, void *ctx, int32_t num) {
+    struct volmod_ctx *c = (struct volmod_ctx *)ctx;
+    if(c->newrevs >= 0) {
+	sxi_jparse_cancel(J, "Number of file revisions already received");
+	return;
+    }
+    if(num <= 0) {
+	sxi_jparse_cancel(J, "Invalid number of file revisions");
+	return;
+    }
+    c->newrevs = num;
+}
+
+const struct jparse_actions volmod_acts = {
+    JPACTS_STRING(
+		  JPACT(cb_volmod_owner, JPKEY("owner")),
+		  JPACT(cb_volmod_meta, JPKEY("customVolumeMeta"), JPANYKEY)
+		  ),
+    JPACTS_INT64(
+		 JPACT(cb_volmod_size, JPKEY("size"))
+		 ),
+    JPACTS_INT32(
+		 JPACT(cb_volmod_revs, JPKEY("maxRevisions"))
+		 )
 };
 
 const job_2pc_t volmod_spec = {
-    &volmod_parser,
+    &volmod_acts,
     JOBTYPE_MODIFY_VOLUME,
     volmod_parse_complete,
     volmod_get_lock,
@@ -1970,84 +1689,37 @@ void fcgi_volume_mod(void) {
     sx_blob_free(ctx.oldmeta);
 }
 
+
+/* JSON: {"mode":"ro|rw"} */
+
 struct cluster_mode_ctx {
-    int mode; /* 1: readonly, 0: read-write (default) */
-    enum cluster_mode_state { CB_CM_START=0, CB_CM_KEY, CB_CM_MODE, CB_CM_COMPLETE } state;
+    enum cluster_mode_t { CM_UNSET, CM_READONLY, CM_READWRITE } mode;
 };
 
-static int cb_cluster_mode_string(void *ctx, const unsigned char *s, size_t l) {
+static void cb_clustermode(jparse_t *J, void *ctx, const char *string, unsigned int length) {
     struct cluster_mode_ctx *c = ctx;
-    if(c->state == CB_CM_MODE) {
-        if(l != lenof("ro")) {
-            msg_set_reason("Invalid cluster mode length");
-            return 0;
-        }
-        if(!strncmp((const char*)s, "ro", 2))
-            c->mode = 1;
-        else if(!strncmp((const char*)s, "rw", 2))
-            c->mode = 0;
-        else {
-            msg_set_reason("Invalid cluster mode");
-            return 1;
-        }
-        c->state = CB_CM_KEY;
-        return 1;
+
+    if(length == 2) {
+	if(!memcmp(string, "ro", 2)) {
+	    c->mode = CM_READONLY;
+	    return;
+	} else if(!memcmp(string, "rw", 2)) {
+	    c->mode = CM_READWRITE;
+	    return;
+	}
     }
-    DEBUG("Invalid state %d: expected %d", c->state, CB_CM_MODE);
-    return 0;
+    sxi_jparse_cancel(J, "Invalid cluster mode %.*s", length, string);
 }
 
-static int cb_cluster_mode_map_key(void *ctx, const unsigned char *s, size_t l) {
-    struct cluster_mode_ctx *c = ctx;
-    if(c->state == CB_CM_KEY) {
-        if(l == lenof("mode") && !strncmp("mode", (const char*)s, l)) {
-            c->state = CB_CM_MODE;
-            return 1;
-        }
-        DEBUG("Unknown key: %.*s", (int)l, s);
-    }
-    return 0;
-}
-
-static int cb_cluster_mode_start_map(void *ctx) {
-    struct cluster_mode_ctx *c = ctx;
-    if(c->state == CB_CM_START)
-        c->state = CB_CM_KEY;
-    else
-        return 0;
-    return 1;
-}
-
-static int cb_cluster_mode_end_map(void *ctx) {
-    struct cluster_mode_ctx *c = ctx;
-    if(c->state == CB_CM_KEY)
-        c->state = CB_CM_COMPLETE;
-    else
-        return 0;
-    return 1;
-}
-
-static const yajl_callbacks cluster_mode_ops_parser = {
-    cb_fail_null,
-    cb_fail_boolean,
-    NULL,
-    NULL,
-    cb_fail_number,
-    cb_cluster_mode_string,
-    cb_cluster_mode_start_map,
-    cb_cluster_mode_map_key,
-    cb_cluster_mode_end_map,
-    cb_fail_start_array,
-    cb_fail_end_array
+const struct jparse_actions cluster_mode_acts = {
+    JPACTS_STRING(JPACT(cb_clustermode, JPKEY("mode")))
 };
 
 static rc_ty cluster_mode_parse_complete(void *yctx)
 {
     struct cluster_mode_ctx *c = yctx;
-    if(!c || c->state != CB_CM_COMPLETE)
-        return EINVAL;
-    if(c->mode != 0 && c->mode != 1) {
-        msg_set_reason("Invalid cluster mode");
+    if(c->mode != CM_READONLY && c->mode != CM_READWRITE) {
+        msg_set_reason("Cluster mode missing");
         return EINVAL;
     }
     return OK;
@@ -2061,7 +1733,7 @@ static int cluster_mode_to_blob(sxc_client_t *sx, int nodes, void *yctx, sx_blob
         return -1;
     }
 
-    if(sx_blob_add_int32(joblb, c->mode)) {
+    if(sx_blob_add_int32(joblb, (c->mode == CM_READONLY))) {
         msg_set_reason("Cannot create job blob");
         return -1;
     }
@@ -2156,7 +1828,7 @@ static rc_ty cluster_mode_nodes(sx_hashfs_t *h, sx_blob_t *blob, sx_nodelist_t *
 }
 
 const job_2pc_t cluster_mode_spec = {
-    &cluster_mode_ops_parser,
+    &cluster_mode_acts,
     JOBTYPE_CLUSTER_MODE,
     cluster_mode_parse_complete,
     cluster_mode_get_lock,
@@ -2168,7 +1840,7 @@ const job_2pc_t cluster_mode_spec = {
 };
 
 void fcgi_cluster_mode(void) {
-    struct cluster_mode_ctx c = { -1, CB_CM_START };
+    struct cluster_mode_ctx c = { CM_UNSET };
 
     job_2pc_handle_request(sx_hashfs_client(hashfs), &cluster_mode_spec, &c);
 }

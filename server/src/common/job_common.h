@@ -28,9 +28,9 @@
 #ifndef JOB_COMMON_H
 #define JOB_COMMON_H
 
-#include <yajl/yajl_parse.h>
 #include "blob.h"
 #include "../../libsxclient/src/sxproto.h"
+#include "../../libsxclient/src/jparse.h"
 
 typedef int64_t job_t;
 
@@ -91,7 +91,7 @@ typedef enum {
 
 struct _sx_hashfs_t; /* fwd */
 typedef struct {
-    const yajl_callbacks *parser;
+    const struct jparse_actions *jpacts;
     int job_type;
     rc_ty (*parse_complete)(void *ctx);
     const char* (*get_lock)(sx_blob_t *blob);

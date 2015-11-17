@@ -157,9 +157,10 @@ am__src_libsxclient_la_SOURCES_DIST = include/sx.h include/default.h \
 	include/gnuc.h include/types.h include/version.h \
 	src/curlevents.c src/curlevents.h src/curlevents-common.h \
 	src/cluster.c src/cluster.h src/hostlist.c src/hostlist.h \
-	src/clustcfg.c src/clustcfg.h src/yajlwrap.c src/yajlwrap.h \
-	src/misc.c src/misc.h src/fileops.c src/fileops.h src/volops.c \
-	src/volops.h src/jobpoll.c src/jobpoll.h src/libsxclient.c \
+	src/clustcfg.c src/clustcfg.h src/jparse.c src/jparse.h \
+	src/yajlwrap.c src/yajlwrap.h src/misc.c src/misc.h \
+	src/fileops.c src/fileops.h src/volops.c src/volops.h \
+	src/jobpoll.c src/jobpoll.h src/libsxclient.c \
 	src/libsxclient-int.h src/filter.c src/filter.h src/sxlog.h \
 	src/sxlog.c src/sxproto.h src/sxproto.c src/sxreport.h \
 	src/sxreport.c src/version.c src/vcrypto.h src/vcryptocurl.h \
@@ -174,6 +175,7 @@ am_src_libsxclient_la_OBJECTS = src/src_libsxclient_la-curlevents.lo \
 	src/src_libsxclient_la-cluster.lo \
 	src/src_libsxclient_la-hostlist.lo \
 	src/src_libsxclient_la-clustcfg.lo \
+	src/src_libsxclient_la-jparse.lo \
 	src/src_libsxclient_la-yajlwrap.lo \
 	src/src_libsxclient_la-misc.lo \
 	src/src_libsxclient_la-fileops.lo \
@@ -468,6 +470,7 @@ pdfdir = @pdfdir@
 prefix = @prefix@
 program_transform_name = @program_transform_name@
 psdir = @psdir@
+runstatedir = @runstatedir@
 sbindir = @sbindir@
 sharedstatedir = @sharedstatedir@
 srcdir = @srcdir@
@@ -491,9 +494,10 @@ src_libsxclient_la_SOURCES = include/sx.h include/default.h \
 	include/gnuc.h include/types.h include/version.h \
 	src/curlevents.c src/curlevents.h src/curlevents-common.h \
 	src/cluster.c src/cluster.h src/hostlist.c src/hostlist.h \
-	src/clustcfg.c src/clustcfg.h src/yajlwrap.c src/yajlwrap.h \
-	src/misc.c src/misc.h src/fileops.c src/fileops.h src/volops.c \
-	src/volops.h src/jobpoll.c src/jobpoll.h src/libsxclient.c \
+	src/clustcfg.c src/clustcfg.h src/jparse.c src/jparse.h \
+	src/yajlwrap.c src/yajlwrap.h src/misc.c src/misc.h \
+	src/fileops.c src/fileops.h src/volops.c src/volops.h \
+	src/jobpoll.c src/jobpoll.h src/libsxclient.c \
 	src/libsxclient-int.h src/filter.c src/filter.h src/sxlog.h \
 	src/sxlog.c src/sxproto.h src/sxproto.c src/sxreport.h \
 	src/sxreport.c src/version.c src/vcrypto.h src/vcryptocurl.h \
@@ -617,6 +621,8 @@ src/src_libsxclient_la-hostlist.lo: src/$(am__dirstamp) \
 	src/$(DEPDIR)/$(am__dirstamp)
 src/src_libsxclient_la-clustcfg.lo: src/$(am__dirstamp) \
 	src/$(DEPDIR)/$(am__dirstamp)
+src/src_libsxclient_la-jparse.lo: src/$(am__dirstamp) \
+	src/$(DEPDIR)/$(am__dirstamp)
 src/src_libsxclient_la-yajlwrap.lo: src/$(am__dirstamp) \
 	src/$(DEPDIR)/$(am__dirstamp)
 src/src_libsxclient_la-misc.lo: src/$(am__dirstamp) \
@@ -670,6 +676,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@src/$(DEPDIR)/src_libsxclient_la-filter.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/$(DEPDIR)/src_libsxclient_la-hostlist.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/$(DEPDIR)/src_libsxclient_la-jobpoll.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@src/$(DEPDIR)/src_libsxclient_la-jparse.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/$(DEPDIR)/src_libsxclient_la-libsxclient.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/$(DEPDIR)/src_libsxclient_la-misc.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/$(DEPDIR)/src_libsxclient_la-nftw.Plo@am__quote@
@@ -733,6 +740,13 @@ src/src_libsxclient_la-clustcfg.lo: src/clustcfg.c
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='src/clustcfg.c' object='src/src_libsxclient_la-clustcfg.lo' libtool=yes @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_libsxclient_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o src/src_libsxclient_la-clustcfg.lo `test -f 'src/clustcfg.c' || echo '$(srcdir)/'`src/clustcfg.c
+
+src/src_libsxclient_la-jparse.lo: src/jparse.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_libsxclient_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT src/src_libsxclient_la-jparse.lo -MD -MP -MF src/$(DEPDIR)/src_libsxclient_la-jparse.Tpo -c -o src/src_libsxclient_la-jparse.lo `test -f 'src/jparse.c' || echo '$(srcdir)/'`src/jparse.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) src/$(DEPDIR)/src_libsxclient_la-jparse.Tpo src/$(DEPDIR)/src_libsxclient_la-jparse.Plo
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='src/jparse.c' object='src/src_libsxclient_la-jparse.lo' libtool=yes @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_libsxclient_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o src/src_libsxclient_la-jparse.lo `test -f 'src/jparse.c' || echo '$(srcdir)/'`src/jparse.c
 
 src/src_libsxclient_la-yajlwrap.lo: src/yajlwrap.c
 @am__fastdepCC_TRUE@	$(AM_V_CC)$(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_libsxclient_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT src/src_libsxclient_la-yajlwrap.lo -MD -MP -MF src/$(DEPDIR)/src_libsxclient_la-yajlwrap.Tpo -c -o src/src_libsxclient_la-yajlwrap.lo `test -f 'src/yajlwrap.c' || echo '$(srcdir)/'`src/yajlwrap.c

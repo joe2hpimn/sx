@@ -29,7 +29,6 @@
 
 #include <string.h>
 #include <stdlib.h>
-#include <yajl/yajl_parse.h>
 
 #include "fcgi-utils.h"
 #include "fcgi-actions-user.h"
@@ -264,202 +263,112 @@ struct user_ctx {
     char name[SXLIMIT_MAX_USERNAME_LEN + 1], existing[SXLIMIT_MAX_USERNAME_LEN + 1];
     char desc[SXLIMIT_MAX_USERDESC_LEN+1];
     uint8_t token[AUTHTOK_BIN_LEN];
-    char type[7];
     int64_t quota;
     int has_key;
     int has_uid;
-    int has_user;
-    int has_type;
+    int has_name;
     int role;
     int is_clone; /* Set to 1 if existing is filled with existing user name */
-    enum user_state { CB_USER_START=0, CB_USER_KEY, CB_USER_NAME, CB_USER_ENAME /* Existing user name */, CB_USER_DESC, CB_USER_AUTH,
-        CB_USER_ID, CB_USER_TYPE, CB_USER_QUOTA, CB_USER_COMPLETE } state;
 };
 
-static int cb_user_string(void *ctx, const unsigned char *s, size_t l) {
+
+static void cb_user_name(jparse_t *J, void *ctx, const char *string, unsigned int length) {
     struct user_ctx *uctx = ctx;
-    switch (uctx->state) {
-	case CB_USER_NAME:
-	    if(l >= sizeof(uctx->name)) {
-                msg_set_reason("username too long");
-		return 0;
-	    }
-	    memcpy(uctx->name, s, l);
-	    uctx->name[l] = 0;
-	    uctx->has_user = 1;
-	    break;
-        case CB_USER_ENAME:
-            {
-                if(l >= sizeof(uctx->existing)) {
-                    msg_set_reason("username too long");
-                    return 0;
-                }
-
-                memcpy(uctx->existing, s, l);
-                uctx->existing[l] = 0;
-                uctx->is_clone = 1;
-                break;
-            }
-        case CB_USER_DESC:
-            {
-                if(l >= sizeof(uctx->desc)) {
-                    msg_set_reason("description too long");
-                    return 0;
-                }
-
-                memcpy(uctx->desc, s, l);
-                uctx->desc[l] = 0;
-                break;
-            }
-	case CB_USER_AUTH:
-	    {
-		char ascii[AUTH_KEY_LEN * 2 + 1];
-		if(l != AUTH_KEY_LEN * 2) {
-		    INFO("Bad key length %ld", l);
-		    return 0;
-		}
-		memcpy(ascii, s, AUTH_KEY_LEN * 2);
-                ascii[AUTH_KEY_LEN*2] = '\0';
-		if (hex2bin(ascii, AUTH_KEY_LEN * 2, uctx->token + AUTH_UID_LEN, AUTH_KEY_LEN)) {
-                    INFO("bad hexadecimal string: %s", ascii);
-                    return 0;
-                }
-		uctx->has_key = 1;
-		break;
-	    }
-        case CB_USER_ID:
-            {
-                char ascii[AUTH_UID_LEN * 2 + 1];
-
-                if(l != AUTH_UID_LEN * 2) {
-                    INFO("Bad uid length %ld", l);
-                    return 0;
-                }
-                memcpy(ascii, s, AUTH_UID_LEN * 2);
-                ascii[AUTH_UID_LEN*2] = '\0';
-                if (hex2bin(ascii, AUTH_UID_LEN * 2, uctx->token, AUTH_UID_LEN)) {
-                    INFO("bad hexadecimal string: %s", ascii);
-                    return 0;
-                }
-                uctx->has_uid = 1;
-                break;
-            }
-	case CB_USER_TYPE:
-	    if(l >= sizeof(uctx->type)) {
-		INFO("type too long");
-		return 0;
-	    }
-	    memcpy(uctx->type, s, l);
-	    uctx->type[l] = 0;
-	    uctx->has_type = 1;
-	    break;
-	default:
-	    return 0;
+    if(length >= sizeof(uctx->name)) {
+	sxi_jparse_cancel(J, "Username too long");
+	return;
     }
-    uctx->state = CB_USER_KEY;
-    return 1;
+    memcpy(uctx->name, string, length);
+    uctx->name[length] = 0;
+    uctx->has_name = 1;
 }
 
-static int cb_user_number(void *ctx, const char *s, size_t l) {
+static void cb_user_exname(jparse_t *J, void *ctx, const char *string, unsigned int length) {
     struct user_ctx *uctx = ctx;
-    switch (uctx->state) {
-        case CB_USER_QUOTA:
-            {
-                char number[21], *enumb = NULL;
-
-                if(l > 20) {
-                    INFO("quota too long");
-                    return 0;
-                }
-                memcpy(number, s, l);
-                number[l] = '\0';
-                uctx->quota = strtoll(number, &enumb, 10);
-                if(enumb && *enumb) {
-                    INFO("Failed to parse quota");
-                    return 0;
-                }
-                break;
-            }
-        default:
-            return 0;
+    if(length >= sizeof(uctx->existing)) {
+	sxi_jparse_cancel(J, "Existing username too long");
+	return;
     }
-    uctx->state = CB_USER_KEY;
-    return 1;
+    memcpy(uctx->existing, string, length);
+    uctx->existing[length] = 0;
+    uctx->is_clone = 1;
 }
 
-static int cb_user_map_key(void *ctx, const unsigned char *s, size_t l) {
-    struct user_ctx *c = ctx;
-    if(c->state == CB_USER_KEY) {
-	if(l == lenof("userName") && !strncmp("userName", s, l)) {
-	    c->state = CB_USER_NAME;
-	    return 1;
-	}
-        if(l == lenof("existingName") && !strncmp("existingName", s, l)) {
-            c->state = CB_USER_ENAME;
-            return 1;
-        }
-        if(l == lenof("userDesc") && !strncmp("userDesc", s, l)) {
-            c->state = CB_USER_DESC;
-            return 1;
-        }
-	if(l == lenof("userType") && !strncmp("userType", s, l)) {
-	    c->state = CB_USER_TYPE;
-	    return 1;
-	}
-        if(l == lenof("userID") && !strncmp("userID", s, l)) {
-            c->state = CB_USER_ID;
-            return 1;
-        }
-	if(l == lenof("userKey") && !strncmp("userKey", s, l)) {
-	    c->state = CB_USER_AUTH;
-	    return 1;
-	}
-        if(l == lenof("userQuota") && !strncmp("userQuota", s, l)) {
-            c->state = CB_USER_QUOTA;
-            return 1;
-        }
-        WARN("Unknown key: %.*s", (int)l, s);
+static void cb_user_desc(jparse_t *J, void *ctx, const char *string, unsigned int length) {
+    struct user_ctx *uctx = ctx;
+    if(length >= sizeof(uctx->desc)) {
+	sxi_jparse_cancel(J, "User description too long");
+	return;
     }
-    return 0;
+    memcpy(uctx->desc, string, length);
+    uctx->desc[length] = 0;
 }
 
-static int cb_user_start_map(void *ctx) {
-    struct user_ctx *c = ctx;
-    if(c->state == CB_USER_START)
-	c->state = CB_USER_KEY;
-    else
-	return 0;
-    return 1;
+static void cb_user_key(jparse_t *J, void *ctx, const char *string, unsigned int length) {
+    struct user_ctx *uctx = ctx;
+    if(length != AUTH_KEY_LEN * 2) {
+	sxi_jparse_cancel(J, "Invalid user key length");
+	return;
+    }
+    if (hex2bin(string, AUTH_KEY_LEN * 2, uctx->token + AUTH_UID_LEN, AUTH_KEY_LEN)) {
+	sxi_jparse_cancel(J, "Invalid user key");
+	return;
+    }
+    uctx->has_key = 1;
 }
 
-static int cb_user_end_map(void *ctx) {
-    struct user_ctx *c = ctx;
-    if(c->state == CB_USER_KEY)
-	c->state = CB_USER_COMPLETE;
-    else
-	return 0;
-    return 1;
+static void cb_user_userid(jparse_t *J, void *ctx, const char *string, unsigned int length) {
+    struct user_ctx *uctx = ctx;
+    if(length != AUTH_UID_LEN * 2) {
+	sxi_jparse_cancel(J, "Invalid userid length");
+	return;
+    }
+    if (hex2bin(string, AUTH_KEY_LEN * 2, uctx->token, AUTH_UID_LEN)) {
+	sxi_jparse_cancel(J, "Invalid userid");
+	return;
+    }
+    uctx->has_uid = 1;
 }
 
-static const yajl_callbacks user_ops_parser = {
-    cb_fail_null,
-    cb_fail_boolean,
-    NULL,
-    NULL,
-    cb_user_number,
-    cb_user_string,
-    cb_user_start_map,
-    cb_user_map_key,
-    cb_user_end_map,
-    cb_fail_start_array,
-    cb_fail_end_array
+static void cb_user_type(jparse_t *J, void *ctx, const char *string, unsigned int length) {
+    struct user_ctx *uctx = ctx;
+
+    /* Note: if this is not a clone, the role is properly overridden in user_parse_complete */
+    if(length == lenof("admin") && !memcmp(string, "admin", lenof("admin")))
+	uctx->role = ROLE_ADMIN;
+    else if(length == lenof("normal") && !memcmp(string, "normal", lenof("normal")))
+	uctx->role = ROLE_USER;
+    else {
+	sxi_jparse_cancel(J, "Invalid user type");
+	return;
+    }
+}
+
+static void cb_user_quota(jparse_t *J, void *ctx, int64_t num) {
+    struct user_ctx *uctx = ctx;
+    uctx->quota = num;
+}
+
+
+const struct jparse_actions user_acts = {
+    JPACTS_STRING(
+		  JPACT(cb_user_name, JPKEY("userName")),
+		  JPACT(cb_user_exname, JPKEY("existingName")),
+		  JPACT(cb_user_desc, JPKEY("userDesc")),
+		  JPACT(cb_user_type, JPKEY("userType")),
+		  JPACT(cb_user_userid, JPKEY("userID")),
+		  JPACT(cb_user_key, JPKEY("userKey"))
+		  ),
+    JPACTS_INT64(
+		 JPACT(cb_user_quota, JPKEY("userQuota"))
+		 )
 };
 
 static rc_ty user_parse_complete(void *yctx)
 {
     struct user_ctx *uctx = yctx;
     rc_ty s;
-    if (!uctx || uctx->state != CB_USER_COMPLETE)
+    if (!uctx)
         return EINVAL;
 
     /*
@@ -479,56 +388,57 @@ static rc_ty user_parse_complete(void *yctx)
         return EINVAL;
     }
 
-    if(!uctx->has_uid) {
-        /* Check if priv is not cluster */
-        if(has_priv(PRIV_CLUSTER)) {
-            WARN("When user creation is done with PRIV_CLUSTER, then it must contain user ID");
-            return FAIL_EINTERNAL;
-        }
-
+    if(!has_priv(PRIV_CLUSTER)) {
         if(uctx->is_clone) {
+	    uint8_t token[AUTH_UID_LEN];
+
             /* Check if given user exists and take his role */
             if((s = sx_hashfs_get_uid_role(hashfs, uctx->existing, NULL, &uctx->role)) != OK) {
                 WARN("Failed to get existing user role");
                 return s;
             }
 
-            if((s = sx_hashfs_get_user_by_name(hashfs, uctx->existing, uctx->token, 0)) != OK) {
+            if((s = sx_hashfs_get_user_by_name(hashfs, uctx->existing, token, 0)) != OK) {
                 WARN("Failed to get existing user ID");
                 return s;
             }
 
-            if((s = sx_hashfs_get_user_info(hashfs, uctx->token, NULL, NULL, NULL, NULL, &uctx->quota)) != OK) {
+            if((s = sx_hashfs_get_user_info(hashfs, token, NULL, NULL, NULL, NULL, &uctx->quota)) != OK) {
                 WARN("Failed to get existing user quota");
                 return s;
             }
 
-            /* Generate unique user ID for new user or a clone */
-            if((s = sx_hashfs_generate_uid(hashfs, uctx->token)) != OK) {
-                msg_set_reason("Cloned user does not exist");
-                WARN("Failed to get existing user ID");
-                return s;
-            }
-        } else {
-            /* By default user ID is an unsalted hash from the username stirng */
-            if(sx_hashfs_hash_buf(NULL, 0, uctx->name, strlen(uctx->name), (sx_hash_t*)uctx->token)) {
-                WARN("Failed to compute user name hash");
-                return FAIL_EINTERNAL;
-            }
-        }
+	    if(!uctx->has_uid) {
+		/* Generate unique user ID for new user or a clone */
+		memcpy(uctx->token, token, AUTH_UID_LEN);
+		if((s = sx_hashfs_generate_uid(hashfs, uctx->token)) != OK) {
+		    msg_set_reason("Cloned user does not exist");
+		    WARN("Failed to get existing user ID");
+		    return s;
+		}
+	    } else {
+		/* Use the one provided but only if it's an actual clone */
+		if(memcmp(token, uctx->token, AUTH_CID_LEN)) {
+		    msg_set_reason("Invalid userid provided for use clone");
+		    return EINVAL;
+		}
+	    }
+	} else {
+	    if(!uctx->has_uid) {
+		if(sx_hashfs_hash_buf(NULL, 0, uctx->name, strlen(uctx->name), (sx_hash_t*)uctx->token)) {
+		    WARN("Failed to compute user name hash");
+		    return FAIL_EINTERNAL;
+		}
+	    }
+	}
+	uctx->has_uid = 1;
     }
 
-    if(!uctx->is_clone) {
-        uctx->role = 0;
-        if (!strcmp(uctx->type, "admin"))
-            uctx->role = ROLE_ADMIN;
-        else if (!strcmp(uctx->type, "normal"))
-            uctx->role = ROLE_USER;
-        else {
-            msg_set_reason("Invalid user type");
-            return EINVAL;
-        }
+    if(!uctx->has_uid || !uctx->has_key || !uctx->has_name) {
+	msg_set_reason("One or more required fields are missing");
+	return EINVAL;
     }
+
     return OK;
 }
 
@@ -666,7 +576,7 @@ static rc_ty user_execute_blob(sx_hashfs_t *hashfs, sx_blob_t *b, jobphase_t pha
 }
 
 const job_2pc_t user_spec = {
-    &user_ops_parser,
+    &user_acts,
     JOBTYPE_CREATE_USER,
     user_parse_complete,
     user_get_lock,
@@ -691,130 +601,54 @@ struct user_modify_ctx {
     int key_given, quota_given, desc_given;
     int64_t quota;
     char description[SXLIMIT_MAX_USERDESC_LEN+1];
-    enum user_modify_state { CB_USER_MODIFY_START=0, CB_USER_MODIFY_AUTH, CB_USER_MODIFY_QUOTA, CB_USER_MODIFY_KEY, CB_USER_MODIFY_DESC, CB_USER_MODIFY_COMPLETE } state;
 };
 
-static int cb_user_modify_string(void *ctx, const unsigned char *s, size_t l) {
+static void cb_user_modify_key(jparse_t *J, void *ctx, const char *string, unsigned int length) {
     struct user_modify_ctx *uctx = ctx;
-    switch (uctx->state) {
-	case CB_USER_MODIFY_AUTH:
-	    {
-		char ascii[AUTH_KEY_LEN * 2 + 1];
-		if(l != AUTH_KEY_LEN * 2) {
-		    INFO("Bad key length %ld", l);
-		    return 0;
-		}
-		memcpy(ascii, s, AUTH_KEY_LEN * 2);
-                ascii[AUTH_KEY_LEN*2] = '\0';
-		if (hex2bin(ascii, AUTH_KEY_LEN * 2, uctx->auth, sizeof(uctx->auth))) {
-                    INFO("Bad hexadecimal string: %s", ascii);
-                    return 0;
-                }
-                uctx->key_given = 1;
-		break;
-	    }
-        case CB_USER_MODIFY_DESC:
-            {
-                if(l > SXLIMIT_MAX_USERDESC_LEN) {
-                    INFO("Bad description length %ld", l);
-                    return 0;
-                }
-                memcpy(uctx->description, s, l);
-                uctx->description[l] = '\0';
-                uctx->desc_given = 1;
-                break;
-            }
-	default:
-	    return 0;
+    if(length != AUTH_KEY_LEN * 2) {
+	sxi_jparse_cancel(J, "Invalid user key length");
+	return;
     }
-    uctx->state = CB_USER_MODIFY_KEY;
-    return 1;
+    if (hex2bin(string, AUTH_KEY_LEN * 2, uctx->auth, sizeof(uctx->auth))) {
+	sxi_jparse_cancel(J, "Invalid user key");
+	return;
+    }
+    uctx->key_given = 1;
 }
 
-static int cb_user_modify_number(void *ctx, const char *s, size_t l) {
+static void cb_user_modify_desc(jparse_t *J, void *ctx, const char *string, unsigned int length) {
     struct user_modify_ctx *uctx = ctx;
-    switch (uctx->state) {
-        case CB_USER_MODIFY_QUOTA:
-            {
-                char *enumb = NULL, number[21];
-
-                if(l > 20) {
-                    INFO("Invalid length %ld", l);
-                    return 0;
-                }
-
-                memcpy(number, s, l);
-                number[l] = '\0';
-                uctx->quota = strtoll(number, &enumb, 10);
-                if(enumb && *enumb) {
-                    INFO("Failed to parse quota");
-                    return 0;
-                }
-                uctx->quota_given = 1;
-                break;
-            }
-        default:
-            return 0;
+    if(length > SXLIMIT_MAX_USERDESC_LEN) {
+	sxi_jparse_cancel(J, "User description too long");
+	return;
     }
-    uctx->state = CB_USER_MODIFY_KEY;
-    return 1;
+    memcpy(uctx->description, string, length);
+    uctx->description[length] = '\0';
+    uctx->desc_given = 1;
 }
 
-static int cb_user_modify_map_key(void *ctx, const unsigned char *s, size_t l) {
-    struct user_modify_ctx *c = ctx;
-    if(c->state == CB_USER_MODIFY_KEY) {
-	if(l == lenof("userKey") && !strncmp("userKey", (const char*)s, l)) {
-	    c->state = CB_USER_MODIFY_AUTH;
-	    return 1;
-	}
-        if(l == lenof("quota") && !strncmp("quota", (const char*)s, l)) {
-            c->state = CB_USER_MODIFY_QUOTA;
-            return 1;
-        }
-        if(l == lenof("desc") && !strncmp("desc", (const char*)s, l)) {
-            c->state = CB_USER_MODIFY_DESC;
-            return 1;
-        }
-    }
-    return 0;
+static void cb_user_modify_quota(jparse_t *J, void *ctx, int64_t num) {
+    struct user_modify_ctx *uctx = ctx;
+    uctx->quota = num;
+    uctx->quota_given = 1;
 }
 
-static int cb_user_modify_start_map(void *ctx) {
-    struct user_modify_ctx *c = ctx;
-    if(c->state == CB_USER_MODIFY_START)
-	c->state = CB_USER_MODIFY_KEY;
-    else
-	return 0;
-    return 1;
-}
-
-static int cb_user_modify_end_map(void *ctx) {
-    struct user_modify_ctx *c = ctx;
-    if(c->state == CB_USER_MODIFY_KEY)
-	c->state = CB_USER_MODIFY_COMPLETE;
-    else
-	return 0;
-    return 1;
-}
-
-static const yajl_callbacks user_modify_ops_parser = {
-    cb_fail_null,
-    cb_fail_boolean,
-    NULL,
-    NULL,
-    cb_user_modify_number,
-    cb_user_modify_string,
-    cb_user_modify_start_map,
-    cb_user_modify_map_key,
-    cb_user_modify_end_map,
-    cb_fail_start_array,
-    cb_fail_end_array
+const struct jparse_actions user_modify_acts = {
+    JPACTS_STRING(
+		  JPACT(cb_user_modify_key, JPKEY("userKey")),
+		  JPACT(cb_user_modify_desc, JPKEY("userDesc")),
+		  JPACT(cb_user_modify_desc, JPKEY("desc")) /* Legacy */
+		  ),
+    JPACTS_INT64(
+		 JPACT(cb_user_modify_quota, JPKEY("userQuota")),
+		 JPACT(cb_user_modify_quota, JPKEY("quota")) /* Legacy */
+		 )
 };
 
 static rc_ty user_modify_parse_complete(void *yctx)
 {
     struct user_modify_ctx *uctx = yctx;
-    if (!uctx || uctx->state != CB_USER_MODIFY_COMPLETE)
+    if (!uctx)
         return EINVAL;
 
     if(uctx->quota_given || uctx->desc_given) {
@@ -1024,7 +858,7 @@ static rc_ty user_modify_execute_blob(sx_hashfs_t *h, sx_blob_t *b, jobphase_t p
 }
 
 const job_2pc_t user_modify_spec = {
-    &user_modify_ops_parser,
+    &user_modify_acts,
     JOBTYPE_MODIFY_USER,
     user_modify_parse_complete,
     user_get_lock,

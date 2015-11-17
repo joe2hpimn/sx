@@ -32,6 +32,8 @@ src_libsxclient_la_SOURCES = \
 	src/hostlist.h \
 	src/clustcfg.c \
 	src/clustcfg.h \
+	src/jparse.c \
+	src/jparse.h \
 	src/yajlwrap.c \
 	src/yajlwrap.h \
 	src/misc.c \

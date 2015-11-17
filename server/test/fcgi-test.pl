@@ -740,7 +740,7 @@ test_mkvol 'volume creation (no content)', admin_only(400), $vol;
 test_mkvol 'volume creation (bad content)', admin_only(400), $vol, "{\"owner\":\"admin\",\"volumeSize\":$volumesize";
 test_mkvol 'volume creation (bad volume size - too small)', admin_only(400), $vol, '{"owner":"admin","volumeSize":10}';
 test_mkvol 'volume creation (bad volume size - too big)', admin_only(400), $vol, "{\"owner\":\"admin\",\"volumeSize\":$bigvolumesize}";
-test_mkvol 'volume creation (no owner)', admin_only(400), $vol, '{"volumeSize":$volumesize}';
+test_mkvol 'volume creation (no owner)', admin_only(400), $vol, "{\"volumeSize\":$volumesize}";
 test_mkvol 'volume creation (reserved name)', admin_only(403), '.reserved', "{\"owner\":\"admin\",\"volumeSize\":$volumesize}";
 test_mkvol "volume creation", admin_only(200), $vol, "{\"volumeSize\":$volumesize,\"owner\":\"admin\"}";
 test_put_job 'granting rights on newly created volume', admin_only(200), $vol."?o=acl", "{\"grant-read\":[\"$reader\",\"$writer\"],\"grant-write\":[\"$writer\"] }";

@@ -33,6 +33,8 @@
 #include "fcgi-utils.h"
 #include "fcgi-actions-cluster.h"
 
+#include "libsxclient/src/jparse.h"
+
 static void send_distribution(sx_hashfs_nl_t which) {
     const sx_nodelist_t *nodes = sx_hashfs_all_nodes(hashfs, which);
     unsigned int i, n = sx_nodelist_count(nodes);
@@ -467,110 +469,52 @@ struct cluster_setmeta_ctx {
     time_t ts;
     time_t oldts;
     int has_timestamp;
-    char metakey[SXLIMIT_META_MAX_KEY_LEN+1];
     sx_blob_t *meta;
     unsigned int nmeta;
     sx_blob_t *oldmeta;
     unsigned int noldmeta;
-    enum cluster_setmeta_state { CB_SM_START=0, CB_SM_KEY, CB_SM_TIMESTAMP, CB_SM_META, CB_SM_METAKEY, CB_SM_METAVALUE, CB_SM_COMPLETE } state;
 };
 
-static int cb_cluster_setmeta_string(void *ctx, const unsigned char *s, size_t l) {
+static void cb_setmeta_meta(jparse_t *J, void *ctx, const char *string, unsigned int length) {
+    const char *key = sxi_jpath_mapkey(sxi_jpath_down(sxi_jparse_whereami(J)));
+    uint8_t value[SXLIMIT_META_MAX_VALUE_LEN];
     struct cluster_setmeta_ctx *c = ctx;
-    uint8_t metavalue[SXLIMIT_META_MAX_VALUE_LEN];
-    if(c->state == CB_SM_METAVALUE) {
-        if(hex2bin((const char*)s, l, metavalue, sizeof(metavalue)))
-            return 0;
-        l/=2;
-        if(sx_hashfs_check_meta(c->metakey, metavalue, l) ||
-           sx_blob_add_string(c->meta, c->metakey) ||
-           sx_blob_add_blob(c->meta, metavalue, l))
-            return 0;
-        c->nmeta++;
-        c->state = CB_SM_METAKEY;
-        return 1;
+
+    if(c->nmeta >= SXLIMIT_META_MAX_ITEMS) {
+	sxi_jparse_cancel(J, "Too many cluster matadata items");
+	return;
     }
-    DEBUG("Invalid state %d: expected %d", c->state, CB_SM_METAVALUE);
-    return 0;
-}
-
-static int cb_cluster_setmeta_number(void *ctx, const char *s, size_t l) {
-    struct cluster_setmeta_ctx *c = ctx;
-    if(c->state == CB_SM_TIMESTAMP) {
-        char number[21], *enumb;
-        if(c->has_timestamp || l<1 || l>20)
-            return 0;
-
-        memcpy(number, s, l);
-        number[l] = '\0';
-        c->ts = strtol(number, &enumb, 10);
-        if(enumb && *enumb)
-            return 0;
-        c->has_timestamp = 1;
-        c->state = CB_SM_KEY;
-        return 1;
+    if(strlen(key) < SXLIMIT_META_MIN_KEY_LEN || strlen(key) > SXLIMIT_META_MAX_KEY_LEN) {
+	sxi_jparse_cancel(J, "Invalid key %s", key);
+	return;
     }
-    DEBUG("Invalid state %d: expected %d", c->state, CB_SM_TIMESTAMP);
-    return 0;
-}
-
-static int cb_cluster_setmeta_map_key(void *ctx, const unsigned char *s, size_t l) {
-    struct cluster_setmeta_ctx *c = ctx;
-    if(c->state == CB_SM_KEY) {
-        if(l == lenof("clusterMeta") && !strncmp("clusterMeta", (const char*)s, lenof("clusterMeta"))) {
-            c->state = CB_SM_META;
-            return 1;
-        }
-        if(l == lenof("timestamp") && !strncmp("timestamp", (const char*)s, lenof("timestamp"))) {
-            c->state = CB_SM_TIMESTAMP;
-            return 1;
-        }
-    } else if(c->state == CB_SM_METAKEY) {
-        if(c->nmeta >= SXLIMIT_META_MAX_ITEMS || l < SXLIMIT_META_MIN_KEY_LEN || l > SXLIMIT_META_MAX_KEY_LEN)
-            return 0;
-        memcpy(c->metakey, s, l);
-        c->metakey[l] = '\0';
-        c->state = CB_SM_METAVALUE;
-        return 1;
+    if(hex2bin(string, length, value, sizeof(value))) {
+	sxi_jparse_cancel(J, "Invalid metadata value for %s", key);
+	return;
     }
-    DEBUG("Invalid state %d: expected %d or %d", c->state, CB_SM_KEY, CB_SM_METAKEY);
-    return 0;
+    length /= 2;
+    if(sx_hashfs_check_meta(key, value, length) ||
+       sx_blob_add_string(c->meta, key) ||
+       sx_blob_add_blob(c->meta, value, length)) {
+	sxi_jparse_cancel(J, "Out of memory processing cluster metadata");
+	return;
+    }
+    c->nmeta++;
 }
-
-static int cb_cluster_setmeta_start_map(void *ctx) {
+static void cb_setmeta_ts(jparse_t *J, void *ctx, int64_t num) {
     struct cluster_setmeta_ctx *c = ctx;
-    if(c->state == CB_SM_START)
-        c->state = CB_SM_KEY;
-    else if(c->state == CB_SM_META)
-        c->state = CB_SM_METAKEY;
-    else
-        return 0;
-    return 1;
+
+    if(sx_hashfs_cluster_settings_last_change(hashfs, &c->oldts)) {
+	sxi_jparse_cancel(J, "Internal error retrieving current settings age");
+	return;
+    }
+    c->ts = num;
+    c->has_timestamp = 1;
 }
 
-static int cb_cluster_setmeta_end_map(void *ctx) {
-    struct cluster_setmeta_ctx *c = ctx;
-    if(c->state == CB_SM_KEY)
-        c->state = CB_SM_COMPLETE;
-    else if(c->state == CB_SM_METAKEY)
-        c->state = CB_SM_KEY;
-    else
-        return 0;
-    return 1;
-}
-
-static const yajl_callbacks cluster_setmeta_ops_parser = {
-    cb_fail_null,
-    cb_fail_boolean,
-    NULL,
-    NULL,
-    cb_cluster_setmeta_number,
-    cb_cluster_setmeta_string,
-    cb_cluster_setmeta_start_map,
-    cb_cluster_setmeta_map_key,
-    cb_cluster_setmeta_end_map,
-    cb_fail_start_array,
-    cb_fail_end_array
+const struct jparse_actions setmeta_acts = {
+    JPACTS_STRING(JPACT(cb_setmeta_meta, JPKEY("clusterMeta"), JPANYKEY)),
+    JPACTS_INT64(JPACT(cb_setmeta_ts, JPKEY("timestamp")))
 };
 
 static rc_ty cluster_setmeta_parse_complete(void *yctx)
@@ -581,7 +525,7 @@ static rc_ty cluster_setmeta_parse_complete(void *yctx)
     const void *metaval = NULL;
     unsigned int metaval_len = 0;
 
-    if(!c || c->state != CB_SM_COMPLETE)
+    if(!c)
         return EINVAL;
 
     /* Check if timestamp has been correctly syncronised between nodes */
@@ -868,7 +812,7 @@ static rc_ty cluster_setmeta_nodes(sx_hashfs_t *h, sx_blob_t *blob, sx_nodelist_
 }
 
 const job_2pc_t cluster_setmeta_spec = {
-    &cluster_setmeta_ops_parser,
+    &setmeta_acts,
     JOBTYPE_CLUSTER_SETMETA,
     cluster_setmeta_parse_complete,
     cluster_setmeta_get_lock,
@@ -908,130 +852,65 @@ struct cluster_settings_ctx {
     time_t ts;
     time_t oldts;
     int has_timestamp;
-    char key[SXLIMIT_SETTINGS_MAX_KEY_LEN+1];
-    sx_setting_type_t key_type;
-    char old_value[SXLIMIT_SETTINGS_MAX_VALUE_LEN+1];
-    unsigned int old_value_len;
     sx_blob_t *entries;
     unsigned int nentries;
-    enum cluster_settings_state { CB_SETTINGS_START=0, CB_SETTINGS_KEY, CB_SETTINGS_TIMESTAMP, CB_SETTINGS_ENTRIES, CB_SETTINGS_ENTRY_KEY, CB_SETTINGS_ENTRY_VALUE, CB_SETTINGS_COMPLETE } state;
 };
 
-static int cb_cluster_settings_string(void *ctx, const unsigned char *s, size_t l) {
+static void cb_cluster_settings_ts(jparse_t *J, void *ctx, int64_t num) {
     struct cluster_settings_ctx *c = ctx;
+    c->ts = num;
+    c->has_timestamp = 1;
+}
+
+static void cb_cluster_settings(jparse_t *J, void *ctx, const char *string, unsigned int length) {
+    const char *key = sxi_jpath_mapkey(sxi_jpath_down(sxi_jparse_whereami(J))), *old_value;
     char value[SXLIMIT_SETTINGS_MAX_VALUE_LEN+1];
-    if(c->state == CB_SETTINGS_ENTRY_VALUE) {
-        if(hex2bin((const char*)s, l, (uint8_t*)value, sizeof(value)))
-            return 0;
-        l/=2;
-        if(l > SXLIMIT_SETTINGS_MAX_VALUE_LEN)
-            return 0;
-        value[l] = '\0';
-        if(sx_blob_add_string(c->entries, c->key) ||
-           sx_blob_add_int32(c->entries, c->key_type) ||
-           sx_hashfs_parse_cluster_setting(hashfs, c->key, c->key_type, value, c->entries) ||
-           sx_hashfs_parse_cluster_setting(hashfs, c->key, c->key_type, c->old_value, c->entries))
-            return 0;
+    struct cluster_settings_ctx *c = ctx;
+    sx_setting_type_t key_type;
+    rc_ty rc;
 
-        c->nentries++;
-        c->state = CB_SETTINGS_ENTRY_KEY;
-        return 1;
+    if(c->nentries >= SXLIMIT_SETTINGS_MAX_ITEMS) {
+	sxi_jparse_cancel(J, "Too many cluster settings");
+	return;
     }
-    DEBUG("Invalid state %d: expected %d", c->state, CB_SETTINGS_ENTRY_VALUE);
-    return 0;
-}
-
-static int cb_cluster_settings_number(void *ctx, const char *s, size_t l) {
-    struct cluster_settings_ctx *c = ctx;
-    if(c->state == CB_SETTINGS_TIMESTAMP) {
-        char number[21], *enumb;
-        if(c->has_timestamp || l<1 || l>20)
-            return 0;
-
-        memcpy(number, s, l);
-        number[l] = '\0';
-        c->ts = strtol(number, &enumb, 10);
-        if(enumb && *enumb)
-            return 0;
-        c->has_timestamp = 1;
-        c->state = CB_SETTINGS_KEY;
-        return 1;
+    if(strlen(key) < SXLIMIT_SETTINGS_MIN_KEY_LEN || strlen(key) > SXLIMIT_SETTINGS_MAX_KEY_LEN) {
+	sxi_jparse_cancel(J, "Invalid key %s", key);
+	return;
     }
-    DEBUG("Invalid state %d: expected %d", c->state, CB_SETTINGS_TIMESTAMP);
-    return 0;
-}
-
-static int cb_cluster_settings_map_key(void *ctx, const unsigned char *s, size_t l) {
-    struct cluster_settings_ctx *c = ctx;
-    if(c->state == CB_SETTINGS_KEY) {
-        if(l == lenof("clusterSettings") && !strncmp("clusterSettings", (const char*)s, lenof("clusterSettings"))) {
-            c->state = CB_SETTINGS_ENTRIES;
-            return 1;
-        }
-        if(l == lenof("timestamp") && !strncmp("timestamp", (const char*)s, lenof("timestamp"))) {
-            c->state = CB_SETTINGS_TIMESTAMP;
-            return 1;
-        }
-    } else if(c->state == CB_SETTINGS_ENTRY_KEY) {
-        rc_ty rc;
-        const char *old_value;
-        if(c->nentries >= SXLIMIT_SETTINGS_MAX_ITEMS || l < SXLIMIT_SETTINGS_MIN_KEY_LEN || l > SXLIMIT_SETTINGS_MAX_KEY_LEN)
-            return 0;
-        memcpy(c->key, s, l);
-        c->key[l] = '\0';
-
-        if((rc = sx_hashfs_cluster_settings_get(hashfs, c->key, &c->key_type, &old_value)) != OK)
-            return 0;
-
-        sxi_strlcpy(c->old_value, old_value, sizeof(c->old_value));
-        c->state = CB_SETTINGS_ENTRY_VALUE;
-        return 1;
+    if(hex2bin(string, length, value, sizeof(value))) {
+	sxi_jparse_cancel(J, "Invalid setting value for %s", key);
+	return;
     }
-    DEBUG("Invalid state %d: expected %d or %d", c->state, CB_SETTINGS_KEY, CB_SETTINGS_ENTRY_KEY);
-    return 0;
+    if((rc = sx_hashfs_cluster_settings_get(hashfs, key, &key_type, &old_value)) != OK) {
+	sxi_jparse_cancel(J, "Invalid setting %s: ", key, msg_get_reason());
+	return;
+    }
+    if(hex2bin(string, length, (uint8_t*)value, sizeof(value))) {
+	sxi_jparse_cancel(J, "Invalid setting value for %s", key);
+	return;
+    }
+    length /= 2;
+    value[length] = '\0';
+    if(sx_blob_add_string(c->entries, key) ||
+       sx_blob_add_int32(c->entries, key_type) ||
+       sx_hashfs_parse_cluster_setting(hashfs, key, key_type, value, c->entries) ||
+       sx_hashfs_parse_cluster_setting(hashfs, key, key_type, old_value, c->entries)) {
+	sxi_jparse_cancel(J, "Out of memory processing cluster settings");
+	return;
+    }
+    c->nentries++;
 }
 
-static int cb_cluster_settings_start_map(void *ctx) {
-    struct cluster_settings_ctx *c = ctx;
-    if(c->state == CB_SETTINGS_START)
-        c->state = CB_SETTINGS_KEY;
-    else if(c->state == CB_SETTINGS_ENTRIES)
-        c->state = CB_SETTINGS_ENTRY_KEY;
-    else
-        return 0;
-    return 1;
-}
-
-static int cb_cluster_settings_end_map(void *ctx) {
-    struct cluster_settings_ctx *c = ctx;
-    if(c->state == CB_SETTINGS_KEY)
-        c->state = CB_SETTINGS_COMPLETE;
-    else if(c->state == CB_SETTINGS_ENTRY_KEY)
-        c->state = CB_SETTINGS_KEY;
-    else
-        return 0;
-    return 1;
-}
-
-static const yajl_callbacks cluster_settings_ops_parser = {
-    cb_fail_null,
-    cb_fail_boolean,
-    NULL,
-    NULL,
-    cb_cluster_settings_number,
-    cb_cluster_settings_string,
-    cb_cluster_settings_start_map,
-    cb_cluster_settings_map_key,
-    cb_cluster_settings_end_map,
-    cb_fail_start_array,
-    cb_fail_end_array
+const struct jparse_actions cluster_settings_acts = {
+    JPACTS_STRING(JPACT(cb_cluster_settings, JPKEY("clusterSettings"), JPANYKEY)),
+    JPACTS_INT64(JPACT(cb_cluster_settings_ts, JPKEY("timestamp")))
 };
 
 static rc_ty cluster_settings_parse_complete(void *yctx)
 {
     struct cluster_settings_ctx *c = yctx;
 
-    if(!c || c->state != CB_SETTINGS_COMPLETE)
+    if(!c)
         return EINVAL;
 
     /* Check if timestamp has been correctly syncronised between nodes */
@@ -1376,7 +1255,7 @@ static rc_ty cluster_settings_nodes(sx_hashfs_t *h, sx_blob_t *blob, sx_nodelist
 }
 
 const job_2pc_t cluster_settings_spec = {
-    &cluster_settings_ops_parser,
+    &cluster_settings_acts,
     JOBTYPE_CLUSTER_SETTINGS,
     cluster_settings_parse_complete,
     cluster_settings_get_lock,
