@@ -203,8 +203,10 @@ static int filter_loadall(sxc_client_t *sx, const char *filter_dir)
     }
     closedir(dir);
 
-    if(!pcnt && ret)
+    if(!pcnt && ret) {
+	sxi_seterr(sx, SXE_EFILTER, "No filters loaded due to version mismatch");
 	return ret;
+    }
 
     /*
     if(pcnt)
