@@ -29,7 +29,6 @@
 #include <string.h>
 #include <stdlib.h>
 #include <arpa/inet.h>
-#include <yajl/yajl_parse.h>
 
 #include "fcgi-utils.h"
 #include "utils.h"
@@ -235,10 +234,6 @@ struct inuse_ctx {
     rc_ty error;
     block_meta_t meta;
     blocks_t all;
-    sx_hash_t revision_id;
-    unsigned replica;
-    unsigned blocksize;
-    enum inuse_state { CB_IU_START, CB_IU_MAP_HASHES, CB_IU_HASH, CB_IU_MAP_BLOCKSIZE, CB_IU_BLOCKSIZE_VAL, CB_IU_ARRAY, CB_IU_MAP_REVISION, CB_IU_REPLICA, CB_IU_COMPLETE  } state;
 };
 
 /* Example:
@@ -268,165 +263,61 @@ struct inuse_ctx {
 }
 */
 
-static int cb_inuse_number(void *ctx, const char *s, size_t l)
-{
-    char numb[24], *enumb;
-    int64_t nnumb;
+
+static void cb_inuse_rpl(jparse_t *J, void *ctx, int64_t num) {
+    const char *blockstr = sxi_jpath_mapkey(sxi_jparse_whereami(J));
+    const char *bsstr = sxi_jpath_mapkey(sxi_jpath_down(sxi_jparse_whereami(J)));
+    const char *revstr = sxi_jpath_mapkey(sxi_jpath_down(sxi_jpath_down(sxi_jpath_down(sxi_jparse_whereami(J)))));
     struct inuse_ctx *yactx = (struct inuse_ctx*)ctx;
-    if (!yactx)
-        return 0;
-    if(l > 20) {
-	DEBUG("number too long (%u bytes)", (unsigned)l);
-	return 0;
-    }
-    if (yactx->state != CB_IU_REPLICA) {
-        DEBUG("bad number state %d", yactx->state);
-        return 0;
-    }
-    memcpy(numb, s, l);
-    numb[l] = '\0';
-    nnumb = strtoll(numb, &enumb, 10);
-    if(*enumb) {
-	DEBUG("failed to parse number %.*s", (int)l, s);
-	return 0;
+    sx_hash_t revision_id;
+    const char *eon;
+    int64_t bs;
+
+    if(strlen(blockstr) != sizeof(yactx->meta.hash) * 2 ||
+       hex2bin(blockstr, sizeof(yactx->meta.hash) * 2, (uint8_t *)&yactx->meta.hash, sizeof(yactx->meta.hash))) {
+	sxi_jparse_cancel(J, "Invalid block %s", blockstr);
+	yactx->error = EINVAL;
+	return;
     }
 
-    DEBUG("replica: %lld", (long long)nnumb);
-    yactx->replica = nnumb;
-
-    if (meta_add(&yactx->meta, yactx->replica, &yactx->revision_id)) {
-        DEBUG("meta_add failed");
-        return 0;
+    bs = strtoll(bsstr, (char **)&eon, 10);
+    if(*eon || bs < 0 || bs > 0xffffffff) {
+	sxi_jparse_cancel(J, "Invalid block size %s for block %s", bsstr, blockstr);
+	yactx->error = EINVAL;
+	return;
     }
-    yactx->replica = 0;
-    yactx->state = CB_IU_MAP_REVISION;
-    return 1;
+    yactx->meta.blocksize = bs;
+
+    if(strlen(revstr) != sizeof(revision_id.b) * 2 ||
+       hex2bin(revstr, sizeof(revision_id.b) * 2, revision_id.b, sizeof(revision_id.b))) {
+	sxi_jparse_cancel(J, "Invalid revision id %s for block %s", revstr, blockstr);
+	yactx->error = EINVAL;
+	return;
+    }
+
+    if(num < 0 || num > 0xffffffff) {
+	sxi_jparse_cancel(J, "Invalid replica count %lld for block %s", (long long)num, blockstr);
+	yactx->error = EINVAL;
+	return;
+    }
+
+    if (meta_add(&yactx->meta, num, &revision_id)) {
+	sxi_jparse_cancel(J, "meta_add failed");
+	yactx->error = ENOMEM;
+	return;
+    }
 }
 
-static int cb_inuse_start_map(void *ctx) {
+static void cb_inuse_bsend(jparse_t *J, void *ctx) {
     struct inuse_ctx *yactx = (struct inuse_ctx*)ctx;
-    if (!yactx) {
-        DEBUG("null yactx");
-        return 0;
-    }
-    switch (yactx->state) {
-        case CB_IU_START:
-            yactx->state = CB_IU_MAP_HASHES;
-            break;
-        case CB_IU_HASH:
-            yactx->state = CB_IU_MAP_BLOCKSIZE;
-            break;
-        case CB_IU_ARRAY:
-            yactx->state = CB_IU_MAP_REVISION;
-            break;
-        default:
-            DEBUG("bad startmap state: %d", yactx->state);
-            return 0;
-    }
-    DEBUG("start_map OK");
-    return 1;
-}
 
-static int cb_inuse_end_map(void *ctx) {
-    struct inuse_ctx *yactx = (struct inuse_ctx*)ctx;
-    if (!yactx)
-        return 0;
-    switch (yactx->state) {
-        case CB_IU_MAP_HASHES:
-            yactx->state = CB_IU_COMPLETE;
-            break;
-        case CB_IU_MAP_BLOCKSIZE:
-            if (all_add(&yactx->all, &yactx->meta)) {
-                free(yactx->meta.entries);
-                return 0;
-            }
-            memset(&yactx->meta, 0, sizeof(yactx->meta));
-            yactx->state = CB_IU_MAP_HASHES;
-            break;
-        case CB_IU_MAP_REVISION:
-            yactx->state = CB_IU_ARRAY;
-            break;
-        default:
-            DEBUG("bad endmap state: %d", yactx->state);
-            return 0;
+    if (all_add(&yactx->all, &yactx->meta)) {
+	free(yactx->meta.entries);
+	sxi_jparse_cancel(J, "add_all failed");
+	yactx->error = ENOMEM;
+	return;
     }
-    DEBUG("end_map OK");
-    return 1;
-}
-
-static int cb_inuse_start_array(void *ctx) {
-    struct inuse_ctx *yactx = (struct inuse_ctx*)ctx;
-    if (!yactx) {
-        DEBUG("null yactx");
-        return 0;
-    }
-    switch (yactx->state) {
-        case CB_IU_BLOCKSIZE_VAL:
-            yactx->state = CB_IU_ARRAY;
-            break;
-        default:
-            DEBUG("bad array state: %d", yactx->state);
-            return 0;
-    }
-    DEBUG("start_array OK");
-    return 1;
-}
-
-static int cb_inuse_end_array(void *ctx) {
-    struct inuse_ctx *yactx = (struct inuse_ctx*)ctx;
-    if (!yactx) {
-        DEBUG("null yactx");
-        return 0;
-    }
-    switch (yactx->state) {
-        case CB_IU_ARRAY:
-            yactx->state = CB_IU_MAP_BLOCKSIZE;
-            break;
-        default:
-            DEBUG("bad array state: %d", yactx->state);
-            return 0;
-    }
-    DEBUG("end_array OK");
-    return 1;
-}
-
-static int cb_inuse_map_key(void *ctx, const unsigned char *s, size_t l) {
-    char numb[24], *enumb;
-    int64_t nnumb;
-    struct inuse_ctx *yactx = (struct inuse_ctx*)ctx;
-    if (!yactx)
-        return 0;
-    switch (yactx->state) {
-        case CB_IU_MAP_HASHES:
-            yactx->state = CB_IU_HASH;
-            memset(&yactx->meta, 0, sizeof(yactx->meta));
-            if(hex2bin(s, l, (uint8_t *)&yactx->meta.hash, sizeof(yactx->meta.hash)))
-                return 0;
-            break;
-        case CB_IU_MAP_BLOCKSIZE:
-            if(l > 20) {
-        	DEBUG("number too long (%u bytes)", (unsigned)l);
-        	return 0;
-            }
-            memcpy(numb, s, l);
-            numb[l] = '\0';
-            nnumb = strtoll(numb, &enumb, 10);
-            DEBUG("blocksize: %lld", (long long)nnumb);
-            yactx->meta.blocksize = nnumb;
-            yactx->state = CB_IU_BLOCKSIZE_VAL;
-            return 1;
-        case CB_IU_MAP_REVISION:
-            if(!l)
-                return 0;
-	    if(hex2bin(s, l, yactx->revision_id.b, sizeof(yactx->revision_id.b)))
-                return 0;
-            yactx->state = CB_IU_REPLICA;
-            break;
-        default:
-            DEBUG("bad map key state: %d", yactx->state);
-            return 0;
-    }
-    return 1;
+    memset(&yactx->meta, 0, sizeof(yactx->meta));
 }
 
 static void blocks_free(blocks_t *blocks)
@@ -438,21 +329,20 @@ static void blocks_free(blocks_t *blocks)
     blocks->all = NULL;
 }
 
-static const yajl_callbacks inuse_parser = {
-    cb_fail_null,
-    cb_fail_boolean,
-    NULL,
-    NULL,
-    cb_inuse_number,
-    cb_fail_string,
-    cb_inuse_start_map,
-    cb_inuse_map_key,
-    cb_inuse_end_map,
-    cb_inuse_start_array,
-    cb_inuse_end_array
-};
-
 void fcgi_hashop_inuse(void) {
+    const struct jparse_actions acts = {
+	JPACTS_INT64(
+		     JPACT(cb_inuse_rpl,
+			   JPANYKEY /* block */,
+			   JPANYKEY /* block size */,
+			   JPANYITM,
+			   JPANYKEY /* revision */
+			   )
+		     ),
+	JPACTS_MAP_END(
+		       JPACT(cb_inuse_bsend, JPANYKEY)
+		       ),
+    };
     unsigned i, j;
     rc_ty rc = FAIL_EINTERNAL;
     unsigned missing = 0;
@@ -460,6 +350,7 @@ void fcgi_hashop_inuse(void) {
     int comma = 0;
     unsigned idx = 0;
     sx_hash_t reserve_hash;
+    jparse_t *J;
 
     struct inuse_ctx yctx;
     memset(&yctx, 0, sizeof(yctx));
@@ -471,29 +362,29 @@ void fcgi_hashop_inuse(void) {
         quit_errmsg(400, "Bad reserve id");
     }
 
-    yajl_handle yh = yajl_alloc(&inuse_parser, NULL, &yctx);
-    if (!yh) {
+    if(!(J = sxi_jparse_create(&acts, &yctx, 0)))
         quit_errmsg(500, "Cannot allocate json parser");
-    }
+
     int len;
     while((len = get_body_chunk(hashbuf, sizeof(hashbuf))) > 0) {
         DEBUG("parsing: %.*s", len, hashbuf);
-	if(yajl_parse(yh, hashbuf, len) != yajl_status_ok) {
-            DEBUG("yajl_parse failed on chunk: %.*s", len, hashbuf);
+	if(sxi_jparse_digest(J, hashbuf, len)) {
+            DEBUG("Failed to parse JSON: %s", sxi_jparse_geterr(J));
             break;
         }
     }
 
-    if(len || yajl_complete_parse(yh) != yajl_status_ok || yctx.state != CB_IU_COMPLETE) {
+    if(len || sxi_jparse_done(J)) {
+	WARN("Parsing failed: %s", sxi_jparse_geterr(J));
         free(yctx.meta.entries);
         blocks_free(&yctx.all);
-        DEBUG("yajl parse failed, state: %d (%d)", yctx.state, CB_IU_COMPLETE);
-	yajl_free(yh);
-	quit_errmsg(rc2http(yctx.error), (yctx.error == ENOMEM) ? "Out of memory processing the request" : "Invalid request content");
+	send_error(rc2http(yctx.error), sxi_jparse_geterr(J));
+	sxi_jparse_destroy(J);
+	return;
     }
+    sxi_jparse_destroy(J);
     free(yctx.meta.entries);
     yctx.meta.entries = NULL;
-    yajl_free(yh);
 
     auth_complete();
     if(!is_authed()) {

@@ -1745,11 +1745,11 @@ request_vote_out:
     } else
         sx_hashfs_raft_state_abort(hashfs);
 
-    CGI_PRINTF("Content-type: application/json\r\n\r\n{\"success\":%s,\"term\":", success ? "true" : "false");
+    CGI_PRINTF("Content-type: application/json\r\n\r\n{\"raftResponse\":{\"success\":%s,\"term\":", success ? "true" : "false");
     CGI_PUTLL(state.current_term.term);
     CGI_PRINTF(",\"distributionVersion\":");
     CGI_PUTLL(sx_hashfs_hdist_getversion(hashfs));
-    CGI_PRINTF(",\"hashFSVersion\":\"%s\",\"libsxclientVersion\":\"%s\"}", local_version->string, sxc_get_version());
+    CGI_PRINTF(",\"hashFSVersion\":\"%s\",\"libsxclientVersion\":\"%s\"}}", local_version->string, sxc_get_version());
     sx_hashfs_raft_state_empty(hashfs, &state);
 }
 
@@ -2076,10 +2076,10 @@ append_entries_out:
     } else
         sx_hashfs_raft_state_abort(hashfs);
 
-    CGI_PRINTF("Content-type: application/json\r\n\r\n{\"success\":%s,\"term\":", success ? "true" : "false");
+    CGI_PRINTF("Content-type: application/json\r\n\r\n{\"raftResponse\":{\"success\":%s,\"term\":", success ? "true" : "false");
     CGI_PUTLL(state.current_term.term);
     CGI_PRINTF(",\"distributionVersion\":");
     CGI_PUTLL(sx_hashfs_hdist_getversion(hashfs));
-    CGI_PRINTF(",\"hashFSVersion\":\"%s\",\"libsxclientVersion\":\"%s\"}", local_version->string, sxc_get_version());
+    CGI_PRINTF(",\"hashFSVersion\":\"%s\",\"libsxclientVersion\":\"%s\"}}", local_version->string, sxc_get_version());
     sx_hashfs_raft_state_empty(hashfs, &state);
 }

@@ -36,7 +36,6 @@
 
 #include "libsxclient-int.h"
 #include "cluster.h"
-#include "yajlwrap.h"
 #include "clustcfg.h"
 #include "sxreport.h"
 #include "sxproto.h"
@@ -47,6 +46,7 @@
 #include "misc.h"
 #include <sys/mman.h>
 #include "filter.h"
+#include "jparse.h"
 
 #define BCRYPT_TOKEN_ITERATIONS_LOG2 12
 
@@ -703,172 +703,82 @@ int sxc_cluster_set_bandwidth_limit(sxc_client_t *sx, sxc_cluster_t *cluster, in
 
 struct cb_fetchnodes_ctx {
     curlev_context_t *cbdata;
-    yajl_callbacks yacb;
-    struct cb_error_ctx errctx;
+    const struct jparse_actions *acts;
+    jparse_t *J;
     sxi_hostlist_t hlist;
-    yajl_handle yh;
-    enum fetchnodes_state { FN_ERROR, FN_BEGIN, FN_CLUSTER, FN_NODES, FN_NODE, FN_COMPLETE } state;
+    enum sxc_error_t err;
 };
-#define expect_state(expst) do { if(yactx->state != (expst)) { CBDEBUG("bad state (in %d, expected %d)", yactx->state, expst); return 0; } } while(0)
 
-static int yacb_fetchnodes_start_map(void *ctx) {
+/* {"nodeList":["node1", "node2"]} */
+static void cb_fetchnodes(jparse_t *J, void *ctx, const char *string, unsigned int length) {
     struct cb_fetchnodes_ctx *yactx = (struct cb_fetchnodes_ctx *)ctx;
-    if(!ctx)
-	return 0;
-
-    if(yactx->state == FN_BEGIN)
-	yactx->state = FN_CLUSTER;
-    else {
-	CBDEBUG("bad state (in %d, expected %d)", yactx->state, FN_BEGIN);
-	return 0;
-    }
-    return 1;
-}
-
-static int yacb_fetchnodes_map_key(void *ctx, const unsigned char *s, size_t l) {
-    struct cb_fetchnodes_ctx *yactx = (struct cb_fetchnodes_ctx *)ctx;
-    if(!ctx)
-	return 0;
-
-    if (yactx->state == FN_ERROR)
-        return yacb_error_map_key(&yactx->errctx, s, l);
-    if (yactx->state == FN_CLUSTER) {
-        if (ya_check_error(yactx->cbdata, &yactx->errctx, s, l)) {
-            yactx->state = FN_ERROR;
-            return 1;
-        }
-    }
-    if(yactx->state == FN_CLUSTER) {
-	if(l == lenof("nodeList") && !memcmp(s, "nodeList", lenof("nodeList"))) {
-	    yactx->state = FN_NODES;
-	    return 1;
-	}
-	CBDEBUG("unexpected cluster key '%.*s'", (unsigned)l, s);
-	return 0;
-    }
-
-    CBDEBUG("bad state (in %d, expected %d)", yactx->state, FN_CLUSTER);
-    return 0;
-}
-
-static int yacb_fetchnodes_start_array(void *ctx) {
-    struct cb_fetchnodes_ctx *yactx = (struct cb_fetchnodes_ctx *)ctx;
-    if(!ctx)
-	return 0;
-
-    expect_state(FN_NODES);
-
-    yactx->state = FN_NODE;
-    return 1;
-}
-
-static int yacb_fetchnodes_string(void *ctx, const unsigned char *s, size_t l) {
-    struct cb_fetchnodes_ctx *yactx = (struct cb_fetchnodes_ctx *)ctx;
+    sxc_client_t *sx = sxi_conns_get_client(sxi_cbdata_get_conns(yactx->cbdata));
     char *host;
-    sxc_client_t *sx;
-    if(!ctx)
-	return 0;
-    if (yactx->state == FN_ERROR)
-        return yacb_error_string(&yactx->errctx, s, l);
 
-    sx = sxi_conns_get_client(sxi_cbdata_get_conns(yactx->cbdata));
-    expect_state(FN_NODE);
-    if(l<=0)
-	return 0;
-
-    if(!(host = malloc(l+1))) {
-	CBDEBUG("OOM duplicating hostname '%.*s'", (unsigned)l, s);
-	sxi_cbdata_seterr(yactx->cbdata, SXE_EMEM, "Out of memory");
-	return 0;
+    if(!length) {
+	sxi_jparse_cancel(J, "Empty node address received");
+	yactx->err = SXE_ECOMM;
+	return;
     }
 
-    memcpy(host, s, l);
-    host[l] = '\0';
+    if(!(host = malloc(length+1))) {
+	sxi_jparse_cancel(J, "Out of memory processing list of nodes");
+	yactx->err = SXE_EMEM;
+	return;
+    }
+
+    memcpy(host, string, length);
+    host[length] = '\0';
     if(sxi_hostlist_add_host(sx, &yactx->hlist, host)) {
-	CBDEBUG("failed to add host %s", host);
+	sxi_jparse_cancel(J, "Out of memory processing list of nodes");
+        yactx->err = SXE_EMEM;
+        sxc_clearerr(sx);
 	free(host);
-        /* FIXME: Do not store errors in global buffer (bb#751) */
-        sxi_cbdata_restore_global_error(sx, yactx->cbdata);
-	return 0;
+	return;
     }
 
     free(host);
-    return 1;
 }
 
-static int yacb_fetchnodes_end_array(void *ctx) {
-    struct cb_fetchnodes_ctx *yactx = (struct cb_fetchnodes_ctx *)ctx;
-    if(!ctx)
-	return 0;
-
-    expect_state(FN_NODE);
-
-    yactx->state = FN_CLUSTER;
-    return 1;
-}
-
-static int yacb_fetchnodes_end_map(void *ctx) {
-    struct cb_fetchnodes_ctx *yactx = (struct cb_fetchnodes_ctx *)ctx;
-    if(!ctx)
-	return 0;
-    if (yactx->state == FN_ERROR)
-        return yacb_error_end_map(&yactx->errctx);
-    if(yactx->state == FN_CLUSTER)
-	yactx->state = FN_COMPLETE;
-    else {
-	CBDEBUG("bad state (in %d, expected %d)", yactx->state, FN_CLUSTER);
-	return 0;
-    }
-    return 1;
-}
 
 static int fetchnodes_setup_cb(curlev_context_t *cbdata, void *ctx, const char *host) {
     struct cb_fetchnodes_ctx *yactx = (struct cb_fetchnodes_ctx *)ctx;
 
     yactx->cbdata = cbdata; /* must set before using CBDEBUG */
-    if(yactx->yh)
-	yajl_free(yactx->yh);
-
-    if(!(yactx->yh  = yajl_alloc(&yactx->yacb, NULL, yactx))) {
-	CBDEBUG("OOM allocating yajl context");
+    sxi_jparse_destroy(yactx->J);
+    yactx->err = SXE_ECOMM;
+    if(!(yactx->J = sxi_jparse_create(yactx->acts, yactx, 1))) {
+	CBDEBUG("OOM allocating JSON parser");
 	sxi_cbdata_seterr(cbdata, SXE_EMEM, "Cannot update list of nodes: Out of memory");
 	return 1;
     }
 
-    yactx->state = FN_BEGIN;
     sxi_hostlist_empty(&yactx->hlist);
-
     return 0;
 }
 
 static int fetchnodes_cb(curlev_context_t *cbdata, void *ctx, const void *data, size_t size) {
     struct cb_fetchnodes_ctx *yactx = (struct cb_fetchnodes_ctx *)ctx;
-    if(yajl_parse(yactx->yh, data, size) != yajl_status_ok) {
-        if (yactx->state != FN_ERROR) {
-            CBDEBUG("failed to parse JSON data: %s", sxi_cbdata_geterrmsg(yactx->cbdata));
-            sxi_cbdata_seterr(yactx->cbdata, SXE_ECOMM, "communication error");
-        }
+
+    if(sxi_jparse_digest(yactx->J, data, size)) {
+	sxi_cbdata_seterr(yactx->cbdata, yactx->err, sxi_jparse_geterr(yactx->J));
 	return 1;
     }
     return 0;
 }
 
 int sxc_cluster_fetchnodes(sxc_cluster_t *cluster) {
+    const struct jparse_actions acts = {
+	JPACTS_STRING(JPACT(cb_fetchnodes, JPKEY("nodeList"), JPANYITM))
+    };
     struct cb_fetchnodes_ctx yctx;
-    yajl_callbacks *yacb = &yctx.yacb;
     sxc_client_t *sx = cluster->sx;
     sxi_hostlist_t *orighlist;
     int ret = 1;
 
     sxi_hostlist_init(&yctx.hlist);
-    ya_init(yacb);
-    yacb->yajl_start_map = yacb_fetchnodes_start_map;
-    yacb->yajl_map_key = yacb_fetchnodes_map_key;
-    yacb->yajl_start_array = yacb_fetchnodes_start_array;
-    yacb->yajl_string = yacb_fetchnodes_string;
-    yacb->yajl_end_array = yacb_fetchnodes_end_array;
-    yacb->yajl_end_map = yacb_fetchnodes_end_map;
-    yctx.yh = NULL;
+    yctx.acts = &acts;
+    yctx.J = NULL;
 
     orighlist = sxi_conns_get_hostlist(cluster->conns);
 
@@ -902,11 +812,8 @@ int sxc_cluster_fetchnodes(sxc_cluster_t *cluster) {
 	goto config_fetchnodes_error;
     }
 
-    if(yajl_complete_parse(yctx.yh) != yajl_status_ok || yctx.state != FN_COMPLETE) {
-        if (yctx.state != FN_ERROR) {
-            SXDEBUG("JSON parsing failed");
-            sxi_seterr(sx, SXE_ECOMM, "Cannot update list of nodes: Communication error");
-        }
+    if(sxi_jparse_done(yctx.J)) {
+	sxi_seterr(sx, yctx.err, "%s", sxi_jparse_geterr(yctx.J));
 	goto config_fetchnodes_error;
     }
 
@@ -937,264 +844,143 @@ int sxc_cluster_fetchnodes(sxc_cluster_t *cluster) {
 
 
  config_fetchnodes_error:
-    if(yctx.yh)
-	yajl_free(yctx.yh);
-
+    sxi_jparse_destroy(yctx.J);
     sxi_hostlist_empty(&yctx.hlist);
 
     return ret;
 }
 
+
 struct cb_locate_ctx {
     curlev_context_t *cbdata;
-    yajl_callbacks yacb;
+    const struct jparse_actions *acts;
+    jparse_t *J;
     sxi_hostlist_t *hlist;
-    struct cb_error_ctx errctx;
-    int64_t blocksize;
-    yajl_handle yh;
     sxc_meta_t *meta;
     sxc_meta_t *custom_meta;
-    enum meta_type { LC_META_TYPE_REGULAR, LC_META_TYPE_CUSTOM } mtype;
-    char *curkey;
-    enum locate_state { LC_ERROR, LC_BEGIN, LC_KEYS, LC_SIZE, LC_NODES, LC_NODE, LC_META, LC_METAKEY, LC_METAVALUE, LC_COMPLETE } state;
+    int64_t blocksize;
+    enum sxc_error_t err;
 };
 
-static int yacb_locate_start_map(void *ctx) {
-    struct cb_locate_ctx *yactx = (struct cb_locate_ctx *)ctx;
-    if(!ctx)
-	return 0;
+/* {"nodeList":["adsd1", "addr2", ...], "blockSize":1234, "volumeMeta":{"key":"hexval", ...}, "customVolumeMeta":{"key":"hexval", ...} } */
 
-    if(yactx->state != LC_BEGIN && yactx->state != LC_META) {
-	CBDEBUG("bad state (in %d, expected %d or %d)", yactx->state, LC_BEGIN, LC_META);
-	return 0;
+static void cb_locate_node(jparse_t *J, void *ctx, const char *string, unsigned int length) {
+    struct cb_locate_ctx *yactx = (struct cb_locate_ctx *)ctx;
+    sxc_client_t *sx = sxi_conns_get_client(sxi_cbdata_get_conns(yactx->cbdata));
+    char *host;
+
+    if(!length) {
+	sxi_jparse_cancel(J, "Empty node address received");
+	yactx->err = SXE_ECOMM;
+	return;
     }
 
-    yactx->state++;
-    return 1;
-}
-
-static int yacb_locate_map_key(void *ctx, const unsigned char *s, size_t l) {
-    struct cb_locate_ctx *yactx = (struct cb_locate_ctx *)ctx;
-    if(!ctx)
-	return 0;
-    if (yactx->state == LC_ERROR)
-        return yacb_error_map_key(&yactx->errctx, s, l);
-    if (yactx->state == LC_KEYS) {
-        if (ya_check_error(yactx->cbdata, &yactx->errctx, s, l)) {
-            yactx->state = LC_ERROR;
-            return 1;
-        }
+    if(!(host = malloc(length+1))) {
+	sxi_jparse_cancel(J, "Out of memory processing list of nodes");
+	yactx->err = SXE_EMEM;
+	return;
     }
+    memcpy(host, string, length);
+    host[length] = '\0';
 
-    if(yactx->state == LC_KEYS) {
-	if(l == lenof("nodeList") && !memcmp(s, "nodeList", lenof("nodeList"))) {
-	    yactx->state = LC_NODES;
-	    return 1;
-	} else if(l == lenof("blockSize") && !memcmp(s, "blockSize", lenof("blockSize"))) {
-	    yactx->state = LC_SIZE;
-	    return 1;
-	} else if(l == lenof("volumeMeta") && !memcmp(s, "volumeMeta", lenof("volumeMeta"))) {
-	    yactx->state = LC_META;
-            yactx->mtype = LC_META_TYPE_REGULAR;
-	    return 1;
-        } else if(l == lenof("customVolumeMeta") && !memcmp(s, "customVolumeMeta", lenof("customVolumeMeta"))) {
-            yactx->state = LC_META;
-            yactx->mtype = LC_META_TYPE_CUSTOM;
-            return 1;
-        }
-    } else if(yactx->state == LC_METAKEY) {
-        sxc_meta_t *meta = NULL;
-
-        if(yactx->meta && yactx->mtype == LC_META_TYPE_REGULAR)
-            meta = yactx->meta;
-        else if(yactx->custom_meta && yactx->mtype == LC_META_TYPE_CUSTOM)
-            meta = yactx->custom_meta;
-        if(meta) {
-	    yactx->curkey = malloc(l+1);
-	    if(!yactx->curkey) {
-		CBDEBUG("OOM duplicating meta key '%.*s'", (unsigned)l, s);
-		sxi_cbdata_seterr(yactx->cbdata, SXE_EMEM, "Out of memory");
-		return 0;
-	    }
-	    memcpy(yactx->curkey, s, l);
-	    yactx->curkey[l] = '\0';
-	}
-	yactx->state = LC_METAVALUE;
-	return 1;
-    } else {
-	CBDEBUG("bad state (in %d, expected %d or %d)", yactx->state, LC_KEYS, LC_METAKEY);
-	return 0;
-    }
-
-
-    CBDEBUG("unexpected key '%.*s'", (unsigned)l, s);
-    return 0;
-}
-
-static int yacb_locate_number(void *ctx, const char *s, size_t l) {
-    struct cb_locate_ctx *yactx = (struct cb_locate_ctx *)ctx;
-    char numb[24], *enumb;
-    int64_t nnumb;
-
-    if(!ctx)
-	return 0;
-
-    expect_state(LC_SIZE);
-
-    if(l > 20) {
-	CBDEBUG("number too long (%u bytes)", (unsigned)l);
-	return 0;
-    }
-    memcpy(numb, s, l);
-    numb[l] = '\0';
-    nnumb = strtoll(numb, &enumb, 10);
-    if(*enumb || nnumb < 0) {
-	CBDEBUG("invalid number '%.*s'", (unsigned)l, s);
-	return 0;
-    }
-
-    yactx->blocksize = nnumb;
-    yactx->state = LC_KEYS;
-    return 1;
-}
-
-static int yacb_locate_start_array(void *ctx) {
-    struct cb_locate_ctx *yactx = (struct cb_locate_ctx *)ctx;
-    if(!ctx)
-	return 0;
-
-    expect_state(LC_NODES);
-
-    yactx->state++;
-    return 1;
-}
-
-static int yacb_locate_string(void *ctx, const unsigned char *s, size_t l) {
-    struct cb_locate_ctx *yactx = (struct cb_locate_ctx *)ctx;
-    sxc_client_t *sx;
-    if(!ctx)
-	return 0;
-    sx = sxi_conns_get_client(sxi_cbdata_get_conns(yactx->cbdata));
-
-    if (yactx->state == LC_ERROR)
-        return yacb_error_string(&yactx->errctx, s, l);
-    if(yactx->state == LC_NODE) {
-	char *host;
-	if(l<=0)
-	    return 0;
-
-	if(!(host = malloc(l+1))) {
-	    CBDEBUG("OOM duplicating hostname '%.*s'", (unsigned)l, s);
-	    sxi_cbdata_seterr(yactx->cbdata, SXE_EMEM, "Out of memory");
-	    return 0;
-	}
-
-	memcpy(host, s, l);
-	host[l] = '\0';
-	if(sxi_hostlist_add_host(sx, yactx->hlist, host)) {
-	    CBDEBUG("failed to add host %s", host);
-	    free(host);
-
-            /* FIXME: Do not store errors in global buffer (bb#751) */
-            sxi_cbdata_restore_global_error(sx, yactx->cbdata);
-	    return 0;
-	}
-
+    if(sxi_hostlist_add_host(sx, yactx->hlist, host)) {
+	sxi_jparse_cancel(J, "Out of memory processing list of nodes");
+        yactx->err = SXE_EMEM;
+        sxc_clearerr(sx);
 	free(host);
-	return 1;
-    } else if(yactx->state == LC_METAVALUE) {
-        sxc_meta_t *meta = NULL;
+	return;
+    }
 
-        if(yactx->meta && yactx->mtype == LC_META_TYPE_REGULAR)
-            meta = yactx->meta;
-        else if(yactx->custom_meta && yactx->mtype == LC_META_TYPE_CUSTOM)
-            meta = yactx->custom_meta;
-	if(meta) {
-	    if(sxc_meta_setval_fromhex(meta, yactx->curkey, (const char *)s, l)) {
-		CBDEBUG("failed to add value: %s", sxc_geterrmsg(sx));
-                sxi_cbdata_restore_global_error(sx, yactx->cbdata);
-		return 0;
-	    }
-	    free(yactx->curkey);
-	    yactx->curkey = NULL;
+    free(host);
+}
+
+static void cb_locate_bs(jparse_t *J, void *ctx, int64_t num) {
+    struct cb_locate_ctx *yactx = (struct cb_locate_ctx *)ctx;
+
+    if(num <= 0) {
+	sxi_jparse_cancel(J, "Invalid blocksize received");
+	yactx->err = SXE_ECOMM;
+	return;
+    }
+
+    yactx->blocksize = num;
+}
+
+static void cb_locate_meta(jparse_t *J, void *ctx, const char *string, unsigned int length) {
+    const char *key = sxi_jpath_mapkey(sxi_jpath_down(sxi_jparse_whereami(J)));
+    struct cb_locate_ctx *yactx = (struct cb_locate_ctx *)ctx;
+    sxc_client_t *sx = sxi_conns_get_client(sxi_cbdata_get_conns(yactx->cbdata));
+
+    if(yactx->meta && sxc_meta_setval_fromhex(yactx->meta, key, string, length)) {
+	if(sxc_geterrnum(sx) == SXE_EARG) {
+	    sxi_jparse_cancel(J, "Invalid volume metadata received");
+	    yactx->err = SXE_ECOMM;
+	} else {
+	    sxi_jparse_cancel(J, "Out of memory processing metadata");
+	    yactx->err = SXE_EMEM;
 	}
-	yactx->state = LC_METAKEY;
-	return 1;
-    } else {
-	CBDEBUG("bad state (in %d, expected %d or %d)", yactx->state, LC_NODE, LC_METAVALUE);
-	return 0;
+	sxc_clearerr(sx);
+	return;
     }
 }
 
-static int yacb_locate_end_array(void *ctx) {
+static void cb_locate_custom_meta(jparse_t *J, void *ctx, const char *string, unsigned int length) {
+    const char *key = sxi_jpath_mapkey(sxi_jpath_down(sxi_jparse_whereami(J)));
     struct cb_locate_ctx *yactx = (struct cb_locate_ctx *)ctx;
-    if(!ctx)
-	return 0;
+    sxc_client_t *sx = sxi_conns_get_client(sxi_cbdata_get_conns(yactx->cbdata));
 
-    expect_state(LC_NODE);
-
-    yactx->state = LC_KEYS;
-    return 1;
-}
-
-static int yacb_locate_end_map(void *ctx) {
-    struct cb_locate_ctx *yactx = (struct cb_locate_ctx *)ctx;
-    if(!ctx)
-	return 0;
-    if (yactx->state == LC_ERROR)
-        return yacb_error_end_map(&yactx->errctx);
-    if(yactx->state == LC_KEYS)
-	yactx->state = LC_COMPLETE;
-    else if(yactx->state == LC_METAKEY)
-	yactx->state = LC_KEYS;
-    else {
-	CBDEBUG("bad state (in %d, expected %d or %d)", yactx->state, LC_KEYS, LC_METAKEY);
-	return 0;
+    if(yactx->custom_meta && sxc_meta_setval_fromhex(yactx->custom_meta, key, string, length)) {
+	if(sxc_geterrnum(sx) == SXE_EARG) {
+	    sxi_jparse_cancel(J, "Invalid custom volume metadata received");
+	    yactx->err = SXE_ECOMM;
+	} else {
+	    sxi_jparse_cancel(J, "Out of memory processing custom metadata");
+	    yactx->err = SXE_EMEM;
+	}
+	sxc_clearerr(sx);
+	return;
     }
-    return 1;
 }
-
 
 static int locate_setup_cb(curlev_context_t *cbdata, void *ctx, const char *host) {
     struct cb_locate_ctx *yactx = (struct cb_locate_ctx *)ctx;
 
-    if(yactx->yh)
-	yajl_free(yactx->yh);
+    yactx->cbdata = cbdata; /* must set before using CBDEBUG */
+    sxi_jparse_destroy(yactx->J);
+    yactx->err = SXE_ECOMM;
 
-    yactx->cbdata = cbdata;
-    if(!(yactx->yh  = yajl_alloc(&yactx->yacb, NULL, yactx))) {
-	CBDEBUG("failed to allocate yajl structure");
-	sxi_cbdata_seterr(yactx->cbdata, SXE_EMEM, "Locate failed: Out of memory");
+    if(!(yactx->J = sxi_jparse_create(yactx->acts, yactx, 1))) {
+	CBDEBUG("OOM allocating JSON parser");
+	sxi_cbdata_seterr(cbdata, SXE_EMEM, "Cannot update list of nodes: Out of memory");
 	return 1;
     }
 
-    free(yactx->curkey);
-    yactx->curkey = NULL;
+    yactx->blocksize = -1;
     sxc_meta_empty(yactx->meta);
     sxc_meta_empty(yactx->custom_meta);
-
-    yactx->state = LC_BEGIN;
-    yactx->blocksize = -1;
     sxi_hostlist_empty(yactx->hlist);
-
     return 0;
 }
 
 static int locate_cb(curlev_context_t *cbdata, void *ctx, const void *data, size_t size) {
     struct cb_locate_ctx *yactx = (struct cb_locate_ctx *)ctx;
-    if(yajl_parse(yactx->yh, data, size) != yajl_status_ok) {
-        if (yactx->state != LC_ERROR) {
-            CBDEBUG("failed to parse JSON data");
-            sxi_cbdata_seterr(yactx->cbdata, SXE_ECOMM, "communication error");
-        }
+    if(sxi_jparse_digest(yactx->J, data, size)) {
+	sxi_cbdata_seterr(yactx->cbdata, yactx->err, sxi_jparse_geterr(yactx->J));
 	return 1;
     }
     return 0;
 }
 
 int sxi_volume_info(sxi_conns_t *conns, const char *volume, sxi_hostlist_t *nodes, int64_t *size, sxc_meta_t *meta, sxc_meta_t *custom_meta) {
+    const struct jparse_actions acts = {
+	JPACTS_STRING(
+		      JPACT(cb_locate_node, JPKEY("nodeList"), JPANYITM),
+		      JPACT(cb_locate_meta, JPKEY("volumeMeta"), JPANYKEY),
+		      JPACT(cb_locate_custom_meta, JPKEY("customVolumeMeta"), JPANYKEY)
+		      ),
+	JPACTS_INT64(JPACT(cb_locate_bs, JPKEY("blockSize")))
+    };
     struct cb_locate_ctx yctx;
-    yajl_callbacks *yacb = &yctx.yacb;
     char *enc_vol, *url;
     int qret;
     sxc_client_t *sx = sxi_conns_get_client(conns);
@@ -1226,28 +1012,18 @@ int sxi_volume_info(sxi_conns_t *conns, const char *volume, sxi_hostlist_t *node
         strcat(url, "&customVolumeMeta");
     free(enc_vol);
 
-    ya_init(yacb);
-    yacb->yajl_start_map = yacb_locate_start_map;
-    yacb->yajl_map_key = yacb_locate_map_key;
-    yacb->yajl_start_array = yacb_locate_start_array;
-    yacb->yajl_string = yacb_locate_string;
-    yacb->yajl_end_array = yacb_locate_end_array;
-    yacb->yajl_number = yacb_locate_number;
-    yacb->yajl_end_map = yacb_locate_end_map;
-
-    yctx.yh = NULL;
+    yctx.acts = &acts;
+    yctx.J = NULL;
     yctx.hlist = nodes;
     yctx.meta = meta;
     yctx.custom_meta = custom_meta;
-    yctx.curkey = NULL;
 
     sxi_set_operation(sx, "locate volume", sxi_conns_get_sslname(conns), volume, NULL);
     qret = sxi_cluster_query(conns, NULL, REQ_GET, url, NULL, 0, locate_setup_cb, locate_cb, &yctx);
     free(url);
     if(qret != 200) {
 	SXDEBUG("query returned %d", qret);
-	if(yctx.yh)
-	    yajl_free(yctx.yh);
+	sxi_jparse_destroy(yctx.J);
 	sxc_meta_empty(meta);
         sxc_meta_empty(custom_meta);
         sxi_seterr(sx, SXE_ECOMM, "failed to query volume location");
@@ -1255,21 +1031,17 @@ int sxi_volume_info(sxi_conns_t *conns, const char *volume, sxi_hostlist_t *node
 	return qret ? qret : -1;
     }
 
-    if(yajl_complete_parse(yctx.yh) != yajl_status_ok || yctx.state != LC_COMPLETE) {
-        if (yctx.state != LC_ERROR) {
-            SXDEBUG("JSON parsing failed");
-            sxi_seterr(sx, SXE_ECOMM, "Locate failed: Communication error");
-        }
-	if(yctx.yh)
-	    yajl_free(yctx.yh);
+    if(sxi_jparse_done(yctx.J)) {
+	sxi_seterr(sx, yctx.err, "%s", sxi_jparse_geterr(yctx.J));
+	sxi_jparse_destroy(yctx.J);
         sxc_meta_empty(custom_meta);
 	sxc_meta_empty(meta);
-	return -SXE_ECOMM;
+	return -yctx.err;
     }
+    sxi_jparse_destroy(yctx.J);
+
     if(size)
 	*size = yctx.blocksize;
-    if(yctx.yh)
-	yajl_free(yctx.yh);
 
     if(sxi_getenv("SX_DEBUG_SINGLEHOST")) {
 	sxi_hostlist_empty(nodes);
@@ -1584,15 +1356,13 @@ struct cbl_file_t {
 };
 
 struct cb_listfiles_ctx {
-    struct cb_error_ctx errctx;
     curlev_context_t *cbdata;
-    yajl_callbacks yacb;
-    yajl_handle yh;
+    const struct jparse_actions *acts;
+    jparse_t *J;
     sxc_client_t *sx;
     FILE *f;
     uint64_t volume_size;
     int64_t volume_used_size;
-    char *fname;
     char *frev;
     struct cbl_file_t file;
     unsigned int replica;
@@ -1600,421 +1370,270 @@ struct cb_listfiles_ctx {
     unsigned int nfiles;
     const char *etag_in;
     char *etag_out;
-    char *file_meta_key;
     sxc_meta_t *file_meta;
-    enum list_files_state { LF_ERROR, LF_BEGIN, LF_MAIN, LF_REPLICACNT, LF_EFFREPLICACNT, LF_VOLUMEUSEDSIZE, LF_VOLUMESIZE, LF_FILES, LF_FILE, LF_FILECONTENT, LF_FILEATTRS, LF_FILESIZE, LF_BLOCKSIZE, LF_FILETIME, LF_FILEREV, LF_FILEMETA, LF_FILEMETA_KEY, LF_FILEMETA_VALUE, LF_COMPLETE } state;
+    enum sxc_error_t err;
 };
 
+/*
+{
+   "volumeSize":1234,
+   "volumeUsedSize":1234,
+   "replicaCount":2,
+   "effectiveReplicaCount":1,
+   "fileList":{
+       "MSDOS.SYS":{
+           "fileSize":65536,
+	   "blockSize":1024,
+	   "createdAt":12345,
+	   "fileRevision":"1.0",
+	   "fileMeta":{
+	       "key":"hexval", ...
+	   }
+       },
+       "COMMAND.COM":{
+           "fileSize":32768,
+	   "blockSize":1024,
+	   "createdAt":12345,
+	   "fileRevision":"1.0",
+	   "fileMeta":{
+	       "key":"hexval", ...
+	   }
+       }
+   }
+}
+*/
 
-static int yacb_listfiles_start_map(void *ctx) {
+static void cb_listfiles_volsize(jparse_t *J, void *ctx, int64_t num) {
     struct cb_listfiles_ctx *yactx = (struct cb_listfiles_ctx *)ctx;
-    if(!ctx)
-	return 0;
 
-    switch(yactx->state) {
-    case LF_BEGIN:
-	/* yactx->state = LF_MAIN; */
-    case LF_FILES:
-	/* yactx->state = LF_FILE; */
-    case LF_FILECONTENT:
-	/* yactx->state = LF_FILEATTRS; */
-	yactx->state++;
-	return 1;
-    case LF_FILEMETA: {
-        yactx->file_meta = sxc_meta_new(yactx->sx);
-        if(!yactx->file_meta) {
-            CBDEBUG("Failed to allocate file meta");
-            return 0;
-        }
-        yactx->state = LF_FILEMETA_KEY;
-        return 1;
+    if(num <= 0) {
+	sxi_jparse_cancel(J, "Invalid volume size received");
+	yactx->err = SXE_ECOMM;
+	return;
     }
-    default:
-	CBDEBUG("bad state %d", yactx->state);
-	return 0;
-    }
+    yactx->volume_size = num;
 }
 
-static int yacb_listfiles_map_key(void *ctx, const unsigned char *s, size_t l) {
+static void cb_listfiles_usedvolsize(jparse_t *J, void *ctx, int64_t num) {
     struct cb_listfiles_ctx *yactx = (struct cb_listfiles_ctx *)ctx;
-    if(!ctx || !l)
-	return 0;
 
-    if(yactx->state == LF_ERROR)
-        return yacb_error_map_key(&yactx->errctx, s, l);
-    if(ya_check_error(yactx->cbdata, &yactx->errctx, s, l)) {
-        yactx->state = LF_ERROR;
-        return 1;
+    if(num < 0) {
+	sxi_jparse_cancel(J, "Invalid used volume size received");
+	yactx->err = SXE_ECOMM;
+	return;
     }
-    if(yactx->state == LF_MAIN) {
-	if(l == lenof("volumeSize") && !memcmp(s, "volumeSize", lenof("volumeSize")))
-	    yactx->state = LF_VOLUMESIZE;
-        else if(l == lenof("volumeUsedSize") && !memcmp(s, "volumeUsedSize", lenof("volumeUsedSize")))
-            yactx->state = LF_VOLUMEUSEDSIZE;
-	else if(l == lenof("replicaCount") && !memcmp(s, "replicaCount", lenof("replicaCount")))
-	    yactx->state = LF_REPLICACNT;
-	else if(l == lenof("effectiveReplicaCount") && !memcmp(s, "effectiveReplicaCount", lenof("effectiveReplicaCount")))
-	    yactx->state = LF_EFFREPLICACNT;
-	else if(l == lenof("fileList") && !memcmp(s, "fileList", lenof("fileList")))
-	    yactx->state = LF_FILES;
-	else {
-	    CBDEBUG("unexpected attribute '%.*s' in LF_MAIN", (unsigned)l, s);
-	    return 0;
-	}
-	return 1;
+    yactx->volume_used_size = num;
+}
+
+static void cb_listfiles_replica(jparse_t *J, void *ctx, int32_t num) {
+    struct cb_listfiles_ctx *yactx = (struct cb_listfiles_ctx *)ctx;
+
+    if(num <= 0) {
+	sxi_jparse_cancel(J, "Invalid replica count received");
+	yactx->err = SXE_ECOMM;
+	return;
     }
+    yactx->replica = num;
+}
 
-    if(yactx->state == LF_FILE) {
-	yactx->state = LF_FILECONTENT;
-	yactx->file.namelen = l;
-	yactx->fname = malloc(yactx->file.namelen);
-	if(!yactx->fname) {
-	    CBDEBUG("OOM duplicating file name '%.*s'", (unsigned)l, s);
-	    sxi_cbdata_setsyserr(yactx->cbdata, SXE_EMEM, "Out of memory");
-	    return 0;
-	}
-	memcpy(yactx->fname, s, yactx->file.namelen);
-	yactx->file.revlen = 0;
-	yactx->file.created_at = -1;
-	yactx->file.filesize = -1;
-	yactx->file.blocksize = 0;
-        yactx->file.metalen = 0;
-	yactx->nfiles++;
-	return 1;
+static void cb_listfiles_effreplica(jparse_t *J, void *ctx, int32_t num) {
+    struct cb_listfiles_ctx *yactx = (struct cb_listfiles_ctx *)ctx;
+
+    if(num <= 0) {
+	sxi_jparse_cancel(J, "Invalid effective replica count received");
+	yactx->err = SXE_ECOMM;
+	return;
     }
-
-    if(yactx->state == LF_FILEATTRS) {
-	if(l == lenof("fileSize") && !memcmp(s, "fileSize", lenof("fileSize")))
-	    yactx->state = LF_FILESIZE;
-	else if(l == lenof("blockSize") && !memcmp(s, "blockSize", lenof("blockSize")))
-	    yactx->state = LF_BLOCKSIZE;
-	else if(l == lenof("createdAt") && !memcmp(s, "createdAt", lenof("createdAt")))
-	    yactx->state = LF_FILETIME;
-	else if(l == lenof("fileRevision") && !memcmp(s, "fileRevision", lenof("fileRevision")))
-	    yactx->state = LF_FILEREV;
-        else if(l == lenof("fileMeta") && !memcmp(s, "fileMeta", lenof("fileMeta")))
-            yactx->state = LF_FILEMETA;
-	else {
-	    CBDEBUG("unexpected attribute '%.*s' in LF_FILEATTRS", (unsigned)l, s);
-	    return 0;
-	}
-	return 1;
-    }
-
-    if(yactx->state == LF_FILEMETA_KEY) {
-        if(yactx->file_meta_key) {
-            CBDEBUG("called out of order");
-            return 0;
-        }
-
-        yactx->file_meta_key = malloc(l+1);
-        if(!yactx->file_meta_key) {
-            CBDEBUG("Failed to allocate space for file meta key");
-            return 0;
-        }
-
-        memcpy(yactx->file_meta_key, s, l);
-        yactx->file_meta_key[l] = '\0';
-        yactx->state = LF_FILEMETA_VALUE;
-        return 1;
-    }
-
-    return 0;
+    yactx->effective_replica = num;
 }
 
 
-static int yacb_listfiles_number(void *ctx, const char *s, size_t l) {
+static void cb_listfiles_file_size(jparse_t *J, void *ctx, int64_t num) {
+    const char *key = sxi_jpath_mapkey(sxi_jpath_down(sxi_jparse_whereami(J)));
     struct cb_listfiles_ctx *yactx = (struct cb_listfiles_ctx *)ctx;
-    char numb[24], *enumb;
-    int64_t nnumb;
 
-    if(!ctx)
-	return 0;
-
-    if(l > 20) {
-	CBDEBUG("number too long (%u bytes)", (unsigned)l);
-	return 0;
+    if(num < 0) {
+	sxi_jparse_cancel(J, "Invalid size for file %s", key);
+	yactx->err = SXE_ECOMM;
+	return;
     }
-    memcpy(numb, s, l);
-    numb[l] = '\0';
-    nnumb = strtoll(numb, &enumb, 10);
-    if(*enumb || (yactx->state != LF_VOLUMEUSEDSIZE && nnumb < 0)) {
-	CBDEBUG("invalid number '%.*s'", (unsigned)l, s);
-	return 0;
-    }
-
-    switch(yactx->state) {
-    case LF_VOLUMESIZE:
-	if(yactx->volume_size) {
-	    CBDEBUG("volumeSize already received");
-	    return 0;
-	}
-	yactx->volume_size = nnumb;
-	yactx->state = LF_MAIN;
-	return 1;
-    case LF_VOLUMEUSEDSIZE:
-        if(yactx->volume_used_size) {
-            CBDEBUG("volumeUsedSize already received");
-            return 0;
-        }
-        yactx->volume_used_size = nnumb;
-        if(nnumb < 0) {
-            CBDEBUG("Current volume size is less than 0: %lld, falling back to 0", (long long)nnumb);
-            yactx->volume_used_size = 0;
-        }
-        yactx->state = LF_MAIN;
-        return 1;
-    case LF_REPLICACNT:
-	if(yactx->replica) {
-	    CBDEBUG("replicaCount already received");
-	    return 0;
-	}
-	yactx->replica = nnumb;
-	yactx->state = LF_MAIN;
-	return 1;
-    case LF_EFFREPLICACNT:
-	if(yactx->effective_replica) {
-	    CBDEBUG("effectiveReplicaCount already received");
-	    return 0;
-	}
-	yactx->effective_replica = nnumb;
-	yactx->state = LF_MAIN;
-	return 1;
-    case LF_FILESIZE:
-	if(yactx->file.filesize != -1) {
-	    CBDEBUG("size already received");
-	    return 0;
-	}
-	yactx->file.filesize = nnumb;
-	break;
-    case LF_BLOCKSIZE:
-	if(yactx->file.blocksize) {
-	    CBDEBUG("blocksize already received");
-	    return 0;
-	}
-	yactx->file.blocksize = nnumb;
-	break;
-    case LF_FILETIME:
-	if(yactx->file.created_at >= 0) {
-	    CBDEBUG("createdAt already received");
-	    return 0;
-	}
-	yactx->file.created_at = nnumb;
-	break;
-    default:
-	CBDEBUG("bad state %d", yactx->state);
-	return 0;
-    }
-
-    yactx->state = LF_FILEATTRS;
-    return 1;
+    yactx->file.filesize = num;
 }
 
-static int yacb_listfiles_string(void *ctx, const unsigned char *s, size_t l) {
+static void cb_listfiles_file_ctime(jparse_t *J, void *ctx, int64_t num) {
+    const char *key = sxi_jpath_mapkey(sxi_jpath_down(sxi_jparse_whereami(J)));
     struct cb_listfiles_ctx *yactx = (struct cb_listfiles_ctx *)ctx;
-    if(!ctx)
-	return 0;
-    if(yactx->state == LF_ERROR)
-        return yacb_error_string(&yactx->errctx, s, l);
-    if(yactx->state == LF_FILEREV) {
-	if(!l)
-	    return 0;
-	yactx->file.revlen = l;
-	yactx->frev = malloc(yactx->file.revlen);
-	if(!yactx->frev) {
-	    CBDEBUG("OOM duplicating file rev '%.*s'", (unsigned)l, s);
-	    sxi_cbdata_setsyserr(yactx->cbdata, SXE_EMEM, "Out of memory");
-	    return 0;
-	}
-	memcpy(yactx->frev, s, yactx->file.revlen);
-	yactx->state = LF_FILEATTRS;
-	return 1;
+
+    if(num < 0) {
+	sxi_jparse_cancel(J, "Invalid creation time for file %s", key);
+	yactx->err = SXE_ECOMM;
+	return;
     }
-
-    if(yactx->state == LF_FILEMETA_VALUE) {
-        unsigned int binlen = l / 2;
-        void *value;
-
-        if(!yactx->file_meta_key) {
-            CBDEBUG("called out of order");
-            return 0;
-        }
-
-        value = malloc(binlen);
-        if(!value) {
-            CBDEBUG("OOM duplicating meta value");
-            return 0;
-        }
-
-        if(sxi_hex2bin((const char *)s, l, value, binlen)) {
-            CBDEBUG("received bad hex value %.*s", (int)l, s);
-            free(value);
-            return 0;
-        }
-
-        if(sxc_meta_setval(yactx->file_meta, yactx->file_meta_key, value, binlen)) {
-            CBDEBUG("failed to add key to list");
-            free(value);
-            return 0;
-        }
-
-        free(value);
-        free(yactx->file_meta_key);
-        yactx->file_meta_key = NULL;
-        yactx->state = LF_FILEMETA_KEY;
-        return 1;
-    }
-
-    return 0;
+    yactx->file.created_at = num;
 }
 
-static int yacb_listfiles_end_map(void *ctx) {
+static void cb_listfiles_file_bs(jparse_t *J, void *ctx, int32_t num) {
+    const char *key = sxi_jpath_mapkey(sxi_jpath_down(sxi_jparse_whereami(J)));
     struct cb_listfiles_ctx *yactx = (struct cb_listfiles_ctx *)ctx;
-    if(!ctx)
-	return 0;
-    if(yactx->state == LF_ERROR)
-        return yacb_error_end_map(&yactx->errctx);
-    if(yactx->state == LF_FILEATTRS) {
-	if(!yactx->fname) {
-	    CBDEBUG("missing file name");
-	    return 0;
-	}
-	if(!yactx->file.revlen) {
-	    if(yactx->fname[yactx->file.namelen-1] != '/') {
-		CBDEBUG("bad directory name");
-		return 0;
-	    }
-	    if(yactx->file.filesize >= 0 || yactx->file.blocksize || yactx->file.created_at >= 0) {
-		CBDEBUG("bad directory attributes");
-		return 0;
-	    }
-	    yactx->file.filesize = 0;
-	    yactx->file.blocksize = 0;
-	    yactx->file.created_at = 0;
-            yactx->file.metalen = 0;
+
+    if(num <= 0) {
+	sxi_jparse_cancel(J, "Invalid block size for file %s", key);
+	yactx->err = SXE_ECOMM;
+	return;
+    }
+    yactx->file.blocksize = num;
+}
+
+static void cb_listfiles_file_rev(jparse_t *J, void *ctx, const char *string, unsigned int length) {
+    const char *key = sxi_jpath_mapkey(sxi_jpath_down(sxi_jparse_whereami(J)));
+    struct cb_listfiles_ctx *yactx = (struct cb_listfiles_ctx *)ctx;
+
+    yactx->frev = malloc(length + 1);
+    if(!yactx->frev) {
+	sxi_jparse_cancel(J, "Invalid block size for file %s", key);
+	yactx->err = SXE_EMEM;
+	return;
+    }
+    memcpy(yactx->frev, string, length);
+    yactx->file.revlen = length;
+}
+
+static void cb_listfiles_file_meta(jparse_t *J, void *ctx, const char *string, unsigned int length) {
+    const char *fname = sxi_jpath_mapkey(sxi_jpath_down(sxi_jparse_whereami(J)));
+    const char *key = sxi_jpath_mapkey(sxi_jpath_down(sxi_jpath_down(sxi_jpath_down(sxi_jparse_whereami(J)))));
+    struct cb_listfiles_ctx *yactx = (struct cb_listfiles_ctx *)ctx;
+
+    if(!yactx->file_meta)
+	yactx->file_meta = sxc_meta_new(yactx->sx);
+    if(!yactx->file_meta) {
+	sxi_jparse_cancel(J, "Out of memory processing file metadata");
+	yactx->err = SXE_EMEM;
+        sxc_clearerr(yactx->sx);
+	return;
+    }
+    if(sxc_meta_setval_fromhex(yactx->file_meta, key, string, length)) {
+	if(sxc_geterrnum(yactx->sx) == SXE_EARG) {
+	    sxi_jparse_cancel(J, "Invalid file metadata received for file %s (key %s)", fname, key);
+	    yactx->err = SXE_ECOMM;
 	} else {
-	    if(yactx->file.filesize < 0 || !yactx->file.blocksize || yactx->file.created_at < 0) {
-		CBDEBUG("missing file attributes");
-		return 0;
+	    sxi_jparse_cancel(J, "Out of memory processing file metadata");
+	    yactx->err = SXE_EMEM;
+	}
+	sxc_clearerr(yactx->sx);
+	return;
+    }
+
+    yactx->file.metalen += strlen(key) + length / 2;
+}
+
+static void cb_listfiles_file_init(jparse_t *J, void *ctx) {
+    struct cb_listfiles_ctx *yactx = (struct cb_listfiles_ctx *)ctx;
+    yactx->file.revlen = 0;
+    yactx->file.created_at = -1;
+    yactx->file.filesize = -1;
+    yactx->file.blocksize = 0;
+    yactx->file.metalen = 0;
+    yactx->nfiles++;
+}
+
+static void cb_listfiles_file_complete(jparse_t *J, void *ctx) {
+    const char *fname = sxi_jpath_mapkey(sxi_jpath_down(sxi_jparse_whereami(J)));
+    struct cb_listfiles_ctx *yactx = (struct cb_listfiles_ctx *)ctx;
+
+    yactx->file.namelen = strlen(fname);
+    if(!yactx->file.namelen) {
+	sxi_jparse_cancel(J, "Empty file name received");
+	yactx->err = SXE_ECOMM;
+	return;
+    }
+    if(!yactx->file.revlen) {
+	if(fname[yactx->file.namelen-1] != '/') {
+	    sxi_jparse_cancel(J, "Bad directory name '%s'", fname);
+	    yactx->err = SXE_ECOMM;
+	    return;
+	}
+	yactx->file.filesize = 0;
+	yactx->file.blocksize = 0;
+	yactx->file.created_at = 0;
+	yactx->file.metalen = 0;
+    } else if(yactx->file.filesize < 0 || !yactx->file.blocksize || yactx->file.created_at < 0) {
+	sxi_jparse_cancel(J, "Missing attributes for file '%s'", fname);
+	yactx->err = SXE_ECOMM;
+	return;
+    }
+
+    if(yactx->file_meta)
+	yactx->file.metalen += sxc_meta_count(yactx->file_meta) * sizeof(unsigned int) * 2;
+
+    if(!fwrite(&yactx->file, sizeof(yactx->file), 1, yactx->f) ||
+       !fwrite(fname, yactx->file.namelen, 1, yactx->f) ||
+       (yactx->file.revlen && !fwrite(yactx->frev, yactx->file.revlen, 1, yactx->f))) {
+	sxi_cbdata_setsyserr(yactx->cbdata, SXE_EWRITE, "Failed to write to temporary file");
+	sxi_jparse_cancel(J, "%s", sxi_cbdata_geterrmsg(yactx->cbdata));
+	yactx->err = SXE_EWRITE;
+	return;
+    }
+
+    if(yactx->file_meta) {
+	unsigned int i;
+	for(i = 0; i < sxc_meta_count(yactx->file_meta); i++) {
+	    const char *key;
+	    const void *value;
+	    unsigned int key_len, value_len;
+
+	    if(sxc_meta_getkeyval(yactx->file_meta, i, &key, &value, &value_len)) {
+		sxi_jparse_cancel(J, "%s", sxc_geterrmsg(yactx->sx));
+		yactx->err = SXE_ECOMM; /* For the lack of a better one */
+		sxc_clearerr(yactx->sx);
+		return;
+	    }
+
+	    key_len = strlen(key);
+	    if(!fwrite(&key_len, sizeof(key_len), 1, yactx->f) ||
+	       !fwrite(key, key_len, 1, yactx->f) ||
+	       !fwrite(&value_len, sizeof(value_len), 1, yactx->f) ||
+	       !fwrite(value, value_len, 1, yactx->f)) {
+		sxi_cbdata_setsyserr(yactx->cbdata, SXE_EWRITE, "Failed to write to temporary file");
+		sxi_jparse_cancel(J, "%s", sxi_cbdata_geterrmsg(yactx->cbdata));
+		yactx->err = SXE_EWRITE;
+		return;
 	    }
 	}
-
-        if(yactx->file_meta) {
-            unsigned int i;
-
-            for(i = 0; i < sxc_meta_count(yactx->file_meta); i++) {
-                const char *key;
-                const void *value;
-                unsigned int key_len, value_len;
-
-                if(sxc_meta_getkeyval(yactx->file_meta, i, &key, &value, &value_len)) {
-                    CBDEBUG("failed to iterate file meta");
-                    sxi_cbdata_setsyserr(yactx->cbdata, SXE_EWRITE, "Failed to iterate file meta");
-                    return 0;
-                }
-
-                key_len = strlen(key);
-                yactx->file.metalen += key_len + sizeof(key_len) + value_len + sizeof(value_len);
-            }
-        }
-
-	if(!fwrite(&yactx->file, sizeof(yactx->file), 1, yactx->f) ||
-	   !fwrite(yactx->fname, yactx->file.namelen, 1, yactx->f) ||
-	   (yactx->file.revlen && !fwrite(yactx->frev, yactx->file.revlen, 1, yactx->f))) {
-	    CBDEBUG("failed to save file attributes to temporary file");
-	    sxi_cbdata_setsyserr(yactx->cbdata, SXE_EWRITE, "Failed to write to temporary file");
-	    return 0;
-	}
-
-        if(yactx->file_meta) {
-            unsigned int i;
-
-            for(i = 0; i < sxc_meta_count(yactx->file_meta); i++) {
-                const char *key;
-                const void *value;
-                unsigned int key_len, value_len;
-
-                if(sxc_meta_getkeyval(yactx->file_meta, i, &key, &value, &value_len)) {
-                    CBDEBUG("failed to iterate file meta");
-                    sxi_cbdata_setsyserr(yactx->cbdata, SXE_EWRITE, "Failed to iterate file meta");
-                    return 0;
-                }
-
-                key_len = strlen(key);
-                if(!fwrite(&key_len, sizeof(key_len), 1, yactx->f) ||
-                   !fwrite(key, key_len, 1, yactx->f) ||
-                   !fwrite(&value_len, sizeof(value_len), 1, yactx->f) ||
-                   !fwrite(value, value_len, 1, yactx->f)) {
-                    CBDEBUG("failed to save file meta to temporary file");
-                    sxi_cbdata_setsyserr(yactx->cbdata, SXE_EWRITE, "Failed to write to temporary file");
-                    return 0;
-                }
-            }
-        }
-
-        if(!fwrite(&yactx->file, sizeof(yactx->file), 1, yactx->f)) {
-            CBDEBUG("failed to save file attributes to temporary file");
-            sxi_cbdata_setsyserr(yactx->cbdata, SXE_EWRITE, "Failed to write to temporary file");
-            return 0;
-        }
-
-	free(yactx->fname);
-	yactx->fname = NULL;
-	free(yactx->frev);
-	yactx->frev = NULL;
-        sxc_meta_free(yactx->file_meta);
-        yactx->file_meta = NULL;
-	yactx->state = LF_FILE;
-	return 1;
     }
 
-    if(yactx->state == LF_FILEMETA_KEY) {
-        yactx->state = LF_FILEATTRS;
-        return 1;
+    if(!fwrite(&yactx->file, sizeof(yactx->file), 1, yactx->f)) {
+	sxi_cbdata_setsyserr(yactx->cbdata, SXE_EWRITE, "Failed to write to temporary file");
+	sxi_jparse_cancel(J, "%s", sxi_cbdata_geterrmsg(yactx->cbdata));
+	yactx->err = SXE_EWRITE;
+	return;
     }
 
-    if(yactx->state == LF_FILES) {
-	yactx->state = LF_MAIN;
-	return 1;
-    }
-
-    if(yactx->state == LF_FILE) {
-	/* We land here on an empty list */
-	yactx->state = LF_MAIN;
-	return 1;
-    }
-
-    if(yactx->state == LF_MAIN) {
-	yactx->state = LF_COMPLETE;
-	return 1;
-    }
-
-    CBDEBUG("bad state %d", yactx->state);
-    return 0;
+    free(yactx->frev);
+    yactx->frev = NULL;
+    sxc_meta_free(yactx->file_meta);
+    yactx->file_meta = NULL;
 }
 
 static int listfiles_setup_cb(curlev_context_t *cbdata, void *ctx, const char *host) {
     struct cb_listfiles_ctx *yactx = (struct cb_listfiles_ctx *)ctx;
 
+    yactx->cbdata = cbdata; /* must set before using CBDEBUG */
     sxi_cbdata_set_etag(cbdata, yactx->etag_in, yactx->etag_in ? strlen(yactx->etag_in) : 0);
-    if(yactx->yh)
-	yajl_free(yactx->yh);
-    yactx->cbdata = cbdata;
     CBDEBUG("ETag: %s", yactx->etag_in ? yactx->etag_in : "");
-    if(!(yactx->yh  = yajl_alloc(&yactx->yacb, NULL, yactx))) {
-	CBDEBUG("failed to allocate yajl structure");
+
+    sxi_jparse_destroy(yactx->J);
+    yactx->err = SXE_ECOMM;
+    if(!(yactx->J  = sxi_jparse_create(yactx->acts, yactx, 1))) {
+	CBDEBUG("OOM allocating JSON parser");
 	sxi_cbdata_seterr(cbdata, SXE_EMEM, "List failed: Out of memory");
 	return 1;
     }
 
-    yactx->state = LF_BEGIN;
     rewind(yactx->f);
     yactx->volume_size = 0;
     yactx->volume_used_size = 0;
     yactx->replica = 0;
     yactx->effective_replica = 0;
-    free(yactx->fname);
-    yactx->fname = NULL;
     free(yactx->frev);
     yactx->frev = NULL;
     yactx->file.filesize = -1;
@@ -2026,17 +1645,15 @@ static int listfiles_setup_cb(curlev_context_t *cbdata, void *ctx, const char *h
     yactx->nfiles = 0;
     sxc_meta_free(yactx->file_meta);
     yactx->file_meta = NULL;
-    free(yactx->file_meta_key);
-    yactx->file_meta_key = NULL;
 
     return 0;
 }
 
 static int listfiles_cb(curlev_context_t *cbdata, void *ctx, const void *data, size_t size) {
     struct cb_listfiles_ctx *yactx = (struct cb_listfiles_ctx *)ctx;
-    if(yajl_parse(yactx->yh, data, size) != yajl_status_ok) {
-	CBDEBUG("failed to parse JSON data: %s", sxi_cbdata_geterrmsg(yactx->cbdata));
-	sxi_cbdata_seterr(yactx->cbdata, SXE_ECOMM, "communication error");
+
+    if(sxi_jparse_digest(yactx->J, data, size)) {
+	sxi_cbdata_seterr(yactx->cbdata, yactx->err, sxi_jparse_geterr(yactx->J));
 	return 1;
     }
     if (!yactx->etag_out)
@@ -2095,9 +1712,33 @@ char *sxi_ith_slash(char *s, unsigned int i) {
 }
 
 static sxc_cluster_lf_t *sxi_cluster_listfiles(sxc_cluster_t *cluster, const char *volume, const char *glob_pattern, int recursive, int64_t *volume_used_size, int64_t *volume_size, unsigned int *replica_count, unsigned int *effective_replica_count, unsigned int *nfiles, int reverse, const char *etag_in, char **etag_out) {
+    const struct jparse_actions acts = {
+	JPACTS_STRING(
+		      JPACT(cb_listfiles_file_rev, JPKEY("fileList"), JPANYKEY, JPKEY("fileRevision")),
+		      JPACT(cb_listfiles_file_meta, JPKEY("fileList"), JPANYKEY, JPKEY("fileMeta"), JPANYKEY)
+		      ),
+	JPACTS_INT32(
+		     JPACT(cb_listfiles_replica, JPKEY("replicaCount")),
+		     JPACT(cb_listfiles_effreplica, JPKEY("effectiveReplicaCount")),
+		     JPACT(cb_listfiles_file_bs, JPKEY("fileList"), JPANYKEY, JPKEY("blockSize"))
+		     ),
+	JPACTS_INT64(
+		     JPACT(cb_listfiles_volsize, JPKEY("volumeSize")),
+		     JPACT(cb_listfiles_usedvolsize, JPKEY("volumeUsedSize")),
+		     JPACT(cb_listfiles_file_size, JPKEY("fileList"), JPANYKEY, JPKEY("fileSize")),
+		     JPACT(cb_listfiles_file_ctime, JPKEY("fileList"), JPANYKEY, JPKEY("createdAt"))
+		     ),
+	JPACTS_MAP_BEGIN(
+			 JPACT(
+			       cb_listfiles_file_init, JPKEY("fileList"), JPANYKEY)
+			 ),
+	JPACTS_MAP_END(
+			 JPACT(
+			       cb_listfiles_file_complete, JPKEY("fileList"), JPANYKEY)
+			 )
+    };
     char *enc_vol, *enc_glob = NULL, *url, *fname;
     struct cb_listfiles_ctx yctx;
-    yajl_callbacks *yacb = &yctx.yacb;
     sxc_cluster_lf_t *ret;
     unsigned int len;
     int qret;
@@ -2267,25 +1908,17 @@ static sxc_cluster_lf_t *sxi_cluster_listfiles(sxc_cluster_t *cluster, const cha
 	return NULL;
     }
 
-    ya_init(yacb);
-    yacb->yajl_start_map = yacb_listfiles_start_map;
-    yacb->yajl_map_key = yacb_listfiles_map_key;
-    yacb->yajl_number = yacb_listfiles_number;
-    yacb->yajl_string = yacb_listfiles_string;
-    yacb->yajl_end_map = yacb_listfiles_end_map;
-
     yctx.sx = sx;
+    yctx.acts = &acts;
 
     sxi_set_operation(sx, "list volume files", sxi_conns_get_sslname(conns), volume, NULL);
     qret = sxi_cluster_query(conns, &volhosts, REQ_GET, url, NULL, 0, listfiles_setup_cb, listfiles_cb, &yctx);
     sxi_hostlist_empty(&volhosts);
     free(url);
-    free(yctx.fname);
     free(yctx.frev);
     if(qret != 200) {
         SXDEBUG("query returned %d", qret);
-	if(yctx.yh)
-	    yajl_free(yctx.yh);
+	sxi_jparse_destroy(yctx.J);
         free(yctx.etag_out);
 	fclose(yctx.f);
 	unlink(fname);
@@ -2293,19 +1926,14 @@ static sxc_cluster_lf_t *sxi_cluster_listfiles(sxc_cluster_t *cluster, const cha
         free(filter_cfgdir);
         sxc_meta_free(yctx.file_meta);
         sxc_meta_free(cvmeta);
-        free(yctx.file_meta_key);
         if (qret == 304)
             sxi_seterr(sxi_conns_get_client(conns), SXE_SKIP, "Not modified");
 	return NULL;
     }
 
-    if(yajl_complete_parse(yctx.yh) != yajl_status_ok || yctx.state != LF_COMPLETE) {
-        if (yctx.state != LF_ERROR) {
-            SXDEBUG("JSON parsing failed");
-            sxi_seterr(sx, SXE_ECOMM, "List failed: Communication error");
-        }
-	if(yctx.yh)
-	    yajl_free(yctx.yh);
+    if(sxi_jparse_done(yctx.J)) {
+	sxi_seterr(sx, yctx.err, "%s", sxi_jparse_geterr(yctx.J));
+	sxi_jparse_destroy(yctx.J);
         free(yctx.etag_out);
 	fclose(yctx.f);
 	unlink(fname);
@@ -2313,12 +1941,9 @@ static sxc_cluster_lf_t *sxi_cluster_listfiles(sxc_cluster_t *cluster, const cha
         free(filter_cfgdir);
         sxc_meta_free(yctx.file_meta);
         sxc_meta_free(cvmeta);
-        free(yctx.file_meta_key);
 	return NULL;
     }
-
-    if(yctx.yh)
-	yajl_free(yctx.yh);
+    sxi_jparse_destroy(yctx.J);
 
     if(fflush(yctx.f) ||
        ftruncate(fileno(yctx.f), ftell(yctx.f)) ||
@@ -2331,7 +1956,6 @@ static sxc_cluster_lf_t *sxi_cluster_listfiles(sxc_cluster_t *cluster, const cha
         free(filter_cfgdir);
         sxc_meta_free(yctx.file_meta);
         sxc_meta_free(cvmeta);
-        free(yctx.file_meta_key);
 	return NULL;
     }
 
@@ -2346,7 +1970,6 @@ static sxc_cluster_lf_t *sxi_cluster_listfiles(sxc_cluster_t *cluster, const cha
         free(filter_cfgdir);
         sxc_meta_free(yctx.file_meta);
         sxc_meta_free(cvmeta);
-        free(yctx.file_meta_key);
 	return NULL;
     }
 
@@ -2360,9 +1983,8 @@ static sxc_cluster_lf_t *sxi_cluster_listfiles(sxc_cluster_t *cluster, const cha
         free(fname);
         free(ret);
         free(filter_cfgdir);
-        sxc_meta_free(cvmeta);
         sxc_meta_free(yctx.file_meta);
-        free(yctx.file_meta_key);
+        sxc_meta_free(cvmeta);
         return NULL;
     }
 
@@ -3859,194 +3481,98 @@ int sxc_user_modify(sxc_cluster_t *cluster, const char *username, int64_t quota,
 }
 
 struct cb_userinfo_ctx {
-    enum userkey_state { USERINFO_ERROR, USERINFO_BEGIN, USERINFO_MAP, USERINFO_KEY, USERINFO_ID, USERINFO_ROLE, USERINFO_QUOTA, USERINFO_COMPLETE } state;
-    struct cb_error_ctx errctx;
-    yajl_callbacks yacb;
     curlev_context_t *cbdata;
-    yajl_handle yh;
+    const struct jparse_actions *acts;
+    jparse_t *J;
     uint8_t token[AUTHTOK_BIN_LEN];
     FILE *f;
     char role[7];
     int64_t quota;
+    enum sxc_error_t err;
 };
+
+/* {"userKey":"KEY", "userID":"UID", "userType":"normal|admin", "userQuota":12345} */
 
 static int userinfo_setup_cb(curlev_context_t *cbdata, void *ctx, const char *host)
 {
-    struct cb_userinfo_ctx *yactx = ctx;
-    if (yactx->yh)
-        yajl_free(yactx->yh);
+    struct cb_userinfo_ctx *yactx = (struct cb_userinfo_ctx *)ctx;
+    yactx->cbdata = cbdata; /* must set before using CBDEBUG */
 
-    yactx->cbdata = cbdata;
-    if(!(yactx->yh = yajl_alloc(&yactx->yacb, NULL, yactx))) {
-        CBDEBUG("OOM allocating yajl context");
-        sxi_cbdata_seterr(cbdata, SXE_EMEM, "Cannot get user key: Out of memory");
-        return 1;
+    sxi_jparse_destroy(yactx->J);
+    yactx->err = SXE_ECOMM;
+    if(!(yactx->J  = sxi_jparse_create(yactx->acts, yactx, 1))) {
+	CBDEBUG("OOM allocating JSON parser");
+	sxi_cbdata_seterr(cbdata, SXE_EMEM, "Cannot get user info: Out of memory");
+	return 1;
     }
-
-    yactx->state = USERINFO_BEGIN;
     return 0;
 }
 
 static int userinfo_cb(curlev_context_t *cbdata, void *ctx, const void *data, size_t size) {
-    struct cb_userinfo_ctx *yactx = ctx;
-    if (yajl_parse(yactx->yh, data, size) != yajl_status_ok) {
-        if (yactx->state != USERINFO_ERROR) {
-            CBDEBUG("failed to parse JSON data: %s", sxi_cbdata_geterrmsg(yactx->cbdata));
-            sxi_cbdata_seterr(yactx->cbdata, SXE_ECOMM, "communication error");
-        }
-        return 1;
-    }
-    return 0;
-}
+    struct cb_userinfo_ctx *yactx = (struct cb_userinfo_ctx *)ctx;
 
-static int yacb_userinfo_start_map(void *ctx) {
-    struct cb_userinfo_ctx *yactx = ctx;
-    if(!ctx)
-	return 0;
-
-    if(yactx->state == USERINFO_BEGIN) {
-	yactx->state = USERINFO_MAP;
-    } else {
-	CBDEBUG("bad state (in %d, expected %d)", yactx->state, USERINFO_BEGIN);
-	return 0;
-    }
-    return 1;
-}
-
-static int yacb_userinfo_map_key(void *ctx, const unsigned char *s, size_t l) {
-    struct cb_userinfo_ctx *yactx = ctx;
-    if(!ctx)
-	return 0;
-
-    if (yactx->state == USERINFO_ERROR)
-        return yacb_error_map_key(&yactx->errctx, s, l);
-    if (yactx->state == USERINFO_MAP) {
-        if (ya_check_error(yactx->cbdata, &yactx->errctx, s, l)) {
-            yactx->state = USERINFO_ERROR;
-            return 1;
-        }
-    }
-    if(yactx->state == USERINFO_MAP) {
-	if(l == lenof("userKey") && !memcmp(s, "userKey", lenof("userKey"))) {
-	    yactx->state = USERINFO_KEY;
-	    return 1;
-	}
-        if(l == lenof("userID") && !memcmp(s, "userID", lenof("userID"))) {
-            yactx->state = USERINFO_ID;
-            return 1;
-        }
-        if(l == lenof("userType") && !memcmp(s, "userType", lenof("userType"))) {
-            yactx->state = USERINFO_ROLE;
-            return 1;
-        }
-        if(l == lenof("userQuota") && !memcmp(s, "userQuota", lenof("userQuota"))) {
-            yactx->state = USERINFO_QUOTA;
-            return 1;
-        }
+    if(sxi_jparse_digest(yactx->J, data, size)) {
+	sxi_cbdata_seterr(yactx->cbdata, yactx->err, sxi_jparse_geterr(yactx->J));
 	return 1;
     }
-
-    CBDEBUG("bad state (in %d, expected %d)", yactx->state, USERINFO_KEY);
     return 0;
 }
 
-static int yacb_userinfo_string(void *ctx, const unsigned char *s, size_t l) {
-    struct cb_userinfo_ctx *yactx = ctx;
-    if(!ctx)
-	return 0;
-    if (yactx->state == USERINFO_ERROR)
-        return yacb_error_string(&yactx->errctx, s, l);
-
-    if(l<=0)
-	return 0;
-    if (yactx->state == USERINFO_MAP)
-        return 1;
-    if (yactx->state == USERINFO_KEY) {
-	if(sxi_hex2bin((const char *)s, l, yactx->token + AUTH_UID_LEN, AUTH_KEY_LEN)) {
-            sxi_cbdata_seterr(yactx->cbdata, SXE_ECOMM, "Failed to convert user key from hex");
-            return 0;
-        }
-        yactx->state = USERINFO_MAP;
-        return 1;
-    } else if(yactx->state == USERINFO_ID) {
-        if(sxi_hex2bin((const char *)s, l, yactx->token, AUTH_UID_LEN)) {
-            sxi_cbdata_seterr(yactx->cbdata, SXE_ECOMM, "Failed to convert user key from hex");
-            return 0;
-        }
-        yactx->state = USERINFO_MAP;
-        return 1;
-    } else if(yactx->state == USERINFO_ROLE) {
-        if(l != 6 && l != 5) {
-            CBDEBUG("Invalid role: bad role string length");
-            return 0;
-        }
-
-        if(strncmp("admin", (const char*)s, l) && strncmp("normal", (const char*)s, l)) {
-            CBDEBUG("Invalid role: should be admin or normal");
-            return 0;
-        }
-
-        memcpy(yactx->role, s, l);
-        yactx->role[l] = '\0';
-        yactx->state = USERINFO_MAP;
-        return 1;
+static void cb_userinfo_id(jparse_t *J, void *ctx, const char *string, unsigned int length) {
+    struct cb_userinfo_ctx *yactx = (struct cb_userinfo_ctx *)ctx;
+    if(length != AUTH_UID_LEN * 2 || sxi_hex2bin(string, length, yactx->token, AUTH_UID_LEN)) {
+	sxi_jparse_cancel(J, "Invalid user id received");
+        yactx->err = SXE_ECOMM;
+	return;
     }
-    return 0;
 }
 
-static int yacb_userinfo_number(void *ctx, const char *s, size_t l) {
-    struct cb_userinfo_ctx *yactx = ctx;
-    if(!ctx)
-        return 0;
-    if (yactx->state == USERINFO_ERROR)
-        return 1;
-
-    if(l<=0)
-        return 0;
-    if (yactx->state == USERINFO_MAP)
-        return 1;
-    if (yactx->state == USERINFO_QUOTA) {
-        char number[21], *enumb = NULL;
-
-        if(l > 20) {
-            CBDEBUG("Invalid quota length");
-            return 0;
-        }
-
-        memcpy(number, s, l);
-        number[l] = '\0';
-
-        yactx->quota = strtoll(number, &enumb, 10);
-        if(enumb && *enumb) {
-            CBDEBUG("Failed to parse quota");
-            return 0;
-        }
-        yactx->state = USERINFO_MAP;
-        return 1;
+static void cb_userinfo_key(jparse_t *J, void *ctx, const char *string, unsigned int length) {
+    struct cb_userinfo_ctx *yactx = (struct cb_userinfo_ctx *)ctx;
+    if(length != AUTH_KEY_LEN * 2 || sxi_hex2bin(string, length, yactx->token + AUTH_UID_LEN, AUTH_KEY_LEN)) {
+	sxi_jparse_cancel(J, "Invalid user key received");
+        yactx->err = SXE_ECOMM;
+	return;
     }
-    return 0;
 }
 
-static int yacb_userinfo_end_map(void *ctx) {
-    struct cb_userinfo_ctx *yactx = ctx;
-    if(!ctx)
-	return 0;
-    if (yactx->state == USERINFO_ERROR)
-        return yacb_error_end_map(&yactx->errctx);
-    if(yactx->state == USERINFO_MAP)
-	yactx->state = USERINFO_COMPLETE;
-    else {
-	CBDEBUG("bad state (in %d, expected %d)", yactx->state, FN_CLUSTER);
-	return 0;
+static void cb_userinfo_type(jparse_t *J, void *ctx, const char *string, unsigned int length) {
+    struct cb_userinfo_ctx *yactx = (struct cb_userinfo_ctx *)ctx;
+    if((length == lenof("admin") && !memcmp(string, "admin", lenof("admin"))) ||
+       (length == lenof("normal") && !memcmp(string, "normal", lenof("normal")))) {
+        memcpy(yactx->role, string, length);
+        yactx->role[length] = '\0';
+    } else {
+	sxi_jparse_cancel(J, "Invalid user role received");
+        yactx->err = SXE_ECOMM;
+	return;
     }
-    return 1;
+}
+
+static void cb_userinfo_quota(jparse_t *J, void *ctx, int64_t num) {
+    struct cb_userinfo_ctx *yactx = (struct cb_userinfo_ctx *)ctx;
+
+    if(num < 0) {
+	sxi_jparse_cancel(J, "Invalid quota received");
+	yactx->err = SXE_ECOMM;
+    }
+    yactx->quota = num;
 }
 
 int sxc_user_getinfo(sxc_cluster_t *cluster, const char *username, FILE *storeauth, int *is_admin, int get_config_link)
 {
+    const struct jparse_actions acts = {
+	JPACTS_STRING(
+		      JPACT(cb_userinfo_id, JPKEY("userID")),
+		      JPACT(cb_userinfo_key, JPKEY("userKey")),
+		      JPACT(cb_userinfo_type, JPKEY("userType"))
+		      ),
+	JPACTS_INT64(
+		     JPACT(cb_userinfo_quota, JPKEY("userQuota"))
+		     )
+    };
     sxc_client_t *sx;
     struct cb_userinfo_ctx yctx;
-    yajl_callbacks *yacb;
     int ret = 1;
     unsigned n;
     char *url = NULL;
@@ -4060,14 +3586,7 @@ int sxc_user_getinfo(sxc_cluster_t *cluster, const char *username, FILE *storeau
         return 1;
     }
     memset(&yctx, 0, sizeof(yctx));
-    yacb = &yctx.yacb;
-    ya_init(yacb);
-    yacb->yajl_start_map = yacb_userinfo_start_map;
-    yacb->yajl_map_key = yacb_userinfo_map_key;
-    yacb->yajl_string = yacb_userinfo_string;
-    yacb->yajl_end_map = yacb_userinfo_end_map;
-    yacb->yajl_number = yacb_userinfo_number;
-    yctx.yh = NULL;
+    yctx.acts = &acts;
     yctx.f = storeauth;
 
     sx = sxi_cluster_get_client(cluster);
@@ -4085,11 +3604,9 @@ int sxc_user_getinfo(sxc_cluster_t *cluster, const char *username, FILE *storeau
     if (sxi_cluster_query(sxi_cluster_get_conns(cluster), NULL, REQ_GET, url, NULL, 0,
                           userinfo_setup_cb, userinfo_cb, &yctx) != 200)
         goto sxc_user_getinfo_err;
-    if(yajl_complete_parse(yctx.yh) != yajl_status_ok || yctx.state != USERINFO_COMPLETE) {
-        if (yctx.state != USERINFO_ERROR) {
-            SXDEBUG("JSON parsing failed");
-            sxi_seterr(sx, SXE_ECOMM, "Cannot get user key: Communication error");
-        }
+
+    if(sxi_jparse_done(yctx.J)) {
+	sxi_seterr(sx, yctx.err, "%s", sxi_jparse_geterr(yctx.J));
         goto sxc_user_getinfo_err;
     }
     ret = 0;
@@ -4112,8 +3629,7 @@ sxc_user_getinfo_err:
     free(tok);
     free(link);
     free(url);
-    if(yctx.yh)
-	yajl_free(yctx.yh);
+    sxi_jparse_destroy(yctx.J);
     return ret;
 }
 
@@ -4342,294 +3858,155 @@ int sxc_cluster_set_conns_limit(sxc_cluster_t *cluster, unsigned int max_active,
 }
 
 struct node_status_ctx {
-    sxi_node_status_t status;
-    yajl_handle yh;
-    yajl_callbacks yacb;
     curlev_context_t *cbdata;
-    struct cb_error_ctx errctx;
-    enum node_status_state { NS_ERROR, NS_BEGIN, NS_KEY, NS_OSTYPE, NS_ARCH, NS_RELEASE, NS_VERSION, NS_CORES, NS_ENDIANNESS,
-        NS_LOCALTIME, NS_UTCTIME, NS_ADDR, NS_INTERNAL_ADDR, NS_UUID, NS_STORAGE_VERSION, NS_LIBSXCLIENT_VERSION, NS_STORAGE_DIR,
-        NS_STORAGE_ALLOC, NS_STORAGE_USED, NS_FS_BLOCK_SIZE, NS_FS_TOTAL_BLOCKS, NS_FS_AVAIL_BLOCKS,
-        NS_MEM_TOTAL, NS_HEAL, NS_COMPLETE } state;
+    const struct jparse_actions *acts;
+    jparse_t *J;
+    sxi_node_status_t status;
+    enum sxc_error_t err;
 };
 
-static int yacb_node_status_start_map(void *ctx) {
-    struct node_status_ctx *yactx = (struct node_status_ctx *)ctx;
 
-    if(!ctx)
-        return 0;
-    if(yactx->state == NS_BEGIN)
-        yactx->state = NS_KEY;
-    else
-        CBDEBUG("bad state (in %d, expected %d)", yactx->state, NS_BEGIN);
-    return 1;
+static void cb_nodest_ostype(jparse_t *J, void *ctx, const char *string, unsigned int length) {
+    struct node_status_ctx *yactx = (struct node_status_ctx *)ctx;
+    sxi_strlcpy(yactx->status.os_name, string, MIN(sizeof(yactx->status.os_name), length+1));
+}
+static void cb_nodest_osarch(jparse_t *J, void *ctx, const char *string, unsigned int length) {
+    struct node_status_ctx *yactx = (struct node_status_ctx *)ctx;
+    sxi_strlcpy(yactx->status.os_arch, string, MIN(sizeof(yactx->status.os_arch), length+1));
+}
+static void cb_nodest_osrel(jparse_t *J, void *ctx, const char *string, unsigned int length) {
+    struct node_status_ctx *yactx = (struct node_status_ctx *)ctx;
+    sxi_strlcpy(yactx->status.os_release, string, MIN(sizeof(yactx->status.os_release), length+1));
+}
+static void cb_nodest_osver(jparse_t *J, void *ctx, const char *string, unsigned int length) {
+    struct node_status_ctx *yactx = (struct node_status_ctx *)ctx;
+    sxi_strlcpy(yactx->status.os_version, string, MIN(sizeof(yactx->status.os_version), length+1));
+}
+static void cb_nodest_localtime(jparse_t *J, void *ctx, const char *string, unsigned int length) {
+    struct node_status_ctx *yactx = (struct node_status_ctx *)ctx;
+    sxi_strlcpy(yactx->status.localtime, string, MIN(sizeof(yactx->status.localtime), length+1));
+}
+static void cb_nodest_utctime(jparse_t *J, void *ctx, const char *string, unsigned int length) {
+    struct node_status_ctx *yactx = (struct node_status_ctx *)ctx;
+    sxi_strlcpy(yactx->status.utctime, string, MIN(sizeof(yactx->status.utctime), length+1));
+}
+static void cb_nodest_addr(jparse_t *J, void *ctx, const char *string, unsigned int length) {
+    struct node_status_ctx *yactx = (struct node_status_ctx *)ctx;
+    sxi_strlcpy(yactx->status.addr, string, MIN(sizeof(yactx->status.addr), length+1));
+}
+static void cb_nodest_intaddr(jparse_t *J, void *ctx, const char *string, unsigned int length) {
+    struct node_status_ctx *yactx = (struct node_status_ctx *)ctx;
+    sxi_strlcpy(yactx->status.internal_addr, string, MIN(sizeof(yactx->status.internal_addr), length+1));
+}
+static void cb_nodest_endianness(jparse_t *J, void *ctx, const char *string, unsigned int length) {
+    struct node_status_ctx *yactx = (struct node_status_ctx *)ctx;
+    sxi_strlcpy(yactx->status.endianness, string, MIN(sizeof(yactx->status.endianness), length+1));
+}
+static void cb_nodest_uuid(jparse_t *J, void *ctx, const char *string, unsigned int length) {
+    struct node_status_ctx *yactx = (struct node_status_ctx *)ctx;
+    sxi_strlcpy(yactx->status.uuid, string, MIN(sizeof(yactx->status.uuid), length+1));
+}
+static void cb_nodest_stdir(jparse_t *J, void *ctx, const char *string, unsigned int length) {
+    struct node_status_ctx *yactx = (struct node_status_ctx *)ctx;
+    sxi_strlcpy(yactx->status.storage_dir, string, MIN(sizeof(yactx->status.storage_dir), length+1));
+}
+static void cb_nodest_stver(jparse_t *J, void *ctx, const char *string, unsigned int length) {
+    struct node_status_ctx *yactx = (struct node_status_ctx *)ctx;
+    sxi_strlcpy(yactx->status.hashfs_version, string, MIN(sizeof(yactx->status.hashfs_version), length+1));
+}
+static void cb_nodest_libver(jparse_t *J, void *ctx, const char *string, unsigned int length) {
+    struct node_status_ctx *yactx = (struct node_status_ctx *)ctx;
+    sxi_strlcpy(yactx->status.libsxclient_version, string, MIN(sizeof(yactx->status.libsxclient_version), length+1));
+}
+static void cb_nodest_heal(jparse_t *J, void *ctx, const char *string, unsigned int length) {
+    struct node_status_ctx *yactx = (struct node_status_ctx *)ctx;
+    sxi_strlcpy(yactx->status.heal_status, string, MIN(sizeof(yactx->status.heal_status), length+1));
 }
 
-static int yacb_node_status_end_map(void *ctx) {
+static void cb_nodest_cores(jparse_t *J, void *ctx, int32_t num) {
     struct node_status_ctx *yactx = (struct node_status_ctx *)ctx;
-
-    if(!ctx)
-        return 0;
-    if (yactx->state == NS_ERROR)
-        return yacb_error_end_map(&yactx->errctx);
-    if(yactx->state == NS_KEY)
-        yactx->state = NS_COMPLETE;
-    else
-        CBDEBUG("bad state (in %d, expected %d)", yactx->state, NS_KEY);
-    return 1;
+    yactx->status.cores = num;
 }
 
-static int yacb_node_status_string(void *ctx, const unsigned char *s, size_t l) {
+static void cb_nodest_stallocd(jparse_t *J, void *ctx, int64_t num) {
     struct node_status_ctx *yactx = (struct node_status_ctx *)ctx;
-
-    if (yactx->state == NS_ERROR)
-        return yacb_error_string(&yactx->errctx, s, l);
-    else if(yactx->state == NS_OSTYPE) {
-        if(l >= sizeof(yactx->status.os_name)) {
-            CBDEBUG("ostype string too long");
-            return 0;
-        }
-        memcpy(yactx->status.os_name, s, l);
-        yactx->status.os_name[sizeof(yactx->status.os_name)-1] = '\0';
-    } else if(yactx->state == NS_ARCH) {
-        if(l >= sizeof(yactx->status.os_arch)) {
-            CBDEBUG("arch string too long");
-            return 0;
-        }
-        memcpy(yactx->status.os_arch, s, l);
-        yactx->status.os_arch[sizeof(yactx->status.os_arch)-1] = '\0';
-    } else if(yactx->state == NS_RELEASE) {
-        if(l >= sizeof(yactx->status.os_release)) {
-            CBDEBUG("release string too long");
-            return 0;
-        }
-        memcpy(yactx->status.os_release, s, l);
-        yactx->status.os_release[sizeof(yactx->status.os_release)-1] = '\0';
-    } else if(yactx->state == NS_VERSION) {
-        if(l >= sizeof(yactx->status.os_version)) {
-            CBDEBUG("version string too long");
-            return 0;
-        }
-        memcpy(yactx->status.os_version, s, l);
-        yactx->status.os_version[sizeof(yactx->status.os_version)-1] = '\0';
-    } else if(yactx->state == NS_LOCALTIME) {
-        if(l >= sizeof(yactx->status.localtime)) {
-            CBDEBUG("localtime string too long");
-            return 0;
-        }
-        memcpy(yactx->status.localtime, s, l);
-        yactx->status.localtime[sizeof(yactx->status.localtime)-1] = '\0';
-    } else if(yactx->state == NS_UTCTIME) {
-        if(l >= sizeof(yactx->status.utctime)) {
-            CBDEBUG("utctime string too long");
-            return 0;
-        }
-        memcpy(yactx->status.utctime, s, l);
-        yactx->status.utctime[sizeof(yactx->status.utctime)-1] = '\0';
-    } else if(yactx->state == NS_ADDR) {
-        if(l >= sizeof(yactx->status.addr)) {
-            CBDEBUG("address string too long");
-            return 0;
-        }
-        memcpy(yactx->status.addr, s, l);
-        yactx->status.addr[sizeof(yactx->status.addr)-1] = '\0';
-    } else if(yactx->state == NS_ENDIANNESS) {
-        if(l >= sizeof(yactx->status.endianness)) {
-            CBDEBUG("endianness string too long");
-            return 0;
-        }
-        memcpy(yactx->status.endianness, s, l);
-        yactx->status.endianness[sizeof(yactx->status.endianness)-1] = '\0';
-    } else if(yactx->state == NS_INTERNAL_ADDR) {
-        if(l >= sizeof(yactx->status.internal_addr)) {
-            CBDEBUG("internal address string too long");
-            return 0;
-        }
-        memcpy(yactx->status.internal_addr, s, l);
-        yactx->status.internal_addr[sizeof(yactx->status.internal_addr)-1] = '\0';
-    } else if(yactx->state == NS_UUID) {
-        if(l >= sizeof(yactx->status.uuid)) {
-            CBDEBUG("uuid string too long");
-            return 0;
-        }
-        memcpy(yactx->status.uuid, s, l);
-        yactx->status.uuid[sizeof(yactx->status.uuid)-1] = '\0';
-    } else if(yactx->state == NS_STORAGE_DIR) {
-        if(l >= sizeof(yactx->status.storage_dir)) {
-            CBDEBUG("storage dir string too long");
-            return 0;
-        }
-        memcpy(yactx->status.storage_dir, s, l);
-        yactx->status.storage_dir[sizeof(yactx->status.storage_dir)-1] = '\0';
-    } else if(yactx->state == NS_STORAGE_VERSION) {
-        if(l >= sizeof(yactx->status.hashfs_version)) {
-            CBDEBUG("hashfs version string too long");
-            return 0;
-        }
-        memcpy(yactx->status.hashfs_version, s, l);
-        yactx->status.hashfs_version[sizeof(yactx->status.hashfs_version)-1] = '\0';
-    } else if(yactx->state == NS_LIBSXCLIENT_VERSION) {
-        if(l >= sizeof(yactx->status.libsxclient_version)) {
-            CBDEBUG("hashfs version string too long");
-            return 0;
-        }
-        memcpy(yactx->status.libsxclient_version, s, l);
-        yactx->status.libsxclient_version[sizeof(yactx->status.libsxclient_version)-1] = '\0';
-    } else if(yactx->state == NS_HEAL) {
-        if (l >= sizeof(yactx->status.heal_status)) {
-            CBDEBUG("heal status too long");
-            return 0;
-        }
-        memcpy(yactx->status.heal_status, s, l);
-        yactx->status.heal_status[sizeof(yactx->status.heal_status)-1] = '\0';
-    } else if(yactx->state != NS_KEY) {
-        CBDEBUG("bad state (in %d, expected %d, %d, %d, %d, %d, %d, %d, %d, %d or %d)", yactx->state, NS_OSTYPE, NS_ARCH,
-            NS_RELEASE, NS_VERSION, NS_ADDR, NS_INTERNAL_ADDR, NS_UUID, NS_STORAGE_DIR, NS_STORAGE_VERSION, NS_LIBSXCLIENT_VERSION);
-    }
-
-    yactx->state = NS_KEY;
-    return 1;
+    yactx->status.storage_allocated = num;
 }
-
-static int yacb_node_status_map_key(void *ctx, const unsigned char *s, size_t l) {
+static void cb_nodest_stused(jparse_t *J, void *ctx, int64_t num) {
     struct node_status_ctx *yactx = (struct node_status_ctx *)ctx;
-
-    if(!ctx)
-        return 0;
-    if (yactx->state == NS_ERROR)
-        return yacb_error_map_key(&yactx->errctx, s, l);
-    else if(yactx->state == NS_KEY) {
-        if(l == lenof("osType") && !memcmp(s, "osType", lenof("osType")))
-            yactx->state = NS_OSTYPE;
-        else if(l == lenof("osArch") && !memcmp(s, "osArch", lenof("osArch")))
-            yactx->state = NS_ARCH;
-        else if(l == lenof("osRelease") && !memcmp(s, "osRelease", lenof("osRelease")))
-            yactx->state = NS_RELEASE;
-        else if(l == lenof("osVersion") && !memcmp(s, "osVersion", lenof("osVersion")))
-            yactx->state = NS_VERSION;
-        else if(l == lenof("localTime") && !memcmp(s, "localTime", lenof("localTime")))
-            yactx->state = NS_LOCALTIME;
-        else if(l == lenof("utcTime") && !memcmp(s, "utcTime", lenof("utcTime")))
-            yactx->state = NS_UTCTIME;
-        else if(l == lenof("cores") && !memcmp(s, "cores", lenof("cores")))
-            yactx->state = NS_CORES;
-        else if(l == lenof("osEndianness") && !memcmp(s, "osEndianness", lenof("osEndianness")))
-            yactx->state = NS_ENDIANNESS;
-        else if(l == lenof("address") && !memcmp(s, "address", lenof("address")))
-            yactx->state = NS_ADDR;
-        else if(l == lenof("internalAddress") && !memcmp(s, "internalAddress", lenof("internalAddress")))
-            yactx->state = NS_INTERNAL_ADDR;
-        else if(l == lenof("UUID") && !memcmp(s, "UUID", lenof("UUID")))
-            yactx->state = NS_UUID;
-        else if(l == lenof("hashFSVersion") && !memcmp(s, "hashFSVersion", lenof("hashFSVersion")))
-            yactx->state = NS_STORAGE_VERSION;
-        else if(l == lenof("libsxclientVersion") && !memcmp(s, "libsxclientVersion", lenof("libsxclientVersion")))
-            yactx->state = NS_LIBSXCLIENT_VERSION;
-        else if(l == lenof("nodeDir") && !memcmp(s, "nodeDir", lenof("nodeDir")))
-            yactx->state = NS_STORAGE_DIR;
-        else if(l == lenof("storageAllocated") && !memcmp(s, "storageAllocated", lenof("storageAllocated")))
-            yactx->state = NS_STORAGE_ALLOC;
-        else if(l == lenof("storageUsed") && !memcmp(s, "storageUsed", lenof("storageUsed")))
-            yactx->state = NS_STORAGE_USED;
-        else if(l == lenof("fsBlockSize") && !memcmp(s, "fsBlockSize", lenof("fsBlockSize")))
-            yactx->state = NS_FS_BLOCK_SIZE;
-        else if(l == lenof("fsTotalBlocks") && !memcmp(s, "fsTotalBlocks", lenof("fsTotalBlocks")))
-            yactx->state = NS_FS_TOTAL_BLOCKS;
-        else if(l == lenof("fsAvailBlocks") && !memcmp(s, "fsAvailBlocks", lenof("fsAvailBlocks")))
-            yactx->state = NS_FS_AVAIL_BLOCKS;
-        else if(l == lenof("memTotal") && !memcmp(s, "memTotal", lenof("memTotal")))
-            yactx->state = NS_MEM_TOTAL;
-        else if(l == lenof("heal") && !memcmp(s, "heal", lenof("heal")))
-            yactx->state = NS_HEAL;
-        else
-            CBDEBUG("unexpected key '%.*s'", (unsigned)l, s);
-        return 1;
-    }
-
-    CBDEBUG("bad state (in %d, expected %d)", yactx->state, NS_KEY);
-    return 1;
+    yactx->status.storage_commited = num;
 }
-
-static int yacb_node_status_number(void *ctx, const char *s, size_t l) {
+static void cb_nodest_fsbs(jparse_t *J, void *ctx, int64_t num) {
     struct node_status_ctx *yactx = (struct node_status_ctx *)ctx;
-    char numb[24], *enumb;
-    long long number;
-
-    if(!ctx)
-        return 0;
-
-    if(l < 1 || l > 20) {
-        CBDEBUG("Invalid number '%.*s'", (unsigned)l, s);
-        return 0;
-    }
-    memcpy(numb, s, l);
-    numb[l] = '\0';
-    number = strtoll(numb, &enumb, 10);
-    if(*enumb) {
-        CBDEBUG("invalid number '%.*s'", (unsigned)l, s);
-        return 0;
-    }
-
-    switch(yactx->state) {
-        case NS_CORES:
-            yactx->status.cores = number;
-            break;
-        case NS_STORAGE_ALLOC:
-            yactx->status.storage_allocated = number;
-            break;
-        case NS_STORAGE_USED:
-            yactx->status.storage_commited = number;
-            break;
-        case NS_FS_BLOCK_SIZE:
-            yactx->status.block_size = number;
-            break;
-        case NS_FS_TOTAL_BLOCKS:
-            yactx->status.total_blocks = number;
-            break;
-        case NS_FS_AVAIL_BLOCKS:
-            yactx->status.avail_blocks = number;
-            break;
-        case NS_MEM_TOTAL:
-            yactx->status.mem_total = number;
-            break;
-        default:
-            CBDEBUG("bad state (in %d, expected %d, %d, %d, %d, %d, %d or %d)", yactx->state, NS_CORES,
-                NS_STORAGE_ALLOC, NS_STORAGE_USED, NS_FS_BLOCK_SIZE, NS_FS_TOTAL_BLOCKS, NS_FS_AVAIL_BLOCKS,
-                NS_MEM_TOTAL);
-    }
-
-    yactx->state = NS_KEY;
-    return 1;
+    yactx->status.block_size = num;
+}
+static void cb_nodest_fsblocks(jparse_t *J, void *ctx, int64_t num) {
+    struct node_status_ctx *yactx = (struct node_status_ctx *)ctx;
+    yactx->status.total_blocks = num;
+}
+static void cb_nodest_fsavblocks(jparse_t *J, void *ctx, int64_t num) {
+    struct node_status_ctx *yactx = (struct node_status_ctx *)ctx;
+    yactx->status.avail_blocks = num;
+}
+static void cb_nodest_mem(jparse_t *J, void *ctx, int64_t num) {
+    struct node_status_ctx *yactx = (struct node_status_ctx *)ctx;
+    yactx->status.mem_total = num;
 }
 
 static int node_status_cb(curlev_context_t *cbdata, void *ctx, const void *data, size_t size) {
     struct node_status_ctx *yactx = (struct node_status_ctx *)ctx;
-    if(yajl_parse(yactx->yh, data, size) != yajl_status_ok) {
-        if (yactx->state != NS_ERROR) {
-            CBDEBUG("failed to parse JSON data: %s", sxi_cbdata_geterrmsg(yactx->cbdata));
-            sxi_cbdata_seterr(yactx->cbdata, SXE_ECOMM, "communication error");
-        }
-        return 1;
+
+    if(sxi_jparse_digest(yactx->J, data, size)) {
+	sxi_cbdata_seterr(yactx->cbdata, yactx->err, sxi_jparse_geterr(yactx->J));
+	return 1;
     }
     return 0;
 }
 
 static int node_status_setup_cb(curlev_context_t *cbdata, void *ctx, const char *host) {
     struct node_status_ctx *yactx = (struct node_status_ctx *)ctx;
+    yactx->cbdata = cbdata; /* must set before using CBDEBUG */
 
-    if(yactx->yh)
-        yajl_free(yactx->yh);
-
-    yactx->cbdata = cbdata;
-    if(!(yactx->yh  = yajl_alloc(&yactx->yacb, NULL, yactx))) {
-        CBDEBUG("failed to allocate yajl structure");
-        sxi_cbdata_seterr(cbdata, SXE_EMEM, "Getting node status failed: Out of memory");
-        return 1;
+    sxi_jparse_destroy(yactx->J);
+    yactx->err = SXE_ECOMM;
+    if(!(yactx->J  = sxi_jparse_create(yactx->acts, yactx, 1))) {
+	CBDEBUG("OOM allocating JSON parser");
+	sxi_cbdata_seterr(cbdata, SXE_EMEM, "Cannot get node status: Out of memory");
+	return 1;
     }
     return 0;
 }
 
 int sxi_cluster_status(sxc_cluster_t *cluster, const node_status_cb_t status_cb, int human_readable) {
+    const struct jparse_actions acts = {
+	JPACTS_STRING(
+		      JPACT(cb_nodest_ostype, JPKEY("osType")),
+		      JPACT(cb_nodest_osarch, JPKEY("osArch")),
+		      JPACT(cb_nodest_osrel, JPKEY("osRelease")),
+		      JPACT(cb_nodest_osver, JPKEY("osVersion")),
+		      JPACT(cb_nodest_localtime, JPKEY("localTime")),
+		      JPACT(cb_nodest_utctime, JPKEY("utcTime")),
+		      JPACT(cb_nodest_addr, JPKEY("address")),
+		      JPACT(cb_nodest_intaddr, JPKEY("internalAddress")),
+		      JPACT(cb_nodest_endianness, JPKEY("osEndianness")),
+		      JPACT(cb_nodest_uuid, JPKEY("UUID")),
+		      JPACT(cb_nodest_stdir, JPKEY("nodeDir")),
+		      JPACT(cb_nodest_stver, JPKEY("hashFSVersion")),
+		      JPACT(cb_nodest_libver, JPKEY("libsxclientVersion")),
+		      JPACT(cb_nodest_heal, JPKEY("heal"))
+		      ),
+	JPACTS_INT64(
+		     JPACT(cb_nodest_stallocd, JPKEY("storageAllocated")),
+		     JPACT(cb_nodest_stused, JPKEY("storageUsed")),
+		     JPACT(cb_nodest_fsbs, JPKEY("fsBlockSize")),
+		     JPACT(cb_nodest_fsblocks, JPKEY("fsTotalBlocks")),
+		     JPACT(cb_nodest_fsavblocks, JPKEY("fsAvailBlocks")),
+		     JPACT(cb_nodest_mem, JPKEY("memTotal"))
+		     ),
+	JPACTS_INT32(
+		     JPACT(cb_nodest_cores, JPKEY("cores"))
+		     )
+    };
     sxi_conns_t *conns = sxi_cluster_get_conns(cluster);
     sxc_client_t *sx = sxi_cluster_get_client(cluster);
     int ret = 1, fail = 0;
@@ -4660,7 +4037,6 @@ int sxi_cluster_status(sxc_cluster_t *cluster, const node_status_cb_t status_cb,
         int qret;
         const char *node = sxi_hostlist_get_host(hosts, i);
         struct node_status_ctx *yctx = NULL;
-        yajl_callbacks *yacb;
 
         if(sxi_hostlist_add_host(sx, &hlist, node)) {
             SXDEBUG("Failed to get status of node %s: %s", node, sxc_geterrmsg(sx));
@@ -4668,24 +4044,17 @@ int sxi_cluster_status(sxc_cluster_t *cluster, const node_status_cb_t status_cb,
         }
 
         if(!(yctx = calloc(1, sizeof(*yctx)))) {
-            SXDEBUG("Failed to allocate yajl handle");
+            SXDEBUG("Failed to allocate JSON parser context");
             goto sxc_cluster_status_err;
         }
 
-        yacb = &yctx->yacb;
-        ya_init(yacb);
-        yacb->yajl_start_map = yacb_node_status_start_map;
-        yacb->yajl_map_key = yacb_node_status_map_key;
-        yacb->yajl_string = yacb_node_status_string;
-        yacb->yajl_number = yacb_node_status_number;
-        yacb->yajl_end_map = yacb_node_status_end_map;
-        yctx->state = NS_BEGIN;
+        yctx->acts = &acts;
 
         qret = sxi_cluster_query(conns, &hlist, REQ_GET, ".status", NULL, 0, node_status_setup_cb, node_status_cb, yctx);
         sxi_hostlist_empty(&hlist);
         if(qret != 200) {
             SXDEBUG("Failed to get status of node %s: %s", node, sxc_geterrmsg(sx));
-            yajl_free(yctx->yh);
+	    sxi_jparse_destroy(yctx->J);
             free(yctx);
             enum sxc_error_t code = SXE_ECOMM;
             char *old_msg = strdup(sxc_geterrmsg(sx));
@@ -4703,9 +4072,9 @@ int sxi_cluster_status(sxc_cluster_t *cluster, const node_status_cb_t status_cb,
             continue;
         }
 
-        if(yajl_complete_parse(yctx->yh) != yajl_status_ok || yctx->state != NS_COMPLETE) {
+        if(sxi_jparse_done(yctx->J)) {
             SXDEBUG("Failed to complete parsing of node %s status", node);
-            yajl_free(yctx->yh);
+	    sxi_jparse_destroy(yctx->J);
             free(yctx);
             sxc_clearerr(sx);
             sxi_seterr(sx, SXE_ECOMM, "Can't query node %s", node);
@@ -4715,7 +4084,7 @@ int sxi_cluster_status(sxc_cluster_t *cluster, const node_status_cb_t status_cb,
         }
 
         status_cb(sx, qret, &yctx->status, human_readable);
-        yajl_free(yctx->yh);
+	sxi_jparse_destroy(yctx->J);
         free(yctx);
     }
 

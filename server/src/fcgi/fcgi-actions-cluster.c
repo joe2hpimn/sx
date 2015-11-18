@@ -890,11 +890,14 @@ static void cb_cluster_settings(jparse_t *J, void *ctx, const char *string, unsi
     length /= 2;
     value[length] = '\0';
     if(sx_blob_add_string(c->entries, key) ||
-       sx_blob_add_int32(c->entries, key_type) ||
-       sx_hashfs_parse_cluster_setting(hashfs, key, key_type, value, c->entries) ||
-       sx_hashfs_parse_cluster_setting(hashfs, key, key_type, old_value, c->entries)) {
+       sx_blob_add_int32(c->entries, key_type)) {
 	sxi_jparse_cancel(J, "Out of memory processing cluster settings");
 	return;
+    }
+    if(sx_hashfs_parse_cluster_setting(hashfs, key, key_type, value, c->entries) ||
+       sx_hashfs_parse_cluster_setting(hashfs, key, key_type, old_value, c->entries)) {
+        sxi_jparse_cancel(J, msg_get_reason());
+        return;
     }
     c->nentries++;
 }

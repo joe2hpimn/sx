@@ -11735,13 +11735,14 @@ rc_ty sx_hashfs_clustermeta_last_change(sx_hashfs_t *h, time_t *t) {
 rc_ty sx_hashfs_clustermeta_begin(sx_hashfs_t *h) {
     rc_ty ret = FAIL_EINTERNAL;
     int r;
-    sqlite3_stmt *q = h->q_get_prefixed_keyval;
+    sqlite3_stmt *q;
 
     if(!h) {
         NULLARG();
         return EFAULT;
     }
 
+    q = h->q_get_prefixed_keyval;
     sqlite3_reset(q);
     if(qbind_text(q, ":pattern", SX_CLUSTER_META_PREFIX"%") || qbind_null(q, ":previous")) {
         WARN("Failed to bind query values");

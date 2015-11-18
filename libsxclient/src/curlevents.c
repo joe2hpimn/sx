@@ -38,7 +38,7 @@
 #include <unistd.h>
 #include <ctype.h>
 #include "fileops.h"
-#include "yajlwrap.h"
+#include "jparse.h"
 
 #define ERRBUF_SIZE 512
 enum ctx_tag { CTX_UPLOAD, CTX_UPLOAD_HOST, CTX_DOWNLOAD, CTX_JOB, CTX_HASHOP, CTX_GENERIC };
@@ -3326,24 +3326,49 @@ static size_t sxauthd_headfn(void *ptr, size_t size, size_t nmemb, struct sxauth
     return size * nmemb;
 }
 
-static void sxauthd_errfn(curlev_context_t *ctx, int reply_code, const char *reason)
-{
-    struct cb_error_ctx yctx;
-    yajl_callbacks yacb;
+struct cb_sxauthd_ctx {
+    char message[1024];
+    char node[64];
+};
 
-    ya_error_parser(&yacb);
-    yajl_handle yh = yajl_alloc(&yacb, NULL, &yctx);
-    if(yh) {
-        memset(&yctx, 0, sizeof(yctx));
-        yctx.status = reply_code;
-        yctx.cbdata = ctx;
-        if(yajl_parse(yh, (const uint8_t *)reason, strlen(reason)) != yajl_status_ok
-           || yajl_complete_parse(yh) != yajl_status_ok || strcmp("SXAUTHD", yctx.node)) {
-            sxi_cbdata_seterr(ctx, SXE_ECOMM, "This is not an sxauthd host");
-        }
-        yajl_free(yh);
-    } else
-        sxi_cbdata_seterr(ctx, SXE_EMEM, "Cluster query failed: Out of memory");
+static void cb_sxauthd_errmsg(jparse_t *J, void *ctx, const char *string, unsigned int length) {
+    struct cb_sxauthd_ctx *c = (struct cb_sxauthd_ctx *)ctx;
+    sxi_strlcpy(c->message, string, MIN(sizeof(c->message), length + 1));
+}
+
+static void cb_sxauthd_errnode(jparse_t *J, void *ctx, const char *string, unsigned int length) {
+    struct cb_sxauthd_ctx *c = (struct cb_sxauthd_ctx *)ctx;
+    sxi_strlcpy(c->node, string, MIN(sizeof(c->node), length + 1));
+}
+
+static void sxauthd_errfn(curlev_context_t *ctx, int reply_code, const char *reason) {
+    const struct jparse_actions acts = {
+	JPACTS_STRING(
+		      JPACT(cb_sxauthd_errmsg, JPKEY("ErrorMessage")),
+		      JPACT(cb_sxauthd_errnode, JPKEY("NodeId"))
+		      )
+    };
+    struct cb_sxauthd_ctx yctx;
+    jparse_t *J = sxi_jparse_create(&acts, &yctx, 0);
+
+    yctx.message[0] = '\0';
+    yctx.node[0] = '\0';
+
+    if(!J) {
+	sxi_cbdata_seterr(ctx, SXE_EMEM, "Cluster query failed: Out of memory");
+	return;
+    }
+
+    if(sxi_jparse_digest(J, reason, strlen(reason)) || sxi_jparse_done(J))
+	sxi_cbdata_seterr(ctx, SXE_ECOMM, sxi_jparse_geterr(J));
+    else if(strcmp("SXAUTHD", yctx.node))
+	sxi_cbdata_seterr(ctx, SXE_ECOMM, "This is not an sxauthd host");
+    else if(yctx.message[0])
+	sxi_cbdata_setclusterr(ctx, NULL, NULL, reply_code, yctx.message, NULL);
+    else
+	sxi_cbdata_seterr(ctx, SXE_ECOMM, "Cluster query failed: No reason provided");
+
+    sxi_jparse_destroy(J);
 }
 
 char *sxi_curlev_fetch_sxauthd_credentials(curl_events_t *e, const char *url, const char *username, const char *password, const char *display, const char *unique, int quiet)

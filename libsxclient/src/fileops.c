@@ -36,7 +36,6 @@
 #include "misc.h"
 #include "hostlist.h"
 #include "clustcfg.h"
-#include "yajlwrap.h"
 #include "filter.h"
 #include "volops.h"
 #include "sxproto.h"
@@ -44,6 +43,7 @@
 #include "libsxclient-int.h"
 #include "curlevents.h"
 #include "vcrypto.h"
+#include "jparse.h"
 
 struct _sxc_file_t {
     sxc_client_t *sx;
@@ -887,12 +887,11 @@ struct need_hash {
 };
 
 struct part_upload_ctx {
-    yajl_callbacks yacb;
+    const struct jparse_actions *acts;
+    jparse_t *J;
+    enum sxc_error_t err;
     FILE *f;
     char *token;
-    yajl_handle yh;
-    struct cb_error_ctx errctx;
-    enum createfile_state { CF_ERROR, CF_BEGIN, CF_MAIN, CF_BS, CF_TOK, CF_DATA, CF_HASH, CF_HOSTS, CF_HOST, CF_COMPLETE } state;
     struct crc_offset *offsets;
     struct need_hash *needed;
     struct need_hash *current_need;
@@ -996,195 +995,106 @@ int64_t sxi_host_upload_get_xfer_sent(const struct host_upload_ctx *ctx) {
     return ctx->ul;
 }
 
-static int yacb_createfile_start_map(void *ctx) {
-    struct file_upload_ctx *yactx = (struct file_upload_ctx *)ctx;
-    if(!ctx)
-	return 0;
-    if(yactx->current.state != CF_BEGIN && yactx->current.state != CF_DATA) {
-	CBDEBUG("bad state %d", yactx->current.state);
-	return 0;
+/*
+{
+    "uploadToken":"TOKEN",
+    "uploadData":{
+       "block1":["host1", "host2"],
+       "block2":["host3", "host1"]
     }
-    yactx->current.state++;
-    return 1;
+}
+*/
+
+static void cb_createfile_token(jparse_t *J, void *ctx, const char *string, unsigned int length) {
+     struct file_upload_ctx *yactx = (struct file_upload_ctx *)ctx;
+
+     if(yactx->current.token) {
+         sxi_jparse_cancel(J, "Multiple upload tokens received");
+         yactx->current.err = SXE_ECOMM;
+         return;
+     }
+
+     yactx->current.token = malloc(length + 1);
+     if(!yactx->current.token) {
+         sxi_jparse_cancel(J, "Out of memory processing upload token");
+         yactx->current.err = SXE_EMEM;
+         return;
+     }
+     memcpy(yactx->current.token, string, length);
+     yactx->current.token[length] = '\0';
 }
 
-static int yacb_createfile_map_key(void *ctx, const unsigned char *s, size_t l) {
+static void cb_createfile_host(jparse_t *J, void *ctx, const char *string, unsigned int length) {
+    const char *block = sxi_jpath_mapkey(sxi_jpath_down(sxi_jparse_whereami(J)));
+    int listpos = sxi_jpath_arraypos(sxi_jpath_down(sxi_jpath_down(sxi_jparse_whereami(J))));
     struct file_upload_ctx *yactx = (struct file_upload_ctx *)ctx;
-    if(!ctx)
-	return 0;
-    if (yactx->current.state == CF_ERROR)
-        return yacb_error_map_key(&yactx->current.errctx, s, l);
-    if (yactx->current.state == CF_MAIN) {
-        if (ya_check_error(yactx->cbdata, &yactx->current.errctx, s, l)) {
-            yactx->current.state = CF_ERROR;
-            return 1;
-        }
-    }
-    if(yactx->current.state == CF_MAIN) {
-	if(l == lenof("blockSize") && !memcmp(s, "blockSize", lenof("blockSize")))
-	    yactx->current.state = CF_BS;
-	else if(l == lenof("uploadToken") && !memcmp(s, "uploadToken", lenof("uploadToken")))
-	    yactx->current.state = CF_TOK;
-	else if(l == lenof("uploadData") && !memcmp(s, "uploadData", lenof("uploadData")))
-	    yactx->current.state = CF_DATA;
-	else {
-	    CBDEBUG("unknown key %.*s", (int)l, s);
-	    return 0;
-	}
-	return 1;
-    }
+    sxc_client_t *sx = sxi_conns_get_client(sxi_cbdata_get_conns(yactx->cbdata));
+    struct crc_offset *off;
+    char *address;
 
-    if(yactx->current.state == CF_HASH) {
-        struct crc_offset *off;
-	if(l != SXI_SHA1_TEXT_LEN) {
-	    CBDEBUG("unexpected hash length %u", (unsigned)l);
-	    return 0;
-	}
-        if (!yactx->current.hashes) {
-	    CBDEBUG("%p hash lookup failed for %.40s", (const void*)yactx, s);
-	    sxi_cbdata_seterr(yactx->cbdata, SXE_ECOMM, "Copy failed: Hash list not initialized");
-            return 0;
+    if(listpos < 0) {
+        sxi_jparse_cancel(J, "Internal error: array index %d out of bounds", listpos);
+        yactx->current.err = SXE_ECOMM;
+        return;
+    }
+    if(!listpos) {
+        if(strlen(block) != SXI_SHA1_TEXT_LEN) {
+            sxi_jparse_cancel(J, "Invalid block name '%s'", block);
+            yactx->current.err = SXE_ECOMM;
+            return;
         }
-        if (sxi_ht_get(yactx->current.hashes, s, SXI_SHA1_TEXT_LEN, (void**)&off)) {
-	    CBDEBUG("%p hash lookup failed for %.40s", (const void*)yactx, s);
-	    sxi_cbdata_seterr(yactx->cbdata, SXE_ECOMM, "Copy failed: Cannot locate block");
-            return 0;
+
+        if (!yactx->current.hashes || sxi_ht_get(yactx->current.hashes, block, SXI_SHA1_TEXT_LEN, (void**)&off)) {
+            sxi_jparse_cancel(J, "Unknown block '%s' requested for upload", block);
+            yactx->current.err = SXE_ECOMM;
+            return;
         }
         if (yactx->current.needed_cnt >= yactx->max_part_blocks) {
-	    sxi_cbdata_seterr(yactx->cbdata, SXE_ECOMM, "Copy failed: malformed reply");
-            return 0;
+            sxi_jparse_cancel(J, "Invalid block number");
+            yactx->current.err = SXE_ECOMM;
+            return;
         }
+
         CBDEBUG("need %d off: %lld", yactx->current.needed_cnt, (long long)off->offset);
         yactx->current.current_need = &yactx->current.needed[yactx->current.needed_cnt++];
         yactx->current.current_need->off = *off;
         yactx->current.current_need->replica = 0;
         sxi_hostlist_init(&yactx->current.current_need->upload_hosts);
-	yactx->current.state++;
-	return 1;
     }
 
-    CBDEBUG("bad state %d", yactx->current.state);
-    return 0;
+    if(!length) {
+        sxi_jparse_cancel(J, "Empty node address revceived for block %s", block);
+        yactx->current.err = SXE_ECOMM;
+        return;
+    }
+
+    if(sxi_getenv("SX_DEBUG_SINGLEHOST")) {
+        string = sxi_getenv("SX_DEBUG_SINGLEHOST");
+        length = strlen(string);
+    }
+
+    address = malloc(length + 1);
+    if(!address) {
+        sxi_jparse_cancel(J, "Out of memory processing upload nodes");
+        yactx->current.err = SXE_EMEM;
+        return;
+    }
+    memcpy(address, string, length);
+    address[length] = '\0';
+
+    /* FIXME: leak */
+    if (sxi_hostlist_add_host(sx, &yactx->current.current_need->upload_hosts, address)) {
+        free(address);
+        sxi_jparse_cancel(J, "Out of memory building list of source nodes");
+        yactx->current.err = SXE_EMEM;
+        return;
+    }
+    free(address);
 }
 
-static int yacb_createfile_number(void *ctx, const char *s, size_t l) {
+static void cb_createfile_array_end(jparse_t *J, void *ctx) {
     struct file_upload_ctx *yactx = (struct file_upload_ctx *)ctx;
-    char numb[24], *enumb;
-    int64_t nnumb;
-
-    if(!ctx)
-	return 0;
-    if(l > 20) {
-	CBDEBUG("number too long (%u bytes)", (unsigned)l);
-	return 0;
-    }
-    if(yactx->current.state != CF_BS) {
-	CBDEBUG("bad state %d, expecting %d", yactx->current.state, CF_BS);
-	return 0;
-    }
-    memcpy(numb, s, l);
-    numb[l] = '\0';
-    nnumb = strtoll(numb, &enumb, 10);
-    if(*enumb || yactx->blocksize != nnumb) {
-	CBDEBUG("failed to parse number %.*s", (int)l, s);
-	return 0;
-    }
-
-    yactx->current.state = CF_MAIN;
-    return 1;
-}
-
-static int yacb_createfile_string(void *ctx, const unsigned char *s, size_t l) {
-    struct file_upload_ctx *yactx = (struct file_upload_ctx *)ctx;
-    if(!ctx)
-	return 0;
-    if (yactx->current.state == CF_ERROR)
-        return yacb_error_string(&yactx->current.errctx, s, l);
-    if(yactx->current.state == CF_TOK) {
-	if(yactx->current.token) {
-	    CBDEBUG("token is already set");
-	    return 0;
-	}
-
-	/* FIXME check l is 80 chars ? */
-	yactx->current.token = malloc(l+1);
-	if(!yactx->current.token) {
-	    CBDEBUG("OOM duplicating token");
-	    sxi_cbdata_seterr(yactx->cbdata, SXE_EMEM, "Out of memory");
-	    return 0;
-	}
-
-	memcpy(yactx->current.token, s, l);
-	yactx->current.token[l] = '\0';
-	yactx->current.state = CF_MAIN;
-	return 1;
-    }
-
-    if(yactx->current.state == CF_HOST) {
-        char ip[41];
-        sxc_client_t *sx = sxi_conns_get_client(sxi_cbdata_get_conns(yactx->cbdata));
-        /* TODO: do we want to allow DNS names or only IPs? */
-	if(l < 2 || l > 40) {
-	    CBDEBUG("bad host '%.*s'", (int)l, s);
-	    return 0;
-	}
-        memcpy(ip, s, l);
-        ip[l] = '\0';
-        /* FIXME: leak */
-	if(sxi_getenv("SX_DEBUG_SINGLEHOST"))
-	    sxi_strlcpy(ip, getenv("SX_DEBUG_SINGLEHOST"), sizeof(ip));
-	if (sxi_hostlist_add_host(sx, &yactx->current.current_need->upload_hosts, ip)) {
-            CBDEBUG("failed to add host to hash hostlist");
-            sxi_cbdata_restore_global_error(sx, yactx->cbdata);
-            return 0;
-        }
-	return 1;
-    }
-
-    CBDEBUG("bad state %d", yactx->current.state);
-    return 0;
-}
-
-static int yacb_createfile_start_array(void *ctx) {
-    struct file_upload_ctx *yactx = (struct file_upload_ctx *)ctx;
-    if(!ctx)
-	return 0;
-    if(yactx->current.state != CF_HOSTS) {
-	CBDEBUG("bad state %d, expected %d", yactx->current.state, CF_HOSTS);
-	return 0;
-    }
-
-    yactx->current.state++;
-    return 1;
-}
-
-static int yacb_createfile_end_array(void *ctx) {
-    struct file_upload_ctx *yactx = (struct file_upload_ctx *)ctx;
-    if(!ctx)
-	return 0;
-    if(yactx->current.state != CF_HOST)
-	return 0;
     yactx->current.current_need = NULL;
-    yactx->current.state = CF_HASH;
-    return 1;
-}
-
-static int yacb_createfile_end_map(void *ctx) {
-    struct file_upload_ctx *yactx = (struct file_upload_ctx *)ctx;
-    if(!ctx)
-	return 0;
-
-    if (yactx->current.state == CF_ERROR)
-        return yacb_error_end_map(&yactx->current.errctx);
-    if(yactx->current.state == CF_MAIN)
-	yactx->current.state = CF_COMPLETE;
-    else if(yactx->current.state == CF_HASH)
-	yactx->current.state = CF_MAIN;
-    else {
-	CBDEBUG("bad state %d", yactx->current.state);
-	return 0;
-    }
-    return 1;
 }
 
 static int createfile_setup_cb(curlev_context_t *cbdata, const char *host) {
@@ -1193,24 +1103,23 @@ static int createfile_setup_cb(curlev_context_t *cbdata, const char *host) {
     if(!yactx)
 	return 1;
 
-    if(yactx->current.yh)
-	yajl_free(yactx->current.yh);
-
     yactx->cbdata = cbdata;
-    if(!(yactx->current.yh = yajl_alloc(&yactx->current.yacb, NULL, yactx))) {
-	SXDEBUG("OOM allocating yajl context");
-	sxi_cbdata_seterr(yactx->cbdata, SXE_EMEM, "Cannot create file: Out of memory");
-	return 1;
+    sxi_jparse_destroy(yactx->current.J);
+    yactx->current.err = SXE_ECOMM;
+    
+    if(!(yactx->current.J = sxi_jparse_create(yactx->current.acts, yactx, 1))) {
+	CBDEBUG("OOM allocating JSON parser");
+        sxi_cbdata_seterr(yactx->cbdata, SXE_EMEM, "Cannot create file: Out of memory");
+        return 1;
     }
 
-    yactx->current.state = CF_BEGIN;
     free(yactx->current.token);
     yactx->current.token = NULL;
     if (yactx->host)
         free(yactx->host);
     yactx->host = strdup(host);
     if (!yactx->host) {
-        sxi_cbdata_seterr(cbdata, SXE_EMEM, "Cannot allocate hostname");
+        sxi_cbdata_seterr(yactx->cbdata, SXE_EMEM, "Cannot allocate hostname");
         return 1;
     }
     if (yactx->current.f)
@@ -1222,16 +1131,24 @@ static int createfile_cb(curlev_context_t *cbdata, const unsigned char *data, si
     struct file_upload_ctx *yactx = sxi_cbdata_get_upload_ctx(cbdata);
     if(!yactx)
 	return 1;
-    if(yajl_parse(yactx->current.yh, data, size) != yajl_status_ok) {
-        if (yactx->current.state != CF_ERROR) {
-            CBDEBUG("failed to parse JSON data: %s", sxi_cbdata_geterrmsg(yactx->cbdata));
-            sxi_cbdata_seterr(yactx->cbdata, SXE_ECOMM, "communication error");
-        }
+
+    if(sxi_jparse_digest(yactx->current.J, data, size)) {
+        sxi_cbdata_seterr(yactx->cbdata, yactx->current.err, sxi_jparse_geterr(yactx->current.J));
 	return 1;
     }
 
     return 0;
 }
+
+const struct jparse_actions createfile_acts = {
+    JPACTS_STRING   (
+                        JPACT(cb_createfile_token, JPKEY("uploadToken")),
+                        JPACT(cb_createfile_host, JPKEY("uploadData"), JPANYKEY, JPANYITM)
+                    ),
+    JPACTS_ARRAY_END(
+                        JPACT(cb_createfile_array_end, JPKEY("uploadData"), JPANYKEY)
+                    )
+};
 
 static ssize_t pread_hard(int fd, void *buf, size_t count, off_t offset) {
     char *dest = (char *)buf;
@@ -1363,8 +1280,7 @@ static void part_free(struct part_upload_ctx *yctx)
         }
         sxi_ht_free(yctx->hostsmap);
     }
-    if (yctx->yh)
-        yajl_free(yctx->yh);
+    sxi_jparse_destroy(yctx->J);
     free(yctx->needed);
     free(yctx->offsets);
     sxi_ht_free(yctx->hashes);
@@ -1751,11 +1667,8 @@ static void multi_part_upload_blocks(curlev_context_t *ctx, const char *url)
         return;
     }
     SXDEBUG("in multi_part_upload_blocks");
-    if(yajl_complete_parse(yctx->current.yh) != yajl_status_ok || yctx->current.state != CF_COMPLETE) {
-        if (yctx->current.state != CF_ERROR) {
-            SXDEBUG("JSON parsing failed");
-            sxi_cbdata_seterr(ctx, SXE_ECOMM, "Copy failed: Failed to parse cluster response");
-        }
+    if(sxi_jparse_done(yctx->current.J)) {
+        sxi_cbdata_seterr(ctx, yctx->current.err, "Copy failed: %s", sxi_jparse_geterr(yctx->current.J));
         SXDEBUG("fail incremented, after parse");
         yctx->fail++;
         if (yctx->current.ref > 0)
@@ -1800,8 +1713,6 @@ static void multi_part_upload_blocks(curlev_context_t *ctx, const char *url)
 
 static int multi_part_compute_hash_ev(struct file_upload_ctx *yctx)
 {
-    struct curlev_context *cbdata;
-    yajl_callbacks *yacb = &yctx->current.yacb;
     sxc_client_t *sx = sxi_cluster_get_client(yctx->cluster);;
     ssize_t n;
     off_t start = yctx->pos;
@@ -1884,17 +1795,11 @@ static int multi_part_compute_hash_ev(struct file_upload_ctx *yctx)
         return -1;
     }
 
-    ya_init(yacb);
-    yacb->yajl_start_map = yacb_createfile_start_map;
-    yacb->yajl_map_key = yacb_createfile_map_key;
-    yacb->yajl_number = yacb_createfile_number;
-    yacb->yajl_start_array = yacb_createfile_start_array;
-    yacb->yajl_string = yacb_createfile_string;
-    yacb->yajl_end_array = yacb_createfile_end_array;
-    yacb->yajl_end_map = yacb_createfile_end_map;
-    yctx->current.yh = NULL;
+    yctx->current.J = NULL;
+    yctx->current.err = SXE_ECOMM;
+    yctx->current.acts = &createfile_acts;
 
-    if (!(cbdata = sxi_cbdata_create_upload(sxi_cluster_get_conns(yctx->cluster), multi_part_upload_blocks, yctx))) {
+    if (!(yctx->cbdata = sxi_cbdata_create_upload(sxi_cluster_get_conns(yctx->cluster), multi_part_upload_blocks, yctx))) {
         SXDEBUG("failed to allocate cbdata");
 	sxi_seterr(sx, SXE_EMEM, "Out of memory");
         return -1;
@@ -1903,17 +1808,17 @@ static int multi_part_compute_hash_ev(struct file_upload_ctx *yctx)
     /* TODO: state->end should be yctx->end */
     yctx->current.ref++;
     /* TODO: multiple volhost support */
-    sxi_cbdata_set_operation(cbdata, "upload file content hashes", NULL, NULL, NULL);
+    sxi_cbdata_set_operation(yctx->cbdata, "upload file content hashes", NULL, NULL, NULL);
 
-    if(sxi_cluster_query_ev_retry(cbdata, sxi_cluster_get_conns(yctx->cluster), yctx->volhosts,
+    if(sxi_cluster_query_ev_retry(yctx->cbdata, sxi_cluster_get_conns(yctx->cluster), yctx->volhosts,
                                   yctx->query->verb, yctx->query->path, yctx->query->content, yctx->query->content_len,
                                   createfile_setup_cb, createfile_cb, yctx->dest->jobs) == -1)
     {
         SXDEBUG("file create query failed");
-        sxi_cbdata_unref(&cbdata);
+        sxi_cbdata_unref(&yctx->cbdata);
         return -1;
     }
-    sxi_cbdata_unref(&cbdata);
+    sxi_cbdata_unref(&yctx->cbdata);
     return 0;
 }
 
@@ -2507,8 +2412,8 @@ static int local_to_remote_begin(sxc_file_t *source, sxc_file_t *dest, int recur
     if (ret > 0 && qret > 0)
         ret = qret;
     SXDEBUG("returning %d", ret);
-    if(yctx && yctx->current.yh)
-	yajl_free(yctx->current.yh);
+    if(yctx)
+	sxi_jparse_destroy(yctx->current.J);
 
     if(yctx) {
 	if(yctx->current.f) {
@@ -2767,231 +2672,129 @@ static int local_to_remote_iterate(sxc_file_t *source, int recursive, int depth,
     return ret;
 }
 
+/*
+  {
+  "blockSize":1024,
+  "fileSize":9876,
+  "createdAt":1234,
+  "fileRevision":"FILEREV",
+  "fileData":[
+    { "block" : [ "host1", "host2" ] },
+    ...
+  ]
+ */
+
+
 struct cb_getfile_ctx {
     curlev_context_t *cbdata;
-    yajl_callbacks yacb;
-    struct cb_error_ctx errctx;
+    jparse_t *J;
+    const struct jparse_actions *acts;
     FILE *f;
     int64_t filesize, blocksize, created_at;
     unsigned int nblocks;
-    yajl_handle yh;
-    enum getfile_state { GF_ERROR, GF_BEGIN, GF_MAIN, GF_BLOCKSIZE, GF_FILESIZE, GF_MTIME, GF_REVISION, GF_DATA, GF_CONTENT, GF_BLOCK, GF_HOSTS, GF_HOST, GF_ENDBLOCK, GF_COMPLETE } state;
+    enum sxc_error_t err;
 };
 
-static int yacb_getfile_start_map(void *ctx) {
+static void cb_getfile_bs(jparse_t *J, void *ctx, int32_t num) {
     struct cb_getfile_ctx *yactx = (struct cb_getfile_ctx *)ctx;
-    if(!ctx)
-	return 0;
-    if(yactx->state != GF_BEGIN && yactx->state != GF_CONTENT) {
-	CBDEBUG("bad state %d", yactx->state);
-	return 0;
+    if(num <= 0) {
+	sxi_jparse_cancel(J, "Invalid block size requested");
+	yactx->err = SXE_ECOMM;
+	return;
     }
-    yactx->state++;
-    return 1;
+    yactx->blocksize = num;
+}
+static void cb_getfile_size(jparse_t *J, void *ctx, int64_t num) {
+    struct cb_getfile_ctx *yactx = (struct cb_getfile_ctx *)ctx;
+    if(num < 0) {
+	sxi_jparse_cancel(J, "Invalid file size");
+	yactx->err = SXE_ECOMM;
+	return;
+    }
+    yactx->filesize = num;
+}
+static void cb_getfile_time(jparse_t *J, void *ctx, int64_t num) {
+    struct cb_getfile_ctx *yactx = (struct cb_getfile_ctx *)ctx;
+    if(num < 0) {
+	sxi_jparse_cancel(J, "Invalid file modification time");
+	yactx->err = SXE_ECOMM;
+	return;
+    }
+    yactx->created_at = num;
 }
 
-static int yacb_getfile_map_key(void *ctx, const unsigned char *s, size_t l) {
+static void cb_getfile_blockinit(jparse_t *J, void *ctx) {
+    const char *block = sxi_jpath_mapkey(sxi_jpath_down(sxi_jpath_down(sxi_jparse_whereami(J))));
     struct cb_getfile_ctx *yactx = (struct cb_getfile_ctx *)ctx;
-    if(!ctx)
-	return 0;
-    if (yactx->state == GF_ERROR)
-        return yacb_error_map_key(&yactx->errctx, s, l);
-    if (yactx->state == GF_MAIN) {
-        if (ya_check_error(yactx->cbdata, &yactx->errctx, s, l)) {
-            yactx->state = GF_ERROR;
-            return 1;
-        }
-    }
-    if(yactx->state == GF_MAIN) {
-	if(l == lenof("blockSize") && !memcmp(s, "blockSize", lenof("blockSize")))
-	    yactx->state = GF_BLOCKSIZE;
-	else if(l == lenof("fileSize") && !memcmp(s, "fileSize", lenof("fileSize")))
-	    yactx->state = GF_FILESIZE;
-	else if(l == lenof("fileData") && !memcmp(s, "fileData", lenof("fileData")))
-	    yactx->state = GF_DATA;
-	else if(l == lenof("createdAt") && !memcmp(s, "createdAt", lenof("createdAt")))
-	    yactx->state = GF_MTIME;
-	else if(l == lenof("fileRevision") && !memcmp(s, "fileRevision", lenof("fileRevision")))
-	    yactx->state = GF_REVISION;
-	else {
-	    CBDEBUG("unknown key %.*s", (int)l, s);
-	    return 0;
-	}
-	return 1;
-    }
 
-    if(yactx->state == GF_BLOCK) {
-	if(l != 40) {
-	    CBDEBUG("unexpected hash length %u", (unsigned)l);
-	    return 0;
-	}
-	if(!(fwrite(s, 40, 1, yactx->f))) {
-	    CBDEBUG("failed to write hash to results file");
-	    sxi_cbdata_setsyserr(yactx->cbdata, SXE_EWRITE, "Failed to write to temporary file");
-	    return 0;
-	}
-	yactx->nblocks++;
-	yactx->state++;
-	return 1;
+    if(strlen(block) != SXI_SHA1_TEXT_LEN) {
+	sxi_jparse_cancel(J, "Received block with invalid name '%s'", block);
+	yactx->err = SXE_ECOMM;
+	return;
     }
-
-    CBDEBUG("bad state %d", yactx->state);
-    return 0;
+    if(!(fwrite(block, SXI_SHA1_TEXT_LEN, 1, yactx->f))) {
+	sxc_client_t *sx = sxi_conns_get_client(sxi_cbdata_get_conns(yactx->cbdata));
+	sxi_setsyserr(sx, SXE_EWRITE, "Failed to write to temporary file");
+	sxi_jparse_cancel(J, "%s", sxc_geterrmsg(sx));
+	yactx->err = SXE_EWRITE;
+	sxc_clearerr(sx);
+	return;
+    }
+    yactx->nblocks++;
 }
 
-static int yacb_getfile_number(void *ctx, const char *s, size_t l) {
+
+static void cb_getfile_host(jparse_t *J, void *ctx, const char *string, unsigned int length) {
     struct cb_getfile_ctx *yactx = (struct cb_getfile_ctx *)ctx;
-    char numb[24], *enumb;
-    int64_t nnumb;
-
-    if(!ctx)
-	return 0;
-    if(l > 20) {
-	CBDEBUG("number too long (%u bytes)", (unsigned)l);
-	return 0;
-    }
-    memcpy(numb, s, l);
-    numb[l] = '\0';
-    nnumb = strtoll(numb, &enumb, 10);
-    if(*enumb) {
-	CBDEBUG("failed to parse number %.*s", (int)l, s);
-	return 0;
-    }
-
-    if(yactx->state == GF_BLOCKSIZE) {
-	if(yactx->blocksize) { /* FIXME: reset */
-	    CBDEBUG("blockSize duplicated");
-	    return 0;
-	}
-	yactx->blocksize = nnumb;
-    } else if(yactx->state == GF_FILESIZE) {
-	if(yactx->filesize >= 0) { /* FIXME: reset */
-	    CBDEBUG("fileSize duplicated");
-	    return 0;
-	}
-	yactx->filesize = nnumb;
-    } else if(yactx->state == GF_MTIME) {
-	/* Nothing to do here */
-	if(yactx->created_at >= 0) {
-	    CBDEBUG("createdAt duplicated");
-	    return 0;
-	}
-	yactx->created_at = nnumb;
-    } else {
-	CBDEBUG("bad state %d", yactx->state);
-	return 0;
-    }
-
-    yactx->state = GF_MAIN;
-    return 1;
-}
-
-static int yacb_getfile_start_array(void *ctx) {
-    struct cb_getfile_ctx *yactx = (struct cb_getfile_ctx *)ctx;
-    if(!ctx)
-	return 0;
-    if(yactx->state != GF_DATA && yactx->state != GF_HOSTS) {
-	CBDEBUG("bad state %d", yactx->state);
-	return 0;
-    }
-
-    yactx->state++;
-    return 1;
-}
-
-static int yacb_getfile_string(void *ctx, const unsigned char *s, size_t l) {
-    struct cb_getfile_ctx *yactx = (struct cb_getfile_ctx *)ctx;
-    if(!ctx)
-	return 0;
-
-    if (yactx->state == GF_ERROR)
-        return yacb_error_string(&yactx->errctx, s, l);
-
-    if(yactx->state == GF_REVISION) {
-	/* Nothign to do */
-	yactx->state = GF_MAIN;
-	return 1;
-    }
-
-    if(yactx->state != GF_HOST) {
-	CBDEBUG("bad state %d", yactx->state);
-	return 0;
-    }
-
-    if(l < 2 || l > 40) {
-	CBDEBUG("bad host '%.*s'", (int)l, s);
-	return 0;
-    }
 
     if(sxi_getenv("SX_DEBUG_SINGLEHOST")) {
-	s = (unsigned char*)sxi_getenv("SX_DEBUG_SINGLEHOST");
-	l = strlen((const char *)s);
+	string = sxi_getenv("SX_DEBUG_SINGLEHOST");
+	length = strlen(string);
     }
 
-    if(fputc(l, yactx->f) == EOF) {
-	CBDEBUG("failed to write host length to results file");
-	return 0;
-    }
-    if(!fwrite(s, l, 1, yactx->f)) {
-	CBDEBUG("failed to write host to results file");
-	sxi_cbdata_setsyserr(yactx->cbdata, SXE_EWRITE, "Failed to write temporary file");
-	return 0;
+    if(length < 2 || length > 40) {
+	const char *block = sxi_jpath_mapkey(sxi_jpath_down(sxi_jpath_down(sxi_jparse_whereami(J))));
+	sxi_jparse_cancel(J, "Received invalid address %.*s for block %s", length, string, block);
+	yactx->err = SXE_ECOMM;
+	return;
     }
 
-    return 1;
+    if(fputc(length, yactx->f) == EOF || !fwrite(string, length, 1, yactx->f)) {
+	sxc_client_t *sx = sxi_conns_get_client(sxi_cbdata_get_conns(yactx->cbdata));
+	sxi_setsyserr(sx, SXE_EWRITE, "Failed to write to temporary file");
+	sxi_jparse_cancel(J, "%s", sxc_geterrmsg(sx));
+	yactx->err = SXE_EWRITE;
+	sxc_clearerr(sx);
+	return;
+    }
+
 }
 
-static int yacb_getfile_end_array(void *ctx) {
+static void cb_getfile_blockdone(jparse_t *J, void *ctx) {
     struct cb_getfile_ctx *yactx = (struct cb_getfile_ctx *)ctx;
-    if(!ctx)
-	return 0;
-    if(yactx->state == GF_HOST) {
-	yactx->state = GF_ENDBLOCK;
-	if(fputc(0, yactx->f) == EOF) {
-	    CBDEBUG("failed to write host to results file");
-	    return 0;
-	}
-    } else if(yactx->state == GF_CONTENT)
-	yactx->state = GF_MAIN;
-    else {
-	CBDEBUG("bad state %d", yactx->state);
-	return 0;
-    }
-    return 1;
-}
 
-static int yacb_getfile_end_map(void *ctx) {
-    struct cb_getfile_ctx *yactx = (struct cb_getfile_ctx *)ctx;
-    if(!ctx)
-	return 0;
-
-    if (yactx->state == GF_ERROR)
-        return yacb_error_end_map(&yactx->errctx);
-    if(yactx->state == GF_ENDBLOCK)
-	yactx->state = GF_CONTENT;
-    else if(yactx->state == GF_MAIN)
-	yactx->state = GF_COMPLETE;
-    else {
-	CBDEBUG("bad state %d", yactx->state);
-	return 0;
+    if(fputc(0, yactx->f) == EOF) {
+	sxc_client_t *sx = sxi_conns_get_client(sxi_cbdata_get_conns(yactx->cbdata));
+	sxi_setsyserr(sx, SXE_EWRITE, "Failed to write to temporary file");
+	sxi_jparse_cancel(J, "%s", sxc_geterrmsg(sx));
+	yactx->err = SXE_EWRITE;
+	sxc_clearerr(sx);
+	return;
     }
-    return 1;
 }
 
 static int getfile_setup_cb(curlev_context_t *cbdata, void *ctx, const char *host) {
     struct cb_getfile_ctx *yactx = (struct cb_getfile_ctx *)ctx;
 
-    if(yactx->yh)
-	yajl_free(yactx->yh);
-
     yactx->cbdata = cbdata;
-    if(!(yactx->yh  = yajl_alloc(&yactx->yacb, NULL, yactx))) {
-	CBDEBUG("OOM allocating yajl context");
-	sxi_cbdata_seterr(yactx->cbdata, SXE_EMEM, "Failed to retrieve the blocks to download: Out of memory");
+
+    sxi_jparse_destroy(yactx->J);
+    if(!(yactx->J = sxi_jparse_create(yactx->acts, yactx, 1))) {
+	CBDEBUG("OOM allocating JSON parser");
+	sxi_cbdata_seterr(cbdata, SXE_EMEM, "Failed to retrieve the blocks to download: Out of memory");
 	return 1;
     }
 
-    yactx->state = GF_BEGIN;
     rewind(yactx->f);
     yactx->blocksize = 0;
     yactx->filesize = -1;
@@ -3003,14 +2806,11 @@ static int getfile_setup_cb(curlev_context_t *cbdata, void *ctx, const char *hos
 
 static int getfile_cb(curlev_context_t *cctx, void *ctx, const void *data, size_t size) {
     struct cb_getfile_ctx *yactx = (struct cb_getfile_ctx *)ctx;
-    if(yajl_parse(yactx->yh, data, size) != yajl_status_ok) {
-        if (yactx->state != GF_ERROR) {
-            CBDEBUG("failed to parse JSON data: %s", sxi_cbdata_geterrmsg(yactx->cbdata));
-            sxi_cbdata_seterr(cctx, SXE_ECOMM, "communication error");
-        }
+
+    if(sxi_jparse_digest(yactx->J, data, size)) {
+	sxi_cbdata_seterr(yactx->cbdata, yactx->err, sxi_jparse_geterr(yactx->J));
 	return 1;
     }
-
     return 0;
 }
 
@@ -3329,14 +3129,33 @@ static int path_is_root(const char *path)
 }
 
 static int hashes_to_download(sxc_file_t *source, sxi_hostlist_t *volnodes, FILE **tf, char **tfname, unsigned int *blocksize, int64_t *filesize, int64_t *created_at) {
+    const struct jparse_actions acts = {
+	JPACTS_INT32(
+		     JPACT(cb_getfile_bs, JPKEY("blockSize"))
+		     ),
+	JPACTS_INT64(
+		     JPACT(cb_getfile_size, JPKEY("fileSize")),
+		     JPACT(cb_getfile_time, JPKEY("createdAt"))
+		     ),
+	JPACTS_STRING(
+		      JPACT(cb_getfile_host, JPKEY("fileData"), JPANYITM, JPANYKEY, JPANYITM)
+		      ),
+	JPACTS_ARRAY_BEGIN(
+			   JPACT(cb_getfile_blockinit, JPKEY("fileData"), JPANYITM, JPANYKEY)
+			   ),
+	JPACTS_ARRAY_END(
+			 JPACT(cb_getfile_blockdone, JPKEY("fileData"), JPANYITM, JPANYKEY)
+			 )
+    };
     char *enc_vol = NULL, *enc_path = NULL, *url = NULL, *enc_rev = NULL, *hsfname = NULL;
     struct cb_getfile_ctx yctx;
-    yajl_callbacks *yacb = &yctx.yacb;
     sxc_client_t *sx = source->sx;
     unsigned int urlen;
     int ret = 1;
 
     memset(&yctx, 0, sizeof(yctx));
+    yctx.acts = &acts;
+
     if (path_is_root(source->path)) {
         sxi_seterr(source->sx, SXE_EARG, "Invalid path");
         goto hashes_to_download_err;
@@ -3377,27 +3196,13 @@ static int hashes_to_download(sxc_file_t *source, sxi_hostlist_t *volnodes, FILE
 	goto hashes_to_download_err;
     }
 
-    ya_init(yacb);
-    yacb->yajl_start_map = yacb_getfile_start_map;
-    yacb->yajl_map_key = yacb_getfile_map_key;
-    yacb->yajl_number = yacb_getfile_number;
-    yacb->yajl_start_array = yacb_getfile_start_array;
-    yacb->yajl_string = yacb_getfile_string;
-    yacb->yajl_end_array = yacb_getfile_end_array;
-    yacb->yajl_end_map = yacb_getfile_end_map;
-
-    yctx.yh = NULL;
-
     sxi_set_operation(sx, "download file content hashes", sxi_cluster_get_name(source->cluster), source->volume, source->path);
     if(sxi_cluster_query(sxi_cluster_get_conns(source->cluster), volnodes, REQ_GET, url, NULL, 0, getfile_setup_cb, getfile_cb, &yctx) != 200) {
 	SXDEBUG("file get query failed");
 	goto hashes_to_download_err;
     }
-    if(yajl_complete_parse(yctx.yh) != yajl_status_ok || yctx.state != GF_COMPLETE) {
-        if (yctx.state != GF_ERROR) {
-            SXDEBUG("JSON parsing failed");
-            sxi_seterr(sx, SXE_ECOMM, "Failed to retrieve the blocks to download: Communication error");
-        }
+    if(sxi_jparse_done(yctx.J)) {
+	sxi_seterr(sx, yctx.err, "%s", sxi_jparse_geterr(yctx.J));
 	goto hashes_to_download_err;
     }
 
@@ -3417,9 +3222,7 @@ static int hashes_to_download(sxc_file_t *source, sxi_hostlist_t *volnodes, FILE
     ret = 0;
 
 hashes_to_download_err:
-    if(yctx.yh)
-	yajl_free(yctx.yh);
-
+    sxi_jparse_destroy(yctx.J);
     free(url);
     if(ret) {
 	if(hsfname) {
@@ -4880,7 +4683,6 @@ static sxi_job_t* remote_to_remote_fast(sxc_file_t *source, sxc_file_t *dest) {
     sxi_ht *src_hashes = NULL;
     sxc_client_t *sx = source->sx;
     struct file_upload_ctx *yctx;
-    yajl_callbacks *yacb;
     unsigned int blocksize;
     sxi_hostlist_t volhosts;
     int64_t filesize;
@@ -4915,6 +4717,7 @@ static sxi_job_t* remote_to_remote_fast(sxc_file_t *source, sxc_file_t *dest) {
     if(!vmeta) {
         SXDEBUG("Out of memory allocating volume meta");
         sxi_seterr(sx, SXE_EMEM, "Out of memory");
+        free(yctx);
         return NULL;
     }
 
@@ -4923,6 +4726,7 @@ static sxi_job_t* remote_to_remote_fast(sxc_file_t *source, sxc_file_t *dest) {
         SXDEBUG("Out of memory allocating volume meta");
         sxi_seterr(sx, SXE_EMEM, "Out of memory");
         sxc_meta_free(vmeta);
+        free(yctx);
         return NULL;
     }
 
@@ -5028,18 +4832,10 @@ static sxi_job_t* remote_to_remote_fast(sxc_file_t *source, sxc_file_t *dest) {
         goto remote_to_remote_fast_err;
     }
 
-    yacb = &yctx->current.yacb;
-    ya_init(yacb);
-    yacb->yajl_start_map = yacb_createfile_start_map;
-    yacb->yajl_map_key = yacb_createfile_map_key;
-    yacb->yajl_number = yacb_createfile_number;
-    yacb->yajl_start_array = yacb_createfile_start_array;
-    yacb->yajl_string = yacb_createfile_string;
-    yacb->yajl_end_array = yacb_createfile_end_array;
-    yacb->yajl_end_map = yacb_createfile_end_map;
-
     yctx->max_part_blocks = sxi_ht_count(src_hashes);
-    yctx->current.yh = NULL;
+    yctx->current.J = NULL;
+    yctx->current.err = SXE_ECOMM;
+    yctx->current.acts = &createfile_acts;
     yctx->blocksize = blocksize;
     yctx->name = strdup(dest->remote_path);
     if(!yctx->name) {
@@ -5071,15 +4867,14 @@ static sxi_job_t* remote_to_remote_fast(sxc_file_t *source, sxc_file_t *dest) {
 	goto remote_to_remote_fast_err;
     }
 
-    if(yajl_complete_parse(yctx->current.yh) != yajl_status_ok || yctx->current.state != CF_COMPLETE) {
+    if(sxi_jparse_done(yctx->current.J)) {
 	SXDEBUG("JSON parsing failed");
-	sxi_cbdata_seterr(cbdata, SXE_ECOMM, "Transfer failed: Communication error");
+	sxi_cbdata_seterr(cbdata, yctx->current.err, "Transfer failed: %s", sxi_jparse_geterr(yctx->current.J));
 	goto remote_to_remote_fast_err;
     }
 
-    if(yctx->current.yh)
-	yajl_free(yctx->current.yh);
-    yctx->current.yh = NULL;
+    sxi_jparse_destroy(yctx->current.J);
+    yctx->current.J = NULL;
 
     if(!(buf = malloc(blocksize))) {
 	SXDEBUG("OOM allocating the block buffer (%u bytes)", blocksize);
@@ -5186,8 +4981,7 @@ remote_to_remote_fast_err:
         sxi_hostlist_empty(&yctx->current.needed[i].upload_hosts);
     free(yctx->current.needed);
     free(yctx->host);
-    if(yctx->current.yh)
-	yajl_free(yctx->current.yh);
+    sxi_jparse_destroy(yctx->current.J);
 
     if (hf)
         fclose(hf);
@@ -5826,178 +5620,67 @@ int sxc_cat(sxc_file_t *source, int dest) {
     return rc;
 }
 
-struct cb_filemeta_ctx {
-    /* 'fileMeta' or 'clusterMeta', or sth else... */
-    const char *meta_key;
-
+struct cb_metadata_ctx {
     curlev_context_t *cbdata;
-    yajl_handle yh;
-    struct cb_error_ctx errctx;
+    jparse_t *J;
+    const struct jparse_actions *acts;
     sxc_meta_t *meta;
-    yajl_callbacks yacb;
-    char *nextk;
-    enum filemeta_state { FM_ERROR, FM_BEGIN, FM_FM, FM_ITEMS, FM_KEY, FM_VAL, FM_DONE, FM_COMPLETE } state;
+    enum sxc_error_t err;
 };
 
 /* {"<meta_key>":{"key1":"value1", "key2":"value2"}}                    *
  * where <meta_key> can be fileMeta, clusterMeta or clusterSettings,    *
  * the expected value is stored as meta_key field in above structure    */
 
-static int yacb_filemeta_start_map(void *ctx) {
-    struct cb_filemeta_ctx *yactx = (struct cb_filemeta_ctx *)ctx;
-    if(!ctx)
-	return 0;
-    if(yactx->state != FM_BEGIN && yactx->state != FM_ITEMS) {
-	CBDEBUG("bad state %d", yactx->state);
-	return 0;
-    }
-    yactx->state++;
-    return 1;
-}
+static void cb_metadata(jparse_t *J, void *ctx, const char *string, unsigned int length) {
+    const char *key = sxi_jpath_mapkey(sxi_jpath_down(sxi_jparse_whereami(J)));
+    struct cb_metadata_ctx *yactx = (struct cb_metadata_ctx *)ctx;
 
-static int yacb_filemeta_map_key(void *ctx, const unsigned char *s, size_t l) {
-    struct cb_filemeta_ctx *yactx = (struct cb_filemeta_ctx *)ctx;
-
-    if (yactx->state == FM_ERROR)
-        return yacb_error_map_key(&yactx->errctx, s, l);
-    if (yactx->state == FM_FM || yactx->state == FM_DONE) {
-        if (ya_check_error(yactx->cbdata, &yactx->errctx, s, l)) {
-            yactx->state = FM_ERROR;
-            return 1;
-        }
-    }
-    if(yactx->state == FM_FM) {
-	yactx->state++;
-        if(!yactx->meta_key) {
-            CBDEBUG("meta_key has not been set");
-            return 0;
-        }
-	if(l != strlen(yactx->meta_key) || memcmp(s, yactx->meta_key, strlen(yactx->meta_key))) {
-	    CBDEBUG("expected %s, received %.*s", yactx->meta_key, (int)l, s);
-	    return 0;
+    if(!length) {
+	if(sxc_meta_setval(yactx->meta, key, string, 0)) {
+	    sxi_jparse_cancel(J, "Out of memory processing metadata");
+	    yactx->err = SXE_EMEM;
 	}
-	return 1;
+    } else if(sxc_meta_setval_fromhex(yactx->meta, key, string, length)) {
+	sxc_client_t *sx = sxi_conns_get_client(sxi_cbdata_get_conns(yactx->cbdata));
+	if(sxc_geterrnum(sx) == SXE_EARG) {
+	    sxi_jparse_cancel(J, "Invalid metadata received");
+	    yactx->err = SXE_ECOMM;
+	} else {
+	    sxi_jparse_cancel(J, "Out of memory processing metadata");
+	    yactx->err = SXE_EMEM;
+	}
+	sxc_clearerr(sx);
+	return;
     }
-
-    if(yactx->state != FM_KEY) {
-	CBDEBUG("bad state %d", yactx->state);
-	return 0;
-    }
-
-    if(yactx->nextk) {
-	CBDEBUG("called out of order");
-	return 0;
-    }
-    yactx->nextk = malloc(l+1);
-    if(!yactx->nextk) {
-	CBDEBUG("OOM duplicating meta key");
-	sxi_cbdata_seterr(yactx->cbdata, SXE_EMEM, "Out of memory");
-	return 0;
-    }
-    memcpy(yactx->nextk, s, l);
-    yactx->nextk[l] = '\0';
-    yactx->state++;
-
-    return 1;
 }
 
-
-static int yacb_filemeta_string(void *ctx, const unsigned char *s, size_t l) {
-    struct cb_filemeta_ctx *yactx = (struct cb_filemeta_ctx *)ctx;
-    unsigned int binlen = l / 2;
-    void *value;
-
-    if (yactx->state == FM_ERROR)
-	return yacb_error_string(&yactx->errctx, s, l);
-    if(yactx->state != FM_VAL) {
-	CBDEBUG("bad state %d", yactx->state);
-	return 0;
-    }
-
-    if(!yactx->nextk) {
-	CBDEBUG("called out of order");
-	return 0;
-    }
-
-    value = malloc(binlen);
-    if(!value) {
-	CBDEBUG("OOM duplicating meta value");
-	sxi_cbdata_seterr(yactx->cbdata, SXE_EMEM, "Out of memory");
-	return 0;
-    }
-
-    if(sxi_hex2bin((const char *)s, l, value, binlen)) {
-	CBDEBUG("received bad hex value %.*s", (int)l, s);
-	free(value);
-	return 0;
-    }
-
-    if(sxc_meta_setval(yactx->meta, yactx->nextk, value, binlen)) {
-        sxc_client_t *sx = sxi_conns_get_client(sxi_cbdata_get_conns(yactx->cbdata));
-	CBDEBUG("failed to add key to list");
-	free(value);
-        sxi_cbdata_restore_global_error(sx, yactx->cbdata);
-	return 0;
-    }
-
-    free(value);
-    free(yactx->nextk);
-    yactx->nextk = NULL;
-
-    yactx->state--;
-    return 1;
-}
-
-static int yacb_filemeta_end_map(void *ctx) {
-    struct cb_filemeta_ctx *yactx = (struct cb_filemeta_ctx *)ctx;
-
-    if (yactx->state == FM_ERROR)
-	return yacb_error_end_map(&yactx->errctx);
-    if(yactx->state == FM_KEY)
-	yactx->state = FM_DONE;
-    else if(yactx->state == FM_DONE)
-	yactx->state = FM_COMPLETE;
-    else {
-	CBDEBUG("bad state %d", yactx->state);
-	return 0;
-    }
-    return 1;
-}
-
-static int filemeta_setup_cb(curlev_context_t *cbdata, void *ctx, const char *host) {
-    struct cb_filemeta_ctx *yactx = (struct cb_filemeta_ctx *)ctx;
-
-    if(yactx->yh)
-	yajl_free(yactx->yh);
-
-    sxc_meta_empty(yactx->meta);
-    free(yactx->nextk);
-    yactx->nextk = NULL;
+static int metadata_setup_cb(curlev_context_t *cbdata, void *ctx, const char *host) {
+    struct cb_metadata_ctx *yactx = (struct cb_metadata_ctx *)ctx;
 
     yactx->cbdata = cbdata;
-    if(!(yactx->yh  = yajl_alloc(&yactx->yacb, NULL, yactx))) {
-	CBDEBUG("OOM allocating yajl context");
-	sxi_cbdata_seterr(yactx->cbdata, SXE_EMEM, "Failed to retrieve the blocks to download: Out of memory");
+
+    sxi_jparse_destroy(yactx->J);
+    if(!(yactx->J = sxi_jparse_create(yactx->acts, yactx, 1))) {
+	CBDEBUG("OOM allocating JSON parser");
+	sxi_cbdata_seterr(cbdata, SXE_EMEM, "Failed to retrieve object metadata");
 	return 1;
     }
 
-    yactx->state = FM_BEGIN;
-
+    sxc_meta_empty(yactx->meta);
     return 0;
 }
 
-static int filemeta_cb(curlev_context_t *cbdata, void *ctx, const void *data, size_t size) {
-    struct cb_filemeta_ctx *yactx = (struct cb_filemeta_ctx *)ctx;
-    if(yajl_parse(yactx->yh, data, size) != yajl_status_ok) {
-	if (yactx->state != FM_ERROR) {
-	    CBDEBUG("failed to parse JSON data: %s", sxi_cbdata_geterrmsg(yactx->cbdata));
-            sxi_cbdata_seterr(yactx->cbdata, SXE_ECOMM, "communication error");
-        }
+static int metadata_cb(curlev_context_t *cbdata, void *ctx, const void *data, size_t size) {
+    struct cb_metadata_ctx *yactx = (struct cb_metadata_ctx *)ctx;
+
+    if(sxi_jparse_digest(yactx->J, data, size)) {
+	sxi_cbdata_seterr(yactx->cbdata, yactx->err, sxi_jparse_geterr(yactx->J));
 	return 1;
     }
-
     return 0;
 }
+
 
 static int volmeta_new_common(sxc_file_t *file, sxc_meta_t **meta, sxc_meta_t **custom_meta) {
     sxi_hostlist_t volnodes;
@@ -6059,67 +5742,54 @@ sxc_meta_t *sxc_volumemeta_new(sxc_file_t *file) {
 }
 
 sxc_meta_t *sxc_clustermeta_new(sxc_cluster_t *cluster) {
+    const struct jparse_actions acts = {
+	JPACTS_STRING(JPACT(cb_metadata, JPKEY("clusterMeta"), JPANYKEY))
+    };
     sxc_meta_t *meta = NULL;
-    struct cb_filemeta_ctx yctx;
-    yajl_callbacks *yacb = &yctx.yacb;
+    struct cb_metadata_ctx yctx;
     sxc_client_t *sx = sxi_cluster_get_client(cluster);
     sxi_conns_t *conns = sxi_cluster_get_conns(cluster);
 
-    ya_init(yacb);
-    yacb->yajl_start_map = yacb_filemeta_start_map;
-    yacb->yajl_map_key = yacb_filemeta_map_key;
-    yacb->yajl_string = yacb_filemeta_string;
-    yacb->yajl_end_map = yacb_filemeta_end_map;
-
-    yctx.yh = NULL;
-    yctx.nextk = NULL;
-    yctx.meta_key = "clusterMeta";
+    yctx.J = NULL;
+    yctx.acts = &acts;
     yctx.meta = sxc_meta_new(sx);
     if(!yctx.meta)
         goto sxc_clustermeta_begin_err;
 
     sxi_set_operation(sx, "get cluster metadata", NULL, NULL, NULL);
-    if(sxi_cluster_query(conns, NULL, REQ_GET, "?clusterMeta", NULL, 0, filemeta_setup_cb, filemeta_cb, &yctx) != 200) {
+    if(sxi_cluster_query(conns, NULL, REQ_GET, "?clusterMeta", NULL, 0, metadata_setup_cb, metadata_cb, &yctx) != 200) {
         SXDEBUG("file get query failed");
         goto sxc_clustermeta_begin_err;
     }
 
-    if(yajl_complete_parse(yctx.yh) != yajl_status_ok || yctx.state != FM_COMPLETE) {
-        sxi_seterr(sx, SXE_ECOMM, "Failed to retrieve the file metadata: Communication error");
-        goto sxc_clustermeta_begin_err;
+    if(sxi_jparse_done(yctx.J)) {
+	sxi_seterr(sx, yctx.err, "%s", sxi_jparse_geterr(yctx.J));
+	goto sxc_clustermeta_begin_err;
     }
 
     meta = yctx.meta;
     yctx.meta = NULL;
 
 sxc_clustermeta_begin_err:
-    if(yctx.yh)
-        yajl_free(yctx.yh);
-    free(yctx.nextk);
-    if(yctx.meta)
-        sxc_meta_free(yctx.meta);
+    sxi_jparse_destroy(yctx.J);
+    sxc_meta_free(yctx.meta);
 
     return meta;
 }
 
 sxc_meta_t *sxc_cluster_settings_new(sxc_cluster_t *cluster, const char *key) {
+    const struct jparse_actions acts = {
+	JPACTS_STRING(JPACT(cb_metadata, JPKEY("clusterSettings"), JPANYKEY))
+    };
     sxc_meta_t *meta = NULL;
-    struct cb_filemeta_ctx yctx;
-    yajl_callbacks *yacb = &yctx.yacb;
+    struct cb_metadata_ctx yctx;
     sxc_client_t *sx = sxi_cluster_get_client(cluster);
     sxi_conns_t *conns = sxi_cluster_get_conns(cluster);
     char *url = NULL, *key_enc = NULL;
     unsigned int len;
 
-    ya_init(yacb);
-    yacb->yajl_start_map = yacb_filemeta_start_map;
-    yacb->yajl_map_key = yacb_filemeta_map_key;
-    yacb->yajl_string = yacb_filemeta_string;
-    yacb->yajl_end_map = yacb_filemeta_end_map;
-
-    yctx.yh = NULL;
-    yctx.nextk = NULL;
-    yctx.meta_key = "clusterSettings";
+    yctx.J = NULL;
+    yctx.acts = &acts;
     yctx.meta = sxc_meta_new(sx);
     if(!yctx.meta)
         goto sxc_cluster_settings_new_err;
@@ -6141,13 +5811,13 @@ sxc_meta_t *sxc_cluster_settings_new(sxc_cluster_t *cluster, const char *key) {
     }
     snprintf(url, len, ".clusterSettings%s%s", key_enc ? "?key=" : "", key_enc ? key_enc : "");
     sxi_set_operation(sx, "get cluster settings", NULL, NULL, NULL);
-    if(sxi_cluster_query(conns, NULL, REQ_GET, url, NULL, 0, filemeta_setup_cb, filemeta_cb, &yctx) != 200) {
+    if(sxi_cluster_query(conns, NULL, REQ_GET, url, NULL, 0, metadata_setup_cb, metadata_cb, &yctx) != 200) {
         SXDEBUG("file get query failed");
         goto sxc_cluster_settings_new_err;
     }
 
-    if(yajl_complete_parse(yctx.yh) != yajl_status_ok || yctx.state != FM_COMPLETE) {
-        sxi_seterr(sx, SXE_ECOMM, "Failed to retrieve cluster settings: Communication error");
+    if(sxi_jparse_done(yctx.J)) {
+  	sxi_seterr(sx, yctx.err, "%s", sxi_jparse_geterr(yctx.J));
         goto sxc_cluster_settings_new_err;
     }
 
@@ -6155,23 +5825,22 @@ sxc_meta_t *sxc_cluster_settings_new(sxc_cluster_t *cluster, const char *key) {
     yctx.meta = NULL;
 
 sxc_cluster_settings_new_err:
-    if(yctx.yh)
-        yajl_free(yctx.yh);
-    free(yctx.nextk);
-    if(yctx.meta)
-        sxc_meta_free(yctx.meta);
-    free(url);
     free(key_enc);
+    free(url);
+    sxi_jparse_destroy(yctx.J);
+    sxc_meta_free(yctx.meta);
 
     return meta;
 }
 
 sxc_meta_t *sxc_filemeta_new(sxc_file_t *file) {
+    const struct jparse_actions acts = {
+	JPACTS_STRING(JPACT(cb_metadata, JPKEY("fileMeta"), JPANYKEY))
+    };
     sxi_hostlist_t volnodes;
     sxc_client_t *sx;
     char *enc_vol = NULL, *enc_path = NULL, *enc_rev = NULL, *url = NULL;
-    struct cb_filemeta_ctx yctx;
-    yajl_callbacks *yacb = &yctx.yacb;
+    struct cb_metadata_ctx yctx;
     sxc_meta_t *ret = NULL;
     sxc_meta_t *vmeta = NULL, *cvmeta = NULL;
     const void *mval;
@@ -6277,28 +5946,21 @@ sxc_meta_t *sxc_filemeta_new(sxc_file_t *file) {
     free(enc_path);
     enc_vol = enc_path = NULL;
 
-    ya_init(yacb);
-    yacb->yajl_start_map = yacb_filemeta_start_map;
-    yacb->yajl_map_key = yacb_filemeta_map_key;
-    yacb->yajl_string = yacb_filemeta_string;
-    yacb->yajl_end_map = yacb_filemeta_end_map;
-
-    yctx.yh = NULL;
-    yctx.nextk = NULL;
-    yctx.meta_key = "fileMeta";
+    yctx.J = NULL;
+    yctx.acts = &acts;
     yctx.meta = sxc_meta_new(sx);
     if(!yctx.meta)
 	goto filemeta_begin_err;
 
     sxi_set_operation(sxi_cluster_get_client(file->cluster), "get file metadata",
                       sxi_cluster_get_name(file->cluster), file->volume, file->path);
-    if(sxi_cluster_query(sxi_cluster_get_conns(file->cluster), &volnodes, REQ_GET, url, NULL, 0, filemeta_setup_cb, filemeta_cb, &yctx) != 200) {
+    if(sxi_cluster_query(sxi_cluster_get_conns(file->cluster), &volnodes, REQ_GET, url, NULL, 0, metadata_setup_cb, metadata_cb, &yctx) != 200) {
 	SXDEBUG("file get query failed");
 	goto filemeta_begin_err;
     }
 
-    if(yajl_complete_parse(yctx.yh) != yajl_status_ok || yctx.state != FM_COMPLETE) {
-	sxi_seterr(sx, SXE_ECOMM, "Failed to retrieve the file metadata: Communication error");
+    if(sxi_jparse_done(yctx.J)) {
+	sxi_seterr(sx, yctx.err, "%s", sxi_jparse_geterr(yctx.J));
 	goto filemeta_begin_err;
     }
 
@@ -6312,11 +5974,8 @@ sxc_meta_t *sxc_filemeta_new(sxc_file_t *file) {
     free(enc_path);
     free(enc_rev);
     free(url);
-    if(yctx.yh)
-	yajl_free(yctx.yh);
-    free(yctx.nextk);
-    if(yctx.meta)
-	sxc_meta_free(yctx.meta);
+    sxi_jparse_destroy(yctx.J);
+    sxc_meta_free(yctx.meta);
     sxc_meta_free(vmeta);
     sxc_meta_free(cvmeta);
     free(filter_cfgdir);
@@ -6946,184 +6605,112 @@ struct cb_filerev_ctx {
     sxc_cluster_t *cluster;
     const char *volume;
     const char *remote_path;
-    yajl_handle yh;
-    struct cb_error_ctx errctx;
-    yajl_callbacks yacb;
-    enum filerev_state { FR_BEGIN, FR_FR, FR_START, FR_REVS, FR_REV, FR_REVDATA, FR_BSIZE, FR_FSIZE, FR_MTIME, FR_END, FR_COMPLETE } state;
+    jparse_t *J;
+    const struct jparse_actions *acts;
     sxc_revision_t **revs;
     unsigned int nrevs;
+    enum sxc_error_t err;
 };
 
-static int yacb_filerev_start_map(void *ctx) {
+static void cb_filerev_revinit(jparse_t *J, void *ctx) {
+    const char *revname = sxi_jpath_mapkey(sxi_jpath_down(sxi_jparse_whereami(J)));
     struct cb_filerev_ctx *yactx = (struct cb_filerev_ctx *)ctx;
+    sxc_revision_t *rev = malloc(sizeof(*rev));
+    unsigned int nrevs = yactx->nrevs;
 
-    if(yactx->state == FR_BEGIN)
-	yactx->state = FR_FR;
-    else if(yactx->state == FR_START)
-	yactx->state = FR_REVS;
-    else if(yactx->state == FR_REV)
-	yactx->state = FR_REVDATA;
-    else {
-	CBDEBUG("bad state %d", yactx->state);
-	return 0;
+    if(!rev) {
+	sxi_jparse_cancel(J, "Out of memory processing file revisions");
+	yactx->err = SXE_EMEM;
+	return;
     }
 
-    return 1;
+    rev->file = sxi_file_remote(yactx->cluster, yactx->volume, NULL, yactx->remote_path, revname, NULL, 0);
+    if(!rev->file) {
+        free(rev);
+        sxi_jparse_cancel(J, "Out of memory allocating remote file");
+        yactx->err = SXE_EMEM;
+        return;
+    }
+    rev->block_size = 0;
+
+    rev->block_size = 0;
+    if(!(nrevs & 0xf)) {
+	sxc_revision_t **nurevs = realloc(yactx->revs, (nrevs+16) *sizeof(*nurevs));
+	if(!nurevs) {
+	    sxi_jparse_cancel(J, "Out of memory processing file revisions");
+	    yactx->err = SXE_EMEM;
+	    free(rev);
+	    return;
+	}
+	yactx->revs = nurevs;
+    }
+    yactx->revs[nrevs] = rev;
+    yactx->nrevs++;
 }
 
-static int yacb_filerev_map_key(void *ctx, const unsigned char *s, size_t l) {
-    struct cb_filerev_ctx *yactx = (struct cb_filerev_ctx *)ctx;
-
-    if(yactx->state == FR_FR) {
-	if(l == lenof("fileRevisions") && !memcmp(s, "fileRevisions", lenof("fileRevisions"))) {
-	    yactx->state = FR_START;
-	    return 1;
-	}
-	CBDEBUG("bad key expecing 'fileRevisions', got '%.*s'", (int)l, s);
-	return 0;
-    }
-
-    if(yactx->state == FR_REVS) {
-	sxc_revision_t *rev = malloc(sizeof(*rev));
-        char *rev_str;
-	unsigned int nrevs = yactx->nrevs;
-
-	if(!rev) {
-	    CBDEBUG("OOM allocating rev");
-	    return 0;
-	}
-
-        rev_str = malloc(l+1);
-        if(!rev_str) {
-            CBDEBUG("OOM allocating rev string");
-            free(rev);
-            return 0;
-        }
-
-	memcpy(rev_str, s, l);
-	rev_str[l] = '\0';
-
-        rev->file = sxi_file_remote(yactx->cluster, yactx->volume, NULL, yactx->remote_path, rev_str, NULL, 0);
-        if(!rev->file) {
-            free(rev_str);
-            free(rev);
-            CBDEBUG("OOM allocating remote file");
-            return 0;
-        }
-        free(rev_str);
-        rev->block_size = 0;
-
-	if(!(nrevs & 0xf)) {
-	    sxc_revision_t **nurevs = realloc(yactx->revs, (nrevs+16) *sizeof(*nurevs));
-	    if(!nurevs) {
-		CBDEBUG("OOM reallocating revs array");
-		free(rev);
-		return 0;
-	    }
-	    yactx->revs = nurevs;
-	}
-
-	yactx->revs[nrevs] = rev;
-	yactx->state = FR_REV;
-	yactx->nrevs++;
-	return 1;
-    }
-
-    if(yactx->state == FR_REVDATA) {
-	if(l == lenof("blockSize") && !memcmp(s, "blockSize", lenof("blockSize")))
-	    yactx->state = FR_BSIZE;
-	else if(l == lenof("fileSize") && !memcmp(s, "fileSize", lenof("fileSize")))
-	    yactx->state = FR_FSIZE;
-	else if(l == lenof("createdAt") && !memcmp(s, "createdAt", lenof("createdAt")))
-	    yactx->state = FR_MTIME;
-	else {
-	    CBDEBUG("unknown key %.*s", (int)l, s);
-	    return 0;
-	}
-	return 1;
-    }
-
-    CBDEBUG("key %.*s in bad state %u", (int)l, s, yactx->state);
-    return 0;
-}
-
-static int yacb_filerev_number(void *ctx, const char *s, size_t l) {
-    struct cb_filerev_ctx *yactx = (struct cb_filerev_ctx *)ctx;
-    sxc_revision_t *rev;
-    char numb[24], *enumb;
+static sxc_revision_t *getcurrev(jparse_t *J, struct cb_filerev_ctx *yactx) {
     unsigned int curev;
-    int64_t nnumb;
-
-    if(!ctx || !yactx->revs || !(curev = yactx->nrevs) || !yactx->revs[curev-1])
-	return 0;
-
-    rev = yactx->revs[curev-1];
-    if(l > 20) {
-	CBDEBUG("number too long (%u bytes)", (unsigned)l);
-	return 0;
+    if(!yactx || !yactx->revs || !(curev = yactx->nrevs) || !yactx->revs[curev-1]) {
+	sxi_jparse_cancel(J, "Internal error detected processing file revisions");
+	return NULL;
     }
-    memcpy(numb, s, l);
-    numb[l] = '\0';
-    nnumb = strtoll(numb, &enumb, 10);
-    if(*enumb) {
-	CBDEBUG("failed to parse number %.*s", (int)l, s);
-	return 0;
-    }
-
-    if(yactx->state == FR_BSIZE) {
-	if(rev->block_size) {
-	    CBDEBUG("blockSize duplicated");
-	    return 0;
-	}
-	rev->block_size = nnumb;
-    } else if(yactx->state == FR_FSIZE) {
-	if(rev->file->remote_size != SXC_UINT64_UNDEFINED) {
-	    CBDEBUG("fileSize duplicated");
-	    return 0;
-	}
-	rev->file->remote_size = nnumb;
-    } else if(yactx->state == FR_MTIME) {
-	if(rev->file->created_at != (long long)SXC_UINT64_UNDEFINED) {
-	    CBDEBUG("createdAt duplicated");
-	    return 0;
-	}
-	rev->file->created_at = nnumb;
-    } else {
-	CBDEBUG("bad state %d", yactx->state);
-	return 0;
-    }
-
-    yactx->state = FR_REVDATA;
-    return 1;
+    return yactx->revs[curev-1];
 }
 
-static int yacb_filerev_end_map(void *ctx) {
+static void cb_filerev_bs(jparse_t *J, void *ctx, int32_t num) {
     struct cb_filerev_ctx *yactx = (struct cb_filerev_ctx *)ctx;
+    sxc_revision_t *rev = getcurrev(J, ctx);
 
-    if(yactx->state == FR_REVDATA)
-	yactx->state = FR_REVS;
-    else if(yactx->state == FR_REVS)
-	yactx->state = FR_END;
-    else if(yactx->state == FR_END)
-	yactx->state = FR_COMPLETE;
-    else {
-	CBDEBUG("bad state %d", yactx->state);
-	return 0;
+    if(!rev)
+	return;
+    if(num <= 0) {
+	sxi_jparse_cancel(J, "Invalid block size found on revision '%s'", sxc_file_get_revision(rev->file));
+	yactx->err = SXE_ECOMM;
+	return;
     }
 
-    return 1;
+    rev->block_size = num;
+}
+
+static void cb_filerev_size(jparse_t *J, void *ctx, int64_t num) {
+    struct cb_filerev_ctx *yactx = (struct cb_filerev_ctx *)ctx;
+    sxc_revision_t *rev = getcurrev(J, ctx);
+
+    if(!rev)
+	return;
+    if(num < 0) {
+	sxi_jparse_cancel(J, "Invalid file size found on revision '%s'", sxc_file_get_revision(rev->file));
+	yactx->err = SXE_ECOMM;
+	return;
+    }
+
+    rev->file->size = num;
+}
+
+static void cb_filerev_time(jparse_t *J, void *ctx, int64_t num) {
+    struct cb_filerev_ctx *yactx = (struct cb_filerev_ctx *)ctx;
+    sxc_revision_t *rev = getcurrev(J, ctx);
+
+    if(!rev)
+	return;
+    if(num < 0) {
+	sxi_jparse_cancel(J, "Invalid file modification time found on revision '%s'", sxc_file_get_revision(rev->file));
+	yactx->err = SXE_ECOMM;
+	return;
+    }
+
+    rev->file->created_at = num;
 }
 
 static int filerev_setup_cb(curlev_context_t *cbdata, void *ctx, const char *host) {
     struct cb_filerev_ctx *yactx = (struct cb_filerev_ctx *)ctx;
 
-    if(yactx->yh)
-	yajl_free(yactx->yh);
-
     yactx->cbdata = cbdata;
-    if(!(yactx->yh  = yajl_alloc(&yactx->yacb, NULL, yactx))) {
-	CBDEBUG("OOM allocating yajl context");
-	sxi_cbdata_seterr(yactx->cbdata, SXE_EMEM, "Failed to retrieve file revisions: Out of memory");
+
+    sxi_jparse_destroy(yactx->J);
+    if(!(yactx->J = sxi_jparse_create(yactx->acts, yactx, 1))) {
+	CBDEBUG("OOM allocating JSON parser");
+	sxi_cbdata_seterr(cbdata, SXE_EMEM, "Failed to retrieve file revisions: Out of memory");
 	return 1;
     }
 
@@ -7137,20 +6724,16 @@ static int filerev_setup_cb(curlev_context_t *cbdata, void *ctx, const char *hos
 	yactx->revs = NULL;
     }
     yactx->nrevs = 0;
-
-    yactx->state = FR_BEGIN;
-
     return 0;
 }
 
 static int filerev_cb(curlev_context_t *cbdata, void *ctx, const void *data, size_t size) {
     struct cb_filerev_ctx *yactx = (struct cb_filerev_ctx *)ctx;
-    if(yajl_parse(yactx->yh, data, size) != yajl_status_ok) {
-	CBDEBUG("failed to parse JSON data: %s", sxi_cbdata_geterrmsg(yactx->cbdata));
-	sxi_cbdata_seterr(yactx->cbdata, SXE_ECOMM, "communication error");
+
+    if(sxi_jparse_digest(yactx->J, data, size)) {
+	sxi_cbdata_seterr(yactx->cbdata, yactx->err, sxi_jparse_geterr(yactx->J));
 	return 1;
     }
-
     return 0;
 }
 
@@ -7162,11 +6745,22 @@ static int cmprevdsc(const void *a, const void *b) {
 }
 
 sxc_revlist_t *sxc_revisions(sxc_file_t *file) {
+    const struct jparse_actions acts = {
+	JPACTS_INT32(
+		     JPACT(cb_filerev_bs, JPKEY("fileRevisions"), JPANYKEY, JPKEY("blockSize"))
+		     ),
+	JPACTS_INT64(
+		     JPACT(cb_filerev_size, JPKEY("fileRevisions"), JPANYKEY, JPKEY("fileSize")),
+		     JPACT(cb_filerev_time, JPKEY("fileRevisions"), JPANYKEY, JPKEY("createdAt"))
+		     ),
+	JPACTS_MAP_BEGIN(
+			 JPACT(cb_filerev_revinit, JPKEY("fileRevisions"), JPANYKEY)
+			 )
+    };
     sxi_hostlist_t volnodes;
     sxc_client_t *sx;
     char *enc_vol = NULL, *enc_path = NULL, *url = NULL;
     struct cb_filerev_ctx yctx;
-    yajl_callbacks *yacb = &yctx.yacb;
     sxc_revlist_t *ret = NULL;
     sxc_meta_t *vmeta = NULL;
     sxc_meta_t *cvmeta = NULL;
@@ -7185,6 +6779,7 @@ sxc_revlist_t *sxc_revisions(sxc_file_t *file) {
     }
 
     memset(&yctx, 0, sizeof(yctx));
+    yctx.acts = &acts;
     sxi_hostlist_init(&volnodes);
 
     vmeta = sxc_meta_new(sx);
@@ -7275,20 +6870,14 @@ sxc_revlist_t *sxc_revisions(sxc_file_t *file) {
     free(enc_path);
     enc_vol = enc_path = NULL;
 
-    ya_init(yacb);
-    yacb->yajl_start_map = yacb_filerev_start_map;
-    yacb->yajl_map_key = yacb_filerev_map_key;
-    yacb->yajl_number = yacb_filerev_number;
-    yacb->yajl_end_map = yacb_filerev_end_map;
-
     sxi_set_operation(sxi_cluster_get_client(file->cluster), "list file revisions", sxi_cluster_get_name(file->cluster), file->volume, file->path);
     if(sxi_cluster_query(sxi_cluster_get_conns(file->cluster), &volnodes, REQ_GET, url, NULL, 0, filerev_setup_cb, filerev_cb, &yctx) != 200) {
 	SXDEBUG("rev list query failed");
 	goto frev_err;
     }
 
-    if(yajl_complete_parse(yctx.yh) != yajl_status_ok || yctx.state != FR_COMPLETE) {
-	sxi_seterr(sx, SXE_ECOMM, "Failed to retrieve the blocks to download: Communication error");
+    if(sxi_jparse_done(yctx.J)) {
+	sxi_seterr(sx, yctx.err, "%s", sxi_jparse_geterr(yctx.J));
 	goto frev_err;
     }
 
@@ -7338,11 +6927,11 @@ sxc_revlist_t *sxc_revisions(sxc_file_t *file) {
     free(enc_vol);
     free(enc_path);
     free(url);
-    if(yctx.yh)
-	yajl_free(yctx.yh);
     sxc_meta_free(vmeta);
     sxc_meta_free(cvmeta);
     free(filter_cfgdir);
+    sxi_jparse_destroy(yctx.J);
+
     return ret;
 }
 

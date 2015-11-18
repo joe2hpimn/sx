@@ -28,13 +28,12 @@
 #include "hashfs.h"
 #include "../libsxclient/src/clustcfg.h"
 #include "../libsxclient/src/curlevents.h"
-#include "../libsxclient/src/yajlwrap.h"
+#include "../libsxclient/src/jparse.h"
 #include <string.h>
 #include <stdint.h>
 #include <errno.h>
 #include "log.h"
 #include "utils.h"
-#include <yajl/yajl_parse.h>
 
 void sxi_hashop_begin(sxi_hashop_t *hashop, sxi_conns_t *conns, hash_presence_cb_t cb, enum sxi_hashop_kind kind, unsigned replica, const sx_hash_t *reservehash, const sx_hash_t *revisionhash, void *context, uint64_t op_expires_at)
 {
@@ -73,155 +72,57 @@ void sxi_hashop_begin(sxi_hashop_t *hashop, sxi_conns_t *conns, hash_presence_cb
 }
 
 struct hashop_ctx {
-    yajl_handle yh;
+    jparse_t *J;
     char *hexhashes;
     sxi_query_t *query;
-    enum { MISS_ERROR, MISS_BEGIN, MISS_MAP, MISS_PRESENCE, MISS_ARRAY, MISS_COMPLETE } state;
-  unsigned idx;
+    unsigned int idx;
     int idxs[DOWNLOAD_MAX_BLOCKS];
     sxi_hashop_t *hashop;
     curlev_context_t *cbdata;
-    struct cb_error_ctx errctx;
 };
 
-static int cb_presence_start_map(void *ctx) {
-    struct hashop_ctx *yactx = ctx;
-    if(!ctx)
-	return 0;
-    if (yactx->state != MISS_BEGIN) {
-	WARN("bad state %d", yactx->state);
-	return 0;
-    }
-    yactx->state = MISS_MAP;
-    return 1;
-}
+/* 
+{"presence":[true, false, ...]}
+*/
 
-static int cb_presence_map_key(void *ctx, const unsigned char *s, size_t l) {
+static void cb_presence(jparse_t *J, void *ctx, int boolean) {
     struct hashop_ctx *yactx = ctx;
-    if (!yactx)
-        return 0;
-/*    if (yactx->state == MISS_ERROR)
-        return yacb_error_map_key(&yactx->errctx, s, l);*/
-    if (yactx->state == MISS_MAP) {
-/*        if (ya_check_error(yactx->sx, &yactx->errctx, s, l)) {
-            yactx->state = MISS_ERROR;
-            return 1;
-        }*/
-	if(l == lenof("presence") && !memcmp(s, "presence", lenof("presence"))) {
-            yactx->state = MISS_PRESENCE;
-            return 1;
-        }
-        WARN("unknown key %.*s", (int)l, s);
-        return 0;
-    }
-
-    WARN("bad state %d", yactx->state);
-    return 0;
-}
-
-static int cb_presence_string(void *ctx, const unsigned char *s, size_t l) {
-    struct hashop_ctx *yactx = ctx;
-    if (!yactx)
-        return 0;
-/*    if (yactx->state == MISS_ERROR)
-        return yacb_error_string(&yactx->errctx, s, l);*/
-    WARN("unexpected string");
-    return 0;
-}
-
-static int cb_presence_boolean(void *ctx, int boolean) {
-    struct hashop_ctx *yactx = ctx;
-    if(!ctx)
-	return 0;
     sxi_hashop_t *hashop = yactx->hashop;
+    const char *q = yactx->hexhashes;
+    unsigned maxidx, mapped_idx;
+
     if (!hashop) {
-        WARN("NULL hashop");
-        return 0;
+	sxi_jparse_cancel(J, "NULL hashop");
+        return;
     }
-    if (yactx->state == MISS_ARRAY) {
-        unsigned maxidx, mapped_idx;
-        const char *q = yactx->hexhashes;
-
-        if (!q) {
-            WARN("NULL hexhashes");
-            return 0;
-        }
-        maxidx = strlen(q) / SXI_SHA1_TEXT_LEN;
-        if (yactx->idx >= maxidx || yactx->idx >= DOWNLOAD_MAX_BLOCKS) {
-            WARN("index out of bounds: %d out of [0,%d)", yactx->idx, maxidx);
-            return 0;
-        }
-        q += yactx->idx * SXI_SHA1_TEXT_LEN;
-        mapped_idx = yactx->idxs[yactx->idx];
-        DEBUG("Hash index %d (%d) status: %d", mapped_idx, yactx->idx, boolean);
-        if (boolean) {
-            if (hashop->cb && hashop->cb(q, mapped_idx, 200, hashop->context) == -1)
-                hashop->cb_fail++;
-            hashop->ok++;
-        } else {
-            if (hashop->cb && hashop->cb(q, mapped_idx, 404, hashop->context) == -1)
-                hashop->cb_fail++;
-            hashop->enoent++;
-        }
-        yactx->idx++;
-        hashop->finished++;
-	return 1;
+    if (!q) {
+	sxi_jparse_cancel(J, "NULL hexhashes");
+	return;
     }
 
-    WARN("bad state %d", yactx->state);
-    return 0;
-}
-
-static int cb_presence_start_array(void *ctx) {
-    struct hashop_ctx *yactx = ctx;
-    if(!ctx)
-	return 0;
-    if(yactx->state != MISS_PRESENCE) {
-	WARN("bad state %d", yactx->state);
-	return 0;
+    maxidx = strlen(q) / SXI_SHA1_TEXT_LEN;
+    if (yactx->idx >= maxidx || yactx->idx >= DOWNLOAD_MAX_BLOCKS) {
+	sxi_jparse_cancel(J, "index out of bounds: %d out of [0,%d)", yactx->idx, maxidx);
+	return;
     }
-
-    yactx->state = MISS_ARRAY;
-    return 1;
-}
-
-static int cb_presence_end_array(void *ctx) {
-    struct hashop_ctx *yactx = ctx;
-    if(!ctx)
-	return 0;
-    if(yactx->state != MISS_ARRAY)
-	return 0;
-    yactx->state = MISS_MAP;
-    return 1;
-}
-
-static int cb_presence_end_map(void *ctx) {
-    struct hashop_ctx *yactx = ctx;
-    if(!ctx)
-	return 0;
-
-/*    if (yactx->state == MISS_ERROR)
-        return yacb_error_end_map(&yactx->errctx);*/
-    if(yactx->state == MISS_MAP) {
-	yactx->state = MISS_COMPLETE;
-        return 1;
+    q += yactx->idx * SXI_SHA1_TEXT_LEN;
+    mapped_idx = yactx->idxs[yactx->idx];
+    DEBUG("Hash index %d (%d) status: %d", mapped_idx, yactx->idx, boolean);
+    if (boolean) {
+	if (hashop->cb && hashop->cb(q, mapped_idx, 200, hashop->context) == -1)
+	    hashop->cb_fail++;
+	hashop->ok++;
+    } else {
+	if (hashop->cb && hashop->cb(q, mapped_idx, 404, hashop->context) == -1)
+	    hashop->cb_fail++;
+	hashop->enoent++;
     }
-    WARN("bad state %d", yactx->state);
-    return 0;
+    yactx->idx++;
+    hashop->finished++;
 }
 
-static const yajl_callbacks presence_parser = {
-    cb_fail_null,
-    cb_presence_boolean,
-    NULL,
-    NULL,
-    cb_fail_number,
-    cb_presence_string,
-    cb_presence_start_map,
-    cb_presence_map_key,
-    cb_presence_end_map,
-    cb_presence_start_array,
-    cb_presence_end_array
+static const struct jparse_actions presence_acts = {
+    JPACTS_BOOL(JPACT(cb_presence, JPKEY("presence"), JPANYITM))
 };
 
 static int presence_setup_cb(curlev_context_t *cbdata, const char *host) {
@@ -230,18 +131,16 @@ static int presence_setup_cb(curlev_context_t *cbdata, const char *host) {
     if(!yactx)
 	return 1;
 
-    if(yactx->yh)
-	yajl_free(yactx->yh);
-
     yactx->cbdata = cbdata;
-    if(!(yactx->yh  = yajl_alloc(&presence_parser, NULL, yactx))) {
-	CBDEBUG("OOM allocating yajl context");
+
+    sxi_jparse_destroy(yactx->J);
+    if(!(yactx->J = sxi_jparse_create(&presence_acts, yactx, 1))) {
+	CBDEBUG("OOM allocating JSON parser");
 	sxi_cbdata_seterr(cbdata, SXE_EMEM, "Failed to setup hashop: out of memory");
 	return 1;
     }
 
     yactx->idx = 0;
-    yactx->state = MISS_BEGIN;
     return 0;
 }
 
@@ -269,16 +168,16 @@ static void batch_finish(curlev_context_t *ctx, const char *url)
         return;
     }
     sxc_client_t *sx = sxi_conns_get_client(sxi_cbdata_get_conns(ctx));
-    yajl_handle yh = yactx->yh;
+    jparse_t *J = yactx->J;
 
     SXDEBUG("batch_finish for %s (%p) : %ld", yactx->hexhashes, yactx->hexhashes, status);
     if (rc != -1 && status == 200) {
         /* some hashes (maybe all) are present,
          * the server reports us the presence ones */
-        if (!yh) {
-            sxi_cbdata_seterr(ctx, SXE_EARG, "null yajl handle");
+        if (!J) {
+            sxi_cbdata_seterr(ctx, SXE_EARG, "null JSON parser");
             hashop->cb_fail++;
-        } else if(yajl_complete_parse(yh) != yajl_status_ok || yactx->state != MISS_COMPLETE) {
+        } else if(sxi_jparse_done(J)) {
             sxi_cbdata_seterr(ctx, SXE_ECOMM, "hashop failed: failed to parse cluster response");
             hashop->cb_fail++;
         }
@@ -298,8 +197,8 @@ static void batch_finish(curlev_context_t *ctx, const char *url)
             }
         }
     }
-    if (yh)
-        yajl_free(yh);
+
+    sxi_jparse_destroy(J);
     free(yactx->hexhashes);
     free(yactx);
 }
@@ -310,16 +209,11 @@ static int presence_cb(curlev_context_t *ctx, const unsigned char *data, size_t 
         WARN("NULL parser context");
         return 1;
     }
-    yajl_handle yh = yactx->yh;
-    if (!yh) {
-        WARN("NULL yajl handle");
-        return 1;
-    }
-    if(yajl_parse(yh, data, size) != yajl_status_ok) {
-	WARN("failed to parse JSON data");
+
+    if(sxi_jparse_digest(yactx->J, data, size)) {
+	sxi_cbdata_seterr(yactx->cbdata, SXE_ECOMM, sxi_jparse_geterr(yactx->J));
 	return 1;
     }
-
     return 0;
 }
 

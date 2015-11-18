@@ -26,12 +26,12 @@
 #include <unistd.h>
 
 #include "libsxclient-int.h"
-#include "yajlwrap.h"
 #include "cluster.h"
 #include "curlevents.h"
 #include "misc.h"
 #include "vcrypto.h"
 #include "version.h"
+#include "jparse.h"
 
 #define CLSTDEBUG(...) do{ sxc_client_t *_sx; if(conns && (_sx = conns->sx)) sxi_debug(_sx, __func__, __VA_ARGS__); } while(0)
 #define conns_err(...) do { if(conns) sxi_seterr(conns->sx, __VA_ARGS__); } while(0)
@@ -239,21 +239,33 @@ sxi_hostlist_t *sxi_conns_get_hostlist(sxi_conns_t *conns) {
     return &conns->hlist;
 }
 
-static void errfn(curlev_context_t *ctx, int reply_code, const char *reason)
-{
-    struct cb_error_ctx yctx;
-    yajl_callbacks yacb;
-    ya_error_parser(&yacb);
-    yajl_handle yh = yajl_alloc(&yacb, NULL, &yctx);
-    if(yh) {
-        memset(&yctx, 0, sizeof(yctx));
-        yctx.status = reply_code;
-        yctx.cbdata = ctx;
-        if(yajl_parse(yh, (uint8_t *)reason, strlen(reason)) != yajl_status_ok || yajl_complete_parse(yh) != yajl_status_ok)
-            sxi_cbdata_seterr(ctx, SXE_ECOMM, "Cluster query failed with status %d", reply_code);
-        yajl_free(yh);
-    } else
-        sxi_cbdata_seterr(ctx, SXE_EMEM, "Cluster query failed: Out of memory");
+#define ERRFNBUFLEN 1024
+static void cb_errfn(jparse_t *J, void *ctx, const char *string, unsigned int length) {
+    sxi_strlcpy(ctx, string, MIN(ERRFNBUFLEN, length+1));
+}
+
+static void errfn(curlev_context_t *ctx, int reply_code, const char *reason) {
+    const struct jparse_actions acts = {
+	JPACTS_STRING(JPACT(cb_errfn, JPKEY("ErrorMessage")))
+    };
+    char errbuf[ERRFNBUFLEN];
+    jparse_t *J = sxi_jparse_create(&acts, errbuf, 0);
+
+    errbuf[0] = '\0';
+
+    if(!J) {
+	sxi_cbdata_seterr(ctx, SXE_EMEM, "Cluster query failed: Out of memory");
+	return;
+    }
+
+    if(sxi_jparse_digest(J, reason, strlen(reason)) || sxi_jparse_done(J))
+	sxi_cbdata_seterr(ctx, SXE_ECOMM, sxi_jparse_geterr(J));
+    else if(*errbuf)
+	sxi_cbdata_setclusterr(ctx, NULL, NULL, reply_code, errbuf, NULL);
+    else
+	sxi_cbdata_seterr(ctx, SXE_ECOMM, "Cluster query failed: No reason provided");
+
+    sxi_jparse_destroy(J);
 }
 
 static enum head_result head_cb(curlev_context_t *ctx, long http_status, char *ptr, size_t size, size_t nmemb) {

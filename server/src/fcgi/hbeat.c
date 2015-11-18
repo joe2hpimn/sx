@@ -32,12 +32,11 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include <yajl/yajl_parse.h>
-
 #include "hashfs.h"
 #include "utils.h"
 #include "log.h"
 #include "../../libsxclient/src/curlevents.h"
+#include "../../libsxclient/src/jparse.h"
 
 static int terminate = 0;
 
@@ -63,142 +62,83 @@ typedef enum _raft_rpc_type_t { RAFT_RPC_REQUEST_VOTE, RAFT_RPC_APPEND_ENTRIES }
  * Sample body:
  *
  * {
- *      "term":123,
- *      "distributionVersion":3,
- *      "hashFSVersion":"SX-Storage 1.9",
- *      "libsxclientVersion":"1.2",
- *      "success":true
+ *      "raftResponse":
+ *      {
+ *          "term":123,
+ *          "distributionVersion":3,
+ *          "hashFSVersion":"SX-Storage 1.9",
+ *          "libsxclientVersion":"1.2",
+ *          "success":true
+ *      }
  * }
  *
  */
 
 struct cb_raft_response_ctx {
-    yajl_handle yh;
-    enum cb_raft_response_state { CB_RR_START, CB_RR_KEY, CB_RR_TERM, CB_RR_HDIST_VERSION, CB_RR_HASHFS_VERSION, CB_RR_LIB_VERSION, CB_RR_SUCCESS, CB_RR_COMPLETE } state;
+    const struct jparse_actions *acts;
+    jparse_t *J;
     sx_raft_term_t term;
     int success;
     int64_t hdist_version;
     sx_hashfs_version_t remote_version;
+    int has_rem_ver;
+    int has_lib_ver;
     char libsxclient_version[128];
 };
 
-static int cb_raft_response_string(void *ctx, const unsigned char *s, size_t l) {
-    struct cb_raft_response_ctx *c = (struct cb_raft_response_ctx*)ctx;
+static void cb_raft_resp_hashfs_ver(jparse_t *J, void *ctx, const char *string, unsigned int length) {
+    struct cb_raft_response_ctx *c = (struct cb_raft_response_ctx *)ctx;
+    char ver[sizeof(c->remote_version.full)];
 
-    if(c->state == CB_RR_HASHFS_VERSION) {
-	char ver[sizeof(c->remote_version.full)];
-        if(l >= sizeof(ver))
-            return 0;
-        memcpy(ver, s, l);
-        ver[l] = '\0';
-	if(sx_hashfs_version_parse(ver, &c->remote_version))
-	    return 0;
-        c->state = CB_RR_KEY;
-        return 1;
-    } else if(c->state == CB_RR_LIB_VERSION) {
-        if(l >= sizeof(c->libsxclient_version))
-            return 0;
-        memcpy(c->libsxclient_version, s, l);
-        c->libsxclient_version[l] = '\0';
-        c->state = CB_RR_KEY;
-        return 1;
+    if(length >= sizeof(ver)) {
+        sxi_jparse_cancel(J, "Invalid hashfs version");
+        return;
+    }
+    memcpy(ver, string, length);
+    ver[length] = '\0';
+    if(sx_hashfs_version_parse(ver, &c->remote_version))
+        sxi_jparse_cancel(J, "Invalid hashfs version");
+    c->has_rem_ver = 1;
+}
+
+static void cb_raft_resp_lib_ver(jparse_t *J, void *ctx, const char *string, unsigned int length) {
+    struct cb_raft_response_ctx *c = (struct cb_raft_response_ctx *)ctx;
+
+    sxi_strlcpy(c->libsxclient_version, string, MIN(sizeof(c->libsxclient_version), length+1));
+    c->has_lib_ver = 1;
+}
+
+static void cb_raft_resp_term(jparse_t *J, void *ctx, int64_t term) {
+    struct cb_raft_response_ctx *c = (struct cb_raft_response_ctx *)ctx;
+
+    if(term <= 0) {
+        sxi_jparse_cancel(J, "Invalid term received");
+        return;
+    }
+    c->term.term = term;
+}
+
+static void cb_raft_resp_hdver(jparse_t *J, void *ctx, int64_t ver) {
+    struct cb_raft_response_ctx *c = (struct cb_raft_response_ctx *)ctx;
+
+    if(ver <= 0) {
+        sxi_jparse_cancel(J, "Invalid hdist_version received");
+        return;
     }
 
-    return 0;
+    c->hdist_version = ver;
 }
 
-static int cb_raft_response_number(void *ctx, const char *s, size_t l) {
+static void cb_raft_resp_success(jparse_t *J, void *ctx, int success) {
     struct cb_raft_response_ctx *c = (struct cb_raft_response_ctx *)ctx;
-    char number[24], *eon;
-    int64_t n;
 
-    if(c->state != CB_RR_TERM && c->state != CB_RR_HDIST_VERSION)
-        return 0;
+    if(success != 0 && success != 1) {
+        sxi_jparse_cancel(J, "Invalid success received");
+        return;
+    }
 
-    if(l<1 || l>20)
-        return 0;
-    memcpy(number, s, l);
-    number[l] = '\0';
-    n = strtoll(number, &eon, 10);
-    if(*eon || n < 0)
-        return 0;
-    if(c->state == CB_RR_TERM)
-        c->term.term = n;
-    else if(c->state == CB_RR_HDIST_VERSION)
-        c->hdist_version = n;
-    else
-        return 0;
-    c->state = CB_RR_KEY;
-    return 1;
+    c->success = success;
 }
-
-static int cb_raft_response_start_map(void *ctx) {
-    struct cb_raft_response_ctx *c = (struct cb_raft_response_ctx*)ctx;
-
-    if(c->state == CB_RR_START)
-        c->state = CB_RR_KEY;
-    else
-        return 0;
-
-    return 1;
-}
-
-static int cb_raft_response_map_key(void *ctx, const unsigned char *s, size_t l) {
-    struct cb_raft_response_ctx *c = (struct cb_raft_response_ctx*)ctx;
-
-    if(c->state == CB_RR_KEY) {
-        if(l == lenof("term") && !strncmp("term", (const char *)s, lenof("term")))
-            c->state = CB_RR_TERM;
-        else if(l == lenof("success") && !strncmp("success", (const char *)s, lenof("success")))
-            c->state = CB_RR_SUCCESS;
-        else if(l == lenof("distributionVersion") && !strncmp("distributionVersion", (const char *)s, lenof("distributionVersion")))
-            c->state = CB_RR_HDIST_VERSION;
-        else if(l == lenof("hashFSVersion") && !strncmp("hashFSVersion", (const char *)s, lenof("hashFSVersion")))
-            c->state = CB_RR_HASHFS_VERSION;
-        else if(l == lenof("libsxclientVersion") && !strncmp("libsxclientVersion", (const char *)s, lenof("libsxclientVersion")))
-            c->state = CB_RR_LIB_VERSION;
-        else
-            return 0;
-    } else
-        return 0;
-
-    return 1;
-}
-
-static int cb_raft_response_end_map(void *ctx) {
-    struct cb_raft_response_ctx *c = (struct cb_raft_response_ctx*)ctx;
-
-    if(c->state == CB_RR_KEY)
-        c->state = CB_RR_COMPLETE;
-    else
-        return 0;
-    return 1;
-}
-
-static int cb_raft_response_boolean(void *ctx, int boolean) {
-    struct cb_raft_response_ctx *c = (struct cb_raft_response_ctx*)ctx;
-
-    if(c->state != CB_RR_SUCCESS)
-        return 0;
-
-    c->success = boolean;
-    c->state = CB_RR_KEY;
-    return 1;
-}
-
-static const yajl_callbacks raft_response_parser = {
-    cb_fail_null,
-    cb_raft_response_boolean,
-    NULL,
-    NULL,
-    cb_raft_response_number,
-    cb_raft_response_string,
-    cb_raft_response_start_map,
-    cb_raft_response_map_key,
-    cb_raft_response_end_map,
-    cb_fail_start_array,
-    cb_fail_end_array
-};
 
 static int raft_response_setup_cb(curlev_context_t *cbdata, const char *host) {
     struct cb_raft_response_ctx *c;
@@ -212,18 +152,18 @@ static int raft_response_setup_cb(curlev_context_t *cbdata, const char *host) {
         return -1;
     }
 
-    if(c->yh)
-        yajl_free(c->yh);
+    sxi_jparse_destroy(c->J);
 
-    if(!(c->yh  = yajl_alloc(&raft_response_parser, NULL, c))) {
-        INFO("failed to allocate yajl structure");
+    if(!(c->J  = sxi_jparse_create(c->acts, c, 0))) {
         sxi_cbdata_seterr(cbdata, SXE_EMEM, "List failed: Out of memory");
         return 1;
     }
 
-    c->state = CB_RR_START;
     c->success = -1;
+    c->hdist_version = -1;
     c->term.term = -1;
+    c->has_lib_ver = 0;
+    c->has_rem_ver = 0;
     version_init(&c->remote_version);
     memset(c->libsxclient_version, 0, sizeof(c->libsxclient_version));
 
@@ -242,8 +182,8 @@ static int raft_response_cb(curlev_context_t *cbdata, const unsigned char *data,
         return -1;
     }
 
-    if(yajl_parse(c->yh, data, size) != yajl_status_ok) {
-        INFO("failed to parse raft response");
+    if(sxi_jparse_digest(c->J, data, size)) {
+        sxi_cbdata_seterr(cbdata, SXE_ECOMM, sxi_jparse_geterr(c->J));
         return 1;
     }
 
@@ -260,6 +200,19 @@ static rc_ty raft_rpc_bcast(sx_hashfs_t *h, sx_raft_state_t *state, raft_rpc_typ
     unsigned int nnode;
     sxi_query_t *proto= NULL;
     struct timeval now;
+    const struct jparse_actions acts = {
+        JPACTS_STRING(
+                      JPACT(cb_raft_resp_hashfs_ver, JPKEY("raftResponse"), JPKEY("hashFSVersion")),
+                      JPACT(cb_raft_resp_lib_ver, JPKEY("raftResponse"), JPKEY("libsxclientVersion"))
+                     ),
+        JPACTS_INT64 (
+                      JPACT(cb_raft_resp_term, JPKEY("raftResponse"), JPKEY("term")),
+                      JPACT(cb_raft_resp_hdver, JPKEY("raftResponse"), JPKEY("distributionVersion"))
+                     ),
+        JPACTS_BOOL  (
+                      JPACT(cb_raft_resp_success, JPKEY("raftResponse"), JPKEY("success"))
+                     )
+    };
 
     if(!state || !me || !nodes || !max_recv_term || !max_recv_hdist_version || !max_recv_hashfs_version)
         return EINVAL;
@@ -326,6 +279,7 @@ static rc_ty raft_rpc_bcast(sx_hashfs_t *h, sx_raft_state_t *state, raft_rpc_typ
 
             cbdata[nnode] = sxi_cbdata_create_generic(clust, NULL, NULL);
             sxi_cbdata_set_context(cbdata[nnode], &ctx[nnode]);
+            ctx[nnode].acts = &acts;
             if(sxi_cluster_query_ev(cbdata[nnode], clust, sx_node_internal_addr(node), proto->verb, proto->path, proto->content, proto->content_len, raft_response_setup_cb, raft_response_cb)) {
                 WARN("Failed to query node %s: %s", sx_node_uuid_str(node), sxc_geterrmsg(sx));
                 msg_set_reason("Failed to setup cluster communication with node %s", sx_node_internal_addr(node));
@@ -340,7 +294,7 @@ raft_rpc_bcast_err:
         gettimeofday(&now, NULL);
         for(nnode = 0; nnode < nnodes; nnode++) {
             const sx_node_t *node = sx_nodelist_get(nodes, nnode);
-            int rc;
+            int rc, fail = 0;
             long http_status = 0;
 
             if(!sx_node_cmp(node, me)) {
@@ -363,8 +317,16 @@ raft_rpc_bcast_err:
                 msg_set_reason("Internal error in cluster communication");
                 continue;
             }
-            if(rc == -1 || http_status != 200) {
-                msg_set_reason("Query failed: %s", sxi_cbdata_geterrmsg(cbdata[nnode]));
+
+            if(rc == -1 || http_status != 200 || sxi_jparse_done(ctx[nnode].J))
+                fail = 1;
+            else if(!ctx[nnode].has_rem_ver || !ctx[nnode].has_lib_ver || ctx[nnode].success < 0 || ctx[nnode].term.term < 0 || ctx[nnode].hdist_version < 0) {
+                fail = 1;
+                sxi_cbdata_seterr(cbdata[nnode], SXE_ECOMM, "One or more required fields are missing for raft response entry");
+            }
+
+            if(fail) {
+                DEBUG("Raft request to %s failed: %s", sx_node_internal_addr(node), sxi_cbdata_geterrmsg(cbdata[nnode]));
                 if(state->role == RAFT_ROLE_LEADER) {
                     DEBUG("Heartbeat query failed: %s", sxi_cbdata_geterrmsg(cbdata[nnode]));
                     DEBUG("Last contact with %s (%s) took place %.0lfs ago", sx_node_uuid_str(node), sx_node_internal_addr(node), sxi_timediff(&now, &state->leader_state.node_states[nnode].last_contact));
@@ -391,10 +353,8 @@ raft_rpc_bcast_err:
     for(nnode = 0; nnode < nnodes && cbdata; nnode++)
         if(cbdata[nnode])
             sxi_cbdata_unref(&cbdata[nnode]);
-    for(nnode = 0; nnode < nnodes && ctx; nnode++) {
-        if(ctx[nnode].yh)
-            yajl_free(ctx[nnode].yh);
-    }
+    for(nnode = 0; nnode < nnodes && ctx; nnode++)
+        sxi_jparse_destroy(ctx[nnode].J);
     free(cbdata);
     sxi_query_free(proto);
     free(ctx);

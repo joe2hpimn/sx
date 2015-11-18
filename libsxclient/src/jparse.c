@@ -171,9 +171,15 @@ static int jpnumber(void *ctx, const char *s, size_t l) {
 }
 
 static int jpstring(void * ctx, const unsigned char *s, size_t l) {
+    const struct jref **emsgref = JPREF(JPKEY("ErrorMessage"));
     struct jparse *J = (struct jparse *)ctx;
 
     NONULLARGS;
+
+    if(J->parseerr && !jparse_cmp(J, emsgref)) {
+	snprintf(J->errbuf, sizeof(J->errbuf), "Cluster error: %.*s", (unsigned int)l, s);
+	J->cancelled = 1;
+    }
 
     FOREACH_MATCH(actions_string, J->ctx, (const char *)s, (unsigned int)l);
     bumpar(J);
@@ -187,7 +193,8 @@ static int jpstart_map(void *ctx) {
     NONULLJ;
     if(J->newlvl) {
 	/* Not reached */
-	fprintf(stderr, "start_map: invalid input");
+	snprintf(J->errbuf, sizeof(J->errbuf), "Internal error detected parsing JSON map data");
+	J->cancelled = 1;
 	return 0;
     }
 
@@ -204,7 +211,8 @@ static int jpmap_key(void *ctx, const unsigned char *s, size_t l) {
     NONULLARGS;
     c = malloc(sizeof(*c) + l + 1);
     if(!c) {
-	fprintf(stderr, "map_key: Out of memory");
+	snprintf(J->errbuf, sizeof(J->errbuf), "Out of memory parsing JSON data");
+	J->cancelled = 1;
 	return 0;
     }
     buf = (char *)(c+1);
@@ -243,18 +251,23 @@ static int jpend_obj(void *ctx, int ismap) {
     struct container *last;
 
     NONULLJ;
-    last = J->last;
-    if(last) {
-	J->last = last->up;
-	if(J->last)
-	    J->last->down = NULL;
-	else
+
+    if(!ismap || !J->newlvl) {
+	/* Array or full map */
+	last = J->last;
+	if(last) {
+	    J->last = last->up;
+	    if(J->last)
+		J->last->down = NULL;
+	    else
+		J->first = NULL;
+	    free(last);
+	} else {
 	    J->first = NULL;
-	free(last);
-    } else {
-	J->first = NULL;
-	J->last = NULL;
-    }
+	    J->last = NULL;
+	}
+    } else
+	J->newlvl = 0; /* empty map */
 	
     if(ismap)
 	FOREACH_MATCH(actions_mapend, J->ctx);
@@ -284,7 +297,8 @@ static int jpstart_array(void *ctx) {
 
     c = malloc(sizeof(*c));
     if(!c) {
-	fprintf(stderr, "start_array: Out of memory");
+	snprintf(J->errbuf, sizeof(J->errbuf), "Out of memory parsing JSON data");
+	J->cancelled = 1;
 	return 0;
     }
     c->key = NULL;
