@@ -855,12 +855,30 @@ static int aes256_filemeta_process(const sxf_handle_t *handle, void **ctx, const
 {
     ssize_t bytes;
     char fmeta_padded[SXLIMIT_MAX_FILENAME_LEN + 19 + 1];
-    const void *enc_meta;
-    unsigned int enc_meta_len;
+    const void *meta;
+    unsigned int meta_len;
     sxf_action_t action = SXF_ACTION_DATA_END;
     int ret = -1;
 
-    if(sxc_meta_getval(custom_volume_meta, "aes256_encrypt_meta", &enc_meta, &enc_meta_len)) {
+    if(sxc_meta_getval(custom_volume_meta, "aes256_encrypt_meta", &meta, &meta_len)) {
+	uint64_t fsize;
+	if(filemeta_type == SXF_FILEMETA_LOCAL) {
+	    fsize = sxi_swapu64(sxc_file_get_size(file));
+	    if(sxc_meta_setval(file_meta, "aesSize", &fsize, sizeof(fsize))) {
+		ERROR("Failed to set file size meta");
+		return -1;
+	    }
+	} else {
+	    if(sxc_meta_getval(file_meta, "aesSize", &meta, &meta_len) || meta_len != sizeof(uint64_t)) {
+		ERROR("Failed to obtain the original file size");
+		return -1;
+	    }
+	    fsize = sxi_swapu64(*(uint64_t *) meta);
+	    if(sxi_file_set_size(file, fsize)) {
+		ERROR("Failed to set file size");
+		return -1;
+	    }
+	}
 	*new_filename = strdup(filename);
 	if(!*new_filename) {
 	    ERROR("OOM");
@@ -912,11 +930,11 @@ static int aes256_filemeta_process(const sxf_handle_t *handle, void **ctx, const
     } else if(filemeta_type == SXF_FILEMETA_REMOTE) {
 	char *pt;
 
-        if(sxc_meta_getval(file_meta, "aesEncryptedMeta", &enc_meta, &enc_meta_len)) {
+        if(sxc_meta_getval(file_meta, "aesEncryptedMeta", &meta, &meta_len)) {
             ERROR("Failed to get encrypted meta");
 	    goto filemeta_err;
         }
-	bytes = aes256_data_process(handle, *ctx, enc_meta, enc_meta_len, fmeta_padded, sizeof(fmeta_padded), SXF_MODE_DOWNLOAD, &action);
+	bytes = aes256_data_process(handle, *ctx, meta, meta_len, fmeta_padded, sizeof(fmeta_padded), SXF_MODE_DOWNLOAD, &action);
 	if(bytes <= 0)
 	    goto filemeta_err;
 
