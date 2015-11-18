@@ -5623,6 +5623,45 @@ int sxc_cat(sxc_file_t *source, int dest) {
     return rc;
 }
 
+int sxc_update_filemeta(sxc_file_t *file, sxc_meta_t *newmeta)
+{
+    const void *value;
+    unsigned int i, value_len;
+    const char *key;
+    sxc_meta_t *fmeta;
+    sxc_client_t *sx;
+    sxi_job_t *job;
+
+    if(!file || !newmeta)
+        return -1;
+    sx = file->sx;
+    if(!is_remote(file)) {
+	sxi_seterr(sx, SXE_EARG, "Called with local source file");
+	return -1;
+    }
+    if(!(fmeta = sxc_filemeta_new(file)))
+        return -1;
+    for(i=0; i<sxc_meta_count(newmeta); i++) {
+        if(sxc_meta_getkeyval(newmeta, i, &key, &value, &value_len)) {
+            SXDEBUG("failed to retrieve meta entry");
+            sxc_meta_free(fmeta);
+            return -1;
+        }
+        if(sxc_meta_setval(fmeta, key, value, value_len)) {
+            SXDEBUG("failed to set meta entry");
+            sxc_meta_free(fmeta);
+            return -1;
+        }
+    }
+    sxc_meta_free(file->meta);
+    file->meta = fmeta;
+    if(!(job = remote_to_remote_fast(file, file)))
+        return -1;
+    if(sxi_jobs_wait_one(file, job))
+        return -1;
+    return 0;
+}
+
 struct cb_metadata_ctx {
     curlev_context_t *cbdata;
     jparse_t *J;

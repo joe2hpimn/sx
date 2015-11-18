@@ -324,6 +324,7 @@ int sxc_copy(sxc_file_t *source, sxc_file_t *dest, int recursive, int onefs, int
 int sxc_copy_sxfile(sxc_file_t *source, sxc_file_t *dest, int fail_same_file);
 int sxc_cat(sxc_file_t *source, int dest);
 int sxc_mass_rename(sxc_cluster_t *cluster, sxc_file_t *source, sxc_file_t *dest, int recursive);
+int sxc_update_filemeta(sxc_file_t *file, sxc_meta_t *newmeta);
 
 typedef struct _sxc_file_list_t sxc_file_list_t;
 

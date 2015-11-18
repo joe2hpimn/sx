@@ -96,6 +96,9 @@ Allow access to root
 \fBauto_unmount\fR
 Auto unmount on process termination
 .TP
+\fBdefault_permissions\fR
+Enable permission checking by kernel
+.TP
 \fBlarge_read\fR
 Issue large read requests
 .TP

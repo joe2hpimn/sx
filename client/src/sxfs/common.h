@@ -56,7 +56,7 @@ int sxfs_clear_path (const char *path);
 
 int sxfs_get_file (sxfs_file_t *sxfs_file, sxc_client_t *sx, sxc_cluster_t *cluster, int start_block, int end_block);
 int sxfs_get_block_background (sxfs_file_t *sxfs_file, int block_num);
-void sxfs_file_free (sxfs_file_t *sxfs_file);
+void sxfs_file_free (sxfs_state_t* sxfs, sxfs_file_t *sxfs_file);
 
 void sxfs_sx_data_destroy (void *ptr);
 int sxfs_get_sx_data (sxfs_state_t *sxfs, sxc_client_t **sx, sxc_cluster_t **cluster);
@@ -76,7 +76,7 @@ int sxfs_ls_stat (const char *path, struct stat *st); /* returned values: <0 - e
 int sxfs_update_mtime (const char *local_file_path, const char *remote_file_path, sxfs_lsfile_t *lsfile);
 
 int sxfs_delete_rename (const char *path, const char *newpath, int avoid_resize);
-int sxfs_delete (const char *path, int is_remote);
+int sxfs_delete (const char *path, int is_remote, int upload_checked);
 int sxfs_delete_check_path (const char *path);
 int sxfs_delete_start (void);
 void sxfs_delete_stop (void);
