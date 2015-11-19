@@ -764,11 +764,13 @@ static rc_ty raft_election_start(sx_hashfs_t *h, sx_raft_state_t *state, const s
             WARN("Failed to save new raft state: %s", msg_get_reason());
             sx_hashfs_raft_state_abort(h);
             sx_hashfs_raft_state_empty(h, &save_state);
+            free(node_states);
             return s;
         }
         if(sx_hashfs_raft_state_end(h)) {
             WARN("Failed to save raft state");
             sx_hashfs_raft_state_empty(h, &save_state);
+            free(node_states);
             return FAIL_EINTERNAL;
         }
     } else
