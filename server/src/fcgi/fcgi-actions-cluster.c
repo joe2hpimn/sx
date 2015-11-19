@@ -737,10 +737,8 @@ static rc_ty cluster_setmeta_execute_blob(sx_hashfs_t *h, sx_blob_t *b, jobphase
         if(phase == JOBPHASE_COMMIT) {
             /* Add cluster meta only when in commit phase, otherwise skip it,
              * it just need to travel through the blob to the old meta */
-            if((s = sx_hashfs_clustermeta_set_addmeta(h, metakey, metaval, metaval_len)) != OK) {
-                WARN("Failed to add meta entry");
+            if((s = sx_hashfs_clustermeta_set_addmeta(h, metakey, metaval, metaval_len)) != OK)
                 return s;
-            }
         }
     }
 

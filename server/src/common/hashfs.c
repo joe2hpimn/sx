@@ -36,6 +36,7 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <fnmatch.h>
+#include <ctype.h>
 
 #include "vfs_unix_waitsem.h"
 #include "sxdbi.h"
@@ -2609,8 +2610,20 @@ static rc_ty settings_check_float(sx_hashfs_t *h, const char *key, const char *v
     return OK;
 }
 
+static int check_meta_string(const char *str) {
+    unsigned int i;
+
+    if(sxi_utf8_validate(str))
+        return 1;
+    for(i = 0; i < strlen(str); i++) {
+        if(iscntrl(str[i]))
+            return 1;
+    }
+    return 0;
+}
+
 static rc_ty settings_check_string(sx_hashfs_t *h, const char *key, const char *value) {
-    if(sxi_utf8_validate(value)) {
+    if(check_meta_string(value)) {
         msg_set_reason("Invalid setting value for type STRING");
         return EINVAL;
     }
@@ -11807,12 +11820,26 @@ void sx_hashfs_clustermeta_set_begin(sx_hashfs_t *h) {
 }
 
 rc_ty sx_hashfs_clustermeta_set_addmeta(sx_hashfs_t *h, const char *key, const void *value, unsigned int value_len) {
+    char *str;
+    rc_ty rc;
     if(!h)
         return FAIL_EINTERNAL;
 
-    rc_ty rc;
     if((rc = sx_hashfs_check_meta(key, value, value_len)))
         return rc;
+    str = malloc(value_len + 1);
+    if(!str) {
+        msg_set_reason("Out of memory");
+        return FAIL_EINTERNAL;
+    }
+    memcpy(str, value, value_len);
+    str[value_len] = '\0';
+    if(check_meta_string(str)) {
+        msg_set_reason("Cluster meta value must be a valid utf-8 string without control characters");
+        free(str);
+        return EINVAL;
+    }
+    free(str);
 
     return addmeta_common(h, key, value, value_len);
 }

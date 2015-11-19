@@ -2378,7 +2378,7 @@ static int set_cluster_meta(sxc_client_t *sx, struct cluster_args_info *args) {
         return 1;
     }
 
-    ret = set_cluster_meta_common(sx, cluster, meta, args->set_meta_arg, args->set_meta_given, 1);
+    ret = set_cluster_meta_common(sx, cluster, meta, (const char**)args->set_meta_arg, args->set_meta_given, 1);
     sxc_cluster_free(cluster);
     sxc_meta_free(meta);
     if(!ret)
@@ -2407,7 +2407,7 @@ static int set_cluster_param(sxc_client_t *sx, struct cluster_args_info *args) {
         return 1;
     }
 
-    ret = set_cluster_meta_common(sx, cluster, meta, args->set_param_arg, args->set_param_given, 0);
+    ret = set_cluster_meta_common(sx, cluster, meta, (const char **)args->set_param_arg, args->set_param_given, 0);
     sxc_cluster_free(cluster);
     sxc_meta_free(meta);
     if(!ret)
