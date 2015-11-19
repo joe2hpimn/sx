@@ -1240,7 +1240,7 @@ struct curl_events {
     int added_notpolled;
     const char *cafile;
     char *savefile;
-    int saved, quiet;
+    int cert_saved, quiet, cert_rejected;
     int disable_proxy;
 
     /* Connections pool handle connections shared between hosts */
@@ -1720,14 +1720,20 @@ int sxi_curlev_set_save_rootCA(curl_events_t *ev, const char *filename, int quie
         return -1;
     free(ev->savefile);
     ev->savefile = strdup(filename);
-    ev->saved = 0;
+    ev->cert_saved = 0;
+    ev->cert_rejected = 0;
     ev->quiet = quiet;
     return ev->savefile ? 0 : -1;
 }
 
-int sxi_curlev_is_saved(curl_events_t *ev)
+int sxi_curlev_is_cert_saved(curl_events_t *ev)
 {
-    return ev && ev->saved;
+    return ev && ev->cert_saved;
+}
+
+int sxi_curlev_is_cert_rejected(curl_events_t *ev)
+{
+    return ev && ev->cert_rejected;
 }
 
 void sxi_curlev_set_verbose(curl_events_t *ev, int is_verbose)
@@ -3137,7 +3143,7 @@ static int save_ca(curl_events_t *e, const struct curl_certinfo *certinfo)
         rc = -1;
     }
     if (!rc) {
-        e->saved = 1;
+        e->cert_saved = 1;
         if (subj)
             SXDEBUG("Saved root CA '%s' to '%s'", subj, e->savefile);
     }
@@ -3231,6 +3237,7 @@ int sxi_curlev_fetch_certificates(curl_events_t *e, const char *url, int quiet)
 			break;
                     inp = sxi_get_input(sx, SXC_INPUT_YN, "Do you trust this SSL certificate?", "n", &ans, 1);
 		    if(inp != 1 && ans != 'y') {
+                        e->cert_rejected = 1;
                         sxi_seterr(sx, SXE_ECOMM, "User rejected the certificate");
                         break;
                     }

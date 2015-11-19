@@ -960,9 +960,9 @@ int sxi_conns_root_noauth(sxi_conns_t *conns, const char *tmpcafile, int quiet)
 	    snprintf(url, n, "https://%s%s%s/%s", bracket_open, host, bracket_close, query);
         rc = sxi_curlev_fetch_certificates(conns->curlev, url, quiet);
         free(url);
-        if (rc == CURLE_SSL_CACERT)
+        if (rc == CURLE_SSL_CACERT || sxi_curlev_is_cert_rejected(conns->curlev))
             return 1;
-        if (sxi_curlev_is_saved(conns->curlev))
+        if (sxi_curlev_is_cert_saved(conns->curlev))
             return 0;
         if (hostcount > 1 && sxc_geterrnum(conns->sx) != SXE_NOERROR)
             sxi_notice(conns->sx, "%s", sxc_geterrmsg(conns->sx));

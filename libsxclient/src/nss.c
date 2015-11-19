@@ -36,6 +36,10 @@ int sxi_sslctxfun(sxc_client_t *sx, curlev_t *ev, const struct curl_tlssessionin
         return -1;
     }
     PRFileDesc *desc = info->internals;
+    if(!desc) {
+        SXDEBUG("NULL PRFileDesc context");
+        return -EAGAIN;
+    }
     CERTCertificate *cert = SSL_PeerCertificate(desc);
     if (!cert) {
         PRInt32 err = PR_GetError();
