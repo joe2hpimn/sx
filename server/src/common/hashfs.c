@@ -88,7 +88,7 @@ const unsigned int bsz[SIZES] = {SX_BS_SMALL, SX_BS_MEDIUM, SX_BS_LARGE};
 #define TOKEN_EXPIRE_LEN 16
 #define TOKEN_TEXT_LEN (UUID_STRING_SIZE + 1 + TOKEN_RAND_BYTES * 2 + 1 + TOKEN_REPLICA_LEN + 1 + TOKEN_EXPIRE_LEN + 1 + AUTH_KEY_LEN * 2)
 
-#define SX_CLUSTER_META_PREFIX "clusterMeta:"
+#define SX_CLUSTER_META_PREFIX "$clusterMeta$"
 #define SX_CLUSTER_SETTINGS_PREFIX "$clusterSettings$"
 #define SX_CLUSTER_SETTINGS_TYPE_LEN lenof("STRING")
 
@@ -727,7 +727,6 @@ struct _sx_hashfs_t {
     sqlite3_stmt *q_volbyname;
     sqlite3_stmt *q_volbyid;
     sqlite3_stmt *q_metaget;
-    sqlite3_stmt *q_get_cluster_meta;
     sqlite3_stmt *q_get_prefixed_val;
     sqlite3_stmt *q_get_prefixed_keyval;
     sqlite3_stmt *q_set_prefixed_keyval;
@@ -1137,7 +1136,6 @@ static void close_all_dbs(sx_hashfs_t *h) {
     sqlite3_finalize(h->q_volbyname);
     sqlite3_finalize(h->q_volbyid);
     sqlite3_finalize(h->q_metaget);
-    sqlite3_finalize(h->q_get_cluster_meta);
     sqlite3_finalize(h->q_get_prefixed_val);
     sqlite3_finalize(h->q_set_prefixed_keyval);
     sqlite3_finalize(h->q_get_prefixed_keyval);
@@ -1749,15 +1747,12 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 	goto open_hashfs_fail;
     if(qprep(h->db, &h->q_metaget, "SELECT key, value FROM vmeta WHERE volume_id = :volume"))
 	goto open_hashfs_fail;
-    if(qprep(h->db, &h->q_get_cluster_meta, "SELECT key, value FROM hashfs WHERE key LIKE '"SX_CLUSTER_META_PREFIX"%'"))
-        goto open_hashfs_fail;
     if(qprep(h->db, &h->q_drop_cluster_meta, "DELETE FROM hashfs WHERE key LIKE '"SX_CLUSTER_META_PREFIX"%'"))
         goto open_hashfs_fail;
 
     /* Prefixed key-value pairs, they are stored in hashfs table with special prefix. Queries below are common for the prefixed entries,
-     * which are currently cluster meta and cluster settings. */
-    /* :pattern is the prefix with appended '%' character to support LIKE. TODO: Check if the '%' could be added directly here.
-     * TODO: also check if order by is needed. */
+     * which are currently cluster meta and cluster settings.
+     * :pattern is the prefix with appended '%' character to support LIKE. */
     if(qprep(h->db, &h->q_get_prefixed_keyval, "SELECT key, value FROM hashfs WHERE key LIKE :pattern AND (:previous IS NULL OR key > :previous) ORDER BY key"))
         goto open_hashfs_fail;
     if(qprep(h->db, &h->q_get_prefixed_val, "SELECT value FROM hashfs WHERE key = :prefix || :key"))
@@ -4235,6 +4230,12 @@ static rc_ty hashfs_1_2_to_1_9(sxi_db_t *db)
         sqlite3_reset(q);
 
         qnullify(q);
+
+        /* Update 'clusterMeta:' prefix to '$clusterMeta$' */
+        if(qprep(db, &q, "UPDATE hashfs SET key = '"SX_CLUSTER_META_PREFIX"' || SUBSTR(key, LENGTH('clusterMeta:') + 1, LENGTH(key) - LENGTH('clusterMeta:')) WHERE key LIKE 'clusterMeta:%'"))
+            break;
+        if(qstep_noret(q))
+            break;
 
         ret = OK;
     } while(0);
@@ -11725,15 +11726,22 @@ rc_ty sx_hashfs_clustermeta_last_change(sx_hashfs_t *h, time_t *t) {
 rc_ty sx_hashfs_clustermeta_begin(sx_hashfs_t *h) {
     rc_ty ret = FAIL_EINTERNAL;
     int r;
+    sqlite3_stmt *q = h->q_get_prefixed_keyval;
 
     if(!h) {
         NULLARG();
         return EFAULT;
     }
 
-    sqlite3_reset(h->q_get_cluster_meta);
+    sqlite3_reset(q);
+    if(qbind_text(q, ":pattern", SX_CLUSTER_META_PREFIX"%") || qbind_null(q, ":previous")) {
+        WARN("Failed to bind query values");
+        sqlite3_reset(q);
+        return FAIL_EINTERNAL;
+    }
+
     h->nmeta = 0;
-    while((r = qstep(h->q_get_cluster_meta)) == SQLITE_ROW) {
+    while((r = qstep(q)) == SQLITE_ROW) {
         const char *key;
         const void *value;
         unsigned int value_len, key_len;
@@ -11743,9 +11751,9 @@ rc_ty sx_hashfs_clustermeta_begin(sx_hashfs_t *h) {
             break;
         }
 
-        key = (const char *)sqlite3_column_text(h->q_get_cluster_meta, 0);
-        value = sqlite3_column_text(h->q_get_cluster_meta, 1);
-        value_len = sqlite3_column_bytes(h->q_get_cluster_meta, 1);
+        key = (const char *)sqlite3_column_text(q, 0);
+        value = sqlite3_column_text(q, 1);
+        value_len = sqlite3_column_bytes(q, 1);
         if(!key || !value) {
             msg_set_reason("Failed to get cluster meta");
             goto sx_hashfs_clustermeta_begin_err;
@@ -11785,7 +11793,7 @@ rc_ty sx_hashfs_clustermeta_begin(sx_hashfs_t *h) {
     ret = OK;
 
 sx_hashfs_clustermeta_begin_err:
-    sqlite3_reset(h->q_get_cluster_meta);
+    sqlite3_reset(q);
 
     return ret;
 }
