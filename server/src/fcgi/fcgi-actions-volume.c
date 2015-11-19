@@ -1508,32 +1508,29 @@ static rc_ty volmod_parse_complete(void *yctx)
             return s;
         }
 
-        /* Check if old owner is not the same as new one */
-        if(!has_priv(PRIV_CLUSTER) && !strncmp(ctx->oldowner, ctx->newowner, SXLIMIT_MAX_USERNAME_LEN)) {
-            WARN("New owner is the same as old owner");
-            msg_set_reason("User is already a volume owner");
-            return EINVAL;
+        /* Avoid modifications for the same owner provided */
+        if(!strcmp(ctx->oldowner, ctx->newowner)) {
+            *ctx->oldowner = '\0';
+            *ctx->newowner = '\0';
         }
     }
 
-    /* Preliminary checks for size change */
     if(ctx->newsize != -1) {
-        /* Do that check only for local node */
-        if(!has_priv(PRIV_CLUSTER) && ctx->newsize == vol->size) {
-            WARN("Invalid volume size: same as current value");
-            msg_set_reason("New volume size is the same as the current value");
-            return EINVAL;
+        if(ctx->newsize != vol->size)
+            ctx->oldsize = vol->size;
+        else {
+            ctx->newsize = -1;
+            ctx->oldsize = -1;
         }
-        ctx->oldsize = vol->size;
     }
 
     if(ctx->newrevs != -1) {
-        /* Check if revisions number is higher than current limit */
-        if(!has_priv(PRIV_CLUSTER) && (unsigned int)ctx->newrevs == vol->revisions) {
-            msg_set_reason("New revisions limit is the same as current value");
-            return EINVAL;
+        if(ctx->newrevs != (int)vol->revisions)
+            ctx->oldrevs = vol->revisions;
+        else {
+            ctx->newrevs = -1;
+            ctx->oldrevs = -1;
         }
-        ctx->oldrevs = vol->revisions;
     }
 
     if(ctx->newrevs != -1 || ctx->newsize != -1) {
