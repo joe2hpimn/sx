@@ -4874,8 +4874,8 @@ static sxi_job_t* remote_to_remote_fast(sxc_file_t *source, sxc_file_t *dest) {
     char *src_hashfile = NULL, *rcur, ha[42];
     sxi_ht *src_hashes = NULL;
     sxc_client_t *sx = source->sx;
-    struct file_upload_ctx yctx;
-    yajl_callbacks *yacb = &yctx.current.yacb;
+    struct file_upload_ctx *yctx;
+    yajl_callbacks *yacb;
     unsigned int blocksize;
     sxi_hostlist_t volhosts;
     int64_t filesize;
@@ -4899,7 +4899,12 @@ static sxi_job_t* remote_to_remote_fast(sxc_file_t *source, sxc_file_t *dest) {
     unsigned int cfgval_len = 0;
     sxi_hostlist_init(&volhosts);
     sxi_hostlist_init(&src_hosts);
-    memset(&yctx, 0, sizeof(yctx));
+    yctx = calloc(1, sizeof(*yctx));
+    if(!yctx) {
+        SXDEBUG("Out of memory allocating context");
+        sxi_seterr(sx, SXE_EMEM, "Out of memory");
+        return NULL;
+    }
 
     vmeta = sxc_meta_new(sx);
     if(!vmeta) {
@@ -5018,6 +5023,7 @@ static sxi_job_t* remote_to_remote_fast(sxc_file_t *source, sxc_file_t *dest) {
         goto remote_to_remote_fast_err;
     }
 
+    yacb = &yctx->current.yacb;
     ya_init(yacb);
     yacb->yajl_start_map = yacb_createfile_start_map;
     yacb->yajl_map_key = yacb_createfile_map_key;
@@ -5027,23 +5033,23 @@ static sxi_job_t* remote_to_remote_fast(sxc_file_t *source, sxc_file_t *dest) {
     yacb->yajl_end_array = yacb_createfile_end_array;
     yacb->yajl_end_map = yacb_createfile_end_map;
 
-    yctx.max_part_blocks = sxi_ht_count(src_hashes);
-    yctx.current.yh = NULL;
-    yctx.blocksize = blocksize;
-    yctx.name = strdup(dest->remote_path);
-    if(!yctx.name) {
+    yctx->max_part_blocks = sxi_ht_count(src_hashes);
+    yctx->current.yh = NULL;
+    yctx->blocksize = blocksize;
+    yctx->name = strdup(dest->remote_path);
+    if(!yctx->name) {
         sxi_seterr(sx, SXE_EMEM, "Cannot allocate destination path buffer");
         goto remote_to_remote_fast_err;
     }
 
-    yctx.current.hashes = src_hashes;
-    if (!(yctx.current.needed = calloc(sizeof(*yctx.current.needed), sxi_ht_count(src_hashes)))) {
+    yctx->current.hashes = src_hashes;
+    if (!(yctx->current.needed = calloc(sizeof(*yctx->current.needed), sxi_ht_count(src_hashes)))) {
         sxi_seterr(sx, SXE_EMEM, "Cannot allocate needed buffer");
         goto remote_to_remote_fast_err;
     }
     sxi_set_operation(sxi_cluster_get_client(dest->cluster), "upload file content hashes",
                       sxi_cluster_get_name(dest->cluster), dest->volume, dest->path);
-    cbdata = sxi_cbdata_create_upload(sxi_cluster_get_conns(dest->cluster), NULL, &yctx);
+    cbdata = sxi_cbdata_create_upload(sxi_cluster_get_conns(dest->cluster), NULL, yctx);
     if (!cbdata)
         goto remote_to_remote_fast_err;
     if(sxi_cbdata_set_timeouts(cbdata, BLOCK_XFER_HARD_TIMEOUT, BLOCK_XFER_SOFT_TIMEOUT)) {
@@ -5060,15 +5066,15 @@ static sxi_job_t* remote_to_remote_fast(sxc_file_t *source, sxc_file_t *dest) {
 	goto remote_to_remote_fast_err;
     }
 
-    if(yajl_complete_parse(yctx.current.yh) != yajl_status_ok || yctx.current.state != CF_COMPLETE) {
+    if(yajl_complete_parse(yctx->current.yh) != yajl_status_ok || yctx->current.state != CF_COMPLETE) {
 	SXDEBUG("JSON parsing failed");
 	sxi_cbdata_seterr(cbdata, SXE_ECOMM, "Transfer failed: Communication error");
 	goto remote_to_remote_fast_err;
     }
 
-    if(yctx.current.yh)
-	yajl_free(yctx.current.yh);
-    yctx.current.yh = NULL;
+    if(yctx->current.yh)
+	yajl_free(yctx->current.yh);
+    yctx->current.yh = NULL;
 
     if(!(buf = malloc(blocksize))) {
 	SXDEBUG("OOM allocating the block buffer (%u bytes)", blocksize);
@@ -5090,7 +5096,7 @@ static sxi_job_t* remote_to_remote_fast(sxc_file_t *source, sxc_file_t *dest) {
         xfer_stat->status = SXC_XFER_STATUS_RUNNING;
     }
 
-    to_skip = filesize - (int64_t)yctx.current.needed_cnt * (int64_t)blocksize;
+    to_skip = filesize - (int64_t)yctx->current.needed_cnt * (int64_t)blocksize;
     if(xfer_stat && sxc_geterrnum(sx) != SXE_ABORT) {
         if(to_skip && skip_xfer(source->cluster, to_skip) != SXE_NOERROR) {
             SXDEBUG("Could not skip part of transfer");
@@ -5099,8 +5105,8 @@ static sxi_job_t* remote_to_remote_fast(sxc_file_t *source, sxc_file_t *dest) {
         }
     }
 
-    for(i = 0; i < yctx.current.needed_cnt; i++) {
-        struct need_hash *need = &yctx.current.needed[i];
+    for(i = 0; i < yctx->current.needed_cnt; i++) {
+        struct need_hash *need = &yctx->current.needed[i];
         int sz;
 
         fseek(hf, need->off.offset - 40, SEEK_SET);
@@ -5135,13 +5141,13 @@ static sxi_job_t* remote_to_remote_fast(sxc_file_t *source, sxc_file_t *dest) {
             goto remote_to_remote_fast_err;
         }
 
-        if(sxi_upload_block_from_buf_track(sxi_cluster_get_conns(source->cluster), &need->upload_hosts, yctx.current.token, buf, blocksize, blocksize, 1)) {
+        if(sxi_upload_block_from_buf_track(sxi_cluster_get_conns(source->cluster), &need->upload_hosts, yctx->current.token, buf, blocksize, blocksize, 1)) {
             SXDEBUG("failed to upload hash %.40s", ha);
             goto remote_to_remote_fast_err;
         }
     }
 
-    if (!(job = flush_file_ev(dest->cluster, yctx.host, yctx.current.token, yctx.name, NULL)))
+    if (!(job = flush_file_ev(dest->cluster, yctx->host, yctx->current.token, yctx->name, NULL)))
         goto remote_to_remote_fast_err;
 
     /* Update transfer information, but not when aborting */
@@ -5169,14 +5175,14 @@ remote_to_remote_fast_err:
 
     free(buf);
 
-    free(yctx.name);
-    free(yctx.current.token);
-    for(i = 0; i < yctx.current.needed_cnt; i++)
-        sxi_hostlist_empty(&yctx.current.needed[i].upload_hosts);
-    free(yctx.current.needed);
-    free(yctx.host);
-    if(yctx.current.yh)
-	yajl_free(yctx.current.yh);
+    free(yctx->name);
+    free(yctx->current.token);
+    for(i = 0; i < yctx->current.needed_cnt; i++)
+        sxi_hostlist_empty(&yctx->current.needed[i].upload_hosts);
+    free(yctx->current.needed);
+    free(yctx->host);
+    if(yctx->current.yh)
+	yajl_free(yctx->current.yh);
 
     if (hf)
         fclose(hf);
@@ -5186,6 +5192,7 @@ remote_to_remote_fast_err:
     }
     sxi_hostlist_empty(&volhosts);
     sxi_hostlist_empty(&src_hosts);
+    free(yctx);
 
     return job;
 }
