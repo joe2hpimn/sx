@@ -514,6 +514,11 @@ const char *sxc_file_get_remote_path(const sxc_file_t *file)
     return file ? file->remote_path : NULL;
 }
 
+const char *sxc_file_get_revision(const sxc_file_t *file)
+{
+    return file ? file->rev : NULL;
+}
+
 int64_t sxc_file_get_size(const sxc_file_t *file)
 {
     return file ? file->size : SXC_UINT64_UNDEFINED;
@@ -6164,7 +6169,7 @@ sxc_cluster_settings_new_err:
 sxc_meta_t *sxc_filemeta_new(sxc_file_t *file) {
     sxi_hostlist_t volnodes;
     sxc_client_t *sx;
-    char *enc_vol = NULL, *enc_path = NULL, *url = NULL;
+    char *enc_vol = NULL, *enc_path = NULL, *enc_rev = NULL, *url = NULL;
     struct cb_filemeta_ctx yctx;
     yajl_callbacks *yacb = &yctx.yacb;
     sxc_meta_t *ret = NULL;
@@ -6173,6 +6178,7 @@ sxc_meta_t *sxc_filemeta_new(sxc_file_t *file) {
     unsigned int mval_len;
     char *filter_cfgdir = NULL;
     struct filter_handle *fh = NULL;
+    unsigned int len;
 
     if(!file)
 	return NULL;
@@ -6251,13 +6257,22 @@ sxc_meta_t *sxc_filemeta_new(sxc_file_t *file) {
 	goto filemeta_begin_err;
     }
 
-    url = malloc(strlen(enc_vol) + 1 + strlen(enc_path) + sizeof("?fileMeta"));
+    len = strlen(enc_vol) + 1 + strlen(enc_path) + sizeof("?fileMeta");
+    if(file->rev) {
+        if(!(enc_rev = sxi_urlencode(file->sx, file->rev, 0))) {
+            SXDEBUG("failed to encode revision %s", file->rev);
+            goto filemeta_begin_err;
+        }
+
+        len += lenof("&rev=") + strlen(enc_rev);
+    }
+    url = malloc(len);
     if(!url) {
 	SXDEBUG("OOM allocating url");
 	sxi_seterr(sx, SXE_EMEM, "Failed to retrieve file metadata: Out of memory");
 	goto filemeta_begin_err;
     }
-    sprintf(url, "%s/%s?fileMeta", enc_vol, enc_path);
+    sprintf(url, "%s/%s?fileMeta%s%s", enc_vol, enc_path, enc_rev ? "&rev=" : "", enc_rev ? enc_rev : "");
     free(enc_vol);
     free(enc_path);
     enc_vol = enc_path = NULL;
@@ -6295,6 +6310,7 @@ sxc_meta_t *sxc_filemeta_new(sxc_file_t *file) {
     sxi_hostlist_empty(&volnodes);
     free(enc_vol);
     free(enc_path);
+    free(enc_rev);
     free(url);
     if(yctx.yh)
 	yajl_free(yctx.yh);
@@ -6585,7 +6601,7 @@ static int sxi_file_list_foreach(sxc_file_list_t *target, sxc_cluster_t *wait_cl
                 }
 	    }
 	    sxc_meta_free(vmeta);
-            if (!entry->glob || batched) {
+            if ((!entry->glob && !(fh && fh->f->filemeta_process)) || batched) {
                 if(fh && fh->f->filemeta_process && batched) {
                     sxi_seterr(target->sx, SXE_EARG, "Cannot use mass operation while using filename processing filter");
                     rc = -1;
@@ -6602,18 +6618,19 @@ static int sxi_file_list_foreach(sxc_file_list_t *target, sxc_cluster_t *wait_cl
                 sxc_meta_free(cvmeta);
                 break;
             }
-            sxc_meta_free(cvmeta);
             /* glob */
             CFGDEBUG("Listing using glob pattern '%s'", pattern->path);
-            lst = sxc_cluster_listfiles(cluster, pattern->volume, pattern->path, target->recursive, NULL, NULL, NULL, NULL, &entry->nfiles, 0);
+            lst = sxc_cluster_listfiles(cluster, pattern->volume, pattern->path, target->recursive || (fh && fh->f->filemeta_process), NULL, NULL, NULL, NULL, &entry->nfiles, 0);
             if (!lst) {
                 CFGDEBUG("Cannot list files");
+                sxc_meta_free(cvmeta);
                 break;
             }
             gettimeofday(&t1, NULL);
             CFGDEBUG("Glob pattern matched %d files", entry->nfiles);
             rc = 0;
             unsigned pattern_slashes = sxi_count_slashes(pattern->path) + 1;
+            unsigned int skipped = 0;
             for (j=0;j<entry->nfiles && !rc;j++) {
                 sxc_file_t *remote_file = NULL;
                 if (sxc_cluster_listfiles_next(cluster, pattern->volume, lst, &remote_file) <= 0) {
@@ -6631,9 +6648,10 @@ static int sxi_file_list_foreach(sxc_file_list_t *target, sxc_cluster_t *wait_cl
             if ((single_files > 1 || files_in_dir > 0) && multi_cb && multi_cb(target, ctx)) {
                 CFGDEBUG("multiple source file rejected by callback");
                 rc = -1;
+                sxc_meta_free(cvmeta);
                 break;
             }
-            CFGDEBUG("Single files: %lld, files in dir: %lld", (long long)single_files, (long long)files_in_dir);
+            CFGDEBUG("Single files: %lld, files in dir: %lld, skipped files: %d", (long long)single_files, (long long)files_in_dir, skipped);
             for (j=0;j<entry->nfiles && !rc;j++) {
                 sxc_file_t *remote_file = NULL;
                 if(sxc_cluster_listfiles_prev(cluster, pattern->volume, lst, &remote_file) <= 0) {
@@ -6662,6 +6680,7 @@ static int sxi_file_list_foreach(sxc_file_list_t *target, sxc_cluster_t *wait_cl
             }
             free(filter_cfgdir);
             filter_cfgdir = NULL;
+            sxc_meta_free(cvmeta);
         } while(0);
         if (volhosts)
             sxi_hostlist_empty(volhosts);
@@ -6924,6 +6943,9 @@ static int remote_iterate(sxc_file_t *source, int recursive, int onefs, int igno
 
 struct cb_filerev_ctx {
     curlev_context_t *cbdata;
+    sxc_cluster_t *cluster;
+    const char *volume;
+    const char *remote_path;
     yajl_handle yh;
     struct cb_error_ctx errctx;
     yajl_callbacks yacb;
@@ -6962,19 +6984,34 @@ static int yacb_filerev_map_key(void *ctx, const unsigned char *s, size_t l) {
     }
 
     if(yactx->state == FR_REVS) {
-	sxc_revision_t *rev = malloc(sizeof(*rev) + l + 1);
+	sxc_revision_t *rev = malloc(sizeof(*rev));
+        char *rev_str;
 	unsigned int nrevs = yactx->nrevs;
+
 	if(!rev) {
 	    CBDEBUG("OOM allocating rev");
 	    return 0;
 	}
 
-	rev->revision = (char *)(rev+1);
-	rev->block_size = 0;
-	rev->file_size = -1;
-	rev->created_at = -1;
-	memcpy(rev->revision, s, l);
-	rev->revision[l] = '\0';
+        rev_str = malloc(l+1);
+        if(!rev_str) {
+            CBDEBUG("OOM allocating rev string");
+            free(rev);
+            return 0;
+        }
+
+	memcpy(rev_str, s, l);
+	rev_str[l] = '\0';
+
+        rev->file = sxi_file_remote(yactx->cluster, yactx->volume, NULL, yactx->remote_path, rev_str, NULL, 0);
+        if(!rev->file) {
+            free(rev_str);
+            free(rev);
+            CBDEBUG("OOM allocating remote file");
+            return 0;
+        }
+        free(rev_str);
+        rev->block_size = 0;
 
 	if(!(nrevs & 0xf)) {
 	    sxc_revision_t **nurevs = realloc(yactx->revs, (nrevs+16) *sizeof(*nurevs));
@@ -7040,17 +7077,17 @@ static int yacb_filerev_number(void *ctx, const char *s, size_t l) {
 	}
 	rev->block_size = nnumb;
     } else if(yactx->state == FR_FSIZE) {
-	if(rev->file_size >= 0) {
+	if(rev->file->remote_size != SXC_UINT64_UNDEFINED) {
 	    CBDEBUG("fileSize duplicated");
 	    return 0;
 	}
-	rev->file_size = nnumb;
+	rev->file->remote_size = nnumb;
     } else if(yactx->state == FR_MTIME) {
-	if(rev->created_at >= 0) {
+	if(rev->file->created_at != (long long)SXC_UINT64_UNDEFINED) {
 	    CBDEBUG("createdAt duplicated");
 	    return 0;
 	}
-	rev->created_at = nnumb;
+	rev->file->created_at = nnumb;
     } else {
 	CBDEBUG("bad state %d", yactx->state);
 	return 0;
@@ -7092,8 +7129,10 @@ static int filerev_setup_cb(curlev_context_t *cbdata, void *ctx, const char *hos
 
     if(yactx->revs) {
 	unsigned int i;
-	for(i=0; i<yactx->nrevs; i++)
+	for(i=0; i<yactx->nrevs; i++) {
+            sxc_file_free(yactx->revs[i]->file);
 	    free(yactx->revs[i]);
+        }
 	free(yactx->revs);
 	yactx->revs = NULL;
     }
@@ -7119,7 +7158,7 @@ static int cmprevdsc(const void *a, const void *b) {
     const sxc_revision_t *ra = *(const sxc_revision_t **)a;
     const sxc_revision_t *rb = *(const sxc_revision_t **)b;
 
-    return strcmp(rb->revision, ra->revision);
+    return strcmp(rb->file->rev, ra->file->rev);
 }
 
 sxc_revlist_t *sxc_revisions(sxc_file_t *file) {
@@ -7129,6 +7168,13 @@ sxc_revlist_t *sxc_revisions(sxc_file_t *file) {
     struct cb_filerev_ctx yctx;
     yajl_callbacks *yacb = &yctx.yacb;
     sxc_revlist_t *ret = NULL;
+    sxc_meta_t *vmeta = NULL;
+    sxc_meta_t *cvmeta = NULL;
+    char *filter_cfgdir = NULL;
+    struct filter_handle *fh = NULL;
+    const void *mval;
+    unsigned int mval_len;
+    unsigned int i;
 
     if(!file)
 	return NULL;
@@ -7140,17 +7186,80 @@ sxc_revlist_t *sxc_revisions(sxc_file_t *file) {
 
     memset(&yctx, 0, sizeof(yctx));
     sxi_hostlist_init(&volnodes);
-    if(sxi_locate_volume(sxi_cluster_get_conns(file->cluster), file->volume, &volnodes, NULL, NULL, NULL)) {
+
+    vmeta = sxc_meta_new(sx);
+    if(!vmeta) {
+        SXDEBUG("Out of memory");
+        goto frev_err;
+    }
+
+    cvmeta = sxc_meta_new(sx);
+    if(!cvmeta) {
+        SXDEBUG("Out of memory");
+        goto frev_err;
+    }
+
+    if(sxi_locate_volume(sxi_cluster_get_conns(file->cluster), file->volume, &volnodes, NULL, vmeta, cvmeta)) {
 	SXDEBUG("failed to locate file");
 	goto frev_err;
     }
+
+    if(sxi_volume_cfg_check(sx, file->cluster, vmeta, file->volume)) {
+        SXDEBUG("Failed to check volume config");
+        goto frev_err;
+    }
+
+    if(!sxc_meta_getval(vmeta, "filterActive", &mval, &mval_len)) {
+        char filter_uuid[37], cfgkey[37 + 5];
+        const void *cfgval = NULL;
+        unsigned int cfgval_len = 0;
+        const char *confdir = sxi_cluster_get_confdir(file->cluster);
+
+        if(mval_len != 16) {
+            sxi_seterr(sx, SXE_EFILTER, "Filter(s) enabled but can't handle metadata");
+            goto frev_err;
+        }
+        sxi_uuid_unparse(mval, filter_uuid);
+
+        fh = sxi_filter_gethandle(sx, mval);
+        if(!fh) {
+            SXDEBUG("Filter ID %s required by destination volume not found", filter_uuid);
+            sxi_seterr(sx, SXE_EFILTER, "Filter ID %s required by destination volume not found", filter_uuid);
+            goto frev_err;
+        }
+
+        snprintf(cfgkey, sizeof(cfgkey), "%s-cfg", filter_uuid);
+        sxc_meta_getval(vmeta, cfgkey, &cfgval, &cfgval_len);
+        if(cfgval_len && sxi_filter_add_cfg(fh, file->volume, cfgval, cfgval_len))
+            goto frev_err;
+
+        if(confdir) {
+            filter_cfgdir = sxi_get_filter_dir(sx, confdir, filter_uuid, file->volume);
+            if(!filter_cfgdir)
+                goto frev_err;
+        }
+    }
+
+    if(sxi_filemeta_process(sx, fh, filter_cfgdir, file, cvmeta)) {
+        SXDEBUG("Failed to process filemeta");
+        goto frev_err;
+    }
+
+    if(sxi_file_process(file->sx, fh, filter_cfgdir, file, SXF_MODE_LIST)) {
+        SXDEBUG("Failed to process revision file");
+        goto frev_err;
+    }
+
+    yctx.cluster = file->cluster;
+    yctx.remote_path = file->remote_path;
+    yctx.volume = file->volume;
 
     if(!(enc_vol = sxi_urlencode(file->sx, file->volume, 0))) {
 	SXDEBUG("failed to encode volume %s", file->volume);
 	goto frev_err;
     }
 
-    if(!(enc_path = sxi_urlencode(file->sx, file->path, 0))) {
+    if(!(enc_path = sxi_urlencode(file->sx, file->remote_path, 0))) {
 	SXDEBUG("failed to encode path %s", file->path);
 	goto frev_err;
     }
@@ -7183,6 +7292,28 @@ sxc_revlist_t *sxc_revisions(sxc_file_t *file) {
 	goto frev_err;
     }
 
+    for(i = 0; i < yctx.nrevs; i++) {
+        sxc_file_t *rev = yctx.revs[i]->file;
+
+        if(sxi_filemeta_process(file->sx, fh, filter_cfgdir, rev, cvmeta)) {
+            SXDEBUG("Failed to process revision metadata");
+            goto frev_err;
+        }
+
+        if(!rev->meta) {
+            rev->meta = sxc_filemeta_new(rev);
+            if(!rev->meta) {
+                SXDEBUG("Failed to obtain revision '%s' meta", rev->rev);
+                goto frev_err;
+            }
+        }
+
+        if(sxi_file_process(file->sx, fh, filter_cfgdir, rev, SXF_MODE_LIST)) {
+            SXDEBUG("Failed to process revision file");
+            goto frev_err;
+        }
+    }
+
     qsort(yctx.revs, yctx.nrevs, sizeof(yctx.revs[0]), cmprevdsc);
     ret = malloc(sizeof(*ret));
     if(!ret) {
@@ -7196,9 +7327,10 @@ sxc_revlist_t *sxc_revisions(sxc_file_t *file) {
 
  frev_err:
     if(!ret) {
-	unsigned int i;
-	for(i=0; i<yctx.nrevs; i++)
+	for(i=0; i<yctx.nrevs; i++) {
+            sxc_file_free(yctx.revs[i]->file);
 	    free(yctx.revs[i]);
+        }
 	free(yctx.revs);
     }
 
@@ -7208,15 +7340,19 @@ sxc_revlist_t *sxc_revisions(sxc_file_t *file) {
     free(url);
     if(yctx.yh)
 	yajl_free(yctx.yh);
-
+    sxc_meta_free(vmeta);
+    sxc_meta_free(cvmeta);
+    free(filter_cfgdir);
     return ret;
 }
 
 void sxc_revisions_free(sxc_revlist_t *revlist) {
     if(!revlist)
 	return;
-    while(revlist->count--)
+    while(revlist->count--) {
+        sxc_file_free(revlist->revisions[revlist->count]->file);
 	free(revlist->revisions[revlist->count]);
+    }
     free(revlist->revisions);
     free(revlist);
 }
@@ -7226,6 +7362,12 @@ int sxc_remove_sxfile(sxc_file_t *file) {
     sxi_query_t *query = NULL;
     sxc_client_t *sx = file->sx;
     int ret = -1;
+    sxc_meta_t *vmeta = NULL;
+    sxc_meta_t *cvmeta = NULL;
+    char *filter_cfgdir = NULL;
+    struct filter_handle *fh = NULL;
+    const void *mval;
+    unsigned int mval_len;
 
     if(!is_remote(file)) {
 	sxi_seterr(sx, SXE_EARG, "Called with local file");
@@ -7233,14 +7375,72 @@ int sxc_remove_sxfile(sxc_file_t *file) {
     }
 
     sxi_hostlist_init(&volnodes);
-    if(sxi_locate_volume(sxi_cluster_get_conns(file->cluster), file->volume, &volnodes, NULL, NULL, NULL)) {
-	SXDEBUG("failed to locate file");
-	goto rmfile_err;
+
+    vmeta = sxc_meta_new(sx);
+    if(!vmeta) {
+        SXDEBUG("Out of memory");
+        goto rmfile_err;
     }
 
-    if(!(query = sxi_filedel_proto(sx, file->volume, file->path, file->rev)))
-	goto rmfile_err;
+    cvmeta = sxc_meta_new(sx);
+    if(!cvmeta) {
+        SXDEBUG("Out of memory");
+        goto rmfile_err;
+    }
 
+    if(sxi_locate_volume(sxi_cluster_get_conns(file->cluster), file->volume, &volnodes, NULL, vmeta, cvmeta)) {
+        SXDEBUG("failed to locate file");
+        goto rmfile_err;
+    }
+
+    if(sxi_volume_cfg_check(sx, file->cluster, vmeta, file->volume)) {
+        SXDEBUG("Failed to check volume config");
+        goto rmfile_err;
+    }
+
+    if(!sxc_meta_getval(vmeta, "filterActive", &mval, &mval_len)) {
+        char filter_uuid[37], cfgkey[37 + 5];
+        const void *cfgval = NULL;
+        unsigned int cfgval_len = 0;
+        const char *confdir = sxi_cluster_get_confdir(file->cluster);
+
+        if(mval_len != 16) {
+            sxi_seterr(sx, SXE_EFILTER, "Filter(s) enabled but can't handle metadata");
+            goto rmfile_err;
+        }
+        sxi_uuid_unparse(mval, filter_uuid);
+
+        fh = sxi_filter_gethandle(sx, mval);
+        if(!fh) {
+            SXDEBUG("Filter ID %s required by destination volume not found", filter_uuid);
+            sxi_seterr(sx, SXE_EFILTER, "Filter ID %s required by destination volume not found", filter_uuid);
+            goto rmfile_err;
+        }
+
+        snprintf(cfgkey, sizeof(cfgkey), "%s-cfg", filter_uuid);
+        sxc_meta_getval(vmeta, cfgkey, &cfgval, &cfgval_len);
+        if(cfgval_len && sxi_filter_add_cfg(fh, file->volume, cfgval, cfgval_len))
+            goto rmfile_err;
+
+        if(confdir) {
+            filter_cfgdir = sxi_get_filter_dir(sx, confdir, filter_uuid, file->volume);
+            if(!filter_cfgdir)
+                goto rmfile_err;
+        }
+    }
+
+    if(sxi_filemeta_process(sx, fh, filter_cfgdir, file, cvmeta)) {
+        SXDEBUG("Failed to process filemeta");
+        goto rmfile_err;
+    }
+
+    if(sxi_file_process(file->sx, fh, filter_cfgdir, file, SXF_MODE_LIST)) {
+        SXDEBUG("Failed to process revision file");
+        goto rmfile_err;
+    }
+
+    if(!(query = sxi_filedel_proto(sx, file->volume, file->remote_path, file->rev)))
+        goto rmfile_err;
     sxi_set_operation(sx, "remove files", sxi_cluster_get_name(file->cluster), query->path, NULL);
     if(sxi_job_submit_and_poll(sxi_cluster_get_conns(file->cluster), &volnodes, query->verb, query->path, NULL, 0))
 	goto rmfile_err;
@@ -7250,6 +7450,9 @@ int sxc_remove_sxfile(sxc_file_t *file) {
  rmfile_err:
     sxi_query_free(query);
     sxi_hostlist_empty(&volnodes);
+    sxc_meta_free(vmeta);
+    sxc_meta_free(cvmeta);
+    free(filter_cfgdir);
 
     return ret;
 }
@@ -7263,10 +7466,21 @@ int sxc_copy_sxfile(sxc_file_t *source, sxc_file_t *dest, int fail_same_file) {
     }
 
     if(is_remote(dest)) {
-	sxi_job_t *job =  remote_to_remote(source, dest, fail_same_file);
-	return sxi_jobs_wait_one(dest, job);
-    } else
+        sxi_job_t *job;
+        dest->size = source->size;
+        job =  remote_to_remote(source, dest, fail_same_file);
+        return sxi_jobs_wait_one(dest, job);
+    } else {
+        if(source->meta) {
+            sxc_meta_free(dest->meta);
+            dest->meta = sxi_meta_dup(source->sx, source->meta);
+            if(!dest->meta) {
+                SXDEBUG("Failed to duplicate remote file meta");
+                return -1;
+            }
+        }
 	return remote_to_local(source, dest, 0);
+    }
 }
 
 /* Retrieve remote filename when filter is given. Converts local path to its remote representation and the other way around.

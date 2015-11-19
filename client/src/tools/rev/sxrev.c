@@ -98,8 +98,8 @@ static sxc_file_t *make_sxfile(sxc_cluster_t **cluster, const char *host, const 
 
 int main(int argc, char **argv) {
     sxc_file_t *file = NULL, *destfile = NULL;
-    char *config_dir = NULL, *filter_dir = NULL, *selected_rev = NULL;
-    const char *src;
+    char *config_dir = NULL, *filter_dir = NULL;
+    const char *src, *selected_rev = NULL;
     sxc_logger_t log;
     sxc_cluster_t *cluster = NULL, *destcluster = NULL;
     sxc_revlist_t *revs = NULL;
@@ -319,9 +319,15 @@ int main(int argc, char **argv) {
 	printf("Revisions for file %s (most recent first):\n", src);
     for(i=0; i<revs->count; i++) {
 	const sxc_revision_t *rev = revs->revisions[i];
-	struct tm *gt = gmtime(&rev->created_at);
+        time_t created_at = sxc_file_get_created_at(rev->file);
+	struct tm *gt = gmtime(&created_at);
+        const char *revision = sxc_file_get_revision(rev->file);
+        if(!revision) {
+            fprintf(stderr, "ERROR: Failed to retrieve file revision\n");
+            goto err;
+        }
 	if(selected_rev) {
-	    if(!strcmp(rev->revision, selected_rev)) {
+	    if(!strcmp(revision, selected_rev)) {
 		match = 1;
 		break;
 	    }
@@ -333,8 +339,8 @@ int main(int argc, char **argv) {
 		   gt->tm_mday,
 		   gt->tm_hour,
 		   gt->tm_min,
-		   (long long)rev->file_size,
-		   rev->revision);
+		   (long long)sxc_file_get_size(rev->file),
+		   revision);
     }
 
     if(op == OPLIST) {
@@ -348,7 +354,7 @@ int main(int argc, char **argv) {
 	if(fgets(choice, sizeof(choice), stdin)) {
 	    i = atoi(choice) - 1;
 	    if(i<revs->count) {
-		selected_rev = revs->revisions[i]->revision;
+		selected_rev = sxc_file_get_revision(revs->revisions[i]->file);
 		match = 1;
 	    }
 	}
@@ -361,7 +367,7 @@ int main(int argc, char **argv) {
     }
 
 
-    file = make_sxfile(&cluster, uri->host, uri->profile, uri->volume, uri->path, selected_rev);
+    file = revs->revisions[i]->file;
     if(!file)
 	goto err;
 
@@ -375,8 +381,6 @@ int main(int argc, char **argv) {
 	fprintf(stderr, "%s operation failed: %s\n", op == OPCOPY ? "Copy" : "Delete", sxc_geterrmsg(sx));
     else 
 	fprintf(stderr, "%s operation completed successfully\n", op == OPCOPY ? "Copy" : "Delete");
-
-    sxc_file_free(file);
 
  err:
     signal(SIGINT, SIG_IGN);

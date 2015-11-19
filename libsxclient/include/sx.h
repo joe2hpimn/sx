@@ -300,6 +300,7 @@ sxc_cluster_t *sxc_file_get_cluster(const sxc_file_t *file);
 const char *sxc_file_get_volume(const sxc_file_t *file);
 const char *sxc_file_get_path(const sxc_file_t *file);
 const char *sxc_file_get_remote_path(const sxc_file_t *file);
+const char *sxc_file_get_revision(const sxc_file_t *file);
 mode_t sxc_file_get_mode(const sxc_file_t *file);
 time_t sxc_file_get_ctime(const sxc_file_t *file);
 time_t sxc_file_get_atime(const sxc_file_t *file);
@@ -385,10 +386,8 @@ int sxc_volume_modify(sxc_cluster_t *cluster, const char *volume, const char *ne
 int sxc_volume_acl(sxc_cluster_t *cluster, const char *url, const char *user, int grant_privs, int revoke_privs);
 
 typedef struct {
-    char *revision;
-    int64_t file_size;
+    sxc_file_t *file;
     unsigned int block_size;
-    time_t created_at;
 } sxc_revision_t;
 
 typedef struct {

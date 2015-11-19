@@ -2525,6 +2525,8 @@ sxc_cluster_lf_t *sxc_cluster_listfiles_etag(sxc_cluster_t *cluster, const char 
         listfiles_reset(ret);
         ret->processed_list = list;
         ret->nprocessed_entries = nitems;
+        if(nfiles)
+            *nfiles = nitems;
     }
 
     if (etag_out && confdir && path) {

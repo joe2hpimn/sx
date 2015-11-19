@@ -903,9 +903,9 @@ static int test_revision(sxc_client_t *sx, sxc_cluster_t *cluster, const char *l
     printf("test_revision: Downloading and checking file versions.\n");
     for(i=0; i<max_revisions; i++) {
         sxc_file_free(src);
-        src = sxc_file_remote(cluster, uri->volume, uri->path, revs->revisions[i]->revision);
+        src = sxc_file_remote(cluster, uri->volume, uri->path, sxc_file_get_revision(revs->revisions[i]->file));
         if(!src) {
-            fprintf(stderr, "test_revision: ERROR: Cannot open '%s' (%s) file: %s\n", remote_file_path, revs->revisions[i]->revision, sxc_geterrmsg(sx));
+            fprintf(stderr, "test_revision: ERROR: Cannot open '%s' (%s) file: %s\n", remote_file_path, sxc_file_get_revision(revs->revisions[i]->file), sxc_geterrmsg(sx));
             goto test_revision_err;
         }
         sxc_file_free(dest);
@@ -960,13 +960,13 @@ static int test_revision(sxc_client_t *sx, sxc_cluster_t *cluster, const char *l
         }
     }
     sxc_file_free(src);
-    src = sxc_file_remote(cluster, uri->volume, uri->path, revs->revisions[max_revisions/2]->revision);
+    src = sxc_file_remote(cluster, uri->volume, uri->path, sxc_file_get_revision(revs->revisions[max_revisions/2]->file));
     if(!src) {
-        fprintf(stderr, "test_revision: ERROR: Cannot open '%s' (%s) file: %s\n", remote_file_path, revs->revisions[i]->revision, sxc_geterrmsg(sx));
+        fprintf(stderr, "test_revision: ERROR: Cannot open '%s' (%s) file: %s\n", remote_file_path, sxc_file_get_revision(revs->revisions[i]->file), sxc_geterrmsg(sx));
         goto test_revision_err;
     }
     if(sxc_remove_sxfile(src)) {
-        fprintf(stderr, "test_revision: ERROR: Cannot remove '%s' (%s) file: %s\n", remote_file_path, revs->revisions[max_revisions/2]->revision, sxc_geterrmsg(sx));
+        fprintf(stderr, "test_revision: ERROR: Cannot remove '%s' (%s) file: %s\n", remote_file_path, sxc_file_get_revision(revs->revisions[max_revisions/2]->file), sxc_geterrmsg(sx));
         goto test_revision_err;
     }
     if(sxc_copy_sxfile(src, dest, 1)) {
