@@ -3145,7 +3145,7 @@ int main (int argc, char **argv) {
                 sprintf(path, "%s", fargs.argv[i]+7);
                 if(path[strlen(path)-1] == '/')
                     path[strlen(path)-1] = '\0';
-                flist = sxc_cluster_listfiles(cluster, sxfs->uri->volume, path, 0, NULL, NULL, NULL, NULL, NULL, 0, 1 /* Forces file metadata to be fetched */);
+                flist = sxc_cluster_listfiles(cluster, sxfs->uri->volume, path, 0, NULL, NULL, NULL, NULL, NULL, 0);
                 if(!flist) {
                     fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
                     break;

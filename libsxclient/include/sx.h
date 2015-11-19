@@ -165,8 +165,8 @@ void sxc_cluster_listvolumes_free(sxc_cluster_lv_t *lv);
 #define SXC_UINT32_UNDEFINED 0xffffffff
 
 typedef struct _sxc_cluster_lf_t sxc_cluster_lf_t;
-sxc_cluster_lf_t *sxc_cluster_listfiles(sxc_cluster_t *cluster, const char *volume, const char *glob_pattern, int recursive, int64_t *volume_used_size, int64_t *volume_size, unsigned int *replica_count, unsigned int *effective_replica_count, unsigned int *nfiles, int reverse, int force_meta_fetch);
-sxc_cluster_lf_t *sxc_cluster_listfiles_etag(sxc_cluster_t *cluster, const char *volume, const char *glob_pattern, int recursive, int64_t *volume_used_size, int64_t *volume_size, unsigned int *replica_count, unsigned int *effective_replica_count, unsigned int *nfiles, int reverse, const char *etag_file, int force_meta_fetch);
+sxc_cluster_lf_t *sxc_cluster_listfiles(sxc_cluster_t *cluster, const char *volume, const char *glob_pattern, int recursive, int64_t *volume_used_size, int64_t *volume_size, unsigned int *replica_count, unsigned int *effective_replica_count, unsigned int *nfiles, int reverse);
+sxc_cluster_lf_t *sxc_cluster_listfiles_etag(sxc_cluster_t *cluster, const char *volume, const char *glob_pattern, int recursive, int64_t *volume_used_size, int64_t *volume_size, unsigned int *replica_count, unsigned int *effective_replica_count, unsigned int *nfiles, int reverse, const char *etag_file);
 typedef struct _sxc_file_t sxc_file_t;
 int sxc_cluster_listfiles_next(sxc_cluster_t *cluster, const char *volume, sxc_cluster_lf_t *lf, sxc_file_t **file);
 int sxc_cluster_listfiles_prev(sxc_cluster_t *cluster, const char *volume, sxc_cluster_lf_t *lf, sxc_file_t **file);

@@ -6605,7 +6605,7 @@ static int sxi_file_list_foreach(sxc_file_list_t *target, sxc_cluster_t *wait_cl
             sxc_meta_free(cvmeta);
             /* glob */
             CFGDEBUG("Listing using glob pattern '%s'", pattern->path);
-            lst = sxc_cluster_listfiles(cluster, pattern->volume, pattern->path, target->recursive, NULL, NULL, NULL, NULL, &entry->nfiles, 0, 0);
+            lst = sxc_cluster_listfiles(cluster, pattern->volume, pattern->path, target->recursive, NULL, NULL, NULL, NULL, &entry->nfiles, 0);
             if (!lst) {
                 CFGDEBUG("Cannot list files");
                 break;

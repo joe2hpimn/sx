@@ -2064,7 +2064,6 @@ struct _sxc_cluster_lf_t {
     sxc_meta_t *custom_volume_meta;
     int meta_fetched;
     int meta_requested;
-    int force_meta_fetch;
 };
 
 unsigned sxi_count_slashes(const char *str)
@@ -2095,7 +2094,7 @@ char *sxi_ith_slash(char *s, unsigned int i) {
     return NULL;
 }
 
-static sxc_cluster_lf_t *sxi_cluster_listfiles(sxc_cluster_t *cluster, const char *volume, const char *glob_pattern, int recursive, int64_t *volume_used_size, int64_t *volume_size, unsigned int *replica_count, unsigned int *effective_replica_count, unsigned int *nfiles, int reverse, const char *etag_in, char **etag_out, int force_meta_fetch) {
+static sxc_cluster_lf_t *sxi_cluster_listfiles(sxc_cluster_t *cluster, const char *volume, const char *glob_pattern, int recursive, int64_t *volume_used_size, int64_t *volume_size, unsigned int *replica_count, unsigned int *effective_replica_count, unsigned int *nfiles, int reverse, const char *etag_in, char **etag_out) {
     char *enc_vol, *enc_glob = NULL, *url, *fname;
     struct cb_listfiles_ctx yctx;
     yajl_callbacks *yacb = &yctx.yacb;
@@ -2154,8 +2153,7 @@ static sxc_cluster_lf_t *sxi_cluster_listfiles(sxc_cluster_t *cluster, const cha
         sxc_meta_free(cvmeta);
         return NULL;
     }
-    if(force_meta_fetch)
-        fetch_meta = 1;
+
     if(!sxc_meta_getval(vmeta, "filterActive", &mval, &mval_len)) {
         char filter_uuid[37], cfgkey[37 + 5];
         const void *cfgval = NULL;
@@ -2224,7 +2222,7 @@ static sxc_cluster_lf_t *sxi_cluster_listfiles(sxc_cluster_t *cluster, const cha
 	len += lenof("?filter=") + strlen(enc_glob);
     }
 
-    if(recursive)
+    if(recursive || (fh && fh->f->filemeta_process))
 	len += lenof("&recursive");
     if(fetch_meta)
         len += lenof("&meta");
@@ -2247,7 +2245,7 @@ static sxc_cluster_lf_t *sxi_cluster_listfiles(sxc_cluster_t *cluster, const cha
         qm = 0;
         cur += strlen(cur);
     }
-    if(recursive) {
+    if(recursive || (fh && fh->f->filemeta_process)) {
         sprintf(cur, "%s", qm ? "?recursive" : "&recursive");
         qm = 0;
         cur += strlen(cur);
@@ -2398,7 +2396,6 @@ static sxc_cluster_lf_t *sxi_cluster_listfiles(sxc_cluster_t *cluster, const cha
     ret->custom_volume_meta = cvmeta;
     ret->meta_fetched = (fetch_meta && yctx.file_meta) ? 1 : 0;
     ret->meta_requested = fetch_meta;
-    ret->force_meta_fetch = force_meta_fetch;
     if (yctx.etag_out) {
         if (etag_out && *yctx.etag_out)
             *etag_out = yctx.etag_out;
@@ -2421,7 +2418,7 @@ static int file_entry_cmp(const void *a, const void *b) {
    return strcmp(sxc_file_get_path(*f1), sxc_file_get_path(*f2));
 }
 
-sxc_cluster_lf_t *sxc_cluster_listfiles_etag(sxc_cluster_t *cluster, const char *volume, const char *glob_pattern, int recursive, int64_t *volume_used_size, int64_t *volume_size, unsigned int *replica_count, unsigned int *effective_replica_count, unsigned int *nfiles, int reverse, const char *etag_file, int force_meta_fetch) {
+sxc_cluster_lf_t *sxc_cluster_listfiles_etag(sxc_cluster_t *cluster, const char *volume, const char *glob_pattern, int recursive, int64_t *volume_used_size, int64_t *volume_size, unsigned int *replica_count, unsigned int *effective_replica_count, unsigned int *nfiles, int reverse, const char *etag_file) {
     sxc_cluster_lf_t *ret;
     const char *confdir = sxi_cluster_get_confdir(cluster);
     char *path = NULL;
@@ -2461,7 +2458,7 @@ sxc_cluster_lf_t *sxc_cluster_listfiles_etag(sxc_cluster_t *cluster, const char 
     if (*etag)
         SXDEBUG("ETag in: %s", etag);
 
-    ret = sxi_cluster_listfiles(cluster, volume, glob_pattern, recursive, volume_used_size, volume_size, replica_count, effective_replica_count, nfiles, reverse, *etag ? etag : NULL, &etag_out, force_meta_fetch);
+    ret = sxi_cluster_listfiles(cluster, volume, glob_pattern, recursive, volume_used_size, volume_size, replica_count, effective_replica_count, nfiles, reverse, *etag ? etag : NULL, &etag_out);
     SXDEBUG("ETag out: %s", etag_out ? etag_out : "");
 
     /* Returned list requires processing filenames, will need to iterate the list and process it first */
@@ -2544,8 +2541,8 @@ sxc_cluster_lf_t *sxc_cluster_listfiles_etag(sxc_cluster_t *cluster, const char 
     return ret;
 }
 
-sxc_cluster_lf_t *sxc_cluster_listfiles(sxc_cluster_t *cluster, const char *volume, const char *glob_pattern, int recursive, int64_t *volume_used_size, int64_t *volume_size, unsigned int *replica_count, unsigned int *effective_replica_count, unsigned int *nfiles, int reverse, int force_meta_fetch) {
-    return sxc_cluster_listfiles_etag(cluster, volume, glob_pattern, recursive, volume_used_size, volume_size, replica_count, effective_replica_count, nfiles, reverse, NULL, force_meta_fetch);
+sxc_cluster_lf_t *sxc_cluster_listfiles(sxc_cluster_t *cluster, const char *volume, const char *glob_pattern, int recursive, int64_t *volume_used_size, int64_t *volume_size, unsigned int *replica_count, unsigned int *effective_replica_count, unsigned int *nfiles, int reverse) {
+    return sxc_cluster_listfiles_etag(cluster, volume, glob_pattern, recursive, volume_used_size, volume_size, replica_count, effective_replica_count, nfiles, reverse, NULL);
 }
 
 /* Perform listed file postprocessing, return 1 when file can be listed, return 2 when it is skipped due to pattern matching fail. Return negative
@@ -2679,6 +2676,7 @@ static int listfiles_next_file(sxc_cluster_t *cluster, const char *volume, sxc_c
     int ret = -1;
     sxc_file_t *f = NULL;
     char *remote_path = NULL;
+    unsigned int remote_path_len = 0;
     char *rev = NULL;
     sxc_meta_t *meta = NULL;
 
@@ -2716,6 +2714,7 @@ static int listfiles_next_file(sxc_cluster_t *cluster, const char *volume, sxc_c
         goto lfnext_out;
     }
     remote_path[cb_file.namelen] = '\0';
+    remote_path_len = cb_file.namelen;
     cb_file.namelen = 0;
 
     if(cb_file.revlen) {
@@ -2832,18 +2831,6 @@ static int listfiles_next_file(sxc_cluster_t *cluster, const char *volume, sxc_c
         SXDEBUG("Failed to allocate remote file");
         sxi_seterr(sx, SXE_EMEM, "Failed to allocate remote file");
         goto lfnext_out;
-    }
-    if(lf->force_meta_fetch && !meta) {
-        meta = sxc_filemeta_new(f);
-        if(!meta) {
-            SXDEBUG("Failed to force meta fetch");
-            goto lfnext_out;
-        }
-
-        if(sxi_file_set_meta(f, meta)) {
-            SXDEBUG("Failed to set file meta");
-            goto lfnext_out;
-        }
     }
 
     if(sxi_file_set_remote_size(f, cb_file.filesize) || sxi_file_set_created_at(f, cb_file.created_at) ||
@@ -3059,19 +3046,6 @@ static int listfiles_prev_file(sxc_cluster_t *cluster, const char *volume, sxc_c
         SXDEBUG("Failed to allocate remote file");
         sxi_seterr(sx, SXE_EMEM, "Failed to allocate remote file");
         goto lfprev_out;
-    }
-
-    if(lf->force_meta_fetch && !meta) {
-        meta = sxc_filemeta_new(f);
-        if(!meta) {
-            SXDEBUG("Failed to force meta fetch");
-            goto lfprev_out;
-        }
-
-        if(sxi_file_set_meta(f, meta)) {
-            SXDEBUG("Failed to set file meta");
-            goto lfprev_out;
-        }
     }
 
     if(sxi_file_set_remote_size(f, cb_file.filesize) || sxi_file_set_created_at(f, cb_file.created_at) ||

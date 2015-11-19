@@ -5000,7 +5000,7 @@ static sxi_query_t *massrename_data_to_query(sxc_client_t *sx, const void *job_d
     sx_blob_free(b);
 
     /* 42: 2 x 20 bytes for int64 + '.' separator + nulbyte */
-    len = strlen(vol_enc) + lenof("?source=") + strlen(src_enc) + lenof("&dest=") + strlen(dst_enc) + lenof("&timestamp=") + 42;
+    len = strlen(vol_enc) + lenof("?source=") + strlen(src_enc) + lenof("&dest=") + lenof("&recursive") + strlen(dst_enc) + lenof("&timestamp=") + 42;
     if(commit_jobid)
         len += lenof("&commit=") + strlen(commit_jobid);
     url = malloc(len);
@@ -5012,7 +5012,8 @@ static sxi_query_t *massrename_data_to_query(sxc_client_t *sx, const void *job_d
         return NULL;
     }
 
-    snprintf(url, len, "%s?source=%s&timestamp=%lld.%lld&dest=%s%s%s", vol_enc, src_enc, (long long)timestamp.tv_sec, (long long)timestamp.tv_usec, dst_enc, commit_jobid ? "&commit=" : "", commit_jobid ? commit_jobid : "");
+    snprintf(url, len, "%s?source=%s&timestamp=%lld.%lld&dest=%s%s%s%s", vol_enc, src_enc, (long long)timestamp.tv_sec, (long long)timestamp.tv_usec,
+        dst_enc, commit_jobid ? "&commit=" : "", commit_jobid ? commit_jobid : "", recursive ? "&recursive" : "");
     free(vol_enc);
     free(src_enc);
     free(dst_enc);
