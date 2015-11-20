@@ -23,6 +23,7 @@ SXLS = 'sxls'
 SXACL = 'sxacl'
 SXVOL = 'sxvol'
 SXCP = 'sxcp'
+SXADM = 'sxadm'
 
 OLD = 'sx-backup.sh'
 NEW = 'sx-restore.sh'
@@ -51,7 +52,7 @@ def try_subcommands(main, subcmds):
     for subcmd in subcmds:
         try:
             cmdhelp = check_output([main, subcmd, "--help"])
-            if "Usage: %s %s" % (SXACL, subcmd) in cmdhelp:
+            if "Usage: %s %s" % (os.path.basename(SXACL), subcmd) in cmdhelp:
                 return subcmd
         except CalledProcessError:
             continue
@@ -75,7 +76,7 @@ def check_versions(commands):
         print >> sys.stderr, "Tool version mismatch: ", list(versions)
         sys.exit(1)
 
-check_versions([SXLS, SXACL, SXVOL, SXCP])
+check_versions([SXLS, SXACL, SXVOL, SXCP, SXADM])
 SXACL_LIST = try_subcommands(SXACL, ['volshow', 'show', 'list'])
 
 
@@ -93,17 +94,58 @@ def print_progress(dest, msg):
 
 def create_users(sxurl):
     """ Print commands to create SX users """
-    users = check_output([SXACL, "userlist", sxurl]).rstrip().split('\n')
+    lines = check_output([SXACL, "userlist", "--verbose", sxurl]).rstrip().split('\n')
     print_progress(new, "Creating users")
-    for user_role in [s.rsplit(" (", 1) for s in users]:
-        user, role = user_role
+    pattern = re.compile(r"^(?P<user>\S+) *"
+                         r"(role:(?P<role>\w+)) *"
+                         r"(quota:(?P<quota>\S+)) *"
+                         r"(desc:(?P<desc>.*))")
+
+    for line in lines:
+        match = pattern.search(line)
+        if match is None:
+            print >> sys.stderr, "WARNING: Cannot parse sxacl output: " + line
+            continue
+        user = match.group('user')
         if user == 'admin':
             continue
-        role = role.rsplit(")", 1)[0]
-        token = check_output([SXACL, "usergetkey", user, sxurl]).strip()
-        print_shell(new, [SXACL, "useradd", "--role", role, user, sxurl,
-                          "--force-key", token])
+        cmd = [SXACL, "useradd", "--role", match.group('role')]
+        quota = match.group('quota')
+	if quota != 'unlimited':
+            cmd.extend(["--quota", quota.split('/')[1]])
+        desc = match.group('desc')
+	if desc != '':
+            cmd.extend(["--desc", desc])
 
+        token = check_output([SXACL, "usergetkey", user, sxurl]).strip()
+        cmd.extend([user, sxurl, "--force-key", token])
+        print_shell(new, cmd)
+
+def set_cluster_meta(sxurl):
+    """ Print commands to set cluster meta """
+    try:
+	kvs = check_output([SXADM, "cluster", "--get-meta=ALL", sxurl]).rstrip().split('\n')
+    except CalledProcessError:
+        print >> sys.stderr, "WARNING: Can't obtain cluster meta"
+    else:
+	print_progress(new, "Setting cluster meta")
+	for kv in kvs:
+	    print_shell(new, [SXADM, "cluster", "--set-meta", kv, sxurl])
+
+
+def update_cluster_settings(sxurl):
+    """ Print commands to update cluster settings """
+    if int(get_version(SXADM).split(".")[0]) >= 2:
+	try:
+	    kvs = check_output([SXADM, "cluster", "--get-param=ALL", sxurl]).rstrip().split('\n')
+	except CalledProcessError:
+	    print >> sys.stderr, "WARNING: Can't obtain cluster settings"
+	else:
+	    print_progress(new, "Updating cluster settings")
+	    for kv in kvs:
+		if kv.split('=')[0] == "sxsetup_conf":
+		    continue
+		print_shell(new, [SXADM, "cluster", "--set-param", kv, sxurl])
 
 def list_acl(sxurl):
     """ Retrieve the ACL of a volume """
@@ -111,10 +153,13 @@ def list_acl(sxurl):
     owner = None
     read_acl = []
     write_acl = []
+    manager_acl = []
     admin_acl = []
     firstuser = None
     for line in lines:
         user, allprivs = line.split(": ", 1)
+        if user == '(all admin users)':
+	    continue
         privs = allprivs.split(" ")
         if firstuser is None:
             firstuser = user
@@ -126,17 +171,18 @@ def list_acl(sxurl):
             read_acl.append(user)
         if 'write' in privs:
             write_acl.append(user)
+        if 'manager' in privs:
+            manager_acl.append(user)
     # if owner is admin old sx versions don't always list owner priv
     if owner is None:
         owner = firstuser
-    return owner, read_acl, write_acl, admin_acl
+    return owner, read_acl, write_acl, manager_acl, admin_acl
 
 
 def create_volumes(sxurl):
     """ Print commands to create SX volumes and set ACLs """
-    print_shell(new, ["date"])
     lines = check_output([SXLS, "-l", sxurl]).rstrip().split('\n')
-    pattern = re.compile(r"^ *VOL +(r(ep)?:)?(?P<replica>\d+) +"
+    pattern = re.compile(r"^ *VOL +(r(ep)?:)?(?P<replica>\d+)(\(\d+\))? +"
                          r"(rev:(?P<rev>\d+))? *"
                          r"(r?w?) *"
                          r"(?P<filter>[^ ]+)? +"
@@ -146,27 +192,27 @@ def create_volumes(sxurl):
                          r" *([^ ]+)? *"  # ignore owner, we get it from acl
                          r"(?P<url>sx://.+)$")
     volumes = []
-    print_shell(new, ["echo", "Creating volumes"])
+    print_progress(new, "Creating volumes")
     for line in lines:
         if line == "":
             continue
         match = pattern.search(line)
         if match is None:
-            print >> sys.stderr, "Cannot parse sxls output: " + line
+            print >> sys.stderr, "WARNING: Cannot parse sxls output: " + line
             continue
         url = match.group('url')
-        owner, read_acl, write_acl, admin_acl = list_acl(url)
+        owner, read_acl, write_acl, manager_acl, admin_acl = list_acl(url)
         cmd = [SXVOL, "create", "--owner", owner,
                "--replica", match.group('replica'),
                "--size", match.group('size'), url]
         volfilter = match.group('filter')
         volrev = match.group('rev')
-        if volfilter == 'aes256':
-            print >> sys.stderr, ("\nWarning: "
+        if volfilter == 'aes256' or volfilter == 'aes256_old':
+            print >> sys.stderr, ("\nWARNING: "
                                   "Skipping encrypted volume '%s'\n" % url)
             continue
         if volfilter == '*unknown*':
-            print >> sys.stderr, ("\nWarning: "
+            print >> sys.stderr, ("\nWARNING: "
                                   "Skipping volume with unknown filter '%s'\n"
                                   % url)
             continue
@@ -181,7 +227,7 @@ def create_volumes(sxurl):
                                   "sxsetup configuration volume '%s'" % vol)
             continue
         if volfilter is None:
-            print >> sys.stderr, ("Warning: cannot determine what filters"
+            print >> sys.stderr, ("WARNING: cannot determine what filters"
                                   " are used by the volume '%s'"
                                   " (SX version too old)" % url)
         if volrev is None:
@@ -193,6 +239,8 @@ def create_volumes(sxurl):
             cmd.extend(["--filter", volfilter])
         if volrev is not None:
             cmd.extend(["--max-revisions", volrev])
+
+        new.write("# volume '%s'\n" % vol)
         print_shell(new, cmd)
 
         for user in read_acl:
@@ -203,12 +251,19 @@ def create_volumes(sxurl):
             if user == owner or user in admin_acl or user == 'admin':
                 continue
             print_shell(new, [SXACL, "volperm", "--grant=write", user, url])
+        for user in manager_acl:
+            if user == owner or user in admin_acl or user == 'admin':
+                continue
+            print_shell(new, [SXACL, "volperm", "--grant=manager", user, url])
+	    if user not in read_acl:
+		print_shell(new, [SXACL, "volperm", "--revoke=read", user, url])
+	    if user not in write_acl:
+		print_shell(new, [SXACL, "volperm", "--revoke=write", user, url])
         if owner not in read_acl:
             print_shell(new, [SXACL, "volperm", "--revoke=read", owner, url])
         if owner not in write_acl:
             print_shell(new, [SXACL, "volperm", "--revoke=write", owner, url])
         new.write("\n")
-    print_shell(new, ["echo", "Restoring data"])
     for volurl in volumes:
         vol = volurl.rsplit("/", 1)[1]
         print_progress(old, "Backing up volume %s" % volurl)
@@ -221,7 +276,6 @@ def create_volumes(sxurl):
             continue
         print_progress(new, "Restoring volume %s" % volurl)
         print_shell(new, [SXCP, "-r", localdir + "/", volurl + "/"])
-    print_shell(new, ["date"])
 
 os.umask(0o77)
 with open(OLD, 'w') as old:
@@ -234,6 +288,8 @@ with open(OLD, 'w') as old:
         print_shell(old, ["mkdir", "-m", "0700", "-p", BACKUPDIR])
         create_users(args.cluster)
         create_volumes(args.cluster)
+	set_cluster_meta(args.cluster)
+	update_cluster_settings(args.cluster)
         os.chmod(OLD, stat.S_IRWXU)
         os.chmod(NEW, stat.S_IRWXU)
         print "Review %s (uncomment/edit paths as necessary)" % OLD
