@@ -361,7 +361,11 @@ rc_ty hostlist_add_fallbacks(sxc_client_t *sx, sxi_hostlist_t *hl, const sx_node
 static int heal_ask_data_cb(curlev_context_t *cbdata, const unsigned char *data, size_t size)
 {
     void *ctx = sxi_cbdata_get_context(cbdata);
-    return rplfiles_cb(cbdata, ctx, data, size);
+    if (rplfiles_cb(cbdata, ctx, data, size)) {
+        WARN("rplfiles_cb failed");
+        return -1;
+    }
+    return 0;
 }
 
 static void heal_ask_finish_cb(curlev_context_t *cbdata, const char *url) {
@@ -369,22 +373,29 @@ static void heal_ask_finish_cb(curlev_context_t *cbdata, const char *url) {
         return;
     void *ctx = sxi_cbdata_get_context(cbdata);
     free(ctx);
+    heal_pending_queries--;
     DEBUG("finished");
 }
 
 static rc_ty heal_ask(sx_hashfs_t *h, const sxi_hostlist_t *targets, const sx_uuid_t *node, unsigned mdb, int64_t start, int64_t stop)
 {
     rc_ty ret = FAIL_EINTERNAL;
+    heal_pending_queries++;
     curlev_context_t *cbdata = sxi_cbdata_create_generic(sx_hashfs_conns(h), heal_ask_finish_cb, NULL);
     if (!cbdata)
         return ENOMEM;
     char *query = NULL;
+    const sx_uuid_t *self = sx_node_uuid(sx_hashfs_self(h));
+    if (!self) {
+        WARN("Cannot retrieve own uuid");
+        return FAIL_EINTERNAL;
+    }
     do {
-        unsigned n = lenof(".rejoin/?mdb=&node=&start=&?stop=") + 2 + UUID_STRING_SIZE + 2*COUNTER_LEN;
+        unsigned n = lenof(".rejoin/?mdb=&node=&start=&?stop=&dest=") + 2 + 2*UUID_STRING_SIZE + 2*COUNTER_LEN;
         query = wrap_malloc(n);
         if (!query)
             break;
-        snprintf(query, n, ".rejoin/?mdb=%u&node=%s&start=%lld&stop=%lld", mdb, node->string, (long long)start, (long long)stop);
+        snprintf(query, n, ".rejoin/?mdb=%u&node=%s&start=%lld&stop=%lld&dest=%s", mdb, node->string, (long long)start, (long long)stop, self->string);
         DEBUG("Asking %s", query);
         struct rplfiles *ctx = wrap_calloc(1, sizeof(*ctx));
         if (!ctx) {
@@ -397,7 +408,7 @@ static rc_ty heal_ask(sx_hashfs_t *h, const sxi_hostlist_t *targets, const sx_uu
 	ctx->ngood = 0;
 	ctx->needend = 0;
 	ctx->state = RPL_HDRSIZE;
-        ctx->files_and_volumes = 1;
+        ctx->mode = MODE_HEAL;
         sxi_cbdata_set_context(cbdata, ctx);
 
         if (sxi_cluster_query_ev_retry(cbdata, sx_hashfs_conns(h), targets, REQ_GET, query, NULL, 0, NULL, heal_ask_data_cb, NULL)) {
@@ -412,7 +423,7 @@ static rc_ty heal_ask(sx_hashfs_t *h, const sxi_hostlist_t *targets, const sx_uu
     return ret;
 }
 
-rc_ty process_fileblock_heal(sx_hashfs_t *h)
+rc_ty process_file_heal(sx_hashfs_t *h, int *terminate)
 {
     /* this assumes that a node is only removed after all its files have been synchronized to all relevant nodes,
        i.e. you cannot remove nodes while you have faulty/pending flushes/unsynchronized nodes */
@@ -428,20 +439,20 @@ rc_ty process_fileblock_heal(sx_hashfs_t *h)
         file / vol will be checked whether t belongs on this node, if not only blocks are checked
     */
     unsigned i;
-    for (i = 0; i < nnodes; i++) {
+    for (i = 0; i < nnodes && !*terminate; i++) {
         const sx_uuid_t *node = sx_node_uuid(sx_nodelist_get(all, i));
         sxi_iset_t *iset;
         DEBUG("Processing node %s", node->string);
         sxi_hostlist_t targets;
         if (hostlist_add_fallbacks(sx_hashfs_client(h), &targets, all, i))
             return ENOMEM;
-        for (unsigned mdb=0;(iset = sx_hashfs_intervals(h, mdb)); mdb++) {
+        for (unsigned mdb=0;(iset = sx_hashfs_intervals(h, mdb)) && !*terminate; mdb++) {
             if (sxi_iset_iter_begin(iset, node))
                 break;
             int64_t last_stop = -1;
             int64_t start, stop;
             rc_ty s;
-            while ((s = sxi_iset_iter_next(iset, &start, &stop)) == OK) {
+            while ((s = sxi_iset_iter_next(iset, &start, &stop)) == OK && !*terminate) {
                 int64_t m_start = last_stop + 1;
                 int64_t m_stop = start - 1;
                 if (m_start <= m_stop) {
@@ -462,7 +473,186 @@ rc_ty process_fileblock_heal(sx_hashfs_t *h)
     }
     if (i != nnodes)
         return FAIL_EINTERNAL;
-    return OK;
+    return heal_wait(h, terminate);
+}
+
+/* TODO: move to common header */
+#define DEBUGHASH(MSG, X) do {                                          \
+        char _debughash[sizeof(sx_hash_t)*2+1];                         \
+        if (UNLIKELY(sxi_log_is_debug(&logger))) {                      \
+            bin2hex((X)->b, sizeof(*X), _debughash, sizeof(_debughash)); \
+            DEBUG("%s: #%s#", MSG, _debughash);                         \
+        }                                                               \
+    } while(0)
+
+
+
+struct source {
+    sx_hash_t hashes[DOWNLOAD_MAX_BLOCKS];
+    unsigned n;
+    const sx_node_t *node;
+    unsigned replica;
+};
+
+struct fetch_ctx {
+    sx_hashfs_t *h;
+    char *block;
+    unsigned blocksize;
+    unsigned pos;
+    unsigned replica;
+};
+
+static void heal_save_finish_cb(curlev_context_t *cbdata, const char *url) {
+    struct fetch_ctx *ctx = sxi_cbdata_get_context(cbdata);
+    if (!ctx) {
+        DEBUG("ctx not set");
+        return;
+    }
+    free(ctx->block); ctx->block = NULL;
+    free(ctx);
+    sxi_cbdata_set_context(cbdata, NULL);
+    heal_pending_queries--;
+}
+
+
+static int heal_save_block_cb(curlev_context_t *cbdata, const unsigned char *data, size_t size)
+{
+    struct fetch_ctx *ctx = sxi_cbdata_get_context(cbdata);
+    if (!ctx) {
+        DEBUG("ctx not set");
+        return -1;
+    }
+    if (!ctx->block) {
+        NULLARG();
+        return -1;
+    }
+    int remaining = ctx->pos + size > ctx->blocksize ? ctx->blocksize - ctx->pos : size;
+    memcpy(ctx->block + ctx->pos, data, remaining);
+    ctx->pos += remaining;
+    if (ctx->pos == ctx->blocksize) {
+        if (sx_hashfs_block_put(ctx->h, ctx->block, ctx->blocksize, ctx->replica))
+            return -1;
+        DEBUG("saved block");
+        ctx->pos = 0;
+    }
+
+    return 0;
+}
+
+static rc_ty fetch_from(sx_hashfs_t *h, struct source *source, unsigned int blocksize)
+{
+    rc_ty ret = OK;
+    if (!h || !source) {
+        NULLARG();
+        return EFAULT;
+    }
+    if (!source->n)
+        return OK;
+    unsigned len = lenof(".data/1048576/") + source->n*SXI_SHA1_TEXT_LEN + 1;
+    char *url = wrap_malloc(len);
+    if (!url)
+        return ENOMEM;
+    int n = snprintf(url, len, ".data/%d/", blocksize);
+    if (n < 0) {
+        WARN("bad url length");
+        return EINVAL;
+    }
+    char *c = url + n;
+    for (unsigned i=0;i<source->n;i++) {
+        bin2hex(source->hashes[i].b, sizeof(source->hashes[i].b), c, SXI_SHA1_TEXT_LEN+1);
+        c += SXI_SHA1_TEXT_LEN;
+    }
+    url[len-1] = '\0';
+
+    heal_pending_queries++;
+    curlev_context_t *cbdata = sxi_cbdata_create_generic(sx_hashfs_conns(h), heal_save_finish_cb, NULL);
+    do {
+        if (!cbdata) {
+            WARN("failed to allocate query context");
+            break;
+        }
+        struct fetch_ctx *ctx = wrap_malloc(sizeof(*ctx));
+        if (!ctx) {
+            WARN("Failed to allocate fetch context");
+            break;
+        }
+        ctx->h = h;
+        ctx->blocksize = blocksize;
+        ctx->block = wrap_malloc(blocksize);
+        if (!ctx->block) {
+            WARN("failed to allocate block");
+            break;
+        }
+        ctx->pos = 0;
+        ctx->replica = source->replica;
+        sxi_cbdata_set_context(cbdata, ctx);
+        if (sxi_cluster_query_ev(cbdata, sx_hashfs_conns(h), sx_node_internal_addr(source->node),
+                                 REQ_GET, url, NULL, 0, NULL, heal_save_block_cb)) {
+            WARN("failed to send query");
+            cbdata = NULL;/* finish cb will unref */
+            ret = FAIL_EINTERNAL;
+        }
+    } while(0);
+    sxi_cbdata_unref(&cbdata);
+    free(url);
+    return ret;
+}
+
+rc_ty process_block_heal(sx_hashfs_t *h, int *terminate)
+{
+    rc_ty s;
+    const sx_node_t *self = sx_hashfs_self(h);
+    const sx_nodelist_t *all = sx_hashfs_all_nodes(h, NL_NEXT);
+    unsigned max_replica = sx_nodelist_count(all);
+    unsigned replica = 0;
+    for (int i=0;i<SIZES && !*terminate;i++) {
+        struct source *sources = wrap_calloc(max_replica, sizeof(*sources));
+        if (!sources)
+            return ENOMEM;
+        for (int j=0;j<HASHDBS && !*terminate;j++) {
+            s = sx_hashfs_heal_block_begin(h, i, j);
+            if (s != OK)
+                return s;
+            sx_hash_t hash;
+            sx_nodelist_t *nl = NULL;
+            while ((s = sx_hashfs_heal_block_next(h, i, j, &hash)) == OK && !*terminate) {
+                DEBUGHASH("needs to heal hash", &hash);
+                /* TODO: should have separate heal reservations per replica? */
+                nl = sx_hashfs_all_hashnodes(h, NL_NEXTPREV, &hash, max_replica);
+                if (!nl) {
+                    WARN("cannot allocate hashnodes");
+                    break;
+                }
+                const sx_node_t *sourcenode = sx_nodelist_get(nl, replica);
+                if (sx_node_cmp(sourcenode, self)) {
+                    /* fetch from other node */
+                    unsigned int idx;
+                    const sx_node_t *node = sx_nodelist_lookup_index(all, sx_node_uuid(sourcenode), &idx);
+                    if (!node) {
+                        WARN("bad node in hashlist: %s", sx_node_uuid(sourcenode)->string);
+                        break;
+                    }
+                    struct source *source = &sources[idx];
+                    source->node = node;
+                    source->replica = max_replica;
+                    if (source->n < DOWNLOAD_MAX_BLOCKS)
+                        memcpy(&source->hashes[source->n++], &hash, sizeof(hash));
+                    else if (fetch_from(h, source, bsz[i]))
+                            break;
+                }
+                sx_nodelist_delete(nl); nl = NULL;
+            }
+            sx_nodelist_delete(nl);
+            sx_hashfs_heal_block_end(h, i, j);
+            if (s != ITER_NO_MORE)
+                return s;
+        }
+        for (unsigned j=0;j<max_replica && !*terminate;j++)
+            if (fetch_from(h, &sources[j], bsz[i]))
+                break;
+        free(sources);
+    }
+    return heal_wait(h, terminate);
 }
 
 int gc(sxc_client_t *sx, const char *dir, int pipe, int pipe_expire) {
@@ -509,9 +699,14 @@ int gc(sxc_client_t *sx, const char *dir, int pipe, int pipe_expire) {
         gettimeofday(&tv1, NULL);
         sx_hashfs_distcheck(hashfs);
 
-        INFO("file/block heal starting");
-        rc = process_fileblock_heal(hashfs);
-        INFO("file/block heal finished: %s", rc2str(rc));
+        INFO("file heal starting");
+        rc = process_file_heal(hashfs, &terminate);
+        INFO("file heal finished: %s", rc2str(rc));
+        INFO("block healing starting");
+        rc = process_block_heal(hashfs, &terminate);
+        INFO("block healing finished: %s", rc2str(rc));
+        rc = sx_hashfs_heal_reset(hashfs);
+        INFO("block healing reset: %s", rc2str(rc));
 
         /* TODO: phase dependency (only after local upgrade completed) */
         rc = process_heal(hashfs, &terminate);

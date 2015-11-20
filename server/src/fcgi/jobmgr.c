@@ -865,7 +865,7 @@ static act_result_t cluster_settings_undo(sx_hashfs_t *hashfs, job_t job_id, job
    return job_twophase_execute(&cluster_settings_spec, JOBPHASE_UNDO, hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
 }
 
-static int req_append(char **req, unsigned int *req_len, const char *append_me) {
+int req_append(char **req, unsigned int *req_len, const char *append_me) {
     unsigned int current_len, append_len;
 
     if(!*req_len) {
@@ -3833,7 +3833,7 @@ int rplfiles_cb(curlev_context_t *cbdata, void *ctx, const void *data, size_t si
 			INFO("Spurious tail of %u bytes", (unsigned int)size);
 		    return 0;
 		}
-                if(c->files_and_volumes) {
+                if(c->mode == MODE_HEAL) {
                     if(strcmp(signature, "$VOL$")) {
                         WARN("Invalid blob signature '%s'", signature);
                         return 1;
@@ -3912,6 +3912,13 @@ int rplfiles_cb(curlev_context_t *cbdata, void *ctx, const void *data, size_t si
 			return 1;
 		    }
 		}
+                if (c->mode == MODE_HEAL) {
+                    s = sx_hashfs_createfile_heal(c->hashfs, c->volume, file_name, file_rev, file_size);
+                    if (s) {
+                        WARN("Failed to create file heal entries %s:%s", file_name, file_rev);
+                        return 1;
+                    }
+                }
 		s = sx_hashfs_createfile_commit(c->hashfs, c->volume, file_name, file_rev, file_size);
 		c->needend = 0;
 		if(s) {
@@ -3951,7 +3958,7 @@ static act_result_t replacefiles_request(sx_hashfs_t *hashfs, job_t job_id, job_
     ctx = malloc(sizeof(*ctx));
     if(!ctx)
 	action_error(ACT_RESULT_TEMPFAIL, 503, "Out of memory allocating request context");
-    ctx->files_and_volumes = 0;
+    ctx->mode = MODE_REPLACE;
 
     while((s = sx_hashfs_replace_getstartfile(hashfs, maxrev, ctx->volume, ctx->file, ctx->rev)) == OK) {
 	unsigned int nnode, nnodes, rndnode;

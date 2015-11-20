@@ -106,7 +106,7 @@ void sx_node_delete(sx_node_t *node) {
 }
 
 const sx_uuid_t *sx_node_uuid(const sx_node_t *node) {
-    return &node->id;
+    return node ? &node->id : NULL;
 }
 
 const char *sx_node_uuid_str(const sx_node_t *node) {

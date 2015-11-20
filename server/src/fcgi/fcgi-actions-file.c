@@ -438,7 +438,6 @@ void fcgi_delete_file(void) {
     }
 }
 
-enum rpl_mode { SEND_FILES_ONLY, SEND_FILES_VOLUME };
 struct rplfiles {
     sx_blob_t *b;
     sx_hashfs_file_t lastfile;
@@ -469,7 +468,7 @@ static int rplfiles_cb(const sx_hashfs_volume_t *volume, const sx_hashfs_file_t 
     if(c->bytes_sent >= REPLACEMENT_BATCH_SIZE)
 	return 0;
     sx_blob_reset(c->b);
-    if (c->mode == SEND_FILES_VOLUME && (
+    if (c->mode == MODE_HEAL && (
         (sx_blob_add_string(c->b, "$VOL$") ||
          sx_blob_add_string(c->b, volume->name))))
         return 0;
@@ -558,7 +557,7 @@ void fcgi_send_replacement_files(void) {
     if(!sx_hashfs_is_or_was_my_volume(hashfs, vol))
 	quit_errnum(404);
 
-    s = rplfiles_init(&ctx, SEND_FILES_ONLY);
+    s = rplfiles_init(&ctx, MODE_REPLACE);
     if (s != OK)
 	quit_errmsg(rc2http(s), rc2str(s));
 
@@ -568,8 +567,9 @@ void fcgi_send_replacement_files(void) {
 
 void fcgi_send_file_intervals(void) {
     int mdb = get_arg_uint("mdb");
-    sx_uuid_t node;
-    if (uuid_from_string(&node, get_arg("node")))
+    sx_uuid_t node, dest;
+    if (uuid_from_string(&node, get_arg("node")) ||
+        uuid_from_string(&dest, get_arg("dest")))
         quit_errmsg(400, "Bad node parameter");
     int64_t start, stop;
     char *eon = NULL;
@@ -580,13 +580,17 @@ void fcgi_send_file_intervals(void) {
     stop = strtoll(get_arg("stop"), &eon, 10);
     if (!eon || *eon || stop < 0)
         quit_errmsg(400, "Invalid stop position");
+    const sx_node_t *destnode = sx_nodelist_lookup(sx_hashfs_all_nodes(hashfs, NL_NEXTPREV), &dest);
+    if (!destnode)
+        quit_errmsg(400, "Destination node uuid not recognized");
 
     struct rplfiles ctx;
-    rc_ty s = rplfiles_init(&ctx, SEND_FILES_VOLUME);
+    rc_ty s = rplfiles_init(&ctx, MODE_HEAL);
     if (s != OK) {
         WARN("failed to init: %s", rc2str(s));
         quit_errmsg(rc2http(s), rc2str(s));
     }
-    s = sx_hashfs_file_intervals(hashfs, mdb, &node, start, stop, rplfiles_cb, &ctx);
+
+    s = sx_hashfs_file_intervals(hashfs, mdb, &node, start, stop, destnode, rplfiles_cb, &ctx);
     rplfiles_finish(&ctx, s);
 }

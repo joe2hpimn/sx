@@ -45,6 +45,11 @@
 #define REV_LEN (REV_TIME_LEN + 1 + UUID_STRING_SIZE + 1 + COUNTER_LEN)
 #define NO_REV_NODEOP -1
 
+/* TODO: hide these in hashfs.c again */
+#define SIZES 3
+#define HASHDBS 16
+extern const unsigned int bsz[SIZES];
+
 /* Number of fds required to open the databases */
 #define MAX_FDS 1024
 
@@ -322,6 +327,7 @@ rc_ty sx_hashfs_putfile_getblock(sx_hashfs_t *h);
 void sx_hashfs_putfile_end(sx_hashfs_t *h);
 rc_ty sx_hashfs_createfile_begin(sx_hashfs_t *h);
 rc_ty sx_hashfs_createfile_commit(sx_hashfs_t *h, const char *volume, const char *name, const char *revision, int64_t size);
+rc_ty sx_hashfs_createfile_heal(sx_hashfs_t *h, const char *volume, const char *name, const char *revision, int64_t size);
 void sx_hashfs_createfile_end(sx_hashfs_t *h);
 
 rc_ty sx_hashfs_make_token(sx_hashfs_t *h, const uint8_t *user, const char *rndhex, unsigned int replica, int64_t expires_at, const char **token);
@@ -649,6 +655,14 @@ int sx_hashfs_incore(sx_hashfs_t *h, float *data_incore, float *other_incore);
 
 sxi_iset_t *sx_hashfs_intervals(sx_hashfs_t *h, unsigned mdb);
 
-rc_ty sx_hashfs_file_intervals(sx_hashfs_t *h, int mdb, const sx_uuid_t *node, int64_t start, int64_t stop, sx_find_cb_t cb, void *ctx);
+rc_ty sx_hashfs_file_intervals(sx_hashfs_t *h, int mdb, const sx_uuid_t *node, int64_t start, int64_t stop, const sx_node_t *dest, sx_find_cb_t cb, void *ctx);
+
+rc_ty sx_hashfs_heal_block_begin(sx_hashfs_t *h, int sizetype, int hdb);
+rc_ty sx_hashfs_heal_block_next(sx_hashfs_t *h, int sizetype, int hdb, sx_hash_t *hash);
+rc_ty sx_hashfs_heal_block_end(sx_hashfs_t *h, int sizetype, int hdb);
+
+rc_ty sx_hashfs_heal_reset(sx_hashfs_t *h);
+
+enum rpl_mode { MODE_INVALID=0, MODE_REPLACE, MODE_HEAL };
 
 #endif

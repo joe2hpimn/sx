@@ -40,11 +40,13 @@ struct rplfiles {
     char volume[SXLIMIT_MAX_VOLNAME_LEN+1],
 	file[SXLIMIT_MAX_FILENAME_LEN+1],
 	rev[REV_LEN+1];
-    unsigned int ngood, itemsz, pos, needend, files_and_volumes;
+    unsigned int ngood, itemsz, pos, needend;
     enum replace_state state;
+    enum rpl_mode mode;
 };
 
 int jobmgr(sxc_client_t *sx, const char *dir, int pipe);
 int rplfiles_cb(curlev_context_t *cbdata, void *ctx, const void *data, size_t size);
+int req_append(char **req, unsigned int *req_len, const char *append_me);
 
 #endif
