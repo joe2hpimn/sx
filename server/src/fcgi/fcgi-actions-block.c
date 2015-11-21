@@ -568,7 +568,7 @@ void fcgi_save_blocks(void) {
     CGI_PUTS("\r\n");
 }
 
-/* {"hash1":["uuid1", "uuid2""], "hash2":["uuid3", "uuid1"], ...} */
+/* {"hash1":["uuid1", "uuid2"], "hash2":["uuid3", "uuid1"], ...} */
 struct pushblox_ctx {
     sx_blob_t *stash;
     rc_ty error;
@@ -656,6 +656,10 @@ void fcgi_push_blocks(void) {
 	return;
     }
 
+    if(sx_blob_add_blob(yctx.stash, "", 1)) {
+	sx_blob_free(yctx.stash);
+	quit_errmsg(503, "Out of memory building propagation list");
+    }
     sx_blob_loadpos(yctx.stash); /* Reset blob */
 
     sx_hash_t block;
