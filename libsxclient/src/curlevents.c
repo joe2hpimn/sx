@@ -506,7 +506,7 @@ void sxi_cbdata_setclusterr(curlev_context_t *ctx, const char *nodeid, const cha
         if (sxc_is_verbose(sx) && details && *details)
             sxi_fmt_msg(&f, "\nHTTP %d: %s", status, details);
     }
-    sxi_cbdata_seterr(ctx, (status == 403 || status == 401) ? SXE_EAUTH : SXE_ECOMM, "%s", f.buf);
+    sxi_cbdata_seterr(ctx, (status == 403 || status == 401) ? SXE_EAUTH : status == 429 ? SXE_EAGAIN : SXE_ECOMM, "%s", f.buf);
     sxi_cbdata_clear_operation(ctx);
     SXDEBUG("Cluster query failed (HTTP %d): %s", status, f.buf);
     if (details && *details)

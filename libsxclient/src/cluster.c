@@ -251,17 +251,6 @@ static void errfn(curlev_context_t *ctx, int reply_code, const char *reason)
         yctx.cbdata = ctx;
         if(yajl_parse(yh, (uint8_t *)reason, strlen(reason)) != yajl_status_ok || yajl_complete_parse(yh) != yajl_status_ok)
             sxi_cbdata_seterr(ctx, SXE_ECOMM, "Cluster query failed with status %d", reply_code);
-        else {
-            /* else: the parser already set the error in sx */
-            if (reply_code == 429) {
-                char* msg = strdup(sxi_cbdata_geterrmsg(ctx));
-                if (msg) {
-                    sxi_cbdata_clearerr(ctx);
-                    sxi_cbdata_seterr(ctx, SXE_EAGAIN, "%s", msg);
-                    free(msg);
-                }
-            }
-        }
         yajl_free(yh);
     } else
         sxi_cbdata_seterr(ctx, SXE_EMEM, "Cluster query failed: Out of memory");
