@@ -8452,8 +8452,7 @@ rc_ty sx_hashfs_hashop_perform(sx_hashfs_t *h, unsigned int block_size, unsigned
         bin2hex(hash->b, sizeof(*hash), debughash, sizeof(debughash));	\
         DEBUG("processing %s, #%s#",
               kind == HASHOP_RESERVE ? "reserve" :
-              kind == HASHOP_INUSE ? "inuse" :
-              kind == HASHOP_DELETE ? "decuse" : "??",
+              kind == HASHOP_INUSE ? "inuse" : "?",
               debughash);
         if (reserve_id)
             DEBUGHASH("reserve_id: ", reserve_id);
@@ -8479,9 +8478,6 @@ rc_ty sx_hashfs_hashop_perform(sx_hashfs_t *h, unsigned int block_size, unsigned
             break;
         case HASHOP_INUSE:
             rc = sx_hashfs_hashop_mod(h, hash, reserve_id, revision_id, block_size, replica_count, 1, op_expires_at);
-            break;
-        case HASHOP_DELETE:
-            rc = sx_hashfs_hashop_mod(h, hash, reserve_id, revision_id, block_size, replica_count, -1, op_expires_at);
             break;
 
         default:
@@ -14779,7 +14775,7 @@ static rc_ty fill_block_meta(sx_hashfs_t *h, sqlite3_stmt *qmeta, block_meta_t *
     sqlite3_reset(qmeta);
     while ((ret = qstep(qmeta)) == SQLITE_ROW) {
         int op = sqlite3_column_int(qmeta, 1);
-        if (!op)
+        if (op <= 0)
             continue;
         blockmeta->entries = wrap_realloc_or_free(blockmeta->entries, ++blockmeta->count * sizeof(*blockmeta->entries));
         if (!blockmeta->entries)
@@ -14793,7 +14789,6 @@ static rc_ty fill_block_meta(sx_hashfs_t *h, sqlite3_stmt *qmeta, block_meta_t *
         memcpy(&e->revision_id.b, sqlite3_column_blob(qmeta, 2), len);
         e->replica = sqlite3_column_int(qmeta, 0);
         DEBUG("set replica to %d", e->replica);
-        e->op = op;
     }
     sqlite3_reset(qmeta);
     if (ret != SQLITE_DONE)
@@ -15991,7 +15986,7 @@ static rc_ty sx_hashfs_should_repair(sx_hashfs_t *h, const block_meta_t *blockme
     }
     for (i=0;i<blockmeta->count;i++) {
         const block_meta_entry_t *entry = &blockmeta->entries[i];
-        if (entry->op > 0 && entry->replica > max_replica)
+        if (entry->replica > max_replica)
             max_replica = entry->replica;
     }
     if (!max_replica)

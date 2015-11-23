@@ -38,7 +38,6 @@ enum sxi_hashop_kind {
     HASHOP_RESERVE,
     HASHOP_CHECK,
     HASHOP_INUSE,
-    HASHOP_DELETE,
     HASHOP_SKIP
 };
 
@@ -62,7 +61,6 @@ typedef struct {
 typedef struct {
     sx_hash_t revision_id;
     unsigned replica;
-    int op;
 } block_meta_entry_t;
 
 typedef struct {
@@ -81,7 +79,6 @@ sxi_query_t *sxi_hashop_proto_check(sxc_client_t *sx, unsigned blocksize, const 
 sxi_query_t *sxi_hashop_proto_reserve(sxc_client_t *sx, unsigned blocksize, const char *hashes, unsigned hashes_len, const sx_hash_t *reserve_id, const sx_hash_t *revision_id, unsigned replica, uint64_t op_expires_at);
 sxi_query_t *sxi_hashop_proto_inuse_begin(sxc_client_t *sx, const sx_hash_t *reserve_id);
 sxi_query_t *sxi_hashop_proto_inuse_hash(sxc_client_t *sx, sxi_query_t *query, const block_meta_t *blockmeta);
-sxi_query_t *sxi_hashop_proto_decuse_hash(sxc_client_t *sx, sxi_query_t *query, const block_meta_t *blockmeta);
 sxi_query_t *sxi_hashop_proto_inuse_end(sxc_client_t *sx, sxi_query_t *query);
 sxi_query_t *sxi_hashop_proto_revision(sxc_client_t *sx, unsigned blocksize, const sx_hash_t *revision_id, int op);
 

@@ -624,7 +624,7 @@ sxi_query_t *sxi_hashop_proto_inuse_begin(sxc_client_t *sx, const sx_hash_t *res
     return ret;
 }
 
-static sxi_query_t *sxi_hashop_proto_inuse_hash_helper(sxc_client_t *sx, sxi_query_t *query, const block_meta_t *blockmeta, int invert)
+sxi_query_t *sxi_hashop_proto_inuse_hash(sxc_client_t *sx, sxi_query_t *query, const block_meta_t *blockmeta)
 {
     unsigned i;
     char hexhash[SXI_SHA1_TEXT_LEN + 1];
@@ -643,30 +643,13 @@ static sxi_query_t *sxi_hashop_proto_inuse_hash_helper(sxc_client_t *sx, sxi_que
     query = sxi_query_append_fmt(sx, query, sizeof(hexhash) + 8 + 8, "\"%s\":{\"%u\":[", hexhash, blockmeta->blocksize);
     for (i=0;i<blockmeta->count;i++) {
         const block_meta_entry_t *e = &blockmeta->entries[i];
-        int op = e->op;
         if (i > 0)
             query = sxi_query_append_fmt(sx, query, 1, ",");
-        if (invert)
-            op = -op;
         sxi_bin2hex(e->revision_id.b, sizeof(e->revision_id.b), revision_id_hex);
-        if (op != 1 && op != -1) {
-            sxi_seterr(sx, SXE_EARG, "Bad hash op: %d", op);
-            return NULL;
-        }
         SXDEBUG("sending replica %d", e->replica);
-        query = sxi_query_append_fmt(sx, query, 54, "{\"%c%s\":%u}", op == 1 ? '+' : '-', revision_id_hex, e->replica);
+        query = sxi_query_append_fmt(sx, query, 54, "{\"%s\":%u}", revision_id_hex, e->replica);
     }
     return sxi_query_append_fmt(sx, query, 2, "]}");
-}
-
-sxi_query_t *sxi_hashop_proto_inuse_hash(sxc_client_t *sx, sxi_query_t *query, const block_meta_t *blockmeta)
-{
-    return sxi_hashop_proto_inuse_hash_helper(sx, query, blockmeta, 0);
-}
-
-sxi_query_t *sxi_hashop_proto_decuse_hash(sxc_client_t *sx, sxi_query_t *query, const block_meta_t *blockmeta)
-{
-    return sxi_hashop_proto_inuse_hash_helper(sx, query, blockmeta, 1);
 }
 
 sxi_query_t *sxi_hashop_proto_inuse_end(sxc_client_t *sx, sxi_query_t *query)

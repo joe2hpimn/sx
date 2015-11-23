@@ -206,7 +206,7 @@ void fcgi_hashop_blocks(enum sxi_hashop_kind kind) {
     DEBUG("hashop: missing %d, n: %d", missing, n);
 }
 
-static int meta_add(block_meta_t *meta, unsigned replica, int64_t op, const sx_hash_t *revision_id)
+static int meta_add(block_meta_t *meta, unsigned replica, const sx_hash_t *revision_id)
 {
     block_meta_entry_t *e;
     if (!meta || !revision_id)
@@ -217,7 +217,6 @@ static int meta_add(block_meta_t *meta, unsigned replica, int64_t op, const sx_h
     e = &meta->entries[meta->count - 1];
     memcpy(&e->revision_id, revision_id, sizeof(e->revision_id));
     e->replica = replica;
-    e->op = op;
     return 0;
 }
 
@@ -239,11 +238,36 @@ struct inuse_ctx {
     sx_hash_t revision_id;
     unsigned replica;
     unsigned blocksize;
-    int op;
     enum inuse_state { CB_IU_START, CB_IU_MAP_HASHES, CB_IU_HASH, CB_IU_MAP_BLOCKSIZE, CB_IU_BLOCKSIZE_VAL, CB_IU_ARRAY, CB_IU_MAP_REVISION, CB_IU_REPLICA, CB_IU_COMPLETE  } state;
 };
 
-/* TODO: parse json replica */
+/* Example:
+   {"BLOCKHASH":{"BLOCKSIZE":[ {"REVISION_HASH": REPLICA_COUNT, ...}, ...]}, ...}
+{
+  "10c91e6b2aecaa5e731fbd7ac26fa3d847dd4ac2": {
+    "16384": [
+      {
+        "2ca3d1a4d2d70d03d301c173ce70fca11d29bfbf": 3
+      }
+    ]
+  },
+  "69ad191523992b70d85fdd50072933bf3b6d8624": {
+    "16384": [
+      {
+        "2ca3d1a4d2d70d03d301c173ce70fca11d29bfbf": 3
+      }
+    ]
+  },
+  "9259e1f7daaa152241db155478a027e096dad979": {
+    "16384": [
+      {
+        "2ca3d1a4d2d70d03d301c173ce70fca11d29bfbf": 3
+      }
+    ]
+  }
+}
+*/
+
 static int cb_inuse_number(void *ctx, const char *s, size_t l)
 {
     char numb[24], *enumb;
@@ -270,7 +294,7 @@ static int cb_inuse_number(void *ctx, const char *s, size_t l)
     DEBUG("replica: %lld", (long long)nnumb);
     yactx->replica = nnumb;
 
-    if (meta_add(&yactx->meta, yactx->replica, yactx->op, &yactx->revision_id)) {
+    if (meta_add(&yactx->meta, yactx->replica, &yactx->revision_id)) {
         DEBUG("meta_add failed");
         return 0;
     }
@@ -394,12 +418,7 @@ static int cb_inuse_map_key(void *ctx, const unsigned char *s, size_t l) {
         case CB_IU_MAP_REVISION:
             if(!l)
                 return 0;
-            yactx->op = s[0] == '+' ? 1 : s[0] == '-' ? -1 : 0;
-            if (!yactx->op) {
-                WARN("bad revision id: %.*s", (int)l, s);
-                return 0;
-            }
-	    if(hex2bin(s+1, l-1, yactx->revision_id.b, sizeof(yactx->revision_id.b)))
+	    if(hex2bin(s, l, yactx->revision_id.b, sizeof(yactx->revision_id.b)))
                 return 0;
             yactx->state = CB_IU_REPLICA;
             break;
@@ -491,7 +510,7 @@ void fcgi_hashop_inuse(void) {
         rc = FAIL_EINTERNAL;
         for (j=0;j<m->count;j++) {
             const block_meta_entry_t *e = &m->entries[j];
-            rc = sx_hashfs_hashop_mod(hashfs, &m->hash, reserve_id ? &reserve_hash : NULL, &e->revision_id, m->blocksize, e->replica, e->op, 0);
+            rc = sx_hashfs_hashop_mod(hashfs, &m->hash, reserve_id ? &reserve_hash : NULL, &e->revision_id, m->blocksize, e->replica, 1, 0);
             if (rc && rc != ENOENT)
                 break;
         }
@@ -782,8 +801,7 @@ void fcgi_send_replacement_blocks(void) {
             /* TODO: token id */
 	    for(i=0; i<bmeta->count; i++)
 		if(sx_blob_add_blob(b, bmeta->entries[i].revision_id.b, sizeof(bmeta->entries[i].revision_id.b)) ||
-                   sx_blob_add_int32(b, bmeta->entries[i].replica) ||
-		   sx_blob_add_int32(b, bmeta->entries[i].op))
+                   sx_blob_add_int32(b, bmeta->entries[i].replica))
 		    break;
 	    if(i < bmeta->count ||
 	       sx_hashfs_block_get(hashfs, bmeta->blocksize, &bmeta->hash, &blockdata) != OK) {
