@@ -69,7 +69,23 @@ static int heal_pending_queries;
 static int heal_pending_count;
 static int64_t heal_received;
 
-static rc_ty heal_wait(sx_hashfs_t *hashfs, int *terminate)
+static int heal_queries_ok, heal_queries_failed;
+static int64_t heal_bytes_received;
+
+static void set_heal_progress(sx_hashfs_t *h, const char *phase)
+{
+    char msg[128], msg2[128];
+    int64_t total_bytes = sx_hashfs_heal_pending_bytes(h);
+    if (total_bytes && phase && !strcmp(phase, "block"))
+        snprintf(msg2, sizeof(msg2), "received %lld/%lld KiB", (long long)heal_bytes_received/1024, (long long)total_bytes/1024);
+    else
+        msg2[0] = '\0';
+    snprintf(msg, sizeof(msg), "%s heal queries running: %d, finished: %d, failed: %d%s%s%s", phase, heal_pending_queries, heal_queries_ok, heal_queries_failed,
+             *msg2 ? " (" : "", *msg2 ? msg2 : "", *msg2 ? ")" : "");
+    sx_hashfs_set_progress_info(h, INPRG_HEAL_RUNNING, msg);
+}
+
+static rc_ty heal_wait(sx_hashfs_t *hashfs, int *terminate, const char *phase)
 {
     rc_ty ret = FAIL_EINTERNAL;
     while (heal_pending_queries > 0 && !*terminate) {
@@ -78,6 +94,7 @@ static rc_ty heal_wait(sx_hashfs_t *hashfs, int *terminate)
             WARN("polling failed");
             return ret;
         }
+        set_heal_progress(hashfs, phase);
     }
     if (*terminate)
         return EAGAIN;
@@ -86,7 +103,7 @@ static rc_ty heal_wait(sx_hashfs_t *hashfs, int *terminate)
     else
         ret = OK;
     DEBUG("%d pending revisions", heal_pending_count);
-    heal_pending_queries = 0;
+    heal_pending_queries = heal_queries_ok = heal_queries_failed = 0;
     return ret;
 }
 
@@ -326,7 +343,7 @@ static rc_ty process_heal(sx_hashfs_t *hashfs, int *terminate)
         snprintf(msg, sizeof(msg), "Pending remote volume heal: %d, %lld revisions", heal_pending_queries,
                 (long long)heal_pending_count);
         DEBUG("Pending %d queries, %lld revisions", heal_pending_queries, (long long)heal_pending_count);
-        if ((rc = heal_wait(hashfs, terminate)))
+        if ((rc = heal_wait(hashfs, terminate, NULL)))
             return rc;
     }
     if (rc != ITER_NO_MORE)
@@ -375,6 +392,13 @@ static void heal_ask_finish_cb(curlev_context_t *cbdata, const char *url) {
     free(ctx);
     heal_pending_queries--;
     DEBUG("finished");
+    enum sxc_error_t err;
+    if (sxi_cbdata_result(cbdata, NULL, &err, NULL) || err) {
+        INFO("File heal query failed: %s", sxi_cbdata_geterrmsg(cbdata));
+        heal_queries_failed++;
+    } else {
+        heal_queries_ok++;
+    }
 }
 
 static rc_ty heal_ask(sx_hashfs_t *h, const sxi_hostlist_t *targets, const sx_uuid_t *node, unsigned mdb, int64_t start, int64_t stop)
@@ -411,6 +435,8 @@ static rc_ty heal_ask(sx_hashfs_t *h, const sxi_hostlist_t *targets, const sx_uu
         ctx->mode = MODE_HEAL;
         sxi_cbdata_set_context(cbdata, ctx);
 
+        set_heal_progress(h, "file");
+
         if (sxi_cluster_query_ev_retry(cbdata, sx_hashfs_conns(h), targets, REQ_GET, query, NULL, 0, NULL, heal_ask_data_cb, NULL)) {
             cbdata = NULL;
             break;
@@ -425,6 +451,7 @@ static rc_ty heal_ask(sx_hashfs_t *h, const sxi_hostlist_t *targets, const sx_uu
 
 rc_ty process_file_heal(sx_hashfs_t *h, int *terminate)
 {
+    sx_hashfs_set_progress_info(h, INPRG_HEAL_RUNNING, "Looking for files to heal");
     /* this assumes that a node is only removed after all its files have been synchronized to all relevant nodes,
        i.e. you cannot remove nodes while you have faulty/pending flushes/unsynchronized nodes */
     const sx_nodelist_t *all = sx_hashfs_all_nodes(h, NL_PREVNEXT);
@@ -473,7 +500,7 @@ rc_ty process_file_heal(sx_hashfs_t *h, int *terminate)
     }
     if (i != nnodes)
         return FAIL_EINTERNAL;
-    return heal_wait(h, terminate);
+    return heal_wait(h, terminate, "file");
 }
 
 /* TODO: move to common header */
@@ -514,11 +541,12 @@ static void heal_save_finish_cb(curlev_context_t *cbdata, const char *url) {
     if (ctx->got != ctx->expect) {
         WARN("Got less blocks than expected: %d < %d, position: %d", ctx->got, ctx->expect, ctx->pos);
     }
+    heal_pending_queries--;
+    set_heal_progress(ctx->h, "block");
     free(ctx->block); ctx->block = NULL;
     free(ctx->url); ctx->url = NULL;
     free(ctx);
     sxi_cbdata_set_context(cbdata, NULL);
-    heal_pending_queries--;
 }
 
 
@@ -542,7 +570,7 @@ static int heal_save_block_cb(curlev_context_t *cbdata, const unsigned char *dat
             if (sx_hashfs_block_put(ctx->h, ctx->block, ctx->blocksize, ctx->replica))
                 return -1;
             ctx->got++;
-            DEBUG("saved block %d from %s", ctx->got, ctx->url);
+            heal_bytes_received += ctx->blocksize;
             ctx->pos = 0;
         }
         data += remaining;
@@ -603,6 +631,7 @@ static rc_ty fetch_from(sx_hashfs_t *h, struct source *source, unsigned int bloc
         url = NULL;
         sxi_cbdata_set_context(cbdata, ctx);
         DEBUG("Sending request to %s", ctx->url);
+        set_heal_progress(h, "block");
         if (sxi_cluster_query_ev(cbdata, sx_hashfs_conns(h), sx_node_internal_addr(source->node),
                                  REQ_GET, ctx->url, NULL, 0, NULL, heal_save_block_cb)) {
             WARN("failed to send query");
@@ -621,6 +650,9 @@ rc_ty process_block_heal(sx_hashfs_t *h, int *terminate, unsigned replica)
     const sx_node_t *self = sx_hashfs_self(h);
     const sx_nodelist_t *all = sx_hashfs_all_nodes(h, NL_NEXT);
     unsigned nnodes = sx_nodelist_count(all);
+    char msg[128];
+    snprintf(msg, sizeof(msg), "Looking for blocks to heal for replica #%d", replica);
+    sx_hashfs_set_progress_info(h, INPRG_HEAL_RUNNING, msg);
     for (int i=0;i<SIZES && !*terminate;i++) {
         struct source *sources = wrap_calloc(nnodes, sizeof(*sources));
         if (!sources)
@@ -676,7 +708,7 @@ rc_ty process_block_heal(sx_hashfs_t *h, int *terminate, unsigned replica)
                 break;
         free(sources);
     }
-    return heal_wait(h, terminate);
+    return heal_wait(h, terminate, "block");
 }
 
 int gc(sxc_client_t *sx, const char *dir, int pipe, int pipe_expire) {
@@ -732,6 +764,9 @@ int gc(sxc_client_t *sx, const char *dir, int pipe, int pipe_expire) {
             rc = process_block_heal(hashfs, &terminate, replica);
             INFO("block healing finished for replica #%d: %s", replica, rc2str(rc));
         }
+        heal_bytes_received = 0;
+        sx_hashfs_set_progress_info(hashfs, INPRG_IDLE, NULL);
+        heal_queries_ok = heal_queries_failed = 0;
         rc = sx_hashfs_heal_reset(hashfs);
         INFO("block healing reset: %s", rc2str(rc));
 

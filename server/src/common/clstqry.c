@@ -48,7 +48,8 @@ struct cstatus {
 	OP_NONE,
 	OP_REBALANCE,
 	OP_REPLACE,
-        OP_UPGRADE
+        OP_UPGRADE,
+        OP_HEAL
     } op_type;
     unsigned int version;
     char op_msg[1024];
@@ -288,6 +289,8 @@ static void cb_cstatus_op_type(jparse_t *J, void *ctx, const char *string, unsig
 	c->op_type = OP_REPLACE;
     else if (length == lenof("upgrade") && !memcmp("upgrade", string, lenof("upgrade")))
 	c->op_type = OP_UPGRADE;
+    else if (length == lenof("heal") && !memcmp("heal", string, lenof("heal")))
+        c->op_type = OP_HEAL;
     else
 	c->op_type = OP_NONE;
 }
@@ -603,6 +606,15 @@ clst_state clst_upgrade_state(clst_t *st, const char **desc) {
 
     if(desc)
 	*desc = st->op_msg[0] ? st->op_msg : "Upgrade operation in progress";
+    return st->op_complete ? CLSTOP_COMPLETED : CLSTOP_INPROGRESS;
+}
+
+clst_state clst_heal_state(clst_t *st, const char **desc) {
+    if(!st || st->op_type != OP_HEAL)
+	return CLSTOP_NOTRUNNING;
+
+    if(desc)
+	*desc = st->op_msg[0] ? st->op_msg : "Heal operation in progress";
     return st->op_complete ? CLSTOP_COMPLETED : CLSTOP_INPROGRESS;
 }
 

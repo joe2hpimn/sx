@@ -815,6 +815,7 @@ struct _sx_hashfs_t {
     sqlite3_stmt *qm_list_intervals[METADBS];
 
     sxi_iset_t iset[METADBS];
+    int64_t heal_pending_bytes;
 
     sxi_db_t *datadb[SIZES][HASHDBS];
     sqlite3_stmt *qb_nextavail[SIZES][HASHDBS];
@@ -9824,6 +9825,7 @@ rc_ty sx_hashfs_createfile_heal(sx_hashfs_t *h, const char *volume, const char *
                 } else {
                     DEBUGHASH("want", hash);
                     s = sx_hashfs_hashop_moduse(h, &h->heal_reserve_id, &h->heal_revision_id, hs, hash, vol->max_replica, 0, op_expires_at);
+                    h->heal_pending_bytes += bsz[hs];
                 }
             } else {
                 DEBUGHASH("skipping hash that doesn't belong to this node", hash);
@@ -18323,5 +18325,11 @@ rc_ty sx_hashfs_heal_reset(sx_hashfs_t *h)
                 return FAIL_EINTERNAL;
         }
     }
+    h->heal_pending_bytes = 0;
     return OK;
+}
+
+int64_t sx_hashfs_heal_pending_bytes(sx_hashfs_t *h)
+{
+    return h->heal_pending_bytes;
 }

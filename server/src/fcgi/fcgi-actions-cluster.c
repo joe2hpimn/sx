@@ -127,6 +127,7 @@ void fcgi_handle_cluster_requests(void) {
 	    CGI_PRINTF("],\"distributionUUID\":\"%s\",\"distributionVersion\":%u,\"distributionChecksum\":", dist_uuid->string, version);
 	    CGI_PUTLL(checksum);
 
+            DEBUG("status: %d", status);
 	    if(status != INPRG_IDLE) {
 		const char *op, *complete;
 		if(status == INPRG_REBALANCE_RUNNING) {
@@ -147,6 +148,9 @@ void fcgi_handle_cluster_requests(void) {
 		} else if(status == INPRG_UPGRADE_COMPLETE) {
                     op = "upgrade";
                     complete = "true";
+                } else if(status == INPRG_HEAL_RUNNING) {
+                    op = "heal";
+                    complete = "false";
                 } else {
                     op = "error";
                     complete = "false";
