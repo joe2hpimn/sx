@@ -1151,8 +1151,8 @@ int sxi_ht_add(sxi_ht *ht, const void *key, unsigned int key_length, void *value
 	if(key_length != item->key_len || memcmp(key, item->key, key_length))
 	    continue;
 
-	if (item->value == HT_DELETED)
-		ht->deleted--;
+	if(item->value == HT_DELETED)
+	    ht->deleted--;
 	item->value = value;
 	return 0;
     }
@@ -1263,8 +1263,10 @@ void sxi_ht_del(sxi_ht *ht, const void *key, unsigned int key_length) {
 	if(key_length != item->key_len || memcmp(key, item->key, key_length))
 	    continue;
 
-	ht->deleted++;
-	item->value = (void *)HT_DELETED;
+	if(item->value != HT_DELETED) {
+	    ht->deleted++;
+	    item->value = (void *)HT_DELETED;
+	}
 	if(ht->items == ht->deleted)
 	    sxi_ht_empty(ht);
 	return;
