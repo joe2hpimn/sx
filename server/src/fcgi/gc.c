@@ -512,7 +512,7 @@ static void heal_save_finish_cb(curlev_context_t *cbdata, const char *url) {
         return;
     }
     if (ctx->got != ctx->expect) {
-        WARN("Got less blocks than expected: %d < %d", ctx->got, ctx->expect);
+        WARN("Got less blocks than expected: %d < %d, position: %d", ctx->got, ctx->expect, ctx->pos);
     }
     free(ctx->block); ctx->block = NULL;
     free(ctx->url); ctx->url = NULL;
@@ -533,16 +533,21 @@ static int heal_save_block_cb(curlev_context_t *cbdata, const unsigned char *dat
         NULLARG();
         return -1;
     }
-    int remaining = ctx->pos + size > ctx->blocksize ? ctx->blocksize - ctx->pos : size;
-    memcpy(ctx->block + ctx->pos, data, remaining);
-    ctx->pos += remaining;
-    if (ctx->pos == ctx->blocksize) {
-        if (sx_hashfs_block_put(ctx->h, ctx->block, ctx->blocksize, ctx->replica))
-            return -1;
-        ctx->got++;
-        DEBUG("saved block %d from %s", ctx->got, ctx->url);
-        ctx->pos = 0;
-    }
+
+    do {
+        int remaining = ctx->pos + size > ctx->blocksize ? ctx->blocksize - ctx->pos : size;
+        memcpy(ctx->block + ctx->pos, data, remaining);
+        ctx->pos += remaining;
+        if (ctx->pos == ctx->blocksize) {
+            if (sx_hashfs_block_put(ctx->h, ctx->block, ctx->blocksize, ctx->replica))
+                return -1;
+            ctx->got++;
+            DEBUG("saved block %d from %s", ctx->got, ctx->url);
+            ctx->pos = 0;
+        }
+        data += remaining;
+        size -= remaining;
+    } while (size > 0);
 
     return 0;
 }
@@ -597,8 +602,9 @@ static rc_ty fetch_from(sx_hashfs_t *h, struct source *source, unsigned int bloc
         ctx->expect = source->n;
         url = NULL;
         sxi_cbdata_set_context(cbdata, ctx);
+        DEBUG("Sending request to %s", ctx->url);
         if (sxi_cluster_query_ev(cbdata, sx_hashfs_conns(h), sx_node_internal_addr(source->node),
-                                 REQ_GET, url, NULL, 0, NULL, heal_save_block_cb)) {
+                                 REQ_GET, ctx->url, NULL, 0, NULL, heal_save_block_cb)) {
             WARN("failed to send query");
             cbdata = NULL;/* finish cb will unref */
             ret = FAIL_EINTERNAL;
@@ -615,7 +621,6 @@ rc_ty process_block_heal(sx_hashfs_t *h, int *terminate)
     const sx_node_t *self = sx_hashfs_self(h);
     const sx_nodelist_t *all = sx_hashfs_all_nodes(h, NL_NEXT);
     unsigned max_replica = sx_nodelist_count(all);
-    unsigned replica = 0;
     for (int i=0;i<SIZES && !*terminate;i++) {
         struct source *sources = wrap_calloc(max_replica, sizeof(*sources));
         if (!sources)
@@ -634,23 +639,29 @@ rc_ty process_block_heal(sx_hashfs_t *h, int *terminate)
                     WARN("cannot allocate hashnodes");
                     break;
                 }
-                const sx_node_t *sourcenode = sx_nodelist_get(nl, replica);
-                if (sx_node_cmp(sourcenode, self)) {
-                    /* fetch from other node */
-                    unsigned int idx;
-                    const sx_node_t *node = sx_nodelist_lookup_index(all, sx_node_uuid(sourcenode), &idx);
-                    if (!node) {
-                        WARN("bad node in hashlist: %s", sx_node_uuid(sourcenode)->string);
-                        break;
-                    }
-                    struct source *source = &sources[idx];
-                    source->node = node;
-                    source->replica = max_replica;
-                    if (source->n < DOWNLOAD_MAX_BLOCKS)
-                        memcpy(&source->hashes[source->n++], &hash, sizeof(hash));
-                    else if (fetch_from(h, source, bsz[i]))
-                            break;
+                unsigned replica = 0;
+                const sx_node_t *sourcenode;
+                do {
+                    sourcenode = sx_nodelist_get(nl, replica++);
+                } while (sourcenode && !sx_node_cmp(sourcenode, self));
+                if (!sourcenode) {
+                    DEBUGHASH("cannot heal hash: no source found", &hash);
+                    continue;
                 }
+                /* fetch from other node */
+                unsigned int idx;
+                const sx_node_t *node = sx_nodelist_lookup_index(all, sx_node_uuid(sourcenode), &idx);
+                if (!node) {
+                    WARN("bad node in hashlist: %s", sx_node_uuid(sourcenode)->string);
+                    break;
+                }
+                struct source *source = &sources[idx];
+                source->node = node;
+                source->replica = max_replica;
+                if (source->n < DOWNLOAD_MAX_BLOCKS)
+                    memcpy(&source->hashes[source->n++], &hash, sizeof(hash));
+                else if (fetch_from(h, source, bsz[i]))
+                    break;
                 sx_nodelist_delete(nl); nl = NULL;
             }
             sx_nodelist_delete(nl);

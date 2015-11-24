@@ -10142,7 +10142,10 @@ rc_ty sx_hashfs_putfile_getblock(sx_hashfs_t *h) {
                 msg_set_reason("Remote error: %s", sxc_geterrmsg(h->sx));
                 return EAGAIN;
             }
+            #if 0
+            /* ignore reserveation error */
             return FAIL_EINTERNAL;
+            #endif
         } else
 	    DEBUG("{%s}: finished:%d, queries:%d, ok:%d, enoent:%d, cbfail:%d",
 		  h->node_uuid.string,
