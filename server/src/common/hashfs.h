@@ -37,6 +37,7 @@
 #include "hashop.h"
 #include "sxlimits.h"
 #include "intervalset.h"
+#include "hdist.h"
 
 #define TOKEN_RAND_BYTES 16
 #define REV_TIME_LEN lenof("YYYY-MM-DD hh:mm:ss.sss")
@@ -662,6 +663,8 @@ rc_ty sx_hashfs_heal_block_next(sx_hashfs_t *h, int sizetype, int hdb, sx_hash_t
 rc_ty sx_hashfs_heal_block_end(sx_hashfs_t *h, int sizetype, int hdb);
 
 rc_ty sx_hashfs_heal_reset(sx_hashfs_t *h);
+rc_ty sx_hashfs_update_iset(sx_hashfs_t *h, const sx_nodelist_t *nodelist);
+
 
 enum rpl_mode { MODE_INVALID=0, MODE_REPLACE, MODE_HEAL };
 

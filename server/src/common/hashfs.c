@@ -1235,6 +1235,24 @@ void sx_hashfs_checkpoint_hbeatdb(sx_hashfs_t *h)
     qcheckpoint_idle(h->hbeatdb);
 }
 
+static rc_ty sx_hashfs_iset_reload(sx_hashfs_t *h)
+{
+    if (!h->have_hd)
+        return OK;
+    const sx_nodelist_t *nodes = sx_hashfs_all_nodes(h, NL_NEXT);
+    unsigned nnodes = sx_nodelist_count(nodes);
+    DEBUG("nodelist has %d entries", nnodes);
+    for (unsigned i=0;i<METADBS;i++) {
+        if (!h->metadb[i])
+            return EFAULT;
+        if (sxi_iset_set_self_id(&h->iset[i], &h->node_uuid)) {
+            CRIT("Cannot set self UUID");
+            return FAIL_EINTERNAL;
+        }
+    }
+    return OK;
+}
+
 static int load_config(sx_hashfs_t *h, sxc_client_t *sx) {
     const void *p;
     int r, load_faulty = 0, ret = -1;
@@ -1337,23 +1355,6 @@ static int load_config(sx_hashfs_t *h, sxc_client_t *sx) {
 	    goto load_config_fail;
 	}
 	uuid_from_binary(&h->node_uuid, p);
-        for (i=0;i<METADBS;i++) {
-            if (!h->metadb[i])
-                continue;
-            if (qbegin(h->metadb[i])) {
-                CRIT("Failed to start metadb transaction");
-                goto load_config_fail;
-            }
-            if (sxi_iset_set_self_id(&h->iset[i], &h->node_uuid)) {
-                qrollback(h->metadb[i]);
-                CRIT("Cannot set self UUID");
-                goto load_config_fail;
-            }
-            if (qcommit(h->metadb[i])) {
-                CRIT("Failed to commit metadb transaction");
-                goto load_config_fail;
-            }
-        }
 
         sqlite3_reset(h->q_getval);
         if(qbind_text(h->q_getval, ":k", "current_dist_rev")) {
@@ -2068,6 +2069,8 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
         if (sxi_iset_prepare(&h->iset[i], h->metadb[i]))
             goto open_hashfs_fail;
     }
+    if (sx_hashfs_iset_reload(h))
+        goto open_hashfs_fail;
 
     if(!(h->eventdb = open_db(dir, "eventdb", &h->cluster_uuid, &curver, h->q_getval)))
         goto open_hashfs_fail;
@@ -2181,7 +2184,7 @@ int sx_hashfs_distcheck(sx_hashfs_t *h) {
     }
     sqlite3_reset(h->q_gethdrev);
 
-    if(ret && load_config(h, h->sx))
+    if(ret && (load_config(h, h->sx) || sx_hashfs_iset_reload(h)))
 	ret = -1;
 
     return ret; /* return 0 = no change, 1 = hdist-change, -1 = error */
@@ -2280,6 +2283,26 @@ int sx_storage_is_bare(sx_hashfs_t *h) {
     return (h != NULL) && (h->cluster_name == NULL);
 }
 
+rc_ty sx_hashfs_update_iset(sx_hashfs_t *h, const sx_nodelist_t *nodes)
+{
+    unsigned nnodes = sx_nodelist_count(nodes);
+    DEBUG("update_iset with %d nodes", nnodes);
+    for (unsigned i=0;i<METADBS;i++) {
+        if (qbegin(h->metadb[i]))
+            return FAIL_EINTERNAL;
+        unsigned j;
+        for (j=0;j<nnodes; j++) {
+            if (sxi_iset_node_add(&h->iset[i], sx_node_uuid(sx_nodelist_get(nodes, j))))
+                break;
+        }
+        if (j != nnodes || qcommit(h->metadb[i])) {
+            qrollback(h->metadb[i]);
+            return FAIL_EINTERNAL;
+        }
+    }
+    return OK;
+}
+
 static rc_ty update_raft_timeout(sx_hashfs_t *h);
 rc_ty sx_storage_activate(sx_hashfs_t *h, const char *name, const sx_node_t *firstnode, uint8_t *admin_uid, unsigned int uid_size, uint8_t *admin_key, int key_size, uint16_t port, const char *ssl_ca_file) {
     rc_ty r, ret = FAIL_EINTERNAL;
@@ -2373,6 +2396,8 @@ rc_ty sx_storage_activate(sx_hashfs_t *h, const char *name, const sx_node_t *fir
 
     h->hd = newmod;
     h->have_hd = 1;
+    if(sx_hashfs_update_iset(h, sxi_hdist_nodelist(h->hd, 0)) != OK)
+        goto storage_activate_fail;
 
     ret = OK;
  storage_activate_fail:
@@ -14153,21 +14178,7 @@ rc_ty sx_hashfs_hdist_change_add(sx_hashfs_t *h, const void *cfg, unsigned int c
 	goto change_add_fail;
     }
 
-    for (i=0;i<METADBS;i++) {
-        if (qbegin(h->metadb[i]))
-            break;
-        unsigned j;
-        for (j=0;j<nnodes; j++) {
-            if (sxi_iset_node_add(&h->iset[i], sx_node_uuid(sx_nodelist_get(nodes, j))))
-                break;
-        }
-        if (j != nnodes || qcommit(h->metadb[i])) {
-            qrollback(h->metadb[i]);
-            break;
-        }
-    }
-
-    if(i != METADBS || qbegin(h->db)) {
+    if(qbegin(h->db)) {
 	sxi_hdist_free(newmod);
 	return FAIL_EINTERNAL;
     }
@@ -14246,6 +14257,10 @@ rc_ty sx_hashfs_hdist_change_add(sx_hashfs_t *h, const void *cfg, unsigned int c
 
     if(sx_hashfs_set_progress_info(h, INPRG_REBALANCE_RUNNING, "Updating distribution model")) {
 	ret = FAIL_EINTERNAL;
+	goto change_add_fail;
+    }
+    if (sx_hashfs_update_iset(h, nodes)) {
+        ret = FAIL_EINTERNAL;
 	goto change_add_fail;
     }
 
@@ -14471,6 +14486,10 @@ rc_ty sx_hashfs_hdist_replace_add(sx_hashfs_t *h, const void *cfg, unsigned int 
 
     if(sx_hashfs_set_progress_info(h, INPRG_REPLACE_RUNNING, "Updating distribution model with faulty nodes")) {
 	ret = FAIL_EINTERNAL;
+	goto replace_add_fail;
+    }
+    if (sx_hashfs_update_iset(h, newnodes)) {
+        ret = FAIL_EINTERNAL;
 	goto replace_add_fail;
     }
 

@@ -139,7 +139,7 @@ rc_ty sxi_iset_prepare(sxi_iset_t *iset, sxi_db_t *db)
         qprep(db, &iset->qmem, "SELECT 1 FROM (SELECT start, stop FROM intervals WHERE node_id=:node_id AND :val <= stop ORDER BY stop LIMIT 1) WHERE start <= :val AND :val <= stop") ||
         qprep(db, &iset->qdelall, "DELETE FROM intervals WHERE node_id=:node_id") ||
         qprep(db, &iset->qlookup_uuid, "SELECT node_id FROM node_uuids WHERE node_uuid=:node_uuid") ||
-        qprep(db, &iset->qinsert_uuid, "INSERT INTO node_uuids(node_uuid) VALUES(:node_uuid)") ||
+        qprep(db, &iset->qinsert_uuid, "INSERT OR IGNORE INTO node_uuids(node_uuid) VALUES(:node_uuid)") ||
         qprep(db, &iset->qget_counter, "SELECT value FROM op_counter LIMIT 1") ||
         qprep(db, &iset->qupd_counter, "UPDATE op_counter SET value=MAX(value, :value)+1") ||
         qprep(db, &iset->qlookup_id, "SELECT node_uuid FROM node_uuids WHERE node_id=:node_id") ||
@@ -152,6 +152,7 @@ rc_ty sxi_iset_prepare(sxi_iset_t *iset, sxi_db_t *db)
             sxi_iset_finalize(iset);
             return FAIL_EINTERNAL;
         }
+    iset->self_id = -1;
     qnullify(q);
     return OK;
 }
@@ -161,6 +162,10 @@ rc_ty sxi_iset_add(sxi_iset_t *iset, int64_t node_id, int64_t start, int64_t sto
     if (!iset) {
         NULLARG();
         return EFAULT;
+    }
+    if (node_id < 0) {
+        WARN("invalid node id");
+        return EINVAL;
     }
 
     if (qbind_int64(iset->qins, ":node_id", node_id) ||
@@ -176,6 +181,10 @@ rc_ty sxi_iset_is_mem(sxi_iset_t *iset, int64_t node_id, int64_t val)
     if (!iset) {
         NULLARG();
         return EFAULT;
+    }
+    if (node_id < 0) {
+        WARN("invalid node id");
+        return EINVAL;
     }
 
     sqlite3_reset(iset->qmem);
@@ -193,6 +202,10 @@ rc_ty sxi_iset_merge(sxi_iset_t *iset, int64_t lhs_node_id, int64_t rhs_node_id)
         NULLARG();
         return EFAULT;
     }
+    if (lhs_node_id < 0 || rhs_node_id < 0) {
+        WARN("invalid node id");
+        return EINVAL;
+    }
 
     if (qbind_int64(iset->qmerge, ":lhs_node_id", lhs_node_id) ||
         qbind_int64(iset->qmerge, ":rhs_node_id", rhs_node_id) ||
@@ -206,6 +219,10 @@ rc_ty sxi_iset_delall(sxi_iset_t *iset, int64_t node_id)
     if (!iset) {
         NULLARG();
         return EFAULT;
+    }
+    if (node_id < 0) {
+        WARN("invalid node id");
+        return EINVAL;
     }
     if (qbind_int64(iset->qdelall, ":node_id", node_id) ||
         qstep_noret(iset->qdelall))
@@ -228,6 +245,7 @@ rc_ty sxi_iset_node_id(sxi_iset_t *iset, const sx_uuid_t* uuid, int64_t *node_id
         qstep_ret(iset->qlookup_uuid))
         return FAIL_EINTERNAL;
     *node_id = sqlite3_column_int64(iset->qlookup_uuid, 0);
+    DEBUG("Node %s has id %lld", uuid->string, (long long)*node_id);
     sqlite3_reset(iset->qlookup_uuid);
     return OK;
 }
@@ -238,6 +256,7 @@ rc_ty sxi_iset_node_add(sxi_iset_t *iset, const sx_uuid_t* uuid)
         NULLARG();
         return EFAULT;
     }
+    DEBUG("Added node %s", uuid->string);
     if (qbind_text(iset->qinsert_uuid, ":node_uuid", uuid->string) ||
         qstep_noret(iset->qinsert_uuid))
         return FAIL_EINTERNAL;
@@ -278,6 +297,7 @@ rc_ty sxi_iset_set_self_id(sxi_iset_t *iset, const sx_uuid_t *uuid)
         NULLARG();
         return EFAULT;
     }
+    DEBUG("self id set to node %s", uuid ? uuid->string : NULL);
     return sxi_iset_node_id(iset, uuid, &iset->self_id);
 }
 

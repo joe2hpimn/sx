@@ -500,6 +500,9 @@ struct fetch_ctx {
     unsigned blocksize;
     unsigned pos;
     unsigned replica;
+    unsigned got;
+    unsigned expect;
+    char *url;
 };
 
 static void heal_save_finish_cb(curlev_context_t *cbdata, const char *url) {
@@ -508,7 +511,11 @@ static void heal_save_finish_cb(curlev_context_t *cbdata, const char *url) {
         DEBUG("ctx not set");
         return;
     }
+    if (ctx->got != ctx->expect) {
+        WARN("Got less blocks than expected: %d < %d", ctx->got, ctx->expect);
+    }
     free(ctx->block); ctx->block = NULL;
+    free(ctx->url); ctx->url = NULL;
     free(ctx);
     sxi_cbdata_set_context(cbdata, NULL);
     heal_pending_queries--;
@@ -532,7 +539,8 @@ static int heal_save_block_cb(curlev_context_t *cbdata, const unsigned char *dat
     if (ctx->pos == ctx->blocksize) {
         if (sx_hashfs_block_put(ctx->h, ctx->block, ctx->blocksize, ctx->replica))
             return -1;
-        DEBUG("saved block");
+        ctx->got++;
+        DEBUG("saved block %d from %s", ctx->got, ctx->url);
         ctx->pos = 0;
     }
 
@@ -571,7 +579,7 @@ static rc_ty fetch_from(sx_hashfs_t *h, struct source *source, unsigned int bloc
             WARN("failed to allocate query context");
             break;
         }
-        struct fetch_ctx *ctx = wrap_malloc(sizeof(*ctx));
+        struct fetch_ctx *ctx = wrap_calloc(1, sizeof(*ctx));
         if (!ctx) {
             WARN("Failed to allocate fetch context");
             break;
@@ -585,6 +593,9 @@ static rc_ty fetch_from(sx_hashfs_t *h, struct source *source, unsigned int bloc
         }
         ctx->pos = 0;
         ctx->replica = source->replica;
+        ctx->url = url;
+        ctx->expect = source->n;
+        url = NULL;
         sxi_cbdata_set_context(cbdata, ctx);
         if (sxi_cluster_query_ev(cbdata, sx_hashfs_conns(h), sx_node_internal_addr(source->node),
                                  REQ_GET, url, NULL, 0, NULL, heal_save_block_cb)) {
