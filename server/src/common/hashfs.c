@@ -1943,7 +1943,7 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
                 goto open_hashfs_fail;
             if(qprep(h->datadb[j][i], &h->qb_gc_reserve[j][i], "DELETE FROM reservations WHERE revision_id=:revision_id"))
                 goto open_hashfs_fail;
-            if(qprep(h->datadb[j][i], &h->qb_heal[j][i],"SELECT blocks_hash FROM revision_blocks WHERE revision_id=:revision_id ORDER BY blocks_hash"))
+            if(qprep(h->datadb[j][i], &h->qb_heal[j][i],"SELECT blocks_hash, replica FROM revision_blocks WHERE revision_id=:revision_id ORDER BY blocks_hash"))
                 goto open_hashfs_fail;
 
 	    sprintf(dbitem, "datafile_%c_%08x", sizedirs[j], i);
@@ -18271,13 +18271,15 @@ rc_ty sx_hashfs_heal_block_begin(sx_hashfs_t *h, int sizetype, int hdb)
     return OK;
 }
 
-rc_ty sx_hashfs_heal_block_next(sx_hashfs_t *h, int sizetype, int hdb, sx_hash_t *hash)
+rc_ty sx_hashfs_heal_block_next(sx_hashfs_t *h, int sizetype, int hdb, sx_hash_t *hash, unsigned *max_replica)
 {
     sqlite3_stmt *q = sx_hashfs_heal_block_query(h, sizetype, hdb);
     if (!q)
         return EINVAL;
     switch (qstep(q)) {
     case SQLITE_ROW:
+        if (max_replica)
+            *max_replica = sqlite3_column_int64(q, 1);
         return hash_of_blob_result(hash, q, 0);
     case SQLITE_DONE:
         sqlite3_reset(q);

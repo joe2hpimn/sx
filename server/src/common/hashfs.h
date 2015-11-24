@@ -659,7 +659,7 @@ sxi_iset_t *sx_hashfs_intervals(sx_hashfs_t *h, unsigned mdb);
 rc_ty sx_hashfs_file_intervals(sx_hashfs_t *h, int mdb, const sx_uuid_t *node, int64_t start, int64_t stop, const sx_node_t *dest, sx_find_cb_t cb, void *ctx);
 
 rc_ty sx_hashfs_heal_block_begin(sx_hashfs_t *h, int sizetype, int hdb);
-rc_ty sx_hashfs_heal_block_next(sx_hashfs_t *h, int sizetype, int hdb, sx_hash_t *hash);
+rc_ty sx_hashfs_heal_block_next(sx_hashfs_t *h, int sizetype, int hdb, sx_hash_t *hash, unsigned *max_replica);
 rc_ty sx_hashfs_heal_block_end(sx_hashfs_t *h, int sizetype, int hdb);
 
 rc_ty sx_hashfs_heal_reset(sx_hashfs_t *h);

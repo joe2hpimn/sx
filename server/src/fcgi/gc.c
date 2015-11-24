@@ -615,14 +615,14 @@ static rc_ty fetch_from(sx_hashfs_t *h, struct source *source, unsigned int bloc
     return ret;
 }
 
-rc_ty process_block_heal(sx_hashfs_t *h, int *terminate)
+rc_ty process_block_heal(sx_hashfs_t *h, int *terminate, unsigned replica)
 {
     rc_ty s;
     const sx_node_t *self = sx_hashfs_self(h);
     const sx_nodelist_t *all = sx_hashfs_all_nodes(h, NL_NEXT);
-    unsigned max_replica = sx_nodelist_count(all);
+    unsigned nnodes = sx_nodelist_count(all);
     for (int i=0;i<SIZES && !*terminate;i++) {
-        struct source *sources = wrap_calloc(max_replica, sizeof(*sources));
+        struct source *sources = wrap_calloc(nnodes, sizeof(*sources));
         if (!sources)
             return ENOMEM;
         for (int j=0;j<HASHDBS && !*terminate;j++) {
@@ -631,23 +631,25 @@ rc_ty process_block_heal(sx_hashfs_t *h, int *terminate)
                 return s;
             sx_hash_t hash;
             sx_nodelist_t *nl = NULL;
-            while ((s = sx_hashfs_heal_block_next(h, i, j, &hash)) == OK && !*terminate) {
-                DEBUGHASH("needs to heal hash", &hash);
-                /* TODO: should have separate heal reservations per replica? */
+            unsigned max_replica;
+            while ((s = sx_hashfs_heal_block_next(h, i, j, &hash, &max_replica)) == OK && !*terminate) {
+                if (replica > max_replica) {
+                    DEBUGHASH("No more replicas for", &hash);
+                    continue;
+                }
+                if (sx_hashfs_block_get(h, bsz[i], &hash, NULL) == OK) {
+                    DEBUGHASH("already have hash", &hash);
+                    continue;
+                }
                 nl = sx_hashfs_all_hashnodes(h, NL_NEXTPREV, &hash, max_replica);
                 if (!nl) {
                     WARN("cannot allocate hashnodes");
                     break;
                 }
-                unsigned replica = 0;
-                const sx_node_t *sourcenode;
-                do {
-                    sourcenode = sx_nodelist_get(nl, replica++);
-                } while (sourcenode && !sx_node_cmp(sourcenode, self));
-                if (!sourcenode) {
-                    DEBUGHASH("cannot heal hash: no source found", &hash);
+                const sx_node_t *sourcenode = sx_nodelist_get(nl, replica);
+                if (!sx_node_cmp(sourcenode, self))
                     continue;
-                }
+                DEBUGHASH("needs to heal hash", &hash);
                 /* fetch from other node */
                 unsigned int idx;
                 const sx_node_t *node = sx_nodelist_lookup_index(all, sx_node_uuid(sourcenode), &idx);
@@ -669,7 +671,7 @@ rc_ty process_block_heal(sx_hashfs_t *h, int *terminate)
             if (s != ITER_NO_MORE)
                 return s;
         }
-        for (unsigned j=0;j<max_replica && !*terminate;j++)
+        for (unsigned j=0;j<nnodes && !*terminate;j++)
             if (fetch_from(h, &sources[j], bsz[i]))
                 break;
         free(sources);
@@ -724,9 +726,12 @@ int gc(sxc_client_t *sx, const char *dir, int pipe, int pipe_expire) {
         INFO("file heal starting");
         rc = process_file_heal(hashfs, &terminate);
         INFO("file heal finished: %s", rc2str(rc));
-        INFO("block healing starting");
-        rc = process_block_heal(hashfs, &terminate);
-        INFO("block healing finished: %s", rc2str(rc));
+        unsigned nnodes = sx_nodelist_count(sx_hashfs_all_nodes(hashfs, NL_NEXT));
+        for (unsigned replica=0;replica<nnodes;replica++) {
+            INFO("block healing starting for replica #%d", replica);
+            rc = process_block_heal(hashfs, &terminate, replica);
+            INFO("block healing finished for replica #%d: %s", replica, rc2str(rc));
+        }
         rc = sx_hashfs_heal_reset(hashfs);
         INFO("block healing reset: %s", rc2str(rc));
 
