@@ -667,7 +667,7 @@ rc_ty sx_hashfs_heal_reset(sx_hashfs_t *h);
 rc_ty sx_hashfs_update_iset(sx_hashfs_t *h, const sx_nodelist_t *nodelist);
 int64_t sx_hashfs_heal_pending_bytes(sx_hashfs_t *h);
 
-
+int sx_hashfs_allow_background_replication(sx_hashfs_t *h);
 enum rpl_mode { MODE_INVALID=0, MODE_REPLACE, MODE_HEAL };
 
 #endif

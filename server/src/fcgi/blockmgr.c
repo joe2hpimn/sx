@@ -197,7 +197,8 @@ void blockmgr_process_queue(struct blockmgr_data_t *q) {
 	    hlist.ids[hlist.nblocks] = sqlite3_column_int64(q->qlist, 0);
             memcpy(&hlist.binhs[hlist.nblocks], h, SXI_SHA1_BIN_LEN);
             if(sxi_hashop_batch_add(&hc, host, hlist.nblocks, h, bs) != 0) {
-                WARN("Cannot verify block presence: %s", sxc_geterrmsg(sx));
+                if (!sx_hashfs_allow_background_replication(q->hashfs))
+                    WARN("Cannot verify block presence: %s", sxc_geterrmsg(sx));
                 blockmgr_reschedule_xfer(q, hlist.ids[hlist.nblocks]);
             }
 
@@ -212,7 +213,8 @@ void blockmgr_process_queue(struct blockmgr_data_t *q) {
 	sqlite3_reset(q->qlist);
 
 	if(sxi_hashop_end(&hc) == -1) {
-	    WARN("Cannot verify block presence on node %s: %s", node_uuid.string, sxc_geterrmsg(sx));
+            if (!sx_hashfs_allow_background_replication(q->hashfs))
+                WARN("Cannot verify block presence on node %s: %s", node_uuid.string, sxc_geterrmsg(sx));
 	    for(j=0; j<hlist.nblocks; j++)
 		blockmgr_reschedule_xfer(q, hlist.ids[j]);
 	    continue;

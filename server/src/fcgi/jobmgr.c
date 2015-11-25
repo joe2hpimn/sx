@@ -1381,7 +1381,7 @@ static act_result_t fileflush_remote(sx_hashfs_t *hashfs, job_t job_id, job_data
 			WARN("Query failed with %ld", http_status);
 			if(ret > ACT_RESULT_TEMPFAIL) /* Only raise OK to TEMP */
 			    action_set_fail(ACT_RESULT_TEMPFAIL, 503, sxi_cbdata_geterrmsg(qrylist[i].cbdata));
-		    } else if(http_status != 200 && http_status != 410) {
+		    } else if(http_status != 200 && http_status != 410 && !sx_hashfs_allow_background_replication(hashfs)) {
 			act_result_t newret = http2actres(http_status);
 			if(newret < ret) /* Severity shall only be raised */
 			    action_set_fail(newret, http_status, sxi_cbdata_geterrmsg(qrylist[i].cbdata));

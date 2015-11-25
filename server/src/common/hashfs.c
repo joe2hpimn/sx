@@ -4265,6 +4265,8 @@ static rc_ty upgrade_db(int lockfd, const char *path, sxi_db_t *db, const sx_has
     return ret;
 }
 
+#define ALLOW_BACKGROUND_REPLICATION "allow_background_replication"
+
 /* Version upgrade 1.2 -> 1.9 */
 static rc_ty hashfs_1_2_to_1_9(sxi_db_t *db)
 {
@@ -4283,6 +4285,7 @@ static rc_ty hashfs_1_2_to_1_9(sxi_db_t *db)
             break;
         }
 
+        /* FIXME: these should be added in 1.9->1.10 upgrade and not in 1.2 -> 1.9? */
         /*
          * NOTE: While adding new settings please update the SXLIMIT_SETTINGS_MAX_ITEMS if needed.
          *       Update cluster_settings_validate() and/or cluster sx_hashfs_check_cluster_setting()
@@ -4326,6 +4329,17 @@ static rc_ty hashfs_1_2_to_1_9(sxi_db_t *db)
         }
         sx_blob_to_data(b, &data, &data_len);
         if(qbind_text(q, ":k", "hb_warntime") || qbind_blob(q, ":v", data, data_len) || qstep_noret(q))
+            break;
+        sx_blob_reset(b);
+        sqlite3_reset(q);
+
+        /* replication */
+        if(sx_blob_add_bool(b, 0)) {
+            WARN("Failed to add setting value to the blob");
+            break;
+        }
+        sx_blob_to_data(b, &data, &data_len);
+        if(qbind_text(q, ":k", ALLOW_BACKGROUND_REPLICATION) || qbind_blob(q, ":v", data, data_len) || qstep_noret(q))
             break;
         sx_blob_reset(b);
         sqlite3_reset(q);
@@ -8772,14 +8786,12 @@ rc_ty sx_hashfs_block_put(sx_hashfs_t *h, const uint8_t *data, unsigned int bs, 
     if(ret != OK && ret != EAGAIN)
 	return FAIL_EINTERNAL;
 
-#if 0
     if(replica_count > 1) {
 	sx_nodelist_t *targets = sx_hashfs_effective_hashnodes(h, NL_NEXT, &hash, replica_count);
 	rc_ty ret = sx_hashfs_xfer_tonodes(h, &hash, bs, targets);
 	sx_nodelist_delete(targets);
 	return ret;
     }
-#endif
     return OK;
 }
 
@@ -10114,7 +10126,7 @@ static rc_ty reserve_replicas(sx_hashfs_t *h, uint64_t op_expires_at)
         if (ret)
             WARN("are_blocks_available failed: %s", rc2str(ret));
         if (!ret && sxi_hashop_end(hashop) == -1) {
-            WARN("sxi_hashop_end failed: %s", sxc_geterrmsg(h->sx));
+            INFO("sxi_hashop_end failed: %s", sxc_geterrmsg(h->sx));
             ret = FAIL_EINTERNAL;
         }
     }
@@ -10139,27 +10151,26 @@ rc_ty sx_hashfs_putfile_getblock(sx_hashfs_t *h) {
     if(h->put_checkblock >= h->put_putblock) {
         uint64_t op_expires_at = h->hc.op_expires_at;
 	if(sxi_hashop_end(&h->hc) == -1) {
-	    WARN("hashop_end failed: %s", sxc_geterrmsg(h->sx));
             if(sxc_geterrnum(h->sx) == SXE_ECOMM) {
                 msg_set_reason("Remote error: %s", sxc_geterrmsg(h->sx));
                 return EAGAIN;
             }
-            #if 0
-            /* ignore reserveation error */
-            return FAIL_EINTERNAL;
-            #endif
+            if (!sx_hashfs_allow_background_replication(h)) {
+                WARN("hashop_end failed: %s", sxc_geterrmsg(h->sx));
+                return FAIL_EINTERNAL;
+            }
+            /* ignore reservation error */
         } else
 	    DEBUG("{%s}: finished:%d, queries:%d, ok:%d, enoent:%d, cbfail:%d",
 		  h->node_uuid.string,
 		  h->hc.finished, h->hc.queries, h->hc.ok, h->hc.enoent, h->hc.cb_fail);
-        #if 0
         /* FIXME: For testing only */
         ret = reserve_replicas(h, op_expires_at);
-        if (ret) {
+        if (ret && !sx_hashfs_allow_background_replication(h)) {
             WARN("failed to reserve replicas: %s", rc2str(ret));
             return ret;
         }
-        #endif
+        /* ignore reservation error */
 	h->put_success = 1;
 	return ITER_NO_MORE;
     }
@@ -10186,7 +10197,7 @@ void sx_hashfs_putfile_end(sx_hashfs_t *h) {
     /* ensure no callbacks are running anymore, or they'd access
      * a wrong ctx data */
     if (sxi_hashop_end(&h->hc) == -1)
-        WARN("hashop_end failed");
+        INFO("hashop_end failed");
     memset(&h->hc, 0, sizeof(h->hc));
 
     free(h->put_blocks);
@@ -10379,26 +10390,25 @@ rc_ty sx_hashfs_putfile_commitjob(sx_hashfs_t *h, const uint8_t *user, sx_uid_t 
         INFO("job_new (assign op) returned: %s", rc2str(ret));
         goto putfile_commitjob_err;
     }
-    #if 0
-    /* FIXME: For testing only */
-    ret = sx_hashfs_job_new_notrigger(h, JOB_NOPARENT, user_id, job_id, JOBTYPE_REPLICATE_BLOCKS, sx_hashfs_job_file_timeout(h, ndests, expected_size), token, &tmpfile_id, sizeof(tmpfile_id), singlenode);
-    if(ret) {
-        INFO("job_new (replicate) returned: %s", rc2str(ret));
-	goto putfile_commitjob_err;
+
+    if (!sx_hashfs_allow_background_replication(h)) {
+        /* FIXME: For testing only */
+        ret = sx_hashfs_job_new_notrigger(h, JOB_NOPARENT, user_id, job_id, JOBTYPE_REPLICATE_BLOCKS, sx_hashfs_job_file_timeout(h, ndests, expected_size), token, &tmpfile_id, sizeof(tmpfile_id), singlenode);
+        if(ret) {
+            INFO("job_new (replicate) returned: %s", rc2str(ret));
+            goto putfile_commitjob_err;
+        }
     }
-    #endif
 
     /* when flush fails we need to undo the parent job which was targeted to
      * all (revision) nodes, so we need to target the flush jub to all nodes.
      * In the request/commit we'll skip the non-volnode nodes */
-    #if 0
     /* For testing: rely on healing to restore files on other nodes */
     ret = sx_hashfs_job_new_notrigger(h, *job_id, user_id, job_id, JOBTYPE_FLUSH_FILE_REMOTE, 60*ndests, token, &tmpfile_id, sizeof(tmpfile_id), revisionnodes);
     if(ret) {
         INFO("job_new (flush remote) returned: %s", rc2str(ret));
 	goto putfile_commitjob_err;
     }
-    #endif
     ret = sx_hashfs_job_new_notrigger(h, *job_id, user_id, job_id, JOBTYPE_FLUSH_FILE_LOCAL, 60, token, &tmpfile_id, sizeof(tmpfile_id), revisionnodes);
     if(ret) {
         INFO("job_new (flush local) returned: %s", rc2str(ret));
@@ -18332,4 +18342,12 @@ rc_ty sx_hashfs_heal_reset(sx_hashfs_t *h)
 int64_t sx_hashfs_heal_pending_bytes(sx_hashfs_t *h)
 {
     return h->heal_pending_bytes;
+}
+
+int sx_hashfs_allow_background_replication(sx_hashfs_t *h)
+{
+    int ret;
+    if (sx_hashfs_cluster_settings_get_boolean(h, ALLOW_BACKGROUND_REPLICATION, &ret))
+        return 0;
+    return ret;
 }
