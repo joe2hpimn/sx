@@ -2038,7 +2038,7 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
     qnullify(q);
     if(qprep(h->eventdb, &h->qe_getjob, "SELECT complete, result, reason FROM jobs WHERE job = :id AND :owner IN (user, 0)"))
 	goto open_hashfs_fail;
-    snprintf(qrybuff, sizeof(qrybuff), "SELECT job FROM jobs WHERE type = %d AND data = :data", JOBTYPE_DELETE_FILE);
+    snprintf(qrybuff, sizeof(qrybuff), "SELECT job FROM jobs WHERE type = %d AND data = :data AND complete = 0", JOBTYPE_DELETE_FILE);
     if(qprep(h->eventdb, &h->qe_getfiledeljob, qrybuff))
         goto open_hashfs_fail;
     if(qprep(h->eventdb, &h->qe_addjob, "INSERT INTO jobs (parent, type, lock, expiry_time, data, user) SELECT :parent, :type, :lock, datetime(:expiry + strftime('%s', COALESCE((SELECT expiry_time FROM jobs WHERE job = :parent), 'now')), 'unixepoch'), :data, :uid"))
@@ -4256,6 +4256,25 @@ static rc_ty hashfs_1_2_to_1_9(sxi_db_t *db)
     return ret;
 }
 
+static rc_ty eventsdb_1_2_to_1_9(sxi_db_t *db)
+{
+    char qrybuff[128];
+    rc_ty ret = FAIL_EINTERNAL;
+    sqlite3_stmt *q = NULL;
+    do {
+        /* fix existing filedelete jobs data index to respect only pending jobs */
+        if (qprep(db, &q, "DROP INDEX IF EXISTS jobs_data") || qstep_noret(q))
+            break;
+        qnullify(q);
+        snprintf(qrybuff, sizeof(qrybuff), "CREATE UNIQUE INDEX jobs_data ON jobs(data) WHERE type = %d and complete = 0", JOBTYPE_DELETE_FILE);
+        if (qprep(db, &q, qrybuff) || qstep_noret(q))
+            break;
+        ret = OK;
+    } while(0);
+    qnullify(q);
+    return ret;
+}
+
 static rc_ty metadb_1_2_to_1_9(sxi_db_t *db)
 {
     rc_ty ret = FAIL_EINTERNAL;
@@ -4649,6 +4668,7 @@ static const sx_upgrade_t upgrade_sequence[] = {
         .upgrade_hashfsdb = hashfs_1_2_to_1_9,
         .upgrade_metadb = metadb_1_2_to_1_9,
 	.upgrade_hbeatdb = hbeatdb_1_2_to_1_9,
+        .upgrade_eventsdb = eventsdb_1_2_to_1_9,
 	NEWDBS({"hbeatdb", "hbeat.db"} /* , {"otherstuff", "other.db"}, ... */),
         .job = JOBTYPE_DUMMY
     }
