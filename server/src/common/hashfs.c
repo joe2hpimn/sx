@@ -1864,7 +1864,7 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
         goto open_hashfs_fail;
     if(qprep(h->tempdb, &h->qt_tmpdata, "SELECT t || ':' || token AS revision, name, size, volume_id, content, uniqidx, flushed, avail, token, LENGTH(CAST(name AS BLOB)) + size + COALESCE((SELECT SUM(LENGTH(CAST(key AS BLOB)) + LENGTH(value)) FROM tmpmeta WHERE tmpmeta.tid = tmpfiles.tid),0) FROM tmpfiles WHERE tid = :id"))
 	goto open_hashfs_fail;
-    if(qprep(h->tempdb, &h->qt_tmpassignid, "UPDATE tmpfiles SET token=(:node || ':' || :node_op_counter) WHERE tid = :id"))
+    if(qprep(h->tempdb, &h->qt_tmpassignid, "UPDATE tmpfiles SET token=(:node || ':' || substr('0' || :mdb, -2, 2) || ':' || :node_op_counter) WHERE tid = :id"))
         goto open_hashfs_fail;
     if(qprep(h->tempdb, &h->qt_updateuniq, "UPDATE tmpfiles SET uniqidx = :uniq, avail = :avail WHERE tid = :id AND flushed = 1"))
 	goto open_hashfs_fail;
@@ -2869,11 +2869,12 @@ static int parse_revision(const char *revision, unsigned int *revtime, sx_uuid_t
                 return -1;
             }
         }
-        if (revision[REV_TIME_LEN + 1 + UUID_STRING_SIZE] != ':')
+        if (revision[REV_TIME_LEN + 1 + UUID_STRING_SIZE] != ':' ||
+            revision[REV_TIME_LEN + 1 + UUID_STRING_SIZE + 3] != ':')
             return -1;
         if (node_op_counter) {
             char *eon = NULL;
-            *node_op_counter = strtoll(revision + REV_TIME_LEN + 1 + UUID_STRING_SIZE + 1, &eon, 10);
+            *node_op_counter = strtoll(revision + REV_TIME_LEN + 1 + UUID_STRING_SIZE + 1 + 2 + 1, &eon, 10);
             if ((eon && *eon) || *node_op_counter < 0) {
                 msg_set_reason("Cannot parse node op counter");
                 return -1;
@@ -10245,6 +10246,7 @@ static rc_ty assign_op_counter(sx_hashfs_t *h, int mdb, int64_t tmpfile_id) {
     snprintf(node_op_counterstr, sizeof(node_op_counterstr), "%0"STRIFY(COUNTER_LEN)"lld", (long long)node_op_counter);
     if (qbind_int64(h->qt_tmpassignid, ":id", tmpfile_id) ||
         qbind_text(h->qt_tmpassignid, ":node", h->node_uuid.string) ||
+        qbind_int64(h->qt_tmpassignid, ":mdb", mdb) ||
         qbind_text(h->qt_tmpassignid, ":node_op_counter", node_op_counterstr) ||
         qstep_noret(h->qt_tmpassignid)) {
         qrollback(h->tempdb);

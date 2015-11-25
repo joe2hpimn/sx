@@ -43,7 +43,7 @@
 #define REV_TIME_LEN lenof("YYYY-MM-DD hh:mm:ss.sss")
 #define REV_LEN_1_2 (REV_TIME_LEN + 1 + TOKEN_RAND_BYTES * 2)
 #define COUNTER_LEN 20
-#define REV_LEN (REV_TIME_LEN + 1 + UUID_STRING_SIZE + 1 + COUNTER_LEN)
+#define REV_LEN (REV_TIME_LEN + 1 + UUID_STRING_SIZE + 1 + 2 + 1 + COUNTER_LEN)
 #define NO_REV_NODEOP -1
 
 /* TODO: hide these in hashfs.c again */

@@ -112,7 +112,7 @@ sx_node_new_bare()
     load_node_vars 1
     set_node_vars "$1"
     echo "SX_CLUSTER_KEY=$SX_CLUSTER_KEY" >>"$CONF_TMP"
-    "$prefix/sbin/sxsetup" --config-file "$CONF_TMP" --debug --advanced --bare
+    "$prefix/sbin/sxsetup" --config-file "$CONF_TMP" --advanced --bare
 }
 
 sx_node_new_join()
@@ -123,7 +123,7 @@ sx_node_new_join()
     sed -e "s^SX_EXISTING_NODE_IP=.*^SX_EXISTING_NODE_IP=\"$SX_EXISTING_NODE_IP\"^" "$CONF_TMP" >tmp
     mv tmp "$CONF_TMP"
     set +x
-    "$prefix/sbin/sxsetup" --config-file "$CONF_TMP" --debug --advanced --wait
+    "$prefix/sbin/sxsetup" --config-file "$CONF_TMP" --advanced --wait
 }
 
 sx_wait_rebalance()
