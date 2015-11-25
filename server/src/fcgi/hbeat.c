@@ -413,12 +413,7 @@ static int raft_ignore_dead_nodes(sx_hashfs_t *h, sx_raft_state_t *state, const 
 
     /* Iterate over volumes in order to find a volume with minimum replica */
     for(s = sx_hashfs_volume_first(h, &vol, NULL); s == OK; s = sx_hashfs_volume_next(h)) {
-        /* Note: Currently _sxsetup.conf volume is always created via sxsetup with replica 1, effectively
-         *       preventing automatic nodes ignoring from being executed. This volume is only necessary to
-         *       store configuration data which can still be properly provided for sxsetup on new nodes.
-         *       This could be handled sxsetup side, _sxsetup.conf volume could be recreated for each
-         *       successful node join. Although user would not be able to decrease number of nodes then. */
-        if(strcmp(vol->name, "_sxsetup.conf") && vol->effective_replica < min_replica)
+        if(vol->effective_replica < min_replica)
             min_replica = vol->effective_replica;
     }
 
@@ -426,9 +421,6 @@ static int raft_ignore_dead_nodes(sx_hashfs_t *h, sx_raft_state_t *state, const 
         WARN("Failed to check minimum volumes replica");
         return -1;
     }
-
-    if(min_replica < 2)
-        return 0; /* Immediately return. Cannot ignore dead nodes when min replica is too low. */
 
     gettimeofday(&now, NULL);
     /* Iterate over list and find dead nodes. Do it inside transaction in order to avoid state change race. */
@@ -516,8 +508,10 @@ static int raft_ignore_dead_nodes(sx_hashfs_t *h, sx_raft_state_t *state, const 
             state->leader_state.job_scheduled = 1;
             DEBUG("Successfully scheduled nodes ignoring job: %lld", (long long)state->leader_state.job_id);
         }
-    } else if(faulty) /* faulty is set when at least one node is considered dead and should be ignored */
+    } else if(faulty) {/* faulty is set when at least one node is considered dead and should be ignored */
         DEBUG("Cannot mark %d nodes as faulty due to minimum volumes replica requirement not met", sx_nodelist_count(faulty));
+        snprintf(state->leader_state.msg, sizeof(state->leader_state.msg), "Unable to automatically disable dead node(s) because minimum replica requirements are not met");
+    }
 
     ret = 0;
 raft_ignore_dead_nodes_err:
@@ -578,6 +572,7 @@ static rc_ty raft_leader_send_heartbeat(sx_hashfs_t *h, sx_raft_state_t *state, 
             save_state.leader_state.node_states[i].hbeat_success = state->leader_state.node_states[i].hbeat_success;
         }
         state_changed = 1;
+        *save_state.leader_state.msg = '\0';
 
         /* Successfully called heartbeats, last contact fields are updated. Consider whether some nodes need
          * to be marked as faulty and perform this operation when safe. */

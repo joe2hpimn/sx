@@ -59,6 +59,7 @@ struct cstatus {
     char raft_status_leader[UUID_STRING_SIZE+1];
     raft_node_data_t *raft_nodes;
     unsigned int raft_nnodes;
+    char raft_message[1024];
 };
 
 /*
@@ -328,6 +329,11 @@ static void cb_cstatus_raft_leader(jparse_t *J, void *ctx, const char *string, u
     sxi_jparse_cancel(J, "Invalid raft leader UUID");
 }
 
+static void cb_cstatus_raft_message(jparse_t *J, void *ctx, const char *string, unsigned int length) {
+    struct cstatus *c = (struct cstatus *)ctx;
+    sxi_strlcpy(c->raft_message, string, MIN(sizeof(c->raft_message), length+1));
+}
+
 static void cb_cstatus_raft_ns_node(jparse_t *J, void *ctx) {
     const char *node = sxi_jpath_mapkey(sxi_jpath_down(sxi_jpath_down(sxi_jparse_whereami(J))));
     struct cstatus *c = (struct cstatus *)ctx;
@@ -395,6 +401,7 @@ const struct jparse_actions cstatus_acts = {
 		  JPACT(cb_cstatus_op_info, JPKEY("clusterStatus"), JPKEY("opInProgress"), JPKEY("opInfo")),
 		  JPACT(cb_cstatus_raft_role, JPKEY("raftStatus"), JPKEY("role")),
 		  JPACT(cb_cstatus_raft_leader, JPKEY("raftStatus"), JPKEY("leader")),
+                  JPACT(cb_cstatus_raft_message, JPKEY("raftStatus"), JPKEY("message")),
 		  JPACT(cb_cstatus_raft_ns_state, JPKEY("raftStatus"), JPKEY("nodeStates"), JPANYKEY, JPKEY("state"))
 		  ),
     JPACTS_INT64(
@@ -482,7 +489,6 @@ static int cstatus_setup_cb(curlev_context_t *cbdata, void *ctx, const char *hos
 
 static int cstatus_cb(curlev_context_t *cbdata, void *ctx, const void *data, size_t size) {
     struct cstatus *yactx = (struct cstatus *)ctx;
-
     if(sxi_jparse_digest(yactx->J, data, size)) {
 	CRIT("Error querying cluster: %s", sxi_jparse_geterr(yactx->J));
 	return 1;
@@ -616,6 +622,10 @@ const char* clst_leader_node(clst_t *st) {
 
 const char* clst_raft_role(clst_t *st) {
     return st ? st->raft_role : NULL;
+}
+
+const char* clst_raft_message(clst_t *st) {
+    return st && *st->raft_message ? st->raft_message : NULL;
 }
 
 const raft_node_data_t *clst_raft_nodes_data(clst_t *st, unsigned int *nnodes) {

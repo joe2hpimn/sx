@@ -1438,7 +1438,7 @@ static int info_cluster(sxc_client_t *sx, struct cluster_args_info *args, int ke
     const char *zonedef = NULL;
     sxi_hdist_t *zmodel = NULL;
     char capastr[32];
-    int ret = 1;
+    int ret = 1, is_rebalancing = 0;
 
     if(!clust)
 	return 1;
@@ -1472,6 +1472,7 @@ static int info_cluster(sxc_client_t *sx, struct cluster_args_info *args, int ke
 	zonedef = clst_zones(clst, 1);
 	printf("Target configuration: ");
 	print_dist(nodes, zonedef);
+        is_rebalancing = 1;
     case 1:
 	nodes_prev = clst_nodes(clst, 0);
 	if(!nodes) {
@@ -1518,7 +1519,7 @@ static int info_cluster(sxc_client_t *sx, struct cluster_args_info *args, int ke
 	}
     }
 
-    if(sx_nodelist_count(nodes) >= 3) {
+    if(!is_rebalancing && sx_nodelist_count(nodes) >= 3) {
 	/* There should be a leader */
 	if(!uuid_from_string(&leaderid, clst_leader_node(clst))) {
 	    const char *role = clst_raft_role(clst);
@@ -1646,7 +1647,7 @@ static int info_cluster(sxc_client_t *sx, struct cluster_args_info *args, int ke
 	printf(", status: ");
 	switch(st) {
 	case ST_FAULTY:
-	    printf("faulty");
+	    printf("** FAULTY **");
 	    op = "this node is currently being ignored";
 	    break;
 	case ST_LEAVING:
@@ -1665,13 +1666,18 @@ static int info_cluster(sxc_client_t *sx, struct cluster_args_info *args, int ke
 	}
 	if(!isonline) {
 	    if(last_seen)
-		printf(", online: ** no ** (last contact: %lld seconds ago)\n", (long long)last_seen);
+		printf(", online: ** NO ** (last contact: %lld seconds ago)", (long long)last_seen);
 	    else
-		printf(", online: ** no **\n");
+		printf(", online: ** NO **");
 	} else if(op)
-	    printf(", online: yes, activity: %s\n", op);
+	    printf(", online: yes, activity: %s", op);
 	else
-	    printf(", online: yes\n" );
+	    printf(", online: yes" );
+
+        if(isleader && clst_raft_message(clstleader))
+            printf(", notice: %s\n", clst_raft_message(clstleader));
+        else
+            printf("\n");
 
 	if(!isleader)
 	    clst_destroy(clstnode);

@@ -17618,6 +17618,18 @@ rc_ty sx_hashfs_raft_state_get(sx_hashfs_t *h, sx_raft_state_t *state) {
             goto sx_hashfs_raft_state_get_err;
         sqlite3_reset(q);
 
+        if(qbind_text(q, ":k", "raftMessage"))
+            goto sx_hashfs_raft_state_get_err;
+        r = qstep(q);
+        if(r == SQLITE_ROW) {
+            const char *msg = (const char *)sqlite3_column_text(q, 0);
+            if(!msg)
+                goto sx_hashfs_raft_state_get_err;
+            sxi_strlcpy(state->leader_state.msg, msg, sizeof(state->leader_state.msg));
+        } else if(r != SQLITE_DONE)
+            goto sx_hashfs_raft_state_get_err;
+        sqlite3_reset(q);
+
         if(qbind_text(q, ":k", "raftNodesState") || qstep_ret(q))
             goto sx_hashfs_raft_state_get_err;
         data = sqlite3_column_blob(q, 0);
@@ -17749,6 +17761,17 @@ rc_ty sx_hashfs_raft_state_set(sx_hashfs_t *h, const sx_raft_state_t *state) {
         } else {
             sqlite3_reset(qdel);
             if(qbind_text(qdel, ":k", "raftFaultyJobID") || qstep_noret(qdel))
+                goto sx_hashfs_raft_state_set_err;
+            sqlite3_reset(qdel);
+        }
+
+        if(*state->leader_state.msg) {
+            if(qbind_text(qset, ":k", "raftMessage") || qbind_text(qset, ":v", state->leader_state.msg) || qstep_noret(qset))
+                goto sx_hashfs_raft_state_set_err;
+            sqlite3_reset(qset);
+        } else {
+            sqlite3_reset(qdel);
+            if(qbind_text(qdel, ":k", "raftMessage") || qstep_noret(qdel))
                 goto sx_hashfs_raft_state_set_err;
             sqlite3_reset(qdel);
         }

@@ -600,6 +600,9 @@ struct raft_leader_state {
      */
     int64_t job_id;
     int job_scheduled;
+
+    /* Message can be reported by the cluster leader */
+    char msg[1024];
 };
 
 /* Raft protocol context */

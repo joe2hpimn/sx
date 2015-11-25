@@ -434,6 +434,10 @@ void fcgi_handle_cluster_requests(void) {
                 CGI_PUTC('}');
             }
             CGI_PUTC('}');
+            if(*state.leader_state.msg) {
+                CGI_PUTS(",\"message\":");
+                json_send_qstring(state.leader_state.msg);
+            }
         }
         CGI_PUTC('}');
         sx_hashfs_raft_state_abort(hashfs);
