@@ -253,12 +253,13 @@ static int timedlockOpen(TimedLock *lock, const char *dbname, int nLock, sqlite3
 }
 
 static void timedlockClose(TimedLock *lock, int deleteFlag){
-  assert(timedlockIsValid(lock));
-
-  sem_close(lock->sem);
-  if (deleteFlag)
-    sem_unlink(lock->name);
-  sqlite3_free(lock->name);
+  if (lock->sem != SEM_FAILED)
+    sem_close(lock->sem);
+  if (lock->name) {
+    if (deleteFlag)
+      sem_unlink(lock->name);
+    sqlite3_free(lock->name);
+  }
   memset(lock, 0, sizeof(*lock));
 }
 
@@ -618,6 +619,8 @@ static int waitsemShmUnmap(sqlite3_file *pFile, int deleteFlag)
   if(rc == SQLITE_OK) {
     for(i=0;i<sizeof(p->waiting)/sizeof(p->waiting[0]);i++)
       timedlockClose(&p->waiting[i], deleteFlag);
+    if (!p->locks)
+      return SQLITE_OK; /* nothing to unmap, because map failed */
     rc=p->locks->pMethods->xShmUnmap(p->locks, deleteFlag);
     if( rc==SQLITE_OK) {
       rc=p->locks->pMethods->xClose(p->locks);
