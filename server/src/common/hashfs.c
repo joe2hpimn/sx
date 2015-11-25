@@ -874,7 +874,7 @@ struct _sx_hashfs_t {
     sxi_hdist_t *hd;
     sx_nodelist_t *prev_dist, *next_dist, *nextprev_dist, *prevnext_dist, *faulty_nodes, *ignored_nodes, *effprev_dist, *effnext_dist, *effnextprev_dist, *effprevnext_dist;
     int64_t hd_rev;
-    unsigned int have_hd, is_rebalancing, is_orphan, prev_maxreplica, next_maxreplica, effprev_maxreplica, effnext_maxreplica;
+    unsigned int have_hd, is_rebalancing, is_orphan, prev_maxreplica, next_maxreplica, effective_maxreplica;
     int64_t effective_capacity;
     time_t last_dist_change;
     const char *distzones[2];
@@ -1485,9 +1485,8 @@ static int load_config(sx_hashfs_t *h, sxc_client_t *sx) {
 	}
 
 	h->next_maxreplica = sxi_hdist_maxreplica(h->hd, 0, NULL);
-	h->prev_maxreplica = sxi_hdist_maxreplica(h->hd, h->is_rebalancing ? 1 : 0, NULL);
-	h->effnext_maxreplica = sxi_hdist_maxreplica(h->hd, 0, h->ignored_nodes);
-	h->effprev_maxreplica = sxi_hdist_maxreplica(h->hd, h->is_rebalancing ? 1 : 0, h->ignored_nodes);
+	h->prev_maxreplica = h->is_rebalancing ? sxi_hdist_maxreplica(h->hd, 1, NULL) : h->next_maxreplica;
+	h->effective_maxreplica = sxi_hdist_maxreplica(h->hd, 0, h->ignored_nodes);
 	h->effective_capacity = sxi_hdist_capacity(h->hd, 0, h->ignored_nodes);
 	if(h->is_rebalancing)
 	    h->effective_capacity = MIN(h->effective_capacity, sxi_hdist_capacity(h->hd, 1, h->ignored_nodes));
@@ -5820,7 +5819,7 @@ int sx_hashfs_is_orphan(sx_hashfs_t *h) {
 }
 
 static int is_subreplica(sx_hashfs_t *h, unsigned int max_replica) {
-    return (h->next_maxreplica - h->effnext_maxreplica >= max_replica);
+    return (h->next_maxreplica - h->effective_maxreplica >= max_replica);
 }
 
 const char *sx_hashfs_zonedef(sx_hashfs_t *h, sx_hashfs_nl_t which) {
@@ -7559,11 +7558,11 @@ rc_ty sx_hashfs_check_volume_settings(sx_hashfs_t *h, const char *volume, int64_
 
     if(h->have_hd) {
 	unsigned int maxreplica = MIN(h->prev_maxreplica, h->next_maxreplica);
-	unsigned int minreplica = 1+
-	    MIN(h->prev_maxreplica - h->effprev_maxreplica,
-		h->next_maxreplica - h->effnext_maxreplica);
+	unsigned int minreplica = 1;
+	if(!h->is_rebalancing)
+	    minreplica += (h->next_maxreplica - h->effective_maxreplica);
 	if(replica < minreplica || replica > maxreplica) {
-	    if(!minreplica || minreplica == maxreplica)
+	    if(minreplica == maxreplica)
 		msg_set_reason("Invalid replica count %d: must be %d", replica, maxreplica);
 	    else
 		msg_set_reason("Invalid replica count %d: must be between %d and %d", replica, minreplica, maxreplica);
@@ -7850,6 +7849,7 @@ rc_ty sx_hashfs_volume_first(sx_hashfs_t *h, const sx_hashfs_volume_t **volume, 
 static rc_ty volume_next_common(sx_hashfs_t *h) {
     const char *name;
     rc_ty res = FAIL_EINTERNAL;
+    unsigned int replica_loss;
     int r;
 
     if(!h) {
@@ -7886,7 +7886,12 @@ static rc_ty volume_next_common(sx_hashfs_t *h) {
     h->curvol.owner = sqlite3_column_int64(h->q_nextvol, 5);
     h->curvol.revisions = sqlite3_column_int(h->q_nextvol, 6);
     h->curvol.changed = sqlite3_column_int64(h->q_nextvol, 7);
-    h->curvol.effective_replica = MIN(h->effnext_maxreplica, h->curvol.max_replica);
+
+    replica_loss = (h->next_maxreplica - h->effective_maxreplica);
+    if(h->curvol.max_replica > replica_loss)
+	h->curvol.effective_replica = h->curvol.max_replica - replica_loss;
+    else
+	h->curvol.effective_replica = 0;
 
     res = OK;
 volume_next_common_err:
@@ -7946,12 +7951,12 @@ static rc_ty volume_get_common(sx_hashfs_t *h, const char *name, int64_t volid, 
     h->curvol.owner = sqlite3_column_int64(q, 5);
     h->curvol.revisions = sqlite3_column_int(q, 6);
     h->curvol.changed = sqlite3_column_int64(q, 7);
-    h->curvol.effective_replica = MIN(h->effnext_maxreplica, h->curvol.max_replica);
 
     if(is_subreplica(h, h->curvol.max_replica)) {
 	res = ENOENT;
 	goto volume_err;
     }
+    h->curvol.effective_replica = h->curvol.max_replica - (h->next_maxreplica - h->effective_maxreplica);
 
     *volume = &h->curvol;
     res = OK;
@@ -9864,7 +9869,7 @@ static rc_ty reserve_replicas(sx_hashfs_t *h, uint64_t op_expires_at)
     unsigned uniq_count = h->put_putblock;
     if (!uniq_count || hashop->kind == HASHOP_SKIP)
         return OK;
-    unsigned hash_size = h->put_hs, effective_replica = MIN(h->put_replica, h->effnext_maxreplica);
+    unsigned hash_size = h->put_hs, effective_replica = MIN(h->put_replica, h->effective_maxreplica);
     unsigned int *node_indexes = wrap_malloc((1+effective_replica) * h->put_nblocks * sizeof(*node_indexes));
 
     if (!node_indexes)
@@ -16339,7 +16344,7 @@ rc_ty sx_hashfs_init_replacement(sx_hashfs_t *h) {
 	goto init_replacement_fail;
     qnullify(q);
 
-    lostnodes = h->next_maxreplica - h->effnext_maxreplica;
+    lostnodes = h->next_maxreplica - h->effective_maxreplica;
     if(lostnodes) {
 	if(qprep(h->db, &q, "UPDATE volumes SET volume = '.BAD' || volume, enabled = 0, changed = 0 WHERE volume NOT LIKE '.BAD%' AND replica <= :replica") ||
 	   qbind_int(q, ":replica", lostnodes) ||
