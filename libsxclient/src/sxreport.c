@@ -35,6 +35,8 @@
 #include <grp.h>
 #include <time.h>
 #include "vcrypto.h"
+#include "jparse.h"
+#include "curlevents.h"
 
 #ifdef HAVE_SYS_STATVFS_H
 #include <sys/statvfs.h>
@@ -425,7 +427,57 @@ int sxi_report_cpu(sxc_client_t *sx, int *ncpus, char *endianness, size_t endian
     return 0;
 }
 
-int sxi_report_mem(sxc_client_t *sx, int64_t *total_mem) {
+static int parse_mem_entry(sxc_client_t *sx, char *str, int64_t *val) {
+    int64_t v;
+    char *q, *enumb;
+
+    if(!str) {
+        sxi_seterr(sx, SXE_EREAD, "Failed to parse /proc/meminfo: invalid argument");
+        return -1;
+    }
+
+    q = strstr(str, " kB");
+    if(!q) {
+        sxi_seterr(sx, SXE_EREAD, "Failed to parse /proc/meminfo: unknown entry format");
+        return -1;
+    }
+    *q = '\0';
+    q = str;
+    while(*q == ' ')
+        q++;
+    v = strtoll(q, &enumb, 10);
+    if(enumb && *enumb) {
+        sxi_seterr(sx, SXE_EREAD, "Failed to parse /proc/meminfo");
+        return -1;
+    }
+
+    if(val)
+        *val = v * 1024LL;
+    return 0;
+}
+
+static int report_mem_linux(sxc_client_t *sx, int64_t *available, int64_t *swap_total, int64_t *swap_free) {
+    char line[1024];
+    FILE *f;
+    f = fopen("/proc/meminfo", "r");
+    if(!f)
+        return -1;
+    while(fgets(line, sizeof(line), f)) {
+        unsigned n = strlen(line);
+        if(n > 0)
+            line[n - 1] = '\0';
+        if((available && strstr(line, "MemAvailable:") && parse_mem_entry(sx, line + lenof("MemAvailable:"), available)) ||
+           (swap_total && strstr(line, "SwapTotal:") && parse_mem_entry(sx, line + lenof("SwapTotal:"), swap_total)) ||
+           (swap_free && strstr(line, "SwapFree:") && parse_mem_entry(sx, line + lenof("SwapFree:"), swap_free))) {
+            fclose(f);
+            return -1;
+        }
+    }
+    fclose(f);
+    return 0;
+}
+
+int sxi_report_mem(sxc_client_t *sx, int64_t *total_mem, int64_t *mem_avail, int64_t *swap_total, int64_t *swap_free) {
     int64_t total = 0, page_size = 0;
 #if defined(CTL_HW) && defined(HW_MEMSIZE)
     int mib[2] = { CTL_HW, HW_MEMSIZE };
@@ -455,7 +507,273 @@ int sxi_report_mem(sxc_client_t *sx, int64_t *total_mem) {
     }
 #endif
 
+#ifdef __linux__
+    if(report_mem_linux(sx, mem_avail, swap_total, swap_free))
+        return 1;
+#else
+    if(mem_avail)
+        *mem_avail = -1LL;
+    if(swap_total)
+        *swap_total = -1LL;
+    if(swap_free)
+        *swap_free = -1LL;
+#endif
+
     if(total_mem)
         *total_mem = total;
     return 0;
+}
+
+#ifdef __linux__
+static int parse_proc_stat(sxc_client_t *sx, int ncpus, cpu_stat_t *stat, time_t *btime, int *processes, int *processes_running, int *processes_blocked) {
+    char line[1024];
+    FILE *f;
+    int first = 1;
+    int i = 0;
+    long user_hz;
+
+    /* Per cpu times are measured in USER_HZ units */
+    user_hz = sysconf(_SC_CLK_TCK);
+    if(user_hz < 0) {
+        sxi_seterr(sx, SXE_EARG, "Failed to obtain USER_HZ setting");
+        return -1;
+    }
+
+    f = fopen("/proc/stat", "r");
+    if(!f)
+        return -1;
+    while(fgets(line, sizeof(line), f)) {
+        unsigned n = strlen(line);
+
+        if(first) { /* Skip first line, its a summary */
+            first = 0;
+            continue;
+        }
+        if(n > 0)
+            line[n - 1] = '\0';
+
+        if(sscanf(line, "%s %lld %lld %lld %lld %lld %lld %lld %lld %lld %lld", stat[i].name, (long long*)&stat[i].stat_user, (long long*)&stat[i].stat_nice,
+               (long long*)&stat[i].stat_system, (long long*)&stat[i].stat_idle, (long long*)&stat[i].stat_iowait, (long long*)&stat[i].stat_irq,
+              (long long*)&stat[i].stat_softirq, (long long*)&stat[i].stat_steal, (long long*)&stat[i].stat_guest, (long long*)&stat[i].stat_guest_nice) != 11) {
+            sxi_seterr(sx, SXE_EREAD, "Failed to parse /proc/stat");
+            fclose(f);
+            return -1;
+        }
+
+        /* Normalize to seconds */
+        stat[i].stat_user /= user_hz;
+        stat[i].stat_nice /= user_hz;
+        stat[i].stat_system /= user_hz;
+        stat[i].stat_idle /= user_hz;
+        stat[i].stat_iowait /= user_hz;
+        stat[i].stat_irq /= user_hz;
+        stat[i].stat_softirq /= user_hz;
+        stat[i].stat_steal /= user_hz;
+        stat[i].stat_guest /= user_hz;
+        stat[i].stat_guest_nice /= user_hz;
+
+        i++;
+
+        if(i == ncpus)
+            break;
+    }
+
+    while(fgets(line, sizeof(line), f)) {
+        unsigned n = strlen(line);
+        char entry[256];
+        int v;
+        if(n > 0)
+            line[n - 1] = '\0';
+
+        if(sscanf(line, "%s %d", entry, &v) != 2) {
+            sxi_seterr(sx, SXE_EREAD, "Failed to parse /proc/stat");
+            fclose(f);
+            return -1;
+        }
+
+        if(btime && strstr(entry, "btime"))
+            *btime = v;
+        else if(btime && strstr(entry, "processes"))
+            *processes = v;
+        else if(btime && strstr(entry, "procs_running"))
+            *processes_running = v;
+        else if(btime && strstr(entry, "procs_blocked"))
+            *processes_blocked = v;
+    }
+
+    fclose(f);
+    return 0;
+}
+#endif
+
+int sxi_report_system_stat(sxc_client_t *sx, int ncpus, cpu_stat_t **cpu_stat, time_t *btime, int *processes, int *processes_running, int *processes_blocked) {
+#ifdef __linux__
+    cpu_stat_t *s;
+    if(ncpus <= 0) {
+        sxi_seterr(sx, SXE_EARG, "Invalid argument");
+        return -1;
+    }
+
+    s = calloc(ncpus, sizeof(*s));
+    if(!s) {
+        sxi_seterr(sx, SXE_EARG, "Out of memory");
+        return -1;
+    }
+
+    /* Initialize with negative values */
+    s->stat_user = -1;
+    s->stat_nice = -1;
+    s->stat_system = -1;
+    s->stat_idle = -1;
+    s->stat_iowait = -1;
+    s->stat_irq = -1;
+    s->stat_softirq = -1;
+    s->stat_steal = -1;
+    s->stat_guest = -1;
+    s->stat_guest_nice = -1;
+
+    if(parse_proc_stat(sx, ncpus, s, btime, processes, processes_running, processes_blocked)) {
+        free(s);
+        return -1;
+    }
+
+    *cpu_stat = s;
+#endif
+    return 0;
+}
+
+struct cb_traffic_ctx {
+    curlev_context_t *cbdata;
+    const struct jparse_actions acts;
+    jparse_t *J;
+    char *json;
+    size_t json_size;
+};
+
+struct cb_traffic_wrap_ctx {
+    cluster_setupcb setup_callback;
+    cluster_datacb callback;
+    struct cb_traffic_ctx *ctx;
+};
+
+static int traffic_cb(curlev_context_t *cbdata, void *ctx, const void *data, size_t size) {
+    struct cb_traffic_ctx *yactx = (struct cb_traffic_ctx *)ctx;
+    void *oldptr;
+
+    if(sxi_jparse_digest(yactx->J, data, size)) {
+        sxi_cbdata_seterr(cbdata, SXE_EARG, "Communication error: %s", sxi_jparse_geterr(yactx->J));
+        return 1;
+    }
+
+    oldptr = yactx->json;
+    yactx->json = realloc(oldptr, yactx->json_size + size);
+    if(!yactx->json) {
+        free(oldptr);
+        yactx->json_size = 0;
+        sxi_cbdata_seterr(yactx->cbdata, SXE_EMEM, "Out of memory");
+        return 1;
+    }
+
+    memcpy(yactx->json + yactx->json_size, data, size);
+    yactx->json_size += size;
+    return 0;
+}
+
+static int traffic_setup_cb(curlev_context_t *cbdata, void *ctx, const char *host) {
+    struct cb_traffic_ctx *yactx = (struct cb_traffic_ctx *)ctx;
+    const struct jparse_actions *acts = &yactx->acts;
+
+    sxi_jparse_destroy(yactx->J);
+    free(yactx->json);
+    yactx->json = NULL;
+    yactx->json_size = 0;
+
+    yactx->cbdata = cbdata;
+    if(!(yactx->J  = sxi_jparse_create(acts, NULL, 0))) {/* TODO: What's parseerr? */
+        CBDEBUG("OOM allocating parser");
+        sxi_cbdata_seterr(yactx->cbdata, SXE_EMEM, "Out of memory");
+        return 1;
+    }
+
+    return 0;
+}
+
+static int traffic_wrap_setup_callback(curlev_context_t *cbdata, const char *host)
+{
+    struct cb_traffic_wrap_ctx *gctx = sxi_cbdata_get_context(cbdata);
+    if (!gctx || !gctx->setup_callback)
+        return 0;
+    return gctx->setup_callback(cbdata, gctx->ctx, host);
+}
+
+static int traffic_wrap_data_callback(curlev_context_t *cbdata, const unsigned char *data, size_t size)
+{
+    struct cb_traffic_wrap_ctx *gctx = sxi_cbdata_get_context(cbdata);
+    if (!gctx || !gctx->callback)
+        return 0;
+    return gctx->callback(cbdata, gctx->ctx, (const void*)data, size);
+}
+
+/* Get a json object from sxhttpd (inter node communitaction is used) */
+int sxi_network_traffic_status(sxc_client_t *sx, sxi_conns_t *conns, const char *host, char **traffic_json, size_t *traffic_json_size) {
+    sxi_hostlist_t hostlist;
+    struct cb_traffic_ctx yctx;
+    struct cb_traffic_wrap_ctx wctx;
+    int ret = -1;
+    long http = 0;
+    curlev_context_t *cbdata = NULL;
+
+    if(!host || !traffic_json || !traffic_json_size) {
+        sxi_seterr(sx, SXE_EARG, "NULL argument");
+        return -1;
+    }
+
+    sxi_hostlist_init(&hostlist);
+
+    memset(&yctx, 0, sizeof(yctx));
+    if(sxi_hostlist_add_host(sx, &hostlist, host)) {
+        sxi_seterr(sx, SXE_EARG, "Out of memory adding host to hostlist");
+        goto network_traffic_status_err;
+    }
+
+    cbdata = sxi_cbdata_create_generic(conns, NULL, NULL);
+    if(!cbdata) {
+        sxi_seterr(sx, SXE_EARG, "Out of memory allocating cbdata");
+        goto network_traffic_status_err;
+    }
+
+    wctx.callback = traffic_cb;
+    wctx.setup_callback = traffic_setup_cb;
+    wctx.ctx = &yctx;
+    sxi_cbdata_set_context(cbdata, &wctx);
+    sxi_cbdata_allow_non_sx_responses(cbdata, 1);
+    if(sxi_cluster_query_ev(cbdata, conns, host, REQ_GET, "/.traffic", NULL, 0, traffic_wrap_setup_callback, traffic_wrap_data_callback)) {
+        sxi_seterr(sx, SXE_EARG, "Out of memory adding host to hostlist (%s)", sxi_cbdata_geterrmsg(cbdata));
+        goto network_traffic_status_err;
+    }
+
+    if(sxi_cbdata_wait(cbdata, sxi_conns_get_curlev(conns), &http) || http != 200) {
+        sxi_seterr(sx, SXE_EARG, "Failed to wait: %ld, %s", http, sxc_geterrmsg(sx));
+        goto network_traffic_status_err;
+    }
+
+    if(sxi_jparse_done(yctx.J)) {
+        sxi_seterr(sx, SXE_ECOMM, "Invalid JSON document: %s", sxi_jparse_geterr(yctx.J));
+        goto network_traffic_status_err;
+    }
+
+    ret = 0;
+network_traffic_status_err:
+    sxi_hostlist_empty(&hostlist);
+    sxi_cbdata_unref(&cbdata);
+    sxi_jparse_destroy(yctx.J);
+    if(ret) {
+        free(yctx.json);
+        yctx.json = NULL;
+        yctx.json_size = 0;
+    } else {
+        *traffic_json = yctx.json;
+        *traffic_json_size = yctx.json_size;
+    }
+    return ret;
 }

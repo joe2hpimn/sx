@@ -1,0 +1,25 @@
+v0.1.3 [Wed Oct 21 2015 YoungJoo.Kim <vozlt@vozlt.com>]
+    * Bugfix: stats for cached responses with error_page
+      directive do not create a cache file by pull/23
+      Thanks to Wandenberg Peixoto.
+    
+    * Feature: added vhost_traffic_status_filter_by_host,
+      vhost_traffic_status_filter_by_set_key directive
+      to set the dynamically keys for issues/24.
+      Thanks to Pauli Jokela for suggestion this work.
+
+v0.1.2 [Wed Sep 23 2015 YoungJoo.Kim <vozlt@vozlt.com>]
+    * Bugfix: added cache variable's lock routine in
+      ngx_http_vhost_traffic_status_shm_add_cache() for issues/19
+
+    * Compatibility: added overflow handling routines of variables.
+      It deals with the overflow of both 32bit and 64bit variables
+      but I think that not be useful in 64bit variable(Max:16EB) at this moment.
+
+v0.1.1 [Thu May 28 2015 YoungJoo.Kim <vozlt@vozlt.com>]
+    * Feature: cache status support when using the proxy_cache directive.
+
+v0.1.0 [Thu May 28 2015 YoungJoo.Kim <vozlt@vozlt.com>]
+    * The first version.
+
+# vi:set ft=changelog ts=4 sw=4 et fdm=marker:

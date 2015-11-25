@@ -114,6 +114,23 @@ sxc_xfer_stat_t *sxi_conns_get_xfer_stat(const sxi_conns_t *conns);
 /* Set progress statistics information */
 int sxi_conns_set_xfer_stat(sxi_conns_t *conns, sxc_xfer_stat_t *xfer_stat);
 
+
+typedef struct _cpu_stat {
+    char name[256];
+
+    /* Usage information (grabbed from /proc/stat) */
+    int64_t stat_user;
+    int64_t stat_nice;
+    int64_t stat_system;
+    int64_t stat_idle;
+    int64_t stat_iowait;
+    int64_t stat_irq;
+    int64_t stat_softirq;
+    int64_t stat_steal;
+    int64_t stat_guest;
+    int64_t stat_guest_nice;
+} cpu_stat_t;
+
 typedef struct _node_status_t {
     char internal_addr[INET6_ADDRSTRLEN]; /* Internal node address */
     char addr[INET6_ADDRSTRLEN]; /* Node address */
@@ -126,7 +143,12 @@ typedef struct _node_status_t {
     int64_t avail_blocks; /* Number of blocks that can be used by unprivileged user */
     int64_t storage_allocated; /* Number of bytes allocated for hashfs storage files */
     int64_t storage_commited; /* Number of bytes currently taken by hashfs storage files */
-    int64_t mem_total; /* Total memory capacity */
+
+    /* Memory statistics */
+    int64_t mem_total;
+    int64_t mem_avail;
+    int64_t swap_total;
+    int64_t swap_free;
 
     char utctime[256];
     char localtime[256];
@@ -140,9 +162,19 @@ typedef struct _node_status_t {
     char os_version[256]; /* System version */
     char os_arch[40]; /* Machine architecture */
 
+    cpu_stat_t *cpu_stat;
+    time_t btime;
+    int processes;
+    int processes_running;
+    int processes_blocked;
+
     char libsxclient_version[40]; /* Libsx version */
     char hashfs_version[16]; /* HashFS version */
     char heal_status[40];
+
+    /* Internally passed network traffic statistics json */
+    char *network_traffic_json;
+    size_t network_traffic_json_size;
 } sxi_node_status_t;
 
 int sxi_conns_set_timeouts(sxi_conns_t *conns, unsigned int hard_timeout, unsigned int soft_timeout);

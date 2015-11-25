@@ -3952,6 +3952,18 @@ static void cb_nodest_mem(jparse_t *J, void *ctx, int64_t num) {
     struct node_status_ctx *yactx = (struct node_status_ctx *)ctx;
     yactx->status.mem_total = num;
 }
+static void cb_nodest_mem_avail(jparse_t *J, void *ctx, int64_t num) {
+    struct node_status_ctx *yactx = (struct node_status_ctx *)ctx;
+    yactx->status.mem_avail = num;
+}
+static void cb_nodest_swap(jparse_t *J, void *ctx, int64_t num) {
+    struct node_status_ctx *yactx = (struct node_status_ctx *)ctx;
+    yactx->status.swap_total = num;
+}
+static void cb_nodest_swap_free(jparse_t *J, void *ctx, int64_t num) {
+    struct node_status_ctx *yactx = (struct node_status_ctx *)ctx;
+    yactx->status.swap_free = num;
+}
 
 static int node_status_cb(curlev_context_t *cbdata, void *ctx, const void *data, size_t size) {
     struct node_status_ctx *yactx = (struct node_status_ctx *)ctx;
@@ -4001,7 +4013,10 @@ int sxi_cluster_status(sxc_cluster_t *cluster, const node_status_cb_t status_cb,
 		     JPACT(cb_nodest_fsbs, JPKEY("fsBlockSize")),
 		     JPACT(cb_nodest_fsblocks, JPKEY("fsTotalBlocks")),
 		     JPACT(cb_nodest_fsavblocks, JPKEY("fsAvailBlocks")),
-		     JPACT(cb_nodest_mem, JPKEY("memTotal"))
+		     JPACT(cb_nodest_mem, JPKEY("memTotal")),
+                     JPACT(cb_nodest_mem_avail, JPKEY("memAvailable")),
+                     JPACT(cb_nodest_swap, JPKEY("swapTotal")),
+                     JPACT(cb_nodest_swap_free, JPKEY("swapFree"))
 		     ),
 	JPACTS_INT32(
 		     JPACT(cb_nodest_cores, JPKEY("cores"))

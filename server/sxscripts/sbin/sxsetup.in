@@ -1168,15 +1168,21 @@ if [ -n "$SX_NODE_INTERNAL_IP" -a "$SX_NODE_IP" != "$SX_NODE_INTERNAL_IP" ]; the
 	# bind to both public and internal IPs
 	sed -e "s/listen 80/listen $SX_NODE_LISTEN_IP:$SX_PORT default_server;\n\
 	     listen $SX_NODE_LISTEN_INTERNAL_IP:$SX_PORT/"\
+	    -e "s/allow 127.0.0.1;/allow $SX_NODE_LISTEN_INTERNAL_IP;\n\
+		 allow 127.0.0.1;/"\
 	"$ETCDIR/sxserver/sxhttpd.conf" >$OUT_TMP
     else
 	# only listen on the internal IP (assume public IP is translated via 1:1 NAT)
 	sed -e "s/listen.*80/listen $SX_NODE_LISTEN_INTERNAL_IP:$SX_PORT/"\
+	    -e "s/allow 127.0.0.1;/allow $SX_NODE_LISTEN_INTERNAL_IP;\n\
+		 allow 127.0.0.1;/"\
 	"$ETCDIR/sxserver/sxhttpd.conf" >$OUT_TMP
     fi
 else
     # listen on the public IP
     sed -e "s/listen.*80/listen $SX_NODE_LISTEN_IP:$SX_PORT/"\
+	-e "s/allow 127.0.0.1;/allow $SX_NODE_LISTEN_IP;\n\
+		 allow 127.0.0.1;/"\
     "$ETCDIR/sxserver/sxhttpd.conf" >$OUT_TMP
 fi
 cp $OUT_TMP "$ETCDIR/sxserver/sxhttpd.conf"

@@ -1955,7 +1955,24 @@ static void print_status(sxc_client_t *sx, int http_code, const sxi_node_status_
     } else
         printf("        Total: N/A\n");
 
-    /*printf("    Heal: %s\n", status->heal_status);*/
+    if(status->mem_avail != -1) {
+        fmt_capa(status->mem_avail, str, sizeof(str), human_readable);
+        printf("        Available: %s\n", str);
+    } else
+        printf("        Available: N/A\n");
+
+    if(status->swap_total != -1) {
+        fmt_capa(status->swap_total, str, sizeof(str), human_readable);
+        printf("        Swap total: %s\n", str);
+    } else
+        printf("        Swap total: N/A\n");
+
+    if(status->swap_free != -1) {
+        fmt_capa(status->swap_free, str, sizeof(str), human_readable);
+        printf("        Swap free: %s\n", str);
+    } else
+        printf("        Swap free: N/A\n");
+
     printf("\n");
 }
 

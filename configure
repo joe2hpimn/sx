@@ -597,6 +597,8 @@ BUILD_SQLITE3_FALSE
 BUILD_SQLITE3_TRUE
 BUILD_YAJL_FALSE
 BUILD_YAJL_TRUE
+BUILD_NGINX_MODULE_VTS_FALSE
+BUILD_NGINX_MODULE_VTS_TRUE
 BUILD_SXHTTPD_FALSE
 BUILD_SXHTTPD_TRUE
 BUILD_LIBFCGI_FALSE
@@ -696,6 +698,7 @@ enable_maintainer_mode
 with_system_libs
 enable_dependency_tracking
 enable_sxhttpd
+enable_nginx_module_vts
 enable_server
 with_system_sqlite3
 '
@@ -1348,6 +1351,7 @@ Optional Features:
   --disable-dependency-tracking
                           speeds up one-time build
   --disable-sxhttpd	  do not build sxhttpd
+  --disable-nginx-module-vts	  do not build nginx-module-vts
   --disable-server	  do not build server
 
 Optional Packages:
@@ -3620,6 +3624,15 @@ else
 fi
 
 
+# nginx-module-vts
+# Check whether --enable-nginx-module-vts was given.
+if test "${enable_nginx_module_vts+set}" = set; then :
+  enableval=$enable_nginx_module_vts; build_nginx_module_vts=$enableval
+else
+  build_nginx_module_vts="yes"
+fi
+
+
 # server (sx.fcgi)
 # Check whether --enable-server was given.
 if test "${enable_server+set}" = set; then :
@@ -3662,6 +3675,18 @@ fi
 else
   BUILD_SXHTTPD_TRUE='#'
   BUILD_SXHTTPD_FALSE=
+fi
+
+
+if test "$build_nginx_module_vts" = "no"; then
+    ac_configure_args="$ac_configure_args --add-module=3rdparty/nginx-module-vts"
+fi
+ if test "$build_nginx_module_vts" = "yes"; then
+  BUILD_NGINX_MODULE_VTS_TRUE=
+  BUILD_NGINX_MODULE_VTS_FALSE='#'
+else
+  BUILD_NGINX_MODULE_VTS_TRUE='#'
+  BUILD_NGINX_MODULE_VTS_FALSE=
 fi
 
 
@@ -3951,6 +3976,10 @@ Usually this means the macro was only invoked conditionally." "$LINENO" 5
 fi
 if test -z "${BUILD_SXHTTPD_TRUE}" && test -z "${BUILD_SXHTTPD_FALSE}"; then
   as_fn_error $? "conditional \"BUILD_SXHTTPD\" was never defined.
+Usually this means the macro was only invoked conditionally." "$LINENO" 5
+fi
+if test -z "${BUILD_NGINX_MODULE_VTS_TRUE}" && test -z "${BUILD_NGINX_MODULE_VTS_FALSE}"; then
+  as_fn_error $? "conditional \"BUILD_NGINX_MODULE_VTS\" was never defined.
 Usually this means the macro was only invoked conditionally." "$LINENO" 5
 fi
 if test -z "${BUILD_YAJL_TRUE}" && test -z "${BUILD_YAJL_FALSE}"; then

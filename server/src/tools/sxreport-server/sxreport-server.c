@@ -446,7 +446,7 @@ int main(int argc, char **argv) {
 	int ret = 1;
 	sxc_client_t *sx = sx_init(NULL, NULL, NULL, 0, argc, argv);
 	if(sx) {
-	    ret = sxi_report_mem(sx, &mem) ? 1 : 0;
+	    ret = sxi_report_mem(sx, &mem, NULL, NULL, NULL) ? 1 : 0;
 	    sx_done(&sx);
 	} 
 	printf("%llu\n", (unsigned long long) mem);

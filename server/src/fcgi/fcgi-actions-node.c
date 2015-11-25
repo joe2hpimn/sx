@@ -1487,8 +1487,11 @@ void fcgi_node_status(void) {
     rc_ty s;
 
     s = sx_hashfs_node_status(hashfs, &status);
-    if(s != OK)
+    if(s != OK) {
+        free(status.cpu_stat);
+        free(status.network_traffic_json);
         quit_errmsg(rc2http(s), msg_get_reason());
+    }
     CGI_PUTS("Content-type: application/json\r\n\r\n{");
     CGI_PRINTF("\"osType\":\"%s\",\"osArch\":\"%s\",\"osRelease\":\"%s\",\"osVersion\":\"%s\",\"cores\":%d",
         status.os_name, status.os_arch, status.os_release, status.os_version, status.cores);
@@ -1509,8 +1512,53 @@ void fcgi_node_status(void) {
     CGI_PUTLL(status.avail_blocks);
     CGI_PUTS(",\"memTotal\":");
     CGI_PUTLL(status.mem_total);
-    CGI_PRINTF(",\"heal\":\"%s\"", status.heal_status);
+    CGI_PUTS(",\"memAvailable\":");
+    CGI_PUTLL(status.mem_avail);
+    CGI_PUTS(",\"swapTotal\":");
+    CGI_PUTLL(status.swap_total);
+    CGI_PUTS(",\"swapFree\":");
+    CGI_PUTLL(status.swap_free);
+    CGI_PRINTF(",\"statistics\":{\"processes\":%d,\"processesRunning\":%d,\"processesBlocked\":%d,\"btime\":",
+        status.processes, status.processes_running, status.processes_blocked);
+    CGI_PUTLL(status.btime);
+    if(status.cores > 0 && status.cpu_stat) {
+        int i = 0, comma = 0;
+        CGI_PUTS(",\"processors\":{");
+        for(i = 0; i < status.cores; i++) {
+            if(comma)
+                CGI_PUTC(',');
+            comma = 1;
+            CGI_PRINTF("\"%s\":{\"user\":", status.cpu_stat[i].name);
+            CGI_PUTLL(status.cpu_stat[i].stat_user);
+            CGI_PUTS(",\"nice\":");
+            CGI_PUTLL(status.cpu_stat[i].stat_nice);
+            CGI_PUTS(",\"system\":");
+            CGI_PUTLL(status.cpu_stat[i].stat_system);
+            CGI_PUTS(",\"idle\":");
+            CGI_PUTLL(status.cpu_stat[i].stat_idle);
+            CGI_PUTS(",\"iowait\":");
+            CGI_PUTLL(status.cpu_stat[i].stat_iowait);
+            CGI_PUTS(",\"irq\":");
+            CGI_PUTLL(status.cpu_stat[i].stat_irq);
+            CGI_PUTS(",\"softirq\":");
+            CGI_PUTLL(status.cpu_stat[i].stat_softirq);
+            CGI_PUTS(",\"steal\":");
+            CGI_PUTLL(status.cpu_stat[i].stat_steal);
+            CGI_PUTS(",\"guest\":");
+            CGI_PUTLL(status.cpu_stat[i].stat_guest);
+            CGI_PUTS(",\"guest_nice\":");
+            CGI_PUTLL(status.cpu_stat[i].stat_guest_nice);
+            CGI_PUTC('}');
+        }
+        CGI_PUTC('}');
+    }
+    if(status.network_traffic_json && status.network_traffic_json_size)
+        CGI_PRINTF(",\"traffic\":%.*s", (unsigned)status.network_traffic_json_size, status.network_traffic_json);
+    CGI_PRINTF("},\"heal\":\"%s\"", status.heal_status);
     CGI_PUTC('}');
+
+    free(status.cpu_stat);
+    free(status.network_traffic_json);
 }
 
 /*

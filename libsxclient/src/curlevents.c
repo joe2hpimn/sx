@@ -78,6 +78,8 @@ struct curlev_context {
 
     /* reset after each retry */
     struct recv_context recv_ctx;
+    /* Set to 1 if response should be honoured from non-sx nodes */
+    int allow_non_sx_resp;
 
     /* keep all of the below across retries */
     body_cb_t data_cb;
@@ -258,6 +260,11 @@ void sxi_cbdata_set_context(struct curlev_context *ctx, void *context)
 void* sxi_cbdata_get_context(struct curlev_context *ctx)
 {
     return ctx ? ctx->context : NULL;
+}
+
+void sxi_cbdata_allow_non_sx_responses(struct curlev_context *ctx, int allow) {
+    if(ctx)
+        ctx->allow_non_sx_resp = allow;
 }
 
 int sxi_set_retry_cb(curlev_context_t *ctx, const sxi_hostlist_t *hlist, retry_cb_t cb,
@@ -767,13 +774,15 @@ static size_t writefn(void *ptr, size_t size, size_t nmemb, void *ctxptr) {
 	if(wd->reply_status == 502 || wd->reply_status == 504) {
 	    /* Reply is very likely to come from a busy cluster */
 	    sxi_cbdata_seterr(ctx, SXE_ECOMM, "Bad cluster reply(%ld): The cluster may be under maintenance or overloaded, please try again later", wd->reply_status);
+            wd->fail = 1;
 	} else if(wd->reply_status == 414) {
 	    sxi_cbdata_seterr(ctx, SXE_ECOMM, "URI too long: Path to the requested resource is too long");
-	} else {
+	    wd->fail = 1;
+        } else if(!ctx->allow_non_sx_resp) {
             /* Reply is certainly not from sx */
             sxi_cbdata_seterr(ctx, SXE_ECOMM, "The server contacted is not an SX Cluster node (http status: %ld)", wd->reply_status);
-	}
-	wd->fail = 1;
+            wd->fail = 1;
+        }
     }
 
     if (!wd->fail && wd->reply_status >= 400)

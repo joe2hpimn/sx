@@ -27,6 +27,11 @@ AC_ARG_ENABLE([sxhttpd],
 [  --disable-sxhttpd	  do not build sxhttpd ],
 build_sxhttpd=$enableval, build_sxhttpd="yes")
 
+# nginx-module-vts
+AC_ARG_ENABLE([nginx-module-vts],
+[  --disable-nginx-module-vts	  do not build nginx-module-vts ],
+build_nginx_module_vts=$enableval, build_nginx_module_vts="yes")
+
 # server (sx.fcgi)
 AC_ARG_ENABLE([server],
 [  --disable-server	  do not build server ],
@@ -49,6 +54,11 @@ if test "$build_sxhttpd" = "yes"; then
     AC_CONFIG_SUBDIRS([3rdparty/sxhttpd])
 fi
 AM_CONDITIONAL([BUILD_SXHTTPD], [test "$build_sxhttpd" = "yes"])
+
+if test "$build_nginx_module_vts" = "no"; then
+    ac_configure_args="$ac_configure_args --add-module=3rdparty/nginx-module-vts"
+fi
+AM_CONDITIONAL([BUILD_NGINX_MODULE_VTS], [test "$build_nginx_module_vts" = "yes"])
 
 # Yajl
 AC_CHECK_LIB([yajl], [yajl_complete_parse], [YAJL_LIBS=-lyajl; has_sys_yajl="yes"],

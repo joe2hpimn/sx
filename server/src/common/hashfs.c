@@ -16715,7 +16715,14 @@ rc_ty sx_hashfs_node_status(sx_hashfs_t *h, sxi_node_status_t *status) {
     status->total_blocks = -1;
     status->avail_blocks = -1;
     status->mem_total = -1;
+    status->mem_avail = -1;
+    status->swap_total = -1;
+    status->swap_free = -1;
     status->cores = -1;
+    status->processes = -1;
+    status->processes_running = -1;
+    status->processes_blocked = -1;
+    status->btime = -1;
 
     /* System information */
     if(sxi_report_os(h->sx, status->os_name, sizeof(status->os_name), status->os_arch, sizeof(status->os_arch),
@@ -16738,8 +16745,15 @@ rc_ty sx_hashfs_node_status(sx_hashfs_t *h, sxi_node_status_t *status) {
         WARN("Failed to get hashFS node directory filesystem information: %s", sxc_geterrmsg(h->sx));
 
     /* Get available memory */
-    if(sxi_report_mem(h->sx, &status->mem_total))
+    if(sxi_report_mem(h->sx, &status->mem_total, &status->mem_avail, &status->swap_total, &status->swap_free))
         WARN("Failed to get memory information: %s", sxc_geterrmsg(h->sx));
+
+    /* Get information about current system */
+    if(status->cores > 0 && sxi_report_system_stat(h->sx, status->cores, &status->cpu_stat, &status->btime, &status->processes, &status->processes_running, &status->processes_blocked))
+        WARN("Failed to get system statistics information: %s", sxc_geterrmsg(h->sx));
+
+    if(sxi_network_traffic_status(h->sx, h->sx_clust, sx_node_internal_addr(sx_hashfs_self(h)), &status->network_traffic_json, &status->network_traffic_json_size))
+        WARN("Failed to get network traffic information: %s", sxc_geterrmsg(h->sx));
 
     tm = gmtime(&t);
     if (tm && strftime(status->utctime, sizeof(status->utctime), "%Y-%m-%d %H:%M:%S UTC", tm) <= 0) {

@@ -26,6 +26,7 @@ http {
        proxy_temp_path @localstatedir@/lib/sxserver/sxhttpd;
        uwsgi_temp_path @localstatedir@/lib/sxserver/sxhttpd;
        scgi_temp_path @localstatedir@/lib/sxserver/sxhttpd;
+       vhost_traffic_status_zone;
        server {
 #            ssl on;
 #            ssl_certificate @sysconfdir@/ssl/certs/sxcert.pem;
@@ -58,6 +59,12 @@ http {
                  fastcgi_read_timeout 300s;
                  fastcgi_max_temp_file_size 0;
                  include fastcgi_params;
+             }
+             location /.s2s/.traffic {
+                 vhost_traffic_status_display;
+                 vhost_traffic_status_display_format json;
+                 allow 127.0.0.1;
+                 deny all;
              }
        }
 }

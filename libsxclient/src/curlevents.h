@@ -113,6 +113,7 @@ struct generic_ctx *sxi_cbdata_get_generic_ctx(curlev_context_t *ctx);
 
 void sxi_cbdata_set_context(curlev_context_t *ctx, void *context);
 void* sxi_cbdata_get_context(curlev_context_t *ctx);
+void sxi_cbdata_allow_non_sx_responses(struct curlev_context *ctx, int allow);
 
 typedef int (*retry_cb_t)(curlev_context_t *ctx, sxi_conns_t *conns, const char *host,
                           enum sxi_cluster_verb verb, const char *query,

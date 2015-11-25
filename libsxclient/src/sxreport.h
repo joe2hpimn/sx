@@ -49,5 +49,9 @@ int sxi_list(sxc_client_t *sx, const char *dir, const char *entry, int depth);
 int sxi_report_os(sxc_client_t *sx, char *name, size_t name_len, char *arch, size_t arch_len, char *release, size_t rel_len, char *version, size_t ver_len);
 int sxi_report_fs(sxc_client_t *sx, const char *path, int64_t *block_size, int64_t *total_blocks, int64_t *available_blocks);
 int sxi_report_cpu(sxc_client_t *sx, int *ncpus, char *endianness, size_t endianness_len);
-int sxi_report_mem(sxc_client_t *sx, int64_t *total_mem);
+#include "cluster.h"
+/* NOTE: Linux specific, should return 0 immediately on other architectures and should not modify output */
+int sxi_report_system_stat(sxc_client_t *sx, int ncpus, cpu_stat_t **cpu_stat, time_t *btime, int *processes, int *processes_running, int *processes_blocked);
+int sxi_network_traffic_status(sxc_client_t *sx, sxi_conns_t *conns, const char *host, char **traffic_json, size_t *traffic_json_size);
+int sxi_report_mem(sxc_client_t *sx, int64_t *total_mem, int64_t *available_mem, int64_t *swap_total, int64_t *swap_free);
 #endif

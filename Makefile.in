@@ -325,7 +325,10 @@ top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
 SUBDIRS = $(am__append_1) $(am__append_2) $(am__append_3) \
 	$(am__append_4) libsxclient client $(am__append_5)
-EXTRA_DIST = 3rdparty/yajl 3rdparty/curl 3rdparty/nginx 3rdparty/fcgi 3rdparty/sxhttpd 3rdparty/yajl_build
+#if BUILD_NGINX_MODULE_VTS
+#SUBDIRS += 3rdparty/nginx-module-vts
+#endif
+EXTRA_DIST = 3rdparty/yajl 3rdparty/curl 3rdparty/nginx 3rdparty/fcgi 3rdparty/sxhttpd 3rdparty/yajl_build 3rdparty/nginx-module-vts
 DIST_SUBDIRS = $(SUBDIRS)
 doc_DATA = README NEWS QUICKSTART UPGRADE
 pdf_DATA = doc/manual/manual.pdf
