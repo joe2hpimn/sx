@@ -6331,8 +6331,9 @@ static int sxi_file_list_foreach(sxc_file_list_t *target, sxc_cluster_t *wait_cl
                 }
                 sxc_file_free(remote_file);
             }
-            if (!entry->nfiles) {
+            if (!entry->nfiles && entry->glob) {
                 if (*pattern->path) {
+                    sxc_clearerr(target->sx);
                     sxi_seterr(target->sx, SXE_EARG, "%s/%s: Not found", pattern->volume, pattern->path);
                     rc = -1;
                 }
