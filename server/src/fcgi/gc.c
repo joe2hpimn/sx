@@ -375,45 +375,16 @@ rc_ty hostlist_add_fallbacks(sxc_client_t *sx, sxi_hostlist_t *hl, const sx_node
     return OK;
 }
 
-static int heal_ask_data_cb(curlev_context_t *cbdata, const unsigned char *data, size_t size)
-{
-    void *ctx = sxi_cbdata_get_context(cbdata);
-    if (rplfiles_cb(cbdata, ctx, data, size)) {
-        WARN("rplfiles_cb failed");
-        return -1;
-    }
-    return 0;
-}
-
-static void heal_ask_finish_cb(curlev_context_t *cbdata, const char *url) {
-    if (!cbdata)
-        return;
-    void *ctx = sxi_cbdata_get_context(cbdata);
-    free(ctx);
-    heal_pending_queries--;
-    DEBUG("finished");
-    enum sxc_error_t err;
-    if (sxi_cbdata_result(cbdata, NULL, &err, NULL) || err) {
-        INFO("File heal query failed: %s", sxi_cbdata_geterrmsg(cbdata));
-        heal_queries_failed++;
-    } else {
-        heal_queries_ok++;
-    }
-}
-
 static rc_ty heal_ask(sx_hashfs_t *h, const sxi_hostlist_t *targets, const sx_uuid_t *node, unsigned mdb, int64_t start, int64_t stop)
 {
     rc_ty ret = FAIL_EINTERNAL;
-    heal_pending_queries++;
-    curlev_context_t *cbdata = sxi_cbdata_create_generic(sx_hashfs_conns(h), heal_ask_finish_cb, NULL);
-    if (!cbdata)
-        return ENOMEM;
     char *query = NULL;
     const sx_uuid_t *self = sx_node_uuid(sx_hashfs_self(h));
     if (!self) {
         WARN("Cannot retrieve own uuid");
         return FAIL_EINTERNAL;
     }
+    heal_pending_queries++;
     do {
         unsigned n = lenof(".rejoin/?mdb=&node=&start=&?stop=&dest=") + 2 + 2*UUID_STRING_SIZE + 2*COUNTER_LEN;
         query = wrap_malloc(n);
@@ -433,18 +404,20 @@ static rc_ty heal_ask(sx_hashfs_t *h, const sxi_hostlist_t *targets, const sx_uu
 	ctx->needend = 0;
 	ctx->state = RPL_HDRSIZE;
         ctx->mode = MODE_HEAL;
-        sxi_cbdata_set_context(cbdata, ctx);
 
         set_heal_progress(h, "file");
-
-        if (sxi_cluster_query_ev_retry(cbdata, sx_hashfs_conns(h), targets, REQ_GET, query, NULL, 0, NULL, heal_ask_data_cb, NULL)) {
-            cbdata = NULL;
+        sxc_clearerr(sx_hashfs_client(h));
+        if (sxi_cluster_query(sx_hashfs_conns(h), targets, REQ_GET, query, NULL, 0, NULL, rplfiles_cb, ctx) != 200) {
+            INFO("File heal query failed: %s", sxc_geterrmsg(sx_hashfs_client(h)));
+            heal_queries_failed++;
             break;
+        } else {
+            heal_queries_ok++;
         }
+        free(ctx);
         ret = OK;
     } while(0);
-    /* will be freed when request completes */
-    sxi_cbdata_unref(&cbdata);
+    heal_pending_queries--;
     free(query);
     return ret;
 }
