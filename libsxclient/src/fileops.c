@@ -2582,7 +2582,9 @@ static int local_to_remote_iterate(sxc_file_t *source, int recursive, int depth,
                  ends_with(dest->path, '/') ? "" : "/",
                  entry->d_name);
         if (S_ISDIR(sb.st_mode)) {
-            if ((qret = local_to_remote_iterate(src, 1, depth+1, onefs, ignore_errors, dst, exclude))) {
+            qret = local_to_remote_iterate(src, 1, depth+1, onefs, ignore_errors, dst, exclude);
+            dest->jobs = dst->jobs;
+            if (qret) {
                 SXDEBUG("failure in directory: %s", destpath);
                 if (qret == 403 || qret == 404 || qret == 413) {
                     ret = qret;
@@ -2592,7 +2594,6 @@ static int local_to_remote_iterate(sxc_file_t *source, int recursive, int depth,
                 if (!ignore_errors)
                     break;
             }
-            dest->jobs = dst->jobs;
         }
         else if (S_ISREG(sb.st_mode)) {
             if((r = is_excluded(sx, src->path, exclude)) > 0) {
@@ -2634,6 +2635,7 @@ static int local_to_remote_iterate(sxc_file_t *source, int recursive, int depth,
                 ret = -1;
                 break;
             }
+            dst->job = NULL;
         } else if (S_ISLNK(sb.st_mode)) {
             sxi_notice(sx, "Skipped symlink %s", src->path);
         }
@@ -2641,6 +2643,8 @@ static int local_to_remote_iterate(sxc_file_t *source, int recursive, int depth,
         sxc_file_free(dst);
         src = dst = NULL;
     }
+    if (dst && dst->job)
+        sxi_job_free(dst->job);
     sxc_file_free(src);
     sxc_file_free(dst);
     src = dst = NULL;
