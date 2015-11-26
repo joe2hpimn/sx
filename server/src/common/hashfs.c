@@ -74,6 +74,7 @@
 /* Current versioning */
 #define MAKE_HASHFS_VER(major, minor) "SXST "STRIFY(major)"."STRIFY(minor)
 #define HASHFS_VERSION_1_9 MAKE_HASHFS_VER(1,9)
+#define HASHFS_VERSION_2_0 MAKE_HASHFS_VER(2,0)
 
 #define HASHFS_VERSION_INITIAL HASHFS_VERSION_1_0
 #define HASHFS_VERSION_CURRENT MAKE_HASHFS_VER(SRC_MAJOR_VERSION, SRC_MINOR_VERSION)
@@ -4169,8 +4170,8 @@ static rc_ty upgrade_db(int lockfd, const char *path, sxi_db_t *db, const sx_has
     return ret;
 }
 
-/* Version upgrade 1.2 -> 1.9 */
-static rc_ty hashfs_1_2_to_1_9(sxi_db_t *db)
+/* Version upgrade 1.9 -> 2.0 */
+static rc_ty hashfs_1_9_to_2_0(sxi_db_t *db)
 {
     rc_ty ret = FAIL_EINTERNAL;
     sqlite3_stmt *q = NULL;
@@ -4260,7 +4261,7 @@ static rc_ty hashfs_1_2_to_1_9(sxi_db_t *db)
     return ret;
 }
 
-static rc_ty eventsdb_1_2_to_1_9(sxi_db_t *db)
+static rc_ty eventsdb_1_9_to_2_0(sxi_db_t *db)
 {
     char qrybuff[128];
     rc_ty ret = FAIL_EINTERNAL;
@@ -4279,6 +4280,7 @@ static rc_ty eventsdb_1_2_to_1_9(sxi_db_t *db)
     return ret;
 }
 
+/* Version upgrade 1.2 -> 1.9 */
 static rc_ty metadb_1_2_to_1_9(sxi_db_t *db)
 {
     rc_ty ret = FAIL_EINTERNAL;
@@ -4669,11 +4671,16 @@ static const sx_upgrade_t upgrade_sequence[] = {
     {
         .from = HASHFS_VERSION_1_2,
         .to = HASHFS_VERSION_1_9,
-        .upgrade_hashfsdb = hashfs_1_2_to_1_9,
         .upgrade_metadb = metadb_1_2_to_1_9,
 	.upgrade_hbeatdb = hbeatdb_1_2_to_1_9,
-        .upgrade_eventsdb = eventsdb_1_2_to_1_9,
 	NEWDBS({"hbeatdb", "hbeat.db"} /* , {"otherstuff", "other.db"}, ... */),
+        .job = JOBTYPE_DUMMY
+    },
+    {
+        .from = HASHFS_VERSION_1_9,
+        .to = HASHFS_VERSION_2_0,
+        .upgrade_hashfsdb = hashfs_1_9_to_2_0,
+        .upgrade_eventsdb = eventsdb_1_9_to_2_0,
         .job = JOBTYPE_DUMMY
     }
 };
