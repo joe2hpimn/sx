@@ -2300,7 +2300,6 @@ static int listfiles_next_file(sxc_cluster_t *cluster, const char *volume, sxc_c
     int ret = -1;
     sxc_file_t *f = NULL;
     char *remote_path = NULL;
-    unsigned int remote_path_len = 0;
     char *rev = NULL;
     sxc_meta_t *meta = NULL;
 
@@ -2338,7 +2337,6 @@ static int listfiles_next_file(sxc_cluster_t *cluster, const char *volume, sxc_c
         goto lfnext_out;
     }
     remote_path[cb_file.namelen] = '\0';
-    remote_path_len = cb_file.namelen;
     cb_file.namelen = 0;
 
     if(cb_file.revlen) {

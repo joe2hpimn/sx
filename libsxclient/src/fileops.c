@@ -1099,7 +1099,6 @@ static void cb_createfile_array_end(jparse_t *J, void *ctx) {
 
 static int createfile_setup_cb(curlev_context_t *cbdata, const char *host) {
     struct file_upload_ctx *yactx = sxi_cbdata_get_upload_ctx(cbdata);
-    sxc_client_t *sx = sxi_conns_get_client(sxi_cbdata_get_conns(cbdata));
     if(!yactx)
 	return 1;
 

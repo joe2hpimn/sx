@@ -1101,7 +1101,7 @@ static rc_ty cluster_settings_execute_blob(sx_hashfs_t *h, sx_blob_t *b, jobphas
 {
     rc_ty ret = FAIL_EINTERNAL;
     time_t ts = 0, oldts = 0;
-    int i, count, use_new;
+    int i, count;
     rc_ty s;
 
     if(sx_blob_get_int64(b, &oldts) || sx_blob_get_int64(b, &ts)) {
@@ -1111,11 +1111,6 @@ static rc_ty cluster_settings_execute_blob(sx_hashfs_t *h, sx_blob_t *b, jobphas
 
     if(remote && phase == JOBPHASE_REQUEST)
         phase = JOBPHASE_COMMIT;
-
-    if(phase == JOBPHASE_COMMIT)
-        use_new = 1;
-    else
-        use_new = 0;
 
     if(sx_hashfs_modify_cluster_settings_begin(h)) {
         msg_set_reason("Failed to modify cluster settings");
