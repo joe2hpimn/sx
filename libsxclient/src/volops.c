@@ -1558,9 +1558,9 @@ struct _sxc_cluster_la_t {
 
 sxc_cluster_la_t *sxc_cluster_listaclusers(sxc_cluster_t *cluster, const char *volume) {
     const struct jparse_actions acts = {
-	JPACTS_ARRAY_BEGIN(JPACT(cb_listaclusers_init, JPANYKEY, JPANYITM)),
+	JPACTS_ARRAY_BEGIN(JPACT(cb_listaclusers_init, JPANYKEY)),
 	JPACTS_STRING(JPACT(cb_listaclusers_priv, JPANYKEY, JPANYITM)),
-	JPACTS_ARRAY_END(JPACT(cb_listaclusers_complete, JPANYKEY, JPANYITM))
+	JPACTS_ARRAY_END(JPACT(cb_listaclusers_complete, JPANYKEY))
     };
     char *enc_vol, *url, *fname;
     struct cb_listaclusers_ctx yctx;
