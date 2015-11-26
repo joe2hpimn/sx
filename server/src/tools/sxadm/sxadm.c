@@ -1424,7 +1424,13 @@ static int sortnodes(const void *a, const void *b) {
     return memcmp(uuida->binary, uuidb->binary, sizeof(uuida->binary));
 }
 
-static int info_cluster(sxc_client_t *sx, struct cluster_args_info *args, int keyonly) {
+enum infotype {
+    INFO_ALL,
+    INFO_KEY,
+    INFO_REPLICA
+};
+
+static int info_cluster(sxc_client_t *sx, struct cluster_args_info *args, enum infotype itype) {
     sxc_cluster_t *clust = cluster_load(sx, args, 1);
     clst_t *clst = NULL, *clstleader = NULL;
     const sx_nodelist_t *nodes = NULL, *nodes_prev = NULL, *faulty_nodes = NULL;
@@ -1449,12 +1455,18 @@ static int info_cluster(sxc_client_t *sx, struct cluster_args_info *args, int ke
 	goto info_out;
     }
 
-    if(keyonly) {
+    if(itype == INFO_KEY) {
 	const char *auth = clst_auth(clst);
 	if(!auth)
 	    CRIT("Failed to obtain cluster key");
 	else
 	    printf("Cluster key: %s\n", auth);
+	ret = 0;
+	goto info_out;
+    } else if(itype == INFO_REPLICA) {
+	unsigned int max_replica = clst_get_maxreplica(clst);
+	unsigned int min_replica = 1 + (max_replica - clst_get_current_maxreplica(clst));
+	printf("Currently allowed volume replicas (min:max): %u:%u\n", min_replica, max_replica);
 	ret = 0;
 	goto info_out;
     }
@@ -2566,9 +2578,11 @@ int main(int argc, char **argv) {
 	if(cluster_args.new_given && cluster_args.inputs_num == 2)
 	    ret = create_cluster(sx, &cluster_args);
 	else if(cluster_args.info_given && cluster_args.inputs_num == 1)
-	    ret = info_cluster(sx, &cluster_args, 0);
+	    ret = info_cluster(sx, &cluster_args, INFO_ALL);
 	else if(cluster_args.get_cluster_key_given && cluster_args.inputs_num == 1)
-	    ret = info_cluster(sx, &cluster_args, 1);
+	    ret = info_cluster(sx, &cluster_args, INFO_KEY);
+	else if(cluster_args.get_allowed_replica_given && cluster_args.inputs_num == 1)
+	    ret = info_cluster(sx, &cluster_args, INFO_REPLICA);
 	else if(cluster_args.modify_given && cluster_args.inputs_num >= 2)
 	    ret = change_cluster(sx, &cluster_args);
         else if(cluster_args.lock_given && cluster_args.inputs_num == 1)

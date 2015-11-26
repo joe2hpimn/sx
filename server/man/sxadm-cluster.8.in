@@ -59,6 +59,9 @@ Force GC and expiration of reservations on all nodes.
 \fB\-\-get\-cluster\-key\fR
 Obtain remote cluster key.
 .TP
+\fB\-\-get\-allowed\-replica\fR
+Obtain the minimum and maximum volume replica count currently allowed on the cluster. The replica values depend on a few factors, such as number of nodes, zone configuration and the state of the cluster.
+.TP
 \fB\-m\fR, \fB\-\-set\-mode\fR=\fI\,MODE\/\fR
 Set cluster operating mode ('ro' or 'rw' for read\-only or write\-only respectively). The read\-only mode can be used to perform cluster maintainance (eg. perform \fBsxadm node \-\-check\fR).
 .TP

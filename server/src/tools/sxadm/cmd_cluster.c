@@ -49,6 +49,7 @@ const char *cluster_args_info_full_help[] = {
   "  -G, --force-gc              Force a garbage collection cycle on all nodes",
   "  -X, --force-expire          Force GC and expiration of reservations on all\n                                nodes",
   "      --get-cluster-key       Obtain remote cluster key",
+  "      --get-allowed-replica   Obtain the minimum and maximum volume replica\n                                count currently allowed on the cluster",
   "  -l, --list-nodes            List all nodes of the cluster and their current\n                                status",
   "  -m, --set-mode=MODE         Set cluster operating mode ('ro' or 'rw' for\n                                read-only or read-write respectively)",
   "      --upgrade               Check node versions and start cluster upgrade",
@@ -91,24 +92,24 @@ init_help_array(void)
   cluster_args_info_help[11] = cluster_args_info_full_help[11];
   cluster_args_info_help[12] = cluster_args_info_full_help[12];
   cluster_args_info_help[13] = cluster_args_info_full_help[13];
-  cluster_args_info_help[14] = cluster_args_info_full_help[15];
-  cluster_args_info_help[15] = cluster_args_info_full_help[16];
-  cluster_args_info_help[16] = cluster_args_info_full_help[17];
-  cluster_args_info_help[17] = cluster_args_info_full_help[18];
-  cluster_args_info_help[18] = cluster_args_info_full_help[19];
-  cluster_args_info_help[19] = cluster_args_info_full_help[20];
-  cluster_args_info_help[20] = cluster_args_info_full_help[21];
-  cluster_args_info_help[21] = cluster_args_info_full_help[22];
-  cluster_args_info_help[22] = cluster_args_info_full_help[24];
-  cluster_args_info_help[23] = cluster_args_info_full_help[25];
-  cluster_args_info_help[24] = cluster_args_info_full_help[26];
-  cluster_args_info_help[25] = cluster_args_info_full_help[27];
-  cluster_args_info_help[26] = cluster_args_info_full_help[29];
-  cluster_args_info_help[27] = cluster_args_info_full_help[30];
-  cluster_args_info_help[28] = cluster_args_info_full_help[31];
-  cluster_args_info_help[29] = cluster_args_info_full_help[32];
-  cluster_args_info_help[30] = cluster_args_info_full_help[34];
-  cluster_args_info_help[31] = cluster_args_info_full_help[36];
+  cluster_args_info_help[14] = cluster_args_info_full_help[16];
+  cluster_args_info_help[15] = cluster_args_info_full_help[17];
+  cluster_args_info_help[16] = cluster_args_info_full_help[18];
+  cluster_args_info_help[17] = cluster_args_info_full_help[19];
+  cluster_args_info_help[18] = cluster_args_info_full_help[20];
+  cluster_args_info_help[19] = cluster_args_info_full_help[21];
+  cluster_args_info_help[20] = cluster_args_info_full_help[22];
+  cluster_args_info_help[21] = cluster_args_info_full_help[23];
+  cluster_args_info_help[22] = cluster_args_info_full_help[25];
+  cluster_args_info_help[23] = cluster_args_info_full_help[26];
+  cluster_args_info_help[24] = cluster_args_info_full_help[27];
+  cluster_args_info_help[25] = cluster_args_info_full_help[28];
+  cluster_args_info_help[26] = cluster_args_info_full_help[30];
+  cluster_args_info_help[27] = cluster_args_info_full_help[31];
+  cluster_args_info_help[28] = cluster_args_info_full_help[32];
+  cluster_args_info_help[29] = cluster_args_info_full_help[33];
+  cluster_args_info_help[30] = cluster_args_info_full_help[35];
+  cluster_args_info_help[31] = cluster_args_info_full_help[37];
   cluster_args_info_help[32] = 0; 
   
 }
@@ -153,6 +154,7 @@ void clear_given (struct cluster_args_info *args_info)
   args_info->force_gc_given = 0 ;
   args_info->force_expire_given = 0 ;
   args_info->get_cluster_key_given = 0 ;
+  args_info->get_allowed_replica_given = 0 ;
   args_info->list_nodes_given = 0 ;
   args_info->set_mode_given = 0 ;
   args_info->upgrade_given = 0 ;
@@ -227,28 +229,29 @@ void init_args_info(struct cluster_args_info *args_info)
   args_info->force_gc_help = cluster_args_info_full_help[12] ;
   args_info->force_expire_help = cluster_args_info_full_help[13] ;
   args_info->get_cluster_key_help = cluster_args_info_full_help[14] ;
-  args_info->list_nodes_help = cluster_args_info_full_help[15] ;
-  args_info->set_mode_help = cluster_args_info_full_help[16] ;
-  args_info->upgrade_help = cluster_args_info_full_help[17] ;
-  args_info->set_meta_help = cluster_args_info_full_help[18] ;
+  args_info->get_allowed_replica_help = cluster_args_info_full_help[15] ;
+  args_info->list_nodes_help = cluster_args_info_full_help[16] ;
+  args_info->set_mode_help = cluster_args_info_full_help[17] ;
+  args_info->upgrade_help = cluster_args_info_full_help[18] ;
+  args_info->set_meta_help = cluster_args_info_full_help[19] ;
   args_info->set_meta_min = 0;
   args_info->set_meta_max = 0;
-  args_info->get_meta_help = cluster_args_info_full_help[19] ;
-  args_info->delete_meta_help = cluster_args_info_full_help[20] ;
-  args_info->set_param_help = cluster_args_info_full_help[21] ;
+  args_info->get_meta_help = cluster_args_info_full_help[20] ;
+  args_info->delete_meta_help = cluster_args_info_full_help[21] ;
+  args_info->set_param_help = cluster_args_info_full_help[22] ;
   args_info->set_param_min = 0;
   args_info->set_param_max = 0;
-  args_info->get_param_help = cluster_args_info_full_help[22] ;
-  args_info->force_job_allowance_help = cluster_args_info_full_help[23] ;
-  args_info->node_dir_help = cluster_args_info_full_help[25] ;
-  args_info->port_help = cluster_args_info_full_help[26] ;
-  args_info->ssl_ca_file_help = cluster_args_info_full_help[27] ;
-  args_info->admin_key_help = cluster_args_info_full_help[28] ;
-  args_info->batch_mode_help = cluster_args_info_full_help[30] ;
-  args_info->human_readable_help = cluster_args_info_full_help[31] ;
-  args_info->debug_help = cluster_args_info_full_help[32] ;
-  args_info->config_dir_help = cluster_args_info_full_help[33] ;
-  args_info->locking_node_help = cluster_args_info_full_help[35] ;
+  args_info->get_param_help = cluster_args_info_full_help[23] ;
+  args_info->force_job_allowance_help = cluster_args_info_full_help[24] ;
+  args_info->node_dir_help = cluster_args_info_full_help[26] ;
+  args_info->port_help = cluster_args_info_full_help[27] ;
+  args_info->ssl_ca_file_help = cluster_args_info_full_help[28] ;
+  args_info->admin_key_help = cluster_args_info_full_help[29] ;
+  args_info->batch_mode_help = cluster_args_info_full_help[31] ;
+  args_info->human_readable_help = cluster_args_info_full_help[32] ;
+  args_info->debug_help = cluster_args_info_full_help[33] ;
+  args_info->config_dir_help = cluster_args_info_full_help[34] ;
+  args_info->locking_node_help = cluster_args_info_full_help[36] ;
   
 }
 
@@ -483,6 +486,8 @@ cluster_cmdline_parser_dump(FILE *outfile, struct cluster_args_info *args_info)
     write_into_file(outfile, "force-expire", 0, 0 );
   if (args_info->get_cluster_key_given)
     write_into_file(outfile, "get-cluster-key", 0, 0 );
+  if (args_info->get_allowed_replica_given)
+    write_into_file(outfile, "get-allowed-replica", 0, 0 );
   if (args_info->list_nodes_given)
     write_into_file(outfile, "list-nodes", 0, 0 );
   if (args_info->set_mode_given)
@@ -718,6 +723,7 @@ reset_group_MODE(struct cluster_args_info *args_info)
   args_info->force_gc_given = 0 ;
   args_info->force_expire_given = 0 ;
   args_info->get_cluster_key_given = 0 ;
+  args_info->get_allowed_replica_given = 0 ;
   args_info->list_nodes_given = 0 ;
   args_info->set_mode_given = 0 ;
   free_string_field (&(args_info->set_mode_arg));
@@ -1141,6 +1147,7 @@ cluster_cmdline_parser_internal (
         { "force-gc",	0, NULL, 'G' },
         { "force-expire",	0, NULL, 'X' },
         { "get-cluster-key",	0, NULL, 0 },
+        { "get-allowed-replica",	0, NULL, 0 },
         { "list-nodes",	0, NULL, 'l' },
         { "set-mode",	1, NULL, 'm' },
         { "upgrade",	0, NULL, 0 },
@@ -1456,6 +1463,23 @@ cluster_cmdline_parser_internal (
                 &(local_args_info.get_cluster_key_given), optarg, 0, 0, ARG_NO,
                 check_ambiguity, override, 0, 0,
                 "get-cluster-key", '-',
+                additional_error))
+              goto failure;
+          
+          }
+          /* Obtain the minimum and maximum volume replica count currently allowed on the cluster.  */
+          else if (strcmp (long_options[option_index].name, "get-allowed-replica") == 0)
+          {
+          
+            if (args_info->MODE_group_counter && override)
+              reset_group_MODE (args_info);
+            args_info->MODE_group_counter += 1;
+          
+            if (update_arg( 0 , 
+                 0 , &(args_info->get_allowed_replica_given),
+                &(local_args_info.get_allowed_replica_given), optarg, 0, 0, ARG_NO,
+                check_ambiguity, override, 0, 0,
+                "get-allowed-replica", '-',
                 additional_error))
               goto failure;
           

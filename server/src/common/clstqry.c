@@ -50,7 +50,7 @@ struct cstatus {
 	OP_REPLACE,
         OP_UPGRADE
     } op_type;
-    unsigned int version;
+    unsigned int version, replica_count, effective_replica_count;
     char op_msg[1024];
     curlev_context_t *cbdata;
 
@@ -87,7 +87,9 @@ struct cstatus {
             "isComplete": true,
             "opInfo": "MESSAGE"
         },
-        "operatingMode": "MODE"
+        "operatingMode": "MODE",
+	"maxReplicaCount": 3,
+	"effectiveMaxReplicaCount": 2
     },
     "raftStatus": {
         "role": "ROLE",
@@ -167,6 +169,24 @@ static void cb_cstatus_dist_ncapa(jparse_t *J, void *ctx, int64_t num) {
 	return;
     }
     c->capa = num;
+}
+
+static void cb_cstatus_replicacnt(jparse_t *J, void *ctx, int32_t num) {
+    struct cstatus *c = (struct cstatus *)ctx;
+    if(num <= 0) {
+	sxi_jparse_cancel(J, "Invalid replica count");
+	return;
+    }
+    c->replica_count = num;
+}
+
+static void cb_cstatus_effreplicacnt(jparse_t *J, void *ctx, int32_t num) {
+    struct cstatus *c = (struct cstatus *)ctx;
+    if(num <= 0) {
+	sxi_jparse_cancel(J, "Invalid effective replica count");
+	return;
+    }
+    c->effective_replica_count = num;
 }
 
 static void cb_cstatus_dist_nbegin(jparse_t *J, void *ctx) {
@@ -411,6 +431,10 @@ const struct jparse_actions cstatus_acts = {
 		 JPACT(cb_cstatus_distsum, JPKEY("clusterStatus"), JPKEY("distributionChecksum")),
 		 JPACT(cb_cstatus_raft_ns_ts, JPKEY("raftStatus"), JPKEY("nodeStates"), JPANYKEY, JPKEY("lastContact"))
 		 ),
+    JPACTS_INT32(
+		 JPACT(cb_cstatus_replicacnt, JPKEY("clusterStatus"), JPKEY("maxReplicaCount")),
+		 JPACT(cb_cstatus_effreplicacnt, JPKEY("clusterStatus"), JPKEY("effectiveMaxReplicaCount"))
+		 ),
     JPACTS_MAP_BEGIN(
 		     JPACT(cb_cstatus_dist_nbegin, JPKEY("clusterStatus"), JPKEY("distributionModels"), JPARR(0), JPANYITM),
 		     JPACT(cb_cstatus_dist_nbegin, JPKEY("clusterStatus"), JPKEY("distributionModels"), JPARR(1), JPANYITM),
@@ -480,6 +504,8 @@ static int cstatus_setup_cb(curlev_context_t *cbdata, void *ctx, const char *hos
     yactx->op_msg[0] = '\0';
     yactx->cbdata = cbdata;
     yactx->readonly = 0;
+    yactx->replica_count = 0;
+    yactx->effective_replica_count = 0;
     memset(&yactx->raft_status_leader, 0, sizeof(yactx->raft_status_leader));
     memset(yactx->raft_role, 0, sizeof(yactx->raft_role));
     yactx->raft_nnodes = 0;
@@ -537,6 +563,26 @@ clst_t *clst_query(sxi_conns_t *conns, sxi_hostlist_t *hlist) {
 	CRIT("Error querying cluster: invalid distribution sets");
 	clst_destroy(yctx);
 	return NULL;
+    }
+
+    if(!yctx->replica_count) {
+	/* Legacy server */
+	switch(yctx->nsets) {
+	case 2:
+	    yctx->replica_count = MIN(sx_nodelist_count(yctx->one), sx_nodelist_count(yctx->two));
+	    yctx->effective_replica_count = yctx->replica_count;
+	    break;
+	case 1:
+	    yctx->replica_count = sx_nodelist_count(yctx->one);
+	    yctx->effective_replica_count = yctx->replica_count - sx_nodelist_count(yctx->ign);
+	    break;
+	default:
+	    yctx->replica_count = 0;
+	    yctx->effective_replica_count = 0;
+	}
+    } else if(!yctx->replica_count) {
+	/* Just a fallback, not reached */
+	yctx->effective_replica_count = yctx->replica_count;
     }
 
     sxi_jparse_destroy(yctx->J);
@@ -633,4 +679,12 @@ const raft_node_data_t *clst_raft_nodes_data(clst_t *st, unsigned int *nnodes) {
         return NULL;
     *nnodes = st->raft_nnodes;
     return st->raft_nodes;
+}
+
+unsigned int clst_get_maxreplica(clst_t *st) {
+    return st ? st->replica_count : 0;
+}
+
+unsigned int clst_get_current_maxreplica(clst_t *st) {
+    return st ? st->effective_replica_count : 0;
 }

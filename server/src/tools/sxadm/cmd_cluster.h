@@ -53,6 +53,7 @@ struct cluster_args_info
   const char *force_gc_help; /**< @brief Force a garbage collection cycle on all nodes help description.  */
   const char *force_expire_help; /**< @brief Force GC and expiration of reservations on all nodes help description.  */
   const char *get_cluster_key_help; /**< @brief Obtain remote cluster key help description.  */
+  const char *get_allowed_replica_help; /**< @brief Obtain the minimum and maximum volume replica count currently allowed on the cluster help description.  */
   const char *list_nodes_help; /**< @brief List all nodes of the cluster and their current status help description.  */
   char * set_mode_arg;	/**< @brief Set cluster operating mode ('ro' or 'rw' for read-only or read-write respectively).  */
   char * set_mode_orig;	/**< @brief Set cluster operating mode ('ro' or 'rw' for read-only or read-write respectively) original value given at command line.  */
@@ -116,6 +117,7 @@ struct cluster_args_info
   unsigned int force_gc_given ;	/**< @brief Whether force-gc was given.  */
   unsigned int force_expire_given ;	/**< @brief Whether force-expire was given.  */
   unsigned int get_cluster_key_given ;	/**< @brief Whether get-cluster-key was given.  */
+  unsigned int get_allowed_replica_given ;	/**< @brief Whether get-allowed-replica was given.  */
   unsigned int list_nodes_given ;	/**< @brief Whether list-nodes was given.  */
   unsigned int set_mode_given ;	/**< @brief Whether set-mode was given.  */
   unsigned int upgrade_given ;	/**< @brief Whether upgrade was given.  */

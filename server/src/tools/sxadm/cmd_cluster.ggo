@@ -22,6 +22,7 @@ groupoption "info" I "Shows status and details of a running cluster" group="MODE
 groupoption "force-gc" G "Force a garbage collection cycle on all nodes" group="MODE"
 groupoption "force-expire" X "Force GC and expiration of reservations on all nodes" group="MODE"
 groupoption "get-cluster-key" - "Obtain remote cluster key" group="MODE" hidden
+groupoption "get-allowed-replica" - "Obtain the minimum and maximum volume replica count currently allowed on the cluster" group="MODE" hidden
 groupoption "list-nodes" l "List all nodes of the cluster and their current status" group="MODE"
 groupoption "set-mode" m "Set cluster operating mode ('ro' or 'rw' for read-only or read-write respectively)" group="MODE" string typestr="MODE"
 groupoption "upgrade" - "Check node versions and start cluster upgrade" group="MODE"

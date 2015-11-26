@@ -66,5 +66,8 @@ const char* clst_raft_role(clst_t *st);
 const char* clst_raft_message(clst_t *st);
 const raft_node_data_t *clst_raft_nodes_data(clst_t *st, unsigned int *nnodes);
 
+unsigned int clst_get_maxreplica(clst_t *st);
+unsigned int clst_get_current_maxreplica(clst_t *st);
+
 #endif
 
