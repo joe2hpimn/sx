@@ -4254,6 +4254,17 @@ static rc_ty hashfs_1_9_to_2_0(sxi_db_t *db)
         sx_blob_reset(b);
         sqlite3_reset(q);
 
+        /* libres3 */
+        if(sx_blob_add_string(b, "")) {
+            WARN("Failed to add setting value to the blob");
+            break;
+        }
+        sx_blob_to_data(b, &data, &data_len);
+        if(qbind_text(q, ":k", "libres3_private") || qbind_blob(q, ":v", data, data_len) || qstep_noret(q))
+            break;
+        sx_blob_reset(b);
+        sqlite3_reset(q);
+
         qnullify(q);
 
         /* Update 'clusterMeta:' prefix to '$clusterMeta$' */
