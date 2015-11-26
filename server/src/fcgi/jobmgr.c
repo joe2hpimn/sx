@@ -6148,7 +6148,7 @@ static rc_ty massrename_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *jo
             continue;
         }
 
-        if(strlen(newname) < SXLIMIT_MIN_FILENAME_LEN || strlen(newname) > SXLIMIT_MAX_FILENAME_LEN || utf8_validate_len(newname) < 0) {
+        if(strlen(newname) < SXLIMIT_MIN_FILENAME_LEN || strlen(newname) > SXLIMIT_MAX_FILENAME_LEN || sxi_utf8_validate_len(newname) < 0) {
             DEBUG("Skipping '%s': Invalid filename", name);
             http_code = 400;
             continue;

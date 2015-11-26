@@ -2396,7 +2396,7 @@ static rc_ty check_path_element(const char *name, unsigned name_min, unsigned na
                        what, name, name_min, name_max);
 	return EINVAL;
     }
-    if(utf8_validate_len(name) < 0) {
+    if(sxi_utf8_validate_len(name) < 0) {
 	msg_set_reason("Invalid %s name '%s': must be valid UTF8", what, name);
 	return EINVAL;
     }
@@ -2429,7 +2429,7 @@ static int check_file_name(const char *name) {
 		       name, SXLIMIT_MIN_FILENAME_LEN, SXLIMIT_MAX_FILENAME_LEN);
 	return -1;
     }
-    if(utf8_validate_len(name) < 0) {
+    if(sxi_utf8_validate_len(name) < 0) {
 	msg_set_reason("Invalid file name '%s': must be valid UTF8", name);
 	return -1;
     }
@@ -2466,7 +2466,7 @@ rc_ty sx_hashfs_check_meta(const char *key, const void *value, unsigned int valu
 	return EMSGSIZE;
     }
 
-    if (utf8_validate_len(key) < 0) {
+    if (sxi_utf8_validate_len(key) < 0) {
 	msg_set_reason("Invalid metadata key '%s': must be valid UTF8", key);
 	return EINVAL;
     }
@@ -2662,7 +2662,7 @@ static rc_ty settings_check_common(const char *key, sx_setting_type_t type, cons
         return EMSGSIZE;
     }
 
-    if(utf8_validate_len(key) < 0) {
+    if(sxi_utf8_validate_len(key) < 0) {
         msg_set_reason("Invalid setting key '%s': must be valid UTF8", key);
         return EINVAL;
     }
@@ -6344,7 +6344,7 @@ static int parse_pattern(sx_hashfs_t *h, const char *pattern, int escape) {
         return 1;
     }
 
-    if(utf8_validate_len(pattern) < 0) {
+    if(sxi_utf8_validate_len(pattern) < 0) {
         msg_set_reason("Invalid pattern '%s': must be valid UTF8", pattern);
         return 1;
     }

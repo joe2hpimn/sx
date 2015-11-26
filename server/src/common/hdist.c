@@ -871,7 +871,7 @@ static int set_zones(sxi_hdist_t *model, const char *zones)
             free(zone_names);
 	    return EINVAL;
 	}
-	if(utf8_validate_len(buf) < 0) {
+	if(sxi_utf8_validate_len(buf) < 0) {
 	    critmsg("Cannot set distribution zones: zone name (%s) contains invalid characters", buf);
 	    free(buf);
             free(zone_names);

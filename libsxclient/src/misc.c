@@ -1327,10 +1327,12 @@ double sxi_timediff(const struct timeval *a, const struct timeval *b) {
     return rs + ru/1000000.0;
 }
 
-int sxi_utf8_validate(const char *str)
+int sxi_utf8_validate_len(const char *str)
 {
   uint8_t c;
+  int l = 0;
   while ((c = *str++)) {
+    l++;
     if (c < 0x80)
       continue;
     /* validate UTF-8 according to RFC3629 */
@@ -1399,7 +1401,14 @@ int sxi_utf8_validate(const char *str)
    } else
        return -1;
   }
-  return 0;
+  return l;
+}
+
+int sxi_utf8_validate(const char *str)
+{
+    if(sxi_utf8_validate_len(str) < 0)
+        return -1;
+    return 0;
 }
 
 

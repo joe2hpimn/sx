@@ -34,7 +34,6 @@
 
 int bin2hex(const void *src, uint32_t src_len, char *dst, uint32_t dst_len);
 int hex2bin(const char *src, uint32_t src_len, uint8_t *dst, uint32_t dst_len);
-int utf8_validate_len(const char *str);
 int hmac_compare(const unsigned char *hmac1, const unsigned char *hmac2, size_t len);
 uint64_t MurmurHash64(const void *key, size_t len, unsigned int seed);
 

@@ -486,7 +486,7 @@ void handle_request(worker_type_t wtype) {
 		if(*argp) {
 		    if(!(args[nargs] = inplace_urldecode(argp, 0, 0, NULL, 1)))
 			quit_errmsg(400, "Invalid URL encoding");
-		    if(utf8_validate_len(args[nargs]) < 0)
+		    if(sxi_utf8_validate_len(args[nargs]) < 0)
 			quit_errmsg(400, "Parameters with invalid utf-8 encoding");
 		    nargs++;
 		}
@@ -520,7 +520,7 @@ void handle_request(worker_type_t wtype) {
             quit_errmsg(400, "Invalid URL encoding");
     }
 
-    int vlen = volume ? utf8_validate_len(volume) : 0;
+    int vlen = volume ? sxi_utf8_validate_len(volume) : 0;
     int flen = path ? strlen(path) : 0;
 
     if (vlen < 0 || flen < 0)

@@ -62,6 +62,7 @@ void sxi_ht_empty(sxi_ht *ht);
 void sxi_ht_free(sxi_ht *ht);
 
 double sxi_timediff(const struct timeval *a, const struct timeval *b);
+int sxi_utf8_validate_len(const char *str);
 int sxi_utf8_validate(const char *str);
 
 char *sxi_json_quote_string(const char *s);
