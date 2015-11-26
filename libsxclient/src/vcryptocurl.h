@@ -19,3 +19,4 @@
 #include <curl/curl.h>
 #include "curlevents.h"
 int sxi_sslctxfun(sxc_client_t *sx, curlev_t *ev, const struct curl_tlssessioninfo *info);
+int sxi_ssl_usertrusted(sxc_client_t *sx, curlev_t *ev, const struct curl_tlssessioninfo *info);

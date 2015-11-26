@@ -656,6 +656,8 @@ static void sxi_cbdata_finish(curl_events_t *e, curlev_context_t **ctxptr, const
     sxi_cbdata_unref(ctxptr);
 }
 
+enum cert_status { CERT_UNKNOWN=0, CERT_ACCEPTED, CERT_REJECTED };
+
 struct curlev {
     curlev_context_t *ctx;
     char *host;
@@ -674,6 +676,8 @@ struct curlev {
     int ssl_ctx_called;
     int is_http;
     int verify_peer;
+    int quiet;
+    enum cert_status cert_status;
     uint16_t port;
 
     struct timeval last_progress_time; /* Start or last xfer progress timestamp on this multi handle */
@@ -698,6 +702,34 @@ static void ev_free(curlev_t *ev)
     memset(ev, 0, sizeof(*ev));
 }
 
+static const struct curl_certinfo *get_certinfo(curlev_t *ctx);
+static int print_certificate_info(sxc_client_t *sx, const struct curl_certinfo *info);
+
+static void cert_ask_question(sxc_client_t *sx, curlev_t *ev, const struct curl_certinfo *info)
+{
+    const struct curl_certinfo *certinfo = get_certinfo(ev);
+    if (ev->verify_peer || ev->cert_status != CERT_UNKNOWN)
+        return;
+    if (ev->quiet) {
+        ev->cert_status = CERT_ACCEPTED;
+    } else if (ev->cert_status == CERT_UNKNOWN){
+        char ans;
+        int inp;
+        SXDEBUG("cert_status: %d", ev->cert_status);
+        if (print_certificate_info(sx, certinfo)) {
+            SXDEBUG("certificate chain info not available yet");
+            ev->ssl_ctx_called = 0;
+            return;
+        }
+        inp = sxi_get_input(sx, SXC_INPUT_YN, "Do you trust this SSL certificate?", "n", &ans, 1);
+        if(inp != 1 && ans != 'y') {
+            ev->cert_status = CERT_REJECTED;
+        } else {
+            ev->cert_status = CERT_ACCEPTED;
+        }
+    }
+}
+
 static int check_ssl_cert(curlev_t *ev)
 {
     const struct curl_tlssessioninfo *info;
@@ -718,10 +750,26 @@ static int check_ssl_cert(curlev_t *ev)
             rc = sxi_sslctxfun(sx, ev, info);
             if (rc == -EAGAIN)
                 return 0;
+            SXDEBUG("ctx function called");
             ev->ssl_ctx_called = 1;
             if (rc)
                 return 1;
-            SXDEBUG("ctx function called");
+            if (1 == ev->ssl_verified) {
+                SXDEBUG("certificate verified (verify_peer=%d)", ev->verify_peer);
+                const struct curl_certinfo *certinfo = get_certinfo(ev);
+                cert_ask_question(sx, ev, certinfo);
+                if (ev->cert_status == CERT_REJECTED) {
+                    sxi_seterr(sx, SXE_ECOMM, "User rejected the certificate");
+                    return 1;
+                }
+                if (ev->cert_status == CERT_ACCEPTED) {
+                    rc = sxi_ssl_usertrusted(sx, ev, info);
+                    if (rc) {
+                        SXDEBUG("failed to set user trust");
+                        return 1;
+                    }
+                }
+            }
         }
     }
     return 0;
@@ -3057,11 +3105,12 @@ static const char *get_certinfo_field(const struct curl_certinfo *cert, int i, c
     return NULL;
 }
 
-static int print_certificate_info(curl_events_t *e, const struct curl_certinfo *info)
+static int print_certificate_info(sxc_client_t *sx, const struct curl_certinfo *info)
 {
-    sxc_client_t *sx = sxi_conns_get_client(e->conns);
-    if (!info)
+    if (!info) {
+	SXDEBUG("no certificate info present");
         return -1;
+    }
     int ca = info->num_of_certs - 1;
     if (ca < 0) {
         sxi_seterr(sx, SXE_ECOMM, "Received 0 certificates");
@@ -3107,7 +3156,7 @@ static int print_certificate_info(curl_events_t *e, const struct curl_certinfo *
         b64[i] = '\0';
         if (!sxi_b64_dec(sx, b64, rawbuf, &rawbuf_len)) {
             char hash[SXI_SHA1_TEXT_LEN + 1];
-            if (!sxi_conns_hashcalc_core(sxi_conns_get_client(e->conns), NULL, 0, rawbuf, rawbuf_len, hash)) {
+            if (!sxi_conns_hashcalc_core(sx, NULL, 0, rawbuf, rawbuf_len, hash)) {
                 sxi_fmt_msg(&fmt, "\tSHA1 fingerprint: %s\n", hash);
                 sxi_notice(sx, "%s", fmt.buf);
                 ok = 1;
@@ -3180,26 +3229,23 @@ int sxi_curlev_fetch_certificates(curl_events_t *e, const char *url, int quiet)
         sxi_curlev_set_cafile(e, NULL);
         if (easy_set_default_opt(e, &ev))
             break;
-        rc = curl_easy_setopt(ev.curl, CURLOPT_VERBOSE, 0L);
-        if (curl_check(&ev,rc, "set CURLOPT_VERBOSE") == -1)
-            break;
         rc = curl_easy_setopt(ev.curl, CURLOPT_URL, url);
         if (curl_check(&ev,rc, "set CURLOPT_URL") == -1)
             break;
         long contimeout = sxi_conns_get_timeout(e->conns, url);
-	rc = curl_easy_setopt(ev.curl, CURLOPT_CONNECTTIMEOUT_MS, contimeout);
-	if (curl_check(&ev, rc, "set CURLOPT_CONNECTTIMEOUT_MS") == -1)
-	    break;
+       rc = curl_easy_setopt(ev.curl, CURLOPT_CONNECTTIMEOUT_MS, contimeout);
+       if (curl_check(&ev, rc, "set CURLOPT_CONNECTTIMEOUT_MS") == -1)
+           break;
         rc = curl_easy_setopt(ev.curl, CURLOPT_CERTINFO, 1L);
-	if (curl_check(&ev, rc, "set CURLOPT_CERTINFO") == -1)
-	    break;
+        if (curl_check(&ev, rc, "set CURLOPT_CERTINFO") == -1)
+            break;
         rc = curl_easy_setopt(ev.curl, CURLOPT_NOBODY, 1L);
-	if (curl_check(&ev, rc, "set CURLOPT_NOBODY") == -1)
-	    break;
+        if (curl_check(&ev, rc, "set CURLOPT_NOBODY") == -1)
+            break;
         /* this is a test connection, do not reuse */
         rc = curl_easy_setopt(ev.curl, CURLOPT_FORBID_REUSE, 1L);
-	if (curl_check(&ev, rc, "set CURLOPT_FORBID_REUSE") == -1)
-	    break;
+        if (curl_check(&ev, rc, "set CURLOPT_FORBID_REUSE") == -1)
+            break;
         rc = curl_easy_setopt(ev.curl, CURLOPT_HEADERFUNCTION, (write_cb_t)headfn);
         if (curl_check(&ev,rc, "set CURLOPT_HEADERFUNCTION") == -1)
             break;
@@ -3207,6 +3253,7 @@ int sxi_curlev_fetch_certificates(curl_events_t *e, const char *url, int quiet)
         if (curl_check(&ev,rc, "set CURLOPT_HEADERFUNCTION") == -1)
             break;
 
+        ev.quiet = quiet;
         ev.ssl_verified = 0;
         /* Do a first connection with peer verification turned on,
          * no questions asked if this succeeds.
@@ -3239,17 +3286,10 @@ int sxi_curlev_fetch_certificates(curl_events_t *e, const char *url, int quiet)
                     break;
                 }
                 const struct curl_certinfo *info = get_certinfo(&ev);
-                if (!quiet) {
-		    char ans;
-		    int inp;
-		    if (print_certificate_info(e, info))
-			break;
-                    inp = sxi_get_input(sx, SXC_INPUT_YN, "Do you trust this SSL certificate?", "n", &ans, 1);
-		    if(inp != 1 && ans != 'y') {
-                        e->cert_rejected = 1;
-                        sxi_seterr(sx, SXE_ECOMM, "User rejected the certificate");
-                        break;
-                    }
+                cert_ask_question(sx, &ev, info);
+                if (ev.cert_status != CERT_ACCEPTED) {
+                    sxi_seterr(sx, SXE_ECOMM, "User rejected the certificate");
+                    break;
                 }
                 if (save_ca(e, info))
                     break;
@@ -3261,18 +3301,18 @@ int sxi_curlev_fetch_certificates(curl_events_t *e, const char *url, int quiet)
         e->cafile = e->savefile;
         if (easy_set_default_opt(e, &ev))
             break;
-        rc = curl_easy_setopt(ev.curl, CURLOPT_VERBOSE, 0L);
-        if (curl_check(&ev,rc, "set CURLOPT_VERBOSE") == -1)
-            break;
         rc = curl_easy_setopt(ev.curl, CURLOPT_SSL_VERIFYPEER, 1L);
         if (curl_check(&ev,rc,"set SSL_VERIFYPEER") == -1)
             break;
         ev.ssl_verified = ev.ssl_ctx_called = 0;
         rc = curl_easy_perform(ev.curl);
-        if (rc)
+        if (rc) {
+            sxi_seterr(sx, SXE_ECOMM,"Cannot connect to %s: %s", url, curl_easy_strerror(rc));
             break;
+        }
         ok = 1;
     } while(0);
+    e->cert_rejected = ev.cert_status == CERT_REJECTED;
     curl_easy_cleanup(ev.curl);
     e->cafile = NULL;
     return !ok;

@@ -89,6 +89,11 @@ static int ssl_verify_hostname(X509_STORE_CTX *ctx, void *arg)
     return 1;
 }
 
+int sxi_ssl_usertrusted(sxc_client_t *sx, curlev_t *ev, const struct curl_tlssessioninfo *info)
+{
+ return 0;  /* NOOP */
+}
+
 int sxi_sslctxfun(sxc_client_t *sx, curlev_t *ev, const struct curl_tlssessioninfo *info)
 {
     if (info->backend != CURLSSLBACKEND_OPENSSL) {

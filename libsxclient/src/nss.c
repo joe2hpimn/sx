@@ -27,12 +27,12 @@
 #include <secmod.h>
 #include <errno.h>
 
-int sxi_sslctxfun(sxc_client_t *sx, curlev_t *ev, const struct curl_tlssessioninfo *info)
+static int cert_from_sessioninfo(sxc_client_t *sx, const struct curl_tlssessioninfo *info, CERTCertificate **cert)
 {
     if (info->backend != CURLSSLBACKEND_NSS) {
         curl_version_info_data *data = curl_version_info(CURLVERSION_NOW);
-        sxi_seterr(sx, SXE_ECURL, "SSL backend mismatch: NSS expected, got %s",
-                   data->ssl_version ? data->ssl_version : "N/A");
+        sxi_seterr(sx, SXE_ECURL, "SSL backend mismatch: NSS expected, got %d (curl %s)",
+                   info->backend, data->ssl_version ? data->ssl_version : "N/A");
         return -1;
     }
     PRFileDesc *desc = info->internals;
@@ -40,28 +40,46 @@ int sxi_sslctxfun(sxc_client_t *sx, curlev_t *ev, const struct curl_tlssessionin
         SXDEBUG("NULL PRFileDesc context");
         return -EAGAIN;
     }
-    CERTCertificate *cert = SSL_PeerCertificate(desc);
-    if (!cert) {
+    *cert = SSL_PeerCertificate(desc);
+    if (!*cert) {
         PRInt32 err = PR_GetError();
         SXDEBUG("Unable to retrieve certificate for cluster: %s",
                 PR_ErrorToString(err, PR_LANGUAGE_I_DEFAULT));
         return -EAGAIN;
     }
+    return 0;
+}
+
+int sxi_ssl_usertrusted(sxc_client_t *sx, curlev_t *ev, const struct curl_tlssessioninfo *info)
+{
+    CERTCertificate *cert;
+    int rc = cert_from_sessioninfo(sx, info, &cert);
+    if (rc)
+        return rc;
+    /* workaround for NSS cache:
+     * if we run with verify_peer on, it remember that certificate was
+     * not trusted because it was self-signed.
+     * Then even if we explicitly add it as trusted in curl, it still
+     * considers it as untrusted.
+     * So explicitly set trust settings here. If we reached this place
+     * then NSS already validated the certificate and the user accepted the certificate.
+     * */
+    CERTCertTrust none;
+    CERT_DecodeTrustString(&none, "PT,PT,PT");
+    CERT_ChangeCertTrust(NULL, cert, &none);
+    return 0;
+}
+
+int sxi_sslctxfun(sxc_client_t *sx, curlev_t *ev, const struct curl_tlssessioninfo *info)
+{
+    CERTCertificate *cert;
+    int rc = cert_from_sessioninfo(sx, info, &cert);
+    if (rc)
+        return rc;
     sxi_conns_t *conns = sxi_curlev_get_conns(ev);
     const char *hostname = sxi_conns_get_sslname(conns);
     SECStatus ret = CERT_VerifyCertName(cert, hostname);
     if (ret == SECSuccess) {
-            /* workaround for NSS cache:
-             * if we run with verify_peer on, it remember that certificate was
-             * not trusted because it was self-signed.
-             * Then even if we explicitly add it as trusted in curl, it still
-             * considers it as untrusted.
-             * So explicitly set trust settings here. If we reached this place
-             * then NSS already validated the certificate.
-             * */
-            CERTCertTrust none;
-            CERT_DecodeTrustString(&none, "PT,PT,PT");
-            CERT_ChangeCertTrust(NULL, cert, &none);
         sxi_curlev_set_verified(ev, 1);
     } else {
         PRInt32 err = PR_GetError();
