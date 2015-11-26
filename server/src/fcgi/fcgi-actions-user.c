@@ -388,6 +388,11 @@ static rc_ty user_parse_complete(void *yctx)
         return EINVAL;
     }
 
+    if(sx_hashfs_check_userdesc(uctx->desc)) {
+        msg_set_reason("Invalid user description");
+        return EINVAL;
+    }
+
     if(!has_priv(PRIV_CLUSTER)) {
         if(uctx->is_clone) {
 	    uint8_t token[AUTH_UID_LEN];
@@ -657,6 +662,11 @@ static rc_ty user_modify_parse_complete(void *yctx)
             msg_set_reason("Permission denied: not enough privileges");
             return EPERM;
         }
+    }
+
+    if(sx_hashfs_check_userdesc(uctx->description)) {
+        msg_set_reason("Invalid user description");
+        return EINVAL;
     }
 
     if(uctx->quota_given) {

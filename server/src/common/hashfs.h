@@ -126,6 +126,7 @@ rc_ty sx_hashfs_check_volume_settings(sx_hashfs_t *h, const char *volume, int64_
 rc_ty sx_hashfs_check_meta(const char *key, const void *value, unsigned int value_len);
 rc_ty sx_hashfs_check_volume_meta(const char *key, const void *value, unsigned int value_len, int check_prefix);
 int sx_hashfs_check_username(const char *name, int path_check);
+int sx_hashfs_check_userdesc(const char *desc);
 
 rc_ty sx_hashfs_derive_key(sx_hashfs_t *h, unsigned char *key, int len, const char *info);
 

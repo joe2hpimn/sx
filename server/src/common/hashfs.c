@@ -2760,7 +2760,11 @@ int sx_hashfs_check_username(const char *name, int path_check) {
     return check_path_element(name, SXLIMIT_MIN_USERNAME_LEN, SXLIMIT_MAX_USERNAME_LEN, "username", path_check);
 }
 
-static int check_userdesc(const char *desc) {
+int sx_hashfs_check_userdesc(const char *desc) {
+    if(check_meta_string(desc)) {
+        msg_set_reason("User description must be a valid utf-8 string without control characters");
+        return 1;
+    }
     return check_path_element(desc, SXLIMIT_MIN_USERDESC_LEN, SXLIMIT_MAX_USERDESC_LEN, "user description", 0);
 }
 
@@ -6799,7 +6803,7 @@ rc_ty sx_hashfs_create_user(sx_hashfs_t *h, const char *user, const uint8_t *uid
 	return EINVAL;
     }
 
-    if(desc && check_userdesc(desc)) {
+    if(desc && sx_hashfs_check_userdesc(desc)) {
 	msg_set_reason("Invalid user description");
 	return EINVAL;
     }
@@ -6878,7 +6882,7 @@ rc_ty sx_hashfs_user_modify(sx_hashfs_t *h, const char *username, const uint8_t 
 	return EINVAL;
     }
 
-    if(description && check_userdesc(description)) {
+    if(description && sx_hashfs_check_userdesc(description)) {
 	msg_set_reason("Invalid user description");
 	return EINVAL;
     }
@@ -6959,7 +6963,7 @@ rc_ty sx_hashfs_user_modify(sx_hashfs_t *h, const char *username, const uint8_t 
         r = qstep(q);
         if(r != SQLITE_DONE)
             goto sx_hashfs_user_modify_err;
-        INFO("Description changed for user '%s': %s", username, description);
+        INFO("Description changed for user '%s'", username);
         sqlite3_reset(q);
     }
 
