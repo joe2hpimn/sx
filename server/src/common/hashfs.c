@@ -17238,6 +17238,19 @@ rc_ty sx_hashfs_compact(sx_hashfs_t *h, int64_t *bytes_freed) {
     unsigned int ndb, hs, rollback = 0;
     int64_t freed = 0;
     rc_ty ret = FAIL_EINTERNAL;
+    struct flock fl;
+
+    fl.l_start = 0;
+    fl.l_len = 0;
+    fl.l_type = F_WRLCK;
+    fl.l_whence = SEEK_SET;
+    if(fcntl(h->lockfd, F_SETLK, &fl) == -1) { /* Upgrade to write lock */
+	if(errno == EAGAIN || errno == EACCES)
+	    CHECK_FATAL("In order to compact the data the storage must not be used. Please stop this node and try again.");
+	else
+	    CHECK_FATAL("Failed to lock HashFS storage: %s", strerror(errno));
+	goto defrag_err;
+    }
 
     for(hs = 0; hs < SIZES; hs++) {
 	for(ndb=0; ndb<HASHDBS; ndb++) {
@@ -17461,6 +17474,11 @@ rc_ty sx_hashfs_compact(sx_hashfs_t *h, int64_t *bytes_freed) {
     if(rollback)
 	qrollback(h->datadb[hs][ndb]);
 
+    fl.l_type = F_RDLCK; /* Downgrade to read lock */
+    if(fcntl(h->lockfd, F_SETLK, &fl) == -1) {
+	CHECK_FATAL("Failed to release HashFS lock: %s", strerror(errno));
+	ret = -1;
+    }
     return ret;
 }
 
