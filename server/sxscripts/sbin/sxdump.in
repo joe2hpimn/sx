@@ -8,7 +8,7 @@ import sys
 parser = argparse.ArgumentParser(
     formatter_class=argparse.RawDescriptionHelpFormatter,
     description=__doc__,
-    epilog="Running this tool will generate two scripts:\n"
+    epilog="Running this tool will generate two scripts in the current directory:\n"
     " sx-backup.sh: backs up sx://cluster to BACKUPDIR\n"
     " sx-restore.sh: recreates users,volumes,acls restores BACKUPDIR\n"
 )
