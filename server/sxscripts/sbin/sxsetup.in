@@ -118,13 +118,13 @@ if [ "$INFO_GIVEN" = "yes" -o "$UPGRADE_GIVEN" = "yes" ]; then
 
 	    # update sxhttpd.conf
 	    echo "Updating sxhttpd.conf (s2s)"
-	    sed -i.old_s2s -e "s|location / {|location /.s2s/ {\n\
-                 fastcgi_pass unix:$SX_RUN_DIR/sxfcgi-reserved.socket;\n\
-                 fastcgi_store off;\n\
-                 fastcgi_read_timeout 300s;\n\
-                 fastcgi_max_temp_file_size 0;\n\
-                 include fastcgi_params;\n\
-             }\n\
+	    sed -i.old_s2s -e "s|location / {|location /.s2s/ {\\
+                 fastcgi_pass unix:$SX_RUN_DIR/sxfcgi-reserved.socket;\\
+                 fastcgi_store off;\\
+                 fastcgi_read_timeout 300s;\\
+                 fastcgi_max_temp_file_size 0;\\
+                 include fastcgi_params;\\
+             }\\
 	     location / {|" $ETCDIR/sxserver/sxhttpd.conf
 	    RESTART_SXSERVER="yes"
 	fi
@@ -133,15 +133,15 @@ if [ "$INFO_GIVEN" = "yes" -o "$UPGRADE_GIVEN" = "yes" ]; then
 	    echo "Updating sxhttpd.conf (vts)"
 	    test -z "$SX_NODE_INTERNAL_IP" && SX_NODE_INTERNAL_IP=$SX_NODE_IP
 	    sed -i.old_vts \
-		-e "s|server {|vhost_traffic_status_zone;\n\
+		-e "s|server {|vhost_traffic_status_zone;\\
        server{|"\
-		-e "s|location / {|location /.s2s/.traffic {\n\
-		 vhost_traffic_status_display;\n\
-		 vhost_traffic_status_display_format json;\n\
-		 allow $SX_NODE_INTERNAL_IP;\n\
-		 allow 127.0.0.1;\n\
-		 deny all;\n\
-             }\n\
+		-e "s|location / {|location /.s2s/.traffic {\\
+		 vhost_traffic_status_display;\\
+		 vhost_traffic_status_display_format json;\\
+		 allow $SX_NODE_INTERNAL_IP;\\
+		 allow 127.0.0.1;\\
+		 deny all;\\
+             }\\
 	     location / {|" $ETCDIR/sxserver/sxhttpd.conf
 	    RESTART_SXSERVER="yes"
 	fi
@@ -1186,7 +1186,7 @@ fi
 if [ -n "$SX_NODE_INTERNAL_IP" -a "$SX_NODE_IP" != "$SX_NODE_INTERNAL_IP" ]; then
     if [ -n "`ip addr show 2>/dev/null | grep $SX_NODE_IP`" -o -n "`/sbin/ifconfig 2>/dev/null | grep $SX_NODE_IP`" ]; then
 	# bind to both public and internal IPs
-	sed -e "s/listen 80/listen $SX_NODE_LISTEN_IP:$SX_PORT default_server;\n\
+	sed -e "s/listen 80/listen $SX_NODE_LISTEN_IP:$SX_PORT default_server;\\
 	     listen $SX_NODE_LISTEN_INTERNAL_IP:$SX_PORT/"\
 	"$ETCDIR/sxserver/sxhttpd.conf" >$OUT_TMP
     else
@@ -1197,7 +1197,7 @@ if [ -n "$SX_NODE_INTERNAL_IP" -a "$SX_NODE_IP" != "$SX_NODE_INTERNAL_IP" ]; the
     if [ -n "`@SXHTTPD@ -V 2>&1 | grep nginx-module-vts`" ]; then
 	cp $OUT_TMP "$ETCDIR/sxserver/sxhttpd.conf"
 	sed -e "s/#vhost_traffic_status/vhost_traffic_status/g"\
-	    -e "s/allow 127.0.0.1;/allow $SX_NODE_LISTEN_INTERNAL_IP;\n\
+	    -e "s/allow 127.0.0.1;/allow $SX_NODE_LISTEN_INTERNAL_IP;\\
 		 allow 127.0.0.1;/"\
 	"$ETCDIR/sxserver/sxhttpd.conf" >$OUT_TMP
     fi
@@ -1208,7 +1208,7 @@ else
     if [ -n "`@SXHTTPD@ -V 2>&1 | grep nginx-module-vts`" ]; then
 	cp $OUT_TMP "$ETCDIR/sxserver/sxhttpd.conf"
 	sed -e "s/#vhost_traffic_status/vhost_traffic_status/g"\
-	    -e "s/allow 127.0.0.1;/allow $SX_NODE_LISTEN_IP;\n\
+	    -e "s/allow 127.0.0.1;/allow $SX_NODE_LISTEN_IP;\\
 		 allow 127.0.0.1;/"\
 	"$ETCDIR/sxserver/sxhttpd.conf" >$OUT_TMP
     fi
