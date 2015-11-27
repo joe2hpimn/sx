@@ -200,11 +200,11 @@ void sxc_client_shutdown(sxc_client_t *sx, int signal) {
         free(sx->confdir);
         sxi_free_aliases(sx->alias);
         free(sx->alias);
+	sxi_filter_unloadall(sx);
 
         if (sx->log.func && sx->log.func->close) {
             sx->log.func->close(sx->log.func->ctx);
         }
-	sxi_filter_unloadall(sx);
 	free(sx->qprefix);
 	free(sx->tempdir);
 	free(sx);
