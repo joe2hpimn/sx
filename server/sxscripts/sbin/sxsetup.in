@@ -149,12 +149,22 @@ if [ "$INFO_GIVEN" = "yes" -o "$UPGRADE_GIVEN" = "yes" ]; then
 	# Upgrade hashfs
         "@sbindir@/sxadm" node $OWNERFLAG --info "$SX_DATA_DIR" > /dev/null 2>&1
 	if [ $? -ne 0 ]; then
+	    HB_DEADTIME="`@sbindir@/sxadm cluster --get-param hb_deadtime sx://admin@$SX_CLUSTER_NAME 2>/dev/null | grep hb_deadtime | grep -v '=0$'`"
+	    if [ -n "$HB_DEADTIME" ]; then
+		echo "Temporarily disabling automatic node removal..."
+		"@sbindir@/sxadm" cluster --set-param hb_deadtime=0 "sx://admin@$SX_CLUSTER_NAME"
+		if [ $? -ne 0 ]; then
+		    echo "ERROR: Failed to update Raft settings (hb_deadtime=0)"
+		    exit 1
+		fi
+	    fi
 	    echo "Upgrading local node..."
 	    "@sbindir@/sxserver" stop
 	    "@sbindir@/sxadm" node $OWNERFLAG --upgrade "$SX_DATA_DIR"
 	    if [ $? -ne 0 ]; then
 		echo "ERROR: Failed to upgrade the local node"
 		"@sbindir@/sxserver" start
+		test -n "$HB_DEADTIME" && "@sbindir@/sxadm" cluster --set-param $HB_DEADTIME "sx://admin@$SX_CLUSTER_NAME" 
 		exit 1
 	    fi
 	    "@sbindir@/sxserver" start
@@ -164,6 +174,15 @@ if [ "$INFO_GIVEN" = "yes" -o "$UPGRADE_GIVEN" = "yes" ]; then
 	fi
 
 	test "$RESTART_SXSERVER" = "yes" && "@sbindir@/sxserver" restart
+
+	if [ -n "$HB_DEADTIME" ]; then
+	    echo "Re-enabling automatic node removal..."
+	    "@sbindir@/sxadm" cluster --set-param $HB_DEADTIME "sx://admin@$SX_CLUSTER_NAME" 
+	    if [ $? -ne 0 ]; then
+		echo "WARNING: Failed to update Raft settings ($HB_DEADTIME)"
+		echo "Please update the settings when the cluster is fully upgraded."
+	    fi
+	fi
 
 	# move remote sxsetup.conf into settings if needed
 	"@bindir@/sxls" "sx://admin@$SX_CLUSTER_NAME/_sxsetup.conf" > /dev/null 2>&1
