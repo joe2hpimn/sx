@@ -4169,7 +4169,7 @@ static rc_ty upgrade_db(int lockfd, const char *path, sxi_db_t *db, const sx_has
            qbind_text(q, ":v", to_version->string) ||
            qstep_noret(q))
             break;
-        INFO("Upgraded DB %s from %s to %s", path, from_version->string, to_version->string);
+        DEBUG("Upgraded DB %s from %s to %s", path, from_version->string, to_version->string);
         ret = OK;
     } while(0);
     if (ret)
@@ -4949,6 +4949,7 @@ rc_ty sx_storage_upgrade(const char *dir) {
 
     gettimeofday(&tv_integrity_done, NULL);
     INFO("Integrity check completed in %.fs", timediff(&tv_start, &tv_integrity_done));
+    INFO("Upgrading local databases, this may take a while...");
 
     for(upno=0;upno<sizeof(upgrade_sequence)/sizeof(upgrade_sequence[0]);upno++) {
         sx_upgrade_t desc = upgrade_sequence[upno];
@@ -5014,13 +5015,13 @@ rc_ty sx_storage_upgrade(const char *dir) {
 
         if (desc.upgrade_alldb && (fnret = desc.upgrade_alldb(&alldb)))
             goto upgrade_fail;
-        INFO("Successfully upgraded all DBs");
     }
     INFO("Committing changes");
     if (qcommit_alldb(&alldb))
         goto upgrade_fail;
     gettimeofday(&tv_upgrade_done, NULL);
     INFO("Schema upgrade completed in %.fs", timediff(&tv_integrity_done, &tv_upgrade_done));
+    INFO("Successfully upgraded all DBs");
     ret = OK;
 
 upgrade_fail:

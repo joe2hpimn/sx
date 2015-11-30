@@ -146,8 +146,6 @@ if [ "$INFO_GIVEN" = "yes" -o "$UPGRADE_GIVEN" = "yes" ]; then
 	    RESTART_SXSERVER="yes"
 	fi
 
-	test "$RESTART_SXSERVER" = "yes" && "@sbindir@/sxserver" restart
-
 	# Upgrade hashfs
         "@sbindir@/sxadm" node $OWNERFLAG --info "$SX_DATA_DIR" > /dev/null 2>&1
 	if [ $? -ne 0 ]; then
@@ -160,9 +158,12 @@ if [ "$INFO_GIVEN" = "yes" -o "$UPGRADE_GIVEN" = "yes" ]; then
 		exit 1
 	    fi
 	    "@sbindir@/sxserver" start
+	    RESTART_SXSERVER=
 	else
 	    echo "Local node is up-to-date."
 	fi
+
+	test "$RESTART_SXSERVER" = "yes" && "@sbindir@/sxserver" restart
 
 	# move remote sxsetup.conf into settings if needed
 	"@bindir@/sxls" "sx://admin@$SX_CLUSTER_NAME/_sxsetup.conf" > /dev/null 2>&1
@@ -194,13 +195,18 @@ if [ "$INFO_GIVEN" = "yes" -o "$UPGRADE_GIVEN" = "yes" ]; then
 	    rm $OUT
 	    exit 0
 	elif [ $RET -ne 0 ]; then
+	    # 2.0 doesn't require cluster upgrade
 	    echo
-	    echo "Could not upgrade the remote cluster data at this point. Please run"
-	    echo "sxsetup --upgrade again when all other nodes are locally upgraded and"
-	    echo "online. The cluster should also get upgraded automatically after the"
-	    echo "last node is locally upgraded."
+	    if [ -n "`@sbindir@/sxadm -V | grep '^sxadm 2.0'`" ]; then
+		echo "More nodes in the cluster require upgrading."
+	    else
+		echo "Could not upgrade the remote cluster data at this point. Please run"
+		echo "sxsetup --upgrade again when all other nodes are locally upgraded and"
+		echo "online. The cluster should also get upgraded automatically after the"
+		echo "last node is locally upgraded."
+	    fi
 	    rm $OUT
-	    exit 1
+	    exit 0
 	fi
 	echo
 	echo "Upgrading remote cluster data..."
