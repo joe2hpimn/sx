@@ -2150,7 +2150,6 @@ static int local_to_remote_begin(sxc_file_t *source, sxc_file_t *dest, int recur
 	}
 	goto local_to_remote_err; /* cleanup, not necessarily an error */
     }
-
     if(!(vmeta = sxc_meta_new(sx)))
 	goto local_to_remote_err;
     if(!(cvmeta = sxc_meta_new(sx)))
@@ -2219,18 +2218,25 @@ static int local_to_remote_begin(sxc_file_t *source, sxc_file_t *dest, int recur
             }
 	}
 
+        if(sxi_filemeta_process(sx, fh, fdir, source, cvmeta)) {
+            SXDEBUG("Failed to process file meta %s", source->path);
+            goto local_to_remote_err;
+        }
+
         if(sxi_file_process(sx, fh, fdir, source, SXF_MODE_UPLOAD)) {
             SXDEBUG("Failed to process file %s", source->path);
             goto local_to_remote_err;
         }
 
         /* Store the metadata from the source file into dest */
-        sxc_meta_free(dest->meta);
-        dest->meta = sxi_meta_dup(sx, source->meta);
-        if(!dest->meta) {
-            SXDEBUG("Failed to duplicate source file metadata");
-            sxi_notice(sx, "Failed to duplicate source file metadata");
-            goto local_to_remote_err;
+        if(source->meta) {
+            sxc_meta_free(dest->meta);
+            dest->meta = sxi_meta_dup(sx, source->meta);
+            if(!dest->meta) {
+                SXDEBUG("Failed to duplicate source file metadata");
+                sxi_notice(sx, "Failed to duplicate source file metadata");
+                goto local_to_remote_err;
+            }
         }
         dest->meta_fetched = source->meta_fetched;
         dest->size = st.st_size;
@@ -5100,8 +5106,8 @@ static sxi_job_t* remote_to_remote(sxc_file_t *source, sxc_file_t *dest, int fai
 
     free(dest->remote_path);
     dest->remote_path = NULL;
-
-    sxc_meta_empty(cache->meta);
+    sxc_meta_free(cache->meta);
+    cache->meta = NULL;
 
     if(local_to_remote_begin(cache, dest, 0)) {
 	SXDEBUG("failed to upload destination file");
@@ -6008,7 +6014,6 @@ sxc_meta_t *sxc_filemeta_new(sxc_file_t *file) {
 
     ret = yctx.meta;
     yctx.meta = NULL;
-    file->meta_fetched = 1;
 
  filemeta_begin_err:
     sxi_hostlist_empty(&volnodes);
@@ -6331,7 +6336,6 @@ static int sxi_file_list_foreach(sxc_file_list_t *target, sxc_cluster_t *wait_cl
             CFGDEBUG("Glob pattern matched %d files", entry->nfiles);
             rc = 0;
             unsigned pattern_slashes = sxi_count_slashes(pattern->path) + 1;
-            unsigned int skipped = 0;
             for (j=0;j<entry->nfiles && !rc;j++) {
                 sxc_file_t *remote_file = NULL;
                 if (sxc_cluster_listfiles_next(cluster, pattern->volume, lst, &remote_file) <= 0) {
@@ -6344,7 +6348,7 @@ static int sxi_file_list_foreach(sxc_file_list_t *target, sxc_cluster_t *wait_cl
                     files_in_dir++;
                 sxc_file_free(remote_file);
             }
-            if (!target->recursive)
+            if (!target->recursive && !(fh && fh->f->filemeta_process))
                 files_in_dir = 0;/* omitted */
             if ((single_files > 1 || files_in_dir > 0) && multi_cb && multi_cb(target, ctx)) {
                 CFGDEBUG("multiple source file rejected by callback");
@@ -6352,14 +6356,14 @@ static int sxi_file_list_foreach(sxc_file_list_t *target, sxc_cluster_t *wait_cl
                 sxc_meta_free(cvmeta);
                 break;
             }
-            CFGDEBUG("Single files: %lld, files in dir: %lld, skipped files: %d", (long long)single_files, (long long)files_in_dir, skipped);
+            CFGDEBUG("Single files: %lld, files in dir: %lld", (long long)single_files, (long long)files_in_dir);
             for (j=0;j<entry->nfiles && !rc;j++) {
                 sxc_file_t *remote_file = NULL;
                 if(sxc_cluster_listfiles_prev(cluster, pattern->volume, lst, &remote_file) <= 0) {
                     CFGDEBUG("Failed to list file %d/%d", j, entry->nfiles);
                     break;
                 }
-                if (!target->recursive && !is_single_file_match(pattern->path, pattern_slashes, remote_file->path)) {
+                if (!target->recursive && !(fh && fh->f->filemeta_process) && !is_single_file_match(pattern->path, pattern_slashes, remote_file->path)) {
                     sxi_notice(target->sx, "Omitting (file in) directory: %s", remote_file->path);
                 } else {
                     CFGDEBUG("Processing file '%s/%s'", pattern->volume, remote_file->path);
@@ -6496,25 +6500,25 @@ static sxi_job_t *remote_copy_cb(sxc_file_list_t *target, sxc_file_t *pattern, s
     if(sxi_filemeta_process(target->sx, fh, filter_cfgdir, it->dest, cvmeta))
         return NULL;
 
-    if(file->meta) {
-        /* Destination file should derive meta from the source file. If dest file is stored on a volume
-         * with different filter, it will be reset later. */
-        sxc_meta_free(it->dest->meta);
-        it->dest->meta = sxi_meta_dup(target->sx, file->meta);
-        if(!it->dest->meta) {
-            sxi_seterr(target->sx, SXE_EMEM, "Failed to duplicate source file meta");
-            return NULL;
-        }
-        it->dest->meta_fetched = file->meta_fetched;
-    } else {
+    if(!file->meta) {
         /* In case meta is not available, fetch remote file meta */
-        sxc_meta_free(it->dest->meta);
-        it->dest->meta = sxc_filemeta_new(file);
-        if(!it->dest->meta) {
-            sxi_seterr(target->sx, SXE_EMEM, "Failed to duplicate source file meta");
+        file->meta = sxc_filemeta_new(file);
+        if(!file->meta) {
+            sxi_seterr(target->sx, SXE_EMEM, "Failed to fetch source file meta");
             return NULL;
         }
+        file->meta_fetched = 1;
     }
+
+    /* Destination file should derive meta from the source file. If dest file is stored on a volume
+     * with different filter, it will be reset later. */
+    sxc_meta_free(it->dest->meta);
+    it->dest->meta = sxi_meta_dup(target->sx, file->meta);
+    if(!it->dest->meta) {
+        sxi_seterr(target->sx, SXE_EMEM, "Failed to duplicate source file meta");
+        return NULL;
+    }
+    it->dest->meta_fetched = file->meta_fetched;
     it->dest->remote_size = file->remote_size;
 
     /* Process destination file, because its properties have changed. */
@@ -7147,9 +7151,10 @@ int sxi_filemeta_process(sxc_client_t *sx, struct filter_handle *fh, const char 
         unsigned char chksum1[SXI_SHA1_BIN_LEN], chksum2[SXI_SHA1_BIN_LEN];
         /* Remote file can be processed without initial listing. */
         if(!file->meta) {
-            if(!file->path) /* If filename is remote, we have to obtain remote file meta */
+            if(!file->path) {/* If filename is remote, we have to obtain remote file meta */
                 file->meta = sxc_filemeta_new(file);
-            else
+                file->meta_fetched = 1;
+            } else
                 file->meta = sxc_meta_new(sx);
             if(!file->meta) {
                 SXDEBUG("Failed to allocate file meta");
@@ -7229,16 +7234,19 @@ int sxi_file_process(sxc_client_t *sx, struct filter_handle *fh, const char *cfg
 
     if(fh && fh->f && fh->f->file_process) {
         sxc_meta_t *meta = sxi_meta_dup(sx, file->meta);
+        int meta_fetched = file->meta_fetched;
         if(!meta && file->meta) {
             SXDEBUG("Failed to duplicate file meta");
             return 1;
         }
 
         if(!meta) {
-            if(mode == SXF_MODE_LIST)
+            if(mode == SXF_MODE_LIST || !is_remote(file))
                 meta = sxc_meta_new(sx);
-            else
+            else {
                 meta = sxc_filemeta_new(file);
+                meta_fetched = 1;
+            }
             if(!meta) {
                 SXDEBUG("Failed to create dummy file meta");
                 return -1;
@@ -7258,6 +7266,7 @@ int sxi_file_process(sxc_client_t *sx, struct filter_handle *fh, const char *cfg
         if(mode != SXF_MODE_LIST) {
             sxc_meta_free(file->meta);
             file->meta = meta;
+            file->meta_fetched = meta_fetched;
         } else
             sxc_meta_free(meta);
     }
