@@ -83,6 +83,7 @@ struct aes256_ctx {
     unsigned char in[IV_SIZE + FILTER_BLOCK_SIZE + AES_BLOCK_SIZE + MAC_SIZE];
     unsigned char blk[IV_SIZE + FILTER_BLOCK_SIZE + AES_BLOCK_SIZE + MAC_SIZE];
     char *keyfile;
+    char *cfgdir;
     int decrypt_err;
     sxf_mode_t crypto_inited;
 };
@@ -353,6 +354,21 @@ static int aes256_configure(const sxf_handle_t *handle, const char *cfgstr, cons
     return 0;
 }
 
+static int aes256_shutdown(const sxf_handle_t *handle, void *ctx)
+{
+	struct aes256_ctx *actx = ctx;
+
+    if(!actx)
+	return 0;
+
+    free(actx->keyfile);
+    free(actx->cfgdir);
+    memset(actx, 0, sizeof(struct aes256_ctx));
+    munlock(actx->keys, sizeof(actx->keys));
+    free(actx);
+    return 0;
+}
+
 static int ctx_prepare(const sxf_handle_t *handle, void **ctx, const char *filename, const char *cfgdir, const void *cfgdata, unsigned int cfgdata_len, sxc_meta_t *custom_volume_meta, sxf_mode_t mode, int use_meta_key)
 {
 	int fd, have_fp = 0, encrypted_meta = 0;
@@ -532,6 +548,13 @@ static int ctx_prepare(const sxf_handle_t *handle, void **ctx, const char *filen
 	return -1;
     }
     actx->keyfile = keyfile;
+    actx->cfgdir = strdup(cfgdir);
+    if(!actx->cfgdir) {
+	ERROR("OOM");
+        free(actx->keyfile);
+        free(actx);
+	return -1;
+    }
     mlock(actx->keys, sizeof(actx->keys));
     memcpy(actx->keys, keys, sizeof(actx->keys));
     memset(keys, 0, sizeof(keys));
@@ -550,6 +573,11 @@ static int data_prepare(const sxf_handle_t *handle, void **ctx, const char *file
     if((runtime_ver & 0xff0000000) != (compile_ver & 0xff0000000)) {
 	ERROR("OpenSSL library version mismatch: compiled: %x, runtime: %d", compile_ver, runtime_ver);
 	return -1;
+    }
+
+    if((actx = *ctx) && strcmp(cfgdir, actx->cfgdir)) {
+	aes256_shutdown(handle, *ctx);
+	*ctx = NULL;
     }
 
     if(!*ctx && ctx_prepare(handle, ctx, filename, cfgdir, cfgdata, cfgdata_len, custom_volume_meta, mode, use_meta_key))
@@ -805,20 +833,6 @@ static ssize_t aes256_data_process(const sxf_handle_t *handle, void *ctx, const 
 	*action = SXF_ACTION_NORMAL;
 	return 0;
     }
-}
-
-static int aes256_shutdown(const sxf_handle_t *handle, void *ctx)
-{
-	struct aes256_ctx *actx = ctx;
-
-    if(!actx)
-	return 0;
-
-    free(actx->keyfile);
-    memset(actx, 0, sizeof(struct aes256_ctx));
-    munlock(actx->keys, sizeof(actx->keys));
-    free(actx);
-    return 0;
 }
 
 static int aes256_data_finish(const sxf_handle_t *handle, void **ctx, sxf_mode_t mode)
