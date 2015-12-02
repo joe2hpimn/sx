@@ -4160,7 +4160,7 @@ static act_result_t ignodes_request(sx_hashfs_t *hashfs, job_t job_id, job_data_
     sx_blob_t *b = NULL;
     rc_ty s;
 
-    DEBUG("IN %s", __FUNCTION__);
+    DEBUG("IN %s", __func__);
     if(!job_data) {
 	NULLARG();
 	action_error(ACT_RESULT_PERMFAIL, 500, "Null job");
@@ -4257,7 +4257,7 @@ static act_result_t ignodes_request(sx_hashfs_t *hashfs, job_t job_id, job_data_
 
 static act_result_t ignodes_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     act_result_t ret = ACT_RESULT_OK;
-    DEBUG("IN %s", __FUNCTION__);
+    DEBUG("IN %s", __func__);
     if(!job_data) {
 	NULLARG();
 	action_set_fail(ACT_RESULT_PERMFAIL, 500, "Null job");

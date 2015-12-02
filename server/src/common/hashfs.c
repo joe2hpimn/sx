@@ -16663,7 +16663,7 @@ rc_ty sx_hashfs_setignored(sx_hashfs_t *h, const sx_nodelist_t *ignodes) {
     int64_t newrev;
     rc_ty ret = FAIL_EINTERNAL;
 
-    DEBUG("IN %s", __FUNCTION__);
+    DEBUG("IN %s", __func__);
     if(!h || !ignodes) {
 	NULLARG();
 	return EINVAL;
