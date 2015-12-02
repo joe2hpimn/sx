@@ -1609,6 +1609,7 @@ int sxc_meta_setval_fromhex(sxc_meta_t *meta, const char *key, const char *value
     item->value_len = valuehex_len / 2;
     if(sxi_hex2bin(valuehex, valuehex_len, item->value, item->value_len)) {
 	sxi_seterr(meta->sx, SXE_EARG, "Cannot set meta value: Invalid value");
+        free(item);
 	return -1;
     }
 

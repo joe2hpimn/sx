@@ -724,7 +724,7 @@ static void cb_listvolumes_complete(jparse_t *J, void *ctx) {
 
 	key_len = strlen(key);
 	if(!fwrite(&key_len, sizeof(key_len), 1, yactx->f) || !fwrite(key, key_len, 1, yactx->f) ||
-	   !fwrite(&value_len, sizeof(value_len), 1, yactx->f) || !fwrite(value, value_len, 1, yactx->f)) {
+	   !fwrite(&value_len, sizeof(value_len), 1, yactx->f) || (value_len && !fwrite(value, value_len, 1, yactx->f))) {
 	    sxi_setsyserr(sx, SXE_EWRITE, "Failed to write to temporary file");
 	    sxi_jparse_cancel(J, "%s", sxc_geterrmsg(sx));
 	    yactx->err = SXE_EWRITE;
@@ -1035,7 +1035,7 @@ int sxc_cluster_listvolumes_next(sxc_cluster_lv_t *lv, char **volume_name, char 
 		break;
 	    }
 
-	    if(!fread(value, value_len, 1, lv->f)) {
+	    if(value_len && !fread(value, value_len, 1, lv->f)) {
 		SXDEBUG("error reading meta value length from results file");
 		sxi_setsyserr(sx, SXE_EREAD, "error reading meta value length from results file");
 		break;

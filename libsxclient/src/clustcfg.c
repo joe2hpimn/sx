@@ -1591,7 +1591,7 @@ static void cb_listfiles_file_complete(jparse_t *J, void *ctx) {
 	    if(!fwrite(&key_len, sizeof(key_len), 1, yactx->f) ||
 	       !fwrite(key, key_len, 1, yactx->f) ||
 	       !fwrite(&value_len, sizeof(value_len), 1, yactx->f) ||
-	       !fwrite(value, value_len, 1, yactx->f)) {
+	       (value_len && !fwrite(value, value_len, 1, yactx->f))) {
 		sxi_cbdata_setsyserr(yactx->cbdata, SXE_EWRITE, "Failed to write to temporary file");
 		sxi_jparse_cancel(J, "%s", sxi_cbdata_geterrmsg(yactx->cbdata));
 		yactx->err = SXE_EWRITE;
@@ -2412,7 +2412,7 @@ static int listfiles_next_file(sxc_cluster_t *cluster, const char *volume, sxc_c
                 goto lfnext_out;
             }
 
-            if(!fread(value, value_len, 1, lf->f)) {
+            if(value_len && !fread(value, value_len, 1, lf->f)) {
                 SXDEBUG("Error reading meta value from results file");
                 sxi_setsyserr(sx, SXE_EREAD, "Failed to retrieve next file: Read item from cache failed");
                 free(key);
@@ -2630,7 +2630,7 @@ static int listfiles_prev_file(sxc_cluster_t *cluster, const char *volume, sxc_c
                 goto lfprev_out;
             }
 
-            if(!fread(value, value_len, 1, lf->f)) {
+            if(value_len && !fread(value, value_len, 1, lf->f)) {
                 SXDEBUG("Error reading meta value from results file");
                 sxi_setsyserr(sx, SXE_EREAD, "Failed to retrieve next file: Read item from cache failed");
                 free(key);
