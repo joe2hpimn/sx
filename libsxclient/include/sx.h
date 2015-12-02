@@ -351,7 +351,7 @@ unsigned int sxc_meta_modcount(sxc_meta_t *meta);
 int sxc_meta_getval(sxc_meta_t *meta, const char *key, const void **value, unsigned int *value_len);
 int sxc_meta_getkeyval(sxc_meta_t *meta, unsigned int itemno, const char **key, const void **value, unsigned int *value_len);
 int sxc_meta_setval(sxc_meta_t *meta, const char *key, const void *value, unsigned int value_len);
-int sxc_meta_setval_fromhex(sxc_meta_t *meta, const char *key, const char *valuehex, unsigned int valuehex_len);
+int sxc_meta_setval_fromhex(sxc_meta_t *meta, const char *key, const char *valuehex, int valuehex_len);
 void sxc_meta_delval(sxc_meta_t *meta, const char *key);
 void sxc_meta_empty(sxc_meta_t *meta);
 

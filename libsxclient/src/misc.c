@@ -1578,7 +1578,7 @@ int sxc_meta_setval(sxc_meta_t *meta, const char *key, const void *value, unsign
     return 0;
 }
 
-int sxc_meta_setval_fromhex(sxc_meta_t *meta, const char *key, const char *valuehex, unsigned int valuehex_len) {
+int sxc_meta_setval_fromhex(sxc_meta_t *meta, const char *key, const char *valuehex, int valuehex_len) {
     struct meta_val_t *item;
 
     if(!meta)
@@ -1588,7 +1588,7 @@ int sxc_meta_setval_fromhex(sxc_meta_t *meta, const char *key, const char *value
 	return -1;
     }
     if(valuehex) {
-	if(!valuehex_len)
+	if(valuehex_len < 0)
 	    valuehex_len = strlen(valuehex);
 	if(valuehex_len & 1) {
 	    sxi_seterr(meta->sx, SXE_EARG, "Cannot set meta value: Invalid value");

@@ -5684,12 +5684,7 @@ static void cb_metadata(jparse_t *J, void *ctx, const char *string, unsigned int
     const char *key = sxi_jpath_mapkey(sxi_jpath_down(sxi_jparse_whereami(J)));
     struct cb_metadata_ctx *yactx = (struct cb_metadata_ctx *)ctx;
 
-    if(!length) {
-	if(sxc_meta_setval(yactx->meta, key, string, 0)) {
-	    sxi_jparse_cancel(J, "Out of memory processing metadata");
-	    yactx->err = SXE_EMEM;
-	}
-    } else if(sxc_meta_setval_fromhex(yactx->meta, key, string, length)) {
+    if(sxc_meta_setval_fromhex(yactx->meta, key, string, length)) {
 	sxc_client_t *sx = sxi_conns_get_client(sxi_cbdata_get_conns(yactx->cbdata));
 	if(sxc_geterrnum(sx) == SXE_EARG) {
 	    sxi_jparse_cancel(J, "Invalid metadata received");
