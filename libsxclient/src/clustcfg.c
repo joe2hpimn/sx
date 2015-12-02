@@ -1352,7 +1352,6 @@ struct cbl_file_t {
     unsigned int revlen;
     unsigned int blocksize;
     unsigned int metalen;
-    unsigned int fuck_off_valgrind;
 };
 
 struct cb_listfiles_ctx {
@@ -1636,12 +1635,9 @@ static int listfiles_setup_cb(curlev_context_t *cbdata, void *ctx, const char *h
     yactx->effective_replica = 0;
     free(yactx->frev);
     yactx->frev = NULL;
+    memset(&yactx->file, 0, sizeof(yactx->file));
     yactx->file.filesize = -1;
     yactx->file.created_at = -1;
-    yactx->file.namelen = 0;
-    yactx->file.revlen = 0;
-    yactx->file.metalen = 0;
-    yactx->file.fuck_off_valgrind = 0;
     yactx->nfiles = 0;
     sxc_meta_free(yactx->file_meta);
     yactx->file_meta = NULL;
