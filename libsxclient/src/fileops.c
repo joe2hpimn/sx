@@ -4707,6 +4707,7 @@ static sxi_job_t* remote_to_remote_fast(sxc_file_t *source, sxc_file_t *dest) {
     curlev_context_t *cbdata = NULL;
     sxc_meta_t *vmeta = NULL, *cvmeta = NULL;
     struct filter_handle *fh = NULL;
+    char *filter_cfgdir = NULL;
 
     char filter_uuid[37], filter_cfgkey[37 + 5];
     const void *mval;
@@ -4747,6 +4748,8 @@ static sxi_job_t* remote_to_remote_fast(sxc_file_t *source, sxc_file_t *dest) {
     if(sxi_volume_cfg_check(sx, source->cluster, vmeta, source->volume))
         goto remote_to_remote_fast_err;
     if(!sxc_meta_getval(vmeta, "filterActive", &mval, &mval_len)) {
+        const char *confdir;
+
         if(mval_len != 16) {
             sxi_seterr(sx, SXE_EFILTER, "Filter(s) enabled but can't handle metadata");
             goto remote_to_remote_fast_err;
@@ -4763,13 +4766,20 @@ static sxi_job_t* remote_to_remote_fast(sxc_file_t *source, sxc_file_t *dest) {
         sxc_meta_getval(vmeta, filter_cfgkey, &cfgval, &cfgval_len);
         if(cfgval_len && sxi_filter_add_cfg(fh, source->volume, cfgval, cfgval_len))
             goto remote_to_remote_fast_err;
+        confdir = sxi_cluster_get_confdir(source->cluster);
+        if(confdir) {
+            filter_cfgdir = sxi_get_filter_dir(sx, confdir, filter_uuid, source->volume);
+            if(!filter_cfgdir)
+                goto remote_to_remote_fast_err;
+        }
+
     }
 
     free(dest->remote_path);
     dest->remote_path = NULL;
 
     /* Dest path could be changed */
-    if(sxi_filemeta_process(sx, fh, NULL, dest, cvmeta)) {
+    if(sxi_filemeta_process(sx, fh, filter_cfgdir, dest, cvmeta)) {
         SXDEBUG("Failed to process source filename");
         goto remote_to_remote_fast_err;
     }
@@ -5001,6 +5011,7 @@ remote_to_remote_fast_err:
     sxi_hostlist_empty(&volhosts);
     sxi_hostlist_empty(&src_hosts);
     free(yctx);
+    free(filter_cfgdir);
 
     return job;
 }
