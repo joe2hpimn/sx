@@ -39,6 +39,9 @@ while [ $OPTNUM -le $# ]; do
     elif [ "$OPTION" = "--force-reinit" ]; then
 	FORCE_REINIT_GIVEN="yes"
 
+    elif [ "$OPTION" = "--compact" ]; then
+	COMPACT_GIVEN="yes"
+
     elif [ "$OPTION" = "--deactivate" ]; then
 	DEACTIVATE_GIVEN="yes"
 
@@ -71,6 +74,7 @@ if [ "$HELP_GIVEN" = "yes" ]; then
     echo "    --no-remote-copy    Don't make and use remote copy of sxsetup.conf"
     echo "    --bare              Create a bare (unprogrammed) node"
     echo "    --force-reinit      Overwrite existing configuration"
+    echo "    --compact           Compact the local storage of the node"
     echo "    --deactivate        Leave cluster and deactivate the node"
     echo "    --wait              Wait till rebalance finishes after joining the cluster"
     echo "    --debug             Turn on debug mode for the created node"
@@ -87,7 +91,7 @@ CFG_VERSION=3
 ETCDIR="@sysconfdir@"
 CONFIG="$ETCDIR/sxserver/sxsetup.conf"
 
-if [ "$INFO_GIVEN" = "yes" -o "$UPGRADE_GIVEN" = "yes" ]; then
+if [ "$INFO_GIVEN" = "yes" -o "$UPGRADE_GIVEN" = "yes" -o "$COMPACT_GIVEN" = "yes" ]; then
     if [ ! -f "$CONFIG" ]; then
 	echo "Not configured. You have to run sxsetup in configuration mode first."
 	exit 1
@@ -106,6 +110,13 @@ if [ "$INFO_GIVEN" = "yes" -o "$UPGRADE_GIVEN" = "yes" ]; then
 	echo "Storage location: $SX_DATA_DIR"
 	test "$SX_USE_SSL" = "yes" && echo "SSL private key: $SX_SSL_KEY_FILE"
 	echo "SX Logfile: $SX_LOG_FILE"
+	exit 0
+
+    elif [ "$COMPACT_GIVEN" = "yes" ]; then
+	echo "The node will be stopped now and started again when compacting is finished"
+	"@sbindir@/sxserver" stop
+	"@sbindir@/sxadm" node --human-readable --compact $SX_DATA_DIR
+	"@sbindir@/sxserver" start
 	exit 0
     else
 	# Update config files if needed and possible

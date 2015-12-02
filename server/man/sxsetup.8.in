@@ -35,6 +35,9 @@ Create a bare (unprogrammed) node. A bare node is ready to join a cluster. Multi
 \fB\-\-force\-reinit\fR
 With this option one can reconfigure an existing node.
 .TP
+\fB\-\-compact\fR
+This option will compact the node's data to release unused space to the system, see \fBsxadm-node\fR(1) for more information. The node will be offline during the process.
+.TP
 \fB\-\-deactivate\fR
 This option will relocate all data stored on this node to other nodes in the cluster and deactivate the node. The procedure can take more time depending on the data size and the network speed. When it's finished, the node will no longer be a member of the cluster. The local storage of the node is not deleted.
 .TP
