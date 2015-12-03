@@ -158,7 +158,10 @@ static sxc_cluster_t *getcluster_common(sxc_client_t *sx, const char *sxurl, con
 	return NULL;
     }
     if(!uri->volume || uri->path) {
-	fprintf(stderr, "ERROR: Bad path %s\n", sxurl);
+	if(!uri->volume)
+	    fprintf(stderr, "ERROR: Missing volume name\n");
+	else
+	    fprintf(stderr, "ERROR: Path after volume name is not allowed\n");
 	sxc_free_uri(uri);
 	return NULL;
     }
