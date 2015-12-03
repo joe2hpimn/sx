@@ -1084,7 +1084,7 @@ static void cb_syncvol_revs(jparse_t *J, void *ctx, int32_t num) {
 }
 
 static void cb_syncvol_meta(jparse_t *J, void *ctx, const char *string, unsigned int length) {
-    const char *key = sxi_jpath_mapkey(sxi_jpath_down(sxi_jpath_down(sxi_jparse_whereami(J))));
+    const char *key = sxi_jpath_mapkey(sxi_jpath_down(sxi_jpath_down(sxi_jpath_down(sxi_jparse_whereami(J)))));
     uint8_t val[SXLIMIT_META_MAX_VALUE_LEN];
 
     if(hex2bin(string, length, val, sizeof(val))) {
