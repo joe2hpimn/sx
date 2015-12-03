@@ -3249,6 +3249,10 @@ int main (int argc, char **argv) {
                             sxfs->need_file = 1;
                         if(!strcmp(f->shortname, "attribs")) /* FIXME: dirty hack */
                             sxfs->attribs = 1;
+                        if(!strcmp(f->uuid, "35a5404d-1513-4009-904c-6ee5b0cd8634")) {
+                            fprintf(stderr, "ERROR: The old version of this filter is no longer supported. Please create a new volume with the latest version of the aes256 filter from SX 2.x\n");
+                            goto main_err;
+                        }
                         break;
                     }
                 }
