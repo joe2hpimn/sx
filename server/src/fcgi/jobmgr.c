@@ -3661,15 +3661,17 @@ static int rplblocks_cb(curlev_context_t *cbdata, void *ctx, const void *data, s
                     unsigned int blob_size;
 
 		    if(sx_blob_get_blob(c->b, &ptr, &blob_size) ||
-                       blob_size != sizeof(revision_id.b) ||
-                       sx_blob_get_int32(c->b, &replica) ||
-		       sx_blob_get_int32(c->b, &op)) {
+                       blob_size != sizeof(revision_id.b)) {
 			WARN("Invalid block size: %d", blob_size);
+			return 1;
+                    }
+                    if (sx_blob_get_int32(c->b, &replica)) {
+			WARN("Invalid replica: %d", replica);
 			return 1;
 		    }
                     memcpy(&revision_id.b, ptr, sizeof(revision_id.b));
 
-		    s = sx_hashfs_hashop_mod(c->hashfs, &hash, NULL, &revision_id, c->itemsz, replica, op, 0);
+		    s = sx_hashfs_hashop_mod(c->hashfs, &hash, NULL, &revision_id, c->itemsz, replica, 1, 0);
 		    if(s != OK && s != ENOENT) {
 			WARN("Failed to mod hash");
 			return 1;
