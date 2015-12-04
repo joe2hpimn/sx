@@ -868,7 +868,7 @@ static int aes256_data_finish(const sxf_handle_t *handle, void **ctx, sxf_mode_t
 static int aes256_filemeta_process(const sxf_handle_t *handle, void **ctx, const char *cfgdir, const void *cfgdata, unsigned int cfgdata_len, sxc_file_t *file, sxf_filemeta_type_t filemeta_type, const char *filename, char **new_filename, sxc_meta_t *file_meta, sxc_meta_t *custom_volume_meta)
 {
     ssize_t bytes;
-    char fmeta_padded[SXLIMIT_MAX_FILENAME_LEN + 19 + 1];
+    char fmeta_padded[SXLIMIT_MAX_FILENAME_LEN + 1 + 20 + 1];
     const void *meta;
     unsigned int meta_len;
     sxf_action_t action = SXF_ACTION_DATA_END;
@@ -908,11 +908,12 @@ static int aes256_filemeta_process(const sxf_handle_t *handle, void **ctx, const
 	SHA_CTX sctx;
         unsigned char output_bin[SHA_DIGEST_LENGTH];
         char *output;
-	char fname_enc[SXLIMIT_MAX_FILENAME_LEN + 19 + 1 + IV_SIZE + AES_BLOCK_SIZE + MAC_SIZE];
+	unsigned char fname_enc[sizeof(fmeta_padded) + IV_SIZE + AES_BLOCK_SIZE + MAC_SIZE];
 	struct aes256_ctx *actx = *ctx;
 
 	bytes = snprintf(fmeta_padded, sizeof(fmeta_padded), "%s:%llu", filename, (unsigned long long) sxc_file_get_size(file));
-	memset(&fmeta_padded[bytes], 0, sizeof(fmeta_padded) - bytes);
+	if(bytes > 0 && bytes < sizeof(fmeta_padded))
+	    memset(&fmeta_padded[bytes], 0, sizeof(fmeta_padded) - bytes);
 
 	bytes = aes256_data_process(handle, *ctx, fmeta_padded, sizeof(fmeta_padded), fname_enc, sizeof(fname_enc), SXF_MODE_UPLOAD, &action);
 	if(bytes <= 0)
