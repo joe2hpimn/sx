@@ -1360,12 +1360,8 @@ struct cb_listfiles_ctx {
     jparse_t *J;
     sxc_client_t *sx;
     FILE *f;
-    uint64_t volume_size;
-    int64_t volume_used_size;
     char *frev;
     struct cbl_file_t file;
-    unsigned int replica;
-    unsigned int effective_replica;
     unsigned int nfiles;
     const char *etag_in;
     char *etag_out;
@@ -1375,10 +1371,6 @@ struct cb_listfiles_ctx {
 
 /*
 {
-   "volumeSize":1234,
-   "volumeUsedSize":1234,
-   "replicaCount":2,
-   "effectiveReplicaCount":1,
    "fileList":{
        "MSDOS.SYS":{
            "fileSize":65536,
@@ -1401,51 +1393,6 @@ struct cb_listfiles_ctx {
    }
 }
 */
-
-static void cb_listfiles_volsize(jparse_t *J, void *ctx, int64_t num) {
-    struct cb_listfiles_ctx *yactx = (struct cb_listfiles_ctx *)ctx;
-
-    if(num <= 0) {
-	sxi_jparse_cancel(J, "Invalid volume size received");
-	yactx->err = SXE_ECOMM;
-	return;
-    }
-    yactx->volume_size = num;
-}
-
-static void cb_listfiles_usedvolsize(jparse_t *J, void *ctx, int64_t num) {
-    struct cb_listfiles_ctx *yactx = (struct cb_listfiles_ctx *)ctx;
-
-    if(num < 0) {
-	sxi_jparse_cancel(J, "Invalid used volume size received");
-	yactx->err = SXE_ECOMM;
-	return;
-    }
-    yactx->volume_used_size = num;
-}
-
-static void cb_listfiles_replica(jparse_t *J, void *ctx, int32_t num) {
-    struct cb_listfiles_ctx *yactx = (struct cb_listfiles_ctx *)ctx;
-
-    if(num <= 0) {
-	sxi_jparse_cancel(J, "Invalid replica count received");
-	yactx->err = SXE_ECOMM;
-	return;
-    }
-    yactx->replica = num;
-}
-
-static void cb_listfiles_effreplica(jparse_t *J, void *ctx, int32_t num) {
-    struct cb_listfiles_ctx *yactx = (struct cb_listfiles_ctx *)ctx;
-
-    if(num <= 0) {
-	sxi_jparse_cancel(J, "Invalid effective replica count received");
-	yactx->err = SXE_ECOMM;
-	return;
-    }
-    yactx->effective_replica = num;
-}
-
 
 static void cb_listfiles_file_size(jparse_t *J, void *ctx, int64_t num) {
     const char *key = sxi_jpath_mapkey(sxi_jpath_down(sxi_jparse_whereami(J)));
@@ -1629,10 +1576,6 @@ static int listfiles_setup_cb(curlev_context_t *cbdata, void *ctx, const char *h
     }
 
     rewind(yactx->f);
-    yactx->volume_size = 0;
-    yactx->volume_used_size = 0;
-    yactx->replica = 0;
-    yactx->effective_replica = 0;
     free(yactx->frev);
     yactx->frev = NULL;
     memset(&yactx->file, 0, sizeof(yactx->file));
@@ -1707,20 +1650,16 @@ char *sxi_ith_slash(char *s, unsigned int i) {
     return NULL;
 }
 
-static sxc_cluster_lf_t *sxi_cluster_listfiles(sxc_cluster_t *cluster, const char *volume, const char *glob_pattern, int recursive, int64_t *volume_used_size, int64_t *volume_size, unsigned int *replica_count, unsigned int *effective_replica_count, unsigned int *nfiles, int reverse, const char *etag_in, char **etag_out) {
+static sxc_cluster_lf_t *sxi_cluster_listfiles(sxc_cluster_t *cluster, const char *volume, const char *glob_pattern, int recursive, unsigned int *nfiles, int reverse, const char *etag_in, char **etag_out) {
     const struct jparse_actions acts = {
 	JPACTS_STRING(
 		      JPACT(cb_listfiles_file_rev, JPKEY("fileList"), JPANYKEY, JPKEY("fileRevision")),
 		      JPACT(cb_listfiles_file_meta, JPKEY("fileList"), JPANYKEY, JPKEY("fileMeta"), JPANYKEY)
 		      ),
 	JPACTS_INT32(
-		     JPACT(cb_listfiles_replica, JPKEY("replicaCount")),
-		     JPACT(cb_listfiles_effreplica, JPKEY("effectiveReplicaCount")),
 		     JPACT(cb_listfiles_file_bs, JPKEY("fileList"), JPANYKEY, JPKEY("blockSize"))
 		     ),
 	JPACTS_INT64(
-		     JPACT(cb_listfiles_volsize, JPKEY("volumeSize")),
-		     JPACT(cb_listfiles_usedvolsize, JPKEY("volumeUsedSize")),
 		     JPACT(cb_listfiles_file_size, JPKEY("fileList"), JPANYKEY, JPKEY("fileSize")),
 		     JPACT(cb_listfiles_file_ctime, JPKEY("fileList"), JPANYKEY, JPKEY("createdAt"))
 		     ),
@@ -1984,18 +1923,6 @@ static sxc_cluster_lf_t *sxi_cluster_listfiles(sxc_cluster_t *cluster, const cha
         return NULL;
     }
 
-    if(volume_used_size)
-        *volume_used_size = yctx.volume_used_size;
-
-    if(volume_size)
-	*volume_size = yctx.volume_size;
-
-    if(replica_count)
-	*replica_count = yctx.replica;
-
-    if(effective_replica_count)
-	*effective_replica_count = yctx.effective_replica > 0 ? yctx.effective_replica : yctx.replica;
-
     if(nfiles)
 	*nfiles = yctx.nfiles;
 
@@ -2036,7 +1963,7 @@ static int file_entry_cmp(const void *a, const void *b) {
    return strcmp(sxc_file_get_path(*f1), sxc_file_get_path(*f2));
 }
 
-sxc_cluster_lf_t *sxc_cluster_listfiles_etag(sxc_cluster_t *cluster, const char *volume, const char *glob_pattern, int recursive, int64_t *volume_used_size, int64_t *volume_size, unsigned int *replica_count, unsigned int *effective_replica_count, unsigned int *nfiles, int reverse, const char *etag_file) {
+sxc_cluster_lf_t *sxc_cluster_listfiles_etag(sxc_cluster_t *cluster, const char *volume, const char *glob_pattern, int recursive, unsigned int *nfiles, int reverse, const char *etag_file) {
     sxc_cluster_lf_t *ret;
     const char *confdir = sxi_cluster_get_confdir(cluster);
     char *path = NULL;
@@ -2076,7 +2003,7 @@ sxc_cluster_lf_t *sxc_cluster_listfiles_etag(sxc_cluster_t *cluster, const char 
     if (*etag)
         SXDEBUG("ETag in: %s", etag);
 
-    ret = sxi_cluster_listfiles(cluster, volume, glob_pattern, recursive, volume_used_size, volume_size, replica_count, effective_replica_count, nfiles, reverse, *etag ? etag : NULL, &etag_out);
+    ret = sxi_cluster_listfiles(cluster, volume, glob_pattern, recursive, nfiles, reverse, *etag ? etag : NULL, &etag_out);
     SXDEBUG("ETag out: %s", etag_out ? etag_out : "");
 
     /* Returned list requires processing filenames, will need to iterate the list and process it first */
@@ -2161,8 +2088,8 @@ sxc_cluster_lf_t *sxc_cluster_listfiles_etag(sxc_cluster_t *cluster, const char 
     return ret;
 }
 
-sxc_cluster_lf_t *sxc_cluster_listfiles(sxc_cluster_t *cluster, const char *volume, const char *glob_pattern, int recursive, int64_t *volume_used_size, int64_t *volume_size, unsigned int *replica_count, unsigned int *effective_replica_count, unsigned int *nfiles, int reverse) {
-    return sxc_cluster_listfiles_etag(cluster, volume, glob_pattern, recursive, volume_used_size, volume_size, replica_count, effective_replica_count, nfiles, reverse, NULL);
+sxc_cluster_lf_t *sxc_cluster_listfiles(sxc_cluster_t *cluster, const char *volume, const char *glob_pattern, int recursive, unsigned int *nfiles, int reverse) {
+    return sxc_cluster_listfiles_etag(cluster, volume, glob_pattern, recursive, nfiles, reverse, NULL);
 }
 
 /* Perform listed file postprocessing, return 1 when file can be listed, return 2 when it is skipped due to pattern matching fail. Return negative

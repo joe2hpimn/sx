@@ -339,7 +339,7 @@ static int delete_files(sxc_client_t *sx, sxc_cluster_t *cluster, const char *vo
         goto delete_files_err;
     }
     if(remote_path[strlen(remote_path)-1] == '/') {
-        file_list = sxc_cluster_listfiles(cluster, volname ? volname : uri->volume, volname ? remote_path : uri->path, 1, NULL, NULL, NULL, NULL, NULL, 0);
+        file_list = sxc_cluster_listfiles(cluster, volname ? volname : uri->volume, volname ? remote_path : uri->path, 1, NULL, 0);
         if(!file_list) {
             if(!hide_errors)
                 ERROR("Cannot get files list: %s", sxc_geterrmsg(sx));
@@ -517,7 +517,7 @@ static int find_file(sxc_client_t *sx, sxc_cluster_t *cluster, const char *remot
         ERROR("%s", sxc_geterrmsg(sx));
         return ret;
     }
-    file_list = sxc_cluster_listfiles(cluster, uri->volume, uri->path, 0, NULL, NULL, NULL, NULL, NULL, 0);
+    file_list = sxc_cluster_listfiles(cluster, uri->volume, uri->path, 0, NULL, 0);
     if(!file_list) {
         if(!hide_errors)
             ERROR("Cannot get volume files list: %s", sxc_geterrmsg(sx));

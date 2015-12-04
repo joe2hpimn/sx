@@ -2916,7 +2916,7 @@ static int check_password (sxc_client_t *sx, sxc_cluster_t *cluster, sxfs_state_
     sxc_cluster_lf_t *flist;
     sxc_file_list_t *rmlist = NULL;
 
-    flist = sxc_cluster_listfiles(cluster, sxfs->uri->volume, "", 0, NULL, NULL, NULL, NULL, &nfiles, 0);
+    flist = sxc_cluster_listfiles(cluster, sxfs->uri->volume, "", 0, &nfiles, 0);
     if(!flist) {
         fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
         return ret;
@@ -3426,7 +3426,7 @@ int main (int argc, char **argv) {
                 sprintf(path, "%s", fargs.argv[i]+7);
                 if(path[strlen(path)-1] == '/')
                     path[strlen(path)-1] = '\0';
-                flist = sxc_cluster_listfiles(cluster, sxfs->uri->volume, path, 0, NULL, NULL, NULL, NULL, NULL, 0);
+                flist = sxc_cluster_listfiles(cluster, sxfs->uri->volume, path, 0, NULL, 0);
                 if(!flist) {
                     fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
                     break;

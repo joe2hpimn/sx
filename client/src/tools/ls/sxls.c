@@ -326,7 +326,7 @@ int main(int argc, char **argv) {
                 ret = 1;
             }
 	} else {
-	    sxc_cluster_lf_t *fl = sxc_cluster_listfiles_etag(cluster, u->volume, u->path, args.recursive_flag, NULL, NULL, NULL, NULL, NULL, 0, args.etag_arg);
+	    sxc_cluster_lf_t *fl = sxc_cluster_listfiles_etag(cluster, u->volume, u->path, args.recursive_flag, NULL, 0, args.etag_arg);
 	    if(fl) {
 		while(1) {
                     sxc_file_t *file;

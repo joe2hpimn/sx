@@ -208,7 +208,7 @@ void fcgi_list_volume(const sx_hashfs_volume_t *vol) {
         return;
     CGI_PUTS("{\"volumeSize\":");
     CGI_PUTLL(vol->size);
-    CGI_PRINTF(",\"replicaCount\":%u,\"effectiveReplicaCount\":%u,\"volumeUsedSize\":", vol->max_replica, vol->effective_replica);
+    CGI_PUTS(",\"volumeUsedSize\":");
     CGI_PUTLL(vol->cursize);
 
     s = sx_hashfs_list_first(hashfs, vol, get_arg("filter"), &file, has_arg("recursive"), get_arg("after"), 0);
