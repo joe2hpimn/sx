@@ -11616,7 +11616,7 @@ rc_ty sx_hashfs_file_delete(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, co
             if (qbind_int64(h->qm_ins[mdb], ":volume", volume->id) ||
                 qbind_text(h->qm_ins[mdb], ":name", file) ||
                 qbind_text(h->qm_ins[mdb], ":revision", revision) ||
-                qbind_null(h->qm_ins[mdb], ":revision_id") ||
+                qbind_blob(h->qm_ins[mdb], ":revision_id", "", 0) ||
                 qbind_int64(h->qm_ins[mdb], ":size", -1) ||
                 qbind_int64(h->qm_ins[mdb], ":age", -1) ||
                 qbind_blob(h->qm_ins[mdb], ":hashes", "", 0) ||
