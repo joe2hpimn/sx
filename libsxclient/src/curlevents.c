@@ -2335,6 +2335,7 @@ static int compute_headers_url(curl_events_t *e, curlev_t *ev, curlev_t *src)
         {"Expect", NULL},
         {"Date", datebuf },
         {"Authorization", auth },
+        {"SX-Cluster-Name", sxi_conns_get_sslname(e->conns) ? sxi_conns_get_sslname(e->conns) : sxi_conns_get_dnsname(e->conns)},
         {"If-None-Match", ev->ctx->recv_ctx.etag},
         { content_type_field, content_type_value }
     };
