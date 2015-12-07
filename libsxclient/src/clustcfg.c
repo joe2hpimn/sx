@@ -1967,6 +1967,7 @@ sxc_cluster_lf_t *sxc_cluster_listfiles_etag(sxc_cluster_t *cluster, const char 
     sxc_cluster_lf_t *ret;
     const char *confdir = sxi_cluster_get_confdir(cluster);
     char *path = NULL;
+    unsigned int path_size = 0;
     char etag[1024];
     char *etag_out = NULL;
     sxc_client_t *sx = sxi_cluster_get_client(cluster);
@@ -1977,19 +1978,13 @@ sxc_cluster_lf_t *sxc_cluster_listfiles_etag(sxc_cluster_t *cluster, const char 
         return NULL;
     }
     if (etag_file && confdir) {
-        unsigned n = strlen(confdir) + strlen(volume) + strlen(etag_file) + sizeof("/volumes//etag/");
-        path = malloc(n);
+        path_size = strlen(confdir) + strlen(volume) + strlen(etag_file) + sizeof("/volumes//etag/");
+        path = malloc(path_size);
         if (!path) {
             cluster_err(SXE_EMEM, "Cannot allocate etag path");
             return NULL;
         }
-        snprintf(path, n, "%s/volumes/%s", confdir, volume);
-        if(access(path, F_OK) && mkdir(path, 0700))
-                sxi_notice(sx, "Failed to mkdir %s", path);
-        snprintf(path, n, "%s/volumes/%s/etag", confdir, volume);
-        if(access(path, F_OK) && mkdir(path, 0700))
-                sxi_notice(sx, "Failed to mkdir %s", path);
-        snprintf(path, n, "%s/volumes/%s/etag/%s", confdir, volume, etag_file);
+        snprintf(path, path_size, "%s/volumes/%s/etag/%s", confdir, volume, etag_file);
         SXDEBUG("Trying to load ETag from %s", path);
         FILE *f = fopen(path, "r");
         if (f) {
@@ -2075,6 +2070,13 @@ sxc_cluster_lf_t *sxc_cluster_listfiles_etag(sxc_cluster_t *cluster, const char 
     }
 
     if (etag_out && confdir && path) {
+        snprintf(path, path_size, "%s/volumes/%s", confdir, volume);
+        if(access(path, F_OK) && mkdir(path, 0700))
+            sxi_notice(sx, "Failed to mkdir %s", path);
+        snprintf(path, path_size, "%s/volumes/%s/etag", confdir, volume);
+        if(access(path, F_OK) && mkdir(path, 0700))
+            sxi_notice(sx, "Failed to mkdir %s", path);
+        snprintf(path, path_size, "%s/volumes/%s/etag/%s", confdir, volume, etag_file);
         FILE *f = fopen(path, "w");
         if (f) {
             if (fwrite(etag_out, strlen(etag_out), 1, f) != 1)
