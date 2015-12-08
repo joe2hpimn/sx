@@ -3655,7 +3655,6 @@ static int rplblocks_cb(curlev_context_t *cbdata, void *ctx, const void *data, s
 		while(todo--) {
                     sx_hash_t revision_id;
 		    unsigned int replica;
-                    int32_t op;
 		    rc_ty s;
 		    const void *ptr;
                     unsigned int blob_size;
