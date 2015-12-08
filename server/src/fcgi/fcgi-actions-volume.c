@@ -1596,19 +1596,25 @@ static void cb_volmod_owner(jparse_t *J, void *ctx, const char *string, unsigned
     c->newowner[length] = '\0';
 }
 
+static void cb_volmod_meta_begin(jparse_t *J, void *ctx) {
+    struct volmod_ctx *c = (struct volmod_ctx *)ctx;
+
+    if(c->meta) {
+        sxi_jparse_cancel(J, "Multiple custom volume meta maps provided");
+        return;
+    }
+    c->meta = sx_blob_new();
+    if(!c->meta) {
+        sxi_jparse_cancel(J, "Out of memory processing custom metadata");
+        return;
+    }
+    c->nmeta = 0;
+}
+
 static void cb_volmod_meta(jparse_t *J, void *ctx, const char *string, unsigned int length) {
     const char *key = sxi_jpath_mapkey(sxi_jpath_down(sxi_jparse_whereami(J)));
     struct volmod_ctx *c = (struct volmod_ctx *)ctx;
     uint8_t metaval[SXLIMIT_META_MAX_VALUE_LEN];
-
-    if(!c->meta) {
-	c->meta = sx_blob_new();
-	if(!c->meta) {
-	    sxi_jparse_cancel(J, "Out of memory processing custom metadata");
-	    return;
-	}
-	c->nmeta = 0;
-    }
 
     if(sxi_hex2bin(string, length, metaval, sizeof(metaval))) {
 	sxi_jparse_cancel(J, "Invalid meta value on '%.*s'", string, length);
@@ -1663,7 +1669,10 @@ const struct jparse_actions volmod_acts = {
 		 ),
     JPACTS_INT32(
 		 JPACT(cb_volmod_revs, JPKEY("maxRevisions"))
-		 )
+		 ),
+    JPACTS_MAP_BEGIN(
+                 JPACT(cb_volmod_meta_begin, JPKEY("customVolumeMeta"))
+                 )
 };
 
 const job_2pc_t volmod_spec = {
