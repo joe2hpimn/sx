@@ -11613,10 +11613,12 @@ rc_ty sx_hashfs_file_delete(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, co
             if (qbegin(h->metadb[mdb]))
                 return FAIL_EINTERNAL;
             sqlite3_reset(h->qm_ins[mdb]);
+            sx_hash_t revision_id;
             if (qbind_int64(h->qm_ins[mdb], ":volume", volume->id) ||
                 qbind_text(h->qm_ins[mdb], ":name", file) ||
                 qbind_text(h->qm_ins[mdb], ":revision", revision) ||
-                qbind_blob(h->qm_ins[mdb], ":revision_id", "", 0) ||
+                sx_unique_fileid(sx_hashfs_client(h), revision, &revision_id) ||
+                qbind_blob(h->qm_ins[mdb], ":revision_id", revision_id.b, sizeof(revision_id.b)) ||
                 qbind_int64(h->qm_ins[mdb], ":size", -1) ||
                 qbind_int64(h->qm_ins[mdb], ":age", -1) ||
                 qbind_blob(h->qm_ins[mdb], ":hashes", "", 0) ||
