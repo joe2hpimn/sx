@@ -101,12 +101,13 @@ if [ "$INFO_GIVEN" = "yes" -o "$UPGRADE_GIVEN" = "yes" -o "$COMPACT_GIVEN" = "ye
 	exit 1
     fi
     . $CONFIG
+    test -z "$SX_NO_ROOT" && OWNERFLAG="--owner=$SX_SERVER_USER:$SX_SERVER_GROUP"
     if [ "$INFO_GIVEN" = "yes" ]; then
 	echo "--- SX INFO ---"
 	echo "SX Version: `@sbindir@/sx.fcgi --version | cut -d\  -f2`"
 	echo "Cluster name: $SX_CLUSTER_NAME"
 	echo "Cluster port: $SX_PORT"
-	@sbindir@/sxadm node --info --human-readable $SX_DATA_DIR | grep -v "HashFS Version"
+	@sbindir@/sxadm node $OWNERFLAG --info --human-readable $SX_DATA_DIR | grep -v "HashFS Version"
 	echo "Storage location: $SX_DATA_DIR"
 	test "$SX_USE_SSL" = "yes" && echo "SSL private key: $SX_SSL_KEY_FILE"
 	echo "SX Logfile: $SX_LOG_FILE"
@@ -115,7 +116,7 @@ if [ "$INFO_GIVEN" = "yes" -o "$UPGRADE_GIVEN" = "yes" -o "$COMPACT_GIVEN" = "ye
     elif [ "$COMPACT_GIVEN" = "yes" ]; then
 	echo "The node will be stopped now and started again when compacting is finished"
 	"@sbindir@/sxserver" stop
-	"@sbindir@/sxadm" node --human-readable --compact $SX_DATA_DIR
+	"@sbindir@/sxadm" node $OWNERFLAG --human-readable --compact $SX_DATA_DIR
 	"@sbindir@/sxserver" start
 	exit 0
     else
@@ -987,7 +988,7 @@ if [ "$DEACTIVATE_GIVEN" = "yes" ]; then
 	fi
     fi
 
-    REMOVENODE=`@sbindir@/sxadm node --get-definition $SX_DATA_DIR`
+    REMOVENODE=`@sbindir@/sxadm node $OWNERFLAG --get-definition $SX_DATA_DIR`
     cluster_modify || exit 1
 
     echo "Waiting for cluster to finish data relocation..."
@@ -1259,6 +1260,8 @@ if [ "$SX_NO_ROOT" = "yes" ] ; then
     sed -e "s/^user.*/#user $SX_SERVER_USER $SX_SERVER_GROUP;/"\
     "$ETCDIR/sxserver/sxhttpd.conf" >$OUT_TMP
     cp $OUT_TMP "$ETCDIR/sxserver/sxhttpd.conf"
+else
+    OWNERFLAG="--owner=$SX_SERVER_USER:$SX_SERVER_GROUP"
 fi
 
 if [ ! -f "$SX_DATA_DIR/hashfs.db" ]; then
@@ -1268,7 +1271,6 @@ if [ ! -f "$SX_DATA_DIR/hashfs.db" ]; then
     mkdir -p "`dirname $SX_DATA_DIR`"
     test -n "$SX_ADMIN_KEY" && echo "$SX_ADMIN_KEY" > $ADMINKEY_TMP
     test -n "$SX_CLUSTER_UUID" && UUIDFLAG="--cluster-uuid=$SX_CLUSTER_UUID"
-    test -z "$SX_NO_ROOT" && OWNERFLAG="--owner=$SX_SERVER_USER:$SX_SERVER_GROUP"
     test -n "$SX_CLUSTER_KEY" && echo "$SX_CLUSTER_KEY" > $CLUSTKEY_TMP && KEYFLAG="--cluster-key=$CLUSTKEY_TMP"
 
     if [ "$BARE_GIVEN" = "yes" ]; then
@@ -1304,9 +1306,9 @@ if [ ! -f "$SX_DATA_DIR/hashfs.db" ]; then
 	else
 	    NEWNODE="$SX_NODE_SIZE/$SX_NODE_IP"
 	fi
-	echo "SX_CLUSTER_UUID=`@sbindir@/sxadm node --info $SX_DATA_DIR | grep 'Cluster UUID' | cut -d\  -f 3`" >> $CONFIG
-	echo "SX_CLUSTER_KEY=`@sbindir@/sxadm node --info $SX_DATA_DIR | grep 'Cluster key' | cut -d\  -f 3`" >> $CONFIG
-	echo "SX_ADMIN_KEY=`@sbindir@/sxadm node --info $SX_DATA_DIR | grep 'Admin key' | cut -d\  -f 3`" >> $CONFIG
+	echo "SX_CLUSTER_UUID=`@sbindir@/sxadm node $OWNERFLAG --info $SX_DATA_DIR | grep 'Cluster UUID' | cut -d\  -f 3`" >> $CONFIG
+	echo "SX_CLUSTER_KEY=`@sbindir@/sxadm node $OWNERFLAG --info $SX_DATA_DIR | grep 'Cluster key' | cut -d\  -f 3`" >> $CONFIG
+	echo "SX_ADMIN_KEY=`@sbindir@/sxadm node $OWNERFLAG --info $SX_DATA_DIR | grep 'Admin key' | cut -d\  -f 3`" >> $CONFIG
 
 
 	echo "Bare node created. Use 'sxadm cluster --mod' to join it to the cluster"
@@ -1353,9 +1355,9 @@ if [ ! -f "$SX_DATA_DIR/hashfs.db" ]; then
 	    exit 1
 	fi
 
-	echo "SX_CLUSTER_UUID=`@sbindir@/sxadm node --info $SX_DATA_DIR | grep 'Cluster UUID' | cut -d\  -f 3`" >> $CONFIG
-	echo "SX_CLUSTER_KEY=`@sbindir@/sxadm node --info $SX_DATA_DIR | grep 'Cluster key' | cut -d\  -f 3`" >> $CONFIG
-	SX_ADMIN_KEY="`@sbindir@/sxadm node --info $SX_DATA_DIR | grep 'Admin key' | cut -d\  -f 3`"
+	echo "SX_CLUSTER_UUID=`@sbindir@/sxadm node $OWNERFLAG --info $SX_DATA_DIR | grep 'Cluster UUID' | cut -d\  -f 3`" >> $CONFIG
+	echo "SX_CLUSTER_KEY=`@sbindir@/sxadm node $OWNERFLAG --info $SX_DATA_DIR | grep 'Cluster key' | cut -d\  -f 3`" >> $CONFIG
+	SX_ADMIN_KEY="`@sbindir@/sxadm node $OWNERFLAG --info $SX_DATA_DIR | grep 'Admin key' | cut -d\  -f 3`"
 	echo "SX_ADMIN_KEY=$SX_ADMIN_KEY" >> $CONFIG
 
 	"@sbindir@/sxserver" start
@@ -1479,7 +1481,7 @@ else
     # TODO loopback but remember what I typed
 fi
 
-"@sbindir@/sxadm" node --info --human-readable "$SX_DATA_DIR" | grep -v "HashFS Version"
+"@sbindir@/sxadm" node $OWNERFLAG --info --human-readable "$SX_DATA_DIR" | grep -v "HashFS Version"
 
 rm -rf $SXSETUP_TMPDIR
 trap - EXIT INT
@@ -1504,7 +1506,7 @@ else
     echo "This node: $SX_NODE_IP"
 fi
 echo "Port number: $SX_PORT"
-"@sbindir@/sxadm" node --info --human-readable "$SX_DATA_DIR" | grep -v "HashFS Version"
+"@sbindir@/sxadm" node $OWNERFLAG --info --human-readable "$SX_DATA_DIR" | grep -v "HashFS Version"
 echo "Storage location: $SX_DATA_DIR"
 echo "Run as user: $SX_SERVER_USER"
 echo "Sockets and pidfiles in: $SX_RUN_DIR"
