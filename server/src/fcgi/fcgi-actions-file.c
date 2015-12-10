@@ -225,7 +225,7 @@ static void cb_newfile_addmeta(jparse_t *J, void *ctx, const char *string, unsig
     }
 
     c->rc = sx_hashfs_putfile_putmeta(hashfs, metakey, metavalue, length / 2);
-    if(sx_hashfs_putfile_putmeta(hashfs, metakey, metavalue, length / 2)) {
+    if(c->rc) {
 	const char *reason = msg_get_reason();
 	sxi_jparse_cancel(J, "'%s'", reason ? reason : "Invalid file metadata");
 	return;
