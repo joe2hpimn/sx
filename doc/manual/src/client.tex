@@ -169,7 +169,8 @@ $ sxls -lH @jeff
 \end{lstlisting}
 
 \subsection{sxrev: manage file revisions}
-The \SX volumes can be configured\footnote{See \fref{sec:volumes} on how
+The \SX volumes can be configured\footnote{See
+{\ifpdf\fref{sec:volumes}\else\ref{sec:volumes}\fi} on how
 to create and configure volumes.} to keep multiple revisions of files. For
 example, if a volume was created with an option to keep 3 revisions, every
 time a specific file gets modified the previous copy will be preserved and
@@ -236,3 +237,21 @@ by issuing the following command:
 $ sxvol modify --max-revisions=5 @jeff/vol-jeff-rev
 Volume revisions limit changed to 5
 \end{lstlisting}
+
+\section{Mounting remote volumes}
+For systems that support the FUSE library, \SX provides a tool called
+\verb+sxfs+, which allows mounting remote volumes as local filesystems.
+Run the following command to mount the remote volume with default settings:
+\begin{lstlisting}
+$ mkdir ~/vol-jeff
+$ sxfs @jeff/vol-jeff ~/vol-jeff
+Using default tempdir: /var/tmp/sxfs-20151203162702-GYDfg4
+\end{lstlisting}
+By default \verb+sxfs+ will wait for each operation and report the result
+to the application performing the action (eg. \verb+cp+). When the option
+\verb+--use-queues+ is enabled, write and delete operations will be queued
+and performed in the background. This improves the interaction with the
+mounted volume, however errors might not be reported back to the application.
+See the \verb+sxfs(1)+ manpage for information about all available options.
+Depending on the OS, run \verb+fusermount -u+ or \verb+umount+ on the mount
+point to unmount the filesystem.

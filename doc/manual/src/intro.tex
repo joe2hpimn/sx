@@ -18,6 +18,10 @@ of the great features of Skylable \SX include:
     different levels of replica for different data and find the perfect
     balance between reliability and efficiency.
 
+    \item \textbf{Rack Awareness}\\
+    Ensure data gets replicated across different racks or regions by grouping
+    nodes into zones.
+
     \item \textbf{Deduplication}\\
     If you upload 10 copies of the same data, that data takes the same
     space as 1 copy. If you upload 10 files, which only differ in a few bytes,
@@ -26,12 +30,12 @@ of the great features of Skylable \SX include:
 
     \item \textbf{Encryption}\\
     Client-side encryption with AES256, HTTPS communication, and all the
-    security best practices to keep your data is safe.
+    security best practices to keep your data safe.
 
     \item \textbf{Revisions and undelete}\\
     \SX can optionally keep multiple revisions of your files and allow you to
-    go back in time to any version of your files. You can also restore a file
-    that has been accidentally deleted.
+    go back in time to previous versions of your files. You can also restore
+    a file that has been accidentally deleted.
 
     \item \textbf{S3 Support}\\
     Need a drop-in replacement for S3? Install \SX together with LibreS3 and
@@ -47,14 +51,12 @@ of the great features of Skylable \SX include:
 This manual covers the open-source Skylable \SX software for UNIX platforms.
 \SX is used to create data clusters and forms the base for the Skylable
 platform, which consists of multiple components as shown on \ifpdf\fref{fig:components}\else\ref{fig:components}.\fi
-\ifpdf
 \begin{figure}
     \centering
     \input{tikz_components.tex}
     \caption{Skylable cloud ecosystem}
     \label{fig:components}
 \end{figure}
-\fi
 With Skylable \SX one can build a cloud consisting of many nodes, which can
 be accessed in different ways and from multiple platforms. The client
 applications include command-line tools, which are part of the Skylable \SX
@@ -75,6 +77,11 @@ favourite files automatically updated.
 \textbf{\SX Web} provides a web interface to the cloud. Users can access all their
 data right from web browsers. \SX Web additionally provides an easy way to
 share files with other people.
+
+\textbf{\SX Console} provides a web-based management console for the cluster. The
+cluster administrators can perform all regular operations right from a browser.
+\SX Console makes it easy to manage users, volumes, monitor health and status
+of the cluster.
 
 Finally, with \textbf{LibreS3}, the Skylable cloud becomes available to clients
 compatible with the S3 protocol. LibreS3 implements a large subset of the

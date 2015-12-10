@@ -28,6 +28,7 @@ top color= white, text=black,minimum width=2em]
 
 \node[sxclient] (sxtools) [below of=sx3] {sxcp, sxls\\ \ldots};
 \node[sxclient] (sxadm) [below left of=sx3] {sxadm};
+\node[sxapp] (sxconsole) [left of=sxadm] {\SX Console};
 
 \node[sxapp] (sxweb) [right of=sxtools] {\SX Web};
 
@@ -54,6 +55,7 @@ minimum height=15em, minimum width=15em] (sx)  at ($(sx2)!0.5!(sx4)$) {};
 (sxdrive3) edge [<->] (sx.315)
 (sxtools) edge [<->] (sx.270)
 (sxadm) edge [<->] (sx.225)
+(sxconsole) edge [<->] (sx.210)
 (sxweb) edge [<->] (sx.300)
 
 ;   

@@ -1,3 +1,19 @@
+2.0
+---
+
+Skylable SX 2.0 brings major new functionalities, such as:
+
+  * Support for zone-based data distribution and replication (rack-awareness)
+  * Initial implementation of the Raft consensus algorithm to automate
+    cluster healing
+  * sxfs: a FUSE-based filesystem client to mount SX volumes as local
+    filesystems
+  * Intra-cluster communication is now handled on dedicated sockets with
+    reserved workers for improved reliability
+  * New 'aes256' filter with support for filename encryption
+  * Support for compacting of local storage ('sxsetup --compact')
+  * Many other improvements and bugfixes
+
 1.2
 ---
 

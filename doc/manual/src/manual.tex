@@ -11,10 +11,10 @@
 \let\fref\undefined
 \usepackage{fancyref}
 \usetikzlibrary{arrows,shapes,calc}
-\ifpdf
-\usepackage[linktocpage,hyperfootnotes=false]{hyperref}
 \definecolor{skylableblue}{rgb}{0,.467,.757}
 \definecolor{lightblue}{rgb}{.835,.910,.965}
+\ifpdf
+\usepackage[linktocpage,hyperfootnotes=false]{hyperref}
 \makeatletter
 \sloppy
 \newlength\dlf@normtxtw
@@ -62,17 +62,19 @@
 \begin{document}
 \pagestyle{empty}
 
-\ifpdf
 \begin{center}
     \includegraphics[width=120mm]{logo}\\
     \vspace{4cm}
-    \rule{\textwidth}{1.6pt}\vspace*{-\baselineskip}\vspace*{2pt}
-    \rule{\textwidth}{0.4pt}\\[\baselineskip]
+    \ifpdf
+        \rule{\textwidth}{1.6pt}\vspace*{-\baselineskip}\vspace*{2pt}
+        \rule{\textwidth}{0.4pt}\\[\baselineskip]
+    \fi
     {\fontsize{40}{50}\bfseries\scshape \SX Manual}
-    \rule{\textwidth}{0.4pt}\vspace*{-\baselineskip}\vspace{3.2pt}
-    \rule{\textwidth}{1.6pt}\\[\baselineskip]
+    \ifpdf
+        \rule{\textwidth}{0.4pt}\vspace*{-\baselineskip}\vspace{3.2pt}
+        \rule{\textwidth}{1.6pt}\\[\baselineskip]
+    \fi
 \end{center}
-\fi
 \lstset {
     escapeinside=\^\^,
     frame=single,

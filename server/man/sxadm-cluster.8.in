@@ -32,7 +32,7 @@ Shows configuration of the cluster, its list of nodes and current operations.
 \fB\-M\fR, \fB\-\-modify\fR
 Modify an existing SX cluster. This option allows adding, removing and resizing nodes. It operates on a list of nodes - the current list can be obtained with \fB\-\-info\fR.
 .TP
-\fB\-s\fR, \fB\-\-status\fR
+\fB\-l\fR, \fB\-\-list\-nodes\fR
 Show current status of all nodes. This includes disk usage, memory usage, software version, and others.
 .TP
 \fB\-L\fR, \fB\-\-lock\fR
