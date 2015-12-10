@@ -564,6 +564,31 @@ int main(int argc, char **argv) {
         }
 
         if(modify_args.reset_custom_meta_given) {
+            unsigned int nfiles = 0;
+            sxc_cluster_lf_t *lf;
+
+            if(modify_args.config_dir_given && sxc_set_confdir(sx, modify_args.config_dir_arg)) {
+                fprintf(stderr, "ERROR: Could not set configuration directory %s: %s\n", modify_args.config_dir_arg, sxc_geterrmsg(sx));
+                goto modify_err;
+            }
+            sxc_set_debug(sx, modify_args.debug_flag);
+
+            if(setup_filters(sx, modify_args.filter_dir_arg))
+                goto main_err;
+
+            lf = sxc_cluster_listfiles(cluster, uri->volume, NULL, 0, &nfiles, 0);
+            if(!lf) {
+                fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
+                goto modify_err;
+            }
+            sxc_cluster_listfiles_free(lf);
+
+            /* Check if number of files on the volume is positive. Custom meta should be possible to be changed on an empty volume only. */
+            if(nfiles) {
+                fprintf(stderr, "ERROR: Cannot reset volume metadata on non-empty volume\n");
+                goto modify_err;
+            }
+
 	    meta = sxc_meta_new(sx);
 	    if(!meta) {
 		fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
