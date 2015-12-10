@@ -1494,7 +1494,7 @@ static int info_cluster(sxc_client_t *sx, struct cluster_args_info *args, enum i
     }
 
     printf("Current configuration: ");
-    print_dist(nodes_prev, zonedef);
+    print_dist(nodes_prev, clst_zones(clst, 0));
     distid = clst_distuuid(clst, &distver, &distchk);
     if(distid)
 	printf("Distribution: %s(v.%u) - checksum: %llu\n", distid->string, distver, (unsigned long long)distchk);

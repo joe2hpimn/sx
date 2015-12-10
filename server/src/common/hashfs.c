@@ -1387,6 +1387,7 @@ static int load_config(sx_hashfs_t *h, sxc_client_t *sx) {
 	h->distzones[0] = sxi_hdist_get_zones(h->hd, 0);
 	if(sxi_hdist_buildcnt(h->hd) == 1) {
 	    h->prev_dist = sx_nodelist_dup(h->next_dist);
+	    h->distzones[1] = h->distzones[0];
 	    if(!sx_nodelist_lookup(h->next_dist, &h->node_uuid)) {
 		INFO("THIS NODE IS NO LONGER A CLUSTER MEMBER");
 		h->is_orphan = 1;
@@ -5878,9 +5879,9 @@ const char *sx_hashfs_zonedef(sx_hashfs_t *h, sx_hashfs_nl_t which) {
 	return NULL;
     switch(which) {
     case NL_PREV:
-	return h->distzones[0];
-    case NL_NEXT:
 	return h->distzones[1];
+    case NL_NEXT:
+	return h->distzones[0];
     case NL_PREVNEXT:
     case NL_NEXTPREV:
     default:
