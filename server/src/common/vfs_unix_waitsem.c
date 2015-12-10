@@ -236,7 +236,7 @@ static int timedlockOpen(TimedLock *lock, const char *dbname, int nLock, sqlite3
     return unixLogError(SQLITE_IOERR_FSTAT, "stat", dbname);
   /* According to sem_open(3p) the name must start with slash,
      otherwise the effect is implementation defined */
-  lock->name = sqlite3_mprintf("/etilqs-%x-%x-%d", sb.st_dev, sb.st_ino, nLock);
+  lock->name = sqlite3_mprintf("/etilqs-%d-%x-%x-%d", getuid(), sb.st_dev, sb.st_ino, nLock);
   if( lock->name==NULL )
     return SQLITE_NOMEM;
 
