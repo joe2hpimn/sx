@@ -6339,9 +6339,12 @@ static int sxi_file_list_foreach(sxc_file_list_t *target, sxc_cluster_t *wait_cl
                 break;
             }
             gettimeofday(&t1, NULL);
-            CFGDEBUG("Glob pattern matched %d files", entry->nfiles);
+            CFGDEBUG("Glob pattern '%s' matched %d files", pattern->path, entry->nfiles);
             rc = 0;
-            unsigned pattern_slashes = sxi_count_slashes(pattern->path) + 1;
+            unsigned pattern_slashes = sxi_count_slashes(pattern->path);
+            /* When pattern has been achieved via remote listing, it can contain leading slash already. Add 1 only when leading slash is not present. */
+            if(*pattern->path != '/')
+                pattern_slashes++;
             for (j=0;j<entry->nfiles && !rc;j++) {
                 sxc_file_t *remote_file = NULL;
                 if (sxc_cluster_listfiles_next(cluster, pattern->volume, lst, &remote_file) <= 0) {
@@ -6354,23 +6357,26 @@ static int sxi_file_list_foreach(sxc_file_list_t *target, sxc_cluster_t *wait_cl
                     files_in_dir++;
                 sxc_file_free(remote_file);
             }
-            if (!target->recursive && !(fh && fh->f->filemeta_process))
+            if (!target->recursive)
                 files_in_dir = 0;/* omitted */
+            CFGDEBUG("Single files: %lld, files in dir: %lld", (long long)single_files, (long long)files_in_dir);
             if ((single_files > 1 || files_in_dir > 0) && multi_cb && multi_cb(target, ctx)) {
                 CFGDEBUG("multiple source file rejected by callback");
                 rc = -1;
                 sxc_meta_free(cvmeta);
                 break;
             }
-            CFGDEBUG("Single files: %lld, files in dir: %lld", (long long)single_files, (long long)files_in_dir);
             for (j=0;j<entry->nfiles && !rc;j++) {
                 sxc_file_t *remote_file = NULL;
                 if(sxc_cluster_listfiles_prev(cluster, pattern->volume, lst, &remote_file) <= 0) {
                     CFGDEBUG("Failed to list file %d/%d", j, entry->nfiles);
                     break;
                 }
-                if (!target->recursive && !(fh && fh->f->filemeta_process) && !is_single_file_match(pattern->path, pattern_slashes, remote_file->path)) {
-                    sxi_notice(target->sx, "Omitting (file in) directory: %s", remote_file->path);
+                if (!target->recursive && !is_single_file_match(pattern->path, pattern_slashes, remote_file->path)) {
+                    if(!fh || !fh->f->filemeta_process)
+                        sxi_notice(target->sx, "Omitting (file in) directory: %s", remote_file->path);
+                    else
+                        CFGDEBUG("Skipping file '%s/%s': not a single match", pattern->volume, remote_file->path);
                 } else {
                     CFGDEBUG("Processing file '%s/%s'", pattern->volume, remote_file->path);
                     if(!(rc = is_excluded(target->sx, remote_file->path, exclude))) {
@@ -6383,7 +6389,7 @@ static int sxi_file_list_foreach(sxc_file_list_t *target, sxc_cluster_t *wait_cl
                 }
                 sxc_file_free(remote_file);
             }
-            if (!entry->nfiles && entry->glob) {
+            if (!entry->nfiles && (entry->glob || (fh && fh->f->filemeta_process))) {
                 if (*pattern->path) {
                     sxc_clearerr(target->sx);
                     sxi_seterr(target->sx, SXE_EARG, "%s/%s: Not found", pattern->volume, pattern->path);
