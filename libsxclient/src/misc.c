@@ -415,12 +415,17 @@ int sxi_load_aliases(sxc_client_t *sx, alias_list_t **aliases) {
     free(aliases_file_name);
 
     while(fgets(buffer, ALIAS_FGET_BUFF, f)) {
-        char alias[ALIAS_FGET_BUFF];
-        char cluster[ALIAS_FGET_BUFF];
+        char *alias = buffer, *cluster;
         alias_t *tmp = NULL;
         char *tmp_alias = NULL, *tmp_cluster = NULL;
 
-        if(sscanf(buffer, "%s %s\n", alias, cluster) != 2) continue; /* scnaf did not succeed, go to the next line */
+        /* Parse the line with alias, skip the line and proceed when parsing fails */
+        cluster = strchr(buffer, ' ');
+        if(!cluster)
+            continue;
+        *cluster++ = '\0';
+        if(cluster[strlen(cluster) - 1] == '\n')
+            cluster[strlen(cluster) - 1] = '\0';
 
         tmp_alias = strdup(alias);
         if(!tmp_alias) {
