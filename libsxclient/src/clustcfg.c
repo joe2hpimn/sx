@@ -3501,6 +3501,7 @@ int sxc_user_getinfo(sxc_cluster_t *cluster, const char *username, FILE *storeau
     char *url = NULL;
     char *tok = NULL;
     char *link = NULL;
+    char *user_enc = NULL;
 
     if(!cluster)
 	return 1;
@@ -3514,14 +3515,20 @@ int sxc_user_getinfo(sxc_cluster_t *cluster, const char *username, FILE *storeau
 
     sx = sxi_cluster_get_client(cluster);
 
+    user_enc = sxi_urlencode(sx, username, 1);
+    if(!user_enc) {
+        sxi_seterr(sx, SXE_EMEM, "Out of memory");
+        goto sxc_user_getinfo_err;
+    }
+
     /* Query */
-    n = strlen(username) + sizeof(".users/");
+    n = strlen(user_enc) + sizeof(".users/");
     url = malloc(n);
     if (!url) {
 	sxi_seterr(sx, SXE_EMEM, "Out of memory");
         goto sxc_user_getinfo_err;
     }
-    snprintf(url, n, ".users/%s", username);
+    snprintf(url, n, ".users/%s", user_enc);
 
     sxi_set_operation(sxi_cluster_get_client(cluster), "get user's key", sxi_cluster_get_name(cluster), NULL, NULL);
     if (sxi_cluster_query(sxi_cluster_get_conns(cluster), NULL, REQ_GET, url, NULL, 0,
@@ -3539,7 +3546,7 @@ int sxc_user_getinfo(sxc_cluster_t *cluster, const char *username, FILE *storeau
         goto sxc_user_getinfo_err;
 
     if(get_config_link) {
-        link = sxc_cluster_configuration_link(cluster, username, tok);
+        link = sxc_cluster_configuration_link(cluster, user_enc, tok);
         if(!link)
             goto sxc_user_getinfo_err;
     }
@@ -3552,6 +3559,7 @@ sxc_user_getinfo_err:
     free(tok);
     free(link);
     free(url);
+    free(user_enc);
     sxi_jparse_destroy(yctx.J);
     return ret;
 }
