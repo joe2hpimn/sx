@@ -727,23 +727,30 @@ static int sxfs_rename (const char *path, const char *newpath) {
     if(index_to >= 0) {
         int fd;
         ssize_t index;
-        char tmp_name[] = "/tmp/sxfs_namegen_XXXXXX", *name;
+        char *tmp_name = (char*)malloc(strlen(SXFS_DATA->tempdir) + 1 + lenof("sxfs_namegen_XXXXXX") + 1), *name;
 
+        if(!tmp_name) {
+            SXFS_LOG("Out of memory");
+            goto sxfs_rename_err;
+        }
         do {
+            sprintf(tmp_name, "%s/sxfs_namegen_XXXXXX", SXFS_DATA->tempdir);
             fd = mkstemp(tmp_name);
             if(fd < 0) {
                 ret = -errno;
                 SXFS_LOG("Cannot create unique temporary file: %s", strerror(errno));
+                free(tmp_name);
                 goto sxfs_rename_err;
             }
             close(fd);
             unlink(tmp_name);
-            sprintf(dst_path2, "%s%s", newpath, tmp_name + lenof(tmp_name) - 7);
+            sprintf(dst_path2, "%s%s", newpath, tmp_name + strlen(tmp_name) - 7);
             name = strrchr(dst_path2, '/') + 1;
             index = sxfs_find_entry((const void**)dir_to->files, dir_to->nfiles, name, sxfs_lsfile_cmp);
             if(index < 0)
                 index = sxfs_find_entry((const void**)dir_to->dirs, dir_to->ndirs, name, sxfs_lsdir_cmp);
         } while(index >= 0);
+        free(tmp_name);
         if(operation_type == 2)
             strcat(dst_path2, "/");
         sprintf(local_newfile_path2, "%s/%s%s", SXFS_DATA->tempdir, SXFS_UPLOAD_DIR, dst_path2);
@@ -2909,62 +2916,85 @@ runas_err:
 } /* runas */
 
 static int check_password (sxc_client_t *sx, sxc_cluster_t *cluster, sxfs_state_t *sxfs) {
-    int ret = -1, fd = -1;
+    int ret = -1, fd;
     unsigned int nfiles;
-    char path[] = "/tmp/.sxfs_tmp_XXXXXX";
+    char *path = (char*)malloc(strlen(sxfs->tempdir) + 1 + lenof(".sxfs_tmp_XXXXXX") + 1), *file_name;
     sxc_file_t *src = NULL, *dest = NULL;
     sxc_cluster_lf_t *flist;
     sxc_file_list_t *rmlist = NULL;
 
-    flist = sxc_cluster_listfiles(cluster, sxfs->uri->volume, "", 0, &nfiles, 0);
-    if(!flist) {
-        fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
+    if(!path) {
+        fprintf(stderr, "ERROR: Out of memory\n");
         return ret;
     }
-    sxc_cluster_listfiles_free(flist);
-    if(!nfiles) {
+    while(1) {
+        sprintf(path, "%s/.sxfs_tmp_XXXXXX", sxfs->tempdir);
         fd = mkstemp(path);
         if(fd < 0) {
             fprintf(stderr, "ERROR: Cannot create temporary file: %s\n", strerror(errno));
+            free(path);
+            return ret;
+        }
+        if(close(fd)) {
+            fprintf(stderr, "ERROR: Cannot close '%s' file: %s\n", path, strerror(errno));
             goto check_password_err;
         }
-        src = sxc_file_local(sx, path);
-        if(!src) {
-            fprintf(stderr, "ERROR: Cannot create local file object: %s\n", sxc_geterrmsg(sx));
+        file_name = strrchr(path, '/');
+        if(!file_name) {
+            fprintf(stderr, "ERROR: '/' not found in '%s'\n", path);
             goto check_password_err;
         }
-        dest = sxc_file_remote(cluster, sxfs->uri->volume, ".sxfs_tempfile", NULL);
-        if(!dest) {
-            fprintf(stderr, "ERROR: Cannot create file object: %s\n", sxc_geterrmsg(sx));
+        flist = sxc_cluster_listfiles(cluster, sxfs->uri->volume, file_name+1, 0, &nfiles, 0);
+        if(!flist) {
+            fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
             goto check_password_err;
         }
-        rmlist = sxc_file_list_new(sx, 0);
-        if(!rmlist) {
-            fprintf(stderr, "Cannot create new file list: %s\n", sxc_geterrmsg(sx));
-            goto check_password_err;
+        sxc_cluster_listfiles_free(flist);
+        if(!nfiles)
+            break;
+        if(unlink(path)) {
+            fprintf(stderr, "ERROR: Cannot remove '%s' file: %s\n", path, strerror(errno));
+            free(path);
+            return ret;
         }
-        if(sxc_copy(src, dest, 0, 0, 0, NULL, 1)) {
-            fprintf(stderr, "ERROR: %s", sxc_geterrmsg(sx));
-            goto check_password_err;
-        }
-        if(sxc_file_list_add(rmlist, dest, 0)) {
-            fprintf(stderr, "Cannot add file: %s\n", sxc_geterrmsg(sx));
-            goto check_password_err;
-        }
-        dest = NULL; /* sxc_file_list_free frees all files inside it */
-        if(sxc_rm(rmlist, 0, 0)) {
-            fprintf(stderr, "Cannot remove file: %s\n", sxc_geterrmsg(sx));
-            goto check_password_err;
-        }
+    }
+    src = sxc_file_local(sx, path);
+    if(!src) {
+        fprintf(stderr, "ERROR: Cannot create local file object: %s\n", sxc_geterrmsg(sx));
+        goto check_password_err;
+    }
+    dest = sxc_file_remote(cluster, sxfs->uri->volume, ".sxfs_tempfile", NULL);
+    if(!dest) {
+        fprintf(stderr, "ERROR: Cannot create file object: %s\n", sxc_geterrmsg(sx));
+        goto check_password_err;
+    }
+    rmlist = sxc_file_list_new(sx, 0);
+    if(!rmlist) {
+        fprintf(stderr, "ERROR: Cannot create new file list: %s\n", sxc_geterrmsg(sx));
+        goto check_password_err;
+    }
+    if(sxc_copy(src, dest, 0, 0, 0, NULL, 1)) {
+        fprintf(stderr, "ERROR: %s", sxc_geterrmsg(sx));
+        goto check_password_err;
+    }
+    if(sxc_file_list_add(rmlist, dest, 0)) {
+        fprintf(stderr, "ERROR: Cannot add file: %s\n", sxc_geterrmsg(sx));
+        goto check_password_err;
+    }
+    dest = NULL; /* sxc_file_list_free frees all files inside it */
+    if(sxc_rm(rmlist, 0, 0)) {
+        fprintf(stderr, "ERROR: Cannot remove file: %s\n", sxc_geterrmsg(sx));
+        goto check_password_err;
     }
 
     ret = 0;
 check_password_err:
-    if(fd >= 0)
-        close(fd);
     sxc_file_free(src);
     sxc_file_free(dest);
     sxc_file_list_free(rmlist);
+    if(unlink(path))
+        fprintf(stderr, "ERROR: Cannot remove '%s' file: %s\n", path, strerror(errno));
+    free(path);
     return ret;
 } /* check_password */
 
@@ -3030,6 +3060,15 @@ int main (int argc, char **argv) {
         cmdline_parser_free(&args);
         fuse_opt_free_args(&fargs);
         return ret;
+    }
+    if(gettimeofday(&tv, NULL)) {
+        fprintf(stderr, "ERROR: Cannot get current time: %s\n", strerror(errno));
+        goto main_err;
+    }
+    tm = localtime(&tv.tv_sec);
+    if(!tm) {
+        fprintf(stderr, "ERROR: Cannot convert time value\n");
+        goto main_err;
     }
     sxfs = (sxfs_state_t*)calloc(1, sizeof(sxfs_state_t));
     if(!sxfs) {
@@ -3160,6 +3199,31 @@ int main (int argc, char **argv) {
         fprintf(stderr, "\nERROR: Please do not use the same path for temporary directory and mount point\n");
         goto main_err;
     }
+    if(args.tempdir_given || sxfs->tempdir) {
+        if(!sxfs->tempdir)
+            sxfs->tempdir = args.tempdir_arg;
+        if(mkdir(sxfs->tempdir, 0700)) {
+            fprintf(stderr, "ERROR: Cannot create '%s' directory: %s\n", sxfs->tempdir, strerror(errno));
+            goto main_err;
+        }
+    } else if(!sxfs->tempdir) {
+        size_t n = strlen("/var/tmp/sxfs-") + 14 /* date and time */ + 1 + lenof("XXXXXX") + 1;
+        sxfs->tempdir = (char*)malloc(n);
+        if(!sxfs->tempdir) {
+            fprintf(stderr, "ERROR: Out of memory\n");
+            goto main_err;
+        }
+        snprintf(sxfs->tempdir, n, "/var/tmp/sxfs-%04d%02d%02d%02d%02d%02d-XXXXXX", tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday, tm->tm_hour, tm->tm_min, tm->tm_sec);
+        if(!mkdtemp(sxfs->tempdir)) {
+            fprintf(stderr, "ERROR: Cannot create '%s' directory: %s\n", sxfs->tempdir, strerror(errno));
+            goto main_err;
+        }
+        fprintf(stderr, "Using default tempdir: %s\n", sxfs->tempdir);
+        if(sxfs->logfile)
+            fprintf(sxfs->logfile, "Using default tempdir: %s\n", sxfs->tempdir);
+    }
+    tempdir_created = 1;
+
     if(args.open_limit_given && args.open_limit_arg > 0) /* fh_limit must be a positive number */
         sxfs->fh_limit = (size_t)args.open_limit_arg + 1; /* 0 is for directories */
     else
@@ -3315,15 +3379,6 @@ int main (int argc, char **argv) {
     if(args.use_queues_flag && !args.logfile_given && !sxfs->logfile)
         fprintf(stderr, "*** It is recommended to always use --logfile together with --use-queues ***\n");
 
-    if(gettimeofday(&tv, NULL)) {
-        fprintf(stderr, "ERROR: Cannot get current time: %s\n", strerror(errno));
-        goto main_err;
-    }
-    tm = localtime(&tv.tv_sec);
-    if(!tm) {
-        fprintf(stderr, "ERROR: Cannot convert time value\n");
-        goto main_err;
-    }
     if(args.logfile_given) {
         sxfs->logfile = fopen(args.logfile_arg, "a");
         if(!sxfs->logfile) {
@@ -3344,30 +3399,6 @@ int main (int argc, char **argv) {
         }
         fprintf(sxfs->logfile, "\n");
     }
-    if(args.tempdir_given || sxfs->tempdir) {
-        if(!sxfs->tempdir)
-            sxfs->tempdir = args.tempdir_arg;
-        if(mkdir(sxfs->tempdir, 0700)) {
-            fprintf(stderr, "ERROR: Cannot create '%s' directory: %s\n", sxfs->tempdir, strerror(errno));
-            goto main_err;
-        }
-    } else if(!sxfs->tempdir) {
-        size_t n = strlen("/var/tmp/sxfs-") + 14 /* date and time */ + 1 + lenof("XXXXXX") + 1;
-        sxfs->tempdir = (char*)malloc(n);
-        if(!sxfs->tempdir) {
-            fprintf(stderr, "ERROR: Out of memory\n");
-            goto main_err;
-        }
-        snprintf(sxfs->tempdir, n, "/var/tmp/sxfs-%04d%02d%02d%02d%02d%02d-XXXXXX", tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday, tm->tm_hour, tm->tm_min, tm->tm_sec);
-        if(!mkdtemp(sxfs->tempdir)) {
-            fprintf(stderr, "ERROR: Cannot create '%s' directory: %s\n", sxfs->tempdir, strerror(errno));
-            goto main_err;
-        }
-        fprintf(stderr, "Using default tempdir: %s\n", sxfs->tempdir);
-        if(sxfs->logfile)
-            fprintf(sxfs->logfile, "Using default tempdir: %s\n", sxfs->tempdir);
-    }
-    tempdir_created = 1;
     if(args.recovery_dir_given) {
         sxfs->lostdir = args.recovery_dir_arg;
     } else if(!sxfs->lostdir) {
