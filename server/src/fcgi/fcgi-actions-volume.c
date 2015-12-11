@@ -197,8 +197,10 @@ void fcgi_list_volume(const sx_hashfs_volume_t *vol) {
     recursive = has_arg("recursive");
     if(!pattern)
         pattern = "/";
-    if (sx_hashfs_list_etag(hashfs, vol, pattern, recursive, &etag)) {
-        quit_errmsg(500, "failed to calculate etag");
+    s = sx_hashfs_list_etag(hashfs, vol, pattern, recursive, &etag);
+    if (s) {
+        const char* reason = msg_get_reason();
+        quit_errmsg(rc2http(s), *reason ? reason : "failed to calculate etag");
     }
     if(is_object_fresh(&etag, 'L', NO_LAST_MODIFIED)) {
         return;

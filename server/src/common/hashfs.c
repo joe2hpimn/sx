@@ -6152,6 +6152,11 @@ rc_ty sx_hashfs_list_etag(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, cons
         NULLARG();
         return EFAULT;
     }
+    if(!sx_hashfs_is_or_was_my_volume(h, volume)) {
+        /* TODO: got, expected: */
+        msg_set_reason("Wrong node for volume '%s': ...", volume->name);
+        return ENOENT;
+    }
     if (!(vol_newest = wrap_strdup("")))
         rc = ENOMEM;
     for (i=0;i<METADBS && !rc;i++) {
