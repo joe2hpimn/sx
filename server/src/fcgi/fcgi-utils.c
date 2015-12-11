@@ -299,12 +299,14 @@ static char *inplace_urldecode(char *s, char forbid, char dedup, int *has_forbid
 	    break;
 	case PCT:
 	    v = hexcharval(c);
-	    if(c<0)
+	    if(v<0)
 		return NULL;
 	    *dst = v<<4;
 	    c = *src;
 	    src++;
 	    v = hexcharval(c);
+	    if(v<0)
+		return NULL;
 	    *dst |= v;
 	    if(!*dst || *dst == forbid) {
                 if (has_forbidden)
