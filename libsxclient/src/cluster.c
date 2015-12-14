@@ -294,6 +294,11 @@ static enum head_result head_cb(curlev_context_t *ctx, long http_status, char *p
     if(!vlen)
 	return HEAD_OK;
 
+    if(klen == lenof("Content-Type:") && !strncasecmp(ptr, "Content-Type:", lenof("Content-Type:"))) {
+        if(vlen == lenof("application/json") && !strncasecmp(v, "application/json", lenof("application/json")))
+            sxi_cbdata_set_content_type(ctx, CONTENT_TYPE_JSON);
+    }
+
     if(klen == lenof("SX-Cluster:") && !strncasecmp(ptr, "SX-Cluster:", lenof("SX-Cluster:"))) {
 	char uuid[UUID_LEN+1];
 	const char *suuid, *vv;

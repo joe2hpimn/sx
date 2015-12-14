@@ -55,6 +55,7 @@ struct recv_context {
     char *reason;
     unsigned reasonsz;
     int header_seen;
+    enum content_type content_type;
 };
 
 struct retry_ctx {
@@ -438,6 +439,12 @@ void sxi_cbdata_seterr(curlev_context_t *ctx, enum sxc_error_t err, const char *
     vsnprintf(ctx->errbuf, sizeof(ctx->errbuf) - 1, fmt, ap);
     va_end(ap);
     ctx->errbuf[sizeof(ctx->errbuf)-1] = '\0';
+}
+
+void sxi_cbdata_set_content_type(curlev_context_t *cbdata, enum content_type type)
+{
+    if(cbdata)
+        cbdata->recv_ctx.content_type = type;
 }
 
 void sxi_cbdata_set_etag(curlev_context_t *cbdata, const char* etag, unsigned etag_len)
@@ -837,7 +844,7 @@ static size_t writefn(void *ptr, size_t size, size_t nmemb, void *ctxptr) {
 	wd->fail = 1;
     if(wd->fail) {
 	SXDEBUG("error reply: %.*s\n", (int)size, (char *)ptr);
-	if(conns) {
+	if(conns && wd->content_type == CONTENT_TYPE_JSON) {
 	    wd->reason = sxi_realloc(sx, wd->reason, size + wd->reasonsz + 1);
 	    if(!wd->reason)
 		return 0;

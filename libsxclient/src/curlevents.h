@@ -30,6 +30,7 @@
 #include "fileops.h"
 
 enum head_result { HEAD_OK, HEAD_FAIL, HEAD_SEEN };
+enum content_type { CONTENT_TYPE_NONE, CONTENT_TYPE_JSON };
 
 typedef void (*finish_cb_t)(curlev_context_t *ctx, const char *url);
 typedef enum head_result (*head_cb_t)(curlev_context_t *ctx, long http_status, char *ptr, size_t size, size_t nmemb);
@@ -144,6 +145,8 @@ void sxi_cbdata_set_result(curlev_context_t *ctx, int status);
 
 void sxi_cbdata_set_etag(curlev_context_t *ctx, const char* etag, unsigned etag_len);
 char *sxi_cbdata_get_etag(curlev_context_t *ctx);
+
+void sxi_cbdata_set_content_type(curlev_context_t *cbdata, enum content_type type);
 
 /* Store error message and code into curlev context */
 void sxi_cbdata_seterr(curlev_context_t *ctx, enum sxc_error_t err, const char *fmt, ...);
