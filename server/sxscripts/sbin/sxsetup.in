@@ -185,7 +185,11 @@ if [ "$INFO_GIVEN" = "yes" -o "$UPGRADE_GIVEN" = "yes" -o "$COMPACT_GIVEN" = "ye
 	    echo "Local node is up-to-date."
 	fi
 
-	test "$RESTART_SXSERVER" = "yes" && "@sbindir@/sxserver" restart
+	if [ "$RESTART_SXSERVER" = "yes" ]; then
+	    "@sbindir@/sxserver" restart
+	else
+	    "@sbindir@/sxserver" start > /dev/null 2>&1
+	fi
 
 	if [ -n "$HB_DEADTIME" ]; then
 	    echo "Re-enabling automatic node removal..."
