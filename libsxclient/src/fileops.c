@@ -6314,7 +6314,7 @@ static int sxi_file_list_foreach(sxc_file_list_t *target, sxc_cluster_t *wait_cl
 	    }
 	    sxc_meta_free(vmeta);
             if ((!entry->glob && !(fh && fh->f->filemeta_process)) || batched) {
-                if(fh && fh->f->filemeta_process && batched) {
+                if(fh && fh->f->filemeta_process && batched && *pattern->path && (pattern->path[0] != '/' || pattern->path[1])) {
                     sxi_seterr(target->sx, SXE_EARG, "Cannot use mass operation while using filename processing filter");
                     rc = -1;
                     sxc_meta_free(cvmeta);
