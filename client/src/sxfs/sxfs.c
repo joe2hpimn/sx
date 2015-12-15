@@ -501,7 +501,7 @@ static int sxfs_symlink (const char *path, const char *newpath) {
     return -ENOTSUP;
 } /* sxfs_symlink*/
 
-static int load_subtree (char path[SXLIMIT_MAX_FILENAME_LEN]) {
+static int load_subtree (char path[SXLIMIT_MAX_FILENAME_LEN+1]) {
     int ret;
     unsigned int i;
     char *endptr = path + strlen(path);
@@ -679,7 +679,7 @@ static int sxfs_rename (const char *path, const char *newpath) {
         }
     }
     if(operation_type == 2 && dir_from->remote) {
-        char tmppath[SXLIMIT_MAX_FILENAME_LEN];
+        char tmppath[SXLIMIT_MAX_FILENAME_LEN+1];
         snprintf(tmppath, sizeof(tmppath), "%s", path);
         if((ret = load_subtree(tmppath)))
             goto sxfs_rename_err;
@@ -2999,13 +2999,15 @@ check_password_err:
 } /* check_password */
 
 static void print_and_log (FILE *logfile, const char* format_string, ...) {
+    char buffer[4096];
     va_list vl;
 
     va_start(vl, format_string);
-    vfprintf(stderr, format_string, vl);
-    if(logfile)
-        vfprintf(logfile, format_string, vl);
+    vsnprintf(buffer, sizeof(buffer), format_string, vl);
     va_end(vl);
+    fprintf(stderr, "%s", buffer);
+    if(logfile)
+        fprintf(logfile, "%s", buffer);
 } /* print_and_log */
 
 int main (int argc, char **argv) {
@@ -3639,20 +3641,26 @@ main_err:
     free(profile);
     if(sxfs) {
         if(sxfs->files) {
-            unsigned int size = sxi_ht_count(sxfs->files);
-            char path2[PATH_MAX];
-            const char *path;
+            unsigned int size = sxi_ht_count(sxfs->files), pathlen;
+            char path[SXLIMIT_MAX_FILENAME_LEN+1], path2[PATH_MAX];
+            const void *const_path;
             sxfs_file_t *sxfs_file;
 
             if(sxfs->logfile && sxfs->args->debug_flag)
                 fprintf(sxfs->logfile, "%u opened files:\n", size);
             tmp = 0;
             sxi_ht_enum_reset(sxfs->files);
-            while(!sxi_ht_enum_getnext(sxfs->files, (const void**)&path, NULL, NULL)) {
+            while(!sxi_ht_enum_getnext(sxfs->files, &const_path, &pathlen, NULL)) {
+                if(pathlen >= sizeof(path)) {
+                    print_and_log(sxfs->logfile, "Too long path received (%lu)\n", pathlen);
+                    continue;
+                }
+                memcpy(path, const_path, pathlen);
+                path[pathlen] = '\0';
                 if(sxfs->logfile && sxfs->args->debug_flag)
                     fprintf(sxfs->logfile, "'%s'\n", path);
                 if(sxi_ht_get(sxfs->files, path, strlen(path), (void**)&sxfs_file)) {
-                    print_and_log(sxfs->logfile, "'%s' file disappeared from hashtable", path);
+                    print_and_log(sxfs->logfile, "'%s' file disappeared from hashtable\n", path);
                     tmp = 1;
                     continue;
                 }

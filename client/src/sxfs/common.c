@@ -2043,8 +2043,10 @@ int sxfs_upload (const char *src, const char *dest, sxfs_lsfile_t *lsfile, int f
         }
         SXFS_DEBUG("File added: %s", dest);
     } else {
-        if((ret = sxfs_update_mtime(src ? src : SXFS_DATA->empty_file_path, dest, lsfile)))
+        if((ret = sxfs_update_mtime(src ? src : SXFS_DATA->empty_file_path, dest, lsfile))) {
             SXFS_LOG("Cannot update modification time");
+            goto sxfs_upload_err;
+        }
         if(src && unlink(src)) {
             ret = -errno;
             SXFS_LOG("Cannot remove '%s' file: %s", src, strerror(errno));
