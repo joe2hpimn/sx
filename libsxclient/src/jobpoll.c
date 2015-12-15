@@ -279,7 +279,6 @@ static int sxi_job_poll(sxi_conns_t *conns, sxi_jobs_t *jobs, int wait);
 sxi_job_t* sxi_job_submit(sxi_conns_t *conns, sxi_hostlist_t *hlist, enum sxi_cluster_verb verb, const char *query, const char *name, void *content, size_t content_size, long* http_code, sxi_jobs_t *jobs) {
     sxc_client_t *sx = sxi_conns_get_client(conns);
     struct cb_jobget_ctx yget;
-    sxi_hostlist_t jobhost;
     int ret = -1, qret;
     sxi_job_t *yres;
     unsigned j = 0;
@@ -303,7 +302,6 @@ sxi_job_t* sxi_job_submit(sxi_conns_t *conns, sxi_hostlist_t *hlist, enum sxi_cl
         return NULL;
     }
 
-    sxi_hostlist_init(&jobhost);
     yget.J = NULL;
     yget.job_id = NULL;
 
@@ -346,12 +344,11 @@ sxi_job_t* sxi_job_submit(sxi_conns_t *conns, sxi_hostlist_t *hlist, enum sxi_cl
         SXDEBUG("unexpected json reply, HTTP %d", qret);
 	goto failure;
     }
-    SXDEBUG("Received job id %s with %d-%d secs polling\n", yget.job_id, yget.poll_min_delay, yget.poll_max_delay);
-
-    if(sxi_hostlist_add_host(sx, &jobhost, yget.job_host)) {
-        SXDEBUG("sxi_hostlist_add_host failed");
-	goto failure;
+    if(!yget.job_id) {
+        sxi_seterr(sx, SXE_ECOMM, "Failed to add job: Invalid job ID");
+        goto failure;
     }
+    SXDEBUG("Received job id %s with %d-%d secs polling\n", yget.job_id, yget.poll_min_delay, yget.poll_max_delay);
 
     yres->poll_min_delay = yget.poll_min_delay;
     yres->poll_max_delay = yget.poll_max_delay;
@@ -382,7 +379,6 @@ sxi_job_t* sxi_job_submit(sxi_conns_t *conns, sxi_hostlist_t *hlist, enum sxi_cl
 
  failure:
     sxi_jparse_destroy(yget.J);
-    sxi_hostlist_empty(&jobhost);
     if (!ret)
         return yres;
     sxi_job_free(yres);

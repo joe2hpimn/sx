@@ -241,12 +241,17 @@ static int volume_create(sxc_client_t *sx, const char *owner)
 	goto create_err;
     }
     voldir = malloc(strlen(confdir) + strlen(uri->volume) + 10);
-    voldir_old = malloc(strlen(confdir) + strlen(uri->volume) + 14);
-    if(!voldir || !voldir_old) {
-	fprintf(stderr, "ERROR: Out of memory\n");
-	goto create_err;
+    if(!voldir) {
+        fprintf(stderr, "ERROR: Out of memory\n");
+        goto create_err;
     }
     sprintf(voldir, "%s/volumes/%s", confdir, uri->volume);
+
+    voldir_old = malloc(strlen(confdir) + strlen(uri->volume) + 14);
+    if(!voldir_old) {
+        fprintf(stderr, "ERROR: Out of memory\n");
+        goto create_err;
+    }
     sprintf(voldir_old, "%s/volumes/%s.old", confdir, uri->volume);
 
     /* rename existing local config */
