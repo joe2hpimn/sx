@@ -369,6 +369,17 @@ read_ascii()
     LC_CTYPE=$save_LC_TYPE
 }
 
+read_number()
+{
+    read_ascii $1
+    eval "_READVAL=\$$1"
+    if [ -n "$_READVAL" -a -z "`echo $_READVAL | egrep '^[0-9]+$'`" ]; then
+	printf "Please enter a valid number: "
+	read_number $1
+    fi
+}
+
+
 check_port() {
     IP=$1
     PORT=$2
@@ -487,7 +498,7 @@ ask_questions() {
 	    if [ -n "$ADVANCED_GIVEN" ]; then
 		while true; do
 		    printf "Enter the port number (use the same value for all nodes in the cluster) [default=$SX_PORT]: "
-		    read_ascii NEWVAL
+		    read_number NEWVAL
 		    SX_PORT=${NEWVAL:-$SX_PORT}
 		    test -n "$SX_PORT" && break
 		done
@@ -848,11 +859,18 @@ EOF
 	    fi
 	    echo
 	    printf "Number of children processes used to communicate with the clients [default=$SX_CHILDREN_NUM]: "
-	    read_ascii NEWVAL
+	    read_number NEWVAL
 	    SX_CHILDREN_NUM=${NEWVAL:-$SX_CHILDREN_NUM}
 	    printf "Number of children processes used to communicate with other nodes [default=$SX_RESERVED_CHILDREN_NUM]: "
-	    read_ascii NEWVAL
+	    read_number NEWVAL
 	    SX_RESERVED_CHILDREN_NUM=${NEWVAL:-$SX_RESERVED_CHILDREN_NUM}
+
+	    if [ "`expr $SX_CHILDREN_NUM + $SX_RESERVED_CHILDREN_NUM`" -gt 256 ]; then
+		echo
+		echo "WARNING: The total number of children must be <= 256, using default values."
+		SX_CHILDREN_NUM=24
+		SX_RESERVED_CHILDREN_NUM=8
+	    fi
 	fi
 
         TOTAL_MEM=`@sbindir@/sxreport-server --get-mem`
