@@ -859,6 +859,13 @@ struct cb_locate_ctx {
     sxc_meta_t *meta;
     sxc_meta_t *custom_meta;
     int64_t blocksize;
+    int64_t size;
+    int64_t used_size;
+    char *owner;
+    char *privs;
+    unsigned int replica_count;
+    unsigned int effective_replica_count;
+    unsigned int revisions;
     enum sxc_error_t err;
 };
 
@@ -906,6 +913,97 @@ static void cb_locate_bs(jparse_t *J, void *ctx, int64_t num) {
     yactx->blocksize = num;
 }
 
+static void cb_locate_owner(jparse_t *J, void *ctx, const char *string, unsigned int length) {
+    struct cb_locate_ctx *yactx = (struct cb_locate_ctx *)ctx;
+
+    if(yactx->owner) {
+        sxi_jparse_cancel(J, "Multiple volume owners received");
+        yactx->err = SXE_ECOMM;
+        return;
+    }
+    yactx->owner = malloc(length+1);
+    if(!yactx->owner) {
+        sxi_jparse_cancel(J, "Out of memory processing volume owner");
+        yactx->err = SXE_EMEM;
+        return;
+    }
+    memcpy(yactx->owner, string, length);
+    yactx->owner[length] = '\0';
+}
+
+static void cb_locate_privs(jparse_t *J, void *ctx, const char *string, unsigned int length) {
+    struct cb_locate_ctx *yactx = (struct cb_locate_ctx *)ctx;
+
+    if(length != 2 || (string[0] != 'r' && string[0] != '-') || (string[1] != 'w' && string[1] != '-')) {
+        sxi_jparse_cancel(J, "Invalid privilege '%.*s' received", length, string);
+        yactx->err = SXE_ECOMM;
+        return;
+    }
+    yactx->privs[0] = string[0];
+    yactx->privs[1] = string[1];
+    yactx->privs[2] = '\0';
+}
+
+static void cb_locate_rpl(jparse_t *J, void *ctx, int32_t num) {
+    struct cb_locate_ctx *yactx = (struct cb_locate_ctx *)ctx;
+
+    if(num < 1) {
+        sxi_jparse_cancel(J, "Invalid replica count '%d' received", num);
+        yactx->err = SXE_ECOMM;
+        return;
+    }
+
+    yactx->replica_count = num;
+}
+
+static void cb_locate_effrpl(jparse_t *J, void *ctx, int32_t num) {
+    struct cb_locate_ctx *yactx = (struct cb_locate_ctx *)ctx;
+
+    if(num < 1) {
+        sxi_jparse_cancel(J, "Invalid effective replica count '%d' received", num);
+        yactx->err = SXE_ECOMM;
+        return;
+    }
+
+    yactx->effective_replica_count = num;
+}
+
+static void cb_locate_revs(jparse_t *J, void *ctx, int32_t num) {
+    struct cb_locate_ctx *yactx = (struct cb_locate_ctx *)ctx;
+
+    if(num < 1) {
+        sxi_jparse_cancel(J, "Invalid number of revisions '%d' received", num);
+        yactx->err = SXE_ECOMM;
+        return;
+    }
+
+    yactx->revisions = num;
+}
+
+static void cb_locate_size(jparse_t *J, void *ctx, int64_t num) {
+    struct cb_locate_ctx *yactx = (struct cb_locate_ctx *)ctx;
+
+    if(num <= 0) {
+        sxi_jparse_cancel(J, "Invalid size received");
+        yactx->err = SXE_ECOMM;
+        return;
+    }
+
+    yactx->size = num;
+}
+
+static void cb_locate_usedsize(jparse_t *J, void *ctx, int64_t num) {
+    struct cb_locate_ctx *yactx = (struct cb_locate_ctx *)ctx;
+
+    if(num < 0) {
+        sxi_jparse_cancel(J, "Invalid size received");
+        yactx->err = SXE_ECOMM;
+        return;
+    }
+
+    yactx->used_size = num;
+}
+
 static void cb_locate_meta(jparse_t *J, void *ctx, const char *string, unsigned int length) {
     const char *key = sxi_jpath_mapkey(sxi_jpath_down(sxi_jparse_whereami(J)));
     struct cb_locate_ctx *yactx = (struct cb_locate_ctx *)ctx;
@@ -951,7 +1049,7 @@ static int locate_setup_cb(curlev_context_t *cbdata, void *ctx, const char *host
 
     if(!(yactx->J = sxi_jparse_create(yactx->acts, yactx, 1))) {
 	CBDEBUG("OOM allocating JSON parser");
-	sxi_cbdata_seterr(cbdata, SXE_EMEM, "Cannot update list of nodes: Out of memory");
+	sxi_cbdata_seterr(cbdata, SXE_EMEM, "Cannot get volume info: Out of memory");
 	return 1;
     }
 
@@ -959,6 +1057,15 @@ static int locate_setup_cb(curlev_context_t *cbdata, void *ctx, const char *host
     sxc_meta_empty(yactx->meta);
     sxc_meta_empty(yactx->custom_meta);
     sxi_hostlist_empty(yactx->hlist);
+    free(yactx->owner);
+    yactx->owner = NULL;
+    free(yactx->privs);
+    yactx->privs = calloc(3, sizeof(char));
+    if(!yactx->privs) {
+        CBDEBUG("Out of memory allocating privs");
+        sxi_cbdata_seterr(cbdata, SXE_EMEM, "Cannot get volume info: Out of memory");
+        return 1;
+    }
     return 0;
 }
 
@@ -971,19 +1078,35 @@ static int locate_cb(curlev_context_t *cbdata, void *ctx, const void *data, size
     return 0;
 }
 
-int sxi_volume_info(sxi_conns_t *conns, const char *volume, sxi_hostlist_t *nodes, int64_t *size, sxc_meta_t *meta, sxc_meta_t *custom_meta) {
+int sxi_volume_info(sxi_conns_t *conns, const char *volume, sxi_hostlist_t *nodes, int64_t *blocksize, char **owner, char **privs, int64_t *size, int64_t *used_size, unsigned int *replica_count, unsigned int *effective_replica_count, unsigned int *revisions, sxc_meta_t *meta, sxc_meta_t *custom_meta) {
     const struct jparse_actions acts = {
 	JPACTS_STRING(
 		      JPACT(cb_locate_node, JPKEY("nodeList"), JPANYITM),
 		      JPACT(cb_locate_meta, JPKEY("volumeMeta"), JPANYKEY),
-		      JPACT(cb_locate_custom_meta, JPKEY("customVolumeMeta"), JPANYKEY)
+		      JPACT(cb_locate_custom_meta, JPKEY("customVolumeMeta"), JPANYKEY),
+                      JPACT(cb_locate_owner, JPKEY("owner")),
+                      JPACT(cb_locate_privs, JPKEY("privs"))
 		      ),
-	JPACTS_INT64(JPACT(cb_locate_bs, JPKEY("blockSize")))
+	JPACTS_INT64(
+                     JPACT(cb_locate_bs, JPKEY("blockSize")),
+                     JPACT(cb_locate_size, JPKEY("sizeBytes")),
+                     JPACT(cb_locate_usedsize, JPKEY("usedSize"))
+                     ),
+        JPACTS_INT32(
+                     JPACT(cb_locate_rpl, JPKEY("replicaCount")),
+                     JPACT(cb_locate_effrpl, JPKEY("effectiveReplicaCount")),
+                     JPACT(cb_locate_revs, JPKEY("maxRevisions"))
+                     ),
     };
     struct cb_locate_ctx yctx;
     char *enc_vol, *url;
     int qret;
     sxc_client_t *sx = sxi_conns_get_client(conns);
+
+    if(owner)
+        *owner = NULL;
+    if(privs)
+        *privs = NULL;
 
     sxc_clearerr(sx);
     if(sxi_getenv("SX_DEBUG_SINGLE_VOLUMEHOST")) {
@@ -1002,8 +1125,8 @@ int sxi_volume_info(sxi_conns_t *conns, const char *volume, sxi_hostlist_t *node
 	free(enc_vol);
 	return 1;
     }
-    if(size)
-	sprintf(url, "%s?o=locate&size=%lld", enc_vol, (long long int)*size);
+    if(blocksize)
+	sprintf(url, "%s?o=locate&size=%lld", enc_vol, (long long int)*blocksize);
     else
 	sprintf(url, "%s?o=locate", enc_vol);
     if(meta)
@@ -1012,11 +1135,13 @@ int sxi_volume_info(sxi_conns_t *conns, const char *volume, sxi_hostlist_t *node
         strcat(url, "&customVolumeMeta");
     free(enc_vol);
 
+    memset(&yctx, 0, sizeof(yctx));
     yctx.acts = &acts;
     yctx.J = NULL;
     yctx.hlist = nodes;
     yctx.meta = meta;
     yctx.custom_meta = custom_meta;
+    yctx.privs = NULL;
 
     sxi_set_operation(sx, "locate volume", sxi_conns_get_sslname(conns), volume, NULL);
     qret = sxi_cluster_query(conns, NULL, REQ_GET, url, NULL, 0, locate_setup_cb, locate_cb, &yctx);
@@ -1026,6 +1151,8 @@ int sxi_volume_info(sxi_conns_t *conns, const char *volume, sxi_hostlist_t *node
 	sxi_jparse_destroy(yctx.J);
 	sxc_meta_empty(meta);
         sxc_meta_empty(custom_meta);
+        free(yctx.privs);
+        free(yctx.owner);
         sxi_seterr(sx, SXE_ECOMM, "failed to query volume location");
         /* we must return an error code */
 	return qret ? qret : -1;
@@ -1036,12 +1163,32 @@ int sxi_volume_info(sxi_conns_t *conns, const char *volume, sxi_hostlist_t *node
 	sxi_jparse_destroy(yctx.J);
         sxc_meta_empty(custom_meta);
 	sxc_meta_empty(meta);
+        free(yctx.privs);
+        free(yctx.owner);
 	return -yctx.err;
     }
     sxi_jparse_destroy(yctx.J);
 
+    if(blocksize)
+	*blocksize = yctx.blocksize;
     if(size)
-	*size = yctx.blocksize;
+        *size = yctx.size;
+    if(used_size)
+        *used_size = yctx.used_size;
+    if(replica_count)
+        *replica_count = yctx.replica_count;
+    if(effective_replica_count)
+        *effective_replica_count = yctx.effective_replica_count;
+    if(revisions)
+        *revisions = yctx.revisions;
+    if(owner)
+        *owner = yctx.owner;
+    else
+        free(yctx.owner);
+    if(privs)
+        *privs = yctx.privs;
+    else
+        free(yctx.privs);
 
     if(sxi_getenv("SX_DEBUG_SINGLEHOST")) {
 	sxi_hostlist_empty(nodes);
@@ -1052,7 +1199,7 @@ int sxi_volume_info(sxi_conns_t *conns, const char *volume, sxi_hostlist_t *node
 
 int sxi_locate_volume(sxi_conns_t *conns, const char *volume, sxi_hostlist_t *nodes, int64_t *size, sxc_meta_t *metadata, sxc_meta_t *custom_metadata) {
     sxi_set_operation(sxi_conns_get_client(conns), "locate volume", volume, NULL, NULL);
-    return sxi_volume_info(conns, volume, nodes, size, metadata, custom_metadata);
+    return sxi_volume_info(conns, volume, nodes, size, NULL, NULL, NULL, NULL, NULL, NULL, NULL, metadata, custom_metadata);
 }
 
 int sxi_is_valid_cluster(const sxc_cluster_t *cluster) {

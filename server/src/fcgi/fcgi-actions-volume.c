@@ -67,6 +67,8 @@ void fcgi_locate_volume(const sx_hashfs_volume_t *vol) {
     } *meta = NULL;
     int64_t fsize;
     rc_ty s;
+    sx_priv_t priv = 0;
+    char owner[SXLIMIT_MAX_USERNAME_LEN+1];
 
     if (int64_arg("size", &fsize, 0))
         quit_errmsg(400, msg_get_reason());
@@ -108,6 +110,19 @@ void fcgi_locate_volume(const sx_hashfs_volume_t *vol) {
 	quit_errmsg(503, "All nodes for the volume have failed");
     }
 
+    if((s = sx_hashfs_get_access(hashfs, user, vol->name, &priv)) != OK) {
+        sx_nodelist_delete(goodnodes);
+        quit_errmsg(rc2http(s), "Failed to get volume privs");
+    }
+
+    if((s = sx_hashfs_uid_get_name(hashfs, vol->owner, owner, sizeof(owner))) != OK) {
+        sx_nodelist_delete(goodnodes);
+        quit_errmsg(rc2http(s), "Failed to get volume owner name");
+    }
+
+    if(has_priv(PRIV_ADMIN))
+        priv = PRIV_READ | PRIV_WRITE;
+
     if(has_arg("volumeMeta") || has_arg("customVolumeMeta")) {
         const char *metakey;
         const void *metavalue;
@@ -146,6 +161,13 @@ void fcgi_locate_volume(const sx_hashfs_volume_t *vol) {
     sx_nodelist_delete(goodnodes);
     if(has_arg("size"))
 	CGI_PRINTF(",\"blockSize\":%d", blocksize);
+    CGI_PUTS(",\"owner\":");
+    json_send_qstring(owner);
+    CGI_PRINTF(",\"replicaCount\":%u,\"effectiveReplicaCount\":%u,\"maxRevisions\":%u,\"privs\":\"%c%c\",\"usedSize\":",
+               vol->max_replica, vol->effective_replica, vol->revisions, (priv & PRIV_READ) ? 'r' : '-', (priv & PRIV_WRITE) ? 'w' : '-');
+    CGI_PUTLL(vol->cursize);
+    CGI_PRINTF(",\"sizeBytes\":");
+    CGI_PUTLL(vol->size);
     if(has_arg("volumeMeta")) {
         CGI_PUTS(",\"volumeMeta\":{");
 	comma = 0;

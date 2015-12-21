@@ -2163,7 +2163,7 @@ static int local_to_remote_begin(sxc_file_t *source, sxc_file_t *dest, int recur
         goto local_to_remote_err;
     }
 
-    if ((qret = sxi_volume_info(sxi_cluster_get_conns(dest->cluster), dest->volume, &volhosts, &fsz, vmeta, cvmeta))) {
+    if ((qret = sxi_locate_volume(sxi_cluster_get_conns(dest->cluster), dest->volume, &volhosts, &fsz, vmeta, cvmeta))) {
 	SXDEBUG("failed to locate destination volume");
 	goto local_to_remote_err;
     }
@@ -2335,7 +2335,7 @@ static int local_to_remote_begin(sxc_file_t *source, sxc_file_t *dest, int recur
 
 	    if(st.st_size != orig_fsz) {
 		fsz = st.st_size;
-		if((qret = sxi_volume_info(sxi_cluster_get_conns(dest->cluster), dest->volume, &volhosts, &fsz, NULL, NULL))) {
+		if((qret = sxi_locate_volume(sxi_cluster_get_conns(dest->cluster), dest->volume, &volhosts, &fsz, NULL, NULL))) {
 		    SXDEBUG("failed to locate destination volume");
 		    goto local_to_remote_err;
 		}
@@ -3802,7 +3802,7 @@ static int remote_to_local(sxc_file_t *source, sxc_file_t *dest, int recursive) 
         return 1;
     }
     sxi_hostlist_init(&volnodes);
-    if(sxi_volume_info(sxi_cluster_get_conns(source->cluster), source->volume, &volnodes, NULL, vmeta, cvmeta)) {
+    if(sxi_locate_volume(sxi_cluster_get_conns(source->cluster), source->volume, &volnodes, NULL, vmeta, cvmeta)) {
         SXDEBUG("failed to locate destination file");
         goto remote_to_local_err;
     }
@@ -4373,7 +4373,7 @@ sxi_sxfs_data_t *sxi_sxfs_download_init(sxc_file_t *source)
     if(!(cvmeta = sxc_meta_new(sx)))
         goto sxi_sxfs_download_init_err;
 
-    if(sxi_volume_info(sxi_cluster_get_conns(source->cluster), source->volume, &volnodes, NULL, vmeta, cvmeta)) {
+    if(sxi_locate_volume(sxi_cluster_get_conns(source->cluster), source->volume, &volnodes, NULL, vmeta, cvmeta)) {
         SXDEBUG("failed to locate destination file");
         goto sxi_sxfs_download_init_err;
     }
@@ -4740,7 +4740,7 @@ static sxi_job_t* remote_to_remote_fast(sxc_file_t *source, sxc_file_t *dest) {
         return NULL;
     }
 
-    if(sxi_volume_info(sxi_cluster_get_conns(source->cluster), source->volume, &volhosts, NULL, vmeta, cvmeta)) {
+    if(sxi_locate_volume(sxi_cluster_get_conns(source->cluster), source->volume, &volhosts, NULL, vmeta, cvmeta)) {
         SXDEBUG("failed to locate destination file");
         goto remote_to_remote_fast_err;
     }
@@ -4846,7 +4846,7 @@ static sxi_job_t* remote_to_remote_fast(sxc_file_t *source, sxc_file_t *dest) {
 	goto remote_to_remote_fast_err;
 
     sxi_hostlist_empty(&volhosts);
-    if(sxi_volume_info(sxi_cluster_get_conns(dest->cluster), dest->volume, &volhosts, NULL, NULL, NULL)) {
+    if(sxi_locate_volume(sxi_cluster_get_conns(dest->cluster), dest->volume, &volhosts, NULL, NULL, NULL)) {
         SXDEBUG("failed to locate destination file");
         goto remote_to_remote_fast_err;
     }
@@ -5430,7 +5430,7 @@ static int cat_remote_file(sxc_file_t *source, int dest) {
 
     sxi_hostlist_init(&hostlist);
     sxi_hostlist_init(&volnodes);
-    if(sxi_volume_info(sxi_cluster_get_conns(source->cluster), source->volume, &volnodes, NULL, vmeta, cvmeta)) {
+    if(sxi_locate_volume(sxi_cluster_get_conns(source->cluster), source->volume, &volnodes, NULL, vmeta, cvmeta)) {
         SXDEBUG("failed to locate destination file");
         sxi_hostlist_empty(&volnodes);
         return 1;
@@ -5764,7 +5764,7 @@ static int volmeta_new_common(sxc_file_t *file, sxc_meta_t **meta, sxc_meta_t **
     }
 
     sxi_hostlist_init(&volnodes);
-    if(sxi_volume_info(sxi_cluster_get_conns(file->cluster), file->volume, &volnodes, NULL, meta ? *meta : NULL, custom_meta ? *custom_meta : NULL)) {
+    if(sxi_locate_volume(sxi_cluster_get_conns(file->cluster), file->volume, &volnodes, NULL, meta ? *meta : NULL, custom_meta ? *custom_meta : NULL)) {
         SXDEBUG("failed to locate volume");
         if(meta) {
             sxc_meta_free(*meta);
