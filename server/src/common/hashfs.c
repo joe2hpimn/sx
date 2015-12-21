@@ -3923,9 +3923,9 @@ lock_db_err:
 }
 
 #define RUN_CHECK(func) do { r = func(h, debug); if(r == -1) { ret = -1; goto sx_hashfs_check_err; } ret += r; } while(0)
+#define NLOCKS (METADBS + SIZES * HASHDBS + 5)
 int sx_hashfs_check(sx_hashfs_t *h, int debug, int show_progress) {
     int ret = -1, r = 0, i, j;
-    const unsigned int NLOCKS = METADBS + SIZES * HASHDBS + 5;
     sqlite3_stmt *locks[NLOCKS], *unlocks[NLOCKS];
     int readonly = 0, hashfs_locked = 0;
     struct flock fl;
