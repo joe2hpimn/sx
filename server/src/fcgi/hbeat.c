@@ -104,7 +104,12 @@ static void cb_raft_resp_hashfs_ver(jparse_t *J, void *ctx, const char *string, 
 static void cb_raft_resp_lib_ver(jparse_t *J, void *ctx, const char *string, unsigned int length) {
     struct cb_raft_response_ctx *c = (struct cb_raft_response_ctx *)ctx;
 
-    sxi_strlcpy(c->libsxclient_version, string, MIN(sizeof(c->libsxclient_version), length+1));
+    if(length >= sizeof(c->libsxclient_version)) {
+        sxi_jparse_cancel(J, "Invalid client library version");
+        return;
+    }
+    memcpy(c->libsxclient_version, string, length);
+    c->libsxclient_version[length] = '\0';
     c->has_lib_ver = 1;
 }
 
