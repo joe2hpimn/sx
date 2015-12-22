@@ -374,7 +374,7 @@ char *sxc_user_add(sxc_cluster_t *cluster, const char *username, const char *pas
 char *sxc_user_clone(sxc_cluster_t *cluster, const char *username, const char *clonename, const char *oldtoken, int *role, const char *desc);
 int sxc_user_remove(sxc_cluster_t *cluster, const char *username, int remove_clones);
 int sxc_user_getinfo(sxc_cluster_t *cluster, const char *username, FILE *storeauth, int *is_admin, int get_config_link);
-char *sxc_user_newkey(sxc_cluster_t *cluster, const char *username, const char *pass, const char *oldtoken, int generate_key);
+char *sxc_user_newkey(sxc_cluster_t *cluster, const char *username, const char *pass, const char *oldtoken, int generate_key, const char *profile_name);
 /* Set quota for files stored in all volumes owned by the user. 
  * Only non-negative values are allowed, when 0 is given, no quota enforcement will be performed for the user. */
 int sxc_user_modify(sxc_cluster_t *cluster, const char *username, int64_t quota, const char *description);

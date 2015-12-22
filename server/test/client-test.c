@@ -2871,7 +2871,7 @@ static int test_acl(sxc_client_t *sx, sxc_cluster_t *cluster, const char *local_
         goto test_acl_err;
     }
     free(udata[1].key);
-    udata[1].key = sxc_user_newkey(cluster, udata[0].username, NULL, NULL, 1);
+    udata[1].key = sxc_user_newkey(cluster, udata[0].username, NULL, NULL, 1, NULL);
     if(!udata[1].key) {
         ERROR("Cannot generate new key for '%s': %s", udata[0].username, sxc_geterrmsg(sx));
         goto test_acl_err;

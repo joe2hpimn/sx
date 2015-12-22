@@ -3347,7 +3347,7 @@ char *sxc_user_clone(sxc_cluster_t *cluster, const char *username, const char *c
     return user_add(cluster, clonename, NULL, 0, oldtoken, username, role, desc, oldtoken ? 0 : 1, 0);
 }
 
-char *sxc_user_newkey(sxc_cluster_t *cluster, const char *username, const char *pass, const char *oldtoken, int generate_key)
+char *sxc_user_newkey(sxc_cluster_t *cluster, const char *username, const char *pass, const char *oldtoken, int generate_key, const char *profile_name)
 {
     uint8_t buf[AUTH_UID_LEN + AUTH_KEY_LEN + 2], *uid = buf, *key = &buf[AUTH_UID_LEN];
     char *tok, *retkey = NULL;
@@ -3358,9 +3358,14 @@ char *sxc_user_newkey(sxc_cluster_t *cluster, const char *username, const char *
     sxi_query_t *proto;
     int qret;
     long http_err;
+    int different_user;
+    sxi_conns_t *conns;
+    sxi_job_t *job;
+    sxi_jobs_t jobs;
 
     if(!cluster)
 	return NULL;
+    conns = sxi_cluster_get_conns(cluster);
     if(!username) {
         cluster_err(SXE_EARG, "Null args");
         return NULL;
@@ -3371,7 +3376,7 @@ char *sxc_user_newkey(sxc_cluster_t *cluster, const char *username, const char *
     }
     sx = sxi_cluster_get_client(cluster);
 
-    curtoken = sxi_conns_get_auth(sxi_cluster_get_conns(cluster));
+    curtoken = sxi_conns_get_auth(conns);
     if(!curtoken) {
         SXDEBUG("Failed to load current authentication token");
         return NULL;
@@ -3387,8 +3392,9 @@ char *sxc_user_newkey(sxc_cluster_t *cluster, const char *username, const char *
         return NULL;
     }
 
+    different_user = memcmp(curtoken_bin, uid, AUTH_UID_LEN);
     /* Only fetch uid if user is not changing his own key. If he's not allowed to do so, the operation will be rejected from get_user_info_wrap() */
-    if(memcmp(curtoken_bin, uid, AUTH_UID_LEN)) {
+    if(different_user) {
         uint8_t tmpuid[AUTH_UID_LEN];
 
         memcpy(tmpuid, uid, sizeof(tmpuid));
@@ -3472,17 +3478,47 @@ char *sxc_user_newkey(sxc_cluster_t *cluster, const char *username, const char *
 	free(tok);
 	return NULL;
     }
+
     sxi_set_operation(sxi_cluster_get_client(cluster), "change user key", sxi_cluster_get_name(cluster), NULL, NULL);
-    qret = sxi_job_submit_and_poll_err(sxi_cluster_get_conns(cluster), NULL, proto->verb, proto->path, proto->content, proto->content_len, &http_err);
-    if(!qret || http_err == 401) {
+    job = sxi_job_submit(conns, NULL, proto->verb, proto->path, NULL, proto->content, proto->content_len, &http_err, NULL);
+    sxi_query_free(proto);
+    if(!job) {
+        free(tok);
+        SXDEBUG("Failed to schedule usernewkey job");
+        return NULL;
+    }
+
+    if(!different_user) {
+        /* Set authentication token in order to be able to poll the job */
+        if(sxi_conns_set_auth(conns, tok)) {
+            SXDEBUG("Failed to set new authentication token");
+            sxi_job_free(job);
+            free(tok);
+            return NULL;
+        }
+    }
+
+    memset(&jobs, 0, sizeof(jobs));
+    jobs.jobs = &job;
+    jobs.n = 1;
+
+    qret = sxi_job_wait(conns, &jobs);
+    sxi_job_free(job);
+    if(!qret) {
 	retkey = malloc(AUTHTOK_ASCII_LEN + 1);
 	if(!retkey) {
 	    cluster_err(SXE_EMEM, "Unable to allocate memory for user key");
 	} else {
 	    sxi_strlcpy(retkey, tok, AUTHTOK_ASCII_LEN + 1);
         }
+
+        if(!different_user) {
+            if(sxc_cluster_add_access(cluster, profile_name, retkey) || sxc_cluster_save(cluster, sxc_get_confdir(sx))) {
+                sxi_notice(sx, "WARNING: Failed to store new authentication token");
+                /* User key has been successfully changed, do not fail and print the new key */
+            }
+        }
     }
-    sxi_query_free(proto);
     free(tok);
     return retkey;
 }

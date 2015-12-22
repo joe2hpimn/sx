@@ -234,7 +234,7 @@ static int newkey_user(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_uri_t *u, c
 	fflush(stdout);
     }
 
-    key = sxc_user_newkey(cluster, username, pass_file ? pass : NULL, oldtoken, generate_key);
+    key = sxc_user_newkey(cluster, username, pass_file ? pass : NULL, oldtoken, generate_key, u->profile);
     if(pass_file) {
         memset(pass, 0, sizeof(pass));
         munlock(pass, sizeof(pass));
