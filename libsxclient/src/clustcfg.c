@@ -3864,7 +3864,10 @@ char *sxc_fetch_sxauthd_credentials(sxc_client_t *sx, const char *username, cons
         goto sxc_fetch_sxauthd_credentials_err;
     }
     SXDEBUG("Successfully got list sxauthd of hosts");
-
+    if (port > 0 && sxi_conns_set_port(conns, port)) {
+        sxi_seterr(sx, SXE_ECFG, "Failed to configure sxauthd port %d", port);
+        goto sxc_fetch_sxauthd_credentials_err;
+    }
     sxi_set_operation(sx, "fetch certificate", NULL, NULL, NULL);
     if(sxi_conns_root_noauth(conns, tmpcafile, quiet)) {
         SXDEBUG("Failed to fetch sxauthd CA certificate");
