@@ -37,6 +37,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <ctype.h>
+#include <strings.h>
 #include "fileops.h"
 #include "jparse.h"
 
@@ -3369,7 +3370,7 @@ static size_t sxauthd_headfn(void *ptr, size_t size, size_t nmemb, struct sxauth
         return size*nmemb;
     }
 
-    if(!ctx->link && size * nmemb > lenof("Location: ") && !strncmp("Location: ", q, lenof("Location: "))) {
+    if(!ctx->link && size * nmemb > lenof("Location: ") && !strncasecmp("Location: ", q, lenof("Location: "))) {
         unsigned int len;
         q += lenof("Location: ");
         ctx->link = strdup(q);
