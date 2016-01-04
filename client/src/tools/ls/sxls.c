@@ -326,9 +326,14 @@ int main(int argc, char **argv) {
                 ret = 1;
             }
 	} else {
-	    sxc_cluster_lf_t *fl = sxc_cluster_listfiles_etag(cluster, u->volume, u->path, args.recursive_flag, NULL, 0, args.etag_arg);
+            unsigned int nfiles = 0;
+	    sxc_cluster_lf_t *fl = sxc_cluster_listfiles_etag(cluster, u->volume, u->path, args.recursive_flag, &nfiles, 0, args.etag_arg);
 	    if(fl) {
-		while(1) {
+                if(!nfiles && !sxc_str_has_glob(u->path)) {
+                    ret = 1;
+                    fprintf(stderr, "ERROR: Not Found\n");
+                }
+		while(nfiles) {
                     sxc_file_t *file;
                     char *human_str = NULL;
                     char *fname;

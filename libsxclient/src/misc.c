@@ -1984,7 +1984,7 @@ int sxi_derive_key(const char *pass, const char *salt, unsigned salt_size, unsig
     return 0;
 }
 
-unsigned int sxi_str_has_glob(const char *s) {
+int sxi_str_has_glob(const char *s) {
     unsigned int len = strlen(s), i;
     int esc = 0;
     for(i = 0; i < len; i++) {
@@ -1998,6 +1998,11 @@ unsigned int sxi_str_has_glob(const char *s) {
     if(len && i < len)
         return 1;
     return 0;
+}
+
+int sxc_str_has_glob(const char *s)
+{
+    return s ? sxi_str_has_glob(s) : -1;
 }
 
 #ifdef WORDS_BIGENDIAN

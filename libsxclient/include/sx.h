@@ -683,6 +683,9 @@ int sxc_filter_get_input(const sxf_handle_t *h, sxc_input_t type, const char *pr
 /* Escape string */
 char *sxc_escstr(char *str);
 
+/* Check if string contains any non-escaped globbing character */
+int sxc_str_has_glob(const char *s);
+
 /* URL-decode string */
 char *sxc_urldecode(sxc_client_t *sx, const char *s);
 
