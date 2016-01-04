@@ -180,6 +180,6 @@ typedef struct _node_status_t {
 int sxi_conns_set_timeouts(sxi_conns_t *conns, unsigned int hard_timeout, unsigned int soft_timeout);
 int sxi_conns_get_timeouts(sxi_conns_t *conns, unsigned int *hard_timeout, unsigned int *soft_timeout);
 
-char *sxi_conns_fetch_sxauthd_credentials(sxi_conns_t *conns, const char *username, const char *pass, const char *unique_name, const char *display_name, const char *host, int port, int quiet);
+char *sxi_conns_fetch_sxauthd_credentials(sxi_conns_t *conns, const char *username, const char *pass, const char *unique_name, const char *display_name, int port, int quiet);
 
 #endif

@@ -895,19 +895,25 @@ void sxi_conns_disable_clock_adjust(sxi_conns_t *conns) {
 	conns->no_clock_adjust = 1;
 }
 
-char *sxi_conns_fetch_sxauthd_credentials(sxi_conns_t *conns, const char *username, const char *pass, const char *unique_name, const char *display_name, const char *host, int port, int quiet) {
+char *sxi_conns_fetch_sxauthd_credentials(sxi_conns_t *conns, const char *username, const char *pass, const char *unique_name, const char *display_name, int port, int quiet) {
     unsigned int len;
     sxc_client_t *sx;
     char *url, *ret;
+    const char *host;
     if(!conns)
         return NULL;
     sx = sxi_conns_get_client(conns);
 
-    if(!username || !host || port < 0 || !pass) {
+    if(!username || port < 0 || !pass) {
         sxi_seterr(sx, SXE_EARG, "Invalid argument");
         return NULL;
     }
 
+    host = sxi_hostlist_get_host(sxi_conns_get_hostlist(conns), 0); /* Fetch only one host for now */
+    if(!host) {
+        sxi_seterr(sx, SXE_ECOMM, "Failed to fetch sxauthd credentials: NULL host");
+        return NULL;
+    }
     len = lenof("https://:65535/.auth/api/v1/create") + strlen(host) + 1;
     url = malloc(len);
     if(!url) {

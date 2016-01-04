@@ -559,7 +559,7 @@ int main(int argc, char **argv) {
     /* --sxauthd and --config-link do not work with certain arguments */
     if(args.config_link_given || args.sxauthd_given) {
         if(args.list_given || args.delete_given || args.info_given || args.auth_file_given
-           || args.no_ssl_given || args.key_given || args.port_given || args.host_list_given) {
+           || args.no_ssl_given || args.key_given || args.port_given || (args.config_link_given && args.host_list_given)) {
             cmdline_parser_print_help();
             printf("\n");
             fprintf(stderr, "ERROR: Invalid arguments (%s option must not be used with cluster-specific options)\n", args.config_link_given ? "--config-link" : "--sxauthd");
@@ -639,7 +639,7 @@ int main(int argc, char **argv) {
             goto init_err;
         }
 
-        link = sxc_fetch_sxauthd_credentials(sx, sxauthd_user, sxauthd_pass, sxauthd_host, sxauthd_port, args.batch_mode_given);
+        link = sxc_fetch_sxauthd_credentials(sx, sxauthd_user, sxauthd_pass, sxauthd_host, sxauthd_port, args.batch_mode_given, args.host_list_arg);
         if(!link) {
             fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
             memset(sxauthd_pass, 0, sizeof(sxauthd_pass));

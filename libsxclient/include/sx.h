@@ -188,13 +188,14 @@ char *sxc_cluster_configuration_link(sxc_cluster_t *cluster, const char *usernam
 /*
  * Return configuration link returned by sxaduthd
  *
- * uri: should be in form: https://[username@]host/
- * unique: A unique name for sxauthd authentication that will be used for that particular account (device)
- * display_name: A user friendly name that can be used to display while accessing device (can be non-unique)
- * pass_file: A file name that contains user password, if not NULL, can be used instead of reading stdin.
+ * username: A username used for authentication
+ * pass: A user password
+ * host: sxauthd hostname
+ * port: sxauthd port number
  * quiet: Do not prompt for cluster certificate when set to 1.
+ * hostlist: An optional hostlist used in place of sxauthd hostname
  */
-char *sxc_fetch_sxauthd_credentials(sxc_client_t *sx, const char *username, const char *pass, const char *host, int port, int quiet);
+char *sxc_fetch_sxauthd_credentials(sxc_client_t *sx, const char *username, const char *pass, const char *host, int port, int quiet, const char *hostlist);
 
 int sxc_read_pass_file(sxc_client_t *sx, const char *pass_file, char *pass, unsigned int pass_len);
 

@@ -3818,7 +3818,7 @@ int sxc_cluster_fetch_ca(sxc_cluster_t *cluster, int quiet)
     return 0;
 }
 
-char *sxc_fetch_sxauthd_credentials(sxc_client_t *sx, const char *username, const char *pass, const char *host, int port, int quiet) {
+char *sxc_fetch_sxauthd_credentials(sxc_client_t *sx, const char *username, const char *pass, const char *host, int port, int quiet, const char *hostlist) {
     char *ret = NULL;
     sxi_conns_t *conns = NULL;
     const char *tmpcafile = NULL;
@@ -3855,19 +3855,58 @@ char *sxc_fetch_sxauthd_credentials(sxc_client_t *sx, const char *username, cons
     if(!conns)
         goto sxc_fetch_sxauthd_credentials_err;
 
-    if(sxi_conns_set_dnsname(conns, host))
-        goto sxc_fetch_sxauthd_credentials_err;
-
-    /* Create a hostlist from a dns name host (needed to fetch ca) */
-    if(sxi_conns_resolve_hostlist(conns)) {
-        sxi_seterr(sx, SXE_ECFG, "Failed to resolve hostlist from dns name '%s'\n", host);
+    if(sxi_conns_set_sslname(conns, host)) {
+        fprintf(stderr, "ERROR: Cannot initialize new cluster: %s\n", sxc_geterrmsg(sx));
         goto sxc_fetch_sxauthd_credentials_err;
     }
-    SXDEBUG("Successfully got list sxauthd of hosts");
+
+    if(hostlist) {
+        /* DNS-less cluster */
+        char *hlist;
+        char *this_host, *next_host;
+
+        if(sxi_conns_set_dnsname(conns, NULL))
+            goto sxc_fetch_sxauthd_credentials_err;
+
+        hlist = strdup(hostlist);
+        if(!hlist) {
+            sxi_seterr(sx, SXE_EMEM, "Out of memory processing host list");
+            goto sxc_fetch_sxauthd_credentials_err;
+        }
+
+        this_host = hlist;
+        sxi_hostlist_empty(sxi_conns_get_hostlist(conns));
+        do {
+            next_host = strchr(this_host, ',');
+            if(next_host) {
+                *next_host = '\0';
+                next_host++;
+            }
+            if(sxi_hostlist_add_host(sx, sxi_conns_get_hostlist(conns), this_host)) {
+                free(hlist);
+                goto sxc_fetch_sxauthd_credentials_err;
+            }
+            this_host = next_host;
+        } while(this_host);
+        free(hlist);
+    } else {
+        /* DNS based cluster */
+        if(sxi_conns_set_dnsname(conns, host))
+            goto sxc_fetch_sxauthd_credentials_err;
+
+        /* Create a hostlist from a dns name host (needed to fetch ca) */
+        if(sxi_conns_resolve_hostlist(conns)) {
+            sxi_seterr(sx, SXE_ECFG, "Failed to resolve hostlist from dns name '%s'\n", host);
+            goto sxc_fetch_sxauthd_credentials_err;
+        }
+        SXDEBUG("Successfully got list of sxauthd hosts");
+    }
+
     if (port > 0 && sxi_conns_set_port(conns, port)) {
         sxi_seterr(sx, SXE_ECFG, "Failed to configure sxauthd port %d", port);
         goto sxc_fetch_sxauthd_credentials_err;
     }
+
     sxi_set_operation(sx, "fetch certificate", NULL, NULL, NULL);
     if(sxi_conns_root_noauth(conns, tmpcafile, quiet)) {
         SXDEBUG("Failed to fetch sxauthd CA certificate");
@@ -3876,7 +3915,7 @@ char *sxc_fetch_sxauthd_credentials(sxc_client_t *sx, const char *username, cons
     sxi_conns_set_cafile(conns, tmpcafile);
 
     sxi_set_operation(sx, "fetch sxauthd credentials", NULL, NULL, NULL);
-    ret = sxi_conns_fetch_sxauthd_credentials(conns, username, pass, unique_name, unique_name, host, port, quiet);
+    ret = sxi_conns_fetch_sxauthd_credentials(conns, username, pass, unique_name, unique_name, port, quiet);
 
 sxc_fetch_sxauthd_credentials_err:
     if(f)

@@ -3442,6 +3442,11 @@ char *sxi_curlev_fetch_sxauthd_credentials(curl_events_t *e, const char *url, co
     struct sxauthd_hdr_ctx header_ctx = { NULL, NULL, 1 };
     long contimeout;
 
+    header_t headers[] = {
+        {"User-Agent", sxi_get_useragent()},
+        {"SX-Cluster-Name", sxi_conns_get_sslname(e->conns) ? sxi_conns_get_sslname(e->conns) : sxi_conns_get_dnsname(e->conns)},
+    };
+
     ev = calloc(1, sizeof(*ev));
     if(!ev) {
         sxi_seterr(sx, SXE_EMEM, "curl_easy_init failed");
@@ -3463,6 +3468,13 @@ char *sxi_curlev_fetch_sxauthd_credentials(curl_events_t *e, const char *url, co
         free(ev);
         return NULL;
     }
+
+    if(set_headers(e, ev, headers, sizeof(headers) / sizeof(headers[0]))) {
+        sxi_cbdata_unref(&cbdata);
+        free(ev);
+        return NULL;
+    }
+
     /* Set common query options */
     if(easy_set_default_opt(e, ev))
         goto sxi_curlev_fetch_sxauthd_credentials_err;
@@ -3488,6 +3500,9 @@ char *sxi_curlev_fetch_sxauthd_credentials(curl_events_t *e, const char *url, co
         goto sxi_curlev_fetch_sxauthd_credentials_err;
     rc = curl_easy_setopt(ev->curl, CURLOPT_HEADERDATA, &header_ctx);
     if (curl_check(ev,rc, "set CURLOPT_HEADERFUNCTION") == -1)
+        goto sxi_curlev_fetch_sxauthd_credentials_err;
+    rc = curl_easy_setopt(ev->curl, CURLOPT_HTTPHEADER, ev->slist);
+    if (curl_check(ev, rc, "set headers"))
         goto sxi_curlev_fetch_sxauthd_credentials_err;
 
     /* This will suppress printing contents of a body and assign failure in case of http error code returned */
