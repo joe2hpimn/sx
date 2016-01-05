@@ -4960,7 +4960,7 @@ static sxi_job_t* remote_to_remote_fast(sxc_file_t *source, sxc_file_t *dest) {
             goto remote_to_remote_fast_err;
         }
 
-        if(sxi_upload_block_from_buf_track(sxi_cluster_get_conns(source->cluster), &need->upload_hosts, yctx->current.token, buf, blocksize, blocksize, 1)) {
+        if(sxi_upload_block_from_buf_track(sxi_cluster_get_conns(dest->cluster), &need->upload_hosts, yctx->current.token, buf, blocksize, blocksize, 1)) {
             SXDEBUG("failed to upload hash %.40s", ha);
             goto remote_to_remote_fast_err;
         }
