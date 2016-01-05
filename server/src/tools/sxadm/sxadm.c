@@ -1472,7 +1472,7 @@ static int info_cluster(sxc_client_t *sx, struct cluster_args_info *args, enum i
     }
 
     printf("Cluster UUID: %s\n", sxc_cluster_get_uuid(clust));
-    printf("Operating mode: %s\n", clst_readonly(clst) ? "read-only" : "read-write");
+    printf("Operating mode: %s%s\n", clst_readonly(clst) ? "read-only" : "read-write", clst_locked(clst) ? ", locked" : "");
 
     switch(clst_ndists(clst)) {
     case 0:

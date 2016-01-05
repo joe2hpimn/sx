@@ -106,10 +106,23 @@ void fcgi_handle_cluster_requests(void) {
     if(has_arg("clusterStatus")) {
 	sx_inprogress_t status;
 	const char *progress_msg;
+        unsigned int islocked = 0;
 
 	status = sx_hashfs_get_progress_info(hashfs, &progress_msg);
 	if(status == INPRG_ERROR)
 	    quit_errmsg(500, msg_get_reason());
+
+        if(has_arg("operatingMode")) {
+            char lockid[AUTH_UID_LEN*2+32];
+            s = sx_hashfs_distlock_get(hashfs, lockid, sizeof(lockid));
+            if(s != OK && s != ENOENT)
+                quit_errmsg(500, msg_get_reason());
+            if(s == ENOENT)
+                islocked = 0;
+            else
+                islocked = 1;
+        }
+
 	CGI_PUTS("\"clusterStatus\":{\"distributionModels\":[");
 
 	if(!sx_storage_is_bare(hashfs)) {
@@ -157,7 +170,7 @@ void fcgi_handle_cluster_requests(void) {
 	    }
 	    CGI_PRINTF(",\"clusterAuth\":\"%s\"", sx_hashfs_authtoken(hashfs));
             if(has_arg("operatingMode"))
-                CGI_PRINTF(",\"operatingMode\":\"%s\"", sx_hashfs_is_readonly(hashfs) ? "read-only" : "read-write");
+                CGI_PRINTF(",\"operatingMode\":\"%s\",\"locked\":%s", sx_hashfs_is_readonly(hashfs) ? "read-only" : "read-write", islocked ? "true" : "false");
             CGI_PUTC('}');
 	} else
 	    CGI_PUTS("]}");

@@ -44,6 +44,7 @@ struct cstatus {
     int64_t capa;
     int nsets, have_uuid, have_distid, is_ignd, op_complete;
     int readonly;
+    int locked;
     enum {
 	OP_NONE,
 	OP_REBALANCE,
@@ -301,6 +302,11 @@ static void cb_cstatus_mode(jparse_t *J, void *ctx, const char *string, unsigned
 	c->readonly = 1;
 }
 
+static void cb_cstatus_locked(jparse_t *J, void *ctx, int locked) {
+    struct cstatus *c = (struct cstatus *)ctx;
+    c->locked = locked;
+}
+
 static void cb_cstatus_op_type(jparse_t *J, void *ctx, const char *string, unsigned int length) {
     struct cstatus *c = (struct cstatus *)ctx;
     if(length == lenof("rebalance") && !memcmp("rebalance", string, lenof("rebalance")))
@@ -445,7 +451,8 @@ const struct jparse_actions cstatus_acts = {
 		   JPACT(cb_cstatus_dist_ndone, JPKEY("clusterStatus"), JPKEY("distributionModels"), JPARR(1), JPANYITM)
 		   ),
     JPACTS_BOOL(
-		JPACT(cb_cstatus_op_complete, JPKEY("clusterStatus"), JPKEY("opInProgress"), JPKEY("isComplete"))
+		JPACT(cb_cstatus_op_complete, JPKEY("clusterStatus"), JPKEY("opInProgress"), JPKEY("isComplete")),
+                JPACT(cb_cstatus_locked, JPKEY("clusterStatus"), JPKEY("locked"))
 		)
 };
 
@@ -660,6 +667,10 @@ clst_state clst_upgrade_state(clst_t *st, const char **desc) {
 
 int clst_readonly(clst_t *st) {
     return st ? st->readonly : 0;
+}
+
+int clst_locked(clst_t *st) {
+    return st ? st->locked : 0;
 }
 
 const char* clst_leader_node(clst_t *st) {

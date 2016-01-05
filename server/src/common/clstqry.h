@@ -54,6 +54,7 @@ clst_state clst_replace_state(clst_t *st, const char **desc);
 clst_state clst_upgrade_state(clst_t *st, const char **desc);
 void clst_destroy(clst_t *st);
 int clst_readonly(clst_t *st);
+int clst_locked(clst_t *st);
 
 typedef struct _raft_node_data_t {
     sx_uuid_t uuid;
