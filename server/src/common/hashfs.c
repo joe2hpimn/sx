@@ -2968,7 +2968,8 @@ static long long get_count(sxi_db_t *db, const char *table)
 
 void sx_hashfs_stats(sx_hashfs_t *h)
 {
-    int i, j;
+    int i, j, r;
+    sqlite3_stmt *q;
     INFO("User#: %lld", get_count(h->db, "users"));
     INFO("Volume#: %lld", get_count(h->db, "volumes"));
     INFO("Volume metadata#: %lld", get_count(h->db, "vmeta"));
@@ -2986,6 +2987,17 @@ void sx_hashfs_stats(sx_hashfs_t *h)
 	    blocks += get_count(h->datadb[j][i], "blocks");
 	INFO("\t%-8s (%8d byte) block#: %lld", sizelongnames[j], bsz[j], blocks);
     }
+    if(qprep(h->eventdb, &q, "SELECT type, SUM(complete = 1) as complete, SUM(complete = 1 AND result <> 0) as failed, SUM(complete = 0) as running FROM jobs GROUP BY type ORDER BY failed DESC")) {
+        WARN("Failed to obtain job statistics");
+        return;
+    }
+    INFO("Job statistics (%lld entries total):", get_count(h->eventdb, "jobs"));
+    INFO("\t%-8s%-14s%-14s%-14s", "Type", "Completed", "Failed", "Running");
+    while((r = qstep(q)) == SQLITE_ROW)
+        INFO("\t%-8d%-14lld%-14lld%-14lld", sqlite3_column_int(q, 0), sqlite3_column_int64(q, 1), sqlite3_column_int64(q, 2), sqlite3_column_int64(q, 3));
+    if(r != SQLITE_DONE)
+        WARN("Failed to obtain job statistics");
+    sqlite3_finalize(q);
 }
 
 /* Return number of encountered errors, -1 if failed */
