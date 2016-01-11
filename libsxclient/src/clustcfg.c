@@ -3277,9 +3277,9 @@ static char *user_add(sxc_cluster_t *cluster, const char *username, const char *
 
     /* Query */
     if(existing)
-        proto = sxi_userclone_proto(sx, existing, username, oldtoken ? uid : NULL, key, desc);
+        proto = sxi_userclone_proto(sx, existing, username, oldtoken ? uid : NULL, key, desc, NULL);
     else
-        proto = sxi_useradd_proto(sx, username, NULL, key, admin, desc, quota);
+        proto = sxi_useradd_proto(sx, username, NULL, key, admin, desc, quota, NULL);
     if(!proto) {
 	cluster_err(SXE_EMEM, "Unable to allocate space for request data");
 	return NULL;
@@ -3472,7 +3472,7 @@ char *sxc_user_newkey(sxc_cluster_t *cluster, const char *username, const char *
     }
 
     /* Query */
-    proto = sxi_usermod_proto(sx, username, key, -1, NULL);
+    proto = sxi_usermod_proto(sx, username, key, -1, NULL, NULL);
     if(!proto) {
 	cluster_err(SXE_EMEM, "Unable to allocate space for request data");
 	free(tok);
@@ -3575,7 +3575,7 @@ int sxc_user_modify(sxc_cluster_t *cluster, const char *username, int64_t quota,
     }
     sx = sxi_cluster_get_client(cluster);
 
-    query = sxi_usermod_proto(sx, username, NULL, quota, description);
+    query = sxi_usermod_proto(sx, username, NULL, quota, description, NULL);
     if(!query)
         return 1;
 

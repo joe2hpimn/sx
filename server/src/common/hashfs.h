@@ -166,8 +166,12 @@ typedef struct _sx_hashfs_user_t {
     int role;
 } sx_hashfs_user_t;
 
-rc_ty sx_hashfs_create_user(sx_hashfs_t *h, const char *user, const uint8_t *uid, unsigned uid_size, const uint8_t *key, unsigned key_size, int role, const char *desc, int64_t quota);
-rc_ty sx_hashfs_user_modify(sx_hashfs_t *h, const char *user, const uint8_t *key, unsigned key_size, int64_t quota, const char *description);
+void sx_hashfs_create_user_begin(sx_hashfs_t *h);
+rc_ty sx_hashfs_create_user_addmeta(sx_hashfs_t *h, const char *key, const void *value, unsigned int value_len);
+rc_ty sx_hashfs_create_user_finish(sx_hashfs_t *h, const char *user, const uint8_t *uid, unsigned uid_size, const uint8_t *key, unsigned key_size, int role, const char *desc, int64_t quota, int do_transaction);
+rc_ty sx_hashfs_user_modify_begin(sx_hashfs_t *h, const char *username);
+rc_ty sx_hashfs_user_modify_addmeta(sx_hashfs_t *h, const char *key, const void *value, unsigned int value_len);
+rc_ty sx_hashfs_user_modify_finish(sx_hashfs_t *h, const char *user, const uint8_t *key, unsigned key_size, int64_t quota, const char *description, int modify_custom_meta);
 rc_ty sx_hashfs_delete_user(sx_hashfs_t *h, const char *username, const char *new_owner, int all_clones);
 rc_ty sx_hashfs_get_uid(sx_hashfs_t *h, const char *user, int64_t *uid);
 rc_ty sx_hashfs_get_uid_role(sx_hashfs_t *h, const char *user, int64_t *uid, int *role);
@@ -181,9 +185,20 @@ rc_ty sx_hashfs_user_onoff(sx_hashfs_t *h, const char *user, int enable, int all
 rc_ty sx_hashfs_get_owner_quota_usage(sx_hashfs_t *h, sx_uid_t uid, int64_t *quota, int64_t *used);
 /* Generate unique user ID for new user */
 rc_ty sx_hashfs_generate_uid(sx_hashfs_t *h, uint8_t *uid);
+rc_ty sx_hashfs_check_user_meta(const char *key, const void *value, unsigned int value_len, int check_prefix);
+rc_ty sx_hashfs_usermeta_begin(sx_hashfs_t *h, sx_uid_t uid);
+rc_ty sx_hashfs_usermeta_next(sx_hashfs_t *h, const char **key, const void **value, unsigned int *value_len);
 
-typedef int (*user_list_cb_t)(sx_uid_t user_id, const char *username, const uint8_t *user, const uint8_t *key, int is_admin, const char *desc, int64_t quota, int64_t quota_usage, void *ctx);
-rc_ty sx_hashfs_list_users(sx_hashfs_t *h, const uint8_t *list_clones, user_list_cb_t cb, int desc, int send_quota, void *ctx);
+typedef struct metacontent {
+    char key[SXLIMIT_META_MAX_KEY_LEN+1];
+    char hexval[SXLIMIT_META_MAX_VALUE_LEN * 2 + 1];
+    int custom;
+} metacontent_t;
+rc_ty sx_hashfs_fill_usermeta_content(sx_hashfs_t *h, metacontent_t *meta, unsigned int *nmeta, sx_uid_t id);
+typedef int (*user_list_cb_t)(sx_hashfs_t *hashfs, sx_uid_t user_id, const char *username, const uint8_t *user, const uint8_t *key, int is_admin, const char *desc, int64_t quota, int64_t quota_usage, int print_meta, int print_custom_meta, int nmeta, metacontent_t *meta, void *ctx);
+rc_ty sx_hashfs_list_users(sx_hashfs_t *h, const uint8_t *list_clones, user_list_cb_t cb, int desc, int send_quota, int send_meta, int send_custom_meta, void *ctx);
+/* Copy metadata entries stored in sx_blob_t into sxc_meta_t needed by sxi_proto_* functions from libsxclient. */
+int sx_hashfs_blob_to_sxc_meta(sxc_client_t *sx, sx_blob_t *b, sxc_meta_t **meta, int skip);
 
 #define CLUSTER_USER (const uint8_t*)"\x08\xb5\x12\x4c\x44\x7f\x00\xb2\xcd\x38\x31\x3f\x44\xe3\x93\xfd\x44\x84\x47"
 #define ADMIN_USER (const uint8_t*)"\xd0\x33\xe2\x2a\xe3\x48\xae\xb5\x66\x0f\xc2\x14\x0a\xec\x35\x85\x0c\x4d\xa9\x97"

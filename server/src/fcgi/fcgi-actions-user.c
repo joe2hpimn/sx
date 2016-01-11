@@ -182,7 +182,7 @@ const job_2pc_t userdel_spec = {
     userdel_timeout
 };
 
-void fcgi_delete_user() {
+void fcgi_delete_user(void) {
     struct userdel_ctx uctx;
     char new_owner[SXLIMIT_MAX_USERNAME_LEN+2];
     rc_ty s;
@@ -227,6 +227,7 @@ void fcgi_send_user(void) {
     sx_priv_t role;
     sxi_query_t *q;
     rc_ty rc;
+    sxc_meta_t *meta = NULL;
 
     if ((rc = sx_hashfs_get_user_by_name(hashfs, path, user_uid, 0)) != OK) {
         if(rc == ENOENT)
@@ -247,9 +248,43 @@ void fcgi_send_user(void) {
         quit_errmsg(403, "Cluster key is not allowed to be retrieved");
     }
 
+    if(has_arg("userMeta")) {
+        const char *metakey;
+        const void *metaval;
+        unsigned int metaval_len;
+
+        meta = sxc_meta_new(sx_hashfs_client(hashfs));
+        if(!meta) {
+            free(desc);
+            quit_errmsg(500, "Out of memory processing user meta");
+        }
+
+        rc = sx_hashfs_usermeta_begin(hashfs, requid);
+        if(rc != OK) {
+            free(desc);
+            sxc_meta_free(meta);
+            quit_errmsg(rc2http(rc), msg_get_reason());
+        }
+
+        for(rc = sx_hashfs_usermeta_next(hashfs, &metakey, &metaval, &metaval_len); rc == OK; rc = sx_hashfs_usermeta_next(hashfs, &metakey, &metaval, &metaval_len)) {
+            if(sxc_meta_setval(meta, metakey, metaval, metaval_len)) {
+                free(desc);
+                sxc_meta_free(meta);
+                quit_errmsg(500, "Out of memory processing user meta");
+            }
+        }
+
+        if(rc != ITER_NO_MORE) {
+            free(desc);
+            sxc_meta_free(meta);
+            quit_errmsg(rc2http(rc), msg_get_reason());
+        }
+    }
+
     /* note: takes 'quota' param to decide if it should be printed or not. Should be taken into account to not break <1.2 client tools JSON parsers */
-    q = sxi_useradd_proto(sx_hashfs_client(hashfs), path, user_uid, key, role == PRIV_ADMIN, desc, has_arg("quota") ? quota : QUOTA_UNDEFINED);
+    q = sxi_useradd_proto(sx_hashfs_client(hashfs), path, user_uid, key, role == PRIV_ADMIN, desc, has_arg("quota") ? quota : QUOTA_UNDEFINED, meta);
     free(desc);
+    sxc_meta_free(meta);
     if (!q) {
         msg_set_reason("Cannot retrieve user data for '%s': %s", path, sxc_geterrmsg(sx_hashfs_client(hashfs)));
 	quit_errmsg(500, msg_get_reason());
@@ -269,6 +304,8 @@ struct user_ctx {
     int has_name;
     int role;
     int is_clone; /* Set to 1 if existing is filled with existing user name */
+    unsigned int nmeta;
+    sx_blob_t *metablb;
 };
 
 
@@ -349,6 +386,35 @@ static void cb_user_quota(jparse_t *J, void *ctx, int64_t num) {
     uctx->quota = num;
 }
 
+static void cb_user_meta(jparse_t *J, void *ctx, const char *string, unsigned int length) {
+    const char *metakey = sxi_jpath_mapkey(sxi_jpath_down(sxi_jparse_whereami(J)));
+    uint8_t metavalue[SXLIMIT_META_MAX_VALUE_LEN];
+    struct user_ctx *c = ctx;
+
+    if(c->nmeta >= SXLIMIT_META_MAX_ITEMS) {
+        sxi_jparse_cancel(J, "Too many user metadata entries (max: %u)", SXLIMIT_META_MAX_ITEMS);
+        return;
+    }
+
+    if(hex2bin(string, length, metavalue, sizeof(metavalue))) {
+        sxi_jparse_cancel(J, "Invalid user metadata value for key '%s'", metakey);
+        return;
+    }
+
+    length /= 2;
+    if(sx_hashfs_check_user_meta(metakey, metavalue, length, !has_priv(PRIV_CLUSTER))) {
+        const char *reason = msg_get_reason();
+        sxi_jparse_cancel(J, "'%s'", reason ? reason : "Invalid user metadata");
+        return;
+    }
+
+    if(sx_blob_add_string(c->metablb, metakey) ||
+       sx_blob_add_blob(c->metablb, metavalue, length)) {
+        sxi_jparse_cancel(J, "Out of memory processing user creation request");
+        return;
+    }
+    c->nmeta++;
+}
 
 const struct jparse_actions user_acts = {
     JPACTS_STRING(
@@ -357,7 +423,8 @@ const struct jparse_actions user_acts = {
 		  JPACT(cb_user_desc, JPKEY("userDesc")),
 		  JPACT(cb_user_type, JPKEY("userType")),
 		  JPACT(cb_user_userid, JPKEY("userID")),
-		  JPACT(cb_user_key, JPKEY("userKey"))
+		  JPACT(cb_user_key, JPKEY("userKey")),
+                  JPACT(cb_user_meta, JPKEY("userMeta"), JPANYKEY)
 		  ),
     JPACTS_INT64(
 		 JPACT(cb_user_quota, JPKEY("userQuota"))
@@ -466,7 +533,9 @@ static int user_to_blob(sxc_client_t *sx, int nodes, void *yctx, sx_blob_t *jobl
         sx_blob_add_blob(joblb, uctx->token, AUTHTOK_BIN_LEN) ||
         sx_blob_add_int32(joblb, uctx->role) ||
         sx_blob_add_int64(joblb, uctx->quota) ||
-        sx_blob_add_string(joblb, realdesc)) {
+        sx_blob_add_string(joblb, realdesc) ||
+        sx_blob_add_int32(joblb, uctx->nmeta) ||
+        sx_blob_cat(joblb, uctx->metablb)) {
         msg_set_reason("Cannot create job blob");
         return -1;
     }
@@ -489,42 +558,76 @@ static sxi_query_t* user_proto_from_blob(sxc_client_t *sx, sx_blob_t *b, jobphas
     const char *desc = NULL;
     unsigned auth_len;
     int64_t quota;
+    int nmeta;
+    sxc_meta_t *meta;
+    sxi_query_t *ret = NULL;
 
     if (sx_blob_get_string(b, &name) ||
 	sx_blob_get_blob(b, (const void**)&token, &auth_len) ||
         auth_len != AUTHTOK_BIN_LEN ||
 	sx_blob_get_int32(b, &role) ||
         sx_blob_get_int64(b, &quota) ||
-        sx_blob_get_string(b, &desc)) {
+        sx_blob_get_string(b, &desc) ||
+        sx_blob_get_int32(b, &nmeta)) {
         WARN("Corrupt user blob");
         return NULL;
     }
+
+    meta = sxc_meta_new(sx);
+    if(!meta) {
+        WARN("Out of memory allocating user meta");
+        return NULL;
+    }
+
+    while(nmeta--) {
+        const char *metakey = NULL;
+        const void *metaval = NULL;
+        unsigned int metaval_len = 0;
+
+        if(sx_blob_get_string(b, &metakey) || sx_blob_get_blob(b, &metaval, &metaval_len)) {
+            WARN("Corrupt user blob");
+            goto user_proto_from_blob_err;
+        }
+
+        if(sxc_meta_setval(meta, metakey, metaval, metaval_len)) {
+            WARN("Out of memory processing meta value");
+            goto user_proto_from_blob_err;
+        }
+    }
+
     switch (phase) {
         case JOBPHASE_REQUEST:
-            return sxi_useradd_proto(sx, name, token, &token[AUTH_UID_LEN], (role == ROLE_ADMIN), desc, quota);
+            ret = sxi_useradd_proto(sx, name, token, &token[AUTH_UID_LEN], (role == ROLE_ADMIN), desc, quota, meta);
+            break;
         case JOBPHASE_COMMIT:
-            return sxi_useronoff_proto(sx, name, 1, 0);
+            ret = sxi_useronoff_proto(sx, name, 1, 0);
+            break;
         case JOBPHASE_ABORT:/* fall-through */
             INFO("Create user '%s': aborting", name);
-            return sxi_userdel_proto(sx, name, "admin", 0);
+            ret = sxi_userdel_proto(sx, name, "admin", 0);
+            break;
         case JOBPHASE_UNDO:
             INFO("Create user '%s': undoing", name);
-            return sxi_userdel_proto(sx, name, "admin", 0);
-        default:
-            return NULL;
+            ret = sxi_userdel_proto(sx, name, "admin", 0);
+            break;
     }
+
+user_proto_from_blob_err:
+    sxc_meta_free(meta);
+    return ret;
 }
 
-static rc_ty user_execute_blob(sx_hashfs_t *hashfs, sx_blob_t *b, jobphase_t phase, int remote)
+static rc_ty user_execute_blob(sx_hashfs_t *h, sx_blob_t *b, jobphase_t phase, int remote)
 {
     const char *name, *desc;
     const uint8_t *token;
     unsigned auth_len;
     int role;
     int64_t quota;
+    int nmeta;
     rc_ty rc = OK, rc2 = OK;
 
-    if (!hashfs || !b) {
+    if (!h || !b) {
         msg_set_reason("NULL arguments");
         return FAIL_EINTERNAL;
     }
@@ -533,15 +636,40 @@ static rc_ty user_execute_blob(sx_hashfs_t *hashfs, sx_blob_t *b, jobphase_t pha
         auth_len != AUTHTOK_BIN_LEN ||
 	sx_blob_get_int32(b, &role) ||
         sx_blob_get_int64(b, &quota) ||
-        sx_blob_get_string(b, &desc)) {
+        sx_blob_get_string(b, &desc) ||
+        sx_blob_get_int32(b, &nmeta)) {
         msg_set_reason("Corrupted blob");
         return FAIL_EINTERNAL;
+    }
+
+    if(phase == JOBPHASE_REQUEST) {
+        if(nmeta < 0) {
+            msg_set_reason("Corrupt user blob");
+            return FAIL_EINTERNAL;
+        }
+
+        sx_hashfs_create_user_begin(h);
+        while(nmeta--) {
+            const char *metakey = NULL;
+            const void *metaval = NULL;
+            unsigned int metaval_len = 0;
+
+            if(sx_blob_get_string(b, &metakey) || sx_blob_get_blob(b, &metaval, &metaval_len)) {
+                WARN("Corrupt user blob");
+                return FAIL_EINTERNAL;
+            }
+
+            if(sx_hashfs_create_user_addmeta(h, metakey, metaval, metaval_len)) {
+                WARN("Invalid user metadata");
+                return FAIL_EINTERNAL;
+            }
+        }
     }
 
     switch (phase) {
         case JOBPHASE_REQUEST:
             DEBUG("useradd request '%s'", name);
-            rc = sx_hashfs_create_user(hashfs, name, token, AUTH_UID_LEN, token + AUTH_UID_LEN, AUTH_KEY_LEN, role, desc, quota);
+            rc = sx_hashfs_create_user_finish(h, name, token, AUTH_UID_LEN, token + AUTH_UID_LEN, AUTH_KEY_LEN, role, desc, quota, 1);
             if(rc == EINVAL)
                 return rc;
             if (rc == EEXIST) {
@@ -555,7 +683,7 @@ static rc_ty user_execute_blob(sx_hashfs_t *hashfs, sx_blob_t *b, jobphase_t pha
             return rc;
         case JOBPHASE_COMMIT:
             DEBUG("useradd commit '%s'", name);
-	    rc = sx_hashfs_user_onoff(hashfs, name, 1, 0);
+	    rc = sx_hashfs_user_onoff(h, name, 1, 0);
             if (rc)
 		WARN("Failed to enable user '%s'", name);
             return rc;
@@ -563,14 +691,14 @@ static rc_ty user_execute_blob(sx_hashfs_t *hashfs, sx_blob_t *b, jobphase_t pha
             DEBUG("useradd abort '%s'", name);
             INFO("Create user '%s': aborted", name);
             /* try hard to deactivate / delete */
-	    rc = sx_hashfs_user_onoff(hashfs, name, 0, 0);
-            rc2 = sx_hashfs_delete_user(hashfs, name, "admin", 0);
+	    rc = sx_hashfs_user_onoff(h, name, 0, 0);
+            rc2 = sx_hashfs_delete_user(h, name, "admin", 0);
             return rc2 == OK ? rc : rc2;
         case JOBPHASE_UNDO:
             DEBUG("useradd undo '%s'", name);
             /* try hard to deactivate / delete */
-	    rc = sx_hashfs_user_onoff(hashfs, name, 0, 0);
-            rc2 = sx_hashfs_delete_user(hashfs, name, "admin", 0);
+	    sx_hashfs_user_onoff(h, name, 0, 0);
+            sx_hashfs_delete_user(h, name, "admin", 0);
             CRIT("User '%s' may have been left in an inconsistent state after a failed removal attempt", name);
             msg_set_reason("User may have been left in an inconsistent state after a failed removal attempt");
             return FAIL_EINTERNAL;
@@ -597,7 +725,13 @@ void fcgi_create_user(void)
     struct user_ctx *uctx = wrap_calloc(1, sizeof(*uctx));
     if(!uctx)
 	quit_errmsg(503, "Out of memory");
+    uctx->metablb = sx_blob_new();
+    if(!uctx->metablb) {
+        free(uctx);
+        quit_errmsg(500, "Cannot allocate meta storage");
+    }
     job_2pc_handle_request(sx_hashfs_client(hashfs), &user_spec, uctx);
+    sx_blob_free(uctx->metablb);
     free(uctx);
 }
 
@@ -606,6 +740,10 @@ struct user_modify_ctx {
     int key_given, quota_given, desc_given;
     int64_t quota;
     char description[SXLIMIT_MAX_USERDESC_LEN+1];
+    int nmeta; /* Set to -1 when meta should not be modified */
+    sx_blob_t *meta;
+    int noldmeta;
+    sx_blob_t *oldmeta;
 };
 
 static void cb_user_modify_key(jparse_t *J, void *ctx, const char *string, unsigned int length) {
@@ -638,21 +776,79 @@ static void cb_user_modify_quota(jparse_t *J, void *ctx, int64_t num) {
     uctx->quota_given = 1;
 }
 
+static void cb_user_modify_cmeta_begin(jparse_t *J, void *ctx) {
+    struct user_modify_ctx *c = ctx;
+
+    if(c->meta) {
+        sxi_jparse_cancel(J, "Multiple custom user meta maps provided");
+        return;
+    }
+    c->meta = sx_blob_new();
+    if(!c->meta) {
+        sxi_jparse_cancel(J, "Out of memory processing custom metadata");
+        return;
+    }
+    c->nmeta = 0;
+}
+
+static void cb_user_modify_cmeta(jparse_t *J, void *ctx, const char *string, unsigned int length) {
+    const char *metakey = sxi_jpath_mapkey(sxi_jpath_down(sxi_jparse_whereami(J)));
+    uint8_t metavalue[SXLIMIT_META_MAX_VALUE_LEN];
+    struct user_modify_ctx *c = ctx;
+
+    if(c->nmeta >= SXLIMIT_CUSTOM_USER_META_MAX_ITEMS) {
+        sxi_jparse_cancel(J, "Too many user metadata entries (max: %u)", SXLIMIT_CUSTOM_USER_META_MAX_ITEMS);
+        return;
+    }
+
+    if(strlen(metakey) > SXLIMIT_META_MAX_KEY_LEN - lenof(SX_CUSTOM_META_PREFIX)) {
+        sxi_jparse_cancel(J, "Custom metadata key too long (max: %u)", SXLIMIT_META_MAX_KEY_LEN - lenof(SX_CUSTOM_META_PREFIX));
+        return;
+    }
+
+    if(hex2bin(string, length, metavalue, sizeof(metavalue))) {
+        sxi_jparse_cancel(J, "Invalid user metadata value for key '%s'", metakey);
+        return;
+    }
+
+    length /= 2;
+    if(sx_hashfs_check_user_meta(metakey, metavalue, length, 0)) {
+        const char *reason = msg_get_reason();
+        sxi_jparse_cancel(J, "'%s'", reason ? reason : "Invalid user metadata");
+        return;
+    }
+
+    if(sx_blob_add_string(c->meta, metakey) ||
+       sx_blob_add_blob(c->meta, metavalue, length)) {
+        sxi_jparse_cancel(J, "Out of memory processing user creation request");
+        return;
+    }
+    c->nmeta++;
+}
+
 const struct jparse_actions user_modify_acts = {
     JPACTS_STRING(
 		  JPACT(cb_user_modify_key, JPKEY("userKey")),
 		  JPACT(cb_user_modify_desc, JPKEY("userDesc")),
-		  JPACT(cb_user_modify_desc, JPKEY("desc")) /* Legacy */
+		  JPACT(cb_user_modify_desc, JPKEY("desc")), /* Legacy */
+                  JPACT(cb_user_modify_cmeta, JPKEY("customUserMeta"), JPANYKEY)
 		  ),
     JPACTS_INT64(
 		 JPACT(cb_user_modify_quota, JPKEY("userQuota")),
 		 JPACT(cb_user_modify_quota, JPKEY("quota")) /* Legacy */
-		 )
+		 ),
+    JPACTS_MAP_BEGIN(
+                     JPACT(cb_user_modify_cmeta_begin, JPKEY("customUserMeta"))
+                    )
 };
 
 static rc_ty user_modify_parse_complete(void *yctx)
 {
     struct user_modify_ctx *uctx = yctx;
+    rc_ty s;
+    sx_priv_t role;
+    sx_uid_t id;
+    uint8_t requser[AUTH_UID_LEN];
     if (!uctx)
         return EINVAL;
 
@@ -669,26 +865,27 @@ static rc_ty user_modify_parse_complete(void *yctx)
         return EINVAL;
     }
 
-    if(uctx->quota_given) {
-        rc_ty s;
-        sx_priv_t role;
-        uint8_t requser[AUTH_UID_LEN];
-
-        if((s = sx_hashfs_get_user_by_name(hashfs, path, requser, 0)) != OK) {
-            if(s == ENOENT) {
-                msg_set_reason("No such user");
-                return ENOENT;
-            } else {
-                msg_set_reason("Failed to retrieve user '%s'", path);
-                return FAIL_EINTERNAL;
-            }
-        }
-
-        if(sx_hashfs_get_user_info(hashfs, requser, NULL, NULL, &role, NULL, NULL) != OK) {
+    if((s = sx_hashfs_get_user_by_name(hashfs, path, requser, 0)) != OK) {
+        if(s == ENOENT) {
+            msg_set_reason("No such user");
+            return ENOENT;
+        } else {
             msg_set_reason("Failed to retrieve user '%s'", path);
             return FAIL_EINTERNAL;
         }
+    }
 
+    if((s = sx_hashfs_get_user_info(hashfs, requser, &id, NULL, &role, NULL, NULL)) != OK) {
+        msg_set_reason("Failed to retrieve user '%s'", path);
+        return s;
+    }
+
+    if(!has_priv(PRIV_ADMIN) && id != uid) {
+        msg_set_reason("Cannot modify different user");
+        return EINVAL;
+    }
+
+    if(uctx->quota_given) {
         /* Cannot set quota for admin users */
        if(role & ~(PRIV_READ | PRIV_WRITE | PRIV_MANAGER)) {
             msg_set_reason("Cannot set quota for admin user");
@@ -701,6 +898,47 @@ static rc_ty user_modify_parse_complete(void *yctx)
             return EINVAL;
         }
     }
+
+    if(uctx->meta) {
+        /* Backup old metadata to support abort/undo phases */
+        const char *metakey;
+        const void *metaval;
+        unsigned int l;
+        unsigned int nregmeta = 0;
+
+        /* New meta has been given, we need to backup old meta in order to properly handle abort/undo phases */
+        if((s = sx_hashfs_usermeta_begin(hashfs, id)) != OK)
+            return s;
+        uctx->oldmeta = sx_blob_new();
+        if(!uctx->oldmeta) {
+            msg_set_reason("Out of memory");
+            return FAIL_EINTERNAL;
+        }
+        uctx->noldmeta = 0;
+
+        while((s = sx_hashfs_usermeta_next(hashfs, &metakey, &metaval, &l)) == OK) {
+            if(!strncmp(SX_CUSTOM_META_PREFIX, metakey, lenof(SX_CUSTOM_META_PREFIX))) {
+                if(sx_blob_add_string(uctx->oldmeta, metakey + lenof(SX_CUSTOM_META_PREFIX)) || sx_blob_add_blob(uctx->oldmeta, metaval, l)) {
+                    msg_set_reason("Out of memory");
+                    return FAIL_EINTERNAL;
+                }
+                uctx->noldmeta++;
+            } else
+                nregmeta++; /* Sum up regular meta too to be able to check the limits */
+        }
+
+        if(s != ITER_NO_MORE) {
+            WARN("Failed to prepare custom user meta backup");
+            return s;
+        }
+
+        DEBUG("regular meta: %d, old meta: %d, new meta: %d, total: %d", nregmeta, uctx->noldmeta, uctx->nmeta, nregmeta + uctx->nmeta);
+        if(nregmeta + uctx->nmeta > SXLIMIT_META_MAX_ITEMS) {
+            msg_set_reason("Too many user metadata entries (max: %u)", SXLIMIT_META_MAX_ITEMS);
+            return EINVAL;
+        }
+    }
+
     return OK;
 }
 
@@ -742,12 +980,30 @@ static int user_modify_to_blob(sxc_client_t *sx, int nodes, void *yctx, sx_blob_
         sx_blob_add_int32(joblb, uctx->quota_given) ||
         sx_blob_add_string(joblb, olddesc) ||
         sx_blob_add_string(joblb, uctx->description) ||
-        sx_blob_add_int32(joblb, uctx->desc_given)) {
+        sx_blob_add_int32(joblb, uctx->desc_given) ||
+        sx_blob_add_int32(joblb, uctx->nmeta)) {
         msg_set_reason("Cannot create job blob");
         free(olddesc);
         return -1;
     }
     free(olddesc);
+
+    if(uctx->nmeta != -1 && sx_blob_cat(joblb, uctx->meta)) {
+        msg_set_reason("Cannot create job storage");
+        return -1;
+    }
+
+    /* Backup also old meta */
+    if(sx_blob_add_int32(joblb, uctx->noldmeta)) {
+        msg_set_reason("Cannot create job storage");
+        return -1;
+    }
+
+    if(uctx->noldmeta != -1 && sx_blob_cat(joblb, uctx->oldmeta)) {
+        msg_set_reason("Cannot create job storage");
+        return -1;
+    }
+
     return 0;
 }
 
@@ -758,6 +1014,7 @@ static sxi_query_t* user_modify_proto_from_blob(sxc_client_t *sx, sx_blob_t *b, 
     unsigned auth_len, oldauth_len;
     int64_t quota, oldquota;
     int key_given, quota_given, desc_given;
+    sxc_meta_t *meta = NULL;
 
     if (sx_blob_get_string(b, &name) ||
 	sx_blob_get_blob(b, &oldauth, &oldauth_len) ||
@@ -776,15 +1033,27 @@ static sxi_query_t* user_modify_proto_from_blob(sxc_client_t *sx, sx_blob_t *b, 
         return NULL;
     }
 
+    /* If job is in abort phase, then skip setting metadata */
+    if(sx_hashfs_blob_to_sxc_meta(sx, b, &meta, phase != JOBPHASE_COMMIT)) {
+        WARN("Failed to read job blob");
+        return NULL;
+    }
+
+    /* Pick up old metadata */
+    if(phase != JOBPHASE_COMMIT && sx_hashfs_blob_to_sxc_meta(sx, b, &meta, 0)) {
+        WARN("Failed to read job blob");
+        return NULL;
+    }
+
     switch (phase) {
         case JOBPHASE_COMMIT:
-            return sxi_usermod_proto(sx, name, key_given ? auth : NULL, quota_given ? quota : QUOTA_UNDEFINED, desc_given ? desc : NULL);
+            return sxi_usermod_proto(sx, name, key_given ? auth : NULL, quota_given ? quota : QUOTA_UNDEFINED, desc_given ? desc : NULL, meta);
         case JOBPHASE_ABORT:/* fall-through */
             INFO("User '%s' modify: aborting", name);
-            return sxi_usermod_proto(sx, name, key_given ? oldauth : NULL, quota_given ? oldquota : QUOTA_UNDEFINED, desc_given ? olddesc : NULL);
+            return sxi_usermod_proto(sx, name, key_given ? oldauth : NULL, quota_given ? oldquota : QUOTA_UNDEFINED, desc_given ? olddesc : NULL, meta);
         case JOBPHASE_UNDO:
             INFO("User '%s' modify: undoing", name);
-            return sxi_usermod_proto(sx, name, key_given ? oldauth : NULL, quota_given ? oldquota : QUOTA_UNDEFINED, desc_given ? olddesc : NULL);
+            return sxi_usermod_proto(sx, name, key_given ? oldauth : NULL, quota_given ? oldquota : QUOTA_UNDEFINED, desc_given ? olddesc : NULL, meta);
         default:
             return NULL;
     }
@@ -798,6 +1067,8 @@ static rc_ty user_modify_execute_blob(sx_hashfs_t *h, sx_blob_t *b, jobphase_t p
     int64_t quota, oldquota;
     int key_given, quota_given, desc_given;
     rc_ty rc = OK;
+    int nmeta = -1, i;
+    int change_meta = 0;
 
     if (!h || !b) {
         msg_set_reason("NULL arguments");
@@ -814,26 +1085,72 @@ static rc_ty user_modify_execute_blob(sx_hashfs_t *h, sx_blob_t *b, jobphase_t p
         sx_blob_get_string(b, &desc) ||
         sx_blob_get_int32(b, &desc_given) ||
         auth_len != AUTH_KEY_LEN ||
-        (desc_given && (!olddesc || !desc))) {
+        (desc_given && (!olddesc || !desc)) ||
+        sx_blob_get_int32(b, &nmeta)) {
         msg_set_reason("Corrupted blob");
         return FAIL_EINTERNAL;
     }
 
+    if(remote && phase == JOBPHASE_REQUEST)
+        phase = JOBPHASE_COMMIT;
+
+    if(nmeta != -1) {
+        rc_ty s;
+
+        s = sx_hashfs_user_modify_begin(h, name);
+        if(s != OK) {
+            msg_set_reason("Failed to modify custom user metadata");
+            return s;
+        }
+        change_meta = 1;
+    }
+
+    for(i = 0; i < nmeta; i++) {
+        const char *metakey;
+        const void *metaval;
+        unsigned int l;
+        rc_ty s;
+
+        if(sx_blob_get_string(b, &metakey) || sx_blob_get_blob(b, &metaval, &l)) {
+            WARN("Failed to get meta key-value pair from blob");
+            return FAIL_EINTERNAL;
+        }
+
+        if(phase == JOBPHASE_COMMIT && (s = sx_hashfs_user_modify_addmeta(h, metakey, metaval, l)) != OK) {
+            WARN("Failed to add meta key-value pair to context blob");
+            return s;
+        }
+    }
+
+    /* When meta change is intended and job phase is abort or undo, then pick backed up meta from blob */
+    if(phase != JOBPHASE_COMMIT && change_meta) {
+        if(sx_blob_get_int32(b, &nmeta)) {
+            WARN("Corrupted user mod blob");
+            return 1;
+        }
+
+        for(i = 0; i < nmeta; i++) {
+            const char *metakey;
+            const void *metaval;
+            unsigned int l;
+
+            if(sx_blob_get_string(b, &metakey) || sx_blob_get_blob(b, &metaval, &l)) {
+                WARN("Failed to get meta key-value pair from blob");
+                return FAIL_EINTERNAL;
+            }
+
+            if(sx_hashfs_user_modify_addmeta(h, metakey, metaval, l)) {
+                WARN("Failed to add meta key-value pair to context blob");
+                return FAIL_EINTERNAL;
+            }
+        }
+    }
+
     switch (phase) {
         case JOBPHASE_REQUEST:
-            /* remote */
-            DEBUG("user_modify request '%s'", name);
-            rc = sx_hashfs_user_modify(h, name, key_given ? auth : NULL, key_given ? AUTH_KEY_LEN : 0, quota_given ? quota : QUOTA_UNDEFINED, desc_given ? desc : NULL);
-            if(rc == EINVAL)
-                return rc;
-            if (rc != OK) {
-                msg_set_reason("Unable to modify user");
-                rc = FAIL_EINTERNAL;
-            }
-            return rc;
         case JOBPHASE_COMMIT:
-            DEBUG("user_modify commit '%s'", name);
-            rc = sx_hashfs_user_modify(h, name, key_given ? auth : NULL, key_given ? AUTH_KEY_LEN : 0, quota_given ? quota : QUOTA_UNDEFINED, desc_given ? desc : NULL);
+            DEBUG("user_modify commit/request '%s'", name);
+            rc = sx_hashfs_user_modify_finish(h, name, key_given ? auth : NULL, key_given ? AUTH_KEY_LEN : 0, quota_given ? quota : QUOTA_UNDEFINED, desc_given ? desc : NULL, change_meta);
             if(rc == EINVAL)
                 return rc;
             if (rc != OK) {
@@ -843,7 +1160,7 @@ static rc_ty user_modify_execute_blob(sx_hashfs_t *h, sx_blob_t *b, jobphase_t p
             return rc;
         case JOBPHASE_ABORT:
             DEBUG("user_modify abort '%s'", name);
-            rc = sx_hashfs_user_modify(h, name, key_given ? oldauth : NULL, key_given ? AUTH_KEY_LEN : 0, quota_given ? oldquota : QUOTA_UNDEFINED, desc_given ? olddesc : NULL);
+            rc = sx_hashfs_user_modify_finish(h, name, key_given ? oldauth : NULL, key_given ? AUTH_KEY_LEN : 0, quota_given ? oldquota : QUOTA_UNDEFINED, desc_given ? olddesc : NULL, change_meta);
             if(rc == EINVAL)
                 return rc;
             if (rc != OK) {
@@ -853,7 +1170,7 @@ static rc_ty user_modify_execute_blob(sx_hashfs_t *h, sx_blob_t *b, jobphase_t p
             return rc;
         case JOBPHASE_UNDO:
             DEBUG("user_modify undo '%s'", name);
-            rc = sx_hashfs_user_modify(h, name, key_given ? oldauth : NULL, key_given ? AUTH_KEY_LEN : 0, quota_given ? oldquota : QUOTA_UNDEFINED, desc_given ? olddesc : NULL);
+            rc = sx_hashfs_user_modify_finish(h, name, key_given ? oldauth : NULL, key_given ? AUTH_KEY_LEN : 0, quota_given ? oldquota : QUOTA_UNDEFINED, desc_given ? olddesc : NULL, change_meta);
             if(rc == EINVAL)
                 return rc;
             if (rc != OK) {
@@ -884,13 +1201,16 @@ void fcgi_user_modify(void)
     struct user_modify_ctx uctx;
     memset(&uctx, 0, sizeof(uctx));
     uctx.quota = QUOTA_UNDEFINED;
+    uctx.nmeta = uctx.noldmeta = -1;
 
     if(sx_hashfs_check_username(path, 1))
         quit_errmsg(400, "Invalid username");
     job_2pc_handle_request(sx_hashfs_client(hashfs), &user_modify_spec, &uctx);
+    sx_blob_free(uctx.meta);
+    sx_blob_free(uctx.oldmeta);
 }
 
-static int print_user(sx_uid_t user_id, const char *username, const uint8_t *userhash, const uint8_t *key, int is_admin, const char *desc, int64_t quota, int64_t quota_usage, void *ctx)
+static int print_user(sx_hashfs_t *h, sx_uid_t user_id, const char *username, const uint8_t *userhash, const uint8_t *key, int is_admin, const char *desc, int64_t quota, int64_t quota_usage, int print_meta, int print_custom_meta, int nmeta, metacontent_t *meta, void *ctx)
 {
     int *first = ctx;
     if (!*first)
@@ -906,6 +1226,34 @@ static int print_user(sx_uid_t user_id, const char *username, const uint8_t *use
         CGI_PUTLL(quota);
         CGI_PRINTF(",\"userQuotaUsed\":");
         CGI_PUTLL(quota_usage);
+    }
+    if(print_meta) {
+        CGI_PUTS(",\"userMeta\":{");
+        int comma = 0, i;
+        for(i = 0; i < nmeta; i++) {
+            if(meta[i].custom)
+                continue;
+            if(comma)
+                CGI_PUTC(',');
+            json_send_qstring(meta[i].key);
+            CGI_PRINTF(":\"%s\"", meta[i].hexval);
+            comma |= 1;
+        }
+        CGI_PUTC('}');
+    }
+    if(print_custom_meta) {
+        CGI_PUTS(",\"customUserMeta\":{");
+        int comma = 0, i;
+        for(i = 0; i < nmeta; i++) {
+            if(!meta[i].custom)
+                continue;
+            if(comma)
+                CGI_PUTC(',');
+            json_send_qstring(meta[i].key);
+            CGI_PRINTF(":\"%s\"", meta[i].hexval);
+            comma |= 1;
+        }
+        CGI_PUTC('}');
     }
     CGI_PUTS("}");
     *first = 0;
@@ -928,7 +1276,7 @@ void fcgi_list_users(void) {
             quit_errmsg(rc2http(rc), rc2str(rc));
     }
     CGI_PUTS("Content-type: application/json\r\n\r\n{");
-    rc = sx_hashfs_list_users(hashfs, clones ? clones_cid : NULL, print_user, has_arg("desc"), has_arg("quota"), &first);
+    rc = sx_hashfs_list_users(hashfs, clones ? clones_cid : NULL, print_user, has_arg("desc"), has_arg("quota"), has_arg("userMeta"), has_arg("customUserMeta"), &first);
     CGI_PUTS("}");
     if (rc != OK)
         quit_itererr("Failed to list users", rc);
@@ -940,6 +1288,8 @@ void fcgi_self(void) {
     int64_t quota_used;
     char *desc = NULL;
     int first = 1, rc;
+    unsigned int nmeta = 0;
+    struct metacontent *meta = NULL;
 
     s = sx_hashfs_uid_get_name(hashfs, uid, name, sizeof(name));
     if (s != OK)
@@ -953,10 +1303,24 @@ void fcgi_self(void) {
         quit_errmsg(rc2http(s), msg_get_reason());
     }
 
+    if(has_arg("userMeta") || has_arg("customUserMeta")) {
+        if(!(meta = wrap_malloc(sizeof(*meta) * SXLIMIT_META_MAX_ITEMS))) {
+            free(desc);
+            quit_errmsg(503, "Out of memory");
+        }
+
+        if((s = sx_hashfs_fill_usermeta_content(hashfs, meta, &nmeta, uid)) != OK) {
+            free(desc);
+            free(meta);
+            quit_errmsg(500, "Cannot lookup user metadata");
+        }
+    }
+
     CGI_PUTS("Content-type: application/json\r\n\r\n{");
-    rc = print_user(uid, name, user, NULL, has_priv(PRIV_ADMIN), desc, user_quota, quota_used, &first);
+    rc = print_user(hashfs, uid, name, user, NULL, has_priv(PRIV_ADMIN), desc, user_quota, quota_used, has_arg("userMeta"), has_arg("customUserMeta"), nmeta, meta, &first);
     CGI_PUTS("}");
     free(desc);
+    free(meta);
     if(rc)
-        quit_itererr("Failed to list users", EINTR);
+        quit_itererr("Failed to send user info", EINTR);
 }

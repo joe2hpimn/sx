@@ -911,7 +911,7 @@ void fcgi_node_init(void) {
     {
         "users":{
             "admin":{"key":"xxxxx","admin":true,"user":"hex_uid"}
-            "luser":{"key":"yyyyy","admin":false,"quota":12345,"desc":"luser description","user":"hex_uid"}
+            "luser":{"key":"yyyyy","admin":false,"quota":12345,"desc":"luser description","user":"hex_uid","userMeta":{"key1":"112233","key2":"445566aa"}}
         }
     }
 
@@ -948,6 +948,7 @@ struct cb_sync_ctx {
     int admin, have_key, have_user;
     unsigned int replica, revs;
     unsigned int nsettings;
+    unsigned int nmeta;
     sx_blob_t *settings;
 };
 
@@ -1007,6 +1008,39 @@ static void cb_syncusr_init(jparse_t *J, void *ctx) {
     /* Default fields */
     c->desc[0] = '\0';
     c->quota = 0;
+    c->nmeta = 0;
+}
+
+static void cb_syncusr_meta(jparse_t *J, void *ctx, const char *string, unsigned int length) {
+    const char *metakey = sxi_jpath_mapkey(sxi_jpath_down(sxi_jpath_down(sxi_jpath_down(sxi_jparse_whereami(J)))));
+    uint8_t metavalue[SXLIMIT_META_MAX_VALUE_LEN];
+    struct cb_sync_ctx *c = (struct cb_sync_ctx *)ctx;
+
+    if(c->nmeta >= SXLIMIT_META_MAX_ITEMS) {
+        sxi_jparse_cancel(J, "Too many user metadata entries (max: %u)", SXLIMIT_META_MAX_ITEMS);
+        return;
+    }
+
+    if(hex2bin(string, length, metavalue, sizeof(metavalue))) {
+        sxi_jparse_cancel(J, "Invalid user metadata value for key '%s'", metakey);
+        return;
+    }
+
+    length /= 2;
+    if(sx_hashfs_check_user_meta(metakey, metavalue, length, 0)) {
+        const char *reason = msg_get_reason();
+        sxi_jparse_cancel(J, "'%s'", reason ? reason : "Invalid user metadata");
+        return;
+    }
+
+    if(!c->nmeta)
+        sx_hashfs_create_user_begin(hashfs);
+
+    if(sx_hashfs_create_user_addmeta(hashfs, metakey, metavalue, length)) {
+        sxi_jparse_cancel(J, "Out of memory processing user creation request");
+        return;
+    }
+    c->nmeta++;
 }
 
 static void cb_syncusr_create(jparse_t *J, void *ctx) {
@@ -1025,7 +1059,7 @@ static void cb_syncusr_create(jparse_t *J, void *ctx) {
 	return;
     }
 
-    s = sx_hashfs_create_user(hashfs, name, c->user, sizeof(c->user), c->key, sizeof(c->key), c->admin != 0, c->desc, c->quota);
+    s = sx_hashfs_create_user_finish(hashfs, name, c->user, sizeof(c->user), c->key, sizeof(c->key), c->admin != 0, c->desc, c->quota, 0);
     if(s != OK && s != EEXIST) {
 	sxi_jparse_cancel(J, "Failed to create user '%s': %s", name, msg_get_reason());
 	return;
@@ -1353,7 +1387,8 @@ void fcgi_sync_globs(void) {
 		      JPACT(cb_syncvol_meta, JPKEY("volumes"), JPANYKEY, JPKEY("meta"), JPANYKEY),
 		      JPACT(cb_syncmisc_mode, JPKEY("misc"), JPKEY("mode")),
 		      JPACT(cb_syncmisc_cmeta, JPKEY("misc"), JPKEY("clusterMeta"), JPARR(1), JPANYKEY),
-		      JPACT(cb_syncmisc_csets, JPKEY("misc"), JPKEY("clusterSettings"), JPARR(1), JPANYKEY)
+		      JPACT(cb_syncmisc_csets, JPKEY("misc"), JPKEY("clusterSettings"), JPARR(1), JPANYKEY),
+                      JPACT(cb_syncusr_meta, JPKEY("users"), JPANYKEY, JPKEY("userMeta"), JPANYKEY)
 		      ),
 	JPACTS_INT64(
 		     JPACT(cb_syncusr_quota, JPKEY("users"), JPANYKEY, JPKEY("quota")),
@@ -1410,8 +1445,8 @@ void fcgi_sync_globs(void) {
     }
 
     while((len = get_body_chunk(hashbuf, sizeof(hashbuf))) > 0)
-	if(sxi_jparse_digest(J, hashbuf, len))
-	    break;
+        if(sxi_jparse_digest(J, hashbuf, len))
+            break;
 
     if(len || sxi_jparse_done(J)) {
 	send_error(400, sxi_jparse_geterr(J));

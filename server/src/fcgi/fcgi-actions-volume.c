@@ -146,7 +146,7 @@ void fcgi_locate_volume(const sx_hashfs_volume_t *vol) {
 		sxi_strlcpy(meta[nmeta].key, metakey + lenof(SX_CUSTOM_META_PREFIX), sizeof(meta[nmeta].key));
 		meta[nmeta].custom = 1;
 	    }
-	    if(bin2hex(metavalue, metasize, meta[nmeta].hexval, sizeof(meta[i].hexval)))
+	    if(bin2hex(metavalue, metasize, meta[nmeta].hexval, sizeof(meta[nmeta].hexval)))
 		break;
 	}
 
@@ -837,7 +837,7 @@ void fcgi_create_volume(void) {
     int64_t owner_uid;
     if(sx_hashfs_get_uid(hashfs, yctx.owner, &owner_uid)) {
 	sx_blob_free(yctx.metablb);
-	quit_errmsg(400, "Invalid volume owner: user does not exit");
+	quit_errmsg(400, "Invalid volume owner: user does not exist");
     }
 
     /* New volume defaults */
@@ -1159,59 +1159,6 @@ static rc_ty volmod_nodes(sx_hashfs_t *h, sx_blob_t *blob, sx_nodelist_t **nodes
     return OK;
 }
 
-static int blob_to_sxc_meta(sxc_client_t *sx, sx_blob_t *b, sxc_meta_t **meta, int skip) {
-    int nmeta, i, ret = -1;
-    if(!b || !meta)
-        return 1;
-
-    if(sx_blob_get_int32(b, &nmeta)) {
-        WARN("Corrupted volume mod blob");
-        return 1;
-    }
-
-    *meta = NULL;
-
-    /* If nmeta is -1, then no metadata is stored in blob */
-    if(nmeta == -1)
-        return 0;
-
-    if(!skip) {
-        *meta = sxc_meta_new(sx);
-        if(!*meta) {
-            WARN("Failed to allocate metadata");
-            return 1;
-        }
-    }
-
-    for(i = 0; i < nmeta; i++) {
-        const char *metakey;
-        const void *metaval;
-        unsigned int l;
-
-        if(sx_blob_get_string(b, &metakey) || sx_blob_get_blob(b, &metaval, &l)) {
-            WARN("Failed to get meta key-value pair from blob");
-            goto blob_to_sxc_meta_err;
-        }
-
-        if(sx_hashfs_check_meta(metakey, metaval, l)) {
-            WARN("Invalid meta");
-            goto blob_to_sxc_meta_err;
-        }
-
-        if(!skip && sxc_meta_setval(*meta, metakey, metaval, l)) {
-            WARN("Failed to add meta key-value pair to context blob");
-            goto blob_to_sxc_meta_err;
-        }
-    }
-
-    ret = 0;
-blob_to_sxc_meta_err:
-    if(ret)
-        sxc_meta_free(*meta);
-
-    return ret;
-}
-
 static int blob_to_volmod(sxc_client_t *sx, sx_blob_t *b, struct volmod_ctx *ctx) {
     const char *oldowner = NULL, *newowner = NULL;
 
@@ -1293,13 +1240,13 @@ static sxi_query_t* volmod_proto_from_blob(sxc_client_t *sx, sx_blob_t *b, jobph
     }
 
     /* If job is in abort phase, then skip setting metadata */
-    if(blob_to_sxc_meta(sx, b, &meta, phase != JOBPHASE_COMMIT)) {
+    if(sx_hashfs_blob_to_sxc_meta(sx, b, &meta, phase != JOBPHASE_COMMIT)) {
         WARN("Failed to read job blob");
         return NULL;
     }
 
     /* Pick up old metadata */
-    if(phase != JOBPHASE_COMMIT && blob_to_sxc_meta(sx, b, &meta, 0)) {
+    if(phase != JOBPHASE_COMMIT && sx_hashfs_blob_to_sxc_meta(sx, b, &meta, 0)) {
         WARN("Failed to read job blob");
         return NULL;
     }

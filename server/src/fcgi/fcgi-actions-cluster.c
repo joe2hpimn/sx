@@ -594,72 +594,25 @@ static unsigned cluster_setmeta_timeout(sxc_client_t *sx, int nodes)
     return nodes > 1 ? 50 * (nodes - 1) : 20;
 }
 
-static int get_sxc_meta_from_blob(sxc_client_t *sx, sx_blob_t *b, sxc_meta_t *meta, int skip) {
-    int i, count;
-
-    if(!sx || !b || !meta) {
-        WARN("Invalid argument");
-        msg_set_reason("Invalid argument");
-        return -1;
-    }
-
-    if(sx_blob_get_int32(b, &count)) {
-        WARN("Failed to get meta entries count from job blob");
-        msg_set_reason("Cannot get meta from blob");
-        return -1;
-    }
-    for(i = 0; i < count; i++) {
-        const char *metakey = NULL;
-        const void *metaval = NULL;
-        unsigned int metaval_len = 0;
-
-        if(sx_blob_get_string(b, &metakey) || sx_blob_get_blob(b, &metaval, &metaval_len)) {
-            WARN("Failed to get %dth meta entry from blob", i);
-            msg_set_reason("Cannot get meta from blob");
-            return -1;
-        }
-
-        if(!metakey || !metaval) {
-            WARN("Invalid meta entry");
-            msg_set_reason("Cannot get meta from blob");
-            return -1;
-        }
-
-        if(!skip && sxc_meta_setval(meta, metakey, metaval, metaval_len)) {
-            WARN("Failed to add meta entry");
-            msg_set_reason("Cannot get meta from blob");
-            return -1;
-        }
-    }
-
-    return 0;
-}
-
 static sxi_query_t* cluster_setmeta_proto_from_blob(sxc_client_t *sx, sx_blob_t *b, jobphase_t phase)
 {
     time_t ts = 0, oldts = 0;
     sxc_meta_t *meta = NULL;
     sxi_query_t *ret = NULL;
 
-    meta = sxc_meta_new(sx);
-    if(!meta) {
-        WARN("Failed to allocate new cluster meta");
-        goto cluster_setmeta_proto_from_blob_err;
-    }
-
     if(sx_blob_get_int64(b, &oldts) || sx_blob_get_int64(b, &ts)) {
         WARN("Corrupt user blob");
         goto cluster_setmeta_proto_from_blob_err;
     }
 
-    if(get_sxc_meta_from_blob(sx, b, meta, phase != JOBPHASE_COMMIT)) {
+    if(sx_hashfs_blob_to_sxc_meta(sx, b, &meta, phase != JOBPHASE_COMMIT)) {
         WARN("Failed to load new cluster meta from blob");
         goto cluster_setmeta_proto_from_blob_err;
     }
 
     if(phase != JOBPHASE_COMMIT) {
         /* Get old meta only when aborting */
-        if(get_sxc_meta_from_blob(sx, b, meta, 0)) {
+        if(sx_hashfs_blob_to_sxc_meta(sx, b, &meta, 0)) {
             WARN("Failed to load old cluster meta from blob");
             goto cluster_setmeta_proto_from_blob_err;
         }

@@ -46,6 +46,9 @@
 #define SXLIMIT_META_MAX_VALUE_LEN 65536
 #define SXLIMIT_META_MAX_ITEMS 128
 
+/* Custom user meta entries are limited */
+#define SXLIMIT_CUSTOM_USER_META_MAX_ITEMS 16
+
 /* Limits used for cluster settings */
 #define SXLIMIT_SETTINGS_MIN_KEY_LEN 1
 #define SXLIMIT_SETTINGS_MAX_KEY_LEN 256

@@ -1736,10 +1736,12 @@ static int sync_flush(struct sync_ctx *ctx) {
     return 0;
 }
 
-static int syncusers_cb(sx_uid_t user_id, const char *username, const uint8_t *user, const uint8_t *key, int is_admin, const char *desc, int64_t quota, int64_t quota_used, void *ctx) {
+static int syncusers_cb(sx_hashfs_t *hashfs, sx_uid_t user_id, const char *username, const uint8_t *user, const uint8_t *key, int is_admin, const char *desc, int64_t quota, int64_t quota_used, int print_meta, int print_custom_meta, int nmeta, metacontent_t *meta, void *ctx) {
     struct sync_ctx *sy = (struct sync_ctx *)ctx;
     unsigned int left = sizeof(sy->buffer) - sy->at;
     char *enc_name, *enc_desc, hexkey[AUTH_KEY_LEN*2+1], hexuser[AUTH_UID_LEN*2+1];
+    rc_ty s;
+    unsigned int need;
 
     /* Check if we fit:
        - the preliminary '{"users":' part - 10 bytes
@@ -1748,10 +1750,43 @@ static int syncusers_cb(sx_uid_t user_id, const char *username, const uint8_t *u
        - the user ID - 40 bytes
        - a fully encoded description - 2 + length(desc) * 6 bytes
        - the quota - up to 20 bytes
-       - the json skeleton ':{"user":"","key":"","admin":true,"desc":,"quota":} - 53 bytes
+       - the json skeleton ':{"user":"","key":"","admin":true,"desc":,"quota":,"userMeta":} - 65 bytes
        - the trailing '}}\0' - 3 bytes
     */
-    if(left < strlen(username) * 6 + strlen(desc ? desc : "") * 6 + 200) {
+    need = strlen(username) * 6 + strlen(desc ? desc : "") * 6 + 200;
+
+    /* Load user metadata */
+    s = sx_hashfs_usermeta_begin(hashfs, user_id);
+    if(s == OK) {
+        const char *metakey;
+        const void *metaval;
+        unsigned int metaval_len;
+
+        sy->nmisc = 0;
+        while((s=sx_hashfs_usermeta_next(hashfs, &metakey, &metaval, &metaval_len)) == OK) {
+            char *enc_key = sxi_json_quote_string(metakey);
+            if(!enc_key) {
+                WARN("Cannot encode cluster meta key %s", metakey);
+                s = ENOMEM;
+                break;
+            }
+            /* encoded key and value lengths + quoting, colon and comma */
+            need += strlen(enc_key) + metaval_len * 2 + 4;
+            strcpy(sy->misc.meta[sy->nmisc].key, enc_key);
+            free(enc_key);
+            bin2hex(metaval, metaval_len, sy->misc.meta[sy->nmisc].hexvalue, sizeof(sy->misc.meta[0].hexvalue));
+            sy->nmisc++;
+        }
+        if(s == ITER_NO_MORE)
+            s = OK;
+    }
+
+    if(s != OK) {
+        WARN("Failed to synchronize user metadata");
+        return -1;
+    }
+
+    if(left < need) {
 	if(sync_flush(sy))
 	    return -1;
     }
@@ -1778,12 +1813,27 @@ static int syncusers_cb(sx_uid_t user_id, const char *username, const uint8_t *u
     }
     bin2hex(key, AUTH_KEY_LEN, hexkey, sizeof(hexkey));
     bin2hex(user, AUTH_UID_LEN, hexuser, sizeof(hexuser));
-    sprintf(&sy->buffer[sy->at], "%s:{\"user\":\"%s\",\"key\":\"%s\",\"admin\":%s,\"desc\":%s,\"quota\":%lld}", enc_name, hexuser, hexkey, is_admin ? "true" : "false", enc_desc, (long long)quota);
+    sprintf(&sy->buffer[sy->at], "%s:{\"user\":\"%s\",\"key\":\"%s\",\"admin\":%s,\"desc\":%s,\"quota\":%lld", enc_name, hexuser, hexkey, is_admin ? "true" : "false", enc_desc, (long long)quota);
     free(enc_name);
     free(enc_desc);
 
     sy->what = SYNCING_USERS;
     sy->at = strlen(sy->buffer);
+
+    if(sy->nmisc) {
+        unsigned int i;
+        strcat(sy->buffer, ",\"userMeta\":{");
+        for(i=0; i<sy->nmisc; i++) {
+            sy->at = strlen(sy->buffer);
+            sprintf(&sy->buffer[sy->at], "%s%s:\"%s\"",
+                    i ? "," : "",
+                    sy->misc.meta[i].key,
+                    sy->misc.meta[i].hexvalue);
+        }
+        strcat(sy->buffer, "}");
+    }
+    sy->at = strlen(sy->buffer);
+    strcat(&sy->buffer[sy->at++], "}");
 
     return 0;
 }
@@ -1947,7 +1997,7 @@ static int sync_global_objects(sx_hashfs_t *hashfs, const sxi_hostlist_t *hlist)
     sctx->hashfs = hashfs;
     sctx->hlist = hlist;
 
-    if(sx_hashfs_list_users(hashfs, NULL, syncusers_cb, 1, 1, sctx)) {
+    if(sx_hashfs_list_users(hashfs, NULL, syncusers_cb, 1, 1, 1, 1, sctx)) {
 	free(sctx);
 	return -1;
     }

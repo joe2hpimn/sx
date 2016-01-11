@@ -145,7 +145,7 @@ static sxi_query_t* sxi_query_add_meta(sxc_client_t *sx, sxi_query_t *query, con
     return query;
 }
 
-sxi_query_t *sxi_useradd_proto(sxc_client_t *sx, const char *username, const uint8_t *uid, const uint8_t *key, int admin, const char *desc, int64_t quota) {
+sxi_query_t *sxi_useradd_proto(sxc_client_t *sx, const char *username, const uint8_t *uid, const uint8_t *key, int admin, const char *desc, int64_t quota, sxc_meta_t *meta) {
     char *qname, *dname = NULL, hexkey[AUTH_KEY_LEN*2+1];
     sxi_query_t *ret;
     unsigned n;
@@ -183,8 +183,12 @@ sxi_query_t *sxi_useradd_proto(sxc_client_t *sx, const char *username, const uin
         sxi_bin2hex(uid, AUTH_UID_LEN, hexuid);
         ret = sxi_query_append_fmt(sx, ret, AUTH_UID_LEN * 2 + strlen(",\"userID\":\"\""), ",\"userID\":\"%s\"", hexuid);
     }
-    if(ret)
-        ret = sxi_query_append_fmt(sx, ret, 1, "}");
+    if(ret) {
+        if(meta)
+            ret = sxi_query_add_meta(sx, ret, "userMeta", meta, 1, 1);
+        else
+            ret = sxi_query_append_fmt(sx, ret, 2, "}");
+    }
     free(qname);
     free(dname);
     return ret;
@@ -194,7 +198,7 @@ sxi_query_t *sxi_useradd_proto(sxc_client_t *sx, const char *username, const uin
  * exsitingname - the cloned username
  * desc - human readable decription of the user
  * There is also no need to send admin flag like for useradd proto, clone has the same role as existing user */
-sxi_query_t *sxi_userclone_proto(sxc_client_t *sx, const char *existingname, const char *username, const uint8_t *uid, const uint8_t *key, const char *desc) {
+sxi_query_t *sxi_userclone_proto(sxc_client_t *sx, const char *existingname, const char *username, const uint8_t *uid, const uint8_t *key, const char *desc, sxc_meta_t *meta) {
     char *ename, *uname, *dname, hexkey[AUTH_KEY_LEN*2+1];
     sxi_query_t *ret;
     unsigned n;
@@ -229,15 +233,19 @@ sxi_query_t *sxi_userclone_proto(sxc_client_t *sx, const char *existingname, con
         sxi_bin2hex(uid, AUTH_UID_LEN, hexuid);
         ret = sxi_query_append_fmt(sx, ret, strlen(",\"userID\":\"\"") + AUTH_UID_LEN * 2, ",\"userID\":\"%s\"", hexuid);
     }
-    if(ret)
-        ret = sxi_query_append_fmt(sx, ret, 1, "}");
+    if(ret) {
+        if(meta)
+            ret = sxi_query_add_meta(sx, ret, "userMeta", meta, 1, 1);
+        else
+            ret = sxi_query_append_fmt(sx, ret, 2, "}");
+    }
     free(ename);
     free(uname);
     free(dname);
     return ret;
 }
 
-sxi_query_t *sxi_usermod_proto(sxc_client_t *sx, const char *username, const uint8_t *key, int64_t quota, const char *description) {
+sxi_query_t *sxi_usermod_proto(sxc_client_t *sx, const char *username, const uint8_t *key, int64_t quota, const char *description, sxc_meta_t *custom_meta) {
     char *qname = NULL, *query = NULL;
     sxi_query_t *ret = NULL;
     unsigned n;
@@ -291,8 +299,12 @@ sxi_query_t *sxi_usermod_proto(sxc_client_t *sx, const char *username, const uin
             free(desc_enc);
         }
 
-        if(ret)
-            ret = sxi_query_append_fmt(sx, ret, 1, "}");
+        if(ret) {
+            if(custom_meta)
+                ret = sxi_query_add_meta(sx, ret, "customUserMeta", custom_meta, 1, 1);
+            else
+                ret = sxi_query_append_fmt(sx, ret, 1, "}");
+        }
     } while(0);
     free(qname);
     free(query);

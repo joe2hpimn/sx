@@ -1541,6 +1541,101 @@ test_get "checking if $ru was also deleted", admin_only(404), ".users/$ru";
 # Check listing users by ID ($ru was removed, this should not return any user)
 test_get "listing clones of $ru", admin_only(404), ".users?clones=$ru";
 
+
+
+
+
+### User meta tests ###
+my $mu = "meta" . (random_string 32);
+my $mk = random_data(20);
+my $muid;
+my $mcu = "meta-clone" . (random_string 32);
+my $mck = random_data(20);
+my $mcuid;
+
+# Create regular users with and without metadata
+$content = { 'userType' => 'normal', 'userName' => $mu, => 'userKey' => bin_to_hex($mk), 'userMeta' => { } };
+test_put_job "Creating $mu user with empty metadata", admin_only(200), '.users', encode_json($content);
+test_get "checking $mu ID", admin_only(200, 'application/json'), ".users/$mu", undef, sub { my $json = get_json(shift) or return 0; return 0 unless is_string($json->{'userID'}) && !is_hash($json->{'userMeta'}); };
+test_get "checking $mu ID (obtaining user meta)", admin_only(200, 'application/json'), ".users/$mu?userMeta", undef, sub { my $json = get_json(shift) or return 0; return 0 unless is_string($json->{'userID'}) && is_hash($json->{'userMeta'}) && scalar keys %{$json->{'userMeta'}} == 0; $muid = $json->{'userID'}; };
+$TOK{$mu} = encode_base64(hex_to_bin($muid) . $mk . chr(0) . chr(0));
+test_get "getting $mu user info", { $mu => [200, 'application/json'] }, ".self", undef, sub { my $json = get_json(shift) or return 0; return 0 unless is_hash($json->{$mu}); return 1 unless is_hash($json->{$mu}->{'userMeta'}) || is_hash($json->{$mu}->{'customUserMeta'}); };
+test_get "getting $mu user info with metadata", { $mu => [200, 'application/json'] }, ".self?userMeta", undef, sub { my $json = get_json(shift) or return 0; return 0 unless is_hash($json->{$mu}); return 0 unless is_hash($json->{$mu}->{'userMeta'}); return scalar keys %{$json->{$mu}->{'userMeta'}} == 0};
+test_delete_job "$mu deletion", admin_only(200), ".users/$mu";
+$content = { 'userType' => 'normal', 'userName' => $mu, => 'userKey' => bin_to_hex($mk), 'userMeta' => { 'key1' => 'aabbcc', 'key2' => '12345678'} };
+test_put_job "Creating $mu user with metadata", admin_only(200), '.users', encode_json($content);
+test_get "checking $mu ID (obtaining user meta)", admin_only(200, 'application/json'), ".users/$mu?userMeta", undef, sub { my $json = get_json(shift) or return 0; return 0 unless is_string($json->{'userID'}) && is_hash($json->{'userMeta'}); $muid = $json->{'userID'}; return scalar keys %{$json->{'userMeta'}} == 2 && $json->{'userMeta'}->{'key1'} eq 'aabbcc' && $json->{'userMeta'}->{'key2'} eq '12345678'; };
+$TOK{$mu} = encode_base64(hex_to_bin($muid) . $mk . chr(0) . chr(0));
+test_get "getting $mu user info", { $mu => [200, 'application/json'] }, ".self", undef, sub { my $json = get_json(shift) or return 0; return 1 unless is_hash($json->{$mu}->{'userMeta'}) || is_hash($json->{$mu}->{'customUserMeta'}); };
+test_get "getting $mu user info with metadata", { $mu => [200, 'application/json'] }, ".self?userMeta", undef, sub { my $json = get_json(shift) or return 0; return 0 unless is_hash($json->{$mu}); my $meta = $json->{$mu}->{'userMeta'}; return 0 unless is_hash($meta); return 0 unless scalar keys %{$meta} == 2 && $meta->{'key1'} eq 'aabbcc' && $meta->{'key2'} eq '12345678'; };
+
+# Clones should have their own metadata
+$content = { 'userType' => 'normal', 'userName' => $mcu, => 'userKey' => bin_to_hex($mck), 'existingName' => $mu, 'userMeta' => { } };
+test_put_job "Creating $mcu user with empty metadata", admin_only(200), '.users', encode_json($content);
+test_get "checking $mcu ID", admin_only(200, 'application/json'), ".users/$mcu", undef, sub { my $json = get_json(shift) or return 0; return 0 unless is_string($json->{'userID'}); $mcuid = $json->{'userID'}; };
+$TOK{$mcu} = encode_base64(hex_to_bin($mcuid) . $mck . chr(0) . chr(0));
+test_get "getting $mcu user info", { $mcu => [200, 'application/json'] }, ".self", undef, sub { my $json = get_json(shift) or return 0; return 0 unless is_hash($json->{$mcu}); return 1 unless is_hash($json->{$mcu}->{'userMeta'}) || is_hash($json->{$mcu}->{'customUserMeta'}); };
+test_get "getting $mcu user info with metadata", { $mcu => [200, 'application/json'] }, ".self?userMeta", undef, sub { my $json = get_json(shift) or return 0; return 0 unless is_hash($json->{$mcu}); return 0 unless is_hash($json->{$mcu}->{'userMeta'}); return scalar keys %{$json->{$mcu}->{'userMeta'}} == 0};
+test_delete_job "$mcu deletion", admin_only(200), ".users/$mcu";
+$content = { 'userType' => 'normal', 'userName' => $mcu, => 'userKey' => bin_to_hex($mck), 'existingName' => $mu, 'userMeta' => { 'a' => 'aabbee', 'b' => '0012345678', 'c' => '' } };
+test_put_job "Creating $mcu user with metadata", admin_only(200), '.users', encode_json($content);
+test_get "checking $mcu ID", admin_only(200, 'application/json'), ".users/$mcu", undef, sub { my $json = get_json(shift) or return 0; return 0 unless is_string($json->{'userID'}); $mcuid = $json->{'userID'}; };
+$TOK{$mcu} = encode_base64(hex_to_bin($mcuid) . $mck . chr(0) . chr(0));
+test_get "getting $mcu user info", { $mcu => [200, 'application/json'] }, ".self", undef, sub { my $json = get_json(shift) or return 0; return 0 unless is_hash($json->{$mcu}); return 1 unless is_hash($json->{$mcu}->{'userMeta'}) || is_hash($json->{$mcu}->{'customUserMeta'}); };
+test_get "getting $mcu user info with metadata", { $mcu => [200, 'application/json'] }, ".self?userMeta", undef, sub { my $json = get_json(shift) or return 0; return 0 unless is_hash($json->{$mcu}); my $meta = $json->{$mcu}->{'userMeta'}; return 0 unless is_hash($meta); return 0 unless scalar keys %{$meta} == 3 && $meta->{'a'} eq 'aabbee' && $meta->{'b'} eq '0012345678' && $meta->{'c'} eq ''; };
+
+# Custom user meta modification tests
+test_get "getting $mu user info with metadata", { $mu => [200, 'application/json'] }, ".self?customUserMeta&userMeta", undef, sub { my $json = get_json(shift) or return 0; return 0 unless is_hash($json->{$mu}); my $meta = $json->{$mu}->{'userMeta'}; my $cmeta = $json->{$mu}->{'customUserMeta'}; return 0 unless is_hash($meta); return 0 unless is_hash($cmeta); return 0 unless scalar keys %{$meta} == 2 && scalar keys %{$cmeta} == 0 && $meta->{'key1'} eq 'aabbcc' && $meta->{'key2'} eq '12345678'; };
+test_get "getting $mcu user info with metadata", { $mcu => [200, 'application/json'] }, ".self?customUserMeta&userMeta", undef, sub { my $json = get_json(shift) or return 0; return 0 unless is_hash($json->{$mcu}); my $meta = $json->{$mcu}->{'userMeta'}; my $cmeta = $json->{$mcu}->{'customUserMeta'}; return 0 unless is_hash($meta); return 0 unless is_hash($cmeta); return 0 unless scalar keys %{$meta} == 3 && scalar keys %{$cmeta} == 0 && $meta->{'a'} eq 'aabbee' && $meta->{'b'} eq '0012345678' && $meta->{'c'} eq ''; };
+test_put_job "setting custom meta for $mu", { $mcu => [403], 'badauth' => [401], $mu => [200, 'application/json'] }, ".users/$mu", "{\"customUserMeta\":{\"x\":\"\"}}";
+test_get "getting $mu user info with metadata", { $mu => [200, 'application/json'] }, ".self?customUserMeta&userMeta", undef, sub { my $json = get_json(shift) or return 0; return 0 unless is_hash($json->{$mu}); my $meta = $json->{$mu}->{'userMeta'}; my $cmeta = $json->{$mu}->{'customUserMeta'}; return 0 unless is_hash($meta); return 0 unless is_hash($cmeta); return 0 unless scalar keys %{$meta} == 2 && scalar keys %{$cmeta} == 1 && $meta->{'key1'} eq 'aabbcc' && $meta->{'key2'} eq '12345678' && $cmeta->{'x'} eq ''; };
+test_put_job "setting custom meta for $mu", { $mcu => [403], 'badauth' => [401], $mu => [200, 'application/json'] }, ".users/$mu", "{\"customUserMeta\":{}}";
+test_get "getting $mu user info with metadata", { $mu => [200, 'application/json'] }, ".self?customUserMeta&userMeta", undef, sub { my $json = get_json(shift) or return 0; return 0 unless is_hash($json->{$mu}); my $meta = $json->{$mu}->{'userMeta'}; my $cmeta = $json->{$mu}->{'customUserMeta'}; return 0 unless is_hash($meta); return 0 unless is_hash($cmeta); return 0 unless scalar keys %{$meta} == 2 && scalar keys %{$cmeta} == 0 && $meta->{'key1'} eq 'aabbcc' && $meta->{'key2'} eq '12345678'; };
+test_put_job "setting custom meta for $mcu", { $mu => [403], 'badauth' => [401], $mcu => [200, 'application/json'] }, ".users/$mcu", "{\"customUserMeta\":{\"x\":\"1234\"}}";
+test_get "getting $mcu user info with metadata", { $mcu => [200, 'application/json'] }, ".self?customUserMeta&userMeta", undef, sub { my $json = get_json(shift) or return 0; return 0 unless is_hash($json->{$mcu}); my $meta = $json->{$mcu}->{'userMeta'}; my $cmeta = $json->{$mcu}->{'customUserMeta'}; return 0 unless is_hash($meta); return 0 unless is_hash($cmeta); return 0 unless scalar keys %{$meta} == 3 && scalar keys %{$cmeta} == 1 && $meta->{'a'} eq 'aabbee' && $meta->{'b'} eq '0012345678' && $meta->{'c'} eq '' && $cmeta->{'x'} eq '1234'; };
+test_put_job "setting quota for $mcu", { $mu => [403], 'badauth' => [401], $mcu => [403], 'admin' => [200] }, ".users/$mcu", "{\"quota\":$tinyvolumesize}";
+test_get "getting $mcu user info with metadata (should not be changed)", { $mcu => [200, 'application/json'] }, ".self?customUserMeta&userMeta", undef, sub { my $json = get_json(shift) or return 0; return 0 unless is_hash($json->{$mcu}); my $meta = $json->{$mcu}->{'userMeta'}; my $cmeta = $json->{$mcu}->{'customUserMeta'}; return 0 unless is_hash($meta); return 0 unless is_hash($cmeta); return 0 unless scalar keys %{$meta} == 3 && scalar keys %{$cmeta} == 1 && $meta->{'a'} eq 'aabbee' && $meta->{'b'} eq '0012345678' && $meta->{'c'} eq '' && $cmeta->{'x'} eq '1234'; };
+test_get "getting user list with metadata", admin_only(200, 'application/json'), ".users?customUserMeta&userMeta", undef, sub { my $json = get_json(shift) or return 0; return 0 unless is_hash($json->{$mu}); my $meta = $json->{$mu}->{'userMeta'}; my $cmeta = $json->{$mu}->{'customUserMeta'}; return 0 unless is_hash($meta); return 0 unless is_hash($cmeta); return 0 unless scalar keys %{$meta} == 2 && scalar keys %{$cmeta} == 0 && $meta->{'key1'} eq 'aabbcc' && $meta->{'key2'} eq '12345678'; $meta = $json->{$mcu}->{'userMeta'}; $cmeta = $json->{$mcu}->{'customUserMeta'}; return 0 unless is_hash($meta); return 0 unless is_hash($cmeta); return 0 unless scalar keys %{$meta} == 3 && scalar keys %{$cmeta} == 1 && $meta->{'a'} eq 'aabbee' && $meta->{'b'} eq '0012345678' && $meta->{'c'} eq '' && $cmeta->{'x'} eq '1234'; };
+
+# Regular and custom meta limits checks
+test_put_job "setting custom meta for $mu (too many keys)", { $mcu => [403], 'badauth' => [401], 'admin'=>[400], $mu => [400, 'application/json'] }, ".users/$mu", "{\"customUserMeta\":{\"1\":\"0a\",\"2\":\"0a\",\"3\":\"0a\",\"4\":\"0a\",\"5\":\"0a\",\"6\":\"0a\",\"7\":\"0a\",\"8\":\"0a\",\"9\":\"0a\",\"10\":\"0a\",\"11\":\"0a\",\"12\":\"0a\",\"13\":\"0a\",\"14\":\"0a\",\"15\":\"0a\",\"16\":\"0a\",\"17\":\"0a\"}}";
+test_get "getting $mu user info with metadata", { $mu => [200, 'application/json'] }, ".self?customUserMeta&userMeta", undef, sub { my $json = get_json(shift) or return 0; return 0 unless is_hash($json->{$mu}); return 0 unless is_hash($json->{$mu}->{'userMeta'}); return 0 unless is_hash($json->{$mu}->{'customUserMeta'}); return scalar keys %{$json->{$mu}->{'userMeta'}} == 2 && scalar keys %{$json->{$mu}->{'customUserMeta'}} == 0};
+test_put_job "setting custom meta for $mu (maximal number of keys)", { $mcu => [403], 'badauth' => [401], 'admin'=>[200], $mu => [200] }, ".users/$mu", "{\"customUserMeta\":{\"1\":\"0a\",\"2\":\"0a\",\"3\":\"0a\",\"4\":\"0a\",\"5\":\"0a\",\"6\":\"0a\",\"7\":\"0a\",\"8\":\"0a\",\"9\":\"0a\",\"10\":\"0a\",\"11\":\"0a\",\"12\":\"0a\",\"13\":\"0a\",\"14\":\"0a\",\"15\":\"0a\",\"16\":\"0a\"}}";
+test_get "getting $mu user info with metadata", { $mu => [200, 'application/json'] }, ".self?customUserMeta&userMeta", undef, sub { my $json = get_json(shift) or return 0; return 0 unless is_hash($json->{$mu}); return 0 unless is_hash($json->{$mu}->{'userMeta'}); return 0 unless is_hash($json->{$mu}->{'customUserMeta'}); return scalar keys %{$json->{$mu}->{'userMeta'}} == 2 && scalar keys %{$json->{$mu}->{'customUserMeta'}} == 16};
+test_delete_job "$mu deletion", admin_only(200), ".users/$mu";
+$content = "{ \"userType\":\"normal\", \"userName\":\"$mu\", \"userKey\":\"".bin_to_hex($mk)."\", \"userMeta\":{$metaitems} }";
+test_put_job "Creating $mu user with metadata (maximal number of items)", admin_only(200), '.users', $content;
+test_get "checking $mu ID", admin_only(200, 'application/json'), ".users/$mu", undef, sub { my $json = get_json(shift) or return 0; return 0 unless is_string($json->{'userID'}); $muid = $json->{'userID'}; };
+$TOK{$mu} = encode_base64(hex_to_bin($muid) . $mk . chr(0) . chr(0));
+test_get "getting $mu user info with metadata", { $mu => [200, 'application/json'] }, ".self?customUserMeta&userMeta", undef, sub { my $json = get_json(shift) or return 0; return 0 unless is_hash($json->{$mu}); my $meta = $json->{$mu}->{'userMeta'}; my $cmeta = $json->{$mu}->{'customUserMeta'}; return 0 unless is_hash($meta); return 0 unless is_hash($cmeta); return 0 unless scalar keys %{$meta} == 128 && scalar keys %{$cmeta} == 0; };
+test_put_job "setting custom meta for $mu (exceeding limit for meta entries)", { $mcu => [403], 'badauth' => [401], $mu => [400] }, ".users/$mu", "{\"customUserMeta\":{\"x\":\"\"}}";
+test_delete_job "$mu deletion", admin_only(200), ".users/$mu";
+$content = "{ \"userType\":\"normal\", \"userName\":\"$mu\", \"userKey\":\"".bin_to_hex($mk)."\", \"userMeta\":{$metaitems,\"x\":\"a\"} }";
+test_put_job "Creating $mu user with metadata (exceeding limit for meta entries)", admin_only(400), '.users', $content;
+$metaitems = join(',', map { qq{"$_":"acab"} } 0..126);
+$content = "{ \"userType\":\"normal\", \"userName\":\"$mu\", \"userKey\":\"".bin_to_hex($mk)."\", \"userMeta\":{$metaitems} }";
+test_put_job "Creating $mu user with metadata (maximal number of items minus one)", admin_only(200), '.users', $content;
+test_get "checking $mu ID", admin_only(200, 'application/json'), ".users/$mu", undef, sub { my $json = get_json(shift) or return 0; return 0 unless is_string($json->{'userID'}); $muid = $json->{'userID'}; };
+$TOK{$mu} = encode_base64(hex_to_bin($muid) . $mk . chr(0) . chr(0));
+test_get "getting $mu user info with metadata", { $mu => [200, 'application/json'] }, ".self?customUserMeta&userMeta", undef, sub { my $json = get_json(shift) or return 0; return 0 unless is_hash($json->{$mu}); my $meta = $json->{$mu}->{'userMeta'}; my $cmeta = $json->{$mu}->{'customUserMeta'}; return 0 unless is_hash($meta); return 0 unless is_hash($cmeta); return 0 unless scalar keys %{$meta} == 127 && scalar keys %{$cmeta} == 0; };
+test_put_job "setting custom meta for $mu (maximal number of items)", { $mcu => [403], 'badauth' => [401], $mu => [200] }, ".users/$mu", "{\"customUserMeta\":{\"x\":\"\"}}";
+test_get "getting $mu user info with metadata", { $mu => [200, 'application/json'] }, ".self?customUserMeta&userMeta", undef, sub { my $json = get_json(shift) or return 0; return 0 unless is_hash($json->{$mu}); my $meta = $json->{$mu}->{'userMeta'}; my $cmeta = $json->{$mu}->{'customUserMeta'}; return 0 unless is_hash($meta); return 0 unless is_hash($cmeta); return 0 unless scalar keys %{$meta} == 127 && scalar keys %{$cmeta} == 1; };
+test_put_job "setting custom meta for $mu (exceeding limit for meta entries)", { $mcu => [403], 'badauth' => [401], $mu => [400] }, ".users/$mu", "{\"customUserMeta\":{\"x\":\"\",\"1234\":\"aabbccdd\"}}";
+test_put_job "setting custom meta for $mu (exceeding limit for single meta entry)", { $mcu => [403], 'badauth' => [401], $mu => [400] }, ".users/$mu", "{\"customUserMeta\":{\"x\":\"".bin_to_hex(random_string(65537))."\"}}";
+test_put_job "setting custom meta for $mu (maximal size of a single meta entry)", { $mcu => [403], 'badauth' => [401], $mu => [200] }, ".users/$mu", "{\"customUserMeta\":{\"x\":\"".bin_to_hex(random_string(65536))."\"}}";
+test_get "getting user list with metadata", admin_only(200, 'application/json'), ".users?customUserMeta&userMeta", undef, sub { my $json = get_json(shift) or return 0; return 0 unless is_hash($json->{$mu}); my $meta = $json->{$mu}->{'userMeta'}; my $cmeta = $json->{$mu}->{'customUserMeta'}; return 0 unless is_hash($meta); return 0 unless is_hash($cmeta); return 0 unless scalar keys %{$meta} == 127 && scalar keys %{$cmeta} == 1; };
+test_get "getting user list with metadata (custom only)", { 'admin' => [200, 'application/json'] }, ".users?customUserMeta", undef, sub { my $json = get_json(shift) or return 0; return 0 unless is_hash($json->{$mu}); my $cmeta = $json->{$mu}->{'customUserMeta'}; return 0 unless is_hash($cmeta); return 0 unless scalar keys %{$cmeta} == 1; };
+test_get "getting user list with metadata (regular only)", { 'admin' => [200, 'application/json'] }, ".users?userMeta", undef, sub { my $json = get_json(shift) or return 0; return 0 unless is_hash($json->{$mu}); my $meta = $json->{$mu}->{'userMeta'}; return 0 unless is_hash($meta); return 0 unless scalar keys %{$meta} == 127; };
+
+# Cleanup $mu and $mcu users
+test_delete_job "$mu deletion", admin_only(200), ".users/$mu";
+test_delete_job "$mcu deletion", admin_only(200), ".users/$mcu";
+
+
+
+
+
+
 # Check if .status query returns node status
 test_get "node status", admin_only(200, 'application/json'), ".status", undef, sub { my $json = get_json(shift); return 0 unless is_string($json->{'osType'}) && is_string($json->{'osArch'}) && is_string($json->{'osRelease'})
     && is_string($json->{'osVersion'}) && is_string($json->{'osEndianness'}) && is_string($json->{'libsxclientVersion'}) && is_string($json->{'hashFSVersion'}) && is_string($json->{'localTime'}) && is_string($json->{'utcTime'})
@@ -1566,13 +1661,15 @@ test_upload 'file upload to read-write cluster', $writer, '', "large$vol", 'empt
 # Check cluster meta operations
 test_get "cluster meta (empty)", {'badauth'=>[401],$reader=>[200,'application/json'],$writer=>[200,'application/json'],'admin'=>[200,'application/json']}, "?clusterMeta", undef, sub { my $json = get_json(shift) or return 0; return 0 unless is_hash($json->{'clusterMeta'}); %cleanupm = %{$json->{'clusterMeta'}}; return is_hash(\%cleanupm); };
 if(%cleanupm && is_hash(\%cleanupm)) {
-    test_put_job "cluster meta change (two meta entries)", admin_only(200), ".clusterMeta", "{\"clusterMeta\":{\"key1\":\"aabbcc\",\"key2\":\"0123456789\"}}";
-    test_get "cluster meta (two entries)", {'badauth'=>[401],$reader=>[200,'application/json'],$writer=>[200,'application/json'],'admin'=>[200,'application/json']}, "?clusterMeta", undef, sub { my $json = get_json(shift) or return 0; return is_hash($json->{'clusterMeta'}) && (scalar keys %{$json->{'clusterMeta'}} == 2) && $json->{'clusterMeta'}->{'key1'} eq 'aabbcc' && $json->{'clusterMeta'}->{'key2'} eq '0123456789' };
-    test_put_job "cluster meta change (one meta entry)", admin_only(200), ".clusterMeta", "{\"clusterMeta\":{\"key3\":\"1010\"}}";
-    test_get "cluster meta (one entry)", {'badauth'=>[401],$reader=>[200,'application/json'],$writer=>[200,'application/json'],'admin'=>[200,'application/json']}, "?clusterMeta", undef, sub { my $json = get_json(shift) or return 0; return is_hash($json->{'clusterMeta'}) && (scalar keys %{$json->{'clusterMeta'}} == 1) && $json->{'clusterMeta'}->{'key3'} eq '1010' };
+    $metaitems = join(',', map { qq{"$_":"646f67"} } 0..127);
+    test_put_job "cluster meta change (two meta entries)", admin_only(200), ".clusterMeta", "{\"clusterMeta\":{\"key1\":\"656c657068616e74\",\"key2\":\"756e69636f726e\"}}";
+    test_get "cluster meta (two entries)", {'badauth'=>[401],$reader=>[200,'application/json'],$writer=>[200,'application/json'],'admin'=>[200,'application/json']}, "?clusterMeta", undef, sub { my $json = get_json(shift) or return 0; return is_hash($json->{'clusterMeta'}) && (scalar keys %{$json->{'clusterMeta'}} == 2) && $json->{'clusterMeta'}->{'key1'} eq '656c657068616e74' && $json->{'clusterMeta'}->{'key2'} eq '756e69636f726e' };
+    test_put_job "cluster meta change (one meta entry)", admin_only(200), ".clusterMeta", "{\"clusterMeta\":{\"key3\":\"636174\"}}";
+    test_get "cluster meta (one entry)", {'badauth'=>[401],$reader=>[200,'application/json'],$writer=>[200,'application/json'],'admin'=>[200,'application/json']}, "?clusterMeta", undef, sub { my $json = get_json(shift) or return 0; return is_hash($json->{'clusterMeta'}) && (scalar keys %{$json->{'clusterMeta'}} == 1) && $json->{'clusterMeta'}->{'key3'} eq '636174' };
     test_put_job "cluster meta change (max meta entries)", admin_only(200), ".clusterMeta", "{\"clusterMeta\":{$metaitems}}";
     test_get "cluster meta (max entries)", {'badauth'=>[401],$reader=>[200,'application/json'],$writer=>[200,'application/json'],'admin'=>[200,'application/json']}, "?clusterMeta", undef, sub { my $json = get_json(shift) or return 0; return is_hash($json->{'clusterMeta'}) && (scalar keys %{$json->{'clusterMeta'}} == 128) };
-    test_put_job "cluster meta change (too many meta entries)", admin_only(400), ".clusterMeta", "{\"clusterMeta\":{$metaitems},\"toomany\":\"acab\"}";
+    test_put_job "cluster meta change (too many meta entries)", admin_only(400), ".clusterMeta", "{\"clusterMeta\":{$metaitems,\"toomany\":\"6561676c65\"}}";
+    test_put_job "cluster meta change (invalid string)", admin_only(400), ".clusterMeta", "{\"clusterMeta\":{\"invalid\":\"acab\"}";
 } else {
     printf "Skipped cluster meta tests\n";
 }
