@@ -815,7 +815,7 @@ static void cb_cluster_settings(jparse_t *J, void *ctx, const char *string, unsi
 	return;
     }
     if((rc = sx_hashfs_cluster_settings_get(hashfs, key, &key_type, &old_value)) != OK) {
-	sxi_jparse_cancel(J, "Invalid setting %s: ", key, msg_get_reason());
+	sxi_jparse_cancel(J, "Invalid setting %s: %s", key, msg_get_reason());
 	return;
     }
     if(hex2bin(string, length, (uint8_t*)value, sizeof(value))) {
@@ -831,7 +831,7 @@ static void cb_cluster_settings(jparse_t *J, void *ctx, const char *string, unsi
     }
     if(sx_hashfs_parse_cluster_setting(hashfs, key, key_type, value, c->entries) ||
        sx_hashfs_parse_cluster_setting(hashfs, key, key_type, old_value, c->entries)) {
-        sxi_jparse_cancel(J, msg_get_reason());
+        sxi_jparse_cancel(J, "%s", msg_get_reason());
         return;
     }
     c->nentries++;

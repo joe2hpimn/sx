@@ -119,7 +119,7 @@ int sxi_jparse_done(jparse_t *J);
 const char *sxi_jparse_geterr(jparse_t *J);
 
 /* In-callback functions */
-void sxi_jparse_cancel(jparse_t *J, const char *reason_fmt, ...);
+void sxi_jparse_cancel(jparse_t *J, const char *reason_fmt, ...) FMT_PRINTF(2,3);
 typedef const struct container jploc_t;
 jploc_t *sxi_jparse_whereami(jparse_t *J);
 

@@ -1693,113 +1693,126 @@ static int challenge_cb(curlev_context_t *cbdata, void *ctx, const void *data, s
     return 0;
 }
 
-typedef enum { MISC_TYPE_META, MISC_TYPE_SETTINGS } misc_obj_type;
+#define TARGET_SYNCFLUSH_SIZE (16*1024*1024)
 struct sync_ctx {
     sx_hashfs_t *hashfs;
     const sxi_hostlist_t *hlist;
-    char buffer[2*1024*1024]; /* Need to fit entirely the largest possible object */
-    char *volname;
-    unsigned int at;
-    enum { DOING_NOTHING, SYNCING_USERS, SYNCING_VOLUMES, SYNCING_PERMS_VOLUME, SYNCING_PERMS_USERS, SYNCING_MISC } what;
-    union {
-        struct {
-            char key[(2+SXLIMIT_META_MAX_KEY_LEN)*6+1];
-            char hexvalue[SXLIMIT_META_MAX_VALUE_LEN * 2 + 1];
-        } meta[SXLIMIT_META_MAX_ITEMS];
-        struct {
-            char key[(2+SXLIMIT_SETTINGS_MAX_KEY_LEN)*6+1];
-            char hexvalue[SXLIMIT_SETTINGS_MAX_VALUE_LEN * 2 + 1];
-        } settings[SXLIMIT_SETTINGS_MAX_ITEMS];
-    } misc;
-    unsigned int nmisc;
-    misc_obj_type misc_type;
+    char *buf, *permvolname;
+    unsigned int bufsz, bufat;
+    enum sync_objtype { SYNCTYPE_NONE, SYNCTYPE_USER, SYNCTYPE_VOLUME, SYNCTYPE_PERM, SYNCTYPE_MODE, SYNCTYPE_CLUSTMETA, SYNCTYPE_SETTINGS } lstobjtype;
 };
+const char *sysects[] = { NULL, "users", "volumes", "perms", "misc", "misc", "misc" };
 
-static int sync_flush(struct sync_ctx *ctx) {
+FMT_PRINTF(2, 3) static int sync_printf(struct sync_ctx *sctx, const char *fmt, ...) {
+    unsigned int avail, needed;
+    va_list ap;
+
+    avail = sctx->bufsz - sctx->bufat;
+    va_start(ap, fmt);
+    needed = vsnprintf(&sctx->buf[sctx->bufat], avail, fmt, ap); /* Assuming C99 */
+    va_end(ap);
+
+    if(needed >= avail) {
+	/* Alloc (needed+1) aligned up to the next boundary */
+	sctx->bufsz += needed + 1 + (~needed & 0x3ff);
+	sctx->buf = wrap_realloc_or_free(sctx->buf, sctx->bufsz);
+	if(!sctx->buf) {
+	    CRIT("Failed to allocate buffer to syncronise cluster objects");
+	    return -1;
+	}
+	va_start(ap, fmt);
+	vsprintf(&sctx->buf[sctx->bufat], fmt, ap);
+	va_end(ap);
+    }
+
+    sctx->bufat += needed;
+    return 0;
+}
+
+static int sync_flush(struct sync_ctx *sctx) {
     int qret;
 
-    if(ctx->what == DOING_NOTHING || !ctx->at) {
-	WARN("Out of seq call");
+    if(!sctx->bufat)
+	return 0;
+
+    if(sync_printf(sctx, "}}"))
+	return -1;
+
+    qret = sxi_cluster_query(sx_hashfs_conns(sctx->hashfs), sctx->hlist, REQ_PUT, ".sync", sctx->buf, sctx->bufat, NULL, NULL, NULL);
+    if(qret != 200) {
+	WARN("Sync query failed with %d", qret);
 	return -1;
     }
 
-    strcpy(&ctx->buffer[ctx->at], "}}");
+    sctx->lstobjtype = SYNCTYPE_NONE;
+    sctx->bufat = 0;
+    return 0;
+}
 
-    qret = sxi_cluster_query(sx_hashfs_conns(ctx->hashfs), ctx->hlist, REQ_PUT, ".sync", ctx->buffer, ctx->at+2, NULL, NULL, NULL);
-    if(qret != 200)
+static int sync_objbegin(struct sync_ctx *sctx, enum sync_objtype type) {
+    int ret;
+    if(sctx->lstobjtype != type || sctx->bufat >= TARGET_SYNCFLUSH_SIZE) {
+	if(sync_flush(sctx))
+	    return -1;
+	sctx->lstobjtype = type;
+    }
+    if(!sctx->bufat)
+	ret = sync_printf(sctx, "{\"%s\":{", sysects[type]);
+    else
+	ret = sync_printf(sctx, ",");
+
+    return ret;
+}
+
+static int sync_metapairs(struct sync_ctx *sctx, const char *json_head, rc_ty (*get_next_pair_fn)(sx_hashfs_t *, const char **, const void **, unsigned int *)) {
+    char hexvalue[SXLIMIT_META_MAX_VALUE_LEN * 2 + 1];
+    unsigned int metaval_len, head_sent = 0;
+    const char *metakey;
+    const void *metaval;
+    int ret;
+    rc_ty s;
+
+    while((s=get_next_pair_fn(sctx->hashfs, &metakey, &metaval, &metaval_len)) == OK) {
+	char *enc_key;
+	if(bin2hex(metaval, metaval_len, hexvalue, sizeof(hexvalue))) {
+	    WARN("Binary value too long for %s", metakey);
+	    return -1;
+	}
+	enc_key = sxi_json_quote_string(metakey);
+	if(!enc_key) {
+	    WARN("Cannot encode cluster meta key %s", metakey);
+	    return -1;
+	}
+	if(!head_sent) {
+	    ret = sync_printf(sctx, "%s{%s:\"%s\"", json_head, enc_key, hexvalue);
+	    head_sent = 1;
+	} else
+	    ret = sync_printf(sctx, ",%s:\"%s\"", enc_key, hexvalue);
+	free(enc_key);
+	if(ret)
+	    return -1;
+    }
+    if(s != ITER_NO_MORE) {
+	WARN("Failed to enumerate meta pairs");
 	return -1;
-
-    ctx->what = DOING_NOTHING;
-    ctx->at = 0;
-    ctx->buffer[0] = '\0';
+    }
+    if(head_sent && sync_printf(sctx, "}"))
+	return -1;
 
     return 0;
 }
 
+
 static int syncusers_cb(sx_hashfs_t *hashfs, sx_uid_t user_id, const char *username, const uint8_t *user, const uint8_t *key, int is_admin, const char *desc, int64_t quota, int64_t quota_used, int print_meta, int print_custom_meta, int nmeta, metacontent_t *meta, void *ctx) {
-    struct sync_ctx *sy = (struct sync_ctx *)ctx;
-    unsigned int left = sizeof(sy->buffer) - sy->at;
+    struct sync_ctx *sctx = (struct sync_ctx *)ctx;
     char *enc_name, *enc_desc, hexkey[AUTH_KEY_LEN*2+1], hexuser[AUTH_UID_LEN*2+1];
+    int ret;
     rc_ty s;
-    unsigned int need;
 
-    /* Check if we fit:
-       - the preliminary '{"users":' part - 10 bytes
-       - a fully encoded username - 2 + length(username) * 6 bytes
-       - the key - 40 bytes
-       - the user ID - 40 bytes
-       - a fully encoded description - 2 + length(desc) * 6 bytes
-       - the quota - up to 20 bytes
-       - the json skeleton ':{"user":"","key":"","admin":true,"desc":,"quota":,"userMeta":} - 65 bytes
-       - the trailing '}}\0' - 3 bytes
-    */
-    need = strlen(username) * 6 + strlen(desc ? desc : "") * 6 + 200;
-
-    /* Load user metadata */
-    s = sx_hashfs_usermeta_begin(hashfs, user_id);
-    if(s == OK) {
-        const char *metakey;
-        const void *metaval;
-        unsigned int metaval_len;
-
-        sy->nmisc = 0;
-        while((s=sx_hashfs_usermeta_next(hashfs, &metakey, &metaval, &metaval_len)) == OK) {
-            char *enc_key = sxi_json_quote_string(metakey);
-            if(!enc_key) {
-                WARN("Cannot encode cluster meta key %s", metakey);
-                s = ENOMEM;
-                break;
-            }
-            /* encoded key and value lengths + quoting, colon and comma */
-            need += strlen(enc_key) + metaval_len * 2 + 4;
-            strcpy(sy->misc.meta[sy->nmisc].key, enc_key);
-            free(enc_key);
-            bin2hex(metaval, metaval_len, sy->misc.meta[sy->nmisc].hexvalue, sizeof(sy->misc.meta[0].hexvalue));
-            sy->nmisc++;
-        }
-        if(s == ITER_NO_MORE)
-            s = OK;
-    }
-
-    if(s != OK) {
-        WARN("Failed to synchronize user metadata");
-        return -1;
-    }
-
-    if(left < need) {
-	if(sync_flush(sy))
-	    return -1;
-    }
-
-    if(sy->what == DOING_NOTHING) {
-	strcpy(sy->buffer, "{\"users\":{");
-	sy->at = lenof("{\"users\":{");
-    } else if(sy->what == SYNCING_USERS) {
-	sy->buffer[sy->at++] = ',';
-    } else {
-	WARN("Called out of sequence");
+    /* User object begin */
+    if(sync_objbegin(sctx, SYNCTYPE_USER))
 	return -1;
-    }
+
     enc_name = sxi_json_quote_string(username);
     if(!enc_name) {
 	WARN("Cannot quote username %s", username);
@@ -1813,372 +1826,233 @@ static int syncusers_cb(sx_hashfs_t *hashfs, sx_uid_t user_id, const char *usern
     }
     bin2hex(key, AUTH_KEY_LEN, hexkey, sizeof(hexkey));
     bin2hex(user, AUTH_UID_LEN, hexuser, sizeof(hexuser));
-    sprintf(&sy->buffer[sy->at], "%s:{\"user\":\"%s\",\"key\":\"%s\",\"admin\":%s,\"desc\":%s,\"quota\":%lld", enc_name, hexuser, hexkey, is_admin ? "true" : "false", enc_desc, (long long)quota);
+
+    /* User main body */
+    ret = sync_printf(sctx, "%s:{\"user\":\"%s\",\"key\":\"%s\",\"admin\":%s,\"desc\":%s,\"quota\":%lld",
+		      enc_name, hexuser, hexkey, is_admin ? "true" : "false", enc_desc, (long long)quota);
     free(enc_name);
     free(enc_desc);
+    if(ret)
+	return -1;
 
-    sy->what = SYNCING_USERS;
-    sy->at = strlen(sy->buffer);
-
-    if(sy->nmisc) {
-        unsigned int i;
-        strcat(sy->buffer, ",\"userMeta\":{");
-        for(i=0; i<sy->nmisc; i++) {
-            sy->at = strlen(sy->buffer);
-            sprintf(&sy->buffer[sy->at], "%s%s:\"%s\"",
-                    i ? "," : "",
-                    sy->misc.meta[i].key,
-                    sy->misc.meta[i].hexvalue);
-        }
-        strcat(sy->buffer, "}");
+    /* User metadata */
+    s = sx_hashfs_usermeta_begin(hashfs, user_id);
+    if(s != OK) {
+        WARN("Failed to synchronize user metadata");
+        return -1;
     }
-    sy->at = strlen(sy->buffer);
-    strcat(&sy->buffer[sy->at++], "}");
+    if(sync_metapairs(sctx, ",\"userMeta\":", sx_hashfs_usermeta_next))
+	return -1;
+
+    /* User object end */
+    if(sync_printf(sctx, "}"))
+	return -1;
 
     return 0;
 }
 
 static int syncperms_cb(const char *username, int priv, int is_owner, void *ctx) {
-    struct sync_ctx *sy = (struct sync_ctx *)ctx;
-    unsigned int left = sizeof(sy->buffer) - sy->at;
+    struct sync_ctx *sctx = (struct sync_ctx *)ctx;
     char userhex[AUTH_UID_LEN * 2 + 1];
     uint8_t user[AUTH_UID_LEN];
+    int comma = 1;
 
     if(!(priv & (PRIV_READ | PRIV_WRITE)))
 	return 0;
 
-    /* Check if we fit:
-       - the preliminary '{"perms":' part - 9 bytes
-       - the encoded volume name - length(volname) bytes
-       - the encoded user - 40 bytes
-       - the json skeleton ':{"":"rw",}' - 11 bytes
-       - the trailing '}}\0' - 3 bytes
-    */
-    if(left < strlen(username) * 6 + 64) {
-	if(sy->what == SYNCING_PERMS_USERS)
-	    strcat(&sy->buffer[sy->at++], "}");
-	if(sync_flush(sy))
+    if(sctx->permvolname) {
+	if(sync_objbegin(sctx, SYNCTYPE_PERM) || sync_printf(sctx, "%s:{", sctx->permvolname))
 	    return -1;
+	free(sctx->permvolname);
+	sctx->permvolname = NULL;
+	comma = 0;
     }
-
-    if(sx_hashfs_get_user_by_name(sy->hashfs, username, user, 0)) {
+    
+    if(sx_hashfs_get_user_by_name(sctx->hashfs, username, user, 0)) {
 	WARN("Failed to lookup user %s", username);
 	return -1;
     }
+
     bin2hex(user, sizeof(user), userhex, sizeof(userhex));
-    if(sy->what == DOING_NOTHING) {
-	sprintf(sy->buffer, "{\"perms\":{%s:{",sy->volname);
-	sy->at = strlen(sy->buffer);
-    } else if(sy->what == SYNCING_PERMS_VOLUME) {
-	sprintf(&sy->buffer[sy->at], ",%s:{",sy->volname);
-	sy->at = strlen(sy->buffer);
-    } else if(sy->what == SYNCING_PERMS_USERS) {
-	sy->buffer[sy->at++] = ',';
-    } else {
-	WARN("Called out of sequence");
+    if(sync_printf(sctx, "%s \"%s\":%d", comma ? "," : "", userhex, priv))
 	return -1;
-    }
-
-    sy->what = SYNCING_PERMS_USERS;
-    sprintf(&sy->buffer[sy->at], "\"%s\":%d",
-	    userhex, priv);
-    sy->at = strlen(sy->buffer);
-    return 0;
-}
-
-/* This function is supposed to synchronize misc global objects, cluster meta and cluster settings.
- * Assumption is that all settings and all metadata fit into the ctx->buffer which is static.
- * In case more settings are supported and those would not fit into the buffer, consider resizing that 
- * to the required capacity. */
-static int sync_misc_objects(sx_hashfs_t *hashfs, struct sync_ctx *ctx) {
-    time_t last_mod;
-    rc_ty s;
-    const char *key, *hexval;
-    char *enc_name;
-    unsigned int i;
-
-    if(!hashfs || !ctx)
-        return -1;
-
-    /* Get misc object modification time according to the requested misc object type */
-    if((ctx->misc_type == MISC_TYPE_META && sx_hashfs_clustermeta_last_change(hashfs, &last_mod)) ||
-       (ctx->misc_type == MISC_TYPE_SETTINGS && sx_hashfs_cluster_settings_last_change(hashfs, &last_mod))) {
-        WARN("Failed to last modification time");
-        return -1;
-    }
-
-    sprintf(ctx->buffer, "{\"misc\":{\"%s\":[%ld,{", ctx->misc_type == MISC_TYPE_META ? "clusterMeta" : "clusterSettings", last_mod);
-
-    ctx->what = SYNCING_MISC;
-    ctx->at = strlen(ctx->buffer);
-
-    /* Load global objects */
-    if(ctx->misc_type == MISC_TYPE_META) {
-        const void *val;
-        unsigned int val_len;
-        
-        /* Load cluster metadata */
-        s = sx_hashfs_clustermeta_begin(hashfs);
-        if(s == OK) {
-            ctx->nmisc = 0;
-            while((s=sx_hashfs_clustermeta_next(hashfs, &key, &val, &val_len)) == OK) {
-                enc_name = sxi_json_quote_string(key);
-                if(!enc_name) {
-                    WARN("Cannot encode cluster meta key %s", key);
-                    s = ENOMEM;
-                    break;
-                }
-                /* encoded key and value lengths + quoting, colon and comma */
-                strcpy(ctx->misc.meta[ctx->nmisc].key, enc_name);
-                free(enc_name);
-                bin2hex(val, val_len, ctx->misc.meta[ctx->nmisc].hexvalue, sizeof(ctx->misc.meta[0].hexvalue));
-                ctx->nmisc++;
-            }
-        }
-    } else {
-        const char *value;
-
-        /* Load cluster settings */
-        for(s = sx_hashfs_cluster_settings_first(hashfs, &key, NULL, &value); s == OK; s = sx_hashfs_cluster_settings_next(hashfs)) {
-            enc_name = sxi_json_quote_string(key);
-            if(!enc_name) {
-                WARN("Cannot encode cluster settings key %s", key);
-                s = ENOMEM;
-                break;
-            }
-            /* encoded key and value lengths + quoting, colon and comma */
-            strcpy(ctx->misc.settings[ctx->nmisc].key, enc_name);
-            free(enc_name);
-            bin2hex(value, strlen(value), ctx->misc.settings[ctx->nmisc].hexvalue, sizeof(ctx->misc.settings[0].hexvalue));
-            ctx->nmisc++;
-
-            if(ctx->nmisc == SXLIMIT_SETTINGS_MAX_ITEMS) {
-                CRIT("Reached maximum settings limit");
-                s = FAIL_EINTERNAL;
-                break;
-            }
-        }
-    }
-
-    if(s == ITER_NO_MORE)
-        s = OK;
-    if(s != OK) {
-        WARN("Failed to synchronize misc cluster objects");
-        return -1;
-    }
-
-    /* Fill the buffer */
-    for(i=0; i<ctx->nmisc; i++) {
-        key = (ctx->misc_type == MISC_TYPE_META ? ctx->misc.meta[i].key : ctx->misc.settings[i].key);
-        hexval = (ctx->misc_type == MISC_TYPE_META ? ctx->misc.meta[i].hexvalue : ctx->misc.settings[i].hexvalue);
-        ctx->at = strlen(ctx->buffer);
-        sprintf(&ctx->buffer[ctx->at], "%s%s:\"%s\"", i ? "," : "", key, hexval);
-    }
-    ctx->at = strlen(ctx->buffer);
-    strcpy(&ctx->buffer[ctx->at], "}]");
-    ctx->at += 2;
-
-    if(sync_flush(ctx))
-        return -1;
     return 0;
 }
 
 static int sync_global_objects(sx_hashfs_t *hashfs, const sxi_hostlist_t *hlist) {
     const sx_hashfs_volume_t *vol;
     struct sync_ctx *sctx;
+    time_t last_mod;
+    char *enc_name;
     rc_ty s;
-    int mode = 0;
+    int mode = 0, r, ret = -1;
 
-    if(!(sctx = wrap_malloc(sizeof(*sctx))))
+    if(!(sctx = wrap_calloc(1, sizeof(*sctx)))) {
+	WARN("Failed to allocate sync structure");
 	return -1;
-
-    sctx->what = DOING_NOTHING;
-    sctx->at = 0;
+    }
     sctx->hashfs = hashfs;
     sctx->hlist = hlist;
 
-    if(sx_hashfs_list_users(hashfs, NULL, syncusers_cb, 1, 1, 1, 1, sctx)) {
-	free(sctx);
-	return -1;
-    }
+    if(sx_hashfs_list_users(hashfs, NULL, syncusers_cb, 1, 1, 1, 1, sctx))
+	goto sync_global_err;
 
-    /* Force flush after all users */
-    if(sctx->what != DOING_NOTHING && sync_flush(sctx)) {
-	free(sctx);
-	return -1;
-    }
-
-    s = sx_hashfs_volume_first(hashfs, &vol, 0);
-    while(s == OK) {
+    for(s = sx_hashfs_volume_first(hashfs, &vol, 0); s == OK; s = sx_hashfs_volume_next(hashfs)) {
 	uint8_t user[AUTH_UID_LEN];
-	char userhex[AUTH_UID_LEN * 2 + 1], *enc_name;
-	unsigned int need = strlen(vol->name) * 6 + 256;
-	unsigned int left = sizeof(sctx->buffer) - sctx->at;
+	char userhex[AUTH_UID_LEN * 2 + 1];
 
-	/* Need to fit:
-	   - the preliminary '},"volumes":' part - 13 bytes
-	   - the fully encoded volume name - 2 + length(name) * 6
-	   - the owner - 40 bytes
-	   - the meta (computed and added later)
-	   - the json skeleton ':{"owner":"","size":,"replica":,"revs":,"meta":{}},' - ~100 bytes
-	   - the trailing '}}\0' - 3 bytes
-	*/
-
+	/* Volume object begins */
 	if(sx_hashfs_get_user_by_uid(hashfs, vol->owner, user, 0)) {
 	    WARN("Cannot find user %lld (owner of %s)", (long long)vol->owner, vol->name);
-	    free(sctx);
-	    return -1;
+	    goto sync_global_err;
 	}
 	bin2hex(user, AUTH_UID_LEN, userhex, sizeof(userhex));
-	s = sx_hashfs_volumemeta_begin(hashfs, vol);
-	if(s == OK) {
-	    const char *key;
-	    const void *val;
-	    unsigned int val_len;
 
-	    sctx->nmisc = 0;
-	    while((s=sx_hashfs_volumemeta_next(hashfs, &key, &val, &val_len)) == OK) {
-		enc_name = sxi_json_quote_string(key);
-		if(!enc_name) {
-		    WARN("Cannot encode key %s of volume %s", key, vol->name);
-		    s = ENOMEM;
-		    break;
-		}
-		/* encoded key and value lengths + quoting, colon and comma */
-		need += strlen(enc_name) + val_len * 2 + 4;
-		strcpy(sctx->misc.meta[sctx->nmisc].key, enc_name);
-		free(enc_name);
-		bin2hex(val, val_len, sctx->misc.meta[sctx->nmisc].hexvalue, sizeof(sctx->misc.meta[0].hexvalue));
-		sctx->nmisc++;
-	    }
-	    if(s == ITER_NO_MORE)
-		s = OK;
-	}
-	if(s != OK) {
-	    WARN("Failed to manage metadata for volume %s", vol->name);
-	    break;
-	}
-
-	if(left < need) {
-	    if(sync_flush(sctx)) {
-		free(sctx);
-		return -1;
-	    }
-	}
-
-	if(sctx->what == DOING_NOTHING) {
-	    strcpy(sctx->buffer, "{\"volumes\":{");
-	    sctx->at = lenof("{\"volumes\":{");
-	} else if(sctx->what == SYNCING_VOLUMES) {
-	    sctx->buffer[sctx->at++] = ',';
-	} else {
-	    WARN("Called out of sequence");
-	    free(sctx);
-	    return -1;
-	}
+	if(sync_objbegin(sctx, SYNCTYPE_VOLUME))
+	    goto sync_global_err;
 
 	enc_name = sxi_json_quote_string(vol->name);
 	if(!enc_name) {
 	    WARN("Failed to encode volume name %s", vol->name);
-	    s = ENOMEM;
-	    break;
+	    goto sync_global_err;
 	}
-	sprintf(&sctx->buffer[sctx->at], "%s:{\"owner\":\"%s\",\"size\":%lld,\"replica\":%u,\"revs\":%u", enc_name, userhex, (long long)vol->size, vol->max_replica, vol->revisions);
+	/* Volume main body */
+	r = sync_printf(sctx, "%s:{\"owner\":\"%s\",\"size\":%lld,\"replica\":%u,\"revs\":%u",
+			  enc_name, userhex, (long long)vol->size, vol->max_replica, vol->revisions);
 	free(enc_name);
-	if(sctx->nmisc) {
-	    unsigned int i;
-	    strcat(sctx->buffer, ",\"meta\":{");
-	    for(i=0; i<sctx->nmisc; i++) {
-		sctx->at = strlen(sctx->buffer);
-		sprintf(&sctx->buffer[sctx->at], "%s%s:\"%s\"",
-			i ? "," : "",
-			sctx->misc.meta[i].key,
-			sctx->misc.meta[i].hexvalue);
-	    }
-	    strcat(sctx->buffer, "}");
+	if(r)
+	    goto sync_global_err;
+
+	/* Volume metadata */
+	s = sx_hashfs_volumemeta_begin(hashfs, vol);
+	if(s != OK) {
+	    WARN("Failed to enumaerate metadata for volume %s: %d", vol->name, s);
+	    goto sync_global_err;
 	}
-	sctx->at = strlen(sctx->buffer);
-	strcat(&sctx->buffer[sctx->at++], "}");
-	sctx->what = SYNCING_VOLUMES;
-	s = sx_hashfs_volume_next(hashfs);
+	if(sync_metapairs(sctx, ",\"meta\":", sx_hashfs_volumemeta_next))
+	    goto sync_global_err;
+
+	/* User object end */
+	if(sync_printf(sctx, "}"))
+	    goto sync_global_err;
     }
     if(s != ITER_NO_MORE) {
-	WARN("Sending failed with %d", s);
-	free(sctx);
-	return -1;
-    }
-
-    /* Force flush after all volumes */
-    if(sctx->what != DOING_NOTHING && sync_flush(sctx)) {
-	free(sctx);
-	return -1;
+	WARN("Volume enumeration failed with %d", s);
+	goto sync_global_err;
     }
 
     s = sx_hashfs_volume_first(hashfs, &vol, 0);
-    while(s == OK) {
-	sctx->volname = sxi_json_quote_string(vol->name);
-	if(!sctx->volname) {
-	    WARN("Failed to encode volume %s", vol->name);
-	    free(sctx);
-	    return -1;
-	}
-	if(sx_hashfs_list_acl(hashfs, vol, 0, PRIV_ADMIN, syncperms_cb, sctx)) {
-	    WARN("Failed to list permissions for %s: %s", vol->name, msg_get_reason());
-	    free(sctx->volname);
-	    free(sctx);
-	    return -1;
-	}
-	free(sctx->volname);
+    if(s == OK) {
+	do {
+	    sctx->permvolname = sxi_json_quote_string(vol->name);
+	    if(!sctx->permvolname) {
+		WARN("Failed to encode volume %s", vol->name);
+		goto sync_global_err;
+	    }
+	    if(sx_hashfs_list_acl(hashfs, vol, 0, PRIV_ADMIN, syncperms_cb, sctx)) {
+		WARN("Failed to list permissions for %s: %s", vol->name, msg_get_reason());
+		free(sctx->permvolname);
+		goto sync_global_err;
+	    }
+	    if(sctx->permvolname) /* The volume was ignored by the cb */
+		free(sctx->permvolname);
+	    else if(sync_printf(sctx, "}")) /* The volume was not ignored */
+		goto sync_global_err;
 
-	if(sctx->what == SYNCING_PERMS_USERS) {
-	    strcat(&sctx->buffer[sctx->at++], "}");
-	    sctx->what = SYNCING_PERMS_VOLUME;
-	}
-	s = sx_hashfs_volume_next(hashfs);
-    }
-
-    if(sctx->what != DOING_NOTHING) {
-	if(sctx->what == SYNCING_PERMS_USERS)
-	    strcat(&sctx->buffer[sctx->at++], "}");
-	if(sync_flush(sctx)) {
-	    free(sctx);
-	    return -1;
+	    s = sx_hashfs_volume_next(hashfs);
+	} while(s == OK);
+	if(s != ITER_NO_MORE) {
+	    WARN("Failed to list volume permissions: %d", s);
+	    goto sync_global_err;
 	}
     }
 
     if(sx_hashfs_cluster_get_mode(hashfs, &mode)) {
         WARN("Failed to get cluster operating mode");
-	free(sctx);
-        return -1;
+	goto sync_global_err;
     }
 
     /* Syncing misc globs */
-    sprintf(sctx->buffer, "{\"misc\":{\"mode\":\"%s\"", mode ? "ro" : "rw");
-    sctx->what = SYNCING_MISC;
-    sctx->at = strlen(sctx->buffer);
-    if(sync_flush(sctx)) {
-	free(sctx);
-        return -1;
+    if(sync_objbegin(sctx, SYNCTYPE_MODE) ||
+       sync_printf(sctx, "\"mode\":\"%s\"", mode ? "ro" : "rw")) {
+	goto sync_global_err;
     }
 
     /* Synchronize cluster meta */
-    sctx->misc_type = MISC_TYPE_META;
-    sctx->nmisc = 0;
-    if(sync_misc_objects(hashfs, sctx)) {
-	free(sctx);
-        return -1;
+    if(sx_hashfs_clustermeta_last_change(hashfs, &last_mod)) {
+        WARN("Failed to get last cluster meta modification time");
+	goto sync_global_err;
     }
+    if(sync_objbegin(sctx, SYNCTYPE_CLUSTMETA) ||
+       sync_printf(sctx, "\"clusterMeta\":[%ld", last_mod))
+	goto sync_global_err;
+
+    s = sx_hashfs_clustermeta_begin(hashfs);
+    if(s != OK) {
+	WARN("Failed to retrieve cluster metadata");
+	goto sync_global_err;
+    }
+    if(sync_metapairs(sctx, ",", sx_hashfs_clustermeta_next))
+	goto sync_global_err;
+    if(sync_printf(sctx, "]"))
+	goto sync_global_err;
 
     /* Synchronize cluster settings */
-    sctx->misc_type = MISC_TYPE_SETTINGS;
-    sctx->nmisc = 0;
-    if(sync_misc_objects(hashfs, sctx)) {
-	free(sctx);
-        return -1;
+    if(sx_hashfs_cluster_settings_last_change(hashfs, &last_mod)) {
+        WARN("Failed to get last cluster settings modification time");
+	goto sync_global_err;
+    } else {
+	const char *setkey, *setval;
+	s = sx_hashfs_cluster_settings_first(hashfs, &setkey, NULL, &setval);
+	if(s == OK) {
+	    if(sync_objbegin(sctx, SYNCTYPE_SETTINGS) ||
+	       sync_printf(sctx, "\"clusterSettings\":[%ld,{", last_mod))
+		goto sync_global_err;
+
+	    do {
+		char hexvalue[SXLIMIT_META_MAX_VALUE_LEN * 2 + 1];
+		if(bin2hex(setval, strlen(setval), hexvalue, sizeof(hexvalue))) {
+		    WARN("Cannot encode cluster settings value %s", setval);
+		    goto sync_global_err;
+		}
+		enc_name = sxi_json_quote_string(setkey);
+		if(!enc_name) {
+		    WARN("Cannot encode cluster settings key %s", setkey);
+		    goto sync_global_err;
+		}
+		r = sync_printf(sctx, "%s:\"%s\"", enc_name, hexvalue);
+		free(enc_name);
+		if(r)
+		    goto sync_global_err;
+
+		s = sx_hashfs_cluster_settings_next(hashfs);
+		if(s == OK && sync_printf(sctx, ","))
+		    goto sync_global_err;
+
+	    } while(s == OK);
+	    if(s == ITER_NO_MORE) {
+		if(sync_printf(sctx, "}]"))
+		    goto sync_global_err;
+		s = OK;
+	    }
+	}
+	if(s != OK) {
+	    WARN("Failed to retrieve cluster settings: %d", s);
+	    goto sync_global_err;
+	}
     }
 
-    free(sctx);
-    return 0;
+    if(sync_flush(sctx))
+	goto sync_global_err;
+
+    ret = 0; /* Success */
+
+ sync_global_err:
+    if(sctx) {
+	free(sctx->buf);
+	free(sctx);
+    }
+    return ret;
 }
 
 static int challenge_and_sync(sx_hashfs_t *hashfs, const sx_node_t *node, int *fail_code, char *fail_msg) {

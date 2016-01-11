@@ -623,7 +623,7 @@ static void cb_listvolumes_size(jparse_t *J, void *ctx, int64_t num) {
     struct cb_listvolumes_ctx *yactx = (struct cb_listvolumes_ctx *)ctx;
 
     if(num <= 0) {
-	sxi_jparse_cancel(J, "Invalid size received for volume '%s'", volume);
+	sxi_jparse_cancel(J, "Invalid size %lld received for volume '%s'", (long long)num, volume);
 	yactx->err = SXE_ECOMM;
 	return;
     }
@@ -636,7 +636,7 @@ static void cb_listvolumes_usedsize(jparse_t *J, void *ctx, int64_t num) {
     struct cb_listvolumes_ctx *yactx = (struct cb_listvolumes_ctx *)ctx;
 
     if(num < 0) {
-	sxi_jparse_cancel(J, "Invalid size received for volume '%s'", volume);
+	sxi_jparse_cancel(J, "Invalid size %lld received for volume '%s'", (long long)num, volume);
 	yactx->err = SXE_ECOMM;
 	return;
     }

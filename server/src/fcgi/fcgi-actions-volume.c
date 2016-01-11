@@ -1588,7 +1588,7 @@ static void cb_volmod_meta(jparse_t *J, void *ctx, const char *string, unsigned 
     uint8_t metaval[SXLIMIT_META_MAX_VALUE_LEN];
 
     if(sxi_hex2bin(string, length, metaval, sizeof(metaval))) {
-	sxi_jparse_cancel(J, "Invalid meta value on '%.*s'", string, length);
+	sxi_jparse_cancel(J, "Invalid meta value on '%.*s'", length, string);
 	return;
     }
 

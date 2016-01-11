@@ -802,7 +802,7 @@ static void cb_user_modify_cmeta(jparse_t *J, void *ctx, const char *string, uns
     }
 
     if(strlen(metakey) > SXLIMIT_META_MAX_KEY_LEN - lenof(SX_CUSTOM_META_PREFIX)) {
-        sxi_jparse_cancel(J, "Custom metadata key too long (max: %u)", SXLIMIT_META_MAX_KEY_LEN - lenof(SX_CUSTOM_META_PREFIX));
+        sxi_jparse_cancel(J, "Custom metadata key too long (max: %lu)", SXLIMIT_META_MAX_KEY_LEN - lenof(SX_CUSTOM_META_PREFIX));
         return;
     }
 

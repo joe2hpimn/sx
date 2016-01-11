@@ -1241,14 +1241,11 @@ static void cb_syncmisc_cmeta(jparse_t *J, void *ctx, const char *string, unsign
     uint8_t val[SXLIMIT_META_MAX_VALUE_LEN];
 
     if(hex2bin(string, length, val, sizeof(val))) {
-	sxi_jparse_cancel(J, "Invalid cluster meta value (key %s)",
-			  sxi_jpath_mapkey(sxi_jpath_down(sxi_jpath_down(sxi_jparse_whereami(J)))));
+	sxi_jparse_cancel(J, "Invalid cluster meta value (key %s)", key);
 	return;
     }
     if(sx_hashfs_clustermeta_set_addmeta(hashfs, key, val, length/2)) {
-	sxi_jparse_cancel(J, "Invalid cluster meta value (key %s): %s",
-			  sxi_jpath_mapkey(sxi_jpath_down(sxi_jpath_down(sxi_jparse_whereami(J)))),
-			  msg_get_reason());
+	sxi_jparse_cancel(J, "Invalid cluster meta value (key %s): %s", key, msg_get_reason());
 	return;
     }
 }
@@ -1289,7 +1286,7 @@ static void cb_syncmisc_csets(jparse_t *J, void *ctx, const char *string, unsign
 	return;
     }
     if(sx_hashfs_parse_cluster_setting(hashfs, key, setting_type, val, c->settings)) {
-	sxi_jparse_cancel(J, "Failed to store cluster setting %s: %s", key);
+	sxi_jparse_cancel(J, "Failed to store cluster setting %s", key);
 	return;
     }
     c->nsettings++;
