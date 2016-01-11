@@ -3570,6 +3570,7 @@ char *sxi_curlev_fetch_sxauthd_credentials(curl_events_t *e, const char *url, co
 
     ret = header_ctx.link;
 sxi_curlev_fetch_sxauthd_credentials_err:
+    curl_slist_free_all(ev->slist);
     curl_easy_cleanup(ev->curl);
     free(display_enc);
     free(unique_enc);
