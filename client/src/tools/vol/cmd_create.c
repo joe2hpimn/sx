@@ -27,7 +27,7 @@
 
 const char *create_args_info_purpose = "";
 
-const char *create_args_info_usage = "Usage: sxvol create [OPTIONS] -r N -o username sx://[profile@]cluster/volume";
+const char *create_args_info_usage = "Usage: sxvol create [OPTIONS] -r N -o USERNAME -s SIZE sx://[profile@]cluster/volume";
 
 const char *create_args_info_versiontext = "";
 

@@ -25,10 +25,11 @@ be installed together with their development versions:
     \item OpenSSL/NSS
     \item libcurl $\ge$ 7.34.0 (otherwise the embedded one will be used)
     \item zlib
+    \item FUSE $\ge$ 2.7.0 (otherwise sxfs will not be compiled)
 \end{itemize}
 For example, on Debian run:
 \begin{lstlisting}
-# apt-get install libssl-dev libcurl4-openssl-dev libz-dev
+# apt-get install libssl-dev libcurl4-openssl-dev libz-dev fuse libfuse-dev
 \end{lstlisting}
 
 \subsection{Compilation}
