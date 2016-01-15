@@ -561,7 +561,7 @@ int sxfs_get_sx_data (sxfs_state_t *sxfs, sxc_client_t **sx, sxc_cluster_t **clu
             }
             sx_data->cluster = sxc_cluster_load_and_update(sx_data->sx, sxfs->uri->host, sxfs->uri->profile);
             if(!sx_data->cluster) {
-                sxfs_log(sxfs, __func__, 0, "Cannot load config for %s: %s\n", sxfs->uri->host, sxc_geterrmsg(sx_data->sx));
+                sxfs_log(sxfs, __func__, 0, "Cannot load config for %s: %s", sxfs->uri->host, sxc_geterrmsg(sx_data->sx));
                 ret = -sxfs_sx_err(sx_data->sx);
                 break;
             }

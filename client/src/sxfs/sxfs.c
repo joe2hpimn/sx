@@ -2813,6 +2813,28 @@ struct fuse_operations sxfs_oper = {
     .utimens = sxfs_utimens,
 };
 
+static int sxfs_input_fn (sxc_client_t *sx, sxc_input_t type, const char *prompt, const char *def, char *in, unsigned int insize, void *ctx) {
+    sxfs_state_t *sxfs = (sxfs_state_t*)ctx;
+
+    if(!sx || !prompt || !in | !insize) {
+        if(sx)
+            sxi_seterr(sx, SXE_EARG, "NULL argument");
+        return -1;
+    }
+    switch(type) {
+        case SXC_INPUT_YN:
+        case SXC_INPUT_PLAIN:
+        case SXC_INPUT_SENSITIVE:
+            sxi_seterr(sx, SXE_EARG, "Password callback in sxfs");
+            if(sxfs)
+                fprintf(sxfs->logfile, "ERROR: The access to the encrypted volume is not initialized yet. Please copy a file with sxcp to configure it.\n");
+            return -1;
+        default:
+            sxi_seterr(sx, SXE_EARG, "Unknown input type");
+            return -1;
+    }
+} /* sxfs_input_fn */
+
 static const char *args_whitelist[] = {"ro", "rw", "debug", "allow_other", "allow_root", "auto_unmount", "large_read", "direct_io", "async_read", "sync_read", "atomic_o_trunc", "big_writes", "default_permissions", NULL};
 static const char *args_whitelist_len[] = {"fsname=", "subtype=", "max_read=", "umask=", "uid=", "gid=", "entry_timeout=", "negative_timeout=", "attr_timeout=", "modules=", "max_write=", "max_readahead=", "max_background=", "subdir=", NULL};
 
@@ -2915,89 +2937,6 @@ runas_err:
     return ret;
 } /* runas */
 
-static int check_password (sxc_client_t *sx, sxc_cluster_t *cluster, sxfs_state_t *sxfs) {
-    int ret = -1, fd;
-    unsigned int nfiles;
-    char *path = (char*)malloc(strlen(sxfs->tempdir) + 1 + lenof(".sxfs_tmp_XXXXXX") + 1), *file_name;
-    sxc_file_t *src = NULL, *dest = NULL;
-    sxc_cluster_lf_t *flist;
-    sxc_file_list_t *rmlist = NULL;
-
-    if(!path) {
-        fprintf(stderr, "ERROR: Out of memory\n");
-        return ret;
-    }
-    while(1) {
-        sprintf(path, "%s/.sxfs_tmp_XXXXXX", sxfs->tempdir);
-        fd = mkstemp(path);
-        if(fd < 0) {
-            fprintf(stderr, "ERROR: Cannot create temporary file: %s\n", strerror(errno));
-            free(path);
-            return ret;
-        }
-        if(close(fd)) {
-            fprintf(stderr, "ERROR: Cannot close '%s' file: %s\n", path, strerror(errno));
-            goto check_password_err;
-        }
-        file_name = strrchr(path, '/');
-        if(!file_name) {
-            fprintf(stderr, "ERROR: '/' not found in '%s'\n", path);
-            goto check_password_err;
-        }
-        flist = sxc_cluster_listfiles(cluster, sxfs->uri->volume, file_name+1, 0, &nfiles, 0);
-        if(!flist) {
-            fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
-            goto check_password_err;
-        }
-        sxc_cluster_listfiles_free(flist);
-        if(!nfiles)
-            break;
-        if(unlink(path)) {
-            fprintf(stderr, "ERROR: Cannot remove '%s' file: %s\n", path, strerror(errno));
-            free(path);
-            return ret;
-        }
-    }
-    src = sxc_file_local(sx, path);
-    if(!src) {
-        fprintf(stderr, "ERROR: Cannot create local file object: %s\n", sxc_geterrmsg(sx));
-        goto check_password_err;
-    }
-    dest = sxc_file_remote(cluster, sxfs->uri->volume, ".sxfs_tempfile", NULL);
-    if(!dest) {
-        fprintf(stderr, "ERROR: Cannot create file object: %s\n", sxc_geterrmsg(sx));
-        goto check_password_err;
-    }
-    rmlist = sxc_file_list_new(sx, 0);
-    if(!rmlist) {
-        fprintf(stderr, "ERROR: Cannot create new file list: %s\n", sxc_geterrmsg(sx));
-        goto check_password_err;
-    }
-    if(sxc_copy(src, dest, 0, 0, 0, NULL, 1)) {
-        fprintf(stderr, "ERROR: %s", sxc_geterrmsg(sx));
-        goto check_password_err;
-    }
-    if(sxc_file_list_add(rmlist, dest, 0)) {
-        fprintf(stderr, "ERROR: Cannot add file: %s\n", sxc_geterrmsg(sx));
-        goto check_password_err;
-    }
-    dest = NULL; /* sxc_file_list_free frees all files inside it */
-    if(sxc_rm(rmlist, 0, 0)) {
-        fprintf(stderr, "ERROR: Cannot remove file: %s\n", sxc_geterrmsg(sx));
-        goto check_password_err;
-    }
-
-    ret = 0;
-check_password_err:
-    sxc_file_free(src);
-    sxc_file_free(dest);
-    sxc_file_list_free(rmlist);
-    if(unlink(path))
-        fprintf(stderr, "ERROR: Cannot remove '%s' file: %s\n", path, strerror(errno));
-    free(path);
-    return ret;
-} /* check_password */
-
 static void print_and_log (FILE *logfile, const char* format_string, ...) {
     char buffer[4096];
     va_list vl;
@@ -3009,6 +2948,139 @@ static void print_and_log (FILE *logfile, const char* format_string, ...) {
     if(logfile)
         fprintf(logfile, "%s", buffer);
 } /* print_and_log */
+
+static int check_password (sxc_client_t *sx, sxc_cluster_t *cluster, sxfs_state_t *sxfs) {
+    int ret = -1, fd;
+    unsigned int nfiles;
+    char *path = (char*)malloc(strlen(sxfs->tempdir) + 1 + lenof(".sxfs_tmp_XXXXXX") + 1), *file_name;
+    sxc_file_t *src = NULL, *dest = NULL;
+    sxc_cluster_lf_t *flist;
+    sxc_file_list_t *rmlist = NULL;
+
+    if(!path) {
+        print_and_log(sxfs->logfile, "ERROR: Out of memory\n");
+        return ret;
+    }
+    while(1) {
+        sprintf(path, "%s/.sxfs_tmp_XXXXXX", sxfs->tempdir);
+        fd = mkstemp(path);
+        if(fd < 0) {
+            print_and_log(sxfs->logfile, "ERROR: Cannot create temporary file: %s\n", strerror(errno));
+            free(path);
+            return ret;
+        }
+        if(close(fd)) {
+            print_and_log(sxfs->logfile, "ERROR: Cannot close '%s' file: %s\n", path, strerror(errno));
+            goto check_password_err;
+        }
+        file_name = strrchr(path, '/');
+        if(!file_name) {
+            print_and_log(sxfs->logfile, "ERROR: '/' not found in '%s'\n", path);
+            goto check_password_err;
+        }
+        flist = sxc_cluster_listfiles(cluster, sxfs->uri->volume, file_name+1, 0, &nfiles, 0);
+        if(!flist) {
+            print_and_log(sxfs->logfile, "ERROR: %s\n", sxc_geterrmsg(sx));
+            goto check_password_err;
+        }
+        sxc_cluster_listfiles_free(flist);
+        if(!nfiles)
+            break;
+        if(unlink(path)) {
+            print_and_log(sxfs->logfile, "ERROR: Cannot remove '%s' file: %s\n", path, strerror(errno));
+            free(path);
+            return ret;
+        }
+    }
+    src = sxc_file_local(sx, path);
+    if(!src) {
+        print_and_log(sxfs->logfile, "ERROR: Cannot create local file object: %s\n", sxc_geterrmsg(sx));
+        goto check_password_err;
+    }
+    dest = sxc_file_remote(cluster, sxfs->uri->volume, file_name+1, NULL);
+    if(!dest) {
+        print_and_log(sxfs->logfile, "ERROR: Cannot create file object: %s\n", sxc_geterrmsg(sx));
+        goto check_password_err;
+    }
+    rmlist = sxc_file_list_new(sx, 0);
+    if(!rmlist) {
+        print_and_log(sxfs->logfile, "ERROR: Cannot create new file list: %s\n", sxc_geterrmsg(sx));
+        goto check_password_err;
+    }
+    if(sxc_copy(src, dest, 0, 0, 0, NULL, 1)) {
+        print_and_log(sxfs->logfile, "ERROR: %s\n", sxc_geterrmsg(sx));
+        goto check_password_err;
+    }
+    if(sxc_file_list_add(rmlist, dest, 0)) {
+        print_and_log(sxfs->logfile, "ERROR: Cannot add file: %s\n", sxc_geterrmsg(sx));
+        goto check_password_err;
+    }
+    dest = NULL; /* sxc_file_list_free frees all files inside it */
+    if(sxc_rm(rmlist, 0, 0)) {
+        print_and_log(sxfs->logfile, "ERROR: Cannot remove file: %s\n", sxc_geterrmsg(sx));
+        goto check_password_err;
+    }
+
+    ret = 0;
+check_password_err:
+    sxc_file_free(src);
+    sxc_file_free(dest);
+    sxc_file_list_free(rmlist);
+    if(unlink(path))
+        print_and_log(sxfs->logfile, "ERROR: Cannot remove '%s' file: %s\n", path, strerror(errno));
+    free(path);
+    return ret;
+} /* check_password */
+
+static int sxfs_daemonize (const sxfs_state_t *sxfs) {
+    int fd = -1, ret = -1;
+
+    if(!sxfs->args->foreground_flag) {
+        if(!sxfs->logfile)
+            fprintf(stderr, "*** It is recommended to always use --logfile when not running in the foreground ***\n");
+        fd = open("/dev/null", O_RDWR);
+        if(fd < 0) {
+            fprintf(stderr, "ERROR: Cannot open '/dev/null': %s\n", strerror(errno));
+            goto sxfs_daemonize_err;
+        }
+        switch(fork()) {
+            case -1: fprintf(stderr, "ERROR: Cannot fork: %s\n", strerror(errno)); goto sxfs_daemonize_err;
+            case 0: break;
+            default: _exit(0);
+        }
+        if(setsid() == -1) {
+            print_and_log(sxfs->logfile, "ERROR: Cannot create new session: %s\n", strerror(errno));
+            goto sxfs_daemonize_err;
+        }
+        if(chdir("/")) {
+            print_and_log(sxfs->logfile, "ERROR: Cannot change working directory: %s\n", strerror(errno));
+            goto sxfs_daemonize_err;
+        }
+        if(dup2(fd, 0) == -1) {
+            print_and_log(sxfs->logfile, "ERROR: Cannot close stdin: %s\n", strerror(errno));
+            goto sxfs_daemonize_err;
+        }
+        if(dup2(fd, 1) == -1) {
+            print_and_log(sxfs->logfile, "ERROR: Cannot close stdout: %s\n", strerror(errno));
+            goto sxfs_daemonize_err;
+        }
+        if(dup2(fd, 2) == -1) {
+            print_and_log(sxfs->logfile, "ERROR: Cannot close stderr: %s\n", strerror(errno));
+            goto sxfs_daemonize_err;
+        }
+    } else {
+        if(chdir("/")) {
+            fprintf(stderr, "ERROR: Cannot change working directory: %s\n", strerror(errno));
+            return ret;
+        }
+    }
+
+    ret = 0;
+sxfs_daemonize_err:
+    if(fd >= 0 && close(fd))
+        print_and_log(sxfs->logfile, "ERROR: Cannot close '/dev/null' device: %s\n", strerror(errno));
+    return ret;
+} /* sxfs_daemonize */
 
 int main (int argc, char **argv) {
     int i, ret = 1, acl, runas_found = 0, pthread_flag = 0, tempdir_created = 0, tmp;
@@ -3081,7 +3153,7 @@ int main (int argc, char **argv) {
     sxfs->pname = argv[0];
     if(args.sx_debug_flag)
         args.foreground_flag = 1;
-    if(args.foreground_flag && fuse_opt_add_arg(&fargs, "-f")) {
+    if(fuse_opt_add_arg(&fargs, "-f")) { /* all SX clients must be created after the fork() */
         fprintf(stderr, "ERROR: Out of memory\n");
         goto main_err;
     }
@@ -3195,7 +3267,27 @@ int main (int argc, char **argv) {
         fprintf(stderr, "ERROR: Out of memory\n");
         goto main_err;
     }
+    if(args.use_queues_flag && !args.logfile_given && !sxfs->logfile)
+        fprintf(stderr, "*** It is recommended to always use --logfile together with --use-queues ***\n");
 
+    /* logfile */
+    if(args.logfile_given) {
+        sxfs->logfile = fopen(args.logfile_arg, "a");
+        if(!sxfs->logfile) {
+            fprintf(stderr, "ERROR: Cannot open logfile: %s\n", strerror(errno));
+            goto main_err;
+        }
+    } else if(!sxfs->logfile && args.debug_flag) {
+        fprintf(stderr, "*** Debug mode has no effect without logfile. Suggested option: --logfile=PATH (-l) ***\n");
+    }
+    if(sxfs->logfile) {
+        fprintf(sxfs->logfile, "Used parameters: sxfs");
+        for(i=1; i<argc; i++)
+            fprintf(sxfs->logfile, " %s", argv[i]);
+        fprintf(sxfs->logfile, "\n");
+        fflush(sxfs->logfile);
+    }
+    /* tempdir */
     if((args.tempdir_given && !strcmp(args.tempdir_arg, args.inputs[1])) || (sxfs->tempdir && !strcmp(sxfs->tempdir, args.inputs[1]))) {
         cmdline_parser_print_help();
         fprintf(stderr, "\nERROR: Please do not use the same path for temporary directory and mount point\n");
@@ -3225,6 +3317,25 @@ int main (int argc, char **argv) {
             fprintf(sxfs->logfile, "Using default tempdir: %s\n", sxfs->tempdir);
     }
     tempdir_created = 1;
+    /* recovery dir */
+    if(args.recovery_dir_given) {
+        sxfs->lostdir = args.recovery_dir_arg;
+    } else if(!sxfs->lostdir) {
+        sxfs->lostdir = (char*)malloc(strlen(sxfs->tempdir) + 1 + lenof(SXFS_LOSTDIR_SUFIX) + 1);
+        if(!sxfs->lostdir) {
+            fprintf(stderr, "ERROR: Out of memory");
+            goto main_err;
+        }
+        sprintf(sxfs->lostdir, "%s%s", sxfs->tempdir, SXFS_LOSTDIR_SUFIX);
+    }
+    if(mkdir(sxfs->lostdir, 0700)) {
+        fprintf(stderr, "ERROR: Cannot create '%s' directory: %s\n", sxfs->lostdir, strerror(errno));
+        goto main_err;
+    }
+    tempdir_created = 2;
+
+    if(sxfs_daemonize(sxfs))
+        goto main_err;
 
     if(args.open_limit_given && args.open_limit_arg > 0) /* fh_limit must be a positive number */
         sxfs->fh_limit = (size_t)args.open_limit_arg + 1; /* 0 is for directories */
@@ -3232,16 +3343,16 @@ int main (int argc, char **argv) {
         sxfs->fh_limit = 1025;
     sxfs->fh_table = (int*)calloc(sxfs->fh_limit, sizeof(int));
     if(!sxfs->fh_table) {
-        fprintf(stderr, "ERROR: Out of memory\n");
+        print_and_log(sxfs->logfile, "ERROR: Out of memory\n");
         goto main_err;
     }
-    sx = sxc_init(NULL, sxc_default_logger(&log, argv[0]), sxc_input_fn, NULL);
+    sx = sxc_init(NULL, sxc_default_logger(&log, argv[0]), args.foreground_flag ? sxc_input_fn : sxfs_input_fn,  args.foreground_flag ? NULL : (void*)sxfs);
     if(!sx) {
-        fprintf(stderr, "ERROR: Cannot initialize the SX client\n");
+        print_and_log(sxfs->logfile, "ERROR: Cannot initialize the SX client\n");
         goto main_err;
     }
     if(args.config_dir_given && sxc_set_confdir(sx, args.config_dir_arg)) {
-        fprintf(stderr, "ERROR: Could not set configuration directory to '%s': %s\n", args.config_dir_arg, sxc_geterrmsg(sx));
+        print_and_log(sxfs->logfile, "ERROR: Could not set configuration directory to '%s': %s\n", args.config_dir_arg, sxc_geterrmsg(sx));
         goto main_err;
     }
     sxc_set_debug(sx, args.sx_debug_flag);
@@ -3254,46 +3365,46 @@ int main (int argc, char **argv) {
     else
         filter_dir = strdup(SX_FILTER_DIR);
     if(!filter_dir) {
-        fprintf(stderr, "ERROR: Cannot set filter directory");
+        print_and_log(sxfs->logfile, "ERROR: Cannot set filter directory");
         goto main_err;
     }
     if(sxc_filter_loadall(sx, filter_dir)) {
-	fprintf(stderr, "WARNING: Failed to load filters: %s\n", sxc_geterrmsg(sx));
+	print_and_log(sxfs->logfile, "WARNING: Failed to load filters: %s\n", sxc_geterrmsg(sx));
 	sxc_clearerr(sx);
     }
     free(filter_dir);
     
     sxfs->uri = sxc_parse_uri(sx, args.inputs[0]);
     if(!sxfs->uri) {
-        fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
+        print_and_log(sxfs->logfile, "ERROR: %s\n", sxc_geterrmsg(sx));
         goto main_err;
     }
     if(!sxfs->uri->host) {
-        fprintf(stderr, "ERROR: No cluster specified\n");
+        print_and_log(sxfs->logfile, "ERROR: No cluster specified\n");
         goto main_err;
     }
     if(!sxfs->uri->volume) {
-        fprintf(stderr, "ERROR: No volume specified\n");
+        print_and_log(sxfs->logfile, "ERROR: No volume specified\n");
         goto main_err;
     }
     if(sxfs->uri->path) {
-        fprintf(stderr, "ERROR: Do not specify path\n");
+        print_and_log(sxfs->logfile, "ERROR: Do not specify path\n");
         goto main_err;
     }
     cluster = sxc_cluster_load_and_update(sx, sxfs->uri->host, sxfs->uri->profile);
     if(!cluster) {
-        fprintf(stderr, "ERROR: Cannot load config for %s: %s\n", sxfs->uri->host, sxc_geterrmsg(sx));
+        print_and_log(sxfs->logfile, "ERROR: Cannot load config for %s: %s\n", sxfs->uri->host, sxc_geterrmsg(sx));
         goto main_err;
     }
     /* check volume existence and filters usage */
     sxi_hostlist_init(&volnodes);
     volmeta = sxc_meta_new(sx);
     if(!volmeta) {
-        fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
+        print_and_log(sxfs->logfile, "ERROR: %s\n", sxc_geterrmsg(sx));
         goto main_err;
     }
     if(sxi_locate_volume(sxi_cluster_get_conns(cluster), sxfs->uri->volume, &volnodes, NULL, volmeta, NULL)) {
-        fprintf(stderr, "ERROR: '%s' volume does not exist or you don't have access to it\n", sxfs->uri->volume);
+        print_and_log(sxfs->logfile, "ERROR: '%s' volume does not exist or you don't have access to it\n", sxfs->uri->volume);
         goto main_err;
     }
     sxi_hostlist_empty(&volnodes);
@@ -3316,18 +3427,18 @@ int main (int argc, char **argv) {
                         if(!strcmp(f->shortname, "attribs")) /* FIXME: dirty hack */
                             sxfs->attribs = 1;
                         if(!strcmp(f->uuid, "35a5404d-1513-4009-904c-6ee5b0cd8634")) {
-                            fprintf(stderr, "ERROR: The old version of this filter is no longer supported. Please create a new volume with the latest version of the aes256 filter from SX 2.x\n");
+                            print_and_log(sxfs->logfile, "ERROR: The old version of this filter is no longer supported. Please create a new volume with the latest version of the aes256 filter from SX 2.x\n");
                             goto main_err;
                         }
                         break;
                     }
                 }
                 if(i == filters_count) {
-                    fprintf(stderr, "ERROR: Cannot load the filter. Check filter directory in your settings.\n");
+                    print_and_log(sxfs->logfile, "ERROR: Cannot load the filter. Check filter directory in your settings.\n");
                     goto main_err;
                 }
             } else {
-                fprintf(stderr, "ERROR: Wrong size of filter data\n");
+                print_and_log(sxfs->logfile, "ERROR: Wrong size of filter data\n");
                 goto main_err;
             }
             if(check_password(sx, cluster, sxfs)) /* for aes filter */
@@ -3336,7 +3447,7 @@ int main (int argc, char **argv) {
     }
     /* get default profile */
     if(!sxfs->uri->profile && sxc_cluster_whoami(cluster, &profile, NULL, NULL, NULL, NULL)) {
-        fprintf(stderr, "ERROR: %s", sxc_geterrmsg(sx));
+        print_and_log(sxfs->logfile, "ERROR: %s", sxc_geterrmsg(sx));
         goto main_err;
     }
     for(i=fargs.argc-1; i>0; i--) { /* index 0 is program name */
@@ -3348,24 +3459,24 @@ int main (int argc, char **argv) {
     /* check user permission */
     ulist = sxc_cluster_listaclusers(cluster, sxfs->uri->volume);
     if(!ulist) {
-        fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
+        print_and_log(sxfs->logfile, "ERROR: %s\n", sxc_geterrmsg(sx));
         goto main_err;
     }
     while(1) {
         tmp = sxc_cluster_listaclusers_next(ulist, &username, &acl);
         if(tmp) {
             if(tmp < 0) {
-                fprintf(stderr, "ERROR: Failed to retrieve user data\n");
+                print_and_log(sxfs->logfile, "ERROR: Failed to retrieve user data\n");
                 goto main_err;
             }
             if(!strcmp(sxfs->uri->profile ? sxfs->uri->profile : profile, username)) {
                 if(!(acl & SX_ACL_READ)) {
-                    fprintf(stderr, "ERROR: Permission denied: Not enough privileges: %s\n", args.inputs[0]);
+                    print_and_log(sxfs->logfile, "ERROR: Permission denied: Not enough privileges: %s\n", args.inputs[0]);
                     goto main_err;
                 }
                 if(!sxfs->read_only && !(acl & SX_ACL_WRITE)) {
                     sxfs->read_only = 1;
-                    fprintf(stderr, "*** Read-only mode (no write permission for the volume) ***\n");
+                    print_and_log(sxfs->logfile, "*** Read-only mode (no write permission for the volume) ***\n");
                 }
                 break;
             }
@@ -3376,62 +3487,24 @@ int main (int argc, char **argv) {
     }
     if(sxfs->read_only && args.use_queues_flag) {
         args.use_queues_flag = 0;
-        fprintf(stderr, "*** Queues do not work in read-only mode ***\n");
+        print_and_log(sxfs->logfile, "*** Queues do not work in read-only mode ***\n");
     }
-    if(args.use_queues_flag && !args.logfile_given && !sxfs->logfile)
-        fprintf(stderr, "*** It is recommended to always use --logfile together with --use-queues ***\n");
-
-    if(args.logfile_given) {
-        sxfs->logfile = fopen(args.logfile_arg, "a");
-        if(!sxfs->logfile) {
-            fprintf(stderr, "ERROR: Cannot open logfile: %s\n", strerror(errno));
-            goto main_err;
-        }
-    } else if(!sxfs->logfile && args.debug_flag) {
-        fprintf(stderr, "*** Debug mode has no effect without logfile. Suggested option: --logfile=PATH (-l) ***\n");
-    }
-    if(sxfs->logfile) {
-        fprintf(sxfs->logfile, "Used parameters: sxfs");
-        for(i=1; i<argc; i++)
-            fprintf(sxfs->logfile, " %s", argv[i]);
-        if(args.debug_flag) {
-            fprintf(sxfs->logfile, "\nParameters passed to FUSE:");
-            for(i=1; i<fargs.argc; i++)
-                fprintf(sxfs->logfile, " %s", fargs.argv[i]);
-        }
-        fprintf(sxfs->logfile, "\n");
-    }
-    if(args.recovery_dir_given) {
-        sxfs->lostdir = args.recovery_dir_arg;
-    } else if(!sxfs->lostdir) {
-        sxfs->lostdir = (char*)malloc(strlen(sxfs->tempdir) + 1 + lenof(SXFS_LOSTDIR_SUFIX) + 1);
-        if(!sxfs->lostdir) {
-            fprintf(stderr, "ERROR: Out of memory");
-            goto main_err;
-        }
-        sprintf(sxfs->lostdir, "%s%s", sxfs->tempdir, SXFS_LOSTDIR_SUFIX);
-    }
-    if(mkdir(sxfs->lostdir, 0700)) {
-        fprintf(stderr, "ERROR: Cannot create '%s' directory: %s\n", sxfs->lostdir, strerror(errno));
-        goto main_err;
-    }
-    tempdir_created = 2;
 
     /* directory tree */
     sxfs->root = (sxfs_lsdir_t*)calloc(1, sizeof(sxfs_lsdir_t));
     if(!sxfs->root) {
-        fprintf(stderr, "ERROR: Out of memory\n");
+        print_and_log(sxfs->logfile, "ERROR: Out of memory\n");
         goto main_err;
     }
     sxfs->root->st.st_mtime = sxfs->root->st.st_ctime = tv.tv_sec;
     sxfs->root->name = strdup("/");
     if(!sxfs->root->name) {
-        fprintf(stderr, "ERROR: Out of memory\n");
+        print_and_log(sxfs->logfile, "ERROR: Out of memory\n");
         goto main_err;
     }
     sxfs->root->etag = sxfs_hash(sxfs, sxfs->root->name);
     if(!sxfs->root->etag) {
-        fprintf(stderr, "ERROR: Cannot compute hash of '%s'\n", sxfs->root->name);
+        print_and_log(sxfs->logfile, "ERROR: Cannot compute hash of '%s'\n", sxfs->root->name);
         goto main_err;
     }
     sxfs->root->st.st_uid = getuid();
@@ -3451,13 +3524,13 @@ int main (int argc, char **argv) {
             sxc_file_t *file = NULL;
 
             if(*(fargs.argv[i]+7) != '/') {
-                fprintf(stderr, "ERROR: Please use absolute path as a subdir\n");
+                print_and_log(sxfs->logfile, "ERROR: Please use absolute path as a subdir\n");
                 goto main_err;
             }
             do {
                 path = (char*)malloc(strlen(fargs.argv[i]+7) + 2);
                 if(!path) {
-                    fprintf(stderr, "ERROR: Out of memory\n");
+                    print_and_log(sxfs->logfile, "ERROR: Out of memory\n");
                     break;
                 }
                 sprintf(path, "%s", fargs.argv[i]+7);
@@ -3465,7 +3538,7 @@ int main (int argc, char **argv) {
                     path[strlen(path)-1] = '\0';
                 flist = sxc_cluster_listfiles(cluster, sxfs->uri->volume, path, 0, NULL, 0);
                 if(!flist) {
-                    fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
+                    print_and_log(sxfs->logfile, "ERROR: %s\n", sxc_geterrmsg(sx));
                     break;
                 }
                 tmp = sxc_cluster_listfiles_next(cluster, sxfs->uri->volume, flist, &file);
@@ -3473,7 +3546,7 @@ int main (int argc, char **argv) {
                     const char *fpath;
 
                     if(tmp < 0) {
-                        fprintf(stderr, "ERROR: Cannot retrieve file name: %s", sxc_geterrmsg(sx));
+                        print_and_log(sxfs->logfile, "ERROR: Cannot retrieve file name: %s", sxc_geterrmsg(sx));
                         break;
                     }
                     fpath = sxc_file_get_path(file);
@@ -3487,16 +3560,16 @@ int main (int argc, char **argv) {
                         tmp = sxc_cluster_listfiles_next(cluster, sxfs->uri->volume, flist, &file);
                         if(tmp) {
                             if(tmp < 0) {
-                                fprintf(stderr, "ERROR: Cannot retrieve file name: %s", sxc_geterrmsg(sx));
+                                print_and_log(sxfs->logfile, "ERROR: Cannot retrieve file name: %s", sxc_geterrmsg(sx));
                                 break;
                             }
                         } else {
-                            fprintf(stderr, "ERROR: Please use existing directory path as a subdir\n");
+                            print_and_log(sxfs->logfile, "ERROR: Please use existing directory path as a subdir\n");
                             break;
                         }
                     }
                 } else {
-                    fprintf(stderr, "ERROR: Please use existing path as a subdir\n");
+                    print_and_log(sxfs->logfile, "ERROR: Please use existing path as a subdir\n");
                     break;
                 }
                 strcat(path, "/"); /* last slash enables to parse last directory using strchr() */
@@ -3508,19 +3581,19 @@ int main (int argc, char **argv) {
                     dir->maxdirs = dir->ndirs = 1;
                     dir->dirs = (sxfs_lsdir_t**)malloc(sizeof(sxfs_lsdir_t*));
                     if(!dir->dirs) {
-                        fprintf(stderr, "ERROR: Out of memory\n");
+                        print_and_log(sxfs->logfile, "ERROR: Out of memory\n");
                         break;
                     }
                     dir->dirs[0] = (sxfs_lsdir_t*)calloc(1, sizeof(sxfs_lsdir_t));
                     if(!dir->dirs[0]) {
-                        fprintf(stderr, "ERROR: Out of memory\n");
+                        print_and_log(sxfs->logfile, "ERROR: Out of memory\n");
                         break;
                     }
                     dir->dirs[0]->parent = dir;
                     dir = dir->dirs[0];
                     dir->name = strdup(name);
                     if(!dir->name) {
-                        fprintf(stderr, "ERROR: Out of memory\n");
+                        print_and_log(sxfs->logfile, "ERROR: Out of memory\n");
                         break;
                     }
                     *ptr = '/';
@@ -3535,7 +3608,7 @@ int main (int argc, char **argv) {
                 dir->st.st_blocks = (DIRECTORY_SIZE + 511) / 512;
                 dir->etag = sxfs_hash(sxfs, path);
                 if(!dir->etag) {
-                    fprintf(stderr, "Cannot compute hash of '%s'\n", path);
+                    print_and_log(sxfs->logfile, "Cannot compute hash of '%s'\n", path);
                     break;
                 }
                 fail = 0;
@@ -3550,88 +3623,82 @@ int main (int argc, char **argv) {
 
     sxfs->files = sxi_ht_new(sx, ALLOC_AMOUNT);
     if(!sxfs->files) {
-        fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
+        print_and_log(sxfs->logfile, "ERROR: %s\n", sxc_geterrmsg(sx));
         goto main_err;
     }
     if(!args.use_queues_flag) {
         int fd;
         sxfs->empty_file_path = (char*)malloc(strlen(sxfs->tempdir) + 1 + lenof("empty_file") + 1);
         if(!sxfs->empty_file_path) {
-            fprintf(stderr, "ERROR: Out of memory\n");
+            print_and_log(sxfs->logfile, "ERROR: Out of memory\n");
             goto main_err;
         }
         sprintf(sxfs->empty_file_path, "%s/empty_file", sxfs->tempdir);
         fd = open(sxfs->empty_file_path, O_CREAT | O_WRONLY, 0600);
         if(fd < 0) {
-            fprintf(stderr, "ERROR: Cannot create '%s' file: %s\n", sxfs->empty_file_path, strerror(errno));
+            print_and_log(sxfs->logfile, "ERROR: Cannot create '%s' file: %s\n", sxfs->empty_file_path, strerror(errno));
             free(sxfs->empty_file_path);
             sxfs->empty_file_path = NULL;
             goto main_err;
         }
         if(close(fd)) {
-            fprintf(stderr, "ERROR: Cannot close '%s' file: %s\n", sxfs->empty_file_path, strerror(errno));
+            print_and_log(sxfs->logfile, "ERROR: Cannot close '%s' file: %s\n", sxfs->empty_file_path, strerror(errno));
             goto main_err;
         }
     }
     sxfs->read_block_template = (char*)malloc(strlen(sxfs->tempdir) + 1 + lenof("file_read_XXXXXX") + 1);
     if(!sxfs->read_block_template) {
-        fprintf(stderr, "ERROR: Out of memory\n");
+        print_and_log(sxfs->logfile, "ERROR: Out of memory\n");
         goto main_err;
     }
     sprintf(sxfs->read_block_template, "%s/file_read_XXXXXX", sxfs->tempdir);
-    if(pthread_key_create(&sxfs->pkey, sxfs_sx_data_destroy)) {
-        fprintf(stderr, "ERROR: Cannot initialize per-thread memory\n");
-        goto main_err;
-    }
-    sx_data.sx = sx;
-    sx_data.cluster = cluster;
     if(pthread_mutex_init(&sxfs->sx_data_mutex, NULL)) {
-        fprintf(stderr, "ERROR: Cannot create SX data mutex\n");
+        print_and_log(sxfs->logfile, "ERROR: Cannot create SX data mutex\n");
         goto main_err;
     }
     pthread_flag++; // 1
     if(pthread_mutex_init(&sxfs->ls_mutex, NULL)) {
-        fprintf(stderr, "ERROR: Cannot create ls cache mutex\n");
+        print_and_log(sxfs->logfile, "ERROR: Cannot create ls cache mutex\n");
         goto main_err;
     }
     pthread_flag++; // 2
     if(pthread_mutex_init(&sxfs->delete_mutex, NULL)) {
-        fprintf(stderr, "ERROR: Cannot create files deletion mutex\n");
+        print_and_log(sxfs->logfile, "ERROR: Cannot create files deletion mutex\n");
         goto main_err;
     }
     pthread_flag++; // 3
     if(pthread_mutex_init(&sxfs->upload_mutex, NULL)) {
-        fprintf(stderr, "ERROR: Cannot create files upload mutex\n");
+        print_and_log(sxfs->logfile, "ERROR: Cannot create files upload mutex\n");
         goto main_err;
     }
     pthread_flag++; // 4
     if(pthread_mutex_init(&sxfs->files_mutex, NULL)) {
-        fprintf(stderr, "ERROR: Cannot create files data mutex\n");
+        print_and_log(sxfs->logfile, "ERROR: Cannot create files data mutex\n");
         goto main_err;
     }
     pthread_flag++; // 5
     if(pthread_mutex_init(&sxfs->limits_mutex, NULL)) {
-        fprintf(stderr, "ERROR: Cannot create limits mutex\n");
+        print_and_log(sxfs->logfile, "ERROR: Cannot create limits mutex\n");
         goto main_err;
     }
     pthread_flag++; // 6
-    sx_data.sx_data_mutex = &sxfs->sx_data_mutex;
-    if(pthread_setspecific(sxfs->pkey, (void*)&sx_data)) {
-        fprintf(stderr, "ERROR: Cannot set per-thread memory\n");
+    if(pthread_key_create(&sxfs->pkey, sxfs_sx_data_destroy)) {
+        print_and_log(sxfs->logfile, "ERROR: Cannot initialize per-thread memory\n");
         goto main_err;
     }
     pthread_flag++; // 7
-    if(sxfs->logfile) {
-        if(gettimeofday(&tv, NULL)) {
-            fprintf(stderr, "ERROR: Cannot get current time: %s\n", strerror(errno));
-            goto main_err;
-        }
-        tm = localtime(&tv.tv_sec);
-        if(!tm) {
-            fprintf(stderr, "ERROR: Cannot convert time value\n");
-            goto main_err;
-        }
-        fprintf(sxfs->logfile, "%02d-%02d-%04d %02d:%02d:%02d.%03d : Starting FUSE\n", tm->tm_mday, tm->tm_mon + 1, tm->tm_year + 1900, tm->tm_hour, tm->tm_min, tm->tm_sec, (int)tv.tv_usec / 1000);
+    sx_data.sx = sx;
+    sx_data.cluster = cluster;
+    sx_data.sx_data_mutex = &sxfs->sx_data_mutex;
+    if(pthread_setspecific(sxfs->pkey, (void*)&sx_data)) {
+        print_and_log(sxfs->logfile, "ERROR: Cannot set per-thread memory\n");
+        goto main_err;
+    }
+    if(sxfs->logfile && args.debug_flag) {
+        fprintf(sxfs->logfile, "\nParameters passed to FUSE:");
+        for(i=1; i<fargs.argc; i++)
+            fprintf(sxfs->logfile, " %s", fargs.argv[i]);
+        fprintf(sxfs->logfile, "\n");
     }
 
     ret = fuse_main(fargs.argc, fargs.argv, &sxfs_oper, sxfs);
