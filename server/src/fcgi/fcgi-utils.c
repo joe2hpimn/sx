@@ -845,7 +845,7 @@ void send_job_info(job_t job) {
 	quit_errmsg(rc2http(s), msg_get_reason());
     CGI_PRINTF("Content-Type: application/json\r\n\r\n{\"requestId\":\"%s:", node.string);
     CGI_PUTLL(job);
-    CGI_PUTS("\",\"minPollInterval\":100,\"maxPollInterval\":6000}");
+    CGI_PRINTF("\",\"minPollInterval\":100,\"maxPollInterval\":%d}",JOBMGR_DELAY_MIN*1000);
 }
 
 int is_https(void) {
