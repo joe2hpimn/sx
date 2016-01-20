@@ -8807,14 +8807,14 @@ rc_ty sx_hashfs_revision_op(sx_hashfs_t *h, unsigned blocksize, const sx_hash_t 
     age = sxi_hdist_version(h->hd);
     if (revision_id)
         DEBUGHASH("revision_op on", revision_id);
-    if (datadb_begin(h, hs))
-        return FAIL_EINTERNAL;
+    /* if (datadb_begin(h, hs))
+       return FAIL_EINTERNAL; */
     if (sx_hashfs_revision_op_internal(h, hs, revision_id, op, age)) {
         datadb_rollback(h, hs);
         return FAIL_EINTERNAL;
     }
-    if (datadb_commit(h, hs))
-        return FAIL_EINTERNAL;
+    /* if (datadb_commit(h, hs))
+       return FAIL_EINTERNAL; */
     DEBUG("ok");
     return OK;
 }
@@ -8868,8 +8868,8 @@ static rc_ty sx_hashfs_hashop_moduse(sx_hashfs_t *h, const sx_hash_t *reserve_id
         DEBUGHASH("reserve_id", reserve_id);
     if (revision_id)
         DEBUGHASH("revision_id", revision_id);
-    if (qbegin(h->datadb[hs][ndb]))
-        return FAIL_EINTERNAL;
+    /*    if (qbegin(h->datadb[hs][ndb]))
+          return FAIL_EINTERNAL;*/
     do {
         if (op) { /* +N or -N */
             if (reserve_id) {
@@ -8902,12 +8902,12 @@ static rc_ty sx_hashfs_hashop_moduse(sx_hashfs_t *h, const sx_hash_t *reserve_id
         DEBUG("op: %ld, replica: %d, age: %d", op, replica, age);
         if (sx_hashfs_hashop_moduse_internal(h, revision_id, hs, ndb, hash, replica, age))
             break;
-        if (qcommit(h->datadb[hs][ndb]))
-            break;
+        /*        if (qcommit(h->datadb[hs][ndb]))
+                  break;*/
         ret = OK;
     } while(0);
-    if (ret)
-        qrollback(h->datadb[hs][ndb]);
+    /*    if (ret)
+          qrollback(h->datadb[hs][ndb]);*/
     return ret;
 }
 
