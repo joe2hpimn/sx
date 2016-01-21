@@ -874,14 +874,14 @@ static int load_hosts_for_hash(sxc_client_t *sx, FILE *f, const char *hash, sxi_
  * UPLOAD_THRESHOLD should be multiple of UPLOAD_CHUNK_SIZE */
 #define UPLOAD_PART_THRESHOLD (132 * 1024 * 1024)
 
-struct crc_offset {
+struct checksum_offset {
     off_t offset;
-    uint32_t crc;
-    uint32_t ref_crc;
+    uint32_t checksum;
+    uint32_t ref_checksum;
 };
 
 struct need_hash {
-    struct crc_offset off;
+    struct checksum_offset off;
     sxi_hostlist_t upload_hosts;
     unsigned replica;
 };
@@ -892,7 +892,7 @@ struct part_upload_ctx {
     enum sxc_error_t err;
     FILE *f;
     char *token;
-    struct crc_offset *offsets;
+    struct checksum_offset *offsets;
     struct need_hash *needed;
     struct need_hash *current_need;
     sxi_ht *hashes;
@@ -914,7 +914,7 @@ struct file_upload_ctx {
     off_t end;
     off_t size;
     off_t last_pos;
-    uint32_t ref_crc;
+    uint32_t ref_checksum;
     int fd;
     int qret;
     unsigned blocksize;
@@ -1029,7 +1029,7 @@ static void cb_createfile_host(jparse_t *J, void *ctx, const char *string, unsig
     int listpos = sxi_jpath_arraypos(sxi_jpath_down(sxi_jpath_down(sxi_jparse_whereami(J))));
     struct file_upload_ctx *yactx = (struct file_upload_ctx *)ctx;
     sxc_client_t *sx = sxi_conns_get_client(sxi_cbdata_get_conns(yactx->cbdata));
-    struct crc_offset *off;
+    struct checksum_offset *off;
     char *address;
 
     if(listpos < 0) {
@@ -1550,7 +1550,7 @@ static void upload_blocks_to_hosts(curlev_context_t *cbdata, struct file_upload_
             /* Reset currently uploaded size */
             u->ul = 0;
             for (;u->i < u->n;) {
-                uint32_t crc;
+                uint32_t checksum;
                 struct need_hash *need = &u->needed[u->i++];
                 SXDEBUG("adding data %d from pos %lld", u->i, (long long)need->off.offset);
                 ssize_t n = pread_hard(yctx->fd, u->buf + u->buf_used, yctx->blocksize, need->off.offset);
@@ -1573,10 +1573,10 @@ static void upload_blocks_to_hosts(curlev_context_t *cbdata, struct file_upload_
                     memset(u->buf + u->buf_used, 0, remaining);
                     u->buf_used += remaining;
                 }
-                /* Check crc32 checksum for this block and bail out if its incorrect */
-                crc = sxi_crc32(need->off.ref_crc, u->buf + u->buf_used - yctx->blocksize, yctx->blocksize);
-                if(crc != need->off.crc) {
-                    SXDEBUG("fail incremented: CRC32 mismatch");
+                /* Check the checksum for this block and bail out if its incorrect */
+                checksum = sxi_checksum(need->off.ref_checksum, u->buf + u->buf_used - yctx->blocksize, yctx->blocksize);
+                if(checksum != need->off.checksum) {
+                    SXDEBUG("fail incremented: SXI_CHECKSUM mismatch");
                     sxi_seterr(sx, SXE_EREAD, "Copy failed: Source file changed while being read");
                     yctx->fail++;
                     return;
@@ -1722,7 +1722,7 @@ static int multi_part_compute_hash_ev(struct file_upload_ctx *yctx)
     if(yctx->pos == 0) {
 	fmeta = yctx->fmeta;
 	yctx->query = sxi_fileadd_proto_begin(sx, yctx->dest->volume, yctx->dest->remote_path, NULL, yctx->pos, yctx->blocksize, yctx->size);
-        yctx->ref_crc = 0xffffffff;
+        yctx->ref_checksum = sxi_checksum(0, NULL, 0);
     } else {
 	fmeta = NULL;
 	yctx->query = sxi_fileadd_proto_begin(sx, ".upload", yctx->cur_token, NULL, yctx->pos, yctx->blocksize, yctx->size);
@@ -1776,11 +1776,11 @@ static int multi_part_compute_hash_ev(struct file_upload_ctx *yctx)
             off_t pos = yctx->pos - n + i;
             block = (pos - start) / yctx->blocksize;
             yctx->current.offsets[block].offset = pos;
-            /* Calculate crc32 for each block and store it for comparison later */
-            yctx->current.offsets[block].crc = sxi_crc32(yctx->ref_crc, yctx->buf + i, yctx->blocksize);
-            yctx->current.offsets[block].ref_crc = yctx->ref_crc;
-            yctx->ref_crc = yctx->current.offsets[block].crc; /* Save reference crc for next block */
-            SXDEBUG("%p, hash %s: block %ld, %lld, crc32: %lu", (const void*)yctx, hexhash, (long)block, (long long)yctx->current.offsets[block].offset, (unsigned long)yctx->current.offsets[block].crc);
+            /* Calculate checksum for each block and store it for comparison later */
+            yctx->current.offsets[block].checksum = sxi_checksum(yctx->ref_checksum, yctx->buf + i, yctx->blocksize);
+            yctx->current.offsets[block].ref_checksum = yctx->ref_checksum;
+            yctx->ref_checksum = yctx->current.offsets[block].checksum; /* Save reference checksum for next block */
+            SXDEBUG("%p, hash %s: block %ld, %lld, checksum: %lu", (const void*)yctx, hexhash, (long)block, (long long)yctx->current.offsets[block].offset, (unsigned long)yctx->current.offsets[block].checksum);
             if(sxi_ht_add(yctx->current.hashes, hexhash, SXI_SHA1_TEXT_LEN, &yctx->current.offsets[block])) {
                 SXDEBUG("failed to add hash offset");
                 return -1;

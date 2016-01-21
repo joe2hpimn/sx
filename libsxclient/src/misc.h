@@ -98,8 +98,8 @@ int sxi_load_aliases(sxc_client_t *sx, alias_list_t **list);
 /* Free memory taken for aliases list */
 void sxi_free_aliases(alias_list_t *aliases);
 
-/* Compute CRC32 checksum */
-uint32_t sxi_crc32(uint32_t crc, const void *buf, size_t size);
+/* Compute checksum */
+uint32_t sxi_checksum(uint32_t crc, const void *buf, size_t size);
 
 /* Use blowfish key derivation */
 int sxi_derive_key(const char *pass, const char *salt, unsigned salt_size, unsigned int log2_iter, char *out, unsigned int len);
