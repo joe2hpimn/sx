@@ -467,7 +467,7 @@ void fcgi_save_blocks(void) {
         rc_ty rc;
 	/* Maximum replica used here;
 	 * block_put internally skips ignored nodes and only propagates to effective nodes */
-        if ((rc = sx_hashfs_block_put(hashfs, src, blocksize, replica_count))) {
+        if ((rc = sx_hashfs_block_put(hashfs, src, blocksize, replica_count, uid))) {
             WARN("Cannot store block: %s", rc2str(rc));
 	    quit_errmsg(500, "Cannot store block");
         }
@@ -529,13 +529,24 @@ void fcgi_push_blocks(void) {
     };
     struct pushblox_ctx yctx;
     unsigned int blocksize;
+    int64_t flowuid = FLOW_DEFAULT_UID;
     const char *eop;
     jparse_t *J;
     int len;
 
     blocksize = strtol(path, (char **)&eop, 10);
-    if(*eop || sx_hashfs_check_blocksize(blocksize) != OK)
+    if(*eop == '/') {
+	eop++;
+	len = strlen(eop);
+	if(len == AUTH_UID_LEN * 2) {
+	    uint8_t pushuser[AUTH_UID_LEN];
+	    if(!hex2bin(eop, AUTH_UID_LEN * 2, pushuser, sizeof(pushuser)))
+		sx_hashfs_get_user_info(hashfs, pushuser, &flowuid, NULL, NULL, NULL, NULL);
+	}
+    } else if(*eop)
 	quit_errmsg(404, "Invalid blocksize");
+    if(sx_hashfs_check_blocksize(blocksize) != OK)
+	quit_errmsg(404, "Invalid blocksize value");
 
     J = sxi_jparse_create(&acts, &yctx, 0);
     if(!J)
@@ -595,7 +606,7 @@ void fcgi_push_blocks(void) {
 	case sizeof(block):
 	case 1:
 	    if(sx_nodelist_count(targets)) {
-		rc_ty ret = sx_hashfs_xfer_tonodes(hashfs, &block, blocksize, targets);
+		rc_ty ret = sx_hashfs_xfer_tonodes(hashfs, &block, blocksize, targets, flowuid);
 		if(ret != OK) {
 		    sx_nodelist_delete(targets);
 		    sx_blob_free(yctx.stash);

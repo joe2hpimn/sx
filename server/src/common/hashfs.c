@@ -2104,7 +2104,7 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 
     if(!(h->xferdb = open_db(dir, "xferdb", &h->cluster_uuid, &curver, h->q_getval)))
         goto open_hashfs_fail;
-    if(qprep(h->xferdb, &h->qx_add, "INSERT INTO topush (block, size, node) VALUES (:b, :s, :n)"))
+    if(qprep(h->xferdb, &h->qx_add, "INSERT INTO topush (block, size, node, flow) VALUES (:b, :s, :n, :f)"))
        goto open_hashfs_fail;
     if(qprep(h->xferdb, &h->qx_hold, "INSERT OR IGNORE INTO onhold (hblock, hsize, hnode) VALUES (:b, :s, :n)"))
        goto open_hashfs_fail;
@@ -4218,6 +4218,27 @@ static rc_ty upgrade_db(int lockfd, const char *path, sxi_db_t *db, const sx_has
 }
 
 /* Version upgrade 2.0 -> 2.1 */
+static rc_ty xfer_2_0_to_2_1(sxi_db_t *db) {
+    rc_ty ret = FAIL_EINTERNAL;
+    sqlite3_stmt *q = NULL;
+
+    do {
+	if(qprep(db, &q, "ALTER TABLE topush ADD COLUMN flow INTEGER NOT NULL DEFAULT 0") || qstep_noret(q))
+	    break;
+	qnullify(q);
+	if(qprep(db, &q, "DROP INDEX IF EXISTS topush_sched") || qstep_noret(q))
+	    break;
+	qnullify(q);
+	if(qprep(db, &q, "CREATE INDEX IF NOT EXISTS flow_sched ON topush (flow ASC, sched_time ASC)") || qstep_noret(q))
+	    break;
+	qnullify(q);
+	ret = OK;
+    } while(0);
+
+    qnullify(q);
+    return ret;
+}
+
 static rc_ty hashfs_2_0_to_2_1(sxi_db_t *db)
 {
     rc_ty ret = FAIL_EINTERNAL;
@@ -4760,6 +4781,7 @@ static const sx_upgrade_t upgrade_sequence[] = {
         .from = HASHFS_VERSION_2_0,
         .to = HASHFS_VERSION_2_1,
         .upgrade_hashfsdb = hashfs_2_0_to_2_1,
+        .upgrade_xfersdb = xfer_2_0_to_2_1,
         .job = JOBTYPE_DUMMY
     }
 };
@@ -8836,7 +8858,7 @@ rc_ty sx_hashfs_hashop_mod(sx_hashfs_t *h, const sx_hash_t *hash, const sx_hash_
  * if replica_count is 0, then it means that the block was sent from another node (so we just take it
  * and don't propagate it further)
  */
-rc_ty sx_hashfs_block_put(sx_hashfs_t *h, const uint8_t *data, unsigned int bs, unsigned int replica_count) {
+rc_ty sx_hashfs_block_put(sx_hashfs_t *h, const uint8_t *data, unsigned int bs, unsigned int replica_count, sx_uid_t uid) {
     sx_nodelist_t *belongsto;
     unsigned int ndb, hs;
     sx_hash_t hash;
@@ -8963,7 +8985,7 @@ rc_ty sx_hashfs_block_put(sx_hashfs_t *h, const uint8_t *data, unsigned int bs, 
 
     if(replica_count > 1) {
 	sx_nodelist_t *targets = sx_hashfs_effective_hashnodes(h, NL_NEXT, &hash, replica_count);
-	rc_ty ret = sx_hashfs_xfer_tonodes(h, &hash, bs, targets);
+	rc_ty ret = sx_hashfs_xfer_tonodes(h, &hash, bs, targets, uid);
 	sx_nodelist_delete(targets);
 	return ret;
     }
@@ -13575,9 +13597,10 @@ void sx_hashfs_hbeat_trigger(sx_hashfs_t *h) {
     }
 }
 
-rc_ty sx_hashfs_xfer_tonodes(sx_hashfs_t *h, sx_hash_t *block, unsigned int size, const sx_nodelist_t *targets) {
+rc_ty sx_hashfs_xfer_tonodes(sx_hashfs_t *h, sx_hash_t *block, unsigned int size, const sx_nodelist_t *targets, sx_uid_t uid) {
     const sx_node_t *self = sx_hashfs_self(h);
     unsigned int i, nnodes;
+    int64_t flowid;
     rc_ty ret;
 
     if(!targets) {
@@ -13589,16 +13612,21 @@ rc_ty sx_hashfs_xfer_tonodes(sx_hashfs_t *h, sx_hash_t *block, unsigned int size
 	WARN("Called before initialization");
 	return FAIL_EINIT;
     }
-    if (sx_hashfs_block_get(h, size, block, NULL) != OK) {
-        char hash[sizeof(sx_hash_t)*2+1];
-        bin2hex(block->b, sizeof(block->b), hash, sizeof(hash));
-        DEBUG("Asked to push a hash we don't have: #%s#", hash);
-    }
 
     nnodes = sx_nodelist_count(targets);
     sqlite3_reset(h->qx_add);
 
-    if(qbind_blob(h->qx_add, ":b", block, sizeof(*block))) {
+    if(uid != FLOW_BULK_UID) {
+	unsigned int hs;
+	for(hs = 0; hs < SIZES; hs++)
+	    if(size <= bsz[hs])
+		break;
+	flowid = uid | ((int64_t)hs << 62);
+    } else
+	flowid = -1;
+
+    if(qbind_blob(h->qx_add, ":b", block, sizeof(*block)) ||
+       qbind_int64(h->qx_add, ":f", flowid)) {
 	ret = FAIL_EINTERNAL;
 	goto xfer_err;
     }
@@ -13637,7 +13665,7 @@ rc_ty sx_hashfs_xfer_tonodes(sx_hashfs_t *h, sx_hash_t *block, unsigned int size
     return ret;
 }
 
-rc_ty sx_hashfs_xfer_tonode(sx_hashfs_t *h, sx_hash_t *block, unsigned int size, const sx_node_t *target) {
+rc_ty sx_hashfs_xfer_tonode(sx_hashfs_t *h, sx_hash_t *block, unsigned int size, const sx_node_t *target, sx_uid_t uid) {
     sx_nodelist_t *targets = sx_nodelist_new();
     rc_ty ret;
 
@@ -13647,7 +13675,7 @@ rc_ty sx_hashfs_xfer_tonode(sx_hashfs_t *h, sx_hash_t *block, unsigned int size,
     ret = sx_nodelist_add(targets, sx_node_dup(target));
 
     if(ret == OK)
-	ret = sx_hashfs_xfer_tonodes(h, block, size, targets);
+	ret = sx_hashfs_xfer_tonodes(h, block, size, targets, uid);
 
     sx_nodelist_delete(targets);
 

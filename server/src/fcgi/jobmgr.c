@@ -82,7 +82,8 @@ typedef enum _act_result_t {
 typedef struct _job_data_t {
     void *ptr;
     unsigned int len;
-    uint64_t op_expires_at; /* TODO: drop? */
+    uint64_t op_expires_at;
+    sx_uid_t owner;
 } job_data_t;
 
 typedef act_result_t (*job_action_t)(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *node, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl);
@@ -1189,7 +1190,7 @@ static act_result_t replicateblocks_commit(sx_hashfs_t *hashfs, job_t job_id, jo
 		    action_error(ACT_RESULT_TEMPFAIL, 500, "Not enough memory to dispatch block transfer request");
 	    } else {
 		/* Local xfers are flushed at each block */
-		s = sx_hashfs_xfer_tonodes(hashfs, current_hash, mis->block_size, xfertargets);
+		s = sx_hashfs_xfer_tonodes(hashfs, current_hash, mis->block_size, xfertargets, job_data->owner);
 		sx_nodelist_delete(xfertargets);
 		if(s)
 		    action_error(rc2actres(s), rc2http(s), "Failed to request local block transfer");
@@ -1198,7 +1199,8 @@ static act_result_t replicateblocks_commit(sx_hashfs_t *hashfs, job_t job_id, jo
 
 	if(remote) {
 	    /* Remote xfers are flushed at each pushing node */
-	    char url[sizeof(".pushto/")+64];
+	    char url[sizeof(".pushto/") + 64 + AUTH_UID_LEN*2];
+	    uint8_t pushuser[AUTH_UID_LEN];
 
 	    req[strlen(req)-1] = '}';
 
@@ -1214,7 +1216,14 @@ static act_result_t replicateblocks_commit(sx_hashfs_t *hashfs, job_t job_id, jo
             qrylist[nqueries].cbdata = sxi_cbdata_create_generic(clust, NULL, NULL);
 	    sxi_cbdata_set_context(qrylist[nqueries].cbdata, req);
 
-	    snprintf(url, sizeof(url), ".pushto/%u", mis->block_size);
+	    snprintf(url, sizeof(url), ".pushto/%u/", mis->block_size);
+	    if(sx_hashfs_get_user_by_uid(hashfs, job_data->owner, pushuser, 0) == OK) {
+		unsigned int urlen;
+		urlen = strlen(url);
+		url[urlen++] = '/';
+		bin2hex(pushuser, AUTH_UID_LEN, &url[urlen], AUTH_UID_LEN*2+1);
+	    }
+
 	    if(sxi_cluster_query_ev(qrylist[nqueries].cbdata, clust, sx_node_internal_addr(pusher), REQ_PUT, url, req, strlen(req), NULL, NULL)) {
 		WARN("Failed to query node %s: %s", sx_node_uuid_str(pusher), sxc_geterrmsg(sx_hashfs_client(hashfs)));
 		nqueries++;
@@ -2742,7 +2751,7 @@ action_failed:
 		    for(j=0; j<rbdata[i].nblocks; j++) {
 			if(sx_hashfs_blkrb_hold(hashfs, &rbdata[i].blocks[j]->hash, rbdata[i].blocks[j]->blocksize, rbdata[i].node) != OK)
 			    WARN("Cannot hold block"); /* Unexpected but not critical, will retry later */
-			else if(sx_hashfs_xfer_tonode(hashfs, &rbdata[i].blocks[j]->hash, rbdata[i].blocks[j]->blocksize, rbdata[i].node) != OK)
+			else if(sx_hashfs_xfer_tonode(hashfs, &rbdata[i].blocks[j]->hash, rbdata[i].blocks[j]->blocksize, rbdata[i].node, FLOW_BULK_UID) != OK)
 			    WARN("Cannot add block to transfer queue"); /* Unexpected but not critical, will retry later */
 			else if(sx_hashfs_br_delete(hashfs, rbdata[i].blocks[j]) != OK)
 			    WARN("Cannot delete block"); /* Unexpected but not critical, will retry later */
@@ -3601,7 +3610,7 @@ static int rplblocks_cb(curlev_context_t *cbdata, void *ctx, const void *data, s
 		    }
 		}
 
-		if(sx_hashfs_block_put(c->hashfs, c->block, c->itemsz, 0)) {
+		if(sx_hashfs_block_put(c->hashfs, c->block, c->itemsz, 0, FLOW_DEFAULT_UID)) { /* Flow is not actually used because of 0 replica */
 		    WARN("Failed to mod hash");
 		    return 1;
 		}
@@ -6200,7 +6209,7 @@ static struct {
 };
 
 
-static job_data_t *make_jobdata(const void *data, unsigned int data_len, uint64_t op_expires_at) {
+static job_data_t *make_jobdata(const void *data, unsigned int data_len, uint64_t op_expires_at, sx_uid_t owner) {
     job_data_t *ret;
 
     if(!data && data_len)
@@ -6210,6 +6219,7 @@ static job_data_t *make_jobdata(const void *data, unsigned int data_len, uint64_
     ret->ptr = (void *)(ret+1);
     ret->len = data_len;
     ret->op_expires_at = op_expires_at;
+    ret->owner = owner;
     if(data_len)
 	memcpy(ret->ptr, data, data_len);
     return ret;
@@ -6735,7 +6745,7 @@ static void jobmgr_process_queue(struct jobmgr_data_t *q, int forced) {
 	plen = sqlite3_column_bytes(q->qjob, 2);
 	q->job_expired = sqlite3_column_int(q->qjob, 3);
 	q->job_failed = (sqlite3_column_int(q->qjob, 4) != 0);
-	q->job_data = make_jobdata(ptr, plen, sqlite3_column_int(q->qjob, 5));
+	q->job_data = make_jobdata(ptr, plen, sqlite3_column_int(q->qjob, 5), sqlite3_column_int64(q->qjob, 6));
 	sqlite3_reset(q->qjob);
         current_job_status = 0;
 
@@ -6790,7 +6800,7 @@ int jobmgr(sxc_client_t *sx, const char *dir, int pipe) {
 
     q.eventdb = sx_hashfs_eventdb(q.hashfs);
 
-    if(qprep(q.eventdb, &q.qjob, "SELECT job, type, data, expiry_time < datetime('now'), result, strftime('%s',expiry_time) FROM jobs WHERE complete = 0 AND sched_time <= strftime('%Y-%m-%d %H:%M:%f') AND NOT EXISTS (SELECT 1 FROM jobs AS subjobs WHERE subjobs.job = jobs.parent AND subjobs.complete = 0) ORDER BY sched_time ASC LIMIT 1") ||
+    if(qprep(q.eventdb, &q.qjob, "SELECT job, type, data, expiry_time < datetime('now'), result, strftime('%s',expiry_time), user FROM jobs WHERE complete = 0 AND sched_time <= strftime('%Y-%m-%d %H:%M:%f') AND NOT EXISTS (SELECT 1 FROM jobs AS subjobs WHERE subjobs.job = jobs.parent AND subjobs.complete = 0) ORDER BY sched_time ASC LIMIT 1") ||
        qprep(q.eventdb, &q.qact, "SELECT id, phase, target, addr, internaladdr, capacity FROM actions WHERE job_id = :job AND phase < :maxphase ORDER BY phase") ||
        qprep(q.eventdb, &q.qfail_children, "WITH RECURSIVE descendents_of(jb) AS (SELECT job FROM jobs WHERE parent = :job UNION SELECT job FROM jobs, descendents_of WHERE jobs.parent = descendents_of.jb) UPDATE jobs SET result = :res, reason = :reason, complete = 1, lock = NULL WHERE job IN (SELECT * FROM descendents_of) AND result = 0") ||
        qprep(q.eventdb, &q.qfail_parent, "UPDATE jobs SET result = :res, reason = :reason WHERE job = :job AND result = 0") ||

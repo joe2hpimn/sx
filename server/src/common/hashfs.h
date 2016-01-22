@@ -305,7 +305,7 @@ rc_ty sx_hashfs_getfilemeta_next(sx_hashfs_t *h, const char **key, const void **
 
 /* Block xfer */
 rc_ty sx_hashfs_block_get(sx_hashfs_t *h, unsigned int bs, const sx_hash_t *hash, const uint8_t **block);
-rc_ty sx_hashfs_block_put(sx_hashfs_t *h, const uint8_t *data, unsigned int bs, unsigned int replica_count);
+rc_ty sx_hashfs_block_put(sx_hashfs_t *h, const uint8_t *data, unsigned int bs, unsigned int replica_count, sx_uid_t uid);
 
 /* hash batch ops for GC */
 rc_ty sx_hashfs_hashop_perform(sx_hashfs_t *h, unsigned int block_size, unsigned replica_count, enum sxi_hashop_kind kind, const sx_hash_t *hash, const sx_hash_t *reserve_id, const sx_hash_t *revision_id, uint64_t op_expires_at, int *present);
@@ -407,8 +407,10 @@ unsigned int sx_hashfs_job_file_timeout(sx_hashfs_t *h, unsigned int ndests, uin
 rc_ty sx_hashfs_set_job_data(sx_hashfs_t *h, job_t job, const void *data, unsigned int len, unsigned int expires_in, int lockdb);
 
 /* Xfers */
-rc_ty sx_hashfs_xfer_tonodes(sx_hashfs_t *h, sx_hash_t *block, unsigned int size, const sx_nodelist_t *targets);
-rc_ty sx_hashfs_xfer_tonode(sx_hashfs_t *h, sx_hash_t *block, unsigned int size, const sx_node_t *target);
+#define FLOW_DEFAULT_UID 0
+#define FLOW_BULK_UID -1
+rc_ty sx_hashfs_xfer_tonodes(sx_hashfs_t *h, sx_hash_t *block, unsigned int size, const sx_nodelist_t *targets, sx_uid_t uid);
+rc_ty sx_hashfs_xfer_tonode(sx_hashfs_t *h, sx_hash_t *block, unsigned int size, const sx_node_t *target, sx_uid_t uid);
 void sx_hashfs_xfer_trigger(sx_hashfs_t *h);
 
 void sx_hashfs_gc_trigger(sx_hashfs_t *h);
