@@ -2831,7 +2831,7 @@ static act_result_t filerb_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t
 	action_error(ACT_RESULT_PERMFAIL, 500, "Internal job data error");
     }
 
-    sx_hashfs_set_progress_info(hashfs, INPRG_REBALANCE_RUNNING, "Relocating metadata");
+    sx_hashfs_set_progress_info(hashfs, INPRG_REBALANCE_RUNNING, "Relocating metadata (initialization)");
 
     if(sx_hashfs_relocs_populate(hashfs) != OK) {
 	INFO("Failed to populate the relocation queue");
@@ -2864,6 +2864,8 @@ static act_result_t filerb_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t 
     } rbdata[RB_MAX_FILES];
     unsigned int i;
     act_result_t ret;
+    int64_t nrelocs;
+    rc_ty r;
 
     memset(&rbdata, 0, sizeof(rbdata));
 
@@ -2872,57 +2874,65 @@ static act_result_t filerb_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t 
 	action_error(ACT_RESULT_PERMFAIL, 500, "Internal job data error");
     }
 
-    sx_hashfs_relocs_begin(hashfs);
+    r = sx_hashfs_relocs_begin(hashfs, &nrelocs);
+    if(r == ITER_NO_MORE) {
+	/* ITER_NO_MORE here means that there are no more files to relocate *AT ALL* */
+	ret = ACT_RESULT_OK;
+    } else if(r != OK) {
+	/* DB busy or something */
+	action_error(ACT_RESULT_TEMPFAIL, 503, "Relocation data (temporarily) unavailable");
+    } else {
+	char msgbuf[128];
+	snprintf(msgbuf, sizeof(msgbuf), "Relocating metadata (%lld objects remaining)", (long long)nrelocs);
+	sx_hashfs_set_progress_info(hashfs, INPRG_REBALANCE_RUNNING, msgbuf);
 
-    for(i = 0; i<RB_MAX_FILES; i++) {
-	const sx_reloc_t *rlc;
-	unsigned int blockno;
-	rc_ty r;
+	for(i = 0; i<RB_MAX_FILES; i++) {
+	    const sx_reloc_t *rlc;
+	    unsigned int blockno;
 
-	r = sx_hashfs_relocs_next(hashfs, &rlc);
-	if(r == ITER_NO_MORE)
-	    break;
-	if(r != OK)
-	    action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to lookup file to relocate");
+	    r = sx_hashfs_relocs_next(hashfs, &rlc);
+	    if(r == ITER_NO_MORE) {
+		/* ITER_NO_MORE *here* means that there are no more files to relocate *FOR THIS ROUND* */
+		break;
+	    }
+	    if(r != OK)
+		action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to lookup file to relocate");
 
-	rbdata[i].reloc = rlc;
-	rbdata[i].proto = sxi_fileadd_proto_begin(sx,
-						  rlc->volume.name,
-						  rlc->file.name,
-						  rlc->file.revision,
-						  0,
-						  rlc->file.block_size,
-						  rlc->file.file_size);
-	blockno = 0;
-	while(rbdata[i].proto && blockno < rlc->file.nblocks) {
-	    char hexblock[SXI_SHA1_TEXT_LEN + 1];
-	    bin2hex(&rlc->blocks[blockno], sizeof(rlc->blocks[0]), hexblock, sizeof(hexblock));
-	    blockno++;
+	    rbdata[i].reloc = rlc;
+	    rbdata[i].proto = sxi_fileadd_proto_begin(sx,
+						      rlc->volume.name,
+						      rlc->file.name,
+						      rlc->file.revision,
+						      0,
+						      rlc->file.block_size,
+						      rlc->file.file_size);
+	    blockno = 0;
+	    while(rbdata[i].proto && blockno < rlc->file.nblocks) {
+		char hexblock[SXI_SHA1_TEXT_LEN + 1];
+		bin2hex(&rlc->blocks[blockno], sizeof(rlc->blocks[0]), hexblock, sizeof(hexblock));
+		blockno++;
+		if(rbdata[i].proto)
+		    rbdata[i].proto = sxi_fileadd_proto_addhash(sx, rbdata[i].proto, hexblock);
+	    }
+
 	    if(rbdata[i].proto)
-		rbdata[i].proto = sxi_fileadd_proto_addhash(sx, rbdata[i].proto, hexblock);
+		rbdata[i].proto = sxi_fileadd_proto_end(sx, rbdata[i].proto, rlc->metadata);
+
+	    if(!rbdata[i].proto)
+		action_error(rc2actres(ENOMEM), rc2http(ENOMEM), "Failed to prepare file relocation query");
+
+	    rbdata[i].cbdata = sxi_cbdata_create_generic(clust, NULL, NULL);
+	    DEBUG("File query: %u %s [ %s ]", rbdata[i].proto->verb, rbdata[i].proto->path, (char *)rbdata[i].proto->content);
+	    if(sxi_cluster_query_ev(rbdata[i].cbdata, clust, sx_node_internal_addr(rlc->target), rbdata[i].proto->verb, rbdata[i].proto->path, rbdata[i].proto->content, rbdata[i].proto->content_len, NULL, NULL)) {
+		WARN("Failed to query node %s: %s", sx_node_uuid_str(rlc->target), sxc_geterrmsg(sx));
+		action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to setup cluster communication");
+	    }
+	    rbdata[i].query_sent = 1;
 	}
 
-	if(rbdata[i].proto)
-	    rbdata[i].proto = sxi_fileadd_proto_end(sx, rbdata[i].proto, rlc->metadata);
-
-	if(!rbdata[i].proto)
-	    action_error(rc2actres(ENOMEM), rc2http(ENOMEM), "Failed to prepare file relocation query");
-
-	rbdata[i].cbdata = sxi_cbdata_create_generic(clust, NULL, NULL);
-	DEBUG("File query: %u %s [ %s ]", rbdata[i].proto->verb, rbdata[i].proto->path, (char *)rbdata[i].proto->content);
-	if(sxi_cluster_query_ev(rbdata[i].cbdata, clust, sx_node_internal_addr(rlc->target), rbdata[i].proto->verb, rbdata[i].proto->path, rbdata[i].proto->content, rbdata[i].proto->content_len, NULL, NULL)) {
-	    WARN("Failed to query node %s: %s", sx_node_uuid_str(rlc->target), sxc_geterrmsg(sx));
-	    action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to setup cluster communication");
-	}
-	rbdata[i].query_sent = 1;
-    }
-
-    if(i == RB_MAX_FILES) {
-	DEBUG("Reached file limit, will resume later");
 	action_error(ACT_RESULT_TEMPFAIL, 503, "File relocation in progress");
     }
 
-    ret = ACT_RESULT_OK;
 
  action_failed:
     for(i = 0; i<RB_MAX_FILES; i++) {

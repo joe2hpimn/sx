@@ -801,6 +801,7 @@ struct _sx_hashfs_t {
     sqlite3_stmt *qm_del_tombstone[METADBS];
     sqlite3_stmt *qm_mvfile[METADBS];
     sqlite3_stmt *qm_wiperelocs[METADBS];
+    sqlite3_stmt *qm_countrelocs[METADBS];
     sqlite3_stmt *qm_addrelocs[METADBS];
     sqlite3_stmt *qm_getreloc[METADBS];
     sqlite3_stmt *qm_delreloc[METADBS];
@@ -1063,6 +1064,7 @@ static void close_all_dbs(sx_hashfs_t *h) {
 	sqlite3_finalize(h->qm_del_tombstone[i]);
         sqlite3_finalize(h->qm_mvfile[i]);
 	sqlite3_finalize(h->qm_wiperelocs[i]);
+	sqlite3_finalize(h->qm_countrelocs[i]);
 	sqlite3_finalize(h->qm_addrelocs[i]);
 	sqlite3_finalize(h->qm_getreloc[i]);
 	sqlite3_finalize(h->qm_delreloc[i]);
@@ -2020,9 +2022,11 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
             goto open_hashfs_fail;
 	if(qprep(h->metadb[i], &h->qm_wiperelocs[i], "DELETE FROM relocs"))
 	    goto open_hashfs_fail;
+	if(qprep(h->metadb[i], &h->qm_countrelocs[i], "SELECT COUNT(*) FROM relocs"))
+	    goto open_hashfs_fail;
 	if(qprep(h->metadb[i], &h->qm_addrelocs[i], "INSERT INTO relocs (file_id, dest) SELECT fid, :node FROM files WHERE volume_id = :volid AND age >= 0"))
 	    goto open_hashfs_fail;
-	if(qprep(h->metadb[i], &h->qm_getreloc[i], "SELECT file_id, dest, volume_id, name, size, rev, content FROM relocs LEFT JOIN files ON relocs.file_id = files.fid WHERE file_id > :prev AND age >= 0"))
+	if(qprep(h->metadb[i], &h->qm_getreloc[i], "SELECT file_id, dest, volume_id, name, size, rev, content FROM relocs LEFT JOIN files ON relocs.file_id = files.fid WHERE file_id > :prev AND age >= 0 LIMIT 1"))
 	    goto open_hashfs_fail;
 	if(qprep(h->metadb[i], &h->qm_delreloc[i], "DELETE FROM relocs WHERE file_id = :fileid"))
 	    goto open_hashfs_fail;
@@ -15701,9 +15705,27 @@ rc_ty sx_hashfs_relocs_populate(sx_hashfs_t *h) {
 }
 
 
-void sx_hashfs_relocs_begin(sx_hashfs_t *h) {
+rc_ty sx_hashfs_relocs_begin(sx_hashfs_t *h, int64_t *todo) {
+    int64_t nrelocs = 0;
+    unsigned int i;
+
+    for(i=0; i<METADBS; i++) {
+	if(qstep_ret(h->qm_countrelocs[i])) {
+	    WARN("Failed to count pending relocation on db %u", i);
+	    return FAIL_EINTERNAL;
+	}
+	nrelocs += sqlite3_column_int64(h->qm_countrelocs[i], 0);
+	sqlite3_reset(h->qm_countrelocs[i]);
+    }
+
+    if(!nrelocs)
+	return ITER_NO_MORE;
+
     h->relocdb_start = h->relocdb_cur = sxi_rand() % METADBS;
     h->relocid = 0;
+    if(todo)
+	*todo = nrelocs;
+    return OK;
 }
 
 static rc_ty relocs_delete(sx_hashfs_t *h, unsigned int relocdb, int64_t relocid) {

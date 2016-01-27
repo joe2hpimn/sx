@@ -454,7 +454,7 @@ typedef struct _sx_reloc_t {
     unsigned int reloc_db;
 } sx_reloc_t;
 rc_ty sx_hashfs_relocs_populate(sx_hashfs_t *h);
-void sx_hashfs_relocs_begin(sx_hashfs_t *h);
+rc_ty sx_hashfs_relocs_begin(sx_hashfs_t *h, int64_t *todo);
 rc_ty sx_hashfs_relocs_next(sx_hashfs_t *h, const sx_reloc_t **reloc);
 rc_ty sx_hashfs_relocs_delete(sx_hashfs_t *h, const sx_reloc_t *reloc);
 void sx_hashfs_reloc_free(const sx_reloc_t *reloc);
