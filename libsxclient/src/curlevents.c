@@ -2805,6 +2805,67 @@ int sxi_curlev_poll(curl_events_t *e)
     return 0;
 }
 
+static int update_xfer_stat(curlev_context_t *ctx, const curlev_t *ev) {
+    int xfer_err = SXE_NOERROR;
+
+    if(!ctx || !ev)
+        return 1;
+    /*
+     * For some transfers xferinfo() function can be not called when all bytes were
+     * transferred. But in this place we are sure that transfer has finished, so following
+     * updates transfer information to satisfy progress information
+     */
+    switch(ctx->tag) {
+        case CTX_DOWNLOAD: {
+        /* Update file download to be finished */
+            int64_t to_dl = sxi_file_download_get_xfer_to_send(ctx->u.download_ctx);
+            if(to_dl)
+                xfer_err = sxi_file_download_set_xfer_stat(ctx->u.download_ctx, to_dl, to_dl);
+        } break;
+
+        case CTX_UPLOAD_HOST: {
+            /* Update file upload */
+            int64_t to_ul = sxi_host_upload_get_xfer_to_send(ctx->u.host_ctx);
+            if(to_ul)
+                xfer_err = sxi_host_upload_set_xfer_stat(ctx->u.host_ctx, to_ul, to_ul);
+        } break;
+
+        case CTX_GENERIC: {
+            switch(ev->verb) {
+                case REQ_GET: {
+                    int64_t to_dl = sxi_generic_get_xfer_to_dl(ctx->u.generic_ctx);
+                    if(to_dl)
+                        xfer_err = sxi_generic_set_xfer_stat(ctx->u.generic_ctx, to_dl, to_dl, 0, 0);
+                } break;
+
+                case REQ_PUT: {
+                    int64_t to_ul = sxi_generic_get_xfer_to_ul(ctx->u.generic_ctx);
+                    if(to_ul)
+                        xfer_err = sxi_generic_set_xfer_stat(ctx->u.generic_ctx, 0, 0, to_ul, to_ul);
+                } break;
+
+                default:
+                    break;
+            }
+        } break;
+
+        default: {
+            /* Generic transfer updates */
+        }
+    }
+
+    /* Check if user transfer callbacks did not return error message */
+    if(xfer_err != SXE_NOERROR) {
+        if(xfer_err == SXE_ABORT)
+            sxi_cbdata_seterr(ctx, xfer_err, "Transfer aborted");
+        else
+            sxi_cbdata_seterr(ctx, xfer_err, "Could not update progress information");
+        return -1;
+    }
+
+    return 0;
+}
+
 int sxi_curlev_poll_immediate(curl_events_t *e)
 {
     CURLMcode rc;
@@ -2842,7 +2903,6 @@ int sxi_curlev_poll_immediate(curl_events_t *e)
                 char *urldup;
                 curlev_t *ev = (curlev_t*)priv;
                 struct recv_context *rctx = &ev->ctx->recv_ctx;
-                int xfer_err = SXE_NOERROR;
                 curlev_context_t *ctx;
 
                 curl_easy_getinfo(msg->easy_handle, CURLINFO_RESPONSE_CODE, &rctx->reply_status);
@@ -2875,56 +2935,8 @@ int sxi_curlev_poll_immediate(curl_events_t *e)
                 ctx = ev->ctx;
                 ev->ctx = NULL;
 
-                /* 
-                 * For some transfers xferinfo() function can be not called when all bytes were 
-                 * transferred. But in this place we are sure that transfer has finished, so following
-                 * updates transfer information to satisfy progress information 
-                 */
-                switch(ctx->tag) {
-                    case CTX_DOWNLOAD: {
-                        /* Update file download to be finished */
-                        int64_t to_dl = sxi_file_download_get_xfer_to_send(ctx->u.download_ctx);
-                        if(to_dl)
-                            xfer_err = sxi_file_download_set_xfer_stat(ctx->u.download_ctx, to_dl, to_dl);
-                    } break;
-
-                    case CTX_UPLOAD_HOST: {
-                        /* Update file upload */
-                        int64_t to_ul = sxi_host_upload_get_xfer_to_send(ctx->u.host_ctx);
-                        if(to_ul)
-                            xfer_err = sxi_host_upload_set_xfer_stat(ctx->u.host_ctx, to_ul, to_ul);
-                    } break;
-
-                    case CTX_GENERIC: {
-                        switch(ev->verb) {
-                            case REQ_GET: {
-                                int64_t to_dl = sxi_generic_get_xfer_to_dl(ctx->u.generic_ctx);
-                                if(to_dl)
-                                    xfer_err = sxi_generic_set_xfer_stat(ctx->u.generic_ctx, to_dl, to_dl, 0, 0);
-                            } break;
-
-                            case REQ_PUT: {
-                                int64_t to_ul = sxi_generic_get_xfer_to_ul(ctx->u.generic_ctx);
-                                if(to_ul)
-                                    xfer_err = sxi_generic_set_xfer_stat(ctx->u.generic_ctx, 0, 0, to_ul, to_ul);
-                            } break;
-
-                            default:
-                                break;
-                        }
-                    } break;
-
-                    default: {
-                        /* Generic transfer updates */
-                    }
-                }
-
-                /* Check if user transfer callbacks did not return error message */
-                if(xfer_err != SXE_NOERROR) {
-                    if(xfer_err == SXE_ABORT)
-                        sxi_cbdata_seterr(ctx, xfer_err, "Transfer aborted");
-                    else
-                        sxi_cbdata_seterr(ctx, xfer_err, "Could not update progress information");
+                /* Update transfer update counters if necessary */
+                if(update_xfer_stat(ctx, ev)) {
                     e->depth--;
                     return -1;
                 }
