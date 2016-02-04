@@ -465,6 +465,10 @@ sxc_file_t *sxc_file_from_url(sxc_client_t *sx, sxc_cluster_t **cluster, const c
     }
     if (!sxi_uri_is_sx(sx, url))
         return sxc_file_local(sx, url);
+    if(*cluster) {
+        sxi_seterr(sx, SXE_EARG, "Cluster has already been loaded");
+        return NULL;
+    }
     uri = sxc_parse_uri(sx, url);
     if (!uri)
         return NULL;
@@ -475,15 +479,10 @@ sxc_file_t *sxc_file_from_url(sxc_client_t *sx, sxc_cluster_t **cluster, const c
             sxi_seterr(sx, SXE_EARG,"Bad path %s: Volume name expected", url);
             break;
         }
-        /* if it is a different (or the first) cluster, load its config */
-        if (!*cluster || strcmp(sxi_cluster_get_name(*cluster), uri->host)) {
-	    sxc_cluster_free(*cluster);
-            *cluster = sxc_cluster_load_and_update(sx, uri->host, uri->profile);
-	}
-        if (!*cluster) {
-/*            sxi_notice(sx, "Failed to load config for %s: %s\n", uri->host, sxc_geterrmsg(sx));*/
+
+        *cluster = sxc_cluster_load_and_update(sx, uri->host, uri->profile);
+        if (!*cluster)
             break;
-        }
 	file = sxc_file_remote(*cluster, uri->volume, uri->path, NULL);
         sxc_free_uri(uri);
         return file;
