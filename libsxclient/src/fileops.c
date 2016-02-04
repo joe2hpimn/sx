@@ -6278,6 +6278,12 @@ static int sxi_file_list_foreach(sxc_file_list_t *target, multi_cb_t multi_cb, f
                 break;
             }
             /* glob */
+            if(!target->recursive && ends_with(pattern->path, '/')) {
+                /* Dummy error message reported when pattern ends with slash and */
+                sxi_seterr(sx, SXE_EARG, "Failed to query cluster: Not Found");
+                sxc_meta_free(cvmeta);
+                break;
+            }
             CFGDEBUG("Listing using glob pattern '%s'", pattern->path);
             lst = sxc_cluster_listfiles(cluster, pattern->volume, pattern->path, target->recursive || (fh && fh->f->filemeta_process), &entry->nfiles, 0);
             if (!lst) {
