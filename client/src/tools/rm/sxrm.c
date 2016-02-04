@@ -59,7 +59,6 @@ static void sighandler(int signal)
 
 
 int main(int argc, char **argv) {
-    sxc_client_t *sx;
     int ret = 0;
     unsigned int i;
     struct gengetopt_args_info args;

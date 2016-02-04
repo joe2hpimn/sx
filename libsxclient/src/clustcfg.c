@@ -1980,7 +1980,7 @@ static sxc_cluster_lf_t *sxi_cluster_listfiles(sxc_cluster_t *cluster, const cha
     free(enc_vol);
     free(enc_glob);
 
-    if(!(fname = sxi_make_tempfile(sx, NULL, &yctx.f))) {
+    if(!(fname = sxi_tempfile_track(sx, NULL, &yctx.f))) {
         SXDEBUG("failed to create temporary storage for file list");
 	free(url);
         sxi_hostlist_empty(&volhosts);
@@ -2002,8 +2002,7 @@ static sxc_cluster_lf_t *sxi_cluster_listfiles(sxc_cluster_t *cluster, const cha
 	sxi_jparse_destroy(yctx.J);
         free(yctx.etag_out);
 	fclose(yctx.f);
-	unlink(fname);
-	free(fname);
+	sxi_tempfile_unlink_untrack(sx, fname);
         free(filter_cfgdir);
         sxc_meta_free(yctx.file_meta);
         sxc_meta_free(cvmeta);
@@ -2017,8 +2016,7 @@ static sxc_cluster_lf_t *sxi_cluster_listfiles(sxc_cluster_t *cluster, const cha
 	sxi_jparse_destroy(yctx.J);
         free(yctx.etag_out);
 	fclose(yctx.f);
-	unlink(fname);
-	free(fname);
+        sxi_tempfile_unlink_untrack(sx, fname);
         free(filter_cfgdir);
         sxc_meta_free(yctx.file_meta);
         sxc_meta_free(cvmeta);
@@ -2032,8 +2030,7 @@ static sxc_cluster_lf_t *sxi_cluster_listfiles(sxc_cluster_t *cluster, const cha
         sxi_seterr(sx, SXE_EWRITE, "List failed: Failed to write temporary data");
         free(yctx.etag_out);
 	fclose(yctx.f);
-	unlink(fname);
-	free(fname);
+        sxi_tempfile_unlink_untrack(sx, fname);
         free(filter_cfgdir);
         sxc_meta_free(yctx.file_meta);
         sxc_meta_free(cvmeta);
@@ -2046,8 +2043,7 @@ static sxc_cluster_lf_t *sxi_cluster_listfiles(sxc_cluster_t *cluster, const cha
         sxi_seterr(sx, SXE_EMEM, "List failed: Out of memory");
         free(yctx.etag_out);
 	fclose(yctx.f);
-	unlink(fname);
-	free(fname);
+        sxi_tempfile_unlink_untrack(sx, fname);
         free(filter_cfgdir);
         sxc_meta_free(yctx.file_meta);
         sxc_meta_free(cvmeta);
@@ -2060,8 +2056,7 @@ static sxc_cluster_lf_t *sxi_cluster_listfiles(sxc_cluster_t *cluster, const cha
         sxi_seterr(sx, SXE_EMEM, "List failed: Out of memory");
         free(yctx.etag_out);
         fclose(yctx.f);
-        unlink(fname);
-        free(fname);
+        sxi_tempfile_unlink_untrack(sx, fname);
         free(ret);
         free(filter_cfgdir);
         sxc_meta_free(yctx.file_meta);
@@ -2816,10 +2811,8 @@ void sxc_cluster_listfiles_free(sxc_cluster_lf_t *lf) {
         return;
     if(lf->f)
 	fclose(lf->f);
-    if(lf->fname) {
-	unlink(lf->fname);
-	free(lf->fname);
-    }
+    if(lf->fname)
+        sxi_tempfile_unlink_untrack(lf->sx, lf->fname);
 
     for(i = 0; i < lf->nprocessed_entries; i++)
         sxc_file_free(lf->processed_list[i]);
