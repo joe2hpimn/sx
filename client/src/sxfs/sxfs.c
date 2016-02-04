@@ -842,7 +842,7 @@ static int sxfs_rename (const char *path, const char *newpath) {
                 /* Mass operation requested on a volume with filename processing filter, falling back to sxc_copy + sxc_rm method */
                 sxc_clearerr(sx);
 
-                if(sxc_copy(src, dest, 1, 0, 0, NULL, 0)) {
+                if(sxc_copy_single(src, dest, 1, 0, 0, NULL, 0)) {
                     SXFS_LOG("%s", sxc_geterrmsg(sx));
                     ret = -sxfs_sx_err(sx);
                     goto sxfs_rename_err;
@@ -1427,7 +1427,7 @@ static int sxfs_truncate (const char *path, off_t length) {
                     goto sxfs_truncate_err;
                 }
                 if(SXFS_DATA->need_file) {
-                    if(sxc_copy(file_remote, file_local, 0, 0, 0, NULL, 1)) {
+                    if(sxc_copy_single(file_remote, file_local, 0, 0, 0, NULL, 1)) {
                         SXFS_LOG("%s", sxc_geterrmsg(sx));
                         ret = -sxfs_sx_err(sx);
                         goto sxfs_truncate_err;
@@ -1789,7 +1789,7 @@ static int get_file (const char *path, sxfs_file_t *sxfs_file) {
         ret = -sxfs_sx_err(sx);
         goto get_file_err;
     }
-    if(sxc_copy(file_remote, file_local, 0, 0, 0, NULL, 1)) {
+    if(sxc_copy_single(file_remote, file_local, 0, 0, 0, NULL, 1)) {
         SXFS_LOG("%s", sxc_geterrmsg(sx));
         ret = -sxfs_sx_err(sx);
         goto get_file_err;
@@ -3002,12 +3002,12 @@ static int check_password (sxc_client_t *sx, sxc_cluster_t *cluster, sxfs_state_
         print_and_log(sxfs->logfile, "ERROR: Cannot create file object: %s\n", sxc_geterrmsg(sx));
         goto check_password_err;
     }
-    rmlist = sxc_file_list_new(sx, 0);
+    rmlist = sxc_file_list_new(sx, 0, 0);
     if(!rmlist) {
         print_and_log(sxfs->logfile, "ERROR: Cannot create new file list: %s\n", sxc_geterrmsg(sx));
         goto check_password_err;
     }
-    if(sxc_copy(src, dest, 0, 0, 0, NULL, 1)) {
+    if(sxc_copy_single(src, dest, 0, 0, 0, NULL, 1)) {
         print_and_log(sxfs->logfile, "ERROR: %s\n", sxc_geterrmsg(sx));
         goto check_password_err;
     }
@@ -3016,7 +3016,7 @@ static int check_password (sxc_client_t *sx, sxc_cluster_t *cluster, sxfs_state_
         goto check_password_err;
     }
     dest = NULL; /* sxc_file_list_free frees all files inside it */
-    if(sxc_rm(rmlist, 0, 0)) {
+    if(sxc_rm(rmlist, 0)) {
         print_and_log(sxfs->logfile, "ERROR: Cannot remove file: %s\n", sxc_geterrmsg(sx));
         goto check_password_err;
     }

@@ -321,22 +321,24 @@ typedef struct _sxc_exclude_t sxc_exclude_t;
 sxc_exclude_t *sxc_exclude_init(sxc_client_t *sx, const char **patterns, unsigned int npatterns, int mode);
 void sxc_exclude_delete(sxc_exclude_t *e);
 
-int sxc_copy(sxc_file_t *source, sxc_file_t *dest, int recursive, int onefs, int ignore_errors, const sxc_exclude_t *exclude, int fail_same_file);
+typedef struct _sxc_file_list_t sxc_file_list_t;
+
+int sxc_copy_single(sxc_file_t *source, sxc_file_t *dest, int recursive, int onefs, int ignore_errors, const sxc_exclude_t *exclude, int fail_same_file);
+int sxc_copy(sxc_file_list_t *source, sxc_file_t *dest, int recursive, int onefs, const sxc_exclude_t *exclude, int fail_same_file);
 int sxc_copy_sxfile(sxc_file_t *source, sxc_file_t *dest, int fail_same_file);
 int sxc_cat(sxc_file_t *source, int dest);
 int sxc_mass_rename(sxc_cluster_t *cluster, sxc_file_t *source, sxc_file_t *dest, int recursive);
 int sxc_update_filemeta(sxc_file_t *file, sxc_meta_t *newmeta);
 
-typedef struct _sxc_file_list_t sxc_file_list_t;
 
-sxc_file_list_t *sxc_file_list_new(sxc_client_t *sx, int recursive);
+sxc_file_list_t *sxc_file_list_new(sxc_client_t *sx, int recursive, int ignore_errors);
 /* passes ownership of file too on success */
 int sxc_file_list_add(sxc_file_list_t *lst, sxc_file_t *file, int allow_glob);
 void sxc_file_list_free(sxc_file_list_t *sx);/* frees contained sx_file_t too */
 unsigned sxc_file_list_get_total(const sxc_file_list_t *lst);
 unsigned sxc_file_list_get_successful(const sxc_file_list_t *lst);
 
-int sxc_rm(sxc_file_list_t *target, int ignore_errors, int mass);
+int sxc_rm(sxc_file_list_t *target, int mass);
 int sxc_remove_sxfile(sxc_file_t *file);
 
 

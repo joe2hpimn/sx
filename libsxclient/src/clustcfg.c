@@ -1108,7 +1108,6 @@ int sxi_volume_info(sxi_conns_t *conns, const char *volume, sxi_hostlist_t *node
     if(privs)
         *privs = NULL;
 
-    sxc_clearerr(sx);
     if(sxi_getenv("SX_DEBUG_SINGLE_VOLUMEHOST")) {
         sxi_hostlist_empty(nodes);
         sxi_hostlist_add_host(sx, nodes, sxi_getenv("SX_DEBUG_SINGLE_VOLUMEHOST"));
@@ -3361,7 +3360,7 @@ char *sxc_user_newkey(sxc_cluster_t *cluster, const char *username, const char *
     int different_user;
     sxi_conns_t *conns;
     sxi_job_t *job;
-    sxi_jobs_t jobs;
+    sxi_jobs_t *jobs;
 
     if(!cluster)
 	return NULL;
@@ -3498,12 +3497,23 @@ char *sxc_user_newkey(sxc_cluster_t *cluster, const char *username, const char *
         }
     }
 
-    memset(&jobs, 0, sizeof(jobs));
-    jobs.jobs = &job;
-    jobs.n = 1;
+    jobs = sxi_jobs_new(sx, 0);
+    if(!jobs) {
+        SXDEBUG("Failed to allocate jobs context");
+        sxi_job_free(job);
+        free(tok);
+        return NULL;
+    }
 
-    qret = sxi_job_wait(conns, &jobs);
-    sxi_job_free(job);
+    if(sxi_jobs_add(jobs, job)) {
+        SXDEBUG("Failed to add job to jobs context");
+        sxi_job_free(job);
+        sxi_jobs_free(jobs);
+        free(tok);
+        return NULL;
+    }
+
+    qret = sxi_jobs_wait(jobs, conns);
     if(!qret) {
 	retkey = malloc(AUTHTOK_ASCII_LEN + 1);
 	if(!retkey) {
@@ -3520,6 +3530,8 @@ char *sxc_user_newkey(sxc_cluster_t *cluster, const char *username, const char *
         }
     }
     free(tok);
+    /* job is freed with jobs context */
+    sxi_jobs_free(jobs);
     return retkey;
 }
 

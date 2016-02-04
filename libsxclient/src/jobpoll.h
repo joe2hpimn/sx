@@ -29,30 +29,34 @@ typedef enum _jobstatus_t {
         JOBST_OK,
         JOBST_PENDING
 } sxi_job_status_t;
-typedef struct _sxi_jobs_t {
-    sxi_job_t **jobs;
-    unsigned n;
-    unsigned successful;
-    long http_err;
-    struct timeval tv;
-    unsigned error;
-    int ignore_errors;
-} sxi_jobs_t;
+typedef struct _sxi_jobs_t sxi_jobs_t;
 
 /* used where a sxi_job_t would be required but we're not job based */
 extern sxi_job_t JOB_NONE;
 
-sxi_job_t *sxi_job_submit(sxi_conns_t *conns, sxi_hostlist_t *hlist, enum sxi_cluster_verb, const char *query, const char *name, void *content, size_t content_size, long *http_code, sxi_jobs_t *jobs);
+/* Create a new jobs context */
+sxi_jobs_t *sxi_jobs_new(sxc_client_t *sx, int ignore_errors);
+/* Destroy jobs context */
+void sxi_jobs_free(sxi_jobs_t *jobs);
+/* Add a job to the context */
+int sxi_jobs_add(sxi_jobs_t *jobs, sxi_job_t *job);
 
+/* Get basic job statistics, when conns is provided return statistics only for particular cluster connection */
+unsigned int sxi_jobs_total(const sxi_jobs_t *jobs, const sxi_conns_t *conns);
+unsigned int sxi_jobs_errors(const sxi_jobs_t *jobs, const sxi_conns_t *conns);
+unsigned int sxi_jobs_successful(const sxi_jobs_t *jobs, const sxi_conns_t *conns);
+unsigned int sxi_jobs_pending(const sxi_jobs_t *jobs, const sxi_conns_t *conns);
+
+/* Submit a new job, the job is not added to jobs context (use sxi_jobs_add()) */
+sxi_job_t *sxi_job_submit(sxi_conns_t *conns, sxi_hostlist_t *hlist, enum sxi_cluster_verb, const char *query, const char *name, void *content, size_t content_size, long *http_code, sxi_jobs_t *jobs);
+/* Free the submitted job (use it directly only if the job has not been added to jobs context, sxi_jobs_free() will take care of it) */
 void sxi_job_free(sxi_job_t *job);
 
-int sxi_job_wait(sxi_conns_t *conn, sxi_jobs_t *jobs);
+/* Wait for all jobs. If conns is not NULL, wait only for jobs for a particular cluster */
+int sxi_jobs_wait(sxi_jobs_t *jobs, sxi_conns_t *conns);
 
 int sxi_job_submit_and_poll(sxi_conns_t *conns, sxi_hostlist_t *hlist, enum sxi_cluster_verb verb, const char *query, void *content, size_t content_size);
 int sxi_job_submit_and_poll_err(sxi_conns_t *conns, sxi_hostlist_t *hlist, enum sxi_cluster_verb verb, const char *query, void *content, size_t content_size, long *http_err);
-
-/* Return number of successfully finished jobs */
-unsigned sxi_jobs_get_successful(const sxi_jobs_t *jobs);
 
 /* temporary notify filter hack */
 typedef void (*nf_fn_t)(const sxf_handle_t *handle, void *ctx, const void *cfgdata, unsigned int cfgdata_len, sxf_mode_t mode, const char *source_cluster, const char *source_volume, const char *source_path, const char *dest_cluster, const char *dest_volume, const char *dest_path);

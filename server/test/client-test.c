@@ -332,7 +332,7 @@ static int delete_files(sxc_client_t *sx, sxc_cluster_t *cluster, const char *vo
             return ret;
         }
     }
-    lst = sxc_file_list_new(sx, 0);
+    lst = sxc_file_list_new(sx, 0, 0);
     if(!lst) {
         ERROR("%s", sxc_geterrmsg(sx));
         sxc_file_free(file);
@@ -380,7 +380,7 @@ static int delete_files(sxc_client_t *sx, sxc_cluster_t *cluster, const char *vo
             goto delete_files_err;
         }
     }
-    if(sxc_rm(lst, 0, 0)) {
+    if(sxc_rm(lst, 0)) {
         if(!hide_errors)
             ERROR("Failed to remove file list: %s", sxc_geterrmsg(sx));
         goto delete_files_err;
@@ -448,7 +448,7 @@ static int upload_file(sxc_client_t *sx, sxc_cluster_t *cluster, const char *loc
         ERROR("Cannot open '%s' file: %s", remote_path, sxc_geterrmsg(sx));
         goto upload_file_err;
     }
-    if(sxc_copy(src, dest, local_path[strlen(local_path) - 1] == '/', 0, 0, NULL, 1)) {
+    if(sxc_copy_single(src, dest, local_path[strlen(local_path) - 1] == '/', 0, 0, NULL, 1)) {
         if(!hide_errors)
             ERROR("Cannot upload '%s' file: %s", local_path, sxc_geterrmsg(sx));
         goto upload_file_err;
@@ -482,7 +482,7 @@ static int download_file(sxc_client_t *sx, sxc_cluster_t *cluster, const char *l
         ERROR("Cannot open '%s': %s", local_path, sxc_geterrmsg(sx));
         goto download_file_err;
     }
-    if(sxc_copy(src, dest, directory, 0, 0, NULL, 1)) {
+    if(sxc_copy_single(src, dest, directory, 0, 0, NULL, 1)) {
         ERROR("Cannot download files from '%s': %s", remote_path, sxc_geterrmsg(sx));
         goto download_file_err;
     }
@@ -843,7 +843,7 @@ static int test_revision(sxc_client_t *sx, sxc_cluster_t *cluster, const char *l
     for(i=0; i<max_revisions; i++) {
         if(create_file(local_file_path, block_size, block_count, hashes[max_revisions-1-i], !i, NULL))
             goto test_revision_err;
-        if(sxc_copy(src, dest, 0, 0, 0, NULL, 1)) {
+        if(sxc_copy_single(src, dest, 0, 0, 0, NULL, 1)) {
             ERROR("Cannot upload '%s' file: %s", local_file_path, sxc_geterrmsg(sx));
             goto test_revision_err;
         }
@@ -1859,6 +1859,7 @@ static int test_user_quota(sxc_client_t *sx, sxc_cluster_t *cluster, const char 
     struct user_data udata[2];
     struct vol_data vdata[2]; /* using two volumes to divide the quota */
     char *local_file_path = NULL, *remote_path = NULL;
+    int qret = 0;
 
     PRINT("Started");
     memset(udata, 0, sizeof(udata));
@@ -1926,16 +1927,15 @@ static int test_user_quota(sxc_client_t *sx, sxc_cluster_t *cluster, const char 
         goto test_user_quota_err;
     }
 
-    switch(sxc_copy(src, dest, 0, 0, 0, NULL, 1)) {
-        case 0:
-            ERROR("User '%s' quota not enforced", udata[0].username);
-            goto test_user_quota_err;
-        case 413:
-            PRINT("User '%s' quota enforced correctly (file upload)", udata[0].username);
-            break;
-        default:
-            ERROR("Cannot upload '%s' file: %s", local_file_path, sxc_geterrmsg(sx));
-            goto test_user_quota_err;
+    qret = sxc_copy_single(src, dest, 0, 0, 0, NULL, 1);
+    if(qret && strstr(sxc_geterrmsg(sx), "User quota exceeded"))
+        PRINT("User '%s' quota enforced correctly (file upload)", udata[0].username);
+    else if(!qret) {
+        ERROR("User '%s' quota not enforced", udata[0].username);
+        goto test_user_quota_err;
+    } else {
+        ERROR("Cannot upload '%s' file: %s, error code: %d", local_file_path, sxc_geterrmsg(sx), qret);
+        goto test_user_quota_err;
     }
     sxc_clearerr(sx);
 
@@ -1952,7 +1952,7 @@ static int test_user_quota(sxc_client_t *sx, sxc_cluster_t *cluster, const char 
     }
 
     /* Now file should exactly fit into user quota */
-    if(sxc_copy(src, dest, 0, 0, 0, NULL, 1)) {
+    if(sxc_copy_single(src, dest, 0, 0, 0, NULL, 1)) {
         ERROR("Cannot upload '%s' file: %s", local_file_path, sxc_geterrmsg(sx));
         goto test_user_quota_err;
     }
@@ -1983,7 +1983,7 @@ test_user_quota_err:
 }
 
 static int test_volume_quota(sxc_client_t *sx, sxc_cluster_t *cluster, const char *local_dir_path, const char *remote_dir_path, const char *profile_name, const char *cluster_name, const char *filter_dir, const char *filter1_name, const char *filter1_cfg, const char *filter2_name, const char *filter2_cfg, uint64_t block_size, uint64_t block_count, const struct gengetopt_args_info *args, const unsigned int max_revisions, const int check_data_size) {
-    int ret = 1, file = 0;
+    int ret = 1, file = 0, qret;
     char *volname, *local_file_path = NULL, *remote_path = NULL;
     sxc_file_t *src = NULL, *dest = NULL;
 
@@ -2032,22 +2032,21 @@ static int test_volume_quota(sxc_client_t *sx, sxc_cluster_t *cluster, const cha
     if(create_file(local_file_path, SX_BS_LARGE, QUOTA_FILE_SIZE, NULL, 1, NULL))
         goto test_quota_err;
     file = 1;
-    switch(sxc_copy(src, dest, 0, 0, 0, NULL, 1)) {
-        case 0:
-            ERROR("Volume size limit not enforced");
-            goto test_quota_err;
-        case 413:
-            PRINT("Volume size limit enforced correctly");
-            break;
-        default:
-            ERROR("Cannot upload '%s' file: %s", local_file_path, sxc_geterrmsg(sx));
-            goto test_quota_err;
+    qret = sxc_copy_single(src, dest, 0, 0, 0, NULL, 1);
+    if(qret && strstr(sxc_geterrmsg(sx), "Not enough space left on volume")) {
+        PRINT("Volume size limit enforced correctly");
+    } else if(!qret) {
+        ERROR("Volume size limit not enforced");
+        goto test_quota_err;
+    } else {
+        ERROR("Cannot upload '%s' file: %s", local_file_path, sxc_geterrmsg(sx));
+        goto test_quota_err;
     }
     if(sxc_volume_modify(cluster, volname, NULL, 2 * QUOTA_FILE_SIZE * SX_BS_LARGE, -1, NULL)) {
         ERROR("Cannot change volume size: %s", sxc_geterrmsg(sx));
         goto test_quota_err;
     }
-    if(sxc_copy(src, dest, 0, 0, 0, NULL, 1)) {
+    if(sxc_copy_single(src, dest, 0, 0, 0, NULL, 1)) {
         ERROR("Cannot upload '%s' file: %s", local_file_path, sxc_geterrmsg(sx));
         goto test_quota_err;
     }
@@ -2219,7 +2218,7 @@ static int test_copy(sxc_client_t *sx, sxc_cluster_t *cluster, const char *local
         ERROR("Cannot open '%s' file: %s", remote_file2_path, sxc_geterrmsg(sx));
         goto test_copy_err;
     }
-    if(sxc_copy(src, dest, 0, 0, 0, NULL, 1)) {
+    if(sxc_copy_single(src, dest, 0, 0, 0, NULL, 1)) {
         ERROR("Cannot upload '%s' file: %s", remote_file2_path, sxc_geterrmsg(sx));
         goto test_copy_err;
     }
@@ -2321,7 +2320,7 @@ static int test_paths(sxc_client_t *sx, sxc_cluster_t *cluster, const char *loca
         ERROR("Cannot open 'file_trans' file: %s", sxc_geterrmsg(sx));
         goto test_paths_err;
     }
-    if(sxc_copy(src, dest, 0, 0, 0, NULL, 1)) {
+    if(sxc_copy_single(src, dest, 0, 0, 0, NULL, 1)) {
         ERROR("Cannot upload '%s' file: %s", local_file_path, sxc_geterrmsg(sx));
         goto test_paths_err;
     }
@@ -2339,7 +2338,7 @@ static int test_paths(sxc_client_t *sx, sxc_cluster_t *cluster, const char *loca
             ERROR("Cannot open '%s' file: %s", ftrans[i].dest, sxc_geterrmsg(sx));
             goto test_paths_err;
         }
-        if(sxc_copy(src, dest, 0, 0, 0, NULL, 1)) {
+        if(sxc_copy_single(src, dest, 0, 0, 0, NULL, 1)) {
             ERROR("Cannot copy '%s' file to '%s': %s", ftrans[i].src, ftrans[i].dest, sxc_geterrmsg(sx));
             goto test_paths_err;
         }

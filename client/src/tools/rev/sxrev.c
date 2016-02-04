@@ -361,8 +361,8 @@ int main(int argc, char **argv) {
     }
 
     if(!match) {
-	fprintf(stderr, "The specified revision does not exist\n");
-	ret = 2;
+	fprintf(stderr, "ERROR: The specified revision does not exist\n");
+	ret = 1;
 	goto err;
     }
 

@@ -209,7 +209,7 @@ int main(int argc, char **argv) {
         goto main_err;
     }
 
-    lst = sxc_file_list_new(sx, args.recursive_given);
+    lst = sxc_file_list_new(sx, args.recursive_given, 0);
     for(i = 0;i < args.inputs_num-1; i++) {
         int fallback = 1;
         fname = args.inputs[i];
@@ -243,7 +243,7 @@ int main(int argc, char **argv) {
         if(fallback) {
             /* TODO: more than one input requires directory as target,
              * and do the filename appending if target *is* a directory */
-            if(sxc_copy(src_file, dst_file, args.recursive_flag, 0, 0, NULL, 1)) {
+            if(sxc_copy_single(src_file, dst_file, args.recursive_flag, 0, 0, NULL, 1)) {
                 fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
                 if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_NOTFOUND_ERR) && is_sx(fname) && fname[strlen(fname) - 1] == '/')
     		    fprintf(stderr, SXBC_TOOLS_NOTFOUND_MSG, fname);
@@ -263,7 +263,7 @@ int main(int argc, char **argv) {
 	src_file = NULL;
     }
 
-    if(sxc_rm(lst, 0, 0)) {
+    if(sxc_rm(lst, 0)) {
         fprintf(stderr, "ERROR: Failed to move file(s): %s\n", sxc_geterrmsg(sx));
 	fail = 1;
     }

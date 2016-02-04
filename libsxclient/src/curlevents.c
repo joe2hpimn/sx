@@ -629,7 +629,7 @@ static void sxi_cbdata_finish(curl_events_t *e, curlev_context_t **ctxptr, const
                 ctx->retry.retries++;
                 ctx->retry.hostidx = 0;
                 if (ctx->recv_ctx.reply_status == 429 && ctx->retry.jobs) {
-                    if (sxi_job_wait(ctx->conns, ctx->retry.jobs)) {
+                    if (sxi_jobs_wait(ctx->retry.jobs, ctx->conns)) {
                         SXDEBUG("job wait failed");
                     }
                 }

@@ -1316,7 +1316,7 @@ int sxfs_update_mtime (const char *local_file_path, const char *remote_file_path
         goto sxfs_update_mtime_err;
     }
 
-    if(sxc_copy(file_local, file_remote, 0, 0, 0, NULL, 1)) {
+    if(sxc_copy_single(file_local, file_remote, 0, 0, 0, NULL, 1)) {
         SXFS_LOG("%s", sxc_geterrmsg(sx));
         ret = -sxfs_sx_err(sx);
         goto sxfs_update_mtime_err;
@@ -1657,7 +1657,7 @@ int sxfs_delete (const char *path, int is_remote, int upload_checked) {
             free(tmp_path);
             return ret;
         }
-        flist = sxc_file_list_new(sx, 1);
+        flist = sxc_file_list_new(sx, 1, 1);
         if(!flist) {
             SXFS_LOG("Cannot create new file list: %s", sxc_geterrmsg(sx));
             free(tmp_path);
@@ -1678,7 +1678,7 @@ int sxfs_delete (const char *path, int is_remote, int upload_checked) {
             ret = -sxfs_sx_err(sx);
             goto sxfs_delete_err;
         }
-        if(sxc_rm(flist, 1, 0)) {
+        if(sxc_rm(flist, 0)) {
             SXFS_LOG("Cannot remove file: %s", sxc_geterrmsg(sx));
             free(tmp_path);
             ret = -sxfs_sx_err(sx);
@@ -1707,7 +1707,7 @@ static int sxfs_delete_run (sxfs_state_t *sxfs, sxc_client_t *sx, sxc_cluster_t 
     sxfs_log(sxfs, __func__, 1, "Deleting files:");
     for(i=0; i<nfiles_del; i++)
         sxfs_log(sxfs, __func__, 1, "'%s'", delete_list[i]);
-    flist = sxc_file_list_new(sx, 0);
+    flist = sxc_file_list_new(sx, 0, ignore_error);
     if(!flist) {
         sxfs_log(sxfs, __func__, 0, "Cannot create new file list: %s", sxc_geterrmsg(sx));
         ret = -sxfs_sx_err(sx);
@@ -1737,7 +1737,7 @@ static int sxfs_delete_run (sxfs_state_t *sxfs, sxc_client_t *sx, sxc_cluster_t 
         }
         free(path);
     }
-    if(sxc_rm(flist, 0, 0) && sxc_geterrnum(sx) != SXE_EARG) {
+    if(sxc_rm(flist, 0) && sxc_geterrnum(sx) != SXE_EARG) {
         sxfs_log(sxfs, __func__, 0, "Cannot remove file list: %s", sxc_geterrmsg(sx));
         sxfs_tick_dirs_reload(sxfs->root);
         sxfs_delete_check(sx, cluster, sxfs);
@@ -2112,7 +2112,7 @@ static int sxfs_upload_run (sxfs_state_t *sxfs, sxc_client_t *sx, sxc_cluster_t 
         ret = -sxfs_sx_err(sx);
         goto sxfs_upload_run_err;
     }
-    if(sxc_copy(src, dest, 1, 0, 0, NULL, 1)) {
+    if(sxc_copy_single(src, dest, 1, 0, 0, NULL, 1)) {
         sxfs_log(sxfs, __func__, 0, "%s", sxc_geterrmsg(sx));
         sxfs_tick_dirs_reload(sxfs->root);
         if(!ignore_error) {

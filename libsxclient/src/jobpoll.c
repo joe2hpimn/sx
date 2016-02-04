@@ -31,6 +31,9 @@
 
 #define POLL_INTERVAL 30.0
 #define PROGRESS_INTERVAL 6.0
+#define JOB_POLL_MORE 1
+#define JOB_POLL_MSG 2
+
 struct job_ctx {
     unsigned *queries_finished;
     sxi_job_t *yactx;
@@ -59,6 +62,315 @@ struct _sxi_job_t {
     char *nf_src_path, *nf_dst_clust, *nf_dst_vol, *nf_dst_path;
     enum sxc_error_t err;
 };
+
+/* Batch of jobs scheduled to one cluster */
+struct jobs_batch {
+    sxi_conns_t *conns;
+    sxi_job_t **jobs;
+    unsigned int length; /* Number of elements in jobs array */
+
+    /* Counters */
+    unsigned int total; /* Total number of jobs scheduled */
+    unsigned int pending; /* Total number of running jobs */
+    unsigned int successful; /* Number of successful jobs scheduled */
+    unsigned int errors; /* Number of errors occured */
+
+    /* Stores time of first job creation */
+    struct timeval tv;
+};
+
+/* Stores list of jobs per cluster */
+typedef struct _sxi_jobs_t {
+    sxc_client_t *sx;
+
+    /* Stores a hashtable of job arrays (job batches per cluster) */
+    sxi_ht *ht;
+
+    /* Couters */
+    unsigned int total; /* Total number of jobs scheduled */
+    unsigned int pending; /* Total number of running jobs */
+    unsigned int successful; /* Number of successful jobs */
+    unsigned int errors; /* Number of jobs failed */
+
+    /* Config */
+    int ignore_errors;
+
+    /* Stores time of first the structure creation */
+    struct timeval created;
+} sxi_jobs_t;
+
+typedef enum { JOBS_NO_WAIT, JOBS_WAIT_ALL, JOBS_WAIT_SLOT } jobs_wait_kind_t;
+
+sxi_jobs_t *sxi_jobs_new(sxc_client_t *sx, int ignore_errors) {
+    sxi_jobs_t *jobs;
+
+    jobs = calloc(1, sizeof(*jobs));
+    if(!jobs) {
+        sxi_seterr(sx, SXE_EMEM, "Out of memory");
+        return NULL;
+    }
+
+    jobs->ht = sxi_ht_new(sx, 128);
+    if(!jobs->ht) {
+        sxi_seterr(sx, SXE_EMEM, "Out of memory");
+        free(jobs);
+        return NULL;
+    }
+
+    gettimeofday(&jobs->created, NULL);
+    jobs->sx = sx;
+    jobs->ignore_errors = ignore_errors;
+
+    return jobs;
+}
+
+static void jobs_batch_free(struct jobs_batch *batch) {
+    unsigned int i;
+
+    if(!batch)
+        return;
+    for(i = 0; i < batch->length; i++)
+        sxi_job_free(batch->jobs[i]);
+    free(batch->jobs);
+    free(batch);
+}
+
+void sxi_jobs_free(sxi_jobs_t *jobs) {
+    const char *uuid = NULL;
+    unsigned int uuid_len = 0;
+    struct jobs_batch *batch = NULL;
+    sxc_client_t *sx;
+
+    if(!jobs)
+        return;
+    sx = jobs->sx;
+    sxi_ht_enum_reset(jobs->ht);
+    /* TODO: enum returns cons void**, it is modified with free, work it around. */
+    while(!sxi_ht_enum_getnext(jobs->ht, (const void**)&uuid, &uuid_len, (const void**)&batch)) {
+        if(!uuid || uuid_len != UUID_LEN || !batch)
+            SXDEBUG("Invalid jobs hashtable content");
+        jobs_batch_free(batch);
+    }
+    sxi_ht_free(jobs->ht);
+    free(jobs);
+}
+
+unsigned int sxi_jobs_total(const sxi_jobs_t *jobs, const sxi_conns_t *conns) {
+    sxc_client_t *sx;
+
+    if(!jobs)
+        return 0;
+    sx = jobs->sx;
+
+    if(conns) {
+        struct jobs_batch *batch = NULL;
+
+        if(!sxi_ht_get(jobs->ht, sxi_conns_get_uuid(conns), UUID_LEN, (void**)&batch)) {
+            if(!batch) {
+                SXDEBUG("Invalid jobs hashtable content");
+                return 0;
+            }
+            return batch->total;
+        }
+        SXDEBUG("No jobs for cluster %s", sxi_conns_get_uuid(conns));
+    } else
+        return jobs->total;
+    return 0;
+}
+
+unsigned int sxi_jobs_successful(const sxi_jobs_t *jobs, const sxi_conns_t *conns) {
+    sxc_client_t *sx;
+
+    if(!jobs)
+        return 0;
+    sx = jobs->sx;
+
+    if(conns) {
+        struct jobs_batch *batch = NULL;
+
+        if(!sxi_ht_get(jobs->ht, sxi_conns_get_uuid(conns), UUID_LEN, (void**)&batch)) {
+            if(!batch) {
+                SXDEBUG("Invalid jobs hashtable content");
+                return 0;
+            }
+            return batch->successful;
+        }
+        SXDEBUG("No jobs for cluster %s", sxi_conns_get_uuid(conns));
+    } else
+        return jobs->successful;
+    return 0;
+}
+
+unsigned int sxi_jobs_errors(const sxi_jobs_t *jobs, const sxi_conns_t *conns) {
+    sxc_client_t *sx;
+
+    if(!jobs)
+        return 0;
+    sx = jobs->sx;
+
+    if(conns) {
+        struct jobs_batch *batch = NULL;
+
+        if(!sxi_ht_get(jobs->ht, sxi_conns_get_uuid(conns), UUID_LEN, (void**)&batch)) {
+            if(!batch) {
+                SXDEBUG("Invalid jobs hashtable content");
+                return 0;
+            }
+            return batch->errors;
+        }
+        SXDEBUG("No jobs for cluster %s", sxi_conns_get_uuid(conns));
+    } else
+        return jobs->errors;
+    return 0;
+}
+
+unsigned int sxi_jobs_pending(const sxi_jobs_t *jobs, const sxi_conns_t *conns) {
+    sxc_client_t *sx;
+
+    if(!jobs)
+        return 0;
+    sx = jobs->sx;
+
+    if(conns) {
+        struct jobs_batch *batch = NULL;
+
+        if(!sxi_ht_get(jobs->ht, sxi_conns_get_uuid(conns), UUID_LEN, (void**)&batch)) {
+            if(!batch) {
+                SXDEBUG("Invalid jobs hashtable content");
+                return 0;
+            }
+            return batch->pending;
+        }
+        SXDEBUG("No jobs for cluster %s", sxi_conns_get_uuid(conns));
+    } else
+        return jobs->pending;
+    return 0;
+}
+
+static int jobs_batch_add_job(struct jobs_batch *batch, sxi_job_t *job) {
+    sxc_client_t *sx;
+    unsigned int i;
+
+    if(!batch)
+        return 1;
+    sx = sxi_conns_get_client(batch->conns);
+
+    if(!job) {
+        sxi_seterr(sx, SXE_EARG, "Invalid argument");
+        return 1;
+    }
+    for(i = 0; i < batch->length; i++) {
+        if(!batch->jobs[i]) {
+            SXDEBUG("Reusing existing slot for job %s", sxi_job_get_id(job));
+            batch->jobs[i] = job;
+            break;
+        }
+    }
+
+    if(i >= batch->length) {
+        unsigned int newlen = batch->length * 2;
+        /* Could not find a slot for the job, make space for next jobs */
+        batch->jobs = sxi_realloc(sx, batch->jobs, newlen * sizeof(*batch->jobs));
+        if (!batch->jobs) {
+            sxi_seterr(sx, SXE_EMEM, "Failed to allocate space for a new job");
+            return 1;
+        }
+        memset(&batch->jobs[batch->length], 0, batch->length * sizeof(*batch->jobs));
+        batch->jobs[batch->length] = job;
+        batch->length = newlen;
+    }
+
+    batch->total++;
+    batch->pending++;
+    return 0;
+}
+
+static struct jobs_batch *jobs_batch_new(sxi_jobs_t *jobs, sxi_conns_t *conns) {
+    struct jobs_batch *batch;
+    sxc_client_t *sx;
+
+    if(!conns)
+        return NULL;
+    sx = sxi_conns_get_client(conns);
+
+    if(!jobs) {
+        sxi_seterr(sx, SXE_EARG, "Invalid argument");
+        return NULL;
+    }
+
+    batch = calloc(1, sizeof(*batch));
+    if(!batch) {
+        SXDEBUG("Failed to allocate jobs batch");
+        sxi_seterr(sx, SXE_EMEM, "Out of memory");
+        return NULL;
+    }
+
+    batch->length = 16;
+    batch->jobs = calloc(batch->length, sizeof(*batch->jobs));
+    if(!batch->jobs) {
+        SXDEBUG("Failed to allocate jobs array for jobs batch");
+        sxi_seterr(sx, SXE_EMEM, "Out of memory");
+        free(batch);
+        return NULL;
+    }
+
+    batch->conns = conns;
+    gettimeofday(&batch->tv, NULL);
+
+    if(sxi_ht_add(jobs->ht, sxi_conns_get_uuid(conns), UUID_LEN, batch)) {
+        SXDEBUG("Failed to add jobs batch to hashtable");
+        free(batch->jobs);
+        free(batch);
+        return NULL;
+    }
+
+    return batch;
+}
+
+int sxi_jobs_add(sxi_jobs_t *jobs, sxi_job_t *job)
+{
+    sxc_client_t *sx;
+    sxi_conns_t *conns;
+    struct jobs_batch *batch = NULL;
+
+    if(!jobs)
+        return 1;
+    sx = jobs->sx;
+    if (job == &JOB_NONE)
+        return 0;/* successful, but no job to add */
+    if (!job || !job->cbdata) {
+        SXDEBUG("Invalid argument: NULL job or cbdata context");
+        sxi_seterr(sx, SXE_EARG, "Invalid argument");
+        return 1;
+    }
+
+    conns = sxi_cbdata_get_conns(job->cbdata);
+    if(!conns) {
+        SXDEBUG("Invalid argument: NULL conns pointer");
+        sxi_seterr(sx, SXE_EARG, "Invalid argument");
+        return 1;
+    }
+    if(sxi_ht_get(jobs->ht, sxi_conns_get_uuid(conns), UUID_LEN, (void **)&batch)) {
+        /* No jobs batch stored in hash table yet, allocate a new one */
+        if(!(batch = jobs_batch_new(jobs, conns))) {
+            SXDEBUG("Failed to add jobs batch to hashtable");
+            free(batch);
+            return 1;
+        }
+    } else if(!batch) {
+        SXDEBUG("Successfully obtained jobs batch, but it is a NULL pointer");
+        return 1;
+    }
+
+    if(jobs_batch_add_job(batch, job)) {
+        SXDEBUG("Failed to add job to jobs batch");
+        return 1;
+    }
+    jobs->total++;
+    jobs->pending++;
+
+    return 0;
+}
 
 /*
 {
@@ -260,7 +572,6 @@ static int jobget_setup_cb(curlev_context_t *cbdata, void *ctx, const char *host
 
 static int jobget_cb(curlev_context_t *cbdata, void *ctx, const void *data, size_t size) {
     struct cb_jobget_ctx *yactx = (struct cb_jobget_ctx *)ctx;
-
     if(sxi_jparse_digest(yactx->J, data, size)) {
 	sxi_cbdata_seterr(yactx->cbdata, SXE_ECOMM, sxi_jparse_geterr(yactx->J));
 	return 1;
@@ -275,13 +586,200 @@ static void jobres_finish(curlev_context_t *ctx, const char *url)
         (*jctx->queries_finished)++;
 }
 
-static int sxi_job_poll(sxi_conns_t *conns, sxi_jobs_t *jobs, int wait);
+/* Return jobs batch for a particular cluster */
+static struct jobs_batch *get_jobs_batch(sxi_jobs_t *jobs, sxi_conns_t *conns) {
+    sxc_client_t *sx;
+    struct jobs_batch *batch = NULL;
+
+    if(!jobs)
+        return NULL;
+    sx = jobs->sx;
+    if(!conns) {
+        sxi_seterr(sx, SXE_EARG, "Invalid argument");
+        return NULL;
+    }
+
+    if(!sxi_ht_get(jobs->ht, sxi_conns_get_uuid(conns), UUID_LEN, (void**)&batch) && !batch) {
+        sxi_seterr(sx, SXE_EARG, "Failed to obtain jobs batch for cluster %s", sxi_conns_get_uuid(conns));
+        return NULL;
+    }
+
+    return batch;
+}
+
+static unsigned job_min_delay(sxi_job_t *poll)
+{
+    unsigned ret;
+
+    if (!poll)
+        return 0;
+    ret = poll->poll_min_delay;
+    poll->poll_min_delay *= 2;
+    if(poll->poll_min_delay > poll->poll_max_delay)
+        poll->poll_min_delay = poll->poll_max_delay;
+    return ret;
+}
+
+static int job_status_ev(sxi_jobs_t *jobs, struct jobs_batch *batch, sxi_job_t **job);
+static int job_result(sxi_jobs_t *jobs, struct jobs_batch *batch, sxi_job_t **yres);
+
+static int poll_jobs(sxi_conns_t *conns, sxi_jobs_t *jobs, jobs_wait_kind_t wait)
+{
+    unsigned finished;
+    unsigned alive;
+    unsigned pending;
+    unsigned errors;
+    long delay = 0;
+    unsigned i;
+    struct timeval tv0, tv1;
+    struct timeval t0, t;
+    int ret = 0;
+    int rc = 0;
+    sxc_client_t *sx;
+    struct jobs_batch *batch;
+
+    if(!conns)
+        return 1;
+    sx = sxi_conns_get_client(conns);
+    if(!jobs) {
+        SXDEBUG("NULL jobs argument");
+        sxi_seterr(sx, SXE_EARG, "Invalid argument");
+        return 1;
+    }
+
+    /* Obtain jobs batch for given cluster */
+    batch = get_jobs_batch(jobs, conns);
+    if(!batch && !(batch = jobs_batch_new(jobs, conns))) {
+        SXDEBUG("No jobs batch stored for cluster %s, but failed to create a new one", sxi_conns_get_uuid(conns));
+        return 1;
+    }
+
+    gettimeofday(&t0, NULL);
+    while(1) {
+        int msg_printed = 0;
+        gettimeofday(&tv0, NULL);
+
+        for(i=0;i<batch->length;i++) {
+            /* Check if job has already been finished and freed */
+            if(!batch->jobs[i])
+                continue;
+            delay = job_min_delay(batch->jobs[i]);
+            rc = job_status_ev(jobs, batch, &batch->jobs[i]);
+            if (rc < 0) {
+                ret = -1;
+                SXDEBUG("job_status_ev failed: %s", batch->jobs[i] ? batch->jobs[i]->message : "(null job)");
+                if (!jobs->ignore_errors)
+                    break;
+                continue;
+            }
+
+            /* When not ignoring errors first failed job should cause a fail */
+            if(!jobs->ignore_errors && batch->errors)
+                break;
+            if (rc >= JOB_POLL_MORE) {
+                if (rc == JOB_POLL_MSG) {
+                    if (!msg_printed) {
+                        /* there might be tens of jobs being polled at any time,
+                         * print the message only once per loop */
+                        sxi_info(sx, "%s, retrying job poll on %s ...", sxc_geterrmsg(sx),
+                                 batch->jobs[i]->job_host);
+                        msg_printed = 1;
+                    }
+                }
+                /* Check if the finished variable is used */
+                if (sxi_job_query_ev(conns, batch->jobs[i], &finished) == -1)
+                    ret = -1;
+            }
+        }
+        /* finish callback might be called even if sending the query failed
+         * early in some situations, so count the number of still alive queries in
+         * a separate loop */
+        finished = alive = pending = errors = 0;
+        rc = 0;
+        for (i=0;i<batch->length;i++) {
+            if (batch->jobs[i]) {
+                if (!sxi_cbdata_is_finished(batch->jobs[i]->cbdata))
+                    alive++;
+            }
+        }
+        /* If there are still alive jobs, poll before checking their status */
+        if (alive) {
+            while (finished != alive && !rc) {
+                rc = sxi_curlev_poll(sxi_conns_get_curlev(conns));
+                if (finished > alive) {
+                    sxi_notice(sx, "counters out of sync in job_wait: %d > %d", finished, alive);
+                    break;
+                }
+            }
+            if (rc) {
+                ret = rc;
+                break;
+            }
+        }
+        if (!jobs->ignore_errors && batch->errors)
+            break;
+
+        /* Check jobs statuses */
+        for (i=0;i<batch->length;i++) {
+            if (batch->jobs[i]) {
+                if (!sxi_cbdata_is_finished(batch->jobs[i]->cbdata)) {
+                    SXDEBUG("Job %s status query is not finished, but polling is", batch->jobs[i]->job_id);
+                    break;
+                }
+                switch (batch->jobs[i]->status) {
+                    case JOBST_UNDEF:/* fall-through */
+                    case JOBST_PENDING:
+                        pending++;
+                        break;
+                    case JOBST_ERROR:
+                        errors++;
+                        break;
+                    default:
+                        break;
+                }
+            }
+        }
+        if (!pending)
+            break;
+        gettimeofday(&t, NULL);
+        if (sxi_timediff(&t, &t0) > PROGRESS_INTERVAL) {
+            memcpy(&t0, &t, sizeof(t));
+        }
+        SXDEBUG("Pending %d jobs, %d errors, %d queries", pending, errors, alive);
+        if(wait == JOBS_NO_WAIT)
+            break;
+        else if(wait == JOBS_WAIT_SLOT && pending < batch->total) {
+            SXDEBUG("Waiting for job slot finished, total jobs: %d", batch->total);
+            break;
+        }
+
+        gettimeofday(&tv1, NULL);
+        delay -= (tv1.tv_sec - tv0.tv_sec) * 1000 + (tv1.tv_usec - tv0.tv_usec)/1000;
+        if (delay <= 0) delay = 1;
+        SXDEBUG("Sleeping %ld ms...", delay);
+        usleep(delay * 1000);
+    }
+    for (i=0;i<batch->length;i++) {
+        if (batch->jobs[i] && (wait != JOBS_NO_WAIT && batch->jobs[i]->status != JOBST_PENDING)) {
+            rc = job_result(jobs, batch, &batch->jobs[i]);
+            if(rc) {
+                SXDEBUG("sxi_job_result failed: %s", batch->jobs[i]->message);
+                ret = rc;
+            }
+        }
+    }
+    if(ret)
+        SXDEBUG("job_poll fails with: %d (%s)", ret, sxc_geterrmsg(sx));
+    return ret;
+}
+
 sxi_job_t* sxi_job_submit(sxi_conns_t *conns, sxi_hostlist_t *hlist, enum sxi_cluster_verb verb, const char *query, const char *name, void *content, size_t content_size, long* http_code, sxi_jobs_t *jobs) {
     sxc_client_t *sx = sxi_conns_get_client(conns);
     struct cb_jobget_ctx yget;
     int ret = -1, qret;
     sxi_job_t *yres;
     unsigned j = 0;
+    struct jobs_batch *batch = NULL;
 
     if (http_code)
         *http_code = 0;
@@ -289,11 +787,16 @@ sxi_job_t* sxi_job_submit(sxi_conns_t *conns, sxi_hostlist_t *hlist, enum sxi_cl
         sxi_seterr(sx, SXE_EARG, "Null argument to sxi_job_submit");
         return NULL;
     }
+
+    if(!jobs || sxi_ht_get(jobs->ht, sxi_conns_get_uuid(conns), UUID_LEN, (void**)&batch) || !batch)
+        SXDEBUG("Jobs batch for cluster %s is not ready yet", sxi_conns_get_uuid(conns));
+
     yres = calloc(1, sizeof(*yres));
     if (!yres) {
         sxi_setsyserr(sx, SXE_EMEM, "cannot allocate job");
         return NULL;
     }
+    gettimeofday(&yres->last_reached, NULL);
     yres->ctx.yactx = yres;
     yres->cbdata = sxi_cbdata_create_job(conns, jobres_finish, &yres->ctx);
     if (!yres->cbdata) {
@@ -311,30 +814,30 @@ sxi_job_t* sxi_job_submit(sxi_conns_t *conns, sxi_hostlist_t *hlist, enum sxi_cl
         gettimeofday(&tv, NULL);
         if (qret == 429) {
             SXDEBUG("throttle 429 received");
-            if (jobs && jobs->jobs && jobs->n) {
-                if (sxi_job_wait(conns, jobs)) {
+            if (batch && batch->jobs && batch->total) {
+                if (poll_jobs(conns, jobs, JOBS_WAIT_SLOT)) {
                     SXDEBUG("job_wait failed");
                     ret = -1;
                     goto failure;
                 }
-                memcpy(&jobs->tv, &tv, sizeof(tv));
+                memcpy(&batch->tv, &tv, sizeof(tv));
                 SXDEBUG("throttle wait finished");
             }
             sxc_clearerr(sx);
             if (j++ > 0)
                 sxi_retry_throttle(sxi_conns_get_client(conns), j);
         }
-        if (jobs) {
-            if (qret != 429 && sxi_timediff(&tv, &jobs->tv) > POLL_INTERVAL) {
-                if (jobs->jobs && jobs->n) {
+        if (batch) {
+            if (qret != 429 && sxi_timediff(&tv, &batch->tv) > POLL_INTERVAL) {
+                if (batch->jobs && batch->total) {
                     /* poll once for progress, don't sleep */
-                    if (sxi_job_poll(conns, jobs, 0)) {
+                    if (poll_jobs(conns, jobs, JOBS_NO_WAIT)) {
                         SXDEBUG("job_poll failed");
                         ret = -1;
                         goto failure;
                     }
                 }
-                memcpy(&jobs->tv, &tv, sizeof(tv));
+                memcpy(&batch->tv, &tv, sizeof(tv));
             }
         }
     } while (qret == 429);
@@ -348,7 +851,7 @@ sxi_job_t* sxi_job_submit(sxi_conns_t *conns, sxi_hostlist_t *hlist, enum sxi_cl
         sxi_seterr(sx, SXE_ECOMM, "Failed to add job: Invalid job ID");
         goto failure;
     }
-    SXDEBUG("Received job id %s with %d-%d secs polling\n", yget.job_id, yget.poll_min_delay, yget.poll_max_delay);
+    SXDEBUG("Received job id %s with %d-%d secs polling", yget.job_id, yget.poll_min_delay, yget.poll_max_delay);
 
     yres->poll_min_delay = yget.poll_min_delay;
     yres->poll_max_delay = yget.poll_max_delay;
@@ -385,22 +888,10 @@ sxi_job_t* sxi_job_submit(sxi_conns_t *conns, sxi_hostlist_t *hlist, enum sxi_cl
     return NULL;
 }
 
-static unsigned sxi_job_min_delay(sxi_job_t *poll)
-{
-    unsigned ret;
-
-    if (!poll)
-        return 0;
-    ret = poll->poll_min_delay;
-    poll->poll_min_delay *= 2;
-    if(poll->poll_min_delay > poll->poll_max_delay)
-        poll->poll_min_delay = poll->poll_max_delay;
-    return ret;
-}
-
-static int sxi_job_result(sxc_client_t *sx, sxi_job_t **yres, unsigned *successful, long *http_err, unsigned *error)
+static int job_result(sxi_jobs_t *jobs, struct jobs_batch *batch, sxi_job_t **yres)
 {
     int ret;
+    sxc_client_t *sx = jobs->sx;
     switch ((*yres)->status) {
         default:
             return 1;
@@ -408,12 +899,17 @@ static int sxi_job_result(sxc_client_t *sx, sxi_job_t **yres, unsigned *successf
             if ((*yres)->name)
                 if((*yres)->verb == REQ_DELETE)
                     sxi_info(sx, "%s: %s", (*yres)->name, "Deleted");
-            if (successful)
-                (*successful)++;
 	    if((*yres)->nf_fn) {
 		struct filter_handle *fh = (*yres)->nf_fh;
 		(*yres)->nf_fn(fh, fh->ctx, sxi_filter_get_cfg(fh, (*yres)->nf_dst_vol), sxi_filter_get_cfg_len(fh, (*yres)->nf_dst_vol), SXF_MODE_UPLOAD, NULL, NULL, (*yres)->nf_src_path, (*yres)->nf_dst_clust, (*yres)->nf_dst_vol, (*yres)->nf_dst_path);
 	    }
+            /* Make space for a new job only when it succeeds */
+            sxi_job_free(*yres);
+            *yres = NULL;
+
+            /* Increase success counters */
+            batch->successful++;
+            jobs->successful++;
             ret = 0;
             break;
         case JOBST_ERROR:
@@ -421,35 +917,37 @@ static int sxi_job_result(sxc_client_t *sx, sxi_job_t **yres, unsigned *successf
             if ((*yres)->name) 
                 sxi_notice(sx, "Failed to complete operation for %s: %s", (*yres)->name, (*yres)->message);
             sxi_seterr(sx, SXE_ECOMM, "Operation failed: %s", (*yres)->message);
+
+            /* Increase error counters */
+            batch->errors++;
+            jobs->errors++;
             ret = -1;
-            if (http_err && !*http_err)
-                *http_err = (*yres)->http_err;
-            (*error)++;
             break;
     }
 
-    sxi_job_free(*yres);
-    *yres = NULL;
+    batch->pending--;
+    jobs->pending--;
+
     return ret;
 }
 
-#define JOB_POLL_MORE 1
-#define JOB_POLL_MSG 2
-
-static int sxi_job_status_ev(sxi_conns_t *conns, sxi_job_t **job, unsigned *successful, long *http_err, unsigned *error)
+static int job_status_ev(sxi_jobs_t *jobs, struct jobs_batch *batch, sxi_job_t **job)
 {
-    sxc_client_t *sx = sxi_conns_get_client(conns);
+    sxc_client_t *sx;
     sxi_job_t *yres;
 
-    if (!job) {
-        sxi_seterr(sx, SXE_EARG, "Null argument to sxi_job_status_ev");
+    if(!jobs)
+        return -1;
+    sx = jobs->sx;
+    if(!batch || !job) {
+        sxi_seterr(sx, SXE_EARG, "Null argument to job_status_ev");
         return -1;
     }
 
     yres = *job;
 
     if (!yres || !yres->job_host || !yres->job_id) {
-        sxi_seterr(sx, SXE_EARG, "Null argument to sxi_job_status_ev");
+        sxi_seterr(sx, SXE_EARG, "Null argument to job_status_ev");
         return -1;
     }
     if (sxi_cbdata_is_finished(yres->cbdata)) {
@@ -469,13 +967,13 @@ static int sxi_job_status_ev(sxi_conns_t *conns, sxi_job_t **job, unsigned *succ
                     if (!yres->message)
                         return -1;
                     yres->status = JOBST_ERROR;
-                    return sxi_job_result(sx, job, successful, http_err, error);
+                    return job_result(jobs, batch, job);
                 }
             }
             return JOB_POLL_MSG;
         } else {
             gettimeofday(&yres->last_reached, NULL);
-            res = sxi_job_result(sx, job, successful, http_err, error);
+            res = job_result(jobs, batch, job);
             if (res < 1)
                 return res;
         }
@@ -503,142 +1001,47 @@ int sxi_job_query_ev(sxi_conns_t *conns, sxi_job_t *yres, unsigned *finished)
     return sxi_cluster_query_ev(yres->cbdata, conns, yres->job_host, REQ_GET, yres->resquery, NULL, 0, jobres_setup_cb, jobres_cb);
 }
 
-static int sxi_job_poll(sxi_conns_t *conns, sxi_jobs_t *jobs, int wait)
+int sxi_jobs_wait(sxi_jobs_t *jobs, sxi_conns_t *conns)
 {
-    unsigned finished;
-    unsigned alive;
-    unsigned pending;
-    unsigned errors;
-    long delay = 0;
-    unsigned i;
-    struct timeval tv0, tv1;
-    struct timeval t0, t;
+    sxc_client_t *sx;
     int ret = 0;
-    int rc = 0;
-    sxc_client_t *sx = sxi_conns_get_client(conns);
 
-    if (!jobs) {
-        sxi_seterr(sx, SXE_EARG, "null arg to job_wait");
-        return -1;
-    }
-    gettimeofday(&t0, NULL);
-    while(1) {
-        int msg_printed = 0;
-        gettimeofday(&tv0, NULL);
-        for (i=0;i<jobs->n;i++) {
-            if (!jobs->jobs[i])
-                continue;
-            delay = sxi_job_min_delay(jobs->jobs[i]);
-            rc = sxi_job_status_ev(conns, &jobs->jobs[i], &jobs->successful, &jobs->http_err, &jobs->error);
-            if (rc < 0) {
-                ret = -1;
-                SXDEBUG("sxi_job_status_ev failed: %s", jobs->jobs[i] ? jobs->jobs[i]->message : "(null job)");
-                if (!jobs->ignore_errors)
-                    break;
-                continue;
-            }
-            if (!jobs->ignore_errors && jobs->error)
-                break;
-            if (rc >= JOB_POLL_MORE) {
-                if (rc == JOB_POLL_MSG) {
-                    if (!msg_printed) {
-                        /* there might be tens of jobs being polled at any time,
-                         * print the message only once per loop */
-                        sxi_info(sx, "%s, retrying job poll on %s ...", sxc_geterrmsg(sx),
-                                 jobs->jobs[i]->job_host);
-                        msg_printed = 1;
-                    }
-                }
-                if (sxi_job_query_ev(conns, jobs->jobs[i], &finished) == -1)
-                    ret = -1;
-            }
-        }
-        /* finish callback might be called even if sending the query failed
-         * early in some situations, so count the number of still alive queries in
-         * a separate loop */
-        finished = alive = pending = errors = 0;
-        rc = 0;
-        for (i=0;i<jobs->n;i++) {
-            if (jobs->jobs[i]) {
-                if (!sxi_cbdata_is_finished(jobs->jobs[i]->cbdata))
-                    alive++;
-            }
-        }
-        /* If there are still alive jobs, poll before checking their status */
-        if (alive) {
-            while (finished != alive && !rc) {
-                rc = sxi_curlev_poll(sxi_conns_get_curlev(conns));
-                if (finished > alive) {
-                    sxi_notice(sx, "counters out of sync in job_wait: %d > %d", finished, alive);
-                    break;
-                }
-            }
-            if (rc) {
-                ret = rc;
-                break;
-            }
-        }
-        if (!jobs->ignore_errors && jobs->error)
-            break;
+    if(!jobs)
+        return 1;
+    sx = jobs->sx;
 
-        /* Check jobs statuses */
-        for (i=0;i<jobs->n;i++) {
-            if (jobs->jobs[i]) {
-                if (!sxi_cbdata_is_finished(jobs->jobs[i]->cbdata)) {
-                    SXDEBUG("Job %s status query is not finished, but polling is", jobs->jobs[i]->job_id);
-                    break;
-                }
-                switch (jobs->jobs[i]->status) {
-                    case JOBST_UNDEF:/* fall-through */
-                    case JOBST_PENDING:
-                        pending++;
-                        break;
-                    case JOBST_ERROR:
-                        errors++;
-                        break;
-                    default:
-                        break;
-                }
-            }
-        }
-        if (!pending)
-            break;
-        gettimeofday(&t, NULL);
-        if (sxi_timediff(&t, &t0) > PROGRESS_INTERVAL) {
-            memcpy(&t0, &t, sizeof(t));
-        }
-        SXDEBUG("Pending %d jobs, %d errors, %d queries", pending, errors, alive);
-        if (!wait)
-            break;
-        gettimeofday(&tv1, NULL);
-        delay -= (tv1.tv_sec - tv0.tv_sec) * 1000 + (tv1.tv_usec - tv0.tv_usec)/1000;
-        if (delay <= 0) delay = 1;
-        SXDEBUG("Sleeping %ld ms...", delay);
-        usleep(delay * 1000);
-    }
-    rc = 0;
-    for (i=0;i<jobs->n;i++) {
-        if (jobs->jobs[i] && (wait || jobs->jobs[i]->status != JOBST_PENDING)) {
-            rc = sxi_job_result(sx, &jobs->jobs[i], &jobs->successful, &jobs->http_err, &jobs->error);
-            if(rc) {
-                SXDEBUG("sxi_job_result failed: %s", jobs->jobs[i] ? jobs->jobs[i]->message : "(null job)");
-                ret = rc;
-            }
-        }
-    }
-    if(ret)
-        SXDEBUG("job_poll fails with: %d (%s)", ret, sxc_geterrmsg(sx));
-    return ret;
-}
+    /* Check if any job was added */
+    if(!jobs->total)
+        return 0;
 
-int sxi_job_wait(sxi_conns_t *conns, sxi_jobs_t *jobs)
-{
-    int ret = sxi_job_poll(conns, jobs, 1);
-    if (jobs->ignore_errors && jobs->error > 1) {
-        sxc_client_t *sx = sxi_conns_get_client(conns);
+    if(!conns) { /* Wait for all jobs */
+        const char *uuid = NULL;
+        unsigned int uuid_len = 0;
+        struct jobs_batch *batch = NULL;
+
+        sxi_ht_enum_reset(jobs->ht);
+        while(!sxi_ht_enum_getnext(jobs->ht, (const void**)&uuid, &uuid_len, (const void **)&batch)) {
+            if(!uuid || uuid_len != UUID_LEN || !batch) {
+                SXDEBUG("Invalid jobs hashtable content");
+                sxi_seterr(sx, SXE_EARG, "Failed to obtain jobs batch");
+                return 1;
+            }
+
+            if(poll_jobs(batch->conns, jobs, JOBS_WAIT_ALL)) {
+                SXDEBUG("Failed to wait for jobs for cluster %s", uuid);
+                ret = 1;
+                /* Do not wait for other jobs when not ignoring errors */
+                if(!jobs->ignore_errors)
+                    break;
+            }
+        }
+    } else if(poll_jobs(conns, jobs, JOBS_WAIT_ALL))
+        ret = 1;
+
+    if(jobs->ignore_errors && jobs->errors > 1) {
         sxc_clearerr(sx);
-        sxi_seterr(sx, SXE_SKIP, "Failed to process %d files", jobs->error);
-        ret = -1;
+        sxi_seterr(sx, SXE_SKIP, "Failed to process %d files", jobs->errors);
+        ret = 1;
     }
     return ret;
 }
@@ -646,27 +1049,36 @@ int sxi_job_wait(sxi_conns_t *conns, sxi_jobs_t *jobs)
 int sxi_job_submit_and_poll_err(sxi_conns_t *conns, sxi_hostlist_t *hlist, enum sxi_cluster_verb verb, const char *query, void *content, size_t content_size, long *http_err)
 {
     int rc;
-    sxi_job_t *jtable[1] = {
-        sxi_job_submit(conns, hlist, verb, query, NULL, content, content_size, http_err, NULL)
-    };
-    if (!jtable[0])
-        return -1;
-    sxi_jobs_t jobs = { jtable, 1, 0, 0, { 0, 0 }, 0, 0};
-    rc = sxi_job_wait(conns, &jobs);
+    sxc_client_t *sx = sxi_conns_get_client(conns);
+    sxi_jobs_t *jobs;
+    sxi_job_t *job = sxi_job_submit(conns, hlist, verb, query, NULL, content, content_size, http_err, NULL);
+
+    if (!job)
+        return 1;
+    jobs = sxi_jobs_new(sx, 0);
+    if(!jobs) {
+        SXDEBUG("Failed to allocate jobs context");
+        sxi_job_free(job);
+        return 1;
+    }
+
+    if(sxi_jobs_add(jobs, job)) {
+        SXDEBUG("Failed to add job to jobs context");
+        sxi_job_free(job);
+        sxi_jobs_free(jobs);
+        return 1;
+    }
+
+    rc = sxi_jobs_wait(jobs, conns);
     if (http_err)
-        *http_err = jobs.http_err;
-    sxi_job_free(jtable[0]);
+        *http_err = job->http_err;
+    sxi_jobs_free(jobs);
     return rc;
 }
 
 int sxi_job_submit_and_poll(sxi_conns_t *conns, sxi_hostlist_t *hlist, enum sxi_cluster_verb verb, const char *query, void *content, size_t content_size)
 {
     return sxi_job_submit_and_poll_err(conns, hlist, verb, query, content, content_size, NULL);
-}
-
-/* Return number of successfully finished jobs */
-unsigned sxi_jobs_get_successful(const sxi_jobs_t *jobs) {
-    return jobs ? jobs->successful : 0;
 }
 
 sxi_job_t JOB_NONE;
@@ -709,6 +1121,7 @@ sxi_job_t *sxi_job_new(sxi_conns_t *conns, const char *id, enum sxi_cluster_verb
         return NULL;
     }
 
+    gettimeofday(&job->last_reached, NULL);
     job->poll_min_delay = 0;
     job->poll_max_delay = 0;
     job->verb = verb;

@@ -651,9 +651,10 @@ int main(int argc, char **argv) {
     const char *fname;
     char *filter_dir;
     sxc_logger_t log;
-    sxc_cluster_t *cluster1 = NULL, *cluster2 = NULL;
+    sxc_cluster_t *cluster1 = NULL, **source = NULL;
     int64_t limit = 0;
     sxc_exclude_t *exclude = NULL;
+    sxc_file_list_t *lst = NULL;
 
     if(cmdline_parser(argc, argv, &args))
 	exit(1);
@@ -794,83 +795,87 @@ int main(int argc, char **argv) {
         }
     }
 
-    for(i = 0;i < args.inputs_num-1; i++) {
+    lst = sxc_file_list_new(sx, args.recursive_given, args.ignore_errors_flag);
+    if(!lst) {
+        fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
+        goto main_err;
+    }
+
+    source = calloc(args.inputs_num - 1, sizeof(*source));
+    if(!source) {
+        fprintf(stderr, "ERROR: Out of memory\n");
+        goto main_err;
+    }
+
+    for(i = 0; i < args.inputs_num-1; i++) {
         fname = args.inputs[i];
         if(!strcmp(fname, "-")) {
             fname = "/dev/stdin";
-	} else if(!is_sx(fname)) {
-	    struct stat sb;
-	    if(access(fname, R_OK)) {
-		fprintf(stderr, "ERROR: Cannot access %s: %s\n", fname, strerror(errno));
-		if(args.ignore_errors_flag) {
-		    skipped++;
-		    continue;
-		}
-		goto main_err;
-	    }
-	    if(stat(fname, &sb)) {
-		fprintf(stderr, "ERROR: Cannot stat %s: %s\n", fname, strerror(errno));
-		if(args.ignore_errors_flag) {
-		    skipped++;
-		    continue;
-		}
-		goto main_err;
-	    }
-	    if(S_ISDIR(sb.st_mode) && !args.recursive_flag) {
-		fprintf(stderr, "WARNING: Cannot copy directory %s: use -r to copy recursively\n", fname);
-		if(args.ignore_errors_flag) {
-		    skipped++;
-		    continue;
-		}
-		goto main_err;
-	    }
-	}
-
-        if(!(src_file = sxfile_from_arg(&cluster2, fname, !args.recursive_flag))) {
-	    if(args.ignore_errors_flag) {
-		skipped++;
-		continue;
-	    }
-	    goto main_err;
-	}
-
-        if(cluster2 && (args.total_conns_limit_given || args.host_conns_limit_given)) {
-            if(args.total_conns_limit_arg < 0 || args.host_conns_limit_arg < 0) {
-                fprintf(stderr, "ERROR: Connections limit must be positive number\n");
+        } else if(!is_sx(fname)) {
+            struct stat sb;
+            if(access(fname, R_OK)) {
+                fprintf(stderr, "ERROR: Cannot access %s: %s\n", fname, strerror(errno));
+                if(args.ignore_errors_flag) {
+                    skipped++;
+                    continue;
+                }
                 goto main_err;
             }
-            if(sxc_cluster_set_conns_limit(cluster2, args.total_conns_limit_arg, args.host_conns_limit_arg)) {
-                fprintf(stderr, "ERROR: Failed to set connections limits: %s\n", sxc_geterrmsg(sx));
+            if(stat(fname, &sb)) {
+                fprintf(stderr, "ERROR: Cannot stat %s: %s\n", fname, strerror(errno));
+                if(args.ignore_errors_flag) {
+                    skipped++;
+                    continue;
+                }
+                goto main_err;
+            }
+            if(S_ISDIR(sb.st_mode) && !args.recursive_flag) {
+                fprintf(stderr, "WARNING: Cannot copy directory %s: use -r to copy recursively\n", fname);
+                if(args.ignore_errors_flag) {
+                    skipped++;
+                    continue;
+                }
                 goto main_err;
             }
         }
 
-        if(limit && cluster2 && sxc_cluster_set_bandwidth_limit(sx, cluster2, limit)) {
-            fprintf(stderr, "ERROR: Failed to set bandwidth limit to %s\n", args.bwlimit_arg);
+        if(!(src_file = sxfile_from_arg(&source[i], fname, 0))) {
+            if(args.ignore_errors_flag) {
+                skipped++;
+                continue;
+            }
             goto main_err;
         }
 
-        if((!args.no_progress_flag || args.verbose_flag) && cluster2 && sxc_cluster_set_progress_cb(sx, cluster2, progress_callback, NULL)) {
+        if((!args.no_progress_flag || args.verbose_flag) && source[i] && sxc_cluster_set_progress_cb(sx, source[i], progress_callback, NULL)) {
             fprintf(stderr, "ERROR: Could not set progress callback\n");
             goto main_err;
         }
-        
-        /* TODO: more than one input requires directory as target,
-         * and do the filename appending if target *is* a directory */
-        if(sxc_copy(src_file, dst_file, args.recursive_flag, args.one_file_system_flag, args.ignore_errors_flag, exclude, 0)) {
-            fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
-	    if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_NOTFOUND_ERR) && is_sx(fname) && fname[strlen(fname) - 1] == '/')
-		fprintf(stderr, SXBC_TOOLS_NOTFOUND_MSG, fname);
-	    if((cluster1 || cluster2) && strstr(sxc_geterrmsg(sx), SXBC_TOOLS_VOL_ERR))
-		fprintf(stderr, SXBC_TOOLS_VOL_MSG, "", "", cluster1 ? sxc_cluster_get_sslname(cluster1) : sxc_cluster_get_sslname(cluster2));
-	    if(args.ignore_errors_flag) {
-		skipped++;
-		continue;
-	    }
+
+        if(sxc_file_list_add(lst, src_file, 1)) {
+            fprintf(stderr, "ERROR: Cannot add file list entry '%s': %s\n", fname, sxc_geterrmsg(sx));
+            sxc_file_free(src_file);
             goto main_err;
         }
-        sxc_file_free(src_file);
-        src_file = NULL;
+    }
+
+    if(sxc_copy(lst, dst_file, args.recursive_flag, args.one_file_system_flag, exclude, 0)) {
+        fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
+        if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_NOTFOUND_ERR) && is_sx(fname) && fname[strlen(fname) - 1] == '/')
+            fprintf(stderr, SXBC_TOOLS_NOTFOUND_MSG, fname);
+        if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_VOL_ERR)) {
+            if(cluster1)
+                fprintf(stderr, SXBC_TOOLS_VOL_MSG, "", "", sxc_cluster_get_sslname(cluster1));
+            else {
+                for(i = 0; i < args.inputs_num - 1; i++) {
+                    if(source[i]) {
+                        fprintf(stderr, SXBC_TOOLS_VOL_MSG, "", "", sxc_cluster_get_sslname(cluster1));
+                        break;
+                    }
+                }
+            }
+        }
+        goto main_err;
     }
 
     /* If --node-preference is given, save cluster configuration in order to store nodes speeds */
@@ -879,9 +884,11 @@ int main(int argc, char **argv) {
             fprintf(stderr, "ERROR: Failed to save cluster configuration: %s\n", sxc_geterrmsg(sx));
             goto main_err;
         }
-        if(cluster2 && sxc_cluster_save(cluster2, sxc_get_confdir(sx))) {
-            fprintf(stderr, "ERROR: Failed to save cluster configuration: %s\n", sxc_geterrmsg(sx));
-            goto main_err;
+        for(i = 0; i < args.inputs_num - 1; i++) {
+            if(source[i] && sxc_cluster_save(source[i], sxc_get_confdir(sx))) {
+                fprintf(stderr, "ERROR: Failed to save cluster configuration: %s\n", sxc_geterrmsg(sx));
+                goto main_err;
+            }
         }
     }
 
@@ -892,13 +899,15 @@ int main(int argc, char **argv) {
  main_err:
     bar_free();
     sxc_exclude_delete(exclude);
-    sxc_file_free(src_file);
     sxc_file_free(dst_file);
+    sxc_file_list_free(lst);
 
     signal(SIGINT, SIG_IGN);
     signal(SIGTERM, SIG_IGN);
     sxc_cluster_free(cluster1);
-    sxc_cluster_free(cluster2);
+    for(i = 0; source && i < args.inputs_num - 1; i++)
+        sxc_cluster_free(source[i]);
+    free(source);
     sxc_shutdown(sx, 0);
     cmdline_parser_free(&args);
 

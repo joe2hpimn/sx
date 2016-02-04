@@ -39,7 +39,7 @@ const char *sxi_cluster_get_confdir(const sxc_cluster_t *cluster);
 /* Note: volume/path may be freed after exit from cb, make a copy if needed
  * inside! */
 
-typedef sxi_job_t* (*file_list_cb_t)(sxc_file_list_t *target, sxc_file_t *pattern, sxc_cluster_t *cfg, sxi_hostlist_t *hlist,
+typedef int (*file_list_cb_t)(sxc_file_list_t *target, sxc_file_t *pattern, sxi_hostlist_t *hlist,
                                    sxc_meta_t *cvmeta, sxc_file_t *file, void *ctx, struct filter_handle *fh, const char *filter_fcgdir);
 typedef int (*multi_cb_t)(sxc_file_list_t *target, void *ctx);
 char *sxi_ith_slash(char *s, unsigned int i);

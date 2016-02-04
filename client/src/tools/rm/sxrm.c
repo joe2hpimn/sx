@@ -65,7 +65,7 @@ int main(int argc, char **argv) {
     struct gengetopt_args_info args;
     char *filter_dir;
     sxc_logger_t log;
-    sxc_cluster_t *cluster = NULL;
+    sxc_cluster_t **clusters = NULL;
     sxc_file_list_t *lst = NULL;
 
     if(cmdline_parser(argc, argv, &args))
@@ -122,10 +122,18 @@ int main(int argc, char **argv) {
     }
     free(filter_dir);
 
-    lst = sxc_file_list_new(sx, args.recursive_given);
+    clusters = calloc(args.inputs_num, sizeof(*clusters));
+    if(!clusters) {
+        fprintf(stderr, "ERROR: Out of memory\n");
+        cmdline_parser_free(&args);
+        sxc_shutdown(sx, 0);
+        return 1;
+    }
+
+    lst = sxc_file_list_new(sx, args.recursive_given, args.ignore_errors_flag);
     for(i = 0; lst && i < args.inputs_num; i++) {
         const char *url = args.inputs[i];
-        sxc_file_t *target = sxc_file_from_url(sx, &cluster, url);
+        sxc_file_t *target = sxc_file_from_url(sx, &clusters[i], url);
         if (!target) {
 	    sxc_uri_t *u = NULL;
             fprintf(stderr, "ERROR: Can't process URL '%s': %s\n", url, sxc_geterrmsg(sx));
@@ -149,18 +157,25 @@ int main(int argc, char **argv) {
         if (!sxc_file_is_sx(target)) {
             fprintf(stderr, "WARNING: Will not remove local file '%s'\n", url);
             ret = 1;
+            continue;
         }
         if (sxc_file_list_add(lst, target, 1)) {
             fprintf(stderr, "ERROR: Cannot add file list entry '%s': %s\n", url, sxc_geterrmsg(sx));
             ret = 1;
             sxc_file_free(target);
+            break;
         }
     }
-    if (sxc_rm(lst, args.ignore_errors_flag, args.mass_given)) {
+    if (sxc_rm(lst, args.mass_given)) {
         fprintf(stderr, "ERROR: Failed to remove file(s): %s\n", sxc_geterrmsg(sx));
-	if(cluster && strstr(sxc_geterrmsg(sx), SXBC_TOOLS_VOL_ERR))
-	    fprintf(stderr, SXBC_TOOLS_VOL_MSG, "", "", sxc_cluster_get_sslname(cluster));
-	else if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_RMVOL_ERR)) {
+	if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_VOL_ERR)) {
+            for(i = 0; i < args.inputs_num; i++) {
+                if(clusters[i]) {
+	            fprintf(stderr, SXBC_TOOLS_VOL_MSG, "", "", sxc_cluster_get_sslname(clusters[i]));
+                    break;
+                }
+            }
+	} else if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_RMVOL_ERR)) {
 	    /* only check the first argument */
 	    sxc_uri_t *u = sxc_parse_uri(sx, args.inputs[0]);
 	    if(u) {
@@ -177,7 +192,9 @@ int main(int argc, char **argv) {
         printf("Deleted %d file(s)\n", sxc_file_list_get_successful(lst));
 
     sxc_file_list_free(lst);
-    sxc_cluster_free(cluster);
+    for(i = 0; i < args.inputs_num; i++)
+        sxc_cluster_free(clusters[i]);
+    free(clusters);
 
     cmdline_parser_free(&args);
     sxc_shutdown(sx, 0);
