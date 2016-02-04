@@ -609,11 +609,13 @@ int main(int argc, char **argv) {
             }
             if(args.version_given) {
                 printf("%s %s\n", MAIN_CMDLINE_PARSER_PACKAGE, SRC_VERSION);
+                useradd_cmdline_parser_free(&args);
 		break;
 	    }
             if(args.config_dir_given && sxc_set_confdir(sx, args.config_dir_arg)) {
                 fprintf(stderr, "ERROR: Could not set configuration directory %s: %s\n", args.config_dir_arg, sxc_geterrmsg(sx));
                 ret = 1;
+                useradd_cmdline_parser_free(&args);
                 break;
             }
             sxc_set_debug(sx, args.debug_flag);
@@ -622,11 +624,13 @@ int main(int argc, char **argv) {
 		printf("\n");
                 fprintf(stderr, "ERROR: Wrong number of arguments\n");
                 ret = 1;
+                useradd_cmdline_parser_free(&args);
                 break;
             }
 	    cluster = load_config(sx, args.inputs[1], &uri);
 	    if(!cluster) {
                 ret = 1;
+                useradd_cmdline_parser_free(&args);
                 break;
             }
 
@@ -635,6 +639,7 @@ int main(int argc, char **argv) {
                 if(quota < 0) {
                     fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
                     ret = 1;
+                    useradd_cmdline_parser_free(&args);
                     break;
                 }
             }
@@ -650,11 +655,13 @@ int main(int argc, char **argv) {
             }
             if(args.version_given) {
                 printf("%s %s\n", MAIN_CMDLINE_PARSER_PACKAGE, SRC_VERSION);
+                userclone_cmdline_parser_free(&args);
                 break;
             }
             if(args.config_dir_given && sxc_set_confdir(sx, args.config_dir_arg)) {
                 fprintf(stderr, "ERROR: Could not set configuration directory %s: %s\n", args.config_dir_arg, sxc_geterrmsg(sx));
                 ret = 1;
+                userclone_cmdline_parser_free(&args);
                 break;
             }
             sxc_set_debug(sx, args.debug_flag);
@@ -663,11 +670,13 @@ int main(int argc, char **argv) {
                 printf("\n");
                 fprintf(stderr, "ERROR: Wrong number of arguments\n");
                 ret = 1;
+                userclone_cmdline_parser_free(&args);
                 break;
             }
             cluster = load_config(sx, args.inputs[2], &uri);
             if(!cluster) {
                 ret = 1;
+                userclone_cmdline_parser_free(&args);
                 break;
             }
             ret = add_user(sx, cluster, uri, args.inputs[1], NULL, 0, args.auth_file_arg, args.batch_mode_flag, args.force_key_arg, args.inputs[0], args.description_arg, 0, 0);
@@ -681,11 +690,13 @@ int main(int argc, char **argv) {
             }
             if(args.version_given) {
                 printf("%s %s\n", MAIN_CMDLINE_PARSER_PACKAGE, SRC_VERSION);
+                userdel_cmdline_parser_free(&args);
 		break;
 	    }
             if(args.config_dir_given && sxc_set_confdir(sx, args.config_dir_arg)) {
                 fprintf(stderr, "ERROR: Could not set configuration directory %s: %s\n", args.config_dir_arg, sxc_geterrmsg(sx));
                 ret = 1;
+                userdel_cmdline_parser_free(&args);
                 break;
             }
             sxc_set_debug(sx, args.debug_flag);
@@ -694,11 +705,13 @@ int main(int argc, char **argv) {
 		printf("\n");
                 fprintf(stderr, "ERROR: Wrong number of arguments\n");
                 ret = 1;
+                userdel_cmdline_parser_free(&args);
                 break;
             }
 	    cluster = load_config(sx, args.inputs[1], &uri);
 	    if(!cluster) {
                 ret = 1;
+                userdel_cmdline_parser_free(&args);
                 break;
             }
 	    if(sxc_user_remove(cluster, args.inputs[0], args.all_given)) {
@@ -717,11 +730,13 @@ int main(int argc, char **argv) {
             }
             if(args.version_given) {
                 printf("%s %s\n", MAIN_CMDLINE_PARSER_PACKAGE, SRC_VERSION);
+                userlist_cmdline_parser_free(&args);
 		break;
 	    }
             if(args.config_dir_given && sxc_set_confdir(sx, args.config_dir_arg)) {
                 fprintf(stderr, "ERROR: Could not set configuration directory %s: %s\n", args.config_dir_arg, sxc_geterrmsg(sx));
                 ret = 1;
+                userlist_cmdline_parser_free(&args);
                 break;
             }
             sxc_set_debug(sx, args.debug_flag);
@@ -730,11 +745,13 @@ int main(int argc, char **argv) {
 		printf("\n");
                 fprintf(stderr, "ERROR: Wrong number of arguments\n");
                 ret = 1;
+                userlist_cmdline_parser_free(&args);
                 break;
             }
 	    cluster = load_config(sx, args.inputs[0], &uri);
 	    if(!cluster) {
                 ret = 1;
+                userlist_cmdline_parser_free(&args);
                 break;
             }
 	    ret = list_users(sx, cluster, uri, args.clones_arg, !!args.clones_arg || args.verbose_given, args.human_readable_given);
@@ -747,11 +764,13 @@ int main(int argc, char **argv) {
             }
             if(args.version_given) {
                 printf("%s %s\n", MAIN_CMDLINE_PARSER_PACKAGE, SRC_VERSION);
+                usergetkey_cmdline_parser_free(&args);
 		break;
 	    }
             if(args.config_dir_given && sxc_set_confdir(sx, args.config_dir_arg)) {
                 fprintf(stderr, "ERROR: Could not set configuration directory %s: %s\n", args.config_dir_arg, sxc_geterrmsg(sx));
                 ret = 1;
+                usergetkey_cmdline_parser_free(&args);
                 break;
             }
             sxc_set_debug(sx, args.debug_flag);
@@ -760,11 +779,13 @@ int main(int argc, char **argv) {
 		printf("\n");
                 fprintf(stderr, "ERROR: Wrong number of arguments\n");
                 ret = 1;
+                usergetkey_cmdline_parser_free(&args);
                 break;
             }
 	    cluster = load_config(sx, args.inputs[1], &uri);
 	    if(!cluster) {
                 ret = 1;
+                usergetkey_cmdline_parser_free(&args);
                 break;
             }
 	    ret = getkey_user(sx, cluster, uri, args.inputs[0], args.auth_file_arg, args.config_link_given);
@@ -777,11 +798,13 @@ int main(int argc, char **argv) {
             }
             if(args.version_given) {
                 printf("%s %s\n", MAIN_CMDLINE_PARSER_PACKAGE, SRC_VERSION);
+                usernewkey_cmdline_parser_free(&args);
 		break;
 	    }
             if(args.config_dir_given && sxc_set_confdir(sx, args.config_dir_arg)) {
                 fprintf(stderr, "ERROR: Could not set configuration directory %s: %s\n", args.config_dir_arg, sxc_geterrmsg(sx));
                 ret = 1;
+                usernewkey_cmdline_parser_free(&args);
                 break;
             }
             sxc_set_debug(sx, args.debug_flag);
@@ -790,11 +813,13 @@ int main(int argc, char **argv) {
 		printf("\n");
                 fprintf(stderr, "ERROR: Wrong number of arguments\n");
                 ret = 1;
+                usernewkey_cmdline_parser_free(&args);
                 break;
             }
 	    cluster = load_config(sx, args.inputs[1], &uri);
 	    if(!cluster) {
                 ret = 1;
+                usernewkey_cmdline_parser_free(&args);
                 break;
             }
 	    ret = newkey_user(sx, cluster, uri, args.inputs[0], args.pass_file_arg, args.auth_file_arg, args.batch_mode_flag, args.force_key_arg, args.generate_key_given);
@@ -822,11 +847,13 @@ int main(int argc, char **argv) {
                 printf("\n");
                 fprintf(stderr, "ERROR: Wrong number of arguments\n");
                 ret = 1;
+                usermod_cmdline_parser_free(&args);
                 break;
             }
             cluster = load_config(sx, args.inputs[1], &uri);
             if(!cluster) {
                 ret = 1;
+                usermod_cmdline_parser_free(&args);
                 break;
             }
 
@@ -835,14 +862,13 @@ int main(int argc, char **argv) {
                 if(quota < 0) {
                     fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
                     ret = 1;
+                    usermod_cmdline_parser_free(&args);
                     break;
                 }
 
             }
 
             ret = modify_user(sx, cluster, args.inputs[0], quota, args.description_given ? args.description_arg : NULL);
-            if(ret)
-                break;
             usermod_cmdline_parser_free(&args);
         } else if (!strcmp(argv[1], "volperm")) {
             struct volperm_args_info args;
@@ -852,11 +878,13 @@ int main(int argc, char **argv) {
             }
             if(args.version_given) {
                 printf("%s %s\n", MAIN_CMDLINE_PARSER_PACKAGE, SRC_VERSION);
+                volperm_cmdline_parser_free(&args);
 		break;
 	    }
             if(args.config_dir_given && sxc_set_confdir(sx, args.config_dir_arg)) {
                 fprintf(stderr, "ERROR: Could not set configuration directory %s: %s\n", args.config_dir_arg, sxc_geterrmsg(sx));
                 ret = 1;
+                volperm_cmdline_parser_free(&args);
                 break;
             }
             sxc_set_debug(sx, args.debug_flag);
@@ -865,16 +893,17 @@ int main(int argc, char **argv) {
 		printf("\n");
                 fprintf(stderr, "ERROR: Wrong number of arguments\n");
                 ret = 1;
+                volperm_cmdline_parser_free(&args);
                 break;
             }
 	    cluster = load_config(sx, args.inputs[1], &uri);
 	    if(!cluster) {
                 ret = 1;
+                volperm_cmdline_parser_free(&args);
                 break;
             }
 	    ret = volume_acl(sx, cluster, uri, args.inputs[0], args.grant_arg, args.revoke_arg);
             volperm_cmdline_parser_free(&args);
-
         } else if (!strcmp(argv[1], "volshow")) {
             struct volshow_args_info args;
             if (volshow_cmdline_parser(argc - 1, &argv[1], &args)) {
@@ -883,11 +912,13 @@ int main(int argc, char **argv) {
             }
             if(args.version_given) {
                 printf("%s %s\n", MAIN_CMDLINE_PARSER_PACKAGE, SRC_VERSION);
+                volshow_cmdline_parser_free(&args);
 		break;
 	    }
             if(args.config_dir_given && sxc_set_confdir(sx, args.config_dir_arg)) {
                 fprintf(stderr, "ERROR: Could not set configuration directory %s: %s\n", args.config_dir_arg, sxc_geterrmsg(sx));
                 ret = 1;
+                volshow_cmdline_parser_free(&args);
                 break;
             }
             sxc_set_debug(sx, args.debug_flag);
@@ -896,11 +927,13 @@ int main(int argc, char **argv) {
 		printf("\n");
                 fprintf(stderr, "ERROR: Wrong number of arguments\n");
                 ret = 1;
+                volshow_cmdline_parser_free(&args);
                 break;
             }
 	    cluster = load_config(sx, args.inputs[0], &uri);
 	    if(!cluster) {
                 ret = 1;
+                volshow_cmdline_parser_free(&args);
                 break;
             }
 	    ret = show_acls(sx, cluster, uri);
@@ -913,11 +946,13 @@ int main(int argc, char **argv) {
             }
             if(args.version_given) {
                 printf("%s %s\n", MAIN_CMDLINE_PARSER_PACKAGE, SRC_VERSION);
+                whoami_cmdline_parser_free(&args);
 		break;
 	    }
             if(args.config_dir_given && sxc_set_confdir(sx, args.config_dir_arg)) {
                 fprintf(stderr, "ERROR: Could not set configuration directory %s: %s\n", args.config_dir_arg, sxc_geterrmsg(sx));
                 ret = 1;
+                whoami_cmdline_parser_free(&args);
                 break;
             }
             sxc_set_debug(sx, args.debug_flag);
@@ -927,11 +962,13 @@ int main(int argc, char **argv) {
 		printf("\n");
                 fprintf(stderr, "ERROR: Wrong number of arguments\n");
                 ret = 1;
+                whoami_cmdline_parser_free(&args);
                 break;
             }
 	    cluster = load_config(sx, args.inputs[0], &uri);
 	    if(!cluster) {
                 ret = 1;
+                whoami_cmdline_parser_free(&args);
                 break;
             }
 	    ret = whoami(sx, cluster, uri, args.human_readable_given);
