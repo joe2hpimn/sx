@@ -331,7 +331,7 @@ int main(int argc, char **argv) {
 	    if(fl) {
                 if(!nfiles && !sxc_str_has_glob(u->path)) {
                     ret = 1;
-                    fprintf(stderr, "ERROR: Not Found\n");
+                    fprintf(stderr, "ERROR: Failed to list files: Not Found\n");
                 }
 		while(nfiles) {
                     sxc_file_t *file;

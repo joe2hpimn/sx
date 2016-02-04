@@ -861,7 +861,7 @@ int main(int argc, char **argv) {
 
     if(sxc_copy(lst, dst_file, args.recursive_flag, args.one_file_system_flag, exclude, 0)) {
         fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
-        if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_NOTFOUND_ERR) && is_sx(fname) && fname[strlen(fname) - 1] == '/')
+        if(!args.recursive_flag && strstr(sxc_geterrmsg(sx), SXBC_TOOLS_NOTFOUND_ERR) && is_sx(fname) && fname[strlen(fname) - 1] == '/')
             fprintf(stderr, SXBC_TOOLS_NOTFOUND_MSG, fname);
         if(strstr(sxc_geterrmsg(sx), SXBC_TOOLS_VOL_ERR)) {
             if(cluster1)

@@ -6068,7 +6068,7 @@ int sxc_file_list_add(sxc_file_list_t *lst, sxc_file_t *file, int allow_glob)
         return -1;
     }
     entry = &lst->entries[lst->n - 1];
-    if (allow_glob && !lst->recursive && !strchr(file->path, '*') && !strchr(file->path,'?') && !strchr(file->path,'['))
+    if (allow_glob && !lst->recursive && !strchr(file->path, '*') && !strchr(file->path,'?') && !strchr(file->path,'[') && !ends_with(file->path, '/'))
         allow_glob = 0;/* disable globbing if no glob pattern, even if globbing would be otherwise allowed */
     entry->pattern = file;
     entry->glob = allow_glob;
@@ -6283,7 +6283,7 @@ static int sxi_file_list_foreach(sxc_file_list_t *target, multi_cb_t multi_cb, f
             /* glob */
             if(!target->recursive && ends_with(pattern->path, '/')) {
                 /* Dummy error message reported when pattern ends with slash and */
-                sxi_seterr(sx, SXE_EARG, "Failed to query cluster: Not Found");
+                sxi_seterr(sx, SXE_EARG, "Failed to list files: Not Found");
                 sxc_meta_free(cvmeta);
                 break;
             }
@@ -6348,7 +6348,7 @@ static int sxi_file_list_foreach(sxc_file_list_t *target, multi_cb_t multi_cb, f
             if (!entry->nfiles && (entry->glob || (fh && fh->f->filemeta_process))) {
                 if (*pattern->path) {
                     sxc_clearerr(target->sx);
-                    sxi_seterr(target->sx, SXE_EARG, "%s/%s: Not found", pattern->volume, pattern->path);
+                    sxi_seterr(target->sx, SXE_EARG, "Failed to list files: Not Found");
                     rc = -1;
                 }
             }
