@@ -80,7 +80,7 @@ struct jobs_batch {
 };
 
 /* Stores list of jobs per cluster */
-typedef struct _sxi_jobs_t {
+struct _sxi_jobs_t {
     sxc_client_t *sx;
 
     /* Stores a hashtable of job arrays (job batches per cluster) */
@@ -97,7 +97,7 @@ typedef struct _sxi_jobs_t {
 
     /* Stores time of first the structure creation */
     struct timeval created;
-} sxi_jobs_t;
+};
 
 typedef enum { JOBS_NO_WAIT, JOBS_WAIT_ALL, JOBS_WAIT_SLOT } jobs_wait_kind_t;
 
