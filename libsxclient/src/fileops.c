@@ -4757,7 +4757,7 @@ static sxi_job_t* remote_to_remote_fast(sxc_file_t *source, sxc_file_t *dest) {
     }
 
     while(!feof(hf)) {
-	long *hoff;
+	struct checksum_offset *hoff;
 	int sz;
 
 	if(!fread(ha, 40, 1, hf)) {
@@ -4780,7 +4780,9 @@ static sxi_job_t* remote_to_remote_fast(sxc_file_t *source, sxc_file_t *dest) {
 		sxi_seterr(sx, SXE_EMEM, "Transfer failed: Out of memory");
 		goto remote_to_remote_fast_err;
 	    }
-	    *hoff = ftell(hf);
+	    hoff->offset = ftell(hf);
+            hoff->checksum = 0;
+            hoff->ref_checksum = 0;
 	    if(sxi_ht_add(src_hashes, ha, 40, hoff)) {
 		SXDEBUG("failed to add a new entry to the hash table");
 		free(hoff);
@@ -4907,6 +4909,7 @@ static sxi_job_t* remote_to_remote_fast(sxc_file_t *source, sxc_file_t *dest) {
                 goto remote_to_remote_fast_err;
             }
 
+            ho[sz] = '\0';
             if(sxi_hostlist_add_host(sx, &src_hosts, ho)) {
                 SXDEBUG("failed to add host");
                 goto remote_to_remote_fast_err;

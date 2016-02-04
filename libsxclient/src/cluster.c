@@ -640,9 +640,11 @@ int sxi_cluster_query_track(sxi_conns_t *conns, const sxi_hostlist_t *hlist, enu
     gctx.setup_callback = setup_callback;
     gctx.callback = callback;
     gctx.context = context;
-    if(track_xfer)
+    if(track_xfer) {
+        gctx.ul = 0;
+        gctx.dl = 0;
         gctx.xfer_stat = sxi_conns_get_xfer_stat(conns);
-    else
+    } else
         gctx.xfer_stat = NULL;
     curlev_context_t *cbdata = sxi_cbdata_create_generic(conns, NULL, &gctx);
 
