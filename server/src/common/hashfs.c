@@ -10248,17 +10248,22 @@ static rc_ty reserve_replicas(sx_hashfs_t *h, uint64_t op_expires_at)
     rc_ty ret = OK;
     sx_hash_t *all_hashes = h->put_blocks;
     sxi_hashop_t *hashop = &h->hc;
-    unsigned int *uniq_hash_indexes = h->put_hashnos;
-    unsigned uniq_count = h->put_putblock;
+    unsigned int *uniq_hash_indexes = h->put_hashnos, uniq_count = h->put_putblock, hash_size = h->put_hs;
+    unsigned int i, effective_replica, *node_indexes;
+
     if (!uniq_count || hashop->kind == HASHOP_SKIP)
         return OK;
-    unsigned hash_size = h->put_hs, effective_replica = MIN(h->put_replica, h->effective_maxreplica);
-    unsigned int *node_indexes = wrap_malloc((1+effective_replica) * h->put_nblocks * sizeof(*node_indexes));
-
+    if(is_subreplica(h, h->put_replica)) {
+	msg_set_reason("The replica value %u cannot be satisfied with the current replica loss of %u",
+		       h->put_replica,
+		       (h->next_maxreplica - h->effective_maxreplica));
+	return FAIL_EINTERNAL;
+    }
+    effective_replica = h->put_replica - (h->next_maxreplica - h->effective_maxreplica);
+    node_indexes = wrap_malloc((1+effective_replica) * h->put_nblocks * sizeof(*node_indexes));
     if (!node_indexes)
         return ENOMEM;
 
-    unsigned i;
     for(i=0; i<uniq_count; i++) {
 	/* MODHDIST: pick from _next, bidx=0 */
 	if(hash_nidx_tobuf(
