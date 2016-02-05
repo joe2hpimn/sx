@@ -76,7 +76,7 @@ SX_LOG_FILE="$SXLOGFILE"
 SX_LIB_DIR="$prefix/var/lib/sxserver"
 EOF
 
-sed -e "s|^user.*|user `whoami`;|" -e "s|listen .*443|listen 127.0.0.1:8443|g" \
+sed -e "s|^user.*|user `id -n -u`;|" -e "s|listen .*443|listen 127.0.0.1:8443|g" \
     -e "s|listen .*80|listen 127.0.0.1:8013|g" \
     -e "s|unix:.*|unix:$SXRUNDIR/sxfcgi.socket;|" \
     $prefix/etc/sxserver/sxhttpd.conf >$prefix/etc/sxserver/sxhttpd.conf.1

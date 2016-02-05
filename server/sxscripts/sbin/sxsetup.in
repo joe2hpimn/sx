@@ -854,7 +854,7 @@ EOF
 		SX_SERVER_USER=${NEWVAL:-$SX_SERVER_USER}
 		SX_SERVER_GROUP=`id -n -g "$SX_SERVER_USER"`
 	    else
-		SX_SERVER_USER=`whoami`
+		SX_SERVER_USER=`id -n -u`
 		SX_SERVER_GROUP=`id -n -g "$SX_SERVER_USER"`
 	    fi
 	    echo
