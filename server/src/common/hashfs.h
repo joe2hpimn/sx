@@ -136,7 +136,7 @@ rc_ty sx_hashfs_hdist_replace_req(sx_hashfs_t *h, const sx_nodelist_t *replaceme
 rc_ty sx_hashfs_hdist_change_add(sx_hashfs_t *h, const void *cfg, unsigned int cfg_len);
 rc_ty sx_hashfs_hdist_replace_add(sx_hashfs_t *h, const void *cfg, unsigned int cfg_len, const sx_nodelist_t *badnodes);
 rc_ty sx_hashfs_setignored(sx_hashfs_t *h, const sx_nodelist_t *ignodes);
-rc_ty sx_hashfs_hdist_change_commit(sx_hashfs_t *h);
+rc_ty sx_hashfs_hdist_change_commit(sx_hashfs_t *h, int nodes_replaced);
 rc_ty sx_hashfs_hdist_change_revoke(sx_hashfs_t *h);
 rc_ty sx_hashfs_hdist_rebalance(sx_hashfs_t *h);
 rc_ty sx_hashfs_hdist_endrebalance(sx_hashfs_t *h);

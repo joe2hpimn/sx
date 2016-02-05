@@ -2353,7 +2353,7 @@ rc_ty sx_storage_activate(sx_hashfs_t *h, const char *name, const sx_node_t *fir
     if(qbind_text(q, ":k", "http_port") || qbind_int(q, ":v", port) || qstep_noret(q))
 	goto storage_activate_fail;
 
-    if(sx_hashfs_hdist_change_commit(h))
+    if(sx_hashfs_hdist_change_commit(h, 0))
 	goto storage_activate_fail;
 
     newmod = sxi_hdist_new(HDIST_SEED, 2, NULL);
@@ -14910,7 +14910,7 @@ static rc_ty create_repair_job(sx_hashfs_t *h) {
     return ret;
 }
 
-rc_ty sx_hashfs_hdist_change_commit(sx_hashfs_t *h) {
+rc_ty sx_hashfs_hdist_change_commit(sx_hashfs_t *h, int nodes_replaced) {
     sqlite3_stmt *q = NULL;
     rc_ty s = OK;
 
@@ -14921,7 +14921,7 @@ rc_ty sx_hashfs_hdist_change_commit(sx_hashfs_t *h) {
 	s = FAIL_EINTERNAL;
     } else if((s = sx_hashfs_job_unlock(h, NULL)) != OK)
 	WARN("Failed to unlock jobs after enabling new model");
-    else if((s = create_repair_job(h)) != OK)
+    else if(nodes_replaced && (s = create_repair_job(h)) != OK)
 	WARN("Failed to create repair job");
     else
 	DEBUG("Distribution change committed");

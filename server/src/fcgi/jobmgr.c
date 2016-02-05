@@ -2275,7 +2275,7 @@ action_failed:
 }
 
 
-static act_result_t commit_dist_common(sx_hashfs_t *hashfs, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg) {
+static act_result_t commit_dist_common(sx_hashfs_t *hashfs, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int is_replacemnt_dist) {
     const sx_node_t *me = sx_hashfs_self(hashfs);
     sxi_conns_t *clust = sx_hashfs_conns(hashfs);
     sxc_client_t *sx = sx_hashfs_client(hashfs);
@@ -2293,11 +2293,11 @@ static act_result_t commit_dist_common(sx_hashfs_t *hashfs, const sx_nodelist_t 
 	    action_error(ACT_RESULT_TEMPFAIL, 500, "Not enough memory to perform the enable distribution request");
 
 	if(sx_node_cmp(me, node)) {
-	    int qret = sxi_cluster_query(clust, &hlist, REQ_PUT, ".dist", NULL, 0, NULL, NULL, NULL);
+	    int qret = sxi_cluster_query(clust, &hlist, REQ_PUT, is_replacemnt_dist ? ".dist?replaceNodes" : ".dist", NULL, 0, NULL, NULL, NULL);
 	    if(qret != 200)
 		action_error(http2actres(qret), qret, sxc_geterrmsg(sx));
 	} else {
-	    s = sx_hashfs_hdist_change_commit(hashfs);
+	    s = sx_hashfs_hdist_change_commit(hashfs, is_replacemnt_dist);
 	    if(s)
 		action_set_fail(rc2actres(s), rc2http(s), msg_get_reason());
 	}
@@ -2332,7 +2332,7 @@ static act_result_t distribution_commit(sx_hashfs_t *hashfs, job_t job_id, job_d
 	action_error(ACT_RESULT_PERMFAIL, 500, "Bad distribution data");
     }
 
-    ret = commit_dist_common(hashfs, nodes, succeeded, fail_code, fail_msg);
+    ret = commit_dist_common(hashfs, nodes, succeeded, fail_code, fail_msg, 0);
 
 action_failed:
     sxi_hdist_free(hdist);
@@ -3391,7 +3391,7 @@ static act_result_t replace_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t
 	action_error(ACT_RESULT_PERMFAIL, 500, "Bad distribution data");
     }
 
-    ret = commit_dist_common(hashfs, nodes, succeeded, fail_code, fail_msg);
+    ret = commit_dist_common(hashfs, nodes, succeeded, fail_code, fail_msg, 1);
 
 action_failed:
     sx_nodelist_delete(faulty);
@@ -4208,7 +4208,7 @@ static act_result_t ignodes_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t
 	return ret;
     }
 
-    return commit_dist_common(hashfs, nodes, succeeded, fail_code, fail_msg);
+    return commit_dist_common(hashfs, nodes, succeeded, fail_code, fail_msg, 0);
 }
 
 static act_result_t dummy_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {

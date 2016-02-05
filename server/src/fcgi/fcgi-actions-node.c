@@ -707,7 +707,7 @@ void fcgi_new_distribution(void) {
 }
 
 void fcgi_enable_distribution(void) {
-    rc_ty s = sx_hashfs_hdist_change_commit(hashfs);
+    rc_ty s = sx_hashfs_hdist_change_commit(hashfs, has_arg("replaceNodes"));
     if(s != OK)
 	quit_errmsg(rc2http(s), msg_get_reason());
 
