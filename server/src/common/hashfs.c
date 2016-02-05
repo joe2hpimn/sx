@@ -16823,7 +16823,7 @@ rc_ty sx_hashfs_init_replacement(sx_hashfs_t *h) {
     rc_ty ret = FAIL_EINTERNAL;
     sqlite3_stmt *q = NULL;
     sx_uuid_t myid;
-    unsigned int lostnodes, nnode, nnodes;
+    unsigned int replica_loss, nnode, nnodes;
 
     if(!h) {
         NULLARG();
@@ -16837,10 +16837,12 @@ rc_ty sx_hashfs_init_replacement(sx_hashfs_t *h) {
 	goto init_replacement_fail;
     qnullify(q);
 
-    lostnodes = h->next_maxreplica - h->effective_maxreplica;
-    if(lostnodes) {
+    /* Determine the replica loss that applies to EXISTING volumes
+     * by pretening the faulty nodes are ignored in the current model */
+    replica_loss = h->next_maxreplica - sxi_hdist_maxreplica(h->hd, 0, h->faulty_nodes);
+    if(replica_loss) {
 	if(qprep(h->db, &q, "UPDATE volumes SET volume = '.BAD' || volume, enabled = 0, changed = 0 WHERE volume NOT LIKE '.BAD%' AND replica <= :replica") ||
-	   qbind_int(q, ":replica", lostnodes) ||
+	   qbind_int(q, ":replica", replica_loss) ||
 	   qstep_noret(q))
 	    goto init_replacement_fail;
 	qnullify(q);
