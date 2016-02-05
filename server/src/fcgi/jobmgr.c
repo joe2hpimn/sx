@@ -2179,7 +2179,7 @@ static act_result_t distribution_request(sx_hashfs_t *hashfs, job_t job_id, job_
 	action_error(ACT_RESULT_PERMFAIL, 500, "Bad distribution data");
     }
 
-    proto = sxi_distribution_proto_begin(sx, job_data->ptr, job_data->len, swver->string);
+    proto = sxi_distribution_proto_begin(sx, job_data->ptr, job_data->len, swver->str);
     if(proto)
 	proto = sxi_distribution_proto_end(sx, proto);
     if(!proto) {
@@ -3285,7 +3285,7 @@ static act_result_t replace_request(sx_hashfs_t *hashfs, job_t job_id, job_data_
 	action_error(ACT_RESULT_PERMFAIL, 500, "Bad distribution data");
     }
 
-    proto = sxi_distribution_proto_begin(sx, cfg, cfg_len, swver->string);
+    proto = sxi_distribution_proto_begin(sx, cfg, cfg_len, swver->str);
     nnodes = sx_nodelist_count(faulty);
     for(nnode = 0; proto && nnode<nnodes; nnode++) {
 	const sx_node_t *node = sx_nodelist_get(faulty, nnode);

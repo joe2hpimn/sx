@@ -73,12 +73,18 @@
 
 /* Current versioning */
 #define MAKE_HASHFS_VER(major, minor) "SXST "STRIFY(major)"."STRIFY(minor)
+#define MAKE_HASHFS_MICROVER(major, minor, micro) "SXST "STRIFY(major)"."STRIFY(minor)"."STRIFY(micro)
 #define HASHFS_VERSION_1_9 MAKE_HASHFS_VER(1,9)
 #define HASHFS_VERSION_2_0 MAKE_HASHFS_VER(2,0)
 #define HASHFS_VERSION_2_1 MAKE_HASHFS_VER(2,1)
+#define HASHFS_VERSION_2_1_3 HASHFS_VERSION_CURRENT
 
 #define HASHFS_VERSION_INITIAL HASHFS_VERSION_1_0
+#ifdef SRC_MICRO_VERSION
+#define HASHFS_VERSION_CURRENT MAKE_HASHFS_MICROVER(SRC_MAJOR_VERSION, SRC_MINOR_VERSION, SRC_MICRO_VERSION)
+#else
 #define HASHFS_VERSION_CURRENT MAKE_HASHFS_VER(SRC_MAJOR_VERSION, SRC_MINOR_VERSION)
+#endif
 
 #define SIZES 3
 const char sizedirs[SIZES] = "sml";
@@ -111,7 +117,7 @@ const unsigned int bsz[SIZES] = {SX_BS_SMALL, SX_BS_MEDIUM, SX_BS_LARGE};
     }\
     } while(0)
 
-rc_ty sx_hashfs_version_parse(const char *vstr, sx_hashfs_version_t *ver) {
+rc_ty sx_hashfs_version_parse(sx_hashfs_version_t *ver, const void *vstr, int vlen) {
     char *start, *end;
     long v;
 
@@ -119,19 +125,21 @@ rc_ty sx_hashfs_version_parse(const char *vstr, sx_hashfs_version_t *ver) {
 	NULLARG();
 	return EFAULT;
     }
-    /* just a strnlen without fancy macroes */
-    strncpy(ver->full, vstr, 16);
-    ver->full[16] = '\0';
-    if(strlen(ver->full) == 16)
+
+    if(vlen < 0)
+	vlen = strlen(vstr);
+    if(vlen >= sizeof(ver->fullstr))
 	return EINVAL;
 
-    start = strchr(ver->full, ' ');
-    if(start)
-	start++;
-    else
-	start = ver->full;
+    memcpy(ver->fullstr, vstr, vlen);
+    ver->fullstr[vlen] = '\0';
 
-    ver->string = start;
+    start = strchr(ver->fullstr, ' ');
+    if(start) {
+	start++;
+	memmove(ver->fullstr, start, strlen(start)+1);
+    }
+    start = ver->fullstr;
     v = strtol(start, &end, 10);
     if(v < 0 || end <= start || *end != '.')
 	return EINVAL;
@@ -139,9 +147,22 @@ rc_ty sx_hashfs_version_parse(const char *vstr, sx_hashfs_version_t *ver) {
 
     start = end + 1;
     v = strtol(start, &end, 10);
-    if(v < 0 || end <= start || (*end != '\0' && *end != ' '))
+    if(v < 0 || end <= start || (*end != '\0' && *end != '.' && *end != ' '))
 	return EINVAL;
     ver->minor = v;
+
+    vlen = end - ver->fullstr;
+    memcpy(ver->str, ver->fullstr, vlen);
+    ver->str[vlen] = '\0';
+
+    if(*end == '.') {
+	start = end + 1;
+	v = strtol(start, &end, 10);
+	if(v < 0 || end <= start || (*end != '\0' && *end != ' '))
+	    return EINVAL;
+	ver->micro = v;
+    } else
+	ver->micro = 0;
 
     return OK;
 }
@@ -156,6 +177,13 @@ int sx_hashfs_version_cmp(const sx_hashfs_version_t *vera, const sx_hashfs_versi
     if(vera->minor == verb->minor)
 	return 0;
     return (int)(vera->minor - verb->minor);
+}
+
+int sx_hashfs_version_microcmp(const sx_hashfs_version_t *vera, const sx_hashfs_version_t *verb) {
+    int ret = sx_hashfs_version_cmp(vera, verb);
+    if(ret)
+	return ret;
+    return (int)(vera->micro - verb->micro);
 }
 
 rc_ty sx_hashfs_check_blocksize(unsigned int bs) {
@@ -623,14 +651,14 @@ static int qopen(const char *path, sxi_db_t **dbp, const char *dbtype, const sx_
     if(qbind_text(q, ":k", "version") || qstep_ret(q))
 	goto qopen_fail;
     str = (const char *)sqlite3_column_text(q, 0);
-    if(sx_hashfs_version_parse(str, &version)) {
+    if(sx_hashfs_version_parse(&version, str, -1)) {
 	msg_set_reason("Found invalid version %s on db %s", str ? str : "none", path);
         CRIT("%s", msg_get_reason());
 	goto qopen_fail;
     }
 
-    if(refver && sx_hashfs_version_cmp(refver, &version)) {
-	msg_set_reason("Version mismatch on db %s: expected %s, found %s", path, refver->string, version.string);
+    if(refver && sx_hashfs_version_microcmp(refver, &version)) {
+	msg_set_reason("Version mismatch on db %s: expected %s, found %s", path, refver->fullstr, version.fullstr);
         CRIT("%s", msg_get_reason());
 	goto qopen_fail;
     }
@@ -1580,7 +1608,7 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
     }
     if (ssl_version_check())
 	return NULL;
-    if(sx_hashfs_version_parse(HASHFS_VERSION_CURRENT, &curver)) {
+    if(sx_hashfs_version_parse(&curver, HASHFS_VERSION_CURRENT, -1)) {
 	CRIT("Cannot parse version %s", HASHFS_VERSION_CURRENT);
 	return NULL;
     }
@@ -1668,7 +1696,7 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
     if(qbind_text(h->q_getval, ":k", "version") || qstep_ret(h->q_getval))
 	goto open_hashfs_fail;
     str = (const char *)sqlite3_column_text(h->q_getval, 0);
-    if(sx_hashfs_version_parse(str, &h->cversion)) {
+    if(sx_hashfs_version_parse(&h->cversion, str, -1)) {
 	CRIT("Failed to retrieve HashFS version from database");
 	goto open_hashfs_fail;
     }
@@ -1870,7 +1898,7 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 	goto open_hashfs_fail;
 
     for(j=0; j<SIZES; j++) {
-	char hexsz[9], vrshdr[16];
+	char hexsz[9];
 	sprintf(hexsz, "%08x", bsz[j]);
 	for(i=0; i<HASHDBS; i++) {
 	    sx_hashfs_version_t binver;
@@ -1962,18 +1990,15 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 	    }
 	    if(read_block(h->datafd[j][i], h->blockbuf, 0, bsz[j]))
 		goto open_hashfs_fail;
-	    memcpy(vrshdr, h->blockbuf, 15);
-	    vrshdr[15] = '\0';
-	    if(sx_hashfs_version_parse(vrshdr, &binver)) {
-		h->blockbuf[16] = '\0';
+	    if(sx_hashfs_version_parse(&binver, h->blockbuf, 16)) {
 		CRIT("Bad version header in datafile %s", str);
 		goto open_hashfs_fail;
 	    }
-	    if(sx_hashfs_version_cmp(&curver, &binver) ||
+	    if(sx_hashfs_version_microcmp(&curver, &binver) ||
 	       memcmp(h->blockbuf + 16, dbitem, strlen(dbitem)) ||
 	       memcmp(h->blockbuf + 48, hexsz, strlen(hexsz)) ||
 	       memcmp(h->blockbuf + 64, h->cluster_uuid.binary, sizeof(h->cluster_uuid.binary))) {
-		CRIT("Bad header in datafile %s (version %s)", str, binver.string);
+		CRIT("Bad header in datafile %s (version %s)", str, binver.fullstr);
 		goto open_hashfs_fail;
 	    }
 	}
@@ -4179,13 +4204,13 @@ static rc_ty upgrade_db(int lockfd, const char *path, sxi_db_t *db, const sx_has
             CRIT("Unable to determine database version at %s", path);
             break;
         }
-	if(sx_hashfs_version_parse(str, &current_version)) {
+	if(sx_hashfs_version_parse(&current_version, str, -1)) {
 	    CRIT("Invalid storage current version %s", str);
 	    break;
 	}
-	int cmp = sx_hashfs_version_cmp(&current_version, from_version);
+	int cmp = sx_hashfs_version_microcmp(&current_version, from_version);
         if (cmp < 0) {
-            WARN("Database schema too old: %s, expected >= %s", str, from_version->string);
+            WARN("Database schema too old: %s, expected >= %s", str, from_version->fullstr);
             ret = EINVAL;
         }
         if (cmp > 0) {
@@ -4200,19 +4225,19 @@ static rc_ty upgrade_db(int lockfd, const char *path, sxi_db_t *db, const sx_has
         }
         /* old version matches, update it */
         qnullify(q);
-        DEBUG("Upgrading DB %s: %s -> %s", path, from_version->string, to_version->string);
+        DEBUG("Upgrading DB %s: %s -> %s", path, from_version->fullstr, to_version->fullstr);
 
         if (fn && fn(db)) {
-            CRIT("Upgrade callback failed for %s (%s -> %s)", path, from_version->string, to_version->string);
+            CRIT("Upgrade callback failed for %s (%s -> %s)", path, from_version->fullstr, to_version->fullstr);
             break;
         }
 
         if(qprep(db, &q, "UPDATE hashfs SET value=:v WHERE key=:k") ||
            qbind_text(q, ":k", "version") ||
-           qbind_text(q, ":v", to_version->string) ||
+           qbind_text(q, ":v", to_version->fullstr) ||
            qstep_noret(q))
             break;
-        DEBUG("Upgraded DB %s from %s to %s", path, from_version->string, to_version->string);
+        DEBUG("Upgraded DB %s from %s to %s", path, from_version->fullstr, to_version->fullstr);
         ret = OK;
     } while(0);
     if (ret)
@@ -4787,7 +4812,13 @@ static const sx_upgrade_t upgrade_sequence[] = {
         .upgrade_hashfsdb = hashfs_2_0_to_2_1,
         .upgrade_xfersdb = xfer_2_0_to_2_1,
         .job = JOBTYPE_DUMMY
+    },
+    {
+        .from = HASHFS_VERSION_2_1,
+        .to = HASHFS_VERSION_2_1_3,
+        .job = JOBTYPE_DUMMY
     }
+
 };
 
 static rc_ty upgrade_bin(int lockfd, const char *dir, const char *path, const sx_hashfs_version_t *from_version, const char *new_version_header, unsigned j, unsigned i)
@@ -4811,9 +4842,7 @@ static rc_ty upgrade_bin(int lockfd, const char *dir, const char *path, const sx
         if(read_block(fd, blockbuf, 0, bsz[j]))
             break;
 
-	memcpy(old_header, blockbuf, 15);
-	old_header[15] = '\0';
-	if(sx_hashfs_version_parse(old_header, &current_version)) {
+	if(sx_hashfs_version_parse(&current_version, blockbuf, 16)) {
 	    CRIT("Invalid version header in datafile %s", path);
 	    break;
 	}
@@ -4824,9 +4853,9 @@ static rc_ty upgrade_bin(int lockfd, const char *dir, const char *path, const sx
 	    break;
 	}
 
-	cmp = sx_hashfs_version_cmp(&current_version, from_version);
+	cmp = sx_hashfs_version_microcmp(&current_version, from_version);
         if(cmp < 0) {
-	    CRIT("Invalid version of datafile %s: expected: %s, found: %s", path, from_version->string, current_version.string);
+	    CRIT("Invalid version of datafile %s: expected: %s, found: %s", path, from_version->fullstr, current_version.fullstr);
 	    break;
 	}
 	if(cmp > 0) {
@@ -5040,11 +5069,11 @@ rc_ty sx_storage_upgrade(const char *dir) {
     for(upno=0;upno<sizeof(upgrade_sequence)/sizeof(upgrade_sequence[0]);upno++) {
         sx_upgrade_t desc = upgrade_sequence[upno];
 	sx_hashfs_version_t vfrom, vto;
-	if(sx_hashfs_version_parse(desc.from, &vfrom)) {
+	if(sx_hashfs_version_parse(&vfrom, desc.from, -1)) {
 	    CRIT("Invalid upgrade start version %s", desc.from);
 	    break;
 	}
-	if(sx_hashfs_version_parse(desc.to, &vto)) {
+	if(sx_hashfs_version_parse(&vto, desc.to, -1)) {
 	    CRIT("Invalid upgrade target version %s", desc.to);
 	    break;
 	}
@@ -17213,7 +17242,7 @@ rc_ty sx_hashfs_node_status(sx_hashfs_t *h, sxi_node_status_t *status) {
     /* Storage information */
     snprintf(status->storage_dir, sizeof(status->storage_dir), "%s", h->dir);
     sx_storage_usage(h, &status->storage_allocated, &status->storage_commited);
-    snprintf(status->hashfs_version, sizeof(status->hashfs_version), "%s", h->cversion.string);
+    snprintf(status->hashfs_version, sizeof(status->hashfs_version), "%s", h->cversion.str);
     n = sx_hashfs_self(h);
     status->is_bare = n ? 0 : 1; /* Node is bare when n == NULL */
     if(n) {

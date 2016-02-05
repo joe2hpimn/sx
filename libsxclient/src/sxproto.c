@@ -780,17 +780,17 @@ sxi_query_t *sxi_distribution_proto_begin(sxc_client_t *sx, const void *cfg, uns
 	return NULL;
     sxi_bin2hex(cfg, cfg_len, hexcfg);
 
-    enc_ver = sxi_urlencode(sx, swver, 0);
+    enc_ver = sxi_json_quote_string(swver);
     if(!enc_ver) {
 	free(hexcfg);
 	return NULL;
     }
 
-    n = sizeof("{\"newDistribution\":\"\",\"softwareVersion\":\"\",\"faultyNodes\":[") + cfg_len * 2  + strlen(enc_ver);
+    n = sizeof("{\"newDistribution\":\"\",\"softwareVersion\":,\"faultyNodes\":[") + cfg_len * 2  + strlen(enc_ver);
     ret = sxi_query_create(sx, ".dist", REQ_PUT);
     if(ret) {
 	ret->comma = 0;
-	ret = sxi_query_append_fmt(sx, ret, n, "{\"newDistribution\":\"%s\",\"softwareVersion\":\"%s\",\"faultyNodes\":[", hexcfg, enc_ver);
+	ret = sxi_query_append_fmt(sx, ret, n, "{\"newDistribution\":\"%s\",\"softwareVersion\":%s,\"faultyNodes\":[", hexcfg, enc_ver);
     }
 
     free(enc_ver);

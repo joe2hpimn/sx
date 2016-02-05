@@ -40,13 +40,7 @@
 
 static int terminate = 0;
 
-#define version_init(ver) \
-    do {				\
-	(ver)->full[0] = '\0';		\
-	(ver)->string = (ver)->full;	\
-	(ver)->major = 0;		\
-	(ver)->minor = 0;		\
-    } while(0)
+#define version_init(ver) sx_hashfs_version_parse(ver, "0.0", -1)
 
 static void sighandler(int signum) {
     if (signum == SIGHUP || signum == SIGUSR1) {
@@ -88,16 +82,11 @@ struct cb_raft_response_ctx {
 
 static void cb_raft_resp_hashfs_ver(jparse_t *J, void *ctx, const char *string, unsigned int length) {
     struct cb_raft_response_ctx *c = (struct cb_raft_response_ctx *)ctx;
-    char ver[sizeof(c->remote_version.full)];
 
-    if(length >= sizeof(ver)) {
+    if(sx_hashfs_version_parse(&c->remote_version, string, length)) {
         sxi_jparse_cancel(J, "Invalid hashfs version");
-        return;
+	return;
     }
-    memcpy(ver, string, length);
-    ver[length] = '\0';
-    if(sx_hashfs_version_parse(ver, &c->remote_version))
-        sxi_jparse_cancel(J, "Invalid hashfs version");
     c->has_rem_ver = 1;
 }
 
@@ -238,7 +227,7 @@ static rc_ty raft_rpc_bcast(sx_hashfs_t *h, sx_raft_state_t *state, raft_rpc_typ
     if(rpc_type == RAFT_RPC_REQUEST_VOTE) {
         DEBUG("Starting new election for term %lld", (long long)state->current_term.term);
 
-        proto = sxi_raft_request_vote(sx, state->current_term.term, sx_hashfs_hdist_getversion(h), sx_hashfs_version(h)->string, sx_node_uuid_str(me), state->last_applied, state->current_term.term);
+        proto = sxi_raft_request_vote(sx, state->current_term.term, sx_hashfs_hdist_getversion(h), sx_hashfs_version(h)->str, sx_node_uuid_str(me), state->last_applied, state->current_term.term);
         if(!proto) {
             INFO("Failed to allocate RequestVote query");
             goto raft_rpc_bcast_err;
@@ -246,7 +235,7 @@ static rc_ty raft_rpc_bcast(sx_hashfs_t *h, sx_raft_state_t *state, raft_rpc_typ
     } else {
         DEBUG("Sending AppendEntry query for term %lld", (long long)state->current_term.term);
 
-        proto = sxi_raft_append_entries_begin(sx, state->current_term.term, sx_hashfs_hdist_getversion(h), sx_hashfs_version(h)->string, sx_node_uuid_str(me), state->last_applied-1, state->current_term.term-1, state->last_applied);
+        proto = sxi_raft_append_entries_begin(sx, state->current_term.term, sx_hashfs_hdist_getversion(h), sx_hashfs_version(h)->str, sx_node_uuid_str(me), state->last_applied-1, state->current_term.term-1, state->last_applied);
         if(!proto) {
             INFO("Failed to allocate AppendEntries query");
             goto raft_rpc_bcast_err;
@@ -351,7 +340,7 @@ raft_rpc_bcast_err:
             if(ctx[nnode].hdist_version > *max_recv_hdist_version)
                 *max_recv_hdist_version = ctx[nnode].hdist_version;
             if(sx_hashfs_version_cmp(&ctx[nnode].remote_version, max_recv_hashfs_version) > 0)
-		sx_hashfs_version_parse(ctx[nnode].remote_version.full, max_recv_hashfs_version);
+		sx_hashfs_version_parse(max_recv_hashfs_version, ctx[nnode].remote_version.str, -1);
         }
     }
 

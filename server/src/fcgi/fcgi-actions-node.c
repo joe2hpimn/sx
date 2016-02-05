@@ -557,9 +557,9 @@ void fcgi_distlock(void) {
 /* {"newDistribution":"HEX(blob_cfg)", "softwareVersion":"hashfsVER", "faultyNodes":["uuid1", "uuiid2"]} */
 struct cb_updist_ctx {
     void *cfg;
-    char remote_ver[sizeof(((sx_hashfs_version_t *)0)->full)];
+    sx_hashfs_version_t rver;
     sx_nodelist_t *faulty;
-    unsigned int cfg_len, oom;
+    unsigned int cfg_len, oom, have_rver;
 };
 
 static void cb_newdist_dist(jparse_t *J, void *ctx, const char *string, unsigned int length) {
@@ -592,17 +592,11 @@ static void cb_newdist_dist(jparse_t *J, void *ctx, const char *string, unsigned
 static void cb_newdist_swver(jparse_t *J, void *ctx, const char *string, unsigned int length) {
     struct cb_updist_ctx *c = (struct cb_updist_ctx *)ctx;
 
-    if(c->remote_ver[0]) {
-	sxi_jparse_cancel(J, "Multiple software versions received");
-	return;
-    }
-    if(length >= sizeof(c->remote_ver)) {
+    if(sx_hashfs_version_parse(&c->rver, string, length)) {
 	sxi_jparse_cancel(J, "Invalid software version");
 	return;
     }
-
-    memcpy(c->remote_ver, string, length);
-    c->remote_ver[length] = '\0';
+    c->have_rver = 1;
 }
 
 static void cb_newdist_faulty(jparse_t *J, void *ctx, const char *string, unsigned int length) {
@@ -638,13 +632,13 @@ void fcgi_new_distribution(void) {
 		      )
     };
     struct cb_updist_ctx yctx;
-    sx_hashfs_version_t *lver, rver;
+    sx_hashfs_version_t *lver;
     jparse_t *J;
     rc_ty s;
     int len, v;
 
     yctx.cfg = NULL;
-    yctx.remote_ver[0] = '\0';
+    yctx.have_rver = 0;
     yctx.oom = 0;
     yctx.faulty = sx_nodelist_new();
     if(!yctx.faulty)
@@ -682,14 +676,14 @@ void fcgi_new_distribution(void) {
 	quit_errmsg(400, "No distribution provided");
     }
 
-    if(sx_hashfs_version_parse(yctx.remote_ver, &rver)) {
+    if(!yctx.have_rver) {
 	sx_nodelist_delete(yctx.faulty);
 	free(yctx.cfg);
-	quit_errmsg(400, "Invalid software version");
+	quit_errmsg(400, "No software version provided");
     }
 
     lver = sx_hashfs_version(hashfs);
-    v = sx_hashfs_version_cmp(lver, &rver);
+    v = sx_hashfs_version_cmp(lver, &yctx.rver);
     if(v != 0) {
 	sx_nodelist_delete(yctx.faulty);
 	free(yctx.cfg);
@@ -1528,7 +1522,8 @@ void fcgi_node_status(void) {
     CGI_PRINTF("\"osType\":\"%s\",\"osArch\":\"%s\",\"osRelease\":\"%s\",\"osVersion\":\"%s\",\"cores\":%d",
         status.os_name, status.os_arch, status.os_release, status.os_version, status.cores);
     CGI_PRINTF(",\"osEndianness\":\"%s\",\"localTime\":\"%s\",\"utcTime\":\"%s\"", status.endianness, status.localtime, status.utctime);
-    CGI_PRINTF(",\"hashFSVersion\":\"%s\",\"libsxclientVersion\":\"%s\"", status.hashfs_version, status.libsxclient_version);
+    CGI_PUTS(",\"hashFSVersion\":"); json_send_qstring(status.hashfs_version);
+    CGI_PUTS(",\"libsxclientVersion\":"); json_send_qstring(status.libsxclient_version);
     if(!status.is_bare)
         CGI_PRINTF(",\"address\":\"%s\",\"internalAddress\":\"%s\",\"UUID\":\"%s\"", status.addr, status.internal_addr, status.uuid);
     CGI_PRINTF(",\"nodeDir\":\"%s\"", status.storage_dir);
@@ -1638,15 +1633,8 @@ static void cb_votereq_candidate(jparse_t *J, void *ctx, const char *string, uns
 
 static void cb_votereq_hashfsver(jparse_t *J, void *ctx, const char *string, unsigned int length) {
     struct cb_request_vote_ctx *c = (struct cb_request_vote_ctx*)ctx;
-    char ver[sizeof(c->remote_version.full)];
 
-    if(length >= sizeof(ver)) {
-	sxi_jparse_cancel(J, "Invalid storage version");
-	return;
-    }
-    memcpy(ver, string, length);
-    ver[length] = '\0';
-    if(sx_hashfs_version_parse(ver, &c->remote_version)) {
+    if(sx_hashfs_version_parse(&c->remote_version, string, length)) {
 	sxi_jparse_cancel(J, "Invalid storage version");
 	return;
     }
@@ -1779,7 +1767,7 @@ void fcgi_raft_request_vote(void) {
     }
     if(sx_hashfs_version_cmp(&ctx.remote_version, local_version) < 0) {
         DEBUG("Local hashfs version (%s) is newer than candidate's (%s): rejecting",
-	      local_version->string, ctx.remote_version.string);
+	      local_version->str, ctx.remote_version.str);
         goto request_vote_out;
     }
 
@@ -1829,7 +1817,9 @@ request_vote_out:
     CGI_PUTLL(state.current_term.term);
     CGI_PRINTF(",\"distributionVersion\":");
     CGI_PUTLL(sx_hashfs_hdist_getversion(hashfs));
-    CGI_PRINTF(",\"hashFSVersion\":\"%s\",\"libsxclientVersion\":\"%s\"}}", local_version->string, sxc_get_version());
+    CGI_PUTS(",\"hashFSVersion\":"); json_send_qstring(local_version->str);
+    CGI_PUTS(",\"libsxclientVersion\":"); json_send_qstring(sxc_get_version());
+    CGI_PUTS("}}");
     sx_hashfs_raft_state_empty(hashfs, &state);
 }
 
@@ -1960,15 +1950,8 @@ static void cb_appendent_leader(jparse_t *J, void *ctx, const char *string, unsi
 
 static void cb_appendent_hashfsver(jparse_t *J, void *ctx, const char *string, unsigned int length) {
     struct cb_appendent_ctx *c = (struct cb_appendent_ctx*)ctx;
-    char ver[sizeof(c->remote_version.full)];
 
-    if(length >= sizeof(ver)) {
-	sxi_jparse_cancel(J, "Invalid storage version");
-	return;
-    }
-    memcpy(ver, string, length);
-    ver[length] = '\0';
-    if(sx_hashfs_version_parse(ver, &c->remote_version)) {
+    if(sx_hashfs_version_parse(&c->remote_version, string, length)) {
 	sxi_jparse_cancel(J, "Invalid storage version");
 	return;
     }
@@ -2102,7 +2085,7 @@ void fcgi_raft_append_entries(void) {
 
     if(sx_hashfs_version_cmp(&ctx.remote_version, local_version) < 0) {
         DEBUG("Local hashfs version (%s) is newer than candidate's (%s): rejecting",
-                local_version->string, ctx.remote_version.string);
+                local_version->str, ctx.remote_version.str);
         goto append_entries_out;
     }
 
@@ -2160,6 +2143,8 @@ append_entries_out:
     CGI_PUTLL(state.current_term.term);
     CGI_PRINTF(",\"distributionVersion\":");
     CGI_PUTLL(sx_hashfs_hdist_getversion(hashfs));
-    CGI_PRINTF(",\"hashFSVersion\":\"%s\",\"libsxclientVersion\":\"%s\"}}", local_version->string, sxc_get_version());
+    CGI_PUTS(",\"hashFSVersion\":"); json_send_qstring(local_version->str);
+    CGI_PUTS(",\"libsxclientVersion\":"); json_send_qstring(sxc_get_version());
+    CGI_PUTS("}}");
     sx_hashfs_raft_state_empty(hashfs, &state);
 }
