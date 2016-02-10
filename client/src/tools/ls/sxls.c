@@ -204,7 +204,7 @@ int main(int argc, char **argv) {
                 unsigned int max_owner_len = 0;
                 while(1) {
                     char *owner;
-                    int n = sxc_cluster_listvolumes_next(fv, NULL, &owner, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+                    int n = sxc_cluster_listvolumes_next(fv, NULL, &owner, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
                     unsigned int len;
                     if(n<=0) {
                         if(n) {
@@ -236,9 +236,9 @@ int main(int argc, char **argv) {
                     char privs[3] = { 0, 0, 0 };
 
                     if(args.long_format_given)
-		        n = sxc_cluster_listvolumes_next(fv, &vname, &owner, &vusedsize, &vsize, &vreplica, &veffreplica, &vrevs, privs, &vmeta);
+		        n = sxc_cluster_listvolumes_next(fv, &vname, &owner, &vusedsize, NULL, NULL, &vsize, &vreplica, &veffreplica, &vrevs, privs, &vmeta);
                     else
-                        n = sxc_cluster_listvolumes_next(fv, &vname, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+                        n = sxc_cluster_listvolumes_next(fv, &vname, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
 
 		    if(n<=0) {
 			if(n)

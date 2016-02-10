@@ -2085,7 +2085,7 @@ static int sxfs_statfs (const char *path, struct statvfs *st) {
         return -sxfs_sx_err(sx);
     }
     while(1) {
-        tmp = sxc_cluster_listvolumes_next(vlist, &volname, NULL, &used_volsize, &volsize, NULL, NULL, NULL, NULL, NULL);
+        tmp = sxc_cluster_listvolumes_next(vlist, &volname, NULL, &used_volsize, NULL, NULL, &volsize, NULL, NULL, NULL, NULL, NULL);
         if(tmp) {
             if(tmp < 0) {
                 SXFS_LOG("Failed to retrieve volume data");

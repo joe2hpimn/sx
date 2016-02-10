@@ -4469,7 +4469,7 @@ static rc_ty checkpoint_volume_sizes(sx_hashfs_t *h) {
                         }
                     }
 
-                    if(!(query = sxi_volsizes_proto_add_volume(sx, query, vol->name, vol->cursize))) {
+                    if(!(query = sxi_volsizes_proto_add_volume(sx, query, vol->name, vol->usage_total, vol->usage_files, vol->nfiles))) {
                         WARN("Failed to append volume to the query string");
                         goto checkpoint_volume_sizes_err;
                     }

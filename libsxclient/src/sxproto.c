@@ -914,7 +914,7 @@ sxi_query_t *sxi_volsizes_proto_begin(sxc_client_t *sx) {
     return query;
 }
 
-sxi_query_t *sxi_volsizes_proto_add_volume(sxc_client_t *sx, sxi_query_t *query, const char *volname, int64_t size) {
+sxi_query_t *sxi_volsizes_proto_add_volume(sxc_client_t *sx, sxi_query_t *query, const char *volname, int64_t size, int64_t fsize, int64_t nfiles) {
     char *enc_vol;
 
     if(!sx || !query || !volname) {
@@ -928,13 +928,8 @@ sxi_query_t *sxi_volsizes_proto_add_volume(sxc_client_t *sx, sxi_query_t *query,
         return NULL;
     }
 
-    if(query->comma) {
-        query = sxi_query_append_fmt(sx, query, strlen(",:") + 20 + strlen(enc_vol) + 1,
-            ",%s:%lld", enc_vol, (long long)size);
-    } else {
-        query = sxi_query_append_fmt(sx, query, strlen(":") + 20 + strlen(enc_vol) + 1,
-            "%s:%lld", enc_vol, (long long)size);
-    }
+    query = sxi_query_append_fmt(sx, query, strlen(",:{\"usedSize\":,\"filesSize\":,\"filesCount\":}") + 60 + strlen(enc_vol) + 1,
+        "%s%s:{\"usedSize\":%lld,\"filesSize\":%lld,\"filesCount\":%lld}", query->comma ? "," : "", enc_vol, (long long)size, (long long)fsize, (long long)nfiles);
 
     if(!query) {
         SXDEBUG("Failed to append volume to a query");

@@ -221,10 +221,19 @@ void fcgi_handle_cluster_requests(void) {
             json_send_qstring(owner);
             CGI_PRINTF(",\"replicaCount\":%u,\"effectiveReplicaCount\":%u,\"maxRevisions\":%u,\"privs\":\"%c%c\",\"usedSize\":",
                        vol->max_replica, vol->effective_replica, vol->revisions, (priv & PRIV_READ) ? 'r' : '-', (priv & PRIV_WRITE) ? 'w' : '-');
-
-	    CGI_PUTLL(vol->cursize);
+            /*
+             * usedSize:         size of the files stored in the volume including file names size and metadata size,
+             * filesSize:        size of the files stored in the volume (excluding file names and metadata),
+             * filesCount:       number of files stored in the volume (notice: all revisions are included!),
+             * sizeBytes:        the volume size
+             */
+	    CGI_PUTLL(vol->usage_total);
             CGI_PRINTF(",\"sizeBytes\":");
             CGI_PUTLL(vol->size);
+            CGI_PRINTF(",\"filesSize\":");
+            CGI_PUTLL(vol->usage_files);
+            CGI_PRINTF(",\"filesCount\":");
+            CGI_PUTLL(vol->nfiles);
             if(has_arg("volumeMeta") || has_arg("customVolumeMeta")) {
                 const char *metakey;
                 const void *metavalue;

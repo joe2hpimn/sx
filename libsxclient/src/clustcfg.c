@@ -861,6 +861,8 @@ struct cb_locate_ctx {
     int64_t blocksize;
     int64_t size;
     int64_t used_size;
+    int64_t files_size;
+    int64_t nfiles;
     char *owner;
     char *privs;
     unsigned int replica_count;
@@ -1004,6 +1006,30 @@ static void cb_locate_usedsize(jparse_t *J, void *ctx, int64_t num) {
     yactx->used_size = num;
 }
 
+static void cb_locate_fsize(jparse_t *J, void *ctx, int64_t num) {
+    struct cb_locate_ctx *yactx = (struct cb_locate_ctx *)ctx;
+
+    if(num < 0) {
+        sxi_jparse_cancel(J, "Invalid size received");
+        yactx->err = SXE_ECOMM;
+        return;
+    }
+
+    yactx->files_size = num;
+}
+
+static void cb_locate_nfiles(jparse_t *J, void *ctx, int64_t num) {
+    struct cb_locate_ctx *yactx = (struct cb_locate_ctx *)ctx;
+
+    if(num < 0) {
+        sxi_jparse_cancel(J, "Invalid size received");
+        yactx->err = SXE_ECOMM;
+        return;
+    }
+
+    yactx->nfiles = num;
+}
+
 static void cb_locate_meta(jparse_t *J, void *ctx, const char *string, unsigned int length) {
     const char *key = sxi_jpath_mapkey(sxi_jpath_down(sxi_jparse_whereami(J)));
     struct cb_locate_ctx *yactx = (struct cb_locate_ctx *)ctx;
@@ -1078,7 +1104,7 @@ static int locate_cb(curlev_context_t *cbdata, void *ctx, const void *data, size
     return 0;
 }
 
-int sxi_volume_info(sxi_conns_t *conns, const char *volume, sxi_hostlist_t *nodes, int64_t *blocksize, char **owner, char **privs, int64_t *size, int64_t *used_size, unsigned int *replica_count, unsigned int *effective_replica_count, unsigned int *revisions, sxc_meta_t *meta, sxc_meta_t *custom_meta) {
+int sxi_volume_info(sxi_conns_t *conns, const char *volume, sxi_hostlist_t *nodes, int64_t *blocksize, char **owner, char **privs, int64_t *size, int64_t *used_size, int64_t *files_size, int64_t *nfiles, unsigned int *replica_count, unsigned int *effective_replica_count, unsigned int *revisions, sxc_meta_t *meta, sxc_meta_t *custom_meta) {
     const struct jparse_actions acts = {
 	JPACTS_STRING(
 		      JPACT(cb_locate_node, JPKEY("nodeList"), JPANYITM),
@@ -1090,7 +1116,9 @@ int sxi_volume_info(sxi_conns_t *conns, const char *volume, sxi_hostlist_t *node
 	JPACTS_INT64(
                      JPACT(cb_locate_bs, JPKEY("blockSize")),
                      JPACT(cb_locate_size, JPKEY("sizeBytes")),
-                     JPACT(cb_locate_usedsize, JPKEY("usedSize"))
+                     JPACT(cb_locate_usedsize, JPKEY("usedSize")),
+                     JPACT(cb_locate_fsize, JPKEY("filesSize")),
+                     JPACT(cb_locate_nfiles, JPKEY("filesCount"))
                      ),
         JPACTS_INT32(
                      JPACT(cb_locate_rpl, JPKEY("replicaCount")),
@@ -1198,7 +1226,7 @@ int sxi_volume_info(sxi_conns_t *conns, const char *volume, sxi_hostlist_t *node
 
 int sxi_locate_volume(sxi_conns_t *conns, const char *volume, sxi_hostlist_t *nodes, int64_t *size, sxc_meta_t *metadata, sxc_meta_t *custom_metadata) {
     sxi_set_operation(sxi_conns_get_client(conns), "locate volume", volume, NULL, NULL);
-    return sxi_volume_info(conns, volume, nodes, size, NULL, NULL, NULL, NULL, NULL, NULL, NULL, metadata, custom_metadata);
+    return sxi_volume_info(conns, volume, nodes, size, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, metadata, custom_metadata);
 }
 
 int sxi_is_valid_cluster(const sxc_cluster_t *cluster) {

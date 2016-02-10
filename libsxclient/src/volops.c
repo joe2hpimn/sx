@@ -536,6 +536,8 @@ struct cb_listvolumes_ctx {
     struct cbl_volume_t {
 	int64_t size;
         int64_t used_size;
+        int64_t fsize;
+        int64_t nfiles;
 	unsigned int replica_count;
 	unsigned int effective_replica_count;
         unsigned int revisions;
@@ -636,12 +638,38 @@ static void cb_listvolumes_usedsize(jparse_t *J, void *ctx, int64_t num) {
     struct cb_listvolumes_ctx *yactx = (struct cb_listvolumes_ctx *)ctx;
 
     if(num < 0) {
-	sxi_jparse_cancel(J, "Invalid size %lld received for volume '%s'", (long long)num, volume);
+        sxi_jparse_cancel(J, "Invalid size %lld received for volume '%s'", (long long)num, volume);
+        yactx->err = SXE_ECOMM;
+        return;
+    }
+
+    yactx->voldata.used_size = num;
+}
+
+static void cb_listvolumes_fsize(jparse_t *J, void *ctx, int64_t num) {
+    const char *volume = sxi_jpath_mapkey(sxi_jpath_down(sxi_jparse_whereami(J)));
+    struct cb_listvolumes_ctx *yactx = (struct cb_listvolumes_ctx *)ctx;
+
+    if(num < 0) {
+	sxi_jparse_cancel(J, "Invalid files size %lld received for volume '%s'", (long long)num, volume);
 	yactx->err = SXE_ECOMM;
 	return;
     }
 
-    yactx->voldata.used_size = num;
+    yactx->voldata.fsize = num;
+}
+
+static void cb_listvolumes_nfiles(jparse_t *J, void *ctx, int64_t num) {
+    const char *volume = sxi_jpath_mapkey(sxi_jpath_down(sxi_jparse_whereami(J)));
+    struct cb_listvolumes_ctx *yactx = (struct cb_listvolumes_ctx *)ctx;
+
+    if(num < 0) {
+        sxi_jparse_cancel(J, "Invalid files number %lld received for volume '%s'", (long long)num, volume);
+        yactx->err = SXE_ECOMM;
+        return;
+    }
+
+    yactx->voldata.nfiles = num;
 }
 
 static void cb_listvolumes_meta(jparse_t *J, void *ctx, const char *string, unsigned int length) {
@@ -679,6 +707,8 @@ static void cb_listvolumes_init(jparse_t *J, void *ctx) {
     yactx->voldata.effective_replica_count = 0;
     yactx->voldata.revisions = 0;
     yactx->voldata.used_size = -1;
+    yactx->voldata.fsize = -1;
+    yactx->voldata.nfiles = -1;
     yactx->voldata.size = -1;
     yactx->voldata.privs[0] = '\0';
     yactx->voldata.privs[1] = '\0';
@@ -798,7 +828,9 @@ sxc_cluster_lv_t *sxc_cluster_listvolumes(sxc_cluster_t *cluster, int get_meta) 
 		     ),
 	JPACTS_INT64(
 		     JPACT(cb_listvolumes_size, JPKEY("volumeList"), JPANYKEY, JPKEY("sizeBytes")),
-		     JPACT(cb_listvolumes_usedsize, JPKEY("volumeList"), JPANYKEY, JPKEY("usedSize"))
+		     JPACT(cb_listvolumes_usedsize, JPKEY("volumeList"), JPANYKEY, JPKEY("usedSize")),
+                     JPACT(cb_listvolumes_fsize, JPKEY("volumeList"), JPANYKEY, JPKEY("filesSize")),
+                     JPACT(cb_listvolumes_nfiles, JPKEY("volumeList"), JPANYKEY, JPKEY("nFiles"))
 		     ),
 	JPACTS_MAP_BEGIN(
 			 JPACT(cb_listvolumes_init, JPKEY("volumeList"), JPANYKEY)
@@ -869,7 +901,7 @@ sxc_cluster_lv_t *sxc_cluster_listvolumes(sxc_cluster_t *cluster, int get_meta) 
     return ret;
 }
 
-int sxc_cluster_listvolumes_next(sxc_cluster_lv_t *lv, char **volume_name, char **volume_owner, int64_t *volume_used_size, int64_t *volume_size, unsigned int *replica_count, unsigned int *effective_replica_count, unsigned int *revisions, char privs[3], sxc_meta_t **meta) {
+int sxc_cluster_listvolumes_next(sxc_cluster_lv_t *lv, char **volume_name, char **volume_owner, int64_t *volume_used_size, int64_t *volume_files_size, int64_t *volume_nfiles, int64_t *volume_size, unsigned int *replica_count, unsigned int *effective_replica_count, unsigned int *revisions, char privs[3], sxc_meta_t **meta) {
     struct cbl_volume_t volume;
     sxc_client_t *sx = lv->sx;
     unsigned int meta_count = 0;
@@ -954,6 +986,12 @@ int sxc_cluster_listvolumes_next(sxc_cluster_lv_t *lv, char **volume_name, char 
 
     if(volume_used_size)
         *volume_used_size = volume.used_size;
+
+    if(volume_files_size)
+        *volume_files_size = volume.fsize;
+
+    if(volume_nfiles)
+        *volume_nfiles = volume.nfiles;
 
     if(volume_size)
 	*volume_size = volume.size;

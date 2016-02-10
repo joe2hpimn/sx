@@ -158,7 +158,7 @@ void sxc_cluster_listaclusers_free(sxc_cluster_la_t *la);
 typedef struct _sxi_ht_t sxc_meta_t;
 typedef struct _sxc_cluster_lv_t sxc_cluster_lv_t;
 sxc_cluster_lv_t *sxc_cluster_listvolumes(sxc_cluster_t *cluster, int get_meta);
-int sxc_cluster_listvolumes_next(sxc_cluster_lv_t *lv, char **volume_name, char **volume_owner, int64_t *volume_used_size, int64_t *volume_size, unsigned int *replica_count, unsigned int *effective_replica_count, unsigned int *revisions, char privs[3], sxc_meta_t **meta);
+int sxc_cluster_listvolumes_next(sxc_cluster_lv_t *lv, char **volume_name, char **volume_owner, int64_t *volume_used_size, int64_t *volume_files_size, int64_t *volume_nfiles, int64_t *volume_size, unsigned int *replica_count, unsigned int *effective_replica_count, unsigned int *revisions, char privs[3], sxc_meta_t **meta);
 void sxc_cluster_listvolumes_free(sxc_cluster_lv_t *lv);
 
 #define SXC_UINT64_UNDEFINED 0xffffffffffffffff

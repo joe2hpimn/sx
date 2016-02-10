@@ -165,7 +165,17 @@ void fcgi_locate_volume(const sx_hashfs_volume_t *vol) {
     json_send_qstring(owner);
     CGI_PRINTF(",\"replicaCount\":%u,\"effectiveReplicaCount\":%u,\"maxRevisions\":%u,\"privs\":\"%c%c\",\"usedSize\":",
                vol->max_replica, vol->effective_replica, vol->revisions, (priv & PRIV_READ) ? 'r' : '-', (priv & PRIV_WRITE) ? 'w' : '-');
-    CGI_PUTLL(vol->cursize);
+    /*
+     * usedSize:         size of the files stored in the volume including file names size and metadata size,
+     * filesSize:        size of the files stored in the volume (excluding file names and metadata),
+     * filesCount:       number of files stored in the volume (notice: all revisions are included!),
+     * sizeBytes:        the volume size
+     */
+    CGI_PUTLL(vol->usage_total);
+    CGI_PRINTF(",\"filesSize\":");
+    CGI_PUTLL(vol->usage_files);
+    CGI_PRINTF(",\"filesCount\":");
+    CGI_PUTLL(vol->nfiles);
     CGI_PRINTF(",\"sizeBytes\":");
     CGI_PUTLL(vol->size);
     if(has_arg("volumeMeta")) {
@@ -233,7 +243,7 @@ void fcgi_list_volume(const sx_hashfs_volume_t *vol) {
     CGI_PUTS("{\"volumeSize\":");
     CGI_PUTLL(vol->size);
     CGI_PUTS(",\"volumeUsedSize\":");
-    CGI_PUTLL(vol->cursize);
+    CGI_PUTLL(vol->usage_total);
 
     s = sx_hashfs_list_first(hashfs, vol, get_arg("filter"), &file, has_arg("recursive"), get_arg("after"), 0);
     switch(s) {
@@ -984,7 +994,7 @@ void fcgi_delete_volume(void) {
 	if(!sx_hashfs_is_or_was_my_volume(hashfs, vol))
 	    quit_errmsg(404, "This volume does not belong here");
 
-	if(!vol->cursize) {
+	if(!vol->usage_total) {
 	    s = sx_hashfs_list_first(hashfs, vol, NULL, NULL, 1, NULL, 0);
 	    if(s == ITER_NO_MORE)
 		emptyvol = 1;
@@ -1026,20 +1036,48 @@ void fcgi_trigger_gc(void)
     CGI_PUTS("\r\n");
 }
 
-/* {"vol1":123,"vol2":122} */
+/* {"vol1":{"usedSize":123,"filesSize":234,"filesCount":345},"vol2":{"usedSize":456,"filesSize":567,"filesCount":678}} */
 struct cb_volsizes_ctx {
     struct volsizes_data {
 	int64_t id;
-	int64_t size;
+	int64_t used_size;
+        int64_t files_size;
+        int64_t nfiles;
     } *vols;
     unsigned int nvols;
+
+    /* temp */
+    int64_t used_size;
+    int64_t files_size;
+    int64_t nfiles;
 };
 
-void cb_volsizes(jparse_t *J, void *ctx, int64_t volsize) {
+static void cb_volsizes_used_size(jparse_t *J, void *ctx, int64_t used_size) {
+    struct cb_volsizes_ctx *c = ctx;
+    c->used_size = used_size;
+}
+
+static void cb_volsizes_files_size(jparse_t *J, void *ctx, int64_t files_size) {
+    struct cb_volsizes_ctx *c = ctx;
+    c->files_size = files_size;
+}
+
+static void cb_volsizes_nfiles(jparse_t *J, void *ctx, int64_t nfiles) {
+    struct cb_volsizes_ctx *c = ctx;
+    c->nfiles = nfiles;
+}
+
+static void cb_volsizes_begin(jparse_t *J, void *ctx) {
+    struct cb_volsizes_ctx *c = ctx;
+    c->used_size = 0;
+    c->files_size = 0;
+    c->nfiles = 0;
+}
+
+static void cb_volsizes_end(jparse_t *J, void *ctx) {
     const char *volname = sxi_jpath_mapkey(sxi_jparse_whereami(J));
     struct cb_volsizes_ctx *c = ctx;
     const sx_hashfs_volume_t *vol;
-
     if(sx_hashfs_volume_by_name(hashfs, volname, &vol) != OK)
 	return; /* Could be anything, just skip this vol */
 
@@ -1056,13 +1094,25 @@ void cb_volsizes(jparse_t *J, void *ctx, int64_t volsize) {
 	c->vols = nuvols;
     }
     c->vols[c->nvols].id = vol->id;
-    c->vols[c->nvols].size = volsize;
+    c->vols[c->nvols].used_size = c->used_size;
+    c->vols[c->nvols].files_size = c->files_size;
+    c->vols[c->nvols].nfiles = c->nfiles;
     c->nvols++;
 }
 
 void fcgi_volsizes(void) {
     const struct jparse_actions acts = {
-	JPACTS_INT64(JPACT(cb_volsizes, JPANYKEY))
+	JPACTS_INT64(
+                        JPACT(cb_volsizes_used_size, JPANYKEY, JPKEY("usedSize")),
+                        JPACT(cb_volsizes_files_size, JPANYKEY, JPKEY("filesSize")),
+                        JPACT(cb_volsizes_nfiles, JPANYKEY, JPKEY("filesCount"))
+                    ),
+        JPACTS_MAP_BEGIN(
+                        JPACT(cb_volsizes_begin, JPANYKEY)
+                        ),
+        JPACTS_MAP_END(
+                        JPACT(cb_volsizes_end, JPANYKEY)
+                        )
     };
     struct cb_volsizes_ctx yctx;
     jparse_t *J;
@@ -1101,8 +1151,8 @@ void fcgi_volsizes(void) {
         rc_ty rc;
 
         /* Set volume size */
-        if((rc = sx_hashfs_reset_volume_cursize(hashfs, yctx.vols[i].id, yctx.vols[i].size)) != OK) {
-            WARN("Failed to set volume id %llu size to %lld", (long long)yctx.vols[i].id, (long long)yctx.vols[i].size);
+        if((rc = sx_hashfs_reset_volume_cursize(hashfs, yctx.vols[i].id, yctx.vols[i].used_size, yctx.vols[i].files_size, yctx.vols[i].nfiles)) != OK) {
+            WARN("Failed to set volume id %llu size to %lld", (long long)yctx.vols[i].id, (long long)yctx.vols[i].used_size);
             free(yctx.vols);
             quit_errmsg(rc2http(rc), rc2str(rc));
         }

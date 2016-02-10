@@ -223,7 +223,13 @@ rc_ty sx_hashfs_volume_delete(sx_hashfs_t *h, const char *volume, int force);
 typedef struct _sx_hashfs_volume_t {
     int64_t id;
     int64_t size;
-    int64_t cursize;
+    /* Current size of the files and their metadata stored on the volume. */
+    int64_t usage_total;
+    /* Current size of the files stored on the volume, without their metadata size included. */
+    int64_t usage_files;
+    /* Number of files stored in the volume. */
+    int64_t nfiles;
+
     unsigned int max_replica;
     unsigned int effective_replica;
     unsigned int revisions;
@@ -248,9 +254,9 @@ int sx_hashfs_is_or_was_my_volume(sx_hashfs_t *h, const sx_hashfs_volume_t *vol)
 typedef int (*acl_list_cb_t)(const char *username, int priv, int is_owner, void *ctx);
 rc_ty sx_hashfs_list_acl(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, sx_uid_t uid, int uid_priv, acl_list_cb_t cb, void *ctx);
 /* Set volume size to given value */
-rc_ty sx_hashfs_reset_volume_cursize(sx_hashfs_t *h, int64_t volume_id, int64_t size);
+rc_ty sx_hashfs_reset_volume_cursize(sx_hashfs_t *h, int64_t volume_id, int64_t size, int64_t fsize, int64_t files);
 /* Atomically add given value to volume size */
-rc_ty sx_hashfs_update_volume_cursize(sx_hashfs_t *h, int64_t volume_id, int64_t size);
+rc_ty sx_hashfs_update_volume_cursize(sx_hashfs_t *h, int64_t volume_id, int64_t size_diff, int64_t fsize_diff, int64_t files_diff);
 
 /* Retrieve timestamp used to compute intervals of volumes pushing */
 struct timeval* sx_hashfs_volsizes_timestamp(sx_hashfs_t *h);
