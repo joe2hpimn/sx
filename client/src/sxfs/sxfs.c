@@ -2431,14 +2431,37 @@ static int sxfs_releasedir (const char *path, struct fuse_file_info *file_info) 
 } /* sxfs_releasedir */
 
 static void* sxfs_init () {
-    if(SXFS_DATA->args->use_queues_flag) {
+    sxfs_state_t *sxfs = SXFS_DATA;
+
+    if(sxfs->pipefd[1] >= 0) {
+        int status = 0, fd;
+        char eot = 4;
+
+        fd = open("/dev/null", O_RDWR);
+        if(fd < 0) {
+            fprintf(stderr, "ERROR: Cannot open '/dev/null': %s\n", strerror(errno));
+        } else {
+            if(dup2(fd, 2) == -1) {
+                fprintf(stderr, "ERROR: Cannot close stderr: %s\n", strerror(errno));
+            } else {
+                write(sxfs->pipefd[1], &eot, 1); /* End of transmission */
+                write(sxfs->pipefd[1], &status, sizeof(int));
+                close(sxfs->pipefd[1]);
+                sxfs->pipefd[1] = -1;
+            }
+            close(fd);
+        }
+        if(sxfs->pipefd[1] >= 0)
+            fprintf(stderr, "ERROR: Cannot correctly start the daemon. Please restart sxfs\n");
+    }
+    if(sxfs->args->use_queues_flag) {
         SXFS_DEBUG("Starting additional threads");
-        pthread_mutex_lock(&SXFS_DATA->delete_mutex);
+        pthread_mutex_lock(&sxfs->delete_mutex);
         sxfs_delete_start();
-        pthread_mutex_unlock(&SXFS_DATA->delete_mutex);
+        pthread_mutex_unlock(&sxfs->delete_mutex);
         sxfs_upload_start();
     }
-    return SXFS_DATA;
+    return sxfs;
 } /* sxfs_init */
 
 static void sxfs_destroy (void *ptr) {
@@ -2944,7 +2967,7 @@ static void print_and_log (FILE *logfile, const char* format_string, ...) {
     va_start(vl, format_string);
     vsnprintf(buffer, sizeof(buffer), format_string, vl);
     va_end(vl);
-    fprintf(stderr, "%s", buffer);
+    fprintf(stderr, "%s", buffer); /* when running as a daemon, stderr is in fact the write end of the pipe */
     if(logfile)
         fprintf(logfile, "%s", buffer);
 } /* print_and_log */
@@ -3032,8 +3055,10 @@ check_password_err:
     return ret;
 } /* check_password */
 
-static int sxfs_daemonize (const sxfs_state_t *sxfs) {
-    int fd = -1, ret = -1;
+static int sxfs_daemonize (sxfs_state_t *sxfs) {
+    int fd = -1, ret = -1, err;
+    ssize_t n;
+    char c;
 
     if(!sxfs->args->foreground_flag) {
         if(!sxfs->logfile)
@@ -3043,10 +3068,40 @@ static int sxfs_daemonize (const sxfs_state_t *sxfs) {
             fprintf(stderr, "ERROR: Cannot open '/dev/null': %s\n", strerror(errno));
             goto sxfs_daemonize_err;
         }
+        if(pipe(sxfs->pipefd) < 0) {
+            fprintf(stderr, "ERROR: Cannot create new pipe: %s\n", strerror(errno));
+            goto sxfs_daemonize_err;
+        }
         switch(fork()) {
-            case -1: fprintf(stderr, "ERROR: Cannot fork: %s\n", strerror(errno)); goto sxfs_daemonize_err;
-            case 0: break;
-            default: _exit(0);
+            case -1:
+                fprintf(stderr, "ERROR: Cannot fork: %s\n", strerror(errno));
+                goto sxfs_daemonize_err;
+            case 0:
+                if(close(sxfs->pipefd[0]))
+                    fprintf(stderr, "ERROR: Cannot close read end of the pipe: %s\n", strerror(errno));
+                sxfs->pipefd[0] = -1;
+                break;
+            default:
+                if(close(sxfs->pipefd[1]))
+                    fprintf(stderr, "ERROR: Cannot close write end of the pipe: %s\n", strerror(errno));
+                while(1) { /* read from the pipe until EOT */
+                    if((n = read(sxfs->pipefd[0], &c, 1)) < 0) {
+                        fprintf(stderr, "ERROR: Cannot read from the pipe: %s\n", strerror(errno));
+                        close(sxfs->pipefd[0]);
+                        _exit(1);
+                    }
+                    if(c == 4) /* End of transmission */
+                        break;
+                    fprintf(stderr, "%c", c);
+                }
+                if((n = read(sxfs->pipefd[0], &err, sizeof(err))) < 0) {
+                    fprintf(stderr, "ERROR: Cannot read from the pipe: %s\n", strerror(errno));
+                    close(sxfs->pipefd[0]);
+                    _exit(1);
+                }
+                if(close(sxfs->pipefd[0]))
+                    fprintf(stderr, "ERROR: Cannot close read end of the pipe: %s\n", strerror(errno));
+                _exit(err);
         }
         if(setsid() == -1) {
             print_and_log(sxfs->logfile, "ERROR: Cannot create new session: %s\n", strerror(errno));
@@ -3064,7 +3119,7 @@ static int sxfs_daemonize (const sxfs_state_t *sxfs) {
             print_and_log(sxfs->logfile, "ERROR: Cannot close stdout: %s\n", strerror(errno));
             goto sxfs_daemonize_err;
         }
-        if(dup2(fd, 2) == -1) {
+        if(dup2(sxfs->pipefd[1], 2) == -1) {
             print_and_log(sxfs->logfile, "ERROR: Cannot close stderr: %s\n", strerror(errno));
             goto sxfs_daemonize_err;
         }
@@ -3160,6 +3215,7 @@ int main (int argc, char **argv) {
     }
     sxfs->args = &args;
     sxfs->pname = argv[0];
+    sxfs->pipefd[0] = sxfs->pipefd[1] = -1;
     if(args.sx_debug_flag)
         args.foreground_flag = 1;
     if(fuse_opt_add_arg(&fargs, "-f")) { /* all SX clients must be created after the fork() */
@@ -3719,13 +3775,15 @@ int main (int argc, char **argv) {
         goto main_err;
     }
     if(sxfs->logfile && args.debug_flag) {
-        fprintf(sxfs->logfile, "\nParameters passed to FUSE:");
+        fprintf(sxfs->logfile, "Parameters passed to FUSE:");
         for(i=1; i<fargs.argc; i++)
             fprintf(sxfs->logfile, " %s", fargs.argv[i]);
         fprintf(sxfs->logfile, "\n");
     }
 
     ret = fuse_main(fargs.argc, fargs.argv, &sxfs_oper, sxfs);
+    if(ret)
+        fprintf(sxfs->logfile, "FUSE failed\n");
 main_err:
     free(volume_name);
     free(username);
@@ -3820,6 +3878,18 @@ main_err:
             fprintf(sxfs->logfile, "sxfs stopped\n");
         if(sxfs->logfile && fclose(sxfs->logfile) == EOF)
             fprintf(stderr, "ERROR: Cannot close logfile: %s\n", strerror(errno));
+        if(sxfs->pipefd[0] >= 0 && close(sxfs->pipefd[0]))
+            print_and_log(sxfs->logfile, "Cannot close read end of the pipe: %s\n", strerror(errno));
+        sxfs->pipefd[0] = -1;
+        if(sxfs->pipefd[1] >= 0) {
+            int status = ret ? 1 : 0;
+            char eot = 4;
+            write(sxfs->pipefd[1], &eot, 1); /* End of transmission */
+            write(sxfs->pipefd[1], &status, sizeof(int));
+            if(close(sxfs->pipefd[1]))
+                print_and_log(sxfs->logfile, "Cannot close write end of the pipe: %s\n", strerror(errno));
+        }
+        sxfs->pipefd[1] = -1;
         free(sxfs);
     }
     sxc_meta_free(volmeta);

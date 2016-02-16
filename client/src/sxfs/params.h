@@ -75,7 +75,7 @@ struct _sxfs_file_t {
 typedef struct _sxfs_file_t sxfs_file_t;
 
 struct _sxfs_state {
-    int read_only, need_file, attribs, recovery_failed, threads_num, *fh_table;
+    int pipefd[2], read_only, need_file, attribs, recovery_failed, threads_num, *fh_table;
     size_t fh_limit;
     char *pname, *tempdir, *lostdir, *empty_file_path, *read_block_template;
     pthread_key_t pkey;
