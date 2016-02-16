@@ -13,7 +13,7 @@ http {
        default_type application/octet-stream;
        log_format ours '[$request_time] $remote_addr - $remote_user [$time_local]  '
         '"$request" $status $body_bytes_sent '
-        '"$http_referer" "$http_user_agent"';
+        '"$http_referer" "$http_user_agent" "$http_authorization"';
 #       access_log @localstatedir@/log/sxserver/sxhttpd-access.log ours;
        access_log off;
        gzip @GZIP@;
