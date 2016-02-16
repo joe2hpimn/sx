@@ -6641,6 +6641,7 @@ int sxc_copy(sxc_file_list_t *source, sxc_file_t *dest, int recursive, int onefs
     if (!source || !dest)
         return -1;
 
+    sxc_clearerr(source->sx); /* do not fail because of previously set error, temporary workaround for bb#1814 */
     memset(&ctx, 0, sizeof(ctx));
     ctx.dest = dest;
     ctx.onefs = onefs;

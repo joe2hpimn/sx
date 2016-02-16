@@ -843,7 +843,7 @@ static int sxfs_rename (const char *path, const char *newpath) {
                 sxc_clearerr(sx);
 
                 if(sxc_copy_single(src, dest, 1, 0, 0, NULL, 0)) {
-                    SXFS_LOG("%s", sxc_geterrmsg(sx));
+                    SXFS_LOG("Cannot copy '%s' file: %s", path, sxc_geterrmsg(sx));
                     ret = -sxfs_sx_err(sx);
                     goto sxfs_rename_err;
                 }
@@ -1427,8 +1427,8 @@ static int sxfs_truncate (const char *path, off_t length) {
                     goto sxfs_truncate_err;
                 }
                 if(SXFS_DATA->need_file) {
-                    if(sxc_copy_single(file_remote, file_local, 0, 0, 0, NULL, 1)) {
-                        SXFS_LOG("%s", sxc_geterrmsg(sx));
+                    if(sxc_copy_single(file_remote, file_local, 0, 0, 0, NULL, 0)) {
+                        SXFS_LOG("Cannot download '%s' file: %s", path, sxc_geterrmsg(sx));
                         ret = -sxfs_sx_err(sx);
                         goto sxfs_truncate_err;
                     }
@@ -1789,8 +1789,8 @@ static int get_file (const char *path, sxfs_file_t *sxfs_file) {
         ret = -sxfs_sx_err(sx);
         goto get_file_err;
     }
-    if(sxc_copy_single(file_remote, file_local, 0, 0, 0, NULL, 1)) {
-        SXFS_LOG("%s", sxc_geterrmsg(sx));
+    if(sxc_copy_single(file_remote, file_local, 0, 0, 0, NULL, 0)) {
+        SXFS_LOG("Cannot download '%s' file: %s", local_file_path, sxc_geterrmsg(sx));
         ret = -sxfs_sx_err(sx);
         goto get_file_err;
     }
@@ -3007,8 +3007,8 @@ static int check_password (sxc_client_t *sx, sxc_cluster_t *cluster, sxfs_state_
         print_and_log(sxfs->logfile, "ERROR: Cannot create new file list: %s\n", sxc_geterrmsg(sx));
         goto check_password_err;
     }
-    if(sxc_copy_single(src, dest, 0, 0, 0, NULL, 1)) {
-        print_and_log(sxfs->logfile, "ERROR: %s\n", sxc_geterrmsg(sx));
+    if(sxc_copy_single(src, dest, 0, 0, 0, NULL, 0)) {
+        print_and_log(sxfs->logfile, "ERROR: Cannot upload '%s' file: %s\n", path, sxc_geterrmsg(sx));
         goto check_password_err;
     }
     if(sxc_file_list_add(rmlist, dest, 0)) {
@@ -3135,6 +3135,15 @@ int main (int argc, char **argv) {
         fuse_opt_free_args(&fargs);
         return ret;
     }
+    if(*args.inputs[1] != '/' || (args.logfile_given && *args.logfile_arg != '/') ||
+            (args.tempdir_given && *args.tempdir_arg != '/') || (args.recovery_dir_given && *args.recovery_dir_arg != '/') ||
+            (args.config_dir_given && *args.config_dir_arg != '/') || (args.filter_dir_given && *args.filter_dir_arg != '/')) {
+        cmdline_parser_print_help();
+        fprintf(stderr, "\nERROR: All file/directory arguments must use an absolute path\n");
+        cmdline_parser_free(&args);
+        fuse_opt_free_args(&fargs);
+        return ret;
+    }
     if(gettimeofday(&tv, NULL)) {
         fprintf(stderr, "ERROR: Cannot get current time: %s\n", strerror(errno));
         goto main_err;
@@ -3221,6 +3230,11 @@ int main (int argc, char **argv) {
                     fprintf(stderr, "\nERROR: Please specify path for logfile\n");
                     goto main_err;
                 }
+                if(*logfile != '/') {
+                    cmdline_parser_print_help();
+                    fprintf(stderr, "\nERROR: All file/directory arguments must use an absolute path\n");
+                    goto main_err;
+                }
                 sxfs->logfile = fopen(logfile, "a");
                 if(!sxfs->logfile) {
                     fprintf(stderr, "ERROR: Cannot open logfile: %s\n", strerror(errno));
@@ -3238,6 +3252,11 @@ int main (int argc, char **argv) {
                     fprintf(stderr, "\nERROR: Please specify path for temporary directory\n");
                     goto main_err;
                 }
+                if(*tempdir != '/') {
+                    cmdline_parser_print_help();
+                    fprintf(stderr, "\nERROR: All file/directory arguments must use an absolute path\n");
+                    goto main_err;
+                }
                 sxfs->tempdir = strdup(tempdir);
                 if(!sxfs->tempdir) {
                     fprintf(stderr, "ERROR: Out of memory\n");
@@ -3253,6 +3272,11 @@ int main (int argc, char **argv) {
                 if(!*lostdir) {
                     cmdline_parser_print_help();
                     fprintf(stderr, "\nERROR: Please specify path for recovery dir\n");
+                    goto main_err;
+                }
+                if(*lostdir != '/') {
+                    cmdline_parser_print_help();
+                    fprintf(stderr, "\nERROR: All file/directory arguments must use an absolute path\n");
                     goto main_err;
                 }
                 sxfs->lostdir = strdup(lostdir);

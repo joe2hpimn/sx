@@ -109,20 +109,23 @@ int sxfs_diglen (long int n) {
 
 int sxfs_sx_err (sxc_client_t *sx) {
     switch(sxc_geterrnum(sx)) {
+        case SXE_NOERROR: return 0;         /* No error */
         case SXE_EARG: return EINVAL;       /* Invalid argument */
         case SXE_EMEM: return ENOMEM;       /* Out of memory */
-        case SXE_EREAD: return EIO;   /* Error reading from disk */
-        case SXE_EWRITE: return EIO;  /* Error writing to disk */
-        case SXE_ETMP: return EIO;    /* Error with temporary file creation and IO */
+        case SXE_EREAD: return EIO;         /* Error reading from disk */
+        case SXE_EWRITE: return EIO;        /* Error writing to disk */
+        case SXE_ETMP: return EIO;          /* Error with temporary file creation and IO */
         case SXE_ECRYPT: return ENOMSG;     /* Error reported by the cryto library */
         case SXE_EAUTH: return EACCES;      /* Authentication related error */
-        case SXE_ECURL: return ECONNABORTED;       /* Error reported by the connector library */
-        case SXE_ECOMM: return ECONNABORTED;       /* Error in the communication with the cluster */
+        case SXE_ECURL: return ECONNABORTED; /* Error reported by the connector library */
+        case SXE_ECOMM: return ECONNABORTED; /* Error in the communication with the cluster */
         case SXE_ECFG: return ENOMSG;       /* Error parsing the configuration */
         case SXE_ETIME: return ETIMEDOUT;   /* Error retrieving the current time */
         case SXE_EFILTER: return ENOMSG;    /* Filter related error */
+        case SXE_SKIP: return ENOMSG;       /* File was skipped */
         case SXE_EAGAIN: return EAGAIN;     /* Try again later  */
-        default: return 0;
+        case SXE_ABORT: return ECANCELED;   /* Operation aborted */
+        default: return ENOMSG;
     }
 } /* sxfs_sx_err */
 
@@ -1315,9 +1318,8 @@ int sxfs_update_mtime (const char *local_file_path, const char *remote_file_path
         ret = -sxfs_sx_err(sx);
         goto sxfs_update_mtime_err;
     }
-
-    if(sxc_copy_single(file_local, file_remote, 0, 0, 0, NULL, 1)) {
-        SXFS_LOG("%s", sxc_geterrmsg(sx));
+    if(sxc_copy_single(file_local, file_remote, 0, 0, 0, NULL, 0)) {
+        SXFS_LOG("Cannot upload '%s' file: %s", local_file_path, sxc_geterrmsg(sx));
         ret = -sxfs_sx_err(sx);
         goto sxfs_update_mtime_err;
     }
@@ -2112,8 +2114,8 @@ static int sxfs_upload_run (sxfs_state_t *sxfs, sxc_client_t *sx, sxc_cluster_t 
         ret = -sxfs_sx_err(sx);
         goto sxfs_upload_run_err;
     }
-    if(sxc_copy_single(src, dest, 1, 0, 0, NULL, 1)) {
-        sxfs_log(sxfs, __func__, 0, "%s", sxc_geterrmsg(sx));
+    if(sxc_copy_single(src, dest, 1, 0, 0, NULL, 0)) {
+        sxfs_log(sxfs, __func__, 0, "Cannot upload '%s' file: %s", storage_path, sxc_geterrmsg(sx));
         sxfs_tick_dirs_reload(sxfs->root);
         if(!ignore_error) {
             ret = -sxfs_sx_err(sx);
