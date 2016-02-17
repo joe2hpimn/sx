@@ -31,6 +31,7 @@
 #include "gnuc.h"
 #include "sx.h"
 #include <errno.h>
+#include "../libsxclient/src/sxproto.h"
 #include "../libsxclient/src/sxlog.h"
 
 extern sxc_logger_t server_logger;
@@ -105,5 +106,11 @@ void msg_set_errno_reason(const char *fmt, ...) FMT_PRINTF(1,2);
 void msg_set_busy(void);
 int msg_was_busy(void);
 const char *msg_get_reason(void);
+
+extern int verbose_rebalance;
+void rbl_log(sx_hash_t *b, const char *op, int success, const char *extra, ...) FMT_PRINTF(4,5);
+
+extern int verbose_gc;
+void gc_log(sx_hash_t *b, const char *op, int success, const char *extra, ...) FMT_PRINTF(4,5);
 
 #endif

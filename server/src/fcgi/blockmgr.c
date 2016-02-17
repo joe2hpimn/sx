@@ -83,20 +83,50 @@ struct blockmgr_data_t {
 };
 
 static void blockmgr_del_xfer(struct blockmgr_data_t *q, int64_t xfer_id) {
-    sqlite3_reset(q->qdel);
-    if(sx_hashfs_blkrb_release(q->hashfs, xfer_id) != OK)
+    sx_uuid_t target;
+    sx_hash_t block;
+    int64_t flowid = FLOW_DEFAULT_UID;
+    rc_ty s;
+
+    if(verbose_rebalance) {
+	sqlite3_stmt *qinfo = NULL;
+	const void *tptr, *bptr;
+	if(!qprep(sx_hashfs_xferdb(q->hashfs), &qinfo, "SELECT flow, block, node FROM topush WHERE id = :id") &&
+	   !qbind_int64(qinfo, ":id", xfer_id) &&
+	   qstep(qinfo) == SQLITE_ROW &&
+	   (flowid = sqlite3_column_int64(qinfo, 0)) == FLOW_BULK_UID &&
+	   (bptr = sqlite3_column_blob(qinfo, 1)) &&
+	   sqlite3_column_bytes(qinfo, 1) == sizeof(block) &&
+	   (tptr = sqlite3_column_blob(qinfo, 2)) &&
+	   sqlite3_column_bytes(qinfo, 2) == sizeof(target.binary)) {
+	    uuid_from_binary(&target, tptr);
+	    memcpy(&block, bptr, sizeof(block));
+	} else
+	    flowid = FLOW_DEFAULT_UID;
+	sqlite3_finalize(qinfo);
+    }
+
+    s = sx_hashfs_blkrb_release(q->hashfs, xfer_id);
+    if(s != OK && s != ENOENT) {
 	WARN("Failed to release block %lld", (long long)xfer_id);
-    else if(qbind_int64(q->qdel, ":id", xfer_id) ||
-       qstep_noret(q->qdel))
+	if(flowid == FLOW_BULK_UID)
+	    rbl_log(&block, "blkrb_release", 0, "Error %d (%s)", s,  msg_get_reason());
+    } else {
+	if(flowid == FLOW_BULK_UID)
+	    rbl_log(&block, "blkrb_release", 1, s == OK ? "Block released" : "Block not locked");
+	sqlite3_reset(q->qdel);
+	if(qbind_int64(q->qdel, ":id", xfer_id) ||
+	   qstep_noret(q->qdel))
 	WARN("Failed to delete transfer %lld", (long long)xfer_id);
-    sqlite3_reset(q->qdel);
+	sqlite3_reset(q->qdel);
+    }
 }
 
 static void blockmgr_reschedule_xfer(struct blockmgr_data_t *q, int64_t xfer_id) {
     sqlite3_reset(q->qbump);
     if(qbind_int64(q->qbump, ":id", xfer_id) ||
        qstep_noret(q->qbump))
-	WARN("Failed to delete transfer %lld", (long long)xfer_id);
+	WARN("Failed to reschedule transfer %lld", (long long)xfer_id);
     sqlite3_reset(q->qbump);
 }
 

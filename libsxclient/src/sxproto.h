@@ -21,6 +21,7 @@
 #define _SXPROTO_H
 
 #include "sx.h"
+#include "default.h"
 #define EXPIRE_TEXT_LEN 18
 
 enum sxi_cluster_verb { REQ_GET = 0, REQ_PUT, REQ_HEAD, REQ_DELETE };

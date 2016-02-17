@@ -42,6 +42,10 @@
 #include "../libsxclient/src/cluster.h"
 #include "../libsxclient/src/vcrypto.h"
 
+
+int verbose_rebalance = 0;
+int verbose_gc = 0;
+
 static struct _sx_logger_ctx {
     pid_t pid;
     const char *file;
@@ -328,3 +332,45 @@ int msg_was_busy(void)
 {
     return log_record.busy;
 }
+
+static void verbose_log_common(const char *prefix, sx_hash_t *b, const char *op, int success, const char *extra, va_list ap) {
+    char buf[1024], hb[sizeof(*b) * 2 + 1];
+    int len;
+
+    if(b) {
+	bin2hex(b, sizeof(*b), hb, sizeof(hb));
+	len = snprintf(buf, sizeof(buf), "[%s] block %s - operation %s: %s", prefix, hb, op, success ? "OK" : "FAILED");
+    } else {
+	len = snprintf(buf, sizeof(buf), "[%s] operation %s: %s", prefix, op, success ? "OK" : "FAILED");
+    }
+    if(extra && len < sizeof(buf) - 2) {
+	buf[len] = ' ';
+	len++;
+	vsnprintf(buf+len, sizeof(buf) - len, extra, ap);
+    }
+
+    INFO("%s", buf);
+}
+
+void rbl_log(sx_hash_t *b, const char *op, int success, const char *extra, ...) {
+    va_list ap;
+
+    if(!verbose_rebalance)
+	return;
+
+    va_start(ap, extra);
+    verbose_log_common("RBL", b, op, success, extra, ap);
+    va_end(ap);
+}
+
+void gc_log(sx_hash_t *b, const char *op, int success, const char *extra, ...) {
+    va_list ap;
+
+    if(!verbose_gc)
+	return;
+
+    va_start(ap, extra);
+    verbose_log_common("GC", b, op, success, extra, ap);
+    va_end(ap);
+}
+

@@ -117,6 +117,10 @@ struct gengetopt_args_info
   int worker_max_requests_arg;	/**< @brief Maximum number of requests / worker (default='5000').  */
   char * worker_max_requests_orig;	/**< @brief Maximum number of requests / worker original value given at command line.  */
   const char *worker_max_requests_help; /**< @brief Maximum number of requests / worker help description.  */
+  int verbose_rebalance_flag;	/**< @brief Generate HUGE rebalance logs (default=off).  */
+  const char *verbose_rebalance_help; /**< @brief Generate HUGE rebalance logs help description.  */
+  int verbose_gc_flag;	/**< @brief Generate HUGE garbage collector logs (default=off).  */
+  const char *verbose_gc_help; /**< @brief Generate HUGE garbage collector logs help description.  */
   
   unsigned int help_given ;	/**< @brief Whether help was given.  */
   unsigned int full_help_given ;	/**< @brief Whether full-help was given.  */
@@ -148,6 +152,8 @@ struct gengetopt_args_info
   unsigned int db_no_custom_vfs_given ;	/**< @brief Whether db-no-custom-vfs was given.  */
   unsigned int worker_max_wait_given ;	/**< @brief Whether worker-max-wait was given.  */
   unsigned int worker_max_requests_given ;	/**< @brief Whether worker-max-requests was given.  */
+  unsigned int verbose_rebalance_given ;	/**< @brief Whether verbose-rebalance was given.  */
+  unsigned int verbose_gc_given ;	/**< @brief Whether verbose-gc was given.  */
 
 } ;
 

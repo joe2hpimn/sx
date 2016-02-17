@@ -64,6 +64,8 @@ const char *gengetopt_args_info_full_help[] = {
   "      --db-no-custom-vfs        Do not use custom SQLite VFS  (default=off)",
   "      --worker-max-wait=sec     Maximum time to wait before killing a worker\n                                  (default=`300')",
   "      --worker-max-requests=N   Maximum number of requests / worker\n                                  (default=`5000')",
+  "      --verbose-rebalance       Generate HUGE rebalance logs  (default=off)",
+  "      --verbose-gc              Generate HUGE garbage collector logs\n                                  (default=off)",
     0
 };
 
@@ -170,6 +172,8 @@ void clear_given (struct gengetopt_args_info *args_info)
   args_info->db_no_custom_vfs_given = 0 ;
   args_info->worker_max_wait_given = 0 ;
   args_info->worker_max_requests_given = 0 ;
+  args_info->verbose_rebalance_given = 0 ;
+  args_info->verbose_gc_given = 0 ;
 }
 
 static
@@ -225,6 +229,8 @@ void clear_args (struct gengetopt_args_info *args_info)
   args_info->worker_max_wait_orig = NULL;
   args_info->worker_max_requests_arg = 5000;
   args_info->worker_max_requests_orig = NULL;
+  args_info->verbose_rebalance_flag = 0;
+  args_info->verbose_gc_flag = 0;
   
 }
 
@@ -263,6 +269,8 @@ void init_args_info(struct gengetopt_args_info *args_info)
   args_info->db_no_custom_vfs_help = gengetopt_args_info_full_help[27] ;
   args_info->worker_max_wait_help = gengetopt_args_info_full_help[28] ;
   args_info->worker_max_requests_help = gengetopt_args_info_full_help[29] ;
+  args_info->verbose_rebalance_help = gengetopt_args_info_full_help[30] ;
+  args_info->verbose_gc_help = gengetopt_args_info_full_help[31] ;
   
 }
 
@@ -475,6 +483,10 @@ cmdline_parser_dump(FILE *outfile, struct gengetopt_args_info *args_info)
     write_into_file(outfile, "worker-max-wait", args_info->worker_max_wait_orig, 0);
   if (args_info->worker_max_requests_given)
     write_into_file(outfile, "worker-max-requests", args_info->worker_max_requests_orig, 0);
+  if (args_info->verbose_rebalance_given)
+    write_into_file(outfile, "verbose-rebalance", 0, 0 );
+  if (args_info->verbose_gc_given)
+    write_into_file(outfile, "verbose-gc", 0, 0 );
   
 
   i = EXIT_SUCCESS;
@@ -790,6 +802,8 @@ cmdline_parser_internal (
         { "db-no-custom-vfs",	0, NULL, 0 },
         { "worker-max-wait",	1, NULL, 0 },
         { "worker-max-requests",	1, NULL, 0 },
+        { "verbose-rebalance",	0, NULL, 0 },
+        { "verbose-gc",	0, NULL, 0 },
         { 0,  0, 0, 0 }
       };
 
@@ -1192,6 +1206,30 @@ cmdline_parser_internal (
                 &(local_args_info.worker_max_requests_given), optarg, 0, "5000", ARG_INT,
                 check_ambiguity, override, 0, 0,
                 "worker-max-requests", '-',
+                additional_error))
+              goto failure;
+          
+          }
+          /* Generate HUGE rebalance logs.  */
+          else if (strcmp (long_options[option_index].name, "verbose-rebalance") == 0)
+          {
+          
+          
+            if (update_arg((void *)&(args_info->verbose_rebalance_flag), 0, &(args_info->verbose_rebalance_given),
+                &(local_args_info.verbose_rebalance_given), optarg, 0, 0, ARG_FLAG,
+                check_ambiguity, override, 1, 0, "verbose-rebalance", '-',
+                additional_error))
+              goto failure;
+          
+          }
+          /* Generate HUGE garbage collector logs.  */
+          else if (strcmp (long_options[option_index].name, "verbose-gc") == 0)
+          {
+          
+          
+            if (update_arg((void *)&(args_info->verbose_gc_flag), 0, &(args_info->verbose_gc_given),
+                &(local_args_info.verbose_gc_given), optarg, 0, 0, ARG_FLAG,
+                check_ambiguity, override, 1, 0, "verbose-gc", '-',
                 additional_error))
               goto failure;
           

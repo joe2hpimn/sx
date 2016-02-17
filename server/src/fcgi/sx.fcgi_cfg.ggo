@@ -81,3 +81,8 @@ option "worker-max-wait"          - "Maximum time to wait before killing a worke
 option "worker-max-requests"      - "Maximum number of requests / worker"
        int default="5000" typestr="N" optional hidden
 
+option "verbose-rebalance"              - "Generate HUGE rebalance logs"
+       flag off hidden
+
+option "verbose-gc"              - "Generate HUGE garbage collector logs"
+       flag off hidden

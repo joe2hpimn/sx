@@ -13808,9 +13808,11 @@ static rc_ty gc_block(sx_hashfs_t *h, unsigned j, unsigned i, sqlite3_stmt *q, i
     sqlite3_stmt *q_setfree = h->qb_setfree[j][i];
     sqlite3_stmt *q_gc = h->qb_gc1[j][i];
     int64_t last = sqlite3_column_int64(q, col_id);
+
     if (hash_of_blob_result(&hash, q, col_hash) == OK) {
         if (sx_hashfs_blkrb_can_gc(h, &hash, bsz[j]) != OK) {
             DEBUGHASH("Hash is locked by rebalance", &hash);
+	    gc_log(&hash, "gc_block", 0, "Block is locked");
             return EAGAIN;
         }
         DEBUGHASH("freeing block with hash", &hash);
@@ -13818,13 +13820,20 @@ static rc_ty gc_block(sx_hashfs_t *h, unsigned j, unsigned i, sqlite3_stmt *q, i
         DEBUG("freeing blockno %ld, @%d/%d/%ld", blockno, j, i, blockno * bsz[j]);
         sqlite3_reset(q_setfree);
         if (qbind_int64(q_setfree, ":blockno", blockno) ||
-            qstep_noret(q_setfree))
-            return -1;
+            qstep_noret(q_setfree)) {
+	    gc_log(&hash, "gc_block", 0, "Failed to set block free");
+            return FAIL_EINTERNAL;
+	}
         sqlite3_reset(q_gc);
         if (qbind_int64(q_gc, ":blockid", last) ||
-            qstep_noret(q_gc))
-            return -1;
+            qstep_noret(q_gc)) {
+	    gc_log(&hash, "gc_block", 0, "Failed to set delete block");
+            return FAIL_EINTERNAL;
+	}
+
+	gc_log(&hash, "gc_block", 1, NULL);
     }
+
     return OK;
 }
 
@@ -13880,11 +13889,18 @@ static rc_ty foreach_hdb_blob(sx_hashfs_t *h, int *terminate,
                             int ret2 = 0;
                             while ((ret2 = qstep(q_gc_blocks)) == SQLITE_ROW) {
                                 DEBUG("got row");
-                                if (gc_block(h, j, i, q_gc_blocks, 0, 2) == OK)
+                                int r = gc_block(h, j, i, q_gc_blocks, 0, 2);
+                                if (r == OK)
                                     gc_blocks++;
-                                else
-                                    locked=1;
+                                else if (r == EAGAIN)
+                                    locked = 1;
+                                else {
+                                    ret = -1;
+                                    break;
+                                }
                             }
+                            if (ret == -1)
+                                break;
                             if (ret2 != SQLITE_DONE || locked) {
                                 DEBUG("some blocks are locked");
                                 continue;/* don't delete the revision either so we can delete the block next time */
@@ -14010,8 +14026,13 @@ rc_ty sx_hashfs_gc_run(sx_hashfs_t *h, int *terminate)
                     break;
                 }
                 while((ret = qstep(q)) == SQLITE_ROW && !*terminate) {
-                    if (gc_block(h, j, i, q, 0, 2) == OK)
+                    int r = gc_block(h, j, i, q, 0, 2);
+                    if (r == OK) {
                         gc_blocks++;
+                    } else if (r != EAGAIN) {
+                        ret = -1;
+                        break;
+                    }
                     if (qelapsed(h->datadb[j][i]) < gc_max_batch_time)
                         break;
                 }
@@ -15713,12 +15734,12 @@ rc_ty sx_hashfs_blkrb_release(sx_hashfs_t *h, uint64_t pushq_id) {
         return EFAULT;
     }
 
-    sqlite3_reset(h->qx_isheld);
+    sqlite3_reset(h->qx_release);
     if(qbind_int64(h->qx_release, ":pushid", pushq_id) ||
        qstep_noret(h->qx_release))
 	return FAIL_EINTERNAL;
 
-    return OK;
+    return sqlite3_changes(h->xferdb->handle) ? OK : ENOENT;
 }
 
 rc_ty sx_hashfs_blkrb_is_complete(sx_hashfs_t *h) {

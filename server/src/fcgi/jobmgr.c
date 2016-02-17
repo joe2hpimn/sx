@@ -2590,6 +2590,16 @@ static act_result_t junlockall_request(sx_hashfs_t *hashfs, job_t job_id, job_da
     return force_phase_success(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
 }
 
+#define FOREACH_BLOCK(startq)						\
+    if(verbose_rebalance)						\
+	for(unsigned int _qno = (startq); _qno < maxnodes && rbdata[_qno].node; _qno++) \
+	    for(unsigned int _bno = 0; _bno < rbdata[_qno].nblocks; _bno++)
+
+#define FOREACH_QUEUE_BLOCK(blockq)					\
+    if(verbose_rebalance)						\
+	for(unsigned int _qno = (blockq), _bno = 0; _bno < rbdata[_qno].nblocks; _bno++)
+
+
 #define RB_MAX_NODES (2 /* FIXME: bump me ? */)
 #define RB_MAX_BLOCKS (100 /* FIXME: should be a sane(!) multiple of DOWNLOAD_MAX_BLOCKS */)
 #define RB_MAX_TRIES (RB_MAX_BLOCKS * RB_MAX_NODES)
@@ -2619,48 +2629,65 @@ static act_result_t blockrb_request(sx_hashfs_t *hashfs, job_t job_id, job_data_
 
     s = sx_hashfs_br_begin(hashfs);
     if(s == ITER_NO_MORE) {
+	rbl_log(NULL, "br_begin", 1, "Work complete");
 	INFO("No more blocks to be relocated");
 	succeeded[0] = 1;
 	return ACT_RESULT_OK;
-    } else if(s != OK)
+    } else if(s != OK) {
+	rbl_log(NULL, "br_begin", 0, "Error %d (%s)", s,  msg_get_reason());
 	action_error(rc2actres(s), rc2http(s), msg_get_reason());
+    }
+    rbl_log(NULL, "br_begin", 1, NULL);
 
     maxnodes = MIN(RB_MAX_NODES, sx_nodelist_count(next) - (sx_nodelist_lookup(next, sx_node_uuid(self)) != NULL));
     maxtries = RB_MAX_TRIES; /* Maximum *consecutive* attempts to find a pushable block */
+    rbl_log(NULL, "nqueues", 1, "Using up to %u queues", maxnodes);
     while(maxtries) {
 	const sx_node_t *target;
 	block_meta_t *blockmeta;
 	char hstr[sizeof(blockmeta->hash) * 2 +1];
 
 	s = sx_hashfs_br_next(hashfs, &blockmeta);
-	if(s != OK)
+	if(s != OK) {
+	    if(s == ITER_NO_MORE)
+		rbl_log(&blockmeta->hash, "br_next", 1, "Round complete");
+	    else
+		rbl_log(&blockmeta->hash, "br_next", 0, "Error %d (%s)", s,  msg_get_reason());
 	    break;
+	}
+	rbl_log(NULL, "br_next", 1, "Block received");
 
 	bin2hex(&blockmeta->hash, sizeof(blockmeta->hash), hstr, sizeof(hstr));
 
 	s = sx_hashfs_new_home_for_old_block(hashfs, &blockmeta->hash, &target);
 	if(s == EINVAL) {
 	    /* Block homelessness (mostly triggering on blocks left over from previous rebalances) */
+	    rbl_log(&blockmeta->hash, "newhome", 1, "Falure ignored: %s", msg_get_reason());
 	    INFO("Failed to identify target for %s: %s", hstr, msg_get_reason());
 	    sx_hashfs_blockmeta_free(&blockmeta);
 	    continue;
 	} else if(s != OK) {
 	    /* Should never trigger */
+	    rbl_log(&blockmeta->hash, "newhome", 0, "Error %d (%s)", s, msg_get_reason());
 	    WARN("Failed to identify target for %s: %s", hstr, msg_get_reason());
 	    sx_hashfs_blockmeta_free(&blockmeta);
 	    break;
 	}
 	if(!sx_node_cmp(self, target)) {
 	    /* Not to be moved */
+	    rbl_log(&blockmeta->hash, "newhome", 1, "No migration required");
 	    DEBUG("Block %s is not to be moved", hstr);
             DEBUGHASH("br_ignore", &blockmeta->hash);
 	    sx_hashfs_blockmeta_free(&blockmeta);
 	    continue;
 	}
+	rbl_log(&blockmeta->hash, "newhome", 1, "New home on %s", sx_node_uuid_str(target));
         if ((s = sx_hashfs_br_use(hashfs, blockmeta))) {
+	    rbl_log(&blockmeta->hash, "br_use", 0, "Error %d (%s)", s,  msg_get_reason());
 	    sx_hashfs_blockmeta_free(&blockmeta);
             break;
         }
+	rbl_log(&blockmeta->hash, "br_use", 1, NULL);
 	for(i=0; i<maxnodes; i++) {
 	    if(!rbdata[i].node) {
 		rbdata[i].node = target;
@@ -2671,6 +2698,7 @@ static act_result_t blockrb_request(sx_hashfs_t *hashfs, job_t job_id, job_data_
 	}
 	if(i == maxnodes) {
 	    /* All target slots are taken, will target again later */
+	    rbl_log(&blockmeta->hash, "enqueue", 0, "No queues to %s currently available", sx_node_uuid_str(target));
 	    DEBUG("Block %s is targeted for %s(%s) to which we currently do not have a channel", hstr, sx_node_uuid_str(target), sx_node_internal_addr(target));
 	    sx_hashfs_blockmeta_free(&blockmeta);
 	    maxtries--;
@@ -2678,11 +2706,14 @@ static act_result_t blockrb_request(sx_hashfs_t *hashfs, job_t job_id, job_data_
 	}
 	if(rbdata[i].nblocks >= RB_MAX_BLOCKS) {
 	    /* This target is already full */
+	    rbl_log(&blockmeta->hash, "enqueue", 0, "Queue to %s is already full", sx_node_uuid_str(target));
 	    DEBUG("Channel to %s (%s) have all the slots full: block %s will be moved later", sx_node_uuid_str(target), sx_node_internal_addr(target), hstr);
 	    sx_hashfs_blockmeta_free(&blockmeta);
 	    maxtries--;
 	    continue;
 	}
+
+	rbl_log(&blockmeta->hash, "enqueue", 1, "Queued to %s in position %u", sx_node_uuid_str(target), rbdata[i].nblocks);
 
 	rbdata[i].blocks[rbdata[i].nblocks] = blockmeta;
 	rbdata[i].nblocks++;
@@ -2704,7 +2735,13 @@ static act_result_t blockrb_request(sx_hashfs_t *hashfs, job_t job_id, job_data_
 	const sx_uuid_t *dist_id = sx_hashfs_distinfo(hashfs, &dist_version, NULL);
 	if(!dist_id) {
 	    WARN("Cannot retrieve distribution version");
+	    FOREACH_BLOCK(0) {
+		rbl_log(&rbdata[_qno].blocks[_bno]->hash, "distinfo", 0, "Distinfo failed");
+	    }
 	    action_error(ACT_RESULT_TEMPFAIL, 503, "Failed toretrieve distribution version");
+	}
+	FOREACH_BLOCK(0) {
+	    rbl_log(&rbdata[_qno].blocks[_bno]->hash, "distinfo", 1, NULL);
 	}
 	for(i=0; i<maxnodes; i++) {
 	    if(!rbdata[i].node)
@@ -2715,14 +2752,22 @@ static act_result_t blockrb_request(sx_hashfs_t *hashfs, job_t job_id, job_data_
 	    for(j=0; j<rbdata[i].nblocks; j++)
 		rbdata[i].proto = sxi_hashop_proto_inuse_hash(sx, rbdata[i].proto, rbdata[i].blocks[j]);
 	    rbdata[i].proto = sxi_hashop_proto_inuse_end(sx, rbdata[i].proto);
-	    if(!rbdata[i].proto)
+	    if(!rbdata[i].proto) {
+		FOREACH_BLOCK(i) {
+		    rbl_log(&rbdata[_qno].blocks[_bno]->hash, "inuse_query", 0, "Query allocation failure");
+		}
 		action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to setup cluster communication");
+	    }
 
             rbdata[i].cbdata = sxi_cbdata_create_generic(clust, NULL, NULL);
 	    if(sxi_cluster_query_ev(rbdata[i].cbdata, clust, sx_node_internal_addr(rbdata[i].node), rbdata[i].proto->verb, rbdata[i].proto->path, rbdata[i].proto->content, rbdata[i].proto->content_len, NULL, NULL)) {
 		WARN("Failed to query node %s: %s", sx_node_uuid_str(rbdata[i].node), sxc_geterrmsg(sx));
+		FOREACH_BLOCK(i) {
+		    rbl_log(&rbdata[_qno].blocks[_bno]->hash, "inuse_query", 0, "Query to %s failed with %s", sx_node_uuid_str(rbdata[_qno].node), sxc_geterrmsg(sx));
+		}
 		action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to setup cluster communication");
 	    }
+
 	    rbdata[i].query_sent = 1;
 	}
     } else
@@ -2741,29 +2786,45 @@ action_failed:
 	    if(rc != -2) {
 		if(rc == -1) {
 		    WARN("Query failed with %ld", http_status);
+		    FOREACH_QUEUE_BLOCK(i) {
+			rbl_log(&rbdata[_qno].blocks[_bno]->hash, "inuse_query", 0, "Remote query failed with HTTP %ld", http_status);
+		    }
 		    if(ret > ACT_RESULT_TEMPFAIL) /* Only raise OK to TEMP */
 			action_set_fail(ACT_RESULT_TEMPFAIL, 503, sxi_cbdata_geterrmsg(rbdata[i].cbdata));
 		} else if(http_status != 200) {
 		    act_result_t newret = http2actres(http_status);
+		    FOREACH_QUEUE_BLOCK(i) {
+			rbl_log(&rbdata[_qno].blocks[_bno]->hash, "inuse_query", 0, "Remote query failed with HTTP %ld", http_status);
+		    }
 		    if(newret < ret) /* Severity shall only be raised */
 			action_set_fail(newret, http_status, sxi_cbdata_geterrmsg(rbdata[i].cbdata));
 		} else {
 		    for(j=0; j<rbdata[i].nblocks; j++) {
-			if(sx_hashfs_blkrb_hold(hashfs, &rbdata[i].blocks[j]->hash, rbdata[i].blocks[j]->blocksize, rbdata[i].node) != OK)
+			rbl_log(&rbdata[i].blocks[j]->hash, "inuse_query", 1, NULL);
+			if((s = sx_hashfs_blkrb_hold(hashfs, &rbdata[i].blocks[j]->hash, rbdata[i].blocks[j]->blocksize, rbdata[i].node)) != OK) {
 			    WARN("Cannot hold block"); /* Unexpected but not critical, will retry later */
-			else if(sx_hashfs_xfer_tonode(hashfs, &rbdata[i].blocks[j]->hash, rbdata[i].blocks[j]->blocksize, rbdata[i].node, FLOW_BULK_UID) != OK)
-			    WARN("Cannot add block to transfer queue"); /* Unexpected but not critical, will retry later */
-			else if(sx_hashfs_br_delete(hashfs, rbdata[i].blocks[j]) != OK)
-			    WARN("Cannot delete block"); /* Unexpected but not critical, will retry later */
-			else {
-			    char h[sizeof(sx_hash_t) * 2 +1];
-			    bin2hex(&rbdata[i].blocks[j]->hash, sizeof(sx_hash_t), h, sizeof(h));
-			    DEBUG("Deleted block %s", h);
+			    rbl_log(&rbdata[i].blocks[j]->hash, "blkrb_hold", 0, "Error %d (%s)", s,  msg_get_reason());
+			} else {
+			    rbl_log(&rbdata[i].blocks[j]->hash, "blkrb_hold", 1, NULL);
+			    if((s = sx_hashfs_xfer_tonode(hashfs, &rbdata[i].blocks[j]->hash, rbdata[i].blocks[j]->blocksize, rbdata[i].node, FLOW_BULK_UID)) != OK) {
+				WARN("Cannot add block to transfer queue"); /* Unexpected but not critical, will retry later */
+				rbl_log(&rbdata[i].blocks[j]->hash, "xfer_tonode", 0, "Error %d (%s)", s,  msg_get_reason());
+			    } else {
+				rbl_log(&rbdata[i].blocks[j]->hash, "xfer_tonode", 1, NULL);
+				if((s = sx_hashfs_br_delete(hashfs, rbdata[i].blocks[j])) != OK) {
+				    WARN("Cannot delete block"); /* Unexpected but not critical, will retry later */
+				    rbl_log(&rbdata[i].blocks[j]->hash, "br_delete", 0, "Error %d (%s)", s,  msg_get_reason());
+				} else
+				    rbl_log(&rbdata[i].blocks[j]->hash, "br_delete", 1, NULL);
+			    }
 			}
 		    }
 		}
 	    } else {
 		CRIT("Failed to wait for query");
+		FOREACH_QUEUE_BLOCK(i) {
+		    rbl_log(&rbdata[_qno].blocks[_bno]->hash, "inuse_query", 0, "Failed to wait for query result");
+		}
 		action_set_fail(ACT_RESULT_PERMFAIL, 500, "Internal error in cluster communication");
 	    }
 	}

@@ -598,6 +598,8 @@ int main(int argc, char **argv) {
     db_busy_timeout = args.db_busy_timeout_arg;
     worker_max_wait = args.worker_max_wait_arg;
     worker_max_requests = args.worker_max_requests_arg;
+    verbose_rebalance = args.verbose_rebalance_flag;
+    verbose_gc = args.verbose_gc_flag;
 
     if(args.children_arg <= 0 || args.children_arg > MAX_CHILDREN) {
 	CRIT("Invalid number of children");
