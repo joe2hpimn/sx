@@ -1541,10 +1541,13 @@ static int info_cluster(sxc_client_t *sx, struct cluster_args_info *args, enum i
 
 		if((leadernode = sx_nodelist_lookup(nodes_prev, &leaderid))) {
 		    sxi_hostlist_t hlist;
+		    const char *laddr = sx_node_addr(leadernode), *lintaddr = sx_node_internal_addr(leadernode);
 
 		    sxi_hostlist_init(&hlist);
-		    if(sxi_hostlist_add_host(sx, &hlist, sx_node_internal_addr(leadernode))) {
+		    if(sxi_hostlist_add_host(sx, &hlist, laddr) ||
+		       (strcmp(laddr, lintaddr) && sxi_hostlist_add_host(sx, &hlist, lintaddr))) {
 			CRIT("OOM checking leader status");
+			sxi_hostlist_empty(&hlist);
 			goto info_out;
 		    }
 		    clstleader = clst_query(sxi_cluster_get_conns(clust), &hlist);
@@ -1629,7 +1632,9 @@ static int info_cluster(sxc_client_t *sx, struct cluster_args_info *args, enum i
 	if(isonline) {
 	    if(!isleader) {
 		sxi_hostlist_init(&hlist);
-		if(sxi_hostlist_add_host(sx, &hlist, nodeintaddr)) {
+		if(sxi_hostlist_add_host(sx, &hlist, nodeaddr) ||
+		   (strcmp(nodeaddr, nodeintaddr) && sxi_hostlist_add_host(sx, &hlist, nodeintaddr))) {
+		    sxi_hostlist_empty(&hlist);
 		    CRIT("OOM checking node status");
 		    ret = 1;
 		    goto info_out;
