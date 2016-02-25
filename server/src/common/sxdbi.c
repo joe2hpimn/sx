@@ -240,11 +240,15 @@ static int qstep_retry(sqlite3_stmt *q)
     };
     unsigned ms_timeout = 0, curdelay = 0;
     struct timeval t1, t2;
-    int ret;
+    int ret, warned=0;
 
     gettimeofday(&t1, NULL);
     while((ret = sqlite3_step(q)) == SQLITE_BUSY) {
         unsigned int us_delay = us_delays[curdelay], ms_dt;
+        if (!warned) {
+            WARN("BUSY returned on BEGIN IMMEDIATE, possible deadlock?");
+            warned = 1;
+        }
 
         sqlite3_reset(q);
 
@@ -272,6 +276,8 @@ static int qstep_retry(sqlite3_stmt *q)
             us_delay = (ms_timeout - ms_dt) * 1000;
         usleep(us_delay);
     }
+    if (ret == SQLITE_BUSY)
+        WARN("BUSY on BEGIN IMMEDIATE timed out, probably deadlock?");
     if (ret == SQLITE_DONE) {
         gettimeofday(&t2, NULL);
         double dt = timediff(&t1, &t2);
