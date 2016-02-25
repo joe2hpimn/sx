@@ -119,7 +119,7 @@ static void qcheckpoint_run(sxi_db_t *db, int kind)
     }
     double dt = timediff(&tv0, &tv1);
     if (dt > SLOW_QUERY_DT)
-        INFO("Slow WAL checkpoint completed on %s in %.2fs", sqlite3_db_filename(db->handle, "main"), dt);
+        INFO("Slow WAL(%d) checkpoint completed on %s in %.2fs", kind, sqlite3_db_filename(db->handle, "main"), dt);
     db->wal_pages = 0;
 }
 
