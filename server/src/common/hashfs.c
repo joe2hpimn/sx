@@ -12067,8 +12067,6 @@ rc_ty sx_hashfs_file_delete(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, co
             /* precondition: add should have arrived, add in the db a marker that we are waiting for the add,
              and perform the delete once it has arrived*/
             DEBUG("Out of order delete"); /* delete reached this node before create */
-            if (qbegin(h->metadb[mdb]))
-                return FAIL_EINTERNAL;
             sqlite3_reset(h->qm_ins[mdb]);
             sx_hash_t revision_id;
             if (qbind_int64(h->qm_ins[mdb], ":volume", volume->id) ||
@@ -12083,10 +12081,6 @@ rc_ty sx_hashfs_file_delete(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, co
                 WARN("Failed to insert tombstone");
                 ret = FAIL_EINTERNAL;
             }
-            if (ret == ENOENT)
-                ret = qcommit(h->metadb[mdb]);
-            else
-                qrollback(h->metadb[mdb]);
         }
         return ret;
     }
