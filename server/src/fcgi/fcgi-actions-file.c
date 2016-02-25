@@ -185,7 +185,8 @@ static int hash_presence_callback(const char *hexhash, unsigned int index, int c
 /* create: {"fileSize":1234,"fileData":["hash1","hash2"],"fileMeta":{"key":"value","key2":"value2"}} */
 /* extend: {"extendSeq":1234,"fileData":["hash1","hash2"],"fileMeta":{"key":"value","key2":"value2"}} */
 struct cb_newfile_ctx {
-    int64_t filesize; /* file size if creating, extend seq if extending */
+    int64_t filesize;
+    int64_t seq;
     rc_ty rc;
     char metakey[SXLIMIT_META_MAX_KEY_LEN+1];
 };
@@ -193,6 +194,11 @@ struct cb_newfile_ctx {
 static void cb_newfile_size(jparse_t *J, void *ctx, int64_t size) {
     struct cb_newfile_ctx *c = (struct cb_newfile_ctx *)ctx;
     c->filesize = size;
+}
+
+static void cb_newfile_seq(jparse_t *J, void *ctx, int64_t seq) {
+    struct cb_newfile_ctx *c = (struct cb_newfile_ctx *)ctx;
+    c->seq = seq;
 }
 
 static void cb_newfile_block(jparse_t *J, void *ctx, const char *string, unsigned int length) {
@@ -314,7 +320,8 @@ void fcgi_create_file(void) {
 static void create_or_extend_tempfile(const sx_hashfs_volume_t *vol, const char *filename, int extending) {
     const struct jparse_actions acts = {
 	JPACTS_INT64(
-		     JPACT(cb_newfile_size, JPKEY(extending ? "extendSeq" : "fileSize"))
+		     JPACT(cb_newfile_size, JPKEY("fileSize")),
+		     JPACT(cb_newfile_seq, JPKEY("extendSeq"))
 		     ),
 	JPACTS_STRING(
 		      JPACT(cb_newfile_block, JPKEY("fileData"), JPANYITM),
@@ -332,6 +339,7 @@ static void create_or_extend_tempfile(const sx_hashfs_volume_t *vol, const char 
     rc_ty s;
 
     yctx.filesize = -1;
+    yctx.seq = -1;
     yctx.rc = EINVAL;
 
     J = sxi_jparse_create(&acts, &yctx, 0);
@@ -355,7 +363,7 @@ static void create_or_extend_tempfile(const sx_hashfs_volume_t *vol, const char 
     auth_complete();
     quit_unless_authed();
 
-    s = sx_hashfs_putfile_gettoken(hashfs, user, yctx.filesize, &token, hash_presence_callback, &ctx);
+    s = sx_hashfs_putfile_gettoken(hashfs, user, yctx.filesize, yctx.seq, &token, hash_presence_callback, &ctx);
     if (s != OK) {
 	sx_hashfs_putfile_end(hashfs);
 	if(!*msg_get_reason())

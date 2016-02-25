@@ -59,7 +59,7 @@ static rc_ty int64_arg(const char* arg, int64_t *v, int64_t defaultv)
 
 void fcgi_locate_volume(const sx_hashfs_volume_t *vol) {
     sx_nodelist_t *allnodes, *goodnodes;
-    unsigned int blocksize, nnode, nnodes, i, nmeta = 0, comma;
+    unsigned int blocksize, nnode, nnodes, i, nmeta = 0, comma, growable = 0;
     struct metacontent {
 	char key[SXLIMIT_META_MAX_KEY_LEN+1];
 	char hexval[SXLIMIT_META_MAX_VALUE_LEN * 2 + 1];
@@ -70,7 +70,10 @@ void fcgi_locate_volume(const sx_hashfs_volume_t *vol) {
     sx_priv_t priv = 0;
     char owner[SXLIMIT_MAX_USERNAME_LEN+1];
 
-    if (int64_arg("size", &fsize, 0))
+    if(has_arg("size") && !strcmp(get_arg("size"), "growable")) {
+	growable = 1;
+	fsize = sx_hashfs_growable_filesize();
+    } else if (int64_arg("size", &fsize, 0))
         quit_errmsg(400, msg_get_reason());
 
     /* The locate_volume query is shared between different ops.
@@ -159,8 +162,13 @@ void fcgi_locate_volume(const sx_hashfs_volume_t *vol) {
     CGI_PUTS("Content-type: application/json\r\n\r\n{\"nodeList\":");
     send_nodes_randomised(goodnodes);
     sx_nodelist_delete(goodnodes);
-    if(has_arg("size"))
-	CGI_PRINTF(",\"blockSize\":%d", blocksize);
+    if(has_arg("size")) {
+	if(growable) {
+	    CGI_PUTS(",\"growableSize\":");
+	    CGI_PUTLL(fsize);
+	}
+	CGI_PRINTF(",\"blockSize\":%u", blocksize);
+    }
     CGI_PUTS(",\"owner\":");
     json_send_qstring(owner);
     CGI_PRINTF(",\"replicaCount\":%u,\"effectiveReplicaCount\":%u,\"maxRevisions\":%u,\"privs\":\"%c%c\",\"usedSize\":",

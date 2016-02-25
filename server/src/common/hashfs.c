@@ -1867,7 +1867,7 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 	goto open_hashfs_fail;
     if(qprep(h->tempdb, &h->qt_update, "UPDATE tmpfiles SET size = :size, content = :all, uniqidx = :uniq, ttl = :expiry WHERE tid = :id AND flushed = 0"))
 	goto open_hashfs_fail;
-    if(qprep(h->tempdb, &h->qt_extend, "UPDATE tmpfiles SET content = cast((content || :all) as blob), uniqidx = cast((uniqidx || :uniq) as blob) WHERE tid = :id AND length(content) = :size AND flushed = 0"))
+    if(qprep(h->tempdb, &h->qt_extend, "UPDATE tmpfiles SET content = cast((content || :all) as blob), uniqidx = cast((uniqidx || :uniq) as blob), size = :size WHERE tid = :id AND flushed = 0"))
 	goto open_hashfs_fail;
     if(qprep(h->tempdb, &h->qt_addmeta, "INSERT OR REPLACE INTO tmpmeta (tid, key, value) VALUES (:id, :key, :value)"))
 	goto open_hashfs_fail;
@@ -2401,11 +2401,13 @@ rc_ty sx_storage_activate(sx_hashfs_t *h, const char *name, const sx_node_t *fir
     return ret;
 }
 
+#define BS_UPPER_BOUND 128*1024*1024
+#define BS_LOWER_BOUND 128*1024
 static unsigned int size_to_blocks(uint64_t size, unsigned int *size_type, unsigned int *block_size) {
     unsigned int ret, sizenum = 1, bs;
-    if(size > 128*1024*1024)
+    if(size > BS_UPPER_BOUND)
 	sizenum = 2;
-    else if(size < 128*1024)
+    else if(size < BS_LOWER_BOUND)
 	sizenum = 0;
     bs = bsz[sizenum];
     ret = size / bs;
@@ -2416,6 +2418,10 @@ static unsigned int size_to_blocks(uint64_t size, unsigned int *size_type, unsig
     if(block_size)
 	*block_size = bs;
     return ret;
+}
+
+int64_t sx_hashfs_growable_filesize(void) {
+    return BS_UPPER_BOUND + 1;
 }
 
 static int cmphash(const void *a, const void *b) {
@@ -9728,7 +9734,7 @@ static rc_ty check_tmpfile_size(sx_hashfs_t *h, int64_t tmpfile_id, int strict, 
  *
  * (Follow up: sx_hashfs_putfile_getblock)
  */
-rc_ty sx_hashfs_putfile_gettoken(sx_hashfs_t *h, const uint8_t *user, int64_t size_or_seq, const char **token, hash_presence_cb_t hdck_cb, void *hdck_cb_ctx) {
+rc_ty sx_hashfs_putfile_gettoken(sx_hashfs_t *h, const uint8_t *user, int64_t size, int64_t seq, const char **token, hash_presence_cb_t hdck_cb, void *hdck_cb_ctx) {
     const char *ptr;
     sqlite3_stmt *q;
     unsigned int i;
@@ -9736,46 +9742,67 @@ rc_ty sx_hashfs_putfile_gettoken(sx_hashfs_t *h, const uint8_t *user, int64_t si
     rc_ty ret = FAIL_EINTERNAL;
     unsigned int blocksize;
     int64_t expires_at;
-    int skip_reservation=0;
+    int creating, growing = 0, complete, skip_reservation=0;
 
     if(!h || !h->put_id)
 	return EINVAL;
 
     if(h->put_extendsize < 0) {
 	/* creating */
-	if(size_or_seq < SXLIMIT_MIN_FILE_SIZE || size_or_seq > SXLIMIT_MAX_FILE_SIZE) {
+	creating = 1;
+	if(size < SXLIMIT_MIN_FILE_SIZE || size > SXLIMIT_MAX_FILE_SIZE) {
 	    msg_set_reason("Cannot obtain upload token: file size must be between %llu and %llu bytes", SXLIMIT_MIN_FILE_SIZE, SXLIMIT_MAX_FILE_SIZE);
 	    return EINVAL;
 	}
 	q = h->qt_update;
-	total_blocks = size_to_blocks(size_or_seq, &h->put_hs, &blocksize);
+	sqlite3_reset(q);
+	total_blocks = size_to_blocks(size, &h->put_hs, &blocksize);
 	/* calculate expiry time of token proportional to the amount of data
 	 * uploaded with _this_ token, i.e. we issue a new token for an extend.
 	 * */
-	sqlite3_reset(q);
 	expires_at = time(NULL) + GC_GRACE_PERIOD + blocksize * total_blocks / h->upload_minspeed
-            + GC_MIN_LATENCY * size_or_seq / UPLOAD_CHUNK_SIZE / 1000;
+            + GC_MIN_LATENCY * size / UPLOAD_CHUNK_SIZE / 1000;
 	if(qbind_int64(q, ":expiry", expires_at))
 	    return FAIL_EINTERNAL;
     } else {
 	/* extending */
-	if(size_or_seq != h->put_extendfrom) {
+	creating = 0;
+	if(seq != h->put_extendfrom) {
 	    msg_set_reason("Cannot obtain upload token: out of sequence");
 	    return EINVAL;
 	}
+	if(size >= 0) {
+	    /* File size increase */
+	    if(h->put_extendsize < sx_hashfs_growable_filesize()) {
+		msg_set_reason("File is not allowed to grow above its initial size");
+		return EINVAL;
+	    }
+	    if(size < h->put_extendsize) {
+		msg_set_reason("File is not allowed to shrink below its initial size");
+		return EINVAL;
+	    }
+	    if(size > h->put_extendsize)
+		growing = 1;
+	} else {
+	    /* No file size increase */
+	    size = h->put_extendsize;
+	}
+
 	q = h->qt_extend;
-	total_blocks = size_to_blocks(h->put_extendsize, &h->put_hs, &blocksize);
-	size_or_seq *= sizeof(sx_hash_t);
 	sqlite3_reset(q);
     }
+
+    total_blocks = size_to_blocks(size, &h->put_hs, &blocksize);
 
     if(h->put_putblock + h->put_extendfrom > total_blocks) {
 	msg_set_reason("Cannot obtain upload token: cannot extend beyond the file size");
 	return EINVAL;
     }
 
+    complete = h->put_putblock + h->put_extendfrom == total_blocks;
+
     if(qbind_int64(q, ":id", h->put_id) ||
-       qbind_int64(q, ":size", size_or_seq))
+       qbind_int64(q, ":size", size))
 	goto gettoken_err;
 
     if(h->put_putblock) {
@@ -9851,7 +9878,7 @@ rc_ty sx_hashfs_putfile_gettoken(sx_hashfs_t *h, const uint8_t *user, int64_t si
 	}
     }
 
-    rc_ty ret2 = check_tmpfile_size(h, h->put_id, h->put_putblock + h->put_extendfrom == total_blocks, h->put_extendsize < 0);
+    rc_ty ret2 = check_tmpfile_size(h, h->put_id, complete, creating || growing);
     if(ret2 == EEXIST) {
         DEBUG("Reservation: skipping");
         skip_reservation=1;
@@ -9859,7 +9886,8 @@ rc_ty sx_hashfs_putfile_gettoken(sx_hashfs_t *h, const uint8_t *user, int64_t si
     } else {
         DEBUG("Reservation: not skipping");
     }
-    if(h->put_extendsize < 0 || h->put_putblock + h->put_extendfrom == total_blocks) {
+    if(creating || growing || complete) {
+	/* Outside of these cases size check is not critical */
         if(ret2) {
 	    ret = ret2;
 	    goto gettoken_err;

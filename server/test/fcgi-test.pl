@@ -371,6 +371,7 @@ sub test_upload {
     my $meta = shift;
     my $expectrc = shift; #Expected return code for PUT operation
     my $len = length $file;
+    my $grow = ($len+0 > 128*1024*1024);
 
     print "Checking $test ($who)... " unless $in_cleanup;
     my $auth = $TOK{$who};
@@ -433,12 +434,15 @@ sub test_upload {
 	my @subhashes = @hashes[$i..min($i+$blocks_per_loop-1, $#hashes)];
 	my $content = { 'fileData' => [@subhashes] };
 	if($i == 0) {
-	    $content->{'fileSize'} = $len+0;
+	    $content->{'fileSize'} = $grow ? 128*1024*1024+1 : $len+0;
 	    $content->{'fileMeta'} = $meta if(defined $meta);
 	    $req = HTTP::Request->new('PUT', "http://$QUERYHOST/".escape_uri($vol, $fname))
 	} else {
 	    $content->{'extendSeq'} = $i;
 	    $req = HTTP::Request->new('PUT', "http://$QUERYHOST/.upload/$token");
+	    if($grow && $i == $blocks_per_loop) {
+		$content->{'fileSize'} = $len+0;
+	    }
 	}
 	$req->content_type('application/json');
 	$req->content(encode_json $content);
@@ -839,6 +843,8 @@ test_upload 'file upload (big blocksize + 500)', $writer, $blk, "large$vol", '1b
 random_data_r(\$blk, $blocksize);
 test_upload 'file upload (big blocksize, repeating)', $writer, ($blk x 64).random_data($blocksize).($blk x 64), "large$vol", 'rep', 2;
 test_upload 'file upload (big blocksize, previous)', $writer, $blk x 160, "large$vol", 'prev', 0;
+
+test_get 'get min growable size', authed_only(200, 'application/json'), "large$vol?o=locate&size=growable", undef, sub { my $json = get_json(shift) or return 0; return is_int($json->{'growableSize'}) && $json->{'growableSize'} == 128*1024*1024+1 && is_int($json->{'blockSize'}) && $json->{'blockSize'} == $blocksize; };
 
 ### Check quota handling ###
 # This file should not be allowed to be uploaded because quota will be exceeded by one byte
