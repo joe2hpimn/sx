@@ -21,11 +21,11 @@ http {
        gzip_vary on;
        gzip_types text/plain text/css application/json application/x-javascript text/xml application/xml application/xml+rss text/javascript;
        client_max_body_size 150M;
-       client_body_temp_path @localstatedir@/lib/sxserver/sxhttpd;
-       fastcgi_temp_path @localstatedir@/lib/sxserver/sxhttpd;
-       proxy_temp_path @localstatedir@/lib/sxserver/sxhttpd;
-       uwsgi_temp_path @localstatedir@/lib/sxserver/sxhttpd;
-       scgi_temp_path @localstatedir@/lib/sxserver/sxhttpd;
+       client_body_temp_path /tmp/sxhttpd;
+       fastcgi_temp_path /tmp/sxhttpd;
+       proxy_temp_path /tmp/sxhttpd;
+       uwsgi_temp_path /tmp/sxhttpd;
+       scgi_temp_path /tmp/sxhttpd;
        #vhost_traffic_status_zone;
        server {
 #            ssl on;
