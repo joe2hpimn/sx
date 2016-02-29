@@ -3876,8 +3876,6 @@ main_err:
             print_and_log(sxfs->logfile, "Cannot delete per-thread memory key: %s\n", strerror(i));
         if(sxfs->logfile)
             fprintf(sxfs->logfile, "sxfs stopped\n");
-        if(sxfs->logfile && fclose(sxfs->logfile) == EOF)
-            fprintf(stderr, "ERROR: Cannot close logfile: %s\n", strerror(errno));
         if(sxfs->pipefd[0] >= 0 && close(sxfs->pipefd[0]))
             print_and_log(sxfs->logfile, "Cannot close read end of the pipe: %s\n", strerror(errno));
         sxfs->pipefd[0] = -1;
@@ -3888,8 +3886,10 @@ main_err:
             write(sxfs->pipefd[1], &status, sizeof(int));
             if(close(sxfs->pipefd[1]))
                 print_and_log(sxfs->logfile, "Cannot close write end of the pipe: %s\n", strerror(errno));
+            sxfs->pipefd[1] = -1;
         }
-        sxfs->pipefd[1] = -1;
+        if(sxfs->logfile && fclose(sxfs->logfile) == EOF)
+            fprintf(stderr, "ERROR: Cannot close logfile: %s\n", strerror(errno));
         free(sxfs);
     }
     sxc_meta_free(volmeta);
