@@ -2082,6 +2082,10 @@ static int easy_set_default_opt(curl_events_t *e, curlev_t *ev)
     if (curl_check(ev,rc,"disable global timeout") == -1)
         return -1;
 
+    rc = curl_easy_setopt(curl, CURLOPT_TCP_NODELAY, 1);
+    if (curl_check(ev,rc,"set TCP_NODELAY") == -1)
+        return -1;
+
     /* otherwise it tries SSLv2 on < 7.18.1 and fails to connect to
      * SSLv3/TLSv1 */
     rc = curl_easy_setopt(curl, CURLOPT_SSLVERSION, CURL_SSLVERSION_TLSv1);
