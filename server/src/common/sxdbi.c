@@ -265,6 +265,13 @@ static int qstep_retry(sqlite3_stmt *q)
             us_delay = (ms_timeout - ms_dt) * 1000;
         usleep(us_delay);
     }
+    if (ret == SQLITE_DONE) {
+        gettimeofday(&t2, NULL);
+        double dt = timediff(&t1, &t2);
+        if (dt > SLOW_QUERY_DT)
+            INFO("Slow BEGIN completed in %.2f sec on %s", dt, sqlite3_db_filename(sqlite3_db_handle(q), NULL));
+        DEBUG("BEGIN IMMEDIATE took %.2fs", timediff(&t1, &t2));
+    }
     return ret;
 }
 
@@ -285,6 +292,8 @@ int qstep(sqlite3_stmt *q) {
 	dt = timediff(&t1, &t2);
 	if(dt > SLOW_QUERY_DT)
 	    INFO("Slow query \"%s\" completed in %.2f sec", sqlite3_sql(q), dt);
+        else
+            DEBUG("qstep took %.2fs on %s", dt, sqlite3_sql(q));
     }
     if(ret != SQLITE_ROW)
 	sqlite3_reset(q);
