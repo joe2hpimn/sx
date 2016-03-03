@@ -67,6 +67,7 @@ case "$1" in
 
         exit_if_running "sx.fcgi" "$SX_RUN_DIR/sxfcgi.pid"
         echo "Starting SX.fcgi"
+        export TMPDIR=/tmp
 	if [ "$SX_USE_VALGRIND" = "yes" ]; then
 	    valgrind --num-callers=100 --track-origins=yes --max-stackframe=2560000 --log-file=/tmp/sxfcgi.valgrind.log.%p --trace-children=yes --leak-check=full @sbindir@/sx.fcgi $SX_FCGI_OPTS
 	else
