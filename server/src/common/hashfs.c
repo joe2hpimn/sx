@@ -10111,7 +10111,7 @@ static rc_ty create_file(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const
             DEBUG("Out of order add (delete already received)");
             delete = 1;
         } else {
-            DEBUG("File '%s (%s)' on volume '%s' is already here", name, revision, volume->name);
+            WARN("File '%s (%s)' on volume '%s' is already here", name, revision, volume->name);
             return EEXIST;
         }
     } else if(r != SQLITE_DONE) {
