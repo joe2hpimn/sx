@@ -357,7 +357,6 @@ static void blockmgr_process_queue(struct blockmgr_data_t *q) {
 
 	if(trigger_jobmgr)
 	    sx_hashfs_job_trigger(q->hashfs);
-        sx_hashfs_checkpoint_idle(q->hashfs);
     }
     sxi_hostlist_empty(&uploadto);
 }

@@ -66,8 +66,14 @@ static void qclose_db(sqlite3 **dbp)
 static int qwal_hook(void *ctx, sqlite3 *handle, const char *name, int pages)
 {
     sxi_db_t *db = ctx;
-    if (db)
+    if (db) {
+        /* count idle time since first commit after checkpoint,
+           otherwise it would immediately checkpoint after a commit if a long time has passed
+           since last checkpoint */
+        if (!db->wal_pages)
+            gettimeofday(&db->tv_last, NULL);
         db->wal_pages = pages;
+    }
     if (pages >= db_max_passive_wal_pages) {
         qcheckpoint(db);
     }
@@ -92,6 +98,7 @@ sxi_db_t *qnew(sqlite3 *handle)
         sqlite3_free(zVfsName);
     }
     sqlite3_wal_hook(handle, qwal_hook, db);
+    gettimeofday(&db->tv_last, NULL);
     return db;
 }
 
