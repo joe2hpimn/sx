@@ -114,10 +114,27 @@ if [ "$INFO_GIVEN" = "yes" -o "$UPGRADE_GIVEN" = "yes" -o "$COMPACT_GIVEN" = "ye
 	exit 0
 
     elif [ "$COMPACT_GIVEN" = "yes" ]; then
+	HB_DEADTIME="`@sbindir@/sxadm cluster --get-param hb_deadtime sx://admin@$SX_CLUSTER_NAME 2>/dev/null | grep hb_deadtime | grep -v '=0$'`"
+	if [ -n "$HB_DEADTIME" ]; then
+	    echo "Temporarily disabling automatic node removal..."
+	    "@sbindir@/sxadm" cluster --set-param hb_deadtime=0 "sx://admin@$SX_CLUSTER_NAME"
+	    if [ $? -ne 0 ]; then
+		echo "ERROR: Failed to update Raft settings (hb_deadtime=0)"
+		exit 1
+	    fi
+	fi
 	echo "The node will be stopped now and started again when compacting is finished"
 	"@sbindir@/sxserver" stop
 	"@sbindir@/sxadm" node $OWNERFLAG --human-readable --compact $SX_DATA_DIR
 	"@sbindir@/sxserver" start
+	if [ -n "$HB_DEADTIME" ]; then
+	    echo "Re-enabling automatic node removal..."
+	    "@sbindir@/sxadm" cluster --set-param $HB_DEADTIME "sx://admin@$SX_CLUSTER_NAME" 
+	    if [ $? -ne 0 ]; then
+		echo "WARNING: Failed to update Raft settings ($HB_DEADTIME)"
+		exit 1
+	    fi
+	fi
 	exit 0
     else
 	# Update config files if needed and possible
