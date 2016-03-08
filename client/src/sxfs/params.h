@@ -40,9 +40,34 @@
 #include "libsxclient/src/misc.h"
 #include "server/src/common/sxlimits.h"
 
+#define SXFS_SXNEWDIR ".sxnewdir"
+#define SXFS_UPLOAD_DIR "upload"
+#define SXFS_LOSTDIR_SUFIX "-lost"
+#define SXFS_ALLOC_ENTRIES 100
 #define SXFS_THREADS_LIMIT 64
 #define SXFS_FILE_OPENED 0x1
 #define SXFS_FILE_REMOVED 0x2
+#define SXFS_FILE_ATTR (S_IFREG|S_IRUSR|S_IWUSR)
+#define SXFS_DIR_ATTR (S_IFDIR|S_IRUSR|S_IWUSR|S_IXUSR)
+#define SXFS_DIR_SIZE SX_BS_SMALL
+
+#define SXFS_BS_MEDIUM_AMOUNT 128   /* 16 kB * 128 = 2MB */
+#define SXFS_BS_LARGE_AMOUNT 4      /*  1 MB *  4  = 4MB */
+
+#define SXFS_THREAD_WAIT 200000L /* microseconds to wait for other threads (200000 -> 0.2s) */
+#define SXFS_THREAD_SLEEP 5000000L /* microseconds deletion and upload threads wait for next turn */
+#define SXFS_LS_RELOAD 3.0 /* seconds sxfs assumes data it already has is up to date */
+#define SXFS_LAST_ACTION_WAIT 1.0 /* seconds must have been passed since last file action */
+
+#define SXFS_LOG_TYPE_NORMAL 0x1
+#define SXFS_LOG_TYPE_DEBUG 0x2
+#define SXFS_LOG_TYPE_VERBOSE 0x3
+#define SXFS_LOG_TYPE_ERROR 0x4
+#define SXFS_DATA ((sxfs_state_t*) fuse_get_context()->private_data)
+#define SXFS_LOG(...) sxfs_log(sxfs, __func__, SXFS_LOG_TYPE_NORMAL, __VA_ARGS__)
+#define SXFS_DEBUG(...) sxfs_log(sxfs, __func__, SXFS_LOG_TYPE_DEBUG, __VA_ARGS__)
+#define SXFS_VERBOSE(...) sxfs_log(sxfs, __func__, SXFS_LOG_TYPE_VERBOSE, __VA_ARGS__)
+#define SXFS_ERROR(...) sxfs_log(sxfs, __func__, SXFS_LOG_TYPE_ERROR, __VA_ARGS__)
 
 struct _sxfs_lsfile_t {
     int remote, opened;
@@ -65,25 +90,30 @@ struct _sxfs_lsdir_t {
 typedef struct _sxfs_lsdir_t sxfs_lsdir_t;
 
 struct _sxfs_file_t {
-    int flush, write_fd, nblocks;
-    unsigned long int blocksize, num_open;
-    char *blocks, **blocks_path, *etag, *write_path;
+    int flush, write_fd;
+    unsigned long int num_open, threads_num;
+    char *write_path, *remote_path;
     sxi_sxfs_data_t *fdata;
     sxfs_lsfile_t *ls_file;
-    pthread_mutex_t block_mutex;
+    pthread_mutex_t mutex;
 };
 typedef struct _sxfs_file_t sxfs_file_t;
 
+struct _sxfs_cache_t;
+typedef struct _sxfs_cache_t sxfs_cache_t;
+
 struct _sxfs_state {
-    int pipefd[2], read_only, need_file, attribs, recovery_failed, threads_num, *fh_table;
-    size_t fh_limit;
-    char *pname, *tempdir, *lostdir, *empty_file_path, *read_block_template;
-    pthread_key_t pkey;
+    int pipefd[2], need_file, attribs, recovery_failed, *threads, *fh_table;
+    size_t fh_limit, threads_num, threads_max;
+    char *pname, *tempdir, *lostdir, *empty_file_path;
+    pthread_key_t sxkey, tid_key;
     /* mutex priority: ls > delete > upload */
-    pthread_mutex_t sx_data_mutex, ls_mutex, delete_mutex, upload_mutex, files_mutex, limits_mutex;
+    pthread_mutex_t sx_data_mutex, ls_mutex, delete_mutex, delete_thread_mutex, upload_mutex, upload_thread_mutex, files_mutex, limits_mutex;
+    pthread_cond_t delete_cond, upload_cond;
     sxc_uri_t *uri;
     sxi_ht *files;
     sxfs_lsdir_t *root;
+    sxfs_cache_t *cache;
     FILE *logfile;
     struct gengetopt_args_info *args;
     pthread_t upload_thread, delete_thread;
@@ -97,15 +127,6 @@ struct _sxfs_sx_data {
     pthread_mutex_t *sx_data_mutex;
 };
 typedef struct _sxfs_sx_data sxfs_sx_data_t;
-
-#define ALLOC_AMOUNT 100
-#define THREAD_WAIT_USEC 200000L /* microseconds to wait for other threads (200000 -> 0.2s) */
-#define LS_RELOAD_TIME 3000000L /* microseconds sxfs assumes data it already has is up to date */
-#define JOB_SLEEP_USEC 5000000L /* microseconds deletion and upload threads wait for next turn */
-#define LAST_ACTION_WAIT_USEC 1000000L /* microseconds must have been passed since last file action */
-#define SXFS_DATA ((sxfs_state_t*) fuse_get_context()->private_data)
-#define SXFS_LOG(...) sxfs_log(SXFS_DATA, __func__, 0, __VA_ARGS__)
-#define SXFS_DEBUG(...) sxfs_log(SXFS_DATA, __func__, 1, __VA_ARGS__)
 
 #endif
 

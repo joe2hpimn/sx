@@ -129,7 +129,8 @@ CONFIG_CLEAN_VPATH_FILES =
 am__installdirs = "$(DESTDIR)$(bindir)" "$(DESTDIR)$(man1dir)"
 PROGRAMS = $(bin_PROGRAMS)
 am__dirstamp = $(am__leading_dot)dirstamp
-am_src_sxfs_sxfs_OBJECTS = src/sxfs/src_sxfs_sxfs-common.$(OBJEXT) \
+am_src_sxfs_sxfs_OBJECTS = src/sxfs/src_sxfs_sxfs-cache.$(OBJEXT) \
+	src/sxfs/src_sxfs_sxfs-common.$(OBJEXT) \
 	src/sxfs/src_sxfs_sxfs-sxfs.$(OBJEXT) \
 	src/sxfs/src_sxfs_sxfs-cmdline.$(OBJEXT)
 src_sxfs_sxfs_OBJECTS = $(am_src_sxfs_sxfs_OBJECTS)
@@ -643,6 +644,8 @@ src_tools_rev_sxrev_SOURCES = \
 
 src_tools_rev_sxrev_LDADD = $(top_builddir)/../libsxclient/src/libsxclient.la
 src_sxfs_sxfs_SOURCES = \
+	src/sxfs/cache.c \
+	src/sxfs/cache.h \
 	src/sxfs/common.c \
 	src/sxfs/common.h \
 	src/sxfs/params.h \
@@ -832,6 +835,8 @@ src/sxfs/$(am__dirstamp):
 src/sxfs/$(DEPDIR)/$(am__dirstamp):
 	@$(MKDIR_P) src/sxfs/$(DEPDIR)
 	@: > src/sxfs/$(DEPDIR)/$(am__dirstamp)
+src/sxfs/src_sxfs_sxfs-cache.$(OBJEXT): src/sxfs/$(am__dirstamp) \
+	src/sxfs/$(DEPDIR)/$(am__dirstamp)
 src/sxfs/src_sxfs_sxfs-common.$(OBJEXT): src/sxfs/$(am__dirstamp) \
 	src/sxfs/$(DEPDIR)/$(am__dirstamp)
 src/sxfs/src_sxfs_sxfs-sxfs.$(OBJEXT): src/sxfs/$(am__dirstamp) \
@@ -1036,6 +1041,7 @@ mostlyclean-compile:
 distclean-compile:
 	-rm -f *.tab.c
 
+@AMDEP_TRUE@@am__include@ @am__quote@src/sxfs/$(DEPDIR)/src_sxfs_sxfs-cache.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/sxfs/$(DEPDIR)/src_sxfs_sxfs-cmdline.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/sxfs/$(DEPDIR)/src_sxfs_sxfs-common.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/sxfs/$(DEPDIR)/src_sxfs_sxfs-sxfs.Po@am__quote@
@@ -1100,6 +1106,20 @@ distclean-compile:
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='$<' object='$@' libtool=yes @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LTCOMPILE) -c -o $@ $<
+
+src/sxfs/src_sxfs_sxfs-cache.o: src/sxfs/cache.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_sxfs_sxfs_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT src/sxfs/src_sxfs_sxfs-cache.o -MD -MP -MF src/sxfs/$(DEPDIR)/src_sxfs_sxfs-cache.Tpo -c -o src/sxfs/src_sxfs_sxfs-cache.o `test -f 'src/sxfs/cache.c' || echo '$(srcdir)/'`src/sxfs/cache.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) src/sxfs/$(DEPDIR)/src_sxfs_sxfs-cache.Tpo src/sxfs/$(DEPDIR)/src_sxfs_sxfs-cache.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='src/sxfs/cache.c' object='src/sxfs/src_sxfs_sxfs-cache.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_sxfs_sxfs_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o src/sxfs/src_sxfs_sxfs-cache.o `test -f 'src/sxfs/cache.c' || echo '$(srcdir)/'`src/sxfs/cache.c
+
+src/sxfs/src_sxfs_sxfs-cache.obj: src/sxfs/cache.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_sxfs_sxfs_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT src/sxfs/src_sxfs_sxfs-cache.obj -MD -MP -MF src/sxfs/$(DEPDIR)/src_sxfs_sxfs-cache.Tpo -c -o src/sxfs/src_sxfs_sxfs-cache.obj `if test -f 'src/sxfs/cache.c'; then $(CYGPATH_W) 'src/sxfs/cache.c'; else $(CYGPATH_W) '$(srcdir)/src/sxfs/cache.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) src/sxfs/$(DEPDIR)/src_sxfs_sxfs-cache.Tpo src/sxfs/$(DEPDIR)/src_sxfs_sxfs-cache.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='src/sxfs/cache.c' object='src/sxfs/src_sxfs_sxfs-cache.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_sxfs_sxfs_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o src/sxfs/src_sxfs_sxfs-cache.obj `if test -f 'src/sxfs/cache.c'; then $(CYGPATH_W) 'src/sxfs/cache.c'; else $(CYGPATH_W) '$(srcdir)/src/sxfs/cache.c'; fi`
 
 src/sxfs/src_sxfs_sxfs-common.o: src/sxfs/common.c
 @am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(src_sxfs_sxfs_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT src/sxfs/src_sxfs_sxfs-common.o -MD -MP -MF src/sxfs/$(DEPDIR)/src_sxfs_sxfs-common.Tpo -c -o src/sxfs/src_sxfs_sxfs-common.o `test -f 'src/sxfs/common.c' || echo '$(srcdir)/'`src/sxfs/common.c

@@ -32,6 +32,12 @@ Mount options; see below for the list of available options.
 \fB\-q\fR, \fB\-\-use\-queues\fR
 This option enables the use of queues for upload and delete operations. By default sxfs will wait for each operation and report the result to the application performing the action (eg. cp). When this option is enabled, all operations will be queued and performed in the background. This improves the interaction with the mounted volume, however errors might not be reported back to the application. It is highly recommended to use this option together with \fB\-\-logfile\fR and monitor the logfile for possible issues.
 .TP
+\fB\-C\fR, \fB\-\-cache\-size\fR=\fI\,SIZE\/\fR
+Set size of the local cache. The following unit specifiers are supported: K(-ilobytes), M(-megabytes), G(-igabytes) and T(-erabytes). Default cache size: 256M
+.TP
+\fB\-d\fR, \fB\-\-cache\-dir\fR=\fI\,PATH\/\fR
+Set directory for the local cache (by default the main temporary directory will be used). All cached data will be removed on exit.
+.TP
 \fB\-f\fR, \fB\-\-foreground\fR
 Run in the foreground.
 .TP
@@ -74,6 +80,12 @@ Mount filesystem in read-only mode
 .TP
 \fBuse_queues\fR
 See \fB\-\-use\-queues\fR
+.TP
+\fBcache_size\fR=\fI\,SIZE\/\fR
+See \fB\-\-cache\-size\fR
+.TP
+\fBcache_dir\fR=\fI\,PATH\/\fR
+See \fB\-\-cache\-dir\fR
 .TP
 \fBlogfile\fR=\fI\,PATH\/\fR
 See \fB\-\-logfile\fR

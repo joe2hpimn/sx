@@ -27,6 +27,7 @@
 
 #include "params.h"
 #include "common.h"
+#include "cache.h"
 
 #include <stdlib.h>
 #include <stdarg.h>
@@ -44,27 +45,33 @@
 #define SXFS_DOWNLOAD_INFO (SXFS_DOWNLOAD_IN_PROGRESS|SXFS_DOWNLOAD_FINISHED|SXFS_DOWNLOAD_BUSY)
 #define SXFS_DOWNLOAD_BIT_SHIFT 3
 
+#define SXFS_THREAD_NOT_WORKING 0
+#define SXFS_THREAD_WORKING 1
+#define SXFS_THREAD_STOPPED (-1)
+
 /* stuff for threads */
-int delete_flag, upload_flag; /* -2 - not working
-                               * -1 - signal to stop
-                               *  0 - starting
-                               *  1 - working */
+int delete_flag, upload_flag;
 size_t nfiles_del, maxfiles_del, nfiles_up, maxfiles_up;
 char **delete_list = NULL, **upload_list = NULL;
 struct timeval last_deletion_time, last_upload_time;
 
 static const char truncated[] = "[...]";
 
-void sxfs_log (const sxfs_state_t *sxfs, const char *fn, int debug, const char *format_string, ...) {
-    int len = 0, n;
+void sxfs_log (sxfs_state_t *sxfs, const char *fn, int log_type, const char *format_string, ...) {
+    int len = 0, n, tid;
     char buff[65536];
     int size = sizeof(buff) - sizeof(truncated) + 1;
     struct timeval tv;
     struct tm *tm = NULL;
     va_list vl;
 
-    if(!sxfs->logfile || (debug == 1 && !sxfs->args->debug_flag))
+    if(!sxfs || !sxfs->logfile ||
+        (log_type == SXFS_LOG_TYPE_DEBUG && !sxfs->args->debug_flag) ||
+        (log_type == SXFS_LOG_TYPE_VERBOSE && !sxfs->args->verbose_flag))
         return;
+    tid = sxfs_get_thread_id(sxfs);
+    if(tid < 0)
+        tid = -1;
     if(!gettimeofday(&tv, NULL)) {
         tm = localtime(&tv.tv_sec);
         if(tm)
@@ -75,12 +82,12 @@ void sxfs_log (const sxfs_state_t *sxfs, const char *fn, int debug, const char *
     size -= n;
     len += n;
     if(fn && size > 0) {
-        n = snprintf(buff + len, size, "[%s] ", fn);
+        n = snprintf(buff + len, size, "[%d|%s] ", tid, fn);
         size -= n;
         len += n;
     }
     if(size > 0) {
-        n = snprintf(buff + len, size, "%s: ", !debug && sxfs->args->debug_flag ? "ERROR " : "");
+        n = snprintf(buff + len, size, "%s: ", log_type == SXFS_LOG_TYPE_ERROR ? "ERROR " : "");
         size -= n;
         len += n;
     }
@@ -130,12 +137,12 @@ int sxfs_sx_err (sxc_client_t *sx) {
 } /* sxfs_sx_err */
 
 int sxfs_resize (void **ptr, size_t *size, size_t elsize) {
-    void *new_ptr = realloc(*ptr, (*size + ALLOC_AMOUNT) * elsize);
+    void *new_ptr = realloc(*ptr, (*size + SXFS_ALLOC_ENTRIES) * elsize);
     if(!new_ptr)
         return -1;
     *ptr = new_ptr;
-    memset((char*)*ptr + *size * elsize, 0, ALLOC_AMOUNT * elsize);
-    *size += ALLOC_AMOUNT;
+    memset((char*)*ptr + *size * elsize, 0, SXFS_ALLOC_ENTRIES * elsize);
+    *size += SXFS_ALLOC_ENTRIES;
     return 0;
 } /* sxfs_resize */
 
@@ -155,6 +162,44 @@ char* sxfs_hash (sxfs_state_t *sxfs, const char *name) {
     ret[SXI_SHA1_TEXT_LEN] = '\0';
     return ret;
 } /* sxfs_hash */
+
+int sxfs_thread_create (sxfs_state_t *sxfs, pthread_t *thread, void *(start_routine)(void*), void *arg) {
+    int err;
+    pthread_attr_t attr;
+
+    if((err = pthread_attr_init(&attr))) {
+        SXFS_ERROR("Failed to initialize thread attribute: %s", strerror(err));
+        return -err;
+    }
+
+    if((err = pthread_attr_setstacksize(&attr, 2 * 1024 * 1024))) {
+        SXFS_ERROR("Failed to set thread stack size: %s", strerror(err));
+	pthread_attr_destroy(&attr);
+        return -err;
+    }
+
+    pthread_mutex_lock(&sxfs->limits_mutex);
+    if(sxfs->threads_num < SXFS_THREADS_LIMIT) {
+        sxfs->threads_num++;
+    } else {
+        pthread_mutex_unlock(&sxfs->limits_mutex);
+	pthread_attr_destroy(&attr);
+        SXFS_DEBUG("Reached threads limit");
+        return -ENOMSG;
+    }
+    pthread_mutex_unlock(&sxfs->limits_mutex);
+
+    if((err = pthread_create(thread, &attr, start_routine, arg))) {
+        pthread_mutex_lock(&sxfs->limits_mutex);
+        sxfs->threads_num--;
+        pthread_mutex_unlock(&sxfs->limits_mutex);
+	pthread_attr_destroy(&attr);
+        SXFS_ERROR("Cannot start new thread: %s", strerror(err));
+        return -err;
+    }
+    pthread_attr_destroy(&attr);
+    return 0;
+} /* sxfs_thread_create */
 
 int sxfs_build_path (const char* path) {
     int ret;
@@ -184,31 +229,31 @@ int sxfs_copy_file (sxfs_state_t *sxfs, const char *source, const char *dest) {
     char buff[65536];
 
     if((ret = sxfs_build_path(dest))) {
-        sxfs_log(sxfs, __func__, 0, "Cannot create path: %s", dest);
+        SXFS_ERROR("Cannot create path: %s", dest);
         return ret;
     }
     fd_src = open(source, O_RDONLY);
     if(fd_src < 0) {
         ret = -errno;
-        sxfs_log(sxfs, __func__, 0, "Cannot open '%s' file: %s", source, strerror(errno));
+        SXFS_ERROR("Cannot open '%s' file: %s", source, strerror(errno));
         return ret;
     }
     fd_dst = open(dest, O_WRONLY | O_CREAT | O_EXCL, 0600);
     if(fd_dst < 0) {
         ret = -errno;
-        sxfs_log(sxfs, __func__, 0, "Cannot create '%s' file: %s", dest, strerror(errno));
+        SXFS_ERROR("Cannot create '%s' file: %s", dest, strerror(errno));
         goto sxfs_copy_file_err;
     }
     while((rd = read(fd_src, buff, sizeof(buff))) > 0) {
         if(write(fd_dst, buff, rd) < 0) {
             ret = -errno;
-            sxfs_log(sxfs, __func__, 0, "Cannot write to '%s' file: %s", dest, strerror(errno));
+            SXFS_ERROR("Cannot write to '%s' file: %s", dest, strerror(errno));
             goto sxfs_copy_file_err;
         }
     }
     if(rd < 0) {
         ret = -errno;
-        sxfs_log(sxfs, __func__, 0, "Cannot read from '%s' file: %s", source, strerror(errno));
+        SXFS_ERROR("Cannot read from '%s' file: %s", source, strerror(errno));
         goto sxfs_copy_file_err;
     }
 
@@ -220,20 +265,13 @@ sxfs_copy_file_err:
     return ret;
 } /* sxfs_copy_file */
 
-static int sxfs_rm_cb (const char *path, const struct stat *st, int flag, struct FTW *ftwbuf) {
-    return remove(path);
-} /* sxfs_rm_cb */
-
-int sxfs_rmdirs (const char *path) {
-    return nftw(path, sxfs_rm_cb, 10, FTW_DEPTH | FTW_PHYS);
-} /* sxfs_rmdirs */
-
 int sxfs_clear_path (const char *path) {
     char *path2 = strdup(path), *ptr;
     size_t minlen = strlen(SXFS_DATA->tempdir) + 1 + lenof(SXFS_UPLOAD_DIR) + 1 + 1;
+    sxfs_state_t *sxfs = SXFS_DATA;
 
     if(!path2) {
-        SXFS_LOG("Out of memory: %s", path);
+        SXFS_ERROR("Out of memory: %s", path);
         return -ENOMEM;
     }
     ptr = strrchr(path2, '/');
@@ -244,7 +282,7 @@ int sxfs_clear_path (const char *path) {
         if(rmdir(path2)) {
             if(errno != ENOTEMPTY && errno != ENOENT) {
                 int ret = -errno;
-                SXFS_LOG("Cannot remove '%s' directory: %s", path2, strerror(errno));
+                SXFS_ERROR("Cannot remove '%s' directory: %s", path2, strerror(errno));
                 free(path2);
                 return ret;
             }
@@ -256,257 +294,124 @@ int sxfs_clear_path (const char *path) {
     return 0;
 } /* sxfs_clear_path */
 
-int sxfs_get_file (sxfs_file_t *sxfs_file, sxc_client_t *sx, sxc_cluster_t *cluster, int start_block, int end_block) {
-    int i, ret;
-    unsigned long int block_size;
-    sxc_file_t *dest = NULL;
+int sxfs_get_file (sxfs_state_t *sxfs, sxfs_file_t *sxfs_file) {
+    int ret, fd = -1;
+    ssize_t bytes;
+    off_t offset = 0;
+    char *local_file_path, buff[4096];
 
-    if(start_block >= sxfs_file->nblocks) {
-        SXFS_LOG("Block number out of range");
-        return -EINVAL;
+    pthread_mutex_lock(&sxfs_file->mutex);
+    if(sxfs_file->write_fd >= 0) { /* in case of race condition */
+        pthread_mutex_unlock(&sxfs_file->mutex);
+        return 0;
     }
-    if(end_block > sxfs_file->nblocks) {
-        end_block = sxfs_file->nblocks;
-        SXFS_DEBUG("End of the blocks out of bounds [corrected]");
+    SXFS_VERBOSE("Downloading the file");
+    local_file_path = (char*)malloc(strlen(sxfs->tempdir) + 1 + lenof("file_XXXXXX") + 1);
+    if(!local_file_path) {
+        SXFS_ERROR("Out of memory");
+        ret = -ENOMEM;
+        goto sxfs_get_file_err;
     }
-    switch(sxfs_file->fdata->blocksize) {
-        case SX_BS_SMALL: block_size = SXFS_BS_SMALL_AMOUNT * SX_BS_SMALL; break;
-        case SX_BS_MEDIUM: block_size = SXFS_BS_MEDIUM_AMOUNT * SX_BS_MEDIUM; break;
-        case SX_BS_LARGE: block_size = SXFS_BS_LARGE_AMOUNT * SX_BS_LARGE; break;
-        default: SXFS_LOG("Unknown block size"); return -EINVAL;
+    sprintf(local_file_path, "%s/file_XXXXXX", sxfs->tempdir);
+    fd = mkstemp(local_file_path);
+    if(fd < 0) {
+        ret = -errno;
+        SXFS_ERROR("Cannot create unique temporary file: %s", strerror(errno));
+        free(local_file_path);
+        local_file_path = NULL;
+        goto sxfs_get_file_err;
     }
-    for(i=start_block; i<end_block; i++) {
-        pthread_mutex_lock(&sxfs_file->block_mutex);
-        if(!(sxfs_file->blocks[i] & SXFS_DOWNLOAD_INFO)) {
-            sxfs_file->blocks[i] |= SXFS_DOWNLOAD_IN_PROGRESS;
-            pthread_mutex_unlock(&sxfs_file->block_mutex);
-            if(!sxfs_file->blocks_path[i]) {
-                int fd;
-                sxfs_file->blocks_path[i] = strdup(SXFS_DATA->read_block_template);
-                if(!sxfs_file->blocks_path[i]) {
-                    SXFS_LOG("Out of memory: %s", SXFS_DATA->read_block_template);
-                    ret = -ENOMEM;
-                    goto sxfs_get_file_err;
-                }
-                fd = mkstemp(sxfs_file->blocks_path[i]);
-                if(fd < 0) {
-                    ret = -errno;
-                    SXFS_LOG("Cannot create unique temporary file: %s", strerror(errno));
-                    free(sxfs_file->blocks_path[i]);
-                    sxfs_file->blocks_path[i] = NULL;
-                    goto sxfs_get_file_err;
-                }
-                if(close(fd)) {
-                    ret = -errno;
-                    SXFS_LOG("Cannot close '%s' file: %s", sxfs_file->blocks_path[i], strerror(errno));
-                    goto sxfs_get_file_err;
-                }
-            }
-            sxc_file_free(dest);
-            dest = sxc_file_local(sx, sxfs_file->blocks_path[i]);
-            if(!dest) {
-                SXFS_LOG("Cannot create local file object: %s", sxc_geterrmsg(sx));
-                sxfs_file->blocks[i] &= ~SXFS_DOWNLOAD_IN_PROGRESS;
-                ret = -sxfs_sx_err(sx);
+    if(sxfs_file->fdata->blocksize == SX_BS_SMALL) {
+        sxc_client_t *sx;
+        sxc_cluster_t *cluster;
+        sxc_file_t *file_local, *file_remote;
+
+        if((ret = sxfs_get_sx_data(sxfs, &sx, &cluster))) {
+            SXFS_ERROR("Cannot get SX data");
+            goto sxfs_get_file_err;
+        }
+        file_local = sxc_file_local(sx, local_file_path);
+        if(!file_local) {
+            SXFS_ERROR("Cannot create local file object: %s", sxc_geterrmsg(sx));
+            ret = -sxfs_sx_err(sx);
+            goto sxfs_get_file_err;
+        }
+        file_remote = sxc_file_remote(cluster, sxfs->uri->volume, sxfs_file->remote_path+1, NULL);
+        if(!file_remote) {
+            SXFS_ERROR("Cannot create file object: %s", sxc_geterrmsg(sx));
+            ret = -sxfs_sx_err(sx);
+            sxc_file_free(file_local);
+            goto sxfs_get_file_err;
+        }
+        if(sxc_copy_single(file_remote, file_local, 0, 0, 0, NULL, 0)) {
+            SXFS_ERROR("Cannot download '%s' file: %s", local_file_path, sxc_geterrmsg(sx));
+            ret = -sxfs_sx_err(sx);
+            sxc_file_free(file_local);
+            sxc_file_free(file_remote);
+            goto sxfs_get_file_err;
+        }
+        sxc_file_free(file_local);
+        sxc_file_free(file_remote);
+    } else {
+        while((bytes = sxfs_cache_read(sxfs, sxfs_file, buff, sizeof(buff), offset)) > 0) {
+            if(write(fd, buff, bytes) < 0) {
+                ret = -errno;
+                SXFS_ERROR("Cannot write to '%s' file: %s", sxfs_file->write_path, strerror(errno));
                 goto sxfs_get_file_err;
             }
-            if(sxi_sxfs_download_run(sxfs_file->fdata, cluster, dest, i * block_size, block_size)) {
-                SXFS_LOG("Cannot download part of the file: %s", sxc_geterrmsg(sx));
-                sxfs_file->blocks[i] &= ~SXFS_DOWNLOAD_IN_PROGRESS;
-                ret = -sxfs_sx_err(sx);
-                goto sxfs_get_file_err;
-            }
-            pthread_mutex_lock(&sxfs_file->block_mutex);
-            sxfs_file->blocks[i] |= SXFS_DOWNLOAD_FINISHED;
-            sxfs_file->blocks[i] &= SXFS_DOWNLOAD_INFO; /* clean up error code */
-            sxfs_file->blocks[i] &= ~SXFS_DOWNLOAD_IN_PROGRESS;
-            pthread_mutex_unlock(&sxfs_file->block_mutex);
-        } else {
-            while(sxfs_file->blocks[i] & SXFS_DOWNLOAD_IN_PROGRESS) {
-                pthread_mutex_unlock(&sxfs_file->block_mutex);
-                usleep(THREAD_WAIT_USEC); /* wait for the file */
-                pthread_mutex_lock(&sxfs_file->block_mutex);
-            }
-            if(!(sxfs_file->blocks[i] & SXFS_DOWNLOAD_FINISHED)) {
-                ret = -(sxfs_file->blocks[i] >> SXFS_DOWNLOAD_BIT_SHIFT);
-                pthread_mutex_unlock(&sxfs_file->block_mutex);
-                goto sxfs_get_file_err; /* downloading failed, there is no file to read */
-            }
-            pthread_mutex_unlock(&sxfs_file->block_mutex); /* 'goto' inside if() statement */
+            offset += bytes;
+        }
+        if(bytes < 0) {
+            ret = -errno;
+            SXFS_ERROR("Cannot read from '%s' file: %s", local_file_path, strerror(errno));
+            goto sxfs_get_file_err;
         }
     }
-    
+    sxfs_file->write_fd = fd;
+    sxfs_file->write_path = local_file_path;
+    fd = -1;
+    local_file_path = NULL;
+    SXFS_VERBOSE("New file descriptor: %d", sxfs_file->write_fd);
+
     ret = 0;
 sxfs_get_file_err:
-    sxc_file_free(dest);
+    pthread_mutex_unlock(&sxfs_file->mutex);
+    if(fd >= 0 && close(fd))
+        SXFS_ERROR("Cannot close '%s' file: %s", local_file_path, strerror(errno));
+    if(local_file_path && unlink(local_file_path))
+        SXFS_ERROR("Cannot remove '%s' file: %s", local_file_path, strerror(errno));
+    free(local_file_path);
     return ret;
 } /* sxfs_get_file */
 
-struct _sxfs_thread_data_t {
-    int block_num;
-    sxfs_state_t *sxfs;
-    sxfs_file_t *sxfs_file;
-};
-typedef struct _sxfs_thread_data_t sxfs_thread_data_t;
-
-static void *sxfs_get_file_thread (void *ptr) {
-    int err = 0;
-    sxc_client_t *sx = NULL;
-    sxc_cluster_t *cluster = NULL;
-    sxc_file_t *dest = NULL;
-    sxfs_thread_data_t *tdata = (sxfs_thread_data_t*)ptr;
-
-    if(sxfs_get_sx_data(tdata->sxfs, &sx, &cluster)) {
-        err = errno;
-        sxfs_log(tdata->sxfs, __func__, 0, "Cannot get SX data");
-        goto sxfs_get_file_thread_err;
-    }
-    dest = sxc_file_local(sx, tdata->sxfs_file->blocks_path[tdata->block_num]);
-    if(!dest) {
-        sxfs_log(tdata->sxfs, __func__, 0, "Cannot create local file object: %s", sxc_geterrmsg(sx));
-        err = sxfs_sx_err(sx);
-        goto sxfs_get_file_thread_err;
-    }
-    if(sxi_sxfs_download_run(tdata->sxfs_file->fdata, cluster, dest, tdata->block_num * tdata->sxfs_file->blocksize, tdata->sxfs_file->blocksize)) {
-        sxfs_log(tdata->sxfs, __func__, 0, "Cannot download part of the file");
-        err = sxfs_sx_err(sx);
-        goto sxfs_get_file_thread_err;
-    }
-
-sxfs_get_file_thread_err:
-    sxc_file_free(dest);
-    pthread_mutex_lock(&tdata->sxfs_file->block_mutex);
-    tdata->sxfs_file->blocks[tdata->block_num] = (err << SXFS_DOWNLOAD_BIT_SHIFT) | (tdata->sxfs_file->blocks[tdata->block_num] & SXFS_DOWNLOAD_BUSY) | (err ? 0 : SXFS_DOWNLOAD_FINISHED); /* save error code & set block status */
-    pthread_mutex_unlock(&tdata->sxfs_file->block_mutex);
-    pthread_mutex_lock(&tdata->sxfs->limits_mutex);
-    tdata->sxfs->threads_num--;
-    pthread_mutex_unlock(&tdata->sxfs->limits_mutex);
-    free(tdata);
-    return NULL;
-} /* sxfs_get_file_thread */
-
-int sxfs_get_block_background (sxfs_file_t *sxfs_file, int block_num) {
-    int ret, tmp;
-    sxfs_thread_data_t *tdata = NULL;
-    pthread_t thread;
-
-    if(block_num >= sxfs_file->nblocks) {
-        SXFS_LOG("Block number out of range");
-        return -EINVAL;
-    }
-    pthread_mutex_lock(&sxfs_file->block_mutex);
-    if(sxfs_file->blocks[block_num] & SXFS_DOWNLOAD_INFO) {
-        pthread_mutex_unlock(&sxfs_file->block_mutex);
-        return 0;
-    }
-    pthread_mutex_lock(&SXFS_DATA->limits_mutex);
-    if(SXFS_DATA->threads_num < SXFS_THREADS_LIMIT) {
-        SXFS_DATA->threads_num++;
-    } else {
-        pthread_mutex_unlock(&sxfs_file->block_mutex);
-        pthread_mutex_unlock(&SXFS_DATA->limits_mutex);
-        SXFS_DEBUG("Reached threads limit");
-        return 0;
-    }
-    sxfs_file->blocks[block_num] |= SXFS_DOWNLOAD_IN_PROGRESS;
-    pthread_mutex_unlock(&sxfs_file->block_mutex);
-    pthread_mutex_unlock(&SXFS_DATA->limits_mutex);
-    if(!sxfs_file->blocks_path[block_num]) {
-        int fd;
-        sxfs_file->blocks_path[block_num] = strdup(SXFS_DATA->read_block_template);
-        if(!sxfs_file->blocks_path[block_num]) {
-            SXFS_LOG("Out of memory: %s", SXFS_DATA->read_block_template);
-            ret = -ENOMEM;
-            goto sxfs_get_file_background_err;
-        }
-        fd = mkstemp(sxfs_file->blocks_path[block_num]);
-        if(fd < 0) {
-            ret = -errno;
-            SXFS_LOG("Cannot create unique temporary file: %s", strerror(errno));
-            free(sxfs_file->blocks_path[block_num]);
-            sxfs_file->blocks_path[block_num] = NULL;
-            goto sxfs_get_file_background_err;
-        }
-        if(close(fd)) {
-            ret = -errno;
-            SXFS_LOG("Cannot close '%s' file: %s", sxfs_file->blocks_path[block_num], strerror(errno));
-            goto sxfs_get_file_background_err;
-        }
-    }
-    tdata = (sxfs_thread_data_t*)calloc(1, sizeof(sxfs_thread_data_t));
-    if(!tdata) {
-        SXFS_LOG("Out of memory");
-        ret = -ENOMEM;
-        goto sxfs_get_file_background_err;
-    }
-    tdata->block_num = block_num;
-    tdata->sxfs = SXFS_DATA;
-    tdata->sxfs_file = sxfs_file;
-    if((tmp = pthread_create(&thread, NULL, sxfs_get_file_thread, (void*)tdata))) {
-        SXFS_LOG("Cannot start new thread: %s", strerror(tmp));
-        ret = -tmp;
-        goto sxfs_get_file_background_err;
-    }
-    if((tmp = pthread_detach(thread))) {
-        SXFS_LOG("Cannot detach the thread: %s", strerror(tmp));
-    }
-
-    ret = 0;
-sxfs_get_file_background_err:
-    if(ret) {
-        pthread_mutex_lock(&sxfs_file->block_mutex);
-        sxfs_file->blocks[block_num] &= ~SXFS_DOWNLOAD_IN_PROGRESS;
-        pthread_mutex_unlock(&sxfs_file->block_mutex);
-        pthread_mutex_lock(&SXFS_DATA->limits_mutex);
-        SXFS_DATA->threads_num--;
-        pthread_mutex_unlock(&SXFS_DATA->limits_mutex);
-        free(tdata);
-    }
-    return ret;
-} /* sxfs_get_block_background */
-
 void sxfs_file_free (sxfs_state_t *sxfs, sxfs_file_t *sxfs_file) {
-    int i;
+    int err;
 
     if(!sxfs_file)
         return;
     if(sxfs_file->write_path) {
         if(close(sxfs_file->write_fd))
-            sxfs_log(sxfs, __func__, 0, "Cannot close '%s' file: %s", sxfs_file->write_path, strerror(errno));
+            SXFS_ERROR("Cannot close '%s' file: %s", sxfs_file->write_path, strerror(errno));
         if(unlink(sxfs_file->write_path) && errno != ENOENT)
-            sxfs_log(sxfs, __func__, 0, "Cannot remove '%s' file: %s", sxfs_file->write_path, strerror(errno));
+            SXFS_ERROR("Cannot remove '%s' file: %s", sxfs_file->write_path, strerror(errno));
         free(sxfs_file->write_path);
     }
+    free(sxfs_file->remote_path);
     if(sxfs_file->ls_file->opened & SXFS_FILE_REMOVED) {
         sxfs_file->ls_file->opened = 0;
         sxfs_lsfile_free(sxfs_file->ls_file);
     } else
         sxfs_file->ls_file->opened = 0;
-    if(sxfs_file->blocks) {
-        pthread_mutex_lock(&sxfs_file->block_mutex);
-        for(i=0; i<sxfs_file->nblocks; i++)
-            sxfs_file->blocks[i] |= SXFS_DOWNLOAD_BUSY;
-        for(i=0; i<sxfs_file->nblocks; i++) {
-            if(sxfs_file->blocks[i] & (SXFS_DOWNLOAD_IN_PROGRESS | SXFS_DOWNLOAD_FINISHED)) {
-                while(sxfs_file->blocks[i] & SXFS_DOWNLOAD_IN_PROGRESS) {
-                    pthread_mutex_unlock(&sxfs_file->block_mutex);
-                    usleep(THREAD_WAIT_USEC);
-                    pthread_mutex_lock(&sxfs_file->block_mutex);
-                }
-                if(sxfs_file->blocks[i] & SXFS_DOWNLOAD_FINISHED && unlink(sxfs_file->blocks_path[i]))
-                    sxfs_log(sxfs, __func__, 0, "Cannot remove '%s' file: %s", sxfs_file->blocks_path[i], strerror(errno));
-            }
-            free(sxfs_file->blocks_path[i]);
-            sxfs_file->blocks[i] = 0;
-            sxfs_file->blocks_path[i] = NULL;
-        }
-        free(sxfs_file->blocks);
-        free(sxfs_file->blocks_path);
-        pthread_mutex_unlock(&sxfs_file->block_mutex);
+    pthread_mutex_lock(&sxfs->limits_mutex);
+    while(sxfs_file->threads_num) {
+        pthread_mutex_unlock(&sxfs->limits_mutex);
+        usleep(SXFS_THREAD_WAIT);
+        pthread_mutex_lock(&sxfs->limits_mutex);
     }
-    free(sxfs_file->etag);
-    pthread_mutex_destroy(&sxfs_file->block_mutex);
+    pthread_mutex_unlock(&sxfs->limits_mutex);
     sxi_sxfs_download_finish(sxfs_file->fdata);
+    if((err = pthread_mutex_destroy(&sxfs_file->mutex)))
+        SXFS_ERROR("Cannot destroy mutex: %s", strerror(err));
     free(sxfs_file);
 } /* sxfs_file_free */
 
@@ -523,7 +428,7 @@ void sxfs_sx_data_destroy (void *ptr) {
 
 int sxfs_get_sx_data (sxfs_state_t *sxfs, sxc_client_t **sx, sxc_cluster_t **cluster) {
     int ret;
-    sxfs_sx_data_t *sx_data = (sxfs_sx_data_t*)pthread_getspecific(sxfs->pkey);
+    sxfs_sx_data_t *sx_data = (sxfs_sx_data_t*)pthread_getspecific(sxfs->sxkey);
     if(!sx_data) {
         char *filter_dir = NULL;
         const char *filter_dir_env = sxi_getenv("SX_FILTER_DIR");
@@ -535,36 +440,36 @@ int sxfs_get_sx_data (sxfs_state_t *sxfs, sxc_client_t **sx, sxc_cluster_t **clu
         else
             filter_dir = strdup(SX_FILTER_DIR);
         if(!filter_dir) {
-            sxfs_log(sxfs, __func__, 0, "OOM for filter directory");
+            SXFS_ERROR("OOM for filter directory");
             return -ENOMEM;
         }
         pthread_mutex_lock(&sxfs->sx_data_mutex);
         do {
             sx_data = (sxfs_sx_data_t*)calloc(sizeof(sxfs_sx_data_t), 1);
             if(!sx_data) {
-                sxfs_log(sxfs, __func__, 0, "Out of memory");
+                SXFS_ERROR("Out of memory");
                 ret = -ENOMEM;
                 break;
             }
             sx_data->sx = sxc_client_init(sxc_default_logger(&sx_data->log, sxfs->pname), sxc_input_fn, NULL);
             if(!sx_data->sx) {
-                sxfs_log(sxfs, __func__, 0, "Cannot initialize SX");
+                SXFS_ERROR("Cannot initialize SX");
                 ret = -ENOMEM;
                 break;
             }
             if(sxfs->args->config_dir_given && sxc_set_confdir(sx_data->sx, sxfs->args->config_dir_arg)) {
-                sxfs_log(sxfs, __func__, 0, "Could not set configuration directory to '%s': %s", sxfs->args->config_dir_arg, sxc_geterrmsg(sx_data->sx));
+                SXFS_ERROR("Could not set configuration directory to '%s': %s", sxfs->args->config_dir_arg, sxc_geterrmsg(sx_data->sx));
                 ret = -sxfs_sx_err(sx_data->sx);
                 break;
             }
             sxc_set_debug(sx_data->sx, sxfs->args->sx_debug_flag);
             if(sxc_filter_loadall(sx_data->sx, filter_dir)) {
-                sxfs_log(sxfs, __func__, 0, "Failed to load filters: %s", sxc_geterrmsg(sx_data->sx));
+                SXFS_ERROR("Failed to load filters: %s", sxc_geterrmsg(sx_data->sx));
                 sxc_clearerr(sx_data->sx);
             }
             sx_data->cluster = sxc_cluster_load_and_update(sx_data->sx, sxfs->uri->host, sxfs->uri->profile);
             if(!sx_data->cluster) {
-                sxfs_log(sxfs, __func__, 0, "Cannot load config for %s: %s", sxfs->uri->host, sxc_geterrmsg(sx_data->sx));
+                SXFS_ERROR("Cannot load config for %s: %s", sxfs->uri->host, sxc_geterrmsg(sx_data->sx));
                 ret = -sxfs_sx_err(sx_data->sx);
                 break;
             }
@@ -573,14 +478,14 @@ int sxfs_get_sx_data (sxfs_state_t *sxfs, sxc_client_t **sx, sxc_cluster_t **clu
         free(filter_dir);
         if(sx_data) {
             if(sx_data->cluster) {
-                int tmp;
-                if((tmp = pthread_setspecific(sxfs->pkey, (void*)sx_data))) {
-                    sxfs_log(sxfs, __func__, 0, "Cannot set per-thread memory: %s", strerror(tmp));
+                int err;
+                if((err = pthread_setspecific(sxfs->sxkey, (void*)sx_data))) {
+                    SXFS_ERROR("Cannot set per-thread memory: %s", strerror(err));
                     sxc_client_shutdown(sx_data->sx, 0);
                     sxc_cluster_free(sx_data->cluster);
                     free(sx_data);
                     sx_data = NULL;
-                    ret = -tmp;
+                    ret = -err;
                 }
             } else {
                 sxc_client_shutdown(sx_data->sx, 0);
@@ -596,6 +501,66 @@ int sxfs_get_sx_data (sxfs_state_t *sxfs, sxc_client_t **sx, sxc_cluster_t **clu
     *cluster = sx_data->cluster;
     return 0;
 } /* sxfs_get_sx_data */
+
+struct _thread_id_data {
+    int id;
+    sxfs_state_t *sxfs;
+};
+typedef struct _thread_id_data thread_id_data_t;
+
+void sxfs_thread_id_destroy (void *ptr) {
+    thread_id_data_t *td = (thread_id_data_t*)ptr;
+    if(td) {
+        pthread_mutex_lock(&td->sxfs->limits_mutex);
+        td->sxfs->threads[td->id] = 0;
+        pthread_mutex_unlock(&td->sxfs->limits_mutex);
+        free(td);
+    }
+} /* sxfs_thread_id_destroy */
+
+/* this function is being used in sxfs_log so it cannot use SXFS_LOG etc. */
+int sxfs_get_thread_id (sxfs_state_t *sxfs) {
+    size_t i;
+    int err;
+    thread_id_data_t *td = (thread_id_data_t*)pthread_getspecific(sxfs->tid_key);
+
+    if(!td) {
+        td = (thread_id_data_t*)malloc(sizeof(thread_id_data_t));
+        if(!td) {
+            fprintf(sxfs->logfile, "[%s] ERROR: Out of memory\n", __func__);
+            return -ENOMEM;
+        }
+        td->id = -1;
+        pthread_mutex_lock(&sxfs->limits_mutex);
+        for(i=0; i<sxfs->threads_max; i++)
+            if(!sxfs->threads[i]) {
+                td->id = i;
+                sxfs->threads[i] = 1;
+                break;
+            }
+        if(td->id < 0) {
+            if(sxfs_resize((void**)&sxfs->threads, &sxfs->threads_max, sizeof(int))) {
+                pthread_mutex_unlock(&sxfs->limits_mutex);
+                fprintf(sxfs->logfile, "[%s] ERROR: Out of memory\n", __func__);
+                free(td);
+                return -ENOMEM;
+            }
+            td->id = i;
+            sxfs->threads[i] = 1;
+        }
+        pthread_mutex_unlock(&sxfs->limits_mutex);
+        if((err = pthread_setspecific(sxfs->tid_key, (void*)td))) {
+            fprintf(sxfs->logfile, "[%s] ERROR: Cannot set per-thread memory: %s\n", __func__, strerror(err));
+            pthread_mutex_lock(&sxfs->limits_mutex);
+            sxfs->threads[i] = 0;
+            pthread_mutex_unlock(&sxfs->limits_mutex);
+            free(td);
+            return -err;
+        }
+        td->sxfs = sxfs;
+    }
+    return td->id;
+} /* sxfs_get_thread_id */
 
 void sxfs_lsfile_free (sxfs_lsfile_t *file) {
     if(!file)
@@ -628,25 +593,26 @@ int sxfs_lsdir_add_file (sxfs_lsdir_t *dir, const char *path, struct stat *st) {
     time_t mctime;
     char *name;
     sxfs_lsfile_t *file;
+    sxfs_state_t *sxfs = SXFS_DATA;
 
-    if(time(&mctime) < 0) {
+    if((mctime = time(NULL)) < 0) {
         ret = -errno;
-        SXFS_LOG("Cannot get current time: %s", strerror(errno));
+        SXFS_ERROR("Cannot get current time: %s", strerror(errno));
         return ret;
     }
     name = strrchr(path, '/') + 1;
     if(dir->nfiles == dir->maxfiles && sxfs_resize((void**)&dir->files, &dir->maxfiles, sizeof(sxfs_lsfile_t*))) {
-        SXFS_LOG("OOM growing files cache table: %s", strerror(errno));
-        return -ENOMEM;;
+        SXFS_ERROR("OOM growing files cache table: %s", strerror(errno));
+        return -ENOMEM;
     }
     file = (sxfs_lsfile_t*)calloc(1, sizeof(sxfs_lsfile_t));
     if(!file) {
-        SXFS_LOG("Out of memory");
+        SXFS_ERROR("Out of memory");
         return -ENOMEM;
     }
     file->name = strdup(name);
     if(!file->name) {
-        SXFS_LOG("Out of memory: %s", name);
+        SXFS_ERROR("Out of memory: %s", name);
         ret = -ENOMEM;
         goto sxfs_lsdir_add_file_err;
     }
@@ -660,7 +626,7 @@ int sxfs_lsdir_add_file (sxfs_lsdir_t *dir, const char *path, struct stat *st) {
         file->st.st_mtime = file->st.st_ctime = mctime;
         file->st.st_uid = getuid();
         file->st.st_gid = getgid();
-        file->st.st_mode = FILE_ATTR;
+        file->st.st_mode = SXFS_FILE_ATTR;
 /*        file->st.st_size = 0;*/ /* calloc() has been used */
     }
     file->st.st_nlink = 1;
@@ -681,12 +647,13 @@ int sxfs_lsdir_add_dir (sxfs_lsdir_t *dir, const char *path) {
     time_t mctime;
     char *path2, *name;
     sxfs_lsdir_t *subdir = NULL;
+    sxfs_state_t *sxfs = SXFS_DATA;
 
     if(path[strlen(path)-1] == '/') {
         slash = 1;
         path2 = strdup(path);
         if(!path2) {
-            SXFS_LOG("Out of memory: %s", path);
+            SXFS_ERROR("Out of memory: %s", path);
             return -ENOMEM;
         }
         path2[strlen(path2)-1] = '\0';
@@ -694,51 +661,51 @@ int sxfs_lsdir_add_dir (sxfs_lsdir_t *dir, const char *path) {
     } else {
         path2 = (char*)malloc(strlen(path) + 2);
         if(!path2) {
-            SXFS_LOG("Out of memory");
+            SXFS_ERROR("Out of memory");
             return -ENOMEM;
         }
         sprintf(path2, "%s/", path);
         name = strrchr(path, '/') + 1;
     }
-    if(time(&mctime) < 0) {
+    if((mctime = time(NULL)) < 0) {
         ret = -errno;
-        SXFS_LOG("Cannot get current time: %s", strerror(errno));
+        SXFS_ERROR("Cannot get current time: %s", strerror(errno));
         goto sxfs_lsdir_add_dir_err;
     }
     if(dir->ndirs == dir->maxdirs && sxfs_resize((void**)&dir->dirs, &dir->maxdirs, sizeof(sxfs_lsdir_t*))) {
-        SXFS_LOG("OOM growing dirs cache table: %s", strerror(errno));
+        SXFS_ERROR("OOM growing dirs cache table: %s", strerror(errno));
         ret = -ENOMEM;
         goto sxfs_lsdir_add_dir_err;
     }
     subdir = (sxfs_lsdir_t*)calloc(1, sizeof(sxfs_lsdir_t));
     if(!subdir) {
-        SXFS_LOG("Out of memory");
+        SXFS_ERROR("Out of memory");
         ret = -ENOMEM;
         goto sxfs_lsdir_add_dir_err;
     }
-    subdir->maxdirs = subdir->maxfiles = ALLOC_AMOUNT;
+    subdir->maxdirs = subdir->maxfiles = SXFS_ALLOC_ENTRIES;
     subdir->dirs = (sxfs_lsdir_t**)calloc(subdir->maxdirs, sizeof(sxfs_lsdir_t*));
     if(!subdir->dirs) {
-        SXFS_LOG("Out of memory");
+        SXFS_ERROR("Out of memory");
         ret = -ENOMEM;
         goto sxfs_lsdir_add_dir_err;
     }
     subdir->files = (sxfs_lsfile_t**)calloc(subdir->maxfiles, sizeof(sxfs_lsfile_t*));
     if(!subdir->files) {
-        SXFS_LOG("Out of memory");
+        SXFS_ERROR("Out of memory");
         ret = -ENOMEM;
         goto sxfs_lsdir_add_dir_err;
     }
     subdir->name = strdup(name);
     if(!subdir->name) {
-        SXFS_LOG("Out of memory: %s", name);
+        SXFS_ERROR("Out of memory: %s", name);
         ret = -ENOMEM;
         goto sxfs_lsdir_add_dir_err;
     }
-    subdir->etag = sxfs_hash(SXFS_DATA, slash ? path : path2);
+    subdir->etag = sxfs_hash(sxfs, slash ? path : path2);
     if(!subdir->etag) {
         ret = -errno;
-        SXFS_LOG("Cannot compute hash of '%s'", slash ? path : path2);
+        SXFS_ERROR("Cannot compute hash of '%s'", slash ? path : path2);
         goto sxfs_lsdir_add_dir_err;
     }
     subdir->st.st_mtime = subdir->st.st_ctime = mctime;
@@ -746,9 +713,9 @@ int sxfs_lsdir_add_dir (sxfs_lsdir_t *dir, const char *path) {
     subdir->st.st_uid = getuid();
     subdir->st.st_gid = getgid();
     subdir->st.st_nlink = 1;
-    subdir->st.st_mode = DIR_ATTR;
-    subdir->st.st_size = DIRECTORY_SIZE;
-    subdir->st.st_blocks = (DIRECTORY_SIZE + 511) / 512;
+    subdir->st.st_mode = SXFS_DIR_ATTR;
+    subdir->st.st_size = SXFS_DIR_SIZE;
+    subdir->st.st_blocks = (SXFS_DIR_SIZE + 511) / 512;
     dir->dirs[dir->ndirs] = subdir;
     dir->ndirs++;
     dir->st.st_mtime = dir->st.st_ctime = mctime;
@@ -784,7 +751,7 @@ int sxfs_str_cmp (const void **ptr, size_t index, const char *file_name) {
     const char *str = ((const char**)ptr)[index];
     size_t filelen = strlen(file_name), len = strlen(str);
 
-    if(file_name[filelen-1] == '/' && len == filelen + lenof(EMPTY_DIR_FILE) && !strcmp(str + len - lenof(EMPTY_DIR_FILE), EMPTY_DIR_FILE))
+    if(file_name[filelen-1] == '/' && len == filelen + lenof(SXFS_SXNEWDIR) && !strcmp(str + len - lenof(SXFS_SXNEWDIR), SXFS_SXNEWDIR))
         return strncmp(str, file_name, filelen);
     return strcmp(str, file_name);
 } /* sxfs_str_cmp */
@@ -859,7 +826,7 @@ static int sxfs_ls_ftw (sxfs_state_t *sxfs, const char *path, sxfs_lsdir_t **giv
 
     path2 = strdup(path);
     if(!path2) {
-        sxfs_log(sxfs, __func__, 0, "Out of memory: %s", path);
+        SXFS_ERROR("Out of memory: %s", path);
         return -ENOMEM;
     }
     ptr = path2 + 1;
@@ -870,10 +837,10 @@ static int sxfs_ls_ftw (sxfs_state_t *sxfs, const char *path, sxfs_lsdir_t **giv
         if(index < 0) {
             int ret;
             if(sxfs_find_entry((const void**)dir->files, dir->nfiles, ptr, sxfs_lsfile_cmp) >= 0) {
-                sxfs_log(sxfs, __func__, 0, "%s: %s (%s)", strerror(ENOTDIR), ptr, path);
+                SXFS_ERROR("%s: %s (%s)", strerror(ENOTDIR), ptr, path);
                 ret = -ENOTDIR;
             } else {
-                sxfs_log(sxfs, __func__, 0, "%s: %s (%s)", strerror(ENOENT), ptr, path);
+                SXFS_ERROR("%s: %s (%s)", strerror(ENOENT), ptr, path);
                 ret = -ENOENT;
             }
             free(path2);
@@ -907,6 +874,7 @@ static uint64_t swapu64 (uint64_t v) {
 
 int sxfs_ls_update (const char *absolute_path, sxfs_lsdir_t **given_dir) {
     int ret, upload_locked = 0, tmp, *check_files = NULL, *check_dirs = NULL;
+    unsigned int remote_files;
     ssize_t index;
     size_t i, j, ncfiles, ncdirs, pathlen;
     time_t tmptime;
@@ -919,63 +887,99 @@ int sxfs_ls_update (const char *absolute_path, sxfs_lsdir_t **given_dir) {
     sxc_file_t *file = NULL;
     sxc_meta_t *fmeta = NULL;
     sxfs_lsdir_t *dir = NULL, *subdir;
+    sxfs_state_t *sxfs = SXFS_DATA;
 
-    if((ret = sxfs_get_sx_data(SXFS_DATA, &sx, &cluster))) {
-        SXFS_LOG("Cannot get SX data");
+    if((ret = sxfs_get_sx_data(sxfs, &sx, &cluster))) {
+        SXFS_ERROR("Cannot get SX data");
         return ret;
     }
-    pathlen = strlen(SXFS_DATA->tempdir) + 1 + lenof(SXFS_UPLOAD_DIR) + strlen(absolute_path) + 1;
+    pathlen = strlen(sxfs->tempdir) + 1 + lenof(SXFS_UPLOAD_DIR) + strlen(absolute_path) + 1;
     path = (char*)malloc(pathlen);
     if(!path) {
-        SXFS_LOG("Out of memory");
+        SXFS_ERROR("Out of memory");
         return -ENOMEM;
     }
 
     /* check whether directory is already loaded */
-    if((ret = sxfs_ls_ftw(SXFS_DATA, absolute_path, &dir))) { /* FUSE checks each directory in the path */
-        SXFS_LOG("File tree walk failed");
+    if((ret = sxfs_ls_ftw(sxfs, absolute_path, &dir))) { /* FUSE checks each directory in the path */
+        SXFS_ERROR("File tree walk failed");
         goto sxfs_ls_update_err;
     }
     if(dir->init) {
         if(gettimeofday(&tv, NULL)) {
             ret = -errno;
-            SXFS_LOG("Cannot get current time: %s", strerror(errno));
+            SXFS_ERROR("Cannot get current time: %s", strerror(errno));
             goto sxfs_ls_update_err;
         }
-        if((tv.tv_sec - dir->tv.tv_sec) * 1000000L + tv.tv_usec - dir->tv.tv_usec < LS_RELOAD_TIME) {
+        if(sxi_timediff(&tv, &dir->tv) < SXFS_LS_RELOAD) {
             ret = 0;
             *given_dir = dir;
             dir = NULL; /* do not convert remote flag (2 -> 1) */
             goto sxfs_ls_update_err; /* this is not a failure */
         }
     }
+
+    sprintf(path, "%s", absolute_path);
+    ptr = strrchr(path, '/') + 1;
+    *ptr = '\0';
+    flist = sxc_cluster_listfiles_etag(cluster, sxfs->uri->volume, path, 0, &remote_files, 0, dir->etag);
+    if(!flist) {
+        if(sxc_geterrnum(sx) != SXE_SKIP) {
+            SXFS_ERROR("%s", sxc_geterrmsg(sx));
+            ret = -sxfs_sx_err(sx);
+            goto sxfs_ls_update_err;
+        }
+        if(!dir->init) {
+            flist = sxc_cluster_listfiles(cluster, sxfs->uri->volume, path, 0, &remote_files, 0);
+            if(!flist) {
+                SXFS_ERROR("%s", sxc_geterrmsg(sx));
+                ret = -sxfs_sx_err(sx);
+                goto sxfs_ls_update_err;
+            }
+        } else {
+            if(gettimeofday(&tv, NULL)) {
+                ret = -errno;
+                SXFS_ERROR("Cannot get current time: %s", strerror(errno));
+                goto sxfs_ls_update_err;
+            }
+            *given_dir = dir;
+            dir->tv = tv;
+            dir = NULL; /* do not convert remote flag (2 -> 1) */
+            goto sxfs_ls_update_err; /* this is not a failure */
+        }
+    }
+
+    if(remote_files)
+        dir->remote = 1;
+    else
+        dir->remote = 0;
     dir->sxnewdir = 0;
 
     ncfiles = dir->nfiles;
     ncdirs = dir->ndirs;
     check_files = (int*)calloc(ncfiles, sizeof(int));
     if(!check_files) {
-        SXFS_LOG("Out of memory");
+        SXFS_ERROR("Out of memory");
         ret = -ENOMEM;
         goto sxfs_ls_update_err;
     }
     check_dirs = (int*)calloc(ncdirs, sizeof(int));
     if(!check_dirs) {
-        SXFS_LOG("Out of memory");
+        SXFS_ERROR("Out of memory");
         ret = -ENOMEM;
         goto sxfs_ls_update_err;
     }
     /* save opened but not yet uploaded files */
-    pthread_mutex_lock(&SXFS_DATA->files_mutex);
+    pthread_mutex_lock(&sxfs->files_mutex);
     for(i=0; i<ncfiles; i++)
         if(dir->files[i]->opened == SXFS_FILE_OPENED)
             check_files[i] = 1;
-    pthread_mutex_unlock(&SXFS_DATA->files_mutex);
+    pthread_mutex_unlock(&sxfs->files_mutex);
     /* load directory content from upload queue */
-    if(SXFS_DATA->args->use_queues_flag) {
+    if(sxfs->args->use_queues_flag) {
         tmp = strrchr(absolute_path, '/') - absolute_path + 1;
         i = 0;
-        pthread_mutex_lock(&SXFS_DATA->upload_mutex);
+        pthread_mutex_lock(&sxfs->upload_mutex);
         upload_locked = 1;
         while(i < nfiles_up && strncmp(upload_list[i], absolute_path, tmp) < 0)
             i++;
@@ -983,7 +987,7 @@ int sxfs_ls_update (const char *absolute_path, sxfs_lsdir_t **given_dir) {
             if(strchr(upload_list[i] + tmp, '/')) { /* directory */
                 while(pathlen < strlen(upload_list[i]) + 1) {
                     if(sxfs_resize((void**)&path, &pathlen, sizeof(char))) {
-                        SXFS_LOG("OOM growing the path: %s", strerror(errno));
+                        SXFS_ERROR("OOM growing the path: %s", strerror(errno));
                         ret = -ENOMEM;
                         goto sxfs_ls_update_err;
                     }
@@ -996,20 +1000,20 @@ int sxfs_ls_update (const char *absolute_path, sxfs_lsdir_t **given_dir) {
                 if(index >= 0) {
                     check_dirs[index] = 1;
                 } else {
-                    SXFS_LOG("'%s' directory is missing in ls cache");
+                    SXFS_ERROR("'%s' directory is missing in ls cache", path);
                     ret = -EAGAIN;
                     goto sxfs_ls_update_err;
                 }
             } else { /* file */
                 ptr = strrchr(upload_list[i] ,'/') + 1;
-                if(!strcmp(ptr, EMPTY_DIR_FILE)) {
+                if(!strcmp(ptr, SXFS_SXNEWDIR)) {
                     dir->sxnewdir = 1;
                 } else {
                     index = sxfs_find_entry((const void**)dir->files, ncfiles, ptr, sxfs_lsfile_cmp);
                     if(index >= 0) {
                         check_files[index] = 1;
                     } else {
-                        SXFS_LOG("'%s' file is missing in ls cache");
+                        SXFS_ERROR("'%s' file is missing in ls cache", ptr);
                         ret = -EAGAIN;
                         goto sxfs_ls_update_err;
                     }
@@ -1018,43 +1022,13 @@ int sxfs_ls_update (const char *absolute_path, sxfs_lsdir_t **given_dir) {
         }
     }
 
-    sprintf(path, "%s", absolute_path);
-    ptr = strrchr(path, '/') + 1;
-    *ptr = '\0';
-    flist = sxc_cluster_listfiles_etag(cluster, SXFS_DATA->uri->volume, path, 0, NULL, 0, dir->etag);
-    if(!flist) {
-        if(sxc_geterrnum(sx) != SXE_SKIP) {
-            SXFS_LOG("%s", sxc_geterrmsg(sx));
-            ret = -sxfs_sx_err(sx);
-            goto sxfs_ls_update_err;
-        }
-        if(!dir->init) {
-            flist = sxc_cluster_listfiles(cluster, SXFS_DATA->uri->volume, path, 0, NULL, 0);
-            if(!flist) {
-                SXFS_LOG("%s", sxc_geterrmsg(sx));
-                ret = -sxfs_sx_err(sx);
-                goto sxfs_ls_update_err;
-            }
-        } else {
-            if(gettimeofday(&tv, NULL)) {
-                ret = -errno;
-                SXFS_LOG("Cannot get current time: %s", strerror(errno));
-                goto sxfs_ls_update_err;
-            }
-            *given_dir = dir;
-            dir->tv = tv;
-            dir = NULL; /* do not convert remote flag (2 -> 1) */
-            goto sxfs_ls_update_err; /* this is not a failure */
-        }
-    }
-
     /* load the content of the directory */
     while(1) {
         file = NULL;
-        tmp = sxc_cluster_listfiles_next(cluster, SXFS_DATA->uri->volume, flist, &file);
+        tmp = sxc_cluster_listfiles_next(cluster, sxfs->uri->volume, flist, &file);
         if(tmp <= 0) {
             if(tmp) {
-                SXFS_LOG("Failed to retrieve file name: %s", sxc_geterrmsg(sx));
+                SXFS_ERROR("Failed to retrieve file name: %s", sxc_geterrmsg(sx));
                 ret = -sxfs_sx_err(sx);
                 goto sxfs_ls_update_err;
             }
@@ -1063,7 +1037,7 @@ int sxfs_ls_update (const char *absolute_path, sxfs_lsdir_t **given_dir) {
         free(fpath);
         fpath = strdup(sxc_file_get_path(file));
         if(!fpath) {
-            SXFS_LOG("Out of memory duplicating remote file path");
+            SXFS_ERROR("Out of memory duplicating remote file path");
             sxc_file_free(file);
             goto sxfs_ls_update_err;
         }
@@ -1071,14 +1045,14 @@ int sxfs_ls_update (const char *absolute_path, sxfs_lsdir_t **given_dir) {
         st.st_size = sxc_file_get_size(file);
         st.st_uid = sxc_file_get_uid(file) == (uid_t)SXC_UINT32_UNDEFINED ? getuid() : sxc_file_get_uid(file);
         st.st_gid = sxc_file_get_gid(file) == (gid_t)SXC_UINT32_UNDEFINED ? getgid() : sxc_file_get_gid(file);
-        st.st_mtime = sxc_file_get_mtime(file) == (time_t)SXC_UINT32_UNDEFINED ? tmptime : sxc_file_get_mtime(file);
+        st.st_mtime = sxc_file_get_mtime(file) == (time_t)SXC_UINT64_UNDEFINED ? tmptime : sxc_file_get_mtime(file);
         tmp = strlen(fpath) - 1;
         if(fpath[tmp] == '/') {
             fpath[tmp] = '\0';
-            st.st_mode = DIR_ATTR;
+            st.st_mode = SXFS_DIR_ATTR;
         } else {
             tmp = 0;
-            st.st_mode = sxc_file_get_mode(file) == (mode_t)SXC_UINT32_UNDEFINED ? FILE_ATTR : sxc_file_get_mode(file);
+            st.st_mode = sxc_file_get_mode(file) == (mode_t)SXC_UINT32_UNDEFINED ? SXFS_FILE_ATTR : sxc_file_get_mode(file);
         }
         sxc_file_free(file);
         file = NULL;
@@ -1089,9 +1063,8 @@ int sxfs_ls_update (const char *absolute_path, sxfs_lsdir_t **given_dir) {
             fname++;
         if(tmp)
             fpath[tmp] = '/';
-        if(!SXFS_DATA->args->use_queues_flag || sxfs_find_entry((const void**)delete_list, nfiles_del, fpath, sxfs_str_cmp) < 0) {
-            if(!strcmp(fname, EMPTY_DIR_FILE)) {
-                dir->remote = 2;
+        if(!sxfs->args->use_queues_flag || sxfs_find_entry((const void**)delete_list, nfiles_del, fpath, sxfs_str_cmp) < 0) {
+            if(!strcmp(fname, SXFS_SXNEWDIR)) {
                 dir->sxnewdir = 2; /* file is on the server */
             } else {
                 if(S_ISDIR(st.st_mode)) {
@@ -1105,7 +1078,7 @@ int sxfs_ls_update (const char *absolute_path, sxfs_lsdir_t **given_dir) {
                         dir->dirs[index]->remote = 2;
                     } else {
                         if((ret = sxfs_lsdir_add_dir(dir, fpath))) {
-                            SXFS_LOG("Cannot add new directory to cache: %s", fpath);
+                            SXFS_ERROR("Cannot add new directory to cache: %s", fpath);
                             goto sxfs_ls_update_err;
                         }
                         dir->dirs[dir->ndirs-1]->remote = 2;
@@ -1115,7 +1088,8 @@ int sxfs_ls_update (const char *absolute_path, sxfs_lsdir_t **given_dir) {
                     if(index >= 0) {
                         if(!check_files[index] && tmptime > dir->files[index]->remote_mtime) {
                             struct stat *tmpst = &dir->files[index]->st;
-                            tmpst->st_mtime = tmpst->st_ctime = st.st_mtime;
+                            tmpst->st_mtime = st.st_mtime;
+                            tmpst->st_ctime = MAX(tmpst->st_ctime, st.st_mtime); /* since ctime is not handled by SX there can already be newer ctime in sxfs) */
                             tmpst->st_uid = st.st_uid;
                             tmpst->st_gid = st.st_gid;
                             tmpst->st_mode = st.st_mode;
@@ -1127,7 +1101,7 @@ int sxfs_ls_update (const char *absolute_path, sxfs_lsdir_t **given_dir) {
                         dir->files[index]->remote = 2;
                     } else {
                         if((ret = sxfs_lsdir_add_file(dir, fpath, &st))) {
-                            SXFS_LOG("Cannot add new file to cache: %s", fpath);
+                            SXFS_ERROR("Cannot add new file to cache: %s", fpath);
                             goto sxfs_ls_update_err;
                         }
                         dir->files[dir->nfiles-1]->remote = 2;
@@ -1189,7 +1163,7 @@ int sxfs_ls_update (const char *absolute_path, sxfs_lsdir_t **given_dir) {
     }
     dir->init = 1;
     if(gettimeofday(&tv, NULL))
-        SXFS_LOG("Cannot get current time: %s", strerror(errno)); /* no fail, because content is already fully loaded */
+        SXFS_ERROR("Cannot get current time: %s", strerror(errno)); /* no fail, because content is already fully loaded */
     else
         dir->tv = tv;
     subdir = dir;
@@ -1206,7 +1180,7 @@ int sxfs_ls_update (const char *absolute_path, sxfs_lsdir_t **given_dir) {
     ret = 0;
 sxfs_ls_update_err:
     if(upload_locked)
-        pthread_mutex_unlock(&SXFS_DATA->upload_mutex);
+        pthread_mutex_unlock(&sxfs->upload_mutex);
     free(path);
     free(fpath);
     free(check_files);
@@ -1244,24 +1218,25 @@ int sxfs_ls_stat (const char *path, struct stat *st) {
     ssize_t index;
     char *file_name;
     sxfs_lsdir_t *dir;
+    sxfs_state_t *sxfs = SXFS_DATA;
 
     if(!strcmp(path, "/")) {
         if(st) {
-            pthread_mutex_lock(&SXFS_DATA->ls_mutex);
-            memcpy(st, &SXFS_DATA->root->st, sizeof(struct stat));
-            pthread_mutex_unlock(&SXFS_DATA->ls_mutex);
+            pthread_mutex_lock(&sxfs->ls_mutex);
+            memcpy(st, &sxfs->root->st, sizeof(struct stat));
+            pthread_mutex_unlock(&sxfs->ls_mutex);
         }
         return 2;
     }
-    pthread_mutex_lock(&SXFS_DATA->ls_mutex);
-    pthread_mutex_lock(&SXFS_DATA->delete_mutex);
+    pthread_mutex_lock(&sxfs->ls_mutex);
+    pthread_mutex_lock(&sxfs->delete_mutex);
     if((ret = sxfs_ls_update(path, &dir))) {
-        SXFS_LOG("Cannot load file tree: %s", path);
-        pthread_mutex_unlock(&SXFS_DATA->ls_mutex);
-        pthread_mutex_unlock(&SXFS_DATA->delete_mutex);
+        SXFS_ERROR("Cannot load file tree: %s", path);
+        pthread_mutex_unlock(&sxfs->ls_mutex);
+        pthread_mutex_unlock(&sxfs->delete_mutex);
         return ret;
     }
-    pthread_mutex_unlock(&SXFS_DATA->delete_mutex);
+    pthread_mutex_unlock(&sxfs->delete_mutex);
     file_name = strrchr(path, '/') + 1; /* already checked in sxfs_ls_update() */
     index = sxfs_find_entry((const void**)dir->dirs, dir->ndirs, file_name, sxfs_lsdir_cmp);
     if(index >= 0) {
@@ -1277,80 +1252,81 @@ int sxfs_ls_stat (const char *path, struct stat *st) {
         } else
             ret = -ENOENT;
     }
-    pthread_mutex_unlock(&SXFS_DATA->ls_mutex);
+    pthread_mutex_unlock(&sxfs->ls_mutex);
     return ret;
 } /* sxfs_ls_stat */
 
 int sxfs_update_mtime (const char *local_file_path, const char *remote_file_path, sxfs_lsfile_t *lsfile) {
     int ret, tmp;
     time_t tmptime;
+    struct stat st;
     sxc_client_t *sx;
     sxc_cluster_t *cluster;
     sxc_cluster_lf_t *flist = NULL;
     sxc_file_t *file_local, *file_remote = NULL;
-    struct stat st;
+    sxfs_state_t *sxfs = SXFS_DATA;
 
-    if((ret = sxfs_get_sx_data(SXFS_DATA, &sx, &cluster))) {
-        SXFS_LOG("Cannot get SX data");
+    if((ret = sxfs_get_sx_data(sxfs, &sx, &cluster))) {
+        SXFS_ERROR("Cannot get SX data");
         return ret;
     }
-    if(SXFS_DATA->attribs && lsfile) {
+    if(sxfs->attribs && lsfile) {
         if(stat(local_file_path, &st)) {
             ret = -errno;
-            SXFS_LOG("Cannot stat '%s' file: %s", local_file_path, strerror(errno));
+            SXFS_ERROR("Cannot stat '%s' file: %s", local_file_path, strerror(errno));
             return ret;
         }
         if(sxfs_set_attr(local_file_path, &lsfile->st)) {
             ret = -errno;
-            SXFS_LOG("Cannot set file attributes: %s", strerror(errno));
+            SXFS_ERROR("Cannot set file attributes: %s", strerror(errno));
             return ret;
         }
     }
     file_local = sxc_file_local(sx, local_file_path);
     if(!file_local) {
-        SXFS_LOG("Cannot create local file object: %s", sxc_geterrmsg(sx));
+        SXFS_ERROR("Cannot create local file object: %s", sxc_geterrmsg(sx));
         ret = -sxfs_sx_err(sx);
         goto sxfs_update_mtime_err;
     }
-    file_remote = sxc_file_remote(cluster, SXFS_DATA->uri->volume, remote_file_path+1, NULL);
+    file_remote = sxc_file_remote(cluster, sxfs->uri->volume, remote_file_path+1, NULL);
     if(!file_remote) {
-        SXFS_LOG("Cannot create file object: %s", sxc_geterrmsg(sx));
+        SXFS_ERROR("Cannot create file object: %s", sxc_geterrmsg(sx));
         ret = -sxfs_sx_err(sx);
         goto sxfs_update_mtime_err;
     }
     if(sxc_copy_single(file_local, file_remote, 0, 0, 0, NULL, 0)) {
-        SXFS_LOG("Cannot upload '%s' file: %s", local_file_path, sxc_geterrmsg(sx));
+        SXFS_ERROR("Cannot upload '%s' file: %s", local_file_path, sxc_geterrmsg(sx));
         ret = -sxfs_sx_err(sx);
         goto sxfs_update_mtime_err;
     }
     if(lsfile)
         lsfile->remote = 1;
-    flist = sxc_cluster_listfiles(cluster, SXFS_DATA->uri->volume, remote_file_path, 0, NULL, 0);
+    flist = sxc_cluster_listfiles(cluster, sxfs->uri->volume, remote_file_path, 0, NULL, 0);
     if(!flist) {
-        SXFS_LOG("%s", sxc_geterrmsg(sx));
+        SXFS_ERROR("%s", sxc_geterrmsg(sx));
         ret = -sxfs_sx_err(sx);
         goto sxfs_update_mtime_err;
     }
     sxc_file_free(file_remote);
     file_remote = NULL;
-    tmp = sxc_cluster_listfiles_next(cluster, SXFS_DATA->uri->volume, flist, &file_remote);
+    tmp = sxc_cluster_listfiles_next(cluster, sxfs->uri->volume, flist, &file_remote);
     if(tmp) {
         const char *fpath;
 
         if(tmp < 0) {
-            SXFS_LOG("Cannot retrieve file name: %s", sxc_geterrmsg(sx));
+            SXFS_ERROR("Cannot retrieve file name: %s", sxc_geterrmsg(sx));
             ret = -sxfs_sx_err(sx);
             goto sxfs_update_mtime_err;
         }
         fpath = sxc_file_get_path(file_remote);
         tmptime = sxc_file_get_created_at(file_remote);
         if(fpath[strlen(fpath)-1] == '/') {
-            SXFS_LOG("Not a file");
+            SXFS_ERROR("Not a file");
             ret = -EISDIR;
             goto sxfs_update_mtime_err;
         }
     } else {
-        SXFS_LOG("No such file");
+        SXFS_ERROR("No such file");
         ret = -ENOENT;
         goto sxfs_update_mtime_err;
     }
@@ -1359,15 +1335,20 @@ int sxfs_update_mtime (const char *local_file_path, const char *remote_file_path
         lsfile->st.st_size = sxc_file_get_size(file_remote);
         lsfile->st.st_uid = sxc_file_get_uid(file_remote) == (uid_t)SXC_UINT32_UNDEFINED ? getuid() : sxc_file_get_uid(file_remote);
         lsfile->st.st_gid = sxc_file_get_gid(file_remote) == (gid_t)SXC_UINT32_UNDEFINED ? getgid() : sxc_file_get_gid(file_remote);
-        lsfile->st.st_mtime = sxc_file_get_mtime(file_remote) == (time_t)SXC_UINT32_UNDEFINED ? tmptime : sxc_file_get_mtime(file_remote);
-        lsfile->st.st_ctime = sxc_file_get_ctime(file_remote) == (time_t)SXC_UINT32_UNDEFINED ? tmptime : sxc_file_get_ctime(file_remote);
+        lsfile->st.st_mtime = sxc_file_get_mtime(file_remote) == (time_t)SXC_UINT64_UNDEFINED ? tmptime : sxc_file_get_mtime(file_remote);
+        lsfile->st.st_ctime = MAX(lsfile->st.st_ctime, lsfile->st.st_mtime); /* since ctime is not handled by SX there can already be newer ctime in sxfs) */
     }
 
     ret = 0;
 sxfs_update_mtime_err:
-    if(SXFS_DATA->attribs && lsfile) {
-        if(stat(local_file_path, &lsfile->st)) /* update file info to be same as remote (e.g. uid and gid) */
-            SXFS_LOG("Cannot stat '%s' file: %s", local_file_path, strerror(errno));
+    if(sxfs->attribs && lsfile) {
+        struct stat st2;
+        if(stat(local_file_path, &st2)) {
+            SXFS_ERROR("Cannot stat '%s' file: %s", local_file_path, strerror(errno));
+        } else { /* sxfs can have no permission to change uid/gid - be up to date with remote data */
+            lsfile->st.st_uid = st2.st_uid;
+            lsfile->st.st_gid = st2.st_gid;
+        }
         sxfs_set_attr(local_file_path, &st);
     }
     sxc_file_free(file_local);
@@ -1389,12 +1370,12 @@ static int sxfs_delete_check (sxc_client_t *sx, sxc_cluster_t *cluster, sxfs_sta
     size_t i, j;
     sxc_cluster_lf_t *flist;
 
-    sxfs_log(sxfs, __func__, 1, "Checking deletion list");
+    SXFS_DEBUG("Checking deletion list");
     for(i=0; i<nfiles_del; i++) {
         sxc_file_t *file = NULL;
         flist = sxc_cluster_listfiles(cluster, sxfs->uri->volume, delete_list[i], 0, NULL, 0);
         if(!flist) {
-            sxfs_log(sxfs, __func__, 0, "Cannot check '%s' file existence on the server: %s", delete_list[i], sxc_geterrmsg(sx));
+            SXFS_ERROR("Cannot check '%s' file existence on the server: %s", delete_list[i], sxc_geterrmsg(sx));
             ret = -sxfs_sx_err(sx);
             goto sxfs_delete_check_err;
         }
@@ -1404,7 +1385,7 @@ static int sxfs_delete_check (sxc_client_t *sx, sxc_cluster_t *cluster, sxfs_sta
             const char *fpath;
 
             if(tmp < 0) {
-                sxfs_log(sxfs, __func__, 0, "Failed to retrieve file name");
+                SXFS_ERROR("Failed to retrieve file name");
                 ret = -sxfs_sx_err(sx);
                 sxc_file_free(file);
                 goto sxfs_delete_check_err;
@@ -1434,65 +1415,42 @@ sxfs_delete_check_err:
     nfiles_del = j;
     for(i=nfiles_del; i<maxfiles_del; i++)
         delete_list[i] = NULL;
-    sxfs_log(sxfs, __func__, 1, "Current deletion queue:");
+    SXFS_DEBUG("Current deletion queue:");
     for(i=0; i<nfiles_del; i++)
-        sxfs_log(sxfs, __func__, 1, "'%s'", delete_list[i]);
+        SXFS_DEBUG("'%s'", delete_list[i]);
     return ret;
 } /* sxfs_delete_check */
 
-static int sxfs_delete_dir_rec (char **path, size_t *pathlen, size_t *free_space, int upload_checked) {
+static int sxfs_delete_dir_rec (sxfs_state_t *sxfs, char *path, int upload_checked) {
     int ret;
-    size_t i, endlen = strlen(*path);
+    size_t i, endlen = strlen(path);
     sxfs_lsdir_t *dir;
     
-    if((ret = sxfs_ls_ftw(SXFS_DATA, *path, &dir))) {
-        SXFS_LOG("Cannot load file tree: %s", *path);
+    if((ret = sxfs_ls_ftw(sxfs, path, &dir))) {
+        SXFS_ERROR("Cannot load file tree: %s", path);
         return ret;
     }
     if(dir->sxnewdir == 2) {
-        while(lenof(EMPTY_DIR_FILE) > *free_space) {
-            if(sxfs_resize((void**)path, pathlen, 1)) {
-                SXFS_LOG("OOM growing the path: %s", strerror(errno));
-                return -ENOMEM;
-            }
-            *free_space += ALLOC_AMOUNT;
-        }
-        strcat(*path, EMPTY_DIR_FILE);
-        if((ret = sxfs_delete(*path, 1, upload_checked))) {
-            SXFS_LOG("Cannot delete '%s' file", *path);
+        strcat(path, SXFS_SXNEWDIR);
+        if((ret = sxfs_delete(path, 1, upload_checked))) {
+            SXFS_ERROR("Cannot delete '%s' file", path);
             return ret;
         }
-        *(*path + endlen) = '\0';
+        *(path + endlen) = '\0';
     }
     for(i=0; i<dir->nfiles; i++) {
-        while(strlen(dir->files[i]->name) > *free_space) {
-            if(sxfs_resize((void**)path, pathlen, 1)) {
-                SXFS_LOG("OOM growing the path: %s", strerror(errno));
-                return -ENOMEM;
-            }
-            *free_space += ALLOC_AMOUNT;
-        }
-        strcat(*path, dir->files[i]->name);
-        if((ret = sxfs_delete(*path, dir->files[i]->remote, upload_checked))) {
-            SXFS_LOG("Cannot delete '%s' file", *path);
+        strcat(path, dir->files[i]->name);
+        if((ret = sxfs_delete(path, dir->files[i]->remote, upload_checked))) {
+            SXFS_ERROR("Cannot delete '%s' file", path);
             return ret;
         }
-        *(*path + endlen) = '\0';
+        *(path + endlen) = '\0';
     }
     for(i=0; i<dir->ndirs; i++) {
-        while(strlen(dir->dirs[i]->name) + 1 > *free_space) {
-            if(sxfs_resize((void**)path, pathlen, 1)) {
-                SXFS_LOG("OOM growing the path: %s", strerror(errno));
-                return -ENOMEM;
-            }
-            *free_space += ALLOC_AMOUNT;
-        }
-        sprintf(*path+endlen, "%s/", dir->dirs[i]->name);
-        *free_space -= strlen(dir->dirs[i]->name) + 1;
-        if((ret = sxfs_delete_dir_rec(path, pathlen, free_space, upload_checked)))
+        sprintf(path+endlen, "%s/", dir->dirs[i]->name);
+        if((ret = sxfs_delete_dir_rec(sxfs, path, upload_checked)))
             return ret;
-        *(*path + endlen) = '\0';
-        *free_space += strlen(dir->dirs[i]->name) + 1;
+        *(path + endlen) = '\0';
     }
     return 0;
 } /* sxfs_delete_dir_rec */
@@ -1562,42 +1520,34 @@ static char* parse_path (const char *path) {
 int sxfs_delete (const char *path, int is_remote, int upload_checked) {
     int ret;
     ssize_t index;
-    size_t i, pathlen;
+    size_t i;
     char *local_file_path = NULL;
     sxc_client_t *sx;
     sxc_cluster_t *cluster;
     sxc_file_t *file;
     sxc_file_list_t *flist = NULL;
+    sxfs_state_t *sxfs = SXFS_DATA;
 
-    if(SXFS_DATA->args->use_queues_flag) {
-        pathlen = strlen(path);
-        if(path[pathlen-1] == '/') {
-            size_t free_space = ALLOC_AMOUNT;
-            char *workpath = (char*)malloc(pathlen + ALLOC_AMOUNT + 1);
-            if(!workpath) {
-                SXFS_LOG("Out of memory");
-                return -ENOMEM;
-            }
-            pathlen += ALLOC_AMOUNT;
+    if(sxfs->args->use_queues_flag) {
+        if(path[strlen(path)-1] == '/') {
+            char workpath[SXLIMIT_MAX_FILENAME_LEN + 1];
             sprintf(workpath, "%s", path);
-            if((ret = sxfs_delete_dir_rec(&workpath, &pathlen, &free_space, upload_checked))) {
-                SXFS_LOG("Cannot delete '%s' directory", workpath);
-                free(workpath);
+            if((ret = sxfs_delete_dir_rec(sxfs, workpath, upload_checked))) {
+                SXFS_ERROR("Cannot delete '%s' directory", workpath);
                 return ret;
             }
-            free(workpath);
             return 0;
         } else {
-            if(delete_flag < 0 && (ret = sxfs_delete_start())) { /* check whether deletion thread still works */
-                SXFS_LOG("Cannot restart deletion thread");
+            if(delete_flag != SXFS_THREAD_WORKING && (ret = sxfs_delete_start())) { /* check whether deletion thread still works */
+                SXFS_ERROR("Cannot restart deletion thread");
                 return ret;
             }
             if(sxfs_find_entry((const void**)delete_list, nfiles_del, path, sxfs_str_cmp) >= 0) {
-                SXFS_LOG("File already queued: %s", path);
+                SXFS_ERROR("File already queued: %s", path);
                 return -EINVAL;
             }
             if(!upload_checked) {
-                pthread_mutex_lock(&SXFS_DATA->upload_mutex);
+                pthread_mutex_lock(&sxfs->upload_mutex);
                 /* check whether this file is queued for upload */
                 index = sxfs_find_entry((const void**)upload_list, nfiles_up, path, sxfs_str_cmp);
                 if(index >= 0) {
@@ -1606,15 +1556,15 @@ int sxfs_delete (const char *path, int is_remote, int upload_checked) {
                         upload_list[i-1] = upload_list[i];
                     upload_list[nfiles_up-1] = NULL;
                     nfiles_up--;
-                    local_file_path = (char*)malloc(strlen(SXFS_DATA->tempdir) + 1 + lenof(SXFS_UPLOAD_DIR) + strlen(path) + 1);
+                    local_file_path = (char*)malloc(strlen(sxfs->tempdir) + 1 + lenof(SXFS_UPLOAD_DIR) + strlen(path) + 1);
                     if(!local_file_path) {
-                        SXFS_LOG("Out of memory");
+                        SXFS_ERROR("Out of memory");
                         return -ENOMEM;
                     }
-                    sprintf(local_file_path, "%s/%s%s", SXFS_DATA->tempdir, SXFS_UPLOAD_DIR, path);
+                    sprintf(local_file_path, "%s/%s%s", sxfs->tempdir, SXFS_UPLOAD_DIR, path);
                     if(unlink(local_file_path)) {
                         ret = -errno;
-                        SXFS_LOG("Cannot remove '%s' file: %s", local_file_path, strerror(errno));
+                        SXFS_ERROR("Cannot remove '%s' file: %s", local_file_path, strerror(errno));
                         goto sxfs_delete_err;
                     }
                     if((ret = sxfs_clear_path(local_file_path)))
@@ -1625,13 +1575,13 @@ int sxfs_delete (const char *path, int is_remote, int upload_checked) {
             if(is_remote) {
                 char *path_to_list;
                 if(nfiles_del == maxfiles_del && sxfs_resize((void**)&delete_list, &maxfiles_del, sizeof(char*))) {
-                    SXFS_LOG("OOM growing deletion list: %s", strerror(errno));
+                    SXFS_ERROR("OOM growing deletion list: %s", strerror(errno));
                     ret = -ENOMEM;
                     goto sxfs_delete_err;
                 }
                 path_to_list = strdup(path);
                 if(!path_to_list) {
-                    SXFS_LOG("Out of memory: %s", path);
+                    SXFS_ERROR("Out of memory: %s", path);
                     ret = -ENOMEM;
                     goto sxfs_delete_err;
                 }
@@ -1643,45 +1593,45 @@ int sxfs_delete (const char *path, int is_remote, int upload_checked) {
             }
         }
         if(gettimeofday(&last_deletion_time, NULL)) {
-            SXFS_LOG("Cannot get current time: %s", strerror(errno)); /* file succeffuly added into the list, in worst case deletion thread will pause next deletions */
+            SXFS_ERROR("Cannot get current time: %s", strerror(errno)); /* file succeffuly added into the list, in worst case deletion thread will pause next deletions */
         }
     } else {
         char *tmp_path = parse_path(path);
 
         if(!tmp_path) {
             ret = -errno;
-            SXFS_LOG("Out of memory");
+            SXFS_ERROR("Out of memory");
             return ret;
         }
-        if((ret = sxfs_get_sx_data(SXFS_DATA, &sx, &cluster))) {
-            SXFS_LOG("Cannot get SX data");
-            pthread_mutex_unlock(&SXFS_DATA->delete_mutex);
+        if((ret = sxfs_get_sx_data(sxfs, &sx, &cluster))) {
+            SXFS_ERROR("Cannot get SX data");
+            pthread_mutex_unlock(&sxfs->delete_mutex);
             free(tmp_path);
             return ret;
         }
         flist = sxc_file_list_new(sx, 1, 1);
         if(!flist) {
-            SXFS_LOG("Cannot create new file list: %s", sxc_geterrmsg(sx));
+            SXFS_ERROR("Cannot create new file list: %s", sxc_geterrmsg(sx));
             free(tmp_path);
             ret = -sxfs_sx_err(sx);
             goto sxfs_delete_err;
         }
-        file = sxc_file_remote(cluster, SXFS_DATA->uri->volume, tmp_path+1, NULL);
+        file = sxc_file_remote(cluster, sxfs->uri->volume, tmp_path+1, NULL);
         if(!file) {
-            SXFS_LOG("Cannot create file object: %s", sxc_geterrmsg(sx));
+            SXFS_ERROR("Cannot create file object: %s", sxc_geterrmsg(sx));
             free(tmp_path);
             ret = -sxfs_sx_err(sx);
             goto sxfs_delete_err;
         }
         if(sxc_file_list_add(flist, file, 1)) {
-            SXFS_LOG("Cannot add file: %s", sxc_geterrmsg(sx));
+            SXFS_ERROR("Cannot add file: %s", sxc_geterrmsg(sx));
             free(tmp_path);
             sxc_file_free(file);
             ret = -sxfs_sx_err(sx);
             goto sxfs_delete_err;
         }
         if(sxc_rm(flist, 0)) {
-            SXFS_LOG("Cannot remove file: %s", sxc_geterrmsg(sx));
+            SXFS_ERROR("Cannot remove file: %s", sxc_geterrmsg(sx));
             free(tmp_path);
             ret = -sxfs_sx_err(sx);
             goto sxfs_delete_err;
@@ -1691,8 +1641,8 @@ int sxfs_delete (const char *path, int is_remote, int upload_checked) {
 
     ret = 0;
 sxfs_delete_err:
-    if(SXFS_DATA->args->use_queues_flag && !upload_checked)
-        pthread_mutex_unlock(&SXFS_DATA->upload_mutex);
+    if(sxfs->args->use_queues_flag && !upload_checked)
+        pthread_mutex_unlock(&sxfs->upload_mutex);
     free(local_file_path);
     sxc_file_list_free(flist);
     return ret;
@@ -1706,12 +1656,12 @@ static int sxfs_delete_run (sxfs_state_t *sxfs, sxc_client_t *sx, sxc_cluster_t 
     sxc_file_t *file;
     sxc_file_list_t *flist = NULL;
 
-    sxfs_log(sxfs, __func__, 1, "Deleting files:");
+    SXFS_DEBUG("Deleting files:");
     for(i=0; i<nfiles_del; i++)
-        sxfs_log(sxfs, __func__, 1, "'%s'", delete_list[i]);
+        SXFS_DEBUG("'%s'", delete_list[i]);
     flist = sxc_file_list_new(sx, 0, ignore_error);
     if(!flist) {
-        sxfs_log(sxfs, __func__, 0, "Cannot create new file list: %s", sxc_geterrmsg(sx));
+        SXFS_ERROR("Cannot create new file list: %s", sxc_geterrmsg(sx));
         ret = -sxfs_sx_err(sx);
         goto sxfs_delete_run_err;
     }
@@ -1719,19 +1669,19 @@ static int sxfs_delete_run (sxfs_state_t *sxfs, sxc_client_t *sx, sxc_cluster_t 
         path = parse_path(delete_list[i]);
         if(!path) {
             ret = -errno;
-            sxfs_log(sxfs, __func__, 0, "Out of memory");
+            SXFS_ERROR("Out of memory");
             free(path);
             goto sxfs_delete_run_err;
         }
         file = sxc_file_remote(cluster, sxfs->uri->volume, path+1, NULL);
         if(!file) {
-            sxfs_log(sxfs, __func__, 0, "Cannot create file object: %s", sxc_geterrmsg(sx));
+            SXFS_ERROR("Cannot create file object: %s", sxc_geterrmsg(sx));
             free(path);
             ret = -sxfs_sx_err(sx);
             goto sxfs_delete_run_err;
         }
         if(sxc_file_list_add(flist, file, 1)) {
-            sxfs_log(sxfs, __func__, 0, "Cannot add file: %s", sxc_geterrmsg(sx));
+            SXFS_ERROR("Cannot add file: %s", sxc_geterrmsg(sx));
             free(path);
             sxc_file_free(file);
             ret = -sxfs_sx_err(sx);
@@ -1740,7 +1690,7 @@ static int sxfs_delete_run (sxfs_state_t *sxfs, sxc_client_t *sx, sxc_cluster_t 
         free(path);
     }
     if(sxc_rm(flist, 0) && sxc_geterrnum(sx) != SXE_EARG) {
-        sxfs_log(sxfs, __func__, 0, "Cannot remove file list: %s", sxc_geterrmsg(sx));
+        SXFS_ERROR("Cannot remove file list: %s", sxc_geterrmsg(sx));
         sxfs_tick_dirs_reload(sxfs->root);
         sxfs_delete_check(sx, cluster, sxfs);
         if(!ignore_error) {
@@ -1754,6 +1704,7 @@ static int sxfs_delete_run (sxfs_state_t *sxfs, sxc_client_t *sx, sxc_cluster_t 
         }
         nfiles_del = 0;
     }
+    SXFS_DEBUG("Files removed correctly");
 
     ret = 0;
 sxfs_delete_run_err:
@@ -1763,61 +1714,79 @@ sxfs_delete_run_err:
 
 /* delete_mutex must be locked when starting this function */
 static void* sxfs_delete_thread (void *ptr) {
-    int *ret = (int*)calloc(1, sizeof(int));
+    int *ret = (int*)calloc(1, sizeof(int)), err, mutex_locked = 0;
     size_t i;
+    struct timeval tv;
+    struct timespec wait_time;
     sxc_client_t *sx;
     sxc_cluster_t *cluster;
     sxfs_state_t *sxfs = (sxfs_state_t*)ptr;
-    struct timeval tv;
 
+    memset(&wait_time, 0, sizeof(struct timespec));
     if(!ret) {
-        sxfs_log(sxfs, __func__, 0, "Out of memory");
+        SXFS_ERROR("Out of memory");
         goto sxfs_delete_thread_err;
     }
     if((*ret = sxfs_get_sx_data(sxfs, &sx, &cluster))) {
-        sxfs_log(sxfs, __func__, 0, "Cannot get SX data");
+        SXFS_ERROR("Cannot get SX data");
         goto sxfs_delete_thread_err;
     }
-    delete_list = (char**)calloc(ALLOC_AMOUNT, sizeof(char*));
+    delete_list = (char**)calloc(SXFS_ALLOC_ENTRIES, sizeof(char*));
     if(!delete_list) {
-        sxfs_log(sxfs, __func__, 0, "Out of memory");
+        SXFS_ERROR("Out of memory");
         *ret = ENOMEM;
         goto sxfs_delete_thread_err;
     }
     nfiles_del = 0;
-    maxfiles_del = ALLOC_AMOUNT;
+    maxfiles_del = SXFS_ALLOC_ENTRIES;
+    pthread_mutex_lock(&sxfs->delete_thread_mutex);
+    mutex_locked = 1;
     pthread_mutex_lock(&sxfs->delete_mutex);
-    delete_flag = 1;
+    delete_flag = SXFS_THREAD_WORKING;
     pthread_mutex_unlock(&sxfs->delete_mutex);
-    sxfs_log(sxfs, __func__, 2, "Deletion thread has been started");
+    SXFS_LOG("Deletion thread has been started");
 
     while(1) {
-        usleep(JOB_SLEEP_USEC);
-        pthread_mutex_lock(&sxfs->delete_mutex);
-        if(delete_flag < 0) {
-            pthread_mutex_unlock(&sxfs->delete_mutex);
-            sxfs_log(sxfs, __func__, 2, "Deletion thread has been stopped");
+        if((wait_time.tv_sec = time(NULL)) < 0) {
+            *ret = errno;
+            SXFS_ERROR("Cannot get current time: %s", strerror(errno));
             goto sxfs_delete_thread_err;
         }
-        if(nfiles_del) {
-            if(gettimeofday(&tv, NULL)) {
-                *ret = errno;
-                sxfs_log(sxfs, __func__, 0, "Cannot get current time: %s", strerror(errno));
+        wait_time.tv_sec += SXFS_THREAD_SLEEP / 1000000L;
+        if((err = pthread_cond_timedwait(&sxfs->delete_cond, &sxfs->delete_thread_mutex, &wait_time))) {
+            if(err == ETIMEDOUT) {
+                pthread_mutex_lock(&sxfs->delete_mutex);
+                if(nfiles_del) {
+                    if(gettimeofday(&tv, NULL)) {
+                        *ret = errno;
+                        SXFS_ERROR("Cannot get current time: %s", strerror(errno));
+                        pthread_mutex_unlock(&sxfs->delete_mutex);
+                        goto sxfs_delete_thread_err;
+                    }
+                    if(sxi_timediff(&tv, &last_deletion_time) >= SXFS_LAST_ACTION_WAIT) {
+                        if((*ret = sxfs_delete_run(sxfs, sx, cluster, 1))) {
+                            SXFS_ERROR("Deletion failed");
+                            pthread_mutex_unlock(&sxfs->delete_mutex);
+                            goto sxfs_delete_thread_err;
+                        }
+                    }
+                }
                 pthread_mutex_unlock(&sxfs->delete_mutex);
+            } else {
+                *ret = err;
+                SXFS_ERROR("Pthread condition waiting failed: %s", strerror(err));
                 goto sxfs_delete_thread_err;
             }
-            if((tv.tv_sec - last_deletion_time.tv_sec) * 1000000L + tv.tv_usec - last_deletion_time.tv_usec >= LAST_ACTION_WAIT_USEC) {
-                if((*ret = sxfs_delete_run(sxfs, sx, cluster, 1))) {
-                    sxfs_log(sxfs, __func__, 0, "Deletion failed");
-                    pthread_mutex_unlock(&sxfs->delete_mutex);
-                    goto sxfs_delete_thread_err;
-                }
-            }
+        } else {
+            SXFS_LOG("Deletion thread has been stopped");
+            break;
         }
-        pthread_mutex_unlock(&sxfs->delete_mutex);
     }
 
+    *ret = 0;
 sxfs_delete_thread_err:
+    if(mutex_locked)
+        pthread_mutex_unlock(&sxfs->delete_thread_mutex);
     pthread_mutex_lock(&sxfs->delete_mutex);
     if(delete_list) {
         for(i=0; i<nfiles_del; i++)
@@ -1825,12 +1794,12 @@ sxfs_delete_thread_err:
         free(delete_list);
     }
     nfiles_del = maxfiles_del = 0;
-    delete_flag = -2;
+    delete_flag = SXFS_THREAD_STOPPED;
     pthread_mutex_unlock(&sxfs->delete_mutex);
     return (void*)ret;
 } /* sxfs_delete_thread */
 
-int sxfs_delete_check_path (const char *path) {
+int sxfs_delete_check_path (sxfs_state_t *sxfs, const char *path) {
     int run = 0;
     size_t len = strlen(path);
     if(path[len-1] != '/') {
@@ -1848,12 +1817,12 @@ int sxfs_delete_check_path (const char *path) {
         sxc_client_t *sx;
         sxc_cluster_t *cluster;
 
-        if((ret = sxfs_get_sx_data(SXFS_DATA, &sx, &cluster))) {
-            SXFS_LOG("Cannot get SX data");
+        if((ret = sxfs_get_sx_data(sxfs, &sx, &cluster))) {
+            SXFS_ERROR("Cannot get SX data");
             return ret;
         }
-        if((ret = sxfs_delete_run(SXFS_DATA, sx, cluster, 0))) {
-            SXFS_LOG("Cannot force files deletion");
+        if((ret = sxfs_delete_run(sxfs, sx, cluster, 0))) {
+            SXFS_ERROR("Cannot force files deletion");
             return ret;
         }
     }
@@ -1863,28 +1832,27 @@ int sxfs_delete_check_path (const char *path) {
 /* must be run when delete_mutex is locked */
 int sxfs_delete_start (void) {
     int tmp;
+    sxfs_state_t *sxfs = SXFS_DATA;
 
-    delete_flag = 0;
-    if((tmp = pthread_create(&SXFS_DATA->delete_thread, NULL, sxfs_delete_thread, (void*)SXFS_DATA))) {
-        SXFS_LOG("Cannot create deletion thread: %s", strerror(tmp));
-        delete_flag = -2;
+    delete_flag = SXFS_THREAD_NOT_WORKING;
+    if((tmp = sxfs_thread_create(sxfs, &sxfs->delete_thread, sxfs_delete_thread, (void*)sxfs))) {
+        SXFS_ERROR("Cannot create deletion thread");
         return -tmp;
     }
-    while(!delete_flag) {
-        pthread_mutex_unlock(&SXFS_DATA->delete_mutex);
-        usleep(THREAD_WAIT_USEC);
-        pthread_mutex_lock(&SXFS_DATA->delete_mutex);
+    while(delete_flag == SXFS_THREAD_NOT_WORKING) {
+        pthread_mutex_unlock(&sxfs->delete_mutex);
+        usleep(SXFS_THREAD_WAIT);
+        pthread_mutex_lock(&sxfs->delete_mutex);
     }
-    if(delete_flag < 0) {
+    if(delete_flag == SXFS_THREAD_STOPPED) { /* thread function executed and failed */
         int ret, *status = NULL;
-        if((tmp = pthread_join(SXFS_DATA->delete_thread, (void**)&status))) {
-            SXFS_LOG("Cannot join deletion thread: %s", strerror(tmp));
+        if((tmp = pthread_join(sxfs->delete_thread, (void**)&status))) {
+            SXFS_ERROR("Cannot join deletion thread: %s", strerror(tmp));
             ret = -tmp;
         } else {
             ret = status ? -(*status) : -ENOMEM;
-            SXFS_LOG("Cannot start deletion thread: %s", strerror(status ? *status : ENOMEM));
-            if(status)
-                free(status);
+            SXFS_ERROR("Cannot start deletion thread: %s", strerror(status ? *status : ENOMEM));
+            free(status);
         }
         return ret;
     }
@@ -1892,23 +1860,25 @@ int sxfs_delete_start (void) {
 } /* sxfs_delete_start */
 
 void sxfs_delete_stop (void) {
-    int tmp, *status = NULL;
-    pthread_mutex_lock(&SXFS_DATA->delete_mutex);
-    if(delete_flag > 0) {
-        delete_flag = -1;
-        pthread_mutex_unlock(&SXFS_DATA->delete_mutex);
-        if((tmp = pthread_join(SXFS_DATA->delete_thread, (void**)&status))) {
-            SXFS_LOG("Cannot join deletion thread: %s", strerror(tmp));
-        } else {
-            if(status)
-                free(status);
-        }
+    int err, *status = NULL;
+    sxfs_state_t *sxfs = SXFS_DATA;
+
+    pthread_mutex_lock(&sxfs->delete_mutex);
+    if(delete_flag == SXFS_THREAD_WORKING) {
+        pthread_mutex_unlock(&sxfs->delete_mutex);
+        pthread_mutex_lock(&sxfs->delete_thread_mutex);
+        pthread_cond_signal(&sxfs->delete_cond);
+        pthread_mutex_unlock(&sxfs->delete_thread_mutex);
+        if((err = pthread_join(sxfs->delete_thread, (void**)&status)))
+            SXFS_ERROR("Cannot join deletion thread: %s", strerror(err));
+        else
+            free(status);
     } else
-        pthread_mutex_unlock(&SXFS_DATA->delete_mutex);
+        pthread_mutex_unlock(&sxfs->delete_mutex);
 } /* sxfs_delete_stop */
 
 /* must be run when upload_mutex is locked */
-int sxfs_upload_del_path (const char *path) {
+int sxfs_upload_del_path (sxfs_state_t *sxfs, const char *path) {
     size_t i, j, len = strlen(path);
 
     if(path[len-1] != '/') {
@@ -1921,7 +1891,7 @@ int sxfs_upload_del_path (const char *path) {
             nfiles_up--;
             SXFS_DEBUG("File removed: %s", path);
         } else {
-            SXFS_LOG("File not queued: %s", path);
+            SXFS_ERROR("File not queued: %s", path);
             return -ENOENT;
         }
     } else {
@@ -1929,7 +1899,7 @@ int sxfs_upload_del_path (const char *path) {
         while(i<nfiles_up && strcmp(path, upload_list[i]) > 0)
             i++;
         if(strncmp(path, upload_list[i], len)) {
-            SXFS_LOG("Directory not queued: %s", path);
+            SXFS_ERROR("Directory not queued: %s", path);
             return -ENOENT;
         }
         for(j=i; j<nfiles_up && !strncmp(path, upload_list[j], len); j++) {
@@ -1962,75 +1932,76 @@ int sxfs_upload (const char *src, const char *dest, sxfs_lsfile_t *lsfile, int f
     char *ptr, *path = NULL, *path_to_list = NULL;
     sxc_client_t *sx;
     sxc_cluster_t *cluster;
+    sxfs_state_t *sxfs = SXFS_DATA;
 
-    if((ret = sxfs_get_sx_data(SXFS_DATA, &sx, &cluster))) {
-        SXFS_LOG("Cannot get SX data");
+    if((ret = sxfs_get_sx_data(sxfs, &sx, &cluster))) {
+        SXFS_ERROR("Cannot get SX data");
         return ret;
     }
-    if(SXFS_DATA->args->use_queues_flag) {
-        if(upload_flag < 0 && (ret = sxfs_upload_start())) { /* check whether upload thread still works */
-            SXFS_LOG("Cannot restart upload thread");
+    if(sxfs->args->use_queues_flag) {
+        if(upload_flag != SXFS_THREAD_WORKING && (ret = sxfs_upload_start())) { /* check whether upload thread still works */
+            SXFS_ERROR("Cannot restart upload thread");
             return ret;
         }
         path_to_list = strdup(dest);
         if(!path_to_list) {
-            SXFS_LOG("Out of memory: %s", dest);
+            SXFS_ERROR("Out of memory: %s", dest);
             return -ENOMEM;
         }
-        path = (char*)malloc(strlen(SXFS_DATA->tempdir) + 1 + lenof(SXFS_UPLOAD_DIR)  + strlen(dest) + 1);
+        path = (char*)malloc(strlen(sxfs->tempdir) + 1 + lenof(SXFS_UPLOAD_DIR)  + strlen(dest) + 1);
         if(!path) {
-            SXFS_LOG("Out of memory");
+            SXFS_ERROR("Out of memory");
             free(path_to_list);
             return -ENOMEM;
         }
         sprintf(path, "%s", dest);
         ptr = strrchr(path, '/');
         if(!ptr) {
-            SXFS_LOG("'/' not found in '%s'", path);
+            SXFS_ERROR("'/' not found in '%s'", path);
             free(path);
             free(path_to_list);
             return -EINVAL;
         }
         ptr++;
-        if(!strcmp(ptr, EMPTY_DIR_FILE))
+        if(!strcmp(ptr, SXFS_SXNEWDIR))
             *ptr = '\0';
-        if((ret = sxfs_delete_check_path(path))) {
-            SXFS_LOG("Cannot check deletion queue: %s", path);
+        if((ret = sxfs_delete_check_path(sxfs, path))) {
+            SXFS_ERROR("Cannot check deletion queue: %s", path);
             free(path);
             free(path_to_list);
             return ret;
         }
-        pthread_mutex_lock(&SXFS_DATA->upload_mutex);
+        pthread_mutex_lock(&sxfs->upload_mutex);
         if((index = sxfs_find_entry((const void**)upload_list, nfiles_up, dest, sxfs_str_cmp)) >= 0 && !force) {
-            SXFS_LOG("File already queued: %s", dest);
+            SXFS_ERROR("File already queued: %s", dest);
             ret = -EINVAL;
             goto sxfs_upload_err;
         }
         if(nfiles_up == maxfiles_up && sxfs_resize((void**)&upload_list, &maxfiles_up, sizeof(char*))) {
-            SXFS_LOG("OOM growing upload list: %s", strerror(errno));
+            SXFS_ERROR("OOM growing upload list: %s", strerror(errno));
             ret = -ENOMEM;
             goto sxfs_upload_err;
         }
-        sprintf(path, "%s/%s%s", SXFS_DATA->tempdir, SXFS_UPLOAD_DIR, dest);
+        sprintf(path, "%s/%s%s", sxfs->tempdir, SXFS_UPLOAD_DIR, dest);
         if((ret = sxfs_build_path(path))) {
-            SXFS_LOG("Cannot create path: %s", path);
+            SXFS_ERROR("Cannot create path: %s", path);
             goto sxfs_upload_err;
         }
         if(!src) { /* uploading empty file */
             int fd = open(path, O_WRONLY | O_CREAT, 0600);
             if(fd < 0) {
                 ret = -errno;
-                SXFS_LOG("Cannot create '%s' file: %s", path, strerror(errno));
+                SXFS_ERROR("Cannot create '%s' file: %s", path, strerror(errno));
                 goto sxfs_upload_err;
             }
             if(close(fd)) {
                 ret = -errno;
-                SXFS_LOG("Cannot close '%s' file: %s", path, strerror(errno));
+                SXFS_ERROR("Cannot close '%s' file: %s", path, strerror(errno));
                 goto sxfs_upload_err;
             }
         } else if(rename(src, path)) {
             ret = -errno;
-            SXFS_LOG("Cannot rename '%s' to '%s': %s", src, path, strerror(errno));
+            SXFS_ERROR("Cannot rename '%s' to '%s': %s", src, path, strerror(errno));
             goto sxfs_upload_err;
         }
         if(index < 0) {
@@ -2041,29 +2012,51 @@ int sxfs_upload (const char *src, const char *dest, sxfs_lsfile_t *lsfile, int f
             nfiles_up++;
         }
         if(gettimeofday(&last_upload_time, NULL)) {
-            SXFS_LOG("Cannot get current time: %s", strerror(errno)); /* file succeffuly added into upload cache directory, in worst case upload thread will pause next uploads */
+            SXFS_ERROR("Cannot get current time: %s", strerror(errno)); /* file succeffuly added into upload cache directory, in worst case upload thread will pause next uploads */
         }
         SXFS_DEBUG("File added: %s", dest);
     } else {
-        if((ret = sxfs_update_mtime(src ? src : SXFS_DATA->empty_file_path, dest, lsfile))) {
-            SXFS_LOG("Cannot update modification time");
+        if((ret = sxfs_update_mtime(src ? src : sxfs->empty_file_path, dest, lsfile))) {
+            SXFS_ERROR("Cannot update modification time");
             goto sxfs_upload_err;
         }
         if(src && unlink(src)) {
             ret = -errno;
-            SXFS_LOG("Cannot remove '%s' file: %s", src, strerror(errno));
+            SXFS_ERROR("Cannot remove '%s' file: %s", src, strerror(errno));
             goto sxfs_upload_err;
         }
     }
 
     ret = 0;
 sxfs_upload_err:
-    if(SXFS_DATA->args->use_queues_flag)
-        pthread_mutex_unlock(&SXFS_DATA->upload_mutex);
+    if(sxfs->args->use_queues_flag)
+        pthread_mutex_unlock(&sxfs->upload_mutex);
     free(path);
     free(path_to_list);
     return ret;
 } /* sxfs_upload */
+
+static int sxfs_upload_status (const sxc_xfer_stat_t *xfer_stat) {
+    static size_t counter = 1;
+    sxfs_state_t *sxfs;
+
+    if(!xfer_stat)
+        return SXE_NOERROR;
+    sxfs = xfer_stat->ctx;
+    if(xfer_stat->status == SXC_XFER_STATUS_WAITING && xfer_stat->current_xfer.direction == SXC_XFER_DIRECTION_UPLOAD) {
+        char *file_name = strdup(xfer_stat->current_xfer.file_name);
+
+        if(file_name)
+            sxc_escstr(file_name);
+        SXFS_LOG("'%s' ready to flush (%llu/%llu)", file_name, (unsigned long long int)counter++, (unsigned long long int)nfiles_up);
+        free(file_name);
+    }
+    if(xfer_stat->status == SXC_XFER_STATUS_FINISHED) {
+        counter = 1;
+        SXFS_LOG("Files upload finished");
+    }
+    return SXE_NOERROR;
+} /* sxfs_upload_status */
 
 /* must be run when delete_mutex and upload_mutex are locked */
 static int sxfs_upload_run (sxfs_state_t *sxfs, sxc_client_t *sx, sxc_cluster_t *cluster, int ignore_error) {
@@ -2074,91 +2067,96 @@ static int sxfs_upload_run (sxfs_state_t *sxfs, sxc_client_t *sx, sxc_cluster_t 
     sxc_file_t *src = NULL, *dest = NULL;
     sxfs_lsdir_t *dir;
 
-    sxfs_log(sxfs, __func__, 1, "Uploading files:");
+    SXFS_DEBUG("Uploading files:");
     for(i=0; i<nfiles_up; i++)
-        sxfs_log(sxfs, __func__, 1, "'%s'", upload_list[i]);
+        SXFS_DEBUG("'%s'", upload_list[i]);
     if(sxfs->attribs)
         for(i=0; i<nfiles_up; i++) {
             ptr = strrchr(upload_list[i], '/');
             if(ptr) {
                 ptr++;
-                if(!strcmp(ptr, EMPTY_DIR_FILE))
+                if(!strcmp(ptr, SXFS_SXNEWDIR))
                     continue; /* skip '.sxnewdir' files */
             }
             if((ret = sxfs_ls_ftw(sxfs, upload_list[i], &dir))) {
-                sxfs_log(sxfs, __func__, 0, "File tree walk failed: %s", upload_list[i]);
+                SXFS_ERROR("File tree walk failed: %s", upload_list[i]);
                 return ret;
             }
             index = sxfs_find_entry((const void **)dir->files, dir->nfiles, strrchr(upload_list[i], '/')+1, sxfs_lsfile_cmp);
             if(index < 0) {
-                sxfs_log(sxfs, __func__, 0, "'%s' file is missing in ls cache", upload_list[i]);
+                SXFS_ERROR("'%s' file is missing in ls cache", upload_list[i]);
                 return -EAGAIN;
             }
             snprintf(storage_path, PATH_MAX, "%s/%s%s", sxfs->tempdir, SXFS_UPLOAD_DIR, upload_list[i]);
             if(sxfs_set_attr(storage_path, &dir->files[index]->st)) {
                 ret = -errno;
-                sxfs_log(sxfs, __func__, 0, "Cannot set file attributes: %s", strerror(errno));
+                SXFS_ERROR("Cannot set file attributes: %s", strerror(errno));
                 return ret;
             }
         }
     sprintf(storage_path, "%s/%s/", sxfs->tempdir, SXFS_UPLOAD_DIR);
     src = sxc_file_local(sx, storage_path);
     if(!src) {
-        sxfs_log(sxfs, __func__, 0, "Cannot create local file object: %s", sxc_geterrmsg(sx));
+        SXFS_ERROR("Cannot create local file object: %s", sxc_geterrmsg(sx));
         ret = -sxfs_sx_err(sx);
         goto sxfs_upload_run_err;
     }
     dest = sxc_file_remote(cluster, sxfs->uri->volume, "/", NULL);
     if(!dest) {
-        sxfs_log(sxfs, __func__, 0, "Cannot create file object: %s", sxc_geterrmsg(sx));
+        SXFS_ERROR("Cannot create file object: %s", sxc_geterrmsg(sx));
         ret = -sxfs_sx_err(sx);
         goto sxfs_upload_run_err;
     }
     if(sxc_copy_single(src, dest, 1, 0, 0, NULL, 0)) {
-        sxfs_log(sxfs, __func__, 0, "Cannot upload '%s' file: %s", storage_path, sxc_geterrmsg(sx));
+        SXFS_ERROR("Cannot upload '%s' file: %s", storage_path, sxc_geterrmsg(sx));
         sxfs_tick_dirs_reload(sxfs->root);
         if(!ignore_error) {
             ret = -sxfs_sx_err(sx);
             goto sxfs_upload_run_err;
         }
-    } else {
-        /* mark uploaded files as remote */
+    } else { /* mark uploaded files as remote */
+        struct stat st;
+
         for(i=0; i<nfiles_up; i++) {
             ptr = strrchr(upload_list[i], '/');
             if(ptr) {
                 ptr++;
                 if(!sxfs_ls_ftw(sxfs, upload_list[i], &dir)) {
-                    if(!strcmp(ptr, EMPTY_DIR_FILE)) {
+                    if(!strcmp(ptr, SXFS_SXNEWDIR)) {
                         dir->remote = 1;
                         dir->sxnewdir = 2;
                     } else {
                         index = sxfs_find_entry((const void**)dir->files, dir->nfiles, ptr, sxfs_lsfile_cmp);
                         if(index < 0) {
-                            sxfs_log(sxfs, __func__, 0, "File not found: %s", upload_list[i]);
+                            SXFS_ERROR("File not found: %s", upload_list[i]);
                         } else {
                             dir->files[index]->remote = 1;
                             if(sxfs->attribs) {
                                 snprintf(storage_path, PATH_MAX, "%s/%s%s", sxfs->tempdir, SXFS_UPLOAD_DIR, upload_list[i]);
-                                if(stat(storage_path, &dir->files[index]->st))
-                                    sxfs_log(sxfs, __func__, 0, "Cannot stat '%s' file: %s", storage_path, strerror(errno));
+                                if(stat(storage_path, &st)) {
+                                    SXFS_ERROR("Cannot stat '%s' file: %s", storage_path, strerror(errno));
+                                } else { /* sxfs can have no permission to change uid/gid - be up to date with remote data */
+                                    dir->files[index]->st.st_uid = st.st_uid;
+                                    dir->files[index]->st.st_gid = st.st_gid;
+                                }
                             }
                         }
                     }
                 } else
-                    sxfs_log(sxfs, __func__, 0, "File tree walk failed: %s", upload_list[i]);
+                    SXFS_ERROR("File tree walk failed: %s", upload_list[i]);
             } else
-                sxfs_log(sxfs, __func__, 0, "'/' not found in '%s'", upload_list[i]);
+                SXFS_ERROR("'/' not found in '%s'", upload_list[i]);
         }
         sprintf(storage_path, "%s/%s/", sxfs->tempdir, SXFS_UPLOAD_DIR);
         /* refresh upload queue directory */
-        if(sxfs_rmdirs(storage_path)) {
+        if(sxi_rmdirs(storage_path)) {
             ret = -errno;
-            sxfs_log(sxfs, __func__, 0, "Cannot remove local storage directory: %s", strerror(errno));
+            SXFS_ERROR("Cannot remove local storage directory: %s", strerror(errno));
             goto sxfs_upload_run_err;
         }
         if(mkdir(storage_path, 0700)) {
             ret = -errno;
-            sxfs_log(sxfs, __func__, 0, "Cannot recreate local storage directory: %s", strerror(errno));
+            SXFS_ERROR("Cannot recreate local storage directory: %s", strerror(errno));
             goto sxfs_upload_run_err;
         }
         /* clean up upload list */
@@ -2171,29 +2169,6 @@ static int sxfs_upload_run (sxfs_state_t *sxfs, sxc_client_t *sx, sxc_cluster_t 
 
     ret = 0;
 sxfs_upload_run_err:
-    if(sxfs->attribs) {
-        time_t t;
-        struct stat st;
-
-        if(time(&t) < 0)
-            SXFS_LOG("Cannot get current time: %s", strerror(errno));
-        else
-            t = 0;
-        st.st_mode = FILE_ATTR;
-        st.st_uid = getuid();
-        st.st_gid = getgid();
-        st.st_atime = st.st_mtime = t;
-        for(i=0; i<nfiles_up; i++) {
-            ptr = strrchr(upload_list[i], '/');
-            if(ptr) {
-                ptr++;
-                if(!strcmp(ptr, EMPTY_DIR_FILE))
-                    continue; /* skip '.sxnewdir' files */
-            }
-            snprintf(storage_path, PATH_MAX, "%s/%s%s", sxfs->tempdir, SXFS_UPLOAD_DIR, upload_list[i]);
-            sxfs_set_attr(storage_path, &st);
-        }
-    }
     sxc_file_free(src);
     sxc_file_free(dest);
     return ret;
@@ -2205,18 +2180,18 @@ static int move_files (sxfs_state_t *sxfs, const char *source, const char *dest)
             size_t i = 0, len = 0;
             char *src_path, *dst_path;
 
-            sxfs_log(sxfs, __func__, 1, "Moving files between different filesystems");
+            SXFS_DEBUG("Moving files between different filesystems");
             for(; i<nfiles_up; i++)
                 if(strlen(upload_list[i]) > len)
                     len = strlen(upload_list[i]);
             src_path = (char*)malloc(strlen(source) + len + 1);
             if(!src_path) {
-                sxfs_log(sxfs, __func__, 0, "Out of memory");
+                SXFS_ERROR("Out of memory");
                 return -ENOMEM;
             }
             dst_path = (char*)malloc(strlen(dest) + len + 1);
             if(!dst_path) {
-                sxfs_log(sxfs, __func__, 0, "Out of memory");
+                SXFS_ERROR("Out of memory");
                 free(src_path);
                 return -ENOMEM;
             }
@@ -2240,91 +2215,115 @@ static int move_files (sxfs_state_t *sxfs, const char *source, const char *dest)
 } /* move_files */
 
 static void* sxfs_upload_thread (void *ptr) {
-    int *ret = (int*)calloc(1, sizeof(int));
+    int *ret = (int*)calloc(1, sizeof(int)), err, mutex_locked = 0;
     size_t i;
     char *storage_path = NULL;
+    struct timeval tv;
+    struct timespec wait_time;
     sxc_client_t *sx;
     sxc_cluster_t *cluster;
     sxfs_state_t *sxfs = (sxfs_state_t*)ptr;
-    struct timeval tv;
 
+    memset(&wait_time, 0, sizeof(struct timespec));
     if(!ret) {
-        sxfs_log(sxfs, __func__, 0, "Out of memory");
+        SXFS_ERROR("Out of memory");
         goto sxfs_upload_thread_err;
     }
     storage_path = (char*)malloc(strlen(sxfs->tempdir) + 1 + lenof(SXFS_UPLOAD_DIR) + 1);
     if(!storage_path) {
-        sxfs_log(sxfs, __func__, 0, "Out of memory");
+        SXFS_ERROR("Out of memory");
         *ret = ENOMEM;
         goto sxfs_upload_thread_err;
     }
     sprintf(storage_path, "%s/%s", sxfs->tempdir, SXFS_UPLOAD_DIR);
-    if(sxfs_rmdirs(storage_path) && errno != ENOENT) {
+    if(sxi_rmdirs(storage_path) && errno != ENOENT) {
         *ret = errno;
-        sxfs_log(sxfs, __func__, 0, "Cannot remove local storage directory: %s", strerror(errno));
+        SXFS_ERROR("Cannot remove local storage directory: %s", strerror(errno));
         goto sxfs_upload_thread_err;
     }
     if(mkdir(storage_path, 0700)) {
         *ret = errno;
-        sxfs_log(sxfs, __func__, 0, "Cannot recreate local storage directory: %s", strerror(errno));
+        SXFS_ERROR("Cannot recreate local storage directory: %s", strerror(errno));
         goto sxfs_upload_thread_err;
     }
-    if(sxfs_get_sx_data(sxfs, &sx, &cluster)) {
-        *ret = errno;
-        sxfs_log(sxfs, __func__, 0, "Cannot get SX data");
+    if((*ret = sxfs_get_sx_data(sxfs, &sx, &cluster))) {
+        SXFS_ERROR("Cannot get SX data");
         goto sxfs_upload_thread_err;
     }
-    upload_list = (char**)calloc(ALLOC_AMOUNT, sizeof(char*));
+    if(sxc_cluster_set_progress_cb(sx, cluster, sxfs_upload_status, sxfs)) {
+        SXFS_ERROR("Cannot set progress callback: %s", sxc_geterrmsg(sx));
+        *ret = sxfs_sx_err(sx);
+        goto sxfs_upload_thread_err;
+    }
+    upload_list = (char**)calloc(SXFS_ALLOC_ENTRIES, sizeof(char*));
     if(!upload_list) {
-        sxfs_log(sxfs, __func__, 0, "Out of memory");
+        SXFS_ERROR("Out of memory");
         *ret = ENOMEM;
         goto sxfs_upload_thread_err;
     }
     nfiles_up = 0;
-    maxfiles_up = ALLOC_AMOUNT;
+    maxfiles_up = SXFS_ALLOC_ENTRIES;
+    pthread_mutex_lock(&sxfs->upload_thread_mutex);
+    mutex_locked = 1;
     pthread_mutex_lock(&sxfs->upload_mutex);
-    upload_flag = 1;
+    upload_flag = SXFS_THREAD_WORKING;
     pthread_mutex_unlock(&sxfs->upload_mutex);
-    sxfs_log(sxfs, __func__, 2, "Upload thread has been started");
+    SXFS_LOG("Upload thread has been started");
 
     while(1) {
-        usleep(JOB_SLEEP_USEC);
-        pthread_mutex_lock(&sxfs->delete_mutex);
-        pthread_mutex_lock(&sxfs->upload_mutex);
-        if(upload_flag < 0) {
+        if((wait_time.tv_sec = time(NULL)) < 0) {
+            *ret = errno;
+            SXFS_ERROR("Cannot get current time: %s", strerror(errno));
+            goto sxfs_upload_thread_err;
+        }
+        wait_time.tv_sec += SXFS_THREAD_SLEEP / 1000000L;
+        if((err = pthread_cond_timedwait(&sxfs->upload_cond, &sxfs->upload_thread_mutex, &wait_time))) {
+            if(err == ETIMEDOUT) {
+                pthread_mutex_lock(&sxfs->delete_mutex);
+                pthread_mutex_lock(&sxfs->upload_mutex);
+                if(nfiles_up) {
+                    if(gettimeofday(&tv, NULL)) {
+                        *ret = errno;
+                        SXFS_ERROR("Cannot get current time: %s", strerror(errno));
+                        pthread_mutex_unlock(&sxfs->delete_mutex);
+                        pthread_mutex_unlock(&sxfs->upload_mutex);
+                        goto sxfs_upload_thread_err;
+                    }
+                    if(sxi_timediff(&tv, &last_upload_time) >= SXFS_LAST_ACTION_WAIT) {
+                        if((*ret = sxfs_upload_run(sxfs, sx, cluster, 1))) {
+                            pthread_mutex_unlock(&sxfs->delete_mutex);
+                            pthread_mutex_unlock(&sxfs->upload_mutex);
+                            goto sxfs_upload_thread_err;
+                        }
+                    }
+                }
+                pthread_mutex_unlock(&sxfs->delete_mutex);
+                pthread_mutex_unlock(&sxfs->upload_mutex);
+            } else {
+                *ret = err;
+                SXFS_ERROR("Pthread condition waiting failed: %s", strerror(err));
+                goto sxfs_upload_thread_err;
+            }
+        } else {
+            pthread_mutex_lock(&sxfs->upload_mutex);
             if(nfiles_up) { /* save not yet uploaded files */
-                sxfs_log(sxfs, __func__, 2, "Some files from upload queue could not be uploaded and have been saved into '%s'", sxfs->lostdir);
+                SXFS_LOG("Some files from upload queue could not be uploaded and have been saved into '%s'", sxfs->lostdir);
                 if(move_files(sxfs, storage_path, sxfs->lostdir)) {
-                    sxfs_log(sxfs, __func__, 0, "Cannot move some files to the recovery directory. These files are available in '%s'", storage_path);
+                    SXFS_ERROR("Cannot move some files to the recovery directory. These files are available in '%s'", storage_path);
                     sxfs->recovery_failed = 1;
                 }
             }
-            pthread_mutex_unlock(&sxfs->delete_mutex);
             pthread_mutex_unlock(&sxfs->upload_mutex);
-            sxfs_log(sxfs, __func__, 2, "Upload thread has been stopped");
-            goto sxfs_upload_thread_err;
+            SXFS_LOG("Upload thread has been stopped");
+            break;
         }
-        if(nfiles_up) {
-            if(gettimeofday(&tv, NULL)) {
-                *ret = errno;
-                sxfs_log(sxfs, __func__, 0, "Cannot get current time: %s", strerror(errno));
-                pthread_mutex_unlock(&sxfs->delete_mutex);
-                pthread_mutex_unlock(&sxfs->upload_mutex);
-                goto sxfs_upload_thread_err;
-            }
-            if((tv.tv_sec - last_upload_time.tv_sec) * 1000000L + tv.tv_usec - last_upload_time.tv_usec >= LAST_ACTION_WAIT_USEC) {
-                if((*ret = sxfs_upload_run(sxfs, sx, cluster, 1))) {
-                    pthread_mutex_unlock(&sxfs->delete_mutex);
-                    pthread_mutex_unlock(&sxfs->upload_mutex);
-                    goto sxfs_upload_thread_err;
-                }
-            }
-        }
-        pthread_mutex_unlock(&sxfs->delete_mutex);
-        pthread_mutex_unlock(&sxfs->upload_mutex);
+
     }
 
+    *ret = 0;
 sxfs_upload_thread_err:
+    if(mutex_locked)
+        pthread_mutex_unlock(&sxfs->upload_thread_mutex);
     pthread_mutex_lock(&sxfs->upload_mutex);
     if(upload_list) {
         for(i=0; i<nfiles_up; i++)
@@ -2332,7 +2331,7 @@ sxfs_upload_thread_err:
         free(upload_list);
     }
     nfiles_up = maxfiles_up = 0;
-    upload_flag = -2;
+    upload_flag = SXFS_THREAD_STOPPED;
     pthread_mutex_unlock(&sxfs->upload_mutex);
     free(storage_path);
     return (void*)ret;
@@ -2340,35 +2339,34 @@ sxfs_upload_thread_err:
 
 int sxfs_upload_start (void) {
     int tmp;
+    sxfs_state_t *sxfs = SXFS_DATA;
 
-    pthread_mutex_lock(&SXFS_DATA->upload_mutex);
-    upload_flag = 0;
-    if((tmp = pthread_create(&SXFS_DATA->upload_thread, NULL, sxfs_upload_thread, (void*)SXFS_DATA))) {
-        SXFS_LOG("Cannot create upload thread: %s", strerror(tmp));
-        upload_flag = -2;
-        pthread_mutex_unlock(&SXFS_DATA->upload_mutex);
+    pthread_mutex_lock(&sxfs->upload_mutex);
+    upload_flag = SXFS_THREAD_NOT_WORKING;
+    if((tmp = sxfs_thread_create(sxfs, &sxfs->upload_thread, sxfs_upload_thread, (void*)sxfs))) {
+        SXFS_ERROR("Cannot create upload thread");
+        pthread_mutex_unlock(&sxfs->upload_mutex);
         return -tmp;
     }
-    while(!upload_flag) {
-        pthread_mutex_unlock(&SXFS_DATA->upload_mutex);
-        usleep(THREAD_WAIT_USEC);
-        pthread_mutex_lock(&SXFS_DATA->upload_mutex);
+    while(upload_flag == SXFS_THREAD_NOT_WORKING) {
+        pthread_mutex_unlock(&sxfs->upload_mutex);
+        usleep(SXFS_THREAD_WAIT);
+        pthread_mutex_lock(&sxfs->upload_mutex);
     }
-    if(upload_flag < 0)
+    if(upload_flag == SXFS_THREAD_STOPPED)
         tmp = 1;
     else
         tmp = 0;
-    pthread_mutex_unlock(&SXFS_DATA->upload_mutex);
+    pthread_mutex_unlock(&sxfs->upload_mutex);
     if(tmp) {
         int ret, *status = NULL;
-        if((tmp = pthread_join(SXFS_DATA->upload_thread, (void**)&status))) {
-            SXFS_LOG("Cannot join upload thread: %s", strerror(tmp));
+        if((tmp = pthread_join(sxfs->upload_thread, (void**)&status))) {
+            SXFS_ERROR("Cannot join upload thread: %s", strerror(tmp));
             ret = -tmp;
         } else {
-            SXFS_LOG("Cannot start upload thread: %s", strerror(status ? *status : ENOMEM));
+            SXFS_ERROR("Cannot start upload thread: %s", strerror(status ? *status : ENOMEM));
             ret = status ? -(*status) : -ENOMEM;
-            if(status)
-                free(status);
+            free(status);
         }
         return ret;
     }
@@ -2377,17 +2375,19 @@ int sxfs_upload_start (void) {
 
 void sxfs_upload_stop (void) {
     int tmp, *status = NULL;
-    pthread_mutex_lock(&SXFS_DATA->upload_mutex);
-    if(upload_flag > 0) {
-        upload_flag = -1;
-        pthread_mutex_unlock(&SXFS_DATA->upload_mutex);
-        if((tmp = pthread_join(SXFS_DATA->upload_thread, (void**)&status))) {
-            SXFS_LOG("Cannot join upload thread: %s", strerror(tmp));
-        } else {
-            if(status)
-                free(status);
-        }
+    sxfs_state_t *sxfs = SXFS_DATA;
+
+    pthread_mutex_lock(&sxfs->upload_mutex);
+    if(upload_flag == SXFS_THREAD_WORKING) {
+        pthread_mutex_unlock(&sxfs->upload_mutex);
+        pthread_mutex_lock(&sxfs->upload_thread_mutex);
+        pthread_cond_signal(&sxfs->upload_cond);
+        pthread_mutex_unlock(&sxfs->upload_thread_mutex);
+        if((tmp = pthread_join(sxfs->upload_thread, (void**)&status)))
+            SXFS_ERROR("Cannot join upload thread: %s", strerror(tmp));
+        else
+            free(status);
     } else
-        pthread_mutex_unlock(&SXFS_DATA->upload_mutex);
+        pthread_mutex_unlock(&sxfs->upload_mutex);
 } /* sxfs_upload_stop */
 

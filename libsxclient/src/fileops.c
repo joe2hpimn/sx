@@ -528,22 +528,22 @@ int64_t sxc_file_get_remote_size(const sxc_file_t *file)
 
 time_t sxc_file_get_created_at(const sxc_file_t *file)
 {
-    return file ? file->created_at : SXC_UINT32_UNDEFINED;
+    return file ? file->created_at : SXC_UINT64_UNDEFINED;
 }
 
 time_t sxc_file_get_ctime(const sxc_file_t *file)
 {
-    return file ? file->c_time : SXC_UINT32_UNDEFINED;
+    return file ? file->c_time : SXC_UINT64_UNDEFINED;
 }
 
 time_t sxc_file_get_atime(const sxc_file_t *file)
 {
-    return file ? file->a_time : SXC_UINT32_UNDEFINED;
+    return file ? file->a_time : SXC_UINT64_UNDEFINED;
 }
 
 time_t sxc_file_get_mtime(const sxc_file_t *file)
 {
-    return file ? file->m_time : SXC_UINT32_UNDEFINED;
+    return file ? file->m_time : SXC_UINT64_UNDEFINED;
 }
 
 mode_t sxc_file_get_mode(const sxc_file_t *file)

@@ -119,6 +119,8 @@ src_tools_rev_sxrev_SOURCES = \
 src_tools_rev_sxrev_LDADD = $(top_builddir)/../libsxclient/src/libsxclient.la
 
 src_sxfs_sxfs_SOURCES = \
+	src/sxfs/cache.c \
+	src/sxfs/cache.h \
 	src/sxfs/common.c \
 	src/sxfs/common.h \
 	src/sxfs/params.h \

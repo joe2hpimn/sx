@@ -31,35 +31,25 @@
 #include "params.h"
 #include <default.h>
 #include <ftw.h>
-#include "libsxclient/src/misc.h"
 #include "libsxclient/src/vcrypto.h"
 
-#define SXFS_BS_SMALL_AMOUNT 256    /* 4kB * 256 = 1MB */
-#define SXFS_BS_MEDIUM_AMOUNT 128   /* 16kB * 128 = 2MB */
-#define SXFS_BS_LARGE_AMOUNT 4      /* 1MB * 4 = 4MB */
-#define FILE_ATTR (S_IFREG | S_IRUSR | S_IWUSR)
-#define DIR_ATTR (S_IFDIR | S_IRUSR | S_IWUSR | S_IXUSR)
-#define DIRECTORY_SIZE SX_BS_SMALL
-#define EMPTY_DIR_FILE ".sxnewdir"
-#define SXFS_UPLOAD_DIR "upload"
-#define SXFS_LOSTDIR_SUFIX "-lost"
-
-void sxfs_log (const sxfs_state_t *sxfs, const char *fn, int debug, const char *format_string, ...);
+void sxfs_log (sxfs_state_t *sxfs, const char *fn, int debug, const char *format_string, ...) FMT_PRINTF(4, 5);
 int sxfs_diglen (long int n);
 int sxfs_sx_err (sxc_client_t *sx);
 int sxfs_resize (void **ptr, size_t *size, size_t elsize);
 char *sxfs_hash (sxfs_state_t *sxfs, const char *name);
+int sxfs_thread_create (sxfs_state_t *sxfs, pthread_t *thread, void *(start_routine)(void*), void *arg);
 int sxfs_build_path (const char *path);
 int sxfs_copy_file (sxfs_state_t *sxfs, const char *source, const char *dest);
-int sxfs_rmdirs (const char *path);
 int sxfs_clear_path (const char *path);
 
-int sxfs_get_file (sxfs_file_t *sxfs_file, sxc_client_t *sx, sxc_cluster_t *cluster, int start_block, int end_block);
-int sxfs_get_block_background (sxfs_file_t *sxfs_file, int block_num);
+int sxfs_get_file (sxfs_state_t *sxfs, sxfs_file_t *sxfs_file);
 void sxfs_file_free (sxfs_state_t* sxfs, sxfs_file_t *sxfs_file);
 
 void sxfs_sx_data_destroy (void *ptr);
 int sxfs_get_sx_data (sxfs_state_t *sxfs, sxc_client_t **sx, sxc_cluster_t **cluster);
+void sxfs_thread_id_destroy (void *ptr);
+int sxfs_get_thread_id (sxfs_state_t *sxfs);
 
 void sxfs_lsfile_free (sxfs_lsfile_t *file);
 int sxfs_lsdir_add_file (sxfs_lsdir_t *dir, const char *path, struct stat *st);
@@ -77,11 +67,11 @@ int sxfs_update_mtime (const char *local_file_path, const char *remote_file_path
 
 int sxfs_delete_rename (const char *path, const char *newpath, int avoid_resize);
 int sxfs_delete (const char *path, int is_remote, int upload_checked);
-int sxfs_delete_check_path (const char *path);
+int sxfs_delete_check_path (sxfs_state_t *sxfs, const char *path);
 int sxfs_delete_start (void);
 void sxfs_delete_stop (void);
 
-int sxfs_upload_del_path (const char *path);
+int sxfs_upload_del_path (sxfs_state_t *sxfs, const char *path);
 int sxfs_upload_rename (const char *path, const char *newpath, int avoid_resize);
 int sxfs_upload (const char *src, const char *dest, sxfs_lsfile_t *lsfile, int force);
 int sxfs_upload_start (void);

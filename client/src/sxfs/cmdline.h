@@ -56,6 +56,12 @@ struct gengetopt_args_info
   const char *mount_options_help; /**< @brief Mount options help description.  */
   int use_queues_flag;	/**< @brief Enable queues for upload and delete operations (default=off).  */
   const char *use_queues_help; /**< @brief Enable queues for upload and delete operations help description.  */
+  char * cache_size_arg;	/**< @brief Set size for local cache (default='256M').  */
+  char * cache_size_orig;	/**< @brief Set size for local cache original value given at command line.  */
+  const char *cache_size_help; /**< @brief Set size for local cache help description.  */
+  char * cache_dir_arg;	/**< @brief Set directory for cache (sxfs tempdir by default).  */
+  char * cache_dir_orig;	/**< @brief Set directory for cache (sxfs tempdir by default) original value given at command line.  */
+  const char *cache_dir_help; /**< @brief Set directory for cache (sxfs tempdir by default) help description.  */
   int foreground_flag;	/**< @brief Run in foreground (default=off).  */
   const char *foreground_help; /**< @brief Run in foreground help description.  */
   int debug_flag;	/**< @brief Enable debug messages (default=off).  */
@@ -90,6 +96,8 @@ struct gengetopt_args_info
   unsigned int logfile_given ;	/**< @brief Whether logfile was given.  */
   unsigned int mount_options_given ;	/**< @brief Whether mount-options was given.  */
   unsigned int use_queues_given ;	/**< @brief Whether use-queues was given.  */
+  unsigned int cache_size_given ;	/**< @brief Whether cache-size was given.  */
+  unsigned int cache_dir_given ;	/**< @brief Whether cache-dir was given.  */
   unsigned int foreground_given ;	/**< @brief Whether foreground was given.  */
   unsigned int debug_given ;	/**< @brief Whether debug was given.  */
   unsigned int verbose_given ;	/**< @brief Whether verbose was given.  */
