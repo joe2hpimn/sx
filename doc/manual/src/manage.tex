@@ -577,9 +577,15 @@ In the following example, we will group nodes 192.168.100.1 and
 192.168.100.4 into "Rack2". To do this, we call \path{cluster --modify}
 with the current configuration and append the zone configuration after
 the node list:
+\ifpdf
 \begin{lstlisting}
 $ sxadm cluster --modify 644245094400/192.168.100.1/d3f8ad83-d003-4aaa-bbfb-73359af85991 644245094400/192.168.100.2/abc2ed51-b4a8-46b6-a8ac-0beb58e697d2 644245094400/192.168.100.3/a343b7f9-0bef-4f03-8c6f-526ca12d75a9 644245094400/192.168.100.4/b9b05fc7-7a4b-417d-853b-ac56ed32f5d3 ^\marked{"Rack1:d3f8ad83-d003-4aaa-bbfb-73359af85991,abc2ed51-b4a8-46b6-a8ac-0beb58e697d2;}^ ^\marked{Rack2:a343b7f9-0bef-4f03-8c6f-526ca12d75a9,b9b05fc7-7a4b-417d-853b-ac56ed32f5d3"}^ @cluster2
 \end{lstlisting}
+\else
+\begin{lstlisting}
+$ sxadm cluster --modify 644245094400/192.168.100.1/d3f8ad83-d003-4aaa-bbfb-73359af85991 644245094400/192.168.100.2/abc2ed51-b4a8-46b6-a8ac-0beb58e697d2 644245094400/192.168.100.3/a343b7f9-0bef-4f03-8c6f-526ca12d75a9 644245094400/192.168.100.4/b9b05fc7-7a4b-417d-853b-ac56ed32f5d3 ^\marked{"Rack1:d3f8ad83-d003-4aaa-bbfb-73359af85991,abc2ed51-b4a8-46b6-a8ac-0beb58e697d2;Rack2:a343b7f9-0bef-4f03-8c6f-526ca12d75a9,b9b05fc7-7a4b-417d-853b-ac56ed32f5d3"}^ @cluster2
+\end{lstlisting}
+\fi
 After changing the zone configuration, the cluster needs to relocate the data
 according to the new distribution rules. With the new cluster configuration,
 the maximum replica is now 2 (the zone configuration would fail to apply, if
