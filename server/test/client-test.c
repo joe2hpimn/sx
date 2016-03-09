@@ -269,11 +269,11 @@ static int create_volume(sxc_client_t *sx, sxc_cluster_t *cluster, const char *v
                 ERROR("Cannot allocate memory for filter configuration dir");
                 goto create_volume_err;
             }
-            if(access(voldir, F_OK))
-                rc = mkdir(voldir, 0700);
+            if(access(voldir, F_OK) && mkdir(voldir, 0700) == -1 && errno != EEXIST)
+                rc = -1;
             sprintf(fdir, "%s/%s", voldir, filter->uuid);
             if(access(fdir, F_OK)) {
-                if(rc == -1 || mkdir(fdir, 0700) == -1) {
+                if(rc == -1 || (mkdir(fdir, 0700) == -1 && errno != EEXIST)) {
                     ERROR("Cannot create '%s' filter configuration directory: %s", fdir, strerror(errno));
                     free(fdir);
                     goto create_volume_err;

@@ -1941,11 +1941,11 @@ char *sxi_get_filter_dir(sxc_client_t *sx, const char *confdir, const char *uuid
 	return NULL;
     }
     sprintf(fdir, "%s/volumes/%s", confdir, volume);
-    if(access(fdir, F_OK))
-	rc = mkdir(fdir, 0700);
+    if(access(fdir, F_OK) && mkdir(fdir, 0700) == -1 && errno != EEXIST)
+	rc = -1;
     sprintf(fdir, "%s/volumes/%s/%s", confdir, volume, uuid);
     if(access(fdir, F_OK)) {
-	if(rc == -1 || mkdir(fdir, 0700) == -1) {
+	if(rc == -1 || (mkdir(fdir, 0700) == -1 && errno != EEXIST)) {
 	    sxi_seterr(sx, SXE_EFILTER, "Can't create filter directory %s", fdir);
 	    free(fdir);
 	    return NULL;

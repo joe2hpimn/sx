@@ -151,7 +151,7 @@ int sxi_volume_cfg_store(sxc_client_t *sx, sxc_cluster_t *cluster, const char *v
 	    return 1;
 	}
 	sprintf(path, "%s/volumes/%s", confdir, vname);
-	if(access(path, F_OK) && mkdir(path, 0700) == -1) {
+	if(access(path, F_OK) && mkdir(path, 0700) == -1 && errno != EEXIST) {
 	    sxi_seterr(sx, SXE_ECFG, "Can't create volume configuration directory %s", path);
 	    free(path);
 	    return 1;
@@ -166,7 +166,7 @@ int sxi_volume_cfg_store(sxc_client_t *sx, sxc_cluster_t *cluster, const char *v
 	return 1;
     }
     sprintf(path, "%s/volumes/%s", confdir, vname);
-    if(access(path, F_OK) && mkdir(path, 0700) == -1) {
+    if(access(path, F_OK) && mkdir(path, 0700) == -1 && errno != EEXIST) {
 	sxi_seterr(sx, SXE_EWRITE, "Can't create volume configuration directory %s", path);
 	free(path);
 	return 1;
@@ -193,7 +193,7 @@ int sxi_volume_cfg_store(sxc_client_t *sx, sxc_cluster_t *cluster, const char *v
 
     sprintf(path, "%s/volumes/%s/%s", confdir, vname, filter_uuid);
     if(access(path, F_OK)) {
-	if(mkdir(path, 0700) == -1) {
+	if(mkdir(path, 0700) == -1 && errno != EEXIST) {
 	    sxi_seterr(sx, SXE_EFILTER, "Can't create filter directory %s", path);
 	    free(path);
 	    return 1;

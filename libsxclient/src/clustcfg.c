@@ -2240,10 +2240,10 @@ sxc_cluster_lf_t *sxc_cluster_listfiles_etag(sxc_cluster_t *cluster, const char 
 
     if (etag_out && confdir && path) {
         snprintf(path, path_size, "%s/volumes/%s", confdir, volume);
-        if(access(path, F_OK) && mkdir(path, 0700))
+        if(access(path, F_OK) && mkdir(path, 0700) && errno != EEXIST)
             sxi_notice(sx, "Failed to mkdir %s", path);
         snprintf(path, path_size, "%s/volumes/%s/etag", confdir, volume);
-        if(access(path, F_OK) && mkdir(path, 0700))
+        if(access(path, F_OK) && mkdir(path, 0700) && errno != EEXIST)
             sxi_notice(sx, "Failed to mkdir %s", path);
         snprintf(path, path_size, "%s/volumes/%s/etag/%s", confdir, volume, etag_file);
         FILE *f = fopen(path, "w");

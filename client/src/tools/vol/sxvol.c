@@ -37,6 +37,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <termios.h>
+#include <errno.h>
 
 #include "cmd_main.h"
 #include "cmd_create.h"
@@ -319,7 +320,7 @@ static int volume_create(sxc_client_t *sx, const char *owner)
 		mkdir(fdir, 0700);
 	    sprintf(fdir, "%s/volumes/%s/%s", confdir, uri->volume, filter->uuid);
 	    if(access(fdir, F_OK)) {
-		if(mkdir(fdir, 0700) == -1) {
+		if(mkdir(fdir, 0700) == -1 && errno != EEXIST) {
 		    fprintf(stderr, "ERROR: Can't create filter configuration directory %s\n", fdir);
 		    free(fdir);
 		    goto create_err;
