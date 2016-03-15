@@ -8791,6 +8791,22 @@ static rc_ty sx_hashfs_revision_op_internal(sx_hashfs_t *h, unsigned int hs, con
     return OK;
 }
 
+/* TODO: move these to its own DB */
+rc_ty sx_hashfs_revision_op_begin(sx_hashfs_t *h)
+{
+    return datadb_beginall(h);
+}
+
+rc_ty sx_hashfs_revision_op_commit(sx_hashfs_t *h)
+{
+    return datadb_commitall(h);
+}
+
+void sx_hashfs_revision_op_rollback(sx_hashfs_t *h)
+{
+    datadb_rollbackall(h);
+}
+
 rc_ty sx_hashfs_revision_op(sx_hashfs_t *h, unsigned blocksize, const sx_hash_t *revision_id, int op)
 {
     unsigned hs;
