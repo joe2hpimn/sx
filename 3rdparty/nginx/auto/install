@@ -95,12 +95,11 @@ install:	$NGX_OBJS${ngx_dirsep}nginx${ngx_binext} \
 		mkdir -p '\$(DESTDIR)`dirname "$NGX_HTTP_LOG_PATH"`'
 END
 
-
 if test -n "$NGX_ERROR_LOG_PATH"; then
     cat << END                                                >> $NGX_MAKEFILE
 
-	test -d '\$(DESTDIR)`dirname "$NGX_ERROR_LOG_PATH"`' -o -h '\$(DESTDIR)`dirname "$NGX_ERROR_LOG_PATH"`' || \
-		mkdir -p '\$(DESTDIR)`dirname "$NGX_ERROR_LOG_PATH"`'
+        test -d '\$(DESTDIR)`dirname "$NGX_ERROR_LOG_PATH"`' -o -h '\$(DESTDIR)`dirname "$NGX_ERROR_LOG_PATH"`' || \
+	        mkdir -p '\$(DESTDIR)`dirname "$NGX_ERROR_LOG_PATH"`'
 END
 
 fi

@@ -45,14 +45,13 @@ else
     if [ "$NGX_PLATFORM" != win32 ]; then
 
         OPENSSL=NO
-
-	# Skylable: quick hack for OS X
-	OPENSSL_HEADERS=`pkg-config --cflags-only-I openssl`
-	if [ -n "$OPENSSL_HEADERS" ]; then
-	    OPENSSL_HEADERS=`echo $OPENSSL_HEADERS | cut -dI -f2`
+        # Skylable: quick hack for OS X
+        OPENSSL_HEADERS=`pkg-config --cflags-only-I openssl`
+        if [ -n "$OPENSSL_HEADERS" ]; then
+            OPENSSL_HEADERS=`echo $OPENSSL_HEADERS | cut -dI -f2`
             CORE_INCS="$CORE_INCS $OPENSSL_HEADERS"
             CORE_LIBS="$CORE_LIBS `pkg-config --libs-only-L openssl`"
-	fi
+        fi
         ngx_feature="OpenSSL library"
         ngx_feature_name="NGX_OPENSSL"
         ngx_feature_run=no
