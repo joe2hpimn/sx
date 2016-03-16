@@ -578,10 +578,15 @@ ask_questions() {
 		    echo "You must provide the IP address of a node that is already part of the cluster!"
 		else
 		    if type curl > /dev/null 2>&1; then
-			if curl -s -k -m 3 $HTTPS$SX_EXISTING_NODE_IP:$SX_PORT > /dev/null 2>&1; then
+			if [ -z "${SX_EXISTING_NODE_IP##*:*}" ]; then
+			    CHECK_IP="[$SX_EXISTING_NODE_IP]"
+			else
+			    CHECK_IP="$SX_EXISTING_NODE_IP"
+			fi
+			if curl -s -k -m 3 $HTTPS$CHECK_IP:$SX_PORT > /dev/null 2>&1; then
 			    break
 			else
-			    echo "Cannot contact node $HTTPS$SX_EXISTING_NODE_IP"
+			    echo "Cannot contact node $HTTPS$CHECK_IP"
 			    if [ -f /etc/redhat-release ]; then
 				echo "Please check the firewall rules by running 'iptables -L'"
 			    fi
@@ -1273,7 +1278,7 @@ if [ -n "$SX_NODE_INTERNAL_IP" -a "$SX_NODE_IP" != "$SX_NODE_INTERNAL_IP" ]; the
     if [ -n "`@SXHTTPD@ -V 2>&1 | grep nginx-module-vts`" ]; then
 	cp $OUT_TMP "$ETCDIR/sxserver/sxhttpd.conf"
 	sed -e "s/#vhost_traffic_status/vhost_traffic_status/g"\
-	    -e "s/allow 127.0.0.1;/allow $SX_NODE_LISTEN_INTERNAL_IP;\\
+	    -e "s/allow 127.0.0.1;/allow $SX_NODE_INTERNAL_IP;\\
 		 allow 127.0.0.1;/"\
 	"$ETCDIR/sxserver/sxhttpd.conf" >$OUT_TMP
     fi
@@ -1284,7 +1289,7 @@ else
     if [ -n "`@SXHTTPD@ -V 2>&1 | grep nginx-module-vts`" ]; then
 	cp $OUT_TMP "$ETCDIR/sxserver/sxhttpd.conf"
 	sed -e "s/#vhost_traffic_status/vhost_traffic_status/g"\
-	    -e "s/allow 127.0.0.1;/allow $SX_NODE_LISTEN_IP;\\
+	    -e "s/allow 127.0.0.1;/allow $SX_NODE_IP;\\
 		 allow 127.0.0.1;/"\
 	"$ETCDIR/sxserver/sxhttpd.conf" >$OUT_TMP
     fi
