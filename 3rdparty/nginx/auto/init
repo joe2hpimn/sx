@@ -46,6 +46,11 @@ cat << END > Makefile
 
 default:	build
 
+# Skylable: handle clean in a different way
 clean:
+	rm -f $NGX_OBJS/nginx
+	find $NGX_OBJS -name "*.o" -execdir rm {} \;
+
+distclean:
 	rm -rf Makefile $NGX_OBJS
 END
