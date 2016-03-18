@@ -6125,6 +6125,7 @@ struct jobmgr_data_t {
     int job_expired, job_failed;
     job_t job_id;
     jobtype_t job_type;
+    sx_uid_t user;
     unsigned int nacts;
     int act_phase;
     int adjust_ttl;
@@ -6591,6 +6592,11 @@ static void jobmgr_process_queue(struct jobmgr_data_t *q, int forced) {
 	unsigned int plen;
 	int r;
 
+	if(qbind_int64(q->qjob, ":prevuser", q->user) ||
+	   qbind_int(q->qjob, ":prevtype", q->job_type)) {
+	    WARN("Failed to bind qjob params");
+	    break;
+	}
 	r = qstep(q->qjob);
 	if(r == SQLITE_DONE && forced) {
 	    unsigned int waitus = 200000;
@@ -6618,7 +6624,8 @@ static void jobmgr_process_queue(struct jobmgr_data_t *q, int forced) {
 	plen = sqlite3_column_bytes(q->qjob, 2);
 	q->job_expired = sqlite3_column_int(q->qjob, 3);
 	q->job_failed = (sqlite3_column_int(q->qjob, 4) != 0);
-	q->job_data = make_jobdata(ptr, plen, sqlite3_column_int(q->qjob, 5), sqlite3_column_int64(q->qjob, 6));
+	q->user = sqlite3_column_int64(q->qjob, 6);
+	q->job_data = make_jobdata(ptr, plen, sqlite3_column_int(q->qjob, 5), q->user);
 	sqlite3_reset(q->qjob);
         current_job_status = 0;
 
@@ -6673,7 +6680,7 @@ int jobmgr(sxc_client_t *sx, const char *dir, int pipe) {
 
     q.eventdb = sx_hashfs_eventdb(q.hashfs);
 
-    if(qprep(q.eventdb, &q.qjob, "SELECT job, type, data, expiry_time < datetime('now'), result, strftime('%s',expiry_time), user FROM jobs WHERE complete = 0 AND sched_time <= strftime('%Y-%m-%d %H:%M:%f') AND NOT EXISTS (SELECT 1 FROM jobs AS subjobs WHERE subjobs.job = jobs.parent AND subjobs.complete = 0) ORDER BY sched_time ASC LIMIT 1") ||
+    if(qprep(q.eventdb, &q.qjob, "SELECT job, type, data, expiry_time < datetime('now'), result, strftime('%s',expiry_time), user FROM jobs WHERE complete = 0 AND sched_time <= strftime('%Y-%m-%d %H:%M:%f') AND NOT EXISTS (SELECT 1 FROM jobs AS subjobs WHERE subjobs.job = jobs.parent AND subjobs.complete = 0) ORDER BY CASE WHEN user > :prevuser THEN 0 ELSE 1 END, user, CASE WHEN type > :prevtype THEN 0 ELSE 1 END, type, sched_time LIMIT 1") ||
        qprep(q.eventdb, &q.qact, "SELECT id, phase, target, addr, internaladdr, capacity FROM actions WHERE job_id = :job AND phase < :maxphase ORDER BY phase") ||
        qprep(q.eventdb, &q.qfail_children, "WITH RECURSIVE descendents_of(jb) AS (SELECT job FROM jobs WHERE parent = :job UNION SELECT job FROM jobs, descendents_of WHERE jobs.parent = descendents_of.jb) UPDATE jobs SET result = :res, reason = :reason, complete = 1, lock = NULL WHERE job IN (SELECT * FROM descendents_of) AND result = 0") ||
        qprep(q.eventdb, &q.qfail_parent, "UPDATE jobs SET result = :res, reason = :reason WHERE job = :job AND result = 0") ||
