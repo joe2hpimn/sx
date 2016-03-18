@@ -356,7 +356,7 @@ typedef struct _sx_hashfs_tmpinfo_t {
     sx_hash_t *all_blocks; /* All unsorted blocks - nblocks items */
     unsigned int *uniq_ids; /* Unique block index (from all_blocks) - nuniq items */
     unsigned int *nidxs; /* Unique block node index (parallel to all_blocks) - nblocks * replica_count items */
-    int8_t *avlblty; /* Block availablity (-1, 0 = unavail, >0 = avail) flag index (parallel to all_blocks) - nblocks * replica_count items */
+    int8_t *avlblty; /* Block availablity (-1 = unavail, 0 = unchecked, 1 = avail, 2 = xferd) flag index (parallel to all_blocks) - nblocks * replica_count items */
     unsigned int nall; /* Number of blocks */
     unsigned int nuniq; /* Number of unique blocks */
     unsigned int block_size; /* Block size */

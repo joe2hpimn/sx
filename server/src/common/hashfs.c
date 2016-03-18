@@ -9425,8 +9425,9 @@ rc_ty sx_hashfs_putfile_putmeta(sx_hashfs_t *h, const char *key, const void *val
 }
 
 struct sort_by_node_t {
-    sx_hash_t *hashes;
-    unsigned int *nidxs;
+    const sx_hash_t *hashes;
+    const unsigned int *nidxs;
+    const int8_t *avlblty;
     unsigned int sort_replica;
     unsigned int replica_count;
 };
@@ -9438,6 +9439,19 @@ static int sort_by_node_func(const void *thunk, const void *a, const void *b) {
 
      int nidxa = support->nidxs[support->replica_count * hashno_a + support->sort_replica - 1];
      int nidxb = support->nidxs[support->replica_count * hashno_b + support->sort_replica - 1];
+
+     /* Preliminary sort by absence if requested */
+     if(support->avlblty) {
+	 int8_t avaa = support->avlblty[support->replica_count * hashno_a + support->sort_replica - 1];
+	 int8_t avab = support->avlblty[support->replica_count * hashno_b + support->sort_replica - 1];
+	 if(avaa != avab) {
+	     /* First: unckecked(0), then missing(-1), last present(+1) */
+	     if(avaa == 0 || avab == 0)
+		 return (avaa == 0)  ?  -1 : +1;
+	     else
+		 return (avaa < avab) ? -1 : +1;
+	 }
+     }
 
      /* Sort by node first */
      if(nidxa < nidxb)
@@ -9457,13 +9471,18 @@ static int sort_by_node_func(const void *thunk, const void *a, const void *b) {
      return 0;
 }
 
-static void sort_by_node_then_hash(sx_hash_t *hashes, unsigned int *hashnos, unsigned int *nidxs, unsigned int items, unsigned int replica, unsigned int replica_count) {
-    struct sort_by_node_t sortsupport = {hashes, nidxs, replica, replica_count};
+static void sort_by_node_then_hash(const sx_hash_t *hashes, unsigned int *hashnos, const unsigned int *nidxs, unsigned int items, unsigned int replica, unsigned int replica_count) {
+    const struct sort_by_node_t sortsupport = {hashes, nidxs, NULL, replica, replica_count};
     sx_qsort(hashnos, items, sizeof(*hashnos), &sortsupport, sort_by_node_func);
 }
 
-static void sort_by_node_then_position(unsigned int *hashnos, unsigned int *nidxs, unsigned int items, unsigned int replica, unsigned int replica_count) {
-    struct sort_by_node_t sortsupport = {NULL, nidxs, replica, replica_count};
+static void sort_by_absence_then_node(const sx_hash_t *hashes, unsigned int *hashnos, const unsigned int *nidxs, const int8_t *avlblty, unsigned int items, unsigned int replica, unsigned int replica_count) {
+    const struct sort_by_node_t sortsupport = {hashes, nidxs, avlblty, replica, replica_count};
+    sx_qsort(hashnos, items, sizeof(*hashnos), &sortsupport, sort_by_node_func);
+}
+
+static void sort_by_node_then_position(unsigned int *hashnos, const unsigned int *nidxs, unsigned int items, unsigned int replica, unsigned int replica_count) {
+    const struct sort_by_node_t sortsupport = {NULL, nidxs, NULL, replica, replica_count};
     sx_qsort(hashnos, items, sizeof(*hashnos), &sortsupport, sort_by_node_func);
 }
 
@@ -9751,7 +9770,7 @@ static rc_ty check_tmpfile_size(sx_hashfs_t *h, int64_t tmpfile_id, int strict, 
  *
  * A unique set is computed from the list of blocks
  * For each unique block the first (alive) target node is looked up in hdist
- * The unique set is sorted by target (so all same targeted blocks are lcose together)
+ * The unique set is sorted by target (so all same targeted blocks are close together)
  * The previously created tempfile db entry is updated or extended with the current batch
  * of blocks, unique blocks and new/modified/deleted meta pairs.
  * Hash presence is started via hashop_begin using the caller provided callback and context
@@ -10685,20 +10704,6 @@ static int tmp_getmissing_cb(const char *hexhash, unsigned int index, int code, 
 
     if(!hexhash || !mis)
 	return -1;
-    hex2bin(hexhash, SXI_SHA1_TEXT_LEN, binhash.b, sizeof(binhash));
-    blockno = mis->uniq_ids[index];
-    unsigned int pushingidx = mis->nidxs[blockno * mis->replica_count +mis->current_replica - 1];
-    const sx_node_t *pusher = sx_nodelist_get(mis->allnodes, pushingidx);
-    DEBUG("nodelist:");
-
-    for (unsigned i=0;i<sx_nodelist_count(mis->allnodes);i++) {
-        DEBUG("node #%d: %s", i, sx_node_internal_addr(sx_nodelist_get(mis->allnodes, i)));
-    }
-
-    DEBUG("remote hash #%.*s#: %d, index #%d, blockno %d, set %u, node %s (#%d), replica count: %d, current replica: %d", SXI_SHA1_TEXT_LEN, hexhash, code,
-          index, blockno,
-          mis->current_replica-1, sx_node_internal_addr(pusher), pushingidx, mis->replica_count, mis->current_replica);
-    DEBUG("remote hash #%.*s#: %d", SXI_SHA1_TEXT_LEN, hexhash, code);
     if(code != 200 && code != 404 && code != 444)
 	return 0;
 
@@ -10889,13 +10894,16 @@ rc_ty sx_hashfs_tmp_getinfo(sx_hashfs_t *h, int64_t tmpfile_id, sx_hashfs_tmpinf
         goto getmissing_err;
 
     if(nuniqs && recheck_presence) {
-	unsigned int r, l;
+	unsigned int r, l, nchecks = MIN(DOWNLOAD_MAX_BLOCKS, tbd->nuniq);
 
 	/* For each replica set populate tbd->avlblty via hash_presence callback */
 	for(i=1; i<=tbd->replica_count; i++) {
             sx_hash_t reserve_id;
 	    unsigned int cur_item = 0;
-	    sort_by_node_then_hash(tbd->all_blocks, tbd->uniq_ids, tbd->nidxs, tbd->nuniq, i, tbd->replica_count);
+	    sort_by_absence_then_node(tbd->all_blocks, tbd->uniq_ids, tbd->nidxs, tbd->avlblty, tbd->nuniq, i, tbd->replica_count);
+	    if(tbd->avlblty[tbd->uniq_ids[0] * tbd->replica_count + i - 1] == 1)
+		continue;
+
             /* reserve_id must match the id used in reserve */
             if (reserve_fileid(h, tbd->volume_id, tbd->name, &reserve_id))
                 goto getmissing_err;
@@ -10911,11 +10919,11 @@ rc_ty sx_hashfs_tmp_getinfo(sx_hashfs_t *h, int64_t tmpfile_id, sx_hashfs_tmpinf
 					       tbd->uniq_ids,
 					       tbd->nidxs,
 					       &cur_item,
-					       tbd->nuniq,
+					       nchecks,
 					       hash_size,
 					       i,
 					       tbd->replica_count)) == OK) {
-		if(cur_item >= nuniqs)
+		if(cur_item >= nchecks)
 		    break;
 	    }
 	    if(ret2 != OK)
@@ -10945,10 +10953,12 @@ rc_ty sx_hashfs_tmp_getinfo(sx_hashfs_t *h, int64_t tmpfile_id, sx_hashfs_tmpinf
 	    l++;
 	}
 
-    }
-
-    *tmpinfo = tbd;
-    ret = OK;
+	/* Only check a small number of blocks
+	 * Return OK if all blocks were presence checked
+	 * Return EINPROGRESS otherwise */
+	ret = (nchecks == tbd->nuniq) ? OK : EINPROGRESS;
+    } else
+	ret = OK;
 
  getmissing_err:
     if(tbd && tbd->somestatechanged) {
@@ -10964,10 +10974,11 @@ rc_ty sx_hashfs_tmp_getinfo(sx_hashfs_t *h, int64_t tmpfile_id, sx_hashfs_tmpinf
         sqlite3_reset(h->qt_updateuniq);
     }
 
-    if(ret != OK) {
+    if(ret != OK && ret != EINPROGRESS) {
         (void)sxi_hashop_end(&h->hc);
 	free(tbd);
-    }
+    } else
+	*tmpinfo = tbd;
 
     sqlite3_reset(q);
 

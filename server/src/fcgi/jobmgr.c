@@ -107,6 +107,8 @@ typedef act_result_t (*job_action_t)(sx_hashfs_t *hashfs, job_t job_id, job_data
 	goto action_failed;				    \
     } while(0)
 
+#define CRITCOND CRIT("A critical condition has occurred (see messages above): please check the health and reachability of all cluster nodes")
+
 #define DEBUGHASH(MSG, X) do {				\
     char _debughash[sizeof(sx_hash_t)*2+1];		\
     if (UNLIKELY(sxi_log_is_debug(&logger))) {          \
@@ -997,7 +999,7 @@ static act_result_t replicateblocks_request(sx_hashfs_t *hashfs, job_t job_id, j
 static act_result_t replicateblocks_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     sxi_conns_t *clust = sx_hashfs_conns(hashfs);
     const sx_node_t *me = sx_hashfs_self(hashfs);
-    unsigned int i, j, worstcase_rpl, nqueries = 0;
+    unsigned int i, j, worstcase_rpl, nqueries = 0, giveup = 0;
     act_result_t ret = ACT_RESULT_OK;
     sx_hashfs_tmpinfo_t *mis = NULL;
     query_list_t *qrylist = NULL;
@@ -1023,7 +1025,9 @@ static act_result_t replicateblocks_commit(sx_hashfs_t *hashfs, job_t job_id, jo
     if(s == EAGAIN)
 	action_error(ACT_RESULT_TEMPFAIL, 500, "Job data temporary unavailable");
 
-    if(s != OK)
+    if(s == EINPROGRESS)
+	giveup = 1;
+    else if(s != OK)
 	action_error(rc2actres(s), rc2http(s), "Failed to check missing blocks");
 
     worstcase_rpl = mis->replica_count;
@@ -1064,10 +1068,14 @@ static act_result_t replicateblocks_commit(sx_hashfs_t *hashfs, job_t job_id, jo
 
 	/* No node has got this block: job failed */
 	if(!ndone) {
-	    char missing_block[SXI_SHA1_TEXT_LEN + 1];
-	    bin2hex(&mis->all_blocks[blockno], sizeof(mis->all_blocks[0]), missing_block, sizeof(missing_block));
-	    WARN("Early flush on job %lld: hash %s could not be located ", (long long)tmpfile_id, missing_block);
-	    action_error(ACT_RESULT_PERMFAIL, 400, "Some block is missing");
+	    if(giveup)
+		continue;
+	    else {
+		char missing_block[SXI_SHA1_TEXT_LEN + 1];
+		bin2hex(&mis->all_blocks[blockno], sizeof(mis->all_blocks[0]), missing_block, sizeof(missing_block));
+		WARN("Early flush on job %lld: hash %s could not be located ", (long long)tmpfile_id, missing_block);
+		action_error(ACT_RESULT_PERMFAIL, 400, "Some block is missing");
+	    }
 	}
 
 	/* We land here IF at least one node has got the block AND at least one node doesn't have the block */
@@ -1240,6 +1248,9 @@ static act_result_t replicateblocks_commit(sx_hashfs_t *hashfs, job_t job_id, jo
     }
 
     DEBUG("Job id %lld - current replica %u out of %u", (long long)job_id, worstcase_rpl, mis->replica_count);
+
+    if(giveup)
+	action_error(ACT_RESULT_NOTFAILED, 500, "Replica not completely verified");
 
     if(worstcase_rpl < mis->replica_count)
 	action_error(ACT_RESULT_TEMPFAIL, 500, "Replica not yet completed");
@@ -2487,7 +2498,7 @@ static act_result_t startrebalance_request(sx_hashfs_t *hashfs, job_t job_id, jo
 	/* Since there is no way we can recover at this point we
 	 * downgrade to temp failure and try to notify about the issue.
 	 * There is no timeout anyway */
-	CRIT("A critical condition has occurred (see messages above): please check the health and reachability of all cluster nodes");
+	CRITCOND;
 	ret = ACT_RESULT_TEMPFAIL;
 	*fail_code = 503;
     }
@@ -2852,7 +2863,7 @@ action_failed:
 	/* Since there is no way we can recover at this point we
 	 * downgrade to temp failure and try to notify about the issue.
 	 * There is no timeout anyway */
-	CRIT("A critical condition has occoured (see messages above): please check the health and reachability of all cluster nodes");
+	CRITCOND;
 	ret = ACT_RESULT_TEMPFAIL;
 	*fail_code = 503;
     }
@@ -2881,7 +2892,7 @@ static act_result_t blockrb_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t
 	/* Since there is no way we can recover at this point we
 	 * downgrade to temp failure and try to notify about the issue.
 	 * There is no timeout anyway */
-	CRIT("A critical condition has occoured (see messages above): please check the health and reachability of all cluster nodes");
+	CRITCOND;
 	ret = ACT_RESULT_TEMPFAIL;
 	*fail_code = 503;
     }
@@ -2911,7 +2922,7 @@ static act_result_t filerb_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t
 	/* Since there is no way we can recover at this point we
 	 * downgrade to temp failure and try to notify about the issue.
 	 * There is no timeout anyway */
-	CRIT("A critical condition has occoured (see messages above): please check the health and reachability of all cluster nodes");
+	CRITCOND;
 	ret = ACT_RESULT_TEMPFAIL;
 	*fail_code = 503;
     }
@@ -3041,7 +3052,7 @@ static act_result_t filerb_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t 
 	/* Since there is no way we can recover at this point we
 	 * downgrade to temp failure and try to notify about the issue.
 	 * There is no timeout anyway */
-	CRIT("A critical condition has occoured (see messages above): please check the health and reachability of all cluster nodes");
+	CRITCOND;
 	ret = ACT_RESULT_TEMPFAIL;
 	*fail_code = 503;
     }
@@ -3109,7 +3120,7 @@ static act_result_t finishrebalance_request(sx_hashfs_t *hashfs, job_t job_id, j
 	 * downgrade to temp failure and try to notify about the issue.
 	 * There is no timeout anyway */
 	/* NOTE: this block was put in here for consistency with other handler, even if it cannot be reached */
-	CRIT("A critical condition has occoured (see messages above): please check the health and reachability of all cluster nodes");
+	CRITCOND;
 	ret = ACT_RESULT_TEMPFAIL;
 	*fail_code = 503;
     }
@@ -3184,7 +3195,7 @@ static act_result_t finishrebalance_commit(sx_hashfs_t *hashfs, job_t job_id, jo
 	/* Since there is no way we can recover at this point we
 	 * downgrade to temp failure and try to notify about the issue.
 	 * There is no timeout anyway */
-	CRIT("A critical condition has occoured (see messages above): please check the health and reachability of all cluster nodes");
+	CRITCOND;
 	ret = ACT_RESULT_TEMPFAIL;
 	*fail_code = 503;
     }
@@ -3215,7 +3226,7 @@ static act_result_t cleanrb_request(sx_hashfs_t *hashfs, job_t job_id, job_data_
 	/* Since there is no way we can recover at this point we
 	 * downgrade to temp failure and try to notify about the issue.
 	 * There is no timeout anyway */
-	CRIT("A critical condition has occoured (see messages above): please check the health and reachability of all cluster nodes");
+	CRITCOND;
 	ret = ACT_RESULT_TEMPFAIL;
 	*fail_code = 503;
     }
@@ -3243,7 +3254,7 @@ static act_result_t cleanrb_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t
 	/* Since there is no way we can recover at this point we
 	 * downgrade to temp failure and try to notify about the issue.
 	 * There is no timeout anyway */
-	CRIT("A critical condition has occoured (see messages above): please check the health and reachability of all cluster nodes");
+	CRITCOND;
 	ret = ACT_RESULT_TEMPFAIL;
 	*fail_code = 503;
     }
@@ -3778,7 +3789,7 @@ static act_result_t replaceblocks_commit(sx_hashfs_t *hashfs, job_t job_id, job_
 	/* Since there is no way we can recover at this point we
 	 * downgrade to temp failure and try to notify about the issue.
 	 * There is no timeout anyway */
-	CRIT("A critical condition has occoured (see messages above): please check the health and reachability of all cluster nodes");
+	CRITCOND;
 	ret = ACT_RESULT_TEMPFAIL;
 	*fail_code = 503;
     }
@@ -4078,7 +4089,7 @@ static act_result_t replacefiles_request(sx_hashfs_t *hashfs, job_t job_id, job_
 	/* Since there is no way we can recover at this point we
 	 * downgrade to temp failure and try to notify about the issue.
 	 * There is no timeout anyway */
-	CRIT("A critical condition has occoured (see messages above): please check the health and reachability of all cluster nodes");
+	CRITCOND;
 	ret = ACT_RESULT_TEMPFAIL;
 	*fail_code = 503;
     }
