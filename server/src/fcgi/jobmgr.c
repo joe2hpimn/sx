@@ -76,7 +76,11 @@ typedef enum _act_result_t {
     ACT_RESULT_UNSET = 0,
     ACT_RESULT_OK = 1,
     ACT_RESULT_TEMPFAIL = -1,
-    ACT_RESULT_PERMFAIL = -2
+    ACT_RESULT_PERMFAIL = -2,
+
+    /* Heavy/aggressive jobs willingly giving up before completion: 
+     * same as ACT_RESULT_TEMPFAIL except it's rescheduled without delay */
+    ACT_RESULT_NOTFAILED = -3,
 } act_result_t;
 
 typedef struct _job_data_t {
@@ -2738,7 +2742,7 @@ static act_result_t blockrb_request(sx_hashfs_t *hashfs, job_t job_id, job_data_
 	    FOREACH_BLOCK(0) {
 		rbl_log(&rbdata[_qno].blocks[_bno]->hash, "distinfo", 0, "Distinfo failed");
 	    }
-	    action_error(ACT_RESULT_TEMPFAIL, 503, "Failed toretrieve distribution version");
+	    action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to retrieve distribution version");
 	}
 	FOREACH_BLOCK(0) {
 	    rbl_log(&rbdata[_qno].blocks[_bno]->hash, "distinfo", 1, NULL);
@@ -2840,7 +2844,7 @@ action_failed:
     /* If some block was skipped, return tempfail so we get called again later */
     if(ret == ACT_RESULT_OK) {
 	DEBUG("All blocks in this batch queued for tranfer; more to come later...");
-	action_set_fail(ACT_RESULT_TEMPFAIL, 503, "Block propagation in progress");
+	action_set_fail(ACT_RESULT_NOTFAILED, 503, "Block propagation in progress");
     }
 
     if(ret == ACT_RESULT_PERMFAIL) {
@@ -2991,7 +2995,7 @@ static act_result_t filerb_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t 
 	    rbdata[i].query_sent = 1;
 	}
 
-	action_error(ACT_RESULT_TEMPFAIL, 503, "File relocation in progress");
+	action_error(ACT_RESULT_NOTFAILED, 503, "File relocation in progress");
     }
 
 
@@ -3700,7 +3704,7 @@ static int rplblocks_cb(curlev_context_t *cbdata, void *ctx, const void *data, s
 
 static act_result_t replaceblocks_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     sxc_client_t *sx = sx_hashfs_client(hashfs);
-    act_result_t ret = ACT_RESULT_TEMPFAIL;
+    act_result_t ret;
     sx_block_meta_index_t bmidx;
     const sx_node_t *source;
     sxi_hostlist_t hlist;
@@ -3760,6 +3764,8 @@ static act_result_t replaceblocks_commit(sx_hashfs_t *hashfs, job_t job_id, job_
 		WARN("Replace setnode failed");
 	}
 	free(ctx);
+
+	action_error(ACT_RESULT_NOTFAILED, 503, "Block repopulation in progress");
     } else if(s == ITER_NO_MORE) {
 	succeeded[0] = 1;
 	ret = ACT_RESULT_OK;
@@ -3931,7 +3937,7 @@ static int rplfiles_cb(curlev_context_t *cbdata, void *ctx, const void *data, si
 
 static act_result_t replacefiles_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     sxc_client_t *sx = sx_hashfs_client(hashfs);
-    act_result_t ret = ACT_RESULT_TEMPFAIL;
+    act_result_t ret;
     char maxrev[REV_LEN+1];
     sxi_hostlist_t hlist;
     struct rplfiles *ctx = NULL;
@@ -4055,6 +4061,8 @@ static act_result_t replacefiles_request(sx_hashfs_t *hashfs, job_t job_id, job_
 	    if(sx_hashfs_replace_setlastfile(hashfs, ctx->volume, ctx->file, ctx->rev))
 		WARN("Replace setlastfile failed");
 	}
+
+	action_error(ACT_RESULT_NOTFAILED, 503, "File repopulation in progress");
     } else if(s == ITER_NO_MORE) {
 	succeeded[0] = 1;
 	ret = ACT_RESULT_OK;
@@ -4298,10 +4306,9 @@ static act_result_t revsclean_vol_commit(sx_hashfs_t *hashfs, job_t job_id, job_
     rc_ty s, t;
     unsigned int scheduled = 0;
     sx_blob_t *b;
-    act_result_t ret = ACT_RESULT_OK;
+    act_result_t ret;
     unsigned int nnodes;
     const sx_node_t *me;
-    unsigned int my_index = 0;
 
     b = sx_blob_from_data(job_data->ptr, job_data->len);
     if(!b) {
@@ -4355,9 +4362,7 @@ static act_result_t revsclean_vol_commit(sx_hashfs_t *hashfs, job_t job_id, job_
         action_error(ACT_RESULT_PERMFAIL, 500, "Failed to get node reference");
     }
 
-    if(s == ITER_NO_MORE) {
-        succeeded[my_index] = 1;
-    } else { /* s == OK */
+    if(s == OK) {
         sx_blob_t *new_blob;
         job_t job;
         const void *new_job_data;
@@ -4392,9 +4397,11 @@ static act_result_t revsclean_vol_commit(sx_hashfs_t *hashfs, job_t job_id, job_
         sx_nodelist_delete(curnode_list);
         if(s != OK)
             action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to create next job");
-        succeeded[my_index] = 1;
     }
 
+    succeeded[0] = 1;
+    ret = ACT_RESULT_OK;
+       
 action_failed:
     sx_blob_free(b);
     return ret;
@@ -5296,7 +5303,7 @@ action_failed:
         }
 
         /* Tempfail the job to force job data being reloaded */
-        action_set_fail(ACT_RESULT_TEMPFAIL, 200, "Forcing job data reload");
+        action_set_fail(ACT_RESULT_NOTFAILED, 503, "Forcing job data reload");
     }
 
     sx_blob_free(b);
@@ -5816,7 +5823,7 @@ static rc_ty massdelete_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *jo
     if(s != ITER_NO_MORE) {
         if(i >= MAX_BATCH_ITER) {
             DEBUG("Sleeping job due to exceeded deletions limit");
-            action_error(ACT_RESULT_TEMPFAIL, 503, "Exceeded limit");
+            action_error(ACT_RESULT_NOTFAILED, 503, "Exceeded limit");
         } else {
             WARN("Failed to finish batch job: %s", rc2str(s));
             action_error(rc2actres(s), rc2http(s), rc2str(s));
@@ -6179,7 +6186,7 @@ static rc_ty massrename_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *jo
     if(s != ITER_NO_MORE) {
         if(i + queries_sent >= MAX_BATCH_ITER) {
             DEBUG("Sleeping job due to exceeded deletions limit");
-            action_error(ACT_RESULT_TEMPFAIL, 503, "Exceeded limit");
+            action_error(ACT_RESULT_NOTFAILED, 503, "Exceeded limit");
         } else {
             INFO("Failed to finish mass job: %s", rc2str(s));
             action_error(rc2actres(s), rc2http(s), rc2str(s));
@@ -6342,6 +6349,7 @@ struct jobmgr_data_t {
     unsigned int nacts;
     int act_phase;
     int adjust_ttl;
+    int nodelay_reschedule;
     char fail_reason[JOB_FAIL_REASON_SIZE];
 };
 
@@ -6354,6 +6362,7 @@ static act_result_t jobmgr_execute_actions_batch(int *http_status, struct jobmgr
     memset(act_succeeded, 0, sizeof(act_succeeded));
     *http_status = 0;
     q->fail_reason[0] = '\0';
+    q->nodelay_reschedule = 0;
 
     if(q->job_failed) {
 	if(q->act_phase == JOB_PHASE_REQUEST) {
@@ -6363,6 +6372,10 @@ static act_result_t jobmgr_execute_actions_batch(int *http_status, struct jobmgr
 	    act_res = actions[q->job_type].fn_abort(q->hashfs, q->job_id, q->job_data, q->targets, act_succeeded, http_status, q->fail_reason, &q->adjust_ttl);
 	} else { /* act_phase == JOB_PHASE_DONE */
 	    act_res = actions[q->job_type].fn_undo(q->hashfs, q->job_id, q->job_data, q->targets, act_succeeded, http_status, q->fail_reason, &q->adjust_ttl);
+	}
+	if(act_res == ACT_RESULT_NOTFAILED) {
+	    WARN("Job failed with GIVEUP; using TEMPFAIL instead");
+	    act_res = ACT_RESULT_TEMPFAIL;
 	}
         if(act_res == ACT_RESULT_TEMPFAIL && q->job_expired) {
             CRIT("Some undo action expired for job %lld.", (long long)q->job_id);
@@ -6376,6 +6389,10 @@ static act_result_t jobmgr_execute_actions_batch(int *http_status, struct jobmgr
 	    act_res = actions[q->job_type].fn_request(q->hashfs, q->job_id, q->job_data, q->targets, act_succeeded, http_status, q->fail_reason, &q->adjust_ttl);
 	} else { /* act_phase == JOB_PHASE_COMMIT */
 	    act_res = actions[q->job_type].fn_commit(q->hashfs, q->job_id, q->job_data, q->targets, act_succeeded, http_status, q->fail_reason, &q->adjust_ttl);
+	}
+	if(act_res == ACT_RESULT_NOTFAILED) {
+	    q->nodelay_reschedule = 1;
+	    act_res = ACT_RESULT_TEMPFAIL;
 	}
     }
     if(act_res != ACT_RESULT_OK && act_res != ACT_RESULT_TEMPFAIL && act_res != ACT_RESULT_PERMFAIL) {
@@ -6630,13 +6647,19 @@ static void jobmgr_run_job(struct jobmgr_data_t *q) {
 
 	/* Temporary failure: mark job as to-be-retried and stop processing it for now */
 	if(act_res == ACT_RESULT_TEMPFAIL) {
+	    const char *delay;
+	    if(q->nodelay_reschedule)
+		delay = "0 seconds";
+	    else if(q->job_type == JOBTYPE_FLUSH_FILE_REMOTE ||
+		    q->job_type == JOBTYPE_FLUSH_FILE_LOCAL ||
+		    q->job_type == JOBTYPE_REPLICATE_BLOCKS)
+		delay = STRIFY(JOBMGR_DELAY_MIN) " seconds";
+	    else
+		delay = STRIFY(JOBMGR_DELAY_MAX) " seconds";
+
 	    if(qbind_int64(q->qdly, ":job", q->job_id) ||
 	       qbind_text(q->qdly, ":reason", q->fail_reason[0] ? q->fail_reason : "Unknown delay reason") ||
-	       qbind_text(q->qdly, ":delay",
-                          (q->job_type == JOBTYPE_FLUSH_FILE_REMOTE ||
-                           q->job_type == JOBTYPE_FLUSH_FILE_LOCAL ||
-                           q->job_type == JOBTYPE_REPLICATE_BLOCKS) ?
-                          STRIFY(JOBMGR_DELAY_MIN) " seconds" : STRIFY(JOBMGR_DELAY_MAX) " seconds") ||
+	       qbind_text(q->qdly, ":delay", delay) ||
 	       qstep_noret(q->qdly))
 		CRIT("Cannot reschedule job %lld (you are gonna see this again!)", (long long)q->job_id);
 	    else
