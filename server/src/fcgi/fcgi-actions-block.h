@@ -34,5 +34,6 @@ void fcgi_hashop_inuse(void);
 void fcgi_push_blocks(void);
 void fcgi_send_replacement_blocks(void);
 void fcgi_revision_op(void);
+void fcgi_blockrevs(void);
 
 #endif

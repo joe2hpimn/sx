@@ -78,7 +78,7 @@ typedef enum _act_result_t {
     ACT_RESULT_TEMPFAIL = -1,
     ACT_RESULT_PERMFAIL = -2,
 
-    /* Heavy/aggressive jobs willingly giving up before completion: 
+    /* Heavy/aggressive jobs willingly giving up before completion:
      * same as ACT_RESULT_TEMPFAIL except it's rescheduled without delay */
     ACT_RESULT_NOTFAILED = -3,
 } act_result_t;
@@ -1494,7 +1494,8 @@ static act_result_t fileflush_remote_undo(sx_hashfs_t *hashfs, job_t job_id, job
     if(s != OK)
 	action_error(rc2actres(s), rc2http(s), "Failed to find file to delete");
 
-    ret = replicateblocks_abort(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
+    sx_hashfs_revunbump(hashfs, &tmp->revision_id, tmp->block_size); /* No point in leaving the file around if this fails */
+
     for(nnode = 0; nnode<nnodes; nnode++) {
 	const sx_node_t *node = sx_nodelist_get(nodes, nnode);
 	if(!sx_node_cmp(me, node)) {
@@ -2486,7 +2487,7 @@ static act_result_t startrebalance_request(sx_hashfs_t *hashfs, job_t job_id, jo
 	/* Since there is no way we can recover at this point we
 	 * downgrade to temp failure and try to notify about the issue.
 	 * There is no timeout anyway */
-	CRIT("A critical condition has occoured (see messages above): please check the health and reachability of all cluster nodes");
+	CRIT("A critical condition has occurred (see messages above): please check the health and reachability of all cluster nodes");
 	ret = ACT_RESULT_TEMPFAIL;
 	*fail_code = 503;
     }
@@ -3704,7 +3705,7 @@ static int rplblocks_cb(curlev_context_t *cbdata, void *ctx, const void *data, s
 
 static act_result_t replaceblocks_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     sxc_client_t *sx = sx_hashfs_client(hashfs);
-    act_result_t ret;
+    act_result_t ret = ACT_RESULT_TEMPFAIL;
     sx_block_meta_index_t bmidx;
     const sx_node_t *source;
     sxi_hostlist_t hlist;
@@ -4401,8 +4402,8 @@ static act_result_t revsclean_vol_commit(sx_hashfs_t *hashfs, job_t job_id, job_
 
     succeeded[0] = 1;
     ret = ACT_RESULT_OK;
-       
-action_failed:
+
+ action_failed:
     sx_blob_free(b);
     return ret;
 }
@@ -5589,54 +5590,6 @@ static rc_ty jobpoll_abort_and_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_
     return force_phase_success(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
 }
 
-static rc_ty effective_non_volnodes(sx_hashfs_t *h, sx_hashfs_nl_t which, const sx_hashfs_volume_t *volume, sx_nodelist_t **nodes) {
-    rc_ty s;
-    sx_nodelist_t *volnodes = NULL;
-    const sx_nodelist_t *allnodes;
-    sx_nodelist_t *ret;
-    unsigned int nnode, nnodes;
-
-    if(!volume || !nodes) {
-        msg_set_reason("NULL argument");
-        return FAIL_EINTERNAL;
-    }
-
-    if((s = sx_hashfs_effective_volnodes(h, which, volume, 0, &volnodes, NULL)) != OK)
-        return s;
-    allnodes = sx_hashfs_effective_nodes(h, which);
-    if(!allnodes) {
-        sx_nodelist_delete(volnodes);
-        return s;
-    }
-    
-    ret = sx_nodelist_new();
-    if(!ret) {
-        sx_nodelist_delete(volnodes);
-        return FAIL_EINTERNAL;
-    }
-
-    nnodes = sx_nodelist_count(allnodes);
-    for(nnode = 0; nnode < nnodes; nnode++) {
-        const sx_node_t *n = sx_nodelist_get(allnodes, nnode);
-        if(!n) {
-            sx_nodelist_delete(volnodes);
-            sx_nodelist_delete(ret);
-            return FAIL_EINTERNAL;
-        }
-        if(!sx_nodelist_lookup(volnodes, sx_node_uuid(n))) {
-            if(sx_nodelist_add(ret, sx_node_dup(n))) {
-                sx_nodelist_delete(volnodes);
-                sx_nodelist_delete(ret);
-                return FAIL_EINTERNAL;
-            }
-        }
-    }
-
-    sx_nodelist_delete(volnodes);
-    *nodes = ret;
-    return OK;
-}
-
 #define MAX_BATCH_ITER  2048
 static rc_ty massdelete_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     act_result_t ret = ACT_RESULT_OK;
@@ -5698,11 +5651,6 @@ static rc_ty massdelete_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *jo
     unsigned int i = 0;
     int recursive = 0;
     char timestamp_str[REV_TIME_LEN+1];
-    sxi_query_t *query = NULL;
-    query_list_t *qrylist = NULL;
-    unsigned int qrylist_len = 0, queries_sent = 0;
-    sx_nodelist_t *nonvolnodes = NULL;
-    unsigned int nnodes, nnode;
 
     b = sx_blob_from_data(job_data->ptr, job_data->len);
     if(!b) {
@@ -5731,22 +5679,6 @@ static rc_ty massdelete_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *jo
         action_error(rc2actres(s), rc2http(s), msg_get_reason());
     }
 
-    if((s = effective_non_volnodes(hashfs, NL_NEXTPREV, vol, &nonvolnodes)) != OK) {
-        WARN("Failed to get non-volnodes list");
-        action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to get non-volnodes list");
-    }
-    nnodes = sx_nodelist_count(nonvolnodes);
-
-    if(nnodes) {   
-        /* When non file has more revisions than volume limit, then this should be enouch to supply worst case */
-        qrylist_len = MAX_BATCH_ITER * nnodes + vol->effective_replica - 1;
-        qrylist = wrap_calloc(qrylist_len, sizeof(*qrylist));
-        if(!qrylist) {
-            WARN("Cannot allocate result space");
-            action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
-        }
-    }
-
     /* Perform operations */
     for(s = sx_hashfs_list_first(hashfs, vol, pattern, &file, recursive, NULL, 0); s == OK && i < MAX_BATCH_ITER; s = sx_hashfs_list_next(hashfs)) {
         rc_ty t;
@@ -5761,24 +5693,6 @@ static rc_ty massdelete_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *jo
                 continue;
             }
 
-            if(nnodes) {           
-                /* We can reach memory limit when temporary over-replica situation happens, need to reallocate qrylist array */
-                if(queries_sent + nnodes >= qrylist_len) {
-                    query_list_t *oldptr = qrylist;
-                    qrylist_len *= 2;
-                    DEBUG("Reallocating queries list");
-                    qrylist = wrap_realloc(oldptr, qrylist_len * sizeof(*oldptr));
-                    if(!qrylist) {
-                        WARN("Failed to reallocate queries list array");
-                        qrylist = oldptr;
-                        action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
-                    }
-
-                    /* Reset newly allocated entries to avoid using uninits in query_list_free() */
-                    memset(qrylist + queries_sent, 0, (qrylist_len - queries_sent) * sizeof(*qrylist));
-                }
-            }
-
             /* Delete the revision */
             if((u = sx_hashfs_file_delete(hashfs, vol, filerev->name, filerev->revision)) != OK) {
                 WARN("Failed to delete file revision %s: %s", filerev->revision, msg_get_reason());
@@ -5787,29 +5701,7 @@ static rc_ty massdelete_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *jo
             }
 
             /* File is deleted, we can unbump the revision */
-            if((u = sx_hashfs_revision_op(hashfs, filerev->block_size, &filerev->revision_id, -1)) != OK) {
-                WARN("Failed to unbump file revision");
-                t = u;
-                break;
-            }
-
-            for(nnode = 0; nnode < nnodes; nnode++) {
-                const sx_node_t *node = sx_nodelist_get(nonvolnodes, nnode);
-                sxi_query_free(query);
-                query = sxi_hashop_proto_revision(sx_hashfs_client(hashfs), filerev->block_size, &filerev->revision_id, -1);
-                if(!query) {
-                    WARN("Cannot allocate query");
-                    action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
-                }
-
-                qrylist[queries_sent].cbdata = sxi_cbdata_create_generic(sx_hashfs_conns(hashfs), NULL, NULL);
-                if(sxi_cluster_query_ev(qrylist[queries_sent].cbdata, sx_hashfs_conns(hashfs), sx_node_internal_addr(node), query->verb, query->path, NULL, 0, NULL, NULL)) {
-                    WARN("Failed to query node %s: %s", sx_node_uuid_str(node), sxc_geterrmsg(sx_hashfs_client(hashfs)));
-                    action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to setup cluster communication");
-                }
-                qrylist[queries_sent].query_sent = 1;
-                queries_sent++;
-            }
+	    sx_hashfs_revunbump(hashfs, &filerev->revision_id, filerev->block_size);
 
             i++;
         }
@@ -5833,32 +5725,6 @@ static rc_ty massdelete_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *jo
     ret = ACT_RESULT_OK;
 action_failed:
     sx_blob_free(b);
-    sx_nodelist_delete(nonvolnodes);
-    if(qrylist) {
-        for(i = 0; i < queries_sent; i++) {
-            int rc;
-            long http_status = 0;
-            if(!qrylist[i].query_sent)
-                continue;
-            rc = sxi_cbdata_wait(qrylist[i].cbdata, sxi_conns_get_curlev(sx_hashfs_conns(hashfs)), &http_status);
-            if(rc == -2) {
-                CRIT("Failed to wait for query");
-                action_set_fail(ACT_RESULT_PERMFAIL, 500, "Internal error in cluster communication");
-                continue;
-            }
-            if(rc == -1) {
-                WARN("Query failed with %ld", http_status);
-                if(ret > ACT_RESULT_TEMPFAIL) /* Only raise OK to TEMP */
-                    action_set_fail(ACT_RESULT_TEMPFAIL, 503, sxi_cbdata_geterrmsg(qrylist[i].cbdata));
-            } else if (http_status != 200 && http_status != 410 && http_status != 404) {
-                act_result_t newret = http2actres(http_status);
-                if(newret < ret) /* Severity shall only be raised */
-                    action_set_fail(newret, http_status, sxi_cbdata_geterrmsg(qrylist[i].cbdata));
-            }
-        }
-        query_list_free(qrylist, qrylist_len);
-    }
-    sxi_query_free(query);
 
     if(ret == ACT_RESULT_OK)
         succeeded[0] = 1;
@@ -5926,55 +5792,18 @@ action_failed:
 }
 
 /* Drop all stale source revisions */
-static rc_ty massrename_drop_old_src_revs(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, const char *filename, sx_nodelist_t *nodes, unsigned int *queries_sent, unsigned int *list_len, query_list_t **list) {
+static rc_ty massrename_drop_old_src_revs(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, const char *filename) {
     rc_ty ret = FAIL_EINTERNAL, t;
     const sx_hashfs_file_t *filerev = NULL;
-    query_list_t *qrylist;
-    unsigned int nnodes, nnode;
-    sxi_query_t *query = NULL;
 
-    if(!vol || !filename || !nodes || !list || !queries_sent || !list_len) {
+    if(!vol || !filename) {
         NULLARG();
         return EINVAL;
-    }
-
-    qrylist = *list;
-    nnodes = sx_nodelist_count(nodes);
-    if(nnodes && !qrylist) {
-        /* When file has no more revisions than volume limit, then this should be enough to supply worst case */
-        *list_len = MAX_BATCH_ITER * nnodes + vol->effective_replica - 1;
-        qrylist = wrap_calloc(*list_len, sizeof(*qrylist));
-        if(!qrylist) {
-            WARN("Cannot allocate result space");
-            msg_set_reason("Not enough memory to perform the requested action");
-            ret = ENOMEM;
-            goto massrename_drop_old_src_revs_err;
-        }
     }
 
     /* Iterate through all older revisions of the file and drop them */
     for(t = sx_hashfs_revision_first(h, vol, filename, &filerev, 0); t == OK; t = sx_hashfs_revision_next(h, 0)) {
         rc_ty u;
-
-        if(nnodes) {
-            /* We can reach memory limit when temporary over-replica situation happens, need to reallocate qrylist array */
-            if(*queries_sent + nnodes >= *list_len) {
-                query_list_t *oldptr = qrylist;
-                DEBUG("Reallocating queries list");
-                qrylist = wrap_realloc(oldptr, 2 * (*list_len) * sizeof(*oldptr));
-                if(!qrylist) {
-                    WARN("Failed to reallocate queries list array");
-                    qrylist = oldptr;
-                    msg_set_reason("Not enough memory to perform the requested action");
-                    ret = ENOMEM;
-                    goto massrename_drop_old_src_revs_err;
-                }
-                *list_len *= 2;
-
-                /* Reset newly allocated entries to avoid using uninits in query_list_free() */
-                memset(qrylist + *queries_sent, 0, (*list_len - *queries_sent) * sizeof(*qrylist));
-            }
-        }
 
         /* Delete the revision */
         if((u = sx_hashfs_file_delete(h, vol, filerev->name, filerev->revision)) != OK) {
@@ -5984,33 +5813,7 @@ static rc_ty massrename_drop_old_src_revs(sx_hashfs_t *h, const sx_hashfs_volume
         }
 
         /* File is deleted, we can unbump the revision */
-        if((u = sx_hashfs_revision_op(h, filerev->block_size, &filerev->revision_id, -1)) != OK) {
-            WARN("Failed to unbump file revision");
-            t = u;
-            break;
-        }
-
-        for(nnode = 0; nnode < nnodes; nnode++) {
-            const sx_node_t *node = sx_nodelist_get(nodes, nnode);
-            sxi_query_free(query);
-            query = sxi_hashop_proto_revision(sx_hashfs_client(h), filerev->block_size, &filerev->revision_id, -1);
-            if(!query) {
-                WARN("Cannot allocate query");
-                msg_set_reason("Not enough memory to perform the requested action");
-                ret = ENOMEM;
-                goto massrename_drop_old_src_revs_err;
-            }
-
-            qrylist[*queries_sent].cbdata = sxi_cbdata_create_generic(sx_hashfs_conns(h), NULL, NULL);
-            if(sxi_cluster_query_ev(qrylist[*queries_sent].cbdata, sx_hashfs_conns(h), sx_node_internal_addr(node), query->verb, query->path, NULL, 0, NULL, NULL)) {
-                WARN("Failed to query node %s: %s", sx_node_uuid_str(node), sxc_geterrmsg(sx_hashfs_client(h)));
-                msg_set_reason("Failed to setup cluster communication");
-                ret = EAGAIN;
-                goto massrename_drop_old_src_revs_err;
-            }
-            qrylist[*queries_sent].query_sent = 1;
-            (*queries_sent)++;
-        }
+	sx_hashfs_revunbump(h, &filerev->revision_id, filerev->block_size);
     }
 
     if(t != ITER_NO_MORE && t != ENOENT) {
@@ -6021,8 +5824,6 @@ static rc_ty massrename_drop_old_src_revs(sx_hashfs_t *h, const sx_hashfs_volume
 
     ret = OK;
 massrename_drop_old_src_revs_err:
-    sxi_query_free(query);
-    *list = qrylist;
     return ret;
 }
 
@@ -6039,10 +5840,7 @@ static rc_ty massrename_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *jo
     char timestamp_str[REV_TIME_LEN+1];
     char newname[SXLIMIT_MAX_FILENAME_LEN+1];
     char *suffix;
-    query_list_t *qrylist = NULL;
-    unsigned int qrylist_len = 0, queries_sent = 0;
     unsigned int i = 0;
-    sx_nodelist_t *nonvolnodes = NULL;
     unsigned int source_slashes;
     long http_code = 0;
 
@@ -6074,16 +5872,11 @@ static rc_ty massrename_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *jo
         action_error(rc2actres(s), rc2http(s), msg_get_reason());
     }
 
-    if((s = effective_non_volnodes(hashfs, NL_NEXTPREV, vol, &nonvolnodes)) != OK) {
-        WARN("Failed to get non-volnodes list");
-        action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to get non-volnodes list");
-    }
-
     source_slashes = sxi_count_slashes(source);
     dlen = strlen(dest);
 
     sxi_strlcpy(newname, dest, sizeof(newname));
-    for(s = sx_hashfs_list_first(hashfs, vol, source, &file, recursive, NULL, 0); s == OK && i + queries_sent < MAX_BATCH_ITER; s = sx_hashfs_list_next(hashfs)) {
+    for(s = sx_hashfs_list_first(hashfs, vol, source, &file, recursive, NULL, 0); s == OK && i < MAX_BATCH_ITER; s = sx_hashfs_list_next(hashfs)) {
         rc_ty t;
         const sx_hashfs_file_t *filerev = NULL;
         char name[SXLIMIT_MAX_FILENAME_LEN+1];
@@ -6173,7 +5966,7 @@ static rc_ty massrename_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *jo
             break;
         }
 
-        if((t = massrename_drop_old_src_revs(hashfs, vol, name, nonvolnodes, &queries_sent, &qrylist_len, &qrylist)) != OK) {
+        if((t = massrename_drop_old_src_revs(hashfs, vol, name)) != OK) {
             WARN("Failed to drop old %s revisions: %s", name, msg_get_reason());
             if(t == ENOMEM || t == EAGAIN)
                 action_error(ACT_RESULT_TEMPFAIL, 503, msg_get_reason());
@@ -6184,7 +5977,7 @@ static rc_ty massrename_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *jo
     }
 
     if(s != ITER_NO_MORE) {
-        if(i + queries_sent >= MAX_BATCH_ITER) {
+        if(i >= MAX_BATCH_ITER) {
             DEBUG("Sleeping job due to exceeded deletions limit");
             action_error(ACT_RESULT_NOTFAILED, 503, "Exceeded limit");
         } else {
@@ -6200,31 +5993,6 @@ static rc_ty massrename_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *jo
     ret = ACT_RESULT_OK;
 action_failed:
     sx_blob_free(b);
-    sx_nodelist_delete(nonvolnodes);
-    if(qrylist) {
-        for(i = 0; i < queries_sent; i++) {
-            int rc;
-            long http_status = 0;
-            if(!qrylist[i].query_sent)
-                continue;
-            rc = sxi_cbdata_wait(qrylist[i].cbdata, sxi_conns_get_curlev(sx_hashfs_conns(hashfs)), &http_status);
-            if(rc == -2) {
-                CRIT("Failed to wait for query");
-                action_set_fail(ACT_RESULT_PERMFAIL, 500, "Internal error in cluster communication");
-                continue;
-            }
-            if(rc == -1) {
-                WARN("Query failed with %ld", http_status);
-                if(ret > ACT_RESULT_TEMPFAIL) /* Only raise OK to TEMP */
-                    action_set_fail(ACT_RESULT_TEMPFAIL, 503, sxi_cbdata_geterrmsg(qrylist[i].cbdata));
-            } else if (http_status != 200 && http_status != 410 && http_status != 404) {
-                act_result_t newret = http2actres(http_status);
-                if(newret < ret) /* Severity shall only be raised */
-                    action_set_fail(newret, http_status, sxi_cbdata_geterrmsg(qrylist[i].cbdata));
-            }
-        }
-        query_list_free(qrylist, qrylist_len);
-    }
 
     if(ret == ACT_RESULT_OK)
         succeeded[0] = 1;

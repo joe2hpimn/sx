@@ -418,6 +418,14 @@ void file_ops(void) {
 	    fcgi_push_blocks();
 	    return;
 	}
+
+	if(!strcmp(volume, ".blockrevs")) {
+	    /* Add or remove block revisions (s2s) - CLUSTER required */
+	    quit_unless_has(PRIV_CLUSTER);
+	    fcgi_blockrevs();
+	    return;
+	}
+
 	if(has_priv(PRIV_CLUSTER)) {
 	    /* New file propagation (s2s) - CLUSTER required */
 	    fcgi_create_file();

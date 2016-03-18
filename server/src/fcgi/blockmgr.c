@@ -362,8 +362,179 @@ static void blockmgr_process_queue(struct blockmgr_data_t *q) {
     sxi_hostlist_empty(&uploadto);
 }
 
+
+/* Stack alloc'd! */
+#define MAX_UNBUMPS 1024
+struct revunbump_data_t {
+    sx_hashfs_t *hashfs;
+    sqlite3_stmt *quget_lo, *quget_hi, *qudel;
+    sx_uuid_t last_target; /* this may be uninitialized and that's ok */
+};
+
+static int unbump_unq(struct revunbump_data_t *unb, int64_t unbid) {
+    if(qbind_int64(unb->qudel, ":unbid", unbid) ||
+       qstep_noret(unb->qudel)) {
+	WARN("Unable to delete unbid %lld", (long long)unbid);
+	return -1; /* Error */
+    }
+    return 0; /* Work complete */
+}
+
+static int unbump_revs(struct revunbump_data_t *unb) {
+    int64_t revs[MAX_UNBUMPS];
+    sqlite3_stmt *q;
+    char *qry = NULL;
+    const void *tgt;
+    unsigned int i, qlen = 0, qat = 0;
+    int64_t unbid;
+    const sx_node_t *target, *me;
+    int r, err = 0, remote;
+
+    q = unb->quget_hi;
+    sqlite3_reset(q);
+    if(qbind_blob(q, ":oldtarget", (const void *)&unb->last_target, sizeof(unb->last_target)))
+	return -1; /* Error */
+    r = qstep(q);
+    if(r == SQLITE_DONE) {
+	q = unb->quget_lo;
+	sqlite3_reset(q);
+	if(qbind_blob(q, ":oldtarget", (const void *)&unb->last_target, sizeof(unb->last_target)))
+	    return -1; /* Error */
+	r = qstep(q);
+	if(r == SQLITE_DONE)
+	    return 0; /* Work complete */
+    }
+    if(r != SQLITE_ROW)
+	return -1; /* Error */
+
+    unbid = sqlite3_column_int64(q, 0);
+    tgt = sqlite3_column_blob(q, 3);
+    if(!tgt || sqlite3_column_bytes(q, 3) != sizeof(unb->last_target.binary)) {
+	WARN("Removing unbid %lld with bogus target", (long long)unbid);
+	sqlite3_reset(q);
+	return unbump_unq(unb, unbid);
+    }
+    uuid_from_binary(&unb->last_target, tgt);
+
+    target = sx_nodelist_lookup(sx_hashfs_all_nodes(unb->hashfs, NL_NEXTPREV), &unb->last_target);
+    if(!target) {
+	DEBUG("Removing unbid %lld for target node %s which is no longer a member", (long long)unbid, unb->last_target.string);
+	sqlite3_reset(q);
+	return unbump_unq(unb, unbid);
+    }
+
+    if(sx_hashfs_is_node_ignored(unb->hashfs, &unb->last_target)) {
+	/* These will be sent once there is a replacement */
+	DEBUG("Skipping requests for unbid %lld for target node %s which is no longer a member", (long long)unbid, unb->last_target.string);
+	sqlite3_reset(q);
+	return 0; /* Work complete */
+    }
+
+    me = sx_hashfs_self(unb->hashfs);
+    remote = sx_node_cmp(me, target);
+
+    for(i=0; i<MAX_UNBUMPS;) {
+	const sx_hash_t *revid;
+	unsigned int bs = sqlite3_column_int(q, 2);
+
+	if(sx_hashfs_check_blocksize(bs))
+	    WARN("Removing unbid %lld with invalid block size %u", (long long)unbid, bs);
+	else if(!(revid = sqlite3_column_blob(q, 1)) || sqlite3_column_bytes(q, 1) != sizeof(*revid))
+	    WARN("Removing unbid %lld with bogus revision ID", (long long)unbid);
+	else if(!(tgt = sqlite3_column_blob(q, 3)) || sqlite3_column_bytes(q, 3) != sizeof(unb->last_target.binary))
+	    WARN("Removing unbid %lld with bogus target", (long long)unbid);
+        else if(memcmp(tgt, &unb->last_target.binary, sizeof(unb->last_target.binary)))
+	    break;
+	else if(remote) {
+	    /* Remote target */
+	    if(qlen - qat < sizeof(*revid) * 2 + sizeof(",\"\":") + 32) {
+		/* Make room for hex encoded rev, size and json glue */
+		qlen += 1024;
+		qry = wrap_realloc_or_free(qry, qlen);
+		if(!qry) {
+		    WARN("Unable to allocate query");
+		    err = 1;
+		    break;
+		}
+	    }
+	    
+	    qry[qat] = qat ? ',' : '{';
+	    qry[qat+1] = '"';
+	    qat += 2;
+	    bin2hex(revid, sizeof(*revid), &qry[qat], qlen - qat);
+	    qat += sizeof(*revid)*2;
+	    qat += snprintf(&qry[qat], qlen - qat,"\":%u", bs);
+	} else {
+	    /* Local target */
+	    if(sx_hashfs_revision_op(unb->hashfs, bs, revid, -1) != OK) {
+		WARN("Failed to unbump local revision");
+		err = 1;
+		break;
+	    }
+	}
+	revs[i++] = sqlite3_column_int64(q, 0);
+
+	r = qstep(q);
+	if(r == SQLITE_ROW)
+	    continue;
+	else if(r != SQLITE_DONE) {
+	    WARN("Failed to retrieve next revision");
+	    err = 1;
+	}
+	break;
+    }
+
+    sqlite3_reset(q);
+
+    if(err) {
+	free(qry);
+	return -1; /* Error */
+    }
+
+    if(remote && qry) {
+	sxi_conns_t *clust = sx_hashfs_conns(unb->hashfs);
+	sxc_client_t *sx = sx_hashfs_client(unb->hashfs);
+	sxi_hostlist_t hlist;
+	int qret;
+
+	sxi_hostlist_init(&hlist);
+	if(qlen - qat < 2) {
+	    qry = wrap_realloc_or_free(qry, qlen + 2);
+	    if(!qry) {
+		WARN("Unable to allocate query");
+		return -1; /* Error */
+	    }
+	}
+	qry[qat] = '}';
+	qry[qat+1] = '\0';
+
+	if(sxi_hostlist_add_host(sx, &hlist, sx_node_internal_addr(target))) {
+	    WARN("Unable to allocate hostlist");
+	    free(qry);
+	    return -1; /* Error */
+	}
+
+	qret = sxi_cluster_query(clust, &hlist, REQ_PUT, ".blockrevs/remove", qry, strlen(qry), NULL, NULL, NULL);
+	free(qry);
+	qry = NULL;
+	sxi_hostlist_empty(&hlist);
+	if(qret != 200) {
+	    WARN("Unbump request failed for %s (%s): HTTP status %d", unb->last_target.string, sx_node_internal_addr(target), qret);
+	    return -1;
+	}
+    }
+
+    free(qry);
+    while(i--)
+	unbump_unq(unb, revs[i]);
+
+    return 1; /* Some work done */
+
+}
+
 int blockmgr(sxc_client_t *sx, const char *dir, int pipe) {
     struct blockmgr_data_t q;
+    struct revunbump_data_t unb;
     struct sigaction act;
     sqlite3_stmt *qsched = NULL;
     sxi_db_t *xferdb;
@@ -382,6 +553,7 @@ int blockmgr(sxc_client_t *sx, const char *dir, int pipe) {
     sigaction(SIGUSR1, &act, NULL);
 
     memset(&q, 0, sizeof(q));
+    memset(&unb, 0, sizeof(unb));
 
     q.hashfs = sx_hashfs_open(dir, sx);
     if(!q.hashfs) {
@@ -416,31 +588,54 @@ int blockmgr(sxc_client_t *sx, const char *dir, int pipe) {
     if(qprep(xferdb, &q.qaddsched, "INSERT INTO scheduled (push_id) VALUES (:pushid)"))
 	goto blockmgr_err;
 
+    unb.hashfs = q.hashfs;
+    if(qprep(xferdb, &unb.quget_hi, "SELECT unbid, revid, revsize, target FROM unbumps WHERE target > :oldtarget ORDER BY target LIMIT "STRIFY(MAX_UNBUMPS)))
+	goto blockmgr_err;
+    if(qprep(xferdb, &unb.quget_lo, "SELECT unbid, revid, revsize, target FROM unbumps WHERE target <= :oldtarget ORDER BY target LIMIT "STRIFY(MAX_UNBUMPS)))
+	goto blockmgr_err;
+    if(qprep(xferdb, &unb.qudel, "DELETE FROM unbumps WHERE unbid = :unbid"))
+	goto blockmgr_err;
+
     while(!terminate) {
 	int dc;
         if (wait_trigger(pipe, blockmgr_delay, NULL))
             break;
 
-	DEBUG("Start processing block queue");
-        msg_new_id();
+	while(1) {
+	    DEBUG("Start processing block queue");
+	    msg_new_id();
 
-	dc = sx_hashfs_distcheck(q.hashfs);
-	if(dc < 0) {
-	    CRIT("Failed to reload distribution");
-	    goto blockmgr_err;
-	} else if(dc > 0) {
-	    /* MODHDIST: the model has changed, what do ? */
-	    INFO("Distribution reloaded");
+	    dc = sx_hashfs_distcheck(q.hashfs);
+	    if(dc < 0) {
+		CRIT("Failed to reload distribution");
+		goto blockmgr_err;
+	    } else if(dc > 0) {
+		/* MODHDIST: the model has changed, what do ? */
+		INFO("Distribution reloaded");
+	    }
+
+	    qstep_noret(q.qprune);
+	    blockmgr_process_queue(&q);
+	    DEBUG("Done processing block queue");
+
+	    DEBUG("Start processing unbump queue");
+	    dc = unbump_revs(&unb);
+	    DEBUG("Done processing block queue");
+
+	    /* Fast loop unless unbump complete or failed */
+	    if(dc <= 0)
+		break;
 	}
-
-	qstep_noret(q.qprune);
-	blockmgr_process_queue(&q);
-	DEBUG("Done processing block queue");
+	
         sx_hashfs_checkpoint_xferdb(q.hashfs);
         sx_hashfs_checkpoint_idle(q.hashfs);
     }
 
  blockmgr_err:
+    sqlite3_finalize(unb.quget_lo);
+    sqlite3_finalize(unb.quget_hi);
+    sqlite3_finalize(unb.qudel);
+
     sqlite3_finalize(q.qbump);
     sqlite3_finalize(q.qprune);
     sqlite3_finalize(q.qdel);
