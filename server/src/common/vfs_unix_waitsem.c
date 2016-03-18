@@ -251,7 +251,7 @@ static int timedlockOpen(TimedLock *lock, struct stat *sb, int nLock)
   memset(lock, 0, sizeof(*lock));
   /* According to sem_open(3p) the name must start with slash,
      otherwise the effect is implementation defined */
-  lock->name = sqlite3_mprintf("/etilqs-%d-%x-%x-%d", getuid(), sb->st_dev, sb->st_ino, nLock);
+  lock->name = sqlite3_mprintf("/etilqs-%d-%llx-%llx-%d", getuid(), sb->st_dev, sb->st_ino, nLock);
   if( lock->name==NULL )
     return SQLITE_NOMEM;
 
