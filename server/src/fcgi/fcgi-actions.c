@@ -173,6 +173,8 @@ void volume_ops(void) {
     if(verb == VERB_PUT && has_arg("source") && has_arg("dest")) {
         if(is_reserved())
             quit_errmsg(403, "Volume name is reserved");
+	if(content_len())
+	    quit_errmsg(400, "Invalid request");
         /* Rename files matching given filter to the destination pattern */
         quit_unless_has(PRIV_WRITE);
         fcgi_mass_rename();
@@ -187,6 +189,8 @@ void volume_ops(void) {
 	quit_unless_has(PRIV_CLUSTER);
 	if(is_reserved())
 	    quit_errmsg(403, "Volume name is reserved");
+	if(content_len())
+	    quit_errmsg(400, "Invalid request");
 	fcgi_volume_onoff(arg_is("o","enable"));
 	return;
     }
@@ -206,6 +210,8 @@ void volume_ops(void) {
 	} else if(!strcmp(".rebalance", volume) && !content_len()) {
 	    /* Initiate rebalance process (s2s) - CLUSTER required */
 	    quit_unless_has(PRIV_CLUSTER);
+	    if(content_len())
+		quit_errmsg(400, "Invalid request");
 	    fcgi_start_rebalance();
 	} else if(!strcmp(volume, ".sync")) {
 	    /* Syncronize global objects (s2s) - CLUSTER required */
@@ -213,6 +219,8 @@ void volume_ops(void) {
             fcgi_sync_globs();
         } else if (!strcmp(volume, ".gc")) {
 	    quit_unless_has(PRIV_ADMIN);
+	    if(content_len())
+		quit_errmsg(400, "Invalid request");
             fcgi_trigger_gc();
         } else if(!strcmp(".distlock", volume)) {
             /* Set sxadm operation lock - ADMIN required */
@@ -349,6 +357,8 @@ void file_ops(void) {
 	if(!strcmp(volume, ".jlock") && !content_len()) {
 	    /* Giant locking - CLUSTER required */
 	    quit_unless_has(PRIV_CLUSTER);
+	    if(content_len())
+		quit_errmsg(400, "Invalid request");
 	    fcgi_node_jlock();
 	    return;
 	}
@@ -356,6 +366,8 @@ void file_ops(void) {
 	if(!strcmp(volume, ".users") && (arg_is("o","disable") || arg_is("o","enable"))) {
 	    /* Enable/disable users (2pc/s2s) - CLUSTER required */
 	    quit_unless_has(PRIV_CLUSTER);
+	    if(content_len())
+		quit_errmsg(400, "Invalid request");
 	    fcgi_user_onoff(arg_is("o","enable"), has_arg("all"));
 	    return;
 	}
