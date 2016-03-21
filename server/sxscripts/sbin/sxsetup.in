@@ -390,7 +390,7 @@ read_number()
 {
     read_ascii $1
     eval "_READVAL=\$$1"
-    if [ -n "$_READVAL" -a -z "`echo $_READVAL | egrep '^[0-9]+$'`" ]; then
+    if [ -n "$_READVAL" -a -z "`echo $_READVAL | egrep '^[0-9]+$'`" ] || [ "$_READVAL" -le 0 ]; then
 	printf "Please enter a valid number: "
 	read_number $1
     fi
