@@ -33,6 +33,11 @@
 #include <ftw.h>
 #include "libsxclient/src/vcrypto.h"
 
+struct _sxfs_queue_entry_t;
+struct _sxfs_queue_data_t;
+typedef struct _sxfs_queue_entry_t sxfs_queue_entry_t;
+typedef struct _sxfs_queue_data_t sxfs_queue_data_t;
+
 void sxfs_log (sxfs_state_t *sxfs, const char *fn, int debug, const char *format_string, ...) FMT_PRINTF(4, 5);
 int sxfs_diglen (long int n);
 int sxfs_sx_err (sxc_client_t *sx);
@@ -65,14 +70,21 @@ int sxfs_ls_update (const char *absolute_path, sxfs_lsdir_t **dir);
 int sxfs_ls_stat (const char *path, struct stat *st); /* returned values: <0 - error /  0 - not found / 1 - file / 2 - directory */
 int sxfs_update_mtime (const char *local_file_path, const char *remote_file_path, sxfs_lsfile_t *lsfile);
 
-int sxfs_delete_rename (const char *path, const char *newpath, int avoid_resize);
+int sxfs_delete_check_path (const char *path);
+int sxfs_delete_rename_prepare (const char *path, const char *newpath);
+void sxfs_delete_rename (const char *path, const char *newpath);
+void sxfs_delete_rename_abort (const char *path);
 int sxfs_delete (const char *path, int is_remote, int upload_checked);
-int sxfs_delete_check_path (sxfs_state_t *sxfs, const char *path);
 int sxfs_delete_start (void);
 void sxfs_delete_stop (void);
 
-int sxfs_upload_del_path (sxfs_state_t *sxfs, const char *path);
-int sxfs_upload_rename (const char *path, const char *newpath, int avoid_resize);
+int sxfs_upload_get_file (const char *path, sxfs_file_t *sxfs_file);
+void sxfs_upload_del_path (const char *path);
+int sxfs_upload_remote_check (sxfs_state_t *sxfs, const char *path);
+int sxfs_upload_truncate (const char *path, off_t length);
+int sxfs_upload_rename_prepare (const char *path, const char *newpath);
+void sxfs_upload_rename (const char *path, const char *newpath);
+void sxfs_upload_rename_abort (const char *path);
 int sxfs_upload (const char *src, const char *dest, sxfs_lsfile_t *lsfile, int force);
 int sxfs_upload_start (void);
 void sxfs_upload_stop (void);

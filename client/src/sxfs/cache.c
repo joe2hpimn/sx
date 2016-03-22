@@ -203,7 +203,7 @@ static int cache_make_space (sxfs_state_t *sxfs, unsigned int size) {
     int ret;
     unsigned int blocksize;
     char path[PATH_MAX];
-    size_t i_m = 0, i_l = 0, nfiles_medium, nfiles_large, removed = 0;
+    size_t i_m = 0, i_l = 0, nfiles_medium = 0, nfiles_large = 0, removed = 0;
     blockfile_t *list_medium = NULL, *list_large = NULL;
 
     if(sxfs->cache->used + size > sxfs->cache->size) {
@@ -606,11 +606,11 @@ cache_read_background_err:
 } /* cache_read_background */
 
 ssize_t sxfs_cache_read (sxfs_state_t *sxfs, sxfs_file_t *sxfs_file, void *buff, size_t length, off_t offset) {
-    int fd = -1, cache_locked = 0;
-    unsigned int block, nblocks;
+    int fd = -1, cache_locked = 0, download = 0;
+    unsigned int block, nblocks = 0;
     ssize_t ret;
     char *path;
-    const char *dir;
+    const char *dir = "foo"; /* shut up warnings */
     sxfs_cache_t *cache;
     sxi_sxfs_data_t *fdata;
 
@@ -621,13 +621,12 @@ ssize_t sxfs_cache_read (sxfs_state_t *sxfs, sxfs_file_t *sxfs_file, void *buff,
     }
     cache = sxfs->cache;
     fdata = sxfs_file->fdata;
-    if(fdata) { /* file opened by create() doesn't have fdata but always has write_fd */
+    if(sxfs->need_file) {
+        download = 1;
+    } else if(fdata) { /* file opened by create() doesn't have fdata but always has write_fd */
         switch(fdata->blocksize) {
             case SX_BS_SMALL:
-                if(sxfs_file->write_fd < 0 && (ret = sxfs_get_file(sxfs, sxfs_file)))
-                    return ret;
-                dir = "foo"; /* shut up warnings */
-                nblocks = 0; /* shut up warnings */
+                download = 1;
                 break;
             case SX_BS_MEDIUM:
                 dir = cache->dir_medium;
@@ -641,6 +640,10 @@ ssize_t sxfs_cache_read (sxfs_state_t *sxfs, sxfs_file_t *sxfs_file, void *buff,
                 SXFS_ERROR("Unknown block size");
                 return -EINVAL;
         }
+    }
+    if(download && sxfs_file->write_fd < 0 && (ret = sxfs_get_file(sxfs, sxfs_file))) {
+        SXFS_ERROR("Cannot get '%s' file", sxfs_file->remote_path);
+        return ret;
     }
     if(sxfs_file->write_fd >= 0) {
         SXFS_VERBOSE("Using file descriptor: %d", sxfs_file->write_fd);
