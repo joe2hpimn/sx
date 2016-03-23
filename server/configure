@@ -796,6 +796,7 @@ enable_assert
 enable_largefile
 with_system_sqlite3
 enable_sxhttpd
+enable_vghints
 '
       ac_precious_vars='build_alias
 host_alias
@@ -1460,6 +1461,7 @@ Optional Features:
   --disable-assert        turn off assertions
   --disable-largefile     omit support for large files
   --disable-sxhttpd	  do not build sxhttpd
+  --enable-vghints        build with support for valgrind hints
 
 Optional Packages:
   --with-PACKAGE[=ARG]    use PACKAGE [ARG=yes]
@@ -14465,6 +14467,26 @@ else
 fi
 SXFCGI_CONF=$sxfcgi_conf
 
+
+# Check whether --enable-vghints was given.
+if test "${enable_vghints+set}" = set; then :
+  enableval=$enable_vghints; vghints=$enableval
+else
+  vghints=no
+fi
+
+if test "x$vghints" = "xyes"; then
+    ac_fn_c_check_header_mongrel "$LINENO" "valgrind/memcheck.h" "ac_cv_header_valgrind_memcheck_h" "$ac_includes_default"
+if test "x$ac_cv_header_valgrind_memcheck_h" = xyes; then :
+
+$as_echo "#define ENABLE_VGHINTS 1" >>confdefs.h
+
+else
+  as_fn_error $? "Cannot find valgrind includes" "$LINENO" 5
+fi
+
+
+fi
 
 ac_config_files="$ac_config_files Makefile sxscripts/Makefile"
 

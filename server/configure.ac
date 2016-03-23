@@ -215,6 +215,15 @@ else
 fi
 AC_SUBST([SXFCGI_CONF], [$sxfcgi_conf])
 
+AC_ARG_ENABLE([vghints],
+    AS_HELP_STRING([--enable-vghints], [build with support for valgrind hints]),
+    [vghints=$enableval], [vghints=no])
+if test "x$vghints" = "xyes"; then
+    AC_CHECK_HEADER([valgrind/memcheck.h],
+        AC_DEFINE([ENABLE_VGHINTS], 1, [Build with support for valgrind hints]),
+        AC_MSG_ERROR([Cannot find valgrind includes]))
+fi
+
 AC_CONFIG_FILES([Makefile sxscripts/Makefile])
 AC_CONFIG_FILES([man/sxadm.8 man/sxadm-node.8 man/sxadm-cluster.8 man/sx.fcgi.8 man/sxfcgi.conf.5 man/sxsim.1 man/sxreport-server.8 man/sxsetup.8 man/sxsetup.conf.5 man/sxdump.8 man/sxserver.8])
 AC_OUTPUT
