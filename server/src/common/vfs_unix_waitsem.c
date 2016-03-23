@@ -448,6 +448,8 @@ static int waitsemOpen(
 static int waitsemClose(sqlite3_file *pFile)
 {
     sqlite3_file *pSubOpen = waitsemSubOpen(pFile);
+    waitsem_file *p = (waitsem_file*)pFile;
+    free(p->dbname);
     return pSubOpen->pMethods->xClose(pSubOpen);
 }
 
