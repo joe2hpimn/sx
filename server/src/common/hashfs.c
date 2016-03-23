@@ -15511,7 +15511,8 @@ static rc_ty sx_hashfs_blocks_retry_next(sx_hashfs_t *h, block_meta_t *blockmeta
         int hs;
 
         if (ret == SQLITE_DONE) {
-            sx_hashfs_blockmeta_get(h, ret, q, NULL, 0, NULL);
+            if(sx_hashfs_blockmeta_get(h, ret, q, NULL, 0, NULL) == FAIL_EINTERNAL)
+		return FAIL_EINTERNAL;
             return ITER_NO_MORE;
         }
         if (ret == SQLITE_ROW) {
