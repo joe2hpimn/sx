@@ -431,7 +431,11 @@ static int unbump_revs(struct revunbump_data_t *unb) {
 
     me = sx_hashfs_self(unb->hashfs);
     remote = sx_node_cmp(me, target);
-
+    if(!remote && sx_hashfs_revision_op_begin(unb->hashfs)) {
+	WARN("Failed to start revision operation: %s", msg_get_reason());
+	sqlite3_reset(q);
+	return -1; /* Error */
+    }
     for(i=0; i<MAX_UNBUMPS;) {
 	const sx_hash_t *revid;
 	unsigned int bs = sqlite3_column_int(q, 2);
@@ -484,6 +488,17 @@ static int unbump_revs(struct revunbump_data_t *unb) {
     }
 
     sqlite3_reset(q);
+
+    if(!remote) {
+	/* Commit local revision ops... */
+	if(!err && sx_hashfs_revision_op_commit(unb->hashfs)) {
+	    WARN("Failed to commit revision operation: %s", msg_get_reason());
+	    err = 1;
+	}
+	/* ... or rollback on error */
+	if(err)
+	    sx_hashfs_revision_op_rollback(unb->hashfs);
+    }
 
     if(err) {
 	free(qry);

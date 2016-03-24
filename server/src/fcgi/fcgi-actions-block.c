@@ -765,38 +765,26 @@ void fcgi_revision_op(void) {
 
 
 struct blockrevs_ctx {
-    struct blockrev {
-	sx_hash_t revid;
-	unsigned int bs;
-    } *revs;
-    unsigned int nrevs, nmax;
     rc_ty error;
+    int op;
 };
 
 void cb_blockrev(jparse_t *J, void *ctx, int32_t bs) {
     const char *revhex = sxi_jpath_mapkey(sxi_jparse_whereami(J));
     struct blockrevs_ctx *c = (struct blockrevs_ctx *)ctx;
+    sx_hash_t revid;
+    rc_ty s;
 
-    if(c->nrevs == c->nmax) {
-	c->nmax += 128;
-	c->revs = wrap_realloc_or_free(c->revs, sizeof(c->revs[0]) * c->nmax);
-	if(!c->revs) {
-	    c->error = ENOMEM;
-	    sxi_jparse_cancel(J, "Out of memory");
-	    return;
-	}
-    }
-
-    if(strlen(revhex) != sizeof(c->revs[0].revid) * 2 ||
-       hex2bin(revhex, sizeof(c->revs[0].revid) * 2, c->revs[c->nrevs].revid.b, sizeof(c->revs[0].revid))) {
+    if(strlen(revhex) != sizeof(revid) * 2 ||
+       hex2bin(revhex, sizeof(revid) * 2, revid.b, sizeof(revid))) {
 	c->error = EINVAL;
 	sxi_jparse_cancel(J, "Invalid revision id %s", revhex);
     } else if(sx_hashfs_check_blocksize(bs)) {
 	c->error = EINVAL;
 	sxi_jparse_cancel(J, "Invalid block size %u on revision id %s", bs, revhex);
-    } else {
-	c->revs[c->nrevs].bs = bs;
-	c->nrevs++;
+    } else if((s = sx_hashfs_revision_op(hashfs, bs, &revid, c->op)) != OK) {
+	c->error = s;
+	sxi_jparse_cancel(J, "Revision op failed: %s", msg_get_reason());
     }
 }
 
@@ -806,14 +794,14 @@ void fcgi_blockrevs(void) {
     };
     struct blockrevs_ctx ctx;
     jparse_t *J;
-    int len, op;
+    int len;
 
     memset(&ctx, 0, sizeof(ctx));
 
     if(!strcmp(path, "remove"))
-	op = -1;
+	ctx.op = -1;
     else if(!strcmp(path, "add"))
-	op = +1; /* Not currently used */
+	ctx.op = +1; /* Not currently used */
     else
 	quit_errmsg(400, "Invalid blockrev operation");
 
@@ -821,13 +809,18 @@ void fcgi_blockrevs(void) {
     if(!J)
 	quit_errmsg(503, "Cannot create JSON parser");
 
+    if(sx_hashfs_revision_op_begin(hashfs)) {
+	sxi_jparse_destroy(J);
+	quit_errmsg(503, "Cannot create JSON parser");
+    }
+
     while((len = get_body_chunk(hashbuf, sizeof(hashbuf))) > 0)
 	if(sxi_jparse_digest(J, hashbuf, len))
 	    break;
 
     if(len || sxi_jparse_done(J)) {
+	sx_hashfs_revision_op_rollback(hashfs);
 	send_error(rc2http(ctx.error), sxi_jparse_geterr(J));
-	free(ctx.revs);
 	sxi_jparse_destroy(J);
 	return;
     }
@@ -835,17 +828,14 @@ void fcgi_blockrevs(void) {
     sxi_jparse_destroy(J);
     auth_complete();
     if(!is_authed()) {
-	free(ctx.revs);
+	sx_hashfs_revision_op_rollback(hashfs);
 	send_authreq();
 	return;
     }
-
-    while(ctx.nrevs--) {
-	if(sx_hashfs_revision_op(hashfs, ctx.revs[ctx.nrevs].bs, &ctx.revs[ctx.nrevs].revid, op) != OK) {
-	    free(ctx.revs);
-	    quit_errmsg(503, "Failed to perform revision op");
-	}
+    if((ctx.error = sx_hashfs_revision_op_commit(hashfs)) != OK) {
+	sx_hashfs_revision_op_rollback(hashfs);
+	quit_errmsg(rc2http(ctx.error), msg_get_reason());
     }
-    free(ctx.revs);
+
     CGI_PUTS("\r\n");
 }
