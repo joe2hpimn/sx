@@ -207,9 +207,12 @@ void fcgi_hashop_blocks(enum sxi_hashop_kind kind) {
     DEBUG("hashop: missing %d, n: %d", missing, n);
 }
 
-static int meta_add(block_meta_t *meta, unsigned replica, const sx_hash_t *global_vol_id, const sx_hash_t *revision_id)
+static int meta_add(block_meta_t *meta, const sx_hash_t *global_vol_id, const sx_hash_t *revision_id)
 {
     block_meta_entry_t *e;
+    rc_ty s;
+    const sx_hashfs_volume_t *vol = NULL;
+
     if (!meta || !revision_id)
         return -1;
     meta->entries = wrap_realloc_or_free(meta->entries, ++meta->count * sizeof(*meta->entries));
@@ -218,7 +221,12 @@ static int meta_add(block_meta_t *meta, unsigned replica, const sx_hash_t *globa
     e = &meta->entries[meta->count - 1];
     memcpy(&e->global_vol_id, global_vol_id, sizeof(e->global_vol_id));
     memcpy(&e->revision_id, revision_id, sizeof(e->revision_id));
-    e->replica = replica;
+
+    s = sx_hashfs_volume_by_global_id(hashfs, global_vol_id, &vol);
+    /* Do not treat non-existing volume as an error, use 0 replica number by default */
+    if(s != OK && s != ENOENT)
+        return -1;
+    e->replica = vol ? vol->max_replica : 0;
     return 0;
 }
 
@@ -245,26 +253,26 @@ struct inuse_ctx {
  */
 
 /* Example:
-   {"BLOCKHASH":{"BLOCKSIZE":[ {"GLOBAL_VOL_ID|REVISION_HASH": REPLICA_COUNT, ...}, ...]}, ...}
+   {"BLOCKHASH":{"BLOCKSIZE":[ {"REVISION_HASH": "GLOBAL_VOL_ID", ...}, ...]}, ...}
 {
   "10c91e6b2aecaa5e731fbd7ac26fa3d847dd4ac2": {
     "16384": [
       {
-        "b6972d2ecbfd2e41f3b207310b5fa4708d6fcee92ca3d1a4d2d70d03d301c173ce70fca11d29bfbf": 3
+        "2ca3d1a4d2d70d03d301c173ce70fca11d29bfbf": "b6972d2ecbfd2e41f3b207310b5fa4708d6fcee9"
       }
     ]
   },
   "69ad191523992b70d85fdd50072933bf3b6d8624": {
     "16384": [
       {
-        "b6972d2ecbfd2e41f3b207310b5fa4708d6fcee92ca3d1a4d2d70d03d301c173ce70fca11d29bfbf": 3
+        "2ca3d1a4d2d70d03d301c173ce70fca11d29bfbf": "b6972d2ecbfd2e41f3b207310b5fa4708d6fcee9"
       }
     ]
   },
   "9259e1f7daaa152241db155478a027e096dad979": {
     "16384": [
       {
-        "b6972d2ecbfd2e41f3b207310b5fa4708d6fcee92ca3d1a4d2d70d03d301c173ce70fca11d29bfbf": 3
+        "2ca3d1a4d2d70d03d301c173ce70fca11d29bfbf": "b6972d2ecbfd2e41f3b207310b5fa4708d6fcee9"
       }
     ]
   }
@@ -272,7 +280,7 @@ struct inuse_ctx {
 */
 
 
-static void cb_inuse_rpl(jparse_t *J, void *ctx, int64_t num) {
+static void cb_inuse_rpl(jparse_t *J, void *ctx, const char *volid, unsigned int len) {
     const char *blockstr = sxi_jpath_mapkey(sxi_jparse_whereami(J));
     const char *bsstr = sxi_jpath_mapkey(sxi_jpath_down(sxi_jparse_whereami(J)));
     const char *revstr = sxi_jpath_mapkey(sxi_jpath_down(sxi_jpath_down(sxi_jpath_down(sxi_jparse_whereami(J)))));
@@ -296,21 +304,21 @@ static void cb_inuse_rpl(jparse_t *J, void *ctx, int64_t num) {
     }
     yactx->meta.blocksize = bs;
 
-    if(strlen(revstr) != 2 * (sizeof(revision_id.b) + sizeof(global_vol_id.b)) ||
-       hex2bin(revstr, sizeof(global_vol_id.b) * 2, global_vol_id.b, sizeof(global_vol_id.b)) ||
-       hex2bin(revstr + SXI_SHA1_TEXT_LEN, sizeof(revision_id.b) * 2, revision_id.b, sizeof(revision_id.b))) {
+    if(strlen(revstr) != 2 * sizeof(revision_id.b) ||
+       hex2bin(revstr, sizeof(revision_id.b) * 2, revision_id.b, sizeof(revision_id.b))) {
 	sxi_jparse_cancel(J, "Invalid revision id %s for block %s", revstr, blockstr);
 	yactx->error = EINVAL;
 	return;
     }
 
-    if(num < 0 || num > 0xffffffff) {
-	sxi_jparse_cancel(J, "Invalid replica count %lld for block %s", (long long)num, blockstr);
-	yactx->error = EINVAL;
-	return;
+    if(len != 2 * sizeof(global_vol_id.b) ||
+       hex2bin(volid, sizeof(global_vol_id.b) * 2, global_vol_id.b, sizeof(global_vol_id.b))) {
+        sxi_jparse_cancel(J, "Invalid global volume id %s for block %s", volid, blockstr);
+        yactx->error = EINVAL;
+        return;
     }
 
-    if (meta_add(&yactx->meta, num, &global_vol_id, &revision_id)) {
+    if (meta_add(&yactx->meta, &global_vol_id, &revision_id)) {
 	sxi_jparse_cancel(J, "meta_add failed");
 	yactx->error = ENOMEM;
 	return;
@@ -340,12 +348,12 @@ static void blocks_free(blocks_t *blocks)
 
 void fcgi_hashop_inuse(void) {
     const struct jparse_actions acts = {
-	JPACTS_INT64(
+	JPACTS_STRING(
 		     JPACT(cb_inuse_rpl,
 			   JPANYKEY /* block */,
 			   JPANYKEY /* block size */,
 			   JPANYITM,
-			   JPANYKEY /* global volume id and revision */
+			   JPANYKEY /* revision */
 			   )
 		     ),
 	JPACTS_MAP_END(

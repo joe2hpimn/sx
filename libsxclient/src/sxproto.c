@@ -653,8 +653,8 @@ sxi_query_t *sxi_hashop_proto_inuse_hash(sxc_client_t *sx, sxi_query_t *query, c
 {
     unsigned i;
     char hexhash[SXI_SHA1_TEXT_LEN + 1];
-    /* "global_vol_id_hex|revision_id_hex" */
-    char id_hex[2*SXI_SHA1_TEXT_LEN + 1];
+    char hexrevid[SXI_SHA1_TEXT_LEN + 1];
+    char hexvolid[SXI_SHA1_TEXT_LEN + 1];
     if (!blockmeta || !blockmeta->entries) {
         sxi_seterr(sx, SXE_EARG, "Null/empty blockmeta");
         return NULL;
@@ -671,10 +671,10 @@ sxi_query_t *sxi_hashop_proto_inuse_hash(sxc_client_t *sx, sxi_query_t *query, c
         const block_meta_entry_t *e = &blockmeta->entries[i];
         if (i > 0)
             query = sxi_query_append_fmt(sx, query, 1, ",");
-        sxi_bin2hex(e->global_vol_id.b, sizeof(e->global_vol_id.b), id_hex);
-        sxi_bin2hex(e->revision_id.b, sizeof(e->revision_id.b), id_hex + SXI_SHA1_TEXT_LEN);
+        sxi_bin2hex(e->global_vol_id.b, sizeof(e->global_vol_id.b), hexvolid);
+        sxi_bin2hex(e->revision_id.b, sizeof(e->revision_id.b), hexrevid);
         SXDEBUG("sending replica %d", e->replica);
-        query = sxi_query_append_fmt(sx, query, 94, "{\"%s\":%u}", id_hex, e->replica);
+        query = sxi_query_append_fmt(sx, query, 88, "{\"%s\":\"%s\"}", hexrevid, hexvolid);
     }
     return sxi_query_append_fmt(sx, query, 2, "]}");
 }
