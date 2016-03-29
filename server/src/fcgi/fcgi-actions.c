@@ -329,6 +329,10 @@ void file_ops(void) {
 	    /* Bulk file xfer (s2s, replacement node repopulation) - CLUSTER required */
 	    quit_unless_has(PRIV_CLUSTER);
 	    fcgi_send_replacement_files();
+        } else if(!strcmp(volume, ".upgrade_2_1_4")) {
+            /* Volume files revision ID upgrade, PRIV_CLUSTER required */
+            quit_unless_has(PRIV_CLUSTER);
+            fcgi_upgrade_2_1_4();
 	} else {
 	    /* Get file (meta)data - READ required */
 	    quit_unless_has(PRIV_READ);

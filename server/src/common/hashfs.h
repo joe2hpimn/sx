@@ -80,6 +80,8 @@ typedef int64_t sx_uid_t;
 rc_ty sx_storage_create(const char *dir, sx_uuid_t *cluster, uint8_t *key, int key_size);
 rc_ty sx_storage_upgrade(const char *dir);
 typedef struct _sx_hashfs_t sx_hashfs_t;
+int sx_hashfs_is_upgrading(sx_hashfs_t *h);
+rc_ty sx_hashfs_remote_upgrade_finished(sx_hashfs_t *h);
 rc_ty sx_storage_upgrade_job(sx_hashfs_t *hashfs);
 sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx);
 void sx_hashfs_checkpoint_idle(sx_hashfs_t *h);
@@ -500,6 +502,10 @@ rc_ty sx_hashfs_replace_setlastblock(sx_hashfs_t *h, const sx_uuid_t *node, cons
 rc_ty sx_hashfs_replace_getstartfile(sx_hashfs_t *h, char *maxrev, char *startvol, char *startfile, char *startrev);
 rc_ty sx_hashfs_replace_setlastfile(sx_hashfs_t *h, char *lastvol, char *lastfile, char *lastrev);
 rc_ty sx_hashfs_init_replacement(sx_hashfs_t *h);
+
+/* 2.1.3 -> 2.1.4 remote upgrade API */
+rc_ty sx_hashfs_upgrade_2_1_4_init(sx_hashfs_t *h);
+rc_ty sx_hashfs_upgrade_2_1_4_update_revid(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, const sx_hash_t *revision_id);
 
 rc_ty sx_hashfs_node_status(sx_hashfs_t *h, sxi_node_status_t *status);
 

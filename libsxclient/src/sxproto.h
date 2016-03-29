@@ -155,4 +155,7 @@ sxi_query_t *sxi_mass_job_proto(sxc_client_t *sx, unsigned int job_type, time_t 
 /* Commit a mass job slave on a cluster node, used for s2s only */
 sxi_query_t *sxi_mass_job_commit_proto(sxc_client_t *sx, const char *job_id);
 
+/* 2.1.3 -> 2.1.4 upgrade proto */
+sxi_query_t *sxi_2_1_4_upgrade_proto(sxc_client_t *sx, const char *volume, const char *maxrev, const char *startfile, const char *startrev);
+
 #endif

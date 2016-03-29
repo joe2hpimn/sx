@@ -875,6 +875,7 @@ struct _sx_hashfs_t {
     sqlite3_stmt *qb_gc_revision_blocks[SIZES][HASHDBS];
     sqlite3_stmt *qb_gc_revision[SIZES][HASHDBS];
     sqlite3_stmt *qb_gc_reserve[SIZES][HASHDBS];
+    sqlite3_stmt *qb_upgrade_2_1_4_revid_update[SIZES][HASHDBS];
 
     sxi_db_t *eventdb;
     sqlite3_stmt *qe_getjob;
@@ -1075,6 +1076,7 @@ static void close_all_dbs(sx_hashfs_t *h) {
             sqlite3_finalize(h->qb_gc_revision_blocks[j][i]);
             sqlite3_finalize(h->qb_gc_revision[j][i]);
             sqlite3_finalize(h->qb_gc_reserve[j][i]);
+            sqlite3_finalize(h->qb_upgrade_2_1_4_revid_update[j][i]);
 	    qclose(&h->datadb[j][i]);
 
 	    if(h->datafd[j][i] >= 0)
@@ -1972,6 +1974,8 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
             if(qprep(h->datadb[j][i], &h->qb_gc_revision[j][i], "DELETE FROM revision_ops WHERE revision_id=:revision_id"))
                 goto open_hashfs_fail;
             if(qprep(h->datadb[j][i], &h->qb_gc_reserve[j][i], "DELETE FROM reservations WHERE revision_id=:revision_id"))
+                goto open_hashfs_fail;
+            if(qprep(h->datadb[j][i], &h->qb_upgrade_2_1_4_revid_update[j][i], "UPDATE revision_blocks SET global_vol_id = :global_vol_id WHERE revision_id = :revision_id"))
                 goto open_hashfs_fail;
 
 	    sprintf(dbitem, "datafile_%c_%08x", sizedirs[j], i);
@@ -4341,6 +4345,21 @@ static rc_ty hashfs_2_1_3_to_2_1_4(sxi_db_t *db)
     return ret;
 }
 
+static rc_ty datadb_2_1_3_to_2_1_4(sxi_db_t *db)
+{
+    rc_ty ret = FAIL_EINTERNAL;
+    sqlite3_stmt *q = NULL;
+    do {
+        /* global_vol_id stores global volume IDs */
+        if(qprep(db, &q, "ALTER TABLE revision_blocks ADD COLUMN global_vol_id BLOB ("STRIFY(UUID_BINARY_SIZE)") DEFAULT NULL") || qstep_noret(q))
+            break;
+
+        ret = OK;
+    } while(0);
+    qnullify(q);
+    return ret;
+}
+
 static rc_ty xfer_2_1_3_to_2_1_4(sxi_db_t *db) {
     rc_ty ret = FAIL_EINTERNAL;
     sqlite3_stmt *q = NULL;
@@ -4989,8 +5008,9 @@ static const sx_upgrade_t upgrade_sequence[] = {
 	.from = HASHFS_VERSION_2_1_3,
         .to = HASHFS_VERSION_2_1_4,
         .upgrade_hashfsdb = hashfs_2_1_3_to_2_1_4,
+        .upgrade_datadb = datadb_2_1_3_to_2_1_4,
         .upgrade_xfersdb = xfer_2_1_3_to_2_1_4,
-        .job = JOBTYPE_DUMMY
+        .job = JOBTYPE_UPGRADE_FROM_2_1_3_TO_2_1_4
     }
 };
 
@@ -5333,6 +5353,7 @@ rc_ty sx_storage_upgrade_job(sx_hashfs_t *h)
 {
     sqlite3_stmt *q = NULL;
     rc_ty rc = FAIL_EINTERNAL;
+    rc_ty s;
     if (sx_storage_is_bare(h)) {
         INFO("Bare node storage is up to date");
         return OK;
@@ -5353,12 +5374,32 @@ rc_ty sx_storage_upgrade_job(sx_hashfs_t *h)
 
     for(unsigned upno=0;upno<sizeof(upgrade_sequence)/sizeof(upgrade_sequence[0]);upno++) {
         sx_upgrade_t desc = upgrade_sequence[upno];
+        sx_hashfs_version_t dest_ver;
+        sx_hashfs_version_t from_ver;
+
+        if((s = sx_hashfs_version_parse(&from_ver, upgrade_from, strlen(upgrade_from))) != OK) {
+            rc = s;
+            WARN("Failed parse upgrade version: %s", upgrade_from);
+            goto upgrade_job_fail;
+        }
+        if((s = sx_hashfs_version_parse(&dest_ver, desc.from, strlen(desc.from))) != OK) {
+            rc = s;
+            WARN("Failed parse upgrade version: %s", desc.from);
+            goto upgrade_job_fail;
+        }
+
         /* Only insert upgrade job if we are upgrading *from* this version */
-        if (strcmp(desc.from, upgrade_from))
+        if (sx_hashfs_version_cmp(&from_ver, &dest_ver))
             continue;
+        upgrade_from = desc.to;
         if(desc.job == JOBTYPE_DUMMY || last_jobtype == desc.job)
             continue;
         upgrade_from = desc.to;
+        if(job_id != JOB_NOPARENT) {
+            WARN("Upgrade from 1.0 to 2.1 is not supported. Upgrades are not allowed to skip releases with multiple upgrade jobs.");
+            rc = EINVAL;
+            goto upgrade_job_fail;
+        }
         rc = sx_hashfs_job_new(h, 0, &job_id, desc.job, JOB_NO_EXPIRY, desc.to, &job_id, sizeof(job_id), local);
         last_jobtype = desc.job;
         if (rc) {
@@ -5366,8 +5407,26 @@ rc_ty sx_storage_upgrade_job(sx_hashfs_t *h)
                 rc =  OK; /* Job already added */
             else
                 goto upgrade_job_fail;
-        } else {
-            INFO("Insert upgrade job %s -> %s", desc.from, desc.to);
+        }
+
+        if(rc == OK) {
+            char job_id_str[128];
+            const sx_node_t *me = sx_hashfs_self(h);
+
+            /* Store upgrade job ID, do not fail here */
+            if(!me) {
+                WARN("Failed to save remote upgrade job ID: NULL node UUID");
+            } else {
+                sqlite3_stmt *qset = h->q_setval;
+
+                snprintf(job_id_str, sizeof(job_id_str), "%s:%lld", sx_node_uuid_str(me), (long long)job_id);
+
+                sqlite3_reset(qset);
+                if(qbind_text(qset, ":k", "upgrade_job") || qbind_text(qset, ":v", job_id_str) || qstep_noret(qset)) {
+                    WARN("Failed to save remote upgrade job ID: NULL node UUID");
+                    sqlite3_reset(qset);
+                }
+            }
         }
     }
 
@@ -5377,6 +5436,100 @@ upgrade_job_fail:
     qnullify(q);
     sx_nodelist_delete(local);
     return rc;
+}
+
+rc_ty sx_hashfs_upgrade_2_1_4_init(sx_hashfs_t *h) {
+    rc_ty ret = FAIL_EINTERNAL, s;
+    sqlite3_stmt *q = NULL;
+    const sx_hashfs_volume_t *vol;
+
+    if(!h) {
+        NULLARG();
+        return EFAULT;
+    }
+
+    if(qprep(h->db, &q, "DELETE FROM replacefiles") || qstep_noret(q))
+        goto sx_hashfs_upgrade_2_1_4_init_err;
+    qnullify(q);
+
+    /* Files */
+    if(qprep(h->db, &q, "INSERT INTO replacefiles (vol, maxrev) VALUES(:volume, strftime('%Y-%m-%d %H:%M:%f', 'now', '30 minutes') || ':ffffffffffffffffffffffffffffffff')"))
+        goto sx_hashfs_upgrade_2_1_4_init_err;
+
+    for(s = sx_hashfs_volume_first(h, &vol, 0); s == OK; s = sx_hashfs_volume_next(h)) {
+        if(qbind_text(q, ":volume", vol->name) || qstep_noret(q))
+            goto sx_hashfs_upgrade_2_1_4_init_err;
+    }
+
+    ret = OK;
+
+sx_hashfs_upgrade_2_1_4_init_err:
+    qnullify(q);
+    return ret;
+}
+
+rc_ty sx_hashfs_upgrade_2_1_4_update_revid(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, const sx_hash_t *revision_id) {
+    rc_ty ret = FAIL_EINTERNAL;
+    sqlite3_stmt *q;
+    unsigned int j, i;
+
+    if(!h || !vol || !revision_id) {
+        NULLARG();
+        return EINVAL;
+    }
+
+    /* We could probably take the file size into consideration and skip the outer loop. */
+    for(j = 0; j < SIZES; j++) {
+        for(i = 0; i < HASHDBS; i++) {
+            q = h->qb_upgrade_2_1_4_revid_update[j][i];
+
+            sqlite3_reset(q);
+            if(qbind_blob(q, ":revision_id", revision_id->b, sizeof(revision_id->b)) || qbind_blob(q, ":global_vol_id", vol->global_id.b, sizeof(vol->global_id.b)) || qstep_noret(q)) {
+                msg_set_reason("Failed to store revision ID");
+                goto sx_hashfs_upgrade_2_1_4_update_revid_err;
+            }
+        }
+    }
+
+    ret = OK;
+sx_hashfs_upgrade_2_1_4_update_revid_err:
+    sqlite3_reset(q);
+    return ret;
+}
+
+int sx_hashfs_is_upgrading(sx_hashfs_t *h) {
+    int r;
+    sqlite3_stmt *q = h->q_getval;
+
+    sqlite3_reset(q);
+    if(qbind_text(q, ":k", "upgrade_job")) {
+        WARN("Failed to get remote upgrade status");
+        sqlite3_reset(q);
+        return -1;
+    }
+    r = qstep(q);
+    sqlite3_reset(q);
+    if(r == SQLITE_ROW)
+        return 1;
+    else if(r == SQLITE_DONE)
+        return 0;
+
+    WARN("Failed to get remote upgrade status");
+    return -1;
+}
+
+rc_ty sx_hashfs_remote_upgrade_finished(sx_hashfs_t *h) {
+    sqlite3_stmt *q = h->q_delval;
+
+    sqlite3_reset(q);
+    if(qbind_text(q, ":k", "upgrade_job") || qstep_noret(q)) {
+        WARN("Failed to finish remote upgrade job");
+        sqlite3_reset(q);
+        return FAIL_EINTERNAL;
+    }
+    sqlite3_reset(q);
+
+    return sx_hashfs_set_progress_info(h, INPRG_IDLE, NULL);
 }
 
 static rc_ty datadb_begin(sx_hashfs_t *h, unsigned int hs);
@@ -13680,6 +13833,7 @@ static const char *locknames[] = {
     "CLUSTER_SETTINGS", /* JOBTYPE_CLUSTER_SETTINGS */
     NULL, /* JOBTYPE_JUNLOCKALL */
     NULL, /* JOBTYPE_DELAY */
+    NULL, /* JOBTYPE_UPGRADE_FROM_2_1_3_TO_2_1_4*/
 };
 
 #define MAX_PENDING_JOBS 128

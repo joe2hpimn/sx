@@ -551,3 +551,78 @@ void fcgi_send_replacement_files(void) {
     if(s != FAIL_ETOOMANY && !ctx.bytes_sent)
 	quit_errmsg(rc2http(s), msg_get_reason());
 }
+
+static int upgrade_2_1_4_cb(const sx_hashfs_volume_t *vol, const sx_hashfs_file_t *file, const sx_hash_t *contents, unsigned int nblocks, void *ctx) {
+    struct rplfiles *c = (struct rplfiles *)ctx;
+
+    if(c->bytes_sent >= REPLACEMENT_BATCH_SIZE)
+        return 0;
+    sx_blob_reset(c->b);
+
+    if(sx_blob_add_string(c->b, "$REVID$") ||
+       sx_blob_add_blob(c->b, file->revision_id.b, sizeof(file->revision_id.b)))
+        return 0;
+    memcpy(c->lastfile.name, file->name, sizeof(c->lastfile.name));
+    memcpy(c->lastfile.revision, file->revision, sizeof(c->lastfile.revision));
+
+    send_rplfiles_header(c);
+    return 1;
+}
+
+void fcgi_upgrade_2_1_4(void) {
+    rc_ty s;
+    const sx_hashfs_volume_t *vol = NULL;
+    const char *startname, *startrev = NULL;
+    struct rplfiles ctx;
+
+    if(!has_arg("maxrev"))
+        quit_errmsg(400, "Parameter maxrev is required");
+
+    startname = strchr(path, '/');
+    if(!startname) {
+        s = sx_hashfs_volume_by_name(hashfs, path, &vol);
+    } else {
+        unsigned int vnamelen = startname - path;
+        char *vname = malloc(vnamelen + 1);
+        if(!vname)
+            quit_errmsg(503, "Out of memory");
+        memcpy(vname, path, vnamelen);
+        vname[vnamelen] = '\0';
+        s = sx_hashfs_volume_by_name(hashfs, vname, &vol);
+        free(vname);
+        startname++;
+        if(strlen(startname))
+            startrev = get_arg("startrev");
+        else
+            startname = NULL;
+    }
+    if(s != OK)
+        quit_errmsg(rc2http(s), msg_get_reason());
+
+    if(!sx_hashfs_is_or_was_my_volume(hashfs, vol))
+        quit_errnum(404);
+
+    ctx.bytes_sent = 0;
+    ctx.b = sx_blob_new();
+    if(!ctx.b)
+        quit_errmsg(503, "Out of memory");
+
+    s = sx_hashfs_file_find(hashfs, vol, startname, startrev, get_arg("maxrev"), upgrade_2_1_4_cb, &ctx);
+    if(s == FAIL_ETOOMANY || s == ITER_NO_MORE) {
+        sx_blob_reset(ctx.b);
+        if(!sx_blob_add_string(ctx.b, "$FILE$") && !sx_blob_add_string(ctx.b, ctx.lastfile.name) &&
+           !sx_blob_add_string(ctx.b, ctx.lastfile.revision))
+            send_rplfiles_header(&ctx);
+    }
+    if(s == ITER_NO_MORE) {
+        sx_blob_reset(ctx.b);
+        if(!sx_blob_add_string(ctx.b, "$THEEND$"))
+            send_rplfiles_header(&ctx);
+        sx_blob_free(ctx.b);
+        return;
+    }
+
+    sx_blob_free(ctx.b);
+    if(s != FAIL_ETOOMANY && !ctx.bytes_sent)
+        quit_errmsg(rc2http(s), msg_get_reason());
+}

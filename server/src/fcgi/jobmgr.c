@@ -5680,6 +5680,303 @@ static act_result_t massrename_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_
     return force_phase_success(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
 }
 
+#define UPGRADE_2_1_4_REVID_INSERT_LIMIT 2048
+enum upgrade_2_1_4_state { UPGRADE_2_1_4_HDRSIZE = 0, UPGRADE_2_1_4_HDRDATA, UPGRADE_2_1_4_END };
+
+struct upgrade_2_1_4_remote_ctx {
+    sx_hashfs_t *hashfs;
+    sx_blob_t *b;
+    const sx_hashfs_volume_t *vol;
+    uint8_t hdr[1024 +
+                  SXLIMIT_MAX_FILENAME_LEN +
+                  REV_LEN];
+    /* Will hold the last file and revision which was sent in response to the query */
+    char file[SXLIMIT_MAX_FILENAME_LEN+1],
+        rev[REV_LEN+1];
+    unsigned int ngood, itemsz, pos, has_limit /* set to 1 when last file has been received */;
+    enum upgrade_2_1_4_state state;
+};
+
+static int upgrade_2_1_4_remote_cb(curlev_context_t *cbdata, void *ctx, const void *data, size_t size) {
+    struct upgrade_2_1_4_remote_ctx *c = (struct upgrade_2_1_4_remote_ctx *)ctx;
+    const uint8_t *input = (const uint8_t *)data;
+    unsigned int todo;
+    rc_ty s;
+
+    while(size) {
+        if(c->state == UPGRADE_2_1_4_END) {
+            if(size)
+                INFO("Spurious tail of %u bytes", (unsigned int)size);
+            return 0;
+        }
+
+        if(c->state == UPGRADE_2_1_4_HDRSIZE) {
+            todo = MIN((sizeof(c->itemsz) - c->pos), size);
+            memcpy(c->hdr + c->pos, input, todo);
+            input += todo;
+            size -= todo;
+            c->pos += todo;
+            if(c->pos == sizeof(c->itemsz)) {
+                memcpy(&todo, c->hdr, sizeof(todo));
+                c->itemsz = htonl(todo);
+                if(c->itemsz >= sizeof(c->hdr)) {
+                    WARN("Invalid header size %u", c->itemsz);
+                    return 1;
+                }
+                c->state = UPGRADE_2_1_4_HDRDATA;
+                c->pos = 0;
+            }
+        }
+
+        if(c->state == UPGRADE_2_1_4_HDRDATA) {
+            todo = MIN((c->itemsz - c->pos), size);
+            memcpy(c->hdr + c->pos, input, todo);
+            input += todo;
+            size -= todo;
+            c->pos += todo;
+            if(c->pos == c->itemsz) {
+                const char *signature;
+                c->b = sx_blob_from_data(c->hdr, c->itemsz);
+                if(!c->b) {
+                    WARN("Cannot create blob of size %u", c->itemsz);
+                    return 1;
+                }
+                if(sx_blob_get_string(c->b, &signature)) {
+                    WARN("Cannot read create blob signature");
+                    return 1;
+                }
+                if(!strcmp(signature, "$THEEND$")) {
+                    c->state = UPGRADE_2_1_4_END;
+                    if(size)
+                        INFO("Spurious tail of %u bytes", (unsigned int)size);
+                    if(!c->has_limit) /* Not critical, we should still be able to retry the iteration from the preovious limit */
+                        INFO("Received batch end, but without a file limit");
+                    return 0;
+                } else if(!strcmp(signature, "$FILE$")) {
+                    const char *file_name, *file_rev;
+
+                    /* Process the last file processed on the pulled node */
+                    if(sx_blob_get_string(c->b, &file_name) ||
+                       sx_blob_get_string(c->b, &file_rev)) {
+                        WARN("Bad file characteristics");
+                        return 1;
+                    }
+                    sxi_strlcpy(c->file, file_name, sizeof(c->file));
+                    sxi_strlcpy(c->rev, file_rev, sizeof(c->rev));
+                    c->has_limit = 1;
+                } else if(!strcmp(signature, "$REVID$")) {
+                    sx_hash_t revision_id;
+                    const void *revid = NULL;
+                    unsigned int len = 0;
+
+                    /* Process next revision ID */
+
+                    if(sx_blob_get_blob(c->b, &revid, &len) || len != sizeof(revision_id.b)) {
+                        WARN("Invalid revision ID");
+                        return 1;
+                    }
+                    memcpy(revision_id.b, revid, sizeof(revision_id.b));
+                    s = sx_hashfs_upgrade_2_1_4_update_revid(c->hashfs, c->vol, &revision_id);
+                    if(s != OK) {
+                        WARN("Failed store revision ID");
+                        return 1;
+                    }
+                    c->ngood++;
+                } else {
+                    WARN("Invalid blob signature '%s'", signature);
+                    return 1;
+                }
+                sx_blob_free(c->b);
+                c->b = NULL;
+                c->state = UPGRADE_2_1_4_HDRSIZE;
+                c->pos = 0;
+            }
+        }
+    }
+    return 0;
+}
+
+struct upgrade_2_1_4_local_ctx {
+    sx_hashfs_file_t lastfile;
+    unsigned int nfiles;
+    sx_hashfs_t *hashfs;
+};
+
+static int upgrade_2_1_4_local_cb(const sx_hashfs_volume_t *vol, const sx_hashfs_file_t *file, const sx_hash_t *contents, unsigned int nblocks, void *ctx) {
+    struct upgrade_2_1_4_local_ctx *c = (struct upgrade_2_1_4_local_ctx *)ctx;
+
+    if(c->nfiles >= UPGRADE_2_1_4_REVID_INSERT_LIMIT)
+        return 0;
+    if(sx_hashfs_upgrade_2_1_4_update_revid(c->hashfs, vol, &file->revision_id)) {
+        WARN("Failed to store revision ID for local file %s", file->name);
+        return 1;
+    }
+    memcpy(c->lastfile.name, file->name, sizeof(c->lastfile.name));
+    memcpy(c->lastfile.revision, file->revision, sizeof(c->lastfile.revision));
+    c->nfiles++;
+    return 1;
+}
+
+/* Store revision IDs locally in order to be able to pull blocks from all the non-volnodes. */
+static rc_ty upgrade_2_1_3_to_2_1_4_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    act_result_t ret = ACT_RESULT_OK;
+
+    DEBUG("IN %s", __func__);
+
+    if(sx_nodelist_count(nodes) > 1) {
+        action_set_fail(ACT_RESULT_PERMFAIL, 500, "Upgrade job can only be scheduled on one node");
+        return ret;
+    }
+
+    /* Only initialize the iteration */
+    if(sx_hashfs_upgrade_2_1_4_init(hashfs))
+        action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to initialize 2_1_4 upgrade job");
+
+    succeeded[0] = 1;
+action_failed:
+    return ret;
+}
+
+static rc_ty upgrade_2_1_3_to_2_1_4_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    act_result_t ret = ACT_RESULT_NOTFAILED;
+    rc_ty s;
+    const sx_hashfs_volume_t *vol;
+    sx_nodelist_t *volnodes = NULL;
+    unsigned int nvolnodes;
+    const sx_node_t *me = sx_hashfs_self(hashfs);
+    char maxrev[REV_LEN+1];
+    char startvol[SXLIMIT_MAX_VOLNAME_LEN+1], startfile[SXLIMIT_MAX_FILENAME_LEN+1], startrev[REV_LEN+1];
+    sxi_hostlist_t hlist;
+    sxc_client_t *sx = sx_hashfs_client(hashfs);
+    int is_volnode;
+    sxi_query_t *query = NULL;
+
+    DEBUG("IN %s", __func__);
+
+    if(sx_nodelist_count(nodes) > 1) {
+        action_set_fail(ACT_RESULT_PERMFAIL, 500, "Upgrade job can only be scheduled on one node");
+        return ret;
+    }
+
+    sxi_hostlist_init(&hlist);
+
+    sx_hashfs_set_progress_info(hashfs, INPRG_UPGRADE_RUNNING, "Building a list of objects to heal");
+
+    while((s = sx_hashfs_replace_getstartfile(hashfs, maxrev, startvol, startfile, startrev)) == OK) {
+        const sx_node_t *source;
+
+
+        if((s = sx_hashfs_volume_by_name(hashfs, startvol, &vol)) != OK)
+            action_error(rc2actres(s), rc2http(s), msg_get_reason());
+
+        if((s = sx_hashfs_all_volnodes(hashfs, NL_NEXTPREV, vol, 0, &volnodes, NULL)) != OK)
+            action_error(rc2actres(s), rc2http(s), msg_get_reason());
+
+        if(sx_nodelist_lookup(volnodes, sx_node_uuid(me)))
+            is_volnode = 1;
+        else
+            is_volnode = 0;
+
+        nvolnodes = sx_nodelist_count(volnodes);
+
+        if(!is_volnode) {
+            /* Randomize the source node for the query because the volnodes list is constant for for all the files in the volume. */
+            source = sx_nodelist_get(volnodes, sxi_rand() % nvolnodes);
+
+            if(sxi_hostlist_add_host(sx, &hlist, sx_node_internal_addr(source)))
+                action_error(ACT_RESULT_TEMPFAIL, 503, "Out of memory");
+        }
+
+        break;
+    }
+
+    if(s == OK) {
+        int finished = 0;
+
+        /* We have picked a volume to process */
+        if(is_volnode) {
+            struct upgrade_2_1_4_local_ctx ctx;
+
+            /* Volnodes update revision IDs locally */
+            memset(&ctx, 0, sizeof(ctx));
+            ctx.hashfs = hashfs;
+
+            if(strcmp(startfile, ""))
+                s = sx_hashfs_file_find(hashfs, vol, startfile, startrev, maxrev, upgrade_2_1_4_local_cb, &ctx);
+            else
+                s = sx_hashfs_file_find(hashfs, vol, NULL, NULL, maxrev, upgrade_2_1_4_local_cb, &ctx);
+            if(s != FAIL_ETOOMANY && s != ITER_NO_MORE)
+                action_error(rc2actres(s), rc2http(s), "Failed to store local revision ID list");
+            else if(s == FAIL_ETOOMANY) {
+                memcpy(startfile, ctx.lastfile.name, sizeof(startfile));
+                memcpy(startrev, ctx.lastfile.revision, sizeof(startrev));
+            } else if(s == ITER_NO_MORE)
+                finished = 1;
+        } else {
+            int qret;
+            struct upgrade_2_1_4_remote_ctx ctx;
+            sxi_conns_t *clust = sx_hashfs_conns(hashfs);
+            /* Non-volnodes should send the revision ID pull query */
+
+            ctx.hashfs = hashfs;
+            ctx.b = NULL;
+            ctx.pos = 0;
+            ctx.ngood = 0;
+            ctx.has_limit = 0;
+            ctx.state = UPGRADE_2_1_4_HDRSIZE;
+            ctx.vol = vol;
+
+            query = sxi_2_1_4_upgrade_proto(sx, startvol, maxrev, startfile, startrev);
+            if(!query)
+                action_error(ACT_RESULT_TEMPFAIL, 503, "Out of memory allocating revision ID pull query");
+            qret = sxi_cluster_query(clust, &hlist, query->verb, query->path, query->content, query->content_len, NULL, upgrade_2_1_4_remote_cb, &ctx);
+            sx_blob_free(ctx.b);
+            if(qret != 200)
+                action_error(ACT_RESULT_TEMPFAIL, 503, "Bad reply from node");
+
+            if(ctx.state == UPGRADE_2_1_4_END)
+                finished = 1;
+            else if(ctx.ngood) {
+                memcpy(startfile, ctx.file, sizeof(startfile));
+                memcpy(startrev, ctx.rev, sizeof(startrev));
+            } else
+                action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to obtain revision ID list");
+        }
+
+        if(finished) {
+            if(sx_hashfs_replace_setlastfile(hashfs, startvol, NULL, NULL))
+                WARN("Volume replica change files relocation failed");
+        } else {
+            if(sx_hashfs_replace_setlastfile(hashfs, startvol, startfile, startrev))
+                WARN("Volume replica change files relocation failed");
+        }
+    } else if(s == ITER_NO_MORE) {
+        s = sx_hashfs_remote_upgrade_finished(hashfs);
+        if(s != OK)
+            action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to finish remote upgrade job");
+        succeeded[0] = 1;
+        ret = ACT_RESULT_OK;
+    } else
+        action_error(rc2actres(s), rc2http(s), msg_get_reason());
+
+action_failed:
+    if(ret == ACT_RESULT_OK && succeeded[0] == 1)
+        INFO("<<<< 2.1.3 TO 2.1.4 UPGRADE FINISHED SUCCESSFULLY ON THIS NODE >>>>");
+    sx_nodelist_delete(volnodes);
+    sxi_hostlist_empty(&hlist);
+    sxi_query_free(query);
+
+    return ret;
+}
+
+static rc_ty upgrade_2_1_3_to_2_1_4_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    return force_phase_success(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
+}
+
+static rc_ty upgrade_2_1_3_to_2_1_4_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    return force_phase_success(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
+}
+
 /* TODO: upgrade from 1.0-style flush and delete jobs */
 static struct {
     job_action_t fn_request;
@@ -5723,6 +6020,7 @@ static struct {
     { force_phase_success, cluster_settings_commit, cluster_settings_abort, cluster_settings_undo }, /* JOBTYPE_CLUSTER_SETTINGS */
     { junlockall_request, force_phase_success, force_phase_success, force_phase_success }, /* JOBTYPE_JUNLOCKALL */
     { delay_request, force_phase_success, force_phase_success, force_phase_success }, /* JOBTYPE_DELAY */
+    { upgrade_2_1_3_to_2_1_4_request, upgrade_2_1_3_to_2_1_4_commit, upgrade_2_1_3_to_2_1_4_abort, upgrade_2_1_3_to_2_1_4_undo }, /* JOBTYPE_UPGRADE_FROM_2_1_3_TO_2_1_4 */
 };
 
 

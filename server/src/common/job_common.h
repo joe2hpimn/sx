@@ -80,7 +80,8 @@ typedef enum _jobtype_t {
     JOBTYPE_JOBSPAWN,
     JOBTYPE_CLUSTER_SETTINGS,
     JOBTYPE_JUNLOCKALL,
-    JOBTYPE_DELAY
+    JOBTYPE_DELAY,
+    JOBTYPE_UPGRADE_FROM_2_1_3_TO_2_1_4
 } jobtype_t;
 
 typedef enum {

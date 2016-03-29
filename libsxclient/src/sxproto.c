@@ -1270,3 +1270,70 @@ sxi_query_t *sxi_mass_job_commit_proto(sxc_client_t *sx, const char *job_id) {
 
     return ret;
 }
+
+/* startfile and startrev are optional */
+sxi_query_t *sxi_2_1_4_upgrade_proto(sxc_client_t *sx, const char *volume, const char *maxrev, const char *startfile, const char *startrev) {
+    char *enc_vol = NULL, *enc_file = NULL, *enc_rev = NULL, *enc_maxrev = NULL, *url = NULL;
+    sxi_query_t *proto = NULL;
+    unsigned int len;
+
+    if(!volume || !maxrev) {
+        sxi_seterr(sx, SXE_EARG, "Invalid argument");
+        return NULL;
+    }
+
+    enc_vol = sxi_urlencode(sx, volume, 0);
+    if(!enc_vol) {
+        sxi_seterr(sx, SXE_EMEM, "Failed to encode the volume name");
+        goto sxi_replica_change_files_proto_err;
+    }
+    enc_maxrev = sxi_urlencode(sx, maxrev, 0);
+    if(!enc_vol) {
+        sxi_seterr(sx, SXE_EMEM, "Failed to encode the maximum revision");
+        goto sxi_replica_change_files_proto_err;
+    }
+
+    if(startfile && startrev) {
+        enc_file = sxi_urlencode(sx, startfile, 0);
+        if(!enc_vol) {
+            sxi_seterr(sx, SXE_EMEM, "Failed to encode the start file");
+            goto sxi_replica_change_files_proto_err;
+        }
+        enc_rev = sxi_urlencode(sx, startrev, 0);
+        if(!enc_vol) {
+            sxi_seterr(sx, SXE_EMEM, "Failed to encode the start revision");
+            goto sxi_replica_change_files_proto_err;
+        }
+    } else if(startfile || startrev) {
+        sxi_seterr(sx, SXE_EARG, "Invalid argument");
+        goto sxi_replica_change_files_proto_err;
+    }
+
+    len = lenof(".upgrade_2_1_4/") + strlen(enc_vol) + lenof("?maxrev=") + strlen(enc_maxrev) + 1;
+    if(enc_file && enc_rev) {
+        len += lenof("/") + strlen(enc_file)  + lenof("&startrev=") + strlen(enc_rev);
+    }
+
+    url = malloc(len);
+    if(!url) {
+        sxi_seterr(sx, SXE_EMEM, "Out of memory allocating the request URL");
+        goto sxi_replica_change_files_proto_err;
+    }
+
+    if(enc_rev && enc_file)
+        sprintf(url, ".upgrade_2_1_4/%s/%s?maxrev=%s&startrev=%s", enc_vol, enc_file, enc_maxrev, enc_rev);
+    else
+        sprintf(url, ".upgrade_2_1_4/%s?maxrev=%s", enc_vol, enc_maxrev);
+
+    proto = sxi_query_create(sx, url, REQ_GET);
+    if(!proto)
+        sxi_seterr(sx, SXE_EMEM, "Failed to prepare request");
+
+sxi_replica_change_files_proto_err:
+    free(enc_vol);
+    free(enc_file);
+    free(enc_rev);
+    free(enc_maxrev);
+    free(url);
+    return proto;
+}
