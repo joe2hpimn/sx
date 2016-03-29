@@ -3377,6 +3377,37 @@ check_file_hashes_err:
     return ret;
 }
 
+/*
+ * This function returns 1 when this node is a volnode for the next volume replica, but it is not
+ * a volnode for the previous volume replica.
+ */
+static int is_new_split_replica_volnode(sx_hashfs_t *h, const sx_hashfs_volume_t *vol) {
+    sx_nodelist_t *volnodes;
+    int ret = 0;
+
+    if(!h || !vol || !h->have_hd)
+        return 0;
+
+    /* When cluster is rebalancing, volume replica cannot be split */
+    if(sx_hashfs_is_rebalancing(h))
+        return 0;
+
+    /* When volume does not have split replica or it is not growning the node is not a new volnode. */
+    if(vol->prev_max_replica >= vol->max_replica)
+        return 0;
+
+    volnodes = sx_hashfs_all_hashnodes(h, NL_NEXTPREV, &vol->global_id, vol->max_replica);
+    if(volnodes) {
+        unsigned int index = 0;
+
+        if(sx_nodelist_lookup_index(volnodes, sx_node_uuid(sx_hashfs_self(h)), &index) && index >= vol->prev_max_replica)
+            ret = 1;
+        sx_nodelist_delete(volnodes);
+    }
+
+    return ret;
+}
+
 static int is_new_volnode(sx_hashfs_t *h, const sx_hashfs_volume_t *vol);
 static int check_file_sizes(sx_hashfs_t *h, const sx_hashfs_volume_t *vol) {
     int ret = 0, r;
@@ -3389,6 +3420,9 @@ static int check_file_sizes(sx_hashfs_t *h, const sx_hashfs_volume_t *vol) {
 
     /* If this node becomes a new volnode for vol, the volume will restore correct values after rebalance is finished */
     if(is_new_volnode(h, vol))
+        return 0;
+    /* In the split replica situation we should skip checks as well. */
+    if(is_new_split_replica_volnode(h, vol))
         return 0;
 
     /* Sum up all files */
@@ -3645,10 +3679,11 @@ static int check_files(sx_hashfs_t *h, int debug) {
                 }
             }
 
-            /* Check if all hashes for given file are stored in database */
+            /* Check if all hashes for given file are stored in database. Use minimum volume replica in case it has split replica in order to
+             * avoid reporting false positives. */
             if(debug)
                 CHECK_INFO("Checking existence of hashes for file %s: %u", name, blocks);
-            r = check_file_hashes(h, debug, hashes, listlen / SXI_SHA1_BIN_LEN, block_size, vol->max_replica);
+            r = check_file_hashes(h, debug, hashes, listlen / SXI_SHA1_BIN_LEN, block_size, MIN(vol->max_replica, vol->prev_max_replica));
             if(r == -1) {
                 ret = -1;
                 goto check_files_itererr;
@@ -3822,6 +3857,102 @@ check_blocks_dups_err:
     return ret;
 }
 
+/* Check reverse maps tables consistency */
+static int check_blocks_revmaps(sx_hashfs_t *h, int debug, unsigned int hs, unsigned int ndb) {
+    int ret = 0, r;
+    sqlite3_stmt *q = NULL, *qvol = NULL;
+    sxi_db_t *db;
+
+    if(hs >= SIZES || ndb >= HASHDBS) {
+        ret = -1;
+        goto check_blocks_revmaps_err;
+    }
+
+    db = h->datadb[hs][ndb];
+
+    if(debug) {
+        CHECK_INFO("Checking reverse hash maps within %lld revision_blocks entries in %s hash database %u / %u...",
+            (long long int)get_count(db, "revision_blocks"), sizelongnames[hs], ndb+1, HASHDBS);
+    }
+
+    if(qprep(db, &q, "SELECT revision_id, global_vol_id, replica FROM revision_blocks"))
+        goto check_blocks_revmaps_err;
+
+    if(qprep(h->db, &qvol, "SELECT volume, replica, prev_replica FROM volumes WHERE global_id = :global_id"))
+        goto check_blocks_revmaps_err;
+
+    while(1) {
+        char hexvolume[SXI_SHA1_TEXT_LEN+1], hexrev[SXI_SHA1_TEXT_LEN+1];
+        const sx_hash_t *revision_id, *global_vol_id;
+
+        r = qstep(q);
+        if(r == SQLITE_DONE)
+            break;
+        if(r != SQLITE_ROW) {
+            ret = -1;
+            goto check_blocks_revmaps_err;
+        }
+
+        CHECK_PGRS;
+
+        revision_id = (const sx_hash_t *)sqlite3_column_blob(q, 0);
+        global_vol_id = (const sx_hash_t *)sqlite3_column_blob(q, 1);
+        if(!revision_id || sqlite3_column_bytes(q, 0) != sizeof(*revision_id)) {
+            CHECK_ERROR("Invalid revision_blocks entry: revision_id");
+            continue;
+        }
+        if(!global_vol_id) {
+            /* Global volume ID entry has been added with an upgrade job, it is possible to have it NULL
+             * and not set when the job has been run without running the gc. If some files
+             * got deleted and not gc'ed, then the volume ID could not be deduced during the upgrade. */
+            if(debug)
+                CHECK_INFO("NULL global_vol_id entry, consider running the GC");
+            continue;
+        }
+        if(sqlite3_column_bytes(q, 1) != sizeof(*global_vol_id)) {
+            CHECK_ERROR("Invalid revision_blocks entry: global_id");
+            continue;
+        }
+
+        bin2hex(global_vol_id->b, sizeof(global_vol_id->b), hexvolume, sizeof(hexvolume));
+        bin2hex(revision_id->b, sizeof(revision_id->b), hexrev, sizeof(hexrev));
+
+        sqlite3_reset(qvol);
+        if(qbind_blob(qvol, ":global_id", global_vol_id->b, sizeof(global_vol_id->b))) {
+            CHECK_FATAL("Failed to prepare volume get query");
+            ret = -1;
+            goto check_blocks_revmaps_err;
+        }
+
+        r = qstep(qvol);
+        if(r == SQLITE_ROW) {
+            /* Volume exist, check its replica */
+            if(sqlite3_column_int(qvol, 1) != sqlite3_column_int(qvol, 2)) {
+                /* Volume has split replica, avoid reporting false-positives and skip replica check for it. */
+                continue;
+            } else if(sqlite3_column_int(qvol, 1) != sqlite3_column_int(q, 2))
+                CHECK_ERROR("Revision ID %s has replica %u assigned, but refers to a volume %s having replica %u assigned",
+                    hexrev, sqlite3_column_int(q, 2), sqlite3_column_text(qvol, 0), sqlite3_column_int(qvol, 1));
+        } else if(r == SQLITE_DONE) {
+            /* The referred volume should exist if there are entries for the files which belong(ed) to it. It might happen that all the files
+             * from the volume are deleted, then the volume itself and gc has not been run yet. This is non-fatal
+             * as long as the gc drops the entries later. */
+            CHECK_INFO("Revision ID %s refers to a volume with ID %s which does not exist", hexrev, hexvolume);
+        } else {
+            CHECK_FATAL("Failed to check volume for revision ID %s", hexrev);
+            ret = -1;
+            goto check_blocks_revmaps_err;
+        }
+
+        sqlite3_reset(qvol);
+    }
+
+check_blocks_revmaps_err:
+    sqlite3_finalize(q);
+    sqlite3_finalize(qvol);
+    return ret;
+}
+
 /* Check if blocks stored in binary files correspond to hases stored in database */
 static int check_blocks(sx_hashfs_t *h, int debug) {
     int ret = 0, r;
@@ -3855,6 +3986,14 @@ static int check_blocks(sx_hashfs_t *h, int debug) {
 
             /* Look for duplicated hashes */
             r = check_blocks_dups(h, debug, j, i);
+            if(r == -1) {
+                ret = -1;
+                goto check_blocks_itererr;
+            }
+            ret += r;
+
+            /* Look for invalid revision_blocks entries */
+            r = check_blocks_revmaps(h, debug, j, i);
             if(r == -1) {
                 ret = -1;
                 goto check_blocks_itererr;
