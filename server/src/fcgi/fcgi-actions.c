@@ -255,6 +255,10 @@ void volume_ops(void) {
         } else if(!strcmp(volume, ".appendEntries")) { /* Raft AppendEntries request handler */
             quit_unless_has(PRIV_CLUSTER);
             fcgi_raft_append_entries();
+        } else if(!strcmp(volume, ".jobspawn")) {
+            /* Handle spawning local mass jobs, s2s only */
+            quit_unless_has(PRIV_CLUSTER);
+            fcgi_mass_job_schedule();
         } else {
 	    /* Create new volume - ADMIN required */
 	    if(is_reserved())
@@ -425,6 +429,13 @@ void file_ops(void) {
 	    fcgi_blockrevs();
 	    return;
 	}
+
+        if(!strcmp(volume, ".jobspawn")) {
+            /* Handle committing local mass jobs, s2s only */
+            quit_unless_has(PRIV_CLUSTER);
+            fcgi_mass_job_commit();
+            return;
+        }
 
 	if(has_priv(PRIV_CLUSTER)) {
 	    /* New file propagation (s2s) - CLUSTER required */

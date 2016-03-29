@@ -889,6 +889,7 @@ struct _sx_hashfs_t {
     sqlite3_stmt *qe_unlock;
     sqlite3_stmt *qe_gc;
     sqlite3_stmt *qe_count_upgradejobs;
+    sqlite3_stmt *qe_parent;
     int addjob_begun;
 
     sxi_db_t *xferdb;
@@ -1037,6 +1038,7 @@ static void close_all_dbs(sx_hashfs_t *h) {
     sqlite3_finalize(h->qe_unlock);
     sqlite3_finalize(h->qe_gc);
     sqlite3_finalize(h->qe_count_upgradejobs);
+    sqlite3_finalize(h->qe_parent);
 
     sqlite3_finalize(h->rit.q_add);
     sqlite3_finalize(h->rit.q_sel);
@@ -2123,6 +2125,8 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
     if(qprep(h->eventdb, &h->qe_gc, "DELETE FROM jobs WHERE complete=1 AND sched_time <= datetime('now','-1 month')"))
         goto open_hashfs_fail;
     if(qprep(h->eventdb, &h->qe_count_upgradejobs, "SELECT COUNT(*) FROM jobs WHERE complete=0 AND lock='$UPGRADE$UPGRADE'"))
+        goto open_hashfs_fail;
+    if(qprep(h->eventdb, &h->qe_parent, "SELECT j1.parent, j2.type, j2.data FROM jobs AS j1 LEFT JOIN jobs AS j2 ON j1.parent = j2.job WHERE j1.job = :id"))
         goto open_hashfs_fail;
     if(qprep(h->eventdb, &h->rit.q_add, "INSERT OR IGNORE INTO hash_retry(hash, blocksize, id) VALUES(:hash, :blocksize, :hash)"))
         goto open_hashfs_fail;
@@ -11609,12 +11613,221 @@ sx_hashfs_set_job_data_err:
     return ret;
 }
 
-rc_ty sx_hashfs_mass_job_new(sx_hashfs_t *h, sx_uid_t user_id, job_t *job_id, jobtype_t slave_job_type, unsigned int slave_job_timeout, const char *slave_job_lockname, const void *slave_job_data, unsigned int slave_job_data_len, const sx_nodelist_t *targets) {
-    rc_ty ret = FAIL_EINTERNAL, s;
-    sx_blob_t *b = NULL;
-    job_t parent;
+rc_ty sx_hashfs_create_local_mass_job(sx_hashfs_t *h, sx_uid_t uid, job_t *slave_job_id, jobtype_t slave_job_type, time_t slave_job_timeout, const char *slave_job_lockname, const void *slave_job_data, unsigned int slave_job_data_len) {
     const void *job_data;
     unsigned int job_data_len;
+    sx_blob_t *b = NULL;
+    rc_ty s, ret = FAIL_EINTERNAL;
+    job_t job_id;
+    sx_nodelist_t *singlenode = NULL;
+    int locked = 0;
+
+    /* Schedule a batch job slave, will schedule the job on local node only */
+    singlenode = sx_nodelist_new();
+    if(!singlenode) {
+        msg_set_reason("Failed to create a nodelist");
+        return FAIL_EINTERNAL;
+    }
+
+    if(sx_nodelist_add(singlenode, sx_node_dup(sx_hashfs_self(h)))) {
+        msg_set_reason("Failed to add node to nodelist");
+        goto sx_hashfs_commit_local_mass_job_err;
+    }
+
+    b = sx_blob_new();
+    if(!b) {
+        msg_set_reason("Not enought memory to perform requested action");
+        goto sx_hashfs_commit_local_mass_job_err;
+    }
+
+    /* Add the wait flag */
+    if(sx_blob_add_int32(b, 1)) {
+        msg_set_reason("Not enought memory to perform requested action");
+        goto sx_hashfs_commit_local_mass_job_err;
+    }
+
+    if((s = sx_hashfs_job_new_begin(h))) {
+        ret = s;
+        goto sx_hashfs_commit_local_mass_job_err;
+    }
+    locked = 1;
+
+    sx_blob_to_data(b, &job_data, &job_data_len);
+    /* Schedule the delay job locally */
+    s = sx_hashfs_job_new_notrigger(h, JOB_NOPARENT, uid, &job_id, JOBTYPE_DELAY, MASS_JOB_DELAY_TIMEOUT, NULL, job_data, job_data_len, singlenode);
+    if(s != OK) {
+        ret = s;
+        goto sx_hashfs_commit_local_mass_job_err;
+    }
+
+    /* Schedule the slave job locally */
+    if((s = sx_hashfs_job_new_notrigger(h, job_id, uid, slave_job_id, slave_job_type, slave_job_timeout, slave_job_lockname, slave_job_data, slave_job_data_len, singlenode)) != OK) {
+        ret = s;
+        goto sx_hashfs_commit_local_mass_job_err;
+    }
+
+    s = sx_hashfs_job_new_end(h);
+    if(s != OK) {
+        ret = s;
+        goto sx_hashfs_commit_local_mass_job_err;
+    }
+
+    ret = OK;
+sx_hashfs_commit_local_mass_job_err:
+    if(ret != OK && locked)
+        sx_hashfs_job_new_abort(h);
+    sx_nodelist_delete(singlenode);
+    sx_blob_free(b);
+    return ret;
+}
+
+rc_ty sx_hashfs_get_parent_job(sx_hashfs_t *h, job_t job, job_t *parent, jobtype_t *parent_type, sx_blob_t **blob) {
+    const void *job_data;
+    unsigned int job_data_len;
+
+    if(!parent) {
+        NULLARG();
+        return EINVAL;
+    }
+
+    sqlite3_reset(h->qe_parent);
+    if(qbind_int64(h->qe_parent, ":id", job) || qstep_ret(h->qe_parent)) {
+        msg_set_reason("Failed to update job data for job %lld", (long long)job);
+        sqlite3_reset(h->qe_parent);
+        return FAIL_EINTERNAL;
+    }
+
+    *parent = sqlite3_column_int64(h->qe_parent, 0);
+    if(parent_type)
+        *parent_type = sqlite3_column_int(h->qe_parent, 1);
+
+    if(!blob) {
+        sqlite3_reset(h->qe_parent);
+        return OK;
+    }
+
+
+    job_data = sqlite3_column_blob(h->qe_parent, 2);
+    job_data_len = sqlite3_column_bytes(h->qe_parent, 2);
+
+    if(job_data_len && !job_data) {
+        msg_set_reason("Invalid parent job data");
+        sqlite3_reset(h->qe_parent);
+        return FAIL_EINTERNAL;
+    }
+
+    if(job_data && job_data_len)
+        *blob = sx_blob_from_data(job_data, job_data_len);
+    else
+        *blob = sx_blob_new();
+    if(!*blob) {
+        msg_set_reason("Out of memory");
+        sqlite3_reset(h->qe_parent);
+        return FAIL_EINTERNAL;
+    }
+
+    sqlite3_reset(h->qe_parent);
+    return OK;
+}
+
+rc_ty sx_hashfs_commit_local_mass_job(sx_hashfs_t *h, job_t slave_job_id, int lockdb) {
+    const void *job_data;
+    unsigned int job_data_len;
+    sx_blob_t *b = NULL;
+    rc_ty s, ret = FAIL_EINTERNAL;
+    job_t job_id;
+
+    if(lockdb && qbegin(h->eventdb)) {
+        msg_set_reason("Failed to lock database");
+        return FAIL_EINTERNAL;
+    }
+
+    if((s = sx_hashfs_get_parent_job(h, slave_job_id, &job_id, NULL, NULL)) != OK) {
+        ret = s;
+        goto sx_hashfs_commit_local_mass_job_err;
+    }
+
+    b = sx_blob_new();
+    if(!b) {
+        msg_set_reason("Out of memory");
+        return FAIL_EINTERNAL;
+    }
+
+    /* Reset the wait flag to finish the delay job and jump to the actual task. */
+    if(sx_blob_add_int32(b, 0)) {
+        msg_set_reason("Failed to add data to blob");
+        goto sx_hashfs_commit_local_mass_job_err;
+    }
+
+    sx_blob_to_data(b, &job_data, &job_data_len);
+    if((s = sx_hashfs_set_job_data(h, job_id, job_data, job_data_len, JOBMGR_DELAY_MAX, 0)) != OK) {
+        ret = s;
+        goto sx_hashfs_commit_local_mass_job_err;
+    }
+
+    if(lockdb && qcommit(h->eventdb)) {
+        msg_set_reason("Failed to commit job data changes");
+        goto sx_hashfs_commit_local_mass_job_err;
+    }
+
+    ret = OK;
+sx_hashfs_commit_local_mass_job_err:
+    sx_blob_free(b);
+    if(ret && lockdb)
+        qrollback(h->eventdb);
+    return ret;
+}
+
+rc_ty sx_hashfs_mass_job_new_notrigger(sx_hashfs_t *h, job_t parent, sx_uid_t user_id, job_t *job_id, jobtype_t slave_job_type, unsigned int slave_job_timeout, const char *slave_job_lockname, const void *slave_job_data, unsigned int slave_job_data_len, const sx_nodelist_t *targets) {
+    rc_ty ret = FAIL_EINTERNAL, s;
+    sx_blob_t *b = NULL;
+    job_t job;
+    const void *job_data;
+    unsigned int job_data_len;
+
+    /* Parent job will be a spawning job, it should receive a slave job data together with a child job ID and the slave job type */
+    s = sx_hashfs_job_new_notrigger(h, parent, user_id, &job, JOBTYPE_JOBSPAWN, MASS_JOB_DELAY_TIMEOUT, NULL, NULL, 0, targets);
+    if(s != OK) {
+        ret = s;
+        goto sx_hashfs_mass_job_new_notrigger_err;
+    }
+
+    /* Child job has no job data set here, it is gonna receive it when spawning job is called */
+    s = sx_hashfs_job_new_notrigger(h, job, user_id, job_id, JOBTYPE_JOBPOLL, slave_job_timeout, NULL, NULL, 0, targets);
+    if(s != OK) {
+        ret = s;
+        goto sx_hashfs_mass_job_new_notrigger_err;
+    }
+
+    b = sx_blob_new();
+    if(!b) {
+        msg_set_reason("Failed to allocate job data");
+        goto sx_hashfs_mass_job_new_notrigger_err;
+    }
+
+    /* Save slave job data together with child job ID */
+    if(sx_blob_add_int64(b, *job_id) || sx_blob_add_int32(b, slave_job_type) || sx_blob_add_int32(b, slave_job_timeout) ||
+       sx_blob_add_string(b, slave_job_lockname) || sx_blob_add_blob(b, slave_job_data, slave_job_data_len)) {
+        msg_set_reason("Failed to prepare job data");
+        goto sx_hashfs_mass_job_new_notrigger_err;
+    }
+
+    /* Update parent job data to contain all needed values. Needs to be done after child job is scheduled in order to provide 
+     * its job ID which will be used for further job data change */
+    sx_blob_to_data(b, &job_data, &job_data_len);
+    if(sx_hashfs_set_job_data(h, job, job_data, job_data_len, 0, 0)) {
+        msg_set_reason("Failed to apply parent job data");
+        goto sx_hashfs_mass_job_new_notrigger_err;
+    }
+
+    ret = OK;
+sx_hashfs_mass_job_new_notrigger_err:
+    sx_blob_free(b);
+    return ret;
+}
+
+rc_ty sx_hashfs_mass_job_new(sx_hashfs_t *h, job_t parent, sx_uid_t user_id, job_t *job_id, jobtype_t slave_job_type, unsigned int slave_job_timeout, const char *slave_job_lockname, const void *slave_job_data, unsigned int slave_job_data_len, const sx_nodelist_t *targets) {
+    rc_ty ret = FAIL_EINTERNAL, s;
 
     if(!targets || !job_id) {
         msg_set_reason("NULL argument");
@@ -11625,40 +11838,9 @@ rc_ty sx_hashfs_mass_job_new(sx_hashfs_t *h, sx_uid_t user_id, job_t *job_id, jo
     if(s != OK)
         return s;
 
-    /* Parent job will be a spawning job, it should receive a slave job data together with a child job ID and the slave job type */
-    s = sx_hashfs_job_new_notrigger(h, JOB_NOPARENT, user_id, &parent, JOBTYPE_JOBSPAWN, slave_job_timeout, NULL, NULL, 0, targets);
-    if(s != OK) {
-        ret = s;
+    s = sx_hashfs_mass_job_new_notrigger(h, parent, user_id, job_id, slave_job_type, slave_job_timeout, slave_job_lockname, slave_job_data, slave_job_data_len, targets);
+    if(s != OK)
         goto sx_hashfs_mass_job_new_err;
-    }
-
-    /* Child job has no job data set here, it is gonna receive it when spawning job is called */
-    s = sx_hashfs_job_new_notrigger(h, parent, user_id, job_id, JOBTYPE_JOBPOLL, MASS_JOB_TIMEOUT, NULL, NULL, 0, targets);
-    if(s != OK) {
-        ret = s;
-        goto sx_hashfs_mass_job_new_err;
-    }
-
-    b = sx_blob_new();
-    if(!b) {
-        msg_set_reason("Failed to allocate job data");
-        goto sx_hashfs_mass_job_new_err;
-    }
-
-    /* Save slave job data together with child job ID */
-    if(sx_blob_add_int64(b, *job_id) || sx_blob_add_int32(b, slave_job_type) || sx_blob_add_int32(b, slave_job_timeout) ||
-       sx_blob_add_string(b, slave_job_lockname) || sx_blob_add_blob(b, slave_job_data, slave_job_data_len)) {
-        msg_set_reason("Failed to prepare job data");
-        goto sx_hashfs_mass_job_new_err;
-    }
-
-    /* Update parent job data to contain all needed values. Needs to be done after child job is scheduled in order to provide 
-     * its job ID which will be used for further job data change */
-    sx_blob_to_data(b, &job_data, &job_data_len);
-    if(sx_hashfs_set_job_data(h, parent, job_data, job_data_len, 0, 0)) {
-        msg_set_reason("Failed to apply parent job data");
-        goto sx_hashfs_mass_job_new_err;
-    }
 
     /* All jobs are scheduled properly now, apply and trigger them */
     s = sx_hashfs_job_new_end(h);
@@ -11671,7 +11853,6 @@ rc_ty sx_hashfs_mass_job_new(sx_hashfs_t *h, sx_uid_t user_id, job_t *job_id, jo
 sx_hashfs_mass_job_new_err:
     if(ret != OK)
         sx_hashfs_job_new_abort(h);
-    sx_blob_free(b);
     return ret;
 }
 
@@ -13396,6 +13577,7 @@ static const char *locknames[] = {
     NULL, /* JOBTYPE_JOBSPAWN */
     "CLUSTER_SETTINGS", /* JOBTYPE_CLUSTER_SETTINGS */
     NULL, /* JOBTYPE_JUNLOCKALL */
+    NULL, /* JOBTYPE_DELAY */
 };
 
 #define MAX_PENDING_JOBS 128

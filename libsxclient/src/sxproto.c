@@ -1195,3 +1195,78 @@ sxi_query_t *sxi_raft_append_entries_finish(sxc_client_t *sx, sxi_query_t *query
 
     return query;
 }
+
+sxi_query_t *sxi_mass_job_proto(sxc_client_t *sx, unsigned int job_type, time_t job_timeout, const char *job_lockname, const void *job_data, unsigned int job_data_len) {
+    sxi_query_t *ret;
+    char *enc_lockname = NULL;
+
+    ret = sxi_query_create(sx, ".jobspawn", REQ_PUT);
+    if(!ret) {
+        sxi_seterr(sx, SXE_EMEM, "Out of memory");
+        return NULL;
+    }
+
+    if(job_lockname) {
+        enc_lockname = sxi_json_quote_string(job_lockname);
+        if(!enc_lockname) {
+            sxi_query_free(ret);
+            sxi_seterr(sx, SXE_EMEM, "Failed to json-encode job lockname");
+            return NULL;
+        }
+    }
+
+    ret = sxi_query_append_fmt(sx, ret, lenof("{\"job_type\":,\"job_timeout\":,\"job_lockname\":") + 40 + (enc_lockname ? strlen(enc_lockname) : 0) + 1,
+        "{\"job_type\":%u,\"job_timeout\":%lld,\"job_lockname\":%s", job_type, (long long)job_timeout, enc_lockname);
+    free(enc_lockname);
+    if(!ret) {
+        sxi_seterr(sx, SXE_EMEM, "Failed to prepare query");
+        return NULL;
+    }
+
+    if(job_data && job_data_len) {
+        char *hex;
+
+        hex = malloc(job_data_len * 2 + 1);
+        if(!hex) {
+            sxi_seterr(sx, SXE_EMEM, "Failed to allocate memory");
+            sxi_query_free(ret);
+            return NULL;
+        }
+
+        sxi_bin2hex(job_data, job_data_len, hex);
+        ret = sxi_query_append_fmt(sx, ret, lenof(",\"job_data\":\"\"") + job_data_len*2, ",\"job_data\":\"%s\"", hex);
+        free(hex);
+        if(!ret) {
+            sxi_seterr(sx, SXE_EMEM, "Failed to prepare query");
+            return NULL;
+        }
+    }
+
+    ret = sxi_query_append_fmt(sx, ret, 1, "}");
+    if(!ret) {
+        sxi_seterr(sx, SXE_EMEM, "Failed to prepare query");
+        return NULL;
+    }
+
+    return ret;
+}
+
+sxi_query_t *sxi_mass_job_commit_proto(sxc_client_t *sx, const char *job_id) {
+    char url[128];
+    sxi_query_t *ret;
+
+    if(!job_id) {
+        sxi_seterr(sx, SXE_EARG, "Invalid argument");
+        return NULL;
+    }
+
+    snprintf(url, sizeof(url), ".jobspawn/%s", job_id);
+
+    ret = sxi_query_create(sx, url, REQ_PUT);
+    if(!ret) {
+        sxi_seterr(sx, SXE_EMEM, "Out of memory");
+        return NULL;
+    }
+
+    return ret;
+}

@@ -60,7 +60,7 @@
 #define QUOTA_UNLIMITED 0LL
 #define SX_CUSTOM_META_PREFIX "$custom$"
 
-#define MASS_JOB_INITIAL_TIMEOUT 60
+#define MASS_JOB_DELAY_TIMEOUT 60
 #define MASS_JOB_TIMEOUT 3600
 
 /* Limits for raft log entries (per one request) */
@@ -387,7 +387,8 @@ rc_ty sx_hashfs_filedelete_job(sx_hashfs_t *h, sx_uid_t user_id, const sx_hashfs
 rc_ty sx_hashfs_file_rename(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const struct timeval *tv, const char *oldname, const char *revision, const char *newname);
 
 /* Create and schedule mass jobs */
-rc_ty sx_hashfs_mass_job_new(sx_hashfs_t *h, sx_uid_t user_id, job_t *job_id, jobtype_t slave_job_type, unsigned int slave_job_timeout, const char *slave_job_lockname, const void *slave_job_data, unsigned int slave_job_data_len, const sx_nodelist_t *targets);
+rc_ty sx_hashfs_mass_job_new(sx_hashfs_t *h, job_t parent, sx_uid_t user_id, job_t *job_id, jobtype_t slave_job_type, unsigned int slave_job_timeout, const char *slave_job_lockname, const void *slave_job_data, unsigned int slave_job_data_len, const sx_nodelist_t *targets);
+rc_ty sx_hashfs_mass_job_new_notrigger(sx_hashfs_t *h, job_t parent, sx_uid_t user_id, job_t *job_id, jobtype_t slave_job_type, unsigned int slave_job_timeout, const char *slave_job_lockname, const void *slave_job_data, unsigned int slave_job_data_len, const sx_nodelist_t *targets);
 
 /* Users */
 typedef enum {
@@ -418,6 +419,9 @@ rc_ty sx_hashfs_job_lock(sx_hashfs_t *h, const char *owner);
 rc_ty sx_hashfs_job_unlock(sx_hashfs_t *h, const char *owner);
 unsigned int sx_hashfs_job_file_timeout(sx_hashfs_t *h, unsigned int ndests, uint64_t size);
 rc_ty sx_hashfs_set_job_data(sx_hashfs_t *h, job_t job, const void *data, unsigned int len, unsigned int expires_in, int lockdb);
+rc_ty sx_hashfs_create_local_mass_job(sx_hashfs_t *h, sx_uid_t uid, job_t *slave_job_id, jobtype_t slave_job_type, time_t slave_job_timeout, const char *slave_job_lockname, const void *slave_job_data, unsigned int slave_job_data_len);
+rc_ty sx_hashfs_commit_local_mass_job(sx_hashfs_t *h, job_t slave_job_id, int lockdb);
+rc_ty sx_hashfs_get_parent_job(sx_hashfs_t *h, job_t job, job_t *parent, jobtype_t *parent_type, sx_blob_t **blob);
 
 /* Xfers */
 #define FLOW_DEFAULT_UID 0

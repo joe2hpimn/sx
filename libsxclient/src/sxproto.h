@@ -150,4 +150,9 @@ sxi_query_t *sxi_raft_append_entries_add(sxc_client_t *sx, sxi_query_t *query, i
  */
 sxi_query_t *sxi_raft_append_entries_finish(sxc_client_t *sx, sxi_query_t *query);
 
+/* Schedule mass job slaves on the cluster nodes, used for s2s only */
+sxi_query_t *sxi_mass_job_proto(sxc_client_t *sx, unsigned int job_type, time_t job_timeout, const char *job_lockname, const void *job_data, unsigned int job_data_len);
+/* Commit a mass job slave on a cluster node, used for s2s only */
+sxi_query_t *sxi_mass_job_commit_proto(sxc_client_t *sx, const char *job_id);
+
 #endif
