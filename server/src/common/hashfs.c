@@ -759,6 +759,7 @@ struct _sx_hashfs_t {
     sqlite3_stmt *q_revoke;
     sqlite3_stmt *q_volbyname;
     sqlite3_stmt *q_volbyid;
+    sqlite3_stmt *q_volbygid;
     sqlite3_stmt *q_umetaget;
     sqlite3_stmt *q_addumeta;
     sqlite3_stmt *q_drop_custom_umeta;
@@ -1182,6 +1183,7 @@ static void close_all_dbs(sx_hashfs_t *h) {
 
     sqlite3_finalize(h->q_volbyname);
     sqlite3_finalize(h->q_volbyid);
+    sqlite3_finalize(h->q_volbygid);
     sqlite3_finalize(h->q_umetaget);
     sqlite3_finalize(h->q_vmetaget);
     sqlite3_finalize(h->q_addumeta);
@@ -1798,12 +1800,14 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
         goto open_hashfs_fail;
     /* To keep the next query simple we do not check if the user is enabled
      * This is preliminary enforced in auth_begin */
-    if(qprep(h->db, &h->q_nextvol, "SELECT volumes.vid, volumes.volume, volumes.replica, volumes.cursize, volumes.maxsize, volumes.owner_id, volumes.revs, volumes.changed, volumes.cursize_files, volumes.nfiles FROM volumes LEFT JOIN privs ON privs.volume_id = volumes.vid WHERE volumes.volume > :previous AND volumes.enabled = 1 AND (:user IS NULL OR (privs.priv > 0 AND privs.user_id IN (SELECT uid FROM users WHERE SUBSTR(user,1,"STRIFY(AUTH_CID_LEN)")=SUBSTR(:user,1,"STRIFY(AUTH_CID_LEN)")))) ORDER BY volumes.volume ASC LIMIT 1"))
+    if(qprep(h->db, &h->q_nextvol, "SELECT volumes.vid, volumes.volume, volumes.replica, volumes.cursize, volumes.maxsize, volumes.owner_id, volumes.revs, volumes.changed, volumes.cursize_files, volumes.nfiles, volumes.global_id FROM volumes LEFT JOIN privs ON privs.volume_id = volumes.vid WHERE volumes.volume > :previous AND volumes.enabled = 1 AND (:user IS NULL OR (privs.priv > 0 AND privs.user_id IN (SELECT uid FROM users WHERE SUBSTR(user,1,"STRIFY(AUTH_CID_LEN)")=SUBSTR(:user,1,"STRIFY(AUTH_CID_LEN)")))) ORDER BY volumes.volume ASC LIMIT 1"))
 	goto open_hashfs_fail;
-    if(qprep(h->db, &h->q_volbyname, "SELECT vid, volume, replica, cursize, maxsize, owner_id, revs, changed, volumes.cursize_files, volumes.nfiles FROM volumes WHERE volume = :name AND enabled = 1"))
+    if(qprep(h->db, &h->q_volbyname, "SELECT vid, volume, replica, cursize, maxsize, owner_id, revs, changed, volumes.cursize_files, volumes.nfiles, volumes.global_id FROM volumes WHERE volume = :name AND enabled = 1"))
 	goto open_hashfs_fail;
-    if(qprep(h->db, &h->q_volbyid, "SELECT vid, volume, replica, cursize, maxsize, owner_id, revs, changed, volumes.cursize_files, volumes.nfiles FROM volumes WHERE vid = :volid AND enabled = 1"))
+    if(qprep(h->db, &h->q_volbyid, "SELECT vid, volume, replica, cursize, maxsize, owner_id, revs, changed, volumes.cursize_files, volumes.nfiles, volumes.global_id FROM volumes WHERE vid = :volid AND enabled = 1"))
 	goto open_hashfs_fail;
+    if(qprep(h->db, &h->q_volbygid, "SELECT vid, volume, replica, cursize, maxsize, owner_id, revs, changed, volumes.cursize_files, volumes.nfiles, volumes.global_id FROM volumes WHERE global_id = :global_id AND enabled = 1"))
+        goto open_hashfs_fail;
     if(qprep(h->db, &h->q_vmetaget, "SELECT key, value FROM vmeta WHERE volume_id = :volume"))
 	goto open_hashfs_fail;
     if(qprep(h->db, &h->q_drop_cluster_meta, "DELETE FROM hashfs WHERE key LIKE '"SX_CLUSTER_META_PREFIX"%'"))
@@ -1819,8 +1823,8 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
     if(qprep(h->db, &h->q_set_prefixed_keyval, "INSERT OR REPLACE INTO hashfs (key,value) VALUES (:prefix || :key, :value)"))
         goto open_hashfs_fail;
 
-    if(qprep(h->db, &h->q_addvol, "INSERT INTO volumes (volume, replica, revs, cursize, maxsize, owner_id) VALUES (:volume, :replica, :revs, 0, :size, :owner)"))
-	goto open_hashfs_fail;
+    if(qprep(h->db, &h->q_addvol, "INSERT INTO volumes (volume, replica, revs, cursize, maxsize, owner_id, global_id) VALUES (:volume, :replica, :revs, 0, :size, :owner, :global_id)"))
+        goto open_hashfs_fail;
     if(qprep(h->db, &h->q_addvolmeta, "INSERT INTO vmeta (volume_id, key, value) VALUES (:volume, :key, :value)"))
 	goto open_hashfs_fail;
     if(qprep(h->db, &h->q_drop_custom_volmeta, "DELETE FROM vmeta WHERE volume_id = :volume AND key LIKE '"SX_CUSTOM_META_PREFIX"%'"))
@@ -3533,7 +3537,7 @@ check_volumes_err:
     return ret;
 }
 
-static rc_ty volume_get_common(sx_hashfs_t *h, const char *name, int64_t volid, const sx_hashfs_volume_t **volume);
+static rc_ty volume_get_common(sx_hashfs_t *h, const char *name, const sx_hash_t *global_vol_id, int64_t volid, const sx_hashfs_volume_t **volume);
 
 /* Iterate over meta databases and check all files for their correctness */
 static int check_files(sx_hashfs_t *h, int debug) {
@@ -4269,6 +4273,74 @@ static rc_ty upgrade_db(int lockfd, const char *path, sxi_db_t *db, const sx_has
 }
 
 /* Version upgrade 2.1.3 -> 2.1.4 */
+static rc_ty hashfs_2_1_3_to_2_1_4(sxi_db_t *db)
+{
+    rc_ty ret = FAIL_EINTERNAL;
+    sqlite3_stmt *q = NULL;
+    sqlite3_stmt *qsel = NULL;
+    do {
+        int r;
+        sx_uuid_t clust_uuid;
+
+        if(qprep(db, &q, "ALTER TABLE volumes ADD COLUMN global_id BLOB("STRIFY(SXI_SHA1_BIN_LEN)") DEFAULT NULL") || qstep_noret(q))
+            break;
+        qnullify(q);
+
+        if(qprep(db, &q, "CREATE UNIQUE INDEX global_id ON volumes(global_id)") || qstep_noret(q))
+            break;
+        qnullify(q);
+
+        /* Pick the cluster UUID first, it'll be needed to complute the global volume ID */
+        if(qprep(db, &q, "SELECT value FROM hashfs WHERE key = 'cluster'") || qstep_ret(q))
+            break;
+        if(!sqlite3_column_blob(q, 0) || sqlite3_column_bytes(q, 0) != UUID_BINARY_SIZE) {
+            WARN("Invalid cluster UUID: %p, %d", sqlite3_column_blob(q, 0), sqlite3_column_bytes(q, 0));
+            break;
+        }
+        uuid_from_binary(&clust_uuid, sqlite3_column_blob(q, 0));
+        qnullify(q);
+
+        if(qprep(db, &qsel, "SELECT vid, volume FROM volumes"))
+            break;
+
+        if(qprep(db, &q, "UPDATE volumes SET global_id = :global_id WHERE vid = :vid"))
+            break;
+
+        while((r = qstep(qsel)) == SQLITE_ROW) {
+            int64_t vid = sqlite3_column_int64(qsel, 0);
+            const char *volume = (const char*)sqlite3_column_text(qsel, 1);
+            sx_hash_t global_id;
+
+            if(!volume) {
+                WARN("Invalid volume name");
+                break;
+            }
+
+            if(hash_buf(clust_uuid.string, strlen(clust_uuid.string), volume, strlen(volume), &global_id)) {
+                WARN("Failed to compute global volume ID");
+                break;
+            }
+
+            if(qbind_blob(q, ":global_id", global_id.b, sizeof(global_id.b)) || qbind_int64(q, ":vid", vid) || qstep_noret(q)) {
+                WARN("Failed to update global volume ID for %lld", (long long)vid);
+                break;
+            }
+            sqlite3_reset(q);
+        }
+
+        qnullify(q);
+        qnullify(qsel);
+
+        if(r != SQLITE_DONE)
+            break;
+
+        ret = OK;
+    } while(0);
+    qnullify(q);
+    qnullify(qsel);
+    return ret;
+}
+
 static rc_ty xfer_2_1_3_to_2_1_4(sxi_db_t *db) {
     rc_ty ret = FAIL_EINTERNAL;
     sqlite3_stmt *q = NULL;
@@ -4916,6 +4988,7 @@ static const sx_upgrade_t upgrade_sequence[] = {
     {
 	.from = HASHFS_VERSION_2_1_3,
         .to = HASHFS_VERSION_2_1_4,
+        .upgrade_hashfsdb = hashfs_2_1_3_to_2_1_4,
         .upgrade_xfersdb = xfer_2_1_3_to_2_1_4,
         .job = JOBTYPE_DUMMY
     }
@@ -8051,6 +8124,7 @@ rc_ty sx_hashfs_volume_new_finish(sx_hashfs_t *h, const char *volume, int64_t si
     rc_ty ret = FAIL_EINTERNAL, s;
     int64_t volid, privholder = -1;
     int r;
+    sx_hash_t global_id;
 
     if(!h) {
 	NULLARG();
@@ -8060,6 +8134,12 @@ rc_ty sx_hashfs_volume_new_finish(sx_hashfs_t *h, const char *volume, int64_t si
     sqlite3_reset(h->q_addvol);
     sqlite3_reset(h->q_addvolmeta);
     sqlite3_reset(h->q_addvolprivs);
+
+    /* The global volume ID becomes a hash of the volume name. It is unique among the cluster nodes. */
+    if(hash_buf(h->cluster_uuid.string, strlen(h->cluster_uuid.string), volume, strlen(volume), &global_id)) {
+        msg_set_reason("Failed to calculate global volume ID");
+        return FAIL_EINTERNAL;
+    }
 
     if(do_transaction && qbegin(h->db))
 	return FAIL_EINTERNAL;
@@ -8073,7 +8153,8 @@ rc_ty sx_hashfs_volume_new_finish(sx_hashfs_t *h, const char *volume, int64_t si
        qbind_int(h->q_addvol, ":replica", replica) ||
        qbind_int(h->q_addvol, ":revs", revisions) ||
        qbind_int64(h->q_addvol, ":size", size) ||
-       qbind_int64(h->q_addvol, ":owner", uid))
+       qbind_int64(h->q_addvol, ":owner", uid) ||
+       qbind_blob(h->q_addvol, ":global_id", global_id.b, sizeof(global_id.b)))
 	goto volume_new_err;
 
     r = qstep(h->q_addvol);
@@ -8318,6 +8399,7 @@ static rc_ty volume_next_common(sx_hashfs_t *h) {
     rc_ty res = FAIL_EINTERNAL;
     unsigned int replica_loss;
     int r;
+    const void *global_id;
 
     if(!h) {
         WARN("Called with invalid arguments");
@@ -8345,6 +8427,10 @@ static rc_ty volume_next_common(sx_hashfs_t *h) {
     if(!name)
         goto volume_next_common_err;
 
+    global_id = sqlite3_column_blob(h->q_nextvol, 10);
+    if(!global_id || sqlite3_column_bytes(h->q_nextvol, 10) != SXI_SHA1_BIN_LEN)
+        goto volume_next_common_err;
+
     sxi_strlcpy(h->curvol.name, name, sizeof(h->curvol.name));
     h->curvol.id = sqlite3_column_int64(h->q_nextvol, 0);
     h->curvol.max_replica = sqlite3_column_int(h->q_nextvol, 2);
@@ -8355,6 +8441,7 @@ static rc_ty volume_next_common(sx_hashfs_t *h) {
     h->curvol.changed = sqlite3_column_int64(h->q_nextvol, 7);
     h->curvol.usage_files = sqlite3_column_int64(h->q_nextvol, 8);
     h->curvol.nfiles = sqlite3_column_int64(h->q_nextvol, 9);
+    memcpy(h->curvol.global_id.b, global_id, sizeof(h->curvol.global_id.b));
 
     replica_loss = (h->next_maxreplica - h->effective_maxreplica);
     if(h->curvol.max_replica > replica_loss)
@@ -8380,10 +8467,11 @@ rc_ty sx_hashfs_volume_next(sx_hashfs_t *h) {
 }
 
 
-static rc_ty volume_get_common(sx_hashfs_t *h, const char *name, int64_t volid, const sx_hashfs_volume_t **volume) {
+static rc_ty volume_get_common(sx_hashfs_t *h, const char *name, const sx_hash_t *global_vol_id, int64_t volid, const sx_hashfs_volume_t **volume) {
     sqlite3_stmt *q;
     rc_ty res = FAIL_EINTERNAL;
     int r;
+    const void *global_id;
 
     if(!h || !volume) {
 	WARN("Called with invalid arguments");
@@ -8395,6 +8483,11 @@ static rc_ty volume_get_common(sx_hashfs_t *h, const char *name, int64_t volid, 
 	sqlite3_reset(q);
 	if(qbind_text(q, ":name", name))
 	    goto volume_err;
+    } else if(global_vol_id) {
+        q = h->q_volbygid;
+        sqlite3_reset(q);
+        if(qbind_blob(q, ":global_id", global_vol_id->b, sizeof(global_vol_id->b)))
+            goto volume_err;
     } else {
 	q = h->q_volbyid;
 	sqlite3_reset(q);
@@ -8412,6 +8505,10 @@ static rc_ty volume_get_common(sx_hashfs_t *h, const char *name, int64_t volid, 
     if(!name)
 	goto volume_err;
 
+    global_id = sqlite3_column_blob(q, 10);
+    if(!global_id || sqlite3_column_bytes(q, 10) != SXI_SHA1_BIN_LEN)
+        goto volume_err;
+
     sxi_strlcpy(h->curvol.name, name, sizeof(h->curvol.name));
     h->curvol.id = sqlite3_column_int64(q, 0);
     h->curvol.max_replica = sqlite3_column_int(q, 2);
@@ -8422,6 +8519,7 @@ static rc_ty volume_get_common(sx_hashfs_t *h, const char *name, int64_t volid, 
     h->curvol.changed = sqlite3_column_int64(q, 7);
     h->curvol.usage_files = sqlite3_column_int64(q, 8);
     h->curvol.nfiles = sqlite3_column_int64(q, 9);
+    memcpy(h->curvol.global_id.b, global_id, sizeof(h->curvol.global_id.b));
 
     if(is_subreplica(h, h->curvol.max_replica)) {
 	res = ENOENT;
@@ -8488,7 +8586,7 @@ rc_ty sx_hashfs_grant(sx_hashfs_t *h, uint64_t uid, const char *volume, int priv
         int64_t privholder = -1;
         char name[SXLIMIT_MAX_USERNAME_LEN+1];
 
-	rc = volume_get_common(h, volume, -1, &vol);
+	rc = volume_get_common(h, volume, NULL, -1, &vol);
 	if (rc) {
 	    WARN("Cannot retrieve volume id for '%s': %s", volume, rc2str(rc));
 	    break;
@@ -8534,7 +8632,7 @@ rc_ty sx_hashfs_revoke(sx_hashfs_t *h, uint64_t uid, const char *volume, int pri
         int64_t privholder;
         char name[SXLIMIT_MAX_USERNAME_LEN+1];
 
-	rc = volume_get_common(h, volume, -1, &vol);
+	rc = volume_get_common(h, volume, NULL, -1, &vol);
 	if (rc) {
 	    WARN("Cannot retrieve volume id for '%s': %s", volume, rc2str(rc));
 	    break;
@@ -8573,11 +8671,15 @@ rc_ty sx_hashfs_volume_by_name(sx_hashfs_t *h, const char *name, const sx_hashfs
 	return EINVAL;
     }
 
-    return volume_get_common(h, name, 0, volume);
+    return volume_get_common(h, name, NULL, 0, volume);
 }
 
 rc_ty sx_hashfs_volume_by_id(sx_hashfs_t *h, int64_t volid, const sx_hashfs_volume_t **volume) {
-    return volume_get_common(h, NULL, volid, volume);
+    return volume_get_common(h, NULL, NULL, volid, volume);
+}
+
+rc_ty sx_hashfs_volume_by_global_id(sx_hashfs_t *h, const sx_hash_t *global_id, const sx_hashfs_volume_t **volume) {
+    return volume_get_common(h, NULL, global_id, 0, volume);
 }
 
 static void sx_hashfs_getfile_reset(sx_hashfs_t *h)

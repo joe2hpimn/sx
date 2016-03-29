@@ -230,6 +230,8 @@ typedef struct _sx_hashfs_volume_t {
     int64_t usage_files;
     /* Number of files stored in the volume. */
     int64_t nfiles;
+    /* Global volume ID shared between cluster nodes */
+    sx_hash_t global_id;
 
     unsigned int max_replica;
     unsigned int effective_replica;
@@ -247,6 +249,7 @@ rc_ty sx_hashfs_volume_first(sx_hashfs_t *h, const sx_hashfs_volume_t **volume, 
 rc_ty sx_hashfs_volume_next(sx_hashfs_t *h);
 rc_ty sx_hashfs_volume_by_name(sx_hashfs_t *h, const char *name, const sx_hashfs_volume_t **volume);
 rc_ty sx_hashfs_volume_by_id(sx_hashfs_t *h, int64_t id, const sx_hashfs_volume_t **volume);
+rc_ty sx_hashfs_volume_by_global_id(sx_hashfs_t *h, const sx_hash_t *global_id, const sx_hashfs_volume_t **volume);
 rc_ty sx_hashfs_volumemeta_begin(sx_hashfs_t *h, const sx_hashfs_volume_t *volume);
 rc_ty sx_hashfs_volumemeta_next(sx_hashfs_t *h, const char **key, const void **value, unsigned int *value_len);
 rc_ty sx_hashfs_all_volnodes(sx_hashfs_t *h, sx_hashfs_nl_t which, const sx_hashfs_volume_t *volume, int64_t size, sx_nodelist_t **nodes, unsigned int *block_size);
