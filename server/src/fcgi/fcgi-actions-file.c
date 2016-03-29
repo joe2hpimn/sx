@@ -267,11 +267,14 @@ void fcgi_create_file(void) {
     jparse_t *J;
     int len;
     rc_ty s;
+    sx_hash_t revid;
 
     quit_unless_has(PRIV_CLUSTER); /* Just in case */
 
-    if(!has_arg("rev"))
+    if(!has_arg("rev") || !has_arg("revid") || strlen(get_arg("revid")) != SXI_SHA1_TEXT_LEN)
 	quit_errmsg(500, "File revision missing");
+    if(hex2bin(get_arg("revid"), SXI_SHA1_TEXT_LEN, revid.b, sizeof(revid.b)))
+        quit_errmsg(400, "Failed to parse revision ID");
 
     s = sx_hashfs_createfile_begin(hashfs);
     switch (s) {
@@ -310,7 +313,7 @@ void fcgi_create_file(void) {
     auth_complete();
     quit_unless_authed();
 
-    s = sx_hashfs_createfile_commit(hashfs, volume, path, get_arg("rev"), yctx.filesize, 0);
+    s = sx_hashfs_createfile_commit(hashfs, volume, path, get_arg("rev"), &revid, yctx.filesize, 0);
     if(s != OK)
 	quit_errmsg(rc2http(s), msg_get_reason());
 
@@ -479,6 +482,7 @@ static int rplfiles_cb(const sx_hashfs_volume_t *volume, const sx_hashfs_file_t 
        sx_blob_add_int32(c->b, nblocks) ||
        sx_blob_add_string(c->b, file->name) ||
        sx_blob_add_string(c->b, file->revision) ||
+       sx_blob_add_blob(c->b, file->revision_id.b, sizeof(file->revision_id.b)) ||
        sx_blob_add_int64(c->b, file->file_size))
 	return 0;
     if(sx_hashfs_getfilemeta_begin(hashfs, volume->name, file->name, file->revision, NULL, NULL))

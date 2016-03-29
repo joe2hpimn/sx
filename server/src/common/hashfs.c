@@ -2090,7 +2090,7 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 	    goto open_hashfs_fail;
 	if(qprep(h->metadb[i], &h->qm_addrelocs[i], "INSERT INTO relocs (file_id, dest) SELECT fid, :node FROM files WHERE volume_id = :volid AND age >= 0"))
 	    goto open_hashfs_fail;
-	if(qprep(h->metadb[i], &h->qm_getreloc[i], "SELECT file_id, dest, volume_id, name, size, rev, content FROM relocs LEFT JOIN files ON relocs.file_id = files.fid WHERE file_id > :prev AND age >= 0 LIMIT 1"))
+	if(qprep(h->metadb[i], &h->qm_getreloc[i], "SELECT file_id, dest, volume_id, name, size, rev, content, revision_id FROM relocs LEFT JOIN files ON relocs.file_id = files.fid WHERE file_id > :prev AND age >= 0 LIMIT 1"))
 	    goto open_hashfs_fail;
 	if(qprep(h->metadb[i], &h->qm_delreloc[i], "DELETE FROM relocs WHERE file_id = :fileid"))
 	    goto open_hashfs_fail;
@@ -10545,11 +10545,12 @@ rc_ty sx_hashfs_delete_old_revs(sx_hashfs_t *h, const sx_hashfs_volume_t *volume
 }
 
 /* WARNING: MUST BE CALLED WITHIN A TANSACTION ON META !!! */
-static rc_ty create_file(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const char *name, const char *revision, sx_hash_t *blocks, unsigned int nblocks, int64_t size, int64_t totalsize, int64_t *file_id) {
+static rc_ty create_file(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const char *name, const char *revision, const sx_hash_t *revision_id, sx_hash_t *blocks, unsigned int nblocks, int64_t size, int64_t totalsize, int64_t *file_id) {
     unsigned int nblocks2;
     int r, mdb;
     sqlite3_stmt *q;
     rc_ty s;
+    sx_hash_t revid;
 
     if(!h || !volume || !name || !revision || (!blocks && nblocks)) {
 	NULLARG();
@@ -10623,13 +10624,19 @@ static rc_ty create_file(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const
         return OK;
     }
 
-    sx_hash_t revision_id;
+    /* Revision ID has been provided, use the one */
+    if(revision_id)
+        memcpy(revid.b, revision_id->b, sizeof(revid.b));
+    else if(sx_unique_fileid(sx_hashfs_client(h), revision, &revid)) {
+        WARN("Failed to compute revision ID");
+        return FAIL_EINTERNAL;
+    }
+
     sqlite3_reset(h->qm_ins[mdb]);
     if(qbind_int64(h->qm_ins[mdb], ":volume", volume->id) ||
        qbind_text(h->qm_ins[mdb], ":name", name) ||
        qbind_text(h->qm_ins[mdb], ":revision", revision) ||
-       sx_unique_fileid(sx_hashfs_client(h), revision, &revision_id) ||
-       qbind_blob(h->qm_ins[mdb], ":revision_id", &revision_id, sizeof(revision_id)) ||
+       qbind_blob(h->qm_ins[mdb], ":revision_id", &revid, sizeof(revid)) ||
        qbind_int64(h->qm_ins[mdb], ":size", size) ||
        qbind_int64(h->qm_ins[mdb], ":age", sxi_hdist_version(h->hd)) ||
        qbind_blob(h->qm_ins[mdb], ":hashes", nblocks ? (const void *)blocks : "", nblocks * sizeof(blocks[0]))) {
@@ -10662,7 +10669,7 @@ static rc_ty create_file(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const
  *                     a volume replica change process. In that case the volnodes list size should be considered as a 
  *                     MAX(prev_replica, next_replica) in order to properly revert volume replica decrease changes.
  */
-rc_ty sx_hashfs_createfile_commit(sx_hashfs_t *h, const char *volume, const char *name, const char *revision, int64_t size, int allow_over_replica) {
+rc_ty sx_hashfs_createfile_commit(sx_hashfs_t *h, const char *volume, const char *name, const char *revision, const sx_hash_t *revision_id, int64_t size, int allow_over_replica) {
     const sx_hashfs_volume_t *vol;
     unsigned int i, nblocks;
     int64_t file_id, totalsize;
@@ -10714,7 +10721,7 @@ rc_ty sx_hashfs_createfile_commit(sx_hashfs_t *h, const char *volume, const char
         totalsize += strlen(h->meta[i].key) + h->meta[i].value_len;
     }
 
-    ret2 = create_file(h, vol, name, revision, h->put_blocks, nblocks, size, totalsize, &file_id);
+    ret2 = create_file(h, vol, name, revision, revision_id, h->put_blocks, nblocks, size, totalsize, &file_id);
     if(ret2) {
 	ret = ret2;
 	goto cretatefile_rollback;
@@ -11634,7 +11641,7 @@ rc_ty sx_hashfs_tmp_tofile(sx_hashfs_t *h, const sx_hashfs_tmpinfo_t *missing) {
         return FAIL_EINTERNAL;
     }
 
-    ret2 = create_file(h, volume, missing->name, missing->revision, missing->all_blocks, missing->nall, missing->file_size, totalsize, &file_id);
+    ret2 = create_file(h, volume, missing->name, missing->revision, NULL, missing->all_blocks, missing->nall, missing->file_size, totalsize, &file_id);
     if(ret2) {
 	ret = ret2;
 	goto tmp2file_rollback;
@@ -16675,6 +16682,7 @@ rc_ty sx_hashfs_relocs_next(sx_hashfs_t *h, const sx_reloc_t **reloc) {
 	int64_t volid;
 	rc_ty ret;
 	int r;
+        const sx_hash_t *revid;
 
 	sqlite3_reset(q);
 	if(qbind_int64(q, ":prev", h->relocid))
@@ -16707,11 +16715,13 @@ rc_ty sx_hashfs_relocs_next(sx_hashfs_t *h, const sx_reloc_t **reloc) {
 	rev = (const char *)sqlite3_column_text(q, 5);
 	content_len = sqlite3_column_bytes(q, 6);
 	content = sqlite3_column_blob(q, 6);
+        revid = sqlite3_column_blob(q, 7);
 	if(!name ||
 	   sqlite3_column_bytes(q, 1) != sizeof(targetid.binary) ||
 	   !rev ||
 	   (!content && content_len) ||
-	   content_len % sizeof(sx_hash_t)) {
+	   content_len % sizeof(sx_hash_t) ||
+           !revid || sqlite3_column_bytes(q, 7) != sizeof(rlc->file.revision_id.b)) {
 	    WARN("Bad file %lld in %u", (long long)h->relocid, ndb);
 	    sqlite3_reset(q);
 	    return FAIL_EINTERNAL;
@@ -16759,7 +16769,7 @@ rc_ty sx_hashfs_relocs_next(sx_hashfs_t *h, const sx_reloc_t **reloc) {
 	rlc->file.nblocks = size_to_blocks(rlc->file.file_size, NULL, &rlc->file.block_size);
 	if(content_len)
 	    memcpy(rlc->blocks, content, content_len);
-
+        memcpy(rlc->file.revision_id.b, revid->b, sizeof(rlc->file.revision_id.b));
 	ret = sx_hashfs_volume_by_id(h, volid, &volume);
 	if(ret) {
 	    sqlite3_reset(q);

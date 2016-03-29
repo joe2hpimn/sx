@@ -360,7 +360,7 @@ rc_ty sx_hashfs_putfile_gettoken(sx_hashfs_t *h, const uint8_t *user, int64_t si
 rc_ty sx_hashfs_putfile_getblock(sx_hashfs_t *h);
 void sx_hashfs_putfile_end(sx_hashfs_t *h);
 rc_ty sx_hashfs_createfile_begin(sx_hashfs_t *h);
-rc_ty sx_hashfs_createfile_commit(sx_hashfs_t *h, const char *volume, const char *name, const char *revision, int64_t size, int allow_over_replica);
+rc_ty sx_hashfs_createfile_commit(sx_hashfs_t *h, const char *volume, const char *name, const char *revision, const sx_hash_t *revision_id, int64_t size, int allow_over_replica);
 void sx_hashfs_createfile_end(sx_hashfs_t *h);
 
 rc_ty sx_hashfs_make_token(sx_hashfs_t *h, const uint8_t *user, const char *rndhex, unsigned int replica, int64_t expires_at, const char **token);

@@ -1715,11 +1715,11 @@ static int multi_part_compute_hash_ev(struct file_upload_ctx *yctx)
 
     if(yctx->pos == 0) {
 	fmeta = yctx->fmeta;
-	yctx->query = sxi_fileadd_proto_begin(sx, yctx->dest->volume, yctx->dest->remote_path, NULL, yctx->pos, yctx->blocksize, yctx->size);
+	yctx->query = sxi_fileadd_proto_begin(sx, yctx->dest->volume, yctx->dest->remote_path, NULL, NULL, yctx->pos, yctx->blocksize, yctx->size);
         yctx->ref_checksum = sxi_checksum(0, NULL, 0);
     } else {
 	fmeta = NULL;
-	yctx->query = sxi_fileadd_proto_begin(sx, ".upload", yctx->cur_token, NULL, yctx->pos, yctx->blocksize, yctx->size);
+	yctx->query = sxi_fileadd_proto_begin(sx, ".upload", yctx->cur_token, NULL, NULL, yctx->pos, yctx->blocksize, yctx->size);
         /* extend is only valid on the node that created the file
          * (same as with flush!) */
         sxi_hostlist_empty(yctx->volhosts);
@@ -4747,7 +4747,7 @@ static sxi_job_t* remote_to_remote_fast(sxc_file_t *source, sxc_file_t *dest) {
         goto remote_to_remote_fast_err;
     }
 
-    query = sxi_fileadd_proto_begin(dest->sx, dest->volume, dest->remote_path, NULL, 0, blocksize, filesize);
+    query = sxi_fileadd_proto_begin(dest->sx, dest->volume, dest->remote_path, NULL, NULL, 0, blocksize, filesize);
     if(!query)
 	goto remote_to_remote_fast_err;
 

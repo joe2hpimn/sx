@@ -1346,6 +1346,7 @@ static act_result_t fileflush_remote(sx_hashfs_t *hashfs, job_t job_id, job_data
 		const sx_hashfs_volume_t *volume;
 		unsigned int blockno;
 		sxc_meta_t *fmeta;
+                char revid_hex[SXI_SHA1_TEXT_LEN+1];
 
 		if(!(fmeta = sxc_meta_new(sx)))
 		    action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to prepare file propagate query");
@@ -1358,7 +1359,8 @@ static act_result_t fileflush_remote(sx_hashfs_t *hashfs, job_t job_id, job_data
 		    action_error(rc2actres(s), rc2http(s), msg_get_reason());
 		}
 
-		proto = sxi_fileadd_proto_begin(sx, volume->name, mis->name, mis->revision, 0, mis->block_size, mis->file_size);
+                bin2hex(mis->revision_id.b, sizeof(mis->revision_id.b), revid_hex, sizeof(revid_hex));
+		proto = sxi_fileadd_proto_begin(sx, volume->name, mis->name, mis->revision, revid_hex, 0, mis->block_size, mis->file_size);
 
 		blockno = 0;
 		while(proto && blockno < mis->nall) {
@@ -2971,6 +2973,7 @@ static act_result_t filerb_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t 
 	for(i = 0; i<RB_MAX_FILES; i++) {
 	    const sx_reloc_t *rlc;
 	    unsigned int blockno;
+            char revid_hex[SXI_SHA1_TEXT_LEN+1];
 
 	    r = sx_hashfs_relocs_next(hashfs, &rlc);
 	    if(r == ITER_NO_MORE) {
@@ -2980,11 +2983,13 @@ static act_result_t filerb_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t 
 	    if(r != OK)
 		action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to lookup file to relocate");
 
+            bin2hex(rlc->file.revision_id.b, sizeof(rlc->file.revision_id.b), revid_hex, sizeof(revid_hex));
 	    rbdata[i].reloc = rlc;
 	    rbdata[i].proto = sxi_fileadd_proto_begin(sx,
 						      rlc->volume.name,
 						      rlc->file.name,
 						      rlc->file.revision,
+                                                      revid_hex,
 						      0,
 						      rlc->file.block_size,
 						      rlc->file.file_size);
@@ -3913,9 +3918,13 @@ static int rplfiles_cb(curlev_context_t *cbdata, void *ctx, const void *data, si
 	    }
 	    if(!c->itemsz) {
 		const char *file_name, *file_rev;
+                const sx_hash_t *file_revid;
 		int64_t file_size;
+                unsigned int file_revid_len;
 		if(sx_blob_get_string(c->b, &file_name) ||
 		   sx_blob_get_string(c->b, &file_rev) ||
+                   sx_blob_get_blob(c->b, (const void**)&file_revid, &file_revid_len) ||
+                   file_revid_len != SXI_SHA1_BIN_LEN ||
 		   sx_blob_get_int64(c->b, &file_size)) {
 		    WARN("Bad file characteristics");
 		    return 1;
@@ -3940,7 +3949,7 @@ static int rplfiles_cb(curlev_context_t *cbdata, void *ctx, const void *data, si
 			return 1;
 		    }
 		}
-		s = sx_hashfs_createfile_commit(c->hashfs, c->volume, file_name, file_rev, file_size, c->allow_over_replica);
+		s = sx_hashfs_createfile_commit(c->hashfs, c->volume, file_name, file_rev, file_revid, file_size, c->allow_over_replica);
 		c->needend = 0;
 		if(s) {
 		    WARN("Failed to create file %s:%s", file_name, file_rev);

@@ -49,7 +49,7 @@ sxi_query_t *sxi_userdel_proto(sxc_client_t *sx, const char *username, const cha
 sxi_query_t *sxi_usermod_proto(sxc_client_t *sx, const char *username, const uint8_t *key, int64_t quota, const char *description, sxc_meta_t *custom_meta);
 sxi_query_t *sxi_volumeadd_proto(sxc_client_t *sx, const char *volname, const char *owner, int64_t size, unsigned int replica, unsigned int revisions, sxc_meta_t *metadata);
 sxi_query_t *sxi_flushfile_proto(sxc_client_t *sx, const char *token);
-sxi_query_t *sxi_fileadd_proto_begin(sxc_client_t *sx, const char *volname, const char *path, const char *revision, int64_t pos, int64_t blocksize, int64_t size);
+sxi_query_t *sxi_fileadd_proto_begin(sxc_client_t *sx, const char *volname, const char *path, const char *revision, const char *revision_id, int64_t pos, int64_t blocksize, int64_t size);
 sxi_query_t *sxi_fileadd_proto_addhash(sxc_client_t *sx, sxi_query_t *query, const char *hexhash);
 sxi_query_t *sxi_fileadd_proto_end(sxc_client_t *sx, sxi_query_t *query, sxc_meta_t *metadata);
 sxi_query_t *sxi_filedel_proto(sxc_client_t *sx, const char *volname, const char *path, const char *revision);

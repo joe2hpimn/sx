@@ -410,9 +410,18 @@ sxi_query_t *sxi_flushfile_proto(sxc_client_t *sx, const char *token) {
     return ret;
 }
 
-sxi_query_t *sxi_fileadd_proto_begin(sxc_client_t *sx, const char *volname, const char *path, const char *revision, int64_t pos, int64_t blocksize, int64_t size) {
+sxi_query_t *sxi_fileadd_proto_begin(sxc_client_t *sx, const char *volname, const char *path, const char *revision, const char *revision_id, int64_t pos, int64_t blocksize, int64_t size) {
     char *enc_vol = NULL, *enc_path = NULL, *enc_rev = NULL, *url = NULL;
     sxi_query_t *ret;
+    unsigned int len;
+
+    if(revision_id) {
+        /* Revision ID should be hex-encoded, and must be provided when revision is provided. */
+        if(strlen(revision_id) != SXI_SHA1_TEXT_LEN || !revision) {
+            sxi_seterr(sx, SXE_EMEM, "Invalid argument: revision_id");
+            return NULL;
+        }
+    }
 
     enc_vol = sxi_urlencode(sx, volname, 0);
     enc_path = sxi_urlencode(sx, path, 0);
@@ -422,6 +431,7 @@ sxi_query_t *sxi_fileadd_proto_begin(sxc_client_t *sx, const char *volname, cons
 	sxi_setsyserr(sx, SXE_EMEM, "Failed to quote url: Out of memory");
 	return NULL;
     }
+    len = strlen(enc_vol) + 1 + strlen(enc_path) + 1;
     if(revision) {
 	enc_rev = sxi_urlencode(sx, revision, 1);
 	if(!enc_rev) {
@@ -430,14 +440,14 @@ sxi_query_t *sxi_fileadd_proto_begin(sxc_client_t *sx, const char *volname, cons
 	    free(enc_path);
 	    return NULL;
 	}
+        len += strlen(enc_rev) + lenof("?rev=");
+        if(revision_id)
+            len += strlen(revision_id) + lenof("&revid=");
     }
 
-    if((url = malloc(strlen(enc_vol) + 1 + strlen(enc_path) + lenof("?rev=") + strlen(enc_rev ? enc_rev : "") + 1))) {
-	if(enc_rev)
-	    sprintf(url, "%s/%s?rev=%s", enc_vol, enc_path, enc_rev);
-	else
-	    sprintf(url, "%s/%s", enc_vol, enc_path);
-    }
+    url = malloc(len);
+    if(url)
+        sprintf(url, "%s/%s%s%s%s%s", enc_vol, enc_path, enc_rev ? "?rev=" : "", enc_rev ? enc_rev : "", revision_id ? "&revid=" : "", revision_id ? revision_id : "");
     free(enc_vol);
     free(enc_path);
     free(enc_rev);
