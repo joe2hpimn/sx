@@ -40,6 +40,9 @@ struct modify_args_info
   const char *help_help; /**< @brief Print help and exit help description.  */
   const char *full_help_help; /**< @brief Print help, including hidden options, and exit help description.  */
   const char *version_help; /**< @brief Print version and exit help description.  */
+  int replica_arg;	/**< @brief Change the volume replica.  */
+  char * replica_orig;	/**< @brief Change the volume replica original value given at command line.  */
+  const char *replica_help; /**< @brief Change the volume replica help description.  */
   char * owner_arg;	/**< @brief Change the volume owner.  */
   char * owner_orig;	/**< @brief Change the volume owner original value given at command line.  */
   const char *owner_help; /**< @brief Change the volume owner help description.  */
@@ -61,10 +64,13 @@ struct modify_args_info
   char * filter_dir_arg;	/**< @brief Path to SX filter directory.  */
   char * filter_dir_orig;	/**< @brief Path to SX filter directory original value given at command line.  */
   const char *filter_dir_help; /**< @brief Path to SX filter directory help description.  */
+  int batch_mode_flag;	/**< @brief Turn off interactive confirmations and assume yes for all questions (default=off).  */
+  const char *batch_mode_help; /**< @brief Turn off interactive confirmations and assume yes for all questions help description.  */
   
   unsigned int help_given ;	/**< @brief Whether help was given.  */
   unsigned int full_help_given ;	/**< @brief Whether full-help was given.  */
   unsigned int version_given ;	/**< @brief Whether version was given.  */
+  unsigned int replica_given ;	/**< @brief Whether replica was given.  */
   unsigned int owner_given ;	/**< @brief Whether owner was given.  */
   unsigned int size_given ;	/**< @brief Whether size was given.  */
   unsigned int max_revisions_given ;	/**< @brief Whether max-revisions was given.  */
@@ -73,6 +79,7 @@ struct modify_args_info
   unsigned int debug_given ;	/**< @brief Whether debug was given.  */
   unsigned int config_dir_given ;	/**< @brief Whether config-dir was given.  */
   unsigned int filter_dir_given ;	/**< @brief Whether filter-dir was given.  */
+  unsigned int batch_mode_given ;	/**< @brief Whether batch-mode was given.  */
 
   char **inputs ; /**< @brief unamed options (options without names) */
   unsigned inputs_num ; /**< @brief unamed options number */

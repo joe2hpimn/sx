@@ -148,6 +148,8 @@ int64_t sx_hashfs_hdist_getversion(sx_hashfs_t *h);
 const char *sx_hashfs_zonedef(sx_hashfs_t *h, sx_hashfs_nl_t which);
 const sx_nodelist_t *sx_hashfs_all_nodes(sx_hashfs_t *h, sx_hashfs_nl_t which);
 const sx_nodelist_t *sx_hashfs_effective_nodes(sx_hashfs_t *h, sx_hashfs_nl_t which);
+const sx_nodelist_t *sx_hashfs_ignored_nodes(sx_hashfs_t *h);
+const sx_nodelist_t *sx_hashfs_faulty_nodes(sx_hashfs_t *h);
 const sx_node_t *sx_hashfs_self(sx_hashfs_t *h);
 rc_ty sx_hashfs_self_uuid(sx_hashfs_t *h, sx_uuid_t *uuid);
 const char *sx_hashfs_self_unique(sx_hashfs_t *h);
@@ -237,6 +239,7 @@ typedef struct _sx_hashfs_volume_t {
 
     unsigned int max_replica;
     unsigned int effective_replica;
+    unsigned int prev_max_replica;
     unsigned int revisions;
     char name[SXLIMIT_MAX_VOLNAME_LEN + 1];
     sx_uid_t owner;
@@ -255,14 +258,19 @@ rc_ty sx_hashfs_volume_by_global_id(sx_hashfs_t *h, const sx_hash_t *global_id, 
 rc_ty sx_hashfs_volumemeta_begin(sx_hashfs_t *h, const sx_hashfs_volume_t *volume);
 rc_ty sx_hashfs_volumemeta_next(sx_hashfs_t *h, const char **key, const void **value, unsigned int *value_len);
 rc_ty sx_hashfs_all_volnodes(sx_hashfs_t *h, sx_hashfs_nl_t which, const sx_hashfs_volume_t *volume, int64_t size, sx_nodelist_t **nodes, unsigned int *block_size);
-rc_ty sx_hashfs_effective_volnodes(sx_hashfs_t *h, sx_hashfs_nl_t which, const sx_hashfs_volume_t *volume, int64_t size, sx_nodelist_t **nodes, unsigned int *block_size);
-int sx_hashfs_is_or_was_my_volume(sx_hashfs_t *h, const sx_hashfs_volume_t *vol);
+rc_ty sx_hashfs_effective_volnodes(sx_hashfs_t *h, sx_hashfs_nl_t which, const sx_hashfs_volume_t *volume, int64_t size, sx_nodelist_t **nodes, unsigned int *block_size, int write_op);
+int sx_hashfs_is_or_was_my_volume(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, int allow_over_replica);
 typedef int (*acl_list_cb_t)(const char *username, int priv, int is_owner, void *ctx);
 rc_ty sx_hashfs_list_acl(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, sx_uid_t uid, int uid_priv, acl_list_cb_t cb, void *ctx);
 /* Set volume size to given value */
-rc_ty sx_hashfs_reset_volume_cursize(sx_hashfs_t *h, int64_t volume_id, int64_t size, int64_t fsize, int64_t files);
+rc_ty sx_hashfs_reset_volume_cursize(sx_hashfs_t *h, int64_t global_vol_id, int64_t size, int64_t fsize, int64_t files);
 /* Atomically add given value to volume size */
-rc_ty sx_hashfs_update_volume_cursize(sx_hashfs_t *h, int64_t volume_id, int64_t size_diff, int64_t fsize_diff, int64_t files_diff);
+rc_ty sx_hashfs_update_volume_cursize(sx_hashfs_t *h, int64_t global_vol_id, int64_t size_diff, int64_t fsize_diff, int64_t files_diff);
+int sx_hashfs_is_changing_volume_replica(sx_hashfs_t *h);
+
+/* Modify the volume replica*/
+rc_ty sx_hashfs_modify_volume_replica(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, unsigned int prev_replica, unsigned int next_replica);
+rc_ty sx_hashfs_modify_volume_replica_job(sx_hashfs_t *h, sx_uid_t uid, const sx_hashfs_volume_t *vol, unsigned int prev_replica, unsigned int next_replica, job_t *result);
 
 /* Retrieve timestamp used to compute intervals of volumes pushing */
 struct timeval* sx_hashfs_volsizes_timestamp(sx_hashfs_t *h);
@@ -273,7 +281,7 @@ int sx_hashfs_is_volume_to_push(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, c
 /* Return time of last push performed to given node */
 int64_t sx_hashfs_get_node_push_time(sx_hashfs_t *h, const sx_node_t *n);
 /* Return 1 if given node is a volnode for given volume */
-int sx_hashfs_is_node_volume_owner(sx_hashfs_t *h, sx_hashfs_nl_t which, const sx_node_t *n, const sx_hashfs_volume_t *vol);
+int sx_hashfs_is_node_volume_owner(sx_hashfs_t *h, sx_hashfs_nl_t which, const sx_node_t *n, const sx_hashfs_volume_t *vol, int allow_over_replica);
 int sx_hashfs_is_node_faulty(sx_hashfs_t *h, const sx_uuid_t *node_uuid);
 int sx_hashfs_is_node_ignored(sx_hashfs_t *h, const sx_uuid_t *node_uuid);
 rc_ty sx_hashfs_set_unfaulty(sx_hashfs_t *h, const sx_uuid_t *nodeid, int64_t dist_rev);
@@ -282,6 +290,9 @@ rc_ty sx_hashfs_set_unfaulty(sx_hashfs_t *h, const sx_uuid_t *nodeid, int64_t di
 rc_ty sx_hashfs_volume_mod(sx_hashfs_t *h, const char *volume, const char *newowner, int64_t newsize, int max_revs, int modify_meta);
 rc_ty sx_hashfs_volume_mod_begin(sx_hashfs_t *h, const sx_hashfs_volume_t *vol);
 rc_ty sx_hashfs_volume_mod_addmeta(sx_hashfs_t *h, const char *key, const void *value, unsigned int value_len);
+
+/* Recaluculate the volume size */
+rc_ty sx_hashfs_compute_volume_size(sx_hashfs_t *h, const sx_hashfs_volume_t *vol);
 
 /* File list */
 typedef struct _sx_hashfs_file_t {
@@ -321,8 +332,8 @@ rc_ty sx_hashfs_block_get(sx_hashfs_t *h, unsigned int bs, const sx_hash_t *hash
 rc_ty sx_hashfs_block_put(sx_hashfs_t *h, const uint8_t *data, unsigned int bs, unsigned int replica_count, sx_uid_t uid);
 
 /* hash batch ops for GC */
-rc_ty sx_hashfs_hashop_perform(sx_hashfs_t *h, unsigned int block_size, unsigned replica_count, enum sxi_hashop_kind kind, const sx_hash_t *hash, const sx_hash_t *reserve_id, const sx_hash_t *revision_id, uint64_t op_expires_at, int *present);
-rc_ty sx_hashfs_hashop_mod(sx_hashfs_t *h, const sx_hash_t *hash, const sx_hash_t *reserve_id, const sx_hash_t *revision_id, unsigned int blocksize, unsigned replica, int count, uint64_t op_expires_at);
+rc_ty sx_hashfs_hashop_perform(sx_hashfs_t *h, unsigned int block_size, unsigned replica_count, enum sxi_hashop_kind kind, const sx_hash_t *hash, const sx_hash_t *global_vol_id, const sx_hash_t *reserve_id, const sx_hash_t *revision_id, uint64_t op_expires_at, int *present);
+rc_ty sx_hashfs_hashop_mod(sx_hashfs_t *h, const sx_hash_t *hash, const sx_hash_t *global_vol_id, const sx_hash_t *reserve_id, const sx_hash_t *revision_id, unsigned int blocksize, unsigned replica, int count, uint64_t op_expires_at);
 rc_ty sx_hashfs_revision_op_begin(sx_hashfs_t *h);
 rc_ty sx_hashfs_revision_op(sx_hashfs_t *h, unsigned blocksize, const sx_hash_t *revision_id, int op);
 rc_ty sx_hashfs_revision_op_commit(sx_hashfs_t *h);
@@ -349,7 +360,7 @@ rc_ty sx_hashfs_putfile_gettoken(sx_hashfs_t *h, const uint8_t *user, int64_t si
 rc_ty sx_hashfs_putfile_getblock(sx_hashfs_t *h);
 void sx_hashfs_putfile_end(sx_hashfs_t *h);
 rc_ty sx_hashfs_createfile_begin(sx_hashfs_t *h);
-rc_ty sx_hashfs_createfile_commit(sx_hashfs_t *h, const char *volume, const char *name, const char *revision, int64_t size);
+rc_ty sx_hashfs_createfile_commit(sx_hashfs_t *h, const char *volume, const char *name, const char *revision, int64_t size, int allow_over_replica);
 void sx_hashfs_createfile_end(sx_hashfs_t *h);
 
 rc_ty sx_hashfs_make_token(sx_hashfs_t *h, const uint8_t *user, const char *rndhex, unsigned int replica, int64_t expires_at, const char **token);
@@ -491,6 +502,8 @@ typedef enum _sx_inprogress_t {
     INPRG_REPLACE_COMPLETE,
     INPRG_UPGRADE_RUNNING,
     INPRG_UPGRADE_COMPLETE,
+    INPRG_VOLREP_RUNNING,
+    INPRG_VOLREP_COMPLETE,
 
     INPRG_LAST
 } sx_inprogress_t;
@@ -506,6 +519,20 @@ rc_ty sx_hashfs_init_replacement(sx_hashfs_t *h);
 /* 2.1.3 -> 2.1.4 remote upgrade API */
 rc_ty sx_hashfs_upgrade_2_1_4_init(sx_hashfs_t *h);
 rc_ty sx_hashfs_upgrade_2_1_4_update_revid(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, const sx_hash_t *revision_id);
+
+/* Volume replica modification API */
+rc_ty sx_hashfs_volrep_getstartblock(sx_hashfs_t *h, const sx_node_t **node, int *have_blkidx, uint8_t *blkidx);
+rc_ty sx_hashfs_volrep_setlastblock(sx_hashfs_t *h, const sx_uuid_t *node, const uint8_t *blkidx);
+rc_ty sx_hashfs_volrep_getstartfile(sx_hashfs_t *h, char *maxrev, char *startvol, char *startfile, char *startrev);
+rc_ty sx_hashfs_volrep_setlastfile(sx_hashfs_t *h, const char *lastvol, const char *lastfile, const char *lastrev);
+rc_ty sx_hashfs_volrep_init(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, int is_undoing);
+rc_ty sx_hashfs_volrep_find(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, const sx_block_meta_index_t *previous, const sx_uuid_t *target, int undo, block_meta_t **blockmetaptr);
+rc_ty sx_hashfs_volrep_update_revid_replica(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, int is_undoing);
+rc_ty sx_hashfs_volrep_release_blocks(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, int undo, int first, sx_block_meta_index_t *prevhash);
+rc_ty sx_hashfs_over_replica_volnodes(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, unsigned int prev_replica, unsigned int next_replica, const sx_nodelist_t *src_nodes, sx_nodelist_t **out);
+rc_ty sx_hashfs_force_volumes_replica_unlock(sx_hashfs_t* h);
+
+rc_ty sx_hashfs_volume_clean(sx_hashfs_t *h, const sx_hashfs_volume_t *vol);
 
 rc_ty sx_hashfs_node_status(sx_hashfs_t *h, sxi_node_status_t *status);
 

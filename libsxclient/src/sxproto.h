@@ -61,6 +61,7 @@ typedef struct {
 
 typedef struct {
     sx_hash_t revision_id;
+    sx_hash_t global_vol_id;
     unsigned replica;
 } block_meta_entry_t;
 
@@ -77,7 +78,7 @@ typedef struct {
 } block_meta_t;
 
 sxi_query_t *sxi_hashop_proto_check(sxc_client_t *sx, unsigned blocksize, const char *hashes, unsigned hashes_len);
-sxi_query_t *sxi_hashop_proto_reserve(sxc_client_t *sx, unsigned blocksize, const char *hashes, unsigned hashes_len, const sx_hash_t *reserve_id, const sx_hash_t *revision_id, unsigned replica, uint64_t op_expires_at);
+sxi_query_t *sxi_hashop_proto_reserve(sxc_client_t *sx, unsigned blocksize, const char *hashes, unsigned hashes_len, const sx_hash_t *global_vol_id, const sx_hash_t *reserve_id, const sx_hash_t *revision_id, unsigned replica, uint64_t op_expires_at);
 sxi_query_t *sxi_hashop_proto_inuse_begin(sxc_client_t *sx, const sx_hash_t *reserve_id);
 sxi_query_t *sxi_hashop_proto_inuse_hash(sxc_client_t *sx, sxi_query_t *query, const block_meta_t *blockmeta);
 sxi_query_t *sxi_hashop_proto_inuse_end(sxc_client_t *sx, sxi_query_t *query);
@@ -157,5 +158,8 @@ sxi_query_t *sxi_mass_job_commit_proto(sxc_client_t *sx, const char *job_id);
 
 /* 2.1.3 -> 2.1.4 upgrade proto */
 sxi_query_t *sxi_2_1_4_upgrade_proto(sxc_client_t *sx, const char *volume, const char *maxrev, const char *startfile, const char *startrev);
+
+/* Modify the volume replica value */
+sxi_query_t *sxi_replica_change_proto(sxc_client_t *sx, const char *volume, unsigned int prev_replica, unsigned int next_replica);
 
 #endif

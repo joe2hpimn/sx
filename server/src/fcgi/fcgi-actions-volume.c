@@ -79,8 +79,10 @@ void fcgi_locate_volume(const sx_hashfs_volume_t *vol) {
     /* The locate_volume query is shared between different ops.
      * Although most of them (file creation, file deletion, etc) can be
      * safely target to PREV and NEXT volumes, listing files is only 
-     * guaranteed to be accurate when performed against a PREV volnode */
-    s = sx_hashfs_effective_volnodes(hashfs, NL_PREV, vol, fsize, &allnodes, &blocksize);
+     * guaranteed to be accurate when performed against a PREV volnode.
+     * The same rule is applied for the split replica situation, here we assume it is
+     * a write operation, therefore we pass 0 for the write_op flag. */
+    s = sx_hashfs_effective_volnodes(hashfs, NL_PREV, vol, fsize, &allnodes, &blocksize, 0);
     switch(s) {
 	case OK:
 	    break;
@@ -999,7 +1001,7 @@ void fcgi_delete_volume(void) {
 	if((s = sx_hashfs_volume_by_name(hashfs, volume, &vol)))
 	    quit_errmsg(rc2http(s), msg_get_reason());
 
-	if(!sx_hashfs_is_or_was_my_volume(hashfs, vol))
+	if(!sx_hashfs_is_or_was_my_volume(hashfs, vol, 0))
 	    quit_errmsg(404, "This volume does not belong here");
 
 	if(!vol->usage_total) {
@@ -1089,7 +1091,7 @@ static void cb_volsizes_end(jparse_t *J, void *ctx) {
     if(sx_hashfs_volume_by_name(hashfs, volname, &vol) != OK)
 	return; /* Could be anything, just skip this vol */
 
-    if(sx_hashfs_is_node_volume_owner(hashfs, NL_PREV, sx_hashfs_self(hashfs), vol))
+    if(sx_hashfs_is_node_volume_owner(hashfs, NL_PREV, sx_hashfs_self(hashfs), vol, 0))
 	return; /* Could happen if we are rebalancing */
 
     if(!(c->nvols & 0xf)) {
@@ -1350,7 +1352,7 @@ static rc_ty volmod_create_revsclean_job(sx_hashfs_t *h, const char *v) {
 
     /* Schedule to PREVNEXT. On old volnodes all files will eventually be dropped,
      * but we should avoid listing old revs and it is done on PREV */
-    if(!sx_hashfs_is_node_volume_owner(h, NL_PREVNEXT, me, vol)) {
+    if(!sx_hashfs_is_node_volume_owner(h, NL_PREVNEXT, me, vol, 0)) {
         /* Do not schedule this job if local node is not a volnode */
         DEBUG("Skipped scheduling revsclean job: not a volnode");
         return OK;
@@ -2010,7 +2012,7 @@ void fcgi_mass_delete(void) {
     if(s != OK)
         quit_errmsg(rc2http(s), msg_get_reason());
 
-    if(!sx_hashfs_is_or_was_my_volume(hashfs, vol))
+    if(!sx_hashfs_is_or_was_my_volume(hashfs, vol, 0))
         quit_errnum(404);
 
     if(!input_pattern)
@@ -2037,7 +2039,7 @@ void fcgi_mass_delete(void) {
     }
 
     /* Request comes in from the user: create jobs on each volnode */
-    if((s = sx_hashfs_effective_volnodes(hashfs, NL_NEXTPREV, vol, 0, &volnodes, NULL)) != OK) {
+    if((s = sx_hashfs_effective_volnodes(hashfs, NL_NEXTPREV, vol, 0, &volnodes, NULL, 1)) != OK) {
         sx_blob_free(b);
         quit_errmsg(rc2http(s), msg_get_reason());
     }
@@ -2072,7 +2074,7 @@ void fcgi_mass_rename(void) {
     if(s != OK)
         quit_errmsg(rc2http(s), msg_get_reason());
 
-    if(!sx_hashfs_is_or_was_my_volume(hashfs, vol))
+    if(!sx_hashfs_is_or_was_my_volume(hashfs, vol, 0))
         quit_errnum(404);
 
     if(!source)
@@ -2138,7 +2140,7 @@ void fcgi_mass_rename(void) {
         quit_errmsg(400, "Not a directory");
     }
 
-    if((s = sx_hashfs_effective_volnodes(hashfs, NL_NEXTPREV, vol, 0, &volnodes, NULL)) != OK) {
+    if((s = sx_hashfs_effective_volnodes(hashfs, NL_NEXTPREV, vol, 0, &volnodes, NULL, 1)) != OK) {
         sx_blob_free(b);
         quit_errmsg(rc2http(s), msg_get_reason());
     }
@@ -2311,4 +2313,210 @@ void fcgi_mass_job_commit(void) {
         quit_errmsg(rc2http(s), msg_get_reason());
 
     CGI_PUTS("\r\n");
+}
+
+/* {"prev_replica":1,"next_replica":2} */
+struct cb_mod_rep_ctx {
+    unsigned int prev;
+    unsigned int next;
+};
+
+static void cb_mod_rep_next(jparse_t *J, void *ctx, int next_replica) {
+    struct cb_mod_rep_ctx *c = (struct cb_mod_rep_ctx *)ctx;
+
+    if(next_replica <= 0 || (unsigned)next_replica > sx_nodelist_count(sx_hashfs_all_nodes(hashfs, NL_NEXTPREV))) {
+        sxi_jparse_cancel(J, "Invalid replica value: must be between 1 and %d", sx_nodelist_count(sx_hashfs_all_nodes(hashfs, NL_NEXTPREV)));
+        return;
+    }
+
+    c->next = next_replica;
+}
+
+static void cb_mod_rep_prev(jparse_t *J, void *ctx, int prev_replica) {
+    struct cb_mod_rep_ctx *c = (struct cb_mod_rep_ctx *)ctx;
+
+    if(prev_replica <= 0 || (unsigned)prev_replica > sx_nodelist_count(sx_hashfs_all_nodes(hashfs, NL_NEXTPREV))) {
+        sxi_jparse_cancel(J, "Invalid replica value: must be between 1 and %d", sx_nodelist_count(sx_hashfs_all_nodes(hashfs, NL_NEXTPREV)));
+        return;
+    }
+
+    c->prev = prev_replica;
+}
+
+void fcgi_modify_volume_replica(void) {
+    const struct jparse_actions acts = {
+        JPACTS_INT32(
+                     JPACT(cb_mod_rep_next, JPKEY("next_replica")),
+                     JPACT(cb_mod_rep_prev, JPKEY("prev_replica"))
+                     )
+    };
+    jparse_t *J;
+    job_t job, ret_job;
+    int len;
+    rc_ty s;
+    const sx_hashfs_volume_t *vol = NULL;
+    struct cb_mod_rep_ctx yctx = { 0, 0 };
+    const sx_nodelist_t *allnodes;
+    sx_nodelist_t *new_volnodes = NULL;
+    unsigned int nallnodes;
+    sx_blob_t *b;
+    const void *job_data;
+    unsigned int job_data_len;
+
+    J = sxi_jparse_create(&acts, &yctx, 0);
+    if(!J)
+        quit_errmsg(503, "Cannot create JSON parser");
+
+    while((len = get_body_chunk(hashbuf, sizeof(hashbuf))) > 0)
+        if(sxi_jparse_digest(J, hashbuf, len))
+            break;
+
+    if(len || sxi_jparse_done(J)) {
+        send_error(400, sxi_jparse_geterr(J));
+        sxi_jparse_destroy(J);
+        return;
+    }
+    sxi_jparse_destroy(J);
+    auth_complete();
+    quit_unless_authed();
+
+    s = sx_hashfs_volume_by_name(hashfs, volume, &vol);
+    if(s != OK)
+        quit_errmsg(rc2http(s), msg_get_reason());
+
+    if(!yctx.next || !yctx.prev)
+        quit_errmsg(400, "Previous or next replica has not been provided");
+
+    if(sx_hashfs_is_rebalancing(hashfs))
+        quit_errmsg(rc2http(FAIL_LOCKED), "The cluster is still being rebalanced");
+
+    if(sx_hashfs_is_upgrading(hashfs))
+        quit_errmsg(rc2http(FAIL_LOCKED), "The cluster is still being upgraded");
+
+    if(sx_nodelist_count(sx_hashfs_ignored_nodes(hashfs)))
+        quit_errmsg(400, "The cluster contains faulty nodes which must be replaced");
+
+    if(sx_nodelist_count(sx_hashfs_faulty_nodes(hashfs)))
+        quit_errmsg(400, "The cluster contains faulty nodes which are still being replaced");
+
+    if(has_priv(PRIV_CLUSTER)) {
+        /* When performing job on the remote node, simply update the replica values */
+        s = sx_hashfs_modify_volume_replica(hashfs, vol, yctx.prev, yctx.next);
+        if(s != OK) {
+            WARN("Failed to modify volume replica");
+            quit_errmsg(rc2http(s), msg_get_reason());
+        }
+        CGI_PUTS("\r\n");
+        return;
+    }
+
+    /* Check volume settings after checking for PRIV_CLUSTER, i.e. when the request comes from the user.
+     * It therefore supports undoing changes. */
+    s = sx_hashfs_check_volume_settings(hashfs, volume, vol->size, vol->size, yctx.next, vol->revisions);
+    if(s != OK)
+        quit_errmsg(rc2http(s), msg_get_reason());
+
+    if(sx_hashfs_is_changing_volume_replica(hashfs) == 1)
+        quit_errmsg(400, "The cluster is already performing volume replica changes");
+
+    /* In case prev_replica == vol->max_replica we can skip the whole operation and return a dummy job for the 
+     * client tool to be able to poll its status which is going to always be a success. Scheduling the whole 
+     * chain when we know that the replica is not gonna change is going to be a waste of time. */
+    if(yctx.prev == yctx.next) {
+        sx_nodelist_t *singlenode = sx_nodelist_new();
+        if(!singlenode)
+            quit_errmsg(503, "Not enough memory to perform requested action");
+
+        if(sx_nodelist_add(singlenode, sx_node_dup(sx_hashfs_self(hashfs)))) {
+            sx_nodelist_delete(singlenode);
+            quit_errmsg(503, "Not enough memory to perform requested action");
+        }
+
+        DEBUG("Scheduling dummy volume replica change job");
+        s = sx_hashfs_job_new(hashfs, uid, &job, JOBTYPE_DUMMY, 20, NULL, NULL, 0, singlenode);
+        if(s != OK) {
+            sx_nodelist_delete(singlenode);
+            quit_errmsg(rc2http(s), msg_get_reason());
+        }
+
+        sx_nodelist_delete(singlenode);
+        send_job_info(job);
+        return;
+    }
+
+    allnodes = sx_hashfs_all_nodes(hashfs, NL_NEXTPREV);
+    if(!allnodes)
+        quit_errmsg(500, "Failed to obtain nodelist");
+    nallnodes = sx_nodelist_count(allnodes);
+
+    b = sx_blob_new();
+    if(!b)
+        quit_errmsg(500, "Out of memory");
+
+    if(sx_blob_add_string(b, vol->name) || sx_blob_add_int32(b, yctx.prev) || sx_blob_add_int32(b, yctx.next) || sx_blob_add_int32(b, 0)) {
+        sx_blob_free(b);
+        quit_errmsg(500, "Out of memory");
+    }
+
+    if((s = sx_hashfs_over_replica_volnodes(hashfs, vol, yctx.prev, yctx.next, allnodes, &new_volnodes)) != OK) {
+        sx_blob_free(b);
+        quit_errmsg(rc2http(s), msg_get_reason());
+    }
+
+    if((s = sx_hashfs_job_new_begin(hashfs))) {
+        sx_blob_free(b);
+        sx_nodelist_delete(new_volnodes);
+        quit_errmsg(rc2http(s), msg_get_reason());
+    }
+
+    sx_blob_to_data(b, &job_data, &job_data_len);
+    s = sx_hashfs_job_new_notrigger(hashfs, JOB_NOPARENT, uid, &job, JOBTYPE_VOLREP_CHANGE, 20 * nallnodes, NULL, job_data, job_data_len, allnodes);
+    if(s != OK) {
+        sx_blob_free(b);
+        sx_nodelist_delete(new_volnodes);
+        quit_errmsg(rc2http(s), msg_get_reason());
+    }
+
+    /* That job ID will be returned to the client so that the polling is done as soon as the volume goes into the split replica state. */
+    ret_job = job;
+
+    /* The VOLREP_BLOCKS job is responsible for synchronization of blocks to the new volnodes */
+    s = sx_hashfs_mass_job_new_notrigger(hashfs, job, uid, &job, JOBTYPE_VOLREP_BLOCKS, JOB_NO_EXPIRY, "VOLREP_BLOCKS", job_data, job_data_len, allnodes);
+    if(s != OK) {
+        sx_blob_free(b);
+        sx_nodelist_delete(new_volnodes);
+        quit_errmsg(rc2http(s), msg_get_reason());
+    }
+
+    /* The VOLREP_FILES job is responsible for synchronization of files to the new volnodes */
+    s = sx_hashfs_mass_job_new_notrigger(hashfs, job, uid, &job, JOBTYPE_VOLREP_FILES, JOB_NO_EXPIRY, "VOLREP_FILES", job_data, job_data_len, new_volnodes);
+    if(s != OK) {
+        sx_blob_free(b);
+        sx_nodelist_delete(new_volnodes);
+        quit_errmsg(rc2http(s), msg_get_reason());
+    }
+    sx_nodelist_delete(new_volnodes);
+
+    sx_blob_reset(b);
+    /* New volume replica is the same as the old volume replica */
+    if(sx_blob_add_string(b, vol->name) || sx_blob_add_int32(b, yctx.next) || sx_blob_add_int32(b, yctx.next) || sx_blob_add_int32(b, 0)) {
+        sx_blob_free(b);
+        quit_errmsg(500, "Out of memory");
+    }
+
+    sx_blob_to_data(b, &job_data, &job_data_len);
+    s = sx_hashfs_job_new_notrigger(hashfs, job, uid, &job, JOBTYPE_VOLREP_CHANGE, 20 * nallnodes, NULL, job_data, job_data_len, allnodes);
+    if(s != OK) {
+        sx_blob_free(b);
+        quit_errmsg(rc2http(s), msg_get_reason());
+    }
+
+    sx_blob_free(b);
+    s = sx_hashfs_job_new_end(hashfs);
+    if(s != OK) {
+        sx_hashfs_job_new_abort(hashfs);
+        quit_errmsg(rc2http(s), msg_get_reason());
+    }
+
+    send_job_info(ret_job);
 }

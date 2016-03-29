@@ -52,11 +52,13 @@ struct sxi_hashop {
   unsigned replica;
   sx_hash_t reserve_id;
   sx_hash_t revision_id;
+  sx_hash_t global_vol_id;
   int has_reserve_id;
   int has_revision_id;
+  int has_global_vol_id;
 };
 
-void sxi_hashop_begin(sxi_hashop_t *a, sxi_conns_t *conns, hash_presence_cb_t cb, enum sxi_hashop_kind kind, unsigned replica, const sx_hash_t *reservehash, const sx_hash_t *idhash, void *context, uint64_t op_expires_at);
+void sxi_hashop_begin(sxi_hashop_t *a, sxi_conns_t *conns, hash_presence_cb_t cb, enum sxi_hashop_kind kind, unsigned replica, const sx_hash_t *volumeidhash, const sx_hash_t *reservehash, const sx_hash_t *idhash, void *context, uint64_t op_expires_at);
 int sxi_hashop_batch_add(sxi_hashop_t *a, const char *host, unsigned idx, const unsigned char *binhash, unsigned int blocksize);
 int sxi_hashop_batch_flush(sxi_hashop_t *a);
 int sxi_hashop_end(sxi_hashop_t *a);

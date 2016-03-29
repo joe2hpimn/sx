@@ -160,6 +160,12 @@ void fcgi_handle_cluster_requests(void) {
 		} else if(status == INPRG_UPGRADE_COMPLETE) {
                     op = "upgrade";
                     complete = "true";
+                } else if(status == INPRG_VOLREP_RUNNING) {
+                    op = "volume replica change";
+                    complete = "false";
+                } else if(status == INPRG_VOLREP_COMPLETE) {
+                    op = "volume replica change";
+                    complete = "true";
                 } else {
                     op = "error";
                     complete = "false";

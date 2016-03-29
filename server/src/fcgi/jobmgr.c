@@ -1336,7 +1336,7 @@ static act_result_t fileflush_remote(sx_hashfs_t *hashfs, job_t job_id, job_data
     nnodes = sx_nodelist_count(nodes);
     for(i=0; i<nnodes; i++) {
 	const sx_node_t *node = sx_nodelist_get(nodes, i);
-        if (!sx_hashfs_is_node_volume_owner(hashfs, NL_NEXTPREV, node, volume)) {
+        if (!sx_hashfs_is_node_volume_owner(hashfs, NL_NEXTPREV, node, volume, 0)) {
 	    succeeded[i] = 1; /* not a volnode, only used by undo/abort */
             continue;
         }
@@ -2547,6 +2547,11 @@ static act_result_t jlock_common(int lock, sx_hashfs_t *hashfs, const sx_nodelis
 		s = sx_hashfs_job_unlock(hashfs, unlockall ? NULL : owner);
 	    if(s != OK)
 		action_error(rc2actres(s), rc2http(s), msg_get_reason());
+            if(!lock && unlockall) {
+                s = sx_hashfs_force_volumes_replica_unlock(hashfs);
+                if(s != OK)
+                    action_error(rc2actres(s), rc2http(s), msg_get_reason());
+            }
 	    if(succeeded)
 		succeeded[i] = 1;
 	}
@@ -2665,10 +2670,10 @@ static act_result_t blockrb_request(sx_hashfs_t *hashfs, job_t job_id, job_data_
 
 	s = sx_hashfs_br_next(hashfs, &blockmeta);
 	if(s != OK) {
-	    if(s == ITER_NO_MORE)
-		rbl_log(&blockmeta->hash, "br_next", 1, "Round complete");
+            if(s == ITER_NO_MORE)
+		rbl_log(NULL, "br_next", 1, "Round complete");
 	    else
-		rbl_log(&blockmeta->hash, "br_next", 0, "Error %d (%s)", s,  msg_get_reason());
+		rbl_log(NULL, "br_next", 0, "Error %d (%s)", s,  msg_get_reason());
 	    break;
 	}
 	rbl_log(NULL, "br_next", 1, "Block received");
@@ -3673,7 +3678,7 @@ static int rplblocks_cb(curlev_context_t *cbdata, void *ctx, const void *data, s
 		}
 
 		while(todo--) {
-                    sx_hash_t revision_id;
+                    sx_hash_t revision_id, global_vol_id;
 		    unsigned int replica;
 		    rc_ty s;
 		    const void *ptr;
@@ -3681,16 +3686,22 @@ static int rplblocks_cb(curlev_context_t *cbdata, void *ctx, const void *data, s
 
 		    if(sx_blob_get_blob(c->b, &ptr, &blob_size) ||
                        blob_size != sizeof(revision_id.b)) {
-			WARN("Invalid block size: %d", blob_size);
+			WARN("Invalid revision id size: %d", blob_size);
 			return 1;
                     }
+                    memcpy(&revision_id.b, ptr, sizeof(revision_id.b));
+                    if(sx_blob_get_blob(c->b, &ptr, &blob_size) ||
+                       blob_size != sizeof(global_vol_id.b)) {
+                        WARN("Invalid global volume id size: %d", blob_size);
+                        return 1;
+                    }
+                    memcpy(&global_vol_id.b, ptr, sizeof(global_vol_id.b));
                     if (sx_blob_get_int32(c->b, &replica)) {
 			WARN("Invalid replica: %d", replica);
 			return 1;
 		    }
-                    memcpy(&revision_id.b, ptr, sizeof(revision_id.b));
 
-		    s = sx_hashfs_hashop_mod(c->hashfs, &hash, NULL, &revision_id, c->itemsz, replica, 1, 0);
+		    s = sx_hashfs_hashop_mod(c->hashfs, &hash, &global_vol_id, NULL, &revision_id, c->itemsz, replica, 1, 0);
 		    if(s != OK && s != ENOENT) {
 			WARN("Failed to mod hash");
 			return 1;
@@ -3808,7 +3819,7 @@ struct rplfiles {
     char volume[SXLIMIT_MAX_VOLNAME_LEN+1],
 	file[SXLIMIT_MAX_FILENAME_LEN+1],
 	rev[REV_LEN+1];
-    unsigned int ngood, itemsz, pos, needend;
+    unsigned int ngood, itemsz, pos, needend, allow_over_replica;
     enum replace_state state;
 };
 
@@ -3929,7 +3940,7 @@ static int rplfiles_cb(curlev_context_t *cbdata, void *ctx, const void *data, si
 			return 1;
 		    }
 		}
-		s = sx_hashfs_createfile_commit(c->hashfs, c->volume, file_name, file_rev, file_size);
+		s = sx_hashfs_createfile_commit(c->hashfs, c->volume, file_name, file_rev, file_size, c->allow_over_replica);
 		c->needend = 0;
 		if(s) {
 		    WARN("Failed to create file %s:%s", file_name, file_rev);
@@ -4055,6 +4066,7 @@ static act_result_t replacefiles_request(sx_hashfs_t *hashfs, job_t job_id, job_
 	ctx->pos = 0;
 	ctx->ngood = 0;
 	ctx->needend = 0;
+        ctx->allow_over_replica = 0;
 	ctx->state = RPL_HDRSIZE;
 
 	qret = sxi_cluster_query(clust, &hlist, REQ_GET, query, NULL, 0, NULL, rplfiles_cb, ctx);
@@ -5221,9 +5233,68 @@ action_failed:
     return ret;
 }
 
-static act_result_t jobspawn_abort_and_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+static act_result_t volrep_undo_common(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl, jobtype_t type, jobphase_t phase, int revert_files);
+
+static act_result_t jobspawn_abort_and_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl, jobphase_t phase) {
+    act_result_t ret = ACT_RESULT_OK;
+    unsigned int nnode;
+    sx_blob_t *b = NULL;
+    const void *slave_job_data;
+    unsigned int slave_job_data_len;
+    jobtype_t slave_job_type;
+    const char *slave_job_lockname;
+    int slave_job_timeout;
+    job_t child;
+
+    b = sx_blob_from_data(job_data->ptr, job_data->len);
+    if(!b)
+        action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform requested action");
+
+    /* JOBSPAWN job data might be required to undo some mass jobs */
+    if(sx_blob_get_int64(b, &child) || sx_blob_get_int32(b, (int32_t*)&slave_job_type) ||
+       sx_blob_get_int32(b, &slave_job_timeout) || sx_blob_get_string(b, &slave_job_lockname) ||
+       sx_blob_get_blob(b, &slave_job_data, &slave_job_data_len)) {
+        WARN("Failed to get slave job data");
+        action_error(ACT_RESULT_PERMFAIL, 500, "Internal error: Corrupt job data");
+    }
+
+    /* We have obtained the slave job data */
+    if(slave_job_type == JOBTYPE_VOLREP_FILES || slave_job_type == JOBTYPE_VOLREP_BLOCKS) {
+        job_data_t slave_data;
+        
+        /*
+         * Try hard to schedule undo phases for blocks and volumes synchronization.
+         *
+         * In order to avoid looping the undo phases we should avoid scheduling undo phase if it is already an undo phase. */
+
+        slave_data.len = slave_job_data_len;
+        slave_data.ptr = (void*)slave_job_data;
+        slave_data.owner = job_data->owner;
+        slave_data.op_expires_at = job_data->op_expires_at;
+
+        if(slave_job_type == JOBTYPE_VOLREP_FILES)
+            ret = volrep_undo_common(hashfs, job_id, &slave_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl, JOBTYPE_JOBSPAWN, phase, 1);
+        else /* There is no need to revert files phase, just undo for blocks */
+            ret = volrep_undo_common(hashfs, job_id, &slave_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl, JOBTYPE_JOBSPAWN, phase, 0);
+        sx_blob_free(b);
+        return ret;
+    }
+
+    /* Succeed at this stage */
+    for(nnode = 0; nnode < sx_nodelist_count(nodes); nnode++)
+        succeeded[nnode] = 1;
+action_failed:
     CRIT("Some files were left in an inconsistent state after a failed mass job attempt");
-    return force_phase_success(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
+    sx_blob_free(b);
+    return ret;
+}
+
+static act_result_t jobspawn_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    return jobspawn_abort_and_undo(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl, JOBPHASE_ABORT);
+}
+
+static act_result_t jobspawn_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    return jobspawn_abort_and_undo(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl, JOBPHASE_UNDO);
 }
 
 static act_result_t jobpoll_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
@@ -5354,9 +5425,76 @@ action_failed:
     return ret;
 }
 
-static act_result_t jobpoll_abort_and_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+static act_result_t jobpoll_abort_and_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl, jobphase_t phase) {
+    rc_ty s;
+    job_t parent;
+    jobtype_t parent_type;
+    act_result_t ret = ACT_RESULT_OK;
+    unsigned int nnode;
+    sx_blob_t *b = NULL;
+    const void *slave_job_data;
+    unsigned int slave_job_data_len;
+    jobtype_t slave_job_type;
+    const char *slave_job_lockname;
+    int slave_job_timeout;
+    job_t child;
+
+    s = sx_hashfs_get_parent_job(hashfs, job_id, &parent, &parent_type, &b);
+    if(s != OK || !b) {
+        WARN("Failed to check parent job");
+        action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to check parent job");
+    }
+
+    if(parent_type != JOBTYPE_JOBSPAWN) {
+        WARN("Invalid parent job type: got %d, expected %d", parent_type, JOBTYPE_JOBSPAWN);
+        action_error(ACT_RESULT_PERMFAIL, 503, "Invalid job configuration");
+    }
+
+    /* JOBSPAWN job data might be required to undo some mass jobs */
+    if(sx_blob_get_int64(b, &child) || child != job_id || sx_blob_get_int32(b, (int32_t*)&slave_job_type) ||
+       sx_blob_get_int32(b, &slave_job_timeout) || sx_blob_get_string(b, &slave_job_lockname) ||
+       sx_blob_get_blob(b, &slave_job_data, &slave_job_data_len)) {
+        WARN("Failed to get slave job data");
+        action_error(ACT_RESULT_PERMFAIL, 500, "Internal error: Corrupt job data");
+    }
+
+    /* We have obtained the slave job data */
+    if(slave_job_type == JOBTYPE_VOLREP_FILES || slave_job_type == JOBTYPE_VOLREP_BLOCKS) {
+        job_data_t slave_data;
+        
+        /*
+         * Try hard to schedule undo phases for blocks and volumes synchronization.
+         *
+         * In order to avoid looping the undo phases we should avoid scheduling undo phase if it is already an undo phase. */
+
+        slave_data.len = slave_job_data_len;
+        slave_data.ptr = (void*)slave_job_data;
+        slave_data.owner = job_data->owner;
+        slave_data.op_expires_at = job_data->op_expires_at;
+
+        if(slave_job_type == JOBTYPE_VOLREP_FILES)
+            ret = volrep_undo_common(hashfs, job_id, &slave_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl, JOBTYPE_JOBPOLL, phase, 1);
+        else /* There is no need to revert files phase, just undo for blocks */
+            ret = volrep_undo_common(hashfs, job_id, &slave_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl, JOBTYPE_JOBPOLL, phase, 0);
+        sx_blob_free(b);
+        return ret;
+    }
+
+    /* Succeed at this stage */
+    for(nnode = 0; nnode < sx_nodelist_count(nodes); nnode++)
+        succeeded[nnode] = 1;
+action_failed:
     CRIT("Some files were left in an inconsistent state after a failed mass job attempt");
-    return force_phase_success(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
+    sx_blob_free(b);
+    return ret;
+}
+
+static act_result_t jobpoll_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    return jobpoll_abort_and_undo(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl, JOBPHASE_ABORT);
+}
+
+static act_result_t jobpoll_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    return jobpoll_abort_and_undo(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl, JOBPHASE_UNDO);
 }
 
 #define MAX_BATCH_ITER  2048
@@ -5421,7 +5559,7 @@ static act_result_t massdelete_commit(sx_hashfs_t *hashfs, job_t job_id, job_dat
             }
 
             /* File is deleted, we can unbump the revision */
-            sx_hashfs_revunbump(hashfs, &filerev->revision_id, filerev->block_size);
+	    sx_hashfs_revunbump(hashfs, &filerev->revision_id, filerev->block_size);
 
             i++;
         }
@@ -5483,7 +5621,7 @@ static rc_ty massrename_drop_old_src_revs(sx_hashfs_t *h, const sx_hashfs_volume
         }
 
         /* File is deleted, we can unbump the revision */
-        sx_hashfs_revunbump(h, &filerev->revision_id, filerev->block_size);
+	sx_hashfs_revunbump(h, &filerev->revision_id, filerev->block_size);
     }
 
     if(t != ITER_NO_MORE && t != ENOENT) {
@@ -5678,6 +5816,123 @@ static act_result_t massrename_abort(sx_hashfs_t *hashfs, job_t job_id, job_data
 static act_result_t massrename_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     CRIT("Some files were left in an inconsistent state after a failed rename attempt");
     return force_phase_success(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
+}
+
+static act_result_t volrep_common(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl, jobphase_t phase) {
+    sxc_client_t *sx = sx_hashfs_client(hashfs);
+    sxi_conns_t *clust = sx_hashfs_conns(hashfs);
+    const sx_node_t *me = sx_hashfs_self(hashfs);
+    act_result_t ret = ACT_RESULT_OK;
+    query_list_t *qrylist = NULL;
+    unsigned int nnode, nnodes;
+    sxi_query_t *proto = NULL;
+    rc_ty s;
+    const char *volname;
+    unsigned int prev_replica = 0, next_replica = 0;
+    const sx_hashfs_volume_t *vol;
+    sx_blob_t *b = NULL;
+
+    if(phase != JOBPHASE_COMMIT && phase != JOBPHASE_UNDO) {
+        WARN("Invalid job phase");
+        action_error(ACT_RESULT_PERMFAIL, 500, "Invalid job phase");
+    }
+
+    b = sx_blob_from_data(job_data->ptr, job_data->len);
+    if(!b) {
+        WARN("Cannot allocate blob for job %lld", (long long)job_id);
+        action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
+    }
+
+    if(sx_blob_get_string(b, &volname) || sx_blob_get_int32(b, (int32_t *)&prev_replica) || sx_blob_get_int32(b, (int32_t *)&next_replica)) {
+        WARN("Corrupted job data");
+        action_error(ACT_RESULT_PERMFAIL, 500, "Corrupted job data");
+    }
+
+    if((s = sx_hashfs_volume_by_name(hashfs, volname, &vol))) {
+        WARN("Failed to load volume %s", volname);
+        action_error(rc2actres(s), rc2http(s), msg_get_reason());
+    }
+
+    if(phase == JOBPHASE_UNDO) {
+        /* Set both prev and next replica to the same value */
+        next_replica = prev_replica;
+    }
+
+    nnodes = sx_nodelist_count(nodes);
+    for(nnode = 0; nnode<nnodes; nnode++) {
+        const sx_node_t *node = sx_nodelist_get(nodes, nnode);
+
+        DEBUG("Changing volume %s replica: %u -> %u", vol->name, prev_replica, next_replica);
+
+        if(!sx_node_cmp(me, node)) {
+            s = sx_hashfs_modify_volume_replica(hashfs, vol, prev_replica, next_replica);
+            if(s != OK) {
+                WARN("Failed to change volume '%s' replica: %s", vol->name, msg_get_reason());
+                action_error(rc2actres(s), rc2http(s), "Failed to modify volume replica");
+            }
+            succeeded[nnode] = 1;
+        } else {
+            if(!proto) {
+                proto = sxi_replica_change_proto(sx, vol->name, prev_replica, next_replica);
+                if(!proto) {
+                    WARN("Cannot allocate replica change query");
+                    action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
+                }
+
+                qrylist = wrap_calloc(nnodes, sizeof(*qrylist));
+                if(!qrylist) {
+                    WARN("Cannot allocate result space");
+                    action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
+                }
+            }
+
+            qrylist[nnode].cbdata = sxi_cbdata_create_generic(clust, NULL, NULL);
+            if(sxi_cluster_query_ev(qrylist[nnode].cbdata, clust, sx_node_internal_addr(node), REQ_PUT, proto->path, proto->content, proto->content_len, NULL, NULL)) {
+                WARN("Failed to query node %s: %s", sx_node_uuid_str(node), sxc_geterrmsg(sx));
+                action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to setup cluster communication");
+            }
+            qrylist[nnode].query_sent = 1;
+        }
+    }
+
+ action_failed:
+    if(proto) {
+        for(nnode=0; qrylist && nnode<nnodes; nnode++) {
+            int rc;
+            long http_status = 0;
+            if(!qrylist[nnode].query_sent)
+                continue;
+            rc = sxi_cbdata_wait(qrylist[nnode].cbdata, sxi_conns_get_curlev(clust), &http_status);
+            if(rc == -2) {
+                CRIT("Failed to wait for query");
+                action_set_fail(ACT_RESULT_PERMFAIL, 500, "Internal error in cluster communication");
+                continue;
+            }
+            if(rc == -1) {
+                WARN("Query failed with %ld", http_status);
+                if(ret > ACT_RESULT_TEMPFAIL) /* Only raise OK to TEMP */
+                    action_set_fail(ACT_RESULT_TEMPFAIL, 503, sxi_cbdata_geterrmsg(qrylist[nnode].cbdata));
+            } else if(http_status == 200 || http_status == 410) {
+                succeeded[nnode] = 1;
+            } else {
+                act_result_t newret = http2actres(http_status);
+                if(newret < ret) /* Severity shall only be raised */
+                    action_set_fail(newret, http_status, sxi_cbdata_geterrmsg(qrylist[nnode].cbdata));
+            }
+        }
+        query_list_free(qrylist, nnodes);
+        sxi_query_free(proto);
+    }
+    sx_blob_free(b);
+    return ret;
+}
+
+static rc_ty volrep_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    return volrep_common(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl, JOBPHASE_COMMIT);
+}
+
+static rc_ty volrep_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    return volrep_common(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl, JOBPHASE_UNDO);
 }
 
 #define UPGRADE_2_1_4_REVID_INSERT_LIMIT 2048
@@ -5977,6 +6232,673 @@ static rc_ty upgrade_2_1_3_to_2_1_4_undo(sx_hashfs_t *hashfs, job_t job_id, job_
     return force_phase_success(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
 }
 
+static rc_ty volrep_blocks_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    act_result_t ret = ACT_RESULT_OK;
+    rc_ty s;
+    sx_blob_t *b = NULL;
+    const char *volname = NULL;
+    const sx_hashfs_volume_t *vol;
+    unsigned int prev_replica = 0, next_replica = 0, is_undoing = 0;
+
+    DEBUG("IN %s", __func__);
+    if(!job_data || !job_data->len || !job_data->ptr) {
+        NULLARG();
+        action_set_fail(ACT_RESULT_PERMFAIL, 500, "Null job");
+        return ret;
+    }
+
+    if(sx_nodelist_count(nodes) > 1) {
+        action_set_fail(ACT_RESULT_PERMFAIL, 500, "JOBTYPE_VOLREP_BLOCKS can only be scheduled on one node");
+        return ret;
+    }
+
+    b = sx_blob_from_data(job_data->ptr, job_data->len);
+    if(!b) {
+        WARN("Cannot allocate blob for job %lld", (long long)job_id);
+        action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
+    }
+
+    if(sx_blob_get_string(b, &volname) || sx_blob_get_int32(b, (int32_t *)&prev_replica) ||
+       sx_blob_get_int32(b, (int32_t *)&next_replica) || sx_blob_get_int32(b, (int32_t *)&is_undoing)) {
+        WARN("Corrupted job data");
+        action_error(ACT_RESULT_PERMFAIL, 500, "Bad job data");
+    }
+
+    if((s = sx_hashfs_volume_by_name(hashfs, volname, &vol)) != OK)
+        action_error(rc2actres(s), rc2http(s), msg_get_reason());
+
+    if(vol->prev_max_replica != prev_replica || vol->max_replica != next_replica) {
+        WARN("Invalid volume state, replica limits mismatch");
+        action_error(ACT_RESULT_PERMFAIL, 500, "Replica mismatch");
+    }
+
+    if((s = sx_hashfs_volrep_init(hashfs, vol, is_undoing)) != OK)
+        action_error(rc2actres(s), rc2http(s), msg_get_reason());
+
+    sx_hashfs_set_progress_info(hashfs, INPRG_VOLREP_RUNNING, "Preparing local blocks to replica change");
+
+    if((s = sx_hashfs_volrep_update_revid_replica(hashfs, vol, is_undoing)) != OK)
+        action_error(rc2actres(s), rc2http(s), msg_get_reason());
+
+    succeeded[0] = 1;
+action_failed:
+    sx_blob_free(b);
+
+    return ret;
+}
+
+#define MAX_VOLREP_BLOCKS_RELEASE_LIMIT 2048
+
+static rc_ty volrep_blocks_release(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, int is_undoing) {
+    rc_ty ret = FAIL_EINTERNAL, s;
+    unsigned int count = 0;
+    const sx_node_t *node = NULL;
+    int have_blkidx = 0;
+    sx_block_meta_index_t blkidx;
+
+    sx_hashfs_set_progress_info(h, INPRG_REPLACE_RUNNING, "Releasing over-replica blocks");
+
+    s = sx_hashfs_volrep_getstartblock(h, &node, &have_blkidx, (uint8_t *)&blkidx);
+    if(s != OK && s != ITER_NO_MORE) {
+        WARN("Failed to get start block");
+        goto volrep_blocks_release_err;
+    } else if(s == ITER_NO_MORE) {
+        ret = s;
+        goto volrep_blocks_release_err;
+    }
+
+    if(!have_blkidx)
+        memset(&blkidx, 0, sizeof(blkidx));
+
+    while((s = sx_hashfs_volrep_release_blocks(h, vol, is_undoing, !have_blkidx, &blkidx)) == OK) {
+        count++;
+        if(count >= MAX_VOLREP_BLOCKS_RELEASE_LIMIT)
+            break; /* OK is returned */
+        have_blkidx = 1;
+    }
+
+    if(s != OK && s != ITER_NO_MORE) {
+        WARN("Failed to release over-replica blocks");
+        goto volrep_blocks_release_err;
+    }
+
+    /* Set a return point for the next iteration, after the job is woken up */
+    if(s == ITER_NO_MORE) {
+        if(sx_hashfs_volrep_setlastblock(h, sx_node_uuid(sx_hashfs_self(h)), NULL))
+            WARN("Failed to set last block for a volume replica modification");
+    } else {
+        /* More blocks to be dropped, set a proper blockmeta index */
+        if(sx_hashfs_volrep_setlastblock(h, sx_node_uuid(sx_hashfs_self(h)), (uint8_t *)&blkidx))
+            WARN("Failed to set last block for a volume replica modification");
+    }
+
+    ret = s;
+volrep_blocks_release_err:
+    return ret;
+}
+
+static rc_ty volrep_blocks_pull(sx_hashfs_t *hashfs, const sx_hashfs_volume_t *vol, int is_undoing) {
+    rc_ty ret = FAIL_EINTERNAL, s;
+    sxc_client_t *sx = sx_hashfs_client(hashfs);
+    sx_block_meta_index_t bmidx;
+    const sx_node_t *source;
+    sxi_hostlist_t hlist;
+    int have_blkidx;
+    char *enc_vol = NULL;
+
+    if(!vol) {
+        NULLARG();
+        return FAIL_EINTERNAL;
+    }
+
+    sxi_hostlist_init(&hlist);
+    enc_vol = sxi_urlencode(sx, vol->name, 1);
+    if(!enc_vol) {
+        msg_set_reason("Not enough memory to perform the requested action");
+        goto volrep_blocks_pull_err;
+    }
+
+    sx_hashfs_set_progress_info(hashfs, INPRG_REPLACE_RUNNING, "Pulling under-replica blocks");
+
+    s = sx_hashfs_volrep_getstartblock(hashfs, &source, &have_blkidx, (uint8_t *)&bmidx);
+    if(s == OK) {
+        sxi_conns_t *clust = sx_hashfs_conns(hashfs);
+        const sx_node_t *me = sx_hashfs_self(hashfs);
+        struct rplblocks *ctx = malloc(sizeof(*ctx));
+        char query[256];
+        int qret;
+        char hexidx[sizeof(bmidx)*2+1];
+
+        if(!ctx) {
+            msg_set_reason("Out of memory");
+            goto volrep_blocks_pull_err;
+        }
+        if(sxi_hostlist_add_host(sx, &hlist, sx_node_internal_addr(source))) {
+            free(ctx);
+            msg_set_reason("Out of memory");
+            goto volrep_blocks_pull_err;
+        }
+
+        if(have_blkidx)
+            bin2hex(&bmidx, sizeof(bmidx), hexidx, sizeof(hexidx));
+
+        snprintf(query, sizeof(query), ".volrepblk?volume=%s&target=%s%s%s%s", enc_vol, sx_node_uuid_str(me),
+                have_blkidx ? "&idx=" : "", have_blkidx ? hexidx : "", is_undoing ? "&undo" : "");
+
+        ctx->hashfs = hashfs;
+        ctx->b = NULL;
+        ctx->pos = 0;
+        ctx->ngood = 0;
+        ctx->state = RPL_HDRSIZE;
+        qret = sxi_cluster_query(clust, &hlist, REQ_GET, query, NULL, 0, NULL, rplblocks_cb, ctx);
+        sx_blob_free(ctx->b);
+        if(qret != 200) {
+            free(ctx);
+            msg_set_reason("Bad reply from node");
+            goto volrep_blocks_pull_err;
+        }
+
+        if(ctx->state == RPL_END) {
+            if(sx_hashfs_volrep_setlastblock(hashfs, sx_node_uuid(source), NULL))
+                WARN("Failed to set last block for a volume replica modification");
+        } else if(ctx->ngood) {
+            if(sx_hashfs_volrep_setlastblock(hashfs, sx_node_uuid(source), (uint8_t *)&ctx->lastgood))
+                WARN("Failed to set last block for a volume replica modification");
+        }
+        free(ctx);
+    } else if(s != ITER_NO_MORE) {
+        ret = s;
+        WARN("Failed to get start block: %s", msg_get_reason());
+        goto volrep_blocks_pull_err;
+    }
+
+    ret = s;
+volrep_blocks_pull_err:
+    sxi_hostlist_empty(&hlist);
+    free(enc_vol);
+    return ret;
+}
+
+static rc_ty volrep_blocks_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    act_result_t ret = ACT_RESULT_NOTFAILED;
+    sxi_hostlist_t hlist;
+    rc_ty s;
+    sx_blob_t *b = NULL;
+    const char *volname = NULL;
+    unsigned int prev_replica = 0, next_replica = 0, is_undoing = 0;
+    const sx_hashfs_volume_t *vol = NULL;
+
+    DEBUG("IN %s", __func__);
+    sxi_hostlist_init(&hlist);
+
+    if(sx_nodelist_count(nodes) != 1) {
+        CRIT("Bad job data");
+        action_error(ACT_RESULT_PERMFAIL, 500, "JOBTYPE_VOLREP_FILES can only be scheduled on one node");
+    }
+
+    b = sx_blob_from_data(job_data->ptr, job_data->len);
+    if(!b) {
+        WARN("Cannot allocate blob for job %lld", (long long)job_id);
+        action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
+    }
+
+    if(sx_blob_get_string(b, &volname) || sx_blob_get_int32(b, (int32_t *)&prev_replica) ||
+       sx_blob_get_int32(b, (int32_t *)&next_replica) || sx_blob_get_int32(b, (int32_t *)&is_undoing)) {
+        WARN("Corrupted job data");
+        action_error(ACT_RESULT_PERMFAIL, 500, "Bad job data");
+    }
+
+    if((s = sx_hashfs_volume_by_name(hashfs, volname, &vol)) != OK)
+        action_error(rc2actres(s), rc2http(s), msg_get_reason());
+
+    if(vol->prev_max_replica != prev_replica || vol->max_replica != next_replica) {
+        WARN("Invalid volume state, replica limits mismatch");
+        action_error(ACT_RESULT_PERMFAIL, 500, "Replica mismatch");
+    }
+
+    if(is_undoing) {
+        WARN("Undoing volume replica change blocks relocation phase");
+        unsigned int tmp = next_replica;
+        next_replica = prev_replica;
+        prev_replica = tmp;
+    }
+
+    if(next_replica > prev_replica)
+        s = volrep_blocks_pull(hashfs, vol, is_undoing);
+    else if(next_replica < prev_replica)
+        s = volrep_blocks_release(hashfs, vol, is_undoing);
+    else /* In case replica is the same, this operation should be a no-op */
+        s = ITER_NO_MORE;
+    if(s != OK && s != ITER_NO_MORE) {
+        if(s == FAIL_LOCKED)
+            action_error(ACT_RESULT_TEMPFAIL, 503, "Resource is temporarily locked");
+        else {
+            WARN("Failed to perform commit phase: %s", msg_get_reason());
+            action_error(rc2actres(s), rc2http(s), msg_get_reason());
+        }
+    } else if(s == ITER_NO_MORE) {
+        succeeded[0] = 1;
+        ret = ACT_RESULT_OK;
+        INFO("<<<< BLOCKS %sPHASE OF VOLUME REPLICA CHANGE DONE >>>>", is_undoing ? "UNDO " : "");
+    }
+
+action_failed:
+    sxi_hostlist_empty(&hlist);
+    sx_blob_free(b);
+    return ret;
+}
+
+static act_result_t volrep_files_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    sxc_client_t *sx = sx_hashfs_client(hashfs);
+    act_result_t ret = ACT_RESULT_NOTFAILED;
+    char maxrev[REV_LEN+1];
+    sxi_hostlist_t hlist;
+    struct rplfiles *ctx = NULL;
+    sx_blob_t *b = NULL;
+    unsigned int prev_replica = 0, next_replica = 0, is_undoing = 0;
+    const char *volname;
+    rc_ty s;
+    const sx_node_t *me = sx_hashfs_self(hashfs);
+    const sx_hashfs_volume_t *vol = NULL;
+    sx_nodelist_t *volnodes = NULL;
+    unsigned int index = 0;
+    const sx_node_t *node;
+
+    DEBUG("IN %s", __func__);
+
+    sxi_hostlist_init(&hlist);
+
+    if(sx_nodelist_count(nodes) != 1) {
+        CRIT("Bad job data");
+        action_error(ACT_RESULT_PERMFAIL, 500, "Internal job data error");
+    }
+
+    b = sx_blob_from_data(job_data->ptr, job_data->len);
+    if(!b) {
+        WARN("Cannot allocate blob for job %lld", (long long)job_id);
+        action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
+    }
+
+    if(sx_blob_get_string(b, &volname) || sx_blob_get_int32(b, (int32_t *)&prev_replica) ||
+       sx_blob_get_int32(b, (int32_t *)&next_replica) || sx_blob_get_int32(b, (int32_t *)&is_undoing)) {
+        WARN("Corrupted job data");
+        action_error(ACT_RESULT_PERMFAIL, 500, "Bad job data");
+    }
+
+    if((s = sx_hashfs_volume_by_name(hashfs, volname, &vol)) != OK)
+        action_error(rc2actres(s), rc2http(s), "Failed to obtain volume by name");
+
+    if(vol->prev_max_replica != prev_replica || vol->max_replica != next_replica) {
+        WARN("Invalid volume state, replica limits mismatch");
+        action_error(ACT_RESULT_PERMFAIL, 500, "Replica mismatch");
+    }
+
+    if(is_undoing) {
+        unsigned int tmp = next_replica;
+        next_replica = prev_replica;
+        prev_replica = tmp;
+    }
+
+    if(prev_replica >= next_replica) {
+        DEBUG("Skipping file relocation due to next replica being less or equal to prev replica");
+        ret = ACT_RESULT_OK;
+        succeeded[0] = 1;
+        goto action_failed;
+    }
+
+    s = sx_hashfs_all_volnodes(hashfs, NL_NEXTPREV, vol, 0, &volnodes, NULL);
+    if(s != OK)
+        action_error(rc2actres(s), rc2http(s), msg_get_reason());
+
+    /* Check if the node running this job is the node which is becoming a new volnode */
+    node = sx_nodelist_lookup_index(volnodes, sx_node_uuid(me), &index);
+    if(!node) {
+        WARN("This node is not a volnode for %s", volname);
+        action_error(ACT_RESULT_PERMFAIL, 500, "Wrong node for the action");
+    }
+
+    if(index < MIN(prev_replica,next_replica)) {
+        WARN("This node is an old volnode for %s", volname);
+        action_error(ACT_RESULT_PERMFAIL, 500, "Wrong node for the action");
+    }
+
+    /* When decreasing volume replica, prev > next and it is possible to call this action
+     * on the node having the index < prev, but there is no need to pull files in this case. */
+    if(index < prev_replica) {
+        DEBUG("Skipping files pull due to current node index being less than prev replica: %d < %d", index, prev_replica);
+        succeeded[0] = 1;
+        ret = ACT_RESULT_OK;
+        goto action_failed;
+    }
+
+    sx_hashfs_set_progress_info(hashfs, INPRG_VOLREP_RUNNING, "Healing files");
+
+    ctx = malloc(sizeof(*ctx));
+    if(!ctx)
+        action_error(ACT_RESULT_TEMPFAIL, 503, "Out of memory allocating request context");
+
+    while((s = sx_hashfs_volrep_getstartfile(hashfs, maxrev, ctx->volume, ctx->file, ctx->rev)) == OK) {
+        const sx_node_t *source;
+
+        /* Just in case, check if a volume obtained from replacement table matches the volume 
+         * we are modifying the replica. */
+        if(strcmp(ctx->volume, volname)) {
+            WARN("Invalid replica change volume entry");
+            action_error(ACT_RESULT_PERMFAIL, 500, "Invalid replica change volume entry");
+        }
+
+        /* Randomize the source node for the query because the volnodes list is constant for for all the files in the volume. */
+        source = sx_nodelist_get(volnodes, sxi_rand() % prev_replica);
+
+        if(sxi_hostlist_add_host(sx, &hlist, sx_node_internal_addr(source)))
+            action_error(ACT_RESULT_TEMPFAIL, 503, "Out of memory");
+
+        break;
+    }
+
+    if(s == OK) {
+        char *enc_vol = NULL, *enc_file = NULL, *enc_rev = NULL, *enc_maxrev = NULL, *query = NULL;
+        sxi_conns_t *clust = sx_hashfs_conns(hashfs);
+        int qret;
+
+        enc_vol = sxi_urlencode(sx, ctx->volume, 0);
+        enc_file = sxi_urlencode(sx, ctx->file, 0);
+        enc_rev = sxi_urlencode(sx, ctx->rev, 0);
+        enc_maxrev = sxi_urlencode(sx, maxrev, 0);
+
+        if(enc_vol && enc_file && enc_rev && enc_maxrev) {
+            query = malloc(lenof(".replfl/") +
+                           strlen(enc_vol) +
+                           lenof("/") +
+                           strlen(enc_file) +
+                           lenof("?maxrev=") +
+                           strlen(enc_maxrev) +
+                           lenof("&startrev=") +
+                           strlen(enc_rev) +
+                           1);
+
+            if(query) {
+                /* Reuse a request used for the node replacement routine, this should work for the volume replica change case. */
+                if(strlen(enc_file))
+                    sprintf(query, ".replfl/%s/%s?maxrev=%s&startrev=%s", enc_vol, enc_file, enc_maxrev, enc_rev);
+                else
+                    sprintf(query, ".replfl/%s?maxrev=%s", enc_vol, enc_maxrev);
+            }
+        }
+
+        free(enc_vol);
+        free(enc_file);
+        free(enc_rev);
+        free(enc_maxrev);
+
+        if(!query)
+            action_error(ACT_RESULT_TEMPFAIL, 503, "Out of memory allocating the request URL");
+
+        ctx->hashfs = hashfs;
+        ctx->b = NULL;
+        ctx->pos = 0;
+        ctx->ngood = 0;
+        ctx->needend = 0;
+        ctx->allow_over_replica = is_undoing;
+        ctx->state = RPL_HDRSIZE;
+
+        qret = sxi_cluster_query(clust, &hlist, REQ_GET, query, NULL, 0, NULL, rplfiles_cb, ctx);
+        free(query);
+        sx_blob_free(ctx->b);
+        if(ctx->needend)
+            sx_hashfs_putfile_end(hashfs);
+        if(qret != 200)
+            action_error(ACT_RESULT_TEMPFAIL, 503, "Bad reply from node");
+        if(ctx->state == RPL_END) {
+            if(sx_hashfs_volrep_setlastfile(hashfs, ctx->volume, NULL, NULL))
+                WARN("Volume replica change files relocation failed");
+        } else if(ctx->ngood) {
+            if(sx_hashfs_volrep_setlastfile(hashfs, ctx->volume, ctx->file, ctx->rev))
+                WARN("Volume replica change files relocation failed");
+        }
+    } else if(s == ITER_NO_MORE) {
+        succeeded[0] = 1;
+        ret = ACT_RESULT_OK;
+    } else
+        action_error(rc2actres(s), rc2http(s), msg_get_reason());
+
+
+ action_failed:
+    sxi_hostlist_empty(&hlist);
+    free(ctx);
+    sx_blob_free(b);
+    sx_nodelist_delete(volnodes);
+    return ret;
+}
+
+static act_result_t volrep_files_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    act_result_t ret = ACT_RESULT_NOTFAILED;
+    sx_blob_t *b = NULL;
+    unsigned int prev_replica = 0, next_replica = 0, is_undoing = 0;
+    const char *volname;
+    rc_ty s;
+    const sx_node_t *me = sx_hashfs_self(hashfs);
+    const sx_hashfs_volume_t *vol = NULL;
+    sx_nodelist_t *volnodes = NULL;
+    unsigned int index = 0;
+    const sx_node_t *node;
+
+    DEBUG("IN %s", __func__);
+
+    if(sx_nodelist_count(nodes) != 1) {
+        CRIT("Bad job data");
+        action_error(ACT_RESULT_PERMFAIL, 500, "Internal job data error");
+    }
+
+    b = sx_blob_from_data(job_data->ptr, job_data->len);
+    if(!b) {
+        WARN("Cannot allocate blob for job %lld", (long long)job_id);
+        action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
+    }
+
+    if(sx_blob_get_string(b, &volname) || sx_blob_get_int32(b, (int32_t *)&prev_replica) ||
+       sx_blob_get_int32(b, (int32_t *)&next_replica) || sx_blob_get_int32(b, (int32_t *)&is_undoing)) {
+        WARN("Corrupted job data");
+        action_error(ACT_RESULT_PERMFAIL, 500, "Bad job data");
+    }
+
+    if((s = sx_hashfs_volume_by_name(hashfs, volname, &vol)) != OK)
+        action_error(rc2actres(s), rc2http(s), "Failed to obtain volume by name");
+
+    if(vol->prev_max_replica != prev_replica || vol->max_replica != next_replica) {
+        WARN("Invalid volume state, replica limits mismatch");
+        action_error(ACT_RESULT_PERMFAIL, 500, "Replica mismatch");
+    }
+
+    if(is_undoing) {
+        WARN("Undoing volume replica change files relocation phase");
+        unsigned int tmp = next_replica;
+        next_replica = prev_replica;
+        prev_replica = tmp;
+    }
+
+    s = sx_hashfs_all_volnodes(hashfs, NL_NEXTPREV, vol, 0, &volnodes, NULL);
+    if(s != OK)
+        action_error(rc2actres(s), rc2http(s), msg_get_reason());
+
+    /* Check if the node running this job is the node which is becoming a new volnode */
+    node = sx_nodelist_lookup_index(volnodes, sx_node_uuid(me), &index);
+    if(!node) {
+        WARN("This node is not a volnode for %s", volname);
+        action_error(ACT_RESULT_PERMFAIL, 500, "Wrong node for the action");
+    }
+
+    if(index < MIN(prev_replica,next_replica)) {
+        WARN("This node is an old volnode for %s", volname);
+        action_error(ACT_RESULT_PERMFAIL, 500, "Wrong node for the action");
+    }
+
+    /* At this point we only consider the transitioning volnodes */
+    if(prev_replica < next_replica) {
+        /* Volume replica increase
+         *
+         * This node becomes a volnode for new replica, we have to recalculate sizes of the files stored here,
+         * previously a non-volnode stored eventually consistent values. */
+        if((s = sx_hashfs_compute_volume_size(hashfs, vol)))
+            action_error(rc2actres(s), rc2http(s), msg_get_reason());
+    } else if(prev_replica > next_replica) {
+        /* Volume replica decrease */
+        INFO("Removing all files from %s which no longer belong in here", vol->name);
+
+        if((s = sx_hashfs_volume_clean(hashfs, vol)) != OK)
+            action_error(rc2actres(s), rc2http(s), msg_get_reason());
+    }
+
+    sx_hashfs_set_progress_info(hashfs, INPRG_VOLREP_COMPLETE, "Healing complete");
+
+    succeeded[0] = 1;
+    ret = ACT_RESULT_OK;
+ action_failed:
+    if(ret == ACT_RESULT_OK && succeeded[0] == 1)
+        INFO("<<<< FILES %sPHASE OF VOLUME REPLICA CHANGE DONE >>>>", is_undoing ? "UNDO " : "");
+    sx_blob_free(b);
+    sx_nodelist_delete(volnodes);
+    return ret;
+}
+
+/* Common for abort and undo phases, called only on one node when jobpoll fails (not on undo phase for JOBTYPE_VOLREP_FILES */
+static act_result_t volrep_undo_common(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl, jobtype_t type, jobphase_t phase, int revert_files) {
+    rc_ty s;
+    sx_blob_t *b = NULL, *newb = NULL;
+    const sx_nodelist_t *allnodes;
+    act_result_t ret = ACT_RESULT_OK;
+    const void *data;
+    unsigned int data_len;
+    job_t job = JOB_NOPARENT; /* Used as a parent in a chain */
+    const char *volname = NULL;
+    unsigned int prev_replica = 0, next_replica = 0;
+    unsigned int is_undoing = 0; /* Set to 1 when this function is called for already being undone job */
+    unsigned int i;
+    const sx_hashfs_volume_t *vol = NULL;
+    sx_nodelist_t *ftargets = NULL; /* Target nodelist for files undo phase */
+    const sx_nodelist_t *targets;
+
+    allnodes = sx_hashfs_all_nodes(hashfs, NL_NEXTPREV);
+    if(!allnodes)
+        action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to undo volume replica change: Failed to get nodelist");
+    if(type == JOBTYPE_JOBPOLL) {
+        /* For the case when we fail in polling job we have to revert changes on all the nodes. The same applies when we
+         * want to revert files. */
+        targets = allnodes;
+    } else {
+        /* For the case when we fail in the spawning job we should revert mass jobs on the nodelist provided by the job manager in an undo phase.
+         * Other nodes did not succeed to spawn and they are going to timeout, but do not require undoing. */
+        targets = nodes;
+    }
+
+    b = sx_blob_from_data(job_data->ptr, job_data->len);
+    if(!b)
+        action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to undo volume replica change: Out of memory");
+
+    newb = sx_blob_new();
+    if(!newb)
+        action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to undo volume replica change: Out of memory");
+
+    /* Read through original job data blob */
+    if(sx_blob_get_string(b, &volname) || sx_blob_get_int32(b, (int32_t *)&prev_replica) ||
+       sx_blob_get_int32(b, (int32_t *)&next_replica) || sx_blob_get_int32(b, (int32_t *)&is_undoing)) {
+        WARN("Corrupted job data");
+        action_error(ACT_RESULT_PERMFAIL, 500, "Bad job data");
+    }
+
+    if((s = sx_hashfs_volume_by_name(hashfs, volname, &vol)) != OK)
+        action_error(rc2actres(s), rc2http(s), "Failed to obtain volume by name");
+
+    if(vol->prev_max_replica != prev_replica || vol->max_replica != next_replica) {
+        WARN("Invalid volume state, replica limits mismatch");
+        action_error(ACT_RESULT_PERMFAIL, 500, "Replica mismatch");
+    }
+
+    /* Target nodelist might be shorter than over-replica nodes due to the targets nodeslit being possibly shorter than all nodes. */
+    s = sx_hashfs_over_replica_volnodes(hashfs, vol, prev_replica, next_replica, targets, &ftargets);
+    if(s != OK)
+        action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to obtain target nodes for files undo phase");
+
+    /* When the spawning or polling job succeeds to schedule some jobs avoid scheduling the volume replica change job during the abort phase. 
+     * If all the nodes failed at the request phase (no commit suceeded), the undo phase would not be called. */
+    if(phase == JOBPHASE_ABORT) {
+        if((!revert_files && sx_nodelist_count(nodes) != sx_nodelist_count(allnodes)) ||
+           (revert_files && sx_nodelist_count(nodes) != sx_nodelist_count(ftargets))) {
+            DEBUG("Forcibly making the abort phase to succeed");
+            return force_phase_success(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
+        }
+    }
+
+    /* Create new job data, but set the undo flag */
+    if(sx_blob_add_string(newb, volname) || sx_blob_add_int32(newb, (int32_t)prev_replica) ||
+       sx_blob_add_int32(newb, (int32_t)next_replica) || sx_blob_add_int32(newb, 1))
+        action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to undo volume replica change: Out of memory adding data to the new blob");
+
+    if((s = sx_hashfs_job_new_begin(hashfs)))
+        action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to undo volume replica change: Failed to start transaction");
+
+    sx_blob_to_data(newb, &data, &data_len);
+
+    /*
+     * If the jobs were already being undone skip blocks and files relocation, but try hard to stabilize the volume replica
+     * to make other volume replica changes and cluster membership modifications to be able to work again.
+     *
+     * When this function is called by the abort callback (can be called by jobspawn_abort) and all the nodes are on the to-abort
+     * list it is not necessary to undo current stage.
+     *
+     * Scheduling the JOBTYPE_VOLREP_CHANGE is not going to make this function to be called again, it is a regular job.
+     */
+    if(!is_undoing) {
+        /* Abort phase can only call this code when no undo phase is to be called later */
+        if(type == JOBTYPE_JOBPOLL || phase != JOBPHASE_ABORT || revert_files) {
+            DEBUG("Scheduling UNDO job for BLOCKS");
+            /* When we want to revert files, schedule an undo for block to all the nodes. */
+            s = sx_hashfs_mass_job_new_notrigger(hashfs, job, job_data->owner, &job, JOBTYPE_VOLREP_BLOCKS, JOB_NO_EXPIRY, "VOLREP_BLOCKS", data, data_len, revert_files ? allnodes : targets);
+            if(s != OK)
+                action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to undo volume replica change: Failed to schedule VOLREP_BLOCKS job undo");
+
+            /* Only revert files when needed */
+            if(revert_files && (type == JOBTYPE_JOBPOLL || phase != JOBPHASE_ABORT)) {
+                DEBUG("Scheduling UNDO job for FILES");
+                s = sx_hashfs_mass_job_new_notrigger(hashfs, job, job_data->owner, &job, JOBTYPE_VOLREP_FILES, JOB_NO_EXPIRY, "VOLREP_FILES", data, data_len, ftargets);
+                if(s != OK)
+                    action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to undo volume replica change: Failed to schedule VOLREP_FILES job undo");
+            }
+        }
+    } else
+        CRIT("Undo phase failed for volume replica change, some files may be left in an inconsistent state");
+
+    /* For the replica change just set both replica limits to the prev */
+    sx_blob_reset(newb);
+    if(sx_blob_add_string(newb, volname) || sx_blob_add_int32(newb, (int32_t)prev_replica) ||
+       sx_blob_add_int32(newb, (int32_t)prev_replica) || sx_blob_add_int32(newb, 1))
+        action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to undo volume replica change");
+
+    sx_blob_to_data(newb, &data, &data_len);
+    s = sx_hashfs_job_new_notrigger(hashfs, job, job_data->owner, &job, JOBTYPE_VOLREP_CHANGE, 20, NULL, data, data_len, allnodes);
+    if(s != OK)
+        action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to undo volume replica change");
+
+    /* Commit the job chain */
+    s = sx_hashfs_job_new_end(hashfs);
+    if(s != OK)
+        action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to undo volume replica change");
+
+    for(i = 0; i < sx_nodelist_count(nodes); i++)
+        succeeded[i] = 1;
+ action_failed:
+    if(ret != ACT_RESULT_OK) {
+        if(ret != ACT_RESULT_TEMPFAIL)
+            CRIT("Permanently failed to undo volume replica change, volume '%s' might be left in an inconsistent state", volname ? volname : "<unknown>");
+        sx_hashfs_job_new_abort(hashfs);
+    }
+
+    sx_nodelist_delete(ftargets);
+    sx_blob_free(b);
+    sx_blob_free(newb);
+    return ret;
+}
+
 /* TODO: upgrade from 1.0-style flush and delete jobs */
 static struct {
     job_action_t fn_request;
@@ -6012,15 +6934,18 @@ static struct {
     { force_phase_success, revision_commit, revision_abort, revision_undo }, /* JOBTYPE_BLOCKS_REVISION */
     { force_phase_success, fileflush_local, fileflush_remote_undo, force_phase_success }, /* JOBTYPE_FLUSH_FILE_LOCAL  - 1 node */
     { upgrade_request, force_phase_success, force_phase_success, force_phase_success }, /* JOBTYPE_UPGRADE_FROM_1_0_OR_1_1 */
-    { force_phase_success, jobpoll_commit, jobpoll_abort_and_undo, jobpoll_abort_and_undo }, /* JOBTYPE_JOBPOLL */
+    { force_phase_success, jobpoll_commit, jobpoll_abort, jobpoll_undo }, /* JOBTYPE_JOBPOLL */
     { force_phase_success, massdelete_commit, massdelete_abort, massdelete_undo }, /* JOBTYPE_MASSDELETE */
     { force_phase_success, massrename_commit, massrename_abort, massrename_undo }, /* JOBTYPE_MASSRENAME */
     { force_phase_success, cluster_setmeta_commit, cluster_setmeta_abort, cluster_setmeta_undo }, /* JOBTYPE_CLUSTER_SETMETA */
-    { jobspawn_request, jobspawn_commit, jobspawn_abort_and_undo, jobspawn_abort_and_undo }, /* JOBTYPE_JOBSPAWN */
+    { jobspawn_request, jobspawn_commit, jobspawn_abort, jobspawn_undo }, /* JOBTYPE_JOBSPAWN */
     { force_phase_success, cluster_settings_commit, cluster_settings_abort, cluster_settings_undo }, /* JOBTYPE_CLUSTER_SETTINGS */
     { junlockall_request, force_phase_success, force_phase_success, force_phase_success }, /* JOBTYPE_JUNLOCKALL */
     { delay_request, force_phase_success, force_phase_success, force_phase_success }, /* JOBTYPE_DELAY */
     { upgrade_2_1_3_to_2_1_4_request, upgrade_2_1_3_to_2_1_4_commit, upgrade_2_1_3_to_2_1_4_abort, upgrade_2_1_3_to_2_1_4_undo }, /* JOBTYPE_UPGRADE_FROM_2_1_3_TO_2_1_4 */
+    { force_phase_success, volrep_commit, force_phase_success, volrep_undo }, /* JOBTYPE_VOLREP_CHANGE */
+    { volrep_blocks_request, volrep_blocks_commit, force_phase_success, force_phase_success }, /* JOBTYPE_VOLREP_BLOCKS */
+    { volrep_files_request, volrep_files_commit, force_phase_success, force_phase_success }, /* JOBTYPE_VOLREP_FILES */
 };
 
 
@@ -6592,7 +7517,7 @@ static void jobmgr_process_queue(struct jobmgr_data_t *q, int forced) {
 	    continue; /* Process next job */
 	}
 
-	DEBUG("Running job %lld (type %d, %s, %s)", (long long)q->job_id, q->job_type, q->job_expired?"expired":"not expired", q->job_failed?"failed":"not failed");
+        DEBUG("Running job %lld (type %d, %s, %s)", (long long)q->job_id, q->job_type, q->job_expired?"expired":"not expired", q->job_failed?"failed":"not failed");
 	jobmgr_run_job(q);
 	free(q->job_data);
 	DEBUG("Finished running job %lld", (long long)q->job_id);

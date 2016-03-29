@@ -538,10 +538,15 @@ int main(int argc, char **argv) {
             goto main_err;
         }
 
-        if(!modify_args.owner_given && !modify_args.size_given && !modify_args.max_revisions_given && !modify_args.reset_custom_meta_given && !modify_args.reset_local_config_given) {
+        if(!modify_args.owner_given && !modify_args.size_given && !modify_args.max_revisions_given && !modify_args.reset_custom_meta_given && !modify_args.reset_local_config_given && !modify_args.replica_given) {
             modify_cmdline_parser_print_help();
             printf("\n");
             fprintf(stderr, "ERROR: Invalid arguments\n");
+            modify_cmdline_parser_free(&modify_args);
+            goto main_err;
+        }
+        if(modify_args.replica_given && (modify_args.size_given || modify_args.max_revisions_given || modify_args.reset_custom_meta_given || modify_args.reset_local_config_given)) {
+            fprintf(stderr, "ERROR: Volume replica modification is a complex operation and it cannot be used with other options\n");
             modify_cmdline_parser_free(&modify_args);
             goto main_err;
         }
@@ -617,7 +622,28 @@ int main(int argc, char **argv) {
 		if(modify_args.reset_custom_meta_given)
 		    printf("Volume custom metadata reset\n");
 	    }
-	}
+	} else if(modify_args.replica_given) {
+            if(!modify_args.batch_mode_given) {
+                char in[2];
+                if(sxc_input_fn(sx, SXC_INPUT_YN, "Volume replica modification might require data replication. Are you sure?", "n", in, sizeof(in), NULL)) {
+                    fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
+                    goto modify_err;
+                }
+
+                if(in[0] != 'y') {
+                    fprintf(stderr, "ERROR: Volume replica modification rejected by user\n");
+                    goto modify_err;
+                }
+            }
+
+            ret = sxc_volume_modify_replica(cluster, uri->volume, modify_args.replica_arg);
+            if(ret) {
+                fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
+                goto modify_err;
+            } else
+                printf("Volume data is being populated. You can monitor the operation progress with 'sxadm cluster --info sx://%s%s%s' command.\n",
+                    uri->profile ? uri->profile : "", uri->profile ? "@" : "", uri->host);
+        }
 
 	if(modify_args.reset_local_config_given) {
 	    ret = wipe_config(cluster, uri->volume);

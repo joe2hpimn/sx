@@ -322,6 +322,9 @@ void fcgi_mark_faultynodes(void) {
     if(!sx_nodelist_count(yctx.nodes))
 	quit_errmsg(400, "Invalid request content");
 
+    if(sx_hashfs_is_changing_volume_replica(hashfs) == 1)
+        quit_errmsg(400, "The cluster is already performing volume replica changes");
+
     if(has_priv(PRIV_CLUSTER)) {
 	/* S2S request */
 	s = sx_hashfs_setignored(hashfs, yctx.nodes);
@@ -1481,6 +1484,11 @@ void fcgi_node_junlock(void) {
     if(s != OK)
 	quit_errmsg(rc2http(s), msg_get_reason());
 
+    if(!strcmp(path, "any")) {
+        s = sx_hashfs_force_volumes_replica_unlock(hashfs);
+        if(s != OK)
+            quit_errmsg(rc2http(s), msg_get_reason());
+    }
     CGI_PUTS("\r\n");
 }
 

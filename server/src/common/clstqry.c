@@ -49,7 +49,8 @@ struct cstatus {
 	OP_NONE,
 	OP_REBALANCE,
 	OP_REPLACE,
-        OP_UPGRADE
+        OP_UPGRADE,
+        OP_VOLREP
     } op_type;
     unsigned int version, replica_count, effective_replica_count;
     char op_msg[1024];
@@ -315,6 +316,8 @@ static void cb_cstatus_op_type(jparse_t *J, void *ctx, const char *string, unsig
 	c->op_type = OP_REPLACE;
     else if (length == lenof("upgrade") && !memcmp("upgrade", string, lenof("upgrade")))
 	c->op_type = OP_UPGRADE;
+    else if (length == lenof("volume replica change") && !memcmp("volume replica change", string, lenof("volume replica change")))
+        c->op_type = OP_VOLREP;
     else
 	c->op_type = OP_NONE;
 }
@@ -662,6 +665,15 @@ clst_state clst_upgrade_state(clst_t *st, const char **desc) {
 
     if(desc)
 	*desc = st->op_msg[0] ? st->op_msg : "Upgrade operation in progress";
+    return st->op_complete ? CLSTOP_COMPLETED : CLSTOP_INPROGRESS;
+}
+
+clst_state clst_volume_replica_change_state(clst_t *st, const char **desc) {
+    if(!st || st->op_type != OP_VOLREP)
+        return CLSTOP_NOTRUNNING;
+
+    if(desc)
+        *desc = st->op_msg[0] ? st->op_msg : "Volume replica change operation in progress";
     return st->op_complete ? CLSTOP_COMPLETED : CLSTOP_INPROGRESS;
 }
 

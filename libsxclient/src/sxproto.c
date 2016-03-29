@@ -566,9 +566,9 @@ sxi_query_t *sxi_massdel_proto(sxc_client_t *sx, const char *volname, const char
     return ret;
 }
 
-static sxi_query_t *sxi_hashop_proto_list(sxc_client_t *sx, unsigned blocksize, const char *hashes, unsigned hashes_len, enum sxi_cluster_verb verb, const char *op, const char *reserve_id, const char *revision_id, unsigned replica, uint64_t op_expires_at)
+static sxi_query_t *sxi_hashop_proto_list(sxc_client_t *sx, unsigned blocksize, const char *hashes, unsigned hashes_len, enum sxi_cluster_verb verb, const char *op, const char *global_vol_id, const char *reserve_id, const char *revision_id, unsigned replica, uint64_t op_expires_at)
 {
-    char url[DOWNLOAD_MAX_BLOCKS * (EXPIRE_TEXT_LEN + SXI_SHA1_TEXT_LEN) + sizeof(".data/1048576/?o=reserve&reserve_id=&revision_id=") + 104];
+    char url[DOWNLOAD_MAX_BLOCKS * (EXPIRE_TEXT_LEN + SXI_SHA1_TEXT_LEN) + sizeof(".data/1048576/?o=reserve&reserve_id=&revision_id=&global_vol_id=") + 144];
     char expires_str[24];
     char replica_str[24];
     int rc;
@@ -577,10 +577,11 @@ static sxi_query_t *sxi_hashop_proto_list(sxc_client_t *sx, unsigned blocksize, 
         return NULL;
     snprintf(expires_str, sizeof(expires_str), "%llu", (long long)op_expires_at);
     snprintf(replica_str, sizeof(replica_str), "%u", replica);
-    rc = snprintf(url, sizeof(url), ".data/%u/%.*s?o=%s%s%s%s%s%s%s%s%s", blocksize, hashes_len, hashes,
+    rc = snprintf(url, sizeof(url), ".data/%u/%.*s?o=%s%s%s%s%s%s%s%s%s%s%s", blocksize, hashes_len, hashes,
                   op,
                   reserve_id ? "&reserve_id=" : "", reserve_id ? reserve_id : "",
                   revision_id ? "&revision_id=" : "", revision_id ? revision_id : "",
+                  global_vol_id ? "&global_vol_id=" : "", global_vol_id ? global_vol_id : "",
                   op_expires_at ? "&op_expires_at=" : "", op_expires_at ? expires_str : "",
                   replica ? "&replica=" : "", replica ? replica_str : "");
     if (rc < 0 || rc >= sizeof(url)) {
@@ -592,14 +593,15 @@ static sxi_query_t *sxi_hashop_proto_list(sxc_client_t *sx, unsigned blocksize, 
 
 sxi_query_t *sxi_hashop_proto_check(sxc_client_t *sx, unsigned blocksize, const char *hashes, unsigned hashes_len)
 {
-    return sxi_hashop_proto_list(sx, blocksize, hashes, hashes_len, REQ_GET, "check", NULL, NULL, 0, 0);
+    return sxi_hashop_proto_list(sx, blocksize, hashes, hashes_len, REQ_GET, "check", NULL, NULL, NULL, 0, 0);
 }
 
-sxi_query_t *sxi_hashop_proto_reserve(sxc_client_t *sx, unsigned blocksize, const char *hashes, unsigned hashes_len, const sx_hash_t *reserve_id, const sx_hash_t *revision_id, unsigned replica, uint64_t op_expires_at)
+sxi_query_t *sxi_hashop_proto_reserve(sxc_client_t *sx, unsigned blocksize, const char *hashes, unsigned hashes_len, const sx_hash_t *global_vol_id, const sx_hash_t *reserve_id, const sx_hash_t *revision_id, unsigned replica, uint64_t op_expires_at)
 {
     char reserve_idhex[SXI_SHA1_TEXT_LEN + 1];
     char revision_idhex[SXI_SHA1_TEXT_LEN + 1];
-    if (!reserve_id || !revision_id) {
+    char vidhex[SXI_SHA1_TEXT_LEN + 1];
+    if (!reserve_id || !revision_id || !global_vol_id) {
         sxi_seterr(sx, SXE_EARG, "Null id");
         return NULL;
     }
@@ -613,7 +615,8 @@ sxi_query_t *sxi_hashop_proto_reserve(sxc_client_t *sx, unsigned blocksize, cons
     }
     sxi_bin2hex(reserve_id->b, sizeof(reserve_id->b), reserve_idhex);
     sxi_bin2hex(revision_id->b, sizeof(revision_id->b), revision_idhex);
-    return sxi_hashop_proto_list(sx, blocksize, hashes, hashes_len, REQ_PUT, "reserve", reserve_idhex, revision_idhex, replica, op_expires_at);
+    sxi_bin2hex(global_vol_id->b, sizeof(global_vol_id->b), vidhex);
+    return sxi_hashop_proto_list(sx, blocksize, hashes, hashes_len, REQ_PUT, "reserve", vidhex, reserve_idhex, revision_idhex, replica, op_expires_at);
 }
 
 sxi_query_t *sxi_hashop_proto_inuse_begin(sxc_client_t *sx, const sx_hash_t *reserve_hash)
@@ -640,7 +643,8 @@ sxi_query_t *sxi_hashop_proto_inuse_hash(sxc_client_t *sx, sxi_query_t *query, c
 {
     unsigned i;
     char hexhash[SXI_SHA1_TEXT_LEN + 1];
-    char revision_id_hex[SXI_SHA1_TEXT_LEN + 1];
+    /* "global_vol_id_hex|revision_id_hex" */
+    char id_hex[2*SXI_SHA1_TEXT_LEN + 1];
     if (!blockmeta || !blockmeta->entries) {
         sxi_seterr(sx, SXE_EARG, "Null/empty blockmeta");
         return NULL;
@@ -657,9 +661,10 @@ sxi_query_t *sxi_hashop_proto_inuse_hash(sxc_client_t *sx, sxi_query_t *query, c
         const block_meta_entry_t *e = &blockmeta->entries[i];
         if (i > 0)
             query = sxi_query_append_fmt(sx, query, 1, ",");
-        sxi_bin2hex(e->revision_id.b, sizeof(e->revision_id.b), revision_id_hex);
+        sxi_bin2hex(e->global_vol_id.b, sizeof(e->global_vol_id.b), id_hex);
+        sxi_bin2hex(e->revision_id.b, sizeof(e->revision_id.b), id_hex + SXI_SHA1_TEXT_LEN);
         SXDEBUG("sending replica %d", e->replica);
-        query = sxi_query_append_fmt(sx, query, 54, "{\"%s\":%u}", revision_id_hex, e->replica);
+        query = sxi_query_append_fmt(sx, query, 94, "{\"%s\":%u}", id_hex, e->replica);
     }
     return sxi_query_append_fmt(sx, query, 2, "]}");
 }
@@ -1336,4 +1341,49 @@ sxi_replica_change_files_proto_err:
     free(enc_maxrev);
     free(url);
     return proto;
+}
+
+sxi_query_t *sxi_replica_change_proto(sxc_client_t *sx, const char *volume, unsigned int prev_replica, unsigned int next_replica) {
+    sxi_query_t *ret;
+    char *url;
+    char *enc_vol;
+    unsigned int len;
+
+    if(!sx)
+        return NULL;
+    if(!volume || !prev_replica || !next_replica) {
+        sxi_seterr(sx, SXE_EARG, "Invalid argument");
+        return NULL;
+    }
+
+    enc_vol = sxi_urlencode(sx, volume, 1);
+    if(!enc_vol) {
+        sxi_seterr(sx, SXE_EMEM, "Out of memory");
+        return NULL;
+    }
+
+    len = strlen(enc_vol) + lenof("?o=replica&phase=&commit=") + 1;
+    url = malloc(len);
+    if(!url) {
+        sxi_seterr(sx, SXE_EMEM, "Out of memory");
+        free(enc_vol);
+        return NULL;
+    }
+    /* assuming phase does not need urlencoding */
+    snprintf(url, len, "%s?o=replica", enc_vol);
+    free(enc_vol);
+    ret = sxi_query_create(sx, url, REQ_PUT);
+    free(url);
+    if(!ret) {
+        sxi_seterr(sx, SXE_EMEM, "Out of memory");
+        return NULL;
+    }
+
+    ret = sxi_query_append_fmt(sx, ret, lenof("{\"prev_replica\":,\"next_replica\":}") + 21, "{\"prev_replica\":%u,\"next_replica\":%u}", prev_replica, next_replica);
+    if(!ret) {
+        sxi_seterr(sx, SXE_EMEM, "Failed to prepare query");
+        return NULL;
+    }
+
+    return ret;
 }

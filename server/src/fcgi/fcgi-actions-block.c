@@ -120,7 +120,7 @@ void fcgi_hashop_blocks(enum sxi_hashop_kind kind) {
     sx_hash_t reqhash;
     rc_ty rc = OK;
     unsigned missing = 0;
-    const char *reserve_id, *revision_id, *expires;
+    const char *reserve_id, *revision_id, *expires, *global_vol_id;
     char *end = NULL;
     int comma = 0;
     unsigned idx = 0;
@@ -132,11 +132,12 @@ void fcgi_hashop_blocks(enum sxi_hashop_kind kind) {
 
     reserve_id = get_arg("reserve_id");
     revision_id = get_arg("revision_id");
+    global_vol_id = get_arg("global_vol_id");
     expires = get_arg("op_expires_at");
     replica = get_arg_uint("replica");
     if (replica == -1) replica = 0;
     if (kind != HASHOP_CHECK) {
-        if (!reserve_id || !revision_id || !expires)
+        if (!reserve_id || !revision_id || !expires || !global_vol_id)
             quit_errmsg(400, "Missing id/expires");
         op_expires_at = strtoll(expires, &end, 10);
         if (!end || *end)
@@ -153,7 +154,7 @@ void fcgi_hashop_blocks(enum sxi_hashop_kind kind) {
 	hpath++;
     CGI_PUTS("Content-type: application/json\r\n\r\n{\"presence\":[");
     while (*hpath) {
-        sx_hash_t reserve_hash, revision_hash;
+        sx_hash_t reserve_hash, revision_hash, volume_hash;
 	int present;
         if(hex2bin(hpath, SXI_SHA1_TEXT_LEN, reqhash.b, SXI_SHA1_BIN_LEN)) {
             msg_set_reason("Invalid hash %*.s", SXI_SHA1_TEXT_LEN, hpath);
@@ -169,15 +170,16 @@ void fcgi_hashop_blocks(enum sxi_hashop_kind kind) {
         switch (kind) {
             case HASHOP_RESERVE:
                 if (hex2bin(reserve_id, strlen(reserve_id), reserve_hash.b, sizeof(reserve_hash.b)) ||
-                    hex2bin(revision_id, strlen(revision_id), revision_hash.b, sizeof(revision_hash.b))) {
-                    msg_set_reason("Invalid hash(es): %s, %s", reserve_id, revision_id);
+                    hex2bin(revision_id, strlen(revision_id), revision_hash.b, sizeof(revision_hash.b)) ||
+                    hex2bin(global_vol_id, strlen(global_vol_id), volume_hash.b, sizeof(volume_hash.b))) {
+                    msg_set_reason("Invalid hash(es): %s, %s, %s", reserve_id, revision_id, global_vol_id);
                     rc = EINVAL;
                     break;
                 }
-                rc = sx_hashfs_hashop_perform(hashfs, blocksize, replica, HASHOP_RESERVE, &reqhash, &reserve_hash, &revision_hash, op_expires_at, &present);
+                rc = sx_hashfs_hashop_perform(hashfs, blocksize, replica, HASHOP_RESERVE, &reqhash, &volume_hash, &reserve_hash, &revision_hash, op_expires_at, &present);
                 break;
             case HASHOP_CHECK:
-                rc = sx_hashfs_hashop_perform(hashfs, blocksize, 0, HASHOP_CHECK, &reqhash, NULL, NULL, 0, &present);
+                rc = sx_hashfs_hashop_perform(hashfs, blocksize, 0, HASHOP_CHECK, &reqhash, NULL, NULL, NULL, 0, &present);
                 break;
             default:
                 WARN("unexpected kind: %d", kind);
@@ -205,7 +207,7 @@ void fcgi_hashop_blocks(enum sxi_hashop_kind kind) {
     DEBUG("hashop: missing %d, n: %d", missing, n);
 }
 
-static int meta_add(block_meta_t *meta, unsigned replica, const sx_hash_t *revision_id)
+static int meta_add(block_meta_t *meta, unsigned replica, const sx_hash_t *global_vol_id, const sx_hash_t *revision_id)
 {
     block_meta_entry_t *e;
     if (!meta || !revision_id)
@@ -214,6 +216,7 @@ static int meta_add(block_meta_t *meta, unsigned replica, const sx_hash_t *revis
     if (!meta->entries)
         return -1;
     e = &meta->entries[meta->count - 1];
+    memcpy(&e->global_vol_id, global_vol_id, sizeof(e->global_vol_id));
     memcpy(&e->revision_id, revision_id, sizeof(e->revision_id));
     e->replica = replica;
     return 0;
@@ -236,27 +239,32 @@ struct inuse_ctx {
     blocks_t all;
 };
 
+/*
+ * BOB: Maybe we could skip the replica argument if we provide the volume ID, since replica seems to
+ *      depend on the volume replica.
+ */
+
 /* Example:
-   {"BLOCKHASH":{"BLOCKSIZE":[ {"REVISION_HASH": REPLICA_COUNT, ...}, ...]}, ...}
+   {"BLOCKHASH":{"BLOCKSIZE":[ {"GLOBAL_VOL_ID|REVISION_HASH": REPLICA_COUNT, ...}, ...]}, ...}
 {
   "10c91e6b2aecaa5e731fbd7ac26fa3d847dd4ac2": {
     "16384": [
       {
-        "2ca3d1a4d2d70d03d301c173ce70fca11d29bfbf": 3
+        "b6972d2ecbfd2e41f3b207310b5fa4708d6fcee92ca3d1a4d2d70d03d301c173ce70fca11d29bfbf": 3
       }
     ]
   },
   "69ad191523992b70d85fdd50072933bf3b6d8624": {
     "16384": [
       {
-        "2ca3d1a4d2d70d03d301c173ce70fca11d29bfbf": 3
+        "b6972d2ecbfd2e41f3b207310b5fa4708d6fcee92ca3d1a4d2d70d03d301c173ce70fca11d29bfbf": 3
       }
     ]
   },
   "9259e1f7daaa152241db155478a027e096dad979": {
     "16384": [
       {
-        "2ca3d1a4d2d70d03d301c173ce70fca11d29bfbf": 3
+        "b6972d2ecbfd2e41f3b207310b5fa4708d6fcee92ca3d1a4d2d70d03d301c173ce70fca11d29bfbf": 3
       }
     ]
   }
@@ -269,7 +277,7 @@ static void cb_inuse_rpl(jparse_t *J, void *ctx, int64_t num) {
     const char *bsstr = sxi_jpath_mapkey(sxi_jpath_down(sxi_jparse_whereami(J)));
     const char *revstr = sxi_jpath_mapkey(sxi_jpath_down(sxi_jpath_down(sxi_jpath_down(sxi_jparse_whereami(J)))));
     struct inuse_ctx *yactx = (struct inuse_ctx*)ctx;
-    sx_hash_t revision_id;
+    sx_hash_t revision_id, global_vol_id;
     const char *eon;
     int64_t bs;
 
@@ -288,8 +296,9 @@ static void cb_inuse_rpl(jparse_t *J, void *ctx, int64_t num) {
     }
     yactx->meta.blocksize = bs;
 
-    if(strlen(revstr) != sizeof(revision_id.b) * 2 ||
-       hex2bin(revstr, sizeof(revision_id.b) * 2, revision_id.b, sizeof(revision_id.b))) {
+    if(strlen(revstr) != 2 * (sizeof(revision_id.b) + sizeof(global_vol_id.b)) ||
+       hex2bin(revstr, sizeof(global_vol_id.b) * 2, global_vol_id.b, sizeof(global_vol_id.b)) ||
+       hex2bin(revstr + SXI_SHA1_TEXT_LEN, sizeof(revision_id.b) * 2, revision_id.b, sizeof(revision_id.b))) {
 	sxi_jparse_cancel(J, "Invalid revision id %s for block %s", revstr, blockstr);
 	yactx->error = EINVAL;
 	return;
@@ -301,7 +310,7 @@ static void cb_inuse_rpl(jparse_t *J, void *ctx, int64_t num) {
 	return;
     }
 
-    if (meta_add(&yactx->meta, num, &revision_id)) {
+    if (meta_add(&yactx->meta, num, &global_vol_id, &revision_id)) {
 	sxi_jparse_cancel(J, "meta_add failed");
 	yactx->error = ENOMEM;
 	return;
@@ -336,7 +345,7 @@ void fcgi_hashop_inuse(void) {
 			   JPANYKEY /* block */,
 			   JPANYKEY /* block size */,
 			   JPANYITM,
-			   JPANYKEY /* revision */
+			   JPANYKEY /* global volume id and revision */
 			   )
 		     ),
 	JPACTS_MAP_END(
@@ -401,7 +410,7 @@ void fcgi_hashop_inuse(void) {
         rc = FAIL_EINTERNAL;
         for (j=0;j<m->count;j++) {
             const block_meta_entry_t *e = &m->entries[j];
-            rc = sx_hashfs_hashop_mod(hashfs, &m->hash, reserve_id ? &reserve_hash : NULL, &e->revision_id, m->blocksize, e->replica, 1, 0);
+            rc = sx_hashfs_hashop_mod(hashfs, &m->hash, &e->global_vol_id, reserve_id ? &reserve_hash : NULL, &e->revision_id, m->blocksize, e->replica, 1, 0);
             if (rc && rc != ENOENT)
                 break;
         }
@@ -703,6 +712,7 @@ void fcgi_send_replacement_blocks(void) {
             /* TODO: token id */
 	    for(i=0; i<bmeta->count; i++)
 		if(sx_blob_add_blob(b, bmeta->entries[i].revision_id.b, sizeof(bmeta->entries[i].revision_id.b)) ||
+                   sx_blob_add_blob(b, bmeta->entries[i].global_vol_id.b, sizeof(bmeta->entries[i].global_vol_id.b)) ||
                    sx_blob_add_int32(b, bmeta->entries[i].replica))
 		    break;
 	    if(i < bmeta->count ||
@@ -724,6 +734,84 @@ void fcgi_send_replacement_blocks(void) {
 	memcpy(&bmidx, &bmeta->cursor, sizeof(bmidx));
 	bmidxptr = &bmidx;
 	sx_hashfs_blockmeta_free(&bmeta);
+    }
+    sx_blob_free(b);
+}
+
+void fcgi_send_volrep_blocks(void) {
+    sx_block_meta_index_t bmidx, *bmidxptr = NULL;
+
+    unsigned int bytes_sent = 0;
+    sx_uuid_t target;
+    sx_blob_t *b;
+    const char *volname = get_arg("volume");
+    const sx_hashfs_volume_t *vol = NULL;
+
+    if(!volname || sx_hashfs_volume_by_name(hashfs, volname, &vol))
+        quit_errmsg(400, "Volume does not exist");
+
+    if(uuid_from_string(&target, get_arg("target")))
+        quit_errmsg(400, "Parameter target is not valid");
+
+    if(has_arg("idx")) {
+        if(strlen(get_arg("idx")) != sizeof(bmidx) * 2 ||
+           hex2bin(get_arg("idx"), sizeof(bmidx) * 2, (uint8_t *)&bmidx, sizeof(bmidx)))
+            quit_errmsg(400, "Parameter idx is not valid");
+        bmidxptr = &bmidx;
+    }
+
+    b = sx_blob_new();
+    if(!b)
+        quit_errmsg(503, "Out of memory");
+    CGI_PUTS("\r\n");
+    while(bytes_sent < REPLACEMENT_BATCH_SIZE) {
+        const uint8_t *blockdata;
+        unsigned int header_len, hlenton;
+        block_meta_t *bmeta;
+        const void *header;
+        rc_ty r;
+
+        sx_blob_reset(b);
+        r = sx_hashfs_volrep_find(hashfs, vol, bmidxptr, &target, has_arg("undo"), &bmeta);
+        if(r == ITER_NO_MORE) {
+            if(sx_blob_add_string(b, "$THEEND$"))
+                break;
+        } else if(r != OK) {
+            break;
+        } else {
+            unsigned int i;
+            if(sx_blob_add_string(b, "$BLOCK$") ||
+               sx_blob_add_int32(b, bmeta->blocksize) ||
+               sx_blob_add_blob(b, &bmeta->hash, sizeof(bmeta->hash)) ||
+               sx_blob_add_blob(b, &bmeta->cursor, sizeof(bmeta->cursor)) ||
+               sx_blob_add_int32(b, bmeta->count)) {
+                sx_hashfs_blockmeta_free(&bmeta);
+                break;
+            }
+            for(i=0; i<bmeta->count; i++)
+                if(sx_blob_add_blob(b, bmeta->entries[i].revision_id.b, sizeof(bmeta->entries[i].revision_id.b)) ||
+                   sx_blob_add_blob(b, bmeta->entries[i].global_vol_id.b, sizeof(bmeta->entries[i].global_vol_id.b)) ||
+                   sx_blob_add_int32(b, bmeta->entries[i].replica))
+                    break;
+            if(i < bmeta->count ||
+               sx_hashfs_block_get(hashfs, bmeta->blocksize, &bmeta->hash, &blockdata) != OK) {
+                sx_hashfs_blockmeta_free(&bmeta);
+                break;
+            }
+        }
+        sx_blob_to_data(b, &header, &header_len);
+        hlenton = htonl(header_len);
+        CGI_PUTD(&hlenton, sizeof(hlenton));
+        CGI_PUTD(header, header_len);
+        bytes_sent += sizeof(hlenton) + header_len;
+        if(r == ITER_NO_MORE)
+            break;
+
+        CGI_PUTD(blockdata, bmeta->blocksize);
+        bytes_sent += bmeta->blocksize;
+        memcpy(&bmidx, &bmeta->cursor, sizeof(bmidx));
+        bmidxptr = &bmidx;
+        sx_hashfs_blockmeta_free(&bmeta);
     }
     sx_blob_free(b);
 }

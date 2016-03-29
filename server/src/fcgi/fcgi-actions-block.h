@@ -33,6 +33,7 @@ void fcgi_hashop_blocks(enum sxi_hashop_kind kind);
 void fcgi_hashop_inuse(void);
 void fcgi_push_blocks(void);
 void fcgi_send_replacement_blocks(void);
+void fcgi_send_volrep_blocks(void);
 void fcgi_revision_op(void);
 void fcgi_blockrevs(void);
 

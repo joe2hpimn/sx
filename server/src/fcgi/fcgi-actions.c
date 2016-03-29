@@ -70,6 +70,13 @@ void volume_ops(void) {
 	    return;
 	}
 
+        if(!strcmp(volume, ".volrepblk")) {
+            /* Bulk block and blockmeta xfer (s2s, volume replica repopulation) - CLUSTER required */
+            quit_unless_has(PRIV_CLUSTER);
+            fcgi_send_volrep_blocks();
+            return;
+        }
+
 	if(!strcmp(volume, ".users")) {
 	    /* List users - ADMIN required */
 	    quit_unless_has(PRIV_ADMIN);
@@ -167,6 +174,17 @@ void volume_ops(void) {
             quit_errmsg(403, "Volume name is reserved");
         /* Modify volume */
         fcgi_volume_mod();
+        return;
+    }
+
+    /* Volume replica modification queries */
+    if(verb == VERB_PUT && arg_is("o", "replica")) {
+        if(is_reserved())
+            quit_errmsg(403, "Volume name is reserved");
+        quit_unless_has(PRIV_ADMIN);
+
+        /* Modify volume replica (user request, ADMIN required */
+        fcgi_modify_volume_replica();
         return;
     }
 

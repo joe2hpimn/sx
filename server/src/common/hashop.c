@@ -35,7 +35,7 @@
 #include "log.h"
 #include "utils.h"
 
-void sxi_hashop_begin(sxi_hashop_t *hashop, sxi_conns_t *conns, hash_presence_cb_t cb, enum sxi_hashop_kind kind, unsigned replica, const sx_hash_t *reservehash, const sx_hash_t *revisionhash, void *context, uint64_t op_expires_at)
+void sxi_hashop_begin(sxi_hashop_t *hashop, sxi_conns_t *conns, hash_presence_cb_t cb, enum sxi_hashop_kind kind, unsigned replica, const sx_hash_t *volumeidhash, const sx_hash_t *reservehash, const sx_hash_t *revisionhash, void *context, uint64_t op_expires_at)
 {
     memset(hashop, 0, sizeof(*hashop));
     hashop->conns = conns;
@@ -58,13 +58,22 @@ void sxi_hashop_begin(sxi_hashop_t *hashop, sxi_conns_t *conns, hash_presence_cb
         memcpy(&hashop->revision_id, revisionhash, sizeof(hashop->revision_id));
         hashop->has_revision_id = 1;
     }
+    if (!volumeidhash) {
+        memset(&hashop->global_vol_id, 0, sizeof(hashop->global_vol_id));
+        hashop->has_global_vol_id = 0;
+    } else {
+        memcpy(&hashop->global_vol_id, volumeidhash, sizeof(hashop->global_vol_id));
+        hashop->has_global_vol_id = 1;
+    }
     if (kind == HASHOP_RESERVE) {
         if (!hashop->has_reserve_id)
             WARN("reserve_id is required for HASHOP_RESERVE");
         if (!hashop->has_revision_id)
             WARN("revision_id is required for HASHOP_RESERVE");
-    } else if (kind == HASHOP_INUSE && !hashop->has_revision_id) {
-        WARN("revision_id is required for HASHOP_INUSE/DELETE");
+        if (!hashop->has_global_vol_id)
+            WARN("global_vol_id is required for HASHOP_RESERVE");
+    } else if (kind == HASHOP_INUSE && (!hashop->has_revision_id || !hashop->has_global_vol_id)) {
+        WARN("global_vol_id and revision_id are required for HASHOP_INUSE/DELETE");
     }
     if (!replica && kind != HASHOP_CHECK)
         WARN("replica is zero!");
@@ -271,7 +280,7 @@ static int sxi_hashop_batch(sxi_hashop_t *hashop)
             query = sxi_hashop_proto_check(sxi_conns_get_client(hashop->conns), blocksize, hashop->hashes, hashop->hashes_pos);
             break;
         case HASHOP_RESERVE:
-            query = sxi_hashop_proto_reserve(sxi_conns_get_client(hashop->conns), blocksize, hashop->hashes, hashop->hashes_pos, &hashop->reserve_id, &hashop->revision_id, hashop->replica, hashop->op_expires_at);
+            query = sxi_hashop_proto_reserve(sxi_conns_get_client(hashop->conns), blocksize, hashop->hashes, hashop->hashes_pos, &hashop->global_vol_id, &hashop->reserve_id, &hashop->revision_id, hashop->replica, hashop->op_expires_at);
             break;
         case HASHOP_INUSE:
             query = sxi_hashop_proto_inuse_begin(sxi_conns_get_client(hashop->conns), hashop->has_reserve_id ? &hashop->reserve_id : NULL);
@@ -284,6 +293,7 @@ static int sxi_hashop_batch(sxi_hashop_t *hashop)
                     break;
                 }
                 memcpy(&entry.revision_id, &hashop->revision_id, sizeof(entry.revision_id));
+                memcpy(&entry.global_vol_id, &hashop->global_vol_id, sizeof(entry.global_vol_id));
                 entry.replica = hashop->replica;
                 meta.entries = &entry;
                 meta.count = 1;

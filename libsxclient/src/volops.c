@@ -128,6 +128,42 @@ sxc_volume_modify_err:
     return ret;
 }
 
+int sxc_volume_modify_replica(sxc_cluster_t *cluster, const char *volume, unsigned int replica) {
+    sxc_client_t *sx;
+    sxi_hostlist_t volhosts;
+    sxi_query_t *query = NULL;
+    int ret = -1;
+    unsigned int prev_replica;
+
+    if(!cluster)
+        return -1;
+    sx = sxi_cluster_get_client(cluster);
+
+    if(!volume) {
+        sxi_seterr(sx, SXE_EARG, "Failed to change volume size: invalid argument");
+        return -1;
+    }
+
+    sxc_clearerr(sx);
+    sxi_hostlist_init(&volhosts);
+    if(sxi_volume_info(sxi_cluster_get_conns(cluster), volume, &volhosts, NULL, NULL, NULL, NULL, NULL, NULL, NULL, &prev_replica, NULL, NULL, NULL, NULL))
+        goto sxc_volume_modify_err;
+
+    query = sxi_replica_change_proto(sx, volume, prev_replica, replica);
+    if(!query) {
+        sxi_seterr(sx, SXE_EMEM, "Failed to prepare volume replica modify query");
+        goto sxc_volume_modify_err;
+    }
+
+    sxi_set_operation(sx, "modify volume replica", sxi_cluster_get_name(cluster), volume, NULL);
+    ret = sxi_job_submit_and_poll(sxi_cluster_get_conns(cluster), &volhosts, REQ_PUT, query->path, query->content, query->content_len);
+
+sxc_volume_modify_err:
+    sxi_hostlist_empty(&volhosts);
+    sxi_query_free(query);
+    return ret;
+}
+
 int sxi_volume_cfg_store(sxc_client_t *sx, sxc_cluster_t *cluster, const char *vname, const char *filter_uuid, const unsigned char *filter_cfg, unsigned int filter_cfglen)
 {
     const char *confdir;

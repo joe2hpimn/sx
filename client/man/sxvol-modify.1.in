@@ -5,7 +5,7 @@ sxvol-modify \- modify existing volumes
 .B sxvol modify
 \fR<\fI\,OPTIONS\/\fR> \fI\,sx://\/\fR[\fI\,profile@\/\fR]\fI\,cluster/volume\/\fR
 .SH DESCRIPTION
-Modify configuration of an existing volume. Some settings, such as the volume size or owner, can only be changed by cluster administrators.
+Modify configuration of an existing volume. Some settings, such as the volume size, owner or replica count, can only be changed by cluster administrators.
 .SH OPTIONS
 .TP
 \fB\-h\fR, \fB\-\-help\fR
@@ -19,6 +19,9 @@ Print version and exit
 .TP
 \fB\-o\fR, \fB\-\-owner\fR=\fI\,NAME\/\fR
 Set a new owner of the volume. The old owner will be automatically removed from the volume ACL (it can be granted access again using \fBsxacl\fR(1)) and the new owner will be granted read, write and manager access.
+.TP
+\fB\-r\fR, \fB\-\-replica\fR=\fI\,COUNT\/\fR
+Set a new replica count of the volume. It can be both increased or decreased, but must meet the cluster's limits. The replica change can take more time, depending on the amount of data that needs to be replicated. The process can be monitored with \fBsxadm cluster --info\fR
 .TP
 \fB\-s\fR, \fB\-\-size\fR=\fI\,SIZE\/\fR
 Set a new size of the volume. If the new size is lower than the current space usage of the volume, it will not be possible to store any new data until enough data gets removed to satisfy the limit. The size can be followed by one of the following suffixes: K(-ilobytes), M(-megabytes), G(-igabytes) and T(-erabytes) suffixes.

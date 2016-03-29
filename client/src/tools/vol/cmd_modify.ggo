@@ -4,6 +4,8 @@ usage "sxvol modify <OPTIONS> sx://[profile@]cluster/volume"
 
 text "\nVolume modification options:\n"
 
+option  "replica"     r "Change the volume replica" int optional
+
 option  "owner"     o "Change the volume owner" string optional typestr="NAME"
 
 option  "size"      s "Set a new size of the volume (allows K,M,G,T suffixes)" string optional typestr="SIZE"
@@ -23,3 +25,5 @@ option  "config-dir"            c "Path to SX configuration directory"
 
 option  "filter-dir"            - "Path to SX filter directory"
         string typestr="PATH" optional hidden
+
+option  "batch-mode"        b "Turn off interactive confirmations and assume yes for all questions" flag off

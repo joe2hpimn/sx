@@ -169,7 +169,7 @@ static int heal_data_cb(curlev_context_t *cbdata, const unsigned char *data, siz
             while (!sx_blob_get_blob(b, (const void**)&hash, &hash_blob_len) &&
                    hash_blob_len == sizeof(hash->b)) {
                 DEBUG("got revision block");
-                rc_ty s = sx_hashfs_hashop_perform(ctx->hashfs, block_size, ctx->vol->max_replica, HASHOP_INUSE, hash, NULL, revision_id, 0, NULL);
+                rc_ty s = sx_hashfs_hashop_perform(ctx->hashfs, block_size, ctx->vol->max_replica, HASHOP_INUSE, hash, &ctx->vol->global_id, NULL, revision_id, 0, NULL);
                 if (s) {
                     WARN("Failed to add hash blob: %s", rc2str(s));
                     break;

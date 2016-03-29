@@ -302,7 +302,7 @@ static void blockmgr_process_queue(struct blockmgr_data_t *q) {
         }
 
         /* just check for presence, reservation was already done by the failed INUSE */
-	sxi_hashop_begin(&hc, clust, hcb, HASHOP_CHECK, 0, NULL, NULL, &q->hashlist, 0);
+	sxi_hashop_begin(&hc, clust, hcb, HASHOP_CHECK, 0, NULL, NULL, NULL, &q->hashlist, 0);
 	for(i=0; i<q->hashlist.nblocks; i++) {
             if(sxi_hashop_batch_add(&hc, host, i, q->hashlist.binhs[i].b, q->blocksize) != 0) {
                 WARN("Cannot verify block presence: %s", sxc_geterrmsg(sx));

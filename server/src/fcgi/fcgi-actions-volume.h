@@ -45,6 +45,7 @@ void fcgi_cluster_upgrade(void);
 void fcgi_list_revision_blocks(const sx_hashfs_volume_t *vol);
 void fcgi_mass_delete(void);
 void fcgi_mass_rename(void);
+void fcgi_modify_volume_replica(void);
 void fcgi_mass_job_schedule(void);
 void fcgi_mass_job_commit(void);
 

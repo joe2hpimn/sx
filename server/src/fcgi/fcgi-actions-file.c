@@ -310,7 +310,7 @@ void fcgi_create_file(void) {
     auth_complete();
     quit_unless_authed();
 
-    s = sx_hashfs_createfile_commit(hashfs, volume, path, get_arg("rev"), yctx.filesize);
+    s = sx_hashfs_createfile_commit(hashfs, volume, path, get_arg("rev"), yctx.filesize, 0);
     if(s != OK)
 	quit_errmsg(rc2http(s), msg_get_reason());
 
@@ -427,7 +427,7 @@ void fcgi_delete_file(void) {
     if(s != OK)
 	quit_errmsg(rc2http(s), msg_get_reason());
 
-    if(!sx_hashfs_is_or_was_my_volume(hashfs, vol))
+    if(!sx_hashfs_is_or_was_my_volume(hashfs, vol, 0))
 	quit_errnum(404);
 
     if(has_priv(PRIV_CLUSTER)) {
@@ -530,7 +530,7 @@ void fcgi_send_replacement_files(void) {
     if(s != OK)
 	quit_errmsg(rc2http(s), msg_get_reason());
 
-    if(!sx_hashfs_is_or_was_my_volume(hashfs, vol))
+    if(!sx_hashfs_is_or_was_my_volume(hashfs, vol, 0))
 	quit_errnum(404);
 
     ctx.bytes_sent = 0;
@@ -599,7 +599,7 @@ void fcgi_upgrade_2_1_4(void) {
     if(s != OK)
         quit_errmsg(rc2http(s), msg_get_reason());
 
-    if(!sx_hashfs_is_or_was_my_volume(hashfs, vol))
+    if(!sx_hashfs_is_or_was_my_volume(hashfs, vol, 0))
         quit_errnum(404);
 
     ctx.bytes_sent = 0;
