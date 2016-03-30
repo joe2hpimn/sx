@@ -39,6 +39,15 @@ while [ $OPTNUM -le $# ]; do
     elif [ "$OPTION" = "--force-reinit" ]; then
 	FORCE_REINIT_GIVEN="yes"
 
+    elif [ "$OPTION" = "--new-ip" ]; then
+	NEW_IP_GIVEN="yes"
+	OPTNUM=`expr $OPTNUM + 1`
+	eval "NEW_IPS=\$$OPTNUM"
+	if [ -z "$NEW_IPS" ]; then
+	    echo "--new-ip requires new IP address(es) to be provided"
+	    exit 1
+	fi
+
     elif [ "$OPTION" = "--compact" ]; then
 	COMPACT_GIVEN="yes"
 
@@ -74,6 +83,7 @@ if [ "$HELP_GIVEN" = "yes" ]; then
     echo "    --no-remote-copy    Don't make and use remote copy of sxsetup.conf"
     echo "    --bare              Create a bare (unprogrammed) node"
     echo "    --force-reinit      Overwrite existing configuration"
+    echo "    --new-ip IP[/intIP] Update the IP address(es) of the node"
     echo "    --compact           Compact the local storage of the node"
     echo "    --deactivate        Leave cluster and deactivate the node"
     echo "    --wait              Wait till rebalance finishes after joining the cluster"
@@ -91,7 +101,144 @@ CFG_VERSION=3
 ETCDIR="@sysconfdir@"
 CONFIG="$ETCDIR/sxserver/sxsetup.conf"
 
-if [ "$INFO_GIVEN" = "yes" -o "$UPGRADE_GIVEN" = "yes" -o "$COMPACT_GIVEN" = "yes" ]; then
+check_port() {
+    IP=$1
+    PORT=$2
+    # Can't use -t or -p, not compatible with FreeBSD
+    # Linux format: IP:port, or 0.0.0.0:port
+    # FreeBSD format: IP.port or *.port
+    FLAGS=
+    if [ `uname` = "Linux" ]; then
+	FLAGS=-p
+    fi
+    printf "Checking port $PORT on $IP ... "
+    if type netstat > /dev/null 2>&1; then
+	nstat="`netstat $FLAGS -na 2>/dev/null | 
+	grep \"tcp.*\($IP\|0.0.0.0\|::\|*\)[:.]$PORT[ \t].*LISTEN\" |
+	sed 's/\/.*//g'`"
+	if [ -n "$nstat" ]; then
+	    echo
+	    echo "ERROR: another service is already running on $IP:$PORT"
+	    echo "Please stop that service or provide another IP address."
+	    CHECK_PORT_RETVAL=1
+	else
+	    echo OK
+	    CHECK_PORT_RETVAL=0
+	fi
+    else
+	echo "'netstat' not available, assuming OK"
+	CHECK_PORT_RETVAL=0
+    fi
+}
+
+cluster_modify() {
+    # Commit new cluster config
+    LOCKCNT=1
+    MODCNT=1
+    while true; do
+	if [ -n "`@sbindir@/sxadm cluster --info sx://admin@$SX_CLUSTER_NAME 2>&1 | grep 'activity:'`" ]; then
+	    echo "Cluster is busy (another operation in progress)... retrying in 60 seconds (attempt $LOCKCNT of 10)."
+	    LOCKCNT=`expr $LOCKCNT + 1`
+	    sleep 60
+	    continue
+	fi
+#	"@sbindir@/sxadm" cluster --lock "sx://admin@$SX_CLUSTER_NAME" > $OUT_TMP 2>&1
+	true
+	if [ $? -ne 0 ]; then
+	    if [ -n "`grep 'Cluster is already locked' $OUT_TMP`" -o -n "`grep 'Distribution changes in progress' $OUT_TMP`" ] && [ $LOCKCNT -le 10 ]; then
+		echo "Cluster is busy (already locked for changes by another process)... retrying in 60 seconds (attempt $LOCKCNT of 10)."
+		LOCKCNT=`expr $LOCKCNT + 1`
+		sleep 60
+		continue
+	    fi
+	    echo "Failed to modify the cluster. The error message from 'sxadm cluster --lock' was:"
+	    cat $OUT_TMP
+	    echo
+	    echo "Please check the error and try again later."
+	    return 1
+	fi
+
+	"@sbindir@/sxadm" cluster --info "sx://admin@$SX_CLUSTER_NAME" > $OUT_TMP
+	if [ $? -ne 0 ]; then
+	    echo "Failed to retrieve current configuration of the cluster."
+	    "@sbindir@/sxadm" cluster --unlock "sx://admin@$SX_CLUSTER_NAME" > /dev/null
+	    return 1
+	fi
+	SXDIST=`cat $OUT_TMP | grep "Current configuration" | cut -d: -f 2-`
+	if [ -z "$SXDIST" ]; then
+	    echo "Failed to obtain the node information."
+	    "@sbindir@/sxadm" cluster --unlock "sx://admin@$SX_CLUSTER_NAME" > /dev/null
+	    return 1
+	fi
+
+	if [ -n "$NEWNODE" ]; then
+	    SXDIST="$NEWNODE $SXDIST"
+	elif [ -n "$REMOVENODE" ]; then
+	    # FIXME: add support for zones
+            SXDIST=`echo $SXDIST | sed "s|$REMOVENODE||g"`
+	    if [ -z "$SXDIST" ]; then
+		echo "This is the last node in the cluster, no data will be relocated."
+		"@sbindir@/sxserver" stop
+		mv "$CONFIG" "$CONFIG.old.$OLDSTAMP"
+		echo "The node has been successfully deactivated."
+		rm -rf $SXSETUP_TMPDIR
+		trap - EXIT INT
+		exit 0
+	    fi
+	elif [ -n "$NEW_IP" ]; then
+            SXDIST=`echo $SXDIST | sed -e "s|/$SX_NODE_IP/|/$NEW_IP/|g" -e "s|/$SX_NODE_INTERNAL_IP/|/$NEW_INTERNAL_IP/|g"`
+	else
+	    echo "Invalid operation mode."
+	    "@sbindir@/sxadm" cluster --unlock "sx://admin@$SX_CLUSTER_NAME" > /dev/null
+	    return 1
+	fi
+
+	"@sbindir@/sxadm" cluster --modify $SXDIST "sx://admin@$SX_CLUSTER_NAME" 2>$OUT_TMP
+	if [ $? = 0 ]; then
+	    "@sbindir@/sxadm" cluster --unlock "sx://admin@$SX_CLUSTER_NAME" > /dev/null
+	    break
+	fi
+	"@sbindir@/sxadm" cluster --unlock "sx://admin@$SX_CLUSTER_NAME" > /dev/null
+	if [ -n "`grep -E 'temporarily locked|complex operation|Failed to setup job targets' $OUT_TMP`" -a $MODCNT -le 10 ]; then
+	    echo "Cluster busy... retrying in 60 seconds (attempt $MODCNT of 10)."
+	    MODCNT=`expr $MODCNT + 1`
+	    sleep 60
+	else
+            cat $OUT_TMP
+	    echo "Failed to modify cluster sx://$SX_CLUSTER_NAME"
+	    return 1
+	fi
+    done
+    return 0
+}
+
+# temp files
+SXSETUP_TMPDIR="@localstatedir@/lib/sxserver-tmp"
+if [ -d $SXSETUP_TMPDIR ]; then
+    echo "Temporary directory $SXSETUP_TMPDIR already exists"
+    echo "Make sure there's no other sxsetup running or remove it manually"
+    exit 1
+fi
+mkdir -p $SXSETUP_TMPDIR
+if [ $? -ne 0 ]; then
+    echo "Can't create temporary directory $SXSETUP_TMPDIR"
+    exit 1
+fi
+chmod 700 $SXSETUP_TMPDIR
+test -z "$SX_NO_ROOT" && chown "$SX_SERVER_USER":"$SX_SERVER_GROUP" $SXSETUP_TMPDIR
+OUT_TMP=$SXSETUP_TMPDIR/out.tmp
+XCONF_TMP=$SXSETUP_TMPDIR/xconf.tmp
+SSLKEY_TMP=$SXSETUP_TMPDIR/sslkey.tmp
+SSLCERT_TMP=$SXSETUP_TMPDIR/sslcert.tmp
+CERTCONF_TMP=$SXSETUP_TMPDIR/certconf.tmp
+CLUSTKEY_TMP=$SXSETUP_TMPDIR/clustkey.tmp
+ADMINKEY_TMP=$SXSETUP_TMPDIR/adminkey.tmp
+touch $ADMINKEY_TMP
+chmod 600 $ADMINKEY_TMP
+trap "rm -rf $SXSETUP_TMPDIR; exit 1" EXIT INT
+
+
+if [ "$INFO_GIVEN" = "yes" -o "$UPGRADE_GIVEN" = "yes" -o "$COMPACT_GIVEN" = "yes" -o "$NEW_IP_GIVEN" = "yes" ]; then
     if [ ! -f "$CONFIG" ]; then
 	echo "Not configured. You have to run sxsetup in configuration mode first."
 	exit 1
@@ -111,6 +258,99 @@ if [ "$INFO_GIVEN" = "yes" -o "$UPGRADE_GIVEN" = "yes" -o "$COMPACT_GIVEN" = "ye
 	echo "Storage location: $SX_DATA_DIR"
 	test "$SX_USE_SSL" = "yes" && echo "SSL private key: $SX_SSL_KEY_FILE"
 	echo "SX Logfile: $SX_LOG_FILE"
+	rm -rf $SXSETUP_TMPDIR
+	trap - EXIT INT
+	exit 0
+
+    elif [ "$NEW_IP_GIVEN" = "yes" ]; then
+	if [ -n "`echo $NEW_IPS | grep /`" ]; then
+	    if [ -z "$SX_NODE_INTERNAL_IP" ]; then
+		echo "Can't update the internal IP address: the node wasn't configured to use"
+		echo "separated network for internal communication."
+		exit 1
+	    fi
+	    NEW_IP=`echo $NEW_IPS | cut -d/ -f1`
+	    NEW_INTERNAL_IP=`echo $NEW_IPS | cut -d/ -f2`
+	else
+	    NEW_IP=$NEW_IPS
+	    if [ -n "$SX_NODE_INTERNAL_IP" ]; then
+		NEW_INTERNAL_IP=$SX_NODE_INTERNAL_IP
+	    else
+		NEW_INTERNAL_IP=$NEW_IPS
+	    fi
+	fi
+	test -z "$SX_NODE_INTERNAL_IP" && SX_NODE_INTERNAL_IP=$SX_NODE_IP
+	if [ "$NEW_IP" = "$SX_NODE_IP" -a  "$NEW_INTERNAL_IP" = "$SX_NODE_INTERNAL_IP" ]; then
+	    echo "No change required"
+	    exit 1
+	elif [ "$NEW_IP" = "$SX_NODE_INTERNAL_IP" -o  "$NEW_INTERNAL_IP" = "$SX_NODE_IP" ]; then
+	    echo "The new IP address(es) must be different than the previous address(es) used"
+	    echo "for public/internal communication."
+	    exit 1
+	fi
+	if [ -z "$NEW_IP" -o -z "$NEW_INTERNAL_IP" ]; then
+	    # we don't verify if the IPv4/6 addresses are correct - if the web
+	    # server fails to start with the new IP address, we revert all changes
+	    echo "Invalid argument"
+	    exit 1
+	fi
+
+	WAS_RUNNING=`"@sbindir@/sxserver" status | grep "is running"`
+	"@sbindir@/sxserver" stop
+
+	check_port "$NEW_IP" $SX_PORT
+	if [ "$CHECK_PORT_RETVAL" = "1" ]; then
+	    test -n "$WAS_RUNNING" && "@sbindir@/sxserver" start
+	    exit 1
+	fi
+	if [ "$NEW_IP" != "$NEW_INTERNAL_IP" ]; then
+	    check_port "$NEW_INTERNAL_IP" $SX_PORT
+	    if [ "$CHECK_PORT_RETVAL" = "1" ]; then
+		test -n "$WAS_RUNNING" && "@sbindir@/sxserver" start
+		exit 1
+	    fi
+	fi
+
+	echo "Updating the local configuration..."
+
+	sed -i.old_ip -e "s/$SX_NODE_IP:/$NEW_IP:/"\
+	    -e "s/$SX_NODE_IP;/$NEW_IP;/" \
+	    -e "s/$SX_NODE_INTERNAL_IP:/$NEW_INTERNAL_IP:/"\
+	    -e "s/$SX_NODE_INTERNAL_IP;/$NEW_INTERNAL_IP;/"\
+	    "$ETCDIR/sxserver/sxhttpd.conf"
+
+	sed -i.old_ip -e "s/\"$SX_NODE_IP\"/\"$NEW_IP\"/"\
+	    -e "s/\"$SX_NODE_INTERNAL_IP\"/\"$NEW_INTERNAL_IP\"/"\
+	    "$ETCDIR/sxserver/sxsetup.conf"
+
+	"@sbindir@/sxserver" start
+
+	export SX_DEBUG_SINGLEHOST=$NEW_IP
+	echo "$SX_ADMIN_KEY" > $ADMINKEY_TMP
+	test "$SX_USE_SSL" = "no" && NOSSL_FLAG="--no-ssl"
+	"@bindir@/sxinit" --batch-mode --force-reinit --port="$SX_PORT" $NOSSL_FLAG --auth-file="$ADMINKEY_TMP" --host-list="$NEW_IP" "sx://admin@$SX_CLUSTER_NAME"
+
+	cluster_modify
+	if [ $? -ne 0 ]; then
+	    mv -f "$ETCDIR/sxserver/sxhttpd.conf.old_ip" "$ETCDIR/sxserver/sxhttpd.conf"
+	    mv -f "$ETCDIR/sxserver/sxsetup.conf.old_ip" "$ETCDIR/sxserver/sxsetup.conf"
+	    if [ -n "$WAS_RUNNING" ]; then
+		"@sbindir@/sxserver" restart
+		"@bindir@/sxinit" --batch-mode --force-reinit --port="$SX_PORT" $NOSSL_FLAG --auth-file="$ADMINKEY_TMP" --host-list="$SX_NODE_IP" "sx://admin@$SX_CLUSTER_NAME" > /dev/null 2>&1
+	    else
+		"@sbindir@/sxserver" stop
+	    fi
+	    echo "Failed to update the IP address of the node"
+	    exit 1
+	fi
+
+	# fetch proper list of nodes
+	unset SX_DEBUG_SINGLEHOST
+	"@bindir@/sxls" "sx://admin@$SX_CLUSTER_NAME" > /dev/null 2>&1
+
+	echo "The IP address of the node has been updated"
+	rm -rf $SXSETUP_TMPDIR
+	trap - EXIT INT
 	exit 0
 
     elif [ "$COMPACT_GIVEN" = "yes" ]; then
@@ -135,6 +375,8 @@ if [ "$INFO_GIVEN" = "yes" -o "$UPGRADE_GIVEN" = "yes" -o "$COMPACT_GIVEN" = "ye
 		exit 1
 	    fi
 	fi
+	rm -rf $SXSETUP_TMPDIR
+	trap - EXIT INT
 	exit 0
     else
 	# Update config files if needed and possible
@@ -245,6 +487,8 @@ if [ "$INFO_GIVEN" = "yes" -o "$UPGRADE_GIVEN" = "yes" -o "$COMPACT_GIVEN" = "ye
 	    echo
 	    echo "All components of the cluster are up-to-date!"
 	    rm $OUT
+	    rm -rf $SXSETUP_TMPDIR
+	    trap - EXIT INT
 	    exit 0
 	elif [ $RET -ne 0 ]; then
 	    # 2.0 doesn't require cluster upgrade
@@ -258,6 +502,8 @@ if [ "$INFO_GIVEN" = "yes" -o "$UPGRADE_GIVEN" = "yes" -o "$COMPACT_GIVEN" = "ye
 		echo "last node is locally upgraded."
 	    fi
 	    rm $OUT
+	    rm -rf $SXSETUP_TMPDIR
+	    trap - EXIT INT
 	    exit 0
 	fi
 	echo
@@ -268,6 +514,8 @@ if [ "$INFO_GIVEN" = "yes" -o "$UPGRADE_GIVEN" = "yes" -o "$COMPACT_GIVEN" = "ye
 	echo
 	echo "Remote upgrade started. You can monitor the progress by running:"
 	echo "@sbindir@/sxadm cluster --info sx://admin@$SX_CLUSTER_NAME"
+	rm -rf $SXSETUP_TMPDIR
+	trap - EXIT INT
 	exit 0
     fi
 fi
@@ -326,31 +574,6 @@ SX_CHILDREN_NUM=${SX_CHILDREN_NUM:-"24"}
 SX_RESERVED_CHILDREN_NUM=${SX_RESERVED_CHILDREN_NUM:-"8"}
 SX_LOG_FILE=${SX_LOG_FILE:-"@localstatedir@/log/sxserver/sxfcgi.log"}
 
-# temp files
-SXSETUP_TMPDIR="@localstatedir@/lib/sxserver-tmp"
-if [ -d $SXSETUP_TMPDIR ]; then
-    echo "Temporary directory $SXSETUP_TMPDIR already exists"
-    echo "Make sure there's no other sxsetup running or remove it manually"
-    exit 1
-fi
-mkdir -p $SXSETUP_TMPDIR
-if [ $? -ne 0 ]; then
-    echo "Can't create temporary directory $SXSETUP_TMPDIR"
-    exit 1
-fi
-chmod 700 $SXSETUP_TMPDIR
-test -z "$SX_NO_ROOT" && chown "$SX_SERVER_USER":"$SX_SERVER_GROUP" $SXSETUP_TMPDIR
-OUT_TMP=$SXSETUP_TMPDIR/out.tmp
-XCONF_TMP=$SXSETUP_TMPDIR/xconf.tmp
-SSLKEY_TMP=$SXSETUP_TMPDIR/sslkey.tmp
-SSLCERT_TMP=$SXSETUP_TMPDIR/sslcert.tmp
-CERTCONF_TMP=$SXSETUP_TMPDIR/certconf.tmp
-CLUSTKEY_TMP=$SXSETUP_TMPDIR/clustkey.tmp
-ADMINKEY_TMP=$SXSETUP_TMPDIR/adminkey.tmp
-touch $ADMINKEY_TMP
-chmod 600 $ADMINKEY_TMP
-trap "rm -rf $SXSETUP_TMPDIR; exit 1" EXIT INT
-
 ask_yn() {
     while true; do
 	printf "$@ "
@@ -393,37 +616,6 @@ read_number()
     if [ -n "$_READVAL" ] && [ -z "`echo $_READVAL | egrep '^[0-9]+$'`" -o "$_READVAL" -le 0 ]; then
 	printf "Please enter a valid number: "
 	read_number $1
-    fi
-}
-
-
-check_port() {
-    IP=$1
-    PORT=$2
-    # Can't use -t or -p, not compatible with FreeBSD
-    # Linux format: IP:port, or 0.0.0.0:port
-    # FreeBSD format: IP.port or *.port
-    FLAGS=
-    if [ `uname` = "Linux" ]; then
-	FLAGS=-p
-    fi
-    printf "Checking port $PORT on $IP ... "
-    if type netstat > /dev/null 2>&1; then
-	nstat="`netstat $FLAGS -na 2>/dev/null | 
-	grep \"tcp.*\($IP\|0.0.0.0\|::\|*\)[:.]$PORT[ \t].*LISTEN\" |
-	sed 's/\/.*//g'`"
-	if [ -n "$nstat" ]; then
-	    echo
-	    echo "ERROR: another service is already running on $IP:$PORT"
-	    echo "Please stop that service or provide another IP address."
-	    CHECK_PORT_RETVAL=1
-	else
-	    echo OK
-	    CHECK_PORT_RETVAL=0
-	fi
-    else
-	echo "'netstat' not available, assuming OK"
-	CHECK_PORT_RETVAL=0
     fi
 }
 
@@ -755,6 +947,7 @@ EOF
 		    if [ -n "$SX_EXISTING_NODE_IP" -a "$NO_REMOTE_COPY_GIVEN" != "yes" ]; then
 			# try to obtain existing node's sxsetup.conf (non-critical)
 			echo "$SX_ADMIN_KEY" > $ADMINKEY_TMP
+			test "$SX_USE_SSL" = "no" && NOSSL_FLAG="--no-ssl"
 			"@bindir@/sxinit" --batch-mode --force-reinit --port="$SX_PORT" $NOSSL_FLAG --auth-file="$ADMINKEY_TMP" --host-list="$SX_EXISTING_NODE_IP" "sx://admin@$SX_CLUSTER_NAME" > /dev/null 2>&1
 			"@bindir@/sxcp" "sx://admin@$SX_CLUSTER_NAME/_sxsetup.conf/sxsetup.conf.$SX_EXISTING_NODE_IP" $XCONF_TMP > /dev/null 2>&1
 			if [ $? = 0 ]; then
@@ -936,84 +1129,6 @@ EOF
     done
 } #ask_questions()
 
-cluster_modify() {
-    # Commit new cluster config
-    LOCKCNT=1
-    MODCNT=1
-    while true; do
-	if [ -n "`@sbindir@/sxadm cluster --info sx://admin@$SX_CLUSTER_NAME 2>&1 | grep 'activity:'`" ]; then
-	    echo "Cluster is busy (another operation in progress)... retrying in 60 seconds (attempt $LOCKCNT of 10)."
-	    LOCKCNT=`expr $LOCKCNT + 1`
-	    sleep 60
-	    continue
-	fi
-	"@sbindir@/sxadm" cluster --lock "sx://admin@$SX_CLUSTER_NAME" > $OUT_TMP 2>&1
-	if [ $? -ne 0 ]; then
-	    if [ -n "`grep 'Cluster is already locked' $OUT_TMP`" -o -n "`grep 'Distribution changes in progress' $OUT_TMP`" ] && [ $LOCKCNT -le 10 ]; then
-		echo "Cluster is busy (already locked for changes by another process)... retrying in 60 seconds (attempt $LOCKCNT of 10)."
-		LOCKCNT=`expr $LOCKCNT + 1`
-		sleep 60
-		continue
-	    fi
-	    echo "Failed to modify the cluster. The error message from 'sxadm cluster --lock' was:"
-	    cat $OUT_TMP
-	    echo
-	    echo "Please check the error and try again later."
-	    return 1
-	fi
-
-	"@sbindir@/sxadm" cluster --info "sx://admin@$SX_CLUSTER_NAME" > $OUT_TMP
-	if [ $? -ne 0 ]; then
-	    echo "Failed to retrieve current configuration of the cluster."
-	    "@sbindir@/sxadm" cluster --unlock "sx://admin@$SX_CLUSTER_NAME" > /dev/null
-	    return 1
-	fi
-	SXDIST=`cat $OUT_TMP | grep "Current configuration" | cut -d: -f 2-`
-	if [ -z "$SXDIST" ]; then
-	    echo "Failed to obtain the node information."
-	    "@sbindir@/sxadm" cluster --unlock "sx://admin@$SX_CLUSTER_NAME" > /dev/null
-	    return 1
-	fi
-
-	if [ -n "$NEWNODE" ]; then
-	    SXDIST="$NEWNODE $SXDIST"
-	elif [ -n "$REMOVENODE" ]; then
-	    # FIXME: add support for zones
-            SXDIST=`echo $SXDIST | sed "s|$REMOVENODE||g"`
-	    if [ -z "$SXDIST" ]; then
-		echo "This is the last node in the cluster, no data will be relocated."
-		"@sbindir@/sxserver" stop
-		mv "$CONFIG" "$CONFIG.old.$OLDSTAMP"
-		echo "The node has been successfully deactivated."
-		rm -rf $SXSETUP_TMPDIR
-		trap - EXIT INT
-		exit 0
-	    fi
-	else
-	    echo "Invalid operation mode."
-	    "@sbindir@/sxadm" cluster --unlock "sx://admin@$SX_CLUSTER_NAME" > /dev/null
-	    return 1
-	fi
-
-	"@sbindir@/sxadm" cluster --mod $SXDIST "sx://admin@$SX_CLUSTER_NAME" 2>$OUT_TMP
-	if [ $? = 0 ]; then
-	    "@sbindir@/sxadm" cluster --unlock "sx://admin@$SX_CLUSTER_NAME" > /dev/null
-	    break
-	fi
-	"@sbindir@/sxadm" cluster --unlock "sx://admin@$SX_CLUSTER_NAME" > /dev/null
-	if [ -n "`grep -E 'temporarily locked|complex operation|Failed to setup job targets' $OUT_TMP`" -a $MODCNT -le 10 ]; then
-	    echo "Cluster busy... retrying in 60 seconds (attempt $MODCNT of 10)."
-	    MODCNT=`expr $MODCNT + 1`
-	    sleep 60
-	else
-            cat $OUT_TMP
-	    echo "Failed to modify cluster sx://$SX_CLUSTER_NAME"
-	    return 1
-	fi
-    done
-    return 0
-}
-
 OLDSTAMP="`date +%s`"
 
 if [ "$DEACTIVATE_GIVEN" = "yes" ]; then
@@ -1028,6 +1143,8 @@ if [ "$DEACTIVATE_GIVEN" = "yes" ]; then
 	echo "it and don't turn off the node until the operation is finished."
 	ask_yn "Do you want to continue? (y/N)"
 	if [ "$ANSWER" != "y" ]; then
+	    rm -rf $SXSETUP_TMPDIR
+	    trap - EXIT INT
 	    exit 0
 	fi
     fi
@@ -1355,7 +1472,7 @@ if [ ! -f "$SX_DATA_DIR/hashfs.db" ]; then
 	echo "SX_ADMIN_KEY=`@sbindir@/sxadm node $OWNERFLAG --info $SX_DATA_DIR | grep 'Admin key' | cut -d\  -f 3`" >> $CONFIG
 
 
-	echo "Bare node created. Use 'sxadm cluster --mod' to join it to the cluster"
+	echo "Bare node created. Use 'sxadm cluster --modify' to join it to the cluster"
 	echo "or perform another operation."
 	echo "Node specification: $NEWNODE"
         rm -rf $SXSETUP_TMPDIR
