@@ -2478,8 +2478,9 @@ static unsigned int gethashdb(const sx_hash_t *hash) {
 static int getmetadb(const char *filename) {
     sx_hash_t hash;
     if(hash_buf(NULL, 0, filename, strlen(filename), &hash)) {
+	msg_set_reason("Failed to locate metadb");
         WARN("hash_buf failed");
-	return 0;
+	return -1;
     }
 
     return MurmurHash64(&hash, sizeof(hash), MURMUR_SEED) & (METADBS-1);
@@ -10048,12 +10049,12 @@ int sx_unique_fileid(sxc_client_t *sx, const char *revision, sx_hash_t *fileid)
 }
 
 static rc_ty is_tmp_newrev(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const char *fname, int64_t tmpfile_id, int64_t tmpfile_size, const void *tmpfile_d, unsigned int tmpfile_dsz, int partial) {
-    unsigned int i, ndb;
+    unsigned int i;
     sxc_meta_t *fmeta;
     sqlite3_stmt *q;
     int64_t fid;
     rc_ty ret;
-    int r;
+    int r, ndb;
 
     if(!h || !volume || !fname) {
 	NULLARG();
@@ -10061,6 +10062,9 @@ static rc_ty is_tmp_newrev(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, con
     }
 
     ndb = getmetadb(fname);
+    if(ndb < 0)
+	return FAIL_EINTERNAL;
+
     q = h->qm_get[ndb];
     sqlite3_reset(q);
     if(qbind_int64(q, ":volume", volume->id) || qbind_text(q, ":name", fname)) {
@@ -12781,6 +12785,9 @@ rc_ty sx_hashfs_file_delete(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, co
             /* precondition: add should have arrived, add in the db a marker that we are waiting for the add,
              and perform the delete once it has arrived*/
             DEBUG("Out of order delete"); /* delete reached this node before create */
+	    mdb = getmetadb(file); /* file already checked in get_file_id */
+	    if(mdb < 0)
+		return FAIL_EINTERNAL;
             sqlite3_reset(h->qm_ins[mdb]);
             sx_hash_t revision_id;
             if (qbind_int64(h->qm_ins[mdb], ":volume", volume->id) ||
@@ -17496,7 +17503,7 @@ static rc_ty should_heal_replica(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, 
 
 static rc_ty sx_hashfs_file_find_step(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const char *maxrev, sx_hashfs_file_t *file, sx_find_cb_t cb, void *ctx)
 {
-    unsigned int fdb;
+    int fdb;
     int ret;
     rc_ty rc = ITER_NO_MORE;
     sqlite3_stmt *q;
@@ -17505,6 +17512,8 @@ static rc_ty sx_hashfs_file_find_step(sx_hashfs_t *h, const sx_hashfs_volume_t *
         return EFAULT;
     }
     fdb = file->name[0] ? getmetadb(file->name) : 0;
+    if(fdb < 0)
+	return FAIL_EINTERNAL;
     if (file->revision[0]) {
         q = h->qm_list_rev_dec[fdb];
         sqlite3_reset(q);
