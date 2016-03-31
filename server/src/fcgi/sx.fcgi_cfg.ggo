@@ -86,3 +86,6 @@ option "verbose-rebalance"              - "Generate HUGE rebalance logs"
 
 option "verbose-gc"              - "Generate HUGE garbage collector logs"
        flag off hidden
+
+option "max-pending-user-jobs"      - "Maximum number of concurrent jobs a single user can start"
+       int default="128" typestr="N" optional hidden

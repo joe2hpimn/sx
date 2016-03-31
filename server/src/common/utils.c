@@ -640,6 +640,7 @@ double gc_max_batch_time;
 double gc_yield_time;
 int gc_slow_check=1;
 float blockmgr_delay;
+int max_pending_user_jobs = 128;
 /* used outside of fcgi */
 int db_min_passive_wal_pages=5000;
 int db_max_passive_wal_pages=10000;

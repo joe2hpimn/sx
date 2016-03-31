@@ -14101,7 +14101,6 @@ static const char *locknames[] = {
     NULL, /* JOBTYPE_VOLREP_FILES */
 };
 
-#define MAX_PENDING_JOBS 128
 rc_ty sx_hashfs_countjobs(sx_hashfs_t *h, sx_uid_t user_id) {
     rc_ty ret = FAIL_EINTERNAL;
 
@@ -14109,7 +14108,7 @@ rc_ty sx_hashfs_countjobs(sx_hashfs_t *h, sx_uid_t user_id) {
     if(qbind_int64(h->qe_countjobs, ":uid", user_id) ||
        qstep_ret(h->qe_countjobs)) 
 	goto countjobs_out;
-    if(sqlite3_column_int64(h->qe_countjobs, 0) > MAX_PENDING_JOBS) {
+    if(sqlite3_column_int64(h->qe_countjobs, 0) > max_pending_user_jobs) {
 	ret = FAIL_ETOOMANY;
         DEBUG("too many jobs");
 	goto countjobs_out;

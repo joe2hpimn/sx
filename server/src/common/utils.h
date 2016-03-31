@@ -138,3 +138,4 @@ extern int db_max_mmapsize;
 extern int db_custom_vfs;
 extern int worker_max_wait;
 extern int worker_max_requests;
+extern int max_pending_user_jobs;

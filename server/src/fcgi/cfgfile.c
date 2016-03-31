@@ -66,6 +66,7 @@ const char *gengetopt_args_info_full_help[] = {
   "      --worker-max-requests=N   Maximum number of requests / worker\n                                  (default=`5000')",
   "      --verbose-rebalance       Generate HUGE rebalance logs  (default=off)",
   "      --verbose-gc              Generate HUGE garbage collector logs\n                                  (default=off)",
+  "      --max-pending-user-jobs=N Maximum number of concurrent jobs a single user\n                                  can start  (default=`128')",
     0
 };
 
@@ -174,6 +175,7 @@ void clear_given (struct gengetopt_args_info *args_info)
   args_info->worker_max_requests_given = 0 ;
   args_info->verbose_rebalance_given = 0 ;
   args_info->verbose_gc_given = 0 ;
+  args_info->max_pending_user_jobs_given = 0 ;
 }
 
 static
@@ -231,6 +233,8 @@ void clear_args (struct gengetopt_args_info *args_info)
   args_info->worker_max_requests_orig = NULL;
   args_info->verbose_rebalance_flag = 0;
   args_info->verbose_gc_flag = 0;
+  args_info->max_pending_user_jobs_arg = 128;
+  args_info->max_pending_user_jobs_orig = NULL;
   
 }
 
@@ -271,6 +275,7 @@ void init_args_info(struct gengetopt_args_info *args_info)
   args_info->worker_max_requests_help = gengetopt_args_info_full_help[29] ;
   args_info->verbose_rebalance_help = gengetopt_args_info_full_help[30] ;
   args_info->verbose_gc_help = gengetopt_args_info_full_help[31] ;
+  args_info->max_pending_user_jobs_help = gengetopt_args_info_full_help[32] ;
   
 }
 
@@ -393,6 +398,7 @@ cmdline_parser_release (struct gengetopt_args_info *args_info)
   free_string_field (&(args_info->db_max_mmapsize_orig));
   free_string_field (&(args_info->worker_max_wait_orig));
   free_string_field (&(args_info->worker_max_requests_orig));
+  free_string_field (&(args_info->max_pending_user_jobs_orig));
   
   
 
@@ -487,6 +493,8 @@ cmdline_parser_dump(FILE *outfile, struct gengetopt_args_info *args_info)
     write_into_file(outfile, "verbose-rebalance", 0, 0 );
   if (args_info->verbose_gc_given)
     write_into_file(outfile, "verbose-gc", 0, 0 );
+  if (args_info->max_pending_user_jobs_given)
+    write_into_file(outfile, "max-pending-user-jobs", args_info->max_pending_user_jobs_orig, 0);
   
 
   i = EXIT_SUCCESS;
@@ -804,6 +812,7 @@ cmdline_parser_internal (
         { "worker-max-requests",	1, NULL, 0 },
         { "verbose-rebalance",	0, NULL, 0 },
         { "verbose-gc",	0, NULL, 0 },
+        { "max-pending-user-jobs",	1, NULL, 0 },
         { 0,  0, 0, 0 }
       };
 
@@ -1230,6 +1239,20 @@ cmdline_parser_internal (
             if (update_arg((void *)&(args_info->verbose_gc_flag), 0, &(args_info->verbose_gc_given),
                 &(local_args_info.verbose_gc_given), optarg, 0, 0, ARG_FLAG,
                 check_ambiguity, override, 1, 0, "verbose-gc", '-',
+                additional_error))
+              goto failure;
+          
+          }
+          /* Maximum number of concurrent jobs a single user can start.  */
+          else if (strcmp (long_options[option_index].name, "max-pending-user-jobs") == 0)
+          {
+          
+          
+            if (update_arg( (void *)&(args_info->max_pending_user_jobs_arg), 
+                 &(args_info->max_pending_user_jobs_orig), &(args_info->max_pending_user_jobs_given),
+                &(local_args_info.max_pending_user_jobs_given), optarg, 0, "128", ARG_INT,
+                check_ambiguity, override, 0, 0,
+                "max-pending-user-jobs", '-',
                 additional_error))
               goto failure;
           

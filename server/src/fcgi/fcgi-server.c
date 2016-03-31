@@ -601,6 +601,12 @@ int main(int argc, char **argv) {
     verbose_rebalance = args.verbose_rebalance_flag;
     verbose_gc = args.verbose_gc_flag;
 
+    if(args.max_pending_user_jobs_arg <= 0) {
+	CRIT("Invalid job limit value");
+        goto getout;
+    }
+    max_pending_user_jobs = args.max_pending_user_jobs_arg;
+
     if(args.children_arg <= 0 || args.children_arg > MAX_CHILDREN) {
 	CRIT("Invalid number of children");
         goto getout;
