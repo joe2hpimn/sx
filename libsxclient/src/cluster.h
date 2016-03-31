@@ -175,6 +175,15 @@ typedef struct _node_status_t {
     /* Internally passed network traffic statistics json */
     char *network_traffic_json;
     size_t network_traffic_json_size;
+
+    /* Event queue */
+    int64_t sysjobs, usrjobs;
+    /* Block queue */
+    unsigned int nbq;
+    struct bqstat_t {
+	int64_t ready, held, unbumps;
+	char node[UUID_LEN+1];
+    } *bqstat;
 } sxi_node_status_t;
 
 int sxi_conns_set_timeouts(sxi_conns_t *conns, unsigned int hard_timeout, unsigned int soft_timeout);

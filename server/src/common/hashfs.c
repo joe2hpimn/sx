@@ -4547,6 +4547,28 @@ static rc_ty xfer_2_1_3_to_2_1_4(sxi_db_t *db) {
     do {
 	if(qprep(db, &q, "CREATE TABLE unbumps(unbid INTEGER NOT NULL PRIMARY KEY, revid BLOB("STRIFY(SXI_SHA1_BIN_LEN)") NOT NULL, revsize INTEGER NOT NULL, target BLOB("STRIFY(UUID_BINARY_SIZE)") NOT NULL, UNIQUE (target, revid, revsize))") || qstep_noret(q))
 	    break;
+	qnullify(q);
+
+	if(qprep(db, &q, "DROP TABLE IF EXISTS topush2") || qstep_noret(q))
+	    break;
+	qnullify(q);
+	if(qprep(db, &q, "CREATE TABLE topush2 (id INTEGER NOT NULL PRIMARY KEY, block BLOB("STRIFY(SXI_SHA1_BIN_LEN)") NOT NULL, size INTEGER NOT NULL, node BLOB("STRIFY(UUID_BINARY_SIZE)") NOT NULL, sched_time TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f')), expiry_time TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now', '"STRIFY(TOPUSH_EXPIRE)" seconds')), flow INTEGER NOT NULL DEFAULT 0)") || qstep_noret(q))
+	    break;
+	qnullify(q);
+	if(qprep(db, &q, "INSERT INTO topush2 SELECT * FROM topush") || qstep_noret(q))
+	    break;
+	qnullify(q);
+	if(qprep(db, &q, "DROP TABLE topush") || qstep_noret(q))
+	    break;
+	qnullify(q);
+	if(qprep(db, &q, "ALTER TABLE topush2 RENAME TO topush") || qstep_noret(q))
+	    break;
+	qnullify(q);
+	if(qprep(db, &q, "CREATE UNIQUE INDEX IF NOT EXISTS topush_uniq ON topush (node, size, block)") || qstep_noret(q))
+	    break;
+	qnullify(q);
+	if(qprep(db, &q, "CREATE INDEX IF NOT EXISTS flow_sched ON topush (flow, sched_time)") || qstep_noret(q))
+	    break;
 	ret = OK;
     } while(0);
 
@@ -18685,6 +18707,85 @@ rc_ty sx_hashfs_node_status(sx_hashfs_t *h, sxi_node_status_t *status) {
         snprintf(status->heal_status, sizeof(status->heal_status), "DONE");
     status->heal_status[sizeof(status->heal_status)-1] = '\0';
     return OK;
+}
+
+rc_ty sx_hashfs_stats_jobq(sx_hashfs_t *h, int64_t *sysjobs, int64_t *userjobs) {
+    int64_t scnt = 0, ucnt = 0;
+    sqlite3_stmt *q = NULL;
+    rc_ty ret = FAIL_EINTERNAL;
+    int r;
+
+    if(!h) {
+	NULLARG();
+        return EINVAL;
+    }
+
+    if(qprep(h->eventdb, &q, "SELECT user IS NULL AS sysjob, COUNT(*) FROM jobs WHERE complete = 0 AND sched_time <= strftime('%Y-%m-%d %H:%M:%f') GROUP BY sysjob"))
+	goto stats_jobq_err;
+
+    while(1) {
+	r = qstep(q);
+	if(r == SQLITE_DONE) {
+	    ret = OK;
+	    break;
+	}
+	if(r != SQLITE_ROW)
+	    break;
+	if(sqlite3_column_int(q, 0))
+	    scnt = sqlite3_column_int64(q, 1);
+	else
+	    ucnt = sqlite3_column_int64(q, 1);
+    }
+
+ stats_jobq_err:
+    sqlite3_finalize(q);
+    if(sysjobs)
+	*sysjobs = scnt;
+    if(userjobs)
+	*userjobs = ucnt;
+
+    return ret;
+}
+
+rc_ty sx_hashfs_stats_blockq(sx_hashfs_t *h, const sx_uuid_t *dest, int64_t *ready, int64_t *held, int64_t *unbumps) {
+    sqlite3_stmt *q = NULL;
+    rc_ty ret = FAIL_EINTERNAL;
+
+    if(!h || !dest) {
+	NULLARG();
+        return EINVAL;
+    }
+
+    if(ready) {
+	if(qprep(h->xferdb, &q, "SELECT COUNT(*) FROM topush WHERE node = :node AND sched_time <= strftime('%Y-%m-%d %H:%M:%f')") ||
+	   qbind_blob(q, ":node", dest->binary, sizeof(dest->binary)) ||
+	   qstep_ret(q))
+	    goto stats_blockq_err;
+	*ready = sqlite3_column_int64(q, 0);
+	qnullify(q);
+    }
+    if(held) {
+	if(qprep(h->xferdb, &q, "SELECT COUNT(*) FROM topush WHERE node = :node AND sched_time > strftime('%Y-%m-%d %H:%M:%f')") ||
+	   qbind_blob(q, ":node", dest->binary, sizeof(dest->binary)) ||
+	   qstep_ret(q))
+	    goto stats_blockq_err;
+	*held = sqlite3_column_int64(q, 0);
+	qnullify(q);
+    }
+    if(unbumps) {
+	if(qprep(h->xferdb, &q, "SELECT COUNT(*) FROM unbumps WHERE target = :node") ||
+	   qbind_blob(q, ":node", dest->binary, sizeof(dest->binary)) ||
+	   qstep_ret(q))
+	    goto stats_blockq_err;
+	*unbumps = sqlite3_column_int64(q, 0);
+	qnullify(q);
+    }
+
+    ret = OK;
+
+ stats_blockq_err:
+    sqlite3_finalize(q);
+    return ret;
 }
 
 rc_ty sx_hashfs_distlock_get(sx_hashfs_t *h, char *lockid, unsigned int lockid_len) {

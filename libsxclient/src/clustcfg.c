@@ -4054,7 +4054,6 @@ struct node_status_ctx {
     enum sxc_error_t err;
 };
 
-
 static void cb_nodest_ostype(jparse_t *J, void *ctx, const char *string, unsigned int length) {
     struct node_status_ctx *yactx = (struct node_status_ctx *)ctx;
     sxi_strlcpy(yactx->status.os_name, string, MIN(sizeof(yactx->status.os_name), length+1));
@@ -4153,6 +4152,54 @@ static void cb_nodest_swap_free(jparse_t *J, void *ctx, int64_t num) {
     struct node_status_ctx *yactx = (struct node_status_ctx *)ctx;
     yactx->status.swap_free = num;
 }
+static void cb_nodest_sysjobs(jparse_t *J, void *ctx, int64_t num) {
+    struct node_status_ctx *yactx = (struct node_status_ctx *)ctx;
+    yactx->status.sysjobs = num;
+}
+static void cb_nodest_usrjobs(jparse_t *J, void *ctx, int64_t num) {
+    struct node_status_ctx *yactx = (struct node_status_ctx *)ctx;
+    yactx->status.usrjobs = num;
+}
+
+static int growbq(jparse_t *J, struct node_status_ctx *yactx) {
+    const char *node = sxi_jpath_mapkey(sxi_jpath_down(sxi_jpath_down(sxi_jparse_whereami(J))));
+
+    if(strlen(node) >= sizeof(yactx->status.bqstat[0].node)) {
+	sxi_jparse_cancel(J, "Unexpected node definition encountered while processing block queue statistics");
+	return 1;
+    }	
+    if(!yactx->status.nbq || strcmp(yactx->status.bqstat[yactx->status.nbq-1].node, node)) {
+	struct bqstat_t *nubq;
+	yactx->status.nbq++;
+	nubq = realloc(yactx->status.bqstat, sizeof(yactx->status.bqstat[0]) * yactx->status.nbq);
+	if(!nubq) {
+	    sxi_jparse_cancel(J, "Out of memory processing block queue statistics");
+	    return 1;
+	}
+	yactx->status.bqstat = nubq;
+	strcpy(yactx->status.bqstat[yactx->status.nbq-1].node, node);
+	yactx->status.bqstat[yactx->status.nbq-1].ready = -1;
+	yactx->status.bqstat[yactx->status.nbq-1].held = -1;
+	yactx->status.bqstat[yactx->status.nbq-1].unbumps = -1;
+    }
+    return 0;
+}
+static void cb_nodest_bq_ready(jparse_t *J, void *ctx, int64_t num) {
+    struct node_status_ctx *yactx = (struct node_status_ctx *)ctx;
+    if(!growbq(J, yactx))
+	yactx->status.bqstat[yactx->status.nbq-1].ready = num;
+}
+static void cb_nodest_bq_held(jparse_t *J, void *ctx, int64_t num) {
+    struct node_status_ctx *yactx = (struct node_status_ctx *)ctx;
+    if(!growbq(J, yactx))
+	yactx->status.bqstat[yactx->status.nbq-1].held = num;
+}
+static void cb_nodest_bq_unbumps(jparse_t *J, void *ctx, int64_t num) {
+    struct node_status_ctx *yactx = (struct node_status_ctx *)ctx;
+    if(!growbq(J, yactx))
+	yactx->status.bqstat[yactx->status.nbq-1].unbumps = num;
+}
+
 
 static int node_status_cb(curlev_context_t *cbdata, void *ctx, const void *data, size_t size) {
     struct node_status_ctx *yactx = (struct node_status_ctx *)ctx;
@@ -4205,7 +4252,12 @@ int sxi_cluster_status(sxc_cluster_t *cluster, const node_status_cb_t status_cb,
 		     JPACT(cb_nodest_mem, JPKEY("memTotal")),
                      JPACT(cb_nodest_mem_avail, JPKEY("memAvailable")),
                      JPACT(cb_nodest_swap, JPKEY("swapTotal")),
-                     JPACT(cb_nodest_swap_free, JPKEY("swapFree"))
+                     JPACT(cb_nodest_swap_free, JPKEY("swapFree")),
+		     JPACT(cb_nodest_sysjobs, JPKEY("queueStatus"), JPKEY("eventQueue"), JPKEY("systemJobs")),
+		     JPACT(cb_nodest_usrjobs, JPKEY("queueStatus"), JPKEY("eventQueue"), JPKEY("userJobs")),
+		     JPACT(cb_nodest_bq_ready, JPKEY("queueStatus"), JPKEY("transferQueue"), JPANYKEY, JPKEY("ready")),
+		     JPACT(cb_nodest_bq_held, JPKEY("queueStatus"), JPKEY("transferQueue"), JPANYKEY, JPKEY("held")),
+		     JPACT(cb_nodest_bq_unbumps, JPKEY("queueStatus"), JPKEY("transferQueue"), JPANYKEY, JPKEY("unbumps"))
 		     ),
 	JPACTS_INT32(
 		     JPACT(cb_nodest_cores, JPKEY("cores"))
@@ -4258,6 +4310,7 @@ int sxi_cluster_status(sxc_cluster_t *cluster, const node_status_cb_t status_cb,
         sxi_hostlist_empty(&hlist);
         if(qret != 200) {
             SXDEBUG("Failed to get status of node %s: %s", node, sxc_geterrmsg(sx));
+	    free(yctx->status.bqstat);
 	    sxi_jparse_destroy(yctx->J);
             free(yctx);
             enum sxc_error_t code = SXE_ECOMM;
@@ -4278,6 +4331,7 @@ int sxi_cluster_status(sxc_cluster_t *cluster, const node_status_cb_t status_cb,
 
         if(sxi_jparse_done(yctx->J)) {
             SXDEBUG("Failed to complete parsing of node %s status", node);
+	    free(yctx->status.bqstat);
 	    sxi_jparse_destroy(yctx->J);
             free(yctx);
             sxc_clearerr(sx);
@@ -4288,6 +4342,7 @@ int sxi_cluster_status(sxc_cluster_t *cluster, const node_status_cb_t status_cb,
         }
 
         status_cb(sx, qret, &yctx->status, human_readable);
+	free(yctx->status.bqstat);
 	sxi_jparse_destroy(yctx->J);
         free(yctx);
     }

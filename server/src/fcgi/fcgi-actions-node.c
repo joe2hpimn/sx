@@ -1517,7 +1517,10 @@ void fcgi_node_repaired(void) {
 }
 
 void fcgi_node_status(void) {
+    int64_t sysjobs, usrjobs;
+    const sx_nodelist_t *nodes;
     sxi_node_status_t status;
+    int comma;
     rc_ty s;
 
     s = sx_hashfs_node_status(hashfs, &status);
@@ -1557,7 +1560,8 @@ void fcgi_node_status(void) {
         status.processes, status.processes_running, status.processes_blocked);
     CGI_PUTLL(status.btime);
     if(status.cores > 0 && status.cpu_stat) {
-        int i = 0, comma = 0;
+        int i = 0;
+	comma = 0;
         CGI_PUTS(",\"processors\":{");
         for(i = 0; i < status.cores; i++) {
             if(comma)
@@ -1589,8 +1593,37 @@ void fcgi_node_status(void) {
     }
     if(status.network_traffic_json && status.network_traffic_json_size)
         CGI_PRINTF(",\"traffic\":%.*s", (unsigned)status.network_traffic_json_size, status.network_traffic_json);
-    CGI_PRINTF("},\"heal\":\"%s\"", status.heal_status);
-    CGI_PUTC('}');
+    CGI_PRINTF("},\"heal\":\"%s\",", status.heal_status);
+    CGI_PUTS("\"queueStatus\":{");
+    if(sx_hashfs_stats_jobq(hashfs, &sysjobs, &usrjobs) == OK) {
+	CGI_PUTS("\"eventQueue\":{\"systemJobs\":"); CGI_PUTLL(sysjobs);
+	CGI_PUTS(",\"userJobs\":"); CGI_PUTLL(usrjobs); CGI_PUTC('}');
+	comma = 1;
+    } else
+	comma = 0;
+
+    nodes = sx_hashfs_all_nodes(hashfs, NL_NEXTPREV);
+    if(nodes) {
+	int64_t ready, held, unbumps;
+	const sx_node_t *node;
+	unsigned int i;
+	CGI_PRINTF("%s\"transferQueue\":{", comma ? "," : "");
+	for(i=0; i<sx_nodelist_count(nodes); i++) {
+	    const sx_uuid_t *nuuid;
+	    node = sx_nodelist_get(nodes, i);
+	    nuuid = sx_node_uuid(node);
+	    if(sx_hashfs_stats_blockq(hashfs, nuuid, &ready, &held, &unbumps) != OK)
+		break;
+	    CGI_PRINTF("%s\"%s\":{", i ? "," : "", nuuid->string);
+	    CGI_PUTS("\"ready\":"); CGI_PUTLL(ready);
+	    CGI_PUTS(",\"held\":"); CGI_PUTLL(held);
+	    CGI_PUTS(",\"unbumps\":"); CGI_PUTLL(unbumps);
+	    CGI_PUTC('}');
+	}
+	CGI_PUTC('}');
+    }
+ 
+    CGI_PRINTF("}}");
 
     free(status.cpu_stat);
     free(status.network_traffic_json);

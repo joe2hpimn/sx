@@ -1907,6 +1907,7 @@ static int compact_data(sxc_client_t *sx, const char *path, int human_readable) 
 }
 
 static void print_status(sxc_client_t *sx, int http_code, const sxi_node_status_t *status, int human_readable) {
+    unsigned int i;
     char str[64];
 
     if(!sx)
@@ -1991,6 +1992,19 @@ static void print_status(sxc_client_t *sx, int http_code, const sxi_node_status_
     } else
         printf("        Swap free: N/A\n");
 
+    printf("    Queues:\n");
+    printf("        Events: %lld job(s) queued (%lld user, %lld system)\n",
+	   (long long)(status->usrjobs + status->sysjobs),
+	   (long long)status->usrjobs, (long long)status->sysjobs);
+    if(status->nbq) {
+	printf("        Block operations:\n");
+	for(i=0; i<status->nbq; i++)
+	    printf("            - %s: %lld blocks to transfer (%lld ready, %lld held), %lld block revisions to unlink\n",
+		   status->bqstat[i].node,
+		   (long long)status->bqstat[i].ready + (long long)status->bqstat[i].held,
+		   (long long)status->bqstat[i].ready, (long long)status->bqstat[i].held,
+		   (long long)status->bqstat[i].unbumps);
+    }
     printf("\n");
 }
 
