@@ -3401,6 +3401,7 @@ static int single_download(struct batch_hashes *bh, const char *dstname,
     unsigned int i;
     int ret = 1;
 
+    sxc_clearerr(sx);
     retry = sxi_retry_init(sx, RCTX_SX);
     if (!retry) {
         cluster_err(SXE_EMEM, "Cannot allocate retry");
@@ -3492,14 +3493,13 @@ static int single_download(struct batch_hashes *bh, const char *dstname,
         }
     }
 
-    /* Loop went successfully through all blocks, we are happy */
-    if(i == bh->i)
-        ret = 0;
+    if(sxc_geterrnum(sx) != SXE_NOERROR)
+	ret = 1;
+    else if(i == bh->i) /* Loop went successfully through all blocks, we are happy */
+	ret = 0;
 
     single_download_fail:
 
-    if(!ret)
-        sxc_clearerr(sx);
     if (sxi_retry_done(&retry))
         CFGDEBUG("retry_done failed");
 
