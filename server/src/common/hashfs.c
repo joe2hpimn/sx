@@ -9995,6 +9995,32 @@ static void sort_by_node_then_position(unsigned int *hashnos, const unsigned int
     sx_qsort(hashnos, items, sizeof(*hashnos), &sortsupport, sort_by_node_func);
 }
 
+struct sort_for_pushto_t {
+    const int8_t *avlblty;
+    unsigned int replica_count;
+};
+
+static int sort_for_pushto_func(const void *thunk, const void *a, const void *b) {
+    const struct sort_for_pushto_t *support = (const struct sort_for_pushto_t *)thunk;
+    unsigned int hashno_a = *(unsigned int *)a;
+    unsigned int hashno_b = *(unsigned int *)b;
+    unsigned int i;
+    int sca=0, scb=0;
+
+    for(i=0; i<support->replica_count; i++) {
+	int8_t avaa = support->avlblty[support->replica_count * hashno_a + i];
+	int8_t avab = support->avlblty[support->replica_count * hashno_b + i];
+	sca += ((avaa > 0) * 1) - ((avaa < 0) * 1);
+	scb += ((avab > 0) * 1) - ((avab < 0) * 1);
+    }
+    return sca - scb;
+}
+
+static void sort_for_pushto(unsigned int *hashnos, const int8_t *avlblty, unsigned int items, unsigned int replica_count) {
+    const struct sort_for_pushto_t sortsupport = {avlblty, replica_count};
+    sx_qsort(hashnos, items, sizeof(*hashnos), &sortsupport, sort_for_pushto_func);
+}
+
 static int sort_by_hash_func(const void *thunk, const void *a, const void *b) {
     unsigned int ia = *(const unsigned int *)a;
     unsigned int ib = *(const unsigned int *)b;
@@ -11515,6 +11541,9 @@ rc_ty sx_hashfs_tmp_getinfo(sx_hashfs_t *h, int64_t tmpfile_id, sx_hashfs_tmpinf
 		tbd->uniq_ids[l] = tbd->uniq_ids[r];
 	    l++;
 	}
+
+	/* Optimize unique list for the subsequent .pushto (in replicateblocks_commit) */
+	sort_for_pushto(tbd->uniq_ids, tbd->avlblty, nuniqs, tbd->replica_count);
 
 	/* Only check a small number of blocks
 	 * Return OK if all blocks were presence checked

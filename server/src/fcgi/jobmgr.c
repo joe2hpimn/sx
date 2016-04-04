@@ -1033,7 +1033,7 @@ static act_result_t replicateblocks_commit(sx_hashfs_t *hashfs, job_t job_id, jo
     worstcase_rpl = mis->replica_count;
 
     /* Loop through all blocks to check availability */
-    for(i=0; i<mis->nuniq; i++) {
+    for(i=0; i<MIN(mis->nuniq, DOWNLOAD_MAX_BLOCKS); i++) {
 	unsigned int ndone = 0, ndone_or_pending = 0, pushingidx = 0, blockno = mis->uniq_ids[i];
 
 	/* For DEBUG()ging purposes */
@@ -1249,7 +1249,7 @@ static act_result_t replicateblocks_commit(sx_hashfs_t *hashfs, job_t job_id, jo
 
     DEBUG("Job id %lld - current replica %u out of %u", (long long)job_id, worstcase_rpl, mis->replica_count);
 
-    if(giveup)
+    if(giveup || i<mis->nuniq) /* Incomplete presence check or remote xfers */
 	action_error(ACT_RESULT_NOTFAILED, 500, "Replica not completely verified");
 
     if(worstcase_rpl < mis->replica_count)
