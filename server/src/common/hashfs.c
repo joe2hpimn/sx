@@ -15960,6 +15960,7 @@ rc_ty sx_hashfs_setnodedata(sx_hashfs_t *h, const char *name, const sx_uuid_t *n
 	unsigned int cafilen = strlen(h->dir) + sizeof("/sxcert.012345678.pem");
 	unsigned int cadatalen = strlen(ssl_ca_crt);
 	if(cadatalen) {
+	    int name_cnt = 0;
 	    ssl_ca_file = wrap_malloc(cafilen);
 	    if(!ssl_ca_file) {
 		OOM();
@@ -15970,7 +15971,7 @@ rc_ty sx_hashfs_setnodedata(sx_hashfs_t *h, const char *name, const sx_uuid_t *n
 		int fd = open(ssl_ca_file, O_CREAT|O_EXCL|O_WRONLY, 0640);
 		if(fd < 0) {
 		    if(errno == EEXIST) {
-			snprintf(ssl_ca_file, cafilen, "%s/sxcert.%08x.pem", h->dir, sxi_rand());
+			snprintf(ssl_ca_file, cafilen, "%s/sxcert.%08x.pem", h->dir, sxi_rand() + name_cnt++);
 			continue;
 		    }
 		    msg_set_reason("Cannot create CA certificate file");
