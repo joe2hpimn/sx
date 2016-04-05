@@ -151,12 +151,8 @@ void qcheckpoint_idle(sxi_db_t *db)
 
 void qclose(sxi_db_t **db)
 {
-    if (!db || !*db) {
-        WARN("Null DBp");
+    if (!db || !*db)
         return;
-    }
-    if (!*db)
-      return;
     qclose_db(&(*db)->handle);
     free(*db);
     *db = NULL;
