@@ -249,11 +249,17 @@ int sxi_hmac_sha1_final(sxi_hmac_sha1_ctx *ctx, unsigned char *out, unsigned int
 
 int sxi_crypto_check_ver(struct sxi_logger *l)
 {
+    const char *compile_ver = NSS_VERSION;
     if (NSS_NoDB_Init("/") != SECSuccess) {
         sxi_log_msg(l, "sxi_crypto_check_ver", SX_LOG_CRIT,
                     "Failed to initialize NSS: %d", PR_GetError());
         return -1;
     }
+    if(!NSS_VersionCheck(compile_ver)) {
+	sxi_log_msg(l, "crypto_check_ver", SX_LOG_CRIT, "NSS library version mismatch: compiled: %s, runtime: %s", compile_ver, NSS_GetVersion());
+	return -1; 
+    }
+
     return 0;
 }
 
