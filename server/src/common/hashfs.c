@@ -8445,7 +8445,7 @@ static rc_ty sx_hashfs_check_volume_size(sx_hashfs_t *h, int64_t size, int64_t o
         return FAIL_EINTERNAL;
     }
     if(old_size != -1)
-	vols_size -= old_size;
+	vols_size -= replica * old_size;
 
     /* Check if cluster capacity is not reached yet (better error message) */
     if(vols_size + SXLIMIT_MIN_VOLUME_SIZE * replica >= h->effective_capacity) {
