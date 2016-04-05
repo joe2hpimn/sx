@@ -3147,10 +3147,17 @@ static int print_certificate_info(sxc_client_t *sx, const struct curl_certinfo *
     sxi_fmt_msg(&fmt, "Server certificate:\n");
     sxi_fmt_msg(&fmt, "\tSubject: %s\n", get_certinfo_field(info, 0, "Subject"));
     sxi_fmt_msg(&fmt, "\tIssuer: %s\n", get_certinfo_field(info, 0, "Issuer"));
+    sxi_fmt_msg(&fmt, "\tValidity\n");
+    sxi_fmt_msg(&fmt, "\t\tNot Before: %s\n", get_certinfo_field(info, 0, "Start date"));
+    sxi_fmt_msg(&fmt, "\t\tNot After : %s\n", get_certinfo_field(info, 0, "Expire date"));
+
     if (ca > 0) {
         sxi_fmt_msg(&fmt, "Certificate Authority:\n");
         sxi_fmt_msg(&fmt, "\tSubject: %s\n", get_certinfo_field(info, ca, "Subject"));
         sxi_fmt_msg(&fmt, "\tIssuer: %s\n", get_certinfo_field(info, ca, "Issuer"));
+	sxi_fmt_msg(&fmt, "\tValidity\n");
+	sxi_fmt_msg(&fmt, "\t\tNot Before: %s\n", get_certinfo_field(info, ca, "Start date"));
+	sxi_fmt_msg(&fmt, "\t\tNot After : %s\n", get_certinfo_field(info, ca, "Expire date"));
     }
     const char *rootcert = get_certinfo_field(info, ca, "Cert");
     rootcert = strchr(rootcert, '\n');
