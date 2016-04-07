@@ -593,9 +593,11 @@ int blockmgr(sxc_client_t *sx, const char *dir, int pipe) {
 	goto blockmgr_err;
     if(qprep(xferdb, &q.qget_first_lo, "SELECT id, flow, block, size, node FROM topush WHERE strftime('%Y-%m-%d %H:%M:%f') >= sched_time AND flow <= :flow ORDER BY flow ASC, sched_time ASC LIMIT 1"))
 	goto blockmgr_err;
-    if(qprep(xferdb, &q.qget_next_hi, "SELECT id, flow, block FROM topush WHERE id NOT IN (SELECT push_id FROM scheduled) AND strftime('%Y-%m-%d %H:%M:%f') >= sched_time AND flow > :flow AND node = :node AND size = :size ORDER BY flow ASC, sched_time ASC LIMIT 1"))
+    /* Using index on 'node' is explicitly disabled here because despite being more efficient in the WHERE clause,
+     * it adds extremely higher extra costs in the for of a temp b-tree used for the ORDER BY clause */
+    if(qprep(xferdb, &q.qget_next_hi, "SELECT id, flow, block FROM topush WHERE id NOT IN (SELECT push_id FROM scheduled) AND strftime('%Y-%m-%d %H:%M:%f') >= sched_time AND flow > :flow AND +node = :node AND size = :size ORDER BY flow ASC, sched_time ASC LIMIT 1"))
 	goto blockmgr_err;
-    if(qprep(xferdb, &q.qget_next_lo, "SELECT id, flow, block FROM topush WHERE id NOT IN (SELECT push_id FROM scheduled) AND strftime('%Y-%m-%d %H:%M:%f') >= sched_time AND flow <= :flow AND node = :node AND size = :size ORDER BY flow ASC, sched_time ASC LIMIT 1"))
+    if(qprep(xferdb, &q.qget_next_lo, "SELECT id, flow, block FROM topush WHERE id NOT IN (SELECT push_id FROM scheduled) AND strftime('%Y-%m-%d %H:%M:%f') >= sched_time AND flow <= :flow AND +node = :node AND size = :size ORDER BY flow ASC, sched_time ASC LIMIT 1"))
 	goto blockmgr_err;
     if(qprep(xferdb, &q.qwipesched, "DELETE FROM scheduled"))
 	goto blockmgr_err;
