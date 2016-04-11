@@ -904,6 +904,7 @@ struct _sx_hashfs_t {
     sxi_db_t *xferdb;
     sqlite3_stmt *qx_add;
     sqlite3_stmt *qx_wipehold;
+    sqlite3_stmt *qx_unbumprst;
     sqlite3_stmt *qx_hold;
     sqlite3_stmt *qx_isheld;
     sqlite3_stmt *qx_release;
@@ -1032,6 +1033,7 @@ static void close_all_dbs(sx_hashfs_t *h) {
     sqlite3_finalize(h->qx_release);
     sqlite3_finalize(h->qx_hasheld);
     sqlite3_finalize(h->qx_wipehold);
+    sqlite3_finalize(h->qx_unbumprst);
     sqlite3_finalize(h->qx_addunb);
     qclose(&h->xferdb);
 
@@ -2186,6 +2188,8 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
     if(qprep(h->xferdb, &h->qx_hasheld, "SELECT 1 FROM onhold LIMIT 1"))
        goto open_hashfs_fail;
     if(qprep(h->xferdb, &h->qx_wipehold, "DELETE FROM onhold"))
+       goto open_hashfs_fail;
+    if(qprep(h->xferdb, &h->qx_unbumprst, "INSERT OR IGNORE INTO unbumps (revid, revsize, target) SELECT revid, revsize, :node FROM unbumps"))
        goto open_hashfs_fail;
     if(qprep(h->xferdb, &h->qx_addunb, "INSERT OR IGNORE INTO unbumps (revid, revsize, target) VALUES(:rev, :bs, :node)"))
        goto open_hashfs_fail;
@@ -16085,8 +16089,10 @@ rc_ty sx_hashfs_hdist_change_commit(sx_hashfs_t *h, int nodes_replaced) {
 
 rc_ty sx_hashfs_hdist_rebalance(sx_hashfs_t *h) {
     job_t job_id;
+    const sx_nodelist_t *all_nodes = sx_hashfs_all_nodes(h, NL_PREVNEXT);
     sx_nodelist_t *singlenode = NULL;
     const sx_node_t *self = sx_hashfs_self(h);
+    unsigned int i;
     rc_ty ret;
 
     DEBUG("IN %s", __func__);
@@ -16095,6 +16101,15 @@ rc_ty sx_hashfs_hdist_rebalance(sx_hashfs_t *h) {
     if(qstep_noret(h->qx_wipehold)) {
 	WARN("Failed to wipe hold list");
 	return FAIL_EINTERNAL;
+    }
+
+    for(i=0; i<sx_nodelist_count(all_nodes); i++) {
+	const sx_uuid_t *node_uuid = sx_node_uuid(sx_nodelist_get(all_nodes, i));
+	if(qbind_blob(h->qx_unbumprst, ":node", node_uuid->binary, sizeof(node_uuid->binary)) ||
+	   qstep_noret(h->qx_unbumprst)) {
+	    WARN("Failed to reset unbump queue targets");
+	    return FAIL_EINTERNAL;
+	}
     }
 
     singlenode = sx_nodelist_new();
