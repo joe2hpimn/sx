@@ -78,7 +78,8 @@
 #define HASHFS_VERSION_2_0 MAKE_HASHFS_VER(2,0)
 #define HASHFS_VERSION_2_1 MAKE_HASHFS_VER(2,1)
 #define HASHFS_VERSION_2_1_3 MAKE_HASHFS_MICROVER(2,1,3)
-#define HASHFS_VERSION_2_1_4 HASHFS_VERSION_CURRENT
+#define HASHFS_VERSION_2_1_4 MAKE_HASHFS_MICROVER(2,1,4)
+#define HASHFS_VERSION_2_1_5 HASHFS_VERSION_CURRENT
 
 #define HASHFS_VERSION_INITIAL HASHFS_VERSION_1_0
 #ifdef SRC_MICRO_VERSION
@@ -4445,6 +4446,202 @@ static rc_ty upgrade_db(int lockfd, const char *path, sxi_db_t *db, const sx_has
     return ret;
 }
 
+/* Rename files with database switch */
+static rc_ty upgrade_2_1_4_to_2_1_5_rename_switch_dbs(sqlite3_stmt *qsel, sqlite3_stmt *qins, sqlite3_stmt *qdel, sqlite3_stmt *qmget, sqlite3_stmt *qmset, int64_t volid, int64_t oldid, const char *newname) {
+    rc_ty ret = FAIL_EINTERNAL;
+    int r;
+    int64_t newid;
+    unsigned int nmeta;
+    const char *revision;
+    int64_t size;
+    const void *revision_id;
+    unsigned int revision_id_len;
+    const void *content;
+    unsigned int content_len;
+    int64_t age;
+
+    sqlite3_reset(qins);
+    sqlite3_reset(qdel);
+    sqlite3_reset(qmget);
+    sqlite3_reset(qmset);
+
+    if(!qsel || !qins || !qdel || !qmget || !qmset || !newname)
+        goto rename_switch_dbs_err;
+
+    revision = (const char*)sqlite3_column_text(qsel, 3);
+    size = sqlite3_column_int64(qsel, 4);
+    revision_id = sqlite3_column_blob(qsel, 5);
+    revision_id_len = sqlite3_column_bytes(qsel, 5);
+    content = sqlite3_column_blob(qsel, 6);
+    content_len = sqlite3_column_bytes(qsel, 6);
+    age = sqlite3_column_int64(qsel, 7);
+
+    if(!revision || strlen(revision) != REV_LEN || (content_len && !content) || !revision_id || revision_id_len != sizeof(sx_hash_t))
+        goto rename_switch_dbs_err;
+
+    /* Insert existing file data with updated name to the correct database */
+    if(qbind_int64(qins, ":volume", volid) || qbind_text(qins, ":name", newname) ||
+       qbind_int64(qins, ":size", size) || qbind_blob(qins, ":hashes", content_len ? content : "", content_len) ||
+       qbind_text(qins, ":revision", revision) || qbind_blob(qins, ":revision_id", revision_id, revision_id_len) ||
+       qbind_int64(qins, ":age", age))
+        goto rename_switch_dbs_err;
+
+    r = qstep(qins);
+    if(r != SQLITE_DONE)
+        goto rename_switch_dbs_err;
+
+    sqlite3_reset(qsel);
+
+    /* Get new file entry row id */
+    newid = sqlite3_last_insert_rowid(sqlite3_db_handle(qins));
+    sqlite3_reset(qins);
+
+    /* Now move file meta */
+    if(qbind_int64(qmget, ":file", oldid))
+        goto rename_switch_dbs_err;
+
+    /* Iterate over existing file meta */
+    nmeta = 0;
+    while((r = qstep(qmget)) == SQLITE_ROW) {
+        const char *key = (const char *)sqlite3_column_text(qmget, 0);
+        const void *value = sqlite3_column_text(qmget, 1);
+        unsigned int value_len = sqlite3_column_bytes(qmget, 1), key_len;
+
+        if(!key)
+            break;
+        key_len = strlen(key);
+        if(key_len > SXLIMIT_META_MAX_KEY_LEN)
+            break;
+        if(!value || value_len > SXLIMIT_META_MAX_VALUE_LEN)
+            break;
+        if(nmeta >= SXLIMIT_META_MAX_ITEMS)
+            break;
+
+        sqlite3_reset(qmset);
+        /* Insert new entry */
+        if(qbind_int64(qmset, ":file", newid) || qbind_text(qmset, ":key", key) ||
+           qbind_blob(qmset, ":value", value, value_len) || qstep_noret(qmset))
+            goto rename_switch_dbs_err;
+
+        nmeta++;
+    }
+
+    if(r != SQLITE_DONE)
+        goto rename_switch_dbs_err;
+
+    /* Drop old file entry */
+    if(qbind_int64(qdel, ":file", oldid) || qstep_noret(qdel))
+        goto rename_switch_dbs_err;
+
+    ret = OK;
+rename_switch_dbs_err:
+    sqlite3_reset(qins);
+    sqlite3_reset(qdel);
+    sqlite3_reset(qmget);
+    sqlite3_reset(qmset);
+    sqlite3_reset(qsel);
+    return ret;
+}
+
+/* Version upgrade 2.1.4 -> 2.1.5 */
+static rc_ty alldb_2_1_4_to_2_1_5(sxi_all_db_t *alldb)
+{
+    rc_ty ret = FAIL_EINTERNAL;
+    sqlite3_stmt *qrename[METADBS], *qsel[METADBS], *qsize = NULL;
+    sqlite3_stmt *qins[METADBS], *qdel[METADBS];
+    sqlite3_stmt *qmget[METADBS], *qmset[METADBS];
+    unsigned int i;
+
+    memset(qrename, 0, sizeof(qrename));
+    memset(qsel, 0, sizeof(qsel));
+    memset(qins, 0, sizeof(qins));
+    memset(qmset, 0, sizeof(qmset));
+    memset(qmget, 0, sizeof(qmget));
+    memset(qdel, 0, sizeof(qdel));
+
+    if(qprep(alldb->hashfs, &qsize, "UPDATE volumes SET cursize = cursize - :sizediff WHERE vid = :vid"))
+        goto alldb_2_1_4_to_2_1_5_err;
+
+    for(i = 0; i < METADBS; i++) {
+        if(qprep(alldb->meta[i], &qsel[i], "SELECT fid, volume_id, name, rev, size, revision_id, content, age FROM files WHERE name LIKE '%//%' LIMIT 1"))
+            goto alldb_2_1_4_to_2_1_5_err;
+        if(qprep(alldb->meta[i], &qrename[i], "UPDATE files SET name = :name WHERE fid = :fid"))
+            goto alldb_2_1_4_to_2_1_5_err;
+        if(qprep(alldb->meta[i], &qins[i], "INSERT INTO files (volume_id, name, size, content, rev, revision_id, age) VALUES (:volume, :name, :size, :hashes, :revision, :revision_id, :age)"))
+            goto alldb_2_1_4_to_2_1_5_err;
+        if(qprep(alldb->meta[i], &qdel[i], "DELETE FROM files WHERE fid = :file"))
+            goto alldb_2_1_4_to_2_1_5_err;
+        if(qprep(alldb->meta[i], &qmget[i], "SELECT key, value FROM fmeta WHERE file_id = :file"))
+            goto alldb_2_1_4_to_2_1_5_err;
+        if(qprep(alldb->meta[i], &qmset[i], "INSERT INTO fmeta (file_id, key, value) VALUES (:file, :key, :value)"))
+            goto alldb_2_1_4_to_2_1_5_err;
+    }
+
+    for(i = 0; i < METADBS; i++) {
+        int r;
+
+        while((r = qstep(qsel[i])) == SQLITE_ROW) {
+            int64_t fid = sqlite3_column_int64(qsel[i], 0);
+            int64_t vid = sqlite3_column_int64(qsel[i], 1);
+            const char *oldname = (const char*)sqlite3_column_text(qsel[i], 2);
+            unsigned int oldlen, len;
+            char name[SXLIMIT_MAX_FILENAME_LEN+1];
+            int newdb;
+
+            if(!oldname)
+                goto alldb_2_1_4_to_2_1_5_err;
+            oldlen = strlen(oldname);
+            if(oldlen > SXLIMIT_MAX_FILENAME_LEN)
+                goto alldb_2_1_4_to_2_1_5_err;
+            sxi_strlcpy(name, oldname, sizeof(name));
+
+            sxi_inplace_dedup_slashes(name);
+
+            /* Check new filename correctness after fixing */
+            if(check_file_name(name) < 0)
+                goto alldb_2_1_4_to_2_1_5_err;
+            len = strlen(name);
+            /* Just in case, new file name must not be longer */
+            if(oldlen < len)
+                goto alldb_2_1_4_to_2_1_5_err;
+
+            newdb = getmetadb(name);
+            if(newdb < 0)
+                goto alldb_2_1_4_to_2_1_5_err;
+
+            if((unsigned int)newdb == i) {
+                sqlite3_reset(qrename[i]);
+                if(qbind_int64(qrename[i], ":fid", fid) || qbind_text(qrename[i], ":name", name) || qstep_noret(qrename[i]))
+                    goto alldb_2_1_4_to_2_1_5_err;
+                sqlite3_reset(qsel[i]);
+            } else if(upgrade_2_1_4_to_2_1_5_rename_switch_dbs(qsel[i], qins[newdb], qdel[i], qmget[i], qmset[newdb], vid, fid, name)) /* qsel is reset inside */
+                goto alldb_2_1_4_to_2_1_5_err;
+
+            sqlite3_reset(qsize);
+            /* Update volume usage */
+            if(qbind_int64(qsize, ":vid", vid) || qbind_int64(qsize, ":sizediff", oldlen - len) || qstep_noret(qsize))
+                goto alldb_2_1_4_to_2_1_5_err;
+        }
+
+        if(r != SQLITE_DONE)
+            goto alldb_2_1_4_to_2_1_5_err;
+    }
+
+    ret = OK;
+alldb_2_1_4_to_2_1_5_err:
+    for(i = 0; i < METADBS; i++) {
+        qnullify(qrename[i]);
+        qnullify(qsel[i]);
+        qnullify(qins[i]);
+        qnullify(qdel[i]);
+        qnullify(qmget[i]);
+        qnullify(qmset[i]);
+    }
+
+    qnullify(qsize);
+    return ret;
+}
+
 /* Version upgrade 2.1.3 -> 2.1.4 */
 static rc_ty hashfs_2_1_3_to_2_1_4(sxi_db_t *db)
 {
@@ -5217,6 +5414,12 @@ static const sx_upgrade_t upgrade_sequence[] = {
         .upgrade_datadb = datadb_2_1_3_to_2_1_4,
         .upgrade_xfersdb = xfer_2_1_3_to_2_1_4,
         .job = JOBTYPE_UPGRADE_FROM_2_1_3_TO_2_1_4
+    },
+    {
+        .from = HASHFS_VERSION_2_1_4,
+        .to = HASHFS_VERSION_2_1_5,
+        .upgrade_alldb = alldb_2_1_4_to_2_1_5,
+        .job = JOBTYPE_DUMMY
     }
 };
 
