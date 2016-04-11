@@ -62,6 +62,7 @@ typedef struct {
 typedef struct {
     sx_hash_t revision_id;
     sx_hash_t global_vol_id;
+    int has_vol_id;
     unsigned replica;
 } block_meta_entry_t;
 

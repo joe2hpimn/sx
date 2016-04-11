@@ -9535,10 +9535,14 @@ rc_ty sx_hashfs_revision_op(sx_hashfs_t *h, unsigned blocksize, const sx_hash_t 
 static rc_ty sx_hashfs_hashop_moduse_internal(sx_hashfs_t *h, const sx_hash_t *global_vol_id, const sx_hash_t *revision_id, unsigned int hs, unsigned int ndb, const sx_hash_t *hash, unsigned replica, unsigned age)
 {
     sqlite3_reset(h->qb_moduse[hs][ndb]);
+    /* In some cases volume ID might not be available. */
+    if(!global_vol_id && qbind_null(h->qb_moduse[hs][ndb], ":global_vol_id"))
+        return FAIL_EINTERNAL;
+    else if(global_vol_id && qbind_blob(h->qb_moduse[hs][ndb], ":global_vol_id", global_vol_id, sizeof(*global_vol_id)))
+        return FAIL_EINTERNAL;
     if (qbind_blob(h->qb_moduse[hs][ndb], ":hash", hash, sizeof(*hash)) ||
             qbind_int(h->qb_moduse[hs][ndb], ":replica", replica) ||
             qbind_int(h->qb_moduse[hs][ndb], ":age", age) ||
-            qbind_blob(h->qb_moduse[hs][ndb], ":global_vol_id", global_vol_id, sizeof(*global_vol_id)) ||
             qbind_blob(h->qb_moduse[hs][ndb], ":revision_id", revision_id, sizeof(*revision_id)) ||
             qstep_noret(h->qb_moduse[hs][ndb]))
         return FAIL_EINTERNAL;
@@ -16405,20 +16409,29 @@ static rc_ty fill_block_meta(sx_hashfs_t *h, sqlite3_stmt *qmeta, block_meta_t *
     blockmeta->count = 0;
     sqlite3_reset(qmeta);
     while ((ret = qstep(qmeta)) == SQLITE_ROW) {
-        int op = sqlite3_column_int(qmeta, 1);
+        const void *revision_id, *global_vol_id;
+        int len, op = sqlite3_column_int(qmeta, 1);
         if (op <= 0)
             continue;
         blockmeta->entries = wrap_realloc_or_free(blockmeta->entries, ++blockmeta->count * sizeof(*blockmeta->entries));
         if (!blockmeta->entries)
             return ENOMEM;
         block_meta_entry_t *e = &blockmeta->entries[blockmeta->count - 1];
-        int len = sqlite3_column_bytes(qmeta, 2);
-        if (len != sizeof(e->revision_id.b)) {
-            WARN("bad revision size: %d", len);
+        revision_id = sqlite3_column_blob(qmeta, 2);
+        len = sqlite3_column_bytes(qmeta, 2);
+        if(!revision_id || len != sizeof(e->revision_id.b)) {
+            WARN("bad revision id: %p (size: %d)", revision_id, len);
             return FAIL_EINTERNAL;
         }
-        memcpy(&e->revision_id.b, sqlite3_column_blob(qmeta, 2), len);
-        memcpy(&e->global_vol_id.b, sqlite3_column_blob(qmeta, 3), len);
+        memcpy(e->revision_id.b, revision_id, len);
+        global_vol_id = sqlite3_column_blob(qmeta, 3);
+        len = sqlite3_column_bytes(qmeta, 3);
+        if(!global_vol_id || len != sizeof(e->global_vol_id.b))
+            e->has_vol_id = 0;
+        else {
+            memcpy(e->global_vol_id.b, global_vol_id, len);
+            e->has_vol_id = 1;
+        }
         e->replica = sqlite3_column_int(qmeta, 0);
         DEBUG("set replica to %d", e->replica);
     }

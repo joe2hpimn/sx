@@ -207,11 +207,9 @@ void fcgi_hashop_blocks(enum sxi_hashop_kind kind) {
     DEBUG("hashop: missing %d, n: %d", missing, n);
 }
 
-static int meta_add(block_meta_t *meta, const sx_hash_t *global_vol_id, const sx_hash_t *revision_id)
+static int meta_add(block_meta_t *meta, const sx_hash_t *global_vol_id, unsigned int replica, const sx_hash_t *revision_id)
 {
     block_meta_entry_t *e;
-    rc_ty s;
-    const sx_hashfs_volume_t *vol = NULL;
 
     if (!meta || !revision_id)
         return -1;
@@ -219,14 +217,14 @@ static int meta_add(block_meta_t *meta, const sx_hash_t *global_vol_id, const sx
     if (!meta->entries)
         return -1;
     e = &meta->entries[meta->count - 1];
-    memcpy(&e->global_vol_id, global_vol_id, sizeof(e->global_vol_id));
+    if(global_vol_id) {
+        memcpy(&e->global_vol_id, global_vol_id, sizeof(e->global_vol_id));
+        e->has_vol_id = 1;
+    } else
+        e->has_vol_id = 0;
     memcpy(&e->revision_id, revision_id, sizeof(e->revision_id));
 
-    s = sx_hashfs_volume_by_global_id(hashfs, global_vol_id, &vol);
-    /* Do not treat non-existing volume as an error, use 0 replica number by default */
-    if(s != OK && s != ENOENT)
-        return -1;
-    e->replica = vol ? vol->max_replica : 0;
+    e->replica = replica;
     return 0;
 }
 
@@ -245,34 +243,32 @@ struct inuse_ctx {
     rc_ty error;
     block_meta_t meta;
     blocks_t all;
+    sx_hash_t global_vol_id;
+    int has_vol_id;
+    unsigned int replica;
 };
 
-/*
- * BOB: Maybe we could skip the replica argument if we provide the volume ID, since replica seems to
- *      depend on the volume replica.
- */
-
 /* Example:
-   {"BLOCKHASH":{"BLOCKSIZE":[ {"REVISION_HASH": "GLOBAL_VOL_ID", ...}, ...]}, ...}
+   {"BLOCKHASH":{"BLOCKSIZE":[ {"REVISION_HASH": { "volid":"GLOBAL_VOL_ID", "replica":X }, ...}, ...]}, ...}
 {
   "10c91e6b2aecaa5e731fbd7ac26fa3d847dd4ac2": {
     "16384": [
       {
-        "2ca3d1a4d2d70d03d301c173ce70fca11d29bfbf": "b6972d2ecbfd2e41f3b207310b5fa4708d6fcee9"
+        "2ca3d1a4d2d70d03d301c173ce70fca11d29bfbf": { "volid":"b6972d2ecbfd2e41f3b207310b5fa4708d6fcee9","replica":2 }
       }
     ]
   },
   "69ad191523992b70d85fdd50072933bf3b6d8624": {
     "16384": [
       {
-        "2ca3d1a4d2d70d03d301c173ce70fca11d29bfbf": "b6972d2ecbfd2e41f3b207310b5fa4708d6fcee9"
+        "2ca3d1a4d2d70d03d301c173ce70fca11d29bfbf": { "volid":"b6972d2ecbfd2e41f3b207310b5fa4708d6fcee9","replica":2 }
       }
     ]
   },
   "9259e1f7daaa152241db155478a027e096dad979": {
     "16384": [
       {
-        "2ca3d1a4d2d70d03d301c173ce70fca11d29bfbf": "b6972d2ecbfd2e41f3b207310b5fa4708d6fcee9"
+        "2ca3d1a4d2d70d03d301c173ce70fca11d29bfbf": { "volid":"b6972d2ecbfd2e41f3b207310b5fa4708d6fcee9","replica":2 }
       }
     ]
   }
@@ -280,12 +276,29 @@ struct inuse_ctx {
 */
 
 
-static void cb_inuse_rpl(jparse_t *J, void *ctx, const char *volid, unsigned int len) {
+static void cb_inuse_rpl(jparse_t *J, void *ctx, int64_t num) {
+    struct inuse_ctx *yactx = (struct inuse_ctx*)ctx;
+    yactx->replica = num;
+}
+
+static void cb_inuse_volid(jparse_t *J, void *ctx, const char *volid, unsigned int len) {
+    struct inuse_ctx *yactx = (struct inuse_ctx*)ctx;
+
+    if(len != 2 * sizeof(yactx->global_vol_id.b) ||
+       hex2bin(volid, sizeof(yactx->global_vol_id.b) * 2, yactx->global_vol_id.b, sizeof(yactx->global_vol_id.b))) {
+        sxi_jparse_cancel(J, "Invalid global volume id %s", volid);
+        yactx->error = EINVAL;
+        return;
+    }
+    yactx->has_vol_id = 1;
+}
+
+static void cb_inuse_revid_end(jparse_t *J, void *ctx) {
     const char *blockstr = sxi_jpath_mapkey(sxi_jparse_whereami(J));
     const char *bsstr = sxi_jpath_mapkey(sxi_jpath_down(sxi_jparse_whereami(J)));
     const char *revstr = sxi_jpath_mapkey(sxi_jpath_down(sxi_jpath_down(sxi_jpath_down(sxi_jparse_whereami(J)))));
     struct inuse_ctx *yactx = (struct inuse_ctx*)ctx;
-    sx_hash_t revision_id, global_vol_id;
+    sx_hash_t revision_id;
     const char *eon;
     int64_t bs;
 
@@ -302,7 +315,6 @@ static void cb_inuse_rpl(jparse_t *J, void *ctx, const char *volid, unsigned int
 	yactx->error = EINVAL;
 	return;
     }
-    yactx->meta.blocksize = bs;
 
     if(strlen(revstr) != 2 * sizeof(revision_id.b) ||
        hex2bin(revstr, sizeof(revision_id.b) * 2, revision_id.b, sizeof(revision_id.b))) {
@@ -311,18 +323,17 @@ static void cb_inuse_rpl(jparse_t *J, void *ctx, const char *volid, unsigned int
 	return;
     }
 
-    if(len != 2 * sizeof(global_vol_id.b) ||
-       hex2bin(volid, sizeof(global_vol_id.b) * 2, global_vol_id.b, sizeof(global_vol_id.b))) {
-        sxi_jparse_cancel(J, "Invalid global volume id %s for block %s", volid, blockstr);
-        yactx->error = EINVAL;
+    if (meta_add(&yactx->meta, yactx->has_vol_id ? &yactx->global_vol_id : NULL, yactx->replica, &revision_id)) {
+        sxi_jparse_cancel(J, "meta_add failed");
+        yactx->error = ENOMEM;
         return;
     }
+    yactx->meta.blocksize = bs;
 
-    if (meta_add(&yactx->meta, &global_vol_id, &revision_id)) {
-	sxi_jparse_cancel(J, "meta_add failed");
-	yactx->error = ENOMEM;
-	return;
-    }
+    /* Cleanup in order to prepare for a next revision ID entry */
+    yactx->has_vol_id = 0;
+    memset(yactx->global_vol_id.b, 0, sizeof(yactx->global_vol_id.b));
+    yactx->replica = 0;
 }
 
 static void cb_inuse_bsend(jparse_t *J, void *ctx) {
@@ -349,15 +360,26 @@ static void blocks_free(blocks_t *blocks)
 void fcgi_hashop_inuse(void) {
     const struct jparse_actions acts = {
 	JPACTS_STRING(
-		     JPACT(cb_inuse_rpl,
+		     JPACT(cb_inuse_volid,
 			   JPANYKEY /* block */,
 			   JPANYKEY /* block size */,
 			   JPANYITM,
-			   JPANYKEY /* revision */
+			   JPANYKEY, /* revision */
+                           JPKEY("volid")
 			   )
 		     ),
+        JPACTS_INT64(
+                     JPACT(cb_inuse_rpl,
+                           JPANYKEY /* block */,
+                           JPANYKEY /* block size */,
+                           JPANYITM,
+                           JPANYKEY, /* revision */
+                           JPKEY("replica")
+                           )
+                    ),
 	JPACTS_MAP_END(
-		       JPACT(cb_inuse_bsend, JPANYKEY)
+		       JPACT(cb_inuse_bsend, JPANYKEY),
+                       JPACT(cb_inuse_revid_end, JPANYKEY, JPANYKEY, JPANYITM, JPANYKEY)
 		       ),
     };
     unsigned i, j;
@@ -418,7 +440,7 @@ void fcgi_hashop_inuse(void) {
         rc = FAIL_EINTERNAL;
         for (j=0;j<m->count;j++) {
             const block_meta_entry_t *e = &m->entries[j];
-            rc = sx_hashfs_hashop_mod(hashfs, &m->hash, &e->global_vol_id, reserve_id ? &reserve_hash : NULL, &e->revision_id, m->blocksize, e->replica, 1, 0);
+            rc = sx_hashfs_hashop_mod(hashfs, &m->hash, e->has_vol_id ? &e->global_vol_id : NULL, reserve_id ? &reserve_hash : NULL, &e->revision_id, m->blocksize, e->replica, 1, 0);
             if (rc && rc != ENOENT)
                 break;
         }

@@ -654,7 +654,6 @@ sxi_query_t *sxi_hashop_proto_inuse_hash(sxc_client_t *sx, sxi_query_t *query, c
     unsigned i;
     char hexhash[SXI_SHA1_TEXT_LEN + 1];
     char hexrevid[SXI_SHA1_TEXT_LEN + 1];
-    char hexvolid[SXI_SHA1_TEXT_LEN + 1];
     if (!blockmeta || !blockmeta->entries) {
         sxi_seterr(sx, SXE_EARG, "Null/empty blockmeta");
         return NULL;
@@ -671,10 +670,15 @@ sxi_query_t *sxi_hashop_proto_inuse_hash(sxc_client_t *sx, sxi_query_t *query, c
         const block_meta_entry_t *e = &blockmeta->entries[i];
         if (i > 0)
             query = sxi_query_append_fmt(sx, query, 1, ",");
-        sxi_bin2hex(e->global_vol_id.b, sizeof(e->global_vol_id.b), hexvolid);
         sxi_bin2hex(e->revision_id.b, sizeof(e->revision_id.b), hexrevid);
         SXDEBUG("sending replica %d", e->replica);
-        query = sxi_query_append_fmt(sx, query, 88, "{\"%s\":\"%s\"}", hexrevid, hexvolid);
+        if(e->has_vol_id) {
+            char hexvolid[SXI_SHA1_TEXT_LEN + 1];
+
+            sxi_bin2hex(e->global_vol_id.b, sizeof(e->global_vol_id.b), hexvolid);
+            query = sxi_query_append_fmt(sx, query, lenof("{\"\":{\"volid\":\"\",\"replica\":}}") + 2 * SXI_SHA1_TEXT_LEN + 21, "{\"%s\":{\"volid\":\"%s\",\"replica\":%u}}", hexrevid, hexvolid, e->replica);
+        } else
+            query = sxi_query_append_fmt(sx, query, lenof("{\"\":{\"replica\":}}") + SXI_SHA1_TEXT_LEN + 21, "{\"%s\":{\"replica\":%u}}", hexrevid, e->replica);
     }
     return sxi_query_append_fmt(sx, query, 2, "]}");
 }
