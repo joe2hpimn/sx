@@ -31,5 +31,6 @@
 void cluster_ops(void);
 void volume_ops(void);
 void file_ops(void);
+void upgrade_ops(void);
 
 #endif

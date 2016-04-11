@@ -653,6 +653,8 @@ void handle_request(worker_type_t wtype) {
 
     if(!volume)
 	cluster_ops();
+    else if(!strncmp(volume, ".upgrade", lenof(".upgrade")))
+        upgrade_ops();
     else if(!path)
 	volume_ops();
     else

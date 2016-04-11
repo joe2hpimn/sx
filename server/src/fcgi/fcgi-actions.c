@@ -347,10 +347,6 @@ void file_ops(void) {
 	    /* Bulk file xfer (s2s, replacement node repopulation) - CLUSTER required */
 	    quit_unless_has(PRIV_CLUSTER);
 	    fcgi_send_replacement_files();
-        } else if(!strcmp(volume, ".upgrade_2_1_4")) {
-            /* Volume files revision ID upgrade, PRIV_CLUSTER required */
-            quit_unless_has(PRIV_CLUSTER);
-            fcgi_upgrade_2_1_4();
 	} else {
 	    /* Get file (meta)data - READ required */
 	    quit_unless_has(PRIV_READ);
@@ -512,6 +508,28 @@ void file_ops(void) {
         fcgi_delete_file();
 	return;
     }
+}
+
+/* Storage upgrade specific operations */
+void upgrade_ops(void) {
+    quit_unless_authed();
+
+    if(verb != VERB_HEAD && verb != VERB_GET && verb != VERB_PUT && verb != VERB_DELETE) {
+        CGI_PUTS("Allow: GET,HEAD,OPTIONS,PUT,DELETE\r\n");
+        quit_errmsg(405, "Method not allowed");
+    }
+
+    /* Only allow requests coming directly from cluster */
+    quit_unless_has(PRIV_CLUSTER);
+
+    if(verb == VERB_GET && !strcmp(volume, ".upgrade_2_1_4")) {
+        /* Volume files revision ID upgrade 2.1.3 -> 2.1.4 */
+        fcgi_upgrade_2_1_4();
+        return;
+    }
+
+    /* Fail with an appropriate error code when already upgraded node sends a not yet known upgrade query */
+    quit_errmsg(501, "Method not implemented");
 }
 
 void job_2pc_handle_request(sxc_client_t *sx, const job_2pc_t *spec, void *yctx)
