@@ -1972,3 +1972,20 @@ uint32_t sxi_swapu32(uint32_t v)
     return v;
 }
 #endif
+
+/* Remove duplicate slashes from a string. The string must reserve space for a nul byte. */
+void sxi_inplace_dedup_slashes(char *str) {
+    unsigned int i, j, len;
+    if(!str)
+        return;
+    len = strlen(str);
+    if(!len)
+        return;
+    for(i = 1, j = 1; j < len; j++) {
+        if(str[j] == '/' && str[i - 1] == '/')
+           continue;
+        str[i] = str[j];
+        i++;
+    }
+    str[i] = '\0';
+}

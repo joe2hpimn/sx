@@ -2056,8 +2056,9 @@ void fcgi_mass_delete(void) {
 void fcgi_mass_rename(void) {
     const sx_hashfs_volume_t *vol;
     rc_ty s;
-    const char *dest = get_arg("dest");
-    const char *source = get_arg("source");
+    char source[SXLIMIT_MAX_FILENAME_LEN+1], dest[SXLIMIT_MAX_FILENAME_LEN+1];
+    const char *dst = get_arg("dest");
+    const char *src = get_arg("source");
     unsigned int slen, dlen, sslashes;
     const sx_hashfs_file_t *file = NULL;
     sx_blob_t *b;
@@ -2077,14 +2078,26 @@ void fcgi_mass_rename(void) {
     if(!sx_hashfs_is_or_was_my_volume(hashfs, vol, 0))
         quit_errnum(404);
 
-    if(!source)
-        source = "";
-    if(!dest)
-        dest = "";
-    while(*source == '/')
-        source++;
-    while(*dest == '/')
-        dest++;
+    if(!src)
+        src = "";
+    if(!dst)
+        dst = "";
+    while(*src == '/')
+        src++;
+    while(*dst == '/')
+        dst++;
+
+    if(strlen(src) > SXLIMIT_MAX_FILENAME_LEN)
+        quit_errmsg(400, "Invalid source path");
+    if(strlen(dst) > SXLIMIT_MAX_FILENAME_LEN)
+        quit_errmsg(400, "Invalid destination path");
+    sxi_strlcpy(source, src, sizeof(source));
+    sxi_strlcpy(dest, dst, sizeof(dest));
+
+    /* Duplicate slashes are only sanitized for 'volume' and 'path', query args are not, so sanitize them now. */
+    sxi_inplace_dedup_slashes(source);
+    sxi_inplace_dedup_slashes(dest);
+
     slen = strlen(source);
     dlen = strlen(dest);
     sslashes = sxi_count_slashes(source);

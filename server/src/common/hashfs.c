@@ -2540,6 +2540,10 @@ static int check_file_name(const char *name) {
 	msg_set_reason("Invalid file name '%s': must be valid UTF8", name);
 	return -1;
     }
+    if(strstr(name, "//")) {
+        msg_set_reason("Invalid file name '%s': cannot contain duplicate slashes", name);
+        return -1;
+    }
     return namelen;
 }
 

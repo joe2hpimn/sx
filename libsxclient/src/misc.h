@@ -114,5 +114,8 @@ int sxi_meta_checksum(sxc_client_t *sx, sxc_meta_t *meta, unsigned char *hash);
 uint32_t sxi_swapu32(uint32_t v);
 uint64_t sxi_swapu64(uint64_t v);
 
+/* Deduplicate slashes in a string */
+void sxi_inplace_dedup_slashes(char *str);
+
 #endif
 
