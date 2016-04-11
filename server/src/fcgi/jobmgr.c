@@ -6092,6 +6092,9 @@ static rc_ty upgrade_2_1_3_to_2_1_4_request(sx_hashfs_t *hashfs, job_t job_id, j
         return ret;
     }
 
+    if(sx_hashfs_is_rebalancing(hashfs) || sx_nodelist_count(sx_hashfs_faulty_nodes(hashfs)))
+        action_error(ACT_RESULT_TEMPFAIL, 503, "Waiting for rebalance to finish");
+
     /* Only initialize the iteration */
     if(sx_hashfs_upgrade_2_1_4_init(hashfs))
         action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to initialize 2_1_4 upgrade job");
@@ -6123,6 +6126,9 @@ static rc_ty upgrade_2_1_3_to_2_1_4_commit(sx_hashfs_t *hashfs, job_t job_id, jo
     }
 
     sxi_hostlist_init(&hlist);
+
+    if(sx_hashfs_is_rebalancing(hashfs) || sx_nodelist_count(sx_hashfs_faulty_nodes(hashfs)))
+        action_error(ACT_RESULT_TEMPFAIL, 503, "Waiting for rebalance to finish");
 
     sx_hashfs_set_progress_info(hashfs, INPRG_UPGRADE_RUNNING, "Building a list of objects to heal");
 
