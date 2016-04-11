@@ -480,6 +480,8 @@ int qcommit_real(sxi_db_t *db, const char *file, int line) {
 void qrollback_real(sxi_db_t *db, const char *file, int line) {
     sqlite3_stmt *q = NULL;
 
+    if(!db)
+        return;
     if(qprep(db, &q, "ROLLBACK") ||  qstep_noret(q))
 	CRIT("ROLLBACK failed");
     sqlite3_finalize(q);
