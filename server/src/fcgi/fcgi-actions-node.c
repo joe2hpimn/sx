@@ -1591,6 +1591,11 @@ void fcgi_node_status(void) {
         }
         CGI_PUTC('}');
     }
+    if(status.load_stat) {
+        CGI_PRINTF(",\"loadavg\":{\"1min\":%f,\"5min\":%f,\"15min\":%f,\"tasksRunning\":%u,\"tasks\":%u,\"newestPid\":%u}",
+                   status.load_stat->stat_loadavg_1, status.load_stat->stat_loadavg_5, status.load_stat->stat_loadavg_15,
+                   status.load_stat->stat_tasks_running, status.load_stat->stat_tasks, status.load_stat->stat_pid);
+    }
     if(status.network_traffic_json && status.network_traffic_json_size)
         CGI_PRINTF(",\"traffic\":%.*s", (unsigned)status.network_traffic_json_size, status.network_traffic_json);
     CGI_PRINTF("},\"heal\":\"%s\",", status.heal_status);

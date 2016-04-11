@@ -115,6 +115,16 @@ sxc_xfer_stat_t *sxi_conns_get_xfer_stat(const sxi_conns_t *conns);
 int sxi_conns_set_xfer_stat(sxi_conns_t *conns, sxc_xfer_stat_t *xfer_stat);
 
 
+typedef struct _load_stat {
+    /* Load stat (grabbed from /proc/loadavg) */
+    float stat_loadavg_1;
+    float stat_loadavg_5;
+    float stat_loadavg_15;
+    unsigned stat_tasks_running;
+    unsigned stat_tasks;
+    pid_t stat_pid;
+} load_stat_t;
+
 typedef struct _cpu_stat {
     char name[256];
 
@@ -167,6 +177,8 @@ typedef struct _node_status_t {
     int processes;
     int processes_running;
     int processes_blocked;
+
+    load_stat_t *load_stat; /* loadavg */
 
     char libsxclient_version[40]; /* Libsx version */
     char hashfs_version[16]; /* HashFS version */

@@ -18917,7 +18917,7 @@ rc_ty sx_hashfs_node_status(sx_hashfs_t *h, sxi_node_status_t *status) {
         WARN("Failed to get memory information: %s", sxc_geterrmsg(h->sx));
 
     /* Get information about current system */
-    if(status->cores > 0 && sxi_report_system_stat(h->sx, status->cores, &status->cpu_stat, &status->btime, &status->processes, &status->processes_running, &status->processes_blocked))
+    if(status->cores > 0 && sxi_report_system_stat(h->sx, status->cores, &status->cpu_stat, &status->btime, &status->processes, &status->processes_running, &status->processes_blocked, &status->load_stat))
         WARN("Failed to get system statistics information: %s", sxc_geterrmsg(h->sx));
 
     if(sxi_network_traffic_status(h->sx, h->sx_clust, sx_node_internal_addr(sx_hashfs_self(h)), &status->network_traffic_json, &status->network_traffic_json_size))

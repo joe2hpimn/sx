@@ -606,16 +606,51 @@ static int parse_proc_stat(sxc_client_t *sx, int ncpus, cpu_stat_t *stat, time_t
 }
 #endif
 
-int sxi_report_system_stat(sxc_client_t *sx, int ncpus, cpu_stat_t **cpu_stat, time_t *btime, int *processes, int *processes_running, int *processes_blocked) {
+#ifdef __linux__
+static int parse_proc_loadavg(sxc_client_t *sx, load_stat_t *s) {
+    char line[1024];
+    FILE *f;
+
+    f = fopen("/proc/loadavg", "r");
+    if(!f)
+        return -1;
+    if(fgets(line, sizeof(line), f)) {
+        unsigned n = strlen(line);
+
+        if(n > 0)
+            line[n - 1] = '\0';
+        if(sscanf(line, "%f %f %f %u/%u %u", &s->stat_loadavg_1, &s->stat_loadavg_5, &s->stat_loadavg_15,
+                                                &s->stat_tasks_running, &s->stat_tasks, &s->stat_pid) != 6) {
+            sxi_seterr(sx, SXE_EREAD, "Failed to parse /proc/loadavg");
+            fclose(f);
+            return -1;
+        }
+    }
+
+    fclose(f);
+    return 0;
+}
+#endif
+
+int sxi_report_system_stat(sxc_client_t *sx, int ncpus, cpu_stat_t **cpu_stat, time_t *btime, int *processes, int *processes_running, int *processes_blocked, load_stat_t **load_stat) {
 #ifdef __linux__
     cpu_stat_t *s;
-    if(ncpus <= 0) {
+    load_stat_t *sl;
+
+    if(ncpus <= 0 || !cpu_stat || !load_stat) {
         sxi_seterr(sx, SXE_EARG, "Invalid argument");
         return -1;
     }
 
     s = calloc(ncpus, sizeof(*s));
     if(!s) {
+        sxi_seterr(sx, SXE_EARG, "Out of memory");
+        return -1;
+    }
+
+    sl = malloc(sizeof(*sl));
+    if(!sl) {
+        free(s);
         sxi_seterr(sx, SXE_EARG, "Out of memory");
         return -1;
     }
@@ -632,11 +667,19 @@ int sxi_report_system_stat(sxc_client_t *sx, int ncpus, cpu_stat_t **cpu_stat, t
     s->stat_guest = -1;
     s->stat_guest_nice = -1;
 
-    if(parse_proc_stat(sx, ncpus, s, btime, processes, processes_running, processes_blocked)) {
+    if(parse_proc_loadavg(sx, sl)) {
         free(s);
+        free(sl);
         return -1;
     }
 
+    if(parse_proc_stat(sx, ncpus, s, btime, processes, processes_running, processes_blocked)) {
+        free(s);
+        free(sl);
+        return -1;
+    }
+
+    *load_stat = sl;
     *cpu_stat = s;
 #endif
     return 0;
