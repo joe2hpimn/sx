@@ -3,13 +3,14 @@ description "SX client testing tool."
 args "--unamed-opts --no-handle-version --no-handle-error --file-name=client-test-cmdline"
 usage "client-test [OPTIONS] sx://[profile@]cluster"
 
-option "replica" r "Set tested volume replica value" int default="1" optional
-option "owner" o "Set 'USER' as the volume owner" string default="admin" typestr="USER" optional
-option "human" h "Print sizes in human readable format" flag off
-option "debug" D "Enable debug messages" flag off
-option "all" a "Run all possible tests" flag off
+option "replica"    r "Set tested volume replica value" int default="1" optional
+option "owner"      o "Set 'USER' as the volume owner" string default="admin" typestr="USER" optional
+option "human"      H "Print sizes in human readable format" flag off
+option "debug"      D "Enable debug messages" flag off
+option "all"        a "Run all possible tests" flag off
 option "list-tests" l "List available tests" flag off
-option "run-test" t "Only run a specific test" string typestr="TESTNAME" optional
+option "run-test"   t "Only run a specific test" string typestr="TESTNAME" optional
+option "use-filter" F "Use this filter to run in some tests" string typestr="FILTER[:FILTER]" optional
 
 option "config-dir" c "Path to SX configuration directory" string typestr="PATH" optional hidden
 option "filter-dir" f "Path to SX filter directory" string typestr="PATH" optional hidden

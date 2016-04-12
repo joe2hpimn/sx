@@ -5080,6 +5080,7 @@ static sxi_job_t* remote_to_remote(sxc_file_t *source, sxc_file_t *dest, int fai
     dest->remote_path = NULL;
     sxc_meta_free(cache->meta);
     cache->meta = NULL;
+    sxc_meta_empty(dest->meta); /* meta is not cleared when destination is undelete filter */
 
     if(!(ret = local_to_remote_begin(cache, dest, 0, NULL, jobs))) {
 	SXDEBUG("failed to upload destination file");

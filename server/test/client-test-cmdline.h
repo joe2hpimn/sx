@@ -57,6 +57,9 @@ struct gengetopt_args_info
   char * run_test_arg;	/**< @brief Only run a specific test.  */
   char * run_test_orig;	/**< @brief Only run a specific test original value given at command line.  */
   const char *run_test_help; /**< @brief Only run a specific test help description.  */
+  char * use_filter_arg;	/**< @brief Use this filter to run in some tests.  */
+  char * use_filter_orig;	/**< @brief Use this filter to run in some tests original value given at command line.  */
+  const char *use_filter_help; /**< @brief Use this filter to run in some tests help description.  */
   char * config_dir_arg;	/**< @brief Path to SX configuration directory.  */
   char * config_dir_orig;	/**< @brief Path to SX configuration directory original value given at command line.  */
   const char *config_dir_help; /**< @brief Path to SX configuration directory help description.  */
@@ -74,6 +77,7 @@ struct gengetopt_args_info
   unsigned int all_given ;	/**< @brief Whether all was given.  */
   unsigned int list_tests_given ;	/**< @brief Whether list-tests was given.  */
   unsigned int run_test_given ;	/**< @brief Whether run-test was given.  */
+  unsigned int use_filter_given ;	/**< @brief Whether use-filter was given.  */
   unsigned int config_dir_given ;	/**< @brief Whether config-dir was given.  */
   unsigned int filter_dir_given ;	/**< @brief Whether filter-dir was given.  */
 
