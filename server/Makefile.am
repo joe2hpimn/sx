@@ -4,7 +4,7 @@ AM_CPPFLAGS += -I $(top_srcdir)/../libsxclient/include -I ../libsxclient/include
 SX_CPPFLAGS=-DDEFAULT_FCGI_CFGFILE=\"$(sysconfdir)/sxserver/sxfcgi.conf\"
 
 EXTRA_DIST = man/*.in
-man_MANS = man/sxadm.8 man/sxadm-node.8 man/sxadm-cluster.8 man/sx.fcgi.8 man/sxfcgi.conf.5 man/sxsim.1 man/sxreport-server.8 man/sxsetup.8 man/sxsetup.conf.5 man/sxdump.8 man/sxserver.8
+man_MANS = man/sxadm.8 man/sxadm-node.8 man/sxadm-cluster.8 man/sx.fcgi.8 man/sxfcgi.conf.5 man/sxsim.1 man/sxreport-server.8 man/sxsetup.8 man/sxsetup.conf.5 man/sxserver.8
 
 noinst_LTLIBRARIES = src/common/libcommon.la
 

@@ -615,7 +615,9 @@ the nodes within each zone).
 This section describes how to backup and restore the entire cluster.
 
 \subsection{Backup}
-In order to backup the cluster structure run the following command:
+The cluster backup can be automated with the \path{sxdump} tool, available
+from \url{https://pypi.python.org/pypi/sxdump/}. After installing \path{sxdump}
+(manually or automatically with \path{pip}), run the following command:
 \begin{lstlisting}
 # sxdump --backup-dir /var/backups/sx/ sx://admin@mycluster
 Generating sx-backup.sh and sx-restore.sh in the current directory
