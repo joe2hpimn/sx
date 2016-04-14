@@ -36,6 +36,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <arpa/inet.h>
 #include <netdb.h>
 #include <unistd.h>
 #include <errno.h>
@@ -1434,14 +1435,15 @@ static int info_cluster(sxc_client_t *sx, struct cluster_args_info *args, enum i
     sxc_cluster_t *clust = cluster_load(sx, args, 1);
     clst_t *clst = NULL, *clstleader = NULL;
     const sx_nodelist_t *nodes = NULL, *nodes_prev = NULL, *faulty_nodes = NULL;
+    sxi_hostlist_t dns_nodes;
     const raft_node_data_t *raft_status = NULL;
     sx_nodelist_t *merged = NULL;
     const sx_node_t **sorted = NULL;
     const sx_uuid_t *distid;
     sx_uuid_t leaderid;
-    unsigned int i, nnodes, distver, raft_nstatus;
+    unsigned int i, nnodes, distver, raft_nstatus, dns_check = 0;
     uint64_t distchk;
-    const char *zonedef = NULL;
+    const char *zonedef = NULL, *dnsname;
     sxi_hdist_t *zmodel = NULL;
     char capastr[32];
     int ret = 1, is_rebalancing = 0;
@@ -1587,6 +1589,30 @@ static int info_cluster(sxc_client_t *sx, struct cluster_args_info *args, enum i
 	sorted[i] = sx_nodelist_get(merged, i);
     qsort(sorted, nnodes, sizeof(sorted[0]), sortnodes);
 
+    if((dnsname = sxc_cluster_get_dnsname(clust))) {
+	struct addrinfo *res, *ungai;
+	if(!getaddrinfo(dnsname, NULL, NULL, &res)) {
+	    sxi_hostlist_init(&dns_nodes);
+	    ungai = res;
+	    for(; res; res = res->ai_next) {
+		char buf[INET6_ADDRSTRLEN];
+		void *addr;
+		if(res->ai_family == AF_INET)
+		    addr = &((struct sockaddr_in *)(res->ai_addr))->sin_addr;
+		else if(res->ai_family == AF_INET6)
+		    addr = &((struct sockaddr_in6 *)(res->ai_addr))->sin6_addr;
+		else
+		    continue;
+		if(!inet_ntop(res->ai_family, addr, buf, sizeof(buf)))
+		    continue;
+		if(sxi_hostlist_add_host(sx, &dns_nodes, buf))
+		    continue;
+	    }
+	    freeaddrinfo(ungai);
+	    dns_check = 1;
+	}
+    }
+
     printf("State of nodes:\n");
     ret = 0;
     for(i=0; i<nnodes; i++) {
@@ -1693,10 +1719,18 @@ static int info_cluster(sxc_client_t *sx, struct cluster_args_info *args, enum i
 	    printf(", online: yes" );
 
         if(isleader && clst_raft_message(clstleader))
-            printf(", notice: %s\n", clst_raft_message(clstleader));
-        else
-            printf("\n");
+            printf(", notice: %s", clst_raft_message(clstleader));
 
+	if(dns_check) {
+	    if(st == ST_FAULTY) {
+		if(sxi_hostlist_contains(&dns_nodes, nodeaddr))
+		    printf(", warning: ** the faulty node is still listed in DNS **");
+	    } else {
+		if(!sxi_hostlist_contains(&dns_nodes, nodeaddr))
+		    printf(", warning: ** this node is not listed in DNS **");
+	    }
+	}
+	printf("\n");
 	if(!isleader)
 	    clst_destroy(clstnode);
     }
@@ -1707,6 +1741,8 @@ static int info_cluster(sxc_client_t *sx, struct cluster_args_info *args, enum i
     sx_nodelist_delete(merged);
     if(clstleader != clst) /* Don't free it twice if they are the same */
 	clst_destroy(clstleader);
+    if(dns_check)
+	sxi_hostlist_empty(&dns_nodes);
     clst_destroy(clst);
     sxc_cluster_free(clust);
     return ret;
