@@ -120,6 +120,20 @@ const unsigned int bsz[SIZES] = {SX_BS_SMALL, SX_BS_MEDIUM, SX_BS_LARGE};
     }\
     } while(0)
 
+
+static uint8_t *firstcid(const uint8_t *cid, uint8_t *buf) {
+    if(cid != buf)
+	memcpy(buf, cid, AUTH_CID_LEN);
+    memset(buf + AUTH_CID_LEN, 0, AUTH_UID_LEN - AUTH_CID_LEN);
+    return buf;
+}
+static uint8_t *lastcid(const uint8_t *cid, uint8_t *buf) {
+    if(cid != buf)
+	memcpy(buf, cid, AUTH_CID_LEN);
+    memset(buf + AUTH_CID_LEN, 0xff, AUTH_UID_LEN - AUTH_CID_LEN);
+    return buf;
+}
+
 rc_ty sx_hashfs_version_parse(sx_hashfs_version_t *ver, const void *vstr, int vlen) {
     char *start, *end;
     long v;
@@ -898,6 +912,7 @@ struct _sx_hashfs_t {
     sqlite3_stmt *qe_gc;
     sqlite3_stmt *qe_count_upgradejobs;
     sqlite3_stmt *qe_parent;
+    sqlite3_stmt *qe_jstats;
     int addjob_begun;
 
     sxi_db_t *xferdb;
@@ -1050,6 +1065,7 @@ static void close_all_dbs(sx_hashfs_t *h) {
     sqlite3_finalize(h->qe_gc);
     sqlite3_finalize(h->qe_count_upgradejobs);
     sqlite3_finalize(h->qe_parent);
+    sqlite3_finalize(h->qe_jstats);
 
     sqlite3_finalize(h->rit.q_add);
     sqlite3_finalize(h->rit.q_sel);
@@ -1763,11 +1779,11 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 	goto open_hashfs_fail;
     if(qprep(h->db, &h->q_listusers, "SELECT uid, name, user, key, role, desc, quota FROM users WHERE uid > :lastuid AND enabled=1 ORDER BY uid ASC LIMIT 1"))
 	goto open_hashfs_fail;
-    if(qprep(h->db, &h->q_listusersbycid, "SELECT uid, name, user, key, role, desc, quota FROM users WHERE uid > :lastuid AND (:inactivetoo OR enabled=1) AND SUBSTR(user, 1, "STRIFY(AUTH_CID_LEN)") = SUBSTR(:common_id, 1, "STRIFY(AUTH_CID_LEN)") ORDER BY uid ASC LIMIT 1"))
+    if(qprep(h->db, &h->q_listusersbycid, "SELECT uid, name, user, key, role, desc, quota FROM users WHERE uid IN (SELECT MIN(uid) FROM users WHERE user >= :common_id_first AND user <= :common_id_last AND uid > :lastuid AND (:inactivetoo OR enabled=1))"))
         goto open_hashfs_fail;
     if(qprep(h->db, &h->q_listacl, "SELECT name, priv, uid, owner_id FROM privs, volumes INNER JOIN users ON user_id=uid WHERE volume_id=:volid AND vid=:volid AND volumes.enabled = 1 AND users.enabled = 1 AND (priv <> 0 OR owner_id=uid) AND user_id > :lastuid ORDER BY user_id ASC LIMIT 1"))
 	goto open_hashfs_fail;
-    if(qprep(h->db, &h->q_getaccess, "SELECT privs.priv, volumes.owner_id FROM privs, volumes WHERE privs.volume_id = :volume AND privs.user_id IN (SELECT uid FROM users WHERE SUBSTR(user,1,"STRIFY(AUTH_CID_LEN)")=SUBSTR(:user,1,"STRIFY(AUTH_CID_LEN)") AND enabled=1) AND volumes.vid = :volume AND volumes.enabled = 1"))
+    if(qprep(h->db, &h->q_getaccess, "SELECT privs.priv, volumes.owner_id FROM privs, volumes WHERE privs.volume_id = :volume AND privs.user_id IN (SELECT uid FROM users WHERE user >= :user_first AND user <= :user_last AND enabled=1) AND volumes.vid = :volume AND volumes.enabled = 1"))
 	goto open_hashfs_fail;
     if(qprep(h->db, &h->q_createuser, "INSERT INTO users(user, name, key, role, quota, desc) VALUES(:userhash,:name,:key,:role,:quota,:desc)"))
 	goto open_hashfs_fail;
@@ -1775,13 +1791,14 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 	goto open_hashfs_fail;
     if(qprep(h->db, &h->q_onoffuser, "UPDATE users SET enabled = :enable WHERE name = :username"))
 	goto open_hashfs_fail;
-    if(qprep(h->db, &h->q_onoffuserclones, "UPDATE users SET enabled = :enable WHERE SUBSTR(user,1,"STRIFY(AUTH_CID_LEN)") = SUBSTR(:user,1,"STRIFY(AUTH_CID_LEN)") AND uid <> 0"))
+    if(qprep(h->db, &h->q_onoffuserclones, "UPDATE users SET enabled = :enable WHERE user >= :user_first AND user <= :user_last AND uid <> 0"))
         goto open_hashfs_fail;
     if(qprep(h->db, &h->q_user_newkey, "UPDATE users SET key=:key WHERE name = :username AND uid <> 0"))
 	goto open_hashfs_fail;
-    if(qprep(h->db, &h->q_user_setquota, "UPDATE users SET quota=:quota WHERE SUBSTR(user,1,"STRIFY(AUTH_CID_LEN)") = SUBSTR(:user,1,"STRIFY(AUTH_CID_LEN)") AND enabled = 1 AND role = "STRIFY(ROLE_USER)))
+    if(qprep(h->db, &h->q_user_setquota, "UPDATE users SET quota=:quota WHERE user >= :user_first AND user <= :user_last AND enabled = 1 AND role = "STRIFY(ROLE_USER)))
         goto open_hashfs_fail;
-    if(qprep(h->db, &h->q_user_getquota, "SELECT quota, COALESCE((SELECT SUM(cursize) FROM volumes WHERE owner_id IN (SELECT uid FROM users AS allusers WHERE role = "STRIFY(ROLE_USER)" AND SUBSTR(allusers.user, 1, "STRIFY(AUTH_CID_LEN)") = SUBSTR(thisuser.user, 1, "STRIFY(AUTH_CID_LEN)"))), 0) FROM users AS thisuser where thisuser.uid = :owner_id"))
+    /* The following query shall be amended to accunt for any changes in AUTH_CID_LEN or AUTH_CID_LEN */
+    if(qprep(h->db, &h->q_user_getquota, "SELECT quota, COALESCE((SELECT SUM(cursize) FROM volumes WHERE owner_id IN (SELECT uid FROM users AS allusers WHERE role = "STRIFY(ROLE_USER)" AND allusers.user >= CAST(SUBSTR(thisuser.user, 1, "STRIFY(AUTH_CID_LEN)") || x'0000' AS BLOB) AND allusers.user <= CAST(SUBSTR(thisuser.user, 1, "STRIFY(AUTH_CID_LEN)") || x'ffff' AS BLOB))), 0) FROM users AS thisuser where thisuser.uid = :owner_id"))
         goto open_hashfs_fail;
     if(qprep(h->db, &h->q_user_setdesc, "UPDATE users SET desc = :desc WHERE uid = :uid"))
         goto open_hashfs_fail;
@@ -1797,25 +1814,19 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
      * note: the read and write has to be in same transaction otherwise
      * there'd be race conditions.
      * */
-    if(qprep(h->db, &h->q_grant, "INSERT OR REPLACE INTO privs(volume_id, user_id, priv)\
-	     VALUES(:volid, :uid,\
-		    COALESCE((SELECT priv FROM privs WHERE volume_id=:volid AND user_id=:uid), 0)\
-		    | :priv)"))
+    if(qprep(h->db, &h->q_grant, "INSERT OR REPLACE INTO privs(volume_id, user_id, priv) VALUES(:volid, :uid, COALESCE((SELECT priv FROM privs WHERE volume_id=:volid AND user_id=:uid), 0) | :priv)"))
 	goto open_hashfs_fail;
     if(qprep(h->db, &h->q_getuid, "SELECT uid, role FROM users WHERE name = :name AND (:inactivetoo OR enabled=1)"))
 	goto open_hashfs_fail;
     if(qprep(h->db, &h->q_getuidname, "SELECT name FROM users WHERE uid = :uid AND enabled=1"))
 	goto open_hashfs_fail;
-    if(qprep(h->db, &h->q_revoke, "REPLACE INTO privs(volume_id, user_id, priv)\
-	     VALUES(:volid, :uid,\
-		    COALESCE((SELECT priv FROM privs WHERE volume_id=:volid AND user_id=:uid), 0)\
-		    & :privmask)"))
+    if(qprep(h->db, &h->q_revoke, "REPLACE INTO privs(volume_id, user_id, priv) VALUES(:volid, :uid, COALESCE((SELECT priv FROM privs WHERE volume_id=:volid AND user_id=:uid), 0) & :privmask)"))
 	goto open_hashfs_fail;
     if(qprep(h->db, &h->q_dropvolprivs, "DELETE FROM privs WHERE volume_id=:volid AND user_id=:uid"))
         goto open_hashfs_fail;
     /* To keep the next query simple we do not check if the user is enabled
      * This is preliminary enforced in auth_begin */
-    if(qprep(h->db, &h->q_nextvol, "SELECT volumes.vid, volumes.volume, volumes.replica, volumes.cursize, volumes.maxsize, volumes.owner_id, volumes.revs, volumes.changed, volumes.cursize_files, volumes.nfiles, volumes.global_id, volumes.prev_replica FROM volumes LEFT JOIN privs ON privs.volume_id = volumes.vid WHERE volumes.volume > :previous AND volumes.enabled = 1 AND (:user IS NULL OR (privs.priv > 0 AND privs.user_id IN (SELECT uid FROM users WHERE SUBSTR(user,1,"STRIFY(AUTH_CID_LEN)")=SUBSTR(:user,1,"STRIFY(AUTH_CID_LEN)")))) ORDER BY volumes.volume ASC LIMIT 1"))
+    if(qprep(h->db, &h->q_nextvol, "SELECT volumes.vid, volumes.volume, volumes.replica, volumes.cursize, volumes.maxsize, volumes.owner_id, volumes.revs, volumes.changed, volumes.cursize_files, volumes.nfiles, volumes.global_id, volumes.prev_replica FROM volumes LEFT JOIN privs ON privs.volume_id = volumes.vid WHERE volumes.volume > :previous AND volumes.enabled = 1 AND (:user_first IS NULL OR (privs.priv > 0 AND privs.user_id IN (SELECT uid FROM users WHERE user >= :user_first and user <= :user_last))) ORDER BY volumes.volume ASC LIMIT 1"))
 	goto open_hashfs_fail;
     if(qprep(h->db, &h->q_volbyname, "SELECT vid, volume, replica, cursize, maxsize, owner_id, revs, changed, volumes.cursize_files, volumes.nfiles, volumes.global_id, volumes.prev_replica FROM volumes WHERE volume = :name AND enabled = 1"))
 	goto open_hashfs_fail;
@@ -1831,7 +1842,7 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
     /* Prefixed key-value pairs, they are stored in hashfs table with special prefix. Queries below are common for the prefixed entries,
      * which are currently cluster meta and cluster settings.
      * :pattern is the prefix with appended '%' character to support LIKE. */
-    if(qprep(h->db, &h->q_get_prefixed_keyval, "SELECT key, value FROM hashfs WHERE key LIKE :pattern AND (:previous IS NULL OR key > :previous) ORDER BY key"))
+    if(qprep(h->db, &h->q_get_prefixed_keyval, "SELECT key, value FROM hashfs WHERE key LIKE :pattern AND (:previous IS NULL OR key > :previous) ORDER BY key")) /* SLOQ */
         goto open_hashfs_fail;
     if(qprep(h->db, &h->q_get_prefixed_val, "SELECT value FROM hashfs WHERE key = :prefix || :key"))
         goto open_hashfs_fail;
@@ -1848,7 +1859,7 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
         goto open_hashfs_fail;
     if(qprep(h->db, &h->q_addvolprivs, "INSERT INTO privs (volume_id, user_id, priv) VALUES (:volume, :user, :priv)"))
 	goto open_hashfs_fail;
-    if(qprep(h->db, &h->q_chprivs, "UPDATE privs SET user_id = :new WHERE user_id IN (SELECT uid FROM users WHERE SUBSTR(user,1,"STRIFY(AUTH_CID_LEN)")=SUBSTR(:user,1,"STRIFY(AUTH_CID_LEN)"))"))
+    if(qprep(h->db, &h->q_chprivs, "UPDATE privs SET user_id = :new WHERE user_id IN (SELECT uid FROM users WHERE user >= :user_first AND user <= :user_last)"))
         goto open_hashfs_fail;
     if(qprep(h->db, &h->q_onoffvol, "UPDATE volumes SET enabled = :enable WHERE global_id = :global_id AND volume NOT LIKE '.BAD%'"))
 	goto open_hashfs_fail;
@@ -1860,7 +1871,7 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 	goto open_hashfs_fail;
     if(qprep(h->db, &h->q_modvol, "UPDATE volumes SET owner_id = :owner, maxsize = :size, volume = :name, revs = :revs WHERE vid = :volid AND enabled = 1"))
         goto open_hashfs_fail;
-    if(qprep(h->db, &h->q_minreqs, "SELECT COALESCE(MAX(replica), 1), COALESCE(SUM(maxsize*replica), 0) FROM volumes"))
+    if(qprep(h->db, &h->q_minreqs, "SELECT COALESCE(MAX(replica), 1), COALESCE(SUM(maxsize*replica), 0) FROM volumes")) /* SLOWQ */
         goto open_hashfs_fail;
     if(qprep(h->db, &h->q_updatevolcursize, "UPDATE volumes SET cursize = cursize + :size, cursize_files = cursize_files + :fsize, nfiles = nfiles + :nfiles, changed = :now WHERE vid = :volume AND enabled = 1"))
         goto open_hashfs_fail;
@@ -1872,11 +1883,11 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
         goto open_hashfs_fail;
     if(qprep(h->db, &h->q_userisowner, "SELECT 1 FROM users u1 JOIN users u2 ON SUBSTR(u1.user, 1, "STRIFY(AUTH_CID_LEN)") = SUBSTR(u2.user, 1, "STRIFY(AUTH_CID_LEN)") WHERE u1.uid = :owner_id AND u2.uid = :uid AND u1.enabled = 1 AND u2.enabled = 1"))
         goto open_hashfs_fail;
-    if(qprep(h->db, &h->q_getprivholder, "SELECT uid FROM users JOIN privs ON user_id = uid WHERE SUBSTR(user, 1, "STRIFY(AUTH_CID_LEN)") = SUBSTR(:user, 1, "STRIFY(AUTH_CID_LEN)") AND enabled = 1"))
+    if(qprep(h->db, &h->q_getprivholder, "SELECT uid FROM users JOIN privs ON user_id = uid WHERE user >= :user_first AND user <= :user_last AND enabled = 1"))
         goto open_hashfs_fail;
     if(qprep(h->db, &h->q_modreplica, "UPDATE volumes SET replica = :next_replica, prev_replica = :replica, changed = :now WHERE vid = :volume_id"))
         goto open_hashfs_fail;
-    if(qprep(h->db, &h->q_is_replica_modified, "SELECT 1 FROM volumes WHERE replica <> prev_replica"))
+    if(qprep(h->db, &h->q_is_replica_modified, "SELECT 1 FROM volumes WHERE replica <> prev_replica LIMIT 1"))
         goto open_hashfs_fail;
 
     if(!(h->tempdb = open_db(dir, "tempdb", &h->cluster_uuid, &curver, h->q_getval)))
@@ -1963,7 +1974,7 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
                 goto open_hashfs_fail;
             if(qprep(h->datadb[j][i], &h->rit.q[j][i], "SELECT hash FROM blocks WHERE hash > :prevhash"))
                 goto open_hashfs_fail;
-            if(qprep(h->datadb[j][i], &h->rit.q_num[j][i], "SELECT COUNT(hash) FROM blocks"))
+            if(qprep(h->datadb[j][i], &h->rit.q_num[j][i], "SELECT COUNT(hash) FROM blocks")) /* SLOWQ */
                 goto open_hashfs_fail;
 	    if(qprep(h->datadb[j][i], &h->qb_del_reserve[j][i], "DELETE FROM reservations WHERE reservations_id=:reserve_id"))
 		goto open_hashfs_fail;
@@ -1971,8 +1982,14 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 		goto open_hashfs_fail;
 	    if(qprep(h->datadb[j][i], &h->qb_find_unused_block[j][i], "SELECT id, blockno, hash FROM blocks LEFT JOIN revision_blocks ON blocks.hash=blocks_hash WHERE id  > :last AND revision_id IS NULL ORDER BY id"))
 		goto open_hashfs_fail;
-            if(qprep(h->datadb[j][i], &h->qb_find_gc_block[j][i], "SELECT id, blockno, blocks_hash FROM revision_blocks INNER JOIN blocks ON blocks.hash = blocks_hash WHERE blocks_hash IN (SELECT blocks_hash from revision_blocks where revision_id=:revision_id) GROUP BY blocks_hash HAVING revision_id=:revision_id AND COUNT(*)=1"))
+
+	    /*
+	       This is a much faster version of the next query which however may return dups:
+	       SELECT id, blockno, hash FROM revision_blocks AS a LEFT JOIN revision_blocks AS b ON b.blocks_hash=a.blocks_hash AND b.revision_id <> a.revision_id JOIN blocks ON blocks.hash = a.blocks_hash WHERE a.revision_id=:revision_id AND b.revision_id IS NULL
+	    */
+            if(qprep(h->datadb[j][i], &h->qb_find_gc_block[j][i], "SELECT id, blockno, hash FROM blocks WHERE hash IN ( SELECT blocks_hash FROM revision_blocks WHERE blocks_hash IN ( SELECT blocks_hash from revision_blocks where revision_id=:revision_id ) GROUP BY blocks_hash HAVING revision_id=:revision_id AND COUNT(*)=1 )"))
                 goto open_hashfs_fail;
+
             /* hash moved,
              * hashes that are not moved don't have the old counters deleted,
              * and must be taken into account when GCing!
@@ -1996,7 +2013,10 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
                 goto open_hashfs_fail;
             if(qprep(h->datadb[j][i], &h->qb_volrep_release_revid_blocks[j][i], "DELETE FROM revision_blocks WHERE blocks_hash = :hash"))
                 goto open_hashfs_fail;
-            if(qprep(h->datadb[j][i], &h->qb_volrep_update_replica[j][i], "UPDATE revision_blocks SET replica = :next_replica WHERE global_vol_id = :global_vol_id AND replica = :prev_replica"))
+
+	    /* Note: we do not want an index on global_vol_id since it is only used during volume replica changes
+	       and it would be pointlessly expensive to maintain under normal usage */
+            if(qprep(h->datadb[j][i], &h->qb_volrep_update_replica[j][i], "UPDATE revision_blocks SET replica = :next_replica WHERE global_vol_id = :global_vol_id AND replica = :prev_replica")) /* SLOWQ */
                 goto open_hashfs_fail;
 
 	    sprintf(dbitem, "datafile_%c_%08x", sizedirs[j], i);
@@ -2092,7 +2112,7 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 	    goto open_hashfs_fail;
 	if(qprep(h->metadb[i], &h->qm_delbyvol[i], "DELETE FROM files WHERE volume_id = :volid"))
 	    goto open_hashfs_fail;
-        if(qprep(h->metadb[i], &h->qm_sumfilesizes[i], "SELECT SUM(x), SUM(y), COUNT(x) FROM (SELECT files.size + LENGTH(CAST(files.name AS BLOB)) + SUM(COALESCE(LENGTH(CAST(fmeta.key AS BLOB)) + LENGTH(fmeta.value),0)) AS x, files.size AS y FROM files LEFT JOIN fmeta ON files.fid = fmeta.file_id WHERE files.volume_id = :volid AND age >= 0 GROUP BY files.fid)"))
+        if(qprep(h->metadb[i], &h->qm_sumfilesizes[i], "SELECT SUM(files.size + LENGTH(CAST(files.name AS BLOB))) + SUM(COALESCE((SELECT SUM(LENGTH(CAST(fmeta.key AS BLOB)) + LENGTH(CAST(fmeta.value AS BLOB))) FROM fmeta WHERE fmeta.file_id = files.fid), 0)), SUM(files.size), COUNT(*) FROM files WHERE files.volume_id = :volid AND age >= 0"))
             goto open_hashfs_fail;
         if(qprep(h->metadb[i], &h->qm_newest[i], "SELECT MAX(rev) FROM files WHERE volume_id = :volid AND age >= 0"))
             goto open_hashfs_fail;
@@ -2112,13 +2132,13 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
             goto open_hashfs_fail;
         if(qprep(h->metadb[i], &h->qm_add_heal_volume[i], "INSERT OR REPLACE INTO heal_volume(name, max_age, min_revision) VALUES(:name,:max_age,:min_revision_id)"))
             goto open_hashfs_fail;
-        if(qprep(h->metadb[i], &h->qm_sel_heal_volume[i], "SELECT name, max_age, min_revision FROM heal_volume WHERE name > :prev"))
+        if(qprep(h->metadb[i], &h->qm_sel_heal_volume[i], "SELECT name, max_age, min_revision FROM heal_volume WHERE name > :prev")) /* SLOWQ */
             goto open_hashfs_fail;
-        if(qprep(h->metadb[i], &h->qm_upd_heal_volume[i], "UPDATE heal_volume SET min_revision=:min_revision_id WHERE name=:name"))
+        if(qprep(h->metadb[i], &h->qm_upd_heal_volume[i], "UPDATE heal_volume SET min_revision=:min_revision_id WHERE name=:name")) /* SLOWQ */
             goto open_hashfs_fail;
-        if(qprep(h->metadb[i], &h->qm_del_heal_volume[i], "DELETE FROM heal_volume WHERE name=:name"))
+        if(qprep(h->metadb[i], &h->qm_del_heal_volume[i], "DELETE FROM heal_volume WHERE name=:name")) /* SLOWQ */
             goto open_hashfs_fail;
-        if(qprep(h->metadb[i], &h->qm_needs_upgrade[i], "SELECT fid, volume_id, name, rev, size FROM files WHERE revision_id IS NULL AND age >= 0"))
+        if(qprep(h->metadb[i], &h->qm_needs_upgrade[i], "SELECT fid, volume_id, name, rev, size FROM files WHERE revision_id IS NULL AND age >= 0")) /* SLOWQ */
             goto open_hashfs_fail;
     }
 
@@ -2132,7 +2152,7 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
     snprintf(qrybuff, sizeof(qrybuff), "SELECT job FROM jobs WHERE type = %d AND data = :data AND complete = 0", JOBTYPE_DELETE_FILE);
     if(qprep(h->eventdb, &h->qe_getfiledeljob, qrybuff))
         goto open_hashfs_fail;
-    if(qprep(h->eventdb, &h->qe_addjob, "INSERT INTO jobs (parent, type, lock, expiry_time, data, user) SELECT :parent, :type, :lock, datetime(:expiry + strftime('%s', COALESCE((SELECT expiry_time FROM jobs WHERE job = :parent), 'now')), 'unixepoch'), :data, :uid"))
+    if(qprep(h->eventdb, &h->qe_addjob, "INSERT INTO jobs (parent, type, lock, expiry_time, data, user) VALUES(:parent, :type, :lock, datetime(:expiry + strftime('%s', COALESCE((SELECT expiry_time FROM jobs WHERE job = :parent), 'now')), 'unixepoch'), :data, :uid)"))
 	goto open_hashfs_fail;
     if(qprep(h->eventdb, &h->qe_mod_jobdata, "UPDATE jobs SET data = :data WHERE job = :id"))
         goto open_hashfs_fail;
@@ -2157,6 +2177,9 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
         goto open_hashfs_fail;
     if(qprep(h->eventdb, &h->qe_parent, "SELECT j1.parent, j2.type, j2.data FROM jobs AS j1 LEFT JOIN jobs AS j2 ON j1.parent = j2.job WHERE j1.job = :id"))
         goto open_hashfs_fail;
+    if(qprep(h->eventdb, &h->qe_jstats, "SELECT COUNT(user), COUNT(*) FROM jobs WHERE complete = 0 AND sched_time <= strftime('%Y-%m-%d %H:%M:%f')"))
+        goto open_hashfs_fail;
+
     if(qprep(h->eventdb, &h->rit.q_add, "INSERT OR IGNORE INTO hash_retry(hash, blocksize, id) VALUES(:hash, :blocksize, :hash)"))
         goto open_hashfs_fail;
     if(qprep(h->eventdb, &h->rit.q_sel, "SELECT hash, blocksize FROM hash_retry WHERE hash > :prevhash"))
@@ -3094,7 +3117,7 @@ void sx_hashfs_stats(sx_hashfs_t *h)
 	    blocks += get_count(h->datadb[j][i], "blocks");
 	INFO("\t%-8s (%8d byte) block#: %lld", sizelongnames[j], bsz[j], blocks);
     }
-    if(qprep(h->eventdb, &q, "SELECT type, SUM(complete = 1) as complete, SUM(complete = 1 AND result <> 0) as failed, SUM(complete = 0) as running FROM jobs GROUP BY type ORDER BY failed DESC")) {
+    if(qprep(h->eventdb, &q, "SELECT type, SUM(complete = 1) as complete, SUM(complete = 1 AND result <> 0) as failed, SUM(complete = 0) as running FROM jobs GROUP BY type ORDER BY failed DESC")) {/* SLOWQ */
         WARN("Failed to obtain job statistics");
         return;
     }
@@ -3615,7 +3638,7 @@ static int check_files(sx_hashfs_t *h, int debug) {
         sqlite3_stmt *list = NULL;
         int rows = 0;
 
-        if(qprep(h->metadb[i], &list, "SELECT fid, volume_id, name, size, content FROM files WHERE age >= 0 ORDER BY name ASC")) {
+        if(qprep(h->metadb[i], &list, "SELECT fid, volume_id, name, size, content FROM files WHERE age >= 0 ORDER BY name ASC")) { /* SLOWQ */
             ret = -1;
             CHECK_FATAL("Failed to prepare queries");
             goto check_files_itererr;
@@ -3734,7 +3757,7 @@ static int check_blocks_existence(sx_hashfs_t *h, int debug, unsigned int hs, un
              (long long int)get_count(db, "blocks"), sizelongnames[hs], ndb+1, HASHDBS);
     }
 
-    if(qprep(db, &q, "SELECT id, hash, blockno FROM blocks WHERE blockno IS NOT NULL ORDER BY blockno ASC")) {
+    if(qprep(db, &q, "SELECT id, hash, blockno FROM blocks WHERE blockno IS NOT NULL ORDER BY blockno ASC")) { /* SLOWQ */
         ret = -1;
         goto check_blocks_existence_err;
     }
@@ -3818,7 +3841,7 @@ static int check_blocks_dups(sx_hashfs_t *h, int debug, unsigned int hs, unsigne
             (long long int)get_count(db, "blocks"), sizelongnames[hs], ndb+1, HASHDBS);
     }
 
-    if(qprep(db, &q, "SELECT b1.id, b1.hash, b2.id, b2.hash, b1.blockno FROM blocks AS b1 LEFT JOIN blocks AS b2 ON b1.id < b2.id WHERE b1.blockno = b2.blockno"))
+    if(qprep(db, &q, "SELECT b1.id, b1.hash, b2.id, b2.hash, b1.blockno FROM blocks AS b1 LEFT JOIN blocks AS b2 ON b1.id < b2.id WHERE b1.blockno = b2.blockno")) /* SLOWQ */
         goto check_blocks_dups_err;
 
     while(1) {
@@ -3967,7 +3990,7 @@ static int check_blocks(sx_hashfs_t *h, int debug) {
             sqlite3_stmt *avail = NULL;
 
             /* Check whether any block from hash table is considered as available*/
-            if(qprep(h->datadb[j][i], &avail, "SELECT blockno, lower(hex(hash)) FROM blocks JOIN avail WHERE blockno = avail.blocknumber ORDER BY blockno ASC")) {
+            if(qprep(h->datadb[j][i], &avail, "SELECT blockno, lower(hex(hash)) FROM blocks JOIN avail WHERE blockno = avail.blocknumber ORDER BY blockno ASC")) { /* SLOWQ */
                 ret = -1;
                 goto check_blocks_err;
             }
@@ -4132,7 +4155,7 @@ static int check_jobs(sx_hashfs_t *h, int debug) {
     int ret = 0, r;
     sqlite3_stmt *q = NULL;
 
-    if(qprep(h->eventdb, &q, "SELECT j1.job, j2.job, j1.user, j1.parent, j1.complete FROM jobs j1 LEFT JOIN jobs j2 ON j1.parent = j2.job WHERE j1.parent IS NOT NULL AND j1.user IS NOT NULL")) {
+    if(qprep(h->eventdb, &q, "SELECT j1.job, j2.job, j1.user, j1.parent, j1.complete FROM jobs j1 LEFT JOIN jobs j2 ON j1.parent = j2.job WHERE j1.parent IS NOT NULL AND j1.user IS NOT NULL")) { /* SLOWQ */
         CHECK_FATAL("Failed to prepare query");
         return -1;
     }
@@ -4439,6 +4462,34 @@ static rc_ty upgrade_db(int lockfd, const char *path, sxi_db_t *db, const sx_has
     } while(0);
     if (ret)
         WARN("Failed to upgrade %s", path);
+    qnullify(q);
+    return ret;
+}
+
+static rc_ty eventsdb_2_1_5_to_2_1_6(sxi_db_t *db) {
+    sqlite3_stmt *q = NULL;
+    rc_ty ret = OK;
+
+    if(qprep(db, &q, "CREATE INDEX jobs_owner ON jobs (user, complete)") || qstep_noret(q))
+	ret = FAIL_EINTERNAL;
+    qnullify(q);
+    return ret;
+}
+
+static rc_ty hashfs_2_1_5_to_2_1_6(sxi_db_t *db) {
+    rc_ty ret = FAIL_EINTERNAL;
+    sqlite3_stmt *q = NULL;
+    do {
+        /* A FKs are a CHECK, not an INDEX */
+        if(qprep(db, &q, "CREATE INDEX pvivs_user ON privs(user_id)") || qstep_noret(q))
+            break;
+	qnullify(q);
+        if(qprep(db, &q, "CREATE INDEX volumes_owner ON volumes(owner_id)") || qstep_noret(q))
+            break;
+	qnullify(q);
+
+        ret = OK;
+    } while(0);
     qnullify(q);
     return ret;
 }
@@ -5347,7 +5398,7 @@ static rc_ty datadb_1_0_to_1_1(sxi_db_t *db)
     rc_ty ret = FAIL_EINTERNAL;
     sqlite3_stmt *q = NULL;
     do {
-        if(qprep(db, &q, "DELETE FROM blocks WHERE blockno IS NULL OR created_at IS NULL") || qstep_noret(q))
+        if(qprep(db, &q, "DELETE FROM blocks WHERE blockno IS NULL OR created_at IS NULL") || qstep_noret(q)) /* SLOWQ */
             break;
         qnullify(q);
         if(qprep(db, &q, "DROP TABLE IF EXISTS operations") || qstep_noret(q))
@@ -5577,6 +5628,8 @@ static const sx_upgrade_t upgrade_sequence[] = {
         .from = HASHFS_VERSION_2_1_5,
         .to = HASHFS_VERSION_2_1_6,
         .upgrade_alldb = alldb_2_1_5_to_2_1_6,
+        .upgrade_hashfsdb = hashfs_2_1_5_to_2_1_6,
+        .upgrade_eventsdb = eventsdb_2_1_5_to_2_1_6,
         .job = JOBTYPE_DUMMY
     }
 };
@@ -8111,7 +8164,8 @@ rc_ty sx_hashfs_user_modify_finish(sx_hashfs_t *h, const char *username, const u
             goto sx_hashfs_user_modify_err;
         }
         /* All clones will receive new quota */
-        if(qbind_blob(q, ":user", user, AUTH_CID_LEN)) {
+        if(qbind_blob(q, ":user_first", firstcid(user, user), sizeof(user)) ||
+	   qbind_blob(q, ":user_last", lastcid(user, user), sizeof(user))) {
             WARN("Failed to bind username");
             goto sx_hashfs_user_modify_err;
         }
@@ -8309,10 +8363,19 @@ rc_ty sx_hashfs_list_users(sx_hashfs_t *h, const uint8_t *list_clones, user_list
         return FAIL_EINTERNAL;
     }
 
-    if(!list_clones)
-        q = h->q_listusers;
-    else
+    if(list_clones) {
+	uint8_t cid[AUTH_UID_LEN];
         q = h->q_listusersbycid;
+	sqlite3_reset(q);
+	if(qbind_blob(q, ":common_id_first", firstcid(list_clones, cid), sizeof(cid)) ||
+	   qbind_blob(q, ":common_id_last", lastcid(list_clones, cid), sizeof(cid)) ||
+	   qbind_int(q, ":inactivetoo", 0)) {
+	    WARN("Failed to bind common id to q_listusersbycid query");
+	    return FAIL_EINTERNAL;
+	}
+    } else
+        q = h->q_listusers;
+
     while(1) {
         int ret;
         sx_uid_t uid;
@@ -8330,10 +8393,6 @@ rc_ty sx_hashfs_list_users(sx_hashfs_t *h, const uint8_t *list_clones, user_list
             break;
         }
 
-        if(list_clones && (qbind_blob(q, ":common_id", list_clones, AUTH_CID_LEN) || qbind_int(q, ":inactivetoo", 0))) {
-            WARN("Failed to bind common id to q_listusersbycid query");
-            break;
-        }
         ret = qstep(q);
 	if(ret == SQLITE_DONE)
 	    rc = OK;
@@ -8428,6 +8487,7 @@ rc_ty sx_hashfs_list_clones_first(sx_hashfs_t *h, sx_uid_t id, const sx_hashfs_u
 }
 
 rc_ty sx_hashfs_list_clones_next(sx_hashfs_t *h) {
+    uint8_t cid[AUTH_UID_LEN];
     rc_ty ret = FAIL_EINTERNAL;
     sqlite3_stmt *q = h->q_listusersbycid;
     int r;
@@ -8436,7 +8496,9 @@ rc_ty sx_hashfs_list_clones_next(sx_hashfs_t *h) {
     sx_hashfs_user_t *u = &h->curclone;
 
     sqlite3_reset(q);
-    if(qbind_int64(q, ":lastuid", h->curclone.id) || qbind_blob(q, ":common_id", h->curclone.uid, AUTH_CID_LEN) ||
+    if(qbind_int64(q, ":lastuid", h->curclone.id) ||
+       qbind_blob(q, ":common_id_first", firstcid(h->curclone.uid, cid), sizeof(cid)) ||
+       qbind_blob(q, ":common_id_last", lastcid(h->curclone.uid, cid), sizeof(cid)) ||
        qbind_int(q, ":inactivetoo", h->listinactiveclones)) {
         WARN("Failed to bind user IDs");
         goto sx_hashfs_list_volume_owners_next_err;
@@ -8684,7 +8746,11 @@ rc_ty sx_hashfs_delete_user(sx_hashfs_t *h, const char *username, const char *ne
     } else {
         if(has_clone) {
             /* In this case we have to grant privileges to given user clone in order to allow all clones still access their vols */
-            if(qbind_int64(h->q_chprivs, ":new", new) || qbind_blob(h->q_chprivs, ":user", u->uid, AUTH_UID_LEN) || qstep_noret(h->q_chprivs)) {
+	    uint8_t cid[AUTH_UID_LEN];
+            if(qbind_int64(h->q_chprivs, ":new", new) ||
+	       qbind_blob(h->q_chprivs, ":user_first", firstcid(u->uid, cid), sizeof(cid)) ||
+	       qbind_blob(h->q_chprivs, ":user_last", lastcid(u->uid, cid), sizeof(cid)) ||
+	       qstep_noret(h->q_chprivs)) {
                 WARN("Failed to prepare and evaluate privs change query");
                 goto delete_user_err;
             }
@@ -9098,8 +9164,9 @@ rc_ty sx_hashfs_user_onoff(sx_hashfs_t *h, const char *user, int enable, int all
             WARN("Failed to get user by name in order to disable/enable all its clones");
             return s;
         }
-        if(qbind_blob(h->q_onoffuserclones, ":user", user_uid, AUTH_UID_LEN) ||
-           qbind_int(h->q_onoffuserclones, ":enable", enable) ||
+        if(qbind_blob(h->q_onoffuserclones, ":user_first", firstcid(user_uid, user_uid), sizeof(user_uid)) ||
+	   qbind_blob(h->q_onoffuserclones, ":user_last", lastcid(user_uid, user_uid), sizeof(user_uid)) ||
+	   qbind_int(h->q_onoffuserclones, ":enable", enable) ||
            qstep_noret(h->q_onoffuserclones)) {
             WARN("Failed to disable all %s clones", user);
             return FAIL_EINTERNAL;
@@ -9123,6 +9190,7 @@ rc_ty sx_hashfs_volume_first(sx_hashfs_t *h, const sx_hashfs_volume_t **volume, 
 }
 
 static rc_ty volume_next_common(sx_hashfs_t *h) {
+    uint8_t cid[AUTH_UID_LEN];
     const char *name;
     rc_ty res = FAIL_EINTERNAL;
     unsigned int replica_loss;
@@ -9138,10 +9206,12 @@ static rc_ty volume_next_common(sx_hashfs_t *h) {
     if(qbind_text(h->q_nextvol, ":previous", h->curvol.name))
         goto volume_next_common_err;
     if(h->curvoluser) {
-        if(qbind_blob(h->q_nextvol, ":user", h->curvoluser, AUTH_UID_LEN))
+        if(qbind_blob(h->q_nextvol, ":user_first", firstcid(h->curvoluser, cid), sizeof(cid)) ||
+	   qbind_blob(h->q_nextvol, ":user_last", lastcid(h->curvoluser, cid), sizeof(cid)))
             goto volume_next_common_err;
     } else {
-        if(qbind_null(h->q_nextvol, ":user"))
+        if(qbind_null(h->q_nextvol, ":user_first") ||
+	   qbind_null(h->q_nextvol, ":user_last"))
             goto volume_next_common_err;
     }
 
@@ -9281,7 +9351,8 @@ static rc_ty get_priv_holder(sx_hashfs_t *h, uint64_t uid, int64_t *holder) {
     }
 
     sqlite3_reset(h->q_getprivholder);
-    if(qbind_blob(h->q_getprivholder, ":user", user, AUTH_UID_LEN)) {
+    if(qbind_blob(h->q_getprivholder, ":user_first", firstcid(user, user), sizeof(user)) ||
+       qbind_blob(h->q_getprivholder, ":user_last", lastcid(user, user), sizeof(user))) {
         WARN("Failed to prepare query");
         sqlite3_reset(h->q_getprivholder);
         return FAIL_EINTERNAL;
@@ -14343,6 +14414,7 @@ rc_ty sx_hashfs_generate_uid(sx_hashfs_t *h, uint8_t *uid) {
 
 rc_ty sx_hashfs_get_access(sx_hashfs_t *h, const uint8_t *user, const char *volume, sx_priv_t *access) {
     const sx_hashfs_volume_t *vol;
+    uint8_t cid[AUTH_UID_LEN];
     rc_ty ret, rc;
     int r;
     int64_t owner_id;
@@ -14357,7 +14429,8 @@ rc_ty sx_hashfs_get_access(sx_hashfs_t *h, const uint8_t *user, const char *volu
 
     sqlite3_reset(h->q_getaccess);
     if(qbind_int64(h->q_getaccess, ":volume", vol->id) ||
-       qbind_blob(h->q_getaccess, ":user", user, AUTH_UID_LEN))
+       qbind_blob(h->q_getaccess, ":user_first", firstcid(user, cid), sizeof(cid)) ||
+       qbind_blob(h->q_getaccess, ":user_last", lastcid(user, cid), sizeof(cid)))
 	return FAIL_EINTERNAL;
 
     r = qstep(h->q_getaccess);
@@ -14395,6 +14468,7 @@ rc_ty sx_hashfs_get_access(sx_hashfs_t *h, const uint8_t *user, const char *volu
 
 rc_ty sx_hashfs_get_access_by_global_id(sx_hashfs_t *h, const uint8_t *user, const sx_hash_t *global_vol_id, sx_priv_t *access) {
     const sx_hashfs_volume_t *vol;
+    uint8_t cid[AUTH_UID_LEN];
     rc_ty ret, rc;
     int r;
     int64_t owner_id;
@@ -14409,7 +14483,8 @@ rc_ty sx_hashfs_get_access_by_global_id(sx_hashfs_t *h, const uint8_t *user, con
 
     sqlite3_reset(h->q_getaccess);
     if(qbind_int64(h->q_getaccess, ":volume", vol->id) ||
-       qbind_blob(h->q_getaccess, ":user", user, AUTH_UID_LEN))
+       qbind_blob(h->q_getaccess, ":user_first", firstcid(user, cid), sizeof(cid)) ||
+       qbind_blob(h->q_getaccess, ":user_last", lastcid(user, cid), sizeof(cid)))
         return FAIL_EINTERNAL;
 
     r = qstep(h->q_getaccess);
@@ -18249,7 +18324,7 @@ rc_ty sx_hashfs_replace_getstartblock(sx_hashfs_t *h, unsigned int *version, con
         return EFAULT;
     }
 
-    if(qprep(h->db, &q, "SELECT node, last_block FROM replaceblocks LIMIT (SELECT ABS(COALESCE(RANDOM() % COUNT(*), 0)) FROM replaceblocks), 1"))
+    if(qprep(h->db, &q, "SELECT node, last_block FROM replaceblocks LIMIT (SELECT ABS(COALESCE(RANDOM() % COUNT(*), 0)) FROM replaceblocks), 1")) /* SLOWQ */
 	goto getnode_fail;
 
     r = qstep(q);
@@ -18290,7 +18365,7 @@ rc_ty sx_hashfs_volrep_getstartblock(sx_hashfs_t *h, const sx_node_t **node, int
         return EFAULT;
     }
 
-    if(qprep(h->db, &q, "SELECT node, last_block FROM volrepblocks LIMIT (SELECT ABS(COALESCE(RANDOM() % COUNT(*), 0)) FROM volrepblocks), 1"))
+    if(qprep(h->db, &q, "SELECT node, last_block FROM volrepblocks LIMIT (SELECT ABS(COALESCE(RANDOM() % COUNT(*), 0)) FROM volrepblocks), 1")) /* SLOWQ */
         goto sx_hashfs_volrep_getstartblock_err;
 
     r = qstep(q);
@@ -18384,7 +18459,7 @@ rc_ty sx_hashfs_replace_getstartfile(sx_hashfs_t *h, char *maxrev, char *startvo
         return EFAULT;
     }
 
-    if(qprep(h->db, &q, "SELECT vol, file, rev, maxrev FROM replacefiles LIMIT (SELECT ABS(COALESCE(RANDOM() % COUNT(*), 0)) FROM replacefiles), 1"))
+    if(qprep(h->db, &q, "SELECT vol, file, rev, maxrev FROM replacefiles LIMIT (SELECT ABS(COALESCE(RANDOM() % COUNT(*), 0)) FROM replacefiles), 1")) /* SLOWQ */
 	goto getfile_fail;
 
     r = qstep(q);
@@ -18414,7 +18489,7 @@ rc_ty sx_hashfs_volrep_getstartfile(sx_hashfs_t *h, char *maxrev, char *startvol
         return EFAULT;
     }
 
-    if(qprep(h->db, &q, "SELECT vol, file, rev, maxrev FROM volrepfiles LIMIT (SELECT ABS(COALESCE(RANDOM() % COUNT(*), 0)) FROM volrepfiles), 1"))
+    if(qprep(h->db, &q, "SELECT vol, file, rev, maxrev FROM volrepfiles LIMIT (SELECT ABS(COALESCE(RANDOM() % COUNT(*), 0)) FROM volrepfiles), 1")) /* SLOWQ */
         goto sx_hashfs_volrep_getstartfile_err;
 
     r = qstep(q);
@@ -18517,7 +18592,7 @@ rc_ty sx_hashfs_init_replacement(sx_hashfs_t *h) {
      * by pretending the faulty nodes are ignored in the current model */
     replica_loss = h->next_maxreplica - sxi_hdist_maxreplica(h->hd, 0, h->faulty_nodes);
     if(replica_loss) {
-	if(qprep(h->db, &q, "UPDATE volumes SET volume = '.BAD' || volume, enabled = 0, changed = 0 WHERE volume NOT LIKE '.BAD%' AND replica <= :replica") ||
+	if(qprep(h->db, &q, "UPDATE volumes SET volume = '.BAD' || volume, enabled = 0, changed = 0 WHERE volume NOT LIKE '.BAD%' AND replica <= :replica") || /* SLOWQ */
 	   qbind_int(q, ":replica", replica_loss) ||
 	   qstep_noret(q))
 	    goto init_replacement_fail;
@@ -19240,40 +19315,27 @@ rc_ty sx_hashfs_node_status(sx_hashfs_t *h, sxi_node_status_t *status) {
 
 rc_ty sx_hashfs_stats_jobq(sx_hashfs_t *h, int64_t *sysjobs, int64_t *userjobs) {
     int64_t scnt = 0, ucnt = 0;
-    sqlite3_stmt *q = NULL;
-    rc_ty ret = FAIL_EINTERNAL;
-    int r;
 
     if(!h) {
 	NULLARG();
         return EINVAL;
     }
 
-    if(qprep(h->eventdb, &q, "SELECT user IS NULL AS sysjob, COUNT(*) FROM jobs WHERE complete = 0 AND sched_time <= strftime('%Y-%m-%d %H:%M:%f') GROUP BY sysjob"))
-	goto stats_jobq_err;
-
-    while(1) {
-	r = qstep(q);
-	if(r == SQLITE_DONE) {
-	    ret = OK;
-	    break;
-	}
-	if(r != SQLITE_ROW)
-	    break;
-	if(sqlite3_column_int(q, 0))
-	    scnt = sqlite3_column_int64(q, 1);
-	else
-	    ucnt = sqlite3_column_int64(q, 1);
+    if(qstep_ret(h->qe_jstats)) {
+	msg_set_reason("Failed to count pending jobs");
+	return FAIL_EINTERNAL;
     }
 
- stats_jobq_err:
-    sqlite3_finalize(q);
+    ucnt = sqlite3_column_int64(h->qe_jstats, 0);
+    scnt = sqlite3_column_int64(h->qe_jstats, 1) - ucnt;
+    sqlite3_reset(h->qe_jstats);
+
     if(sysjobs)
 	*sysjobs = scnt;
     if(userjobs)
 	*userjobs = ucnt;
 
-    return ret;
+    return OK;
 }
 
 rc_ty sx_hashfs_stats_blockq(sx_hashfs_t *h, const sx_uuid_t *dest, int64_t *ready, int64_t *held, int64_t *unbumps) {
@@ -19788,7 +19850,7 @@ rc_ty sx_hashfs_compact(sx_hashfs_t *h, int64_t *bytes_freed) {
 	       qprep(h->datadb[hs][ndb], &qget, "SELECT blocknumber FROM avail ORDER BY blocknumber ASC") ||
 	       qprep(h->datadb[hs][ndb], &qdel, "DELETE FROM avail WHERE blocknumber >= :next") ||
 	       qprep(h->datadb[hs][ndb], &qupa, "UPDATE avail SET blocknumber = :wasfull WHERE blocknumber = :wasempty") ||
-	       qprep(h->datadb[hs][ndb], &qupb, "UPDATE blocks SET blockno = :wasempty WHERE blockno = :wasfull") ||
+	       qprep(h->datadb[hs][ndb], &qupb, "UPDATE blocks SET blockno = :wasempty WHERE blockno = :wasfull") || /* SLOWQ */
 	       qprep(h->datadb[hs][ndb], &qset, "UPDATE hashfs SET value = :next WHERE key = 'next_blockno'") ||
 	       qprep(h->datadb[hs][ndb], &qvac, "VACUUM")) {
 		WARN("Cannot prepare defrag queries on %s db #%u", sizelongnames[hs], ndb);
@@ -20688,7 +20750,7 @@ rc_ty sx_hashfs_force_volumes_replica_unlock(sx_hashfs_t* h) {
     sqlite3_stmt *q;
 
     DEBUG("Forcibly unlocking volume replica limits");
-    if(qprep(h->db, &q, "UPDATE volumes SET prev_replica = MIN(prev_replica,replica), replica = MIN(prev_replica,replica) WHERE prev_replica <> replica") ||
+    if(qprep(h->db, &q, "UPDATE volumes SET prev_replica = MIN(prev_replica,replica), replica = MIN(prev_replica,replica) WHERE prev_replica <> replica") || /* SLOWQ */
        qstep_noret(q)) {
         qnullify(q);
         WARN("Failed to forcibly unlock volume replica changes");

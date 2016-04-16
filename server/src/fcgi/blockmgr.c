@@ -582,7 +582,9 @@ int blockmgr(sxc_client_t *sx, const char *dir, int pipe) {
 	goto blockmgr_err;
     }
     qnullify(qsched);
-    if(qprep(xferdb, &q.qprune, "DELETE FROM topush WHERE id IN (SELECT id FROM topush LEFT JOIN onhold ON block = hblock AND size = hsize AND node = hnode WHERE hid IS NULL) AND sched_time > expiry_time")) /* If you touch this query, please double check index usage! */
+    /* Slightly slower version:
+       DELETE FROM topush WHERE id IN (SELECT id FROM topush LEFT JOIN onhold ON block = hblock AND size = hsize AND node = hnode WHERE hid IS NULL) AND sched_time > expiry_time */
+    if(qprep(xferdb, &q.qprune, "DELETE FROM topush WHERE NOT EXISTS (SELECT 1 FROM onhold WHERE block = hblock AND size = hsize AND node = hnode) AND sched_time > expiry_time"))
 	goto blockmgr_err;
     if(qprep(xferdb, &q.qdel, "DELETE FROM topush WHERE id = :id"))
 	goto blockmgr_err;
