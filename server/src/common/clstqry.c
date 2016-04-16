@@ -175,8 +175,8 @@ static void cb_cstatus_dist_ncapa(jparse_t *J, void *ctx, int64_t num) {
 
 static void cb_cstatus_replicacnt(jparse_t *J, void *ctx, int32_t num) {
     struct cstatus *c = (struct cstatus *)ctx;
-    if(num <= 0) {
-	sxi_jparse_cancel(J, "Invalid replica count");
+    if(num < 0) {
+	sxi_jparse_cancel(J, "Invalid replica count %d", num);
 	return;
     }
     c->replica_count = num;
@@ -184,8 +184,8 @@ static void cb_cstatus_replicacnt(jparse_t *J, void *ctx, int32_t num) {
 
 static void cb_cstatus_effreplicacnt(jparse_t *J, void *ctx, int32_t num) {
     struct cstatus *c = (struct cstatus *)ctx;
-    if(num <= 0) {
-	sxi_jparse_cancel(J, "Invalid effective replica count");
+    if(num < 0) {
+	sxi_jparse_cancel(J, "Invalid effective replica count %d", num);
 	return;
     }
     c->effective_replica_count = num;
@@ -590,7 +590,7 @@ clst_t *clst_query(sxi_conns_t *conns, sxi_hostlist_t *hlist) {
 	    yctx->replica_count = 0;
 	    yctx->effective_replica_count = 0;
 	}
-    } else if(!yctx->replica_count) {
+    } else if(!yctx->effective_replica_count) {
 	/* Just a fallback, not reached */
 	yctx->effective_replica_count = yctx->replica_count;
     }

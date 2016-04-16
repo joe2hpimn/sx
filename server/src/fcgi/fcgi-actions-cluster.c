@@ -106,7 +106,7 @@ void fcgi_handle_cluster_requests(void) {
     if(has_arg("clusterStatus")) {
 	sx_inprogress_t status;
 	const char *progress_msg;
-        unsigned int islocked = 0;
+        unsigned int islocked = 0, maxr, effmaxr;
 
 	status = sx_hashfs_get_progress_info(hashfs, &progress_msg);
 	if(status == INPRG_ERROR)
@@ -177,9 +177,11 @@ void fcgi_handle_cluster_requests(void) {
 	    CGI_PRINTF(",\"clusterAuth\":\"%s\"", sx_hashfs_authtoken(hashfs));
             if(has_arg("operatingMode"))
                 CGI_PRINTF(",\"operatingMode\":\"%s\",\"locked\":%s", sx_hashfs_is_readonly(hashfs) ? "read-only" : "read-write", islocked ? "true" : "false");
-            CGI_PUTC('}');
 	} else
-	    CGI_PUTS("]}");
+	    CGI_PUTC(']');
+
+	sx_hashfs_getmaxreplica(hashfs, &maxr, &effmaxr);
+	CGI_PRINTF(",\"maxReplicaCount\":%u,\"effectiveMaxReplicaCount\":%u}", maxr, effmaxr);
 	comma |= 1;
     }
 

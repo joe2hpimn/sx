@@ -150,6 +150,7 @@ const sx_nodelist_t *sx_hashfs_all_nodes(sx_hashfs_t *h, sx_hashfs_nl_t which);
 const sx_nodelist_t *sx_hashfs_effective_nodes(sx_hashfs_t *h, sx_hashfs_nl_t which);
 const sx_nodelist_t *sx_hashfs_ignored_nodes(sx_hashfs_t *h);
 const sx_nodelist_t *sx_hashfs_faulty_nodes(sx_hashfs_t *h);
+void sx_hashfs_getmaxreplica(sx_hashfs_t *h, unsigned int *maxreplica, unsigned int *effective_maxreplica);
 const sx_node_t *sx_hashfs_self(sx_hashfs_t *h);
 rc_ty sx_hashfs_self_uuid(sx_hashfs_t *h, sx_uuid_t *uuid);
 const char *sx_hashfs_self_unique(sx_hashfs_t *h);

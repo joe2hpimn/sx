@@ -20441,3 +20441,17 @@ rc_ty sx_hashfs_force_volumes_replica_unlock(sx_hashfs_t* h) {
 
     return OK;
 }
+
+
+void sx_hashfs_getmaxreplica(sx_hashfs_t *h, unsigned int *maxreplica, unsigned int *effective_maxreplica) {
+    unsigned int maxr = 0, effr = 0;
+    if(h) {
+	maxr = MIN(h->prev_maxreplica, h->next_maxreplica);
+	effr = MIN(maxr, h->effective_maxreplica);
+    }
+    if(maxreplica)
+	*maxreplica = maxr;
+    if(effective_maxreplica)
+	*effective_maxreplica = effr;
+}
+
