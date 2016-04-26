@@ -69,6 +69,7 @@ void fcgi_locate_volume(const sx_hashfs_volume_t *vol) {
     rc_ty s;
     sx_priv_t priv = 0;
     char owner[SXLIMIT_MAX_USERNAME_LEN+1];
+    char volid_hex[SXI_SHA1_TEXT_LEN+1];
 
     if(has_arg("size") && !strcmp(get_arg("size"), "growable")) {
 	growable = 1;
@@ -188,6 +189,8 @@ void fcgi_locate_volume(const sx_hashfs_volume_t *vol) {
     CGI_PUTLL(vol->nfiles);
     CGI_PRINTF(",\"sizeBytes\":");
     CGI_PUTLL(vol->size);
+    bin2hex(vol->global_id.b, sizeof(vol->global_id.b), volid_hex, sizeof(volid_hex));
+    CGI_PRINTF(",\"globalID\":\"%s\"", volid_hex);
     if(has_arg("volumeMeta")) {
         CGI_PUTS(",\"volumeMeta\":{");
 	comma = 0;

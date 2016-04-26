@@ -203,6 +203,7 @@ void fcgi_handle_cluster_requests(void) {
 	for(s = sx_hashfs_volume_first(hashfs, &vol, u); s == OK; s = sx_hashfs_volume_next(hashfs)) {
             sx_priv_t priv = 0;
             unsigned int i, nmeta = 0;
+            char volid_hex[SXI_SHA1_TEXT_LEN+1];
 
 	    if(comma)
 		CGI_PUTC(',');
@@ -242,6 +243,8 @@ void fcgi_handle_cluster_requests(void) {
             CGI_PUTLL(vol->usage_files);
             CGI_PRINTF(",\"filesCount\":");
             CGI_PUTLL(vol->nfiles);
+            bin2hex(vol->global_id.b, sizeof(vol->global_id.b), volid_hex, sizeof(volid_hex));
+            CGI_PRINTF(",\"globalID\":\"%s\"", volid_hex);
             if(has_arg("volumeMeta") || has_arg("customVolumeMeta")) {
                 const char *metakey;
                 const void *metavalue;
