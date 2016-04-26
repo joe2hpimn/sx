@@ -2045,7 +2045,7 @@ void fcgi_mass_delete(void) {
     }
 
     sx_blob_to_data(b, &job_data, &job_data_len);
-    s = sx_hashfs_mass_job_new(hashfs, JOB_NOPARENT, uid, &job_id, JOBTYPE_MASSDELETE, MASS_JOB_DELAY_TIMEOUT, volume, job_data, job_data_len, volnodes);
+    s = sx_hashfs_mass_job_new(hashfs, uid, &job_id, JOBTYPE_MASSDELETE, MASS_JOB_DELAY_TIMEOUT, volume, job_data, job_data_len, volnodes);
     sx_blob_free(b);
     sx_nodelist_delete(volnodes);
     if(s != OK)
@@ -2159,7 +2159,7 @@ void fcgi_mass_rename(void) {
     }
 
     sx_blob_to_data(b, &job_data, &job_data_len);
-    s = sx_hashfs_mass_job_new(hashfs, JOB_NOPARENT, uid, &job_id, JOBTYPE_MASSRENAME, MASS_JOB_DELAY_TIMEOUT, volume, job_data, job_data_len, volnodes);
+    s = sx_hashfs_mass_job_new(hashfs, uid, &job_id, JOBTYPE_MASSRENAME, MASS_JOB_DELAY_TIMEOUT, volume, job_data, job_data_len, volnodes);
     sx_blob_free(b);
     sx_nodelist_delete(volnodes);
     if(s != OK)

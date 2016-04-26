@@ -12613,7 +12613,7 @@ sx_hashfs_mass_job_new_notrigger_err:
     return ret;
 }
 
-rc_ty sx_hashfs_mass_job_new(sx_hashfs_t *h, job_t parent, sx_uid_t user_id, job_t *job_id, jobtype_t slave_job_type, unsigned int slave_job_timeout, const char *slave_job_lockname, const void *slave_job_data, unsigned int slave_job_data_len, const sx_nodelist_t *targets) {
+rc_ty sx_hashfs_mass_job_new(sx_hashfs_t *h, sx_uid_t user_id, job_t *job_id, jobtype_t slave_job_type, unsigned int slave_job_timeout, const char *slave_job_lockname, const void *slave_job_data, unsigned int slave_job_data_len, const sx_nodelist_t *targets) {
     rc_ty ret = FAIL_EINTERNAL, s;
 
     if(!targets || !job_id) {
@@ -12625,7 +12625,7 @@ rc_ty sx_hashfs_mass_job_new(sx_hashfs_t *h, job_t parent, sx_uid_t user_id, job
     if(s != OK)
         return s;
 
-    s = sx_hashfs_mass_job_new_notrigger(h, parent, user_id, job_id, slave_job_type, slave_job_timeout, slave_job_lockname, slave_job_data, slave_job_data_len, targets);
+    s = sx_hashfs_mass_job_new_notrigger(h, JOB_NOPARENT, user_id, job_id, slave_job_type, slave_job_timeout, slave_job_lockname, slave_job_data, slave_job_data_len, targets);
     if(s != OK)
         goto sx_hashfs_mass_job_new_err;
 

@@ -404,7 +404,7 @@ rc_ty sx_hashfs_filedelete_job(sx_hashfs_t *h, sx_uid_t user_id, const sx_hashfs
 rc_ty sx_hashfs_file_rename(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const struct timeval *tv, const char *oldname, const char *revision, const char *newname);
 
 /* Create and schedule mass jobs */
-rc_ty sx_hashfs_mass_job_new(sx_hashfs_t *h, job_t parent, sx_uid_t user_id, job_t *job_id, jobtype_t slave_job_type, unsigned int slave_job_timeout, const char *slave_job_lockname, const void *slave_job_data, unsigned int slave_job_data_len, const sx_nodelist_t *targets);
+rc_ty sx_hashfs_mass_job_new(sx_hashfs_t *h, sx_uid_t user_id, job_t *job_id, jobtype_t slave_job_type, unsigned int slave_job_timeout, const char *slave_job_lockname, const void *slave_job_data, unsigned int slave_job_data_len, const sx_nodelist_t *targets);
 rc_ty sx_hashfs_mass_job_new_notrigger(sx_hashfs_t *h, job_t parent, sx_uid_t user_id, job_t *job_id, jobtype_t slave_job_type, unsigned int slave_job_timeout, const char *slave_job_lockname, const void *slave_job_data, unsigned int slave_job_data_len, const sx_nodelist_t *targets);
 
 /* Users */
