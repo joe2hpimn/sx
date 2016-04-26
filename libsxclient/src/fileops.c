@@ -2276,7 +2276,7 @@ static sxi_job_t* local_to_remote_begin(sxc_file_t *source, sxc_file_t *dest, in
 
 		if(memcmp(chksum1, chksum2, SXI_SHA1_BIN_LEN)) {
                     SXDEBUG("Checksums different, modifying volume %s\n", dest->volume);
-		    if(sxc_volume_modify(dest->cluster, dest->volume, NULL, -1, -1, cvmeta)) {
+		    if(sxc_volume_modify(dest->cluster, dest->volume, NULL, NULL, -1, -1, cvmeta)) {
 			if(sxc_geterrnum(dest->sx) == SXE_EAUTH)
 			    /* ignore error for non-owner */
 			    sxc_clearerr(dest->sx);
@@ -3877,7 +3877,7 @@ static int remote_to_local(sxc_file_t *source, sxc_file_t *dest, int recursive) 
 
         if(memcmp(chksum1, chksum2, SXI_SHA1_BIN_LEN)) {
             SXDEBUG("Checksums different, modifying volume %s\n", dest->volume);
-            if(sxc_volume_modify(source->cluster, source->volume, NULL, -1, -1, cvmeta)) {
+            if(sxc_volume_modify(source->cluster, source->volume, NULL, NULL, -1, -1, cvmeta)) {
                 if(sxc_geterrnum(source->sx) == SXE_EAUTH)
                     /* ignore error for non-owner */
                     sxc_clearerr(source->sx);
@@ -4138,7 +4138,7 @@ static int remote_to_local(sxc_file_t *source, sxc_file_t *dest, int recursive) 
 
             if(memcmp(chksum1, chksum2, SXI_SHA1_BIN_LEN)) {
                 SXDEBUG("Checksums different, modifying volume %s\n", dest->volume);
-		if(sxc_volume_modify(source->cluster, source->volume, NULL, -1, -1, cvmeta)) {
+		if(sxc_volume_modify(source->cluster, source->volume, NULL, NULL, -1, -1, cvmeta)) {
 		    if(sxc_geterrnum(source->sx) == SXE_EAUTH)
 			/* ignore error for non-owner */
 			sxc_clearerr(source->sx);
@@ -5431,7 +5431,7 @@ static int cat_remote_file(sxc_file_t *source, int dest) {
 
             if(memcmp(chksum1, chksum2, SXI_SHA1_BIN_LEN)) {
                 SXDEBUG("Checksums different, modifying volume %s\n", source->volume);
-		if(sxc_volume_modify(source->cluster, source->volume, NULL, -1, -1, cvmeta)) {
+		if(sxc_volume_modify(source->cluster, source->volume, NULL, NULL, -1, -1, cvmeta)) {
 		    if(sxc_geterrnum(source->sx) == SXE_EAUTH)
 			/* ignore error for non-owner */
 			sxc_clearerr(source->sx);
@@ -7207,7 +7207,7 @@ int sxi_filemeta_process(sxc_client_t *sx, struct filter_handle *fh, const char 
 
         if(memcmp(chksum1, chksum2, SXI_SHA1_BIN_LEN)) {
             SXDEBUG("Checksums different, modifying volume %s\n", file->volume);
-            if(sxc_volume_modify(file->cluster, file->volume, NULL, -1, -1, custom_volume_meta)) {
+            if(sxc_volume_modify(file->cluster, file->volume, NULL, NULL, -1, -1, custom_volume_meta)) {
                 if(sxc_geterrnum(sx) == SXE_EAUTH)
                     /* ignore error for non-owner */
                     sxc_clearerr(sx);

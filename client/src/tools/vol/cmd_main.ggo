@@ -7,7 +7,8 @@ purpose "Manages SX volumes and filters"
 text "\nAvailable commands:\n\n"
 
 text "  create	    Create a new volume\n"
-text "  modify	    Modify an existing volume\n"
+text "  rename	    Rename a volume\n"
+text "  modify	    Modify volume settings\n"
 text "  remove	    Remove an empty volume\n"
 text "  filter	    Manage filters\n"
 

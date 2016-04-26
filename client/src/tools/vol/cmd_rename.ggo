@@ -1,0 +1,13 @@
+package "sxvol"
+args "--unamed-opts --no-handle-version --no-handle-error --file-name=cmd_rename --func-name=rename_cmdline_parser --arg-struct-name=rename_args_info"
+usage "sxvol rename [OPTIONS] sx://[profile@]cluster/OLDNAME NEWNAME"
+
+text "\nAdditional options:\n"
+
+option  "debug"			D "Enable debug messages" flag off
+
+option  "config-dir"		c "Path to SX configuration directory"
+        string typestr="PATH" optional hidden
+
+option  "filter-dir"		- "Path to SX filter directory"
+        string typestr="PATH" optional hidden

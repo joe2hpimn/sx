@@ -53,7 +53,7 @@ int sxc_volume_add(sxc_cluster_t *cluster, const char *name, int64_t size, unsig
 	return 1;
     }
 
-    proto = sxi_volumeadd_proto(sx, name, owner, size, replica, revisions, metadata);
+    proto = sxi_volumeadd_proto(sx, name, owner, size, replica, revisions, metadata, NULL, 0);
     if(!proto) {
 	SXDEBUG("Cannot allocate request");
 	return 1;
@@ -93,7 +93,7 @@ int sxc_volume_remove(sxc_cluster_t *cluster, const char *name) {
     return ret;
 }
 
-int sxc_volume_modify(sxc_cluster_t *cluster, const char *volume, const char *newowner, int64_t newsize, int max_revs, sxc_meta_t *custom_meta) {
+int sxc_volume_modify(sxc_cluster_t *cluster, const char *volume, const char *newname, const char *newowner, int64_t newsize, int max_revs, sxc_meta_t *custom_meta) {
     sxc_client_t *sx;
     sxi_hostlist_t volhosts;
     sxi_query_t *query = NULL;
@@ -113,7 +113,7 @@ int sxc_volume_modify(sxc_cluster_t *cluster, const char *volume, const char *ne
     if(sxi_locate_volume(sxi_cluster_get_conns(cluster), volume, &volhosts, NULL, NULL, NULL))
         goto sxc_volume_modify_err;
 
-    query = sxi_volume_mod_proto(sx, volume, newowner, newsize, max_revs, custom_meta);
+    query = sxi_volume_mod_proto(sx, volume, newname, newowner, newsize, max_revs, custom_meta);
     if(!query) {
         sxi_seterr(sx, SXE_EMEM, "Failed to prepare volume modify query");
         goto sxc_volume_modify_err;

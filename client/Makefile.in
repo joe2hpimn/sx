@@ -120,10 +120,10 @@ CONFIG_CLEAN_FILES = man/sxacl.1 man/sxacl-useradd.1 \
 	man/sxacl-usernewkey.1 man/sxacl-volperm.1 man/sxacl-volshow.1 \
 	man/sxacl-whoami.1 man/sxcat.1 man/sxrm.1 man/sxls.1 \
 	man/sxmv.1 man/sxcp.1 man/sxinit.1 man/sxreport-client.1 \
-	man/sxvol.1 man/sxvol-create.1 man/sxvol-modify.1 \
-	man/sxvol-remove.1 man/sxvol-filter.1 man/sxrev.1 \
-	man/sxrev-list.1 man/sxrev-copy.1 man/sxrev-delete.1 \
-	man/sxfs.1
+	man/sxvol.1 man/sxvol-create.1 man/sxvol-rename.1 \
+	man/sxvol-modify.1 man/sxvol-remove.1 man/sxvol-filter.1 \
+	man/sxrev.1 man/sxrev-list.1 man/sxrev-copy.1 \
+	man/sxrev-delete.1 man/sxfs.1
 CONFIG_CLEAN_VPATH_FILES =
 @BUILD_SXFS_TRUE@am__EXEEXT_1 = src/sxfs/sxfs$(EXEEXT)
 am__installdirs = "$(DESTDIR)$(bindir)" "$(DESTDIR)$(man1dir)"
@@ -202,6 +202,7 @@ src_tools_sxreport_client_sxreport_client_DEPENDENCIES =  \
 am_src_tools_vol_sxvol_OBJECTS = src/tools/vol/sxvol.$(OBJEXT) \
 	src/tools/vol/cmd_main.$(OBJEXT) \
 	src/tools/vol/cmd_create.$(OBJEXT) \
+	src/tools/vol/cmd_rename.$(OBJEXT) \
 	src/tools/vol/cmd_remove.$(OBJEXT) \
 	src/tools/vol/cmd_filter.$(OBJEXT) \
 	src/tools/vol/cmd_modify.$(OBJEXT)
@@ -360,6 +361,7 @@ am__DIST_COMMON = $(srcdir)/Makefile.in $(srcdir)/config.h.in \
 	$(top_srcdir)/man/sxvol-filter.1.in \
 	$(top_srcdir)/man/sxvol-modify.1.in \
 	$(top_srcdir)/man/sxvol-remove.1.in \
+	$(top_srcdir)/man/sxvol-rename.1.in \
 	$(top_srcdir)/man/sxvol.1.in build-aux/ar-lib \
 	build-aux/compile build-aux/config.guess build-aux/config.sub \
 	build-aux/depcomp build-aux/install-sh build-aux/ltmain.sh \
@@ -540,7 +542,7 @@ ACLOCAL_AMFLAGS = -I m4
 SUBDIRS = src/filters/zcomp src/filters/attribs src/filters/aes256 src/filters/undelete
 AM_CPPFLAGS = -I $(top_srcdir)/../libsxclient/include -I ../libsxclient/include -I $(top_srcdir)/../ -I $(top_srcdir)/src/common -DSX_FILTER_DIR=\"$(pkglibdir)\"
 EXTRA_DIST = man/*.in
-man_MANS = man/sxacl.1 man/sxacl-useradd.1 man/sxacl-userclone.1 man/sxacl-userdel.1 man/sxacl-userlist.1 man/sxacl-usermod.1 man/sxacl-usergetkey.1 man/sxacl-usernewkey.1 man/sxacl-volperm.1 man/sxacl-volshow.1 man/sxacl-whoami.1 man/sxcat.1 man/sxrm.1 man/sxls.1 man/sxmv.1 man/sxcp.1 man/sxinit.1 man/sxreport-client.1 man/sxvol.1 man/sxvol-create.1 man/sxvol-modify.1 man/sxvol-remove.1 man/sxvol-filter.1 man/sxrev.1 man/sxrev-list.1 man/sxrev-copy.1 man/sxrev-delete.1 man/sxfs.1
+man_MANS = man/sxacl.1 man/sxacl-useradd.1 man/sxacl-userclone.1 man/sxacl-userdel.1 man/sxacl-userlist.1 man/sxacl-usermod.1 man/sxacl-usergetkey.1 man/sxacl-usernewkey.1 man/sxacl-volperm.1 man/sxacl-volshow.1 man/sxacl-whoami.1 man/sxcat.1 man/sxrm.1 man/sxls.1 man/sxmv.1 man/sxcp.1 man/sxinit.1 man/sxreport-client.1 man/sxvol.1 man/sxvol-create.1 man/sxvol-rename.1 man/sxvol-modify.1 man/sxvol-remove.1 man/sxvol-filter.1 man/sxrev.1 man/sxrev-list.1 man/sxrev-copy.1 man/sxrev-delete.1 man/sxfs.1
 src_tools_init_sxinit_SOURCES = \
 	src/tools/init/sxinit.c \
 	src/tools/init/cmdline.c \
@@ -591,6 +593,8 @@ src_tools_vol_sxvol_SOURCES = \
 	src/tools/vol/cmd_main.h \
 	src/tools/vol/cmd_create.c \
 	src/tools/vol/cmd_create.h \
+	src/tools/vol/cmd_rename.c \
+	src/tools/vol/cmd_rename.h \
 	src/tools/vol/cmd_remove.c \
 	src/tools/vol/cmd_remove.h \
 	src/tools/vol/cmd_filter.c \
@@ -748,6 +752,8 @@ man/sxreport-client.1: $(top_builddir)/config.status $(top_srcdir)/man/sxreport-
 man/sxvol.1: $(top_builddir)/config.status $(top_srcdir)/man/sxvol.1.in
 	cd $(top_builddir) && $(SHELL) ./config.status $@
 man/sxvol-create.1: $(top_builddir)/config.status $(top_srcdir)/man/sxvol-create.1.in
+	cd $(top_builddir) && $(SHELL) ./config.status $@
+man/sxvol-rename.1: $(top_builddir)/config.status $(top_srcdir)/man/sxvol-rename.1.in
 	cd $(top_builddir) && $(SHELL) ./config.status $@
 man/sxvol-modify.1: $(top_builddir)/config.status $(top_srcdir)/man/sxvol-modify.1.in
 	cd $(top_builddir) && $(SHELL) ./config.status $@
@@ -1014,6 +1020,8 @@ src/tools/vol/cmd_main.$(OBJEXT): src/tools/vol/$(am__dirstamp) \
 	src/tools/vol/$(DEPDIR)/$(am__dirstamp)
 src/tools/vol/cmd_create.$(OBJEXT): src/tools/vol/$(am__dirstamp) \
 	src/tools/vol/$(DEPDIR)/$(am__dirstamp)
+src/tools/vol/cmd_rename.$(OBJEXT): src/tools/vol/$(am__dirstamp) \
+	src/tools/vol/$(DEPDIR)/$(am__dirstamp)
 src/tools/vol/cmd_remove.$(OBJEXT): src/tools/vol/$(am__dirstamp) \
 	src/tools/vol/$(DEPDIR)/$(am__dirstamp)
 src/tools/vol/cmd_filter.$(OBJEXT): src/tools/vol/$(am__dirstamp) \
@@ -1082,6 +1090,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@src/tools/vol/$(DEPDIR)/cmd_main.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/tools/vol/$(DEPDIR)/cmd_modify.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/tools/vol/$(DEPDIR)/cmd_remove.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@src/tools/vol/$(DEPDIR)/cmd_rename.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/tools/vol/$(DEPDIR)/sxvol.Po@am__quote@
 
 .c.o:

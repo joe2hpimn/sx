@@ -914,8 +914,8 @@ void fcgi_node_init(void) {
 
     {
         "volumes":{
-	    "volume1":{"owner":"xxxx","replica":1,"revs":1,"size":1234,"meta":{"key":"val","key2":"val2"}},
-	    "volume2":{"owner":"yyyy","replica":2,"size":5678},
+	    "volume1":{"owner":"xxxx","replica":1,"revs":1,"size":1234,"meta":{"key":"val","key2":"val2"},"global_id":"aabb...ccdd"},
+	    "volume2":{"owner":"yyyy","replica":2,"size":5678,"global_id":"1122...4567"},
         }
     }
 
@@ -947,6 +947,8 @@ struct cb_sync_ctx {
     unsigned int nsettings;
     unsigned int nmeta;
     sx_blob_t *settings;
+    sx_hash_t global_vol_id;
+    int has_global_vol_id;
 };
 
 /* USER callbacks */
@@ -1068,6 +1070,17 @@ static void cb_syncusr_create(jparse_t *J, void *ctx) {
 }
 
 /* VOLUME callbacks */
+static void cb_syncvol_global_id(jparse_t *J, void *ctx, const char *string, unsigned int length) {
+    struct cb_sync_ctx *c = (struct cb_sync_ctx *)ctx;
+
+    if(length != sizeof(c->global_vol_id.b) * 2 || hex2bin(string, sizeof(c->global_vol_id.b) * 2, c->global_vol_id.b, sizeof(c->global_vol_id.b))) {
+        sxi_jparse_cancel(J, "Invalid global ID for volume %s",
+                          sxi_jpath_mapkey(sxi_jpath_down(sxi_jparse_whereami(J))));
+        return;
+    }
+    c->has_global_vol_id = 1;
+}
+
 static void cb_syncvol_owner(jparse_t *J, void *ctx, const char *string, unsigned int length) {
     struct cb_sync_ctx *c = (struct cb_sync_ctx *)ctx;
     uint8_t usr[AUTH_UID_LEN];
@@ -1141,6 +1154,7 @@ static void cb_syncvol_init(jparse_t *J, void *ctx) {
     c->uid = -1;
     c->size = -1;
     c->replica = 0;
+    c->has_global_vol_id = 0;
     /* Optional fields */
     c->revs = 0;
 }
@@ -1156,13 +1170,13 @@ static void cb_syncvol_create(jparse_t *J, void *ctx) {
 	return;
     }
 
-    if(!*name || c->uid < 0 || c->size <= 0 || !c->replica) {
+    if(!*name || c->uid < 0 || c->size <= 0 || !c->replica || !c->has_global_vol_id) {
 	sxi_jparse_cancel(J, "Volume '%s' lacks one or more required fields", name);
 	return;
     }
     if(!c->revs)
 	c->revs = 1;
-    s = sx_hashfs_volume_new_finish(hashfs, name, c->size, c->replica, c->revs, c->uid, 0);
+    s = sx_hashfs_volume_new_finish(hashfs, name, &c->global_vol_id, c->size, c->replica, c->revs, c->uid, 0);
     if(s != OK && s != EEXIST) {
 	sxi_jparse_cancel(J, "Failed to create volume '%s': %s", name, msg_get_reason());
 	return;
@@ -1378,6 +1392,7 @@ void fcgi_sync_globs(void) {
 		      JPACT(cb_syncusr_desc, JPKEY("users"), JPANYKEY, JPKEY("desc")),
 		      JPACT(cb_syncusr_userid, JPKEY("users"), JPANYKEY, JPKEY("user")),
 		      JPACT(cb_syncvol_owner, JPKEY("volumes"), JPANYKEY, JPKEY("owner")),
+                      JPACT(cb_syncvol_global_id, JPKEY("volumes"), JPANYKEY, JPKEY("global_id")),
 		      JPACT(cb_syncvol_meta, JPKEY("volumes"), JPANYKEY, JPKEY("meta"), JPANYKEY),
 		      JPACT(cb_syncmisc_mode, JPKEY("misc"), JPKEY("mode")),
 		      JPACT(cb_syncmisc_cmeta, JPKEY("misc"), JPKEY("clusterMeta"), JPARR(1), JPANYKEY),

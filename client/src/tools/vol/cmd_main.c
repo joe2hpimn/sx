@@ -36,7 +36,7 @@ const char *main_args_info_description = "";
 const char *main_args_info_help[] = {
   "  -h, --help     Print help and exit",
   "  -V, --version  Print version and exit",
-  "\nAvailable commands:\n\n  create	    Create a new volume\n  modify	    Modify an existing volume\n  remove	    Remove an empty volume\n  filter	    Manage filters\n\nSee 'sxvol <command> --help' for more information on a specific command.\n",
+  "\nAvailable commands:\n\n  create	    Create a new volume\n  rename	    Rename a volume\n  modify	    Modify volume settings\n  remove	    Remove an empty volume\n  filter	    Manage filters\n\nSee 'sxvol <command> --help' for more information on a specific command.\n",
     0
 };
 

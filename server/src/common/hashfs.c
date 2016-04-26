@@ -786,6 +786,7 @@ struct _sx_hashfs_t {
     sqlite3_stmt *q_chownvol;
     sqlite3_stmt *q_chownvolbyid;
     sqlite3_stmt *q_resizevol;
+    sqlite3_stmt *q_renamevol;
     sqlite3_stmt *q_changerevs;
     sqlite3_stmt *q_minreqs;
     sqlite3_stmt *q_updatevolcursize;
@@ -1150,6 +1151,7 @@ static void close_all_dbs(sx_hashfs_t *h) {
     sqlite3_finalize(h->q_chownvol);
     sqlite3_finalize(h->q_chownvolbyid);
     sqlite3_finalize(h->q_resizevol);
+    sqlite3_finalize(h->q_renamevol);
     sqlite3_finalize(h->q_changerevs);
     sqlite3_finalize(h->q_minreqs);
     sqlite3_finalize(h->q_updatevolcursize);
@@ -1864,6 +1866,8 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
     if(qprep(h->db, &h->q_chownvolbyid, "UPDATE volumes SET owner_id = :owner WHERE vid = :volid AND enabled = 1"))
         goto open_hashfs_fail;
     if(qprep(h->db, &h->q_resizevol, "UPDATE volumes SET maxsize = :size WHERE vid = :volid AND enabled = 1"))
+        goto open_hashfs_fail;
+    if(qprep(h->db, &h->q_renamevol, "UPDATE volumes SET volume = :name WHERE vid = :volid AND enabled = 1"))
         goto open_hashfs_fail;
     if(qprep(h->db, &h->q_changerevs, "UPDATE volumes SET revs = :revs WHERE vid = :volid AND enabled = 1"))
         goto open_hashfs_fail;
@@ -6862,21 +6866,15 @@ static int hash_nidx_tobuf(sx_hashfs_t *h, const sx_hash_t *hash, unsigned int r
 
 int sx_hashfs_is_node_volume_owner(sx_hashfs_t *h, sx_hashfs_nl_t which, const sx_node_t *n, const sx_hashfs_volume_t *vol, int allow_over_replica) {
     sx_nodelist_t *volnodes;
-    sx_hash_t hash;
     int ret = 0;
 
     if(!h || !vol || !h->have_hd || !n)
         return 0;
 
-    if(hash_buf(h->cluster_uuid.string, strlen(h->cluster_uuid.string), vol->name, strlen(vol->name), &hash)) {
-        WARN("hashing volume name failed");
-        return 0;
-    }
-
     if(allow_over_replica)
-        volnodes = sx_hashfs_all_hashnodes(h, which, &hash, MAX(vol->max_replica,vol->prev_max_replica));
+        volnodes = sx_hashfs_all_hashnodes(h, which, &vol->global_id, MAX(vol->max_replica,vol->prev_max_replica));
     else
-        volnodes = sx_hashfs_all_hashnodes(h, which, &hash, vol->max_replica);
+        volnodes = sx_hashfs_all_hashnodes(h, which, &vol->global_id, vol->max_replica);
     if(volnodes) {
         if(sx_nodelist_lookup(volnodes, sx_node_uuid(n)))
             ret = 1;
@@ -7587,7 +7585,6 @@ sx_nodelist_t *sx_hashfs_putfile_hashnodes(sx_hashfs_t *h, const sx_hash_t *hash
 }
 
 static rc_ty get_volnodes_common(sx_hashfs_t *h, sx_hashfs_nl_t which, const sx_hashfs_volume_t *volume, int64_t size, sx_nodelist_t **nodes, unsigned int *block_size, int effective_only, int write_op) {
-    sx_hash_t hash;
     unsigned int max_replica;
 
     if(!h || !volume || !nodes) {
@@ -7601,9 +7598,6 @@ static rc_ty get_volnodes_common(sx_hashfs_t *h, sx_hashfs_nl_t which, const sx_
 	return EINVAL;
     }
 
-    if(hash_buf(h->cluster_uuid.string, strlen(h->cluster_uuid.string), volume->name, strlen(volume->name), &hash))
-	return FAIL_EINTERNAL;
-
     if(effective_only) {
         if(write_op) /* For WRITE operations we should return the next volume replica */
             max_replica = volume->max_replica;
@@ -7613,8 +7607,8 @@ static rc_ty get_volnodes_common(sx_hashfs_t *h, sx_hashfs_nl_t which, const sx_
         max_replica = MAX(volume->max_replica, volume->prev_max_replica);
 
     *nodes = effective_only ?
-	sx_hashfs_effective_hashnodes(h, which, &hash, max_replica) :
-	sx_hashfs_all_hashnodes(h, which, &hash, max_replica);
+	sx_hashfs_effective_hashnodes(h, which, &volume->global_id, max_replica) :
+	sx_hashfs_all_hashnodes(h, which, &volume->global_id, max_replica);
     if(!*nodes)
 	return FAIL_EINTERNAL;
 
@@ -8710,14 +8704,13 @@ rc_ty sx_hashfs_check_volume_settings(sx_hashfs_t *h, const char *volume, int64_
 }
 
 static rc_ty get_priv_holder(sx_hashfs_t *h, uint64_t uid, const char *volume, int64_t *holder);
-rc_ty sx_hashfs_volume_new_finish(sx_hashfs_t *h, const char *volume, int64_t size, unsigned int replica, unsigned int revisions, sx_uid_t uid, int do_transaction) {
+rc_ty sx_hashfs_volume_new_finish(sx_hashfs_t *h, const char *volume, const sx_hash_t *global_id, int64_t size, unsigned int replica, unsigned int revisions, sx_uid_t uid, int do_transaction) {
     unsigned int reqlen = 0;
     rc_ty ret = FAIL_EINTERNAL, s;
     int64_t volid, privholder = -1;
     int r;
-    sx_hash_t global_id;
 
-    if(!h) {
+    if(!h || !global_id) {
 	NULLARG();
 	return EFAULT;
     }
@@ -8725,12 +8718,6 @@ rc_ty sx_hashfs_volume_new_finish(sx_hashfs_t *h, const char *volume, int64_t si
     sqlite3_reset(h->q_addvol);
     sqlite3_reset(h->q_addvolmeta);
     sqlite3_reset(h->q_addvolprivs);
-
-    /* The global volume ID becomes a hash of the volume name. It is unique among the cluster nodes. */
-    if(hash_buf(h->cluster_uuid.string, strlen(h->cluster_uuid.string), volume, strlen(volume), &global_id)) {
-        msg_set_reason("Failed to calculate global volume ID");
-        return FAIL_EINTERNAL;
-    }
 
     if(do_transaction && qbegin(h->db))
 	return FAIL_EINTERNAL;
@@ -8745,7 +8732,7 @@ rc_ty sx_hashfs_volume_new_finish(sx_hashfs_t *h, const char *volume, int64_t si
        qbind_int(h->q_addvol, ":revs", revisions) ||
        qbind_int64(h->q_addvol, ":size", size) ||
        qbind_int64(h->q_addvol, ":owner", uid) ||
-       qbind_blob(h->q_addvol, ":global_id", global_id.b, sizeof(global_id.b)))
+       qbind_blob(h->q_addvol, ":global_id", global_id->b, sizeof(global_id->b)))
 	goto volume_new_err;
 
     r = qstep(h->q_addvol);
@@ -14361,8 +14348,8 @@ static const char *locknames[] = {
     "TOKEN_LOCAL", /* JOBTYPE_FLUSH_FILE_LOCAL */
     "UPGRADE", /* JOBTYPE_UPGRADE_FROM_1_0_OR_1_1 */
     NULL, /* JOBTYPE_JOBPOLL */
-    NULL, /* JOBTYPE_MASSDELETE */
-    "MASSRENAME", /* JOBTYPE_MASSRENAME */
+    "VOL", /* JOBTYPE_MASSDELETE */
+    "VOL", /* JOBTYPE_MASSRENAME */
     "CLUSTER_SETMETA", /* JOBTYPE_CLUSTER_SETMETA */
     NULL, /* JOBTYPE_JOBSPAWN */
     "CLUSTER_SETTINGS", /* JOBTYPE_CLUSTER_SETTINGS */
@@ -16861,20 +16848,14 @@ rc_ty sx_hashfs_relocs_populate(sx_hashfs_t *h) {
     while(r == OK) {
 	sx_nodelist_t *prevnodes, *nextnodes;
 	const sx_node_t *prev, *next;
-	sx_hash_t hash;
 
-	if(hash_buf(h->cluster_uuid.string, strlen(h->cluster_uuid.string), vol->name, strlen(vol->name), &hash)) {
-	    WARN("hashing volume name failed");
-	    return FAIL_EINTERNAL;
-	}
-
-	prevnodes = sx_hashfs_all_hashnodes(h, NL_PREV, &hash, vol->max_replica);
+	prevnodes = sx_hashfs_all_hashnodes(h, NL_PREV, &vol->global_id, vol->max_replica);
 	if(!prevnodes) {
 	    WARN("cannot determine the previous owner of block: %s", msg_get_reason());
 	    return FAIL_EINTERNAL;
 	}
 
-	nextnodes = sx_hashfs_all_hashnodes(h, NL_NEXT, &hash, vol->max_replica);
+	nextnodes = sx_hashfs_all_hashnodes(h, NL_NEXT, &vol->global_id, vol->max_replica);
 	if(!nextnodes) {
 	    WARN("cannot determine the next owner of block");
 	    sx_nodelist_delete(prevnodes);
@@ -17202,14 +17183,8 @@ rc_ty sx_hashfs_rb_cleanup(sx_hashfs_t *h) {
     r = sx_hashfs_volume_first(h, &vol, 0);
     while(r == OK) {
 	sx_nodelist_t *volnodes;
-	sx_hash_t hash;
 
-	if(hash_buf(h->cluster_uuid.string, strlen(h->cluster_uuid.string), vol->name, strlen(vol->name), &hash)) {
-	    WARN("hashing volume name failed");
-	    return FAIL_EINTERNAL;
-	}
-
-	volnodes = sx_hashfs_all_hashnodes(h, NL_NEXT, &hash, vol->max_replica);
+	volnodes = sx_hashfs_all_hashnodes(h, NL_NEXT, &vol->global_id, vol->max_replica);
 	if(!volnodes)
 	    return FAIL_EINTERNAL;
 
@@ -17550,6 +17525,29 @@ volume_resize_err:
     return ret;
 }
 
+static rc_ty volume_rename(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, const char *newname) {
+    rc_ty ret = FAIL_EINTERNAL;
+
+    if(!vol) {
+        NULLARG();
+        return EINVAL;
+    }
+
+    sqlite3_reset(h->q_renamevol);
+    if(qbind_text(h->q_renamevol, ":name", newname)
+       || qbind_int64(h->q_renamevol, ":volid", vol->id)
+       || qstep_noret(h->q_renamevol)) {
+        msg_set_reason("Could not rename volume");
+        goto volume_resize_err;
+    }
+
+    INFO("Volume %s renamed to %s", vol->name, newname);
+    ret = OK;
+volume_resize_err:
+    sqlite3_reset(h->q_renamevol);
+    return ret;
+}
+
 static rc_ty volume_change_revs(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, unsigned int max_revs) {
     rc_ty ret = FAIL_EINTERNAL;
 
@@ -17573,17 +17571,39 @@ volume_change_revs_err:
     return ret;
 }
 
-rc_ty sx_hashfs_volume_mod(sx_hashfs_t *h, const char *volume, const char *newowner, int64_t newsize, int max_revs, int modify_meta) {
+rc_ty sx_hashfs_check_volume_existence(sx_hashfs_t *h, const char *name) {
+    sqlite3_stmt *q;
+    int r;
+
+    if(!h || !name) {
+        NULLARG();
+        return EINVAL;
+    }
+    q = h->q_volbyname;
+    sqlite3_reset(q);
+    if(qbind_text(q, ":name", name))
+        return FAIL_EINTERNAL;
+    r = qstep(q);
+    sqlite3_reset(q);
+    if(r == SQLITE_DONE)
+        return ENOENT;
+    else if(r == SQLITE_ROW)
+        return EEXIST;
+    else
+        return FAIL_EINTERNAL;
+}
+
+rc_ty sx_hashfs_volume_mod(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, const char *newname, const char *newowner, int64_t newsize, int max_revs, int modify_meta) {
     rc_ty ret = FAIL_EINTERNAL, s;
-    const sx_hashfs_volume_t *vol = NULL;
     sx_uid_t newid;
 
-    if(!volume || !newowner) {
+    if(!vol || !newowner || !newname) {
         NULLARG();
         return ret;
     }
 
-    if(!*newowner && newsize == -1 && max_revs == -1 && !modify_meta)
+    /* Renaming or changing owner ops are skipped when the corresponding strings are empty */
+    if(!*newname && !*newowner && newsize == -1 && max_revs == -1 && !modify_meta)
         return OK; /* Nothing to do */
 
     if(qbegin(h->db)) {
@@ -17591,9 +17611,48 @@ rc_ty sx_hashfs_volume_mod(sx_hashfs_t *h, const char *volume, const char *newow
         return ret;
     }
 
-    if(sx_hashfs_volume_by_name(h, volume, &vol) != OK) {
-        msg_set_reason("Volume does not exist or is enabled");
-        return ENOENT;
+    if(*newname && strcmp(newname, vol->name)) {
+        /* Check the new volume name correctness */
+        if((s = sx_hashfs_check_volume_name(newname)) != OK) {
+            msg_set_reason("Invalid volume name");
+            ret = s;
+            goto sx_hashfs_volume_mod_err;
+        }
+
+        /* Reject modifying volume name while changing volume replica */
+        if(vol->prev_max_replica != vol->max_replica) {
+            msg_set_reason("Volume is undergoing replica change");
+            ret = EINVAL;
+            goto sx_hashfs_volume_mod_err;
+        }
+
+        /* Rebalance and faulty node replacement jobs require files synchronization which could
+         * encounter unexpected 'Not found' issues if the volume was renamed in the middle of the process. */
+        if(h->is_rebalancing) {
+            msg_set_reason("The cluster is being rebalanced");
+            ret = EINVAL;
+            goto sx_hashfs_volume_mod_err;
+        }
+
+        if(sx_nodelist_count(h->faulty_nodes)) {
+            msg_set_reason("The cluster contains faulty nodes which are still being replaced");
+            ret = EINVAL;
+            goto sx_hashfs_volume_mod_err;
+        }
+
+        s = sx_hashfs_check_volume_existence(h, newname);
+        if(s != ENOENT && s != EEXIST) {
+            msg_set_reason("Failed to check volume existence");
+            return s;
+        } else if(s == EEXIST) {
+            msg_set_reason("Volume already exists");
+            return EEXIST;
+        }
+
+        if((s = volume_rename(h, vol, newname)) != OK) {
+            ret = s;
+            goto sx_hashfs_volume_mod_err;
+        }
     }
 
     if(*newowner) {
@@ -17605,7 +17664,6 @@ rc_ty sx_hashfs_volume_mod(sx_hashfs_t *h, const char *volume, const char *newow
 
         if(newid != vol->owner && (s = volume_chown(h, vol, newid)) != OK) {
             ret = s;
-            msg_set_reason("Failed to change volume owner: %s", msg_get_reason());
             goto sx_hashfs_volume_mod_err;
         }
         INFO("Volume %s owner changed to %s", vol->name, newowner);
@@ -17621,7 +17679,6 @@ rc_ty sx_hashfs_volume_mod(sx_hashfs_t *h, const char *volume, const char *newow
 
         /* Perform resize operation */
         if((s = volume_resize(h, vol, newsize)) != OK) {
-            msg_set_reason("Failed to resize volume: %s", msg_get_reason());
             ret = s;
             goto sx_hashfs_volume_mod_err;
         }
@@ -17630,7 +17687,6 @@ rc_ty sx_hashfs_volume_mod(sx_hashfs_t *h, const char *volume, const char *newow
     if(max_revs != -1 && (unsigned int)max_revs <= SXLIMIT_MAX_REVISIONS && (unsigned int)max_revs >= SXLIMIT_MIN_REVISIONS) {
         /* Revisions correctness has been checked, modify volume now */
         if((s = volume_change_revs(h, vol, max_revs)) != OK) {
-            msg_set_reason("Failed to change volume revisions limit: %s", msg_get_reason());
             ret = s;
             goto sx_hashfs_volume_mod_err;
         }
@@ -17649,7 +17705,6 @@ rc_ty sx_hashfs_volume_mod(sx_hashfs_t *h, const char *volume, const char *newow
             char metakey_prefixed[SXLIMIT_META_MAX_KEY_LEN+1];
 
             if(strlen(h->meta[i].key) > SXLIMIT_META_MAX_KEY_LEN - lenof(SX_CUSTOM_META_PREFIX)) {
-                INFO("Custom meta key is too long: must reserve space for prefix");
                 msg_set_reason("Invalid metadata");
                 ret = EINVAL;
                 goto sx_hashfs_volume_mod_err;

@@ -12,8 +12,11 @@ The available commands are listed below. To get more information about a specifi
 .B create
 Create a new volume.
 .TP
+.B rename
+Rename a volume.
+.TP
 .B modify
-Modify an existing volume.
+Modify volume settings.
 .TP
 .B remove
 Remove an empty volume.

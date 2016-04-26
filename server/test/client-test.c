@@ -275,7 +275,7 @@ static int create_volume(sxc_client_t *sx, sxc_cluster_t *cluster, const char *v
             ERROR("%s", sxc_geterrmsg(sx));
         goto create_volume_err;
     }
-    if(sxc_meta_count(custom_meta) && sxc_volume_modify(cluster, volname, NULL, -1, -1, custom_meta)) {
+    if(sxc_meta_count(custom_meta) && sxc_volume_modify(cluster, volname, NULL, NULL, -1, -1, custom_meta)) {
         ERROR("%s", sxc_geterrmsg(sx));
         goto create_volume_err;
     }
@@ -2042,7 +2042,7 @@ static int test_volmeta(sxc_client_t *sx, sxc_cluster_t *cluster, const char *lo
     }
 
     /* Modify the volume */
-    if(sxc_volume_modify(cluster, vdata[0].name, NULL, -1, -1, custom_meta)) {
+    if(sxc_volume_modify(cluster, vdata[0].name, NULL, NULL, -1, -1, custom_meta)) {
         ERROR("Failed to modify meta");
         goto test_volmeta_err;
     }
@@ -2072,7 +2072,7 @@ static int test_volmeta(sxc_client_t *sx, sxc_cluster_t *cluster, const char *lo
     }
 
     /* Modify the volume as a volume owner */
-    if(sxc_volume_modify(cluster, vdata[0].name, NULL, -1, -1, custom_meta)) {
+    if(sxc_volume_modify(cluster, vdata[0].name, NULL, NULL, -1, -1, custom_meta)) {
         ERROR("Failed to modify meta");
         goto test_volmeta_err;
     }
@@ -2102,7 +2102,7 @@ static int test_volmeta(sxc_client_t *sx, sxc_cluster_t *cluster, const char *lo
     }
 
     /* Try to modify the volume as a non-authorised user - should fail */
-    if(!sxc_volume_modify(cluster, vdata[0].name, NULL, -1, -1, custom_meta)) {
+    if(!sxc_volume_modify(cluster, vdata[0].name, NULL, NULL, -1, -1, custom_meta)) {
         ERROR("Successfully changed volume %s meta as a non-authorised user '%s'", vdata[0].name, udata[1].username);
         goto test_volmeta_err;
     }
@@ -2126,7 +2126,7 @@ static int test_volmeta(sxc_client_t *sx, sxc_cluster_t *cluster, const char *lo
         goto test_volmeta_err;
 
     /* Modify the volume as an admin user */
-    if(sxc_volume_modify(cluster, vdata[0].name, NULL, -1, -1, custom_meta)) {
+    if(sxc_volume_modify(cluster, vdata[0].name, NULL, NULL, -1, -1, custom_meta)) {
         ERROR("Failed to modify volume %s meta as the admin user '%s'", vdata[0].name, udata[2].username);
         goto test_volmeta_err;
     }
@@ -2342,7 +2342,7 @@ static int test_volume_quota(sxc_client_t *sx, sxc_cluster_t *cluster, const cha
         ERROR("Cannot upload '%s' file: %s", local_file_path, sxc_geterrmsg(sx));
         goto test_quota_err;
     }
-    if(sxc_volume_modify(cluster, vdata.name, NULL, 5ULL*1024ULL*1024ULL*1024ULL, -1, NULL)) { /* Use almost all cluster space */
+    if(sxc_volume_modify(cluster, vdata.name, NULL, NULL, 5ULL*1024ULL*1024ULL*1024ULL, -1, NULL)) { /* Use almost all cluster space */
         ERROR("Cannot change volume size: %s", sxc_geterrmsg(sx));
         goto test_quota_err;
     }
@@ -3035,7 +3035,7 @@ static int test_acl(sxc_client_t *sx, sxc_cluster_t *cluster, const char *local_
         ERROR("Cannot revoke 'read,write' permission from '%s': %s", udata[2].username, sxc_geterrmsg(sx));
         goto test_acl_err;
     }
-    if(sxc_volume_modify(cluster, vdata[0].name, udata[2].username, 0, -1, NULL)) {
+    if(sxc_volume_modify(cluster, vdata[0].name, NULL, udata[2].username, 0, -1, NULL)) {
         ERROR("Cannot change volume owner: %s", sxc_geterrmsg(sx));
         goto test_acl_err;
     }

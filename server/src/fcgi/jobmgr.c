@@ -401,6 +401,8 @@ static act_result_t createvol_request(sx_hashfs_t *hashfs, job_t job_id, job_dat
     sxc_meta_t *vmeta = NULL;
     query_list_t *qrylist = NULL;
     rc_ty s;
+    const sx_hash_t *global_id = NULL;
+    unsigned int global_id_size = 0;
 
     b = sx_blob_from_data(job_data->ptr, job_data->len);
     if(!b) {
@@ -409,6 +411,7 @@ static act_result_t createvol_request(sx_hashfs_t *hashfs, job_t job_id, job_dat
     }
 
     if(sx_blob_get_string(b, &volname) ||
+       sx_blob_get_blob(b, (const void**)&global_id, &global_id_size) || global_id_size != sizeof(global_id->b) ||
        sx_blob_get_string(b, &owner) ||
        sx_blob_get_int64(b, &volsize) ||
        sx_blob_get_int32(b, &replica) ||
@@ -453,7 +456,7 @@ static act_result_t createvol_request(sx_hashfs_t *hashfs, job_t job_id, job_dat
 		}
 	    }
 
-	    s = sx_hashfs_volume_new_finish(hashfs, volname, volsize, replica, revisions, owner_uid, 1);
+	    s = sx_hashfs_volume_new_finish(hashfs, volname, global_id, volsize, replica, revisions, owner_uid, 1);
 	    if(s != OK) {
                 const char *msg = (s == EINVAL || s == EEXIST) ? msg_get_reason() : rc2str(s);
 		action_error(rc2actres(s), rc2http(s), msg);
@@ -485,7 +488,7 @@ static act_result_t createvol_request(sx_hashfs_t *hashfs, job_t job_id, job_dat
 		    }
 		}
 
-		proto = sxi_volumeadd_proto(sx, volname, owner, volsize, replica, revisions, vmeta);
+		proto = sxi_volumeadd_proto(sx, volname, owner, volsize, replica, revisions, vmeta, global_id->b, sizeof(global_id->b));
 		if(!proto) {
 		    WARN("Cannot allocate proto for job %lld", (long long)job_id);
 		    action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
@@ -1927,6 +1930,7 @@ static int sync_global_objects(sx_hashfs_t *hashfs, const sxi_hostlist_t *hlist)
     for(s = sx_hashfs_volume_first(hashfs, &vol, 0); s == OK; s = sx_hashfs_volume_next(hashfs)) {
 	uint8_t user[AUTH_UID_LEN];
 	char userhex[AUTH_UID_LEN * 2 + 1];
+        char global_id_hex[SXI_SHA1_TEXT_LEN+1];
 
 	/* Volume object begins */
 	if(sx_hashfs_get_user_by_uid(hashfs, vol->owner, user, 0)) {
@@ -1934,6 +1938,7 @@ static int sync_global_objects(sx_hashfs_t *hashfs, const sxi_hostlist_t *hlist)
 	    goto sync_global_err;
 	}
 	bin2hex(user, AUTH_UID_LEN, userhex, sizeof(userhex));
+        bin2hex(vol->global_id.b, sizeof(vol->global_id.b), global_id_hex, sizeof(global_id_hex));
 
 	if(sync_objbegin(sctx, SYNCTYPE_VOLUME))
 	    goto sync_global_err;
@@ -1944,8 +1949,8 @@ static int sync_global_objects(sx_hashfs_t *hashfs, const sxi_hostlist_t *hlist)
 	    goto sync_global_err;
 	}
 	/* Volume main body */
-	r = sync_printf(sctx, "%s:{\"owner\":\"%s\",\"size\":%lld,\"replica\":%u,\"revs\":%u",
-			  enc_name, userhex, (long long)vol->size, vol->max_replica, vol->revisions);
+	r = sync_printf(sctx, "%s:{\"owner\":\"%s\",\"size\":%lld,\"replica\":%u,\"revs\":%u,\"global_id\":\"%s\"",
+			  enc_name, userhex, (long long)vol->size, vol->max_replica, vol->revisions, global_id_hex);
 	free(enc_name);
 	if(r)
 	    goto sync_global_err;

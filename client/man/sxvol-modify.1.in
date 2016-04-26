@@ -51,4 +51,4 @@ To change the size of the volume 'data' to 5 gigabytes run:
 \fB    sxvol modify -s 5G sx://admin@cluster/data\fP
 .br
 .SH SEE ALSO
-\fBsxvol-create\fR(1), \fBsxvol-remove\fR(1)
+\fBsxvol-create\fR(1), \fBsxvol-rename\fR(1), \fBsxvol-remove\fR(1)

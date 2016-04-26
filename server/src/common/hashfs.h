@@ -218,7 +218,7 @@ rc_ty sx_hashfs_revoke(sx_hashfs_t *h, uint64_t uid, const char *volume, int pri
 /* Volume ops */
 void sx_hashfs_volume_new_begin(sx_hashfs_t *h);
 rc_ty sx_hashfs_volume_new_addmeta(sx_hashfs_t *h, const char *key, const void *value, unsigned int value_len);
-rc_ty sx_hashfs_volume_new_finish(sx_hashfs_t *h, const char *volume, int64_t size, unsigned int replica, unsigned int revisions, sx_uid_t owner_uid, int do_transaction);
+rc_ty sx_hashfs_volume_new_finish(sx_hashfs_t *h, const char *volume, const sx_hash_t *global_id, int64_t size, unsigned int replica, unsigned int revisions, sx_uid_t owner_uid, int do_transaction);
 /* Returns (and logs reason/error):
  *  - EFAULT
  *  - EINVAL
@@ -288,9 +288,10 @@ int sx_hashfs_is_node_ignored(sx_hashfs_t *h, const sx_uuid_t *node_uuid);
 rc_ty sx_hashfs_set_unfaulty(sx_hashfs_t *h, const sx_uuid_t *nodeid, int64_t dist_rev);
 
 /* Change volume ownership and/or size*/
-rc_ty sx_hashfs_volume_mod(sx_hashfs_t *h, const char *volume, const char *newowner, int64_t newsize, int max_revs, int modify_meta);
+rc_ty sx_hashfs_volume_mod(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, const char *newname, const char *newowner, int64_t newsize, int max_revs, int modify_meta);
 rc_ty sx_hashfs_volume_mod_begin(sx_hashfs_t *h, const sx_hashfs_volume_t *vol);
 rc_ty sx_hashfs_volume_mod_addmeta(sx_hashfs_t *h, const char *key, const void *value, unsigned int value_len);
+rc_ty sx_hashfs_check_volume_existence(sx_hashfs_t *h, const char *name);
 
 /* Recaluculate the volume size */
 rc_ty sx_hashfs_compute_volume_size(sx_hashfs_t *h, const sx_hashfs_volume_t *vol);

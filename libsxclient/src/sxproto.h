@@ -47,7 +47,7 @@ sxi_query_t *sxi_userclone_proto(sxc_client_t *sx, const char *existingname, con
 sxi_query_t *sxi_useronoff_proto(sxc_client_t *sx, const char *username, int enable, int all_clones);
 sxi_query_t *sxi_userdel_proto(sxc_client_t *sx, const char *username, const char *newowner, int all_clones);
 sxi_query_t *sxi_usermod_proto(sxc_client_t *sx, const char *username, const uint8_t *key, int64_t quota, const char *description, sxc_meta_t *custom_meta);
-sxi_query_t *sxi_volumeadd_proto(sxc_client_t *sx, const char *volname, const char *owner, int64_t size, unsigned int replica, unsigned int revisions, sxc_meta_t *metadata);
+sxi_query_t *sxi_volumeadd_proto(sxc_client_t *sx, const char *volname, const char *owner, int64_t size, unsigned int replica, unsigned int revisions, sxc_meta_t *metadata, const void *global_id, unsigned int global_id_len);
 sxi_query_t *sxi_flushfile_proto(sxc_client_t *sx, const char *token);
 sxi_query_t *sxi_fileadd_proto_begin(sxc_client_t *sx, const char *volname, const char *path, const char *revision, const char *revision_id, int64_t pos, int64_t blocksize, int64_t size);
 sxi_query_t *sxi_fileadd_proto_addhash(sxc_client_t *sx, sxi_query_t *query, const char *hexhash);
@@ -94,7 +94,9 @@ sxi_query_t *sxi_volsizes_proto_begin(sxc_client_t *sx);
 sxi_query_t *sxi_volsizes_proto_add_volume(sxc_client_t *sx, sxi_query_t *query, const char *volname, int64_t size, int64_t fsize, int64_t nfiles);
 sxi_query_t *sxi_volsizes_proto_end(sxc_client_t *sx, sxi_query_t *query);
 
-sxi_query_t *sxi_volume_mod_proto(sxc_client_t *sx, const char *volume, const char *newowner, int64_t newsize, int max_revs, sxc_meta_t *meta);
+sxi_query_t *sxi_volume_mod_proto(sxc_client_t *sx, const char *volume, const char *newname, const char *newowner, int64_t newsize, int max_revs, sxc_meta_t *meta);
+/* Volume modification propagation, s2s only */
+sxi_query_t *sxi_volume_mod_proto_internal(sxc_client_t *sx, const char *global_vol_id_hex, const char *newname, const char *newowner, int64_t newsize, int max_revs, sxc_meta_t *meta);
 
 /* Distribution lock proto: set lock=1 to acquire lock, 0 to release it */
 sxi_query_t *sxi_distlock_proto(sxc_client_t *sx, int lock, const char *lockid);

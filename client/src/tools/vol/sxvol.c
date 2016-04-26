@@ -41,6 +41,7 @@
 
 #include "cmd_main.h"
 #include "cmd_create.h"
+#include "cmd_rename.h"
 #include "cmd_remove.h"
 #include "cmd_filter.h"
 #include "cmd_modify.h"
@@ -349,7 +350,7 @@ static int volume_create(sxc_client_t *sx, const char *owner)
 
     ret = sxc_volume_add(cluster, uri->volume, size, create_args.replica_arg, create_args.max_revisions_arg, vmeta, owner);
     if(!ret && sxc_meta_count(cvmeta))
-	ret = sxc_volume_modify(cluster, uri->volume, NULL, -1, -1, cvmeta);
+	ret = sxc_volume_modify(cluster, uri->volume, NULL, NULL, -1, -1, cvmeta);
 
     if(!ret)
 	ret = sxi_volume_cfg_store(sx, cluster, uri->volume, filter ? filter->uuid : NULL, cfgdata, cfgdata_len);
@@ -458,6 +459,50 @@ int main(int argc, char **argv) {
 	ret = volume_create(sx, create_args.owner_arg);
 	create_cmdline_parser_free(&create_args);
 
+    } else if(!strcmp(argv[1], "rename")) {
+	struct rename_args_info rename_args;
+	sxc_cluster_t *cluster;
+	sxc_uri_t *uri;
+
+	ret = 1;
+	if(rename_cmdline_parser(argc - 1, &argv[1], &rename_args)) {
+	    rename_cmdline_parser_print_help();
+	    printf("\n");
+	    fprintf(stderr, "ERROR: Invalid syntax or usage\n");
+	    goto main_err;
+	}
+
+	if(rename_args.version_given) {
+	    printf("%s %s\n", MAIN_CMDLINE_PARSER_PACKAGE, SRC_VERSION);
+	    ret = 0;
+	    goto main_err;
+	}
+
+	if(rename_args.inputs_num != 2) {
+	    rename_cmdline_parser_print_help();
+	    printf("\n");
+	    fprintf(stderr, "ERROR: Invalid number of arguments\n");
+	    rename_cmdline_parser_free(&rename_args);
+	    goto main_err;
+	}
+	sxc_set_debug(sx, rename_args.debug_flag);
+
+	cluster = getcluster_common(sx, rename_args.inputs[0], rename_args.config_dir_arg, &uri);
+	if(!cluster) {
+	    rename_cmdline_parser_free(&rename_args);
+	    goto main_err;
+	}
+
+	ret = sxc_volume_modify(cluster, uri->volume, rename_args.inputs[1], NULL, -1, -1, NULL);
+	if(ret)
+	    fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
+	else
+            printf("Volume renamed to '%s'\n", rename_args.inputs[1]);
+
+	sxc_free_uri(uri);
+	sxc_cluster_free(cluster);
+	rename_cmdline_parser_free(&rename_args);
+
     } else if(!strcmp(argv[1], "remove")) {
 	struct remove_args_info remove_args;
 	sxc_cluster_t *cluster;
@@ -538,14 +583,16 @@ int main(int argc, char **argv) {
             goto main_err;
         }
 
-        if(!modify_args.owner_given && !modify_args.size_given && !modify_args.max_revisions_given && !modify_args.reset_custom_meta_given && !modify_args.reset_local_config_given && !modify_args.replica_given) {
+        if(!modify_args.owner_given && !modify_args.size_given && !modify_args.max_revisions_given &&
+           !modify_args.reset_custom_meta_given && !modify_args.reset_local_config_given && !modify_args.replica_given) {
             modify_cmdline_parser_print_help();
             printf("\n");
             fprintf(stderr, "ERROR: Invalid arguments\n");
             modify_cmdline_parser_free(&modify_args);
             goto main_err;
         }
-        if(modify_args.replica_given && (modify_args.size_given || modify_args.max_revisions_given || modify_args.reset_custom_meta_given || modify_args.reset_local_config_given)) {
+        if(modify_args.replica_given && (modify_args.owner_given || modify_args.size_given ||
+           modify_args.max_revisions_given || modify_args.reset_custom_meta_given || modify_args.reset_local_config_given)) {
             fprintf(stderr, "ERROR: Volume replica modification is a complex operation and it cannot be used with other options\n");
             modify_cmdline_parser_free(&modify_args);
             goto main_err;
@@ -608,7 +655,7 @@ int main(int argc, char **argv) {
 	}
 
         if(modify_args.owner_given || modify_args.size_given || modify_args.max_revisions_given || modify_args.reset_custom_meta_given) {
-	    ret = sxc_volume_modify(cluster, uri->volume, modify_args.owner_arg, size, revs, meta);
+	    ret = sxc_volume_modify(cluster, uri->volume, NULL, modify_args.owner_arg, size, revs, meta);
 	    if(ret) {
 		fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
 		goto modify_err;
@@ -730,5 +777,5 @@ main_err:
     signal(SIGTERM, SIG_IGN);
     sxc_shutdown(sx, 0);
 
-    return ret;
+    return ret ? 1 : 0;
 }

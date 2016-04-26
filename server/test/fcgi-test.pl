@@ -1462,6 +1462,19 @@ test_get 'volume ownership', {$reader=>[200,'application/json']}, "tiny$vol?o=ac
 test_put_job "tiny$vol ownership change (admin)", admin_only(200), "tiny$vol?o=mod", "{\"owner\":\"admin\"}";
 test_get 'volume ownership', {'admin'=>[200,'application/json']}, "tiny$vol?o=acl&manager", undef, sub { my $json = get_json(shift); my %is_priv = map { $_, 1 } @{$json->{'admin'}}; return is_array($json->{'admin'}) && $is_priv{'owner'}; };
 
+test_get "listing tiny$vol files", admin_only(200, 'application/json'), "tiny$vol?filter=*", undef, sub { my $json_raw = shift; my $json = get_json($json_raw) or return 0; return 0 unless is_hash($json->{'fileList'}) && scalar keys %{$json->{'fileList'}} == 1; return 0 unless is_hash($json->{'fileList'}->{'/toobig'}); };
+test_put_job "tiny$vol rename to different$vol", admin_only(200), "tiny$vol?o=mod", "{\"name\":\"different$vol\"}";
+test_get "listing different$vol files", admin_only(200, 'application/json'), "different$vol?filter=*", undef, sub { my $json_raw = shift; my $json = get_json($json_raw) or return 0; return 0 unless is_hash($json->{'fileList'}) && scalar keys %{$json->{'fileList'}} == 1; return 0 unless is_hash($json->{'fileList'}->{'/toobig'}); };
+# All authed users will get 404 because volume existence check is performed before privileges check
+test_get "listing tiny$vol files", authed_only(404), "tiny$vol?filter=*", undef, undef;
+test_put_job "different$vol rename back to tiny$vol", admin_only(200), "different$vol?o=mod", "{\"name\":\"tiny$vol\"}";
+test_get "listing tiny$vol files", admin_only(200, 'application/json'), "tiny$vol?filter=*", undef, sub { my $json_raw = shift; my $json = get_json($json_raw) or return 0; return 0 unless is_hash($json->{'fileList'}) && scalar keys %{$json->{'fileList'}} == 1; return 0 unless is_hash($json->{'fileList'}->{'/toobig'}); };
+test_get "listing different$vol files", authed_only(404), "different$vol?filter=*", undef, undef;
+test_put_job "tiny$vol rename to $vol (already exists)", admin_only(409), "tiny$vol?o=mod", "{\"name\":\"$vol\"}";
+# All authed users will get 400 due to the error being checked during request content parsing
+test_put_job "tiny$vol rename to $vol (too long name)", authed_only(400), "tiny$vol?o=mod", "{\"name\":\"".random_string(256)."\"}";
+test_put_job "tiny$vol rename to $vol (too short name)", authed_only(400), "tiny$vol?o=mod", "{\"name\":\"x\"}";
+
 
 
 
