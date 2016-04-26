@@ -55,6 +55,7 @@ int sx_blob_add_datetime(sx_blob_t *s, const struct timeval *d);
 int sx_blob_add_bool(sx_blob_t *s, int d);
 int sx_blob_add_float(sx_blob_t *s, double d);
 int sx_blob_cat(sx_blob_t *dest, sx_blob_t *src);
+int sx_blob_cat_from_pos(sx_blob_t *dest, sx_blob_t *src);
 void sx_blob_to_data(const sx_blob_t *s, const void **d, unsigned int *len);
 sx_blob_t *sx_blob_from_data(const void *d, unsigned int l);
 int sx_blob_get_int32(sx_blob_t *s, int32_t *d);

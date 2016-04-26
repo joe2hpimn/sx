@@ -268,6 +268,8 @@ void fcgi_create_file(void) {
     int len;
     rc_ty s;
     sx_hash_t revid;
+    sx_hash_t global_vol_id;
+    const sx_hashfs_volume_t *vol = NULL;
 
     quit_unless_has(PRIV_CLUSTER); /* Just in case */
 
@@ -275,6 +277,12 @@ void fcgi_create_file(void) {
 	quit_errmsg(500, "File revision missing");
     if(hex2bin(get_arg("revid"), SXI_SHA1_TEXT_LEN, revid.b, sizeof(revid.b)))
         quit_errmsg(400, "Failed to parse revision ID");
+
+    /*
+     * 'volume' variable stores the global volume ID because this is an s2s query.
+     */
+    if(strlen(volume) != SXI_SHA1_TEXT_LEN || hex2bin(volume, SXI_SHA1_TEXT_LEN, global_vol_id.b, sizeof(global_vol_id.b)))
+        quit_errmsg(400, "Invalid global volume ID");
 
     s = sx_hashfs_createfile_begin(hashfs);
     switch (s) {
@@ -313,7 +321,12 @@ void fcgi_create_file(void) {
     auth_complete();
     quit_unless_authed();
 
-    s = sx_hashfs_createfile_commit(hashfs, volume, path, get_arg("rev"), &revid, yctx.filesize, 0);
+    if((s = sx_hashfs_volume_by_global_id(hashfs, &global_vol_id, &vol)) != OK) {
+        sx_hashfs_createfile_end(hashfs);
+        quit_errmsg(rc2http(s), rc2str(s));
+    }
+
+    s = sx_hashfs_createfile_commit(hashfs, vol, path, get_arg("rev"), &revid, yctx.filesize, 0);
     if(s != OK)
 	quit_errmsg(rc2http(s), msg_get_reason());
 
@@ -426,9 +439,16 @@ void fcgi_delete_file(void) {
     const sx_hashfs_volume_t *vol;
     rc_ty s;
 
-    s = sx_hashfs_volume_by_name(hashfs, volume, &vol);
+    if(has_priv(PRIV_CLUSTER)) {
+        sx_hash_t global_vol_id;
+
+        if(strlen(volume) != SXI_SHA1_TEXT_LEN || hex2bin(volume, SXI_SHA1_TEXT_LEN, global_vol_id.b, sizeof(global_vol_id.b)))
+            quit_errmsg(400, "Invalid global volume ID");
+        s = sx_hashfs_volume_by_global_id(hashfs, &global_vol_id, &vol);
+    } else
+        s = sx_hashfs_volume_by_name(hashfs, volume, &vol);
     if(s != OK)
-	quit_errmsg(rc2http(s), msg_get_reason());
+        quit_errmsg(rc2http(s), msg_get_reason());
 
     if(!sx_hashfs_is_or_was_my_volume(hashfs, vol, 0))
 	quit_errnum(404);

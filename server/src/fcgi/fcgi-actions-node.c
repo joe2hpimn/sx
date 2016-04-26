@@ -921,7 +921,7 @@ void fcgi_node_init(void) {
 
     {
         "perms":{
-            "volume1":{"xxxx":val,"yyyy":val}
+            "volume1_global_id":{"xxxx":val,"yyyy":val}
         }
     }
 
@@ -1181,7 +1181,7 @@ static void cb_syncvol_create(jparse_t *J, void *ctx) {
 	sxi_jparse_cancel(J, "Failed to create volume '%s': %s", name, msg_get_reason());
 	return;
     }
-    if(sx_hashfs_volume_enable(hashfs, name)) {
+    if(sx_hashfs_volume_enable(hashfs, &c->global_vol_id)) {
 	sxi_jparse_cancel(J, "Failed to enable volume '%s': %s", name, msg_get_reason());
 	return;
     }
@@ -1189,32 +1189,34 @@ static void cb_syncvol_create(jparse_t *J, void *ctx) {
 
 /* PERMS callbacks */
 static void cb_syncperms(jparse_t *J, void *ctx, int32_t perm) {
-    const char *volume = sxi_jpath_mapkey(sxi_jpath_down(sxi_jparse_whereami(J)));
+    const char *global_vol_id_hex = sxi_jpath_mapkey(sxi_jpath_down(sxi_jparse_whereami(J)));
     const char *userhex = sxi_jpath_mapkey(sxi_jpath_down(sxi_jpath_down(sxi_jparse_whereami(J))));
     uint8_t usrid[AUTH_UID_LEN];
     sx_uid_t uid;
+    sx_hash_t global_vol_id;
 
-    if(!volume || !userhex) {
+    if(!global_vol_id_hex || strlen(global_vol_id_hex) != SXI_SHA1_TEXT_LEN || !userhex ||
+       hex2bin(global_vol_id_hex, SXI_SHA1_TEXT_LEN, global_vol_id.b, sizeof(global_vol_id.b))) {
 	/* Not reached */
 	sxi_jparse_cancel(J, "Internal error (NULL privilege)");
 	return;
     }
     if((perm & ~ALL_USER_PRIVS)) {
-	sxi_jparse_cancel(J, "Invalid privilege value %d for userid(hex) '%s' on volume '%s'", perm, userhex, volume);
+	sxi_jparse_cancel(J, "Invalid privilege value %d for userid(hex) '%s' on volume ID '%s'", perm, userhex, global_vol_id_hex);
 	return;
     }
     if(strlen(userhex) != AUTH_UID_LEN * 2 ||
        hex2bin(userhex, AUTH_UID_LEN * 2, usrid, sizeof(usrid))) {
-	sxi_jparse_cancel(J, "Privilege with invalid userid(hex) '%s' on volume '%s'", userhex, volume);
+	sxi_jparse_cancel(J, "Privilege with invalid userid(hex) '%s' on volume ID '%s'", userhex, global_vol_id_hex);
 	return;
     }
     if(sx_hashfs_get_user_info(hashfs, usrid, &uid, NULL, NULL, NULL, NULL)) {
 	sxi_jparse_cancel(J, "Lookup failed for userid(hex) '%s': %s", userhex, msg_get_reason());
 	return;
     }
-    sx_hashfs_revoke(hashfs, uid, volume, ALL_USER_PRIVS);
-    if(sx_hashfs_grant(hashfs, uid, volume, perm)) {
-	sxi_jparse_cancel(J, "Failed to grant %d to userid(hex) '%s' on volume '%s': %s", perm, userhex, volume, msg_get_reason());
+    sx_hashfs_revoke(hashfs, uid, &global_vol_id, ALL_USER_PRIVS);
+    if(sx_hashfs_grant(hashfs, uid, &global_vol_id, perm)) {
+	sxi_jparse_cancel(J, "Failed to grant %d to userid(hex) '%s' on volume  ID '%s': %s", perm, userhex, global_vol_id_hex, msg_get_reason());
 	return;
     }
 }

@@ -420,10 +420,15 @@ sxi_query_t *sxi_flushfile_proto(sxc_client_t *sx, const char *token) {
     return ret;
 }
 
-sxi_query_t *sxi_fileadd_proto_begin(sxc_client_t *sx, const char *volname, const char *path, const char *revision, const char *revision_id, int64_t pos, int64_t blocksize, int64_t size) {
-    char *enc_vol = NULL, *enc_path = NULL, *enc_rev = NULL, *url = NULL;
+static sxi_query_t *fileadd_proto_begin_common(sxc_client_t *sx, const char *vol, const char *path, const char *revision, const char *revision_id, int64_t pos, int64_t blocksize, int64_t size) {
+    char *enc_path = NULL, *enc_rev = NULL, *url = NULL;
     sxi_query_t *ret;
     unsigned int len;
+
+    if(!vol) {
+        sxi_setsyserr(sx, SXE_EMEM, "Invalid argument");
+        return NULL;
+    }
 
     if(revision_id) {
         /* Revision ID should be hex-encoded, and must be provided when revision is provided. */
@@ -433,20 +438,17 @@ sxi_query_t *sxi_fileadd_proto_begin(sxc_client_t *sx, const char *volname, cons
         }
     }
 
-    enc_vol = sxi_urlencode(sx, volname, 0);
     enc_path = sxi_urlencode(sx, path, 0);
-    if(!enc_vol || !enc_path) {
-	free(enc_vol);
+    if(!enc_path) {
 	free(enc_path);
 	sxi_setsyserr(sx, SXE_EMEM, "Failed to quote url: Out of memory");
 	return NULL;
     }
-    len = strlen(enc_vol) + 1 + strlen(enc_path) + 1;
+    len = strlen(vol) + 1 + strlen(enc_path) + 1;
     if(revision) {
 	enc_rev = sxi_urlencode(sx, revision, 1);
 	if(!enc_rev) {
 	    sxi_setsyserr(sx, SXE_EMEM, "Failed to quote url: Out of memory");
-	    free(enc_vol);
 	    free(enc_path);
 	    return NULL;
 	}
@@ -457,8 +459,7 @@ sxi_query_t *sxi_fileadd_proto_begin(sxc_client_t *sx, const char *volname, cons
 
     url = malloc(len);
     if(url)
-        sprintf(url, "%s/%s%s%s%s%s", enc_vol, enc_path, enc_rev ? "?rev=" : "", enc_rev ? enc_rev : "", revision_id ? "&revid=" : "", revision_id ? revision_id : "");
-    free(enc_vol);
+        sprintf(url, "%s/%s%s%s%s%s", vol, enc_path, enc_rev ? "?rev=" : "", enc_rev ? enc_rev : "", revision_id ? "&revid=" : "", revision_id ? revision_id : "");
     free(enc_path);
     free(enc_rev);
     if(!url) {
@@ -480,6 +481,34 @@ sxi_query_t *sxi_fileadd_proto_begin(sxc_client_t *sx, const char *volname, cons
         return NULL;
 
     return sxi_query_append_fmt(sx, ret, lenof("\"fileData\":["), "\"fileData\":[");
+}
+
+/*
+ * File creation proto, client side
+ */
+sxi_query_t *sxi_fileadd_proto_begin(sxc_client_t *sx, const char *volname, const char *path, const char *revision, const char *revision_id, int64_t pos, int64_t blocksize, int64_t size) {
+    char *enc_vol = NULL;
+    sxi_query_t *ret;
+
+    enc_vol = sxi_urlencode(sx, volname, 0);
+    if(!enc_vol) {
+        sxi_setsyserr(sx, SXE_EMEM, "Failed to encode volume name: Out of memory");
+        return NULL;
+    }
+    ret = fileadd_proto_begin_common(sx, enc_vol, path, revision, revision_id, pos, blocksize, size);
+    free(enc_vol);
+    return ret;
+}
+
+/*
+ * New file propagation proto, server side
+ */
+sxi_query_t *sxi_fileadd_proto_begin_internal(sxc_client_t *sx, const char *global_vol_id_hex, const char *path, const char *revision, const char *revision_id, int64_t pos, int64_t blocksize, int64_t size) {
+    if(!global_vol_id_hex || strlen(global_vol_id_hex) != SXI_SHA1_TEXT_LEN) {
+        sxi_setsyserr(sx, SXE_EMEM, "Invalid argument");
+        return NULL;
+    }
+    return fileadd_proto_begin_common(sx, global_vol_id_hex, path, revision, revision_id, pos, blocksize, size);
 }
 
 sxi_query_t *sxi_fileadd_proto_addhash(sxc_client_t *sx, sxi_query_t *query, const char *hexhash)
@@ -508,16 +537,17 @@ sxi_query_t *sxi_fileadd_proto_end(sxc_client_t *sx, sxi_query_t *query, sxc_met
     return sxi_query_add_meta(sx, query, "fileMeta", metadata, 1, 0);
 }
 
-
-sxi_query_t *sxi_filedel_proto(sxc_client_t *sx, const char *volname, const char *path, const char *revision) {
-    char *enc_vol = NULL, *enc_path = NULL, *enc_rev = NULL, *url = NULL;
+static sxi_query_t *filedel_proto_common(sxc_client_t *sx, const char *vol, const char *path, const char *revision) {
+    char *enc_path = NULL, *enc_rev = NULL, *url = NULL;
     sxi_query_t *ret;
 
-    enc_vol = sxi_urlencode(sx, volname, 0);
-    enc_path = sxi_urlencode(sx, path, 0);
+    if(!vol) {
+        sxi_setsyserr(sx, SXE_EMEM, "Invalid argument");
+        return NULL;
+    }
 
-    if(!enc_vol || !enc_path) {
-	free(enc_vol);
+    enc_path = sxi_urlencode(sx, path, 0);
+    if(!enc_path) {
 	free(enc_path);
 	sxi_setsyserr(sx, SXE_EMEM, "Failed to quote url: Out of memory");
 	return NULL;
@@ -527,17 +557,16 @@ sxi_query_t *sxi_filedel_proto(sxc_client_t *sx, const char *volname, const char
 	enc_rev = sxi_urlencode(sx, revision, 1);
 	if(!enc_rev) {
 	    sxi_setsyserr(sx, SXE_EMEM, "Failed to quote url: Out of memory");
-	    free(enc_vol);
 	    free(enc_path);
 	    return NULL;
 	}
     }
 
-    if((url = malloc(strlen(enc_vol) + 1 + strlen(enc_path) + lenof("?rev=") + strlen(enc_rev ? enc_rev : "") + 1))) {
+    if((url = malloc(strlen(vol) + 1 + strlen(enc_path) + lenof("?rev=") + strlen(enc_rev ? enc_rev : "") + 1))) {
 	if(enc_rev)
-	    sprintf(url, "%s/%s?rev=%s", enc_vol, enc_path, enc_rev);
+	    sprintf(url, "%s/%s?rev=%s", vol, enc_path, enc_rev);
 	else
-	    sprintf(url, "%s/%s", enc_vol, enc_path);
+	    sprintf(url, "%s/%s", vol, enc_path);
     }
 
     if(!url) {
@@ -545,11 +574,39 @@ sxi_query_t *sxi_filedel_proto(sxc_client_t *sx, const char *volname, const char
 	ret = NULL;
     } else
 	ret = sxi_query_create(sx, url, REQ_DELETE);
-    free(enc_vol);
     free(enc_path);
     free(enc_rev);
     free(url);
     return ret;
+}
+
+/*
+ * File deletion, client side
+ */
+sxi_query_t *sxi_filedel_proto(sxc_client_t *sx, const char *volname, const char *path, const char *revision) {
+    char *enc_vol;
+    sxi_query_t *proto;
+
+    enc_vol = sxi_urlencode(sx, volname, 0);
+    if(!enc_vol) {
+        sxi_setsyserr(sx, SXE_EMEM, "Failed to quote url: Out of memory");
+        return NULL;
+    }
+
+    proto = filedel_proto_common(sx, enc_vol, path, revision);
+    free(enc_vol);
+    return proto;
+}
+
+/*
+ * s2s file deletion propagation query
+ */
+sxi_query_t *sxi_filedel_proto_internal(sxc_client_t *sx, const char *global_vol_id_hex, const char *path, const char *revision) {
+    if(!global_vol_id_hex || strlen(global_vol_id_hex) != SXI_SHA1_TEXT_LEN) {
+        sxi_setsyserr(sx, SXE_EMEM, "Invalid argument");
+        return NULL;
+    }
+    return filedel_proto_common(sx, global_vol_id_hex, path, revision);
 }
 
 sxi_query_t *sxi_massdel_proto(sxc_client_t *sx, const char *volname, const char *pattern, int recursive) {
@@ -943,31 +1000,21 @@ sxi_query_t *sxi_volsizes_proto_begin(sxc_client_t *sx) {
     return query;
 }
 
-sxi_query_t *sxi_volsizes_proto_add_volume(sxc_client_t *sx, sxi_query_t *query, const char *volname, int64_t size, int64_t fsize, int64_t nfiles) {
-    char *enc_vol;
-
-    if(!sx || !query || !volname) {
+sxi_query_t *sxi_volsizes_proto_add_volume(sxc_client_t *sx, sxi_query_t *query, const char *global_vol_id_hex, int64_t size, int64_t fsize, int64_t nfiles) {
+    if(!sx || !query || !global_vol_id_hex || strlen(global_vol_id_hex) != SXI_SHA1_TEXT_LEN) {
         SXDEBUG("Called with NULL argument");
         return NULL;
     }
 
-    enc_vol = sxi_json_quote_string(volname);
-    if(!enc_vol) {
-        SXDEBUG("Failed to encode volume name");
-        return NULL;
-    }
-
-    query = sxi_query_append_fmt(sx, query, strlen(",:{\"usedSize\":,\"filesSize\":,\"filesCount\":}") + 60 + strlen(enc_vol) + 1,
-        "%s%s:{\"usedSize\":%lld,\"filesSize\":%lld,\"filesCount\":%lld}", query->comma ? "," : "", enc_vol, (long long)size, (long long)fsize, (long long)nfiles);
+    query = sxi_query_append_fmt(sx, query, strlen(",:{\"usedSize\":,\"filesSize\":,\"filesCount\":}") + 60 + SXI_SHA1_TEXT_LEN + 2 /* qoutes */ + 1,
+        "%s\"%s\":{\"usedSize\":%lld,\"filesSize\":%lld,\"filesCount\":%lld}", query->comma ? "," : "", global_vol_id_hex, (long long)size, (long long)fsize, (long long)nfiles);
 
     if(!query) {
         SXDEBUG("Failed to append volume to a query");
-        free(enc_vol);
         return NULL;
     }
 
     query->comma = 1;
-    free(enc_vol);
     return query;
 }
 

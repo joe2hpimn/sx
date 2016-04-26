@@ -143,6 +143,20 @@ int sx_blob_cat(sx_blob_t *dest, sx_blob_t *src) {
     return 0;
 }
 
+int sx_blob_cat_from_pos(sx_blob_t *dest, sx_blob_t *src) {
+    if(dest->size - dest->pos < src->size - src->pos) {
+        unsigned int size = dest->size + MAX(src->size - src->pos, 1024);
+        uint8_t *newblob;
+        if(!(newblob = wrap_realloc(dest->blob, size)))
+            return -1;
+        dest->blob = newblob;
+        dest->size = size;
+    }
+    memcpy(dest->blob + dest->pos, src->blob + src->pos, src->size - src->pos);
+    dest->pos += src->size - src->pos;
+    return 0;
+}
+
 void sx_blob_to_data(const sx_blob_t *s, const void **d, unsigned int *len) {
     *d = s->blob ? s->blob : (const void *)"";
     *len = s->pos;

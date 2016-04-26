@@ -206,7 +206,7 @@ static act_result_t force_phase_success(sx_hashfs_t *hashfs, job_t job_id, job_d
     return ACT_RESULT_OK;
 }
 
-static rc_ty volonoff_common(sx_hashfs_t *hashfs, job_t job_id, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, const char *volname, int enable) {
+static rc_ty volonoff_common(sx_hashfs_t *hashfs, job_t job_id, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, const sx_hash_t *global_vol_id, int enable) {
     sxc_client_t *sx = sx_hashfs_client(hashfs);
     sxi_conns_t *clust = sx_hashfs_conns(hashfs);
     const sx_node_t *me = sx_hashfs_self(hashfs);
@@ -215,41 +215,36 @@ static rc_ty volonoff_common(sx_hashfs_t *hashfs, job_t job_id, const sx_nodelis
     unsigned int nnode, nnodes;
     char *query = NULL;
     rc_ty s;
+    char volid_hex[SXI_SHA1_TEXT_LEN+1]; /* Volume onoff query path is a hex of the global ID */
+    bin2hex(global_vol_id->b, sizeof(global_vol_id->b), volid_hex, sizeof(volid_hex));
 
     nnodes = sx_nodelist_count(nodes);
     for(nnode = 0; nnode<nnodes; nnode++) {
 	const sx_node_t *node = sx_nodelist_get(nodes, nnode);
 
-	INFO("%s volume '%s' on %s", enable ? "Enabling" : "Disabling", volname, sx_node_uuid_str(node));
+	INFO("%s volume with ID '%s' on %s", enable ? "Enabling" : "Disabling", volid_hex, sx_node_uuid_str(node));
 
 	if(!sx_node_cmp(me, node)) {
 	    if(enable) {
-		if((s = sx_hashfs_volume_enable(hashfs, volname))) {
-		    WARN("Failed to enable volume '%s' job %lld: %s", volname, (long long)job_id, msg_get_reason());
+		if((s = sx_hashfs_volume_enable(hashfs, global_vol_id))) {
+		    WARN("Failed to enable volume with ID '%s' job %lld: %s", volid_hex, (long long)job_id, msg_get_reason());
 		    action_error(ACT_RESULT_PERMFAIL, rc2http(s), "Failed to enable volume");
 		}
 	    } else {
-		if((s = sx_hashfs_volume_disable(hashfs, volname))) {
-		    WARN("Failed to disable volume '%s' job %lld: %s", volname, (long long)job_id, msg_get_reason());
+		if((s = sx_hashfs_volume_disable(hashfs, global_vol_id))) {
+		    WARN("Failed to disable volume with ID '%s' job %lld: %s", volid_hex, (long long)job_id, msg_get_reason());
 		    action_error(ACT_RESULT_PERMFAIL, rc2http(s), "Failed to disable volume");
 		}
 	    }
 	    succeeded[nnode] = 1;
 	} else {
 	    if(!query) {
-		char *path = sxi_urlencode(sx, volname, 0);
-		if(!path) {
-		    WARN("Cannot encode path");
-		    action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
-		}
-		query = wrap_malloc(strlen(path) + sizeof("?o=disable")); /* fits "enable" and "disable" with termination */
+		query = wrap_malloc(strlen(volid_hex) + sizeof("?o=disable")); /* fits "enable" and "disable" with termination */
 		if(!query) {
-		    free(path);
 		    WARN("Cannot allocate query");
 		    action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
 		}
-		sprintf(query, "%s?o=%s", path, enable ? "enable" : "disable");
-		free(path);
+		sprintf(query, "%s?o=%s", volid_hex, enable ? "enable" : "disable");
 
 		qrylist = wrap_calloc(nnodes, sizeof(*qrylist));
 		if(!qrylist) {
@@ -300,7 +295,7 @@ static rc_ty volonoff_common(sx_hashfs_t *hashfs, job_t job_id, const sx_nodelis
 }
 
 
-static rc_ty voldelete_common(sx_hashfs_t *hashfs, job_t job_id, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, const char *volname, int force) {
+static act_result_t voldelete_common(sx_hashfs_t *hashfs, job_t job_id, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, const sx_hash_t *global_vol_id, int force) {
     sxc_client_t *sx = sx_hashfs_client(hashfs);
     sxi_conns_t *clust = sx_hashfs_conns(hashfs);
     const sx_node_t *me = sx_hashfs_self(hashfs);
@@ -309,36 +304,29 @@ static rc_ty voldelete_common(sx_hashfs_t *hashfs, job_t job_id, const sx_nodeli
     unsigned int nnode, nnodes;
     char *query = NULL;
     rc_ty s;
-
+    char volid_hex[SXI_SHA1_TEXT_LEN+1];
+    bin2hex(global_vol_id->b, sizeof(global_vol_id->b), volid_hex, sizeof(volid_hex));
 
     nnodes = sx_nodelist_count(nodes);
     for(nnode = 0; nnode<nnodes; nnode++) {
 	const sx_node_t *node = sx_nodelist_get(nodes, nnode);
 
-	INFO("Deleting volume %s on %s", volname, sx_node_uuid_str(node));
+	INFO("Deleting volume with ID %s on %s", volid_hex, sx_node_uuid_str(node));
 
 	if(!sx_node_cmp(me, node)) {
-	    if((s = sx_hashfs_volume_delete(hashfs, volname, force)) != OK && s != ENOENT) {
-		WARN("Failed to delete volume '%s' for job %lld", volname, (long long)job_id);
+	    if((s = sx_hashfs_volume_delete(hashfs, global_vol_id, force)) != OK && s != ENOENT) {
+		WARN("Failed to delete volume with ID '%s' for job %lld", volid_hex, (long long)job_id);
 		action_error(ACT_RESULT_PERMFAIL, rc2http(s), "Failed to enable volume");
 	    }
 	    succeeded[nnode] = 1;
 	} else {
 	    if(!query) {
-		query = sxi_urlencode(sx, volname, 0);
+		query = malloc(lenof(volid_hex) + lenof("?force") + 1);
 		if(!query) {
 		    WARN("Cannot encode path");
 		    action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
 		}
-		if(force) {
-		    char *nuq = malloc(strlen(query) + lenof("?force") + 1);
-		    if(!nuq)
-			action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
-		    sprintf(nuq, "%s?force", query);
-		    free(query);
-		    query = nuq;
-		}
-
+                sprintf(query, "%s%s", volid_hex, force ? "?force" : "");
 		qrylist = wrap_calloc(nnodes, sizeof(*qrylist));
 		if(!qrylist) {
 		    WARN("Cannot allocate result space");
@@ -547,6 +535,8 @@ static act_result_t createvol_commit(sx_hashfs_t *hashfs, job_t job_id, job_data
     const char *volname;
     sx_blob_t *b = NULL;
     act_result_t ret;
+    const sx_hash_t *global_id = NULL;
+    unsigned int global_id_len = 0;
 
     b = sx_blob_from_data(job_data->ptr, job_data->len);
     if(!b) {
@@ -554,12 +544,13 @@ static act_result_t createvol_commit(sx_hashfs_t *hashfs, job_t job_id, job_data
 	action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
     }
 
-    if(sx_blob_get_string(b, &volname)) {
+    if(sx_blob_get_string(b, &volname) || sx_blob_get_blob(b, (const void**)&global_id, &global_id_len) ||
+       global_id_len != sizeof(global_id->b)) {
 	WARN("Cannot get volume data from blob for job %lld", (long long)job_id);
 	action_error(ACT_RESULT_PERMFAIL, 500, "Internal error: data corruption detected");
     }
 
-    ret = volonoff_common(hashfs, job_id, nodes, succeeded, fail_code, fail_msg, volname, 1);
+    ret = volonoff_common(hashfs, job_id, nodes, succeeded, fail_code, fail_msg, global_id, 1);
 
  action_failed:
     sx_blob_free(b);
@@ -569,6 +560,8 @@ static act_result_t createvol_commit(sx_hashfs_t *hashfs, job_t job_id, job_data
 
 static act_result_t createvol_abort_and_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     const char *volname;
+    const sx_hash_t *global_id = NULL;
+    unsigned int global_id_len = 0;
     sx_blob_t *b = NULL;
     act_result_t ret;
 
@@ -578,12 +571,13 @@ static act_result_t createvol_abort_and_undo(sx_hashfs_t *hashfs, job_t job_id, 
 	action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
     }
 
-    if(sx_blob_get_string(b, &volname)) {
+    if(sx_blob_get_string(b, &volname) || sx_blob_get_blob(b, (const void**)&global_id, &global_id_len) ||
+       global_id_len != sizeof(global_id->b)) {
 	WARN("Cannot get volume data from blob for job %lld", (long long)job_id);
 	action_error(ACT_RESULT_PERMFAIL, 500, "Internal error: data corruption detected");
     }
 
-    ret = voldelete_common(hashfs, job_id, nodes, succeeded, fail_code, fail_msg, volname, 1);
+    ret = voldelete_common(hashfs, job_id, nodes, succeeded, fail_code, fail_msg, global_id, 1);
 
  action_failed:
     sx_blob_free(b);
@@ -593,7 +587,8 @@ static act_result_t createvol_abort_and_undo(sx_hashfs_t *hashfs, job_t job_id, 
 
 
 static act_result_t deletevol_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
-    const char *volname;
+    const sx_hash_t *global_vol_id;
+    unsigned int global_id_len;
     sx_blob_t *b = NULL;
     act_result_t ret;
 
@@ -603,12 +598,12 @@ static act_result_t deletevol_request(sx_hashfs_t *hashfs, job_t job_id, job_dat
 	action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
     }
 
-    if(sx_blob_get_string(b, &volname)) {
+    if(sx_blob_get_blob(b, (const void**)&global_vol_id, &global_id_len) || !global_vol_id || global_id_len != sizeof(global_vol_id->b)) {
 	WARN("Cannot get volume data from blob for job %lld", (long long)job_id);
 	action_error(ACT_RESULT_PERMFAIL, 500, "Internal error: data corruption detected");
     }
 
-    ret = volonoff_common(hashfs, job_id, nodes, succeeded, fail_code, fail_msg, volname, 0);
+    ret = volonoff_common(hashfs, job_id, nodes, succeeded, fail_code, fail_msg, global_vol_id, 0);
 
  action_failed:
     sx_blob_free(b);
@@ -617,7 +612,8 @@ static act_result_t deletevol_request(sx_hashfs_t *hashfs, job_t job_id, job_dat
 }
 
 static act_result_t deletevol_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
-    const char *volname;
+    const sx_hash_t *global_vol_id = NULL;
+    unsigned int global_id_len = 0;
     sx_blob_t *b = NULL;
     act_result_t ret;
 
@@ -627,12 +623,12 @@ static act_result_t deletevol_commit(sx_hashfs_t *hashfs, job_t job_id, job_data
 	action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
     }
 
-    if(sx_blob_get_string(b, &volname)) {
+    if(sx_blob_get_blob(b, (const void**)&global_vol_id, &global_id_len) || !global_vol_id || global_id_len != sizeof(global_vol_id->b)) {
 	WARN("Cannot get volume data from blob for job %lld", (long long)job_id);
 	action_error(ACT_RESULT_PERMFAIL, 500, "Internal error: data corruption detected");
     }
 
-    ret = voldelete_common(hashfs, job_id, nodes, succeeded, fail_code, fail_msg, volname, 0);
+    ret = voldelete_common(hashfs, job_id, nodes, succeeded, fail_code, fail_msg, global_vol_id, 0);
 
  action_failed:
     sx_blob_free(b);
@@ -641,7 +637,8 @@ static act_result_t deletevol_commit(sx_hashfs_t *hashfs, job_t job_id, job_data
 }
 
 static act_result_t deletevol_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
-    const char *volname;
+    const sx_hash_t *global_vol_id;
+    unsigned int global_id_len;
     sx_blob_t *b = NULL;
     act_result_t ret;
 
@@ -651,12 +648,12 @@ static act_result_t deletevol_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_
 	action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
     }
 
-    if(sx_blob_get_string(b, &volname)) {
+    if(sx_blob_get_blob(b, (const void**)&global_vol_id, &global_id_len) || !global_vol_id || global_id_len != sizeof(global_vol_id->b)) {
 	WARN("Cannot get volume data from blob for job %lld", (long long)job_id);
 	action_error(ACT_RESULT_PERMFAIL, 500, "Internal error: data corruption detected");
     }
 
-    ret = volonoff_common(hashfs, job_id, nodes, succeeded, fail_code, fail_msg, volname, 1);
+    ret = volonoff_common(hashfs, job_id, nodes, succeeded, fail_code, fail_msg, global_vol_id, 1);
 
  action_failed:
     sx_blob_free(b);
@@ -665,9 +662,11 @@ static act_result_t deletevol_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_
 }
 
 static act_result_t deletevol_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
-    const char *volname;
+    const sx_hash_t *global_vol_id;
+    unsigned int global_id_len;
     sx_blob_t *b = NULL;
     act_result_t ret;
+    char volid_hex[SXI_SHA1_TEXT_LEN+1];
 
     b = sx_blob_from_data(job_data->ptr, job_data->len);
     if(!b) {
@@ -675,12 +674,13 @@ static act_result_t deletevol_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t
 	action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
     }
 
-    if(sx_blob_get_string(b, &volname)) {
+    if(sx_blob_get_blob(b, (const void**)&global_vol_id, &global_id_len) || !global_vol_id || global_id_len != sizeof(global_vol_id->b)) {
 	WARN("Cannot get volume data from blob for job %lld", (long long)job_id);
 	action_error(ACT_RESULT_PERMFAIL, 500, "Internal error: data corruption detected");
     }
+    bin2hex(global_vol_id->b, sizeof(global_vol_id->b), volid_hex, sizeof(volid_hex));
 
-    CRIT("Volume '%s' may have been left in an inconsistent state after a failed removal attempt", volname);
+    CRIT("Volume with ID '%s' may have been left in an inconsistent state after a failed removal attempt", volid_hex);
     action_set_fail(ACT_RESULT_PERMFAIL, 500, "Volume removal failed: the volume may have been left in an inconsistent state");
 
  action_failed:
@@ -1350,10 +1350,12 @@ static act_result_t fileflush_remote(sx_hashfs_t *hashfs, job_t job_id, job_data
 		unsigned int blockno;
 		sxc_meta_t *fmeta;
                 char revid_hex[SXI_SHA1_TEXT_LEN+1];
+                char volid_hex[SXI_SHA1_TEXT_LEN+1];
 
 		if(!(fmeta = sxc_meta_new(sx)))
 		    action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to prepare file propagate query");
 
+                /* TODO: the volume reference is taken in each loop step, but it has already been loaded before the loop. */
 		s = sx_hashfs_volume_by_id(hashfs, mis->volume_id, &volume);
 		if(s == OK)
 		    s = sx_hashfs_tmp_getmeta(hashfs, tmpfile_id, fmeta);
@@ -1362,8 +1364,9 @@ static act_result_t fileflush_remote(sx_hashfs_t *hashfs, job_t job_id, job_data
 		    action_error(rc2actres(s), rc2http(s), msg_get_reason());
 		}
 
+                bin2hex(volume->global_id.b, sizeof(volume->global_id.b), volid_hex, sizeof(volid_hex));
                 bin2hex(mis->revision_id.b, sizeof(mis->revision_id.b), revid_hex, sizeof(revid_hex));
-		proto = sxi_fileadd_proto_begin(sx, volume->name, mis->name, mis->revision, revid_hex, 0, mis->block_size, mis->file_size);
+		proto = sxi_fileadd_proto_begin_internal(sx, volid_hex, mis->name, mis->revision, revid_hex, 0, mis->block_size, mis->file_size);
 
 		blockno = 0;
 		while(proto && blockno < mis->nall) {
@@ -1487,6 +1490,7 @@ static act_result_t fileflush_remote_undo(sx_hashfs_t *hashfs, job_t job_id, job
     sxi_query_t *proto = NULL;
     int64_t tmpfile_id;
     rc_ty s;
+    char volid_hex[SXI_SHA1_TEXT_LEN+1];
 
     nnodes = sx_nodelist_count(nodes);
     if(job_data->len != sizeof(tmpfile_id)) {
@@ -1509,6 +1513,7 @@ static act_result_t fileflush_remote_undo(sx_hashfs_t *hashfs, job_t job_id, job
 	return force_phase_success(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
     if(s != OK)
 	action_error(rc2actres(s), rc2http(s), "Failed to find file to delete");
+    bin2hex(volume->global_id.b, sizeof(volume->global_id.b), volid_hex, sizeof(volid_hex));
 
     sx_hashfs_revunbump(hashfs, &tmp->revision_id, tmp->block_size); /* No point in leaving the file around if this fails */
 
@@ -1520,7 +1525,7 @@ static act_result_t fileflush_remote_undo(sx_hashfs_t *hashfs, job_t job_id, job
 	} else {
 	    /* Remote node */
 	    if(!proto) {
-		proto = sxi_filedel_proto(sx, volume->name, tmp->name, tmp->revision);
+		proto = sxi_filedel_proto_internal(sx, volid_hex, tmp->name, tmp->revision);
 		if(!proto) {
 		    WARN("Cannot allocate proto for job %lld", (long long)job_id);
 		    action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
@@ -1589,6 +1594,7 @@ static act_result_t filedelete_request(sx_hashfs_t *hashfs, job_t job_id, job_da
     sxi_query_t *proto = NULL;
     sx_hashfs_file_t filerev;
     rc_ty s;
+    char volid_hex[SXI_SHA1_TEXT_LEN+1];
 
     s = filerev_from_jobdata_rev(hashfs, job_data, &filerev);
     if(s == ENOENT) {
@@ -1603,6 +1609,7 @@ static act_result_t filedelete_request(sx_hashfs_t *hashfs, job_t job_id, job_da
 	return force_phase_success(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
     if(s != OK)
 	action_error(rc2actres(s), rc2http(s), "Failed to find file to delete");
+    bin2hex(volume->global_id.b, sizeof(volume->global_id.b), volid_hex, sizeof(volid_hex));
 
     nnodes = sx_nodelist_count(nodes);
     for(nnode = 0; nnode<nnodes; nnode++) {
@@ -1613,7 +1620,7 @@ static act_result_t filedelete_request(sx_hashfs_t *hashfs, job_t job_id, job_da
 	} else {
 	    /* Remote node */
 	    if(!proto) {
-		proto = sxi_filedel_proto(sx, volume->name, filerev.name, filerev.revision);
+		proto = sxi_filedel_proto_internal(sx, volid_hex, filerev.name, filerev.revision);
 		if(!proto) {
 		    WARN("Cannot allocate proto for job %lld", (long long)job_id);
 		    action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
@@ -1727,7 +1734,7 @@ static int challenge_cb(curlev_context_t *cbdata, void *ctx, const void *data, s
 struct sync_ctx {
     sx_hashfs_t *hashfs;
     const sxi_hostlist_t *hlist;
-    char *buf, *permvolname;
+    char *buf, permvolid_hex[SXI_SHA1_TEXT_LEN+1];
     unsigned int bufsz, bufat;
     enum sync_objtype { SYNCTYPE_NONE, SYNCTYPE_USER, SYNCTYPE_VOLUME, SYNCTYPE_PERM, SYNCTYPE_MODE, SYNCTYPE_CLUSTMETA, SYNCTYPE_SETTINGS } lstobjtype;
 };
@@ -1890,11 +1897,10 @@ static int syncperms_cb(const char *username, int priv, int is_owner, void *ctx)
     if(!(priv & (PRIV_READ | PRIV_WRITE)))
 	return 0;
 
-    if(sctx->permvolname) {
-	if(sync_objbegin(sctx, SYNCTYPE_PERM) || sync_printf(sctx, "%s:{", sctx->permvolname))
+    if(*sctx->permvolid_hex) {
+	if(sync_objbegin(sctx, SYNCTYPE_PERM) || sync_printf(sctx, "\"%s\":{", sctx->permvolid_hex))
 	    return -1;
-	free(sctx->permvolname);
-	sctx->permvolname = NULL;
+	*sctx->permvolid_hex = '\0';
 	comma = 0;
     }
     
@@ -1976,18 +1982,13 @@ static int sync_global_objects(sx_hashfs_t *hashfs, const sxi_hostlist_t *hlist)
     s = sx_hashfs_volume_first(hashfs, &vol, 0);
     if(s == OK) {
 	do {
-	    sctx->permvolname = sxi_json_quote_string(vol->name);
-	    if(!sctx->permvolname) {
-		WARN("Failed to encode volume %s", vol->name);
-		goto sync_global_err;
-	    }
+	    bin2hex(vol->global_id.b, sizeof(vol->global_id.b), sctx->permvolid_hex, sizeof(sctx->permvolid_hex));
 	    if(sx_hashfs_list_acl(hashfs, vol, 0, PRIV_ADMIN, syncperms_cb, sctx)) {
 		WARN("Failed to list permissions for %s: %s", vol->name, msg_get_reason());
-		free(sctx->permvolname);
 		goto sync_global_err;
 	    }
-	    if(sctx->permvolname) /* The volume was ignored by the cb */
-		free(sctx->permvolname);
+	    if(*sctx->permvolid_hex) /* The volume was ignored by the cb */
+		*sctx->permvolid_hex = '\0';
 	    else if(sync_printf(sctx, "}")) /* The volume was not ignored */
 		goto sync_global_err;
 
@@ -2979,6 +2980,7 @@ static act_result_t filerb_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t 
 	    const sx_reloc_t *rlc;
 	    unsigned int blockno;
             char revid_hex[SXI_SHA1_TEXT_LEN+1];
+            char volid_hex[SXI_SHA1_TEXT_LEN+1];
 
 	    r = sx_hashfs_relocs_next(hashfs, &rlc);
 	    if(r == ITER_NO_MORE) {
@@ -2988,10 +2990,11 @@ static act_result_t filerb_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t 
 	    if(r != OK)
 		action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to lookup file to relocate");
 
+            bin2hex(rlc->volume.global_id.b, sizeof(rlc->volume.global_id.b), volid_hex, sizeof(volid_hex));
             bin2hex(rlc->file.revision_id.b, sizeof(rlc->file.revision_id.b), revid_hex, sizeof(revid_hex));
 	    rbdata[i].reloc = rlc;
-	    rbdata[i].proto = sxi_fileadd_proto_begin(sx,
-						      rlc->volume.name,
+	    rbdata[i].proto = sxi_fileadd_proto_begin_internal(sx,
+						      volid_hex,
 						      rlc->file.name,
 						      rlc->file.revision,
                                                       revid_hex,
@@ -3822,6 +3825,7 @@ struct rplfiles {
     sx_hashfs_t *hashfs;
     sx_blob_t *b;
     sx_hash_t hash;
+    const sx_hashfs_volume_t *vol;
     uint8_t hdr[1024 +
 		  SXLIMIT_MAX_FILENAME_LEN +
 		  REV_LEN +
@@ -3954,7 +3958,7 @@ static int rplfiles_cb(curlev_context_t *cbdata, void *ctx, const void *data, si
 			return 1;
 		    }
 		}
-		s = sx_hashfs_createfile_commit(c->hashfs, c->volume, file_name, file_rev, file_revid, file_size, c->allow_over_replica);
+		s = sx_hashfs_createfile_commit(c->hashfs, c->vol, file_name, file_rev, file_revid, file_size, c->allow_over_replica);
 		c->needend = 0;
 		if(s) {
 		    WARN("Failed to create file %s:%s", file_name, file_rev);
@@ -3996,11 +4000,10 @@ static act_result_t replacefiles_request(sx_hashfs_t *hashfs, job_t job_id, job_
 
     while((s = sx_hashfs_replace_getstartfile(hashfs, maxrev, ctx->volume, ctx->file, ctx->rev)) == OK) {
 	unsigned int nnode, nnodes, rndnode;
-	const sx_hashfs_volume_t *vol;
 	const sx_node_t *source;
 	sx_nodelist_t *volnodes;
 
-	s = sx_hashfs_volume_by_name(hashfs, ctx->volume, &vol);
+	s = sx_hashfs_volume_by_name(hashfs, ctx->volume, &ctx->vol);
 	if(s == ENOENT) {
 	    /* Volume is gone */
 	    s = sx_hashfs_replace_setlastfile(hashfs, ctx->volume, NULL, NULL);
@@ -4010,7 +4013,7 @@ static act_result_t replacefiles_request(sx_hashfs_t *hashfs, job_t job_id, job_
 	if(s != OK)
 	    action_error(rc2actres(s), rc2http(s), msg_get_reason());
 
-	s = sx_hashfs_all_volnodes(hashfs, NL_NEXT, vol, 0, &volnodes, NULL);
+	s = sx_hashfs_all_volnodes(hashfs, NL_NEXT, ctx->vol, 0, &volnodes, NULL);
 	if(s != OK)
 	    action_error(rc2actres(s), rc2http(s), msg_get_reason());
 
@@ -4340,13 +4343,15 @@ static act_result_t dummy_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *jo
 static act_result_t revsclean_vol_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     const sx_hashfs_volume_t *vol = NULL;
     const sx_hashfs_file_t *file = NULL;
-    const char *volume = NULL, *file_threshold = NULL;
+    const char *file_threshold = NULL;
     rc_ty s, t;
     unsigned int scheduled = 0;
     sx_blob_t *b;
     act_result_t ret;
     unsigned int nnodes;
     const sx_node_t *me;
+    const sx_hash_t *global_vol_id;
+    unsigned int global_id_len;
 
     b = sx_blob_from_data(job_data->ptr, job_data->len);
     if(!b) {
@@ -4354,14 +4359,14 @@ static act_result_t revsclean_vol_commit(sx_hashfs_t *hashfs, job_t job_id, job_
         action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
     }
 
-    if(sx_blob_get_string(b, &volume) ||
+    if(sx_blob_get_blob(b, (const void**)&global_vol_id, &global_id_len) || !global_vol_id || global_id_len != sizeof(global_vol_id->b) ||
        sx_blob_get_string(b, &file_threshold)) {
         WARN("Cannot get job data from blob for job %lld", (long long)job_id);
         action_error(ACT_RESULT_PERMFAIL, 500, "Internal error: data corruption detected");
     }
 
-    if((s = sx_hashfs_volume_by_name(hashfs, volume, &vol)) != OK) {
-        WARN("Failed to get volume %s reference: %s", volume, msg_get_reason());
+    if((s = sx_hashfs_volume_by_global_id(hashfs, global_vol_id, &vol)) != OK) {
+        WARN("Failed to get volume reference: %s", msg_get_reason());
         action_error(ACT_RESULT_PERMFAIL, 500, "Internal error: Invalid volume");
     }
 
@@ -4412,7 +4417,7 @@ static act_result_t revsclean_vol_commit(sx_hashfs_t *hashfs, job_t job_id, job_
             action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
 
         /* Insert volume name and last cleaned up file name */
-        if(sx_blob_add_string(new_blob, volume) || sx_blob_add_string(new_blob, file->name)) {
+        if(sx_blob_add_blob(new_blob, global_vol_id->b, sizeof(global_vol_id->b)) || sx_blob_add_string(new_blob, file->name)) {
             sx_blob_free(new_blob);
             action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
         }
@@ -4430,7 +4435,7 @@ static act_result_t revsclean_vol_commit(sx_hashfs_t *hashfs, job_t job_id, job_
             sx_nodelist_delete(curnode_list);
             action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
         }
-        s = sx_hashfs_job_new(hashfs, 0, &job, JOBTYPE_REVSCLEAN, job_timeout, volume, new_job_data, job_datalen, curnode_list);
+        s = sx_hashfs_job_new(hashfs, 0, &job, JOBTYPE_REVSCLEAN, job_timeout, vol->name, new_job_data, job_datalen, curnode_list);
         sx_blob_free(new_blob);
         sx_nodelist_delete(curnode_list);
         if(s != OK)
@@ -4567,6 +4572,8 @@ static rc_ty checkpoint_volume_sizes(sx_hashfs_t *h) {
             if(sx_hashfs_is_volume_to_push(h, vol, n)) {
                 /* Check if its about time to push current volume size */
                 if((!last_push_time && vol->changed) || last_push_time <= vol->changed) {
+                    char volid_hex[SXI_SHA1_TEXT_LEN+1];
+                    bin2hex(vol->global_id.b, sizeof(vol->global_id.b), volid_hex, sizeof(volid_hex));
                     if(!query) {
                         query = sxi_volsizes_proto_begin(sx);
                         if(!query) {
@@ -4575,7 +4582,7 @@ static rc_ty checkpoint_volume_sizes(sx_hashfs_t *h) {
                         }
                     }
 
-                    if(!(query = sxi_volsizes_proto_add_volume(sx, query, vol->name, vol->usage_total, vol->usage_files, vol->nfiles))) {
+                    if(!(query = sxi_volsizes_proto_add_volume(sx, query, volid_hex, vol->usage_total, vol->usage_files, vol->nfiles))) {
                         WARN("Failed to append volume to the query string");
                         goto checkpoint_volume_sizes_err;
                     }
@@ -5517,11 +5524,13 @@ static act_result_t massdelete_commit(sx_hashfs_t *hashfs, job_t job_id, job_dat
     rc_ty s;
     struct timeval timestamp;
     sx_blob_t *b = NULL;
-    const char *volname = NULL, *pattern = NULL;
+    const char *pattern = NULL;
     const sx_hashfs_volume_t *vol = NULL;
     const sx_hashfs_file_t *file = NULL;
     unsigned int i = 0;
     int recursive = 0;
+    const sx_hash_t *global_vol_id;
+    unsigned int global_id_len;
     char timestamp_str[REV_TIME_LEN+1];
 
     b = sx_blob_from_data(job_data->ptr, job_data->len);
@@ -5529,15 +5538,13 @@ static act_result_t massdelete_commit(sx_hashfs_t *hashfs, job_t job_id, job_dat
         WARN("Cannot allocate blob for job %lld", (long long)job_id);
         action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
     }
-
-    if(sx_blob_get_string(b, &volname) || sx_blob_get_int32(b, &recursive) ||
+    if(sx_blob_get_blob(b, (const void**)&global_vol_id, &global_id_len) || sx_blob_get_int32(b, &recursive) ||
        sx_blob_get_string(b, &pattern) || sx_blob_get_datetime(b, &timestamp)) {
-        WARN("Cannot get data from blob for job %lld: %s %s", (long long)job_id, volname, pattern);
+        WARN("Cannot get data from blob for job %lld", (long long)job_id);
         action_error(ACT_RESULT_PERMFAIL, 500, "Internal error: data corruption detected");
     }
-
-    if(!volname || !pattern) {
-        WARN("Cannot get data from blob for job %lld: NULL volname or pattern", (long long)job_id);
+    if(!global_vol_id || global_id_len != sizeof(global_vol_id->b) || !pattern) {
+        WARN("Cannot get data from blob for job %lld: invalid global ID or pattern", (long long)job_id);
         action_error(ACT_RESULT_PERMFAIL, 500, "Internal error: data corruption detected");
     }
 
@@ -5546,8 +5553,8 @@ static act_result_t massdelete_commit(sx_hashfs_t *hashfs, job_t job_id, job_dat
         action_error(ACT_RESULT_PERMFAIL, 500, "Internal error: data corruption detected");
     }
 
-    if((s = sx_hashfs_volume_by_name(hashfs, volname, &vol))) {
-        WARN("Failed to load volume %s", volname);
+    if((s = sx_hashfs_volume_by_global_id(hashfs, global_vol_id, &vol))) {
+        WARN("Failed to load volume");
         action_error(rc2actres(s), rc2http(s), msg_get_reason());
     }
 
@@ -5654,7 +5661,7 @@ static act_result_t massrename_commit(sx_hashfs_t *hashfs, job_t job_id, job_dat
     rc_ty s;
     struct timeval timestamp;
     sx_blob_t *b = NULL;
-    const char *volname = NULL, *source = NULL, *dest = NULL;
+    const char *source = NULL, *dest = NULL;
     const sx_hashfs_volume_t *vol = NULL;
     const sx_hashfs_file_t *file = NULL;
     unsigned int dlen, plen;
@@ -5665,6 +5672,8 @@ static act_result_t massrename_commit(sx_hashfs_t *hashfs, job_t job_id, job_dat
     unsigned int i = 0;
     unsigned int source_slashes;
     long http_code = 0;
+    const sx_hash_t *global_vol_id;
+    unsigned int global_id_len;
 
     b = sx_blob_from_data(job_data->ptr, job_data->len);
     if(!b) {
@@ -5672,15 +5681,15 @@ static act_result_t massrename_commit(sx_hashfs_t *hashfs, job_t job_id, job_dat
         action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");
     }
 
-    if(sx_blob_get_string(b, &volname) || sx_blob_get_int32(b, &recursive) ||
+    if(sx_blob_get_blob(b, (const void**)&global_vol_id, &global_id_len) || sx_blob_get_int32(b, &recursive) ||
        sx_blob_get_string(b, &source) || sx_blob_get_datetime(b, &timestamp) ||
        sx_blob_get_string(b, &dest)) {
-        WARN("Cannot get data from blob for job %lld: %s %s", (long long)job_id, volname, source);
+        WARN("Cannot get data from blob for job %lld", (long long)job_id);
         action_error(ACT_RESULT_PERMFAIL, 500, "Internal error: data corruption detected");
     }
 
-    if(!volname || !source || !dest) {
-        WARN("Cannot get data from blob for job %lld: NULL volname or pattern", (long long)job_id);
+    if(!global_vol_id || global_id_len != sizeof(global_vol_id->b) || !source || !dest) {
+        WARN("Cannot get data from blob for job %lld: invalid global ID or pattern", (long long)job_id);
         action_error(ACT_RESULT_PERMFAIL, 500, "Internal error: data corruption detected");
     }
 
@@ -5689,8 +5698,8 @@ static act_result_t massrename_commit(sx_hashfs_t *hashfs, job_t job_id, job_dat
         action_error(ACT_RESULT_PERMFAIL, 500, "Internal error: data corruption detected");
     }
 
-    if((s = sx_hashfs_volume_by_name(hashfs, volname, &vol))) {
-        WARN("Failed to load volume %s", volname);
+    if((s = sx_hashfs_volume_by_global_id(hashfs, global_vol_id, &vol))) {
+        WARN("Failed to load volume");
         action_error(rc2actres(s), rc2http(s), msg_get_reason());
     }
 
@@ -6139,7 +6148,6 @@ static rc_ty upgrade_2_1_3_to_2_1_4_commit(sx_hashfs_t *hashfs, job_t job_id, jo
 
     while((s = sx_hashfs_replace_getstartfile(hashfs, maxrev, startvol, startfile, startrev)) == OK) {
         const sx_node_t *source;
-
 
         if((s = sx_hashfs_volume_by_name(hashfs, startvol, &vol)) != OK)
             action_error(rc2actres(s), rc2http(s), msg_get_reason());
@@ -6596,6 +6604,7 @@ static act_result_t volrep_files_request(sx_hashfs_t *hashfs, job_t job_id, job_
     ctx = malloc(sizeof(*ctx));
     if(!ctx)
         action_error(ACT_RESULT_TEMPFAIL, 503, "Out of memory allocating request context");
+    ctx->vol = vol;
 
     while((s = sx_hashfs_volrep_getstartfile(hashfs, maxrev, ctx->volume, ctx->file, ctx->rev)) == OK) {
         const sx_node_t *source;

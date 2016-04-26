@@ -50,9 +50,14 @@ sxi_query_t *sxi_usermod_proto(sxc_client_t *sx, const char *username, const uin
 sxi_query_t *sxi_volumeadd_proto(sxc_client_t *sx, const char *volname, const char *owner, int64_t size, unsigned int replica, unsigned int revisions, sxc_meta_t *metadata, const void *global_id, unsigned int global_id_len);
 sxi_query_t *sxi_flushfile_proto(sxc_client_t *sx, const char *token);
 sxi_query_t *sxi_fileadd_proto_begin(sxc_client_t *sx, const char *volname, const char *path, const char *revision, const char *revision_id, int64_t pos, int64_t blocksize, int64_t size);
+/* New file propagation, s2s only */
+sxi_query_t *sxi_fileadd_proto_begin_internal(sxc_client_t *sx, const char *global_vol_id_hex, const char *path, const char *revision, const char *revision_id, int64_t pos, int64_t blocksize, int64_t size);
 sxi_query_t *sxi_fileadd_proto_addhash(sxc_client_t *sx, sxi_query_t *query, const char *hexhash);
 sxi_query_t *sxi_fileadd_proto_end(sxc_client_t *sx, sxi_query_t *query, sxc_meta_t *metadata);
 sxi_query_t *sxi_filedel_proto(sxc_client_t *sx, const char *volname, const char *path, const char *revision);
+/* File deletion propagation query, s2s only */
+sxi_query_t *sxi_filedel_proto_internal(sxc_client_t *sx, const char *global_vol_id_hex, const char *path, const char *revision);
+
 sxi_query_t *sxi_massdel_proto(sxc_client_t *sx, const char *volname, const char *pattern, int recursive);
 
 typedef struct {
