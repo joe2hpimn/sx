@@ -2138,28 +2138,6 @@ void fcgi_list_revision_blocks(const sx_hashfs_volume_t *vol) {
     blob_send_eof();
 }
 
-static int parse_timeval(const char *str, struct timeval *tv) {
-    char *enumb = NULL;
-
-    if(!str || !tv) {
-        WARN("NULL argument");
-        return -1;
-    }
-    
-    tv->tv_sec = strtoll(str, &enumb, 10);
-    if(enumb) {
-        if(*enumb != '.')
-            return -1;
-        str = enumb + 1;
-        enumb = NULL;
-        tv->tv_usec = strtoll(str, &enumb, 10);
-        if(enumb && *enumb)
-            return -1;
-    } else
-        tv->tv_usec = 0;
-    return 0;
-}
-
 void fcgi_mass_delete(void) {
     const sx_hashfs_volume_t *vol;
     rc_ty s;
@@ -2181,15 +2159,8 @@ void fcgi_mass_delete(void) {
     if(!input_pattern)
         input_pattern = "*";
 
-    if(has_priv(PRIV_CLUSTER)) {
-        if(!has_arg("timestamp"))
-            quit_errmsg(400, "Missing timestamp parameter");
-        if(parse_timeval(get_arg("timestamp"), &timestamp))
-            quit_errmsg(400, "Invalid timestamp parameter");
-    } else {
-        /* Determine timestamp */
-        gettimeofday(&timestamp, NULL);
-    }
+    /* Determine timestamp */
+    gettimeofday(&timestamp, NULL);
 
     b = sx_blob_new();
     if(!b)
@@ -2269,15 +2240,8 @@ void fcgi_mass_rename(void) {
     if(((!slen || source[slen-1] == '/') && (dlen && dest[dlen-1] != '/')))
         quit_errmsg(400, "Not a directory");
 
-    if(has_priv(PRIV_CLUSTER)) {
-        if(!has_arg("timestamp"))
-            quit_errmsg(400, "Missing timestamp parameter");
-        if(parse_timeval(get_arg("timestamp"), &timestamp))
-            quit_errmsg(400, "Invalid timestamp parameter");
-    } else {
-        /* Determine timestamp */
-        gettimeofday(&timestamp, NULL);
-    }
+    /* Determine timestamp */
+    gettimeofday(&timestamp, NULL);
 
     b = sx_blob_new();
     if(!b)
