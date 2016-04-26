@@ -122,7 +122,7 @@ typedef struct _load_stat {
     float stat_loadavg_15;
     unsigned stat_tasks_running;
     unsigned stat_tasks;
-    pid_t stat_pid;
+    unsigned stat_pid;
 } load_stat_t;
 
 typedef struct _cpu_stat {

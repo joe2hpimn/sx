@@ -659,7 +659,7 @@ static sxi_query_t* acl_proto_from_blob(sxc_client_t *sx, sx_blob_t *b, jobphase
                                &iter);
 }
 
-const char *acl_get_lock(sx_blob_t *b)
+static const char *acl_get_lock(sx_blob_t *b)
 {
     const char *name = NULL;
     return !sx_blob_get_string(b, &name) ? name : NULL;
@@ -722,12 +722,12 @@ struct cb_volnew_ctx {
     char owner[SXLIMIT_MAX_USERNAME_LEN+1];
 };
 
-void cb_volnew_volsize(jparse_t *J, void *ctx, int64_t volsize) {
+static void cb_volnew_volsize(jparse_t *J, void *ctx, int64_t volsize) {
     struct cb_volnew_ctx *c = ctx;
     c->volsize = volsize;
 }
 
-void cb_volnew_replica(jparse_t *J, void *ctx, int32_t replica_count) {
+static void cb_volnew_replica(jparse_t *J, void *ctx, int32_t replica_count) {
     struct cb_volnew_ctx *c = ctx;
     if(replica_count < 1) {
 	sxi_jparse_cancel(J, "Invalid volume replica count");
@@ -736,7 +736,7 @@ void cb_volnew_replica(jparse_t *J, void *ctx, int32_t replica_count) {
     c->replica = replica_count;
 }
 
-void cb_volnew_revisions(jparse_t *J, void *ctx, int32_t revisions) {
+static void cb_volnew_revisions(jparse_t *J, void *ctx, int32_t revisions) {
     struct cb_volnew_ctx *c = ctx;
     if(revisions < 1) {
 	sxi_jparse_cancel(J, "Invalid number of revisions");
@@ -745,7 +745,7 @@ void cb_volnew_revisions(jparse_t *J, void *ctx, int32_t revisions) {
     c->revisions = revisions;
 }
 
-void cb_volnew_owner(jparse_t *J, void *ctx, const char *string, unsigned int length) {
+static void cb_volnew_owner(jparse_t *J, void *ctx, const char *string, unsigned int length) {
     struct cb_volnew_ctx *c = ctx;
     if(length >= sizeof(c->owner)) {
 	sxi_jparse_cancel(J, "Invalid volume owner");
@@ -755,7 +755,7 @@ void cb_volnew_owner(jparse_t *J, void *ctx, const char *string, unsigned int le
     c->owner[length] = '\0';
 }
 
-void cb_volnew_meta(jparse_t *J, void *ctx, const char *string, unsigned int length) {
+static void cb_volnew_meta(jparse_t *J, void *ctx, const char *string, unsigned int length) {
     const char *metakey = sxi_jpath_mapkey(sxi_jpath_down(sxi_jparse_whereami(J)));
     uint8_t metavalue[SXLIMIT_META_MAX_VALUE_LEN];
     struct cb_volnew_ctx *c = ctx;
