@@ -766,7 +766,7 @@ static int create_file(const char* local_file_path, uint64_t block_size, uint64_
                     WARNING("Wrong blocksize");
                 break;
             case SX_BS_MEDIUM:
-                if(block_count < 32 || block_count > 8192)
+                if(block_count < 8 || block_count > 8192)
                     WARNING("Wrong blocksize");
                 break;
             case SX_BS_LARGE:
