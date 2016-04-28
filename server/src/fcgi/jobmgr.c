@@ -6090,7 +6090,14 @@ static rc_ty upgrade_2_1_3_to_2_1_4_commit(sx_hashfs_t *hashfs, job_t job_id, jo
     while((s = sx_hashfs_replace_getstartfile(hashfs, maxrev, startvol, startfile, startrev)) == OK) {
         const sx_node_t *source;
 
-        if((s = sx_hashfs_volume_by_name(hashfs, startvol, &vol)) != OK)
+        s = sx_hashfs_volume_by_name(hashfs, startvol, &vol);
+        if(s == ENOENT) {
+            /* Volume is gone */
+            s = sx_hashfs_replace_setlastfile(hashfs, startvol, NULL, NULL);
+            if(s == OK)
+                continue;
+        }
+        if(s != OK)
             action_error(rc2actres(s), rc2http(s), msg_get_reason());
 
         if((s = sx_hashfs_all_volnodes(hashfs, NL_NEXTPREV, vol, 0, &volnodes, NULL)) != OK)
