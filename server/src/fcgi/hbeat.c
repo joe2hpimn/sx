@@ -405,6 +405,12 @@ static int raft_ignore_dead_nodes(sx_hashfs_t *h, sx_raft_state_t *state, const 
         goto raft_ignore_dead_nodes_err;
     }
 
+    if(sx_hashfs_is_changing_volume_replica(h)) {
+        DEBUG("Marking dead nodes is skipped due to a volume replica modification being in progress");
+        ret = 0;
+        goto raft_ignore_dead_nodes_err;
+    }
+
     /* Iterate over volumes in order to find a volume with minimum replica */
     for(s = sx_hashfs_volume_first(h, &vol, NULL); s == OK; s = sx_hashfs_volume_next(h)) {
         if(vol->effective_replica < min_replica)
