@@ -1028,7 +1028,7 @@ int sxi_jobs_wait(sxi_jobs_t *jobs, sxi_conns_t *conns)
             }
 
             if(poll_jobs(batch->conns, jobs, JOBS_WAIT_ALL)) {
-                SXDEBUG("Failed to wait for jobs for cluster %s", uuid);
+                SXDEBUG("Failed to wait for jobs for cluster %s", sxi_conns_get_sslname(batch->conns));
                 ret = 1;
                 /* Do not wait for other jobs when not ignoring errors */
                 if(!jobs->ignore_errors)
