@@ -6854,11 +6854,18 @@ static act_result_t volrep_undo_common(sx_hashfs_t *hashfs, job_t job_id, job_da
     } else
         CRIT("Undo phase failed for volume replica change, some files may be left in an inconsistent state");
 
-    /* For the replica change just set both replica limits to the prev */
     sx_blob_reset(newb);
-    if(sx_blob_add_string(newb, volname) || sx_blob_add_int32(newb, (int32_t)prev_replica) ||
-       sx_blob_add_int32(newb, (int32_t)prev_replica) || sx_blob_add_int32(newb, 1))
-        action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to undo volume replica change");
+    if(!is_undoing) {
+        /* For the replica change just set both replica limits to the prev */
+        if(sx_blob_add_string(newb, volname) || sx_blob_add_int32(newb, (int32_t)prev_replica) ||
+           sx_blob_add_int32(newb, (int32_t)prev_replica) || sx_blob_add_int32(newb, 1))
+            action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to undo volume replica change");
+    } else {
+        /* If it already is a failed undo phase, fall back to the lower replica value */
+        if(sx_blob_add_string(newb, volname) || sx_blob_add_int32(newb, (int32_t)MIN(prev_replica, next_replica)) ||
+           sx_blob_add_int32(newb, (int32_t)MIN(prev_replica, next_replica)) || sx_blob_add_int32(newb, 1))
+            action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to undo volume replica change");
+    }
 
     sx_blob_to_data(newb, &data, &data_len);
     s = sx_hashfs_job_new_notrigger(hashfs, job, job_data->owner, &job, JOBTYPE_VOLREP_CHANGE, 20, NULL, data, data_len, allnodes);
