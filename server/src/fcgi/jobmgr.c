@@ -5281,6 +5281,8 @@ static act_result_t jobpoll_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t
     int r;
     sx_uuid_t uuid;
     const char *jobid = NULL;
+    int has_pending = 0;
+    job_status_t local_job_status = JOB_PENDING;
 
     b = sx_blob_from_data(job_data->ptr, job_data->len);
     if(!b) {
@@ -5302,7 +5304,6 @@ static act_result_t jobpoll_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t
     }
 
     while(!(r = sx_blob_get_string(b, &jobid))) {
-        job_status_t status;
         const char *message = NULL;
         job_t job;
         const sx_node_t *node = NULL;
@@ -5317,18 +5318,16 @@ static act_result_t jobpoll_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t
             continue; /* Node has been removed because it has failed or succeeded */
 
         if(!sx_node_cmp(node, me)) {
-            if((s = sx_hashfs_job_result(hashfs, job, 0, &status, &message)) != OK) {
+            if((s = sx_hashfs_job_result(hashfs, job, 0, &local_job_status, &message)) != OK) {
                 WARN("Failed to check job %lld status: %s", (long long)job, msg_get_reason());
                 action_error(ACT_RESULT_PERMFAIL, rc2http(s), "Failed to check job status");
             }
-            if(status == JOB_OK)
+            if(local_job_status == JOB_OK)
                 succeeded[nnode] = 1;
-            else if(status == JOB_PENDING)
-                action_error(ACT_RESULT_TEMPFAIL, 503, "Local job is pending");
-            else {
+            else if(local_job_status == JOB_PENDING)
+                has_pending = 1;
+            else /* Fail the job in the end, let the loop poll other job statuses */
                 DEBUG("Local job has failed: message: %s", message);
-                action_error(ACT_RESULT_PERMFAIL, rc2http(s), message);
-            }
         } else {
             jobs[nnode] = sxi_job_new(sx_hashfs_conns(hashfs), jobid, REQ_DELETE, sx_node_internal_addr(node));
             if(!jobs[nnode]) {
@@ -5343,6 +5342,11 @@ static act_result_t jobpoll_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t
             }
             qrylist[nnode].query_sent = 1;
         }
+    }
+
+    if(local_job_status != JOB_OK && local_job_status != JOB_PENDING) {
+        DEBUG("Local job has failed, permfailing");
+        action_error(ACT_RESULT_PERMFAIL, 500, "Local job has failed");
     }
 
     if(r < 0) {
@@ -5373,7 +5377,7 @@ action_failed:
                 if(status == JOBST_OK)
                     succeeded[nnode] = 1;
                 else if(status == JOBST_PENDING)
-                    action_set_fail(ACT_RESULT_TEMPFAIL, 503, "Remote job is pending");
+                    has_pending = 1;
                 else
                     action_set_fail(ACT_RESULT_PERMFAIL, 500, sxi_cbdata_geterrmsg(qrylist[nnode].cbdata));
             } else
@@ -5386,6 +5390,11 @@ action_failed:
         for(nnode = 0; nnode < nnodes; nnode++)
             sxi_job_free(jobs[nnode]);
         free(jobs);
+    }
+    if(has_pending) {
+        /* Wait until all jobs has been finished. has_pending is set when a job is in PENDING state. */
+        DEBUG("There is at least one pending job, tempfailing");
+        action_set_fail(ACT_RESULT_TEMPFAIL, 503, "Slave jobs are pending");
     }
     sx_blob_free(b);
     return ret;
