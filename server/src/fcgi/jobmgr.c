@@ -6350,9 +6350,10 @@ static rc_ty volrep_blocks_pull(sx_hashfs_t *hashfs, const sx_hashfs_volume_t *v
         sxi_conns_t *clust = sx_hashfs_conns(hashfs);
         const sx_node_t *me = sx_hashfs_self(hashfs);
         struct rplblocks *ctx = malloc(sizeof(*ctx));
-        char query[256];
+        char *query;
         int qret;
         char hexidx[sizeof(bmidx)*2+1];
+        unsigned int len;
 
         if(!ctx) {
             msg_set_reason("Out of memory");
@@ -6367,15 +6368,23 @@ static rc_ty volrep_blocks_pull(sx_hashfs_t *hashfs, const sx_hashfs_volume_t *v
         if(have_blkidx)
             bin2hex(&bmidx, sizeof(bmidx), hexidx, sizeof(hexidx));
 
-        snprintf(query, sizeof(query), ".volrepblk?volume=%s&target=%s%s%s%s", enc_vol, sx_node_uuid_str(me),
-                have_blkidx ? "&idx=" : "", have_blkidx ? hexidx : "", is_undoing ? "&undo" : "");
+        len = lenof(".volrepblk?volume=&target=&idx=&undo") + strlen(enc_vol) + UUID_LEN + sizeof(hexidx) + 1;
+        query = malloc(len);
+        if(!query) {
+            free(ctx);
+            msg_set_reason("Out of memory");
+            goto volrep_blocks_pull_err;
+        }
 
+        snprintf(query, len, ".volrepblk?volume=%s&target=%s%s%s%s", enc_vol, sx_node_uuid_str(me),
+                have_blkidx ? "&idx=" : "", have_blkidx ? hexidx : "", is_undoing ? "&undo" : "");
         ctx->hashfs = hashfs;
         ctx->b = NULL;
         ctx->pos = 0;
         ctx->ngood = 0;
         ctx->state = RPL_HDRSIZE;
         qret = sxi_cluster_query(clust, &hlist, REQ_GET, query, NULL, 0, NULL, rplblocks_cb, ctx);
+        free(query);
         sx_blob_free(ctx->b);
         if(qret != 200) {
             free(ctx);
