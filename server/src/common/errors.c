@@ -88,11 +88,11 @@ int rc2http(rc_ty rc) {
 
 	/* 5xx */
     case EFAULT:
-    case FAIL_EINTERNAL:
     case FAIL_EINIT:
 	return 500;
 
     case ENOMEM:
+    case FAIL_EINTERNAL:
 	return 503;
 
     case ENOSPC:
