@@ -2527,8 +2527,11 @@ void fcgi_modify_volume_replica(void) {
     if(s != OK)
         quit_errmsg(rc2http(s), msg_get_reason());
 
-    if(!yctx.next || !yctx.prev)
-        quit_errmsg(400, "Previous or next replica has not been provided");
+    if(!yctx.next)
+        quit_errmsg(400, "Volume replica has not been provided");
+
+    if(has_priv(PRIV_CLUSTER) && !yctx.prev)
+        quit_errmsg(400, "Previous volume replica has not been provided");
 
     if(sx_hashfs_is_rebalancing(hashfs))
         quit_errmsg(rc2http(FAIL_LOCKED), "The cluster is still being rebalanced");
@@ -2561,6 +2564,10 @@ void fcgi_modify_volume_replica(void) {
 
     if(sx_hashfs_is_changing_volume_replica(hashfs) == 1)
         quit_errmsg(400, "The cluster is already performing volume replica changes");
+
+    /* A request coming from a user takes the current volume replica value for the prev. */
+    if(!has_priv(PRIV_CLUSTER))
+        yctx.prev = vol->max_replica;
 
     /* In case prev_replica == vol->max_replica we can skip the whole operation and return a dummy job for the 
      * client tool to be able to poll its status which is going to always be a success. Scheduling the whole 

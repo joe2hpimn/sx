@@ -1450,7 +1450,7 @@ sxi_replica_change_files_proto_err:
     return proto;
 }
 
-sxi_query_t *sxi_replica_change_proto(sxc_client_t *sx, const char *volume, unsigned int prev_replica, unsigned int next_replica) {
+static sxi_query_t *replica_change_proto_common(sxc_client_t *sx, const char *volume, unsigned int prev_replica, unsigned int next_replica) {
     sxi_query_t *ret;
     char *url;
     char *enc_vol;
@@ -1458,7 +1458,8 @@ sxi_query_t *sxi_replica_change_proto(sxc_client_t *sx, const char *volume, unsi
 
     if(!sx)
         return NULL;
-    if(!volume || !prev_replica || !next_replica) {
+    /* prev_replica is an optional argument */
+    if(!volume || !next_replica) {
         sxi_seterr(sx, SXE_EARG, "Invalid argument");
         return NULL;
     }
@@ -1486,11 +1487,37 @@ sxi_query_t *sxi_replica_change_proto(sxc_client_t *sx, const char *volume, unsi
         return NULL;
     }
 
-    ret = sxi_query_append_fmt(sx, ret, lenof("{\"prev_replica\":,\"next_replica\":}") + 21, "{\"prev_replica\":%u,\"next_replica\":%u}", prev_replica, next_replica);
+    ret = sxi_query_append_fmt(sx, ret, 1, "{");
+    if(ret && prev_replica)
+        ret = sxi_query_append_fmt(sx, ret, lenof("\"prev_replica\":,") + 11, "\"prev_replica\":%u,", prev_replica);
+
+    if(ret)
+        ret = sxi_query_append_fmt(sx, ret, lenof("\"next_replica\":}") + 11, "\"next_replica\":%u}", next_replica);
+
     if(!ret) {
         sxi_seterr(sx, SXE_EMEM, "Failed to prepare query");
         return NULL;
     }
 
     return ret;
+}
+
+/*
+ * Client proto for the volume replica change
+ */
+sxi_query_t *sxi_replica_change_proto(sxc_client_t *sx, const char *volume, unsigned int replica) {
+    return replica_change_proto_common(sx, volume, 0, replica);
+}
+
+/*
+ * The volume replica change repopulation query (s2s)
+ */
+sxi_query_t *sxi_replica_change_proto_internal(sxc_client_t *sx, const char *volume, unsigned int prev_replica, unsigned int next_replica) {
+    if(!sx)
+        return NULL;
+    if(!volume || !prev_replica || !next_replica) {
+        sxi_seterr(sx, SXE_EARG, "Invalid argument");
+        return NULL;
+    }
+    return replica_change_proto_common(sx, volume, prev_replica, next_replica);
 }

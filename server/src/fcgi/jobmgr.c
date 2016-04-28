@@ -5850,7 +5850,7 @@ static act_result_t volrep_common(sx_hashfs_t *hashfs, job_t job_id, job_data_t 
             succeeded[nnode] = 1;
         } else {
             if(!proto) {
-                proto = sxi_replica_change_proto(sx, vol->name, prev_replica, next_replica);
+                proto = sxi_replica_change_proto_internal(sx, vol->name, prev_replica, next_replica);
                 if(!proto) {
                     WARN("Cannot allocate replica change query");
                     action_error(ACT_RESULT_TEMPFAIL, 503, "Not enough memory to perform the requested action");

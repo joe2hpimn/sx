@@ -167,7 +167,10 @@ sxi_query_t *sxi_mass_job_commit_proto(sxc_client_t *sx, const char *job_id);
 /* 2.1.3 -> 2.1.4 upgrade proto */
 sxi_query_t *sxi_2_1_4_upgrade_proto(sxc_client_t *sx, const char *volume, const char *maxrev, const char *startfile, const char *startrev);
 
-/* Modify the volume replica value */
-sxi_query_t *sxi_replica_change_proto(sxc_client_t *sx, const char *volume, unsigned int prev_replica, unsigned int next_replica);
+/* Modify the volume replica value (client request) */
+sxi_query_t *sxi_replica_change_proto(sxc_client_t *sx, const char *volume, unsigned int replica);
+
+/* Modify the volume replica value (s2s request) */
+sxi_query_t *sxi_replica_change_proto_internal(sxc_client_t *sx, const char *volume, unsigned int prev_replica, unsigned int next_replica);
 
 #endif
