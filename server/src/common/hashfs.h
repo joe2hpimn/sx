@@ -60,7 +60,7 @@
 #define QUOTA_UNLIMITED 0LL
 #define SX_CUSTOM_META_PREFIX "$custom$"
 
-#define MASS_JOB_DELAY_TIMEOUT 60
+#define MASS_JOB_DELAY_TIMEOUT 300
 #define MASS_JOB_TIMEOUT 3600
 
 /* Limits for raft log entries (per one request) */
