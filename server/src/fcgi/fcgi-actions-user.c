@@ -1298,10 +1298,8 @@ void fcgi_self(void) {
     if((s = sx_hashfs_get_owner_quota_usage(hashfs, uid, NULL, &quota_used)) != OK)
         quit_errmsg(rc2http(s), rc2str(s));
     s = sx_hashfs_get_user_info(hashfs, user, NULL, NULL, NULL, &desc, NULL);
-    if (s != OK) {
-        free(desc);
+    if (s != OK)
         quit_errmsg(rc2http(s), msg_get_reason());
-    }
 
     if(has_arg("userMeta") || has_arg("customUserMeta")) {
         if(!(meta = wrap_malloc(sizeof(*meta) * SXLIMIT_META_MAX_ITEMS))) {

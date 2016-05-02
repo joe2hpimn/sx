@@ -233,7 +233,12 @@ void fcgi_set_nodes(void) {
     sxi_jparse_destroy(J);
 
     auth_complete();
-    quit_unless_authed();
+    if(!is_authed()) {
+	free(yctx.zones);
+	sx_nodelist_delete(yctx.nodes);
+	send_authreq();
+	return;
+    }
 
     if(has_arg("replace")) {
 	if(yctx.zones) {
@@ -317,13 +322,21 @@ void fcgi_mark_faultynodes(void) {
     sxi_jparse_destroy(J);
 
     auth_complete();
-    quit_unless_authed();
+    if(!is_authed()) {
+        sx_nodelist_delete(yctx.nodes);
+	send_authreq();
+	return;
+    }
 
-    if(!sx_nodelist_count(yctx.nodes))
+    if(!sx_nodelist_count(yctx.nodes)) {
+        sx_nodelist_delete(yctx.nodes);
 	quit_errmsg(400, "Invalid request content");
+    }
 
-    if(sx_hashfs_is_changing_volume_replica(hashfs) == 1)
+    if(sx_hashfs_is_changing_volume_replica(hashfs) == 1) {
+	sx_nodelist_delete(yctx.nodes);
         quit_errmsg(400, "The cluster is already performing volume replica changes");
+    }
 
     if(has_priv(PRIV_CLUSTER)) {
 	/* S2S request */
@@ -460,10 +473,7 @@ void fcgi_distlock(void) {
     sxi_jparse_destroy(J);
 
     auth_complete();
-    if(!is_authed()) {
-        send_authreq();
-        return;
-    }
+    quit_unless_authed();
 
     if(dctx.op == DL_UNSET)
 	quit_errmsg(400, "Missing operation type");
@@ -888,7 +898,12 @@ void fcgi_node_init(void) {
     }
 
     auth_complete();
-    quit_unless_authed();
+    if(!is_authed()) {
+	free(yctx.name);
+	free(yctx.ca);
+	send_authreq();
+	return;
+    }
 
     rc_ty s = sx_hashfs_setnodedata(hashfs, yctx.name, &yctx.uuid, yctx.port, yctx.ssl, yctx.ca);
     free(yctx.name);
@@ -2106,10 +2121,7 @@ void fcgi_raft_append_entries(void) {
     sxi_jparse_destroy(J);
 
     auth_complete();
-    if(!is_authed()) {
-        send_authreq();
-        return;
-    }
+    quit_unless_authed();
 
     /* NOTE: ctx.prev_log_index, ctx.prev_log_term and ctx.leader_commit are optional */
     if(!ctx.have_leader || !ctx.have_hasfhs_ver || !ctx.libsxclient_version[0] ||

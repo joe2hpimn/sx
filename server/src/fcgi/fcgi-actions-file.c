@@ -319,7 +319,11 @@ void fcgi_create_file(void) {
     sxi_jparse_destroy(J);
 
     auth_complete();
-    quit_unless_authed();
+    if(!is_authed()) {
+        sx_hashfs_createfile_end(hashfs);
+	send_authreq();
+	return;
+    }
 
     if((s = sx_hashfs_volume_by_global_id(hashfs, &global_vol_id, &vol)) != OK) {
         sx_hashfs_createfile_end(hashfs);
@@ -377,7 +381,11 @@ static void create_or_extend_tempfile(const sx_hashfs_volume_t *vol, const char 
     sxi_jparse_destroy(J);
 
     auth_complete();
-    quit_unless_authed();
+    if(!is_authed()) {
+	sx_hashfs_putfile_end(hashfs);
+	send_authreq();
+	return;
+    }
 
     s = sx_hashfs_putfile_gettoken(hashfs, user, yctx.filesize, yctx.seq, &token, hash_presence_callback, &ctx);
     if (s != OK) {
