@@ -63,10 +63,12 @@ typedef struct {
   volatile void *pShared;
   int last_ofst;
   int last_n;
+  int tries;
   /* The underlying VFS sqlite3_file is appended to this object */
 } waitsem_file;
 static sqlite3_file *waitsemSubOpen(sqlite3_file *pFile);
 static int waitsemAcquire(waitsem_file *p, int ofst, int n);
+static void waitsemHeld(waitsem_file *p, int ofst, int n);
 static int waitsemRelease(waitsem_file *p, int ofst, int n);
 
 /*
@@ -204,6 +206,14 @@ static int waitsemShmLock(
     p->last_n=n;
   } else
     p->last_ofst=p->last_n=0;
+  p->tries=0;
+
+  if ( rc==SQLITE_OK &&
+       ( flags & (SQLITE_SHM_LOCK|SQLITE_SHM_EXCLUSIVE) )) {
+    /* if semaphore owner died (semaphore acquire timed out, but SQLite lock worked) then
+       mark the semaphore as held, so that on unlock we release it. */
+    waitsemHeld(p, ofst, n);
+  }
   return rc;
 }
 
@@ -333,6 +343,8 @@ static int timedlockAcquire(TimedLock *lock, unsigned nMaxWaitMilli)
     if ( errno==EINTR ) return SQLITE_BUSY;
     if ( errno!=ETIMEDOUT )
       return unixLogError(SQLITE_IOERR_LOCK, "sem_timedwait", lock->name);
+    /* on first lock attempt this is set to 0, important to return BUSY here for fairness
+       (otherwise we don't get called again, and we won't sleep on the semaphore) */
     if (!nMaxWaitMilli) return SQLITE_BUSY;
     /* timeout: either another process/thread is holding the lock, or it crashed without posting it */
   }
@@ -594,6 +606,17 @@ static int waitsemAcquire(waitsem_file *p, int ofst, int n)
   int rc, timeout = p->busy_timeout;
   assert( waitsemIsValid(ofst, n) );
 
+  /*
+    try #0: check semaphore -> EBUSY if cannot acquire (timeout=0)
+    try #1: check semaphore -> OK if cannot acquire after timeout = 10 ms
+     - check if SQLite lock can be acquired -> detect dead owner
+    try #N: check semaphore -> OK if cannot acquire after timeout = busy_timeout
+   */
+  if (p->tries == 1)
+    timeout = timeout > 10 ? 10 : timeout;
+  /* only one timeout can be this small, otherwise the busy handler will introduce latency
+     and unfairness by sleeping outside a semaphore */
+
   if( p->last_ofst!=ofst || p->last_n!=n )
     timeout = 0; /* checkpoint and non-repeated lock attempts should return busy fast */
 
@@ -604,10 +627,21 @@ static int waitsemAcquire(waitsem_file *p, int ofst, int n)
         timedlockRelease(&p->waiting[i]);
       p->last_ofst=ofst;
       p->last_n=n;
+      p->tries++;
       return rc;
     }
   }
   return SQLITE_OK;
+}
+
+static void waitsemHeld(waitsem_file *p, int ofst, int n)
+{
+  unsigned i;
+  assert( waitsemIsValid(ofst, n) );
+
+  for(i=ofst;i<ofst+n;i++) {
+    p->waiting[i].held = 1;
+  }
 }
 
 static int waitsemRelease(waitsem_file *p, int ofst, int n)
