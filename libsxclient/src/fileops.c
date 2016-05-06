@@ -4734,12 +4734,21 @@ static sxi_job_t* remote_to_remote_fast(sxc_file_t *source, sxc_file_t *dest) {
 
     }
 
+    free(source->remote_path);
+    source->remote_path = NULL;
+
+    /* Source path could be changed */
+    if(sxi_filemeta_process(sx, fh, filter_cfgdir, source, cvmeta)) {
+        SXDEBUG("Failed to process source filemeta");
+        goto remote_to_remote_fast_err;
+    }
+
     free(dest->remote_path);
     dest->remote_path = NULL;
 
     /* Dest path could be changed */
     if(sxi_filemeta_process(sx, fh, filter_cfgdir, dest, cvmeta)) {
-        SXDEBUG("Failed to process source filename");
+        SXDEBUG("Failed to process destination filemeta");
         goto remote_to_remote_fast_err;
     }
 
