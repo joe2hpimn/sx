@@ -198,6 +198,9 @@ typedef struct _node_status_t {
     } *bqstat;
 } sxi_node_status_t;
 
+void sxi_node_status_init(sxi_node_status_t *status);
+void sxi_node_status_empty(sxi_node_status_t *status);
+
 int sxi_conns_set_timeouts(sxi_conns_t *conns, unsigned int hard_timeout, unsigned int soft_timeout);
 int sxi_conns_get_timeouts(sxi_conns_t *conns, unsigned int *hard_timeout, unsigned int *soft_timeout);
 

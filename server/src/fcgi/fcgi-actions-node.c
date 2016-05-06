@@ -1555,12 +1555,10 @@ void fcgi_node_status(void) {
     int comma;
     rc_ty s;
 
+    sxi_node_status_init(&status);
     s = sx_hashfs_node_status(hashfs, &status);
-    if(s != OK) {
-        free(status.cpu_stat);
-        free(status.network_traffic_json);
+    if(s != OK)
         quit_errmsg(rc2http(s), msg_get_reason());
-    }
     CGI_PUTS("Content-type: application/json\r\n\r\n{");
     CGI_PRINTF("\"osType\":\"%s\",\"osArch\":\"%s\",\"osRelease\":\"%s\",\"osVersion\":\"%s\",\"cores\":%d",
         status.os_name, status.os_arch, status.os_release, status.os_version, status.cores);
@@ -1662,8 +1660,7 @@ void fcgi_node_status(void) {
  
     CGI_PRINTF("}}");
 
-    free(status.cpu_stat);
-    free(status.network_traffic_json);
+    sxi_node_status_empty(&status);
 }
 
 /*

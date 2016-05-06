@@ -685,6 +685,34 @@ int sxi_report_system_stat(sxc_client_t *sx, int ncpus, cpu_stat_t **cpu_stat, t
     return 0;
 }
 
+void sxi_node_status_init(sxi_node_status_t *status) {
+    if(!status)
+        return;
+    memset(status, 0, sizeof(*status));
+    status->block_size = -1;
+    status->total_blocks = -1;
+    status->avail_blocks = -1;
+    status->mem_total = -1;
+    status->mem_avail = -1;
+    status->swap_total = -1;
+    status->swap_free = -1;
+    status->cores = -1;
+    status->processes = -1;
+    status->processes_running = -1;
+    status->processes_blocked = -1;
+    status->btime = -1;
+}
+
+void sxi_node_status_empty(sxi_node_status_t *status) {
+    if(!status)
+        return;
+    free(status->cpu_stat);
+    free(status->network_traffic_json);
+    free(status->load_stat);
+    free(status->bqstat);
+    sxi_node_status_init(status);
+}
+
 struct cb_traffic_ctx {
     curlev_context_t *cbdata;
     const struct jparse_actions acts;

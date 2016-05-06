@@ -4056,59 +4056,74 @@ struct node_status_ctx {
 
 static void cb_nodest_ostype(jparse_t *J, void *ctx, const char *string, unsigned int length) {
     struct node_status_ctx *yactx = (struct node_status_ctx *)ctx;
-    sxi_strlcpy(yactx->status.os_name, string, MIN(sizeof(yactx->status.os_name), length+1));
+    memcpy(yactx->status.os_name, string, MIN(sizeof(yactx->status.os_name)-1, length));
+    yactx->status.os_name[MIN(sizeof(yactx->status.os_name)-1, length)] = '\0';
 }
+
 static void cb_nodest_osarch(jparse_t *J, void *ctx, const char *string, unsigned int length) {
     struct node_status_ctx *yactx = (struct node_status_ctx *)ctx;
-    sxi_strlcpy(yactx->status.os_arch, string, MIN(sizeof(yactx->status.os_arch), length+1));
+    memcpy(yactx->status.os_arch, string, MIN(sizeof(yactx->status.os_arch)-1, length));
+    yactx->status.os_arch[MIN(sizeof(yactx->status.os_arch)-1, length)] = '\0';
 }
 static void cb_nodest_osrel(jparse_t *J, void *ctx, const char *string, unsigned int length) {
     struct node_status_ctx *yactx = (struct node_status_ctx *)ctx;
-    sxi_strlcpy(yactx->status.os_release, string, MIN(sizeof(yactx->status.os_release), length+1));
+    memcpy(yactx->status.os_release, string, MIN(sizeof(yactx->status.os_release)-1, length));
+    yactx->status.os_release[MIN(sizeof(yactx->status.os_release)-1, length)] = '\0';
 }
 static void cb_nodest_osver(jparse_t *J, void *ctx, const char *string, unsigned int length) {
     struct node_status_ctx *yactx = (struct node_status_ctx *)ctx;
-    sxi_strlcpy(yactx->status.os_version, string, MIN(sizeof(yactx->status.os_version), length+1));
+    memcpy(yactx->status.os_version, string, MIN(sizeof(yactx->status.os_version)-1, length));
+    yactx->status.os_version[MIN(sizeof(yactx->status.os_version)-1, length)] = '\0';
 }
 static void cb_nodest_localtime(jparse_t *J, void *ctx, const char *string, unsigned int length) {
     struct node_status_ctx *yactx = (struct node_status_ctx *)ctx;
-    sxi_strlcpy(yactx->status.localtime, string, MIN(sizeof(yactx->status.localtime), length+1));
+    memcpy(yactx->status.localtime, string, MIN(sizeof(yactx->status.localtime)-1, length));
+    yactx->status.localtime[MIN(sizeof(yactx->status.localtime)-1, length)] = '\0';
 }
 static void cb_nodest_utctime(jparse_t *J, void *ctx, const char *string, unsigned int length) {
     struct node_status_ctx *yactx = (struct node_status_ctx *)ctx;
-    sxi_strlcpy(yactx->status.utctime, string, MIN(sizeof(yactx->status.utctime), length+1));
+    memcpy(yactx->status.utctime, string, MIN(sizeof(yactx->status.utctime)-1, length));
+    yactx->status.utctime[MIN(sizeof(yactx->status.utctime)-1, length)] = '\0';
 }
 static void cb_nodest_addr(jparse_t *J, void *ctx, const char *string, unsigned int length) {
     struct node_status_ctx *yactx = (struct node_status_ctx *)ctx;
-    sxi_strlcpy(yactx->status.addr, string, MIN(sizeof(yactx->status.addr), length+1));
+    memcpy(yactx->status.addr, string, MIN(sizeof(yactx->status.addr)-1, length));
+    yactx->status.addr[MIN(sizeof(yactx->status.addr)-1, length)] = '\0';
 }
 static void cb_nodest_intaddr(jparse_t *J, void *ctx, const char *string, unsigned int length) {
     struct node_status_ctx *yactx = (struct node_status_ctx *)ctx;
-    sxi_strlcpy(yactx->status.internal_addr, string, MIN(sizeof(yactx->status.internal_addr), length+1));
+    memcpy(yactx->status.internal_addr, string, MIN(sizeof(yactx->status.internal_addr)-1, length));
+    yactx->status.internal_addr[MIN(sizeof(yactx->status.internal_addr)-1, length)] = '\0';
 }
 static void cb_nodest_endianness(jparse_t *J, void *ctx, const char *string, unsigned int length) {
     struct node_status_ctx *yactx = (struct node_status_ctx *)ctx;
-    sxi_strlcpy(yactx->status.endianness, string, MIN(sizeof(yactx->status.endianness), length+1));
+    memcpy(yactx->status.endianness, string, MIN(sizeof(yactx->status.endianness)-1, length));
+    yactx->status.endianness[MIN(sizeof(yactx->status.endianness)-1, length)] = '\0';
 }
 static void cb_nodest_uuid(jparse_t *J, void *ctx, const char *string, unsigned int length) {
     struct node_status_ctx *yactx = (struct node_status_ctx *)ctx;
-    sxi_strlcpy(yactx->status.uuid, string, MIN(sizeof(yactx->status.uuid), length+1));
+    memcpy(yactx->status.uuid, string, MIN(sizeof(yactx->status.uuid)-1, length));
+    yactx->status.uuid[MIN(sizeof(yactx->status.uuid)-1, length)] = '\0';
 }
 static void cb_nodest_stdir(jparse_t *J, void *ctx, const char *string, unsigned int length) {
     struct node_status_ctx *yactx = (struct node_status_ctx *)ctx;
-    sxi_strlcpy(yactx->status.storage_dir, string, MIN(sizeof(yactx->status.storage_dir), length+1));
+    memcpy(yactx->status.storage_dir, string, MIN(sizeof(yactx->status.storage_dir)-1, length));
+    yactx->status.storage_dir[MIN(sizeof(yactx->status.storage_dir)-1, length)] = '\0';
 }
 static void cb_nodest_stver(jparse_t *J, void *ctx, const char *string, unsigned int length) {
     struct node_status_ctx *yactx = (struct node_status_ctx *)ctx;
-    sxi_strlcpy(yactx->status.hashfs_version, string, MIN(sizeof(yactx->status.hashfs_version), length+1));
+    memcpy(yactx->status.hashfs_version, string, MIN(sizeof(yactx->status.hashfs_version)-1, length));
+    yactx->status.hashfs_version[MIN(sizeof(yactx->status.hashfs_version)-1, length)] = '\0';
 }
 static void cb_nodest_libver(jparse_t *J, void *ctx, const char *string, unsigned int length) {
     struct node_status_ctx *yactx = (struct node_status_ctx *)ctx;
-    sxi_strlcpy(yactx->status.libsxclient_version, string, MIN(sizeof(yactx->status.libsxclient_version), length+1));
+    memcpy(yactx->status.libsxclient_version, string, MIN(sizeof(yactx->status.libsxclient_version)-1, length));
+    yactx->status.libsxclient_version[MIN(sizeof(yactx->status.libsxclient_version)-1, length)] = '\0';
 }
 static void cb_nodest_heal(jparse_t *J, void *ctx, const char *string, unsigned int length) {
     struct node_status_ctx *yactx = (struct node_status_ctx *)ctx;
-    sxi_strlcpy(yactx->status.heal_status, string, MIN(sizeof(yactx->status.heal_status), length+1));
+    memcpy(yactx->status.heal_status, string, MIN(sizeof(yactx->status.heal_status)-1, length));
+    yactx->status.heal_status[MIN(sizeof(yactx->status.heal_status)-1, length)] = '\0';
 }
 
 static void cb_nodest_cores(jparse_t *J, void *ctx, int32_t num) {
@@ -4304,6 +4319,7 @@ int sxi_cluster_status(sxc_cluster_t *cluster, const node_status_cb_t status_cb,
             goto sxc_cluster_status_err;
         }
 
+        sxi_node_status_init(&yctx->status);
         yctx->acts = &acts;
 
         qret = sxi_cluster_query(conns, &hlist, REQ_GET, ".status", NULL, 0, node_status_setup_cb, node_status_cb, yctx);
@@ -4324,6 +4340,7 @@ int sxi_cluster_status(sxc_cluster_t *cluster, const node_status_cb_t status_cb,
             sxi_seterr(sx, code, "Can't query node %s%s%s", node, old_msg ? ": " : "", old_msg ? old_msg : "");
             free(old_msg);
             fail = 1;
+            sxi_node_status_empty(&yctx->status);
             status_cb(sx, qret, NULL, human_readable);
             sxc_clearerr(sx);
             continue;
@@ -4337,12 +4354,13 @@ int sxi_cluster_status(sxc_cluster_t *cluster, const node_status_cb_t status_cb,
             sxc_clearerr(sx);
             sxi_seterr(sx, SXE_ECOMM, "Can't query node %s", node);
             fail = 1;
+            sxi_node_status_empty(&yctx->status);
             status_cb(sx, qret, NULL, human_readable);
             continue;
         }
 
         status_cb(sx, qret, &yctx->status, human_readable);
-	free(yctx->status.bqstat);
+        sxi_node_status_empty(&yctx->status);
 	sxi_jparse_destroy(yctx->J);
         free(yctx);
     }

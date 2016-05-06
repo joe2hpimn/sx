@@ -19179,19 +19179,6 @@ rc_ty sx_hashfs_node_status(sx_hashfs_t *h, sxi_node_status_t *status) {
         NULLARG();
         return EINVAL;
     }
-    memset(status, 0, sizeof(*status));
-    status->block_size = -1;
-    status->total_blocks = -1;
-    status->avail_blocks = -1;
-    status->mem_total = -1;
-    status->mem_avail = -1;
-    status->swap_total = -1;
-    status->swap_free = -1;
-    status->cores = -1;
-    status->processes = -1;
-    status->processes_running = -1;
-    status->processes_blocked = -1;
-    status->btime = -1;
 
     /* System information */
     if(sxi_report_os(h->sx, status->os_name, sizeof(status->os_name), status->os_arch, sizeof(status->os_arch),
@@ -19227,11 +19214,13 @@ rc_ty sx_hashfs_node_status(sx_hashfs_t *h, sxi_node_status_t *status) {
     tm = gmtime(&t);
     if (tm && strftime(status->utctime, sizeof(status->utctime), "%Y-%m-%d %H:%M:%S UTC", tm) <= 0) {
         WARN("Failed to get UTC time");
+        sxi_node_status_empty(status);
         return FAIL_EINTERNAL;
     }
     tm = localtime(&t);
     if (tm && strftime(status->localtime, sizeof(status->localtime), "%Y-%m-%d %H:%M:%S %Z", tm) <= 0) {
         WARN("Failed to get local time");
+        sxi_node_status_empty(status);
         return FAIL_EINTERNAL;
     }
 
