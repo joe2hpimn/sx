@@ -1610,7 +1610,11 @@ static void upload_blocks_to_hosts(curlev_context_t *cbdata, struct file_upload_
         yctx->ok++;
         SXDEBUG("upload status: %lld + %lld, %lld",
                 (long long)yctx->pos, (long long)yctx->blocksize, (long long)yctx->size); 
-        if (yctx->end >= yctx->size) {
+        /*
+         * We call the last part or the flush from a callback level,
+         * consider running the flush in the upload loop (multi_upload())
+         */
+        if (yctx->pos + yctx->max_part_blocks * yctx->blocksize >= yctx->size) {
             SXDEBUG("finished uploads: %lld, %lld >= %lld",
                     (long long)yctx->pos, (long long)yctx->end, (long long)yctx->size);
             if (yctx->pos == yctx->size)
