@@ -42,13 +42,10 @@
 typedef struct {
   char *name;
   sem_t *sem;
-  int held;
-  unsigned ofst;
 } TimedLock;
-static int timedlockOpen(TimedLock *lock, struct stat *sb, int nLock);
+static int timedlockOpen(TimedLock *lock, struct stat *sb, const char *id, int nValue);
 static void timedlockClose(TimedLock *lock, int deleteFlag);
-/* static int timedlockTry(TimedLock *lock); */
-static int timedlockAcquire(TimedLock *lock, unsigned nMaxWaitMilli);
+static int timedlockAcquire(TimedLock *lock, unsigned nMaxWaitMicro);
 static int timedlockRelease(TimedLock *lock);
 
 /*
@@ -58,8 +55,10 @@ typedef struct {
   sqlite3_file base;              /* Base class - must be first */
   char *dbname;
   int has_locks;
-  TimedLock waiting[SQLITE_SHM_NLOCK];
-  int busy_timeout;
+  TimedLock write;
+  TimedLock read0;
+  TimedLock read;
+  int held[SQLITE_SHM_NLOCK];
   volatile void *pShared;
   int last_ofst;
   int last_n;
@@ -67,7 +66,7 @@ typedef struct {
   /* The underlying VFS sqlite3_file is appended to this object */
 } waitsem_file;
 static sqlite3_file *waitsemSubOpen(sqlite3_file *pFile);
-static int waitsemAcquire(waitsem_file *p, int ofst, int n);
+static int waitsemAcquire(waitsem_file *p, int ofst, int n, unsigned nMaxWaitMicro);
 static void waitsemHeld(waitsem_file *p, int ofst, int n);
 static int waitsemRelease(waitsem_file *p, int ofst, int n);
 
@@ -164,6 +163,8 @@ static int waitsemRelease(waitsem_file *p, int ofst, int n);
 
  */
 
+static int nLastSleepMicro = 0; /* TODO: not thread safe, but xSleep is global */
+
 static int waitsemShmLock(
   sqlite3_file *pFile,       /* Database file holding the shared memory */
   int ofst,                  /* First lock to acquire or release */
@@ -174,16 +175,27 @@ static int waitsemShmLock(
   waitsem_file *p = (waitsem_file*)pFile;
   int rc;
 
+  p->last_ofst = ofst;
+  p->last_n = n;
   if ( flags & SQLITE_SHM_LOCK ) {
     /* if there are others trying to acquire the lock: wait */
-    rc = waitsemAcquire(p, ofst, n);
+    rc = waitsemAcquire(p, ofst, n, nLastSleepMicro);
+    nLastSleepMicro = 0;
+    if( p->tries>0 && rc==SQLITE_BUSY )
+      rc = SQLITE_OK; /* try to acquire anyway to detect dead owner */
     if( rc!=SQLITE_OK ) return rc;
     /* we are the only one trying to acquire this lock with this VFS */
   }
+  nLastSleepMicro = 0;
 
-  /* should invoke busy handler and wait on excl when shared lock is held,
-     or use 2 semaphores to implement shared rwlock */
   rc = pSubOpen->pMethods->xShmLock(pSubOpen, ofst, n, flags);
+
+  if ( rc==SQLITE_OK &&
+       ( flags & SQLITE_SHM_LOCK )) {
+    /* if semaphore owner died (semaphore acquire timed out, but SQLite lock worked) then
+       mark the semaphore as held, so that on unlock we release it. */
+    waitsemHeld(p, ofst, n);
+  }
 
   /* xShmLock could've failed if there were others with different VFS,
      or if we tried to acquire an EXCLUSIVE lock and others hold a SHARED lock
@@ -201,19 +213,11 @@ static int waitsemShmLock(
     #endif
     waitsemRelease(p, ofst, n);
   }
-  if( rc==SQLITE_BUSY ) {
-    p->last_ofst=ofst;
-    p->last_n=n;
-  } else
+
+  if( rc==SQLITE_OK )
     p->last_ofst=p->last_n=0;
   p->tries=0;
 
-  if ( rc==SQLITE_OK &&
-       ( flags & SQLITE_SHM_LOCK )) {
-    /* if semaphore owner died (semaphore acquire timed out, but SQLite lock worked) then
-       mark the semaphore as held, so that on unlock we release it. */
-    waitsemHeld(p, ofst, n);
-  }
   return rc;
 }
 
@@ -230,12 +234,6 @@ static int timedlockIsValid(TimedLock *lock){
   return lock && lock->sem && lock->sem!=SEM_FAILED && lock->name!=NULL;
 }
 
-static int timedlockHeld(TimedLock *lock)
-{
-  assert( timedlockIsValid(lock) );
-  return lock->held;
-}
-
 static int waitsemIsValid(int ofst, int n)
 {
   return
@@ -243,36 +241,26 @@ static int waitsemIsValid(int ofst, int n)
     n >= 0 && ofst < SQLITE_SHM_NLOCK;
 }
 
-static int semValue(TimedLock *lock)
-{
-  int v;
-  assert( lock!= NULL );
-  if ( sem_getvalue(lock->sem, &v)!=0 ) {
-    unixLogError(SQLITE_IOERR_LOCK, "sem_getvalue failed on %s", lock->name);
-  }
-  return v;
-}
 #endif
 
-static int timedlockOpen(TimedLock *lock, struct stat *sb, int nLock)
+static int timedlockOpen(TimedLock *lock, struct stat *sb, const char *id, int nValue)
 {
   assert(sb!=NULL);
   assert(lock!=NULL);
   memset(lock, 0, sizeof(*lock));
   /* According to sem_open(3p) the name must start with slash,
      otherwise the effect is implementation defined */
-  lock->name = sqlite3_mprintf("/etilqs-%d-%llx-%llx-%d", getuid(), sb->st_dev, sb->st_ino, nLock);
+  lock->name = sqlite3_mprintf("/etilqs-%d-%llx-%llx-%s", getuid(), sb->st_dev, sb->st_ino, id);
   if( lock->name==NULL )
     return SQLITE_NOMEM;
 
-  lock->sem = sem_open(lock->name, O_CREAT, 0600, 1);
+  lock->sem = sem_open(lock->name, O_CREAT, 0600, nValue);
   if( lock->sem==SEM_FAILED ){
     sqlite3_free(lock->name);
     memset(lock, 0, sizeof(*lock));
     return unixLogError(SQLITE_NOMEM, "sem_open", lock->name);
   }
 
-  lock->ofst=nLock;
   return SQLITE_OK;
 }
 
@@ -287,26 +275,15 @@ static void timedlockClose(TimedLock *lock, int deleteFlag){
   memset(lock, 0, sizeof(*lock));
 }
 
-/*
-static int timedlockTry(TimedLock *lock){
-  assert(timedlockIsValid(lock));
+#define NS_IN_US 1000
+#define US_IN_SEC 1000000
+#define NS_IN_SEC (NS_IN_US * US_IN_SEC)
 
-  if( sem_trywait(lock->sem)!=0 ) {
-    if( errno==EINTR || errno==EAGAIN ) return SQLITE_BUSY;
-    return unixLogError(SQLITE_IOERR_LOCK, "sem_trywait", lock->name);
-  }
-  return SQLITE_OK;
-}
-*/
-
-#define NS_IN_SEC 1000000000
-#define NS_IN_MS (NS_IN_SEC / 1000)
-
-static void timespec_add(struct timespec *t, unsigned nMilli)
+static void timespec_add(struct timespec *t, unsigned nMicro)
 {
   assert( t != NULL);
-  t->tv_sec += nMilli / 1000;
-  t->tv_nsec += (nMilli % 1000) * NS_IN_MS;
+  t->tv_sec += nMicro / US_IN_SEC;
+  t->tv_nsec += (nMicro % US_IN_SEC) * NS_IN_US;
   /* normalize time */
   t->tv_sec += t->tv_nsec / NS_IN_SEC;
   t->tv_nsec = t->tv_nsec % NS_IN_SEC;
@@ -326,39 +303,32 @@ sem_open is limited to 14 characters on FreeBSD.
 TODO: using xShmMmap to obtain additional shared memory and sem_init and
 fcntl-based deadman switch would solve these problems.
 */
-static int timedlockAcquire(TimedLock *lock, unsigned nMaxWaitMilli)
+static int timedlockAcquire(TimedLock *lock, unsigned nMaxWaitMicro)
 {
   struct timespec abs_timeout;
   assert( timedlockIsValid(lock) );
-  assert( !timedlockHeld(lock) ) ;
+  int rc;
 
-  if ( clock_gettime(CLOCK_REALTIME, &abs_timeout)!=0 )
-    return unixLogError(SQLITE_IOERR_LOCK, "clock_gettime", "");
+  if( nMaxWaitMicro ) {
+    if( clock_gettime(CLOCK_REALTIME, &abs_timeout)!=0 )
+      return unixLogError(SQLITE_IOERR_LOCK, "clock_gettime", "");
 
-  timespec_add(&abs_timeout, nMaxWaitMilli);
-  if ( sem_timedwait(lock->sem, &abs_timeout)==0 ) {
-    lock->held=1;
-    assert( !semValue(lock) );
+    timespec_add(&abs_timeout, nMaxWaitMicro);
+    rc = sem_timedwait(lock->sem, &abs_timeout);
   } else {
-    if ( errno==EINTR ) return SQLITE_BUSY;
-    if ( errno!=ETIMEDOUT )
-      return unixLogError(SQLITE_IOERR_LOCK, "sem_timedwait", lock->name);
-    /* on first lock attempt this is set to 0, important to return BUSY here for fairness
-       (otherwise we don't get called again, and we won't sleep on the semaphore) */
-    if (!nMaxWaitMilli) return SQLITE_BUSY;
-    /* timeout: either another process/thread is holding the lock, or it crashed without posting it */
+    rc = sem_trywait(lock->sem);
   }
-  return SQLITE_OK;
+  if( !rc ) return SQLITE_OK;
+  if( errno==EINTR || errno==ETIMEDOUT || errno==EAGAIN )
+    return SQLITE_BUSY;
+  return unixLogError(SQLITE_IOERR_LOCK, "sem_timedwait", lock->name);
 }
 
 static int timedlockRelease(TimedLock *lock)
 {
   assert( timedlockIsValid(lock) );
-  assert( timedlockHeld(lock) ) ;
-  assert( !semValue(lock) );
   if( sem_post(lock->sem) )
     return unixLogError(SQLITE_IOERR_LOCK, "sem_post", lock->name);
-  lock->held=0;
   return SQLITE_OK;
 }
 
@@ -465,6 +435,13 @@ static int waitsemClose(sqlite3_file *pFile)
     return pSubOpen->pMethods->xClose(pSubOpen);
 }
 
+static int waitsemSleep(sqlite3_vfs *pVfs, int nMicro)
+{
+  if( nMicro>=0 )
+    nLastSleepMicro = nMicro;
+  return 0;
+}
+
 /* Pass requests to underlying VFS */
 static int waitsemRead(
   sqlite3_file *pFile,
@@ -525,14 +502,6 @@ static int waitsemFileControl(sqlite3_file *pFile, int op, void *pArg)
 {
   int rc;
   sqlite3_file *pSubOpen = waitsemSubOpen(pFile);
-  waitsem_file *p = (waitsem_file*)pFile;
-  /* intercept and save busy_timeout set via PRAGMA */
-  if( op==SQLITE_FCNTL_PRAGMA ) {
-    char **pragma = pArg;
-    assert( pragma!=NULL && pragma[1]!=NULL);
-    if( sqlite3_stricmp(pragma[1], "busy_timeout")==0 && pragma[2]!=NULL )
-      p->busy_timeout = atoi(pragma[2])/2;
-  }
   rc = pSubOpen->pMethods->xFileControl(pSubOpen, op, pArg);
   if( op==SQLITE_FCNTL_VFSNAME && rc==SQLITE_OK ){
     *(char**)pArg = sqlite3_mprintf("%s/%z", gWait.sThisVfs.zName, *(char**)pArg);
@@ -552,6 +521,24 @@ static int waitsemDeviceCharacteristics(sqlite3_file *pFile)
   return pSubOpen->pMethods->xDeviceCharacteristics(pSubOpen);
 }
 
+#define WAL_WRITE_LOCK 0
+#define WAL_READ_LOCK(I) (3+I)
+#define WAL_NREADER (SQLITE_SHM_NLOCK-3)
+
+/*
+  WAL_WRITE_LOCK - mostly acquired only for write, no read/write fairness needed here
+  WAL_READ_LOCK(0) - while WAL is checkpointed and synced to main DB
+  WAL_READ_LOCK(i) when i>0 is only locked exclusively for a very brief time (to update a value in SHM)
+    on non-restart checkpoints
+    on RESTART checkpoint also held while file is truncated, but not during writes
+    held in shared mode by some readers
+
+    we don't want to block readers here while a checkpointer is waiting, otherwise 1 reader can keep
+    all other readers and checkpointer blocked until it finishes
+    waiting shouldn't be done by polling but could be done with 1st reader problem..
+ */
+
+
 static int waitsemShmMap(sqlite3_file *pFile,
                          int iRegion,
                          int szRegion,
@@ -561,19 +548,28 @@ static int waitsemShmMap(sqlite3_file *pFile,
   sqlite3_file *pSubOpen = waitsemSubOpen(pFile);
   waitsem_file *p = (waitsem_file*)pFile;
   if ( !p->has_locks ) {
-    unsigned i;
     int rc;
     struct stat sb;
 
     if (stat(p->dbname, &sb)!=0)
       return unixLogError(SQLITE_IOERR_FSTAT, "stat", p->dbname);
-    for(i=0;i<sizeof(p->waiting)/sizeof(p->waiting[0]);i++) {
-      rc = timedlockOpen(&p->waiting[i], &sb, i);
-      if (rc != SQLITE_OK) {
-        while(i-->0)
-          timedlockClose(&p->waiting[i], 0);
-        return rc;
-      }
+    p->read0.sem = p->read.sem = p->write.sem = SEM_FAILED;
+    do {
+      rc = timedlockOpen(&p->read0, &sb, "r0", 1);
+      if( rc!=SQLITE_OK )
+        break;
+      rc = timedlockOpen(&p->read, &sb, "r", WAL_NREADER);
+      if( rc!=SQLITE_OK )
+        break;
+      rc = timedlockOpen(&p->write, &sb, "w", 1);
+      if( rc!=SQLITE_OK )
+        break;
+    } while(0);
+    if( rc!=SQLITE_OK ) {
+      timedlockClose(&p->read0, 0);
+      timedlockClose(&p->read, 0);
+      timedlockClose(&p->write, 0);
+      return rc;
     }
     p->has_locks = 1;
   }
@@ -588,49 +584,52 @@ static void waitsemShmBarrier(sqlite3_file *pFile)
 
 static int waitsemShmUnmap(sqlite3_file *pFile, int deleteFlag)
 {
-  unsigned i;
   waitsem_file *p = (waitsem_file*)pFile;
   sqlite3_file *pSubOpen = waitsemSubOpen(pFile);
   int rc = pSubOpen->pMethods->xShmUnmap(pSubOpen, deleteFlag);
   if(rc == SQLITE_OK) {
-    for(i=0;i<sizeof(p->waiting)/sizeof(p->waiting[0]);i++)
-      timedlockClose(&p->waiting[i], deleteFlag);
+    timedlockClose(&p->read0, deleteFlag);
+    timedlockClose(&p->read, deleteFlag);
+    timedlockClose(&p->write, deleteFlag);
     p->has_locks = 0;
   }
   return rc;
 }
 
-static int waitsemAcquire(waitsem_file *p, int ofst, int n)
+static TimedLock* idx2tlock(waitsem_file *p, unsigned i)
+{
+  if( i==WAL_WRITE_LOCK )
+    return &p->write;
+  if( i==WAL_READ_LOCK(0) )
+    return &p->read0;
+  /* TODO: if( i>WAL_READ_LOCK(0) && i<SQLITE_SHM_NLOCK )
+     return &p->read;*/
+  return NULL;
+}
+
+static int waitsemAcquire(waitsem_file *p, int ofst, int n, unsigned nMaxWaitMicro)
 {
   unsigned i;
-  int rc, timeout = p->busy_timeout;
+  int rc;
   assert( waitsemIsValid(ofst, n) );
 
-  /*
-    try #0: check semaphore -> EBUSY if cannot acquire (timeout=0)
-    try #1: check semaphore -> OK if cannot acquire after timeout = 10 ms
-     - check if SQLite lock can be acquired -> detect dead owner
-    try #N: check semaphore -> OK if cannot acquire after timeout = busy_timeout
-   */
-  if (p->tries == 1)
-    timeout = timeout > 10 ? 10 : timeout;
-  /* only one timeout can be this small, otherwise the busy handler will introduce latency
-     and unfairness by sleeping outside a semaphore */
-
-  if( p->last_ofst!=ofst || p->last_n!=n )
-    timeout = 0; /* checkpoint and non-repeated lock attempts should return busy fast */
-
   for(i=ofst;i<ofst+n;i++) {
-    rc = timedlockAcquire(&p->waiting[i], timeout);
-    if( rc!=SQLITE_OK ) {
-      while( i-- > ofst && p->waiting[i].held)
-        timedlockRelease(&p->waiting[i]);
-      p->last_ofst=ofst;
-      p->last_n=n;
-      p->tries++;
-      return rc;
+    TimedLock *tlock;
+    assert( i>=0 && i<SQLITE_SHM_NLOCK );
+    if( p->held[i] )
+      continue;
+    if( (tlock = idx2tlock(p, i)) ) {
+      rc = timedlockAcquire(tlock, nMaxWaitMicro);
+      if ( rc!=SQLITE_OK ) {
+        waitsemRelease(p, ofst, n);
+        p->last_ofst=ofst;
+        p->last_n=n;
+        return rc;
+      }
     }
+    p->held[i] = 1;
   }
+
   return SQLITE_OK;
 }
 
@@ -640,7 +639,7 @@ static void waitsemHeld(waitsem_file *p, int ofst, int n)
   assert( waitsemIsValid(ofst, n) );
 
   for(i=ofst;i<ofst+n;i++) {
-    p->waiting[i].held = 1;
+    p->held[i] = 1;
   }
 }
 
@@ -651,12 +650,15 @@ static int waitsemRelease(waitsem_file *p, int ofst, int n)
   assert( waitsemIsValid(ofst, n) );
 
   for(i=ofst;i<ofst+n;i++) {
+    TimedLock *tlock;
     int rc;
-    if (!p->waiting[i].held)
+    if( !p->held[i] )
       continue;
-    rc = timedlockRelease(&p->waiting[i]);
-    if (rc != SQLITE_OK)
-      result = rc;
+    if( (tlock = idx2tlock(p, i)) ) {
+      rc = timedlockRelease(tlock);
+      if( rc!=SQLITE_OK )
+        result = rc;
+    }
   }
   return result;
 }
@@ -697,6 +699,7 @@ int waitsem_register(const char *zOrigVfsName, int makeDefault){
   gWait.pOrigVfs = pOrigVfs;
   gWait.sThisVfs = *pOrigVfs;
   gWait.sThisVfs.xOpen = waitsemOpen;
+  gWait.sThisVfs.xSleep = waitsemSleep;
   gWait.sThisVfs.szOsFile += sizeof(waitsem_file);
   gWait.sThisVfs.zName = "unix-wait";
   gWait.sIoMethodsV1.iVersion = 1;
