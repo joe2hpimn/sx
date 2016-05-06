@@ -1400,19 +1400,19 @@ sxi_query_t *sxi_2_1_4_upgrade_proto(sxc_client_t *sx, const char *volume, const
         goto sxi_replica_change_files_proto_err;
     }
     enc_maxrev = sxi_urlencode(sx, maxrev, 0);
-    if(!enc_vol) {
+    if(!enc_maxrev) {
         sxi_seterr(sx, SXE_EMEM, "Failed to encode the maximum revision");
         goto sxi_replica_change_files_proto_err;
     }
 
     if(startfile && startrev) {
         enc_file = sxi_urlencode(sx, startfile, 0);
-        if(!enc_vol) {
+        if(!enc_file) {
             sxi_seterr(sx, SXE_EMEM, "Failed to encode the start file");
             goto sxi_replica_change_files_proto_err;
         }
         enc_rev = sxi_urlencode(sx, startrev, 0);
-        if(!enc_vol) {
+        if(!enc_rev) {
             sxi_seterr(sx, SXE_EMEM, "Failed to encode the start revision");
             goto sxi_replica_change_files_proto_err;
         }

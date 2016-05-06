@@ -8370,6 +8370,7 @@ rc_ty sx_hashfs_list_users(sx_hashfs_t *h, const uint8_t *list_clones, user_list
 	if(qbind_blob(q, ":common_id_first", firstcid(list_clones, cid), sizeof(cid)) ||
 	   qbind_blob(q, ":common_id_last", lastcid(list_clones, cid), sizeof(cid)) ||
 	   qbind_int(q, ":inactivetoo", 0)) {
+            free(meta);
 	    WARN("Failed to bind common id to q_listusersbycid query");
 	    return FAIL_EINTERNAL;
 	}

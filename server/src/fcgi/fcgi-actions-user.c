@@ -1015,6 +1015,7 @@ static sxi_query_t* user_modify_proto_from_blob(sxc_client_t *sx, sx_blob_t *b, 
     int64_t quota, oldquota;
     int key_given, quota_given, desc_given;
     sxc_meta_t *meta = NULL;
+    sxi_query_t *ret = NULL;
 
     if (sx_blob_get_string(b, &name) ||
 	sx_blob_get_blob(b, &oldauth, &oldauth_len) ||
@@ -1046,17 +1047,26 @@ static sxi_query_t* user_modify_proto_from_blob(sxc_client_t *sx, sx_blob_t *b, 
     }
 
     switch (phase) {
-        case JOBPHASE_COMMIT:
-            return sxi_usermod_proto(sx, name, key_given ? auth : NULL, quota_given ? quota : QUOTA_UNDEFINED, desc_given ? desc : NULL, meta);
-        case JOBPHASE_ABORT:/* fall-through */
+        case JOBPHASE_COMMIT: {
+            ret = sxi_usermod_proto(sx, name, key_given ? auth : NULL, quota_given ? quota : QUOTA_UNDEFINED, desc_given ? desc : NULL, meta);
+            break;
+        }
+        case JOBPHASE_ABORT: {
             INFO("User '%s' modify: aborting", name);
-            return sxi_usermod_proto(sx, name, key_given ? oldauth : NULL, quota_given ? oldquota : QUOTA_UNDEFINED, desc_given ? olddesc : NULL, meta);
-        case JOBPHASE_UNDO:
+            ret = sxi_usermod_proto(sx, name, key_given ? oldauth : NULL, quota_given ? oldquota : QUOTA_UNDEFINED, desc_given ? olddesc : NULL, meta);
+            break;
+        }
+        case JOBPHASE_UNDO: {
             INFO("User '%s' modify: undoing", name);
-            return sxi_usermod_proto(sx, name, key_given ? oldauth : NULL, quota_given ? oldquota : QUOTA_UNDEFINED, desc_given ? olddesc : NULL, meta);
+            ret = sxi_usermod_proto(sx, name, key_given ? oldauth : NULL, quota_given ? oldquota : QUOTA_UNDEFINED, desc_given ? olddesc : NULL, meta);
+            break;
+        }
         default:
-            return NULL;
+            break;
     }
+
+    free(meta);
+    return ret;
 }
 
 static rc_ty user_modify_execute_blob(sx_hashfs_t *h, sx_blob_t *b, jobphase_t phase, int remote)

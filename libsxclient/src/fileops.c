@@ -5614,28 +5614,35 @@ int sxc_update_filemeta(sxc_file_t *file, sxc_meta_t *newmeta)
         return -1;
     }
 
-    if(!(fmeta = sxc_filemeta_new(file)))
+    if(!(fmeta = sxc_filemeta_new(file))) {
+        sxi_jobs_free(jobs);
         return -1;
+    }
     for(i=0; i<sxc_meta_count(newmeta); i++) {
         if(sxc_meta_getkeyval(newmeta, i, &key, &value, &value_len)) {
             SXDEBUG("failed to retrieve meta entry");
             sxc_meta_free(fmeta);
+            sxi_jobs_free(jobs);
             return -1;
         }
         if(sxc_meta_setval(fmeta, key, value, value_len)) {
             SXDEBUG("failed to set meta entry");
             sxc_meta_free(fmeta);
+            sxi_jobs_free(jobs);
             return -1;
         }
     }
     sxc_meta_free(file->meta);
     file->meta = fmeta;
 
-    if(!(job = remote_to_remote_fast(file, file)))
+    if(!(job = remote_to_remote_fast(file, file))) {
+        sxi_jobs_free(jobs);
         return -1;
+    }
     
     if(sxi_jobs_add(jobs, job)) {
         SXDEBUG("Failed to add job to jobs context");
+        sxi_jobs_free(jobs);
         sxi_job_free(job);
         return -1;
     }
@@ -6618,7 +6625,9 @@ static int sxc_copy_cb(sxc_file_list_t *target, sxc_file_t *pattern, sxi_hostlis
     struct sxc_copy_ctx *it = ctx;
     sxi_job_t *job = NULL;
 
-    if(!target || !it || !it->dest || !file) {
+    if(!target)
+        return -1;
+    if(!it || !it->dest || !file) {
         sxi_seterr(target->sx, SXE_EARG, "NULL argument");
         return -1;
     }
@@ -7188,12 +7197,14 @@ int sxc_copy_sxfile(sxc_file_t *source, sxc_file_t *dest, int fail_same_file) {
         dest->size = source->size;
         job = remote_to_remote(source, dest, fail_same_file, jobs);
         if(!job) {
+            sxi_jobs_free(jobs);
             SXDEBUG("Failed to copy files: NULL job");
             return -1;
         }
 
         if(sxi_jobs_add(jobs, job)) {
             SXDEBUG("Failed to add job to jobs context");
+            sxi_jobs_free(jobs);
             sxi_job_free(job);
             return -1;
         }
