@@ -19183,7 +19183,7 @@ rc_ty sx_hashfs_node_status(sx_hashfs_t *h, sxi_node_status_t *status) {
     /* System information */
     if(sxi_report_os(h->sx, status->os_name, sizeof(status->os_name), status->os_arch, sizeof(status->os_arch),
         status->os_release, sizeof(status->os_release), status->os_version, sizeof(status->os_version))) {
-        WARN("Failed to get OS information: %s", sxc_geterrmsg(h->sx));
+        DEBUG("Failed to get OS information: %s", sxc_geterrmsg(h->sx));
         sprintf(status->os_name, "N/A");
         sprintf(status->os_arch, "N/A");
         sprintf(status->os_release, "N/A");
@@ -19192,24 +19192,24 @@ rc_ty sx_hashfs_node_status(sx_hashfs_t *h, sxi_node_status_t *status) {
 
     /* Processor information */
     if(sxi_report_cpu(h->sx, &status->cores, status->endianness, sizeof(status->endianness))) {
-        WARN("Failed to get CPU information: %s", sxc_geterrmsg(h->sx));
+        DEBUG("Failed to get CPU information: %s", sxc_geterrmsg(h->sx));
         sprintf(status->endianness, "N/A");
     }
 
     /* Filesystem information */
     if(sxi_report_fs(h->sx, h->dir, &status->block_size, &status->total_blocks, &status->avail_blocks))
-        WARN("Failed to get hashFS node directory filesystem information: %s", sxc_geterrmsg(h->sx));
+        DEBUG("Failed to get hashFS node directory filesystem information: %s", sxc_geterrmsg(h->sx));
 
     /* Get available memory */
     if(sxi_report_mem(h->sx, &status->mem_total, &status->mem_avail, &status->swap_total, &status->swap_free))
-        WARN("Failed to get memory information: %s", sxc_geterrmsg(h->sx));
+        DEBUG("Failed to get memory information: %s", sxc_geterrmsg(h->sx));
 
     /* Get information about current system */
     if(status->cores > 0 && sxi_report_system_stat(h->sx, status->cores, &status->cpu_stat, &status->btime, &status->processes, &status->processes_running, &status->processes_blocked, &status->load_stat))
-        WARN("Failed to get system statistics information: %s", sxc_geterrmsg(h->sx));
+        DEBUG("Failed to get system statistics information: %s", sxc_geterrmsg(h->sx));
 
     if(sxi_network_traffic_status(h->sx, h->sx_clust, sx_node_internal_addr(sx_hashfs_self(h)), &status->network_traffic_json, &status->network_traffic_json_size))
-        WARN("Failed to get network traffic information: %s", sxc_geterrmsg(h->sx));
+        DEBUG("Failed to get network traffic information: %s", sxc_geterrmsg(h->sx));
 
     tm = gmtime(&t);
     if (tm && strftime(status->utctime, sizeof(status->utctime), "%Y-%m-%d %H:%M:%S UTC", tm) <= 0) {
