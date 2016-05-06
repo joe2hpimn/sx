@@ -5499,8 +5499,10 @@ static int cat_remote_file(sxc_file_t *source, int dest) {
 		}
 	    } while(action == SXF_ACTION_REPEAT);
 	} else {
-	    if(write_hard(dest, wbuf, todo) == -1)
+	    if(write_hard(dest, wbuf, todo) == -1) {
+                sxi_setsyserr(sx, SXE_ETMP, "Can't write to fd %d", dest);
 		goto sxc_cat_fail;
+            }
 	}
 	sxi_hostlist_empty(&hostlist);
     }
