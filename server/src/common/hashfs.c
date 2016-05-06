@@ -17734,27 +17734,16 @@ rc_ty sx_hashfs_hdist_endrebalance(sx_hashfs_t *h) {
 }
 
 /* Change volume ownership. newid -> new user ID */
-static rc_ty volume_chown(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, int64_t newid) {
+static rc_ty volume_chown_privs(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, int64_t newid) {
     rc_ty ret = FAIL_EINTERNAL;
 
-    if(!vol || newid < 0) {
+    if(!vol || newid == vol->owner) {
         WARN("Failed to change volume ownership: incorrect argument");
         msg_set_reason("Incorrect argument");
         return EINVAL;
     }
 
-    /* Change volume owner */
-    sqlite3_reset(h->q_modvol);
-    if(qbind_int64(h->q_modvol, ":owner", newid) ||
-       qbind_text(h->q_modvol, ":name", vol->name) ||
-       qbind_int64(h->q_modvol, ":size", vol->size) ||
-       qbind_int(h->q_modvol, ":revs", vol->revisions) ||
-       qbind_int64(h->q_modvol, ":volid", vol->id) ||
-       qstep_noret(h->q_modvol)) {
-        msg_set_reason("Could not change volume ownership");
-        goto volume_chown_err;
-    }
-
+    /* Grant privs for new volume owner */
     sqlite3_reset(h->q_grant);
     if(qbind_int64(h->q_grant, ":volid", vol->id) || qbind_int64(h->q_grant, ":uid", newid) ||
        qbind_int(h->q_grant, ":priv", PRIV_READ | PRIV_WRITE) || qstep_noret(h->q_grant)) {
@@ -17777,80 +17766,27 @@ volume_chown_err:
     return ret;
 }
 
-static rc_ty volume_resize(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, int64_t newsize) {
+static rc_ty volume_mod_common(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, const char *newname, int64_t size, int64_t newowner, int max_revisions) {
     rc_ty ret = FAIL_EINTERNAL;
 
-    if(!vol) {
-        NULLARG();
-        return EINVAL;
-    }
-
-    sqlite3_reset(h->q_modvol);
-    if(qbind_int64(h->q_modvol, ":size", newsize)
-       || qbind_text(h->q_modvol, ":name", vol->name)
-       || qbind_int64(h->q_modvol, ":owner", vol->owner)
-       || qbind_int(h->q_modvol, ":revs", vol->revisions)
-       || qbind_int64(h->q_modvol, ":volid", vol->id)
-       || qstep_noret(h->q_modvol)) {
-        msg_set_reason("Could not update volume size");
-        goto volume_resize_err;
-    }
-
-    INFO("Volume %s size changed to %lld", vol->name, (long long)newsize);
-    ret = OK;
-volume_resize_err:
-    sqlite3_reset(h->q_modvol);
-    return ret;
-}
-
-static rc_ty volume_rename(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, const char *newname) {
-    rc_ty ret = FAIL_EINTERNAL;
-
-    if(!vol) {
+    if(!vol || !newname) {
         NULLARG();
         return EINVAL;
     }
 
     sqlite3_reset(h->q_modvol);
     if(qbind_text(h->q_modvol, ":name", newname)
-       || qbind_int64(h->q_modvol, ":size", vol->size)
-       || qbind_int64(h->q_modvol, ":owner", vol->owner)
-       || qbind_int(h->q_modvol, ":revs", vol->revisions)
+       || qbind_int64(h->q_modvol, ":size", size)
+       || qbind_int64(h->q_modvol, ":owner", newowner)
+       || qbind_int(h->q_modvol, ":revs", max_revisions)
        || qbind_int64(h->q_modvol, ":volid", vol->id)
        || qstep_noret(h->q_modvol)) {
         msg_set_reason("Could not rename volume");
         goto volume_resize_err;
     }
 
-    INFO("Volume %s renamed to %s", vol->name, newname);
     ret = OK;
 volume_resize_err:
-    sqlite3_reset(h->q_modvol);
-    return ret;
-}
-
-static rc_ty volume_change_revs(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, unsigned int max_revs) {
-    rc_ty ret = FAIL_EINTERNAL;
-
-    if(!vol) {
-        NULLARG();
-        return EINVAL;
-    }
-
-    sqlite3_reset(h->q_modvol);
-    if(qbind_int(h->q_modvol, ":revs", max_revs)
-       || qbind_int64(h->q_modvol, ":size", vol->size)
-       || qbind_int64(h->q_modvol, ":owner", vol->owner)
-       || qbind_text(h->q_modvol, ":name", vol->name)
-       || qbind_int64(h->q_modvol, ":volid", vol->id)
-       || qstep_noret(h->q_modvol)) {
-        msg_set_reason("Could not update volume revisions limit");
-        goto volume_change_revs_err;
-    }
-
-    INFO("Volume %s revisions limit changed to %d", vol->name, max_revs);
-    ret = OK;
-volume_change_revs_err:
     sqlite3_reset(h->q_modvol);
     return ret;
 }
@@ -17932,12 +17868,8 @@ rc_ty sx_hashfs_volume_mod(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, const 
             msg_set_reason("Volume already exists");
             return EEXIST;
         }
-
-        if((s = volume_rename(h, vol, newname)) != OK) {
-            ret = s;
-            goto sx_hashfs_volume_mod_err;
-        }
-    }
+    } else
+        newname = vol->name;
 
     if(*newowner) {
         if(sx_hashfs_get_uid(h, newowner, &newid) != OK) {
@@ -17945,13 +17877,8 @@ rc_ty sx_hashfs_volume_mod(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, const 
             ret = ENOENT;
             goto sx_hashfs_volume_mod_err;
         }
-
-        if(newid != vol->owner && (s = volume_chown(h, vol, newid)) != OK) {
-            ret = s;
-            goto sx_hashfs_volume_mod_err;
-        }
-        INFO("Volume %s owner changed to %s", vol->name, newowner);
-    }
+    } else
+        newid = vol->owner;
 
     if(newsize != -1 && newsize != vol->size) {
         /* Check new volume size correctness */
@@ -17960,20 +17887,31 @@ rc_ty sx_hashfs_volume_mod(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, const 
             ret = s;
             goto sx_hashfs_volume_mod_err;
         }
+    } else
+        newsize = vol->size;
 
-        /* Perform resize operation */
-        if((s = volume_resize(h, vol, newsize)) != OK) {
+    if(max_revs != -1) {
+        if((unsigned int)max_revs > SXLIMIT_MAX_REVISIONS && (unsigned int)max_revs < SXLIMIT_MIN_REVISIONS) {
+            WARN("Invalid revisions limit given");
             ret = s;
             goto sx_hashfs_volume_mod_err;
         }
+    } else
+        max_revs = vol->revisions;
+
+    /*
+     * Modify volume, changing owner requires also privs modification, see below.
+     * When a value is not to be changed, it must has the same value as vol instance has.
+     */
+    if((s = volume_mod_common(h, vol, newname, newsize, newid, max_revs)) != OK) {
+        ret = s;
+        goto sx_hashfs_volume_mod_err;
     }
 
-    if(max_revs != -1 && (unsigned int)max_revs <= SXLIMIT_MAX_REVISIONS && (unsigned int)max_revs >= SXLIMIT_MIN_REVISIONS) {
-        /* Revisions correctness has been checked, modify volume now */
-        if((s = volume_change_revs(h, vol, max_revs)) != OK) {
-            ret = s;
-            goto sx_hashfs_volume_mod_err;
-        }
+    /* In case we are chowning the volume, we need to move privs */
+    if(newid != vol->owner && (s = volume_chown_privs(h, vol, newid)) != OK) {
+        ret = s;
+        goto sx_hashfs_volume_mod_err;
     }
 
     if(modify_meta) {
@@ -18007,6 +17945,15 @@ rc_ty sx_hashfs_volume_mod(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, const 
         WARN("Failed to commit changes");
         goto sx_hashfs_volume_mod_err;
     }
+
+    if(newid != vol->owner)
+        INFO("Volume %s owner changed to %s", vol->name, newowner);
+    if(strcmp(newname, vol->name))
+        INFO("Volume %s renamed to %s", vol->name, newname);
+    if(newsize != vol->size)
+        INFO("Volume %s size changed to %lld", vol->name, (long long)newsize);
+    if((unsigned int)max_revs != vol->revisions)
+        INFO("Volume %s revisions limit changed to %d", vol->name, max_revs);
 
     ret = OK;
 sx_hashfs_volume_mod_err:
