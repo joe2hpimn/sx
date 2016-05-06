@@ -1966,7 +1966,7 @@ static const char *base(const char *str)
     return q ? q + 1 : str;
 }
 
-static int maybe_append_path(sxc_file_t *dest, sxc_file_t *source, int recursive)
+static int maybe_append_path(sxc_file_t *dest, sxc_file_t *source, int single_source)
 {
     char *path;
     const char *src_part;
@@ -1984,7 +1984,9 @@ static int maybe_append_path(sxc_file_t *dest, sxc_file_t *source, int recursive
         }
         SXDEBUG("origpath set to: %s", dest->origpath);
     }
-    if (!recursive && *dest->path && !ends_with(dest->path, '/') && strcmp(dest->path,".")) {
+    /* When the source points to a single file we do not need to append directory name to the path.
+     * It is possible that we copy more than one file, therefore single_source is passed from the caller. */
+    if (single_source && *dest->path && !ends_with(dest->path, '/') && strcmp(dest->path,".")) {
         SXDEBUG("destination is a single file: %s", dest->path);
         return 0;/*destination is single file */
     }
@@ -2065,7 +2067,7 @@ static int restore_path(sxc_file_t *dest)
     return 1;
 }
 
-static sxi_job_t* local_to_remote_begin(sxc_file_t *source, sxc_file_t *dest, int recursive, long *http_status, sxi_jobs_t *jobs) {
+static sxi_job_t* local_to_remote_begin(sxc_file_t *source, sxc_file_t *dest, int single_source, int recursive, long *http_status, sxi_jobs_t *jobs) {
     unsigned int blocksize;
     char *fname = NULL, *tempfname = NULL;
     struct stat st;
@@ -2087,7 +2089,7 @@ static sxi_job_t* local_to_remote_begin(sxc_file_t *source, sxc_file_t *dest, in
     sxi_hostlist_init(&volhosts);
     sxi_hostlist_init(&shost);
 
-    if (maybe_append_path(dest, source, recursive))
+    if (maybe_append_path(dest, source, single_source))
         return NULL;
 
     if(!(state = calloc(1, sizeof(*state)))) {
@@ -2150,7 +2152,7 @@ static sxi_job_t* local_to_remote_begin(sxc_file_t *source, sxc_file_t *dest, in
 	if(!tsource)
 	    SXDEBUG("failed to create source file object for temporary input file");
 	else {
-	    ret = local_to_remote_begin(tsource, dest, recursive, http_status, jobs);
+	    ret = local_to_remote_begin(tsource, dest, single_source, recursive, http_status, jobs);
 	    sxc_file_free(tsource);
 	}
 	goto local_to_remote_err; /* cleanup, not necessarily an error */
@@ -2470,7 +2472,7 @@ static sxi_job_t* local_to_remote_begin(sxc_file_t *source, sxc_file_t *dest, in
     return ret;
 }
 
-static int local_to_remote_iterate(sxc_file_t *source, int recursive, int depth, int onefs, int ignore_errors, sxc_file_t *dest, const sxc_exclude_t *exclude, sxi_jobs_t *jobs, int *errors)
+static int local_to_remote_iterate(sxc_file_t *source, int single_source, int recursive, int depth, int onefs, int ignore_errors, sxc_file_t *dest, const sxc_exclude_t *exclude, sxi_jobs_t *jobs, int *errors)
 {
     struct dirent *entry;
     sxc_client_t *sx = source->sx;
@@ -2507,8 +2509,7 @@ static int local_to_remote_iterate(sxc_file_t *source, int recursive, int depth,
             SXDEBUG("Failed to set local file size");
             return -1;
         }
-
-	job = local_to_remote_begin(source, dest, recursive, &qret, jobs);
+	job = local_to_remote_begin(source, dest, single_source, recursive, &qret, jobs);
         if (!job) {
             SXDEBUG("uploading one file failed");
             (*errors)++;
@@ -2573,7 +2574,7 @@ static int local_to_remote_iterate(sxc_file_t *source, int recursive, int depth,
                  ends_with(dest->path, '/') ? "" : "/",
                  entry->d_name);
         if (S_ISDIR(sb.st_mode)) {
-            qret = local_to_remote_iterate(src, 1, depth+1, onefs, ignore_errors, dst, exclude, jobs, errors);
+            qret = local_to_remote_iterate(src, single_source, 1, depth+1, onefs, ignore_errors, dst, exclude, jobs, errors);
             if (qret) {
                 SXDEBUG("failure in directory: %s", destpath);
                 if (qret == 403 || qret == 404 || qret == 413) {
@@ -2595,7 +2596,7 @@ static int local_to_remote_iterate(sxc_file_t *source, int recursive, int depth,
             } else if(r < 0)
                 break;
             SXDEBUG("Starting to upload %s", src->path);
-            if (!(job = local_to_remote_begin(src, dst, 1, &qret, jobs))) {
+            if (!(job = local_to_remote_begin(src, dst, single_source, 1, &qret, jobs))) {
                 sxi_notice(sx, "%s: %s", src->path, sxc_geterrmsg(sx));
                 SXDEBUG("failed to begin upload on %s", src->path);
                 (*errors)++;
@@ -5082,7 +5083,9 @@ static sxi_job_t* remote_to_remote(sxc_file_t *source, sxc_file_t *dest, int fai
     cache->meta = NULL;
     sxc_meta_empty(dest->meta); /* meta is not cleared when destination is undelete filter */
 
-    if(!(ret = local_to_remote_begin(cache, dest, 0, NULL, jobs))) {
+    /* remote_to_remote may be called by list iteration (sxi_file_list_foreach()) function,
+     * therefore source is a single file (temporary file here). */
+    if(!(ret = local_to_remote_begin(cache, dest, 1, 0, NULL, jobs))) {
 	SXDEBUG("failed to upload destination file");
 	goto remote_to_remote_err;
     }
@@ -5095,7 +5098,7 @@ remote_to_remote_err:
 }
 
 static int mkdir_parents(sxc_client_t *sx, const char *path);
-static sxi_job_t* remote_copy_ev(sxc_file_t *pattern, sxc_file_t *source, sxc_file_t *dest, int recursive, int show_errors, unsigned int *errors, int fail_same_file, sxi_jobs_t *jobs)
+static sxi_job_t* remote_copy_ev(sxc_file_t *pattern, sxc_file_t *source, sxc_file_t *dest, int single_source, int recursive, int show_errors, unsigned int *errors, int fail_same_file, sxi_jobs_t *jobs)
 {
     sxi_job_t *job;
     free(source->origpath);
@@ -5103,7 +5106,7 @@ static sxi_job_t* remote_copy_ev(sxc_file_t *pattern, sxc_file_t *source, sxc_fi
         sxi_setsyserr(source->sx, SXE_EMEM, "Cannot dup path");
         return NULL;
     }
-    if (maybe_append_path(dest, source, recursive))
+    if (maybe_append_path(dest, source, single_source))
         return NULL;
     if(!is_remote(dest)) {
         int ret;
@@ -6459,15 +6462,16 @@ struct sxc_copy_ctx {
     unsigned int errors;
     int fail_same_file;
     int onefs;
+    int single_source; /* Set when the source list contains a single file entry */
     const sxc_exclude_t *exclude;
     unsigned int skipped;
 };
 
-static int different_file(const char *path1, const char *path2)
+static int different_file(const char *pattern, const char *path)
 {
-    while (*path1 == '/') path1++;
-    while (*path2 == '/') path2++;
-    return strcmp(path1, path2);
+    while (*pattern == '/') pattern++;
+    while (*path == '/') path++;
+    return fnmatch(pattern, path, FNM_PATHNAME);
 }
 
 static sxi_job_t *remote_copy_cb(sxc_file_list_t *target, sxc_file_t *pattern, sxi_hostlist_t *hlist,
@@ -6507,11 +6511,13 @@ static sxi_job_t *remote_copy_cb(sxc_file_list_t *target, sxc_file_t *pattern, s
     /* Process destination file, because its properties have changed. */
     if(sxi_file_process(target->sx, fh, filter_cfgdir, it->dest, SXF_MODE_LIST))
         return NULL;
-
     /* we could support parallelization for remote_to_remote and
      * remote_to_remote_fast if they would just return a job ... */
-    is_different = different_file(file->path, pattern->path);
-    ret = remote_copy_ev(pattern, file, it->dest, it->recursive && is_different, target->ignore_errors && is_different, &it->errors, it->fail_same_file, target->jobs);
+    is_different = different_file(pattern->path, file->path);
+    /* If is_different is true, then even if source does not end with slash (it->single_srouce is true),
+     * we have to treat this as a multiple files match, therefore we have to pass:
+     * it->single_source && !is_different */
+    ret = remote_copy_ev(pattern, file, it->dest, it->single_source && !is_different, it->recursive && is_different, target->ignore_errors && is_different, &it->errors, it->fail_same_file, target->jobs);
 
     return ret;
 }
@@ -6606,7 +6612,7 @@ static int sxc_copy_cb(sxc_file_list_t *target, sxc_file_t *pattern, sxi_hostlis
         if(is_remote(file)) /* Source file is remote */
             job = remote_copy_cb(target, pattern, hlist, cvmeta, file, ctx, fh, filter_cfgdir);
         else /* Source file is local */
-            return local_to_remote_iterate(file, target->recursive, 0, it->onefs, target->ignore_errors, it->dest, it->exclude, target->jobs, &target->errors);
+            return local_to_remote_iterate(file, it->single_source, target->recursive, 0, it->onefs, target->ignore_errors, it->dest, it->exclude, target->jobs, &target->errors);
     } else {/* Destination file is local */
         if(is_remote(file)) { /* Source file is remote */
             job = remote_copy_cb(target, pattern, hlist, cvmeta, file, ctx, fh, filter_cfgdir);
@@ -6635,6 +6641,51 @@ static int sxc_copy_cb(sxc_file_list_t *target, sxc_file_t *pattern, sxi_hostlis
     return job ? 0 : 1;
 }
 
+static int is_single_source(sxc_file_list_t *source) {
+    sxc_client_t *sx;
+    sxc_file_t *src;
+
+    if(!source)
+        return -1;
+    if(!source->n)
+        return 0;
+    sx = source->sx;
+    if(!source->entries) {
+        sxi_seterr(sx, SXE_EARG, "source->entries is not initialized");
+        return -1;
+    }
+
+    /* If the list contains more than one element, it means it is a multiple source. */
+    if(source->n > 1)
+        return 0;
+
+    src = source->entries[0].pattern;
+    if(!src || !src->path) {
+        sxi_seterr(sx, SXE_EARG, "Source path is not initialized");
+        return -1;
+    }
+
+    if(is_remote(src)) {
+        /* If path is empty or ends with slash it is not a single source */
+        if(!*src->path || ends_with(src->path, '/'))
+            return 0;
+        return 1;
+    } else { /* entry is local */
+        struct stat sb;
+        if(stat(src->path, &sb) == -1) {
+            sxi_setsyserr(sx, SXE_EREAD, "Cannot stat '%s'", src->path);
+            return -1;
+        }
+
+        /* Return 1 when the file is regular */
+        if(S_ISREG(sb.st_mode))
+            return 1;
+        else /* Other types are checked later (e.g. skipping links and iteration over directory tree) */
+            return 0;
+    }
+    return 0;
+}
+
 /* New version of sxc_copy, takes a list of source files and one destination */
 int sxc_copy(sxc_file_list_t *source, sxc_file_t *dest, int recursive, int onefs, const sxc_exclude_t *exclude, int fail_same_file) {
     struct sxc_copy_ctx ctx;
@@ -6649,6 +6700,9 @@ int sxc_copy(sxc_file_list_t *source, sxc_file_t *dest, int recursive, int onefs
     ctx.exclude = exclude;
     ctx.recursive = recursive;
     ctx.fail_same_file = fail_same_file;
+    ctx.single_source = is_single_source(source);
+    if(ctx.single_source < 0)
+        return -1;
     return sxi_file_list_foreach(source, multi_cb, sxc_copy_cb, 1, 0, &ctx, exclude);
 }
 
