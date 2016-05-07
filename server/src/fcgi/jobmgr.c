@@ -2601,24 +2601,25 @@ static act_result_t junlockall_request(sx_hashfs_t *hashfs, job_t job_id, job_da
     if(verbose_rebalance)						\
 	for(unsigned int _qno = (blockq), _bno = 0; _bno < rbdata[_qno].nblocks; _bno++)
 
-
+/* Note: raising these too much impairs fairness and doesn't result in a better performance */
 #define RB_MAX_NODES (2 /* FIXME: bump me ? */)
-#define RB_MAX_BLOCKS (100 /* FIXME: should be a sane(!) multiple of DOWNLOAD_MAX_BLOCKS */)
+#define RB_MAX_BLOCKS (DOWNLOAD_MAX_BLOCKS * 100)
 #define RB_MAX_TRIES (RB_MAX_BLOCKS * RB_MAX_NODES)
+struct rbdata_t {
+    curlev_context_t *cbdata;
+    sxi_query_t *proto;
+    const sx_node_t *node;
+    block_meta_t *blocks[RB_MAX_BLOCKS];
+    unsigned int nblocks;
+    int query_sent;
+};
 static act_result_t blockrb_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     const sx_node_t *self = sx_hashfs_self(hashfs);
     sxc_client_t *sx = sx_hashfs_client(hashfs);
     sxi_conns_t *clust = sx_hashfs_conns(hashfs);
     const sx_nodelist_t *next = sx_hashfs_all_nodes(hashfs, NL_NEXT);
     act_result_t ret = ACT_RESULT_OK;
-    struct {
-	curlev_context_t *cbdata;
-	sxi_query_t *proto;
-	const sx_node_t *node;
-	block_meta_t *blocks[RB_MAX_BLOCKS];
-	unsigned int nblocks;
-	int query_sent;
-    } rbdata[RB_MAX_NODES];
+    struct rbdata_t *rbdata = NULL;
     unsigned int i, j, maxnodes = 0, maxtries;
     rc_ty s;
 
@@ -2626,8 +2627,6 @@ static act_result_t blockrb_request(sx_hashfs_t *hashfs, job_t job_id, job_data_
 	CRIT("Bad job data");
 	action_error(ACT_RESULT_PERMFAIL, 500, "Internal job data error");
     }
-
-    memset(rbdata, 0, sizeof(rbdata));
 
     s = sx_hashfs_br_begin(hashfs);
     if(s == ITER_NO_MORE) {
@@ -2640,6 +2639,10 @@ static act_result_t blockrb_request(sx_hashfs_t *hashfs, job_t job_id, job_data_
 	action_error(rc2actres(s), rc2http(s), msg_get_reason());
     }
     rbl_log(NULL, "br_begin", 1, NULL);
+
+    rbdata = calloc(RB_MAX_NODES, sizeof(*rbdata));
+    if(!rbdata)
+	action_error(ACT_RESULT_TEMPFAIL, 503, "Out of memory");
 
     maxnodes = MIN(RB_MAX_NODES, sx_nodelist_count(next) - (sx_nodelist_lookup(next, sx_node_uuid(self)) != NULL));
     maxtries = RB_MAX_TRIES; /* Maximum *consecutive* attempts to find a pushable block */
@@ -2775,7 +2778,6 @@ static act_result_t blockrb_request(sx_hashfs_t *hashfs, job_t job_id, job_data_
     } else
 	action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to iterate blocks");
 
-
 action_failed:
 
     for(i=0; i<maxnodes; i++) {
@@ -2798,26 +2800,57 @@ action_failed:
 			rbl_log(&rbdata[_qno].blocks[_bno]->hash, "inuse_query", 0, "Remote query failed with HTTP %ld", http_status);
 		    }
 		    action_raise_fail(newret, http_status, sxi_cbdata_geterrmsg(rbdata[i].cbdata));
+		} else if(qbegin(sx_hashfs_xferdb(hashfs))) {
+		    FOREACH_QUEUE_BLOCK(i) {
+			rbl_log(&rbdata[_qno].blocks[_bno]->hash, "inuse_query", 0, "Cannot start transaction");
+		    }
+		    action_raise_fail(ACT_RESULT_TEMPFAIL, 503, "Cannot start transaction (xferdb)");
+		} else if(sx_hashfs_revision_op_begin(hashfs)) {
+		    qrollback(sx_hashfs_xferdb(hashfs));
+		    FOREACH_QUEUE_BLOCK(i) {
+			rbl_log(&rbdata[_qno].blocks[_bno]->hash, "inuse_query", 0, "Cannot start transaction on datadb");
+		    }
+		    action_raise_fail(ACT_RESULT_TEMPFAIL, 503, "Cannot start transaction (datadb)");
 		} else {
 		    for(j=0; j<rbdata[i].nblocks; j++) {
 			rbl_log(&rbdata[i].blocks[j]->hash, "inuse_query", 1, NULL);
-			if((s = sx_hashfs_blkrb_hold(hashfs, &rbdata[i].blocks[j]->hash, rbdata[i].blocks[j]->blocksize, rbdata[i].node)) != OK) {
+			s = sx_hashfs_blkrb_hold(hashfs, &rbdata[i].blocks[j]->hash, rbdata[i].blocks[j]->blocksize, rbdata[i].node);
+			if(s != OK) {
 			    WARN("Cannot hold block"); /* Unexpected but not critical, will retry later */
 			    rbl_log(&rbdata[i].blocks[j]->hash, "blkrb_hold", 0, "Error %d (%s)", s,  msg_get_reason());
 			} else {
 			    rbl_log(&rbdata[i].blocks[j]->hash, "blkrb_hold", 1, NULL);
-			    if((s = sx_hashfs_xfer_tonode(hashfs, &rbdata[i].blocks[j]->hash, rbdata[i].blocks[j]->blocksize, rbdata[i].node, FLOW_BULK_UID)) != OK) {
+			    s = sx_hashfs_xfer_tonode(hashfs, &rbdata[i].blocks[j]->hash, rbdata[i].blocks[j]->blocksize, rbdata[i].node, FLOW_BULK_UID);
+			    if(s != OK) {
 				WARN("Cannot add block to transfer queue"); /* Unexpected but not critical, will retry later */
 				rbl_log(&rbdata[i].blocks[j]->hash, "xfer_tonode", 0, "Error %d (%s)", s,  msg_get_reason());
 			    } else {
 				rbl_log(&rbdata[i].blocks[j]->hash, "xfer_tonode", 1, NULL);
-				if((s = sx_hashfs_br_delete(hashfs, rbdata[i].blocks[j])) != OK) {
+				s = sx_hashfs_br_delete(hashfs, rbdata[i].blocks[j]);
+				if(s != OK) {
 				    WARN("Cannot delete block"); /* Unexpected but not critical, will retry later */
 				    rbl_log(&rbdata[i].blocks[j]->hash, "br_delete", 0, "Error %d (%s)", s,  msg_get_reason());
 				} else
 				    rbl_log(&rbdata[i].blocks[j]->hash, "br_delete", 1, NULL);
 			    }
 			}
+		    }
+		    if(sx_hashfs_revision_op_commit(hashfs)) {
+			WARN("Failed to commit results (datadb)");
+			sx_hashfs_revision_op_rollback(hashfs);
+			qrollback(sx_hashfs_xferdb(hashfs));
+			FOREACH_QUEUE_BLOCK(i) {
+			    rbl_log(&rbdata[_qno].blocks[_bno]->hash, "inuse_query", 0, "Cannot commit transaction (datadb)");
+			}
+			action_raise_fail(ACT_RESULT_TEMPFAIL, 503, "Cannot commit transaction (datadb)");
+		    }
+		    if(qcommit(sx_hashfs_xferdb(hashfs))) {
+			WARN("Failed to commit results (xferdb)");
+			qrollback(sx_hashfs_xferdb(hashfs));
+			FOREACH_QUEUE_BLOCK(i) {
+			    rbl_log(&rbdata[_qno].blocks[_bno]->hash, "inuse_query", 0, "Cannot commit transaction (xferdb)");
+			}
+			action_raise_fail(ACT_RESULT_TEMPFAIL, 503, "Cannot commit transaction (xferdb)");
 		    }
 		}
 	    } else {
@@ -2836,6 +2869,7 @@ action_failed:
 	sxi_query_free(rbdata[i].proto);
 
     }
+    free(rbdata);
 
     /* If some block was skipped, return tempfail so we get called again later */
     if(ret == ACT_RESULT_OK) {

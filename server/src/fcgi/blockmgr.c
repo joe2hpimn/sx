@@ -41,10 +41,12 @@ static void sighandler(int signum) {
     terminate = 1;
 }
 
+#define UPLOAD_MAX_BLOCKS (UPLOAD_CHUNK_SIZE / SX_BS_SMALL)
+/* WARNING: stack alloc'd ~30KB */
 struct blockmgr_hlist_t {
-    int64_t ids[DOWNLOAD_MAX_BLOCKS];
-    sx_hash_t binhs[DOWNLOAD_MAX_BLOCKS];
-    uint8_t havehs[DOWNLOAD_MAX_BLOCKS];
+    int64_t ids[UPLOAD_MAX_BLOCKS];
+    sx_hash_t binhs[UPLOAD_MAX_BLOCKS];
+    uint8_t havehs[UPLOAD_MAX_BLOCKS];
     unsigned int nblocks;
 };
 
@@ -129,6 +131,7 @@ static int schedule_blocks_sfq(struct blockmgr_data_t *q) {
     sx_uuid_t target_uuid;
     sqlite3_stmt *qget;
     int ret = 0, r;
+    unsigned int maxblocks = 0;
 
     DEBUG("in %s", __func__);
     qget = q->qget_first_hi;
@@ -172,6 +175,7 @@ static int schedule_blocks_sfq(struct blockmgr_data_t *q) {
 		blockmgr_del_xfer(q, push_id);
 		return schedule_blocks_sfq(q);
 	    }
+	    maxblocks = UPLOAD_CHUNK_SIZE / q->blocksize;
 
 	    p = sqlite3_column_blob(qget, 4);
 	    if(sqlite3_column_bytes(qget, 4) != sizeof(target_uuid.binary)) {
@@ -234,7 +238,7 @@ static int schedule_blocks_sfq(struct blockmgr_data_t *q) {
 	*/
 
 	ret++;
-	if(ret >= DOWNLOAD_MAX_BLOCKS)
+	if(ret >= maxblocks)
 	    break;
 
 	for(i = 0; i<2; i++) {
@@ -264,26 +268,31 @@ static int schedule_blocks_sfq(struct blockmgr_data_t *q) {
 
 
 static uint8_t upbuffer[UPLOAD_CHUNK_SIZE];
-static void blockmgr_process_queue(struct blockmgr_data_t *q) {
+static int blockmgr_process_queue(struct blockmgr_data_t *q) {
     sxc_client_t *sx = sx_hashfs_client(q->hashfs);
     sxi_conns_t *clust = sx_hashfs_conns(q->hashfs);
     sxi_hostlist_t uploadto;
+    int ret = -1;
 
     sxi_hostlist_init(&uploadto);
 
     while(!terminate) {
-	unsigned int i, trigger_jobmgr = 0;
+	unsigned int i, j, lastup = 0, trigger_jobmgr = 0;
         const char *host, *token = NULL;
 	sxi_hashop_t hc;
 	uint8_t *curb;
 	int r;
 
+	/* Phase 1 - schedule blocks */
 	r = schedule_blocks_sfq(q);
 	if(r <= 0) {
 	    /* no blocks(0) or error (<1) */
+	    if(ret <= 0)
+		ret = r;
 	    break;
 	}
 
+	/* Phase 2 - presence check blocks */
 	sxi_hostlist_empty(&uploadto);
         host = sx_node_internal_addr(q->target);
 	if(sxi_hostlist_add_host(sx, &uploadto, host)) {
@@ -298,62 +307,90 @@ static void blockmgr_process_queue(struct blockmgr_data_t *q) {
 
         /* just check for presence, reservation was already done by the failed INUSE */
 	sxi_hashop_begin(&hc, clust, hcb, HASHOP_CHECK, 0, NULL, NULL, NULL, &q->hashlist, 0);
+	r = 0;
 	for(i=0; i<q->hashlist.nblocks; i++) {
             if(sxi_hashop_batch_add(&hc, host, i, q->hashlist.binhs[i].b, q->blocksize) != 0) {
                 WARN("Cannot verify block presence: %s", sxc_geterrmsg(sx));
-                blockmgr_reschedule_xfer(q, q->hashlist.ids[i]);
+		r = 1;
+		break;
             }
 	}
 	if(sxi_hashop_end(&hc) == -1) {
 	    WARN("Cannot verify block presence on node %s (%s): %s", sx_node_uuid_str(q->target), host, sxc_geterrmsg(sx));
-	    for(i=0; i<q->hashlist.nblocks; i++)
-		blockmgr_reschedule_xfer(q, q->hashlist.ids[i]);
-	    continue;
+	    r = 1;
 	}
 
-	curb = upbuffer;
-	for(i=0; i<q->hashlist.nblocks; i++) {
-	    const uint8_t *b;
-	    if(q->hashlist.havehs[i]) {
-                /* TODO: print actual hash */
-		DEBUG("Block %d was found remotely", i);
-		blockmgr_del_xfer(q, q->hashlist.ids[i]);
-	    } else if(sx_hashfs_block_get(q->hashfs, q->blocksize, &q->hashlist.binhs[i], &b)) {
-		INFO("Block %ld was not found locally", q->hashlist.ids[i]);
-		blockmgr_reschedule_xfer(q, q->hashlist.ids[i]);
-	    } else {
-		memcpy(curb, b, q->blocksize);
-		curb += q->blocksize;
-	    }
-	    if(sizeof(upbuffer) - (curb - upbuffer) < q->blocksize || i == q->hashlist.nblocks - 1) {
-		/* upload chunk */
-		int j;
-		if(sxi_upload_block_from_buf(clust, &uploadto, token, upbuffer, q->blocksize, curb-upbuffer)) {
-		    WARN("Block transfer failed");
-		    for(j=0; j<=i; j++)
-			if(!q->hashlist.havehs[j])
-			    blockmgr_reschedule_xfer(q, q->hashlist.ids[j]);
-		    break;
+	if(r) {
+	    for(i=0; i<q->hashlist.nblocks; i++)
+		q->hashlist.havehs[i] = 2; /* Reschedule */
+	} else {
+	    /* Phase 3 - upload blocks */
+	    curb = upbuffer;
+	    for(i=0; i<q->hashlist.nblocks; i++) {
+		const uint8_t *b;
+		if(q->hashlist.havehs[i]) {
+		    /* TODO: print actual hash */
+		    DEBUG("Block %d was found remotely", i);
+		    q->hashlist.havehs[i] = 1; /* Dequeue */
+		} else if(sx_hashfs_block_get(q->hashfs, q->blocksize, &q->hashlist.binhs[i], &b)) {
+		    INFO("Block %ld was not found locally", q->hashlist.ids[i]);
+		    q->hashlist.havehs[i] = 2; /* Reschedule */
+		} else {
+		    memcpy(curb, b, q->blocksize);
+		    curb += q->blocksize;
 		}
-		curb = upbuffer;
-		for(j=0; j<=i; j++) {
-                    char debughash[sizeof(sx_hash_t)*2+1];
-                    const sx_hash_t *hash = &q->hashlist.binhs[j];
-		    if(q->hashlist.havehs[j])
-			continue;
-                    bin2hex(hash->b, sizeof(hash->b), debughash, sizeof(debughash));
-		    DEBUG("Block %ld #%s# was transferred successfully", q->hashlist.ids[j], debughash);
-		    blockmgr_del_xfer(q, q->hashlist.ids[j]);
-		    q->hashlist.havehs[j] = 1;
-		    trigger_jobmgr = 1;
+		if(sizeof(upbuffer) - (curb - upbuffer) < q->blocksize || i == q->hashlist.nblocks - 1) {
+		    /* upload chunk */
+		    r = sxi_upload_block_from_buf(clust, &uploadto, token, upbuffer, q->blocksize, curb-upbuffer);
+		    if(r) {
+			for(j=lastup; j<=q->hashlist.nblocks; j++)
+			    if(!q->hashlist.havehs[j])
+				q->hashlist.havehs[j] = 2 /* Reschedule */;
+			WARN("Block transfer failed");
+			break;
+		    } else {
+			for(j=lastup; j<=i; j++) {
+			    if(q->hashlist.havehs[j])
+				continue;
+			    if (UNLIKELY(sxi_log_is_debug(&logger))) {
+				char debughash[sizeof(sx_hash_t)*2+1];
+				const sx_hash_t *hash = &q->hashlist.binhs[j];
+				bin2hex(hash->b, sizeof(hash->b), debughash, sizeof(debughash));
+				DEBUG("Block %ld #%s# was transferred successfully", q->hashlist.ids[j], debughash);
+			    }
+			    q->hashlist.havehs[j] = 1 /* Dequeue */;
+			    trigger_jobmgr = 1;
+			}
+			lastup = j;
+			curb = upbuffer;
+		    }
 		}
 	    }
 	}
+
+	/* Phase 4 - Cleanup (prune uploaded blocks, reschedule failed / missing) */
+	if(!qbegin(sx_hashfs_xferdb(q->hashfs))) {
+	    for(i=0; i<q->hashlist.nblocks; i++) {
+		if(q->hashlist.havehs[i] == 1) {
+		    blockmgr_del_xfer(q, q->hashlist.ids[i]);
+		    ret = 1;
+		} else if(q->hashlist.havehs[i] == 2)
+		    blockmgr_reschedule_xfer(q, q->hashlist.ids[i]);
+		else
+		    WARN("Invalid block state %u", q->hashlist.havehs[i]);
+	    }
+	    if(qcommit(sx_hashfs_xferdb(q->hashfs)))
+		WARN("Failed to commit cleanup");
+	} else
+	    WARN("Failed to perform block cleanup and reschedule");
 
 	if(trigger_jobmgr)
 	    sx_hashfs_job_trigger(q->hashfs);
+
+	break;
     }
     sxi_hostlist_empty(&uploadto);
+    return ret;
 }
 
 
@@ -599,12 +636,13 @@ int blockmgr(sxc_client_t *sx, sx_hashfs_t *hashfs, int pipe) {
 	goto blockmgr_err;
 
     while(!terminate) {
-	int dc;
         if (wait_trigger(pipe, blockmgr_delay, NULL))
             break;
 
+	qstep_noret(q.qprune);
+
 	while(1) {
-	    DEBUG("Start processing block queue");
+	    int dc, p1, p2;
 	    msg_new_id();
 
 	    dc = sx_hashfs_distcheck(q.hashfs);
@@ -616,16 +654,16 @@ int blockmgr(sxc_client_t *sx, sx_hashfs_t *hashfs, int pipe) {
 		INFO("Distribution reloaded");
 	    }
 
-	    qstep_noret(q.qprune);
-	    blockmgr_process_queue(&q);
+	    DEBUG("Start processing block queue");
+	    p1 = blockmgr_process_queue(&q);
 	    DEBUG("Done processing block queue");
 
 	    DEBUG("Start processing unbump queue");
-	    dc = unbump_revs(&unb);
-	    DEBUG("Done processing block queue");
+	    p2 = unbump_revs(&unb);
+	    DEBUG("Done processing unbump queue");
 
-	    /* Fast loop unless unbump complete or failed */
-	    if(dc <= 0)
+	    /* Fast loop unless we are done with both queues */
+	    if(p1 <= 0 && p2 <= 0)
 		break;
 	}
 	
