@@ -32,17 +32,12 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "hashfs.h"
 #include "log.h"
 #include "blockmgr.h"
 
 static int terminate = 0;
 
 static void sighandler(int signum) {
-    if (signum == SIGHUP || signum == SIGUSR1) {
-	log_reopen();
-	return;
-    }
     terminate = 1;
 }
 
@@ -546,7 +541,7 @@ static int unbump_revs(struct revunbump_data_t *unb) {
 
 }
 
-int blockmgr(sxc_client_t *sx, const char *dir, int pipe) {
+int blockmgr(sxc_client_t *sx, sx_hashfs_t *hashfs, int pipe) {
     struct blockmgr_data_t q;
     struct revunbump_data_t unb;
     struct sigaction act;
@@ -559,24 +554,13 @@ int blockmgr(sxc_client_t *sx, const char *dir, int pipe) {
     sigaction(SIGTERM, &act, NULL);
     sigaction(SIGINT, &act, NULL);
     sigaction(SIGQUIT, &act, NULL);
-    signal(SIGUSR2, SIG_IGN);
-    signal(SIGPIPE, SIG_IGN);
-
-    act.sa_flags = SA_RESTART;
-    sigaction(SIGHUP, &act, NULL);
-    sigaction(SIGUSR1, &act, NULL);
 
     memset(&q, 0, sizeof(q));
     memset(&unb, 0, sizeof(unb));
 
-    q.hashfs = sx_hashfs_open(dir, sx);
-    if(!q.hashfs) {
-	CRIT("Failed to initialize the hash server interface");
-	goto blockmgr_err;
-    }
+    q.hashfs = hashfs;
 
     xferdb = sx_hashfs_xferdb(q.hashfs);
-
     if(qprep(xferdb, &qsched, "CREATE TEMPORARY TABLE scheduled (push_id INTEGER NOT NULL PRIMARY KEY)") || qstep_noret(qsched)) {
 	qnullify(qsched);
 	goto blockmgr_err;

@@ -27,7 +27,10 @@
 
 #ifndef GC_H
 #define GC_H
+
 #include "sx.h"
-int gc(sxc_client_t *sx, const char *dir, int pipe, int pipe_expire);
+#include "hashfs.h"
+
+int gc(sxc_client_t *sx, sx_hashfs_t *hashfs, int pipe, int pipe_expire);
 
 #endif

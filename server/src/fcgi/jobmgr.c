@@ -60,7 +60,6 @@
 #include "../libsxclient/src/sxproto.h"
 #include "../libsxclient/src/misc.h"
 #include "../libsxclient/src/curlevents.h"
-#include "hashfs.h"
 #include "hdist.h"
 #include "job_common.h"
 #include "log.h"
@@ -6969,10 +6968,6 @@ static job_data_t *make_jobdata(const void *data, unsigned int data_len, uint64_
 
 static int terminate = 0;
 static void sighandler(int signum) {
-    if (signum == SIGHUP || signum == SIGUSR1) {
-	log_reopen();
-	return;
-    }
     terminate = 1;
 }
 
@@ -7531,7 +7526,7 @@ static void jobmgr_process_queue(struct jobmgr_data_t *q, int forced) {
 }
 
 
-int jobmgr(sxc_client_t *sx, const char *dir, int pipe) {
+int jobmgr(sxc_client_t *sx, sx_hashfs_t *hashfs, int pipe) {
     sqlite3_stmt *q_vcheck = NULL;
     struct jobmgr_data_t q;
     struct sigaction act;
@@ -7540,22 +7535,11 @@ int jobmgr(sxc_client_t *sx, const char *dir, int pipe) {
     act.sa_flags = 0;
     act.sa_handler = sighandler;
     sigaction(SIGTERM, &act, NULL);
-    sigaction(SIGUSR2, &act, NULL);
     sigaction(SIGINT, &act, NULL);
     sigaction(SIGQUIT, &act, NULL);
-    signal(SIGPIPE, SIG_IGN);
-
-    act.sa_flags = SA_RESTART;
-    sigaction(SIGUSR1, &act, NULL);
-    sigaction(SIGHUP, &act, NULL);
 
     memset(&q, 0, sizeof(q));
-    q.hashfs = sx_hashfs_open(dir, sx);
-    if(!q.hashfs) {
-	CRIT("Failed to initialize the hash server interface");
-	goto jobmgr_err;
-    }
-
+    q.hashfs = hashfs;
     q.targets = sx_nodelist_new();
     if(!q.targets) {
 	WARN("Cannot create target nodelist");

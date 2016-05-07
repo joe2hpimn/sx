@@ -28,6 +28,9 @@
 #ifndef HBEAT_H
 #define HBEAT_H
 
-int hbeatmgr(sxc_client_t *sx, const char *dir, int pipe);
+#include "sx.h"
+#include "hashfs.h"
+
+int hbeatmgr(sxc_client_t *sx, sx_hashfs_t *hashfs, int pipe);
 
 #endif

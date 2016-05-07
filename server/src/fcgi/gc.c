@@ -34,7 +34,6 @@
 
 #include "gc.h"
 #include "log.h"
-#include "hashfs.h"
 #include "nodes.h"
 #include "../libsxclient/src/curlevents.h"
 #include <arpa/inet.h>
@@ -42,10 +41,6 @@
 static int terminate = 0;
 
 static void sighandler(int signum) {
-    if (signum == SIGHUP || signum == SIGUSR1) {
-	log_reopen();
-	return;
-    }
     terminate = 1;
 }
 
@@ -336,9 +331,8 @@ static rc_ty process_heal(sx_hashfs_t *hashfs, int *terminate)
     return OK;
 }
 
-int gc(sxc_client_t *sx, const char *dir, int pipe, int pipe_expire) {
+int gc(sxc_client_t *sx, sx_hashfs_t *hashfs, int pipe, int pipe_expire) {
     struct sigaction act;
-    sx_hashfs_t *hashfs;
     rc_ty rc;
     struct timeval tv0, tv1, tv2;
 
@@ -346,18 +340,8 @@ int gc(sxc_client_t *sx, const char *dir, int pipe, int pipe_expire) {
     act.sa_flags = 0;
     act.sa_handler = sighandler;
     sigaction(SIGTERM, &act, NULL);
-    sigaction(SIGUSR1, &act, NULL);
-    sigaction(SIGHUP, &act, NULL);
     sigaction(SIGINT, &act, NULL);
     sigaction(SIGQUIT, &act, NULL);
-    signal(SIGUSR2, SIG_IGN);
-    signal(SIGPIPE, SIG_IGN);
-
-    hashfs = sx_hashfs_open(dir, sx);
-    if (!hashfs) {
-        CRIT("Failed to initialize the hash server interface");
-        return EXIT_FAILURE;
-    }
 
     INFO("GC slow check is : %s", gc_slow_check ? "enabled" : "disabled");
     memset(&tv0, 0, sizeof(tv0));

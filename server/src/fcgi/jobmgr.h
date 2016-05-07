@@ -28,6 +28,9 @@
 #ifndef JOBMGR_H
 #define JOBMGR_H
 
-int jobmgr(sxc_client_t *sx, const char *dir, int pipe);
+#include "sx.h"
+#include "hashfs.h"
+
+int jobmgr(sxc_client_t *sx, sx_hashfs_t *hashfs, int pipe);
 
 #endif

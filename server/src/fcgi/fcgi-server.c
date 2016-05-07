@@ -480,6 +480,12 @@ static int open_socket(const char *path, int mode) {
     return s;
 }
 
+
+static void reopen_logfile_sighandler(int signum) {
+    log_reopen();
+    INFO("Log file reopened (SIG%s received)", signum == SIGHUP ? "HUP" : "USR1");
+}
+
 #define NOPIDFILE() do { free(pidfile); pidfile = NULL; } while(0)
 
 #define SPAWNMGR(pid, child)						\
@@ -488,11 +494,26 @@ static int open_socket(const char *path, int mode) {
 	pids[pid] = fork();						\
 	if(pids[pid] <= 0) {						\
 	    if(pids[pid] == 0) {					\
-		trig_destroy_workers();					\
 		NOPIDFILE();						\
-		if(!sxreinit(&sx, name, NULL, args.logfile_arg, foreground, debug, argc, argv)) \
-		    ret = child;					\
-		else							\
+		if(!sxreinit(&sx, name, NULL, args.logfile_arg, foreground, debug, argc, argv))	{ \
+		    struct sigaction act;				\
+		    sx_hashfs_t *chldfs;				\
+		    sigemptyset(&act.sa_mask);				\
+		    act.sa_flags = SA_RESTART;				\
+		    act.sa_handler = reopen_logfile_sighandler;		\
+		    sigaction(SIGUSR1, &act, NULL);			\
+		    sigaction(SIGHUP, &act, NULL);			\
+		    signal(SIGPIPE, SIG_IGN);				\
+		    signal(SIGUSR2, SIG_IGN);				\
+		    chldfs = sx_hashfs_open(args.data_dir_arg, sx);	\
+		    if(chldfs) {					\
+			sx_hashfs_set_triggers(chldfs, trig_worker(TRIG_JOB), trig_worker(TRIG_BLOCK), trig_worker(TRIG_GC), trig_worker(TRIG_EGC), trig_worker(TRIG_HBEAT)); \
+			ret = child;					\
+		    } else {						\
+			CRIT("Failed to initialize the hash server interface");	\
+			ret = EXIT_FAILURE;				\
+		    }							\
+		} else							\
 		    ret = EXIT_FAILURE;					\
 	    } else							\
 		PCRIT("Cannot spawn the %s process", name);		\
@@ -748,16 +769,16 @@ int main(int argc, char **argv) {
     }
 
     /* Spawn the job manager */
-    SPAWNMGR(JOBMGR, jobmgr(sx, args.data_dir_arg, trig_manager(TRIG_JOB)));
+    SPAWNMGR(JOBMGR, jobmgr(sx, chldfs, trig_manager(TRIG_JOB)));
 
     /* Spawn the block manager */
-    SPAWNMGR(BLKMGR, blockmgr(sx, args.data_dir_arg, trig_manager(TRIG_BLOCK)));
+    SPAWNMGR(BLKMGR, blockmgr(sx, chldfs, trig_manager(TRIG_BLOCK)));
 
     /* Spawn the garbage collector */
-    SPAWNMGR(GCMGR, gc(sx, args.data_dir_arg, trig_manager(TRIG_GC), trig_manager(TRIG_EGC)));
+    SPAWNMGR(GCMGR, gc(sx, chldfs, trig_manager(TRIG_GC), trig_manager(TRIG_EGC)));
 
     /* Spawn the heartbeat manager */
-    SPAWNMGR(HBEATMGR, hbeatmgr(sx, args.data_dir_arg, trig_manager(TRIG_HBEAT)));
+    SPAWNMGR(HBEATMGR, hbeatmgr(sx, chldfs, trig_manager(TRIG_HBEAT)));
 
     trig_destroy_managers();
 

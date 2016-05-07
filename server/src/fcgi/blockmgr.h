@@ -28,6 +28,9 @@
 #ifndef BLOCKMGR_H
 #define BLOCKMGR_H
 
-int blockmgr(sxc_client_t *sx, const char *dir, int pipe);
+#include "sx.h"
+#include "hashfs.h"
+
+int blockmgr(sxc_client_t *sx, sx_hashfs_t *hashfs, int pipe);
 
 #endif

@@ -32,7 +32,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "hashfs.h"
+#include "hbeat.h"
 #include "utils.h"
 #include "log.h"
 #include "../../libsxclient/src/curlevents.h"
@@ -43,10 +43,6 @@ static int terminate = 0;
 #define version_init(ver) sx_hashfs_version_parse(ver, "0.0", -1)
 
 static void sighandler(int signum) {
-    if (signum == SIGHUP || signum == SIGUSR1) {
-	log_reopen();
-	return;
-    }
     terminate = 1;
 }
 
@@ -892,9 +888,8 @@ raft_hbeat_err:
 #define HB_DEADTIME_DEFAULT     0LL
 #define HB_INITDEAD_DEFAULT     120LL
 
-int hbeatmgr(sxc_client_t *sx, const char *dir, int pipe) {
+int hbeatmgr(sxc_client_t *sx, sx_hashfs_t *hashfs, int pipe) {
     struct sigaction act;
-    sx_hashfs_t *hashfs = NULL;
     uint64_t hb_deadtime, hb_initdead, hb_keepalive = 0;
     struct timeval started, now;
 
@@ -904,19 +899,8 @@ int hbeatmgr(sxc_client_t *sx, const char *dir, int pipe) {
     sigaction(SIGTERM, &act, NULL);
     sigaction(SIGINT, &act, NULL);
     sigaction(SIGQUIT, &act, NULL);
-    signal(SIGUSR2, SIG_IGN);
-    signal(SIGPIPE, SIG_IGN);
-
-    act.sa_flags = SA_RESTART;
-    sigaction(SIGHUP, &act, NULL);
-    sigaction(SIGUSR1, &act, NULL);
 
     gettimeofday(&started, NULL);
-    hashfs = sx_hashfs_open(dir, sx);
-    if(!hashfs) {
-	CRIT("Failed to initialize the hash server interface");
-	goto hbeat_err;
-    }
 
     DEBUG("Heartbeat manager started");
 
