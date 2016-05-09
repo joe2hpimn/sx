@@ -3678,9 +3678,6 @@ else
 fi
 
 
-if test "$build_nginx_module_vts" = "no"; then
-    ac_configure_args="$ac_configure_args --add-module=3rdparty/nginx-module-vts"
-fi
  if test "$build_nginx_module_vts" = "yes"; then
   BUILD_NGINX_MODULE_VTS_TRUE=
   BUILD_NGINX_MODULE_VTS_FALSE='#'

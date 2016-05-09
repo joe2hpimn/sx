@@ -55,9 +55,6 @@ if test "$build_sxhttpd" = "yes"; then
 fi
 AM_CONDITIONAL([BUILD_SXHTTPD], [test "$build_sxhttpd" = "yes"])
 
-if test "$build_nginx_module_vts" = "no"; then
-    ac_configure_args="$ac_configure_args --add-module=3rdparty/nginx-module-vts"
-fi
 AM_CONDITIONAL([BUILD_NGINX_MODULE_VTS], [test "$build_nginx_module_vts" = "yes"])
 
 # Yajl

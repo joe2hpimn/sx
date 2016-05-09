@@ -657,6 +657,7 @@ ac_user_opts='
 enable_option_checking
 enable_silent_rules
 enable_maintainer_mode
+enable_nginx_module_vts
 '
       ac_precious_vars='build_alias
 host_alias
@@ -1291,6 +1292,7 @@ Optional Features:
   --enable-maintainer-mode
                           enable make rules and dependencies not useful (and
                           sometimes confusing) to the casual installer
+  --disable-nginx-module-vts     do not build nginx-module-vts
 
 Report bugs to the package provider.
 _ACEOF
@@ -2352,6 +2354,15 @@ fi
 
 
 
+# nginx-module-vts
+# Check whether --enable-nginx-module-vts was given.
+if test "${enable_nginx_module_vts+set}" = set; then :
+  enableval=$enable_nginx_module_vts; build_nginx_module_vts=$enableval
+else
+  build_nginx_module_vts="yes"
+fi
+
+
 if test "x$prefix" = xNONE; then
   prefix=$ac_default_prefix
 fi
@@ -2361,7 +2372,7 @@ absdir=`cd $dirname && pwd`
 unset dirname
 mkdir -p build-nginx
 cd build-nginx
-if test "x$nginx_module_vts" = xNONE; then
+if test "$build_nginx_module_vts" = "no"; then
 $absdir/../nginx/configure --without-http_rewrite_module --with-http_ssl_module --prefix=$prefix --sbin-path=`echo $sbindir`/sxhttpd --error-log-path=stderr --http-log-path=`echo $localstatedir`/log/sxserver/sxhttpd-access.log --pid-path=`echo $localstatedir`/run/sxserver/sxhttpd.pid --lock-path=`echo $localstatedir`/lock/sxserver/sxhttpd.lock --conf-path=`echo $sysconfdir`/sxhttpd.conf --with-ld-opt="$LDFLAGS" --with-ipv6
 else
 $absdir/../nginx/configure --without-http_rewrite_module --with-http_ssl_module --prefix=$prefix --sbin-path=`echo $sbindir`/sxhttpd --error-log-path=stderr --http-log-path=`echo $localstatedir`/log/sxserver/sxhttpd-access.log --pid-path=`echo $localstatedir`/run/sxserver/sxhttpd.pid --lock-path=`echo $localstatedir`/lock/sxserver/sxhttpd.lock --conf-path=`echo $sysconfdir`/sxhttpd.conf --with-ld-opt="$LDFLAGS" --with-ipv6 --add-module=$absdir/../nginx-module-vts
