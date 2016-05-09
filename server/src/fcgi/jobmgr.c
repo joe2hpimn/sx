@@ -4312,6 +4312,29 @@ static act_result_t ignodes_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t
     return commit_dist_common(hashfs, nodes, succeeded, fail_code, fail_msg, 0);
 }
 
+static act_result_t ignodes_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    act_result_t ret = ACT_RESULT_OK;
+    sxi_hdist_t *hdist = NULL;
+
+    if(!job_data) {
+	NULLARG();
+	action_error(ACT_RESULT_PERMFAIL, 500, "Null job");
+    }
+
+    ret = revoke_dist_common(hashfs, job_id, nodes, succeeded, fail_code, fail_msg);
+
+action_failed:
+    return ret;
+}
+
+static act_result_t ignodes_undo(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    act_result_t ret;
+
+    CRIT("The attempt to update the cluster faulty nodes list resulted in a fatal failure leaving it in an inconsistent state");
+    action_set_fail(ACT_RESULT_PERMFAIL, 500, "The attempt to update the cluster faulty nodes list resulted in a fatal failure leaving it in an inconsistent state");
+    return ret;
+}
+
 static act_result_t dummy_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     DEBUG("IN %s", __func__);
     return force_phase_success(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
@@ -6965,7 +6988,7 @@ static struct {
     { force_phase_success, revsclean_vol_commit, revsclean_vol_abort, revsclean_vol_undo }, /* JOBTYPE_REVSCLEAN */
     { distlock_request, force_phase_success, distlock_abort, force_phase_success }, /* JOBTYPE_DISTLOCK */
     { cluster_mode_request, force_phase_success, cluster_mode_abort, force_phase_success }, /* JOBTYPE_CLUSTER_MODE */
-    { ignodes_request, ignodes_commit, force_phase_success, force_phase_success }, /* JOBTYPE_IGNODES */
+    { ignodes_request, ignodes_commit, ignodes_abort, ignodes_undo }, /* JOBTYPE_IGNODES */
     { force_phase_success, revision_commit, revision_abort, revision_undo }, /* JOBTYPE_BLOCKS_REVISION */
     { force_phase_success, fileflush_local, fileflush_remote_undo, force_phase_success }, /* JOBTYPE_FLUSH_FILE_LOCAL  - 1 node */
     { upgrade_request, force_phase_success, force_phase_success, force_phase_success }, /* JOBTYPE_UPGRADE_FROM_1_0_OR_1_1 */

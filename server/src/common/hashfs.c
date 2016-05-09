@@ -16121,6 +16121,17 @@ rc_ty sx_hashfs_hdist_change_revoke(sx_hashfs_t *h) {
 	rcount = sqlite3_column_int(q, 0);
 	qnullify(q);
 	if(rcount == 2) {
+	    int64_t revokedrev;
+	    if(qbind_text(h->q_getval, ":k", "current_dist_rev") || qstep_ret(h->q_getval))
+		goto change_revoke_fail;
+	    revokedrev = sqlite3_column_int64(h->q_getval, 0);
+	    sqlite3_reset(h->q_getval);
+	    if(qprep(h->db, &q, "DELETE FROM ignorednodes WHERE dist >= :dist") ||
+	       qbind_int64(q, ":dist", revokedrev) ||
+	       qstep_noret(q))
+		goto change_revoke_fail;
+	    qnullify(q);
+
 	    if(qprep(h->db, &q, "DELETE FROM hashfs WHERE key IN ('dist_rev', 'dist')") || qstep_noret(q))
 		goto change_revoke_fail;
 	    qnullify(q);
