@@ -247,7 +247,7 @@ void fcgi_list_volume(const sx_hashfs_volume_t *vol) {
         const char* reason = msg_get_reason();
         quit_errmsg(rc2http(s), *reason ? reason : "failed to calculate etag");
     }
-    if(is_object_fresh(&etag, 'L', NO_LAST_MODIFIED)) {
+    if(is_object_fresh(&etag, has_arg("meta") ? 'l' : 'L', NO_LAST_MODIFIED)) {
         return;
     }
     CGI_PUTS("\r\n");
@@ -283,6 +283,16 @@ void fcgi_list_volume(const sx_hashfs_volume_t *vol) {
 	 * the json closure
 	 * and the string terminator */
 
+        /* If meta is required, load it before writing a file entry */
+        if(file->revision[0] && has_arg("meta")) {
+            s = sx_hashfs_getfilemeta_begin(hashfs, volume, file->name+1, file->revision, NULL, NULL);
+            if(s != OK && s != ENOENT) {
+                CGI_PUTC('}');
+                quit_itererr(msg_get_reason(), s);
+            } else if(s == ENOENT) /* Skip the file if it no longer exists */
+                continue;
+        }
+
 	/* "filename":{"fileSize":123,"blockSize":4096,"createdAt":456,"fileRev":"REVISON_STRING"} */
 	if(comma) {
             CGI_PUTC(',');
@@ -304,9 +314,6 @@ void fcgi_list_volume(const sx_hashfs_volume_t *vol) {
                 const void *value;
                 unsigned int value_len;
                 unsigned int comma_meta = 0;
-                t = sx_hashfs_getfilemeta_begin(hashfs, volume, file->name+1, file->revision, NULL, NULL);
-                if(t != OK && t != ITER_NO_MORE)
-                    quit_itererr(msg_get_reason(), t);
                 CGI_PRINTF(",\"fileMeta\":{");
                 while((t = sx_hashfs_getfilemeta_next(hashfs, &key, &value, &value_len)) == OK) {
                     char hex[SXLIMIT_META_MAX_VALUE_LEN*2+1];

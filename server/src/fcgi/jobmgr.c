@@ -4314,7 +4314,6 @@ static act_result_t ignodes_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t
 
 static act_result_t ignodes_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     act_result_t ret = ACT_RESULT_OK;
-    sxi_hdist_t *hdist = NULL;
 
     if(!job_data) {
 	NULLARG();
