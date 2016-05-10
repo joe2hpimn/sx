@@ -2173,7 +2173,8 @@ static sxi_job_t* local_to_remote_begin(sxc_file_t *source, sxc_file_t *dest, in
 	if(!tsource)
 	    SXDEBUG("failed to create source file object for temporary input file");
 	else {
-	    ret = local_to_remote_begin(tsource, dest, single_source, recursive, http_status, jobs);
+            /* We use a temporary file, therefore source is single. */
+	    ret = local_to_remote_begin(tsource, dest, 1, 1, http_status, jobs);
 	    sxc_file_free(tsource);
 	}
 	goto local_to_remote_err; /* cleanup, not necessarily an error */
@@ -6729,11 +6730,11 @@ static int is_single_source(sxc_file_list_t *source) {
             return -1;
         }
 
-        /* Return 1 when the file is regular */
-        if(S_ISREG(sb.st_mode))
-            return 1;
-        else /* Other types are checked later (e.g. skipping links and iteration over directory tree) */
+        /* Return 0 when the entry is a directory */
+        if(S_ISDIR(sb.st_mode))
             return 0;
+        else /* Other types are checked later (e.g. skipping links) */
+            return 1;
     }
     return 0;
 }
