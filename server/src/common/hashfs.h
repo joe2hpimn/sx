@@ -608,7 +608,7 @@ rc_ty sx_hashfs_upgrade_1_0_or_1_1_local(sx_hashfs_t *h);
 typedef int (*lrb_cb_t)(const sx_hashfs_volume_t *vol, const sx_uuid_t *target, const sx_hash_t *revision_id, const sx_hash_t *contents, int64_t nblocks, unsigned blocksize);
 typedef int (*lrb_count_t)(int64_t count);
 rc_ty sx_hashfs_list_revision_blocks(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, const sx_uuid_t *target, sx_hash_t *min_revision_id, unsigned age_limit, unsigned metadb, lrb_cb_t cb, lrb_count_t cb_count);
-typedef int (*heal_cb_t)(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, const sx_hash_t *min_revision_id_in, int max_age, unsigned metadb);
+typedef int (*heal_cb_t)(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, const sx_hash_t *min_revision_id_in, int64_t max_age, unsigned metadb);
 rc_ty sx_hashfs_remote_heal(sx_hashfs_t *h, heal_cb_t cb);
 rc_ty sx_hashfs_heal_update(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, const sx_hash_t *min_revision_id, unsigned metadb);
 

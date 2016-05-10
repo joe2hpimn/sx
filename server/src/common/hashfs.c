@@ -6158,7 +6158,7 @@ static void datadb_rollback(sx_hashfs_t *h, unsigned int hs);
 static rc_ty datadb_beginall(sx_hashfs_t *h);
 static rc_ty datadb_commitall(sx_hashfs_t *h);
 static void datadb_rollbackall(sx_hashfs_t *h);
-static rc_ty sx_hashfs_revision_op_internal(sx_hashfs_t *h, unsigned int hs, const sx_hash_t *revision_id, int op, int age);
+static rc_ty sx_hashfs_revision_op_internal(sx_hashfs_t *h, unsigned int hs, const sx_hash_t *revision_id, int op, int64_t age);
 
 #define BULK_MAX_BATCH 1000
 
@@ -6215,7 +6215,7 @@ rc_ty sx_hashfs_upgrade_1_0_or_1_1_prepare(sx_hashfs_t *h)
     if (i < METADBS)
         return FAIL_EINTERNAL;
 
-    int age = sxi_hdist_version(h->hd);
+    int64_t age = sxi_hdist_version(h->hd);
     for(i=0;i<METADBS;i++) {
         sqlite3_stmt *qsel = h->qm_needs_upgrade[i], *qupd = NULL;
         int ret;
@@ -6337,7 +6337,7 @@ rc_ty sx_hashfs_upgrade_1_0_or_1_1_prepare(sx_hashfs_t *h)
 }
 
 static rc_ty sx_hashfs_hashop_moduse(sx_hashfs_t *h, const sx_hash_t *global_vol_id, const sx_hash_t *reserve_id, const sx_hash_t *revision_id, unsigned int hs, const sx_hash_t *hash, unsigned replica, int64_t op, uint64_t op_expires_at);
-static rc_ty sx_hashfs_hashop_moduse_internal(sx_hashfs_t *h, const sx_hash_t *global_vol_id, const sx_hash_t *revision_id, unsigned int hs, unsigned int ndb, const sx_hash_t *hash, unsigned replica, unsigned age);
+static rc_ty sx_hashfs_hashop_moduse_internal(sx_hashfs_t *h, const sx_hash_t *global_vol_id, const sx_hash_t *revision_id, unsigned int hs, unsigned int ndb, const sx_hash_t *hash, unsigned replica, int64_t age);
 static rc_ty hash_of_blob_result(sx_hash_t *hash, sqlite3_stmt *stmt, int col);
 
 static rc_ty datadb_begin(sx_hashfs_t *h, unsigned int hs)
@@ -6476,7 +6476,7 @@ rc_ty sx_hashfs_upgrade_1_0_or_1_1_local(sx_hashfs_t *h)
                     CRIT("corrupt file blocksize: %d", blocksize);
                     continue;
                 }
-                unsigned int age = sxi_hdist_version(h->hd);
+                int64_t age = sxi_hdist_version(h->hd);
                 for (j=0;j<blocks;j++) {
                     const sx_hash_t *hash = &content[j];
                     if (sx_hashfs_hashop_moduse_internal(h, &vol->global_id, &revision_id, hs, gethashdb(hash), hash, replica, age))
@@ -6517,7 +6517,7 @@ rc_ty sx_hashfs_upgrade_1_0_or_1_1_local(sx_hashfs_t *h)
         gettimeofday(&tv2, NULL);
         INFO("Checkpoint finished in %.fs", timediff(&tv1, &tv2));
         const sx_hashfs_volume_t *volume;
-        int max_age = sxi_hdist_version(h->hd);
+        int64_t max_age = sxi_hdist_version(h->hd);
         unsigned n = 0;
         for(rc = sx_hashfs_volume_first(h, &volume, 0);rc == OK;rc = sx_hashfs_volume_next(h)) {
             if (sx_hashfs_is_or_was_my_volume(h, volume, 0))
@@ -6526,7 +6526,7 @@ rc_ty sx_hashfs_upgrade_1_0_or_1_1_local(sx_hashfs_t *h)
                 sqlite3_stmt *q = h->qm_add_heal_volume[i];
                 sqlite3_reset(q);
                 if(qbind_text(q,":name", volume->name) ||
-                   qbind_int(q,":max_age", max_age) ||
+                   qbind_int64(q,":max_age", max_age) ||
                    qbind_blob(q,":min_revision_id","",0) ||
                    qstep_noret(q)) {
                     rc = FAIL_EINTERNAL;
@@ -7232,8 +7232,8 @@ rc_ty sx_hashfs_list_etag(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, cons
     for (i=0;i<METADBS && !rc;i++) {
         sqlite3_reset(h->qm_newest[i]);
         sqlite3_reset(h->qm_count[i]);
-        if (qbind_int(h->qm_newest[i], ":volid", volume->id) ||
-            qbind_int(h->qm_count[i], ":volid", volume->id) ||
+        if (qbind_int64(h->qm_newest[i], ":volid", volume->id) ||
+            qbind_int64(h->qm_count[i], ":volid", volume->id) ||
             qstep_ret(h->qm_newest[i]) ||
             qstep_ret(h->qm_count[i])) {
             rc = FAIL_EINTERNAL;
@@ -9684,14 +9684,14 @@ static rc_ty sx_hashfs_hashop_ishash(sx_hashfs_t *h, unsigned hs, const sx_hash_
     return ret;
 }
 
-static rc_ty sx_hashfs_revision_op_internal(sx_hashfs_t *h, unsigned int hs, const sx_hash_t *revision_id, int op, int age)
+static rc_ty sx_hashfs_revision_op_internal(sx_hashfs_t *h, unsigned int hs, const sx_hash_t *revision_id, int op, int64_t age)
 {
     for (unsigned ndb=0;ndb<HASHDBS;ndb++) {
         sqlite3_stmt *q = h->qb_addtoken[hs][ndb];
         sqlite3_reset(q);
         if (qbind_blob(q, ":revision_id", revision_id->b, sizeof(revision_id->b)) ||
             qbind_int(q, ":op", op) ||
-            qbind_int(q, ":age", age) ||
+            qbind_int64(q, ":age", age) ||
             qstep_noret(q)) {
             sqlite3_reset(q);
             return FAIL_EINTERNAL;
@@ -9720,7 +9720,7 @@ void sx_hashfs_revision_op_rollback(sx_hashfs_t *h)
 rc_ty sx_hashfs_revision_op(sx_hashfs_t *h, unsigned blocksize, const sx_hash_t *revision_id, int op)
 {
     unsigned hs;
-    int age;
+    int64_t age;
     for(hs = 0; hs < SIZES; hs++) {
         if(blocksize == bsz[hs])
             break;
@@ -9745,7 +9745,7 @@ rc_ty sx_hashfs_revision_op(sx_hashfs_t *h, unsigned blocksize, const sx_hash_t 
     return OK;
 }
 
-static rc_ty sx_hashfs_hashop_moduse_internal(sx_hashfs_t *h, const sx_hash_t *global_vol_id, const sx_hash_t *revision_id, unsigned int hs, unsigned int ndb, const sx_hash_t *hash, unsigned replica, unsigned age)
+static rc_ty sx_hashfs_hashop_moduse_internal(sx_hashfs_t *h, const sx_hash_t *global_vol_id, const sx_hash_t *revision_id, unsigned int hs, unsigned int ndb, const sx_hash_t *hash, unsigned replica, int64_t age)
 {
     sqlite3_reset(h->qb_moduse[hs][ndb]);
     /* In some cases volume ID might not be available. */
@@ -9755,7 +9755,7 @@ static rc_ty sx_hashfs_hashop_moduse_internal(sx_hashfs_t *h, const sx_hash_t *g
         return FAIL_EINTERNAL;
     if (qbind_blob(h->qb_moduse[hs][ndb], ":hash", hash, sizeof(*hash)) ||
             qbind_int(h->qb_moduse[hs][ndb], ":replica", replica) ||
-            qbind_int(h->qb_moduse[hs][ndb], ":age", age) ||
+            qbind_int64(h->qb_moduse[hs][ndb], ":age", age) ||
             qbind_blob(h->qb_moduse[hs][ndb], ":revision_id", revision_id, sizeof(*revision_id)) ||
             qstep_noret(h->qb_moduse[hs][ndb]))
         return FAIL_EINTERNAL;
@@ -9766,7 +9766,7 @@ static rc_ty sx_hashfs_hashop_moduse_internal(sx_hashfs_t *h, const sx_hash_t *g
 static rc_ty sx_hashfs_hashop_moduse(sx_hashfs_t *h, const sx_hash_t *global_vol_id, const sx_hash_t *reserve_id, const sx_hash_t *revision_id, unsigned int hs, const sx_hash_t *hash, unsigned replica, int64_t op, uint64_t op_expires_at)
 {
     unsigned ndb;
-    unsigned int age;
+    int64_t age;
     rc_ty ret = FAIL_EINTERNAL;
     /* FIXME: maybe enable this
     if(!is_hash_local(h, hash, replica_count))
@@ -9825,12 +9825,12 @@ static rc_ty sx_hashfs_hashop_moduse(sx_hashfs_t *h, const sx_hash_t *global_vol
         age = sxi_hdist_version(h->hd);
         if (qbind_blob(h->qb_addtoken[hs][ndb], ":revision_id", revision_id, sizeof(*revision_id)) ||
             qbind_int(h->qb_addtoken[hs][ndb], ":op", op) ||
-            qbind_int(h->qb_addtoken[hs][ndb], ":age", age) ||
+            qbind_int64(h->qb_addtoken[hs][ndb], ":age", age) ||
             qstep_noret(h->qb_addtoken[hs][ndb]))
             break;
         sqlite3_reset(h->qb_addtoken[hs][ndb]);
         DEBUGHASH("moduse on", hash);
-        DEBUG("op: %ld, replica: %d, age: %d", op, replica, age);
+        DEBUG("op: %ld, replica: %d, age: %lld", op, replica, (long long)age);
         if (sx_hashfs_hashop_moduse_internal(h, global_vol_id, revision_id, hs, ndb, hash, replica, age))
             break;
         /*        if (qcommit(h->datadb[hs][ndb]))
@@ -11069,7 +11069,7 @@ static rc_ty create_file(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const
 
     r = qstep(q);
     if(r == SQLITE_ROW) {
-        int age = sqlite3_column_int64(q, 5);
+        int64_t age = sqlite3_column_int64(q, 5);
         sqlite3_reset(q);
         if (age < 0) {
             DEBUG("Out of order add (delete already received)");
@@ -15308,8 +15308,8 @@ rc_ty sx_hashfs_gc_run(sx_hashfs_t *h, int *terminate)
     ret = 0;
 
     sx_hashfs_incore(h, NULL, NULL);
-    int age = sxi_hdist_version(h->hd);
-    DEBUG("age is %d", age);
+    int64_t age = sxi_hdist_version(h->hd);
+    DEBUG("age is %lld", (long long)age);
     if (bindall(h->qb_find_unused_revision, ":age", age) ||
         foreach_hdb_blob(h, terminate,
                          h->qb_find_unused_revision, ":last_revision_id",
@@ -16662,9 +16662,9 @@ static rc_ty sx_hashfs_blocks_restart(sx_hashfs_t *h, unsigned rebalance_version
         for(i=0;i<HASHDBS;i++) {
             if (qbind_blob(h->rit.q[j][i], ":prevhash", "", 0))
                 return FAIL_EINTERNAL;
-            if (qbind_int(h->qb_get_meta[j][i], ":current_age", rebalance_version))
+            if (qbind_int64(h->qb_get_meta[j][i], ":current_age", rebalance_version))
                 return FAIL_EINTERNAL;
-            if (qbind_int(h->qb_deleteold[j][i], ":current_age", rebalance_version))
+            if (qbind_int64(h->qb_deleteold[j][i], ":current_age", rebalance_version))
                 return FAIL_EINTERNAL;
         }
     }
@@ -18102,7 +18102,7 @@ static rc_ty sx_hashfs_file_find_step(sx_hashfs_t *h, const sx_hashfs_volume_t *
     if (file->revision[0]) {
         q = h->qm_list_rev_dec[fdb];
         sqlite3_reset(q);
-        if (qbind_int(q, ":volid", volume->id) ||
+        if (qbind_int64(q, ":volid", volume->id) ||
             qbind_text(q, ":name", file->name) ||
             qbind_text(q, ":maxrev", file->revision))
             return FAIL_EINTERNAL;
@@ -18130,7 +18130,7 @@ static rc_ty sx_hashfs_file_find_step(sx_hashfs_t *h, const sx_hashfs_volume_t *
     do {
         q = h->qm_list_file[fdb];
         DEBUG("previous:%s, maxrev:%s", file->name, maxrev);
-        if (qbind_int(q, ":volid", volume->id) ||
+        if (qbind_int64(q, ":volid", volume->id) ||
             qbind_text(q, ":previous", file->name) ||
             qbind_text(q, ":maxrev", maxrev))
             return FAIL_EINTERNAL;
@@ -18228,7 +18228,7 @@ rc_ty sx_hashfs_br_find(sx_hashfs_t *h, const sx_block_meta_index_t *previous, u
         sqlite3_clear_bindings(q);
         sqlite3_clear_bindings(qmeta);
         if (qbind_blob(q, ":prevhash", hash ? hash : (const void*)"", hash ? sizeof(*hash) : 0) ||
-            qbind_int(qmeta, ":current_age", rebalance_ver)) {
+            qbind_int64(qmeta, ":current_age", rebalance_ver)) {
             rc = FAIL_EINTERNAL;
             break;
         }
@@ -19554,7 +19554,7 @@ rc_ty sx_hashfs_list_revision_blocks(sx_hashfs_t *h, const sx_hashfs_volume_t *v
          * hdist version */
         age_limit++;
         if (qbind_int64(q, ":volume_id", vol->id) || qbind_int64(qcount, ":volume_id", vol->id) ||
-            qbind_int(q, ":age_limit", age_limit) || qbind_int(qcount, ":age_limit", age_limit))
+            qbind_int64(q, ":age_limit", age_limit) || qbind_int64(qcount, ":age_limit", age_limit))
             break;
         if(min_revision_id) {
             if (qbind_blob(q, ":min_revision_id", min_revision_id->b, sizeof(min_revision_id->b)) ||
@@ -19664,12 +19664,12 @@ rc_ty sx_hashfs_remote_heal(sx_hashfs_t *h, heal_cb_t cb)
             if (ret == SQLITE_ROW) {
                 const sx_hashfs_volume_t *volume;
                 const unsigned char *name = sqlite3_column_text(qsel, 0);
-                int max_age = sqlite3_column_int(qsel, 1);
+                int64_t max_age = sqlite3_column_int64(qsel, 1);
                 sx_hash_t min_revision_id;
                 const sx_hash_t *min_revision_in = NULL;
                 strncpy(prev, (const char*)name, sizeof(prev));
                 prev[sizeof(prev)-1] = '\0';
-                DEBUG("heal: volume=%s, max_Age=%d, metadb: %d", name, max_age, i);
+                DEBUG("heal: volume=%s, max_Age=%lld, metadb: %d", name, (long long)max_age, i);
                 if(sx_hashfs_volume_by_name(h, (const char*)name, &volume))
                     break;
                 if (sqlite3_column_bytes(qsel, 2)) {

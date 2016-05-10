@@ -213,7 +213,7 @@ static void heal_finish_cb(curlev_context_t *cbdata, const char *url) {
     heal_pending_queries--;
 }
 
-static int heal_cb(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, const sx_hash_t *min_revision_in, int max_age, unsigned metadb)
+static int heal_cb(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, const sx_hash_t *min_revision_in, int64_t max_age, unsigned metadb)
 {
 /* TODO */
     int ret = -1;
@@ -271,8 +271,8 @@ static int heal_cb(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, const sx_hash_
             WARN("failed to encode volume name");
             break;
         }
-        snprintf(query, sizeof(query), "%s?o=revision_blocks&max-age=%d&min-rev=%s&metadb=%d&for-node-uuid=%s",
-                enc_vol, max_age, min_revision_in ? min_rev_hex : "", metadb, for_node_uuid);
+        snprintf(query, sizeof(query), "%s?o=revision_blocks&max-age=%lld&min-rev=%s&metadb=%d&for-node-uuid=%s",
+                enc_vol, (long long)max_age, min_revision_in ? min_rev_hex : "", metadb, for_node_uuid);
         /* must be stateless, no context param! */
         unsigned nnode, nnodes = sx_nodelist_count(volnodes);
         for (nnode=0;nnode<nnodes;nnode++) {
