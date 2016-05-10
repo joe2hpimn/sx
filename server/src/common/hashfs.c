@@ -2106,7 +2106,7 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 	    goto open_hashfs_fail;
 	if(qprep(h->metadb[i], &h->qm_addrelocs[i], "INSERT INTO relocs (file_id, dest) SELECT fid, :node FROM files WHERE volume_id = :volid AND age >= 0"))
 	    goto open_hashfs_fail;
-	if(qprep(h->metadb[i], &h->qm_getreloc[i], "SELECT file_id, dest, volume_id, name, size, rev, content, revision_id FROM relocs LEFT JOIN files ON relocs.file_id = files.fid WHERE file_id > :prev AND age >= 0 LIMIT 1"))
+	if(qprep(h->metadb[i], &h->qm_getreloc[i], "SELECT file_id, dest, volume_id, name, size, rev, content, revision_id, age FROM relocs LEFT JOIN files ON relocs.file_id = files.fid WHERE file_id > :prev LIMIT 1"))
 	    goto open_hashfs_fail;
 	if(qprep(h->metadb[i], &h->qm_delreloc[i], "DELETE FROM relocs WHERE file_id = :fileid"))
 	    goto open_hashfs_fail;
@@ -17259,8 +17259,8 @@ rc_ty sx_hashfs_relocs_next(sx_hashfs_t *h, const sx_reloc_t **reloc) {
 	    return FAIL_EINTERNAL;
 
 	h->relocid = sqlite3_column_int64(q, 0);
-	if(sqlite3_column_type(q, 2) == SQLITE_NULL) {
-	    /* This file no longer exists */
+	if(sqlite3_column_type(q, 2) == SQLITE_NULL || sqlite3_column_int64(q, 8) < 0) {
+	    /* This file no longer exists or is a tombstone */
 	    sqlite3_reset(q);
 	    ret = relocs_delete(h, ndb, h->relocid);
 	    if(ret != OK)
