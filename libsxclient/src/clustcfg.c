@@ -4326,7 +4326,7 @@ int sxi_cluster_status(sxc_cluster_t *cluster, const node_status_cb_t status_cb,
         sxi_hostlist_empty(&hlist);
         if(qret != 200) {
             SXDEBUG("Failed to get status of node %s: %s", node, sxc_geterrmsg(sx));
-	    free(yctx->status.bqstat);
+            sxi_node_status_empty(&yctx->status);
 	    sxi_jparse_destroy(yctx->J);
             free(yctx);
             enum sxc_error_t code = SXE_ECOMM;
@@ -4340,7 +4340,6 @@ int sxi_cluster_status(sxc_cluster_t *cluster, const node_status_cb_t status_cb,
             sxi_seterr(sx, code, "Can't query node %s%s%s", node, old_msg ? ": " : "", old_msg ? old_msg : "");
             free(old_msg);
             fail = 1;
-            sxi_node_status_empty(&yctx->status);
             status_cb(sx, qret, NULL, human_readable);
             sxc_clearerr(sx);
             continue;
@@ -4348,13 +4347,12 @@ int sxi_cluster_status(sxc_cluster_t *cluster, const node_status_cb_t status_cb,
 
         if(sxi_jparse_done(yctx->J)) {
             SXDEBUG("Failed to complete parsing of node %s status", node);
-	    free(yctx->status.bqstat);
+            sxi_node_status_empty(&yctx->status);
 	    sxi_jparse_destroy(yctx->J);
             free(yctx);
             sxc_clearerr(sx);
             sxi_seterr(sx, SXE_ECOMM, "Can't query node %s", node);
             fail = 1;
-            sxi_node_status_empty(&yctx->status);
             status_cb(sx, qret, NULL, human_readable);
             continue;
         }
