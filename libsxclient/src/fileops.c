@@ -669,6 +669,23 @@ int sxi_file_set_meta(sxc_file_t *file, sxc_meta_t *meta)
     return 0;
 }
 
+int sxi_file_meta_add (sxc_file_t *file, const char *key, const void *value, unsigned int value_len) {
+    if(!file || !key || !value)
+        return -1;
+    if(is_remote(file)) {
+        sxi_seterr(file->sx, SXE_EARG, "Called with remote file");
+        return -1;
+    }
+    if(!file->meta) {
+        file->meta = sxc_meta_new(file->sx);
+        if(!file->meta) {
+            sxi_seterr(file->sx, SXE_EMEM, "Out of memory");
+            return -1;
+        }
+    }
+    return sxc_meta_setval(file->meta, key, value, value_len);
+}
+
 sxc_file_t *sxi_file_dup(sxc_file_t *file)
 {
     sxc_file_t *ret;
@@ -2368,6 +2385,15 @@ static sxi_job_t* local_to_remote_begin(sxc_file_t *source, sxc_file_t *dest, in
 		goto local_to_remote_err;
 	    }
 	}
+    } else if(source->meta) { /* Store the metadata from the source file into dest anyway */
+        sxc_meta_free(dest->meta);
+        dest->meta = sxi_meta_dup(sx, source->meta);
+        if(!dest->meta) {
+            SXDEBUG("Failed to duplicate source file metadata");
+            sxi_notice(sx, "Failed to duplicate source file metadata");
+            goto local_to_remote_err;
+        }
+        dest->meta_fetched = source->meta_fetched;
     }
 
     if(sxi_filemeta_process(sx, fh, fdir, dest, cvmeta)) {
@@ -5589,6 +5615,7 @@ int sxc_cat(sxc_file_t *source, int dest) {
     sxc_file_free(destfile);
     return rc;
 }
+
 
 int sxc_update_filemeta(sxc_file_t *file, sxc_meta_t *newmeta)
 {

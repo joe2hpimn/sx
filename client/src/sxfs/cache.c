@@ -45,7 +45,7 @@ typedef struct _block_state_t block_state_t;
 
 struct _sxfs_cache_t {
     ssize_t used, size; /* can be negative due to race conditions with small size */
-    char *dir_medium, *dir_large;
+    char *tempdir, *dir_medium, *dir_large;
     pthread_mutex_t mutex;
     sxi_ht *blocks;
 };
@@ -55,6 +55,7 @@ static void cache_free (sxfs_state_t *sxfs, sxfs_cache_t *cache) {
 
     if(!sxfs || !cache)
         return;
+    free(cache->tempdir);
     free(cache->dir_medium);
     free(cache->dir_large);
     sxi_ht_free(cache->blocks);
@@ -73,6 +74,8 @@ int sxfs_cache_init (sxc_client_t *sx, sxfs_state_t *sxfs, size_t size, const ch
         fprintf(stderr, "ERROR: NULL argument in cache initialization");
         return ret;
     }
+    if(sxfs->need_file)
+        return 0;
     if(size < 64 * SX_BS_LARGE) {
         fprintf(stderr, "ERROR: Cache size must be at least %d\n", 64 * SX_BS_LARGE);
         return ret;
@@ -89,6 +92,11 @@ int sxfs_cache_init (sxc_client_t *sx, sxfs_state_t *sxfs, size_t size, const ch
     }
     cache->blocks = sxi_ht_new(sx, 10000); /* more than 128 * 64 for ht efficiency */
     if(!cache->blocks) {
+        fprintf(stderr, "ERROR: Out of memory");
+        goto sxfs_cache_init_err;
+    }
+    cache->tempdir = strdup(path);
+    if(!cache->tempdir) {
         fprintf(stderr, "ERROR: Out of memory");
         goto sxfs_cache_init_err;
     }
@@ -124,6 +132,17 @@ sxfs_cache_init_err:
     cache_free(sxfs, cache);
     return ret;
 } /* sxfs_cache_init */
+
+static void ENOSPC_handler (sxfs_state_t *sxfs) {
+    pthread_mutex_lock(&sxfs->limits_mutex);
+    if(!sxfs->need_file) {
+        SXFS_ERROR("Disabling the block cache, restart SXFS (possibly with a different cache dir) to re-enable the cache");
+        sxfs->need_file = 1;
+        sxi_rmdirs(sxfs->cache->dir_medium);
+        sxi_rmdirs(sxfs->cache->dir_large);
+    }
+    pthread_mutex_unlock(&sxfs->limits_mutex);
+} /* ENOSPC_handler */
 
 struct _blockfile_t {
     char *name;
@@ -269,6 +288,8 @@ static int cache_download (sxfs_state_t *sxfs, sxi_sxfs_data_t *fdata, unsigned 
         if(errno != EEXIST) {
             ret = -errno;
             SXFS_ERROR("Cannot create '%s' file: %s", path, strerror(errno));
+            if(ret == -ENOSPC)
+                ENOSPC_handler(sxfs);
             goto cache_download_err;
         } else if(file_fd) {
             fd = open(path, O_RDWR);
@@ -289,13 +310,13 @@ static int cache_download (sxfs_state_t *sxfs, sxi_sxfs_data_t *fdata, unsigned 
     pthread_mutex_unlock(&sxfs->cache->mutex);
     mutex_locked = 0;
     used_added = 1;
-    tmp_path = (char*)malloc(strlen(sxfs->tempdir) + 1 + lenof("cache_XXXXXX") + 1);
+    tmp_path = (char*)malloc(strlen(sxfs->cache->tempdir) + 1 + lenof("cache_XXXXXX") + 1);
     if(!tmp_path) {
         SXFS_ERROR("Out of memory");
         ret = -ENOMEM;
         goto cache_download_err;
     }
-    sprintf(tmp_path, "%s/cache_XXXXXX", sxfs->tempdir);
+    sprintf(tmp_path, "%s/cache_XXXXXX", sxfs->cache->tempdir);
     tmp_fd = mkstemp(tmp_path); /* different fd to be sure that sxfs_cache_read() works on the file *file_fd is possibly pointing to */
     if(tmp_fd < 0) {
         ret = -errno;
@@ -330,6 +351,8 @@ static int cache_download (sxfs_state_t *sxfs, sxi_sxfs_data_t *fdata, unsigned 
     if((bytes = write(fd, buff, fdata->blocksize)) < 0) {
         ret = -errno;
         SXFS_ERROR("Cannot write to '%s' file: %s", path, strerror(errno));
+        if(ret == -ENOSPC)
+            ENOSPC_handler(sxfs);
         goto cache_download_err;
     }
     if(bytes != fdata->blocksize) {
@@ -378,7 +401,7 @@ struct _cache_thread_data_t {
 typedef struct _cache_thread_data_t cache_thread_data_t;
 
 static void* cache_download_thread (void *ptr) {
-    int fd = -1;
+    int err, fd = -1;
     unsigned int i;
     ssize_t bytes;
     char path[PATH_MAX], buff[SX_BS_LARGE];
@@ -406,7 +429,7 @@ static void* cache_download_thread (void *ptr) {
         }
     }
     fdata2.nhashes = cdata->nblocks;
-    snprintf(path, sizeof(path), "%s/cache_XXXXXX", sxfs->tempdir);
+    snprintf(path, sizeof(path), "%s/cache_XXXXXX", sxfs->cache->tempdir);
     fd = mkstemp(path);
     if(fd < 0) {
         SXFS_ERROR("Cannot create unique temporary file: %s", strerror(errno));
@@ -435,7 +458,10 @@ static void* cache_download_thread (void *ptr) {
             goto cache_download_thread_err;
         }
         if((bytes = write(cdata->fds[i], buff, fdata->blocksize)) < 0) {
+            err = errno;
             SXFS_ERROR("Cannot write to %d (%s) file descriptor: %s", cdata->fds[i], fdata->ha[cdata->blocks[i]], strerror(errno));
+            if(err == ENOSPC)
+                ENOSPC_handler(sxfs);
             goto cache_download_thread_err;
         }
         if(bytes < fdata->blocksize) {
@@ -557,7 +583,10 @@ static void cache_read_background (sxfs_state_t *sxfs, sxfs_file_t *sxfs_file, c
             sprintf(path, "%s/%s", dir, sxfs_file->fdata->ha[cdata->blocks[i]]);
             cdata->fds[i] = open(path, O_RDWR | O_CREAT | O_EXCL, 0600);
             if(cdata->fds[i] < 0) {
+                err = errno;
                 SXFS_ERROR("Cannot create '%s' file: %s", path, strerror(errno));
+                if(err == ENOSPC)
+                    ENOSPC_handler(sxfs);
                 goto cache_read_background_err;
             }
             sxfs->cache->used += sxfs_file->fdata->blocksize;
@@ -614,7 +643,7 @@ ssize_t sxfs_cache_read (sxfs_state_t *sxfs, sxfs_file_t *sxfs_file, void *buff,
     sxfs_cache_t *cache;
     sxi_sxfs_data_t *fdata;
 
-    if(!sxfs || !sxfs->cache || !sxfs_file || !buff) {
+    if(!sxfs || !sxfs_file || !buff) {
         if(sxfs)
             SXFS_ERROR("NULL argument");
         return -EINVAL;
@@ -623,22 +652,28 @@ ssize_t sxfs_cache_read (sxfs_state_t *sxfs, sxfs_file_t *sxfs_file, void *buff,
     fdata = sxfs_file->fdata;
     if(sxfs->need_file) {
         download = 1;
-    } else if(fdata) { /* file opened by create() doesn't have fdata but always has write_fd */
-        switch(fdata->blocksize) {
-            case SX_BS_SMALL:
-                download = 1;
-                break;
-            case SX_BS_MEDIUM:
-                dir = cache->dir_medium;
-                nblocks = SXFS_BS_MEDIUM_AMOUNT;
-                break;
-            case SX_BS_LARGE:
-                dir = cache->dir_large;
-                nblocks = SXFS_BS_LARGE_AMOUNT;
-                break;
-            default:
-                SXFS_ERROR("Unknown block size");
-                return -EINVAL;
+    } else {
+        if(!cache) { /* sxfs->cache can be NULL when sxfs->need_file is true */
+            SXFS_ERROR("NULL argument");
+            return -EINVAL;
+        }
+        if(fdata) { /* file opened by create() doesn't have fdata but always has write_fd */
+            switch(fdata->blocksize) {
+                case SX_BS_SMALL:
+                    download = 1;
+                    break;
+                case SX_BS_MEDIUM:
+                    dir = cache->dir_medium;
+                    nblocks = SXFS_BS_MEDIUM_AMOUNT;
+                    break;
+                case SX_BS_LARGE:
+                    dir = cache->dir_large;
+                    nblocks = SXFS_BS_LARGE_AMOUNT;
+                    break;
+                default:
+                    SXFS_ERROR("Unknown block size");
+                    return -EINVAL;
+            }
         }
     }
     if(download && sxfs_file->write_fd < 0 && (ret = sxfs_get_file(sxfs, sxfs_file))) {
@@ -765,9 +800,9 @@ sxfs_cache_read_err:
 void sxfs_cache_free (sxfs_state_t *sxfs) {
     if(!sxfs || !sxfs->cache)
         return;
-    if(sxi_rmdirs(sxfs->cache->dir_medium))
+    if(sxi_rmdirs(sxfs->cache->dir_medium) && errno != ENOENT)
         SXFS_ERROR("Cannot remove '%s' directory: %s", sxfs->cache->dir_medium, strerror(errno));
-    if(sxi_rmdirs(sxfs->cache->dir_large))
+    if(sxi_rmdirs(sxfs->cache->dir_large) && errno != ENOENT)
         SXFS_ERROR("Cannot remove '%s' directory: %s", sxfs->cache->dir_large, strerror(errno));
     cache_free(sxfs, sxfs->cache);
 } /* sxfs_cache_free */

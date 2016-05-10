@@ -95,5 +95,6 @@ int sxi_file_set_remote_path(sxc_file_t *file, const char *newpath);
 int sxi_file_set_size(sxc_file_t *file, uint64_t size);
 int sxi_file_set_remote_size(sxc_file_t *file, uint64_t remote_size);
 int sxi_file_set_meta(sxc_file_t *file, sxc_meta_t *meta);
+int sxi_file_meta_add (sxc_file_t *file, const char *key, const void* value, unsigned int value_len);
 
 #endif

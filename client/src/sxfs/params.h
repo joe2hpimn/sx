@@ -47,8 +47,8 @@
 #define SXFS_THREADS_LIMIT 64
 #define SXFS_FILE_OPENED 0x1
 #define SXFS_FILE_REMOVED 0x2
-#define SXFS_FILE_ATTR (S_IFREG|S_IRUSR|S_IWUSR)
-#define SXFS_DIR_ATTR (S_IFDIR|S_IRUSR|S_IWUSR|S_IXUSR)
+#define SXFS_FILE_ATTR (S_IFREG|S_IRUSR|S_IWUSR|S_IRGRP|S_IWGRP|S_IROTH|S_IWOTH)
+#define SXFS_DIR_ATTR (S_IFDIR|S_IRUSR|S_IWUSR|S_IXUSR|S_IRGRP|S_IWGRP|S_IXGRP|S_IROTH|S_IWOTH|S_IXOTH)
 #define SXFS_DIR_SIZE SX_BS_SMALL
 
 #define SXFS_BS_MEDIUM_AMOUNT 128   /* 16 kB * 128 = 2MB */
@@ -57,7 +57,6 @@
 #define SXFS_THREAD_WAIT 200000L /* microseconds to wait for other threads (200000 -> 0.2s) */
 #define SXFS_THREAD_SLEEP 5000000L /* microseconds deletion and upload threads wait for next turn */
 #define SXFS_LS_RELOAD 3.0 /* seconds sxfs assumes data it already has is up to date */
-#define SXFS_LAST_ACTION_WAIT 1.0 /* seconds must have been passed since last file action */
 
 #define SXFS_LOG_TYPE_NORMAL 0x1
 #define SXFS_LOG_TYPE_DEBUG 0x2
@@ -90,7 +89,7 @@ struct _sxfs_lsdir_t {
 typedef struct _sxfs_lsdir_t sxfs_lsdir_t;
 
 struct _sxfs_file_t {
-    int flush, write_fd;
+    int flush, is_dir, write_fd; /* one structure is used for both files and dirs to count descriptors easily */
     unsigned long int num_open, threads_num;
     char *write_path, *remote_path;
     sxi_sxfs_data_t *fdata;
@@ -103,7 +102,7 @@ struct _sxfs_cache_t;
 typedef struct _sxfs_cache_t sxfs_cache_t;
 
 struct _sxfs_state {
-    int pipefd[2], need_file, attribs, recovery_failed, *threads, *fh_table;
+    int pipefd[2], need_file, attribs, recovery_failed, *threads;
     size_t fh_limit, threads_num, threads_max;
     char *pname, *tempdir, *lostdir, *empty_file_path;
     pthread_key_t sxkey, tid_key;
@@ -113,6 +112,7 @@ struct _sxfs_state {
     sxc_uri_t *uri;
     sxi_ht *files;
     sxfs_lsdir_t *root;
+    sxfs_file_t **fh_table;
     sxfs_cache_t *cache;
     FILE *logfile;
     struct gengetopt_args_info *args;
