@@ -6223,6 +6223,7 @@ static int sxi_file_list_foreach(sxc_file_list_t *target, multi_cb_t multi_cb, f
 
         if (!target->recursive && (!*pattern->path || (pattern->path[0] == '/' && !pattern->path[1]))) {
             sxi_seterr(target->sx, SXE_EARG, "Cannot operate on volume root in non-recursive mode: '/%s'", pattern->volume);
+            ret = 1;
             break;
         }
 
