@@ -2392,8 +2392,12 @@ struct fuse_operations sxfs_oper = {
     .lock = NULL,
     .utimens = sxfs_utimens,
 #ifndef __APPLE__
+#if FUSE_VERSION >= 29
     .flag_nopath = 0,
+#endif
+#if FUSE_VERSION == 28 || FUSE_VERSION == 29
     .flag_nullpath_ok = 1,
+#endif
 #endif
 };
 
@@ -2930,8 +2934,13 @@ int main (int argc, char **argv) {
                 fprintf(stderr, "WARNING: '-o hard_remove' option is not supported on OS X and will be ignored\n");
                 continue;
 #else
+#if FUSE_VERSION >= 29
                 sxfs_oper.flag_nopath = 1; /* FUSE doesn't use unlink on .fuse_hiddenXXXXXX with this option
                                            ** with '-o hard_remove' .fuse_hiddenXXXXXX files are not being created) */
+#else
+                fprintf(stderr, "WARNING: '-o hard_remove' option is only supported with FUSE 2.9.0 (or newer) and will be ignored\n");
+                continue;
+#endif
 #endif
             }
             if(fuse_opt_add_arg(&fargs, "-o")) {
