@@ -1,3 +1,16 @@
+2.1
+---
+
+Skylable SX 2.1 brings various new features and improvements, including:
+
+  * Support for changing replica count with 'sxvol modify -r'
+  * Support for renaming volumes with 'sxvol rename'
+  * Support for a local cache in sxfs
+  * Single command to change the IP address(es) of the node ('sxsetup --new-ip')
+  * Better performance and more fair scheduling of internal events
+  * Improved IPv6 support
+  * Other bugfixes and improvements
+
 2.0
 ---
 

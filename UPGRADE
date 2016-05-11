@@ -1,16 +1,11 @@
-Upgrade notes for SX 2.0
+Upgrade notes for SX 2.1
 ------------------------
 
-Skylable SX 2.0 is backward compatible with SX 1.2, except for the aes256
-filter. The data from the encrypted volumes will only be accessible with
-SX 1.2 client tools, and therefore those volumes should be recreated with
-the new filter.
+Skylable SX 2.1 is backward compatible with SX 2.0.
 
 To take advantage of the new features and improvements, a basic cluster
 upgrade procedure is required: simply run 'sxsetup --upgrade' on each
-node after upgrading to 2.0. IMPORTANT: Due to substantial changes
-and improvements, all nodes must be upgraded to 2.0 otherwise some
-operations will only work in read-only mode.
+node after upgrading to 2.1.
 
 For more information, see the section 2.4 of the User Manual (manual.pdf),
 also available online at: http://www.skylable.com/products/sx/manual

@@ -53,7 +53,7 @@ struct node_args_info
   const char *upgrade_job_help; /**< @brief Run the upgrade job directly help description.  */
   const char *compact_help; /**< @brief Compact the node data freeing up any allocated but unused storage space help description.  */
   const char *gc_help; /**< @brief Run GC on node immediately help description.  */
-  const char *gc_expire_help; /**< @brief Run GC on node immediately and  help description.  */
+  const char *gc_expire_help; /**< @brief Run GC on node and expire its reservations immediately help description.  */
   const char *warm_cache_help; /**< @brief Warm DB caches help description.  */
   const char *vacuum_help; /**< @brief Vacuum help description.  */
   const char *get_definition_help; /**< @brief Print node definition in 'cluster --mod' format help description.  */
