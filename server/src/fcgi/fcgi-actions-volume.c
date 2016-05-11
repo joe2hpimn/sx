@@ -1652,7 +1652,7 @@ static rc_ty volmod_parse_complete(void *yctx)
                 msg_set_reason("Failed to check volume existence");
                 return s;
             } else if(s == EEXIST) {
-                msg_set_reason("Volume already exists");
+                msg_set_reason("Destination volume already exists");
                 return EEXIST;
             }
 

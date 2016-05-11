@@ -119,7 +119,7 @@ int sxc_volume_modify(sxc_cluster_t *cluster, const char *volume, const char *ne
         goto sxc_volume_modify_err;
     }
 
-    sxi_set_operation(sx, "modify volume", sxi_cluster_get_name(cluster), volume, NULL);
+    sxi_set_operation(sx, "modify volume", NULL, NULL, NULL);
     ret = sxi_job_submit_and_poll(sxi_cluster_get_conns(cluster), &volhosts, REQ_PUT, query->path, query->content, query->content_len);
 
 sxc_volume_modify_err:
