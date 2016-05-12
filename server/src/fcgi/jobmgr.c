@@ -5514,7 +5514,7 @@ static act_result_t jobpoll_abort_and_undo(sx_hashfs_t *hashfs, job_t job_id, jo
     for(nnode = 0; nnode < sx_nodelist_count(nodes); nnode++)
         succeeded[nnode] = 1;
 action_failed:
-    CRIT("Some files were left in an inconsistent state after a failed mass job attempt");
+    WARN("Some files were left in an inconsistent state after a failed mass job attempt");
     sx_blob_free(b);
     return ret;
 }
