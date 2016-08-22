@@ -306,9 +306,10 @@ ngx_http_gzip_header_filter(ngx_http_request_t *r)
 
     ngx_http_clear_content_length(r);
     ngx_http_clear_accept_ranges(r);
+
 /*
     Added by Skylable (for keeping Etags even when gzipping)
-    ngx_http_clear_etag(r);
+    ngx_http_weak_etag(r);
 */
 
     return ngx_http_next_header_filter(r);
@@ -1012,14 +1013,14 @@ ngx_http_gzip_filter_alloc(void *opaque, u_int items, u_int size)
         ctx->allocated -= alloc;
 
         ngx_log_debug4(NGX_LOG_DEBUG_HTTP, ctx->request->connection->log, 0,
-                       "gzip alloc: n:%ud s:%ud a:%ud p:%p",
+                       "gzip alloc: n:%ud s:%ud a:%ui p:%p",
                        items, size, alloc, p);
 
         return p;
     }
 
     ngx_log_error(NGX_LOG_ALERT, ctx->request->connection->log, 0,
-                  "gzip filter failed to use preallocated memory: %ud of %ud",
+                  "gzip filter failed to use preallocated memory: %ud of %ui",
                   items * size, ctx->allocated);
 
     p = ngx_palloc(ctx->request->pool, items * size);
