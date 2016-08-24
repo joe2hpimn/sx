@@ -2636,8 +2636,8 @@ static int sxfs_daemonize (sxfs_state_t *sxfs) {
                 if(close(sxfs->pipefd[1]))
                     fprintf(stderr, "ERROR: Cannot close write end of the pipe: %s\n", strerror(errno));
                 while(1) { /* read from the pipe until EOT */
-                    if((n = read(sxfs->pipefd[0], &c, 1)) < 0) {
-                        fprintf(stderr, "ERROR: Cannot read from the pipe: %s\n", strerror(errno));
+                    if((n = read(sxfs->pipefd[0], &c, 1)) < 1) {
+                        fprintf(stderr, "ERROR: Cannot read from the pipe: %s\n", n < 0 ? strerror(errno) : "pipe closed");
                         close(sxfs->pipefd[0]);
                         _exit(1);
                     }
@@ -3476,7 +3476,7 @@ int main (int argc, char **argv) {
 
     ret = fuse_main(fargs.argc, fargs.argv, &sxfs_oper, sxfs);
     if(ret)
-        fprintf(sxfs->logfile, "ERROR: FUSE failed\n");
+        fprintf(sxfs->logfile ? sxfs->logfile : stderr, "ERROR: FUSE failed\n");
 main_err:
     free(cache_size_str);
     if(cache_dir && strcmp(cache_dir, sxfs->tempdir) && sxi_rmdirs(cache_dir) && errno != ENOENT) /* remove cache directory with its content */

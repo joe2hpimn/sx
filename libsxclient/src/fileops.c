@@ -4628,10 +4628,10 @@ int sxi_sxfs_download_run(sxi_sxfs_data_t *sxfs, sxc_cluster_t *cluster, sxc_fil
             xfer_stat->status = SXC_XFER_STATUS_RUNNING;
         }
 
-        fail = multi_download(&bh, dest->path, sxfs->blocksize, cluster, fd, sxfs->filesize);
+        fail = multi_download(&bh, dest->path, sxfs->blocksize, cluster, fd, size);
         if(fail) {
             SXDEBUG("multi_download failed, trying single download");
-            fail = single_download(&bh, dest->path, sxfs->blocksize, cluster, fd, sxfs->filesize);
+            fail = single_download(&bh, dest->path, sxfs->blocksize, cluster, fd, size);
         }
 
         /* Update information about transfers, but not when aborting */
