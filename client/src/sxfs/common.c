@@ -402,7 +402,7 @@ int sxfs_get_file (sxfs_state_t *sxfs, sxfs_file_t *sxfs_file) {
         local_file_path = NULL;
         goto sxfs_get_file_err;
     }
-    if(sxfs->need_file || sxfs_file->fdata->blocksize == SX_BS_SMALL) {
+    if(sxfs->need_file) {
         sxc_client_t *sx;
         sxc_cluster_t *cluster;
         sxc_file_t *file_local, *file_remote;

@@ -45,7 +45,7 @@ typedef struct _block_state_t block_state_t;
 
 struct _sxfs_cache_t {
     ssize_t used, size; /* can be negative due to race conditions with small size */
-    char *tempdir, *dir_medium, *dir_large;
+    char *tempdir, *dir_small, *dir_medium, *dir_large;
     pthread_mutex_t mutex;
     sxi_ht *blocks;
 };
@@ -56,6 +56,7 @@ static void cache_free (sxfs_state_t *sxfs, sxfs_cache_t *cache) {
     if(!sxfs || !cache)
         return;
     free(cache->tempdir);
+    free(cache->dir_small);
     free(cache->dir_medium);
     free(cache->dir_large);
     sxi_ht_free(cache->blocks);
@@ -100,6 +101,11 @@ int sxfs_cache_init (sxc_client_t *sx, sxfs_state_t *sxfs, size_t size, const ch
         fprintf(stderr, "ERROR: Out of memory");
         goto sxfs_cache_init_err;
     }
+    cache->dir_small = (char*)malloc(strlen(path) + 1 + lenof("small") + 1);
+    if(!cache->dir_small) {
+        fprintf(stderr, "ERROR: Out of memory");
+        goto sxfs_cache_init_err;
+    }
     cache->dir_medium = (char*)malloc(strlen(path) + 1 + lenof("medium") + 1);
     if(!cache->dir_medium) {
         fprintf(stderr, "ERROR: Out of memory");
@@ -110,14 +116,23 @@ int sxfs_cache_init (sxc_client_t *sx, sxfs_state_t *sxfs, size_t size, const ch
         fprintf(stderr, "ERROR: Out of memory");
         goto sxfs_cache_init_err;
     }
+    sprintf(cache->dir_small, "%s/small", path);
     sprintf(cache->dir_medium, "%s/medium", path);
     sprintf(cache->dir_large, "%s/large", path);
+    if(mkdir(cache->dir_small, 0700)) {
+        fprintf(stderr, "ERROR: Cannot create '%s' directory: %s", cache->dir_small, strerror(errno));
+        goto sxfs_cache_init_err;
+    }
     if(mkdir(cache->dir_medium, 0700)) {
         fprintf(stderr, "ERROR: Cannot create '%s' directory: %s", cache->dir_medium, strerror(errno));
+        if(rmdir(cache->dir_small))
+            fprintf(stderr, "ERROR: Cannot remove '%s' directory: %s", cache->dir_small, strerror(errno));
         goto sxfs_cache_init_err;
     }
     if(mkdir(cache->dir_large, 0700)) {
         fprintf(stderr, "ERROR: Cannot create '%s' directory: %s", cache->dir_large, strerror(errno));
+        if(rmdir(cache->dir_small))
+            fprintf(stderr, "ERROR: Cannot remove '%s' directory: %s", cache->dir_small, strerror(errno));
         if(rmdir(cache->dir_medium))
             fprintf(stderr, "ERROR: Cannot remove '%s' directory: %s", cache->dir_medium, strerror(errno));
         goto sxfs_cache_init_err;
@@ -138,6 +153,7 @@ static void ENOSPC_handler (sxfs_state_t *sxfs) {
     if(!sxfs->need_file) {
         SXFS_ERROR("Disabling the block cache, restart SXFS (possibly with a different cache dir) to re-enable the cache");
         sxfs->need_file = 1;
+        sxi_rmdirs(sxfs->cache->dir_small);
         sxi_rmdirs(sxfs->cache->dir_medium);
         sxi_rmdirs(sxfs->cache->dir_large);
     }
@@ -222,30 +238,49 @@ static int cache_make_space (sxfs_state_t *sxfs, unsigned int size) {
     int ret;
     unsigned int blocksize;
     char path[PATH_MAX];
-    size_t i_m = 0, i_l = 0, nfiles_medium = 0, nfiles_large = 0, removed = 0;
-    blockfile_t *list_medium = NULL, *list_large = NULL;
+    size_t i_s = 0, i_m = 0, i_l = 0, removed = 0;
+    size_t nfiles_small = 0, nfiles_medium = 0, nfiles_large = 0;
+    blockfile_t *list_small = NULL, *list_medium = NULL, *list_large = NULL;
 
     if(sxfs->cache->used + size > sxfs->cache->size) {
+        if((ret = load_files(sxfs, sxfs->cache->dir_small, &list_small, &nfiles_small)))
+            goto cache_make_space_err;
         if((ret = load_files(sxfs, sxfs->cache->dir_medium, &list_medium, &nfiles_medium)))
             goto cache_make_space_err;
         if((ret = load_files(sxfs, sxfs->cache->dir_large, &list_large, &nfiles_large)))
             goto cache_make_space_err;
 
         while(sxfs->cache->used + size > sxfs->cache->size) {
-            if(i_m == nfiles_medium && i_l == nfiles_large) {
-                SXFS_ERROR("Cache inconsistency error");
-                ret = -ENOMSG;
-                goto cache_make_space_err;
-            }
-            if(i_l == nfiles_large || (i_m != nfiles_medium && list_medium[i_m].mtime < list_large[i_l].mtime)) {
-                snprintf(path, sizeof(path), "%s/%s", sxfs->cache->dir_medium, list_medium[i_m].name);
-                i_m++;
-                blocksize = SX_BS_MEDIUM;
-            } else {
+	    int have_l = (i_l < nfiles_large);
+	    int have_m = (i_m < nfiles_medium);
+	    int have_s = (i_s < nfiles_small);
+	    time_t mtime_l = have_l ? list_large[i_l].mtime : -1;
+	    time_t mtime_m = have_m ? list_medium[i_l].mtime : -1;
+	    time_t mtime_s = have_s ? list_small[i_s].mtime : -1;
+
+	    if(have_l &&
+	       (!have_m || mtime_l <= mtime_m) &&
+	       (!have_s || mtime_l <= mtime_s)) {
                 snprintf(path, sizeof(path), "%s/%s", sxfs->cache->dir_large, list_large[i_l].name);
                 i_l++;
                 blocksize = SX_BS_LARGE;
-            }
+	    } else if(have_m &&
+		      (!have_l || mtime_m <= mtime_l) &&
+		      (!have_s || mtime_m <= mtime_s)) {
+                snprintf(path, sizeof(path), "%s/%s", sxfs->cache->dir_medium, list_medium[i_m].name);
+                i_m++;
+                blocksize = SX_BS_MEDIUM;
+	    } else if(have_s &&
+		      (!have_l || mtime_s <= mtime_l) &&
+		      (!have_m || mtime_s <= mtime_m)) {
+		snprintf(path, sizeof(path), "%s/%s", sxfs->cache->dir_small, list_small[i_s].name);
+                i_s++;
+                blocksize = SX_BS_SMALL;
+	    } else {
+                SXFS_ERROR("Cache inconsistency error");
+                ret = -ENOMSG;
+                goto cache_make_space_err;
+	    }
             if(unlink(path)) {
                 ret = -errno;
                 SXFS_ERROR("Cannot remove '%s' file: %s", path, strerror(errno));
@@ -260,6 +295,11 @@ static int cache_make_space (sxfs_state_t *sxfs, unsigned int size) {
 
     ret = 0;
 cache_make_space_err:
+    if(list_small) {
+        for(i_s = 0; i_s<nfiles_small; i_s++)
+            free(list_small[i_s].name);
+        free(list_small);
+    }
     if(list_medium) {
         for(i_m = 0; i_m<nfiles_medium; i_m++)
             free(list_medium[i_m].name);
@@ -391,9 +431,10 @@ cache_download_err:
     return ret;
 } /* cache_download */
 
+#define MAXBLOCKS MAX(MAX(SXFS_BS_SMALL_AMOUNT, SXFS_BS_MEDIUM_AMOUNT), SXFS_BS_LARGE_AMOUNT)
 struct _cache_thread_data_t {
-    int fds[MAX(SXFS_BS_MEDIUM_AMOUNT, SXFS_BS_LARGE_AMOUNT)];
-    unsigned int nblocks, blocks[MAX(SXFS_BS_MEDIUM_AMOUNT, SXFS_BS_LARGE_AMOUNT)];
+    int fds[MAXBLOCKS];
+    unsigned int nblocks, blocks[MAXBLOCKS];
     char *dir;
     sxfs_state_t *sxfs;
     sxfs_file_t *sxfs_file;
@@ -660,7 +701,8 @@ ssize_t sxfs_cache_read (sxfs_state_t *sxfs, sxfs_file_t *sxfs_file, void *buff,
         if(fdata) { /* file opened by create() doesn't have fdata but always has write_fd */
             switch(fdata->blocksize) {
                 case SX_BS_SMALL:
-                    download = 1;
+                    dir = cache->dir_small;
+                    nblocks = SXFS_BS_SMALL_AMOUNT;
                     break;
                 case SX_BS_MEDIUM:
                     dir = cache->dir_medium;
@@ -800,6 +842,8 @@ sxfs_cache_read_err:
 void sxfs_cache_free (sxfs_state_t *sxfs) {
     if(!sxfs || !sxfs->cache)
         return;
+    if(sxi_rmdirs(sxfs->cache->dir_small) && errno != ENOENT)
+        SXFS_ERROR("Cannot remove '%s' directory: %s", sxfs->cache->dir_small, strerror(errno));
     if(sxi_rmdirs(sxfs->cache->dir_medium) && errno != ENOENT)
         SXFS_ERROR("Cannot remove '%s' directory: %s", sxfs->cache->dir_medium, strerror(errno));
     if(sxi_rmdirs(sxfs->cache->dir_large) && errno != ENOENT)
