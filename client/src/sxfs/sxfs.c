@@ -1558,7 +1558,7 @@ sxfs_open_err:
 
 static int sxfs_read (const char *path, char *buf, size_t size, off_t offset, struct fuse_file_info *file_info) {
     int ret;
-    ssize_t bytes;
+    ssize_t retval;
     size_t read = 0;
     sxfs_file_t *sxfs_file;
     sxfs_state_t *sxfs = SXFS_DATA;
@@ -1582,17 +1582,17 @@ static int sxfs_read (const char *path, char *buf, size_t size, off_t offset, st
     }
     FH_CHECK(file_info->fh);
     while(size) {
-        bytes = sxfs_cache_read(sxfs, sxfs_file, buf+read, size, offset);
-        if(bytes < 0) {
-            ret = -errno;
+        retval = sxfs_cache_read(sxfs, sxfs_file, buf+read, size, offset);
+        if(retval < 0) {
+            ret = retval;
             SXFS_ERROR("Cannot read data from cache");
             goto sxfs_read_err;
         }
-        if(!bytes) /* EOF */
+        if(!retval) /* EOF */
             break;
-        read += bytes;
-        size -= bytes;
-        offset += bytes;
+        read += retval;
+        size -= retval;
+        offset += retval;
     }
     SXFS_VERBOSE("Read %lld bytes", (long long int)read);
 
@@ -1919,7 +1919,7 @@ static int sxfs_removexattr (const char *path, const char *name) {
 
 static int sxfs_opendir (const char *path, struct fuse_file_info *file_info) {
     int ret;
-    size_t i;
+    size_t i, pathlen;
     sxfs_file_t *sxfs_file;
     sxfs_state_t *sxfs = SXFS_DATA;
 
@@ -1935,6 +1935,7 @@ static int sxfs_opendir (const char *path, struct fuse_file_info *file_info) {
         SXFS_ERROR("Not an absolute path");
         return -EINVAL;
     }
+    pathlen = strlen(path);
     SXFS_DEBUG("'%s'", path);
     file_info->fh = 0;
     if((ret = check_path_len(sxfs, path, 0)))
@@ -1945,13 +1946,13 @@ static int sxfs_opendir (const char *path, struct fuse_file_info *file_info) {
         return -ENOMEM;
     }
     sxfs_file->is_dir = 1;
-    sxfs_file->remote_path = (char*)malloc(strlen(path) + 1 + 1);
+    sxfs_file->remote_path = (char*)malloc(pathlen + 1 + 1);
     if(!sxfs_file->remote_path) {
         SXFS_ERROR("Out of memory");
         free(sxfs_file);
         return -ENOMEM;
     }
-    sprintf(sxfs_file->remote_path, "%s%s", path, strcmp(path, "/") ? "/" : "");
+    sprintf(sxfs_file->remote_path, "%s%s", path, path[pathlen-1] != '/' ? "/" : "");
     pthread_mutex_lock(&sxfs->limits_mutex);
     for(i=0; i<sxfs->fh_limit; i++) {
         if(!sxfs->fh_table[i]) {

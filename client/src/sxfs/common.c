@@ -377,7 +377,7 @@ int sxfs_clear_path (const char *path) {
 
 int sxfs_get_file (sxfs_state_t *sxfs, sxfs_file_t *sxfs_file) {
     int ret, fd = -1;
-    ssize_t bytes;
+    ssize_t retval;
     off_t offset = 0;
     char *local_file_path, buff[4096];
 
@@ -441,16 +441,16 @@ int sxfs_get_file (sxfs_state_t *sxfs, sxfs_file_t *sxfs_file) {
             goto sxfs_get_file_err;
         }
     } else {
-        while((bytes = sxfs_cache_read(sxfs, sxfs_file, buff, sizeof(buff), offset)) > 0) {
-            if(write(fd, buff, bytes) < 0) {
+        while((retval = sxfs_cache_read(sxfs, sxfs_file, buff, sizeof(buff), offset)) > 0) {
+            if(write(fd, buff, retval) < 0) {
                 ret = -errno;
                 SXFS_ERROR("Cannot write to '%s' file: %s", sxfs_file->write_path, strerror(errno));
                 goto sxfs_get_file_err;
             }
-            offset += bytes;
+            offset += retval;
         }
-        if(bytes < 0) {
-            ret = -errno;
+        if(retval < 0) {
+            ret = retval;
             SXFS_ERROR("Cannot read from '%s' file: %s", local_file_path, strerror(errno));
             goto sxfs_get_file_err;
         }
@@ -1878,6 +1878,7 @@ static void* sxfs_delete_worker (void *ctx) {
                 flist = sxc_file_list_new(sx, 1, 0);
                 if(!flist) {
                     SXFS_ERROR("Cannot create new file list: %s", sxc_geterrmsg(sx));
+                    pthread_mutex_unlock(&sxfs->delete_mutex);
                     goto sxfs_delete_worker_err;
                 }
             } else {

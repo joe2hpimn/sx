@@ -25,14 +25,15 @@
  *  this exception statement from your version.
  */
 
+#include "cache.h"
+#include "common.h"
+
 #include <stdlib.h>
 #include <string.h>
 #include <dirent.h>
 #include <utime.h>
 #include <limits.h>
 #include <errno.h>
-#include "cache.h"
-#include "common.h"
 
 #define BLOCK_STATUS_BUSY 1
 #define BLOCK_STATUS_DONE 2
@@ -413,6 +414,8 @@ cache_download_err:
         SXFS_ERROR("Cannot close '%s' file: %s", path, strerror(errno));
     if(tmp_fd >= 0 && close(tmp_fd))
         SXFS_ERROR("Cannot close '%s' file: %s", tmp_path, strerror(errno));
+    if(unlink(tmp_path) && errno != ENOENT)
+        SXFS_ERROR("Cannot remove '%s' file: %s", tmp_path, strerror(errno));
     if(ret) {
         if(fd >= 0 && unlink(path))
             SXFS_ERROR("Cannot remove '%s' file: %s", path, strerror(errno));
@@ -655,7 +658,7 @@ cache_read_background_err:
             pthread_mutex_lock(&sxfs->cache->mutex);
             cache_locked = 1;
         }
-        for(i=0; i<cdata->nblocks; i++)
+        for(i=0; i<cdata->nblocks; i++) {
             if(cdata->fds[i] >= 0) {
                 sprintf(path, "%s/%s", dir, sxfs_file->fdata->ha[cdata->blocks[i]]);
                 if(close(cdata->fds[i]))
@@ -667,9 +670,10 @@ cache_read_background_err:
                     sxfs->cache->used -= sxfs_file->fdata->blocksize;
                 }
             }
-            free(cdata->dir);
-            free(cdata);
         }
+        free(cdata->dir);
+        free(cdata);
+    }
     if(cache_locked)
         pthread_mutex_unlock(&sxfs->cache->mutex);
     free(path);
