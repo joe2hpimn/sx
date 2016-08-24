@@ -1063,7 +1063,7 @@ int sxfs_ls_update (const char *absolute_path, sxfs_lsdir_t **given_dir) {
         if(dir->files[i]->opened == SXFS_FILE_OPENED)
             check_files[i] = 1;
 
-    /* load directory content from upload queue */
+    /* load directory content from upload queue and try to clean the queue */
     if(sxfs->args->use_queues_flag) {
         len = strrchr(absolute_path, '/') - absolute_path + 1;
         pthread_mutex_lock(&sxfs->upload_mutex);
@@ -2572,6 +2572,65 @@ sxfs_upload_worker_err:
     pthread_exit(NULL);
 } /* sxfs_upload_worker */
 
+static void sxfs_upload_clean (sxfs_state_t *sxfs) {
+    ssize_t index;
+    char *filename;
+    sxfs_lsdir_t *dir;
+    sxfs_queue_entry_t *entry;
+
+    pthread_mutex_lock(&sxfs->ls_mutex);
+    pthread_mutex_lock(&sxfs->upload_mutex);
+    entry = upload_queue.next;
+    while(entry) {
+        entry->waiting++;
+        while(entry->state & SXFS_QUEUE_RENAMING) {
+            pthread_mutex_unlock(&sxfs->upload_mutex);
+            usleep(SXFS_THREAD_WAIT);
+            pthread_mutex_lock(&sxfs->upload_mutex);
+        }
+        entry->waiting--;
+        if(entry->state & SXFS_QUEUE_DONE) {
+            if(!(entry->state & SXFS_QUEUE_REMOTE)) {
+                entry = sxfs_queue_cleanup_single(entry, 0);
+                continue;
+            }
+        } else {
+            entry = entry->next;
+            continue;
+        }
+        filename = strrchr(entry->remote_path, '/');
+        if(!filename) {
+            SXFS_ERROR("'/' not found in '%s'", entry->remote_path);
+            goto sxfs_upload_clean_err;
+        }
+        filename++;
+        if(sxfs_ls_ftw(sxfs, entry->remote_path, &dir)) {
+            SXFS_ERROR("File tree walk failed");
+            goto sxfs_upload_clean_err;
+        }
+        if(!strcmp(filename, SXFS_SXNEWDIR)) {
+            dir->remote = 1;
+            dir->sxnewdir = 2;
+        } else {
+            index = sxfs_find_entry((const void**)dir->files, dir->nfiles, filename, sxfs_lsfile_cmp);
+            if(index >= 0) {
+                dir->files[index]->remote = 1;
+                while(dir) {
+                    dir->remote = 1;
+                    dir = dir->parent;
+                }
+            } else {
+                SXFS_ERROR("'%s' file is missing in ls cache", entry->remote_path);
+            }
+        }
+        entry = sxfs_queue_cleanup_single(entry, 1);
+    }
+
+sxfs_upload_clean_err:
+    pthread_mutex_unlock(&sxfs->upload_mutex);
+    pthread_mutex_unlock(&sxfs->ls_mutex);
+} /* sxfs_upload_clean */
+
 static void* sxfs_upload_thread (void *ptr) {
     int *ret = (int*)calloc(1, sizeof(int)), err;
     size_t prev;
@@ -2602,6 +2661,7 @@ static void* sxfs_upload_thread (void *ptr) {
                 pthread_mutex_lock(&sxfs->upload_mutex);
                 sxfs_queue_run(sxfs, upload_queue.next, &threads_up, &sxfs->upload_mutex, sxfs_upload_worker);
                 pthread_mutex_unlock(&sxfs->upload_mutex);
+                sxfs_upload_clean(sxfs);
             } else {
                 *ret = err;
                 SXFS_ERROR("Pthread condition waiting failed: %s", strerror(err));
