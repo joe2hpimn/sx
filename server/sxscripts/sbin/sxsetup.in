@@ -211,6 +211,18 @@ cluster_modify() {
     return 0
 }
 
+check_admin() {
+    "@bindir@/sxinit" -I "sx://admin@$SX_CLUSTER_NAME" > /dev/null 2>&1
+    if [ $? -ne 0 ]; then
+	echo "ERROR: sxsetup requires a configured admin profile 'sx://admin@$SX_CLUSTER_NAME' to perform the requested operation."
+	echo "Please run:"
+	echo "   sxinit sx://admin@$SX_CLUSTER_NAME"
+	echo "then provide the admin key and try again."
+	return 1
+    fi
+    return 0
+}
+
 # temp files
 SXSETUP_TMPDIR="@localstatedir@/lib/sxserver-tmp"
 if [ -d $SXSETUP_TMPDIR ]; then
@@ -262,6 +274,8 @@ if [ "$INFO_GIVEN" = "yes" -o "$UPGRADE_GIVEN" = "yes" -o "$COMPACT_GIVEN" = "ye
 	exit 0
 
     elif [ "$NEW_IP_GIVEN" = "yes" ]; then
+	check_admin || exit 1
+
 	if [ -n "`echo $NEW_IPS | grep /`" ]; then
 	    if [ -z "$SX_NODE_INTERNAL_IP" ]; then
 		echo "Can't update the internal IP address: the node wasn't configured to use"
@@ -353,6 +367,8 @@ if [ "$INFO_GIVEN" = "yes" -o "$UPGRADE_GIVEN" = "yes" -o "$COMPACT_GIVEN" = "ye
 	exit 0
 
     elif [ "$COMPACT_GIVEN" = "yes" ]; then
+	check_admin || exit 1
+
 	HB_DEADTIME="`@sbindir@/sxadm cluster --get-param hb_deadtime sx://admin@$SX_CLUSTER_NAME 2>/dev/null | grep hb_deadtime | grep -v '=0$'`"
 	if [ -n "$HB_DEADTIME" ]; then
 	    echo "Temporarily disabling automatic node removal..."
@@ -378,6 +394,8 @@ if [ "$INFO_GIVEN" = "yes" -o "$UPGRADE_GIVEN" = "yes" -o "$COMPACT_GIVEN" = "ye
 	trap - EXIT INT
 	exit 0
     else
+	check_admin || exit 1
+
 	# Update config files if needed and possible
 	if [ -n "`grep 'children=32' $ETCDIR/sxserver/sxfcgi.conf`" -a -z "`grep reserved-children $ETCDIR/sxserver/sxfcgi.conf`" -a -z "`grep 'location /.s2s/' $ETCDIR/sxserver/sxhttpd.conf`" ]; then
 	    echo "Enabling support for reserved workers..."
