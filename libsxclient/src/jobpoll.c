@@ -1070,8 +1070,6 @@ int sxi_job_submit_and_poll_err(sxi_conns_t *conns, sxi_hostlist_t *hlist, enum 
     }
 
     rc = sxi_jobs_wait(jobs, conns);
-    if (http_err)
-        *http_err = job->http_err;
     sxi_jobs_free(jobs);
     return rc;
 }
