@@ -80,7 +80,8 @@
 #define HASHFS_VERSION_2_1_3 MAKE_HASHFS_MICROVER(2,1,3)
 #define HASHFS_VERSION_2_1_4 MAKE_HASHFS_MICROVER(2,1,4)
 #define HASHFS_VERSION_2_1_5 MAKE_HASHFS_MICROVER(2,1,5)
-#define HASHFS_VERSION_2_1_6 HASHFS_VERSION_CURRENT
+#define HASHFS_VERSION_2_1_6 MAKE_HASHFS_MICROVER(2,1,6)
+#define HASHFS_VERSION_2_2_0 HASHFS_VERSION_CURRENT
 
 #define HASHFS_VERSION_INITIAL HASHFS_VERSION_1_0
 #ifdef SRC_MICRO_VERSION
@@ -845,7 +846,6 @@ struct _sx_hashfs_t {
     sqlite3_stmt *qm_metaset[METADBS];
     sqlite3_stmt *qm_metadel[METADBS];
     sqlite3_stmt *qm_delfile[METADBS];
-    sqlite3_stmt *qm_del_tombstone[METADBS];
     sqlite3_stmt *qm_mvfile[METADBS];
     sqlite3_stmt *qm_wiperelocs[METADBS];
     sqlite3_stmt *qm_countrelocs[METADBS];
@@ -867,6 +867,7 @@ struct _sx_hashfs_t {
     sqlite3_stmt *qm_upd_heal_volume[METADBS];
     sqlite3_stmt *qm_del_heal_volume[METADBS];
     sqlite3_stmt *qm_needs_upgrade[METADBS];
+    sqlite3_stmt *qm_gc_tombstones[METADBS];
 
     sxi_db_t *datadb[SIZES][HASHDBS];
     sqlite3_stmt *qb_nextavail[SIZES][HASHDBS];
@@ -1127,7 +1128,6 @@ static void close_all_dbs(sx_hashfs_t *h) {
 	sqlite3_finalize(h->qm_metaset[i]);
 	sqlite3_finalize(h->qm_metadel[i]);
 	sqlite3_finalize(h->qm_delfile[i]);
-	sqlite3_finalize(h->qm_del_tombstone[i]);
         sqlite3_finalize(h->qm_mvfile[i]);
 	sqlite3_finalize(h->qm_wiperelocs[i]);
 	sqlite3_finalize(h->qm_countrelocs[i]);
@@ -1149,6 +1149,7 @@ static void close_all_dbs(sx_hashfs_t *h) {
         sqlite3_finalize(h->qm_upd_heal_volume[i]);
         sqlite3_finalize(h->qm_del_heal_volume[i]);
         sqlite3_finalize(h->qm_needs_upgrade[i]);
+        sqlite3_finalize(h->qm_gc_tombstones[i]);
 	qclose(&h->metadb[i]);
     }
 
@@ -2096,8 +2097,6 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 	    goto open_hashfs_fail;
 	if(qprep(h->metadb[i], &h->qm_delfile[i], "DELETE FROM files WHERE fid = :file AND age >= 0"))
 	    goto open_hashfs_fail;
-	if(qprep(h->metadb[i], &h->qm_del_tombstone[i], "DELETE FROM files WHERE fid = :file AND age < 0"))
-	    goto open_hashfs_fail;
         if(qprep(h->metadb[i], &h->qm_mvfile[i], "UPDATE files SET name = :newname, rev = :newrev WHERE name = :oldname AND rev = :rev AND age >= 0"))
             goto open_hashfs_fail;
 	if(qprep(h->metadb[i], &h->qm_wiperelocs[i], "DELETE FROM relocs"))
@@ -2139,6 +2138,9 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
         if(qprep(h->metadb[i], &h->qm_del_heal_volume[i], "DELETE FROM heal_volume WHERE name=:name")) /* SLOWQ */
             goto open_hashfs_fail;
         if(qprep(h->metadb[i], &h->qm_needs_upgrade[i], "SELECT fid, volume_id, name, rev, size FROM files WHERE revision_id IS NULL AND age >= 0")) /* SLOWQ */
+            goto open_hashfs_fail;
+        snprintf(qrybuff, sizeof(qrybuff), "DELETE FROM files WHERE rev < strftime('%%Y-%%m-%%d %%H:%%M:%%f', 'now', '-%d seconds') AND age < 0", JOB_FILE_MAX_TIME);
+        if(qprep(h->metadb[i], &h->qm_gc_tombstones[i], qrybuff)) /* Uses an index on age */
             goto open_hashfs_fail;
     }
 
@@ -4466,6 +4468,23 @@ static rc_ty upgrade_db(int lockfd, const char *path, sxi_db_t *db, const sx_has
     return ret;
 }
 
+/* Version upgrade 2.1.6 -> 2.2.0 */
+static rc_ty metadb_2_1_6_to_2_2_0(sxi_db_t *db)
+{
+    rc_ty ret = FAIL_EINTERNAL;
+    sqlite3_stmt *q = NULL;
+    do {
+        if(qprep(db, &q, "CREATE INDEX tombstones_idx ON files(age) WHERE age < 0") || qstep_noret(q))
+            break;
+        qnullify(q);
+
+        ret = OK;
+    } while(0);
+    qnullify(q);
+    return ret;
+}
+
+/* Version upgrade 2.1.5 -> 2.1.6 */
 static rc_ty eventsdb_2_1_5_to_2_1_6(sxi_db_t *db) {
     sqlite3_stmt *q = NULL;
     rc_ty ret = OK;
@@ -5630,6 +5649,12 @@ static const sx_upgrade_t upgrade_sequence[] = {
         .upgrade_alldb = alldb_2_1_5_to_2_1_6,
         .upgrade_hashfsdb = hashfs_2_1_5_to_2_1_6,
         .upgrade_eventsdb = eventsdb_2_1_5_to_2_1_6,
+        .job = JOBTYPE_DUMMY
+    },
+    {
+        .from = HASHFS_VERSION_2_1_6,
+        .to = HASHFS_VERSION_2_2_0,
+        .upgrade_metadb = metadb_2_1_6_to_2_2_0,
         .job = JOBTYPE_DUMMY
     }
 };
@@ -11064,15 +11089,14 @@ static rc_ty create_file(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const
         return FAIL_EINTERNAL;
     }
 
-    int delete = 0;
-
     r = qstep(q);
     if(r == SQLITE_ROW) {
         int64_t age = sqlite3_column_int64(q, 5);
         sqlite3_reset(q);
         if (age < 0) {
             DEBUG("Out of order add (delete already received)");
-            delete = 1;
+            /* There exists a tombstone, it will eventually be deleted by the GC */
+            return OK;
         } else {
             WARN("File '%s (%s)' on volume '%s' is already here", name, revision, volume->name);
             return EEXIST;
@@ -11090,13 +11114,6 @@ static rc_ty create_file(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, const
 	if(s != EEXIST)
 	    WARN("Failed to remove old revisions");
         return s;
-    }
-
-    if (delete) {
-        if (qbind_int64(h->qm_del_tombstone[mdb], ":file", sqlite3_column_int64(q, 0)) ||
-            qstep_noret(h->qm_del_tombstone[mdb]))
-            return FAIL_EINTERNAL;
-        return OK;
     }
 
     /* Revision ID has been provided, use the one */
@@ -13251,6 +13268,9 @@ rc_ty sx_hashfs_file_delete(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, co
     if(ret) {
         DEBUG("get_file_id failed: %s", rc2str(ret));
         if (ret == ENOENT) {
+            int r;
+            sx_hash_t revision_id;
+
             /* precondition: add should have arrived, add in the db a marker that we are waiting for the add,
              and perform the delete once it has arrived*/
             DEBUG("Out of order delete"); /* delete reached this node before create */
@@ -13258,7 +13278,6 @@ rc_ty sx_hashfs_file_delete(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, co
 	    if(mdb < 0)
 		return FAIL_EINTERNAL;
             sqlite3_reset(h->qm_ins[mdb]);
-            sx_hash_t revision_id;
             if (qbind_int64(h->qm_ins[mdb], ":volume", volume->id) ||
                 qbind_text(h->qm_ins[mdb], ":name", file) ||
                 qbind_text(h->qm_ins[mdb], ":revision", revision) ||
@@ -13266,11 +13285,19 @@ rc_ty sx_hashfs_file_delete(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, co
                 qbind_blob(h->qm_ins[mdb], ":revision_id", revision_id.b, sizeof(revision_id.b)) ||
                 qbind_int64(h->qm_ins[mdb], ":size", -1) ||
                 qbind_int64(h->qm_ins[mdb], ":age", -1) ||
-                qbind_blob(h->qm_ins[mdb], ":hashes", "", 0) ||
-                qstep_noret(h->qm_ins[mdb])) {
+                qbind_blob(h->qm_ins[mdb], ":hashes", "", 0)) {
                 WARN("Failed to insert tombstone");
-                ret = FAIL_EINTERNAL;
+                sqlite3_reset(h->qm_ins[mdb]);
+                return FAIL_EINTERNAL;
             }
+
+            r = qstep(h->qm_ins[mdb]);
+            sqlite3_reset(h->qm_ins[mdb]);
+            /* Do not treat a duplicated tombstone insertion as a failure */
+            if(r == SQLITE_DONE || r == SQLITE_CONSTRAINT)
+                return OK;
+            WARN("Failed to insert tombstone");
+            return FAIL_EINTERNAL;
         }
         return ret;
     }
@@ -15274,6 +15301,10 @@ rc_ty sx_hashfs_gc_periodic(sx_hashfs_t *h, int *terminate, int grace_period)
     uint64_t real_now = time(NULL), now;
     uint64_t gc_noactivity = 0, gc_ttl = 0, expires = real_now - grace_period;
     rc_ty ret = OK;
+    unsigned int i;
+    uint64_t tombstones_dropped = 0LL;
+    struct timeval tstart, tend;
+
     sqlite3_reset(h->qt_gc_revisions);
     if (grace_period < 0) {
         now = 1ll << 62;
@@ -15284,6 +15315,18 @@ rc_ty sx_hashfs_gc_periodic(sx_hashfs_t *h, int *terminate, int grace_period)
         qstep_noret(h->qt_gc_revisions))
         return FAIL_EINTERNAL;
     INFO("Deleted %d tokens", sqlite3_changes(h->tempdb->handle));
+
+    gettimeofday(&tstart, NULL);
+    for(i = 0; i < METADBS; i++) {
+        if(qstep_noret(h->qm_gc_tombstones[i])) {
+            WARN("Failed to gc tombstones");
+            return FAIL_EINTERNAL;
+        }
+        tombstones_dropped += sqlite3_changes(h->metadb[i]->handle);
+    }
+    gettimeofday(&tend, NULL);
+    INFO("GCed %llu tombstones in %.2lfs", (unsigned long long)tombstones_dropped, sxi_timediff(&tend, &tstart));
+
     DEBUG("find_expired, expires: %lld", (long long)expires);
     if (bindall(h->qb_find_expired_reservation, ":expires", expires) ||
         bindall(h->qb_find_expired_reservation2, ":now", now) ||
