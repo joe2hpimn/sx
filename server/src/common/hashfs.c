@@ -6382,8 +6382,7 @@ static rc_ty datadb_commitall(sx_hashfs_t *h)
 {
     for (int i=0;i<SIZES;i++)
         if (datadb_commit(h, i)) {
-            while(i-- > 0)
-                datadb_rollback(h, i);
+            datadb_rollbackall(h);
             return FAIL_EINTERNAL;
         }
     return OK;
@@ -15343,7 +15342,7 @@ rc_ty sx_hashfs_gc_run(sx_hashfs_t *h, int *terminate)
                         ret = -1;
                         break;
                     }
-                    if (qelapsed(h->datadb[j][i]) < gc_max_batch_time)
+                    if (qelapsed(h->datadb[j][i]) > gc_max_batch_time)
                         break;
                 }
                 sqlite3_reset(q);
@@ -16987,7 +16986,7 @@ rc_ty sx_hashfs_br_done(sx_hashfs_t *h, const block_meta_t *blockmeta)
     if(qbind_blob(h->rit.q_remove, ":hash", &blockmeta->hash, sizeof(blockmeta->hash)) ||
        qstep_noret(h->rit.q_remove))
         ret = FAIL_EINTERNAL;
-    sqlite3_reset(h->rit.q_add);
+    sqlite3_reset(h->rit.q_remove);
     DEBUGHASH("br_done", &blockmeta->hash);
     return ret;
 }
