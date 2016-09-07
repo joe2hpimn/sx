@@ -84,7 +84,10 @@ typedef enum _jobtype_t {
     JOBTYPE_UPGRADE_FROM_2_1_3_TO_2_1_4,
     JOBTYPE_VOLREP_CHANGE,
     JOBTYPE_VOLREP_BLOCKS,
-    JOBTYPE_VOLREP_FILES
+    JOBTYPE_VOLREP_FILES,
+    JOBTYPE_REPLICATE_BLOCKS_FG, /* Replica 1 check */
+    JOBTYPE_REPLICATE_BLOCKS_BG, /* Background block propagation */
+    JOBTYPE_FLUSH_FILE_LOCAL_KEEPTMP,
 } jobtype_t;
 
 typedef enum {

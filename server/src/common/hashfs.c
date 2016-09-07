@@ -11516,7 +11516,7 @@ unsigned int sx_hashfs_job_file_timeout(sx_hashfs_t *h, unsigned int ndests, uin
     return timeout;
 }
 
-rc_ty sx_hashfs_putfile_commitjob(sx_hashfs_t *h, const uint8_t *user, sx_uid_t user_id, const char *token, job_t *job_id) {
+rc_ty sx_hashfs_putfile_commitjob(sx_hashfs_t *h, const uint8_t *user, sx_uid_t user_id, const char *token, job_t *job_id, int fastreturn) {
     unsigned int expected_blocks, actual_blocks, ndests, blocksize;
     int64_t tmpfile_id, expected_size, volid;
     rc_ty ret;
@@ -11641,21 +11641,45 @@ rc_ty sx_hashfs_putfile_commitjob(sx_hashfs_t *h, const uint8_t *user, sx_uid_t 
 	goto putfile_commitjob_err;
     }
 
-    ret = sx_hashfs_job_new_notrigger(h, JOB_NOPARENT, user_id, job_id, JOBTYPE_REPLICATE_BLOCKS, sx_hashfs_job_file_timeout(h, ndests, expected_size), token, &tmpfile_id, sizeof(tmpfile_id), singlenode);
-    if(ret) {
-        INFO("job_new (replicate) returned: %s", rc2str(ret));
-	goto putfile_commitjob_err;
-    }
-
-    ret = sx_hashfs_job_new_notrigger(h, *job_id, user_id, job_id, JOBTYPE_FLUSH_FILE_REMOTE, 60*ndests, token, &tmpfile_id, sizeof(tmpfile_id), volnodes);
-    if(ret) {
-        INFO("job_new (flush remote) returned: %s", rc2str(ret));
-	goto putfile_commitjob_err;
-    }
-    ret = sx_hashfs_job_new_notrigger(h, *job_id, user_id, job_id, JOBTYPE_FLUSH_FILE_LOCAL, 60, token, &tmpfile_id, sizeof(tmpfile_id), volnodes);
-    if(ret) {
-        INFO("job_new (flush local) returned: %s", rc2str(ret));
-	goto putfile_commitjob_err;
+    if(vol->effective_replica == 1 || !fastreturn) {
+	/* The flush completes when all replicas are complete */
+	ret = sx_hashfs_job_new_notrigger(h, JOB_NOPARENT, user_id, job_id, JOBTYPE_REPLICATE_BLOCKS, sx_hashfs_job_file_timeout(h, ndests, expected_size), token, &tmpfile_id, sizeof(tmpfile_id), singlenode);
+	if(ret) {
+	    INFO("job_new (replicate) returned: %s", rc2str(ret));
+	    goto putfile_commitjob_err;
+	}
+	ret = sx_hashfs_job_new_notrigger(h, *job_id, user_id, job_id, JOBTYPE_FLUSH_FILE_REMOTE, 60*ndests, token, &tmpfile_id, sizeof(tmpfile_id), volnodes);
+	if(ret) {
+	    INFO("job_new (flush remote) returned: %s", rc2str(ret));
+	    goto putfile_commitjob_err;
+	}
+	ret = sx_hashfs_job_new_notrigger(h, *job_id, user_id, job_id, JOBTYPE_FLUSH_FILE_LOCAL, 60, token, &tmpfile_id, sizeof(tmpfile_id), volnodes);
+	if(ret) {
+	    INFO("job_new (flush local) returned: %s", rc2str(ret));
+	    goto putfile_commitjob_err;
+	}
+    } else {
+	/* The flush completes as soon as the first replica is complete */
+	ret = sx_hashfs_job_new_notrigger(h, JOB_NOPARENT, user_id, job_id, JOBTYPE_REPLICATE_BLOCKS_FG, sx_hashfs_job_file_timeout(h, ndests, expected_size), token, &tmpfile_id, sizeof(tmpfile_id), singlenode);
+	if(ret) {
+	    INFO("job_new (replicate fast) returned: %s", rc2str(ret));
+	    goto putfile_commitjob_err;
+	}
+	ret = sx_hashfs_job_new_notrigger(h, *job_id, user_id, job_id, JOBTYPE_FLUSH_FILE_REMOTE, 60*ndests, token, &tmpfile_id, sizeof(tmpfile_id), volnodes);
+	if(ret) {
+	    INFO("job_new (flush remote) returned: %s", rc2str(ret));
+	    goto putfile_commitjob_err;
+	}
+	ret = sx_hashfs_job_new_notrigger(h, *job_id, user_id, job_id, JOBTYPE_FLUSH_FILE_LOCAL_KEEPTMP, 60, token, &tmpfile_id, sizeof(tmpfile_id), volnodes);
+	if(ret) {
+	    INFO("job_new (flush local keep) returned: %s", rc2str(ret));
+	    goto putfile_commitjob_err;
+	}
+	ret = sx_hashfs_job_new_notrigger(h, *job_id, 0, NULL, JOBTYPE_REPLICATE_BLOCKS_BG, sx_hashfs_job_file_timeout(h, ndests, expected_size), token, &tmpfile_id, sizeof(tmpfile_id), singlenode);
+	if(ret) {
+	    INFO("job_new (replicate full) returned: %s", rc2str(ret));
+	    goto putfile_commitjob_err;
+	}
     }
 
     ret = sx_hashfs_job_new_end(h);
@@ -12077,7 +12101,7 @@ rc_ty sx_hashfs_getinfo_by_revision(sx_hashfs_t *h, const char *revision, sx_has
     return ENOENT;
 }
 
-rc_ty sx_hashfs_tmp_tofile(sx_hashfs_t *h, const sx_hashfs_tmpinfo_t *missing) {
+rc_ty sx_hashfs_tmp_tofile(sx_hashfs_t *h, const sx_hashfs_tmpinfo_t *missing, int keeptmp) {
     rc_ty ret = FAIL_EINTERNAL, ret2;
     const sx_hashfs_volume_t *volume;
     int64_t file_id, totalsize = 0;
@@ -12163,7 +12187,8 @@ rc_ty sx_hashfs_tmp_tofile(sx_hashfs_t *h, const sx_hashfs_tmpinfo_t *missing) {
     if(qcommit(h->metadb[mdb]))
 	goto tmp2file_rollback;
 
-    sx_hashfs_tmp_delete(h, missing->tmpfile_id);
+    if(!keeptmp)
+	sx_hashfs_tmp_delete(h, missing->tmpfile_id);
     ret = OK;
 
  tmp2file_rollback:
@@ -14658,6 +14683,9 @@ static const char *locknames[] = {
     NULL, /* JOBTYPE_VOLREP_CHANGE */
     NULL, /* JOBTYPE_VOLREP_BLOCKS */
     NULL, /* JOBTYPE_VOLREP_FILES */
+    NULL, /* JOBTYPE_REPLICATE_BLOCKS_FG */
+    NULL, /* JOBTYPE_REPLICATE_BLOCKS_BG */
+    "TOKEN_LOCAL", /* JOBTYPE_FLUSH_FILE_LOCAL_KEEPTMP */
 };
 
 rc_ty sx_hashfs_countjobs(sx_hashfs_t *h, sx_uid_t user_id) {
@@ -14760,7 +14788,7 @@ rc_ty sx_hashfs_job_new_notrigger(sx_hashfs_t *h, job_t parent, sx_uid_t user_id
     int r;
     rc_ty ret = FAIL_EINTERNAL, ret2;
 
-    if(!h || !job_id) {
+    if(!h) {
 	msg_set_reason("Internal error: NULL argument given");
         return FAIL_EINTERNAL;
     }
@@ -14876,7 +14904,8 @@ rc_ty sx_hashfs_job_new_notrigger(sx_hashfs_t *h, job_t parent, sx_uid_t user_id
     sqlite3_reset(h->qe_addjob);
     sqlite3_reset(h->qe_addact);
 
-    *job_id = id;
+    if(job_id)
+	*job_id = id;
     return ret;
 }
 

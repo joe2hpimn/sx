@@ -435,7 +435,7 @@ void fcgi_flush_tempfile(void) {
     auth_complete();
     quit_unless_authed();
 
-    s = sx_hashfs_putfile_commitjob(hashfs, user, uid, path, &job);
+    s = sx_hashfs_putfile_commitjob(hashfs, user, uid, path, &job, has_arg("nowait"));
     if(s != OK)
 	quit_errmsg(rc2http(s), msg_get_reason());
     send_job_info(job);

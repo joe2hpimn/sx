@@ -992,7 +992,7 @@ static act_result_t replicateblocks_request(sx_hashfs_t *hashfs, job_t job_id, j
     return revision_job_from_tmpfileid(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl, 1, JOBPHASE_COMMIT);
 }
 
-static act_result_t replicateblocks_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+static act_result_t replicateblocks_common(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl, int wait_propagation) {
     sxi_conns_t *clust = sx_hashfs_conns(hashfs);
     const sx_node_t *me = sx_hashfs_self(hashfs);
     unsigned int i, j, worstcase_rpl, nqueries = 0, giveup = 0;
@@ -1073,6 +1073,9 @@ static act_result_t replicateblocks_commit(sx_hashfs_t *hashfs, job_t job_id, jo
 		action_error(ACT_RESULT_PERMFAIL, 400, "Some block is missing");
 	    }
 	}
+
+	if(!wait_propagation)
+	    continue;
 
 	/* We land here IF at least one node has got the block AND at least one node doesn't have the block */
 	/* NOTE:
@@ -1248,7 +1251,7 @@ static act_result_t replicateblocks_commit(sx_hashfs_t *hashfs, job_t job_id, jo
     if(giveup || i<mis->nuniq) /* Incomplete presence check or remote xfers */
 	action_error(ACT_RESULT_NOTFAILED, 500, "Replica not completely verified");
 
-    if(worstcase_rpl < mis->replica_count)
+    if(wait_propagation && worstcase_rpl < mis->replica_count)
 	action_error(ACT_RESULT_TEMPFAIL, 500, "Replica not yet completed");
 
  action_failed:
@@ -1285,6 +1288,63 @@ static act_result_t replicateblocks_commit(sx_hashfs_t *hashfs, job_t job_id, jo
         }
     }
 
+    return ret;
+}
+
+static act_result_t replicateblocks_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    return replicateblocks_common(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl, 1);
+}
+
+static act_result_t replicateblocks_fg_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    return replicateblocks_common(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl, 0);
+}
+
+static act_result_t replicateblocks_bg_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    act_result_t ret = replicateblocks_common(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl, 1);
+    int64_t tmpfile_id;
+
+    if(ret != ACT_RESULT_OK)
+	goto action_failed;
+
+    if(job_data->len != sizeof(tmpfile_id))
+	goto action_failed; /* Can't quite happen */
+    memcpy(&tmpfile_id, job_data->ptr, sizeof(tmpfile_id));
+    sx_hashfs_tmp_delete(hashfs, tmpfile_id);
+
+ action_failed:
+    return ret;
+}
+
+static act_result_t replicateblocks_bg_fail(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    act_result_t ret = ACT_RESULT_OK;
+    sx_hashfs_tmpinfo_t *mis = NULL;
+    int64_t tmpfile_id;
+    rc_ty s;
+
+    if(job_data->len != sizeof(tmpfile_id)) {
+	CRIT("Bad job data");
+	action_error(ACT_RESULT_PERMFAIL, 500, "Internal job data error");
+    }
+    memcpy(&tmpfile_id, job_data->ptr, sizeof(tmpfile_id));
+    s = sx_hashfs_tmp_getinfo(hashfs, tmpfile_id, &mis, 0);
+    if(s == EFAULT || s == EINVAL) {
+	CRIT("Error getting tmpinfo: %s", msg_get_reason());
+	action_error(ACT_RESULT_PERMFAIL, 500, msg_get_reason());
+    }
+    if(s == ENOENT) {
+	WARN("Token %lld could not be found", (long long)tmpfile_id);
+	action_error(ACT_RESULT_PERMFAIL, 500, msg_get_reason());
+    }
+    if(s == EAGAIN)
+	action_error(ACT_RESULT_TEMPFAIL, 500, "Job data temporary unavailable");
+    if(s != OK)
+	action_error(rc2actres(s), rc2http(s), "Failed to check missing blocks");
+
+    WARN("File %s in volume %lld not correctly replicated", mis->name, (long long)mis->volume_id);
+    sx_hashfs_tmp_delete(hashfs, tmpfile_id);
+
+ action_failed:
+    free(mis);
     return ret;
 }
 
@@ -1412,7 +1472,7 @@ static act_result_t fileflush_remote(sx_hashfs_t *hashfs, job_t job_id, job_data
     return ret;
 }
 
-static act_result_t fileflush_local(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+static act_result_t fileflush_local_common(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl, int keeptmp) {
     act_result_t ret = ACT_RESULT_OK;
     sx_hashfs_tmpinfo_t *mis = NULL;
     const sx_node_t *me, *node;
@@ -1445,7 +1505,7 @@ static act_result_t fileflush_local(sx_hashfs_t *hashfs, job_t job_id, job_data_
 	node = sx_nodelist_get(nodes, i);
 	if(!sx_node_cmp(me, node)) {
 	    /* Local only - remote file created in fileflush_remote */
-	    s = sx_hashfs_tmp_tofile(hashfs, mis);
+	    s = sx_hashfs_tmp_tofile(hashfs, mis, keeptmp);
 	    if(s != OK) {
 		CRIT("Error creating file: %s", msg_get_reason());
 		action_error(rc2actres(s), rc2http(s), msg_get_reason());
@@ -1458,6 +1518,15 @@ static act_result_t fileflush_local(sx_hashfs_t *hashfs, job_t job_id, job_data_
     free(mis);
     return ret;
 }
+
+static act_result_t fileflush_local(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    return fileflush_local_common(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl, 0);
+}
+
+static act_result_t fileflush_local_keeptmp(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
+    return fileflush_local_common(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl, 1);
+}
+
 
 static act_result_t replicateblocks_abort(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
     /* undo the revision bump from the commit in replicateblocks_request */
@@ -7003,6 +7072,9 @@ static struct {
     { force_phase_success, volrep_commit, force_phase_success, volrep_undo }, /* JOBTYPE_VOLREP_CHANGE */
     { volrep_blocks_request, volrep_blocks_commit, force_phase_success, force_phase_success }, /* JOBTYPE_VOLREP_BLOCKS */
     { volrep_files_request, volrep_files_commit, force_phase_success, force_phase_success }, /* JOBTYPE_VOLREP_FILES */
+    { replicateblocks_request, replicateblocks_fg_commit, replicateblocks_abort, replicateblocks_abort }, /* JOBTYPE_REPLICATE_BLOCKS_FG */
+    { replicateblocks_request, replicateblocks_bg_commit, replicateblocks_bg_fail, replicateblocks_bg_fail }, /* JOBTYPE_REPLICATE_BLOCKS_FG */
+    { force_phase_success, fileflush_local_keeptmp, fileflush_remote_undo, force_phase_success }, /* JOBTYPE_FLUSH_FILE_LOCAL_KEEPTMP */
 };
 
 
