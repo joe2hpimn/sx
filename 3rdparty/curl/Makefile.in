@@ -21,11 +21,11 @@
 #                            | (__| |_| |  _ <| |___
 #                             \___|\___/|_| \_\_____|
 #
-# Copyright (C) 1998 - 2013, Daniel Stenberg, <daniel@haxx.se>, et al.
+# Copyright (C) 1998 - 2016, Daniel Stenberg, <daniel@haxx.se>, et al.
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
-# are also available at http://curl.haxx.se/docs/copyright.html.
+# are also available at https://curl.haxx.se/docs/copyright.html.
 #
 # You may opt to use, copy, modify, merge, publish, distribute and/or sell
 # copies of the Software, and permit persons to whom the Software is
@@ -43,11 +43,11 @@
 #                            | (__| |_| |  _ <| |___
 #                             \___|\___/|_| \_\_____|
 #
-# Copyright (C) 1998 - 2015, Daniel Stenberg, <daniel@haxx.se>, et al.
+# Copyright (C) 1998 - 2016, Daniel Stenberg, <daniel@haxx.se>, et al.
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
-# are also available at http://curl.haxx.se/docs/copyright.html.
+# are also available at https://curl.haxx.se/docs/copyright.html.
 #
 # You may opt to use, copy, modify, merge, publish, distribute and/or sell
 # copies of the Software, and permit persons to whom the Software is
@@ -57,8 +57,6 @@
 # KIND, either express or implied.
 #
 ###########################################################################
-
-
 VPATH = @srcdir@
 am__is_gnu_make = { \
   if test -z '$(MAKELEVEL)'; then \
@@ -158,12 +156,11 @@ DIST_COMMON = $(srcdir)/Makefile.am $(top_srcdir)/configure \
 	$(am__configure_deps) $(am__DIST_COMMON)
 am__CONFIG_DISTCLEAN_FILES = config.status config.cache config.log \
  configure.lineno config.status.lineno
-mkinstalldirs = $(SHELL) $(top_srcdir)/mkinstalldirs
+mkinstalldirs = $(install_sh) -d
 CONFIG_HEADER = $(top_builddir)/lib/curl_config.h \
 	$(top_builddir)/include/curl/curlbuild.h
-CONFIG_CLEAN_FILES = curl-config libcurl.pc
+CONFIG_CLEAN_FILES = curl-config
 CONFIG_CLEAN_VPATH_FILES =
-SCRIPTS = $(noinst_SCRIPTS)
 AM_V_P = $(am__v_P_@AM_V@)
 am__v_P_ = $(am__v_P_@AM_DEFAULT_V@)
 am__v_P_0 = false
@@ -191,7 +188,6 @@ am__can_run_installinfo = \
     n|no|NO) false;; \
     *) (install-info --version) >/dev/null 2>&1;; \
   esac
-DATA = $(noinst_DATA)
 RECURSIVE_CLEAN_TARGETS = mostlyclean-recursive clean-recursive	\
   distclean-recursive maintainer-clean-recursive
 am__recursive_targets = \
@@ -221,9 +217,8 @@ ETAGS = etags
 CTAGS = ctags
 CSCOPE = cscope
 am__DIST_COMMON = $(srcdir)/Makefile.in $(srcdir)/curl-config.in \
-	$(srcdir)/lib/Makefile.inc $(srcdir)/libcurl.pc.in COPYING \
-	README compile config.guess config.sub depcomp install-sh \
-	ltmain.sh missing mkinstalldirs
+	$(srcdir)/lib/Makefile.inc COPYING README compile config.guess \
+	config.sub depcomp install-sh ltmain.sh missing
 DISTFILES = $(DIST_COMMON) $(DIST_SOURCES) $(TEXINFOS) $(EXTRA_DIST)
 distdir = $(PACKAGE)-$(VERSION)
 top_distdir = $(distdir)
@@ -298,6 +293,7 @@ CURL_DISABLE_LDAPS = @CURL_DISABLE_LDAPS@
 CURL_DISABLE_POP3 = @CURL_DISABLE_POP3@
 CURL_DISABLE_PROXY = @CURL_DISABLE_PROXY@
 CURL_DISABLE_RTSP = @CURL_DISABLE_RTSP@
+CURL_DISABLE_SMB = @CURL_DISABLE_SMB@
 CURL_DISABLE_SMTP = @CURL_DISABLE_SMTP@
 CURL_DISABLE_TELNET = @CURL_DISABLE_TELNET@
 CURL_DISABLE_TFTP = @CURL_DISABLE_TFTP@
@@ -322,7 +318,7 @@ GREP = @GREP@
 HAVE_GNUTLS_SRP = @HAVE_GNUTLS_SRP@
 HAVE_LDAP_SSL = @HAVE_LDAP_SSL@
 HAVE_LIBZ = @HAVE_LIBZ@
-HAVE_SSLEAY_SRP = @HAVE_SSLEAY_SRP@
+HAVE_OPENSSL_SRP = @HAVE_OPENSSL_SRP@
 IDN_ENABLED = @IDN_ENABLED@
 INSTALL = @INSTALL@
 INSTALL_DATA = @INSTALL_DATA@
@@ -342,6 +338,7 @@ LIBTOOL = @LIBTOOL@
 LIPO = @LIPO@
 LN_S = @LN_S@
 LTLIBOBJS = @LTLIBOBJS@
+LT_SYS_LIBRARY_PATH = @LT_SYS_LIBRARY_PATH@
 MAINT = @MAINT@
 MAKEINFO = @MAKEINFO@
 MANIFEST_TOOL = @MANIFEST_TOOL@
@@ -350,6 +347,7 @@ MKDIR_P = @MKDIR_P@
 NM = @NM@
 NMEDIT = @NMEDIT@
 NROFF = @NROFF@
+NSS_LIBS = @NSS_LIBS@
 OBJDUMP = @OBJDUMP@
 OBJEXT = @OBJEXT@
 OTOOL = @OTOOL@
@@ -374,6 +372,7 @@ SED = @SED@
 SET_MAKE = @SET_MAKE@
 SHELL = @SHELL@
 SSL_ENABLED = @SSL_ENABLED@
+SSL_LIBS = @SSL_LIBS@
 STRIP = @STRIP@
 SUPPORT_FEATURES = @SUPPORT_FEATURES@
 SUPPORT_PROTOCOLS = @SUPPORT_PROTOCOLS@
@@ -385,16 +384,18 @@ USE_GNUTLS = @USE_GNUTLS@
 USE_GNUTLS_NETTLE = @USE_GNUTLS_NETTLE@
 USE_LIBRTMP = @USE_LIBRTMP@
 USE_LIBSSH2 = @USE_LIBSSH2@
+USE_MBEDTLS = @USE_MBEDTLS@
 USE_NGHTTP2 = @USE_NGHTTP2@
 USE_NSS = @USE_NSS@
 USE_OPENLDAP = @USE_OPENLDAP@
 USE_POLARSSL = @USE_POLARSSL@
 USE_SCHANNEL = @USE_SCHANNEL@
-USE_SSLEAY = @USE_SSLEAY@
+USE_UNIX_SOCKETS = @USE_UNIX_SOCKETS@
 USE_WINDOWS_SSPI = @USE_WINDOWS_SSPI@
 VERSION = @VERSION@
 VERSIONNUM = @VERSIONNUM@
 ZLIB_LIBS = @ZLIB_LIBS@
+ZSH_FUNCTIONS_DIR = @ZSH_FUNCTIONS_DIR@
 abs_builddir = @abs_builddir@
 abs_srcdir = @abs_srcdir@
 abs_top_builddir = @abs_top_builddir@
@@ -452,55 +453,34 @@ top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
 AUTOMAKE_OPTIONS = foreign
 ACLOCAL_AMFLAGS = -I m4
-CMAKE_DIST = CMakeLists.txt CMake/CMakeConfigurableFile.in		\
-CMake/CurlCheckCSourceCompiles.cmake CMake/CurlCheckCSourceRuns.cmake	\
-CMake/CurlTests.c CMake/FindOpenSSL.cmake CMake/FindZLIB.cmake		\
-CMake/OtherTests.cmake CMake/Platforms/WindowsCache.cmake		\
-CMake/Utilities.cmake include/curl/curlbuild.h.cmake
-
-VC6LIBDSP = vs/vc6/lib/vc6libcurl.dsp
-VC6LIBDSPHEAD = vs/t/lib/vc6_libcurl_dsp.head
-VC6LIBDSPFOOT = vs/t/lib/vc6_libcurl_dsp.foot
-VC8LIBPRJ = vs/vc8/lib/vc8libcurl.vcproj
-VC8LIBPRJHEAD = vs/t/lib/vc8_libcurl_prj.head
-VC8LIBPRJFOOT = vs/t/lib/vc8_libcurl_prj.foot
-VC_DIST = \
- vs/t/README \
- $(VC6LIBDSP) $(VC6LIBDSPHEAD) $(VC6LIBDSPFOOT) \
- $(VC8LIBPRJ) $(VC8LIBPRJHEAD) $(VC8LIBPRJFOOT) \
- vs/vc6/vc6curl.dsw \
- vs/vc6/lib/vc6libcurl.dsw \
- vs/vc6/src/vc6curltool.dsw \
- vs/vc6/src/vc6curltool.dsp
-
-VC6LIBDSP_DEPS = $(VC6LIBDSPHEAD) $(VC6LIBDSPFOOT) \
- Makefile.am lib/Makefile.inc
-
-VC8LIBPRJ_DEPS = $(VC8LIBPRJHEAD) $(VC8LIBPRJFOOT) \
- Makefile.am lib/Makefile.inc
-
-WINBUILD_DIST = winbuild/BUILD.WINDOWS.txt winbuild/gen_resp_file.bat	\
- winbuild/MakefileBuild.vc winbuild/Makefile.vc				\
- winbuild/Makefile.msvc.names
-
 EXTRA_DIST = CHANGES COPYING maketgz Makefile.dist curl-config.in	\
- RELEASE-NOTES buildconf libcurl.pc.in MacOSX-Framework	\
- $(CMAKE_DIST) $(VC_DIST) $(WINBUILD_DIST) lib/libcurl.vers.in
+ RELEASE-NOTES buildconf libcurl.pc.in MacOSX-Framework \
+ $(CMAKE_DIST) lib/libcurl.vers.in          \
+ buildconf.bat include
 
-CLEANFILES = $(VC6LIBDSP) $(VC8LIBPRJ)
-noinst_SCRIPTS = curl-config
+CLEANFILES = $(VC6_LIBDSP) $(VC6_SRCDSP) $(VC7_LIBVCPROJ) $(VC7_SRCVCPROJ)	\
+ $(VC71_LIBVCPROJ) $(VC71_SRCVCPROJ) $(VC8_LIBVCPROJ) $(VC8_SRCVCPROJ)	\
+ $(VC9_LIBVCPROJ) $(VC9_SRCVCPROJ) $(VC10_LIBVCXPROJ) $(VC10_SRCVCXPROJ)	\
+ $(VC11_LIBVCXPROJ) $(VC11_SRCVCXPROJ) $(VC12_LIBVCXPROJ) $(VC12_SRCVCXPROJ)	\
+ $(VC14_LIBVCXPROJ) $(VC14_SRCVCXPROJ)
 
-# Skylable: only have 'lib' and 'include' in SUBDIRS
-SUBDIRS = lib include
+SUBDIRS = lib
 DIST_SUBDIRS = $(SUBDIRS)
-noinst_DATA = libcurl.pc
+LIB_VAUTH_CFILES = vauth/vauth.c vauth/cleartext.c vauth/cram.c         \
+  vauth/digest.c vauth/digest_sspi.c vauth/krb5_gssapi.c                \
+  vauth/krb5_sspi.c vauth/ntlm.c vauth/ntlm_sspi.c vauth/oauth2.c       \
+  vauth/spnego_gssapi.c vauth/spnego_sspi.c
+
+LIB_VAUTH_HFILES = vauth/vauth.h vauth/digest.h vauth/ntlm.h
 LIB_VTLS_CFILES = vtls/openssl.c vtls/gtls.c vtls/vtls.c vtls/nss.c     \
   vtls/polarssl.c vtls/polarssl_threadlock.c vtls/axtls.c               \
-  vtls/cyassl.c vtls/schannel.c vtls/darwinssl.c vtls/gskit.c
+  vtls/cyassl.c vtls/schannel.c vtls/darwinssl.c vtls/gskit.c           \
+  vtls/mbedtls.c
 
 LIB_VTLS_HFILES = vtls/openssl.h vtls/vtls.h vtls/gtls.h                \
   vtls/nssg.h vtls/polarssl.h vtls/polarssl_threadlock.h vtls/axtls.h   \
-  vtls/cyassl.h vtls/schannel.h vtls/darwinssl.h vtls/gskit.h
+  vtls/cyassl.h vtls/schannel.h vtls/darwinssl.h vtls/gskit.h           \
+  vtls/mbedtls.h
 
 LIB_CFILES = file.c timeval.c base64.c hostip.c progress.c formdata.c   \
   cookie.c http.c sendf.c ftp.c url.c dict.c if2ip.c speedcheck.c       \
@@ -515,12 +495,10 @@ LIB_CFILES = file.c timeval.c base64.c hostip.c progress.c formdata.c   \
   curl_sspi.c slist.c nonblock.c curl_memrchr.c imap.c pop3.c smtp.c    \
   pingpong.c rtsp.c curl_threads.c warnless.c hmac.c curl_rtmp.c        \
   openldap.c curl_gethostname.c gopher.c idn_win32.c                    \
-  http_negotiate_sspi.c http_proxy.c non-ascii.c asyn-ares.c            \
-  asyn-thread.c curl_gssapi.c curl_ntlm.c curl_ntlm_wb.c                \
-  curl_ntlm_core.c curl_ntlm_msgs.c curl_sasl.c curl_multibyte.c        \
-  hostcheck.c bundles.c conncache.c pipeline.c dotdot.c x509asn1.c      \
-  http2.c curl_sasl_sspi.c smb.c curl_sasl_gssapi.c curl_endian.c       \
-  curl_des.c
+  http_proxy.c non-ascii.c asyn-ares.c asyn-thread.c curl_gssapi.c      \
+  http_ntlm.c curl_ntlm_wb.c curl_ntlm_core.c curl_sasl.c               \
+  curl_multibyte.c hostcheck.c conncache.c pipeline.c dotdot.c          \
+  x509asn1.c http2.c smb.c curl_endian.c curl_des.c system_win32.c
 
 LIB_HFILES = arpa_telnet.h netrc.h file.h timeval.h hostip.h progress.h \
   formdata.h cookie.h http.h sendf.h ftp.h url.h dict.h if2ip.h         \
@@ -535,19 +513,15 @@ LIB_HFILES = arpa_telnet.h netrc.h file.h timeval.h hostip.h progress.h \
   slist.h nonblock.h curl_memrchr.h imap.h pop3.h smtp.h pingpong.h     \
   rtsp.h curl_threads.h warnless.h curl_hmac.h curl_rtmp.h              \
   curl_gethostname.h gopher.h http_proxy.h non-ascii.h asyn.h           \
-  curl_ntlm.h curl_gssapi.h curl_ntlm_wb.h curl_ntlm_core.h             \
-  curl_ntlm_msgs.h curl_sasl.h curl_multibyte.h hostcheck.h bundles.h   \
-  conncache.h curl_setup_once.h multihandle.h setup-vms.h pipeline.h    \
-  dotdot.h x509asn1.h http2.h sigpipe.h smb.h curl_endian.h curl_des.h  \
-  curl_printf.h
+  http_ntlm.h curl_gssapi.h curl_ntlm_wb.h curl_ntlm_core.h             \
+  curl_sasl.h curl_multibyte.h hostcheck.h conncache.h                  \
+  curl_setup_once.h multihandle.h setup-vms.h pipeline.h dotdot.h       \
+  x509asn1.h http2.h sigpipe.h smb.h curl_endian.h curl_des.h           \
+  curl_printf.h system_win32.h
 
 LIB_RCFILES = libcurl.rc
-CSOURCES = $(LIB_CFILES) $(LIB_VTLS_CFILES)
-HHEADERS = $(LIB_HFILES) $(LIB_VTLS_HFILES)
-
-# List of libcurl source files required to generate VC IDE dsp and prj files
-WIN32SOURCES = $(CSOURCES)
-WIN32HEADERS = $(HHEADERS) config-win32.h
+CSOURCES = $(LIB_CFILES) $(LIB_VAUTH_CFILES) $(LIB_VTLS_CFILES)
+HHEADERS = $(LIB_HFILES) $(LIB_VAUTH_HFILES) $(LIB_VTLS_HFILES)
 all: all-recursive
 
 .SUFFIXES:
@@ -586,8 +560,6 @@ $(ACLOCAL_M4): @MAINTAINER_MODE_TRUE@ $(am__aclocal_m4_deps)
 	$(am__cd) $(srcdir) && $(ACLOCAL) $(ACLOCAL_AMFLAGS)
 $(am__aclocal_m4_deps):
 curl-config: $(top_builddir)/config.status $(srcdir)/curl-config.in
-	cd $(top_builddir) && $(SHELL) ./config.status $@
-libcurl.pc: $(top_builddir)/config.status $(srcdir)/libcurl.pc.in
 	cd $(top_builddir) && $(SHELL) ./config.status $@
 
 mostlyclean-libtool:
@@ -762,9 +734,6 @@ distdir: $(DISTFILES)
 	      || exit 1; \
 	  fi; \
 	done
-	$(MAKE) $(AM_MAKEFLAGS) \
-	  top_distdir="$(top_distdir)" distdir="$(distdir)" \
-	  dist-hook
 	-test -n "$(am__skip_mode_fix)" \
 	|| find "$(distdir)" -type d ! -perm -755 \
 		-exec chmod u+rwx,go+rx {} \; -o \
@@ -898,7 +867,7 @@ distcleancheck: distclean
 	       exit 1; } >&2
 check-am: all-am
 check: check-recursive
-all-am: Makefile $(SCRIPTS) $(DATA)
+all-am: Makefile
 installdirs: installdirs-recursive
 installdirs-am:
 install: install-recursive
@@ -934,7 +903,7 @@ maintainer-clean-generic:
 	@echo "it deletes files that may require special tools to rebuild."
 clean: clean-recursive
 
-clean-am: clean-generic clean-libtool clean-local mostlyclean-am
+clean-am: clean-generic clean-libtool mostlyclean-am
 
 distclean: distclean-recursive
 	-rm -f $(am__CONFIG_DISTCLEAN_FILES)
@@ -945,6 +914,8 @@ distclean-am: clean-am distclean-generic distclean-libtool \
 dvi: dvi-recursive
 
 dvi-am:
+
+html: html-recursive
 
 html-am:
 
@@ -990,6 +961,8 @@ mostlyclean: mostlyclean-recursive
 
 mostlyclean-am: mostlyclean-generic mostlyclean-libtool
 
+pdf: pdf-recursive
+
 pdf-am:
 
 ps: ps-recursive
@@ -1002,213 +975,24 @@ uninstall-am:
 
 .PHONY: $(am__recursive_targets) CTAGS GTAGS TAGS all all-am \
 	am--refresh check check-am clean clean-cscope clean-generic \
-	clean-libtool clean-local cscope cscopelist-am ctags ctags-am \
-	dist dist-all dist-bzip2 dist-gzip dist-hook dist-lzip \
-	dist-shar dist-tarZ dist-xz dist-zip distcheck distclean \
-	distclean-generic distclean-libtool distclean-tags \
-	distcleancheck distdir distuninstallcheck dvi dvi-am html \
-	html-am info info-am install install-am install-data \
-	install-data-am install-dvi install-dvi-am install-exec \
-	install-exec-am install-html install-html-am install-info \
-	install-info-am install-man install-pdf install-pdf-am \
-	install-ps install-ps-am install-strip installcheck \
-	installcheck-am installdirs installdirs-am maintainer-clean \
-	maintainer-clean-generic mostlyclean mostlyclean-generic \
-	mostlyclean-libtool pdf pdf-am ps ps-am tags tags-am uninstall \
-	uninstall-am
+	clean-libtool cscope cscopelist-am ctags ctags-am dist \
+	dist-all dist-bzip2 dist-gzip dist-lzip dist-shar dist-tarZ \
+	dist-xz dist-zip distcheck distclean distclean-generic \
+	distclean-libtool distclean-tags distcleancheck distdir \
+	distuninstallcheck dvi dvi-am html html-am info info-am \
+	install install-am install-data install-data-am install-dvi \
+	install-dvi-am install-exec install-exec-am install-html \
+	install-html-am install-info install-info-am install-man \
+	install-pdf install-pdf-am install-ps install-ps-am \
+	install-strip installcheck installcheck-am installdirs \
+	installdirs-am maintainer-clean maintainer-clean-generic \
+	mostlyclean mostlyclean-generic mostlyclean-libtool pdf pdf-am \
+	ps ps-am tags tags-am uninstall uninstall-am
 
 .PRECIOUS: Makefile
 
 
-dist-hook:
-	rm -rf $(top_builddir)/tests/log
-	find $(distdir) -name "*.dist" -exec rm {} \;
-	(distit=`find $(srcdir) -name "*.dist" | grep -v ./ares/`; \
-	for file in $$distit; do \
-	  strip=`echo $$file | sed -e s/^$(srcdir)// -e s/\.dist//`; \
-	  cp $$file $(distdir)$$strip; \
-	done)
-
-html:
-	cd docs; make html
-
-pdf:
-	cd docs; make pdf
-
-# Skylable: disable 'make check'
-# run 'automake --foreign' when you update his Makefile
-#check: test examples
-
-@CROSSCOMPILING_TRUE@test-full: test
-@CROSSCOMPILING_TRUE@test-torture: test
-
-@CROSSCOMPILING_TRUE@test:
-@CROSSCOMPILING_TRUE@	@echo "NOTICE: we can't run the tests when cross-compiling!"
-
-@CROSSCOMPILING_FALSE@test:
-@CROSSCOMPILING_FALSE@	@(cd tests; $(MAKE) all quiet-test)
-
-@CROSSCOMPILING_FALSE@test-full:
-@CROSSCOMPILING_FALSE@	@(cd tests; $(MAKE) all full-test)
-
-@CROSSCOMPILING_FALSE@test-torture:
-@CROSSCOMPILING_FALSE@	@(cd tests; $(MAKE) all torture-test)
-
-@CROSSCOMPILING_FALSE@test-am:
-@CROSSCOMPILING_FALSE@	@(cd tests; $(MAKE) all am-test)
-
-examples:
-	@(cd docs/examples; $(MAKE) check)
-
-# This is a hook to have 'make clean' also clean up the docs and the tests
-# dir. The extra check for the Makefiles being present is necessary because
-# 'make distcheck' will make clean first in these directories _before_ it runs
-# this hook.
-clean-local:
-	@(if test -f tests/Makefile; then cd tests; $(MAKE) clean; fi)
-	@(if test -f docs/Makefile; then cd docs; $(MAKE) clean; fi)
-
-#
-# Build source and binary rpms. For rpm-3.0 and above, the ~/.rpmmacros
-# must contain the following line:
-# %_topdir /home/loic/local/rpm
-# and that /home/loic/local/rpm contains the directory SOURCES, BUILD etc.
-#
-# cd /home/loic/local/rpm ; mkdir -p SOURCES BUILD RPMS/i386 SPECS SRPMS
-#
-# If additional configure flags are needed to build the package, add the
-# following in ~/.rpmmacros
-# %configure CFLAGS="%{optflags}" ./configure %{_target_platform} --prefix=%{_prefix} ${AM_CONFIGFLAGS}
-# and run make rpm in the following way:
-# AM_CONFIGFLAGS='--with-uri=/home/users/loic/local/RedHat-6.2' make rpm
-#
-
-rpms:
-	$(MAKE) RPMDIST=curl rpm
-	$(MAKE) RPMDIST=curl-ssl rpm
-
-rpm:
-	RPM_TOPDIR=`rpm --showrc | $(PERL) -n -e 'print if(s/.*_topdir\s+(.*)/$$1/)'` ; \
-	cp $(srcdir)/packages/Linux/RPM/$(RPMDIST).spec $$RPM_TOPDIR/SPECS ; \
-	cp $(PACKAGE)-$(VERSION).tar.gz $$RPM_TOPDIR/SOURCES ; \
-	rpm -ba --clean --rmsource $$RPM_TOPDIR/SPECS/$(RPMDIST).spec ; \
-	mv $$RPM_TOPDIR/RPMS/i386/$(RPMDIST)-*.rpm . ; \
-	mv $$RPM_TOPDIR/SRPMS/$(RPMDIST)-*.src.rpm .
-
-#
-# Build a Solaris pkgadd format file
-# run 'make pkgadd' once you've done './configure' and 'make' to make a Solaris pkgadd format
-# file (which ends up back in this directory).
-# The pkgadd file is in 'pkgtrans' format, so to install on Solaris, do
-# pkgadd -d ./HAXXcurl-*
-#
-
-# gak - libtool requires an absoulte directory, hence the pwd below...
-pkgadd:
-	umask 022 ; \
-	make install DESTDIR=`/bin/pwd`/packages/Solaris/root ; \
-	cat COPYING > $(srcdir)/packages/Solaris/copyright ; \
-	cd $(srcdir)/packages/Solaris && $(MAKE) package
-
-#
-# Build a cygwin binary tarball installation file
-# resulting .tar.bz2 file will end up at packages/Win32/cygwin
-cygwinbin:
-	$(MAKE) -C packages/Win32/cygwin cygwinbin
-
-ca-bundle: lib/mk-ca-bundle.pl
-	@echo "generate a fresh ca-bundle.crt"
-	@perl $< -b -l -u lib/ca-bundle.crt
-
-ca-firefox: lib/firefox-db2pem.sh
-	@echo "generate a fresh ca-bundle.crt"
-	./lib/firefox-db2pem.sh lib/ca-bundle.crt
-
-checksrc:
-	cd lib && $(MAKE) checksrc
-	cd src && $(MAKE) checksrc
-
-.PHONY: vc6-ide
-
-vc6-ide:
-	$(MAKE) $(VC6LIBDSP)
-
-$(VC6LIBDSP): $(VC6LIBDSP_DEPS)
-	@(echo "generating '$(VC6LIBDSP)'"; \
-	\
-	for dir in 'vs' 'vs/vc6' 'vs/vc6/lib'; do \
-	  test -d "$$dir" || mkdir "$$dir" || exit 1; \
-	done; \
-	\
-	dir='..\..\..\lib\'; \
-	body='$(VC6LIBDSP)'.body; \
-	win32_srcs='$(WIN32SOURCES)'; \
-	win32_hdrs='$(WIN32HEADERS)'; \
-	sorted_srcs=`for file in $$win32_srcs; do echo $$file; done | sort`; \
-	sorted_hdrs=`for file in $$win32_hdrs; do echo $$file; done | sort`; \
-	\
-	echo "# Begin Group \"Source Files\""  > $$body; \
-	echo ""                               >> $$body; \
-	echo "# PROP Default_Filter \"\""     >> $$body; \
-	for file in $$sorted_srcs; do \
-	  echo "# Begin Source File"          >> $$body; \
-	  echo ""                             >> $$body; \
-	  echo "SOURCE="$$dir$$file           >> $$body; \
-	  echo "# End Source File"            >> $$body; \
-	done; \
-	echo "# End Group"                    >> $$body; \
-	echo "# Begin Group \"Header Files\"" >> $$body; \
-	echo ""                               >> $$body; \
-	echo "# PROP Default_Filter \"\""     >> $$body; \
-	for file in $$sorted_hdrs; do \
-	  echo "# Begin Source File"          >> $$body; \
-	  echo ""                             >> $$body; \
-	  echo "SOURCE="$$dir$$file           >> $$body; \
-	  echo "# End Source File"            >> $$body; \
-	done; \
-	echo "# End Group"                    >> $$body; \
-	\
-	awk '{ printf("%s\r\n", $$0); }' \
-	  $(srcdir)/$(VC6LIBDSPHEAD) $$body $(srcdir)/$(VC6LIBDSPFOOT) \
-	  > $(VC6LIBDSP) || { rm -f $$body; exit 1; }; \
-	\
-	rm -f $$body)
-
-.PHONY: vc8-ide
-
-vc8-ide:
-	$(MAKE) $(VC8LIBPRJ)
-
-$(VC8LIBPRJ): $(VC8LIBPRJ_DEPS)
-	@(echo "generating '$(VC8LIBPRJ)'"; \
-	\
-	for dir in 'vs' 'vs/vc8' 'vs/vc8/lib'; do \
-	  test -d "$$dir" || mkdir "$$dir" || exit 1; \
-	done; \
-	\
-	dir='..\..\..\lib\'; \
-	body='$(VC8LIBPRJ)'.body; \
-	win32_srcs='$(WIN32SOURCES)'; \
-	win32_hdrs='$(WIN32HEADERS)'; \
-	sorted_srcs=`for file in $$win32_srcs; do echo $$file; done | sort`; \
-	sorted_hdrs=`for file in $$win32_hdrs; do echo $$file; done | sort`; \
-	\
-	echo "%tab%%tab%<Filter Name=\"Source Files\">"  > $$body; \
-	for file in $$sorted_srcs; do \
-	  echo "%tab%%tab%%tab%<File RelativePath=\""$$dir$$file"\"></File>" >> $$body; \
-	done; \
-	echo "%tab%%tab%</Filter>"                      >> $$body; \
-	echo "%tab%%tab%<Filter Name=\"Header Files\">" >> $$body; \
-	for file in $$sorted_hdrs; do \
-	  echo "%tab%%tab%%tab%<File RelativePath=\""$$dir$$file"\"></File>" >> $$body; \
-	done; \
-	echo "%tab%%tab%</Filter>"                      >> $$body; \
-	\
-	awk '{ gsub(/%tab%/, "\t"); printf("%s\r\n", $$0); }' \
-	  $(srcdir)/$(VC8LIBPRJHEAD) $$body $(srcdir)/$(VC8LIBPRJFOOT) \
-	  > $(VC8LIBPRJ) || { rm -f $$body; exit 1; }; \
-	\
-	rm -f $$body)
+# List of files required to generate VC IDE .dsp, .vcproj and .vcxproj files
 
 # Tell versions [3.59,3.63) of GNU make to not export all variables.
 # Otherwise a system limit (for SysV at least) may be exceeded.
