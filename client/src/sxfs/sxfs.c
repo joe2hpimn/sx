@@ -2835,6 +2835,8 @@ int main (int argc, char **argv) {
             continue; /* already checked */
         } else if(!strcmp(fargs_tmp.argv[i], "use_queues")) {
             args.use_queues_flag = 1;
+        } else if(!strcmp(fargs_tmp.argv[i], "replica_wait")) {
+            args.replica_wait_flag = 1;
         } else if(!strncmp(fargs_tmp.argv[i], "logfile=", lenof("logfile="))) {
             const char *logfile = fargs_tmp.argv[i] + lenof("logfile=");
             if(args.logfile_given || sxfs->logfile) {
@@ -3074,6 +3076,9 @@ int main (int argc, char **argv) {
 	sxc_clearerr(sx);
     }
     free(filter_dir);
+
+    if(!args.replica_wait_flag)
+	sxc_set_flush_policy(sx, SXC_FLUSH_NOWAIT);
     
     sxfs->uri = sxc_parse_uri(sx, args.inputs[0]);
     if(!sxfs->uri) {

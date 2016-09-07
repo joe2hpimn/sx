@@ -38,6 +38,9 @@ Don't display the progress bar
 \fB\-\-ignore\-errors\fR
 When operating on multiple files, keep processing them even when errors occur. sxcp will display an appropriate error message for each file that failed to upload or download, and the total number of failures.
 .TP
+\fB\-\-replica\-wait\fR
+When this option is enabled, sxcp will wait for the cluster to replicate the data across nodes, and report a problem if full replication cannot be achieved.
+.TP
 \fB\-v\fR, \fB\-\-verbose\fR
 Print more details about the transfer
 .TP

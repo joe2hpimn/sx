@@ -20,6 +20,9 @@ Print version and exit
 \fB\-r\fR, \fB\-\-recursive\fR
 Recursively move files from SOURCE to DEST directory
 .TP
+\fB\-\-replica\-wait\fR
+When this option is enabled, sxmv will wait for the cluster to replicate the data across nodes, and report a problem if full replication cannot be achieved.
+.TP
 \fB\-D\fR, \fB\-\-debug\fR
 Enable debug messages
 .TP

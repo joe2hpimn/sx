@@ -694,6 +694,14 @@ char *sxc_urldecode(sxc_client_t *sx, const char *s);
 
 int sxc_set_node_preference(sxc_client_t *sx, float preference);
 
+typedef enum {
+    SXC_FLUSH_DEFAULT = 0,    /* Let the server decide (currently same as SXC_FLUSH_WAIT) */
+    SXC_FLUSH_WAIT,           /* Wait for full data replication (safer) */
+    SXC_FLUSH_NOWAIT	      /* Don't wait for full data replication (faster) */
+} sxc_flush_policy_t;
+void sxc_set_flush_policy(sxc_client_t *sx, sxc_flush_policy_t pol);
+sxc_flush_policy_t sxc_get_flush_policy(sxc_client_t *sx);
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

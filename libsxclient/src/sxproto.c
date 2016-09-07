@@ -406,7 +406,7 @@ sxi_query_t *sxi_volumeadd_proto(sxc_client_t *sx, const char *volname, const ch
 }
 
 sxi_query_t *sxi_flushfile_proto(sxc_client_t *sx, const char *token) {
-    char *url = malloc(sizeof(".upload/") + strlen(token));
+    char *url = malloc(sizeof(".upload/?nowait") + strlen(token));
     sxi_query_t *ret;
 
     if(!url) {
@@ -414,7 +414,16 @@ sxi_query_t *sxi_flushfile_proto(sxc_client_t *sx, const char *token) {
 	return NULL;
     }
 
-    sprintf(url, ".upload/%s", token);
+    switch(sxc_get_flush_policy(sx)) {
+    case SXC_FLUSH_WAIT:
+	sprintf(url, ".upload/%s?wait", token);
+	break;
+    case SXC_FLUSH_NOWAIT:
+	sprintf(url, ".upload/%s?nowait", token);
+	break;
+    default:
+	sprintf(url, ".upload/%s", token);
+    }
     ret = sxi_query_create(sx, url, REQ_PUT);
     free(url);
     return ret;

@@ -38,6 +38,7 @@ const char *gengetopt_args_info_full_help[] = {
   "      --full-help        Print help, including hidden options, and exit",
   "  -V, --version          Print version and exit",
   "  -r, --recursive        Recursively move files from SOURCE to DEST directory\n                           (default=off)",
+  "      --replica-wait     Wait for full data replication on the cluster\n                           (default=off)",
   "  -D, --debug            Enable debug messages  (default=off)",
   "  -c, --config-dir=PATH  Path to SX configuration directory",
   "  -f, --filter-dir=PATH  Path to SX filter directory",
@@ -52,11 +53,12 @@ init_help_array(void)
   gengetopt_args_info_help[2] = gengetopt_args_info_full_help[2];
   gengetopt_args_info_help[3] = gengetopt_args_info_full_help[3];
   gengetopt_args_info_help[4] = gengetopt_args_info_full_help[4];
-  gengetopt_args_info_help[5] = 0; 
+  gengetopt_args_info_help[5] = gengetopt_args_info_full_help[5];
+  gengetopt_args_info_help[6] = 0; 
   
 }
 
-const char *gengetopt_args_info_help[6];
+const char *gengetopt_args_info_help[7];
 
 typedef enum {ARG_NO
   , ARG_FLAG
@@ -83,6 +85,7 @@ void clear_given (struct gengetopt_args_info *args_info)
   args_info->full_help_given = 0 ;
   args_info->version_given = 0 ;
   args_info->recursive_given = 0 ;
+  args_info->replica_wait_given = 0 ;
   args_info->debug_given = 0 ;
   args_info->config_dir_given = 0 ;
   args_info->filter_dir_given = 0 ;
@@ -93,6 +96,7 @@ void clear_args (struct gengetopt_args_info *args_info)
 {
   FIX_UNUSED (args_info);
   args_info->recursive_flag = 0;
+  args_info->replica_wait_flag = 0;
   args_info->debug_flag = 0;
   args_info->config_dir_arg = NULL;
   args_info->config_dir_orig = NULL;
@@ -110,9 +114,10 @@ void init_args_info(struct gengetopt_args_info *args_info)
   args_info->full_help_help = gengetopt_args_info_full_help[1] ;
   args_info->version_help = gengetopt_args_info_full_help[2] ;
   args_info->recursive_help = gengetopt_args_info_full_help[3] ;
-  args_info->debug_help = gengetopt_args_info_full_help[4] ;
-  args_info->config_dir_help = gengetopt_args_info_full_help[5] ;
-  args_info->filter_dir_help = gengetopt_args_info_full_help[6] ;
+  args_info->replica_wait_help = gengetopt_args_info_full_help[4] ;
+  args_info->debug_help = gengetopt_args_info_full_help[5] ;
+  args_info->config_dir_help = gengetopt_args_info_full_help[6] ;
+  args_info->filter_dir_help = gengetopt_args_info_full_help[7] ;
   
 }
 
@@ -255,6 +260,8 @@ cmdline_parser_dump(FILE *outfile, struct gengetopt_args_info *args_info)
     write_into_file(outfile, "version", 0, 0 );
   if (args_info->recursive_given)
     write_into_file(outfile, "recursive", 0, 0 );
+  if (args_info->replica_wait_given)
+    write_into_file(outfile, "replica-wait", 0, 0 );
   if (args_info->debug_given)
     write_into_file(outfile, "debug", 0, 0 );
   if (args_info->config_dir_given)
@@ -493,6 +500,7 @@ cmdline_parser_internal (
         { "full-help",	0, NULL, 0 },
         { "version",	0, NULL, 'V' },
         { "recursive",	0, NULL, 'r' },
+        { "replica-wait",	0, NULL, 0 },
         { "debug",	0, NULL, 'D' },
         { "config-dir",	1, NULL, 'c' },
         { "filter-dir",	1, NULL, 'f' },
@@ -576,6 +584,20 @@ cmdline_parser_internal (
             exit (EXIT_SUCCESS);
           }
 
+          /* Wait for full data replication on the cluster.  */
+          if (strcmp (long_options[option_index].name, "replica-wait") == 0)
+          {
+          
+          
+            if (update_arg((void *)&(args_info->replica_wait_flag), 0, &(args_info->replica_wait_given),
+                &(local_args_info.replica_wait_given), optarg, 0, 0, ARG_FLAG,
+                check_ambiguity, override, 1, 0, "replica-wait", '-',
+                additional_error))
+              goto failure;
+          
+          }
+          
+          break;
         case '?':	/* Invalid option.  */
           /* `getopt_long' already printed an error message.  */
           goto failure;

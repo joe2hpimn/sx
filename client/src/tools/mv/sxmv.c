@@ -209,6 +209,9 @@ int main(int argc, char **argv) {
         goto main_err;
     }
 
+    if(!args.replica_wait_flag)
+	sxc_set_flush_policy(sx, SXC_FLUSH_NOWAIT);
+
     lst = sxc_file_list_new(sx, args.recursive_given, 0);
     for(i = 0;i < args.inputs_num-1; i++) {
         int fallback = 1;

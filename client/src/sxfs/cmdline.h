@@ -62,6 +62,8 @@ struct gengetopt_args_info
   char * cache_dir_arg;	/**< @brief Set directory for cache (sxfs tempdir by default).  */
   char * cache_dir_orig;	/**< @brief Set directory for cache (sxfs tempdir by default) original value given at command line.  */
   const char *cache_dir_help; /**< @brief Set directory for cache (sxfs tempdir by default) help description.  */
+  int replica_wait_flag;	/**< @brief Wait for full data replication on the cluster (default=off).  */
+  const char *replica_wait_help; /**< @brief Wait for full data replication on the cluster help description.  */
   int foreground_flag;	/**< @brief Run in foreground (default=off).  */
   const char *foreground_help; /**< @brief Run in foreground help description.  */
   int debug_flag;	/**< @brief Enable debug messages (default=off).  */
@@ -98,6 +100,7 @@ struct gengetopt_args_info
   unsigned int use_queues_given ;	/**< @brief Whether use-queues was given.  */
   unsigned int cache_size_given ;	/**< @brief Whether cache-size was given.  */
   unsigned int cache_dir_given ;	/**< @brief Whether cache-dir was given.  */
+  unsigned int replica_wait_given ;	/**< @brief Whether replica-wait was given.  */
   unsigned int foreground_given ;	/**< @brief Whether foreground was given.  */
   unsigned int debug_given ;	/**< @brief Whether debug was given.  */
   unsigned int verbose_given ;	/**< @brief Whether verbose was given.  */

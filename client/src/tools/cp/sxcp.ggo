@@ -17,6 +17,8 @@ option  "no-progress"           q "Don't output progress bar" flag off
 
 option  "ignore-errors"		- "Keep processing files even when there are errors" flag off
 
+option  "replica-wait"          - "Wait for full data replication on the cluster" flag off 
+
 option  "verbose"               v "Print more details about the upload" flag off
 
 option  "debug"		        D "Enable debug messages" flag off

@@ -1413,7 +1413,6 @@ static void file_finish(struct file_upload_ctx *yctx)
     if(size != yctx->size || s.st_mtime != yctx->mtime)
         sxi_notice(sx, "WARNING: Source file has changed during upload");
 
-    /*  TODO: multiplex flush_file */
     yctx->job = flush_file_ev(yctx->cluster, yctx->host, yctx->current.token, yctx->name, yctx->jobs);
     if (!yctx->job) {
         SXDEBUG("fail incremented due to !job");

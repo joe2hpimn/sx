@@ -42,6 +42,8 @@ struct gengetopt_args_info
   const char *version_help; /**< @brief Print version and exit help description.  */
   int recursive_flag;	/**< @brief Recursively move files from SOURCE to DEST directory (default=off).  */
   const char *recursive_help; /**< @brief Recursively move files from SOURCE to DEST directory help description.  */
+  int replica_wait_flag;	/**< @brief Wait for full data replication on the cluster (default=off).  */
+  const char *replica_wait_help; /**< @brief Wait for full data replication on the cluster help description.  */
   int debug_flag;	/**< @brief Enable debug messages (default=off).  */
   const char *debug_help; /**< @brief Enable debug messages help description.  */
   char * config_dir_arg;	/**< @brief Path to SX configuration directory.  */
@@ -55,6 +57,7 @@ struct gengetopt_args_info
   unsigned int full_help_given ;	/**< @brief Whether full-help was given.  */
   unsigned int version_given ;	/**< @brief Whether version was given.  */
   unsigned int recursive_given ;	/**< @brief Whether recursive was given.  */
+  unsigned int replica_wait_given ;	/**< @brief Whether replica-wait was given.  */
   unsigned int debug_given ;	/**< @brief Whether debug was given.  */
   unsigned int config_dir_given ;	/**< @brief Whether config-dir was given.  */
   unsigned int filter_dir_given ;	/**< @brief Whether filter-dir was given.  */

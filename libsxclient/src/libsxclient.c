@@ -41,6 +41,7 @@ struct _sxc_client_t {
     char *tempdir;
     int last_error;
     int verbose;
+    sxc_flush_policy_t flushpol;
     struct sxi_logger log;
     sxc_input_cb input_cb;
     void *input_ctx;
@@ -81,7 +82,7 @@ int sxc_lib_init(const char *client_version)
 
     const char *this_version = sxc_get_version();
     if (client_version && strcmp(client_version, this_version)) {
-        sxi_log_msg(&l, "sxc_init", SX_LOG_CRIT, "Version mismatch: Our version '%s' - library version '%s'",
+        sxi_log_msg(&l, "sxc_lib_init", SX_LOG_CRIT, "Version mismatch: Our version '%s' - library version '%s'",
                     client_version, this_version);
         return -1;
     }
@@ -93,7 +94,7 @@ int sxc_lib_init(const char *client_version)
 
     CURLcode rc = curl_global_init(CURL_GLOBAL_ALL);
     if (rc) {
-        sxi_log_msg(&l, "sxc_init", SX_LOG_CRIT, "Failed to initialize libcurl: %s",
+        sxi_log_msg(&l, "sxc_lib_init", SX_LOG_CRIT, "Failed to initialize libcurl: %s",
                     curl_easy_strerror(rc));
 	sxc_lib_shutdown(0);
         return -1;
@@ -101,7 +102,7 @@ int sxc_lib_init(const char *client_version)
 
     if((sxi_dlinit_error = lt_dlinit())) {
         const char *err = lt_dlerror();
-        sxi_log_syserr(&l, "sxc_init", SX_LOG_CRIT, "Failed to initialize libltdl: %s",
+        sxi_log_syserr(&l, "sxc_lib_init", SX_LOG_CRIT, "Failed to initialize libltdl: %s",
                        err ? err : "");
     }
 
@@ -133,7 +134,7 @@ sxc_client_t *sxc_client_init(const sxc_logger_t *func, sxc_input_cb input_cb, v
 
     sx = calloc(1, sizeof(struct _sxc_client_t));
     if (!sx) {
-        sxi_log_syserr(&l, "sxc_init", SX_LOG_CRIT, "Failed to allocate sx structure");
+        sxi_log_syserr(&l, "sxc_client_init", SX_LOG_CRIT, "Failed to allocate sx structure");
         return NULL;
     }
     sx->fctx.filter_cnt = sxi_dlinit_error ? -1 : 0;
@@ -154,14 +155,14 @@ sxc_client_t *sxc_client_init(const sxc_logger_t *func, sxc_input_cb input_cb, v
         config_len = strlen(home_dir) + strlen("/.sx");
         sx->confdir = malloc(config_len + 1);
         if(!sx->confdir) {
-            sxi_log_syserr(&l, "sxc_init", SX_LOG_ERR, "Could not allocate memory for configuration directory");
+            sxi_log_syserr(&l, "sxc_client_init", SX_LOG_ERR, "Could not allocate memory for configuration directory");
 	    sxc_shutdown(sx, 0);
             return NULL;
         }
         snprintf(sx->confdir, config_len + 1, "%s/.sx", home_dir);
     }
     if(sxc_set_tempdir(sx, NULL)) {
-	sxi_log_syserr(&l, "sxc_init", SX_LOG_CRIT, "Failed to set temporary path");
+	sxi_log_syserr(&l, "sxc_client_init", SX_LOG_CRIT, "Failed to set temporary path");
 	sxc_shutdown(sx, 0);
 	return NULL;
     }
@@ -548,4 +549,19 @@ const char *sxi_get_query_prefix(sxc_client_t *sx) {
     if(!sx)
 	return NULL;
     return sx->qprefix;
+}
+
+
+void sxc_set_flush_policy(sxc_client_t *sx, sxc_flush_policy_t pol) {
+    if (!sx)
+        return;
+    if(pol != SXC_FLUSH_WAIT && pol != SXC_FLUSH_NOWAIT)
+	pol = SXC_FLUSH_DEFAULT;
+    sx->flushpol = pol;
+}
+
+sxc_flush_policy_t sxc_get_flush_policy(sxc_client_t *sx) {
+    if(!sx)
+	return SXC_FLUSH_DEFAULT;
+    return sx->flushpol;
 }

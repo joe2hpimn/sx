@@ -5,6 +5,8 @@ usage "sxmv [OPTIONS]... SOURCE... DEST"
 
 option  "recursive"             r "Recursively move files from SOURCE to DEST directory" flag off
 
+option  "replica-wait"          - "Wait for full data replication on the cluster" flag off
+
 option  "debug"		        D "Enable debug messages" flag off
 
 option  "config-dir"		c "Path to SX configuration directory" string typestr="PATH" optional hidden

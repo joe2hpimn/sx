@@ -38,6 +38,9 @@ Set size of the local cache. The following unit specifiers are supported: K(-ilo
 \fB\-d\fR, \fB\-\-cache\-dir\fR=\fI\,PATH\/\fR
 Set directory for the local cache (by default the main temporary directory will be used). All cached data will be removed on exit.
 .TP
+\fB\-\-replica\-wait\fR
+When this option is enabled, sxfs will wait for the cluster to replicate the data across nodes, and report a problem if full replication cannot be achieved.
+.TP
 \fB\-f\fR, \fB\-\-foreground\fR
 Run in the foreground.
 .TP
@@ -86,6 +89,9 @@ See \fB\-\-cache\-size\fR
 .TP
 \fBcache_dir\fR=\fI\,PATH\/\fR
 See \fB\-\-cache\-dir\fR
+.TP
+\fBreplica_wait\fR
+See \fB\-\-replica\-wait\fR
 .TP
 \fBlogfile\fR=\fI\,PATH\/\fR
 See \fB\-\-logfile\fR

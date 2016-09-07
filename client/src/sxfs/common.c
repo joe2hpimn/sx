@@ -555,6 +555,8 @@ int sxfs_get_sx_data (sxfs_state_t *sxfs, sxc_client_t **sx, sxc_cluster_t **clu
                 SXFS_ERROR("Failed to load filters: %s", sxc_geterrmsg(sx_data->sx));
                 sxc_clearerr(sx_data->sx);
             }
+	    if(!sxfs->args->replica_wait_flag)
+		sxc_set_flush_policy(sx_data->sx, SXC_FLUSH_NOWAIT);
             sx_data->cluster = sxc_cluster_load_and_update(sx_data->sx, sxfs->uri->host, sxfs->uri->profile);
             if(!sx_data->cluster) {
                 SXFS_ERROR("Cannot load config for %s: %s", sxfs->uri->host, sxc_geterrmsg(sx_data->sx));

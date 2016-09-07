@@ -44,6 +44,7 @@ const char *gengetopt_args_info_full_help[] = {
   "  -q, --use-queues            Enable queues for upload and delete operations\n                                (default=off)",
   "  -C, --cache-size=SIZE       Set size for local cache  (default=`256M')",
   "  -d, --cache-dir=PATH        Set directory for cache (sxfs tempdir by default)",
+  "      --replica-wait          Wait for full data replication on the cluster\n                                (default=off)",
   "  -f, --foreground            Run in foreground  (default=off)",
   "  -D, --debug                 Enable debug messages  (default=off)",
   "  -v, --verbose               Log more information about read/write operations\n                                (enables debug mode)  (default=off)",
@@ -73,11 +74,12 @@ init_help_array(void)
   gengetopt_args_info_help[9] = gengetopt_args_info_full_help[9];
   gengetopt_args_info_help[10] = gengetopt_args_info_full_help[10];
   gengetopt_args_info_help[11] = gengetopt_args_info_full_help[11];
-  gengetopt_args_info_help[12] = 0; 
+  gengetopt_args_info_help[12] = gengetopt_args_info_full_help[12];
+  gengetopt_args_info_help[13] = 0; 
   
 }
 
-const char *gengetopt_args_info_help[13];
+const char *gengetopt_args_info_help[14];
 
 typedef enum {ARG_NO
   , ARG_FLAG
@@ -113,6 +115,7 @@ void clear_given (struct gengetopt_args_info *args_info)
   args_info->use_queues_given = 0 ;
   args_info->cache_size_given = 0 ;
   args_info->cache_dir_given = 0 ;
+  args_info->replica_wait_given = 0 ;
   args_info->foreground_given = 0 ;
   args_info->debug_given = 0 ;
   args_info->verbose_given = 0 ;
@@ -143,6 +146,7 @@ void clear_args (struct gengetopt_args_info *args_info)
   args_info->cache_size_orig = NULL;
   args_info->cache_dir_arg = NULL;
   args_info->cache_dir_orig = NULL;
+  args_info->replica_wait_flag = 0;
   args_info->foreground_flag = 0;
   args_info->debug_flag = 0;
   args_info->verbose_flag = 0;
@@ -176,17 +180,18 @@ void init_args_info(struct gengetopt_args_info *args_info)
   args_info->use_queues_help = gengetopt_args_info_full_help[7] ;
   args_info->cache_size_help = gengetopt_args_info_full_help[8] ;
   args_info->cache_dir_help = gengetopt_args_info_full_help[9] ;
-  args_info->foreground_help = gengetopt_args_info_full_help[10] ;
-  args_info->debug_help = gengetopt_args_info_full_help[11] ;
-  args_info->verbose_help = gengetopt_args_info_full_help[12] ;
-  args_info->sx_debug_help = gengetopt_args_info_full_help[13] ;
-  args_info->open_limit_help = gengetopt_args_info_full_help[14] ;
-  args_info->fuse_help_help = gengetopt_args_info_full_help[15] ;
-  args_info->fuse_version_help = gengetopt_args_info_full_help[16] ;
-  args_info->fuse_single_threaded_help = gengetopt_args_info_full_help[17] ;
-  args_info->fuse_debug_help = gengetopt_args_info_full_help[18] ;
-  args_info->config_dir_help = gengetopt_args_info_full_help[19] ;
-  args_info->filter_dir_help = gengetopt_args_info_full_help[20] ;
+  args_info->replica_wait_help = gengetopt_args_info_full_help[10] ;
+  args_info->foreground_help = gengetopt_args_info_full_help[11] ;
+  args_info->debug_help = gengetopt_args_info_full_help[12] ;
+  args_info->verbose_help = gengetopt_args_info_full_help[13] ;
+  args_info->sx_debug_help = gengetopt_args_info_full_help[14] ;
+  args_info->open_limit_help = gengetopt_args_info_full_help[15] ;
+  args_info->fuse_help_help = gengetopt_args_info_full_help[16] ;
+  args_info->fuse_version_help = gengetopt_args_info_full_help[17] ;
+  args_info->fuse_single_threaded_help = gengetopt_args_info_full_help[18] ;
+  args_info->fuse_debug_help = gengetopt_args_info_full_help[19] ;
+  args_info->config_dir_help = gengetopt_args_info_full_help[20] ;
+  args_info->filter_dir_help = gengetopt_args_info_full_help[21] ;
   
 }
 
@@ -405,6 +410,8 @@ cmdline_parser_dump(FILE *outfile, struct gengetopt_args_info *args_info)
     write_into_file(outfile, "cache-size", args_info->cache_size_orig, 0);
   if (args_info->cache_dir_given)
     write_into_file(outfile, "cache-dir", args_info->cache_dir_orig, 0);
+  if (args_info->replica_wait_given)
+    write_into_file(outfile, "replica-wait", 0, 0 );
   if (args_info->foreground_given)
     write_into_file(outfile, "foreground", 0, 0 );
   if (args_info->debug_given)
@@ -965,6 +972,7 @@ cmdline_parser_internal (
         { "use-queues",	0, NULL, 'q' },
         { "cache-size",	1, NULL, 'C' },
         { "cache-dir",	1, NULL, 'd' },
+        { "replica-wait",	0, NULL, 0 },
         { "foreground",	0, NULL, 'f' },
         { "debug",	0, NULL, 'D' },
         { "verbose",	0, NULL, 'v' },
@@ -1143,8 +1151,20 @@ cmdline_parser_internal (
             exit (EXIT_SUCCESS);
           }
 
+          /* Wait for full data replication on the cluster.  */
+          if (strcmp (long_options[option_index].name, "replica-wait") == 0)
+          {
+          
+          
+            if (update_arg((void *)&(args_info->replica_wait_flag), 0, &(args_info->replica_wait_given),
+                &(local_args_info.replica_wait_given), optarg, 0, 0, ARG_FLAG,
+                check_ambiguity, override, 1, 0, "replica-wait", '-',
+                additional_error))
+              goto failure;
+          
+          }
           /* Enable SX debug mode (enables running in foreground).  */
-          if (strcmp (long_options[option_index].name, "sx-debug") == 0)
+          else if (strcmp (long_options[option_index].name, "sx-debug") == 0)
           {
           
           

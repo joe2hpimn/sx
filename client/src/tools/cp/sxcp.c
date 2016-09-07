@@ -757,7 +757,10 @@ int main(int argc, char **argv) {
         fprintf(stderr, "ERROR: Could not set progress callback\n");
         goto main_err;
     }
-        
+
+    if(!args.replica_wait_flag)
+	sxc_set_flush_policy(sx, SXC_FLUSH_NOWAIT);
+
     if (args.inputs_num > 2 &&
         sxc_file_require_dir(dst_file)) {
         fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
