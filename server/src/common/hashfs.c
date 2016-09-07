@@ -16688,7 +16688,7 @@ static int64_t dbfilesize(sxi_db_t *db) {
 
 void sx_storage_usage(sx_hashfs_t *h, int64_t *allocated, int64_t *committed) {
     unsigned int i, j;
-    int64_t al, ci;
+    int64_t al, unused;
 
     /* The allocated size is the amount of space taken on disk.
      * - for the DB files this it the size of the .db files
@@ -16713,24 +16713,24 @@ void sx_storage_usage(sx_hashfs_t *h, int64_t *allocated, int64_t *committed) {
     for(i=0; i<METADBS; i++)
 	al += dbfilesize(h->metadb[i]);
 
-    ci = al;
-
+    unused = 0;
+    
     for(j=0; j<SIZES; j++) {
-	for(i=0; i<HASHDBS; i++) {
-	    int64_t rows = get_count(h->datadb[j][i], "blocks");
-	    int64_t dbsize = dbfilesize(h->datadb[j][i]);
-	    struct stat st;
+        for(i=0; i<HASHDBS; i++) {
+            int64_t free_rows = get_count(h->datadb[j][i], "avail");
+            int64_t dbsize = dbfilesize(h->datadb[j][i]);
+            struct stat st;
 
-	    al += dbsize;
-	    ci += dbsize + rows * bsz[j];
-	    if(!fstat(h->datafd[j][i], &st))
-		al += st.st_size;
-	}
+            al += dbsize;
+            unused += (free_rows+1) * bsz[j]; /* +1: the header */
+            if(!fstat(h->datafd[j][i], &st))
+                al += st.st_size;
+        }
     }
     if(allocated)
 	*allocated = al;
     if(committed)
-	*committed = ci;
+	*committed = al - unused;
 }
 
 const sx_uuid_t *sx_hashfs_distinfo(sx_hashfs_t *h, unsigned int *version, uint64_t *checksum) {
