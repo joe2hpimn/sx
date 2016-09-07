@@ -11781,7 +11781,7 @@ static void remap_blocks_availability(sx_hashfs_t *h, unsigned int nblocks, unsi
         memcpy(newmap + i * next_replica, oldmap + i * prev_replica, MIN(prev_replica, next_replica));
 }
 
-rc_ty sx_hashfs_tmp_getinfo(sx_hashfs_t *h, int64_t tmpfile_id, sx_hashfs_tmpinfo_t **tmpinfo, int recheck_presence) {
+rc_ty sx_hashfs_tmp_getinfo(sx_hashfs_t *h, int64_t tmpfile_id, sx_hashfs_tmpinfo_t **tmpinfo, int recheck_presence, int fast) {
     unsigned int contentsz, nblocks, bs, nuniqs, i, hash_size, navl;
     const unsigned int *uniqs;
     const sx_hashfs_volume_t *volume;
@@ -11958,7 +11958,7 @@ rc_ty sx_hashfs_tmp_getinfo(sx_hashfs_t *h, int64_t tmpfile_id, sx_hashfs_tmpinf
             DEBUGHASH("tmp_get_info reserve_id", &reserve_id);
             DEBUGHASH("tmp_get_info revision_id", &tbd->revision_id);
             sxi_hashop_begin(&h->hc, h->sx_clust, tmp_getmissing_cb,
-                             HASHOP_INUSE, tbd->replica_count, &volume->global_id, &reserve_id, &tbd->revision_id, tbd, 0);
+                             fast ? HASHOP_CHECK : HASHOP_INUSE, tbd->replica_count, &volume->global_id, &reserve_id, &tbd->revision_id, tbd, 0);
 	    tbd->current_replica = i;
             DEBUG("begin queries for replica #%d", i);
 	    while((ret2 = are_blocks_available(h,

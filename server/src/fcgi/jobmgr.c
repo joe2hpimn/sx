@@ -914,7 +914,7 @@ static rc_ty filerev_from_jobdata_tmpfileid(sx_hashfs_t *hashfs, job_data_t *job
     }
     sx_hashfs_tmpinfo_t *tmpinfo;
     memcpy(&tmpfile_id, job_data->ptr, sizeof(tmpfile_id));
-    s = sx_hashfs_tmp_getinfo(hashfs, tmpfile_id, &tmpinfo, 0);
+    s = sx_hashfs_tmp_getinfo(hashfs, tmpfile_id, &tmpinfo, 0, 1);
     if (s) {
         WARN("Failed to lookup tmpfileid: %s", rc2str(s));
         return s;
@@ -1009,7 +1009,11 @@ static act_result_t replicateblocks_common(sx_hashfs_t *hashfs, job_t job_id, jo
 
     memcpy(&tmpfile_id, job_data->ptr, sizeof(tmpfile_id));
     DEBUG("replocateblocks_request for file %lld", (long long)tmpfile_id);
-    s = sx_hashfs_tmp_getinfo(hashfs, tmpfile_id, &mis, 1);
+    DEBUG("replicateblocks_common, wait_propagation: %d", wait_propagation);
+    /* in foreground replication (wait_propagation==0) mark all hashes as inuse so GC doesn't remove it until background replication is done,
+     * and in background replication (wait_propagation==1) use fast=1.
+     * when 'nowait' is not used set fast to 0 always (wait_propagation==2). */
+    s = sx_hashfs_tmp_getinfo(hashfs, tmpfile_id, &mis, 1, wait_propagation == 1);
     if(s == EFAULT || s == EINVAL) {
 	CRIT("Error getting tmpinfo: %s", msg_get_reason());
 	action_error(ACT_RESULT_PERMFAIL, 500, msg_get_reason());
@@ -1292,7 +1296,7 @@ static act_result_t replicateblocks_common(sx_hashfs_t *hashfs, job_t job_id, jo
 }
 
 static act_result_t replicateblocks_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
-    return replicateblocks_common(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl, 1);
+    return replicateblocks_common(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl, 2);
 }
 
 static act_result_t replicateblocks_fg_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
@@ -1326,7 +1330,7 @@ static act_result_t replicateblocks_bg_fail(sx_hashfs_t *hashfs, job_t job_id, j
 	action_error(ACT_RESULT_PERMFAIL, 500, "Internal job data error");
     }
     memcpy(&tmpfile_id, job_data->ptr, sizeof(tmpfile_id));
-    s = sx_hashfs_tmp_getinfo(hashfs, tmpfile_id, &mis, 0);
+    s = sx_hashfs_tmp_getinfo(hashfs, tmpfile_id, &mis, 0, 1);
     if(s == EFAULT || s == EINVAL) {
 	CRIT("Error getting tmpinfo: %s", msg_get_reason());
 	action_error(ACT_RESULT_PERMFAIL, 500, msg_get_reason());
@@ -1367,7 +1371,7 @@ static act_result_t fileflush_remote(sx_hashfs_t *hashfs, job_t job_id, job_data
     }
     memcpy(&tmpfile_id, job_data->ptr, sizeof(tmpfile_id));
     DEBUG("fileflush_remote for file %lld", (long long)tmpfile_id);
-    s = sx_hashfs_tmp_getinfo(hashfs, tmpfile_id, &mis, 0);
+    s = sx_hashfs_tmp_getinfo(hashfs, tmpfile_id, &mis, 0, 1);
     if(s == EFAULT || s == EINVAL) {
 	CRIT("Error getting tmpinfo: %s", msg_get_reason());
 	action_error(ACT_RESULT_PERMFAIL, 500, msg_get_reason());
@@ -1487,7 +1491,7 @@ static act_result_t fileflush_local_common(sx_hashfs_t *hashfs, job_t job_id, jo
     memcpy(&tmpfile_id, job_data->ptr, sizeof(tmpfile_id));
 
     DEBUG("fileflush_local for file %lld", (long long)tmpfile_id);
-    s = sx_hashfs_tmp_getinfo(hashfs, tmpfile_id, &mis, 0);
+    s = sx_hashfs_tmp_getinfo(hashfs, tmpfile_id, &mis, 0, 1);
     if(s == EFAULT || s == EINVAL) {
 	CRIT("Error getting tmpinfo: %s", msg_get_reason());
 	action_error(ACT_RESULT_PERMFAIL, 500, msg_get_reason());
@@ -1555,7 +1559,7 @@ static act_result_t fileflush_remote_undo(sx_hashfs_t *hashfs, job_t job_id, job
     memcpy(&tmpfile_id, job_data->ptr, sizeof(tmpfile_id));
     DEBUG("fileflush_remote for file %lld", (long long)tmpfile_id);
 
-    s = sx_hashfs_tmp_getinfo(hashfs, tmpfile_id, &tmp, 0);
+    s = sx_hashfs_tmp_getinfo(hashfs, tmpfile_id, &tmp, 0, 1);
     if(s == ENOENT)
 	return force_phase_success(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl);
     if(s != OK) {
@@ -7073,7 +7077,7 @@ static struct {
     { volrep_blocks_request, volrep_blocks_commit, force_phase_success, force_phase_success }, /* JOBTYPE_VOLREP_BLOCKS */
     { volrep_files_request, volrep_files_commit, force_phase_success, force_phase_success }, /* JOBTYPE_VOLREP_FILES */
     { replicateblocks_request, replicateblocks_fg_commit, replicateblocks_abort, replicateblocks_abort }, /* JOBTYPE_REPLICATE_BLOCKS_FG */
-    { replicateblocks_request, replicateblocks_bg_commit, replicateblocks_bg_fail, replicateblocks_bg_fail }, /* JOBTYPE_REPLICATE_BLOCKS_FG */
+    { force_phase_success, replicateblocks_bg_commit, replicateblocks_bg_fail, replicateblocks_bg_fail }, /* JOBTYPE_REPLICATE_BLOCKS_FG */
     { force_phase_success, fileflush_local_keeptmp, fileflush_remote_undo, force_phase_success }, /* JOBTYPE_FLUSH_FILE_LOCAL_KEEPTMP */
 };
 
@@ -7346,7 +7350,7 @@ static rc_ty get_failed_job_expiration_ttl(struct jobmgr_data_t *q) {
         memcpy(&tmpfile_id, q->job_data->ptr, q->job_data->len);
 
         /* JOBTYPE_REPLICATE_BLOCKS contains tempfile ID as job data. Use it to get tempfile entry. */
-        if((s = sx_hashfs_tmp_getinfo(q->hashfs, tmpfile_id, &tmpinfo, 0)) != OK)
+        if((s = sx_hashfs_tmp_getinfo(q->hashfs, tmpfile_id, &tmpinfo, 0, 1)) != OK)
             return s;
 	fsize = tmpinfo->file_size;
         free(tmpinfo);
