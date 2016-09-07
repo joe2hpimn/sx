@@ -67,6 +67,7 @@ const char *gengetopt_args_info_full_help[] = {
   "      --verbose-rebalance       Generate HUGE rebalance logs  (default=off)",
   "      --verbose-gc              Generate HUGE garbage collector logs\n                                  (default=off)",
   "      --max-pending-user-jobs=N Maximum number of concurrent jobs a single user\n                                  can start  (default=`128')",
+  "      --static-expiration       Use static expiration time for blocks (24h)\n                                  independent of file size, requires file\n                                  upload and replication for a single file to\n                                  complete within that time  (default=off)",
     0
 };
 
@@ -176,6 +177,7 @@ void clear_given (struct gengetopt_args_info *args_info)
   args_info->verbose_rebalance_given = 0 ;
   args_info->verbose_gc_given = 0 ;
   args_info->max_pending_user_jobs_given = 0 ;
+  args_info->static_expiration_given = 0 ;
 }
 
 static
@@ -235,6 +237,7 @@ void clear_args (struct gengetopt_args_info *args_info)
   args_info->verbose_gc_flag = 0;
   args_info->max_pending_user_jobs_arg = 128;
   args_info->max_pending_user_jobs_orig = NULL;
+  args_info->static_expiration_flag = 0;
   
 }
 
@@ -276,6 +279,7 @@ void init_args_info(struct gengetopt_args_info *args_info)
   args_info->verbose_rebalance_help = gengetopt_args_info_full_help[30] ;
   args_info->verbose_gc_help = gengetopt_args_info_full_help[31] ;
   args_info->max_pending_user_jobs_help = gengetopt_args_info_full_help[32] ;
+  args_info->static_expiration_help = gengetopt_args_info_full_help[33] ;
   
 }
 
@@ -495,6 +499,8 @@ cmdline_parser_dump(FILE *outfile, struct gengetopt_args_info *args_info)
     write_into_file(outfile, "verbose-gc", 0, 0 );
   if (args_info->max_pending_user_jobs_given)
     write_into_file(outfile, "max-pending-user-jobs", args_info->max_pending_user_jobs_orig, 0);
+  if (args_info->static_expiration_given)
+    write_into_file(outfile, "static-expiration", 0, 0 );
   
 
   i = EXIT_SUCCESS;
@@ -813,6 +819,7 @@ cmdline_parser_internal (
         { "verbose-rebalance",	0, NULL, 0 },
         { "verbose-gc",	0, NULL, 0 },
         { "max-pending-user-jobs",	1, NULL, 0 },
+        { "static-expiration",	0, NULL, 0 },
         { 0,  0, 0, 0 }
       };
 
@@ -1253,6 +1260,18 @@ cmdline_parser_internal (
                 &(local_args_info.max_pending_user_jobs_given), optarg, 0, "128", ARG_INT,
                 check_ambiguity, override, 0, 0,
                 "max-pending-user-jobs", '-',
+                additional_error))
+              goto failure;
+          
+          }
+          /* Use static expiration time for blocks (24h) independent of file size, requires file upload and replication for a single file to complete within that time.  */
+          else if (strcmp (long_options[option_index].name, "static-expiration") == 0)
+          {
+          
+          
+            if (update_arg((void *)&(args_info->static_expiration_flag), 0, &(args_info->static_expiration_given),
+                &(local_args_info.static_expiration_given), optarg, 0, 0, ARG_FLAG,
+                check_ambiguity, override, 1, 0, "static-expiration", '-',
                 additional_error))
               goto failure;
           

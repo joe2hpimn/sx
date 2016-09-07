@@ -606,6 +606,7 @@ int main(int argc, char **argv) {
     /* the interactions between these values are complex,
      * no validation: responsibility of the admin when tweaking hidden vars */
     gc_interval = args.gc_interval_arg;
+    static_expiration = args.static_expiration_given;
     gc_max_batch_time = args.gc_max_batch_time_arg;
     gc_yield_time = args.gc_yield_time_arg;
     gc_slow_check = !args.gc_no_slow_check_flag;
@@ -621,6 +622,7 @@ int main(int argc, char **argv) {
     worker_max_requests = args.worker_max_requests_arg;
     verbose_rebalance = args.verbose_rebalance_flag;
     verbose_gc = args.verbose_gc_flag;
+    INFO("Static reservation expiration is: %s", static_expiration ? "on" : "off");
 
     if(args.max_pending_user_jobs_arg <= 0) {
 	CRIT("Invalid job limit value");

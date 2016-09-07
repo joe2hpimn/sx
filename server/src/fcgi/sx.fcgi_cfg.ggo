@@ -89,3 +89,6 @@ option "verbose-gc"              - "Generate HUGE garbage collector logs"
 
 option "max-pending-user-jobs"      - "Maximum number of concurrent jobs a single user can start"
        int default="128" typestr="N" optional hidden
+
+option "static-expiration"          - "Use static expiration time for blocks (24h) independent of file size, requires file upload and replication for a single file to complete within that time"
+       flag off hidden
