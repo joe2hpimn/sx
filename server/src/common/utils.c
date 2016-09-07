@@ -643,7 +643,7 @@ float blockmgr_delay;
 int max_pending_user_jobs = 128;
 /* used outside of fcgi */
 int db_min_passive_wal_pages=5000;
-int db_max_passive_wal_pages=10000;
+int db_max_passive_wal_pages=20000;
 int db_max_restart_wal_pages=20000;
 int db_idle_restart=600;
 int db_busy_timeout=20;

@@ -141,7 +141,7 @@ void qcheckpoint_idle(sxi_db_t *db)
             struct timeval tv;
             gettimeofday(&tv, NULL);
             if (timediff(&db->tv_last, &tv) >= db_idle_restart) {
-                qcheckpoint(db);
+                qcheckpoint_run(db, SQLITE_CHECKPOINT_PASSIVE);
                 memcpy(&db->tv_last, &tv, sizeof(tv));
                 db->last_total_changes = changes;
             }

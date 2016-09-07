@@ -164,6 +164,8 @@ static int waitsemRelease(waitsem_file *p, int ofst, int n);
 
  */
 
+#define WAL_CKPT_LOCK 1
+
 static int waitsemShmLock(
   sqlite3_file *pFile,       /* Database file holding the shared memory */
   int ofst,                  /* First lock to acquire or release */
@@ -173,6 +175,11 @@ static int waitsemShmLock(
   sqlite3_file *pSubOpen = waitsemSubOpen(pFile);
   waitsem_file *p = (waitsem_file*)pFile;
   int rc;
+
+  if (ofst == WAL_CKPT_LOCK && n == 1) {
+    /* checkpoint lock should not invoke busy handler */
+    return pSubOpen->pMethods->xShmLock(pSubOpen, ofst, n, flags);
+  }
 
   if ( flags & SQLITE_SHM_LOCK ) {
     /* if there are others trying to acquire the lock: wait */

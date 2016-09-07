@@ -658,8 +658,7 @@ static int qopen(const char *path, sxi_db_t **dbp, const char *dbtype, const sx_
 
     /* TODO: pagesize might not always be 1024,
      * limits should be in bytes */
-    snprintf(qstr, sizeof(qstr), "PRAGMA journal_size_limit = %d",
-             ((db_max_passive_wal_pages + db_max_restart_wal_pages) / 2) * 1024);
+    snprintf(qstr, sizeof(qstr), "PRAGMA journal_size_limit = 0");
     if(qprep(*dbp, &q, qstr) || qstep_ret(q))
 	goto qopen_fail;
     qnullify(q);

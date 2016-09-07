@@ -58,7 +58,7 @@ option "db-min-passive-wal-pages"  - "Minimum number of pages in WAL to trigger 
        int default="5000" typestr="N" optional hidden
 
 option "db-max-passive-wal-pages"   - "Maximum number of pages in WAL to trigger a passive checkpoint"
-       int default="10000" typestr="N" optional hidden
+       int default="20000" typestr="N" optional hidden
 
 option "db-max-wal-restart-pages"   - "Maximum number of pages in WAL before forcing a WAL restart"
        int default="20000" typestr="N" optional hidden

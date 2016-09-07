@@ -56,7 +56,7 @@ const char *gengetopt_args_info_full_help[] = {
   "      --gc-no-slow-check        Don't run the old GC  (default=off)",
   "      --blockmgr-delay=sec      Blockmgr delay  (default=`3')",
   "      --db-min-passive-wal-pages=N\n                                Minimum number of pages in WAL to trigger a\n                                  passive checkpoint  (default=`5000')",
-  "      --db-max-passive-wal-pages=N\n                                Maximum number of pages in WAL to trigger a\n                                  passive checkpoint  (default=`10000')",
+  "      --db-max-passive-wal-pages=N\n                                Maximum number of pages in WAL to trigger a\n                                  passive checkpoint  (default=`20000')",
   "      --db-max-wal-restart-pages=N\n                                Maximum number of pages in WAL before forcing a\n                                  WAL restart  (default=`20000')",
   "      --db-idle-restart=sec     Interval to force a WAL restart when idle\n                                  (default=`60')",
   "      --db-busy-timeout=sec     SQLite database busy timeout  (default=`20')",
@@ -218,7 +218,7 @@ void clear_args (struct gengetopt_args_info *args_info)
   args_info->blockmgr_delay_orig = NULL;
   args_info->db_min_passive_wal_pages_arg = 5000;
   args_info->db_min_passive_wal_pages_orig = NULL;
-  args_info->db_max_passive_wal_pages_arg = 10000;
+  args_info->db_max_passive_wal_pages_arg = 20000;
   args_info->db_max_passive_wal_pages_orig = NULL;
   args_info->db_max_wal_restart_pages_arg = 20000;
   args_info->db_max_wal_restart_pages_orig = NULL;
@@ -1123,7 +1123,7 @@ cmdline_parser_internal (
           
             if (update_arg( (void *)&(args_info->db_max_passive_wal_pages_arg), 
                  &(args_info->db_max_passive_wal_pages_orig), &(args_info->db_max_passive_wal_pages_given),
-                &(local_args_info.db_max_passive_wal_pages_given), optarg, 0, "10000", ARG_INT,
+                &(local_args_info.db_max_passive_wal_pages_given), optarg, 0, "20000", ARG_INT,
                 check_ambiguity, override, 0, 0,
                 "db-max-passive-wal-pages", '-',
                 additional_error))

@@ -94,7 +94,7 @@ struct gengetopt_args_info
   int db_min_passive_wal_pages_arg;	/**< @brief Minimum number of pages in WAL to trigger a passive checkpoint (default='5000').  */
   char * db_min_passive_wal_pages_orig;	/**< @brief Minimum number of pages in WAL to trigger a passive checkpoint original value given at command line.  */
   const char *db_min_passive_wal_pages_help; /**< @brief Minimum number of pages in WAL to trigger a passive checkpoint help description.  */
-  int db_max_passive_wal_pages_arg;	/**< @brief Maximum number of pages in WAL to trigger a passive checkpoint (default='10000').  */
+  int db_max_passive_wal_pages_arg;	/**< @brief Maximum number of pages in WAL to trigger a passive checkpoint (default='20000').  */
   char * db_max_passive_wal_pages_orig;	/**< @brief Maximum number of pages in WAL to trigger a passive checkpoint original value given at command line.  */
   const char *db_max_passive_wal_pages_help; /**< @brief Maximum number of pages in WAL to trigger a passive checkpoint help description.  */
   int db_max_wal_restart_pages_arg;	/**< @brief Maximum number of pages in WAL before forcing a WAL restart (default='20000').  */
