@@ -393,6 +393,7 @@ rc_ty sx_hashfs_tmp_getinfo(sx_hashfs_t *h, int64_t tmpfile_id, sx_hashfs_tmpinf
 
 rc_ty sx_hashfs_getinfo_by_revision(sx_hashfs_t *h, const char *revision, sx_hashfs_file_t *filerev);
 rc_ty sx_hashfs_tmp_tofile(sx_hashfs_t *h, const sx_hashfs_tmpinfo_t *missing, int keeptmp);
+rc_ty sx_hashfs_tmp_isfile(sx_hashfs_t *h, const sx_hashfs_tmpinfo_t *missing);
 rc_ty sx_hashfs_tmp_delete(sx_hashfs_t *h, int64_t tmpfile_id);
 
 rc_ty sx_hashfs_revunbump(sx_hashfs_t *h, const sx_hash_t *revid, unsigned int bs);

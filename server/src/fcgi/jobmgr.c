@@ -992,7 +992,8 @@ static act_result_t replicateblocks_request(sx_hashfs_t *hashfs, job_t job_id, j
     return revision_job_from_tmpfileid(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl, 1, JOBPHASE_COMMIT);
 }
 
-static act_result_t replicateblocks_common(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl, int wait_propagation) {
+typedef enum { RB_WAIT, RB_NOWAIT_BG } rb_caller;
+static act_result_t replicateblocks_common(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl, rb_caller caller) {
     sxi_conns_t *clust = sx_hashfs_conns(hashfs);
     const sx_node_t *me = sx_hashfs_self(hashfs);
     unsigned int i, j, worstcase_rpl, nqueries = 0, giveup = 0;
@@ -1008,12 +1009,11 @@ static act_result_t replicateblocks_common(sx_hashfs_t *hashfs, job_t job_id, jo
     }
 
     memcpy(&tmpfile_id, job_data->ptr, sizeof(tmpfile_id));
-    DEBUG("replocateblocks_request for file %lld", (long long)tmpfile_id);
-    DEBUG("replicateblocks_common, wait_propagation: %d", wait_propagation);
-    /* in foreground replication (wait_propagation==0) mark all hashes as inuse so GC doesn't remove it until background replication is done,
-     * and in background replication (wait_propagation==1) use fast=1.
-     * when 'nowait' is not used set fast to 0 always (wait_propagation==2). */
-    s = sx_hashfs_tmp_getinfo(hashfs, tmpfile_id, &mis, 1, wait_propagation == 1);
+    DEBUG("replocateblocks_common for file %lld (%s)", (long long)tmpfile_id, caller == RB_WAIT ? "INUSE" : "CHECK");
+    /* in 'wait' mode use INUSE (slower)
+     * in 'nowait', during the background replication we are free to use
+     *      CHECK (faster) as INUSE was already performed by rb_fg_commit */
+    s = sx_hashfs_tmp_getinfo(hashfs, tmpfile_id, &mis, 1, caller == RB_WAIT ? 0 : 1);
     if(s == EFAULT || s == EINVAL) {
 	CRIT("Error getting tmpinfo: %s", msg_get_reason());
 	action_error(ACT_RESULT_PERMFAIL, 500, msg_get_reason());
@@ -1029,6 +1029,17 @@ static act_result_t replicateblocks_common(sx_hashfs_t *hashfs, job_t job_id, jo
 	giveup = 1;
     else if(s != OK)
 	action_error(rc2actres(s), rc2http(s), "Failed to check missing blocks");
+
+    if(caller == RB_NOWAIT_BG) {
+	/* Make sure the file was not deleted in the meantime, otherwise just claim success */
+	s = sx_hashfs_tmp_isfile(hashfs, mis);
+	if(s == ENOENT) {
+	    WARN("ACAB: File is gone");
+	    goto action_failed;
+	}
+	if(s != OK)
+	    action_error(rc2actres(s), rc2http(s), "Failed to check for file existence");
+    }
 
     worstcase_rpl = mis->replica_count;
 
@@ -1077,9 +1088,6 @@ static act_result_t replicateblocks_common(sx_hashfs_t *hashfs, job_t job_id, jo
 		action_error(ACT_RESULT_PERMFAIL, 400, "Some block is missing");
 	    }
 	}
-
-	if(!wait_propagation)
-	    continue;
 
 	/* We land here IF at least one node has got the block AND at least one node doesn't have the block */
 	/* NOTE:
@@ -1255,7 +1263,7 @@ static act_result_t replicateblocks_common(sx_hashfs_t *hashfs, job_t job_id, jo
     if(giveup || i<mis->nuniq) /* Incomplete presence check or remote xfers */
 	action_error(ACT_RESULT_NOTFAILED, 500, "Replica not completely verified");
 
-    if(wait_propagation && worstcase_rpl < mis->replica_count)
+    if(worstcase_rpl < mis->replica_count)
 	action_error(ACT_RESULT_TEMPFAIL, 500, "Replica not yet completed");
 
  action_failed:
@@ -1296,15 +1304,78 @@ static act_result_t replicateblocks_common(sx_hashfs_t *hashfs, job_t job_id, jo
 }
 
 static act_result_t replicateblocks_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
-    return replicateblocks_common(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl, 2);
+    return replicateblocks_common(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl, RB_WAIT);
 }
 
 static act_result_t replicateblocks_fg_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
-    return replicateblocks_common(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl, 0);
+    unsigned int i, j;
+    act_result_t ret = ACT_RESULT_OK;
+    sx_hashfs_tmpinfo_t *mis = NULL;
+    int64_t tmpfile_id;
+    rc_ty s;
+
+    if(job_data->len != sizeof(tmpfile_id)) {
+	CRIT("Bad job data");
+	action_error(ACT_RESULT_PERMFAIL, 500, "Internal job data error");
+    }
+
+    memcpy(&tmpfile_id, job_data->ptr, sizeof(tmpfile_id));
+    DEBUG("replocateblocks_fg_commit for file %lld", (long long)tmpfile_id);
+    /* in foreground replication mark all hashes as inuse so GC doesn't remove them until background replication is done */
+    s = sx_hashfs_tmp_getinfo(hashfs, tmpfile_id, &mis, 1, 0);
+    if(s == EFAULT || s == EINVAL) {
+	CRIT("Error getting tmpinfo: %s", msg_get_reason());
+	action_error(ACT_RESULT_PERMFAIL, 500, msg_get_reason());
+    }
+    if(s == ENOENT) {
+	WARN("Token %lld could not be found", (long long)tmpfile_id);
+	action_error(ACT_RESULT_PERMFAIL, 500, msg_get_reason());
+    }
+    if(s == EAGAIN)
+	action_error(ACT_RESULT_TEMPFAIL, 500, "Job data temporary unavailable");
+
+    if(s != OK && s != EINPROGRESS)
+	action_error(rc2actres(s), rc2http(s), "Failed to check missing blocks");
+
+    /* Loop through all blocks to check minimal availability */
+    for(i=0; i < mis->nuniq; i++) {
+	unsigned int nmissing = 0, blockno = mis->uniq_ids[i];
+
+	/* Check for block presence */
+	for(j=0; j<mis->replica_count; j++) {
+	    int8_t avlbl = mis->avlblty[blockno * mis->replica_count + j];
+	    if(avlbl > 0) /* Block is present */
+		break;
+	    else if(avlbl < 0) /* Block is missing */
+		nmissing++;
+	}
+
+	if(j < mis->replica_count) /* Some node has got this block: check next block */
+	    continue;
+
+	/* No node has got this block: job failed */
+	if(nmissing == mis->replica_count) {
+	    char missing_block[SXI_SHA1_TEXT_LEN + 1];
+	    bin2hex(&mis->all_blocks[blockno], sizeof(mis->all_blocks[0]), missing_block, sizeof(missing_block));
+	    WARN("Early flush on job %lld: hash %s could not be located ", (long long)tmpfile_id, missing_block);
+	    action_error(ACT_RESULT_PERMFAIL, 400, "Some block is missing");
+	}
+
+	/* No info available about this block: giveup */
+	action_error(ACT_RESULT_NOTFAILED, 500, "Replica not completely verified");
+    }
+
+    /* All blocks were found on at least one node */
+    for(i=0; i<sx_nodelist_count(nodes); i++)
+	succeeded[i] = 1;
+
+ action_failed:
+    free(mis);
+    return ret;
 }
 
 static act_result_t replicateblocks_bg_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t *job_data, const sx_nodelist_t *nodes, int *succeeded, int *fail_code, char *fail_msg, int *adjust_ttl) {
-    act_result_t ret = replicateblocks_common(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl, 1);
+    act_result_t ret = replicateblocks_common(hashfs, job_id, job_data, nodes, succeeded, fail_code, fail_msg, adjust_ttl, RB_NOWAIT_BG);
     int64_t tmpfile_id;
 
     if(ret != ACT_RESULT_OK)

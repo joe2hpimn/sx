@@ -10452,15 +10452,18 @@ static int sort_for_pushto_func(const void *thunk, const void *a, const void *b)
     unsigned int hashno_a = *(unsigned int *)a;
     unsigned int hashno_b = *(unsigned int *)b;
     unsigned int i;
-    int sca=0, scb=0;
 
     for(i=0; i<support->replica_count; i++) {
 	int8_t avaa = support->avlblty[support->replica_count * hashno_a + i];
 	int8_t avab = support->avlblty[support->replica_count * hashno_b + i];
-	sca += ((avaa > 0) * 1) - ((avaa < 0) * 1);
-	scb += ((avab > 0) * 1) - ((avab < 0) * 1);
+	if(avaa != avab) {
+	    if(avaa == 0 || avab == 0)
+		return (avaa == 0)  ?  -1 : +1;
+	    else
+		return (avaa < avab) ? -1 : +1; /* ACAB: test > under different scenarious */
+	}
     }
-    return sca - scb;
+    return 0;
 }
 
 static void sort_for_pushto(unsigned int *hashnos, const int8_t *avlblty, unsigned int items, unsigned int replica_count) {
@@ -11922,6 +11925,8 @@ rc_ty sx_hashfs_tmp_getinfo(sx_hashfs_t *h, int64_t tmpfile_id, sx_hashfs_tmpinf
     /* It is required to update the tempfile entry when we need to remap the blocks availability array */
     if(old_navl != navl)
         tbd->somestatechanged = 1;
+    else
+	tbd->somestatechanged = 0;
 
     tbd->nall = nblocks;
     tbd->nuniq = nuniqs;
@@ -11931,7 +11936,6 @@ rc_ty sx_hashfs_tmp_getinfo(sx_hashfs_t *h, int64_t tmpfile_id, sx_hashfs_tmpinf
     sxi_strlcpy(tbd->name, name, sizeof(tbd->name));
     tbd->file_size = file_size;
     tbd->tmpfile_id = tmpfile_id;
-    tbd->somestatechanged = 0;
 
     sxi_strlcpy(token, (const char*)sqlite3_column_text(q, 8), sizeof(token));
     sqlite3_reset(q); /* Do not deadlock if we need to update this very entry */
@@ -11944,11 +11948,14 @@ rc_ty sx_hashfs_tmp_getinfo(sx_hashfs_t *h, int64_t tmpfile_id, sx_hashfs_tmpinf
     if(nuniqs && recheck_presence) {
 	unsigned int r, l, nchecks = MIN(DOWNLOAD_MAX_BLOCKS, tbd->nuniq);
 
+	/* Optimize for presence check and subsequent replication */
+	sort_for_pushto(tbd->uniq_ids, tbd->avlblty, nuniqs, tbd->replica_count);
+
 	/* For each replica set populate tbd->avlblty via hash_presence callback */
 	for(i=1; i<=tbd->replica_count; i++) {
             sx_hash_t reserve_id;
 	    unsigned int cur_item = 0;
-	    sort_by_absence_then_node(tbd->all_blocks, tbd->uniq_ids, tbd->nidxs, tbd->avlblty, tbd->nuniq, i, tbd->replica_count);
+	    sort_by_absence_then_node(tbd->all_blocks, tbd->uniq_ids, tbd->nidxs, tbd->avlblty, nchecks, i, tbd->replica_count);
 	    if(tbd->avlblty[tbd->uniq_ids[0] * tbd->replica_count + i - 1] == 1)
 		continue;
 
@@ -12000,9 +12007,6 @@ rc_ty sx_hashfs_tmp_getinfo(sx_hashfs_t *h, int64_t tmpfile_id, sx_hashfs_tmpinf
 		tbd->uniq_ids[l] = tbd->uniq_ids[r];
 	    l++;
 	}
-
-	/* Optimize unique list for the subsequent .pushto (in replicateblocks_commit) */
-	sort_for_pushto(tbd->uniq_ids, tbd->avlblty, nuniqs, tbd->replica_count);
 
 	/* Only check a small number of blocks
 	 * Return OK if all blocks were presence checked
@@ -12197,6 +12201,40 @@ rc_ty sx_hashfs_tmp_tofile(sx_hashfs_t *h, const sx_hashfs_tmpinfo_t *missing, i
     sqlite3_reset(h->qm_metaset[mdb]);
     sqlite3_reset(h->qt_getmeta);
     sxc_meta_free(meta);
+
+    return ret;
+}
+
+rc_ty sx_hashfs_tmp_isfile(sx_hashfs_t *h, const sx_hashfs_tmpinfo_t *missing) {
+    sqlite3_stmt *q;
+    int r, ndb;
+    rc_ty ret;
+
+    if(!h || !missing) {
+	NULLARG();
+	return EFAULT;
+    }
+
+    ndb = getmetadb(missing->name);
+    if(ndb < 0) {
+	msg_set_reason("Failed to locate file database");
+	return FAIL_EINTERNAL;
+    }
+
+    q = h->qm_getrev[ndb];
+    if(qbind_int64(q, ":volume", missing->volume_id) ||
+       qbind_text(q, ":name", missing->name) ||
+       qbind_text(q, ":revision", missing->revision))
+	return FAIL_EINTERNAL;
+
+    r = qstep(q);
+    if(r == SQLITE_ROW)
+	ret = OK;
+    else if(r == SQLITE_DONE)
+	ret = ENOENT;
+    else
+	ret = FAIL_EINTERNAL;
+    sqlite3_reset(q);
 
     return ret;
 }
