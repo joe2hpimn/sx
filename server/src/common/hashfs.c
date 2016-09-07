@@ -16674,21 +16674,25 @@ static int64_t dbfilesize(sxi_db_t *db) {
     const char *dbfile;
     struct stat st;
     if(!db || !db->handle)
-	return 0;
+	return -1;
 
     dbfile = sqlite3_db_filename(db->handle, "main");
-    if(!dbfile)
-	return 0;
+    if(!dbfile) {
+	WARN("Failed to lookup db file name");
+	return -1;
+    }
 
-    if(stat(dbfile, &st))
-	return 0;
+    if(stat(dbfile, &st)) {
+	PWARN("Failed to stat database %s", dbfile);
+	return -1;
+    }
 
     return st.st_size;
 }
 
-void sx_storage_usage(sx_hashfs_t *h, int64_t *allocated, int64_t *committed) {
+int sx_hashfs_update_storage_usage(sx_hashfs_t *h) {
     unsigned int i, j;
-    int64_t al, unused;
+    int64_t t, al = 0, unused = 0;
 
     /* The allocated size is the amount of space taken on disk.
      * - for the DB files this it the size of the .db files
@@ -16703,34 +16707,75 @@ void sx_storage_usage(sx_hashfs_t *h, int64_t *allocated, int64_t *committed) {
      * better to just account for the file size here too
      */
 
-    al = dbfilesize(h->db);
-    al += dbfilesize(h->tempdb);
-    al += dbfilesize(h->tempdb);
-    al += dbfilesize(h->eventdb);
-    al += dbfilesize(h->xferdb);
-    al += dbfilesize(h->hbeatdb);
+    if((t = dbfilesize(h->db)) < 0)
+	return -1;
+    al += t;
+    if((t = dbfilesize(h->tempdb)) < 0)
+	return -1;
+    al += t;
+    if((t = dbfilesize(h->eventdb)) < 0)
+	return -1;
+    al += t;
+    if((t = dbfilesize(h->xferdb)) < 0)
+	return -1;
+    al += t;
+    if((t = dbfilesize(h->hbeatdb)) < 0)
+	return -1;
+    al += t;
 
-    for(i=0; i<METADBS; i++)
-	al += dbfilesize(h->metadb[i]);
+    for(i=0; i<METADBS; i++) {
+	if((t = dbfilesize(h->metadb[i])) < 0)
+	    return -1;
+	al += t;
+    }
 
-    unused = 0;
-    
     for(j=0; j<SIZES; j++) {
         for(i=0; i<HASHDBS; i++) {
             int64_t free_rows = get_count(h->datadb[j][i], "avail");
-            int64_t dbsize = dbfilesize(h->datadb[j][i]);
             struct stat st;
 
-            al += dbsize;
+            if((t = dbfilesize(h->datadb[j][i])) < 0)
+		return -1;
+            al += t;
             unused += (free_rows+1) * bsz[j]; /* +1: the header */
-            if(!fstat(h->datafd[j][i], &st))
-                al += st.st_size;
+            if(fstat(h->datafd[j][i], &st)) {
+		PWARN("Failed to stat %s datafile %u", sizelongnames[j], i);
+		return -1;
+	    }
+	    al += st.st_size;
         }
     }
-    if(allocated)
-	*allocated = al;
-    if(committed)
-	*committed = al - unused;
+
+    if(qbind_text(h->q_setval, ":k", "storage_size_allocated") ||
+       qbind_int64(h->q_setval, ":v", al) ||
+       qstep_noret(h->q_setval) ||
+       qbind_text(h->q_setval, ":k", "storage_size_committed") ||
+       qbind_int64(h->q_setval, ":v", al - unused) ||
+       qstep_noret(h->q_setval)) {
+	WARN("Failed to update storage size values");
+	return -1;
+    }
+
+    return 0;
+}
+
+
+void sx_storage_usage(sx_hashfs_t *h, int64_t *allocated, int64_t *committed) {
+    if(allocated) {
+	sqlite3_reset(h->q_getval);
+	if(qbind_text(h->q_getval, ":k", "storage_size_allocated") || qstep(h->q_getval) != SQLITE_ROW)
+	    *allocated = 0;
+	else
+	    *allocated = sqlite3_column_int64(h->q_getval, 0);
+    }
+    if(committed) {
+	sqlite3_reset(h->q_getval);
+	if(qbind_text(h->q_getval, ":k", "storage_size_committed") || qstep(h->q_getval) != SQLITE_ROW)
+	    *committed = 0;
+	else
+	    *committed = sqlite3_column_int64(h->q_getval, 0);
+    }
+    sqlite3_reset(h->q_getval);
 }
 
 const sx_uuid_t *sx_hashfs_distinfo(sx_hashfs_t *h, unsigned int *version, uint64_t *checksum) {

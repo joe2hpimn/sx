@@ -31,6 +31,7 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "log.h"
 #include "blockmgr.h"
@@ -584,6 +585,7 @@ int blockmgr(sxc_client_t *sx, sx_hashfs_t *hashfs, int pipe) {
     struct sigaction act;
     sqlite3_stmt *qsched = NULL;
     sxi_db_t *xferdb;
+    time_t lastszt = 0;
 
     sigemptyset(&act.sa_mask);
     act.sa_flags = 0;
@@ -643,6 +645,7 @@ int blockmgr(sxc_client_t *sx, sx_hashfs_t *hashfs, int pipe) {
 
 	while(1) {
 	    int dc, p1, p2;
+	    time_t now;
 	    msg_new_id();
 
 	    dc = sx_hashfs_distcheck(q.hashfs);
@@ -662,11 +665,16 @@ int blockmgr(sxc_client_t *sx, sx_hashfs_t *hashfs, int pipe) {
 	    p2 = unbump_revs(&unb);
 	    DEBUG("Done processing unbump queue");
 
+	    /* Update storage size values at most every 10 seconds */
+	    now = time(NULL);
+	    if(now - lastszt > 10 && sx_hashfs_update_storage_usage(q.hashfs) == 0)
+		lastszt = now;
+
 	    /* Fast loop unless we are done with both queues */
 	    if(p1 <= 0 && p2 <= 0)
 		break;
 	}
-	
+
         sx_hashfs_checkpoint_xferdb(q.hashfs);
         sx_hashfs_checkpoint_idle(q.hashfs);
     }
