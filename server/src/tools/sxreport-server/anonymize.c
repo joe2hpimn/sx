@@ -148,7 +148,8 @@ static int check_block6(const struct in6_addr *in, const char *str, int bits)
     for (i=15;i>(bits-1)/8;i--) {
         in6.s6_addr[i] = 0;
     }
-    in6.s6_addr[bits/8] &= ~ ((1 << (bits % 8)) - 1);
+    if(bits < 128)
+        in6.s6_addr[bits/8] &= ~ ((1 << (bits % 8)) - 1);
     return !memcmp(in6.s6_addr, in_mask.s6_addr, 16);
 }
 
