@@ -872,7 +872,7 @@ int main(int argc, char **argv) {
             else {
                 for(i = 0; i < args.inputs_num - 1; i++) {
                     if(source[i]) {
-                        fprintf(stderr, SXBC_TOOLS_VOL_MSG, "", "", sxc_cluster_get_sslname(cluster1));
+                        fprintf(stderr, SXBC_TOOLS_VOL_MSG, "", "", sxc_cluster_get_sslname(source[i]));
                         break;
                     }
                 }
