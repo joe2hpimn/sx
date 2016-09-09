@@ -117,13 +117,16 @@ sx_node_new_bare()
 
 sx_node_new_join()
 {
+    sx_node_new_join_nowait "$1" "--wait"
+}
+
+sx_node_new_join_nowait()
+{
     set_node_vars "$1"
-    set -x
     SX_EXISTING_NODE_IP=$(ls -1 "${HOME}/.sx/${CLUSTER_NAME}/nodes" | head -n 1)
     sed -e "s^SX_EXISTING_NODE_IP=.*^SX_EXISTING_NODE_IP=\"$SX_EXISTING_NODE_IP\"^" "$CONF_TMP" >tmp
     mv tmp "$CONF_TMP"
-    set +x
-    "$prefix/sbin/sxsetup" --config-file "$CONF_TMP" --advanced --wait
+    "$prefix/sbin/sxsetup" --config-file "$CONF_TMP" --advanced $2
 }
 
 sx_wait_rebalance()

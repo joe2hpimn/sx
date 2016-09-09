@@ -1,8 +1,10 @@
 #!/bin/bash
+set -e
 . ./common.sh
+. test/nodecmds.sh
 
 plan 2
-N=2 require_cmd test/start-nginx.sh
+N=2 require_cmd sx_create_whole_cluster 2 3
 require_cmd $SXVOL create -s 1M -o admin -r 1 $SXURI/vol1
 
 set +e

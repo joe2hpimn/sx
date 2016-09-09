@@ -24,10 +24,13 @@ export ROOT="$(pwd)/test-sx"
 
 nodegc_wait()
 {
+    echo "Waiting for unbumps"
+    # TODO: should loop over all nodes always!
     for i in $*; do
         echo "node $i" >&2
         $SXADM node --unbump-wait "test-sx/$i/var/lib/sxserver/storage" --debug
     done
+    echo "Unbumps OK"
 }
 
 nodegc()
