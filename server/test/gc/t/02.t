@@ -24,7 +24,7 @@ set +e
 (
     testcase 2 "file is reuploaded after GC"
     $SXCP 8k $SXURI/vol1 >$LOGFILE 2>&1
-    grep -c 'transferred' $LOGFILE | is 1
+    grep -c -i 'transferred' $LOGFILE | is 1
 )
 
-rm 8k
+rm -f 8k

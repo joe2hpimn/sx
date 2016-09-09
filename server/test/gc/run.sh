@@ -1,3 +1,4 @@
 #!/bin/sh
 cd $(dirname "$0")
-prove -f -a test_out.tgz "$@"
+rm -f test.log
+prove -f  "$@" 2>test.log

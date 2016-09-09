@@ -13,6 +13,7 @@ groupoption "upgrade-job" - "Run the upgrade job directly" group="MODE" hidden
 groupoption "compact" - "Compact the node data freeing up any allocated but unused storage space" group="MODE"
 groupoption "gc" - "Run GC on node immediately" group="MODE" hidden
 groupoption "gc-expire" - "Run GC on node and expire its reservations immediately" group="MODE" hidden
+groupoption "unbump-wait" - "Wait for active unbumps to complete" group="MODE" hidden
 groupoption "warm-cache" - "Warm DB caches" group="MODE" hidden
 groupoption "vacuum"    - "Vacuum" group="MODE" hidden
 groupoption "get-definition" - "Print node definition in 'cluster --mod' format" group="MODE"

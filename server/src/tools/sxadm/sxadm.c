@@ -2276,6 +2276,20 @@ static int gc_node(sxc_client_t *sx, const char *path, int force_expire)
     return s == OK ? 0 : 1;
 }
 
+static int unbump_wait_node(sxc_client_t *sx, const char *path)
+{
+    if (!sxc_is_verbose(sx)) {
+        log_setminlevel(sx, SX_LOG_INFO);
+        sxc_set_verbose(sx, 1);
+    }
+    sx_hashfs_t *hashfs = sx_hashfs_open(path, sx);
+    if (!hashfs)
+        return 1;
+    rc_ty s = sx_hashfs_unbump_wait(hashfs);
+    sx_hashfs_close(hashfs);
+    return s == OK ? 0 : 1;
+}
+
 static int warm_cache_node(sxc_client_t *sx, const char *path)
 {
     if (!sxc_is_verbose(sx)) {
@@ -2606,6 +2620,8 @@ int main(int argc, char **argv) {
 		ret = compact_data(sx, node_args.inputs[0], node_args.human_readable_flag);
             else if(node_args.gc_given || node_args.gc_expire_given)
                 ret = gc_node(sx, node_args.inputs[0], node_args.gc_expire_given);
+            else if(node_args.unbump_wait_given)
+                ret = unbump_wait_node(sx, node_args.inputs[0]);
             else if(node_args.warm_cache_given)
                 ret = warm_cache_node(sx, node_args.inputs[0]);
             else if(node_args.vacuum_given)

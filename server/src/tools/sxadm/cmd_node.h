@@ -54,6 +54,7 @@ struct node_args_info
   const char *compact_help; /**< @brief Compact the node data freeing up any allocated but unused storage space help description.  */
   const char *gc_help; /**< @brief Run GC on node immediately help description.  */
   const char *gc_expire_help; /**< @brief Run GC on node and expire its reservations immediately help description.  */
+  const char *unbump_wait_help; /**< @brief Wait for active unbumps to complete help description.  */
   const char *warm_cache_help; /**< @brief Warm DB caches help description.  */
   const char *vacuum_help; /**< @brief Vacuum help description.  */
   const char *get_definition_help; /**< @brief Print node definition in 'cluster --mod' format help description.  */
@@ -85,6 +86,7 @@ struct node_args_info
   unsigned int compact_given ;	/**< @brief Whether compact was given.  */
   unsigned int gc_given ;	/**< @brief Whether gc was given.  */
   unsigned int gc_expire_given ;	/**< @brief Whether gc-expire was given.  */
+  unsigned int unbump_wait_given ;	/**< @brief Whether unbump-wait was given.  */
   unsigned int warm_cache_given ;	/**< @brief Whether warm-cache was given.  */
   unsigned int vacuum_given ;	/**< @brief Whether vacuum was given.  */
   unsigned int get_definition_given ;	/**< @brief Whether get-definition was given.  */

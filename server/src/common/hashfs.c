@@ -15284,6 +15284,8 @@ static rc_ty foreach_hdb_blob(sx_hashfs_t *h, int *terminate,
                             !qbind_blob(q_gc2, ":revision_id", var.b, sizeof(var.b)) &&
                             !qbind_blob(q_gc3, ":revision_id", var.b, sizeof(var.b)) &&
                             !qbind_blob(q_gc_blocks, ":revision_id", var.b, sizeof(var.b))) {
+                            DEBUGHASH("Got revision_id", &var);
+                            DEBUGHASH("Got loop id", &last);
                             has_last = 1;
                             int locked = 0;
                             int ret2 = 0;
@@ -15317,8 +15319,6 @@ static rc_ty foreach_hdb_blob(sx_hashfs_t *h, int *terminate,
                         } else {
                             ret = -1;
                         }
-                        DEBUGHASH("Got revision_id", &var);
-                        DEBUGHASH("Got loop id", &last);
                     }
                 }
                 sqlite3_reset(q);
@@ -15355,6 +15355,42 @@ static rc_ty bindall(sqlite3_stmt *stmt[][HASHDBS], const char *var, int64_t val
         }
     }
     return OK;
+}
+
+rc_ty sx_hashfs_unbump_wait(sx_hashfs_t *h)
+{
+    sxi_db_t *db = h->xferdb;
+    sqlite3_stmt *q = NULL;
+    rc_ty ret = FAIL_EINTERNAL;
+    do {
+      if (qprep(db, &q, "CREATE TEMPORARY TABLE unbump_wait(unbid INTEGER NOT NULL PRIMARY KEY)") ||
+          qstep(q) != SQLITE_DONE)
+          break;
+      qnullify(q);
+
+      if (qprep(db, &q, "INSERT INTO unbump_wait SELECT unbid FROM unbumps") ||
+          qstep(q) != SQLITE_DONE)
+          break;
+      qnullify(q);
+
+      if (qprep(db, &q, "SELECT unbid FROM unbump_wait NATURAL INNER JOIN unbumps LIMIT 1"))
+          break;
+
+      while (qstep(q) == SQLITE_ROW) {
+          DEBUG("Waiting for unbumps to complete");
+          sqlite3_reset(q);
+          usleep(100000);
+      }
+      qnullify(q);
+
+      if (qprep(db, &q, "DROP TABLE unbump_wait") ||
+          qstep(q) != SQLITE_DONE)
+          break;
+
+      ret = OK;
+    } while(0);
+    qnullify(q);
+    return ret;
 }
 
 rc_ty sx_hashfs_gc_periodic(sx_hashfs_t *h, int *terminate, int grace_period)

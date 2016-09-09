@@ -340,6 +340,7 @@ rc_ty sx_hashfs_revision_op_begin(sx_hashfs_t *h);
 rc_ty sx_hashfs_revision_op(sx_hashfs_t *h, unsigned blocksize, const sx_hash_t *revision_id, int op);
 rc_ty sx_hashfs_revision_op_commit(sx_hashfs_t *h);
 void sx_hashfs_revision_op_rollback(sx_hashfs_t *h);
+rc_ty sx_hashfs_unbump_wait(sx_hashfs_t *h);
 rc_ty sx_hashfs_gc_periodic(sx_hashfs_t *h, int *terminate, int grace_period);
 rc_ty sx_hashfs_gc_run(sx_hashfs_t *h, int *terminate);
 rc_ty sx_hashfs_gc_info(sx_hashfs_t *h, int *terminate);

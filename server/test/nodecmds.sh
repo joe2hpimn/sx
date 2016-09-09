@@ -33,7 +33,7 @@ sx_init() {
     CLUSTER_UUID=f2d5c774-b40e-4bbf-88fc-9ccaa8a9e8af
     CLUSTER_BASE_URL="sx://admin@$CLUSTER_NAME"
     SX_PORT=9080
-    ROOT="/mnt/test/test-sx"
+    ROOT=${ROOT-/mnt/test/test-sx}
 }
 
 sx_wipe()
