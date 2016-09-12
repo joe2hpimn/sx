@@ -80,12 +80,10 @@ struct blockmgr_data_t {
     unsigned int blocksize;
 };
 
-static void blockmgr_del_xfer(struct blockmgr_data_t *q, int64_t xfer_id) {
-    sx_uuid_t target;
+static int blockmgr_rb_release(struct blockmgr_data_t *q, int64_t xfer_id) {
     sx_hash_t block;
+    sx_uuid_t target;
     int64_t flowid = FLOW_DEFAULT_UID;
-    rc_ty s;
-
     if(verbose_rebalance) {
 	sqlite3_stmt *qinfo = NULL;
 	const void *tptr, *bptr;
@@ -104,14 +102,21 @@ static void blockmgr_del_xfer(struct blockmgr_data_t *q, int64_t xfer_id) {
 	sqlite3_finalize(qinfo);
     }
 
-    s = sx_hashfs_blkrb_release(q->hashfs, xfer_id);
+    int s = sx_hashfs_blkrb_release(q->hashfs, xfer_id);
     if(s != OK && s != ENOENT) {
 	WARN("Failed to release block %lld", (long long)xfer_id);
 	if(flowid == FLOW_BULK_UID)
 	    rbl_log(&block, "blkrb_release", 0, "Error %d (%s)", s,  msg_get_reason());
+        return 1;
     } else {
-	if(flowid == FLOW_BULK_UID)
-	    rbl_log(&block, "blkrb_release", 1, s == OK ? "Block released" : "Block not locked");
+        if(flowid == FLOW_BULK_UID)
+            rbl_log(&block, "blkrb_release", 1, s == OK ? "Block released" : "Block not locked");
+        return 0;
+    }
+}
+
+static void blockmgr_del_xfer(struct blockmgr_data_t *q, int64_t xfer_id) {
+    if (!(blockmgr_rb_release(q, xfer_id))) {
 	sqlite3_reset(q->qdel);
 	if(qbind_int64(q->qdel, ":id", xfer_id) ||
 	   qstep_noret(q->qdel))
