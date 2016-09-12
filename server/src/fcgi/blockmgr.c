@@ -340,7 +340,11 @@ static int blockmgr_process_queue(struct blockmgr_data_t *q) {
 		    q->hashlist.havehs[i] = 1; /* Dequeue */
 		} else if(sx_hashfs_block_get(q->hashfs, q->blocksize, &q->hashlist.binhs[i], &b)) {
 		    INFO("Block %ld was not found locally", q->hashlist.ids[i]);
-		    q->hashlist.havehs[i] = 2; /* Reschedule */
+                    q->hashlist.havehs[i] = 2; /* Reschedule */
+                    if (sx_hashfs_is_rebalancing(q->hashfs)) {
+                        /* avoid bb#1964 infloop */
+                        blockmgr_rb_release(q, q->hashlist.ids[i]);
+                    }
 		} else {
 		    memcpy(curb, b, q->blocksize);
 		    curb += q->blocksize;
