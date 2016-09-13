@@ -44,6 +44,7 @@ typedef struct {
   sem_t *sem;
   int held;
   unsigned ofst;
+  int tries;
 } TimedLock;
 static int timedlockOpen(TimedLock *lock, struct stat *sb, int nLock);
 static void timedlockClose(TimedLock *lock, int deleteFlag);
@@ -61,9 +62,6 @@ typedef struct {
   TimedLock waiting[SQLITE_SHM_NLOCK];
   int busy_timeout;
   volatile void *pShared;
-  int last_ofst;
-  int last_n;
-  int tries;
   /* The underlying VFS sqlite3_file is appended to this object */
 } waitsem_file;
 static sqlite3_file *waitsemSubOpen(sqlite3_file *pFile);
@@ -208,12 +206,6 @@ static int waitsemShmLock(
     #endif
     waitsemRelease(p, ofst, n);
   }
-  if( rc==SQLITE_BUSY ) {
-    p->last_ofst=ofst;
-    p->last_n=n;
-  } else
-    p->last_ofst=p->last_n=0;
-  p->tries=0;
 
   int nExclusiveLockMask = SQLITE_SHM_LOCK|SQLITE_SHM_EXCLUSIVE;
   if ( rc==SQLITE_OK &&
@@ -339,6 +331,25 @@ static int timedlockAcquire(TimedLock *lock, unsigned nMaxWaitMilli)
   struct timespec abs_timeout;
   assert( timedlockIsValid(lock) );
   assert( !timedlockHeld(lock) ) ;
+
+  /*
+    try #0: check semaphore -> EBUSY if cannot acquire (timeout=0)
+    try #1: check semaphore -> OK if cannot acquire after timeout = 10 ms
+    - check if SQLite lock can be acquired -> detect dead owner
+    try #N: check semaphore -> OK if cannot acquire after timeout = busy_timeout
+  */
+  switch (lock->tries) {
+  case 0:
+    /* only one timeout can be this small, otherwise the busy handler will introduce latency
+       and unfairness by sleeping outside a semaphore */
+    nMaxWaitMilli = 0;
+    break;
+  case 1:
+    nMaxWaitMilli = nMaxWaitMilli > 10 ? 10 : nMaxWaitMilli;
+    break;
+  default:
+    break;
+  }
 
   if ( clock_gettime(CLOCK_REALTIME, &abs_timeout)!=0 )
     return unixLogError(SQLITE_IOERR_LOCK, "clock_gettime", "");
@@ -614,30 +625,15 @@ static int waitsemAcquire(waitsem_file *p, int ofst, int n)
   int rc, timeout = p->busy_timeout;
   assert( waitsemIsValid(ofst, n) );
 
-  /*
-    try #0: check semaphore -> EBUSY if cannot acquire (timeout=0)
-    try #1: check semaphore -> OK if cannot acquire after timeout = 10 ms
-     - check if SQLite lock can be acquired -> detect dead owner
-    try #N: check semaphore -> OK if cannot acquire after timeout = busy_timeout
-   */
-  if (p->tries == 1)
-    timeout = timeout > 10 ? 10 : timeout;
-  /* only one timeout can be this small, otherwise the busy handler will introduce latency
-     and unfairness by sleeping outside a semaphore */
-
-  if( p->last_ofst!=ofst || p->last_n!=n )
-    timeout = 0; /* checkpoint and non-repeated lock attempts should return busy fast */
-
   for(i=ofst;i<ofst+n;i++) {
     rc = timedlockAcquire(&p->waiting[i], timeout);
     if( rc!=SQLITE_OK ) {
+      p->waiting[i].tries++;
       while( i-- > ofst && p->waiting[i].held)
         timedlockRelease(&p->waiting[i]);
-      p->last_ofst=ofst;
-      p->last_n=n;
-      p->tries++;
       return rc;
     }
+    p->waiting[i].tries = 0;
   }
   return SQLITE_OK;
 }
