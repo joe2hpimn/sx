@@ -215,8 +215,9 @@ static int waitsemShmLock(
     p->last_ofst=p->last_n=0;
   p->tries=0;
 
+  int nExclusiveLockMask = SQLITE_SHM_LOCK|SQLITE_SHM_EXCLUSIVE;
   if ( rc==SQLITE_OK &&
-       ( flags & (SQLITE_SHM_LOCK|SQLITE_SHM_EXCLUSIVE) )) {
+       (flags & nExclusiveLockMask) == nExclusiveLockMask) {
     /* if semaphore owner died (semaphore acquire timed out, but SQLite lock worked) then
        mark the semaphore as held, so that on unlock we release it. */
     waitsemHeld(p, ofst, n);
