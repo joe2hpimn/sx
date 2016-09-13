@@ -3537,18 +3537,16 @@ char *sxc_user_newkey(sxc_cluster_t *cluster, const char *username, const char *
     qret = sxi_jobs_wait(jobs, conns);
     if(!qret) {
 	retkey = malloc(AUTHTOK_ASCII_LEN + 1);
-	if(!retkey) {
-	    cluster_err(SXE_EMEM, "Unable to allocate memory for user key");
-	} else {
+	if(retkey) {
 	    sxi_strlcpy(retkey, tok, AUTHTOK_ASCII_LEN + 1);
-        }
-
-        if(!different_user) {
-            if(sxc_cluster_add_access(cluster, profile_name, retkey) || sxc_cluster_save(cluster, sxc_get_confdir(sx))) {
-                sxi_notice(sx, "WARNING: Failed to store new authentication token");
-                /* User key has been successfully changed, do not fail and print the new key */
-            }
-        }
+	    if(!different_user) {
+		if(sxc_cluster_add_access(cluster, profile_name, retkey) || sxc_cluster_save(cluster, sxc_get_confdir(sx))) {
+		    sxi_notice(sx, "WARNING: Failed to store new authentication token");
+		    /* User key has been successfully changed, do not fail and print the new key */
+		}
+	    }
+	} else
+	    cluster_err(SXE_EMEM, "Unable to allocate memory for user key");
     }
     free(tok);
     /* job is freed with jobs context */
@@ -4376,8 +4374,8 @@ sxc_cluster_status_err:
 
 static int distribution_lock_common(sxc_cluster_t *cluster, int op, const char *master) {
     sxi_query_t *query;
-    sxc_client_t *sx = sxi_cluster_get_client(cluster);
-    sxi_conns_t *conns = sxi_cluster_get_conns(cluster);
+    sxc_client_t *sx;
+    sxi_conns_t *conns;
     sxi_hostlist_t *hosts, new_hosts;
     const char *min_host = NULL;
     unsigned int i;

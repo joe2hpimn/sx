@@ -6446,12 +6446,10 @@ rc_ty sx_hashfs_upgrade_1_0_or_1_1_local(sx_hashfs_t *h)
 
     sx_hashfs_set_progress_info(h, INPRG_UPGRADE_RUNNING, "Upgrade - local file blocks");
     for(i=0;i<METADBS;i++) {
-        db = h->metadb[i];
-        if(qprep(db, &q, "SELECT SUM(blocks) FROM heal WHERE remote_volume IS NULL") ||
+        if(qprep(h->metadb[i], &q, "SELECT SUM(blocks) FROM heal WHERE remote_volume IS NULL") ||
            qstep_ret(q))
             break;
         heal_required += sqlite3_column_int64(q, 0);
-        db = h->metadb[i];
         qnullify(q);
     }
     qnullify(q);
