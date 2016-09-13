@@ -15202,12 +15202,15 @@ static rc_ty hash_of_blob_result(sx_hash_t *hash, sqlite3_stmt *stmt, int col)
     return OK;
 }
 
-static rc_ty gc_block(sx_hashfs_t *h, unsigned j, unsigned i, sqlite3_stmt *q, int col_id, int col_hash)
+static rc_ty gc_block(sx_hashfs_t *h, unsigned j, unsigned i, sqlite3_stmt *q, int col_id, int col_hash, int64_t *lastp)
 {
     sx_hash_t hash;
     sqlite3_stmt *q_setfree = h->qb_setfree[j][i];
     sqlite3_stmt *q_gc = h->qb_gc1[j][i];
     int64_t last = sqlite3_column_int64(q, col_id);
+
+    if (lastp)
+        *lastp = last;
 
     if (hash_of_blob_result(&hash, q, col_hash) == OK) {
         if (sx_hashfs_blkrb_can_gc(h, &hash, bsz[j]) != OK) {
@@ -15291,7 +15294,7 @@ static rc_ty foreach_hdb_blob(sx_hashfs_t *h, int *terminate,
                             int ret2 = 0;
                             while ((ret2 = qstep(q_gc_blocks)) == SQLITE_ROW) {
                                 DEBUG("got row");
-                                int r = gc_block(h, j, i, q_gc_blocks, 0, 2);
+                                int r = gc_block(h, j, i, q_gc_blocks, 0, 2, NULL);
                                 if (r == OK)
                                     gc_blocks++;
                                 else if (r == EAGAIN)
@@ -15478,7 +15481,7 @@ rc_ty sx_hashfs_gc_run(sx_hashfs_t *h, int *terminate)
                     break;
                 }
                 while((ret = qstep(q)) == SQLITE_ROW && !*terminate) {
-                    int r = gc_block(h, j, i, q, 0, 2);
+                    int r = gc_block(h, j, i, q, 0, 2, &last);
                     if (r == OK) {
                         gc_blocks++;
                     } else if (r != EAGAIN) {
