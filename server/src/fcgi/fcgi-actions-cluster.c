@@ -449,13 +449,26 @@ void fcgi_handle_cluster_requests(void) {
 
 
 void fcgi_challenge_response(void) {
+    sx_hashfs_version_t cver, *lver;
     sx_hash_challenge_t c;
+    const char *chstr;
 
     if(!sx_storage_is_bare(hashfs))
 	quit_errmsg(403, "This node is active");
-    if(strlen(path) != sizeof(c.challenge) * 2)
+    chstr = strchr(path, '/');
+    if(!chstr)
+	quit_errmsg(400, "Cluster version missing (cluster running an older version?)");
+    if(sx_hashfs_version_parse(&cver, path, chstr-path) != OK)
+	quit_errmsg(400, "Invalid cluster version (cluster is incompatible with this node; check versions!)");
+    chstr++;
+    lver = sx_hashfs_version(hashfs);
+    if(sx_hashfs_version_cmp(&cver, lver)) {
+	CRIT("Challenge version mismatch: Cluster version %s, node local version %s", cver.str, lver->str);
+	quit_errmsg(400, "Cluster version mismatch (check cluster and node versions)");
+    }
+    if(strlen(chstr) != sizeof(c.challenge) * 2)
 	quit_errnum(404);
-    if(hex2bin(path, sizeof(c.challenge) * 2, c.challenge, sizeof(c.challenge)))
+    if(hex2bin(chstr, sizeof(c.challenge) * 2, c.challenge, sizeof(c.challenge)))
 	quit_errnum(404);
     if(sx_hashfs_challenge_gen(hashfs, &c, 0))
 	quit_errnum(400);

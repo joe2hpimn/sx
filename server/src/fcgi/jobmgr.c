@@ -2213,7 +2213,9 @@ static int sync_global_objects(sx_hashfs_t *hashfs, const sxi_hostlist_t *hlist)
 
 static int challenge_and_sync(sx_hashfs_t *hashfs, const sx_node_t *node, int *fail_code, char *fail_msg) {
     sx_hash_challenge_t chlrsp;
-    char challenge[lenof(".challenge/") + sizeof(chlrsp.challenge) * 2 + 1];
+    sx_hashfs_version_t *lver;
+    char nounce[sizeof(chlrsp.challenge) * 2 + 1], *enc_ver;
+    char challenge[lenof(".challenge//") + lenof(lver->str)*3 + lenof(nounce) + 1];
     sxi_conns_t *clust = sx_hashfs_conns(hashfs);
     sxc_client_t *sx = sx_hashfs_client(hashfs);
     struct cb_challenge_ctx ctx;
@@ -2235,11 +2237,21 @@ static int challenge_and_sync(sx_hashfs_t *hashfs, const sx_node_t *node, int *f
 	goto sync_err;
     }
 
-    strcpy(challenge, ".challenge/");
-    bin2hex(chlrsp.challenge, sizeof(chlrsp.challenge), challenge + lenof(".challenge/"), sizeof(challenge) - lenof(".challenge/"));
+    lver = sx_hashfs_version(hashfs);
+    enc_ver = sxi_urlencode(sx, lver->str, 0);
+    if(!enc_ver) {
+	WARN("Not enough memory to perform challenge request on %s", sx_node_uuid_str(node));
+	ret = 1;
+	goto sync_err;
+    }
+    bin2hex(chlrsp.challenge, sizeof(chlrsp.challenge), nounce, sizeof(nounce));
+    snprintf(challenge, sizeof(challenge), ".challenge/%s/%s", enc_ver, nounce);
+    free(enc_ver);
     qret = sxi_cluster_query(clust, &hlist, REQ_GET, challenge, NULL, 0, NULL, challenge_cb, &ctx);
     if(qret != 200 || ctx.at != sizeof(chlrsp.response)) {
 	WARN("Challenge query to %s failed: %s", sx_node_uuid_str(node), sxc_geterrmsg(sx));
+	WARN("Make sure the new node(s) are running the same version as the cluster.");
+	WARN("Check node log files for more details");
 	ret = 2;
 	goto sync_err;
     }
@@ -2357,9 +2369,9 @@ static act_result_t distribution_request(sx_hashfs_t *hashfs, job_t job_id, job_
 	    case 0:
 		break;
 	    case 1:
-		action_error(ACT_RESULT_PERMFAIL, 500, "Failed to join new node due to local errors");
+		action_error(ACT_RESULT_PERMFAIL, 500, "Failed to join new node due to local errors (check logs!)");
 	    default:
-		action_error(ACT_RESULT_PERMFAIL, 500, "Failed to join new node due to remote errors");
+		action_error(ACT_RESULT_PERMFAIL, 500, "Failed to join new node due to remote errors (check logs!)");
 	    }
 	}
     }
