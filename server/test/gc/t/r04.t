@@ -40,15 +40,24 @@ set +e
 
 (
     testcase 3 "Rebalance: add 2 nodes"
-    require_cmd sx_node_new_join 5
+    test-sx/3/sbin/sxserver stop
+    echo verbose-rebalance >>test-sx/3/etc/sxserver/sxfcgi.conf
+    test-sx/3/sbin/sxserver start
+
+    require_cmd sx_node_new_join_nowait 5 --advanced
+    nodegc 3 5 >$LOGFILE 2>&1
+    sx_wait_rebalance_node 3
     require_cmd sx_node_new_join 6
 
     require_cmd $SXCP $SXURI/vol1/x1 x1__
     cmp x1 x1__
 
-    nodegc 3 5 6 >$LOGFILE 2>&1
-    # TODO: should be 30 if moved?
-    #(! grep -c 'freeing block' $LOGFILE) | is 0
+    nodegc 3 5 6 >>$LOGFILE 2>&1
+
+    # block may be moved multiple times due to 2 rebalances
+    EXPECTED=$(grep 'RBL.*New home' test-sx/{3,5,6}/var/log/sxserver/sxfcgi.log | grep -Eo 'block [^ ]+' | sort -u | wc -l | sum)
+
+    (grep 'freeing block with hash' $LOGFILE | sort -u | wc -l) | is "$EXPECTED"
 
     nodegc_expire 3 5 6 >$LOGFILE 2>&1
     (! grep -c 'freeing block' $LOGFILE) | is 0
@@ -59,8 +68,7 @@ set +e
     require_cmd $SXRM $SXURI/vol1/x1
 
     nodegc 3 5 6 >$LOGFILE 2>&1
-    # TODO: should be 30?
-    #(! grep -c 'freeing block' $LOGFILE) | is 30
+    (grep -c 'freeing block with hash' $LOGFILE) | is 30
 
     nodegc_expire 3 5 6 >$LOGFILE 2>&1
     (! grep -c 'freeing block' $LOGFILE) | is 0

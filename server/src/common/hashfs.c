@@ -15456,7 +15456,30 @@ rc_ty sx_hashfs_gc_run(sx_hashfs_t *h, int *terminate)
                          h->qb_find_unused_revision, ":last_revision_id",
                          0, &gc_unused_tokens))
         ret = -1;
-    if (!gc_slow_check)
+
+    sqlite3_reset(h->q_getval);
+    if(qbind_text(h->q_getval, ":k", "gc_last_hdist"))
+        return FAIL_EINTERNAL;
+    int last_hdist;
+    switch(qstep(h->q_getval)) {
+    case SQLITE_ROW:
+        last_hdist = sqlite3_column_int(h->q_getval, 0);
+        break;
+    case SQLITE_DONE:
+        last_hdist = -1;
+        break;
+    default:
+        return FAIL_EINTERNAL;
+    }
+    int current_hdist = sxi_hdist_version(h->hd);
+    sqlite3_reset(h->q_getval);
+    /* must run slow check either if:
+        - it is explicitly enabled
+        - during a rebalance
+        - after a rebalance (once) */
+    if (!(gc_slow_check ||
+          sx_hashfs_is_rebalancing(h) ||
+          last_hdist != current_hdist))
         return ret;
     INFO("Running slow check");
     for (j=0;j<SIZES && !ret && !*terminate ;j++) {
@@ -15499,6 +15522,13 @@ rc_ty sx_hashfs_gc_run(sx_hashfs_t *h, int *terminate)
                     qrollback(h->datadb[j][i]);
             } while (ret == SQLITE_ROW && !*terminate);
         }
+    }
+    if (ret == OK && !*terminate) {
+        sqlite3_reset(h->q_setval);
+        if(qbind_text(h->q_setval, ":k", "gc_last_hdist") ||
+           qbind_int(h->q_setval, ":v", current_hdist) ||
+           qstep_noret(h->q_setval))
+            return FAIL_EINTERNAL;
     }
     INFO("GCed %lld hashes and %lld unused tokens", (long long)gc_blocks, (long long)gc_unused_tokens);
     sx_hashfs_incore(h, NULL, NULL);

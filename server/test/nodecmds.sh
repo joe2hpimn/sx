@@ -129,9 +129,9 @@ sx_node_new_join_nowait()
     "$prefix/sbin/sxsetup" --config-file "$CONF_TMP" --advanced $2
 }
 
-sx_wait_rebalance()
+sx_wait_rebalance_node()
 {
-    load_node_vars 1 || return 1
+    load_node_vars "$1" || return 1
     while true; do
         sx_cluster_info >tmp || { cat tmp; sleep 1; continue; }
         if grep 'Target configuration' tmp >/dev/null; then
@@ -142,6 +142,11 @@ sx_wait_rebalance()
         fi
         break
     done
+}
+
+sx_wait_rebalance()
+{
+    sx_wait_rebalance_node 1
 }
 
 sx_node_remove()

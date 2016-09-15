@@ -51,3 +51,12 @@ is()
         exit 1
     fi
 }
+
+sum()
+{
+    SUM=0
+    while read X; do
+        SUM=$(expr "$SUM" + "$X")
+    done
+    echo "$SUM"
+}
