@@ -45,7 +45,7 @@ This option removes an advisory lock.
 This option can proportionally grow or shrink the entire cluster, resizing each individual node with respect to its size. For example, growing a cluster made of three nodes: A(1TB), B(1TB), C(2TB) by 4TB will results in new node sizes: A(2TB), B(2TB), C(4TB). The benefit of using this option is a minimized relocation of data across the cluster. The nodes can be also resized individually with \fB\-\-modify\fR.
 .TP
 \fB\-F\fR, \fB\-\-replace\-faulty\fR
-Replace faulty nodes in a cluster. This option takes pairs of faulty node \- replacement node, where the replacement node should provide the same capacity as the faulty one. The replace process assumes all data on the faulty node has been lost and will attempt to recover it from the other nodes in the cluster.
+Replace faulty nodes in a cluster. This option takes a list of replacement nodes. Each replacement node should provide the same UUID and capacity as the faulty one. The replace process assumes all data on the faulty node has been lost and will attempt to recover it from the other nodes in the cluster.
 .TP
 \fB\-S\fR, \fB\-\-set\-faulty\fR
 This option marks selected nodes as faulty, which will no longer be used by the clients. They can be later replaced with \fB\-\-replace\-faulty\fR.
