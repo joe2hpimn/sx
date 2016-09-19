@@ -507,9 +507,9 @@ if [ "$INFO_GIVEN" = "yes" -o "$UPGRADE_GIVEN" = "yes" -o "$COMPACT_GIVEN" = "ye
 	    trap - EXIT INT
 	    exit 0
 	elif [ $RET -ne 0 ]; then
-	    # 2.0 doesn't require cluster upgrade
+	    # 2.X doesn't require cluster upgrade
 	    echo
-	    if [ -n "`@sbindir@/sxadm -V | grep '^sxadm 2.0'`" ]; then
+	    if [ -n "`@sbindir@/sxadm -V | grep '^sxadm 2.'`" ]; then
 		echo "More nodes in the cluster require upgrading."
 	    else
 		echo "Could not upgrade the remote cluster data at this point. Please run"
