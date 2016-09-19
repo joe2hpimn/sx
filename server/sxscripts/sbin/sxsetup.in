@@ -48,6 +48,9 @@ while [ $OPTNUM -le $# ]; do
 	    exit 1
 	fi
 
+    elif [ "$OPTION" = "--check" ]; then
+	CHECK_GIVEN="yes"
+
     elif [ "$OPTION" = "--compact" ]; then
 	COMPACT_GIVEN="yes"
 
@@ -84,6 +87,7 @@ if [ "$HELP_GIVEN" = "yes" ]; then
     echo "    --bare              Create a bare (unprogrammed) node"
     echo "    --force-reinit      Overwrite existing configuration"
     echo "    --new-ip IP[/intIP] Update the IP address(es) of the node"
+    echo "    --check             Check the integrity of the local storage"
     echo "    --compact           Compact the local storage of the node"
     echo "    --deactivate        Leave cluster and deactivate the node"
     echo "    --wait              Wait till rebalance finishes after joining the cluster"
@@ -249,7 +253,7 @@ chmod 600 $ADMINKEY_TMP
 trap "rm -rf $SXSETUP_TMPDIR; exit 1" EXIT INT
 
 
-if [ "$INFO_GIVEN" = "yes" -o "$UPGRADE_GIVEN" = "yes" -o "$COMPACT_GIVEN" = "yes" -o "$NEW_IP_GIVEN" = "yes" ]; then
+if [ "$INFO_GIVEN" = "yes" -o "$UPGRADE_GIVEN" = "yes" -o "$COMPACT_GIVEN" = "yes" -o "$CHECK_GIVEN" = "yes" -o "$NEW_IP_GIVEN" = "yes" ]; then
     if [ ! -f "$CONFIG" ]; then
 	echo "Not configured. You have to run sxsetup in configuration mode first."
 	exit 1
@@ -366,7 +370,7 @@ if [ "$INFO_GIVEN" = "yes" -o "$UPGRADE_GIVEN" = "yes" -o "$COMPACT_GIVEN" = "ye
 	trap - EXIT INT
 	exit 0
 
-    elif [ "$COMPACT_GIVEN" = "yes" ]; then
+    elif [ "$COMPACT_GIVEN" = "yes" -o "$CHECK_GIVEN" = "yes" ]; then
 	check_admin || exit 1
 
 	HB_DEADTIME="`@sbindir@/sxadm cluster --get-param hb_deadtime sx://admin@$SX_CLUSTER_NAME 2>/dev/null | grep hb_deadtime | grep -v '=0$'`"
@@ -378,9 +382,13 @@ if [ "$INFO_GIVEN" = "yes" -o "$UPGRADE_GIVEN" = "yes" -o "$COMPACT_GIVEN" = "ye
 		exit 1
 	    fi
 	fi
-	echo "The node will be stopped now and started again when compacting is finished"
+	echo "The node will be stopped now and started again when the operation is finished"
 	"@sbindir@/sxserver" stop
-	"@sbindir@/sxadm" node $OWNERFLAG --human-readable --compact $SX_DATA_DIR
+	if [ "$COMPACT_GIVEN" = "yes" ]; then
+	    "@sbindir@/sxadm" node $OWNERFLAG --human-readable --compact $SX_DATA_DIR
+	else
+	    "@sbindir@/sxadm" node $OWNERFLAG --check $SX_DATA_DIR
+	fi
 	"@sbindir@/sxserver" start
 	if [ -n "$HB_DEADTIME" ]; then
 	    echo "Re-enabling automatic node removal..."

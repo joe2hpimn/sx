@@ -38,6 +38,9 @@ With this option one can reconfigure an existing node.
 \fB\-\-new\-ip\fR \fI\,IPaddr[/internalIPaddr]\/\fR
 Change the existing IP address(es) of the node. sxsetup will update the local configuration and inform the cluster about the changes. In case of problems, the original configuration will be restored.
 .TP
+\fB\-\-check\fR
+Perform the integrity check of the local storage. The process might take more time, depending on the size of the data. The node will be offline during the check.
+.TP
 \fB\-\-compact\fR
 This option will compact the node's data to release unused space to the system, see \fBsxadm-node\fR(1) for more information. The node will be offline during the process.
 .TP
