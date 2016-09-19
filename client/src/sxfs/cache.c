@@ -38,6 +38,7 @@
 #define BLOCK_STATUS_BUSY 1
 #define BLOCK_STATUS_DONE 2
 #define BLOCK_STATUS_FAILED 3
+#define MIN_FREE_SIZE (3 * 1024 * 1024) /* 3 MB */
 
 struct _block_state_t {
     int waiting, status;
@@ -244,6 +245,8 @@ static int cache_make_space (sxfs_state_t *sxfs, unsigned int size) {
     blockfile_t *list_small = NULL, *list_medium = NULL, *list_large = NULL;
 
     if(sxfs->cache->used + size > sxfs->cache->size) {
+        if(size < MIN_FREE_SIZE)
+            size = MIN_FREE_SIZE;
         if((ret = load_files(sxfs, sxfs->cache->dir_small, &list_small, &nfiles_small)))
             goto cache_make_space_err;
         if((ret = load_files(sxfs, sxfs->cache->dir_medium, &list_medium, &nfiles_medium)))
