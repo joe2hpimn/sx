@@ -4475,6 +4475,9 @@ static rc_ty metadb_2_1_6_to_2_2_0(sxi_db_t *db)
         if(qprep(db, &q, "CREATE INDEX tombstones_idx ON files(age) WHERE age < 0") || qstep_noret(q))
             break;
         qnullify(q);
+        if(qprep(db, &q, "CREATE INDEX IF NOT EXISTS files_etag ON files(volume_id,rev,age)") || qstep_noret(q))
+            break;
+        qnullify(q);
 
         ret = OK;
     } while(0);
