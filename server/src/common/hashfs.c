@@ -2014,9 +2014,8 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
             if(qprep(h->datadb[j][i], &h->qb_volrep_release_revid_blocks[j][i], "DELETE FROM revision_blocks WHERE blocks_hash = :hash"))
                 goto open_hashfs_fail;
 
-	    /* Note: we do not want an index on global_vol_id since it is only used during volume replica changes
-	       and it would be pointlessly expensive to maintain under normal usage */
-            if(qprep(h->datadb[j][i], &h->qb_volrep_update_replica[j][i], "UPDATE revision_blocks SET replica = :next_replica WHERE global_vol_id = :global_vol_id AND replica = :prev_replica")) /* SLOWQ */
+	    /* This query uses a temporary index created for the volume replica change purposes */
+            if(qprep(h->datadb[j][i], &h->qb_volrep_update_replica[j][i], "UPDATE revision_blocks SET replica = :next_replica WHERE global_vol_id = :global_vol_id AND replica = :prev_replica"))
                 goto open_hashfs_fail;
 
 	    sprintf(dbitem, "datafile_%c_%08x", sizedirs[j], i);
@@ -4953,7 +4952,7 @@ static rc_ty datadb_2_1_3_to_2_1_4(sxi_db_t *db)
     sqlite3_stmt *q = NULL;
     do {
         /* global_vol_id stores global volume IDs */
-        if(qprep(db, &q, "ALTER TABLE revision_blocks ADD COLUMN global_vol_id BLOB ("STRIFY(UUID_BINARY_SIZE)") DEFAULT NULL") || qstep_noret(q))
+        if(qprep(db, &q, "ALTER TABLE revision_blocks ADD COLUMN global_vol_id BLOB ("STRIFY(SXI_SHA1_BIN_LEN)") DEFAULT NULL") || qstep_noret(q))
             break;
 
         ret = OK;
@@ -18570,7 +18569,7 @@ rc_ty sx_hashfs_replace_setlastblock(sx_hashfs_t *h, const sx_uuid_t *node, cons
 
 rc_ty sx_hashfs_volrep_setlastblock(sx_hashfs_t *h, const sx_uuid_t *node, const uint8_t *blkidx) {
     sqlite3_stmt *q = NULL;
-    int ret = FAIL_EINTERNAL;
+    rc_ty ret = FAIL_EINTERNAL;
 
     if(!h || !node) {
         NULLARG();
@@ -20744,8 +20743,72 @@ blob_to_sxc_meta_err:
     return ret;
 }
 
+/*
+ * Prepare an index on hash databases which should.
+ *
+ * This function should be called before the independent blocks relocation jobs are scheduled.
+ */
+static rc_ty volrep_prepare_index(sx_hashfs_t *h) {
+    rc_ty ret = OK;
+    unsigned int i;
+    sqlite3_stmt *q = NULL;
+
+    if(!h) {
+        NULLARG();
+        return EINVAL;
+    }
+
+    for(i = 0; i < SIZES; i++) {
+        unsigned int j;
+
+        for(j = 0; j < HASHDBS; j++) {
+            if(qprep(h->datadb[i][j], &q, "CREATE INDEX IF NOT EXISTS global_vol_id_temp_idx ON revision_blocks(global_vol_id, blocks_hash)") ||
+               qstep_noret(q)) {
+                msg_set_reason("Failed to prepare the blocks relocation index");
+                ret = FAIL_EINTERNAL;
+            }
+            qnullify(q);
+        }
+    }
+
+    return ret;
+}
+
+/*
+ * Release the index created in the hash databases for the volume replica change purposes.
+ *
+ * This function should be called when all the independent blocks relocation jobs are finished, because the pull-based
+ * approach does not allow to predict if other nodes have already finished pulling blocks when the relocation
+ * phase finishes on the local node.
+ */
+static rc_ty volrep_release_index(sx_hashfs_t *h) {
+    rc_ty ret = OK;
+    unsigned int i;
+    sqlite3_stmt *q = NULL;
+
+    if(!h) {
+        NULLARG();
+        return EINVAL;
+    }
+
+    for(i = 0; i < SIZES; i++) {
+        unsigned int j;
+
+        for(j = 0; j < HASHDBS; j++) {
+            if(qprep(h->datadb[i][j], &q, "DROP INDEX IF EXISTS global_vol_id_temp_idx") || qstep_noret(q)) {
+                msg_set_reason("Failed to release blocks relocation index");
+                ret = FAIL_EINTERNAL;
+            }
+            qnullify(q);
+        }
+    }
+
+    return ret;
+}
+
 rc_ty sx_hashfs_modify_volume_replica(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, unsigned int prev_replica, unsigned int next_replica) {
     sqlite3_stmt *q;
+    rc_ty s;
 
     if(!vol) {
         msg_set_reason("NULL argument");
@@ -20785,6 +20848,18 @@ rc_ty sx_hashfs_modify_volume_replica(sx_hashfs_t *h, const sx_hashfs_volume_t *
     if(prev_replica != next_replica && vol->max_replica != prev_replica) {
         msg_set_reason("Invalid prev replica");
         return EINVAL;
+    }
+
+    if(prev_replica == next_replica) {
+        /* Clean up indices created for the blocks relocation phase purposes */
+        sx_hashfs_set_progress_info(h, INPRG_VOLREP_RUNNING, "Cleaning up the blocks relocation phase");
+        if((s = volrep_release_index(h)) != OK)
+            return s;
+    } else {
+        /* Prepare indices on hash databases */
+        sx_hashfs_set_progress_info(h, INPRG_VOLREP_RUNNING, "Preparing the blocks relocation phase");
+        if((s = volrep_prepare_index(h)) != OK)
+            return s;
     }
 
     q = h->q_modreplica;

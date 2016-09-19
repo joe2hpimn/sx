@@ -2627,7 +2627,11 @@ void fcgi_modify_volume_replica(void) {
     }
 
     sx_blob_to_data(b, &job_data, &job_data_len);
-    s = sx_hashfs_job_new_notrigger(hashfs, JOB_NOPARENT, uid, &job, JOBTYPE_VOLREP_CHANGE, 20 * nallnodes, NULL, job_data, job_data_len, allnodes);
+    /*
+     * This job is responsible for bumping replica values of the volume on all the nodes and for preparing appropriate indices
+     * on the block tables. The latter operation might take a considerable time if the cluster is full of data, hence the high timeout.
+     */
+    s = sx_hashfs_job_new_notrigger(hashfs, JOB_NOPARENT, uid, &job, JOBTYPE_VOLREP_CHANGE, 300 * nallnodes, NULL, job_data, job_data_len, allnodes);
     if(s != OK) {
         sx_blob_free(b);
         sx_nodelist_delete(new_volnodes);
@@ -2662,7 +2666,7 @@ void fcgi_modify_volume_replica(void) {
     }
 
     sx_blob_to_data(b, &job_data, &job_data_len);
-    s = sx_hashfs_job_new_notrigger(hashfs, job, uid, &job, JOBTYPE_VOLREP_CHANGE, 20 * nallnodes, NULL, job_data, job_data_len, allnodes);
+    s = sx_hashfs_job_new_notrigger(hashfs, job, uid, &job, JOBTYPE_VOLREP_CHANGE, 300 * nallnodes, NULL, job_data, job_data_len, allnodes);
     if(s != OK) {
         sx_blob_free(b);
         quit_errmsg(rc2http(s), msg_get_reason());
