@@ -3637,3 +3637,25 @@ int sxi_cbdata_set_timeouts(curlev_context_t *e, unsigned int hard_timeout, unsi
     e->soft_timeout = soft_timeout;
     return 0;
 }
+
+int sxi_vcheck(const char *url, size_t (*vcheck_cb)(char *ptr, size_t size, size_t nmemb, void *userdata), void *userdata) {
+    CURLcode cr;
+    CURL *c;
+
+    c = curl_easy_init();
+    if(!c)
+	return -1;
+    if(curl_easy_setopt(c, CURLOPT_URL, url) ||
+       curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, vcheck_cb) ||
+       curl_easy_setopt(c, CURLOPT_WRITEDATA, userdata) ||
+       curl_easy_setopt(c, CURLOPT_FAILONERROR, 1) ||
+       curl_easy_setopt(c, CURLOPT_TIMEOUT, 120)) {
+	curl_easy_cleanup(c);
+	return -1;
+    }
+    cr = curl_easy_perform(c);
+    curl_easy_cleanup(c);
+    if(cr)
+	return -1;
+    return 0;
+}

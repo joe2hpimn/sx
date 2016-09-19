@@ -35,8 +35,6 @@
 #include <signal.h>
 #include <sys/types.h>
 
-#include <curl/curl.h>
-
 #include "../libsxclient/src/sxproto.h"
 #include "../libsxclient/src/misc.h"
 #include "../libsxclient/src/curlevents.h"
@@ -7543,8 +7541,6 @@ static void check_version(struct jobmgr_data_t *q) {
     struct checkver cbdata;
     int64_t ss;
     int l2ss;
-    CURLcode cr;
-    CURL *c;
 
     if(q->next_vcheck > now)
 	return;
@@ -7601,25 +7597,9 @@ static void check_version(struct jobmgr_data_t *q) {
     free(enc_os);
     free(enc_arch);
 
-    c = curl_easy_init();
-    if(!c) {
-	WARN("Version check failure: curl init failure");
-	return;
-    }
     cbdata.pos = 0;
-    if(curl_easy_setopt(c, CURLOPT_URL, url) ||
-       curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, checkver_cb) ||
-       curl_easy_setopt(c, CURLOPT_WRITEDATA, &cbdata) ||
-       curl_easy_setopt(c, CURLOPT_FAILONERROR, 1) ||
-       curl_easy_setopt(c, CURLOPT_TIMEOUT, 120)) {
-	WARN("Version check failure: curl setopt failure");
-	curl_easy_cleanup(c);
-	return;
-    }
-    cr = curl_easy_perform(c);
-    curl_easy_cleanup(c);
-    if(cr) {
-	WARN("Version check failure: curl query failed with error %d", cr);
+    if(sxi_vcheck(url, checkver_cb, &cbdata)) {
+	DEBUG("Version check failure");
 	return;
     }
 

@@ -213,4 +213,6 @@ void sxi_curlev_nullify_upload_context(sxi_conns_t *conns, void *context);
 const char *sxi_hostlist_get_optimal_host(sxi_conns_t * conns, const sxi_hostlist_t *list, sxc_xfer_direction_t direction);
 int sxi_get_host_speed_stats(sxi_conns_t *conns, const char *host, double *ul, double *dl);
 int sxi_set_host_speed_stats(sxi_conns_t *conns, const char *host, double ul, double dl);
+
+int sxi_vcheck(const char *url, size_t (*vcheck_cb)(char *ptr, size_t size, size_t nmemb, void *userdata), void *userdata);
 #endif
