@@ -4354,11 +4354,7 @@ static rc_ty upgrade_db_precheck(sxi_db_t **dbp, const char *dbname)
         return FAIL_EINTERNAL;
     }
     qnullify(q);
-    if (lock_db(*dbp, &qlock, &qunlock) ||
-        analyze_db(*dbp, 0)) {
-        CRIT("Integrity check failed for %s", dbname);
-        if (qunlock)
-            qstep_noret(qunlock);
+    if (lock_db(*dbp, &qlock, &qunlock)) {
         qnullify(qunlock);
         qnullify(qlock);
         qclose(dbp);
