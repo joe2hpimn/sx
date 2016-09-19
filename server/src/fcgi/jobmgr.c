@@ -7439,13 +7439,14 @@ static rc_ty get_failed_job_expiration_ttl(struct jobmgr_data_t *q) {
         return OK;
     }
 
-    if(q->job_type == JOBTYPE_JLOCK || q->job_type == JOBTYPE_DISTRIBUTION)
+    if(q->job_type == JOBTYPE_JLOCK || q->job_type == JOBTYPE_DISTRIBUTION) {
         q->adjust_ttl = JOB_NO_EXPIRY;
-
-    /* Default timeout, common for all jobs besides the two above */
-    q->adjust_ttl = JOBMGR_UNDO_TIMEOUT * sx_nodelist_count(q->targets);
-    if(!q->adjust_ttl) /* in case sx_nodelist_count() returns 0 */
-        q->adjust_ttl = JOBMGR_UNDO_TIMEOUT;
+    } else {
+        /* Default timeout, common for all jobs besides the block replication one */
+        q->adjust_ttl = JOBMGR_UNDO_TIMEOUT * sx_nodelist_count(q->targets);
+        if(!q->adjust_ttl) /* in case sx_nodelist_count() returns 0 */
+            q->adjust_ttl = JOBMGR_UNDO_TIMEOUT;
+    }
 
     return OK;
 }
