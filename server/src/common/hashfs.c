@@ -12481,7 +12481,6 @@ rc_ty sx_hashfs_revunbump(sx_hashfs_t *h, const sx_hash_t *revid, unsigned int b
 rc_ty sx_hashfs_filedelete_job(sx_hashfs_t *h, sx_uid_t user_id, const sx_hashfs_volume_t *vol, const char *name, const char *revision, job_t *job_id) {
     const sx_hashfs_file_t *filerev;
     sx_nodelist_t *targets;
-    unsigned int timeout;
     char *lockname;
     rc_ty ret, s;
     int added = 0; /* Set to 1 if already added job for a chain */
@@ -12513,9 +12512,8 @@ rc_ty sx_hashfs_filedelete_job(sx_hashfs_t *h, sx_uid_t user_id, const sx_hashfs
             }
             sprintf(lockname, "%s:%s", name, revision);
 
-            timeout = sx_hashfs_job_file_timeout(h, vol->effective_replica, frev.file_size);
             /* Create a job for newly created tempfile */
-            ret = sx_hashfs_job_new_notrigger(h, JOB_NOPARENT, user_id, job_id, JOBTYPE_DELETE_FILE, timeout, lockname, revision, strlen(revision), targets);
+            ret = sx_hashfs_job_new_notrigger(h, JOB_NOPARENT, user_id, job_id, JOBTYPE_DELETE_FILE, 20 * sx_nodelist_count(targets), lockname, revision, strlen(revision), targets);
             if (ret == OK) {
                 added = 1;
 
@@ -12579,8 +12577,7 @@ rc_ty sx_hashfs_filedelete_job(sx_hashfs_t *h, sx_uid_t user_id, const sx_hashfs
 	}
 	sprintf(lockname, "%s:%s", name, filerev->revision);
 
-        timeout = sx_hashfs_job_file_timeout(h, vol->effective_replica, filerev->file_size);
-	ret = sx_hashfs_job_new_notrigger(h, *job_id, user_id, job_id, JOBTYPE_DELETE_FILE, timeout, lockname, filerev->revision, REV_LEN, targets);
+	ret = sx_hashfs_job_new_notrigger(h, *job_id, user_id, job_id, JOBTYPE_DELETE_FILE, 20 * sx_nodelist_count(targets), lockname, filerev->revision, REV_LEN, targets);
         if (ret == OK) {
 #ifdef DEBUG_REVISION_ID
                 sx_hash_t revid_ref;

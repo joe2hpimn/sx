@@ -7417,11 +7417,10 @@ static rc_ty adjust_job_ttl(struct jobmgr_data_t *q) {
 }
 
 static rc_ty get_failed_job_expiration_ttl(struct jobmgr_data_t *q) {
-    int64_t fsize;
     if(!q)
         return EINVAL;
 
-    /* Handle blocks replication and file delete jobs using sx_hashfs_job_file_timeout() */
+    /* Handle blocks replication jobs using sx_hashfs_job_file_timeout() */
     if(q->job_type == JOBTYPE_REPLICATE_BLOCKS) {
 	sx_hashfs_tmpinfo_t *tmpinfo;
         int64_t tmpfile_id;
@@ -7432,35 +7431,11 @@ static rc_ty get_failed_job_expiration_ttl(struct jobmgr_data_t *q) {
 
         memcpy(&tmpfile_id, q->job_data->ptr, q->job_data->len);
 
-        /* JOBTYPE_REPLICATE_BLOCKS contains tempfile ID as job data. Use it to get tempfile entry. */
+        /* JOBTYPE_REPLICATE_BLOCKS contains a tempfile ID as job data. Use it to get the tempfile entry. */
         if((s = sx_hashfs_tmp_getinfo(q->hashfs, tmpfile_id, &tmpinfo, 0, 1)) != OK)
             return s;
-	fsize = tmpinfo->file_size;
+        q->adjust_ttl = sx_hashfs_job_file_timeout(q->hashfs, sx_nodelist_count(q->targets), tmpinfo->file_size);
         free(tmpinfo);
-    } else if(q->job_type == JOBTYPE_DELETE_FILE) {
-	sx_hashfs_file_t revinfo;
-        rc_ty s;
-        char rev[REV_LEN+1];
-
-        if(!q->job_data || !q->job_data->ptr || q->job_data->len != REV_LEN)
-            return FAIL_EINTERNAL;
-
-        /* Need to nul terminate string */
-        memcpy(rev, q->job_data->ptr, REV_LEN);
-        rev[REV_LEN] = '\0';
-        /* JOBTYPE_DELETE_FILE contains revision as job data. Use it to get tempfile entry. */
-        if((s = sx_hashfs_getinfo_by_revision(q->hashfs, rev, &revinfo)) != OK) {
-            /* File could be deleted already, set size to 0 but do not fail and let job manager to finish */
-            if(s == ENOENT)
-                fsize = 0;
-            else
-                return s;
-        }
-	fsize = revinfo.file_size;
-    }
-
-    if(q->job_type == JOBTYPE_REPLICATE_BLOCKS || q->job_type == JOBTYPE_DELETE_FILE) {
-        q->adjust_ttl = sx_hashfs_job_file_timeout(q->hashfs, sx_nodelist_count(q->targets), fsize);
         return OK;
     }
 
