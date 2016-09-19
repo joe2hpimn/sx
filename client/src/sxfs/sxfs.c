@@ -3219,9 +3219,14 @@ int main (int argc, char **argv) {
         } else
             break;
     }
-    if(read_only && args.use_queues_flag) {
-        args.use_queues_flag = 0;
-        fprintf(stderr, "*** Queues do not work in read-only mode ***\n");
+    if(args.use_queues_flag) {
+        if(args.fuse_single_threaded_flag) {
+            args.use_queues_flag = 0;
+            fprintf(stderr, "*** Queues do not work in single-threaded mode ***\n");
+        } else if(read_only) {
+            args.use_queues_flag = 0;
+            fprintf(stderr, "*** Queues do not work in read-only mode ***\n");
+        }
     }
 
     /* cache initialization */

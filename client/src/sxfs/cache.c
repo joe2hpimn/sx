@@ -1243,7 +1243,8 @@ ssize_t sxfs_cache_read (sxfs_state_t *sxfs, sxfs_file_t *sxfs_file, void *buff,
         return 0;
     }
     SXFS_VERBOSE("Offset: %lld, block number: %llu", (long long int)offset, (unsigned long long int)block);
-    cache_read_background(sxfs, sxfs_file, block+1, nblocks);
+    if(!sxfs->args->fuse_single_threaded_given) /* SXFS sets *_flag to 1 on OS X */
+        cache_read_background(sxfs, sxfs_file, block+1, nblocks);
 
     /* reading the block is inside so sxfs can use the data it needs to read anyway */
     return validate_block(sxfs, fdata, block, buff, length, offset % fdata->blocksize);
