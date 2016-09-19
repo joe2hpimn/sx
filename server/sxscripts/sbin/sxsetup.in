@@ -442,8 +442,7 @@ if [ "$INFO_GIVEN" = "yes" -o "$UPGRADE_GIVEN" = "yes" -o "$COMPACT_GIVEN" = "ye
 		echo "Temporarily disabling automatic node removal..."
 		"@sbindir@/sxadm" cluster --set-param hb_deadtime=0 "sx://admin@$SX_CLUSTER_NAME"
 		if [ $? -ne 0 ]; then
-		    echo "ERROR: Failed to update Raft settings (hb_deadtime=0)"
-		    exit 1
+		    echo "WARNING: Failed to update Raft settings (hb_deadtime=0)"
 		fi
 	    fi
 	    echo "Upgrading local node..."
