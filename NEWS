@@ -1,3 +1,20 @@
+2.2
+---
+
+Skylable SX 2.2 is primarly aimed at improving the performance of the cluster.
+The most notable areas of improvement are:
+
+  * core:
+      - Perform background propagation of replicas above 1
+      - Improve calculation, index usage and maintain cache of frequently
+        computed values
+  * sxfs:
+      - Enable caching of smaller objects for improved latency
+      - Add level 2 caching (LFU)
+  * garbage-collector:
+      - Improve file deletion and block reservation
+
+
 2.1
 ---
 
