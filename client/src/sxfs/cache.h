@@ -32,8 +32,8 @@
 #include <pthread.h>
 
 int sxfs_cache_init (sxc_client_t *sx, sxfs_state_t *sxfs, size_t size, const char *path);
-ssize_t sxfs_cache_read (sxfs_state_t *sxfs, sxfs_file_t *sxfs_file, void *buff, size_t length, off_t offset);
 void sxfs_cache_free (sxfs_state_t *sxfs);
+ssize_t sxfs_cache_read (sxfs_state_t *sxfs, sxfs_file_t *sxfs_file, void *buff, size_t length, off_t offset);
 
 #endif
 

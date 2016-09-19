@@ -56,7 +56,7 @@ struct gengetopt_args_info
   const char *mount_options_help; /**< @brief Mount options help description.  */
   int use_queues_flag;	/**< @brief Enable queues for upload and delete operations (default=off).  */
   const char *use_queues_help; /**< @brief Enable queues for upload and delete operations help description.  */
-  char * cache_size_arg;	/**< @brief Set size for local cache (default='256M').  */
+  char * cache_size_arg;	/**< @brief Set size for local cache (default='512M').  */
   char * cache_size_orig;	/**< @brief Set size for local cache original value given at command line.  */
   const char *cache_size_help; /**< @brief Set size for local cache help description.  */
   char * cache_dir_arg;	/**< @brief Set directory for cache (sxfs tempdir by default).  */
