@@ -7565,17 +7565,17 @@ static void check_version(struct jobmgr_data_t *q) {
 	enc_arch = sxi_urlencode(sx, status.os_arch, 1);
 	ss = status.node_size;
 	sxi_node_status_empty(&status);
+	if(!enc_os || !enc_arch) {
+	    WARN("Version check failure: cannot encode url");
+	    free(enc_ver);
+	    free(enc_os);
+	    free(enc_arch);
+	    return;
+	}
     } else {
 	enc_os = NULL;
 	enc_arch = NULL;
 	ss = 0;
-    }
-    if(!enc_os || !enc_arch) {
-	WARN("Version check failure: cannot encode url");
-	free(enc_ver);
-	free(enc_os);
-	free(enc_arch);
-	return;
     }
 
     if(!ss)
