@@ -6,6 +6,150 @@
 
                                   Changelog
 
+Version 7.50.3 (14 Sep 2016)
+
+Daniel Stenberg (14 Sep 2016)
+- THANKS: updated with curl 7.50.3 contributors
+
+- RELEASE-NOTES: curl 7.50.3
+
+- test1605: verify negative input lengths to (un)escape functions
+
+- curl_easy_unescape: deny negative string lengths as input
+  
+  CVE-2016-7167
+  
+  Bug: https://curl.haxx.se/docs/adv_20160914.html
+
+- curl_easy_escape: deny negative string lengths as input
+  
+  CVE-2016-7167
+  
+  Bug: https://curl.haxx.se/docs/adv_20160914.html
+
+- curl: make --create-dirs on windows grok both forward and backward slashes
+  
+  Reported-by: Ryan Scott
+  
+  Fixes #1007
+
+- RELEASE-NOTES: synced with 665694979b6
+
+- [Tony Kelman brought this change]
+
+  mbedtls: switch off NTLM in build if md4 isn't available
+  
+  NTLM support with mbedTLS was added in 497e7c9 but requires that mbedTLS
+  is built with the MD4 functions available, which it isn't in default
+  builds. This now adapts if the funtion isn't there and builds libcurl
+  without NTLM support if so.
+  
+  Fixes #1004
+
+Jay Satiro (12 Sep 2016)
+- CODE_STYLE: fix long-line guideline
+  
+  - Change maximum allowed line length from 80 to 79.
+
+- CODE_STYLE: add column alignment section
+  
+  Note that since the added examples are for column alignment I had to
+  encapsulate with ~~~c markdown to preserve their alignment.
+
+Peter Wu (11 Sep 2016)
+- cmake: fix curl-config --static-libs
+  
+  The `curl-config --static-libs` command should not output paths like
+  -l/usr/lib/libssl.so, instead print the absolute path without `-l`.
+  
+  This also removes the confusing message "Static linking is broken" which
+  was printed because curl-config --static-libs was disfunctional even
+  though the static libcurl.a library works properly.
+  
+  Fixes https://github.com/curl/curl/issues/841
+
+Daniel Stenberg (11 Sep 2016)
+- http: refuse to pass on response body with NO_NODY was set
+  
+  ... like when a HTTP/0.9 response comes back without any headers at all
+  and just a body this now prevents that body from being sent to the
+  callback etc.
+  
+  Adapted test 1144 to verify.
+  
+  Fixes #973
+  
+  Assisted-by: Ray Satiro
+
+- RELEASE-NOTES: synced with 257bf3ac67eb6
+
+Jakub Zakrzewski (10 Sep 2016)
+- CMake: Don't build unit tests if private symbols are hidden
+  
+  This only excludes building unit tests from default build ( 'all' Make
+  target or "Build Solution" in VisualStudio). The projects and Make
+  targets will still be generated and shown in supporting IDEs.
+  
+  Fixes https://github.com/curl/curl/issues/981
+  Reported-by: Randy Armstrong
+  
+  Closes https://github.com/curl/curl/pull/990
+
+- CMake: Try to (un-)hide private library symbols
+  
+  Detect support for compiler symbol visibility flags and apply those
+  according to CURL_HIDDEN_SYMBOLS option.
+  It should work true to the autotools build except it tries to unhide
+  symbols on Windows when requested and prints warning if it fails.
+  
+  Ref: https://github.com/curl/curl/issues/981#issuecomment-242665951
+  Reported-by: Daniel Stenberg
+
+Daniel Stenberg (9 Sep 2016)
+- openssl: fix bad memory free (regression)
+  
+  ... by partially reverting f975f06033b1. The allocation could be made by
+  OpenSSL so the free must be made with OPENSSL_free() to avoid problems.
+  
+  Reported-by: Harold Stuart
+  Fixes #1005
+
+- http2: support > 64bit sized uploads
+  
+  ... by making sure we don't count down the "upload left" counter when the
+  uploaded size is unknown and then it can be allowed to continue forever.
+  
+  Fixes #996
+
+Jay Satiro (7 Sep 2016)
+- errors: new alias CURLE_WEIRD_SERVER_REPLY (8)
+  
+  Since we're using CURLE_FTP_WEIRD_SERVER_REPLY in imap, pop3 and smtp as
+  more of a generic "failed to parse" introduce an alias without FTP in
+  the name.
+  
+  Closes https://github.com/curl/curl/pull/975
+
+Daniel Stenberg (7 Sep 2016)
+- bump: toward 7.51.0
+
+- HISTORY: remove ascii logo to render nicer on web
+
+- curl: whitelist use of strtok() in non-threaded context
+
+- checksrc: detect strtok() use
+  
+  ... as that function slipped through once before.
+
+GitHub (7 Sep 2016)
+- [Viktor Szakats brought this change]
+
+  mk-ca-bundle.pl: use SHA256 instead of SHA1
+  
+  This hash is used to verify the original downloaded certificate bundle
+  and also included in the generated bundle's comment header. Also
+  rename related internal symbols to algorithm-agnostic names.
+
 Version 7.50.2 (7 Sep 2016)
 
 Daniel Stenberg (7 Sep 2016)
@@ -5567,122 +5711,3 @@ Daniel Stenberg (13 Nov 2015)
 - ftplistparser: remove empty function
 
 - openssl: remove #if check for 0.9.7 for ENGINE_load_private_key
-
-- openssl: all supported versions have X509_STORE_set_flags
-  
-  Simplify by removing #ifdefs and macros
-
-- openssl: remove 0.9.3 check
-
-- openssl: remove #ifdefs for < 0.9.5 support
-  
-  We only support >= 0.9.7
-
-- lib/vtls/openssl: remove unused traces of yassl ifdefs
-
-Dan Fandrich (12 Nov 2015)
-- [dfandrich brought this change]
-
-  unit1603: Demote hash mismatch failure to a warning
-  
-  The hashes can vary between architectures (e.g. Sparc differs from x86_64).
-  This is not a fatal problem but just reduces the coverage of these white-box
-  tests, as the assumptions about into which hash bucket each key falls are no
-  longer valid.
-
-- [dfandrich brought this change]
-
-  unit1603: Added unit tests for hash functions
-
-- [dfandrich brought this change]
-
-  unit1602: Fixed failure in torture test
-
-Steve Holme (12 Nov 2015)
-- sasl: Re-introduced XOAUTH2 in the default enabled authentication mechanism
-  
-  Following the fix in commit d6d58dd558 it is necessary to re-introduce
-  XOAUTH2 in the default enabled authentication mechanism, which was
-  removed in commit 7b2012f262, otherwise users will have to specify
-  AUTH=XOAUTH2 in the URL.
-  
-  Note: OAuth 2.0 will only be used when the bearer is specified.
-
-- [Stefan Bühler brought this change]
-
-  sasl_sspi: fix identity memory leak in digest authentication
-
-- [Stefan Bühler brought this change]
-
-  sasl_sspi: fixed unicode build for digest authentication
-  
-  Closes #525
-
-- oauth2: Re-factored OAuth 2.0 state variable
-
-- sasl: Don't choose OAuth 2.0 if mechanism not advertised
-  
-  Regression from commit 9e8ced9890 which meant if --oauth2-bearer was
-  specified but the SASL mechanism wasn't supported by the server then
-  the mechanism would be chosen.
-
-Daniel Stenberg (12 Nov 2015)
-- runtests: more compact "System characteristics" output
-  
-  - no point in repeating curl features that is already listed as features
-    from the curl -V output
-  
-  - remove the port numbers/unix domain path from the output unless
-    verbose is used, as that is rarely interesting to users.
-
-- runtests: rename conditional curl-features to $has_[name]
-
-Steve Holme (11 Nov 2015)
-- oauth2: Introduced support for host and port details
-  
-  Added support to the OAuth 2.0 message function for host and port, in
-  order to accommodate the official OAUTHBEARER SASL mechanism which is
-  to be added shortly.
-
-- curl_setup.h: Removed duplicate CURL_DISABLE_RTSP when HTTP_ONLY defined
-
-- cmake: Add missing feature macros in config header (Part 2)
-  
-  In addition to commit a215381c94 added the RTSP, RTMP and SMB protocols.
-
-Daniel Stenberg (10 Nov 2015)
-- [Douglas Creager brought this change]
-
-  cmake: Add missing feature macros in config header
-  
-  The curl_config.h file can be generated either from curl_config.h.cmake
-  or curl_config.h.in, depending on whether you're building using CMake or
-  the autotools.  The CMake template header doesn't include entries for
-  all of the protocols that you can disable, which (I think) means that
-  you can't actually disable those protocols when building via CMake.
-  
-  Closes #523
-
-- [Douglas Creager brought this change]
-
-  BoringSSL: Work with stricter BIO_get_mem_data()
-  
-  BoringSSL implements `BIO_get_mem_data` as a function, instead of a
-  macro, and expects the output pointer to be a `char **`.  We have to add
-  an explicit cast to grab the pointer as a `const char **`.
-  
-  Closes #524
-
-- http2: rectify the http2 version #if check
-  
-  We need 1.0.0 or later. Also verified by configure.
-
-Steve Holme (9 Nov 2015)
-- oauth2: Don't use XAUTH2 in OAuth 2.0 function name
-
-- oauth2: Don't use XOAUTH2 in OAuth 2.0 variables
-
-- oauth2: Use OAuth 2.0 rather than XOAUTH2 in comments
-  
-  When referring to OAuth 2.0 we should use the official name rather the
-  SASL mechanism name.

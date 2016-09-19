@@ -143,7 +143,7 @@ if test "x$with_nss" = "xno"; then
         if test "$ac_cv_type_HMAC_update" = "yes"; then
                 AC_DEFINE([HMAC_UPDATE_RETURNS_INT], 1, [Defined if HMAC_Update returns int])
         fi
-        VCRYPTO_LIBS="$OPENSSL_LIBS"
+        VCRYPTO_LIBS="$OPENSSL_LIBS -lcrypto"
         VCRYPTO_CFLAGS="$OPENSSL_CFLAGS"
     fi
 else
@@ -193,8 +193,8 @@ AM_CONDITIONAL([BUILD_OPENSSL],[test "x$with_ssl" != "xno"])
 AM_CONDITIONAL([BUILD_NSS],[test "x$with_nss" != "xno"])
 
 if test "x$build_curl" = "xyes"; then
-    AC_CHECK_LIB([idn],[idn_free],[config_idn='--with-idn';link_idn='-lidn'],[config_idn='';link_idn=''])
-    ac_configure_args="$ac_configure_args --with-zlib $with_idn --with-pic --disable-shared --without-libssh2 --without-librtmp --without-nghttp2 --disable-ftp --disable-file --disable-ldap --disable-ldaps --disable-rtsp --disable-dict --disable-telnet --disable-tftp --disable-pop3 --disable-imap --disable-smtp --disable-gopher"
+    AC_CHECK_LIB([idn],[idn_free],[config_idn='--with-libidn';link_idn='-lidn'],[config_idn='--without-libidn';link_idn=''])
+    ac_configure_args="$ac_configure_args --with-zlib $config_idn --with-pic --disable-shared --without-libssh2 --without-librtmp --without-nghttp2 --disable-ftp --disable-file --disable-ldap --disable-ldaps --disable-rtsp --disable-dict --disable-telnet --disable-tftp --disable-pop3 --disable-imap --disable-smtp --disable-gopher"
     LIBCURL="curl-src/lib/libcurl.la $link_idn -lz"
     LIBCURL_CPPFLAGS="-I $srcdir/curl-src/include -I curl-src/include/curl"
     AC_CONFIG_SUBDIRS([curl-src])
