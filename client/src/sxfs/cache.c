@@ -1159,6 +1159,11 @@ static ssize_t validate_block (sxfs_state_t *sxfs, sxi_sxfs_data_t *fdata, unsig
         goto validate_block_err;
     }
     calc_name = calculate_block_name(sxfs, local_buff, fdata->blocksize);
+    if(!calc_name) {
+        SXFS_ERROR("Failed to compute the block name");
+        ret = -ENOMEM;
+        goto validate_block_err;
+    }
     if(memcmp(calc_name, fdata->ha[block], SXI_SHA1_TEXT_LEN)) {
         SXFS_ERROR("Invalid content of '%s' block. Calculated name: %s", fdata->ha[block], calc_name);
         pthread_mutex_lock(&cache->mutex);
