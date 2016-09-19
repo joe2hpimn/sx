@@ -4381,11 +4381,9 @@ static int distribution_lock_common(sxc_cluster_t *cluster, int op, const char *
     unsigned int i;
     long http_code = 0;
 
-    if(!cluster) {
-        sxi_seterr(sx, SXE_EARG, "Invalid argument");
+    if(!cluster)
         return 1;
-    }
-    
+
     sx = sxi_cluster_get_client(cluster);
     conns = sxi_cluster_get_conns(cluster);
 

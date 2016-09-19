@@ -27,35 +27,15 @@
 
 #include "default.h"
 
-/* temporary work-around for OS X: to be investigated.
- * 2 issues: BIND_8_COMPAT required for nameser_compat.h
- * and sth from default.h messing with the endian stuff
- */
-#if __APPLE__ 
-# define BIND_8_COMPAT
-# ifdef WORDS_BIGENDIAN
-#  undef LITTLE_ENDIAN
-#  define BIG_ENDIAN 1
-#  define BYTE_ORDER BIG_ENDIAN
-# else
-#  undef BIG_ENDIAN
-#  define LITTLE_ENDIAN 1
-#  define BYTE_ORDER LITTLE_ENDIAN
-# endif
-#endif
-
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
 #include <unistd.h>
-#include <sys/select.h>
 #include <sys/time.h>
 #include <signal.h>
 #include <sys/types.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <arpa/nameser.h>
-#include <resolv.h>
+
+#include <curl/curl.h>
 
 #include "../libsxclient/src/sxproto.h"
 #include "../libsxclient/src/misc.h"
@@ -7535,126 +7515,134 @@ static void jobmgr_run_job(struct jobmgr_data_t *q) {
     sx_nodelist_empty(q->targets); /* Explicit free, just in case */
 }
 
-static uint16_t to_u16(const uint8_t *ptr) {
-    return ((uint16_t)ptr[0] << 8) | ptr[1];
+
+struct checkver {
+    unsigned int pos;
+    char buf[64];
+};
+
+static size_t checkver_cb(char *ptr, size_t size, size_t nmemb, void *userdata) {
+    struct checkver *c = (struct checkver *)userdata;
+
+    size *= nmemb;
+    if(size >= sizeof(c->buf) || c->pos >= sizeof(c->buf) - size)
+	return ~size;
+    memcpy(c->buf + c->pos, ptr, size);
+    c->buf[size + c->pos] = '\0';
+    c->pos += size;
+    return size;
 }
 
-#define DNS_QUESTION_SECT 0
-#define DNS_ANSWER_SECT 1
-#define DNS_SERVERS_SECT 2
-#define DNS_EXTRA_SECT 3
-#define DNS_MAX_SECTS 4
-
-
+#define VERCHECK_URL "http://cdn.skylable.com/check/sx-version"
 static void check_version(struct jobmgr_data_t *q) {
-    char buf[1024], resbuf[1024], *p1, *p2;
-    uint16_t rrcount[DNS_MAX_SECTS];
-    const uint8_t *rd, *eom;
+    char url[1024], *enc_ver, *enc_os, *enc_arch;
+    sxc_client_t *sx = sx_hashfs_client(q->hashfs);
+    sx_hashfs_version_t *lver, rver;
+    sxi_node_status_t status;
     time_t now = time(NULL);
-    int i, vmaj, vmin, newver, secflag, len;
+    struct checkver cbdata;
+    int64_t ss;
+    int l2ss;
+    CURLcode cr;
+    CURL *c;
 
     if(q->next_vcheck > now)
 	return;
+
     q->next_vcheck += 24 * 60 * 60 + (sxi_rand() % (60 * 60)) - 30 * 60;
     if(q->next_vcheck <= now)
 	q->next_vcheck = now + 24 * 60 * 60 + (sxi_rand() % (60 * 60)) - 30 * 60;
     if(qbind_int(q->qvbump, ":next", q->next_vcheck) ||
        qstep_noret(q->qvbump))
-	WARN("Cannot update check time");
+	WARN("Cannot update version check time");
 
-    if(res_init()) {
-	WARN("Failed to initialize resolver");
-	return;
-    }
-
-    snprintf(buf, sizeof(buf), "%lld.%s.sxver.skylable.com", (long long)q->job_id, sx_hashfs_self_unique(q->hashfs));
-    len = res_query(buf, C_IN, T_TXT, resbuf, sizeof(resbuf));
-    if(len < 0) {
-	WARN("Failed to check version: query failed");
+    lver = sx_hashfs_version(q->hashfs);
+    enc_ver = sxi_urlencode(sx, lver->fullstr, 1);
+    if(!enc_ver) {
+	WARN("Version check failure: cannot encode current version");
 	return;
     }
 
-    rd = resbuf;
-    eom = resbuf + len;
-    do {
-	if(len < sizeof(uint16_t) + sizeof(uint16_t) + DNS_MAX_SECTS * sizeof(uint16_t))
-	    break;
-	rd += sizeof(uint16_t) + sizeof(uint16_t); /* id + flags */
-	for(i=0; i<DNS_MAX_SECTS; i++) {
-	    rrcount[i] = to_u16(rd);
-	    rd += 2;
-	}
-	if(rrcount[DNS_QUESTION_SECT] != 1 || rrcount[DNS_ANSWER_SECT] != 1)
-	    break;
-	/* At question section: name + type + class */
-	i = dn_skipname(rd, eom);
-	if(i < 0 || rd + i + sizeof(uint16_t) + sizeof(uint16_t) > eom)
-	    break;
-	rd += i + sizeof(uint16_t) + sizeof(uint16_t);
-	/* At answer section: name + type + class + ttl + rdlen (+rdata) */
-	i = dn_skipname(rd, eom);
-	if(i < 0 || rd + i + sizeof(uint16_t) + sizeof(uint16_t) + sizeof(uint32_t) + sizeof(uint16_t) > eom)
-	    break;
-	rd += i;
-	if(to_u16(rd) != T_TXT || to_u16(rd+2) != C_IN)
-	    break;
-	rd += sizeof(uint16_t) + sizeof(uint16_t) + sizeof(uint32_t);
-	len = to_u16(rd);
-	rd += sizeof(uint16_t);
-	if(len < 1 || rd + len > eom)
-	    break;
-	/* At rdata of the first record of the answer section: string_lenght + string */
-	if(*rd != len - 1)
-	    break;
-	rd++;
-	len = MIN(len, sizeof(buf)) - 1;
-	memcpy(buf, rd, len);
-	buf[len] = '\0';
-	eom = NULL;
-    } while(0);
-    if(eom) {
-	WARN("Failed to check version: bad DNS reply");
+    sxi_node_status_init(&status);
+    if(sx_hashfs_node_status(q->hashfs, &status) == OK) {
+	enc_os = sxi_urlencode(sx, status.os_name, 1);
+	enc_arch = sxi_urlencode(sx, status.os_arch, 1);
+	ss = status.node_size;
+	sxi_node_status_empty(&status);
+    } else {
+	enc_os = NULL;
+	enc_arch = NULL;
+	ss = 0;
+    }
+    if(!enc_os || !enc_arch) {
+	WARN("Version check failure: cannot encode url");
+	free(enc_ver);
+	free(enc_os);
+	free(enc_arch);
 	return;
     }
 
-    vmaj = strtol(buf, &p1, 10);
-    if(p1 == buf || *p1 != '.') {
-	WARN("Failed to check version: bad version received");
+    if(!ss)
+	l2ss = -1;
+    else {
+	l2ss = 0;
+	if(ss >= 4294967296ULL) { l2ss += 32; ss >>= 32; }
+	if(ss >= 65536) { l2ss += 16; ss >>= 16; }
+	if(ss >= 256) { l2ss += 8; ss >>= 8; }
+	if(ss >= 16) { l2ss += 4; ss >>= 4; }
+	if(ss >= 4) { l2ss += 2; ss >>= 2; }
+	if(ss >= 2) { l2ss += 1; ss >>= 1; }
+    }
+    
+    snprintf(url, sizeof(url), "%s?ver=%s&os=%s&arch=%s&unique=%s&s=%d",
+	     VERCHECK_URL, enc_ver, enc_os ? enc_os : "", enc_arch ? enc_arch : "",
+	     sx_hashfs_self_unique(q->hashfs), l2ss);
+    free(enc_ver);
+    free(enc_os);
+    free(enc_arch);
+
+    c = curl_easy_init();
+    if(!c) {
+	WARN("Version check failure: curl init failure");
 	return;
     }
-    p1++;
-    vmin = strtol(p1, &p2, 10);
-    if(p2 == p1 || *p2 != '.') {
-	WARN("Failed to check version: bad version received");
+    cbdata.pos = 0;
+    if(curl_easy_setopt(c, CURLOPT_URL, url) ||
+       curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, checkver_cb) ||
+       curl_easy_setopt(c, CURLOPT_WRITEDATA, &cbdata) ||
+       curl_easy_setopt(c, CURLOPT_FAILONERROR, 1) ||
+       curl_easy_setopt(c, CURLOPT_TIMEOUT, 120)) {
+	WARN("Version check failure: curl setopt failure");
+	curl_easy_cleanup(c);
 	return;
     }
-    p2++;
-    secflag = strtol(p2, &p1, 10);
-    if(p2 == p1 || (*p1 != '.' && *p1 != '\0')) {
-	WARN("Failed to check version: bad version received");
+    cr = curl_easy_perform(c);
+    curl_easy_cleanup(c);
+    if(cr) {
+	WARN("Version check failure: curl query failed with error %d", cr);
 	return;
     }
 
-    if(vmaj > SRC_MAJOR_VERSION)
-	newver = 2;
-    else if(vmaj == SRC_MAJOR_VERSION && vmin > SRC_MINOR_VERSION) {
-	if(secflag || vmin > SRC_MINOR_VERSION + 1)
-	    newver = 2;
+    while(cbdata.pos) {
+	if(cbdata.buf[cbdata.pos-1] == '\r' || cbdata.buf[cbdata.pos-1] == '\n')
+	    cbdata.pos--;
 	else
-	    newver = 1;
-    } else
-	newver=0;
-
-    if(newver) {
-	if(newver > 1) {
-	    CRIT("CRITICAL update found! Skylable SX %d.%d is available (this node is running version %d.%d)", vmaj, vmin, SRC_MAJOR_VERSION, SRC_MINOR_VERSION);
-	    CRIT("See http://www.skylable.com/products/sx/release/%d.%d for upgrade instructions", vmaj, vmin);
-	} else {
-	    INFO("Skylable SX %d.%d is available (this node is running version %d.%d)", vmaj, vmin, SRC_MAJOR_VERSION, SRC_MINOR_VERSION);
-	    INFO("See http://www.skylable.com/products/sx/release/%d.%d for more info", vmaj, vmin);
-	}
+	    break;
+    }
+    if(sx_hashfs_version_parse(&rver, cbdata.buf, cbdata.pos)) {
+	WARN("Invalid remote version");
+	return;
+    }
+    if(sx_hashfs_version_cmp(lver, &rver) >= 0) {
+	DEBUG("Local software version is current");
+	return;
     }
 
+    if(lver->major != rver.major)
+	CRIT("MAJOR update found! Skylable SX %s is available (this node is running version %s)", rver.str, lver->str);
+    else
+	INFO("Skylable SX %s is available (this node is running version %s)", rver.str, lver->str);
+    INFO("See http://www.skylable.com/products/sx/release/%s for upgrade instructions", rver.str);
 }
 
 static void jobmgr_process_queue(struct jobmgr_data_t *q, int forced) {

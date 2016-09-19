@@ -1560,9 +1560,12 @@ void fcgi_node_status(void) {
     if(s != OK)
         quit_errmsg(rc2http(s), msg_get_reason());
     CGI_PUTS("Content-type: application/json\r\n\r\n{");
-    CGI_PRINTF("\"osType\":\"%s\",\"osArch\":\"%s\",\"osRelease\":\"%s\",\"osVersion\":\"%s\",\"cores\":%d",
-        status.os_name, status.os_arch, status.os_release, status.os_version, status.cores);
-    CGI_PRINTF(",\"osEndianness\":\"%s\",\"localTime\":\"%s\",\"utcTime\":\"%s\"", status.endianness, status.localtime, status.utctime);
+    CGI_PUTS("\"osType\":"); json_send_qstring(status.os_name);
+    CGI_PUTS(",\"osArch\":"); json_send_qstring(status.os_arch);
+    CGI_PUTS(",\"osRelease\":"); json_send_qstring(status.os_release);
+    CGI_PUTS(",\"osVersion\":"); json_send_qstring(status.os_version);
+    CGI_PRINTF(",\"cores\":%d,\"osEndianness\":\"%s\",\"localTime\":\"%s\",\"utcTime\":\"%s\"",
+	       status.cores, status.endianness, status.localtime, status.utctime);
     CGI_PUTS(",\"hashFSVersion\":"); json_send_qstring(status.hashfs_version);
     CGI_PUTS(",\"libsxclientVersion\":"); json_send_qstring(status.libsxclient_version);
     if(!status.is_bare)
