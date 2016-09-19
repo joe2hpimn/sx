@@ -2002,6 +2002,9 @@ sxfs_delete_thread_err:
     delete_flag = SXFS_THREAD_STOPPED;
     SXFS_LOG("Deletion thread has been stopped");
     pthread_mutex_unlock(&sxfs->delete_mutex);
+    pthread_mutex_lock(&sxfs->limits_mutex);
+    sxfs->threads_num--;
+    pthread_mutex_unlock(&sxfs->limits_mutex);
     pthread_exit((void*)ret);
 } /* sxfs_delete_thread */
 
@@ -2715,6 +2718,9 @@ sxfs_upload_thread_err:
     upload_flag = SXFS_THREAD_STOPPED;
     SXFS_LOG("Upload thread has been stopped");
     pthread_mutex_unlock(&sxfs->upload_mutex);
+    pthread_mutex_lock(&sxfs->limits_mutex);
+    sxfs->threads_num--;
+    pthread_mutex_unlock(&sxfs->limits_mutex);
     pthread_exit((void*)ret);
 } /* sxfs_upload_thread */
 

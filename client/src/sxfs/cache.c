@@ -415,10 +415,12 @@ cache_download_err:
         pthread_mutex_unlock(&sxfs->cache->mutex);
     if(fd >= 0 && close(fd))
         SXFS_ERROR("Cannot close '%s' file: %s", path, strerror(errno));
-    if(tmp_fd >= 0 && close(tmp_fd))
-        SXFS_ERROR("Cannot close '%s' file: %s", tmp_path, strerror(errno));
-    if(unlink(tmp_path) && errno != ENOENT)
-        SXFS_ERROR("Cannot remove '%s' file: %s", tmp_path, strerror(errno));
+    if(tmp_fd >= 0) {
+        if(close(tmp_fd))
+            SXFS_ERROR("Cannot close '%s' file: %s", tmp_path, strerror(errno));
+        if(unlink(tmp_path))
+            SXFS_ERROR("Cannot remove '%s' file: %s", tmp_path, strerror(errno));
+    }
     if(ret) {
         if(fd >= 0 && unlink(path))
             SXFS_ERROR("Cannot remove '%s' file: %s", path, strerror(errno));
@@ -560,7 +562,7 @@ cache_download_thread_err:
     cdata->sxfs_file->threads_num--;
     pthread_mutex_unlock(&sxfs->limits_mutex);
     free(cdata);
-    return NULL;
+    pthread_exit(NULL);
 } /* cache_download_thread */
 
 static void cache_read_background (sxfs_state_t *sxfs, sxfs_file_t *sxfs_file, const char *dir, unsigned int block, unsigned int nblocks) {
@@ -683,7 +685,7 @@ cache_read_background_err:
 } /* cache_read_background */
 
 ssize_t sxfs_cache_read (sxfs_state_t *sxfs, sxfs_file_t *sxfs_file, void *buff, size_t length, off_t offset) {
-    int fd = -1, cache_locked = 0, download = 0;
+    int fd = -1, cache_locked = 0;
     unsigned int block, nblocks = 0;
     ssize_t ret;
     char *path;
@@ -698,9 +700,7 @@ ssize_t sxfs_cache_read (sxfs_state_t *sxfs, sxfs_file_t *sxfs_file, void *buff,
     }
     cache = sxfs->cache;
     fdata = sxfs_file->fdata;
-    if(sxfs->need_file) {
-        download = 1;
-    } else {
+    if(!sxfs->need_file) {
         if(!cache) { /* sxfs->cache can be NULL when sxfs->need_file is true */
             SXFS_ERROR("NULL argument");
             return -EINVAL;
@@ -724,8 +724,7 @@ ssize_t sxfs_cache_read (sxfs_state_t *sxfs, sxfs_file_t *sxfs_file, void *buff,
                     return -EINVAL;
             }
         }
-    }
-    if(download && sxfs_file->write_fd < 0 && (ret = sxfs_get_file(sxfs, sxfs_file))) {
+    } else if(sxfs_file->write_fd < 0 && (ret = sxfs_get_file(sxfs, sxfs_file))) {
         SXFS_ERROR("Cannot get '%s' file", sxfs_file->remote_path);
         return ret;
     }

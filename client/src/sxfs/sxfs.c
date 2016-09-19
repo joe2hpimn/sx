@@ -107,8 +107,10 @@ static int sxfs_getattr (const char *path, struct stat *st) {
         return -EINVAL;
     }
     SXFS_DEBUG("'%s'", path);
-    if((ret = check_path_len(sxfs, path, 0)))
+    if((ret = check_path_len(sxfs, path, 0))) {
+        SXFS_DEBUG("'%s' path is too long", path);
         return ret;
+    }
     if(strlen(path) > 1 && path[strlen(path)-1] == '/') {
         path2 = strdup(path);
         if(!path2) {
@@ -150,8 +152,10 @@ static int sxfs_mknod (const char *path, mode_t mode, dev_t dev) {
                         mode & S_IRUSR ? 'r' : '-', mode & S_IWUSR ? 'w' : '-', mode & S_IXUSR ? 'x' : '-',
                         mode & S_IRGRP ? 'r' : '-', mode & S_IWGRP ? 'w' : '-', mode & S_IXGRP ? 'x' : '-',
                         mode & S_IROTH ? 'r' : '-', mode & S_IWOTH ? 'w' : '-', mode & S_IXOTH ? 'x' : '-', (unsigned int)mode);
-    if((ret = check_path_len(sxfs, path, 0)))
+    if((ret = check_path_len(sxfs, path, 0))) {
+        SXFS_DEBUG("'%s' path is too long", path);
         return ret;
+    }
     if(mode && !S_ISREG(mode)) {
         SXFS_ERROR("Not supported type of file: %s", S_ISCHR(mode) ? "character special file" : S_ISBLK(mode) ? "block special file" :
                                                    S_ISFIFO(mode) ? "FIFO (named pipe)" : S_ISSOCK(mode) ? "UNIX domain socket" : "unknown type");
@@ -180,8 +184,10 @@ static int sxfs_mkdir (const char *path, mode_t mode) {
                         mode & S_IRUSR ? 'r' : '-', mode & S_IWUSR ? 'w' : '-', mode & S_IXUSR ? 'x' : '-',
                         mode & S_IRGRP ? 'r' : '-', mode & S_IWGRP ? 'w' : '-', mode & S_IXGRP ? 'x' : '-',
                         mode & S_IROTH ? 'r' : '-', mode & S_IWOTH ? 'w' : '-', mode & S_IXOTH ? 'x' : '-', (unsigned int)mode);
-    if((ret = check_path_len(sxfs, path, 1)))
+    if((ret = check_path_len(sxfs, path, 1))) {
+        SXFS_DEBUG("'%s' path is too long", path);
         return ret;
+    }
     dir_name = strrchr(path, '/');
     if(!dir_name) {
         SXFS_ERROR("'/' not found in '%s'", path);
@@ -266,8 +272,10 @@ static int sxfs_unlink (const char *path) {
         return -EINVAL;
     }
     SXFS_DEBUG("'%s'", path);
-    if((ret = check_path_len(sxfs, path, 0)))
+    if((ret = check_path_len(sxfs, path, 0))) {
+        SXFS_DEBUG("'%s' path is too long", path);
         return ret;
+    }
     if((mctime = time(NULL)) < 0) {
         ret = -errno;
         SXFS_ERROR("Cannot get current time: %s", strerror(errno));
@@ -372,8 +380,10 @@ static int sxfs_rmdir (const char *path) {
         return -EINVAL;
     }
     SXFS_DEBUG("'%s'", path);
-    if((ret = check_path_len(sxfs, path, 1)))
+    if((ret = check_path_len(sxfs, path, 1))) {
+        SXFS_DEBUG("'%s' path is too long", path);
         return ret;
+    }
     if((mctime = time(NULL)) < 0) {
         ret = -errno;
         SXFS_ERROR("Cannot get current time: %s", strerror(errno));
@@ -398,11 +408,11 @@ static int sxfs_rmdir (const char *path) {
     }
     if(dir->ndirs || dir->nfiles) {
         SXFS_ERROR("Directory not empty: %s", path);
-        SXFS_DEBUG("%s '.sxnewdir' file", dir->sxnewdir ? (dir->sxnewdir == 1 ? "Local" : "Remote") : "No");
+        SXFS_DEBUG("> %s '.sxnewdir' file", dir->sxnewdir ? (dir->sxnewdir == 1 ? "Local" : "Remote") : "No");
         for(i=0; i<dir->nfiles; i++)
-            SXFS_DEBUG("%s", dir->files[i]->name);
+            SXFS_DEBUG("> %s", dir->files[i]->name);
         for(i=0; i<dir->ndirs; i++)
-            SXFS_DEBUG("%s/", dir->dirs[i]->name);
+            SXFS_DEBUG("> %s/", dir->dirs[i]->name);
         ret = -ENOTEMPTY;
         goto sxfs_rmdir_err;
     }
@@ -497,8 +507,14 @@ static int sxfs_rename (const char *path, const char *newpath) {
         return -EINVAL;
     }
     SXFS_DEBUG("'%s' -> '%s'", path, newpath);
-    if((ret = check_path_len(sxfs, path, 0)) || (ret = check_path_len(sxfs, newpath, 0)))
+    if((ret = check_path_len(sxfs, path, 0))) {
+        SXFS_DEBUG("'%s' path is too long", path);
         return ret;
+    }
+    if((ret = check_path_len(sxfs, newpath, 0))) {
+        SXFS_DEBUG("'%s' path is too long", newpath);
+        return ret;
+    }
     if(!strcmp(path, newpath))
         return -EINVAL;
     if((ret = sxfs_get_sx_data(sxfs, &sx, &cluster))) {
@@ -623,6 +639,11 @@ static int sxfs_rename (const char *path, const char *newpath) {
         }
         if(dir->nfiles || dir->ndirs) {
             SXFS_ERROR("Destination directory not empty: %s", newpath);
+            SXFS_DEBUG("> %s '.sxnewdir' file", dir->sxnewdir ? (dir->sxnewdir == 1 ? "Local" : "Remote") : "No");
+            for(i=0; i<dir->nfiles; i++)
+                SXFS_DEBUG("> %s", dir->files[i]->name);
+            for(i=0; i<dir->ndirs; i++)
+                SXFS_DEBUG("> %s/", dir->dirs[i]->name);
             ret = -ENOTEMPTY;
             goto sxfs_rename_err;
         }
@@ -896,8 +917,10 @@ static int sxfs_update_filemeta (const char *path, int function, mode_t mode, ui
         SXFS_ERROR("Not an absolute path");
         return -EINVAL;
     }
-    if((ret = check_path_len(sxfs, path, 0)))
+    if((ret = check_path_len(sxfs, path, 0))) {
+        SXFS_DEBUG("'%s' path is too long", path);
         return ret;
+    }
     if((ctime = time(NULL)) < 0) {
         ret = -errno;
         SXFS_ERROR("Cannot get current time: %s", strerror(errno));
@@ -1145,8 +1168,10 @@ static int sxfs_truncate (const char *path, off_t length) {
         return -EINVAL;
     }
     SXFS_DEBUG("'%s' (length: %lld)", path, (long long int)length);
-    if((ret = check_path_len(sxfs, path, 0)))
+    if((ret = check_path_len(sxfs, path, 0))) {
+        SXFS_DEBUG("'%s' path is too long", path);
         return ret;
+    }
     if((mctime = time(NULL)) < 0) {
         ret = -errno;
         SXFS_ERROR("Cannot get current time: %s", strerror(errno));
@@ -1219,55 +1244,61 @@ static int sxfs_truncate (const char *path, off_t length) {
                 ssize_t retval;
                 off_t to_read, offset = 0;
                 char buff[SX_BS_LARGE + 1];
-                sxi_sxfs_data_t *fdata;
-                sxfs_file_t tmp_sxfs_file;
+                sxfs_file_t *tmp_sxfs_file = NULL, *sxfs_file_ptr;
 
-                memset(&tmp_sxfs_file, 0, sizeof(sxfs_file_t));
-                tmp_sxfs_file.write_fd = -1;
-                tmp_sxfs_file.remote_path = strdup(path);
-                if(!tmp_sxfs_file.remote_path) {
-                    ret = -ENOMEM;
-                    SXFS_ERROR("Out of memory");
-                    goto sxfs_truncate_err;
-                }
-                if((ret = sxfs_get_sx_data(sxfs, &sx, &cluster))) {
-                    SXFS_ERROR("Cannot get SX data");
-                    free(tmp_sxfs_file.remote_path);
-                    goto sxfs_truncate_err;
-                }
-                if(sxfs_file) {
-                    fdata = sxfs_file->fdata;
-                } else {
+                if(!sxfs_file) {
+                    if((ret = sxfs_get_sx_data(sxfs, &sx, &cluster))) {
+                        SXFS_ERROR("Cannot get SX data");
+                        goto sxfs_truncate_err;
+                    }
+                    tmp_sxfs_file = (sxfs_file_t*)calloc(1, sizeof(sxfs_file_t));
+                    if(!tmp_sxfs_file) {
+                        SXFS_ERROR("Out of memory");
+                        ret = -ENOMEM;
+                        goto sxfs_truncate_err;
+                    }
+                    tmp_sxfs_file->write_fd = -1;
+                    tmp_sxfs_file->ls_file = dir->files[index];
+                    tmp_sxfs_file->remote_path = strdup(path);
+                    if(!tmp_sxfs_file->remote_path) {
+                        SXFS_ERROR("Out of memory");
+                        ret = -ENOMEM;
+                        free(tmp_sxfs_file);
+                        goto sxfs_truncate_err;
+                    }
+                    if((ret = pthread_mutex_init(&tmp_sxfs_file->mutex, NULL))) {
+                        SXFS_ERROR("Cannot create files data mutex: %s", strerror(ret));
+                        ret = -ret;
+                        free(tmp_sxfs_file->remote_path);
+                        free(tmp_sxfs_file);
+                        goto sxfs_truncate_err;
+                    }
                     sxc_file_t *file_remote = sxc_file_remote(cluster, sxfs->uri->volume, path+1, NULL);
                     if(!file_remote) {
                         SXFS_ERROR("Cannot create file object: %s", sxc_geterrmsg(sx));
                         ret = -sxfs_sx_err(sx);
-                        free(tmp_sxfs_file.remote_path);
+                        sxfs_file_free(sxfs, tmp_sxfs_file);
                         goto sxfs_truncate_err;
                     }
-                    fdata = sxi_sxfs_download_init(file_remote);
-                    if(!fdata) {
+                    tmp_sxfs_file->fdata = sxi_sxfs_download_init(file_remote);
+                    if(!tmp_sxfs_file->fdata) {
                         SXFS_ERROR("Cannot initialize file downloading: %s", sxc_geterrmsg(sx));
                         ret = -sxfs_sx_err(sx);
-                        free(tmp_sxfs_file.remote_path);
+                        sxfs_file_free(sxfs, tmp_sxfs_file);
                         sxc_file_free(file_remote);
                         goto sxfs_truncate_err;
                     }
                     sxc_file_free(file_remote);
+                    sxfs_file_ptr = tmp_sxfs_file;
+                } else {
+                    sxfs_file_ptr = sxfs_file;
                 }
-                tmp_sxfs_file.fdata = fdata;
-                to_read = MIN(fdata->filesize, length);
+                to_read = MIN(sxfs_file_ptr->fdata->filesize, length);
                 while(to_read) {
-                    if((retval = sxfs_cache_read(sxfs, &tmp_sxfs_file, buff, MIN(to_read, fdata->blocksize), offset)) < 0) {
+                    if((retval = sxfs_cache_read(sxfs, sxfs_file_ptr, buff, MIN(to_read, sxfs_file_ptr->fdata->blocksize), offset)) < 0) {
                         SXFS_ERROR("Cannot read the cache: %s", strerror(-retval));
                         ret = retval;
-                        free(tmp_sxfs_file.remote_path);
-                        if(tmp_sxfs_file.write_path) {
-                            free(tmp_sxfs_file.write_path);
-                            close(tmp_sxfs_file.write_fd);
-                        }
-                        if(!sxfs_file)
-                            sxi_sxfs_download_finish(fdata);
+                        sxfs_file_free(sxfs, tmp_sxfs_file);
                         goto sxfs_truncate_err;
                     }
                     if(!retval) /* EOF */
@@ -1275,24 +1306,13 @@ static int sxfs_truncate (const char *path, off_t length) {
                     if(write(fd, buff, retval) < 0) {
                         ret = -errno;
                         SXFS_ERROR("Cannot write to '%s' file: %s", local_file_path, strerror(errno));
-                        free(tmp_sxfs_file.remote_path);
-                        if(tmp_sxfs_file.write_path) {
-                            free(tmp_sxfs_file.write_path);
-                            close(tmp_sxfs_file.write_fd);
-                        }
-                        if(!sxfs_file)
-                            sxi_sxfs_download_finish(fdata);
+                        sxfs_file_free(sxfs, tmp_sxfs_file);
                         goto sxfs_truncate_err;
                     }
                     to_read -= retval;
                     offset += retval;
                 }
-                free(tmp_sxfs_file.remote_path);
-                free(tmp_sxfs_file.write_path);
-                if(tmp_sxfs_file.write_fd >= 0)
-                    close(tmp_sxfs_file.write_fd);
-                if(!sxfs_file)
-                    sxi_sxfs_download_finish(fdata);
+                sxfs_file_free(sxfs, tmp_sxfs_file);
                 if(ftruncate(fd, length)) {
                     if(errno == ENOSPC)
                         ret = -ENOBUFS;
@@ -1373,8 +1393,10 @@ static int sxfs_open (const char *path, struct fuse_file_info *file_info) {
         return -EINVAL;
     }
     SXFS_DEBUG("'%s' (%s%s %s)", path, file_info->flags & (O_RDONLY | O_RDWR) ? "r" : "-", file_info->flags & (O_WRONLY | O_RDWR) ? "w" : "-", file_info->flags & O_TRUNC ? "t" : "-");
-    if((ret = check_path_len(sxfs, path, 0)))
+    if((ret = check_path_len(sxfs, path, 0))) {
+        SXFS_DEBUG("'%s' path is too long", path);
         return ret;
+    }
     file_info->fh = 0;
     file_name = strrchr(path, '/');
     if(!file_name) {
@@ -1938,8 +1960,10 @@ static int sxfs_opendir (const char *path, struct fuse_file_info *file_info) {
     pathlen = strlen(path);
     SXFS_DEBUG("'%s'", path);
     file_info->fh = 0;
-    if((ret = check_path_len(sxfs, path, 0)))
+    if((ret = check_path_len(sxfs, path, 0))) {
+        SXFS_DEBUG("'%s' path is too long", path);
         return ret;
+    }
     sxfs_file = (sxfs_file_t*)calloc(1, sizeof(sxfs_file_t));
     if(!sxfs_file) {
         SXFS_ERROR("Out of memory");
@@ -2142,8 +2166,10 @@ static int sxfs_access (const char *path, int mode) {
         return -EINVAL;
     }
     SXFS_DEBUG("'%s', mode: %c%c%c%c (%o)", path, mode & F_OK ? 'F' : '-', mode & R_OK ? 'R' : '-', mode & W_OK ? 'W' : '-', mode & X_OK ? 'X' : '-', mode);
-    if((tmp = check_path_len(sxfs, path, 0)))
+    if((tmp = check_path_len(sxfs, path, 0))) {
+        SXFS_DEBUG("'%s' path is too long", path);
         return tmp;
+    }
     if(strlen(path) > 1 && path[strlen(path)-1] == '/') {
         path2 = strdup(path);
         if(!path2) {
@@ -2190,8 +2216,10 @@ static int sxfs_create (const char *path, mode_t mode, struct fuse_file_info *fi
                         mode & S_IRGRP ? 'r' : '-', mode & S_IWGRP ? 'w' : '-', mode & S_IXGRP ? 'x' : '-',
                         mode & S_IROTH ? 'r' : '-', mode & S_IWOTH ? 'w' : '-', mode & S_IXOTH ? 'x' : '-', (unsigned int)mode);
     file_info->fh = 0;
-    if((ret = check_path_len(sxfs, path, 0)))
+    if((ret = check_path_len(sxfs, path, 0))) {
+        SXFS_DEBUG("'%s' path is too long", path);
         return ret;
+    }
     if(mode && !S_ISREG(mode)) {
         SXFS_ERROR("Not supported type of file: %s", S_ISCHR(mode) ? "character special file" : S_ISBLK(mode) ? "block special file" :
                                                    S_ISFIFO(mode) ? "FIFO (named pipe)" : S_ISSOCK(mode) ? "UNIX domain socket" : "unknown type");

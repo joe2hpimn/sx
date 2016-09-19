@@ -4498,8 +4498,10 @@ sxi_sxfs_data_t *sxi_sxfs_download_init(sxc_file_t *source)
     ret = sxfs;
 sxi_sxfs_download_init_err:
     if(!ret) {
-        if(bh)
+        if(bh) {
+	    batch_hashes_free(bh);
             free(bh);
+	}
         if(sxfs->sourcepath)
             free(sxfs->sourcepath);
         if(sxfs->ha) {
