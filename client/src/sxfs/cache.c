@@ -98,15 +98,17 @@ static void cache_free (sxfs_state_t *sxfs, sxfs_cache_t *cache) {
 
     if(!sxfs || !cache)
         return;
-    if(sxi_rmdirs(sxfs->cache->dir_small) && errno != ENOENT)
-        SXFS_ERROR("Cannot remove '%s' directory: %s", sxfs->cache->dir_small, strerror(errno));
-    if(sxi_rmdirs(sxfs->cache->dir_medium) && errno != ENOENT)
-        SXFS_ERROR("Cannot remove '%s' directory: %s", sxfs->cache->dir_medium, strerror(errno));
-    if(sxi_rmdirs(sxfs->cache->dir_large) && errno != ENOENT)
-        SXFS_ERROR("Cannot remove '%s' directory: %s", sxfs->cache->dir_large, strerror(errno));
-    sprintf(cache->dir_lfu_small, "%s/lfu", cache->tempdir); /* no need to drop every subdirectory separately */
-    if(sxi_rmdirs(sxfs->cache->dir_lfu_small) && errno != ENOENT)
-        SXFS_ERROR("Cannot remove '%s' directory: %s", sxfs->cache->dir_lfu_small, strerror(errno));
+    if(cache->dir_small && sxi_rmdirs(cache->dir_small) && errno != ENOENT)
+        SXFS_ERROR("Cannot remove '%s' directory: %s", cache->dir_small, strerror(errno));
+    if(cache->dir_medium && sxi_rmdirs(cache->dir_medium) && errno != ENOENT)
+        SXFS_ERROR("Cannot remove '%s' directory: %s", cache->dir_medium, strerror(errno));
+    if(cache->dir_large && sxi_rmdirs(cache->dir_large) && errno != ENOENT)
+        SXFS_ERROR("Cannot remove '%s' directory: %s", cache->dir_large, strerror(errno));
+    if(cache->dir_lfu_small && cache->tempdir) {
+        sprintf(cache->dir_lfu_small, "%s/lfu", cache->tempdir); /* no need to drop every subdirectory separately */
+        if(sxi_rmdirs(cache->dir_lfu_small) && errno != ENOENT)
+            SXFS_ERROR("Cannot remove '%s' directory: %s", cache->dir_lfu_small, strerror(errno));
+    }
     free(cache->tempdir);
     free(cache->dir_small);
     free(cache->dir_medium);
@@ -138,7 +140,7 @@ int sxfs_cache_init (sxc_client_t *sx, sxfs_state_t *sxfs, size_t size, const ch
     if(!sxfs)
         return ret;
     if(!sx || !path) {
-        fprintf(stderr, "ERROR: NULL argument in cache initialization");
+        fprintf(stderr, "ERROR: NULL argument in cache initialization\n");
         return ret;
     }
     if(sxfs->need_file)
@@ -150,19 +152,19 @@ int sxfs_cache_init (sxc_client_t *sx, sxfs_state_t *sxfs, size_t size, const ch
 
     cache = (sxfs_cache_t*)calloc(1, sizeof(sxfs_cache_t));
     if(!cache) {
-        fprintf(stderr, "ERROR: Out of memory");
+        fprintf(stderr, "ERROR: Out of memory\n");
         return ret;
     }
     cache->size = size / 2;
     cache->lfu_max = size / (SX_BS_SMALL + SX_BS_MEDIUM + SX_BS_LARGE);
     if((err = pthread_mutex_init(&cache->mutex, NULL))) {
-        fprintf(stderr, "ERROR: Cannot create cache mutex: %s", strerror(err));
+        fprintf(stderr, "ERROR: Cannot create cache mutex: %s\n", strerror(err));
         ret = -err;
         free(cache);
         return ret;
     }
     if((err = pthread_mutex_init(&cache->lfu_mutex, NULL))) {
-        fprintf(stderr, "ERROR: Cannot create LFU cache mutex: %s", strerror(err));
+        fprintf(stderr, "ERROR: Cannot create LFU cache mutex: %s\n", strerror(err));
         ret = -err;
         if((err = pthread_mutex_destroy(&cache->mutex)))
             fprintf(stderr, "ERROR: Cannot destroy cache mutex: %s\n", strerror(err));
@@ -171,18 +173,18 @@ int sxfs_cache_init (sxc_client_t *sx, sxfs_state_t *sxfs, size_t size, const ch
     }
     cache->blocks = sxi_ht_new(sx, 10000); /* more than 128 * 64 for ht efficiency */
     if(!cache->blocks) {
-        fprintf(stderr, "ERROR: Out of memory");
+        fprintf(stderr, "ERROR: Out of memory\n");
         goto sxfs_cache_init_err;
     }
     /* using default cache we can have up to: 65536 small, 16384 medium or 256 large blocks */
     cache->lru = sxi_ht_new(sx, 1000);
     if(!cache->lru) {
-        fprintf(stderr, "ERROR: Out of memory");
+        fprintf(stderr, "ERROR: Out of memory\n");
         goto sxfs_cache_init_err;
     }
     cache->tempdir = strdup(path);
     if(!cache->tempdir) {
-        fprintf(stderr, "ERROR: Out of memory");
+        fprintf(stderr, "ERROR: Out of memory\n");
         goto sxfs_cache_init_err;
     }
 
@@ -197,38 +199,38 @@ int sxfs_cache_init (sxc_client_t *sx, sxfs_state_t *sxfs, size_t size, const ch
 
     cache->dir_small = (char*)malloc(strlen(path) + 1 + lenof("small") + 1);
     if(!cache->dir_small) {
-        fprintf(stderr, "ERROR: Out of memory");
+        fprintf(stderr, "ERROR: Out of memory\n");
         goto sxfs_cache_init_err;
     }
     cache->dir_medium = (char*)malloc(strlen(path) + 1 + lenof("medium") + 1);
     if(!cache->dir_medium) {
-        fprintf(stderr, "ERROR: Out of memory");
+        fprintf(stderr, "ERROR: Out of memory\n");
         goto sxfs_cache_init_err;
     }
     cache->dir_large = (char*)malloc(strlen(path) + 1 + lenof("large") + 1);
     if(!cache->dir_large) {
-        fprintf(stderr, "ERROR: Out of memory");
+        fprintf(stderr, "ERROR: Out of memory\n");
         goto sxfs_cache_init_err;
     }
     cache->dir_lfu_small = (char*)malloc(strlen(path) + 1 + lenof("small") + 1 + lenof("lfu") + 1);
     if(!cache->dir_lfu_small) {
-        fprintf(stderr, "ERROR: Out of memory");
+        fprintf(stderr, "ERROR: Out of memory\n");
         goto sxfs_cache_init_err;
     }
     cache->dir_lfu_medium = (char*)malloc(strlen(path) + 1 + lenof("medium") + 1 + lenof("lfu") + 1);
     if(!cache->dir_lfu_medium) {
-        fprintf(stderr, "ERROR: Out of memory");
+        fprintf(stderr, "ERROR: Out of memory\n");
         goto sxfs_cache_init_err;
     }
     cache->dir_lfu_large = (char*)malloc(strlen(path) + 1 + + lenof("large") + 1 + lenof("lfu") + 1);
     if(!cache->dir_lfu_large) {
-        fprintf(stderr, "ERROR: Out of memory");
+        fprintf(stderr, "ERROR: Out of memory\n");
         goto sxfs_cache_init_err;
     }
 
     sprintf(cache->dir_lfu_small, "%s/lfu", path);
     if(mkdir(cache->dir_lfu_small, 0700)) {
-        fprintf(stderr, "ERROR: Cannot create '%s' directory: %s", cache->dir_lfu_small, strerror(errno));
+        fprintf(stderr, "ERROR: Cannot create '%s' directory: %s\n", cache->dir_lfu_small, strerror(errno));
         goto sxfs_cache_init_err;
     }
 
@@ -240,27 +242,27 @@ int sxfs_cache_init (sxc_client_t *sx, sxfs_state_t *sxfs, size_t size, const ch
     sprintf(cache->dir_lfu_large, "%s/lfu/large", path);
 
     if(mkdir(cache->dir_small, 0700)) {
-        fprintf(stderr, "ERROR: Cannot create '%s' directory: %s", cache->dir_small, strerror(errno));
+        fprintf(stderr, "ERROR: Cannot create '%s' directory: %s\n", cache->dir_small, strerror(errno));
         goto sxfs_cache_init_err;
     }
     if(mkdir(cache->dir_medium, 0700)) {
-        fprintf(stderr, "ERROR: Cannot create '%s' directory: %s", cache->dir_medium, strerror(errno));
+        fprintf(stderr, "ERROR: Cannot create '%s' directory: %s\n", cache->dir_medium, strerror(errno));
         goto sxfs_cache_init_err;
     }
     if(mkdir(cache->dir_large, 0700)) {
-        fprintf(stderr, "ERROR: Cannot create '%s' directory: %s", cache->dir_large, strerror(errno));
+        fprintf(stderr, "ERROR: Cannot create '%s' directory: %s\n", cache->dir_large, strerror(errno));
         goto sxfs_cache_init_err;
     }
     if(mkdir(cache->dir_lfu_small, 0700)) {
-        fprintf(stderr, "ERROR: Cannot create '%s' directory: %s", cache->dir_lfu_small, strerror(errno));
+        fprintf(stderr, "ERROR: Cannot create '%s' directory: %s\n", cache->dir_lfu_small, strerror(errno));
         goto sxfs_cache_init_err;
     }
     if(mkdir(cache->dir_lfu_medium, 0700)) {
-        fprintf(stderr, "ERROR: Cannot create '%s' directory: %s", cache->dir_lfu_medium, strerror(errno));
+        fprintf(stderr, "ERROR: Cannot create '%s' directory: %s\n", cache->dir_lfu_medium, strerror(errno));
         goto sxfs_cache_init_err;
     }
     if(mkdir(cache->dir_lfu_large, 0700)) {
-        fprintf(stderr, "ERROR: Cannot create '%s' directory: %s", cache->dir_lfu_large, strerror(errno));
+        fprintf(stderr, "ERROR: Cannot create '%s' directory: %s\n", cache->dir_lfu_large, strerror(errno));
         goto sxfs_cache_init_err;
     }
 
