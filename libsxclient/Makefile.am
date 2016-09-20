@@ -1,6 +1,6 @@
 ACLOCAL_AMFLAGS = -I m4
 # https://www.gnu.org/software/libtool/manual/html_node/Updating-version-info.html
-LIBSXCLIENT_VERSION=4:0:0
+LIBSXCLIENT_VERSION=5:0:1
 
 SUBDIRS=
 if BUILD_LTDL
