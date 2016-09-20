@@ -1052,17 +1052,16 @@ static ssize_t validate_block (sxfs_state_t *sxfs, sxi_sxfs_data_t *fdata, unsig
             SXFS_DEBUG("'%s' block counter not found in LRU (possible race condition)", block_name);
             /* do not fail whole function - there can be a race condition with block removal */
         }
-        pthread_mutex_unlock(&cache->mutex);
         if(block_counter && *block_counter) {
             if(rename(path, path2)) {
                 if(errno != ENOENT) /* very racy stuff */
                     SXFS_ERROR("Cannot insert block into LFU cache: %s", strerror(errno));
+                pthread_mutex_unlock(&cache->mutex);
             } else {
                 char *tmp_str = path;
                 path = path2;
                 path2 = tmp_str;
 
-                pthread_mutex_lock(&cache->mutex);
                 cache->used -= fdata->blocksize;
                 free(block_counter);
                 block_counter = NULL;
@@ -1111,7 +1110,8 @@ static ssize_t validate_block (sxfs_state_t *sxfs, sxi_sxfs_data_t *fdata, unsig
                 }
                 pthread_mutex_unlock(&cache->lfu_mutex);
             }
-        }
+        } else
+            pthread_mutex_unlock(&cache->mutex);
         free(block_name_dup);
         free(path2);
     }
