@@ -2735,6 +2735,7 @@ int main (int argc, char **argv) {
     sxfs_sx_data_t sx_data;
     struct gengetopt_args_info args;
     struct fuse_args fargs, fargs_tmp;
+    int cache_dir_created = 0;
 
     if(cmdline_parser(argc, argv, &args)) {
         cmdline_parser_print_help();
@@ -3245,9 +3246,12 @@ int main (int argc, char **argv) {
                 goto main_err;
             }
         }
-        if(cache_dir && mkdir(cache_dir, 0700)) {
-            fprintf(stderr, "ERROR: Cannot create '%s' directory: %s\n", cache_dir, strerror(errno));
-            goto main_err;
+        if(cache_dir) {
+            if(mkdir(cache_dir, 0700)) {
+                fprintf(stderr, "ERROR: Cannot create '%s' directory: %s\n", cache_dir, strerror(errno));
+                goto main_err;
+            }
+            cache_dir_created = 1;
         }
         print_and_log(sxfs->logfile, "Using%s cache size of %s in '%s'\n", (args.cache_size_given || cache_created) ? "" : " default", cache_created ? cache_size_str : args.cache_size_arg, cache_dir ? cache_dir : sxfs->tempdir);
     }
@@ -3518,7 +3522,7 @@ int main (int argc, char **argv) {
         fprintf(sxfs->logfile ? sxfs->logfile : stderr, "ERROR: FUSE failed\n");
 main_err:
     free(cache_size_str);
-    if(cache_dir && strcmp(cache_dir, sxfs->tempdir) && sxi_rmdirs(cache_dir) && errno != ENOENT) /* remove cache directory with its content */
+    if(cache_dir_created && strcmp(cache_dir, sxfs->tempdir) && sxi_rmdirs(cache_dir) && errno != ENOENT) /* remove cache directory with its content */
         print_and_log(sxfs->logfile, "ERROR: Cannot remove '%s' directory: %s\n", cache_dir, strerror(errno)); /* 'cache_dir' is created after 'sxfs' */
     free(cache_dir);
     free(volume_name);
