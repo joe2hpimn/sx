@@ -1072,7 +1072,9 @@ static ssize_t validate_block (sxfs_state_t *sxfs, sxi_sxfs_data_t *fdata, unsig
                 pthread_mutex_unlock(&cache->mutex);
                 pthread_mutex_lock(&cache->lfu_mutex);
                 if(*lfu_sorted == LFU_SORTED_BY_NAME && (index = sxfs_find_entry((const void**)lfu, *lfu_n, block_name, lfu_entry_cmp_name)) >= 0) {
-                    SXFS_ERROR("'%s' block already in LFU cache", block_name);
+                    /* This error does not seem to be critical due to EAGAIN being returned. It can be triggered by
+                     * regular read operations, especially for large files. */
+                    SXFS_DEBUG("'%s' block already in LFU cache", block_name);
                     free(block_name_dup);
                     free(path2);
                     ret = -EAGAIN;
