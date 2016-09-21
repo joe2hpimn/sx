@@ -5,7 +5,7 @@
 \documentclass[oneside,a4paper]{memoir}
 \fi
 \PassOptionsToPackage{obeyspaces,hyphens}{url}
-\usepackage{color,calc,graphicx,soul,fourier,anyfontsize,xspace,listings,url,tikz,pifont,multirow}
+\usepackage{color,calc,graphicx,soul,fourier,anyfontsize,xspace,listings,url,tikz,pifont,multirow,background}
 \usepackage{microtype}
 \usepackage{ifpdf}
 \let\fref\undefined
@@ -58,6 +58,14 @@
 \setlength\afterchapskip {\onelineskip }
 \setlength\beforechapskip {\onelineskip }
 \fi
+
+\SetBgContents{\color{skylableblue}SX 2.2}
+\SetBgScale{1}
+\SetBgAngle{0}
+\SetBgPosition{current page.south east}
+\SetBgHshift{-0.8cm}
+\SetBgVshift{0.5cm}
+
 \newcommand{\SX}{S\textsuperscript{X}\xspace}
 \begin{document}
 \pagestyle{empty}
@@ -91,6 +99,8 @@
 \newpage
 \tableofcontents
 \vspace{1.0cm}
+
+\pagestyle{plain}
 
 \input{intro.tex}
 \input{install.tex}

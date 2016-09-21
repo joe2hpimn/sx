@@ -84,16 +84,16 @@ updated yet. After upgrading the entire cluster the expected output is:
 # sxsetup --upgrade
 Local node is up-to-date.
 Versions:
-	192.168.1.101: 2.0 (2.0)
-	192.168.1.102: 2.0 (2.0)
-	192.168.1.103: 2.0 (2.0)
+	192.168.1.101: 2.2 (2.2)
+	192.168.1.102: 2.2 (2.2)
+	192.168.1.103: 2.2 (2.2)
 Cluster already fully upgraded
 
 All components of the cluster are up-to-date!
 \end{lstlisting}
 \textbf{IMPORTANT:} Due to substantial changes and improvements, all
-nodes must be upgraded to 2.0 otherwise some operations will only work in
-read-only mode.
+nodes running \SX 1.x must be upgraded to 2.x otherwise some operations will
+only work in read-only mode.
 % When running \verb+sxsetup --upgrade+ on the last node of the cluster,
 % it should also start the upgrade of the remote cluster data:
 %\begin{lstlisting}
