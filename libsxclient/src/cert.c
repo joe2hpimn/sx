@@ -251,7 +251,7 @@ CURLcode sxi_verifyhost(sxc_client_t *sx, const char *hostname, X509 *server_cer
             /* only check alternatives of the same type the target is */
             if(check->type == GEN_DNS) {
                 /* get data and length */
-                const char *altptr = (char *)ASN1_STRING_data(check->d.ia5);
+                const char *altptr = (char *)ASN1_STRING_get0_data(check->d.ia5);
                 size_t altlen = (size_t) ASN1_STRING_length(check->d.ia5);
 
                 /* name/pattern comparison */
@@ -318,7 +318,7 @@ CURLcode sxi_verifyhost(sxc_client_t *sx, const char *hostname, X509 *server_cer
                     if(j >= 0) {
                         peer_CN = OPENSSL_malloc(j+1);
                         if(peer_CN) {
-                            memcpy(peer_CN, ASN1_STRING_data(tmp), j);
+                            memcpy(peer_CN, ASN1_STRING_get0_data(tmp), j);
                             peer_CN[j] = '\0';
                         }
                     }

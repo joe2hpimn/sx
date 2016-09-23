@@ -225,7 +225,7 @@ int sxi_rand_bytes_impl(unsigned char *d, int len)
 
 int sxi_rand_pseudo_bytes_impl(unsigned char *d, int len)
 {
-    if(RAND_pseudo_bytes(d, len) >= 0)
+    if(RAND_bytes(d, len) >= 0)
 	return 0; /* Success */
     else
 	return -1; /* Failure */

@@ -193,7 +193,7 @@ static int keyfp(const sxf_handle_t *handle, const unsigned char *key, unsigned 
 	memcpy(salt, current_salt, sizeof(salt));
 	memcpy(current_digest, current_fp + SALT_SIZE, KEY_SIZE);
     } else {
-	RAND_pseudo_bytes(salt, sizeof(salt));
+	RAND_bytes(salt, sizeof(salt));
 #ifdef ENABLE_VGHINTS
 	VALGRIND_MAKE_MEM_DEFINED(salt, sizeof(salt));
 #endif
