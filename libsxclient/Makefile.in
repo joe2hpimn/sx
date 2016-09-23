@@ -97,10 +97,11 @@ host_triplet = @host@
 
 @BUILD_NSS_TRUE@am__append_4 = src/nss.c
 @BUILD_OPENSSL_TRUE@am__append_5 = \
-@BUILD_OPENSSL_TRUE@	src/openssl.c\
-@BUILD_OPENSSL_TRUE@	src/cert.c \
-@BUILD_OPENSSL_TRUE@	src/cert.h
+@BUILD_OPENSSL_TRUE@src/openssl.c\
+@BUILD_OPENSSL_TRUE@src/cert.c \
+@BUILD_OPENSSL_TRUE@src/cert.h
 
+@BUILD_OPENSSL_TRUE@am__append_6 = -DUSE_OPENSSL
 subdir = .
 ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
 am__aclocal_m4_deps = $(top_srcdir)/m4/argz.m4 \
@@ -502,17 +503,19 @@ src_libsxclient_la_SOURCES = include/sx.h include/default.h \
 src_libsxclient_la_LIBADD = @YAJL_LIBS@ @LIBCURL@ @LIBLTDL@ @VCRYPTO_LIBS@
 # TODO: only sx_ should be exported not sxi_
 src_libsxclient_la_LDFLAGS = -no-undefined -export-symbols-regex sx.* -version-info $(LIBSXCLIENT_VERSION)
-src_libsxclient_la_CPPFLAGS = $(AM_CPPFLAGS) @YAJL_CPPFLAGS@ @LIBCURL_CPPFLAGS@ @VCRYPTO_CFLAGS@ \
-			-DINFO_CPPFLAGS="\"$(AM_CPPFLAGS) $(CPPFLAGS) @YAJL_CPPFLAGS@ @LIBCURL_CPPFLAGS@ @OPENSSL_CFLAGS@ @NSS_CFLAGS@\""\
-			-DINFO_CFLAGS="\"$(AM_CFLAGS) $(CFLAGS)\""\
-			-DINFO_LDFLAGS="\"$(AM_LDFLAGS) $(LDFLAGS) @YAJL_LIBS@ @LIBCURL@ @LIBLTDL@ @VCRYPTO_LIBS@\""\
-			-DINFO_SYSCONFDIR="\"$(sysconfdir)\""\
-			-DINFO_BINDIR="\"$(bindir)\""\
-			-DINFO_LOCALSTATEDIR="\"$(localstatedir)\""\
-			-DINFO_PKGCONFIG="\"@PKG_CONFIG@\""\
-			-DINFO_PKGCONFIG_LIBDIR="\"@PKG_CONFIG_LIBDIR@\""\
-			-DINFO_PKGCONFIG_PATH="\"@PKG_CONFIG_PATH@\""
-
+src_libsxclient_la_CPPFLAGS = $(AM_CPPFLAGS) @YAJL_CPPFLAGS@ \
+	@LIBCURL_CPPFLAGS@ @VCRYPTO_CFLAGS@ \
+	-DINFO_CPPFLAGS="\"$(AM_CPPFLAGS) $(CPPFLAGS) @YAJL_CPPFLAGS@ \
+	@LIBCURL_CPPFLAGS@ @OPENSSL_CFLAGS@ @NSS_CFLAGS@\"" \
+	-DINFO_CFLAGS="\"$(AM_CFLAGS) $(CFLAGS)\"" \
+	-DINFO_LDFLAGS="\"$(AM_LDFLAGS) $(LDFLAGS) @YAJL_LIBS@ \
+	@LIBCURL@ @LIBLTDL@ @VCRYPTO_LIBS@\"" \
+	-DINFO_SYSCONFDIR="\"$(sysconfdir)\"" \
+	-DINFO_BINDIR="\"$(bindir)\"" \
+	-DINFO_LOCALSTATEDIR="\"$(localstatedir)\"" \
+	-DINFO_PKGCONFIG="\"@PKG_CONFIG@\"" \
+	-DINFO_PKGCONFIG_LIBDIR="\"@PKG_CONFIG_LIBDIR@\"" \
+	-DINFO_PKGCONFIG_PATH="\"@PKG_CONFIG_PATH@\"" $(am__append_6)
 BUILT_SOURCES = include/extraversion.h
 CLEANFILES = include/extraversion.h include/extraversion.h.tmp
 all: $(BUILT_SOURCES) config.h

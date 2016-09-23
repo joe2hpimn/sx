@@ -22,9 +22,15 @@
 #include "valgrind/memcheck.h"
 #endif
 
+#ifdef USE_OPENSSL
+#include <openssl/hmac.h>
+typedef HMAC_CTX sxi_hmac_sha1_ctx;
+#else
+typedef struct sxi_hmac_sha1_ctx sxi_hmac_sha1_ctx;
+#endif
+
 int sxi_crypto_check_ver(struct sxi_logger *l);
 
-typedef struct sxi_hmac_sha1_ctx sxi_hmac_sha1_ctx;
 sxi_hmac_sha1_ctx *sxi_hmac_sha1_init(void);
 int sxi_hmac_sha1_init_ex(sxi_hmac_sha1_ctx *ctx,
                      const void *key, int key_len);
@@ -33,7 +39,13 @@ int sxi_hmac_sha1_update_str(sxi_hmac_sha1_ctx *ctx, const char *str);
 int sxi_hmac_sha1_final(sxi_hmac_sha1_ctx *ctx, unsigned char *md, unsigned int *len);
 void sxi_hmac_sha1_cleanup(sxi_hmac_sha1_ctx **ctx);
 
+#ifdef USE_OPENSSL
+#include <openssl/evp.h>
+typedef EVP_MD_CTX sxi_md_ctx;
+#else
 typedef struct sxi_md_ctx sxi_md_ctx;
+#endif
+
 sxi_md_ctx *sxi_md_init(void);
 int sxi_sha1_init(sxi_md_ctx *ctx);
 int sxi_sha1_update(sxi_md_ctx *ctx, const void *d, size_t len);

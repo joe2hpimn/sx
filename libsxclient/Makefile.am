@@ -65,13 +65,6 @@ endif
 if BUILD_NSS
 src_libsxclient_la_SOURCES += src/nss.c
 endif
-if BUILD_OPENSSL
-src_libsxclient_la_SOURCES += \
-	src/openssl.c\
-	src/cert.c \
-	src/cert.h
-endif
-
 src_libsxclient_la_LIBADD = @YAJL_LIBS@ @LIBCURL@ @LIBLTDL@ @VCRYPTO_LIBS@
 # TODO: only sx_ should be exported not sxi_
 src_libsxclient_la_LDFLAGS = -no-undefined -export-symbols-regex sx.* -version-info $(LIBSXCLIENT_VERSION)
@@ -85,6 +78,14 @@ src_libsxclient_la_CPPFLAGS = $(AM_CPPFLAGS) @YAJL_CPPFLAGS@ @LIBCURL_CPPFLAGS@ 
 			-DINFO_PKGCONFIG="\"@PKG_CONFIG@\""\
 			-DINFO_PKGCONFIG_LIBDIR="\"@PKG_CONFIG_LIBDIR@\""\
 			-DINFO_PKGCONFIG_PATH="\"@PKG_CONFIG_PATH@\""
+
+if BUILD_OPENSSL
+src_libsxclient_la_SOURCES += \
+src/openssl.c\
+src/cert.c \
+src/cert.h
+src_libsxclient_la_CPPFLAGS += -DUSE_OPENSSL
+endif
 
 BUILT_SOURCES = include/extraversion.h
 include/extraversion.h: include/extraversion.h.tmp

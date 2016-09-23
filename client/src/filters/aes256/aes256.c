@@ -43,6 +43,7 @@
 
 #include "libsxclient/src/misc.h"
 #include "libsxclient/src/fileops.h"
+#include "libsxclient/src/opensslcompat.h"
 #include "server/src/common/sxlimits.h"
 #include "sx.h"
 
@@ -63,20 +64,10 @@
 #define SALT_SIZE 16
 #define FP_SIZE (SALT_SIZE + KEY_SIZE)
 
-#ifdef HMAC_UPDATE_RETURNS_INT
-#define hmac_init_ex HMAC_Init_ex
-#define hmac_update HMAC_Update
-#define hmac_final HMAC_Final
-#else
-#define hmac_init_ex(a, b, c, d, e) (HMAC_Init_ex((a), (b), (c), (d), (e)), 1)
-#define hmac_update(a, b, c) (HMAC_Update((a), (b), (c)), 1)
-#define hmac_final(a, b, c) (HMAC_Final((a), (b), (c)), 1)
-#endif
-
 struct aes256_ctx {
-    EVP_CIPHER_CTX ectx, dctx;
-    HMAC_CTX ivhash;
-    HMAC_CTX hmac;
+    EVP_CIPHER_CTX *ectx, *dctx;
+    HMAC_CTX *ivhash;
+    HMAC_CTX *hmac;
     unsigned char keys[2 * KEY_SIZE];
     unsigned char key[KEY_SIZE], ivmac[EVP_MAX_MD_SIZE];
     unsigned int inbytes, blkbytes, data_in, data_out_left, data_end;
@@ -98,7 +89,7 @@ static int aes256_init(const sxf_handle_t *handle, void **ctx)
 static int derive_key(const sxf_handle_t *handle, const char *pass, const unsigned char *salt, unsigned salt_size, unsigned char *key, unsigned int key_size, unsigned char *meta_key, unsigned int meta_key_size)
 {
     char keybuf[61];
-    EVP_MD_CTX ctx;
+    EVP_MD_CTX *ctx;
     int ret;
 
     if(sxi_derive_key(pass, (const char*)salt, salt_size, BCRYPT_AES_ITERATIONS_LOG2, keybuf, sizeof(keybuf))) {
@@ -108,19 +99,19 @@ static int derive_key(const sxf_handle_t *handle, const char *pass, const unsign
     /* crypt returns a string containing the setting, the salt and the hashed
      * password, hash it once more to avoid accidentally using the salt as a key
      * */
-    EVP_MD_CTX_init(&ctx);
+    ctx = EVP_MD_CTX_new();
     ret = -1;
     do {
 	unsigned int len;
-        if (EVP_DigestInit_ex(&ctx, EVP_sha512(), NULL) != 1) {
+        if (EVP_DigestInit_ex(ctx, EVP_sha512(), NULL) != 1) {
             ERROR("EVP_DigestInit_ex failed");
             break;
         }
-        if (EVP_DigestUpdate(&ctx, keybuf, strlen(keybuf)) != 1) {
+        if (EVP_DigestUpdate(ctx, keybuf, strlen(keybuf)) != 1) {
             ERROR("EVP_DigestUpdate failed");
             break;
         }
-        if (EVP_DigestFinal_ex(&ctx, key, &len) != 1) {
+        if (EVP_DigestFinal_ex(ctx, key, &len) != 1) {
             ERROR("EVP_DigestFinal_ex failed");
             break;
         }
@@ -130,7 +121,7 @@ static int derive_key(const sxf_handle_t *handle, const char *pass, const unsign
         }
         ret = 0;
     } while(0);
-    EVP_MD_CTX_cleanup(&ctx);
+    EVP_MD_CTX_free(ctx);
 
     if(meta_key) {
 	/* generate a key for meta encryption from the bcrypt one */
@@ -586,16 +577,16 @@ static int data_prepare(const sxf_handle_t *handle, void **ctx, const char *file
     actx = *ctx;
 
     if(actx->crypto_inited) {
-	HMAC_CTX_cleanup(&actx->hmac);
-	HMAC_CTX_cleanup(&actx->ivhash);
+	HMAC_CTX_free(actx->hmac);
+	HMAC_CTX_free(actx->ivhash);
 	memset(actx->key, 0, sizeof(actx->key));
 	munlock(actx->key, sizeof(actx->key));
 	if(actx->crypto_inited == SXF_MODE_UPLOAD) {
-	    EVP_CIPHER_CTX_cleanup(&actx->ectx);
+	    EVP_CIPHER_CTX_free(actx->ectx);
 	    memset(&actx->ectx, 0, sizeof(actx->ectx));
 	    munlock(&actx->ectx, sizeof(actx->ectx));
 	} else {
-	    EVP_CIPHER_CTX_cleanup(&actx->dctx);
+	    EVP_CIPHER_CTX_free(actx->dctx);
 	    memset(&actx->dctx, 0, sizeof(actx->dctx));
 	    munlock(&actx->dctx, sizeof(actx->dctx));
 	}
@@ -606,36 +597,41 @@ static int data_prepare(const sxf_handle_t *handle, void **ctx, const char *file
     mlock(actx->key, sizeof(actx->key));
     memcpy(actx->key, use_meta_key ? &actx->keys[KEY_SIZE] : actx->keys, KEY_SIZE);
 
-    HMAC_CTX_init(&actx->ivhash);
-    HMAC_CTX_init(&actx->hmac);
-
-    if (hmac_init_ex(&actx->ivhash, actx->key, KEY_SIZE/2, EVP_sha1(), NULL) != 1) {
+    actx->ivhash = HMAC_CTX_new();
+    actx->hmac = HMAC_CTX_new();
+    actx->ectx = actx->dctx = NULL;
+    if (!actx->ivhash || hmac_init_ex(actx->ivhash, actx->key, KEY_SIZE/2, EVP_sha1(), NULL) != 1) {
         ERROR("Can't initialize HMAC context(1)");
-        return -1;
+        goto prepare_err;
     }
-    if (hmac_init_ex(&actx->hmac, actx->key, KEY_SIZE/2, EVP_sha512(), NULL) != 1) {
+    if (!actx->hmac || hmac_init_ex(actx->hmac, actx->key, KEY_SIZE/2, EVP_sha512(), NULL) != 1) {
         ERROR("Can't initialize HMAC context(2)");
-        return -1;
+        goto prepare_err;
     }
     if(mode == SXF_MODE_UPLOAD) {
-	mlock(&actx->ectx, sizeof(actx->ectx));
-	EVP_CIPHER_CTX_init(&actx->ectx);
-	if(EVP_EncryptInit_ex(&actx->ectx, EVP_aes_256_cbc(), NULL, actx->key + KEY_SIZE/2, NULL) != 1) {
+        actx->ectx = EVP_CIPHER_CTX_new();
+	if(!actx->ectx || EVP_EncryptInit_ex(actx->ectx, EVP_aes_256_cbc(), NULL, actx->key + KEY_SIZE/2, NULL) != 1) {
 	    ERROR("Can't initialize encryption context");
-	    return -1;
+            goto prepare_err;
 	}
     } else {
-	mlock(&actx->dctx, sizeof(actx->dctx));
-	EVP_CIPHER_CTX_init(&actx->dctx);
-	if(EVP_DecryptInit_ex(&actx->dctx, EVP_aes_256_cbc(), NULL, actx->key + KEY_SIZE/2, NULL) != 1) {
+        actx->dctx = EVP_CIPHER_CTX_new();
+	if(!actx->dctx || EVP_DecryptInit_ex(actx->dctx, EVP_aes_256_cbc(), NULL, actx->key + KEY_SIZE/2, NULL) != 1) {
 	    ERROR("Can't initialize decryption context");
-	    return -1;
+            goto prepare_err;
 	}
     }
 
     memset(actx->ivmac, 0, sizeof(actx->ivmac));
     actx->crypto_inited = mode;
     return 0;
+
+ prepare_err:
+    HMAC_CTX_free(actx->ivhash); actx->ivhash = NULL;
+    HMAC_CTX_free(actx->hmac); actx->hmac = NULL;
+    EVP_CIPHER_CTX_free(actx->ectx); actx->ectx = NULL;
+    EVP_CIPHER_CTX_free(actx->dctx); actx->dctx = NULL;
+    return -1;
 }
 
 static int aes256_data_prepare(const sxf_handle_t *handle, void **ctx, const char *filename, const char *cfgdir, const void *cfgdata, unsigned int cfgdata_len, sxc_meta_t *custom_volume_meta, sxf_mode_t mode)
@@ -705,16 +701,16 @@ static ssize_t aes256_data_process(const sxf_handle_t *handle, void *ctx, const 
         int final;
 	if(mode == SXF_MODE_UPLOAD) {
             unsigned int ivlen;
-            if (hmac_init_ex(&actx->ivhash, NULL, 0, NULL, NULL) != 1) {
+            if (hmac_init_ex(actx->ivhash, NULL, 0, NULL, NULL) != 1) {
                 ERROR("hmac_init_ex failed(1)");
                 return -1;
             }
-            if (hmac_update(&actx->ivhash, actx->ivmac, sizeof(actx->ivmac)) != 1 ||
-                hmac_update(&actx->ivhash, actx->in, actx->inbytes) != 1) {
+            if (hmac_update(actx->ivhash, actx->ivmac, sizeof(actx->ivmac)) != 1 ||
+                hmac_update(actx->ivhash, actx->in, actx->inbytes) != 1) {
                 ERROR("EVP_DigestUpdate failed");
                 return -1;
             }
-            if (hmac_final(&actx->ivhash, mac, &ivlen) != 1) {
+            if (hmac_final(actx->ivhash, mac, &ivlen) != 1) {
                 ERROR("DigestFinal_ex failed");
                 return -1;
             }
@@ -726,29 +722,29 @@ static ssize_t aes256_data_process(const sxf_handle_t *handle, void *ctx, const 
             memcpy(actx->ivmac, mac, ivlen);
             memcpy(ivaes, mac, IV_SIZE);
             memcpy(actx->blk, ivaes, IV_SIZE);
-	    if(!EVP_EncryptInit_ex(&actx->ectx, NULL, NULL, NULL, ivaes)) {
+	    if(!EVP_EncryptInit_ex(actx->ectx, NULL, NULL, NULL, ivaes)) {
 		ERROR("EVP_EncryptInit_ex failed");
 		return -1;
 	    }
-	    if(!EVP_EncryptUpdate(&actx->ectx, actx->blk + IV_SIZE, (int *) &actx->blkbytes, actx->in, actx->inbytes)) {
+	    if(!EVP_EncryptUpdate(actx->ectx, actx->blk + IV_SIZE, (int *) &actx->blkbytes, actx->in, actx->inbytes)) {
 		ERROR("EVP_EncryptUpdate failed");
 		return -1;
 	    }
             actx->blkbytes += IV_SIZE;
-	    if(!EVP_EncryptFinal_ex(&actx->ectx, actx->blk + actx->blkbytes, &final)) {
+	    if(!EVP_EncryptFinal_ex(actx->ectx, actx->blk + actx->blkbytes, &final)) {
 		ERROR("EVP_EncryptFinal_ex failed");
 		return -1;
 	    }
-            if (hmac_init_ex(&actx->hmac, NULL, 0, NULL, NULL) != 1) {
+            if (hmac_init_ex(actx->hmac, NULL, 0, NULL, NULL) != 1) {
                 ERROR("hmac_init_ex failed");
                 return -1;
             }
             actx->blkbytes += final;
-            if (hmac_update(&actx->hmac, actx->blk, actx->blkbytes) != 1) {
+            if (hmac_update(actx->hmac, actx->blk, actx->blkbytes) != 1) {
                 ERROR("hmac_update failed");
                 return -1;
             }
-            if (hmac_final(&actx->hmac, mac, &maclen) != 1) {
+            if (hmac_final(actx->hmac, mac, &maclen) != 1) {
                 ERROR("hmac_final failed");
                 return -1;
             }
@@ -760,7 +756,7 @@ static ssize_t aes256_data_process(const sxf_handle_t *handle, void *ctx, const 
             memcpy(actx->blk + actx->blkbytes, mac, maclen);
             actx->blkbytes += maclen;
 	} else {
-            if (hmac_init_ex(&actx->hmac, NULL, 0, NULL, NULL) != 1) {
+            if (hmac_init_ex(actx->hmac, NULL, 0, NULL, NULL) != 1) {
                 ERROR("hmac_init_ex failed");
                 return -1;
             }
@@ -769,11 +765,11 @@ static ssize_t aes256_data_process(const sxf_handle_t *handle, void *ctx, const 
                 return -1;
             }
             actx->inbytes -= MAC_SIZE;
-            if (hmac_update(&actx->hmac, actx->in, actx->inbytes) != 1) {
+            if (hmac_update(actx->hmac, actx->in, actx->inbytes) != 1) {
                 ERROR("hmac_update failed");
                 return -1;
             }
-            if (hmac_final(&actx->hmac, mac, &maclen) != 1) {
+            if (hmac_final(actx->hmac, mac, &maclen) != 1) {
                 ERROR("hmac_final failed");
                 return -1;
             }
@@ -788,15 +784,15 @@ static ssize_t aes256_data_process(const sxf_handle_t *handle, void *ctx, const 
                 return -1;
             }
             memcpy(ivaes, actx->in, IV_SIZE);
-	    if(!EVP_DecryptInit_ex(&actx->dctx, NULL, NULL, NULL, ivaes)) {
+	    if(!EVP_DecryptInit_ex(actx->dctx, NULL, NULL, NULL, ivaes)) {
 		ERROR("EVP_DecryptInit_ex failed");
 		return -1;
 	    }
-	    if(!EVP_DecryptUpdate(&actx->dctx, actx->blk, (int *) &actx->blkbytes, actx->in + IV_SIZE, actx->inbytes - IV_SIZE)) {
+	    if(!EVP_DecryptUpdate(actx->dctx, actx->blk, (int *) &actx->blkbytes, actx->in + IV_SIZE, actx->inbytes - IV_SIZE)) {
 		ERROR("EVP_DecryptUpdate failed");
 		return -1;
 	    }
-	    if(!EVP_DecryptFinal_ex(&actx->dctx, actx->blk + actx->blkbytes, &final)) {
+	    if(!EVP_DecryptFinal_ex(actx->dctx, actx->blk + actx->blkbytes, &final)) {
 		ERROR("EVP_DecryptFinal_ex failed (Invalid password/key file or broken data)");
 		actx->decrypt_err = 1;
 		return -1;
@@ -842,18 +838,18 @@ static int aes256_data_finish(const sxf_handle_t *handle, void **ctx, sxf_mode_t
     if(!actx || !actx->crypto_inited)
 	return 0;
 
-    HMAC_CTX_cleanup(&actx->hmac);
-    HMAC_CTX_cleanup(&actx->ivhash);
+    HMAC_CTX_free(actx->hmac);
+    actx->hmac = NULL;
+    HMAC_CTX_free(actx->ivhash);
+    actx->ivhash = NULL;
     memset(actx->key, 0, sizeof(actx->key));
     munlock(actx->key, sizeof(actx->key));
     if(mode == SXF_MODE_UPLOAD) {
-	EVP_CIPHER_CTX_cleanup(&actx->ectx);
-	memset(&actx->ectx, 0, sizeof(actx->ectx));
-	munlock(&actx->ectx, sizeof(actx->ectx));
+	EVP_CIPHER_CTX_free(actx->ectx);
+        actx->ectx = NULL;
     } else {
-	EVP_CIPHER_CTX_cleanup(&actx->dctx);
-	memset(&actx->dctx, 0, sizeof(actx->dctx));
-	munlock(&actx->dctx, sizeof(actx->dctx));
+	EVP_CIPHER_CTX_free(actx->dctx);
+        actx->dctx = NULL;
     }
     if(actx->decrypt_err && actx->keyfile) {
 	unlink(actx->keyfile);
