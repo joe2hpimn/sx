@@ -102,9 +102,6 @@ int sxi_sslctxfun(sxc_client_t *sx, curlev_t *ev, const struct curl_tlssessionin
     return 0;
 }
 
-typedef HMAC_CTX sxi_hmac_sha1_ctx;
-
-
 sxi_hmac_sha1_ctx *sxi_hmac_sha1_init(void)
 {
     return HMAC_CTX_new();
