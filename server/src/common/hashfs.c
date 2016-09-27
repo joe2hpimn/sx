@@ -3220,11 +3220,12 @@ int sx_hashfs_analyze(sx_hashfs_t *h, int verbose)
         return -1;
     ret += r;
     unsigned i, j;
-    for(i=0; i<METADBS; i++)
+    for(i=0; i<METADBS; i++) {
 	r = analyze_db(h->metadb[i], verbose);
         if(r == -1)
             return -1;
         ret += r;
+    }
     for (j=0; j<SIZES; j++) {
 	for(i=0;i<HASHDBS;i++) {
 	    r = analyze_db(h->datadb[j][i], verbose);
