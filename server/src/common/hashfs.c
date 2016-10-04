@@ -6032,7 +6032,7 @@ rc_ty sx_storage_upgrade_job(sx_hashfs_t *h)
         }
 
         /* Only insert upgrade job if we are upgrading *from* this version */
-        if (sx_hashfs_version_cmp(&from_ver, &dest_ver))
+        if (sx_hashfs_version_microcmp(&from_ver, &dest_ver))
             continue;
         upgrade_from = desc.to;
         if(desc.job == JOBTYPE_DUMMY || last_jobtype == desc.job)
