@@ -2322,6 +2322,57 @@ static int vacuum_node(sxc_client_t *sx, const char *path)
     return s;
 }
 
+static int move_db(sxc_client_t *sx, const char *dbdef, const char *path) {
+    const char *destdir, *sep;
+    char dbname[128];
+    sx_hashfs_t *h;
+    rc_ty s;
+
+    if(!sxc_is_verbose(sx)) {
+        log_setminlevel(sx, SX_LOG_INFO);
+        sxc_set_verbose(sx, 1);
+    }
+
+    sep = strchr(dbdef, '=');
+    if(!sep) {
+	fprintf(stderr, "ERROR: Please use the format DBNAME=/new/path/\n");
+	return 1;
+    }
+
+    destdir = sep+1;
+    if(*destdir != '/') {
+	fprintf(stderr, "ERROR: Please provide an absolute path\n");
+	return 1;
+    }
+
+    if(sep - dbdef >= sizeof(dbname)) {
+	fprintf(stderr, "ERROR: Database name too long\n");
+	return 1;
+    }
+    memcpy(dbname, dbdef, sep-dbdef);
+    dbname[sep-dbdef] = '\0';
+
+    h = sx_hashfs_open(path, sx);
+    if(!h)
+	return 1;
+
+    if(access(destdir, R_OK | W_OK | X_OK) && sxi_mkdir_hier(sx, destdir, 0700)) {
+	fprintf(stderr, "ERROR: Failed to create destination directory\n");
+	sx_hashfs_close(h);
+	return 1;
+    }
+
+    s = sx_hashfs_movedb(h, dbname, destdir);
+    sx_hashfs_close(h);
+    if(s != OK) {
+	fprintf(stderr, "ERROR: %s\n", msg_get_reason());
+	return 1;
+    }
+
+    INFO("Database %s moved to %s", dbname, destdir);
+    return 0;
+}
+
 static int get_cluster_meta_common(sxc_client_t *sx, sxc_cluster_t *cluster, sxc_meta_t *meta, const char *key, int is_cluster_meta) {
     unsigned int i, count;
     unsigned int max_value_len = is_cluster_meta ? SXLIMIT_META_MAX_VALUE_LEN : SXLIMIT_SETTINGS_MAX_VALUE_LEN;
@@ -2628,6 +2679,8 @@ int main(int argc, char **argv) {
                 ret = vacuum_node(sx, node_args.inputs[0]);
             else if(node_args.get_definition_given)
                 ret = get_node_definition(sx, node_args.inputs[0]);
+	    else if(node_args.move_db_given)
+		ret = move_db(sx, node_args.move_db_arg, node_args.inputs[0]);
         }
     node_out:
 	node_cmdline_parser_free(&node_args);

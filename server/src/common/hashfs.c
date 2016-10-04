@@ -21023,3 +21023,172 @@ void sx_hashfs_getmaxreplica(sx_hashfs_t *h, unsigned int *maxreplica, unsigned 
 	*effective_maxreplica = effr;
 }
 
+rc_ty sx_hashfs_movedb(sx_hashfs_t *h, const char *dbname, const char *destdir) {
+    const char *s, *bname;
+    char *source = NULL, *destination = NULL;
+    struct flock fl;
+    unsigned int i, locked = 0;
+    sxi_db_t *src_db;
+    sqlite3 *dst_dbh = NULL;
+    rc_ty ret;
+    int r;
+
+    if(!strncmp("hashdb_", dbname, lenof("hashdb_"))) {
+	/* Blocks */
+	unsigned int sz, part;
+	for(sz=0; sz<SIZES; sz++)
+	    if(dbname[lenof("hashdb_")] == sizedirs[sz])
+		break;
+	if(sz == SIZES ||
+	   dbname[lenof("hashdb_") + 1] != '_' ||
+	   dbname[lenof("hashdb_") + 2] == '\0') {
+	    msg_set_reason("No such database: %s", dbname);
+	    return EINVAL;
+	}
+	part = strtol(&dbname[lenof("hashdb_") + 2], (char **)&s, 16);
+	if(*s != '\0' || part >= HASHDBS) {
+	    msg_set_reason("No such hashdb: %s", dbname);
+	    return EINVAL;
+	}
+	src_db = h->datadb[sz][part];
+    } else if(!strncmp("metadb_", dbname, lenof("metadb_"))) {
+	/* Files */
+	unsigned int part;
+	part = strtol(&dbname[lenof("hashdb_") + 2], (char **)&s, 16);
+	if(dbname[lenof("metadb_")] == '\0' || *s != '\0' || part >= METADBS) {
+	    msg_set_reason("No such metadb: %s", dbname);
+	    return EINVAL;
+	}
+	src_db = h->metadb[part];
+    } else {
+	/* Non-split databases */
+	const char *dbs [] = { "tempdb", "eventdb", "xferdb", "hbeatdb", NULL };
+	sxi_db_t *dbobjs[] = { h->tempdb, h->eventdb, h->xferdb, h->hbeatdb, NULL };
+	for(i=0; dbs[i]; i++) {
+	    if(!strcmp(dbs[i], dbname)) {
+		src_db = dbobjs[i];
+		break;
+	    }
+	}
+	if(!dbs[i]) {
+	    msg_set_reason("No such database: %s", dbname);
+	    return EINVAL;
+	}
+    }
+
+    fl.l_start = 0;
+    fl.l_len = 0;
+    fl.l_type = F_WRLCK; /* Upgrade to write lock */
+    fl.l_whence = SEEK_SET;
+    if(fcntl(h->lockfd, F_SETLK, &fl) == -1) {
+	if(errno == EAGAIN || errno == EACCES) {
+	    msg_set_reason("This node should be stopped in order to move the database away");
+	    ret = FAIL_EINIT;
+	} else {
+	    msg_set_reason("Failed to lock HashFS storage: %s", strerror(errno));
+	    ret = errno;
+	}
+	goto movedb_err;
+    }
+    locked = 1;
+
+    sqlite3_reset(h->q_getval);
+    if(qbind_text(h->q_getval, ":k", dbname)) {
+	msg_set_reason("Failed to check database name");
+	ret = FAIL_EINTERNAL;
+	goto movedb_err;
+    }
+    r = qstep(h->q_getval);
+    if(r == SQLITE_DONE) {
+	msg_set_reason("No such database: %s", dbname);
+	ret = EINVAL;
+	goto movedb_err;
+    }
+    if(r != SQLITE_ROW) {
+	msg_set_reason("Failed to check database name");
+	ret = FAIL_EINTERNAL;
+	goto movedb_err;
+    }
+
+    s = (const char *)sqlite3_column_text(h->q_getval, 0);
+    if(s[0] == '/') {
+	source = strdup(s);
+	if(!source) {
+	    msg_set_reason("Out of memory");
+	    sqlite3_reset(h->q_getval);
+	    ret = ENOMEM;
+	    goto movedb_err;
+	}
+    } else {
+	source = malloc(strlen(h->dir) + 1 + strlen(s) + 1);
+	if(!source) {
+	    msg_set_reason("Out of memory");
+	    sqlite3_reset(h->q_getval);
+	    ret = ENOMEM;
+	    goto movedb_err;
+	}
+	sprintf(source, "%s/%s", h->dir, s);
+    }
+    sqlite3_reset(h->q_getval);
+    bname = strrchr(source, '/');
+    destination = malloc(strlen(destdir) + 1 + strlen(bname) + 1);
+    if(!destination) {
+	msg_set_reason("Out of memory");
+	ret = ENOMEM;
+	goto movedb_err;
+    }
+    sprintf(destination, "%s/%s", destdir, bname);
+
+    r = sqlite3_wal_checkpoint_v2(src_db->handle, NULL, SQLITE_CHECKPOINT_TRUNCATE, NULL, NULL);
+    if(r != SQLITE_OK) {
+	msg_set_reason("Failed to checkpoint source database log file: %s", sqlite3_errstr(r));
+	ret = FAIL_EINTERNAL;
+	goto movedb_err;
+    }
+
+    r = sqlite3_open_v2(destination, &dst_dbh, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, NULL);
+    if(r != SQLITE_OK) {
+	msg_set_reason("Failed to create destination database: %s", sqlite3_errstr(r));
+	ret = EINVAL;
+	goto movedb_err;
+    }
+
+    sqlite3_backup *backup = sqlite3_backup_init(dst_dbh, "main", src_db->handle, "main");
+    if(backup) {
+	r = sqlite3_backup_step(backup, -1);
+	sqlite3_backup_finish(backup);
+	if(r != SQLITE_DONE) {
+	    msg_set_reason("Failed to copy database: %s", sqlite3_errstr(r));
+	    ret = FAIL_EINTERNAL;
+	    goto movedb_err;
+	}
+    } else {
+	msg_set_reason("Failed to copy database: %s", sqlite3_errmsg(dst_dbh));
+	ret = FAIL_EINTERNAL;
+	goto movedb_err;
+    }
+
+    sqlite3_reset(h->q_setval);
+    if(qbind_text(h->q_setval, ":k", dbname) ||
+       qbind_text(h->q_setval, ":v", destination) ||
+       qstep_noret(h->q_setval)) {
+	msg_set_reason("Failed to copy database: %s", sqlite3_errstr(r));
+	ret = FAIL_EINTERNAL;
+	goto movedb_err;
+    }
+
+    INFO("%s -> %s", source, destination);
+    ret = OK;
+
+ movedb_err:
+    sqlite3_close(dst_dbh);
+    free(destination);
+    free(source);
+
+    if(locked) {
+        fl.l_type = F_RDLCK; /* Downgrade to read lock */
+        if(fcntl(h->lockfd, F_SETLK, &fl) == -1)
+            PWARN("Failed to release HashFS lock");
+    }
+    return ret;
+}

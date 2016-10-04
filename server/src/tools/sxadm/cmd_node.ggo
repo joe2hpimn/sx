@@ -17,6 +17,7 @@ groupoption "unbump-wait" - "Wait for active unbumps to complete" group="MODE" h
 groupoption "warm-cache" - "Warm DB caches" group="MODE" hidden
 groupoption "vacuum"    - "Vacuum" group="MODE" hidden
 groupoption "get-definition" - "Print node definition in 'cluster --mod' format" group="MODE"
+groupoption "move-db" - "Move storage database to a different place" string typestr="DBNAME=/new/path" group="MODE" hidden
 
 section "New node options"
 option "cluster-key" k "File containing a pre-generated cluster authentication token or stdin if \"-\" is given (default autogenerate token)." string typestr="FILE" dependon="new" optional

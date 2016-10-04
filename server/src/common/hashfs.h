@@ -726,5 +726,6 @@ rc_ty sx_hashfs_stats_jobq(sx_hashfs_t *h, int64_t *sysjobs, int64_t *userjobs);
 rc_ty sx_hashfs_stats_blockq(sx_hashfs_t *h, const sx_uuid_t *dest, int64_t *ready, int64_t *held, int64_t *unbumps);
 
 int sx_hashfs_update_storage_usage(sx_hashfs_t *h);
+rc_ty sx_hashfs_movedb(sx_hashfs_t *h, const char *dbname, const char *destdir);
 
 #endif
