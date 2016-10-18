@@ -372,7 +372,6 @@ int gc(sxc_client_t *sx, sx_hashfs_t *hashfs, int pipe, int pipe_expire) {
         }
         /* TODO: restrict GC until upgrade finishes locally */
         gettimeofday(&tv2, NULL);
-        INFO("GC periodic completed in %.1f sec", timediff(&tv1, &tv2));
         if (rc) {
             WARN("GC error: %s", rc2str(rc));
         } else {
@@ -391,10 +390,9 @@ int gc(sxc_client_t *sx, sx_hashfs_t *hashfs, int pipe, int pipe_expire) {
                 sx_hashfs_gc_slow(hashfs, &terminate);
                 sx_hashfs_incore(hashfs, NULL, NULL);
                 gettimeofday(&tv2, NULL);
-                INFO("GC run completed in %.1f sec", timediff(&tv1, &tv2));
                 sx_hashfs_checkpoint_idle(hashfs);
                 sx_hashfs_gc_info(hashfs, &terminate);
-                INFO("GC completed");
+                INFO("GC run completed in %.2lfs", timediff(&tv1, &tv2));
                 memcpy(&tv0, &tv1, sizeof(tv0));
             }
         }
