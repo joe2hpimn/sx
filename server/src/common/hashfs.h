@@ -55,6 +55,9 @@
 #define GC_GRACE_PERIOD JOB_FILE_MAX_TIME
 #define GC_UPLOAD_MINSPEED 65536 /* in bytes / s */
 #define GC_MIN_LATENCY 200 /* ms */
+/* Defines a maximum number of blocks to process while performing a slow check */
+#define GC_MAX_ROWS 1000
+
 
 #define QUOTA_UNDEFINED -1LL
 #define QUOTA_UNLIMITED 0LL

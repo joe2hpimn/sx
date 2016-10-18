@@ -1980,7 +1980,7 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 		goto open_hashfs_fail;
 	    if(qprep(h->datadb[j][i], &h->qb_find_unused_revision[j][i], "SELECT revision_id FROM revision_ops WHERE revision_id IN (SELECT revision_id FROM revision_ops NATURAL LEFT JOIN reservations WHERE op in (-1, 0) AND age <= :age AND revision_id > :last_revision_id AND reservations_id IS NULL) GROUP BY revision_id HAVING SUM(op)=0 ORDER BY revision_id"))
 		goto open_hashfs_fail;
-	    if(qprep(h->datadb[j][i], &h->qb_find_unused_block[j][i], "SELECT id, blockno, hash FROM blocks LEFT JOIN revision_blocks ON blocks.hash=blocks_hash WHERE id  > :last AND revision_id IS NULL ORDER BY id"))
+	    if(qprep(h->datadb[j][i], &h->qb_find_unused_block[j][i], "SELECT id, blockno, hash, revision_id FROM blocks LEFT JOIN revision_blocks ON blocks.hash=blocks_hash WHERE id  > :last ORDER BY id LIMIT " STRIFY(GC_MAX_ROWS)))
 		goto open_hashfs_fail;
 
 	    /*
@@ -15440,12 +15440,93 @@ rc_ty sx_hashfs_gc_periodic(sx_hashfs_t *h, int *terminate, int grace_period)
     return ret;
 }
 
+/* This function is responsible for iterating over blocks table joined with revision_blocks table.
+ * Returns OK if it did not fully processed all the blocks (it throttled itself or got terminated).
+ * Returns ITER_NO_MORE if it processed all the blocks.
+ * Returns oter code in case of error.
+ * This function is a part of the gc's slow check.
+ *
+ * === This function must be called inside a transaction. ===
+ *
+ * Args:
+ *      sizedb, hashdb: hash database indices
+ *      last: a rowid of the hash to start from, works as an output argument to serve for the next iteration attempt.
+ *      blocks_gced: an output parameter where the number of gced blocks is stored.
+ */
+static rc_ty unused_blocks_iterate(sx_hashfs_t *h, int *terminate, unsigned int sizedb, unsigned int hashdb, int64_t *last, uint64_t *gced) {
+    rc_ty ret = FAIL_EINTERNAL;
+    sqlite3_stmt *q;
+    int r;
+    uint64_t rows = 0;
+
+    if(!h || !terminate || !last || !gced) {
+        NULLARG();
+        return EINVAL;
+    }
+    if(sizedb > SIZES || hashdb > HASHDBS) {
+        WARN("Invalid hash database indices");
+        return EINVAL;
+    }
+    q = h->qb_find_unused_block[sizedb][hashdb];
+
+    /* Bind the last rowid */
+    sqlite3_reset(q);
+    if(qbind_int64(q, ":last", *last)) {
+        WARN("Failed to bind 'last' parameter");
+        sqlite3_reset(q);
+        return FAIL_EINTERNAL;
+    }
+
+    while((r = qstep(q)) == SQLITE_ROW && !*terminate) {
+        /* We are interested only in entries which do not contain a right hand side of the JOIN.
+         * It means the revision_blocks table does not contain an entry which would tie the
+         * block to some file revision, hence it's not used. */
+        if(sqlite3_column_type(q, 3) != SQLITE_NULL) {
+            *last = sqlite3_column_int64(q, 0);
+            rows++;
+            continue;
+        }
+
+        /*
+         * The function below might return EAGAIN when a block is blocked by the rebalance,
+         * we don't treat it as a failure.
+         * We pass the NULL value to the last parameter since we update the rowid in this function.
+         */
+        r = gc_block(h, sizedb, hashdb, q, 0, 2, NULL);
+        if (r == OK)
+            (*gced)++;
+        else if (r != EAGAIN)
+            goto unused_blocks_iterate_err;
+
+        /* Assign the last processed block only on success. */
+        rows++;
+        *last = sqlite3_column_int64(q, 0);
+
+        /* Check if we did not reach the timeout */
+        if (qelapsed(h->datadb[sizedb][hashdb]) > gc_max_batch_time) {
+            DEBUG("Throttling the GC slow check, elapsed: %.2lf, time limit: %.2lf", qelapsed(h->datadb[sizedb][hashdb]), gc_max_batch_time);
+            break;
+        }
+    }
+
+    /* When termination is requested we don't want the run to be treated as a failure,
+     * therefore we return OK here. */
+    if(*terminate || rows >= GC_MAX_ROWS)
+        ret = OK;
+    else
+        ret = ITER_NO_MORE;
+unused_blocks_iterate_err:
+    DEBUG("[%d/%d] %s: %llu/%llu", sizedb, hashdb, ret == OK ? "throttled" : (ret == ITER_NO_MORE ? "done" : "failure"),
+        (unsigned long long)*gced, (unsigned long long)rows);
+    sqlite3_reset(q);
+    return ret;
+}
+
 rc_ty sx_hashfs_gc_run(sx_hashfs_t *h, int *terminate)
 {
     unsigned i, j;
     uint64_t gc_unused_tokens = 0, gc_blocks = 0;
     int ret = 0;
-    ret = 0;
 
     sx_hashfs_incore(h, NULL, NULL);
     int64_t age = sxi_hdist_version(h->hd);
@@ -15468,6 +15549,7 @@ rc_ty sx_hashfs_gc_run(sx_hashfs_t *h, int *terminate)
         last_hdist = -1;
         break;
     default:
+        sqlite3_reset(h->q_getval);
         return FAIL_EINTERNAL;
     }
     int current_hdist = sxi_hdist_version(h->hd);
@@ -15484,45 +15566,46 @@ rc_ty sx_hashfs_gc_run(sx_hashfs_t *h, int *terminate)
     for (j=0;j<SIZES && !ret && !*terminate ;j++) {
         for (i=0;i<HASHDBS && !ret && !*terminate;i++) {
             int64_t last = 0;
-            sqlite3_stmt *q = h->qb_find_unused_block[j][i];
             int first = 1;
+            rc_ty r; /* stores the result of unused_blocks_iterate() */
+
             qreadahead(h->datadb[j][i]);
             do {
+                uint64_t gced_now = 0;
+
                 if (!first)
                     qyield(h->datadb[j][i]);
                 first = 0;
-                sqlite3_reset(q);
-                if (qbind_int64(q, ":last", last))
-                    break;
                 if (qbegin(h->datadb[j][i])) {
                     ret = -1;
                     break;
                 }
-                while((ret = qstep(q)) == SQLITE_ROW && !*terminate) {
-                    int r = gc_block(h, j, i, q, 0, 2, &last);
-                    if (r == OK) {
-                        gc_blocks++;
-                    } else if (r != EAGAIN) {
-                        ret = -1;
-                        break;
-                    }
-                    if (qelapsed(h->datadb[j][i]) > gc_max_batch_time)
-                        break;
-                }
-                sqlite3_reset(q);
-                if (ret == SQLITE_DONE)
-                    ret = 0;
-                if (!ret || ret == SQLITE_ROW) {
+
+                /* Iterate over blocks, check if they're used and drop when needed */
+                r = unused_blocks_iterate(h, terminate, j, i, &last, &gced_now);
+                gc_blocks += gced_now;
+
+                /* Commit the changes only if some blocks were touched
+                 * (gced_now is not 0) and there was no failure.
+                 * In case termination was requested we roll the changes back.
+                 */
+                if(gced_now && (r == OK || r == ITER_NO_MORE) && !*terminate) {
                     if (qcommit(h->datadb[j][i])) {
                         ret = -1;
                         break;
                     }
                 } else
                     qrollback(h->datadb[j][i]);
-            } while (ret == SQLITE_ROW && !*terminate);
+
+                /* Check the return code of the unused_blocks_iterate() and stop if failed. */
+                if(r != OK && r != ITER_NO_MORE) {
+                    ret = -1;
+                    break;
+                }
+            } while (r == OK && !*terminate);
         }
     }
-    if (ret == OK && !*terminate) {
+    if (!ret && !*terminate) {
         sqlite3_reset(h->q_setval);
         if(qbind_text(h->q_setval, ":k", "gc_last_hdist") ||
            qbind_int(h->q_setval, ":v", current_hdist) ||
