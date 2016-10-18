@@ -690,8 +690,10 @@ int qincore(sxi_db_t *db, int64_t *incore_pages, int64_t *total_pages)
         return SQLITE_NOMEM;
     unsigned n = (size + pagesize - 1) / pagesize;
     unsigned char *vec = wrap_calloc(n, 1);
-    if (!vec)
+    if (!vec) {
+        qunfetch(&file, &pp);
         return SQLITE_NOMEM;
+    }
     if (mincore(pp, size, vec)) {
         PINFO("mincore failed");
         rc = SQLITE_NOMEM;
