@@ -16101,7 +16101,8 @@ rc_ty sx_hashfs_gc_slow(sx_hashfs_t *h, int *terminate)
     /* must run slow check either if:
         - it is explicitly enabled
         - during a rebalance
-        - after a rebalance (once) */
+        - after a rebalance (once)
+        - during and after volume replica change process */
     if (!(gc_slow_check ||
           sx_hashfs_is_rebalancing(h) ||
           last_hdist != current_hdist))
@@ -21471,8 +21472,8 @@ static rc_ty volrep_release_index(sx_hashfs_t *h) {
 }
 
 rc_ty sx_hashfs_modify_volume_replica(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, unsigned int prev_replica, unsigned int next_replica) {
-    sqlite3_stmt *q;
-    rc_ty s;
+    sqlite3_stmt *q, *qdel;
+    rc_ty s, ret = FAIL_EINTERNAL;
 
     if(!vol) {
         msg_set_reason("NULL argument");
@@ -21526,13 +21527,37 @@ rc_ty sx_hashfs_modify_volume_replica(sx_hashfs_t *h, const sx_hashfs_volume_t *
             return s;
     }
 
+    if(qbegin(h->db)) {
+        msg_set_reason("Failed to lock database");
+        return FAIL_EINTERNAL;
+    }
+
     q = h->q_modreplica;
+    qdel = h->q_delval;
     sqlite3_reset(q);
+    sqlite3_reset(qdel);
 
     if(qbind_int64(q, ":volume_id", vol->id) || qbind_int(q, ":next_replica", next_replica) ||
        qbind_int(q, ":replica", prev_replica) || qbind_int64(q, ":now", time(NULL)) || qstep_noret(q)) {
         msg_set_reason("Failed to modify volume replica");
-        return FAIL_EINTERNAL;
+        goto sx_hashfs_modify_volume_replica_err;
+    }
+
+    /*
+     * The GC should be notified the volume replica has been changed in order to be able to run the slow check.
+     * It would be sufficient to perform a slow check only when the replica value decreases, but we may
+     * face an undo phase and therefore we should run the slow check in both cases.
+     * When gc_last_hdist entry is not present GC will perform a slow check and save the current hdist
+     * after its finished, therefore we delete this entry here.
+     */
+    if((qbind_text(qdel, ":k", "gc_last_hdist") || qstep_noret(qdel))) {
+        msg_set_reason("Failed to notify garbage collector");
+        goto sx_hashfs_modify_volume_replica_err;
+    }
+
+    if(qcommit(h->db)) {
+        msg_set_reason("Failed to modify volume replica");
+        goto sx_hashfs_modify_volume_replica_err;
     }
 
     if(prev_replica == next_replica) {
@@ -21540,7 +21565,12 @@ rc_ty sx_hashfs_modify_volume_replica(sx_hashfs_t *h, const sx_hashfs_volume_t *
         sx_hashfs_set_progress_info(h, INPRG_IDLE, NULL);
     }
 
+    ret = OK;
+sx_hashfs_modify_volume_replica_err:
+    if(ret != OK)
+        qrollback(h->db);
     sqlite3_reset(q);
+    sqlite3_reset(qdel);
     return OK;
 }
 
