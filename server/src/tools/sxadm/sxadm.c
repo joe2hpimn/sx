@@ -2271,7 +2271,8 @@ static int gc_node(sxc_client_t *sx, const char *path, int force_expire)
     gc_yield_time = 1.1;
     gc_slow_check = 0;
     rc_ty s = sx_hashfs_gc_periodic(hashfs, &term, force_expire ? -1 : GC_GRACE_PERIOD);
-    s |= sx_hashfs_gc_run(hashfs, &term);
+    s |= sx_hashfs_gc_unused_revisions(hashfs, &term);
+    s |= sx_hashfs_gc_slow(hashfs, &term);
     sx_hashfs_close(hashfs);
     return s == OK ? 0 : 1;
 }

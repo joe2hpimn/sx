@@ -363,7 +363,7 @@ void rbl_log(sx_hash_t *b, const char *op, int success, const char *extra, ...) 
     va_end(ap);
 }
 
-void gc_log(sx_hash_t *b, const char *op, int success, const char *extra, ...) {
+void gc_log(const sx_hash_t *b, const char *op, int success, const char *extra, ...) {
     va_list ap;
 
     if(!verbose_gc)
