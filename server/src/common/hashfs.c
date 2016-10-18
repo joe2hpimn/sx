@@ -6424,8 +6424,7 @@ static rc_ty gc_eventdb(sx_hashfs_t *h)
     if (qstep_noret(h->qe_gc))
         return FAIL_EINTERNAL;
     n = sqlite3_changes(h->eventdb->handle);
-    if (n > 0)
-        INFO("GCed jobs: %lld", (long long)n);
+    INFO("GCed jobs: %lld", (long long)n);
     return OK;
 }
 
