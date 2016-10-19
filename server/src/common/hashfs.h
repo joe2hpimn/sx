@@ -478,7 +478,7 @@ rc_ty sx_hashfs_br_delete(sx_hashfs_t *h, const block_meta_t *blockmeta);
 rc_ty sx_hashfs_br_use(sx_hashfs_t *h, const block_meta_t *blockmeta);
 rc_ty sx_hashfs_br_done(sx_hashfs_t *h, const block_meta_t *blockmeta);
 
-rc_ty sx_hashfs_br_find(sx_hashfs_t *h, const sx_block_meta_index_t *previous, unsigned rebalance_ver, const sx_uuid_t *target, block_meta_t **blockmetaptr);
+rc_ty sx_hashfs_br_find(sx_hashfs_t *h, const sx_block_meta_index_t *previous, unsigned int rebalance_ver, const sx_uuid_t *target, block_meta_t **blockmetaptr, time_t expiry);
 
 rc_ty sx_hashfs_blkrb_hold(sx_hashfs_t *h, const sx_hash_t *block, unsigned int blocksize, const sx_node_t *node);
 rc_ty sx_hashfs_blkrb_can_gc(sx_hashfs_t *h, const sx_hash_t *block, unsigned int blocksize);
@@ -535,7 +535,7 @@ rc_ty sx_hashfs_volrep_setlastblock(sx_hashfs_t *h, const sx_uuid_t *node, const
 rc_ty sx_hashfs_volrep_getstartfile(sx_hashfs_t *h, char *maxrev, char *startvol, char *startfile, char *startrev);
 rc_ty sx_hashfs_volrep_setlastfile(sx_hashfs_t *h, const char *lastvol, const char *lastfile, const char *lastrev);
 rc_ty sx_hashfs_volrep_init(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, int is_undoing);
-rc_ty sx_hashfs_volrep_find(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, const sx_block_meta_index_t *previous, const sx_uuid_t *target, int undo, block_meta_t **blockmetaptr);
+rc_ty sx_hashfs_volrep_find(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, const sx_block_meta_index_t *previous, const sx_uuid_t *target, int undo, block_meta_t **blockmetaptr, time_t expiry);
 rc_ty sx_hashfs_volrep_update_revid_replica(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, int is_undoing);
 rc_ty sx_hashfs_volrep_release_blocks(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, int undo, int first, sx_block_meta_index_t *prevhash);
 rc_ty sx_hashfs_over_replica_volnodes(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, unsigned int prev_replica, unsigned int next_replica, const sx_nodelist_t *src_nodes, sx_nodelist_t **out);

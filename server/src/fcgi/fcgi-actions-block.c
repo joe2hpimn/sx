@@ -684,6 +684,7 @@ void fcgi_push_blocks(void) {
     CGI_PUTS("\r\n");
 }
 
+#define FIND_NEXT_TIMEOUT_SEC 60
 void fcgi_send_replacement_blocks(void) {
     sx_block_meta_index_t bmidx, *bmidxptr = NULL;
     unsigned int version = 0, bytes_sent = 0;
@@ -722,14 +723,14 @@ void fcgi_send_replacement_blocks(void) {
 	rc_ty r;
 
 	sx_blob_reset(b);
-	r = sx_hashfs_br_find(hashfs, bmidxptr, version, &target, &bmeta);
+	r = sx_hashfs_br_find(hashfs, bmidxptr, version, &target, &bmeta, time(NULL) + FIND_NEXT_TIMEOUT_SEC);
 
 	if(r == ITER_NO_MORE) {
+	    /* Enumeration complete: send terminator */
 	    if(sx_blob_add_string(b, "$THEEND$"))
 		break;
-	} else if(r != OK) {
-	    break;
-	} else {
+	} else if(r == OK) {
+	    /* Found block: send it */
 	    unsigned int i;
 	    if(sx_blob_add_string(b, "$BLOCK$") ||
 	       sx_blob_add_int32(b, bmeta->blocksize) ||
@@ -750,15 +751,26 @@ void fcgi_send_replacement_blocks(void) {
 		sx_hashfs_blockmeta_free(&bmeta);
 		break;
 	    }
-	}
+	} else if(r == EAGAIN) {
+	    /* Timeout: send cursor for resume */
+	    if(sx_blob_add_string(b, "$RESUMEFROM$") ||
+	       sx_blob_add_blob(b, &bmeta->cursor, sizeof(bmeta->cursor))) {
+		sx_hashfs_blockmeta_free(&bmeta);
+		break;
+	    }
+	    sx_hashfs_blockmeta_free(&bmeta);
+	} else
+	    break;
+
 	sx_blob_to_data(b, &header, &header_len);
 	hlenton = htonl(header_len);
 	CGI_PUTD(&hlenton, sizeof(hlenton));
 	CGI_PUTD(header, header_len);
 	bytes_sent += sizeof(hlenton) + header_len;
-	if(r == ITER_NO_MORE)
-	    break;
+	if(r != OK)
+	    break; /* Timeout or enumeration complete */
 
+	/* Send block and continue */
 	CGI_PUTD(blockdata, bmeta->blocksize);
 	bytes_sent += bmeta->blocksize;
 	memcpy(&bmidx, &bmeta->cursor, sizeof(bmidx));
@@ -802,46 +814,58 @@ void fcgi_send_volrep_blocks(void) {
         rc_ty r;
 
         sx_blob_reset(b);
-        r = sx_hashfs_volrep_find(hashfs, vol, bmidxptr, &target, has_arg("undo"), &bmeta);
-        if(r == ITER_NO_MORE) {
-            if(sx_blob_add_string(b, "$THEEND$"))
-                break;
-        } else if(r != OK) {
-            break;
-        } else {
-            unsigned int i;
-            if(sx_blob_add_string(b, "$BLOCK$") ||
-               sx_blob_add_int32(b, bmeta->blocksize) ||
-               sx_blob_add_blob(b, &bmeta->hash, sizeof(bmeta->hash)) ||
-               sx_blob_add_blob(b, &bmeta->cursor, sizeof(bmeta->cursor)) ||
-               sx_blob_add_int32(b, bmeta->count)) {
-                sx_hashfs_blockmeta_free(&bmeta);
-                break;
-            }
-            for(i=0; i<bmeta->count; i++)
-                if(sx_blob_add_blob(b, bmeta->entries[i].revision_id.b, sizeof(bmeta->entries[i].revision_id.b)) ||
+        r = sx_hashfs_volrep_find(hashfs, vol, bmidxptr, &target, has_arg("undo"), &bmeta, time(NULL) + FIND_NEXT_TIMEOUT_SEC);
+
+	if(r == ITER_NO_MORE) {
+	    /* Enumeration complete: send terminator */
+	    if(sx_blob_add_string(b, "$THEEND$"))
+		break;
+	} else if(r == OK) {
+	    /* Found block: send it */
+	    unsigned int i;
+	    if(sx_blob_add_string(b, "$BLOCK$") ||
+	       sx_blob_add_int32(b, bmeta->blocksize) ||
+	       sx_blob_add_blob(b, &bmeta->hash, sizeof(bmeta->hash)) ||
+	       sx_blob_add_blob(b, &bmeta->cursor, sizeof(bmeta->cursor)) ||
+	       sx_blob_add_int32(b, bmeta->count)) {
+		sx_hashfs_blockmeta_free(&bmeta);
+		break;
+	    }
+	    for(i=0; i<bmeta->count; i++)
+		if(sx_blob_add_blob(b, bmeta->entries[i].revision_id.b, sizeof(bmeta->entries[i].revision_id.b)) ||
                    sx_blob_add_blob(b, bmeta->entries[i].global_vol_id.b, sizeof(bmeta->entries[i].global_vol_id.b)) ||
                    sx_blob_add_int32(b, bmeta->entries[i].replica))
-                    break;
-            if(i < bmeta->count ||
-               sx_hashfs_block_get(hashfs, bmeta->blocksize, &bmeta->hash, &blockdata) != OK) {
-                sx_hashfs_blockmeta_free(&bmeta);
-                break;
-            }
-        }
-        sx_blob_to_data(b, &header, &header_len);
-        hlenton = htonl(header_len);
-        CGI_PUTD(&hlenton, sizeof(hlenton));
-        CGI_PUTD(header, header_len);
-        bytes_sent += sizeof(hlenton) + header_len;
-        if(r == ITER_NO_MORE)
-            break;
+		    break;
+	    if(i < bmeta->count ||
+	       sx_hashfs_block_get(hashfs, bmeta->blocksize, &bmeta->hash, &blockdata) != OK) {
+		sx_hashfs_blockmeta_free(&bmeta);
+		break;
+	    }
+	} else if(r == EAGAIN) {
+	    /* Timeout: send cursor for resume */
+	    if(sx_blob_add_string(b, "$RESUMEFROM$") ||
+	       sx_blob_add_blob(b, &bmeta->cursor, sizeof(bmeta->cursor))) {
+		sx_hashfs_blockmeta_free(&bmeta);
+		break;
+	    }
+	    sx_hashfs_blockmeta_free(&bmeta);
+	} else
+	    break;
 
-        CGI_PUTD(blockdata, bmeta->blocksize);
-        bytes_sent += bmeta->blocksize;
-        memcpy(&bmidx, &bmeta->cursor, sizeof(bmidx));
-        bmidxptr = &bmidx;
-        sx_hashfs_blockmeta_free(&bmeta);
+	sx_blob_to_data(b, &header, &header_len);
+	hlenton = htonl(header_len);
+	CGI_PUTD(&hlenton, sizeof(hlenton));
+	CGI_PUTD(header, header_len);
+	bytes_sent += sizeof(hlenton) + header_len;
+	if(r != OK)
+	    break; /* Timeout or enumeration complete */
+
+	/* Send block and continue */
+	CGI_PUTD(blockdata, bmeta->blocksize);
+	bytes_sent += bmeta->blocksize;
+	memcpy(&bmidx, &bmeta->cursor, sizeof(bmidx));
+	bmidxptr = &bmidx;
+	sx_hashfs_blockmeta_free(&bmeta);
     }
     sx_blob_free(b);
 }

@@ -881,7 +881,6 @@ struct _sx_hashfs_t {
     sqlite3_stmt *qb_moduse[SIZES][HASHDBS];
     sqlite3_stmt *qb_reserve[SIZES][HASHDBS];
     sqlite3_stmt *qb_get_meta[SIZES][HASHDBS];
-    sqlite3_stmt *qb_get_meta_volrep[SIZES][HASHDBS];
     sqlite3_stmt *qb_del_reserve[SIZES][HASHDBS];
     sqlite3_stmt *qb_gc_find_unused_revision[SIZES][HASHDBS];
     sqlite3_stmt *qb_gc_find_unused_block[SIZES][HASHDBS];
@@ -1090,7 +1089,6 @@ static void close_all_dbs(sx_hashfs_t *h) {
             sqlite3_finalize(h->qb_moduse[j][i]);
             sqlite3_finalize(h->qb_reserve[j][i]);
             sqlite3_finalize(h->qb_get_meta[j][i]);
-            sqlite3_finalize(h->qb_get_meta_volrep[j][i]);
             sqlite3_finalize(h->qb_del_reserve[j][i]);
             sqlite3_finalize(h->qb_gc_find_unused_revision[j][i]);
             sqlite3_finalize(h->qb_gc_find_unused_block[j][i]);
@@ -1971,8 +1969,6 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
                As long as file flush atomically checks for presence and bumps reference counter there shouldn't be race conditions here.
             */
             if(qprep(h->datadb[j][i], &h->qb_get_meta[j][i], "SELECT replica, SUM(op), revision_blocks.revision_id, revision_blocks.global_vol_id FROM revision_blocks INNER JOIN revision_ops ON revision_blocks.revision_id=revision_ops.revision_id NATURAL LEFT JOIN reservations WHERE blocks_hash=:hash AND revision_blocks.age < :current_age AND reservations_id IS NULL GROUP BY revision_blocks.revision_id"))
-                goto open_hashfs_fail;
-            if(qprep(h->datadb[j][i], &h->qb_get_meta_volrep[j][i], "SELECT replica, SUM(op), revision_blocks.revision_id, revision_blocks.global_vol_id FROM revision_blocks INNER JOIN revision_ops ON revision_blocks.revision_id=revision_ops.revision_id NATURAL LEFT JOIN reservations WHERE blocks_hash=:hash AND reservations_id IS NULL GROUP BY revision_blocks.revision_id"))
                 goto open_hashfs_fail;
             if(qprep(h->datadb[j][i], &h->rit.q[j][i], "SELECT hash FROM blocks WHERE hash > :prevhash"))
                 goto open_hashfs_fail;
@@ -19048,10 +19044,40 @@ rc_ty sx_hashfs_file_find(sx_hashfs_t *h, const sx_hashfs_volume_t *volume, cons
     return rc;
 }
 
-rc_ty sx_hashfs_br_find(sx_hashfs_t *h, const sx_block_meta_index_t *previous, unsigned rebalance_ver, const sx_uuid_t *target, block_meta_t **blockmetaptr)
+
+static rc_ty blockmeta_get2(sx_hashfs_t *h, const sx_hash_t *block, unsigned int sizeidx, unsigned int ndb, unsigned int rebalance_ver, block_meta_t **blockmetaptr) {
+    sqlite3_stmt *qmeta = h->qb_get_meta[sizeidx][ndb];
+    block_meta_t *blockmeta;
+    rc_ty ret;
+
+    *blockmetaptr = NULL;
+    if(qbind_int64(qmeta, ":current_age", rebalance_ver))
+	return FAIL_EINTERNAL;
+
+    blockmeta = wrap_calloc(1, sizeof(*blockmeta));
+    if(!blockmeta)
+	return ENOMEM;
+
+    blockmeta->hash = *block;
+    blockmeta->blocksize = bsz[sizeidx];
+    *blockmetaptr = blockmeta;
+
+    ret = fill_block_meta(h, qmeta, blockmeta);
+    sqlite3_reset(qmeta);
+    if(ret != OK) {
+	WARN("failed to fill block meta");
+	sx_hashfs_blockmeta_free(blockmetaptr);
+	return ret;
+    }
+    return OK;
+}
+
+
+rc_ty sx_hashfs_br_find(sx_hashfs_t *h, const sx_block_meta_index_t *previous, unsigned int rebalance_ver, const sx_uuid_t *target, block_meta_t **blockmetaptr, time_t expiry)
 {
-    int ret;
+    int s;
     rc_ty rc;
+
     if (!h || !blockmetaptr) {
         NULLARG();
         return EFAULT;
@@ -19064,62 +19090,87 @@ rc_ty sx_hashfs_br_find(sx_hashfs_t *h, const sx_block_meta_index_t *previous, u
         WARN("bad size: %d", sizeidx);
         return EINVAL;
     }
-    block_meta_t *blockmeta = *blockmetaptr = wrap_calloc(1, sizeof(*blockmeta));
-    if (!blockmeta)
-        return ENOMEM;
     DEBUG("rebalance_ver: %d", rebalance_ver);
-    do {
+
+    while(1) { /* Foreach DB */
         DEBUG("ndb: %d, sizeidx: %d", ndb, sizeidx);
         sqlite3_stmt *q = h->rit.q[sizeidx][ndb];
-        sqlite3_stmt *qmeta = h->qb_get_meta[sizeidx][ndb];
+
         sqlite3_reset(q);
-        sqlite3_reset(qmeta);
-        sqlite3_clear_bindings(q);
-        sqlite3_clear_bindings(qmeta);
-        if (qbind_blob(q, ":prevhash", hash ? hash : (const void*)"", hash ? sizeof(*hash) : 0) ||
-            qbind_int64(qmeta, ":current_age", rebalance_ver)) {
-            rc = FAIL_EINTERNAL;
-            break;
+        if (qbind_blob(q, ":prevhash", hash ? hash : (const void*)"", hash ? sizeof(*hash) : 0))
+            return FAIL_EINTERNAL;
+
+        while(1) { /* Foreach block */
+	    block_meta_t *blockmeta;
+	    sx_hash_t bhash;
+
+            s = qstep(q);
+	    if(s == SQLITE_DONE) {
+		/* No more blocks in this db, check next */
+		break;
+	    }
+	    if(s != SQLITE_ROW) {
+		WARN("iteration failed");
+		return FAIL_EINTERNAL;
+	    }
+	    if(sqlite3_column_bytes(q, 0) != sizeof(bhash)) {
+		WARN("bad blob size for query: %s", sqlite3_sql(q));
+		sqlite3_reset(q);
+		return FAIL_EINTERNAL;
+	    }
+
+	    /* Get block meta */
+	    memcpy(&bhash, sqlite3_column_blob(q, 0), sizeof(bhash));
+	    rc = blockmeta_get2(h, &bhash, sizeidx, ndb, rebalance_ver, blockmetaptr);
+	    if(rc != OK) {
+		sqlite3_reset(q);
+		return rc;
+	    }
+
+	    blockmeta = *blockmetaptr;
+	    if(blockmeta->count) {
+		/* Block is referenced */
+		rc = sx_hashfs_should_repair(h, blockmeta, target);
+		if(rc == OK) {
+		    /* Block is needed for repair */
+		    sqlite3_reset(q);
+		    DEBUGHASH("should_repair: true", &blockmeta->hash);
+		    blockmeta->cursor.b[0] = sizeidx;
+		    memcpy(&blockmeta->cursor.b[1], &blockmeta->hash, sizeof(blockmeta->hash));
+		    return OK; /* Return block to ship */
+		}
+		if(rc != ITER_NO_MORE) {
+		    sqlite3_reset(q);
+		    sx_hashfs_blockmeta_free(blockmetaptr);
+		    return rc;
+		}
+	    }
+
+	    /* Block is unreferenced or not needed for repair... */
+	    if(time(NULL) > expiry) {
+		/* ... and it's time to give up */
+		sqlite3_reset(q);
+		blockmeta->cursor.b[0] = sizeidx;
+		memcpy(&blockmeta->cursor.b[1], &blockmeta->hash, sizeof(blockmeta->hash));
+		return EAGAIN; /* Return placeholder block for resume */
+	    }
+
+	    /* ... and there is more time */
+	    sx_hashfs_blockmeta_free(blockmetaptr);
         }
-        do {
-            ret = qstep(q);
-            ret = sx_hashfs_blockmeta_get(h, ret, q, qmeta, bsz[sizeidx], blockmeta);
-            sqlite3_reset(q);
-            if (ret == OK) {
-                DEBUG("row");
-                rc = sx_hashfs_should_repair(h, blockmeta, target);
-                if (rc == OK) {
-                    /* this node is responsible for sending this data,
-                     * and the target is supposed to have it */
-                    DEBUGHASH("should_repair: true", &blockmeta->hash);
-                    blockmeta->cursor.b[0] = sizeidx;
-                    memcpy(&blockmeta->cursor.b[1], &blockmeta->hash, sizeof(blockmeta->hash));
-                    return OK;
-                }
-                if (rc != ITER_NO_MORE)
-                    break;
-            } else if (ret == SQLITE_DONE) {
-                rc = ITER_NO_MORE;
-            } else if (ret != SQLITE_ROW) {
-                rc = FAIL_EINTERNAL;
-            }
-        } while (ret == OK || ret == SQLITE_ROW);
-        if (rc == ITER_NO_MORE) {
-            if (++ndb >= HASHDBS) {
-                ndb = 0;
-                if (++sizeidx >= SIZES) {
-                    sx_hashfs_blockmeta_free(blockmetaptr);
-                    DEBUG("iteration done");
-                    return ITER_NO_MORE;
-                }
-            }
-            rc = OK;
-            hash = NULL;/* reset iteration */
-        }
-    } while(rc == OK);
-    WARN("iteration failed: %s", rc2str(rc));
-    sx_hashfs_blockmeta_free(blockmetaptr);
-    return rc;
+
+	/* Database completed, check next */
+	sqlite3_reset(q);
+	if (++ndb >= HASHDBS) {
+	    ndb = 0;
+	    if (++sizeidx >= SIZES) {
+		/* All databases complete */
+		DEBUG("iteration done");
+		return ITER_NO_MORE;
+	    }
+	}
+	hash = NULL;/* reset iteration */
+    }
 }
 
 rc_ty sx_hashfs_replace_getstartblock(sx_hashfs_t *h, unsigned int *version, const sx_node_t **node, int *have_blkidx, uint8_t *blkidx) {
@@ -19451,10 +19502,11 @@ rc_ty sx_hashfs_init_replacement(sx_hashfs_t *h) {
     return ret;
 }
 
-rc_ty sx_hashfs_volrep_find(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, const sx_block_meta_index_t *previous, const sx_uuid_t *target, int undo, block_meta_t **blockmetaptr)
+rc_ty sx_hashfs_volrep_find(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, const sx_block_meta_index_t *previous, const sx_uuid_t *target, int undo, block_meta_t **blockmetaptr, time_t expiry)
 {
-    int ret;
+    int s;
     rc_ty rc;
+
     if (!h || !blockmetaptr) {
         NULLARG();
         return EFAULT;
@@ -19468,60 +19520,87 @@ rc_ty sx_hashfs_volrep_find(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, const
         WARN("bad size: %d", sizeidx);
         return EINVAL;
     }
-    block_meta_t *blockmeta = *blockmetaptr = wrap_calloc(1, sizeof(*blockmeta));
-    if (!blockmeta)
-        return ENOMEM;
-    do {
+
+    while(1) { /* Foreach DB */
         DEBUG("ndb: %d, sizeidx: %d", ndb, sizeidx);
         sqlite3_stmt *q = h->qb_volrep_block_by_global_vol_id[sizeidx][ndb];
-        sqlite3_stmt *qmeta = h->qb_get_meta_volrep[sizeidx][ndb];
+
         sqlite3_reset(q);
-        sqlite3_reset(qmeta);
-        sqlite3_clear_bindings(q);
-        sqlite3_clear_bindings(qmeta);
-        if (qbind_blob(q, ":global_vol_id", vol->global_id.b, sizeof(vol->global_id.b)) || qbind_blob(q, ":prevhash", hash ? hash : (const void*)"", hash ? sizeof(*hash) : 0)) {
-            rc = FAIL_EINTERNAL;
-            break;
+	if (qbind_blob(q, ":global_vol_id", vol->global_id.b, sizeof(vol->global_id.b)) ||
+	    qbind_blob(q, ":prevhash", hash ? hash : (const void*)"", hash ? sizeof(*hash) : 0))
+            return FAIL_EINTERNAL;
+
+        while(1) { /* Foreach block */
+	    block_meta_t *blockmeta;
+	    sx_hash_t bhash;
+
+            s = qstep(q);
+	    if(s == SQLITE_DONE) {
+		/* No more blocks in this db, check next */
+		break;
+	    }
+	    if(s != SQLITE_ROW) {
+		WARN("iteration failed");
+		return FAIL_EINTERNAL;
+	    }
+	    if(sqlite3_column_bytes(q, 0) != sizeof(bhash)) {
+		WARN("bad blob size for query: %s", sqlite3_sql(q));
+		sqlite3_reset(q);
+		return FAIL_EINTERNAL;
+	    }
+
+	    /* Get block meta */
+	    memcpy(&bhash, sqlite3_column_blob(q, 0), sizeof(bhash));
+	    rc = blockmeta_get2(h, &bhash, sizeidx, ndb, sxi_hdist_version(h->hd) + 2, blockmetaptr);
+	    if(rc != OK) {
+		sqlite3_reset(q);
+		return rc;
+	    }
+
+	    blockmeta = *blockmetaptr;
+	    if(blockmeta->count) {
+		/* Block is referenced */
+		rc = should_heal_replica(h, vol, blockmeta, target, undo);
+		if(rc == OK) {
+		    /* Block is needed for replica bump */
+		    sqlite3_reset(q);
+		    DEBUGHASH("should_repair: true", &blockmeta->hash);
+		    blockmeta->cursor.b[0] = sizeidx;
+		    memcpy(&blockmeta->cursor.b[1], &blockmeta->hash, sizeof(blockmeta->hash));
+		    return OK; /* Return block to ship */
+		}
+		if(rc != ITER_NO_MORE) {
+		    sqlite3_reset(q);
+		    sx_hashfs_blockmeta_free(blockmetaptr);
+		    return rc;
+		}
+	    }
+
+	    /* Block is unreferenced or not needed for replica bump... */
+	    if(time(NULL) > expiry) {
+		/* ... and it's time to give up */
+		sqlite3_reset(q);
+		blockmeta->cursor.b[0] = sizeidx;
+		memcpy(&blockmeta->cursor.b[1], &blockmeta->hash, sizeof(blockmeta->hash));
+		return EAGAIN; /* Return placeholder block for resume */
+	    }
+
+	    /* ... and there is more time */
+	    sx_hashfs_blockmeta_free(blockmetaptr);
         }
-        do {
-            ret = qstep(q);
-            ret = sx_hashfs_blockmeta_get(h, ret, q, qmeta, bsz[sizeidx], blockmeta);
-            sqlite3_reset(q);
-            if (ret == OK) {
-                DEBUG("row");
-                rc = should_heal_replica(h, vol, blockmeta, target, undo);
-                if (rc == OK) {
-                    /* this node is responsible for sending this data,
-                     * and the target is supposed to have it */
-                    DEBUGHASH("should_repair: true", &blockmeta->hash);
-                    blockmeta->cursor.b[0] = sizeidx;
-                    memcpy(&blockmeta->cursor.b[1], &blockmeta->hash, sizeof(blockmeta->hash));
-                    return OK;
-                }
-                if (rc != ITER_NO_MORE)
-                    break;
-            } else if (ret == SQLITE_DONE) {
-                rc = ITER_NO_MORE;
-            } else if (ret != SQLITE_ROW) {
-                rc = FAIL_EINTERNAL;
-            }
-        } while (ret == OK || ret == SQLITE_ROW);
-        if (rc == ITER_NO_MORE) {
-            if (++ndb >= HASHDBS) {
-                ndb = 0;
-                if (++sizeidx >= SIZES) {
-                    sx_hashfs_blockmeta_free(blockmetaptr);
-                    DEBUG("iteration done");
-                    return ITER_NO_MORE;
-                }
-            }
-            rc = OK;
-            hash = NULL;/* reset iteration */
-        }
-    } while(rc == OK);
-    WARN("iteration failed: %s", rc2str(rc));
-    sx_hashfs_blockmeta_free(blockmetaptr);
-    return rc;
+
+	/* Database completed, check next */
+	sqlite3_reset(q);
+	if (++ndb >= HASHDBS) {
+	    ndb = 0;
+	    if (++sizeidx >= SIZES) {
+		/* All databases complete */
+		DEBUG("iteration done");
+		return ITER_NO_MORE;
+	    }
+	}
+	hash = NULL;/* reset iteration */
+    }
 }
 
 /* Release over-replica blocks for a volume replica modification */

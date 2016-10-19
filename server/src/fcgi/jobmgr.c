@@ -3717,7 +3717,7 @@ static act_result_t replaceblocks_request(sx_hashfs_t *hashfs, job_t job_id, job
 }
 
 
-enum replace_state { RPL_HDRSIZE = 0, RPL_HDRDATA, RPL_DATA, RPL_END };
+enum replace_state { RPL_HDRSIZE = 0, RPL_HDRDATA, RPL_DATA, RPL_END, RPL_TIMEOUT };
 
 struct rplblocks {
     sx_hashfs_t *hashfs;
@@ -3780,18 +3780,29 @@ static int rplblocks_cb(curlev_context_t *cbdata, void *ctx, const void *data, s
 			INFO("Spurious tail of %u bytes", (unsigned int)size);
 		    c->state = RPL_END;
 		    return 0;
-		}
-		if(strcmp(signature, "$BLOCK$")) {
+		} else if(!strcmp(signature, "$RESUMEFROM$")) {
+		    const sx_block_meta_index_t *bmi;
+		    if(sx_blob_get_blob(c->b, (const void **)&bmi, &todo) || todo != sizeof(*bmi)) {
+			WARN("Invalid block index");
+			return 1;
+		    }
+		    c->lastgood = *bmi;
+		    c->state = RPL_TIMEOUT;
+		    if(size)
+			INFO("Spurious tail of %u bytes", (unsigned int)size);
+		    return 0;
+		} else if(!strcmp(signature, "$BLOCK$")) {
+		    if(sx_blob_get_int32(c->b, &c->itemsz) ||
+		       sx_hashfs_check_blocksize(c->itemsz)) {
+			WARN("Invalid block size");
+			return 1;
+		    }
+		    c->state = RPL_DATA;
+		    c->pos = 0;
+		} else {
 		    WARN("Invalid blob signature '%s'", signature);
 		    return 1;
 		}
-		if(sx_blob_get_int32(c->b, &c->itemsz) ||
-		   sx_hashfs_check_blocksize(c->itemsz)) {
-		    WARN("Invalid block size");
-		    return 1;
-		}
-		c->state = RPL_DATA;
-		c->pos = 0;
 	    }
 	}
 
@@ -3928,7 +3939,7 @@ static act_result_t replaceblocks_commit(sx_hashfs_t *hashfs, job_t job_id, job_
 	if(ctx->state == RPL_END) {
 	    if(sx_hashfs_replace_setlastblock(hashfs, sx_node_uuid(source), NULL))
 		WARN("Replace setnode failed");
-	} else if(ctx->ngood) {
+	} else if(ctx->ngood || ctx->state == RPL_TIMEOUT) {
 	    if(sx_hashfs_replace_setlastblock(hashfs, sx_node_uuid(source), (uint8_t *)&ctx->lastgood))
 		WARN("Replace setnode failed");
 	}
@@ -6584,7 +6595,7 @@ static rc_ty volrep_blocks_pull(sx_hashfs_t *hashfs, const sx_hashfs_volume_t *v
         if(ctx->state == RPL_END) {
             if(sx_hashfs_volrep_setlastblock(hashfs, sx_node_uuid(source), NULL))
                 WARN("Failed to set last block for a volume replica modification");
-        } else if(ctx->ngood) {
+        } else if(ctx->ngood || ctx->state == RPL_TIMEOUT) {
             if(sx_hashfs_volrep_setlastblock(hashfs, sx_node_uuid(source), (uint8_t *)&ctx->lastgood))
                 WARN("Failed to set last block for a volume replica modification");
         }
