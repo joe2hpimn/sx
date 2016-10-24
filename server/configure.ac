@@ -179,7 +179,7 @@ AC_ARG_WITH(system_sqlite3,AC_HELP_STRING([--with-system-sqlite3],
             [Use system SQLite3]))
 
 if test "x$with_system_sqlite3" == "xyes"; then
-    PKG_CHECK_MODULES([SQLITE3], [sqlite3 >= 3.8.4.3], [], [
+    PKG_CHECK_MODULES([SQLITE3], [sqlite3 >= 3.8.8], [], [
                          AC_MSG_ERROR([System SQLite3 version not found or too old])
                        ])
 else
