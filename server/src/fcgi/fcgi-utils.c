@@ -522,6 +522,16 @@ void handle_request(worker_type_t wtype) {
             quit_errmsg(400, "Invalid URL encoding");
     }
 
+    if(path) {
+	char *dashdot = path;
+	while((dashdot = strstr(dashdot, "/."))) {
+	    if(dashdot[2] == '\0' || dashdot[2] == '/' ||
+	       (dashdot[2] == '.' && (dashdot[3] == '\0' || dashdot[3] == '/')))
+		quit_errmsg(400, "Path contains forbidden parts");
+	    dashdot += 2;
+	}
+    }
+
     int vlen = volume ? sxi_utf8_validate_len(volume) : 0;
     int flen = path ? strlen(path) : 0;
 
