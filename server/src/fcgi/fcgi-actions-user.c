@@ -1275,7 +1275,9 @@ void fcgi_list_users(void) {
     int first = 1;
     const char *clones = NULL;
     uint8_t clones_cid[AUTH_UID_LEN];
+    time_t lastmod;
     rc_ty rc;
+
     if(has_arg("clones"))
         clones = get_arg("clones");
 
@@ -1285,7 +1287,13 @@ void fcgi_list_users(void) {
         else
             quit_errmsg(rc2http(rc), rc2str(rc));
     }
-    CGI_PUTS("Content-type: application/json\r\n\r\n{");
+    CGI_PUTS("Content-type: application/json\r\n");
+
+    lastmod = sx_users_lastmod(hashfs);
+    if(lastmod > 0 && is_object_fresh(NULL, 0, lastmod))
+	return;
+
+    CGI_PUTS("\r\n");
     rc = sx_hashfs_list_users(hashfs, clones ? clones_cid : NULL, print_user, has_arg("desc"), has_arg("quota"), has_arg("userMeta"), has_arg("customUserMeta"), &first);
     CGI_PUTS("}");
     if (rc != OK)

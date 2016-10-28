@@ -865,7 +865,7 @@ int is_https(void) {
     return (proto && !strcasecmp(proto, "on"));
 }
 
-int is_object_fresh(const sx_hash_t *etag, char type, unsigned int last_modified) {
+int is_object_fresh(const sx_hash_t *etag, char type, time_t last_modified) {
     char tagbuf[3 + sizeof(*etag) * 2 + 1];
     const char *cond;
     int is_cached = 0, skip_modsince = 0;

@@ -128,8 +128,8 @@ void send_keepalive(void);
 void send_nodes(const sx_nodelist_t *nodes);
 void send_nodes_randomised(const sx_nodelist_t *nodes);
 void send_job_info(job_t job);
-#define NO_LAST_MODIFIED 0xffffffff
-int is_object_fresh(const sx_hash_t *etag, char type, unsigned int last_modified);
+#define NO_LAST_MODIFIED ((time_t)(-1))
+int is_object_fresh(const sx_hash_t *etag, char type, time_t last_modified);
 
 #define quit_errmsg(errnum, message) do { send_error(errnum, message); return; } while(0)
 #define quit_errnum(errnum) do { send_error(errnum, NULL); return; } while(0)

@@ -29,6 +29,7 @@
 #define __HASHFS_H
 
 #include "default.h"
+#include <time.h>
 #include "utils.h"
 #include "nodes.h"
 #include "job_common.h"
@@ -207,6 +208,7 @@ typedef struct metacontent {
 rc_ty sx_hashfs_fill_usermeta_content(sx_hashfs_t *h, metacontent_t *meta, unsigned int *nmeta, sx_uid_t id);
 typedef int (*user_list_cb_t)(sx_hashfs_t *hashfs, sx_uid_t user_id, const char *username, const uint8_t *user, const uint8_t *key, int is_admin, const char *desc, int64_t quota, int64_t quota_usage, int print_meta, int print_custom_meta, int nmeta, metacontent_t *meta, void *ctx);
 rc_ty sx_hashfs_list_users(sx_hashfs_t *h, const uint8_t *list_clones, user_list_cb_t cb, int desc, int send_quota, int send_meta, int send_custom_meta, void *ctx);
+time_t sx_users_lastmod(sx_hashfs_t *h);
 /* Copy metadata entries stored in sx_blob_t into sxc_meta_t needed by sxi_proto_* functions from libsxclient. */
 int sx_hashfs_blob_to_sxc_meta(sxc_client_t *sx, sx_blob_t *b, sxc_meta_t **meta, int skip);
 

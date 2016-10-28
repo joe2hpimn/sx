@@ -8468,6 +8468,17 @@ rc_ty sx_hashfs_list_users(sx_hashfs_t *h, const uint8_t *list_clones, user_list
     return rc;
 }
 
+time_t sx_users_lastmod(sx_hashfs_t *h) {
+    time_t lastmod = (time_t)-1; /* Same as NO_LAST_MODIFIED */
+
+    sqlite3_reset(h->q_getval);
+    if(!qbind_text(h->q_getval, ":k", "user_lastmod") && qstep(h->q_getval) == SQLITE_ROW)
+	lastmod = sqlite3_column_int64(h->q_getval, 0);
+    sqlite3_reset(h->q_getval);
+
+    return lastmod;
+}
+
 /* Check if user with given uid is a volume owner */
 static int uid_is_volume_owner(sx_hashfs_t *h, const sx_hashfs_volume_t *vol, sx_uid_t id) {
     sqlite3_stmt *q = h->q_userisowner;
