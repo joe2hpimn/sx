@@ -81,7 +81,8 @@
 #define HASHFS_VERSION_2_1_4 MAKE_HASHFS_MICROVER(2,1,4)
 #define HASHFS_VERSION_2_1_5 MAKE_HASHFS_MICROVER(2,1,5)
 #define HASHFS_VERSION_2_1_6 MAKE_HASHFS_MICROVER(2,1,6)
-#define HASHFS_VERSION_2_2_0 HASHFS_VERSION_CURRENT
+#define HASHFS_VERSION_2_2_0 MAKE_HASHFS_MICROVER(2,2,0)
+#define HASHFS_VERSION_2_3_0 HASHFS_VERSION_CURRENT
 
 #define HASHFS_VERSION_INITIAL HASHFS_VERSION_1_0
 #ifdef SRC_MICRO_VERSION
@@ -4465,6 +4466,24 @@ static rc_ty upgrade_db(int lockfd, const char *path, sxi_db_t *db, const sx_has
     return ret;
 }
 
+/* Version upgrade 2.2.0 -> 2.3.0 */
+static rc_ty hashfs_2_2_0_to_2_3_0(sxi_db_t *db) {
+    rc_ty ret = FAIL_EINTERNAL;
+    sqlite3_stmt *q = NULL;
+    do {
+        if(qprep(db, &q, "CREATE TRIGGER IF NOT EXISTS setuserlastmod AFTER UPDATE ON users BEGIN INSERT OR REPLACE INTO hashfs VALUES ('user_lastmod', strftime('%s', 'now')); END;") || qstep_noret(q))
+            break;
+	qnullify(q);
+        if(qprep(db, &q, "CREATE TRIGGER IF NOT EXISTS setuserlastmod_meta AFTER UPDATE ON umeta BEGIN INSERT OR REPLACE INTO hashfs VALUES ('user_lastmod', strftime('%s', 'now')); END;") || qstep_noret(q))
+            break;
+	qnullify(q);
+        ret = OK;
+    } while(0);
+    qnullify(q);
+    return ret;
+}
+
+
 /* Version upgrade 2.1.6 -> 2.2.0 */
 static rc_ty metadb_2_1_6_to_2_2_0(sxi_db_t *db)
 {
@@ -5655,6 +5674,12 @@ static const sx_upgrade_t upgrade_sequence[] = {
         .from = HASHFS_VERSION_2_1_6,
         .to = HASHFS_VERSION_2_2_0,
         .upgrade_metadb = metadb_2_1_6_to_2_2_0,
+        .job = JOBTYPE_DUMMY
+    },
+    {
+        .from = HASHFS_VERSION_2_2_0,
+        .to = HASHFS_VERSION_2_3_0,
+        .upgrade_hashfsdb = hashfs_2_2_0_to_2_3_0,
         .job = JOBTYPE_DUMMY
     }
 };
