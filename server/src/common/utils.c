@@ -651,4 +651,3 @@ int db_max_mmapsize=2147418112;
 int db_custom_vfs=1;
 int worker_max_wait;
 int worker_max_requests;
-int static_expiration;

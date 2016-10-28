@@ -126,8 +126,6 @@ struct gengetopt_args_info
   int max_pending_user_jobs_arg;	/**< @brief Maximum number of concurrent jobs a single user can start (default='128').  */
   char * max_pending_user_jobs_orig;	/**< @brief Maximum number of concurrent jobs a single user can start original value given at command line.  */
   const char *max_pending_user_jobs_help; /**< @brief Maximum number of concurrent jobs a single user can start help description.  */
-  int static_expiration_flag;	/**< @brief Use static expiration time for blocks (24h) independent of file size, requires file upload and replication for a single file to complete within that time (default=off).  */
-  const char *static_expiration_help; /**< @brief Use static expiration time for blocks (24h) independent of file size, requires file upload and replication for a single file to complete within that time help description.  */
   
   unsigned int help_given ;	/**< @brief Whether help was given.  */
   unsigned int full_help_given ;	/**< @brief Whether full-help was given.  */
@@ -163,7 +161,6 @@ struct gengetopt_args_info
   unsigned int verbose_rebalance_given ;	/**< @brief Whether verbose-rebalance was given.  */
   unsigned int verbose_gc_given ;	/**< @brief Whether verbose-gc was given.  */
   unsigned int max_pending_user_jobs_given ;	/**< @brief Whether max-pending-user-jobs was given.  */
-  unsigned int static_expiration_given ;	/**< @brief Whether static-expiration was given.  */
 
 } ;
 

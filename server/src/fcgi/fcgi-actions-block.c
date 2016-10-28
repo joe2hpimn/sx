@@ -125,7 +125,8 @@ void fcgi_hashop_blocks(enum sxi_hashop_kind kind) {
     int comma = 0;
     unsigned idx = 0;
     uint64_t op_expires_at;
-    unsigned replica;
+    int replica;
+    sx_hash_t reserve_hash, revision_hash, volume_hash;
 
     auth_complete();
     quit_unless_authed();
@@ -134,16 +135,22 @@ void fcgi_hashop_blocks(enum sxi_hashop_kind kind) {
     revision_id = get_arg("revision_id");
     global_vol_id = get_arg("global_vol_id");
     expires = get_arg("op_expires_at");
-    replica = get_arg_uint("replica");
-    if (replica == -1) replica = 0;
+    replica = get_arg_uint("replica"); /* Returns -1 on error */
+    if (replica == -1)
+        replica = 0;
+
     if (kind != HASHOP_CHECK) {
         if (!reserve_id || !revision_id || !expires || !global_vol_id)
             quit_errmsg(400, "Missing id/expires");
         op_expires_at = strtoll(expires, &end, 10);
         if (!end || *end)
             quit_errmsg(400, "Invalid number for op_expires_at");
-    } else
+    } else {
+        memset(reserve_hash.b, 0, sizeof(reserve_hash.b));
+        memset(revision_hash.b, 0, sizeof(revision_hash.b));
+        memset(volume_hash.b, 0, sizeof(volume_hash.b));
         op_expires_at = 0;
+    }
 
     blocksize = strtol(path, (char **)&hpath, 10);
     if(*hpath != '/') {
@@ -152,9 +159,32 @@ void fcgi_hashop_blocks(enum sxi_hashop_kind kind) {
     }
     while(*hpath == '/')
 	hpath++;
+
+    /* Perform the reservation once per blocks batch */
+    if(kind == HASHOP_RESERVE) {
+        /* Parse the necessary variables */
+        if (hex2bin(reserve_id, strlen(reserve_id), reserve_hash.b, sizeof(reserve_hash.b)) ||
+            hex2bin(revision_id, strlen(revision_id), revision_hash.b, sizeof(revision_hash.b)) ||
+            hex2bin(global_vol_id, strlen(global_vol_id), volume_hash.b, sizeof(volume_hash.b))) {
+            msg_set_reason("Invalid hash(es): %s, %s, %s", reserve_id, revision_id, global_vol_id);
+            rc = EINVAL;
+            goto fcgi_hashop_blocks_err;
+        }
+
+        /*
+         * As well as the following iteration we don't hold a transaction and we don't roll back
+         * in case of failure. If reservations are created partially and the query won't be retried,
+         * they would eventually expire and would get deleted by the garbage collector.
+         */
+        rc = sx_hashfs_reserve_revision_id(hashfs, &reserve_hash, &revision_hash, blocksize, op_expires_at);
+        if(rc != OK) {
+            msg_set_reason("Failed to reserve revision ID");
+            goto fcgi_hashop_blocks_err;
+        }
+    }
+
     CGI_PUTS("Content-type: application/json\r\n\r\n{\"presence\":[");
     while (*hpath) {
-        sx_hash_t reserve_hash, revision_hash, volume_hash;
 	int present;
         if(hex2bin(hpath, SXI_SHA1_TEXT_LEN, reqhash.b, SXI_SHA1_BIN_LEN)) {
             msg_set_reason("Invalid hash %*.s", SXI_SHA1_TEXT_LEN, hpath);
@@ -169,17 +199,8 @@ void fcgi_hashop_blocks(enum sxi_hashop_kind kind) {
         n++;
         switch (kind) {
             case HASHOP_RESERVE:
-                if (hex2bin(reserve_id, strlen(reserve_id), reserve_hash.b, sizeof(reserve_hash.b)) ||
-                    hex2bin(revision_id, strlen(revision_id), revision_hash.b, sizeof(revision_hash.b)) ||
-                    hex2bin(global_vol_id, strlen(global_vol_id), volume_hash.b, sizeof(volume_hash.b))) {
-                    msg_set_reason("Invalid hash(es): %s, %s, %s", reserve_id, revision_id, global_vol_id);
-                    rc = EINVAL;
-                    break;
-                }
-                rc = sx_hashfs_hashop_perform(hashfs, blocksize, replica, HASHOP_RESERVE, &reqhash, &volume_hash, &reserve_hash, &revision_hash, op_expires_at, &present);
-                break;
             case HASHOP_CHECK:
-                rc = sx_hashfs_hashop_perform(hashfs, blocksize, 0, HASHOP_CHECK, &reqhash, NULL, NULL, NULL, 0, &present);
+                rc = sx_hashfs_hashop_perform(hashfs, blocksize, replica, kind, &reqhash, &volume_hash, &reserve_hash, &revision_hash, 0, &present);
                 break;
             default:
                 WARN("unexpected kind: %d", kind);
@@ -198,6 +219,9 @@ void fcgi_hashop_blocks(enum sxi_hashop_kind kind) {
         comma = 1;
         idx++;
     }
+
+    /* rc is assigned inside the loop */
+fcgi_hashop_blocks_err:
     if (rc != OK) {
         WARN("hashop: %s", rc2str(rc));
         CGI_PUTC(']');
@@ -357,6 +381,11 @@ static void blocks_free(blocks_t *blocks)
     blocks->all = NULL;
 }
 
+/*
+ * This is called during rebalance in order to properly create revision ID - blocks reverse maps.
+ * At the time the revmap is created we also perform a presence check and return the information
+ * to the caller.
+ */
 void fcgi_hashop_inuse(void) {
     const struct jparse_actions acts = {
 	JPACTS_STRING(
@@ -385,21 +414,12 @@ void fcgi_hashop_inuse(void) {
     unsigned i, j;
     rc_ty rc = FAIL_EINTERNAL;
     unsigned missing = 0;
-    const char *reserve_id;
     int comma = 0;
     unsigned idx = 0;
-    sx_hash_t reserve_hash;
     jparse_t *J;
 
     struct inuse_ctx yctx;
     memset(&yctx, 0, sizeof(yctx));
-
-    reserve_id = get_arg("reserve_id");
-    if (reserve_id &&
-        hex2bin(reserve_id, strlen(reserve_id), reserve_hash.b, sizeof(reserve_hash.b))) {
-        msg_set_reason("bad reserve id: %s", reserve_id);
-        quit_errmsg(400, "Bad reserve id");
-    }
 
     if(!(J = sxi_jparse_create(&acts, &yctx, 0)))
         quit_errmsg(500, "Cannot allocate json parser");
@@ -440,7 +460,7 @@ void fcgi_hashop_inuse(void) {
         rc = FAIL_EINTERNAL;
         for (j=0;j<m->count;j++) {
             const block_meta_entry_t *e = &m->entries[j];
-            rc = sx_hashfs_hashop_mod(hashfs, &m->hash, e->has_vol_id ? &e->global_vol_id : NULL, reserve_id ? &reserve_hash : NULL, &e->revision_id, m->blocksize, e->replica, 1, 0);
+            rc = sx_hashfs_hashop_use_revmap(hashfs, &m->hash, e->has_vol_id ? &e->global_vol_id : NULL, &e->revision_id, m->blocksize, e->replica);
             if (rc && rc != ENOENT)
                 break;
         }
@@ -911,7 +931,7 @@ struct blockrevs_ctx {
     int op;
 };
 
-void cb_blockrev(jparse_t *J, void *ctx, int32_t bs) {
+static void cb_blockrev(jparse_t *J, void *ctx, int32_t bs) {
     const char *revhex = sxi_jpath_mapkey(sxi_jparse_whereami(J));
     struct blockrevs_ctx *c = (struct blockrevs_ctx *)ctx;
     sx_hash_t revid;
@@ -943,7 +963,7 @@ void fcgi_blockrevs(void) {
     if(!strcmp(path, "remove"))
 	ctx.op = -1;
     else if(!strcmp(path, "add"))
-	ctx.op = +1; /* Not currently used */
+	ctx.op = +1;
     else
 	quit_errmsg(400, "Invalid blockrev operation");
 

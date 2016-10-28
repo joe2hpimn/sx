@@ -72,8 +72,6 @@ void sxi_hashop_begin(sxi_hashop_t *hashop, sxi_conns_t *conns, hash_presence_cb
             WARN("revision_id is required for HASHOP_RESERVE");
         if (!hashop->has_global_vol_id)
             WARN("global_vol_id is required for HASHOP_RESERVE");
-    } else if (kind == HASHOP_INUSE && (!hashop->has_revision_id || !hashop->has_global_vol_id)) {
-        WARN("global_vol_id and revision_id are required for HASHOP_INUSE/DELETE");
     }
     if (!replica && kind != HASHOP_CHECK)
         WARN("replica is zero!");
@@ -229,7 +227,7 @@ static int presence_cb(curlev_context_t *ctx, const unsigned char *data, size_t 
 static int sxi_hashop_batch(sxi_hashop_t *hashop)
 {
     const char *host, *hexhashes;
-    unsigned int blocksize, i, n;
+    unsigned int blocksize, n;
     sxi_query_t *query;
     int rc;
     if (!hashop || !hashop->conns)
@@ -281,26 +279,6 @@ static int sxi_hashop_batch(sxi_hashop_t *hashop)
             break;
         case HASHOP_RESERVE:
             query = sxi_hashop_proto_reserve(sxi_conns_get_client(hashop->conns), blocksize, hashop->hashes, hashop->hashes_pos, &hashop->global_vol_id, &hashop->reserve_id, &hashop->revision_id, hashop->replica, hashop->op_expires_at);
-            break;
-        case HASHOP_INUSE:
-            query = sxi_hashop_proto_inuse_begin(sxi_conns_get_client(hashop->conns), hashop->has_reserve_id ? &hashop->reserve_id : NULL);
-            for (i=0;i < n;i++) {
-                block_meta_entry_t entry;
-                block_meta_t meta;
-                if (hex2bin(hexhashes + i * SXI_SHA1_TEXT_LEN, SXI_SHA1_TEXT_LEN, meta.hash.b, sizeof(meta.hash.b))) {
-                    sxi_query_free(query);
-                    query = NULL;
-                    break;
-                }
-                memcpy(&entry.revision_id, &hashop->revision_id, sizeof(entry.revision_id));
-                memcpy(&entry.global_vol_id, &hashop->global_vol_id, sizeof(entry.global_vol_id));
-                entry.replica = hashop->replica;
-                meta.entries = &entry;
-                meta.count = 1;
-                meta.blocksize = hashop->current_blocksize;
-                query = sxi_hashop_proto_inuse_hash(sx, query, &meta);
-            }
-            query = sxi_hashop_proto_inuse_end(sx, query);
             break;
         default:
             query = NULL;

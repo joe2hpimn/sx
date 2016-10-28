@@ -705,24 +705,15 @@ sxi_query_t *sxi_hashop_proto_reserve(sxc_client_t *sx, unsigned blocksize, cons
     return sxi_hashop_proto_list(sx, blocksize, hashes, hashes_len, REQ_PUT, "reserve", vidhex, reserve_idhex, revision_idhex, replica, op_expires_at);
 }
 
-sxi_query_t *sxi_hashop_proto_inuse_begin(sxc_client_t *sx, const sx_hash_t *reserve_hash)
+sxi_query_t *sxi_hashop_proto_inuse_begin(sxc_client_t *sx)
 {
-    char url[128];
-    char reserve_idhex[SXI_SHA1_TEXT_LEN+1];
-    sxi_query_t *ret;
-
-    if (reserve_hash) {
-        sxi_bin2hex(reserve_hash->b, sizeof(reserve_hash->b), reserve_idhex);
-        snprintf(url, sizeof(url), ".data/?reserve_id=%s", reserve_idhex);
-    } else {
-        snprintf(url, sizeof(url), ".data/");
+    sxi_query_t *query = sxi_query_create(sx, ".data/", REQ_PUT);
+    if(!query) {
+        sxi_seterr(sx, SXE_EMEM, "Out of memory");
+        return NULL;
     }
 
-    ret = sxi_query_create(sx, url, REQ_PUT);
-    /* tokenid should be a wrapper here, and parser should accept tokenid at any
-     * level and set it for all descendants... */
-    ret = sxi_query_append_fmt(sx, ret, 1, "{");
-    return ret;
+    return sxi_query_append_fmt(sx, query, 1, "{");
 }
 
 sxi_query_t *sxi_hashop_proto_inuse_hash(sxc_client_t *sx, sxi_query_t *query, const block_meta_t *blockmeta)

@@ -338,11 +338,12 @@ rc_ty sx_hashfs_block_put(sx_hashfs_t *h, const uint8_t *data, unsigned int bs, 
 
 /* hash batch ops for GC */
 rc_ty sx_hashfs_hashop_perform(sx_hashfs_t *h, unsigned int block_size, unsigned replica_count, enum sxi_hashop_kind kind, const sx_hash_t *hash, const sx_hash_t *global_vol_id, const sx_hash_t *reserve_id, const sx_hash_t *revision_id, uint64_t op_expires_at, int *present);
-rc_ty sx_hashfs_hashop_mod(sx_hashfs_t *h, const sx_hash_t *hash, const sx_hash_t *global_vol_id, const sx_hash_t *reserve_id, const sx_hash_t *revision_id, unsigned int blocksize, unsigned replica, int count, uint64_t op_expires_at);
+rc_ty sx_hashfs_hashop_use_revmap(sx_hashfs_t *h, const sx_hash_t *hash, const sx_hash_t *global_vol_id, const sx_hash_t *revision_id, unsigned int blocksize, unsigned replica);
 rc_ty sx_hashfs_revision_op_begin(sx_hashfs_t *h);
 rc_ty sx_hashfs_revision_op(sx_hashfs_t *h, unsigned blocksize, const sx_hash_t *revision_id, int op);
 rc_ty sx_hashfs_revision_op_commit(sx_hashfs_t *h);
 void sx_hashfs_revision_op_rollback(sx_hashfs_t *h);
+rc_ty sx_hashfs_reserve_revision_id(sx_hashfs_t *h, const sx_hash_t *reserve_id, const sx_hash_t *revision_id, unsigned int blocksize, uint64_t op_expires_at);
 rc_ty sx_hashfs_unbump_wait(sx_hashfs_t *h);
 rc_ty sx_hashfs_gc_periodic(sx_hashfs_t *h, int *terminate, int grace_period);
 rc_ty sx_hashfs_gc_slow(sx_hashfs_t *h, int *terminate);

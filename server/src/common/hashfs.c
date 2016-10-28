@@ -877,11 +877,11 @@ struct _sx_hashfs_t {
     sqlite3_stmt *qb_get[SIZES][HASHDBS];
     sqlite3_stmt *qb_bumpavail[SIZES][HASHDBS];
     sqlite3_stmt *qb_bumpalloc[SIZES][HASHDBS];
-    sqlite3_stmt *qb_addtoken[SIZES][HASHDBS];
-    sqlite3_stmt *qb_moduse[SIZES][HASHDBS];
+    sqlite3_stmt *qb_revmap_op[SIZES][HASHDBS];
+    sqlite3_stmt *qb_revmap_create[SIZES][HASHDBS];
     sqlite3_stmt *qb_reserve[SIZES][HASHDBS];
     sqlite3_stmt *qb_get_meta[SIZES][HASHDBS];
-    sqlite3_stmt *qb_del_reserve[SIZES][HASHDBS];
+    sqlite3_stmt *qb_del_reservations[SIZES][HASHDBS];
     sqlite3_stmt *qb_gc_find_unused_revision[SIZES][HASHDBS];
     sqlite3_stmt *qb_gc_find_unused_block[SIZES][HASHDBS];
     sqlite3_stmt *qb_gc_find_block[SIZES][HASHDBS];
@@ -1085,11 +1085,11 @@ static void close_all_dbs(sx_hashfs_t *h) {
 	    sqlite3_finalize(h->qb_get[j][i]);
 	    sqlite3_finalize(h->qb_bumpavail[j][i]);
 	    sqlite3_finalize(h->qb_bumpalloc[j][i]);
-            sqlite3_finalize(h->qb_addtoken[j][i]);
-            sqlite3_finalize(h->qb_moduse[j][i]);
+            sqlite3_finalize(h->qb_revmap_op[j][i]);
+            sqlite3_finalize(h->qb_revmap_create[j][i]);
             sqlite3_finalize(h->qb_reserve[j][i]);
             sqlite3_finalize(h->qb_get_meta[j][i]);
-            sqlite3_finalize(h->qb_del_reserve[j][i]);
+            sqlite3_finalize(h->qb_del_reservations[j][i]);
             sqlite3_finalize(h->qb_gc_find_unused_revision[j][i]);
             sqlite3_finalize(h->qb_gc_find_unused_block[j][i]);
             sqlite3_finalize(h->qb_gc_find_block[j][i]);
@@ -1915,7 +1915,7 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 	goto open_hashfs_fail;
     if(qprep(h->tempdb, &h->qt_gettoken, "SELECT token, ttl, volume_id, name, t || ':' || token AS revision FROM tmpfiles WHERE tid = :id AND flushed = 0"))
 	goto open_hashfs_fail;
-    if(qprep(h->tempdb, &h->qt_tokendata, "SELECT tid, size, volume_id, name, content FROM tmpfiles WHERE token = :token AND flushed = 0"))
+    if(qprep(h->tempdb, &h->qt_tokendata, "SELECT tid, size, volume_id, name, content, t || ':' || token AS revision FROM tmpfiles WHERE token = :token AND flushed = 0"))
 	goto open_hashfs_fail;
     if(qprep(h->tempdb, &h->qt_tmpbyrev, "SELECT tid, name, size, volume_id, content, uniqidx, flushed, avail, token FROM tmpfiles WHERE t = :rev_time AND token = :rev_token AND flushed = 1"))
         goto open_hashfs_fail;
@@ -1957,10 +1957,10 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
 		goto open_hashfs_fail;
 	    if(qprep(h->datadb[j][i], &h->qb_bumpalloc[j][i], "UPDATE hashfs SET value = value + 1 WHERE key = 'next_blockno'"))
 		goto open_hashfs_fail;
-            if(qprep(h->datadb[j][i], &h->qb_addtoken[j][i], "INSERT OR IGNORE INTO revision_ops(revision_id, op, age) VALUES(:revision_id, :op, :age)"))
+            if(qprep(h->datadb[j][i], &h->qb_revmap_op[j][i], "INSERT OR IGNORE INTO revision_ops(revision_id, op, age) VALUES(:revision_id, :op, :age)"))
                 goto open_hashfs_fail;
             /* OR IGNORE to avoid subjournal */
-            if(qprep(h->datadb[j][i], &h->qb_moduse[j][i], "INSERT OR IGNORE INTO revision_blocks(revision_id, blocks_hash, age, replica, global_vol_id) VALUES(:revision_id, :hash, :age, :replica, :global_vol_id)"))
+            if(qprep(h->datadb[j][i], &h->qb_revmap_create[j][i], "INSERT OR IGNORE INTO revision_blocks(revision_id, blocks_hash, age, replica, global_vol_id) VALUES(:revision_id, :hash, :age, :replica, :global_vol_id)"))
                 goto open_hashfs_fail;
             if(qprep(h->datadb[j][i], &h->qb_reserve[j][i], "INSERT OR IGNORE INTO reservations(reservations_id, revision_id, ttl) VALUES(:reserve_id, :revision_id, :ttl)"))
                 goto open_hashfs_fail;
@@ -1974,7 +1974,7 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
                 goto open_hashfs_fail;
             if(qprep(h->datadb[j][i], &h->rit.q_num[j][i], "SELECT COUNT(hash) FROM blocks")) /* SLOWQ */
                 goto open_hashfs_fail;
-	    if(qprep(h->datadb[j][i], &h->qb_del_reserve[j][i], "DELETE FROM reservations WHERE reservations_id=:reserve_id"))
+	    if(qprep(h->datadb[j][i], &h->qb_del_reservations[j][i], "DELETE FROM reservations WHERE reservations_id IN (SELECT reservations_id FROM reservations WHERE revision_id = :revision_id LIMIT 1)"))
 		goto open_hashfs_fail;
 	    if(qprep(h->datadb[j][i], &h->qb_gc_find_unused_revision[j][i], "SELECT revision_id FROM revision_ops WHERE revision_id > :last_revision_id AND NOT EXISTS ( SELECT 1 FROM reservations WHERE reservations.revision_id = revision_ops.revision_id) AND ( SELECT SUM(op) = 0 FROM revision_ops AS sub WHERE sub.revision_id = revision_ops.revision_id) ORDER BY revision_id ASC LIMIT 1"))
 		goto open_hashfs_fail;
@@ -6183,7 +6183,6 @@ static void datadb_rollback(sx_hashfs_t *h, unsigned int hs);
 static rc_ty datadb_beginall(sx_hashfs_t *h);
 static rc_ty datadb_commitall(sx_hashfs_t *h);
 static void datadb_rollbackall(sx_hashfs_t *h);
-static rc_ty sx_hashfs_revision_op_internal(sx_hashfs_t *h, unsigned int hs, const sx_hash_t *revision_id, int op, int64_t age);
 
 #define BULK_MAX_BATCH 1000
 
@@ -6240,7 +6239,6 @@ rc_ty sx_hashfs_upgrade_1_0_or_1_1_prepare(sx_hashfs_t *h)
     if (i < METADBS)
         return FAIL_EINTERNAL;
 
-    int64_t age = sxi_hdist_version(h->hd);
     for(i=0;i<METADBS;i++) {
         sqlite3_stmt *qsel = h->qm_needs_upgrade[i], *qupd = NULL;
         int ret;
@@ -6280,21 +6278,13 @@ rc_ty sx_hashfs_upgrade_1_0_or_1_1_prepare(sx_hashfs_t *h)
                 sqlite3_reset(qupd);
                 sqlite3_reset(h->qm_add_heal[i]);
                 DEBUGHASH("preparing for upgrade", &revision_id);
-                unsigned int hs;
-                for(hs = 0; hs < SIZES; hs++)
-                    if(bsz[hs] == bsize)
-                        break;
-                if (hs == SIZES) {
-                    WARN("bad blocksize: %d", bsize);
-                    break;
-                }
                 if (qbind_blob(h->qm_add_heal[i], ":revision_id", revision_id.b, sizeof(revision_id.b)) ||
                     qbind_null(h->qm_add_heal[i], ":remote_volid") ||
                     qbind_int(h->qm_add_heal[i], ":blocks", blocks) ||
                     qbind_int(h->qm_add_heal[i], ":blocksize", bsize) ||
                     qbind_int(h->qm_add_heal[i], ":replica_count", volume->max_replica) ||
                     qstep_noret(h->qm_add_heal[i]) ||
-                    sx_hashfs_revision_op_internal(h, hs, &revision_id, 1, age) ||
+                    sx_hashfs_revision_op(h, bsize, &revision_id, 1) ||
                     qbind_int64(qupd, ":fid", fid) ||
                     qbind_blob(qupd, ":revision_id", revision_id.b, sizeof(revision_id.b)) ||
                     qstep_noret(qupd)) {
@@ -6361,8 +6351,7 @@ rc_ty sx_hashfs_upgrade_1_0_or_1_1_prepare(sx_hashfs_t *h)
     return rc;
 }
 
-static rc_ty sx_hashfs_hashop_moduse(sx_hashfs_t *h, const sx_hash_t *global_vol_id, const sx_hash_t *reserve_id, const sx_hash_t *revision_id, unsigned int hs, const sx_hash_t *hash, unsigned replica, int64_t op, uint64_t op_expires_at);
-static rc_ty sx_hashfs_hashop_moduse_internal(sx_hashfs_t *h, const sx_hash_t *global_vol_id, const sx_hash_t *revision_id, unsigned int hs, unsigned int ndb, const sx_hash_t *hash, unsigned replica, int64_t age);
+static rc_ty hashop_create_revmap(sx_hashfs_t *h, const sx_hash_t *global_vol_id, const sx_hash_t *revision_id, unsigned int hs, const sx_hash_t *hash, unsigned replica);
 static rc_ty hash_of_blob_result(sx_hash_t *hash, sqlite3_stmt *stmt, int col);
 
 static rc_ty datadb_begin(sx_hashfs_t *h, unsigned int hs)
@@ -6497,10 +6486,9 @@ rc_ty sx_hashfs_upgrade_1_0_or_1_1_local(sx_hashfs_t *h)
                     CRIT("corrupt file blocksize: %d", blocksize);
                     continue;
                 }
-                int64_t age = sxi_hdist_version(h->hd);
                 for (j=0;j<blocks;j++) {
                     const sx_hash_t *hash = &content[j];
-                    if (sx_hashfs_hashop_moduse_internal(h, &vol->global_id, &revision_id, hs, gethashdb(hash), hash, replica, age))
+                    if (hashop_create_revmap(h, &vol->global_id, &revision_id, hs, hash, replica))
                         break;
                 }
                 if (j != blocks)
@@ -9682,7 +9670,92 @@ rc_ty sx_hashfs_block_get(sx_hashfs_t *h, unsigned int bs, const sx_hash_t *hash
     return OK;
 }
 
-static rc_ty sx_hashfs_hashop_ishash(sx_hashfs_t *h, unsigned hs, const sx_hash_t *hash)
+rc_ty sx_hashfs_revision_op_begin(sx_hashfs_t *h)
+{
+    return datadb_beginall(h);
+}
+
+rc_ty sx_hashfs_revision_op_commit(sx_hashfs_t *h)
+{
+    return datadb_commitall(h);
+}
+
+void sx_hashfs_revision_op_rollback(sx_hashfs_t *h)
+{
+    datadb_rollbackall(h);
+}
+
+/*
+ * Perform an operation on revision_ops and reservations tables.
+ *
+ * When op is 1 we insert a 1 op into revision_ops table from all the hash databases
+ * and we delete all reservations which contain the provided revision_id from reservations table
+ * from all the hash databases.
+ *
+ * When op is -1 we only insert a -1 op into revision ops table from all the hash databases. Normally
+ * a file deletion should occur after a file is uploaded, therefore no reservations should exist at this point.
+ * However, if the file is not yet uploaded and we issue its deletion (probably due to a race condition), then
+ * it is unlikely that we have a reservation there. When a positive op comes, the reservation should be eventually
+ * deleted. In the worst case the reservation would expire.
+ *
+ * Note: There is no transaction handled, making a transaction is a responsibility of the caller,
+ *       see sx_hashfs_revision_op_{begin,commit,rollback} functions.
+ */
+rc_ty sx_hashfs_revision_op(sx_hashfs_t *h, unsigned blocksize, const sx_hash_t *revision_id, int op)
+{
+    unsigned int ndb, hs;
+    int64_t age;
+
+    if(!h || !revision_id) {
+        NULLARG();
+        return EINVAL;
+    }
+
+    for(hs = 0; hs < SIZES; hs++) {
+        if(blocksize == bsz[hs])
+            break;
+    }
+
+    if(hs == SIZES) {
+        WARN("Failed to get hash size database, blocksize: %u", blocksize);
+        return EINVAL;
+    }
+    age = sxi_hdist_version(h->hd);
+
+    for(ndb = 0; ndb < HASHDBS; ndb++) {
+        sqlite3_stmt *q = h->qb_revmap_op[hs][ndb];
+
+        sqlite3_reset(q);
+        if (qbind_blob(q, ":revision_id", revision_id->b, sizeof(revision_id->b)) ||
+            qbind_int(q, ":op", op) ||
+            qbind_int64(q, ":age", age) ||
+            qstep_noret(q)) {
+            sqlite3_reset(q);
+            return FAIL_EINTERNAL;
+        }
+        sqlite3_reset(q);
+
+        if(op > 0) {
+            sqlite3_stmt *qdel = h->qb_del_reservations[hs][ndb];
+
+            DEBUGHASH("Dropping all reservations shared with the revision_id", revision_id);
+
+            /* Delete all the reservations sharing this revision ID */
+            sqlite3_reset(qdel);
+            if(qbind_blob(qdel, ":revision_id", revision_id->b, sizeof(revision_id->b)) || qstep_noret(qdel)) {
+                sqlite3_reset(qdel);
+                return FAIL_EINTERNAL;
+            }
+            sqlite3_reset(qdel);
+        }
+    }
+
+    DEBUG("ok");
+    return OK;
+}
+
+/* Check if a hash is stored in database */
+static rc_ty hashop_check_presence(sx_hashfs_t *h, unsigned hs, const sx_hash_t *hash)
 {
     rc_ty ret;
     unsigned ndb;
@@ -9705,93 +9778,82 @@ static rc_ty sx_hashfs_hashop_ishash(sx_hashfs_t *h, unsigned hs, const sx_hash_
     return ret;
 }
 
-static rc_ty sx_hashfs_revision_op_internal(sx_hashfs_t *h, unsigned int hs, const sx_hash_t *revision_id, int op, int64_t age)
-{
-    for (unsigned ndb=0;ndb<HASHDBS;ndb++) {
-        sqlite3_stmt *q = h->qb_addtoken[hs][ndb];
-        sqlite3_reset(q);
-        if (qbind_blob(q, ":revision_id", revision_id->b, sizeof(revision_id->b)) ||
-            qbind_int(q, ":op", op) ||
-            qbind_int64(q, ":age", age) ||
-            qstep_noret(q)) {
-            sqlite3_reset(q);
-            return FAIL_EINTERNAL;
-        }
-        sqlite3_reset(q);
-    }
-    return OK;
-}
-
-/* TODO: move these to its own DB */
-rc_ty sx_hashfs_revision_op_begin(sx_hashfs_t *h)
-{
-    return datadb_beginall(h);
-}
-
-rc_ty sx_hashfs_revision_op_commit(sx_hashfs_t *h)
-{
-    return datadb_commitall(h);
-}
-
-void sx_hashfs_revision_op_rollback(sx_hashfs_t *h)
-{
-    datadb_rollbackall(h);
-}
-
-rc_ty sx_hashfs_revision_op(sx_hashfs_t *h, unsigned blocksize, const sx_hash_t *revision_id, int op)
-{
-    unsigned hs;
+/*
+ * Populate a reservation for a revision ID.
+ *
+ * Reservations are created in all the block databases which match the block size. A reservation consists of
+ * a reservation ID which is calculated at tempfile creation time and a file revision ID. Reservations of different
+ * revision IDs but for the same destination file share the same reservations ID.
+ *
+ * A reservation has an expiration time which lets GC to clean up those reservations which were introduced
+ * by unfinished uploads (e.g. initerrupted uploads).
+ *
+ * There is no transaction created for the hash databases. It is the caller responsibility to perform a transaction
+ * among the databases. See sx_hashfs_revision_op_{begin,commit,rollback} for reference.
+ */
+rc_ty sx_hashfs_reserve_revision_id(sx_hashfs_t *h, const sx_hash_t *reserve_id, const sx_hash_t *revision_id, unsigned int blocksize, uint64_t op_expires_at) {
+    unsigned int ndb, hs;
     int64_t age;
-    for(hs = 0; hs < SIZES; hs++) {
-        if(blocksize == bsz[hs])
-            break;
-    }
 
-    if(hs == SIZES) {
-        WARN("Failed to get hash size database, blocksize: %u", blocksize);
+    if(!h || !reserve_id || !revision_id) {
+        msg_set_reason("Invalid argument");
         return EINVAL;
     }
+
+    for(hs = 0; hs < SIZES; hs++)
+        if(bsz[hs] == blocksize)
+            break;
+    if(hs == SIZES)
+        return FAIL_BADBLOCKSIZE;
     age = sxi_hdist_version(h->hd);
-    if (revision_id)
-        DEBUGHASH("revision_op on", revision_id);
-    /* if (datadb_begin(h, hs))
-       return FAIL_EINTERNAL; */
-    if (sx_hashfs_revision_op_internal(h, hs, revision_id, op, age)) {
-        datadb_rollback(h, hs);
-        return FAIL_EINTERNAL;
+
+    DEBUGHASH("Reserving the revision ID", revision_id);
+    for(ndb = 0; ndb < HASHDBS; ndb++) {
+        if (qbind_blob(h->qb_reserve[hs][ndb], ":revision_id", revision_id, sizeof(*revision_id)) ||
+            qbind_blob(h->qb_reserve[hs][ndb], ":reserve_id", reserve_id, sizeof(*reserve_id)) ||
+            qbind_int64(h->qb_reserve[hs][ndb], ":ttl", op_expires_at) ||
+            qstep_noret(h->qb_reserve[hs][ndb])) {
+            sqlite3_reset(h->qb_reserve[hs][ndb]);
+            return FAIL_EINTERNAL;
+        }
+        sqlite3_reset(h->qb_reserve[hs][ndb]);
+
+        /*
+         * Creating 0-op entries is required for the GC to properly handle reservations.
+         *
+         * The situation which requires this is as the following:
+         * - we upload 2 files which consist of a single block, shared by both files.
+         * - we don't flush any file.
+         * - one of the files' reservation expires. GC has to delete one of 2 reservations.
+         * - The GC picks the expired reservation and for each block which belongs to the expired
+         *   reservation's revision ID it checks if the block is shared by any of the existing revision ID's.
+         * - Because the 0-op entries exist for both revision IDs sharing the same block, the block cannot be deleted.
+         *   If the 0-op entry did not exist we'd drop the block, because the particular revision ID would no longer
+         *   be reserved and the revision ID would not share its block with any other revision ID.
+         */
+        if (qbind_blob(h->qb_revmap_op[hs][ndb], ":revision_id", revision_id, sizeof(*revision_id)) ||
+            qbind_int(h->qb_revmap_op[hs][ndb], ":op", 0) ||
+            qbind_int64(h->qb_revmap_op[hs][ndb], ":age", age) ||
+            qstep_noret(h->qb_revmap_op[hs][ndb])) {
+            sqlite3_reset(h->qb_revmap_op[hs][ndb]);
+            return FAIL_EINTERNAL;
+        }
+        sqlite3_reset(h->qb_revmap_op[hs][ndb]);
     }
-    /* if (datadb_commit(h, hs))
-       return FAIL_EINTERNAL; */
-    DEBUG("ok");
+
     return OK;
 }
 
-static rc_ty sx_hashfs_hashop_moduse_internal(sx_hashfs_t *h, const sx_hash_t *global_vol_id, const sx_hash_t *revision_id, unsigned int hs, unsigned int ndb, const sx_hash_t *hash, unsigned replica, int64_t age)
-{
-    sqlite3_reset(h->qb_moduse[hs][ndb]);
-    /* In some cases volume ID might not be available. */
-    if(!global_vol_id && qbind_null(h->qb_moduse[hs][ndb], ":global_vol_id"))
-        return FAIL_EINTERNAL;
-    else if(global_vol_id && qbind_blob(h->qb_moduse[hs][ndb], ":global_vol_id", global_vol_id, sizeof(*global_vol_id)))
-        return FAIL_EINTERNAL;
-    if (qbind_blob(h->qb_moduse[hs][ndb], ":hash", hash, sizeof(*hash)) ||
-            qbind_int(h->qb_moduse[hs][ndb], ":replica", replica) ||
-            qbind_int64(h->qb_moduse[hs][ndb], ":age", age) ||
-            qbind_blob(h->qb_moduse[hs][ndb], ":revision_id", revision_id, sizeof(*revision_id)) ||
-            qstep_noret(h->qb_moduse[hs][ndb]))
-        return FAIL_EINTERNAL;
-    sqlite3_reset(h->qb_moduse[hs][ndb]);
-    return OK;
-}
-
-static rc_ty sx_hashfs_hashop_moduse(sx_hashfs_t *h, const sx_hash_t *global_vol_id, const sx_hash_t *reserve_id, const sx_hash_t *revision_id, unsigned int hs, const sx_hash_t *hash, unsigned replica, int64_t op, uint64_t op_expires_at)
+/*
+ * Create a revmap entry.
+ *
+ * A revmap is a connection between blocks and revision ID stored in revision_blocks table.
+ */
+static rc_ty hashop_create_revmap(sx_hashfs_t *h, const sx_hash_t *global_vol_id, const sx_hash_t *revision_id, unsigned int hs, const sx_hash_t *hash, unsigned replica)
 {
     unsigned ndb;
     int64_t age;
-    rc_ty ret = FAIL_EINTERNAL;
-    /* FIXME: maybe enable this
-    if(!is_hash_local(h, hash, replica_count))
-	return ENOENT;*/
+    sqlite3_stmt *q;
 
     if (!h || !hash) {
         NULLARG();
@@ -9810,57 +9872,39 @@ static rc_ty sx_hashfs_hashop_moduse(sx_hashfs_t *h, const sx_hash_t *global_vol
         msg_set_reason("missing revision id");
         return EINVAL;
     }
-    ndb = gethashdb(hash);
 
-    sqlite3_reset(h->qb_addtoken[hs][ndb]);
-    sqlite3_reset(h->qb_reserve[hs][ndb]);
-    sqlite3_reset(h->qb_moduse[hs][ndb]);
-    DEBUG("moduse %lld", (long long)op);
-    if (reserve_id)
-        DEBUGHASH("reserve_id", reserve_id);
+    ndb = gethashdb(hash);
+    age = sxi_hdist_version(h->hd);
+    q = h->qb_revmap_create[hs][ndb];
+    sqlite3_reset(q);
+
     if (revision_id)
         DEBUGHASH("revision_id", revision_id);
-    /*    if (qbegin(h->datadb[hs][ndb]))
-          return FAIL_EINTERNAL;*/
-    do {
-        if (op) { /* +N or -N */
-            if (reserve_id) {
-                if (qbind_blob(h->qb_del_reserve[hs][ndb], ":reserve_id", reserve_id, sizeof(*reserve_id)) ||
-                    qstep_noret(h->qb_del_reserve[hs][ndb]))
-                   break;
-            }
-        } else {
-            /* reserve */
-            if (!reserve_id) {
-                WARN("reserve without id!");
-                break;
-            }
-            if (qbind_blob(h->qb_reserve[hs][ndb], ":revision_id", revision_id, sizeof(*revision_id)) ||
-                qbind_blob(h->qb_reserve[hs][ndb], ":reserve_id", reserve_id, sizeof(*reserve_id)) ||
-                qbind_int64(h->qb_reserve[hs][ndb], ":ttl", op_expires_at) ||
-                qstep_noret(h->qb_reserve[hs][ndb]))
-                break;
-            sqlite3_reset(h->qb_reserve[hs][ndb]);
-        }
 
-        age = sxi_hdist_version(h->hd);
-        if (qbind_blob(h->qb_addtoken[hs][ndb], ":revision_id", revision_id, sizeof(*revision_id)) ||
-            qbind_int(h->qb_addtoken[hs][ndb], ":op", op) ||
-            qbind_int64(h->qb_addtoken[hs][ndb], ":age", age) ||
-            qstep_noret(h->qb_addtoken[hs][ndb]))
-            break;
-        sqlite3_reset(h->qb_addtoken[hs][ndb]);
-        DEBUGHASH("moduse on", hash);
-        DEBUG("op: %ld, replica: %d, age: %lld", op, replica, (long long)age);
-        if (sx_hashfs_hashop_moduse_internal(h, global_vol_id, revision_id, hs, ndb, hash, replica, age))
-            break;
-        /*        if (qcommit(h->datadb[hs][ndb]))
-                  break;*/
-        ret = OK;
-    } while(0);
-    /*    if (ret)
-          qrollback(h->datadb[hs][ndb]);*/
-    return ret;
+    /*
+     * In some cases volume ID might not be available.
+     *
+     * The situation when the volume ID is not available is only if some files
+     * were stored on an old cluster, got deleted but GC didn't clean them up before a remote upgrade (2.0 -> 2.1)
+     * started. The remote update would be unable to find a proper voulume ID for them.
+     */
+    if(!global_vol_id && qbind_null(q, ":global_vol_id"))
+        return FAIL_EINTERNAL;
+    else if(global_vol_id && qbind_blob(q, ":global_vol_id", global_vol_id, sizeof(*global_vol_id)))
+        return FAIL_EINTERNAL;
+
+    if(qbind_blob(q, ":hash", hash, sizeof(*hash)) ||
+       qbind_int(q, ":replica", replica) ||
+       qbind_int64(q, ":age", age) ||
+       qbind_blob(q, ":revision_id", revision_id, sizeof(*revision_id)) ||
+       qstep_noret(q)) {
+        msg_set_reason("Failed to create a revmap");
+        sqlite3_reset(q);
+        return FAIL_EINTERNAL;
+    }
+
+    sqlite3_reset(q);
+    return OK;
 }
 
 rc_ty sx_hashfs_hashop_perform(sx_hashfs_t *h, unsigned int block_size, unsigned replica_count, enum sxi_hashop_kind kind, const sx_hash_t *hash, const sx_hash_t *global_vol_id, const sx_hash_t *reserve_id, const sx_hash_t *revision_id, uint64_t op_expires_at, int *present)
@@ -9868,15 +9912,20 @@ rc_ty sx_hashfs_hashop_perform(sx_hashfs_t *h, unsigned int block_size, unsigned
     unsigned int hs;
     rc_ty rc;
 
-    if (kind == HASHOP_SKIP)
+    if (kind == HASHOP_SKIP) {
+        /* When HASHOP_SKIP is used we are reuploading the same file revision which should skip all the operations.
+         * Since we don't want to perform a presence check by using HASHOP_SKIP, therefore we assume everything is in place.
+         * Otherwise the client would be told to upload the blocks. */
+        if(present)
+            *present = 1;
         return OK;
+    }
 
     if (UNLIKELY(sxi_log_is_debug(&logger))) {
         char debughash[sizeof(sx_hash_t)*2+1];		\
         bin2hex(hash->b, sizeof(*hash), debughash, sizeof(debughash));	\
         DEBUG("processing %s, #%s#",
-              kind == HASHOP_RESERVE ? "reserve" :
-              kind == HASHOP_INUSE ? "inuse" : "?",
+              kind == HASHOP_RESERVE ? "reserve" : "?",
               debughash);
         if (reserve_id)
             DEBUGHASH("reserve_id: ", reserve_id);
@@ -9892,24 +9941,20 @@ rc_ty sx_hashfs_hashop_perform(sx_hashfs_t *h, unsigned int block_size, unsigned
     if(hs == SIZES)
 	return FAIL_BADBLOCKSIZE;
 
-    switch (kind) {
-        case HASHOP_CHECK:
-            rc = sx_hashfs_hashop_ishash(h, hs, hash);
-            break;
-        case HASHOP_RESERVE:
-            /* we must always reserve, even if ENOENT */
-            rc = sx_hashfs_hashop_moduse(h, global_vol_id, reserve_id, revision_id, hs, hash, replica_count, 0, op_expires_at);
-            if (rc == OK)
-                rc = sx_hashfs_hashop_ishash(h, hs, hash);
-            break;
-        case HASHOP_INUSE:
-            rc = sx_hashfs_hashop_mod(h, hash, global_vol_id, reserve_id, revision_id, block_size, replica_count, 1, op_expires_at);
-            break;
-
-        default:
-            msg_set_reason("Invalid hashop");
-            return EINVAL;
+    if(kind != HASHOP_CHECK && kind != HASHOP_RESERVE) {
+        msg_set_reason("Invalid hashop kind");
+        return EINVAL;
     }
+
+    if(kind == HASHOP_RESERVE) {
+        rc = hashop_create_revmap(h, global_vol_id, revision_id, hs, hash, replica_count);
+        if(rc != OK)
+            goto sx_hashfs_hashop_perform_err;
+    }
+
+    /* We always check hash presence after hashop_create_revmap() call */
+    rc = hashop_check_presence(h, hs, hash);
+sx_hashfs_hashop_perform_err:
     DEBUG("result: %s", rc2str(rc));
     if(present)
 	*present = rc == OK;
@@ -9918,10 +9963,26 @@ rc_ty sx_hashfs_hashop_perform(sx_hashfs_t *h, unsigned int block_size, unsigned
     return rc;
 }
 
-rc_ty sx_hashfs_hashop_mod(sx_hashfs_t *h, const sx_hash_t *hash, const sx_hash_t *global_vol_id, const sx_hash_t *reserve_id, const sx_hash_t *revision_id, unsigned int bs, unsigned replica, int count, uint64_t op_expires_at)
+/*
+ * Create a revmap and mark it as used.
+ *
+ * A revmap is a connection between blocks and revision ID which is stored in revision_blocks table.
+ * Revision ID usage is stored in revision_ops table. This function creates the connection and mark the revision
+ * as used, so it won't be gced.
+ *
+ * Note: This function writes to all the block databases which match the blocksize provided and does not use a transaction.
+ *       If you want to make the insertion atomic you should you a transaction (via sx_hashfs_revision_op_{begin,commit,rollback} calls).
+ */
+rc_ty sx_hashfs_hashop_use_revmap(sx_hashfs_t *h, const sx_hash_t *hash, const sx_hash_t *global_vol_id, const sx_hash_t *revision_id, unsigned int bs, unsigned replica)
 {
     unsigned int hs;
     rc_ty rc;
+
+    if(!h || !hash || !revision_id) {
+        NULLARG();
+        return EINVAL;
+    }
+
     for(hs = 0; hs < SIZES; hs++)
 	if(bsz[hs] == bs)
 	    break;
@@ -9929,9 +9990,17 @@ rc_ty sx_hashfs_hashop_mod(sx_hashfs_t *h, const sx_hash_t *hash, const sx_hash_
 	WARN("bad blocksize: %d", bs);
 	return FAIL_BADBLOCKSIZE;
     }
-    rc = sx_hashfs_hashop_moduse(h, global_vol_id, reserve_id, revision_id, hs, hash, replica, count, op_expires_at);
+
+    /* This call accesses all the hash databases matching the block size */
+    rc = sx_hashfs_revision_op(h, bs, revision_id, 1);
+    if(rc != OK) {
+        WARN("Failed to mark revision as used");
+        return rc;
+    }
+
+    rc = hashop_create_revmap(h, global_vol_id, revision_id, hs, hash, replica);
     if (rc == OK)
-        rc = sx_hashfs_hashop_ishash(h, hs, hash);
+        rc = hashop_check_presence(h, hs, hash);
     return rc;
 }
 
@@ -10944,8 +11013,13 @@ rc_ty sx_hashfs_putfile_gettoken(sx_hashfs_t *h, const uint8_t *user, int64_t si
         goto gettoken_err;
     memcpy(h->put_global_vol_id.b, vol->global_id.b, sizeof(h->put_global_vol_id.b));
     DEBUGHASH("file initial PUT reserve_id", &h->put_reserve_id);
-    sxi_hashop_begin(&h->hc, h->sx_clust, hdck_cb, skip_reservation ? HASHOP_SKIP : (static_expiration ? HASHOP_CHECK : HASHOP_RESERVE),
+
+    if(!skip_reservation && sx_hashfs_reserve_revision_id(h, &h->put_reserve_id, &h->put_revision_id, blocksize, expires_at))
+        goto gettoken_err;
+
+    sxi_hashop_begin(&h->hc, h->sx_clust, hdck_cb, skip_reservation ? HASHOP_SKIP : HASHOP_RESERVE,
                      vol->max_replica, &h->put_global_vol_id, &h->put_reserve_id, &h->put_revision_id, hdck_cb_ctx, expires_at);
+
     sqlite3_reset(h->qt_gettoken);
     return OK;
 
@@ -11284,29 +11358,19 @@ static rc_ty are_blocks_available(sx_hashfs_t *h, sx_hash_t *hashes,
     /* hash is local */
     if(sx_nodelist_lookup_index(nodes, &h->node_uuid, &thisnode) && prevnode == thisnode) {
 	sx_hash_t *hash = &hashes[hashnos[check_item]];
-	unsigned int ndb = gethashdb(hash);
-	int r;
+	int present = 0; /* Will be set to 1 if the hash is stored on the local node */
         rc_ty rc;
-
-	sqlite3_reset(h->qb_get[hash_size][ndb]);
-	if(qbind_blob(h->qb_get[hash_size][ndb], ":hash", hash, sizeof(*hash))) {
-	    WARN("qbind_blob failed");
-	    sqlite3_reset(h->qb_get[hash_size][ndb]);
-	    return FAIL_EINTERNAL;
-	}
-	r = qstep(h->qb_get[hash_size][ndb]);
-	sqlite3_reset(h->qb_get[hash_size][ndb]);
 
 	*current = check_item+1;
         if (sxi_hashop_batch_flush(hdck))
             WARN("Failed to query hash: %s", sxc_geterrmsg(h->sx));
-        rc = sx_hashfs_hashop_perform(h, bsz[hash_size], hdck->replica, hdck->kind, hash, &hdck->global_vol_id, &hdck->reserve_id, &hdck->revision_id, hdck->op_expires_at, NULL);
+        rc = sx_hashfs_hashop_perform(h, bsz[hash_size], hdck->replica, hdck->kind, hash, &hdck->global_vol_id, &hdck->reserve_id, &hdck->revision_id, hdck->op_expires_at, &present);
         if(rc != OK) {
             WARN("hashop_perform/finish failed: %s", rc2str(rc));
             return rc;
         }
 	if (hdck->cb) {
-	    int code = r == SQLITE_ROW ? 200 : 404;
+	    int code = present ? 200 : 404;
 	    char thash[SXI_SHA1_TEXT_LEN + 1];
 	    if (bin2hex(hash->b, SXI_SHA1_BIN_LEN, thash, sizeof(thash))) {
 		WARN("bin2hex failed for hash");
@@ -11527,6 +11591,8 @@ rc_ty sx_hashfs_putfile_commitjob(sx_hashfs_t *h, const uint8_t *user, sx_uid_t 
     struct token_data tkdt;
     const char *fname;
     int r, has_begun = 0;
+    const char *rev;
+    sx_revision_op_t revop_ctx;
 
     if(!h || !user || !job_id) {
 	NULLARG();
@@ -11584,6 +11650,7 @@ rc_ty sx_hashfs_putfile_commitjob(sx_hashfs_t *h, const uint8_t *user, sx_uid_t 
     fname = (const char *)sqlite3_column_text(h->qt_tokendata, 3);
     const void *blocks = sqlite3_column_blob(h->qt_tokendata, 4);
     actual_blocks = sqlite3_column_bytes(h->qt_tokendata, 4);
+    rev = (const char *)sqlite3_column_text(h->qt_tokendata, 5);
     ret = sx_hashfs_volume_by_id(h, volid, &vol);
     if(ret) {
 	WARN("Cannot locate volume %lld for tmp file %lld", (long long)volid, (long long)tmpfile_id);
@@ -11634,6 +11701,15 @@ rc_ty sx_hashfs_putfile_commitjob(sx_hashfs_t *h, const uint8_t *user, sx_uid_t 
 	goto putfile_commitjob_err;
     }
 
+    /* Calculate a revision ID, it should be used for running revid bump job */
+    if(sx_unique_fileid(h->sx, rev, &revop_ctx.revision_id)) {
+        WARN("Failed to compute revision ID");
+        goto putfile_commitjob_err;
+    }
+    revop_ctx.blocksize = blocksize;
+    revop_ctx.op = 1; /* Its a revid bump job */
+    revop_ctx.lock = token; /* We use the same lockname as the other flush jobs use */
+
     ndests = sx_nodelist_count(volnodes);
     ret = sx_hashfs_job_new_begin(h);
     if(ret) {
@@ -11641,9 +11717,19 @@ rc_ty sx_hashfs_putfile_commitjob(sx_hashfs_t *h, const uint8_t *user, sx_uid_t 
 	goto putfile_commitjob_err;
     }
 
+    *job_id = JOB_NOPARENT;
+
+    /* Creates a new JOBTYPE_BLOCKS_REVISION job which is handled by the _2pc calls,
+     * stick to this design here. All the necessary details are set in the revop_ctx structure. */
+    ret = sx_hashfs_job_new_2pc_notrigger(h, &revision_spec, &revop_ctx, user_id, job_id);
+    if(ret != OK) {
+        INFO("job_new (rev bump) returned: %s", rc2str(ret));
+        goto putfile_commitjob_err;
+    }
+
     if(vol->effective_replica == 1 || !fastreturn) {
 	/* The flush completes when all replicas are complete */
-	ret = sx_hashfs_job_new_notrigger(h, JOB_NOPARENT, user_id, job_id, JOBTYPE_REPLICATE_BLOCKS, sx_hashfs_job_file_timeout(h, ndests, expected_size), token, &tmpfile_id, sizeof(tmpfile_id), singlenode);
+	ret = sx_hashfs_job_new_notrigger(h, *job_id, user_id, job_id, JOBTYPE_REPLICATE_BLOCKS, sx_hashfs_job_file_timeout(h, ndests, expected_size), token, &tmpfile_id, sizeof(tmpfile_id), singlenode);
 	if(ret) {
 	    INFO("job_new (replicate) returned: %s", rc2str(ret));
 	    goto putfile_commitjob_err;
@@ -11660,7 +11746,7 @@ rc_ty sx_hashfs_putfile_commitjob(sx_hashfs_t *h, const uint8_t *user, sx_uid_t 
 	}
     } else {
 	/* The flush completes as soon as the first replica is complete */
-	ret = sx_hashfs_job_new_notrigger(h, JOB_NOPARENT, user_id, job_id, JOBTYPE_REPLICATE_BLOCKS_FG, sx_hashfs_job_file_timeout(h, ndests, expected_size), token, &tmpfile_id, sizeof(tmpfile_id), singlenode);
+	ret = sx_hashfs_job_new_notrigger(h, *job_id, user_id, job_id, JOBTYPE_REPLICATE_BLOCKS_FG, sx_hashfs_job_file_timeout(h, ndests, expected_size), token, &tmpfile_id, sizeof(tmpfile_id), singlenode);
 	if(ret) {
 	    INFO("job_new (replicate fast) returned: %s", rc2str(ret));
 	    goto putfile_commitjob_err;
@@ -11963,7 +12049,7 @@ rc_ty sx_hashfs_tmp_getinfo(sx_hashfs_t *h, int64_t tmpfile_id, sx_hashfs_tmpinf
             DEBUGHASH("tmp_get_info reserve_id", &reserve_id);
             DEBUGHASH("tmp_get_info revision_id", &tbd->revision_id);
             sxi_hashop_begin(&h->hc, h->sx_clust, tmp_getmissing_cb,
-                             fast ? HASHOP_CHECK : HASHOP_INUSE, tbd->replica_count, &volume->global_id, &reserve_id, &tbd->revision_id, tbd, 0);
+                             HASHOP_CHECK, tbd->replica_count, &volume->global_id, &reserve_id, &tbd->revision_id, tbd, 0);
 	    tbd->current_replica = i;
             DEBUG("begin queries for replica #%d", i);
 	    while((ret2 = are_blocks_available(h,
@@ -12272,13 +12358,14 @@ get_existing_delete_job_err:
 
 /* Load a 2pc job data blob */
 static sx_blob_t *job_2pc_get_blob(sx_hashfs_t *h, const job_2pc_t *spec, void *yctx) {
-    sxc_client_t *sx = sx_hashfs_client(h);
+    sxc_client_t *sx;
     sx_blob_t *b = NULL;
 
     if(!h || !spec || !yctx) {
         NULLARG();
         return NULL;
     }
+    sx = sx_hashfs_client(h);
 
     b = sx_blob_new();
     if (!b) {
@@ -12299,7 +12386,7 @@ static sx_blob_t *job_2pc_get_blob(sx_hashfs_t *h, const job_2pc_t *spec, void *
 
 rc_ty sx_hashfs_job_new_2pc_execute(sx_hashfs_t *h, const job_2pc_t *spec, void *yctx, sx_uid_t uid)
 {
-    sxc_client_t *sx = sx_hashfs_client(h);
+    sxc_client_t *sx;
     rc_ty rc = FAIL_EINTERNAL;
     sx_blob_t *b;
 
@@ -12307,6 +12394,7 @@ rc_ty sx_hashfs_job_new_2pc_execute(sx_hashfs_t *h, const job_2pc_t *spec, void 
         NULLARG();
         return EINVAL;
     }
+    sx = sx_hashfs_client(h);
 
     b = job_2pc_get_blob(h, spec, yctx);
     if(!b)
@@ -12336,7 +12424,7 @@ rc_ty sx_hashfs_job_new_2pc_execute(sx_hashfs_t *h, const job_2pc_t *spec, void 
 
 rc_ty sx_hashfs_job_new_2pc_notrigger(sx_hashfs_t *h, const job_2pc_t *spec, void *yctx, sx_uid_t uid, job_t *job)
 {
-    sxc_client_t *sx = sx_hashfs_client(h);
+    sxc_client_t *sx;
     rc_ty rc = FAIL_EINTERNAL;
     sx_blob_t *b;
     const void *job_data;
@@ -12349,6 +12437,7 @@ rc_ty sx_hashfs_job_new_2pc_notrigger(sx_hashfs_t *h, const job_2pc_t *spec, voi
         NULLARG();
         return EINVAL;
     }
+    sx = sx_hashfs_client(h);
 
     b = job_2pc_get_blob(h, spec, yctx);
     if(!b)
