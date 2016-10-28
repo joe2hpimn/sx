@@ -1356,6 +1356,10 @@ static act_result_t fileflush_remote(sx_hashfs_t *hashfs, job_t job_id, job_data
 	    succeeded[i] = 1; /* not a volnode, only used by undo/abort */
             continue;
         }
+	if(sx_hashfs_is_node_ignored(hashfs, sx_node_uuid(node))) {
+	    succeeded[i] = 1; /* The tempfile was created before the node got ignored */
+	    continue;
+	 }
 	if(sx_node_cmp(me, node)) {
 	    /* Remote only - local tmpfile will be handled in fileflush_local */
 	    if(!proto) {
