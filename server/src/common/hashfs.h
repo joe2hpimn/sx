@@ -549,7 +549,9 @@ rc_ty sx_hashfs_node_status(sx_hashfs_t *h, sxi_node_status_t *status);
 rc_ty sx_hashfs_distlock_acquire(sx_hashfs_t *h, const char *lockid);
 rc_ty sx_hashfs_distlock_release(sx_hashfs_t *h);
 rc_ty sx_hashfs_distlock_get(sx_hashfs_t *h, char *lockid, unsigned int lockid_len);
-rc_ty sx_hashfs_job_new_2pc(sx_hashfs_t *h, const job_2pc_t *spec, void *yctx, sx_uid_t uid, job_t *job, int execute);
+rc_ty sx_hashfs_job_new_2pc(sx_hashfs_t *h, const job_2pc_t *spec, void *yctx, sx_uid_t uid, job_t *job);
+rc_ty sx_hashfs_job_new_2pc_notrigger(sx_hashfs_t *h, const job_2pc_t *spec, void *yctx, sx_uid_t uid, job_t *job);
+rc_ty sx_hashfs_job_new_2pc_execute(sx_hashfs_t *h, const job_2pc_t *spec, void *yctx, sx_uid_t uid);
 
 rc_ty sx_hashfs_cluster_set_mode(sx_hashfs_t *h, int mode);
 rc_ty sx_hashfs_cluster_get_mode(sx_hashfs_t *h, int *mode);

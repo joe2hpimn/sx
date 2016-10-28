@@ -925,7 +925,7 @@ static act_result_t revision_job_from(sx_hashfs_t *hashfs, job_t job_id, const s
     blob = sx_blob_new();
     if (!blob)
         action_error(ACT_RESULT_TEMPFAIL, 500, "Cannot allocate blob");
-    if (revision_spec.to_blob(sx_hashfs_client(hashfs), sx_nodelist_count(nodes), &revision_op, blob)) {
+    if (revision_spec.to_blob(sx_hashfs_client(hashfs), &revision_op, blob)) {
         const char *msg = msg_get_reason();
         if(!msg || !*msg)
             msg_set_reason("Cannot create job blob");

@@ -504,7 +504,7 @@ static rc_ty acl_parse_complete(void *yctx)
     return OK;
 }
 
-static int acl_to_blob(sxc_client_t *sx, int nodes, void *yctx, sx_blob_t *blob)
+static int acl_to_blob(sxc_client_t *sx, void *yctx, sx_blob_t *blob)
 {
     struct acl_ctx *actx = yctx;
     int i;
@@ -1356,7 +1356,7 @@ static int blob_to_volmod(sxc_client_t *sx, sx_blob_t *b, struct volmod_ctx *ctx
     return 0;
 }
 
-static int volmod_to_blob(sxc_client_t *sx, int nodes, void *yctx, sx_blob_t *joblb)
+static int volmod_to_blob(sxc_client_t *sx, void *yctx, sx_blob_t *joblb)
 {
     struct volmod_ctx *ctx = yctx;
 
@@ -1935,7 +1935,7 @@ static rc_ty cluster_mode_parse_complete(void *yctx)
     return OK;
 }
 
-static int cluster_mode_to_blob(sxc_client_t *sx, int nodes, void *yctx, sx_blob_t *joblb)
+static int cluster_mode_to_blob(sxc_client_t *sx, void *yctx, sx_blob_t *joblb)
 {
     struct cluster_mode_ctx *c = yctx;
     if(!joblb) {

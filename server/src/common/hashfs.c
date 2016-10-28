@@ -12270,75 +12270,150 @@ get_existing_delete_job_err:
     return ret;
 }
 
-rc_ty sx_hashfs_job_new_2pc(sx_hashfs_t *hashfs, const job_2pc_t *spec, void *yctx, sx_uid_t uid, job_t *job, int execute)
+/* Load a 2pc job data blob */
+static sx_blob_t *job_2pc_get_blob(sx_hashfs_t *h, const job_2pc_t *spec, void *yctx) {
+    sxc_client_t *sx = sx_hashfs_client(h);
+    sx_blob_t *b = NULL;
+
+    if(!h || !spec || !yctx) {
+        NULLARG();
+        return NULL;
+    }
+
+    b = sx_blob_new();
+    if (!b) {
+        msg_set_reason("Cannot allocate job blob");
+        return NULL;
+    }
+
+    if (spec->to_blob(sx, yctx, b)) {
+        const char *msg = msg_get_reason();
+        if(!msg || !*msg)
+            msg_set_reason("Cannot create job blob");
+        sx_blob_free(b);
+        return NULL;
+     }
+
+     return b;
+}
+
+rc_ty sx_hashfs_job_new_2pc_execute(sx_hashfs_t *h, const job_2pc_t *spec, void *yctx, sx_uid_t uid)
 {
-    sxc_client_t *sx = sx_hashfs_client(hashfs);
-    sx_nodelist_t *nodes = NULL;
+    sxc_client_t *sx = sx_hashfs_client(h);
     rc_ty rc = FAIL_EINTERNAL;
-    sx_blob_t *joblb = NULL;
+    sx_blob_t *b;
 
-    do {
-        joblb = sx_blob_new();
-        if (!joblb) {
-            msg_set_reason("Cannot allocate job blob");
-            break;
-        }
-        if (spec->nodes(hashfs, joblb, &nodes))
-            break;
+    if(!h || !spec) {
+        NULLARG();
+        return EINVAL;
+    }
 
-        if (spec->to_blob(sx, sx_nodelist_count(nodes), yctx, joblb)) {
-            const char *msg = msg_get_reason();
-            if(!msg || !*msg)
-                msg_set_reason("Cannot create job blob");
-            break;
-        }
+    b = job_2pc_get_blob(h, spec, yctx);
+    if(!b)
+        return FAIL_EINTERNAL;
 
-        if(execute) {
-            sx_blob_reset(joblb);
-            rc = spec->execute_blob(hashfs, joblb, JOBPHASE_REQUEST, 1);
-            if (rc != OK) {
-                const char *msg = msg_get_reason();
-                if (!msg)
-                    msg_set_reason("%s", rc2str(rc));
-                WARN("Failed to execute job(%d): %s", rc2http(rc), msg);
-                break;
-            }
-        } else {
-            const void *job_data;
-            unsigned int job_datalen;
-            unsigned int job_timeout;
+    if(spec->to_blob(sx, yctx, b)) {
+        const char *msg = msg_get_reason();
+        if(!msg || !*msg)
+            msg_set_reason("Cannot create job blob");
+        sx_blob_free(b);
+        return FAIL_EINTERNAL;
+    }
 
-            /* create job, must not reset yet */
-            sx_blob_to_data(joblb, &job_data, &job_datalen);
-            /* must reset now */
-            sx_blob_reset(joblb);
-            if (!spec->get_lock) {
-                NULLARG();
-                rc = EFAULT;
-                break;
-            }
-            const char *lock = spec->get_lock(joblb);
-            sx_blob_reset(joblb);
-            job_timeout = spec->timeout(sx, sx_nodelist_count(nodes));
-            if (*job == JOB_NOPARENT)
-                rc = sx_hashfs_job_new(hashfs, uid, job, spec->job_type, job_timeout, lock, job_data, job_datalen, nodes);
-            else {
-                job_t parent = *job;
-                rc = sx_hashfs_job_new_notrigger(hashfs, parent, uid, job, spec->job_type, job_timeout, lock, job_data, job_datalen, nodes);
-                DEBUG("job %ld created, parent: %ld", *job, parent);
-            }
-        }
-    } while(0);
-    sx_blob_free(joblb);
+    sx_blob_reset(b);
+    rc = spec->execute_blob(h, b, JOBPHASE_REQUEST, 1);
+    sx_blob_free(b);
+    if(rc != OK) {
+        const char *msg = msg_get_reason();
+        if(!msg)
+            msg_set_reason("%s", rc2str(rc));
+        WARN("Failed to execute job(%d): %s", rc2http(rc), msg);
+        return rc;
+    }
+
+    return rc;
+}
+
+rc_ty sx_hashfs_job_new_2pc_notrigger(sx_hashfs_t *h, const job_2pc_t *spec, void *yctx, sx_uid_t uid, job_t *job)
+{
+    sxc_client_t *sx = sx_hashfs_client(h);
+    rc_ty rc = FAIL_EINTERNAL;
+    sx_blob_t *b;
+    const void *job_data;
+    unsigned int job_datalen;
+    unsigned int job_timeout;
+    sx_nodelist_t *nodes = NULL;
+    const char *lock;
+
+    if(!h || !spec || !job || !spec->get_lock) {
+        NULLARG();
+        return EINVAL;
+    }
+
+    b = job_2pc_get_blob(h, spec, yctx);
+    if(!b)
+        return FAIL_EINTERNAL;
+
+    if (spec->to_blob(sx, yctx, b)) {
+        const char *msg = msg_get_reason();
+        if(!msg || !*msg)
+            msg_set_reason("Cannot create job blob");
+        sx_blob_free(b);
+        return FAIL_EINTERNAL;
+    }
+
+    /* Take a nodelist */
+    if(spec->nodes(h, b, &nodes)) {
+        const char *msg = msg_get_reason();
+        if(!msg || !*msg)
+            msg_set_reason("Cannot determine the job targets list");
+        sx_blob_free(b);
+        return FAIL_EINTERNAL;
+    }
+
+    /* Prepare the job data */
+    sx_blob_to_data(b, &job_data, &job_datalen);
+    /* must reset now */
+    sx_blob_reset(b);
+
+    /* Get the job lock name */
+    lock = spec->get_lock(b);
+    sx_blob_reset(b);
+
+    /* Get the job timeout */
+    job_timeout = spec->timeout(sx, sx_nodelist_count(nodes));
+
+    DEBUG("Parent job: %lld", (long long)*job);
+    rc = sx_hashfs_job_new_notrigger(h, *job, uid, job, spec->job_type, job_timeout, lock, job_data, job_datalen, nodes);
+    DEBUG("Job %lld created", (long long)*job);
+
+    sx_blob_free(b);
     sx_nodelist_delete(nodes);
     return rc;
+}
+
+rc_ty sx_hashfs_job_new_2pc(sx_hashfs_t *h, const job_2pc_t *spec, void *yctx, sx_uid_t uid, job_t *job)
+{
+    rc_ty ret;
+
+    if(!h || !spec || !job) {
+        NULLARG();
+        return EINVAL;
+    }
+
+    if((ret = sx_hashfs_job_new_begin(h)) == OK &&
+       (ret = sx_hashfs_job_new_2pc_notrigger(h, spec, yctx, uid, job)) == OK &&
+       (ret = sx_hashfs_job_new_end(h)) == OK)
+        sx_hashfs_job_trigger(h);
+
+    return ret;
 }
 
 /* FIXME: this belongs in fcgi-actions-block.c, but then delete_job, and
  * create_file and all their callers have to be moved to fcgi-actions-file.c too
  * or there would be a linker error */
 
-static int revision_to_blob(sxc_client_t *sx, int nodes, void *yctx, sx_blob_t *blob)
+static int revision_to_blob(sxc_client_t *sx, void *yctx, sx_blob_t *blob)
 {
     sx_revision_op_t *op = yctx;
 

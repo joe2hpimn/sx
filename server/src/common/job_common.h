@@ -103,7 +103,7 @@ typedef struct {
     int job_type;
     rc_ty (*parse_complete)(void *ctx);
     const char* (*get_lock)(sx_blob_t *blob);
-    int (*to_blob)(sxc_client_t *sx, int nodes, void *ctx, sx_blob_t *blob);
+    int (*to_blob)(sxc_client_t *sx, void *ctx, sx_blob_t *blob);
     rc_ty (*execute_blob)(struct _sx_hashfs_t *hashfs, sx_blob_t *blob, jobphase_t phase, int remote);
     sxi_query_t* (*proto_from_blob)(sxc_client_t *sx, sx_blob_t *blob, jobphase_t phase);
     int (*nodes)(struct _sx_hashfs_t *hashfs, sx_blob_t *blob, sx_nodelist_t **nodes);

@@ -71,7 +71,7 @@ struct userdel_ctx {
     int remove_all; /* Set to 1 if we want to remove all clones of the user */
 };
 
-static int userdel_to_blob(sxc_client_t *sx, int nodes, void *yctx, sx_blob_t *joblb)
+static int userdel_to_blob(sxc_client_t *sx, void *yctx, sx_blob_t *joblb)
 {
     struct userdel_ctx *uctx = yctx;
     if (!joblb) {
@@ -514,7 +514,7 @@ static rc_ty user_parse_complete(void *yctx)
     return OK;
 }
 
-static int user_to_blob(sxc_client_t *sx, int nodes, void *yctx, sx_blob_t *joblb)
+static int user_to_blob(sxc_client_t *sx, void *yctx, sx_blob_t *joblb)
 {
     char realdesc[SXLIMIT_MAX_USERDESC_LEN+1];
     struct user_ctx *uctx = yctx;
@@ -942,7 +942,7 @@ static rc_ty user_modify_parse_complete(void *yctx)
     return OK;
 }
 
-static int user_modify_to_blob(sxc_client_t *sx, int nodes, void *yctx, sx_blob_t *joblb)
+static int user_modify_to_blob(sxc_client_t *sx, void *yctx, sx_blob_t *joblb)
 {
     struct user_modify_ctx *uctx = yctx;
     uint8_t requser[AUTH_UID_LEN];

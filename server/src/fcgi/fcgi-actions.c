@@ -534,9 +534,10 @@ void upgrade_ops(void) {
 
 void job_2pc_handle_request(sxc_client_t *sx, const job_2pc_t *spec, void *yctx)
 {
+    rc_ty rc;
+
     if(spec->jpacts) {
 	jparse_t *J = sxi_jparse_create(spec->jpacts, yctx, 0);
-	rc_ty rc;
 	int len;
 
 	if(!J)
@@ -567,16 +568,21 @@ void job_2pc_handle_request(sxc_client_t *sx, const job_2pc_t *spec, void *yctx)
         quit_unless_authed();
     }
 
-    job_t job = JOB_NOPARENT;
-    rc_ty rc = sx_hashfs_job_new_2pc(hashfs, spec, yctx, uid, &job, has_priv(PRIV_CLUSTER));
-    if (rc == OK) {
-        if (has_priv(PRIV_CLUSTER))
+    if(has_priv(PRIV_CLUSTER)) {
+        rc = sx_hashfs_job_new_2pc_execute(hashfs, spec, yctx, uid);
+        if(rc != OK) {
+            WARN("Failed to execute a 2pc job: %s", rc2str(rc));
+            quit_errmsg(rc2http(rc), msg_get_reason());
+        } else
             CGI_PUTS("\r\n");
-        else
-            send_job_info(job);
     } else {
-        WARN("failed: %s", rc2str(rc));
-        quit_errmsg(rc2http(rc), msg_get_reason());
+        job_t job = JOB_NOPARENT;
+        rc = sx_hashfs_job_new_2pc(hashfs, spec, yctx, uid, &job);
+        if(rc != OK) {
+            WARN("Failed to schedule a 2pc job: %s", rc2str(rc));
+            quit_errmsg(rc2http(rc), msg_get_reason());
+        } else
+            send_job_info(job);
     }
 }
 

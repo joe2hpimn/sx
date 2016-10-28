@@ -601,7 +601,7 @@ static int append_meta_to_blob(sxc_client_t *sx, unsigned int nmeta, sx_blob_t *
     return 0;
 }
 
-static int cluster_setmeta_to_blob(sxc_client_t *sx, int nodes, void *yctx, sx_blob_t *joblb)
+static int cluster_setmeta_to_blob(sxc_client_t *sx, void *yctx, sx_blob_t *joblb)
 {
     struct cluster_setmeta_ctx *c = yctx;
 
@@ -897,7 +897,7 @@ static rc_ty cluster_settings_parse_complete(void *yctx)
     return OK;
 }
 
-static int cluster_settings_to_blob(sxc_client_t *sx, int nodes, void *yctx, sx_blob_t *joblb)
+static int cluster_settings_to_blob(sxc_client_t *sx, void *yctx, sx_blob_t *joblb)
 {
     struct cluster_settings_ctx *c = yctx;
 
