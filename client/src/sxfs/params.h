@@ -106,6 +106,7 @@ struct _sxfs_state {
     int pipefd[2], need_file, attribs, recovery_failed, *threads;
     size_t fh_limit, threads_num, threads_max;
     char *pname, *tempdir, *lostdir, *empty_file_path;
+    const char *cluster_uuid;
     pthread_key_t sxkey, tid_key;
     /* mutex priority: ls > delete > upload */
     pthread_mutex_t sx_data_mutex, ls_mutex, delete_mutex, delete_thread_mutex, upload_mutex, upload_thread_mutex, files_mutex, limits_mutex;

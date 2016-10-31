@@ -1143,7 +1143,7 @@ static int sxfs_chown (const char *path, uid_t uid, gid_t gid) {
 static int sxfs_truncate (const char *path, off_t length) {
     int ret, fd = -1, locked = 0;
     ssize_t index;
-    char *file_name, *local_file_path = NULL;
+    char *file_name, *local_file_path = NULL, *buff = NULL;
     time_t mctime;
     sxc_client_t *sx;
     sxc_cluster_t *cluster;
@@ -1243,7 +1243,6 @@ static int sxfs_truncate (const char *path, off_t length) {
             if(length) {
                 ssize_t retval;
                 off_t to_read, offset = 0;
-                char buff[SX_BS_LARGE + 1];
                 sxfs_file_t *tmp_sxfs_file = NULL, *sxfs_file_ptr;
 
                 if(!sxfs_file) {
@@ -1292,6 +1291,12 @@ static int sxfs_truncate (const char *path, off_t length) {
                     sxfs_file_ptr = tmp_sxfs_file;
                 } else {
                     sxfs_file_ptr = sxfs_file;
+                }
+                buff = (char*)malloc(sxfs_file_ptr->fdata->blocksize);
+                if(!buff) {
+                    SXFS_ERROR("Out of memory");
+                    ret = -ENOMEM;
+                    goto sxfs_truncate_err;
                 }
                 to_read = MIN(sxfs_file_ptr->fdata->filesize, length);
                 while(to_read) {
@@ -1367,6 +1372,7 @@ sxfs_truncate_err:
     if(local_file_path && unlink(local_file_path) && errno != ENOENT)
         SXFS_ERROR("Cannot remove '%s' file: %s", local_file_path, strerror(errno));
     free(local_file_path);
+    free(buff);
     return ret;
 } /* sxfs_truncate */
 
@@ -3125,6 +3131,11 @@ int main (int argc, char **argv) {
     cluster = sxc_cluster_load_and_update(sx, sxfs->uri->host, sxfs->uri->profile);
     if(!cluster) {
         fprintf(stderr, "ERROR: Cannot load config for %s: %s\n", sxfs->uri->host, sxc_geterrmsg(sx));
+        goto main_err;
+    }
+    sxfs->cluster_uuid = sxc_cluster_get_uuid(cluster);
+    if(!sxfs->cluster_uuid) {
+        fprintf(stderr, "ERROR: Cannot get cluster UUID: %s\n", sxc_geterrmsg(sx));
         goto main_err;
     }
     /* check volume existence and filters usage */
