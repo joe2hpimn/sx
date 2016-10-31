@@ -2642,7 +2642,7 @@ void fcgi_modify_volume_replica(void) {
     ret_job = job;
 
     /* The VOLREP_BLOCKS job is responsible for synchronization of blocks to the new volnodes */
-    s = sx_hashfs_mass_job_new_notrigger(hashfs, job, uid, &job, JOBTYPE_VOLREP_BLOCKS, JOB_NO_EXPIRY, "VOLREP_BLOCKS", job_data, job_data_len, allnodes);
+    s = sx_hashfs_mass_job_new_notrigger(hashfs, job, uid, &job, JOBTYPE_VOLREP_BLOCKS, MASS_JOB_TIMEOUT, "VOLREP_BLOCKS", job_data, job_data_len, allnodes);
     if(s != OK) {
         sx_blob_free(b);
         sx_nodelist_delete(new_volnodes);
@@ -2650,7 +2650,7 @@ void fcgi_modify_volume_replica(void) {
     }
 
     /* The VOLREP_FILES job is responsible for synchronization of files to the new volnodes */
-    s = sx_hashfs_mass_job_new_notrigger(hashfs, job, uid, &job, JOBTYPE_VOLREP_FILES, JOB_NO_EXPIRY, "VOLREP_FILES", job_data, job_data_len, new_volnodes);
+    s = sx_hashfs_mass_job_new_notrigger(hashfs, job, uid, &job, JOBTYPE_VOLREP_FILES, MASS_JOB_TIMEOUT, "VOLREP_FILES", job_data, job_data_len, new_volnodes);
     if(s != OK) {
         sx_blob_free(b);
         sx_nodelist_delete(new_volnodes);

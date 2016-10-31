@@ -13062,7 +13062,17 @@ rc_ty sx_hashfs_mass_job_new_notrigger(sx_hashfs_t *h, job_t parent, sx_uid_t us
         goto sx_hashfs_mass_job_new_notrigger_err;
     }
 
-    /* Child job has no job data set here, it is gonna receive it when spawning job is called */
+    /*
+     * A timeout for this job is set to slave_job_timeout. It is the same timeout as that of an independently created slave job.
+     * If the slave job is not bumping its timeout during operation, setting this value guarantees the polling job to
+     * live longer than slave jobs (assuming there are not any permanent failures in the job execution).
+     * The polling job aslo uses timeout bumping to make sure it is alive as long as it succeeds to check
+     * at least one slave job status and at least one of those checked jobs is still alive.
+     *
+     * Setting a timeout different than JOB_NO_EXPIRY reduces a possibility of the job being inflooped due to failure of checks
+     * (i.e. the query repsonsible for checking a slave job status could constantly fail/timeout on a heavily loaded cluster).
+     * If slave jobs are guaranteed to time out, the polling job will also time out after all of them are expired.
+     */
     s = sx_hashfs_job_new_notrigger(h, job, user_id, job_id, JOBTYPE_JOBPOLL, slave_job_timeout, NULL, NULL, 0, targets);
     if(s != OK) {
         ret = s;
@@ -19958,7 +19968,7 @@ rc_ty sx_hashfs_volrep_update_revid_replica(sx_hashfs_t *h, const sx_hashfs_volu
 
             if(qbind_blob(q, ":global_vol_id", vol->global_id.b, sizeof(vol->global_id.b)) || qbind_int(q, ":prev_replica", prev_replica) ||
                qbind_int(q, ":next_replica", next_replica) || qstep_noret(q)) {
-                WARN("Failed to release over-replica blocks");
+                WARN("Failed to update replica value for existing blocks");
                 sqlite3_reset(q);
                 return FAIL_EINTERNAL;
             }

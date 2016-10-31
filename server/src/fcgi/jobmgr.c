@@ -5432,7 +5432,9 @@ static act_result_t jobpoll_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t
     const char *jobid = NULL;
     int has_pending = 0;
     job_status_t local_job_status = JOB_PENDING;
+    struct timeval begin, end;
 
+    gettimeofday(&begin, NULL);
     b = sx_blob_from_data(job_data->ptr, job_data->len);
     if(!b) {
         WARN("Cannot allocate blob for job %lld", (long long)job_id);
@@ -5541,9 +5543,14 @@ action_failed:
         free(jobs);
     }
     if(has_pending) {
+        gettimeofday(&end, NULL);
         /* Wait until all jobs has been finished. has_pending is set when a job is in PENDING state. */
-        DEBUG("There is at least one pending job, tempfailing");
         action_set_fail(ACT_RESULT_TEMPFAIL, 503, "Slave jobs are pending");
+
+        /* Bump the expiration timeout since we have successfully managed to check at least one job's status */
+        *adjust_ttl = (int)sxi_timediff(&end, &begin) + 1 /* round up */
+                       + JOBMGR_DELAY_MAX /* time needed for the job to be woken up again */;
+        DEBUG("There is at least one pending job, tempfailing and bumping timeout: %d", *adjust_ttl);
     }
     sx_blob_free(b);
     return ret;
@@ -6416,6 +6423,11 @@ static rc_ty volrep_blocks_request(sx_hashfs_t *hashfs, job_t job_id, job_data_t
 
     succeeded[0] = 1;
 action_failed:
+    if(ret == ACT_RESULT_PERMFAIL) {
+        /* Try to clean up the progress message when the job fails permanently */
+        if(sx_hashfs_set_progress_info(hashfs, INPRG_IDLE, NULL))
+            WARN("Failed to clean up progress information");
+    }
     sx_blob_free(b);
 
     return ret;
@@ -6570,8 +6582,10 @@ static rc_ty volrep_blocks_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t 
     const char *volname = NULL;
     unsigned int prev_replica = 0, next_replica = 0, is_undoing = 0;
     const sx_hashfs_volume_t *vol = NULL;
+    struct timeval begin, end;
 
     DEBUG("IN %s", __func__);
+    gettimeofday(&begin, NULL);
     sxi_hostlist_init(&hlist);
 
     if(sx_nodelist_count(nodes) != 1) {
@@ -6623,9 +6637,20 @@ static rc_ty volrep_blocks_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t 
         succeeded[0] = 1;
         ret = ACT_RESULT_OK;
         INFO("<<<< BLOCKS %sPHASE OF VOLUME REPLICA CHANGE DONE >>>>", is_undoing ? "UNDO " : "");
+    } else {
+        gettimeofday(&end, NULL);
+        /* The job succeeded to make progress, update its timeout in order to let it work more.
+         * Use the ceiling value of the time used. Since the job is using ACT_RESULT_NOTFAILED,
+         * do not add more time since it should be run quickly. */
+        *adjust_ttl = (int)sxi_timediff(&end, &begin) + 1;
     }
 
 action_failed:
+    if(ret == ACT_RESULT_PERMFAIL) {
+        /* Try to clean up the progress message when the job fails permanently */
+        if(sx_hashfs_set_progress_info(hashfs, INPRG_IDLE, NULL))
+            WARN("Failed to clean up progress information");
+    }
     sxi_hostlist_empty(&hlist);
     sx_blob_free(b);
     return ret;
@@ -6646,9 +6671,11 @@ static act_result_t volrep_files_request(sx_hashfs_t *hashfs, job_t job_id, job_
     sx_nodelist_t *volnodes = NULL;
     unsigned int index = 0;
     const sx_node_t *node;
+    struct timeval begin, end;
 
     DEBUG("IN %s", __func__);
 
+    gettimeofday(&begin, NULL);
     sxi_hostlist_init(&hlist);
 
     if(sx_nodelist_count(nodes) != 1) {
@@ -6800,6 +6827,12 @@ static act_result_t volrep_files_request(sx_hashfs_t *hashfs, job_t job_id, job_
             if(sx_hashfs_volrep_setlastfile(hashfs, ctx->volume, ctx->file, ctx->rev))
                 WARN("Volume replica change files relocation failed");
         }
+
+        gettimeofday(&end, NULL);
+        /* The job succeeded to make progress, update its timeout in order to let it work more.
+         * Use the ceiling value of the time used. Since the job is using ACT_RESULT_NOTFAILED,
+         * do not add more time since it should be run quickly. */
+        *adjust_ttl = (int)sxi_timediff(&end, &begin) + 1;
     } else if(s == ITER_NO_MORE) {
         succeeded[0] = 1;
         ret = ACT_RESULT_OK;
@@ -6808,6 +6841,11 @@ static act_result_t volrep_files_request(sx_hashfs_t *hashfs, job_t job_id, job_
 
 
  action_failed:
+    if(ret == ACT_RESULT_PERMFAIL) {
+        /* Try to clean up the progress message when the job fails permanently */
+        if(sx_hashfs_set_progress_info(hashfs, INPRG_IDLE, NULL))
+            WARN("Failed to clean up progress information");
+    }
     sxi_hostlist_empty(&hlist);
     free(ctx);
     sx_blob_free(b);
@@ -6900,6 +6938,11 @@ static act_result_t volrep_files_commit(sx_hashfs_t *hashfs, job_t job_id, job_d
  action_failed:
     if(ret == ACT_RESULT_OK && succeeded[0] == 1)
         INFO("<<<< FILES %sPHASE OF VOLUME REPLICA CHANGE DONE >>>>", is_undoing ? "UNDO " : "");
+    else if(ret == ACT_RESULT_PERMFAIL) {
+        /* Try to clean up the progress message when the job fails permanently */
+        if(sx_hashfs_set_progress_info(hashfs, INPRG_IDLE, NULL))
+            WARN("Failed to clean up progress information");
+    }
     sx_blob_free(b);
     sx_nodelist_delete(volnodes);
     return ret;
@@ -6997,14 +7040,14 @@ static act_result_t volrep_undo_common(sx_hashfs_t *hashfs, job_t job_id, job_da
         if(type == JOBTYPE_JOBPOLL || phase != JOBPHASE_ABORT || revert_files) {
             DEBUG("Scheduling UNDO job for BLOCKS");
             /* When we want to revert files, schedule an undo for block to all the nodes. */
-            s = sx_hashfs_mass_job_new_notrigger(hashfs, job, job_data->owner, &job, JOBTYPE_VOLREP_BLOCKS, JOB_NO_EXPIRY, "VOLREP_BLOCKS", data, data_len, revert_files ? allnodes : targets);
+            s = sx_hashfs_mass_job_new_notrigger(hashfs, job, job_data->owner, &job, JOBTYPE_VOLREP_BLOCKS, MASS_JOB_TIMEOUT, "VOLREP_BLOCKS", data, data_len, revert_files ? allnodes : targets);
             if(s != OK)
                 action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to undo volume replica change: Failed to schedule VOLREP_BLOCKS job undo");
 
             /* Only revert files when needed */
             if(revert_files && (type == JOBTYPE_JOBPOLL || phase != JOBPHASE_ABORT)) {
                 DEBUG("Scheduling UNDO job for FILES");
-                s = sx_hashfs_mass_job_new_notrigger(hashfs, job, job_data->owner, &job, JOBTYPE_VOLREP_FILES, JOB_NO_EXPIRY, "VOLREP_FILES", data, data_len, ftargets);
+                s = sx_hashfs_mass_job_new_notrigger(hashfs, job, job_data->owner, &job, JOBTYPE_VOLREP_FILES, MASS_JOB_TIMEOUT, "VOLREP_FILES", data, data_len, ftargets);
                 if(s != OK)
                     action_error(ACT_RESULT_TEMPFAIL, 503, "Failed to undo volume replica change: Failed to schedule VOLREP_FILES job undo");
             }
