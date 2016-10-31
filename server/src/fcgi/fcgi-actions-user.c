@@ -1293,7 +1293,7 @@ void fcgi_list_users(void) {
     if(lastmod > 0 && is_object_fresh(NULL, 0, lastmod))
 	return;
 
-    CGI_PUTS("\r\n");
+    CGI_PUTS("\r\n{");
     rc = sx_hashfs_list_users(hashfs, clones ? clones_cid : NULL, print_user, has_arg("desc"), has_arg("quota"), has_arg("userMeta"), has_arg("customUserMeta"), &first);
     CGI_PUTS("}");
     if (rc != OK)
