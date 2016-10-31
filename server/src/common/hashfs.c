@@ -4414,6 +4414,38 @@ static int ensure_not_running(int lockfd, const char *path)
     return ret;
 }
 
+static rc_ty get_db_version(const char *path, sxi_db_t *db, sx_hashfs_version_t *version) {
+    const char *str;
+    sqlite3_stmt *q = NULL;
+
+    if(!path || !db || !version) {
+        NULLARG();
+        return EINVAL;
+    }
+
+    if(qprep(db, &q, "SELECT value FROM hashfs WHERE key = :k") ||
+       qbind_text(q, ":k", "version") || qstep_ret(q)) {
+        CRIT("Unable to determine database version at %s", path);
+        qnullify(q);
+        return FAIL_EINTERNAL;
+    }
+
+    str = (const char *)sqlite3_column_text(q, 0);
+    if(!str) {
+        CRIT("Unable to determine database version at %s", path);
+        qnullify(q);
+        return FAIL_EINTERNAL;
+    }
+
+    if(sx_hashfs_version_parse(version, str, -1)) {
+        CRIT("Invalid storage current version %s", str);
+        qnullify(q);
+        return FAIL_EINTERNAL;
+    }
+
+    qnullify(q);
+    return OK;
+}
 
 static rc_ty upgrade_db(int lockfd, const char *path, sxi_db_t *db, const sx_hashfs_version_t *from_version, const sx_hashfs_version_t *to_version, sx_db_upgrade_fn fn)
 {
@@ -4422,21 +4454,16 @@ static rc_ty upgrade_db(int lockfd, const char *path, sxi_db_t *db, const sx_has
 
     do {
 	sx_hashfs_version_t current_version;
-        if(qprep(db, &q, "SELECT value FROM hashfs WHERE key = :k") ||
-           qbind_text(q, ":k", "version") || qstep_ret(q))
-            break;
-        const char *str = (const char *)sqlite3_column_text(q, 0);
-        if (!str) {
-            CRIT("Unable to determine database version at %s", path);
+        rc_ty s;
+
+        if((s = get_db_version(path, db, &current_version)) != OK) {
+            ret = s;
             break;
         }
-	if(sx_hashfs_version_parse(&current_version, str, -1)) {
-	    CRIT("Invalid storage current version %s", str);
-	    break;
-	}
+
 	int cmp = sx_hashfs_version_microcmp(&current_version, from_version);
         if (cmp < 0) {
-            WARN("Database schema too old: %s, expected >= %s", str, from_version->fullstr);
+            WARN("Database schema too old: %s, expected >= %s", current_version.fullstr, from_version->fullstr);
             ret = EINVAL;
         }
         if (cmp > 0) {
@@ -5938,6 +5965,8 @@ rc_ty sx_storage_upgrade(const char *dir) {
     for(upno=0;upno<sizeof(upgrade_sequence)/sizeof(upgrade_sequence[0]);upno++) {
         sx_upgrade_t desc = upgrade_sequence[upno];
 	sx_hashfs_version_t vfrom, vto;
+        sx_hashfs_version_t hashfsdb_version; /* Needed for the alldb callback */
+
 	if(sx_hashfs_version_parse(&vfrom, desc.from, -1)) {
 	    CRIT("Invalid upgrade start version %s", desc.from);
 	    break;
@@ -5946,6 +5975,11 @@ rc_ty sx_storage_upgrade(const char *dir) {
 	    CRIT("Invalid upgrade target version %s", desc.to);
 	    break;
 	}
+
+        /* We need to obtain the hashfs database version first in order to ensure the alldb callback is needed */
+        if((fnret = get_db_version(dir, alldb.hashfs, &hashfsdb_version)))
+            goto upgrade_fail;
+
         if ((fnret = upgrade_db(lockfd, dir, alldb.hashfs, &vfrom, &vto, desc.upgrade_hashfsdb)))
             goto upgrade_fail;
         for(i=0; i<METADBS; i++) {
@@ -5997,8 +6031,27 @@ rc_ty sx_storage_upgrade(const char *dir) {
         if((fnret = upgrade_db(lockfd, dir, alldb.hbeat, &vfrom, &vto, desc.upgrade_hbeatdb)))
             goto upgrade_fail;
 
-        if (desc.upgrade_alldb && (fnret = desc.upgrade_alldb(&alldb)))
-            goto upgrade_fail;
+        if(desc.upgrade_alldb) {
+            /* Compare the hashfs version as a reference, it got already bumped, so
+             * we compare with a previously checked version */
+            int cmp = sx_hashfs_version_microcmp(&hashfsdb_version, &vfrom);
+
+            if (cmp < 0) {
+                WARN("Database schema too old: %s, expected >= %s", hashfsdb_version.fullstr, vfrom.fullstr);
+                fnret = EINVAL;
+                goto upgrade_fail;
+            }
+
+            /* When !cmp the upgrade is needed */
+            if(!cmp) {
+                if(ensure_not_running(lockfd, dir))
+                    goto upgrade_fail;
+
+                /* Invoke the alldb upgrade callback */
+                if((fnret = desc.upgrade_alldb(&alldb)))
+                    goto upgrade_fail;
+            }
+        }
     }
     INFO("Committing changes");
     if (qcommit_alldb(&alldb))
