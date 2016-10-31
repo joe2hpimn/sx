@@ -1303,7 +1303,7 @@ static int sxfs_truncate (const char *path, off_t length) {
                     }
                     if(!retval) /* EOF */
                         break;
-                    if(write(fd, buff, retval) < 0) {
+                    if(sxi_write_hard(fd, buff, retval) < 0) {
                         ret = -errno;
                         SXFS_ERROR("Cannot write to '%s' file: %s", local_file_path, strerror(errno));
                         sxfs_file_free(sxfs, tmp_sxfs_file);
@@ -1790,8 +1790,8 @@ static int sxfs_flush (const char *path, struct fuse_file_info *file_info) {
             SXFS_ERROR("Cannot create unique temporary file: %s", strerror(errno));
             goto sxfs_flush_err;
         }
-        while((rd = pread(sxfs_file->write_fd, buff, sizeof(buff), offset)) > 0) {
-            if(write(fd, buff, rd) < 0) {
+        while((rd = sxi_pread_hard(sxfs_file->write_fd, buff, sizeof(buff), offset)) > 0) {
+            if(sxi_write_hard(fd, buff, rd) < 0) {
                 ret = -errno;
                 SXFS_ERROR("Cannot write to '%s' file: %s", file_path, strerror(errno));
                 goto sxfs_flush_err;
@@ -2119,8 +2119,8 @@ static void* sxfs_init (struct fuse_conn_info *conn) {
             if(dup2(fd, 2) == -1) {
                 fprintf(stderr, "ERROR: Cannot close stderr: %s\n", strerror(errno));
             } else {
-                write(sxfs->pipefd[1], &eot, 1); /* End of transmission */
-                write(sxfs->pipefd[1], &status, sizeof(int));
+                sxi_write_hard(sxfs->pipefd[1], &eot, 1); /* End of transmission */
+                sxi_write_hard(sxfs->pipefd[1], &status, sizeof(int));
                 close(sxfs->pipefd[1]);
                 sxfs->pipefd[1] = -1;
             }
@@ -2665,7 +2665,7 @@ static int sxfs_daemonize (sxfs_state_t *sxfs) {
                 if(close(sxfs->pipefd[1]))
                     fprintf(stderr, "ERROR: Cannot close write end of the pipe: %s\n", strerror(errno));
                 while(1) { /* read from the pipe until EOT */
-                    if((n = read(sxfs->pipefd[0], &c, 1)) < 1) {
+                    if((n = sxi_read_hard(sxfs->pipefd[0], &c, 1)) < 1) {
                         fprintf(stderr, "ERROR: Cannot read from the pipe: %s\n", n < 0 ? strerror(errno) : "pipe closed");
                         close(sxfs->pipefd[0]);
                         _exit(1);
@@ -2674,7 +2674,7 @@ static int sxfs_daemonize (sxfs_state_t *sxfs) {
                         break;
                     fprintf(stderr, "%c", c);
                 }
-                if((n = read(sxfs->pipefd[0], &err, sizeof(err))) < 0) {
+                if((n = sxi_read_hard(sxfs->pipefd[0], &err, sizeof(err))) < 0) {
                     fprintf(stderr, "ERROR: Cannot read from the pipe: %s\n", strerror(errno));
                     close(sxfs->pipefd[0]);
                     _exit(1);
@@ -3631,8 +3631,8 @@ main_err:
         if(sxfs->pipefd[1] >= 0) {
             int status = ret ? 1 : 0;
             char eot = 4;
-            write(sxfs->pipefd[1], &eot, 1); /* End of transmission */
-            write(sxfs->pipefd[1], &status, sizeof(int));
+            sxi_write_hard(sxfs->pipefd[1], &eot, 1); /* End of transmission */
+            sxi_write_hard(sxfs->pipefd[1], &status, sizeof(int));
             if(close(sxfs->pipefd[1]))
                 print_and_log(sxfs->logfile, "Cannot close write end of the pipe: %s\n", strerror(errno));
             sxfs->pipefd[1] = -1;

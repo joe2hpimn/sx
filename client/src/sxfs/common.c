@@ -311,8 +311,8 @@ static int copy_file (sxfs_state_t *sxfs, const char *source, const char *dest) 
         SXFS_ERROR("Cannot create '%s' file: %s", dest, strerror(errno));
         goto copy_file_err;
     }
-    while((rd = read(fd_src, buff, sizeof(buff))) > 0) {
-        if(write(fd_dst, buff, rd) < 0) {
+    while((rd = sxi_read_hard(fd_src, buff, sizeof(buff))) > 0) {
+        if(sxi_write_hard(fd_dst, buff, rd) < 0) {
             ret = -errno;
             SXFS_ERROR("Cannot write to '%s' file: %s", dest, strerror(errno));
             goto copy_file_err;
@@ -442,7 +442,7 @@ int sxfs_get_file (sxfs_state_t *sxfs, sxfs_file_t *sxfs_file) {
         }
     } else {
         while((retval = sxfs_cache_read(sxfs, sxfs_file, buff, sizeof(buff), offset)) > 0) {
-            if(write(fd, buff, retval) < 0) {
+            if(sxi_write_hard(fd, buff, retval) < 0) {
                 ret = -errno;
                 SXFS_ERROR("Cannot write to '%s' file: %s", sxfs_file->write_path, strerror(errno));
                 goto sxfs_get_file_err;

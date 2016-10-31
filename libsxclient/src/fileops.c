@@ -1162,47 +1162,6 @@ const struct jparse_actions createfile_acts = {
                     )
 };
 
-static ssize_t pread_hard(int fd, void *buf, size_t count, off_t offset) {
-    char *dest = (char *)buf;
-    ssize_t ret = 0;
-
-    while(count) {
-	ssize_t r = pread(fd, dest, count, offset);
-	if(r<0) {
-	    if(errno == EINTR)
-		continue;
-	    return r;
-	}
-	if(!r)
-	    break;;
-	dest += r;
-	count -= r;
-	offset += r;
-	ret += r;
-    }
-    return ret;
-}
-
-static ssize_t write_hard(int fd, const void *buf, size_t count)
-{
-    const uint8_t *wbuf = buf;
-    size_t todo = count;
-    ssize_t done;
-
-    while(todo) {
-	done = write(fd, wbuf, todo);
-	if(done < 0) {
-	    if(errno == EINTR)
-		continue;
-	    return -1;
-	}
-	todo -= done;
-	wbuf += done;
-    }
-
-    return count;
-}
-
 struct hash_up_data_t {
     sxi_hostlist_t hosts;
     off_t offset;
@@ -1563,7 +1522,7 @@ static void upload_blocks_to_hosts(curlev_context_t *cbdata, struct file_upload_
                 uint32_t checksum;
                 struct need_hash *need = &u->needed[u->i++];
                 SXDEBUG("adding data %d from pos %lld", u->i, (long long)need->off.offset);
-                ssize_t n = pread_hard(yctx->fd, u->buf + u->buf_used, yctx->blocksize, need->off.offset);
+                ssize_t n = sxi_pread_hard(yctx->fd, u->buf + u->buf_used, yctx->blocksize, need->off.offset);
                 if (n < 0) {
                     SXDEBUG("fail incremented: error reading buffer");
                     sxi_seterr(sx, SXE_EREAD, "Copy failed: Unable to read source file");
@@ -1756,7 +1715,7 @@ static int multi_part_compute_hash_ev(struct file_upload_ctx *yctx)
         /* hash_chunk -> finish cb -> hash_chunk ... */
         unsigned i, remaining;
         SXDEBUG("pos:%lld",(long long)yctx->pos);
-        n = pread_hard(yctx->fd, yctx->buf, sizeof(yctx->buf), yctx->pos);
+        n = sxi_pread_hard(yctx->fd, yctx->buf, sizeof(yctx->buf), yctx->pos);
         if (n < 0) {
             SXDEBUG("failed to read from source file");
             sxi_setsyserr(sx, SXE_EREAD, "Block upload failed while reading source file");
@@ -2323,7 +2282,7 @@ static sxi_job_t* local_to_remote_begin(sxc_file_t *source, sxc_file_t *dest, in
 			    fh->f->data_finish(fh, &fh->ctx, SXF_MODE_UPLOAD);
 			goto local_to_remote_err;
 		    }
-		    if(write_hard(td, outbuff, bwrite) == -1) {
+		    if(sxi_write_hard(td, outbuff, bwrite) == -1) {
 			sxi_setsyserr(sx, SXE_EWRITE, "Filter failed: Can't write to temporary file");
 			fclose(tempfile);
 			if(fh->f->data_finish)
@@ -4081,7 +4040,7 @@ static int remote_to_local(sxc_file_t *source, sxc_file_t *dest, int recursive) 
 				fail = 1;
 				break;
 			    }
-			    done = write_hard(rd, outbuff, done);
+			    done = sxi_write_hard(rd, outbuff, done);
 			    if(done < 0) {
 				SXDEBUG("Failed to write output file");			
 				sxi_setsyserr(sx, SXE_EWRITE, "Download failed: Cannot write to output file");
@@ -4091,7 +4050,7 @@ static int remote_to_local(sxc_file_t *source, sxc_file_t *dest, int recursive) 
 			} while(action == SXF_ACTION_REPEAT);
 			got = 0;
 		    } else {
-			done = write_hard(rd, buff, got);
+			done = sxi_write_hard(rd, buff, got);
 			if(done < 0) {
 			    SXDEBUG("Failed to write output file");			
 			    sxi_setsyserr(sx, SXE_EWRITE, "Download failed: Cannot write to output file");
@@ -5519,7 +5478,7 @@ static int cat_remote_file(sxc_file_t *source, int dest) {
 			fh->f->data_finish(fh, &fh->ctx, SXF_MODE_DOWNLOAD);
 		    goto sxc_cat_fail;
 		}
-		if(write_hard(dest, fbuf, bwrite) == -1) {
+		if(sxi_write_hard(dest, fbuf, bwrite) == -1) {
 		    sxi_setsyserr(sx, SXE_EWRITE, "Filter failed: Can't write to fd %d", dest);
 		    if(fh->f->data_finish)
 			fh->f->data_finish(fh, &fh->ctx, SXF_MODE_DOWNLOAD);
@@ -5527,7 +5486,7 @@ static int cat_remote_file(sxc_file_t *source, int dest) {
 		}
 	    } while(action == SXF_ACTION_REPEAT);
 	} else {
-	    if(write_hard(dest, wbuf, todo) == -1) {
+	    if(sxi_write_hard(dest, wbuf, todo) == -1) {
                 sxi_setsyserr(sx, SXE_ETMP, "Can't write to fd %d", dest);
 		goto sxc_cat_fail;
             }
@@ -5590,7 +5549,7 @@ static int cat_local_file(sxc_file_t *source, int dest) {
 	    close(src);
 	    return 1;
 	}
-	if(write_hard(dest, buf, got) == -1) {
+	if(sxi_write_hard(dest, buf, got) == -1) {
 	    SXDEBUG("failed to write to output stream");
 	    sxi_setsyserr(sx, SXE_EWRITE, "Failed to write to output stream");
 	    close(src);

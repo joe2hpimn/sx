@@ -1705,6 +1705,70 @@ char sxi_read_one_char(void)
     return '\0';
 }
 
+ssize_t sxi_read_hard(int fd, void *buff, size_t count)
+{
+    char *dest = (char *)buff;
+    ssize_t ret = 0, r;
+
+    while(count) {
+        r = read(fd, dest, count);
+	if(r < 0) {
+	    if(errno == EINTR)
+		continue;
+	    return r;
+	}
+	if(!r)
+	    break;
+	dest += r;
+	count -= r;
+	ret += r;
+    }
+    return ret;
+}
+
+ssize_t sxi_write_hard(int fd, const void *buff, size_t count)
+{
+    const char *dest = (const char *)buff;
+    ssize_t ret = 0, r;
+
+    while(count) {
+        r = write(fd, dest, count);
+	if(r < 0) {
+	    if(errno == EINTR)
+		continue;
+	    return r;
+	}
+	if(!r)
+	    break;
+	dest += r;
+	count -= r;
+	ret += r;
+    }
+    return ret;
+}
+
+ssize_t sxi_pread_hard(int fd, void *buff, size_t count, off_t offset)
+{
+    char *dest = (char *)buff;
+    ssize_t ret = 0, r;
+
+    while(count) {
+	r = pread(fd, dest, count, offset);
+	if(r < 0) {
+	    if(errno == EINTR)
+		continue;
+	    return r;
+	}
+	if(!r)
+	    break;
+	dest += r;
+	count -= r;
+	offset += r;
+	ret += r;
+    }
+    return ret;
+}
+
 /*
  * returns -1 on error and 0 when input was received and stored
  * SXC_INPUT_YN: def == "y" or "n", stores 'y' or 'n' in in[0]

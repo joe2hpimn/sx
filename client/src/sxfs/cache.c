@@ -568,7 +568,7 @@ static int cache_download (sxfs_state_t *sxfs, sxi_sxfs_data_t *fdata, unsigned 
         ret = -sxfs_sx_err(sx);
         goto cache_download_err;
     }
-    if((bytes = read(tmp_fd, buff, fdata->blocksize)) < 0) {
+    if((bytes = sxi_read_hard(tmp_fd, buff, fdata->blocksize)) < 0) {
         ret = -errno;
         SXFS_ERROR("Cannot read from '%s' file: %s", tmp_path, strerror(errno));
         goto cache_download_err;
@@ -578,7 +578,7 @@ static int cache_download (sxfs_state_t *sxfs, sxi_sxfs_data_t *fdata, unsigned 
         ret = -EINVAL;
         goto cache_download_err;
     }
-    if((bytes = write(fd, buff, fdata->blocksize)) < 0) {
+    if((bytes = sxi_write_hard(fd, buff, fdata->blocksize)) < 0) {
         ret = -errno;
         SXFS_ERROR("Cannot write to '%s' file: %s", path, strerror(errno));
         if(ret == -ENOSPC)
@@ -701,7 +701,7 @@ static void* cache_download_thread (void *ptr) {
         goto cache_download_thread_err;
     }
     for(i=0; i<cdata->nblocks; i++) {
-        if((bytes = read(fd, buff, fdata->blocksize)) < 0) {
+        if((bytes = sxi_read_hard(fd, buff, fdata->blocksize)) < 0) {
             err = errno;
             SXFS_ERROR("Cannot read from '%s' file: %s", path, strerror(errno));
             goto cache_download_thread_err;
@@ -711,7 +711,7 @@ static void* cache_download_thread (void *ptr) {
             err = EINVAL;
             goto cache_download_thread_err;
         }
-        if((bytes = write(cdata->fds[i], buff, fdata->blocksize)) < 0) {
+        if((bytes = sxi_write_hard(cdata->fds[i], buff, fdata->blocksize)) < 0) {
             err = errno;
             SXFS_ERROR("Cannot write to %d (%s) file descriptor: %s", cdata->fds[i], fdata->ha[cdata->blocks[i]], strerror(errno));
             if(err == ENOSPC)
@@ -1213,7 +1213,7 @@ static ssize_t validate_block (sxfs_state_t *sxfs, sxi_sxfs_data_t *fdata, unsig
         pthread_mutex_unlock(&cache->mutex);
         cache_locked = 0;
     }
-    if((ret = pread(fd, local_buff, fdata->blocksize, 0)) < 0) {
+    if((ret = sxi_pread_hard(fd, local_buff, fdata->blocksize, 0)) < 0) {
         ret = -errno;
         SXFS_ERROR("Cannot read from '%s' file: %s", path, strerror(errno));
         goto validate_block_err;
@@ -1299,7 +1299,7 @@ ssize_t sxfs_cache_read (sxfs_state_t *sxfs, sxfs_file_t *sxfs_file, void *buff,
     }
     if(sxfs_file->write_fd >= 0) {
         SXFS_VERBOSE("Using file descriptor: %d", sxfs_file->write_fd);
-        if((ret = pread(sxfs_file->write_fd, buff, length, offset)) < 0) {
+        if((ret = sxi_pread_hard(sxfs_file->write_fd, buff, length, offset)) < 0) {
             ret = -errno;
             SXFS_ERROR("Cannot read from '%s' file: %s", sxfs_file->write_path, strerror(errno));
         }
