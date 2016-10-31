@@ -961,7 +961,7 @@ static ssize_t validate_block (sxfs_state_t *sxfs, sxi_sxfs_data_t *fdata, unsig
     size_t *lfu_n;
     ssize_t ret, index;
     time_t add_time;
-    char *path = NULL, *calc_name = NULL, local_buff[SX_BS_LARGE];
+    char *path = NULL, *calc_name = NULL, *block_name_dup = NULL, *lfu_file_path = NULL, local_buff[SX_BS_LARGE];
     const char *block_name = fdata->ha[block], *dir = "foo"; /* shut up warnings */
     struct stat st;
     sxfs_cache_t *cache = sxfs->cache;
@@ -1034,36 +1034,33 @@ static ssize_t validate_block (sxfs_state_t *sxfs, sxi_sxfs_data_t *fdata, unsig
             goto validate_block_err;
         }
     } else {
-        char *block_name_dup = strdup(block_name), *path2;
-
+        block_name_dup = strdup(block_name);
         if(!block_name_dup) {
             SXFS_ERROR("Out of memory");
             ret = -ENOMEM;
             goto validate_block_err;
         }
-        path2 = (char*)malloc(strlen(cache->tempdir) + 1 + lenof("lfu") + 1 + strlen(dir) + 1 + strlen(block_name) + 1);
-        if(!path2) {
+        lfu_file_path = (char*)malloc(strlen(cache->tempdir) + 1 + lenof("lfu") + 1 + strlen(dir) + 1 + strlen(block_name) + 1);
+        if(!lfu_file_path) {
             SXFS_ERROR("Out of memory");
             ret = -ENOMEM;
-            free(block_name_dup);
             goto validate_block_err;
         }
-        sprintf(path2, "%s/lfu/%s/%s", cache->tempdir, dir, block_name);
+        sprintf(lfu_file_path, "%s/lfu/%s/%s", cache->tempdir, dir, block_name);
         pthread_mutex_lock(&cache->mutex);
         if(sxi_ht_get(cache->lru, block_name, strlen(block_name), (void**)&block_counter)) {
             SXFS_DEBUG("'%s' block counter not found in LRU (possible race condition)", block_name);
             /* do not fail whole function - there can be a race condition with block removal */
         }
-	block_counter = NULL;
         if(block_counter && *block_counter) {
-            if(rename(path, path2)) {
+            if(rename(path, lfu_file_path)) {
                 if(errno != ENOENT) /* very racy stuff */
                     SXFS_ERROR("Cannot insert block into LFU cache: %s", strerror(errno));
                 pthread_mutex_unlock(&cache->mutex);
             } else {
                 char *tmp_str = path;
-                path = path2;
-                path2 = tmp_str;
+                path = lfu_file_path;
+                lfu_file_path = tmp_str;
 
                 cache->used -= fdata->blocksize;
                 free(block_counter);
@@ -1076,22 +1073,49 @@ static ssize_t validate_block (sxfs_state_t *sxfs, sxi_sxfs_data_t *fdata, unsig
                     /* This error does not seem to be critical due to EAGAIN being returned. It can be triggered by
                      * regular read operations, especially for large files. */
                     SXFS_DEBUG("'%s' block already in LFU cache", block_name);
-                    free(block_name_dup);
-                    free(path2);
                     ret = -EAGAIN;
                     pthread_mutex_unlock(&cache->lfu_mutex);
                     goto validate_block_err;
                 }
                 if(*lfu_n == cache->lfu_max) {
+                    int *block_counter_new = (int*)calloc(1, sizeof(int));
+                    char *lru_file_path = (char*)malloc(strlen(cache->tempdir) + 1 + strlen(dir) + 1 + strlen(block_name) + 1); /* all block names have equal length */
+
+                    if(!block_counter_new || !lru_file_path) {
+                        SXFS_ERROR("Out of memory");
+                        free(block_counter_new);
+                        free(lru_file_path);
+                        pthread_mutex_unlock(&cache->lfu_mutex);
+                        ret = -ENOMEM;
+                        goto validate_block_err;
+                    }
                     if(*lfu_sorted != LFU_SORTED_BY_USAGE) {
                         qsort(lfu, *lfu_n, sizeof(sxfs_cache_lfu_t), lfu_sort_cmp_usage);
                         *lfu_sorted = LFU_SORTED_BY_USAGE;
                     }
                     index = 0;
-                    sprintf(path2, "%s/lfu/%s/%s", cache->tempdir, dir, lfu[index].name); /* all block names have equal lenght */
-                    if(unlink(path2))
-                        SXFS_ERROR("Cannot remove '%s' file: %s", path2, strerror(errno));
+                    sprintf(lru_file_path, "%s/%s/%s", cache->tempdir, dir, lfu[index].name);
+                    sprintf(lfu_file_path, "%s/lfu/%s/%s", cache->tempdir, dir, lfu[index].name); /* all block names have equal lenght */
+                    if(rename(lfu_file_path, lru_file_path)) {
+                        ret = -errno;
+                        SXFS_ERROR("Cannot move '%s' block from LFU to LRU: %s", lfu[index].name, strerror(errno));
+                        free(block_counter_new);
+                        free(lru_file_path);
+                        pthread_mutex_unlock(&cache->lfu_mutex);
+                        goto validate_block_err;
+                    }
+                    pthread_mutex_lock(&sxfs->cache->mutex);
+                    if(sxi_ht_add(sxfs->cache->lru, fdata->ha[block], strlen(fdata->ha[block]), block_counter_new)) {
+                        SXFS_ERROR("Out of memory");
+                        free(block_counter_new);
+                        free(lru_file_path);
+                        pthread_mutex_unlock(&cache->lfu_mutex);
+                        ret = -ENOMEM;
+                        goto validate_block_err;
+                    }
+                    pthread_mutex_unlock(&sxfs->cache->mutex);
                     free(lfu[index].name);
+                    free(lru_file_path);
                 } else {
                     index = *lfu_n;
                 }
@@ -1117,8 +1141,6 @@ static ssize_t validate_block (sxfs_state_t *sxfs, sxi_sxfs_data_t *fdata, unsig
             }
         } else
             pthread_mutex_unlock(&cache->mutex);
-        free(block_name_dup);
-        free(path2);
     }
     if(!offset && !lfu_accessed) {
         pthread_mutex_lock(&cache->mutex);
@@ -1194,6 +1216,8 @@ validate_block_err:
         SXFS_ERROR("Cannot close '%s' file: %s", path, strerror(errno));
     free(path);
     free(calc_name);
+    free(block_name_dup);
+    free(lfu_file_path);
     return ret;
 } /* validate_block */
 
