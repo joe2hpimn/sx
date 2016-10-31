@@ -3657,11 +3657,11 @@ static int check_files(sx_hashfs_t *h, int debug) {
             const char *name;
             int64_t size, row;
             unsigned int listlen;
-            r = qstep(list);
             unsigned int block_size, blocks;
             const sx_hash_t *hashes;
             int64_t volid;
 
+            r = qstep(list);
             if(r == SQLITE_DONE)
                 break;
             if(r != SQLITE_ROW) {
@@ -3706,6 +3706,12 @@ static int check_files(sx_hashfs_t *h, int debug) {
                 } else if(rc || !vol) {
                     ret = -1;
                     goto check_files_itererr;
+                }
+
+                /* Check if the volume to which the file belongs to, belongs to this node, i.e. check if the volume is a volnode for the file. */
+                if(!sx_hashfs_is_or_was_my_volume(h, vol, 1)) {
+                    CHECK_ERROR("The file '%s' is stored on a volume '%s' which does not belong to this node", name, vol->name);
+                    continue;
                 }
             }
 

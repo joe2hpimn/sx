@@ -6430,7 +6430,7 @@ static rc_ty volrep_blocks_release(sx_hashfs_t *h, const sx_hashfs_volume_t *vol
     int have_blkidx = 0;
     sx_block_meta_index_t blkidx;
 
-    sx_hashfs_set_progress_info(h, INPRG_REPLACE_RUNNING, "Releasing over-replica blocks");
+    sx_hashfs_set_progress_info(h, INPRG_VOLREP_RUNNING, "Releasing over-replica blocks");
 
     s = sx_hashfs_volrep_getstartblock(h, &node, &have_blkidx, (uint8_t *)&blkidx);
     if(s != OK && s != ITER_NO_MORE) {
@@ -6492,7 +6492,7 @@ static rc_ty volrep_blocks_pull(sx_hashfs_t *hashfs, const sx_hashfs_volume_t *v
         goto volrep_blocks_pull_err;
     }
 
-    sx_hashfs_set_progress_info(hashfs, INPRG_REPLACE_RUNNING, "Pulling under-replica blocks");
+    sx_hashfs_set_progress_info(hashfs, INPRG_VOLREP_RUNNING, "Pulling under-replica blocks");
 
     s = sx_hashfs_volrep_getstartblock(hashfs, &source, &have_blkidx, (uint8_t *)&bmidx);
     if(s == OK) {
@@ -6576,7 +6576,7 @@ static rc_ty volrep_blocks_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t 
 
     if(sx_nodelist_count(nodes) != 1) {
         CRIT("Bad job data");
-        action_error(ACT_RESULT_PERMFAIL, 500, "JOBTYPE_VOLREP_FILES can only be scheduled on one node");
+        action_error(ACT_RESULT_PERMFAIL, 500, "JOBTYPE_VOLREP_BLOCKS can only be scheduled on one node");
     }
 
     b = sx_blob_from_data(job_data->ptr, job_data->len);

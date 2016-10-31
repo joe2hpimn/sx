@@ -1674,7 +1674,7 @@ static int info_cluster(sxc_client_t *sx, struct cluster_args_info *args, enum i
 		if(clst_rebalance_state(clstnode, &op) == CLSTOP_NOTRUNNING &&
 		   clst_replace_state(clstnode, &op) == CLSTOP_NOTRUNNING &&
 		   clst_upgrade_state(clstnode, &op) == CLSTOP_NOTRUNNING &&
-                   clst_volume_replica_change_state(clstnode, &op))
+                   clst_volume_replica_change_state(clstnode, &op) == CLSTOP_NOTRUNNING)
 		    op = NULL;
 	    } else
 		isonline = 0;
