@@ -175,6 +175,7 @@ int sxfs_cache_init (sxc_client_t *sx, sxfs_state_t *sxfs, size_t size, const ch
     }
     cache->size = size / 2;
     cache->lfu_max = size / (SX_BS_SMALL + SX_BS_MEDIUM + SX_BS_LARGE);
+    SXFS_DEBUG("LFU blocks number limit: %lu", (long unsigned int)cache->lfu_max);
     if((err = pthread_mutex_init(&cache->mutex, NULL))) {
         fprintf(stderr, "ERROR: Cannot create cache mutex: %s\n", strerror(err));
         ret = -err;
