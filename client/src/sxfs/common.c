@@ -203,12 +203,12 @@ int sxfs_sx_err (sxc_client_t *sx) {
     }
 } /* sxfs_sx_err */
 
-int sxfs_resize (void **ptr, size_t *size, size_t elsize) {
-    void *new_ptr = realloc(*ptr, (*size + SXFS_ALLOC_ENTRIES) * elsize);
+int sxfs_resize (void *ptr, size_t *size, size_t elsize) {
+    void *new_ptr = realloc(*((void**)ptr), (*size + SXFS_ALLOC_ENTRIES) * elsize);
     if(!new_ptr)
         return -1;
-    *ptr = new_ptr;
-    memset((char*)*ptr + *size * elsize, 0, SXFS_ALLOC_ENTRIES * elsize);
+    *((void**)ptr) = new_ptr;
+    memset((char*)(*((void**)ptr)) + *size * elsize, 0, SXFS_ALLOC_ENTRIES * elsize);
     *size += SXFS_ALLOC_ENTRIES;
     return 0;
 } /* sxfs_resize */
@@ -629,7 +629,7 @@ int sxfs_get_thread_id (sxfs_state_t *sxfs) {
                 break;
             }
         if(td->id < 0) {
-            if(sxfs_resize((void**)&sxfs->threads, &sxfs->threads_max, sizeof(int))) {
+            if(sxfs_resize(&sxfs->threads, &sxfs->threads_max, sizeof(int))) {
                 pthread_mutex_unlock(&sxfs->limits_mutex);
                 fprintf(sxfs->logfile, "[%s] ERROR: Out of memory\n", __func__);
                 free(td);
@@ -691,7 +691,7 @@ int sxfs_lsdir_add_file (sxfs_lsdir_t *dir, const char *path, struct stat *st) {
         return ret;
     }
     name = strrchr(path, '/') + 1;
-    if(dir->nfiles == dir->maxfiles && sxfs_resize((void**)&dir->files, &dir->maxfiles, sizeof(sxfs_lsfile_t*))) {
+    if(dir->nfiles == dir->maxfiles && sxfs_resize(&dir->files, &dir->maxfiles, sizeof(sxfs_lsfile_t*))) {
         SXFS_ERROR("OOM growing files cache table");
         return -ENOMEM;
     }
@@ -762,7 +762,7 @@ int sxfs_lsdir_add_dir (sxfs_lsdir_t *dir, const char *path) {
         SXFS_ERROR("Cannot get current time: %s", strerror(errno));
         goto sxfs_lsdir_add_dir_err;
     }
-    if(dir->ndirs == dir->maxdirs && sxfs_resize((void**)&dir->dirs, &dir->maxdirs, sizeof(sxfs_lsdir_t*))) {
+    if(dir->ndirs == dir->maxdirs && sxfs_resize(&dir->dirs, &dir->maxdirs, sizeof(sxfs_lsdir_t*))) {
         SXFS_ERROR("OOM growing dirs cache table");
         ret = -ENOMEM;
         goto sxfs_lsdir_add_dir_err;
@@ -837,8 +837,8 @@ void sxfs_lsdir_free (sxfs_lsdir_t *dir) {
     free(dir);
 } /* sxfs_lsdir_free */
 
-int sxfs_str_cmp (const void **ptr, size_t index, const char *file_name) {
-    const char *str = ((const char**)ptr)[index];
+int sxfs_str_cmp (const void *ptr, size_t index, const char *file_name) {
+    const char *str = ((const char* const*)ptr)[index];
     size_t filelen = strlen(file_name), len = strlen(str);
 
     if(file_name[filelen-1] == '/' && len == filelen + lenof(SXFS_SXNEWDIR) && !strcmp(str + len - lenof(SXFS_SXNEWDIR), SXFS_SXNEWDIR))
@@ -846,15 +846,15 @@ int sxfs_str_cmp (const void **ptr, size_t index, const char *file_name) {
     return strcmp(str, file_name);
 } /* sxfs_str_cmp */
 
-int sxfs_lsfile_cmp (const void **files, size_t index, const char *file_name) {
-    return strcmp(((const sxfs_lsfile_t**)files)[index]->name, file_name);
+int sxfs_lsfile_cmp (const void *files, size_t index, const char *file_name) {
+    return strcmp(((const sxfs_lsfile_t* const*)files)[index]->name, file_name);
 } /* sxfs_lsfile_cmp */
 
-int sxfs_lsdir_cmp (const void **dirs, size_t index, const char *dir_name) {
-    return strcmp(((const sxfs_lsdir_t**)dirs)[index]->name, dir_name);
+int sxfs_lsdir_cmp (const void *dirs, size_t index, const char *dir_name) {
+    return strcmp(((const sxfs_lsdir_t* const*)dirs)[index]->name, dir_name);
 } /* sxfs_lsdir_cmp */
 
-ssize_t sxfs_find_entry (const void **table, size_t size, const char *name, int (*compare)(const void**, size_t, const char*)) {
+ssize_t sxfs_find_entry (const void *table, size_t size, const char *name, int (*compare)(const void*, size_t, const char*)) {
     int tmp;
     ssize_t i;
     size_t from = 0, to;
@@ -919,10 +919,10 @@ static int sxfs_ls_ftw (sxfs_state_t *sxfs, const char *path, sxfs_lsdir_t **giv
     slash = strchr(ptr, '/');
     while(slash) {
         *slash = '\0';
-        index = sxfs_find_entry((const void**)dir->dirs, dir->ndirs, ptr, sxfs_lsdir_cmp);
+        index = sxfs_find_entry(dir->dirs, dir->ndirs, ptr, sxfs_lsdir_cmp);
         if(index < 0) {
             int ret;
-            if(sxfs_find_entry((const void**)dir->files, dir->nfiles, ptr, sxfs_lsfile_cmp) >= 0) {
+            if(sxfs_find_entry(dir->files, dir->nfiles, ptr, sxfs_lsfile_cmp) >= 0) {
                 SXFS_ERROR("%s: %s (%s)", strerror(ENOTDIR), ptr, path);
                 ret = -ENOTDIR;
             } else {
@@ -1095,7 +1095,7 @@ int sxfs_ls_update (const char *absolute_path, sxfs_lsdir_t **given_dir) {
                     ptr = strchr(path, '/');
                     if(ptr)
                         *ptr = '\0';
-                    index = sxfs_find_entry((const void**)dir->dirs, ncdirs, path, sxfs_lsdir_cmp);
+                    index = sxfs_find_entry(dir->dirs, ncdirs, path, sxfs_lsdir_cmp);
                     if(index >= 0) {
                         check_dirs[index] = 1;
                         if(entry->state & SXFS_QUEUE_REMOTE)
@@ -1111,7 +1111,7 @@ int sxfs_ls_update (const char *absolute_path, sxfs_lsdir_t **given_dir) {
                     if(!strcmp(ptr, SXFS_SXNEWDIR)) {
                         dir->sxnewdir = entry->state & SXFS_QUEUE_REMOTE ? 2 : 1;
                     } else {
-                        index = sxfs_find_entry((const void**)dir->files, ncfiles, ptr, sxfs_lsfile_cmp);
+                        index = sxfs_find_entry(dir->files, ncfiles, ptr, sxfs_lsfile_cmp);
                         if(index >= 0) {
                             check_files[index] = 1;
                             if(entry->state & SXFS_QUEUE_REMOTE)
@@ -1207,7 +1207,7 @@ int sxfs_ls_update (const char *absolute_path, sxfs_lsdir_t **given_dir) {
             } else {
                 if(S_ISDIR(st.st_mode)) {
                     fpath[len] = '\0';
-                    index = sxfs_find_entry((const void**)dir->dirs, ncdirs, fname, sxfs_lsdir_cmp);
+                    index = sxfs_find_entry(dir->dirs, ncdirs, fname, sxfs_lsdir_cmp);
                     fpath[len] = '/';
                     if(index >= 0) {
                         check_dirs[index] = 1;
@@ -1222,7 +1222,7 @@ int sxfs_ls_update (const char *absolute_path, sxfs_lsdir_t **given_dir) {
                         dir->dirs[dir->ndirs-1]->remote = 2;
                     }
                 } else {
-                    index = sxfs_find_entry((const void**)dir->files, ncfiles, fname, sxfs_lsfile_cmp);
+                    index = sxfs_find_entry(dir->files, ncfiles, fname, sxfs_lsfile_cmp);
                     if(index >= 0) {
                         if(!check_files[index] && tmptime > dir->files[index]->remote_mtime) {
                             struct stat *tmpst = &dir->files[index]->st;
@@ -1341,7 +1341,7 @@ int sxfs_ls_update (const char *absolute_path, sxfs_lsdir_t **given_dir) {
                     if(!strcmp(ptr, SXFS_SXNEWDIR)) {
                         tmpdir->sxnewdir = entry->state & SXFS_QUEUE_REMOTE ? 2 : 1;
                     } else {
-                        index = sxfs_find_entry((const void**)tmpdir->files, tmpdir->nfiles, ptr, sxfs_lsfile_cmp);
+                        index = sxfs_find_entry(tmpdir->files, tmpdir->nfiles, ptr, sxfs_lsfile_cmp);
                         if(index >= 0) {
                             tmpdir->files[index]->remote = 1;
                         } else {
@@ -1419,13 +1419,13 @@ int sxfs_ls_stat (const char *path, struct stat *st) {
         return ret;
     }
     file_name = strrchr(path, '/') + 1; /* already checked in sxfs_ls_update() */
-    index = sxfs_find_entry((const void**)dir->dirs, dir->ndirs, file_name, sxfs_lsdir_cmp);
+    index = sxfs_find_entry(dir->dirs, dir->ndirs, file_name, sxfs_lsdir_cmp);
     if(index >= 0) {
         if(st)
             memcpy(st, &dir->dirs[index]->st, sizeof(struct stat));
         ret = 2;
     } else {
-        index = sxfs_find_entry((const void**)dir->files, dir->nfiles, file_name, sxfs_lsfile_cmp);
+        index = sxfs_find_entry(dir->files, dir->nfiles, file_name, sxfs_lsfile_cmp);
         if(index >= 0) {
             if(st)
                 memcpy(st, &dir->files[index]->st, sizeof(struct stat));
@@ -2618,7 +2618,7 @@ static void sxfs_upload_clean (sxfs_state_t *sxfs) {
             dir->remote = 1;
             dir->sxnewdir = 2;
         } else {
-            index = sxfs_find_entry((const void**)dir->files, dir->nfiles, filename, sxfs_lsfile_cmp);
+            index = sxfs_find_entry(dir->files, dir->nfiles, filename, sxfs_lsfile_cmp);
             if(index >= 0) {
                 dir->files[index]->remote = 1;
                 while(dir) {

@@ -205,12 +205,12 @@ static int sxfs_mkdir (const char *path, mode_t mode) {
         SXFS_ERROR("Cannot load file tree: %s", path);
         goto sxfs_mkdir_err;
     }
-    if(sxfs_find_entry((const void**)dir->files, dir->nfiles, dir_name, sxfs_lsfile_cmp) >= 0) {
+    if(sxfs_find_entry(dir->files, dir->nfiles, dir_name, sxfs_lsfile_cmp) >= 0) {
         SXFS_ERROR("File already exists: %s", path);
         ret = -EEXIST;
         goto sxfs_mkdir_err;
     }
-    if(sxfs_find_entry((const void**)dir->dirs, dir->ndirs, dir_name, sxfs_lsdir_cmp) >= 0) {
+    if(sxfs_find_entry(dir->dirs, dir->ndirs, dir_name, sxfs_lsdir_cmp) >= 0) {
         SXFS_ERROR("Directory already exists: %s", path);
         ret = -EEXIST;
         goto sxfs_mkdir_err;
@@ -292,7 +292,7 @@ static int sxfs_unlink (const char *path) {
         SXFS_ERROR("Cannot load file tree: %s", path);
         goto sxfs_unlink_err;
     }
-    index = sxfs_find_entry((const void**)dir->files, dir->nfiles, file_name, sxfs_lsfile_cmp);
+    index = sxfs_find_entry(dir->files, dir->nfiles, file_name, sxfs_lsfile_cmp);
     if(index < 0) {
         SXFS_ERROR("File not found: %s", path);
         ret = -ENOENT;
@@ -417,7 +417,7 @@ static int sxfs_rmdir (const char *path) {
         goto sxfs_rmdir_err;
     }
     dir = dir->parent; /* go back to get deleting directory in dir->dirs[] */
-    index = sxfs_find_entry((const void**)dir->dirs, dir->ndirs, dir_name, sxfs_lsdir_cmp);
+    index = sxfs_find_entry(dir->dirs, dir->ndirs, dir_name, sxfs_lsdir_cmp);
     if(index < 0) { /* should never be true */
         SXFS_ERROR("Directory not found: %s", path);
         ret = -ENOENT;
@@ -576,13 +576,13 @@ static int sxfs_rename (const char *path, const char *newpath) {
         SXFS_ERROR("Cannot load file tree: %s", newpath);
         goto sxfs_rename_err;
     }
-    index_from = sxfs_find_entry((const void**)dir_from->files, dir_from->nfiles, file_name_from, sxfs_lsfile_cmp);
+    index_from = sxfs_find_entry(dir_from->files, dir_from->nfiles, file_name_from, sxfs_lsfile_cmp);
     if(index_from >= 0) {
         operation_type = SXFS_RENAME_FILE;
         if(dir_from->nfiles == 1 && !dir_from->ndirs && dir_from != dir_to)
             sxnewdir = 1;
     } else {
-        index_from = sxfs_find_entry((const void**)dir_from->dirs, dir_from->ndirs, file_name_from, sxfs_lsdir_cmp);
+        index_from = sxfs_find_entry(dir_from->dirs, dir_from->ndirs, file_name_from, sxfs_lsdir_cmp);
         if(index_from >= 0) {
             operation_type = SXFS_RENAME_DIR;
             if(dir_from->ndirs == 1 && !dir_from->nfiles && dir_from != dir_to)
@@ -593,7 +593,7 @@ static int sxfs_rename (const char *path, const char *newpath) {
             goto sxfs_rename_err;
         }
     }
-    index_to = sxfs_find_entry((const void**)dir_to->files, dir_to->nfiles, file_name_to, sxfs_lsfile_cmp);
+    index_to = sxfs_find_entry(dir_to->files, dir_to->nfiles, file_name_to, sxfs_lsfile_cmp);
     if(index_to >= 0) {
         if(operation_type == SXFS_RENAME_DIR) {
             SXFS_ERROR("New name is a file but old is a directory: '%s' and '%s'", path, newpath);
@@ -601,7 +601,7 @@ static int sxfs_rename (const char *path, const char *newpath) {
             goto sxfs_rename_err;
         }
     } else {
-        index_to = sxfs_find_entry((const void**)dir_to->dirs, dir_to->ndirs, file_name_to, sxfs_lsdir_cmp);
+        index_to = sxfs_find_entry(dir_to->dirs, dir_to->ndirs, file_name_to, sxfs_lsdir_cmp);
         if(index_to >= 0) {
             if(operation_type == SXFS_RENAME_FILE) {
                 SXFS_ERROR("New name is a directory but old is a file: '%s' and '%s'", path, newpath);
@@ -691,9 +691,9 @@ static int sxfs_rename (const char *path, const char *newpath) {
             unlink(tmp_name);
             sprintf(dst_path2, "%s%s", newpath, tmp_name + strlen(tmp_name) - 7);
             name = strrchr(dst_path2, '/') + 1;
-            index = sxfs_find_entry((const void**)dir_to->files, dir_to->nfiles, name, sxfs_lsfile_cmp);
+            index = sxfs_find_entry(dir_to->files, dir_to->nfiles, name, sxfs_lsfile_cmp);
             if(index < 0)
-                index = sxfs_find_entry((const void**)dir_to->dirs, dir_to->ndirs, name, sxfs_lsdir_cmp);
+                index = sxfs_find_entry(dir_to->dirs, dir_to->ndirs, name, sxfs_lsdir_cmp);
         } while(index >= 0);
         free(tmp_name);
         if(operation_type == SXFS_RENAME_DIR)
@@ -970,7 +970,7 @@ static int sxfs_update_filemeta (const char *path, int function, mode_t mode, ui
         SXFS_ERROR("Cannot load file tree: %s", path2 ? path2 : path);
         goto sxfs_update_filemeta_err;
     }
-    index = sxfs_find_entry((const void**)dir->dirs, dir->ndirs, file_name, sxfs_lsdir_cmp);
+    index = sxfs_find_entry(dir->dirs, dir->ndirs, file_name, sxfs_lsdir_cmp);
     if(index >= 0) {
         switch(function) {
             case SXFS_CHMOD:
@@ -993,7 +993,7 @@ static int sxfs_update_filemeta (const char *path, int function, mode_t mode, ui
         }
         dir->dirs[index]->st.st_ctime = ctime;
     } else {
-        index = sxfs_find_entry((const void**)dir->files, dir->nfiles, file_name, sxfs_lsfile_cmp);
+        index = sxfs_find_entry(dir->files, dir->nfiles, file_name, sxfs_lsfile_cmp);
         if(index >= 0) {
             if(sxfs->attribs) {
                 sxfs_file_t *sxfs_file = NULL;
@@ -1188,13 +1188,13 @@ static int sxfs_truncate (const char *path, off_t length) {
         SXFS_ERROR("Cannot load file tree: %s", path);
         goto sxfs_truncate_err;
     }
-    index = sxfs_find_entry((const void**)dir->dirs, dir->ndirs, file_name, sxfs_lsdir_cmp);
+    index = sxfs_find_entry(dir->dirs, dir->ndirs, file_name, sxfs_lsdir_cmp);
     if(index >= 0) {
         SXFS_ERROR("Named file is a directory: %s", path);
         ret = -EISDIR;
         goto sxfs_truncate_err;
     }
-    index = sxfs_find_entry((const void**)dir->files, dir->nfiles, file_name, sxfs_lsfile_cmp);
+    index = sxfs_find_entry(dir->files, dir->nfiles, file_name, sxfs_lsfile_cmp);
     if(index < 0) {
         SXFS_ERROR("%s: %s", strerror(ENOENT), path);
         ret = -ENOENT;
@@ -1296,6 +1296,7 @@ static int sxfs_truncate (const char *path, off_t length) {
                 if(!buff) {
                     SXFS_ERROR("Out of memory");
                     ret = -ENOMEM;
+                    sxfs_file_free(sxfs, tmp_sxfs_file);
                     goto sxfs_truncate_err;
                 }
                 to_read = MIN(sxfs_file_ptr->fdata->filesize, length);
@@ -1420,7 +1421,7 @@ static int sxfs_open (const char *path, struct fuse_file_info *file_info) {
         SXFS_ERROR("Cannot load file tree: %s", path);
         goto sxfs_open_err;
     }
-    index = sxfs_find_entry((const void**)dir->files, dir->nfiles, file_name, sxfs_lsfile_cmp);
+    index = sxfs_find_entry(dir->files, dir->nfiles, file_name, sxfs_lsfile_cmp);
     if(index < 0) {
         SXFS_ERROR("%s", strerror(ENOENT));
         ret = -ENOENT;
@@ -2259,12 +2260,12 @@ static int sxfs_create (const char *path, mode_t mode, struct fuse_file_info *fi
         SXFS_ERROR("Cannot load file tree: %s", path);
         goto sxfs_create_err;
     }
-    if(sxfs_find_entry((const void**)dir->files, dir->nfiles, file_name, sxfs_lsfile_cmp) >= 0) {
+    if(sxfs_find_entry(dir->files, dir->nfiles, file_name, sxfs_lsfile_cmp) >= 0) {
         SXFS_ERROR("File already exists: %s", path);
         ret = -EEXIST;
         goto sxfs_create_err;
     }
-    if(sxfs_find_entry((const void**)dir->dirs, dir->ndirs, file_name, sxfs_lsdir_cmp) >= 0) {
+    if(sxfs_find_entry(dir->dirs, dir->ndirs, file_name, sxfs_lsdir_cmp) >= 0) {
         SXFS_ERROR("Directory already exists: %s", path);
         ret = -EEXIST;
         goto sxfs_create_err;
@@ -2546,6 +2547,7 @@ runas_err:
     return ret;
 } /* runas */
 
+static void print_and_log (FILE *logfile, const char* format_string, ...) FMT_PRINTF(2, 3);
 static void print_and_log (FILE *logfile, const char* format_string, ...) {
     char buffer[4096];
     va_list vl;
@@ -3559,7 +3561,7 @@ main_err:
             sxi_ht_enum_reset(sxfs->files);
             while(!sxi_ht_enum_getnext(sxfs->files, &const_path, &pathlen, NULL)) {
                 if(pathlen >= sizeof(path)) {
-                    print_and_log(sxfs->logfile, "ERROR: Too long path received (%lu)\n", pathlen);
+                    print_and_log(sxfs->logfile, "ERROR: Too long path received (%lu)\n", (unsigned long int)pathlen);
                     continue;
                 }
                 memcpy(path, const_path, pathlen);

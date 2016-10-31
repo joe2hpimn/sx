@@ -41,7 +41,7 @@ typedef struct _sxfs_queue_data_t sxfs_queue_data_t;
 void sxfs_log (sxfs_state_t *sxfs, const char *fn, int debug, const char *format_string, ...) FMT_PRINTF(4, 5);
 int sxfs_diglen (long int n);
 int sxfs_sx_err (sxc_client_t *sx);
-int sxfs_resize (void **ptr, size_t *size, size_t elsize);
+int sxfs_resize (void *ptr, size_t *size, size_t elsize);
 char *sxfs_hash (sxfs_state_t *sxfs, const char *name);
 int sxfs_thread_create (sxfs_state_t *sxfs, pthread_t *thread, void *(start_routine)(void*), void *arg);
 int sxfs_build_path (const char *path);
@@ -61,10 +61,10 @@ int sxfs_lsdir_add_file (sxfs_lsdir_t *dir, const char *path, struct stat *st);
 int sxfs_lsdir_add_dir (sxfs_lsdir_t *dir, const char *path);
 void sxfs_lsdir_free (sxfs_lsdir_t *dir);
 
-int sxfs_str_cmp (const void **ptr, size_t index, const char *file_name);
-int sxfs_lsfile_cmp (const void **files, size_t index, const char *file_name);
-int sxfs_lsdir_cmp (const void **dirs, size_t index, const char *dir_name);
-ssize_t sxfs_find_entry (const void **table, size_t size, const char *name, int (*compare)(const void**, size_t, const char*));
+int sxfs_str_cmp (const void *ptr, size_t index, const char *file_name);
+int sxfs_lsfile_cmp (const void *files, size_t index, const char *file_name);
+int sxfs_lsdir_cmp (const void *dirs, size_t index, const char *dir_name);
+ssize_t sxfs_find_entry (const void *table, size_t size, const char *name, int (*compare)(const void*, size_t, const char*));
 
 int sxfs_ls_update (const char *absolute_path, sxfs_lsdir_t **dir);
 int sxfs_ls_stat (const char *path, struct stat *st); /* returned values: <0 - error /  0 - not found / 1 - file / 2 - directory */
