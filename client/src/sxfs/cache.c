@@ -93,8 +93,10 @@ struct _sxfs_cache_t {
 };
 
 static void cache_free (sxfs_state_t *sxfs, sxfs_cache_t *cache) {
-    int err;
-    unsigned int i, j;
+    int err, *block_counter;
+    unsigned int i, j, key_len;
+    const void *key;
+    block_state_t *block_state;
 
     if(!sxfs || !cache)
         return;
@@ -123,7 +125,23 @@ static void cache_free (sxfs_state_t *sxfs, sxfs_cache_t *cache) {
             free(cache->lfu[i]);
         }
     }
+    sxi_ht_enum_reset(cache->lru);
+    while(!sxi_ht_enum_getnext(cache->lru, &key, &key_len, NULL)) {
+        if(sxi_ht_get(cache->lru, key, key_len, (void**)&block_counter)) {
+            SXFS_ERROR("Cannot get block counter");
+        } else {
+            free(block_counter);
+        }
+    }
     sxi_ht_free(cache->lru);
+    sxi_ht_enum_reset(cache->blocks);
+    while(!sxi_ht_enum_getnext(cache->blocks, &key, &key_len, NULL)) {
+        if(sxi_ht_get(cache->blocks, key, key_len, (void**)&block_state)) {
+            SXFS_ERROR("Cannot get block data");
+        } else {
+            free(block_state);
+        }
+    }
     sxi_ht_free(cache->blocks);
     if((err = pthread_mutex_destroy(&cache->mutex)))
         SXFS_ERROR("Cannot destroy cache mutex: %s", strerror(err));
@@ -458,13 +476,13 @@ cache_make_space_err:
 } /* cache_make_space */
 
 static int cache_download (sxfs_state_t *sxfs, sxi_sxfs_data_t *fdata, unsigned int block, const char *path, int *file_fd) {
-    int ret, fd, tmp_fd = -1, mutex_locked = 1, used_added = 0, *block_counter = NULL;
+    int ret, fd, tmp_fd = -1, mutex_locked = 1, used_added = 0, *block_counter = NULL, block_state_added = 0;
     ssize_t bytes;
     char *tmp_path = NULL, buff[SX_BS_LARGE];
     sxc_client_t *sx;
     sxc_cluster_t *cluster;
     sxc_file_t *dest = NULL;
-    block_state_t *state;
+    block_state_t *block_state = NULL;
 
     block_counter = (int*)calloc(1, sizeof(int));
     if(!block_counter) {
@@ -493,6 +511,23 @@ static int cache_download (sxfs_state_t *sxfs, sxi_sxfs_data_t *fdata, unsigned 
         ret = 0;
         free(block_counter); /* 'ret' needs to be true for 'block_counter' to be freed */
         goto cache_download_err; /* this is not a failure */
+    } else {
+        /* there should be no block_state in cache->blocks if there was no file */
+        block_state = (block_state_t*)malloc(sizeof(block_state_t));
+        if(!block_state) {
+            SXFS_ERROR("Out of memory");
+            ret = -ENOMEM;
+            goto cache_download_err;
+        }
+        block_state->waiting = 0;
+        block_state->status = BLOCK_STATUS_BUSY;
+        if(sxi_ht_add(sxfs->cache->blocks, fdata->ha[block], strlen(fdata->ha[block]), block_state)) {
+            SXFS_ERROR("Out of memory");
+            ret = -ENOMEM;
+            goto cache_download_err;
+        }
+        block_state = NULL;
+        block_state_added = 1;
     }
     if((ret = cache_make_space(sxfs, fdata->blocksize)))
         goto cache_download_err;
@@ -582,8 +617,16 @@ cache_download_err:
         }
     }
     pthread_mutex_lock(&sxfs->cache->mutex);
-    if(!sxi_ht_get(sxfs->cache->blocks, fdata->ha[block], strlen(fdata->ha[block]), (void**)&state))
-        state->status = ret ? BLOCK_STATUS_FAILED : BLOCK_STATUS_DONE;
+    if(block_state_added) {
+        if(sxi_ht_get(sxfs->cache->blocks, fdata->ha[block], strlen(fdata->ha[block]), (void**)&block_state)) {
+            SXFS_ERROR("Cannot get block state");
+        } else if(block_state->waiting) {
+            block_state->status = ret ? BLOCK_STATUS_FAILED : BLOCK_STATUS_DONE;
+        } else {
+            sxi_ht_del(sxfs->cache->blocks, fdata->ha[block], strlen(fdata->ha[block]));
+            free(block_state);
+        }
+    }
     if(ret) {
         free(block_counter);
         sxi_ht_del(sxfs->cache->lru, fdata->ha[block], strlen(fdata->ha[block]));
@@ -739,6 +782,7 @@ static void cache_read_background (sxfs_state_t *sxfs, sxfs_file_t *sxfs_file, u
     char *path;
     const char *dir = "foo"; /* shut up warnings */
     cache_thread_data_t *cdata = NULL;
+    block_state_t *block_state = NULL;
     pthread_t thread;
 
     if(block >= sxfs_file->fdata->nhashes)
@@ -826,11 +870,23 @@ static void cache_read_background (sxfs_state_t *sxfs, sxfs_file_t *sxfs_file, u
                 SXFS_ERROR("Out of memory");
                 goto cache_read_background_err;
             }
+            block_state = (block_state_t*)malloc(sizeof(block_state_t));
+            if(!block_state) {
+                SXFS_ERROR("Out of memory");
+                goto cache_read_background_err;
+            }
+            block_state->waiting = 0;
+            block_state->status = BLOCK_STATUS_BUSY;
             if(sxi_ht_add(sxfs->cache->lru, sxfs_file->fdata->ha[cdata->blocks[i]], strlen(sxfs_file->fdata->ha[cdata->blocks[i]]), block_counter)) {
                 SXFS_ERROR("Out of memory");
-                free(block_counter);
+                goto cache_read_background_err;
             }
             block_counter = NULL;
+            if(sxi_ht_add(sxfs->cache->blocks, sxfs_file->fdata->ha[cdata->blocks[i]], strlen(sxfs_file->fdata->ha[cdata->blocks[i]]), block_state)) {
+                SXFS_ERROR("Out of memory");
+                goto cache_read_background_err;
+            }
+            block_state = NULL;
             sprintf(path, "%s/%s/%s", sxfs->cache->tempdir, dir, sxfs_file->fdata->ha[cdata->blocks[i]]);
             cdata->fds[i] = open(path, O_RDWR | O_CREAT | O_EXCL, 0600);
             if(cdata->fds[i] < 0) {
@@ -860,6 +916,8 @@ static void cache_read_background (sxfs_state_t *sxfs, sxfs_file_t *sxfs_file, u
     }
 
 cache_read_background_err:
+    free(block_counter);
+    free(block_state);
     if(cdata) {
         if(!cache_locked) {
             pthread_mutex_lock(&sxfs->cache->mutex);
@@ -869,6 +927,10 @@ cache_read_background_err:
             if(!sxi_ht_get(sxfs->cache->lru, sxfs_file->fdata->ha[cdata->blocks[i]], strlen(sxfs_file->fdata->ha[cdata->blocks[i]]), (void**)&block_counter)) {
                 free(block_counter);
                 sxi_ht_del(sxfs->cache->lru, sxfs_file->fdata->ha[cdata->blocks[i]], strlen(sxfs_file->fdata->ha[cdata->blocks[i]]));
+            }
+            if(!sxi_ht_get(sxfs->cache->blocks, sxfs_file->fdata->ha[cdata->blocks[i]], strlen(sxfs_file->fdata->ha[cdata->blocks[i]]), (void**)&block_state)) {
+                free(block_state);
+                sxi_ht_del(sxfs->cache->blocks, sxfs_file->fdata->ha[cdata->blocks[i]], strlen(sxfs_file->fdata->ha[cdata->blocks[i]]));
             }
             if(cdata->fds[i] >= 0) {
                 sprintf(path, "%s/%s/%s", sxfs->cache->tempdir, dir, sxfs_file->fdata->ha[cdata->blocks[i]]);
@@ -895,17 +957,7 @@ static int wait_for_block (sxfs_state_t *sxfs, sxfs_cache_t *cache, sxi_sxfs_dat
     block_state_t *state;
 
     if(sxi_ht_get(cache->blocks, fdata->ha[block], strlen(fdata->ha[block]), (void**)&state)) {
-        state = (block_state_t*)malloc(sizeof(block_state_t));
-        if(!state) {
-            SXFS_ERROR("Out of memory");
-            return -ENOMEM;
-        }
-        state->waiting = 1;
-        state->status = BLOCK_STATUS_BUSY;
-        if(sxi_ht_add(cache->blocks, fdata->ha[block], strlen(fdata->ha[block]), state)) {
-            SXFS_ERROR("Out of memory");
-            return -ENOMEM;
-        }
+        return 0; /* no such block being downloaded */
     } else {
         state->waiting++;
     }
@@ -1063,9 +1115,7 @@ static ssize_t validate_block (sxfs_state_t *sxfs, sxi_sxfs_data_t *fdata, unsig
                 lfu_file_path = tmp_str;
 
                 cache->used -= fdata->blocksize;
-                free(block_counter);
-                block_counter = NULL;
-                sxi_ht_del(cache->lru, block_name, strlen(block_name));
+                *block_counter = 0; /* reset the counter in case block will came back from LFU */
                 lfu_accessed = 1;
                 pthread_mutex_unlock(&cache->mutex);
                 pthread_mutex_lock(&cache->lfu_mutex);
@@ -1078,12 +1128,10 @@ static ssize_t validate_block (sxfs_state_t *sxfs, sxi_sxfs_data_t *fdata, unsig
                     goto validate_block_err;
                 }
                 if(*lfu_n == cache->lfu_max) {
-                    int *block_counter_new = (int*)calloc(1, sizeof(int));
                     char *lru_file_path = (char*)malloc(strlen(cache->tempdir) + 1 + strlen(dir) + 1 + strlen(block_name) + 1); /* all block names have equal length */
 
-                    if(!block_counter_new || !lru_file_path) {
+                    if(!lru_file_path) {
                         SXFS_ERROR("Out of memory");
-                        free(block_counter_new);
                         free(lru_file_path);
                         pthread_mutex_unlock(&cache->lfu_mutex);
                         ret = -ENOMEM;
@@ -1096,24 +1144,14 @@ static ssize_t validate_block (sxfs_state_t *sxfs, sxi_sxfs_data_t *fdata, unsig
                     index = 0;
                     sprintf(lru_file_path, "%s/%s/%s", cache->tempdir, dir, lfu[index].name);
                     sprintf(lfu_file_path, "%s/lfu/%s/%s", cache->tempdir, dir, lfu[index].name); /* all block names have equal lenght */
-                    if(rename(lfu_file_path, lru_file_path)) {
+                    if(rename(lfu_file_path, lru_file_path) && errno != ENOENT) { /* racy stuff */
                         ret = -errno;
                         SXFS_ERROR("Cannot move '%s' block from LFU to LRU: %s", lfu[index].name, strerror(errno));
-                        free(block_counter_new);
                         free(lru_file_path);
                         pthread_mutex_unlock(&cache->lfu_mutex);
                         goto validate_block_err;
                     }
-                    pthread_mutex_lock(&sxfs->cache->mutex);
-                    if(sxi_ht_add(sxfs->cache->lru, fdata->ha[block], strlen(fdata->ha[block]), block_counter_new)) {
-                        SXFS_ERROR("Out of memory");
-                        free(block_counter_new);
-                        free(lru_file_path);
-                        pthread_mutex_unlock(&cache->lfu_mutex);
-                        ret = -ENOMEM;
-                        goto validate_block_err;
-                    }
-                    pthread_mutex_unlock(&sxfs->cache->mutex);
+                    /* block counter is already reseted */
                     free(lfu[index].name);
                     free(lru_file_path);
                 } else {
