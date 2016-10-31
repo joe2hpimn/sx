@@ -477,6 +477,13 @@ void sxfs_file_free (sxfs_state_t *sxfs, sxfs_file_t *sxfs_file) {
 
     if(!sxfs_file)
         return;
+    pthread_mutex_lock(&sxfs->limits_mutex);
+    while(sxfs_file->threads_num) {
+        pthread_mutex_unlock(&sxfs->limits_mutex);
+        usleep(SXFS_THREAD_WAIT);
+        pthread_mutex_lock(&sxfs->limits_mutex);
+    }
+    pthread_mutex_unlock(&sxfs->limits_mutex);
     if(sxfs_file->write_path) {
         if(close(sxfs_file->write_fd))
             SXFS_ERROR("Cannot close '%s' file: %s", sxfs_file->write_path, strerror(errno));
@@ -490,13 +497,6 @@ void sxfs_file_free (sxfs_state_t *sxfs, sxfs_file_t *sxfs_file) {
         sxfs_lsfile_free(sxfs_file->ls_file);
     } else
         sxfs_file->ls_file->opened = 0;
-    pthread_mutex_lock(&sxfs->limits_mutex);
-    while(sxfs_file->threads_num) {
-        pthread_mutex_unlock(&sxfs->limits_mutex);
-        usleep(SXFS_THREAD_WAIT);
-        pthread_mutex_lock(&sxfs->limits_mutex);
-    }
-    pthread_mutex_unlock(&sxfs->limits_mutex);
     sxi_sxfs_download_finish(sxfs_file->fdata);
     if((err = pthread_mutex_destroy(&sxfs_file->mutex)))
         SXFS_ERROR("Cannot destroy mutex: %s", strerror(err));

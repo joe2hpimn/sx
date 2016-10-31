@@ -755,6 +755,7 @@ cache_download_thread_err:
         if(unlink(path))
             SXFS_ERROR("Cannot remove '%s' file: %s", path, strerror(errno));
     }
+    pthread_mutex_lock(&sxfs->cache->mutex);
     for(i=0; i<cdata->nblocks; i++) {
         if(fdata2.ha)
             free(fdata2.ha[i]);
@@ -770,12 +771,9 @@ cache_download_thread_err:
                 if(errno != ENOENT)
                     SXFS_ERROR("Cannot remove '%s' file: %s", path, strerror(errno));
             } else {
-                pthread_mutex_lock(&sxfs->cache->mutex);
                 sxfs->cache->used -= fdata->blocksize;
-                pthread_mutex_unlock(&sxfs->cache->mutex);
             }
         }
-        pthread_mutex_lock(&sxfs->cache->mutex);
         if(sxi_ht_get(sxfs->cache->blocks, fdata->ha[cdata->blocks[i]], strlen(fdata->ha[cdata->blocks[i]]), (void**)&state)) {
             SXFS_ERROR("Cannot get block state: %s [%u]", fdata->ha[cdata->blocks[i]], cdata->blocks[i]);
         } else if(state->waiting) {
@@ -785,8 +783,8 @@ cache_download_thread_err:
             sxi_ht_del(sxfs->cache->blocks, fdata->ha[cdata->blocks[i]], strlen(fdata->ha[cdata->blocks[i]]));
             free(state);
         }
-        pthread_mutex_unlock(&sxfs->cache->mutex);
     }
+    pthread_mutex_unlock(&sxfs->cache->mutex);
     free(buff);
     free(fdata2.ha);
     free(cdata->dir);
@@ -1233,12 +1231,16 @@ static ssize_t validate_block (sxfs_state_t *sxfs, sxi_sxfs_data_t *fdata, unsig
         if(st.st_size != fdata->blocksize) {
             if(wait_for_block(sxfs, cache, fdata, block)) {
                 SXFS_DEBUG("Background thread failed to download the block, trying again");
+                pthread_mutex_unlock(&cache->mutex); /* cache_dowload() locks this mutex */
+                cache_locked = 0;
                 if((ret = cache_download(sxfs, fdata, block, path, &fd))) /* try to download the block again anyway */
                     goto validate_block_err;
             }
         }
-        pthread_mutex_unlock(&cache->mutex);
-        cache_locked = 0;
+        if(cache_locked) { /* FIXME */
+            pthread_mutex_unlock(&cache->mutex);
+            cache_locked = 0;
+        }
     }
     if((ret = sxi_pread_hard(fd, local_buff, fdata->blocksize, 0)) < 0) {
         ret = -errno;
