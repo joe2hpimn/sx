@@ -86,8 +86,8 @@ static int lfu_entry_cmp_name (const void **table, size_t index, const char *nam
 
 struct _sxfs_cache_t {
     int lfu_sorted[3];
-    size_t lfu_entries[3], lfu_max;
-    ssize_t used, size; /* can be negative due to race conditions with small size */
+    size_t lfu_entries[3], lfu_max[3];
+    ssize_t used, lru_size; /* can be negative due to race conditions with small size */
     char *tempdir, *dir_small, *dir_medium, *dir_large, *dir_lfu_small, *dir_lfu_medium, *dir_lfu_large;
     pthread_mutex_t mutex, lfu_mutex;
     sxi_ht *blocks;
@@ -146,6 +146,7 @@ static void cache_free (sxfs_state_t *sxfs, sxfs_cache_t *cache) {
 int sxfs_cache_init (sxc_client_t *sx, sxfs_state_t *sxfs, size_t size, const char *path) {
     int ret = -1, err;
     unsigned int i;
+    size_t lfu_medium_size, lfu_large_size;
     sxfs_cache_t *cache;
 
     if(!sxfs)
@@ -167,9 +168,13 @@ int sxfs_cache_init (sxc_client_t *sx, sxfs_state_t *sxfs, size_t size, const ch
         return ret;
     }
     size /= 2;
-    cache->size = size;
-    cache->lfu_max = size / (SX_BS_SMALL + SX_BS_MEDIUM + SX_BS_LARGE);
-    SXFS_DEBUG("LFU blocks number limit: %lu", (long unsigned int)cache->lfu_max);
+    cache->lru_size = size; /* LFU is half of cache in size (and so LFU is) */
+    lfu_large_size = size / 2; /* 50% of LFU size */
+    lfu_medium_size = (size * 35) / 100; /* 35% of LFU */
+    cache->lfu_max[CACHE_INDEX_LARGE] = lfu_large_size / SX_BS_LARGE;
+    cache->lfu_max[CACHE_INDEX_MEDIUM] = lfu_medium_size / SX_BS_MEDIUM;
+    cache->lfu_max[CACHE_INDEX_SMALL] = (size - lfu_medium_size - lfu_large_size) / SX_BS_SMALL; /* 15% of LFU (which is the rest) */
+    SXFS_DEBUG("LFU blocks number limits: small: %lu, medium: %lu, large: %lu", (long unsigned int)cache->lfu_max[CACHE_INDEX_SMALL], (long unsigned int)cache->lfu_max[CACHE_INDEX_MEDIUM], (long unsigned int)cache->lfu_max[CACHE_INDEX_LARGE]);
     if((err = pthread_mutex_init(&cache->mutex, NULL))) {
         fprintf(stderr, "ERROR: Cannot create cache mutex: %s\n", strerror(err));
         ret = -err;
@@ -197,7 +202,7 @@ int sxfs_cache_init (sxc_client_t *sx, sxfs_state_t *sxfs, size_t size, const ch
 
     memset(cache->lfu, 0, 3 * sizeof(sxfs_cache_lfu_t*));
     for(i=0; i<sizeof(cache->lfu)/sizeof(cache->lfu[0]); i++) {
-        cache->lfu[i] = (sxfs_cache_lfu_t*)malloc(cache->lfu_max * sizeof(sxfs_cache_lfu_t));
+        cache->lfu[i] = (sxfs_cache_lfu_t*)malloc(cache->lfu_max[i] * sizeof(sxfs_cache_lfu_t));
         if(!cache->lfu[i]) {
             fprintf(stderr, "ERROR: Out of memory\n");
             goto sxfs_cache_init_err;
@@ -406,7 +411,7 @@ static int cache_make_space (sxfs_state_t *sxfs, unsigned int size) {
     blockfile_t *list_small = NULL, *list_medium = NULL, *list_large = NULL;
     block_state_t *block_state;
 
-    if(sxfs->cache->used + size > sxfs->cache->size) {
+    if(sxfs->cache->used + size > sxfs->cache->lru_size) {
         if(size < MIN_FREE_SIZE)
             size = MIN_FREE_SIZE;
         if((ret = load_files(sxfs, sxfs->cache->dir_small, &list_small, &nfiles_small)))
@@ -416,7 +421,7 @@ static int cache_make_space (sxfs_state_t *sxfs, unsigned int size) {
         if((ret = load_files(sxfs, sxfs->cache->dir_large, &list_large, &nfiles_large)))
             goto cache_make_space_err;
 
-        while(sxfs->cache->used + size > sxfs->cache->size) {
+        while(sxfs->cache->used + size > sxfs->cache->lru_size) {
 	    int have_l = (i_l < nfiles_large);
 	    int have_m = (i_m < nfiles_medium);
 	    int have_s = (i_s < nfiles_small);
@@ -989,7 +994,7 @@ static char* calculate_block_name (sxfs_state_t *sxfs, void *buff, size_t size) 
 
 static ssize_t validate_block (sxfs_state_t *sxfs, sxi_sxfs_data_t *fdata, unsigned int block, void *buff, size_t length, off_t offset) {
     int fd = -1, cache_locked = 0, lfu_accessed = 0, *lfu_sorted;
-    size_t *lfu_n;
+    size_t *lfu_n, *lfu_max;
     ssize_t ret, index;
     time_t add_time;
     char *path = NULL, *calc_name = NULL, *block_name_dup = NULL, *lfu_file_path = NULL, *local_buff = NULL;
@@ -1009,18 +1014,21 @@ static ssize_t validate_block (sxfs_state_t *sxfs, sxi_sxfs_data_t *fdata, unsig
             dir = "small";
             lfu = cache->lfu[CACHE_INDEX_SMALL];
             lfu_n = &cache->lfu_entries[CACHE_INDEX_SMALL];
+            lfu_max = &cache->lfu_max[CACHE_INDEX_SMALL];
             lfu_sorted = &cache->lfu_sorted[CACHE_INDEX_SMALL];
             break;
         case SX_BS_MEDIUM:
             dir = "medium";
             lfu = cache->lfu[CACHE_INDEX_MEDIUM];
             lfu_n = &cache->lfu_entries[CACHE_INDEX_MEDIUM];
+            lfu_max = &cache->lfu_max[CACHE_INDEX_MEDIUM];
             lfu_sorted = &cache->lfu_sorted[CACHE_INDEX_MEDIUM];
             break;
         case SX_BS_LARGE:
             dir = "large";
             lfu = cache->lfu[CACHE_INDEX_LARGE];
             lfu_n = &cache->lfu_entries[CACHE_INDEX_LARGE];
+            lfu_max = &cache->lfu_max[CACHE_INDEX_LARGE];
             lfu_sorted = &cache->lfu_sorted[CACHE_INDEX_LARGE];
             break;
         default:
@@ -1113,7 +1121,7 @@ static ssize_t validate_block (sxfs_state_t *sxfs, sxi_sxfs_data_t *fdata, unsig
                     pthread_mutex_unlock(&cache->lfu_mutex);
                     goto validate_block_err;
                 }
-                if(*lfu_n == cache->lfu_max) {
+                if(*lfu_n == *lfu_max) {
                     char *lru_file_path = (char*)malloc(strlen(cache->tempdir) + 1 + strlen(dir) + 1 + strlen(block_name) + 1); /* all block names have equal length */
 
                     if(!lru_file_path) {
@@ -1151,7 +1159,7 @@ static ssize_t validate_block (sxfs_state_t *sxfs, sxi_sxfs_data_t *fdata, unsig
                 block_name_dup = NULL;
                 lfu[index].times_used = 2;
                 lfu[index].add_time = add_time;
-                if(*lfu_n != cache->lfu_max) {
+                if(*lfu_n != *lfu_max) {
                     (*lfu_n)++;
                     /* put new entry in correct position only if array is sorted */
                     if(*lfu_sorted == LFU_SORTED_BY_NAME) {
