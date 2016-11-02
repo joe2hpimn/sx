@@ -10404,6 +10404,10 @@ rc_ty sx_hashfs_putfile_begin(sx_hashfs_t *h, sx_uid_t user_id, const char *volu
     if(!sx_hashfs_is_or_was_my_volume(h, vol, 0))
 	return ENOENT;
 
+    r = sx_hashfs_countjobs(h, user_id);
+    if(r != OK)
+	return r;
+
     sqlite3_reset(h->qt_new);
     /* non-blocking pseudo-random bytes, i.e. we don't want to block or deplete
      * entropy as we only need a unique sequence of bytes, not a secret one as
@@ -10422,7 +10426,7 @@ rc_ty sx_hashfs_putfile_begin(sx_hashfs_t *h, sx_uid_t user_id, const char *volu
 
     h->put_id = sqlite3_last_insert_rowid(sqlite3_db_handle(h->qt_new));
     h->put_replica = vol->max_replica;
-    return sx_hashfs_countjobs(h, user_id);
+    return OK;
 }
 
 /*
@@ -10470,7 +10474,7 @@ rc_ty sx_hashfs_putfile_extend_begin(sx_hashfs_t *h, sx_uid_t user_id, const uin
     h->put_replica = vol->max_replica;
     h->put_extendsize = sqlite3_column_int64(h->qt_tokendata, 1);
     h->put_extendfrom = sqlite3_column_bytes(h->qt_tokendata, 4) / sizeof(sx_hash_t);
-    ret = sx_hashfs_countjobs(h, user_id);
+    ret = OK;
 
     putfile_extend_err:
     sqlite3_reset(h->qt_tokendata);
