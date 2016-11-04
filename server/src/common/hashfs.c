@@ -4234,6 +4234,26 @@ int sx_hashfs_check(sx_hashfs_t *h, int debug, int show_progress) {
     memset(locks, 0, sizeof(locks));
     memset(unlocks, 0, sizeof(unlocks));
 
+    /*
+     * This is slightly racy, but its better to first perform a quick db lookup than
+     * to make a giant lock and then do the lookup.
+     */
+    if(sx_hashfs_cluster_get_mode(h, &readonly)) {
+        CHECK_FATAL("Failed to check cluster operating mode");
+        goto sx_hashfs_check_err;
+    }
+
+    if(!readonly) {
+        if(fcntl(h->lockfd, F_SETLK, &fl) == -1) {
+            if(errno == EAGAIN || errno == EACCES)
+                CHECK_FATAL("Cluster needs to be in read-only mode or this node should be stopped in order to perform storage check");
+            else
+                CHECK_FATAL("Failed to lock HashFS storage: %s", strerror(errno));
+            goto sx_hashfs_check_err;
+        }
+        hashfs_locked = 1;
+    }
+
     for(i = 0; i < METADBS; i++, r++) {
         if(lock_db(h->metadb[i], locks + r, unlocks + r)) {
             CHECK_FATAL("Failed to lock database meta database");
@@ -4259,21 +4279,6 @@ int sx_hashfs_check(sx_hashfs_t *h, int debug, int show_progress) {
         goto sx_hashfs_check_err;
     }
 
-    if(sx_hashfs_cluster_get_mode(h, &readonly)) {
-        CHECK_FATAL("Failed to check cluster operating mode");
-        goto sx_hashfs_check_err;
-    }
-
-    if(!readonly) {
-        if(fcntl(h->lockfd, F_SETLK, &fl) == -1) {
-            if(errno == EAGAIN || errno == EACCES)
-                CHECK_FATAL("Cluster needs to be in read-only mode or this node should be stopped in order to perform storage check");
-            else
-                CHECK_FATAL("Failed to lock HashFS storage: %s", strerror(errno));
-            goto sx_hashfs_check_err;
-        }
-        hashfs_locked = 1;
-    }
     /* Cluster is in read-only mode or node is stopped, we can perform HashFS check */
 
     ret = 0;
