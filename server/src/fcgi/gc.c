@@ -387,6 +387,7 @@ int gc(sxc_client_t *sx, sx_hashfs_t *hashfs, int pipe, int pipe_expire) {
                 sx_hashfs_gc_periodic(hashfs, &terminate, GC_GRACE_PERIOD);
                 sx_hashfs_incore(hashfs, NULL, NULL);
                 sx_hashfs_gc_unused_revisions(hashfs, &terminate);
+                sx_hashfs_gc_unbumped_revisions(hashfs, &terminate);
                 sx_hashfs_gc_slow(hashfs, &terminate);
                 sx_hashfs_incore(hashfs, NULL, NULL);
                 gettimeofday(&tv2, NULL);

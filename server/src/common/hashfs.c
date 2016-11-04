@@ -882,9 +882,11 @@ struct _sx_hashfs_t {
     sqlite3_stmt *qb_revmap_create[SIZES][HASHDBS];
     sqlite3_stmt *qb_reserve[SIZES][HASHDBS];
     sqlite3_stmt *qb_get_meta[SIZES][HASHDBS];
-    sqlite3_stmt *qb_del_reservations[SIZES][HASHDBS];
     sqlite3_stmt *qb_gc_find_unused_revision[SIZES][HASHDBS];
     sqlite3_stmt *qb_gc_find_unused_block[SIZES][HASHDBS];
+    sqlite3_stmt *qb_gc_check_revop_expiration[SIZES][HASHDBS];
+    sqlite3_stmt *qb_gc_prep_revops_expiration[SIZES][HASHDBS];
+    sqlite3_stmt *qb_gc_del_revops_expiration[SIZES][HASHDBS];
     sqlite3_stmt *qb_gc_find_block[SIZES][HASHDBS];
     sqlite3_stmt *qb_deleteold[SIZES][HASHDBS];
     sqlite3_stmt *qb_gc_find_inactive_reservation[SIZES][HASHDBS];
@@ -1090,10 +1092,12 @@ static void close_all_dbs(sx_hashfs_t *h) {
             sqlite3_finalize(h->qb_revmap_create[j][i]);
             sqlite3_finalize(h->qb_reserve[j][i]);
             sqlite3_finalize(h->qb_get_meta[j][i]);
-            sqlite3_finalize(h->qb_del_reservations[j][i]);
             sqlite3_finalize(h->qb_gc_find_unused_revision[j][i]);
             sqlite3_finalize(h->qb_gc_find_unused_block[j][i]);
             sqlite3_finalize(h->qb_gc_find_block[j][i]);
+            sqlite3_finalize(h->qb_gc_check_revop_expiration[j][i]);
+            sqlite3_finalize(h->qb_gc_prep_revops_expiration[j][i]);
+            sqlite3_finalize(h->qb_gc_del_revops_expiration[j][i]);
             sqlite3_finalize(h->qb_deleteold[j][i]);
             sqlite3_finalize(h->rit.q[j][i]);
             sqlite3_finalize(h->rit.q_num[j][i]);
@@ -1975,12 +1979,16 @@ sx_hashfs_t *sx_hashfs_open(const char *dir, sxc_client_t *sx) {
                 goto open_hashfs_fail;
             if(qprep(h->datadb[j][i], &h->rit.q_num[j][i], "SELECT COUNT(hash) FROM blocks")) /* SLOWQ */
                 goto open_hashfs_fail;
-	    if(qprep(h->datadb[j][i], &h->qb_del_reservations[j][i], "DELETE FROM reservations WHERE reservations_id IN (SELECT reservations_id FROM reservations WHERE revision_id = :revision_id LIMIT 1)"))
-		goto open_hashfs_fail;
-	    if(qprep(h->datadb[j][i], &h->qb_gc_find_unused_revision[j][i], "SELECT revision_id FROM revision_ops WHERE revision_id > :last_revision_id AND NOT EXISTS ( SELECT 1 FROM reservations WHERE reservations.revision_id = revision_ops.revision_id) AND ( SELECT SUM(op) = 0 FROM revision_ops AS sub WHERE sub.revision_id = revision_ops.revision_id) ORDER BY revision_id ASC LIMIT 1"))
+	    if(qprep(h->datadb[j][i], &h->qb_gc_find_unused_revision[j][i], "SELECT revision_id FROM revision_ops WHERE revision_id > :last_revision_id AND NOT EXISTS ( SELECT 1 FROM reservations WHERE reservations.revision_id = revision_ops.revision_id) AND ( SELECT SUM(op) = :sum FROM revision_ops AS sub WHERE sub.revision_id = revision_ops.revision_id) ORDER BY revision_id ASC LIMIT 1"))
 		goto open_hashfs_fail;
 	    if(qprep(h->datadb[j][i], &h->qb_gc_find_unused_block[j][i], "SELECT id, blockno, hash, revision_id FROM blocks LEFT JOIN revision_blocks ON blocks.hash=blocks_hash WHERE id  > :last ORDER BY id LIMIT " STRIFY(GC_MAX_ROWS)))
 		goto open_hashfs_fail;
+            if(qprep(h->datadb[j][i], &h->qb_gc_check_revop_expiration[j][i], "SELECT expiry_time < datetime('now') FROM revision_ops_expiration WHERE revision_id = :revision_id LIMIT 1"))
+                goto open_hashfs_fail;
+            if(qprep(h->datadb[j][i], &h->qb_gc_prep_revops_expiration[j][i], "INSERT INTO revision_ops_expiration (revision_id, expiry_time) VALUES(:revision_id, datetime(:expiry + strftime('%s', datetime('now')), 'unixepoch'))"))
+                goto open_hashfs_fail;
+            if(qprep(h->datadb[j][i], &h->qb_gc_del_revops_expiration[j][i], "DELETE FROM revision_ops_expiration WHERE revision_id = :revision_id"))
+                goto open_hashfs_fail;
 
 	    /*
 	       This is a much faster version of the next query which however may return dups:
@@ -4516,6 +4524,23 @@ static rc_ty hashfs_2_2_0_to_2_3_0(sxi_db_t *db) {
     return ret;
 }
 
+static rc_ty datadb_2_2_0_to_2_3_0(sxi_db_t *db)
+{
+    rc_ty ret = FAIL_EINTERNAL;
+    sqlite3_stmt *q = NULL;
+    do {
+        /*
+         * We cannot use an FK, because the op field is a part of the PK in the revision_ops table and we want to be grouped by the revision ID here.
+         */
+        if(qprep(db, &q, "CREATE TABLE IF NOT EXISTS revision_ops_expiration (revision_id BLOB("STRIFY(SXI_SHA1_BIN_LEN)"), expiry_time text, PRIMARY KEY(revision_id))") || qstep_noret(q))
+            break;
+        qnullify(q);
+
+        ret = OK;
+    } while(0);
+    qnullify(q);
+    return ret;
+}
 
 /* Version upgrade 2.1.6 -> 2.2.0 */
 static rc_ty metadb_2_1_6_to_2_2_0(sxi_db_t *db)
@@ -5713,6 +5738,7 @@ static const sx_upgrade_t upgrade_sequence[] = {
         .from = HASHFS_VERSION_2_2_0,
         .to = HASHFS_VERSION_2_3_0,
         .upgrade_hashfsdb = hashfs_2_2_0_to_2_3_0,
+        .upgrade_datadb = datadb_2_2_0_to_2_3_0,
         .job = JOBTYPE_DUMMY
     }
 };
@@ -9831,7 +9857,7 @@ rc_ty sx_hashfs_revision_op(sx_hashfs_t *h, unsigned blocksize, const sx_hash_t 
         sqlite3_reset(q);
 
         if(op > 0) {
-            sqlite3_stmt *qdel = h->qb_del_reservations[hs][ndb];
+            sqlite3_stmt *qdel = h->qb_gc_reservation[hs][ndb];
 
             DEBUGHASH("Dropping all reservations shared with the revision_id", revision_id);
 
@@ -12698,7 +12724,7 @@ static rc_ty revision_nodes(sx_hashfs_t *hashfs, sx_blob_t *blob, sx_nodelist_t 
 
 static unsigned revision_timeout(sxc_client_t *sx, int nodes)
 {
-    return 12 * nodes;
+    return 30 * nodes;
 }
 
 static const char *revision_get_lock(sx_blob_t *b)
@@ -15660,6 +15686,7 @@ static rc_ty gc_revision(sx_hashfs_t *h, int *terminate, unsigned int hs, unsign
     sqlite3_stmt *qrevblocks;
     sqlite3_stmt *qrevops;
     sqlite3_stmt *qreservation;
+    sqlite3_stmt *qexp;
     rc_ty ret = FAIL_EINTERNAL, s;
 
     if(!h || !terminate || hs >= SIZES || hdb >= HASHDBS || !revid || !gced_blocks || !skipped_blocks) {
@@ -15670,13 +15697,16 @@ static rc_ty gc_revision(sx_hashfs_t *h, int *terminate, unsigned int hs, unsign
     qrevblocks = h->qb_gc_revision_blocks[hs][hdb];
     qrevops = h->qb_gc_revision_ops[hs][hdb];
     qreservation = h->qb_gc_reservation[hs][hdb];
+    qexp = h->qb_gc_del_revops_expiration[hs][hdb];
 
     sqlite3_reset(qrevblocks);
     sqlite3_reset(qrevops);
     sqlite3_reset(qreservation);
+    sqlite3_reset(qexp);
 
     if(qbind_blob(qrevblocks, ":revision_id", revid->b, sizeof(revid->b)) ||
        qbind_blob(qrevops, ":revision_id", revid->b, sizeof(revid->b)) ||
+       qbind_blob(qexp, ":revision_id", revid->b, sizeof(revid->b)) ||
        (delete_reservation && qbind_blob(qreservation, ":revision_id", revid->b, sizeof(revid->b)))) {
         WARN("Failed to prepare queries");
         goto gc_revision_err;
@@ -15703,6 +15733,13 @@ static rc_ty gc_revision(sx_hashfs_t *h, int *terminate, unsigned int hs, unsign
         goto gc_revision_err;
     }
 
+    /* Delete an entry from revision_ops_expiration if exists.
+     * This table is used for expirint revision ops which got only -1 ops. It might happen
+     * we add entries to the revision_ops_expiration table and then it gets bumped, so
+     * we have to deal with those entries. */
+    if(qstep_noret(qexp))
+        goto gc_revision_err;
+
     /* Drop revision ops entries from the revision_ops table. A failure here means a failure of dropping the entry
      * returned by the outer query, hence we fail here */
     if(qstep_noret(qrevops))
@@ -15725,10 +15762,11 @@ gc_revision_err:
     sqlite3_reset(qrevblocks);
     sqlite3_reset(qrevops);
     sqlite3_reset(qreservation);
+    sqlite3_reset(qexp);
     return ret;
 }
 
-static rc_ty unused_revisions_iterate(sx_hashfs_t *h, int *terminate, unsigned int hs, unsigned int hdb, sx_hash_t *last_revid, const void *context, uint64_t *gced_revids, uint64_t *gced_blocks, uint64_t *skipped_blocks) {
+static rc_ty unused_revisions_iterate(sx_hashfs_t *h, int *terminate, unsigned int hs, unsigned int hdb, sx_hash_t *last_revid, const void *context, uint64_t *processed_revids, uint64_t *gced_revids, uint64_t *gced_blocks, uint64_t *skipped_blocks) {
     rc_ty ret = FAIL_EINTERNAL;
     sqlite3_stmt *q;
     sx_hash_t revid;
@@ -15736,7 +15774,7 @@ static rc_ty unused_revisions_iterate(sx_hashfs_t *h, int *terminate, unsigned i
     uint64_t gced = 0, skipped = 0; /* A number of blocks GCed and skipped for each revision */
     double elapsed = 0.0;
 
-    if(!h || !terminate || hs >= SIZES || hdb >= HASHDBS || !last_revid || !gced_revids || !gced_blocks  || !skipped_blocks) {
+    if(!h || !terminate || hs >= SIZES || hdb >= HASHDBS || !last_revid || !processed_revids || !gced_revids || !gced_blocks  || !skipped_blocks) {
         WARN("Invalid argument");
         return EINVAL;
     }
@@ -15747,7 +15785,7 @@ static rc_ty unused_revisions_iterate(sx_hashfs_t *h, int *terminate, unsigned i
         int r;
         rc_ty s;
 
-        if(qbind_blob(q, ":last_revision_id", last_revid->b, sizeof(last_revid->b))) {
+        if(qbind_blob(q, ":last_revision_id", last_revid->b, sizeof(last_revid->b)) || qbind_int(q, ":sum", 0)) {
             WARN("Failed to prepare selection query");
             goto unused_revisions_iterate_err;
         }
@@ -15786,6 +15824,7 @@ static rc_ty unused_revisions_iterate(sx_hashfs_t *h, int *terminate, unsigned i
              * the rest of the remaining blocks. */
             if(s != EAGAIN)
                 (*gced_revids)++;
+            (*processed_revids)++;
             (*gced_blocks) += gced;
             (*skipped_blocks) += skipped;
             memcpy(last_revid->b, revid.b, sizeof(last_revid->b));
@@ -15806,7 +15845,149 @@ unused_revisions_iterate_err:
     return ret;
 }
 
-static rc_ty inactive_revision_ids_iterate(sx_hashfs_t *h, int *terminate, unsigned int hs, unsigned int hdb, const sx_hash_t *reservation_id, uint64_t *gced_revids, uint64_t *gced_blocks, uint64_t *skipped_blocks) {
+/*
+ * Check a revision ID against expiration time.
+ *
+ * The input for this function is a revision ID which is stored in revision_ops table, but has not been
+ * bumped properly. Its sum of ops is -1, which means they cannot be deleted yet (see unused_revisions_iterate, a constraint
+ * there is to have ops summing up to 0). We want to store those revisions in a temporary table
+ * which will handle an expiration time. After that time we will eventually drop them unless a proper
+ * bump operation comes. It might happen that we first add a negative op and then a positive one, so we have to
+ * introduce some timeout in order to make sure we don't delete blocks too early.
+ */
+static rc_ty process_unbumped_revision(sx_hashfs_t *h, int *terminate, unsigned int hs, unsigned int hdb, const sx_hash_t *revid, uint64_t *processed_revids, uint64_t *gced_revids, uint64_t *gced_blocks, uint64_t *skipped_blocks) {
+    sqlite3_stmt *qcheck;
+    rc_ty ret = FAIL_EINTERNAL, s;
+    int r;
+
+    if(!h || !terminate || hs >= SIZES || hdb >= HASHDBS || !revid || !processed_revids || !gced_revids || !gced_blocks || !skipped_blocks) {
+        WARN("Invalid argument");
+        return EINVAL;
+    }
+
+    qcheck = h->qb_gc_check_revop_expiration[hs][hdb];
+
+    sqlite3_reset(qcheck);
+    if(qbind_blob(qcheck, ":revision_id", revid->b, sizeof(revid->b))) {
+        WARN("Failed to check unbumped revision op expiration");
+        goto process_unbumped_revision_err;
+    }
+
+    r = qstep(qcheck);
+    if(r == SQLITE_ROW) {
+        int expired;
+
+        /* The revision ID is already stored in revision_ops_expiration table, check if it is expired or not */
+
+        expired = sqlite3_column_int(qcheck, 0);
+        sqlite3_reset(qcheck);
+
+        if(expired) {
+            s = gc_revision(h, terminate, hs, hdb, 0, revid, gced_blocks, skipped_blocks);
+            if(s == OK || s == EAGAIN) {
+                /* When EAGAIN is returned it means we intentionnaly do *not* delete
+                 * the revision, but some blocks might be dropped. The rationale is
+                 * a running rebalance might lock some blocks to not be gc'ed. In such a case
+                 * even if the revision is not needed, some blocks cannot be deleted. Hence
+                 * we leave the revision in place to be able to select it again later and drop
+                 * the rest of the remaining blocks. */
+                if(s != EAGAIN)
+                    (*gced_revids)++;
+                (*processed_revids)++;
+            } else
+                goto process_unbumped_revision_err;
+        }
+    } else if(r == SQLITE_DONE) {
+        sqlite3_stmt *qins = h->qb_gc_prep_revops_expiration[hs][hdb];
+
+        sqlite3_reset(qcheck);
+        sqlite3_reset(qins);
+
+        /* The revision ID should be stored in revision_ops_expiration table, add it there */
+        if(qbind_blob(qins, ":revision_id", revid->b, sizeof(revid->b)) ||
+           qbind_int(qins, ":expiry", GC_UNBUMPED_REVOPS_EXPIRY) ||
+           qstep_noret(qins)) {
+            WARN("Failed to prepare unbumped revision op expiration");
+            sqlite3_reset(qins);
+            goto process_unbumped_revision_err;
+        }
+
+        (*processed_revids)++;
+        sqlite3_reset(qins);
+    } else {
+        WARN("Failed to check unbumped revision op expiration");
+        goto process_unbumped_revision_err;
+    }
+
+    ret = OK;
+process_unbumped_revision_err:
+    sqlite3_reset(qcheck);
+    return ret;
+}
+
+static rc_ty unbumped_revisions_iterate(sx_hashfs_t *h, int *terminate, unsigned int hs, unsigned int hdb, sx_hash_t *last_revid, const void *context, uint64_t *processed_revids, uint64_t *gced_revids, uint64_t *gced_blocks, uint64_t *skipped_blocks) {
+    rc_ty ret = FAIL_EINTERNAL;
+    sqlite3_stmt *q;
+    sx_hash_t revid;
+    const uint8_t *ptr;
+    double elapsed = 0.0;
+
+    if(!h || !terminate || hs >= SIZES || hdb >= HASHDBS || !last_revid || !processed_revids || !gced_revids || !gced_blocks  || !skipped_blocks) {
+        WARN("Invalid argument");
+        return EINVAL;
+    }
+    q = h->qb_gc_find_unused_revision[hs][hdb];
+    sqlite3_reset(q);
+
+    do {
+        int r;
+
+        if(qbind_blob(q, ":last_revision_id", last_revid->b, sizeof(last_revid->b)) || qbind_int(q, ":sum", -1)) {
+            WARN("Failed to prepare selection query");
+            goto unbumped_revisions_iterate_err;
+        }
+
+        r = qstep(q);
+        if(r == SQLITE_DONE) {
+            /* Finalizes the iteration */
+            ret = ITER_NO_MORE;
+            goto unbumped_revisions_iterate_err;
+        } else if(r != SQLITE_ROW) {
+            WARN("Failed to find revisions to gc");
+            goto unbumped_revisions_iterate_err;
+        }
+
+        /* We have selected a revision to delete */
+        ptr = sqlite3_column_blob(q, 0);
+        if(!ptr || sqlite3_column_bytes(q, 0) != sizeof(revid.b)) {
+            WARN("Invalid revision ID found");
+            goto unbumped_revisions_iterate_err;
+        }
+
+        /* Store the result and reset the query */
+        memcpy(revid.b, ptr, sizeof(revid.b));
+        sqlite3_reset(q);
+
+        /* Process the unbumped revision */
+        if(process_unbumped_revision(h, terminate, hs, hdb, &revid, processed_revids, gced_revids, gced_blocks, skipped_blocks) != OK)
+            goto unbumped_revisions_iterate_err;
+        memcpy(last_revid->b, revid.b, sizeof(last_revid->b));
+
+        /* Save the time elapsed */
+        elapsed = qelapsed(h->datadb[hs][hdb]);
+    } while(!*terminate && elapsed < gc_max_batch_time);
+
+    /* Here we have reached the time limit for a transaction */
+    if(!*terminate)
+        DEBUG("[%d/%d] Self-throttling: %.2lf > %.2lf", hs, hdb, elapsed, gc_max_batch_time);
+
+    ret = OK;
+unbumped_revisions_iterate_err:
+    sqlite3_reset(q);
+    return ret;
+}
+
+static rc_ty inactive_revision_ids_iterate(sx_hashfs_t *h, int *terminate, unsigned int hs, unsigned int hdb, const sx_hash_t *reservation_id, uint64_t *processed_revids, uint64_t *gced_revids, uint64_t *gced_blocks, uint64_t *skipped_blocks) {
     rc_ty ret = FAIL_EINTERNAL;
     sqlite3_stmt *q;
     sx_hash_t revid;
@@ -15814,7 +15995,7 @@ static rc_ty inactive_revision_ids_iterate(sx_hashfs_t *h, int *terminate, unsig
     uint64_t gced = 0, skipped = 0; /* A number of blocks GCed for each revision */
     double elapsed = 0.0;
 
-    if(!h || !terminate || hs >= SIZES || hdb >= HASHDBS || !reservation_id || !gced_revids || !gced_blocks  || !skipped_blocks) {
+    if(!h || !terminate || hs >= SIZES || hdb >= HASHDBS || !reservation_id || !processed_revids || !gced_revids || !gced_blocks  || !skipped_blocks) {
         WARN("Invalid argument");
         return EINVAL;
     }
@@ -15870,6 +16051,7 @@ static rc_ty inactive_revision_ids_iterate(sx_hashfs_t *h, int *terminate, unsig
              * the rest of the remaining blocks. */
             if(s != EAGAIN)
                 (*gced_revids)++;
+            (*processed_revids)++;
             (*gced_blocks) += gced;
             (*skipped_blocks) += skipped;
         } else
@@ -15889,7 +16071,7 @@ inactive_revision_ids_iterate_err:
     return ret;
 }
 
-static rc_ty inactive_reservations_iterate(sx_hashfs_t *h, int *terminate, unsigned int hs, unsigned int hdb, sx_hash_t *last_reservation, const void *context, uint64_t *gced_revids, uint64_t *gced_blocks, uint64_t *skipped_blocks) {
+static rc_ty inactive_reservations_iterate(sx_hashfs_t *h, int *terminate, unsigned int hs, unsigned int hdb, sx_hash_t *last_reservation, const void *context, uint64_t *processed_revids, uint64_t *gced_revids, uint64_t *gced_blocks, uint64_t *skipped_blocks) {
     rc_ty ret = FAIL_EINTERNAL;
     sqlite3_stmt *q;
     sx_hash_t reservation_id;
@@ -15898,7 +16080,7 @@ static rc_ty inactive_reservations_iterate(sx_hashfs_t *h, int *terminate, unsig
     double elapsed = 0.0;
 
     if(!h || !terminate || hs >= SIZES || hdb >= HASHDBS || !last_reservation ||
-       !expires || !gced_revids || !gced_blocks  || !skipped_blocks) {
+       !expires || !processed_revids || !gced_revids || !gced_blocks  || !skipped_blocks) {
         WARN("Invalid argument");
         return EINVAL;
     }
@@ -15940,7 +16122,7 @@ static rc_ty inactive_reservations_iterate(sx_hashfs_t *h, int *terminate, unsig
         sqlite3_reset(q);
 
         /* Delete all the revisions belonging to this reservation */
-        s = inactive_revision_ids_iterate(h, terminate, hs, hdb, &reservation_id, gced_revids, gced_blocks, skipped_blocks);
+        s = inactive_revision_ids_iterate(h, terminate, hs, hdb, &reservation_id, processed_revids, gced_revids, gced_blocks, skipped_blocks);
         if(s != OK && s != ITER_NO_MORE)
             goto inactive_reservations_iterate_err;
 
@@ -15967,7 +16149,7 @@ inactive_reservations_iterate_err:
     return ret;
 }
 
-static rc_ty expired_reservations_iterate(sx_hashfs_t *h, int *terminate, unsigned int hs, unsigned int hdb, sx_hash_t *last_revid, const void *context, uint64_t *gced_revids, uint64_t *gced_blocks, uint64_t *skipped_blocks) {
+static rc_ty expired_reservations_iterate(sx_hashfs_t *h, int *terminate, unsigned int hs, unsigned int hdb, sx_hash_t *last_revid, const void *context, uint64_t *processed_revids, uint64_t *gced_revids, uint64_t *gced_blocks, uint64_t *skipped_blocks) {
     rc_ty ret = FAIL_EINTERNAL;
     sqlite3_stmt *q;
     sx_hash_t revid;
@@ -15977,7 +16159,7 @@ static rc_ty expired_reservations_iterate(sx_hashfs_t *h, int *terminate, unsign
     double elapsed = 0.0;
 
     if(!h || !terminate || hs >= SIZES || hdb >= HASHDBS || !last_revid ||
-       !ttl || !gced_revids || !gced_blocks  || !skipped_blocks) {
+       !ttl || !processed_revids || !gced_revids || !gced_blocks  || !skipped_blocks) {
         WARN("Invalid argument");
         return EINVAL;
     }
@@ -16031,6 +16213,7 @@ static rc_ty expired_reservations_iterate(sx_hashfs_t *h, int *terminate, unsign
              * the rest of the remaining blocks. */
             if(s != EAGAIN)
                 (*gced_revids)++;
+            (*processed_revids)++;
             (*gced_blocks) += gced;
             (*skipped_blocks) += skipped;
             memcpy(last_revid->b, revid.b, sizeof(last_revid->b));
@@ -16052,12 +16235,12 @@ expired_reservations_iterate_err:
 }
 
 /* The following typedef defines a callback which will be run from gc_iterate() */
-typedef rc_ty (*revisions_iterate_cb_t)(sx_hashfs_t *h, int *terminate, unsigned int hs, unsigned int hdb, sx_hash_t *last, const void *context, uint64_t *gced_revids, uint64_t *gced_blocks, uint64_t *skipped_blocks);
+typedef rc_ty (*revisions_iterate_cb_t)(sx_hashfs_t *h, int *terminate, unsigned int hs, unsigned int hdb, sx_hash_t *last, const void *context, uint64_t *processed_revids, uint64_t *gced_revids, uint64_t *gced_blocks, uint64_t *skipped_blocks);
 
 /*
  * Remove all the revisions which have been successfully unbumped by the block manager or expired.
  */
-static rc_ty gc_iterate(sx_hashfs_t *h, int *terminate, revisions_iterate_cb_t cb, const void *context, uint64_t *gced_revids, uint64_t *gced_blocks, uint64_t *skipped_blocks)
+static rc_ty gc_iterate(sx_hashfs_t *h, int *terminate, revisions_iterate_cb_t cb, const void *context, uint64_t *processed_revids, uint64_t *gced_revids, uint64_t *gced_blocks, uint64_t *skipped_blocks)
 {
     unsigned i,j;
     rc_ty ret = FAIL_EINTERNAL;
@@ -16075,7 +16258,7 @@ static rc_ty gc_iterate(sx_hashfs_t *h, int *terminate, revisions_iterate_cb_t c
             memset(last.b, 0, sizeof(last.b));
 
             do {
-                uint64_t gced_revids_now = 0, gced_blocks_now = 0, skipped_blocks_now = 0;
+                uint64_t processed_revids_now = 0, gced_revids_now = 0, gced_blocks_now = 0, skipped_blocks_now = 0;
 
                 if(qbegin(h->datadb[j][i])) {
                     WARN("Failed to lock database");
@@ -16088,8 +16271,10 @@ static rc_ty gc_iterate(sx_hashfs_t *h, int *terminate, revisions_iterate_cb_t c
                  * retried. In case ITER_NO_MORE is returned we won't continue the loop, but we may need
                  * to commit changes if some revs were dropped (gced_now won't be 0).
                  */
-                r = cb(h, terminate, j, i, &last, context, &gced_revids_now, &gced_blocks_now, &skipped_blocks_now);
+                r = cb(h, terminate, j, i, &last, context, &processed_revids_now, &gced_revids_now, &gced_blocks_now, &skipped_blocks_now);
                 /* Bump the global counter now, but check only the current counter for progress. */
+                if(processed_revids)
+                    (*processed_revids) += processed_revids_now;
                 if(gced_revids)
                     (*gced_revids) += gced_revids_now;
                 if(gced_blocks)
@@ -16102,7 +16287,7 @@ static rc_ty gc_iterate(sx_hashfs_t *h, int *terminate, revisions_iterate_cb_t c
                  * and there was no failure (r is OK or ITER_NO_MORE).
                  * In case termination was requested we roll the changes back.
                  */
-                if((gced_revids_now || gced_blocks_now) && (r == OK || r == ITER_NO_MORE) && !*terminate) {
+                if((processed_revids_now || gced_revids_now || gced_blocks_now) && (r == OK || r == ITER_NO_MORE) && !*terminate) {
                     if (qcommit(h->datadb[j][i])) {
                         WARN("Commit failed");
                         goto gc_iterate_err;
@@ -16131,11 +16316,12 @@ gc_iterate_err:
 }
 
 /*
- * Remove all the revisions which have been successfully unbumped by the block manager.
+ * Remove all the revisions got unbumped, but did not get bumped and the timeout for the unbump expired.
+ * It might happen when a revision unbump comes but the file is never flushed due to a failure.
  */
-rc_ty sx_hashfs_gc_unused_revisions(sx_hashfs_t *h, int *terminate)
+rc_ty sx_hashfs_gc_unbumped_revisions(sx_hashfs_t *h, int *terminate)
 {
-    uint64_t gced_revids = 0, gced_blocks = 0, skipped_blocks = 0;
+    uint64_t processed_revids = 0, gced_revids = 0, gced_blocks = 0, skipped_blocks = 0;
     rc_ty ret;
     struct timeval start, end;
 
@@ -16145,14 +16331,40 @@ rc_ty sx_hashfs_gc_unused_revisions(sx_hashfs_t *h, int *terminate)
     }
 
     gettimeofday(&start, NULL);
-    ret = gc_iterate(h, terminate, unused_revisions_iterate, NULL, &gced_revids, &gced_blocks, &skipped_blocks);
+    ret = gc_iterate(h, terminate, unbumped_revisions_iterate, NULL, &processed_revids, &gced_revids, &gced_blocks, &skipped_blocks);
+    if(ret != OK && !*terminate) /* Print only when not terminating */
+        WARN("Failed to GC unused revisions");
+    gettimeofday(&end, NULL);
+
+    INFO("GCed %llu revision IDs and %llu hashes in %.2lfs", (unsigned long long)gced_revids, (unsigned long long)gced_blocks, sxi_timediff(&end, &start));
+    /* More detailed info will be printed to debug output */
+    DEBUG("Processed %llu unbumped revision IDs and skipped %llu hashes", (unsigned long long)processed_revids, (unsigned long long)skipped_blocks);
+    return ret;
+}
+
+/*
+ * Remove all the revisions which have been successfully unbumped by the block manager.
+ */
+rc_ty sx_hashfs_gc_unused_revisions(sx_hashfs_t *h, int *terminate)
+{
+    uint64_t processed_revids = 0, gced_revids = 0, gced_blocks = 0, skipped_blocks = 0;
+    rc_ty ret;
+    struct timeval start, end;
+
+    if(!h || !terminate) {
+        NULLARG();
+        return EINVAL;
+    }
+
+    gettimeofday(&start, NULL);
+    ret = gc_iterate(h, terminate, unused_revisions_iterate, NULL, &processed_revids, &gced_revids, &gced_blocks, &skipped_blocks);
     if(ret != OK && !*terminate) /* Print only when not terminating */
         WARN("Failed to GC unused revisions");
     gettimeofday(&end, NULL);
 
     INFO("GCed %llu hashes in %.2lfs", (unsigned long long)gced_blocks, sxi_timediff(&end, &start));
     /* More detailed info will be printed to debug output */
-    DEBUG("GCed %llu unused revisions IDs and skipped %llu hashes", (unsigned long long)gced_revids, (unsigned long long)skipped_blocks);
+    DEBUG("GCed %llu unused revision IDs and skipped %llu hashes", (unsigned long long)gced_revids, (unsigned long long)skipped_blocks);
     return ret;
 }
 
@@ -16163,6 +16375,7 @@ rc_ty sx_hashfs_gc_periodic(sx_hashfs_t *h, int *terminate, int grace_period)
      * (i.e. ~2 days) */
     uint64_t real_now = time(NULL), now;
     uint64_t gc_noactivity = 0, gc_ttl = 0, expires = real_now - grace_period;
+    uint64_t gc_noactivity_processed = 0, gc_ttl_processed = 0;
     uint64_t gced_blocks = 0, skipped_blocks = 0;
     rc_ty ret = OK, s;
     unsigned int i;
@@ -16205,12 +16418,12 @@ rc_ty sx_hashfs_gc_periodic(sx_hashfs_t *h, int *terminate, int grace_period)
      */
     DEBUG("find_expired, expires: %lld", (long long)expires);
     gettimeofday(&start, NULL);
-    s = gc_iterate(h, terminate, inactive_reservations_iterate, &expires, &gc_noactivity, &gced_blocks, &skipped_blocks);
+    s = gc_iterate(h, terminate, inactive_reservations_iterate, &expires, &gc_noactivity_processed, &gc_noactivity, &gced_blocks, &skipped_blocks);
     if(s != OK)
         ret = s;
     gettimeofday(&end, NULL);
-    INFO("GCed %llu inactive reservations in %.2lfs", (unsigned long long)gc_noactivity, sxi_timediff(&end, &start));
-    DEBUG("GCed %llu hashes, skipped %llu", (unsigned long long)gced_blocks, (unsigned long long)skipped_blocks);
+    INFO("GCed %llu inactive reservations and %llu hashes in %.2lfs", (unsigned long long)gc_noactivity, (unsigned long long)gced_blocks, sxi_timediff(&end, &start));
+    DEBUG("Skipped %llu hashes", (unsigned long long)gced_blocks);
 
     /*
      * Delete inactive reservations.
@@ -16218,12 +16431,12 @@ rc_ty sx_hashfs_gc_periodic(sx_hashfs_t *h, int *terminate, int grace_period)
     skipped_blocks = 0;
     gced_blocks = 0;
     gettimeofday(&start, NULL);
-    s = gc_iterate(h, terminate, expired_reservations_iterate, &now, &gc_ttl, &gced_blocks, &skipped_blocks);
+    s = gc_iterate(h, terminate, expired_reservations_iterate, &now, &gc_ttl_processed, &gc_ttl, &gced_blocks, &skipped_blocks);
     if(s != OK)
         ret = s;
     gettimeofday(&end, NULL);
-    INFO("GCed %llu expired reservations in %.2lfs", (unsigned long long)gc_ttl, sxi_timediff(&end, &start));
-    DEBUG("GCed %llu hashes, skipped %llu", (unsigned long long)gced_blocks, (unsigned long long)skipped_blocks);
+    INFO("GCed %llu expired reservations and %llu hashes in %.2lfs", (unsigned long long)gc_ttl, (unsigned long long)gced_blocks, sxi_timediff(&end, &start));
+    DEBUG("Skipped %llu hashes", (unsigned long long)gced_blocks);
 
     /*
      * Delete old jobs.

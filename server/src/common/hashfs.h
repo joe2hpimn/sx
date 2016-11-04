@@ -58,6 +58,7 @@
 #define GC_MIN_LATENCY 200 /* ms */
 /* Defines a maximum number of blocks to process while performing a slow check */
 #define GC_MAX_ROWS 1000
+#define GC_UNBUMPED_REVOPS_EXPIRY 3600 /* 1 hour */
 
 
 #define QUOTA_UNDEFINED -1LL
@@ -352,6 +353,7 @@ rc_ty sx_hashfs_gc_slow(sx_hashfs_t *h, int *terminate);
 rc_ty sx_hashfs_gc_info(sx_hashfs_t *h, int *terminate);
 rc_ty sx_hashfs_gc_expire_all_reservations(sx_hashfs_t *h);
 rc_ty sx_hashfs_gc_unused_revisions(sx_hashfs_t *h, int *terminate);
+rc_ty sx_hashfs_gc_unbumped_revisions(sx_hashfs_t *h, int *terminate);
 
 /* Update volume sizes on remote non-volnodes */
 rc_ty sx_hashfs_push_volume_sizes(sx_hashfs_t *h);
