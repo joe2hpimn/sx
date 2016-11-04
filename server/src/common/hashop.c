@@ -227,7 +227,7 @@ static int presence_cb(curlev_context_t *ctx, const unsigned char *data, size_t 
 static int sxi_hashop_batch(sxi_hashop_t *hashop)
 {
     const char *host, *hexhashes;
-    unsigned int blocksize, n;
+    unsigned int blocksize;
     sxi_query_t *query;
     int rc;
     if (!hashop || !hashop->conns)
@@ -272,7 +272,6 @@ static int sxi_hashop_batch(sxi_hashop_t *hashop)
 
     SXDEBUG("hashop %d, on %s, hexhashes: %s (%p)", hashop->hashes_count, hashop->hashes, hashop->hexhashes,
             hashop->hexhashes);
-    n = strlen(hexhashes) / SXI_SHA1_TEXT_LEN;
     switch (hashop->kind) {
         case HASHOP_CHECK:
             query = sxi_hashop_proto_check(sxi_conns_get_client(hashop->conns), blocksize, hashop->hashes, hashop->hashes_pos);

@@ -16587,13 +16587,11 @@ rc_ty sx_hashfs_gc_slow(sx_hashfs_t *h, int *terminate)
     for (j=0;j<SIZES && !ret && !*terminate ;j++) {
         for (i=0;i<HASHDBS && !ret && !*terminate;i++) {
             int64_t last = 0;
-            int first = 1;
             rc_ty r; /* stores the result of unused_blocks_iterate() */
 
             do {
                 uint64_t gced_now = 0;
 
-                first = 0;
                 if (qbegin(h->datadb[j][i])) {
                     ret = -1;
                     break;
