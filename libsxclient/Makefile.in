@@ -481,7 +481,7 @@ top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
 ACLOCAL_AMFLAGS = -I m4
 # https://www.gnu.org/software/libtool/manual/html_node/Updating-version-info.html
-LIBSXCLIENT_VERSION = 5:0:1
+LIBSXCLIENT_VERSION = 6:0:0
 SUBDIRS = $(am__append_1) $(am__append_2)
 EXTRA_DIST = libltdl curl-src
 DIST_SUBDIRS = $(SUBDIRS)
