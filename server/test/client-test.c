@@ -318,7 +318,7 @@ static int delete_files(sxc_client_t *sx, sxc_cluster_t *cluster, const char *vo
         goto delete_files_err;
     }
     if(remote_path[strlen(remote_path)-1] == '/') {
-        file_list = sxc_cluster_listfiles(cluster, volname ? volname : uri->volume, volname ? remote_path : uri->path, 1, NULL, 0);
+        file_list = sxc_cluster_listfiles(cluster, volname ? volname : uri->volume, volname ? remote_path : uri->path, 1, NULL, 0, 0);
         if(!file_list) {
             if(!hide_errors)
                 ERROR("Cannot get files list: %s", sxc_geterrmsg(sx));
@@ -721,7 +721,7 @@ static int find_file(sxc_client_t *sx, sxc_cluster_t *cluster, const char *remot
         ERROR("%s", sxc_geterrmsg(sx));
         return ret;
     }
-    file_list = sxc_cluster_listfiles(cluster, uri->volume, uri->path, 0, NULL, 0);
+    file_list = sxc_cluster_listfiles(cluster, uri->volume, uri->path, 0, NULL, 0, 0);
     if(!file_list) {
         if(!hide_errors)
             ERROR("Cannot get volume files list: %s", sxc_geterrmsg(sx));
@@ -2558,7 +2558,7 @@ static int test_paths(sxc_client_t *sx, sxc_cluster_t *cluster, const char *loca
         }
     }
     /* Check file listing */
-    file_list = sxc_cluster_listfiles(cluster, vdata[1].name, "", 0, NULL, 0); /* Not using find_file() - want to use sxc_cluster_listfiles() only once */
+    file_list = sxc_cluster_listfiles(cluster, vdata[1].name, "", 0, NULL, 0, 0); /* Not using find_file() - want to use sxc_cluster_listfiles() only once */
     if(!file_list) {
         ERROR("Cannot get volume files list: %s", sxc_geterrmsg(sx));
         goto test_paths_err;

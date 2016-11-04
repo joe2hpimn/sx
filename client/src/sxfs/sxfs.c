@@ -2589,7 +2589,7 @@ static int check_password (sxc_client_t *sx, sxc_cluster_t *cluster, sxfs_state_
             fprintf(stderr, "ERROR: '/' not found in '%s'\n", path);
             goto check_password_err;
         }
-        flist = sxc_cluster_listfiles(cluster, sxfs->uri->volume, file_name+1, 0, &nfiles, 0);
+        flist = sxc_cluster_listfiles(cluster, sxfs->uri->volume, file_name+1, 0, &nfiles, 0, 0);
         if(!flist) {
             fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
             goto check_password_err;
@@ -3320,7 +3320,7 @@ int main (int argc, char **argv) {
                 sprintf(path, "%s", fargs.argv[i]+7);
                 if(path[strlen(path)-1] == '/')
                     path[strlen(path)-1] = '\0';
-                flist = sxc_cluster_listfiles(cluster, sxfs->uri->volume, path, 0, NULL, 0);
+                flist = sxc_cluster_listfiles(cluster, sxfs->uri->volume, path, 0, NULL, 0, 0);
                 if(!flist) {
                     fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
                     break;

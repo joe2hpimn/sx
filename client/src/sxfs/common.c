@@ -1013,7 +1013,7 @@ int sxfs_ls_update (const char *absolute_path, sxfs_lsdir_t **given_dir) {
     *ptr = '\0';
     pthread_mutex_lock(&sxfs->delete_mutex); /* there can be entry removed from delete_queue between sxc_cluster_listfiles_etag() and sxc_cluster_listfiles_next() */
     delete_locked = 1;
-    flist = sxc_cluster_listfiles_etag(cluster, sxfs->uri->volume, path, 0, &remote_files, 0, dir->etag);
+    flist = sxc_cluster_listfiles_etag(cluster, sxfs->uri->volume, path, 0, &remote_files, 0, 1, dir->etag);
     if(!flist) {
         if(sxc_geterrnum(sx) != SXE_SKIP) {
             SXFS_ERROR("%s", sxc_geterrmsg(sx));
@@ -1021,7 +1021,7 @@ int sxfs_ls_update (const char *absolute_path, sxfs_lsdir_t **given_dir) {
             goto sxfs_ls_update_err;
         }
         if(!dir->init) {
-            flist = sxc_cluster_listfiles(cluster, sxfs->uri->volume, path, 0, &remote_files, 0);
+            flist = sxc_cluster_listfiles(cluster, sxfs->uri->volume, path, 0, &remote_files, 0, 1);
             if(!flist) {
                 SXFS_ERROR("%s", sxc_geterrmsg(sx));
                 ret = -sxfs_sx_err(sx);

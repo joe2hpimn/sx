@@ -634,7 +634,7 @@ int main(int argc, char **argv) {
             if(setup_filters(sx, modify_args.filter_dir_arg))
                 goto main_err;
 
-            lf = sxc_cluster_listfiles(cluster, uri->volume, NULL, 0, &nfiles, 0);
+            lf = sxc_cluster_listfiles(cluster, uri->volume, NULL, 0, &nfiles, 0, 0);
             if(!lf) {
                 fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
                 goto modify_err;

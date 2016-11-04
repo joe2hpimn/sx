@@ -1824,7 +1824,7 @@ char *sxi_ith_slash(char *s, unsigned int i) {
     return NULL;
 }
 
-static sxc_cluster_lf_t *sxi_cluster_listfiles(sxc_cluster_t *cluster, const char *volume, const char *glob_pattern, int recursive, unsigned int *nfiles, int reverse, const char *etag_in, char **etag_out) {
+static sxc_cluster_lf_t *sxi_cluster_listfiles(sxc_cluster_t *cluster, const char *volume, const char *glob_pattern, int recursive, unsigned int *nfiles, int reverse, int fetch_meta, const char *etag_in, char **etag_out) {
     const struct jparse_actions acts = {
 	JPACTS_STRING(
 		      JPACT(cb_listfiles_file_rev, JPKEY("fileList"), JPANYKEY, JPKEY("fileRevision")),
@@ -1860,7 +1860,6 @@ static sxc_cluster_lf_t *sxi_cluster_listfiles(sxc_cluster_t *cluster, const cha
     sxc_meta_t *vmeta, *cvmeta;
     struct filter_handle *fh = NULL;
     sxi_hostlist_t volhosts;
-    int fetch_meta = 0;
     char *filter_cfgdir = NULL;
 
     sxc_clearerr(sx);
@@ -2108,7 +2107,7 @@ static sxc_cluster_lf_t *sxi_cluster_listfiles(sxc_cluster_t *cluster, const cha
     ret->cur_processed_file = 0;
     ret->recursive = recursive;
     ret->custom_volume_meta = cvmeta;
-    ret->meta_fetched = (fetch_meta && yctx.file_meta) ? 1 : 0;
+    ret->meta_fetched = fetch_meta;
     ret->meta_requested = fetch_meta;
     if (yctx.etag_out) {
         if (etag_out && *yctx.etag_out)
@@ -2132,7 +2131,7 @@ static int file_entry_cmp(const void *a, const void *b) {
    return strcmp(sxc_file_get_path(*f1), sxc_file_get_path(*f2));
 }
 
-sxc_cluster_lf_t *sxc_cluster_listfiles_etag(sxc_cluster_t *cluster, const char *volume, const char *glob_pattern, int recursive, unsigned int *nfiles, int reverse, const char *etag_file) {
+sxc_cluster_lf_t *sxc_cluster_listfiles_etag(sxc_cluster_t *cluster, const char *volume, const char *glob_pattern, int recursive, unsigned int *nfiles, int reverse, int fetch_meta, const char *etag_file) {
     sxc_cluster_lf_t *ret;
     const char *confdir = sxi_cluster_get_confdir(cluster);
     char *path = NULL;
@@ -2167,7 +2166,7 @@ sxc_cluster_lf_t *sxc_cluster_listfiles_etag(sxc_cluster_t *cluster, const char 
     if (*etag)
         SXDEBUG("ETag in: %s", etag);
 
-    ret = sxi_cluster_listfiles(cluster, volume, glob_pattern, recursive, nfiles, reverse, *etag ? etag : NULL, &etag_out);
+    ret = sxi_cluster_listfiles(cluster, volume, glob_pattern, recursive, nfiles, reverse, fetch_meta, *etag ? etag : NULL, &etag_out);
     SXDEBUG("ETag out: %s", etag_out ? etag_out : "");
 
     /* Returned list requires processing filenames, will need to iterate the list and process it first */
@@ -2259,8 +2258,8 @@ sxc_cluster_lf_t *sxc_cluster_listfiles_etag(sxc_cluster_t *cluster, const char 
     return ret;
 }
 
-sxc_cluster_lf_t *sxc_cluster_listfiles(sxc_cluster_t *cluster, const char *volume, const char *glob_pattern, int recursive, unsigned int *nfiles, int reverse) {
-    return sxc_cluster_listfiles_etag(cluster, volume, glob_pattern, recursive, nfiles, reverse, NULL);
+sxc_cluster_lf_t *sxc_cluster_listfiles(sxc_cluster_t *cluster, const char *volume, const char *glob_pattern, int recursive, unsigned int *nfiles, int reverse, int fetch_meta) {
+    return sxc_cluster_listfiles_etag(cluster, volume, glob_pattern, recursive, nfiles, reverse, fetch_meta, NULL);
 }
 
 /* Perform listed file postprocessing, return 1 when file can be listed, return 2 when it is skipped due to pattern matching fail. Return negative
@@ -2450,7 +2449,7 @@ static int listfiles_next_file(sxc_cluster_t *cluster, const char *volume, sxc_c
         cb_file.revlen = 0;
     }
 
-    if(cb_file.metalen) {
+    if(lf->meta_fetched) {
         fseek(lf->f, cb_file.namelen + cb_file.revlen, SEEK_CUR);
         meta = sxc_meta_new(sx);
         if(!meta) {

@@ -327,7 +327,7 @@ int main(int argc, char **argv) {
             }
 	} else {
             unsigned int nfiles = 0;
-	    sxc_cluster_lf_t *fl = sxc_cluster_listfiles_etag(cluster, u->volume, u->path, args.recursive_flag, &nfiles, 0, args.etag_arg);
+	    sxc_cluster_lf_t *fl = sxc_cluster_listfiles_etag(cluster, u->volume, u->path, args.recursive_flag, &nfiles, 0, 0, args.etag_arg);
 	    if(fl) {
                 if(!nfiles && !sxc_str_has_glob(u->path)) {
                     ret = 1;
