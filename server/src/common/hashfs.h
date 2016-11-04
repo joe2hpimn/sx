@@ -111,6 +111,7 @@ int sx_hashfs_extract(sx_hashfs_t *h, const char *destpath);
 void sx_hashfs_stats(sx_hashfs_t *h);
 int sx_hashfs_analyze(sx_hashfs_t *h, int verbose);
 sx_nodelist_t *sx_hashfs_all_hashnodes(sx_hashfs_t *h, sx_hashfs_nl_t which, const sx_hash_t *hash, unsigned int replica_count);
+sx_nodelist_t *sx_hashfs_effective_hashnodes(sx_hashfs_t *h, sx_hashfs_nl_t which, const sx_hash_t *hash, unsigned int replica_count);
 sx_nodelist_t *sx_hashfs_putfile_hashnodes(sx_hashfs_t *h, const sx_hash_t *hash);
 rc_ty sx_hashfs_check_blocksize(unsigned int bs);
 int64_t sx_hashfs_growable_filesize(void);
@@ -168,6 +169,7 @@ typedef struct sx_hashfs_version {
 sx_hashfs_version_t *sx_hashfs_version(sx_hashfs_t *h);
 rc_ty sx_hashfs_version_parse(sx_hashfs_version_t *ver, const void *vstr, int vlen);
 int sx_hashfs_version_cmp(const sx_hashfs_version_t *vera, const sx_hashfs_version_t *verb);
+int sx_hashfs_version_microcmp(const sx_hashfs_version_t *vera, const sx_hashfs_version_t *verb);
 const sx_uuid_t *sx_hashfs_uuid(sx_hashfs_t *h);
 
 typedef struct _sx_hashfs_user_t {
@@ -729,9 +731,7 @@ rc_ty sx_hashfs_raft_state_set(sx_hashfs_t *h, const sx_raft_state_t *state);
 /* Release memory taken by the raft state internals */
 void sx_hashfs_raft_state_empty(sx_hashfs_t *h, sx_raft_state_t *state);
 
-void sx_hashfs_warm_cache(sx_hashfs_t *h);
 int sx_hashfs_vacuum(sx_hashfs_t *h);
-int sx_hashfs_incore(sx_hashfs_t *h, float *data_incore, float *other_incore);
 
 rc_ty sx_hashfs_stats_jobq(sx_hashfs_t *h, int64_t *sysjobs, int64_t *userjobs);
 rc_ty sx_hashfs_stats_blockq(sx_hashfs_t *h, const sx_uuid_t *dest, int64_t *ready, int64_t *held, int64_t *unbumps);

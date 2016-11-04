@@ -718,7 +718,7 @@ static int rebalanceV2(struct sxcluster *cluster)
 }
 */
 
-int64_t str2size(const char *str)
+static int64_t str2size(const char *str)
 {
 	const char *suffixes = "kKmMgGtT", *ptr;
 	int64_t size;
@@ -1037,10 +1037,10 @@ static int autoupgrade(struct sxcluster *cluster)
     return needupd ? rebalance(cluster) : -1;
 }
 
-void manage_completion(const char *line, linenoiseCompletions *lc)
+static void manage_completion(const char *line, linenoiseCompletions *lc)
 {
 	unsigned int len, i;
-	char *commands[] = { "addnode", "help", "info", "debug", "blkstats", "resize",
+	const char *commands[] = { "addnode", "help", "info", "debug", "blkstats", "resize",
 			     "rebalance", /* "rebalanceV2", */ "continue", "save",
 			     "savecmds", "dump", "exit" };
 
@@ -1052,10 +1052,10 @@ void manage_completion(const char *line, linenoiseCompletions *lc)
 	    linenoiseAddCompletion(lc, commands[i]);
 }
 
-void interactive_completion(const char *line, linenoiseCompletions *lc)
+static void interactive_completion(const char *line, linenoiseCompletions *lc)
 {
 	unsigned int len, i;
-	char *commands[] = { "addnode", "delnode", "help", "info", "debug", "blkstats", "resize",
+	const char *commands[] = { "addnode", "delnode", "help", "info", "debug", "blkstats", "resize",
 			     "set-zones", "get-zones", "del-zones",
 			     "rebalance", /* "rebalanceV2", */ "store", "save", "savecmds",
 			     "load", "dump", "reset", "execute", "exit" };

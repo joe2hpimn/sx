@@ -284,7 +284,7 @@ static int accept_loop(sxc_client_t *sx, const char *dir, int socket, worker_typ
     return rc;
 }
 
-void print_help(const char *prog)
+static void print_help(const char *prog)
 {
     int i =0;
     const char *config_options[] = {
@@ -320,7 +320,7 @@ void print_help(const char *prog)
 
 
 #define MAX_PID_ATTEMPTS 10
-char *make_pidfile(const char *pidfile_arg, int *pidfd) {
+static char *make_pidfile(const char *pidfile_arg, int *pidfd) {
     char buf[8192];
     char *pidfile = NULL;
     unsigned int i;

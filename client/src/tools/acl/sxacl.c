@@ -72,7 +72,7 @@ static void sighandler(int signal)
     exit(1);
 }
 
-sxc_cluster_t *load_config(sxc_client_t *sx, const char *uri, sxc_uri_t **sxuri)
+static sxc_cluster_t *load_config(sxc_client_t *sx, const char *uri, sxc_uri_t **sxuri)
 {
     sxc_uri_t *u;
     sxc_cluster_t *cluster;

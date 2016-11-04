@@ -39,6 +39,6 @@ void sxprocinit(int argc, char **argv);
 void sxprocdone(void);
 #endif
 
-void sxsetproctitle(const char *fmt, ...);
+void sxsetproctitle(const char *fmt, ...) FMT_PRINTF(1,2);
 
 #endif

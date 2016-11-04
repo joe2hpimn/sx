@@ -259,7 +259,7 @@ static void errfn(curlev_context_t *ctx, int reply_code, const char *reason) {
     }
 
     if(sxi_jparse_digest(J, reason, strlen(reason)) || sxi_jparse_done(J))
-	sxi_cbdata_seterr(ctx, SXE_ECOMM, sxi_jparse_geterr(J));
+	sxi_cbdata_seterr(ctx, SXE_ECOMM, "%s", sxi_jparse_geterr(J));
     else if(*errbuf)
 	sxi_cbdata_setclusterr(ctx, NULL, NULL, reply_code, errbuf, NULL);
     else

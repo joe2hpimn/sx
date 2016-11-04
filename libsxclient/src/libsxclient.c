@@ -430,7 +430,7 @@ const sxc_filter_t* sxc_get_filter(const sxf_handle_t *handle)
     return handle->f;
 }
 
-int sxc_filter_msg(const sxf_handle_t *h, int level, const char *format, ...)
+int FMT_PRINTF(3,4) sxc_filter_msg(const sxf_handle_t *h, int level, const char *format, ...)
 {
     int printed = 0;
     va_list arg;

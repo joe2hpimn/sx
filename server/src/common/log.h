@@ -96,7 +96,7 @@ void msg_add_detail(const char *func, const char *cat, const char *fmt, ...) FMT
     do {\
       const char *err = sqlite3_errmsg(sqlite3_db_handle(q));\
       CRIT("Cannot bind parameter \"%s\" to query \"%s\": %s", param, sqlite3_sql(q), err);\
-      msg_add_detail(__func__,"SQLite bind parameter %s: %s", param, err);\
+      msg_add_detail(__func__,"SQLite error","SQLite bind parameter %s: %s", param, err);\
     } while(0)
 
 const char *msg_log_end(void);

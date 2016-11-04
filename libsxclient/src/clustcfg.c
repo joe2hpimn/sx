@@ -761,7 +761,7 @@ static int fetchnodes_cb(curlev_context_t *cbdata, void *ctx, const void *data, 
     struct cb_fetchnodes_ctx *yactx = (struct cb_fetchnodes_ctx *)ctx;
 
     if(sxi_jparse_digest(yactx->J, data, size)) {
-	sxi_cbdata_seterr(yactx->cbdata, yactx->err, sxi_jparse_geterr(yactx->J));
+	sxi_cbdata_seterr(yactx->cbdata, yactx->err, "%s", sxi_jparse_geterr(yactx->J));
 	return 1;
     }
     return 0;
@@ -1098,7 +1098,7 @@ static int locate_setup_cb(curlev_context_t *cbdata, void *ctx, const char *host
 static int locate_cb(curlev_context_t *cbdata, void *ctx, const void *data, size_t size) {
     struct cb_locate_ctx *yactx = (struct cb_locate_ctx *)ctx;
     if(sxi_jparse_digest(yactx->J, data, size)) {
-	sxi_cbdata_seterr(yactx->cbdata, yactx->err, sxi_jparse_geterr(yactx->J));
+	sxi_cbdata_seterr(yactx->cbdata, yactx->err, "%s", sxi_jparse_geterr(yactx->J));
 	return 1;
     }
     return 0;
@@ -1766,7 +1766,7 @@ static int listfiles_cb(curlev_context_t *cbdata, void *ctx, const void *data, s
     struct cb_listfiles_ctx *yactx = (struct cb_listfiles_ctx *)ctx;
 
     if(sxi_jparse_digest(yactx->J, data, size)) {
-	sxi_cbdata_seterr(yactx->cbdata, yactx->err, sxi_jparse_geterr(yactx->J));
+	sxi_cbdata_seterr(yactx->cbdata, yactx->err, "%s", sxi_jparse_geterr(yactx->J));
 	return 1;
     }
     if (!yactx->etag_out)
@@ -3649,7 +3649,7 @@ static int userinfo_cb(curlev_context_t *cbdata, void *ctx, const void *data, si
     struct cb_userinfo_ctx *yactx = (struct cb_userinfo_ctx *)ctx;
 
     if(sxi_jparse_digest(yactx->J, data, size)) {
-	sxi_cbdata_seterr(yactx->cbdata, yactx->err, sxi_jparse_geterr(yactx->J));
+	sxi_cbdata_seterr(yactx->cbdata, yactx->err, "%s", sxi_jparse_geterr(yactx->J));
 	return 1;
     }
     return 0;
@@ -4218,7 +4218,7 @@ static int node_status_cb(curlev_context_t *cbdata, void *ctx, const void *data,
     struct node_status_ctx *yactx = (struct node_status_ctx *)ctx;
 
     if(sxi_jparse_digest(yactx->J, data, size)) {
-	sxi_cbdata_seterr(yactx->cbdata, yactx->err, sxi_jparse_geterr(yactx->J));
+	sxi_cbdata_seterr(yactx->cbdata, yactx->err, "%s", sxi_jparse_geterr(yactx->J));
 	return 1;
     }
     return 0;

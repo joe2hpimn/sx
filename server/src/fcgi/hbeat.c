@@ -173,7 +173,7 @@ static int raft_response_cb(curlev_context_t *cbdata, const unsigned char *data,
     }
 
     if(sxi_jparse_digest(c->J, data, size)) {
-        sxi_cbdata_seterr(cbdata, SXE_ECOMM, sxi_jparse_geterr(c->J));
+        sxi_cbdata_seterr(cbdata, SXE_ECOMM, "%s", sxi_jparse_geterr(c->J));
         return 1;
     }
 

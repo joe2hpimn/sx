@@ -1145,7 +1145,7 @@ static int createfile_cb(curlev_context_t *cbdata, const unsigned char *data, si
 	return 1;
 
     if(sxi_jparse_digest(yactx->current.J, data, size)) {
-        sxi_cbdata_seterr(yactx->cbdata, yactx->current.err, sxi_jparse_geterr(yactx->current.J));
+        sxi_cbdata_seterr(yactx->cbdata, yactx->current.err, "%s", sxi_jparse_geterr(yactx->current.J));
 	return 1;
     }
 
@@ -2765,7 +2765,7 @@ static int getfile_cb(curlev_context_t *cctx, void *ctx, const void *data, size_
     struct cb_getfile_ctx *yactx = (struct cb_getfile_ctx *)ctx;
 
     if(sxi_jparse_digest(yactx->J, data, size)) {
-	sxi_cbdata_seterr(yactx->cbdata, yactx->err, sxi_jparse_geterr(yactx->J));
+	sxi_cbdata_seterr(yactx->cbdata, yactx->err, "%s", sxi_jparse_geterr(yactx->J));
 	return 1;
     }
     return 0;
@@ -5695,7 +5695,7 @@ static int metadata_cb(curlev_context_t *cbdata, void *ctx, const void *data, si
     struct cb_metadata_ctx *yactx = (struct cb_metadata_ctx *)ctx;
 
     if(sxi_jparse_digest(yactx->J, data, size)) {
-	sxi_cbdata_seterr(yactx->cbdata, yactx->err, sxi_jparse_geterr(yactx->J));
+	sxi_cbdata_seterr(yactx->cbdata, yactx->err, "%s", sxi_jparse_geterr(yactx->J));
 	return 1;
     }
     return 0;
@@ -6852,7 +6852,7 @@ static int filerev_cb(curlev_context_t *cbdata, void *ctx, const void *data, siz
     struct cb_filerev_ctx *yactx = (struct cb_filerev_ctx *)ctx;
 
     if(sxi_jparse_digest(yactx->J, data, size)) {
-	sxi_cbdata_seterr(yactx->cbdata, yactx->err, sxi_jparse_geterr(yactx->J));
+	sxi_cbdata_seterr(yactx->cbdata, yactx->err, "%s", sxi_jparse_geterr(yactx->J));
 	return 1;
     }
     return 0;

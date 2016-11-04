@@ -380,7 +380,7 @@ create_err:
     return ret;
 }
 
-int wipe_config(sxc_cluster_t *cluster, const char *volume)
+static int wipe_config(sxc_cluster_t *cluster, const char *volume)
 {
     const char *confdir = sxi_cluster_get_confdir(cluster);
     char *voldir = malloc(strlen(confdir) + strlen(volume) + 10);

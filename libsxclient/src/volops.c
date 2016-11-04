@@ -829,7 +829,7 @@ static int listvolumes_cb(curlev_context_t *cbdata, void *ctx, const void *data,
     struct cb_listvolumes_ctx *yactx = (struct cb_listvolumes_ctx *)ctx;
 
     if(sxi_jparse_digest(yactx->J, data, size)) {
-	sxi_cbdata_seterr(yactx->cbdata, yactx->err, sxi_jparse_geterr(yactx->J));
+	sxi_cbdata_seterr(yactx->cbdata, yactx->err, "%s", sxi_jparse_geterr(yactx->J));
 	return 1;
     }
     return 0;
@@ -1282,7 +1282,7 @@ static int listusers_setup_cb(curlev_context_t *cbdata, void *ctx, const char *h
 static int listusers_cb(curlev_context_t *cbdata, void *ctx, const void *data, size_t size) {
     struct cb_listusers_ctx *yactx = (struct cb_listusers_ctx *)ctx;
     if(sxi_jparse_digest(yactx->J, data, size)) {
-	sxi_cbdata_seterr(yactx->cbdata, yactx->err, sxi_jparse_geterr(yactx->J));
+	sxi_cbdata_seterr(yactx->cbdata, yactx->err, "%s", sxi_jparse_geterr(yactx->J));
 	return 1;
     }
     return 0;
@@ -1610,7 +1610,7 @@ static int listaclusers_setup_cb(curlev_context_t *cbdata, void *ctx, const char
 static int listaclusers_cb(curlev_context_t *cbdata, void *ctx, const void *data, size_t size) {
     struct cb_listaclusers_ctx *yactx = (struct cb_listaclusers_ctx *)ctx;
     if(sxi_jparse_digest(yactx->J, data, size)) {
-	sxi_cbdata_seterr(yactx->cbdata, yactx->err, sxi_jparse_geterr(yactx->J));
+	sxi_cbdata_seterr(yactx->cbdata, yactx->err, "%s", sxi_jparse_geterr(yactx->J));
 	return 1;
     }
     return 0;

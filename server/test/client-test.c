@@ -81,7 +81,7 @@
 #define WARNING(...) print_msg(__func__, "WARNING", __VA_ARGS__)
 #define ERROR(...) print_msg(__func__, "ERROR", __VA_ARGS__)
 
-static void print_msg (const char *fn, const char *level, const char *format_string, ...) {
+static FMT_PRINTF(3, 4) void print_msg (const char *fn, const char *level, const char *format_string, ...) {
     va_list vl;
 
     fprintf(stderr, "[%-17s] %s: ", strcmp(fn, "main") ? fn : "client-test", level);
@@ -903,7 +903,7 @@ static int check_filemeta(sxc_client_t *sx, sxc_file_t *file, const char *filter
         const char *attribs[] = {"attribsName", "attribsMode", "attribsUID", "attribsGID", "attribsAtime", "attribsMtime", "attribsSize", NULL};
 
         if(sxc_meta_count(fmeta) != sizeof(attribs) / sizeof(char*) - 1) { /* -1 is because of NULL at the end */
-            ERROR("%s: Wrong number of entries (%u != %u)", filter_name, sxc_meta_count(fmeta), sizeof(attribs) / sizeof(char*) - 1);
+            ERROR("%s: Wrong number of entries (%u != %lu)", filter_name, sxc_meta_count(fmeta), sizeof(attribs) / sizeof(char*) - 1);
             goto check_filemeta_err;
         }
         for(; attribs[i]; i++)
@@ -3063,7 +3063,7 @@ static int test_acl(sxc_client_t *sx, sxc_cluster_t *cluster, const char *local_
         if(sxc_geterrnum(sx) == SXE_EAUTH)
             PRINT("Volume removal permission enforced correctly");
         else {
-            ERROR("Cannot remove '%s' volume", vdata[0].name, sxc_geterrmsg(sx));
+            ERROR("Cannot remove '%s' volume", vdata[0].name);
             goto test_acl_err;
         }
     } else {

@@ -68,7 +68,7 @@ static int buf_append(struct buffer *buf, const char *str, unsigned n)
     return 0;
 }
 
-int anonymize_item(struct buffer *buf, const char *category, const char *str, size_t len)
+static int anonymize_item(struct buffer *buf, const char *category, const char *str, size_t len)
 {
     sxi_hmac_sha1_ctx *hmac_ctx;
     unsigned char md[SXI_SHA1_BIN_LEN];

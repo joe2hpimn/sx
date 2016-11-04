@@ -458,7 +458,7 @@ static int jobres_cb(curlev_context_t *cbdata, const unsigned char *data, size_t
 	return 1;
     yactx = jctx->yactx;
     if(sxi_jparse_digest(yactx->J, data, size)) {
-	sxi_cbdata_seterr(yactx->cbdata, yactx->err, sxi_jparse_geterr(yactx->J));
+	sxi_cbdata_seterr(yactx->cbdata, yactx->err, "%s", sxi_jparse_geterr(yactx->J));
 	return 1;
     }
     return 0;
@@ -573,7 +573,7 @@ static int jobget_setup_cb(curlev_context_t *cbdata, void *ctx, const char *host
 static int jobget_cb(curlev_context_t *cbdata, void *ctx, const void *data, size_t size) {
     struct cb_jobget_ctx *yactx = (struct cb_jobget_ctx *)ctx;
     if(sxi_jparse_digest(yactx->J, data, size)) {
-	sxi_cbdata_seterr(yactx->cbdata, SXE_ECOMM, sxi_jparse_geterr(yactx->J));
+	sxi_cbdata_seterr(yactx->cbdata, SXE_ECOMM, "%s", sxi_jparse_geterr(yactx->J));
 	return 1;
     }
     return 0;
@@ -1196,7 +1196,7 @@ static int jobget_ev_cb(curlev_context_t *cbdata, const unsigned char *data, siz
     yactx = (struct cb_jobget_ctx *)sxi_cbdata_get_context(cbdata);
 
     if(sxi_jparse_digest(yactx->J, data, size)) {
-	sxi_cbdata_seterr(yactx->cbdata, SXE_ECOMM, sxi_jparse_geterr(yactx->J));
+	sxi_cbdata_seterr(yactx->cbdata, SXE_ECOMM, "%s", sxi_jparse_geterr(yactx->J));
 	return 1;
     }
 

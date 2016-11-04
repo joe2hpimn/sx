@@ -149,8 +149,8 @@ char *sxi_cbdata_get_etag(curlev_context_t *ctx);
 void sxi_cbdata_set_content_type(curlev_context_t *cbdata, enum content_type type);
 
 /* Store error message and code into curlev context */
-void sxi_cbdata_seterr(curlev_context_t *ctx, enum sxc_error_t err, const char *fmt, ...);
-void sxi_cbdata_setsyserr(curlev_context_t *ctx, enum sxc_error_t err, const char *fmt, ...);
+void sxi_cbdata_seterr(curlev_context_t *ctx, enum sxc_error_t err, const char *fmt, ...) FMT_PRINTF(3,4);
+void sxi_cbdata_setsyserr(curlev_context_t *ctx, enum sxc_error_t err, const char *fmt, ...) FMT_PRINTF(3,4);
 /* Restore error message and id from global buffer.
  *
  * That data will be copied to local buffer to be able to assign errors to particular query context.

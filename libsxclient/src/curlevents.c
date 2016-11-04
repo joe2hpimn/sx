@@ -471,7 +471,7 @@ char* sxi_cbdata_get_etag(curlev_context_t *ctx)
     return etag;
 }
 
-void sxi_cbdata_setsyserr(curlev_context_t *ctx, enum sxc_error_t err, const char *fmt, ...) {
+void FMT_PRINTF(3,4) sxi_cbdata_setsyserr(curlev_context_t *ctx, enum sxc_error_t err, const char *fmt, ...) {
     struct sxi_fmt f;
     va_list ap;
 
@@ -3441,7 +3441,7 @@ static void sxauthd_errfn(curlev_context_t *ctx, int reply_code, const char *rea
     }
 
     if(sxi_jparse_digest(J, reason, strlen(reason)) || sxi_jparse_done(J))
-	sxi_cbdata_seterr(ctx, SXE_ECOMM, sxi_jparse_geterr(J));
+	sxi_cbdata_seterr(ctx, SXE_ECOMM, "%s", sxi_jparse_geterr(J));
     else if(strcmp("SXAUTHD", yctx.node))
 	sxi_cbdata_seterr(ctx, SXE_ECOMM, "This is not an sxauthd host");
     else if(yctx.message[0])

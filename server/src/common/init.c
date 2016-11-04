@@ -42,7 +42,7 @@ sxc_client_t* sx_init(const sxc_logger_t *custom_logger, const char *application
     sxc_set_verbose(sx, 1);
     if (application) {
         sxprocinit(argc, argv);
-        sxsetproctitle(application);
+        sxsetproctitle("%s", application);
     }
     return sx;
 }

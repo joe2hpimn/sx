@@ -218,7 +218,7 @@ static int presence_cb(curlev_context_t *ctx, const unsigned char *data, size_t 
     }
 
     if(sxi_jparse_digest(yactx->J, data, size)) {
-	sxi_cbdata_seterr(yactx->cbdata, SXE_ECOMM, sxi_jparse_geterr(yactx->J));
+	sxi_cbdata_seterr(yactx->cbdata, SXE_ECOMM, "%s", sxi_jparse_geterr(yactx->J));
 	return 1;
     }
     return 0;

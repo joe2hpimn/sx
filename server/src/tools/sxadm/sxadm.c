@@ -145,7 +145,7 @@ static int read_or_gen_key(const char *token_file, int role, struct token_pair_t
  * def == 1 -> [Y/n], 0 ==> [y/N]
  * return 1 ==> yes, 0 ==> no
  */
-int yesno(const char *prompt, int def)
+static int yesno(const char *prompt, int def)
 {
     char c;
     while(1) {
@@ -1244,9 +1244,6 @@ static int info_node(sxc_client_t *sx, const char *path, struct node_args_info *
 	free(admin);
     }
     printf("Internal cluster protocol: %s\n", sx_hashfs_uses_secure_proto(h) ? "SECURE" : "INSECURE");
-    float data_incore, other_incore;
-    if (!sx_hashfs_incore(h, &data_incore, &other_incore))
-        printf("Database resident in memory: blocks %.2f%%, other %.2f%%\n", data_incore, other_incore);
     sx_storage_usage(h, &dsk_alloc, &dsk_used);
     fmt_capa(dsk_alloc, capastr, sizeof(capastr), args->human_readable_flag);
     printf("Used disk space: %s\n", capastr);
@@ -2291,20 +2288,6 @@ static int unbump_wait_node(sxc_client_t *sx, const char *path)
     return s == OK ? 0 : 1;
 }
 
-static int warm_cache_node(sxc_client_t *sx, const char *path)
-{
-    if (!sxc_is_verbose(sx)) {
-        log_setminlevel(sx, SX_LOG_INFO);
-        sxc_set_verbose(sx, 1);
-    }
-    sx_hashfs_t *hashfs = sx_hashfs_open(path, sx);
-    if (!hashfs)
-        return 1;
-    sx_hashfs_warm_cache(hashfs);
-    sx_hashfs_close(hashfs);
-    return OK;
-}
-
 static int vacuum_node(sxc_client_t *sx, const char *path)
 {
     if (!sxc_is_verbose(sx)) {
@@ -2674,8 +2657,6 @@ int main(int argc, char **argv) {
                 ret = gc_node(sx, node_args.inputs[0], node_args.gc_expire_given);
             else if(node_args.unbump_wait_given)
                 ret = unbump_wait_node(sx, node_args.inputs[0]);
-            else if(node_args.warm_cache_given)
-                ret = warm_cache_node(sx, node_args.inputs[0]);
             else if(node_args.vacuum_given)
                 ret = vacuum_node(sx, node_args.inputs[0]);
             else if(node_args.get_definition_given)

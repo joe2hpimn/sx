@@ -543,7 +543,7 @@ struct pushblox_ctx {
     rc_ty error;
 };
 
-void cb_pushblox_target(jparse_t *J, void *ctx, const char *string, unsigned int length) {
+static void cb_pushblox_target(jparse_t *J, void *ctx, const char *string, unsigned int length) {
     jploc_t *lkey = sxi_jparse_whereami(J), *lhost = sxi_jpath_down(lkey);
     struct pushblox_ctx *c = ctx;
 

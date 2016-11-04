@@ -385,11 +385,9 @@ int gc(sxc_client_t *sx, sx_hashfs_t *hashfs, int pipe, int pipe_expire) {
             if (timediff(&tv0, &tv1) > gc_interval || forced_awake) {
                 INFO("Starting GC");
                 sx_hashfs_gc_periodic(hashfs, &terminate, GC_GRACE_PERIOD);
-                sx_hashfs_incore(hashfs, NULL, NULL);
                 sx_hashfs_gc_unused_revisions(hashfs, &terminate);
                 sx_hashfs_gc_unbumped_revisions(hashfs, &terminate);
                 sx_hashfs_gc_slow(hashfs, &terminate);
-                sx_hashfs_incore(hashfs, NULL, NULL);
                 gettimeofday(&tv2, NULL);
                 sx_hashfs_checkpoint_idle(hashfs);
                 sx_hashfs_gc_info(hashfs, &terminate);

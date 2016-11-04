@@ -633,7 +633,7 @@ const struct hashtest hashtests2[HASHES_NUM] = {
 
 #define FINAL_CHECKSUM 10983074363246975376ULL
 
-int locate_cmp(sxi_hdist_t *model1, sxi_hdist_t *model2, uint64_t hash, int replica, int bidx, const struct hashtest *ht)
+static int locate_cmp(sxi_hdist_t *model1, sxi_hdist_t *model2, uint64_t hash, int replica, int bidx, const struct hashtest *ht)
 {
     sx_nodelist_t *nodelist1, *nodelist2;
     int i;
@@ -688,7 +688,7 @@ int locate_cmp(sxi_hdist_t *model1, sxi_hdist_t *model2, uint64_t hash, int repl
     return 0;
 }
 
-int print_nodes(sxi_hdist_t *model, int bidx)
+static int print_nodes(sxi_hdist_t *model, int bidx)
 {
     const sx_nodelist_t *nodelist;
     int i;

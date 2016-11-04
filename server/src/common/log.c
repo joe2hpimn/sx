@@ -333,7 +333,7 @@ int msg_was_busy(void)
     return log_record.busy;
 }
 
-static void verbose_log_common(const char *prefix, sx_hash_t *b, const char *op, int success, const char *extra, va_list ap) {
+static FMT_PRINTF(5,0) void verbose_log_common(const char *prefix, const sx_hash_t *b, const char *op, int success, const char *extra, va_list ap) {
     char buf[1024], hb[sizeof(*b) * 2 + 1];
     int len;
 

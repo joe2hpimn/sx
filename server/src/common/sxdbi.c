@@ -488,17 +488,6 @@ void qrollback_real(sxi_db_t *db, const char *file, int line) {
     qdone(db, file, line);
 }
 
-void qyield(sxi_db_t *db)
-{
-    #if 0
-    DEBUG("Yielding %s for %.2fs", sqlite3_db_filename(db->handle, "main"), gc_yield_time);
-    /* If SQLite is compiled with HAVE_USLEEP it tries to acquire the lock at least every 100ms,
-       otherwise at least every 1s.
-       Sleep longer than that to give a chance for other processes to acquire the lock */
-    usleep((useconds_t)(gc_yield_time * 1000000));
-    #endif
-}
-
 /*
  * Get index from file name that matches number of slashes in pattern.
  * Possibly returned values:
@@ -595,124 +584,9 @@ void pmatch(sqlite3_context *ctx, int argc, sqlite3_value **argv) {
     sqlite3_result_int(ctx, r);
 }
 
-static int qfetch(sxi_db_t *db, sqlite3_file **pFile, void **pp, sqlite3_int64 *size)
-{
-    if (!db || !pFile || !pp || !size)
-        return SQLITE_NOMEM;
-    sqlite3_file *file = NULL;
-    int rc;
-
-    *pp = NULL;
-    *size = 0;
-
-    if ((rc = sqlite3_file_control(db->handle, NULL, SQLITE_FCNTL_FILE_POINTER, &file)) != SQLITE_OK) {
-        WARN("Failed to retrieve file pointer: %s", sqlite3_errstr(rc));
-        return rc;
-    }
-    if (!file) {
-        WARN("file pointer not available");
-        return SQLITE_NOMEM;
-    }
-    if (!file->pMethods || !file->pMethods->xFileSize || !file->pMethods->xFetch || !file->pMethods->xUnfetch) {
-        WARN("mmap not available");
-        return SQLITE_NOMEM;
-    }
-    if ((rc = file->pMethods->xFileSize(file, size)) != SQLITE_OK) {
-        WARN("file size not available: %s", sqlite3_errstr(rc));
-        return rc;
-    }
-    if ((rc = file->pMethods->xFetch(file, 0, *size, pp)) != SQLITE_OK) {
-        WARN("page fetch not available: %s", sqlite3_errstr(rc));
-        return rc;
-    }
-    if (!pp) {
-        WARN("page not available");
-        return SQLITE_NOMEM;
-    }
-    *pFile = file;
-    return SQLITE_OK;
-}
-
-static void qunfetch(sqlite3_file **pFile, void **pp)
-{
-    if (!pFile || !*pp)
-        return;
-    sqlite3_file *file = *pFile;
-    if (file && file->pMethods && file->pMethods->xUnfetch)
-        file->pMethods->xUnfetch(file, 0, *pp);
-    *pFile = NULL;
-    *pp = NULL;
-}
-
-void qreadahead(sxi_db_t *db)
-{
-#ifdef HAVE_POSIX_MADVISE
-    sqlite3_file *file;
-    sqlite3_int64 size;
-    void *pp;
-    if (qfetch(db, &file, &pp, &size))
-        return;
-    if (!pp)
-        return;
-    size_t chunkSize = 2*1024*1024;
-    char *p = pp;
-    while (size > 0) {
-        chunkSize = size < chunkSize ? size : chunkSize;
-        if (posix_madvise(p, chunkSize, POSIX_MADV_WILLNEED)) {
-            PINFO("madvise failed at offset %lld", (long long)(p - (const char*)pp));
-            break;
-        }
-        p += chunkSize;
-        size -= chunkSize;
-    }
-    qunfetch(&file, &pp);
-#endif
-}
-
-int qincore(sxi_db_t *db, int64_t *incore_pages, int64_t *total_pages)
-{
-    int rc = SQLITE_OK;
-#ifdef HAVE_MINCORE
-    if (!db || !incore_pages || !total_pages)
-        return SQLITE_NOMEM;
-    long pagesize = sysconf(_SC_PAGESIZE);
-    if (pagesize < 0) {
-        PWARN("cannot retrieve pagesize");
-        return SQLITE_NOMEM;
-    }
-
-    sqlite3_file *file;
-    sqlite3_int64 size;
-    void *pp;
-    if ((rc = qfetch(db, &file, &pp, &size)))
-        return rc;
-    if (!pp)
-        return SQLITE_NOMEM;
-    unsigned n = (size + pagesize - 1) / pagesize;
-    unsigned char *vec = wrap_calloc(n, 1);
-    if (!vec) {
-        qunfetch(&file, &pp);
-        return SQLITE_NOMEM;
-    }
-    if (mincore(pp, size, vec)) {
-        PINFO("mincore failed");
-        rc = SQLITE_NOMEM;
-    } else {
-        unsigned i;
-        for (i=0;i<n;i++)
-            *incore_pages += vec[i]&1;
-        *total_pages += n;
-    }
-    free(vec);
-    qunfetch(&file, &pp);
-#endif
-    return rc;
-}
-
 int qvacuum(sxi_db_t *db)
 {
     int rc = 0;
-    qreadahead(db);
     sqlite3_stmt *q = NULL;
     if (qprep(db, &q, "VACUUM") || qstep_noret(q))
         rc = 1;
