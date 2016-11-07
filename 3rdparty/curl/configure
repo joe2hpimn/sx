@@ -20424,7 +20424,7 @@ done
   { $as_echo "$as_me:${as_lineno-$LINENO}: checking for monotonic clock_gettime" >&5
 $as_echo_n "checking for monotonic clock_gettime... " >&6; }
   #
-  if test "x$dontwant_rt" == "xno" ; then
+  if test "x$dontwant_rt" = "xno" ; then
     cat confdefs.h - <<_ACEOF >conftest.$ac_ext
 /* end confdefs.h.  */
 
@@ -22365,6 +22365,77 @@ fi
 
 fi
 
+
+
+  if test X"$HAVECRYPTO" = X"yes"; then
+     { $as_echo "$as_me:${as_lineno-$LINENO}: checking OpenSSL linking without -ldl" >&5
+$as_echo_n "checking OpenSSL linking without -ldl... " >&6; }
+     saved_libs=$LIBS
+     cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+
+          #include <openssl/evp.h>
+
+int main (void)
+{
+
+          SSLeay_add_all_algorithms();
+
+ ;
+ return 0;
+}
+_ACEOF
+if ac_fn_c_try_link "$LINENO"; then :
+
+          { $as_echo "$as_me:${as_lineno-$LINENO}: result: yes" >&5
+$as_echo "yes" >&6; }
+          LIBS="$saved_libs"
+
+else
+
+          { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
+$as_echo "no" >&6; }
+          { $as_echo "$as_me:${as_lineno-$LINENO}: checking OpenSSL linking with -ldl" >&5
+$as_echo_n "checking OpenSSL linking with -ldl... " >&6; }
+          LIBS="-ldl $LIBS"
+          cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+
+            #include <openssl/evp.h>
+
+int main (void)
+{
+
+            SSLeay_add_all_algorithms();
+
+ ;
+ return 0;
+}
+_ACEOF
+if ac_fn_c_try_link "$LINENO"; then :
+
+            { $as_echo "$as_me:${as_lineno-$LINENO}: result: yes" >&5
+$as_echo "yes" >&6; }
+            LIBS="$saved_libs -ldl"
+
+else
+
+            { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
+$as_echo "no" >&6; }
+            LIBS="$saved_libs"
+
+
+fi
+rm -f core conftest.err conftest.$ac_objext \
+    conftest$ac_exeext conftest.$ac_ext
+
+
+
+fi
+rm -f core conftest.err conftest.$ac_objext \
+    conftest$ac_exeext conftest.$ac_ext
+
+  fi
 
   if test X"$HAVECRYPTO" = X"yes"; then
 
@@ -35772,8 +35843,9 @@ $as_echo "no" >&6; }
   tst_allow_poll="unknown"
   #
   case $host_os in
-    darwin[123456789].*|darwin10.*|darwin11.*|darwin12.*|interix*)
-                              curl_disallow_poll="yes"
+    darwin*|interix*)
+                                          curl_disallow_poll="yes"
+      tst_compi_poll="no"
       ;;
   esac
   #
@@ -35891,14 +35963,30 @@ else
 
         $curl_includes_stdlib
         $curl_includes_poll
+        $curl_includes_time
 
 int main (void)
 {
 
+        /* detect the original poll() breakage */
         if(0 != poll(0, 0, 10))
           exit(1); /* fail */
-        else
-          exit(0);
+        else {
+          /* detect the 10.12 poll() breakage */
+          struct timeval before, after;
+          int rc;
+          size_t us;
+
+          gettimeofday(&before, NULL);
+          rc = poll(NULL, 0, 500);
+          gettimeofday(&after, NULL);
+
+          us = (after.tv_sec - before.tv_sec) * 1000000 +
+            (after.tv_usec - before.tv_usec);
+
+          if(us < 400000)
+            exit(1);
+        }
 
  ;
  return 0;
