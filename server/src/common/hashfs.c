@@ -11133,8 +11133,10 @@ rc_ty sx_hashfs_putfile_gettoken(sx_hashfs_t *h, const uint8_t *user, int64_t si
     memcpy(h->put_global_vol_id.b, vol->global_id.b, sizeof(h->put_global_vol_id.b));
     DEBUGHASH("file initial PUT reserve_id", &h->put_reserve_id);
 
-    if(!skip_reservation && sx_hashfs_reserve_revision_id(h, &h->put_reserve_id, &h->put_revision_id, blocksize, expires_at))
+    if(!skip_reservation && sx_hashfs_reserve_revision_id(h, &h->put_reserve_id, &h->put_revision_id, blocksize, expires_at)) {
+        msg_set_reason("Failed to reserve blocks");
         goto gettoken_err;
+    }
 
     sxi_hashop_begin(&h->hc, h->sx_clust, hdck_cb, skip_reservation ? HASHOP_SKIP : HASHOP_RESERVE,
                      vol->max_replica, &h->put_global_vol_id, &h->put_reserve_id, &h->put_revision_id, hdck_cb_ctx, expires_at);
