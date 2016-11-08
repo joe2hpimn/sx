@@ -2677,10 +2677,7 @@ static int ev_add(curl_events_t *e,
             break;
         }
         e->used++;
-        if (!e->depth)
-            sxi_curlev_poll_immediate(e);
-        else
-            e->added_notpolled = 1;
+        e->added_notpolled = 1;
         return 0;
     } while(0);
     EVENTSDEBUG(e, "ev_add failed");
@@ -2737,7 +2734,7 @@ int sxi_curlev_add_put(curl_events_t *e,
 int sxi_curlev_poll(curl_events_t *e)
 {
     CURLMcode rc;
-    int callbacks = 0;
+    int callbacks = 0, r;
     long timeout = -1;
     int immediately_returned = 0;
     double usleep_timeout = 0; 
@@ -2756,8 +2753,12 @@ int sxi_curlev_poll(curl_events_t *e)
              * poll now to avoid needlessly sleeping until timeout in multi_wait().
              * But do not poll without a timeout if the queries have already been launched.
              * */
-            if ((callbacks += sxi_curlev_poll_immediate(e)) == -1)
+            r = sxi_curlev_poll_immediate(e);
+            if(r == -1) {
+                SXDEBUG("sxi_curlev_poll_immediate failed");
                 return -1;
+            }
+            callbacks += r;
         } 
         rc = curl_multi_timeout(e->multi, &timeout);
 
@@ -2793,8 +2794,12 @@ int sxi_curlev_poll(curl_events_t *e)
             }
         }
 
-        if ((callbacks += sxi_curlev_poll_immediate(e)) == -1)
+        r = sxi_curlev_poll_immediate(e);
+        if(r == -1) {
+            SXDEBUG("sxi_curlev_poll_immediate failed");
             return -1;
+        }
+        callbacks += r;
     } while (e->running && !callbacks && !e->depth);
     sx = sxi_conns_get_client(e->conns);
     SXDEBUG("running: %d, callbacks executed: %d", e->running, callbacks);
