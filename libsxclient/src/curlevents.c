@@ -511,13 +511,11 @@ void sxi_cbdata_setclusterr(curlev_context_t *ctx, const char *nodeid, const cha
             }
         }
     }
-    if(status == 500 || status == 503) {
-        sxi_fmt_msg(&f," (on");
-        if (nodeid)
-            sxi_fmt_msg(&f, " node:%s", nodeid);
-        if (reqid)
-            sxi_fmt_msg(&f, " reqid:%s", reqid);
-        sxi_fmt_msg(&f, ")");
+    /*
+     * Print the error details on internal error, but do it only if we have node and request details provided.
+     */
+    if((status == 500 || status == 503) && (nodeid && reqid)) {
+        sxi_fmt_msg(&f, "(on node:%s requid:%s)", nodeid, reqid);
         if (sxc_is_verbose(sx) && details && *details)
             sxi_fmt_msg(&f, "\nHTTP %d: %s", status, details);
     }
