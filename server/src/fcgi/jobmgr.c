@@ -5433,6 +5433,7 @@ static act_result_t jobpoll_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t
     int has_pending = 0;
     job_status_t local_job_status = JOB_PENDING;
     struct timeval begin, end;
+    const char *message = NULL;
 
     gettimeofday(&begin, NULL);
     b = sx_blob_from_data(job_data->ptr, job_data->len);
@@ -5455,7 +5456,6 @@ static act_result_t jobpoll_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t
     }
 
     while(!(r = sx_blob_get_string(b, &jobid))) {
-        const char *message = NULL;
         job_t job;
         const sx_node_t *node = NULL;
 
@@ -5497,7 +5497,7 @@ static act_result_t jobpoll_commit(sx_hashfs_t *hashfs, job_t job_id, job_data_t
 
     if(local_job_status != JOB_OK && local_job_status != JOB_PENDING) {
         DEBUG("Local job has failed, permfailing");
-        action_error(ACT_RESULT_PERMFAIL, 500, "Local job has failed");
+        action_error(ACT_RESULT_PERMFAIL, 500, message ? message : "Local job has failed");
     }
 
     if(r < 0) {
@@ -5530,7 +5530,7 @@ action_failed:
                 else if(status == JOBST_PENDING)
                     has_pending = 1;
                 else
-                    action_set_fail(ACT_RESULT_PERMFAIL, 500, sxi_cbdata_geterrmsg(qrylist[nnode].cbdata));
+                    action_set_fail(ACT_RESULT_PERMFAIL, 500, sxi_job_message(jobs[nnode]) ? sxi_job_message(jobs[nnode]) : "Remote job has failed");
             } else
 		action_raise_fail(http2actres(http_status), http_status, sxi_cbdata_geterrmsg(qrylist[nnode].cbdata));
         }

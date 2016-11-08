@@ -1162,6 +1162,10 @@ sxi_job_status_t sxi_job_status(const sxi_job_t *job) {
     return job ? job->status : JOBST_UNDEF;
 }
 
+const char *sxi_job_message(const sxi_job_t *job) {
+    return job ? job->message : NULL;
+}
+
 static int jobget_ev_setup_cb(curlev_context_t *cbdata, const char *host) {
     struct cb_jobget_ctx *yactx;
 
