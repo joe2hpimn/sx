@@ -1328,7 +1328,7 @@ static int sxfs_truncate (const char *path, off_t length) {
                     goto sxfs_truncate_err;
                 }
             }
-            if(sxfs_file) {
+            if(sxfs_file && sxfs_file->write_fd < 0) {
                 sxfs_file->write_fd = fd;
                 sxfs_file->write_path = local_file_path;
                 fd = -1;
