@@ -20587,7 +20587,7 @@ rc_ty sx_hashfs_setignored(sx_hashfs_t *h, const sx_nodelist_t *ignodes) {
 }
 
 rc_ty sx_hashfs_node_status(sx_hashfs_t *h, sxi_node_status_t *status) {
-    const sx_node_t *n;
+    const sx_node_t *n, *me;
     time_t t = time(NULL);
     struct tm *tm;
 
@@ -20595,6 +20595,7 @@ rc_ty sx_hashfs_node_status(sx_hashfs_t *h, sxi_node_status_t *status) {
         NULLARG();
         return EINVAL;
     }
+    me = sx_hashfs_self(h);
 
     /* System information */
     if(sxi_report_os(h->sx, status->os_name, sizeof(status->os_name), status->os_arch, sizeof(status->os_arch),
@@ -20624,8 +20625,7 @@ rc_ty sx_hashfs_node_status(sx_hashfs_t *h, sxi_node_status_t *status) {
     if(status->cores > 0 && sxi_report_system_stat(h->sx, status->cores, &status->cpu_stat, &status->btime, &status->processes, &status->processes_running, &status->processes_blocked, &status->load_stat))
         DEBUG("Failed to get system statistics information: %s", sxc_geterrmsg(h->sx));
 
-    if(!sx_storage_is_bare(h) &&
-       sxi_network_traffic_status(h->sx, h->sx_clust, sx_node_internal_addr(sx_hashfs_self(h)), &status->network_traffic_json, &status->network_traffic_json_size))
+    if(me && sxi_network_traffic_status(h->sx, h->sx_clust, sx_node_internal_addr(me), &status->network_traffic_json, &status->network_traffic_json_size))
         DEBUG("Failed to get network traffic information: %s", sxc_geterrmsg(h->sx));
 
     tm = gmtime(&t);
