@@ -2744,6 +2744,7 @@ int sxi_curlev_poll(curl_events_t *e)
         return -1;
     }
 
+    sx = sxi_conns_get_client(e->conns);
     do {
         int numfds = 0;
 
@@ -2801,7 +2802,6 @@ int sxi_curlev_poll(curl_events_t *e)
         }
         callbacks += r;
     } while (e->running && !callbacks && !e->depth);
-    sx = sxi_conns_get_client(e->conns);
     SXDEBUG("running: %d, callbacks executed: %d", e->running, callbacks);
     if (!e->running && !callbacks) {
         EVENTSDEBUG(e,"Deadlock avoided: no more running handles");
