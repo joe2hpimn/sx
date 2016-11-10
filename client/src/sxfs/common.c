@@ -2502,6 +2502,7 @@ sxfs_upload_err:
 
 static void* sxfs_upload_worker (void *ctx) {
     int err;
+    char *remote_path = NULL;
     sxc_client_t *sx = NULL; /* shut up warnings */
     sxc_cluster_t *cluster = NULL; /* shut up warnings */
     sxc_file_t *src = NULL, *dest = NULL;
@@ -2523,9 +2524,16 @@ static void* sxfs_upload_worker (void *ctx) {
                 continue;
             }
             entry->state |= SXFS_QUEUE_IN_PROGRESS;
+            free(remote_path);
+            remote_path = strdup(entry->remote_path); /* avoid possible use-after-free because of realloc() in rename() */
             pthread_mutex_unlock(&sxfs->upload_mutex);
+            if(!remote_path) {
+                SXFS_ERROR("Out of memory");
+                err = 1;
+                goto sxfs_upload_worker_err;
+            }
 
-            SXFS_DEBUG("Uploading '%s' file", entry->remote_path);
+            SXFS_DEBUG("Uploading '%s' file", remote_path);
             sxc_file_free(src);
             src = sxc_file_local(sx, entry->local_path);
             if(!src) {
@@ -2534,7 +2542,7 @@ static void* sxfs_upload_worker (void *ctx) {
                 goto sxfs_upload_worker_err;
             }
             sxc_file_free(dest);
-            dest = sxc_file_remote(cluster, sxfs->uri->volume, entry->remote_path+1, NULL);
+            dest = sxc_file_remote(cluster, sxfs->uri->volume, remote_path+1, NULL);
             if(!dest) {
                 SXFS_ERROR("Cannot create file object: %s", sxc_geterrmsg(sx));
                 err = 1;
@@ -2556,9 +2564,9 @@ static void* sxfs_upload_worker (void *ctx) {
             err = sxc_copy_single(src, dest, 0, 0, 0, NULL, 0);
             pthread_mutex_lock(&sxfs->upload_mutex);
             if(err)
-                SXFS_ERROR("Cannot upload '%s' (%s) file: %s", entry->remote_path, entry->local_path, sxc_geterrmsg(sx));
+                SXFS_ERROR("Cannot upload '%s' (%s) file: %s", remote_path, entry->local_path, sxc_geterrmsg(sx));
             else
-                SXFS_DEBUG("'%s' file uploaded", entry->remote_path);
+                SXFS_DEBUG("'%s' file uploaded", remote_path);
             entry->state &= ~SXFS_QUEUE_IN_PROGRESS;
             if(!err)
                 entry->state |= (SXFS_QUEUE_DONE | SXFS_QUEUE_REMOTE);
@@ -2571,6 +2579,7 @@ static void* sxfs_upload_worker (void *ctx) {
 
     err = 0;
 sxfs_upload_worker_err:
+    free(remote_path);
     sxc_file_free(src);
     sxc_file_free(dest);
     if(err) {
