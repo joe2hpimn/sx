@@ -15,7 +15,7 @@ option "foreground"         f "Run in foreground" flag off
 option "debug"              D "Enable debug messages" flag off
 option "verbose"            v "Log more information about read/write operations (enables debug mode)" flag off hidden
 option "sx-debug"           - "Enable SX debug mode (enables running in foreground)" flag off hidden
-option "open-limit"         - "Set open files limit" int optional hidden
+option "open-limit"         - "Set open files limit" int default="1024" optional hidden
 
 option "fuse-help"          - "Show FUSE help" flag off hidden
 option "fuse-version"       - "Show FUSE version" flag off hidden

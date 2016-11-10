@@ -72,7 +72,7 @@ struct gengetopt_args_info
   const char *verbose_help; /**< @brief Log more information about read/write operations (enables debug mode) help description.  */
   int sx_debug_flag;	/**< @brief Enable SX debug mode (enables running in foreground) (default=off).  */
   const char *sx_debug_help; /**< @brief Enable SX debug mode (enables running in foreground) help description.  */
-  int open_limit_arg;	/**< @brief Set open files limit.  */
+  int open_limit_arg;	/**< @brief Set open files limit (default='1024').  */
   char * open_limit_orig;	/**< @brief Set open files limit original value given at command line.  */
   const char *open_limit_help; /**< @brief Set open files limit help description.  */
   int fuse_help_flag;	/**< @brief Show FUSE help (default=off).  */

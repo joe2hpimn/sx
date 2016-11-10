@@ -49,7 +49,7 @@ const char *gengetopt_args_info_full_help[] = {
   "  -D, --debug                 Enable debug messages  (default=off)",
   "  -v, --verbose               Log more information about read/write operations\n                                (enables debug mode)  (default=off)",
   "      --sx-debug              Enable SX debug mode (enables running in\n                                foreground)  (default=off)",
-  "      --open-limit=INT        Set open files limit",
+  "      --open-limit=INT        Set open files limit  (default=`1024')",
   "      --fuse-help             Show FUSE help  (default=off)",
   "      --fuse-version          Show FUSE version  (default=off)",
   "  -s, --fuse-single-threaded  Disable FUSE multi-threaded operation\n                                (default=off)",
@@ -151,6 +151,7 @@ void clear_args (struct gengetopt_args_info *args_info)
   args_info->debug_flag = 0;
   args_info->verbose_flag = 0;
   args_info->sx_debug_flag = 0;
+  args_info->open_limit_arg = 1024;
   args_info->open_limit_orig = NULL;
   args_info->fuse_help_flag = 0;
   args_info->fuse_version_flag = 0;
@@ -1182,7 +1183,7 @@ cmdline_parser_internal (
           
             if (update_arg( (void *)&(args_info->open_limit_arg), 
                  &(args_info->open_limit_orig), &(args_info->open_limit_given),
-                &(local_args_info.open_limit_given), optarg, 0, 0, ARG_INT,
+                &(local_args_info.open_limit_given), optarg, 0, "1024", ARG_INT,
                 check_ambiguity, override, 0, 0,
                 "open-limit", '-',
                 additional_error))

@@ -3083,12 +3083,11 @@ int main (int argc, char **argv) {
     if(sxfs_daemonize(sxfs))
         goto main_err;
 
-    sxfs->fh_limit = 1024;
-    if(args.open_limit_given) {
-        if(args.open_limit_arg > 0) /* fh_limit must be a positive number */
-            sxfs->fh_limit = (size_t)args.open_limit_arg;
-        else
-            fprintf(stderr, "WARNING: Open limit must be a pasitive number. Using default value: 1024\n");
+    if(args.open_limit_arg > 0) { /* fh_limit must be a positive number */
+        sxfs->fh_limit = (size_t)args.open_limit_arg;
+    } else {
+        fprintf(stderr, "WARNING: Open limit must be a pasitive number. Using default value: 1024\n");
+        sxfs->fh_limit = 1024;
     }
     sxfs->fh_table = (sxfs_file_t**)calloc(sxfs->fh_limit, sizeof(sxfs_file_t*));
     if(!sxfs->fh_table) {
