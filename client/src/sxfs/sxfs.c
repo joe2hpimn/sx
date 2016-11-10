@@ -2823,6 +2823,14 @@ int main (int argc, char **argv) {
         sxfs = NULL;
         goto main_err;
     }
+    if((sem_init(&sxfs->download_sem, 0, SXFS_DOWNLOAD_LIMIT))) {
+        fprintf(stderr, "ERROR: Cannot initialize semaphore: %s\n", strerror(errno));
+        pthread_cond_destroy(&sxfs->delete_cond);
+        pthread_cond_destroy(&sxfs->upload_cond);
+        free(sxfs);
+        sxfs = NULL;
+        goto main_err;
+    }
     sxfs->args = &args;
     sxfs->pname = argv[0];
     sxfs->pipefd[0] = sxfs->pipefd[1] = -1;
@@ -3556,6 +3564,8 @@ main_err:
             print_and_log(sxfs->logfile, "ERROR: Cannot destroy pthread condition: %s\n", strerror(err));
         if((err = pthread_cond_destroy(&sxfs->upload_cond)))
             print_and_log(sxfs->logfile, "ERROR: Cannot destroy pthread condition: %s\n", strerror(err));
+        if(sem_destroy(&sxfs->download_sem))
+            print_and_log(sxfs->logfile, "ERROR: Cannot destroy semaphore: %s\n", strerror(errno));
         if(sxfs->files) {
             int files_not_uploaded = 0, recovery_failed = 0;
             unsigned int pathlen;

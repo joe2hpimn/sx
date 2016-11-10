@@ -661,7 +661,7 @@ move_block_to_lfu_err:
 } /* move_block_to_lfu */
 
 static int cache_download (sxfs_state_t *sxfs, sxi_sxfs_data_t *fdata, unsigned int block, char **path, int *file_fd, off_t offset) {
-    int ret, fd = -1, tmp_fd = -1, mutex_locked = 0, used_added = 0, block_state_added = 0;
+    int ret, fd = -1, tmp_fd = -1, mutex_locked = 0, got_sem = 0, used_added = 0, block_state_added = 0;
     ssize_t bytes;
     char *tmp_path = NULL, *buff = NULL;
     sxc_client_t *sx;
@@ -674,6 +674,12 @@ static int cache_download (sxfs_state_t *sxfs, sxi_sxfs_data_t *fdata, unsigned 
         SXFS_ERROR("NULL file descriptor pointer");
         return -EINVAL;
     }
+    if(sem_wait(&sxfs->download_sem)) {
+        ret = -errno;
+        SXFS_ERROR("Failed to wait for semaphore: %s", strerror(errno));
+        goto cache_download_err;
+    }
+    got_sem = 1;
     pthread_mutex_lock(&cache->lru_mutex);
     mutex_locked = 1;
     if(*file_fd < 0) {
@@ -684,8 +690,12 @@ static int cache_download (sxfs_state_t *sxfs, sxi_sxfs_data_t *fdata, unsigned 
                 SXFS_ERROR("Cannot create '%s' file: %s", *path, strerror(errno));
                 if(ret == -ENOSPC)
                     ENOSPC_handler(sxfs);
-                pthread_mutex_unlock(&cache->lru_mutex);
-                return ret;
+                goto cache_download_err;
+            }
+            if(sem_post(&sxfs->download_sem)) {
+                ret = -errno;
+                SXFS_ERROR("Failed to post the semaphore: %s", strerror(errno));
+                goto cache_download_err;
             }
             /* handle race condition */
             fd = open(*path, O_RDWR);
@@ -839,6 +849,8 @@ cache_download_err:
     } else if(block_state_added) {
         block_state->status = BLOCK_STATUS_DONE;
     }
+    if(got_sem && sem_post(&sxfs->download_sem))
+        SXFS_ERROR("Failed to post the semaphore: %s", strerror(errno));
     pthread_mutex_unlock(&cache->lru_mutex);
     free(buff);
     free(tmp_path);
@@ -986,6 +998,8 @@ cache_download_thread_err:
     free(fdata2.ha);
     free(cdata->dir);
     sxc_file_free(file);
+    if(sem_post(&sxfs->download_sem))
+        SXFS_ERROR("Failed to post the semaphore: %s", strerror(errno));
     pthread_mutex_lock(&sxfs->limits_mutex);
     sxfs->threads_num--;
     cdata->sxfs_file->threads_num--;
@@ -998,7 +1012,7 @@ cache_download_thread_err:
 } /* cache_download_thread */
 
 static void cache_read_background (sxfs_state_t *sxfs, sxfs_file_t *sxfs_file, unsigned int block) {
-    int err, end_reached = 0, duplicate, cache_locked = 0;
+    int err, end_reached = 0, duplicate, cache_locked = 0, got_sem = 0;
     unsigned int i, j, nblocks, tmp_nblocks = 0;
     char *path;
     const char *dir = "foo"; /* shut up warnings */
@@ -1049,6 +1063,16 @@ static void cache_read_background (sxfs_state_t *sxfs, sxfs_file_t *sxfs_file, u
         goto cache_read_background_err;
     }
     sprintf(cdata->dir, "%s/%s", cache->tempdir, dir);
+    if(sem_trywait(&sxfs->download_sem)) {
+        err = -errno;
+        if(errno == EAGAIN) { /* the decrement cannot be immediately performed */
+            SXFS_VERBOSE("Download operations limit reached");
+        } else {
+            SXFS_ERROR("Failed to wait for semaphore: %s", strerror(errno));
+        }
+        goto cache_read_background_err;
+    }
+    got_sem = 1;
     pthread_mutex_lock(&cache->lru_mutex);
     cache_locked = 1;
     for(i=0; cdata->nblocks < nblocks; i++) {
@@ -1144,6 +1168,7 @@ static void cache_read_background (sxfs_state_t *sxfs, sxfs_file_t *sxfs_file, u
         if((err = pthread_detach(thread)))
             SXFS_ERROR("Cannot detach the thread: %s", strerror(err));
         cdata = NULL;
+        got_sem = 0; /* it will be post in download thread */
     }
 
     err = 0;
@@ -1182,6 +1207,8 @@ cache_read_background_err:
             }
         }
     }
+    if(got_sem && sem_post(&sxfs->download_sem))
+        SXFS_ERROR("Failed to post the semaphore: %s", strerror(errno));
     pthread_mutex_unlock(&cache->lru_mutex);
     if(cdata) {
         free(cdata->dir);

@@ -376,7 +376,7 @@ int sxfs_clear_path (const char *path) {
 } /* sxfs_clear_path */
 
 int sxfs_get_file (sxfs_state_t *sxfs, sxfs_file_t *sxfs_file) {
-    int ret, fd = -1;
+    int ret, fd = -1, got_sem = 0;
     ssize_t retval;
     off_t offset = 0;
     char *local_file_path, buff[4096];
@@ -407,6 +407,12 @@ int sxfs_get_file (sxfs_state_t *sxfs, sxfs_file_t *sxfs_file) {
         sxc_cluster_t *cluster;
         sxc_file_t *file_local, *file_remote;
 
+        if(sem_wait(&sxfs->download_sem)) {
+            ret = -errno;
+            SXFS_ERROR("Failed to wait for semaphore: %s", strerror(errno));
+            goto sxfs_get_file_err;
+        }
+        got_sem = 1;
         if((ret = sxfs_get_sx_data(sxfs, &sx, &cluster))) {
             SXFS_ERROR("Cannot get SX data");
             goto sxfs_get_file_err;
@@ -464,6 +470,8 @@ int sxfs_get_file (sxfs_state_t *sxfs, sxfs_file_t *sxfs_file) {
     ret = 0;
 sxfs_get_file_err:
     pthread_mutex_unlock(&sxfs_file->mutex);
+    if(got_sem && sem_post(&sxfs->download_sem))
+        SXFS_ERROR("Failed to post the semaphore: %s", strerror(errno));
     if(fd >= 0 && close(fd))
         SXFS_ERROR("Cannot close '%s' file: %s", local_file_path, strerror(errno));
     if(local_file_path && unlink(local_file_path))

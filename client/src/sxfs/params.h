@@ -32,6 +32,7 @@
 #include "default.h"
 #include <stdio.h>
 #include <pthread.h>
+#include <semaphore.h>
 #define FUSE_USE_VERSION 26 /* This has to be defined before fuse.h */
 #include <fuse.h>
 #include <sx.h>
@@ -45,14 +46,15 @@
 #define SXFS_LOSTDIR_SUFIX "-lost"
 #define SXFS_ALLOC_ENTRIES 100
 #define SXFS_THREADS_LIMIT 64
+#define SXFS_DOWNLOAD_LIMIT 16
 #define SXFS_FILE_OPENED 0x1
 #define SXFS_FILE_REMOVED 0x2
 #define SXFS_FILE_ATTR (S_IFREG|S_IRUSR|S_IWUSR|S_IRGRP|S_IWGRP|S_IROTH|S_IWOTH)
 #define SXFS_DIR_ATTR (S_IFDIR|S_IRUSR|S_IWUSR|S_IXUSR|S_IRGRP|S_IWGRP|S_IXGRP|S_IROTH|S_IWOTH|S_IXOTH)
 #define SXFS_DIR_SIZE SX_BS_SMALL
 
-#define SXFS_BS_SMALL_AMOUNT 256    /* 4 kB * 256 = 1MB */
-#define SXFS_BS_MEDIUM_AMOUNT 128   /* 16 kB * 128 = 2MB */
+#define SXFS_BS_SMALL_AMOUNT 256    /*  4 kB * 256 = 1MB */
+#define SXFS_BS_MEDIUM_AMOUNT 32    /* 16 kB * 128 = 2MB */
 #define SXFS_BS_LARGE_AMOUNT 4      /*  1 MB *  4  = 4MB */
 
 #define SXFS_THREAD_WAIT 200000L /* microseconds to wait for other threads (200000 -> 0.2s) */
@@ -111,6 +113,7 @@ struct _sxfs_state {
     /* mutex priority: ls > delete > upload */
     pthread_mutex_t sx_data_mutex, ls_mutex, delete_mutex, delete_thread_mutex, upload_mutex, upload_thread_mutex, files_mutex, limits_mutex;
     pthread_cond_t delete_cond, upload_cond;
+    sem_t download_sem;
     sxc_uri_t *uri;
     sxi_ht *files;
     sxfs_lsdir_t *root;
