@@ -522,6 +522,14 @@ static int move_block_to_lfu (sxfs_state_t *sxfs, sxi_sxfs_data_t *fdata, char *
         }
         return 0;
     }
+    /* lru_mutex is already locked in cache_read_block() */
+    pthread_mutex_lock(&cache->lfu_mutex);
+    lfu_locked = 1;
+    /* this is done under both locks to avoid race condition in accessing block_state->times_used */
+    if(block_state->times_used < CACHE_LFU_THRESHOLD) {
+        pthread_mutex_unlock(&cache->lfu_mutex);
+        return 0;
+    }
     switch(fdata->blocksize) {
         case SX_BS_SMALL:
             dir = "small";
@@ -537,13 +545,15 @@ static int move_block_to_lfu (sxfs_state_t *sxfs, sxi_sxfs_data_t *fdata, char *
             break;
         default:
             SXFS_ERROR("Unknown block size");
-            return -EINVAL;
+            ret = -EINVAL;
+            goto move_block_to_lfu_err;
     }
 
     lfu_file_path = (char*)malloc(strlen(cache->tempdir) + 1 + lenof("lfu") + 1 + strlen(dir) + 1 + strlen(block_name) + 1);
     if(!lfu_file_path) {
         SXFS_ERROR("Out of memory");
-        return -ENOMEM;
+        ret = -ENOMEM;
+        goto move_block_to_lfu_err;
     }
     sprintf(lfu_file_path, "%s/lfu/%s/%s", cache->tempdir, dir, block_name);
 
@@ -569,9 +579,6 @@ static int move_block_to_lfu (sxfs_state_t *sxfs, sxi_sxfs_data_t *fdata, char *
         goto move_block_to_lfu_err;
     }
 
-    pthread_mutex_lock(&cache->lfu_mutex);
-    lfu_locked = 1;
-    /* lru_mutex is already locked in cache_read_block() */
     lfu_n = &cache->lfu_entries[lfu_index];
     lfu_max = &cache->lfu_max[lfu_index];
 
@@ -705,7 +712,7 @@ static int cache_download (sxfs_state_t *sxfs, sxi_sxfs_data_t *fdata, unsigned 
                 pthread_mutex_unlock(&cache->lru_mutex);
                 return ret;
             }
-            if(block_state->times_used >= CACHE_LFU_THRESHOLD && (ret = move_block_to_lfu(sxfs, fdata, path, fdata->ha[block], block_state))) {
+            if((ret = move_block_to_lfu(sxfs, fdata, path, fdata->ha[block], block_state))) {
                 if(close(fd))
                     SXFS_ERROR("Cannot close '%s' file: %s", *path, strerror(errno));
                 pthread_mutex_unlock(&cache->lru_mutex);
@@ -1309,7 +1316,7 @@ static ssize_t cache_read_block (sxfs_state_t *sxfs, sxi_sxfs_data_t *fdata, uns
             }
         }
         /* possible race condition here since wait_for_block() can unlock the mutex for a while */
-        if(block_state && block_state->times_used >= CACHE_LFU_THRESHOLD && (ret = move_block_to_lfu(sxfs, fdata, &path, block_name, block_state)))
+        if(block_state && (ret = move_block_to_lfu(sxfs, fdata, &path, block_name, block_state)))
             goto cache_read_block_err;
         pthread_mutex_unlock(&cache->lru_mutex);
         locked &= ~CACHE_LRU_MUTEX;
