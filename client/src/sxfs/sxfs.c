@@ -1781,6 +1781,7 @@ static int sxfs_flush (const char *path, struct fuse_file_info *file_info) {
     }
     SXFS_DEBUG("'%s' (fd: %llu)", path, (unsigned long long int)file_info->fh);
     FH_CHECK(file_info->fh);
+    pthread_mutex_lock(&sxfs->ls_mutex);
     pthread_mutex_lock(&sxfs_file->mutex);
     if(sxfs_file->flush > 0) {
         SXFS_DEBUG("Using file descriptor: %d", sxfs_file->write_fd);
@@ -1822,6 +1823,7 @@ static int sxfs_flush (const char *path, struct fuse_file_info *file_info) {
     ret = 0;
 sxfs_flush_err:
     pthread_mutex_unlock(&sxfs_file->mutex);
+    pthread_mutex_unlock(&sxfs->ls_mutex);
     if(fd >= 0 && close(fd))
         SXFS_ERROR("Cannot close '%s' file: %s", file_path, strerror(errno));
     if(file_path && unlink(file_path) && errno != ENOENT)
@@ -1860,6 +1862,7 @@ static int sxfs_release (const char *path, struct fuse_file_info *file_info) {
     else
         sxfs->fh_table[file_info->fh] = NULL;
     pthread_mutex_unlock(&sxfs->limits_mutex);
+    pthread_mutex_lock(&sxfs->ls_mutex);
     pthread_mutex_lock(&sxfs->files_mutex);
     if(!sxfs_file && (!path || sxi_ht_get(sxfs->files, path, strlen(path), (void**)&sxfs_file))) { /* try to cleanup data in case of fh_table inconsistency */
         SXFS_ERROR("File not opened: %s", path);
@@ -1887,6 +1890,7 @@ static int sxfs_release (const char *path, struct fuse_file_info *file_info) {
 
 sxfs_release_err:
     pthread_mutex_unlock(&sxfs->files_mutex);
+    pthread_mutex_unlock(&sxfs->ls_mutex);
     return 0; /* return value of release() is ignored by FUSE */
 } /* sxfs_release */
 
@@ -1909,16 +1913,19 @@ static int sxfs_fsync (const char *path, int datasync, struct fuse_file_info *fi
     }
     SXFS_DEBUG("'%s', datasync: %d (fd: %llu)", path, datasync, (unsigned long long int)file_info->fh);
     FH_CHECK(file_info->fh);
+    pthread_mutex_lock(&sxfs->ls_mutex);
     pthread_mutex_lock(&sxfs_file->mutex);
     if(sxfs_file->flush > 0) {
         if((ret = sxfs_upload_force(sxfs_file->write_path, sxfs_file->remote_path, sxfs_file->ls_file))) {
             pthread_mutex_unlock(&sxfs_file->mutex);
+            pthread_mutex_unlock(&sxfs->ls_mutex);
             SXFS_ERROR("Cannot upload the file");
             return ret;
         }
         sxfs_file->flush = 0;
     }
     pthread_mutex_unlock(&sxfs_file->mutex);
+    pthread_mutex_unlock(&sxfs->ls_mutex);
     return 0;
 } /* sxfs_fsync */
 
