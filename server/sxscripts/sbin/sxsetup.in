@@ -104,6 +104,7 @@ fi
 CFG_VERSION=3
 ETCDIR="@sysconfdir@"
 CONFIG="$ETCDIR/sxserver/sxsetup.conf"
+ADMINPROF="admin"
 
 check_port() {
     IP=$1
@@ -140,13 +141,13 @@ cluster_modify() {
     LOCKCNT=1
     MODCNT=1
     while true; do
-	if [ -n "`@sbindir@/sxadm cluster --info sx://admin@$SX_CLUSTER_NAME 2>&1 | grep 'activity:'`" ]; then
+	if [ -n "`@sbindir@/sxadm cluster --info sx://$ADMINPROF@$SX_CLUSTER_NAME 2>&1 | grep 'activity:'`" ]; then
 	    echo "Cluster is busy (another operation in progress)... retrying in 60 seconds (attempt $LOCKCNT of 10)."
 	    LOCKCNT=`expr $LOCKCNT + 1`
 	    sleep 60
 	    continue
 	fi
-	"@sbindir@/sxadm" cluster --lock "sx://admin@$SX_CLUSTER_NAME" > $OUT_TMP 2>&1
+	"@sbindir@/sxadm" cluster --lock "sx://$ADMINPROF@$SX_CLUSTER_NAME" > $OUT_TMP 2>&1
 	if [ $? -ne 0 ]; then
 	    if [ -n "`grep 'Cluster is already locked' $OUT_TMP`" -o -n "`grep 'Distribution changes in progress' $OUT_TMP`" ] && [ $LOCKCNT -le 10 ]; then
 		echo "Cluster is busy (already locked for changes by another process)... retrying in 60 seconds (attempt $LOCKCNT of 10)."
@@ -161,16 +162,16 @@ cluster_modify() {
 	    return 1
 	fi
 
-	"@sbindir@/sxadm" cluster --info "sx://admin@$SX_CLUSTER_NAME" > $OUT_TMP
+	"@sbindir@/sxadm" cluster --info "sx://$ADMINPROF@$SX_CLUSTER_NAME" > $OUT_TMP
 	if [ $? -ne 0 ]; then
 	    echo "Failed to retrieve current configuration of the cluster."
-	    "@sbindir@/sxadm" cluster --unlock "sx://admin@$SX_CLUSTER_NAME" > /dev/null
+	    "@sbindir@/sxadm" cluster --unlock "sx://$ADMINPROF@$SX_CLUSTER_NAME" > /dev/null
 	    return 1
 	fi
 	SXDIST=`cat $OUT_TMP | grep "Current configuration" | cut -d: -f 2-`
 	if [ -z "$SXDIST" ]; then
 	    echo "Failed to obtain the node information."
-	    "@sbindir@/sxadm" cluster --unlock "sx://admin@$SX_CLUSTER_NAME" > /dev/null
+	    "@sbindir@/sxadm" cluster --unlock "sx://$ADMINPROF@$SX_CLUSTER_NAME" > /dev/null
 	    return 1
 	fi
 
@@ -192,16 +193,16 @@ cluster_modify() {
             SXDIST=`echo $SXDIST | sed -e "s|/$SX_NODE_IP/|/$NEW_IP/|g" -e "s|/$SX_NODE_INTERNAL_IP/|/$NEW_INTERNAL_IP/|g"`
 	else
 	    echo "Invalid operation mode."
-	    "@sbindir@/sxadm" cluster --unlock "sx://admin@$SX_CLUSTER_NAME" > /dev/null
+	    "@sbindir@/sxadm" cluster --unlock "sx://$ADMINPROF@$SX_CLUSTER_NAME" > /dev/null
 	    return 1
 	fi
 
-	"@sbindir@/sxadm" cluster --modify $SXDIST "sx://admin@$SX_CLUSTER_NAME" 2>$OUT_TMP
+	"@sbindir@/sxadm" cluster --modify $SXDIST "sx://$ADMINPROF@$SX_CLUSTER_NAME" 2>$OUT_TMP
 	if [ $? = 0 ]; then
-	    "@sbindir@/sxadm" cluster --unlock "sx://admin@$SX_CLUSTER_NAME" > /dev/null
+	    "@sbindir@/sxadm" cluster --unlock "sx://$ADMINPROF@$SX_CLUSTER_NAME" > /dev/null
 	    break
 	fi
-	"@sbindir@/sxadm" cluster --unlock "sx://admin@$SX_CLUSTER_NAME" > /dev/null
+	"@sbindir@/sxadm" cluster --unlock "sx://$ADMINPROF@$SX_CLUSTER_NAME" > /dev/null
 	if [ -n "`grep -E 'temporarily locked|complex operation|Failed to setup job targets' $OUT_TMP`" -a $MODCNT -le 10 ]; then
 	    echo "Cluster busy... retrying in 60 seconds (attempt $MODCNT of 10)."
 	    MODCNT=`expr $MODCNT + 1`
@@ -216,13 +217,19 @@ cluster_modify() {
 }
 
 check_admin() {
-    "@bindir@/sxinit" -I "sx://admin@$SX_CLUSTER_NAME" > /dev/null 2>&1
+    "@bindir@/sxinit" -I "sx://$ADMINPROF@$SX_CLUSTER_NAME" > /dev/null 2>&1
     if [ $? -ne 0 ]; then
-	echo "ERROR: sxsetup requires a configured admin profile 'sx://admin@$SX_CLUSTER_NAME' to perform the requested operation."
-	echo "Please run:"
-	echo "   sxinit sx://admin@$SX_CLUSTER_NAME"
-	echo "then provide the admin key and try again."
-	return 1
+	# check if there is a default profile with admin key
+	grep '0DPiKuNIrrVmD8IUCuw1hQxNqZ' $HOME/.sx/$SX_CLUSTER_NAME/auth/default
+	if [ $? -ne 0 ]; then
+	    echo "ERROR: sxsetup requires a configured admin profile 'sx://$ADMINPROF@$SX_CLUSTER_NAME' to perform the requested operation."
+	    echo "Please run:"
+	    echo "   sxinit sx://$ADMINPROF@$SX_CLUSTER_NAME"
+	    echo "then provide the admin key and try again."
+	    return 1
+	else
+	    ADMINPROF="default"
+	fi
     fi
     return 0
 }
@@ -345,7 +352,7 @@ if [ "$INFO_GIVEN" = "yes" -o "$UPGRADE_GIVEN" = "yes" -o "$COMPACT_GIVEN" = "ye
 	export SX_DEBUG_SINGLEHOST=$NEW_IP
 	echo "$SX_ADMIN_KEY" > $ADMINKEY_TMP
 	test "$SX_USE_SSL" = "no" && NOSSL_FLAG="--no-ssl"
-	"@bindir@/sxinit" --batch-mode --force-reinit --port="$SX_PORT" $NOSSL_FLAG --auth-file="$ADMINKEY_TMP" --host-list="$NEW_IP" "sx://admin@$SX_CLUSTER_NAME"
+	"@bindir@/sxinit" --batch-mode --force-reinit --port="$SX_PORT" $NOSSL_FLAG --auth-file="$ADMINKEY_TMP" --host-list="$NEW_IP" "sx://$ADMINPROF@$SX_CLUSTER_NAME"
 
 	cluster_modify
 	if [ $? -ne 0 ]; then
@@ -353,7 +360,7 @@ if [ "$INFO_GIVEN" = "yes" -o "$UPGRADE_GIVEN" = "yes" -o "$COMPACT_GIVEN" = "ye
 	    mv -f "$ETCDIR/sxserver/sxsetup.conf.old_ip" "$ETCDIR/sxserver/sxsetup.conf"
 	    if [ -n "$WAS_RUNNING" ]; then
 		"@sbindir@/sxserver" restart
-		"@bindir@/sxinit" --batch-mode --force-reinit --port="$SX_PORT" $NOSSL_FLAG --auth-file="$ADMINKEY_TMP" --host-list="$SX_NODE_IP" "sx://admin@$SX_CLUSTER_NAME" > /dev/null 2>&1
+		"@bindir@/sxinit" --batch-mode --force-reinit --port="$SX_PORT" $NOSSL_FLAG --auth-file="$ADMINKEY_TMP" --host-list="$SX_NODE_IP" "sx://$ADMINPROF@$SX_CLUSTER_NAME" > /dev/null 2>&1
 	    else
 		"@sbindir@/sxserver" stop
 	    fi
@@ -363,7 +370,7 @@ if [ "$INFO_GIVEN" = "yes" -o "$UPGRADE_GIVEN" = "yes" -o "$COMPACT_GIVEN" = "ye
 
 	# fetch proper list of nodes
 	unset SX_DEBUG_SINGLEHOST
-	"@bindir@/sxls" "sx://admin@$SX_CLUSTER_NAME" > /dev/null 2>&1
+	"@bindir@/sxls" "sx://$ADMINPROF@$SX_CLUSTER_NAME" > /dev/null 2>&1
 
 	echo "The IP address of the node has been updated"
 	rm -rf $SXSETUP_TMPDIR
@@ -373,10 +380,10 @@ if [ "$INFO_GIVEN" = "yes" -o "$UPGRADE_GIVEN" = "yes" -o "$COMPACT_GIVEN" = "ye
     elif [ "$COMPACT_GIVEN" = "yes" -o "$CHECK_GIVEN" = "yes" ]; then
 	check_admin || exit 1
 
-	HB_DEADTIME="`@sbindir@/sxadm cluster --get-param hb_deadtime sx://admin@$SX_CLUSTER_NAME 2>/dev/null | grep hb_deadtime | grep -v '=0$'`"
+	HB_DEADTIME="`@sbindir@/sxadm cluster --get-param hb_deadtime sx://$ADMINPROF@$SX_CLUSTER_NAME 2>/dev/null | grep hb_deadtime | grep -v '=0$'`"
 	if [ -n "$HB_DEADTIME" ]; then
 	    echo "Temporarily disabling automatic node removal..."
-	    "@sbindir@/sxadm" cluster --set-param hb_deadtime=0 "sx://admin@$SX_CLUSTER_NAME"
+	    "@sbindir@/sxadm" cluster --set-param hb_deadtime=0 "sx://$ADMINPROF@$SX_CLUSTER_NAME"
 	    if [ $? -ne 0 ]; then
 		echo "ERROR: Failed to update Raft settings (hb_deadtime=0)"
 		exit 1
@@ -392,7 +399,7 @@ if [ "$INFO_GIVEN" = "yes" -o "$UPGRADE_GIVEN" = "yes" -o "$COMPACT_GIVEN" = "ye
 	"@sbindir@/sxserver" start
 	if [ -n "$HB_DEADTIME" ]; then
 	    echo "Re-enabling automatic node removal..."
-	    "@sbindir@/sxadm" cluster --set-param $HB_DEADTIME "sx://admin@$SX_CLUSTER_NAME" 
+	    "@sbindir@/sxadm" cluster --set-param $HB_DEADTIME "sx://$ADMINPROF@$SX_CLUSTER_NAME" 
 	    if [ $? -ne 0 ]; then
 		echo "WARNING: Failed to update Raft settings ($HB_DEADTIME)"
 		exit 1
@@ -445,10 +452,10 @@ if [ "$INFO_GIVEN" = "yes" -o "$UPGRADE_GIVEN" = "yes" -o "$COMPACT_GIVEN" = "ye
 	# Upgrade hashfs
         "@sbindir@/sxadm" node $OWNERFLAG --info "$SX_DATA_DIR" > /dev/null 2>&1
 	if [ $? -ne 0 ]; then
-	    HB_DEADTIME="`@sbindir@/sxadm cluster --get-param hb_deadtime sx://admin@$SX_CLUSTER_NAME 2>/dev/null | grep hb_deadtime | grep -v '=0$'`"
+	    HB_DEADTIME="`@sbindir@/sxadm cluster --get-param hb_deadtime sx://$ADMINPROF@$SX_CLUSTER_NAME 2>/dev/null | grep hb_deadtime | grep -v '=0$'`"
 	    if [ -n "$HB_DEADTIME" ]; then
 		echo "Temporarily disabling automatic node removal..."
-		"@sbindir@/sxadm" cluster --set-param hb_deadtime=0 "sx://admin@$SX_CLUSTER_NAME"
+		"@sbindir@/sxadm" cluster --set-param hb_deadtime=0 "sx://$ADMINPROF@$SX_CLUSTER_NAME"
 		if [ $? -ne 0 ]; then
 		    echo "WARNING: Failed to update Raft settings (hb_deadtime=0)"
 		fi
@@ -459,7 +466,7 @@ if [ "$INFO_GIVEN" = "yes" -o "$UPGRADE_GIVEN" = "yes" -o "$COMPACT_GIVEN" = "ye
 	    if [ $? -ne 0 ]; then
 		echo "ERROR: Failed to upgrade the local node"
 		"@sbindir@/sxserver" start
-		test -n "$HB_DEADTIME" && "@sbindir@/sxadm" cluster --set-param $HB_DEADTIME "sx://admin@$SX_CLUSTER_NAME" 
+		test -n "$HB_DEADTIME" && "@sbindir@/sxadm" cluster --set-param $HB_DEADTIME "sx://$ADMINPROF@$SX_CLUSTER_NAME" 
 		exit 1
 	    fi
 	    "@sbindir@/sxserver" start
@@ -476,7 +483,7 @@ if [ "$INFO_GIVEN" = "yes" -o "$UPGRADE_GIVEN" = "yes" -o "$COMPACT_GIVEN" = "ye
 
 	if [ -n "$HB_DEADTIME" ]; then
 	    echo "Re-enabling automatic node removal..."
-	    "@sbindir@/sxadm" cluster --set-param $HB_DEADTIME "sx://admin@$SX_CLUSTER_NAME" 
+	    "@sbindir@/sxadm" cluster --set-param $HB_DEADTIME "sx://$ADMINPROF@$SX_CLUSTER_NAME" 
 	    if [ $? -ne 0 ]; then
 		echo "WARNING: Failed to update Raft settings ($HB_DEADTIME)"
 		echo "Please update the settings when the cluster is fully upgraded."
@@ -484,16 +491,16 @@ if [ "$INFO_GIVEN" = "yes" -o "$UPGRADE_GIVEN" = "yes" -o "$COMPACT_GIVEN" = "ye
 	fi
 
 	# move remote sxsetup.conf into settings if needed
-	"@bindir@/sxls" "sx://admin@$SX_CLUSTER_NAME/_sxsetup.conf" > /dev/null 2>&1
+	"@bindir@/sxls" "sx://$ADMINPROF@$SX_CLUSTER_NAME/_sxsetup.conf" > /dev/null 2>&1
 	if [ $? = 0 ]; then
 	    XCONF=`cat $CONFIG | xxd -ps 2>/dev/null | tr -d '\n'`
 	    if [ -n "$XCONF" ]; then
 		echo "Moving remote sxsetup.conf into cluster settings..."
-		"@sbindir@/sxadm" cluster --set-param sxsetup_conf=$XCONF "sx://admin@$SX_CLUSTER_NAME" > /dev/null 2>&1
+		"@sbindir@/sxadm" cluster --set-param sxsetup_conf=$XCONF "sx://$ADMINPROF@$SX_CLUSTER_NAME" > /dev/null 2>&1
 		if [ $? = 0 ]; then
 		    echo "Removing _sxsetup.conf volume..."
-		    "@bindir@/sxrm" -r "sx://admin@$SX_CLUSTER_NAME/_sxsetup.conf" > /dev/null 2>&1
-		    "@bindir@/sxvol" remove "sx://admin@$SX_CLUSTER_NAME/_sxsetup.conf" > /dev/null 2>&1
+		    "@bindir@/sxrm" -r "sx://$ADMINPROF@$SX_CLUSTER_NAME/_sxsetup.conf" > /dev/null 2>&1
+		    "@bindir@/sxvol" remove "sx://$ADMINPROF@$SX_CLUSTER_NAME/_sxsetup.conf" > /dev/null 2>&1
 		fi
 	    fi
 	fi
@@ -504,7 +511,7 @@ if [ "$INFO_GIVEN" = "yes" -o "$UPGRADE_GIVEN" = "yes" -o "$COMPACT_GIVEN" = "ye
 	    echo "ERROR: Failed to create temporary file"
 	    exit 1
 	fi
-        "@sbindir@/sxadm" cluster --upgrade "sx://admin@$SX_CLUSTER_NAME" > $OUT 2>&1
+        "@sbindir@/sxadm" cluster --upgrade "sx://$ADMINPROF@$SX_CLUSTER_NAME" > $OUT 2>&1
 	RET=$?
 	if [ $RET -eq 2 ]; then
 	    cat $OUT
@@ -534,10 +541,10 @@ if [ "$INFO_GIVEN" = "yes" -o "$UPGRADE_GIVEN" = "yes" -o "$COMPACT_GIVEN" = "ye
 	echo "Upgrading remote cluster data..."
 	cat $OUT
 	rm $OUT
-        "@sbindir@/sxadm" cluster --info "sx://admin@$SX_CLUSTER_NAME"
+        "@sbindir@/sxadm" cluster --info "sx://$ADMINPROF@$SX_CLUSTER_NAME"
 	echo
 	echo "Remote upgrade started. You can monitor the progress by running:"
-	echo "@sbindir@/sxadm cluster --info sx://admin@$SX_CLUSTER_NAME"
+	echo "@sbindir@/sxadm cluster --info sx://$ADMINPROF@$SX_CLUSTER_NAME"
 	rm -rf $SXSETUP_TMPDIR
 	trap - EXIT INT
 	exit 0
@@ -972,8 +979,8 @@ EOF
 			# try to obtain existing node's sxsetup.conf (non-critical)
 			echo "$SX_ADMIN_KEY" > $ADMINKEY_TMP
 			test "$SX_USE_SSL" = "no" && NOSSL_FLAG="--no-ssl"
-			"@bindir@/sxinit" --batch-mode --force-reinit --port="$SX_PORT" $NOSSL_FLAG --auth-file="$ADMINKEY_TMP" --host-list="$SX_EXISTING_NODE_IP" "sx://admin@$SX_CLUSTER_NAME" > /dev/null 2>&1
-			"@bindir@/sxcp" "sx://admin@$SX_CLUSTER_NAME/_sxsetup.conf/sxsetup.conf.$SX_EXISTING_NODE_IP" $XCONF_TMP > /dev/null 2>&1
+			"@bindir@/sxinit" --batch-mode --force-reinit --port="$SX_PORT" $NOSSL_FLAG --auth-file="$ADMINKEY_TMP" --host-list="$SX_EXISTING_NODE_IP" "sx://$ADMINPROF@$SX_CLUSTER_NAME" > /dev/null 2>&1
+			"@bindir@/sxcp" "sx://$ADMINPROF@$SX_CLUSTER_NAME/_sxsetup.conf/sxsetup.conf.$SX_EXISTING_NODE_IP" $XCONF_TMP > /dev/null 2>&1
 			if [ $? = 0 ]; then
 			    sed -e "s/SX_/XSX_/g" $XCONF_TMP > $OUT_TMP
 			    if [ $? = 0 ]; then
@@ -981,7 +988,7 @@ EOF
 				. $XCONF_TMP
 			    fi
 			else
-			    "@sbindir@/sxadm" cluster --get-param sxsetup_conf "sx://admin@$SX_CLUSTER_NAME" 2>/dev/null | sed 's/sxsetup_conf=//' | xxd -ps -r > $XCONF_TMP 2>/dev/null
+			    "@sbindir@/sxadm" cluster --get-param sxsetup_conf "sx://$ADMINPROF@$SX_CLUSTER_NAME" 2>/dev/null | sed 's/sxsetup_conf=//' | xxd -ps -r > $XCONF_TMP 2>/dev/null
 			    if [ -s "$XCONF_TMP" ]; then
 				sed -e "s/SX_/XSX_/g" $XCONF_TMP > $OUT_TMP
 				if [ $? = 0 ]; then
@@ -1178,7 +1185,7 @@ if [ "$DEACTIVATE_GIVEN" = "yes" ]; then
 
     echo "Waiting for cluster to finish data relocation..."
     while true; do
-	"@sbindir@/sxadm" cluster --info "sx://admin@$SX_CLUSTER_NAME" > $OUT_TMP
+	"@sbindir@/sxadm" cluster --info "sx://$ADMINPROF@$SX_CLUSTER_NAME" > $OUT_TMP
 	if [ $? -ne 0 ]; then
 	    sleep 10
 	    continue
@@ -1554,14 +1561,14 @@ if [ ! -f "$SX_DATA_DIR/hashfs.db" ]; then
 	# store sxsetup.conf (non-critical)
 	if [ "$NO_REMOTE_COPY_GIVEN" != "yes" ]; then
 	    echo "$SX_ADMIN_KEY" > $ADMINKEY_TMP
-	    "@bindir@/sxinit" --batch-mode --force-reinit --port="$SX_PORT" $NOSSL_FLAG --auth-file="$ADMINKEY_TMP" --host-list="$SX_NODE_IP" "sx://admin@$SX_CLUSTER_NAME" > /dev/null 2>&1
+	    "@bindir@/sxinit" --batch-mode --force-reinit --port="$SX_PORT" $NOSSL_FLAG --auth-file="$ADMINKEY_TMP" --host-list="$SX_NODE_IP" "sx://$ADMINPROF@$SX_CLUSTER_NAME" > /dev/null 2>&1
 	    if [ $? = 0 ]; then
 		XCONF=`cat $CONFIG | xxd -ps 2>/dev/null | tr -d '\n'`
 		if [ -n "$XCONF" ]; then
-		    "@sbindir@/sxadm" cluster --set-param sxsetup_conf=$XCONF "sx://admin@$SX_CLUSTER_NAME" > /dev/null 2>&1
+		    "@sbindir@/sxadm" cluster --set-param sxsetup_conf=$XCONF "sx://$ADMINPROF@$SX_CLUSTER_NAME" > /dev/null 2>&1
 		    if [ $? = 0 ]; then
-			"@bindir@/sxrm" -r "sx://admin@$SX_CLUSTER_NAME/_sxsetup.conf" > /dev/null 2>&1
-			"@bindir@/sxvol" remove "sx://admin@$SX_CLUSTER_NAME/_sxsetup.conf" > /dev/null 2>&1
+			"@bindir@/sxrm" -r "sx://$ADMINPROF@$SX_CLUSTER_NAME/_sxsetup.conf" > /dev/null 2>&1
+			"@bindir@/sxvol" remove "sx://$ADMINPROF@$SX_CLUSTER_NAME/_sxsetup.conf" > /dev/null 2>&1
 		    fi
 		fi
 	    fi
@@ -1570,7 +1577,7 @@ if [ ! -f "$SX_DATA_DIR/hashfs.db" ]; then
     else
 	# Config access to the cluster
 	test "$CONFIG_FILE_GIVEN" = "yes" && SXINITFLAGS="--batch-mode"
-	"@bindir@/sxinit" --force-reinit --port="$SX_PORT" $NOSSL_FLAG $SXINITFLAGS --auth-file="$ADMINKEY_TMP" --host-list="$SX_EXISTING_NODE_IP" "sx://admin@$SX_CLUSTER_NAME"
+	"@bindir@/sxinit" --force-reinit --port="$SX_PORT" $NOSSL_FLAG $SXINITFLAGS --auth-file="$ADMINKEY_TMP" --host-list="$SX_EXISTING_NODE_IP" "sx://$ADMINPROF@$SX_CLUSTER_NAME"
 	if [ $? -ne 0 ]; then
 	    echo "Failed to connect to the cluster. Please make sure the admin key is correct"
 	    echo "and $SX_EXISTING_NODE_IP is a valid and accessible node of the cluster sx://$SX_CLUSTER_NAME"
@@ -1585,7 +1592,7 @@ if [ ! -f "$SX_DATA_DIR/hashfs.db" ]; then
 
 	# Get cluster key
 	if [ -z "$SX_CLUSTER_KEY" ]; then
-	    "@sbindir@/sxadm" cluster --get-cluster-key "sx://admin@$SX_CLUSTER_NAME" > $OUT_TMP
+	    "@sbindir@/sxadm" cluster --get-cluster-key "sx://$ADMINPROF@$SX_CLUSTER_NAME" > $OUT_TMP
 	    if [ $? -ne 0 ]; then
 		echo "Failed to retrieve current configuration of the cluster."
 		exit 1
@@ -1635,10 +1642,10 @@ if [ ! -f "$SX_DATA_DIR/hashfs.db" ]; then
 	if [ "$NO_REMOTE_COPY_GIVEN" != "yes" ]; then
 	    XCONF=`cat $CONFIG | xxd -ps 2>/dev/null | tr -d '\n'`
 	    if [ -n "$XCONF" ]; then
-		"@sbindir@/sxadm" cluster --set-param sxsetup_conf=$XCONF "sx://admin@$SX_CLUSTER_NAME" > /dev/null 2>&1
+		"@sbindir@/sxadm" cluster --set-param sxsetup_conf=$XCONF "sx://$ADMINPROF@$SX_CLUSTER_NAME" > /dev/null 2>&1
 		if [ $? = 0 ]; then
-		    "@bindir@/sxrm" -r "sx://admin@$SX_CLUSTER_NAME/_sxsetup.conf" > /dev/null 2>&1
-		    "@bindir@/sxvol" remove "sx://admin@$SX_CLUSTER_NAME/_sxsetup.conf" > /dev/null 2>&1
+		    "@bindir@/sxrm" -r "sx://$ADMINPROF@$SX_CLUSTER_NAME/_sxsetup.conf" > /dev/null 2>&1
+		    "@bindir@/sxvol" remove "sx://$ADMINPROF@$SX_CLUSTER_NAME/_sxsetup.conf" > /dev/null 2>&1
 		fi
 	    fi
 	fi
@@ -1646,7 +1653,7 @@ if [ ! -f "$SX_DATA_DIR/hashfs.db" ]; then
 	if [ "$WAIT_GIVEN" = "yes" ]; then
 	    echo "Waiting for cluster to finish rebalancing..."
 	    while true; do
-		"@sbindir@/sxadm" cluster --info "sx://admin@$SX_CLUSTER_NAME" > $OUT_TMP
+		"@sbindir@/sxadm" cluster --info "sx://$ADMINPROF@$SX_CLUSTER_NAME" > $OUT_TMP
 		if [ $? -ne 0 ]; then
 		    sleep 10
 		    continue
@@ -1710,9 +1717,9 @@ else
     echo "When prompted, enter the 'admin key' printed above."
 fi
 echo
-echo "You can run 'sxacl useradd joe sx://admin@$SX_CLUSTER_NAME' to add a new user."
+echo "You can run 'sxacl useradd joe sx://$ADMINPROF@$SX_CLUSTER_NAME' to add a new user."
 echo "To create a new volume owned by user 'joe' run:"
-echo "'sxvol create --owner joe --replica N --size SIZE sx://admin@$SX_CLUSTER_NAME/VOLNAME'"
+echo "'sxvol create --owner joe --replica N --size SIZE sx://$ADMINPROF@$SX_CLUSTER_NAME/VOLNAME'"
 echo
 
 exit 0
