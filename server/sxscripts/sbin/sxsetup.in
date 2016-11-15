@@ -220,7 +220,7 @@ check_admin() {
     "@bindir@/sxinit" -I "sx://$ADMINPROF@$SX_CLUSTER_NAME" > /dev/null 2>&1
     if [ $? -ne 0 ]; then
 	# check if there is a default profile with admin key
-	grep '0DPiKuNIrrVmD8IUCuw1hQxNqZ' $HOME/.sx/$SX_CLUSTER_NAME/auth/default
+	grep '0DPiKuNIrrVmD8IUCuw1hQxNqZ' $HOME/.sx/$SX_CLUSTER_NAME/auth/default > /dev/null 2>&1
 	if [ $? -ne 0 ]; then
 	    echo "ERROR: sxsetup requires a configured admin profile 'sx://$ADMINPROF@$SX_CLUSTER_NAME' to perform the requested operation."
 	    echo "Please run:"
