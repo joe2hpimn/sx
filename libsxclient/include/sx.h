@@ -361,7 +361,7 @@ void sxc_meta_empty(sxc_meta_t *meta);
 /* Prompt for username */
 int sxc_prompt_username(sxc_client_t *sx, char *buff, unsigned int bufflen, const char *prefix);
 /* Prompt for user password */
-int sxc_prompt_password(sxc_client_t *sx, char *buff, unsigned int buff_len, const char *prefix, int repeat, unsigned int min_length);
+int sxc_prompt_password(sxc_client_t *sx, char *buff, unsigned int buff_len, const char *prefix, int repeat);
 /* Return authentication token based on user name and password */
 int sxc_pass2token(sxc_cluster_t *cluster, const char *username, const char *password, char *tok_buf, unsigned int tok_size);
 

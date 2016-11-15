@@ -3067,7 +3067,7 @@ static int pass2key(sxc_cluster_t *cluster, const char *user, const char *pass, 
 
     mlock(password, sizeof(password));
     if(!pass) { /* Password not supplied, prompt user for it */
-        if(sxc_prompt_password(sx, password, sizeof(password), NULL, repeat, 8)) {
+        if(sxc_prompt_password(sx, password, sizeof(password), NULL, repeat)) {
             munlock(password, sizeof(password));
             return 1;
         }
@@ -3151,7 +3151,7 @@ int sxc_prompt_username(sxc_client_t *sx, char *buff, unsigned int bufflen, cons
 }
 
 /* Remember to mlock(buff, buff_len), buffer length must be greater than 8 characters */
-int sxc_prompt_password(sxc_client_t *sx, char *buff, unsigned int buff_len, const char *prefix, int repeat, unsigned int min_length) {
+int sxc_prompt_password(sxc_client_t *sx, char *buff, unsigned int buff_len, const char *prefix, int repeat) {
     char pass2[1024];
     char prompt[1024];
 
@@ -3169,9 +3169,9 @@ int sxc_prompt_password(sxc_client_t *sx, char *buff, unsigned int buff_len, con
         return 1;
     }
 
-    if(min_length && strlen(buff) < min_length) {
+    if(strlen(buff) < 8) {
         memset(buff, 0, buff_len);
-        sxi_seterr(sx, SXE_EARG, "Password must be at least %u characters long", min_length);
+        sxi_seterr(sx, SXE_EARG, "Password must be at least 8 characters long");
         return 1;
     }
 

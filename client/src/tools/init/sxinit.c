@@ -632,7 +632,7 @@ int main(int argc, char **argv) {
                 free(q);
                 goto init_err;
             }
-        } else if(sxc_prompt_password(sx, sxauthd_pass, sizeof(sxauthd_pass), "[sxauthd]: ", 0, 1)) {
+        } else if(sxc_prompt_password(sx, sxauthd_pass, sizeof(sxauthd_pass), "[sxauthd]: ", 0)) {
             fprintf(stderr, "ERROR: %s\n", sxc_geterrmsg(sx));
             munlock(sxauthd_pass, sizeof(sxauthd_pass));
             free(q);
@@ -925,7 +925,7 @@ int main(int argc, char **argv) {
             }
 
             /* If p is NULL, we have to ask user for a password */
-            if(!*pass && sxc_prompt_password(sx, pass, sizeof(pass), NULL, 0, 8)) {
+            if(!*pass && sxc_prompt_password(sx, pass, sizeof(pass), NULL, 0)) {
                 fprintf(stderr, "ERROR: Failed to get user password: %s\n", sxc_geterrmsg(sx));
                 memset(pass, 0, sizeof(pass));
                 munlock(pass, sizeof(pass));
