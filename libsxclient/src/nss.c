@@ -154,7 +154,6 @@ int sxi_sha1_final(sxi_md_ctx *ctx, unsigned char *out, unsigned int *len)
     return 1;
 }
 
-typedef struct sxi_hmac_sha1_ctx sxi_hmac_sha1_ctx;
 struct sxi_hmac_sha1_ctx {
     PK11SlotInfo *slot;
     PK11SymKey *key;
