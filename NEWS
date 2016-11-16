@@ -1,3 +1,16 @@
+2.3
+---
+
+Skylable SX 2.3 provides improved resilience and performance and fixes
+several minor issues in the process. In details:
+
+  * Major rework of the garbage collector so it doesn't impair regular
+    operations
+  * Improved fairness of several background jobs
+  * Allow recovery from failed volume replica change attempts
+  * Allow displacing SX internal database files to different paths and media
+  * Enable LFU caching in SXFS
+
 2.2
 ---
 
