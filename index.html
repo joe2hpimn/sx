@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <!-- The above 3 meta tags *must* come first in the head; any other head content must come *after* these tags-->
+    <title>SX - How It Works</title>
+    <!-- Bootstrap-->
+    <script src="assets/js/jquery.js"></script>
+    <script src="assets/js/jquery-form.js"></script>
+    <script src="assets/js/contact-us.js"></script>
+    <script src="assets/js/bootstrap.js"></script>
+    <script src="assets/js/spin.js"></script>
+    <script src="assets/js/ladda.js"></script>
+    <script src="assets/js/highlight.js"></script>
+    <script src="assets/js/lightbox.js"></script>
+    <script src="assets/js/custom.js"></script>
+    <link href="assets/css/style.css" rel="stylesheet">
+    <link href="assets/css/font-awesome.css" rel="stylesheet">
+    <link href="assets/css/animate.css" rel="stylesheet">
+    <link href="assets/css/tomorrow.css" rel="stylesheet">
+    <!-- HTML5 shim and Respond.js for IE8 support of HTML5 elements and media queries-->
+    <!-- WARNING: Respond.js doesn't work if you view the page via file://-->
+    <!--if lt IE 9
+    script(src='https://oss.maxcdn.com/html5shiv/3.7.3/html5shiv.min.js')
+    script(src='https://oss.maxcdn.com/respond/1.4.2/respond.min.js')
+    -->
+  </head>
+  <body>
+    <div class="header">
+      <section class="home-main-section">
+        <div class="container">
+          <div class="row">
+            <div class="col-md-12 page-header">
+              <h1>SX - How it works</h1>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+    <section class="section-cloud section-last">
+      <div class="container">
+        <div class="row">
+          <div class="flex-box flex-box--header">
+            <div class="col-md-6">
+              <p>SX Cluster is a reliable, fully distributed cluster solution for your data storage needs, released under the GPL licence. With SX Cluster you aggregate the disk space available on multiple servers and merge it into a single storage system. The cluster makes sure that your data is always replicated over multiple nodes (the exact number of copies is defined by the sysadmin) and synchronized. Additionally, SX Cluster has built-in support for high-availability, bit rot detection, deduplication, client-side encryption, on-the-fly compression and much more.</p><a href="support.html" class="btn btn-primary">Support</a> <a href="sxfs.html" class="btn btn-warning">SXFS</a>
+            </div>
+            <div class="col-md-6 text-center"><img src="assets/img/sx-image.svg" class="company-img md-top-margin-5"></div>
+          </div>
+        </div>
+      </div><img src="assets/img/divider.svg" class="section-divider hidden-sm hidden-xs">
+    </section>
+    <section class="section-gray section-cloud section-padding">
+      <div class="container">
+        <div class="row">
+          <div class="col-md-12 features">
+            <h3 class="btm-margin-5">Features</h3>
+            <div class="col-md-4 text-center"><img src="assets/img/sx-deduplication-icon.svg" class="features__icon">
+              <h4 class="features__header">Deduplication</h4>
+              <p class="features__description">If your users upload 10 copies of the same data, that data takes the same space as 1 copy. If you upload 10 files which differ only for a few bytes, only the differences between the files take up additional space, the rest is deduplicated.</p>
+            </div>
+            <div class="col-md-4 text-center"><img src="assets/img/sx-fast-icon.svg" class="features__icon">
+              <h4 class="features__header">Fast and lightweight protocol</h4>
+              <p class="features__description">Never transfer the same data twice. The SX protocol transfers only the differences between the local copy of a file and the data already stored in the cluster. Additionally, it transfers data to/from all SX nodes in parallel to maximize speed.</p>
+            </div>
+            <div class="col-md-4 text-center"><img src="assets/img/sx-indexing-icon.svg" class="features__icon">
+              <h4 class="features__header">Indexing and search</h4>
+              <p class="features__description">Need to find that important document quickly? With our SXIndexer commercial plugin for ElasticSearch you can index and search the content of docs, pdfs, spreadsheets and slides stored in your cluster.</p>
+            </div>
+            <div class="col-md-4 text-center"><img src="assets/img/sx-revisions-icon.svg" class="features__icon">
+              <h4 class="features__header">Revisions and undelete</h4>
+              <p class="features__description">SX Server can optionally keep multiple revisions of your files and allow you to go back in time to any version of your files. You can also restore a file that has been accidentally deleted.</p>
+            </div>
+            <div class="col-md-4 text-center"><img src="assets/img/sx-replication-icon.svg" class="features__icon">
+              <h4 class="features__header">Replication</h4>
+              <p class="features__description">Choose how many times you want your data to be replicated. You can set different levels of replica for different data and find the perfect balance between reliability and efficiency.</p>
+            </div>
+            <div class="col-md-4 text-center"><img src="assets/img/sx-encryption-icon.svg" class="features__icon">
+              <h4 class="features__header">Encryption</h4>
+              <p class="features__description">Your data is safe by default. Server-to-server and client-to-server communications are securely encrypted by default. Additionally SX supports client-side encryption, which ensures that your data cannot be read by the sysadmin of the cluster.</p>
+            </div>
+            <div class="col-md-4 col-centered text-center"><img src="assets/img/sx-rack-icon.svg" class="features__icon">
+              <h4 class="features__header">Rack awareness</h4>
+              <p class="features__description">By default, data is distributed evenly across all the nodes in the cluster: if you want to achieve redundancy across two or more racks of servers, or across two or more datacenter, partition your cluster in multiple zones.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </body>
+</html>

@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <!-- The above 3 meta tags *must* come first in the head; any other head content must come *after* these tags-->
+    <title>SXFS - How It Works</title>
+    <!-- Bootstrap-->
+    <script src="assets/js/jquery.js"></script>
+    <script src="assets/js/jquery-form.js"></script>
+    <script src="assets/js/contact-us.js"></script>
+    <script src="assets/js/bootstrap.js"></script>
+    <script src="assets/js/spin.js"></script>
+    <script src="assets/js/ladda.js"></script>
+    <script src="assets/js/highlight.js"></script>
+    <script src="assets/js/lightbox.js"></script>
+    <script src="assets/js/custom.js"></script>
+    <link href="assets/css/style.css" rel="stylesheet">
+    <link href="assets/css/font-awesome.css" rel="stylesheet">
+    <link href="assets/css/animate.css" rel="stylesheet">
+    <link href="assets/css/tomorrow.css" rel="stylesheet">
+    <!-- HTML5 shim and Respond.js for IE8 support of HTML5 elements and media queries-->
+    <!-- WARNING: Respond.js doesn't work if you view the page via file://-->
+    <!--if lt IE 9
+    script(src='https://oss.maxcdn.com/html5shiv/3.7.3/html5shiv.min.js')
+    script(src='https://oss.maxcdn.com/respond/1.4.2/respond.min.js')
+    -->
+  </head>
+  <body>
+    <div class="header">
+      <section class="home-main-section">
+        <div class="container">
+          <div class="row">
+            <div class="col-md-12 page-header">
+              <h1>SXFS - How it works</h1>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+    <section class="section-cloud section-last">
+      <div class="container">
+        <div class="row">
+          <div class="flex-box flex-box--header">
+            <div class="col-md-6">
+              <p>SXFS is a filesystem built over the FUSE interface. It covers SX funcionality behind your OS commands so you can enjoy the reliability and scalability of an object-storage with the convenience of a filesystem mapping. Data is fetched on demand, so you can read and store more data than your local storage.</p><a href="sxfs-install.html" class="btn btn-primary">Install</a> <a href="sxfs-faq.html" class="btn btn-dark">FAQ</a> <a href="index.html" class="btn btn-warning">SX</a>
+            </div>
+            <div class="col-md-6 text-center"><img src="assets/img/sxfs-img.svg" class="company-img md-top-margin-5"></div>
+          </div>
+        </div>
+      </div><img src="assets/img/divider.svg" class="section-divider hidden-sm hidden-xs">
+    </section>
+    <section class="section-gray section-cloud section-padding">
+      <div class="container">
+        <div class="row">
+          <div class="col-md-12 features-sxfs">
+            <h3 class="text-center btm-margin-5">Features</h3>
+            <div class="col-md-4 text-center"><img src="assets/img/sxfs-unlimited-share-icon.svg" class="features-sxfs__icon">
+              <h4 class="features-sxfs__header">Unlimited shared storage</h4>
+              <p class="features-sxfs__description">Keep your files synchronized between multiple servers without any effort. Data is fetched on demand, so you can read and store more data than your local storage.</p>
+            </div>
+            <div class="col-md-4 text-center"><img src="assets/img/sxfs-easy-icon.svg" class="features-sxfs__icon">
+              <h4 class="features-sxfs__header">Easy to use</h4>
+              <p class="features-sxfs__description">Mount one or multiple volumes on Linux or MacOSX with a single command. Get the reliability and scalability of an object-storage with the convenience of a filesystem mapping.</p>
+            </div>
+            <div class="col-md-4 text-center"><img src="assets/img/sxfs-concurrent-icon.svg" class="features-sxfs__icon">
+              <h4 class="features-sxfs__header">Concurrent access</h4>
+              <p class="features-sxfs__description">SXFS supports multiple concurrent readers and writers. Updates are automatically synced and made visible to all your machines, so there is no need to maintain scripts or use rsync to copy data anymore.</p>
+            </div>
+            <div class="col-md-4 text-center"><img src="assets/img/sxfs-hosts-icon.svg" class="features-sxfs__icon">
+              <h4 class="features-sxfs__header">Mount the same volume on multiple hosts</h4>
+              <p class="features-sxfs__description">You can share files easily between your Linux servers, VPS or physical machines in your datacenter and in the cloud with SXFS. You can also mount them from your laptops. All you need is SXFS running on your Linux or Mac machines and a Skylable SX object-storage. Communication happens over HTTPS and it is proxy and NAT friendly. No fiddling with your firewall rules, all you need is being able to browse the web.</p>
+            </div>
+            <div class="col-md-4 text-center"><img src="assets/img/sxfs-fault-icon.svg" class="features-sxfs__icon">
+              <h4 class="features-sxfs__header">Fault-tolerant and replicated</h4>
+              <p class="features-sxfs__description">Your data is safely stored in Skylable SX, the object storage cluster, where it is safely replicated across multiple nodes. The Raft consensus algorithm ensures that cluster is always healthy and detects and automatically recovers from node failure by redistributing data across the surviving nodes. Consistent hashing guarantees that data is evenly distributed and replicated across all nodes at any time and under any condition.</p>
+            </div>
+            <div class="col-md-4 text-center"><img src="assets/img/sxfs-access-icon.svg" class="features-sxfs__icon">
+              <h4 class="features-sxfs__header">Access from everywhere</h4>
+              <p class="features-sxfs__description">You can access your data from anywhere, regardless of where your SX object store is located. Mount your SXFS volume on as many nodes as you need, there is no limit. For example, you can mount SXFS on multiple EC2 instances running in different regions, on Linux servers in your datacenter or on laptops while on the go, all at the same time. We use advanced block caching techniques and write batching to achieve high performance.</p>
+            </div>
+            <div class="col-md-4 text-center"><img src="assets/img/sxfs-scale-icon.svg" class="features-sxfs__icon">
+              <h4 class="features-sxfs__header">Unlimited storage that scales</h4>
+              <p class="features-sxfs__description">Your data is stored in Skylable SX object storage and doesn’t take up any local disk space. Files are fetched on demand. When you use SXFS, you can read and store volumes of data greater than what your local drives can support. SXFS can easily scale to hundreds of TBs and gives potentially unlimited storage to your Linux machines.</p>
+            </div>
+            <div class="col-md-4 text-center"><img src="assets/img/sxfs-secure-icon.svg" class="features-sxfs__icon">
+              <h4 class="features-sxfs__header">Secure by default</h4>
+              <p class="features-sxfs__description">Data is Encrypted at Rest and in Motion. If you enable the AES256 filter, all of your files, including the filenames themselves, will be encrypted before they are uploaded to SX object storage and made unintelligible to anyone who does not know the encryption key. Additionally, all communications between SXFS and SX object storage are encrypted and authenticated by default.</p>
+            </div>
+            <div class="col-md-4 text-center"><img src="assets/img/sxfs-bitrot-icon.svg" class="features-sxfs__icon">
+              <h4 class="features-sxfs__header">Bit rot protection</h4>
+              <p class="features-sxfs__description">We have made in place end-to-end strong data integrity checks to verify that your data is transmitted, stored and received without corruption, protecting against network and disk errors. All file blocks are matched against their checksum at any stage of their lifecycle.</p>
+            </div>
+            <div class="col-md-4 col-centered text-center"><img src="assets/img/sxfs-bandwidth-icon.svg" class="features-sxfs__icon">
+              <h4 class="features-sxfs__header">Save bandwidth and disk space</h4>
+              <p class="features-sxfs__description">Whenever you modify a file, only differences between the original file and the new version are uploaded or downloaded. This minimizes the time between when you update a file on one machines and the change is propagated to all the other machines. If you are paying for network traffic, you will save not only time but also money by cutting your network bill to a fraction of what it used to be.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </body>
+</html>

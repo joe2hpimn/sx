@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <!-- The above 3 meta tags *must* come first in the head; any other head content must come *after* these tags-->
+    <title>SX - Support</title>
+    <!-- Bootstrap-->
+    <script src="assets/js/jquery.js"></script>
+    <script src="assets/js/jquery-form.js"></script>
+    <script src="assets/js/contact-us.js"></script>
+    <script src="assets/js/bootstrap.js"></script>
+    <script src="assets/js/spin.js"></script>
+    <script src="assets/js/ladda.js"></script>
+    <script src="assets/js/highlight.js"></script>
+    <script src="assets/js/lightbox.js"></script>
+    <script src="assets/js/custom.js"></script>
+    <link href="assets/css/style.css" rel="stylesheet">
+    <link href="assets/css/font-awesome.css" rel="stylesheet">
+    <link href="assets/css/animate.css" rel="stylesheet">
+    <link href="assets/css/tomorrow.css" rel="stylesheet">
+    <!-- HTML5 shim and Respond.js for IE8 support of HTML5 elements and media queries-->
+    <!-- WARNING: Respond.js doesn't work if you view the page via file://-->
+    <!--if lt IE 9
+    script(src='https://oss.maxcdn.com/html5shiv/3.7.3/html5shiv.min.js')
+    script(src='https://oss.maxcdn.com/respond/1.4.2/respond.min.js')
+    -->
+  </head>
+  <body>
+    <div class="header">
+      <section class="home-main-section">
+        <div class="container">
+          <div class="row">
+            <div class="col-md-12 page-header">
+              <h1>SX - Support</h1>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+    <section class="section-cloud section-last">
+      <div class="container">
+        <div class="col-md-12 support">
+          <div class="col-md-3 col-sm-12 support__menu">
+            <ul class="nav support__tabs">
+              <li class="col-md-12 col-sm-6 support__menu-item active text-center"><a data-toggle="tab" href="#faq" class="support__menu-item-link-support"><img src="assets/img/faq-icon.svg" class="support__menu-item-icon"><span class="support__menu-item-description">FAQ</span></a></li>
+              <li class="col-md-12 col-sm-6 support__menu-item text-center"><a data-toggle="tab" href="#cmd-line-tools" class="support__menu-item-link-support"><img src="assets/img/cmd-line-tools-icon.svg" class="support__menu-item-icon"><span class="support__menu-item-description">Command line tools</span></a></li>
+            </ul>
+          </div>
+          <div class="col-md-9 col-sm-12 support__content">
+            <div class="tab-content col-sm-12">
+              <div id="faq" class="tab-pane fade in text-left active">
+                <h2>FAQ</h2>
+                <h3>Generic</h3>
+                <ol>
+                  <li><a href="#which-platforms-are-supported" class="scroll">Which platforms are supported?</a></li>
+                </ol>
+                <h3>Installation</h3>
+                <ol>
+                  <li><a href="#how-do-i-build-sx-on-macosx" class="scroll">How do I build SX on MacOSX?</a></li>
+                  <li><a href="#how-do-i-build-sx-on-centos-rhel-6.x-7.x" class="scroll">How do I build SX on CentOS/RHEL 6.x, 7.x?</a></li>
+                  <li><a href="#how-do-i-build-sx-on-fedora" class="scroll">How do I build SX on Fedora?</a></li>
+                  <li><a href="#how-do-i-build-sx-on-debian" class="scroll">How do I build SX on Debian?</a></li>
+                  <li><a href="#how-do-i-build-sx-and-libres3-on-freebsd" class="scroll">How do I build SX and LibreS3 on FreeBSD?</a></li>
+                </ol>
+                <h3>Error messages interpretation</h3>
+                <ol class="faq-questions-last">
+                  <li><a href="#sx-server-this-is-an-sx-node" class="scroll">SX Server: This is an SX node</a></li>
+                  <li><a href="#sx-client-server-uuid-mismatch" class="scroll">SX client: Server UUID mismatch</a></li>
+                  <li><a href="#sx-client-possible-mitm-attack" class="scroll">SX client: Possible MITM attack</a></li>
+                </ol>
+                <div class="support__content-wrapper">
+                  <h4 class="faq-content-header">Generic</h4>
+                  <ol class="faq-answers">
+                    <li id="which-platforms-are-supported">Our main development platform is Linux and we support all major distributions. We regularly test our software on BSD and MacOSX as well.</li>
+                  </ol>
+                  <div class="support__divider"></div>
+                  <h4 class="faq-content-header">Installation</h4>
+                  <ol class="faq-answers">
+                    <li id="how-do-i-build-sx-on-macosx">Install<a href="https://www.macports.org/" target="_blank"> MacPorts</a>
+                      <pre><code>sudo port install zlib openssl git osxfuse
+git clone https://github.com/enospc/sx.git
+cd sx/
+LIBS='-L/opt/local/lib -lssl' ./configure && make && sudo make install</code></pre>
+                    </li>
+                    <li id="how-do-i-build-sx-on-centos-rhel-6" class="x-7 x">Binary packages are available for CentOS/RHEL 6.x, 7.x
+                      <p>Be aware that the libcurl version shipped with CentOS 6.x, 7.x is linked to NSS instead of OpenSSL. To compile Sx on CentOS 6.x you must pass the –with-nss flag to configure:</p>
+                      <pre><code>yum install make gcc libcurl-devel zlib-devel nss-devel openssl-devel fuse-devel git
+git clone https://github.com/enospc/sx.git
+cd sx/
+./configure --with-nss && make && make install</code></pre>
+                    </li>
+                    <li id="how-do-i-build-sx-on-fedora">Binary packages are available for Fedora:
+                      <p>If you want to build from source you can use:</p>
+                      <pre><code>yum install make gcc libcurl-devel zlib-devel openssl-devel fuse-devel git
+git clone https://github.com/enospc/sx.git
+cd sx/
+./configure && make && make install</code></pre>
+                    </li>
+                    <li id="how-do-i-build-sx-on-debian">Binary packages are available for Debian:
+                      <p>If you want to build from source you can use:</p>
+                      <pre><code>apt-get install make gcc libcurl4-openssl-dev zlib1g-dev libssl-dev git fuse libfuse-dev
+git clone https://github.com/enospc/sx.git
+cd sx/
+./configure && make && make install</code></pre>
+                    </li>
+                    <li id="how-do-i-build-sx-and-libres3-on-freebsd">On FreeBSD 9 and FreeBSD 10 you can build from source with the usual ./configure && make && make install.
+                      <p>The following packages are required: ocamlfind >= 1.2.8, jsonm, xmlm, cryptokit 1.3, ounit, ssl >= 0.4.4, ocamlnet >= 3.7.4, lwt >= 2.4.2, ocsigenserver</p>
+                      <p>An unofficial port is also available, use it at your own risk!</p>
+                      <pre><code>svn co https://svn.redports.org/zloidemon/net-mgmt/sx
+cd sx && make install clean
+sxsetup
+echo “sxserver_enable=\”YES\”” >> /etc/rc.conf</code></pre>
+                    </li>
+                  </ol>
+                  <div class="support__divider"></div>
+                  <h4 id="error-messages-interpretation" class="faq-content-header">Error messages interpretation</h4>
+                  <ol class="faq-answers">
+                    <li id="sx-server-this-is-an-sx-node">
+                      <p>SX Server provides a RESTful interface to access your data.</p>
+                      <p>The server will detect attempts to access the cluster from a browser and serve you the “This is an SX node” page instead.</p>
+                      <p>If you want to access your SX cluster from a browser, you need to install SXWeb.</p>
+                    </li>
+                    <li id="sx-client-server-uuid-mismatch">
+                      <p>Every Skylable SX cluster is identified by a UUID which is automatically generated at cluster creation time. When you run sxinit for the first time, it will store the UUID of the cluster in your $HOME/.sx/clustername/ directory. Every sx tool will check that the UUID of the cluster matches what was stored by sxinit before initiating any operation. If it detects a mismatch it will refuse to continue. There are some legitimacy cases when a UUID mismatch can happen, for example if you reinstall the cluster. Generally it means that something fishy is going on and that you are connecting to the wrong cluster.</p>
+                      <p>If you are sure that you are connecting to the correct cluster and you want to continue, just run:</p>
+                      <pre><code>sxinit --force-reinit sx://clustername</code></pre>
+                      <p>to reinitialize your $HOME/.sx/clustername directory.</p>
+                    </li>
+                    <li id="sx-client-possible-mitm-attack">
+                      <p>When you first run sxinit, a copy of the SSL certificate is stored locally, in the .sx/clustername/ directory. Whenever a sx tool connects to the cluster, it verifies that the remote SSL certificate matches the local one. If it doesn’t match, it means that somebody might be playing a <a href="https://en.wikipedia.org/wiki/Man-in-the-middle_attack" target="_blank"> MITM</a> attack against you.</p>
+                      <p>If you have recently replaced the SSL certificate on your SX cluster, you should run:</p>
+                      <pre><code>sxinit sx://clustername</code></pre>
+                      <p>to accept the new SSL certficate.</p>
+                    </li>
+                  </ol>
+                </div>
+              </div>
+              <div id="cmd-line-tools" class="tab-pane fade in text-left">
+                <h2>Command line tools</h2>
+                <ul class="col-sm-12 nav nav-tabs nav-tabs-support">
+                  <li class="col-md-12 col-sm-6 support__menu-item active text-center"><a data-toggle="tab" href="#client-cmd-line-tools" class="support__menu-item-link-support"><img src="assets/img/cmd-clients.svg"><span>Client command line tools</span></a></li>
+                  <li class="col-md-12 col-sm-6 support__menu-item text-center"><a data-toggle="tab" href="#admin-cmd-line-tools" class="support__menu-item-link-support"><img src="assets/img/cmd-admins.svg"><span>Admin command line tools</span></a></li>
+                </ul>
+                <div class="tab-content col-sm-12">
+                  <div id="client-cmd-line-tools" class="tab-pane fade in text-left active">
+                    <ul class="col-sm-12 nav nav-tabs nav-tabs-support">
+                      <li class="col-sm-3 support__menu-item text-center active"><a data-toggle="tab" href="#sxinit" class="support__menu-item-link-support"><img src="assets/img/cmd-sxinit.svg" class="support__menu-item-img"><span class="support__menu-item-title">sxinit</span></a></li>
+                      <li class="col-sm-3 support__menu-item text-center"><a data-toggle="tab" href="#sxcp" class="support__menu-item-link-support"><img src="assets/img/cmd-sxcp.svg" class="support__menu-item-img"><span class="support__menu-item-title">sxcp</span></a></li>
+                      <li class="col-sm-3 support__menu-item text-center"><a data-toggle="tab" href="#sxcat" class="support__menu-item-link-support"><img src="assets/img/cmd-sxcat.svg" class="support__menu-item-img"><span class="support__menu-item-title">sxcat</span></a></li>
+                      <li class="col-sm-3 support__menu-item text-center"><a data-toggle="tab" href="#sxrm" class="support__menu-item-link-support"><img src="assets/img/cmd-sxrm.svg" class="support__menu-item-img"><span class="support__menu-item-title">sxrm</span></a></li>
+                      <li class="col-sm-3 support__menu-item text-center"><a data-toggle="tab" href="#sxls" class="support__menu-item-link-support"><img src="assets/img/cmd-sxls.svg" class="support__menu-item-img"><span class="support__menu-item-title">sxls</span></a></li>
+                      <li class="col-sm-3 support__menu-item text-center"><a data-toggle="tab" href="#sxmv" class="support__menu-item-link-support"><img src="assets/img/cmd-sxmv.svg" class="support__menu-item-img"><span class="support__menu-item-title">sxmv</span></a></li>
+                      <li class="col-sm-3 support__menu-item text-center"><a data-toggle="tab" href="#sxrev" class="support__menu-item-link-support"><img src="assets/img/cmd-sxrev.svg" class="support__menu-item-img"><span class="support__menu-item-title">sxrev</span></a></li>
+                    </ul>
+                    <div class="tab-content col-sm-12">
+                      <div id="sxcp" class="tab-pane fade in text-left">
+                        <h3>Upload and download files</h3>
+                        <p>sxcp can copy files and entire directories from and to Skylable SXclusters. It can also copy data between two different SX clusters. By default, for each file a progress bar is displayed, which shows the transfer speed and the estimated time of arrival. sxcp makes use of all the advanced features SX, such as deduplication and transfer resuming to minimize the bandwidth usage.</p>
+                        <p>Use sxcp -r to recursively upload directories to the remote volume:</p>
+                        <pre><code>$ sxcp -r /home/jeff/VMs/ @jeff/vol-jeff/VMimages/
+Uploading /home/jeff/VMs/FreeBSD 10.0/FreeBSD 10.0.vmdk (size: 4.91GB)
+14% [====> ] 55.11MB/s ETA 44s</code></pre>
+                        <p>sxcp shows the average speed of the tranfer and how long it will take. The great feature of SX is the already mentioned transfer resuming, which allows to continue the transfer in case it was interrupted. Below we interrupt the transfer of the large file and repeat the same copy again:</p>
+                        <pre><code>$ sxcp -r /home/jeff/VMs/ @jeff/vol-jeff/VMimages/
+Uploading /home/jeff/VMs/FreeBSD 10.0/FreeBSD 10.0.vmdk (size: 4.91GB)
+94% [=============================================> ] 55.11MB/s ETA 5s
+^CProcess interrupted
+$ sxcp -r /home/jeff/VMs/ @jeff/vol-jeff/VMimages/
+97% [++++++++++++++++++++++++++++++++++++++++++++++=> ] 52.17MB/s ETA 2s</code></pre>
+                        <P>The second sxcp call automatically finds out, which blocks of the file have already been transferred and only uploads the missing ones. The transfer resuming works in a similar way for file downloads.</P>
+                        <P>sxcp can copy files between different volumes, also on different clusters, and comes with other useful features, such as bandwidth limiting. See man sxcp for the usage details and other examples.</P>
+                      </div>
+                      <div id="sxcat" class="tab-pane fade in text-left">
+                        <h3>Streaming files to standard output</h3>
+                        <p>sxcat outputs the content of any remote file to stdout.</p>
+                        <h3>sxcat vs sxcp to stdout</h3>
+                        <p>From the user perspective, sxcat is equivalent to:</p>
+                        <pre><code>sxcp sx://clustername/volname/file -</code></pre>
+                        <p>However internally they work very differently.</p>
+                        <p>The sxcp command above will download the entire file to a tempfile locally and then output the content of the tempfile to stdout. It requires enough local disk space in $TMPDIR to complete the download and it will stay silent until the whole has been transferred.</p>
+                        <p>sxcat instead streams the blocks received from the cluster directly to stdout. As soon as the first block is received it’s written to stdout. No need to allocate enough temporary space in $TMPDIR and no need to wait until the whole file is transferred.</p>
+                      </div>
+                      <div id="sxinit" class="tab-pane fade in text-left active">
+                        <p>Using sxinit one can configure access for multiple users and clusters. The access profiles have the format of sx://[username@]cluster_name. When the username is omitted, sxinit will ask for it and sx://cluster_name will be the default profile for a given cluster.</p>
+                        <h3>Adding profiles</h3>
+                        <p>To add an access profile for the user ‘jeff’ and the local cluster created in previous chapters run the following command:</p>
+                        <pre><code>$ sxinit -l 192.168.1.101 -A @jeff sx://jeff@mycluster
+Warning: self-signed certificate:
+Subject: C=GB, ST=UK, O=SX, CN=mycluster
+Issuer: C=GB, ST=UK, O=SX, CN=mycluster
+SHA1 Fingerprint: 84:EF:39:80:1E:28:9C:4A:C8:80:E6:56:57:A4:CD:64:2E:23:99:7A
+Do you trust this SSL certificate? [y/N] y
+Trusting self-signed certificate
+Please enter the user key: FqmlTd9CWZUuPBGMdjE46DaT1/3kx+EYbahlrhcdVpy/9ePfrtWCIgAA</code></pre>
+                        <p>Since “mycluster” is not a DNS name, we had to point sxinit to one of the nodes of the cluster. That allowed it to connect and discover all the other nodes. We also created the alias @jeff, which will be used for convenience.</p>
+                        <h3>Listing access profiles</h3>
+                        <p>To list all configured access profiles run:</p>
+                        <pre><code>$ sxinit --list
+sx://jeff@mycluster @jeff
+sx://admin@mycluster @cluster</code></pre>
+                        <h3>Deleting profiles</h3>
+                        <p>To delete a profile run the following command and provide the full profile name or its alias as follows:</p>
+                        <pre><code>$ sxinit --delete @somealias</code></pre>
+                        <p>It will delete the alias @somealias and the profile associated with it.</p>
+                      </div>
+                      <div id="sxrm" class="tab-pane fade in text-left">
+                        <h3>Remove files</h3>
+                        <p>The equivalent of the system command rm in SX is sxrm. Similarly to other tools, it can handle individual files or entire directories in recursive mode. Below we firstcheck the current space usage for the volume, then remove a directory with some large files (using a wildcard to match it), and check the usage again:</p>
+                        <pre><code>$ sxls -l @jeff
+VOL rep:2 rev:1 rw - 7.24G 50.00G 14% sx://jeff@mycluster/vol-jeff
+$ sxrm -r @jeff/vol-jeff/VMs/FreeBSD*
+Deleted 2 file(s)
+$ sxls -lH @jeff
+VOL rep:2 rev:1 rw - 1.66G 50.00G 14% sx://jeff@mycluster/vol-jeff</code></pre>
+                      </div>
+                      <div id="sxls" class="tab-pane fade in text-left">
+                        <h3>List volumes and files</h3>
+                        <p>With sxls one can discover, which volumes are accessible on the cluster and then list their contents. To get the list of volumes, which user ’jeff’ can access run:</p>
+                        <pre><code>$ sxls -lH @jeff
+VOL rep:2 rev:1 rw - 12.83G 50.00G jeff 25% sx://jeff@mycluster/vol-jeff</code></pre>
+                        <p>With -l (--long) and -H (--human-readable) options sxls displays the list of available volumes, together with additional information such as the replica count, maximum number of revisions per file, permissions, size, usage, and the owner name.</p>
+                        <p>Running sxls against the volume without any arguments returns the first level of files, similarly to the command ls:</p>
+                        <pre><code>$ sxls @jeff/vol-jeff
+sx://jeff@mycluster/vol-jeff/VMimages/</code></pre>
+                        <p>To list the volume recursively, with more information about files and human readable sizes run:</p>
+                        <pre><code>$ sxls -rlH @jeff/vol-jeff
+2014-11-17 14:03 31 sx://jeff@mycluster/vol-jeff/VMimages/Debian-MIPS/bridge.sh
+2014-11-17 14:03 245.88M sx://jeff@mycluster/vol-jeff/VMimages/Debian-MIPS/debian_squeeze_mips_standard.qcow2
+2014-11-17 14:03 4.10M sx://jeff@mycluster/vol-jeff/VMimages/Debian-MIPS/initrd.gz
+2014-11-17 14:03 139 sx://jeff@mycluster/vol-jeff/VMimages/Debian-MIPS/run
+2014-11-17 14:03 677 sx://jeff@mycluster/vol-jeff/VMimages/Debian-MIPS/start.sh
+2014-11-17 14:03 6.61M sx://jeff@mycluster/vol-jeff/VMimages/Debian-MIPS/vmlinux-2.6.32-5-4kc-malta
+2014-11-17 14:03 1.41G sx://jeff@mycluster/vol-jeff/VMimages/Debian-PPC/debian_squeeze_powerpc_standard.qcow2
+2014-11-17 14:04 349 sx://jeff@mycluster/vol-jeff/VMimages/Debian-PPC/start.sh
+2014-11-17 14:02 4.91G sx://jeff@mycluster/vol-jeff/VMimages/FreeBSD 10.0/FreeBSD10.0.vmdk
+2014-11-17 14:03 693.12M sx://jeff@mycluster/vol-jeff/VMimages/FreeBSD 10.0/FreeBSD-10.0-BETA1-amd64-disc1.iso</code></pre>
+                      </div>
+                      <div id="sxmv" class="tab-pane fade in text-left">
+                        <h3>Move or rename files</h3>
+                        <p>sxmv can move files or group of files into new locations. It can be used to just rename individual files or move entire groups to another cluster. In contrast to the command mv, renaming a directory with sxmv requires prividing the recursive flag -r. That’s because of the design of the object storage and lack of real directories as described at the beginning of this chapter. In order to rename a directory, sxmv has to rename all the files (objects), which share the same directory path. In the example below we rename the directory ‘VMimages’ to ‘VMs’ and list the new volume structure in basic mode:</p>
+                        <pre><code>$ sxmv -r @jeff/vol-jeff/VMimages/ @jeff/vol-jeff/VMs/
+$ sxls -r @jeff/vol-jeff
+sx://jeff@mycluster/vol-jeff/VMs/Debian-MIPS/bridge.sh
+sx://jeff@mycluster/vol-jeff/VMs/Debian-MIPS/debian_squeeze_mips_standard.qcow2
+sx://jeff@mycluster/vol-jeff/VMs/Debian-MIPS/initrd.gz
+sx://jeff@mycluster/vol-jeff/VMs/Debian-MIPS/run
+sx://jeff@mycluster/vol-jeff/VMs/Debian-MIPS/start.sh
+sx://jeff@mycluster/vol-jeff/VMs/Debian-MIPS/vmlinux-2.6.32-5-4kc-malta
+sx://jeff@mycluster/vol-jeff/VMs/Debian-PPC/debian_squeeze_powerpc_standard.qcow2
+sx://jeff@mycluster/vol-jeff/VMs/Debian-PPC/start.sh
+sx://jeff@mycluster/vol-jeff/VMs/FreeBSD 10.0/FreeBSD 10.0.vmdk
+sx://jeff@mycluster/vol-jeff/VMs/FreeBSD 10.0/FreeBSD-10.0-BETA1-amd64-disc1.iso</code></pre>
+                      </div>
+                      <div id="sxrev" class="tab-pane fade in text-left">
+                        <h3>Manage file revisions</h3>
+                        <p>The SX volumes can be configured to keep multiple revisions of files. For example, if a volume was created with an option to keep 3 revisions, every time a specific file gets modified the previous copy will be preserved and the latest 3 versions of the file will be available for download. A revision is only created when the new file is different from the existing one. The tools such as sxcp or sxls will always operate on the latest revision. In order to access and manage the older revisions, one has to use sxrev. In the examples below we will operate on the volume vol-jeff-rev, which was configured to store up to 3 revisions for each file and the example file document.pdf was already updated a few times. In order to list all of its revisions, run the following command:</p>
+                        <pre><code>$ sxrev list @jeff/vol-jeff-rev/document.pdf
+Revisions for file @jeff/vol-jeff-rev/document.pdf (most recent first):
+1. 2014-11-18 12:05 size:128026 rev:"2014-11-18 12:05:00.938:
+d2bc1190a0f70f4b4925d702e0d567a7"
+2. 2014-11-18 11:54 size:105866 rev:"2014-11-18 11:54:42.362:1
+fc102f66cabd0e8daac8e1279b54c0a"
+3. 2014-11-18 10:23 size:93545 rev:"2014-11-18 10:23:22.188:
+d3b1fb1d7e4219ab4a8d1fc7c8edff0c"</code></pre>
+                        <p>The first revision on the list is the latest one, which is also visible to other tools. In order to restore an older revision of a file, it needs to be copied into a new destination. By default sxrev asks interactively, which revision should be copied as on the example below:</p>
+                        <pre><code>$ sxrev copy @jeff/vol-jeff-rev/document.pdf ~/document-prev.pdf
+Revisions for file @jeff/vol-jeff-rev/document.pdf (most recent first):
+1. 2014-11-18 12:05 size:128026 rev:"2014-11-18 12:05:00.938:
+d2bc1190a0f70f4b4925d702e0d567a7"
+2. 2014-11-18 11:54 size:105866 rev:"2014-11-18 11:54:42.362:1
+fc102f66cabd0e8daac8e1279b54c0a"
+3. 2014-11-18 10:23 size:93545 rev:"2014-11-18 10:23:22.188:
+d3b1fb1d7e4219ab4a8d1fc7c8edff0c"
+Choose revision to copy: 2
+Copy operation completed successfully</code></pre>
+                        <p>The same operation can be performed in non-interactive mode by providing the revision string as an argument:</p>
+                        <pre><code>$ sxrev copy -r "2014-11-18 11:54:42.362:1fc102f66cabd0e8daac8e1279b54c0a" @jeff/vol-jeffrev/document.pdf
+~/document-prev.pdf
+Copy operation completed successfully</code></pre>
+                        <P>The size of all revisions adds up to the volume usage, that’s why one may want to remove specific revisions (eg. for large media files). When a file with multiple revisions gets deleted with sxrm, all of the revisions get removed automatically as well. With sxrev delete only specific revisions can be deleted and it works similarly to sxrev copy. In the example below we remove the two oldest revisions, in both interactive and non-interactive modes:</P>
+                        <pre><code>$ sxrev delete @jeff/vol-jeff-rev/document.pdf
+Revisions for file @jeff/vol-jeff-rev/document.pdf (most recent first):
+1. 2014-11-18 12:05 size:128026 rev:"2014-11-18 12:05:00.938:
+d2bc1190a0f70f4b4925d702e0d567a7"
+2. 2014-11-18 11:54 size:105866 rev:"2014-11-18 11:54:42.362:1
+fc102f66cabd0e8daac8e1279b54c0a"
+3. 2014-11-18 10:23 size:93545 rev:"2014-11-18 10:23:22.188:
+d3b1fb1d7e4219ab4a8d1fc7c8edff0c"
+Choose revision to delete: 2
+Delete operation completed successfully
+$ sxrev delete -r "2014-11-18 10:23:22.188:d3b1fb1d7e4219ab4a8d1fc7c8edff0c" @jeff/vol-jeffrev/document.pdf
+Delete operation completed successfully
+$ sxrev list @jeff/vol-jeff-rev/document.pdf
+Revisions for file @jeff/vol-jeff-rev/document.pdf (most recent first):
+1. 2014-11-18 12:05 size:128026 rev:"2014-11-18 12:05:00.938:
+d2bc1190a0f70f4b4925d702e0d567a7"</code></pre>
+                        <p>The volume owner can also change the maximum number of revisions kept for files by issuing the following command:</p>
+                        <pre><code>$ sxvol modify --max-revisions=5 @jeff/vol-jeff-rev
+Volume revisions limit changed to 5</code></pre>
+                      </div>
+                    </div>
+                  </div>
+                  <div id="admin-cmd-line-tools" class="tab-pane fade in text-left">
+                    <ul class="col-sm-12 nav nav-tabs nav-tabs-support">
+                      <li class="col-sm-4 support__menu-item active text-center"><a data-toggle="tab" href="#sxadm" class="support__menu-item-link-support"><img src="assets/img/cmd-sxadm.svg" class="support__menu-item-img"><span class="support__menu-item-title">sxadm</span></a></li>
+                      <li class="col-sm-4 support__menu-item text-center"><a data-toggle="tab" href="#sxacl" class="support__menu-item-link-support"><img src="assets/img/cmd-sxacl.svg" class="support__menu-item-img"><span class="support__menu-item-title">sxacl</span></a></li>
+                      <li class="col-sm-4 support__menu-item text-center"><a data-toggle="tab" href="#sxvol" class="support__menu-item-link-support"><img src="assets/img/cmd-sxvol.svg" class="support__menu-item-img"><span class="support__menu-item-title">sxvol</span></a></li>
+                    </ul>
+                    <div class="tab-content col-sm-12">
+                      <div id="sxadm" class="tab-pane fade in text-left active">
+                        <h3>Managing the cluster nodes</h3>
+                        <p>sxadm provides a low level interface to query and modify an existing cluster.</p>
+                        <pre><code>$ sxadm cluster -I sx://clustername Current distribution: 536870912000/192.168.203.75/db099537-de20-485d-a3c2-15018925ef91 536870912000/192.168.203.76/6cdeb4e2-ea0c-4c6b-a8d2-7fe58ae47a41</code></pre>
+                        <pre><code>Distribution: cdf029bc-5be4-4df9-a0c2-4d40b2bd1331(v.3) - checksum: 17793695232184854106</code></pre>
+                        <pre><code>Cluster authentication token: CLUSTER/ALLNODE/ROOT/USERwA6vuBGnBNM42oe/URz8LuPxxxxxxxxx</code></pre>
+                        <p>You can only remove a node from the cluster if all your volumes have a replica count lower than the current node count.</p>
+                        <p>To remove a node, take the list of nodes from the “Current distribution” line in the output of “sxadm cluster -I”, and pass it to “sxadm cluster -M” omitting the node that you want to remove. E.g. if you want to remove the node 536870912000/192.168.203.75/db099537-de20-485d-a3c2-15018925ef91 run:</p>
+                        <pre><code>$ sxadm cluster -M 536870912000/192.168.203.76/6cdeb4e2-ea0c-4c6b-a8d2-7fe58ae47a41 sx://clustername</code></pre>
+                        <p>This will trigger a rebalance of the cluster. You can follow the progress with:</p>
+                        <pre><code>$ watch sxadm cluster -I sx://clustername</code></pre>
+                        <p>You should see the old list of nodes under the “Current distribution” line and the new list of nodes under the “Target distribution” line:</p>
+                        <pre><code>Target distribution: 536870912000/192.168.203.76/6cdeb4e2-ea0c-4c6b-a8d2-7fe58ae47a41</code></pre>
+                        <pre><code>Current distribution: 536870912000/192.168.203.75/db099537-de20-485d-a3c2-15018925ef91 536870912000/192.168.203.76/6cdeb4e2-ea0c-4c6b-a8d2-7fe58ae47a41</code></pre>
+                        <pre><code>Distribution: cdf029bc-5be4-4df9-a0c2-4d40b2bd1331(v.4) - checksum: 10334117764138364298</code></pre>
+                        <pre><code>Cluster authentication token: CLUSTER/ALLNODE/ROOT/USERwA6vuBGnBNM42oe/URz8Luxxxxxxx</code></pre>
+                        <p>As soon as rebalance finishes, the “Target distribution” will disappear and the “Current distribution” will list only one node.</p>
+                      </div>
+                      <div id="sxacl" class="tab-pane fade in text-left">
+                        <h3>User management</h3>
+                        <h4>Add a User</h4><i>Requires admin privileges</i>
+                        <p>Create a new admin user:</p>
+                        <pre><code>sxacl useradd -t admin newuser sx://mycluster</code></pre>
+                        <p>Create a regular user:</p>
+                        <pre><code>sxacl useradd newuser sx://mycluster</code></pre>
+                        <h4>Disable a user</h4>
+                        <p>TBD</p>
+                        <h4>Generate a new key for a user</h4>
+                        <p>TBD</p>
+                        <h3>Retrieving access info</h3>
+                        <h4>List all users</h4>
+                        <pre><code>sxacl userlist sx://mycluster</code></pre>
+                        <h4>List who has access to a certain volume</h4>
+                        <pre><code>sxacl list sx://mycluster/myvol</code></pre>
+                        <h4>Retrieve the access key of a user</h4><i>Requires admin privileges</i>
+                        <pre><code>sxacl usergetkey admin sx://mycluster</code></pre>
+                        <h4>Retrieve the access key of all users</h4><i>Requires admin privileges</i>
+                        <pre><code>for i in $(sxacl userlist sx://mycluster|cut -d ' ' -f 1);do echo -n "$i ";sxacl usergetkey $i sx://mycluster;done</code></pre>
+                        <h3>Privileges management</h3>
+                        <h4>Grant</h4>
+                        <p>Give read-only privilege to user irestore on volume backups (requires admin privileges or volume ownership):</p><i>!!!Note: read-only privilege doesn’t allow to list volumes!!!</i>
+                        <pre><code>sxacl perm --grant=read irestore sx://mycluster/backups</code></pre>
+                        <p>Give write-only privilege to user ibackup on volume backups:</p>
+                        <pre><code>sxacl perm --grant=write ibackup sx://mycluster/backups</code></pre>
+                        <p>Give ead and write privileges to user bofh on volume backups:</p>
+                        <pre><code>sxacl perm --grant=read,write bofh sx://mycluster/backups</code></pre>
+                        <h4>Revoke privilege</h4>
+                        <p>Revoke read access to volume backups from user irestore:</p><i>Requires admin privileges or volume ownership</i>
+                        <pre><code>sxacl perm --revoke=read irestore sx://mycluster/backups</code></pre>
+                        <p>Revoke any kind of access to volume secret to any user:</p><i>Requires admin privileges or volume ownership</i>
+                        <pre><code>for i in $(sxacl list sx://mycluster/myvol|cut -d ':' -f 1);do sxacl perm --revoke=read,write $i sx://mycluster/secret;done</code></pre>
+                      </div>
+                      <div id="sxvol" class="tab-pane fade in text-left">
+                        <h3>Basic usage</h3>
+                        <p>The sxvol command creates new volumes.</p>
+                        <pre><code>sxvol create -s 100GB -o admin -r 2 sx://mycluster/myvol</code></pre>
+                        <p>The -o flag sets the owner of the volume, the -r flag sets how many copies to keep of the data stored in this volume.</p>
+                        <h4>Volume owner</h4>
+                        <p>Regular users can only grant and revoke privileges to the volumes for which they are owners. Admin users can grant and revoke privileges to any volume. Refer to sxacl for more info on how to grant and revoke privileges.</p>
+                        <h4>Volume replica</h4>
+                        <p>Replica count makes sure that your data is replicated on multiple nodes. If one node dies, your data will be still available for download. The maximum replica count that you can use is equal to the number of nodes in the cluster.</p>
+                        <h4>Volume filters</h4>
+                        <p>Example usage:</p>
+                        <pre><code>sxvol create -s 100GB -o admin -r 2 -f aes256 sx://mycluster/myvol-encrypted
+sxvol create -s 100GB -o admin -r 2 -f zcomp sx://mycluster/myvol-compressed
+sxvol create -s 100GB -o admin -r 2 -f attribs sx://mycluster/myvol-withfileperms</code></pre>
+                        <p>Filters are like plugins, they are run by the client before the data is uploaded to the cluster. As of April 2014 we ship 3 filters:</p>
+                        <ul>
+                          <li>zcomp: compress data on-the-fly</li>
+                          <li>aes256: encrypt data client-side</li>
+                          <li>zattribs: stores the permissions of files together with their content</li>
+                        </ul>
+                        <h3>Other volume operations</h3>
+                        <h4>Listing volumes</h4>
+                        <pre><code>sxls sx://mycluster/</code></pre>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </body>
+</html>
